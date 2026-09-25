@@ -576,6 +576,37 @@ static f32 fpMuzzle[2][ARRAYCOUNT(fpRows)][3];
 static s16 fpMuzzlePart[2][ARRAYCOUNT(fpRows)];
 static u8 fpMuzzleSet[2][ARRAYCOUNT(fpRows)];
 
+/**
+ * The round a launcher's HD model is made loaded with, by Bean's draw number.
+ * The release's rocket launcher carries its rocket in the tube as part of the
+ * gun, on SKEL_TOP with the rest and under no switch: the rocket itself (draw
+ * 2, from the back of the tube out past the mouth to the warhead), four
+ * strips along it inside the tube and a disc in the mouth (3-6 and 1, all on
+ * the rocket's own picture) and the cap on its nose (21 and 22, on a picture
+ * it shares with the sight). GoldenEye's gun has no rocket in it and hangs one
+ * of its own in the mouth, which is what bondgun.c's held rocket is - so the
+ * two were drawn together, Perfect Dark's rocket poking out of the warhead
+ * (F3 20260925-062114), and the warhead stayed in the tube after the shot.
+ * With these, the gun is also built without them (gebeanmats.spent), which is
+ * drawn while there is nothing in the tube, and the held rocket is not drawn
+ * over the gun's own (gebeanFirstPersonHasRound()).
+ *
+ * The HD file only, checked on the release's and the Community Edition's,
+ * whose draws are laid out alike; the N64-look original is GoldenEye's own
+ * empty tube.
+ */
+struct fpround {
+	u8 num;
+	u8 draws[8];
+};
+
+static const struct fpround fpRound[ARRAYCOUNT(fpRows)] = {
+	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { 8, { 1, 2, 3, 4, 5, 6, 21, 22 } },
+};
+
+// Whether the gun built for each look carries its round, as fpMuzzleSet
+static u8 fpRoundSet[2][ARRAYCOUNT(fpRows)];
+
 #define GEBEAN_PROPROW_BASE (ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows) + ARRAYCOUNT(fpRows))
 #define GEBEAN_CHRROW_BASE (GEBEAN_PROPROW_BASE + ARRAYCOUNT(propRows))
 
@@ -4946,6 +4977,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	memset(mats->neckfill, -1, sizeof(mats->neckfill));
 	memset(mats->hood, -1, sizeof(mats->hood));
 	memset(mats->bare, -1, sizeof(mats->bare));
+	memset(mats->spent, -1, sizeof(mats->spent));
 	mats->num = nummatwords;
 
 	for (s32 i = 0; i < nummatwords; i++) {
@@ -5517,6 +5549,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	const s8 *fpaxis = NULL;
 	s32 usegrip;
 	u8 *file;
+	s32 hasround = 0;   // the draws of fpRound[fp] are in the file, marked 2 in drawn
+	s8 spentof[64];     // each list's group of the gun without its round, or -1
+	s32 numspent = 0;
+	u64 roundgroups = 0; // the lists the round's triangles went to
 
 	if (nummatrices <= 0 || nummatrices > GEBEAN_MAXMTX) {
 		return NULL;
@@ -5530,6 +5566,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	memset(&togglecloud, 0, sizeof(togglecloud));
 	memset(togglecount, 0, sizeof(togglecount));
 	fpMuzzleSet[look][fp] = 0;
+	fpRoundSet[look][fp] = 0;
+	memset(spentof, -1, sizeof(spentof));
 
 	for (s32 m = 0; m < GEBEAN_MAXMTX; m++) {
 		mtxnode[m] = -1;
@@ -5681,6 +5719,22 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	}
 
 	numleftout = beanGunExtent(&bm, original, !fpN64Glove[fp], drawn, fitted, beanlo, beanhi, &owncloud);
+
+	// The round the HD model is made loaded with, if every draw of it is
+	// there and taken; a file laid out otherwise is drawn as it is
+	if (!original && fpRound[fp].num) {
+		hasround = 1;
+
+		for (s32 k = 0; k < fpRound[fp].num; k++) {
+			if (fpRound[fp].draws[k] >= bm.numdraws || !drawn[fpRound[fp].draws[k]]) {
+				hasround = 0;
+			}
+		}
+
+		for (s32 k = 0; hasround && k < fpRound[fp].num; k++) {
+			drawn[fpRound[fp].draws[k]] = 2;
+		}
+	}
 
 	// A silenced gun is measured on its plain twin, which shares its place
 	if (fpFitSource[fp]) {
@@ -6139,6 +6193,22 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			if (!beanAddTri(&out, group, (s32)d->tex, idx[0], idx[1], idx[2])) {
 				break;
 			}
+
+			// And the gun without its round: every other triangle again, in
+			// a group of the list's own after the host's lists. It is given a
+			// triangle of nothing at once, so a list that held only the round
+			// still has a group to draw empty.
+			if (hasround && spentof[group] < 0 && numnodes + numspent < 64) {
+				spentof[group] = (s8)(numnodes + numspent++);
+				beanAddTri(&out, spentof[group], 0, 0, 0, 0);
+			}
+
+			if (drawn[di] == 2) {
+				roundgroups |= 1ull << group;
+			} else if (spentof[group] >= 0
+					&& !beanAddTri(&out, spentof[group], (s32)d->tex, idx[0], idx[1], idx[2])) {
+				break;
+			}
 		}
 
 		free(mapped);
@@ -6172,6 +6242,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	memset(mats->neckfill, -1, sizeof(mats->neckfill));
 	memset(mats->hood, -1, sizeof(mats->hood));
 	memset(mats->bare, -1, sizeof(mats->bare));
+	memset(mats->spent, -1, sizeof(mats->spent));
 	mats->num = nummatwords;
 
 	for (s32 i = 0; i < nummatwords; i++) {
@@ -6202,10 +6273,20 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 	numdecals = beanMarkDecals(&out, matwords, &nummatwords, mats);
 
+	// A list the round did not touch draws the same either way, so only
+	// those it did are given their other group; the rest are never drawn
+	for (s32 k = 0; k < numnodes; k++) {
+		if (roundgroups & (1ull << k)) {
+			mats->spent[k] = spentof[k];
+		}
+	}
+
+	fpRoundSet[look][fp] = roundgroups != 0;
+
 	// Each group's vertices are in its own list's space, so the mesh has no
 	// palette: xblamesh.c draws it like a model pack's, under each node's own
 	// matrix (gebeanRowIsFirstPerson())
-	file = beanWriteMesh(&out, numnodes, 0, NULL, matwords, nummatwords, outAbsent, outLen);
+	file = beanWriteMesh(&out, numnodes + numspent, 0, NULL, matwords, nummatwords, outAbsent, outLen);
 
 	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals), %d draws left out, "
 			"scale %.4f%s%s, body list %d on matrix %d of %d %s",
@@ -6279,6 +6360,18 @@ s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out)
 	memcpy(out, fpMuzzle[look][i], 3 * sizeof(f32));
 
 	return 1;
+}
+
+/**
+ * Whether the gun drawn in the hand for this weapon is made with its round in
+ * it (fpRound), so the hand's own round is not to be drawn as well.
+ */
+s32 gebeanFirstPersonHasRound(s32 weaponnum)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+	const s32 look = gebeanGunsAreN64();
+
+	return i >= 0 && i < (s32)ARRAYCOUNT(fpRows) && fpSlot[i] && fpRoundSet[look][i];
 }
 
 u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
@@ -7131,6 +7224,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	// The pictures: only those a draw names, bound once per character.
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
+	memset(mats->spent, -1, sizeof(mats->spent));
 	mats->num = nummatwords;
 	mats->neckblank = neckblank;
 

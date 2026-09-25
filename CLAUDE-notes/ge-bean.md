@@ -9610,3 +9610,51 @@ from ...`). The CE's new Bunker 1 and Silo rows do nothing here: those levels
 are converted fogless, so nothing of them is fogged at all. Only the HD
 columns (end, colour) are read; the N64 look is GoldenEye's ROM row as
 before, whatever the CE did to its own copy of the N64 columns.
+
+## The HD rocket launcher is made loaded: a rocket on top of the rocket (2026-09-25)
+
+F3 20260925-062114 (Surface, HD look, akimbo, the launcher in the left hand):
+"rocket launcher rocket has a little rocket on top of it". The little one was
+bondgun.c's **held rocket** - in the HD look Perfect Dark's own
+`MODEL_CHRDYROCKETMIS` (`gegunsOwnRocketModel()` answers GoldenEye's
+PROP_CHRROCKET only in the N64 look), posed at the muzzle point gebean.c
+measured on the gun, which is the tip of the warhead - poking its green nose
+out of the HD model's own rocket. Zeroing the held rocket's matrix in gdb
+took it away and nothing else; the big warhead stayed.
+
+Bean's `new/gun/rocketlauncher` (the release's and the Community Edition's,
+draws laid out alike) is **made loaded**: the rocket is part of the gun, on
+SKEL_TOP, plain 0x01 draws under no switch and no piece number - draw 2 the
+rocket from the back of the tube out to the warhead (z -2920..4006 against
+the tube's -3055..1578), 1 and 3-6 a disc and four strips on the rocket's own
+picture, 21-22 the cap on its nose (on the sight's picture). So it also stayed
+in the tube after the shot. GoldenEye's own gun (`original/`, and the N64
+look's converted model) is an empty tube and hangs PROP_CHRROCKET in the
+mouth, which is what d579b641f restored.
+
+Now (`fpRound` in gebean.c): the HD gun is built twice over for each list the
+round lands in - the node's own group as the file has it, and a **spent**
+group without those draws (`gebeanmats.spent`, after the host's lists, given
+a triangle of nothing so it is never "absent"). xblamesh.c's `m->local` draw
+takes the spent group when `gegunsHandIsSpent(model)`: the model is a hand's
+`gunmodel` and that hand has no rocket (`hand->rocket` NULL, or fired). And
+bgunRender() skips the held rocket while `gebeanFirstPersonHasRound()` - it
+is still made, and still becomes the fired rocket, and is drawn on the frame
+it is fired as before. The N64 look is untouched (the fp mesh is not built
+there; the rule is for the HD file only), third person too: the HD
+third-person launcher (`prop/chrrocketlaunch`) carries its warhead always, as
+GoldenEye's own third-person prop does. The muzzle point is unchanged (the
+warhead's tip), so the flying rocket starts where it did.
+
+A draw list per gun rather than a rule: the nose cap is on a picture the
+sight shares, and the rocket's body runs the whole length of the tube, so
+neither the picture nor the extent picks it out. A file laid out otherwise
+(any listed draw missing or left out) is drawn as it is, with the held rocket.
+
+Probes: `~/wt/f3rocket/build/run/rk.sh <save> <single|mixed|mixedr> <tag> [binary]`
+(`probe/rk.py` beside it: `HIDE=1` zeroes the held rocket's matrix at
+bondgun.c's `objprop->z` line, `TP=1` third person, `FIRE2=1` a second shot).
+
+Seen on the way, and fixed in the next commit: in third person the rocket
+launcher fired once. See third-person.md, "A launcher fired once in third
+person".

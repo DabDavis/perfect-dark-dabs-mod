@@ -72,6 +72,7 @@
 #include "geguns.h"
 #include "gesfx.h"
 #include "getank.h"
+#include "gewatch.h"
 #endif
 
 #define GUNLOADSTATE_FLUX     0
@@ -8010,6 +8011,19 @@ void bgunUpdateMagnum(struct hand *hand, s32 handnum, struct modeldef *modeldef,
  */
 void bgunUpdateRocketLauncher(struct hand *hand, s32 handnum, struct weaponfunc_shootprojectile *func)
 {
+#ifndef PLATFORM_N64
+	// bgunRender() lets go of a fired rocket once it has drawn it in the hand
+	// for its last frame, and nothing else does - so with the gun not drawn
+	// (third person, the watch; player.c's test) the hand kept the rocket it
+	// had fired. No new one was made while it held that, the next shot "fired"
+	// it again - freed by then, so nothing flew - and every tick posed it at
+	// the muzzle, the one in flight included. Let go of it here instead.
+	if (hand->rocket && hand->firedrocket
+			&& (g_Vars.currentplayer->thirdpersondist > 0 || geWatchHidesGun())) {
+		hand->rocket = NULL;
+	}
+#endif
+
 	if (hand->rocket == NULL && hand->loadedammo[0] > 0) {
 		bgunCreateHeldRocket(handnum, func);
 	}
@@ -12148,9 +12162,20 @@ void bgunRender(Gfx **gdlptr)
 				if (rocketmodel && rocketmodel->definition) {
 					sp94 = true;
 
-					modelRender(&renderdata, rocketmodel);
+#ifndef PLATFORM_N64
+					// The release's rocket launcher is made with its rocket
+					// in the tube, and this one drew poking out of its
+					// warhead; it is left to show once fired, as that frame
+					// is the rocket's first in flight
+					if (!hand->firedrocket && gebeanFirstPersonHasRound(hand->gset.weaponnum)) {
+						// the gun's own is in the tube
+					} else
+#endif
+					{
+						modelRender(&renderdata, rocketmodel);
 
-					mtxF2LBulk(rocketmodel->matrices, rocketmodel->definition->nummatrices);
+						mtxF2LBulk(rocketmodel->matrices, rocketmodel->definition->nummatrices);
+					}
 
 					if (hand->firedrocket) {
 						hand->rocket = NULL;

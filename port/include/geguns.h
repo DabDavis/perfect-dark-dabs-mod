@@ -79,6 +79,10 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);
 struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef, f32 *offset);
 
+// Whether a model is the gun in one of the current player's hands and that
+// hand has no rocket loaded (gebean.c's fpRound)
+s32 gegunsHandIsSpent(const struct model *model);
+
 #ifdef __cplusplus
 }
 #endif

@@ -118,6 +118,13 @@ s32 gebeanRowKeepsHood(s32 bodyrow, s32 headrow);
 s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out);
 
 /**
+ * Whether the gun drawn in the hand for this weapon is made with its round in
+ * the tube - the release's rocket launcher is - so that the hand's own held
+ * rocket (bondgun.c) is not drawn over it.
+ */
+s32 gebeanFirstPersonHasRound(s32 weaponnum);
+
+/**
  * GoldenEye's characters and heads in the Combat Simulator's own lists, for
  * Perfect Dark rather than for GoldenEye X: each one a row of g_HeadsAndBodies
  * past the stock table, whose file is an alias of a Perfect Dark body or head
@@ -329,6 +336,10 @@ struct gebeanmats {
 	// moves as they were before the hood took copies of them, drawn when the
 	// hood is not; -1 for none
 	s8 bare[64];
+	// On a first-person launcher made loaded (gebean.c's fpRound), for a list
+	// node the round is drawn in, the group of the same gun without it, drawn
+	// while the tube is empty; -1 for none
+	s8 spent[64];
 	u8 head;  // the mesh is a head's
 };
 
