@@ -1070,28 +1070,32 @@ def read_setup(data):
             if t not in lengths:
                 break
             o += 4 * lengths[t]
-    weapons, ammo = [], []
+    # The multiplayer items, in the setup's order: GoldenEye's arena setups mix
+    # doors, glass and props in among the weapon spots, ammo boxes and armour
+    # (Archives, Bunker ii and Egyptian put theirs first), so every object is
+    # walked and the others skipped. The order is kept because an ammo box
+    # takes the ammunition of the weapon spot before it, in GoldenEye
+    # (prop.c, lastmpweaponnum) and in Perfect Dark (g_SetupCurMpLocation).
+    # PROPFLAG2 0x08 is "don't load in multiplayer". A pad from 10000 is a
+    # bound pad, written after the pads (geobjects.bound_pads()).
+    weapons, ammo, items = [], [], []
     if h[3]:
-        o = h[3]
-        sizes = {8: 0x22, 20: 0x2d, 21: 0x22, 3: None}
-        while o + 4 <= len(data):
-            w0 = struct.unpack_from('>I', data, o)[0]
-            typ = w0 & 0xff
-            if typ == 48:
-                break
-            if typ not in (8, 20, 21):
-                # A multiplayer setup's other props (doors, boxes) are not
-                # carried across; one this cannot size ends the walk
-                break
-            padnum = struct.unpack_from('>I', data, o + 4)[0] & 0xffff
+        for typ, b in geobjects.records(data):
+            if typ not in (8, 20) or struct.unpack_from('>I', b, 12)[0] & 0x08:
+                continue
+            padnum = struct.unpack_from('>I', b, 4)[0] & 0xffff
+            if padnum >= 10000:
+                padnum += len(pads) - 10000
             if typ == 8:
-                wnum = data[o + 0x80]
+                wnum = b[0x80]
                 if wnum >= 0xf0:
                     weapons.append((padnum, wnum - 0xf0))
-            elif typ == 20:
+                    items.append((padnum, wnum - 0xf0))
+            else:
                 ammo.append(padnum)
-            o += 4 * sizes[typ]
-    return dict(pads=pads, waypoints=waypoints, groups=groups, spawns=spawns, weapons=weapons, ammo=ammo)
+                items.append((padnum, None))
+    return dict(pads=pads, waypoints=waypoints, groups=groups, spawns=spawns, weapons=weapons, ammo=ammo,
+                items=items)
 
 
 def write_pads(setup, ls, offset, rooms, gexpads=None, gext=None, boundpads=None):
@@ -1261,24 +1265,26 @@ def write_mpsetup(setup, mp, stan, bg, objects_for=None):
     pads = setup['pads']
     if mp and mp['spawns']:
         spawns = mp['spawns']
-        weapons = mp['weapons']
-        ammo = mp['ammo']
+        # GoldenEye's own order: a crate follows the weapon spot it serves
+        items = mp['items']
     else:
         ok = floored_pads(pads, stan, bg)
         chosen = [ok[i] for i in spread([pads[i]['pos'] for i in ok], 28)]
         spawns = chosen[:12]
-        weapons = [(p, i % 6) for i, p in enumerate(chosen[12:24])]
-        ammo = chosen[24:28]
+        items = [(p, i % 6) for i, p in enumerate(chosen[12:24])] + [(p, None) for p in chosen[24:28]]
     intro = b''.join(struct.pack('>iii', 0, p, 0) for p in spawns) + struct.pack('>i', 0x0c)
     props = b''
-    for padnum, loc in weapons:
-        props += struct.pack('>23I', (0x0100 << 16) | 0x08, padnum & 0xffff, 1, 0, 0, *([0] * 14), 1000, 0, 0, 0x0fff0000)
-        props += struct.pack('>3I', ((0xf0 + loc) << 24), 0x00ffffff, 0)
-    for padnum in ammo:
-        props += struct.pack('>23I', (0x00cc << 16) | 0x14, (0x00c1 << 16) | (padnum & 0xffff), 1, 0, 0, *([0] * 14), 1000, 0, 0, 0x0fff0000)
-        props += struct.pack('>19I', *([0xffff0000] * 19))
+    for padnum, loc in items:
+        if loc is not None:
+            props += struct.pack('>23I', (0x0100 << 16) | 0x08, padnum & 0xffff, 1, 0, 0, *([0] * 14), 1000, 0, 0, 0x0fff0000)
+            props += struct.pack('>3I', ((0xf0 + loc) << 24), 0x00ffffff, 0)
+        else:
+            props += struct.pack('>23I', (0x00cc << 16) | 0x14, (0x00c1 << 16) | (padnum & 0xffff), 1, 0, 0, *([0] * 14), 1000, 0, 0, 0x0fff0000)
+            props += struct.pack('>19I', *([0xffff0000] * 19))
+    nw = sum(1 for p, loc in items if loc is not None)
+    na = len(items) - nw
     if objects_for:
-        props += b''.join(objects_for(len(weapons) + len(ammo)))
+        props += b''.join(objects_for(len(items)))
     props += struct.pack('>I', 0x34)
     header_len = 0x20
     intro_at = header_len
@@ -1293,7 +1299,7 @@ def write_mpsetup(setup, mp, stan, bg, objects_for=None):
     code = AI_1000 + AI_1001
     out = struct.pack('>8I', 0, 0, 0, intro_at, props_at, paths_at, ai_at, 0)
     out += intro + props + paths + lists + code
-    return rzip1173(pad(out, 16)), len(spawns), len(weapons), len(ammo)
+    return rzip1173(pad(out, 16)), len(spawns), nw, na
 
 
 # ---------------------------------------------------------------------------

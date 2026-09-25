@@ -2925,13 +2925,15 @@ struct weaponpad {
 	int32_t pad, loc;
 };
 
+typedef VEC(struct weaponpad) weaponpads;
+
 struct setup {
 	VEC(struct pad) pads;
 	VEC(struct waypoint) waypoints;
 	VEC(struct waygroup) groups;
 	s32s spawns;
-	VEC(struct weaponpad) weapons;
-	s32s ammo;
+	// the multiplayer items in the setup's order; loc -1 is an ammo crate
+	weaponpads items;
 };
 
 static s32s readS32List(const buf *f, size_t at)
@@ -2948,6 +2950,48 @@ static s32s readS32List(const buf *f, size_t at)
 		}
 		VECPUSH(out, v);
 	}
+}
+
+static const uint8_t g_GeSizes[48] = {
+	[1] = 64, [2] = 2, [3] = 32, [4] = 33, [5] = 32, [6] = 0x3b, [7] = 0x21, [8] = 0x22, [9] = 7, [10] = 0x40,
+	[11] = 0x95, [12] = 32, [13] = 0x36, [14] = 3, [17] = 32, [18] = 3, [19] = 4, [20] = 0x2d, [21] = 0x22,
+	[22] = 4, [23] = 4, [24] = 1, [25] = 2, [26] = 2, [27] = 2, [28] = 2, [29] = 2, [30] = 4, [31] = 1, [32] = 4,
+	[33] = 5, [34] = 1, [35] = 4, [36] = 32, [37] = 10, [38] = 4, [39] = 0x2c, [40] = 0x2d, [42] = 32, [43] = 32,
+	[44] = 5, [45] = 0x38, [46] = 7, [47] = 37,
+};
+
+struct record {
+	uint32_t type;
+	const uint8_t *b;
+	size_t len;
+};
+
+typedef VEC(struct record) records;
+
+static records setupRecords(const buf *f)
+{
+	records out = {0};
+	size_t o = be32(f->v, 12);
+
+	while (o + 4 <= f->n) {
+		struct record r;
+		r.type = f->v[o + 3];
+		if (r.type == 48) {
+			break;
+		}
+		if (r.type >= 48 || !g_GeSizes[r.type]) {
+			fail("an object of type %u GoldenEye has no size for", r.type);
+		}
+		r.b = f->v + o;
+		r.len = 4 * (size_t)g_GeSizes[r.type];
+		if (o + r.len > f->n) {
+			fail("an object runs off the setup");
+		}
+		VECPUSH(out, r);
+		o += r.len;
+	}
+
+	return out;
 }
 
 static void setupRead(const buf *f, struct setup *s)
@@ -3032,32 +3076,35 @@ static void setupRead(const buf *f, struct setup *s)
 		}
 	}
 
+	// The multiplayer items, in the setup's order: GoldenEye's arena setups
+	// mix doors, glass and props in among the weapon spots, ammo boxes and
+	// armour (Archives, Bunker ii and Egyptian put theirs first), so every
+	// object is walked and the others skipped. The order is kept because an
+	// ammo box takes the ammunition of the weapon spot before it, in
+	// GoldenEye (prop.c, lastmpweaponnum) and in Perfect Dark
+	// (g_SetupCurMpLocation). PROPFLAG2 0x08 is "don't load in multiplayer".
+	// A pad from 10000 is a bound pad, written after the pads (boundPads()).
 	if (h[3]) {
-		for (size_t o = h[3]; o + 4 <= f->n;) {
-			const uint32_t typ = be32(d, o) & 0xff;
-			int32_t padnum;
-			if (typ == 48) {
-				break;
+		records recs = setupRecords(f);
+		for (size_t i = 0; i < recs.n; ++i) {
+			const struct record *r = &recs.v[i];
+			struct weaponpad w;
+			if ((r->type != 8 && r->type != 20) || (be32(r->b, 12) & 0x08)) {
+				continue;
 			}
-			if (typ != 8 && typ != 20 && typ != 21) {
-				// A multiplayer setup's other props (doors, boxes) are not
-				// carried across; one this cannot size ends the walk
-				break;
+			w.pad = be32(r->b, 4) & 0xffff;
+			if (w.pad >= 10000) {
+				w.pad += (int32_t)s->pads.n - 10000;
 			}
-			if (o + 0x84 > f->n) {
-				fail("a prop runs off the setup");
-			}
-			padnum = be32(d, o + 4) & 0xffff;
-			if (typ == 8) {
-				const uint32_t wnum = d[o + 0x80];
-				if (wnum >= 0xf0) {
-					__typeof__(*s->weapons.v) w = { padnum, (int32_t)wnum - 0xf0 };
-					VECPUSH(s->weapons, w);
+			if (r->type == 8) {
+				if (r->b[0x80] < 0xf0) {
+					continue;
 				}
-			} else if (typ == 20) {
-				VECPUSH(s->ammo, padnum);
+				w.loc = (int32_t)r->b[0x80] - 0xf0;
+			} else {
+				w.loc = -1;
 			}
-			o += 4 * (typ == 20 ? 0x2d : 0x22);
+			VECPUSH(s->items, w);
 		}
 	}
 }
@@ -3065,54 +3112,12 @@ static void setupRead(const buf *f, struct setup *s)
 /* ------------------------------------------------------------------------ */
 /* objects (geobjects.py) */
 
-static const uint8_t g_GeSizes[48] = {
-	[1] = 64, [2] = 2, [3] = 32, [4] = 33, [5] = 32, [6] = 0x3b, [7] = 0x21, [8] = 0x22, [9] = 7, [10] = 0x40,
-	[11] = 0x95, [12] = 32, [13] = 0x36, [14] = 3, [17] = 32, [18] = 3, [19] = 4, [20] = 0x2d, [21] = 0x22,
-	[22] = 4, [23] = 4, [24] = 1, [25] = 2, [26] = 2, [27] = 2, [28] = 2, [29] = 2, [30] = 4, [31] = 1, [32] = 4,
-	[33] = 5, [34] = 1, [35] = 4, [36] = 32, [37] = 10, [38] = 4, [39] = 0x2c, [40] = 0x2d, [42] = 32, [43] = 32,
-	[44] = 5, [45] = 0x38, [46] = 7, [47] = 37,
-};
-
 // GoldenEye type -> Perfect Dark type and its size in words; 0 is not carried
 static const uint8_t g_Carry[48][2] = {
 	[1] = { 0x01, 55 }, [3] = { 0x03, 23 }, [5] = { 0x05, 23 }, [10] = { 0x0a, 53 }, [11] = { 0x0b, 140 },
 	[12] = { 0x0c, 23 }, [39] = { 0x03, 23 }, [40] = { 0x03, 23 }, [42] = { 0x2a, 24 }, [43] = { 0x2b, 23 },
 	[45] = { 0x03, 23 }, [47] = { 0x2f, 26 },
 };
-
-struct record {
-	uint32_t type;
-	const uint8_t *b;
-	size_t len;
-};
-
-typedef VEC(struct record) records;
-
-static records setupRecords(const buf *f)
-{
-	records out = {0};
-	size_t o = be32(f->v, 12);
-
-	while (o + 4 <= f->n) {
-		struct record r;
-		r.type = f->v[o + 3];
-		if (r.type == 48) {
-			break;
-		}
-		if (r.type >= 48 || !g_GeSizes[r.type]) {
-			fail("an object of type %u GoldenEye has no size for", r.type);
-		}
-		r.b = f->v + o;
-		r.len = 4 * (size_t)g_GeSizes[r.type];
-		if (o + r.len > f->n) {
-			fail("an object runs off the setup");
-		}
-		VECPUSH(out, r);
-		o += r.len;
-	}
-
-	return out;
-}
 
 struct padrec {
 	uint32_t flags;
@@ -3839,18 +3844,15 @@ static const uint8_t g_Ai1001[] = { 0x01, 0xb2, 0x16, 0x00, 0x05, 0xfd, 0x00, 0x
 static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const tiles *stan, const struct bg *bg,
 		const buf *gedata, const s32s *bikepads, uint8_t *models)
 {
-	s32s spawns = {0}, ammo = {0};
-	VEC(struct weaponpad) weapons = {0};
+	s32s spawns = {0};
+	weaponpads items = {0};
 	buf intro = {0}, props = {0}, out = {0};
 	size_t introat, propsat, pathsat, aiat, aicodeat;
 
 	if (mp && mp->spawns.n) {
 		spawns = mp->spawns;
-		ammo = mp->ammo;
-		for (size_t i = 0; i < mp->weapons.n; ++i) {
-			__typeof__(*weapons.v) w = { mp->weapons.v[i].pad, mp->weapons.v[i].loc };
-			VECPUSH(weapons, w);
-		}
+		// GoldenEye's own order: a crate follows the weapon spot it serves
+		items = mp->items;
 	} else {
 		s32s ok = flooredPads(setup, stan, bg);
 		double (*pts)[3] = gcAlloc((ok.n + 1) * sizeof(*pts));
@@ -3863,11 +3865,9 @@ static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const
 			const int32_t p = ok.v[idx.v[i]];
 			if (i < 12) {
 				VECPUSH(spawns, p);
-			} else if (i < 24) {
-				__typeof__(*weapons.v) w = { p, (int32_t)((i - 12) % 6) };
-				VECPUSH(weapons, w);
 			} else {
-				VECPUSH(ammo, p);
+				struct weaponpad w = { p, i < 24 ? (int32_t)((i - 12) % 6) : -1 };
+				VECPUSH(items, w);
 			}
 		}
 	}
@@ -3879,33 +3879,33 @@ static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const
 	}
 	bufU32(&intro, 0x0c);
 
-	for (size_t i = 0; i < weapons.n; ++i) {
-		bufU32(&props, (0x0100u << 16) | 0x08);
-		bufU32(&props, (uint32_t)weapons.v[i].pad & 0xffff);
-		bufU32(&props, 1);
-		bufZeros(&props, 4 * 16);
-		bufU32(&props, 1000);
-		bufZeros(&props, 8);
-		bufU32(&props, 0x0fff0000);
-		bufU32(&props, (uint32_t)(0xf0 + weapons.v[i].loc) << 24);
-		bufU32(&props, 0x00ffffff);
-		bufU32(&props, 0);
-	}
-
-	for (size_t i = 0; i < ammo.n; ++i) {
-		bufU32(&props, (0x00ccu << 16) | 0x14);
-		bufU32(&props, (0x00c1u << 16) | ((uint32_t)ammo.v[i] & 0xffff));
-		bufU32(&props, 1);
-		bufZeros(&props, 4 * 16);
-		bufU32(&props, 1000);
-		bufZeros(&props, 8);
-		bufU32(&props, 0x0fff0000);
-		for (int k = 0; k < 19; ++k) {
-			bufU32(&props, 0xffff0000);
+	for (size_t i = 0; i < items.n; ++i) {
+		if (items.v[i].loc >= 0) {
+			bufU32(&props, (0x0100u << 16) | 0x08);
+			bufU32(&props, (uint32_t)items.v[i].pad & 0xffff);
+			bufU32(&props, 1);
+			bufZeros(&props, 4 * 16);
+			bufU32(&props, 1000);
+			bufZeros(&props, 8);
+			bufU32(&props, 0x0fff0000);
+			bufU32(&props, (uint32_t)(0xf0 + items.v[i].loc) << 24);
+			bufU32(&props, 0x00ffffff);
+			bufU32(&props, 0);
+		} else {
+			bufU32(&props, (0x00ccu << 16) | 0x14);
+			bufU32(&props, (0x00c1u << 16) | ((uint32_t)items.v[i].pad & 0xffff));
+			bufU32(&props, 1);
+			bufZeros(&props, 4 * 16);
+			bufU32(&props, 1000);
+			bufZeros(&props, 8);
+			bufU32(&props, 0x0fff0000);
+			for (int k = 0; k < 19; ++k) {
+				bufU32(&props, 0xffff0000);
+			}
 		}
 	}
 
-	objects(gedata, setup->pads.n, (int32_t)(weapons.n + ammo.n), 0x182, bikepads, &props, models);
+	objects(gedata, setup->pads.n, (int32_t)items.n, 0x182, bikepads, &props, models);
 	bufU32(&props, 0x34);
 
 	introat = 0x20;

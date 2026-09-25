@@ -9938,3 +9938,67 @@ X's guns every long gun of GoldenEye's is two-handed here (the KF7 kneels in
 rows 7/8, measured), but the tester's install has Random guard weapons for the
 reinforcements, and a borrowed definition takes its host's one-handed flag -
 the rifle-in-a-pistol-pose case fix/ge-guard-rifle-hold (54ea4a844) settles.
+
+## Archives, Bunker ii and Egyptian had no guns or ammo: the arena walk stopped at a door (2026-09-25, converter 70)
+
+Found by the Community Edition inventory ("the MP object walk stops at the
+first object that is not a weapon/crate/armour, so Archives carries none").
+`read_setup()` / `setupRead()` walked a multiplayer setup's objects for the
+weapon spots (type 8 with a weapon number from 0xf0) and ammo boxes (type 20)
+and **broke at the first object of any other type**, because it only knew
+those three sizes. Ten of GoldenEye's thirteen arena setups happen to list
+their items first; **Archives, Bunker ii and Egyptian** list doors, glass or
+props before them, so those three arenas had **no weapon spots and no ammo
+crates at all** since the arenas were first converted - only the armour, which
+`objects()` walks separately with every size.
+
+GoldenEye's own reading (prop.c's setup loop) loads every object whose
+`flags2` does not have the "don't load" bit for the mode: `1 << (difficulty +
+4)` with difficulty -1 in multiplayer, so **0x08 = don't load in multiplayer**,
+plus 0x400000/0x800000/0x1000000 for 2/3/4 players (Perfect Dark kept the
+last three as `OBJFLAG2_EXCLUDE_2P/3P/4P`). None of the thirteen setups sets
+any of those on a weapon, box or armour; the walk now goes through
+`geobjects.records()` / `setupRecords()`, skips what is not an item or carries
+0x08, and does not stop.
+
+Two more faults came out with it:
+
+- **A crate's ammunition follows the weapon spot before it.** GoldenEye sets a
+  box's one slot from the weapon set row of the last weapon spot placed
+  (`lastmpweaponnum`), and Perfect Dark does the same (`g_SetupCurMpLocation`
+  in `setupCreateProps()`), so the order of the records matters. The converter
+  wrote every weapon and then every crate, so **all of an arena's crates held
+  the ammunition of its last weapon spot** (location 7 in GoldenEye's order),
+  and none if that slot was a gun with no ammo. The items are now one list in
+  the setup's own order (`items`, loc -1 = crate).
+- **Items on bound pads.** A pad number from 10000 is a bound pad, which the
+  conversion writes after the pads (numpads + k), as `objects()` already did for
+  props. The item walk kept the raw number: Facility's two crates on 10036/10038
+  pointed past the pad table (`padIsInFile()` dropped them), and 16 of Archives'
+  24 items and 9 of Bunker ii's stand on bound pads.
+
+Every arena with a GoldenEye multiplayer setup now writes exactly its items, in
+its order, on its pads - checked item for item against the decomp's setup
+sources (`assets/obseg/setup/u/Ump_setup*Z.c`, independent of the ROM reading):
+
+| arena | before (weapons / crates) | after = GoldenEye |
+|---|---|---|
+| Archives, Bunker ii, Egyptian | 0 / 0 | 8 / 16 |
+| Facility | 8 / 16 (2 crates off the pad table) | 8 / 16 |
+| Library | 16 / 31 | same, reordered |
+| Basement | 6 / 11 | same, reordered |
+| Stack | 10 / 20 | same, reordered |
+| Statue, Complex, Temple, Caves, Caverns, Cradle | 8 / 16 | same, reordered |
+
+Armour is unchanged everywhere (it came through `objects()`). The thirteen
+levels GoldenEye has no multiplayer setup for keep their spread-out spots (12
+weapons, then 4 crates - which still all take the last spot's ammunition;
+left as it was). The US ROM has no multiplayer setup for Dam, Runway, Depot
+or `dest`, though the decomp's asset tree has sources for them.
+
+In game (`build/rig`, `itemshot.py`: lists the live pickups at frame 200 and
+stands the player at crates): Archives 0x07 went from 0 weapons, 0 crates, 2
+shields to 7 weapons, 14 crates, 3 shields with the save's Perfect Dark set
+(one location is the set's shield, whose crates are not made - ammo 0, as in
+GoldenEye) and 8/16 with GoldenEye's sets; Start Armed hands out the set's
+first gun as before.
