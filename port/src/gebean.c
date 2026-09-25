@@ -2010,6 +2010,9 @@ struct beandraw {
 	s16 inst;     // the instance matrix it is drawn under (bm->insts), or -1
 	u8 blend;     // in the release's blended pass (beanWalkStream())
 	u8 alpha;     // its material colour's alpha, 255 for none
+	u8 alphatest; // drawn with the alpha test on (render state 0x60)
+	u8 masktexslot; // the slot masktex fills, which is the UV set it is read with
+	u32 masktex;  // the material's other picture, where it has two (else ~0)
 	u8 numpal;
 	u8 pal[BEAN_MAXPAL];
 };
@@ -2574,6 +2577,9 @@ static void beanWalkStream(struct beanmodel *bm)
 	u8 passblend = 0;
 	u8 blend = 0;
 	u8 alpha = 0xff;
+	u8 alphatest = 0;
+	u32 masktex = ~0u;
+	u8 masktexslot = 0;
 	u32 secend = 0;
 	u8 secblend = 0;
 
@@ -2655,9 +2661,27 @@ static void beanWalkStream(struct beanmodel *bm)
 			// or 0x2702 section among 0x4701s
 			secend = gebeanBE32(st + pc + 4);
 			secblend = (gebeanBE32(st + pc + 8) & 0xff) == 2;
+		} else if (type == 0x0c && size >= 12 && gebeanBE32(st + pc + 4) == 0x60) {
+			// Render state 0x60 is the alpha test (0x64 its reference, 0x68
+			// its function), on for a level's cut-outs and 4J's shadow masks
+			alphatest = gebeanBE32(st + pc + 8) != 0;
 		} else if (type == 0x2d && size >= 20) {
 			tex = beanMaterialTexture(bm, st, pc, size, len);
 			alpha = 0xff;
+			masktex = ~0u;
+			masktexslot = 0;
+
+			// The picture the material holds besides the one taken: in an
+			// alpha-tested draw it can be the one whose alpha is tested
+			// (gebeanLevelTriangles())
+			for (u32 k = 0; 12 + 8 * k + 8 <= size && gebeanFits(pc + 12 + 8 * k, 8, len); k++) {
+				const u32 t = gebeanBE32(st + pc + 12 + 8 * k);
+
+				if (t != tex && masktex == ~0u) {
+					masktex = t;
+					masktexslot = (u8)(gebeanBE32(st + pc + 16 + 8 * k) >> 16);
+				}
+			}
 
 			// Glass: a pane under one of the shared maps, in the blended pass
 			if (blend && tex < (u32)bm->numtex && !beanTexIsGlassOverlay(bm, tex)) {
@@ -2730,6 +2754,9 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->inst = inst;
 				d->blend = blend;
 				d->alpha = alpha;
+				d->alphatest = alphatest;
+				d->masktex = masktex;
+				d->masktexslot = masktexslot;
 				d->numpal = numpal;
 				memcpy(d->pal, pal, numpal);
 			}
@@ -7161,9 +7188,30 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		u32 *tris = NULL;
 		s32 numtris;
 		s32 istree = 0;
+		s32 tex = draw->tex < (u32)bm->numtex ? (s32)draw->tex : -1;
+		s32 ismask = 0;
 
 		if (!beanReadVb(bm, draw->vb, &vb)) {
 			continue;
+		}
+
+		// An alpha-tested draw of two pictures, one solid and one with alpha:
+		// the one with alpha is what the test cuts out, read with its own UV
+		// set. Surface's fence throws its shadow on the snow bank this way -
+		// the bank's snow and the chain-link tile, in black, faded by the
+		// blend word - and drawn as the snow alone, taken for the bigger
+		// picture, the whole bank was black (F3 20260925-030439)
+		if (draw->alphatest && tex >= 0 && draw->masktex < (u32)bm->numtex
+				&& vb.stride == 32 && draw->masktexslot == 1) {
+			const void *tile;
+			u8 solid, cut, soft;
+
+			if (beanBindTexture(bm, level->source, tex, &tile, &solid, &soft)
+					&& beanBindTexture(bm, level->source, (s32)draw->masktex, &tile, &cut, &soft)
+					&& !solid && cut) {
+				tex = (s32)draw->masktex;
+				ismask = 1;
+			}
 		}
 
 		for (s32 i = 0; i < numtreevbs; i++) {
@@ -7213,10 +7261,16 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 				// (0xffff) and Runway's road drew as streaks
 				if (ok && vb.stride == 32) {
 					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
+					const u32 uvat = ismask ? 20 : 16;
 
-					bv.uv[0] = (s16)gebeanBE16(p + 16) / bm->uvscale;
-					bv.uv[1] = (s16)gebeanBE16(p + 18) / bm->uvscale;
+					bv.uv[0] = (s16)gebeanBE16(p + uvat) / bm->uvscale;
+					bv.uv[1] = (s16)gebeanBE16(p + uvat + 2) / bm->uvscale;
 					bv.argb = beanColour(gebeanBE32(p + 28));
+
+					// A mask's colour is opaque; it fades by its blend word
+					if (ismask) {
+						bv.argb = (bv.argb & 0x00ffffff) | (beanColour(gebeanBE32(p + 24)) & 0xff000000);
+					}
 				}
 
 				for (s32 j = 0; j < 3 && ok; j++) {
@@ -7249,7 +7303,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 				}
 			}
 
-			fn(arg, draw->tex < (u32)bm->numtex ? (s32)draw->tex : -1, v);
+			fn(arg, tex, v);
 			count++;
 		}
 
