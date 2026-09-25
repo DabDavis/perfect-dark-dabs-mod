@@ -9431,10 +9431,8 @@ direction: apply the release's own fog to every HD level, to everything in it.
   fogenvironment`'s `far` is an s16 and the converted row's 75000 wraps
   (75000 - 65536). This is the conversion's bug and it is in both looks - the
   N64 look's fog, the far plane, and the distance guards see by
-  (`g_EnvFogMax`, chraction.c) are all an eighth of GoldenEye's on Dam. **Not
-  fixed here** (it changes the N64 look and the guards); widening `near`/`far`
-  to s32 in the struct fixes it, `g_FogEnvironments[]` is C and nothing reads
-  the struct raw.
+  (`g_EnvFogMax`, chraction.c) are all an eighth of GoldenEye's on Dam.
+  Fixed after (below, "Dam's far plane at 75000").
 - **Only some of an HD level took the fog, and each its own way**: the rooms
   through the fog swap (`g_GfxGroup01`), which does not know the cut-outs'
   mode (`0x0c183078` is `G_RM_PASS | TEX_EDGE2` with `1MA` where TEX_EDGE2
@@ -9540,3 +9538,25 @@ Settings is the fork's old defaults, which never had it). Live.
   the sky and water, and the models' own `G_RM_FOG_PRIM_A` shading (the
   prop's shade colour in the fog register, the watch's items), which never
   go through `envStartFog()`.
+
+### Dam's far plane at 75000: the fog rows' distances are s32 (2026-09-25)
+
+`struct fogenvironment`'s and `struct nofogenvironment`'s near, far and three
+object-fade distances are s32 off the N64 (types.h). Every converted
+GoldenEye row was checked against GoldenEye's own (the release's N64 columns,
+which are the ROM's, divided by the render scale): all agree, and only Dam's
+far plane (75000) did not fit an s16 - it wrapped to 9464. Nothing else was
+narrowed: the converter writes text, the `fog` key is read with `%d` into
+s32s, moddata.c reads a mod's own rows from N64 data that is s16 by
+construction, xblatables.c sizes its fields with `sizeof`, and nothing reads
+or writes the struct raw. A converted mod needs no re-conversion: its
+modconfig.txt always said 75000.
+
+What follows on Dam, in both looks: the far plane and GoldenEye's fog are
+its own (the N64 look sees the far cliffs through GoldenEye's blue, as
+GoldenEye does); guards see by 75000 (`g_EnvFogMax`, was 9464); the chrs'
+portal walk reaches 75000, so a guard past 9464 is drawn in the HD look. The
+HD far plane is still raised to 118725 over it. The struct is 64 bytes
+(`far` at 8) on Linux and the mingw build alike; Perfect Dark's levels, whose
+values fit an s16, are pixel-identical (Villa, Crash Site, the N64 look's
+Surface).
