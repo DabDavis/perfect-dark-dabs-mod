@@ -9506,3 +9506,37 @@ crashes before the first frame) draws the linear fog the same. Rig:
 `~/wt/f3damfog-rig/cam.sh TAG BIN STAGE [px py pz lx ly lz]` forces the camera
 in `playerAllocateMatrices()` (setting `cam_pos` in `player0f0c1840()` or
 teleporting the prop does not move a camera 3000 over the dam).
+
+### Disable Fog (2026-09-25)
+
+The user: "we can add disable all fog as a toggle". `Mod.DisableFog`
+(`g_ModOptions.nofog`, `modIsFogDisabled()`), the "Mods: Display" page,
+"Disable Fog", default off and off in every Settings Preset (Dab's
+Settings is the fork's old defaults, which never had it). Live.
+
+- The rooms keep their fog modes (bg.c's swap is made as each room loads)
+  and `G_FOG`; `envStartFog()` gives them a fog line of 0 at every depth.
+  **Do not just leave `G_FOG` off**: the renderer then takes a fog mode's
+  share from the fog colour's alpha, which is whole, and every room is drawn
+  in the fog colour.
+- Props and chrs: `envGetObjShadeMode()` answers opaque; the fog row's
+  object fade distances go too (`envGetDistFadeSettings()` answers NULL).
+- A level's fog ends at its far plane, so with nothing fogged the plane cut
+  the level where the fog had hidden it. `gebeanStageTickFar()` takes every
+  fogged level's plane out past its box (`bgLevelLength()`, every room but
+  the sky tricks, times 1.05), HD or not; the portal walk goes out with it,
+  objects and chrs are drawn to it (`envIsPosInDrawDistance()`). What guards
+  see by and spawns hide behind stays the level's own fog distance
+  (`envTick()` keeps `gebeanStageFarOwn()`). Levels that needed the plane
+  moved: Crash Site (10000 -> 31700) of Perfect Dark's fogged ones (Villa and
+  Pelagic II already reach past themselves; the rest are drawn without fog);
+  every fogged GoldenEye level but Egyptian (Dam 9464 -> 115400, Train 1500
+  -> 40500, Jungle 2500 -> 34000, Streets, Facility, Runway, Surface, Cradle,
+  Depot, Caverns, Archives, Control, Bunker 2, Aztec). The plane follows an
+  environment's transition (Facility's gas): a plane someone else set since
+  it was raised is taken as the level's own (`farSet`).
+- Untouched: fogless levels (`g_FogEnabled` false: Frigate, Silo, Bunker 1,
+  most of Perfect Dark - Frigate's HD frame is pixel-identical with it on),
+  the sky and water, and the models' own `G_RM_FOG_PRIM_A` shading (the
+  prop's shade colour in the fog register, the watch's items), which never
+  go through `envStartFog()`.

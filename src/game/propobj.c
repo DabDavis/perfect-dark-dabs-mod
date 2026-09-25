@@ -20490,8 +20490,9 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 #ifndef PLATFORM_N64
 			// An object on an HD level is drawn out to where the release's
 			// fog is whole (envIsPosInDrawDistance()); a chr keeps the
-			// level's own fog distance, as its portal walk keeps its plane
-			if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER
+			// level's own fog distance, as its portal walk keeps its plane,
+			// unless the fog is off (Disable Fog)
+			if (((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) && !modIsFogDisabled()
 						? envIsPosInFogMaxDistance(pos, arg2) : envIsPosInDrawDistance(pos, arg2))
 					&& (!arg3 || posIsInObjFadeDistance(pos, arg2))) {
 #else

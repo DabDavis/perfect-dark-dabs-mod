@@ -410,6 +410,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.RunBestScore", &g_ModOptions.runbestscore, 0, S32_MAX);
 	configRegisterInt("Mod.RunBestRooms", &g_ModOptions.runbestrooms, 0, S32_MAX);
 	configRegisterInt("Mod.ModelLod", &g_ModOptions.modellod, 0, 1);
+	configRegisterInt("Mod.DisableFog", &g_ModOptions.nofog, 0, 1);
 	configRegisterInt("Mod.XblaReflectCutoff", &g_ModOptions.xblareflectcutoff, 0, 1);
 	configRegisterInt("Mod.GlareClip", &g_ModOptions.glareclip, 0, 1);
 	configRegisterInt("Mod.SmoothText", &g_ModOptions.smoothtext, 0, 1);

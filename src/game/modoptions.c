@@ -508,6 +508,18 @@ bool modIsModelLodOn(void)
 }
 
 /**
+ * Disable Fog (Display page): no level's fog is drawn - Perfect Dark's own,
+ * GoldenEye's in the N64 look, or the release's in the HD look - and the far
+ * plane goes out past the level so that nothing is cut where the fog ended
+ * (gebeanStageTickFar()). What the guards see by is the level's own fog
+ * distance still.
+ */
+bool modIsFogDisabled(void)
+{
+	return g_ModOptions.nofog != 0;
+}
+
+/**
  * Reflection Cutoff (the XBLA page): the release's reflections fade out on models past
  * Mod.XblaReflectDistance (xblaMeshEnvironmentReach()), where they are a few
  * pixels for a per-vertex cost every frame.

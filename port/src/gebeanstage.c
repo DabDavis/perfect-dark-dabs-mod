@@ -23,6 +23,7 @@
 #include "game/camera.h"
 #include "game/gfxmemory.h"
 #include "game/env.h"
+#include "game/modoptions.h"
 #include "romdata.h"
 #include "xblatex.h"
 #include "xblastage.h"
@@ -117,6 +118,7 @@ static f32 meshMin[3];
 static f32 meshMax[3];
 static s32 farRaised;
 static f32 farOwn;
+static f32 farSet;
 
 #define GRID_BITS 20
 
@@ -2320,12 +2322,17 @@ static s32 build(void)
  * fog distance the guards see by and the chrs' portal walk from the level's
  * own plane (gebeanStageFarOwn()).
  *
- * Put back when the HD rooms go (F6).
+ * With the fog off (Disable Fog) every fogged level's plane goes out past the
+ * level's box the same way, HD or not: a level's fog ends at its far plane,
+ * and with nothing fogged the plane cut the level where the fog had hidden it.
+ *
+ * Put back when the HD rooms go (F6) and the fog is back on.
  */
 void gebeanStageTickFar(void)
 {
 	struct zrange zrange;
 	f32 want = 0.0f;
+	f32 len = 0.0f;
 
 	viGetZRange(&zrange);
 
@@ -2334,16 +2341,33 @@ void gebeanStageTickFar(void)
 		const f32 dy = meshMax[1] - meshMin[1];
 		const f32 dz = meshMax[2] - meshMin[2];
 
-		want = sqrtf(dx * dx + dy * dy + dz * dz) * 1.05f * bgGetScaleBg2Gfx();
+		len = sqrtf(dx * dx + dy * dy + dz * dz);
+	}
+
+	if (modIsFogDisabled() && g_FogEnabled) {
+		len = MAX(len, bgLevelLength());
+	}
+
+	if (len > 0.0f) {
+		want = len * 1.05f * bgGetScaleBg2Gfx();
+	}
+
+	// Something set the plane since it was raised (an environment's
+	// transition, Facility's gas): that is the level's own now
+	if (farRaised && fabsf(zrange.far - farSet) > 1.0f) {
+		farRaised = 0;
 	}
 
 	if (want > zrange.far + 1.0f) {
 		if (!farRaised) {
-			sysLogPrintf(LOG_NOTE, "gebeanstage: far plane %.0f -> %.0f for the HD level", zrange.far, want);
+			farOwn = zrange.far;
 		}
 
-		farOwn = zrange.far;
+		sysLogPrintf(LOG_NOTE, "gebeanstage: far plane %.0f -> %.0f for the %s", farOwn, want,
+				xblaStageDrawsEveryRoom() ? "HD level" : "level without its fog");
+
 		farRaised = 1;
+		farSet = want;
 		viSetZRange(zrange.near, want);
 		envTick();
 	} else if (farRaised && want <= 0.0f) {
@@ -2497,7 +2521,7 @@ s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb)
 {
 	const struct beanfog *f;
 
-	if (!g_FogEnabled || !xblaStageDrawsEveryRoom() || (f = fogRow()) == NULL) {
+	if (!g_FogEnabled || modIsFogDisabled() || !xblaStageDrawsEveryRoom() || (f = fogRow()) == NULL) {
 		return 0;
 	}
 

@@ -412,6 +412,7 @@ struct modoptions {
 	s32 glareclip;   // a light's glare is hidden where a nearer wall or model covers it
 	s32 skipdeathscreen; // a Combat Sim death goes straight to Press START, no fall or fade
 	s32 quickweaponswap; // a weapon switch skips the put-away and draw: the new gun is up the next frame
+	s32 nofog;       // Disable Fog: no level is fogged, and each is drawn out to its far side
 };
 
 extern struct modoptions g_ModOptions;
@@ -450,6 +451,7 @@ bool modIsCameraTiltInverted(void);
 bool modIsForwardTiltOn(void);
 f32 modGetGunSwayScale(void);
 bool modIsModelLodOn(void);
+bool modIsFogDisabled(void);
 bool modIsXblaReflectCutoffOn(void);
 bool modIsGlareClipOn(void);
 s32 modGetSmoothTextScale(void);
