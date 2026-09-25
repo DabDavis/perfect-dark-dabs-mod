@@ -9969,7 +9969,11 @@ at the *edge's* height, which on a sloped wall is under its far end, so the
 corner at the top of the ramp passed, was tried first, and he ran back up for
 the rest of the mission (the traces' chr 0 at (-3114 4958 -2024), act 15).
 GoldenEye's test (`sub_GAME_7F0304AC()`) walks the two legs on the tile graph;
-on a converted level `func0f03645c()` now does as well (`geStanLinesClear()`).
+on a converted level `func0f03645c()` now does as well (`geStanLinesClear()`),
+but only while `chrNavTickMain()` looks for a side (WAYMODE_LOST1), and when
+neither side passes the walk both are asked again Perfect Dark's way alone - a
+body on the pad being run to is invisible to the tile graph, and the strict
+test alone left a chr circling it.
 
 **2. The Cradle has no portals.** `func0f065d1c()`'s portal walk never left the
 room a move began in, so a move ending outside that room's box ended in no
@@ -10008,8 +10012,17 @@ shuttling on the ramp at frame 2500 (and in the tester's trace at 6411); after, 
 picker's spots 145, 9, 1, down the antenna at 3755, the platform at 5855, dead
 and off the edge at 8465, objective 1 at 8555, the fall and Bond's cutscenes,
 and `func0000e990()` at 9066 with `objectiveIsAllComplete()` 1 and Bond alive.
+A second run (converter 69) killed him on the platform without his falling off:
+flag 0x10000000 unset, so the ending took 0x420 (no fall cutscene), and it ended
+at 5916 with both objectives and Bond alive - both of the ending's branches.
 `probes/routeall.py` (guard A->B over waypoint pairs, player watching),
-baseline dabs-mod vs the branch: Facility 24/25 both.
+baseline dabs-mod vs the branch: Facility 24/25 both (seed 2: 20/20 both,
+identical), Dam 10 vs 9 of 12 and 11 vs 10 - every pair run alone is
+identical in both builds (158->156 140 frames, 153->143 190, 218->223 FAIL in
+both), and in a chain the level's other guards stand elsewhere by the time a
+pair runs (the failing 158->156 circles a body on pad 158). Cradle's first five
+pairs identical; the sixth's teleport sets off the ending and hangs the probe
+(`SKIP=` it).
 
 **Still open:** in the fall cutscene (0x41a) Trevelyan is not on screen.
 `ai_25` sets GoldenEye's CHRFLAG_LOCK_Y_POS (0x1000, which is Perfect Dark's
