@@ -13,7 +13,9 @@
  * A report also carries an optional name, which is the only thing that can
  * credit the person who sent it: nothing else in a report identifies anybody,
  * on purpose. It is typed once and kept in pd.ini as Mod.ReportName, so a
- * tester who fills it in is credited for every report after it as well.
+ * tester who fills it in is credited for every report after it as well. TAB,
+ * the arrow keys or a click move the typing between the note and the name, and
+ * the name is written to pd.ini the moment it is finished.
  *
  * Nothing is sent unless the player presses Send, the same as a crash report,
  * and Close leaves the files in traces/ where they always were.
@@ -63,6 +65,7 @@
 
 extern s32 g_MenuKeyboardPlayer;
 extern struct menudialogdef g_TraceReportMenuDialog;
+extern struct menuitem g_TraceReportMenuItems[];
 
 static s32 g_Enabled = 1;
 
@@ -84,11 +87,28 @@ static s32 g_HoldFrames;
 
 static char g_Note[TRACEREPORT_MAXNOTE + 1];
 // Kept across reports and across runs, where the note is not: a name is who
-// the player is, and asking for it once is the point of it.
+// the player is, and asking for it once is the point of it. This is the name
+// pd.ini holds; typing goes into g_NameEdit and only a finished name comes
+// back here, so a settings save on the way out (or a crash) never writes a
+// half-typed or backspaced-away name over a good one.
 static char g_Name[TRACEREPORT_MAXNAME + 1];
+static char g_NameEdit[TRACEREPORT_MAXNAME + 1];
+// Whether g_NameEdit is being typed and is not yet back in g_Name
+static bool g_NameOpen;
 #define TRACEREPORT_FIELD_NOTE 0
 #define TRACEREPORT_FIELD_NAME 1
 static s32 g_Field;
+// A press the dialog acted on while typing, which it waits to see let go of
+// before it gives the pads back (TRACEREPORT_ONRELEASE_*). The pads are blank
+// while the keyboard types; handed back while the press was still down, it
+// reads as a new press to the menu the next frame and does something else.
+static s32 g_ReleaseKey;
+static s32 g_ReleaseAction;
+#define TRACEREPORT_ONRELEASE_STOP  1
+#define TRACEREPORT_ONRELEASE_CLOSE 2
+// A controller's button was pressed in the dialog, so the player may have no
+// keyboard at hand: the name row says it needs one.
+static bool g_PadUsed;
 static char g_Text[TRACEREPORT_MAXNOTE * 2 + 512];
 static char g_Err[256];
 static SDL_Thread *g_Thread;
@@ -141,9 +161,73 @@ void traceReportOffer(const char *tracepath, const char *shotpath)
 	g_OfferPending = g_TracePath[0] != '\0';
 }
 
+/**
+ * The name, finished: trimmed, and written to pd.ini at once if it changed,
+ * rather than when the game next saves its settings on the way out, which a
+ * crash or a killed process never reaches.
+ *
+ * An empty or all-space field never replaces a kept name: it is a slip of the
+ * backspace key, and the name comes back. A different name replaces it.
+ */
+static void traceReportKeepName(void)
+{
+	char name[TRACEREPORT_MAXNAME + 1];
+	const char *start = g_NameEdit;
+	u32 len;
+
+	while (*start == ' ') {
+		start++;
+	}
+
+	snprintf(name, sizeof(name), "%s", start);
+	len = strlen(name);
+
+	while (len > 0 && name[len - 1] == ' ') {
+		name[--len] = '\0';
+	}
+
+	if (name[0] == '\0' || strcmp(name, g_Name) == 0) {
+		snprintf(g_NameEdit, sizeof(g_NameEdit), "%s", g_Name);
+		return;
+	}
+
+	snprintf(g_Name, sizeof(g_Name), "%s", name);
+	snprintf(g_NameEdit, sizeof(g_NameEdit), "%s", g_Name);
+
+	if (configSave(CONFIG_PATH)) {
+		sysLogPrintf(LOG_NOTE, "trace: report name saved to " CONFIG_FNAME);
+	} else {
+		sysLogPrintf(LOG_WARNING, "trace: report name could not be saved to " CONFIG_FNAME);
+	}
+}
+
+static void traceReportCloseName(void)
+{
+	if (g_NameOpen) {
+		traceReportKeepName();
+		g_NameOpen = false;
+	}
+}
+
+/** Moves the typing to FIELD, finishing the name if it leaves it. */
+static void traceReportSetField(s32 field)
+{
+	if (field == TRACEREPORT_FIELD_NAME) {
+		if (!g_NameOpen) {
+			snprintf(g_NameEdit, sizeof(g_NameEdit), "%s", g_Name);
+			g_NameOpen = true;
+		}
+	} else {
+		traceReportCloseName();
+	}
+
+	g_Field = field;
+}
+
 static void traceReportStartTyping(s32 field)
 {
-	g_Field = field;
+	traceReportSetField(field);
+	g_ReleaseKey = 0;
 	g_MenuKeyboardPlayer = g_MpPlayerNum;
 	inputClearLastKey();
 	inputClearLastTextChar();
@@ -199,6 +283,8 @@ void traceReportTick(void)
 			inputStopTextInput();
 		}
 
+		traceReportCloseName();
+		g_ReleaseKey = 0;
 		g_Open = false;
 		g_HoldFrames = TRACEREPORT_HOLD_FRAMES;
 	}
@@ -504,6 +590,12 @@ static void traceReportStartSend(void)
 		return;
 	}
 
+	// A name still being typed goes with the report, and is kept. Typing it
+	// carries on: the worker reads g_Name, which only changes at a finish.
+	if (g_NameOpen) {
+		traceReportKeepName();
+	}
+
 	if (g_Thread) {
 		SDL_WaitThread(g_Thread, NULL);
 		g_Thread = NULL;
@@ -623,15 +715,25 @@ static char *menutextTraceReportNote(struct menuitem *item)
 /**
  * The name, and what it is for. Said in the dialog rather than only here,
  * because a field labelled "Name" on a bug report reads like something the
- * game needs rather than an offer.
+ * game needs rather than an offer. While the note is typed it also says how to
+ * get to the name: the dialog opens typing, and a tester who did not know ESC
+ * gave up the menu under it had no way there.
  */
 static char *menutextTraceReportName(struct menuitem *item)
 {
-	if (traceReportTyping() && g_Field == TRACEREPORT_FIELD_NAME) {
+	const bool typing = traceReportTyping();
+
+	if (typing && g_Field == TRACEREPORT_FIELD_NAME) {
 		snprintf(g_Text, sizeof(g_Text),
-				"Name to credit you by (ENTER done, ESC stops)\n%s_\n", g_Name);
+				"Your name, kept for next time (ENTER: done)\n%s_\n", g_NameEdit);
+	} else if (typing && g_Name[0]) {
+		snprintf(g_Text, sizeof(g_Text), "Credit: %s (TAB to change)\n", g_Name);
+	} else if (typing) {
+		snprintf(g_Text, sizeof(g_Text), "Your name, for the credits: TAB or click Name\n");
 	} else if (g_Name[0]) {
 		snprintf(g_Text, sizeof(g_Text), "Credit: %s\n", g_Name);
+	} else if (g_PadUsed) {
+		snprintf(g_Text, sizeof(g_Text), "Name: optional, typed on a keyboard\n");
 	} else {
 		snprintf(g_Text, sizeof(g_Text), "Name: optional, for CREDITS.md\n");
 	}
@@ -678,13 +780,151 @@ static MenuItemHandlerResult menuhandlerTraceReportSend(s32 operation, struct me
 	return 0;
 }
 
+/**
+ * Puts the menu's cursor on the row of the field being typed, so that the
+ * highlight and the typing agree when the keyboard moves between them. The
+ * keyboard has the menu from here, as the menu's own arrow keys take it: the
+ * pointer would otherwise pull the cursor back to the row it rests on.
+ */
+static void traceReportFocusField(struct menudialog *dialog)
+{
+	s32 i;
+
+	for (i = 0; g_TraceReportMenuItems[i].type != MENUITEMTYPE_END; i++) {
+		if (g_TraceReportMenuItems[i].handler == (g_Field == TRACEREPORT_FIELD_NAME
+					? menuhandlerTraceReportName : menuhandlerTraceReportType)) {
+			dialog->focuseditem = &g_TraceReportMenuItems[i];
+			g_MenuUsingMouse = false;
+			break;
+		}
+	}
+}
+
+/**
+ * A click while the keyboard types. The mouse's button is one of the pads'
+ * bindings and the pads are blank while it types, so the menu never saw it:
+ * "Name (Optional)" lit up under the pointer, the click did nothing, and the
+ * name typed next went on the end of the note - which ENTER then sent. It is
+ * the row under the pointer that is acted on, as the menu's own click does.
+ */
+static void traceReportClick(struct menudialog *dialog, struct menuinputs *inputs)
+{
+	struct menuitem *item = dialog->focuseditem;
+
+	if (!g_MenuUsingMouse || inputs == NULL || item == NULL
+			|| inputs->mousex < dialog->x || inputs->mousex > dialog->x + dialog->width
+			|| inputs->mousey < dialog->y || inputs->mousey > dialog->y + dialog->height) {
+		return;
+	}
+
+	if (item->handler == menuhandlerTraceReportType) {
+		traceReportSetField(TRACEREPORT_FIELD_NOTE);
+	} else if (item->handler == menuhandlerTraceReportName) {
+		traceReportSetField(TRACEREPORT_FIELD_NAME);
+	} else if (item->handler == menuhandlerTraceReportSend) {
+		traceReportStartSend();
+	} else if (item->flags & MENUITEMFLAG_SELECTABLE_CLOSESDIALOG) {
+		// Back, once the button is up: closing stops the typing, and the pads
+		// coming back with it still down would click the menu underneath
+		g_ReleaseKey = VK_MOUSE_LEFT;
+		g_ReleaseAction = TRACEREPORT_ONRELEASE_CLOSE;
+	}
+}
+
+/**
+ * The keyboard, a click or a pad's button, while this dialog types.
+ */
+static void traceReportTypingTick(struct menudialog *dialog, struct menuinputs *inputs)
+{
+	const bool name = g_Field == TRACEREPORT_FIELD_NAME;
+	char *buf = name ? g_NameEdit : g_Note;
+	const u32 max = name ? TRACEREPORT_MAXNAME : TRACEREPORT_MAXNOTE;
+	u32 len = strlen(buf);
+	const s32 key = inputGetLastKey();
+	const bool ctrl = (inputGetKeyModState() & KM_CTRL) != 0;
+	char chr;
+
+	inputClearLastKey();
+
+	// Every character typed since the last frame, in order
+	while ((chr = inputGetLastTextChar()) != 0) {
+		inputClearLastTextChar();
+
+		if (!ctrl && chr >= 0x20 && chr < 0x7f && len < max) {
+			buf[len++] = chr;
+			buf[len] = '\0';
+		}
+	}
+
+	if (key == VK_RETURN) {
+		// ENTER sends from the note, because that is the field the dialog
+		// opens on and sending is what the player came to do. From the name
+		// it finishes the name and goes back to the note: a report sent by the
+		// keystroke that filled a form in would carry no note, and stopping
+		// the typing gave the pads back with ENTER still down, which the menu
+		// took as a press on "Name (Optional)" and started the name again.
+		if (name) {
+			traceReportSetField(TRACEREPORT_FIELD_NOTE);
+			traceReportFocusField(dialog);
+		} else {
+			traceReportStartSend();
+		}
+	} else if (key == VK_KEYBOARD_BEGIN + SDL_SCANCODE_TAB) {
+		traceReportSetField(name ? TRACEREPORT_FIELD_NOTE : TRACEREPORT_FIELD_NAME);
+		traceReportFocusField(dialog);
+	} else if (key == VK_KEYBOARD_BEGIN + SDL_SCANCODE_UP) {
+		traceReportSetField(TRACEREPORT_FIELD_NOTE);
+		traceReportFocusField(dialog);
+	} else if (key == VK_KEYBOARD_BEGIN + SDL_SCANCODE_DOWN) {
+		traceReportSetField(TRACEREPORT_FIELD_NAME);
+		traceReportFocusField(dialog);
+	} else if (key == VK_BACKSPACE) {
+		if (len > 0) {
+			buf[len - 1] = '\0';
+		}
+	} else if (ctrl && key == VK_A + ('v' - 'a')) {
+		const char *clip = inputGetClipboard();
+
+		if (clip) {
+			snprintf(buf + len, max + 1 - len, "%s", clip);
+			inputClearClipboard();
+
+			// A pasted name is one line: the server writes it into a
+			// header line, and typing cannot produce a newline here.
+			if (name) {
+				u32 i;
+
+				for (i = 0; buf[i]; i++) {
+					if ((u8)buf[i] < 0x20) {
+						buf[i] = ' ';
+					}
+				}
+			}
+		}
+	} else if (key == VK_MOUSE_LEFT) {
+		traceReportClick(dialog, inputs);
+	} else if (key >= VK_JOY_BEGIN && key < VK_TOTAL_COUNT) {
+		// A pad's button, which does nothing while the keyboard types: it
+		// stops the typing, so that a player on a controller is never stuck
+		// in a dialog only ESC could get out of
+		g_PadUsed = true;
+		g_ReleaseKey = key;
+		g_ReleaseAction = TRACEREPORT_ONRELEASE_STOP;
+	}
+}
+
 static MenuDialogHandlerResult menudialogTraceReport(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
+	struct menudialog *dialog;
+	struct menuinputs *inputs;
+
 	switch (operation) {
 	case MENUOP_OPEN:
 		g_Open = true;
 		g_OpenMenu = g_MpPlayerNum;
 		g_CloseAt = 0;
+		g_ReleaseKey = 0;
+		g_PadUsed = false;
 
 		if (g_State != STATE_SENT) {
 			traceReportStartTyping(TRACEREPORT_FIELD_NOTE);
@@ -692,17 +932,24 @@ static MenuDialogHandlerResult menudialogTraceReport(s32 operation, struct menud
 		break;
 	case MENUOP_CLOSE:
 		traceReportStopTyping();
+		traceReportCloseName();
+		g_ReleaseKey = 0;
 		g_Open = false;
 		g_HoldFrames = TRACEREPORT_HOLD_FRAMES;
 		break;
 	case MENUOP_TICK:
-		if (g_Menus[g_MpPlayerNum].curdialog == NULL
-				|| g_Menus[g_MpPlayerNum].curdialog->definition != dialogdef) {
+		dialog = g_Menus[g_MpPlayerNum].curdialog;
+		inputs = data ? data->dialog2.inputs : NULL;
+
+		if (dialog == NULL || dialog->definition != dialogdef) {
 			break;
 		}
 
 		if (g_State == STATE_BUSY || g_State == STATE_SENT) {
-			inputClearLastTextChar();
+			while (inputGetLastTextChar()) {
+				inputClearLastTextChar();
+			}
+
 			inputClearLastKey();
 
 			// Long enough to read "Sent", then back to the game.
@@ -717,60 +964,51 @@ static MenuDialogHandlerResult menudialogTraceReport(s32 operation, struct menud
 			break;
 		}
 
-		if (g_MenuKeyboardPlayer != g_MpPlayerNum) {
+		// Typing that stopped with the name open (ESC, which menu.c takes)
+		// finishes the name
+		if (g_NameOpen && !(g_MenuKeyboardPlayer == g_MpPlayerNum && g_Field == TRACEREPORT_FIELD_NAME)) {
+			traceReportCloseName();
+		}
+
+		if (g_ReleaseKey) {
+			while (inputGetLastTextChar()) {
+				inputClearLastTextChar();
+			}
+
+			inputClearLastKey();
+
+			if (!inputKeyPressed(g_ReleaseKey)) {
+				const s32 action = g_ReleaseAction;
+
+				g_ReleaseKey = 0;
+				traceReportStopTyping();
+				traceReportCloseName();
+
+				if (action == TRACEREPORT_ONRELEASE_CLOSE) {
+					menuPopDialog();
+				}
+			}
 			break;
 		}
 
-		{
-			const bool name = g_Field == TRACEREPORT_FIELD_NAME;
-			char *buf = name ? g_Name : g_Note;
-			const u32 max = name ? TRACEREPORT_MAXNAME : TRACEREPORT_MAXNOTE;
-			u32 len = strlen(buf);
-			const char chr = inputGetLastTextChar();
-			const s32 key = inputGetLastKey();
-			const bool ctrl = (inputGetKeyModState() & KM_CTRL) != 0;
+		if (g_MenuKeyboardPlayer != g_MpPlayerNum) {
+			// Not typing, and TAB still goes to the other field rather than
+			// being the menu's Start, which closed the whole pause menu with
+			// the report in it (or put Ready over it in a match's setup)
+			if (inputKeyPressedThisFrame(VK_KEYBOARD_BEGIN + SDL_SCANCODE_TAB)) {
+				traceReportStartTyping(g_Field == TRACEREPORT_FIELD_NAME ? TRACEREPORT_FIELD_NOTE : TRACEREPORT_FIELD_NAME);
+				traceReportFocusField(dialog);
 
-			inputClearLastTextChar();
-			inputClearLastKey();
-
-			if (key == VK_RETURN) {
-				// ENTER sends from the note, because that is the field the
-				// dialog opens on and sending is what the player came to do.
-				// From the name it only finishes the name: a report sent by
-				// the keystroke that filled a form in would carry no note.
-				if (name) {
-					traceReportStopTyping();
-				} else {
-					traceReportStartSend();
+				if (inputs) {
+					inputs->select = 0;
+					inputs->start = 0;
+					inputs->back = 0;
 				}
-			} else if (key == VK_BACKSPACE) {
-				if (len > 0) {
-					buf[len - 1] = '\0';
-				}
-			} else if (ctrl && key == VK_A + ('v' - 'a')) {
-				const char *clip = inputGetClipboard();
-
-				if (clip) {
-					snprintf(buf + len, max + 1 - len, "%s", clip);
-					inputClearClipboard();
-
-					// A pasted name is one line: the server writes it into a
-					// header line, and typing cannot produce a newline here.
-					if (name) {
-						u32 i;
-
-						for (i = 0; buf[i]; i++) {
-							if ((u8)buf[i] < 0x20) {
-								buf[i] = ' ';
-							}
-						}
-					}
-				}
-			} else if (!ctrl && chr >= 0x20 && chr < 0x7f && len < max) {
-				buf[len] = chr;
-				buf[len + 1] = '\0';
 			}
+			break;
 		}
+
+		traceReportTypingTick(dialog, inputs);
 		break;
 	}
 
@@ -858,7 +1096,9 @@ struct menudialogdef g_TraceReportMenuDialog = {
 	(uintptr_t)"Report a Problem",
 	g_TraceReportMenuItems,
 	menudialogTraceReport,
-	MENUDIALOGFLAG_LITERAL_TEXT,
+	// Start (TAB on a keyboard) picks the row, as A does, rather than closing
+	// the pause menu the report is in and the report with it
+	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
 	NULL,
 };
 
