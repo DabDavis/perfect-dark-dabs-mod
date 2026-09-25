@@ -4843,17 +4843,21 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			// quarter of the part's box across it.
 			//
 			// A held position is a hub the part turns about in every
-			// direction, and Bean's bone stands on it: the helicopter's two
-			// rotors are bones 2 and 3 of new/prop/milcopter, 1 and 2 units
-			// from GoldenEye's switch entries 2 and 3. Laid rigid on the
-			// body's matrix they drew still while the rotor turned (F3
-			// 20260925-082543, Surface 2's parked helicopter).
-			if (held ? dx * dx + dy * dy + dz * dz < 25.0f * 25.0f
+			// direction, and Bean's bone stands on or near it: the
+			// helicopter's two rotors are bones 2 and 3 of new/prop/milcopter,
+			// 1 and 2 units from GoldenEye's switch entries 2 and 3, and the
+			// plane's propeller hub is 29 units above its entry 2. Laid rigid
+			// on the body's matrix they drew still while the rotor turned (F3
+			// 20260925-082543, Surface 2's parked helicopter). The part is
+			// stored relative to Bean's own hub, which puts that hub on the
+			// node: turned about the node's point instead, the plane's
+			// spinner would circle it.
+			if (held ? dx * dx + dy * dy + dz * dz < 50.0f * 50.0f
 					: dy * dy + dz * dz < 25.0f * 25.0f && dx * dx < 350.0f * 350.0f) {
 				bonemtx[b] = pmtx;
-				bonepos[b][0] = ppos[0];
-				bonepos[b][1] = ppos[1];
-				bonepos[b][2] = ppos[2];
+				bonepos[b][0] = held ? at[0] : ppos[0];
+				bonepos[b][1] = held ? at[1] : ppos[1];
+				bonepos[b][2] = held ? at[2] : ppos[2];
 				numparts++;
 
 				break;
