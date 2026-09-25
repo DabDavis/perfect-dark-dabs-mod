@@ -10014,3 +10014,76 @@ the N64 look, which stays as it was (`sheet_surface2_fog6500.png` in
 `~/wt/f3surfsky-pics`, HD before/after beside the N64 look at four cameras).
 Surface with the CE on, Surface, Dam, Runway, Silo and the N64 look's
 Surface 2 are pixel-identical to before.
+
+## Surface 2's parked helicopter, and its dish in the distance (2026-09-25)
+
+Two F3s from ODEYSEIS (Windows, 6b17756, Surface 2 mission 0x6a, HD look):
+20260925-082543 "propellers animations are not playing" and 20260925-082140
+"satellite dish doesn't appear until getting near".
+
+**The rotors are held positions.** GoldenEye's render (propobj.c,
+`PROPDEF_AIRCRAFT`) turns switch entry 2 about y and entry 3 about x, and in
+every aircraft model both are **held position** nodes (`MODELNODETYPE_POSITIONHELD`,
+0x15: a position and a matrix, nothing else) - Surface 2's `Pgx284Z`
+(milcopter), Frigate's `Pgx283Z` (tiger) and Runway's plane (model 0x323, entry 2 only). The truck's
+wheels and the tank's parts are plain positions. `vehPutPart()` took positions
+only, so `vehHeliUpdateModel()` wrote nothing for any rotor since the vehicles
+were first ticked (2026-09-19): the angle ran (`heliobj.rotoryrot`, ramped by the
+list's `AircraftRotorSpeed`) and the blades stood still, in both looks. The HD
+rigid builder had the same blind spot: its part search (`gebeanListPositionNode()`)
+stopped at a held position, so Bean's rotor bones (milcopter bones 2 and 3,
+within 2 units of entries 2 and 3) were laid on the body's matrix. Both take a
+held position now (f67c4f0e3, 2137318cb); a held-position bone matches by
+distance in all three axes (a hub, not an axle), and guns are left out of it.
+
+GoldenEye does spin this one: Surface 2 has two aircraft of model 284, pad 23
+(AI list 0x411, `aircraft_rotor_speed` 620 = 1.0821 rad a frame, over 7200
+ticks - two minutes to full speed) and pad 31 (list 0x42a, speed 0, parked
+still). The oracle (`~/dam-oracle/gesurf2rotor.py` on 10.8.0.3, a break on the
+render's `rotoryrot += rotaryspeed`) reads pad 23's aircraft turning from the
+level's start. GoldenEye advances the rotor once a *drawn* frame (gated only by
+`g_ClockTimer > 0`), and a console frame lasts `speedgraphframes` fields
+(frametiming.c, `waitForNextFrame()`), so its rotor speed in seconds depends on
+the frame rate. Rare's fourteen attract demos are console recordings that store
+each frame's length (`ramrom_seed.speedframes`; `~/wt/f3surfprops-pics/ramrom_frame_lengths.py`
+parses them, header 0xe8): 3 fields is the mode and the median, the outdoor
+levels averaging 2.5 (Runway) to 3.7 (Frigate). So ours steps
+`rotoryspeed * lvupdate60freal / 3` (`GE_ROTOR_FIELDS`): 21.64 rad/s at full
+speed at 60, 30 and 20 fps alike (measured, `rotor_rates.txt`); once a frame it
+had been 64.9 at 60 fps. The spin-up ramp was game time already. The native
+oracle runs in lockstep at one field a frame, so it steps 60 times a second -
+read its per-frame step, not its per-second rate.
+
+GoldenEye turns the main rotor about **z** where the setup record's own flags
+carry 0x20000000 (`aircraft_render->flags`; the enum calls the bit
+`PROPFLAG_INMOTION`): Runway's plane (0x200001e8) turns its propeller about its
+nose, and it had spun about the vertical here. Its HD propeller hub is 29 units
+from entry 2, so a held part matches within 50 and is stored relative to Bean's
+hub (not the node's point, or the spinner circles the axis). Runway's plane
+turns only in the escape (list 0x40d: speed 0, then 620 at once when objective
+bit 0x100000 is set).
+
+Probe: `~/wt/f3surfprops-rig/rotor.sh` - freezes the rotor at 0 and at 0.6 rad
+from gdb (`findobj.py`'s `setheli()`), one shot each; a still rotor gives two
+identical blade outlines. The N64 look's night fog hides the blades against
+the sky: `Mod.DisableFog=1` in the scratch ini shows them.
+
+**The dish is the fog, and the fog pass already fixed it.** The dish is not
+scenery: it is GoldenEye's `PROP_SEVDISH` (296) set up as a type 13 object (an
+autogun, which is how it turns) on 3D pad 68. On 6b17756 an HD level's rooms
+were drawn unfogged out to the raised far plane, but a prop still went through
+`envGetObjShadeMode()` with GoldenEye's own fog curve (Surface 2: far 2000 /
+render scale 0.2 = 10000, 957-1000 of it), which returns `SHADEMODE_XLU` - not
+drawn - once the fog's share passes 1: at the report's camera the dish (depth
+7961) was gone while the building under it stood in plain view. f85f775e0
+(the release's own fog on everything in an HD level: Surface 2 is 10000,
+0x201010, the same dark red as its sky) moved props onto the same fog as the
+rooms, and the dish now fades out with the building behind it. Nothing to
+change for the tester's build past 718d5dcd6. The N64 look is GoldenEye's:
+the oracle (`gesurf2.py`, pad 23 as the anchor - ours = GoldenEye's runtime
+world + (5604, 168, 10382) on Surface 2) shows the dish faint at 4000 and gone
+by 6000 and at the report's camera, as ours does (GoldenEye's
+`fogGetPropDistColor()` is `envGetObjShadeMode()`'s ancestor, "don't render"
+past 1).
+
+Pictures in `~/wt/f3surfprops-pics` (`oracle/` holds GoldenEye's).
