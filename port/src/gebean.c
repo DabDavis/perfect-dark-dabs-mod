@@ -4448,6 +4448,18 @@ static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back, const u
  * twice. Nothing else in any of them is a quad list lying flat across the
  * barrel. The other guns' small quads stand flat along *x*, down the gun's
  * middle, and are the trigger and the sling; those are kept.
+ *
+ * **Flat quad by quad, not only the draw as one.** The Automatic Shotgun's
+ * flash is two layers: each of its four draws is a quad at the muzzle (Bean y
+ * -4249) and the same quad again 214 further back (y -4035), so no draw of it
+ * lay in one plane and the flash stayed lit in every hand that held the gun
+ * (`prop/chrautoshot`, its vertex buffer at .gpu 0, drawn with part 0 records).
+ * The Community Edition mended the file itself - "Shotgun prop chrautoshot
+ * muzzle error fixed" moves those 34 vertices to the origin - and this finds
+ * the same draws without it: a quad list is the flash too when every quad of
+ * it is flat across the barrel and the whole draw is within the muzzle end.
+ * With the Community Edition's copy the same draws are taken out, all four
+ * quads flat at the origin, which drew nothing anyway (2910 vertices either way).
  */
 static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 {
@@ -4455,6 +4467,7 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 	f32 hi = -1e18f;
 	f32 dlo[64];
 	f32 dhi[64];
+	u8 quadsflat[64];
 	const s32 num = bm->numdraws < 64 ? bm->numdraws : 64;
 
 	*out = 0;
@@ -4467,12 +4480,32 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 
 		dlo[di] = 1e18f;
 		dhi[di] = -1e18f;
+		quadsflat[di] = d->prim == 13;
 
 		if (!beanReadVb(bm, d->vb, &vb)) {
 			continue;
 		}
 
 		numtris = beanTriangles(bm, d, &tris);
+
+		// A quad list's triangles come two to a quad (beanTriangles())
+		for (s32 q = 0; q + 1 < numtris && quadsflat[di]; q += 2) {
+			f32 qlo = 1e18f;
+			f32 qhi = -1e18f;
+
+			for (s32 t = q * 3; t < q * 3 + 6; t++) {
+				struct beanvtx v;
+
+				if (beanVertex(bm, &vb, tris[t], &v)) {
+					qlo = v.pos[1] < qlo ? v.pos[1] : qlo;
+					qhi = v.pos[1] > qhi ? v.pos[1] : qhi;
+				}
+			}
+
+			if (qhi - qlo >= 1.0f) {
+				quadsflat[di] = 0;
+			}
+		}
 
 		for (s32 t = 0; t < numtris * 3; t++) {
 			struct beanvtx v;
@@ -4510,9 +4543,11 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 	for (s32 di = 0; di < num; di++) {
 		const f32 end = (hi - lo) * 0.15f;
 
-		// A quad list, flat across the barrel, at one end of it
-		if (bm->draws[di].prim == 13 && dlo[di] <= dhi[di] && dhi[di] - dlo[di] < 1.0f
-				&& (dlo[di] <= lo + end || dhi[di] >= hi - end)) {
+		// A quad list, flat across the barrel, at one end of it: the whole
+		// draw in one plane, or quad by quad with all of it within the end
+		if (bm->draws[di].prim == 13 && dlo[di] <= dhi[di]
+				&& ((dhi[di] - dlo[di] < 1.0f && (dlo[di] <= lo + end || dhi[di] >= hi - end))
+					|| (quadsflat[di] && (dhi[di] <= lo + end || dlo[di] >= hi - end)))) {
 			*out |= 1ull << di;
 		}
 	}
