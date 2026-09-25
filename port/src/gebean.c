@@ -1550,6 +1550,40 @@ s32 gebeanRowIsChr(s32 row)
 	return r && r->kind != GEBEAN_RIGID;
 }
 
+s32 gebeanRowKeepsHood(s32 bodyrow, s32 headrow)
+{
+	const struct gebeanrow *body = gebeanRowAt(bodyrow);
+	const struct gebeanrow *head = gebeanRowAt(headrow);
+
+	// gebeanBuild()'s hoodsplit, for the body's side
+	return body && head && bodyrow >= ARRAYCOUNT(rows) && body->kind == GEBEAN_BODY
+		&& head->kind == GEBEAN_HEAD && strcmp(body->source, head->source) == 0;
+}
+
+/** Whether some head row is taken off this character's own neck (a Bond outfit's). */
+static s32 gebeanSourceIsHead(const char *source)
+{
+	for (s32 i = 0; i < ARRAYCOUNT(rows); i++) {
+		if (rows[i].kind == GEBEAN_HEAD && strcmp(rows[i].source, source) == 0) {
+			return 1;
+		}
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
+		if (poolRows[i].row.kind == GEBEAN_HEAD && strcmp(poolRows[i].row.source, source) == 0) {
+			return 1;
+		}
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(chrRows); i++) {
+		if (chrRows[i].kind == GEBEAN_HEAD && strcmp(chrRows[i].source, source) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 s32 gebeanRowIsPool(s32 row)
 {
 	// The guns' pickups too: they stand on Perfect Dark models, as the pool does
@@ -3355,6 +3389,29 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 		}
 	}
 
+	// The parka's picture has a blot baked onto the top of the hood - dark in
+	// the middle, brown round it, the hair of the head it was painted over
+	// showing through - which reads on the model as fur poking out of the
+	// crown (F3 20260925-044809). The cloth under it is cloned from the rows
+	// just below; only the blot's texels, the patch's edge left alone.
+	if (w == 512 && h == 512 && t < bm->numtex
+			&& strcmp(caffAssetName(c, c->files[bm->texfile[t]].asset), "_0x0D2B8611.tga.bin") == 0) {
+		for (u32 y = 357; y <= 365; y++) {
+			for (u32 x = 435; x <= 456; x++) {
+				u8 *px = rgba + ((size_t)y * w + x) * 4;
+				const u8 *from = rgba + ((size_t)(y + 10) * w + x) * 4;
+				const s32 lo = px[0] < px[1] ? (px[0] < px[2] ? px[0] : px[2]) : (px[1] < px[2] ? px[1] : px[2]);
+				const s32 hi = px[0] > px[1] ? (px[0] > px[2] ? px[0] : px[2]) : (px[1] > px[2] ? px[1] : px[2]);
+
+				// The cloth is a light grey (175 to 200, within 9 of grey);
+				// the blot darker or coloured
+				if (px[0] + px[1] + px[2] < 168 * 3 || hi - lo > 12) {
+					memcpy(px, from, 4);
+				}
+			}
+		}
+	}
+
 	// Decoded top row first, as a PNG of it would be; the renderer wants the
 	// first uploaded row first (modelpackBindMaterial() does the same).
 	for (u32 y = 0; y < h / 2; y++) {
@@ -4235,7 +4292,7 @@ static int beanSeamCompare(const void *a, const void *b)
 	return memcmp(a, b, 3 * sizeof(f32));
 }
 
-static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back)
+static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back, const u8 *keep, s32 numkeep)
 {
 	f32 *share;
 	f32 *sum;
@@ -4293,7 +4350,7 @@ static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back)
 		for (s32 v = 0; v < o->numverts; v++) {
 			f32 mean;
 
-			if (share[v] < 0.0f || count[v] < 4) {
+			if (share[v] < 0.0f || count[v] < 4 || (v < numkeep && keep[v])) {
 				continue;
 			}
 
@@ -4887,6 +4944,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
 	memset(mats->neckfill, -1, sizeof(mats->neckfill));
+	memset(mats->hood, -1, sizeof(mats->hood));
+	memset(mats->bare, -1, sizeof(mats->bare));
 	mats->num = nummatwords;
 
 	for (s32 i = 0; i < nummatwords; i++) {
@@ -6111,6 +6170,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
 	memset(mats->neckfill, -1, sizeof(mats->neckfill));
+	memset(mats->hood, -1, sizeof(mats->hood));
+	memset(mats->bare, -1, sizeof(mats->bare));
 	mats->num = nummatwords;
 
 	for (s32 i = 0; i < nummatwords; i++) {
@@ -6426,6 +6487,37 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		}
 	}
 
+	// A hood is the coat's, not the head's. The parka's hood, its fur and its
+	// lining are painted on the body's picture and weighted to the neck with
+	// the back still holding the rim (up to all of it at the nape), where the
+	// face is on a picture of its own. Cut off with the face, the hood went
+	// rigid on the neck: the rim rose off the collar whenever the head
+	// tipped, and the back of the neck showed through the slit (F3
+	// 20260925-044809, Surface). So of the neck's triangles, those on any
+	// picture but the one most of them use are skinned with the body, with
+	// Bean's weights, in groups of their own past the fillers' that the neck
+	// draws round the head cut off the same neck (xblamesh.c); that head
+	// keeps them only in a second group, for any other body. The release's
+	// own files, the remake's and the pool's rows, and only a body some head
+	// row is taken off: every other Bond has his whole head on one picture,
+	// so nothing moves there; a guard's neck is left to the filler as it
+	// was; and GoldenEye X's parka keeps what it had, its head being
+	// GoldenEye X's own.
+	const s32 hoodsplit = !original && fromchar && row >= ARRAYCOUNT(rows)
+			&& (ishead || (r->kind == GEBEAN_BODY && gebeanSourceIsHead(r->source)));
+	s32 neckontex[GEBEAN_MAXMATS];
+	s32 headtex = -1;
+	s8 hoodof[64];
+	s32 numhood = 0;
+	s8 bareof[64];
+	s32 numbare = 0;
+	u8 *hoodvert = NULL;  // a vertex of the hood's groups, which keeps Bean's weights
+	s32 caphoodvert = 0;
+
+	memset(neckontex, 0, sizeof(neckontex));
+	memset(hoodof, -1, sizeof(hoodof));
+	memset(bareof, -1, sizeof(bareof));
+
 	// No higher than the model's own N64 neck, which is what a fitted head is
 	// seated against (headfit.c): Bond's collar is weighted to the back almost
 	// to his chin, and kept whole it came up over a short-necked head's jaw
@@ -6444,13 +6536,60 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	f32 *seam = NULL;
 	s32 numseam = 0;
 	s32 capseam = 0;
+	// Where the head's triangles stand once a hood is kept apart from it, for
+	// the pins of the hood's copies; seam keeps every neck triangle's, as the
+	// body's own triangles were always pinned
+	f32 *seamhead = NULL;
+	s32 numseamhead = 0;
+	s32 capseamhead = 0;
 	s32 *pins = NULL;
 	s32 numpins = 0;
 	s32 cappins = 0;
 
-	for (s32 pass = pinseam ? 0 : 1; pass < 2; pass++) {
+	for (s32 pass = hoodsplit ? -1 : pinseam ? 0 : 1; pass < 2; pass++) {
+	if (pass == 0 && !pinseam) {
+		continue;
+	}
+
+	// After the count: the face's picture, and a hood only where the neck's
+	// triangles are on more than one
+	if (pass == 0 || (pass == 1 && !pinseam)) {
+		s32 pictures = 0;
+
+		for (s32 i = 0; hoodsplit && i < GEBEAN_MAXMATS; i++) {
+			if (neckontex[i] > 0) {
+				pictures++;
+
+				if (headtex < 0 || neckontex[i] > neckontex[headtex]) {
+					headtex = i;
+				}
+			}
+		}
+
+		if (pictures < 2) {
+			headtex = -1;
+		}
+
+		for (s32 k = 0; headtex >= 0 && k < numnodes && k < 64; k++) {
+			if ((ishead ? !beanNodeIsToggled(nodes[k]) : nodeskel[k] == SK_NECK)
+					&& numnodes + numfill + numhood < 64) {
+				hoodof[k] = (s8)(numnodes + numfill + numhood++);
+			}
+		}
+
+		for (s32 k = 0; headtex >= 0 && !ishead && k < numnodes && k < 64; k++) {
+			if (nodeskel[k] == SK_NECK && numnodes + numfill + numhood + numbare < 64) {
+				bareof[k] = (s8)(numnodes + numfill + numhood + numbare++);
+			}
+		}
+	}
+
 	if (pass == 1 && numseam > 1) {
 		qsort(seam, numseam, 3 * sizeof(f32), beanSeamCompare);
+	}
+
+	if (pass == 1 && numseamhead > 1) {
+		qsort(seamhead, numseamhead, 3 * sizeof(f32), beanSeamCompare);
 	}
 
 	for (s32 di = 0; di < bm.numdraws; di++) {
@@ -6459,6 +6598,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		u16 *tris;
 		s32 numtris;
 		s32 *mapped;
+		s32 *mappedhood;
 
 		if (!beanReadVb(&bm, d->vb, &vb)) {
 			continue;
@@ -6473,14 +6613,16 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 		// A buffer is shared by draws with different palettes, so a vertex is
 		// taken once per draw: its bones mean different things in each.
-		mapped = malloc(vb.count * sizeof(s32));
+		mapped = malloc(vb.count * sizeof(s32) * 2);
 
 		if (!mapped) {
 			free(tris);
 			continue;
 		}
 
-		for (u32 i = 0; i < vb.count; i++) {
+		mappedhood = mapped + vb.count;
+
+		for (u32 i = 0; i < vb.count * 2; i++) {
 			mapped[i] = -1;
 		}
 
@@ -6552,6 +6694,48 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 				dominant = SK_NECK;
 			}
 
+			if (pass == -1) {
+				if (dominant == SK_NECK && d->tex < GEBEAN_MAXMATS) {
+					neckontex[d->tex]++;
+				}
+
+				continue;
+			}
+
+			// The neck's, but the coat's hood rather than the head (above) - and
+			// under a hood the skin of the neck the back still moves goes with
+			// it, rigid on the neck it came out through the blended hood at the
+			// side of the jaw
+			s32 backcorner = 0;
+
+			for (s32 i = 0; i < 3 && !backcorner && headtex >= 0; i++) {
+				for (s32 k = 0; k < 4; k++) {
+					if (sk[i][k] == SK_BACK && wt[i][k] > 0.0f) {
+						backcorner = 1;
+						break;
+					}
+				}
+			}
+
+			const s32 hood = headtex >= 0 && dominant == SK_NECK && ((s32)d->tex != headtex || backcorner);
+
+			// And the body's own triangles the neck moves at all - the rim, the
+			// lining, the nape - go in the hood's groups too, with Bean's
+			// weights: smoothed (beanSmoothNeckWeights()) the lining's points
+			// came out through the hood beside the jaw. Their smoothed copies,
+			// which suit the collar round any other head, are drawn apart
+			// from the body's lists, by the neck, only when the hood is not
+			s32 neckzone = 0;
+
+			for (s32 i = 0; i < 3 && !neckzone && headtex >= 0 && !ishead && dominant != SK_NECK; i++) {
+				for (s32 k = 0; k < 4; k++) {
+					if (sk[i][k] == SK_NECK && wt[i][k] > 0.0f) {
+						neckzone = 1;
+						break;
+					}
+				}
+			}
+
 			if (pass == 0) {
 				for (s32 i = 0; dominant == SK_NECK && i < 3; i++) {
 					if (numseam >= capseam) {
@@ -6568,12 +6752,46 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 					memcpy(&seam[numseam * 3], v3[i].pos, 3 * sizeof(f32));
 					numseam++;
+
+					if (hood) {
+						continue;
+					}
+
+					if (numseamhead >= capseamhead) {
+						const s32 cap = capseamhead ? capseamhead * 2 : 1024;
+						f32 *grown = realloc(seamhead, cap * 3 * sizeof(f32));
+
+						if (!grown) {
+							continue;
+						}
+
+						seamhead = grown;
+						capseamhead = cap;
+					}
+
+					memcpy(&seamhead[numseamhead * 3], v3[i].pos, 3 * sizeof(f32));
+					numseamhead++;
 				}
 
 				continue;
 			}
 
+			// ... or one pinned to the neck at the seam, which the hood's copy
+			// is not
+			for (s32 i = 0; i < 3 && !neckzone && headtex >= 0 && !ishead && dominant != SK_NECK && numseam > 0; i++) {
+				neckzone = bsearch(v3[i].pos, seam, numseam, 3 * sizeof(f32), beanSeamCompare) != NULL;
+			}
+
+			const s32 bare = neckzone;
+
 			s32 filler = 0;
+
+			// A body keeps the hood as well as, not instead of, the filler a
+			// fitted head's collar takes from the same triangles. A head keeps
+			// a second group of the face with the hood round it, for any body
+			// but the one it was cut from (the face alone is its own group)
+			const s32 hoodcopy = (hood || bare) && !ishead;
+			const s32 headalt = ishead && headtex >= 0;
 
 			if (r->kind != GEBEAN_WHOLE && (dominant == SK_NECK) != (ishead != 0)) {
 				// The neck where it meets the collar: a triangle of the neck's
@@ -6593,223 +6811,273 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 				if (!ishead && numfill > 0 && dominant == SK_NECK && collar) {
 					filler = 1;
-				} else {
+				} else if (!hoodcopy) {
 					dropped++;
 					continue;
 				}
 			}
 
-			for (s32 i = 0; i < 3 && ok; i++) {
-				const u16 vi = tris[t * 3 + i];
-				s32 clamped = 0;
-				f32 pos[3] = { 0.0f, 0.0f, 0.0f };
-				f32 nrm[3];
-				f32 uv[2];
-				u8 bone[3] = { 0, 0, 0 };
-				f32 weight[3] = { 1.0f, 0.0f, 0.0f };
+			// Role 0 is the triangle's own group (or its filler), role 1 the
+			// hood's group - on a body in vertices of its own, since a filler's
+			// may be clamped
+			const s32 firstrole = hood && !filler ? 1 : 0;
+			const s32 lastrole = hoodcopy || headalt ? 2 : 1;
 
-				if (mapped[vi] >= 0) {
-					idx[i] = (u16)mapped[vi];
-					continue;
-				}
+			for (s32 role = firstrole; role < lastrole; role++) {
+				const s32 asfill = role == 0 && filler;
+				const s32 asbare = role == 0 && bare;
+				const s32 ashood = role == 1;
+				s32 *map = ashood && !ishead ? mappedhood : mapped;
 
-				uv[0] = v3[i].uv[0];
-				uv[1] = v3[i].uv[1];
+				ok = 1;
 
-				if (ishead) {
-					f32 rel[3];
+				for (s32 i = 0; i < 3 && ok; i++) {
+					const u16 vi = tris[t * 3 + i];
+					s32 clamped = 0;
+					f32 pos[3] = { 0.0f, 0.0f, 0.0f };
+					f32 nrm[3];
+					f32 uv[2];
+					u8 bone[3] = { 0, 0, 0 };
+					f32 weight[3] = { 1.0f, 0.0f, 0.0f };
 
-					for (s32 k = 0; k < 3; k++) {
-						rel[k] = v3[i].pos[k] - bind[SK_NECK][k];
+					if (map[vi] >= 0) {
+						idx[i] = (u16)map[vi];
+						continue;
 					}
 
-					rotApply(headrot, rel, pos);
+					uv[0] = v3[i].uv[0];
+					uv[1] = v3[i].uv[1];
 
-					for (s32 k = 0; k < 3; k++) {
-						pos[k] *= headscale;
-					}
+					if (ishead) {
+						f32 rel[3];
 
-					rotApply(headrot, v3[i].nrm, nrm);
-				} else {
-					// Bean's own bind, at the rig's scale. Each bone's palette
-					// entry (beanFitPalette()) takes a vertex from there onto the
-					// model's rest, so the figure is skinned once, from the pose
-					// Bean's weights were painted for; re-posing it onto the star
-					// first and skinning it back again folded every armpit and
-					// crotch through two blends of turns up to a right angle
-					// apart. The bones become the model's matrices, merged where
-					// two Bean bones share one, the three heaviest kept.
-					s32 mtx[4];
-					f32 mw[4];
-					s32 nm = 0;
-					f32 sum = 0.0f;
+						for (s32 k = 0; k < 3; k++) {
+							rel[k] = v3[i].pos[k] - bind[SK_NECK][k];
+						}
 
-					for (s32 k = 0; k < 3; k++) {
-						pos[k] = v3[i].pos[k] * rig.scale;
-						nrm[k] = v3[i].nrm[k];
-					}
+						rotApply(headrot, rel, pos);
 
-					clamped = 0;
+						for (s32 k = 0; k < 3; k++) {
+							pos[k] *= headscale;
+						}
 
-					// Only the front half: under the jaw is where a taller neck
-					// shows. Behind, the head's hair covers it, and bringing the
-					// nape down folded its triangles into a flap that stood out
-					// over the collar when the head looked down ("hump back")
-					if (filler && haveneckn64 && pos[2] - bind[SK_NECK][2] * rig.scale > 0.0f) {
-						// A little under the N64 top, so the edge tucks under a jaw
-						// resting on it rather than showing along it
-						const f32 top = headfitNeckTopToward(&neckn64,
-								pos[0] - bind[SK_NECK][0] * rig.scale, pos[2] - bind[SK_NECK][2] * rig.scale)
-								- BEAN_NECKFILL_TUCK;
+						rotApply(headrot, v3[i].nrm, nrm);
+					} else {
+						// Bean's own bind, at the rig's scale. Each bone's palette
+						// entry (beanFitPalette()) takes a vertex from there onto the
+						// model's rest, so the figure is skinned once, from the pose
+						// Bean's weights were painted for; re-posing it onto the star
+						// first and skinning it back again folded every armpit and
+						// crotch through two blends of turns up to a right angle
+						// apart. The bones become the model's matrices, merged where
+						// two Bean bones share one, the three heaviest kept.
+						s32 mtx[4];
+						f32 mw[4];
+						s32 nm = 0;
+						f32 sum = 0.0f;
 
-						if (pos[1] - bind[SK_NECK][1] * rig.scale > top) {
-							clamped = 1;
-							// Brought down and drawn in to the N64 neck's width there,
-							// or a neck wider than the head's flares round its jaw
-							const f32 dx = pos[0] - bind[SK_NECK][0] * rig.scale;
-							const f32 dz = pos[2] - bind[SK_NECK][2] * rig.scale;
-							const f32 dist = sqrtf(dx * dx + dz * dz);
-							const f32 radius = headfitNeckRadiusToward(&neckn64, dx, dz);
+						for (s32 k = 0; k < 3; k++) {
+							pos[k] = v3[i].pos[k] * rig.scale;
+							nrm[k] = v3[i].nrm[k];
+						}
 
-							pos[1] = bind[SK_NECK][1] * rig.scale + top;
+						clamped = 0;
 
-							if (dist > radius && dist > 0.0f) {
-								pos[0] = bind[SK_NECK][0] * rig.scale + dx * radius / dist;
-								pos[2] = bind[SK_NECK][2] * rig.scale + dz * radius / dist;
+						// Only the front half: under the jaw is where a taller neck
+						// shows. Behind, the head's hair covers it, and bringing the
+						// nape down folded its triangles into a flap that stood out
+						// over the collar when the head looked down ("hump back")
+						if (asfill && haveneckn64 && pos[2] - bind[SK_NECK][2] * rig.scale > 0.0f) {
+							// A little under the N64 top, so the edge tucks under a jaw
+							// resting on it rather than showing along it
+							const f32 top = headfitNeckTopToward(&neckn64,
+									pos[0] - bind[SK_NECK][0] * rig.scale, pos[2] - bind[SK_NECK][2] * rig.scale)
+									- BEAN_NECKFILL_TUCK;
+
+							if (pos[1] - bind[SK_NECK][1] * rig.scale > top) {
+								clamped = 1;
+								// Brought down and drawn in to the N64 neck's width there,
+								// or a neck wider than the head's flares round its jaw
+								const f32 dx = pos[0] - bind[SK_NECK][0] * rig.scale;
+								const f32 dz = pos[2] - bind[SK_NECK][2] * rig.scale;
+								const f32 dist = sqrtf(dx * dx + dz * dz);
+								const f32 radius = headfitNeckRadiusToward(&neckn64, dx, dz);
+
+								pos[1] = bind[SK_NECK][1] * rig.scale + top;
+
+								if (dist > radius && dist > 0.0f) {
+									pos[0] = bind[SK_NECK][0] * rig.scale + dx * radius / dist;
+									pos[2] = bind[SK_NECK][2] * rig.scale + dz * radius / dist;
+								}
 							}
 						}
-					}
 
-					for (s32 s = 0; s < 4; s++) {
-						const s32 b = sk[i][s];
-						s32 at = -1;
+						for (s32 s = 0; s < 4; s++) {
+							const s32 b = sk[i][s];
+							s32 at = -1;
 
-						if (b < 0) {
-							continue;
+							if (b < 0) {
+								continue;
+							}
+
+							sum += wt[i][s];
+
+							for (s32 m = 0; m < nm; m++) {
+								if (mtx[m] == rig.mtx[b]) {
+									at = m;
+								}
+							}
+
+							if (at >= 0) {
+								mw[at] += wt[i][s];
+							} else {
+								mtx[nm] = rig.mtx[b];
+								mw[nm] = wt[i][s];
+								nm++;
+							}
 						}
 
-						sum += wt[i][s];
+						if (sum <= 0.0f) {
+							ok = 0;
+							break;
+						}
 
 						for (s32 m = 0; m < nm; m++) {
-							if (mtx[m] == rig.mtx[b]) {
-								at = m;
+							for (s32 n = m + 1; n < nm; n++) {
+								if (mw[n] > mw[m]) {
+									const f32 tw = mw[m];
+									const s32 tm = mtx[m];
+									mw[m] = mw[n]; mtx[m] = mtx[n];
+									mw[n] = tw; mtx[n] = tm;
+								}
 							}
 						}
 
-						if (at >= 0) {
-							mw[at] += wt[i][s];
-						} else {
-							mtx[nm] = rig.mtx[b];
-							mw[nm] = wt[i][s];
-							nm++;
+						if (nm > 3) {
+							nm = 3;
+						}
+
+						sum = 0.0f;
+
+						for (s32 m = 0; m < nm; m++) {
+							sum += mw[m];
+						}
+
+						for (s32 m = 0; m < 3; m++) {
+							bone[m] = (u8)(m < nm ? mtx[m] : mtx[0]);
+							weight[m] = m < nm ? mw[m] / sum : 0.0f;
+						}
+
+					}
+
+					// And a filler vertex brought down to the N64 neck's top stands
+					// where the head's underside does: it turns with the head, or the
+					// throat opens under the chin at a steep angle
+					const f32 *pinat = ashood ? seamhead : seam;
+					const s32 numpinat = ashood ? numseamhead : numseam;
+					const s32 pin = !ishead && ((numpinat > 0
+							&& bsearch(v3[i].pos, pinat, numpinat, 3 * sizeof(f32), beanSeamCompare) != NULL)
+							|| clamped);
+
+					if (pin) {
+						for (s32 k = 0; k < 3; k++) {
+							bone[k] = (u8)rig.mtx[SK_NECK];
+							weight[k] = k == 0 ? 1.0f : 0.0f;
 						}
 					}
 
-					if (sum <= 0.0f) {
+					map[vi] = beanAddVertex(&out, pos, nrm, uv, bone, weight, 0xffffffff);
+
+					if (map[vi] < 0) {
 						ok = 0;
 						break;
 					}
 
-					for (s32 m = 0; m < nm; m++) {
-						for (s32 n = m + 1; n < nm; n++) {
-							if (mw[n] > mw[m]) {
-								const f32 tw = mw[m];
-								const s32 tm = mtx[m];
-								mw[m] = mw[n]; mtx[m] = mtx[n];
-								mw[n] = tw; mtx[n] = tm;
-							}
-						}
-					}
-
-					if (nm > 3) {
-						nm = 3;
-					}
-
-					sum = 0.0f;
-
-					for (s32 m = 0; m < nm; m++) {
-						sum += mw[m];
-					}
-
-					for (s32 m = 0; m < 3; m++) {
-						bone[m] = (u8)(m < nm ? mtx[m] : mtx[0]);
-						weight[m] = m < nm ? mw[m] / sum : 0.0f;
-					}
-
-				}
-
-				// And a filler vertex brought down to the N64 neck's top stands
-				// where the head's underside does: it turns with the head, or the
-				// throat opens under the chin at a steep angle
-				const s32 pin = !ishead && ((numseam > 0
-						&& bsearch(v3[i].pos, seam, numseam, 3 * sizeof(f32), beanSeamCompare) != NULL)
-						|| clamped);
-
-				if (pin) {
-					for (s32 k = 0; k < 3; k++) {
-						bone[k] = (u8)rig.mtx[SK_NECK];
-						weight[k] = k == 0 ? 1.0f : 0.0f;
-					}
-				}
-
-				mapped[vi] = beanAddVertex(&out, pos, nrm, uv, bone, weight, 0xffffffff);
-
-				if (mapped[vi] < 0) {
-					ok = 0;
-					break;
-				}
-
-				if (pin) {
-					if (numpins >= cappins) {
-						const s32 cap = cappins ? cappins * 2 : 256;
-						s32 *grown = realloc(pins, cap * sizeof(s32));
+					if (ashood && !ishead && map[vi] >= caphoodvert) {
+						const s32 cap = caphoodvert ? caphoodvert * 2 : 4096;
+						u8 *grown = realloc(hoodvert, cap > map[vi] ? cap : map[vi] + 1);
 
 						if (grown) {
-							pins = grown;
-							cappins = cap;
+							memset(grown + caphoodvert, 0, (cap > map[vi] ? cap : map[vi] + 1) - caphoodvert);
+							hoodvert = grown;
+							caphoodvert = cap > map[vi] ? cap : map[vi] + 1;
 						}
 					}
 
-					if (numpins < cappins) {
-						pins[numpins++] = mapped[vi];
+					if (ashood && !ishead && map[vi] < caphoodvert) {
+						hoodvert[map[vi]] = 1;
 					}
+
+					if (pin) {
+						if (numpins >= cappins) {
+							const s32 cap = cappins ? cappins * 2 : 256;
+							s32 *grown = realloc(pins, cap * sizeof(s32));
+
+							if (grown) {
+								pins = grown;
+								cappins = cap;
+							}
+						}
+
+						if (numpins < cappins) {
+							pins[numpins++] = map[vi];
+						}
+					}
+
+					idx[i] = (u16)map[vi];
 				}
 
-				idx[i] = (u16)mapped[vi];
-			}
+				if (!ok) {
+					continue;
+				}
 
-			if (!ok) {
-				continue;
-			}
+				for (s32 k = 0; k < numnodes; k++) {
+					s32 takes;
 
-			for (s32 k = 0; k < numnodes; k++) {
-				s32 takes;
-
-				if (filler) {
-					takes = k < 64 && fillof[k] >= 0;
-				} else if (ishead) {
-					takes = !beanNodeIsToggled(nodes[k]);
-				} else {
-					s32 want = dominant == SK_POSITION ? SK_BASE : dominant;
-					s32 any = 0;
-
-					for (s32 j = 0; j < numnodes; j++) {
-						if (nodeskel[j] == want) {
-							any = 1;
+					// The smoothed copy: the neck's own group for it, and the
+					// filler's, which a fitted head's collar draws instead
+					if (asbare) {
+						if (k < 64 && bareof[k] >= 0 && !beanAddTri(&out, bareof[k], (s32)d->tex, idx[0], idx[1], idx[2])) {
+							ok = 0;
 							break;
 						}
+
+						if (k < 64 && fillof[k] >= 0 && !beanAddTri(&out, fillof[k], (s32)d->tex, idx[0], idx[1], idx[2])) {
+							ok = 0;
+							break;
+						}
+
+						continue;
 					}
 
-					if (!any) {
-						want = SK_BASE;
+					if (asfill) {
+						takes = k < 64 && fillof[k] >= 0;
+					} else if (ashood) {
+						takes = k < 64 && hoodof[k] >= 0;
+					} else if (ishead) {
+						takes = !beanNodeIsToggled(nodes[k]);
+					} else {
+						s32 want = dominant == SK_POSITION ? SK_BASE : dominant;
+						s32 any = 0;
+
+						for (s32 j = 0; j < numnodes; j++) {
+							if (nodeskel[j] == want) {
+								any = 1;
+								break;
+							}
+						}
+
+						if (!any) {
+							want = SK_BASE;
+						}
+
+						takes = nodeskel[k] == want;
 					}
 
-					takes = nodeskel[k] == want;
-				}
-
-				if (takes && !beanAddTri(&out, filler ? fillof[k] : k, (s32)d->tex, idx[0], idx[1], idx[2])) {
-					ok = 0;
-					break;
+					if (takes && !beanAddTri(&out, asfill ? fillof[k] : ashood ? hoodof[k] : k, (s32)d->tex, idx[0], idx[1], idx[2])) {
+						ok = 0;
+						break;
+					}
 				}
 			}
 		}
@@ -6842,7 +7110,10 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	}
 
 	if (!ishead) {
-		beanSmoothNeckWeights(&out, rig.mtx[SK_NECK], rig.mtx[SK_BACK]);
+		// Never the hood's copies: its rim and lining are painted with the
+		// back's share jumping from a fifth to nine tenths between neighbours
+		// on purpose, which the outlier test takes for Natalya's stray lip
+		beanSmoothNeckWeights(&out, rig.mtx[SK_NECK], rig.mtx[SK_BACK], hoodvert, caphoodvert);
 
 		for (s32 p = 0; p < numpins; p++) {
 			for (s32 k = 0; k < 3; k++) {
@@ -6853,7 +7124,9 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	}
 
 	free(seam);
+	free(seamhead);
 	free(pins);
+	free(hoodvert);
 
 	// The pictures: only those a draw names, bound once per character.
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
@@ -6890,15 +7163,19 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 	for (s32 k = 0; k < 64; k++) {
 		mats->neckfill[k] = fillof[k];
+		mats->hood[k] = hoodof[k];
+		mats->bare[k] = bareof[k];
 	}
 
+	mats->head = ishead;
 
-	file = beanWriteMesh(&out, numnodes + numfill, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
+	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles over %d lists, %s %.4f%s",
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles over %d lists, %s %.4f%s%s",
 			r->file, source, out.numverts, out.numtris, numnodes,
 			ishead ? "rigid on the neck, scale" : "skinned to the model's matrices, scale",
-			ishead ? headscale : rig.scale, file ? "" : " - did not write");
+			ishead ? headscale : rig.scale, headtex >= 0 ? ", the hood in groups of its own" : "",
+			file ? "" : " - did not write");
 
 	(void)dropped;
 

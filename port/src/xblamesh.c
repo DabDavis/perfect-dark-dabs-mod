@@ -393,6 +393,10 @@ struct xblameshbuilt {
 	s32 frombean;      // a GoldenEye XBLA character, skinned, a group per list node: xblaMeshBuildBean()
 	u64 beanneck;      // its groups blanked for a neck its own head carries (gebeanmats.neckblank)
 	s8 beanneckfill[64]; // a neck node's group of the body's own neck, for a fitted head (gebeanmats.neckfill)
+	s8 beanhood[64];   // a node's group with the parka's hood (gebeanmats.hood)
+	s8 beanbare[64];   // a neck node's group of the collar the hood covers (gebeanmats.bare)
+	s32 beanhead;      // the mesh is a head's (gebeanmats.head)
+	s32 beanrow;       // the row it was built from, for the hood's test (gebeanRowKeepsHood())
 	u32 packgen;       // modelpackGetGeneration() when it was built
 };
 
@@ -6102,6 +6106,10 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 
 	m->beanneck = bmats->neckblank;
 	memcpy(m->beanneckfill, bmats->neckfill, sizeof(m->beanneckfill));
+	memcpy(m->beanhood, bmats->hood, sizeof(m->beanhood));
+	memcpy(m->beanbare, bmats->bare, sizeof(m->beanbare));
+	m->beanhead = bmats->head;
+	m->beanrow = e->beanrow;
 	free(bmats);
 
 	snprintf(what, sizeof(what), "model file %d's GoldenEye model%s", e->fileid,
@@ -7279,12 +7287,13 @@ static s32 xblaMeshHeadIsFitted(struct model *model)
 }
 
 /**
- * Whether the head grafted on a GoldenEye body is drawn as a GoldenEye XBLA
- * mesh. Bean's head carries its own neck (a body leaves the neck out and a
- * head takes only it), so the body's N64 neck stub under it is a second neck:
- * flat tan flaps either side of Bond's HD one (F3 20260924-062727).
+ * The GoldenEye XBLA row the head grafted on a GoldenEye body is drawn from,
+ * or -1 when it is not drawn as one of the release's meshes. Bean's head
+ * carries its own neck (a body leaves the neck out and a head takes only it),
+ * so the body's N64 neck stub under it is a second neck: flat tan flaps either
+ * side of Bond's HD one (F3 20260924-062727).
  */
-static s32 xblaMeshHeadDrawsBean(struct model *model)
+static s32 xblaMeshHeadBeanRow(struct model *model)
 {
 	struct modelnode *spot = model && model->definition ? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
 	union modelrwdata *rw = spot ? modelGetNodeRwData(model, spot) : NULL;
@@ -7300,7 +7309,8 @@ static s32 xblaMeshHeadDrawsBean(struct model *model)
 				&& (optEnabled || gebeanRowIsPool(e->beanrow))) {
 			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
 
-			return m && e->packpart < m->numgroups && !(m->groupabsent & (1ull << e->packpart));
+			return m && e->packpart < m->numgroups && !(m->groupabsent & (1ull << e->packpart))
+				? e->beanrow : -1;
 		}
 
 		if (node->child) {
@@ -7314,7 +7324,41 @@ static s32 xblaMeshHeadDrawsBean(struct model *model)
 		}
 	}
 
-	return 0;
+	return -1;
+}
+
+static s32 xblaMeshHeadDrawsBean(struct model *model)
+{
+	return xblaMeshHeadBeanRow(model) >= 0;
+}
+
+/**
+ * The GoldenEye XBLA row a body model's own nodes were filed with, or -1. The
+ * walk stays out of the head grafted at its headspot.
+ */
+static s32 xblaMeshBodyBeanRow(struct model *model)
+{
+	struct modelnode *node = model && model->definition ? model->definition->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 512; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == model->definition && !e->suppress && e->beanrow >= 0) {
+			return e->beanrow;
+		}
+
+		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return -1;
 }
 
 static s32 xblaMeshNodeIsGrafted(const struct model *model, const struct modelnode *node)
@@ -9345,9 +9389,33 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// A head that is not the body's own: the body's own neck, kept in a
 		// group of its own, fills the collar, where the node's group is left to
 		// the head it was made for - blank, or GoldenEye X's N64 stub
+		if (m->beanhead) {
+			// A head cut off the parka's neck is the face alone on the body
+			// that keeps its hood; anywhere else - another body, or on its
+			// own on the Character page - it brings the hood with it
+			if (part < 64 && m->beanhood[part] >= 0 && m->beanhood[part] < m->numgroups
+					&& !(m->groupabsent & (1ull << m->beanhood[part]))
+					&& !(e->modeldef != model->definition
+						&& gebeanRowKeepsHood(xblaMeshBodyBeanRow(model), m->beanrow))) {
+				part = (u16)m->beanhood[part];
+			}
+		}
+
 		if (part < 64 && m->beanneckfill[part] >= 0 && m->beanneckfill[part] < m->numgroups
 				&& !(m->groupabsent & (1ull << m->beanneckfill[part])) && xblaMeshHeadIsFitted(model)) {
 			part = (u16)m->beanneckfill[part];
+		} else if (!m->beanhead && part < 64 && m->beanhood[part] >= 0 && m->beanhood[part] < m->numgroups
+				&& !(m->groupabsent & (1ull << m->beanhood[part]))
+				&& gebeanRowKeepsHood(m->beanrow, xblaMeshHeadBeanRow(model))) {
+			// The parka's hood, which the body keeps and skins with the back
+			// holding its rim (gebeanBuild()), round the face cut off the same
+			// neck, which no longer carries one - not round another head,
+			// whose hair comes out through it
+			part = (u16)m->beanhood[part];
+		} else if (!m->beanhead && part < 64 && m->beanbare[part] >= 0 && m->beanbare[part] < m->numgroups
+				&& !(m->groupabsent & (1ull << m->beanbare[part]))) {
+			// And round any other, the collar the hood would have covered
+			part = (u16)m->beanbare[part];
 		} else if (part >= m->numgroups || (m->groupabsent & (1ull << part))) {
 			// A neck node (one with a filler slot) under a head that brings
 			// its own HD neck draws nothing; under an N64 head the stub stays
