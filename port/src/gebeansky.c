@@ -73,6 +73,43 @@ static const struct { const char *key, *sky; } skyNames[] = {
 	{ "tra",   "train" },
 };
 
+/**
+ * GoldenEye's key for a level -> the release's own sky, drawn without the
+ * Community Edition. The release's eleven are one picture, and it is
+ * Surface's: a blue sky over the peaks and low sun of Surface's panorama (the
+ * level's backdrop, gebeanStageRenderBackdrop()), and the Community Edition's
+ * Surface sky (sf1) is that picture with its top half retouched - its bottom
+ * half differs by 2 levels in 255 on average. Everywhere else the placeholder is
+ * wrong and the level keeps GoldenEye's sky; on Surface GoldenEye's is a
+ * lavender dusk with orange clouds, which drawn over the release's daylit
+ * panorama met it in a hard seam of two skies (F3 20260925-074723).
+ */
+static const struct { const char *key, *sky; } releaseSkyNames[] = {
+	{ "sevx",  "surface" },
+};
+
+/** The sky file drawn over a level, or NULL for GoldenEye's own sky. */
+static const char *skyNameFor(const char *key)
+{
+	if (gebeanCeIsActive()) {
+		for (s32 i = 0; i < ARRAYCOUNT(skyNames); i++) {
+			if (strcmp(skyNames[i].key, key) == 0) {
+				return skyNames[i].sky;
+			}
+		}
+
+		return NULL;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(releaseSkyNames); i++) {
+		if (strcmp(releaseSkyNames[i].key, key) == 0) {
+			return releaseSkyNames[i].sky;
+		}
+	}
+
+	return NULL;
+}
+
 struct skylist {
 	const void *tile;   // the picture's stand-in (xblatex.c)
 	u8 alpha;
@@ -86,6 +123,7 @@ struct skylist {
 
 static struct {
 	const char *key;    // what was built, or tried and found nothing
+	const char *name;   // the sky file it was built from, NULL for none
 	s32 tried;
 	struct gebeanlevel *level;
 	s32 numlists;
@@ -248,19 +286,11 @@ static s32 skyBuildList(struct skylist *l, s32 fade)
 	return 1;
 }
 
-static s32 skyBuild(const char *key)
+static s32 skyBuild(const char *key, const char *name)
 {
-	const char *name = NULL;
-
 	sky.key = key;
+	sky.name = name;
 	sky.tried = 1;
-
-	for (s32 i = 0; i < ARRAYCOUNT(skyNames); i++) {
-		if (strcmp(skyNames[i].key, key) == 0) {
-			name = skyNames[i].sky;
-			break;
-		}
-	}
 
 	if (!name) {
 		return 0;
@@ -304,6 +334,7 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 {
 	struct environment *env = envGetCurrent();
 	const char *key;
+	const char *name;
 	struct zrange zrange;
 	Mtxf *mtx;
 	f32 scale;
@@ -311,9 +342,7 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 
 	skyDrawn = 0;
 
-	// Only the Community Edition's: the release's own are one placeholder
-	if (!gebeanCeIsActive() || !xblaStageDrawsEveryRoom()
-			|| g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
+	if (!xblaStageDrawsEveryRoom() || g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		return NULL;
 	}
 
@@ -323,9 +352,17 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 		return NULL;
 	}
 
-	if (!sky.tried || strcmp(sky.key, key) != 0) {
+	// The Community Edition's where it is on, else the release's own where
+	// it is the level's (skyNameFor())
+	name = skyNameFor(key);
+
+	if (!name) {
+		return NULL;
+	}
+
+	if (!sky.tried || strcmp(sky.key, key) != 0 || sky.name != name) {
 		skyFree();
-		skyBuild(key);
+		skyBuild(key, name);
 	}
 
 	for (s32 i = 0; i < sky.numlists; i++) {

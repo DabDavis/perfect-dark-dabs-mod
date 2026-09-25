@@ -8854,7 +8854,8 @@ pictures - and renamed the files to the level folders' names (release
 `egyptian` = CE `temple`, release `temple` = CE `aztec`/`multitemple`,
 release `caverns` = CE `caves`, Surface's `sf1`/`sf2`). So a sky is drawn
 only with the Community Edition on; without it a level keeps GoldenEye's
-own. Five of the CE's are still the placeholder (Aztec, Bunker, Caves,
+own - except Surface, whose sky the placeholder is (below, "Surface's two
+skies"). Five of the CE's are still the placeholder (Aztec, Bunker, Caves,
 Temple, Egyptian) and are drawn as it draws them. Facility and Jungle have
 none.
 
@@ -9938,3 +9939,53 @@ X's guns every long gun of GoldenEye's is two-handed here (the KF7 kneels in
 rows 7/8, measured), but the tester's install has Random guard weapons for the
 reinforcements, and a borrowed definition takes its host's one-handed flag -
 the rifle-in-a-pistol-pose case fix/ge-guard-rifle-hold (54ea4a844) settles.
+
+## Surface's two skies, and what the texture pack had to do with it (2026-09-25)
+
+Three F3s from ODEYSEIS (Windows, 4K, HD look, Community Edition off, PD XBLA
+texture pack on): Surface in a Randomizer run (20260925-074723, 9f09335,
+stage 0x0c) "sky dome color mismatch with PD XBLA textures on"; Surface 2
+(080836 and 081417, 6b17756, stage 0x6a) "background mismatch with sky dome
+and mission level" and "specific floor mismatch near first two cabins" - a
+bright white pentagon of snow on dark red-brown ground.
+
+**The pack is not in it.** GoldenEye's clouds are texture 0x08b4 (row 3 of
+`g_TcSkyWaterConfigs`), a number the PD XBLA pack has a picture for (an
+orange 32x32), but the converted level ships the texture and `texLoad()`
+registers it as the stage mod's (`texpackTextureArt()` 2, MODSTAGE), which
+only that mod's own pack may replace. Pack on and off are pixel-identical on
+the mission (0x69) and the arena (0x0c). The pink and purple is GoldenEye's
+own Surface sky: its fog row is a lavender 0x606080 with orange f0781e clouds
+(Surface 2's a dark red 0x201010 with brown 3a1100 clouds) - the N64 look
+draws the same.
+
+**What did not match was two skies.** In HD, 4J's panorama round Surface (the
+backdrop, a photograph of peaks under a blue daytime sky fading into the sky
+at its top) stood under GoldenEye's dusk. The release has a sky for it: its
+eleven skydomes are one picture, and that picture is Surface's - blue, low
+sun, the panorama's peaks - with the Community Edition's `sf1` the same
+picture with its top half retouched (bottom half within 2 of 255 on average,
+`r` 0.997). `gebeansky.c`'s `releaseSkyNames[]` draws it on Surface without
+the Community Edition; every other level keeps GoldenEye's sky there. Surface
+2 is left alone: the release fogs it in GoldenEye's own dark red (0x201010,
+whole at 10000, retail), which puts the panorama, 22000 out, under solid fog - since f85f775e0 (the release's fog on the backdrop) the
+daylit peaks the tester saw on 6b17756 are gone into the dark red, as the
+release draws them.
+
+**The white pentagon** was GoldenEye's own: a few of its ground triangles by
+the cabins are drawn in `0x00502078`, which GoldenEye leaves unfogged ("The
+surfaces GoldenEye draws without fog"); on 6b17756 the HD rooms took GoldenEye's
+N64 fog (fog from 957 of 1000 of the range, all but the near ground dark red)
+and the unfogged patch stayed white. f85f775e0 fogs every HD room mode by the
+release's linear fog, the patch included, and at the report's camera the
+ground is one piece now. Both Surface 2 reports reproduce on 6b17756 and not
+on 718d5dcd6.
+
+Not done: with the Community Edition on, Surface 2 is a grey storm dome (`sf2`)
+over the dark red band of its fog and GoldenEye's sky colour under the dome's
+lowest ring - the CE changed the picture, not the fog colour.
+
+Rig: `~/wt/f3surfsky-rig/cam.sh TAG BIN STAGE [px py pz lx ly lz]` (the
+f3damfog rig with `SAVE=` choosing save_packon, save_packoff, save_n64,
+save_ce); pictures in `~/wt/f3surfsky-pics`. After a reboot the render node
+needs `sudo setfacl -m u:sdg:rw /dev/dri/renderD128` or the run is llvmpipe.

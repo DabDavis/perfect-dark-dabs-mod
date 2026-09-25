@@ -13,7 +13,9 @@ extern "C" {
  * round the eye with a cloud cap over it, from the Community Edition's
  * files/new/skydome/. The release's own eleven are one placeholder - the same
  * mountain sunset under every name - and the Community Edition is what gave
- * the levels skies of their own, so without it a level keeps GoldenEye's sky.
+ * the levels skies of their own, so without it a level keeps GoldenEye's sky;
+ * but for Surface, whose sky the placeholder is (gebeansky.c,
+ * releaseSkyNames[]).
  *
  * gebeanSkyRender() draws it in place of the sky plane and answers the next
  * free command, or NULL where this level has none and the game's sky is to be
