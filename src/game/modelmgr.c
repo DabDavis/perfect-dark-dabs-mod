@@ -275,10 +275,64 @@ struct model *modelmgrInstantiateModelWithoutAnim(struct modeldef *modeldef)
 	return modelmgrInstantiateModel(modeldef, false);
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The chr wearing this model, if one still is.
+ *
+ * chrRemove() lets go of a chr's model before freeing it, and nothing else
+ * frees a model a chr is wearing on purpose - so a chr found here means the
+ * caller holds a pointer to a model that has since become somebody else's.
+ */
+static struct chrdata *modelmgrFindWearer(struct model *model)
+{
+	s32 i;
+
+	if (g_ChrSlots == NULL) {
+		return NULL;
+	}
+
+	for (i = 0; i < g_NumChrSlots; i++) {
+		if (g_ChrSlots[i].model == model && g_ChrSlots[i].chrnum >= 0) {
+			return &g_ChrSlots[i];
+		}
+	}
+
+	return NULL;
+}
+#endif
+
 void modelmgrFreeModel(struct model *model)
 {
 	bool done = false;
 	s32 i;
+
+#ifndef PLATFORM_N64
+	// Freeing a model marks its slot free by clearing the definition, and the
+	// chr wearing it keeps the pointer: its tick, its draw and every hit test
+	// then read a definition of NULL (crash 20260924-045747, a guard's
+	// chrGetHitRadius() on GE Plus Dam). The next chr or object to be given a
+	// model can be handed the same slot on top of that, and the two share it.
+	// Whoever is freeing it is working from a stale pointer, so the model
+	// stays with the chr and the log says who asked, as an offset from this
+	// function that addr2line can take.
+	{
+		struct chrdata *wearer = modelmgrFindWearer(model);
+
+		if (wearer) {
+			static s32 warned = 0;
+
+			if (warned < 8) {
+				warned++;
+				sysLogPrintf(LOG_WARNING, "modelmgr: model %p freed while chr %d (body %d, action %d) wears it, from modelmgrFreeModel%+lld at frame %d; kept",
+						(void *)model, wearer->chrnum, wearer->bodynum, wearer->actiontype,
+						(long long)((uintptr_t)__builtin_return_address(0) - (uintptr_t)&modelmgrFreeModel),
+						g_Vars.lvframenum);
+			}
+
+			return;
+		}
+	}
+#endif
 
 	for (i = 0; i < NUMTYPE1(); i++) {
 		if (g_ModelRwdataBindings[0][i].model == model) {

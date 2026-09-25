@@ -1753,8 +1753,16 @@ void chrRemove(struct prop *prop, bool free)
 		child = next;
 	}
 
+#ifndef PLATFORM_N64
+	// Let go of it first: modelmgrFreeModel() keeps a model any chr still
+	// wears, which is what catches a free from a stale pointer, and this is
+	// the one free of a worn model that is meant.
+	chr->model = NULL;
+	modelmgrFreeModel(model);
+#else
 	modelmgrFreeModel(model);
 	chr->model = NULL;
+#endif
 
 	if (free) {
 		chrDeregister(chr->chrnum);
