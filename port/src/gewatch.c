@@ -3957,6 +3957,18 @@ static Gfx *watchDrawBriefingPage(Gfx *gdl)
 				continue;
 			}
 
+			// only this difficulty's, lettered among themselves, as
+			// GoldenEye's page does (get_difficulty_for_objective(i) <=
+			// lvlGetSelectedDifficulty()) and Perfect Dark's own objectives
+			// list does over its bits. The conversion gives an objective the
+			// bits from its lowest difficulty up (geconvert.c's
+			// objectiveRecord()), so Agent is shown Agent's and not 00
+			// Agent's; the mission page's COMPLETE already asked the same
+			// question through objectiveIsAllComplete()
+			if (!(objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty()))) {
+				continue;
+			}
+
 			switch (status) {
 			case OBJECTIVE_COMPLETE:
 				state = watchString(STR_COMPLETE);
