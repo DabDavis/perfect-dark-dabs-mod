@@ -9409,3 +9409,41 @@ animation chooser skipped), `ANGLES=name:deg:verta ...`; `guard.py`/`rung.sh`
 for a guard; `mtx.py` reads the neck and back matrices inside
 `xblaMeshPose()`. The pool's Bond (Parka) is `InstituteCharacter=79`, the
 parka head `InstituteCharacterHead=109`, on Chicago 0x1d from frame 2800.
+
+## The door consoles' lamp: monitor screens under Bean's meshes (2026-09-25)
+
+F3 20260925-064727 (ODEYSEIS, 9f09335, HD Facility 0x63, the door console at
+(-3533 -236 1521)): *"Missing animating green/red light square."* GoldenEye's
+`PROP_DOORCONSOLE` ("Console w/ Activation Light", `Pgx337Z`) is a
+**SingleMonitor** on the `console_one_screen` skeleton: switch 0 is an 89x82
+quad right of the vent, and the setup starts it on programme 48 (grey solid)
+for the AI to set 46/47 (red/green brightening) by its door - the lamp is a
+monitor programme, the keyboard-key picture tinted and pulsing. The oracle
+(`~/dam-oracle/f3light_gefacconsole3.py`: Facility's converted offset is
+GE = ours + (4509, -106, -1063), and here GoldenEye's `vv_theta` was 360
+minus ours) shows it pulsing red.
+
+- **HD: Bean's mesh drew its own still picture on the screen.** The prop's
+  second list node is the screen and Bean's mesh has a group for it, so the
+  node drew Bean's texture (a spiral; a grille with the Community Edition)
+  and never the list `tvscreenRender()` had just written. `objRenderProp()`
+  now names a monitor to `xblaMeshSetScreens()` round `modelRender()` in the
+  opaque pass, and `xblaMeshRenderNode()` hands a GoldenEye mesh's node back
+  to the game when it is part 0-3 with a list the programme wrote. The mesh's
+  other group has the hole, so nothing fights the quad. It brought every HD TV
+  to life with it: Bunker's hanging sets showed Bean's dark glass before.
+  Perfect Dark's own release meshes are left alone (`frombean` only).
+- **Both looks: a blue smear on the lamp.** The same bytes decode to the same
+  indices in both games (`gekey.bin` from the oracle's `texFindInPool()`
+  against ours), but Perfect Dark's `texLoad()` keeps **five** levels where
+  GoldenEye's keeps six, while `texSelect()` finds a config's palette past as
+  many levels as `tconfig->level` names. GoldenEye's monitor pictures say 6,
+  so the palette was read 8 bytes late: four colours off along the ramp and
+  the last four from past its end - blue and black on the key's lit bevel.
+  `gemonitor.c` caps the pictures' level at 5.
+
+Not done: GE Plus's folder page of TV sets (`frontDrawTvs()`) does its own
+`modelRender()` and does not call `xblaMeshSetScreens()`; if its set draws
+Bean's mesh in the HD look it still shows the glass. Probes and pictures:
+`~/wt/f3gelight-run/` (`pos.sh`, `views.sh` - several views per boot,
+`--spectate` with `thirdperson = 0` set each tick), `~/wt/f3gelight-pics/`.
