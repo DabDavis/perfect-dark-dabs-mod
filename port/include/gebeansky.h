@@ -25,6 +25,14 @@ extern "C" {
 Gfx *gebeanSkyRender(Gfx *gdl);
 s32 gebeanSkyIsDrawn(void);
 
+/**
+ * The colour the HD level's fog and the fill under the dome take in place of
+ * the release's fog colour, where a Community Edition dome's horizon differs
+ * from it (Surface 2's grey storm over GoldenEye's dark red): 1 and rgb set,
+ * else 0 and the release's fog stands.
+ */
+s32 gebeanSkyFogColour(u8 *rgb);
+
 /** A new level: the last one's dome goes. */
 void gebeanSkyLevelReset(void);
 

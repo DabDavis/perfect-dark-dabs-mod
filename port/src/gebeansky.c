@@ -88,6 +88,45 @@ static const struct { const char *key, *sky; } releaseSkyNames[] = {
 	{ "sevx",  "surface" },
 };
 
+/**
+ * GoldenEye's key for a level -> the colour of its Community Edition dome at
+ * the horizon, which the fog and the fill under the dome take in place of the
+ * release's, only while the Community Edition is on (gebeanSkyFogColour()).
+ *
+ * Surface 2: the CE's sf2 is a grey storm, where the release's fog row for
+ * the level (retail and the CE's alike) is GoldenEye's dark red 0x201010 -
+ * under the dome that left a dark red band where the ground and the
+ * panorama fogged out, and the same red filled the screen below the dome's
+ * lowest ring. The CE carries no other colour for it (its fog row changes
+ * only the distance, 10000 -> 6500), so the colour is the dome's own: the
+ * mean of the bottom 20 of its picture's 1024 rows, the band its lowest ring
+ * of vertices is drawn with (v 0.98 to 1.0), round the whole turn. The
+ * bottom 4 rows give 0x575e5b, the bottom 50 0x58605e.
+ */
+static const struct { const char *key; u32 rgb; } ceHorizons[] = {
+	{ "sevxb", 0x575f5d },
+};
+
+s32 gebeanSkyFogColour(u8 *rgb)
+{
+	const char *key;
+
+	if (!gebeanCeIsActive() || (key = gebeanStageLevelKey()) == NULL) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(ceHorizons); i++) {
+		if (strcmp(ceHorizons[i].key, key) == 0) {
+			rgb[0] = ceHorizons[i].rgb >> 16;
+			rgb[1] = ceHorizons[i].rgb >> 8;
+			rgb[2] = ceHorizons[i].rgb;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 /** The sky file drawn over a level, or NULL for GoldenEye's own sky. */
 static const char *skyNameFor(const char *key)
 {
@@ -335,6 +374,7 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 	struct environment *env = envGetCurrent();
 	const char *key;
 	const char *name;
+	u8 fill[3];
 	struct zrange zrange;
 	Mtxf *mtx;
 	f32 scale;
@@ -380,10 +420,17 @@ Gfx *gebeanSkyRender(Gfx *gdl)
 	}
 
 	// Under the dome's lowest ring: the level's own sky colour, as the game
-	// fills a level with no clouds
+	// fills a level with no clouds - or the dome's horizon, where the fog
+	// takes it too (gebeanSkyFogColour())
 	gDPPipeSync(gdl++);
 	gDPSetCycleType(gdl++, G_CYC_FILL);
-	gdl = viSetFillColour(gdl, env->sky_r, env->sky_g, env->sky_b);
+
+	if (gebeanSkyFogColour(fill)) {
+		gdl = viSetFillColour(gdl, fill[0], fill[1], fill[2]);
+	} else {
+		gdl = viSetFillColour(gdl, env->sky_r, env->sky_g, env->sky_b);
+	}
+
 	gDPSetRenderMode(gdl++, G_RM_NOOP, G_RM_NOOP2);
 	gDPFillRectangle(gdl++,
 			g_Vars.currentplayer->viewleft, g_Vars.currentplayer->viewtop,
@@ -471,6 +518,7 @@ s32 gebeanSkyIsDrawn(void)
 #include "gebeansky.h"
 
 Gfx *gebeanSkyRender(Gfx *gdl) { return NULL; }
+s32 gebeanSkyFogColour(u8 *rgb) { return 0; }
 s32 gebeanSkyIsDrawn(void) { return 0; }
 void gebeanSkyLevelReset(void) { }
 

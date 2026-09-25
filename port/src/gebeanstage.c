@@ -30,6 +30,7 @@
 #include "gebean.h"
 #include "fs.h"
 #include "gebeanstage.h"
+#include "gebeansky.h"
 
 #define SEG 0x0f000000
 
@@ -2722,6 +2723,10 @@ s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb)
 	rgb[0] = f->rgb >> 16;
 	rgb[1] = f->rgb >> 8;
 	rgb[2] = f->rgb;
+
+	// A Community Edition dome whose horizon is not the fog's colour gives
+	// it its own (Surface 2's grey storm)
+	gebeanSkyFogColour(rgb);
 
 	return 1;
 }

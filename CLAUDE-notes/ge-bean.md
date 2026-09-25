@@ -9981,9 +9981,20 @@ release's linear fog, the patch included, and at the report's camera the
 ground is one piece now. Both Surface 2 reports reproduce on 6b17756 and not
 on 718d5dcd6.
 
-Not done: with the Community Edition on, Surface 2 is a grey storm dome (`sf2`)
-over the dark red band of its fog and GoldenEye's sky colour under the dome's
-lowest ring - the CE changed the picture, not the fog colour.
+**Surface 2 with the Community Edition on** (the user, after: "match the fog
+to CE's grey storm dome"): the CE's `sf2` is a grey storm, but its fog row for
+Surface 2 is still GoldenEye's dark red 0x201010 (it changed only the distance,
+10000 -> 6500), so a dark red band stood under the dome - the fogged ground
+and panorama, and the fill below the dome's lowest ring (`env->sky_*`). The
+CE carries no other colour, so the colour is the dome's own horizon:
+**0x575f5d**, the mean of the bottom 20 of the picture's 1024 rows round the
+whole turn (the lowest ring of vertices is drawn with v 0.98-1.0; the bottom
+4 rows give 0x575e5b, 50 give 0x58605e). `gebeansky.c`'s `ceHorizons[]` and
+`gebeanSkyFogColour()`: `gebeanStageFog()` (rooms, props, chrs, backdrop) and
+the fill under the dome take it, CE on only. At the report's camera the dome's
+bottom rows arrive at 87 95 93 where the fill starts - no seam. Surface 2 with
+the CE off, Surface with it on and off, Dam with it on and off, and the N64
+look's Surface 2 with it on and off are pixel-identical to before.
 
 Rig: `~/wt/f3surfsky-rig/cam.sh TAG BIN STAGE [px py pz lx ly lz]` (the
 f3damfog rig with `SAVE=` choosing save_packon, save_packoff, save_n64,
