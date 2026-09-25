@@ -568,15 +568,36 @@ void gexPlusVehiclePutPart(struct model *model, s32 partnum, Mtxf *rot)
 static void vehPutPart(struct model *model, s32 partnum, Mtxf *rot)
 {
 	struct modelnode *node = modelGetPart(model->definition, partnum);
-	struct modelrodata_position *rodata;
+	struct coord *pos;
+	s32 mtxindex;
 	Mtxf local;
 	Mtxf *parent;
 
-	if (node == NULL || (node->type & 0xff) != MODELNODETYPE_POSITION) {
+	if (node == NULL) {
 		return;
 	}
 
-	rodata = &node->rodata->position;
+	// A helicopter's two rotors are **held positions** (0x15), not positions:
+	// GoldenEye's switch entries 2 and 3 of every aircraft model name that
+	// node type, whose rodata is only a position and a matrix, and its render
+	// reads the entry's data as a bare coord either way. Taking positions
+	// alone left this a no-op for every rotor in the twenty missions - Surface
+	// 2's parked helicopter spun its angle up for two minutes and drew its
+	// blades still (F3 20260925-082543). The truck's wheels and the tank's
+	// turret are positions.
+	if ((node->type & 0xff) == MODELNODETYPE_POSITION) {
+		pos = &node->rodata->position.pos;
+		mtxindex = node->rodata->position.mtxindex0;
+	} else if ((node->type & 0xff) == MODELNODETYPE_POSITIONHELD) {
+		pos = &node->rodata->positionheld.pos;
+		mtxindex = node->rodata->positionheld.mtxindex;
+	} else {
+		return;
+	}
+
+	if (mtxindex < 0 || mtxindex >= model->definition->nummatrices) {
+		return;
+	}
 
 	// Perfect Dark's own, from the branch of modelUpdatePositionNodeMtx() that
 	// runs when a model has no animation: the node's position is a
@@ -589,12 +610,12 @@ static void vehPutPart(struct model *model, s32 partnum, Mtxf *rot)
 	parent = node->parent ? modelFindNodeMtx(model, node->parent, 0) : NULL;
 
 	mtx4Copy(rot, &local);
-	mtx4SetTranslation(&rodata->pos, &local);
+	mtx4SetTranslation(pos, &local);
 
 	if (parent) {
-		mtx00015be4(parent, &local, &model->matrices[rodata->mtxindex0]);
+		mtx00015be4(parent, &local, &model->matrices[mtxindex]);
 	} else {
-		mtx4Copy(&local, &model->matrices[rodata->mtxindex0]);
+		mtx4Copy(&local, &model->matrices[mtxindex]);
 	}
 }
 
