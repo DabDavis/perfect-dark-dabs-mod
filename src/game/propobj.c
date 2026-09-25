@@ -17121,7 +17121,9 @@ void ammotypeGetPickupName(char *dst, s32 ammotype2, s32 qty)
 		case AMMOTYPE_TIMED_MINE:   textnum = L_PROPOBJ_020; break; // "timed mine"
 		case AMMOTYPE_REAPER:       textnum = L_PROPOBJ_047; break; // "Reaper ammo"
 		case AMMOTYPE_HOMINGROCKET: textnum = L_PROPOBJ_017; break; // "homing rocket"
+#ifdef PLATFORM_N64
 		case AMMOTYPE_DART:         textnum = L_PROPOBJ_025; break; // "dart"
+#endif
 		case AMMOTYPE_NBOMB:        textnum = L_PROPOBJ_026; break; // "N-Bomb"
 		case AMMOTYPE_SEDATIVE:     textnum = L_PROPOBJ_027; break; // "sedatives"
 		case AMMOTYPE_PSYCHOSIS:    textnum = L_PROPOBJ_027; break; // "sedatives"
@@ -17136,6 +17138,19 @@ void ammotypeGetPickupName(char *dst, s32 ammotype2, s32 qty)
 		if (textnum >= 0) {
 			strcat(dst, langGet(textnum));
 		}
+
+#ifndef PLATFORM_N64
+		// the dart row is GoldenEye's golden bullets in the port (constants.h)
+		if (ammotype == AMMOTYPE_GOLDENGUN) {
+			static u16 goldentext;
+
+			if (!goldentext) {
+				goldentext = langAddPortText("golden bullet");
+			}
+
+			strcat(dst, langGet(goldentext));
+		}
+#endif
 
 		if (qty >= 2 && ammotype != AMMOTYPE_REAPER && ammotype != AMMOTYPE_SEDATIVE && ammotype != AMMOTYPE_CLOAK) {
 			strcat(dst, langGet(L_PROPOBJ_024)); // "s"
@@ -17370,7 +17385,11 @@ s32 ammocrateGetPickupAmmoQty(struct ammocrateobj *crate)
 	case AMMOTYPE_SHOTGUN  : qty = 5;             break;
 	case AMMOTYPE_MAGNUM   : qty = 5;             break;
 	case AMMOTYPE_REAPER   : qty = 200;           break;
+#ifdef PLATFORM_N64
 	case AMMOTYPE_DART     : qty = 4;             break;
+#else
+	case AMMOTYPE_GOLDENGUN: qty = 3;             break; // GoldenEye's AMMO_GGUN
+#endif
 	case AMMOTYPE_CLOAK    : qty = TICKS(1200); break;
 	case AMMOTYPE_SEDATIVE : qty = 16;            break;
 	case AMMOTYPE_BOOST    : qty = 1;             break;
@@ -17413,7 +17432,11 @@ s32 weaponGetPickupAmmoQty(struct weaponobj *weapon)
 		case AMMOTYPE_MAGNUM:       qty = 10;          break;
 		case AMMOTYPE_DEVASTATOR:   qty = 3;           break;
 		case AMMOTYPE_REAPER:       qty = 200;         break;
+#ifdef PLATFORM_N64
 		case AMMOTYPE_DART:         qty = 10;          break;
+#else
+		case AMMOTYPE_GOLDENGUN:    qty = 3;           break; // GoldenEye's AMMO_GGUN
+#endif
 		case AMMOTYPE_CLOAK:        qty = TICKS(1200); break;
 		case AMMOTYPE_SEDATIVE:     qty = 16;          break;
 		case AMMOTYPE_BOOST:        qty = 1;           break;
@@ -17433,7 +17456,11 @@ s32 weaponGetPickupAmmoQty(struct weaponobj *weapon)
 		case AMMOTYPE_MAGNUM:     qty = 5;           break;
 		case AMMOTYPE_DEVASTATOR: qty = 3;           break;
 		case AMMOTYPE_REAPER:     qty = 100;         break;
+#ifdef PLATFORM_N64
 		case AMMOTYPE_DART:       qty = 4;           break;
+#else
+		case AMMOTYPE_GOLDENGUN:  qty = 3;           break; // GoldenEye's AMMO_GGUN
+#endif
 		case AMMOTYPE_CLOAK:      qty = TICKS(1200); break;
 		case AMMOTYPE_BOOST:      qty = 2;           break;
 		case AMMOTYPE_SEDATIVE:   qty = 16;          break;

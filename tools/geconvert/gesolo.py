@@ -152,7 +152,7 @@ GE_AMMO_TYPES = {
     10: (0x09,),        # KNIFE
     11: (0x0b,),        # GRENADEROUND   the grenade launcher stands on the Devastator
     12: (0x0a,),        # MAGNUM
-    13: (0x0a,),        # GGUN           the golden gun stands on the DY357-LX
+    13: (0x11,),        # GGUN           golden bullets, the port's pool of their own (AMMOTYPE_GOLDENGUN)
     20: (0x20,),        # BUG            the covert modem stands on the ECM mine
     22: (0x20,),        # GEKEY          and so do the GoldenEye key
     23: (0x20,),        # PLASTIQUE      and the plastique; no mission holds two of the three

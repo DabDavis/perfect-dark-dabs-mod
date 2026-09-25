@@ -252,8 +252,11 @@ static u16 gegunsPickupSound(s32 i)
  * split it in two: Perfect Dark's pistol rounds for the three pistols and its
  * submachine gun rounds for the rest, so a D5K's ammunition did not load a
  * PP7. They are all the submachine gun's now (800, as GoldenEye's 9mm). The
- * golden bullet has no row of Perfect Dark's to become and stays the magnum's,
- * and 0 - GoldenEye's AMMO_NONE, or a gadget with no row - keeps the host's.
+ * golden bullet has no row of Perfect Dark's to become and stood on the
+ * magnum's, so the Cougar Magnum in one hand emptied the Golden Gun in the
+ * other (F3 20260925-044735, akimbo: "192" under both); it is a pool of its
+ * own now, AMMOTYPE_GOLDENGUN (constants.h), GoldenEye's 100 at most and 3 a
+ * pickup. 0 - GoldenEye's AMMO_NONE, or a gadget with no row - keeps the host's.
  */
 static const u8 geammotypes[] = {
 	[1]  = AMMOTYPE_SMG,         // 9MM
@@ -268,7 +271,7 @@ static const u8 geammotypes[] = {
 	[10] = AMMOTYPE_KNIFE,       // KNIFE
 	[11] = AMMOTYPE_DEVASTATOR,  // GRENADEROUND
 	[12] = AMMOTYPE_MAGNUM,      // MAGNUM
-	[13] = AMMOTYPE_MAGNUM,      // GGUN
+	[13] = AMMOTYPE_GOLDENGUN,   // GGUN
 };
 
 s32 gegunsShootSoundRate(s32 weaponnum)
@@ -778,6 +781,19 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
  * - **A muzzle flash** on the silenced guns and the two launchers, whose
  *   GoldenEye models have no flash to show.
  *
+ * - **The Golden Gun's magnum.** It stands on the DY357-LX, and the model's
+ *   scripts it took were the magnum's: every shot played the revolver's kick,
+ *   and with GoldenEye's clip of one every shot was followed by the revolver's
+ *   reload - the cylinder swung out, six cases thrown from it (the revolver
+ *   flag) and a speed loader - so it fired like a magnum (F3
+ *   20260925-044735). GoldenEye's Golden Gun has no animation at all: its
+ *   recoil numbers kick it (bgun0f09aba4(), from its row), and it reloads the
+ *   way every GoldenEye gun does, lowered out of sight and raised again, which
+ *   is what Perfect Dark does for a gun with no reload script
+ *   (HANDSTATEMINOR_RELOAD_LOWER). Nor does GoldenEye top a holstered gun's
+ *   clip up over time, which the magnums do (WEAPONFLAG2_UNEQUIPPEDRELOAD).
+ *   The Cougar keeps its host's: it is the revolver GoldenEye's is.
+ *
  * And, as GoldenEye X has them: the Cougar's pistol whip does not leave its
  * victim dizzy, and a knife is thrown where it is aimed and not where auto-aim
  * would put it. (Lock-on and "an"/"the" are gegunsBuild()'s, from
@@ -844,7 +860,22 @@ static void gegunsOwnTrigger(s32 i)
 				func->flags |= FUNCFLAG_NOAUTOAIM;
 			}
 			break;
+		case WEAPON_GE_GOLDENGUN:
+			func->fire_animation = NULL;
+			break;
 		}
+	}
+
+	if (weaponnum == WEAPON_GE_GOLDENGUN) {
+		const struct weapon *host = g_Weapons[g_GeWeaponHosts[i]];
+
+		// gegunsAmmo() gave it a magazine of its own, unless it ran out of memory
+		if (def->ammos[0] && def->ammos[0] != host->ammos[0]) {
+			def->ammos[0]->reload_animation = NULL;
+		}
+
+		def->flags2 &= ~WEAPONFLAG2_UNEQUIPPEDRELOAD;
+		def->flags3 &= ~WEAPONFLAG3_REVOLVER;
 	}
 }
 

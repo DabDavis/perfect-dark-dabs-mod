@@ -365,6 +365,13 @@
 #define AMMOTYPE_1F           0x1f
 #define AMMOTYPE_ECM_MINE     0x20
 
+// GoldenEye's golden bullets (its AMMO_GGUN), which only its Golden Gun
+// fires, in the port. The dart row is GoldenEye's leftover AMMO_DARTS, which
+// no weapon and no setup of Perfect Dark's uses, and it is under 20, so a
+// multi ammo crate - whose slots are ammo types 1 to 19 - can carry it
+// (Egyptian's crate of 50 beside the Golden Gun). geguns.c, geconvert.c.
+#define AMMOTYPE_GOLDENGUN    AMMOTYPE_DART
+
 // Active menu slots
 #define AMSLOTFLAG_CURRENT 0x02 // black, eg. current equipped weapon
 #define AMSLOTFLAG_ACTIVE  0x08 // pulsates slightly, eg. cloak/xray when active

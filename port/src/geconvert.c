@@ -4101,7 +4101,7 @@ static const uint8_t g_GeAmmoTypes[24][2] = {
 	{ 0x09, 0 },       // KNIFE
 	{ 0x0b, 0 },       // GRENADEROUND   the grenade launcher stands on the Devastator
 	{ 0x0a, 0 },       // MAGNUM
-	{ 0x0a, 0 },       // GGUN           the golden gun stands on the DY357-LX
+	{ 0x11, 0 },       // GGUN           golden bullets, a pool of their own (AMMOTYPE_GOLDENGUN): Egyptian's crate
 	[20] = { 0x20, 0 }, // BUG           the covert modem stands on the ECM mine
 	[22] = { 0x20, 0 }, // GEKEY         and so do the GoldenEye key
 	[23] = { 0x20, 0 }, // PLASTIQUE     and the plastique
