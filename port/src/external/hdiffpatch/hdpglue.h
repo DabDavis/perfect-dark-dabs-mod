@@ -30,4 +30,13 @@ int hdpListOldRefs(const char *diffPath, hdpnamefn fn, void *arg);
  */
 int hdpApplyOverlay(const char *oldDir, const char *diffPath, const char *outDir);
 
+/**
+ * A single-file patch (hdiffz's compressed diff, lzma), old and patch in
+ * memory: *out is malloc'd and holds the new file. 1 when it applied, 0 when
+ * the patch cannot be read, is not for a file of oldLen bytes, or failed.
+ */
+#include <stddef.h>
+int hdpApplyMem(const unsigned char *old, size_t oldLen, const unsigned char *diff, size_t diffLen,
+		unsigned char **out, size_t *outLen);
+
 #endif

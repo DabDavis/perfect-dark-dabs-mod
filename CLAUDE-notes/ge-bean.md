@@ -9574,3 +9574,39 @@ room (Dam 38 -> 39 not drawn; Streets, Depot, Cradle as they were). Only the
 drawing is left out (`gebeanStageRoomHidden()` in `bgRenderRoomOpaque()`/
 `Xlu()`); GoldenEye's tiles, which are the collision, and the room's hit
 batches are untouched, and the N64 look is pixel-identical.
+
+### The Community Edition's fog (2026-09-25)
+
+The CE updater patches `default.xex` too (`CEUpdate/xex.diff`, a single-file
+HDiffPatch, `HDIFF13&lzma`, 694 KB), and its changelog has "Surface ii:
+Reduced fog distance to closer match N64". Applied in memory to the retail
+xex (`hdpApplyMem()`, hdpglue.c) it is the same size, still uncompressed, with
+the environment table at the same place (file 0x84b860), and 57 rows either
+way. What the CE changes in it (HD columns: fog end, colour, far, near):
+
+| level | retail | CE |
+|---|---|---|
+| Surface 2 (43) | end 10000 | end 6500 |
+| Jungle (37) | far 2500, end 2500, 0x182000, HD far 2500, near 10 | far 5500, end 4500, 0x797c79 (N64 colour too), HD far 5000, near 6; xlu fade 6500 |
+| Temple (38, and 238-438) | far 6000, end 6000, 0x181828 | far 22500, end 22500, 0x103060, fades 3000/4000/600 |
+| Train (25) | far 1500, end 1500 | far 4500, end 4500 |
+| Archives (24) | far 3000, end 3000, HD far 3000 | far 4500, end 4500, HD far 22500, opa fade 3500 |
+| Statue (22) | end 3500, 0x000008, HD far 3500 | end 5000, 0x090708, HD far 12000 |
+| Streets (29) | xlu fade 6000, HD far 10000 | xlu fade 10000, HD far 15000 |
+| Cradle (41, 241-441) | 0x6080a0 | 0x6e8196 (MP rows near 10 -> 6) |
+| Dam cinema (933) | 0x103060 | 0x85adca |
+| new rows | 40, 240, 340 (Citadel) | 9 (Bunker 1: end 45000, 0xa49682), 20 (Silo: 10000, 0x181818), 54 |
+
+Dam, Runway, Surface, Facility and the rest are as retail. **The HD levels'
+fog is now read, not written in**: `fogTableLoad()` (once, at the first HD
+level) takes the CE's rows when its overlay is drawn - the overlay worker
+applies `xex.diff` to the release's `default.xex` (beside `files/`, or out of
+the release's archive) and keeps the table's rows as `ce/fogtable.bin`
+(`gebeanCeFogTablePath()`; the overlay's marker moved to `.applied3`, so an
+existing overlay is made again once) - else the rows out of the player's own
+`default.xex`, else the retail rows built in (`beanFogsRetail[]`, for a copy
+whose xex is not unpacked). The log says which (`the HD levels' fog: N rows
+from ...`). The CE's new Bunker 1 and Silo rows do nothing here: those levels
+are converted fogless, so nothing of them is fogged at all. Only the HD
+columns (end, colour) are read; the N64 look is GoldenEye's ROM row as
+before, whatever the CE did to its own copy of the N64 columns.

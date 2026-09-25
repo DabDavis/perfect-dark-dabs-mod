@@ -28,6 +28,7 @@
 #include "xblatex.h"
 #include "xblastage.h"
 #include "gebean.h"
+#include "fs.h"
 #include "gebeanstage.h"
 
 #define SEG 0x0f000000
@@ -119,6 +120,8 @@ static f32 meshMax[3];
 static s32 farRaised;
 static f32 farOwn;
 static f32 farSet;
+
+static void fogTableLoad(void);
 
 #define GRID_BITS 20
 
@@ -2017,6 +2020,7 @@ static s32 build(void)
 	u32 bytes = 0;
 
 	row = levelRow();
+	fogTableLoad();
 
 	if (!row) {
 		return 0;
@@ -2459,37 +2463,63 @@ s32 gebeanStageFogFactor(s32 min, s32 max, f32 *fm, f32 *fo)
  * out. Levels GoldenEye draws without fog (Frigate, Silo, Bunker 1, the
  * multiplayer-only ones) have no row in either.
  *
+ * The table is read out of the player's own copy (fogTableLoad()): the
+ * Community Edition patches it too (Surface 2's fog nearer "to closer match
+ * N64", Jungle, Temple, Train, Archives, Statue...), so with the CE's overlay
+ * on its rows are the ones its patched default.xex has (gebeance.c writes
+ * them into the overlay). The retail rows below are only for a copy whose
+ * default.xex is not unpacked.
+ *
  * Facility's colour in the release is 0x102001, which reads as GoldenEye's
  * 0x102010 with its last two nibbles swapped (every other row keeps
  * GoldenEye's colour or a new one outright); GoldenEye's is used.
  */
 struct beanfog {
-	const char *key; // GoldenEye's key for the level (stageRows[])
-	s32 end;         // where the fog is whole
-	u32 rgb;
+	s16 levelid;     // GoldenEye's level id, the table's first column
+	s32 end;         // where the fog is whole (+0x24)
+	u32 rgb;         // its colour (+0x28)
 };
 
-static const struct beanfog beanFogs[] = {
-	{ "stat",  3500,   0x000008 },
-	{ "arec",  10000,  0x000000 },
-	{ "arch",  3000,   0x000000 },
-	{ "tra",   1500,   0x000008 },
-	{ "sevb",  10000,  0x100000 },
-	{ "azt",   15000,  0x000000 },
-	{ "pete",  7500,   0x101820 },
-	{ "depo",  5000,   0x000008 },
-	{ "ref",   5000,   0x280000 },
-	{ "cryp",  20000,  0x103060 },
-	{ "dam",   15000,  0x85adca },
-	{ "ark",   5000,   0x102010 },
-	{ "run",   55000,  0x85adca },
-	{ "sevx",  45000,  0xa49682 },
-	{ "jun",   2500,   0x182000 },
-	{ "dish",  6000,   0x181828 },
-	{ "cave",  6000,   0x080008 },
-	{ "crad",  30000,  0x6080a0 },
-	{ "sevxb", 10000,  0x201010 },
+#define BEANFOG_ROW  56
+#define BEANFOG_MAX  128
+
+// The retail table's HD columns, for a copy whose default.xex is not there
+static const struct beanfog beanFogsRetail[] = {
+	{ 22, 3500,  0x000008 }, // Statue
+	{ 23, 10000, 0x000000 }, // Control
+	{ 24, 3000,  0x000000 }, // Archives
+	{ 25, 1500,  0x000008 }, // Train
+	{ 27, 10000, 0x100000 }, // Bunker 2
+	{ 28, 15000, 0x000000 }, // Aztec
+	{ 29, 7500,  0x101820 }, // Streets
+	{ 30, 5000,  0x000008 }, // Depot
+	{ 31, 5000,  0x280000 }, // Complex
+	{ 32, 20000, 0x103060 }, // Egyptian
+	{ 33, 15000, 0x85adca }, // Dam
+	{ 34, 5000,  0x102001 }, // Facility
+	{ 35, 55000, 0x85adca }, // Runway
+	{ 36, 45000, 0xa49682 }, // Surface
+	{ 37, 2500,  0x182000 }, // Jungle
+	{ 38, 6000,  0x181828 }, // Temple
+	{ 39, 6000,  0x080008 }, // Caverns
+	{ 41, 30000, 0x6080a0 }, // Cradle
+	{ 43, 10000, 0x201010 }, // Surface 2
 };
+
+// GoldenEye's key for a level (stageRows[]) and its level id (geconvert.c)
+static const struct {
+	const char *key;
+	s16 levelid;
+} beanFogLevels[] = {
+	{ "sev", 9 }, { "silo", 20 }, { "stat", 22 }, { "arec", 23 }, { "arch", 24 }, { "tra", 25 },
+	{ "dest", 26 }, { "sevb", 27 }, { "azt", 28 }, { "pete", 29 }, { "depo", 30 }, { "ref", 31 },
+	{ "cryp", 32 }, { "dam", 33 }, { "ark", 34 }, { "run", 35 }, { "sevx", 36 }, { "jun", 37 },
+	{ "dish", 38 }, { "cave", 39 }, { "crad", 41 }, { "sevxb", 43 }, { "base", 45 }, { "stack", 46 },
+	{ "lib", 48 }, { "oat", 50 },
+};
+
+static struct beanfog beanFogs[BEANFOG_MAX];
+static s32 numBeanFogs = -1;
 
 // Where every level's fog starts (the environment tick's -100)
 #define BEANFOG_START -100.0f
@@ -2500,15 +2530,163 @@ static const struct beanfog beanFogs[] = {
 #define BEANFOG_DAM_REACH 65000.0f
 #define BEANFOG_DAM_LOW   (2782.0f + 13219.0f)
 #define BEANFOG_DAM_HIGH  (9161.0f + 13219.0f)
+#define BEANFOG_DAM       33
+
+static u32 beBe32(const u8 *p)
+{
+	return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3];
+}
+
+/**
+ * Where the environment table starts in a default.xex (the release's is stored
+ * uncompressed), and how many bytes of rows it has with its end row: Statue's
+ * row is first in the release and the Community Edition alike (level 22, near
+ * 15, far 3500), and the rows run in 56s to one whose level is 0. 0 when it is
+ * not there.
+ */
+u32 gebeanStageFogTableFind(const u8 *xex, u32 len, u32 *at)
+{
+	static const u8 first[] = { 0x00, 0x16, 0x00, 0x0f, 0x0d, 0xac };
+
+	for (u32 o = 0; o + BEANFOG_ROW <= len; o += 2) {
+		u32 n;
+
+		if (memcmp(xex + o, first, sizeof(first)) != 0) {
+			continue;
+		}
+
+		for (n = 0; n < BEANFOG_MAX && o + (n + 1) * BEANFOG_ROW <= len; n++) {
+			const s16 id = (s16)(xex[o + n * BEANFOG_ROW] << 8 | xex[o + n * BEANFOG_ROW + 1]);
+
+			if (id == 0) {
+				*at = o;
+				return (n + 1) * BEANFOG_ROW;
+			}
+
+			if (id < 0 || id >= 1000) {
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
+/** beanFogs[] out of a table's rows (gebeanStageFogTableFind()'s bytes). */
+static void fogTableRead(const u8 *rows, u32 len)
+{
+	numBeanFogs = 0;
+
+	for (u32 o = 0; o + BEANFOG_ROW <= len && numBeanFogs < BEANFOG_MAX; o += BEANFOG_ROW) {
+		struct beanfog *f = &beanFogs[numBeanFogs];
+
+		f->levelid = (s16)(rows[o] << 8 | rows[o + 1]);
+
+		if (f->levelid == 0) {
+			break;
+		}
+
+		f->end = (s32)beBe32(rows + o + 0x24);
+		f->rgb = beBe32(rows + o + 0x28) >> 8;
+		numBeanFogs++;
+	}
+}
+
+static u8 *fogFileLoad(const char *path, u32 *len)
+{
+	FILE *fp = fopen(path, "rb");
+	u8 *data = NULL;
+	long size;
+
+	*len = 0;
+
+	if (!fp) {
+		return NULL;
+	}
+
+	if (fseek(fp, 0, SEEK_END) == 0 && (size = ftell(fp)) > 0 && fseek(fp, 0, SEEK_SET) == 0
+			&& (data = malloc(size)) != NULL) {
+		if (fread(data, 1, size, fp) == (size_t)size) {
+			*len = size;
+		} else {
+			free(data);
+			data = NULL;
+		}
+	}
+
+	fclose(fp);
+
+	return data;
+}
+
+/**
+ * The table, once a session: the Community Edition's rows when its overlay is
+ * drawn, else the player's default.xex beside the release's files/, else the
+ * retail rows built in.
+ */
+static void fogTableLoad(void)
+{
+	char root[FS_MAXPATH + 1], archive[FS_MAXPATH + 1], cache[FS_MAXPATH + 1], path[FS_MAXPATH + 1];
+	const char *from = "the retail rows built in";
+	u8 *data;
+	u32 len, at, n;
+
+	if (numBeanFogs >= 0) {
+		return;
+	}
+
+	numBeanFogs = 0;
+
+	if (gebeanCeFogTablePath(path, sizeof(path)) && (data = fogFileLoad(path, &len)) != NULL) {
+		fogTableRead(data, len);
+		free(data);
+		from = "the Community Edition's default.xex";
+	} else if (gebeanTreeInfo(root, sizeof(root), archive, sizeof(archive), cache, sizeof(cache))) {
+		snprintf(path, sizeof(path), "%s/../default.xex", root);
+
+		if ((data = fogFileLoad(path, &len)) != NULL) {
+			if ((n = gebeanStageFogTableFind(data, len, &at)) > 0) {
+				fogTableRead(data + at, n);
+				from = "the release's default.xex";
+			}
+
+			free(data);
+		}
+	}
+
+	if (numBeanFogs == 0) {
+		for (u32 i = 0; i < ARRAYCOUNT(beanFogsRetail); i++) {
+			beanFogs[numBeanFogs++] = beanFogsRetail[i];
+		}
+	}
+
+	for (s32 i = 0; i < numBeanFogs; i++) {
+		if (beanFogs[i].levelid == 34 && beanFogs[i].rgb == 0x102001) {
+			beanFogs[i].rgb = 0x102010;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "gebeanstage: the HD levels' fog: %d rows from %s", numBeanFogs, from);
+}
 
 static const struct beanfog *fogRow(void)
 {
+	s16 levelid = -1;
+
 	if (!row) {
 		return NULL;
 	}
 
-	for (u32 i = 0; i < ARRAYCOUNT(beanFogs); i++) {
-		if (strcmp(beanFogs[i].key, row->key) == 0) {
+	fogTableLoad();
+
+	for (u32 i = 0; i < ARRAYCOUNT(beanFogLevels); i++) {
+		if (strcmp(beanFogLevels[i].key, row->key) == 0) {
+			levelid = beanFogLevels[i].levelid;
+		}
+	}
+
+	for (s32 i = 0; i < numBeanFogs; i++) {
+		if (beanFogs[i].levelid == levelid) {
 			return &beanFogs[i];
 		}
 	}
@@ -2534,7 +2712,7 @@ s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb)
 
 	// Dam's rule is the player's height; the camera's stands in for it, and
 	// is the player's own but in the opening and closing shots
-	if (strcmp(f->key, "dam") == 0) {
+	if (f->levelid == BEANFOG_DAM) {
 		const f32 y = g_Vars.currentplayer->cam_pos.y;
 		const f32 t = (BEANFOG_DAM_HIGH - y) / (BEANFOG_DAM_HIGH - BEANFOG_DAM_LOW);
 
@@ -2929,5 +3107,6 @@ s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb) { return 0; }
 s32 gebeanStageFogLine(f32 depth, f32 *mul, f32 *offset, u8 *rgb) { return 0; }
 s32 gebeanStageObjFog(f32 z, f32 *frac, u8 *rgb) { return 0; }
 void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu) { }
+u32 gebeanStageFogTableFind(const u8 *xex, u32 len, u32 *at) { return 0; }
 
 #endif

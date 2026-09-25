@@ -13,6 +13,7 @@ typedef void *ISzAllocPtr;
 #define _ChecksumPlugin_fadler64
 #include "file_for_patch.h"
 #include "dirDiffPatch/dir_patch/dir_patch.h"
+#include "libHDiffPatch/HPatch/patch.h"
 #include "decompress_plugin_demo.h"
 #include "checksum_plugin_demo.h"
 #include "hdpglue.h"
@@ -162,4 +163,34 @@ int hdpApplyOverlay(const char *oldDir, const char *diffPath, const char *outDir
 	free(cache);
 
 	return result;
+}
+
+int hdpApplyMem(const unsigned char *old, size_t oldLen, const unsigned char *diff, size_t diffLen,
+		unsigned char **out, size_t *outLen)
+{
+	hpatch_compressedDiffInfo info;
+	unsigned char *data;
+
+	*out = NULL;
+	*outLen = 0;
+
+	if (!getCompressedDiffInfo_mem(&info, diff, diff + diffLen) || info.oldDataSize != oldLen) {
+		return 0;
+	}
+
+	data = malloc(info.newDataSize ? info.newDataSize : 1);
+
+	if (!data) {
+		return 0;
+	}
+
+	if (!patch_decompress_mem(data, data + info.newDataSize, old, old + oldLen, diff, diff + diffLen, &lzmaDecompressPlugin)) {
+		free(data);
+		return 0;
+	}
+
+	*out = data;
+	*outLen = info.newDataSize;
+
+	return 1;
 }

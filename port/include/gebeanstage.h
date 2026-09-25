@@ -89,6 +89,13 @@ s32 gebeanStageFogLine(f32 depth, f32 *mul, f32 *offset, u8 *rgb);
 s32 gebeanStageObjFog(f32 z, f32 *frac, u8 *rgb);
 void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu);
 
+/**
+ * Where the release's environment table is in a default.xex, and its length
+ * with the end row (the Community Edition's overlay keeps its own, gebeance.c).
+ * 0 when it is not in it.
+ */
+u32 gebeanStageFogTableFind(const u8 *xex, u32 len, u32 *at);
+
 /** A new level: the last one's rooms and mesh go. */
 void gebeanStageLevelReset(void);
 
