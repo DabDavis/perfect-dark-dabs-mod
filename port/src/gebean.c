@@ -4756,6 +4756,51 @@ static const char *gebeanPartsNote(s32 numparts, s32 numverts)
 	return note;
 }
 
+/**
+ * Vertex colours the release's HD props got wrong, mended where the release's
+ * own colour is still there (the Community Edition's copy of the file already
+ * carries the mended one, and is left alone). By file, vertex buffer (its .gpu
+ * offset) and vertex range; checked against GoldenEye's own (Bean's original/,
+ * which is the N64 model's colours):
+ *
+ * - doorprison1, Bunker 2's cell door: every vertex white in the HD file where
+ *   GoldenEye's are dark grey (2e/4a), so the door stood out bright against the
+ *   dark bars of the cells either side. The Community Edition's greys ("Fixed
+ *   jail cell door vertex colors") are GoldenEye's a step lighter for the HD
+ *   texture, and are these.
+ * - woodentable1: its legs are opaque black in the HD file and in GoldenEye's
+ *   own, which the "opaque black is no colour at all" rule below turned white;
+ *   black was meant, and the Community Edition's dark grey keeps them dark
+ *   ("Tweak wooden table prop vertex colors").
+ */
+static const struct {
+	const char *source;
+	u32 vboff;
+	u16 first;
+	u16 last;
+	u32 old;
+	u32 fix;
+} beanVertexColourFixes[] = {
+	{ "new/prop/doorprison1", 0, 0, 5, 0xffffffff, 0xff4a4a4a },
+	{ "new/prop/doorprison1", 0, 6, 7, 0xffffffff, 0xff666666 },
+	{ "new/prop/doorprison1", 0, 8, 9, 0xffffffff, 0xff4a4a4a },
+	{ "new/prop/doorprison1", 0, 10, 11, 0xffffffff, 0xff666666 },
+	{ "new/prop/woodentable1", 0, 0, 67, 0xff000000, 0xff292929 },
+};
+
+static u32 beanFixVertexColour(const char *source, u32 vboff, u32 vi, u32 argb)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(beanVertexColourFixes); i++) {
+		if (beanVertexColourFixes[i].vboff == vboff && vi >= beanVertexColourFixes[i].first
+				&& vi <= beanVertexColourFixes[i].last && argb == beanVertexColourFixes[i].old
+				&& strcmp(source, beanVertexColourFixes[i].source) == 0) {
+			return beanVertexColourFixes[i].fix;
+		}
+	}
+
+	return argb;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -4960,6 +5005,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				// motorbike's handlebars and mudguard. The texture under those
 				// vertices is painted (the jeep's is bright under 96% of them),
 				// and drawn black the bike's bars came out as flat black shapes.
+				v.argb = beanFixVertexColour(source, vb.off, vi, v.argb);
 				argb = v.argb == 0xff000000 ? 0xffffffff : v.argb;
 
 				// The Golden Gun's pickup is the first-person gun's near-white
