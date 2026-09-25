@@ -111,7 +111,6 @@
 // What a suppressed entry is suppressed for.
 #define XBLAMESH_SUPPRESS_HAIR 1    // a head's stock hair, which the mesh paints on
 #define XBLAMESH_SUPPRESS_COVERED 2 // geometry the model's own mesh has already
-#define XBLAMESH_SUPPRESS_REFIT 3   // a head's own sunglasses, moved onto the mesh's face: see xblaMeshIsGlassesList()
 
 // How many draws --xbla-mesh-verbose names before it stops
 #define XBLAMESH_DRAWLOG 12
@@ -218,10 +217,6 @@ struct xblameshuse {
 	struct xblameshbruise *bruise;    // made the first time the model is shot, or NULL
 	s8 restfit;                       // 0 not asked, 1 drawn as it is, 2 restshift taken off
 	f32 restshift[3];                 // the first part's rest offset, where the mesh includes it
-	s8 glassfit;                      // 0 not measured, 1 glassfrom/to/scale hold, -1 would not fit
-	f32 glassfrom[3];                 // the stock head's front-most point (its nose)
-	f32 glassto[3];                   // the posed mesh's, in the same space
-	f32 glassscale;                   // the mesh's face width over the stock head's
 };
 
 /**
@@ -1078,12 +1073,9 @@ static void xblaMeshLogNode(const struct modelnode *node, u32 type, s32 slot, s3
  * have those. A piece 4J modelled gets a group; the hair never does, in any
  * head, because it is painted into the head itself.
  *
- * Two things this will not do, both of which the code it replaced did:
+ * One thing this will not do, which the code it replaced did (the sunglasses
+ * the release left at zero are xblaMeshIsGlassesList()'s):
  *
- *   * **the sunglasses of the six heads the release left at zero**
- *     (`Cheadanka`, `Cheaddarling`, `Cheaddavec`, `Cheadfem_guard`,
- *     `Cheadjon`, `Cheadjonathan`) keep their own geometry. Nothing in the
- *     mesh replaces them, so suppressing them took a character's glasses off;
  *   * **a far LOD alternative** keeps its own geometry, hair included. The
  *     head a chr is drawn from past 6000 units is the game's own - of the
  *     132 ids the release gives a head, the 124 under a distance node are
@@ -1171,23 +1163,27 @@ static s32 xblaMeshIsHairList(struct modeldef *modeldef, const struct modelnode 
 }
 
 /**
- * The sunglasses of a head whose mesh has none.
+ * The sunglasses of a head whose mesh has none, which the release does not draw.
  *
- * Six heads keep the game's own glasses because the release left them at zero
- * with a bare face beside them (`Cheadanka`, `Cheaddarling`, `Cheaddavec`,
- * `Cheadfem_guard`, `Cheadjon`, `Cheadjonathan`). Drawn as they are, they
- * sit where the N64 face had its eyes, and 4J's face is not there: on Jon the
- * mesh posed in the head's own space puts its nose at y 41 z 132 against the
- * stock head's y 94 z 111, and is a fifth wider, so the glasses came out
- * across his forehead (a tester's F3 in Villa's intro, frame 1407).
+ * Six heads have a toggled sunglasses list the release left at zero with a
+ * bare face beside it - `Cheadanka`, `Cheaddarling`, `Cheaddavec`,
+ * `Cheadfem_guard`, `Cheadjon`, `Cheadjonathan`: one group, one draw, one
+ * texture each - and `Cheadfem_guard2` keeps hers under a toggle no part
+ * numbers, her parts table being empty. The release draws nothing for them:
+ * its own Villa intro has Jon bare-faced where the N64 puts sunglasses on
+ * him. So in the XBLA look they are filed as covered whatever the game has
+ * switched on - the Air Base stewardess, spawned SPAWNFLAG_FORCESUNGLASSES in
+ * Anka's head, included - and the N64 look keeps them. The 45 heads whose sunglasses the
+ * release remodelled carry a mesh id on the list and never reach here; the
+ * game switches those on and off as it always did.
  *
- * So the list is filed to be moved onto the mesh's face at the draw - see
- * xblaMeshDrawRefitGlasses() - rather than kept or suppressed.
+ * Until 2026-09-25 the six were moved onto the mesh's face instead (a
+ * tester's F3 in Villa's intro had them across Jon's forehead), and Female
+ * Guard 2's with them; a later F3 asked for hers off, and the user for all
+ * of them bare, like the release.
  *
- * Only the numbered MODELPART_HEAD_SUNGLASSES, which the game switches per chr.
- * `Cheadfem_guard2`'s glasses sit under a toggle no part names, so nothing can
- * switch them and they were on for every Female Guard 2 - see
- * xblaMeshTogglesAreDropped().
+ * The near alternative only: a far LOD keeps its own geometry, as the hair's
+ * does (xblaMeshIsHairList()).
  */
 static s32 xblaMeshIsGlassesList(struct modeldef *modeldef, const struct modelnode *node)
 {
@@ -1203,7 +1199,7 @@ static s32 xblaMeshIsGlassesList(struct modeldef *modeldef, const struct modelno
 		return 0;
 	}
 
-	if (!glasses) {
+	if (!glasses && xblaMeshFileId != FILE_CHEADFEM_GUARD2) {
 		return 0;
 	}
 
@@ -1211,7 +1207,11 @@ static s32 xblaMeshIsGlassesList(struct modeldef *modeldef, const struct modelno
 		const u32 type = node->type & 0xff;
 
 		if (type == MODELNODETYPE_TOGGLE) {
-			return node == glasses;
+			if (glasses) {
+				return node == glasses;
+			}
+
+			return !xblaMeshNodeIsNumbered(modeldef, node);
 		}
 
 		if (type == MODELNODETYPE_DISTANCE) {
@@ -1257,23 +1257,6 @@ static s32 xblaMeshTogglesAreInMesh(s32 fileid)
 }
 
 /**
- * A model whose toggled pieces the release draws nothing for, and whose mesh
- * has nothing in their place either.
- *
- * `Cheadfem_guard2`: her parts table is empty, so her one toggle - 96 vertices
- * of sunglasses at eye height - is one the game can never switch off, and on
- * the N64 Female Guard 2 always wears them. The release's head is one draw of
- * one texture, a bare face, and it does not draw a toggled list 4J left at
- * zero: Jon in Villa's intro wears his glasses on the N64 and not in the
- * release. They were refitted onto her face until 2026-09-25, when a tester's
- * F3 on the Combat Simulator's character page asked for them off.
- */
-static s32 xblaMeshTogglesAreDropped(s32 fileid)
-{
-	return fileid == FILE_CHEADFEM_GUARD2;
-}
-
-/**
  * Whether the model's own mesh has this node's geometry already.
  *
  * **A mesh is the whole model, and the release names it on one node.** The id
@@ -1298,14 +1281,13 @@ static s32 xblaMeshTogglesAreDropped(s32 fileid)
  *     copy is the whole model. Suppressed, a distant guard would be nothing at
  *     all. (This is the same test xblaMeshMatchBySize's leftovers must pass.)
  *   * **a toggled piece** - geometry the game switches on and off: a gun's
- *     muzzle flash (eleven of them), the sunglasses of the six heads the
- *     release left at zero, the pieces of the two Nintendo logos. 4J marked
- *     the toggled pieces they *did* remodel with an id and the ones they kept
- *     with 0xFFFF, so a toggled zero is one they never looked at, and taking
- *     it away takes a character's glasses off. The one exception is a head's
- *     hair, which is toggled and *is* in the mesh, and which
- *     xblaMeshIsHairList() names from the game's own MODELPART_HEAD_HAT
- *     before this is asked.
+ *     muzzle flash (eleven of them), the pieces of the two Nintendo logos.
+ *     4J marked the toggled pieces they *did* remodel with an id and the ones
+ *     they kept with 0xFFFF, so a toggled zero is one they never looked at.
+ *     The exceptions are a head's, and are asked about before this: its
+ *     hair, which is toggled and *is* in the mesh (xblaMeshIsHairList(),
+ *     named from the game's own MODELPART_HEAD_HAT), and the sunglasses the
+ *     release left at zero, which it does not draw (xblaMeshIsGlassesList()).
  */
 static s32 xblaMeshIsCovered(struct modeldef *modeldef, const struct modelnode *node)
 {
@@ -1363,8 +1345,6 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 	u32 theiroff = xblaMeshBE32(file) & 0xffffff;
 	struct modelnode *covered[XBLAMESH_COVERED];
 	s32 numcovered = 0;
-	struct modelnode *refit[4];
-	s32 numrefit = 0;
 	s32 firstslot = -1;
 	s32 found = 0;
 	s32 suppressed = 0;
@@ -1486,13 +1466,8 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 			if (xblaMeshIsHairList(modeldef, ournode)) {
 				xblaMeshSuppressNode(modeldef, ournode, 0, XBLAMESH_SUPPRESS_HAIR);
 				suppressed++;
-			} else if (xblaMeshIsGlassesList(modeldef, ournode)) {
-				// Held like the covered lists, and filed with the mesh's slot.
-				if (numrefit < (s32)ARRAYCOUNT(refit)) {
-					refit[numrefit++] = ournode;
-				}
-			} else if ((xblaMeshIsCovered(modeldef, ournode) || xblaMeshIsReleaseBootLogo(xblaMeshFileId)
-						|| xblaMeshTogglesAreInMesh(xblaMeshFileId) || xblaMeshTogglesAreDropped(xblaMeshFileId))
+			} else if ((xblaMeshIsCovered(modeldef, ournode) || xblaMeshIsGlassesList(modeldef, ournode)
+						|| xblaMeshIsReleaseBootLogo(xblaMeshFileId) || xblaMeshTogglesAreInMesh(xblaMeshFileId))
 					&& numcovered < XBLAMESH_COVERED) {
 				// Held until the walk is over: a model whose tree stops
 				// matching part way through leaves through one of the returns
@@ -1548,19 +1523,6 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 			xblaMeshSuppressNode(modeldef, covered[i], firstslot,
 					XBLAMESH_SUPPRESS_COVERED);
 		}
-
-		// The glasses are measured against the head list the mesh was named on,
-		// which is part 0 of the same use.
-		for (s32 i = 0; i < numrefit; i++) {
-			struct xblameshentry *e;
-
-			xblaMeshSuppressNode(modeldef, refit[i], firstslot, XBLAMESH_SUPPRESS_REFIT);
-			e = xblaMeshEntryFor(refit[i], modeldef);
-
-			if (e) {
-				e->use = xblaMeshUseFor(modeldef, firstslot, 0);
-			}
-		}
 	}
 
 	if (found && xblaMeshVerbose) {
@@ -1572,11 +1534,6 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 		if (numcovered) {
 			sysLogPrintf(LOG_NOTE, "xblamesh:   %d more lists the mesh covers, drawing nothing",
 					numcovered);
-		}
-
-		if (numrefit) {
-			sysLogPrintf(LOG_NOTE, "xblamesh:   %d sunglasses lists moved onto the mesh's face",
-					numrefit);
 		}
 	}
 
@@ -7494,7 +7451,7 @@ static void xblaMeshBruiseNodes(struct xblameshbruise *br, const struct xblamesh
 		e = xblaMeshSlotFor(node);
 
 		if (!e || e->node != node || e->modeldef != use->modeldef || e->slot != use->slot ||
-				e->suppress == XBLAMESH_SUPPRESS_HAIR || e->suppress == XBLAMESH_SUPPRESS_REFIT ||
+				e->suppress == XBLAMESH_SUPPRESS_HAIR ||
 				!(e->matched || e->suppress == XBLAMESH_SUPPRESS_COVERED)) {
 			continue;
 		}
@@ -9034,170 +8991,6 @@ static const f32 *xblaMeshRestShift(const struct xblameshbuilt *m, struct xblame
 	return use->restfit == 2 ? use->restshift : NULL;
 }
 
-/**
- * A head's own sunglasses, drawn on the release's face (xblaMeshIsGlassesList()).
- *
- * The fit is the plainest one that seats them: the stock head's front-most
- * point, its nose, is taken to the posed mesh's, and everything about it is
- * scaled by how much wider the mesh's face is. Both are in the head's first
- * part's space - the posed copy is written there, and the stock lists are drawn
- * under that part's matrix - so it is measured once per head and mesh, from the
- * first frame the mesh is posed, and kept.
- *
- * The list is then drawn the way modelRenderNodeDl() draws it, from a moved
- * copy of its vertices. 0 leaves the game to draw its own glasses where they
- * always were: no posed mesh this frame (the meshes switched off, the arena
- * full), or a pair of heads too unlike to fit.
- */
-static s32 xblaMeshDrawRefitGlasses(struct modelrenderdata *renderdata, struct model *model,
-		struct modelnode *node, const struct xblameshentry *e)
-{
-	union modelrodata *rodata = node->rodata;
-	union modelrwdata *rwdata;
-	struct xblameshuse *use;
-	struct xblameshbuilt *m;
-	const struct modelnode *head;
-	Vtx *vtx;
-	s32 n;
-
-	if (optBoth || e->use < 0 || !rodata) {
-		return 0;
-	}
-
-	use = &uses[e->use];
-	head = use->numparts ? use->parts[0] : NULL;
-
-	if (!head || (head->type & 0xff) != MODELNODETYPE_DL || !head->rodata
-			|| !head->rodata->dl.vertices || head->rodata->dl.numvertices <= 0) {
-		return 0;
-	}
-
-	m = xblaMeshBuild(e->slot);
-
-	if (!m || m->posedmodel != model || m->posedframe != frameCount || !m->posedvtx
-			|| m->posedfine < 1 || m->numvertices <= 0) {
-		return 0;
-	}
-
-	if (use->glassfit == 0) {
-		const Vtx *sv = head->rodata->dl.vertices;
-		const s32 sn = head->rodata->dl.numvertices;
-		const Vtx *pv = m->posedvtx;
-		const f32 inv = 1.0f / m->posedfine;
-		f32 slo = 32767.0f;
-		f32 shi = -32768.0f;
-		f32 plo = 32767.0f;
-		f32 phi = -32768.0f;
-		s32 si = 0;
-		s32 pi = 0;
-
-		for (s32 i = 0; i < sn; i++) {
-			if (sv[i].z > sv[si].z) si = i;
-			if (sv[i].x < slo) slo = sv[i].x;
-			if (sv[i].x > shi) shi = sv[i].x;
-		}
-
-		for (s32 i = 0; i < m->numvertices; i++) {
-			if (pv[i].z > pv[pi].z) pi = i;
-			if (pv[i].x * inv < plo) plo = pv[i].x * inv;
-			if (pv[i].x * inv > phi) phi = pv[i].x * inv;
-		}
-
-		use->glassscale = shi > slo ? (phi - plo) / (shi - slo) : 0.0f;
-		use->glassfrom[0] = sv[si].x;
-		use->glassfrom[1] = sv[si].y;
-		use->glassfrom[2] = sv[si].z;
-		use->glassto[0] = pv[pi].x * inv;
-		use->glassto[1] = pv[pi].y * inv;
-		use->glassto[2] = pv[pi].z * inv;
-		use->glassfit = use->glassscale > 0.5f && use->glassscale < 2.5f ? 1 : -1;
-
-		if (xblaMeshVerbose) {
-			sysLogPrintf(LOG_NOTE, "xblamesh: slot %d sunglasses fit: nose (%.1f %.1f %.1f) to "
-					"(%.1f %.1f %.1f), scale %.3f%s", e->slot,
-					use->glassfrom[0], use->glassfrom[1], use->glassfrom[2],
-					use->glassto[0], use->glassto[1], use->glassto[2], use->glassscale,
-					use->glassfit < 0 ? " - refused, drawn where they were" : "");
-		}
-	}
-
-	if (use->glassfit < 0) {
-		return 0;
-	}
-
-	rwdata = modelGetNodeRwData(model, node);
-
-	if (!rwdata || !rwdata->dl.gdl || !rwdata->dl.vertices) {
-		return 0;
-	}
-
-	n = rodata->dl.numvertices;
-	vtx = n > 0 ? xblaMeshFrameAlloc((u32)n * sizeof(Vtx)) : NULL;
-
-	if (!vtx) {
-		return 0;
-	}
-
-	memcpy(vtx, rwdata->dl.vertices, (u32)n * sizeof(Vtx));
-
-	for (s32 i = 0; i < n; i++) {
-		const f32 x = use->glassto[0] + (vtx[i].x - use->glassfrom[0]) * use->glassscale;
-		const f32 y = use->glassto[1] + (vtx[i].y - use->glassfrom[1]) * use->glassscale;
-		const f32 z = use->glassto[2] + (vtx[i].z - use->glassfrom[2]) * use->glassscale;
-
-		vtx[i].x = xblaMeshRound(x);
-		vtx[i].y = xblaMeshRound(y);
-		vtx[i].z = xblaMeshRound(z);
-	}
-
-	if (renderdata->flags & MODELRENDERFLAG_OPA) {
-		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->dl.colours));
-
-		if (renderdata->cullmode) {
-			modelApplyCullMode(renderdata);
-		}
-
-		switch (rodata->dl.mcount) {
-		case 1:
-			modelApplyRenderModeType1(renderdata);
-			break;
-		case 3:
-			modelApplyRenderModeType3(renderdata, true);
-			break;
-		case 4:
-			modelApplyRenderModeType4(renderdata, true);
-			break;
-		case 2:
-			modelApplyRenderModeType2(renderdata);
-			break;
-		}
-
-		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(vtx));
-		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL2, osVirtualToPhysical(rwdata->dl.colours));
-		gSPDisplayList(renderdata->gdl++, rwdata->dl.gdl);
-
-		if (rodata->dl.mcount == 3 && rodata->dl.xlugdl) {
-			modelApplyRenderModeType3(renderdata, false);
-			gSPDisplayList(renderdata->gdl++, rodata->dl.xlugdl);
-		}
-	}
-
-	if ((renderdata->flags & MODELRENDERFLAG_XLU) && rodata->dl.mcount == 4 && rodata->dl.xlugdl) {
-		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->dl.colours));
-
-		if (renderdata->cullmode) {
-			modelApplyCullMode(renderdata);
-		}
-
-		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(vtx));
-		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL2, osVirtualToPhysical(rwdata->dl.colours));
-		modelApplyRenderModeType4(renderdata, false);
-		gSPDisplayList(renderdata->gdl++, rodata->dl.xlugdl);
-	}
-
-	return 1;
-}
-
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node)
 {
@@ -9326,11 +9119,6 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		}
 
 		return optBoth ? 0 : 1;
-	}
-
-	// A head's own sunglasses on a mesh that has none: moved onto its face.
-	if (!frompack && e->suppress == XBLAMESH_SUPPRESS_REFIT) {
-		return havemesh ? xblaMeshDrawRefitGlasses(renderdata, model, node, e) : 0;
 	}
 
 	// A list of a model whose mesh has that geometry already: every list of a
@@ -10214,11 +10002,6 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node)
 		return optBoth ? 0 : 1;
 	}
 
-	// The glasses are still the game's own triangles, only moved.
-	if (e->suppress == XBLAMESH_SUPPRESS_REFIT) {
-		return 0;
-	}
-
 	if (!xblaMeshBuild(e->slot)) {
 		return 0;
 	}
@@ -11090,8 +10873,7 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 				(const void *)e->modeldef,
 				e->modeldef ? "" : " DROPPED",
 				e->suppress == XBLAMESH_SUPPRESS_HAIR ? " HAIR-suppressed" :
-				e->suppress == XBLAMESH_SUPPRESS_COVERED ? " covered" :
-				e->suppress == XBLAMESH_SUPPRESS_REFIT ? " glasses-refit" : "",
+				e->suppress == XBLAMESH_SUPPRESS_COVERED ? " covered" : "",
 				e->modeldef && e->modeldef != model->definition ? " (grafted or another load)" : "",
 				frompack ? " from the model pack" : "",
 				m ? m->state : 0);

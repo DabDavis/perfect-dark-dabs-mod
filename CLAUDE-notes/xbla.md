@@ -2186,7 +2186,9 @@ something off the screen that nothing replaced:
     and it is a bare face: 1180 triangles on Anka against 1494 for Alex's head
     alone, with no glasses anywhere in the geometry. The stewardess in Air Base
     is spawned `SPAWNFLAG_FORCESUNGLASSES` and wears Anka's head, so this was a
-    chr the game had dressed and the mesh had undressed;
+    chr the game had dressed and the mesh had undressed. (Superseded on
+    2026-09-25: the release draws them bare, and so does the XBLA look now -
+    see "The sunglasses the release left at zero" below.);
   * **a far LOD alternative** keeps its own geometry, hair and all. Of the 132
     ids the release gives a head's nodes, the 124 that sit under a distance
     node are every one of them on an alternative that starts at 0 (the other 8
@@ -2239,31 +2241,57 @@ each at a level frame, walk the tree, read the hash entry per list) and diff
 the report across the change - the one line that moves is Robin's near hair
 list, NOENTRY to HAIR, 54 hair lists filed where there were 53.
 
-**Female Guard 2 wears no glasses in the XBLA look** (2026-09-25, Myles's F3
-20260923-071340 on the Combat Simulator's Character page: "remove glasses for
-xbla female guard 2"). `Cheadfem_guard2` has no parts table at all (numparts
-0), so her one toggle is never switched and **on the N64 she always wears
-them** - on the Character page too, where the head row's partvisibility only
-hides a numbered `MODELPART_HEAD_SUNGLASSES`. The release's copy of her file
-differs from ours in the mesh id alone (bytes 0xae-0xaf); mesh slot 2426 is one
-group, one draw, texture 4979 - a bare face. **The release draws nothing for a
-toggled list it left at zero**: `~/perfect-dark/glasses-villa.png`, the
-release's own Villa intro, has Jon bare-faced where the N64 (and this port,
-frame 1407) puts sunglasses on him. (Her head is locked on the Xenia rig's
-PDTest profile - its head row offers Joanna's four - so she was not seen in
-the release itself.) From 0c7d5b17b until then her glasses were filed
-`XBLAMESH_SUPPRESS_REFIT` with the six heads' and moved onto the release's
-face; now `xblaMeshIsGlassesList()` takes only a numbered sunglasses part and
-`xblaMeshTogglesAreDropped()` files her toggled list as covered, so the mesh
-draws alone and the N64 look (`Mod.XblaMeshes=0`) keeps her glasses. The six
-heads keep the refit - Jon's frame 1407 is pixel-identical across the change -
-though by the same Villa picture the release has them bare too. Headless check
-on the card without driving menus: at ~400 frames into `--boot-stage 0x26`,
-from gdb set `g_PlayerConfigsArray[0].base.mpheadnum = 0x13`, call
-`menuPushDialog(&g_MpCharacterMenuDialog)`, 10 frames later set
-`g_Menus[0].curdialog->focuseditem = &g_MpCharacterMenuItems[1]` (the head
-row), and set `menumodel.curroty`/`newroty` before each shot for an angle;
-count frames with `ignore` on a `videoEndFrame` breakpoint, since
+**The sunglasses the release left at zero are not drawn in the XBLA look**
+(2026-09-25). Myles's F3 20260923-071340 on the Combat Simulator's Character
+page: "remove glasses for xbla female guard 2"; then the user, for all of
+them: "make them bare like the release". Seven heads, found by walking every
+`Chead*` file in the release's PackedSegFile:
+
+| head | glasses list | release mesh |
+| --- | --- | --- |
+| `Cheadfem_guard`, `Cheadjon`, `Cheaddarling`, `Cheadanka`, `Cheadjonathan`, `Cheaddavec` | numbered `MODELPART_HEAD_SUNGLASSES` toggle, near list at id 0 | one group, one draw, one texture: a bare face |
+| `Cheadfem_guard2` | a toggle no part numbers (numparts 0), id 0 | the same (slot 2426) |
+
+Every other head with a pair (45 of them) carries a mesh id `0x1nnn` on its
+near sunglasses list - a separate group with the lens texture 4870 - and the
+game switches it as always; every far-LOD sunglasses list is id 0 and keeps
+its own geometry. The release draws nothing for a toggled list it left at
+zero: `~/perfect-dark/glasses-villa.png`, the release's own Villa intro, has
+Jon bare-faced where the N64 puts sunglasses on him. The release's copy of
+each file differs from ours in the mesh ids alone (Female Guard 2: bytes
+0xae-0xaf), so it is the renderer, not the data, that leaves them off.
+
+On the N64, Female Guard 2 always wears hers: nothing can switch a toggle no
+part names (`modelInitRwData()` starts every toggle visible, and `body.c` and
+the Character page's partvisibility only turn off a numbered
+`MODELPART_HEAD_SUNGLASSES`). The six wear theirs when the spawn asks
+(`SPAWNFLAG_FORCESUNGLASSES`, e.g. Air Base's stewardess in Anka's head, or
+half the time with `MAYBESUNGLASSES`).
+
+Now `xblaMeshIsGlassesList()` names those lists - the numbered part's near
+list, or Female Guard 2's unnumbered toggle - and they are filed
+`XBLAMESH_SUPPRESS_COVERED` with the rest of what the mesh stands in for, so
+the XBLA look draws the bare release face whatever the game has switched on,
+and the N64 look (`Mod.XblaMeshes=0`, or a mesh that will not build) keeps
+the game's glasses. **The 2026-09-15 refit is retired** (0c7d5b17b,
+`XBLAMESH_SUPPRESS_REFIT`, `xblaMeshDrawRefitGlasses()`, `glassfit` in
+`struct xblameshuse`): it moved the N64 glasses nose-to-nose onto the
+release's face, which answered a report of them across Jon's forehead with a
+look the release never had. Checked on the card: the Character page with the
+sunglasses part forced visible, all seven bare, Mark (`Cheadmark2`, a mesh
+with glasses) still wearing the release's pair, the N64 look with the N64
+glasses on all of them; Villa intro frame 1407 has Jon bare as in the
+release's picture.
+
+Headless check on the card without driving menus: at ~400 frames into
+`--boot-stage 0x26`, from gdb set `g_PlayerConfigsArray[0].base.mpheadnum`
+(0x13 Female Guard 2, 0x15 Jon, 0x3a Anka, 0x1b Darling, 0x23 Dave C, 0x12
+Female Guard, 0x0a Jonathan), call `menuPushDialog(&g_MpCharacterMenuDialog)`,
+10 frames later set `g_Menus[0].curdialog->focuseditem =
+&g_MpCharacterMenuItems[1]` (the head row), and set `menumodel.curroty` /
+`newroty` before each shot for an angle; `g_Menus[0].menumodel.partvisibility[0].visible = 1`
+shows the sunglasses the page otherwise hides (it is re-read every frame).
+Count frames with `ignore` on a `videoEndFrame` breakpoint, since
 `lvframenum` stops while the dialog is up.
 
 **How the Character page is driven headlessly**: Xvfb at 1280x720 with the
@@ -2332,12 +2360,12 @@ model draws nothing, unless it is one of the two kinds of list the game draws
     metres away would be nothing at all. (Same test the pairing by size makes
     its leftovers pass.)
   * **a toggled piece**, geometry the game switches: 125 lists — the eleven
-    muzzle flashes, the six heads' sunglasses the release left at zero, the
-    Nintendo logos. 4J marked a toggled piece they remodelled with an id and
-    one they kept with `0xFFFF`, so a toggled zero is one they never looked
-    at, and taking it away takes a character's glasses off. The hair is the
-    exception and is named from the game's own `MODELPART_HEAD_HAT` before
-    this is asked.
+    muzzle flashes, the Nintendo logos. 4J marked a toggled piece they
+    remodelled with an id and one they kept with `0xFFFF`, so a toggled zero
+    is one they never looked at. Two head pieces are the exceptions, both
+    asked about before this: the hair, named from the game's own
+    `MODELPART_HEAD_HAT`, and the sunglasses the release left at zero
+    (`xblaMeshIsGlassesList()`), which it does not draw.
 
 946 lists across the release are suppressed by that, 844 of them a character's.
 
