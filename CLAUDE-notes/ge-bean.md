@@ -9257,3 +9257,36 @@ plastique's blast and Facility's remote mine explosion type.
 
 Probes: `/home/sdg/wt/step2/{knives,rockets,zoom,sims}.py` (Dam 0x15 and
 Complex 0x1f), and `gegunsDump()` for definitions.
+
+## GoldenEye X's maps with the borrow dormant (2026-09-25)
+
+F3 20260925-035107 (dblaney1, GE-X's Temple through the Stage Loader, no mod
+loaded): "Goldeneye X maps no longer work without the mod loaded". Not the
+guns. `borrowDormant()` (200dfb0ba) switched off the whole borrow, and the
+arenas part of it went with the guns: GE-X's 22 maps went back to Perfect
+Dark's model states (the Carrington Institute's blue door in Temple's
+corridors, which is the report's screenshot; the "AMMO" crates), Skedar's
+stage row and no sky. v3.8.0 predates the dormancy.
+
+- **Guns needed nothing remapped.** All 22 maps place weapons only as the MP
+  location markers 240-246 (`setupPlaceWeapon()` probed on each), so no GE-X
+  weapon number is on any map; a match's guns are the weapon set. What was
+  missing was GoldenEye's sets in Perfect Dark's list: the ROM's 14
+  (`menu/gesets.bin`) were appended only by GE Plus's menu.
+  `gexPlusWeaponSetsAppend()` puts them in at boot and after a swap.
+- **The maps take their own objects, row and sky from GE-X again**, and
+  nothing else: `borrowFindMapsSource()` in modborrow.c finds GE-X (by its
+  gun slots, as before) when "auto" is dormant, only while the Stage Loader
+  has it mounted and it is not the loaded mod, and `modBorrowArenas()` takes
+  only stages on its own mount - the conversion's `propsfrom` is not
+  followed, so the ROM arenas and missions never read it. Guns, characters,
+  music, sounds, animations and GE-X's sets stay dormant. The user's rule
+  ("only ge rom/ge xbla for ge plus") is about GE Plus; a GE-X map is GE-X's
+  content, whose bg, pads, setup and textures were GE-X's all along.
+
+Checked: at the report's camera the door is GE-X's again, as the
+pre-dormant binary draws it; all 22 GE-X maps boot, each with 278 model
+states in; ROM Temple, ROM Dam and a stock arena are pixel-identical to the
+previous commit with no GE-X read. Probes in `/home/sdg/wt/f3gexmaps-probe/`
+(`spot.sh` teleports a spectator to a spot, `ab.sh` A/Bs two binaries,
+`weps.sh` lists a setup's weapon numbers).

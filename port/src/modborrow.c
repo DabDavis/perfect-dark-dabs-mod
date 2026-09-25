@@ -291,15 +291,21 @@ static const char *borrowBaseName(const char *path)
 	return p;
 }
 
-static s32 borrowIsLoaded(void)
+static s32 borrowNameIsLoaded(const char *name)
 {
 	const char *loaded = fsGetModDir();
+	const size_t len = strlen(name);
 
 	// --moddir can name the loaded mod by another path than the list's, so the
 	// folder's own name is what is compared: the list holds a name once
-	return loaded && strncmp(borrowBaseName(loaded), src.name, strlen(src.name)) == 0
-		&& (borrowBaseName(loaded)[strlen(src.name)] == '\0' || borrowBaseName(loaded)[strlen(src.name)] == '/'
-			|| borrowBaseName(loaded)[strlen(src.name)] == '\\');
+	return loaded && strncmp(borrowBaseName(loaded), name, len) == 0
+		&& (borrowBaseName(loaded)[len] == '\0' || borrowBaseName(loaded)[len] == '/'
+			|| borrowBaseName(loaded)[len] == '\\');
+}
+
+static s32 borrowIsLoaded(void)
+{
+	return borrowNameIsLoaded(src.name);
 }
 
 /**
@@ -895,6 +901,107 @@ static struct {
 	u8 keep[NUM_MODELS];             // a weapon's model state, never swapped
 } arenas;
 
+/**
+ * Where the arenas' own objects, rows and skies are read from: the mod the
+ * guns are borrowed from, or - with that dormant - GoldenEye X for its own
+ * maps alone (borrowFindMapsSource()).
+ */
+static struct {
+	const char *name;
+	const char *dir;
+	s32 moddir;
+	const struct moddataspec *spec;
+	s32 ownmapsonly;                 // its own maps' stages, never another mod's props
+} arenasrc = { .moddir = -1 };
+
+// GoldenEye X when the borrow is dormant, found once; its mount looked up each time
+static struct {
+	s32 found;
+	char name[BORROW_NAME_LEN];
+	char dir[FS_MAXPATH + 1];
+	struct moddataspec spec;
+} mapsrc;
+
+/**
+ * GoldenEye X's own maps, played through the Stage Loader with the borrow
+ * dormant. A map is more than its four files: its setup names its doors,
+ * crates and props by GoldenEye X's model numbers, and its stage row and sky
+ * are GoldenEye X's too. Dormant, all of that went back to Perfect Dark's -
+ * the Carrington Institute's blue door in Temple's corridors, the "AMMO"
+ * crates, Skedar's lighting under no sky - which is F3 20260925-035107,
+ * "Goldeneye X maps no longer work without the mod loaded".
+ *
+ * So while the guns, characters, music and sets stay dormant (GE Plus is the
+ * ROM's alone), GoldenEye X's maps still take their own objects, row and sky
+ * from it, the way their bg, pads, setup and textures already come from it.
+ * Only a stage whose files are on GoldenEye X's own mount: the ROM's arenas
+ * and missions never read it (their `propsfrom` is not followed), and nothing
+ * is mounted for this - GoldenEye X is read only when the Stage Loader has
+ * mounted it for its maps, and not when it is the mod loaded, whose maps are
+ * its own tables' already.
+ */
+static s32 borrowFindMapsSource(void)
+{
+	s32 best = 0;
+
+	arenasrc.moddir = -1;
+
+	if (src.found > 0) {
+		if (src.moddir < 0) {
+			return 0;
+		}
+
+		arenasrc.name = src.name;
+		arenasrc.dir = src.dir;
+		arenasrc.moddir = src.moddir;
+		arenasrc.spec = &src.spec;
+		arenasrc.ownmapsonly = 0;
+		return 1;
+	}
+
+	// only where "auto" would have borrowed but for the conversion: "none"
+	// and a named mod that is not installed mean nothing at all, as before
+	if (strcasecmp(borrowSetting, "auto") || !borrowDormant()) {
+		return 0;
+	}
+
+	if (!mapsrc.found) {
+		mapsrc.found = -1;
+
+		for (s32 i = 0; i < modListGetCount(); i++) {
+			struct moddataspec spec;
+			const s32 score = borrowScoreGoldenEye(modListGetPath(i), &spec);
+
+			if (score >= GE_MIN_MATCHES && score > best) {
+				best = score;
+				mapsrc.found = 1;
+				mapsrc.spec = spec;
+				snprintf(mapsrc.name, sizeof(mapsrc.name), "%s", modListGetName(i));
+				snprintf(mapsrc.dir, sizeof(mapsrc.dir), "%s", modListGetPath(i));
+			}
+		}
+	}
+
+	if (mapsrc.found <= 0 || borrowNameIsLoaded(mapsrc.name)) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < fsGetNumModDirs(); i++) {
+		const char *dir = fsGetModDirAt(i);
+
+		if (dir && !strcmp(dir, mapsrc.dir)) {
+			arenasrc.name = mapsrc.name;
+			arenasrc.dir = mapsrc.dir;
+			arenasrc.moddir = i;
+			arenasrc.spec = &mapsrc.spec;
+			arenasrc.ownmapsonly = 1;
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static s32 borrowArenaIndex(s32 stagenum)
 {
 	for (s32 i = 0; i < arenas.num; i++) {
@@ -940,11 +1047,11 @@ void modBorrowArenas(void)
 	arenas.num = 0;
 	arenas.swapped = 0; // a swap put g_ModelStates back itself
 
-	if (src.found <= 0 || src.moddir < 0 || !src.spec.stages) {
+	if (!borrowFindMapsSource() || !arenasrc.spec->stages) {
 		return;
 	}
 
-	b = modDataBorrowOpen(&src.spec, src.dir, src.moddir, NULL, NULL, NULL);
+	b = modDataBorrowOpen(arenasrc.spec, arenasrc.dir, arenasrc.moddir, NULL, NULL, NULL);
 
 	if (!b) {
 		return;
@@ -964,20 +1071,20 @@ void modBorrowArenas(void)
 			continue;
 		}
 
-		if (modloaderGetStageModDirIndex(stagenum) == src.moddir) {
+		if (modloaderGetStageModDirIndex(stagenum) == arenasrc.moddir) {
 			setup = romdataFileGetName(g_Stages[index].mpsetupfileid);
-		} else if (props > 0) {
+		} else if (props > 0 && !arenasrc.ownmapsonly) {
 			setup = propsfrom;
 			at = 0x0e;
 		} else {
 			continue;
 		}
 
-		for (s32 i = 0; setup && i < src.spec.numstages; i++) {
+		for (s32 i = 0; setup && i < arenasrc.spec->numstages; i++) {
 			u8 row[N64_STAGE_SIZE];
 			const char *name;
 
-			if (!modDataBorrowRead(b, src.spec.stages + i * N64_STAGE_SIZE, row, sizeof(row))) {
+			if (!modDataBorrowRead(b, arenasrc.spec->stages + i * N64_STAGE_SIZE, row, sizeof(row))) {
 				break;
 			}
 
@@ -996,7 +1103,7 @@ void modBorrowArenas(void)
 					e->setupfileid = props;
 					e->mpsetupfileid = props;
 					sysLogPrintf(LOG_NOTE, "modborrow: stage 0x%02x takes `%s`'s objects from %s (its stage 0x%02x)",
-							stagenum, src.name, propsfrom, modstage);
+							stagenum, arenasrc.name, propsfrom, modstage);
 				}
 
 				e->light_type = row[2];
@@ -1021,7 +1128,7 @@ void modBorrowArenas(void)
 				arenas.modstage[arenas.num] = modstage;
 				arenas.num++;
 
-				switch (modDataBorrowEnv(b, &src.spec, modstage, stagenum, &extrafog[nextrafog], &extranofog[nextranofog])) {
+				switch (modDataBorrowEnv(b, arenasrc.spec, modstage, stagenum, &extrafog[nextrafog], &extranofog[nextranofog])) {
 				case 1: nextrafog++; break;
 				case 2: nextranofog++; break;
 				}
@@ -1057,8 +1164,9 @@ void modBorrowArenas(void)
 	}
 
 	if (arenas.num) {
-		sysLogPrintf(LOG_NOTE, "modborrow: %d of `%s`'s arenas take its own stage rows, %d skies and its props",
-				arenas.num, src.name, nextrafog + nextranofog);
+		sysLogPrintf(LOG_NOTE, "modborrow: %d of `%s`'s arenas take its own stage rows, %d skies and its props%s",
+				arenas.num, arenasrc.name, nextrafog + nextranofog,
+				arenasrc.ownmapsonly ? " (its own maps only; its guns, characters and music stay dormant)" : "");
 	}
 }
 
@@ -1086,11 +1194,11 @@ void modBorrowStageModels(s32 stagenum)
 		arenas.swapped = 0;
 	}
 
-	if (which < 0 || src.moddir < 0 || !src.spec.modelstates) {
+	if (which < 0 || arenasrc.moddir < 0 || !arenasrc.spec->modelstates) {
 		return;
 	}
 
-	b = modDataBorrowOpen(&src.spec, src.dir, src.moddir, NULL, NULL, NULL);
+	b = modDataBorrowOpen(arenasrc.spec, arenasrc.dir, arenasrc.moddir, NULL, NULL, NULL);
 
 	if (!b) {
 		return;
@@ -1133,13 +1241,13 @@ void modBorrowStageModels(s32 stagenum)
 	}
 
 	memcpy(arenas.saved, g_ModelStates, sizeof(arenas.saved));
-	count = src.spec.nummodelstates < NUM_MODELS ? src.spec.nummodelstates : NUM_MODELS;
+	count = arenasrc.spec->nummodelstates < NUM_MODELS ? arenasrc.spec->nummodelstates : NUM_MODELS;
 
 	for (s32 i = 0; i < count; i++) {
 		u16 fileid;
 		u16 scale;
 
-		if (arenas.keep[i] || !modDataBorrowModelState(b, &src.spec, i, &fileid, &scale)) {
+		if (arenas.keep[i] || !modDataBorrowModelState(b, arenasrc.spec, i, &fileid, &scale)) {
 			continue;
 		}
 
@@ -1155,7 +1263,7 @@ void modBorrowStageModels(s32 stagenum)
 	arenas.swapped = 1;
 
 	sysLogPrintf(LOG_NOTE, "modborrow: stage 0x%02x is `%s`'s stage 0x%02x: %d of its model states in",
-			stagenum, src.name, arenas.modstage[which], swapped);
+			stagenum, arenasrc.name, arenas.modstage[which], swapped);
 }
 
 /* ---- the weapon sets ---------------------------------------------------- */
