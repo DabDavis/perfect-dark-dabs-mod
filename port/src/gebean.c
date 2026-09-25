@@ -3378,6 +3378,29 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 		}
 	}
 
+	// The parka's picture has a blot baked onto the top of the hood - dark in
+	// the middle, brown round it, the hair of the head it was painted over
+	// showing through - which reads on the model as fur poking out of the
+	// crown (F3 20260925-044809). The cloth under it is cloned from the rows
+	// just below; only the blot's texels, the patch's edge left alone.
+	if (w == 512 && h == 512 && t < bm->numtex
+			&& strcmp(caffAssetName(c, c->files[bm->texfile[t]].asset), "_0x0D2B8611.tga.bin") == 0) {
+		for (u32 y = 357; y <= 365; y++) {
+			for (u32 x = 435; x <= 456; x++) {
+				u8 *px = rgba + ((size_t)y * w + x) * 4;
+				const u8 *from = rgba + ((size_t)(y + 10) * w + x) * 4;
+				const s32 lo = px[0] < px[1] ? (px[0] < px[2] ? px[0] : px[2]) : (px[1] < px[2] ? px[1] : px[2]);
+				const s32 hi = px[0] > px[1] ? (px[0] > px[2] ? px[0] : px[2]) : (px[1] > px[2] ? px[1] : px[2]);
+
+				// The cloth is a light grey (175 to 200, within 9 of grey);
+				// the blot darker or coloured
+				if (px[0] + px[1] + px[2] < 168 * 3 || hi - lo > 12) {
+					memcpy(px, from, 4);
+				}
+			}
+		}
+	}
+
 	// Decoded top row first, as a PNG of it would be; the renderer wants the
 	// first uploaded row first (modelpackBindMaterial() does the same).
 	for (u32 y = 0; y < h / 2; y++) {
