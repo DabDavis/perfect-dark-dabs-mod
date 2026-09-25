@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <PR/ultratypes.h>
+#include <PR/gbi.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,6 +73,13 @@ void gebeanStageLevelReset(void);
 
 s32 gebeanStageOwnsRecord(u32 record);
 const void *gebeanStageTile(u32 record);
+
+/**
+ * The level's backdrop - a panorama 4J ring some levels with, far outside
+ * them - drawn after the sky and before the rooms, unfogged and whole
+ * (gebeanstage.c, takeBackdrop()). Answers gdl unchanged where there is none.
+ */
+Gfx *gebeanStageRenderBackdrop(Gfx *gdl);
 
 void gebeanStageTrace(FILE *f);
 

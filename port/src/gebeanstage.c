@@ -20,6 +20,8 @@
 #include "lib/rzip.h"
 #include "game/bg.h"
 #include "lib/vi.h"
+#include "game/camera.h"
+#include "game/gfxmemory.h"
 #include "romdata.h"
 #include "xblatex.h"
 #include "xblastage.h"
@@ -95,6 +97,18 @@ static s32 numHidden;
 static const void *texTile[GEBEAN_MAXMATS];
 static u8 texAlpha[GEBEAN_MAXMATS];
 static u8 texSoft[GEBEAN_MAXMATS];
+// A cut-out whose every triangle keeps v within one repeat [k, k + 1]: drawn
+// with t clamped, from a batch whose v shift is k + 1 (texClampShift[])
+static u8 texClampV[GEBEAN_MAXMATS];
+static s16 texClampShift[GEBEAN_MAXMATS];
+
+// The level's backdrop: a picture whose every triangle stands outside the
+// level (gebeanStageRenderBackdrop())
+static struct stri *backdrop;
+static s32 numBackdrop;
+static s32 *backdropOrder;
+static f32 *backdropDist;
+static f32 backdropMid[3];
 
 #define GRID_BITS 20
 
@@ -1300,13 +1314,15 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 			curbacked = t->backed;
 
 			emit(&l->gdl, alpha ? 0xbb002801 : 0xbb003001, 0xffffffff);
-			emit(&l->gdl, 0xc0080002, t->tex >= 0 ? GEBEANSTAGE_TEXBASE + t->tex : GEBEANSTAGE_TEXNONE);
+			// Bits 20-21 are t's mode (xblaStageWriteTexture()), 1 the clamp
+			emit(&l->gdl, 0xc0080002 | (t->tex >= 0 && texClampV[t->tex] ? 0x00100000 : 0),
+					t->tex >= 0 ? GEBEANSTAGE_TEXBASE + t->tex : GEBEANSTAGE_TEXNONE);
 			curtex = t->tex;
 		}
 
 		if (!b.shifted) {
 			b.shiftu = floorf(t->uv[0][0]);
-			b.shiftv = floorf(t->uv[0][1]);
+			b.shiftv = t->tex >= 0 && texClampV[t->tex] ? texClampShift[t->tex] : floorf(t->uv[0][1]);
 			b.shifted = 1;
 		}
 
@@ -1339,7 +1355,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 			// through the floor (F3 20260925-025537)
 			batchFlush(l, &b);
 			b.shiftu = floorf(triUvMiddle(t, 0));
-			b.shiftv = floorf(triUvMiddle(t, 1));
+			b.shiftv = t->tex >= 0 && texClampV[t->tex] ? texClampShift[t->tex] : floorf(triUvMiddle(t, 1));
 			b.shifted = 1;
 		}
 
@@ -1783,6 +1799,13 @@ static void forget(void)
 	free(roomData);
 	free(roomLen);
 	free(roomHidden);
+	free(backdrop);
+	free(backdropOrder);
+	free(backdropDist);
+	backdrop = NULL;
+	backdropOrder = NULL;
+	backdropDist = NULL;
+	numBackdrop = 0;
 	roomData = NULL;
 	roomLen = NULL;
 	roomHidden = NULL;
@@ -1793,6 +1816,171 @@ static void forget(void)
 	level = NULL;
 	row = NULL;
 	built = 0;
+}
+
+/**
+ * The level's backdrop, out of the triangles to be dealt into rooms.
+ *
+ * 4J ring some levels with a panorama on a band of a few dozen triangles far
+ * outside the level - Surface's snowy peaks (a 2048x1024 photograph, 64
+ * triangles 22000 to 26000 from the middle, up to 9800 high), Dam's and
+ * Runway's - whose top vertices fade to alpha 0 into the sky. Dealt into the
+ * rooms they were fogged solid in GoldenEye's fog colour and cut by its far
+ * plane, which at Surface's 12500 left two flat lavender slabs standing in
+ * the sky with slanting sides (F3 20260925-030405). A picture is the
+ * backdrop when no vertex of any of its triangles lies over the level's rooms
+ * in plan. It is drawn with the sky instead (gebeanStageRenderBackdrop()).
+ *
+ * Cradle's ring of canyon cliffs (a 1024x512 photograph, 360 triangles) dips
+ * under the platform, so 142 of its triangles are over the level's rooms in
+ * plan; drawn fogged it was a flat blue wall round the horizon once the far
+ * plane no longer cut it away. A picture is the backdrop too when at least
+ * half its triangles are outside and it reaches out past the level by more
+ * than a third of the level's size: that is Cradle's cliffs and the Bunkers'
+ * sky dome and cloud cap, and nothing that stands at a level's edge (the
+ * Bunkers' own outside, 1700 past a level 8000 across, is the nearest).
+ */
+static void takeBackdrop(struct collect *c, s32 n)
+{
+	f32 mn[2] = { 1e30f, 1e30f };
+	f32 mx[2] = { -1e30f, -1e30f };
+	s32 *total = calloc(GEBEAN_MAXMATS, sizeof(s32));
+	s32 *outside = calloc(GEBEAN_MAXMATS, sizeof(s32));
+	f32 (*reach)[4] = calloc(GEBEAN_MAXMATS, sizeof(*reach));
+	u8 *isbackdrop = calloc(GEBEAN_MAXMATS, 1);
+	s32 kept = 0;
+	f32 size;
+
+	if (!total || !outside || !reach || !isbackdrop) {
+		free(total);
+		free(outside);
+		free(reach);
+		free(isbackdrop);
+		return;
+	}
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		reach[t][0] = reach[t][1] = 1e30f;
+		reach[t][2] = reach[t][3] = -1e30f;
+	}
+
+	for (s32 r = 1; r < n; r++) {
+		mn[0] = MIN(mn[0], g_Rooms[r].bbmin[0]);
+		mn[1] = MIN(mn[1], g_Rooms[r].bbmin[2]);
+		mx[0] = MAX(mx[0], g_Rooms[r].bbmax[0]);
+		mx[1] = MAX(mx[1], g_Rooms[r].bbmax[2]);
+	}
+
+	for (s32 t = 0; t < c->num; t++) {
+		const struct stri *tri = &c->tris[t];
+		s32 over = 0;
+
+		if (tri->tex < 0 || tri->tex >= GEBEAN_MAXMATS) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			over |= tri->pos[k][0] >= mn[0] && tri->pos[k][0] <= mx[0]
+				&& tri->pos[k][2] >= mn[1] && tri->pos[k][2] <= mx[1];
+		}
+
+		total[tri->tex]++;
+		outside[tri->tex] += !over;
+
+		for (s32 k = 0; k < 3; k++) {
+			reach[tri->tex][0] = MIN(reach[tri->tex][0], tri->pos[k][0]);
+			reach[tri->tex][1] = MIN(reach[tri->tex][1], tri->pos[k][2]);
+			reach[tri->tex][2] = MAX(reach[tri->tex][2], tri->pos[k][0]);
+			reach[tri->tex][3] = MAX(reach[tri->tex][3], tri->pos[k][2]);
+		}
+	}
+
+	size = MAX(mx[0] - mn[0], mx[1] - mn[1]);
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		const f32 past = MAX(MAX(mn[0] - reach[t][0], mn[1] - reach[t][1]),
+				MAX(reach[t][2] - mx[0], reach[t][3] - mx[1]));
+
+		isbackdrop[t] = total[t] > 0 && (outside[t] == total[t]
+				|| (outside[t] * 2 >= total[t] && past > size / 3.0f));
+	}
+
+	for (s32 t = 0; t < c->num; t++) {
+		const struct stri *tri = &c->tris[t];
+
+		if (tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS && isbackdrop[tri->tex]) {
+			struct stri *n2 = realloc(backdrop, sizeof(*backdrop) * (numBackdrop + 1));
+
+			if (n2) {
+				backdrop = n2;
+				backdrop[numBackdrop++] = *tri;
+				continue;
+			}
+		}
+
+		c->tris[kept++] = *tri;
+	}
+
+	c->num = kept;
+
+	if (numBackdrop) {
+		backdropOrder = malloc(sizeof(s32) * numBackdrop);
+		backdropDist = malloc(sizeof(f32) * numBackdrop);
+
+		if (!backdropOrder || !backdropDist) {
+			numBackdrop = 0;
+		}
+	}
+
+	backdropMid[0] = (mn[0] + mx[0]) * 0.5f;
+	backdropMid[1] = 0;
+	backdropMid[2] = (mn[1] + mx[1]) * 0.5f;
+
+	free(total);
+	free(outside);
+	free(reach);
+	free(isbackdrop);
+}
+
+/**
+ * A cut-out picture whose triangles keep v within one repeat is drawn with t
+ * clamped. Wrapped, the filter at its clear edge reached round to the far
+ * edge: Surface's forest wall (1024x512, clear at the top, snow at the foot)
+ * drew its top edge as a thin line of the snow's texels, a dotted wire across
+ * the sky above the treeline (F3 20260925-030405).
+ */
+static void clampCutouts(const struct collect *c)
+{
+	f32 vmin[GEBEAN_MAXMATS];
+	f32 vmax[GEBEAN_MAXMATS];
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		vmin[t] = 1e30f;
+		vmax[t] = -1e30f;
+	}
+
+	for (s32 t = 0; t < c->num; t++) {
+		const struct stri *tri = &c->tris[t];
+
+		if (tri->tex < 0 || tri->tex >= GEBEAN_MAXMATS) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			vmin[tri->tex] = MIN(vmin[tri->tex], tri->uv[k][1]);
+			vmax[tri->tex] = MAX(vmax[tri->tex], tri->uv[k][1]);
+		}
+	}
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		// the UVs are whole 1/256ths, or 1/1024ths, of a repeat
+		const f32 k = floorf(vmin[t] + 1.0f / 2048.0f);
+
+		if (texAlpha[t] && vmin[t] <= vmax[t] && vmax[t] <= k + 1.0f + 1.0f / 2048.0f) {
+			texClampV[t] = 1;
+			texClampShift[t] = (s16)(k + 1.0f);
+		}
+	}
 }
 
 static s32 build(void)
@@ -1825,7 +2013,8 @@ static s32 build(void)
 
 	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
 		texTile[t] = NULL;
-		texAlpha[t] = texSoft[t] = 0;
+		texAlpha[t] = texSoft[t] = texClampV[t] = 0;
+		texClampShift[t] = 0;
 	}
 
 	for (s32 t = 0; t < gebeanLevelNumTextures(level) && t < GEBEAN_MAXMATS; t++) {
@@ -1847,6 +2036,9 @@ static s32 build(void)
 	c.scale = row->scale;
 	c.offset = row->offset;
 	gebeanLevelTriangles(level, collectTri, &c);
+
+	takeBackdrop(&c, n);
+	clampCutouts(&c);
 
 	mark[1] = sysGetMicroseconds();
 
@@ -1996,6 +2188,16 @@ static s32 build(void)
 	free(listlen);
 	free(c.tris);
 
+	{
+		s32 clamped = 0;
+
+		for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+			clamped += texClampV[t];
+		}
+
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles of backdrop, %d cut-outs clamped in t", row->bean, numBackdrop, clamped);
+	}
+
 	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept, %d of them not drawn), %d triangles (%d decals, %d two-faced, %d unfogged), %u bytes, %d triangles off a room's range, %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
 			row->bean, row->key, row->scale, numServed, n - 1, kept, numHidden, c.num, decals, backed, nofogs, bytes, dropped,
 			(sysGetMicroseconds() - start) / 1000.0,
@@ -2004,6 +2206,174 @@ static s32 build(void)
 			mark[3] ? (sysGetMicroseconds() - mark[3]) / 1000.0 : 0.0);
 
 	return numServed > 0;
+}
+
+/* -------------------------------------------------------------------------
+ * The backdrop
+ * ------------------------------------------------------------------------- */
+
+#define BACKDROP_EXTENT 16000.0f // the farthest vertex, in what a Vtx holds
+#define BACKDROP_BATCH  15       // vertices a load: a G_VTX holds 16 at most
+
+/**
+ * The level's backdrop (takeBackdrop()), drawn after the sky and before the
+ * rooms, as the release shows it: unfogged, whole, faded into the sky by its
+ * vertex alpha.
+ *
+ * It is drawn where it is - moving the camera moves it against the peaks, as
+ * a band 25000 out should - but scaled towards the eye so that its farthest
+ * vertex sits inside the far plane. Scaling about the eye moves nothing on
+ * the screen. With no depth test, the rooms drawn after it cover it, and its
+ * own triangles are drawn furthest first (Cradle's cliffs fold).
+ */
+static int compareBackdropFar(const void *a, const void *b)
+{
+	const f32 da = backdropDist[*(const s32 *)a];
+	const f32 db = backdropDist[*(const s32 *)b];
+
+	return da > db ? -1 : da < db ? 1 : *(const s32 *)a - *(const s32 *)b;
+}
+
+Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
+{
+	const s32 numvtx = numBackdrop * 3;
+	struct coord *cam;
+	struct zrange zrange;
+	f32 far2 = 0.0f;
+	f32 k;
+	f32 scale;
+	Mtxf *mtx;
+	Vtx *vtx;
+	Col *col;
+	s32 curtex = -2;
+
+	if (numBackdrop == 0 || !xblaStageDrawsEveryRoom()
+			|| g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
+		return gdl;
+	}
+
+	cam = &g_Vars.currentplayer->cam_pos;
+
+	for (s32 t = 0; t < numBackdrop; t++) {
+		f32 mid[3] = { 0, 0, 0 };
+
+		for (s32 j = 0; j < 3; j++) {
+			const f32 x = backdrop[t].pos[j][0] - cam->x;
+			const f32 y = backdrop[t].pos[j][1] - cam->y;
+			const f32 z = backdrop[t].pos[j][2] - cam->z;
+
+			far2 = MAX(far2, x * x + y * y + z * z);
+			mid[0] += x;
+			mid[1] += y;
+			mid[2] += z;
+		}
+
+		backdropOrder[t] = t;
+		backdropDist[t] = mid[0] * mid[0] + mid[1] * mid[1] + mid[2] * mid[2];
+	}
+
+	qsort(backdropOrder, numBackdrop, sizeof(s32), compareBackdropFar);
+
+	vtx = gfxAllocateVertices(numvtx);
+	col = gfxAllocateColours(numvtx);
+	mtx = gfxAllocateMatrix();
+
+	if (far2 <= 1.0f || !vtx || !col || !mtx) {
+		return gdl;
+	}
+
+	k = BACKDROP_EXTENT / sqrtf(far2);
+
+	for (s32 t = 0; t < numBackdrop; t++) {
+		const struct stri *tri = &backdrop[backdropOrder[t]];
+		// a triangle's own window on the picture, which wraps
+		const f32 su = floorf(tri->uv[0][0]);
+		const f32 sv = floorf(tri->uv[0][1]) + 1.0f;
+
+		for (s32 j = 0; j < 3; j++) {
+			const s32 i = t * 3 + j;
+			Vtx *v = &vtx[i];
+			const u32 argb = tri->argb[j];
+
+			v->x = (s16)((tri->pos[j][0] - cam->x) * k);
+			v->y = (s16)((tri->pos[j][1] - cam->y) * k);
+			v->z = (s16)((tri->pos[j][2] - cam->z) * k);
+			v->s = (s16)((tri->uv[j][0] - su) * XBLATEX_TILE_SCALE);
+			// turned over, as the rooms' are (writeLeaf())
+			v->t = (s16)((sv - tri->uv[j][1]) * XBLATEX_TILE_SCALE);
+			v->colour = (i % BACKDROP_BATCH) * 4;
+
+			col[i].r = (argb >> 16) & 0xff;
+			col[i].g = (argb >> 8) & 0xff;
+			col[i].b = argb & 0xff;
+			col[i].a = argb >> 24;
+		}
+	}
+
+	// The camera's turn and nothing of its position, the farthest vertex
+	// under half the far plane (the Community Edition's dome is at half)
+	viGetZRange(&zrange);
+	scale = zrange.far * 0.45f / BACKDROP_EXTENT;
+
+	*mtx = *camGetWorldToScreenMtxf();
+
+	for (s32 i = 0; i < 3; i++) {
+		for (s32 j = 0; j < 3; j++) {
+			mtx->m[i][j] *= scale;
+		}
+
+		mtx->m[3][i] = 0;
+	}
+
+	gDPPipeSync(gdl++);
+	gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+	gDPSetTexturePersp(gdl++, G_TP_PERSP);
+	gDPSetTextureLOD(gdl++, G_TL_TILE);
+	gDPSetTextureConvert(gdl++, G_TC_FILT);
+	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+	gDPSetAlphaCompare(gdl++, G_AC_NONE);
+	gSPClearGeometryMode(gdl++, G_ZBUFFER | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_FOG | G_CULL_BOTH);
+	gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+	gDPSetCombineLERP(gdl++, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0, TEXEL0, 0, SHADE, 0);
+
+	gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPMatrix(gdl++, osVirtualToPhysical(mtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW | G_MTX_FLOATS);
+
+	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+
+	for (s32 first = 0; first < numvtx; first += BACKDROP_BATCH) {
+		const s32 count = MIN(numvtx - first, BACKDROP_BATCH);
+		s32 t;
+
+		// a load is five whole triangles, each of one picture
+		for (t = 0; t < count; t += 3) {
+			const s32 tex = backdrop[backdropOrder[(first + t) / 3]].tex;
+
+			if (tex != curtex) {
+				curtex = tex;
+
+				gDPPipeSync(gdl++);
+				gDPLoadTextureBlock(gdl++, (void *)texTile[tex], G_IM_FMT_RGBA, G_IM_SIZ_16b,
+						XBLATEX_TILE, XBLATEX_TILE, 0, G_TX_WRAP, G_TX_WRAP,
+						XBLATEX_TILE_MASK, XBLATEX_TILE_MASK, G_TX_NOLOD, G_TX_NOLOD);
+			}
+
+			if (t == 0) {
+				gSPColor(gdl++, osVirtualToPhysical(&col[first]), count);
+				gSPVertex(gdl++, osVirtualToPhysical(&vtx[first]), count, 0);
+			}
+
+			gSPTri1(gdl++, t, t + 1, t + 2);
+		}
+	}
+
+	// The frame turned the depth test on before the sky and nothing after it
+	// turns it on again (xblasky.c)
+	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+	gDPPipeSync(gdl++);
+
+	return gdl;
 }
 
 /* -------------------------------------------------------------------------
@@ -2081,6 +2451,7 @@ void gebeanStageTrace(FILE *f)
 			tried, built, row ? row->bean : "-", row ? row->scale : 0.0f, numServed, numRooms ? numRooms - 1 : 0, numHidden);
 	fprintf(f, "gebeanstage: camera outside the level %d (%d of %d rays on its back faces, %d of GoldenEye's triangles)\n",
 			cullOutside, shellBacks, shellHits, shellNum);
+	fprintf(f, "gebeanstage: %d triangles of backdrop\n", numBackdrop);
 }
 
 #else
@@ -2100,5 +2471,6 @@ const char *gebeanStageLevelKey(void) { return NULL; }
 s32 gebeanStageOwnsRecord(u32 record) { return 0; }
 const void *gebeanStageTile(u32 record) { return NULL; }
 void gebeanStageTrace(FILE *f) { }
+Gfx *gebeanStageRenderBackdrop(Gfx *gdl) { return gdl; }
 
 #endif

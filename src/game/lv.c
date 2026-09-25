@@ -116,6 +116,7 @@
 #include "record.h"
 #include "xblamesh.h"
 #include "xblastage.h"
+#include "gebeanstage.h"
 #include "game/modrules.h"
 #include <stdlib.h>
 #include "system.h"
@@ -1401,6 +1402,10 @@ Gfx *lvRender(Gfx *gdl)
 				gdl = lvRenderTaa(gdl, true);
 #endif
 				gdl = skyRender(gdl);
+#ifndef PLATFORM_N64
+				// GoldenEye XBLA's panorama round an HD level, between its sky and its rooms
+				gdl = gebeanStageRenderBackdrop(gdl);
+#endif
 				bgTick();
 				lightsTick();
 				propsTickPlayer(islastplayer);
