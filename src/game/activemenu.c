@@ -27,6 +27,9 @@
 #include "lib/str.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "getank.h"
+#endif
 
 struct activemenu g_AmMenus[MAX_PLAYERS];
 struct fontchar *g_AmFont1;
@@ -863,7 +866,10 @@ static void amApplyLeftWeapon(s32 weaponnum)
 		return;
 	}
 
-	if (weaponnum == rightweaponnum) {
+	if (geTankIsDriving()) {
+		// the tank's driver has no left hand (bgunTickSwitch2())
+		ok = false;
+	} else if (weaponnum == rightweaponnum) {
 		ok = invHasDoubleWeaponIncAllGuns(weaponnum, weaponnum);
 	} else {
 		ok = modIsAkimboForPlayers()

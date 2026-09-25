@@ -71,6 +71,7 @@
 #include "system.h"
 #include "geguns.h"
 #include "gesfx.h"
+#include "getank.h"
 #endif
 
 #define GUNLOADSTATE_FLUX     0
@@ -5913,6 +5914,13 @@ void bgunTickSwitch2(void)
 	s32 i;
 #ifndef PLATFORM_N64
 	s32 newleftweaponnum = WEAPON_NONE;
+
+	// GoldenEye's tank: its driver has the one hand, on the cannon, and no
+	// second one for Akimbo or a pair to put in it (getank.c). What the left
+	// held is given back as he climbs out.
+	if (geTankIsDriving()) {
+		ctrl->dualwielding = false;
+	}
 #endif
 
 	if (ctrl->switchtoweaponnum >= 0) {
@@ -5971,6 +5979,11 @@ void bgunTickSwitch2(void)
 				}
 
 				ctrl->dualwielding = newleftweaponnum != WEAPON_NONE;
+			}
+
+			if (geTankIsDriving()) {
+				newleftweaponnum = WEAPON_NONE;
+				ctrl->dualwielding = false;
 			}
 #endif
 

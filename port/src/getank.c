@@ -731,10 +731,12 @@ static s32 tankTryExit(struct tankobj *tank, f32 angle, f32 distance, struct coo
  * left had held - or nothing. The left is asked for first, so that the
  * right's switch pairs against it (bgunEquipWeapon2() records it).
  *
- * Only when the shells are in a hand: anything else he switched to in there
- * is his to keep. Akimbo can carry the shells into the left hand as he
- * switches away from them (they are the Data Uplink's, which Akimbo counts
- * as a gun), and a hand left holding them would hold nothing he has.
+ * Both only when the shells are in a hand: anything else he switched to in
+ * there is his to keep, and has the left hand's gun given back beside it,
+ * since the driver has none. (Before the driver lost his left hand, Akimbo
+ * carried the shells into it as he switched away from them - they are the
+ * Data Uplink's, which Akimbo counts as a gun - and a hand left holding them
+ * would hold nothing he has.)
  */
 static void tankGiveBackHands(void)
 {
@@ -763,6 +765,20 @@ static void tankGiveBackHands(void)
 		if (g_Vars.currentplayer->gunctrl.switchtoweaponnum < 0) {
 			g_Vars.currentplayer->gunctrl.switchtoweaponnum = right;
 			g_Vars.currentplayer->gunctrl.wantammo = false;
+		}
+	} else if (g_Tank[p].leftweaponwas > WEAPON_NONE
+			&& g_Tank[p].leftweaponwas != WEAPON_GE_TANKSHELLS
+			&& bgunGetWeaponNum(HAND_LEFT) != g_Tank[p].leftweaponwas) {
+		// he switched to something else in there, which is his to keep,
+		// and the driver has no left hand (bgunTickSwitch2()): the left's
+		// gun is given back beside it, as the switch would pair it
+		struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
+
+		bgunEquipWeapon2(HAND_LEFT, g_Tank[p].leftweaponwas);
+
+		if (ctrl->switchtoweaponnum < 0) {
+			ctrl->switchtoweaponnum = ctrl->weaponnum;
+			ctrl->wantammo = false;
 		}
 	}
 
