@@ -4466,6 +4466,17 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		// on Runway and on Streets), which is what Bond is handed as he climbs
 		// in. Dropped until converter 57, and the tank had none
 		{ 0x2d, 0xd8, 0x5c, 4 },
+		// An autogun's turn limits, turn speed and range. GoldenEye's
+		// AutogunRecord and Perfect Dark's autogunobj are the same fields in
+		// the same order, 0x24 further on here, and both loads convert these
+		// four out of the setup's 16.16 integers the same way (prop.c's
+		// setupAutogun(), setup.c's setupCreateAutogun()). Left at nought -
+		// until converter 67 - every autogun had a range of nought and could
+		// not turn, and none of the 35 on eleven missions ever fired
+		// (Egyptian's four round the Golden Gun among them). The pad it faces
+		// is below, since it is a pad number.
+		{ 0x0d, 0x88, 0x64, 4 }, { 0x0d, 0x8c, 0x68, 4 },  // ymaxleft, ymaxright
+		{ 0x0d, 0xa4, 0x80, 4 }, { 0x0d, 0xa8, 0x84, 4 },  // maxspeed, aimdist
 		// glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and
 		// nothing more, and Perfect Dark finds a pane's portal at the load
 	};
@@ -4523,6 +4534,14 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 				if (tails[k].type == t && tails[k].ge + tails[k].width <= recs.v[i].len) {
 					memcpy(rec + tails[k].pd, raw + tails[k].ge, tails[k].width);
 				}
+			}
+			if (t == 0x0d && recs.v[i].len >= 0x84) {
+				// the pad the autogun rests facing: GoldenEye's s32 at 0x80,
+				// Perfect Dark's s16 at 0x5c, -1 for none (gesolo.py's
+				// AUTOGUN)
+				const int32_t target = bes32(raw, 0x80);
+
+				set16(rec, 0x5c, target < 0 ? 0xffff : padNum((uint32_t)target, numpads, 0));
 			}
 			if (t == 0x0a && recs.v[i].len >= 0xfc) {
 				// A hanging TV's mount. GoldenEye's MonitorObjRecord ends
