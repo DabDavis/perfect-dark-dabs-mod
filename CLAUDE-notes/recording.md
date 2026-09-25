@@ -182,15 +182,16 @@ client) the key also offers to send what it wrote. `port/src/tracereport.c`.
   the only thing in one that can credit whoever sent it - nothing else
   identifies anybody, and `CREDITS.md` could not name a single tester until
   fourteen were asked for their names by hand. *Name (Optional)* on the dialog
-  types into `g_Name` instead of `g_Note` (`g_Field`, one editor for both), the
+  types into `g_NameEdit` instead of `g_Note` (`g_Field`, one editor for both), the
   send puts it in the header and in the JSON as `name`, and pdghostd writes it
   as a `name:` header line (`REPORT_MAX_NAME`, 64; a client that sends none is
   not an error, which every build before this one is). It is **kept**, where
   the note is cleared per report: `configRegisterString("Mod.ReportName")`, so
   it is typed once and every later report carries it. ENTER in the name field
-  finishes the name rather than sending - sending on the keystroke that fills a
-  form in would post a report with no note. The crash reporter has no such
-  field yet.
+  finishes the name and goes back to the note rather than sending - sending on
+  the keystroke that fills a form in would post a report with no note. The
+  crash reporter has no such field yet. How a player gets to the field, and
+  when the name reaches pd.ini, is the next section.
 - **Where it opens.** `traceReportTick()` from `lvTick()` just before
   `menuTick()`, never from the key's own tick in pdsched: over an open menu it
   is `menuPushDialog()`; in play it is pushed the way Start opens that mode's
@@ -251,6 +252,59 @@ client) the key also offers to send what it wrote. `port/src/tracereport.c`.
   with PORT/ROOT patched, `GhostServer=http://127.0.0.1:<port>` in the scratch
   ini, Chicago `--boot-stage 0x1d`, F3 at ~60 s, `xdotool type`, Return; the
   copy's `root/reports/` holds the `.txt` and `.png`.
+
+### Nobody could reach the name (2026-09-25)
+
+*"A user can't submit his name for the F3 report."* Two Windows testers, on
+2b221d9 and 6b17756, sent `name: -` with `ReportName=` empty; one got a name
+through on his fourth report. Every way in was tried, keyboard, mouse and pad,
+on Linux and on the mingw build under wine (rigs outside the tree, in
+`~/wt/f3name-run/probes/`: Xvfb, xdotool, gdb for the state, a virtual pad
+from `SDL_JoystickAttachVirtual()` called in the game from gdb). What failed:
+
+- **The dialog opens typing, and typing blanks the pads** (`inputReadController()`
+  while `textInput`). The mouse's button is a pad binding (Z), and so are the
+  menu's keys, so while the note was typed: a click on *Name (Optional)* lit the
+  row up and did nothing, and the name typed next **went on the end of the
+  note** - which ENTER then sent (`note: wne ntewnae`, `name: -` under wine).
+  TAB and the arrows did nothing. A controller could not move, pick, send or
+  close at all. ESC, taken by menu.c, was the only way out, and nothing said to
+  press it to reach the name.
+- **ENTER in the name did not finish it.** It stopped the typing, which gave the
+  pads back with ENTER (Accept) still down; the next frame the menu took it as
+  a press on the focused *Name (Optional)* and started the name again - traced,
+  `inputStopTextInput` from the dialog then `inputStartTextInput` from
+  `menuhandlerTraceReportName`. The same trap as the send's, below.
+- **TAB after ESC** is the menu's Start on a keyboard: it closed the whole pause
+  menu, or the whole Perfect Menu, with the report unsent in it.
+- **The name only reached pd.ini on a clean exit** (`configSave()` in main.c's
+  shutdown), so a crash or a killed process lost it, and a name in memory was
+  not asked for again until the next start found it gone.
+- **One character a frame.** `SDL_TEXTINPUT` kept the first character of a frame
+  and threw the rest away, so a quick typist or a slow frame lost letters
+  (`kb note` arrived as `k noe`). input.c queues them now (64); the dialog
+  reads every one each frame, the other readers one a frame as before.
+
+What it does now: TAB (either field to the other), Up/Down, or a click on
+*Type a Note* / *Name (Optional)* moves the typing between the fields, and the
+menu's cursor follows (`traceReportFocusField()`); a click on Send sends and on
+Back closes, once the button is up (`g_ReleaseKey`: the pads come back only
+after the press that stopped the typing is let go, or the menu reads it again).
+A pad's button while typing stops the typing, the same way, so a controller
+drives the dialog and the name row says it is typed on a keyboard. TAB when not
+typing starts typing the other field, and the dialog has
+`MENUDIALOGFLAG_STARTSELECTS`, so Start picks a row rather than throwing the
+report away. The row under the note says how to reach the name (*TAB or click
+Name*) or whose it is (*Credit: X (TAB to change)*).
+
+The name is written to pd.ini **the moment it is finished** - ENTER, TAB, a
+click away, ESC, a pad's button, the dialog closing - and on Send
+(`traceReportKeepName()`, `configSave(CONFIG_PATH)`). Typing goes into
+`g_NameEdit`; only a finished name comes back to `g_Name`, the registered one,
+so a save on the way out never writes a half-typed name. Leading and trailing
+spaces are dropped, and an empty or all-space field never replaces a kept name:
+it is a slip of the backspace key, and the name comes back. Checked by typing a
+name, `kill -9`, restarting and pressing F3, on Linux and under wine.
 
 ## Sending an F3 report ended the game on Windows (2026-09-21)
 

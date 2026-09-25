@@ -97,8 +97,15 @@ static f32 mouseSensX = 2.5f;
 static f32 mouseSensY = 2.5f;
 
 static s32 lastKey = 0;
-static char lastChar = 0;
 static s32 textInput = 0;
+
+// Typed characters not yet read, oldest first. One character used to be kept
+// per frame and the rest of that frame's thrown away, so a quick typist, or a
+// slow frame (a 4K screen, wine), lost letters: "kb note" arrived as "k noe".
+#define TEXT_QUEUE_SIZE 64
+static char textQueue[TEXT_QUEUE_SIZE];
+static s32 textQueueHead = 0;
+static s32 textQueueLen = 0;
 
 static char *clipboardText = NULL;
 
@@ -557,8 +564,10 @@ static int inputEventFilter(void *data, SDL_Event *event)
 			break;
 
 		case SDL_TEXTINPUT:
-			if (!lastChar && event->text.text[0] && (u8)event->text.text[0] < 0x80) {
-				lastChar = event->text.text[0];
+			for (const char *c = event->text.text; *c && textQueueLen < TEXT_QUEUE_SIZE; ++c) {
+				if ((u8)*c < 0x80) {
+					textQueue[(textQueueHead + textQueueLen++) % TEXT_QUEUE_SIZE] = *c;
+				}
 			}
 			break;
 
@@ -1671,20 +1680,27 @@ s32 inputGetLastKey(void)
 
 void inputStartTextInput(void)
 {
-	lastChar = 0;
+	textQueueLen = 0;
 	lastKey = 0;
 	textInput = 1;
 	SDL_StartTextInput();
 }
 
+/**
+ * Done with the character inputGetLastTextChar() answered: the next one typed,
+ * if any, is the one it answers now.
+ */
 void inputClearLastTextChar(void)
 {
-	lastChar = 0;
+	if (textQueueLen > 0) {
+		textQueueHead = (textQueueHead + 1) % TEXT_QUEUE_SIZE;
+		textQueueLen--;
+	}
 }
 
 char inputGetLastTextChar(void)
 {
-	return lastChar;
+	return textQueueLen > 0 ? textQueue[textQueueHead] : 0;
 }
 
 static inline s32 filterChar(const char ch)
