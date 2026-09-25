@@ -9965,9 +9965,27 @@ GoldenEye does spin this one: Surface 2 has two aircraft of model 284, pad 23
 ticks - two minutes to full speed) and pad 31 (list 0x42a, speed 0, parked
 still). The oracle (`~/dam-oracle/gesurf2rotor.py` on 10.8.0.3, a break on the
 render's `rotoryrot += rotaryspeed`) reads pad 23's aircraft turning from the
-level's start. The rotor advances once a *drawn* frame, as GoldenEye's does,
-so at 60 fps it turns three times as often as on the console; with four
-blades and 1.08 rad a step it reads as a slow backwards turn in both games.
+level's start. GoldenEye advances the rotor once a *drawn* frame (gated only by
+`g_ClockTimer > 0`), and a console frame lasts `speedgraphframes` fields
+(frametiming.c, `waitForNextFrame()`), so its rotor speed in seconds depends on
+the frame rate. Rare's fourteen attract demos are console recordings that store
+each frame's length (`ramrom_seed.speedframes`; `~/wt/f3surfprops-pics/ramrom_frame_lengths.py`
+parses them, header 0xe8): 3 fields is the mode and the median, the outdoor
+levels averaging 2.5 (Runway) to 3.7 (Frigate). So ours steps
+`rotoryspeed * lvupdate60freal / 3` (`GE_ROTOR_FIELDS`): 21.64 rad/s at full
+speed at 60, 30 and 20 fps alike (measured, `rotor_rates.txt`); once a frame it
+had been 64.9 at 60 fps. The spin-up ramp was game time already. The native
+oracle runs in lockstep at one field a frame, so it steps 60 times a second -
+read its per-frame step, not its per-second rate.
+
+GoldenEye turns the main rotor about **z** where the setup record's own flags
+carry 0x20000000 (`aircraft_render->flags`; the enum calls the bit
+`PROPFLAG_INMOTION`): Runway's plane (0x200001e8) turns its propeller about its
+nose, and it had spun about the vertical here. Its HD propeller hub is 29 units
+from entry 2, so a held part matches within 50 and is stored relative to Bean's
+hub (not the node's point, or the spinner circles the axis). Runway's plane
+turns only in the escape (list 0x40d: speed 0, then 620 at once when objective
+bit 0x100000 is set).
 
 Probe: `~/wt/f3surfprops-rig/rotor.sh` - freezes the rotor at 0 and at 0.6 rad
 from gdb (`findobj.py`'s `setheli()`), one shot each; a still rotor gives two
