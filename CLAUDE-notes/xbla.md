@@ -1095,6 +1095,48 @@ cutout span alone was right until panes could be moved out of it: a mesh whose
 every alpha triangle became a pane read as "has no pane" and the game drew its
 stock glass over the release's.
 
+#### A windowed door's fade is in the primitive alpha (2026-09-25)
+
+A tester's F3 (20260925-070337, Investigation, a corridor ending in
+`MODEL_DD_LAB_SECTOR3WIND`, slot 2205): "section three writing pop in as you
+get closer, not fading in or using LOD properly". With the meshes on, a
+black box sat over the right half of the "SECTOR THREE" sign from about 900
+units in to 300, then vanished; the pack made no difference (its decode queue
+was idle in the trace).
+
+The door is `DOORFLAG_WINDOWED`: `doorUpdatePortalIfWindowed()` sets
+`fadealpha` from the camera's distance (`glassCalculateOpacity()`, clear at
+the door's xludist 200, opaque at opadist 900), and `objRender()` hands it
+down as `envcolour >> 8`. Under mode 9 (`modelApplyRenderModeType3`/`4`) that
+becomes the **primitive alpha**, and the node's combiner is G_CC_TRILERP then
+G_CC_CUSTOM_20: alpha = texel x shade + prim. The game's lists under it are an
+opaque body and its window, for which that is the window's fade. The mesh's
+cutout span is drawn under the same combiner, so every clear texel of the
+sign had the fade for alpha and passed the cutout's test - black, since the
+sign's picture (record 4205, 512x64 DXT) is black letters on black. Half the
+sign: the other triangle had been taken for a pane (its middle sample fell on
+a letter's DXT fringe, 187) and blended with the fading span's own combiner,
+which ignored prim.
+
+Three changes in xblamesh.c:
+- the cutout span is drawn with prim alpha nought under mode 9, put back
+  after, so a cutout is cut on its texels alone;
+- the fading span's second cycle is (1 - a) x prim + a, and prim is set before
+  it - the fade under mode 9, nought otherwise - so a windowed door's pane
+  (slot 2205's window, record 4201 at vertex alpha 127, a group of its own)
+  and a tinted pane go opaque with distance as the game's own window does.
+  Nothing else is touched: prim alpha is nought for every other prop, and
+  Defection's fan beams are pixel-identical;
+- `xblaMeshTriIsPane()` counts a partial sample with clear and opaque texels
+  within four map texels as the edge it is. Over all 595 meshes (every slot
+  built from gdb, `xblaMeshBuild` called in a loop), 11 draws changed and all
+  towards cutout: the three sector doors' 4205, 4202 ("HAZARDOUS"), leaves in
+  4211 and 4437, dots in 4331, and 107 triangles of 3741 (a nearly opaque
+  atlas); the Villa's 4117/4148/3761/3817 panes are unchanged.
+
+In the N64 look the same door swaps a cross for the lettering at about 550
+units: that is the ROM model's own texture levels, left alone.
+
 #### Segment 5 is the model's, and must be handed back
 
 The mesh's `G_COL` names its table through segment 5 now (`XBLAMESH_COLSEG`),
