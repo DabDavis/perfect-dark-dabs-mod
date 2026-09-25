@@ -4801,6 +4801,40 @@ static u32 beanFixVertexColour(const char *source, u32 vboff, u32 vi, u32 argb)
 	return argb;
 }
 
+/**
+ * Triangles the release's HD props draw that they should not, left out where
+ * the release's geometry is still there. By file, vertex buffer (.gpu offset)
+ * and vertex range; a triangle touching the range is not drawn.
+ *
+ * - console2 and console3, Silo's four-screen consoles: four quads on Bean's
+ *   placeholder spiral picture lie on the lower screens, over the screens
+ *   GoldenEye's monitor programme draws, and fight them (a spiral in a smear
+ *   of grey). The Community Edition moves those 16 vertices to the origin
+ *   ("Resolved z-fighting for console1/console2/tuningconsole1 models"); its
+ *   copy draws nothing there either way.
+ */
+static const struct {
+	const char *source;
+	u32 vboff;
+	u16 first;
+	u16 last;
+} beanVertexDrops[] = {
+	{ "new/prop/console2", 0, 118, 133 },
+	{ "new/prop/console3", 0, 118, 133 },
+};
+
+static s32 beanVertexDropped(const char *source, u32 vboff, u32 vi)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(beanVertexDrops); i++) {
+		if (beanVertexDrops[i].vboff == vboff && vi >= beanVertexDrops[i].first && vi <= beanVertexDrops[i].last
+				&& strcmp(source, beanVertexDrops[i].source) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -4959,6 +4993,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				const f32 weight[3] = { 1.0f, 0.0f, 0.0f };
 				s32 part = -1;
 				u32 argb;
+
+				if (beanVertexDropped(source, vb.off, vi)) {
+					ok = 0;
+					break;
+				}
 
 				if (mapped[vi] >= 0) {
 					idx[i] = (u16)mapped[vi];
