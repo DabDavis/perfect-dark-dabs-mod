@@ -2933,13 +2933,15 @@ struct weaponpad {
 	int32_t pad, loc;
 };
 
+typedef VEC(struct weaponpad) weaponpads;
+
 struct setup {
 	VEC(struct pad) pads;
 	VEC(struct waypoint) waypoints;
 	VEC(struct waygroup) groups;
 	s32s spawns;
-	VEC(struct weaponpad) weapons;
-	s32s ammo;
+	// the multiplayer items in the setup's order; loc -1 is an ammo crate
+	weaponpads items;
 };
 
 static s32s readS32List(const buf *f, size_t at)
@@ -2956,6 +2958,48 @@ static s32s readS32List(const buf *f, size_t at)
 		}
 		VECPUSH(out, v);
 	}
+}
+
+static const uint8_t g_GeSizes[48] = {
+	[1] = 64, [2] = 2, [3] = 32, [4] = 33, [5] = 32, [6] = 0x3b, [7] = 0x21, [8] = 0x22, [9] = 7, [10] = 0x40,
+	[11] = 0x95, [12] = 32, [13] = 0x36, [14] = 3, [17] = 32, [18] = 3, [19] = 4, [20] = 0x2d, [21] = 0x22,
+	[22] = 4, [23] = 4, [24] = 1, [25] = 2, [26] = 2, [27] = 2, [28] = 2, [29] = 2, [30] = 4, [31] = 1, [32] = 4,
+	[33] = 5, [34] = 1, [35] = 4, [36] = 32, [37] = 10, [38] = 4, [39] = 0x2c, [40] = 0x2d, [42] = 32, [43] = 32,
+	[44] = 5, [45] = 0x38, [46] = 7, [47] = 37,
+};
+
+struct record {
+	uint32_t type;
+	const uint8_t *b;
+	size_t len;
+};
+
+typedef VEC(struct record) records;
+
+static records setupRecords(const buf *f)
+{
+	records out = {0};
+	size_t o = be32(f->v, 12);
+
+	while (o + 4 <= f->n) {
+		struct record r;
+		r.type = f->v[o + 3];
+		if (r.type == 48) {
+			break;
+		}
+		if (r.type >= 48 || !g_GeSizes[r.type]) {
+			fail("an object of type %u GoldenEye has no size for", r.type);
+		}
+		r.b = f->v + o;
+		r.len = 4 * (size_t)g_GeSizes[r.type];
+		if (o + r.len > f->n) {
+			fail("an object runs off the setup");
+		}
+		VECPUSH(out, r);
+		o += r.len;
+	}
+
+	return out;
 }
 
 static void setupRead(const buf *f, struct setup *s)
@@ -3040,32 +3084,35 @@ static void setupRead(const buf *f, struct setup *s)
 		}
 	}
 
+	// The multiplayer items, in the setup's order: GoldenEye's arena setups
+	// mix doors, glass and props in among the weapon spots, ammo boxes and
+	// armour (Archives, Bunker ii and Egyptian put theirs first), so every
+	// object is walked and the others skipped. The order is kept because an
+	// ammo box takes the ammunition of the weapon spot before it, in
+	// GoldenEye (prop.c, lastmpweaponnum) and in Perfect Dark
+	// (g_SetupCurMpLocation). PROPFLAG2 0x08 is "don't load in multiplayer".
+	// A pad from 10000 is a bound pad, written after the pads (boundPads()).
 	if (h[3]) {
-		for (size_t o = h[3]; o + 4 <= f->n;) {
-			const uint32_t typ = be32(d, o) & 0xff;
-			int32_t padnum;
-			if (typ == 48) {
-				break;
+		records recs = setupRecords(f);
+		for (size_t i = 0; i < recs.n; ++i) {
+			const struct record *r = &recs.v[i];
+			struct weaponpad w;
+			if ((r->type != 8 && r->type != 20) || (be32(r->b, 12) & 0x08)) {
+				continue;
 			}
-			if (typ != 8 && typ != 20 && typ != 21) {
-				// A multiplayer setup's other props (doors, boxes) are not
-				// carried across; one this cannot size ends the walk
-				break;
+			w.pad = be32(r->b, 4) & 0xffff;
+			if (w.pad >= 10000) {
+				w.pad += (int32_t)s->pads.n - 10000;
 			}
-			if (o + 0x84 > f->n) {
-				fail("a prop runs off the setup");
-			}
-			padnum = be32(d, o + 4) & 0xffff;
-			if (typ == 8) {
-				const uint32_t wnum = d[o + 0x80];
-				if (wnum >= 0xf0) {
-					__typeof__(*s->weapons.v) w = { padnum, (int32_t)wnum - 0xf0 };
-					VECPUSH(s->weapons, w);
+			if (r->type == 8) {
+				if (r->b[0x80] < 0xf0) {
+					continue;
 				}
-			} else if (typ == 20) {
-				VECPUSH(s->ammo, padnum);
+				w.loc = (int32_t)r->b[0x80] - 0xf0;
+			} else {
+				w.loc = -1;
 			}
-			o += 4 * (typ == 20 ? 0x2d : 0x22);
+			VECPUSH(s->items, w);
 		}
 	}
 }
@@ -3073,54 +3120,12 @@ static void setupRead(const buf *f, struct setup *s)
 /* ------------------------------------------------------------------------ */
 /* objects (geobjects.py) */
 
-static const uint8_t g_GeSizes[48] = {
-	[1] = 64, [2] = 2, [3] = 32, [4] = 33, [5] = 32, [6] = 0x3b, [7] = 0x21, [8] = 0x22, [9] = 7, [10] = 0x40,
-	[11] = 0x95, [12] = 32, [13] = 0x36, [14] = 3, [17] = 32, [18] = 3, [19] = 4, [20] = 0x2d, [21] = 0x22,
-	[22] = 4, [23] = 4, [24] = 1, [25] = 2, [26] = 2, [27] = 2, [28] = 2, [29] = 2, [30] = 4, [31] = 1, [32] = 4,
-	[33] = 5, [34] = 1, [35] = 4, [36] = 32, [37] = 10, [38] = 4, [39] = 0x2c, [40] = 0x2d, [42] = 32, [43] = 32,
-	[44] = 5, [45] = 0x38, [46] = 7, [47] = 37,
-};
-
 // GoldenEye type -> Perfect Dark type and its size in words; 0 is not carried
 static const uint8_t g_Carry[48][2] = {
 	[1] = { 0x01, 55 }, [3] = { 0x03, 23 }, [5] = { 0x05, 23 }, [10] = { 0x0a, 53 }, [11] = { 0x0b, 140 },
 	[12] = { 0x0c, 23 }, [39] = { 0x03, 23 }, [40] = { 0x03, 23 }, [42] = { 0x2a, 24 }, [43] = { 0x2b, 23 },
 	[45] = { 0x03, 23 }, [47] = { 0x2f, 26 },
 };
-
-struct record {
-	uint32_t type;
-	const uint8_t *b;
-	size_t len;
-};
-
-typedef VEC(struct record) records;
-
-static records setupRecords(const buf *f)
-{
-	records out = {0};
-	size_t o = be32(f->v, 12);
-
-	while (o + 4 <= f->n) {
-		struct record r;
-		r.type = f->v[o + 3];
-		if (r.type == 48) {
-			break;
-		}
-		if (r.type >= 48 || !g_GeSizes[r.type]) {
-			fail("an object of type %u GoldenEye has no size for", r.type);
-		}
-		r.b = f->v + o;
-		r.len = 4 * (size_t)g_GeSizes[r.type];
-		if (o + r.len > f->n) {
-			fail("an object runs off the setup");
-		}
-		VECPUSH(out, r);
-		o += r.len;
-	}
-
-	return out;
-}
 
 struct padrec {
 	uint32_t flags;
@@ -3841,24 +3846,194 @@ static s32s bikePads(const struct level *lv, const struct setup *setup, const ti
 	return chosen;
 }
 
+// A made-up weapon spot's ammo crates, as GoldenEye lays out its own arenas
+// (geconvert.py's crate_pads(), same numbers): two after each weapon spot, on
+// pads of their own on its floor. Over GoldenEye's 13 multiplayer setups a
+// crate stands 210-1160 from its weapon (10th-90th percentile, median 530)
+// and within 57 of its height.
+#define CRATES_PER_WEAPON 2
+#define CRATE_NEAR 150.0
+#define CRATE_FAR 1200.0
+#define CRATE_WIDE 3000.0
+#define CRATE_AIM 450.0
+#define CRATE_RISE 60.0
+#define CRATE_APART 100.0
+
+struct cratecand {
+	int wide;
+	double key;
+	int32_t pad;
+	double x, z;
+};
+
+static int crateCandCmp(const void *a, const void *b)
+{
+	const struct cratecand *p = a, *q = b;
+	if (p->wide != q->wide) {
+		return p->wide < q->wide ? -1 : 1;
+	}
+	if (p->key != q->key) {
+		return p->key < q->key ? -1 : 1;
+	}
+	return p->pad < q->pad ? -1 : p->pad > q->pad;
+}
+
+/**
+ * Up to CRATES_PER_WEAPON floored pads for the crates of the weapon spot on
+ * pad `weapon`, into out[]: not used[] (nor `also`), CRATE_NEAR to CRATE_FAR
+ * across and within CRATE_RISE up or down, nearest CRATE_AIM first and
+ * CRATE_APART from each other; failing that out to CRATE_WIDE unless `near`.
+ */
+static int cratePads(const struct setup *setup, const s32s *ok, int32_t weapon, const uint8_t *used, int32_t also,
+		double ls, int near, int32_t *out)
+{
+	const double *wp = setup->pads.v[weapon].pos;
+	const double wx = wp[0] / ls, wy = wp[1] / ls, wz = wp[2] / ls;
+	struct cratecand *cands = gcAlloc((ok->n + 1) * sizeof(*cands));
+	double ox[CRATES_PER_WEAPON], oz[CRATES_PER_WEAPON];
+	size_t n = 0;
+	int got = 0;
+
+	for (size_t k = 0; k < ok->n; ++k) {
+		const int32_t i = ok->v[k];
+		const double *pp = setup->pads.v[i].pos;
+		double x, y, z, dx, dz, d;
+		if (used[i] || i == also) {
+			continue;
+		}
+		x = pp[0] / ls;
+		y = pp[1] / ls;
+		z = pp[2] / ls;
+		dx = x - wx;
+		dz = z - wz;
+		d = sqrt(dx * dx + dz * dz);
+		if (d >= CRATE_NEAR && d <= (near ? CRATE_FAR : CRATE_WIDE) && fabs(y - wy) <= CRATE_RISE) {
+			cands[n].wide = d > CRATE_FAR;
+			cands[n].key = fabs(d - CRATE_AIM);
+			cands[n].pad = i;
+			cands[n].x = x;
+			cands[n].z = z;
+			n++;
+		}
+	}
+
+	qsort(cands, n, sizeof(*cands), crateCandCmp);
+
+	for (size_t k = 0; k < n && got < CRATES_PER_WEAPON; ++k) {
+		int apart = 1;
+		for (int j = 0; j < got; ++j) {
+			const double ax = cands[k].x - ox[j], az = cands[k].z - oz[j];
+			if (!(sqrt(ax * ax + az * az) >= CRATE_APART)) {
+				apart = 0;
+			}
+		}
+		if (apart) {
+			out[got] = cands[k].pad;
+			ox[got] = cands[k].x;
+			oz[got] = cands[k].z;
+			got++;
+		}
+	}
+
+	return got;
+}
+
+static double padFarFrom(const struct setup *setup, int32_t p, const s32s *taken)
+{
+	const double *q = setup->pads.v[p].pos;
+	double best = 0;
+	for (size_t k = 0; k < taken->n; ++k) {
+		const double *t = setup->pads.v[taken->v[k]].pos;
+		const double v = sqrt((q[0] - t[0]) * (q[0] - t[0]) + (q[1] - t[1]) * (q[1] - t[1]) + (q[2] - t[2]) * (q[2] - t[2]));
+		if (!k || v < best) {
+			best = v;
+		}
+	}
+	return best;
+}
+
+/**
+ * Up to 12 weapon spots for a level GoldenEye has no multiplayer setup for,
+ * each followed by its crates, into items (geconvert.py's weapon_spots()):
+ * chosen as the spawns are - farthest from every spot and spawn taken so far -
+ * but only among pads with room for their crates left; where fewer than six
+ * fit, the rest spread over what is left with whatever crates they can have.
+ */
+static void weaponSpots(const struct setup *setup, const s32s *ok, const s32s *spawns, double ls, weaponpads *items)
+{
+	uint8_t *used = gcAlloc(setup->pads.n + 1);
+	s32s taken = {0};
+	int nweapons = 0;
+
+	for (size_t k = 0; k < spawns->n; ++k) {
+		used[spawns->v[k]] = 1;
+		VECPUSH(taken, spawns->v[k]);
+	}
+
+	for (int pass = 0; pass < 2; ++pass) {
+		while (nweapons < (pass ? 6 : 12)) {
+			int32_t best = -1, bestcrates[CRATES_PER_WEAPON];
+			double bestd = 0;
+			int bestgot = 0;
+			for (size_t k = 0; k < ok->n; ++k) {
+				const int32_t p = ok->v[k];
+				int32_t got[CRATES_PER_WEAPON] = {0};
+				int n = 0;
+				double d;
+				if (used[p]) {
+					continue;
+				}
+				if (!pass) {
+					n = cratePads(setup, ok, p, used, p, ls, 1, got);
+					if (n < CRATES_PER_WEAPON) {
+						continue;
+					}
+				}
+				d = padFarFrom(setup, p, &taken);
+				if (best < 0 || d > bestd) {
+					best = p;
+					bestd = d;
+					bestgot = n;
+					memcpy(bestcrates, got, sizeof(got));
+				}
+			}
+			if (best < 0) {
+				break;
+			}
+			used[best] = 1;
+			if (pass) {
+				bestgot = cratePads(setup, ok, best, used, -1, ls, 0, bestcrates);
+			}
+			{
+				struct weaponpad w = { best, nweapons % 6 };
+				VECPUSH(*items, w);
+			}
+			for (int j = 0; j < bestgot; ++j) {
+				struct weaponpad c = { bestcrates[j], -1 };
+				used[bestcrates[j]] = 1;
+				VECPUSH(*items, c);
+			}
+			VECPUSH(taken, best);
+			nweapons++;
+		}
+	}
+}
+
 static const uint8_t g_Ai1000[] = { 0x01, 0x85, 0x01, 0x45, 0x01, 0x46, 0x00, 0x05, 0xfd, 0x00, 0x00, 0x00, 0x04 };
 static const uint8_t g_Ai1001[] = { 0x01, 0xb2, 0x16, 0x00, 0x05, 0xfd, 0x00, 0x00, 0x00, 0x04 };
 
 static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const tiles *stan, const struct bg *bg,
-		const buf *gedata, const s32s *bikepads, uint8_t *models)
+		double ls, const buf *gedata, const s32s *bikepads, uint8_t *models)
 {
-	s32s spawns = {0}, ammo = {0};
-	VEC(struct weaponpad) weapons = {0};
+	s32s spawns = {0};
+	weaponpads items = {0};
 	buf intro = {0}, props = {0}, out = {0};
 	size_t introat, propsat, pathsat, aiat, aicodeat;
 
 	if (mp && mp->spawns.n) {
 		spawns = mp->spawns;
-		ammo = mp->ammo;
-		for (size_t i = 0; i < mp->weapons.n; ++i) {
-			__typeof__(*weapons.v) w = { mp->weapons.v[i].pad, mp->weapons.v[i].loc };
-			VECPUSH(weapons, w);
-		}
+		// GoldenEye's own order: a crate follows the weapon spot it serves
+		items = mp->items;
 	} else {
 		s32s ok = flooredPads(setup, stan, bg);
 		double (*pts)[3] = gcAlloc((ok.n + 1) * sizeof(*pts));
@@ -3866,18 +4041,11 @@ static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const
 		for (size_t i = 0; i < ok.n; ++i) {
 			memcpy(pts[i], setup->pads.v[ok.v[i]].pos, sizeof(pts[i]));
 		}
-		idx = spread(pts, ok.n, 28);
+		idx = spread(pts, ok.n, 12);
 		for (size_t i = 0; i < idx.n; ++i) {
-			const int32_t p = ok.v[idx.v[i]];
-			if (i < 12) {
-				VECPUSH(spawns, p);
-			} else if (i < 24) {
-				__typeof__(*weapons.v) w = { p, (int32_t)((i - 12) % 6) };
-				VECPUSH(weapons, w);
-			} else {
-				VECPUSH(ammo, p);
-			}
+			VECPUSH(spawns, ok.v[idx.v[i]]);
 		}
+		weaponSpots(setup, &ok, &spawns, ls, &items);
 	}
 
 	for (size_t i = 0; i < spawns.n; ++i) {
@@ -3887,33 +4055,33 @@ static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const
 	}
 	bufU32(&intro, 0x0c);
 
-	for (size_t i = 0; i < weapons.n; ++i) {
-		bufU32(&props, (0x0100u << 16) | 0x08);
-		bufU32(&props, (uint32_t)weapons.v[i].pad & 0xffff);
-		bufU32(&props, 1);
-		bufZeros(&props, 4 * 16);
-		bufU32(&props, 1000);
-		bufZeros(&props, 8);
-		bufU32(&props, 0x0fff0000);
-		bufU32(&props, (uint32_t)(0xf0 + weapons.v[i].loc) << 24);
-		bufU32(&props, 0x00ffffff);
-		bufU32(&props, 0);
-	}
-
-	for (size_t i = 0; i < ammo.n; ++i) {
-		bufU32(&props, (0x00ccu << 16) | 0x14);
-		bufU32(&props, (0x00c1u << 16) | ((uint32_t)ammo.v[i] & 0xffff));
-		bufU32(&props, 1);
-		bufZeros(&props, 4 * 16);
-		bufU32(&props, 1000);
-		bufZeros(&props, 8);
-		bufU32(&props, 0x0fff0000);
-		for (int k = 0; k < 19; ++k) {
-			bufU32(&props, 0xffff0000);
+	for (size_t i = 0; i < items.n; ++i) {
+		if (items.v[i].loc >= 0) {
+			bufU32(&props, (0x0100u << 16) | 0x08);
+			bufU32(&props, (uint32_t)items.v[i].pad & 0xffff);
+			bufU32(&props, 1);
+			bufZeros(&props, 4 * 16);
+			bufU32(&props, 1000);
+			bufZeros(&props, 8);
+			bufU32(&props, 0x0fff0000);
+			bufU32(&props, (uint32_t)(0xf0 + items.v[i].loc) << 24);
+			bufU32(&props, 0x00ffffff);
+			bufU32(&props, 0);
+		} else {
+			bufU32(&props, (0x00ccu << 16) | 0x14);
+			bufU32(&props, (0x00c1u << 16) | ((uint32_t)items.v[i].pad & 0xffff));
+			bufU32(&props, 1);
+			bufZeros(&props, 4 * 16);
+			bufU32(&props, 1000);
+			bufZeros(&props, 8);
+			bufU32(&props, 0x0fff0000);
+			for (int k = 0; k < 19; ++k) {
+				bufU32(&props, 0xffff0000);
+			}
 		}
 	}
 
-	objects(gedata, setup->pads.n, (int32_t)(weapons.n + ammo.n), 0x182, bikepads, &props, models);
+	objects(gedata, setup->pads.n, (int32_t)items.n, 0x182, bikepads, &props, models);
 	bufU32(&props, 0x34);
 
 	introat = 0x20;
@@ -6274,7 +6442,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		boundpads = boundPads(&gedata, lv->levelscale, offset);
 		padsdata = writePads(&setup, lv->levelscale, offset, &rf, &boundpads);
 		bikepads = bikePads(lv, &setup, &stan, &bg, &gedata);
-		mpsetup = writeMpSetup(&setup, havemp ? &mpsetupsrc : NULL, &stan, &bg, &gedata, &bikepads, allmodels);
+		mpsetup = writeMpSetup(&setup, havemp ? &mpsetupsrc : NULL, &stan, &bg, lv->levelscale, &gedata, &bikepads, allmodels);
 
 		snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s.seg", lv->key);
 		writeFile(outdir, rel, bgdata.v, bgdata.n);

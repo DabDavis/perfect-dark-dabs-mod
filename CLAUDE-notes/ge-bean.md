@@ -10383,3 +10383,99 @@ fade advances in. Kicked endings of Dam, Surface, Facility, Runway and Frigate
 (`probes/bondend.py`, the ending bg list put at its HUD-hide command) end on
 their own at the same frame before and after this branch (1404, 679, 558, 585,
 647) with identical traces.
+## Archives, Bunker ii and Egyptian had no guns or ammo: the arena walk stopped at a door (2026-09-25, converter 70)
+
+Found by the Community Edition inventory ("the MP object walk stops at the
+first object that is not a weapon/crate/armour, so Archives carries none").
+`read_setup()` / `setupRead()` walked a multiplayer setup's objects for the
+weapon spots (type 8 with a weapon number from 0xf0) and ammo boxes (type 20)
+and **broke at the first object of any other type**, because it only knew
+those three sizes. Ten of GoldenEye's thirteen arena setups happen to list
+their items first; **Archives, Bunker ii and Egyptian** list doors, glass or
+props before them, so those three arenas had **no weapon spots and no ammo
+crates at all** since the arenas were first converted - only the armour, which
+`objects()` walks separately with every size.
+
+GoldenEye's own reading (prop.c's setup loop) loads every object whose
+`flags2` does not have the "don't load" bit for the mode: `1 << (difficulty +
+4)` with difficulty -1 in multiplayer, so **0x08 = don't load in multiplayer**,
+plus 0x400000/0x800000/0x1000000 for 2/3/4 players (Perfect Dark kept the
+last three as `OBJFLAG2_EXCLUDE_2P/3P/4P`). None of the thirteen setups sets
+any of those on a weapon, box or armour; the walk now goes through
+`geobjects.records()` / `setupRecords()`, skips what is not an item or carries
+0x08, and does not stop.
+
+Two more faults came out with it:
+
+- **A crate's ammunition follows the weapon spot before it.** GoldenEye sets a
+  box's one slot from the weapon set row of the last weapon spot placed
+  (`lastmpweaponnum`), and Perfect Dark does the same (`g_SetupCurMpLocation`
+  in `setupCreateProps()`), so the order of the records matters. The converter
+  wrote every weapon and then every crate, so **all of an arena's crates held
+  the ammunition of its last weapon spot** (location 7 in GoldenEye's order),
+  and none if that slot was a gun with no ammo. The items are now one list in
+  the setup's own order (`items`, loc -1 = crate).
+- **Items on bound pads.** A pad number from 10000 is a bound pad, which the
+  conversion writes after the pads (numpads + k), as `objects()` already did for
+  props. The item walk kept the raw number: Facility's two crates on 10036/10038
+  pointed past the pad table (`padIsInFile()` dropped them), and 16 of Archives'
+  24 items and 9 of Bunker ii's stand on bound pads.
+
+Every arena with a GoldenEye multiplayer setup now writes exactly its items, in
+its order, on its pads - checked item for item against the decomp's setup
+sources (`assets/obseg/setup/u/Ump_setup*Z.c`, independent of the ROM reading):
+
+| arena | before (weapons / crates) | after = GoldenEye |
+|---|---|---|
+| Archives, Bunker ii, Egyptian | 0 / 0 | 8 / 16 |
+| Facility | 8 / 16 (2 crates off the pad table) | 8 / 16 |
+| Library | 16 / 31 | same, reordered |
+| Basement | 6 / 11 | same, reordered |
+| Stack | 10 / 20 | same, reordered |
+| Statue, Complex, Temple, Caves, Caverns, Cradle | 8 / 16 | same, reordered |
+
+Armour is unchanged everywhere (it came through `objects()`). The US ROM
+has no multiplayer setup for Dam, Runway, Depot or `dest`, though the decomp's
+asset tree has sources for them; the thirteen levels without one are the next
+section.
+
+In game (`build/rig`, `itemshot.py`: lists the live pickups at frame 200 and
+stands the player at crates): Archives 0x07 went from 0 weapons, 0 crates, 2
+shields to 7 weapons, 14 crates, 3 shields with the save's Perfect Dark set
+(one location is the set's shield, whose crates are not made - ammo 0, as in
+GoldenEye) and 8/16 with GoldenEye's sets; Start Armed hands out the set's
+first gun as before.
+
+### The thirteen levels with no multiplayer setup get GoldenEye's pattern too
+
+The user, same day: every made-up weapon spot gets its own crates, as in
+GoldenEye's arenas. Before, those levels had 12 spread-out weapon spots and 4
+spread-out crates after them all (so every crate took the last spot's
+ammunition). Now (`weapon_spots()` / `crate_pads()` in geconvert.py,
+`weaponSpots()` / `cratePads()` in geconvert.c, same bytes):
+
+- **Spawns are unchanged** - the first 12 of the old farthest-point spread.
+- **Crates by GoldenEye's own measure.** Over the 13 real setups a crate
+  stands 210-1160 (10th-90th percentile, median 530, Perfect Dark units) from
+  its weapon, within 57 of its height, never on its pad. So a crate pad is a
+  floored pad (`floored_pads()`, the spawns' test), not a spawn, weapon or
+  other crate, 150-1200 across and within 60 up or down (the same floor), 100
+  from its sibling, nearest 450 first.
+- **Weapon spots only where their two crates fit**: each next spot is the
+  floored pad farthest from every spawn and spot taken so far (the spawns'
+  own farthest-point rule, continued) among those that still have two crate
+  pads free - the plain spread picked dead ends and ledges (Surface's got 5
+  crates for 12 spots, Runway's 10). Up to 12, W A A in the setup's order.
+- **Streets has 7 weapon spots and 14 crates**: only 50 of its pads are
+  floored (rooms 20-54 are an empty shared list), 12 of them spawns, and no
+  eighth spot has two crate pads left near it. Fewer spots with their crates,
+  rather than 12 with some bare, matches GoldenEye's own arenas (6-16 spots,
+  Basement has 6). Were fewer than six to fit anywhere, the rest are spread
+  bare so every weapon set slot has a spot; no level needs it.
+
+Results: 12 weapons / 24 crates on Dam, Runway, Train, Jungle, Surface,
+Surface 2, Silo, Frigate, Depot, Control, Bunker 1, Aztec; Streets 7 / 14.
+Crate-to-weapon medians 419-784, maxima under 1150, height under 57: inside
+GoldenEye's own range. In game, `build/rig/itemcheck.py` (UMP= the setup file)
+reads the setup's order and checks every live crate against
+`mpGetMpWeaponByLocation()` of the spot before it.
