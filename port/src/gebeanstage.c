@@ -1129,6 +1129,19 @@ static s32 buildPalette(const struct stri *tris, const s32 *list, s32 num, u32 *
 	return numpal ? numpal : 1;
 }
 
+/** The middle of a triangle's range of u (axis 0) or v (axis 1). */
+static f32 triUvMiddle(const struct stri *t, s32 axis)
+{
+	f32 lo = t->uv[0][axis], hi = lo;
+
+	for (s32 k = 1; k < 3; k++) {
+		lo = t->uv[k][axis] < lo ? t->uv[k][axis] : lo;
+		hi = t->uv[k][axis] > hi ? t->uv[k][axis] : hi;
+	}
+
+	return (lo + hi) * 0.5f;
+}
+
 static s32 texIsXlu(s32 tex)
 {
 	return tex >= 0 && texSoft[tex];
@@ -1295,10 +1308,16 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 				break;
 			}
 
-			// Outside this batch's texture window: start one centred on this triangle
+			// Outside this batch's texture window: start one centred on this
+			// triangle. Centred on its UVs' middle and not on its first
+			// corner, or a strip whose picture repeats more than 32 times one
+			// way from that corner is dropped though its whole range fits in
+			// a Vtx: Facility's catwalk decks over the tank room (v -5.8 to
+			// 38.9) were missing, and the guards on them were seen from below
+			// through the floor (F3 20260925-025537)
 			batchFlush(l, &b);
-			b.shiftu = floorf(t->uv[0][0]);
-			b.shiftv = floorf(t->uv[0][1]);
+			b.shiftu = floorf(triUvMiddle(t, 0));
+			b.shiftv = floorf(triUvMiddle(t, 1));
 			b.shifted = 1;
 		}
 
