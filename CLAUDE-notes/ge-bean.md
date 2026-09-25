@@ -9257,3 +9257,70 @@ plastique's blast and Facility's remote mine explosion type.
 
 Probes: `/home/sdg/wt/step2/{knives,rockets,zoom,sims}.py` (Dam 0x15 and
 Complex 0x1f), and `gegunsDump()` for definitions.
+
+## Bond's parka: the hood is the coat's, not the head's (2026-09-25)
+
+F3 20260925-044809 (Surface, HD, third person): "bonds winter suit hood, has
+clipping from the fur also neck is see through". Two faults, neither in the
+head fit (`CheadbrosnansnowZ` is `Cgx077Z`, cut off `char/snowbond`'s own
+neck, on `Cgx025Z`, the same file's body; `headfitWanted()` is 0 for the pair):
+
+- **The slit at the back of the neck.** The head takes every triangle whose
+  dominant bone is the neck and is rigid on it. On every other Bond that is
+  a face, a neck and hair, all on the 256x256 face picture, weighted to the
+  neck. The parka's head also took 268 triangles on the *body's* 512
+  picture: the hood, its fur ring, its dark lining and the top of the
+  collar - and the hood's rim is weighted to the back as well, up to nine
+  tenths at the nape, while the coat's collar under it blends back and
+  neck. Rigid, the rim rose with the head: GoldenEye's idle stance turns the
+  neck 51 degrees against the back (read off the matrices inside the render,
+  `model->matrices` are per-frame), and a slit opened between the hood and
+  the collar with the nape skin showing through. Bean's own bind has no
+  slit (`exp.py` renders of the head and body splits, blender, in
+  `/home/sdg/wt/f3hood-ana/`).
+- **The "fur" on the crown is painted.** A dark blot with a brown ring at
+  the top of the hood patch of `_0x0D2B8611.tga.bin` - the head's hair
+  baked through - is in Rare's picture itself (the Community Edition does
+  not touch `snowbond`). `beanDecodeTexture()` clones the cloth from ten
+  rows below over just the blot's texels (x 435-456, y 357-365, top row
+  first).
+
+**The fix (`gebeanBuild()`, `hoodsplit`):** for the remake's and the pool's
+rows (not GoldenEye X's, whose parka wears GoldenEye X's head), a body some
+head row is cut off and that head, the neck's triangles on any picture but
+the one most of them use (`headtex`), plus the face's own neck skin with a
+corner the back moves (`backcorner`), are the **hood**: skinned with the
+body, with Bean's weights, in groups past the fillers' (`gebeanmats.hood`),
+which the body's neck node draws only round the head cut off the same neck
+(`gebeanRowKeepsHood()`). The head keeps a second group of its face with the
+hood round it, drawn on any other body or alone (`m->beanhead`,
+`xblaMeshBodyBeanRow()`), so the parka head on the tuxedo still wears its
+hood. Every other Bond has his head on one picture and nothing changes there
+(`headtex` stays -1; Dam's boiler suit Bond and guards were pixel-identical).
+
+Two traps found on the way:
+
+- **`beanSmoothNeckWeights()` must not touch the hood.** The rim and lining
+  are painted with the back's share jumping from a fifth to nine tenths
+  between neighbours on purpose, which the outlier test takes for Natalya's
+  stray lip; averaged, the lining's black points came out through the hood
+  beside the jaw (and one was already on the chin before any of this). The
+  hood's triangles are copies in vertices of their own (`mappedhood`,
+  marked in `hoodvert`) that the smoothing skips.
+- **Round any other head the collar wants the old smoothed, pinned copy.**
+  Every body triangle the neck moves at all, or with a corner on the old
+  seam, goes in the hood (unsmoothed, pinned only where the head's own
+  triangles now stand, `seamhead`) *and* keeps its old copy (smoothed,
+  pinned at every neck triangle's position as before, `seam`) in a **bare**
+  group per neck node (`gebeanmats.bare`, also added to the filler groups
+  for a fitted head). The neck draws hood, or filler, or bare, so a foreign
+  head on the parka (Customize Character) is pixel-identical to before.
+  Drawing the hood round a foreign head instead put the hair through it.
+
+Probes in `/home/sdg/wt/f3hood-run/`: `hood.py` turns the player's body
+against the third person camera with a breakpoint on `model.c:588`
+(`modelSetChrRotY`, `angle += $off`; `angleoffset` does nothing with the
+animation chooser skipped), `ANGLES=name:deg:verta ...`; `guard.py`/`rung.sh`
+for a guard; `mtx.py` reads the neck and back matrices inside
+`xblaMeshPose()`. The pool's Bond (Parka) is `InstituteCharacter=79`, the
+parka head `InstituteCharacterHead=109`, on Chicago 0x1d from frame 2800.
