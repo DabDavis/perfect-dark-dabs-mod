@@ -126,7 +126,15 @@ void chrSetChrnum(struct chrdata *chr, s16 chrnum)
 
 	// Set the new chrnum
 	for (i = 0; i < g_NumChrs; i++) {
-		if (g_Chrnums[i] == chr->chrnum) {
+		if (g_Chrnums[i] == chr->chrnum
+#ifndef PLATFORM_N64
+				// this chr's own entry: where two chrs share a number (a
+				// converted GoldenEye list claims one - aiSetChrNum) the first
+				// entry with it may be the other's, which then went on being
+				// found under the new number
+				&& &g_ChrSlots[g_ChrIndexes[i]] == chr
+#endif
+				) {
 			g_Chrnums[i] = chrnum;
 			break;
 		}

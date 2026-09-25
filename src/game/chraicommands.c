@@ -59,6 +59,7 @@
 #include "gesfx.h"
 #include "getank.h"
 #include "gecinema.h"
+#include "geroom.h"
 #include "geguns.h"
 #include "modloader.h"
 #endif
@@ -3156,6 +3157,28 @@ bool aiSetGrenadeProbability(void)
 bool aiSetChrNum(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+#ifndef PLATFORM_N64
+	// GoldenEye's lists respawn a chr under the number of one that has gone
+	// (IFChrDoesNotExist, then a spawn whose list claims the number), and in
+	// GoldenEye "gone" means removed: the corpse has faded and nothing holds
+	// the number. The conversion's test is aiIfChrDeathAnimationFinished,
+	// which passes at ACT_DEAD while the corpse is still a chr, so the new one
+	// and the body shared the number and a lookup found either - the Cradle's
+	// guards 1-5 twice over, and the Trevelyan its ending spawns beside the
+	// one that was shot, whose ending cutscene then went to the body. A body
+	// gives its number up to the chr that claims it.
+	if (geRoomActive() && g_Vars.chrdata && g_Vars.chrdata->prop) {
+		for (s32 i = 0; i < g_NumChrSlots; i++) {
+			struct chrdata *other = &g_ChrSlots[i];
+
+			if (other != g_Vars.chrdata && other->chrnum == cmd[2] && other->prop
+					&& (other->actiontype == ACT_DEAD || other->actiontype == ACT_DIE)) {
+				chrSetChrnum(other, chrsGetNextUnusedChrnum());
+			}
+		}
+	}
+#endif
 
 	chrSetChrnum(g_Vars.chrdata, cmd[2]);
 	g_Vars.chrdata->chrnum = cmd[2];
