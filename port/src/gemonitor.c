@@ -113,7 +113,13 @@ static s32 geMonitorLoadFrom(s32 moddir, const char *dir)
 		g_GeMonImageNums[i] = monBe32(p);
 		g_GeMonImages[i].width = p[4];
 		g_GeMonImages[i].height = p[5];
-		g_GeMonImages[i].level = p[6];
+		// Five levels at most, as texLoad() keeps: GoldenEye's loader keeps a
+		// picture's six and Perfect Dark's stops at five, while texSelect()
+		// looks for the palette past as many levels as the config names. A
+		// six read it 8 bytes late - four colours off along the ramp and the
+		// last four from past its end - and put a blue smear across the
+		// keyboard key every door console's lamp is made of
+		g_GeMonImages[i].level = p[6] > 5 ? 5 : p[6];
 		g_GeMonImages[i].format = p[7];
 		g_GeMonImages[i].depth = p[8];
 		g_GeMonImages[i].s = p[9];

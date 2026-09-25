@@ -13785,10 +13785,15 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 		renderdata->gdl = gdl;
 #ifndef PLATFORM_N64
 		xblaMeshSetOrthogonal(orthogonal);
+
+		if ((renderdata->flags & 1) && (obj->type == OBJTYPE_SINGLEMONITOR || obj->type == OBJTYPE_MULTIMONITOR)) {
+			xblaMeshSetScreens(model);
+		}
 #endif
 		modelRender(renderdata, model);
 #ifndef PLATFORM_N64
 		xblaMeshSetOrthogonal(false);
+		xblaMeshSetScreens(NULL);
 #endif
 		gdl = renderdata->gdl;
 

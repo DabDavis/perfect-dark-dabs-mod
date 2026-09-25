@@ -194,6 +194,14 @@ void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle);
 void xblaMeshSetOrthogonal(s32 on);
 
 /**
+ * While set, the model is a monitor whose screens tvscreenRender() has just
+ * written, and a GoldenEye mesh leaves those nodes to the game: the programme
+ * on the screen rather than Bean's still picture of one. Set it round the
+ * modelRender() call and clear it after with NULL.
+ */
+void xblaMeshSetScreens(struct model *model);
+
+/**
  * Mod.XblaReflections, "Enable Reflections": the release's reflections on its
  * meshes. Each material whose byte 16 is not zero is blended that percentage
  * of the way towards environment map byte 24, looked up by the eye's ray

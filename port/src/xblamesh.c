@@ -8689,6 +8689,39 @@ void xblaMeshSetOrthogonal(s32 on)
 	orthogonal = on != 0;
 }
 
+// While set, the model whose screens tvscreenRender() has just written: see
+// xblaMeshSetScreens().
+static struct model *screenmodel = NULL;
+
+void xblaMeshSetScreens(struct model *model)
+{
+	screenmodel = model;
+}
+
+/**
+ * Whether a node is one of a monitor's screens - parts 0 to 3, which is where
+ * tvscreenRender() puts a screen - with the list the programme wrote for it
+ * this frame in place of its own.
+ */
+static s32 xblaMeshNodeIsLiveScreen(struct model *model, struct modelnode *node)
+{
+	union modelrwdata *rwdata;
+
+	if (!model || model != screenmodel || !model->definition) {
+		return 0;
+	}
+
+	for (s32 part = MODELPART_0000; part <= MODELPART_0003; part++) {
+		if (modelGetPart(model->definition, part) == node) {
+			rwdata = modelGetNodeRwData(model, node);
+
+			return rwdata && rwdata->dl.gdl && rwdata->dl.gdl != node->rodata->dl.opagdl;
+		}
+	}
+
+	return 0;
+}
+
 void xblaMeshSetEnvironment(s32 force)
 {
 	envforce = force;
@@ -9287,6 +9320,18 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				|| gebeanRowIsFirstPerson(e->beanrow));
 
 	if (!frompack && !havemesh && !frombean) {
+		return 0;
+	}
+
+	// A GoldenEye monitor's screen: the programme it is running, not Bean's
+	// picture. Bean's mesh has the screen as a list of its own with one still
+	// texture on it - a spiral, or a grille under the Community Edition - where
+	// GoldenEye runs the monitor's programme, and on Facility's door consoles
+	// that is the lamp the level's AI turns red or green by its door. The
+	// game's own node draws the list tvscreenRender() wrote, the model's own
+	// quad on the screen's own node, and the mesh's other lists leave the hole
+	// it fills.
+	if (frombean && xblaMeshNodeIsLiveScreen(model, node)) {
 		return 0;
 	}
 
