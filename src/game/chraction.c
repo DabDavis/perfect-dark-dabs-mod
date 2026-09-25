@@ -5817,6 +5817,13 @@ void chrDie(struct chrdata *chr, s32 aplayernum)
 	}
 }
 
+#ifndef PLATFORM_N64
+// Set while a chr on a converted level looks for a way round an obstacle
+// (chrNavTickMain()'s WAYMODE_LOST1), which is when func0f03645c() walks the
+// tile graph as well
+static bool g_NavGeLegs = false;
+#endif
+
 bool func0f03645c(struct chrdata *chr, struct coord *arg1, RoomNum *arg2, struct coord *arg3, struct coord *arg4, s32 arg5)
 {
 	bool result = false;
@@ -5846,7 +5853,7 @@ bool func0f03645c(struct chrdata *chr, struct coord *arg1, RoomNum *arg2, struct
 	// going round the wall's foot to the next pad turned and ran back up the
 	// ramp for good - Trevelyan on the Cradle's gantry stair, between pads 28
 	// and 24, for the whole mission.
-	if (result && geRoomActive()) {
+	if (result && g_NavGeLegs) {
 		const f32 pts[3][2] = {
 			{ arg1->x, arg1->z },
 			{ arg3->x, arg3->z },
@@ -13922,13 +13929,41 @@ void chrNavTickMain(struct chrdata *chr, struct coord *nextpos, struct waydata *
 			// trying to avoid.
 			f32 wantclearance = chr->radius * 1.26f;
 
+#ifndef PLATFORM_N64
+			bool found;
+
+			// On a converted level a side is asked GoldenEye's way first
+			// (func0f03645c() walks the tile graph as well), and only when
+			// neither passes that is it asked Perfect Dark's way alone: a
+			// chr GoldenEye's test leaves nowhere to go - a body standing on
+			// its pad - still goes round it as it always did
+			g_NavGeLegs = geRoomActive();
+
+			found = chrNavTryObstacle(chr, &waydata->obstacleleft, true, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0)
+				|| chrNavTryObstacle(chr, &waydata->obstacleright, false, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0);
+
+			if (!found && g_NavGeLegs) {
+				g_NavGeLegs = false;
+				found = chrNavTryObstacle(chr, &waydata->obstacleleft, true, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0)
+					|| chrNavTryObstacle(chr, &waydata->obstacleright, false, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0);
+			}
+
+			g_NavGeLegs = false;
+
+			if (found) {
+				// Will go to one side or the other
+				waydata->mode = WAYMODE_HAVEAIMPOS;
+			} else
+#else
 			if (chrNavTryObstacle(chr, &waydata->obstacleleft, true, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0)) {
 				// Will go to left side
 				waydata->mode = WAYMODE_HAVEAIMPOS;
 			} else if (chrNavTryObstacle(chr, &waydata->obstacleright, false, &spf4, wantclearance, true, nextpos, waydata, 0, CDTYPE_PATHBLOCKER | CDTYPE_BG, 0)) {
 				// Will go to right side
 				waydata->mode = WAYMODE_HAVEAIMPOS;
-			} else {
+			} else
+#endif
+			{
 				// Can't see the obstacle either!
 				// Remain in LOST1 for 5 iterations to see if line of sight
 				// comes back. If not, retry the next pad again.
