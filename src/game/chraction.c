@@ -5824,6 +5824,28 @@ bool func0f03645c(struct chrdata *chr, struct coord *arg1, RoomNum *arg2, struct
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// On a level converted from GoldenEye the two legs are walked on the tile
+	// graph as well, which is GoldenEye's own test here (sub_GAME_7F0304AC():
+	// the chr's tile to the point beside the obstacle, and on from the tile
+	// that ended on to the next pad). The cylinders above are tested at the
+	// height of the obstacle's edge, and a converted wall down the side of a
+	// ramp is sloped: at its far end that height is under the wall, so the
+	// corner at the top of the ramp passed and was tried first, and a chr
+	// going round the wall's foot to the next pad turned and ran back up the
+	// ramp for good - Trevelyan on the Cradle's gantry stair, between pads 28
+	// and 24, for the whole mission.
+	if (result && geRoomActive()) {
+		const f32 pts[3][2] = {
+			{ arg1->x, arg1->z },
+			{ arg3->x, arg3->z },
+			{ arg4->x, arg4->z },
+		};
+
+		result = geStanLinesClear(pts, 3, chr->ground + 10.0f);
+	}
+#endif
+
 	chrSetPerimEnabled(chr, true);
 
 	return result;
