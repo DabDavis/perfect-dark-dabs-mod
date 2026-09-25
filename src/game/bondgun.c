@@ -13403,7 +13403,13 @@ s32 bgunGetReservedAmmoCount(s32 ammotype)
 	for (i = 0; i < 2; i++) {
 		if (player->hands[i].inuse) {
 			for (j = 0; j < 2; j++) {
+#ifndef PLATFORM_N64
+				// each hand's own ammunition: the left of a mixed Akimbo
+				// pair is loaded with its own gun's, not the right's
+				if (player->hands[i].ammotypes[j] == ammotype && weaponHasAmmoFlag(player->hands[i].gset.weaponnum, j, AMMOFLAG_NORESERVE)) {
+#else
 				if (player->gunctrl.ammotypes[j] == ammotype && weaponHasAmmoFlag(player->hands[i].gset.weaponnum, j, AMMOFLAG_NORESERVE)) {
+#endif
 					total = total + player->hands[i].loadedammo[j];
 				}
 			}
@@ -13423,7 +13429,11 @@ s32 bgunGetAmmoCount(s32 ammotype)
 	for (i = 0; i < 2; i++) {
 		if (player->hands[i].inuse) {
 			for (j = 0; j < 2; j++) {
+#ifndef PLATFORM_N64
+				if (player->hands[i].ammotypes[j] == ammotype) {
+#else
 				if (player->gunctrl.ammotypes[j] == ammotype) {
+#endif
 					total = total + player->hands[i].loadedammo[j];
 				}
 			}
