@@ -16538,7 +16538,20 @@ bool objTestForInteract(struct prop *prop)
 		f32 y = prop->pos.y - playerprop->pos.y;
 		f32 z = prop->pos.z - playerprop->pos.z;
 		f32 range;
+		f32 cone = 0.3926365673542f;
 
+#ifndef PLATFORM_N64
+		if (geRoomActive() && obj->type == OBJTYPE_HELI && (obj->flags & 0x20000000)) {
+			// GoldenEye's objTestForInteract() gives an aircraft carrying
+			// flag 0x20000000 (Runway's plane) a 400-unit reach and a
+			// +-120 degree cone, so Bond can use it from its door. With
+			// Perfect Dark's 200 units and +-22.5 degrees from the centre
+			// the fuselage and wings kept him out of reach and Runway's
+			// ending (if_object_was_activated on the plane) never started.
+			range = 400;
+			cone = 2.0943952f;
+		} else
+#endif
 		if (obj->modelnum == MODEL_SK_SHUTTLE) {
 			range = 500;
 		} else if (obj->modelnum == MODEL_TAXICAB) {
@@ -16562,7 +16575,7 @@ bool objTestForInteract(struct prop *prop)
 				angle = M_BADTAU - angle;
 			}
 
-			if (angle <= 0.3926365673542f) {
+			if (angle <= cone) {
 				if ((obj->flags2 & OBJFLAG2_INTERACTCHECKLOS) == 0
 						|| cdTestLos06(&playerprop->pos, playerprop->rooms, &prop->pos, prop->rooms, CDTYPE_BG)) {
 					g_InteractProp = prop;
