@@ -16249,9 +16249,24 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 
 	obj = hit->prop->obj;
 
+#ifndef PLATFORM_N64
+	// The depth from the camera, taken from the origin's own depth: see
+	// chrHit(). In third person the origin is up the ray at the player, and
+	// stock's sum put the hit the pull-back beyond what was hit - the firing
+	// range scored every shot from 200 units behind the target's face as
+	// zone 3.
+	{
+		f32 depth = hit->distance + shotdata->gunpos2d.z;
+
+		sp110.x = shotdata->gunpos2d.x - depth * shotdata->gundir2d.x / shotdata->gundir2d.z;
+		sp110.y = shotdata->gunpos2d.y - depth * shotdata->gundir2d.y / shotdata->gundir2d.z;
+		sp110.z = shotdata->gunpos2d.z - depth;
+	}
+#else
 	sp110.x = shotdata->gunpos2d.x - hit->distance * shotdata->gundir2d.x / shotdata->gundir2d.z;
 	sp110.y = shotdata->gunpos2d.y - hit->distance * shotdata->gundir2d.y / shotdata->gundir2d.z;
 	sp110.z = shotdata->gunpos2d.z - hit->distance;
+#endif
 
 	mtx4TransformVecInPlace(camGetProjectionMtxF(), &sp110);
 

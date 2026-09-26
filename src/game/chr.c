@@ -5412,9 +5412,26 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 	chr = prop->chr;
 
 	if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0) {
+#ifndef PLATFORM_N64
+		// hit->distance is the hit's depth in front of the camera, not in
+		// front of the shot's origin, and in third person the origin has
+		// been slid up the ray to the player (bgunCalculatePlayerShotSpread()).
+		// Stock's sum took the depth from the origin, which put every hit
+		// position the pull-back further along the ray - two metres behind
+		// the body it hit. Measured from the origin's own depth it is the
+		// same point stock finds whenever the origin is at the camera.
+		{
+			f32 depth = hit->distance + shotdata->gunpos2d.z;
+
+			sp98.x = shotdata->gunpos2d.x - (depth * shotdata->gundir2d.x) / shotdata->gundir2d.z;
+			sp98.y = shotdata->gunpos2d.y - (depth * shotdata->gundir2d.y) / shotdata->gundir2d.z;
+			sp98.z = shotdata->gunpos2d.z - depth;
+		}
+#else
 		sp98.x = shotdata->gunpos2d.x - (hit->distance * shotdata->gundir2d.x) / shotdata->gundir2d.z;
 		sp98.y = shotdata->gunpos2d.y - (hit->distance * shotdata->gundir2d.y) / shotdata->gundir2d.z;
 		sp98.z = shotdata->gunpos2d.z - hit->distance;
+#endif
 
 		mtx4TransformVec(camGetProjectionMtxF(), &sp98, &hitpos);
 		bgunSetHitPos(&hitpos);
