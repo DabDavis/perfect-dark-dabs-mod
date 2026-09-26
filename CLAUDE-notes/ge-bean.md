@@ -7345,6 +7345,24 @@ at its capped turn rate and stalls on the scenery; and a truck warped onto pad
 116 at frame 620 stalls on a guard who is standing there then and is gone by
 the time the truck really arrives.
 
+### The truck off its road after an F3 report (2026-09-26)
+
+F3 20260926-063814 (Odeyseis, HD Dam, build 1fc1832): after pressing F3 beside
+the truck between the gates, "the truck disappeared and appeared in an unusual
+place" - 900 units east of its road, crosswise. A truck's step is its speed
+times the frame (3.33 a tick on Dam), and nothing caps a frame
+(`frametimeCalculate()`), so the long frame an F3 makes (a 4K screenshot and
+the dump written before the dialog pauses anything) moved it hundreds of units
+at once. Arriving at a pad was the step's **end** within 100 of it; a step that
+ended past that circle never arrived, and the truck turned back for a pad
+behind it at its capped turn rate, round a circle wider than the road, into the
+yard's wall, where it stood for good. GoldenEye's own test is
+`chrlvIsArrivingLaterallyAtPos(prev, new, pad, 100)` - Perfect Dark's
+`posIsArrivingLaterallyAtPos()`, the same code - which takes the step as a
+line; `vehTruckTick()` uses it now. Probe: `~/wt/f3dam-run/trucklong.py`
+(`LONGAT`/`LONG` set `g_Vars.diffframe*` at one `lvTick()`; a 180-tick frame
+at 8030 left the old truck stuck at (14580, 13643), the new one ends its route).
+
 ## Bond seen twice all the way down the dam (2026-09-21)
 
 F3 report 20260921-092323: "doubling of bond while he is falling, only in
