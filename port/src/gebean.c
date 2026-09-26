@@ -5200,11 +5200,14 @@ static void beanSphereUv(const struct beansphere *sp, const struct beanvtx *v, f
  * draws 4J's cube maps (xblaMeshBuildEnvironment()), on the product of the two
  * maps as one sphere map, looked up by the view-space normal at the vertices
  * (xblaMeshEnvironmentVertices()) and added over the lists at the material's
- * amount. For a dark tank lit + R and the screen differ by lit * R, a few
- * levels at most.
+ * amount. Added rather than screened: the two differ by lit * R, which is
+ * nothing across the middle of the tank, where the spot map is black, and
+ * brightens its rim a little over the release's.
  *
  * The spot map is black in the middle, so the landscape shows only where the
- * surface turns away from the eye, round the tank's edges.
+ * surface turns away from the eye, round the tank's edges. The rest is the
+ * picture, GoldenEye's grey tank: its N64 model is black only where its baked
+ * vertex shading darkens it, which the release did not keep.
  */
 static f32 beanReflectSample(const u8 *rgba, s32 w, s32 h, f32 u, f32 v, s32 c)
 {
@@ -5282,293 +5285,6 @@ static u8 *beanReflectPicture(const struct beanmodel *bm, s32 spot, s32 land)
 	return out;
 }
 
-/**
- * GoldenEye's own shade, for a material the release left unshaded.
- *
- * The gas tank's HD picture is GoldenEye's tank picture drawn again at
- * 256x512: a pale grey with a pool of light at the top, as its N64 pictures
- * (IMAGE_700, 716) are. GoldenEye draws those under its vertex colours, which
- * are its light baked in - near black down most of the body, white along one
- * edge of the top - and that is all that makes its bottling room's tanks
- * black. Bean's tank carries white vertex colours (0xf5 to 0xff) and the
- * release never turns its shaders' light on (above), so drawn as the release
- * draws it the tank is its picture, pale grey (HANDOFF-f3.md's
- * tanks_compare.jpg). Bean is unfinished; the shade is taken from GoldenEye's
- * model under the mesh, whose lists are the converted prop's own.
- *
- * The stock side: every triangle of the list nodes on the matrix the rigid
- * build puts the mesh on, as the lists draw them - a G_COL sets the table a
- * G_VTX's colour bytes count from, G_TRI1/G_TRI4 name the loaded vertices.
- */
-struct beanstocktri {
-	f32 p[3][3];
-	f32 c[3][3];
-	f32 n[3];
-};
-
-struct beanstock {
-	const u8 *base;
-	const struct modelrodata_dl *ro;
-	const Col *colours;
-	u32 spac;
-	s32 slot[16];      // the stock vertex each loaded slot holds, -1 for none
-	s32 slotcol[16];   // and its colour's entry
-	struct beanstocktri *tris;
-	s32 numtris;
-	s32 captris;
-};
-
-static void beanStockTri(struct beanstock *s, s32 i0, s32 i1, s32 i2)
-{
-	const s32 idx[3] = { i0, i1, i2 };
-	struct beanstocktri *t;
-	f32 e1[3], e2[3], len;
-
-	for (s32 k = 0; k < 3; k++) {
-		if (idx[k] < 0 || idx[k] >= 16 || s->slot[idx[k]] < 0) {
-			return;
-		}
-	}
-
-	if (s->numtris >= s->captris) {
-		const s32 cap = s->captris ? s->captris * 2 : 256;
-		struct beanstocktri *grown = realloc(s->tris, (size_t)cap * sizeof(*grown));
-
-		if (!grown) {
-			return;
-		}
-
-		s->tris = grown;
-		s->captris = cap;
-	}
-
-	t = &s->tris[s->numtris];
-
-	for (s32 k = 0; k < 3; k++) {
-		const Vtx *v = &s->ro->vertices[s->slot[idx[k]]];
-		const Col *c = &s->colours[s->slotcol[idx[k]]];
-
-		t->p[k][0] = v->x;
-		t->p[k][1] = v->y;
-		t->p[k][2] = v->z;
-		t->c[k][0] = c->r;
-		t->c[k][1] = c->g;
-		t->c[k][2] = c->b;
-	}
-
-	for (s32 k = 0; k < 3; k++) {
-		e1[k] = t->p[1][k] - t->p[0][k];
-		e2[k] = t->p[2][k] - t->p[0][k];
-	}
-
-	t->n[0] = e1[1] * e2[2] - e1[2] * e2[1];
-	t->n[1] = e1[2] * e2[0] - e1[0] * e2[2];
-	t->n[2] = e1[0] * e2[1] - e1[1] * e2[0];
-	len = vecLen(t->n);
-
-	if (len < 1e-6f) {
-		return;
-	}
-
-	for (s32 k = 0; k < 3; k++) {
-		t->n[k] /= len;
-	}
-
-	s->numtris++;
-}
-
-static void beanStockWalk(struct beanstock *s, Gfx *gdl, s32 depth)
-{
-	for (s32 steps = 0; gdl && depth <= 8 && steps < 0x10000; steps++) {
-		const u32 w0 = (u32)gdl->words.w0;
-		const uintptr_t w1 = gdl->words.w1;
-
-		switch ((u8)(w0 >> 24)) {
-		case G_COL:
-			s->spac = (u32)(UNSEGADDR(w1) & 0xffffff);
-			break;
-		case G_VTX: {
-			const u32 off = (u32)(UNSEGADDR(w1) & 0xffffff);
-			const s32 n = (s32)((w0 & 0xffff) / sizeof(Vtx));
-			const s32 v0 = (s32)((w0 >> 16) & 0xf);
-			const intptr_t vi0 = ((UNSEGADDR(w1) >> 24) & 0xf) == SPSEGMENT_MODEL_VTX
-				? (intptr_t)(off / sizeof(Vtx))
-				: ((intptr_t)(s->base + off) - (intptr_t)s->ro->vertices) / (intptr_t)sizeof(Vtx);
-
-			for (s32 i = 0; i < n && v0 + i < 16; i++) {
-				const intptr_t vi = vi0 + i;
-				u32 ci;
-
-				s->slot[v0 + i] = -1;
-
-				if (vi < 0 || vi >= s->ro->numvertices) {
-					continue;
-				}
-
-				ci = s->spac / sizeof(Col) + ((u32)s->ro->vertices[vi].colour >> 2);
-
-				if (ci < s->ro->numcolours) {
-					s->slot[v0 + i] = (s32)vi;
-					s->slotcol[v0 + i] = (s32)ci;
-				}
-			}
-			break;
-		}
-		case (u8)G_TRI1:
-			beanStockTri(s, (s32)((w1 >> 16) & 0xff) / 10, (s32)((w1 >> 8) & 0xff) / 10, (s32)(w1 & 0xff) / 10);
-			break;
-		case (u8)G_TRI4:
-			for (s32 t = 0; t < 4; t++) {
-				const s32 x = (s32)((w1 >> (t * 8)) & 0xf);
-				const s32 y = (s32)((w1 >> (t * 8 + 4)) & 0xf);
-				const s32 z = (s32)((w0 >> (t * 4)) & 0xf);
-
-				if (x || y || z) {
-					beanStockTri(s, x, y, z);
-				}
-			}
-			break;
-		case G_DL: {
-			Gfx *target = beanResolveGdl(s->base, (Gfx *)w1);
-
-			if (((w0 >> 16) & 1) == 0) {
-				beanStockWalk(s, target, depth + 1);
-			} else {
-				gdl = target;
-				continue;
-			}
-			break;
-		}
-		case (u8)G_ENDDL:
-			return;
-		}
-
-		gdl++;
-	}
-}
-
-/** The stock triangles of the list nodes the rigid build lays the mesh over (matrix mtx). */
-static void beanStockTriangles(struct beanstock *s, struct modelnode **nodes, s32 numnodes, s32 mtx)
-{
-	for (s32 k = 0; k < numnodes; k++) {
-		const struct modelrodata_dl *ro;
-
-		if (!nodes[k] || (nodes[k]->type & 0xff) != MODELNODETYPE_DL || !nodes[k]->rodata
-				|| gebeanListNodeMatrix(nodes[k]) != mtx) {
-			continue;
-		}
-
-		ro = &nodes[k]->rodata->dl;
-
-		if (!ro->vertices || !ro->numcolours) {
-			continue;
-		}
-
-		s->ro = ro;
-		s->base = (const u8 *)ro->colours;
-		s->colours = (const Col *)ALIGN8((uintptr_t)ro->vertices + ro->numvertices * sizeof(Vtx));
-		s->spac = 0;
-
-		for (s32 i = 0; i < 16; i++) {
-			s->slot[i] = -1;
-		}
-
-		beanStockWalk(s, beanResolveGdl(s->base, ro->opagdl), 0);
-
-		if (ro->xlugdl) {
-			beanStockWalk(s, beanResolveGdl(s->base, ro->xlugdl), 0);
-		}
-	}
-}
-
-/**
- * The shade at pos: the colour GoldenEye's Gouraud gives the nearest point of
- * the nearest stock triangle facing the same way (either way round - a list's
- * winding is not a face's side), times argb's own. Closest point on a
- * triangle as in Ericson's Real-Time Collision Detection, 5.1.5.
- */
-static u32 beanStockShade(const struct beanstock *s, const f32 *pos, const f32 *nrm, u32 argb)
-{
-	f32 best = 1e30f;
-	f32 shade[3] = { 255.0f, 255.0f, 255.0f };
-	u32 out = argb & 0xff000000;
-
-	for (s32 pass = 0; pass < 2 && best >= 1e30f; pass++) {
-		for (s32 i = 0; i < s->numtris; i++) {
-			const struct beanstocktri *t = &s->tris[i];
-			const f32 facing = t->n[0] * nrm[0] + t->n[1] * nrm[1] + t->n[2] * nrm[2];
-			f32 ab[3], ac[3], ap[3], bp[3], cp[3], q[3];
-			f32 d1, d2, d3, d4, d5, d6, va, vb, vc, bu, bv, bw, dist;
-
-			if (pass == 0 && fabsf(facing) < 0.5f) {
-				continue;
-			}
-
-			for (s32 k = 0; k < 3; k++) {
-				ab[k] = t->p[1][k] - t->p[0][k];
-				ac[k] = t->p[2][k] - t->p[0][k];
-				ap[k] = pos[k] - t->p[0][k];
-				bp[k] = pos[k] - t->p[1][k];
-				cp[k] = pos[k] - t->p[2][k];
-			}
-
-			d1 = ab[0] * ap[0] + ab[1] * ap[1] + ab[2] * ap[2];
-			d2 = ac[0] * ap[0] + ac[1] * ap[1] + ac[2] * ap[2];
-			d3 = ab[0] * bp[0] + ab[1] * bp[1] + ab[2] * bp[2];
-			d4 = ac[0] * bp[0] + ac[1] * bp[1] + ac[2] * bp[2];
-			d5 = ab[0] * cp[0] + ab[1] * cp[1] + ab[2] * cp[2];
-			d6 = ac[0] * cp[0] + ac[1] * cp[1] + ac[2] * cp[2];
-			vc = d1 * d4 - d3 * d2;
-			vb = d5 * d2 - d1 * d6;
-			va = d3 * d6 - d5 * d4;
-
-			if (d1 <= 0.0f && d2 <= 0.0f) {
-				bu = 1.0f, bv = 0.0f, bw = 0.0f;
-			} else if (d3 >= 0.0f && d4 <= d3) {
-				bu = 0.0f, bv = 1.0f, bw = 0.0f;
-			} else if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
-				bv = d1 / (d1 - d3), bu = 1.0f - bv, bw = 0.0f;
-			} else if (d6 >= 0.0f && d5 <= d6) {
-				bu = 0.0f, bv = 0.0f, bw = 1.0f;
-			} else if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
-				bw = d2 / (d2 - d6), bu = 1.0f - bw, bv = 0.0f;
-			} else if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) {
-				bw = (d4 - d3) / ((d4 - d3) + (d5 - d6)), bv = 1.0f - bw, bu = 0.0f;
-			} else {
-				const f32 den = 1.0f / (va + vb + vc);
-
-				bv = vb * den;
-				bw = vc * den;
-				bu = 1.0f - bv - bw;
-			}
-
-			dist = 0.0f;
-
-			for (s32 k = 0; k < 3; k++) {
-				q[k] = t->p[0][k] * bu + t->p[1][k] * bv + t->p[2][k] * bw;
-				dist += (pos[k] - q[k]) * (pos[k] - q[k]);
-			}
-
-			if (dist < best) {
-				best = dist;
-
-				for (s32 k = 0; k < 3; k++) {
-					shade[k] = t->c[0][k] * bu + t->c[1][k] * bv + t->c[2][k] * bw;
-				}
-			}
-		}
-	}
-
-	for (s32 k = 0; k < 3; k++) {
-		const u32 own = (argb >> (16 - k * 8)) & 0xff;
-		const f32 v = own * shade[k] / 255.0f + 0.5f;
-
-		out |= (u32)(v > 255.0f ? 255.0f : v) << (16 - k * 8);
-	}
-
-	return out;
-}
-
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -5589,13 +5305,10 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	s32 numdecals;
 	s32 numglass = 0;
 	u8 glass[GEBEAN_MAXMATS];
-	struct beanstock stock;
-	s32 numshaded = 0;
 	s32 numreflect = 0;
 	u8 *file;
 
 	memset(glass, 0, sizeof(glass));
-	memset(&stock, 0, sizeof(stock));
 
 	// An odd permutation of three axes swaps two; each negative sign mirrors once
 	mirror = (g->perm[0] == 0) + (g->perm[1] == 1) + (g->perm[2] == 2) == 1;
@@ -5701,14 +5414,6 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		beanGunFlashDraws(&bm, &flash);
 	}
 
-	// A reflecting material's shade is GoldenEye's (beanStockShade())
-	for (s32 di = 0; di < bm.numdraws; di++) {
-		if (bm.draws[di].reflamount) {
-			beanStockTriangles(&stock, nodes, numnodes, mtx);
-			break;
-		}
-	}
-
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
 		struct beanvb vb;
@@ -5764,7 +5469,6 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				u8 bone[3] = { (u8)mtx, (u8)mtx, (u8)mtx };
 				const f32 weight[3] = { 1.0f, 0.0f, 0.0f };
 				s32 part = -1;
-				u32 shade = 0;
 				u32 argb;
 
 				if (beanVertexDropped(source, vb.off, vi)) {
@@ -5800,14 +5504,6 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 					nrm[k] = g->sign[k] * v.nrm[g->perm[k]];
 				}
 
-				// Read before pos is moved into a part's own space: the stock
-				// triangles are in the first list's. Applied below, after the
-				// rule that takes opaque black for no colour at all
-				if (d->reflamount && stock.numtris > 0) {
-					shade = beanStockShade(&stock, pos, nrm, 0xffffffff);
-					numshaded++;
-				}
-
 				if (part >= 0) {
 					// in the part's node's own space, which its matrix carries
 					for (s32 b = 0; b < bm.numbones && b < BEAN_MAXBONES; b++) {
@@ -5831,13 +5527,6 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				// and drawn black the bike's bars came out as flat black shapes.
 				v.argb = beanFixVertexColour(source, vb.off, vi, v.argb);
 				argb = v.argb == 0xff000000 ? 0xffffffff : v.argb;
-
-				if (shade) {
-					argb = (argb & 0xff000000)
-						| ((((argb >> 16) & 0xff) * ((shade >> 16) & 0xff) + 127) / 255) << 16
-						| ((((argb >> 8) & 0xff) * ((shade >> 8) & 0xff) + 127) / 255) << 8
-						| (((argb & 0xff) * (shade & 0xff) + 127) / 255);
-				}
 
 				// The Golden Gun's pickup is the first-person gun's near-white
 				// pictures again (texture_gold_file521/522), under the gold
@@ -5961,12 +5650,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
 
-	if (numreflect || numshaded) {
-		sysLogPrintf(LOG_NOTE, "gebean: %s reflects %d material%s of its own; %d vertices take GoldenEye's shade "
-				"from %d triangles", g->row.file, numreflect, numreflect == 1 ? "" : "s", numshaded, stock.numtris);
+	if (numreflect) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s reflects %d material%s of its own", g->row.file, numreflect,
+				numreflect == 1 ? "" : "s");
 	}
 
-	free(stock.tris);
 	beanOutFree(&out);
 	beanFree(&bm);
 
