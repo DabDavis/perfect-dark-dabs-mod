@@ -260,7 +260,7 @@ static void sysFatalDialog(const char *shown, const char *full)
 	snprintf(text, sizeof(text),
 			"%s\n\nA report of this was saved.\n"
 			"Sending it to Dab includes the message above, which build this is, "
-			"your [Mod] settings and the last few hundred lines of the log.\n"
+			"your game settings and the last few hundred lines of the log.\n"
 			"You can also send it from Send Crash Report on the Perfect Menu next time, "
 			"with a note about what you were doing.",
 			shown);

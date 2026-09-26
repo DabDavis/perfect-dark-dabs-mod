@@ -87,7 +87,7 @@ static char *menutextCrashReportStatus(struct menuitem *item)
 	snprintf(g_Text, sizeof(g_Text),
 			"A crash from %s is waiting.\n"
 			"It holds the error and its stack, the\n"
-			"build, your [Mod] settings and the last\n"
+			"build, your game settings and the last\n"
 			"few hundred lines of the log - nothing\n"
 			"else, and nothing unless you press Send.\n",
 			crashReportPendingWhen());

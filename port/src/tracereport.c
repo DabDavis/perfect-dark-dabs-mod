@@ -7,7 +7,7 @@
  * what was wrong, to somebody who can read them. This is that step. The key
  * still writes both files first; then a dialog comes up over the game (paused,
  * in a solo mission) with the keyboard already typing into a note, and Enter
- * or Send puts the dump, the note, a scaled copy of the picture, the [Mod]
+ * or Send puts the dump, the note, a scaled copy of the picture, the game
  * settings and the log tail on the wire to the server's /report.
  *
  * A report also carries an optional name, which is the only thing that can
@@ -686,7 +686,7 @@ static char *menutextTraceReportStatus(struct menuitem *item)
 	// Said before it is offered: what goes, and that nothing goes on its own.
 	snprintf(g_Text, sizeof(g_Text),
 			"Captured the frame from %s: a screenshot\n"
-			"and a dump of the game's state, your [Mod]\n"
+			"and a dump of the game's state, your game\n"
 			"settings and the last lines of the log.\n"
 			"Nothing is sent unless you press Send.\n",
 			g_When);
