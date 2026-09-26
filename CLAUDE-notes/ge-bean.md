@@ -9970,6 +9970,39 @@ the loop, GoldenEye beside:
 Defection at three difficulties, standing and kneeling: every probe line
 identical before and after.
 
+### Guards that never hit: GoldenEye's TARGET_BOND is not Perfect Dark's target (2026-09-26)
+
+F3 20260925-235655 (Dam, HD look, 00 Agent, build ef6bffc which has all of the
+above): "enemies seem to shoot above bond and never hit him! I've stood in
+front of this guard for half a minute and he never hit me once." Everything in
+the two sections above was measured with the attack **forced from gdb** with
+`ATTACKFLAG_AIMATTARGET` (0x0200). A guard left to his own AI list attacks with
+the flags of GoldenEye's `TRYFireOrAimAtTarget` (and its Kneel/Update forms and
+`TRYFacingTarget`), which the conversion passes through - and GoldenEye's
+`TARGET_BOND` is **0x0001**, Perfect Dark's `ATTACKFLAG_AIMATBOND`, which
+nothing in Perfect Dark reads any more. So:
+
+- chrTickShoot() calls chrCalculateHit() only for `attackflags &
+  ATTACKFLAG_AIMATTARGET`; with 0x0001 every bullet went down "shooting at
+  something else": **no guard of a converted mission ever hit the player**, at
+  any difficulty, in either look.
+- chrCalculateAimEnd() applies Perfect Dark's body-height rule only for
+  AIMATTARGET; otherwise it aims from the guard's root at chrGetAttackEntityPos(),
+  the player's prop position, which is his eye - the fire over his head (mean
+  shoulder pitch 0.233 at the report's spot against 0.119 after).
+
+`aiGeAttackFlags()` (chraicommands.c) turns 0x0001 into 0x0200 for those four
+commands on a remake stage. The other GoldenEye bits are Perfect Dark's own
+(0x02 front, 0x04 chr, 0x08 pad, 0x10 compass, 0x20 aim only, 0x40 don't turn).
+The conversion could translate the bit instead; either works, not both.
+
+**A probe of a guard's hit rate must let his own list attack** (aimprobe.py
+`KEEPAI=1`): forcing chrAttackStand() skips the very command that carries the
+flags. The report's spot is on Dam's lower storey (`ROOMS=103,104`; without the
+rooms the player is put on the road 540 above), and in the HD look
+chrMoveToPos() moves a guard put at the report's spot 60 units nearer (the spawn
+adjust), so `GX`/`GZ` put him there exactly.
+
 ### "Aiming too high": the gun upright is GoldenEye's own kneel (2026-09-25)
 
 The same F3's picture is a guard kneeling in Facility's locker room with his
