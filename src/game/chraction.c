@@ -5058,6 +5058,18 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 #endif
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye's head is four times the body and no more (chrlvDamage).
+	// Perfect Dark's player headshot, twenty-five times that again, kills
+	// anyone at once, and a converted mission's lists count on a hit they
+	// can outlive: Silo's Ourumov (30 armour, flees when it is gone) and the
+	// Cradle's Trevelyan (invincible once his list has seen a wound) died to
+	// one shot in the head before their lists had a tick to answer it
+	if (geRoomActive()) {
+		headshotdamagescale = 1;
+	}
+#endif
+
 	// Apply rumble
 	if (vprop->type == PROPTYPE_PLAYER) {
 		s32 prevplayernum = g_Vars.currentplayernum;
