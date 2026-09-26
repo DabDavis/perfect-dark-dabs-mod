@@ -5065,6 +5065,7 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 	f32 dlo[64];
 	f32 dhi[64];
 	u8 quadsflat[64];
+	s32 ntris[64];
 	const s32 num = bm->numdraws < 64 ? bm->numdraws : 64;
 
 	*out = 0;
@@ -5077,6 +5078,7 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 
 		dlo[di] = 1e18f;
 		dhi[di] = -1e18f;
+		ntris[di] = 0;
 		quadsflat[di] = d->prim == 13;
 
 		if (!beanReadVb(bm, d->vb, &vb)) {
@@ -5084,6 +5086,7 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 		}
 
 		numtris = beanTriangles(bm, d, &tris);
+		ntris[di] = numtris;
 
 		// A quad list's triangles come two to a quad (beanTriangles())
 		for (s32 q = 0; q + 1 < numtris && quadsflat[di]; q += 2) {
@@ -5145,6 +5148,20 @@ static void beanGunFlashDraws(struct beanmodel *bm, u64 *out)
 		if (bm->draws[di].prim == 13 && dlo[di] <= dhi[di]
 				&& ((dhi[di] - dlo[di] < 1.0f && (dlo[di] <= lo + end || dhi[di] >= hi - end))
 					|| (quadsflat[di] && (dhi[di] <= lo + end || dlo[di] >= hi - end)))) {
+			*out |= 1ull << di;
+		}
+
+		// Or a sprite of a few triangles, alpha tested, flat across the
+		// barrel at one end of it: the release's Moonraker lays its flash
+		// out that way (prop/chrlaser draw 0, two quads as a triangle list
+		// 1000 across and 5 deep at y -2877, the gun's far end, where the
+		// gun is 2345 long), which burned a cyan star on its muzzle in every
+		// hand that held one (F3 20260926-100859).
+		// The alpha test is what tells it from a flat end cap of the gun's
+		// own, which is drawn solid.
+		if (bm->draws[di].prim == 4 && bm->draws[di].alphatest && ntris[di] > 0 && ntris[di] <= 8
+				&& dlo[di] <= dhi[di] && dhi[di] - dlo[di] < (hi - lo) * 0.01f
+				&& (dlo[di] <= lo + end || dhi[di] >= hi - end)) {
 			*out |= 1ull << di;
 		}
 	}
