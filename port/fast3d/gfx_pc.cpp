@@ -2201,6 +2201,25 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
         d->fog = 0;
 
         d->color.a = vcn->a; // can be required for SHADE_ALPHA even if fog is enabled
+
+        // A lit corner's colour entry is its normal, and under a mode that
+        // selects coverage for alpha without FORCE_BL the RDP blends only
+        // partly covered edge pixels, by their coverage: the entry's alpha
+        // byte never reaches a covered pixel. The levels' opaque lists draw
+        // their reflective spans that way (G_RM_AA_ZB_OPA_TERR2, lit and
+        // texgenned - Extraction's chrome door trims and its lobby's marble
+        // counter) with a 4 in that byte, and blended by it they let the sky,
+        // or whatever the frame held before, through a solid wall. Only the
+        // vertex's byte: the texture's alpha still blends as before, since a
+        // span of Defection's release rooms drew its environment map's dark
+        // texels as black blocks in the sky when the whole draw was made
+        // opaque. Not under CVG_X_ALPHA or an alpha compare, where the RDP
+        // does read the combined alpha.
+        if ((rsp.geometry_mode & G_LIGHTING) &&
+            (rdp.other_mode_l & (ALPHA_CVG_SEL | FORCE_BL | CVG_X_ALPHA)) == ALPHA_CVG_SEL &&
+            (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_NONE) {
+            d->color.a = 0xff;
+        }
     }
 }
 
