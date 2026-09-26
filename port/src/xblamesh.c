@@ -10038,7 +10038,14 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// where the game's own window goes from clear at 200 units to opaque
 		// at 900. Nought under every other mode, where nothing of the game's
 		// reads it.
+		//
+		// The primitive alpha is the second cycle's, so the cycle type is set
+		// here and not left to whatever drew last: a GoldenEye tinted pane in
+		// the HD look came here in one cycle and kept its own 26% all the way
+		// out to opadist, where GoldenEye's thickens from xludist on, then
+		// went solid blue at once (F3 20260925-225628, Facility's lab windows).
 		gDPPipeSync(renderdata->gdl++);
+		gDPSetCycleType(renderdata->gdl++, G_CYC_2CYCLE);
 		gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
 		gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0,
 				renderdata->unk30 == 9 ? (renderdata->envcolour >> 8) & 0xff : 0);
