@@ -404,6 +404,70 @@ static struct noisesettings *gegunsNoise(s32 i)
 	return noise;
 }
 
+/**
+ * How long GoldenEye waits between two shots of a single-shot gun with the
+ * trigger held, in sixtieths, and the recovery time that gives the same wait
+ * here.
+ *
+ * gunTickHandState() (gunfire.c) runs once a frame. It fires in
+ * GUN_ANIM_STATE_FIRE, goes to RECOIL1 the next frame (field_890 back to 0),
+ * adds the frame's ticks (g_ClockTimer) to field_890 each frame after, goes
+ * back to IDLE once field_890 reaches the two recoil speeds plus SingleRate,
+ * and fires again from IDLE the frame after that. The Cougar and the grenade
+ * launcher first wait 6 ticks in TRIGGER_PRESS. So the wait is counted in
+ * frames and depends on how long a frame is: at GoldenEye's two sixtieths a
+ * frame, the console's usual and the frame the automatic rates are counted
+ * in here (gegunsRpm(), the KF7's 600 rpm), it is 2 * ceil(T / 2) + 4 ticks.
+ * The native port run at two ticks a frame agrees to the tick for every gun
+ * (PP7 32, shotguns 40, sniper rifle 20, Cougar 54, Golden Gun and Moonraker
+ * 16, grenade launcher 54, rocket launcher 24, watch laser 4).
+ *
+ * Perfect Dark's bgun0f09aba4() counts ticks and lets the next shot go
+ * `sum + recoverytime60` ticks after the last, plus one tick more for a gun
+ * with a fire animation to start (GEGUNS_PD_SHOT_OVERHEAD, measured: the PP7,
+ * the DD44 and both launchers against the Golden Gun, the Moonraker, the
+ * sniper rifle and the automatic shotgun). A fire animation longer than the
+ * wait holds the next shot back itself (the Shotgun's pump, the Cougar's
+ * kick). A recovery of SingleRate
+ * itself fired every GoldenEye gun early - the PP7 at 29 ticks for 32, the
+ * sniper rifle at 16 for 20 - and the watch laser at every tick for 4. Ticks,
+ * not frames, so a faster frame rate does not change it.
+ */
+#define GEGUNS_GE_FRAME_TICKS    2
+#define GEGUNS_PD_SHOT_OVERHEAD  1
+
+static s32 gegunsGeSingleWait(s32 weaponnum, const struct gegunstat *stat)
+{
+	s32 speeds = stat->recoilspeed[0] + stat->recoilspeed[1];
+	s32 t = speeds + (s8)stat->singlerate;
+	s32 frames = (t + GEGUNS_GE_FRAME_TICKS - 1) / GEGUNS_GE_FRAME_TICKS + 2;
+
+	if (t < 0) {
+		frames = 2;
+	}
+
+	// the Cougar and the grenade launcher's TRIGGER_PRESS wait, field_890 >= 6
+	if (weaponnum == WEAPON_GE_COUGARMAGNUM || weaponnum == WEAPON_GE_GRENADELAUNCHER) {
+		frames += (6 + GEGUNS_GE_FRAME_TICKS - 1) / GEGUNS_GE_FRAME_TICKS;
+	}
+
+	return frames * GEGUNS_GE_FRAME_TICKS;
+}
+
+static s8 gegunsRecovery(s32 weaponnum, const struct gegunstat *stat, s32 hasanim)
+{
+	s32 speeds = stat->recoilspeed[0] + stat->recoilspeed[1];
+	s32 rec;
+
+	if (speeds < 1) {
+		speeds = 0;
+	}
+
+	rec = gegunsGeSingleWait(weaponnum, stat) - speeds - (hasanim ? GEGUNS_PD_SHOT_OVERHEAD : 0);
+
+	return rec < 0 ? 0 : (rec > 127 ? 127 : rec);
+}
+
 /** Function f of gun i: its kind and scripts the model's, its numbers GoldenEye's. */
 static struct weaponfunc *gegunsFunc(s32 i, s32 f, const struct weaponfunc *src, struct noisesettings *noise)
 {
@@ -443,8 +507,14 @@ static struct weaponfunc *gegunsFunc(s32 i, s32 f, const struct weaponfunc *src,
 		shoot->recoilangle = hasrow ? stat->recoilup : from->recoilangle;
 		shoot->slidemax = hasrow ? stat->boltback : from->slidemax;
 
-		// 0xff is GoldenEye's "no rate", not a time
-		shoot->recoverytime60 = hasrow && stat->singlerate != 0xff ? (s8)stat->singlerate : from->recoverytime60;
+		// 0xff is GoldenEye's "no rate", not a time. A single-shot gun's is
+		// GoldenEye's wait between two held shots (gegunsRecovery()); an
+		// automatic's held rate is its rpm below and keeps SingleRate
+		if (hasrow && stat->singlerate != 0xff && stat->autorate == 0xff) {
+			shoot->recoverytime60 = gegunsRecovery(WEAPON_GE_FIRST + i, stat, fn->fire_animation != NULL);
+		} else {
+			shoot->recoverytime60 = hasrow && stat->singlerate != 0xff ? (s8)stat->singlerate : from->recoverytime60;
+		}
 
 		// The Shotgun works its model's pump after every shot, and the timing
 		// is the pump's: GoldenEye's early refire would cut it short
@@ -813,6 +883,8 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
  * would put it. (Lock-on and "an"/"the" are gegunsBuild()'s, from
  * GoldenEye's own data.)
  */
+static void gegunsFireRate(s32 i);
+
 static void gegunsOwnTrigger(s32 i)
 {
 	const s32 weaponnum = WEAPON_GE_FIRST + i;
@@ -1070,6 +1142,7 @@ void gegunsBorrow(s32 index, const struct weapon *def, u16 pickupfile, u16 picku
 	// could hear Bond fire.
 	gegunsBuild(index, def, g_Weapons[g_GeWeaponHosts[index]]);
 	gegunsOwnThrown(index);
+	gegunsFireRate(index);
 
 	// Text ids are the mod's language files', which say something else here
 	// (its KF7's function read "Burst Fire"): the port's own names stay
@@ -1937,6 +2010,7 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 
 		gegunsBuild(i, host, host);
 		gegunsOwnTrigger(i);
+		gegunsFireRate(i);
 		gegunsOwnThrown(i);
 		gegunsBotPrefs(i);
 
@@ -1963,6 +2037,25 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 	}
 }
 
+
+/**
+ * Gun i's single shot waits GoldenEye's own time between two held shots
+ * (gegunsRecovery()), once what its first function plays on firing is
+ * settled: gegunsOwnTrigger() takes some fire animations away, and a borrowed
+ * model brings its own.
+ */
+static void gegunsFireRate(s32 i)
+{
+	const struct gegunstat *stat = &stats[i];
+	struct weaponfunc_shoot *shoot = g_GeWeaponDefs[i].functions[0];
+
+	if (!shoot || (shoot->base.type & 0xff) != INVENTORYFUNCTYPE_SHOOT
+			|| !stat->bitflags || stat->singlerate == 0xff || stat->autorate != 0xff) {
+		return;
+	}
+
+	shoot->recoverytime60 = gegunsRecovery(WEAPON_GE_FIRST + i, stat, shoot->base.fire_animation != NULL);
+}
 
 /**
  * GoldenEye's watch laser (ITEM_WATCHLASER), which the conversion stands on
@@ -2061,7 +2154,7 @@ void gegunsSetWatchLaser(s32 on)
 	shoot->recoildist = stat->recoilback;
 	shoot->recoilangle = stat->recoilup;
 	shoot->slidemax = stat->boltback;
-	shoot->recoverytime60 = stat->singlerate;
+	shoot->recoverytime60 = gegunsRecovery(WEAPON_GE_MOONRAKER, stat, g_WatchLaser.func->fire_animation != NULL);
 	shoot->unk24 = stat->recoilspeed[0];
 	shoot->unk25 = stat->recoilspeed[1];
 	shoot->unk26 = stat->recoilspeed[2];
