@@ -89,6 +89,13 @@ s32 g_ModSightCheat = SIGHT_CLASSIC;
 s32 g_ModSightSplitMin = 2;
 s32 g_ModZoomRangeWeapon = WEAPON_SNIPERRIFLE;
 
+s32 g_ModWeaponHitSparks[MODRULES_NUMWEAPONS] = {
+	[0 ... MODRULES_NUMWEAPONS - 1] = MODRULES_STOCKGUNFX,
+};
+s32 g_ModWeaponBeamTexture[MODRULES_NUMWEAPONS] = {
+	[0 ... MODRULES_NUMWEAPONS - 1] = MODRULES_STOCKGUNFX,
+};
+
 void modRulesReset(void)
 {
 	s32 i;
@@ -112,6 +119,8 @@ void modRulesReset(void)
 
 	for (i = 0; i < MODRULES_NUMWEAPONS; i++) {
 		g_ModWeaponChrModel[i] = MODRULES_STOCKMODEL;
+		g_ModWeaponHitSparks[i] = MODRULES_STOCKGUNFX;
+		g_ModWeaponBeamTexture[i] = MODRULES_STOCKGUNFX;
 	}
 
 	g_ModFastMoveScale = 1.25f;

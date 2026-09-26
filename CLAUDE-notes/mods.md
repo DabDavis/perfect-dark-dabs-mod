@@ -1841,3 +1841,46 @@ Left: the disguise menu's preview models (`mainmenu_prepare_weapon_menumodel`,
 two `lui` pairs), GE-X's 14 weapon sets against the port's 12, the target box
 colour (it is the player's crosshair colour setting), `menu_render`'s fixed
 dialog projection, and `htm_radar_extra`'s floats.
+
+## GE-X's guns threw green sparks behind green tracers (2026-09-26, importer 33)
+
+Tester F3 20260926-004756 on GE-X: the Klobb, KF7, Phantom, AR33 and Gold PP7
+drew Perfect Dark's alien tracers and sparks. They sit at the stock numbers of
+the Mauler (6), Phoenix (7), Cyclone (11), Callisto (12) and Reaper (20), and
+three things in the port picked a look by those numbers:
+
+- **The wall sparks** (`shotCalculateHits()`: green for the Maian and Skedar
+  guns, electrical for the Cyclone, orange for the FarSight, the
+  tranquilizer's own) and **the tracer's texture** (`beamRender()`: the same
+  weapons' `g_TexBeamConfigs` rows) are switches the compiler made **jump
+  tables in rodata** (`shot_calculate_hits` at `jr` 0x7f061acc, table
+  0x7f1a9e60; `beam_render` at `jr` 0x7f0acc98, table 0x7f1acc70; both
+  weapons 6-28). GE-X points every entry at the default but its Moonraker's
+  pair (21, 22: electrical sparks, the Cyclone's texture) and changes no
+  instruction, so `modcodediff` shows neither. Read straight from the tables
+  (`weapon_switch_at()`/`weaponSwitchAt()`: table, count, the `beqz at` to the
+  default, the `addiu` bias; a case is the `li` it loads, or `lw rA,0(s0)` +
+  `addiu rB,rA,12*N`), written as `weapon N { hitsparks S }` and `weapon N {
+  beamtexture T }` where they differ from stock (`g_ModWeaponHitSparks`,
+  `g_ModWeaponBeamTexture`, game/modrules.h; `-1` is the texture the beam's
+  drawer asked for, the switch's default).
+- **The Klobb's tracer was the Mauler's charge beam**: `beamCreateForHand()`
+  turns a Mauler's beam into `-3 - charge`, which `beamRender()` draws wide in
+  the Mauler's texture. GE-X renumbered both of `beam_create_for_hand`'s tests
+  (the hand's and the fireslot's) to 119, no weapon. `WEAPONFLAG3_CHARGEBEAM`
+  (`chargebeam`, a `FLAG_SITES` row), and GE-X's reading is "no weapon":
+  without it its silenced PP7, which is GE-X's rewrite of the Mauler's own
+  definition and inherits its flags by address, would have taken the charge
+  beam instead.
+- **The Phantom's tracer was faint**: GE-X folds the Cyclone's half-alpha
+  colour (`li t7,0xffffff7f`) out of `beam_render` entirely, which the
+  `fainttracer` site cannot read as a chain; the region writes `weaponflags
+  fainttracer { clear }` when the constant is gone from the mod's function.
+
+All three are in the importers' `gunfx` region (after `sights`). Stock and GE
+Plus are untouched: the overrides are `MODRULES_STOCKGUNFX` unless a loaded
+mod's config sets them, and no GoldenEye gun hosts the Mauler. The rig that
+shows it is `~/wt/f3tracers-rig/det.sh` (frame-exact, `--fixed-step`, trigger
+held from gdb at fixed level frames, so two binaries draw the same frames;
+stock guns 2-28 were pixel-identical before and after). XBLA's spark timings
+play no part - `g_SparkTypes` is not mirrored (xbla-xex-table-diff).

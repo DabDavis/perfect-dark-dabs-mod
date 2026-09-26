@@ -702,6 +702,7 @@ static const struct {
 	{ "sdgrenade",        WEAPONFLAG3_SDGRENADE, 3 },
 	{ "piercesbulletproof", WEAPONFLAG3_PIERCESBULLETPROOF, 3 },
 	{ "freeshots",        WEAPONFLAG3_FREESHOTS, 3 },
+	{ "chargebeam",       WEAPONFLAG3_CHARGEBEAM, 3 },
 };
 
 // the port's function flags by the name a modconfig uses for them
@@ -878,6 +879,23 @@ s32 modWeaponSetKey(s32 weaponnum, const char *key, s32 value)
 			return -1;
 		}
 		g_ModWeaponChrModel[weaponnum] = value;
+		return 1;
+	}
+
+	if (!strcmp(key, "hitsparks")) {
+		if (value < MODRULES_STOCKGUNFX || value == -1 || value > SPARKTYPE_DEEPWATER || weaponnum >= MODRULES_NUMWEAPONS) {
+			return -1;
+		}
+		g_ModWeaponHitSparks[weaponnum] = value;
+		return 1;
+	}
+
+	if (!strcmp(key, "beamtexture")) {
+		// g_TexBeamConfigs has five
+		if (value < MODRULES_STOCKGUNFX || value > 4 || weaponnum >= MODRULES_NUMWEAPONS) {
+			return -1;
+		}
+		g_ModWeaponBeamTexture[weaponnum] = value;
 		return 1;
 	}
 

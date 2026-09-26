@@ -4966,6 +4966,7 @@ enum weaponnum {
 #define WEAPONFLAG3_SDGRENADE        0x02000000 // Its grenade rounds burst the SuperDragon's way, the small explosion of a third function
 #define WEAPONFLAG3_PIERCESBULLETPROOF 0x04000000 // Its shot goes through a bulletproof object's parts: the DY357 Magnum's
 #define WEAPONFLAG3_FREESHOTS        0x08000000 // Its shots spend no ammo: the laser's
+#define WEAPONFLAG3_CHARGEBEAM       0x10000000 // Its tracer is the charge's, wider as the shot winds up: the Mauler's
 #define WEAPONFLAG2_PELLETS          0x40000000 // A pull of the trigger is six shots at once, the shotgun's
 #define WEAPONFLAG2_BOTLIMITLESS     0x80000000 // A simulant's clip of it never runs dry, the laser's
 
