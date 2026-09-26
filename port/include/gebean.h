@@ -188,6 +188,14 @@ s32 gebeanIsPoolRow(s32 headorbodynum);
  */
 s32 gebeanIsRomPoolRow(s32 headorbodynum);
 
+/**
+ * Whether a body row is one of GoldenEye's own characters for GE Plus: the
+ * release's pool, or the ROM's (the pool filled from the conversion and the
+ * extras the release lacks). Never GoldenEye X's - GE Plus is made of the
+ * ROM and the release alone.
+ */
+s32 gebeanIsGoldenEyeBody(s32 bodynum);
+
 // The pool's body or head for one of GoldenEye's characters by its Bean source
 // ("char/oliveguard"), or -1 when the pool is not Bean's.
 s32 gebeanPoolNumBySource(const char *source);
