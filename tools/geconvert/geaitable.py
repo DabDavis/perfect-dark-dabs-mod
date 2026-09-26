@@ -288,14 +288,14 @@ TABLE = [
     ('HideAllChrs',                         1,    [],                                            0x01d5, (('=', 0, 1),),                              'hand'),  # dd aiShowCutsceneChrs
     ('ShowAllChrs',                         1,    [],                                            0x01d5, (('=', 1, 1),),                              'hand'),  # de aiShowCutsceneChrs
     ('DoorOpenInstant',                     2,    [('OBJECT_TAG', 1)],                           0x00e8, (0,),                                        'hand'),  # df aiSetDoorOpen
-    ('ChrRemoveItemInHand',                 3,    [('CHR_NUM', 1), ('HAND_INDEX', 1)],           None,   (),                                          'hand'),  # e0 -
+    ('ChrRemoveItemInHand',                 3,    [('CHR_NUM', 1), ('HAND_INDEX', 1)],           0x01e6, (0, 1),                                      'hand'),  # e0 aiGeChrRemoveItemInHand (port's own)
     ('IfNumberOfActivePlayersLessThan',     3,    [('NUMBER', 1), ('GOTOLABEL', 1)],             0x00ea, (0, 1),                                      'hand'),  # e1 aiIfNumPlayersLessThan
     ('IFBondItemTotalAmmoLessThan',         4,    [('ITEM_NUM', 1), ('AMMO_TOTAL', 1), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # e2 -
     ('BondEquipItem',                       2,    [('ITEM_NUM', 1)],                             0x00ec, (('=', 242, 1), 0),                          'hand'),  # e3 aiChrDrawWeapon
     ('BondEquipItemCinema',                 2,    [('ITEM_NUM', 1)],                             0x00ed, (('=', 242, 1), 0),                          'hand'),  # e4 aiChrDrawWeaponInCutscene
     ('BondSetLockedVelocity',               3,    [('X_SPEED60', 1), ('Z_SPEED60', 1)],          0x00ee, (('=', 242, 1), 0, 1),                       'hand'),  # e5 ai00ee
     ('IFObjectInRoomWithPad',               5,    [('OBJECT_TAG', 1), ('PAD', 2), ('GOTOLABEL', 1)], 0x00ef, (0, 1, 2),                                   'hand'),  # e6 aiIfObjInRoom
-    ('IFImFiringAndLockedForward',          2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # e7 -
+    ('IFImFiringAndLockedForward',          2,    [('GOTOLABEL', 1)],                            0x00f0, (0,),                                        'hand'),  # e7 ai00f0 (the same test: ACT_ATTACK, not re-aiming, DONTTURN)
     ('IFImFiring',                          2,    [('GOTOLABEL', 1)],                            0x00f1, (0,),                                        'hand'),  # e8 aiIfAttacking
     ('SwitchSky',                           1,    [],                                            0x00f2, (),                                          'hand'),  # e9 aiSwitchToAltSky
     ('TriggerFadeAndExitLevelOnButtonPress', 1,    [],                                            0x01e1, (),                                          'hand'),  # ea aiGeExitOnButtonPress
@@ -316,6 +316,6 @@ TABLE = [
     ('BondKilledInAction',                  1,    [],                                            0x00fe, (),                                          'hand'),  # f9 aiKillBond
     ('RaiseArms',                           1,    [],                                            0x00ff, (),                                          'hand'),  # fa aiBeSurprisedSurrender
     ('GasLeakAndFadeFog',                   1,    [],                                            None,   (),                                          'hand'),  # fb -
-    ('ObjectRocketLaunch',                  2,    [('OBJECT_TAG', 1)],                           None,   (),                                          'hand'),  # fc -
+    ('ObjectRocketLaunch',                  2,    [('OBJECT_TAG', 1)],                           0x01e5, (0,),                                        'hand'),  # fc aiGeObjectRocketLaunch (port's own)
 ]
 

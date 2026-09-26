@@ -16566,6 +16566,22 @@ bool chrSetChrPresetToChrNearPos(u8 checktype, struct chrdata *chr, f32 distance
 		if (prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) {
 			struct chrdata *loopchr = prop->chr;
 
+#ifndef PLATFORM_N64
+			// GoldenEye's TRYSettingMyPresetToChrWithinDistance (ai0058, the
+			// COMPARE_ANY search) walks g_ChrSlots, the guards, and
+			// Bond is never among them: a solo GoldenEye player has no chr.
+			// Perfect Dark's walk takes the player's prop as readily as a
+			// guard's, so on a converted mission Jungle's Natalya - whose
+			// list picks "a chr within ten metres" to shoot at and trusts it
+			// to be an enemy - found Bond at her side and shot him for the
+			// rest of the level (F3 20260926-064209).
+			if (prop->type == PROPTYPE_PLAYER && checktype == COMPARE_ANY
+					&& modloaderStageIsMission(g_Vars.stagenum)) {
+				propnumptr++;
+				continue;
+			}
+#endif
+
 			if (loopchr->chrnum != chr->chrnum
 					&& !chrIsDead(loopchr)
 					&& prop->pos.x >= xmin

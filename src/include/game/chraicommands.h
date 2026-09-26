@@ -454,6 +454,8 @@
 /*0x01e2*/ bool aiGeVehicleAnim(void);
 /*0x01e3*/ bool aiGeIfBondYLessThan(void);
 /*0x01e4*/ bool aiGeIfChrWasHit(void);
+/*0x01e5*/ bool aiGeObjectRocketLaunch(void);
+/*0x01e6*/ bool aiGeChrRemoveItemInHand(void);
 #endif
 
 void propDecrementSoundCount(struct prop *prop);

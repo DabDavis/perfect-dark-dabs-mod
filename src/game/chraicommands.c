@@ -5612,17 +5612,40 @@ bool aiChrDrawWeaponInCutscene(void)
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 		setCurrentPlayerNum(playernum);
+
+#ifndef PLATFORM_N64
+		// On a converted mission this is GoldenEye's BondEquipItemCinema or,
+		// with WEAPON_NONE, its BondHideWeapons. The equip sets the hand's
+		// weaponnum at once (currentPlayerUnEquipWeaponWrapper()); the hide
+		// only empties the first person hands (remove_item_in_hand() clears
+		// hand_item, the model in the hand) and leaves weaponnum alone; and
+		// the body Bond's ending is filmed with is made at the CameraSwitch
+		// holding weaponnum (solo_char_load()). So Bond is armed in his
+		// endings: Depot's hands him a PP7 if he holds no gun, hides it, and
+		// has him shoot the two guards in the train with it - with an empty
+		// body he never fired and the scene stood still (F3
+		// 20260926-064122). The body takes its gun from here
+		// (playerTickChrBody()), not from the first person hands emptied
+		// below.
+		if (modloaderStageIsMission(g_Vars.stagenum)) {
+			if ((s8)cmd[3] > WEAPON_NONE) {
+				gecinemaSetBondBodyWeapon((s8)cmd[3]);
+			} else if (gecinemaBondBodyWeapon() <= WEAPON_NONE) {
+				gecinemaSetBondBodyWeapon(g_Vars.currentplayer->gunctrl.switchtoweaponnum > WEAPON_NONE
+						? g_Vars.currentplayer->gunctrl.switchtoweaponnum
+						: bgunGetWeaponNum(HAND_RIGHT));
+			}
+		}
+#endif
+
 		bgunEquipWeapon((s8)cmd[3]);
 
 #ifndef PLATFORM_N64
-		// GoldenEye's BondHideWeapons (a converted mission's outro) empties
-		// both hands there and then (remove_item_in_hand()), and Bond's body
-		// is filmed without a gun. Perfect Dark's switch only completes as the
-		// gun ticks, which it does not under the cinema's camera, so Bond
-		// stood in Silo's lift still holding his rifle (F3 20260925-234037).
-		// The hands are emptied now (bgunGetWeaponNum() answers WEAPON_NONE
-		// for a hand not in use) and the body's held guns go with them, so
-		// playerTickChrBody() has nothing to put back.
+		// The hide empties the first person hands there and then. Perfect
+		// Dark's switch only completes as the gun ticks, which it does not
+		// under the cinema's camera (F3 20260925-234037, Silo's lift), so
+		// they are emptied now (bgunGetWeaponNum() answers WEAPON_NONE for a
+		// hand not in use) and a body already up lets go of what they held.
 		if ((s8)cmd[3] <= WEAPON_NONE && modloaderStageIsRemake(g_Vars.stagenum)) {
 			g_Vars.currentplayer->hands[HAND_RIGHT].inuse = false;
 			g_Vars.currentplayer->hands[HAND_LEFT].inuse = false;
@@ -10265,6 +10288,80 @@ bool aiGeIfChrWasHit(void)
 	} else {
 		g_Vars.aioffset += 4;
 	}
+
+	return false;
+}
+
+/**
+ * @cmd 01e5
+ *
+ * GoldenEye's ObjectRocketLaunch (chrai.c): the tagged object is made a
+ * projectile - airborne, not turned by what it touches (0x200), falling,
+ * sticky - that starts up at a sixtieth of a unit a tick and gains 0.2917 a
+ * tick against the fall's 0.2778, so it climbs away slowly and then fast.
+ * Aztec's ending launches the Moonraker shuttle with it, and the conversion
+ * had left it out: the shuttle sat in its silo through the whole of the
+ * launch (F3 20260926-064254). Perfect Dark's projectile is GoldenEye's field
+ * for field here - speed at 0x04, the push at 0x10 - and so is its tick.
+ * Three bytes: 01e5 <object tag:1>
+ */
+bool aiGeObjectRocketLaunch(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+	if (obj && obj->prop) {
+		struct projectile *projectile = NULL;
+
+		func0f0685e4(obj->prop);
+
+		if (obj->hidden & OBJHFLAG_EMBEDDED) {
+			projectile = obj->embedment->projectile;
+		} else if (obj->hidden & OBJHFLAG_PROJECTILE) {
+			projectile = obj->projectile;
+		}
+
+		if (projectile) {
+			projectile->flags |= PROJECTILEFLAG_AIRBORNE | PROJECTILEFLAG_GEROCKET | PROJECTILEFLAG_FALLING;
+			projectileSetSticky(obj->prop);
+			mtx4LoadIdentity(&projectile->mtx);
+			projectile->speed.x = 0.0f;
+			projectile->speed.y = 1.0f / 60.0f;
+			projectile->speed.z = 0.0f;
+			projectile->unk010 = 0.0f;
+			projectile->unk014 = 0.29166666f;
+			projectile->unk018 = 0.0f;
+		}
+	}
+
+	g_Vars.aioffset += 3;
+
+	return false;
+}
+
+/**
+ * @cmd 01e6
+ *
+ * GoldenEye's ChrRemoveItemInHand (chrai.c -> chrSetWeaponFlag4()): the gun
+ * the chr holds in that hand is removed, not dropped. Nineteen uses over ten
+ * missions, all dropped by the conversion until converter 79. Silo's ending
+ * has Bond put his gun away before he folds his arms in the lift: checked
+ * against the native GoldenEye port, whose body holds the gun for the first
+ * two seconds of the shot and none after (F3 20260925-234037).
+ * Four bytes: 01e6 <chr:1> <hand:1>
+ */
+bool aiGeChrRemoveItemInHand(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+	s32 hand = cmd[3] & 1;
+
+	if (chr && chr->weapons_held[hand]) {
+		chr->weapons_held[hand]->obj->hidden |= OBJHFLAG_DELETING;
+		chr->weapons_held[hand] = NULL;
+	}
+
+	g_Vars.aioffset += 4;
 
 	return false;
 }

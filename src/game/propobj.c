@@ -2398,6 +2398,30 @@ void func0f06a730(struct defaultobj *obj, struct coord *arg1, Mtxf *mtx, RoomNum
 	}
 
 	func0f065e74(arg1, rooms, &pos2, rooms2);
+
+#ifndef PLATFORM_N64
+	// On a level converted from GoldenEye an object is in the rooms of the
+	// tiles round its pad's tile as well as those its box reaches through a
+	// portal (chrpropUpdateRoomList()). One set in the air - not stood on its
+	// floor - was only ever in the room its own origin walked to, and Aztec's
+	// shuttle, whose origin stands far up its silo, was in a room the silo's
+	// floor cannot see: from where GoldenEye films its launch the N64 look
+	// never drew it (F3 20260926-064254). The HD look draws every room, which
+	// is why it was only the N64 look.
+	if (geRoomActive() && (obj->flags & OBJFLAG_00000008) && obj->pad >= 0) {
+		struct pad pad;
+		RoomNum padrooms[2];
+
+		padUnpack(obj->pad, PADFIELD_ROOM, &pad);
+
+		if (pad.room > 0 && pad.room < g_Vars.roomcount) {
+			padrooms[0] = pad.room;
+			padrooms[1] = -1;
+			roomsAppend(padrooms, rooms2, 7);
+		}
+	}
+#endif
+
 	func0f06a580(obj, &pos2, &sp70, rooms2);
 }
 
@@ -7322,6 +7346,18 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							RoomNum rooms[8];
 
 							func0f065e74(&prop->pos, prop->rooms, &sp5dc, rooms);
+
+#ifndef PLATFORM_N64
+							// GoldenEye keeps a moving prop's rooms and adds
+							// to them (chrpropUpdateRoomList()), where Perfect
+							// Dark swaps them for the rooms its origin has
+							// walked into. Aztec's shuttle, launched from its
+							// silo, was left in the room above its nose and
+							// the silo it is filmed from stopped drawing it.
+							if (projectile->flags & PROJECTILEFLAG_GEROCKET) {
+								roomsAppend(prop->rooms, rooms, 7);
+							}
+#endif
 
 							prop->pos.x = sp5dc.x;
 							prop->pos.y = sp5dc.y;
