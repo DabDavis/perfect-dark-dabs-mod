@@ -1,7 +1,7 @@
 # F3 pass 2026-09-26 (GE mission logic) - handoff
 
 Branch `fix/f3-ge-mission-logic` (worktree /home/sdg/wt/f3gemission), based on
-dabs-mod 5ac4c3176. Not merged, not pushed. **Converter now 76** (was 71; 72 to 76
+dabs-mod 5ac4c3176. Not merged, not pushed. **Converter now 78** (see 8, 9; was 76 here) (was 71; 72 to 76
 are this branch's, one real change each). All 20 missions boot and run
 1800 frames clean at converter 76 (~/wt/f3gemission-run/sweep1800.sh, sweep.out).
 
@@ -329,3 +329,57 @@ gegadgets.c).
   identical; C vs Python = the known 210 diffs + Igx030Z (C only). Draw/probe/sweep: see
   fix/f3-ge-mines HANDOFF "Detonator model". 20-mission 1800-frame sweep after a forced
   reconvert to 77 (~/wt/f3gemission-run/sweep77.sh, sweep.out.pair77): all clean.
+
+## 9. Facility: conveyor escape + gas cloud (F3 20260925-235430, user: like GoldenEye) - DONE, converter 78
+
+Tester (HD look, standing at the belt): "conveyer belt isn't accessible as an escape
+route, cannisters that have been destroyed do not cloud the area with a visible poison mist."
+
+**Conveyor (2f1c8a013, no converter change).** The ending is setup ai_47: Bond in the
+room of pad 0x135 (309, room 70, the conveyor tunnel) or 0x87. GoldenEye has no
+moving belt; its belt tiles (-266, rim -253) are joined to the bottling-room floor (-372)
+by upright tiles, i.e. *links*, and bondviewTryMoveToStan() walks Bond into them and
+lifts him (only refusal: stanTestLocusEdgeAboveY(), an edge > eye + 175). The tunnel
+tiles are special 1 (force crouch). Ours: the conversion's climb wall on that link
+(climb 119 > WALL_CLIMB 60) plus the upright tile's own geometry (flags 0x1b) stopped
+the player 3.8 short of the rim - PD steps up nothing over manground + 30.
+- gestan.c geStanClimbFloor(): highest floor of the tiles flood-linked to the one
+  underfoot within the radius that the target circle touches, only for a move *into*
+  it (nearer by >= half the move; brushing along the belt's side lifts nothing).
+- bondwalk.c bwalk0f0c63bc(), remake stages only, not on a ladder/falling/in the tank:
+  floor > manground + 30 and <= eye + 175 and bwalkTryMoveUpwards() clear -> manground,
+  ground and sumground set to it (a snap; GoldenEye eases, PD's box cannot).
+- Verified (probes/realwalk.py, convwalk.py; OBST=1 prints the blocking geo): head-on
+  and diagonal walks lift at the rim, walk the belt, crouch in the tunnel, room 70 ->
+  aiEndLevel (objectives incomplete: mission failed screen); with ALLDONE=1 (objective
+  check forced true) Bond's own outro plays on the belt, then aiEndLevel - N64 and HD
+  (save_hdmesh). Walk parallel along the belt side: ground stays -372.
+- **Behaviour change to know about:** this is GoldenEye's rule everywhere on converted
+  levels - any linked ledge/sill/deck up to eye + 175 is climbable by walking into it,
+  including Dam's tower decks 317 over the treads (the climb walls stay for everyone
+  else). Not walked on Dam in this rig (realwalk on 0x15 did not move at all, before
+  or after - the mission start; use build/gexrom's stair scripts).
+
+**Gas (df8980eae, converter 78).** GoldenEye: a GASBOTTLE reaching destroyed level 1
+calls init_trigger_toxic_gas_effect(); handle_gas_damage() fades the fog with
+fogSwitchToSolosky2(timer / 3600) toward g_EnvironmentAltp (the fog row after the
+level's: Facility id+100 = far 5000 -> 1000, colour 0x102010 -> 0x408040), coughs from
+600 ticks, 0.125 damage every 225 ticks from 1800, Bond only (guards untouched). PD
+kept all of it (gasReleaseFromPos/gasTick), but a mod stage's transition was fog -> same
+fog, so nothing was visible (the cough and damage did happen).
+- Converters write the level's +100 row as the mission's ` altfog "..."` (C
+  romFogAltRow(), Python gerom fog_alt_rows(); Train, Facility, Aztec, Egypt; maps
+  block unchanged). C vs Python lines identical for ark and cryp.
+- modloader.c parses `altfog` (missions block), modloaderGetStageFogAlt(); env.c uses
+  it as g_EnvTransitionTo; envGetTransition() exposes the fraction; gebeanstage.c's
+  HD fog shrinks its end by the same far ratio and lerps to the alt colour.
+- Verified (probes/gasprobe.py: objDamage on the 10 tanks, logs timer/frac/sky/health;
+  TIMER= jumps the clock): frac 0 -> 1 over 3600 ticks, sky 102010 -> 408040, health
+  1.0 -> 0.84 by 4000 frames (first hit at ~1860), N64 and HD screenshots: the room past
+  ~1000 is solid green, near walls tinted (HD strongly).
+- Forced reconvert to 78 + 20-mission 1800-frame sweep: all clean (sweep.out).
+- Open: Egypt's gas_leak_and_fade_fog (0xfb, fog only) is still dropped by the
+  converter (geaitable.py None) - its alt row now converts, so mapping it to a port
+  command that calls gasReleaseFromPos() with no damage would finish it. PD's
+  "visual only" check is on STAGE_MP_G5BUILDING, not a converted Egypt. Not compared
+  with the native GE oracle (decomp is unambiguous for both).
