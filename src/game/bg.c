@@ -1479,6 +1479,13 @@ Gfx *bgRenderArtifacts(Gfx *gdl)
 {
 	s32 i;
 
+#ifndef PLATFORM_N64
+	// The scene is all in the depth buffer and the gun is not yet: where the
+	// N64 copied its z-buffer samples out (zbufSaveArtifactDepths())
+	gdl = artifactsTestOcclusion(gdl);
+	artifactsResolveOcclusion();
+#endif
+
 	if (g_Vars.mplayerisrunning == false && g_NumRoomsWithGlares > 0) {
 		gdl = artifactsConfigureForGlares(gdl);
 

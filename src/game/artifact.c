@@ -104,10 +104,19 @@ void artifactsClear(void)
 	}
 }
 
+#ifndef PLATFORM_N64
+// Whether the front artifacts have had the GPU's answers this frame
+static bool g_ArtifactsOcclusionResolved;
+#endif
+
 void artifactsTick(void)
 {
 	schedIncrementWriteArtifacts();
 	schedIncrementFrontArtifacts();
+
+#ifndef PLATFORM_N64
+	g_ArtifactsOcclusionResolved = false;
+#endif
 }
 
 u16 floatToN64Depth(f32 arg0)
@@ -187,6 +196,110 @@ s32 artifactsFloatToInt(f32 arg0)
 // Glare Clipping tests a glare's halo at this fraction of the way from the
 // camera to the light, so only geometry clearly in front of the light cuts it
 #define GLARE_CLIP_PULL 0.8f
+
+// A glare's occlusion test is made this far in front of the light, in the
+// room's units, and at least this fraction of the way back to the camera: so
+// the light's own fitting and the ceiling round it pass, as the N64's depth
+// tolerance let them (artifactsRenderGlaresForRoom()). GoldenEye's hanging
+// lamps swing their cage across the light they carry.
+#define GLARE_TEST_SLACK 30.0f
+#define GLARE_TEST_MIN_PULL 0.02f
+
+/**
+ * A room is drawn scissored to the box its portals leave it on screen
+ * (bgRenderScene()), so a light's point outside its room's box is behind
+ * whatever the portals are cut in. The depth test sees the same thing only
+ * where something that writes depth was drawn there instead; Chicago's
+ * street is translucent over its reflection and writes none, so the lights
+ * of the yard below it (room 14) came up through the road.
+ */
+static bool artifactIsInRoomBox(s32 roomnum, s32 x, s32 y)
+{
+	struct drawslot *slot = bgGetRoomDrawSlot(roomnum);
+
+	return x >= slot->box.xmin - 1 && x <= slot->box.xmax && y >= slot->box.ymin - 1 && y <= slot->box.ymax;
+}
+
+/**
+ * Normalised depth of the point pull of the way from the camera (cam, in the
+ * room's coordinates) to spec, through the matrix the room's points go through
+ * to the screen. Behind the near plane is in front of everything.
+ */
+static f32 artifactPulledDepth(Mtxf *mtx, struct coord *cam, struct coord *spec, f32 pull)
+{
+	struct coord pulled;
+	f32 clip[4];
+	s32 l;
+
+	for (l = 0; l < 3; l++) {
+		pulled.f[l] = cam->f[l] + (spec->f[l] - cam->f[l]) * pull;
+	}
+
+	for (l = 0; l < 4; l++) {
+		clip[l] = pulled.f[0] * mtx->m[0][l] + pulled.f[1] * mtx->m[1][l] + pulled.f[2] * mtx->m[2][l] + mtx->m[3][l];
+	}
+
+	return clip[3] > 0.0f ? clip[2] / clip[3] : -1.0f;
+}
+
+/**
+ * What the N64 did with its z-buffer once the scene was drawn: every artifact
+ * written this frame - a light's four points and each sun's eight - is looked
+ * up in the depth buffer, now by the GPU (gDPOcclusionTestEXT()), which sees
+ * everything drawn. The line of sight test it replaces walks the rooms from
+ * the camera's alone and tests their collision, so it passed the sun through
+ * the next room's wall from an Air Base doorway and through Crash Site's
+ * hills, which have none. The slot is the artifact's place in the three
+ * lists, so a list's answers are still there when it comes round to the front.
+ */
+Gfx *artifactsTestOcclusion(Gfx *gdl)
+{
+	struct artifact *artifacts = schedGetWriteArtifacts();
+	s32 i;
+
+	if (!videoHasOcclusionQueries()) {
+		return gdl;
+	}
+
+	for (i = 0; i < MAX_ARTIFACTS; i++) {
+		if (artifacts[i].type != ARTIFACTTYPE_FREE) {
+			gDPOcclusionTestEXT(gdl++, g_SchedWriteArtifactsIndex * MAX_ARTIFACTS + i,
+					artifacts[i].screenx, artifacts[i].screeny, artifacts[i].testz);
+		}
+	}
+
+	return gdl;
+}
+
+/**
+ * The GPU's answers for the front artifacts, which were tested in the frame
+ * that wrote them: two frames old, as the N64's were. Once a frame, before the
+ * first thing that reads them. An artifact with no answer is not seen.
+ */
+void artifactsResolveOcclusion(void)
+{
+	struct artifact *artifacts = schedGetFrontArtifacts();
+	s32 i;
+
+	if (g_ArtifactsOcclusionResolved) {
+		return;
+	}
+
+	g_ArtifactsOcclusionResolved = true;
+
+	if (!videoHasOcclusionQueries()) {
+		return;
+	}
+
+	for (i = 0; i < MAX_ARTIFACTS; i++) {
+		if (artifacts[i].type != ARTIFACTTYPE_FREE) {
+			const bool seen = videoGetOcclusionResult(g_SchedFrontArtifactsIndex * MAX_ARTIFACTS + i) > 0;
+
+			// a sun's is the N64's untouched z-buffer value (skyGetArtifactGroupIntensityFrac())
+			artifacts[i].visiblelos = artifacts[i].type == ARTIFACTTYPE_CIRCLE ? (seen ? 0xfffc : 0) : seen;
+		}
+	}
+}
 
 bool artifactTestLos(struct coord *spec, struct coord *roompos, s32 xi, s32 yi)
 {
@@ -434,7 +547,11 @@ void artifactsCalculateGlaresForRoom(s32 roomnum)
 									&& xi < (s32)(viewleft + viewwidth)
 									&& yi >= (s32)viewtop
 									&& yi < (s32)(viewtop + viewheight)
-									&& f0 < 32576.0f) {
+									&& f0 < 32576.0f
+#ifndef PLATFORM_N64
+									&& artifactIsInRoomBox(roomnum, xi, yi)
+#endif
+									) {
 								index = envGetCurrent()->numsuns;
 								index *= 8;
 								artifact = artifacts;
@@ -447,29 +564,39 @@ void artifactsCalculateGlaresForRoom(s32 roomnum)
 
 								if (index < MAX_ARTIFACTS) {
 #ifndef PLATFORM_N64
-									artifact->visiblelos = artifactTestLos(&spec, &g_BgRooms[roomnum].pos, xi, yi);
+									struct coord cam;
+
+									for (l = 0; l < 3; l++) {
+										cam.f[l] = campos->f[l] - g_BgRooms[roomnum].pos.f[l];
+									}
+
+									// Seen or not is the GPU's to say (artifactsTestOcclusion());
+									// the line of sight test stands in without it
+									if (videoHasOcclusionQueries()) {
+										artifact->visiblelos = 0;
+									} else {
+										artifact->visiblelos = artifactTestLos(&spec, &g_BgRooms[roomnum].pos, xi, yi);
+									}
+
+									{
+										f32 dist = sqrtf((spec.x - cam.x) * (spec.x - cam.x)
+												+ (spec.y - cam.y) * (spec.y - cam.y)
+												+ (spec.z - cam.z) * (spec.z - cam.z));
+										f32 back = dist > GLARE_TEST_SLACK * 2.0f ? GLARE_TEST_SLACK / dist : 0.5f;
+
+										if (back < GLARE_TEST_MIN_PULL) {
+											back = GLARE_TEST_MIN_PULL;
+										}
+
+										artifact->testz = artifactPulledDepth(&spf8, &cam, &spec, 1.0f - back);
+									}
 
 									// Glare Clipping's depth: the point pulled part of the way to
 									// the camera and put through the matrix the point itself went
 									// through, so it lands in the depth the room was drawn at.
 									// Pulled, or the wall or ceiling the light is mounted on, which
 									// recedes around it, would cut into its own halo.
-									{
-										struct coord pulled;
-										f32 clip[4];
-
-										for (l = 0; l < 3; l++) {
-											f32 cam = campos->f[l] - g_BgRooms[roomnum].pos.f[l];
-											pulled.f[l] = cam + (spec.f[l] - cam) * GLARE_CLIP_PULL;
-										}
-
-										for (l = 0; l < 4; l++) {
-											clip[l] = pulled.f[0] * spf8.m[0][l] + pulled.f[1] * spf8.m[1][l] + pulled.f[2] * spf8.m[2][l] + spf8.m[3][l];
-										}
-
-										// Behind the near plane: in front of everything, never clipped
-										artifact->clipz = clip[3] > 0.0f ? clip[2] / clip[3] : -1.0f;
-									}
+									artifact->clipz = artifactPulledDepth(&spf8, &cam, &spec, GLARE_CLIP_PULL);
 #endif
 									/**
 									 * the original game performs artifact depth comparison

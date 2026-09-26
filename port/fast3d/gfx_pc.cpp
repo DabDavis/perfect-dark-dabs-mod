@@ -3639,6 +3639,82 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     gfx_mark_state_dirty();
 }
 
+/*
+ * G_OCCLUSIONTEST_EXT: whether anything the frame has drawn so far is nearer
+ * than z at pixel (x, y). This is the N64's own test for the light glares and
+ * the sun, which read the z-buffer at a handful of pixels once the scene was
+ * drawn (zbuf.c), done by the GPU instead: a rectangle one pixel of the
+ * game's screen across goes out as a draw of its own inside an occlusion
+ * query, depth tested but never written and blended away to nothing, so the
+ * count that comes back is its samples that nothing in the depth buffer is in
+ * front of - at whatever size, sample count and render scale the frame is
+ * drawn at.
+ */
+static bool gfx_occlusion_issued[GFX_OCCLUSION_SLOTS];
+static bool gfx_occlusion_failed;
+
+static void gfx_occlusion_test(int slot, int32_t x, int32_t y, float z) {
+    if (slot < 0 || slot >= GFX_OCCLUSION_SLOTS || !gfx_rapi->occlusion_begin || gfx_occlusion_failed) {
+        return;
+    }
+
+    const uint32_t other_mode_l = rdp.other_mode_l;
+    const uint32_t other_mode_h = rdp.other_mode_h;
+    const uint64_t combine_mode = rdp.combine_mode;
+    const uint32_t extra_geometry_mode = rsp.extra_geometry_mode;
+    const bool rect_depth_on = rdp.rect_depth_on;
+    const float rect_depth = rdp.rect_depth;
+    const int16_t depth_bias = rdp.depth_bias;
+    struct RGBA colors[4];
+
+    for (int i = 0; i < 4; i++) {
+        colors[i] = rsp.loaded_vertices[MAX_VERTICES + i].color;
+    }
+
+    gfx_flush();
+
+    // The blender's "invisible" mode (0 x in + 1 x memory), which leaves
+    // nothing that could discard a fragment before the depth test counts it
+    rdp.other_mode_l = (rdp.other_mode_l & ~(0xffff0000U | CVG_X_ALPHA | G_ZS_PRIM | (3U << G_MDSFT_ALPHACOMPARE))) |
+                       GBL_c1(G_BL_CLR_IN, G_BL_0, G_BL_CLR_MEM, G_BL_1MA) | GBL_c2(G_BL_CLR_IN, G_BL_0, G_BL_CLR_MEM, G_BL_1MA);
+    rdp.other_mode_h = (rdp.other_mode_h & ~(3U << G_MDSFT_CYCLETYPE)) | G_CYC_1CYCLE;
+    rsp.extra_geometry_mode &= ~(G_MODULATE_EXT | G_ADDITIVE_EXT | G_ENVMAP_EXT | G_DECAL_EXT);
+    rdp.rect_depth_on = true;
+    rdp.rect_depth = z;
+    rdp.depth_bias = 0;
+    gfx_dp_set_combine_mode(color_comb(0, 0, 0, G_CCMUX_SHADE), alpha_comb(0, 0, 0, G_ACMUX_SHADE), 0, 0);
+
+    for (int i = MAX_VERTICES; i < MAX_VERTICES + 4; i++) {
+        rsp.loaded_vertices[i].color = { 0xff, 0xff, 0xff, 0xff };
+    }
+
+    gfx_mark_state_dirty();
+
+    if (gfx_rapi->occlusion_begin(slot)) {
+        gfx_draw_rectangle(x << 2, y << 2, (x + 1) << 2, (y + 1) << 2);
+        gfx_flush();
+        gfx_rapi->occlusion_end(slot);
+        gfx_occlusion_issued[slot] = true;
+    } else {
+        // Glares go back to the line of sight test (videoHasOcclusionQueries())
+        gfx_occlusion_failed = true;
+    }
+
+    rdp.other_mode_l = other_mode_l;
+    rdp.other_mode_h = other_mode_h;
+    rdp.combine_mode = combine_mode;
+    rsp.extra_geometry_mode = extra_geometry_mode;
+    rdp.rect_depth_on = rect_depth_on;
+    rdp.rect_depth = rect_depth;
+    rdp.depth_bias = depth_bias;
+
+    for (int i = 0; i < 4; i++) {
+        rsp.loaded_vertices[MAX_VERTICES + i].color = colors[i];
+    }
+
+    gfx_mark_state_dirty();
+}
+
 static void gfx_dp_texture_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lry, uint8_t tile, int16_t uls,
                                      int16_t ult, int16_t dsdx, int16_t dtdy, bool flip) {
     uint64_t saved_combine_mode = rdp.combine_mode;
@@ -4311,6 +4387,13 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_SETDEPTHBIAS_EXT:
                 rdp.depth_bias = (int16_t)(int32_t)cmd->words.w1;
                 break;
+            case G_OCCLUSIONTEST_EXT: {
+                const int slot = C0(0, 16);
+                const float z = (int32_t)(uint32_t)cmd->words.w1 / 1073741824.0f;
+                ++cmd;
+                gfx_occlusion_test(slot, (int32_t)cmd->words.w0, (int32_t)cmd->words.w1, z);
+                break;
+            }
             case G_SETFOGLINE_EXT: {
                 union {
                     uint32_t u;
@@ -4789,6 +4872,19 @@ extern "C" void gfx_capture_stop(void) {
     if (gfx_rapi && gfx_rapi->capture_stop) {
         gfx_rapi->capture_stop();
     }
+}
+
+extern "C" bool gfx_occlusion_supported(void) {
+    return gfx_rapi && gfx_rapi->occlusion_begin && gfx_rapi->occlusion_end && gfx_rapi->occlusion_result &&
+           !gfx_occlusion_failed;
+}
+
+extern "C" int gfx_occlusion_result(int slot) {
+    if (!gfx_occlusion_supported() || slot < 0 || slot >= GFX_OCCLUSION_SLOTS || !gfx_occlusion_issued[slot]) {
+        return -1;
+    }
+    gfx_occlusion_issued[slot] = false;
+    return gfx_rapi->occlusion_result(slot);
 }
 
 extern "C" void gfx_end_frame(void) {

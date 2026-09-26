@@ -15,6 +15,8 @@ Gfx *artifactsUnconfigureForGlares(Gfx *gdl);
 Gfx *artifactsRenderGlaresForRoom(Gfx *gdl, s32 roomnum);
 #ifndef PLATFORM_N64
 bool artifactTestLos(struct coord *spec, struct coord *roompos, s32 xi, s32 yi);
+Gfx *artifactsTestOcclusion(Gfx *gdl);
+void artifactsResolveOcclusion(void);
 #endif
 
 #endif

@@ -644,6 +644,16 @@ f32 videoGetOverexposureScale(void)
 	return vidOverexposureScale;
 }
 
+s32 videoHasOcclusionQueries(void)
+{
+	return initDone && gfx_occlusion_supported();
+}
+
+s32 videoGetOcclusionResult(s32 slot)
+{
+	return initDone ? gfx_occlusion_result(slot) : -1;
+}
+
 void videoSetWindowOffset(s32 x, s32 y)
 {
 	gfx_current_game_window_viewport.x = x;

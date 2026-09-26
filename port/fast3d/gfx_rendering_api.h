@@ -79,6 +79,20 @@ struct GfxRenderingAPI {
     bool (*capture_read)(void *dst);
     bool (*capture_drain)(void *dst);
     void (*capture_stop)(void);
+    // Occlusion queries, for the light glares and the sun (gfx_pc.cpp,
+    // G_OCCLUSIONTEST_EXT): what is drawn between occlusion_begin() and
+    // occlusion_end() counts its samples that pass the depth test into query
+    // slot (below GFX_OCCLUSION_SLOTS). occlusion_begin() is false when the
+    // backend cannot, and then occlusion_end() is not called.
+    // occlusion_result() gives the count of a slot ended in an earlier frame,
+    // waiting for that frame if the GPU has not finished it, or -1 if the
+    // slot has nothing to give. Any may be null.
+    bool (*occlusion_begin)(int slot);
+    void (*occlusion_end)(int slot);
+    int (*occlusion_result)(int slot);
 };
+
+// Occlusion query slots a backend provides
+#define GFX_OCCLUSION_SLOTS 512
 
 #endif

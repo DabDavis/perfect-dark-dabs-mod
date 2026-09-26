@@ -4,6 +4,7 @@ One section per merged branch, newest merge on top; the 1fc1832d8 handoff
 (fix/f3-hd-level-render + fix/f3-dam-guard-aim2) is kept whole at the bottom.
 
 Index:
+- fix/f3-glare-through-walls: F3 pass: light glare / sun through walls (branch fix/f3-glare-through-walls)
 - fix/f3-blood-decal-edges: F3 20260925-224436 - blood decals hanging over a surface edge
 - fix/f3-xbla-lod-torso: F3 LOD / torso pass (2026-09-26), branch fix/f3-xbla-lod-torso
 - feat/ge-hd-bean-crosshair: F3 20260925-234351-67928cc7: GoldenEye XBLA crosshair in the HD look (2026-09-26)
@@ -23,6 +24,105 @@ Index:
 - fix/f3-ge-mines: F3 GoldenEye mines pass (2026-09-26), branch fix/f3-ge-mines
 - fix/f3-ge-mission-logic: F3 pass 2026-09-26 (GE mission logic) - handoff
 - 1fc1832d8 (fix/f3-hd-level-render, fix/f3-dam-guard-aim2): see the bottom
+
+---
+
+<!-- section: fix/f3-glare-through-walls -->
+# F3 pass: light glare / sun through walls (branch fix/f3-glare-through-walls)
+
+Tester Parabolee, Windows 718d5dc, 3840x2160, XBLA meshes + stages on, Glare
+Clipping on (`Mod.GlareClip=1`), texture pack XBLA Plus HD v0.10. All four
+traces say "rooms from release 0": the XBLA release rooms play no part.
+
+One cause behind all four: whether a light's glare or the sun is *seen* was
+decided by `shotTestLos()` (collision line tests), not by what is drawn. The
+N64 read its z-buffer for this; the port now asks the GPU the same question
+with occlusion queries. Details: CLAUDE-notes/third-person.md, "Glares and the
+sun seen through walls: the GPU reads the depth".
+
+| Report | Stage | What it was | Status |
+|---|---|---|---|
+| 20260925-224836-5070ebf7 "puddle reflecting a light" | Chicago 0x1d | light of the yard (room 14) 300 units under the street | fixed |
+| 20260925-224933-0278af9d "puddle light showing through walls" | Chicago 0x1d | same light, seen from the yard: that one is real and still draws | fixed (explained) |
+| 20260925-235810-dbc6d9de "light showing through wall" | Air Base 0x27 | the **sun's lens flare**, through a wall of room 107 | fixed |
+| 20260926-001615-17e65333 "sun showing through walls" | Crash Site 0x1c | the sun's lens flare through a hill | fixed |
+
+## Causes
+
+- **Air Base**: the line test walks rooms from `cam_room` only
+  (`portal00018148()`). The eye stands in a doorway (prop rooms 108, 107;
+  cam room 108); the wall between it and the sun is room 107's and the line
+  crosses no portal into 107, so all eight sun points passed.
+- **Crash Site**: the hill has no collision; no room's batches hit the line to
+  the sun at any length.
+- **Chicago**: glare line tests skip translucent BG (`g_BgHitXluDisabled`), and
+  the street is translucent over its reflection, so the yard's light passed
+  through the road; Glare Clipping then cut its halo along the kerb (the
+  "puddle"). The depth buffer has nothing there either (the street writes no
+  depth), so the fix for this one is the portal-box rule below.
+
+## Fix
+
+- `artifactsTestOcclusion()` (bg.c `bgRenderArtifacts()`, after the scene,
+  before the gun clears depth) emits `gDPOcclusionTestEXT()` (new
+  `G_OCCLUSIONTEST_EXT` 0x4c) for each artifact written this frame: a one-pixel
+  rect at the point's depth, depth tested, invisible, inside an occlusion
+  query (`gfx_occlusion_test()`, gfx_pc.cpp). Light points are tested 30 room
+  units in front of the light (min 2% back: `GLARE_TEST_SLACK`); sun points at
+  `SUN_TEST_Z`, just short of the depth clear value.
+- `artifactsResolveOcclusion()` reads each list's answers when it becomes the
+  front list two frames later (the N64's delay), before `skyRenderSuns()` and
+  the glares use `visiblelos`.
+- Backends: `occlusion_begin/end/result` in `GfxRenderingAPI`; GL
+  `GL_SAMPLES_PASSED`, Vulkan a query pool (reset in the upload command
+  buffer, begin/end packets inside rendering, read waits for the query's own
+  submission, which is always already done).
+- A light point outside its room's portal box on screen is dropped
+  (`artifactIsInRoomBox()`): the room is scissored to that box.
+- `artifactTestLos()` remains the fallback when queries are unavailable.
+
+Files: src/game/{artifact,sky,bg,player}.c, src/include/{gbiex,types,bss}.h,
+src/include/game/artifact.h, port/fast3d/{gfx_pc,gfx_opengl,gfx_vulkan}.cpp,
+port/fast3d/{gfx_api,gfx_rendering_api}.h, port/src/video.c,
+port/include/video.h, CLAUDE-notes/third-person.md, CLAUDE.md.
+
+## Verification
+
+RX 580, rig `~/wt/f3glare-run` (`matrix.sh`, results in `results.txt`), tester's
+`[Mod]`/`[Game]` settings, camera held at each trace's position (no
+`--spectate`: it puts every room on screen with no portal boxes).
+
+Each row: glare groups with a point seen / sun flares drawn, frames 330-332.
+
+| Spot | Before (GL and Vulkan, 1080p and 4K) | After (GL and Vulkan; 1080p, 4K, 4K + MSAA 8x, 4K + SMAA + Supersampling 2x (7680x4320), 4K + TAA, 4K + SMAA + FSR Performance) |
+|---|---|---|
+| r1 Chicago street (report 224836) | yard light room 14 4/4 seen, glare on the road | room 14 light not tested (outside its portal box), nothing drawn |
+| r2 Chicago yard (report 224933) | room 14 light 4/4 | room 14 light 4/4 - still glares, it is in plain view |
+| r3 Air Base doorway (report 235810) | sun flare every frame | no flare; the room-109 light at the door keeps its 2 points inside its portal box |
+| r4 Crash Site (report 001615) | sun flare every frame | no flare |
+| r4up Crash Site, 500 up, sun over the ridge | **no** flare (line test wrongly hid it) | flare every frame |
+
+GL and Vulkan agree in every row. Screenshots: `~/wt/f3glare-run/shots_m_*`
+(full frames on the card: Vulkan under Xvfb with `MESA_VK_WSI_DEBUG=sw`, GL
+offscreen). The last build (rect vertex colours kept across the test) is
+pixel-identical to the matrix build at r2 and gives the same counts on six
+re-runs.
+
+GE Plus: Caverns (0x66) hanging lamps from below glare the same before and
+after (all four lamps 4/4 points every frame); an early build with a 2% pull
+let the swinging cages dim them, hence the 30-unit slack.
+
+## Open
+
+- The tester's `[Video]` settings are not in F3 reports, so MSAA/SMAA/etc.
+  were covered by the matrix rather than matched.
+- Chicago's yard light under the street would also pass a pure depth test (the
+  street writes none); only the portal-box rule hides it. A light seen through
+  a translucent non-portal surface of its own room is not covered by that.
+- Glares are two frames behind the camera for visibility, as on the N64 and as
+  before.
+
+---
 
 ---
 

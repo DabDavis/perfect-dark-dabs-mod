@@ -185,7 +185,13 @@ namespace {
     X(vkCmdResolveImage) \
     X(vkCmdClearAttachments) \
     X(vkCmdClearColorImage) \
-    X(vkCmdClearDepthStencilImage)
+    X(vkCmdClearDepthStencilImage) \
+    X(vkCreateQueryPool) \
+    X(vkDestroyQueryPool) \
+    X(vkCmdResetQueryPool) \
+    X(vkCmdBeginQuery) \
+    X(vkCmdEndQuery) \
+    X(vkGetQueryPoolResults)
 
 #define VK_DECLARE(name) static PFN_##name name;
 VK_GLOBAL_FUNCS(VK_DECLARE)
@@ -624,6 +630,8 @@ enum : uint8_t {
     VKP_COPY_IMAGE,
     VKP_COPY_TO_BUFFER,
     VKP_BIND_SET,
+    VKP_BEGIN_QUERY,
+    VKP_END_QUERY,
 };
 
 struct VkStream {
@@ -791,6 +799,17 @@ static void rcCmdBindDescriptorSets(VkCommandBuffer cb, VkPipelineBindPoint bp, 
     vk_put(VKP_BIND_SET, *sets);
 }
 
+// The occlusion queries' pool (gfx_vk_occlusion_begin()), made with the device
+static VkQueryPool vk_query_pool;
+
+static void rcCmdBeginQuery(VkCommandBuffer cb, uint32_t query) {
+    vk_put(VKP_BEGIN_QUERY, query);
+}
+
+static void rcCmdEndQuery(VkCommandBuffer cb, uint32_t query) {
+    vk_put(VKP_END_QUERY, query);
+}
+
 // The worker's half: the stream into a real command buffer
 static void vk_replay(VkCommandBuffer cb, const VkStream &st) {
     size_t pos = 0;
@@ -901,6 +920,16 @@ static void vk_replay(VkCommandBuffer cb, const VkStream &st) {
             case VKP_BIND_SET: {
                 VKP_TAKE(VkDescriptorSet, set);
                 vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &set, 0, NULL);
+                break;
+            }
+            case VKP_BEGIN_QUERY: {
+                VKP_TAKE(uint32_t, q);
+                vkCmdBeginQuery(cb, vk_query_pool, q, 0);
+                break;
+            }
+            case VKP_END_QUERY: {
+                VKP_TAKE(uint32_t, q);
+                vkCmdEndQuery(cb, vk_query_pool, q);
                 break;
             }
             default:
@@ -3789,6 +3818,10 @@ static void vk_shutdown(void) {
         vkDeviceWaitIdle(vk_dev);
         vk_completed = vk_submitted;
         vk_collect();
+        if (vk_query_pool) {
+            vkDestroyQueryPool(vk_dev, vk_query_pool, NULL);
+            vk_query_pool = VK_NULL_HANDLE;
+        }
         vkDestroyDevice(vk_dev, NULL);
         vk_dev = VK_NULL_HANDLE;
     }
@@ -4292,6 +4325,14 @@ static bool vk_init_objects(void) {
         vkCreateSemaphore(vk_dev, &si, NULL, &sl.acquired);
     }
 
+    // Without it the glares fall back to their line of sight test
+    VkQueryPoolCreateInfo qpi = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+    qpi.queryType = VK_QUERY_TYPE_OCCLUSION;
+    qpi.queryCount = GFX_OCCLUSION_SLOTS;
+    if (vkCreateQueryPool(vk_dev, &qpi, NULL, &vk_query_pool) != VK_SUCCESS) {
+        vk_query_pool = VK_NULL_HANDLE;
+    }
+
     vk_shaderc = shaderc_compiler_initialize();
     if (!vk_shaderc) {
         vk_fail("could not start the shader compiler");
@@ -4373,6 +4414,71 @@ extern "C" const char *gfx_vulkan_device_name(void) {
     return vk_device_desc;
 }
 
+/*
+ * Occlusion queries (gfx_rendering_api.h). A query is reset in the frame's
+ * upload command buffer, which is submitted ahead of the frame's own and is
+ * never inside a render pass, then begun and ended round its one draw inside
+ * the rendering already under way. Each slot remembers the submission it went
+ * out in, so a read waits for exactly that one - which the frame two before
+ * this has always finished anyway (vk_begin_recording()).
+ */
+static uint64_t vk_query_serial[GFX_OCCLUSION_SLOTS];
+
+static bool gfx_vk_occlusion_begin(int slot) {
+    if (vk_failed || !vk_dev || !vk_query_pool || slot < 0 || slot >= GFX_OCCLUSION_SLOTS || vk_cur_fb < 0 ||
+        (size_t)vk_cur_fb >= vk_fbs.size()) {
+        return false;
+    }
+
+    vk_ensure_recording();
+    if (!vk_rendering) {
+        vk_begin_fb_rendering();
+        if (!vk_rendering) {
+            return false;
+        }
+    }
+
+    VkSlot &sl = vk_slots[vk_slot];
+    vkCmdResetQueryPool(sl.upload, vk_query_pool, (uint32_t)slot, 1);
+    sl.upload_used = true;
+    rcCmdBeginQuery(VK_MAIN_CB, (uint32_t)slot);
+    vk_query_serial[slot] = vk_submitted + 1;
+    return true;
+}
+
+static void gfx_vk_occlusion_end(int slot) {
+    rcCmdEndQuery(VK_MAIN_CB, (uint32_t)slot);
+}
+
+static int gfx_vk_occlusion_result(int slot) {
+    if (vk_failed || !vk_dev || !vk_query_pool || slot < 0 || slot >= GFX_OCCLUSION_SLOTS) {
+        return -1;
+    }
+
+    const uint64_t serial = vk_query_serial[slot];
+    if (serial == 0 || serial > vk_submitted) {
+        // never drawn, or drawn into the frame still being recorded
+        return -1;
+    }
+    if (serial > vk_completed) {
+        // that submission alone: vk_wait_serial() would wait for the newer
+        // frame in flight as well
+        for (int s = 0; s < VK_FRAMES; s++) {
+            if (vk_slots[s].serial == serial) {
+                vk_wait_slot(s);
+            }
+        }
+    }
+
+    uint64_t result[2] = { 0, 0 };
+    const VkResult r = vkGetQueryPoolResults(vk_dev, vk_query_pool, (uint32_t)slot, 1, sizeof(result), result,
+                                             sizeof(result), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+    if ((r != VK_SUCCESS && r != VK_NOT_READY) || !result[1]) {
+        return -1;
+    }
+    return result[0] > INT32_MAX ? INT32_MAX : (int)result[0];
+}
+
 struct GfxRenderingAPI gfx_vulkan_api = {
     gfx_vk_get_name,
     gfx_vk_get_max_texture_size,
@@ -4420,6 +4526,9 @@ struct GfxRenderingAPI gfx_vulkan_api = {
     gfx_vk_capture_read,
     gfx_vk_capture_drain,
     gfx_vk_capture_stop,
+    gfx_vk_occlusion_begin,
+    gfx_vk_occlusion_end,
+    gfx_vk_occlusion_result,
 };
 
 #endif // PD_HAVE_VULKAN

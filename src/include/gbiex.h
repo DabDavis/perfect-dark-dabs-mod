@@ -208,6 +208,7 @@
 #define G_SETDEPTHBIAS_EXT           0x49
 #define G_TAA_EXT                    0x4a
 #define G_SETFOGLINE_EXT             0x4b
+#define G_OCCLUSIONTEST_EXT          0x4c
 
 /* G_EXTRAGEOMETRYMODE flags */
 
@@ -364,6 +365,25 @@
                                                                                        \
     _g->words.w0 = _SHIFTL(G_SETRECTDEPTH_EXT, 24, 8) | _SHIFTL((on) ? 1 : 0, 0, 1);   \
     _g->words.w1 = (u32)(s32)((z) * 1073741824.0f);                                    \
+}
+
+/*
+ * Asks the GPU whether anything the frame has drawn so far is nearer than
+ * normalised depth z (-1 near, 1 far) at screen pixel (x, y): a one pixel
+ * rectangle there is depth tested without being seen, and occlusion query
+ * slot counts the samples of it that pass. videoGetOcclusionResult() reads the
+ * count once the frame is done. Two words: z in the first as a signed
+ * fraction of 2^30, like gDPSetRectDepthEXT(), the pixel in the second, so
+ * pkt is gdl++ as for gDPFillRectangleWideEXT().
+ */
+#define gDPOcclusionTestEXT(pkt, slot, x, y, z)                                        \
+{                                                                                      \
+    Gfx *_g0 = (Gfx*)(pkt), *_g1 = (Gfx*)(pkt);                                        \
+                                                                                       \
+    _g0->words.w0 = _SHIFTL(G_OCCLUSIONTEST_EXT, 24, 8) | _SHIFTL((slot), 0, 16);      \
+    _g0->words.w1 = (u32)(s32)((z) * 1073741824.0f);                                   \
+    _g1->words.w0 = (u32)(s32)(x);                                                     \
+    _g1->words.w1 = (u32)(s32)(y);                                                     \
 }
 
 /*
