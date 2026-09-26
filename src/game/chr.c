@@ -52,6 +52,7 @@
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
+#include "modloader.h"
 
 /**
  * The floor under a chr. On a level converted from GoldenEye it is asked of
@@ -68,6 +69,24 @@ static f32 chrFindGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *flo
 	}
 
 	return cdFindGroundInfoAtCyl(pos, radius, rooms, floorcol, floortype, floorflags, floorroom, inlift, lift);
+}
+
+/**
+ * The player's body on a converted mission while one of the mission's own
+ * lists moves it - an ending's PlayAnimation or run, GoldenEye's
+ * SetBondsAiList. GoldenEye makes Bond a guard for his endings
+ * (solo_char_load() at the CameraSwitch) and a guard stands on the floor it is
+ * over; Perfect Dark's player body takes its floor from the player's own walk,
+ * which a cutscene does not move, so Bunker's Bond ran out of the bunker at
+ * the height he started and went through its stairs (F3 20260926-063958).
+ * Not in play (ACT_BONDMULTI: the walk is the body's) nor in the opening swirl
+ * (ACT_BONDINTRO: he stands on his spawn).
+ */
+static bool chrIsGeListBody(struct chrdata *chr)
+{
+	return chr->prop->type == PROPTYPE_PLAYER
+		&& chr->actiontype != ACT_BONDMULTI && chr->actiontype != ACT_BONDINTRO
+		&& geRoomActive() && modloaderStageIsMission(g_Vars.stagenum);
 }
 #else
 #define chrFindGround cdFindGroundInfoAtCyl
@@ -1102,7 +1121,8 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 				chr->ground = chr->manground;
 				arg2->y -= chr->manground;
 #ifndef PLATFORM_N64
-			} else if (prop->type == PROPTYPE_CHR && (chr->chrflags & CHRCFLAG_GE_LOCKY) && geRoomActive()) {
+			} else if ((prop->type == PROPTYPE_CHR || chrIsGeListBody(chr))
+					&& (chr->chrflags & CHRCFLAG_GE_LOCKY) && geRoomActive()) {
 				// GoldenEye's CHRFLAG_LOCK_Y_POS (chr.c's ground callback,
 				// sub_GAME_7F01FC10()): while it is set the chr's ground is
 				// not looked up, it does not fall, a pending INIT - Perfect
@@ -1114,14 +1134,18 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 				// clears it and the INIT together a tick later, and he falls
 				// from the platform's height instead of being stood on the
 				// valley floor under the pad. Bond's own lists set it too
-				// (Dam, Surface, the Cradle) but a player's body is not
-				// grounded here.
+				// (Dam, Surface, the Cradle), and his body is grounded like
+				// a guard's while they move it (chrIsGeListBody()).
 				arg2->y -= chr->manground;
 #endif
 			} else {
 				if (race == RACE_EYESPY) {
 					ground = chr->manground;
-				} else if (prop->type == PROPTYPE_PLAYER) {
+				} else if (prop->type == PROPTYPE_PLAYER
+#ifndef PLATFORM_N64
+						&& !chrIsGeListBody(chr)
+#endif
+						) {
 					struct player *player = g_Vars.players[playermgrGetPlayerNumByProp(prop)];
 					ground = player->vv_manground;
 					chr->floorcol = player->floorcol;
