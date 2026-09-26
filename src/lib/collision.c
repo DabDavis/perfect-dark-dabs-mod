@@ -2223,7 +2223,21 @@ f32 cdFindGroundFromList(struct collision *collisions, struct coord *pos, struct
  * There is nothing specific to ladders in this function, but it's only used
  * for finding ladders.
  */
+#ifndef PLATFORM_N64
 bool cdFindLadder(struct coord *pos, f32 width, f32 ymax, f32 ymin, RoomNum *rooms, u16 geoflags, struct coord *laddernormal)
+{
+	return cdFindLadderDist(pos, width, ymax, ymin, rooms, geoflags, laddernormal, NULL, NULL);
+}
+
+/**
+ * cdFindLadder(), and how far the position is in front of the ladder's plane
+ * (`planedist`) - the normal is turned to face the position, so it is never
+ * behind - and the height of the ladder's head (`top`). Either may be NULL.
+ */
+bool cdFindLadderDist(struct coord *pos, f32 width, f32 ymax, f32 ymin, RoomNum *rooms, u16 geoflags, struct coord *laddernormal, f32 *planedist, f32 *top)
+#else
+bool cdFindLadder(struct coord *pos, f32 width, f32 ymax, f32 ymin, RoomNum *rooms, u16 geoflags, struct coord *laddernormal)
+#endif
 {
 	struct collision collisions[2];
 
@@ -2232,6 +2246,7 @@ bool cdFindLadder(struct coord *pos, f32 width, f32 ymax, f32 ymin, RoomNum *roo
 	if (collisions[0].geo) {
 		struct geotilei *tile = (struct geotilei *) collisions[0].geo;
 		struct coord dist;
+		f32 along;
 
 		cdGetGeoNormal(collisions[0].geo, laddernormal);
 
@@ -2239,11 +2254,27 @@ bool cdFindLadder(struct coord *pos, f32 width, f32 ymax, f32 ymin, RoomNum *roo
 		dist.y = pos->y - tile->vertices[0][1];
 		dist.z = pos->z - tile->vertices[0][2];
 
-		if (dist.f[0] * laddernormal->f[0] + dist.f[1] * laddernormal->f[1] + dist.f[2] * laddernormal->f[2] < 0) {
+		along = dist.f[0] * laddernormal->f[0] + dist.f[1] * laddernormal->f[1] + dist.f[2] * laddernormal->f[2];
+
+		if (along < 0) {
 			laddernormal->x = -laddernormal->x;
 			laddernormal->y = -laddernormal->y;
 			laddernormal->z = -laddernormal->z;
 		}
+
+#ifndef PLATFORM_N64
+		if (planedist) {
+			// the normal is the tile's cross product, not a unit one
+			const f32 len = sqrtf(laddernormal->f[0] * laddernormal->f[0]
+					+ laddernormal->f[1] * laddernormal->f[1] + laddernormal->f[2] * laddernormal->f[2]);
+
+			*planedist = len > 0.0f ? (along < 0 ? -along : along) / len : 0.0f;
+		}
+
+		if (top) {
+			*top = *(s16 *)(tile->ymax + (uintptr_t)tile);
+		}
+#endif
 
 		return true;
 	}

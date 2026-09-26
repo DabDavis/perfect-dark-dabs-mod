@@ -34,6 +34,18 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
 		u16 *floorflags, RoomNum *floorroom, s32 *inlift, struct prop **lift);
 
 /**
+ * Adds to a room list (-1 terminated, at most `maxlen` rooms) every room whose
+ * box meets the body's: `radius` round `pos` in plan, `ymin` to `ymax` over it.
+ * For the collision library, which only ever looks at the rooms it is handed:
+ * a wall is filed under its tile's room, and a body at a room's edge that the
+ * portals have not put in that room walks into the room's walls unseen - and
+ * then stands inside them once it is (Cradle's stair down to the shaft, F3
+ * report 20260926-005903). Which of those walls stand in the way is still
+ * GoldenEye's to say (gestan.h).
+ */
+void geRoomAddNear(struct coord *pos, f32 radius, f32 ymin, f32 ymax, RoomNum *rooms, s32 maxlen);
+
+/**
  * The room the picture is drawn from, for an eye standing on `ground` in the
  * tile's room. The tile's room is where GoldenEye starts, and then it follows a
  * plumb line from the floor under the eye up to the eye across every portal
