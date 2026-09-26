@@ -31,6 +31,47 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 2 2026-09-26
+GE Plus Bunker: the GoldenEye key is named when picked up, the key analyser reads it, and its objective completes (thanks savantique)
+GE Plus: security cameras sweep, face the right way, and one shot in the lens destroys them (thanks savantique and Odeyseis)
+GE Plus: guards on patrol set off on their routes instead of standing frozen at their posts (thanks savantique)
+GE Plus: a headshot does GoldenEye's damage, so Ourumov and Trevelyan run off instead of dying at once (thanks savantique)
+GE Plus Silo: Bond puts his gun away in the ending (thanks savantique)
+GE Plus Cradle: Trevelyan no longer climbs the ladder at the end, and Bond can climb down it
+GE Plus: picking up a gun no longer says you got a double, and the guns GoldenEye gives in pairs come as pairs
+GE Plus Facility: the conveyor belt escape works, and shot gas tanks give off GoldenEye's poison cloud (thanks savantique)
+GE Plus: mines work as in GoldenEye - one in the hand, and remote mines are set off with the watch's detonator (thanks savantique)
+Akimbo: picking up a second of any weapon makes a pair, in GE Plus missions too
+GE Plus Runway, HD look: the tank's barrel turns with its turret (thanks savantique)
+GE Plus Runway: tank shells fire at GoldenEye's rate and no longer blow up in mid-air (thanks savantique)
+GE Plus Runway: the heavy gun emplacements wake up and fire, with their HD models in the HD look (thanks savantique)
+GE Plus Surface, HD look: the toy car has its texture and windows (thanks Odeyseis)
+GE Plus Silo, HD look: the satellite's panels reflect instead of showing black squares (thanks savantique)
+GE Plus, HD look: Facility's computers and other mission props that were still N64 models now use their HD models
+GE Plus Facility, HD look: the gas tanks use their HD model, grey with the release's reflection
+GE Plus, HD look: guards hold the HD sniper rifle, and the player's sniper rifle is the right size (thanks Odeyseis)
+GE Plus, HD look: characters' heads no longer come apart from their bodies at the neck (thanks savantique)
+GE Plus Facility, HD look: the door console's screen no longer flickers with a spiral patch (thanks savantique)
+GE Plus Dam, HD look: the modem monitor shows its screen, and the gate switch lights red and green
+GE Plus Dam, HD look: the white patches on the ground by the truck park and the white pyramid in the server room are gone
+GE Plus Dam, HD look: the gate in the opening cutscene is drawn
+GE Plus Dam: zooming the sniper rifle no longer shows flat blue shapes over the mountains or sees past the fog
+GE Plus Runway, HD look: no more sky showing through gaps round the door to the Facility (thanks savantique)
+GE Plus, HD look: distant windows turn dark grey as in the N64 look instead of solid blue (thanks savantique)
+GE Plus, HD look: aiming shows the GoldenEye XBLA release's own crosshair
+GoldenEye guns on Perfect Dark maps: the rocket launcher fires its own rocket, and the guns use their own sounds and models
+Extraction, XBLA look: characters are always drawn in full detail, with no missing torsos at a distance (thanks savantique)
+Blood splats and bullet holes stop at the edge of the surface they land on (Clip Decals at Edges, on by default) (thanks Parabolee)
+Chicago, Air Base, Crash Site: lights and the sun no longer glare through walls (thanks Parabolee)
+Chicago: the patrol robot's shots no longer freeze in mid-air (thanks Parabolee)
+Chicago: the windows that showed the sky have their glass (thanks Parabolee)
+Villa, XBLA look: the wine bottles' labels show (thanks Parabolee)
+G5 Building, XBLA look: the BAFTA award no longer shows the N64 face through the XBLA one (thanks Parabolee)
+GoldenEye X: tracers and sparks of the KF7, Klobb, Phantom, AR33 and Golden PP7 have GoldenEye X's colours (thanks dblaney1)
+GoldenEye X: the silenced PP7 no longer behaves like a chargeable Mauler
+Multiplayer pause: Combat Simulator matches use Perfect Dark's pause again, and GE Plus matches show GoldenEye's readably
+New: Check for Updates shows what an update fixes, and the main menu shows it once after updating
+
 notes 1 2026-09-26
 GE Plus: guards in converted missions aim at Bond and can hit him (thanks Odeyseis)
 GE Plus Facility: alerted guards no longer get stuck on the stairs (thanks Odeyseis)
