@@ -115,6 +115,12 @@ void crashReportWriteContext(FILE *f)
 	configDumpSection("Game", settings, sizeof(settings));
 	fprintf(f, "\n--- pd.ini [Game] ---\n%s", settings);
 
+	// Video is here for the renderer's own options: an F3 of stretched
+	// streaks on Defense came down to Detail Textures, which nothing in the
+	// report could show the tester had on.
+	configDumpSection("Video", settings, sizeof(settings));
+	fprintf(f, "\n--- pd.ini [Video] ---\n%s", settings);
+
 	fprintf(f, "\n--- memory ---\n"
 			"stage pool free onboard %d expansion %d (total %u); permanent free onboard %d expansion %d\n",
 			(s32)mempGetPoolFree(CRASHREPORT_MEMPOOL_STAGE, CRASHREPORT_MEMBANK_ONBOARD),
