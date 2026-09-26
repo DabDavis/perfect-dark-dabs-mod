@@ -1396,6 +1396,39 @@ translucent - skip `CHRHFLAG_CLOAKED` chrs or nothing shows either way. A dark
 suit hides a bruise (the tint is 64,10,10): diff the frame against the same
 frame from HEAD rather than counting red pixels, which counts the sand.
 
+**GoldenEye's HD characters take the same bruises (2026-09-26).** F3
+20260926-170122 (Statue Park, HD look): "bloodmarks don't appear on ge xbla
+models". The whole path above was switched off for `m->frombean` because the
+map's node walk (`xblaMeshBruiseNodes()`) keys on the release's slot, and a
+Bean character is filed on the pack's side (`packpart`/`packuse`, list node p
+draws group p). The walk now takes a Bean **character's** list nodes by
+`packuse` with a group present (a node with no group keeps its own geometry
+and its own bruises), `xblaMeshNoteBruise()` accepts a model that
+`xblaMeshModelDrawsBean()`, and the draw calls `xblaMeshBruiseColours()` for
+Bean characters. Bean **props** stay out (`gebeanRowIsChr()`), in the map as
+well as the draw: the same map carries `objDeform()`'s crumpling and cleared
+alpha, and a destroyed GoldenEye prop is scorched instead. Bean's bodies are
+skinned to the model's own matrices, so the release's rest-pose mapping
+works unchanged (`matched on each bone in the rest pose`, 4183 vertices, a
+Statue Park guard; the head `moved onto the stock head`, 27 units).
+
+A **head** shot needed one more thing: the converted GoldenEye bodies carry
+the head's bbox (part 8, `HITPART_HEAD`) themselves, so the wound was filed as
+the body's and the grafted head never read it. A wound now carries a kinds
+mask - a grafted head's box wounds the head, a body's `HITPART_HEAD` box both
+(they share the body's rest space, since `xblaMeshNodeRestOffset()` walks up
+through the headspot), anything else the body. PD's bodies have a part 8 box
+too, so a PD release head can now take a wound from it as well; a PD body
+shot is pixel-identical to before. A single head wound (radius 100) washes
+most of the face - the same radius as PD's, left alone.
+
+The N64 look (GE Plus's converted `Cgx` models) bruises natively. Probe:
+`~/wt/f3-0926d-blood-run/probes/blood.py` (the nearest guard moved in front
+with `chrMoveToPos()`, `maxdamage` 1000, Z held through the `input.c:1050`
+hook; `NOAUTO=1` clears `OPTION_AUTOAIM`) and `headbruise.py` (`chrBruise()`
+called on the body's part 8 box). Do not name a gdb convenience variable
+`$bp` - it is the frame pointer register.
+
 #### The release's own tables (2026-09-15)
 
 The executable is readable after all: Xenia holds `default.xex` decrypted at

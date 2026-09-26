@@ -7818,9 +7818,11 @@ static struct modelnode *xblaMeshFindMtxNode(const struct modeldef *modeldef, s3
  * the ones drawn where it is. A far LOD alternative and the hair the mesh has
  * painted on are not among them.
  */
-static void xblaMeshBruiseNodes(struct xblameshbruise *br, const struct xblameshuse *use)
+static void xblaMeshBruiseNodes(struct xblameshbruise *br, const struct xblameshbuilt *m,
+		const struct xblameshuse *use)
 {
 	struct modelnode *node = use->modeldef->rootnode;
+	const s32 useidx = (s32)(use - uses);
 
 	br->numnodes = 0;
 
@@ -7834,8 +7836,23 @@ static void xblaMeshBruiseNodes(struct xblameshbruise *br, const struct xblamesh
 
 		e = xblaMeshSlotFor(node);
 
-		if (!e || e->node != node || e->modeldef != use->modeldef || e->slot != use->slot ||
-				e->suppress == XBLAMESH_SUPPRESS_HAIR ||
+		if (!e || e->node != node || e->modeldef != use->modeldef) {
+			continue;
+		}
+
+		if (m->frombean) {
+			// A GoldenEye character (xblaMeshBuildBean()): list node p draws
+			// group p, filed on the pack's side (packpart, packuse) rather than
+			// against a release slot. A node with no group keeps its own
+			// geometry, and so its own bruises. A GoldenEye prop takes none
+			// (nor, through this map, objDeform()'s crumpling): see scorched
+			// in xblaMeshRenderNode().
+			if (!gebeanRowIsChr(m->beanrow) || e->beanrow < 0 || e->packuse != useidx || e->packpart == XBLAMESH_NOPART ||
+					e->packpart >= m->numgroups || e->packpart >= 64 ||
+					(m->groupabsent & (1ull << e->packpart))) {
+				continue;
+			}
+		} else if (e->slot != use->slot || e->suppress == XBLAMESH_SUPPRESS_HAIR ||
 				!(e->matched || e->suppress == XBLAMESH_SUPPRESS_COVERED)) {
 			continue;
 		}
@@ -8383,7 +8400,7 @@ static struct xblameshbruise *xblaMeshBruiseReady(const struct xblameshbuilt *m,
 
 		br->gdl = m->gdl;
 		br->numvertices = m->numvertices;
-		xblaMeshBruiseNodes(br, use);
+		xblaMeshBruiseNodes(br, m, use);
 		use->bruise = br;
 	}
 
@@ -8539,7 +8556,7 @@ static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
 struct xblameshwound {
 	f32 pos[3];
 	u8 alpha;   // the bruise's shade alpha, 20 to 70
-	u8 head;    // on a grafted head, whose mesh is matched apart from the body's
+	u8 kinds;   // which meshes it lands on: bit 0 the body's, bit 1 a grafted head's
 };
 
 struct xblameshwounds {
@@ -8618,7 +8635,7 @@ void xblaMeshNoteBruise(struct model *model, struct modelnode *bboxnode, const s
 	struct modelnode *mtxnode;
 	f32 rest[3];
 
-	if (!model || !bboxnode || !pos || !xblaMeshModelHasMesh(model)) {
+	if (!model || !bboxnode || !pos || (!xblaMeshModelHasMesh(model) && !xblaMeshModelDrawsBean(model))) {
 		return;
 	}
 
@@ -8639,7 +8656,20 @@ void xblaMeshNoteBruise(struct model *model, struct modelnode *bboxnode, const s
 	wd->pos[1] = pos->y + rest[1];
 	wd->pos[2] = pos->z + rest[2];
 	wd->alpha = (u8)(alpha < 0 ? 0 : alpha > 255 ? 255 : alpha);
-	wd->head = xblaMeshNodeIsGrafted(model, bboxnode) ? 1 : 0;
+	// A grafted head's mesh is matched apart from the body's, and a hit on
+	// the head's own box wounds only that. GoldenEye's bodies carry the head's
+	// box themselves (the converted Cgx bodies' part 8), so a head shot was a
+	// body wound the grafted head never read: that one lands on both, which
+	// share the body's rest space (xblaMeshNodeRestOffset() walks up through
+	// the headspot).
+	if (xblaMeshNodeIsGrafted(model, bboxnode)) {
+		wd->kinds = 2;
+	} else if ((bboxnode->type & 0xff) == MODELNODETYPE_BBOX && bboxnode->rodata
+			&& bboxnode->rodata->bbox.hitpart == HITPART_HEAD) {
+		wd->kinds = 3;
+	} else {
+		wd->kinds = 1;
+	}
 
 	w->serial++;
 	w->frame = frameCount;
@@ -8686,7 +8716,7 @@ static const u8 *xblaMeshWoundStrength(const struct xblameshbuilt *m, const stru
 		const struct xblameshwound *wd = &w->ring[s % XBLAMESH_WOUNDRING];
 		const f32 depth = 255.0f - wd->alpha;
 
-		if (wd->head != kind) {
+		if (!(wd->kinds & (1 << kind))) {
 			continue;
 		}
 
@@ -10014,9 +10044,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	Col *boundcol = m->colours;
 	const u8 *wound = NULL;
 
-	// Not yet on a GoldenEye character: the bruise map is keyed on the
-	// release's slot.
-	if (use && !m->local && !m->frombean) {
+	// A GoldenEye character's too: its map is made from the list nodes it
+	// covers on the pack's side (xblaMeshBruiseNodes()). Not a GoldenEye
+	// prop's: a destroyed one is scorched below, and the mirror would carry
+	// objDeform()'s cleared alpha onto it.
+	if (use && !m->local && (!m->frombean || gebeanRowIsChr(m->beanrow))) {
 		Col *bruised = xblaMeshBruiseColours(m, model, use, !grafted, e->slot);
 
 		if (bruised) {
