@@ -8633,6 +8633,45 @@ void fanUpdateModel(struct prop *prop)
 	mtx3Copy(sp24, fan->base.realrot);
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Where an autogun on a converted GoldenEye level sees and shoots from.
+ *
+ * GoldenEye stands an object whose second flags carry 0x1 - its "activate"
+ * bit, which every one of its autoguns has - on the pad itself, and puts only
+ * the model out at the pad's box (prop.c's setup, sub_GAME_7F04088C()):
+ * prop->pos is the pad and runtime_pos, which the model is drawn at, is where
+ * Perfect Dark puts the whole object. The gun's sight of Bond (a tile walk
+ * from prop->pos) and the start of a shot it cannot place at its muzzle are
+ * the pad's. Runway's heavy gun emplacements sit in recesses in their
+ * bunkers with the pad out in front: from inside the recess every sight line
+ * hit the bunker, the gun never woke and sat still with its armour plate
+ * turned out and its barrels in the wall - "nonexistent turret" (F3
+ * 20260925-230637) - where GoldenEye's turns on Bond and fires.
+ */
+static bool autogunGeEye(struct prop *prop, struct coord *pos, RoomNum *rooms)
+{
+	struct defaultobj *obj = prop->obj;
+	struct pad pad;
+
+	if (!modloaderStageIsRemake(g_Vars.stagenum) || (obj->flags2 & 0x00000001) == 0 || obj->pad < 0) {
+		return false;
+	}
+
+	padUnpack(obj->pad, PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+	if (pad.room <= 0) {
+		return false;
+	}
+
+	*pos = pad.pos;
+	rooms[0] = pad.room;
+	rooms[1] = -1;
+
+	return true;
+}
+#endif
+
 void autogunTick(struct prop *prop)
 {
 	struct autogunobj *autogun;
@@ -8662,6 +8701,10 @@ void autogunTick(struct prop *prop)
 	f32 targetanglev;
 	f32 relangleh;
 	bool track;
+#ifndef PLATFORM_N64
+	struct coord eyepos;
+	RoomNum eyerooms[8];
+#endif
 
 	autogun = (struct autogunobj *)prop->obj;
 	obj = prop->obj;
@@ -8941,10 +8984,22 @@ void autogunTick(struct prop *prop)
 				propSetPerimEnabled(prop, false);
 				propSetPerimEnabled(target, false);
 
+#ifndef PLATFORM_N64
+				// a GoldenEye autogun sees from its pad (autogunGeEye())
+				if (!autogunGeEye(prop, &eyepos, eyerooms)) {
+					eyepos = prop->pos;
+					roomsCopy(prop->rooms, eyerooms);
+				}
+#endif
+
 				if (relangleh <= autogun->ymaxleft
 						&& relangleh >= autogun->ymaxright
 						&& track
+#ifdef PLATFORM_N64
 						&& cdTestLos05(&prop->pos, prop->rooms, &target->pos, target->rooms, CDTYPE_ALL, GEOFLAG_BLOCK_SIGHT)) {
+#else
+						&& cdTestLos05(&eyepos, eyerooms, &target->pos, target->rooms, CDTYPE_ALL, GEOFLAG_BLOCK_SIGHT)) {
+#endif
 					// Target is in sight
 					obj->flags |= OBJFLAG_AUTOGUN_SEENTARGET;
 					insight = true;
@@ -9205,6 +9260,19 @@ void autogunTickShoot(struct prop *autogunprop)
 				struct prop *ownerprop = NULL;
 				struct chrdata *ownerchr = NULL;
 				s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+				struct coord *shootfrom = &autogunprop->pos;
+				RoomNum *shootrooms = autogunprop->rooms;
+#ifndef PLATFORM_N64
+				struct coord gepos;
+				RoomNum gerooms[8];
+
+				// a GoldenEye autogun's shot that cannot start at its muzzle
+				// starts from its pad (autogunGeEye())
+				if (autogunGeEye(autogunprop, &gepos, gerooms)) {
+					shootfrom = &gepos;
+					shootrooms = gerooms;
+				}
+#endif
 
 				if (g_Vars.normmplayerisrunning) {
 					// Multiplayer - it must be a laptop gun
@@ -9249,19 +9317,19 @@ void autogunTickShoot(struct prop *autogunprop)
 					mtx00015be4(camGetProjectionMtxF(), sp108, &spc8);
 					mtx4TransformVecInPlace(&spc8, &gunpos);
 
-					if (cdTestLos10(&autogunprop->pos, autogunprop->rooms, &gunpos, gunrooms, CDTYPE_BG, GEOFLAG_BLOCK_SHOOT) == CDRESULT_COLLISION) {
-						gunpos.x = autogunprop->pos.x;
-						gunpos.y = autogunprop->pos.y;
-						gunpos.z = autogunprop->pos.z;
+					if (cdTestLos10(shootfrom, shootrooms, &gunpos, gunrooms, CDTYPE_BG, GEOFLAG_BLOCK_SHOOT) == CDRESULT_COLLISION) {
+						gunpos.x = shootfrom->x;
+						gunpos.y = shootfrom->y;
+						gunpos.z = shootfrom->z;
 
-						roomsCopy(autogunprop->rooms, gunrooms);
+						roomsCopy(shootrooms, gunrooms);
 					}
 				} else {
-					gunpos.x = autogunprop->pos.x;
-					gunpos.y = autogunprop->pos.y;
-					gunpos.z = autogunprop->pos.z;
+					gunpos.x = shootfrom->x;
+					gunpos.y = shootfrom->y;
+					gunpos.z = shootfrom->z;
 
-					roomsCopy(autogunprop->rooms, gunrooms);
+					roomsCopy(shootrooms, gunrooms);
 				}
 
 				dir.x = cosf(autogun->xrot) * sinf(autogun->yrot);
