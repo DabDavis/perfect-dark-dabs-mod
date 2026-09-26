@@ -341,6 +341,10 @@ struct gebeanmats {
 	// while the tube is empty; -1 for none
 	s8 spent[64];
 	u8 head;  // the mesh is a head's
+	// A head whose palette entry 1 is the joint above the one it is drawn on
+	// (the back), not a second matrix of its own: xblaMeshPose() finds it on
+	// the body the head is grafted to
+	u8 neckback;
 };
 
 /**
