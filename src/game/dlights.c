@@ -18,6 +18,10 @@
 #include "game/propobj.h"
 #include "game/utils.h"
 #include "game/wallhit.h"
+#ifndef PLATFORM_N64
+#include "gelights.h"
+#include "modloader.h"
+#endif
 #include "bss.h"
 #include "lib/snd.h"
 #include "lib/memp.h"
@@ -476,6 +480,14 @@ bool lightsHandleHit(struct coord *gunpos, struct coord *hitpos, s32 roomnum)
 		return false;
 	}
 
+#ifndef PLATFORM_N64
+	// A converted GoldenEye level's lights are its fixtures (gelights.c);
+	// a line through a light's rectangle still breaks it below
+	if (modloaderStageIsRemake(g_Vars.stagenum) && geLightsHandleHit(gunpos, hitpos, roomnum)) {
+		return true;
+	}
+#endif
+
 	spa4.x = gunpos->x - g_BgRooms[roomnum].pos.x;
 	spa4.y = gunpos->y - g_BgRooms[roomnum].pos.y;
 	spa4.z = gunpos->z - g_BgRooms[roomnum].pos.z;
@@ -550,10 +562,17 @@ void roomSetLightsFaulty(s32 roomnum, s32 chance)
 void roomSetLightBroken(s32 roomnum, s32 lightnum)
 {
 	struct light *light = roomGetLight(roomnum, lightnum);
+#ifndef PLATFORM_N64
+	const bool washealthy = light->healthy;
+#endif
 	light->healthy = false;
 	light->on = false;
 
 	g_Rooms[roomnum].flags |= ROOMFLAG_LIGHTS_DIRTY;
+
+#ifndef PLATFORM_N64
+	geLightsBroken(roomnum, lightnum, washealthy);
+#endif
 }
 
 void lightsReset(void)

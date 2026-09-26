@@ -62,6 +62,7 @@
 #include "gebeansky.h"
 #include "modloader.h"
 #include "geroom.h"
+#include "gelights.h"
 #endif
 #endif
 #endif
@@ -3583,6 +3584,11 @@ void bgLoadRoom(s32 roomnum)
 
 		// Create vertex batches - these are used for hit detection
 		bgFindRoomVtxBatches(roomnum);
+
+#ifndef PLATFORM_N64
+		// the GoldenEye fixtures shot out before the room was last unloaded
+		geLightsRoomLoaded(roomnum);
+#endif
 
 		g_Rooms[roomnum].flags |= ROOMFLAG_LIGHTS_DIRTY;
 		g_Rooms[roomnum].flags |= ROOMFLAG_BRIGHTNESS_DIRTY_PERM;
