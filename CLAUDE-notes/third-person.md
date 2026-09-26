@@ -487,3 +487,41 @@ first while the tube is empty. A pair needs `bgunEquipHands(w, w)`:
 equipping the same gun twice does not pair it, and the first equip carries the
 right hand's old gun to the left.
 
+
+## Three more things measured from the camera or the body (2026-09-26)
+
+One tester's F3s (Odeyseis, build 1fc1832), none of them the camera itself:
+
+- **A hit's position was the pull-back past what was hit.** `chrHit()` and
+  `objHit()` rebuild the position from `hit->distance`, which is a depth in
+  front of the *camera*, but added it to the shot's origin - stock's origin
+  is the camera, ours is slid up the ray to the player. The firing range
+  measures the zone from the target's middle, so every shot scored zone 3.
+  The depth is now taken from the origin's own depth (`+ gunpos2d.z`), stock's
+  sum whenever the origin is at the camera. Anything new that turns a
+  `hit->distance` into a point has to do the same. The laser stream's
+  `distance > 300` tests in `shotCalculateHits()` still compare a camera depth
+  and were left alone.
+- **The body's held gun is a prop in the world.** `weaponFindLanded()` (AI
+  `IfWeaponThrown`) walks every prop's children, and a gun in a chr's hand is
+  its chr's child; the third person body holds the equipped gun, so a
+  mission's thrown gadget was "thrown and landed" while still in hand (GE
+  Plus Dam's covert modem failed its objective). Held weapons are left out.
+- **The body's height on a new animation is landed by FORCETOGROUND.**
+  `playerTickThirdPerson()` sets it on every tick (stock names the bit
+  `CHRHFLAG_DROPPINGITEM` there) and its branch in `chr0f01f378()` is what
+  sets the root's base height to its goal. The Dam dive fix leaves that out on
+  converted levels for cutscenes; it had left it out for this camera too, and
+  the crouch rows hold one frame at speed 0.001, so the crouch took a thousand
+  frames and the body floated. Left out now only when the camera is not
+  `CAMERAMODE_DEFAULT`.
+
+Probes: `~/wt/f3thirdp-run/probe/` - `crouch.py` (root base/goal height per
+frame), `fr.py` (Institute firing range: closes the frame-302 dialog, holds a
+teleport into room 10, starts a session from gdb, fires by holding
+`triggeron` in `bgunTickGameplay()` - a `shotCreate()` from `videoEndFrame`
+hits no prop, the matrices are already converted), `modem3p.py` (Dam modem
+with a real trigger press). The throw's direction in third person is still
+parallel to the aim ray from the hands, so a throw lands off the crosshair by
+the camera's offset; not changed (patch kept at
+`~/wt/f3thirdp-throwaim.patch`).
