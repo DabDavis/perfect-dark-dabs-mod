@@ -14482,6 +14482,36 @@ s16 chrGoPosGetNextPadNum(struct chrdata *chr)
 	return -1;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * A chr going off screen takes the magic move, whose speed is its animation's
+ * (func0f0370a8() times the animation's own speed). One stood waiting for a
+ * door kept its stand animation into the magic move, at the quarter speed a
+ * turn had left on it, and nothing in the magic move looks at doors again, so
+ * it crawled along its route at about a tenth of a run. Facility's fifth
+ * alarm guard (chr 0x48) waited at the upper door his own body held part
+ * open, went off screen and took minutes to reach the bottling room, and
+ * Trevelyan, whose first target he is, fired at the wall between them all the
+ * while. GoldenEye's magic move goes at walking speed whatever the chr is
+ * playing (chrlvModelScaleAnimationRelated(), chrlvTickPatrol()), so on a
+ * converted level the chr takes up its run or walk again as the move starts.
+ */
+static void chrMagicResumeMoving(struct chrdata *chr)
+{
+	if (!geRoomActive() || chr->aibot || !chrGoPosIsWaiting(chr)
+			|| chr->liftaction == LIFTACTION_WAITINGFORLIFT
+			|| chr->liftaction == LIFTACTION_WAITINGONLIFT) {
+		return;
+	}
+
+	if (chr->actiontype == ACT_PATROL) {
+		chrPatrolChooseAnimation(chr);
+	} else {
+		chrGoPosChooseAnimation(chr);
+	}
+}
+#endif
+
 void chrTickGoPos(struct chrdata *chr)
 {
 	struct waypoint *waypoint;
@@ -14546,6 +14576,9 @@ void chrTickGoPos(struct chrdata *chr)
 			&& (curwpflags & (PADFLAG_AIWAITLIFT | PADFLAG_AIONLIFT)) == 0
 			&& chr->inlift == false) {
 		enteringmagic = true;
+#ifndef PLATFORM_N64
+		chrMagicResumeMoving(chr);
+#endif
 		chrGoPosInitMagic(chr, &chr->act_gopos.waydata, &curwppos, &prop->pos);
 	}
 
@@ -14827,6 +14860,9 @@ void chrTickPatrol(struct chrdata *chr)
 			&& (flags & (PADFLAG_AIWAITLIFT | PADFLAG_AIONLIFT)) == 0
 			&& !chr->inlift) {
 		enteringmagic = true;
+#ifndef PLATFORM_N64
+		chrMagicResumeMoving(chr);
+#endif
 		chrGoPosInitMagic(chr, &chr->act_patrol.waydata, &sp58, &prop->pos);
 	}
 
