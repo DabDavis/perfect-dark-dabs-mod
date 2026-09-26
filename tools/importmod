@@ -1671,7 +1671,11 @@ def follow_flag_sites(stockcode, modcode, start, end, stockvalue):
 # every site in the code where the game made that test: a flag is written
 # only when the mod's lists agree across all its sites
 FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
-              ('chargeable', (('bgun_tick_inc_attacking_shoot', 6), ('bgun0f09a6f8', 6))),
+              # the Mauler's charge at its two sites: the shot's sound pitched
+              # down by it, and the shot spending it. GE-X takes the second
+              # out whole and leaves the first on its Klobb's 6
+              ('chargeable', (('bgun0f09a6f8', 6),)),
+              ('chargespent', (('bgun_tick_inc_attacking_shoot', 6),)),
               ('pistolcasing', (('casing_create_for_hand', 36),)),
               ('nocarteject', (('casing_create_for_hand', 8), ('bgun_create_fx', 8))),
               ('stickstowall', (('projectile_tick', 34),)),

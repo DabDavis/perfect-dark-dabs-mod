@@ -703,6 +703,7 @@ static const struct {
 	{ "piercesbulletproof", WEAPONFLAG3_PIERCESBULLETPROOF, 3 },
 	{ "freeshots",        WEAPONFLAG3_FREESHOTS, 3 },
 	{ "chargebeam",       WEAPONFLAG3_CHARGEBEAM, 3 },
+	{ "chargespent",      WEAPONFLAG3_CHARGESPENT, 3 },
 };
 
 // the port's function flags by the name a modconfig uses for them

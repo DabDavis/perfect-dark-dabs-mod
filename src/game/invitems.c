@@ -1304,7 +1304,7 @@ struct weapon invitem_mauler = {
 	WEAPONFLAG2_CHARGEABLE, // flags2
 	0, // unequipped reload index
 	0, // pickup sound
-	WEAPONFLAG3_CHARGEBEAM, // flags3
+	WEAPONFLAG3_CHARGEBEAM | WEAPONFLAG3_CHARGESPENT, // flags3
 };
 
 struct modelpartvisibility invpartvisibility_cmp150[] = {

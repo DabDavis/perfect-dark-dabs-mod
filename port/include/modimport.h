@@ -50,9 +50,10 @@ s32 modImportPatch(const char *patchPath, const char *outDir, const char *basePa
 // block, the arenas a mod has by its own name and files; 32: the model a chr
 // holds for each weapon, the sights, and the Maian head tests; 33: the sparks
 // a shot throws off a wall and its tracer's texture, by weapon, and the
-// Mauler's charge beam).
-#define MODIMPORT_VERSION 33
-#define MODIMPORT_VERSION_LINE "importer: 33 (the game's own)"
+// Mauler's charge beam; 34: the Mauler's charge as two flags, its pitch and
+// the shot spending it, which GE-X's code tests apart).
+#define MODIMPORT_VERSION 34
+#define MODIMPORT_VERSION_LINE "importer: 34 (the game's own)"
 
 #ifdef __cplusplus
 }

@@ -4033,8 +4033,11 @@ static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 // xori tests), SITE_IMM only
 static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 at; u32 kind; u32 at2; } flagSites[] = {
 	{ "pumpaction", "bgun_tick_inc_attacking_shoot", 19, 0, 0 },
-	{ "chargeable", "bgun_tick_inc_attacking_shoot", 6, 0, 0 },
+	// the Mauler's charge at its two sites: the shot's sound pitched down by
+	// it, and the shot spending it. GE-X takes the second out whole and
+	// leaves the first on its Klobb's 6
 	{ "chargeable", "bgun0f09a6f8", 6, 0, 0 },
+	{ "chargespent", "bgun_tick_inc_attacking_shoot", 6, 0, 0 },
 	{ "pistolcasing", "casing_create_for_hand", 36, 0, 0 },
 	{ "nocarteject", "casing_create_for_hand", 8, 0, 0 },
 	{ "nocarteject", "bgun_create_fx", 8, 0, 0 },

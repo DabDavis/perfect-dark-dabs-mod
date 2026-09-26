@@ -1884,3 +1884,25 @@ shows it is `~/wt/f3tracers-rig/det.sh` (frame-exact, `--fixed-step`, trigger
 held from gdb at fixed level frames, so two binaries draw the same frames;
 stock guns 2-28 were pixel-identical before and after). XBLA's spark timings
 play no part - `g_SparkTypes` is not mirrored (xbla-xex-table-diff).
+
+## The Mauler's charge is two flags (2026-09-26, importer 34)
+
+`chargeable` used to stand for two tests of the Mauler's 6: the shot's sound
+pitched down by the charge (`bgun0f09a6f8`) and the shot spending the charge,
+`matmot1 = 0` (`bgun_tick_inc_attacking_shoot`). GE-X keeps the first on its
+Klobb's 6 and takes the second out whole - the compare, branch and store are
+seven nops at 0x7f09b224, not an unconditional store - so the sites disagreed
+and the importer left the flag as the port had it. GE-X's silenced PP7 (slot 4)
+is its rewrite of the Mauler's definition, so it kept `chargeable` by address.
+
+They are two flags now, a `FLAG_SITES` row each: `chargeable` (the pitch) and
+`WEAPONFLAG3_CHARGESPENT` (`chargespent`, the reset). GE-X reads as
+`chargeable { clear 6 }` and `chargespent { clear }`: slot 4 has neither, the
+Klobb pitches its shot by a charge it never winds (no secondary function), as
+on the console. The wind-up itself (`bgunTickMaulerCharge()`, only with the
+secondary function selected) and the charged damage were always by number
+(`weaponHost() == WEAPON_MAULER`, a test GE-X left on 6), so the silenced PP7
+never wound up in the port either; what it lost is a pitch event at 1.0 on
+every shot. Rig: `~/wt/gexpp7-rig/hold.sh` holds the trigger (pulsed) per
+weapon/function and logs `matmot1`, the loaded ammo and every `audioPostEvent`
+from `bgun0f09a6f8` (needs sound: `SDL_AUDIODRIVER=dummy`, not `--no-sound`).

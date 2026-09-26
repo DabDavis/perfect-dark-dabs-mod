@@ -69,7 +69,56 @@ Phantom electrical sparks with a faint Cyclone tracer.
 
 ## Open
 
-- `chargeable` (WEAPONFLAG2_CHARGEABLE) is still "left as the port has it" for
-  GE-X (its two sites disagree), so GE-X's silenced PP7 inherits the Mauler's
-  chargeable flag by address. Not part of this report; worth a look.
+- `chargeable` for GE-X: done on fix/gex-pp7sil-charge, below.
+- Not merged, pushed or deployed.
+
+# GE-X silenced PP7 and the Mauler's charge (branch fix/gex-pp7sil-charge)
+
+## What GE-X does
+
+`chargeable` stood for two tests of the Mauler's 6. In GE-X's patched code
+(`~/wt/f3tracers-work/diff/{stock,mod}.bin`):
+
+- `bgun0f09a6f8` (the shot's sound pitched down by the charge): `li at,6`
+  unchanged - its Klobb's number;
+- `bgun_tick_inc_attacking_shoot` (the shot spends the charge, `matmot1 = 0`):
+  0x7f09b224-0x7f09b23c are seven nops - compare, branch and store all gone,
+  so no weapon resets (not an unconditional reset).
+
+Slot 4 (the silenced PP7, GE-X's rewrite of the Mauler's definition) is on
+neither list, so it has no charge, as GoldenEye's PP7. The wind-up itself
+(`bgunTickMaulerCharge()`) and charged damage are by number in the port
+(`weaponHost() == WEAPON_MAULER`, GE-X also left `bgun_tick_gameplay2` on 6),
+so slot 4 never actually wound up; the inherited flag cost it a pitch event
+(at 1.0) per shot and a charge reset.
+
+## Fix
+
+- `WEAPONFLAG3_CHARGESPENT` (`chargespent`) for the reset site, on the Mauler's
+  definition; `chargeable` is now only the pitch site (constants.h, bondgun.c,
+  invitems.c, mod.c).
+- Both importers: one `FLAG_SITES` row each; GE-X writes
+  `weaponflags chargeable { clear 6 }` and `weaponflags chargespent { clear }`.
+  `MODIMPORT_VERSION` 34. Python and C write the same two lines; nothing else
+  in either importer's output changed.
+- Notes: mods.md "The Mauler's charge is two flags", a clause in CLAUDE.md.
+
+## Verification (`~/wt/gexpp7-rig/hold.sh before|after GE-X|- weapon:func...`)
+
+Trigger held (pulsed 4/6) 90 frames per weapon/function, `--fixed-step
+--rng-seed 1`, sound on the dummy driver so the pitch site runs; logs
+`matmot1`, loaded ammo, and each `audioPostEvent` caller.
+
+- GE-X slot 4: flags2 0xc00004 -> 0xc00000. Primary fires every 6 frames,
+  7 -> 0 then reload, `matmot1` 0 throughout, before and after; pitch posts
+  from `bgun0f09a6f8` 7 -> 0. Secondary (its melee) unchanged.
+- GE-X slots 2, 3, 5, 6: tick-by-tick state lines identical before/after;
+  slot 6 (Klobb) gains the pitch post GE-X's code gives it (8, at 1.0).
+- Stock PD Mauler: state lines identical before/after (secondary charges to
+  3.9, reset on each shot; 102 pitch posts both sides); only flags3 gains the
+  new bit.
+- GE Plus: no GoldenEye gun hosts the Mauler.
+
+## Open
+
 - Not merged, pushed or deployed.

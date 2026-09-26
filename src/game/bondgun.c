@@ -2376,7 +2376,7 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 			hand->matmot2 = 0;
 		}
 
-		if (weaponHasFlag2(hand->gset.weaponnum, WEAPONFLAG2_CHARGEABLE)) {
+		if (weaponHasFlag3(hand->gset.weaponnum, WEAPONFLAG3_CHARGESPENT)) {
 			hand->matmot1 = 0;
 		}
 
