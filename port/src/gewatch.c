@@ -4213,6 +4213,24 @@ static void watchMpTick(void)
 	g_MpWatch[num].sticky = stickx > 0x10 || stickx < -0x10;
 }
 
+// the overlay's rows above the first player's, its panel's half width and
+// colour, in GoldenEye's units
+#define MP_ROWS_TOP    48
+#define MP_PANEL_HALFW 96
+#define COL_MPPANEL    0x000000a0
+
+/**
+ * GoldenEye's in-game 320x240 over the player's own viewport. Not the solo
+ * watch's frame: that one follows the face at the watch's zoom, and at a
+ * match's field of view (no watch comes up) it put the whole overlay into a
+ * smudge a few pixels high in the middle of the screen.
+ */
+static void watchMpTextFrame(void)
+{
+	gexFrontTextFrame(WATCH_FRAME_W, WATCH_FRAME_H,
+			viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
+}
+
 /** A row of the overlay, centred in the player's own viewport. */
 static Gfx *watchMpRow(Gfx *gdl, s32 y, const char *text, u32 colour)
 {
@@ -4229,13 +4247,39 @@ static Gfx *watchMpRender(Gfx *gdl)
 	const s32 num = g_Vars.currentplayernum;
 	const s32 numchrs = mpGetNumChrs();
 	const char *title;
-	s32 y = 22;
+	s32 rows = numchrs < MAX_MPCHRS ? numchrs : MAX_MPCHRS;
+	s32 step = 16;
+	s32 top;
+	s32 y;
 
 	if (!g_MpWatch[num].on) {
 		return gdl;
 	}
 
-	watchTextFrame();
+	// GoldenEye's rows (title, heading 31 below it, the players 17 below
+	// that and 16 apart), but centred down the view rather than at its y 22:
+	// alone in a view, the title sat under Perfect Dark's own health bar, and
+	// a full match's twelve rows ran off the bottom
+	if (MP_ROWS_TOP + rows * step > WATCH_FRAME_H - 8) {
+		step = rows ? (WATCH_FRAME_H - 8 - MP_ROWS_TOP) / rows : step;
+	}
+
+	top = ((s32)WATCH_FRAME_H - (MP_ROWS_TOP + rows * step)) / 2;
+
+	if (top < 4) {
+		top = 4;
+	}
+
+	y = top;
+
+	watchMpTextFrame();
+
+	// and a dark panel behind them: GoldenEye's thin green is drawn straight
+	// onto the view, which on Runway's snow at a PC's resolution all but
+	// disappeared (Perfect Dark's own pause dialog has a body of its own)
+	gdl = gexFrontFillRect(gdl, (s32)(WATCH_FRAME_W * 0.5f) - MP_PANEL_HALFW, top - 6,
+			(s32)(WATCH_FRAME_W * 0.5f) + MP_PANEL_HALFW, top + MP_ROWS_TOP + rows * step + 2, COL_MPPANEL);
+
 	gdl = gexFrontTextSetup(gdl);
 
 	switch (g_MpWatch[num].mode) {
@@ -4257,7 +4301,7 @@ static Gfx *watchMpRender(Gfx *gdl)
 	gdl = watchPrint(gdl, (s32)(WATCH_FRAME_W * 0.5f) - 44, y, "<\n", COL_GREEN);
 	gdl = watchPrint(gdl, (s32)(WATCH_FRAME_W * 0.5f) + 40, y, ">\n", COL_GREEN);
 
-	y = 53;
+	y = top + 31;
 
 	switch (g_MpWatch[num].mode) {
 	case MPPAGE_SCORES:
@@ -4303,7 +4347,7 @@ static Gfx *watchMpRender(Gfx *gdl)
 				gdl = watchPrint(gdl, (s32)(WATCH_FRAME_W * 0.5f) + 40, y, number, colour);
 			}
 
-			y += 16;
+			y += step;
 		}
 		break;
 	case MPPAGE_EXIT:
