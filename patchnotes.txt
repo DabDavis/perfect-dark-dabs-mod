@@ -31,6 +31,40 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 3 2026-09-26
+GE Plus Bunker: Bond climbs the stairs in the ending instead of running through them (thanks dab)
+GE Plus Statue Park: the ending in the Cinema has Trevelyan and his two troops (thanks dab)
+GE Plus Depot: the ending plays out, with Bond shooting the guards on the train (thanks dab)
+GE Plus Silo: Bond holds his gun in the ending's lift, then puts it away as in GoldenEye
+GE Plus Aztec: the shuttle is there in the N64 look, and it blasts off in the ending in both looks (thanks dab)
+GE Plus Cinema: the level waits while the intro shots play, so Archives' interrogation no longer starts early (thanks dab)
+GE Plus Jungle: Natalya no longer keeps shooting at Bond (thanks dab)
+GE Plus Dam: the truck stays on its road after a long frame, such as the one Report a Problem takes (thanks Odeyseis)
+GE Plus Dam: the reservoir's water moves as in GoldenEye, in both looks (thanks dab)
+GE Plus Cradle: walking along the walkways no longer bounces you into the air (thanks dab)
+GE Plus Cradle, HD look: the stairwell landings and their shadows no longer flicker when the camera turns (thanks dab)
+GE Plus, HD look: N64 parts no longer show inside HD props, like Dam's truck wheels and Surface's shimmering dish (thanks dab)
+GE Plus, HD look: the rocket launcher keeps its back half after firing (thanks Odeyseis)
+GE Plus, N64 look: the hunting knife swings when it slashes (thanks dab)
+GE Plus: guns on the watch are drawn at GoldenEye's size, so the DD44's barrel shows (thanks Odeyseis and dab)
+GE Plus: the watch's inventory list scrolls as in GoldenEye, and the watch's text no longer covers the gun
+GE Plus: every GoldenEye gun fires at GoldenEye's own rate; the Shotgun no longer pumps and the Cougar Magnum no longer kicks
+GE Plus Train: the watch laser is Bond's watch, is named Watch Laser, and fires from the watch with GoldenEye's own stats and charge
+GE Plus: the Watch Magnet no longer shows a giant floating watch
+GE Plus Runway: the plane can be boarded from its door to end the mission
+GE Plus: the Characters page and themed simulants are GoldenEye's own characters, wearing GoldenEye faces
+Combat Simulator: GoldenEye's characters are in the lists with the GoldenEye ROM alone, no XBLA release needed
+GE Plus no longer takes anything from GoldenEye X, and says so instead of opening while GoldenEye X is the loaded mod
+GE Plus, HD look: the Monitor Programmes TVs play their programmes (thanks dab)
+GE Plus, HD look: the folder's pictures are no longer cut off at the right, like the OHMSS title and the crest (thanks dab)
+Third person: crouching on GE Plus levels lands the body at once instead of floating down slowly (thanks Odeyseis)
+Third person: holding a mission gadget, like Dam's covert modem or Surface II's remote mine, no longer fails the objective (thanks Odeyseis)
+Third person: shots land where the crosshair is, so the firing range scores bull's-eyes and zone 2 again (thanks Odeyseis)
+Third person: grenades, mines and other throws aim at the crosshair
+Defense, XBLA look: the lift's side panels and the lamp housings are no longer see-through (thanks Parabolee)
+Detail Textures: textures no longer draw stretched streaks, like the rock band on Defense (thanks Parabolee)
+Problem reports and crash reports include your video settings
+
 notes 2 2026-09-26
 GE Plus Bunker: the GoldenEye key is named when picked up, the key analyser reads it, and its objective completes (thanks savantique)
 GE Plus: security cameras sweep, face the right way, and one shot in the lens destroys them (thanks savantique and Odeyseis)
