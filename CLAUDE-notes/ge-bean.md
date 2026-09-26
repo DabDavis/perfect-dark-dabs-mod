@@ -10913,3 +10913,56 @@ Checked on two rigs with GoldenEye X installed and the setting naming it
 42 (86 before), Dam's music GoldenEye's own, the mission's sound identical to
 the `auto` build. GoldenEye X loaded as the mod still boots its Temple and
 plays; GE Plus reports it shut. Probes in `~/wt/gex-out-probe/`.
+
+## HD effects: Archives' shafts, Dam's modem screen, Jungle's vines and magenta fronds (2026-09-26)
+
+Four F3s on f6e947b15, the HD look on GE Arenas maps (the missions' own
+stages boot the same Bean files: Dam 0x15, Archives 0x65, Jungle 0x62).
+
+- **Archives' light shafts drawn as solid slabs (20260926-101221).** Bean
+  level tex 44 is an opaque 32x32 grey (DXT1) on vertices of alpha 0 to 126,
+  drawn in the release's blended pass (render states 0x48 6 / 0x4c 7 = source
+  alpha, one minus). `triFades()` only looked at pictures with alpha. Each
+  level vertex now carries its draw's `blend` flag (`gebeanlevelvtx.blend`),
+  and a blended picture that **fades out** - some vertex under 0x10,
+  `texBlendFadesOut[]` - goes to the translucent leaf. Egyptian's pool (tex
+  13, opaque blue at 63-128 everywhere, same blend) is the one other case on
+  the twenty missions and stays opaque on purpose: faithful, it is a quarter
+  there and reads as no water.
+- **Dam's wall terminal half grey (20260926-093826).** Not the placeholder
+  card (e72e2dffa dropped that): `prop/modembox` has the back of its recess
+  as a metal quad 0.19 units in front of GoldenEye's screen quad (400
+  across), z-fighting along the quad's diagonal. `beanScreenFace()` lays
+  Bean's own vertices on a screen's plane 2% behind it, but only for a
+  screen node that is a lone quad, on a `g_SkelBasic` prop, with Bean
+  vertices on all four of its corners (`beanScreenRecesses()`). Without
+  those tests Jungle's trees (parts 0-3 are lists of their own) had trunk
+  vertices moved - the trunks went blue-speckled - and a door pane and a CCTV
+  lens were caught. Log: `N screen recess` (modembox 12, tuningconsole1 10).
+- **Jungle's vine "residue" (20260926-102443).** `prop/jungle3tree`
+  (Pgx108Z; found with an `objRender` skip per modelnum). Its vine cards are
+  laid once over a picture whose vines hang from the top row, repeating: the
+  filter at each card's foot read the top row, dark dashes in the air.
+  `beanClampCards()` gives a rigid prop's cut-out picture whose every UV is
+  within 0..1 (1/64 slack) `XBLAMESH_MAT_CLAMP` (0x2000 with
+  `XBLAMESH_MAT_TABLE`), clamped in `xblaMeshSetMaterial()`. And every
+  binary-alpha picture (DXT1 punch-through, clear texel black by the format)
+  has its clear texels filled with the nearest solid colour
+  (`beanBleedCutout()` in `beanDecodeTexture()`): the dark rim round leaves,
+  vines, Cradle's trusses and Surface's pines is gone. Only alpha-0 texels
+  change.
+- **Magenta bushes (seen in 20260926-101852).** Rare's stand-in for missing
+  art: flat 16x16 magenta pictures, sampled by the release too. Jungle 39/40
+  (56 frond clusters by the spawn), Aztec 29/47/53/54/55, Depot 76/77.
+  `beanBindTexture()` paints one (`beanTexIsPlaceholder()`) the mean opaque
+  colour of the pictures its neighbouring draws use under the same vertex
+  shader (`beandraw.vs`); Jungle's come out leaf green, grey without a
+  neighbour. A flat colour - the geometry is the frond's shape - not a
+  picture; the log names each.
+
+Rig: `~/wt/f3-0926c-hdfx-run/` (`run.sh` + `view2.py` holds a report's
+camera, `skipview.py` SKIP="m == 0x26c" skips a model's objRender,
+`look.py` squares on every monitor, `ab.sh` opening shots of all missions
+with two binaries, `all-with-debug.patch` has the GEBEAN_TEXLOG /
+STREAMLOG / DRAWLOG / VTXDBG dumps used to find each picture). Pictures in
+`~/wt/f3-0926c-hdfx-pics/`.
