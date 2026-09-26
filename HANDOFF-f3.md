@@ -98,12 +98,71 @@ hitpart; WAITLIST waits for a list, DIFF sets g_Difficulty):
   held guns deleted at once. Shot: Bond in the lift, arms crossed, no gun
   (shots_siloend5).
 
-## 4. Cradle Trevelyan up the ladder (001445) - NOT STARTED
+## 4. Cradle ladder at the end (001445 Trevelyan up it, 005903 Bond stuck) - FIXED
 
-Trace: stage 0x68 f8022, chr 0 act 15 (GOPOS) at y 2711, chrs 1,2,3,5 GOPOS too.
-Screenshot looks up a ladder shaft with Trevelyan at the top. Compare his
-final-run pads with GoldenEye's (the previous Cradle pass: branch
-fix/f3-cradle-trevelyan, rig ~/wt/f3cradle-run, probes trev*.py).
+No converter change (still 74). Cradle's shaft: one ladder (upright tiles 625/626,
+special 3, **room 7**) from the platform floor (y 1162, room 7) to the deck round
+the hatch (2609, room 8; the hatch is x -1618..-1448, z -1093..-927, walled
+except the ladder's 81-wide link). GE route: TH (0x410) sprints to pad 0x96 on
+the deck, 0x415 walks to pad 0x74 at the foot (waypoint link 0x71 -> 0x74 *is*
+the ladder: GE's guard just drops down it, ours falls the same way - fine), 0x417
+runs 0x74 -> 0x77 -> 0x76 on the floor, 0x418 fights until he is in pad 0x94's
+room or dying.
+
+Three causes, all runtime:
+- **Trevelyan up the ladder**: Perfect Dark's guards take hold of any ladder
+  within 2.5 radii while GOPOS/PATROL and climb it whichever way they go. On
+  0x417 he ran past the ladder's foot (dodging Bond, who stood at it as in the
+  tester's shot) and went back up to the deck. Fix (chr.c chrGeTakesLadder()):
+  on remake stages a *newly found* ladder is taken only if the chr's current
+  waypoint is > 150 over its manground (pads are ~90 over their floor); one
+  taken is kept. GE guards have no ladders - they follow tile links.
+- **Bond could not climb down**: the ladder is room 7's, the deck room 8's, and
+  the player's ladder tests only ask the rooms he is in, so from the deck it was
+  never found; walking on, he fell into the hatch and hung in its far lip
+  (vv_ground 2609 over his feet, can't rise, can't move - gestan skips the lip's
+  walls from the floor tile under him). Even with the room right, the drop is
+  seen only once his circle is clear of the edge (> 30 out) and the take-from-top
+  test reaches 33 - a 3-unit window. Fix (bondwalk.c): ladder tests ask
+  near rooms too (bwalkCdRooms() -> geroom.c geRoomAddNear(), rooms whose box
+  meets the body's); at the drop a ladder is looked for 2 radii out and 60
+  down (collision.c cdFindLadderDist(), also returns the plane distance and
+  the head's height), the player is put back to radius + 1.5 from it and let
+  down to 2 under its head, where the hold is kept.
+- Found on the way: Dam's three short ladders (rooms 72/75/78) have their head
+  at the foot of a 34-high ramp off the deck, so walking off the deck was a
+  fall with the old binary too (pd-before.x86_64, dl75b.log) - the 2026-09-20
+  "five down" test must have started on the ramp. Now taken (dl75/dl72/dl71).
+- **Bond stuck at the stair head (the 005903 position, -2006 2922 -1391)**: the
+  stair down from the landing (room 3) to the hatch deck is room 6's; the portal
+  walk left the player in room 3 while on the stair's top tread, so room 6's side
+  wall (z -1411) was never asked, he slid to 13 from it, and the moment room 6
+  was his he was inside its radius for good. Fix: the player's move/vertical
+  collision tests (bwalkCalculateNewPosition's cdExamCylMove02,
+  bwalkTryMoveUpwards, bwalkCanMoveUpwards) ask bwalkCdRooms() as well; the
+  player's own room list is untouched (AI "Bond in room with pad" reads it).
+
+Verified (rig ~/wt/f3gemission-run, Cradle 0x68):
+- probes/trevend.py (TPAD=106 puts Trevelyan near the end, LIST=0x410, player
+  at the tester's spot PXZ=-1516,-1019 looking up): before (te3.log) 0x417 at
+  f740-910 climbs from 1184 to 2161 up the ladder; after (te4.log) he drops down
+  the shaft, runs 116 119 118 on the floor, 0x418 attacks. KILLAT=1000 (te6-te8):
+  dies, GE's ending camera + exit state 1 from ~f1450, still cycling at f2000;
+  the level's own end was not seen (te7 timed out, te8's gdb hung after f2000 -
+  the previous pass saw the ending finish by itself ~700 frames in).
+- 20-mission sweep (sweep.sh) with the final binary: identical to before.
+- probes/ladwalk.py (player at X/Z/Y/ROOM, PHASES of from:to:stick:theta[:side]):
+  lw1 before: walked across the hatch, stuck at z -923.7 in the lip; after:
+  takes the ladder at z -1061.5, down to the floor (f655), and lw3 climbs back up
+  onto the deck (f1420). Backwards (lwb), slow 0.3 stick (lwc), diagonal (lwd)
+  all take hold. sw2 (strafe into the stair's side wall): before stuck at
+  -2010.6 -1398.3; after slides at z -1381 (a radius) and down the stair.
+  Dam (STAGE=0x15): dl75 down the room 75 ladder and back up onto the deck,
+  dl72 and dl71 (face ladder) down.
+- Open: sliding sideways off the ladder mid-way still lets go (stock PD
+  ladders allow strafing; GE would hold Bond to the ladder tile) - he falls to
+  the floor. Guards' own wall tests still ask only their rooms (same class of
+  bug as the stair head, not seen for guards yet).
 
 ## 5. Security cameras
 
