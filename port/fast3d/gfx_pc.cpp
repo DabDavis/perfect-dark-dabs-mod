@@ -1543,7 +1543,23 @@ static void import_texture(int i, int tile, bool importReplacement) {
     const uint32_t tex_flags = loaded_texture.tex_flags;
     const uint8_t palette_index = rdp.texture_tile[tile].palette;
 
-    if ((rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail) || !loaded_texture.addr) {
+    // Detail Textures on, and a texture that is its own detail - a room's
+    // texture command with the detail flag and no second texture, such as the
+    // Institute's rock 0281. Its detail tile reads the TMEM block the load put
+    // down, which is every mip level stacked under the first (32x64 over 94
+    // rows), while its lod tile is set up as level 0 alone just below. Both
+    // are the same texels, so both land on one texture cache entry, and
+    // whichever imported first was the picture the other drew: the detail
+    // tile goes first, so the lod tile scaled its 64 rows over a 94 row
+    // texture and wrapped through the mips - and, with a pack or the XBLA
+    // release's picture, through padding that repeats the picture's last row,
+    // a band of vertical streaks every period. Level 0 for both. A separate
+    // detail texture (a second texture in the command) is loaded to its own
+    // TMEM from its own image and is not this.
+    const bool self_detail = rdp.tex_lod && rdp.tex_detail && tile == rdp.first_tile_index &&
+                             loaded_texture.addr && loaded_texture.addr == rdp.texture_to_load.addr;
+
+    if ((rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail) || self_detail || !loaded_texture.addr) {
         // set up miplevel 0; also acts as a catch-all for when .addr is NULL because my texture loader sucks
         loaded_texture.addr = rdp.texture_to_load.addr;
         loaded_texture.glyph = rdp.texture_to_load.glyph;
