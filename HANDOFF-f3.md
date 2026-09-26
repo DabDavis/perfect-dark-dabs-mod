@@ -94,9 +94,8 @@ They are the release's own painted markings: 18 triangles of tex 61
 0x88e6ca89 (tan, alpha 0x88), rooms 111/121/122, all marked decal. The release would
 draw them tan at about half opacity; we draw them opaque pure white, so the vertex
 colour and alpha are lost on this path (alpha decal leaf: XLU decal mode, combiner
-fc26a004 1f1093ff; check what bg.c's room lighting does to the palette's alpha and
-whether the shade reaches the colour). Next: dump the room's G_COL palette at draw
-time and the combiner actually used for tex 61.
+fc26a004 1f1093ff). bg.c's lighting (dlights.c) keeps the palette's alpha, and the
+palette is ruled out (see 9). Next: as 9.
 
 ## 8. Dam sniper zoom: flat blue polygons over the mountains (235312) - REPRODUCED, cause narrowed
 
@@ -108,8 +107,19 @@ fog-line depth (env.c gebeanStageFogLine(bgGetScaleBg2Gfx(), ...) and the render
 G_FOGLINE_LINEAR_EXT depth) picks up the projection's fov scale. Next: print fm/fo
 and the renderer's fog depth at fovy 60 and 7 for one vertex.
 
-## 9. Dam white see-through pyramid in the server room (235806) - NOT STARTED
+## 9. Dam white see-through pyramid in the server room (235806) - CAUSE FAMILY FOUND, not fixed
 
-Likely the same family as 7 (a release mesh with vertex alpha drawn solid white:
-a light cone). Report camera (10673.9 12736.7 10409.2) theta 236.3 verta -10.7, rooms
-108/107/109; use GROUND=12578 (without it the player lands a storey up).
+Reproduced (dam-fix2b-0.png). Same family as 7: 8 triangles of tex 59
+(_0x0EDC9FE5, 32x32 DXT5, a white-to-grey gradient with alpha 250 -> 6), vertex
+colour 0x82ffffff, room 109 - the release's lamp light cone, meant to be a faint
+glow; we draw it near solid white. Report camera (10673.9 12736.7 10409.2) theta
+236.3 verta -10.7, room 108; GROUND=12578 (without it the player lands a storey up).
+
+Ruled out for 7 and 9: the room palette (buildPalette()/paletteIndex() merging the
+0x82/0x88 colours into opaque ones). Seeding a palette entry per alpha level and
+weighting alpha x64 in paletteIndex() changed neither picture (tried, reverted).
+The leaf combiner (fc26a004 1f1093ff) takes SHADE colour and alpha only in its
+second cycle - so a one-cycle draw of these (or a render mode swap that leaves the
+list in one cycle) would give exactly texel white at texel alpha. Next: log the
+cycle type and render mode in force when tex 59's triangles are drawn (gfx_pc
+trace on room 109), and whether nofog/xlu paths put them in one cycle.
