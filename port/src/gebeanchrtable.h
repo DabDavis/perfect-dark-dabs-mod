@@ -51,7 +51,7 @@
 	CHRROW("Cgx048Z", GEBEAN_HEAD,   "head/headshaun"), // CheadshaunZ
 	CHRROW("Cgx049Z", GEBEAN_HEAD,   "head/headdwayne"), // CheaddwayneZ
 	CHRROW("Cgx050Z", GEBEAN_HEAD,   "head/headb"), // CheadbZ
-	// 51 CheaddaveZ: the release's is another face, left in the N64 look
+	CHRROW("Cgx051Z", GEBEAN_HEAD,   "head/headdave"), // CheaddaveZ
 	CHRROW("Cgx052Z", GEBEAN_HEAD,   "head/headgrant"), // CheadgrantZ
 	CHRROW("Cgx053Z", GEBEAN_HEAD,   "head/headdes"), // CheaddesZ
 	CHRROW("Cgx054Z", GEBEAN_HEAD,   "head/headchris"), // CheadchrisZ
