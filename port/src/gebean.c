@@ -482,8 +482,36 @@ struct fpgrip {
 
 static const f32 fpGripFromPalm[3] = { 65.8f, -74.9f, 34.5f };
 
+// `set` for a gun placed where GoldenEye itself holds it rather than by a
+// grip, with `pos` how far the host's idle pose carries its body matrix from
+// its rest (model units, measured in the game). Bean's gun is drawn at its own
+// size - GoldenEye's model at 4.7 times, in GoldenEye's frame - as GoldenEye's
+// model is drawn in its own look:
+//
+// - bondgun.c holds a gun at its gunWeaponStat position with the model under a
+//   0.1 scale and turned to face away from the eye (the barrel runs along +z,
+//   the eye looks down -z, so x and z change sign), which puts GoldenEye's
+//   model and its host's ten times the difference of their two positions apart
+//   in the model's space;
+// - the root's own position is not drawn (the root's matrix is the gun's), so
+//   GoldenEye's model stands off its root - SKEL_TOP, Bean's first bone - and
+//   the host off its own root;
+// - and the gun goes under the host's body matrix, which the host's idle
+//   animation carries away from its rest.
+#define FP_OWNPLACE 2
+#define FP_VIEW_SCALE 0.1f
+
+static const f32 fpViewToModel[3] = { -1.0f, 1.0f, -1.0f };
+
 static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
-	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = { 1, { 0.0f, -273.0f, -590.0f }, 0.0f },
+	// Placed where GoldenEye holds it. Placed by its grip on its bullpup host
+	// (Bean's (0, -273, -590) onto the palm) it was fitted to the host's
+	// length and stood half as far again from the eye as GoldenEye's own, and
+	// off to the right: a thin rifle in the corner with the scope's eyepiece
+	// far smaller than GoldenEye's (F3 20260925-234109, "the sniper rifle on
+	// the dam level looks too small"). The host's idle pose holds its body 164
+	// units further along the barrel than its rest (anim 1036, frame 0).
+	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = { FP_OWNPLACE, { 8.7f, 17.6f, 164.0f }, 1.0f / 4.7f },
 
 	// GoldenEye's launcher is a long tube on a host half its length, and its
 	// box is longer still - the muzzle bone binds at z 1489 and geometry runs
@@ -681,6 +709,24 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 			for (s32 i = 0; i < ARRAYCOUNT(propRows); i++) {
 				if (strcmp(name, propRows[i].row.file) == 0) {
 					return GEBEAN_PROPROW_BASE + i;
+				}
+			}
+
+			// A gun's own prop, PROP_CHR* (Pgx210Z is the sniper rifle): what
+			// the guards hold and what lies on the floor, out of the converted
+			// setup. It is the model its pickup row was fitted on
+			// (gegunstable.h), so the row lays the release's gun on it as it
+			// does on the host's pickup the player holds. Missing from here,
+			// every guard's gun stayed GoldenEye's N64 one in the HD look
+			// beside the player's HD one (F3 20260925-233626, Surface's
+			// sniper rifles).
+			if (name[3] >= '0' && name[3] <= '9') {
+				const s32 prop = atoi(name + 3);
+
+				for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
+					if (gegunsChrProp(gunRows[i].weaponnum - WEAPON_GE_FIRST) == prop) {
+						return ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + i;
+					}
 				}
 			}
 		} else if (name[0] == 'C') {
@@ -6671,8 +6717,24 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			beanhi[0] - beanlo[0], beanhi[1] - beanlo[1], beanhi[2] - beanlo[2], scale, usegrip,
 			fpaxis ? fpaxis[0] : 0, fpaxis ? fpaxis[1] : 0, fpaxis ? fpaxis[2] : 0);
 
-	// A gun placed by its grip: that point of Bean's gun onto the hand's
-	if (usegrip && FP_PALM_MTX < nummatrices && rig.hasrest[FP_PALM_MTX]) {
+	// A gun placed where GoldenEye holds it: Bean's root onto the host's,
+	// moved by the difference of where the two are held and back by the
+	// host's idle pose (FP_OWNPLACE)
+	if (usegrip == FP_OWNPLACE) {
+		f32 own[3];
+		f32 host[3];
+
+		if (bm.numbones > 0 && rig.hasrest[0] && gegunsViewPlacement(fp, own, host)) {
+			scale = fpGrip[fp].scale;
+
+			for (s32 a = 0; a < 3; a++) {
+				beanc[a] = bm.bind[0][a];
+				hostc[a] = rig.rest[0][a] + (own[a] - host[a]) * fpViewToModel[a] / FP_VIEW_SCALE
+					- fpGrip[fp].pos[a];
+			}
+		}
+	} else if (usegrip && FP_PALM_MTX < nummatrices && rig.hasrest[FP_PALM_MTX]) {
+		// A gun placed by its grip: that point of Bean's gun onto the hand's
 		if (fpGrip[fp].scale > 0.0f) {
 			scale = fpGrip[fp].scale;
 		}

@@ -57,10 +57,14 @@ u16 gegunsOwnModel(s32 index);
 void gegunsSetOwnModelInUse(s32 index, s32 inuse);
 s32 gegunsOwnModelInUse(s32 weaponnum);
 s32 gegunsOwnModelHidden(s32 weaponnum);
+// Where GoldenEye holds the gun in front of the eye, and where its host is held
+s32 gegunsViewPlacement(s32 index, f32 *own, f32 *host);
 
 // GoldenEye's own held prop for this gun where its own look is drawn and the
 // stage has it (MODEL_REMAKE_FIRST + PROP_CHR*), or -1
 s32 gegunsOwnPropModel(s32 weaponnum);
+// Gun `index`'s PROP_CHR* number, thrown ones included, or -1
+s32 gegunsChrProp(s32 index);
 // GoldenEye's own rocket for its launcher where its own model is drawn, or fallback
 s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback);
 
