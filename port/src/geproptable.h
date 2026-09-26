@@ -56,6 +56,7 @@
 	PROPROW("Pgx094Z", "prop/tuningconsole1", 0, 1, 2, 1, 1, 1, 7.00111f, 0.00f, 0.00f, 0.00f, -59.00f, -845.98f, 320.92f), // tuning_console1, 94%
 	PROPROW("Pgx095Z", "prop/deskarecibo1", 0, 1, 2, 1, 1, 1, 7.00056f, 0.00f, 0.00f, 0.00f, 0.00f, -700.09f, 1312.99f), // desk_arecibo1, 100%
 	PROPROW("Pgx097Z", "prop/locker4", 0, 1, 2, 1, 1, 1, 6.99468f, 0.00f, 0.00f, 0.00f, 1187.83f, -757.09f, 408.02f), // locker4, 100%
+	PROPROW("Pgx098Z", "prop/roofgun", 0, 1, 2, 1, 1, 1, 1.99997f, 0.00f, 0.00f, 0.00f, -0.00f, -199.88f, -0.00f), // roofgun, 100%
 	PROPROW("Pgx099Z", "prop/destengine", 0, 1, 2, 1, 1, 1, 6.99992f, 0.00f, 0.00f, 0.00f, 613.66f, 1119.70f, 36690.80f), // dest_engine, 100%
 	PROPROW("Pgx100Z", "prop/destexocet", 0, 1, 2, 1, 1, 1, 6.99974f, 0.00f, 0.00f, 0.00f, 132.54f, -8689.84f, 44280.14f), // dest_exocet, 76%
 	PROPROW("Pgx101Z", "prop/destgun", 0, 1, 2, 1, 1, 1, 7.00048f, 0.00f, 0.00f, 0.00f, -0.00f, -4082.42f, -9918.55f), // dest_gun, 100%
@@ -115,10 +116,12 @@
 	PROPROW("Pgx287Z", "prop/motorbike", 0, 1, 2, 1, 1, 1, 3.04993f, 0.00f, 0.00f, 0.00f, -0.31f, -402.19f, 148.03f), // motorbike, 100%
 	PROPROW("Pgx288Z", "prop/tank", 0, 1, 2, 1, 1, 1, 3.05000f, 0.00f, 0.00f, 0.00f, -0.00f, 386.03f, 154.35f), // tank, 100%
 	PROPROW("Pgx291Z", "prop/plane", 0, 1, 2, 1, 1, 1, 3.04996f, 0.00f, 0.00f, 0.00f, -0.09f, 638.84f, 3364.81f), // plane, 97%
+	PROPROW("Pgx292Z", "prop/gunrunway1", 0, 1, 2, 1, 1, 1, 1.99913f, 0.00f, 0.00f, 0.00f, -29739.23f, 1599.33f, 65604.45f), // gun_runway1, 100%
 	PROPROW("Pgx293Z", "prop/safedoor", 0, 1, 2, 1, 1, 1, 2.00027f, 0.00f, 0.00f, 0.00f, 0.12f, 0.00f, 100.14f), // safedoor, 100%
 	PROPROW("Pgx295Z", "prop/hatchsevx", 0, 1, 2, 1, 1, 1, 3.50044f, 0.00f, 0.00f, 0.00f, -48014.47f, -2821.70f, 39257.22f), // hatchsevx, 100%
 	PROPROW("Pgx297Z", "prop/archsecdoor1", 0, 1, 2, 1, 1, 1, 3.49997f, 0.00f, 0.00f, 0.00f, 4724.70f, -1166.66f, -4155.22f), // archsecdoor1, 100%
 	PROPROW("Pgx298Z", "prop/archsecdoor2", 0, 1, 2, 1, 1, 1, 3.50131f, 0.00f, 0.00f, 0.00f, 1243.38f, -1196.07f, -4438.39f), // archsecdoor2, 100%
+	PROPROW("Pgx299Z", "prop/groundgun", 0, 1, 2, 1, 1, 1, 2.00002f, 0.00f, 0.00f, 0.00f, 0.00f, 400.00f, 0.00f), // groundgun, 100%
 	PROPROW("Pgx300Z", "prop/trainextdoor", 0, 1, 2, 1, 1, 1, 3.50118f, 0.00f, 0.00f, 0.00f, -7250.06f, 476.99f, 1781.11f), // trainextdoor, 73%
 	PROPROW("Pgx301Z", "prop/carbmw", 0, 1, 2, 1, 1, 1, 1.00001f, 0.00f, 0.00f, 0.00f, -166.67f, -151.53f, -70.01f), // carbmw, 100%
 	PROPROW("Pgx303Z", "prop/cargolf", 0, 1, 2, 1, 1, 1, 2.00040f, 0.00f, 0.00f, 0.00f, -416.75f, -314.99f, 183.42f), // cargolf, 99%
