@@ -3021,6 +3021,11 @@ struct player {
 	f32 thirdpersonbodytheta;
 	bool thirdpersonbodyset;
 	s32 thirdpersonfirehold;
+	// Set once a fall has become a long one (bwalkUpdateVertical()), and only
+	// read while isfalling still says the same fall is going on, so nothing
+	// has to clear it. A long fall is watched from the eye: the body has no
+	// falling pose and holds its stand the whole way down (playerIsThirdPerson()).
+	bool thirdpersonlongfall;
 	f32 codaimfrac; // COD Style Aiming: how far the gun has come up to the sights, 0 to 1
 	s32 spawnweaponnums[2]; // what playerSpawn() put in each hand, for the mission script's chr_draw_weapon to put back
 	// Camera Tilt: where the lean has got to, in degrees, chasing the

@@ -1012,6 +1012,44 @@ void bwalkUpdateSpeedForwards(f32 targetspeed, f32 accelspeed)
 	g_Vars.currentplayer->speedforwards = g_Vars.currentplayer->speedgo;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Third person hands a long fall to the eye (playerIsThirdPerson()). The body
+ * has no falling animation: it holds whatever it was doing when the floor went,
+ * standing bolt upright for the few seconds of a drop, which from behind is the
+ * whole picture. GoldenEye's Dam dive is the one that asked (350 ticks of it
+ * before the list fades to the ending), but anything the player can fall a long
+ * way down reads the same.
+ *
+ * Only a fall that is plainly a long one counts, so a jump, a step off a crate
+ * or a drop to the floor below never flicks the camera in and straight back
+ * out: the player must be on the way down, have been in the air for a
+ * sixth of a second (a floor probe that misses for a frame is not a fall), and
+ * still have more than LONGFALL_DROP to go to the floor beneath, so the
+ * shortest fall that counts is one of about 10 metres, 1.4 seconds of it. A
+ * jump's rise never counts and its fall back to the same floor is too short.
+ * Once it counts it counts until the player is on something again
+ * (isfalling goes false), because the distance left shrinks to nothing on the
+ * way down.
+ */
+#define LONGFALL_DROP 1000.0f
+
+static void bwalkUpdateLongFall(void)
+{
+	struct player *player = g_Vars.currentplayer;
+
+	if (player->thirdpersonlongfall || !player->thirdperson) {
+		return;
+	}
+
+	if (player->bdeltapos.y < 0
+			&& g_Vars.lvframe60 - player->fallstart >= TICKS(10)
+			&& player->vv_manground - player->vv_ground > LONGFALL_DROP) {
+		player->thirdpersonlongfall = true;
+	}
+}
+#endif
+
 void bwalkUpdateVertical(void)
 {
 	s32 i;
@@ -1396,7 +1434,13 @@ void bwalkUpdateVertical(void)
 				// Just started falling
 				g_Vars.currentplayer->isfalling = true;
 				g_Vars.currentplayer->fallstart = g_Vars.lvframe60;
+#ifndef PLATFORM_N64
+				g_Vars.currentplayer->thirdpersonlongfall = false;
+#endif
 			} else {
+#ifndef PLATFORM_N64
+				bwalkUpdateLongFall();
+#endif
 				if (geRoomActive() && !g_Vars.normmplayerisrunning) {
 					// GoldenEye has no clock on a fall, and its missions
 					// count on that: Dam's dive is 350 ticks of one before

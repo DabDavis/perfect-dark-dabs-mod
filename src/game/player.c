@@ -3907,9 +3907,14 @@ bool playerIsThirdPerson(struct player *player)
 	// front of the eye and not out of the body - so it asks for the eye the
 	// same way aiming does, and the camera goes back out on its own when the
 	// watch is put away (gewatch.c)
+	// A long fall is watched from the eye too (bwalkUpdateLongFall()), and
+	// the camera goes back out when the player lands. That includes a death
+	// on the way down: the frozen death camera would be the one left far
+	// above at the top of the drop.
 	return playerWantsThirdPerson(player)
 		&& (!player->insightaimmode || player->isdead)
 		&& !geWatchIsOpen()
+		&& (!player->isfalling || !player->thirdpersonlongfall)
 		&& player->haschrbody;
 #endif
 }
