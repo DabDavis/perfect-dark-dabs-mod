@@ -1252,7 +1252,21 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 					// twice all the way down. GoldenEye never draws faster than
 					// it animates. On a converted level the height is left to
 					// tween like the rest.
-					if (nodetype == MODELNODETYPE_CHRINFO && !geRoomActive())
+					//
+					// But not a player's body seen through this fork's own
+					// third person camera (CAMERAMODE_DEFAULT; a cutscene's is
+					// CAMERAMODE_THIRDPERSON). playerTickThirdPerson() forces that
+					// one to the ground every tick too - stock's
+					// CHRHFLAG_DROPPINGITEM there is this bit - and the snap is
+					// what lands the body on a new animation's height: the
+					// crouch rows hold one frame at speed 0.001, so tweened the
+					// body took a thousand frames to crouch and was seen
+					// floating over the floor, sinking (Dam, F3
+					// 20260926-063144).
+					if (nodetype == MODELNODETYPE_CHRINFO
+							&& (!geRoomActive()
+								|| (prop->type == PROPTYPE_PLAYER
+									&& g_Vars.players[playermgrGetPlayerNumByProp(prop)]->cameramode == CAMERAMODE_DEFAULT)))
 #else
 					if (nodetype == MODELNODETYPE_CHRINFO)
 #endif
