@@ -334,7 +334,17 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 					f20 = 1;
 
 					t0slot = &sp00[t1];
+#ifdef PLATFORM_N64
 					sr8 = t0slot->unk00;
+#else
+					// with no animation there is nothing in the slot: the loop
+					// above clears only the first nummatrices, and the slot is
+					// the node's *part*, which in GoldenEye's own models
+					// (geconvert.c) runs past them - the detonator's pressing
+					// hand is part 4 of 4 matrices - so its flags were the
+					// stack's and sent it to read the missing animation
+					sr8 = 0;
+#endif
 				}
 
 				if (sr8 & 2) {
