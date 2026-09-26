@@ -47,6 +47,7 @@
 #include "gebean.h"
 #include "xblamesh.h"
 #include "game/bondgun.h"
+#include "game/botact.h"
 #include "game/camera.h"
 #include "game/gfxmemory.h"
 #include "game/game_1531a0.h"
@@ -671,6 +672,101 @@ Gfx *geHudRenderAmmo(Gfx *gdl)
 	}
 
 	return hudEnd(gdl);
+}
+
+/**
+ * What the watch's mission status shows beside the gun: its rounds, taken from
+ * the hand while the gun is still in it (Perfect Dark's lowering puts the
+ * magazine back in the reserve), and for a gun only picked on the watch the
+ * magazine it will be loaded with.
+ */
+s32 geHudWatchAmmo(s32 weaponnum, s32 *mag, s32 *reserve)
+{
+	const struct player *player = g_Vars.currentplayer;
+	const struct hand *hand = &player->hands[HAND_RIGHT];
+	s32 icon, noclip, type, clip, total;
+
+	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= NUM_WEAPONS
+			|| g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon == ICON_NONE) {
+		return 0;
+	}
+
+	if (hand->inuse && hand->gset.weaponnum == weaponnum && hudHandAmmo(HAND_RIGHT, &icon, mag, reserve, &noclip)) {
+		return 1;
+	}
+
+	type = botactGetAmmoTypeByFunction(weaponnum, FUNC_PRIMARY);
+
+	if (type < 0) {
+		return 0;
+	}
+
+	total = player->ammoheldarr[type];
+	clip = botactGetClipCapacityByFunction(weaponnum, FUNC_PRIMARY);
+
+	if (g_WeaponRows[weaponnum - WEAPON_GE_FIRST].noclip || clip <= 0) {
+		*mag = 0;
+		*reserve = total;
+	} else {
+		*mag = total < clip ? total : clip;
+		*reserve = total - *mag;
+	}
+
+	return 1;
+}
+
+/**
+ * gunDrawWatchAmmoDisplay(): the ammunition's picture with its bottom at y 180
+ * and its middle at x 200 of GoldenEye's frame, the magazine ending four units
+ * left of it and the reserve starting three right of it, both in the watch's
+ * green with no outline, their middles at y 177. The caller has set the text
+ * frame; (ox, oy) and (sx, sy) put a point of that frame on the frame buffer.
+ */
+Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox, f32 oy, f32 sx, f32 sy)
+{
+	s32 icon, noclip, width, height;
+	f32 cx, cy;
+	char buffer[12];
+	s32 w, h;
+
+	if (!g_Hud.on || weaponnum < WEAPON_GE_FIRST || weaponnum >= NUM_WEAPONS) {
+		return gdl;
+	}
+
+	icon = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon;
+	noclip = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].noclip;
+
+	if (icon == ICON_NONE) {
+		return gdl;
+	}
+
+	width = g_IconRows[icon].width;
+	height = g_IconRows[icon].height;
+	cx = 200.0f + (width * 0.5f - (f32)(width / 2));
+	cy = 180.0f - height * 0.5f;
+
+	gdl = hudImage(gdl, &g_Hud.icons[icon], 2, 1, 1,
+			ox + (cx - width * 0.5f) * sx, oy + (cy - height * 0.5f) * sy,
+			ox + (cx + width * 0.5f) * sx, oy + (cy + height * 0.5f) * sy,
+			width, height, 255, 255);
+
+	gdl = gexFrontTextSetup(gdl);
+
+	if (!noclip) {
+		snprintf(buffer, sizeof(buffer), "%d\n", mag);
+		gexFrontTextMeasure(1, buffer, &w, &h);
+		gdl = gexFrontTextPrint(gdl, 1, 196 - width / 2 - w, 177 + h / 2 - h, buffer, 0x00ff00b0);
+	} else {
+		reserve += mag;
+	}
+
+	if (reserve > 0 || noclip) {
+		snprintf(buffer, sizeof(buffer), "%d\n", reserve);
+		gexFrontTextMeasure(1, buffer, &w, &h);
+		gdl = gexFrontTextPrint(gdl, 1, 203 + (width + 1) / 2, 177 + h / 2 - h, buffer, 0x00ff00b0);
+	}
+
+	return gdl;
 }
 
 Gfx *geHudRenderSight(Gfx *gdl, f32 x, f32 y)

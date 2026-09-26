@@ -57,6 +57,7 @@
 #include "system.h"
 #include "video.h"
 #include "gewatch.h"
+#include "gehud.h"
 #include "gegadgets.h"
 #include "gexfront.h"
 #include "gexplus.h"
@@ -115,23 +116,23 @@
 #define YOFFSET_7              0x31
 #define YOFFSET_8              0x25
 #define YOFFSET_9              0x3b
-#define WATCHZOOM1             4.6f   // the pulse as a screen turns
 /**
- * GoldenEye's own zoom with the watch open is 5.9 degrees, which fills its 4:3
- * screen with the face and nothing else. A wider window has room beside it, and
- * the watch is carried to the pose with the arm still on it, so the view stops
- * further out the wider the window is: GoldenEye's own framing on 4:3 and, by
- * 16:9, the whole of the watch with the cuff and the hand either side of it.
- *
- * The face keeps its own shape either way - the projection's field of view is
- * vertical - and its screens keep their place on it, since the text is laid out
- * on the face rather than on the window (watchTextFrame()).
+ * GoldenEye's zooms with the watch open, which are not a pulse as a screen
+ * turns but where each screen stays: the mission status at 5.9 degrees, the
+ * inventory and the briefing at 4.6, the control and options screens at 3.95
+ * (options.c's watch_screen*_navigation(), each trigger_watch_zoom() to the
+ * screen it goes to, over 15 sixtieths). They are vertical fields of view over
+ * the player's viewport, so the face is the same size against the height of the
+ * view on any window; a 16:9 one has the watch's own case either side of it,
+ * where GoldenEye's 16:9 mode stretched the whole picture sideways.
  */
-#define WATCHZOOM2             5.9f   // the watch open, on 4:3
-#define WATCHZOOM_WIDE         11.0f   // and on 16:9
-#define WATCH_ASPECT_NARROW    (4.0f / 3.0f)
-#define WATCH_ASPECT_WIDE      (16.0f / 9.0f)
-#define WATCHZOOM3             3.95f  // the inventory, which leans in further
+#define WATCHZOOM1             4.6f
+#define WATCHZOOM2             5.9f
+#define WATCHZOOM3             3.95f
+#define WATCH_PAGE_ZOOMTIME    15.0f
+
+// the inventory's line, LINEHEIGHT()
+#define INV_LINE               12
 
 // the five screens (WATCH_INDEX)
 enum {
@@ -165,7 +166,6 @@ enum {
 #define COL_HIGHLIGHT 0xa0ffa0f0
 #define COL_DIM       0x00800080
 #define COL_WHITE     0xffffffff
-#define COL_RED       0xff4040ff
 
 // the watch face: 30 vertices round a disc of radius 520, the green fill just
 // inside the ring (sub_GAME_7F0A33F8(), draw_watch_background())
@@ -173,17 +173,6 @@ enum {
 #define FACE_RADIUS   520.0f
 #define FACE_RING     0.92f
 #define FACE_FILL     0.9f
-
-/**
- * How big the screens are drawn, in view units at the watch's own distance.
- *
- * GoldenEye draws them in the model's own units and lets the model's scale
- * decide, which works while there is one model. The watch here is worn by
- * whichever body the player has, whose scale is its own, so the screens take a
- * size of their own instead - this is what GoldenEye's numbers come to on its
- * own arm, and the watch model is fitted to match it.
- */
-#define PAGE_RADIUS   1.17f
 
 /**
  * What the face's own matrix is scaled to once the watch is up, which is what
@@ -397,6 +386,43 @@ struct gewatch {
 	f32 padspeed;    // g_WatchControllerSpinSpeed
 	s32 padidle;     // D_80040B2C, frames since the player last turned it
 	s32 statichalf;
+
+	// the controller's tip towards the player while they have hold of it
+	// (g_WatchControllerPitch), and the two latches GoldenEye's stick moves
+	// through: sideways (controlstick_lr_enabled) and up and down
+	// (watch_stick_y_nav_ready, watch_stick_y_prev_active)
+	f32 padpitch;
+	s32 lrready;
+	s32 yready;
+	s32 yactive;
+
+	// the pulses: INCOMPLETE on the mission status (D_80040AF4, a green that
+	// fades and jumps back) and on the objectives (D_80040AFC)
+	u32 statuspulse;
+	s32 statuswait;
+	u32 objpulse;
+	s32 objwait;
+
+	// the inventory's list (game_options_inventory_navigation()): a cursor
+	// that moves in tenths while a direction is held, the item it is on, and
+	// the list easing to it; and the name drawn outlined for ten frames after
+	// an item is taken (D_800409C4)
+	f32 invcursor;
+	s32 invtexty;
+	s32 invsettled;
+	s32 invflash;
+
+	// the control style's list, the same kind of list one line tall
+	f32 stylecursor;
+	s32 styleindex;
+	s32 styletexty;
+	s32 stylesettled;
+
+	// what was in the hand when the watch came up, and its rounds, which
+	// Perfect Dark's own lowering puts back in the reserve
+	s32 ammoweapon;
+	s32 ammomag;
+	s32 ammoreserve;
 
 	// what the level was doing before the watch took it over
 	s32 paused;
@@ -1113,6 +1139,12 @@ void geWatchStageStart(s32 stagenum)
 	g_Watch.controlrow = 0;
 	g_Watch.briefpage = BRIEF_OBJECTIVES;
 	g_Watch.invrow = 0;
+	g_Watch.invcursor = 0.5f;
+	g_Watch.invtexty = 0;
+	g_Watch.statuspulse = 0xff00a0u;
+	g_Watch.statuswait = 0xa;
+	g_Watch.objpulse = 0xffu;
+	g_Watch.objwait = 0xa;
 }
 
 /* ---- the state machine -------------------------------------------------- */
@@ -1272,6 +1304,41 @@ static void watchTickStatic(void)
 			} else if (g_Watch.padspin < -M_BADPI) {
 				g_Watch.padspin += M_BADTAU;
 			}
+		}
+
+		// the controller tips towards the player by the stick's up and down
+		// while they have hold of it, and back when they let go
+		{
+			const s32 held = g_Watch.page == PAGE_CONTROL && g_Watch.selected && g_Watch.controlrow == 1;
+			const f32 target = held ? (f32)joyGetStickY(0) * M_BADTAU / 360.0f : 0.0f;
+
+			g_Watch.padpitch += (target - g_Watch.padpitch) / 4.0f;
+		}
+
+		// INCOMPLETE's pulse: sixteen frames bright, then down a sixteenth of
+		// green a frame to 0x5f and back to the top (D_80040AF4 and
+		// D_80040AF8); the objectives' own does the same in its red
+		// (D_80040AFC, D_80040B00)
+		if (g_Watch.statuswait < 0) {
+			g_Watch.statuspulse -= 0x00100000;
+		}
+
+		g_Watch.statuswait--;
+
+		if (g_Watch.statuspulse < 0x5f00a1u) {
+			g_Watch.statuspulse = 0xff00a0u;
+			g_Watch.statuswait = 0xf;
+		}
+
+		if (g_Watch.objwait < 0) {
+			g_Watch.objpulse -= 0x10;
+		}
+
+		g_Watch.objwait--;
+
+		if (g_Watch.objpulse < 0x60u) {
+			g_Watch.objpulse = 0xffu;
+			g_Watch.objwait = 0xf;
 		}
 
 		if (rngRandom() > (0xffa0u << 16)) {
@@ -1442,31 +1509,29 @@ static void watchUpdateZoom(void)
 	viSetFovY(player->zoominfovy);
 }
 
-/** The zoom the open watch settles at, for the shape of window it is drawn in. */
-static f32 watchOpenFov(void)
+/** Where each screen keeps the zoom (options.c's navigation functions). */
+static f32 watchPageZoom(s32 page)
 {
-	const f32 aspect = videoGetAspect();
-	const f32 t = (aspect - WATCH_ASPECT_NARROW) / (WATCH_ASPECT_WIDE - WATCH_ASPECT_NARROW);
-
-	if (t <= 0.0f) {
-		return WATCHZOOM2;
+	switch (page) {
+	case PAGE_INVENTORY:
+	case PAGE_BRIEFING:
+		return WATCHZOOM1;
+	case PAGE_CONTROL:
+	case PAGE_OPTIONS:
+		return WATCHZOOM3;
 	}
 
-	if (t >= 1.0f) {
-		return WATCHZOOM_WIDE;
-	}
-
-	return WATCHZOOM2 + (WATCHZOOM_WIDE - WATCHZOOM2) * t;
+	return WATCHZOOM2;
 }
 
 // bondviewZoomToWatchOnOpen() and bondviewZoomFromWatchOnExit(): the duration
-// is the distance still to travel, at GoldenEye's own rate
+// is the distance still to travel, at GoldenEye's own rate. The watch always
+// opens on the mission status (sub_GAME_7F0A69A8()).
 static void watchZoomIn(void)
 {
-	const f32 fovy = watchOpenFov();
-	f32 f = ((fovy - g_Vars.currentplayer->zoominfovy) * 45.0f) / -54.1f;
+	f32 f = ((WATCHZOOM2 - g_Vars.currentplayer->zoominfovy) * 45.0f) / -54.1f;
 
-	watchZoomTo(fovy, f < 0.0f ? -f : f);
+	watchZoomTo(WATCHZOOM2, f < 0.0f ? -f : f);
 }
 
 static void watchZoomOut(void)
@@ -1474,6 +1539,15 @@ static void watchZoomOut(void)
 	f32 f = ((60.0f - g_Vars.currentplayer->zoominfovy) * 45.0f) / -54.1f;
 
 	watchZoomTo(60.0f, f < 0.0f ? -f : f);
+}
+
+/**
+ * check_watch_page_transistion_running(): a screen's zoom is still running,
+ * and GoldenEye draws the face alone until it is done.
+ */
+static s32 watchPageTurning(void)
+{
+	return (g_Watch.state == WS_OPEN || g_Watch.state == WS_CLOSING) && watchZooming();
 }
 
 /** The level stops where GoldenEye's pausing_flag says it does. */
@@ -1511,6 +1585,13 @@ static void watchPutGunAway(void)
 	g_Watch.weapons[HAND_RIGHT] = bgunGetWeaponNum(HAND_RIGHT);
 	g_Watch.weapons[HAND_LEFT] = bgunGetWeaponNum(HAND_LEFT);
 	g_Watch.hadweapons = 1;
+
+	// its rounds as the hand has them, before the lowering empties it
+	g_Watch.ammoweapon = g_Watch.weapons[HAND_RIGHT];
+
+	if (!geHudWatchAmmo(g_Watch.ammoweapon, &g_Watch.ammomag, &g_Watch.ammoreserve)) {
+		g_Watch.ammoweapon = -1;
+	}
 
 	bgunEquipWeapon2(HAND_RIGHT, WEAPON_UNARMED);
 	bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
@@ -1621,9 +1702,15 @@ s32 geWatchPause(void)
 	switch (g_Watch.state) {
 	case WS_CLOSED:
 		g_Watch.tiltstart = g_Vars.currentplayer->vv_verta;
+
+		// sub_GAME_7F0A69A8(): every time it comes up the watch is on the
+		// mission status, with the briefing on its objectives and nothing held
+		g_Watch.page = PAGE_MISSION;
+		g_Watch.briefpage = BRIEF_OBJECTIVES;
 		g_Watch.selected = 0;
 		g_Watch.confirm = 0;
-		g_Watch.sticky = 0;
+		g_Watch.lrready = 0;
+		g_Watch.yready = 0;
 		watchSetState(WS_LOWER);
 
 		if (g_Watch.model && g_Watch.animnum >= 0) {
@@ -1655,37 +1742,64 @@ s32 geWatchPause(void)
 
 /* ---- the screens' own input --------------------------------------------- */
 
-// the stick's up and down, latched so that holding it moves one row
+/**
+ * GoldenEye's stick, as the watch reads it (options.c): a move sideways or up
+ * and down counts once and then not again until the stick has been let back
+ * to the middle (controlstick_lr_enabled, watch_stick_y_nav_ready), which
+ * sub_GAME_7F0A6A80() re-arms every frame the stick is within ten of it.
+ */
+static void watchTickLatches(void)
+{
+	const s32 x = joyGetStickX(0);
+	const s32 y = joyGetStickY(0);
+
+	if (x >= -0xa && x < 0xb) {
+		g_Watch.lrready = 1;
+	}
+
+	if (y >= -0xa && y < 0xb) {
+		g_Watch.yready = 1;
+	}
+}
+
+static s32 watchStickLeft(void)
+{
+	return joyGetStickX(0) < -0x2d && g_Watch.lrready;
+}
+
+static s32 watchStickRight(void)
+{
+	return joyGetStickX(0) >= 0x2e && g_Watch.lrready;
+}
+
 static s32 watchStickUp(void)
 {
-	return joyGetStickY(0) > 0x2e;
+	return joyGetStickY(0) >= 0x2e && g_Watch.yready;
 }
 
 static s32 watchStickDown(void)
 {
-	return joyGetStickY(0) < -0x2d;
+	return joyGetStickY(0) < -0x2d && g_Watch.yready;
 }
 
 static s32 watchPressedUp(void)
 {
-	return (joyGetButtonsPressedThisFrame(0, U_JPAD | U_CBUTTONS) != 0) || (watchStickUp() && !g_Watch.sticky);
+	return joyGetButtonsPressedThisFrame(0, U_JPAD | U_CBUTTONS) != 0 || watchStickUp();
 }
 
 static s32 watchPressedDown(void)
 {
-	return (joyGetButtonsPressedThisFrame(0, D_JPAD | D_CBUTTONS) != 0) || (watchStickDown() && !g_Watch.sticky);
+	return joyGetButtonsPressedThisFrame(0, D_JPAD | D_CBUTTONS) != 0 || watchStickDown();
 }
 
 static s32 watchPressedLeft(void)
 {
-	return joyGetButtonsPressedThisFrame(0, L_JPAD | L_CBUTTONS | L_TRIG) != 0
-		|| (joyGetStickX(0) < -0x2d && !g_Watch.sticky);
+	return joyGetButtonsPressedThisFrame(0, L_JPAD | L_CBUTTONS | L_TRIG) != 0 || watchStickLeft();
 }
 
 static s32 watchPressedRight(void)
 {
-	return joyGetButtonsPressedThisFrame(0, R_JPAD | R_CBUTTONS | R_TRIG) != 0
-		|| (joyGetStickX(0) > 0x2e && !g_Watch.sticky);
+	return joyGetButtonsPressedThisFrame(0, R_JPAD | R_CBUTTONS | R_TRIG) != 0 || watchStickRight();
 }
 
 static s32 watchPressedAccept(void)
@@ -1704,38 +1818,85 @@ static s32 watchPressedStart(void)
 	return joyGetButtonsPressedThisFrame(0, START_BUTTON) != 0 || inputKeyPressedThisFrame(VK_ESCAPE);
 }
 
-/** How many rows the open screen has for the stick to walk. */
-static s32 watchNumRows(void)
+/**
+ * sub_GAME_7F0A611C() and game_options_inventory_navigation(): a list with a
+ * cursor that moves a whole row for a press and in tenths while a direction is
+ * held or the stick is part way over, never past either end, and is drawn back
+ * to the middle of its row once nothing is held. The text eases a third of the
+ * way to the row a frame, and is settled when it is there.
+ */
+static void watchListNav(f32 *cursor, s32 *index, s32 count, s32 *texty, s32 top, s32 line, s32 *settled)
 {
-	switch (g_Watch.page) {
-	case PAGE_CONTROL:
-		return 2;
-	case PAGE_OPTIONS:
-		// music, fx, then the eight toggles (game_options_entries)
-		return 10;
-	case PAGE_BRIEFING:
-		return NUM_BRIEF_PAGES;
-	case PAGE_INVENTORY:
-		return invGetCount();
+	const s32 sticky = joyGetStickY(0);
+	s32 target;
+
+	if (joyGetButtonsPressedThisFrame(0, U_JPAD | U_CBUTTONS) || sticky >= 0x47) {
+		if ((s32)*cursor > 0) {
+			*cursor -= 1.0f;
+		}
+	} else if (joyGetButtonsPressedThisFrame(0, D_JPAD | D_CBUTTONS) || sticky < -0x46) {
+		if ((s32)*cursor < count - 1) {
+			*cursor += 1.0f;
+		}
 	}
 
-	return 0;
-}
-
-static s32 *watchRow(void)
-{
-	switch (g_Watch.page) {
-	case PAGE_CONTROL:
-		return &g_Watch.controlrow;
-	case PAGE_OPTIONS:
-		return &g_Watch.optionrow;
-	case PAGE_BRIEFING:
-		return &g_Watch.briefpage;
-	case PAGE_INVENTORY:
-		return &g_Watch.invrow;
+	if (joyGetButtons(0, U_JPAD | U_CBUTTONS)) {
+		if ((s32)*cursor > 0) {
+			*cursor -= 0.1f;
+		}
+	} else if (joyGetButtons(0, D_JPAD | D_CBUTTONS)) {
+		if ((s32)*cursor < count - 1) {
+			*cursor += 0.1f;
+		}
 	}
 
-	return NULL;
+	if (sticky >= 0x1f && sticky < 0x46 && *index > 0) {
+		*cursor -= (f32)sticky / 300.0f;
+	} else if (sticky < -0x1e && sticky >= -0x45 && (s32)*cursor < count - 1) {
+		*cursor -= (f32)sticky / 300.0f;
+	}
+
+	if (sticky >= 0x10 && !g_Watch.yactive && *index > 0) {
+		*cursor -= 1.0f;
+	} else if (sticky < -0xf && !g_Watch.yactive && *index < count - 1) {
+		*cursor += 1.0f;
+	}
+
+	g_Watch.yactive = sticky >= 0x10 || sticky < -0xf;
+
+	if (*cursor > (f32)count - 0.5f) {
+		*cursor = (f32)count - 0.5f;
+	}
+
+	if (*cursor < -0.5f) {
+		*cursor = -0.5f;
+	}
+
+	*index = (s32)*cursor;
+
+	if (*index < 0) {
+		*index = 0;
+	}
+
+	target = top - *index * line;
+
+	if (target < *texty) {
+		*texty = *texty - (*texty - target) / 3 - 1;
+		*settled = 0;
+	} else if (*texty < target) {
+		*texty = *texty + (target - *texty) / 3 + 1;
+		*settled = 0;
+	} else {
+		*settled = 1;
+	}
+
+	if (!joyGetButtons(0, 0xffff)) {
+		if ((f32)*index + 0.55f < *cursor) {
+			*cursor -= 0.1f;
+		} else if (*cursor <= (f32)*index + 0.45f) {
+			*cursor += 0.1f;
+		}
+	}
 }
 
 /**
@@ -1798,20 +1959,47 @@ static void watchSetOptionValue(s32 row, s32 value)
 	g_Vars.modifiedfiles |= MODFILE_GAME;
 }
 
-// the two sliders, at GoldenEye's own step (WATCH_VOL_ADJUST_STEP)
-#define VOL_STEP 1024
-#define VOL_MAX  0x5000
+/**
+ * The two sliders (watch_adjust_volume_slider()): while one is held, a
+ * direction held moves it WATCH_VOL_ADJUST_STEP a frame and the stick moves it
+ * by how far it is pushed. GoldenEye's scale is 0x7fff and Perfect Dark's
+ * 0x5000, so its steps are taken at the same share of the whole.
+ */
+#define VOL_MAX   0x5000
+#define VOL_SCALE ((f32)VOL_MAX / 32767.0f)
 
-static void watchAdjustVolume(s32 row, s32 up)
+static void watchAdjustVolume(s32 row)
 {
 	s32 v = row == 0 ? (s32)optionsGetMusicVolume() : (s32)VOLUME(g_SfxVolume);
+	const s32 old = v;
+	s32 x = joyGetStickX(0);
 
-	v += up ? VOL_STEP : -VOL_STEP;
+	if (joyGetButtons(0, R_CBUTTONS | R_TRIG | R_JPAD)) {
+		v += (s32)(1024 * VOL_SCALE);
+	} else if (joyGetButtons(0, L_CBUTTONS | L_TRIG | L_JPAD)) {
+		v -= (s32)(1024 * VOL_SCALE);
+	}
+
+	if (x >= 0x47) {
+		x = 0x46;
+	} else if (x < -0x46) {
+		x = -0x46;
+	}
+
+	if (x >= 8) {
+		v += (s32)((x * 0x800 - 0x3800) / 0x46 * VOL_SCALE);
+	} else if (x < -7) {
+		v += (s32)((x * 0x800 + 0x3800) / 0x46 * VOL_SCALE);
+	}
 
 	if (v < 0) {
 		v = 0;
 	} else if (v > VOL_MAX) {
 		v = VOL_MAX;
+	}
+
+	if (v == old) {
+		return;
 	}
 
 	if (row == 0) {
@@ -1821,6 +2009,30 @@ static void watchAdjustVolume(s32 row, s32 up)
 	}
 
 	g_Vars.modifiedfiles |= MODFILE_GAME;
+}
+
+/**
+ * The control styles the control screen lists: GoldenEye's four one-pad
+ * styles, its four two-pad ones when a second pad is in (D_800409D8), and
+ * last Perfect Dark's own mouse and keyboard, which GoldenEye has no name for.
+ */
+static s32 watchStyleCount(void)
+{
+	const s32 num = g_Vars.currentplayerstats ? g_Vars.currentplayerstats->mpindex : 0;
+	const s32 mode = optionsGetControlMode(num);
+	const s32 two = (joyGetConnectedControllers() & 2) || (mode >= CONTROLMODE_21 && mode <= CONTROLMODE_24);
+
+	return (two ? 8 : 4) + 1;
+}
+
+static s32 watchStyleMode(s32 index)
+{
+	return index == watchStyleCount() - 1 ? CONTROLMODE_PC : index;
+}
+
+static s32 watchStyleIndex(s32 mode)
+{
+	return mode == CONTROLMODE_PC || mode >= watchStyleCount() - 1 ? watchStyleCount() - 1 : mode;
 }
 
 /** The mission status screen's abort, which is GoldenEye's own way out. */
@@ -1833,141 +2045,213 @@ static void watchAbort(void)
 	mainEndStage();
 }
 
+// a screen turned: GoldenEye's beep, and its zoom to that screen's own
+static void watchTurnPage(s32 page)
+{
+	const f32 zoom = watchPageZoom(page);
+	const s32 from = g_Watch.page;
+
+	g_Watch.page = page;
+	g_Watch.lrready = 0;
+
+	// sub_GAME_7F0A5210() beeps every turn but the one from the control screen
+	// to the options, which only disarms the stick
+	if (page != PAGE_OPTIONS || from != PAGE_CONTROL) {
+		watchBeep();
+	}
+
+	if (g_Vars.currentplayer->zoominfovynew != zoom) {
+		watchZoomTo(zoom, WATCH_PAGE_ZOOMTIME);
+	}
+}
+
+/** sub_GAME_7F0A8378(): the inventory's A, Z or START takes the item under the cursor. */
+static void watchInventoryTake(s32 start)
+{
+	const s32 weaponnum = invGetWeaponNumByIndex(g_Watch.invrow);
+
+	if (weaponnum <= 0) {
+		return;
+	}
+
+	// START takes it only if it is not the one already in the hand
+	if (start && weaponnum == g_Watch.weapons[HAND_RIGHT]) {
+		return;
+	}
+
+	invSetCurrentIndex(g_Watch.invrow);
+	g_Watch.weapons[HAND_RIGHT] = weaponnum;
+	g_Watch.weapons[HAND_LEFT] = WEAPON_NONE;
+	g_Watch.invflash = 10;
+	watchSfx(GESFX_CAMERA_BEEP1, MENUSOUND_FOCUS);
+}
+
+/**
+ * sub_GAME_7F0A6A80() and draw_watch_current_page()'s input, screen by screen.
+ * START closes the watch; left and right (the pad's, the shoulder buttons, the
+ * C buttons or the stick) turn the screens when nothing is held; A or Z holds
+ * the row under the cursor and lets it go again, on every screen but the
+ * inventory, where it takes the item. B is the port's own: it lets go of a
+ * held row, or closes the watch as START does.
+ */
 static void watchTickInput(void)
 {
-	const s32 rows = watchNumRows();
-	s32 *row = watchRow();
+	const s32 settled = !watchPageTurning();
+	const s32 num = g_Vars.currentplayerstats ? g_Vars.currentplayerstats->mpindex : 0;
+
+	watchTickLatches();
 
 	if (watchPressedStart() || (watchPressedBack() && !g_Watch.selected)) {
+		if (g_Watch.page == PAGE_INVENTORY && settled && g_Watch.invsettled && watchPressedStart()) {
+			watchInventoryTake(1);
+		}
+
 		watchSetState(WS_CLOSING);
 		return;
 	}
 
-	// left and right walk the five screens, unless a row is being changed
-	if (!g_Watch.selected) {
-		const s32 left = watchPressedLeft();
-		const s32 right = watchPressedRight();
-
-		if (left || right) {
-			g_Watch.page += right ? 1 : -1;
-
-			if (g_Watch.page < 0) {
-				g_Watch.page = NUM_PAGES - 1;
-			} else if (g_Watch.page >= NUM_PAGES) {
-				g_Watch.page = 0;
-			}
-
-			// the face pulses as a screen turns, as GoldenEye's does - by
-			// the same amount off its own zoom, whatever that has become
-			watchZoomTo(watchOpenFov() * (g_Watch.page == PAGE_INVENTORY ? WATCHZOOM3 : WATCHZOOM1) / WATCHZOOM2, 15.0f);
-			watchBeep();
-		}
-	} else if (g_Watch.page == PAGE_MISSION) {
-		// abort: confirm or cancel
-		if (watchPressedRight()) {
-			g_Watch.confirm = 1;
-			watchBeep();
-		} else if (watchPressedLeft()) {
-			g_Watch.confirm = 0;
-			watchBeep();
-		}
-	} else if (g_Watch.page == PAGE_OPTIONS && row) {
-		if (*row < 2) {
-			if (watchPressedRight()) {
-				watchAdjustVolume(*row, 1);
-			} else if (watchPressedLeft()) {
-				watchAdjustVolume(*row, 0);
-			}
-		} else {
-			const s32 i = *row - 2;
-			const s32 left = watchPressedLeft();
-			const s32 right = watchPressedRight();
-
-			if ((left || right) && i >= 0 && i < NUM_OPTIONS) {
-				s32 v = watchOptionValue(i) + (right ? 1 : -1);
-
-				if (v < 0) {
-					v = g_Options[i].numvalues - 1;
-				} else if (v >= g_Options[i].numvalues) {
-					v = 0;
-				}
-
-				watchSetOptionValue(i, v);
-				watchBeep();
-			}
-		}
-	} else if (g_Watch.page == PAGE_CONTROL && row && *row == 0) {
-		const s32 left = watchPressedLeft();
-		const s32 right = watchPressedRight();
-
-		if (left || right) {
-			const s32 num = g_Vars.currentplayerstats ? g_Vars.currentplayerstats->mpindex : 0;
-			s32 mode = optionsGetControlMode(num) + (right ? 1 : -1);
-
-			if (mode >= 0 && mode <= CONTROLMODE_PC) {
-				optionsSetControlMode(num, mode);
-				g_Vars.modifiedfiles |= MODFILE_GAME;
-				watchBeep();
-			}
-		}
-	}
-
-	// up and down walk the open screen's rows
-	if (row && rows > 0) {
-		const s32 up = watchPressedUp();
-		const s32 down = watchPressedDown();
-
-		if (up || down) {
-			*row += down ? 1 : -1;
-
-			if (*row < 0) {
-				*row = rows - 1;
-			} else if (*row >= rows) {
-				*row = 0;
-			}
-
-			watchBeep();
-		}
-	}
-
-	if (watchPressedAccept()) {
-		if (g_Watch.page == PAGE_MISSION && g_Watch.selected && g_Watch.confirm) {
-			watchAbort();
-			return;
-		}
-
-		if (g_Watch.page == PAGE_INVENTORY && !g_Watch.selected) {
-			// the inventory's A equips what is under the cursor, as
-			// sub_GAME_7F0A8378() does
-			const s32 weaponnum = invGetWeaponNumByIndex(g_Watch.invrow);
-
-			if (weaponnum > 0) {
-				invSetCurrentIndex(g_Watch.invrow);
-				g_Watch.weapons[HAND_RIGHT] = weaponnum;
-				g_Watch.weapons[HAND_LEFT] = WEAPON_NONE;
-				watchPlaySelect();
-			}
-
-			return;
-		}
-
-		// everywhere else it takes hold of the row under the cursor, and
-		// pressing it again lets go (watch_play_beep_sound())
-		if (g_Watch.page != PAGE_BRIEFING) {
-			g_Watch.selected = !g_Watch.selected;
-			g_Watch.confirm = 0;
-			watchPlaySelect();
-		}
-	}
-
-	if (watchPressedBack() && g_Watch.selected) {
+	if (watchPressedBack()) {
 		g_Watch.selected = 0;
 		g_Watch.confirm = 0;
 		watchBeep();
+		return;
 	}
 
-	g_Watch.sticky = joyGetStickX(0) > -0x10 && joyGetStickX(0) < 0x10
-		&& joyGetStickY(0) > -0x10 && joyGetStickY(0) < 0x10 ? 0 : 1;
+	switch (g_Watch.page) {
+	case PAGE_MISSION:
+		if (g_Watch.selected) {
+			// held, not pressed: the stick or a right button to CONFIRM, the
+			// left ones back to CANCEL (draw_abort_cancel_confirm())
+			if (!g_Watch.confirm && (joyGetStickX(0) >= 0x2e || joyGetButtons(0, R_JPAD | R_TRIG | R_CBUTTONS))) {
+				g_Watch.confirm = 1;
+			} else if (g_Watch.confirm && (joyGetStickX(0) < -0x2d || joyGetButtons(0, L_JPAD | L_TRIG | L_CBUTTONS))) {
+				g_Watch.confirm = 0;
+			}
+
+			if (g_Watch.confirm && joyGetButtonsPressedThisFrame(0, Z_TRIG | A_BUTTON | BUTTON_UI_ACCEPT)) {
+				watchAbort();
+				return;
+			}
+		}
+		break;
+	case PAGE_INVENTORY:
+		if (settled && invGetCount() > 0) {
+			if (!g_Watch.selected) {
+				watchListNav(&g_Watch.invcursor, &g_Watch.invrow, invGetCount(), &g_Watch.invtexty,
+						2 * INV_LINE, INV_LINE, &g_Watch.invsettled);
+			}
+
+			if (g_Watch.invflash > 0) {
+				g_Watch.invflash--;
+			}
+
+			if (g_Watch.invsettled && watchPressedAccept()) {
+				watchInventoryTake(0);
+			}
+		}
+		break;
+	case PAGE_CONTROL:
+		if (!g_Watch.selected) {
+			// two rows, so up and down both go to the other one
+			if (watchPressedUp() || watchPressedDown()) {
+				g_Watch.controlrow ^= 1;
+				g_Watch.yready = 0;
+			}
+		} else if (g_Watch.controlrow == 0) {
+			const s32 before = g_Watch.styleindex;
+
+			watchListNav(&g_Watch.stylecursor, &g_Watch.styleindex, watchStyleCount(), &g_Watch.styletexty,
+					0, 10, &g_Watch.stylesettled);
+
+			if (g_Watch.styleindex != before) {
+				optionsSetControlMode(num, watchStyleMode(g_Watch.styleindex));
+				g_Vars.modifiedfiles |= MODFILE_GAME;
+			}
+		}
+		break;
+	case PAGE_OPTIONS:
+		if (g_Watch.optionrow < 2) {
+			if (watchPressedUp() || watchPressedDown()) {
+				g_Watch.optionrow = watchPressedUp() ? (g_Watch.optionrow == 0 ? 9 : 0) : (g_Watch.optionrow == 0 ? 1 : 2);
+				g_Watch.yready = 0;
+				g_Watch.selected = 0;
+			} else if (g_Watch.selected) {
+				watchAdjustVolume(g_Watch.optionrow);
+			}
+		} else {
+			if (watchPressedUp() || watchPressedDown()) {
+				g_Watch.optionrow += watchPressedUp() ? -1 : 1;
+				g_Watch.yready = 0;
+				g_Watch.selected = 0;
+
+				if (g_Watch.optionrow >= 10) {
+					g_Watch.optionrow = 0;
+				}
+			} else if (g_Watch.selected) {
+				// game_option_toggle_input(): a value to either side, and no
+				// further than the ends
+				const s32 i = g_Watch.optionrow - 2;
+				const s32 v = watchOptionValue(i);
+
+				if (watchPressedLeft() && v > 0) {
+					watchSetOptionValue(i, v - 1);
+					g_Watch.lrready = 0;
+					watchSfx(GESFX_OPTION_CHOOSE, MENUSOUND_FOCUS);
+				} else if (watchPressedRight() && v < g_Options[i].numvalues - 1) {
+					watchSetOptionValue(i, v + 1);
+					g_Watch.lrready = 0;
+					watchSfx(GESFX_OPTION_CHOOSE, MENUSOUND_FOCUS);
+				}
+			}
+		}
+		break;
+	case PAGE_BRIEFING:
+		if (watchPressedUp() || watchPressedDown()) {
+			g_Watch.briefpage += watchPressedUp() ? -1 : 1;
+			g_Watch.briefpage = (g_Watch.briefpage + NUM_BRIEF_PAGES) % NUM_BRIEF_PAGES;
+			g_Watch.yready = 0;
+			g_Watch.selected = 0;
+		}
+		break;
+	}
+
+	// left and right turn the screens when nothing is held; on the control and
+	// options screens not while Z is down either
+	if (!g_Watch.selected && (watchPressedLeft() || watchPressedRight())
+			&& !((g_Watch.page == PAGE_CONTROL || g_Watch.page == PAGE_OPTIONS) && joyGetButtons(0, Z_TRIG))) {
+		const s32 right = watchPressedRight();
+		const s32 from = g_Watch.page;
+		const s32 page = (from + (right ? 1 : NUM_PAGES - 1)) % NUM_PAGES;
+
+		if (page == PAGE_MISSION) {
+			g_Watch.confirm = 0;
+		} else if (page == PAGE_OPTIONS) {
+			g_Watch.optionrow = 0;
+		} else if (page == PAGE_CONTROL && from == PAGE_OPTIONS) {
+			g_Watch.controlrow = 0;
+		}
+
+		watchTurnPage(page);
+		return;
+	}
+
+	// A or Z holds the row and lets it go (watch_play_beep_sound(), which
+	// beeps only as it takes hold)
+	if (g_Watch.page != PAGE_INVENTORY && settled && watchPressedAccept()) {
+		g_Watch.selected = !g_Watch.selected;
+
+		if (g_Watch.selected) {
+			watchSfx(GESFX_CAMERA_BEEP1, MENUSOUND_FOCUS);
+
+			if (g_Watch.page == PAGE_CONTROL && g_Watch.controlrow == 0) {
+				g_Watch.styleindex = watchStyleIndex(optionsGetControlMode(num));
+				g_Watch.stylecursor = g_Watch.styleindex + 0.5f;
+				g_Watch.styletexty = -g_Watch.styleindex * 10;
+			}
+		} else {
+			g_Watch.confirm = 0;
+		}
+	}
 }
 
 /**
@@ -2395,6 +2679,85 @@ static Gfx *watchDrawScanline(Gfx *gdl, s32 green)
 }
 
 /**
+ * A volume slider (update_volume_slider_verts()): three quads across the face
+ * from x -299 to 301, 20 deep from `top` - the empty part dark from the filled
+ * edge to the right, the filled part from the left in a green that brightens
+ * with the volume, and a band 30 wide (less as it fills) fading from one to
+ * the other.
+ */
+static Gfx *watchDrawSlider(Gfx *gdl, s32 top, f32 fill)
+{
+	Vtx *v = gfxAllocateVertices(12);
+	Col *c = gfxAllocate(12 * sizeof(Col));
+	const s32 left = -299;
+	const s32 right = 301;
+	const s32 xdiff = right - left;
+	const s32 tw = (s32)(30.0f * (1.2f - fill));
+	s32 edge0, edge1;
+
+	if (fill < 0.0f) {
+		fill = 0.0f;
+	} else if (fill > 1.0f) {
+		fill = 1.0f;
+	}
+
+	edge0 = (s32)((f32)left + ((f32)xdiff + (f32)tw) * fill - (f32)tw);
+	edge1 = (s32)((f32)left + ((f32)(xdiff + tw)) * fill + (f32)tw);
+
+	if (edge0 < left) {
+		edge0 = left;
+	}
+
+	if (edge1 > right) {
+		edge1 = right;
+	}
+
+	for (s32 i = 0; i < 12; i++) {
+		const s32 quad = i / 4;
+		const s32 k = i % 4; // setup_watch_rectangles(): x then z
+		s32 x;
+
+		if (quad == 0) {
+			x = k < 2 ? edge1 : right;
+		} else if (quad == 1) {
+			x = k < 2 ? left : edge0;
+		} else {
+			x = k < 2 ? edge0 : edge1;
+		}
+
+		v[i].x = x;
+		v[i].y = 0;
+		v[i].z = top + (k & 1) * 20;
+		v[i].flags = 0;
+		v[i].colour = i * 4;
+		v[i].s = 0;
+		v[i].t = 0;
+
+		if (quad == 0) {
+			c[i].r = 0x20; c[i].g = 0x40; c[i].b = 0x20; c[i].a = 0xe0;
+		} else if (quad == 1 || k < 2) {
+			c[i].r = (u8)(48.0f * fill) + 0x40;
+			c[i].g = (u8)(96.0f * fill) + 0x80;
+			c[i].b = c[i].r;
+			c[i].a = 0xf0;
+		} else {
+			c[i].r = 0x20; c[i].g = 0x70; c[i].b = 0x20; c[i].a = 0xf0;
+		}
+	}
+
+	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+	gDma1p(gdl++, G_COL, c, 12 * 4, 11 << 2);
+
+	for (s32 q = 0; q < 3; q++) {
+		gSPVertex(gdl++, v + q * 4, 4, 0);
+		gSP1Triangle(gdl++, 0, 1, 2, 0);
+		gSP1Triangle(gdl++, 1, 2, 3, 0);
+	}
+
+	return gdl;
+}
+
+/**
  * draw_background_health_and_armor(): everything drawn on the face itself -
  * the two gauges, the green fill inside its ring and the screen-select
  * rectangles - under the watch's own matrix, a quarter of its size.
@@ -2450,6 +2813,27 @@ static Gfx *watchDrawPageBackground(Gfx *gdl, Mtx *facemtx, s32 squish)
 		}
 	}
 
+	// a screen turning folds the face flat and opens it again as its zoom runs
+	// (draw_background_health_and_armor(): the share of the zoom's change so far,
+	// in degrees, squared and held to one)
+	if (!squish && watchPageTurning()) {
+		const struct player *player = g_Vars.currentplayer;
+
+		scale = player->zoomintimemax > 0.0f
+			? player->zoomintime * (player->zoominfovynew - player->zoominfovyold) / player->zoomintimemax
+			: 1.0f;
+
+		if (scale < 0.0f) {
+			scale = -scale;
+		}
+
+		if (scale > 1.0f) {
+			scale = 1.0f;
+		}
+
+		scale *= scale;
+	}
+
 	mtx4LoadIdentity(&scalemtx);
 	mtx00015f04(0.25f, &scalemtx);
 	guMtxF2L(scalemtx.m, quarter);
@@ -2502,6 +2886,14 @@ static Gfx *watchDrawPageBackground(Gfx *gdl, Mtx *facemtx, s32 squish)
 	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
 	gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
 	gdl = watchDrawSelect(gdl);
+
+	// the options screen's two sliders are on the face too, under the same
+	// matrix (draw_music_volume_slider(), draw_fx_volume_slider())
+	if (!squish && !watchPageTurning() && g_Watch.page == PAGE_OPTIONS) {
+		gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+		gdl = watchDrawSlider(gdl, -275, (f32)optionsGetMusicVolume() / VOL_MAX);
+		gdl = watchDrawSlider(gdl, -205, (f32)VOLUME(g_SfxVolume) / VOL_MAX);
+	}
 
 	if (!clear) {
 		gdl = watchDrawScanline(gdl, green);
@@ -3054,7 +3446,10 @@ static Gfx *watchDrawModel(Gfx *gdl)
 
 	renderdata.flags = 3;
 	renderdata.zbufferenabled = false;
-	renderdata.unk30 = 7;
+	// PROP_TYPE_WEAPON, as GoldenEye draws the arm: its env word is the colour
+	// the model is fogged towards, the room's shade on the way up and 0xcd of
+	// black with the watch open, which is how dark GoldenEye's open dial is
+	renderdata.unk30 = 4;
 	renderdata.envcolour = g_Watch.state == WS_OPEN || g_Watch.state == WS_CLOSING
 		? 0x000000cd
 		: (g_Vars.currentplayer->gunshadecol[0] << 24 | g_Vars.currentplayer->gunshadecol[1] << 16
@@ -3153,7 +3548,6 @@ static Gfx *watchDrawModel(Gfx *gdl)
 
 /* ---- the gun held up on the face ---------------------------------------- */
 
-static s32 watchFrameHeight(void);
 
 /**
  * GoldenEye shows the gun in the player's hand on the mission page, still, and
@@ -3375,44 +3769,58 @@ static void watchGunSetPart(s32 part, s32 visible)
 	}
 }
 
-#define WATCH_TEXT_SCALE 0.88f
+/**
+ * GoldenEye's own frame on ours. Its watch is laid out on its 320x240 in-game
+ * frame, whose viewport is the 220 rows from 10 down, square pixels; every
+ * screen's zoom is a vertical field of view over that viewport. Here the
+ * viewport is the player's view, so a GoldenEye row is a 220th of the view's
+ * height and a column is worth a row, centred on the view.
+ */
+#define GE_VIEW_TOP    10.0f
+#define GE_VIEW_HEIGHT 220.0f
+
+static f32 watchFrameScaleY(void)
+{
+	return (f32)viGetViewHeight() / GE_VIEW_HEIGHT;
+}
+
+// the frame buffer's columns are not square on a window of another shape
+static f32 watchFrameScaleX(void)
+{
+	return watchFrameScaleY() * (f32)viGetWidth() / ((f32)viGetHeight() * videoGetAspect());
+}
+
+// a point of GoldenEye's frame on the frame buffer
+static f32 watchFrameX(f32 x)
+{
+	return viGetViewLeft() + viGetViewWidth() * 0.5f + (x - WATCH_FRAME_W * 0.5f) * watchFrameScaleX();
+}
+
+static f32 watchFrameY(f32 y)
+{
+	return viGetViewTop() + (y - GE_VIEW_TOP) * watchFrameScaleY();
+}
 
 /**
- * GoldenEye's camera for an item covers its whole screen, which here is the
- * frame the page is laid out on: as much of the window's height as the frame
- * takes, and 4:3 of that across. Its aspect is its own 1.283847.
- *
- * That frame is the wrong size for an item, and the gun came out three
- * quarters of GoldenEye's size against the face (F3 20260926-064954 and
- * -093659: the DD44 read as if its front were missing). Two reasons:
- *
- * - watchFrameHeight() carries WATCH_TEXT_SCALE, which shrinks the pages'
- *   text to fit the face. It is not meant for the gun.
- * - GoldenEye's projection spans its scissored 230-row viewport, and its
- *   gauge ring is 210 of those rows tall (the decomp's native port, Dam).
- *   Our unscaled frame is only 0.94 of our ring. So an item's frame is
- *   WATCH_ITEM_FILL of the text's unscaled one.
- *
- * Measured on the DD44 side on (inventory angle 0, and the mission page):
- * the slide's width over the ring's height is 0.829 in GoldenEye. It was
- * 0.63 here, and it is 0.83 at 1.16.
+ * GoldenEye's projection for an item on the watch, over its own viewport: 220
+ * rows, the view's height here, and 320 columns, which on a wider view is less
+ * than all of it. `aspect` is GoldenEye's own for that item, 1.333333 for all
+ * three in the NTSC release (its LEFTOVERDEBUG build and its
+ * WATCH_PERSPECTIVE_ASPECT), which is not its viewport's 320/220: items are
+ * drawn a little narrow, as GoldenEye's are.
  */
-#define WATCH_ITEM_FILL 1.16f
-
-static Gfx *watchItemProjection(Gfx *gdl, f32 fovy, f32 near, f32 far)
+static Gfx *watchItemProjection(Gfx *gdl, f32 fovy, f32 aspect, f32 near, f32 far)
 {
 	Mtx *projection = gfxAllocateMatrix();
 	Mtxf persp;
 	Mtxf squeeze;
 	Mtxf tmp;
 	u16 perspnorm;
-	const f32 sy = (f32)watchFrameHeight() / WATCH_TEXT_SCALE * WATCH_ITEM_FILL / (f32)viGetHeight();
-	const f32 sx = sy * (4.0f / 3.0f) / videoGetAspect();
 
-	guPerspectiveF(persp.m, &perspnorm, fovy, 1.283847f, near, far, 1.0f);
+	guPerspectiveF(persp.m, &perspnorm, fovy, aspect, near, far, 1.0f);
 	mtx4LoadIdentity(&squeeze);
-	squeeze.m[0][0] = sx;
-	squeeze.m[1][1] = sy;
+	squeeze.m[0][0] = WATCH_FRAME_W * watchFrameScaleX() / (f32)viGetViewWidth();
+	squeeze.m[1][1] = 1.0f;
 	mtx4MultMtx4(&squeeze, &persp, &tmp);
 	guMtxF2L(tmp.m, projection);
 
@@ -3504,7 +3912,7 @@ static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 		return gdl;
 	}
 
-	gdl = watchItemProjection(gdl, 45.0f, 10.0f, 10000.0f);
+	gdl = watchItemProjection(gdl, 45.0f, 1.3333334f, 10.0f, 10000.0f);
 
 	// the menu's own order: out to its place, its size, its turn, and last the
 	// displacement that brings the model's middle to where it turns about
@@ -3570,7 +3978,7 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 		return gdl;
 	}
 
-	gdl = watchItemProjection(gdl, 45.0f, 10.0f, 10000.0f);
+	gdl = watchItemProjection(gdl, 45.0f, 1.3333334f, 10.0f, 10000.0f);
 
 	// the gun turned by its row's two angles, then the camera
 	rotx = watchGunFloat(item, 32);
@@ -3613,40 +4021,131 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 }
 
 /**
- * draw_watch_control_options_page()'s controller (watchRenderController()):
- * GoldenEye's own joypad, hand item 0x55, 200 up and 200 back from the origin
- * and tipped 45 degrees towards a camera 2000 over it, under 52.5 degrees.
- * It stands still: GoldenEye's turns only while the player has hold of the
- * page's second row, by their stick, and eases back to rest a hundred frames
- * after they let go - which is carried here by `g_Watch.padspin`. Its stick
- * (part 2) leans with the player's own.
+ * draw_watch_controller() and watchRenderController(): GoldenEye's own joypad,
+ * hand item 0x55, 200 up and 200 back from the origin and tipped 45 degrees
+ * towards a camera 2000 over it, under GoldenEye's 50.5 degrees. It turns
+ * about its middle while the player has hold of the screen's second row, by
+ * the stick, and eases back to rest a hundred frames after they let go
+ * (`g_Watch.padspin`), and tips towards them by the stick's up and down
+ * (`g_Watch.padpitch`). Its stick (part 2) leans with the player's own.
+ *
+ * Then the same model again with its body put away (toggle part 13), and each
+ * of its buttons alone at the edge of the screen beside the words for it,
+ * under a camera of its own that does not turn: GoldenEye's
+ * g_1ContButtonPositions, each button tipped to face the camera, and pressed
+ * in - or rocked, for the triggers and the pad - while the player holds it.
  */
 #define PAD_ITEM 0x55
+#define PAD_FOVY 50.5f
+#define PAD_ASPECT 1.3333334f
+
+enum {
+	PADPART_START = 1, PADPART_STICK, PADPART_DPAD, PADPART_CUP, PADPART_CDOWN, PADPART_CLEFT,
+	PADPART_CRIGHT, PADPART_A, PADPART_B, PADPART_L, PADPART_R, PADPART_Z, PADPART_BODY,
+};
+
+// g_1ContButtonPositions: where each button stands alone, by its part
+static const f32 g_PadButtonPos[13][3] = {
+	[PADPART_START]  = { -900.0f, 200.0f, -45.0f },
+	[PADPART_STICK]  = { 715.0f, 200.0f, 393.0f },
+	[PADPART_DPAD]   = { -875.0f, 200.0f, -210.0f },
+	[PADPART_CUP]    = { 900.0f, 200.0f, -260.0f },
+	[PADPART_CDOWN]  = { 900.0f, 200.0f, -160.0f },
+	[PADPART_CLEFT]  = { 850.0f, 200.0f, -210.0f },
+	[PADPART_CRIGHT] = { 950.0f, 200.0f, -210.0f },
+	[PADPART_A]      = { 900.0f, 200.0f, 128.0f },
+	[PADPART_B]      = { 900.0f, 200.0f, -45.0f },
+	[PADPART_L]      = { -820.0f, 200.0f, -389.0f },
+	[PADPART_R]      = { 820.0f, 200.0f, -389.0f },
+	[PADPART_Z]      = { -830.0f, 200.0f, 78.0f },
+};
+
+// the stick's lean, 0.6 of a degree a unit
+static void watchPadStickLean(Mtxf *out)
+{
+	Mtxf rx;
+
+	mtx4LoadZRotation(-(f32)joyGetStickX(0) * M_BADTAU * 0.6f / 360.0f, out);
+	mtx4LoadXRotation(-(f32)joyGetStickY(0) * M_BADTAU * 0.6f / 360.0f, &rx);
+	mtx4MultMtx4InPlace(&rx, out);
+}
+
+static s32 watchPadPartMtx(s32 part, struct coord *pos)
+{
+	struct modelnode *node = modelGetPart(g_WatchPad.def, part);
+
+	s32 index = -1;
+
+	if (!node || !node->rodata) {
+		return -1;
+	}
+
+	// GoldenEye's switch is a position either way: a held one for the stick,
+	// a joint for the rest
+	if ((node->type & 0xff) == MODELNODETYPE_POSITIONHELD) {
+		*pos = node->rodata->positionheld.pos;
+		index = node->rodata->positionheld.mtxindex;
+	} else if ((node->type & 0xff) == MODELNODETYPE_POSITION) {
+		*pos = node->rodata->position.pos;
+		index = node->rodata->position.mtxindex0;
+	}
+
+	return index >= 0 && index < g_WatchPad.def->nummatrices ? index : -1;
+}
+
+// the renderer's matrices are fixed point once drawn
+static void watchPadFix(Mtxf *matrices)
+{
+	for (s32 i = 0; i < g_WatchPad.def->nummatrices; i++) {
+		Mtxf tmp;
+
+		mtx4Copy(&matrices[i], &tmp);
+		mtxF2L(&tmp, &matrices[i]);
+	}
+}
+
+static Gfx *watchPadRender(Gfx *gdl, Mtxf *base, Mtxf *matrices)
+{
+	struct modelrenderdata renderdata = { NULL, false, 3 };
+
+	renderdata.unk00 = base;
+	renderdata.unk10 = matrices;
+	renderdata.unk30 = 1; // PROP_TYPE_OBJ: the controller in its own colours
+	renderdata.flags = 3;
+	renderdata.zbufferenabled = true;
+	renderdata.gdl = gdl;
+
+	modelRender(&renderdata, &g_WatchPad.model);
+
+	return renderdata.gdl;
+}
 
 static Gfx *watchDrawController(Gfx *gdl)
 {
 	struct modelrenderdata renderdata = { NULL, false, 3 };
 	struct coord pos = { 0.0f, 200.0f, -200.0f };
-	struct modelnode *stick;
+	struct modelnode *body;
+	union modelrwdata *bodyrw;
 	Mtxf base;
 	Mtxf tmp;
 	Mtxf turn;
+	Mtxf lookat;
 	Mtxf *matrices;
 
 	if (!watchItemLoad(&g_WatchPad, PAD_ITEM)) {
 		return gdl;
 	}
 
-	gdl = watchItemProjection(gdl, 52.5f, 1000.0f, 3000.0f);
+	gdl = watchItemProjection(gdl, PAD_FOVY, PAD_ASPECT, 1000.0f, 3000.0f);
 
 	// the spin about z, then the tip towards the eye, then out to its place
 	mtx4LoadZRotation(g_Watch.padspin, &turn);
-	mtx4LoadXRotation(-0.78539819f, &tmp);
+	mtx4LoadXRotation(-g_Watch.padpitch - 0.78539819f, &tmp);
 	mtx4MultMtx4(&turn, &tmp, &base);
 	mtx4SetTranslation(&pos, &base);
 
-	mtx00016ae4(&tmp, -5.0f, 2000.0f, -168.0f, -5.0f, 0.0f, -168.0f, 0.0f, 0.0f, -1.0f);
-	mtx4MultMtx4InPlace(&tmp, &base);
+	mtx00016ae4(&lookat, -5.0f, 2000.0f, -168.0f, -5.0f, 0.0f, -168.0f, 0.0f, 0.0f, -1.0f);
+	mtx4MultMtx4InPlace(&lookat, &base);
 
 	matrices = gfxAllocate(g_WatchPad.def->nummatrices * sizeof(Mtxf));
 
@@ -3661,31 +4160,30 @@ static Gfx *watchDrawController(Gfx *gdl)
 	renderdata.unk10 = matrices;
 
 	modelSetDistanceChecksDisabled(true);
+
+	body = modelGetPart(g_WatchPad.def, PADPART_BODY);
+	bodyrw = body && (body->type & 0xff) == MODELNODETYPE_TOGGLE ? modelGetNodeRwData(&g_WatchPad.model, body) : NULL;
+
+	if (bodyrw) {
+		bodyrw->toggle.visible = true;
+	}
+
 	modelUpdateRelations(&g_WatchPad.model);
 	modelSetMatrices(&renderdata, &g_WatchPad.model);
 
-	// the stick leans as the player's does, 0.6 of a degree a unit
-	stick = modelGetPart(g_WatchPad.def, 2);
+	// the whole pad: every part at its place on it, the stick leaning
+	{
+		struct coord at;
+		const s32 index = watchPadPartMtx(PADPART_STICK, &at);
 
-	if (stick && (stick->type & 0xff) == MODELNODETYPE_POSITIONHELD && stick->rodata) {
-		const struct modelrodata_positionheld *ro = &stick->rodata->positionheld;
-
-		if (ro->mtxindex >= 0 && ro->mtxindex < g_WatchPad.def->nummatrices) {
-			struct coord at = { ro->pos.x, ro->pos.y, ro->pos.z };
+		if (index >= 0) {
 			Mtxf lean;
 
-			mtx4LoadZRotation(-(f32)joyGetStickX(0) * M_BADTAU * 0.6f / 360.0f, &lean);
-			mtx4LoadXRotation(-(f32)joyGetStickY(0) * M_BADTAU * 0.6f / 360.0f, &tmp);
-			mtx4MultMtx4InPlace(&tmp, &lean);
+			watchPadStickLean(&lean);
 			mtx4SetTranslation(&at, &lean);
-			mtx4MultMtx4(&base, &lean, &matrices[ro->mtxindex]);
+			mtx4MultMtx4(&base, &lean, &matrices[index]);
 		}
 	}
-
-	// PROP_TYPE_OBJ: the controller in its own colours
-	renderdata.unk30 = 1;
-	renderdata.flags = 3;
-	renderdata.zbufferenabled = true;
 
 	gDPSetTexturePersp(gdl++, G_TP_PERSP);
 	gDPSetTextureLUT(gdl++, G_TT_NONE);
@@ -3695,54 +4193,152 @@ static Gfx *watchDrawController(Gfx *gdl)
 	gdl = zbufClear(gdl);
 	gSPSetGeometryMode(gdl++, G_ZBUFFER);
 
-	renderdata.gdl = gdl;
-	modelRender(&renderdata, &g_WatchPad.model);
-	gdl = renderdata.gdl;
+	gdl = watchPadRender(gdl, &base, matrices);
+	watchPadFix(matrices);
+
+	// and its buttons alone, beside their words (the second half of
+	// watchRenderController()), when the one-pad screen is up
+	if (bodyrw) {
+		Mtxf *loose = gfxAllocate(g_WatchPad.def->nummatrices * sizeof(Mtxf));
+
+		for (s32 i = 0; i < g_WatchPad.def->nummatrices; i++) {
+			mtx4Copy(&base, &loose[i]);
+		}
+
+		bodyrw->toggle.visible = false;
+		g_WatchPad.model.matrices = loose;
+
+		for (s32 part = PADPART_START; part <= PADPART_Z; part++) {
+			struct coord at;
+			const s32 index = watchPadPartMtx(part, &at);
+			struct coord bpos = { g_PadButtonPos[part][0], g_PadButtonPos[part][1], g_PadButtonPos[part][2] };
+			struct coord press = { 0.0f, 0.0f, 0.0f };
+			Mtxf rock;
+			Mtxf face;
+			Mtxf m;
+			u16 button = 0;
+
+			if (index < 0) {
+				continue;
+			}
+
+			mtx4LoadIdentity(&rock);
+			mtx4LoadIdentity(&face);
+
+			switch (part) {
+			case PADPART_STICK:
+				watchPadStickLean(&m);
+				mtx4LoadTranslation(&bpos, &face);
+				mtx4MultMtx4InPlace(&face, &m);
+				mtx4MultMtx4(&lookat, &m, &loose[index]);
+				continue;
+			case PADPART_R:
+			case PADPART_L:
+				if (joyGetButtons(0, part == PADPART_R ? R_TRIG : L_TRIG)) {
+					mtx4LoadYRotation(part == PADPART_R ? -0.17453294f : 0.17453294f, &rock);
+				}
+
+				mtx4LoadXRotation(1.0471976f, &face);
+				break;
+			case PADPART_DPAD: {
+				Mtxf side;
+
+				mtx4LoadIdentity(&side);
+
+				if (joyGetButtons(0, U_JPAD)) {
+					mtx4LoadXRotation(-0.17453294f, &rock);
+				} else if (joyGetButtons(0, D_JPAD)) {
+					mtx4LoadXRotation(0.17453294f, &rock);
+				}
+
+				if (joyGetButtons(0, L_JPAD)) {
+					mtx4LoadZRotation(0.17453294f, &side);
+				} else if (joyGetButtons(0, R_JPAD)) {
+					mtx4LoadZRotation(-0.17453294f, &side);
+				}
+
+				mtx4MultMtx4InPlace(&side, &rock);
+				mtx4LoadXRotation(-0.89759791f, &face);
+				break;
+			}
+			case PADPART_Z:
+				if (joyGetButtons(0, Z_TRIG)) {
+					mtx4LoadXRotation(-0.17453294f, &rock);
+				}
+
+				mtx4LoadZRotation(M_BADPI, &face);
+				break;
+			default:
+				switch (part) {
+				case PADPART_START:  button = START_BUTTON; break;
+				case PADPART_CUP:    button = U_CBUTTONS; break;
+				case PADPART_CDOWN:  button = D_CBUTTONS; break;
+				case PADPART_CLEFT:  button = L_CBUTTONS; break;
+				case PADPART_CRIGHT: button = R_CBUTTONS; break;
+				case PADPART_A:      button = A_BUTTON; break;
+				case PADPART_B:      button = B_BUTTON; break;
+				}
+
+				if (button && joyGetButtons(0, button)) {
+					press.y = -10.0f;
+				}
+
+				mtx4LoadXRotation(-1.0471976f, &face);
+				break;
+			}
+
+			// sub_GAME_7F06351C(): the press, the tip to the camera, out to its
+			// place and under the camera
+			mtx4LoadTranslation(&press, &m);
+			mtx4MultMtx4InPlace(&rock, &m);
+			mtx4MultMtx4InPlace(&face, &m);
+			mtx4LoadTranslation(&bpos, &face);
+			mtx4MultMtx4InPlace(&face, &m);
+			mtx4MultMtx4InPlace(&lookat, &m);
+			mtx4Copy(&m, &loose[index]);
+		}
+
+		gdl = zbufClear(gdl);
+		gSPSetGeometryMode(gdl++, G_ZBUFFER);
+		gdl = watchPadRender(gdl, &base, loose);
+		watchPadFix(loose);
+
+		bodyrw->toggle.visible = true;
+		g_WatchPad.model.matrices = matrices;
+	}
 
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 	modelSetDistanceChecksDisabled(false);
-
-	for (s32 i = 0; i < g_WatchPad.def->nummatrices; i++) {
-		mtx4Copy(&matrices[i], &tmp);
-		mtxF2L(&tmp, &matrices[i]);
-	}
 
 	return gexFrontTextSetup(gdl);
 }
 
 /* ---- the five screens' text --------------------------------------------- */
 
+// the inventory's list (draw_watch_inventory_page(), the US column)
+#define INV_X         0x4e   // the list's left
+#define INV_BASE_Y    0x8c   // the top of its five-line window
+#define INV_ROWS      5
+#define INV_ROWCOLOUR 0x00aa00b0
+#define INV_BARCOLOUR 0x00800050
+
+// the rest of GoldenEye's colours for the screens
+#define COL_OUTLINE   0x007000a0 // textRenderOutlined()'s, round white
+#define COL_LIST      0x00aa00b0 // a list and the controller's words
+
 /**
- * GoldenEye's in-game frame over the player's viewport: its screens are laid
- * out on 320x240 with the view in the middle of it, where the folder screens
- * are laid out on 440x330 over the whole window.
+ * GoldenEye's 320x240 frame over the player's view (GE_VIEW_TOP): the screens'
+ * text stands where GoldenEye's does on its own screen, whatever the zoom -
+ * which, being GoldenEye's own for every screen, puts the face where
+ * GoldenEye's is under it.
  */
-// The screens are drawn a little under GoldenEye's size, about the middle of
-// the face. At its own size the layout is as wide as the green is - rows start
-// on its left edge and the options' last row stands on the screen-select
-// rectangles - which GoldenEye gets away with on a 320x240 picture and this
-// does not at six times that
-
-static s32 watchFrameHeight(void)
-{
-	const f32 radius = PAGE_RADIUS;
-	const f32 span = -WATCH_POSE_Z * tanf(g_Vars.currentplayer->zoominfovy * (M_PI / 360.0f));
-
-	return (span > 0.0f ? (s32)(radius / span * viGetViewHeight()) : viGetViewHeight()) * WATCH_TEXT_SCALE;
-}
-
 static void watchTextFrame(void)
 {
-	// the face's own diameter on the screen: its radius in view units over
-	// what the view spans at the face's depth, and GoldenEye's 240 rows go
-	// across that. GoldenEye's own face fills the height of its screen, so at
-	// its zoom this is the viewport; at any other it follows the face, which
-	// is what keeps the screens *on* the watch rather than over the window.
-	const s32 height = watchFrameHeight();
+	const f32 sy = watchFrameScaleY();
 
 	gexFrontTextFrame(WATCH_FRAME_W, WATCH_FRAME_H,
-			viGetViewLeft() + (viGetViewWidth() - height) / 2, viGetViewTop() + (viGetViewHeight() - height) / 2,
-			height, height);
+			viGetViewLeft(), (s32)(viGetViewTop() - GE_VIEW_TOP * sy),
+			viGetViewWidth(), (s32)(WATCH_FRAME_H * sy + 0.5f));
 }
 
 // the watch's screens are all in GoldenEye's Bank Gothic
@@ -3756,128 +4352,203 @@ static void watchMeasure(const char *text, s32 *w, s32 *h)
 	gexFrontTextMeasure(1, text, w, h);
 }
 
-// a row's colour: dim green normally, light green under the cursor, white
-// while it is being changed
-static u32 watchRowColour(s32 row, s32 cursor)
+/** textRenderOutlined(): white, the text eight times a unit out in the outline's green first. */
+static Gfx *watchPrintOutlined(Gfx *gdl, s32 x, s32 y, const char *text, u32 colour)
 {
-	if (row != cursor) {
-		return COL_GREEN;
+	for (s32 dx = -1; dx <= 1; dx++) {
+		for (s32 dy = -1; dy <= 1; dy++) {
+			if (dx || dy) {
+				gdl = watchPrint(gdl, x + dx, y + dy, text, COL_OUTLINE);
+			}
+		}
 	}
 
-	return g_Watch.selected ? COL_WHITE : COL_HIGHLIGHT;
+	return watchPrint(gdl, x, y, text, colour);
 }
 
 /**
- * A point of GoldenEye's own 320x240 screen in the watch's text frame. The
- * frame is GoldenEye's screen shrunk by WATCH_TEXT_SCALE, so the pages' text
- * fits inside the face; an item's projection is GoldenEye's screen itself
- * (WATCH_ITEM_FILL). Text that has to stand where GoldenEye puts it, beside an
- * item, is placed through this so the two agree. It is the text's size that
- * stays shrunk, not its place.
+ * Text GoldenEye renders with a line height of its own (textRender()'s last
+ * argument): each line of it `line` further down.
  */
-// GoldenEye's text rows against its gauge ring, over the watch's text frame's:
-// its 240-row text screen is not the 230-row viewport its items are projected
-// over, so this is WATCH_ITEM_FILL / WATCH_TEXT_SCALE and a little more,
-// measured (the inventory list's rows and bar against the native port's), and
-// its rows sit WATCH_GE_TEXT_DY lower than the frame's centre puts them
-#define WATCH_GE_TEXT    1.40f
-#define WATCH_GE_TEXT_DY 4.0f
-
-static s32 watchGeX(f32 x)
+static Gfx *watchPrintLines(Gfx *gdl, s32 x, s32 y, const char *text, u32 colour, s32 line)
 {
-	return (s32)(WATCH_FRAME_W * 0.5f + (x - WATCH_FRAME_W * 0.5f) * WATCH_GE_TEXT);
+	char buf[256];
+
+	while (*text) {
+		const char *end = strchr(text, '\n');
+		size_t len = end ? (size_t)(end - text) : strlen(text);
+
+		if (len >= sizeof(buf) - 1) {
+			len = sizeof(buf) - 2;
+		}
+
+		memcpy(buf, text, len);
+		buf[len] = '\n';
+		buf[len + 1] = '\0';
+
+		if (len > 0 && !(len == 1 && buf[0] == ' ')) {
+			gdl = watchPrint(gdl, x, y, buf, colour);
+		}
+
+		y += line;
+		text = end ? end + 1 : text + len;
+	}
+
+	return gdl;
 }
 
-static s32 watchGeY(f32 y)
+/** draw_options_labels(): a word at x, left, right or centred, outlined white while it is pressed. */
+static Gfx *watchLabel(Gfx *gdl, s32 x, s32 y, const char *text, u32 colour, s32 outlined, s32 align)
 {
-	return (s32)(WATCH_FRAME_H * 0.5f + (y + WATCH_GE_TEXT_DY - WATCH_FRAME_H * 0.5f) * WATCH_GE_TEXT);
+	s32 w, h;
+
+	watchMeasure(text, &w, &h);
+
+	if (align == 1) {
+		x -= w / 2;
+	} else if (align == 2) {
+		x -= w;
+	}
+
+	return outlined ? watchPrintOutlined(gdl, x, y, text, 0xffffffff) : watchPrint(gdl, x, y, text, colour);
 }
 
 /**
- * draw_text_mission_status() and draw_abort_cancel_confirm(), at GoldenEye's
- * places on the face (watchGeX()): shrunk towards the middle with the rest of
- * the text, the abort row lay over the top of the gun GoldenEye stands below it.
+ * The name GoldenEye's gun table gives an item for the mission status, two
+ * lines of LgunE (gitem_structs' upper_watch_text and lower_watch_text), or
+ * NULL for one of Perfect Dark's own.
+ */
+static const char *watchGunText(s32 item, s32 offset)
+{
+	static u8 *bank;
+	static u32 banklen;
+	static s32 moddir = -2;
+	u32 id;
+
+	if (item < 0 || !g_WatchGun.items || g_WatchGun.itemslen < GUN_ITEM_ROW * GUN_NUM_ITEMS) {
+		return NULL;
+	}
+
+	if (moddir != g_Watch.moddir) {
+		sysMemFree(bank);
+		bank = watchLoad("LgunE", &banklen);
+		moddir = g_Watch.moddir;
+	}
+
+	if (!bank) {
+		return NULL;
+	}
+
+	id = (g_WatchGun.items[item * GUN_ITEM_ROW + offset] << 8) | g_WatchGun.items[item * GUN_ITEM_ROW + offset + 1];
+
+	return id ? watchBankString(bank, banklen, id & 0x3ff) : NULL;
+}
+
+/**
+ * draw_watch_mission_status_page(): Q WATCH V2.01 BETA, the mission's status
+ * with its INCOMPLETE pulsing, the abort's three words, and the gun in the hand
+ * side on with its two lines of name and its rounds (draw_current_hand_item_and_ammo()).
  */
 static Gfx *watchDrawMissionPage(Gfx *gdl)
 {
+	const s32 weaponnum = g_Watch.hadweapons ? g_Watch.weapons[HAND_RIGHT] : bgunGetWeaponNum(HAND_RIGHT);
 	const char *status;
 	s32 w, h;
-	s32 x, y;
 	u32 colour;
 
-	gdl = watchDrawGun(gdl, g_Watch.hadweapons ? g_Watch.weapons[HAND_RIGHT] : bgunGetWeaponNum(HAND_RIGHT), 0);
-	gdl = watchPrint(gdl, watchGeX(0x65), watchGeY(YOFFSET_7), watchString(STR_QWATCH), COL_GREEN);
+	gdl = watchPrint(gdl, 0x65, YOFFSET_7, watchString(STR_QWATCH), COL_GREEN);
 
-	x = watchGeX(0x51);
-	y = watchGeY(YOFFSET_MISSIONSTATUS);
 	watchMeasure(watchString(STR_MISSIONSTATUS), &w, &h);
-	gdl = watchPrint(gdl, x, y, watchString(STR_MISSIONSTATUS), COL_GREEN);
+	gdl = watchPrint(gdl, 0x51, YOFFSET_MISSIONSTATUS, watchString(STR_MISSIONSTATUS), COL_GREEN);
 
 	if (objectiveIsAllComplete()) {
 		status = watchString(STR_COMPLETE);
 		colour = COL_GREEN;
 	} else {
 		status = watchString(STR_INCOMPLETE);
-		colour = 0xff00a0ff;
+		colour = g_Watch.statuspulse;
 	}
 
 	// GoldenEye moves on by the width of the first string and back up by its
 	// height, the newline at the end of it having taken the pen down a line;
 	// this printer starts from the line it is given, so the two sit on the
 	// same one
-	gdl = watchPrint(gdl, x + w + 4, y, status, colour);
+	gdl = watchPrint(gdl, 0x51 + w + 4, YOFFSET_MISSIONSTATUS, status, colour);
 
-	// abort: confirm cancel, which is the only way out of a mission here as it
-	// is in GoldenEye
-	gdl = watchPrint(gdl, watchGeX(0x51), watchGeY(0x4c), watchString(STR_ABORT),
-			g_Watch.selected ? COL_HIGHLIGHT : COL_DIM);
-	gdl = watchPrint(gdl, watchGeX(0xbd), watchGeY(0x4c), watchString(STR_CONFIRM),
-			g_Watch.selected ? (g_Watch.confirm ? COL_WHITE : COL_GREEN) : COL_DIM);
-	gdl = watchPrint(gdl, watchGeX(0x88), watchGeY(0x4c), watchString(STR_CANCEL),
-			g_Watch.selected ? (g_Watch.confirm ? COL_GREEN : COL_WHITE) : COL_DIM);
+	// draw_abort_cancel_confirm(): all three dim until the row is held; then
+	// ABORT: light, and the one of CANCEL and CONFIRM the player is on white
+	// in its outline, the other the page's green
+	if (g_Watch.selected) {
+		gdl = watchPrint(gdl, 0x51, 0x4c, watchString(STR_ABORT), COL_HIGHLIGHT);
 
-	// draw_current_hand_item_and_ammo(): what is in the player's hands, under
-	// the face
-	{
-		const s32 weaponnum = g_Watch.hadweapons ? g_Watch.weapons[HAND_RIGHT] : bgunGetWeaponNum(HAND_RIGHT);
-		const char *name = weaponnum > 0 ? bgunGetName(weaponnum) : NULL;
+		if (g_Watch.confirm) {
+			gdl = watchPrintOutlined(gdl, 0xbd, 0x4c, watchString(STR_CONFIRM), 0xffffffff);
+			gdl = watchPrint(gdl, 0x88, 0x4c, watchString(STR_CANCEL), COL_GREEN);
+		} else {
+			gdl = watchPrint(gdl, 0xbd, 0x4c, watchString(STR_CONFIRM), COL_GREEN);
+			gdl = watchPrintOutlined(gdl, 0x88, 0x4c, watchString(STR_CANCEL), 0xffffffff);
+		}
+	} else {
+		gdl = watchPrint(gdl, 0x51, 0x4c, watchString(STR_ABORT), COL_DIM);
+		gdl = watchPrint(gdl, 0xbd, 0x4c, watchString(STR_CONFIRM), COL_DIM);
+		gdl = watchPrint(gdl, 0x88, 0x4c, watchString(STR_CANCEL), COL_DIM);
+	}
 
-		if (name) {
-			watchMeasure(name, &w, &h);
-			gdl = watchPrint(gdl, (s32)(WATCH_FRAME_W * 0.5f) - w / 2, watchGeY(YOFFSET_WEAPTEXT), name, COL_GREEN);
+	gdl = watchDrawGun(gdl, weaponnum, 0);
+
+	// the rounds, then the name's two lines at 0x60 - 0xa0 and 0xaa down,
+	// the NTSC release's own (LEFTOVERDEBUG), not the 0xbc and 0xc6 the
+	// source has for the other builds
+	if (weaponnum > 0) {
+		s32 mag, reserve;
+
+		if (weaponnum == g_Watch.ammoweapon) {
+			mag = g_Watch.ammomag;
+			reserve = g_Watch.ammoreserve;
+		} else if (!geHudWatchAmmo(weaponnum, &mag, &reserve)) {
+			mag = reserve = -1;
+		}
+
+		if (mag >= 0) {
+			gdl = geHudRenderWatchAmmo(gdl, weaponnum, mag, reserve,
+					watchFrameX(0.0f), watchFrameY(0.0f), watchFrameScaleX(), watchFrameScaleY());
+			gdl = gexFrontTextSetup(gdl);
+		}
+
+		{
+			const s32 item = watchGunItem(weaponnum);
+			const char *upper = watchGunText(item, 16);
+			const char *lower = watchGunText(item, 18);
+
+			if (upper || lower) {
+				if (upper) {
+					gdl = watchPrint(gdl, 0x60, 0xa0, upper, COL_GREEN);
+				}
+
+				if (lower) {
+					gdl = watchPrint(gdl, 0x60, 0xaa, lower, COL_GREEN);
+				}
+			} else if (bgunGetName(weaponnum)) {
+				gdl = watchPrint(gdl, 0x60, 0xa0, bgunGetName(weaponnum), COL_GREEN);
+			}
 		}
 	}
 
 	return gdl;
 }
 
-// draw_watch_inventory_page(), the US column
-#define INV_X         0x4e   // the list's left
-#define INV_BASE_Y    0x8c   // the top of its five-line window
-#define INV_LINE      12     // LINEHEIGHT()
-#define INV_ROWS      5
-#define INV_ROWCOLOUR 0x00aa00b0
-#define INV_BARCOLOUR 0x00800050
-
 /**
- * draw_watch_inventory_page(): what the player is carrying, with the cursor on
- * one of them, and that one's own model turning on the face above the names
- * (watchDrawGun()).
- *
- * As GoldenEye lays it out: a window five lines tall at the bottom left of the
- * face, the list scrolled so the cursor's item is on its third line, a bar
- * behind that line as wide as the widest name, and that name drawn again in
- * the light green over it. The list eases to a new cursor a third of the way
- * a frame (game_options_inventory_navigation()). It stood in the middle of the
- * face under the turning gun, with a "Left Hand" row and the item's name under
- * the face, neither of which GoldenEye's inventory has (F3 20260926-093659 and
- * the user after it).
+ * draw_watch_inventory_page(): the item under the cursor turning on the face,
+ * and what the player is carrying in a window five lines tall at the bottom
+ * left, scrolled so that the cursor's line is its third, with a bar behind
+ * that line as wide as the widest name. The cursor's name is drawn light over
+ * the bar once the list has settled, and outlined for ten frames after it is
+ * taken. GoldenEye clips the list to its window glyph by glyph, so a line half
+ * in it is not drawn at all.
  */
 static Gfx *watchDrawInventoryPage(Gfx *gdl)
 {
-	static s32 texty = 2 * INV_LINE;
 	const s32 count = invGetCount();
-	const s32 target = 2 * INV_LINE - g_Watch.invrow * INV_LINE;
 	s32 widest = 0;
 	s32 w, h;
 
@@ -3885,13 +4556,12 @@ static Gfx *watchDrawInventoryPage(Gfx *gdl)
 		return gdl;
 	}
 
-	gdl = watchDrawGun(gdl, invGetWeaponNumByIndex(g_Watch.invrow), 1);
-
-	if (target < texty) {
-		texty = texty - (texty - target) / 3 - 1;
-	} else if (texty < target) {
-		texty = texty + (target - texty) / 3 + 1;
+	if (g_Watch.invrow >= count) {
+		g_Watch.invrow = count - 1;
+		g_Watch.invcursor = g_Watch.invrow + 0.5f;
 	}
+
+	gdl = watchDrawGun(gdl, invGetWeaponNumByIndex(g_Watch.invrow), 1);
 
 	for (s32 i = 0; i < count; i++) {
 		const char *name = invGetNameByIndex(i);
@@ -3905,112 +4575,244 @@ static Gfx *watchDrawInventoryPage(Gfx *gdl)
 		}
 	}
 
-	// the bar behind the cursor's line; the text's own widths are in the
-	// frame's units, GoldenEye's x in its screen's
-	{
-		const s32 top = watchGeY(INV_BASE_Y + 2 * INV_LINE + 1);
-		const s32 bottom = watchGeY(INV_BASE_Y + 3 * INV_LINE - 1);
-
-		gdl = gexFrontFillRect(gdl, watchGeX(INV_X - 3), top, watchGeX(INV_X) + widest + 4, bottom, INV_BARCOLOUR);
-		gdl = gexFrontTextSetup(gdl);
-	}
-
 	for (s32 i = 0; i < count; i++) {
-		const s32 line = INV_BASE_Y + texty + i * INV_LINE;
+		const s32 line = INV_BASE_Y + g_Watch.invtexty + i * INV_LINE;
 		const char *name = invGetNameByIndex(i);
 
-		// GoldenEye clips the list to its five lines
 		if (!name || line < INV_BASE_Y || line > INV_BASE_Y + (INV_ROWS - 1) * INV_LINE) {
 			continue;
 		}
 
-		gdl = watchPrint(gdl, watchGeX(INV_X), watchGeY(line), name,
-				i == g_Watch.invrow && texty == target ? watchRowColour(i, g_Watch.invrow) : INV_ROWCOLOUR);
+		gdl = watchPrint(gdl, INV_X, line, name, INV_ROWCOLOUR);
+	}
+
+	{
+		const s32 top = INV_BASE_Y + 2 * INV_LINE + 1;
+
+		gdl = gexFrontFillRect(gdl, INV_X - 3, top, INV_X + widest + 4, top + INV_LINE - 2, INV_BARCOLOUR);
+		gdl = gexFrontTextSetup(gdl);
+	}
+
+	if (g_Watch.invsettled && invGetNameByIndex(g_Watch.invrow)) {
+		const char *name = invGetNameByIndex(g_Watch.invrow);
+
+		if (g_Watch.invflash == 0) {
+			gdl = watchPrint(gdl, INV_X, INV_BASE_Y + 2 * INV_LINE, name, COL_HIGHLIGHT);
+		} else {
+			gdl = watchPrintOutlined(gdl, INV_X, INV_BASE_Y + 2 * INV_LINE, name, 0xffffffff);
+		}
 	}
 
 	return gdl;
 }
 
+// game_control_styles: the style's name and the word for each input, as
+// LoptionsE numbers - A, B, Z, L, R, the C buttons, the pad, START, the stick
+enum { CS_NAME, CS_A, CS_B, CS_Z, CS_L, CS_R, CS_C, CS_DPAD, CS_START, CS_STICK, NUM_CS };
+
+#define STR_FIRE     0x00
+#define STR_AIM      0x01
+#define STR_ACTION   0x02
+#define STR_WEAPON   0x03
+#define STR_PAUSE    0x04
+#define STR_MOVE     0x05
+#define STR_LOOK     0x06
+#define STR_QUESTION 0x07
+#define STR_MOVESIGHT 0x08
+
+static const u8 g_ControlStyles[8][NUM_CS] = {
+	{ 0x09, STR_WEAPON, STR_ACTION, STR_FIRE, STR_AIM, STR_AIM, STR_LOOK, STR_LOOK, STR_PAUSE, STR_MOVE },
+	{ 0x0a, STR_WEAPON, STR_ACTION, STR_FIRE, STR_AIM, STR_AIM, STR_MOVE, STR_MOVE, STR_PAUSE, STR_LOOK },
+	{ 0x0b, STR_FIRE, STR_ACTION, STR_AIM, STR_WEAPON, STR_WEAPON, STR_LOOK, STR_LOOK, STR_PAUSE, STR_MOVE },
+	{ 0x0c, STR_FIRE, STR_ACTION, STR_AIM, STR_WEAPON, STR_WEAPON, STR_MOVE, STR_MOVE, STR_PAUSE, STR_LOOK },
+	{ 0x0d, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION },
+	{ 0x0e, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION },
+	{ 0x0f, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION },
+	{ 0x10, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION },
+};
+
+static const char *watchStyleName(s32 mode)
+{
+	return mode >= 0 && mode < 8 ? watchString(g_ControlStyles[mode][CS_NAME]) : "PC\n";
+}
+
+// OPTLABELS_*: the controller's words either side of it, the NTSC column
+#define OPTLABELS_ROW1_Y    0x52
+#define OPTLABELS_ROW2_Y    0x6b
+#define OPTLABELS_ROW_PITCH 0x19
+#define OPTLABELS_HINT_Y    0xc3
+
 /**
- * draw_watch_control_options_page(): the control style, and what each input
- * does under it. GoldenEye turns its own controller model here with the names
- * beside its buttons; the model is not one the conversion carries, so the
- * names are listed on their own.
+ * sub_GAME_7F0A9AB8(): what each input does under the style, beside the
+ * loose buttons - L, the pad, START and Z down the left, R, the C buttons, B
+ * and A down the right, and the stick's word under them - each white in its
+ * outline while it is held. While the player has hold of the CONTROLLER row
+ * the pad and the C buttons name the direction held instead (FORWARD, BACK,
+ * the two SIDESTEPs, and UP and DOWN by LOOK UP/DOWN), and an AIM held shows
+ * the stick's word as MOVE SIGHT. Perfect Dark's own mouse and keyboard has
+ * no words of GoldenEye's.
+ */
+static Gfx *watchDrawControlLabels(Gfx *gdl, s32 mode)
+{
+	const u8 *cs;
+	const s32 holding = g_Watch.controlrow == 1 && g_Watch.selected;
+	const s32 upright = optionsGetForwardPitch(g_Vars.currentplayerstats ? g_Vars.currentplayerstats->mpindex : 0) ? 0 : 1;
+	const char *dir1 = watchString(upright ? STR_UP : STR_DOWN);
+	const char *dir2 = watchString(upright ? STR_DOWN : STR_UP);
+	s32 movesight = 0;
+	s32 y;
+
+	if (mode < 0 || mode >= 8) {
+		return gdl;
+	}
+
+	cs = g_ControlStyles[mode];
+
+	gdl = watchLabel(gdl, 0x32, OPTLABELS_ROW1_Y, watchString(cs[CS_L]), COL_LIST, joyGetButtons(0, L_TRIG) != 0, 0);
+	movesight |= joyGetButtons(0, L_TRIG) && cs[CS_L] == STR_AIM;
+
+	y = OPTLABELS_ROW2_Y;
+
+	if (holding && joyGetButtons(0, U_JPAD | D_JPAD | L_JPAD | R_JPAD)) {
+		const char *text;
+
+		if (joyGetButtons(0, U_JPAD)) {
+			text = cs[CS_DPAD] == STR_MOVE ? watchString(STR_FORWARD) : dir1;
+		} else if (joyGetButtons(0, D_JPAD)) {
+			text = cs[CS_DPAD] == STR_MOVE ? watchString(STR_BACK) : dir2;
+		} else if (joyGetButtons(0, L_JPAD)) {
+			text = watchString(STR_SIDESTEP2);
+		} else {
+			text = watchString(STR_SIDESTEP1);
+		}
+
+		gdl = watchLabel(gdl, 0x32, y, text, COL_LIST, 1, 0);
+	} else {
+		gdl = watchLabel(gdl, 0x32, y, watchString(cs[CS_DPAD]), COL_LIST, 0, 0);
+	}
+
+	y += OPTLABELS_ROW_PITCH;
+	gdl = watchLabel(gdl, 0x32, y, watchString(cs[CS_START]), COL_LIST, 0, 0);
+	y += OPTLABELS_ROW_PITCH;
+	gdl = watchLabel(gdl, 0x32, y, watchString(cs[CS_Z]), COL_LIST, joyGetButtons(0, Z_TRIG) != 0, 0);
+	movesight |= joyGetButtons(0, Z_TRIG) && cs[CS_Z] == STR_AIM;
+
+	y = OPTLABELS_ROW1_Y;
+	gdl = watchLabel(gdl, 0x10e, y, watchString(cs[CS_R]), COL_LIST, joyGetButtons(0, R_TRIG) != 0, 2);
+	movesight |= joyGetButtons(0, R_TRIG) && cs[CS_R] == STR_AIM;
+	y += OPTLABELS_ROW_PITCH;
+
+	{
+		const u32 c = joyGetButtons(0, U_CBUTTONS | D_CBUTTONS | L_CBUTTONS | R_CBUTTONS);
+
+		if (holding && c && (c & (c - 1)) == 0) {
+			const char *text;
+
+			if (c & U_CBUTTONS) {
+				text = cs[CS_C] == STR_MOVE ? watchString(STR_FORWARD) : dir1;
+			} else if (c & D_CBUTTONS) {
+				text = cs[CS_C] == STR_MOVE ? watchString(STR_BACK) : dir2;
+			} else if (c & L_CBUTTONS) {
+				text = watchString(STR_SIDESTEP2);
+			} else {
+				text = watchString(STR_SIDESTEP1);
+			}
+
+			gdl = watchLabel(gdl, 0x10e, y, text, COL_LIST, 1, 2);
+		} else {
+			gdl = watchLabel(gdl, 0x10e, y, watchString(cs[CS_C]), COL_LIST, 0, 2);
+		}
+	}
+
+	y += OPTLABELS_ROW_PITCH;
+	gdl = watchLabel(gdl, 0x10e, y, watchString(cs[CS_B]), COL_LIST, joyGetButtons(0, B_BUTTON) != 0, 2);
+	y += OPTLABELS_ROW_PITCH;
+	gdl = watchLabel(gdl, 0x10e, y, watchString(cs[CS_A]), COL_LIST, joyGetButtons(0, A_BUTTON) != 0, 2);
+
+	if (movesight) {
+		gdl = watchLabel(gdl, 0xfa, OPTLABELS_HINT_Y, watchString(STR_MOVESIGHT), COL_LIST, 1, 2);
+	} else {
+		gdl = watchLabel(gdl, 0xfa, OPTLABELS_HINT_Y, watchString(cs[CS_STICK]), COL_LIST, 0, 2);
+	}
+
+	return gdl;
+}
+
+// a row's name: the page's green, light under the cursor, white in its outline while held
+static Gfx *watchRowName(Gfx *gdl, s32 x, s32 y, const char *text, s32 row, s32 cursor)
+{
+	if (row == cursor && g_Watch.selected) {
+		return watchPrintOutlined(gdl, x, y, text, 0xffffffff);
+	}
+
+	return watchPrint(gdl, x, y, text, row == cursor ? COL_HIGHLIGHT : COL_GREEN);
+}
+
+/**
+ * draw_watch_control_options_page(): the controller with its buttons beside
+ * their words, CONTROL STYLE with the style's name beside it - a list one line
+ * tall that the stick walks while the row is held - and CONTROLLER.
  */
 static Gfx *watchDrawControlPage(Gfx *gdl)
 {
 	const s32 num = g_Vars.currentplayerstats ? g_Vars.currentplayerstats->mpindex : 0;
 	const s32 mode = optionsGetControlMode(num);
-	const char *style;
-	s32 y = YOFFSET_1;
 
 	gdl = watchDrawController(gdl);
-	gdl = watchPrint(gdl, XOFFSET_1, YOFFSET_8, watchString(STR_CONTROLSTYLE),
-			watchRowColour(0, g_Watch.controlrow));
 
-	// GoldenEye's eight styles are its own strings 0x09 to 0x10 ("1.1 honey"
-	// and the rest) and Perfect Dark's first eight are the same eight in the
-	// same order; its ninth is the port's own mouse and keyboard, which
-	// GoldenEye has no name for
-	style = mode >= 0 && mode < 8 ? watchString(STR_STYLE_FIRST + mode) : "pc\n";
-	gdl = watchPrint(gdl, XOFFSET_1 + 0x60, YOFFSET_8, style, watchRowColour(0, g_Watch.controlrow));
+	gdl = watchRowName(gdl, XOFFSET_1, 0x1a, watchString(STR_CONTROLSTYLE), 0, g_Watch.controlrow);
 
-	gdl = watchPrint(gdl, XOFFSET_1, YOFFSET_9, watchString(STR_CONTROLLER),
-			watchRowColour(1, g_Watch.controlrow));
-
-	// what each input does under that style, GoldenEye's own five names
-	{
-		static const s32 names[] = { STR_FORWARD, STR_BACK, STR_SIDESTEP1, STR_UP, STR_DOWN };
-
-		for (s32 i = 0; i < (s32)(sizeof(names) / sizeof(names[0])); i++) {
-			// out at GoldenEye's own left for the page's text, clear of the pad,
-			// which stands where GoldenEye's does (WATCH_ITEM_FILL) and ran
-			// over them at the text frame's XOFFSET_1
-			gdl = watchPrint(gdl, watchGeX(XOFFSET_1), y, watchString(names[i]), COL_GREEN);
-			y += YINC;
+	// draw_controller_style_text(): the list at 0xaa, the name under the
+	// cursor light over it once it has settled
+	if (g_Watch.selected && g_Watch.controlrow == 0) {
+		for (s32 i = 0; i < watchStyleCount(); i++) {
+			if (g_Watch.styletexty + i * 10 == 0) {
+				gdl = watchPrint(gdl, 0xaa, 0x1a, watchStyleName(watchStyleMode(i)), COL_LIST);
+			}
 		}
+	} else {
+		gdl = watchPrint(gdl, 0xaa, 0x1a, watchStyleName(mode), COL_LIST);
+	}
+
+	gdl = watchRowName(gdl, XOFFSET_1, 0x2b, watchString(STR_CONTROLLER), 1, g_Watch.controlrow);
+
+	return watchDrawControlLabels(gdl, mode);
+}
+
+/**
+ * draw_toggle_option_values(): every value of the row, centred on its own x -
+ * two at 0xc8 and 0xfa, three at 0xb4, 0xe1 and 0x10e - the one set in the
+ * page's green, the others dim, and the one set light while the row is held.
+ */
+static Gfx *watchDrawOptionValues(Gfx *gdl, s32 y, s32 i, s32 held)
+{
+	static const s32 two[2] = { 0xc8, 0xfa };
+	static const s32 three[3] = { 0xb4, 0xe1, 0x10e };
+	const s32 value = watchOptionValue(i);
+	const s32 *xs = g_Options[i].numvalues == 3 ? three : two;
+
+	for (s32 v = 0; v < g_Options[i].numvalues; v++) {
+		const u32 colour = v != value ? COL_DIM : (held ? COL_HIGHLIGHT : COL_GREEN);
+
+		gdl = watchLabel(gdl, xs[v], y, watchString(g_Options[i].values[v]), colour, 0, 1);
 	}
 
 	return gdl;
 }
 
-/** draw_watch_game_options_page(): the two sliders and the eight rows. */
+/** draw_watch_game_options_page(): MUSIC and FX over their sliders, and the eight rows. */
 static Gfx *watchDrawOptionsPage(Gfx *gdl)
 {
 	s32 y = YOFFSET_1;
 
-	// the volumes, each a bar as long as it is loud
-	for (s32 i = 0; i < 2; i++) {
-		const s32 row = i;
-		const s32 top = i == 0 ? YOFFSET_8 : YOFFSET_9;
-		const s32 v = i == 0 ? (s32)optionsGetMusicVolume() : (s32)VOLUME(g_SfxVolume);
-		const s32 width = (s32)(80.0f * (f32)v / (f32)VOL_MAX);
-
-		gdl = watchPrint(gdl, XOFFSET_1, top, watchString(i == 0 ? STR_MUSIC : STR_FX),
-				watchRowColour(row, g_Watch.optionrow));
-
-		gdl = gexFrontFillRect(gdl, XOFFSET_1 + 0x60, top - 8, XOFFSET_1 + 0x60 + 80, top - 2, 0x00400040);
-
-		if (width > 0) {
-			gdl = gexFrontFillRect(gdl, XOFFSET_1 + 0x60, top - 8, XOFFSET_1 + 0x60 + width, top - 2,
-					g_Watch.optionrow == row ? COL_HIGHLIGHT : COL_GREEN);
-		}
-
-		gdl = gexFrontTextSetup(gdl);
-	}
+	gdl = watchRowName(gdl, XOFFSET_1, YOFFSET_8, watchString(STR_MUSIC), 0, g_Watch.optionrow);
+	gdl = watchRowName(gdl, XOFFSET_1, YOFFSET_9, watchString(STR_FX), 1, g_Watch.optionrow);
 
 	for (s32 i = 0; i < NUM_OPTIONS; i++) {
 		const s32 row = i + 2;
-		const s32 value = watchOptionValue(i);
-		const u32 colour = watchRowColour(row, g_Watch.optionrow);
 
-		gdl = watchPrint(gdl, XOFFSET_1, y, watchString(g_Options[i].label), colour);
-
-		if (value >= 0 && value < g_Options[i].numvalues) {
-			// draw_toggle_option_values()'s own x1; at 0x60 past the labels
-			// the longer labels ran into it (SIGHT ON-SCREEN is 107 wide)
-			gdl = watchPrint(gdl, 0xb4, y, watchString(g_Options[i].values[value]), colour);
-		}
+		gdl = watchRowName(gdl, XOFFSET_1, y, watchString(g_Options[i].label), row, g_Watch.optionrow);
+		gdl = watchDrawOptionValues(gdl, y, i, row == g_Watch.optionrow && g_Watch.selected);
 
 		y += YINC;
 	}
@@ -4018,105 +4820,156 @@ static Gfx *watchDrawOptionsPage(Gfx *gdl)
 	return gdl;
 }
 
+// the last line of some text that has anything on it (sub_GAME_7F0AC120())
+static const char *watchLastLine(const char *text)
+{
+	const char *ret = text;
+
+	while (*text) {
+		if (*text == '\n') {
+			if (*++text) {
+				ret = text;
+			}
+		} else {
+			text++;
+		}
+	}
+
+	return ret;
+}
+
+static s32 watchCountLines(const char *text)
+{
+	s32 n = 0;
+
+	for (; *text; text++) {
+		n += *text == '\n';
+	}
+
+	return n;
+}
+
 /**
- * draw_watch_mission_briefing_page(): the mission's name over one of its five
- * pages - its background, M's, Q's and Moneypenny's paragraphs, and its
- * objectives with how each one stands.
+ * draw_watch_mission_briefing_page(): the mission's name centred at the top,
+ * the page's own title under it, and the page - the briefing's paragraphs
+ * wrapped to 0xd2, or the objectives lettered with how each stands, on lines
+ * ten apart. GoldenEye stands each objective's status at 0xaf on the line of
+ * the objective's last line when that line is short, and under it when not,
+ * and leaves two lines between objectives.
  */
 static Gfx *watchDrawBriefingPage(Gfx *gdl)
 {
 	static const s32 titles[NUM_BRIEF_PAGES] = {
 		STR_2BACKGROUND, STR_3MBRIEFING, STR_4QBRANCH, STR_5MONEYPENNY, STR_1OBJECTIVES,
 	};
-	const char *title;
 	s32 w, h;
-	s32 y = 0x1e;
+	s32 top = 0x1e;
 
-	// the mission's own name, in a box at the top
 	if (g_Watch.mission >= 0) {
 		const char *brief = NULL;
 		const char *lang = NULL;
 		s32 nameid = 0;
 
 		if (gexFrontMissionFiles(g_Watch.mission, &brief, &lang, &nameid)) {
-			title = gexFrontTitleString(nameid);
+			const char *title = gexFrontTitleString(nameid);
+
+			s32 lw, lh;
+
+			// GoldenEye's name ends in a newline, and the pen goes down a line
 			watchMeasure(title, &w, &h);
-			gdl = watchPrint(gdl, (s32)(WATCH_FRAME_W * 0.5f) - w / 2, y, title, COL_HIGHLIGHT);
+			watchMeasure("H\n", &lw, &lh);
+			gdl = watchPrint(gdl, (0xaa - w) / 2 + 0x4b, top, title, COL_HIGHLIGHT);
+			top += h > lh ? h : lh;
 		}
 	}
 
-	y = 0x32;
-	gdl = watchPrint(gdl, XOFFSET_1, y, watchString(titles[g_Watch.briefpage]), COL_HIGHLIGHT);
-	y += YINC + 4;
-
 	if (g_Watch.briefpage == BRIEF_OBJECTIVES) {
 		const s32 count = objectiveGetCount();
-		s32 shown = 0;
+		s32 lines = 1;
+		s32 row = 0;
 
 		for (s32 i = 0; i < count; i++) {
-			char line[8];
-			const char *text = g_Briefing.objectivenames[i] ? langGet(g_Briefing.objectivenames[i]) : NULL;
-			const s32 status = objectiveCheck(i);
+			char text[600];
+			char status[200];
+			const char *name = g_Briefing.objectivenames[i] ? langGet(g_Briefing.objectivenames[i]) : NULL;
 			const char *state;
+			char *letter;
 			u32 colour;
+			s32 lw, lh;
 
-			if (!text) {
+			// only this difficulty's, lettered among themselves
+			// (get_difficulty_for_objective(i) <= lvlGetSelectedDifficulty());
+			// the conversion gives an objective the bits from its lowest
+			// difficulty up (geconvert.c's objectiveRecord())
+			if (!name || !(objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty()))) {
 				continue;
 			}
 
-			// only this difficulty's, lettered among themselves, as
-			// GoldenEye's page does (get_difficulty_for_objective(i) <=
-			// lvlGetSelectedDifficulty()) and Perfect Dark's own objectives
-			// list does over its bits. The conversion gives an objective the
-			// bits from its lowest difficulty up (geconvert.c's
-			// objectiveRecord()), so Agent is shown Agent's and not 00
-			// Agent's; the mission page's COMPLETE already asked the same
-			// question through objectiveIsAllComplete()
-			if (!(objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty()))) {
-				continue;
+			text[0] = '\0';
+
+			for (s32 j = 0; j < lines; j++) {
+				strcat(text, " \n");
 			}
 
-			switch (status) {
+			for (s32 j = 0; j < row; j++) {
+				strcat(text, " \n\n");
+			}
+
+			letter = text + strlen(text);
+			snprintf(letter, sizeof(text) - (letter - text), "%c: %s", 'a' + row, name);
+
+			gdl = watchPrintLines(gdl, 0x3c, top + 5, text, COL_GREEN, 10);
+
+			lines += watchCountLines(letter);
+			watchMeasure(watchLastLine(letter), &lw, &lh);
+
+			if (lw + 0x3c < (s32)(WATCH_FRAME_W / 2)) {
+				lines--;
+			}
+
+			switch (objectiveCheck(i)) {
 			case OBJECTIVE_COMPLETE:
 				state = watchString(STR_COMPLETE);
 				colour = COL_HIGHLIGHT;
 				break;
 			case OBJECTIVE_FAILED:
 				state = watchString(STR_FAILED);
-				colour = COL_RED;
+				colour = COL_GREEN;
 				break;
 			default:
 				state = watchString(STR_INCOMPLETE);
-				colour = COL_GREEN;
+				colour = (g_Watch.objpulse << 16) | 0x400040ff;
 				break;
 			}
 
-			snprintf(line, sizeof(line), "%c: ", 'a' + shown);
-			gdl = watchPrint(gdl, 0x3c, y, line, COL_GREEN);
+			status[0] = '\0';
 
-			// the text keeps to its own column, the status standing at 0xaf
-			// where GoldenEye puts it
-			{
-				char wrapped[512];
-				s32 w, h;
-
-				gexFrontTextWrap(1, text, wrapped, sizeof(wrapped), 0xaf - 0x48 - 4);
-				gdl = watchPrint(gdl, 0x48, y, wrapped, COL_GREEN);
-				gdl = watchPrint(gdl, 0xaf, y, state, colour);
-				watchMeasure(wrapped, &w, &h);
-				y += h > YINC ? h : YINC;
+			for (s32 j = 0; j < lines; j++) {
+				strcat(status, " \n");
 			}
 
-			shown++;
+			for (s32 j = 0; j < row; j++) {
+				strcat(status, " \n\n");
+			}
+
+			strncat(status, state, sizeof(status) - strlen(status) - 1);
+			gdl = watchPrintLines(gdl, 0xaf, top + 5, status, colour, 10);
+
+			row++;
 		}
-	} else if (g_Watch.brief && g_Watch.lang) {
+	}
+
+	gdl = watchPrintLines(gdl, 0x41, top, watchString(titles[g_Watch.briefpage]), COL_HIGHLIGHT, 10);
+	top += 10 + 5;
+
+	if (g_Watch.briefpage != BRIEF_OBJECTIVES && g_Watch.brief && g_Watch.lang) {
 		// the briefing file's four paragraphs, each a text id in the mission's
-		// own bank (gexfront's frontBriefParagraph()), wrapped to the face
+		// own bank (gexfront's frontBriefParagraph())
 		const s32 id = (g_Watch.brief[g_Watch.briefpage * 2] << 8) | g_Watch.brief[g_Watch.briefpage * 2 + 1];
-		char wrapped[1024];
+		char wrapped[3000];
 
 		gexFrontTextWrap(1, watchLangString(id), wrapped, sizeof(wrapped), 0xd2);
-		gdl = watchPrint(gdl, 0x3c, y, wrapped, COL_GREEN);
+		gdl = watchPrintLines(gdl, 0x3c, top, wrapped, COL_GREEN, 10);
 	}
 
 	return gdl;
@@ -4127,8 +4980,9 @@ static Gfx *watchDrawBriefingPage(Gfx *gdl)
 /**
  * The watch over the player's view, from playerRenderHud(). GoldenEye draws it
  * under a projection of its own at whatever the zoom has reached - 60 degrees
- * as the arm comes up and 5.9 with the face open - and with the depth buffer
- * off, the watch being the last thing in front of the eye.
+ * as the arm comes up and the screen's own with the face open - and with the
+ * depth buffer off, the watch being the last thing in front of the eye. A
+ * screen's words and items are left off while its zoom runs.
  */
 Gfx *geWatchRender(Gfx *gdl)
 {
@@ -4155,8 +5009,7 @@ Gfx *geWatchRender(Gfx *gdl)
 
 	gdl = watchDrawModel(gdl);
 
-	// and the open screen's own text over it, on GoldenEye's in-game frame
-	if (g_Watch.state == WS_OPEN || g_Watch.state == WS_CLOSING) {
+	if ((g_Watch.state == WS_OPEN || g_Watch.state == WS_CLOSING) && !watchPageTurning()) {
 		watchTextFrame();
 		gdl = gexFrontTextSetup(gdl);
 

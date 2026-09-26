@@ -11492,3 +11492,53 @@ registered in the N64 look (props' Bean meshes draw with F6 on only), so it is
 unchanged there - checked: same position and picture at the tester's spot, and
 floor and wall sticks (level geometry, not props) untouched in both looks.
 `propobj: landed prop moved ...` is logged when it moves one.
+
+## The watch made GoldenEye's, screen by screen (2026-09-26)
+
+F3 20260926-171733 (Surface, "the Watch doesnt look nor scale in the same way
+as N64, also some elements doesnt work in it"); the user wants it exact. The
+oracle: `sdg@10.8.0.3:~/dam-oracle/watchcmp/` - `gewatchcmp.py` boots the
+native port into Surface (`bossSetLoadedStage` override) and walks the watch by
+the pad (`watchcmp.padscript`: A/right/left on the abort, right to each screen,
+down on the inventory, A on each row); `WRATIO=1` is GoldenEye's 16:9. Our half
+is `~/wt/f3-0926d-watch-run/tools/{gencap.py,cap.sh}`: the same walk injected
+from gdb (`g_JoyDataPtr->buttonspressed[0]` set at `geWatchTick`), a
+screenshot per step. **Open the watch after frame ~1000** on a boot-stage
+mission, or the player is still unarmed. **The oracle cannot show the briefing
+page** (its text is not loaded on that route; `langGet(0)` faults).
+
+What was wrong, and is now GoldenEye's:
+
+- **The zooms are per screen, not a pulse**: mission 5.9, inventory and
+  briefing 4.6, control and options 3.95, 15 sixtieths each, the words hidden
+  while it runs and the face folded flat and opened again (`scale =
+  (t*dfov/max)^2`, held to 1). The inventory had 3.95 and the rest 4.6.
+- **5.9 on every window.** 16:9 had 11 degrees (the whole watch and arm).
+  GoldenEye's own 16:9 mode keeps the vertical field and stretches the picture
+  sideways (an oval face, wide letters); ours keeps the height and the round
+  face, with the case either side, and the words where they are on 4:3.
+- **The text frame is GoldenEye's own**: its 320x240, whose viewport is rows
+  10-230, on the player's view - a GoldenEye row is a 220th of the view's
+  height, square, centred. Every fudge (`WATCH_TEXT_SCALE`, `WATCH_GE_TEXT`,
+  `WATCH_ITEM_FILL`, `PAGE_RADIUS`) is gone; items are projected over 320x220
+  of GoldenEye's frame.
+- **The NTSC release is a LEFTOVERDEBUG build** (the decomp's US config): the
+  mission page's gun name is at y 0xa0/0xaa, not 0xbc/0xc6, and every item's
+  aspect is 1.333333 (the pad's fov 50.5, not the EU 52.5).
+- Mission page: INCOMPLETE is a pulsing green (D_80040AF4), not pink; the
+  held abort row outlines CANCEL/CONFIRM white in 0x007000a0 (textRenderOutlined:
+  eight copies a unit out); the gun's two lines of LgunE name and its rounds
+  (`geHudRenderWatchAmmo()`, snapshotted before Perfect Dark's lowering puts the
+  magazine back in the reserve).
+- The arm is `PROP_TYPE_WEAPON` (`unk30` 4) with env 0xcd open: that is why
+  GoldenEye's open dial is dark. It was `unk30` 7, and the dial's ticks shone white.
+- Inventory: GoldenEye's float cursor (tenths while held, no wrap), the list
+  easing, A/Z/START take it only once settled, outlined for ten frames.
+- Control: the style's name at 0xaa (a one-line list walked while held), each
+  input's word beside GoldenEye's loose buttons (the second render pass, the
+  pad's body toggle 13 off, `g_1ContButtonPositions`); the pad's parts are
+  POSITION nodes, not held ones. Perfect Dark's own PC mode has no words.
+- Options: MUSIC/FX over their sliders (three quads on the face, 600 wide), all
+  values of every row shown with the set one bright; values clamp; the sliders
+  move while held.
+- Every open starts on the mission status with the briefing on its objectives.
