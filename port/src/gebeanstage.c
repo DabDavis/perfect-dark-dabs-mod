@@ -1308,14 +1308,18 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 				// depth, and a room drawn after them showed the sky colour in
 				// the shape of the leaf. A decal takes the file's decal modes
 				// (ZMODE_DEC), which fog swaps know too; the translucent
-				// leaf's mode is a decal one already
+				// leaf's mode is a decal one already. A solid decal writes
+				// depth as well: the file's decal mode does not, and where a
+				// decal overhangs its base, or its base is in a room drawn
+				// after it, whatever came next painted over it (Bunker's
+				// wall panel under the rock of the room behind it)
 				//
 				// Where GoldenEye draws the surface without fog (Caverns'
 				// water), cycle 1 is the plain pass (all zeros) instead of
 				// G_RM_PASS, which the fog swap would make fog of
 				if (!xlu || t->nofog != curnofog) {
 					u32 mode = xlu ? 0x0c184dd8 : t->decal
-							? (alpha ? G_RM_AA_ZB_XLU_DECAL | G_RM_AA_ZB_XLU_DECAL2 : G_RM_AA_ZB_OPA_DECAL | G_RM_AA_ZB_OPA_DECAL2)
+							? (alpha ? G_RM_AA_ZB_XLU_DECAL | G_RM_AA_ZB_XLU_DECAL2 : G_RM_AA_ZB_OPA_DECAL | G_RM_AA_ZB_OPA_DECAL2 | Z_UPD)
 							: (alpha ? 0x0c183078 : 0x0c182078);
 
 					if (t->nofog) {
@@ -1742,12 +1746,106 @@ static s32 markBacked(struct stri *tris, s32 num, const struct tgrid *g)
  * decals share the plane of the surface under them exactly, and drawn with
  * the ordinary depth test the two fought (a tester's F3 on Aztec, every HD
  * level): the decal is drawn in a decal render mode instead, pulled towards
- * the camera. Of a pair, the one with a cut-out picture over the one without
- * is the decal, else the smaller, else the one Bean draws later.
+ * the camera. Of a pair, the one lying wholly on other pictures is the decal
+ * (decalCovered()); if both or neither do, the one with a cut-out picture
+ * over the one without, else the smaller, else the one Bean draws later.
+ *
+ * Wholly on first: Bunker's hammer and sickle plaques overlap a wall panel
+ * and hang past it onto the panels round it, and the panel's half-quad was
+ * the smaller of the pair. It was made the decal, the other half of its quad
+ * was not, and the plaque and the panel fought where they overlapped, while
+ * the part of the panel off the plaque, drawn as a decal on nothing, was
+ * painted over by the rock of a room drawn after it (F3 20260925-231104:
+ * "z-fighting texture and inconsistent wall").
  */
+static s32 decalOnOther(const struct stri *tris, const struct tgrid *g, s32 i, const f32 *ni, const f32 *q)
+{
+	const struct stri *t = &tris[i];
+
+	for (s32 e = g->head[gridKey((s32)floorf(q[0] / g->cell), (s32)floorf(q[1] / g->cell), (s32)floorf(q[2] / g->cell))];
+			e >= 0; e = g->entnext[e]) {
+		const s32 o = g->room[g->enttri[e]];
+		const struct stri *u = &tris[o];
+		f32 nu[3], cosang;
+		s32 flat = 1;
+
+		if (o == i || u->tex == t->tex || triNormal(u, nu) <= 0) {
+			continue;
+		}
+
+		cosang = dot3(ni, nu);
+
+		if ((cosang < DECAL_COS && cosang > -DECAL_COS) || (cosang < 0 && t->backed && u->backed)) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3 && flat; k++) {
+			f32 rel[3] = { t->pos[k][0] - u->pos[0][0], t->pos[k][1] - u->pos[0][1], t->pos[k][2] - u->pos[0][2] };
+
+			flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
+		}
+
+		if (flat && pointTriDist(q, u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Whether a triangle lies wholly on triangles of other pictures in its plane:
+ * its middle and its corners, pulled a tenth of the way in, and the middles
+ * of its edges, pulled in the same way, each on one.
+ */
+static s32 decalCovered(const struct stri *tris, const struct tgrid *g, s32 i)
+{
+	const struct stri *t = &tris[i];
+	f32 ni[3], mid[3], q[3];
+
+	if (triNormal(t, ni) <= 0) {
+		return 0;
+	}
+
+	for (s32 j = 0; j < 3; j++) {
+		mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
+	}
+
+	if (!decalOnOther(tris, g, i, ni, mid)) {
+		return 0;
+	}
+
+	for (s32 k = 0; k < 3; k++) {
+		for (s32 j = 0; j < 3; j++) {
+			q[j] = t->pos[k][j] + (mid[j] - t->pos[k][j]) * 0.1f;
+		}
+
+		if (!decalOnOther(tris, g, i, ni, q)) {
+			return 0;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			const f32 edge = (t->pos[k][j] + t->pos[(k + 1) % 3][j]) * 0.5f;
+
+			q[j] = edge + (mid[j] - edge) * 0.1f;
+		}
+
+		if (!decalOnOther(tris, g, i, ni, q)) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
 static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 {
 	s32 count = 0;
+	u8 *full = calloc(num > 0 ? num : 1, 1);
+
+	for (s32 i = 0; full && i < num; i++) {
+		full[i] = decalCovered(tris, g, i);
+	}
 
 	for (s32 i = 0; i < num; i++) {
 		struct stri *t = &tris[i];
@@ -1805,7 +1903,8 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 				continue;
 			}
 
-			if (alphai != alphau ? alphai > alphau
+			if (full && full[i] != full[o] ? full[i]
+					: alphai != alphau ? alphai > alphau
 					: ai < au * 0.999f ? 1
 					: ai <= au * 1.001f && i > o) {
 				t->decal = 1;
@@ -1813,6 +1912,8 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 			}
 		}
 	}
+
+	free(full);
 
 	return count;
 }
