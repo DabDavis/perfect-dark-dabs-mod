@@ -456,6 +456,7 @@
 /*0x01e4*/ bool aiGeIfChrWasHit(void);
 /*0x01e5*/ bool aiGeObjectRocketLaunch(void);
 /*0x01e6*/ bool aiGeChrRemoveItemInHand(void);
+/*0x01e7*/ bool aiGeHitChrWithItem(void);
 #endif
 
 void propDecrementSoundCount(struct prop *prop);

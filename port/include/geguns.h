@@ -49,6 +49,13 @@ u16 gegunsModelFile(s32 index);
 // is at. 0 for a gun GoldenEye has no item for.
 s32 gegunsItemNumber(s32 index);
 
+// The other way: the Perfect Dark weapon number of GoldenEye's hand item, and
+// one shot's damage from it (its gunWeaponStat Destruction, unscaled).
+// WEAPON_NONE and 0 for an item that is no gun of ours (GoldenEye's
+// HitChrWithItem, aiGeHitChrWithItem()).
+s32 gegunsItemWeapon(s32 item);
+f32 gegunsItemDamage(s32 item);
+
 // Whether the conversion has GoldenEye's own first-person model for this gun.
 s32 gegunsHasOwnModel(s32 index);
 
