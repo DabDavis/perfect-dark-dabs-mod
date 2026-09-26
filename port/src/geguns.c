@@ -1690,6 +1690,8 @@ s32 gegunsThrownFuse60(s32 weaponnum)
 	return 0;
 }
 
+static s32 gegunsOwnThrowKnifeGone(const struct hand *hand);
+
 static void gegunsSetPart(struct model *model, s32 part, s32 visible)
 {
 	struct modelnode *node = modelGetPart(model->definition, part);
@@ -1717,8 +1719,8 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model)
 	}
 
 	gegunsSetPart(model, 35, 1);
-	gegunsSetPart(model, 14, 1);
-	gegunsSetPart(model, 15, 1);
+	gegunsSetPart(model, 14, !gegunsOwnThrowKnifeGone(hand));
+	gegunsSetPart(model, 15, !gegunsOwnThrowKnifeGone(hand));
 	gegunsSetPart(model, 1, hand->flashon ? 1 : 0);
 }
 
@@ -2044,6 +2046,130 @@ void gegunsOwnMeleeTick(struct hand *hand, s32 handnum, f32 lvupdate60)
 	} else {
 		geKnifeTrack[handnum] = -1;
 	}
+}
+
+/**
+ * GoldenEye's knife throw on its own model (the N64 look): F3 20260926-110900,
+ * "throwing knife no animation". The throw's timing is Perfect Dark's combat
+ * knife's (invanim_combatknife_throw: held back at keyframe 12 while Z is held,
+ * gone at 16), whose skeletal animation does not apply to GoldenEye's model -
+ * so the knife stood still and a knife flew out of it. GoldenEye swings the
+ * whole gun (gunfire.c's GUN_ANIM_STATE_THROWKNIFE_DRAW, _THROW and _RECOVER):
+ * the draw back (throwKnifeDrawBackKeyframes, 16 sixtieths, then held drawn
+ * back on the release track's first pose while Z is held), and once the knife
+ * has gone the follow-through (throwKnifeReleaseKeyframes, 28 sixtieths) with
+ * the knife's own pieces, parts 14 and 15, off (field_87E = 0) until it ends.
+ */
+static const struct geknifekey geKnifeDrawBack[6] = {
+	{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, 0.0f, 4.5f }, { 5.576369f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, 0.0f, 20.5f }, { 5.26209f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, 3.0f, 5.5f }, { 0.031375f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 1, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f },
+};
+
+static const struct geknifekey geKnifeRelease[6] = {
+	{ 0, { 0.0f, 0.0f, 4.5f }, { 5.576369f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, 0.0f, 20.5f }, { 5.26209f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, 3.0f, 5.5f }, { 0.031375f, 0.0f, 0.0f }, 0.5f, 8.0f },
+	{ 0, { 0.0f, -20.0f, 18.0f }, { 0.785458f, 0.0f, 0.0f }, 0.5f, 20.0f },
+	{ 0, { 0.0f, -20.0f, 18.0f }, { 0.785458f, 0.0f, 0.0f }, 0.5f, 20.0f },
+	{ 1, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f },
+};
+
+enum { GETHROW_NONE, GETHROW_DRAW, GETHROW_RECOVER };
+
+// Each hand's throw: which step, and how far into it in sixtieths
+static s8 geThrowStep[2];
+static f32 geThrowTime[2];
+
+static s32 gegunsOwnThrowApplies(const struct hand *hand)
+{
+	return hand->gset.weaponnum == WEAPON_GE_THROWINGKNIFE && gegunsOwnModelInUse(hand->gset.weaponnum);
+}
+
+/**
+ * A throw has begun in this hand (bgunTickIncAttackingThrow()): the draw back.
+ */
+void gegunsOwnThrowStart(struct hand *hand, s32 handnum)
+{
+	if (handnum < 0 || handnum > 1) {
+		return;
+	}
+
+	geThrowStep[handnum] = gegunsOwnThrowApplies(hand) ? GETHROW_DRAW : GETHROW_NONE;
+	geThrowTime[handnum] = 0.0f;
+}
+
+/**
+ * Each tick, after the hand's states: the draw back until the knife leaves
+ * the hand (the throw state past HANDSTATEMINOR_ATTACK_THROW_0), then the
+ * follow-through to its end. Stops at once if the knife is put away or the
+ * look changes.
+ */
+void gegunsOwnThrowTick(struct hand *hand, s32 handnum, f32 lvupdate60)
+{
+	if (handnum < 0 || handnum > 1 || geThrowStep[handnum] == GETHROW_NONE) {
+		return;
+	}
+
+	if (!gegunsOwnThrowApplies(hand) || hand->state == HANDSTATE_CHANGEGUN) {
+		geThrowStep[handnum] = GETHROW_NONE;
+		return;
+	}
+
+	if (geThrowStep[handnum] == GETHROW_DRAW
+			&& (hand->state != HANDSTATE_ATTACK || hand->stateminor != HANDSTATEMINOR_ATTACK_THROW_0)) {
+		geThrowStep[handnum] = GETHROW_RECOVER;
+		geThrowTime[handnum] = 0.0f;
+	} else {
+		geThrowTime[handnum] += lvupdate60;
+	}
+
+	if (geThrowStep[handnum] == GETHROW_DRAW) {
+		if (!gegunsSampleTrack(geKnifeDrawBack, geThrowTime[handnum], &hand->posrotmtx, handnum == HAND_LEFT)) {
+			// drawn back and held there
+			gegunsSampleTrack(geKnifeRelease, 0.0f, &hand->posrotmtx, handnum == HAND_LEFT);
+		}
+
+		hand->useposrot = true;
+		return;
+	}
+
+	// The follow-through ends below the view, and is held there until the
+	// next knife is taken up: Perfect Dark waits out the throw's recovery and
+	// then lowers and raises the hand to fill its one-knife clip, which would
+	// otherwise have brought the empty hand back to rest in between (GoldenEye
+	// goes from the follow-through straight to the knife coming up)
+	if (!gegunsSampleTrack(geKnifeRelease, geThrowTime[handnum], &hand->posrotmtx, handnum == HAND_LEFT)
+			&& (hand->loadedammo[0] > 0 || (hand->state != HANDSTATE_ATTACK && hand->state != HANDSTATE_RELOAD))) {
+		geThrowStep[handnum] = GETHROW_NONE;
+		return;
+	}
+
+	hand->useposrot = true;
+}
+
+/**
+ * Whether the knife itself is out of the hand: thrown, and the hand still
+ * following through (GoldenEye's field_87E) or waiting for the next.
+ */
+static s32 gegunsOwnThrowKnifeGone(const struct hand *hand)
+{
+	struct player *player = g_Vars.currentplayer;
+
+	if (hand->gset.weaponnum != WEAPON_GE_THROWINGKNIFE) {
+		return 0;
+	}
+
+	for (s32 i = 0; player && i < 2; i++) {
+		if (hand == &player->hands[i]) {
+			return geThrowStep[i] == GETHROW_RECOVER;
+		}
+	}
+
+	return 0;
 }
 
 /**
