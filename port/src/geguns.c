@@ -961,6 +961,14 @@ static void gegunsOwnTrigger(s32 i)
 			if (func->type == INVENTORYFUNCTYPE_THROW) {
 				func->flags |= FUNCFLAG_NOAUTOAIM;
 			}
+
+			// GoldenEye throws its knife straight, 25 a sixtieth along the
+			// aim and 5 up (gun.c's generate_player_thrown_knife(),
+			// gegunsThrowSpeed()), not on the combat knife's trajectory to the
+			// aim point at 21.7
+			if (weaponnum == WEAPON_GE_THROWINGKNIFE && func->type == INVENTORYFUNCTYPE_THROW) {
+				func->flags &= ~FUNCFLAG_CALCULATETRAJECTORY;
+			}
 			break;
 		case WEAPON_GE_GOLDENGUN:
 			func->fire_animation = NULL;
@@ -1627,9 +1635,15 @@ s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback)
  * Perfect Dark projectile, `fallback`, otherwise. A remote mine thrown onto
  * one of Facility's tanks was Perfect Dark's blue mine (F3 20260926-171321).
  * The host's model still says whether it sticks (bgunCreateThrownProjectile2()).
- * The throwing knife is left as it is: GoldenEye throws its hunting knife's
- * PROP_CHRKNIFE, and whether that model flies blade first under the host's
- * spin is unchecked.
+ *
+ * The throwing knife is thrown as the hunting knife's PROP_CHRKNIFE, as
+ * gun.c's generate_player_thrown_knife() makes it. Its launch turn and spin
+ * are the host's and GoldenEye's alike (a quarter turn about z and a half
+ * about x on the hand's matrix, 360/(12.1..13.1) degrees a sixtieth about the
+ * knife's y): measured on the native port, the knife leaves in the camera's
+ * space with x (0, .52, .86), y (-1, 0, 0) where ours had (0, .47, .88) and
+ * (-1, 0, 0), so GoldenEye's model under the same matrices flies as
+ * GoldenEye's does.
  */
 s32 gegunsThrownModel(s32 weaponnum, s32 fallback)
 {
@@ -1637,6 +1651,7 @@ s32 gegunsThrownModel(s32 weaponnum, s32 fallback)
 	s32 model;
 
 	switch (weaponnum) {
+	case WEAPON_GE_THROWINGKNIFE: prop = 186; break; // PROP_CHRKNIFE
 	case WEAPON_GE_GRENADE:       prop = 196; break; // PROP_CHRGRENADE
 	case WEAPON_GE_REMOTEMINE:    prop = 199; break; // PROP_CHRREMOTEMINE
 	case WEAPON_GE_PROXIMITYMINE: prop = 200; break; // PROP_CHRPROXIMITYMINE
@@ -1655,6 +1670,56 @@ s32 gegunsThrownModel(s32 weaponnum, s32 fallback)
 	model = modloaderLendRemakeModel(prop);
 
 	return model >= 0 ? model : fallback;
+}
+
+/**
+ * The throwing knife's turn as it leaves the hand where the hand is not
+ * GoldenEye's own (the HD look): the knife is turned from the hand's matrix,
+ * which there is the host's combat knife under its own throw animation - the
+ * release's knife left level, blade across the view, a sixth of a turn off
+ * GoldenEye's. GoldenEye's release pose is always the end of its draw back
+ * (throwKnifeDrawBackKeyframes), so its launch turn in the camera's space is
+ * one matrix, measured on the native port (x 0, .52, .86; y -1, 0, 0), and
+ * it is put in the world by the camera. The N64 look keeps the hand's own,
+ * which is GoldenEye's pose on GoldenEye's model (within 3 degrees).
+ */
+void gegunsThrowKnifeLaunch(s32 weaponnum, Mtxf *mtx, Mtxf *camtoworld)
+{
+	static const f32 cam[3][3] = {
+		{ 0.0f, 0.51757f, 0.85563f },
+		{ -1.0f, 0.0f, 0.0f },
+		{ 0.0f, -0.85563f, 0.51757f },
+	};
+
+	if (weaponnum != WEAPON_GE_THROWINGKNIFE || gegunsOwnModelInUse(weaponnum) || !camtoworld) {
+		return;
+	}
+
+	for (s32 r = 0; r < 3; r++) {
+		f32 len = 0.0f;
+
+		for (s32 c = 0; c < 3; c++) {
+			mtx->m[r][c] = cam[r][0] * camtoworld->m[0][c] + cam[r][1] * camtoworld->m[1][c]
+				+ cam[r][2] * camtoworld->m[2][c];
+			len += mtx->m[r][c] * mtx->m[r][c];
+		}
+
+		len = sqrtf(len);
+
+		for (s32 c = 0; len > 0.0f && c < 3; c++) {
+			mtx->m[r][c] /= len;
+		}
+	}
+}
+
+/**
+ * How fast a throw leaves the hand along the aim, a sixtieth: GoldenEye's
+ * throwing knife's 25 (gun.c's generate_player_thrown_knife()), `speed`
+ * otherwise.
+ */
+f32 gegunsThrowSpeed(s32 weaponnum, f32 speed)
+{
+	return weaponnum == WEAPON_GE_THROWINGKNIFE ? 25.0f : speed;
 }
 
 /**

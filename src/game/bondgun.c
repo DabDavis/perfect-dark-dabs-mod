@@ -5327,6 +5327,12 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 
 	mtx4MultMtx4InPlace(&sp190, &sp1f4);
 
+#ifndef PLATFORM_N64
+	// GoldenEye's throwing knife leaves at GoldenEye's turn where the hand
+	// is the host's (geguns.c)
+	gegunsThrowKnifeLaunch(gset->weaponnum, &sp1f4, camGetProjectionMtxF());
+#endif
+
 	playerSetPerimEnabled(playerprop, false);
 
 	if (cdTestLos11(&playerprop->pos, playerprop->rooms, &muzzlepos, spawnrooms, CDTYPE_ALL) != CDRESULT_COLLISION) {
@@ -5410,9 +5416,17 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		velocity.z = gundir.z * 21.666666f;
 	} else {
 		// Simple velocity
+#ifndef PLATFORM_N64
+		const f32 speed = gegunsThrowSpeed(gset->weaponnum, 16.666666f);
+
+		velocity.x = gundir.x * speed;
+		velocity.y = gundir.y * speed;
+		velocity.z = gundir.z * speed;
+#else
 		velocity.x = gundir.x * 16.666666f;
 		velocity.y = gundir.y * 16.666666f;
 		velocity.z = gundir.z * 16.666666f;
+#endif
 
 		if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_GRENADEARC)) {
 			velocity.y += 1.6666666f;
