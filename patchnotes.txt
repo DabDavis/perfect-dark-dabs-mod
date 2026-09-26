@@ -31,6 +31,22 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 5 2026-09-26
+GE Plus Statue Park: Trevelyan comes to meet you at the statue instead of circling out of reach, and the mission can be finished (thanks Glazier)
+GE Plus Facility: Bond no longer clips through the vents; he waits at the mouth until he has crouched, as in GoldenEye
+GE Plus Dam: a ladder that left the screen blue or black could not be made to happen again here; the game now catches it, keeps you on your feet and notes it in the log
+GE Plus Cradle: guards open the doors instead of walking through them
+GE Plus Surface: shot padlocks crumple as they do in GoldenEye (thanks Linkmendez)
+GE Plus Bunker 2: the hanging monitors hang where they should (thanks Glazier)
+GE Plus Dam: no more bright sky showing through the seams of the mountains; on every level the clouds now fade into the horizon as on the N64
+GE Plus Frigate: the ship's bridge no longer shows through its front wall in the opening shot (thanks Linkmendez)
+GE Plus: mines are GoldenEye's own, and in the HD look a mine stuck to something sits on its surface
+GE Plus: the camera, GoldenEye key, covert modem and plastique leave the hand empty, as in GoldenEye (thanks Linkmendez)
+Mods page: after binding a key the row can be selected again, instead of starting the bind prompt over
+GE Plus, HD look: GoldenEye's characters show blood marks where they are shot, and a head shot leaves a smaller wound on any HD head (thanks Glazier)
+GE Plus: the watch looks, scales and works as GoldenEye's, page by page, and on a wide screen the arm and hand stay in view
+GE Plus converts your GoldenEye ROM once more on the next start, for GoldenEye's own mines
+
 notes 4 2026-09-26
 GE Plus Dam: the tower ladders no longer lift you to the top in one jump (thanks dab)
 GE Plus Dam: the tunnel under the dam no longer turns into sky at one spot (thanks dab)
