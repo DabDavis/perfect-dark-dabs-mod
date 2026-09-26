@@ -4316,6 +4316,12 @@ static s32 xblaMeshBuildCullBack = 0;
 /**
  * Whether a file is a character's body or head: those cull their back faces,
  * as the N64 models do, where a prop may be a single plane seen from both sides.
+ *
+ * A file read out of the release itself (Agent 4, xblaagent4.c) is asked for
+ * by the release's id - xblaMeshMatchModel() swaps the slot for it before
+ * the nodes are matched - while his rows hold the slot the file was registered
+ * in, so a row is his if either number is the one asked about. Matching the
+ * slot alone left Agent 4 the one character drawn two-sided.
  */
 static s32 xblaMeshFileIsChr(s32 fileid)
 {
@@ -4324,7 +4330,9 @@ static s32 xblaMeshFileIsChr(s32 fileid)
 	}
 
 	for (s32 i = 0; i < NUM_HEADSANDBODIES; i++) {
-		if (g_HeadsAndBodies[i].filenum == fileid) {
+		const s32 filenum = g_HeadsAndBodies[i].filenum;
+
+		if (filenum == fileid || (filenum > 0 && romdataFileGetXblaId(filenum) == fileid)) {
 			return 1;
 		}
 	}

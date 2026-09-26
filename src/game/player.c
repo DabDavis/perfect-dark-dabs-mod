@@ -7378,6 +7378,14 @@ s32 playerTickBeams(struct prop *prop)
  */
 #define TETHER_FIRE_HOLD 30
 
+// The travel direction playerTetherBody() steadies: how much of a small
+// change is taken each tick, and the change taken whole (20 degrees)
+#define TRAVEL_EASE 0.3f
+#define TRAVEL_SNAP 0.349f
+
+static f32 g_TetherTravel[MAX_PLAYERS];
+static bool g_TetherTravelSet[MAX_PLAYERS];
+
 static bool playerTetherBodyActive(struct player *player, s32 playernum)
 {
 	return g_ModOptions.camtether != MODTETHER_OFF
@@ -7385,7 +7393,7 @@ static bool playerTetherBodyActive(struct player *player, s32 playernum)
 		&& playerIsThirdPerson(player);
 }
 
-static void playerTetherBody(struct player *player, struct chrdata *chr, f32 *facing, f32 *sideways, f32 *forwards, f32 *speedtheta)
+static void playerTetherBody(struct player *player, s32 playernum, struct chrdata *chr, f32 *facing, f32 *sideways, f32 *forwards, f32 *speedtheta)
 {
 	f32 look = *facing;
 	f32 target;
@@ -7414,13 +7422,51 @@ static void playerTetherBody(struct player *player, struct chrdata *chr, f32 *fa
 			player->thirdpersonfirehold -= g_Vars.lvupdate60;
 		}
 
+		// The direction of travel, steadied. A stick held part way reads a
+		// count or two to the side every tick, and at a slow run that is
+		// several degrees of travel: taken as it came, the body swung to
+		// each reading at once (the turn cap is 30 degrees a tick), and the
+		// speeds handed to the chooser swung with it (F3 20260926-103453,
+		// "xbla models still shake at slow run"). A small change is eased
+		// in over a few ticks; a turn of the stick past TRAVEL_SNAP is taken
+		// at once, so a real change of direction is not delayed.
+		if (speed >= 0.05f) {
+			const f32 raw = atan2f(*sideways, *forwards);
+			f32 step;
+
+			if (!g_TetherTravelSet[playernum]) {
+				g_TetherTravel[playernum] = raw;
+				g_TetherTravelSet[playernum] = true;
+			}
+
+			step = raw - g_TetherTravel[playernum];
+
+			while (step > M_PI) {
+				step -= M_TAU;
+			}
+
+			while (step < -M_PI) {
+				step += M_TAU;
+			}
+
+			if (step > TRAVEL_SNAP || step < -TRAVEL_SNAP) {
+				g_TetherTravel[playernum] = raw;
+			} else {
+				f32 ease = TRAVEL_EASE * g_Vars.lvupdate60freal;
+
+				g_TetherTravel[playernum] += step * (ease > 1.0f ? 1.0f : ease);
+			}
+		} else {
+			g_TetherTravelSet[playernum] = false;
+		}
+
 		if (player->thirdpersonfirehold > 0) {
 			target = look;
 		} else if (speed >= 0.05f) {
 			// The same reading of the speeds the animation chooser makes,
 			// which is what puts the body facing at look - angle when it
 			// turns towards a strafe. Here it goes the whole way.
-			target = look - atan2f(*sideways, *forwards);
+			target = look - g_TetherTravel[playernum];
 		} else {
 			target = player->thirdpersonbodytheta;
 		}
@@ -7456,7 +7502,7 @@ static void playerTetherBody(struct player *player, struct chrdata *chr, f32 *fa
 		// The speeds as the body sees them: the travel angle in look space,
 		// less how far the body is turned from the look.
 		if (speed >= 0.05f) {
-			travel = atan2f(*sideways, *forwards) - (look - player->thirdpersonbodytheta);
+			travel = g_TetherTravel[playernum] - (look - player->thirdpersonbodytheta);
 			*sideways = speed * sinf(travel);
 			*forwards = speed * cosf(travel);
 		}
@@ -7586,7 +7632,7 @@ s32 playerTickThirdPerson(struct prop *prop)
 		// it. Outside the block below because the facing is applied after
 		// it, and every tick, whether or not this one animates the body.
 		if (playerTetherBodyActive(player, playernum)) {
-			playerTetherBody(player, chr, &facing, &speedsideways, &speedforwards, &speedtheta);
+			playerTetherBody(player, playernum, chr, &facing, &speedsideways, &speedforwards, &speedtheta);
 		} else {
 			player->thirdpersonbodyset = false;
 		}
@@ -7713,6 +7759,60 @@ s32 playerTickThirdPerson(struct prop *prop)
 
 	return TICKOP_NONE;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Whether a standing body takes its walk (the soft turn row) rather than its
+ * run (the hard one). Stock walks under a speed of 0.4, or while a player's
+ * first person head bob is in its resting animation - and that one follows the
+ * distance the player actually covered in the tick, which at a slow run
+ * crosses its limit back and forth. So the body flipped between its walk and
+ * its run as fast as each sixteen tick blend let it, and a speed held a few
+ * counts either side of 0.4 did the same; with the tether's facing it read as
+ * the body shaking (F3 20260926-103453, "xbla models still shake at slow run").
+ * A body already running now keeps its run down to a speed of 0.32, and
+ * through the head bob resting unless it rests for CHOOSER_RESTHOLD ticks; one
+ * that is not running starts as stock has it.
+ */
+#define CHOOSER_RESTHOLD 20
+
+static bool playerChooserWalks(struct chrdata *chr, s32 wieldmode, s32 prevanimnum, f32 turnspeed)
+{
+	const struct var80070ba4 *hard = &var80070ba4[wieldmode][TURNMODE_STAND_HARDTURN];
+	const s32 hardanim = hard->animnum ? hard->animnum : (hard->animcfg ? hard->animcfg->animnum : 0);
+
+	const s32 playernum = chr->prop->type == PROPTYPE_PLAYER ? playermgrGetPlayerNumByProp(chr->prop) : -1;
+	bool resting = false;
+
+	if (playernum >= 0 && playernum < MAX_PLAYERS) {
+		static s32 restticks[MAX_PLAYERS];
+
+		if (g_Vars.players[playernum]->headanim == HEADANIM_RESTING) {
+			restticks[playernum] += g_Vars.lvupdate60;
+		} else {
+			restticks[playernum] = 0;
+		}
+
+		// Running and resting for a moment is a body held at a wall, which
+		// stock walks on the spot; a tick or two of it is the head bob
+		// crossing its limit
+		resting = g_Vars.players[playernum]->headanim == HEADANIM_RESTING
+			&& (!(hardanim && prevanimnum == hardanim) || restticks[playernum] >= CHOOSER_RESTHOLD);
+	}
+
+	if (hardanim && prevanimnum == hardanim) {
+		return turnspeed < 0.32f || resting;
+	}
+
+	return turnspeed < 0.4f || resting;
+}
+
+#define CHOOSER_WALKS(chr, wieldmode, prevanimnum, turnspeed) playerChooserWalks(chr, wieldmode, prevanimnum, turnspeed)
+#else
+#define CHOOSER_WALKS(chr, wieldmode, prevanimnum, turnspeed) (turnspeed < 0.4f \
+		|| (chr->prop->type == PROPTYPE_PLAYER \
+			&& g_Vars.players[playermgrGetPlayerNumByProp(chr->prop)]->headanim == HEADANIM_RESTING))
+#endif
 
 /**
  * Choose and apply an animation for a multiplayer player from a third person
@@ -7887,9 +7987,7 @@ void playerChooseThirdPersonAnimation(struct chrdata *chr, s32 crouchpos, f32 sp
 					if (speed > 1.2f) {
 						speed = 1.2f;
 					}
-				} else if (turnspeed < 0.4f
-						|| (chr->prop->type == PROPTYPE_PLAYER
-							&& g_Vars.players[playermgrGetPlayerNumByProp(chr->prop)]->headanim == HEADANIM_RESTING)) {
+				} else if (CHOOSER_WALKS(chr, wieldmode, prevanimnum, turnspeed)) {
 					turnmode = TURNMODE_STAND_SOFTTURN;
 					speed = 2.0f * turnspeed;
 
