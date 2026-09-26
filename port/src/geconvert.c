@@ -4431,8 +4431,14 @@ static void weaponRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 
 	baseRecord(out, raw, 0x08, padNum(be16(raw, 6), numpads, 0));
 	out[0x5c] = item >= 2 ? (uint8_t)soloItemWeapon(item) : 0;
-	out[0x5d] = 0xff;
-	out[0x5e] = 0xff;
+	// no second gun: dualweaponnum (0x61) is -1, as the stock weapon() macro
+	// writes it. Until converter 72 this wrote 0x5d/0x5e (the gset's two
+	// spare bytes) and left dualweaponnum 0, so invGiveWeaponsByProp() took
+	// every converted pickup for one half of a pair: a gun that cannot be
+	// held in two hands counted as "not given" and the player was told only
+	// of its ammunition ("Picked up an ." for Bunker's GoldenEye key), and
+	// one that can was handed over as a pair with WEAPON_NONE
+	out[0x61] = 0xff;
 	set16(out, 0x62, be16(raw, 0x82));
 }
 

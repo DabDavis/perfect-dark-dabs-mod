@@ -2323,9 +2323,6 @@ void lvTick(void)
 	// press fades the screen out and leaves (gexplus.c)
 	gexPlusMissionExitTick();
 
-	// the key analyser, which works the moment it is equipped (gegadgets.c)
-	gegadgetsTick();
-
 	// and GE Plus's Cinema, which is a mission's stage with its own opening
 	// camera shots played on it and no player in it (gecinema.c)
 	gecinemaTick();

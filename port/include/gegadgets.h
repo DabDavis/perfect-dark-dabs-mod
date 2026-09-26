@@ -17,7 +17,6 @@ s32 gegadgetsIsGadget(s32 weaponnum);
 // GoldenEye's ITEM_IDS for the weapon on the mission loaded, 0 for none
 s32 gegadgetsItem(s32 weaponnum);
 void gegadgetsStageLoad(s32 stagenum);
-void gegadgetsTick(void);
 // the trigger pulled with one in the hand
 void gegadgetsFire(s32 weaponnum);
 // lvRender(), after the player's props: the camera's photograph is judged here

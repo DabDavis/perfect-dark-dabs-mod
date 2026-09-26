@@ -523,8 +523,7 @@ def weapon_record(raw, numpads):
     out = base_record(raw, 0x08, PD_SIZES[0x08], pad_of(8, raw, numpads))
     item = raw[0x80]
     out[0x5c] = item_weapon(item) if item >= 2 else 0
-    out[0x5d] = 0xff          # no second gun
-    out[0x5e] = 0xff
+    out[0x61] = 0xff          # no second gun: dualweaponnum -1 (was 0x5d/0x5e until 72)
     struct.pack_into('>h', out, 0x62, struct.unpack_from('>h', raw, 0x82)[0])
     return out
 
