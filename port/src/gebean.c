@@ -2466,6 +2466,7 @@ struct beandraw {
 	u8 masktexslot; // the slot masktex fills, which is the UV set it is read with
 	u32 masktex;  // the material's other picture, where it has two (else ~0)
 	u8 ownmat;    // a material set since its vertex shader was (record 0x02)
+	u32 vs;       // that vertex shader's record (0x02), which draws of one kind share
 	u8 reflamount; // how much of its sphere-mapped pair it adds, 0 for none (beanWalkStream())
 	u16 reflspot; // and the pair: the spot map, then the landscape
 	u16 reflenv;
@@ -3209,6 +3210,7 @@ static void beanWalkStream(struct beanmodel *bm)
 	u32 secend = 0;
 	u8 secblend = 0;
 	u8 ownmat = 0;
+	u32 vs = 0;
 	u8 reflamount = 0;
 	s32 reflform = 0;
 	u16 reflspot = 0;
@@ -3282,6 +3284,7 @@ static void beanWalkStream(struct beanmodel *bm)
 			// The vertex shader (its microcode's place in .gpu): the material
 			// before it is not necessarily this one's (beanDrawIsSphereMapped())
 			ownmat = 0;
+			vs = size >= 8 ? gebeanBE32(st + pc + 4) : 0;
 		} else if (type == 0x1a && size >= 8) {
 			// The pass what follows is drawn in, by its low byte: 1 the opaque
 			// one, 2 the blended one (source alpha over the rest, set by the
@@ -3437,6 +3440,7 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->masktex = masktex;
 				d->masktexslot = masktexslot;
 				d->ownmat = ownmat;
+				d->vs = vs;
 				d->reflamount = reflamount;
 				d->reflspot = reflspot;
 				d->reflenv = reflenv;
@@ -4070,6 +4074,92 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 	return rgba;
 }
 
+static const char *beanTextureName(const struct beanmodel *bm, s32 t);
+
+/**
+ * Whether a decoded picture is Rare's stand-in for art that was never made: a
+ * flat magenta square of 16 texels or fewer a side. The unfinished release
+ * draws it as it is - Jungle's fronds by the spawn (two of its pictures, 464
+ * triangles), five of Aztec's and two of Depot's (F3 20260926-101852, bright
+ * magenta bushes on Jungle).
+ */
+static s32 beanTexIsPlaceholder(const u8 *rgba, s32 w, s32 h)
+{
+	u32 n = (u32)w * (u32)h;
+	u32 mag = 0;
+
+	if (!rgba || w <= 0 || h <= 0 || w > 16 || h > 16) {
+		return 0;
+	}
+
+	for (u32 i = 0; i < n; i++) {
+		const u8 *px = rgba + i * 4;
+
+		mag += px[0] >= px[1] + 0x40 && px[2] >= px[1] + 0x40 && abs(px[0] - px[2]) < 0x30;
+	}
+
+	return mag * 10 >= n * 9;
+}
+
+/**
+ * The colour a placeholder picture is painted in its place: the mean of the
+ * opaque texels of the pictures its neighbours draw with - the draws before
+ * and after each of its own under the same vertex shader, which is the same
+ * kind of surface (Jungle's fronds sit between its leaf and vine cards, so
+ * come out leaf green). Grey when it has no such neighbour.
+ */
+static u32 beanPlaceholderColour(const struct beanmodel *bm, s32 t)
+{
+	u64 sum[3] = { 0, 0, 0 };
+	u64 count = 0;
+	u8 used[GEBEAN_MAXMATS];
+
+	memset(used, 0, sizeof(used));
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		if (bm->draws[di].tex != (u32)t) {
+			continue;
+		}
+
+		for (s32 dir = -1; dir <= 1; dir += 2) {
+			for (s32 dj = di + dir; dj >= 0 && dj < bm->numdraws && bm->draws[dj].vs == bm->draws[di].vs; dj += dir) {
+				const u32 nt = bm->draws[dj].tex;
+				s32 w, h;
+				u8 *rgba;
+
+				if (nt == (u32)t || nt >= (u32)bm->numtex || nt >= GEBEAN_MAXMATS || used[nt]) {
+					continue;
+				}
+
+				used[nt] = 1;
+				rgba = beanDecodeTexture(bm, (s32)nt, &w, &h);
+
+				if (rgba && !beanTexIsPlaceholder(rgba, w, h)) {
+					for (u32 i = 0; i < (u32)w * (u32)h; i++) {
+						if (rgba[i * 4 + 3] >= 0x80) {
+							sum[0] += rgba[i * 4 + 0];
+							sum[1] += rgba[i * 4 + 1];
+							sum[2] += rgba[i * 4 + 2];
+							count++;
+						}
+					}
+
+					free(rgba);
+					break;
+				}
+
+				free(rgba);
+			}
+		}
+	}
+
+	if (!count) {
+		return 0x808080;
+	}
+
+	return (u32)(sum[0] / count) << 16 | (u32)(sum[1] / count) << 8 | (u32)(sum[2] / count);
+}
+
 static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t,
 		const void **tile, u8 *alpha, u8 *soft)
 {
@@ -4089,6 +4179,20 @@ static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t
 	}
 
 	rgba = beanDecodeTexture(bm, t, &w, &h);
+
+	if (beanTexIsPlaceholder(rgba, w, h)) {
+		const u32 c = beanPlaceholderColour(bm, t);
+
+		for (u32 i = 0; i < (u32)w * (u32)h; i++) {
+			rgba[i * 4 + 0] = (u8)(c >> 16);
+			rgba[i * 4 + 1] = (u8)(c >> 8);
+			rgba[i * 4 + 2] = (u8)c;
+		}
+
+		sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is the release's magenta placeholder, painted %06x",
+				source, t, beanTextureName(bm, t), c);
+	}
+
 	*tile = rgba ? xblaTexBindImage(key, rgba, w, h) : NULL;
 
 	if (*tile) {
