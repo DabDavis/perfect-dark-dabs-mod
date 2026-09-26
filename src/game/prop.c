@@ -41,6 +41,7 @@
 #ifndef PLATFORM_N64
 #include "geroom.h"
 #include "gestan.h"
+#include "geslappers.h"
 #endif
 #include "lib/model.h"
 #include "lib/snd.h"
@@ -1468,6 +1469,13 @@ void handInflictMeleeDamage(s32 handnum, struct gset *gset, bool arg2)
 				isglass = false;
 			}
 
+#ifndef PLATFORM_N64
+			// GoldenEye's slap reaches chrs and nothing else (geslappers.c)
+			if (gset->weaponnum == WEAPON_UNARMED && geslappersActive()) {
+				isglass = false;
+			}
+#endif
+
 			if (prop->type == PROPTYPE_CHR
 					|| (prop->type == PROPTYPE_PLAYER && prop->chr && playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum)
 					|| isglass) {
@@ -1572,6 +1580,15 @@ void handInflictMeleeDamage(s32 handnum, struct gset *gset, bool arg2)
 
 		ptr--;
 	}
+
+#ifndef PLATFORM_N64
+	// A slap of GoldenEye's that reached nobody whooshes, and is not then fired
+	// at the wall as a shot: GoldenEye's hits no object, and thuds on nothing
+	if (!skipthething && !arg2 && gset->weaponnum == WEAPON_UNARMED && geslappersActive()) {
+		geslappersMissed();
+		return;
+	}
+#endif
 
 	if (!skipthething && !arg2) {
 		g_Vars.currentplayer->hands[handnum].unk0d0f_02 = true;

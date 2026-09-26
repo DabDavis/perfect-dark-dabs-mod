@@ -73,6 +73,7 @@
 #include "gestan.h"
 #include "gechranims.h"
 #include "geguns.h"
+#include "geslappers.h"
 #include "modloader.h"
 
 // GoldenEye's frame as geguns.c takes it for its guns' rates: two sixtieths
@@ -5303,6 +5304,14 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			damage *= 1000;
 		}
 
+#ifndef PLATFORM_N64
+		// GoldenEye's slap is cut its own way: by what the victim is doing
+		// and the side it is hit from, with no knock-out (geslappers.c)
+		if (gset->weaponnum == WEAPON_UNARMED && geslappersActive()) {
+			damage *= geslappersDamageScale(chr, angle);
+		}
+#endif
+
 		// Punching and pistol whipping is less effective from the front
 		if (gsetHasFunctionFlags(gset, FUNCFLAG_BLUNTIMPACT)) {
 			if (angle < 1.0470308065414f || angle > 5.2351541519165f) {
@@ -5593,7 +5602,12 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				chr->aibot->shotspeed.z += vector->z * boostscale;
 			}
 
-			if (gset->weaponnum == WEAPON_UNARMED) {
+			if (gset->weaponnum == WEAPON_UNARMED
+#ifndef PLATFORM_N64
+					// GoldenEye's slap does not shove
+					&& !geslappersActive()
+#endif
+					) {
 				sp80 = 2;
 			}
 

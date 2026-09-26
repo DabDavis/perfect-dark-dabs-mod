@@ -106,6 +106,21 @@ void gegunsOwnMeleeTick(struct hand *hand, s32 handnum, f32 lvupdate60);
 // hand has no rocket loaded (gebean.c's fpRound)
 s32 gegunsHandIsSpent(const struct model *model);
 
+// One of GoldenEye's first person keyframes (gun.c's Weapon1PTransformKeyframe):
+// a position in the camera's space, three angles in radians, the spline's
+// tension and the keyframe's length in sixtieths; `last` ends a track
+struct geknifekey {
+	s32 last;
+	f32 pos[3];
+	f32 rot[3];
+	f32 tension;
+	f32 duration;
+};
+
+// gunSample1PTransform(): a track `time` sixtieths in, into `mtx` (an Mtxf),
+// mirrored for the left hand; 0 once the track has ended
+s32 gegunsSampleTrack(const struct geknifekey *keys, f32 time, void *mtx, s32 left);
+
 #ifdef __cplusplus
 }
 #endif
