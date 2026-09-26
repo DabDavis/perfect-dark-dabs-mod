@@ -815,7 +815,18 @@ static void skyCloudVtxFrom(struct skycloudvtx *dst, const struct skyvtx3d *src,
 
 static void skyCloudMid(const struct skycloudvtx *a, const struct skycloudvtx *b, struct skycloudvtx *m)
 {
-	const f32 f = a->w / (a->w + b->w);
+	f32 f;
+
+	// the same edge gives the same point from either triangle beside it,
+	// to the bit: the ends in a fixed order (the vertices are rounded to
+	// whole units, and a point one unit off opens a crack between them)
+	if (b->x < a->x || (b->x == a->x && (b->y < a->y || (b->y == a->y && b->z < a->z)))) {
+		const struct skycloudvtx *tmp = a;
+		a = b;
+		b = tmp;
+	}
+
+	f = a->w / (a->w + b->w);
 
 	m->x = a->x + (b->x - a->x) * f;
 	m->y = a->y + (b->y - a->y) * f;
@@ -839,27 +850,33 @@ static f32 skyCloudSpread(const struct skycloudvtx *a, const struct skycloudvtx 
 	return d;
 }
 
+/**
+ * Whether an edge is split: how far a perspective-correct colour strays from
+ * the screen-linear one along it. Decided by the edge's own ends alone, so
+ * the two triangles either side of an edge split it alike and no T-junction
+ * opens a crack onto the clear colour between them (a one-pixel dark dash
+ * in the sky where a whole-triangle rule split one side and not the other).
+ * The colour spread halves with each split, so this ends within a few.
+ */
+static bool skyCloudEdgeSplits(const struct skycloudvtx *a, const struct skycloudvtx *b, s32 depth)
+{
+	const f32 wmin = a->w < b->w ? a->w : b->w;
+	const f32 wmax = a->w < b->w ? b->w : a->w;
+
+	return depth < 12 && skyCloudSpread(a, b) * (wmax - wmin) / (wmax + wmin) > 4.0f;
+}
+
 static Gfx *skyRenderCloudTri(Gfx *gdl, const struct skycloudvtx *a, const struct skycloudvtx *b, const struct skycloudvtx *c, s32 depth)
 {
 	const struct skycloudvtx *v[3] = { a, b, c };
-	f32 wmin = a->w, wmax = a->w;
-	f32 spread;
+	const bool sab = skyCloudEdgeSplits(a, b, depth);
+	const bool sbc = skyCloudEdgeSplits(b, c, depth);
+	const bool sca = skyCloudEdgeSplits(c, a, depth);
 	Vtx *verts;
 	Col *cols;
 	s32 i;
 
-	for (i = 1; i < 3; i++) {
-		if (v[i]->w < wmin) wmin = v[i]->w;
-		if (v[i]->w > wmax) wmax = v[i]->w;
-	}
-
-	spread = skyCloudSpread(a, b);
-	if (skyCloudSpread(b, c) > spread) spread = skyCloudSpread(b, c);
-	if (skyCloudSpread(c, a) > spread) spread = skyCloudSpread(c, a);
-
-	// how far a perspective-correct colour strays from the screen-linear
-	// one, at most, across this triangle
-	if (depth < 8 && spread * (wmax - wmin) / (wmax + wmin) > 4.0f) {
+	if (sab && sbc && sca) {
 		struct skycloudvtx ab, bc, ca;
 
 		skyCloudMid(a, b, &ab);
@@ -870,6 +887,39 @@ static Gfx *skyRenderCloudTri(Gfx *gdl, const struct skycloudvtx *a, const struc
 		gdl = skyRenderCloudTri(gdl, &ab, b, &bc, depth + 1);
 		gdl = skyRenderCloudTri(gdl, &ca, &bc, c, depth + 1);
 		gdl = skyRenderCloudTri(gdl, &ab, &bc, &ca, depth + 1);
+
+		return gdl;
+	}
+
+	if (sab || sbc || sca) {
+		// turn the triangle (keeping its winding) so that p-q is the first
+		// split edge going round and r the corner opposite it
+		const struct skycloudvtx *p, *q, *r;
+		struct skycloudvtx m1, m2;
+		s32 n = sab + sbc + sca;
+
+		if (n == 1) {
+			if (sab) { p = a; q = b; r = c; }
+			else if (sbc) { p = b; q = c; r = a; }
+			else { p = c; q = a; r = b; }
+
+			skyCloudMid(p, q, &m1);
+			gdl = skyRenderCloudTri(gdl, p, &m1, r, depth + 1);
+			gdl = skyRenderCloudTri(gdl, &m1, q, r, depth + 1);
+
+			return gdl;
+		}
+
+		// two split: p-q is the whole edge, q-r and r-p are split
+		if (!sab) { p = a; q = b; r = c; }
+		else if (!sbc) { p = b; q = c; r = a; }
+		else { p = c; q = a; r = b; }
+
+		skyCloudMid(q, r, &m1);
+		skyCloudMid(r, p, &m2);
+		gdl = skyRenderCloudTri(gdl, &m1, r, &m2, depth + 1);
+		gdl = skyRenderCloudTri(gdl, p, q, &m1, depth + 1);
+		gdl = skyRenderCloudTri(gdl, p, &m1, &m2, depth + 1);
 
 		return gdl;
 	}
