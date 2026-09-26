@@ -90,6 +90,12 @@ s32 gebeanRowIsPool(s32 row);
 s32 gebeanRowIsFirstPerson(s32 row);
 
 /**
+ * Whether the row is one of the GoldenEye remake's props (propRows): a
+ * converted GoldenEye prop model with Bean's HD prop drawn on it rigid.
+ */
+s32 gebeanRowIsProp(s32 row);
+
+/**
  * Whether the row is a character - a body or a head - rather than a prop or a
  * gun, which are rigid (gebeanBuildRigid()) and may be single planes.
  */

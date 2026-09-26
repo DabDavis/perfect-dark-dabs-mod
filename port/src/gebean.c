@@ -1633,6 +1633,11 @@ s32 gebeanRowIsFirstPerson(s32 row)
 	return row >= base && row < base + ARRAYCOUNT(fpRows);
 }
 
+s32 gebeanRowIsProp(s32 row)
+{
+	return row >= GEBEAN_PROPROW_BASE && row < GEBEAN_CHRROW_BASE;
+}
+
 s32 gebeanRowIsChr(s32 row)
 {
 	const struct gebeanrow *r = gebeanRowAt(row);
