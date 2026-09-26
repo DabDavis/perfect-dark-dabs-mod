@@ -77,6 +77,7 @@ s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback);
 // What a guard's GoldenEye launcher fires where its own models are drawn:
 // GoldenEye's rocket and grenade round; `fallback` otherwise
 s32 gegunsChrProjectileModel(s32 weaponnum, s32 fallback);
+s32 gegunsThrownModel(s32 weaponnum, s32 fallback);
 
 // The Enemy Rockets cheat on one of GoldenEye's weapons: whether GoldenEye
 // swaps it for its rocket launcher, and the rocket launcher's model to hold

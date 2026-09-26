@@ -4265,6 +4265,60 @@ bool objEmbed(struct prop *prop, struct prop *parent, struct model *model, struc
 	return false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * A projectile landing on a prop whose model draws the XBLA release's mesh
+ * (the HD look) is moved by as much as the drawn surface stands off the
+ * collision surface it landed on at `contact`: out along the `normal` to the
+ * first drawn surface within reach, or, with none outside, in to the first
+ * one under it. Nothing is drawn of the release's in the N64 look, and the
+ * mesh is asked nothing there (xblaMeshSurfaceAlong()).
+ */
+#define LAND_DRAWN_REACH 40.0f
+
+static void objLandOnDrawnSurface(struct prop *prop, struct model *model, struct coord *contact, struct coord *normal)
+{
+	struct coord n = *normal;
+	struct coord to;
+	struct coord hit;
+	f32 len = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+	s32 found;
+
+	if (!model || len <= 0.0f) {
+		return;
+	}
+
+	n.x /= len;
+	n.y /= len;
+	n.z /= len;
+
+	to.x = contact->x + n.x * LAND_DRAWN_REACH;
+	to.y = contact->y + n.y * LAND_DRAWN_REACH;
+	to.z = contact->z + n.z * LAND_DRAWN_REACH;
+	found = xblaMeshSurfaceAlong(model, contact, &to, &hit);
+
+	if (!found) {
+		to.x = contact->x - n.x * LAND_DRAWN_REACH;
+		to.y = contact->y - n.y * LAND_DRAWN_REACH;
+		to.z = contact->z - n.z * LAND_DRAWN_REACH;
+		found = xblaMeshSurfaceAlong(model, contact, &to, &hit);
+	}
+
+	if (found) {
+		const f32 dx = hit.x - contact->x;
+		const f32 dy = hit.y - contact->y;
+		const f32 dz = hit.z - contact->z;
+
+		prop->pos.x += dx;
+		prop->pos.y += dy;
+		prop->pos.z += dz;
+
+		sysLogPrintf(LOG_NOTE, "propobj: landed prop moved %.1f %.1f %.1f onto the drawn surface",
+				dx, dy, dz);
+	}
+}
+#endif
+
 void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *embedded)
 {
 	struct defaultobj *obj = prop->obj;
@@ -4320,6 +4374,13 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 		}
 
 		if (g_EmbedProp->flags & PROPFLAG_ONTHISSCREENTHISTICK) {
+#ifndef PLATFORM_N64
+			// Stuck to the ROM model's collision surface, and so inside or
+			// off whatever the XBLA release draws there instead: a mine on
+			// one of Facility's tanks was buried in the HD tank's fatter wall
+			objLandOnDrawnSurface(prop, g_EmbedModel, arg1, arg2);
+#endif
+
 			if (objEmbed(prop, g_EmbedProp, g_EmbedModel, g_EmbedNode)) {
 				*embedded = true;
 			}

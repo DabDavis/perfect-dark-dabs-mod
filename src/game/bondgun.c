@@ -5105,11 +5105,15 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 		// The function's model is the host's, and is what says a mine sticks
 		// (below); one of GoldenEye's gadgets is thrown as its own prop where
 		// the conversion has it (playermgrGetModelOfWeapon())
+		// and its grenade and mines as its own props (gegunsThrownModel())
 		if (gegadgetsPropModel(gset->weaponnum) >= 0) {
 			weaponobj = weaponCreateProjectileFromGset(gegadgetsPropModel(gset->weaponnum), gset, chr);
-		} else
-#endif
+		} else {
+			weaponobj = weaponCreateProjectileFromGset(gegunsThrownModel(gset->weaponnum, func->projectilemodelnum), gset, chr);
+		}
+#else
 		weaponobj = weaponCreateProjectileFromGset(func->projectilemodelnum, gset, chr);
+#endif
 
 #ifndef PLATFORM_N64
 		// GoldenEye throws the GoldenEye key's own prop: the tag goes with it

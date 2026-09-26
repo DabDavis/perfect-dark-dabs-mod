@@ -6677,6 +6677,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		setAdd(allmodels, 245);
 		setAdd(allmodels, 248);
 		setAdd(allmodels, 273);
+		// and the thrown mines' (gun.c's throw): PROP_CHRREMOTEMINE,
+		// PROP_CHRPROXIMITYMINE and PROP_CHRTIMEDMINE, which a setup names only
+		// where a level lays one on its floor (gegunsThrownModel())
+		setAdd(allmodels, 199);
+		setAdd(allmodels, 200);
+		setAdd(allmodels, 201);
 		for (size_t i = 0; i < sizeof(g_IntroGuns) / sizeof(g_IntroGuns[0]); ++i) {
 			setAdd(allmodels, g_IntroGuns[i]);
 		}

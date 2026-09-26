@@ -11430,3 +11430,65 @@ exactly the oracle's count (`probes/lockcols2.py SALT=0x6a2a`, run2 rig).
 both sides are the same rows (G_CC_CUSTOM_17/18, FOG_PRIM_A), and the oracle's
 sky went to colour noise in the same frames, so its colour is not trusted
 yet; not chased.
+
+## Nothing in the hand for the gadgets, and GoldenEye's own thrown mines (2026-09-26)
+
+Two F3s on build 49783dc: Facility, "Mines are the ones in perfect dark, not
+GE" (a remote mine stuck to a bottling tank, 20260926-171321), and Bunker,
+"Camera and goldeneye key appears in front of the player like a gun"
+(20260926-172234).
+
+**What GoldenEye does, asked of the native port** (`~/dam-oracle/gegadgethand.py`
+on 10.8.0.3: give, `gunRequestHandWeaponChange()`, 150 frames, the frame and
+`hands[0].field_87F`): the camera, the GoldenEye key, the covert modem
+(ITEM_BUG), the plastique, the watch magnet and the remote mine are all
+**drawn as nothing**, the PP7 as a gun. Every one carries
+`WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND` in `gunWeaponStats.inc.c`, and
+gunfire.c clears `field_87F` for it. Only the watch's detonator (the trigger)
+is drawn. What gun.c's throw makes is the item's own prop:
+PROP_CHRREMOTEMINE / PROXIMITYMINE / TIMEDMINE, PROP_CHRGRENADE, and for the
+throwing knife PROP_CHRKNIFE (the hunting knife's model).
+
+- **Gadgets**: `g_Hands` (gegadgets.c) keeps the detonator alone; the modem,
+  plastique, key and camera fall into the empty-hand return with the six that
+  have no model. The measuring and fitting to a width that placed them
+  (`gegadgetsMeasure()`) went with them - it was only ever for these four.
+- **Thrown mines and grenade**: `gegunsThrownModel()` (geguns.c), asked in
+  `bgunCreateThrownProjectile2()` after the gadgets' own: the ROM prop where the
+  stage has it (a converted level's `models` block, either look - the HD look
+  draws the release's `prop/chrremotemine` over it), lent on a stage of Perfect
+  Dark's where GoldenEye's own model is in the hand, the host's projectile
+  otherwise. The host function's model still decides stickiness. The throwing
+  knife is left alone (PROP_CHRKNIFE's axes under the host's blade spin are
+  unchecked).
+- **Converter**: the three mine props were in no `models` block (no setup
+  names them; 196 grenade and 186 knife were there through setups and
+  HELD_GUNS), so geconvert.c and gesolo.py's GE_GADGET_MODELS add 199-201.
+  **Committed without a GECONVERT_VERSION bump**: until the next bump a player's
+  conversion has no mine props and the throw falls back to Perfect Dark's mine.
+
+Checked in a private rig (`~/wt/f3-0926d-gadgets-probe/`, `mine.py` with
+SPOT/BACK/HD, `hand.py`): the tester's tank throw now sticks GoldenEye's mine
+flat on the tank (model 0x2c7 = REMAKE+199), floor throws of all three mines
+and the grenade draw GoldenEye's, detonation unchanged; Bunker shows an empty
+hand for camera/key/modem/plastique and the detonator as before. **Open:** the
+PD-stage lend was not driven (the Combat Simulator boot did not reach play in
+the rig).
+
+**A stuck mine inside the HD prop.** In the HD look a mine stuck to a Facility
+tank was buried: it sits on the ROM model's collision surface and the
+release's tank is 3-4 units fatter there (the same for Perfect Dark's mine
+before). `objLand()` now calls `objLandOnDrawnSurface()` (propobj.c) before
+`objEmbed()` for anything landing on a prop: `xblaMeshSurfaceAlong()`
+(xblamesh.c) ray-tests the mesh drawn for the prop's model from the contact
+point out along the normal (40 units), and in if nothing is outside, and the
+projectile moves by the difference. It reuses the shot's triangle test
+(`xblaMeshHitTest()`, model matrices in the camera's space, as objEmbed() reads
+them); **GoldenEye's release meshes (`beanBuilt`) were never in the shot's hit
+lists** (`xblaMeshHitSkipsNode()` wants a matched release slot), so the surface
+test registers them itself by xblaMeshRenderNode()'s `frombean` rule and the
+hit list carries the built mesh. Bullets still do not test them. Nothing is
+registered in the N64 look (props' Bean meshes draw with F6 on only), so it is
+unchanged there - checked: same position and picture at the tester's spot, and
+floor and wall sticks (level geometry, not props) untouched in both looks.
+`propobj: landed prop moved ...` is logged when it moves one.

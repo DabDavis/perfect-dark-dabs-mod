@@ -1551,8 +1551,8 @@ s32 gegunsChrProp(s32 index)
  * opening swirl (the silenced D5K the same). The guards on the same level have
  * held GoldenEye's own props all along, from the converted setup.
  *
- * The thrown ones are left out: what is thrown is built from this model too,
- * and theirs are Perfect Dark's projectiles.
+ * The thrown ones are left out: GoldenEye draws nothing of them in the hand,
+ * and what they are thrown as is gegunsThrownModel()'s.
  */
 s32 gegunsOwnPropModel(s32 weaponnum)
 {
@@ -1613,6 +1613,46 @@ s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback)
 	}
 
 	model = modloaderLendRemakeModel(202); // PROP_CHRROCKET
+
+	return model >= 0 ? model : fallback;
+}
+
+/**
+ * What the player throws of GoldenEye's grenade and mines: GoldenEye's own
+ * prop, as gun.c's throw makes it (PROP_CHRGRENADE, PROP_CHRREMOTEMINE,
+ * PROP_CHRPROXIMITYMINE, PROP_CHRTIMEDMINE), where the stage has it - a
+ * converted level's `models` block, in either look, as the thrown gadgets
+ * (gegadgetsPropModel()) - or where GoldenEye's own model is in the hand and
+ * it can be lent (a stage of Perfect Dark's); the host's throw function's
+ * Perfect Dark projectile, `fallback`, otherwise. A remote mine thrown onto
+ * one of Facility's tanks was Perfect Dark's blue mine (F3 20260926-171321).
+ * The host's model still says whether it sticks (bgunCreateThrownProjectile2()).
+ * The throwing knife is left as it is: GoldenEye throws its hunting knife's
+ * PROP_CHRKNIFE, and whether that model flies blade first under the host's
+ * spin is unchecked.
+ */
+s32 gegunsThrownModel(s32 weaponnum, s32 fallback)
+{
+	s32 prop;
+	s32 model;
+
+	switch (weaponnum) {
+	case WEAPON_GE_GRENADE:       prop = 196; break; // PROP_CHRGRENADE
+	case WEAPON_GE_REMOTEMINE:    prop = 199; break; // PROP_CHRREMOTEMINE
+	case WEAPON_GE_PROXIMITYMINE: prop = 200; break; // PROP_CHRPROXIMITYMINE
+	case WEAPON_GE_TIMEDMINE:     prop = 201; break; // PROP_CHRTIMEDMINE
+	default: return fallback;
+	}
+
+	if (g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid) {
+		return MODEL_REMAKE_FIRST + prop;
+	}
+
+	if (!gegunsOwnModelInUse(weaponnum)) {
+		return fallback;
+	}
+
+	model = modloaderLendRemakeModel(prop);
 
 	return model >= 0 ? model : fallback;
 }

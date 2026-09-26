@@ -51,6 +51,7 @@
 #include "modelpack.h"
 #include "roomsheen.h"
 #include "game/bg.h"
+#include "game/camera.h"
 #include "game/dlights.h"
 #include "game/game_0b0fd0.h"
 #include "game/playermgr.h"
@@ -10539,6 +10540,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 struct xblameshhitlist {
 	struct modelnode *node;
 	struct xblameshentry *e;
+	struct xblameshbuilt *bean; // a GoldenEye release mesh (beanBuilt), or NULL for the release's slot
 };
 
 static struct xblameshhitlist hitLists[XBLAMESH_HITLISTS];
@@ -10603,6 +10605,7 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node)
 	if (numHitLists < XBLAMESH_HITLISTS) {
 		hitLists[numHitLists].node = node;
 		hitLists[numHitLists].e = e;
+		hitLists[numHitLists].bean = NULL;
 		numHitLists++;
 	}
 
@@ -10965,7 +10968,7 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 	for (s32 r = 0; r < numHitLists; r++) {
 		struct xblameshentry *e = hitLists[r].e;
 		struct modelnode *node = hitLists[r].node;
-		struct xblameshbuilt *m = xblaMeshBuild(e->slot);
+		struct xblameshbuilt *m = hitLists[r].bean ? hitLists[r].bean : xblaMeshBuild(e->slot);
 		struct xblameshuse *use;
 		s32 groups[XBLAMESH_MAXPARTS];
 		s32 numgroups = 0;
@@ -11310,6 +11313,107 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 	return 1;
 }
 
+/**
+ * The first surface of the release's mesh drawn for `model` on the segment
+ * `from` to `to` (world space), for something that sticks where the ROM's
+ * collision surface is: the release's props are not the N64 ones' shape, and
+ * a mine stuck to a Facility tank sat inside the HD tank's fatter walls. The
+ * model's matrices are the last frame's, in the camera's space, as the shot
+ * tests them (and objEmbed() reads them); 0 where nothing of the release's is
+ * drawn on the model - the N64 look - or the segment meets none of it.
+ */
+s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const struct coord *to, struct coord *hit)
+{
+	struct modelnode *node;
+	struct coord pos;
+	struct coord far;
+	struct coord dir;
+	struct hitthing hitthing;
+	struct modelnode *bbox = NULL;
+	struct modelnode *dlnode = NULL;
+	s32 hitpart = 0;
+	Mtxf *camtoworld = camGetProjectionMtxF();
+	Mtxf worldtocam;
+	const s32 look = !optEnabled;
+	f32 len;
+	f32 sqdist;
+
+	if (!model || !model->matrices || !model->definition || !camtoworld || !g_XblaMeshNumNodes) {
+		return 0;
+	}
+
+	numHitLists = 0;
+
+	for (node = model->definition->rootnode; node; ) {
+		const u32 type = node->type & 0xff;
+
+		if (type == MODELNODETYPE_DL || type == MODELNODETYPE_GUNDL) {
+			// the release's own mesh for the list, as a shot finds it
+			xblaMeshHitSkipsNode(model, node);
+
+			// or GoldenEye's release's, which a shot does not test yet, by
+			// xblaMeshRenderNode()'s `frombean` rule: its HD props are drawn
+			// only with the meshes on (F6), as they are asked here
+			if (numHitLists < XBLAMESH_HITLISTS && gebeanGetEnabled() && beanBuilt[look]) {
+				struct xblameshentry *e = xblaMeshSlotFor(node);
+
+				if (e && e->node == node && e->modeldef == model->definition && e->beanrow >= 0
+						&& e->packpart != XBLAMESH_NOPART && e->fileid && !e->suppress
+						&& !(e->matched && xblaMeshEntryLive(e) && opened > 0)
+						&& !modelpackFindN64(e->fileid)
+						&& (optEnabled || gebeanRowIsPool(e->beanrow) || gebeanRowIsFirstPerson(e->beanrow))
+						&& beanBuilt[look][e->fileid] && beanBuilt[look][e->fileid]->state > 0) {
+					hitLists[numHitLists].node = node;
+					hitLists[numHitLists].e = e;
+					hitLists[numHitLists].bean = beanBuilt[look][e->fileid];
+					numHitLists++;
+				}
+			}
+		}
+
+		if (node->child) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	if (!numHitLists) {
+		return 0;
+	}
+
+	mtx000172f0(camtoworld->m, worldtocam.m);
+	mtx4TransformVec(&worldtocam, (struct coord *)from, &pos);
+	mtx4TransformVec(&worldtocam, (struct coord *)to, &far);
+
+	dir.x = far.x - pos.x;
+	dir.y = far.y - pos.y;
+	dir.z = far.z - pos.z;
+	sqdist = dir.x * dir.x + dir.y * dir.y + dir.z * dir.z;
+	len = sqrtf(sqdist);
+
+	if (len <= 0.0f) {
+		numHitLists = 0;
+		return 0;
+	}
+
+	dir.x /= len;
+	dir.y /= len;
+	dir.z /= len;
+
+	if (!xblaMeshHitTest(model, &pos, &far, &dir, &sqdist, &hitthing, &bbox, &hitpart, &dlnode)) {
+		return 0;
+	}
+
+	mtx4TransformVec(camtoworld, &hitthing.pos, hit);
+
+	return 1;
+}
+
 /* -------------------------------------------------------------------------
  * Settings
  * ------------------------------------------------------------------------- */
@@ -11554,6 +11658,7 @@ s32 xblaMeshModelDrawsBean(struct model *model) { return 0; }
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode) { return 0; }
+s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const struct coord *to, struct coord *hit) { return 0; }
 s32 xblaMeshModelsAreLate(void) { return 0; }
 u8 *xblaMeshReadFile(u16 fileid, u32 *outLen) { return NULL; }
 
