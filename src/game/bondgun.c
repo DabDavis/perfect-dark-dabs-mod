@@ -1759,7 +1759,11 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 	}
 
 	if (hand->stateminor == HANDSTATEMINOR_RELOAD_LOWER) {
-		if (hand->count60 > TICKS(15) || !hand->visible) {
+		if (hand->count60 > TICKS(15) || !hand->visible
+#ifndef PLATFORM_N64
+				|| gegunsReloadSkipsLower(info->weaponnum)
+#endif
+				) {
 			hand->mode = HANDMODE_11;
 			hand->stateminor++; // to HANDSTATEMINOR_RELOAD_SOUND
 			hand->pausetime60 = TICKS(17);
@@ -5327,6 +5331,12 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 
 	mtx4MultMtx4InPlace(&sp190, &sp1f4);
 
+#ifndef PLATFORM_N64
+	// GoldenEye's throwing knife leaves at GoldenEye's turn where the hand
+	// is the host's (geguns.c)
+	gegunsThrowKnifeLaunch(gset->weaponnum, &sp1f4, camGetProjectionMtxF());
+#endif
+
 	playerSetPerimEnabled(playerprop, false);
 
 	if (cdTestLos11(&playerprop->pos, playerprop->rooms, &muzzlepos, spawnrooms, CDTYPE_ALL) != CDRESULT_COLLISION) {
@@ -5410,9 +5420,17 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		velocity.z = gundir.z * 21.666666f;
 	} else {
 		// Simple velocity
+#ifndef PLATFORM_N64
+		const f32 speed = gegunsThrowSpeed(gset->weaponnum, 16.666666f);
+
+		velocity.x = gundir.x * speed;
+		velocity.y = gundir.y * speed;
+		velocity.z = gundir.z * speed;
+#else
 		velocity.x = gundir.x * 16.666666f;
 		velocity.y = gundir.y * 16.666666f;
 		velocity.z = gundir.z * 16.666666f;
+#endif
 
 		if (weaponHasFlag3(gset->weaponnum, WEAPONFLAG3_GRENADEARC)) {
 			velocity.y += 1.6666666f;
@@ -12599,6 +12617,11 @@ void bgunRender(Gfx **gdlptr)
 			// and GoldenEye's grenade and mines on its own model are not
 			// drawn in the hand at all (geguns.c)
 			if (gegunsOwnModelHidden(weaponnum)) {
+				geshown = true;
+			}
+
+			// nor its throwing knife's empty hand after a throw
+			if (gegunsOwnThrowHidesHand(hand)) {
 				geshown = true;
 			}
 

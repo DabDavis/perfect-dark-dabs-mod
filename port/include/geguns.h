@@ -78,6 +78,9 @@ s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback);
 // GoldenEye's rocket and grenade round; `fallback` otherwise
 s32 gegunsChrProjectileModel(s32 weaponnum, s32 fallback);
 s32 gegunsThrownModel(s32 weaponnum, s32 fallback);
+f32 gegunsThrowSpeed(s32 weaponnum, f32 speed);
+void gegunsThrowKnifeLaunch(s32 weaponnum, Mtxf *mtx, Mtxf *camtoworld);
+s32 gegunsReloadSkipsLower(s32 weaponnum);
 
 // The Enemy Rockets cheat on one of GoldenEye's weapons: whether GoldenEye
 // swaps it for its rocket launcher, and the rocket launcher's model to hold
@@ -107,6 +110,7 @@ void gegunsOwnMeleeTick(struct hand *hand, s32 handnum, f32 lvupdate60);
 // the draw back and, once the knife has gone, the follow-through
 void gegunsOwnThrowStart(struct hand *hand, s32 handnum);
 void gegunsOwnThrowTick(struct hand *hand, s32 handnum, f32 lvupdate60);
+s32 gegunsOwnThrowHidesHand(const struct hand *hand);
 
 // Whether a model is the gun in one of the current player's hands and that
 // hand has no rocket loaded (gebean.c's fpRound)
