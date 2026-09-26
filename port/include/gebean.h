@@ -321,6 +321,9 @@ struct gebeanmats {
 	const void *tile[GEBEAN_MAXMATS];
 	u8 alpha[GEBEAN_MAXMATS];
 	u8 soft[GEBEAN_MAXMATS];
+	// A tinted pane, which goes to GoldenEye's far-pane grey with its
+	// opacity (gebeanBuildRigid(), xblamesh.c's xblaMeshTintCopy())
+	u8 tinted[GEBEAN_MAXMATS];
 	// Groups blanked because the head file carries this body's neck
 	u64 neckblank;
 	// For a neck node, the group holding the body's own neck to draw instead

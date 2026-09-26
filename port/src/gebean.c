@@ -2147,6 +2147,9 @@ struct beanmodel {
 	s32 texfile[GEBEAN_MAXMATS]; // a texture's header, by file index
 	// The pane of a glass material in the blended pass (beanWalkStream())
 	u8 glasspane[GEBEAN_MAXMATS];
+	// Such a pane under the window's reflection map: a tinted pane
+	// (beanTexIsTintedPaneMap())
+	u8 tintedpane[GEBEAN_MAXMATS];
 
 	s32 numibs;
 	struct beanib ibs[BEAN_MAXIBS];
@@ -2562,6 +2565,26 @@ static s32 beanTexIsGlassOverlay(const struct beanmodel *bm, u32 t)
 }
 
 /**
+ * The window's reflection map, _0x00B5FD45 (256x256 DXT1), of the overlays
+ * above. Only its name is asked: a pane under it is GoldenEye's tinted glass
+ * (the window prop, and the gas plant's clear door), which goes to a flat dark
+ * grey past opadist as the N64 look's pane does (xblamesh.c,
+ * xblaMeshTintCopy()). The map itself is not drawn.
+ */
+static s32 beanTexIsTintedPaneMap(const struct beanmodel *bm, u32 t)
+{
+	const char *name;
+
+	if (t >= (u32)bm->numtex) {
+		return 0;
+	}
+
+	name = caffAssetName(&bm->caff, bm->caff.files[bm->texfile[t]].asset);
+
+	return name && (strcmp(name, "_0x00B5FD45.bin") == 0 || strcmp(name, "_0x00B5FD45.bmp.bin") == 0);
+}
+
+/**
  * Which of a material's textures is the model's own picture.
  *
  * A material lists one entry per input after its header, eight bytes each: a
@@ -2773,8 +2796,11 @@ static void beanWalkStream(struct beanmodel *bm)
 			// Glass: a pane under one of the shared maps, in the blended pass
 			if (blend && tex < (u32)bm->numtex && !beanTexIsGlassOverlay(bm, tex)) {
 				for (u32 k = 0; 12 + 8 * k + 8 <= size && gebeanFits(pc + 12 + 8 * k, 4, len); k++) {
-					if (beanTexIsGlassOverlay(bm, gebeanBE32(st + pc + 12 + 8 * k))) {
+					const u32 over = gebeanBE32(st + pc + 12 + 8 * k);
+
+					if (beanTexIsGlassOverlay(bm, over)) {
 						bm->glasspane[tex] = 1;
+						bm->tintedpane[tex] |= beanTexIsTintedPaneMap(bm, over);
 					}
 				}
 			}
@@ -4754,6 +4780,7 @@ static s32 beanMarkDecals(struct beanout *o, u32 *matwords, s32 *nummatwords, st
 			copy[tex] = (*nummatwords)++;
 			matwords[copy[tex]] = XBLAMESH_MAT_TABLE | (u32)copy[tex] | (matwords[tex] & 0x8000) | XBLAMESH_MAT_DECAL;
 			mats->tile[copy[tex]] = mats->tile[tex];
+			mats->tinted[copy[tex]] = mats->tinted[tex];
 			mats->alpha[copy[tex]] = mats->alpha[tex];
 			mats->soft[copy[tex]] = mats->soft[tex];
 			mats->num = *nummatwords;
@@ -5176,6 +5203,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			mats->alpha[i] = 1;
 			mats->soft[i] = 1;
 			matwords[i] |= 0x8000;
+			mats->tinted[i] = bm.tintedpane[i];
 		}
 	}
 

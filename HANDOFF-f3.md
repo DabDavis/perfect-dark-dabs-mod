@@ -25,12 +25,38 @@ In the N64 look it thickens smoothly over that range. Now gDPSetCycleType(G_CYC_
 before the fade list; at prim 0 (every non-mode-9 draw: the release's light beams) the
 second cycle is a pass-through, so nothing else changes.
 
+**The colour past opadist** (coordinator: the user's "match N64" covers it; user chose a
+flat dark grey like the N64 over Bean's reflection map, which was tried in 5879e2b89 -
+its lights and glare - and reverted in 4fb5b5025). The N64 look's far pane on screen
+measures (20,18,17) at Facility's report camera, 19..28 grey on the Archives-set panes and
+(22,21,21) on Caverns': one constant, XBLAMESH_TINT_* = (22,21,20) in xblamesh.c. gebean.c
+marks a pane as tinted when its material lays the window's reflection map `_0x00B5FD45`
+over it (beanTexIsTintedPaneMap(), name only - the map is not loaded) -> `gebeanmats.tinted`;
+xblamesh.c builds `m->tintgdl`, a copy of the mesh's list with only those panes and the
+combiner = PRIMITIVE colour and alpha (xblaMeshTintCopy(), the logo copies' pattern), and
+draws it straight after the pane's fade list with prim = (22,21,20, the mode-9 opacity).
+So the grey lies over the pane by the pane's own opacity: nothing up close, all of it past
+opadist, and Glass See-Through's cap on the opacity caps it too. Scope: Bean meshes whose
+pane has that map (the window prop; also gasplantcleardoor's `.bmp.bin` spelling, which
+would go grey with a windowed door's fade as the N64 door window does - not seen in the sweeps).
+
 Answer for the tester: the windows going solid past a range is GoldenEye's own tinted
 glass rule (the N64 look does the same, in GoldenEye's darker picture); the sudden pop
-was ours and now fades in like GoldenEye's. Glass See-Through (Display page; Dab's
+was ours and now fades in like GoldenEye's, and the far pane is now GoldenEye's dark grey
+rather than blue. Glass See-Through (Display page; Dab's
 Settings = 50) keeps them partly clear at any distance, in both looks.
 
 ## Verification (pictures in /home/sdg/wt/f3glassn64-pics)
+
+Far-pane grey: `fact-cmp-0.png` / `fact-cmp-50.png` (rows: first fix, with the grey,
+N64). Past opadist Facility's pane measures (25,21,20) against the N64's (20,18,17); with
+Glass See-Through 50, (27,30,33) against (25,24,21), half clear in both; at 444/295 units
+unchanged. `tourt-0x6e.png`: Archives-set panes (22,20,19) against (19,18,18).
+`tourt-0x66.png`: Caverns' far pane blue -> dark (15,19,22) against the N64's (28,28,28).
+Spawn sweeps first fix vs grey: 20 GE Plus missions + 6 PD stages HD/XBLA identical;
+20 GE Plus missions in the N64 look identical.
+
+First fix:
 
 - `fac-cmp-0.png` / `fac-cmp-50.png`: Facility, camera on the report line at 689, 594,
   544, 444, 295 units (opacity 255, 247, 183, 56, 0); rows base HD / fixed HD / N64,
@@ -55,22 +81,20 @@ not touch the glass.
 
 ## Open
 
-- Past opadist the HD pane is flat blue where the N64's is GoldenEye's dark reflective
-  picture. If the user wants the colour matched too, the HD equivalent is Bean's own
-  reflection map `_0x00B5FD45` (256x256 DXT1, black with a few lights) that
-  beanTexIsGlassOverlay() drops from the window material: laying it over the pane by the
-  opacity would give the N64's dark look at distance. Not done - needs a user decision.
+- Vulkan not checked (offscreen driver makes no Vulkan window).
+- The grey is one flat colour: the N64's pane keeps its picture's faint streaks; the HD one
+  is even. Lighting does not change it (the N64's measured the same in three levels).
 
 ## Rig (outside the tree)
 
 - run dir `/home/sdg/wt/f3glassn64-run` (copies of f3hdlevels-run's cache/mods/saves);
   build `/home/sdg/wt/f3glassn64-build`; binaries `f3glassn64-rig/pd.base` (1fc1832d8),
-  `pd.fix`, `pd.dam` (fix + a5355ec05).
+  `pd.fix` (first fix), `pd.refl` (reflection map, reverted), `pd.tint` (the grey), `pd.dam` (first fix + a5355ec05).
 - `views.sh STAGE TAG` (as f3hdlevels'; `BIN=` must be an absolute path - a relative one
   silently runs the last binary), `N64=1`, `GROUND=`, `ARGS=`, `EXTRASED=` (add the slider
   with `/^\[Mod\]/a GlassSeeThrough=50`: the key is not in the saved ini).
   Facility report camera: `VIEWS='-3607.3,-159,2295.4,190.5,-2.1,18' GROUND=-319`.
 - `glass.py` (gdb `dumpglass`: tinted/plain glass and doors near the camera with
   xlu/opa/opacity/portal), `tour.py` via `SCRIPT=... tour.sh` (`PANES=` indices or
-  `PANEPOS='x,z;...'` - the N64 look lists props in another order), `ab.sh` + `abdiff.py`,
+  `PANEPOS='x,z;...'` - the N64 look lists props in another order), `ab.sh` (`SAVE=save_sw_n64` for the N64 look) + `abdiff.py`,
   `cmp.py` (picture grids).
