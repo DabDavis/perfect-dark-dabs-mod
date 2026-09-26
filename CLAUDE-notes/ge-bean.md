@@ -213,6 +213,26 @@ order (camguard = Jungle Commando, greyguard = St. Petersburg Guard, ...).
   techwoman and rusguard built and drew in the survey, the other two have not
   been looked at.
 
+### From the ROM alone, with no release (2026-09-26)
+
+F3 20260924-001658: a player with the GE ROM and no GoldenEye XBLA had no
+GoldenEye characters in the Combat Simulator (GE-X, the other source, is
+dormant once the ROM is converted). `gebeanPoolRefreshRom()` fills the same
+pool rows and list places from the conversion's `Cgx%03dZ` models, paired to
+each pool row through `gebeanchrtable.h` (a head and a body sharing a source,
+the Bond pairs, told apart by kind): 38 bodies and 33 heads, so a saved index
+names the same character with the release added or removed. `romSlot[]` marks
+them (not `poolSlot[]`, which means "a Bean mesh stands on a host");
+`gebeanIsRomPoolRow()` for headfit, which leaves a GoldenEye head on a
+GoldenEye body alone, and the rows share one head/body type so the ROM's type
+table moves none of them. The table is read by `gexPlusRomMpBegin()`/`Fill()`
+(gexplus.c) into a copy of its own; the conversion is the mount with
+`files/Cgx000Z` and `menu/gechrs.bin`, so it needs GoldenEye Arenas' maps on
+(as the guns do). With the release present the lists and a seeded match are
+byte/pixel-identical to before. Probes: `~/wt/gerom-mpchars-run/`
+(`cisweep.py` wears every body in the Institute, `match.py` a Combat Sim
+with chosen sim bodies, `cimenu.py` the Customize Character page).
+
 ## Walking the Carrington Institute as one (2026-09-15)
 
 The Perfect Menu's **Customize Character** (between Carrington Institute and
