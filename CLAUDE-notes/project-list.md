@@ -104,3 +104,27 @@ light a possible future endeavour, not a fix. What is known for it:
   defaults off;
 - the port's HD meshes also take Perfect Dark's per-prop room shade, which
   the release does not; matching the release exactly would mean dropping it.
+
+## The release's own water shader on HD Dam (added 2026-09-26)
+
+HD Dam's reservoir (Bean stride 36 records, drawn since b3391bb58) shows only
+the material's colour picture. Since e13528f75 (F3 20260926-064418) it moves
+with GoldenEye's own water motion (`port/src/gewater.c`: two offset copies
+of the picture drifting and cross-fading, the same list the N64 look runs on
+pictures 1511 and 1508). That is an approximation. The release draws the
+water with `sinWavesShader1`, which nothing here reproduces yet. The user
+wants it on the list. What is known (ge-bean.md, the stride 36 water entry):
+- the material's four 512x512 pictures: a **normal map**, a **reflection
+  panorama**, a **ripple height map** and the colour (DXT5, alpha about 160);
+  only the colour is bound today;
+- the vertex carries a normal (+16), a tangent (+24) and a second UV pair
+  (+28, not read) - the inputs a normal-mapped reflection wants;
+- the shader's constants are the 1/128 matrices in Dam's `.data`; the pixel
+  shader itself is in the release's shader blob, not yet disassembled;
+- only Dam has stride 36 water (10099 + 274 vertices, 19626 triangles);
+- renderer side, this needs a custom combiner path in both GL and Vulkan (a
+  per-pixel normal perturbing a panorama lookup, like `G_ENVMAP_EXT` but
+  with a normal map and a time input), so it sits near the reflections work
+  above;
+- the fog question stays separate: GoldenEye's own water list turns fog off,
+  and e13528f75 kept the level's fog (asked the user 2026-09-26).
