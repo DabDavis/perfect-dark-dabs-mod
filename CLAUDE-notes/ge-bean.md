@@ -10710,3 +10710,46 @@ the headspot read inside `xblaMeshPose()`), Facility and Dam guards standing
 SWAPBODY=153`: Doak himself spawns late on Secret Agent and up); Ourumov (Silo)
 and the Jungle's `Cgx011Z` unchanged apart from the guards behind them; the N64
 look pixel-identical.
+
+## GE Plus takes nothing from GoldenEye X, even when asked to (2026-09-26)
+
+The user's rule, restated: GE Plus is the GoldenEye ROM (converted) and the
+GoldenEye XBLA release, and nothing else - GoldenEye X stays installable and
+playable as its own mod, but no part of GE Plus borrows from it or falls back
+to it, whatever `Mod.BorrowGoldenEyeGuns` says.
+
+What still reached it before this (branch `feat/ge-plus-no-gex`):
+
+- **The borrow with a mod named outright.** `borrowDormant()` only silenced
+  `auto`; `Mod.BorrowGoldenEyeGuns=GE-X_6a_01-19-25` still borrowed 25 guns,
+  106 character rows, 44 tracks, 14 sets and 40 animations, with 33 sound
+  warnings, into the same `WEAPON_GE_*` slots, rows and lists GE Plus plays
+  with. In the HD look every GE gun then drew on GoldenEye X's model with its
+  hands. `borrowFind()` now borrows nothing once the conversion is there
+  (READY or OLD), for any setting. GoldenEye X's own maps through the Stage
+  Loader still take their own objects (`borrowFindMapsSource()`, own maps
+  only, never the conversion's `propsfrom`); a named mod is the only one it
+  looks at.
+- **GoldenEye X loaded as the mod.** Then every file GE Plus does not convert
+  itself is GoldenEye X's (the hosts' definitions, the sound bank, the 86
+  rewritten animations, the textures). `modBorrowLoadedIsGoldenEyeX()` scores
+  the overlay mod by its gun slots; `geIntroOpen()` and `gexFrontOpen()`
+  refuse, and the GE Plus dialog greys Combat Simulator and says to unload it.
+- **Select Mission's fallback to GoldenEye X's missions** (`frontMissionsAvailable()`,
+  `frontMissionStage()`): gone; an old conversion without missions leaves it
+  grey, and a cinema has nothing to play on then.
+- **The weapon sets' fallback** (`gexPlusWeaponSets()` -> `modBorrowWeaponSets()`):
+  gone; the ROM's 14 or none.
+
+With the borrow off, the characters' GoldenEye X paths (`modBorrowBodyName()`
+in the Characters page, `gexPlusThemeSimulants()`, `gexPlusBodyForGe()`) find
+nothing and fall through to the release's pool or Perfect Dark's; they belong
+to the ROM characters work (`feat/ge-rom-mp-chars`).
+
+Checked on two rigs with GoldenEye X installed and the setting naming it
+(ROM only in the N64 look; ROM + release in the HD look): no borrow line,
+0 warnings (33 before), all 25 guns on `Igx%03dZ` (N64) or the release's
+`Gge*Z` over their hosts (HD), GE Plus's sets the ROM's 14, the track list
+42 (86 before), Dam's music GoldenEye's own, the mission's sound identical to
+the `auto` build. GoldenEye X loaded as the mod still boots its Temple and
+plays; GE Plus reports it shut. Probes in `~/wt/gex-out-probe/`.
