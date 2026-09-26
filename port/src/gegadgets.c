@@ -123,7 +123,6 @@ static const struct gegadgethand g_Hands[] = {
 	{ WEAPON_GE_PLASTIQUE,    { 11.0f, -11.5f, -30.0f }, 19.0f },
 	{ WEAPON_GE_GOLDENEYEKEY, { 11.0f, -10.5f, -30.0f }, 14.0f },
 	{ WEAPON_GE_CAMERA,       { 11.0f, -10.0f, -30.0f }, 14.0f },
-	{ WEAPON_GE_WATCHMAGNET,  { 10.0f, -13.0f, -30.0f }, 13.0f },
 	// trigger_stats, and gunfire.c's D_80035C70 for ITEM_TRIGGER
 	{ WEAPON_GE_DETONATOR,    { -2.0f, -21.5f, -19.0f }, 0.0f, { 6.2536321f, 6.2592888f, 0.204238f } },
 };
@@ -465,7 +464,13 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 		}
 	}
 
-	// the six GoldenEye gives no model: an empty hand, as it has it
+	// the six GoldenEye gives no model, and the watch magnet, whose
+	// watchmagnetattract_stats carry WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND
+	// (gunfire.c then leaves field_87F clear and draws nothing): an empty
+	// hand, as it has it. Measured and fitted to a width, the magnet's watch
+	// arm (GwatchmagnetattractZ) was a giant watch floating at the lower
+	// right (F3 20260922-000405); the native port shows nothing in the hand
+	// 30, 90 and 200 frames after equipping it, attract or repel.
 	if (!held) {
 		return 1;
 	}
