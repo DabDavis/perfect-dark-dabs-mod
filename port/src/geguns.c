@@ -1265,6 +1265,46 @@ s32 gegunsOwnModelInUse(s32 weaponnum)
 }
 
 /**
+ * Each gun's model in a hand in GoldenEye, its PROP_CHR* prop: player.c's
+ * getPropForHeldItem() by weapon, with the thrown ones' props besides. The
+ * conversion's `models` block numbers them MODEL_REMAKE_FIRST + prop and its
+ * setups give them to the guards and lay them on the floor.
+ */
+static const s16 chrProps[NUM_GE_GUNS] = {
+	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 191, // PROP_CHRWPPK
+	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = 204, // PROP_CHRWPPKSIL
+	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = 205, // PROP_CHRTT33
+	[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = 193, // PROP_CHRSKORPION
+	[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = 184, // PROP_CHRKALASH
+	[WEAPON_GE_ZMG             - WEAPON_GE_FIRST] = 195, // PROP_CHRUZI
+	[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = 189, // PROP_CHRMP5K
+	[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = 206, // PROP_CHRMP5KSIL
+	[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = 194, // PROP_CHRSPECTRE
+	[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = 188, // PROP_CHRM16
+	[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = 197, // PROP_CHRFNP90
+	[WEAPON_GE_SHOTGUN         - WEAPON_GE_FIRST] = 192, // PROP_CHRSHOTGUN
+	[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = 207, // PROP_CHRAUTOSHOT
+	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = 210, // PROP_CHRSNIPERRIFLE
+	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 190, // PROP_CHRRUGER
+	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 208, // PROP_CHRGOLDEN
+	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = 187, // PROP_CHRLASER
+	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 185, // PROP_CHRGRENADELAUNCH
+	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = 211, // PROP_CHRROCKETLAUNCH
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 186, // PROP_CHRKNIFE
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = 209, // PROP_CHRTHROWKNIFE
+	[WEAPON_GE_GRENADE         - WEAPON_GE_FIRST] = 196, // PROP_CHRGRENADE
+	[WEAPON_GE_TIMEDMINE       - WEAPON_GE_FIRST] = 201, // PROP_CHRTIMEDMINE
+	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = 200, // PROP_CHRPROXIMITYMINE
+	[WEAPON_GE_REMOTEMINE      - WEAPON_GE_FIRST] = 199, // PROP_CHRREMOTEMINE
+};
+
+/** Gun `index`'s PROP_CHR* number, or -1. */
+s32 gegunsChrProp(s32 index)
+{
+	return index >= 0 && index < NUM_GE_GUNS && chrProps[index] > 0 ? chrProps[index] : -1;
+}
+
+/**
  * GoldenEye's own model of this gun in a hand - its PROP_CHR* prop, which the
  * conversion's `models` block numbers MODEL_REMAKE_FIRST + prop - wherever the
  * gun is drawn in GoldenEye's own look and the stage has the block loaded; -1
@@ -1282,30 +1322,6 @@ s32 gegunsOwnModelInUse(s32 weaponnum)
  */
 s32 gegunsOwnPropModel(s32 weaponnum)
 {
-	// player.c's getPropForHeldItem(), by weapon
-	static const s16 props[NUM_GE_GUNS] = {
-		[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = 191, // PROP_CHRWPPK
-		[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = 204, // PROP_CHRWPPKSIL
-		[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = 205, // PROP_CHRTT33
-		[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = 193, // PROP_CHRSKORPION
-		[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = 184, // PROP_CHRKALASH
-		[WEAPON_GE_ZMG             - WEAPON_GE_FIRST] = 195, // PROP_CHRUZI
-		[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = 189, // PROP_CHRMP5K
-		[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = 206, // PROP_CHRMP5KSIL
-		[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = 194, // PROP_CHRSPECTRE
-		[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = 188, // PROP_CHRM16
-		[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = 197, // PROP_CHRFNP90
-		[WEAPON_GE_SHOTGUN         - WEAPON_GE_FIRST] = 192, // PROP_CHRSHOTGUN
-		[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = 207, // PROP_CHRAUTOSHOT
-		[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = 210, // PROP_CHRSNIPERRIFLE
-		[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = 190, // PROP_CHRRUGER
-		[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 208, // PROP_CHRGOLDEN
-		[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = 187, // PROP_CHRLASER
-		[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 185, // PROP_CHRGRENADELAUNCH
-		[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = 211, // PROP_CHRROCKETLAUNCH
-		[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = 186, // PROP_CHRKNIFE
-		[WEAPON_GE_GRENADE         - WEAPON_GE_FIRST] = 196, // PROP_CHRGRENADE
-	};
 	const s32 index = weaponnum - WEAPON_GE_FIRST;
 	s32 prop;
 
@@ -1313,7 +1329,15 @@ s32 gegunsOwnPropModel(s32 weaponnum)
 		return -1;
 	}
 
-	prop = props[index];
+	switch (weaponnum) {
+	case WEAPON_GE_THROWINGKNIFE:
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE:
+	case WEAPON_GE_REMOTEMINE:
+		return -1;
+	}
+
+	prop = gegunsChrProp(index);
 
 	return prop > 0 && g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid ? MODEL_REMAKE_FIRST + prop : -1;
 }

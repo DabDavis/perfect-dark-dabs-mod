@@ -683,6 +683,24 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 					return GEBEAN_PROPROW_BASE + i;
 				}
 			}
+
+			// A gun's own prop, PROP_CHR* (Pgx210Z is the sniper rifle): what
+			// the guards hold and what lies on the floor, out of the converted
+			// setup. It is the model its pickup row was fitted on
+			// (gegunstable.h), so the row lays the release's gun on it as it
+			// does on the host's pickup the player holds. Missing from here,
+			// every guard's gun stayed GoldenEye's N64 one in the HD look
+			// beside the player's HD one (F3 20260925-233626, Surface's
+			// sniper rifles).
+			if (name[3] >= '0' && name[3] <= '9') {
+				const s32 prop = atoi(name + 3);
+
+				for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
+					if (gegunsChrProp(gunRows[i].weaponnum - WEAPON_GE_FIRST) == prop) {
+						return ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + i;
+					}
+				}
+			}
 		} else if (name[0] == 'C') {
 			for (s32 i = 0; i < ARRAYCOUNT(chrRows); i++) {
 				if (strcmp(name, chrRows[i].file) == 0) {
