@@ -3401,11 +3401,23 @@ static Gfx *watchItemProjection(Gfx *gdl, f32 fovy, f32 near, f32 far)
 }
 
 /**
- * The gun slot's model drawn under `base`, as a weapon is
- * (PROP_TYPE_WEAPON, unk30 4), the env word being the fog colour it is faded
- * towards - which is the watch's green.
+ * The gun slot's model drawn under `base` the way
+ * set_enviro_fog_for_items_in_solo_watch_menu() draws it, which is one of two
+ * ways (`turning`):
+ *
+ * - still, on the mission page, as a weapon is (PROP_TYPE_WEAPON, unk30 4):
+ *   solid, the env word 0x64dc6428 being the fog colour it is faded towards,
+ *   which is the watch's green;
+ * - turning, on the inventory page, as GoldenEye's PROP_TYPE_PLAYER branch
+ *   (unk30 5): env 0x40, fog 0xa0ffa03c - a see-through green ghost of the
+ *   gun, with no z-buffer, so its far side and its insides show through its
+ *   near side. It was drawn solid in the weapon's way with the inventory's
+ *   fog word (F3 20260926-064954, the DD44): a bright opaque shell whose dark
+ *   frame and thin trigger guard, which GoldenEye's ghost shows through the
+ *   slide, all but vanished against the face, so the gun read as having no
+ *   front below its slide.
  */
-static Gfx *watchRenderGun(Gfx *gdl, Mtxf *base, u32 envcolour)
+static Gfx *watchRenderGun(Gfx *gdl, Mtxf *base, s32 turning)
 {
 	struct modelrenderdata renderdata = { NULL, false, 3 };
 	Mtxf *matrices = gfxAllocate(g_WatchGun.def->nummatrices * sizeof(Mtxf));
@@ -3425,18 +3437,30 @@ static Gfx *watchRenderGun(Gfx *gdl, Mtxf *base, u32 envcolour)
 	modelUpdateRelations(&g_WatchGun.model);
 	modelSetMatrices(&renderdata, &g_WatchGun.model);
 
-	renderdata.unk30 = 4;
-	renderdata.envcolour = envcolour;
+	if (turning) {
+		renderdata.unk30 = 5;
+		renderdata.envcolour = 0x40;
+		renderdata.fogcolour = 0xa0ffa03c;
+		renderdata.zbufferenabled = false;
+	} else {
+		renderdata.unk30 = 4;
+		renderdata.envcolour = 0x64dc6428;
+		renderdata.zbufferenabled = true;
+	}
+
 	renderdata.flags = 3;
-	renderdata.zbufferenabled = true;
 
 	gDPSetTexturePersp(gdl++, G_TP_PERSP);
 	gDPSetTextureLUT(gdl++, G_TT_NONE);
 	gDPSetAlphaCompare(gdl++, G_AC_NONE);
 	gDPSetTextureFilter(gdl++, G_TF_BILERP);
 	gdl = lightsSetDefault(gdl);
-	gdl = zbufClear(gdl);
-	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+	if (renderdata.zbufferenabled) {
+		gdl = zbufClear(gdl);
+		gSPSetGeometryMode(gdl++, G_ZBUFFER);
+	} else {
+		gSPClearGeometryMode(gdl++, G_ZBUFFER);
+	}
 
 	renderdata.gdl = gdl;
 	modelRender(&renderdata, &g_WatchGun.model);
@@ -3524,7 +3548,7 @@ static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 		}
 	}
 
-	return watchRenderGun(gdl, &base, turning ? 0xa0ffa03c : 0x64dc6428);
+	return watchRenderGun(gdl, &base, turning);
 }
 
 /**
@@ -3586,7 +3610,7 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	watchGunSetPart(15, 1);
 	watchGunSetPart(1, 0);
 
-	return watchRenderGun(gdl, &base, turning ? 0xa0ffa03c : 0x64dc6428);
+	return watchRenderGun(gdl, &base, turning);
 }
 
 /**
