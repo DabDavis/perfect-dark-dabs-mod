@@ -21,6 +21,7 @@
 #define GESTAN_UNLINKED  (-1)
 #define GESTAN_CLIMBWALL 0x4000
 #define GESTAN_SPECIAL_CROUCH 1
+#define GESTAN_SPECIAL_LADDER 3
 #define GESTAN_RISE      60.0f   // how far over a body's foot its own floor may be: two of a stair's steps
 
 struct stanpoint {
@@ -555,6 +556,48 @@ static f32 stanEdgeSegDistSq(const struct stanpoint *a, const struct stanpoint *
 	return d < best ? d : best;
 }
 
+/** Whether the tile's area in plan is next to nothing: a tile on edge, a wall or a riser. */
+static bool stanTileUpright(s32 i)
+{
+	const struct stantile *t = &g_Stan.tiles[i];
+	const struct stanpoint *p = &g_Stan.points[t->first];
+	f32 area = 0.0f;
+
+	for (s32 a = 0, b = t->npts - 1; a < t->npts; b = a++) {
+		area += (f32)p[b].x * p[a].z - (f32)p[a].x * p[b].z;
+	}
+
+	return area > -1.0f && area < 1.0f;
+}
+
+/**
+ * Whether the tile is part of a ladder: a ladder tile (special 3, the floor
+ * made from it carries Perfect Dark's ladder flag), or a tile on edge beside
+ * one - the panel at a ladder's side, which the conversion treats as the
+ * ladder too (stanClimb() in geconvert.c).
+ */
+static bool stanTileLadder(s32 i)
+{
+	const struct stantile *t = &g_Stan.tiles[i];
+	const struct stanpoint *p = &g_Stan.points[t->first];
+
+	if (t->special == GESTAN_SPECIAL_LADDER) {
+		return true;
+	}
+
+	if (!stanTileUpright(i)) {
+		return false;
+	}
+
+	for (s32 a = 0; a < t->npts; a++) {
+		if (p[a].across >= 0 && g_Stan.tiles[p[a].across].special == GESTAN_SPECIAL_LADDER) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 /**
  * The tiles a body reaches: its own, and every tile linked to it - through any
  * number of links - across an edge that comes within `reach` of where it
@@ -576,8 +619,11 @@ static f32 stanEdgeSegDistSq(const struct stanpoint *a, const struct stanpoint *
  * across under the treads. By its box it was reached from every tread, and a
  * body a little off the middle of the flight stopped at a wall a storey under
  * its feet.
+ *
+ * `ladders` false stops the flood at a ladder (stanTileLadder()): the climb
+ * asks that way, a ladder being climbed as Perfect Dark's own are.
  */
-static void stanFlood(s32 start, f32 x, f32 z, f32 x2, f32 z2, f32 reach)
+static void stanFlood(s32 start, f32 x, f32 z, f32 x2, f32 z2, f32 reach, bool ladders)
 {
 	s32 queue[GESTAN_MAXFLOOD];
 	s32 head = 0, tail = 0;
@@ -604,6 +650,10 @@ static void stanFlood(s32 start, f32 x, f32 z, f32 x2, f32 z2, f32 reach)
 			}
 
 			if (stanEdgeSegDistSq(&p[k], &p[(k + 1) % t->npts], x, z, x2, z2) > reach * reach) {
+				continue;
+			}
+
+			if (!ladders && stanTileLadder(n)) {
 				continue;
 			}
 
@@ -684,7 +734,7 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32
 		g_Stan.lastfound = tile >= 0;
 
 		if (tile >= 0) {
-			stanFlood(tile, pos->x, pos->z, to->x, to->z, reach);
+			stanFlood(tile, pos->x, pos->z, to->x, to->z, reach, true);
 		} else {
 			g_GeStanNoTile++;
 		}
@@ -705,20 +755,6 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32
 	return true;
 }
 
-/** Whether the tile's area in plan is next to nothing: a tile on edge, a wall or a riser. */
-static bool stanTileUpright(s32 i)
-{
-	const struct stantile *t = &g_Stan.tiles[i];
-	const struct stanpoint *p = &g_Stan.points[t->first];
-	f32 area = 0.0f;
-
-	for (s32 a = 0, b = t->npts - 1; a < t->npts; b = a++) {
-		area += (f32)p[b].x * p[a].z - (f32)p[a].x * p[b].z;
-	}
-
-	return area > -1.0f && area < 1.0f;
-}
-
 /**
  * Whether a floor's edge, from e0 to the point after it, is one a body climbs
  * across rather than walks over. Only a link is crossed at all (GoldenEye's
@@ -736,6 +772,11 @@ static bool stanEdgeClimbs(const struct stanpoint *e0, const struct stanpoint *e
 	const struct stanpoint *p;
 
 	if (n < 0) {
+		return false;
+	}
+
+	// a ladder's head: the ladder is the way up there, not a lift
+	if (stanTileLadder(n)) {
 		return false;
 	}
 
@@ -790,7 +831,14 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 		return best;
 	}
 
-	stanFlood(tile, pos->x, pos->z, to->x, to->z, radius);
+	// not up a ladder: a ladder is climbed as Perfect Dark climbs its own
+	// (cdFindLadder()), and the deck at its head is linked to the floor at
+	// its foot through it. Flooded across, the deck was a floor the circle
+	// touched as the player walked into the ladder, and he was lifted the
+	// ladder's whole height in one frame whenever that came before the
+	// ladder took hold of him (F3 report 20260926-113743, Dam's tower
+	// ladders, 321 high)
+	stanFlood(tile, pos->x, pos->z, to->x, to->z, radius, false);
 
 	movelen = sqrtf((to->x - pos->x) * (to->x - pos->x) + (to->z - pos->z) * (to->z - pos->z));
 	cx0 = stanCellOf(to->x - radius, g_Stan.gridx, g_Stan.gridw);
@@ -901,7 +949,7 @@ bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach)
 		return false;
 	}
 
-	stanFlood(tile, pos->x, pos->z, pos->x, pos->z, reach);
+	stanFlood(tile, pos->x, pos->z, pos->x, pos->z, reach, true);
 
 	for (s32 i = 0; i < g_Stan.numtiles; i++) {
 		if (g_Stan.reached[i] == g_Stan.gen && g_Stan.tiles[i].special == GESTAN_SPECIAL_CROUCH) {
