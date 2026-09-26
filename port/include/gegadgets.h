@@ -28,7 +28,8 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 // gadget thrown from the hand
 struct prop;
 void gegadgetsKept(struct prop *prop);
-void gegadgetsThrown(s32 weaponnum);
+struct weaponobj;
+void gegadgetsThrown(s32 weaponnum, struct weaponobj *thrown);
 // the thrown prop's model state, -1 for the host's own
 s32 gegadgetsPropModel(s32 weaponnum);
 

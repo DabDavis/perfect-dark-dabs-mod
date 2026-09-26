@@ -549,12 +549,42 @@ void gegadgetsKept(struct prop *prop)
 	g_Gadgets.keyprop = prop;
 }
 
-void gegadgetsThrown(s32 weaponnum)
+void gegadgetsThrown(s32 weaponnum, struct weaponobj *thrown)
 {
-	if (weaponnum == WEAPON_GE_GOLDENEYEKEY && g_Gadgets.keyprop) {
-		invRemoveProp(g_Gadgets.keyprop);
-		g_Gadgets.keyprop = NULL;
+	struct prop *prop = g_Gadgets.keyprop;
+	struct defaultobj *obj;
+
+	if (weaponnum != WEAPON_GE_GOLDENEYEKEY || !prop) {
+		return;
 	}
+
+	g_Gadgets.keyprop = NULL;
+	invRemoveProp(prop);
+
+	if (!thrown || prop->type != PROPTYPE_WEAPON || !prop->obj) {
+		return;
+	}
+
+	// GoldenEye throws the very prop it picked up (gun.c: the key is taken
+	// out of the inventory with bondinvRemovePropWeaponByID(), objDetach()ed
+	// and thrown). Perfect Dark's throw builds a new prop, and the one picked
+	// up stayed a child of the player's prop - which invHasProp() counts as
+	// carried - so the "put it back" objective never completed however often
+	// the key was thrown (F3 20260925-231553). The tag moves to the thrown
+	// prop, which is the key from here on (picked up again, it is carried
+	// again), and the one in the hand is freed.
+	obj = prop->obj;
+
+	for (struct tag *tag = g_TagsLinkedList; tag; tag = tag->next) {
+		if (tag->obj == obj) {
+			tag->obj = &thrown->base;
+			thrown->base.hidden |= OBJHFLAG_TAGGED;
+		}
+	}
+
+	obj->hidden &= ~OBJHFLAG_TAGGED;
+	objDetach(prop);
+	objFreePermanently(obj, true);
 }
 
 /**
