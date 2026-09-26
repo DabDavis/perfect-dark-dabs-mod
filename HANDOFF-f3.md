@@ -66,7 +66,7 @@ tester's 718d5dc. With 50 the far pane is lighter (fac-glass-cmp.png) but still 
 as blue glass. Question for the user: should GE Plus HD windows stay clear at any
 distance by default (as the release may), or is the slider enough?
 
-## 5. Runway door to Facility: sky in gaps round it (230105) - REPRODUCED, cause not found
+## 5. Runway door to Facility: sky in gaps round it (230105) - FIXED on fix/f3-runway-door-gaps (see the section of that name below)
 
 At the report camera on current code the double door (modelnum 0x29b, two props at
 (-3684 89 9467) and (-3583 89 9467)) shows sky along its top and right edges
@@ -222,3 +222,95 @@ edits. The addition is small (one function and a stub), but check the merge.
     chrMoveToPos() puts the guard 60 units nearer (spawn adjust), hence GX/GZ.
   - Facility (0x63 in this install, 0x7a in the tester's): X=-4544.9 Y=80
     Z=1361.7 ROOMS=8 TH=258.4 VA=-32 CHR=44.
+
+# F3 handoff: Runway door gaps (branch fix/f3-runway-door-gaps)
+
+Report 20260925-230105-3075525b (tester stage 0x75 = our 0x5e, Runway, HD look,
+frame 393): "door leading to facility ... renders a skybox behind it and there are
+gaps". Commit 8fd302785 (port/src/gebeanstage.c only). Not merged, pushed or deployed.
+
+## Cause
+
+- Not the door model. The HD mesh for modelnum 0x29b is Pgx155Z <- Bean
+  `new/prop/gasplantsw2do1`, fitted onto the N64 model exactly: HD extents
+  x -349.9..350.1, y -787.2..788.0, z -43.7..43.8 against the N64 bbox node
+  +-350, -787..788, +-44 (temporary print in gebeanBuildRigid()). GoldenEye's own
+  Runway setup (007 decomp `assets/obseg/setup/UsetuprunZ.c`, doors 121/122 on pads
+  6/7) has this same double door, model 155 = gas_plant_sw2_do1; in the N64 look the
+  two plain grey leaves just read as one door.
+- It is Bean's level. The two leaves fill x -3734.1..-3533.5, y -17..195, z
+  9461.2..9473.3 (pad box). Bean's doorway (wall triangles 608-613 of the level) is
+  x -3734.9..-3531.6, y -16.5..199.5, in a zero-thickness wall at z 9458.8: 4.5 too
+  tall, 2 too wide on one side, and 2.4 in front of the doors' face with nothing
+  between. Nothing is behind the doors (GoldenEye's Runway has no room there), so
+  the sky showed through the strip at the top, the side, and - by parallax through
+  the 2.4 - a line along the far side and the foot.
+- Survey over all 20 missions (doors from g_Vars.props, Bean triangles dumped):
+  most doors have a gap of 0.5-2 units, a handful 4-10.
+
+## Fix (closeDoorGaps() in build(), after clampCutouts())
+
+For every door prop, its pad box (padUnpack: normal/up/look + bbox, the box setup
+scales the door to):
+1. Snap: a Bean vertex within the door's thickness + 10 of its faces and up to
+   min(12, 6% of that side) past a side or the top is pulled onto the edge; its UV
+   moves with it (triUvShift) so the picture stays put. Not along the foot (floors),
+   not on a side a line through the door's thickness 0.5 past the edge finds covered
+   (doorSideOpen - Bunker's bevelled frames), not on the side a sliding door slides
+   into (DOORFLAG_0080 + unk98 - Bunker's vertical doors rise into a slot above;
+   pulling that down changed the header). Vertices inside another leaf's box stay.
+2. Reveals: each wall edge on a side/top in front of the door's face, and the
+   floor edge in front of the foot, gets a 2-triangle strip back to the door's
+   middle plane (not its face: ending on the face left a dotted line of sky where
+   the reveal met the door's edge), clipped to each leaf (a double door's top edge
+   spans both), in the source triangle's picture smeared; skipped where the level
+   already has a triangle (stripCovered, e.g. Bean's own jamb or the floor running
+   under the door).
+Per-door triangle lists (doorNearTris) keep it cheap: the mesh phase is within load
+noise on Frigate (180k triangles, 29 doors). Log line per level:
+`gebeanstage: N vertices pulled onto the edges of D doors, R reveals filled`
+(Runway 72 / 6 / 8).
+
+## Verification (pictures in /home/sdg/wt/f3rwdoor-pics/)
+
+- Report camera (-3237.4 142 9140.1, theta 53.7, verta -0.3, room 1), HD:
+  report-final.png = base | fix | fix with the leaves moved away | N64. No sky
+  round the doors; blue pixels in the door area outside the keypad 1 (base 1765).
+- N64 look at the report camera: pixel-identical to base (rep-n64-base-0.png vs
+  rep-n64-final-0.png).
+- Door animated open and shut from inside room 4 (doorsRequestMode 1 then 2):
+  anim-final-sheet.png (base left, fix right) - swings as before, no sky when shut.
+- HD A/B sweep, all 20 missions, frame 400 (rig ab.sh, ab-base vs ab-final):
+  16 identical; Dam 0x15, Runway 0x5e, Bunker 2 0x64 and Frigate 0x6c differ by
+  sub-pixel texture/edge shifts near doors (ab12-*.png, abfinal-0x64.png).
+- Close-ups both sides of Runway pads 185 (roller door) and 186, Facility pads
+  388/404/406 (cu-*.png; the second view of each has no door drawn because the rig
+  leaves the player's room stale there - not a game fault, checked from the right
+  room in back185.png); Bunker pad 121 with and without doors (bk121-sheet.png,
+  from before the sliding-side rule; Bunker 0x6f is now pixel-identical at spawn).
+
+## Open / not done
+
+- Gaps past the 6%/12-unit reach are left: Bunker 2 (0x64) pads 221/222 (6-16),
+  Archives (0x65) pad 510 right side (~10), Frigate (0x6c) six doors' tops (~8,
+  the probe finds those tops covered - likely a frame in depth), Facility
+  pads 432/442/443 (16 on every side - Bean frames). None reported; look before
+  widening the reach.
+- The report's own right-edge line at extreme angles is gone; very grazing views
+  of other doors may still show a hairline where a Bean wall is thicker than the
+  slab (10 units past the door's faces).
+- Unrelated items of the 0926 pass stay as sections 3, 4, 6-9 above.
+
+## Rig (outside the tree)
+
+- run dir `/home/sdg/wt/f3rwdoor-run` (copy of f3hdlevels-run), rig
+  `/home/sdg/wt/f3rwdoor-rig`: `views.sh` (as f3hdlevels'), `ab.sh`,
+  `pd.base` (1fc1832d8) and `pd.final` (8fd302785).
+- `survey.sh BIN stages...` (+ `doorsurvey.py`): writes door poses
+  (`survey*/doors_S.jsonl`) and needs a binary with the GEBEAN_DUMP hunk for the
+  triangles (`survey/` = base dumps, `survey_fix5/` = an earlier fix build);
+  `gaps.py doors tris` = per closed door, how far past each edge the level starts;
+  `perdoor.py S` / `moved.py S x y z` = what moved near a door between two dumps.
+- `doorviews.py S pad...` = camera both sides of a door; `closeups.sh S pad...`;
+  `hidedoors.py` (gdb `source` it to lift every door 5000 up for a shot).
+
