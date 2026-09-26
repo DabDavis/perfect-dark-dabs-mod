@@ -9,7 +9,12 @@ env: TAG, D (distance), MODE stand|kneel, CROUCH 0|1, DIFF (g_Difficulty),
      TURN (degrees off the view to put the guard), MOVEPLAYER=1 (the player
      goes D from the nearest guard instead), WEAPON (a comma list the guard
      must hold), GIVE (swap his gun's number), INV=0 (take damage, health
-     refilled each tick), LOSDBG=1 (what blocks the line at the end)
+     refilled each tick), LOSDBG=1 (what blocks the line at the end),
+     ROOMS (the player's rooms, comma list, with X Y Z - a storeyed level puts
+     him on the wrong floor without them), GX GZ (+PIN=1: every frame) put the
+     guard at an exact spot, KEEPAI=1 (the guard keeps his own AI list and
+     attacks by himself - a forced chrAttackStand() skips the AI command that
+     carries a converted mission's attack flags, 2026-09-26)
 
 Run from a directory with the binary, data/, added-content/ and mods/:
   SDL_VIDEODRIVER=offscreen gdb -batch -x aimprobe.py --args ./pd.x86_64 \
@@ -80,6 +85,11 @@ gdb.execute('set variable g_Difficulty = %d' % DIFF)
 if os.environ.get('X'):
     X, Y, Z = (float(os.environ[a]) for a in 'XYZ')
     for a, v in zip('xyz', (X, Y, Z)): gdb.execute('set variable %sprop->pos.%s = %f' % (P, a, v))
+    if os.environ.get('ROOMS'):
+        rr = [int(r) for r in os.environ['ROOMS'].split(',')] + [-1]
+        for k, r in enumerate(rr): gdb.execute('set variable %sprop->rooms[%d] = %d' % (P, k, r))
+        gdb.execute('set variable %svv_ground = %f' % (P, Y - 159))
+        gdb.execute('set variable %svv_manground = %f' % (P, Y - 159))
     gdb.execute('set variable %svv_theta = %f' % (P, float(os.environ.get('TH', '0'))))
     at_frame(START + 20)
 th = math.radians(f('%svv_theta' % P))
@@ -103,7 +113,8 @@ for i in range(n):
 C = 'g_ChrSlots[%d]' % c
 GUARD = int(ev('(long)&%s' % C)); GUARDPROP = int(ev('(long)%s.prop' % C))
 gy = f('%svv_manground' % P)
-gdb.execute('set variable %s.ailist = 0' % C)
+KEEPAI = os.environ.get('KEEPAI')
+if not KEEPAI: gdb.execute('set variable %s.ailist = 0' % C)
 gdb.execute('set variable $pos = (struct coord *)malloc(12)')
 gdb.execute('set variable $rooms = (RoomNum *)malloc(32)')
 if os.environ.get('MOVEPLAYER'):
@@ -129,6 +140,14 @@ else:
     ang = math.atan2(px - gx, pz - gz)
     if ang < 0: ang += 2 * math.pi
     moved = int(ev('(int)chrMoveToPos(&%s, $pos, $rooms, %f, 1)' % (C, ang)))
+    print('AIM moved %d to %.0f %.0f %.0f' % (moved, f('%s.prop->pos.x' % C), f('%s.prop->pos.y' % C), f('%s.prop->pos.z' % C)))
+    if os.environ.get('GX'):
+        for a in 'xz':
+            gdb.execute('set variable %s.prop->pos.%s = %f' % (C, a, float(os.environ['G' + a.upper()])))
+            gdb.execute('set variable $pos->%s = %f' % (a, float(os.environ['G' + a.upper()])))
+        gdb.execute('set variable $pos->y = %s.prop->pos.y' % C)
+        gdb.execute('call (void)modelSetRootPosition(%s.model, $pos)' % C)
+        gx, gz = float(os.environ['GX']), float(os.environ['GZ'])
     th = th2
 print('AIM %s guard slot %d chrnum %d weapon %#x acc %d body %d at %.0f %.0f %.0f room %d player %.0f %.0f %.0f' % (
     TAG, c, int(ev('%s.chrnum' % C)), int(ev('chrGetHeldProp(&%s, 0)->weapon->weaponnum' % C)),
@@ -142,8 +161,9 @@ for i in range(n):
         gdb.execute('set variable g_ChrSlots[%d].chrflags = g_ChrSlots[%d].chrflags | 0x00000400' % (i, i))
 if os.environ.get('INV', '1') == '1':
     gdb.execute('set variable %sinvincible = 1' % P)
-gdb.execute('call (void)chrStand(&%s)' % C)
-gdb.execute('set variable %s.target = -1' % C)
+if not KEEPAI:
+    gdb.execute('call (void)chrStand(&%s)' % C)
+    gdb.execute('set variable %s.target = -1' % C)
 GIVE = os.environ.get('GIVE')
 if GIVE:
     gdb.execute('set variable chrGetHeldProp(&%s, 0)->weapon->weaponnum = %d' % (C, int(GIVE, 0)))
@@ -173,12 +193,19 @@ Fire('chrTickShoot', internal=True)
 print('AIM %s speedrating %d' % (TAG, int(ev('%s.speedrating' % C))))
 fr = begin
 while fr < begin + FRAMES:
-    if int(ev('%s.actiontype' % C)) != 8:
+    if int(ev('%s.actiontype' % C)) != 8 and not KEEPAI:
         gdb.execute('call (void)%s(&%s, 0x200, 0)' % ('chrAttackKneel' if MODE == 'kneel' else 'chrAttackStand', C))
     if CROUCH:
         gdb.execute('set variable %sautocrouchpos = 0' % P)
     gdb.execute('set variable %svv_theta = %f' % (P, math.degrees(th)))
     gdb.execute('set variable %sbondhealth = 1.0' % P)
+    if os.environ.get('GX') and os.environ.get('PIN'):
+        gdb.execute('set variable %s.prop->pos.x = %f' % (C, float(os.environ['GX'])))
+        gdb.execute('set variable %s.prop->pos.z = %f' % (C, float(os.environ['GZ'])))
+        gdb.execute('set variable $pos->x = %f' % float(os.environ['GX']))
+        gdb.execute('set variable $pos->z = %f' % float(os.environ['GZ']))
+        gdb.execute('set variable $pos->y = %s.prop->pos.y' % C)
+        gdb.execute('call (void)modelSetRootPosition(%s.model, $pos)' % C)
     for a, v in (('x', px), ('z', pz)):
         gdb.execute('set variable %sprop->pos.%s = %f' % (P, a, v))
         gdb.execute('set variable %sbondshotspeed.%s = 0' % (P, a))
@@ -199,7 +226,7 @@ while fr < begin + FRAMES:
             print('AIMA anim %d ticks %d firing %d' % (cyc['anim'], cyc['ticks'] - cyc['start'], cyc['firing'] - cyc['startfire']))
         cyc['inattack'] = inatt
         if TRACE > 1:
-            print('AIMT %d act %d anim %d frame %.1f speed %.2f fire %d sum %.3f dst %.1f' % (fr, int(ev('%s.actiontype' % C)), int(ev('%s.model->anim->animnum' % C)),
+            print('AIMT %d pos %.0f %.0f act %d anim %d frame %.1f speed %.2f fire %d sum %.3f dst %.1f' % (fr, f('%s.prop->pos.x' % C), f('%s.prop->pos.z' % C), int(ev('%s.actiontype' % C)), int(ev('%s.model->anim->animnum' % C)),
                 f('%s.model->anim->frame' % C), f('%s.model->anim->speed' % C), int(ev('%s.hidden' % C)) & 0x0c, f('%s.shotbondsum' % C), f('%sdamageshowtime' % P)))
     h = f('%sbondhealth' % P)
     if h < 1.0:

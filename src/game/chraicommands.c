@@ -695,6 +695,33 @@ bool aiTryAttackRoll(void)
 	return false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The attack flags of a GoldenEye mission's TRYFireOrAimAtTarget/Kneel/Update
+ * and TRYFacingTarget. The conversion passes GoldenEye's bitfield through, and
+ * its bits are Perfect Dark's ATTACKFLAG_* bit for bit but one: GoldenEye's
+ * TARGET_BOND (0x0001) is Perfect Dark's ATTACKFLAG_AIMATBOND, which nothing in
+ * Perfect Dark reads any more - Perfect Dark says it with ATTACKFLAG_AIMATTARGET
+ * (0x0200) and the chr's target, which is the player unless a list sets one.
+ * Left as 0x0001, chrTickShoot() never took a guard's bullet down the path that
+ * can hit the player (chrCalculateHit()), and chrCalculateAimEnd() aimed at the
+ * player's eye from the guard's root instead of at his body: every guard of a
+ * converted mission fired over Bond's head and never hit him (F3
+ * 20260925-235655, Dam: "stood in front of this guard for half a minute and he
+ * never hit me once").
+ */
+static u32 aiGeAttackFlags(u32 flags)
+{
+	if ((flags & ATTACKFLAG_AIMATBOND) && modloaderStageIsRemake(g_Vars.stagenum)) {
+		flags = (flags & ~ATTACKFLAG_AIMATBOND) | ATTACKFLAG_AIMATTARGET;
+	}
+
+	return flags;
+}
+#else
+#define aiGeAttackFlags(flags) (flags)
+#endif
+
 /**
  * @cmd 0015
  */
@@ -702,7 +729,7 @@ bool aiTryAttackStand(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 thingid = cmd[5] | (cmd[4] << 8);
-	u32 thingtype = cmd[3] | (cmd[2] << 8);
+	u32 thingtype = aiGeAttackFlags(cmd[3] | (cmd[2] << 8));
 
 	if (chrTryAttackStand(g_Vars.chrdata, thingtype, thingid)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
@@ -720,7 +747,7 @@ bool aiTryAttackKneel(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 thingid = cmd[5] | (cmd[4] << 8);
-	u32 thingtype = cmd[3] | (cmd[2] << 8);
+	u32 thingtype = aiGeAttackFlags(cmd[3] | (cmd[2] << 8));
 
 	if (chrTryAttackKneel(g_Vars.chrdata, thingtype, thingid)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);
@@ -790,7 +817,7 @@ bool aiTryModifyAttack(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 thingid = cmd[5] | (cmd[4] << 8);
-	u32 thingtype = cmd[3] | (cmd[2] << 8);
+	u32 thingtype = aiGeAttackFlags(cmd[3] | (cmd[2] << 8));
 
 	if ((g_Vars.chrdata && chrTryModifyAttack(g_Vars.chrdata, thingtype, thingid)) ||
 			(g_Vars.hovercar && chopperAttack(g_Vars.hovercar))) {
@@ -809,7 +836,7 @@ bool aiFaceEntity(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	u32 thingid = cmd[5] | (cmd[4] << 8);
-	u32 thingtype = cmd[3] | (cmd[2] << 8);
+	u32 thingtype = aiGeAttackFlags(cmd[3] | (cmd[2] << 8));
 
 	if (chrFaceEntity(g_Vars.chrdata, thingtype, thingid)) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[6]);

@@ -9970,6 +9970,67 @@ the loop, GoldenEye beside:
 Defection at three difficulties, standing and kneeling: every probe line
 identical before and after.
 
+### Guards that never hit: GoldenEye's TARGET_BOND is not Perfect Dark's target (2026-09-26)
+
+F3 20260925-235655 (Dam, HD look, 00 Agent, build ef6bffc which has all of the
+above): "enemies seem to shoot above bond and never hit him! I've stood in
+front of this guard for half a minute and he never hit me once." Everything in
+the two sections above was measured with the attack **forced from gdb** with
+`ATTACKFLAG_AIMATTARGET` (0x0200). A guard left to his own AI list attacks with
+the flags of GoldenEye's `TRYFireOrAimAtTarget` (and its Kneel/Update forms and
+`TRYFacingTarget`), which the conversion passes through - and GoldenEye's
+`TARGET_BOND` is **0x0001**, Perfect Dark's `ATTACKFLAG_AIMATBOND`, which
+nothing in Perfect Dark reads any more. So:
+
+- chrTickShoot() calls chrCalculateHit() only for `attackflags &
+  ATTACKFLAG_AIMATTARGET`; with 0x0001 every bullet went down "shooting at
+  something else": **no guard of a converted mission ever hit the player**, at
+  any difficulty, in either look.
+- chrCalculateAimEnd() applies Perfect Dark's body-height rule only for
+  AIMATTARGET; otherwise it aims from the guard's root at chrGetAttackEntityPos(),
+  the player's prop position, which is his eye - the fire over his head (mean
+  shoulder pitch 0.233 at the report's spot against 0.119 after).
+
+`aiGeAttackFlags()` (chraicommands.c) turns 0x0001 into 0x0200 for those four
+commands on a remake stage. The other GoldenEye bits are Perfect Dark's own
+(0x02 front, 0x04 chr, 0x08 pad, 0x10 compass, 0x20 aim only, 0x40 don't turn).
+The conversion could translate the bit instead; either works, not both.
+
+**A probe of a guard's hit rate must let his own list attack** (aimprobe.py
+`KEEPAI=1`): forcing chrAttackStand() skips the very command that carries the
+flags. The report's spot is on Dam's lower storey (`ROOMS=103,104`; without the
+rooms the player is put on the road 540 above), and in the HD look
+chrMoveToPos() moves a guard put at the report's spot 60 units nearer (the spawn
+adjust), so `GX`/`GZ` put him there exactly.
+
+### Bullets through the HD look's railings (2026-09-26)
+
+F3 20260925-225349 (Facility, HD look): "can't shoot through railing" - Bond on
+the stairs, a guard below. efda98e59 made bgTestHitInRoom() skip XLU batches on
+a remake stage (GoldenEye's `bgTestBulletHitBackground()` tests the primary
+list only), and in the N64 look the shot at the report's spot goes past the
+guard to the floor (-3921 -319 1233). **In the HD look the room is the
+release's** (gebeanstage.c serves 77 of Facility's 77 rooms; room 8 has 39
+batches there to the N64 look's 30), and Bean draws the railings, fences and
+grates as **cut-outs in the opaque leaf**, so the shot stopped on the rail 100
+units out (-4443 12 1341). bgTestHitInVtxBatch() now lets a shot through a
+triangle whose picture is a served room's cut-out or translucent one
+(`bgTriPassesShots()` -> `gebeanStageTilePassesShots()`); after it the HD shot
+lands where the N64 one does (-3924 -319 1235).
+
+Trap: the texture number bgTestHitInVtxBatch() reports in a served room is
+garbage (2065 here). The leaf names its picture with a 0xc0 record from
+`GEBEANSTAGE_TEXBASE`, which xblaStageWriteTexture() turns into a
+gDPLoadTextureBlock of a tile of gebeanstage.c's own at room load, so the
+G_SETTIMG's "header - 8" the stock code reads is not a texture header. Match the
+G_SETTIMG's address against gebeanstage.c's tiles instead.
+
+Probe: `build/run/shotprobe.py` in the worktree of fix/f3-dam-guard-aim2 puts
+the player at a spot (X Y Z ROOMS TH VA, vv_ground set so he stays on the
+stair), calls `shotCreate()` from gdb and prints each bgTestHitInRoom() and
+batch hit. A gdb-called shot never lands on a chr (chrTestHit() finds nothing
+in either look outside the frame), so judge it by the background distance.
+
 ### "Aiming too high": the gun upright is GoldenEye's own kneel (2026-09-25)
 
 The same F3's picture is a guard kneeling in Facility's locker room with his
