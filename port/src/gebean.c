@@ -4857,6 +4857,147 @@ static s32 beanVertexDropped(const char *source, u32 vboff, u32 vi)
 	return 0;
 }
 
+static const char *beanTextureName(const struct beanmodel *bm, s32 t);
+
+/**
+ * GoldenEye's monitor screens on a prop's model, and Bean's placeholder on
+ * them.
+ *
+ * tvscreenRender() draws a monitor's programme on the quad of the list of
+ * part 0 to 3, and xblaMeshRenderNode() hands that node back to the game for
+ * it. Bean's mesh marks the same screen with a placeholder picture, a black
+ * and white spiral (a grille under the Community Edition), which the release
+ * draws its programme into: on Facility's and Bunker's door consoles,
+ * Frigate's bridge consoles and Silo's tuning console. It lies on GoldenEye's
+ * quad to within a unit or so - some of it in front, some behind, most of it
+ * through - so the two fought, and which won the depth test was down to
+ * rounding: the programme here, a strip of spiral over the door console's
+ * lamp on the tester's machine (F3 20260925-225534), spiral streaks round
+ * Frigate's screens everywhere.
+ *
+ * It cannot simply go. A programme is often drawn without a depth write
+ * (while it fades, or on a MultiMonitor's screens 1 to 3 when flagged), and
+ * a room drawn after the prop then paints through the hole the placeholder
+ * filled: Frigate's screens showed the wall behind them. So the placeholder
+ * stays, as the screen's backing: laid flat a little behind GoldenEye's quad,
+ * where the programme always wins, and black, which is what shows through a
+ * programme that is not opaque and what the screen is with nothing on it.
+ */
+struct beanscreen {
+	f32 origin[3];
+	f32 axis[3][3]; // along the quad's first edge, across it, and its normal
+	f32 lo[2];
+	f32 hi[2];
+	f32 size;
+};
+
+// Bean's placeholder picture for a screen the release draws a programme into
+static const char beanScreenPlaceholder[] = "_0x008C4635";
+
+static s32 beanFindScreens(struct modeldef *modeldef, struct beanscreen *screens)
+{
+	s32 num = 0;
+
+	for (s32 part = MODELPART_0000; part <= MODELPART_0003; part++) {
+		struct modelnode *node = modelGetPart(modeldef, part);
+		struct beanscreen *s = &screens[num];
+		f32 c[4][3];
+		f32 e[3];
+		f32 f[3];
+		f32 *n = s->axis[2];
+		f32 len;
+		f32 size;
+
+		if (!node || (node->type & 0xff) != MODELNODETYPE_DL || !node->rodata->dl.vertices
+				|| node->rodata->dl.numvertices < 4) {
+			continue;
+		}
+
+		for (s32 i = 0; i < 4; i++) {
+			c[i][0] = node->rodata->dl.vertices[i].x;
+			c[i][1] = node->rodata->dl.vertices[i].y;
+			c[i][2] = node->rodata->dl.vertices[i].z;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			e[k] = c[1][k] - c[0][k];
+			f[k] = c[2][k] - c[0][k];
+		}
+
+		// tvscreenRender() draws it (0 1 2) (0 2 3) with the back culled, so
+		// this is the side it is seen from
+		n[0] = e[1] * f[2] - e[2] * f[1];
+		n[1] = e[2] * f[0] - e[0] * f[2];
+		n[2] = e[0] * f[1] - e[1] * f[0];
+		len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+		size = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+
+		if (len < 1.0f || size < 1.0f) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			n[k] /= len;
+			s->axis[0][k] = e[k] / size;
+			s->origin[k] = c[0][k];
+		}
+
+		s->axis[1][0] = n[1] * s->axis[0][2] - n[2] * s->axis[0][1];
+		s->axis[1][1] = n[2] * s->axis[0][0] - n[0] * s->axis[0][2];
+		s->axis[1][2] = n[0] * s->axis[0][1] - n[1] * s->axis[0][0];
+
+		for (s32 a = 0; a < 2; a++) {
+			s->lo[a] = s->hi[a] = 0.0f;
+
+			for (s32 i = 1; i < 4; i++) {
+				const f32 at = (c[i][0] - c[0][0]) * s->axis[a][0] + (c[i][1] - c[0][1]) * s->axis[a][1]
+					+ (c[i][2] - c[0][2]) * s->axis[a][2];
+
+				s->lo[a] = at < s->lo[a] ? at : s->lo[a];
+				s->hi[a] = at > s->hi[a] ? at : s->hi[a];
+			}
+		}
+
+		s->size = s->hi[0] - s->lo[0] > s->hi[1] - s->lo[1] ? s->hi[0] - s->lo[0] : s->hi[1] - s->lo[1];
+		num++;
+	}
+
+	return num;
+}
+
+/**
+ * A placeholder vertex (in the model's space) on one of the screens, laid on
+ * the plane 2% of the screen's size behind it: 1.8 units on the door console,
+ * whose mesh is posed to a sixteenth of a game unit - six tenths of one of its
+ * own. The placeholders reach 0.8% of a screen's size off its plane and 6%
+ * past its edges (Frigate's bridge console 1a's, wider than the screen).
+ */
+static s32 beanScreenBacking(const struct beanscreen *screens, s32 numscreens, f32 *pos)
+{
+	for (s32 i = 0; i < numscreens; i++) {
+		const struct beanscreen *s = &screens[i];
+		const f32 d[3] = { pos[0] - s->origin[0], pos[1] - s->origin[1], pos[2] - s->origin[2] };
+		const f32 u = d[0] * s->axis[0][0] + d[1] * s->axis[0][1] + d[2] * s->axis[0][2];
+		const f32 v = d[0] * s->axis[1][0] + d[1] * s->axis[1][1] + d[2] * s->axis[1][2];
+		const f32 w = d[0] * s->axis[2][0] + d[1] * s->axis[2][1] + d[2] * s->axis[2][2];
+		const f32 margin = s->size * 0.1f;
+
+		if (w >= -s->size * 0.05f && w <= s->size * 0.05f
+				&& u >= s->lo[0] - margin && u <= s->hi[0] + margin
+				&& v >= s->lo[1] - margin && v <= s->hi[1] + margin) {
+			const f32 back = w + s->size * 0.02f;
+
+			for (s32 k = 0; k < 3; k++) {
+				pos[k] -= s->axis[2][k] * back;
+			}
+
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -4877,6 +5018,9 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	s32 numdecals;
 	s32 numglass = 0;
 	u8 glass[GEBEAN_MAXMATS];
+	struct beanscreen screens[4];
+	s32 numscreens;
+	s32 numbacking = 0;
 	u8 *file;
 
 	memset(glass, 0, sizeof(glass));
@@ -4985,12 +5129,15 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		beanGunFlashDraws(&bm, &flash);
 	}
 
+	numscreens = g->weaponnum >= 0 ? 0 : beanFindScreens(modeldef, screens);
+
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
 		struct beanvb vb;
 		u16 *tris;
 		s32 numtris;
 		s32 *mapped;
+		s32 placeholder;
 
 		// GoldenEye's own muzzle flash, which nothing here turns off again
 		if (di < 64 && (flash & (1ull << di))) {
@@ -5020,6 +5167,9 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			mapped[i] = -1;
 		}
 
+		placeholder = numscreens > 0
+			&& strncmp(beanTextureName(&bm, (s32)d->tex), beanScreenPlaceholder, sizeof(beanScreenPlaceholder) - 1) == 0;
+
 		for (s32 t = 0; t < numtris; t++) {
 			u16 idx[3];
 			s32 ok = 1;
@@ -5032,6 +5182,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				u8 bone[3] = { (u8)mtx, (u8)mtx, (u8)mtx };
 				const f32 weight[3] = { 1.0f, 0.0f, 0.0f };
 				s32 part = -1;
+				s32 backing = 0;
 				u32 argb;
 
 				if (beanVertexDropped(source, vb.off, vi)) {
@@ -5061,6 +5212,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 
 					pos[k] = (p - g->beancentre[k]) * g->scale + g->n64centre[k];
 					nrm[k] = g->sign[k] * v.nrm[g->perm[k]];
+				}
+
+				if (placeholder && beanScreenBacking(screens, numscreens, pos)) {
+					backing = 1;
+					numbacking++;
 				}
 
 				if (part >= 0) {
@@ -5112,6 +5268,10 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 						glass[d->tex] = 1;
 						numglass++;
 					}
+				}
+
+				if (backing) {
+					argb = 0xff000000;
 				}
 
 				mapped[vi] = beanAddVertex(&out, pos, nrm, v.uv, bone, weight, argb);
@@ -5189,8 +5349,9 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 
 	file = beanWriteMesh(&out, numnodes, nummatrices, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals, %d glass), rigid on matrix %d of %d%s%s%s%s",
-			g->row.file, source, out.numverts, out.numtris, numdecals, numglass, mtx, nummatrices,
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals, %d glass, %d screen backing), "
+			"rigid on matrix %d of %d%s%s%s%s",
+			g->row.file, source, out.numverts, out.numtris, numdecals, numglass, numbacking, mtx, nummatrices,
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
