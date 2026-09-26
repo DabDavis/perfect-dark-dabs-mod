@@ -31,6 +31,10 @@ void gegunsDump(const char *path);
 // converted level (gesfx.c); 0 for any other weapon or a silent one.
 s32 gegunsShootSound(s32 weaponnum);
 
+// The Moonraker's number as GoldenEye's watch laser (1: watchlaser_stats,
+// its ammunition and sound) or as the Moonraker (0); gegadgets.c on stage load
+void gegunsSetWatchLaser(s32 on);
+
 // GoldenEye's SoundTriggerRate for one of its guns: the sixtieths between one
 // start of its shot sound and the next while the trigger is held, 0 for a
 // sound with every shot. -1 for any other weapon.

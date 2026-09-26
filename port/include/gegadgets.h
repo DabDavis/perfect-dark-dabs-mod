@@ -33,4 +33,14 @@ void gegadgetsThrown(s32 weaponnum, struct weaponobj *thrown);
 // the thrown prop's model state, -1 for the host's own
 s32 gegadgetsPropModel(s32 weaponnum);
 
+// Where the watch laser's beam starts (at the watch), in the camera's space;
+// 0 for any other weapon or before the watch is drawn
+s32 gegadgetsWatchLaserMuzzle(s32 weaponnum, f32 *campos);
+
+// The intro gave the player this weapon: the watch laser's charge
+void gegadgetsIntroWeapon(s32 weaponnum);
+
+// Whether this weapon number is GoldenEye's watch laser on this stage
+s32 gegadgetsWatchLaserActive(s32 weaponnum);
+
 #endif

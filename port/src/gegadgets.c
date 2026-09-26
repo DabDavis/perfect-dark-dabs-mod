@@ -11,6 +11,7 @@
 #include "game/bondgun.h"
 #include "game/chraction.h"
 #include "game/file.h"
+#include "game/game_0b0fd0.h"
 #include "game/gfxmemory.h"
 #include "game/hudmsg.h"
 #include "game/inv.h"
@@ -29,6 +30,7 @@
 #include "modloader.h"
 #include "gesfx.h"
 #include "gewatch.h"
+#include "geguns.h"
 #include "gegadgets.h"
 
 #ifndef PLATFORM_N64
@@ -90,6 +92,16 @@ static struct gegadgetidentity g_Identities[] = {
 // Bunker, where the key analyser copies the GoldenEye key
 #define MISSION_BUNKER 4
 
+// Train, where Bond's watch laser (ITEM_WATCHLASER, 23) stands on the
+// Moonraker's weapon number (the conversion's g_GeItemWeapon: the same beam)
+#define MISSION_TRAIN 13
+#define ITEM_WATCHLASER 23
+#define ITEM_TRIGGER 30
+
+// The part whose position is the watch laser's muzzle: GoldenEye's switch 3,
+// where gunfire.c hangs the flash and starts the beam (field_B58)
+#define WATCH_PART_FLASH 3
+
 // GoldenEye's PROPDEF_OBJECTIVE_COPY_ITEM asks one thing, "has the key been
 // copied", and Perfect Dark has no such record: the conversion writes it as a
 // complete-on-flag objective on this stage flag (gesolo.py's GE_COPYITEM_FLAG)
@@ -123,7 +135,6 @@ static const struct gegadgethand g_Hands[] = {
 	{ WEAPON_GE_PLASTIQUE,    { 11.0f, -11.5f, -30.0f }, 19.0f },
 	{ WEAPON_GE_GOLDENEYEKEY, { 11.0f, -10.5f, -30.0f }, 14.0f },
 	{ WEAPON_GE_CAMERA,       { 11.0f, -10.0f, -30.0f }, 14.0f },
-	{ WEAPON_GE_WATCHMAGNET,  { 10.0f, -13.0f, -30.0f }, 13.0f },
 	// trigger_stats, and gunfire.c's D_80035C70 for ITEM_TRIGGER
 	{ WEAPON_GE_DETONATOR,    { -2.0f, -21.5f, -19.0f }, 0.0f, { 6.2536321f, 6.2592888f, 0.204238f } },
 };
@@ -158,6 +169,11 @@ static struct {
 	u32 buflen;
 	struct modeldef *def;
 	f32 press;         // the detonator's hand, 0 off the watch to DETONATOR_PRESS on it
+	f32 flash[3];      // the watch laser's muzzle in the camera's space, last drawn
+	s32 flashframe;    // the frame it was drawn on, -1 for none
+	u16 laserhostname; // the Moonraker's own name, while Train wears the watch laser's
+	u16 laserhostshort;
+	u16 lasertext;
 	struct model model;
 	u32 rwdata[GADGET_RWDATA_MAX];
 	s32 photo;         // the camera's trigger was pulled: judged in the render
@@ -165,11 +181,27 @@ static struct {
 	s32 centreitem;    // the item `centre` was measured on
 	f32 centre[3];     // the model's middle from its root, in the camera's space
 	f32 size[3];
-} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .centreitem = -1 };
+} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .centreitem = -1, .flashframe = -1 };
 
 s32 gegadgetsIsGadget(s32 weaponnum)
 {
 	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum < NUM_WEAPONS;
+}
+
+/**
+ * The Moonraker's number on Train is GoldenEye's watch laser, which GoldenEye
+ * draws as Bond's two hands at his watch (GwatchlaserZ), held and turned
+ * exactly as the detonator (watchlaser_stats' PosX/Y/Z are trigger_stats',
+ * gunfire.c turns both by D_80035C70, gun.c presses both alike) - and not as
+ * the Moonraker's gun. The conversion leaves item 23 out (it is no gun of the
+ * port's), so where there is no Igx023Z the detonator's own GtriggerZ
+ * (Igx030Z) stands in for it: the two models have the same node count,
+ * matrices, bounds and textures, and the native port draws them alike. A
+ * conversion that writes GwatchlaserZ as Igx023Z is picked up by itself.
+ */
+static s32 gegadgetsIsWatchLaser(s32 weaponnum)
+{
+	return weaponnum == WEAPON_GE_MOONRAKER && g_Gadgets.moddir >= 0 && g_Gadgets.mission == MISSION_TRAIN;
 }
 
 static const struct gegadgetidentity *gegadgetsIdentity(s32 weaponnum)
@@ -215,6 +247,7 @@ void gegadgetsStageLoad(s32 stagenum)
 
 	g_Gadgets.failed = -1;
 	g_Gadgets.photo = 0;
+	g_Gadgets.flashframe = -1;
 	g_Gadgets.keyprop = NULL;
 	g_Gadgets.mission = modloaderStageMission(stagenum);
 	g_Gadgets.moddir = modloaderStageIsRemake(stagenum) ? modloaderGetStageModDirIndex(stagenum) : -1;
@@ -230,6 +263,30 @@ void gegadgetsStageLoad(s32 stagenum)
 			g_GeWeaponDefs[w - WEAPON_GE_FIRST].name = id->text;
 			g_GeWeaponDefs[w - WEAPON_GE_FIRST].shortname = id->text;
 		}
+	}
+
+	// The watch laser on the Moonraker's number wears GoldenEye's name for
+	// it (LGUN's GUN_STR_7B) in the inventory, the watch and the messages;
+	// every other stage gives the Moonraker its own name back
+	{
+		struct weapon *laser = &g_GeWeaponDefs[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST];
+
+		if (!g_Gadgets.lasertext) {
+			g_Gadgets.lasertext = langAddPortText("Watch Laser\n");
+			g_Gadgets.laserhostname = laser->name;
+			g_Gadgets.laserhostshort = laser->shortname;
+		}
+
+		if (gegadgetsIsWatchLaser(WEAPON_GE_MOONRAKER)) {
+			laser->name = g_Gadgets.lasertext;
+			laser->shortname = g_Gadgets.lasertext;
+		} else {
+			laser->name = g_Gadgets.laserhostname;
+			laser->shortname = g_Gadgets.laserhostshort;
+		}
+
+		// and its own numbers, ammunition and sound (geguns.c)
+		gegunsSetWatchLaser(gegadgetsIsWatchLaser(WEAPON_GE_MOONRAKER));
 	}
 }
 
@@ -254,6 +311,14 @@ static s32 gegadgetsLoadModel(s32 item)
 	snprintf(name, sizeof(name), "Igx%03dZ", item);
 	fileid = romdataRegisterModFile(name, g_Gadgets.moddir);
 	size = fileid > 0 ? fileGetInflatedSize(fileid, LOADTYPE_MODEL) : 0;
+
+	// GwatchlaserZ where the conversion writes it, the detonator's GtriggerZ
+	// in its place where it does not (gegadgetsIsWatchLaser())
+	if (size <= 0 && item == ITEM_WATCHLASER) {
+		snprintf(name, sizeof(name), "Igx%03dZ", ITEM_TRIGGER);
+		fileid = romdataRegisterModFile(name, g_Gadgets.moddir);
+		size = fileid > 0 ? fileGetInflatedSize(fileid, LOADTYPE_MODEL) : 0;
+	}
 
 	if (size <= 0) {
 		return 0;
@@ -443,12 +508,14 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 {
 	const struct gegadgethand *held = NULL;
 	const struct weapon *host;
+	const s32 watchlaser = gegadgetsIsWatchLaser(weaponnum);
+	s32 watch;
 	Mtxf base;
 	Mtxf *matrices;
 	f32 fit = 1.0f;
 	s32 item;
 
-	if (!gegadgetsIsGadget(weaponnum)) {
+	if (!gegadgetsIsGadget(weaponnum) && !watchlaser) {
 		return 0;
 	}
 
@@ -460,25 +527,35 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	}
 
 	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_Hands); i++) {
-		if (g_Hands[i].weaponnum == weaponnum) {
+		if (g_Hands[i].weaponnum == (watchlaser ? WEAPON_GE_DETONATOR : weaponnum)) {
 			held = &g_Hands[i];
 		}
 	}
 
-	// the six GoldenEye gives no model: an empty hand, as it has it
+	// the six GoldenEye gives no model, and the watch magnet, whose
+	// watchmagnetattract_stats carry WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND
+	// (gunfire.c then leaves field_87F clear and draws nothing): an empty
+	// hand, as it has it. Measured and fitted to a width, the magnet's watch
+	// arm (GwatchmagnetattractZ) was a giant watch floating at the lower
+	// right (F3 20260922-000405); the native port shows nothing in the hand
+	// 30, 90 and 200 frames after equipping it, attract or repel.
 	if (!held) {
 		return 1;
 	}
 
-	item = gegadgetsItem(weaponnum);
+	item = watchlaser ? ITEM_WATCHLASER : gegadgetsItem(weaponnum);
+	watch = weaponnum == WEAPON_GE_DETONATOR || watchlaser;
 
 	if (!hostmodel->matrices || !gegadgetsLoadModel(item)) {
 		return weaponnum == WEAPON_GE_DETONATOR;
 	}
 
 	// the host's root for its turn and its size, posed about the eye first so
-	// that the model can be measured from its own root
-	host = g_Weapons[g_GeWeaponHosts[weaponnum - WEAPON_GE_FIRST]];
+	// that the model can be measured from its own root. The watch laser's is
+	// the Moonraker's own definition, whose place is GoldenEye's laser's or
+	// its host's by the look (geguns.c)
+	host = watchlaser ? weaponFindById(weaponnum)
+		: g_Weapons[g_GeWeaponHosts[weaponnum - WEAPON_GE_FIRST]];
 	mtx4Copy(&hostmodel->matrices[0], &base);
 	base.m[3][0] = 0.0f;
 	base.m[3][1] = 0.0f;
@@ -523,14 +600,14 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 
 		modelSetDistanceChecksDisabled(true);
 
-		if (weaponnum == WEAPON_GE_DETONATOR) {
+		if (watch) {
 			gegadgetsDetonatorCuff();
 		}
 
 		modelUpdateRelations(&g_Gadgets.model);
 		modelSetMatrices(renderdata, &g_Gadgets.model);
 
-		if (weaponnum == WEAPON_GE_DETONATOR) {
+		if (watch) {
 			gegadgetsDetonatorPress(matrices);
 		}
 
@@ -562,11 +639,71 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 		modelRender(renderdata, &g_Gadgets.model);
 		modelSetDistanceChecksDisabled(false);
 
+		// the watch laser's muzzle, as gunfire.c takes it: gunmtx (the
+		// model's root) times switch 3's position
+		if (watchlaser) {
+			struct modelnode *flash = modelGetPart(g_Gadgets.def, WATCH_PART_FLASH);
+
+			if (flash && (flash->type & 0xff) == MODELNODETYPE_POSITION) {
+				const struct coord *at = &flash->rodata->position.pos;
+
+				for (s32 a = 0; a < 3; a++) {
+					g_Gadgets.flash[a] = at->x * matrices[0].m[0][a] + at->y * matrices[0].m[1][a]
+						+ at->z * matrices[0].m[2][a] + matrices[0].m[3][a];
+				}
+
+				g_Gadgets.flashframe = g_Vars.lvframenum;
+			}
+		}
+
 		renderdata->unk00 = prevbase;
 		renderdata->unk10 = prevmatrices;
 	}
 
 	mtxF2LBulk(matrices, g_Gadgets.def->nummatrices);
+
+	return 1;
+}
+
+// Train's StartAmmo for it (UsetuptraZ.c: AMMO_WATCH_LASER, 300)
+#define WATCHLASER_START_AMMO 300
+
+/**
+ * A weapon the stage's intro gives the player (playerreset.c): the watch
+ * laser comes with GoldenEye's charge for it. The conversion's ammunition
+ * table stops before AMMO_WATCH_LASER (24), so the intro's own grant of 300
+ * is not in the converted setup; a conversion that writes it is left alone.
+ */
+void gegadgetsIntroWeapon(s32 weaponnum)
+{
+	if (gegadgetsIsWatchLaser(weaponnum) && bgunGetReservedAmmoCount(AMMOTYPE_WATCHLASER) == 0) {
+		bgunSetAmmoQuantity(AMMOTYPE_WATCHLASER, WATCHLASER_START_AMMO);
+	}
+}
+
+/** Whether this weapon is the watch laser on this stage (gunfx.c's beam). */
+s32 gegadgetsWatchLaserActive(s32 weaponnum)
+{
+	return gegadgetsIsWatchLaser(weaponnum);
+}
+
+/**
+ * Where the watch laser's beam starts, in the camera's space: GoldenEye starts
+ * it at the watch (gunfire.c's field_B58, the flash node on the watch model),
+ * not at the Moonraker's muzzle, which in the XBLA look is the host's, off at
+ * the left of the screen. 0 for any other weapon, or before the watch has
+ * been drawn; bondgun.c keeps its own muzzle then.
+ */
+s32 gegadgetsWatchLaserMuzzle(s32 weaponnum, f32 *campos)
+{
+	if (!gegadgetsIsWatchLaser(weaponnum) || g_Gadgets.item != ITEM_WATCHLASER
+			|| g_Gadgets.flashframe < 0 || g_Vars.lvframenum - g_Gadgets.flashframe > 2) {
+		return 0;
+	}
+
+	campos[0] = g_Gadgets.flash[0];
+	campos[1] = g_Gadgets.flash[1];
+	campos[2] = g_Gadgets.flash[2];
 
 	return 1;
 }

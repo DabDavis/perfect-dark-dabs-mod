@@ -374,6 +374,12 @@
 // (Egyptian's crate of 50 beside the Golden Gun). geguns.c, geconvert.c.
 #define AMMOTYPE_GOLDENGUN    AMMOTYPE_DART
 
+// GoldenEye's watch laser's charge (its AMMO_WATCH_LASER, 1000 at most), which
+// only the watch laser fires (Train). The 0x1b row is another GoldenEye
+// leftover no weapon or setup of Perfect Dark's uses, and its capacity is
+// already 1000. geguns.c's gegunsSetWatchLaser().
+#define AMMOTYPE_WATCHLASER   AMMOTYPE_1B
+
 // Active menu slots
 #define AMSLOTFLAG_CURRENT 0x02 // black, eg. current equipped weapon
 #define AMSLOTFLAG_ACTIVE  0x08 // pulsates slightly, eg. cloak/xray when active

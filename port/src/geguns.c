@@ -288,10 +288,20 @@ s32 gegunsShootSoundRate(s32 weaponnum)
 	return shootsoundrates[weaponnum - WEAPON_GE_FIRST];
 }
 
+static s32 gegunsWatchLaserInstalled(void);
+
+// GoldenEye's watchlaser_fire_sounds (gun.c): RICO_LASER2_SFX and
+// RICO_LASER3_SFX, one of the two at random with each shot (gunfire.c)
+#define GESFX_RICO_LASER2 92
+
 s32 gegunsShootSound(s32 weaponnum)
 {
 	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_WEAPONS) {
 		return 0;
+	}
+
+	if (weaponnum == WEAPON_GE_MOONRAKER && gegunsWatchLaserInstalled()) {
+		return GESFX_RICO_LASER2 + (rngRandom() & 1);
 	}
 
 	return shootsounds[weaponnum - WEAPON_GE_FIRST];
@@ -395,6 +405,70 @@ static struct noisesettings *gegunsNoise(s32 i)
 	return noise;
 }
 
+/**
+ * How long GoldenEye waits between two shots of a single-shot gun with the
+ * trigger held, in sixtieths, and the recovery time that gives the same wait
+ * here.
+ *
+ * gunTickHandState() (gunfire.c) runs once a frame. It fires in
+ * GUN_ANIM_STATE_FIRE, goes to RECOIL1 the next frame (field_890 back to 0),
+ * adds the frame's ticks (g_ClockTimer) to field_890 each frame after, goes
+ * back to IDLE once field_890 reaches the two recoil speeds plus SingleRate,
+ * and fires again from IDLE the frame after that. The Cougar and the grenade
+ * launcher first wait 6 ticks in TRIGGER_PRESS. So the wait is counted in
+ * frames and depends on how long a frame is: at GoldenEye's two sixtieths a
+ * frame, the console's usual and the frame the automatic rates are counted
+ * in here (gegunsRpm(), the KF7's 600 rpm), it is 2 * ceil(T / 2) + 4 ticks.
+ * The native port run at two ticks a frame agrees to the tick for every gun
+ * (PP7 32, shotguns 40, sniper rifle 20, Cougar 54, Golden Gun and Moonraker
+ * 16, grenade launcher 54, rocket launcher 24, watch laser 4).
+ *
+ * Perfect Dark's bgun0f09aba4() counts ticks and lets the next shot go
+ * `sum + recoverytime60` ticks after the last, plus one tick more for a gun
+ * with a fire animation to start (GEGUNS_PD_SHOT_OVERHEAD, measured: the PP7,
+ * the DD44 and both launchers against the Golden Gun, the Moonraker, the
+ * sniper rifle and the automatic shotgun). A fire animation longer than the
+ * wait holds the next shot back itself, which is why the Shotgun's pump and
+ * the Cougar's kick are gone (gegunsOwnTrigger()). A recovery of SingleRate
+ * itself fired every GoldenEye gun early - the PP7 at 29 ticks for 32, the
+ * sniper rifle at 16 for 20 - and the watch laser at every tick for 4. Ticks,
+ * not frames, so a faster frame rate does not change it.
+ */
+#define GEGUNS_GE_FRAME_TICKS    2
+#define GEGUNS_PD_SHOT_OVERHEAD  1
+
+static s32 gegunsGeSingleWait(s32 weaponnum, const struct gegunstat *stat)
+{
+	s32 speeds = stat->recoilspeed[0] + stat->recoilspeed[1];
+	s32 t = speeds + (s8)stat->singlerate;
+	s32 frames = (t + GEGUNS_GE_FRAME_TICKS - 1) / GEGUNS_GE_FRAME_TICKS + 2;
+
+	if (t < 0) {
+		frames = 2;
+	}
+
+	// the Cougar and the grenade launcher's TRIGGER_PRESS wait, field_890 >= 6
+	if (weaponnum == WEAPON_GE_COUGARMAGNUM || weaponnum == WEAPON_GE_GRENADELAUNCHER) {
+		frames += (6 + GEGUNS_GE_FRAME_TICKS - 1) / GEGUNS_GE_FRAME_TICKS;
+	}
+
+	return frames * GEGUNS_GE_FRAME_TICKS;
+}
+
+static s8 gegunsRecovery(s32 weaponnum, const struct gegunstat *stat, s32 hasanim)
+{
+	s32 speeds = stat->recoilspeed[0] + stat->recoilspeed[1];
+	s32 rec;
+
+	if (speeds < 1) {
+		speeds = 0;
+	}
+
+	rec = gegunsGeSingleWait(weaponnum, stat) - speeds - (hasanim ? GEGUNS_PD_SHOT_OVERHEAD : 0);
+
+	return rec < 0 ? 0 : (rec > 127 ? 127 : rec);
+}
+
 /** Function f of gun i: its kind and scripts the model's, its numbers GoldenEye's. */
 static struct weaponfunc *gegunsFunc(s32 i, s32 f, const struct weaponfunc *src, struct noisesettings *noise)
 {
@@ -434,13 +508,19 @@ static struct weaponfunc *gegunsFunc(s32 i, s32 f, const struct weaponfunc *src,
 		shoot->recoilangle = hasrow ? stat->recoilup : from->recoilangle;
 		shoot->slidemax = hasrow ? stat->boltback : from->slidemax;
 
-		// 0xff is GoldenEye's "no rate", not a time
-		shoot->recoverytime60 = hasrow && stat->singlerate != 0xff ? (s8)stat->singlerate : from->recoverytime60;
+		// 0xff is GoldenEye's "no rate", not a time. A single-shot gun's is
+		// GoldenEye's wait between two held shots (gegunsRecovery()); an
+		// automatic's held rate is its rpm below and keeps SingleRate
+		if (hasrow && stat->singlerate != 0xff && stat->autorate == 0xff) {
+			shoot->recoverytime60 = gegunsRecovery(WEAPON_GE_FIRST + i, stat, fn->fire_animation != NULL);
+		} else {
+			shoot->recoverytime60 = hasrow && stat->singlerate != 0xff ? (s8)stat->singlerate : from->recoverytime60;
+		}
 
-		// The Shotgun works its model's pump after every shot, and the timing
-		// is the pump's: GoldenEye's early refire would cut it short
-		// (GoldenEye X times its own pump too, 0 and 68)
-		if (hasrow && WEAPON_GE_FIRST + i != WEAPON_GE_SHOTGUN) {
+		// GoldenEye's own recoil for every gun, the Shotgun's too: it kept
+		// its host's pump timing while it worked the pump (75 ticks a shot
+		// for GoldenEye's 40), which it no longer does (gegunsOwnTrigger())
+		if (hasrow) {
 			shoot->unk24 = stat->recoilspeed[0];
 			shoot->unk25 = stat->recoilspeed[1];
 			shoot->unk26 = stat->recoilspeed[2];
@@ -804,6 +884,8 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
  * would put it. (Lock-on and "an"/"the" are gegunsBuild()'s, from
  * GoldenEye's own data.)
  */
+static void gegunsFireRate(s32 i);
+
 static void gegunsOwnTrigger(s32 i)
 {
 	const s32 weaponnum = WEAPON_GE_FIRST + i;
@@ -854,9 +936,23 @@ static void gegunsOwnTrigger(s32 i)
 		case WEAPON_GE_AUTOSHOTGUN:
 			func->fire_animation = NULL;
 			break;
+		case WEAPON_GE_SHOTGUN:
+			// GoldenEye's Shotgun does not pump: its recoil kicks it and it
+			// fires again 40 ticks after (gunfire.c). The host's pump held
+			// every shot back to 75
+			if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+				func->fire_animation = NULL;
+			}
+			break;
 		case WEAPON_GE_COUGARMAGNUM:
 			if (func->type == INVENTORYFUNCTYPE_MELEE) {
 				func->flags &= ~FUNCFLAG_MAKEDIZZY;
+			}
+
+			// nor does the Cougar play a kick of its own: the DY357's held
+			// every shot back to 64 ticks for GoldenEye's 54
+			if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+				func->fire_animation = NULL;
 			}
 			break;
 		case WEAPON_GE_HUNTINGKNIFE:
@@ -1061,6 +1157,7 @@ void gegunsBorrow(s32 index, const struct weapon *def, u16 pickupfile, u16 picku
 	// could hear Bond fire.
 	gegunsBuild(index, def, g_Weapons[g_GeWeaponHosts[index]]);
 	gegunsOwnThrown(index);
+	gegunsFireRate(index);
 
 	// Text ids are the mod's language files', which say something else here
 	// (its KF7's function read "Burst Fire"): the port's own names stay
@@ -2252,6 +2349,7 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 
 		gegunsBuild(i, host, host);
 		gegunsOwnTrigger(i);
+		gegunsFireRate(i);
 		gegunsOwnThrown(i);
 		gegunsBotPrefs(i);
 
@@ -2276,6 +2374,154 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 			g_ModelStates[MODEL_GE_FIRST + i].scale = g_ModelStates[hostmodel].scale;
 		}
 	}
+}
+
+
+/**
+ * Gun i's single shot waits GoldenEye's own time between two held shots
+ * (gegunsRecovery()), once what its first function plays on firing is
+ * settled: gegunsOwnTrigger() takes some fire animations away, and a borrowed
+ * model brings its own.
+ */
+static void gegunsFireRate(s32 i)
+{
+	const struct gegunstat *stat = &stats[i];
+	struct weaponfunc_shoot *shoot = g_GeWeaponDefs[i].functions[0];
+
+	if (!shoot || (shoot->base.type & 0xff) != INVENTORYFUNCTYPE_SHOOT
+			|| !stat->bitflags || stat->singlerate == 0xff || stat->autorate != 0xff) {
+		return;
+	}
+
+	shoot->recoverytime60 = gegunsRecovery(WEAPON_GE_FIRST + i, stat, shoot->base.fire_animation != NULL);
+}
+
+/**
+ * GoldenEye's watch laser (ITEM_WATCHLASER), which the conversion stands on
+ * the Moonraker's number (Train; gegadgets.c decides where). It is the same
+ * beam but not the same gun: watchlaser_stats (obseg/gun/watchlaser) against
+ * laser_stats -
+ *
+ * - its own ammunition, AMMO_WATCH_LASER, MagSize 1000 with no clip reloads
+ *   and 1000 at most (gun.c's ammo_related[24]); Train starts Bond with 300.
+ *   The Moonraker has none to run out of. The port's AMMOTYPE_WATCHLASER.
+ * - SingleRate 0 (it fires as fast as the trigger is pulled) where the
+ *   Moonraker's is 6, ObjectsShootThrough 1 and not 2, ForceOfImpact 0 and
+ *   not 2, recoil speed bytes 0, 0, 0, 0xff and not 6, 0, 6, 6.
+ * - quiet: loudness 1 to 4 with 0.2 a shot and a linear time of 1, where
+ *   the Moonraker's is 2 to 16 with 2 a shot and 2.
+ * - no auto-aim (no HAS_AUTO_AIM) and no hold time (no USE_HOLD_TIME).
+ * - its own sound, watchlaser_fire_sounds (gegunsShootSound()).
+ *
+ * The same DestructionAmount, 2, and the same spread, 0, so the damage a hit
+ * does is the Moonraker's: GoldenEye's chrDamage() takes 2 times the AI
+ * health modifier times 2 on the chest, 4 on the head. Its beam is drawn at
+ * most 300 units long (gunfx.c's beamCreate()).
+ *
+ * Swapped in and out whole, as the definition's own pointers, so the
+ * Moonraker is itself again on every other stage.
+ */
+static const struct gegunstat watchlaserstat = {
+	1000, 0xff, 0x00, 1, 2.0f, 0.0f, 0.0f,
+	{ 1.0f, 4.0f, 0.2f, 1.0f, 4.0f },
+	{ 0, 0, 0, -1 }, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 24, 0x00601091,
+};
+
+static struct {
+	struct weaponfunc *func;       // the watch laser's shot, NULL until the first
+	struct inventory_ammo ammo;
+	struct invaimsettings aim;
+	struct noisesettings noise;
+	struct weaponfunc *hostfunc;   // the Moonraker's own, while the watch laser's is in
+	struct inventory_ammo *hostammo;
+	struct invaimsettings *hostaim;
+	u32 hostflags;
+	u32 hostflags3;
+} g_WatchLaser;
+
+static s32 gegunsWatchLaserInstalled(void)
+{
+	return g_WatchLaser.func && g_GeWeaponDefs[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST].functions[0] == g_WatchLaser.func;
+}
+
+void gegunsSetWatchLaser(s32 on)
+{
+	struct weapon *def = &g_GeWeaponDefs[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST];
+	const struct gegunstat *stat = &watchlaserstat;
+	struct weaponfunc_shoot *shoot;
+	u32 size;
+
+	if (!on) {
+		if (gegunsWatchLaserInstalled()) {
+			def->functions[0] = g_WatchLaser.hostfunc;
+			def->ammos[0] = g_WatchLaser.hostammo;
+			def->aimsettings = g_WatchLaser.hostaim;
+			def->flags = g_WatchLaser.hostflags;
+			def->flags3 = g_WatchLaser.hostflags3;
+		}
+
+		return;
+	}
+
+	if (gegunsWatchLaserInstalled() || !def->functions[0]
+			|| (((struct weaponfunc *)def->functions[0])->type & 0xff) != INVENTORYFUNCTYPE_SHOOT) {
+		return;
+	}
+
+	g_WatchLaser.hostfunc = def->functions[0];
+	g_WatchLaser.hostammo = def->ammos[0];
+	g_WatchLaser.hostaim = def->aimsettings;
+	g_WatchLaser.hostflags = def->flags;
+	g_WatchLaser.hostflags3 = def->flags3;
+
+	size = gegunsFuncSize(((struct weaponfunc *)def->functions[0])->type);
+
+	if (!g_WatchLaser.func) {
+		g_WatchLaser.func = calloc(1, 0x80 > size ? 0x80 : size);
+
+		if (!g_WatchLaser.func) {
+			return;
+		}
+	}
+
+	memcpy(g_WatchLaser.func, def->functions[0], size);
+	shoot = (struct weaponfunc_shoot *)g_WatchLaser.func;
+	shoot->damage = stat->damage;
+	shoot->spread = stat->spread;
+	shoot->penetration = stat->penetration;
+	shoot->impactforce = stat->impactforce;
+	shoot->recoildist = stat->recoilback;
+	shoot->recoilangle = stat->recoilup;
+	shoot->slidemax = stat->boltback;
+	shoot->recoverytime60 = gegunsRecovery(WEAPON_GE_MOONRAKER, stat, g_WatchLaser.func->fire_animation != NULL);
+	shoot->unk24 = stat->recoilspeed[0];
+	shoot->unk25 = stat->recoilspeed[1];
+	shoot->unk26 = stat->recoilspeed[2];
+	shoot->unk27 = stat->recoilspeed[3];
+
+	// the Moonraker's shot takes nothing from a magazine (-1); the watch
+	// laser's takes its charge
+	g_WatchLaser.func->ammoindex = 0;
+
+	g_WatchLaser.noise = stat->noise;
+	g_WatchLaser.func->noisesettings = &g_WatchLaser.noise;
+
+	memset(&g_WatchLaser.ammo, 0, sizeof(g_WatchLaser.ammo));
+	g_WatchLaser.ammo.type = AMMOTYPE_WATCHLASER;
+	g_WatchLaser.ammo.clipsize = stat->magsize;
+	def->ammos[0] = &g_WatchLaser.ammo;
+
+	if (def->aimsettings) {
+		g_WatchLaser.aim = *def->aimsettings;
+		g_WatchLaser.aim.flags &= ~INVAIMFLAG_AUTOAIM;
+		def->aimsettings = &g_WatchLaser.aim;
+	}
+
+	def->flags &= ~WEAPONFLAG_TRACKTIMEUSED;
+	// the laser's shots are free (WEAPONFLAG3_FREESHOTS); each of the watch
+	// laser's takes one of its charge
+	def->flags3 &= ~WEAPONFLAG3_FREESHOTS;
+	def->functions[0] = g_WatchLaser.func;
 }
 
 #endif

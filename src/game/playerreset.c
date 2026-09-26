@@ -22,6 +22,9 @@
 #include "lib/mtx.h"
 #include "lib/anim.h"
 #include "data.h"
+#ifndef PLATFORM_N64
+#include "gegadgets.h"
+#endif
 #include "types.h"
 
 void playerInitEyespy(void)
@@ -200,6 +203,11 @@ void playerReset(void)
 					} else {
 						invGiveSingleWeapon(cmd->param1);
 					}
+
+#ifndef PLATFORM_N64
+					// GoldenEye's watch laser brings its own charge (gegadgets.c)
+					gegadgetsIntroWeapon(cmd->param1);
+#endif
 
 					if (!hasdefaultweapon) {
 						g_DefaultWeapons[HAND_RIGHT] = cmd->param1;
