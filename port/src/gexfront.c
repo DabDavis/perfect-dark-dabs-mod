@@ -5034,6 +5034,36 @@ static Gfx *frontDrawMonitorView(Gfx *gdl)
 			modSetTextureSourceMod(prevsrc);
 			frontMonitorClock(0, &lvupdate60, &lvupdate60f);
 
+			// The list sets its texture and nothing else: in a set the
+			// model's own node draw puts the combiner and the render mode
+			// in first (modelRenderNodeDl()), and alone here it ran in
+			// whatever the folder had left - the N64 folder's by luck, and
+			// under the release's folder its stamps' blend, which drew
+			// the radar as a black sweep over a green screen.
+			{
+				struct modelrenderdata renderdata = { NULL, false, 3 };
+
+				renderdata.unk30 = 1;
+				renderdata.gdl = gdl;
+
+				switch (node->rodata->dl.mcount) {
+				case 2:
+					modelApplyRenderModeType2(&renderdata);
+					break;
+				case 3:
+					modelApplyRenderModeType3(&renderdata, true);
+					break;
+				case 4:
+					modelApplyRenderModeType4(&renderdata, true);
+					break;
+				default:
+					modelApplyRenderModeType1(&renderdata);
+					break;
+				}
+
+				gdl = renderdata.gdl;
+			}
+
 			gSPDisplayList(gdl++, ((union modelrwdata *)modelGetNodeRwData(model, node))->dl.gdl);
 			gSPClearGeometryMode(gdl++, G_CULL_BOTH);
 			gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
