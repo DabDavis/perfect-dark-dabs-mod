@@ -299,9 +299,11 @@ struct xblameshbuilt {
 	s32 groupgfx[XBLAMESH_MAXPARTS]; // into gdl: where each group's opaque list starts
 	s32 groupxlu[XBLAMESH_MAXPARTS]; // its alpha materials, or -1 if it has none
 	s32 groupfade[XBLAMESH_MAXPARTS]; // its draws that fade by vertex alpha, or -1
+	u64 groupxlucut;                 // groups whose alpha span is cutouts only: see xblaMeshBuildLists()
 	s32 allgfx;                      // and the ones that call every group
 	s32 allxlu;
 	s32 allfade;
+	s32 allxlucut;
 
 	// The posed copy already made this frame, and who for. Every part of a
 	// model draws its own group now, so without this Dr Carroll would pose
@@ -2318,10 +2320,12 @@ struct xblameshbuilder {
 	s32 groupgfx[XBLAMESH_MAXPARTS];
 	s32 groupxlu[XBLAMESH_MAXPARTS];
 	s32 groupfade[XBLAMESH_MAXPARTS];
+	u64 groupxlucut;
 	s32 numgroups;
 	s32 allgfx;
 	s32 allxlu;
 	s32 allfade;
+	s32 allxlucut;
 
 	s32 numgfx, capgfx;
 	s32 numvtx, capvtx;
@@ -3483,12 +3487,15 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 	b->numgroups = numgroups;
 	b->allxlu = -1;
 	b->allfade = -1;
+	b->groupxlucut = 0;
+	b->allxlucut = 1;
 
 	for (s32 g = 0; g < numgroups; g++) {
 		u32 firstdraw = 0;
 		u32 numdraws = h->numdraws;
 		s32 anyalpha = 0;
 		s32 anyfade = 0;
+		s32 anyblend = 0;
 
 		if ((u32)numgroups == intable) {
 			const u8 *group = file + h->groupoffset + (u32)g * XBLAMESH_ENTRY;
@@ -3538,9 +3545,30 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 				}
 			} else if (span == XBLAMESH_SPAN_ALPHA) {
 				anyalpha = 1;
+				anyblend = 1;
 			} else if (span == XBLAMESH_SPAN_FADE) {
 				anyfade = 1;
 			}
+		}
+
+		// An alpha span whose every draw was sorted against its picture is
+		// cutouts and nothing else: the panes went to the fading span, and
+		// what is left samples texels that are opaque or clear. Drawn in the
+		// translucent pass it wrote no depth, so the fading span laid over it
+		// covered it - the release's Villa bottles carry their labels on the
+		// glass's own surface, a tenth of a unit out, and the glass drawn
+		// after them (front and back) tinted every label to a dark green
+		// patch. A span like that, beside a fading one, is drawn as a cutout
+		// in the opaque pass instead, whatever the node's own translucent
+		// list says, and the glass is blended over what it has written - see
+		// xblaMeshRenderNode(). A draw with no map (a skinned mesh's, whose
+		// hair has to stay a cutout for other reasons, or a real translucent
+		// surface the pane test was never asked about) keeps the span where
+		// it was.
+		if (anyalpha && !anyblend) {
+			b->groupxlucut |= 1ull << g;
+		} else if (anyalpha) {
+			b->allxlucut = 0;
 		}
 
 		b->groupgfx[g] = b->numgfx;
@@ -5528,6 +5556,8 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	m->allgfx = b.allgfx;
 	m->allxlu = b.allxlu;
 	m->allfade = b.allfade;
+	m->groupxlucut = b.groupxlucut;
+	m->allxlucut = b.allxlu >= 0 && b.allxlucut;
 	m->numgroups = b.numgroups;
 
 	if (m->normals && m->venv && xblaMeshBuildBorrowFile) {
@@ -9422,6 +9452,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	Gfx *fadelist = NULL;
 	s32 grafted = 0;
 	s32 xlupart = -1;
+	s32 xlucut = 0;
 	s32 fadepart = -1;
 	Vtx *envvtx = NULL;
 	Col *envcol = NULL;
@@ -9564,20 +9595,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			return 0;
 		}
 
-		// The translucent pass, on one of the fifteen nodes here that draw a
-		// pane of their own: the same rule the replaced nodes follow. A mesh
-		// with translucent geometry somewhere has the pane - a cutout span or
-		// a fading one, since a pane found under a cutout's triangles is moved
-		// to the fading span (xblaMeshTriIsPane()) - and one with none
-		// anywhere has nothing to put where the game's would have been.
-		if (!opa && xblaMeshNodeDrawsXlu(node) && m->allxlu < 0 && m->allfade < 0) {
-			if (xblaMeshVerbose) {
-				xblaMeshNoteDraw(model, e->slot, 0, 5);
-			}
-
-			return 0;
-		}
-
+		// Its translucent list too, on the fifteen nodes here that have one:
+		// the same rule the replaced nodes follow (see below). Until
+		// 2026-09-26 one of a mesh with no alpha anywhere drew the game's -
+		// the roof gun's, the autosurgeon's two, the interceptor's.
 		return 1;
 	}
 
@@ -9655,6 +9676,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 		list = &m->gdl[m->groupgfx[part]];
 		xlupart = m->groupxlu[part];
+		xlucut = (m->groupxlucut >> part) & 1;
 		fadepart = m->groupfade[part];
 		use = (e->packuse >= 0 && e->packuse < numUses && uses[e->packuse].modeldef == e->modeldef)
 				? &uses[e->packuse] : NULL;
@@ -9680,15 +9702,18 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 		list = &m->gdl[m->groupgfx[part]];
 		xlupart = m->groupxlu[part];
+		xlucut = (m->groupxlucut >> part) & 1;
 		fadepart = m->groupfade[part];
 		use = NULL;
 	} else if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
 		list = &m->gdl[m->groupgfx[e->part]];
 		xlupart = m->groupxlu[e->part];
+		xlucut = (m->groupxlucut >> e->part) & 1;
 		fadepart = m->groupfade[e->part];
 	} else if (e->part == 0) {
 		list = &m->gdl[m->allgfx];
 		xlupart = m->allxlu;
+		xlucut = m->allxlucut;
 		fadepart = m->allfade;
 	} else {
 		return 1;
@@ -9712,11 +9737,19 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	//
 	// Where the span does go in the translucent pass, the game's own list must
 	// not: 27 of those 54 have the same surface in both, and drawing them one
-	// over the other doubles a window's darkening. Where the release has no
-	// alpha for a node that has a translucent list - the other 27 - returning
-	// 0 leaves the game to draw its own, which is the same rule the hair
-	// follows: take nothing away that nothing here replaces.
-	if (xlupart >= 0 && xblaMeshNodeDrawsXlu(node)) {
+	// over the other doubles a window's darkening.
+	//
+	// A span of cutouts only (groupxlucut) with a fading span beside it goes
+	// to the opaque pass with every other cutout, so that it writes the depth
+	// the fading span is then blended against. Without one it stays where it
+	// was: nothing is laid over it, and a plant's leaves (Pdd_plantspike's,
+	// Pdd_plantrubber's) keep the soft edge the blend gives them - cut at the
+	// threshold instead, the spike plant went dark and speckled.
+	if (xlucut && fadepart < 0) {
+		xlucut = 0;
+	}
+
+	if (xlupart >= 0 && xblaMeshNodeDrawsXlu(node) && !xlucut) {
 		xlulist = &m->gdl[xlupart];
 	}
 
@@ -9724,11 +9757,26 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// Only a node the game actually draws a translucent list for is a
 		// stock draw; every other replaced node reaches here in the
 		// translucent pass and the game draws nothing for it either.
-		if (xblaMeshVerbose && xblaMeshNodeDrawsXlu(node)) {
+		//
+		// Nor does the release, whose mesh is the whole of the node. The
+		// other 27 are pieces the N64 cut out of a picture and 4J built
+		// solid - the BAFTA's face (a flat quad in the game, which drew
+		// through the release's sculpted one in patches), a dumpster's
+		// castors, the chairs' bases, the stations' arms - most of them
+		// within a few units of the mesh's own surface. 4J marked a
+		// translucent list they did want kept 0xFFFF (the Skedar console's,
+		// the king's sceptre's), and those never reach here. Until
+		// 2026-09-26 this left the game to draw its own on the rule the hair
+		// follows - take nothing away that nothing here replaces - but the
+		// mesh does replace it. A model pack's file and a GoldenEye model
+		// keep that rule.
+		const s32 stock = xblaMeshNodeDrawsXlu(node) && (frompack || frombean);
+
+		if (xblaMeshVerbose && stock) {
 			xblaMeshNoteDraw(model, e->slot, 0, 5);
 		}
 
-		return 0;
+		return !stock && xblaMeshNodeDrawsXlu(node);
 	}
 
 	// The matrix this is drawn under is the first part's, whichever part is
