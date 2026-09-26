@@ -301,10 +301,19 @@ s32 gecinemaIntroIsOn(void)
 	return g_GeIntroStage != GEINTRO_NONE;
 }
 
-/** GoldenEye's IFCameraIsInIntro: the still and the fade out of it. */
+/**
+ * GoldenEye's IFCameraIsInIntro: the still and the fade out of it.
+ *
+ * And the Cinema page's Intro, whose gallery of shots is GoldenEye's one still
+ * played several times over. The level runs under it as under a mission's
+ * opening, and its lists hold at this question until Bond has the camera:
+ * answered no, Archives' interrogation ran its whole script over the shots and
+ * its guards drew on a Bond nobody was playing (F3 20260926-064527).
+ */
 s32 gecinemaIntroIsStill(void)
 {
-	return g_GeIntroPending || g_GeIntroStage == GEINTRO_STILL || g_GeIntroStage == GEINTRO_FADE;
+	return g_GeIntroPending || g_GeIntroStage == GEINTRO_STILL || g_GeIntroStage == GEINTRO_FADE
+		|| (gecinemaIsOn() && g_GeCinemaWhat == GECINEMA_OPENING && g_GeIntroStage == GEINTRO_NONE);
 }
 
 /** And its IFCameraIsInBondSwirl. */
