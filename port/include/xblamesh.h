@@ -321,6 +321,10 @@ s32 xblaMeshSlotModelFile(s32 slot);
 // surfaces - a label, a stencil - and is drawn in the decal z mode
 // (G_DECAL_EXT), since the two are exactly coplanar and fight in the plain one
 #define XBLAMESH_MAT_DECAL 0x4000
+// With XBLAMESH_MAT_TABLE: the picture is a cut-out card laid once across its
+// triangles (every UV within 0 to 1), and is sampled clamped rather than
+// repeating, so its filtered edge does not pick up the far edge's texels
+#define XBLAMESH_MAT_CLAMP 0x2000
 
 s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32 max);
 void xblaMeshNodeRestOffset(const struct modelnode *node, f32 out[3]);

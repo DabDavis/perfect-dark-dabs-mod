@@ -245,6 +245,7 @@ struct gebeanlevelvtx {
 	f32 pos[3];
 	f32 uv[2];
 	u32 argb;
+	u8 blend; // its draw is in the release's blended pass (the same on all three)
 };
 
 struct gebeanlevel *gebeanLevelOpen(const char *name);

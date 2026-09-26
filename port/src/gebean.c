@@ -2456,6 +2456,7 @@ struct beandraw {
 	u8 masktexslot; // the slot masktex fills, which is the UV set it is read with
 	u32 masktex;  // the material's other picture, where it has two (else ~0)
 	u8 ownmat;    // a material set since its vertex shader was (record 0x02)
+	u32 vs;       // that vertex shader's record (0x02), which draws of one kind share
 	u8 reflamount; // how much of its sphere-mapped pair it adds, 0 for none (beanWalkStream())
 	u16 reflspot; // and the pair: the spot map, then the landscape
 	u16 reflenv;
@@ -3199,6 +3200,7 @@ static void beanWalkStream(struct beanmodel *bm)
 	u32 secend = 0;
 	u8 secblend = 0;
 	u8 ownmat = 0;
+	u32 vs = 0;
 	u8 reflamount = 0;
 	s32 reflform = 0;
 	u16 reflspot = 0;
@@ -3272,6 +3274,7 @@ static void beanWalkStream(struct beanmodel *bm)
 			// The vertex shader (its microcode's place in .gpu): the material
 			// before it is not necessarily this one's (beanDrawIsSphereMapped())
 			ownmat = 0;
+			vs = size >= 8 ? gebeanBE32(st + pc + 4) : 0;
 		} else if (type == 0x1a && size >= 8) {
 			// The pass what follows is drawn in, by its low byte: 1 the opaque
 			// one, 2 the blended one (source alpha over the rest, set by the
@@ -3427,6 +3430,7 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->masktex = masktex;
 				d->masktexslot = masktexslot;
 				d->ownmat = ownmat;
+				d->vs = vs;
 				d->reflamount = reflamount;
 				d->reflspot = reflspot;
 				d->reflenv = reflenv;
@@ -3875,6 +3879,83 @@ static s32 numTexCache;
  * +0x24. The texels are the asset's own .gpu entry, or - where it has none -
  * the file's shared "texture pairs" .gpu entry at the base offset in +0x28.
  */
+/**
+ * A cut-out's clear texels given the colour of the nearest solid one. A
+ * picture whose alpha is all or nothing - DXT1's punch-through, whose clear
+ * texel is black by the format, or a DXT3/5 cut that stayed binary - is
+ * filtered by the renderer across its edge, where half a solid texel and
+ * half a clear one is over the cut-out threshold and half black: every leaf
+ * and vine card had a dark rim, and a vine's end stood as a black dash in the
+ * air where its card's clear part filtered against the tip (F3
+ * 20260926-102443, Jungle, "residue ... in transparency of vines"). Only the
+ * colour of a texel with alpha 0 changes, which nothing drawn with its alpha
+ * shows; a picture with any partial alpha is left as it is.
+ */
+static void beanBleedCutout(u8 *rgba, u32 w, u32 h)
+{
+	const u32 n = w * h;
+	u32 *queue;
+	u8 *filled;
+	u32 head = 0, tail = 0;
+	s32 clear = 0;
+
+	for (u32 i = 0; i < n; i++) {
+		const u8 a = rgba[i * 4 + 3];
+
+		if (a != 0 && a != 0xff) {
+			return;
+		}
+
+		clear |= a == 0;
+	}
+
+	if (!clear || clear == (s32)n) {
+		return;
+	}
+
+	queue = malloc(n * sizeof(*queue));
+	filled = malloc(n);
+
+	if (!queue || !filled) {
+		free(queue);
+		free(filled);
+		return;
+	}
+
+	for (u32 i = 0; i < n; i++) {
+		filled[i] = rgba[i * 4 + 3] != 0;
+
+		if (filled[i]) {
+			queue[tail++] = i;
+		}
+	}
+
+	// Outward from the solid texels, a ring at a time; the picture repeats
+	while (head < tail) {
+		const u32 i = queue[head++];
+		const u32 x = i % w, y = i / w;
+		const u32 nb[4] = {
+			y * w + (x + 1) % w, y * w + (x + w - 1) % w,
+			((y + 1) % h) * w + x, ((y + h - 1) % h) * w + x,
+		};
+
+		for (s32 k = 0; k < 4; k++) {
+			const u32 j = nb[k];
+
+			if (!filled[j]) {
+				filled[j] = 1;
+				rgba[j * 4 + 0] = rgba[i * 4 + 0];
+				rgba[j * 4 + 1] = rgba[i * 4 + 1];
+				rgba[j * 4 + 2] = rgba[i * 4 + 2];
+				queue[tail++] = j;
+			}
+		}
+	}
+
+	free(queue);
+	free(filled);
+}
+
 static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *outH)
 {
 	const struct caff *c = &bm->caff;
@@ -4041,6 +4122,8 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 		}
 	}
 
+	beanBleedCutout(rgba, w, h);
+
 	// Decoded top row first, as a PNG of it would be; the renderer wants the
 	// first uploaded row first (modelpackBindMaterial() does the same).
 	for (u32 y = 0; y < h / 2; y++) {
@@ -4060,11 +4143,197 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 	return rgba;
 }
 
+static const char *beanTextureName(const struct beanmodel *bm, s32 t);
+
+/**
+ * Whether a decoded picture is Rare's stand-in for art that was never made: a
+ * flat magenta square of 16 texels or fewer a side. The unfinished release
+ * draws it as it is - Jungle's fronds by the spawn (two of its pictures, 464
+ * triangles), five of Aztec's and two of Depot's (F3 20260926-101852, bright
+ * magenta bushes on Jungle).
+ */
+static s32 beanTexIsPlaceholder(const u8 *rgba, s32 w, s32 h)
+{
+	u32 n = (u32)w * (u32)h;
+	u32 mag = 0;
+
+	if (!rgba || w <= 0 || h <= 0 || w > 16 || h > 16) {
+		return 0;
+	}
+
+	for (u32 i = 0; i < n; i++) {
+		const u8 *px = rgba + i * 4;
+
+		mag += px[0] >= px[1] + 0x40 && px[2] >= px[1] + 0x40 && abs(px[0] - px[2]) < 0x30;
+	}
+
+	return mag * 10 >= n * 9;
+}
+
+/**
+ * The colour a placeholder picture is painted in its place: the mean of the
+ * opaque texels of the pictures its neighbours draw with - the draws before
+ * and after each of its own under the same vertex shader, which is the same
+ * kind of surface (Jungle's fronds sit between its leaf and vine cards, so
+ * come out leaf green). Grey when it has no such neighbour.
+ */
+static u32 beanPlaceholderColour(const struct beanmodel *bm, s32 t)
+{
+	u64 sum[3] = { 0, 0, 0 };
+	u64 count = 0;
+	u8 used[GEBEAN_MAXMATS];
+
+	memset(used, 0, sizeof(used));
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		if (bm->draws[di].tex != (u32)t) {
+			continue;
+		}
+
+		for (s32 dir = -1; dir <= 1; dir += 2) {
+			for (s32 dj = di + dir; dj >= 0 && dj < bm->numdraws && bm->draws[dj].vs == bm->draws[di].vs; dj += dir) {
+				const u32 nt = bm->draws[dj].tex;
+				s32 w, h;
+				u8 *rgba;
+
+				if (nt == (u32)t || nt >= (u32)bm->numtex || nt >= GEBEAN_MAXMATS || used[nt]) {
+					continue;
+				}
+
+				used[nt] = 1;
+				rgba = beanDecodeTexture(bm, (s32)nt, &w, &h);
+
+				if (rgba && !beanTexIsPlaceholder(rgba, w, h)) {
+					for (u32 i = 0; i < (u32)w * (u32)h; i++) {
+						if (rgba[i * 4 + 3] >= 0x80) {
+							sum[0] += rgba[i * 4 + 0];
+							sum[1] += rgba[i * 4 + 1];
+							sum[2] += rgba[i * 4 + 2];
+							count++;
+						}
+					}
+
+					free(rgba);
+					break;
+				}
+
+				free(rgba);
+			}
+		}
+	}
+
+	if (!count) {
+		return 0x808080;
+	}
+
+	return (u32)(sum[0] / count) << 16 | (u32)(sum[1] / count) << 8 | (u32)(sum[2] / count);
+}
+
+/**
+ * The release's own picture a cut-out placeholder takes in its place: where
+ * every draw of the placeholder is alpha-tested, the nearest draw before or
+ * after one of them, under the same vertex shader, that is alpha-tested too
+ * and whose picture is a real cut-out (clear texels, not a placeholder).
+ * Jungle's frond clusters (39, 40) sit between its canopy leaves (38) and its
+ * fern (41) and take the leaves; Aztec's 47, among its undergrowth, the same
+ * leaves. -1 when there is none; the placeholder is then painted a colour
+ * (beanPlaceholderColour()) - Aztec's strips over the mural bays (29, 54,
+ * 55) and Depot's two black shadow cards.
+ */
+static s32 beanPlaceholderStandIn(const struct beanmodel *bm, s32 t, s32 borrow)
+{
+	s32 best = -1, bestdist = 0x7fffffff;
+	s32 tested = 1, blended = 1;
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		if (bm->draws[di].tex == (u32)t) {
+			tested &= bm->draws[di].alphatest != 0;
+			blended &= bm->draws[di].blend != 0;
+		}
+	}
+
+	// A placeholder of the blended pass has no cut-out neighbour of its own
+	// to go by; it takes the stand-in of the placeholder drawn nearest it.
+	// Aztec's 53, sheets over the same undergrowth as its 47, drew grey slabs
+	// among the leaves 47 takes
+	if (!tested && blended && borrow) {
+		for (s32 di = 0; di < bm->numdraws; di++) {
+			if (bm->draws[di].tex != (u32)t) {
+				continue;
+			}
+
+			for (s32 dj = 0; dj < bm->numdraws; dj++) {
+				const u32 ot = bm->draws[dj].tex;
+				const s32 dist = dj > di ? dj - di : di - dj;
+				s32 w, h, st, isph;
+				u8 *rgba;
+
+				if (ot == (u32)t || ot >= (u32)bm->numtex || dist >= bestdist || !bm->draws[dj].alphatest) {
+					continue;
+				}
+
+				rgba = beanDecodeTexture(bm, (s32)ot, &w, &h);
+				isph = beanTexIsPlaceholder(rgba, w, h);
+				free(rgba);
+
+				if (isph && (st = beanPlaceholderStandIn(bm, (s32)ot, 0)) >= 0) {
+					best = st;
+					bestdist = dist;
+				}
+			}
+		}
+
+		return best;
+	}
+
+	if (!tested) {
+		return -1;
+	}
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		if (bm->draws[di].tex != (u32)t) {
+			continue;
+		}
+
+		for (s32 dir = -1; dir <= 1; dir += 2) {
+			for (s32 dj = di + dir; dj >= 0 && dj < bm->numdraws && bm->draws[dj].vs == bm->draws[di].vs; dj += dir) {
+				const struct beandraw *n = &bm->draws[dj];
+				const s32 dist = dj > di ? dj - di : di - dj;
+				s32 w, h, clear = 0;
+				u8 *rgba;
+
+				if (n->tex == (u32)t || n->tex >= (u32)bm->numtex || !n->alphatest || dist >= bestdist) {
+					continue;
+				}
+
+				rgba = beanDecodeTexture(bm, (s32)n->tex, &w, &h);
+
+				if (rgba && !beanTexIsPlaceholder(rgba, w, h)) {
+					for (u32 i = 0; i < (u32)w * (u32)h && !clear; i++) {
+						clear = rgba[i * 4 + 3] < 0x80;
+					}
+				}
+
+				free(rgba);
+
+				if (clear) {
+					best = (s32)n->tex;
+					bestdist = dist;
+					break;
+				}
+			}
+		}
+	}
+
+	return best;
+}
+
 static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t,
 		const void **tile, u8 *alpha, u8 *soft)
 {
 	char key[80];
 	s32 w, h, a = 0, s = 0;
+	s32 standin;
 	u8 *rgba;
 
 	snprintf(key, sizeof(key), "gebean:%s:%d", source, t);
@@ -4079,6 +4348,34 @@ static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t
 	}
 
 	rgba = beanDecodeTexture(bm, t, &w, &h);
+
+	if (beanTexIsPlaceholder(rgba, w, h) && (standin = beanPlaceholderStandIn(bm, t, 1)) >= 0) {
+		s32 sw, sh;
+		u8 *pic = beanDecodeTexture(bm, standin, &sw, &sh);
+
+		if (pic) {
+			free(rgba);
+			rgba = pic;
+			w = sw;
+			h = sh;
+			sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is the release's magenta placeholder, drawn with its neighbour %d (%s)",
+					source, t, beanTextureName(bm, t), standin, beanTextureName(bm, standin));
+		}
+	}
+
+	if (beanTexIsPlaceholder(rgba, w, h)) {
+		const u32 c = beanPlaceholderColour(bm, t);
+
+		for (u32 i = 0; i < (u32)w * (u32)h; i++) {
+			rgba[i * 4 + 0] = (u8)(c >> 16);
+			rgba[i * 4 + 1] = (u8)(c >> 8);
+			rgba[i * 4 + 2] = (u8)c;
+		}
+
+		sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is the release's magenta placeholder, painted %06x",
+				source, t, beanTextureName(bm, t), c);
+	}
+
 	*tile = rgba ? xblaTexBindImage(key, rgba, w, h) : NULL;
 
 	if (*tile) {
@@ -5356,7 +5653,7 @@ static s32 beanMarkDecals(struct beanout *o, u32 *matwords, s32 *nummatwords, st
 			}
 
 			copy[tex] = (*nummatwords)++;
-			matwords[copy[tex]] = XBLAMESH_MAT_TABLE | (u32)copy[tex] | (matwords[tex] & 0x8000) | XBLAMESH_MAT_DECAL;
+			matwords[copy[tex]] = XBLAMESH_MAT_TABLE | (u32)copy[tex] | (matwords[tex] & (0x8000 | XBLAMESH_MAT_CLAMP)) | XBLAMESH_MAT_DECAL;
 			mats->tile[copy[tex]] = mats->tile[tex];
 			mats->tinted[copy[tex]] = mats->tinted[tex];
 			mats->alpha[copy[tex]] = mats->alpha[tex];
@@ -5747,6 +6044,8 @@ struct beanscreen {
 	f32 lo[2];
 	f32 hi[2];
 	f32 size;
+	u8 quad;   // its node's list is the screen's quad alone (beanScreenFace())
+	u8 corners; // which of its corners a vertex of Bean's lies on (beanScreenRecesses())
 };
 
 // Bean's placeholder picture for a screen the release draws a programme into
@@ -5817,6 +6116,8 @@ static s32 beanFindScreens(struct modeldef *modeldef, struct beanscreen *screens
 		}
 
 		s->size = s->hi[0] - s->lo[0] > s->hi[1] - s->lo[1] ? s->hi[0] - s->lo[0] : s->hi[1] - s->lo[1];
+		s->quad = node->rodata->dl.numvertices == 4;
+		s->corners = 0;
 		num++;
 	}
 
@@ -5856,6 +6157,155 @@ static s32 beanScreenBacking(const struct beanscreen *screens, s32 numscreens, f
 	return 0;
 }
 
+/**
+ * A vertex of Bean's own model (not the placeholder) that lies on one of the
+ * screens - within 1% of the screen's size of its plane and of its edges - is
+ * the back of the recess the screen sits in, and is laid 2% of the size
+ * behind the plane as a placeholder is. Dam's modem box (prop/modembox,
+ * PROP_MODEMBOX) has its recess's back as a quad of the case's metal 0.19
+ * units in front of GoldenEye's screen quad on a screen 400 across: the two
+ * fought, and half the programme along the quad's diagonal showed the metal
+ * (F3 20260926-093826, "visual glitch with terminal and camera"). Anything
+ * standing off the plane - the case's front, its bevel's outer edge - or past
+ * the screen's edges is left where it is; a bevel's inner edge on the screen's
+ * rim goes back with the recess it shares its corners with.
+ *
+ * Only a screen whose node is a quad alone and that Bean's model has a recess
+ * on all four corners of (beanScreenRecesses()): parts 0 to 3 are a monitor's
+ * screens, but on a prop that is no monitor they are whatever the model
+ * numbers so - Jungle's trees have lists of their own there, and their
+ * trunks' vertices went back off their places.
+ */
+static s32 beanScreenFace(const struct beanscreen *screens, s32 numscreens, f32 *pos)
+{
+	for (s32 i = 0; i < numscreens; i++) {
+		const struct beanscreen *s = &screens[i];
+		const f32 d[3] = { pos[0] - s->origin[0], pos[1] - s->origin[1], pos[2] - s->origin[2] };
+		const f32 u = d[0] * s->axis[0][0] + d[1] * s->axis[0][1] + d[2] * s->axis[0][2];
+		const f32 v = d[0] * s->axis[1][0] + d[1] * s->axis[1][1] + d[2] * s->axis[1][2];
+		const f32 w = d[0] * s->axis[2][0] + d[1] * s->axis[2][1] + d[2] * s->axis[2][2];
+		const f32 margin = s->size * 0.01f;
+
+		if (s->quad && s->corners == 0xf && w >= -margin && w <= margin
+				&& u >= s->lo[0] - margin && u <= s->hi[0] + margin
+				&& v >= s->lo[1] - margin && v <= s->hi[1] + margin) {
+			const f32 back = w + s->size * 0.02f;
+
+			for (s32 k = 0; k < 3; k++) {
+				pos[k] -= s->axis[2][k] * back;
+			}
+
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Which of the screens have a recess of Bean's behind them for
+ * beanScreenFace(): a vertex of the model on each of the screen's four
+ * corners, in its plane. The modem box's back quad is the screen to within a
+ * unit; a CCTV's lens or a door's window pane that part 0 happens to be only
+ * touches a corner or two, and is left alone.
+ */
+static void beanScreenRecesses(const struct beanmodel *bm, const struct gebeangunrow *g, const char *source,
+		struct beanscreen *screens, s32 numscreens)
+{
+	for (s32 di = 0; di < bm->numdraws && numscreens > 0; di++) {
+		const struct beandraw *d = &bm->draws[di];
+		struct beanvb vb;
+
+		if (!beanReadVb(bm, d->vb, &vb)
+				|| strncmp(beanTextureName(bm, (s32)d->tex), beanScreenPlaceholder, sizeof(beanScreenPlaceholder) - 1) == 0) {
+			continue;
+		}
+
+		for (u32 vi = 0; vi < vb.count; vi++) {
+			struct beanvtx v;
+			f32 pos[3];
+
+			if (beanVertexDropped(source, vb.off, vi) || !beanVertex(bm, &vb, vi, &v)) {
+				continue;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				pos[k] = (g->sign[k] * v.pos[g->perm[k]] - g->beancentre[k]) * g->scale + g->n64centre[k];
+			}
+
+			for (s32 i = 0; i < numscreens; i++) {
+				struct beanscreen *sc = &screens[i];
+				const f32 dd[3] = { pos[0] - sc->origin[0], pos[1] - sc->origin[1], pos[2] - sc->origin[2] };
+				const f32 u = dd[0] * sc->axis[0][0] + dd[1] * sc->axis[0][1] + dd[2] * sc->axis[0][2];
+				const f32 w2 = dd[0] * sc->axis[1][0] + dd[1] * sc->axis[1][1] + dd[2] * sc->axis[1][2];
+				const f32 w = dd[0] * sc->axis[2][0] + dd[1] * sc->axis[2][1] + dd[2] * sc->axis[2][2];
+				const f32 margin = sc->size * 0.01f;
+
+				if (w < -margin || w > margin) {
+					continue;
+				}
+
+				for (s32 c = 0; c < 4; c++) {
+					const f32 cu = (c == 1 || c == 2) ? sc->hi[0] : sc->lo[0];
+					const f32 cv = c >= 2 ? sc->hi[1] : sc->lo[1];
+
+					if (fabsf(u - cu) <= margin && fabsf(w2 - cv) <= margin) {
+						sc->corners |= 1 << c;
+					}
+				}
+			}
+		}
+	}
+}
+
+/**
+ * A rigid prop's cut-out pictures laid once across their triangles - every UV
+ * of every triangle with the picture within 0 to 1 - are sampled clamped
+ * (XBLAMESH_MAT_CLAMP). Repeating, the filter at a card's edge reads the
+ * opposite edge's texels: Jungle's vine tree (prop/jungle3tree) hangs its
+ * vines from the top of their picture, so the foot of every vine card drew a
+ * row of the vines' tops as dark dashes floating in the air under it (F3
+ * 20260926-102443). Glass is left repeating. Returns how many were clamped.
+ */
+static s32 beanClampCards(const struct beanout *o, u32 *matwords, s32 nummatwords, const struct gebeanmats *mats,
+		const u8 *glass)
+{
+	const f32 slack = 1.0f / 64.0f; // the vine cards reach a texel or so past 0
+	u8 inside[GEBEAN_MAXMATS];
+	u8 used[GEBEAN_MAXMATS];
+	s32 num = 0;
+
+	memset(inside, 1, sizeof(inside));
+	memset(used, 0, sizeof(used));
+
+	for (s32 t = 0; t < o->numtris; t++) {
+		const s32 tex = o->tris[t].tex;
+
+		if (tex >= nummatwords || tex >= GEBEAN_MAXMATS) {
+			continue;
+		}
+
+		used[tex] = 1;
+
+		for (s32 k = 0; k < 3; k++) {
+			const f32 *uv = &o->uv[o->tris[t].v[k] * 2];
+
+			if (uv[0] < -slack || uv[0] > 1.0f + slack || uv[1] < -slack || uv[1] > 1.0f + slack) {
+				inside[tex] = 0;
+			}
+		}
+	}
+
+	for (s32 i = 0; i < nummatwords && i < GEBEAN_MAXMATS; i++) {
+		if (used[i] && inside[i] && mats->alpha[i] && !glass[i]) {
+			matwords[i] |= XBLAMESH_MAT_CLAMP;
+			num++;
+		}
+	}
+
+	return num;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -5880,6 +6330,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	struct beanscreen screens[4];
 	s32 numscreens;
 	s32 numbacking = 0;
+	s32 numrecess = 0;
+	s32 numclamped = 0;
 	u8 *file;
 
 	memset(glass, 0, sizeof(glass));
@@ -6079,6 +6531,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	}
 
 	numscreens = g->weaponnum >= 0 ? 0 : beanFindScreens(modeldef, screens);
+	// a monitor is converted on the basic skeleton; a windowed door's glass
+	// or a CCTV's lens is a part of a skeleton of its own
+	if (modeldef->skel == &g_SkelBasic) {
+		beanScreenRecesses(&bm, g, source, screens, numscreens);
+	}
 
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
@@ -6178,6 +6635,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				if (placeholder && beanScreenBacking(screens, numscreens, pos)) {
 					backing = 1;
 					numbacking++;
+				} else if (!placeholder && beanScreenFace(screens, numscreens, pos)) {
+					numrecess++;
 				}
 
 				if (part >= 0) {
@@ -6301,6 +6760,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 	}
 
+	numclamped = beanClampCards(&out, matwords, nummatwords, mats, glass);
+
 	// The reflection the release adds over a material (beanWalkStream()),
 	// drawn by the XBLA meshes' reflection pass on a sphere map of its own
 	snprintf(mats->envkey, sizeof(mats->envkey), "gebeanenv:%s", g->row.source);
@@ -6325,9 +6786,9 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 
 	file = beanWriteMesh(&out, numnodes, nummatrices, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals, %d glass, %d screen backing), "
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals, %d glass, %d screen backing, %d screen recess, %d clamped cards), "
 			"rigid on matrix %d of %d%s%s%s%s",
-			g->row.file, source, out.numverts, out.numtris, numdecals, numglass, numbacking, mtx, nummatrices,
+			g->row.file, source, out.numverts, out.numtris, numdecals, numglass, numbacking, numrecess, numclamped, mtx, nummatrices,
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
@@ -9158,6 +9619,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					v[k].uv[0] = bv.uv[0];
 					v[k].uv[1] = bv.uv[1];
 					v[k].argb = bv.argb;
+					v[k].blend = draw->blend;
 				}
 			}
 

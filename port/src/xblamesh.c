@@ -2811,6 +2811,8 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 {
 	const u32 record = material & 0x1fff;
 	const s32 alpha = (material >> 15) & 1;
+	// A cut-out card of the build's own is clamped (XBLAMESH_MAT_CLAMP)
+	const u32 cm = (material & XBLAMESH_MAT_TABLE) && (material & XBLAMESH_MAT_CLAMP) ? G_TX_CLAMP : G_TX_WRAP;
 	// Always bound, whether or not the art is switched on: what a stand-in
 	// holds is white, so a material with the pictures turned off draws the
 	// same flat solid a list built without a texture would. That is what lets
@@ -2899,13 +2901,13 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 	// against.
 	gDPLoadTextureBlock(gdl++, tile, G_IM_FMT_RGBA, G_IM_SIZ_16b,
 			XBLATEX_TILE, XBLATEX_TILE, 0,
-			G_TX_WRAP | G_TX_NOMIRROR, G_TX_WRAP | G_TX_NOMIRROR,
+			cm | G_TX_NOMIRROR, cm | G_TX_NOMIRROR,
 			XBLATEX_TILE_MASK, XBLATEX_TILE_MASK, G_TX_NOLOD, G_TX_NOLOD);
 
 	gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_16b,
 			((XBLATEX_TILE * G_IM_SIZ_16b_LINE_BYTES) + 7) >> 3, 0, 1, 0,
-			G_TX_WRAP | G_TX_NOMIRROR, XBLATEX_TILE_MASK, G_TX_NOLOD,
-			G_TX_WRAP | G_TX_NOMIRROR, XBLATEX_TILE_MASK, G_TX_NOLOD);
+			cm | G_TX_NOMIRROR, XBLATEX_TILE_MASK, G_TX_NOLOD,
+			cm | G_TX_NOMIRROR, XBLATEX_TILE_MASK, G_TX_NOLOD);
 	gDPSetTileSize(gdl++, 1, 0, 0,
 			(XBLATEX_TILE - 1) << G_TEXTURE_IMAGE_FRAC,
 			(XBLATEX_TILE - 1) << G_TEXTURE_IMAGE_FRAC);
