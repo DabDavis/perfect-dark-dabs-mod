@@ -3089,6 +3089,31 @@ const void *gebeanStageTile(u32 record)
 	return t < GEBEAN_MAXMATS ? texTile[t] : NULL;
 }
 
+/**
+ * Whether the picture a served room loads from `tile` (the G_SETTIMG that
+ * xblaStageWriteTexture() made of the leaf's record) is one a bullet goes
+ * through: a cut-out (railings, fences, grates, leaves - texels with holes,
+ * drawn as a texture edge in the opaque leaf) or a translucent one.
+ * GoldenEye's bullets test a room's primary list only
+ * (bgTestBulletHitBackground()), and its railings are not in it, so they never
+ * stopped a shot; Bean draws them as cut-outs in the opaque leaf, where
+ * bgTestHitInRoom() found them (F3 20260925-225349, Facility's stairs).
+ */
+s32 gebeanStageTilePassesShots(uintptr_t tile)
+{
+	if (!built || !tile) {
+		return 0;
+	}
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		if ((uintptr_t)texTile[t] == tile) {
+			return texHasAlpha(t) || texIsXlu(t);
+		}
+	}
+
+	return 0;
+}
+
 void gebeanStageTrace(FILE *f)
 {
 	fprintf(f, "gebeanstage: tried %d built %d level %s scale %.5f, %d of %d rooms served, %d of the file's not drawn\n",
@@ -3114,6 +3139,7 @@ s32 gebeanStageCullsBackFaces(void) { return 0; }
 const char *gebeanStageLevelKey(void) { return NULL; }
 s32 gebeanStageOwnsRecord(u32 record) { return 0; }
 const void *gebeanStageTile(u32 record) { return NULL; }
+s32 gebeanStageTilePassesShots(uintptr_t tile) { return 0; }
 void gebeanStageTrace(FILE *f) { }
 Gfx *gebeanStageRenderBackdrop(Gfx *gdl) { return gdl; }
 void gebeanStageTickFar(void) { }

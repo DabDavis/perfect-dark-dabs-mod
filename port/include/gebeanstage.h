@@ -110,6 +110,9 @@ void gebeanStageLevelReset(void);
 s32 gebeanStageOwnsRecord(u32 record);
 const void *gebeanStageTile(u32 record);
 
+/** A served room's loaded picture that bullets pass through (cut-outs, translucent). */
+s32 gebeanStageTilePassesShots(uintptr_t tile);
+
 /**
  * The level's backdrop - a panorama 4J ring some levels with, far outside
  * them, and what no room can reach - drawn after the sky and before the

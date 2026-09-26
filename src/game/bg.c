@@ -4680,6 +4680,29 @@ bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
 	return hit;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * A room served from the GoldenEye XBLA release draws GoldenEye's railings,
+ * fences and grates as cut-outs in its opaque leaf (gebeanstage.c), loaded by
+ * xblaStageWriteTexture() from a tile of its own, so the texture number a
+ * G_SETTIMG's header would give means nothing there. GoldenEye's own bullets
+ * never stop at them (it tests a room's primary list, where they are not), so
+ * a shot passes a cut-out or translucent picture of such a room.
+ */
+static bool bgTriPassesShots(Gfx *iter, Gfx *gdl)
+{
+	if (!geRoomActive()) {
+		return false;
+	}
+
+	while (iter > gdl && iter->bytes[GFX_W0_BYTE(0)] != G_SETTIMG) {
+		iter--;
+	}
+
+	return iter->bytes[GFX_W0_BYTE(0)] == G_SETTIMG && gebeanStageTilePassesShots((uintptr_t)iter->words.w1);
+}
+#endif
+
 bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *arg2, struct vtxbatch *batch, s32 roomnum, struct hitthing *hitthing)
 {
 	s16 stack;
@@ -4834,10 +4857,15 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 										tmp = spb0.z - arg0->z;
 										sqdist += tmp * tmp;
 
-										if (sqdist < lowestsqdist) {
+										if (sqdist < lowestsqdist
+#ifndef PLATFORM_N64
+												&& !bgTriPassesShots(iter, gdl)
+#endif
+												) {
 											hit = true;
 
 											tmpgdl = iter;
+
 
 											while (tmpgdl->bytes[GFX_W0_BYTE(0)] != G_SETTIMG && tmpgdl > gdl) {
 												tmpgdl--;
