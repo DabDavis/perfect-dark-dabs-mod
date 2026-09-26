@@ -521,7 +521,19 @@ frame), `fr.py` (Institute firing range: closes the frame-302 dialog, holds a
 teleport into room 10, starts a session from gdb, fires by holding
 `triggeron` in `bgunTickGameplay()` - a `shotCreate()` from `videoEndFrame`
 hits no prop, the matrices are already converted), `modem3p.py` (Dam modem
-with a real trigger press). The throw's direction in third person is still
-parallel to the aim ray from the hands, so a throw lands off the crosshair by
-the camera's offset; not changed (patch kept at
-`~/wt/f3thirdp-throwaim.patch`).
+with a real trigger press), `throw.py` (any weapon at a tagged object, e.g.
+Surface 2 mission 0x6a, `W=0x76 TAG=9 DIST=300`), `tfloor.py` (a throw at the
+floor ahead on a PD arena, rest point and nearest pass against the
+crosshair's point). Grenades need `bgunSetAmmoQuantity()` and a wait for the
+hand to reach `HANDSTATE_IDLE`; they never come to rest, so compare the
+nearest pass.
+
+**Throws aim from the hands at the crosshair's point** (`bgunAimThrowAtCrosshair()`,
+bondgun.c). The throw's direction was the camera ray's, launched from the
+hands, so parallel to the ray and off by the camera's offset. The
+`FUNCFLAG_CALCULATETRAJECTORY` throws (mines, grenades) already aimed an arc
+at the dot, but only within 20 degrees of that direction, which close in from
+a shoulder camera is not enough. The ray is traced and the direction starts
+as the line from the spawn point to where it stops. First person is gated
+out and lands on identical coordinates. A point further than the throw can
+reach still falls short or long (as in first person).
