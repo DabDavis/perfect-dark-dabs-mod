@@ -54,7 +54,8 @@ mine on "Detonate" could not throw GoldenEye's).
   bgunCreateThrownProjectile2(): GE mines' fuse 300/180.
 - src/game/propobj.c playerActivateRemoteMineDetonator(): GoldenEye's watch beep (243)
   on a converted level.
-- src/game/modoptions.c modCanAkimbo(): false for gegunsNeverPairs() weapons.
+- src/game/modoptions.c modCanAkimbo(): false for gegunsNeverPairs() weapons (since
+  097d9a2c5 the detonator only - see "Akimbo pairs" below).
 - port/src/gegadgets.c: the detonator is a gadget row (item 30, "Detonator"); draws
   GoldenEye's own model when the conversion has Igx030Z, else nothing (never the Data
   Uplink). src/include/constants.h: INV_CYCLEABLE includes the detonator.
@@ -84,12 +85,24 @@ Pictures: /home/sdg/wt/f3mines-pics/final/ (before_*, f_* N64, h_* HD, *_sheet.p
   geconvert.c reads node 0xf and writes files/Igx030Z, gegadgets.c draws it; its
   placement row in g_Hands ({4,-12,-30}, width 20) is a guess to check then. Until
   then the detonator shows an empty hand and no ammo icon.
-- **Pair rule on fix/f3-ge-mission-logic**: GoldenEye's "second pickup makes a pair"
-  must not pair the grenade, mines or detonator. Their definitions now have no
-  WEAPONFLAG_DUALWIELD, but weaponHasFlag(w, WEAPONFLAG_DUALWIELD) is true for any gun
-  while Akimbo is on - the rule should read g_Weapons[w]->flags or call
-  gegunsNeverPairs(w).
+- ~~Pair rule on fix/f3-ge-mission-logic~~: superseded, see "Akimbo pairs" below.
 - HD look draws the release's mine model in the hand (all three), GoldenEye draws
   nothing; left as it was (user's call).
 - Mines thrown into a burning tank area go off early - also on the old binary.
 - Simulants never use the detonator (stock bots never detonate remote mines either).
+
+## Akimbo pairs the grenade and mines (user, 2026-09-26) - 097d9a2c5
+
+The user's house rule: with Akimbo on, a second of any weapon held makes a pair,
+GoldenEye's grenade and mines included; only the detonator stays single.
+gegunsNeverPairs() is now `weaponnum == WEAPON_GE_DETONATOR`; the grenade/mine
+definitions still have no WEAPONFLAG_DUALWIELD (Akimbo off: never a pair, as GoldenEye).
+Consequence: with Akimbo on, weaponHasFlag(DUALWIELD) and modCanAkimbo() now say yes for
+0x73-0x76 (Start Armed with a mine would hand two). The pickup rule itself is on
+fix/f3-ge-mission-logic (inv.c invAkimboPairsPickup(), HANDOFF section 7 there), tested
+in the scratch merge scratch/pair-mines (~/wt/pairmines, not for merging).
+Throwing a pair (Facility, this rig, probes/mines.py ops pair:W / qty:W + a throw log):
+PD's dual throw alternates hands, one ammo per throw; the remote-mine pair's last throw
+goes to the (single) detonator, which sets them all off; timed pair 300-frame fuse;
+grenade pair alternates and explodes. No crash or stuck state.
+Merge note: both branches add HANDOFF-f3.md (add/add conflict) - keep both texts.
