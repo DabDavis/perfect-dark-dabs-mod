@@ -3371,11 +3371,30 @@ static void watchGunSetPart(s32 part, s32 visible)
 	}
 }
 
+#define WATCH_TEXT_SCALE 0.88f
+
 /**
- * GoldenEye's camera for an item is over its whole 320x240 screen, which here
- * is the frame the page is laid out on: as much of the window's height as the
- * frame takes, and 4:3 of that across. Its aspect is its own 1.283847.
+ * GoldenEye's camera for an item covers its whole screen, which here is the
+ * frame the page is laid out on: as much of the window's height as the frame
+ * takes, and 4:3 of that across. Its aspect is its own 1.283847.
+ *
+ * That frame is the wrong size for an item, and the gun came out three
+ * quarters of GoldenEye's size against the face (F3 20260926-064954 and
+ * -093659: the DD44 read as if its front were missing). Two reasons:
+ *
+ * - watchFrameHeight() carries WATCH_TEXT_SCALE, which shrinks the pages'
+ *   text to fit the face. It is not meant for the gun.
+ * - GoldenEye's projection spans its scissored 230-row viewport, and its
+ *   gauge ring is 210 of those rows tall (the decomp's native port, Dam).
+ *   Our unscaled frame is only 0.94 of our ring. So an item's frame is
+ *   WATCH_ITEM_FILL of the text's unscaled one.
+ *
+ * Measured on the DD44 side on (inventory angle 0, and the mission page):
+ * the slide's width over the ring's height is 0.829 in GoldenEye. It was
+ * 0.63 here, and it is 0.83 at 1.16.
  */
+#define WATCH_ITEM_FILL 1.16f
+
 static Gfx *watchItemProjection(Gfx *gdl, f32 fovy, f32 near, f32 far)
 {
 	Mtx *projection = gfxAllocateMatrix();
@@ -3383,7 +3402,7 @@ static Gfx *watchItemProjection(Gfx *gdl, f32 fovy, f32 near, f32 far)
 	Mtxf squeeze;
 	Mtxf tmp;
 	u16 perspnorm;
-	const f32 sy = (f32)watchFrameHeight() / (f32)viGetHeight();
+	const f32 sy = (f32)watchFrameHeight() / WATCH_TEXT_SCALE * WATCH_ITEM_FILL / (f32)viGetHeight();
 	const f32 sx = sy * (4.0f / 3.0f) / videoGetAspect();
 
 	guPerspectiveF(persp.m, &perspnorm, fovy, 1.283847f, near, far, 1.0f);
@@ -3699,7 +3718,6 @@ static Gfx *watchDrawController(Gfx *gdl)
 // on its left edge and the options' last row stands on the screen-select
 // rectangles - which GoldenEye gets away with on a 320x240 picture and this
 // does not at six times that
-#define WATCH_TEXT_SCALE 0.88f
 
 static s32 watchFrameHeight(void)
 {
