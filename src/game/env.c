@@ -460,6 +460,14 @@ void envApplyTransitionFrac(f32 frac)
 	tmp.sky_b &= 0xf8;
 
 	envApplyFogEnvironment(&tmp);
+
+#ifndef PLATFORM_N64
+	// The transition's plane is the level's own now, and a raised one (an HD
+	// level, Disable Fog) goes back out over it at once: Facility's gas applies
+	// its transition every tick after bgTick() raised the plane, and the level
+	// was cut at the gas's 1000 units, green past it (F3 20260926-211454)
+	gebeanStageTickFar();
+#endif
 }
 
 Gfx *envStartFog(Gfx *gdl, bool xlupass)
