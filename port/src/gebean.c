@@ -2100,6 +2100,10 @@ struct beandraw {
 	u8 alphatest; // drawn with the alpha test on (render state 0x60)
 	u8 masktexslot; // the slot masktex fills, which is the UV set it is read with
 	u32 masktex;  // the material's other picture, where it has two (else ~0)
+	u8 ownmat;    // a material set since its vertex shader was (record 0x02)
+	u8 reflamount; // how much of its sphere-mapped pair it adds, 0 for none (beanWalkStream())
+	u16 reflspot; // and the pair: the spot map, then the landscape
+	u16 reflenv;
 	u8 numpal;
 	u8 pal[BEAN_MAXPAL];
 };
@@ -2152,6 +2156,8 @@ struct beanmodel {
 	struct beanib ibs[BEAN_MAXIBS];
 
 	f32 uvscale;
+	// A stride 20 vertex carries a UV rather than a colour (beanShaderUv20())
+	s32 uv20;
 };
 
 struct beanvb {
@@ -2159,6 +2165,7 @@ struct beanvb {
 	u32 off;
 	u32 count;
 	s32 col28; // stride 28 carries a colour rather than a UV
+	s32 uv20;  // stride 20 carries a UV rather than a colour
 };
 
 struct beanvtx {
@@ -2184,11 +2191,12 @@ static s32 beanReadVb(const struct beanmodel *bm, u32 desc, struct beanvb *vb)
 	vb->off = gebeanBE32(bm->data + desc + 8);
 	size = gebeanBE32(bm->data + desc + 12);
 
-	if (vb->stride < 20 || !gebeanFits(vb->off, size, bm->gpulen)) {
+	if (vb->stride < 16 || !gebeanFits(vb->off, size, bm->gpulen)) {
 		return 0;
 	}
 
 	vb->count = size / vb->stride;
+	vb->uv20 = vb->stride == 20 && bm->uv20;
 
 	// Stride 28 is a skinned vertex with one of a UV and a colour: a colour's
 	// alpha byte is 0xff on every vertex, a UV's high byte is not.
@@ -2234,6 +2242,8 @@ static u32 beanColour(u32 abgr)
  * has four u16 palette slots written three times over (0xf000 for none), and
  * the stride 36 one four weight bytes in reverse; then a 10:10:10 normal, an
  * s16 UV and an ARGB colour, whichever of those the stride has room for.
+ * Stride 20 is the normal and one of a UV and a colour (vb->uv20), stride 16
+ * the normal alone (the saloon car's windows).
  */
 static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i, struct beanvtx *v)
 {
@@ -2288,8 +2298,15 @@ static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i
 		break;
 	case 20:
 		k = 12;
+		hasuv = vb->uv20;
+
+		if (!vb->uv20) {
+			v->argb = beanColour(gebeanBE32(p + 16));
+		}
+		break;
+	case 16:
+		k = 12;
 		hasuv = 0;
-		v->argb = beanColour(gebeanBE32(p + 16));
 		break;
 	case 24:
 		k = 12;
@@ -2364,7 +2381,12 @@ static f32 beanMeasureUvScale(struct beanmodel *bm)
 		case 32: uvo = 24; break;
 		case 28: uvo = 24; break;
 		case 24: uvo = 16; break;
+		case 20: uvo = 16; break;
 		default: continue;
+		}
+
+		if (vb.stride == 20 && !vb.uv20) {
+			continue;
 		}
 
 		if (vb.stride == 28 && vb.col28) {
@@ -2426,6 +2448,29 @@ static f32 beanMeasureUvScale(struct beanmodel *bm)
 	return (f32)scale;
 }
 
+/** Where the file's vertex and index buffers end in its .gpu: its shaders follow. */
+static u32 beanBuffersEnd(const struct beanmodel *bm)
+{
+	u32 end = 0;
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		const struct beandraw *d = &bm->draws[di];
+		struct beanvb vb;
+
+		if (beanReadVb(bm, d->vb, &vb) && vb.off + vb.count * vb.stride > end) {
+			end = vb.off + vb.count * vb.stride;
+		}
+
+		for (s32 i = 0; i < bm->numibs; i++) {
+			if (bm->ibs[i].obj == d->ib && bm->ibs[i].off + bm->ibs[i].size > end) {
+				end = bm->ibs[i].off + bm->ibs[i].size;
+			}
+		}
+	}
+
+	return end;
+}
+
 /**
  * What one texture repeat is in an HD file's UVs, as its own vertex shaders
  * say, or 0 when they do not. Each vertex shader multiplies the fetched s16
@@ -2447,23 +2492,8 @@ static f32 beanMeasureUvScale(struct beanmodel *bm)
  */
 static f32 beanShaderUvScale(const struct beanmodel *bm)
 {
-	u32 end = 0;
+	const u32 end = beanBuffersEnd(bm);
 	f32 found = 0.0f;
-
-	for (s32 di = 0; di < bm->numdraws; di++) {
-		const struct beandraw *d = &bm->draws[di];
-		struct beanvb vb;
-
-		if (beanReadVb(bm, d->vb, &vb) && vb.off + vb.count * vb.stride > end) {
-			end = vb.off + vb.count * vb.stride;
-		}
-
-		for (s32 i = 0; i < bm->numibs; i++) {
-			if (bm->ibs[i].obj == d->ib && bm->ibs[i].off + bm->ibs[i].size > end) {
-				end = bm->ibs[i].off + bm->ibs[i].size;
-			}
-		}
-	}
 
 	if (end == 0) {
 		return 0.0f;
@@ -2494,6 +2524,48 @@ static f32 beanShaderUvScale(const struct beanmodel *bm)
 	}
 
 	return found;
+}
+
+/**
+ * Whether the file's stride 20 vertices carry a UV where they usually carry a
+ * colour, as its own vertex shaders fetch them. A stride 20 vertex is a
+ * position and a normal and then four bytes, and those are the vertex colour
+ * in all but four of the release's files - a 16:16 UV in the saloon car,
+ * the Escort, the ZIL and the landmine, whose pictures then drew at their
+ * first texel over colours that were the UV's bytes (F3 20260925-233253,
+ * Surface's toy car in purple and blue). The alpha byte does not tell them
+ * apart: 4J's colours carry alphas of 0, 0x7f, 0x80 and 0xb3 on whole
+ * buffers. The shaders do: each vertex fetch instruction (12 bytes, opcode 0
+ * with bit 19 set) names its format in the second word, 6 for 8:8:8:8 and 25
+ * for 16:16, and its stride and offset in dwords in the third. Any fetch of a
+ * UV at dword 4 of 5 and none of a colour there; Complex's level does both
+ * and keeps the colour, as it always had.
+ */
+static s32 beanShaderUv20(const struct beanmodel *bm)
+{
+	const u32 end = beanBuffersEnd(bm);
+	s32 uv = 0;
+
+	if (end == 0) {
+		return 0;
+	}
+
+	for (u32 at = (end + 3) & ~3u; at + 12 <= bm->gpulen; at += 4) {
+		const u32 w0 = gebeanBE32(bm->gpu + at);
+		const u32 fmt = (gebeanBE32(bm->gpu + at + 4) >> 16) & 63;
+
+		if ((w0 & 31) != 0 || !((w0 >> 19) & 1) || (gebeanBE32(bm->gpu + at + 8) & 0x7fffffff) != (4 << 8 | 5)) {
+			continue;
+		}
+
+		if (fmt == 6) {
+			return 0;
+		}
+
+		uv |= fmt == 25;
+	}
+
+	return uv;
 }
 
 /**
@@ -2555,6 +2627,51 @@ static s32 beanTexIsGlassOverlay(const struct beanmodel *bm, u32 t)
 	for (u32 i = 0; name && i < ARRAYCOUNT(names); i++) {
 		if (strcmp(name, names[i]) == 0) {
 			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * One of the pair of maps the release's reflecting props look up by their
+ * normal: 1 for the spot map (256x256, grey with a black disc in the middle),
+ * 2 for the landscape (256x128, a valley under a pale sky), 0 for neither.
+ *
+ * Their pixel shaders (Xenos microcode in the pool asset's .gpu, one block a
+ * shader in the order of the 0x102a1100 headers in .data) fetch both at
+ * (nx / 2 + 1/2, 1/2 - ny / 2) of the normalised view-space normal, and the
+ * material's picture at the vertex UV. The gas tank, the desk lamp, the oil
+ * drum, the CCTV camera, the ICBM and its nose and the destroyed Seawolf bind
+ * the shared copies; the ICBM has a spot map of its own and the plane (and the
+ * Skorpion, and a material of Jungle's) its own copies of both. The spot map
+ * is the size of most pictures and bigger than some, so by size it was taken
+ * for the picture: the desk lamp's 32x32 and the ICBM's CCCP decal drew as a
+ * grey blot with a hole in it.
+ */
+static s32 beanTexSphereMap(const struct beanmodel *bm, u32 t)
+{
+	static const struct {
+		const char *name;
+		s32 kind;
+	} maps[] = {
+		{ "_0x0E1C2BF5.tga.bin", 1 },
+		{ "_0x081346B5.tga.bin", 1 },
+		{ "_0x0B9D6195.tga.bin", 1 },
+		{ "_0x0C2BCE25.tga.bin", 2 },
+		{ "_0x018248E5.tga.bin", 2 },
+	};
+	const char *name;
+
+	if (t >= (u32)bm->numtex) {
+		return 0;
+	}
+
+	name = caffAssetName(&bm->caff, bm->caff.files[bm->texfile[t]].asset);
+
+	for (u32 i = 0; name && i < ARRAYCOUNT(maps); i++) {
+		if (strcmp(name, maps[i].name) == 0) {
+			return maps[i].kind;
 		}
 	}
 
@@ -2630,6 +2747,18 @@ static u32 beanMaterialTexture(const struct beanmodel *bm, const u8 *st, u32 pc,
 			continue;
 		}
 
+		// Likewise the maps a reflecting prop looks up by its normal: the
+		// picture is the one read at the UV (beanTexSphereMap())
+		if (found && beanTexSphereMap(bm, t)) {
+			continue;
+		}
+
+		if (found && beanTexSphereMap(bm, best)) {
+			best = t;
+			bestarea = area;
+			continue;
+		}
+
 		if (!found || area >= bestarea) {
 			found = 1;
 			best = t;
@@ -2669,6 +2798,11 @@ static void beanWalkStream(struct beanmodel *bm)
 	u8 masktexslot = 0;
 	u32 secend = 0;
 	u8 secblend = 0;
+	u8 ownmat = 0;
+	u8 reflamount = 0;
+	s32 reflform = 0;
+	u16 reflspot = 0;
+	u16 reflenv = 0;
 
 	pal[0] = 0;
 
@@ -2734,6 +2868,10 @@ static void beanWalkStream(struct beanmodel *bm)
 			}
 		} else if (type == 0x2e && size >= 12) {
 			vb = gebeanBE32(st + pc + 8);
+		} else if (type == 0x02) {
+			// The vertex shader (its microcode's place in .gpu): the material
+			// before it is not necessarily this one's (beanDrawIsSphereMapped())
+			ownmat = 0;
 		} else if (type == 0x1a && size >= 8) {
 			// The pass what follows is drawn in, by its low byte: 1 the opaque
 			// one, 2 the blended one (source alpha over the rest, set by the
@@ -2753,10 +2891,43 @@ static void beanWalkStream(struct beanmodel *bm)
 			// its function), on for a level's cut-outs and 4J's shadow masks
 			alphatest = gebeanBE32(st + pc + 8) != 0;
 		} else if (type == 0x2d && size >= 20) {
+			s32 spotslot = -1;
+			s32 envslot = -1;
+			s32 picslot = -1;
+
 			tex = beanMaterialTexture(bm, st, pc, size, len);
+			ownmat = 1;
 			alpha = 0xff;
 			masktex = ~0u;
 			masktexslot = 0;
+			reflamount = 0;
+
+			// The reflecting props' maps (beanTexSphereMap()), and whether
+			// the material is the gas tank's shape of them: the spot map and
+			// the landscape in slots 0 and 1, the picture after them. Its
+			// shader adds c_constant0 of the product of the two over the
+			// picture (the amount is read with the constants, below). The
+			// other shapes keep their picture alone: the CCTV camera's and
+			// the ICBM's (picture first) tint the reflection with the
+			// picture, which one pass cannot, and the desk lamp's and the oil
+			// drum's constants lerp it all the way to black.
+			for (u32 k = 0; 12 + 8 * k + 8 <= size && gebeanFits(pc + 12 + 8 * k, 8, len); k++) {
+				const u32 t = gebeanBE32(st + pc + 12 + 8 * k);
+				const s32 slot = (s32)(gebeanBE32(st + pc + 16 + 8 * k) >> 16);
+				const s32 kind = beanTexSphereMap(bm, t);
+
+				if (kind == 1) {
+					reflspot = (u16)t;
+					spotslot = slot;
+				} else if (kind == 2) {
+					reflenv = (u16)t;
+					envslot = slot;
+				} else if (t == tex) {
+					picslot = slot;
+				}
+			}
+
+			reflform = spotslot == 0 && envslot == 1 && picslot == 2;
 
 			// The picture the material holds besides the one taken: in an
 			// alpha-tested draw it can be the one whose alpha is tested
@@ -2788,6 +2959,14 @@ static void beanWalkStream(struct beanmodel *bm)
 			const f32 a = gebeanBEF32(st + pc + 24);
 
 			alpha = a >= 1.0f ? 0xff : a <= 0.0f ? 0 : (u8)(a * 255.0f + 0.5f);
+
+			// The gas tank's is a grey, 0.56, and it is the reflection's
+			// share: c_constant0 and c_constant1 (white) are its only two
+			if (reflform && (gebeanBE32(st + pc + 8) & 0xffff) == 2) {
+				const f32 r = gebeanBEF32(st + pc + 12);
+
+				reflamount = r >= 1.0f ? 0xff : r <= 0.0f ? 0 : (u8)(r * 255.0f + 0.5f);
+			}
 		} else if (type == 0x13 && size >= 12) {
 			u32 count = gebeanBE16(st + pc + 8);
 
@@ -2844,6 +3023,10 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->alphatest = alphatest;
 				d->masktex = masktex;
 				d->masktexslot = masktexslot;
+				d->ownmat = ownmat;
+				d->reflamount = reflamount;
+				d->reflspot = reflspot;
+				d->reflenv = reflenv;
 				d->numpal = numpal;
 				memcpy(d->pal, pal, numpal);
 			}
@@ -3250,6 +3433,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	beanReadPose(bm, names, numnames);
 	beanWalkStream(bm);
 	beanFindIndexBuffers(bm);
+	bm->uv20 = beanShaderUv20(bm);
 	bm->uvscale = beanMeasureUvScale(bm);
 
 	// An HD model's shaders say what its UVs are in (beanShaderUvScale()); a
@@ -4857,6 +5041,250 @@ static s32 beanVertexDropped(const char *source, u32 vboff, u32 vi)
 	return 0;
 }
 
+/**
+ * A draw the release sphere-maps: its vertices carry no UV - stride 16, the
+ * saloon car's windows, or stride 20 with a colour - and its vertex shader has
+ * a picture of its own, which is the round reflection map the shader looks up
+ * by the normal as GoldenEye's texgen did: the satellite's blue panels in
+ * Silo, the car's windows, the Yale key. With no UV to read they drew the
+ * map's first texel - black, the corner outside the sphere - so the
+ * satellite's panels were black squares (F3 20260925-233617) and the car's
+ * windows, a stride the reader did not take, were left out. A draw with no
+ * picture since its shader was set is plain colour and is left as it was.
+ */
+static s32 beanDrawIsSphereMapped(const struct beanmodel *bm, const struct beandraw *d, const struct beanvb *vb)
+{
+	return d->ownmat && d->tex < (u32)bm->numtex && (vb->stride == 16 || (vb->stride == 20 && !vb->uv20));
+}
+
+/**
+ * The lookup a sphere-mapped draw is given in place of the live one: the
+ * renderer has no texgen for the release's meshes, so each vertex takes where
+ * its normal would land for a viewer square to the draw, with the draw's
+ * surface spread across the middle of the map as a mirror's reflection
+ * travels across it. The draw's mean normal is the view, a little from above
+ * as the player mostly is; up is the model's +y (a face that looks straight up
+ * or down takes +z), so the map's sky stays above its horizon. A draw round a
+ * solid - the key - has no mean to speak of and is looked at from the front.
+ * Kept within the sphere's disc.
+ */
+struct beansphere {
+	f32 t[3];     // across the map
+	f32 b[3];     // up the map
+	f32 c[3];     // the draw's middle
+	f32 reach;    // half its biggest extent
+	f32 spread;   // how far its surface travels across the map
+};
+
+static void beanSphereFrame(const struct beanmodel *bm, const struct beanvb *vb, const u16 *tris, s32 numtris,
+		struct beansphere *sp)
+{
+	f32 n[3] = { 0.0f, 0.0f, 0.0f };
+	f32 lo[3] = { 1e30f, 1e30f, 1e30f };
+	f32 hi[3] = { -1e30f, -1e30f, -1e30f };
+	f32 up[3] = { 0.0f, 1.0f, 0.0f };
+	f32 ref[3] = { 0.0f, 0.0f, 0.0f };
+	s32 count = 0;
+	f32 len;
+
+	for (s32 i = 0; i < numtris * 3; i++) {
+		struct beanvtx v;
+		f32 side;
+
+		if (!beanVertex(bm, vb, tris[i], &v)) {
+			continue;
+		}
+
+		// A panel's back is in the same draw as its front, facing the other
+		// way: both sides are square to one view
+		if (count == 0) {
+			ref[0] = v.nrm[0];
+			ref[1] = v.nrm[1];
+			ref[2] = v.nrm[2];
+		}
+
+		side = v.nrm[0] * ref[0] + v.nrm[1] * ref[1] + v.nrm[2] * ref[2] < 0.0f ? -1.0f : 1.0f;
+
+		for (s32 k = 0; k < 3; k++) {
+			n[k] += v.nrm[k] * side;
+			lo[k] = v.pos[k] < lo[k] ? v.pos[k] : lo[k];
+			hi[k] = v.pos[k] > hi[k] ? v.pos[k] : hi[k];
+		}
+
+		count++;
+	}
+
+	len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+	sp->spread = 0.2f;
+
+	if (count == 0 || len < 0.5f * count) {
+		n[0] = 0.0f;
+		n[1] = 0.0f;
+		n[2] = 1.0f;
+		sp->spread = 0.0f;
+	} else {
+		for (s32 k = 0; k < 3; k++) {
+			n[k] /= len;
+		}
+	}
+
+	if (fabsf(n[1]) > 0.9f) {
+		up[1] = 0.0f;
+		up[2] = 1.0f;
+	}
+
+	vecCross(up, n, sp->t);
+	len = sqrtf(sp->t[0] * sp->t[0] + sp->t[1] * sp->t[1] + sp->t[2] * sp->t[2]);
+
+	for (s32 k = 0; k < 3; k++) {
+		sp->t[k] /= len;
+	}
+
+	vecCross(n, sp->t, sp->b);
+	sp->reach = 0.0f;
+
+	for (s32 k = 0; k < 3 && count > 0; k++) {
+		sp->c[k] = (lo[k] + hi[k]) * 0.5f;
+
+		if ((hi[k] - lo[k]) * 0.5f > sp->reach) {
+			sp->reach = (hi[k] - lo[k]) * 0.5f;
+		}
+	}
+
+	if (sp->reach <= 0.0f) {
+		sp->spread = 0.0f;
+		sp->reach = 1.0f;
+	}
+}
+
+static void beanSphereUv(const struct beansphere *sp, const struct beanvtx *v, f32 *uv)
+{
+	f32 d[3];
+	f32 s;
+	f32 w;
+	f32 r;
+
+	for (s32 k = 0; k < 3; k++) {
+		d[k] = (v->pos[k] - sp->c[k]) / sp->reach;
+	}
+
+	s = 0.45f * (v->nrm[0] * sp->t[0] + v->nrm[1] * sp->t[1] + v->nrm[2] * sp->t[2])
+		+ sp->spread * (d[0] * sp->t[0] + d[1] * sp->t[1] + d[2] * sp->t[2]);
+	w = 0.45f * (v->nrm[0] * sp->b[0] + v->nrm[1] * sp->b[1] + v->nrm[2] * sp->b[2])
+		+ sp->spread * (d[0] * sp->b[0] + d[1] * sp->b[1] + d[2] * sp->b[2]) + sp->spread * 0.5f;
+	r = sqrtf(s * s + w * w);
+
+	if (r > 0.45f) {
+		s *= 0.45f / r;
+		w *= 0.45f / r;
+	}
+
+	uv[0] = 0.5f + s;
+	uv[1] = 0.5f - w;
+}
+
+/**
+ * The gas tank, as the release's pixel shader draws it (new/prop/gastank,
+ * pixel shader 0, disassembled with Xenia's shader compiler):
+ *
+ *     spot  = spot map (tf0) at the view-space normal's (nx, -ny) / 2 + 1/2
+ *     land  = landscape (tf1) at the same place
+ *     R     = c_constant0 * spot * land        (0.56 of both, grey)
+ *     lit   = picture (tf2, at the UV) * vertex colour
+ *             * (c_ambient + saturate(n . c_light0dir) * c_light0colour)
+ *     out   = lit * (1 - R) + R + the specular, then fog
+ *
+ * The release sets ambient 1 and the light's colour 0 on every draw, so lit is
+ * the picture times the vertex colour and the specular is nothing. The screen
+ * of R over it is drawn by the XBLA meshes' reflection pass, the one that
+ * draws 4J's cube maps (xblaMeshBuildEnvironment()), on the product of the two
+ * maps as one sphere map, looked up by the view-space normal at the vertices
+ * (xblaMeshEnvironmentVertices()) and added over the lists at the material's
+ * amount. Added rather than screened: the two differ by lit * R, which is
+ * nothing across the middle of the tank, where the spot map is black, and
+ * brightens its rim a little over the release's.
+ *
+ * The spot map is black in the middle, so the landscape shows only where the
+ * surface turns away from the eye, round the tank's edges. The rest is the
+ * picture, GoldenEye's grey tank: its N64 model is black only where its baked
+ * vertex shading darkens it, which the release did not keep.
+ */
+static f32 beanReflectSample(const u8 *rgba, s32 w, s32 h, f32 u, f32 v, s32 c)
+{
+	const f32 x = u * w - 0.5f;
+	const f32 y = v * h - 0.5f;
+	const s32 x0 = x < 0.0f ? 0 : (s32)x;
+	const s32 y0 = y < 0.0f ? 0 : (s32)y;
+	const s32 x1 = x0 + 1 < w ? x0 + 1 : w - 1;
+	const s32 y1 = y0 + 1 < h ? y0 + 1 : h - 1;
+	const f32 fx = x < 0.0f ? 0.0f : x - x0;
+	const f32 fy = y < 0.0f ? 0.0f : y - y0;
+	const f32 top = rgba[(y0 * w + x0) * 4 + c] * (1.0f - fx) + rgba[(y0 * w + x1) * 4 + c] * fx;
+	const f32 bottom = rgba[(y1 * w + x0) * 4 + c] * (1.0f - fx) + rgba[(y1 * w + x1) * 4 + c] * fx;
+
+	return top * (1.0f - fy) + bottom * fy;
+}
+
+/**
+ * The product of the two maps as one sphere map, GEBEAN_ENV_CELL square, laid
+ * out as the reflection pass's cells are: the texel at (su, sv) is what the
+ * surface whose view-space normal is (2su - 1, 2sv - 1, ...) looks up. Rows
+ * as beanDecodeTexture() leaves them, the picture's bottom first, which is
+ * the release's 1/2 - ny / 2 turned the renderer's way up. Texels past the
+ * rim take the rim's. The spot map's alpha lets its colour through where it
+ * is opaque and white where it is clear, which on the release's copy is
+ * opaque everywhere. malloc'd, NULL if either map will not decode.
+ */
+static u8 *beanReflectPicture(const struct beanmodel *bm, s32 spot, s32 land)
+{
+	s32 sw = 0, sh = 0, lw = 0, lh = 0;
+	u8 *s = beanDecodeTexture(bm, spot, &sw, &sh);
+	u8 *l = s ? beanDecodeTexture(bm, land, &lw, &lh) : NULL;
+	u8 *out = l ? malloc((size_t)GEBEAN_ENV_CELL * GEBEAN_ENV_CELL * 4) : NULL;
+
+	if (!out || sw <= 0 || sh <= 0 || lw <= 0 || lh <= 0) {
+		free(s);
+		free(l);
+		free(out);
+		return NULL;
+	}
+
+	for (s32 y = 0; y < GEBEAN_ENV_CELL; y++) {
+		for (s32 x = 0; x < GEBEAN_ENV_CELL; x++) {
+			u8 *px = &out[((size_t)y * GEBEAN_ENV_CELL + x) * 4];
+			f32 a = ((x + 0.5f) / GEBEAN_ENV_CELL) * 2.0f - 1.0f;
+			f32 b = ((y + 0.5f) / GEBEAN_ENV_CELL) * 2.0f - 1.0f;
+			const f32 d = a * a + b * b;
+			f32 u, v, clear;
+
+			if (d > 0.999f) {
+				const f32 k = sqrtf(0.999f / d);
+
+				a *= k;
+				b *= k;
+			}
+
+			u = a * 0.5f + 0.5f;
+			v = b * 0.5f + 0.5f;
+			clear = 1.0f - beanReflectSample(s, sw, sh, u, v, 3) / 255.0f;
+
+			for (s32 c = 0; c < 3; c++) {
+				const f32 sp = beanReflectSample(s, sw, sh, u, v, c) * (1.0f - clear) + 255.0f * clear;
+				const f32 ld = beanReflectSample(l, lw, lh, u, v, c);
+
+				px[c] = (u8)(sp * ld / 255.0f + 0.5f);
+			}
+
+			px[3] = 0xff;
+		}
+	}
+
+	free(s);
+	free(l);
+
+	return out;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -4877,6 +5305,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	s32 numdecals;
 	s32 numglass = 0;
 	u8 glass[GEBEAN_MAXMATS];
+	s32 numreflect = 0;
 	u8 *file;
 
 	memset(glass, 0, sizeof(glass));
@@ -5078,9 +5507,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
 		struct beanvb vb;
+		struct beansphere sp;
 		u16 *tris;
 		s32 numtris;
 		s32 *mapped;
+		s32 sphere;
 
 		// GoldenEye's own muzzle flash, which nothing here turns off again
 		if (di < 64 && (flash & (1ull << di))) {
@@ -5097,6 +5528,12 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		if (numtris <= 0) {
 			free(tris);
 			continue;
+		}
+
+		sphere = beanDrawIsSphereMapped(&bm, d, &vb);
+
+		if (sphere) {
+			beanSphereFrame(&bm, &vb, tris, numtris, &sp);
 		}
 
 		mapped = malloc(vb.count * sizeof(s32));
@@ -5137,6 +5574,10 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				if (!beanVertex(&bm, &vb, vi, &v)) {
 					ok = 0;
 					break;
+				}
+
+				if (sphere) {
+					beanSphereUv(&sp, &v, v.uv);
 				}
 
 				if (numparts > 0 && v.slot[0] >= 0 && v.slot[0] < d->numpal) {
@@ -5269,6 +5710,20 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 	}
 
+	// The reflection the release adds over a material (beanWalkStream()),
+	// drawn by the XBLA meshes' reflection pass on a sphere map of its own
+	snprintf(mats->envkey, sizeof(mats->envkey), "gebeanenv:%s", g->row.source);
+
+	for (s32 di = 0; di < bm.numdraws; di++) {
+		const struct beandraw *d = &bm.draws[di];
+
+		if (d->reflamount && d->tex < (u32)nummatwords && d->tex < (u32)bm.numtex && !mats->env[d->tex]) {
+			mats->env[d->tex] = beanReflectPicture(&bm, d->reflspot, d->reflenv);
+			mats->envamount[d->tex] = mats->env[d->tex] ? d->reflamount : 0;
+			numreflect += mats->env[d->tex] != NULL;
+		}
+	}
+
 	for (s32 t = 0; t < out.numtris; t++) {
 		if (out.tris[t].tex >= bm.numtex) {
 			out.tris[t].tex = (u16)(nummatwords - 1);
@@ -5284,6 +5739,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
+
+	if (numreflect) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s reflects %d material%s of its own", g->row.file, numreflect,
+				numreflect == 1 ? "" : "s");
+	}
 
 	beanOutFree(&out);
 	beanFree(&bm);

@@ -354,6 +354,7 @@ struct xblameshbuilt {
 	s32 numenvidx;
 	f32 envradius;     // how far the mesh reaches from its origin, for the distance cutoff
 	Col *dimcol;       // colours, dimmed by each vertex's full amount: the common case, made once
+	s32 envown;        // the atlas is a GoldenEye prop's own maps, added undimmed: see xblaMeshBuildEnvironment()
 	s32 envsheen;      // whether envvtx/envcol were made at the N64 sheen's share
 	const u8 *envwound;      // the wounds envcol was scaled down by, or NULL
 
@@ -409,6 +410,11 @@ struct xblameshmats {
 	u8 alpha[XBLAMESH_MAXMATS];
 	u8 soft[XBLAMESH_MAXMATS];
 	s32 num;
+	// A material's own reflection, for a GoldenEye prop's (gebeanmats.env):
+	// its sphere map and amount, and the key the mesh's maps are bound under
+	const u8 *env[XBLAMESH_MAXMATS];
+	u8 envamount[XBLAMESH_MAXMATS];
+	const char *envkey;
 };
 
 static s32 optEnabled;
@@ -2818,8 +2824,17 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 	// recording's own darkening). A model pack's material is a picture of its
 	// own and reflects nothing.
 	if (material & XBLAMESH_MAT_TABLE) {
-		b->envindex = 0;
-		b->envamount = 0;
+		const s32 index = material & 0xfff;
+
+		// A GoldenEye prop's material the release reflects over, with a
+		// sphere map of its own (xblaMeshBuildEnvironment())
+		if (b->mats && index < b->mats->num && index < XBLAMESH_MAXMATS && b->mats->env[index]) {
+			b->envindex = index;
+			b->envamount = b->mats->envamount[index];
+		} else {
+			b->envindex = 0;
+			b->envamount = 0;
+		}
 	} else {
 		const u32 percent = (material >> 16) & 0xff;
 
@@ -4887,8 +4902,12 @@ static void xblaMeshBuildLogo(struct xblameshbuilt *m)
 			"%d with a glint or the metal added, %d as they were", numlive, numglint, numbase);
 }
 
-static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
+static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const struct xblameshmats *mats, const char *what)
 {
+	// A GoldenEye prop reflects maps of its own (gebeanmats.env): a vertex's
+	// first byte is its material, whose map is the cell
+	const s32 own = mats && mats->envkey && mats->envkey[0];
+
 	s32 cellof[256];
 	s32 cubes[XBLAMESH_ENV_MAXCELLS];
 	s32 numcells = 0;
@@ -4936,7 +4955,7 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 
 	w = numcells * XBLAMESH_ENV_CELL;
 	h = XBLAMESH_ENV_CELL;
-	keylen = snprintf(key, sizeof(key), "xblaenv");
+	keylen = snprintf(key, sizeof(key), "%s", own ? mats->envkey : "xblaenv");
 
 	for (s32 k = 0; k < numcells && keylen < (s32)sizeof(key) - 4; k++) {
 		keylen += snprintf(key + keylen, sizeof(key) - keylen, ":%x", cubes[k]);
@@ -4976,7 +4995,21 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 	// the filter to fall on. A row is sv, a column su.
 	for (s32 k = 0; k < numcells && atlas; k++) {
 		s32 size = 0;
-		u8 *faces = xblaTexDecodeCube(XBLAMESH_ENV_FIRSTRECORD + cubes[k], &size);
+		u8 *faces;
+
+		// A map of the material's own is a cell already
+		if (own) {
+			const u8 *cell = cubes[k] < XBLAMESH_MAXMATS ? mats->env[cubes[k]] : NULL;
+
+			for (s32 y = 0; cell && y < h; y++) {
+				memcpy(&atlas[((size_t)y * w + k * XBLAMESH_ENV_CELL) * 4],
+						&cell[(size_t)y * XBLAMESH_ENV_CELL * 4], XBLAMESH_ENV_CELL * 4);
+			}
+
+			continue;
+		}
+
+		faces = xblaTexDecodeCube(XBLAMESH_ENV_FIRSTRECORD + cubes[k], &size);
 
 		for (s32 y = 0; y < h; y++) {
 			for (s32 x = 0; x < XBLAMESH_ENV_CELL; x++) {
@@ -5055,6 +5088,7 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 	}
 
 	m->numenvcells = numcells;
+	m->envown = own;
 
 	// The vertices that reflect, so that the per-frame work visits only them,
 	// and how far the mesh reaches from its origin, so that the distance
@@ -5083,8 +5117,11 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 	// The colours a reflecting draw lists from, for a model with no bruise
 	// within the cutoff's full share - which is most of them, most frames -
 	// made once here rather than copied and scaled per model per frame. NULL
-	// leaves every draw to the per-frame copy.
-	m->dimcol = malloc((size_t)m->numvertices * sizeof(Col));
+	// leaves every draw to the per-frame copy. A GoldenEye prop's own
+	// reflection is added over its colours as they are - its shader screens
+	// the reflection over the picture rather than blending towards it (the
+	// gas tank's, gebean.c) - so it has none.
+	m->dimcol = own ? NULL : malloc((size_t)m->numvertices * sizeof(Col));
 
 	if (m->dimcol) {
 		memcpy(m->dimcol, m->colours, (size_t)m->numvertices * sizeof(Col));
@@ -5140,11 +5177,15 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const char *what)
 			}
 		}
 
-		sysLogPrintf(LOG_NOTE, "xblamesh: %s reflects %d environment map%s, in %d of its %d batches",
-				what, numcells, numcells == 1 ? "" : "s", kept, batches);
+		sysLogPrintf(LOG_NOTE, "xblamesh: %s reflects %d environment map%s%s, in %d of its %d batches",
+				what, numcells, numcells == 1 ? "" : "s", own ? " of its own" : "", kept, batches);
 	}
 
-	xblaMeshBuildSheen(m);
+	// The style (Mod.XblaReflectStyle) picks among stand-ins for 4J's cubes;
+	// a map of the prop's own is the release's picture, and stays
+	if (!own) {
+		xblaMeshBuildSheen(m);
+	}
 }
 
 /**
@@ -5408,7 +5449,7 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	}
 
 	if (m->normals && m->venv) {
-		xblaMeshBuildEnvironment(m, what);
+		xblaMeshBuildEnvironment(m, mats, what);
 	}
 
 	// The box the bind positions stand in. A posed vertex is a blend of the
@@ -6085,6 +6126,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	struct xblameshmats mats;
 	struct gebeanmats *bmats;
 	char what[80];
+	char envkey[sizeof(bmats->envkey)];
 	u8 *file;
 	u32 len = 0;
 	s32 ok;
@@ -6139,6 +6181,10 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 			bmats, &m->groupabsent, &len);
 
 	if (!file) {
+		for (s32 i = 0; i < GEBEAN_MAXMATS; i++) {
+			free(bmats->env[i]);
+		}
+
 		free(bmats);
 		return NULL;
 	}
@@ -6150,7 +6196,17 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 		mats.tile[i] = bmats->tile[i];
 		mats.alpha[i] = bmats->alpha[i];
 		mats.soft[i] = bmats->soft[i];
+		mats.env[i] = bmats->env[i];
+		mats.envamount[i] = bmats->envamount[i];
 	}
+
+	// The maps are copied into the reflection's atlas and freed below
+	for (s32 i = mats.num; i < GEBEAN_MAXMATS; i++) {
+		free(bmats->env[i]);
+	}
+
+	snprintf(envkey, sizeof(envkey), "%s", bmats->envkey);
+	mats.envkey = envkey;
 
 	m->beanneck = bmats->neckblank;
 	memcpy(m->beanneckfill, bmats->neckfill, sizeof(m->beanneckfill));
@@ -6178,6 +6234,10 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	xblaMeshBuildCullBack = m->frombean && gebeanRowIsChr(e->beanrow) ? G_CULL_BACK : 0;
 	ok = xblaMeshBuildFile(m, file, len, &mats, what);
 	xblaMeshBuildCullBack = 0;
+
+	for (s32 i = 0; i < mats.num; i++) {
+		free((u8 *)mats.env[i]);
+	}
 
 	return ok ? m : NULL;
 }
@@ -8805,13 +8865,16 @@ void xblaMeshSetLogoFade(s32 alpha)
  * there is one, is what modelApplyRenderModeType3() and 4 decide by unk30:
  * the environment colour's for 4, the fog colour's for 5 and 7, none for the
  * rest and for nodes of modes 1 and 2. Modes 8 and 9 are the game's cloak and
- * its shimmer, translucent draws a reflection has no place on.
+ * its shimmer, translucent draws a reflection has no place on. 9 is also every
+ * object's (objRender()), whose primitive alpha is a windowed door's fade or a
+ * tinted pane's opacity; a GoldenEye prop's own reflection (own, the gas
+ * tank's) is drawn on one that has neither.
  *
  * A draw without a depth buffer takes none: the pass adds only to the surface
  * nearest the eye, and without one it would light the back faces too.
  */
 static s32 xblaMeshEnvironmentLight(const struct modelrenderdata *renderdata,
-		const struct modelnode *node, s32 *fading)
+		const struct modelnode *node, s32 own, s32 *fading)
 {
 	const s32 mode = xblaMeshNodeMode(node);
 
@@ -8834,8 +8897,9 @@ static s32 xblaMeshEnvironmentLight(const struct modelrenderdata *renderdata,
 	case 7:
 		return 255 - (renderdata->fogcolour & 0xff);
 	case 8:
-	case 9:
 		return 0;
+	case 9:
+		return own && (renderdata->envcolour & 0xffff) == 0 ? 255 : 0;
 	default:
 		return 255;
 	}
@@ -8916,13 +8980,16 @@ static s32 xblaMeshEnvironmentReach(const struct xblameshbuilt *m, const Mtxf *r
  * of a skinned model draws the whole mesh's vertices.
  */
 static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct model *model,
-		const Vtx *posed, const f32 *normals, s32 light, s32 sheen, const u8 *wound, Vtx **outVtx, Col **outCol)
+		const Vtx *posed, const f32 *normals, const Mtxf *root, s32 light, s32 sheen, const u8 *wound,
+		Vtx **outVtx, Col **outCol)
 {
 	const s32 unitnormals = normals == m->normals;
 	Vtx *vtx;
 	Col *col;
 
-	if (m->envvtx && m->envmodel == model && m->envframe == frameCount &&
+	// Not kept for a map of the prop's own, whose lookup is the view's: a
+	// second player's view draws the same model in the same frame
+	if (m->envvtx && !m->envown && m->envmodel == model && m->envframe == frameCount &&
 			m->envposed == posed && m->envnormals == normals && m->envlight == light &&
 			m->envsheen == sheen && m->envwound == wound) {
 		*outVtx = m->envvtx;
@@ -8960,6 +9027,31 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 		vtx[i] = posed[i];
 		vtx[i].s = xblaMeshRound((m->venv[i * 2] + 0.5f) / m->numenvcells * XBLATEX_TILE_SCALE);
 		vtx[i].t = xblaMeshRound(1.0f / m->numenvcells * XBLATEX_TILE_SCALE);
+
+		// A GoldenEye prop's own map is looked up by the view-space normal
+		// alone, as its shader does - not by the reflected ray, which near a
+		// tank as tall as the screen reached the landscape round the rim over
+		// the whole of the side facing the eye, where the spot map keeps it
+		// black. Worked out here, a vertex at a time, and drawn without
+		// G_ENVMAP_EXT; the vertex count is small (916 for the tank).
+		if (m->envown && root) {
+			f32 v[3];
+			f32 len;
+
+			for (s32 j = 0; j < 3; j++) {
+				v[j] = nx * root->m[0][j] + ny * root->m[1][j] + nz * root->m[2][j];
+			}
+
+			len = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+
+			if (len > 1e-6f) {
+				v[0] /= len;
+				v[1] /= len;
+			}
+
+			vtx[i].s = xblaMeshRound((m->venv[i * 2] + v[0] * 0.5f + 0.5f) / m->numenvcells * XBLATEX_TILE_SCALE);
+			vtx[i].t = xblaMeshRound((v[1] * 0.5f + 0.5f) * XBLATEX_TILE_SCALE);
+		}
 
 		col[i].r = (u8)(s8)xblaMeshRound(nx * 127.0f);
 		col[i].g = (u8)(s8)xblaMeshRound(ny * 127.0f);
@@ -9105,6 +9197,9 @@ static const f32 *xblaMeshRestShift(const struct xblameshbuilt *m, struct xblame
 
 	return use->restfit == 2 ? use->restshift : NULL;
 }
+
+// How much of a destroyed GoldenEye prop's colours is left (xblaMeshRenderNode())
+#define XBLAMESH_SCORCH 64
 
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node)
@@ -9627,6 +9722,21 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	const s32 logo = envforce == XBLAMESH_ENV_LOGO && opa && m->logobase != NULL &&
 			renderdata->zbufferenabled && xblaTexGetEnabled();
 
+	// A GoldenEye prop the game has destroyed. objRender() draws a destroyed
+	// object under mode 9 with the environment alpha raised (100 + 50 a
+	// level): the object's alpha is its shade's plus that, cut by the alpha
+	// test (G_CC_CUSTOM_21, TEX_EDGE), and objDeform() has cleared all its
+	// colours' alpha but one entry's, so the crumpled prop is ragged and
+	// dark. Drawn under that mode a GoldenEye XBLA mesh vanished whole - every
+	// tank shot in Facility's bottling room left only its smoke in the HD look
+	// (2026-09-26) - so it is drawn under the whole object's mode, the
+	// environment alpha taken off round it, and scorched instead: its colours
+	// at a quarter. No reflection (xblaMeshEnvironmentLight(), which still sees
+	// the alpha).
+	const s32 scorched = m->frombean && !m->local && renderdata->unk30 == 9
+			&& (renderdata->envcolour & 0xff) != 0;
+	const u32 scorchedenv = renderdata->envcolour;
+
 	// The colours, bruised where the game has bruised the model's own lists,
 	// and how wounded each vertex is, which the reflections below are scaled
 	// down by - so these come first.
@@ -9662,12 +9772,12 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// are given back what it took, where the room only darkens both.
 		if (normals) {
 			envreach = xblaMeshEnvironmentReach(m, root);
-			envlight = xblaMeshEnvironmentLight(renderdata, node, &envfading) * envreach / 255;
+			envlight = xblaMeshEnvironmentLight(renderdata, node, m->envown, &envfading) * envreach / 255;
 		}
 
 		// Made here rather than at the pass, so that a frame arena with no room
 		// for them leaves the colours unscaled as well.
-		if (envlight > 0 && !xblaMeshEnvironmentVertices(m, model, posed, normals,
+		if (envlight > 0 && !xblaMeshEnvironmentVertices(m, model, posed, normals, root,
 					envlight, sheen, wound, &envvtx, &envcol)) {
 			envlight = 0;
 		}
@@ -9686,7 +9796,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// darkens the lists' colours and the reflection alike.
 		// The N64 sheen is added over the colours as they are: see
 		// XBLAMESH_SHEEN_SHARE().
-		if (envlight > 0 && !sheen) {
+		if (envlight > 0 && !sheen && !m->envown) {
 			Col *kept = NULL;
 
 			// Scaled by the amount the distance leaves (envreach), so the sheen
@@ -9728,7 +9838,28 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			}
 		}
 
+		// A destroyed GoldenEye prop, scorched: see scorched below
+		if (scorched) {
+			Col *burnt = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
+
+			if (burnt) {
+				for (s32 i = 0; i < m->numvertices; i++) {
+					burnt[i].r = (u8)(boundcol[i].r * XBLAMESH_SCORCH / 255);
+					burnt[i].g = (u8)(boundcol[i].g * XBLAMESH_SCORCH / 255);
+					burnt[i].b = (u8)(boundcol[i].b * XBLAMESH_SCORCH / 255);
+					burnt[i].a = boundcol[i].a;
+				}
+
+				boundcol = burnt;
+			}
+		}
+
 		gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));
+	}
+
+	// The environment alpha off round the mesh's own draws (scorched, above)
+	if (scorched) {
+		renderdata->envcolour &= 0xffffff00;
 	}
 
 	if (opa) {
@@ -9872,7 +10003,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 							0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
 				}
 
-				gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_ENVMAP_EXT);
+				// A map of a GoldenEye prop's own is looked up at the vertices
+				// (xblaMeshEnvironmentVertices())
+				gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | (m->envown ? 0 : G_ENVMAP_EXT));
 				gSPDisplayList(renderdata->gdl++, m->envgdl + (list - m->gdl));
 				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_ENVMAP_EXT);
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
@@ -9998,6 +10131,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 			frameDraws++;
 		}
+	}
+
+	if (scorched) {
+		renderdata->envcolour = scorchedenv;
 	}
 
 	if (xlu && xlulist) {

@@ -4,11 +4,176 @@ One section per merged branch, newest merge on top; the 1fc1832d8 handoff
 (fix/f3-hd-level-render + fix/f3-dam-guard-aim2) is kept whole at the bottom.
 
 Index:
+- feat/ge-hd-gas-tank: HD prop textures (F3 pass 2026-09-26) - fix/f3-hd-prop-textures
 - fix/f3-runway-emplacement-hd: HD autogun models (2026-09-26), branch fix/f3-runway-emplacement-hd
 - fix/f3-tank-aim-fire: F3 GE Plus tank pass (2026-09-26), branch fix/f3-tank-aim-fire
 - fix/f3-ge-mines: F3 GoldenEye mines pass (2026-09-26), branch fix/f3-ge-mines
 - fix/f3-ge-mission-logic: F3 pass 2026-09-26 (GE mission logic) - handoff
 - 1fc1832d8 (fix/f3-hd-level-render, fix/f3-dam-guard-aim2): see the bottom
+
+---
+
+<!-- section: feat/ge-hd-gas-tank -->
+# HD prop textures (F3 pass 2026-09-26) - fix/f3-hd-prop-textures
+
+Three tester reports, HD look (Bean meshes on, `xbla: meshes 1`), GE Plus missions.
+There are three separate causes, one per report. Each fix covers a class of props.
+
+| Report | Prop | Cause | Fix |
+|---|---|---|---|
+| 20260925-233253 Surface (0x69) "mini-car missing texture" | Pgx301Z <- `new/prop/carbmw` | (b) HD mesh misread. The car's stride-20 vertices are position + normal + **16:16 UV**. The reader took the last 4 bytes as a colour, so the car came out purple/blue and sampled texel (0,0). Its windows are stride 16 (position + normal), which the reader refused, so they were dropped. | `beanShaderUv20()`: the file's own Xenos vertex-fetch instructions decide UV or colour. Stride 16 is now read. |
+| 20260925-233617 Silo (tester 0x82 = mission Silo, 0x6b here) "missing reflective texture on satellite" | Pgx069Z <- `new/prop/sat1reflect` | (b) sphere map. The panels are a UV-less draw with a material of their own (44x44 blue sphere). The release's shader generates the UV from the normal (GoldenEye's texgen). We read UV 0,0, which is the black corner. | `beanDrawIsSphereMapped()` + `beanSphereFrame()/beanSphereUv()` in the rigid build bake a sphere lookup from the normal (mean-normal view, slightly from above, surface spread ±0.2). |
+| 20260926-000440 Facility (0x63) "computer uses n64 texture" | Pgx035Z console_sev2d | (a) no HD mapping. `geproptable.h` (propfit.json, 2026-09-17) was fitted only on the arenas' props. Mission props never got rows. | propfit run for every Pgx model the 20 missions load without HD. 37 rows added (`geproptable.h` 143 -> 180). |
+
+Commit files: `port/src/gebean.c`, `port/src/geproptable.h` (generated). No converter change, no GECONVERT bump.
+The shared functions touched are small: `beanReadVb`, `beanVertex`, `beanWalkStream` (`ownmat`) and `beanLoad` (one line). `beanShaderUvScale` now calls the new `beanBuffersEnd()` helper for its buffer-end loop.
+
+## Class coverage
+- **stride-20 UV** (per shaders, all Bean files): new/prop carbmw, carescort, carzil, landmine. `new/background/complex` fetches both a UV and a colour, so it keeps the colour reading as before. Every other file is unchanged: 4J's colours carry non-0xff alphas on whole buffers (0x00/0x7f/0x80/0xb3/0xfc), so an alpha-byte heuristic would be wrong.
+- **sphere-mapped rigid draws** (UV-less + own material): sat1reflect panels, carbmw windows, chrkeyyale, chrgoldeneyekey, glassware2 panes, sevdoorwind, sevdoorwood, cargolf/carweird windscreens, rarewarelogo.
+  - Skinned col28 draws (tank, helicopter, tiger, cctv, cartridges) are not touched. Their shaders show stride 28 has **no UV at all**, so how the tank etc. get their UVs is a separate open question (maybe a second vertex stream).
+  - UV-less draws that inherit a material across a shader change (0x02) are plain colour in the release. They still sample their inherited picture's first texel, which was left alone.
+- **props without rows**: the before sweep (`~/wt/f3hdprops-rig/sweep.sh`, 20 missions to frame 400) found 75 Pgx models loaded without HD. Now covered: 004 005 018 020 024 035 036 046 086 096 105 106 107 112 113 115 116 122 126 131 133 134 160 202 234 243 244 248 269-271 274 275 294 296 310 312. After the fix, these are still N64 in HD:
+  - no Bean model: 023 041 320-324.
+  - fit 0 / below 0.6: 038 desk1, 118 glassware1, 198 briefcase 0.47, 273 plastique, 282 helicopter 0.40.
+  - 077/078 TV screens: the Bean file has no stream the fitter reads, and they are monitor programmes anyway.
+  - 183 doorstatgate: the fitter finds no GE points. Open.
+  - 184-211 chr guns: done on fix/f3-ge-sniper-hd (112ac8278), not here.
+  - **Deliberately excluded** (EXCLUDE in `.xbla-work/ge-arena/gen_proptable.py`):
+    - autoguns 098 roofgun, 299 groundgun, 292 gunrunway1. The rigid build puts most of the gun on the base/first matrix, so turret yaw/pitch would not carry the HD gun.
+    - 117 gastank. The material blends 3 pictures (spot map, landscape reflection, pale base), and the largest-picture rule draws GoldenEye's black bottling-room tanks white.
+    - Each needs its own build work, or a call from the user.
+
+## Verification (RX 580 offscreen, `~/wt/f3hdprops-rig`, save_hd has XblaMeshes=1)
+- `~/wt/f3hdprops-pics/reports_before_after_n64.jpg`: rows car / satellite / console. Columns HD before, HD after, N64 look.
+- New rows: `boxes_compare.jpg` (cardbox3), `barrels_compare.jpg` (gasbarrel), `lockers_compare.jpg` (locker3), `lab_compare.jpg`, and `misc_compare.jpg` (sevdish moves on its 2 bones; the runway/roof guns shown were before the exclusion).
+- `tanks_compare.jpg` shows why the gas tank is excluded.
+- The 20-mission sweep with the final binary is in `sweep_final/`. No crash, and no new WARNING lines against `sweep_before/`.
+- Rig: `cam.sh TAG BIN STAGE cx cy cz lx ly lz`, `shot3.sh NAME STAGE c.. t..` (HD before/after/N64), `objs.sh STAGE "modelnums"` (modelnum = 0x200 + GE prop number).
+
+## Offline tools
+- `.xbla-work/ge-arena/propfit.json` now has the new fits. The old file is kept as `propfit.json.before-f3hdprops`.
+- `gen_proptable.py` gained EXCLUDE and reproduces the committed header byte for byte.
+- Fetch scan research: the scratch `vf.py` pattern is w0&31==0, bit19, w2&0x7fffffff == offset<<8|stride in dwords, fmt=(w1>>16)&63 (6 = 8:8:8:8, 25 = 16:16).
+
+## Open
+- The sphere lookup is baked, so it does not move with the view. A live version would need a per-material texgen pass for TABLE materials in xblamesh.c (the logo path, `m->logocol`, is the model to follow).
+- Gas tank look and autogun parts, as above.
+
+# Facility's gas tank in the HD look (2026-09-26) - feat/ge-hd-gas-tank
+
+User's call: build the tank's three-texture HD material (prop 117 was left on
+GoldenEye's model by fix/f3-hd-prop-textures, whose biggest-picture rule drew
+the bottling room's tanks white). Built on 71ec65134 (fast-forward).
+
+## The release's material (read from the file, not seen in the release)
+- `new/prop/gastank`, first shader alternative: material 0x2d binds three
+  textures, slot = sampler: t0 `_0x0E1C2BF5` 256x256 spot map (grey, black disc
+  in the middle), t1 `_0x0C2BCE25` 256x128 landscape (valley under a pale
+  sky), t2 `_0x05D30D85` 256x512 picture (pale grey, pool of light at the top -
+  GoldenEye's IMAGE_700/716 redrawn). Constants: c12 (c_constant0) = 0.5624
+  grey, c13 = 1; c14 comes from a 0x08 record (Maya's "eccentricity").
+- Pixel shader, disassembled with Xenia's `xenia-gpu-shader-compiler`
+  (built 2026-09-26 in `~/perfect-dark/xenia-canary/build`; tool
+  `.xbla-work/ge-bean/psdis.py FILE 0xRECORD`): the microcode is the **pool**
+  asset's .gpu (one block a shader in 0x102a1100-header order, 32-byte aligned,
+  64 bytes of literals first); vertex shaders are asset 1's .gpu past the
+  buffers. Stream record 0x02's word + 0x28 is the pixel shader's header.
+  - spot and landscape both fetched at (nx/2+1/2, 1/2-ny/2) of the
+    normalised view-space normal; the picture at the UV.
+  - `R = c12 * spot * land`; `lit = pic * vcol * (c_ambient + sat(n.L) * c_light0colour)`;
+    `out = lit * (1 - R) + R + spec`, then c7 global colour and fog.
+- With the release's constants (ambient 1, light 0 on every draw - see
+  ge-bean-shader-uv-scale memory) and Bean's white tank vertex colours
+  (0xf5-0xff), the release itself would draw the tank **pale grey**: it is the
+  picture, plus a rim reflection. The black comes only from GoldenEye's own
+  vertex colours (its baked light, 0x00 down most of the body, 0xff along one
+  top edge). Not checked in Xenia: the bottling room is too far from any
+  scripted spot of the rig.
+
+## What the port draws now (gebean.c + xblamesh.c)
+- `beanTexSphereMap()`: the five maps the release looks up by the normal (the
+  shared spot + landscape, the ICBM's own spot, the plane's copies) are never a
+  material's picture while it has another (`beanMaterialTexture()`).
+- `beanWalkStream()` marks the gas tank's shape (spot slot 0, landscape slot 1,
+  picture after, c12/c13 only): `d->reflamount` = c12 (143), `reflspot/reflenv`.
+- `gebeanBuildRigid()` for such a draw:
+  - `beanStockShade()`: the vertex colour times GoldenEye's shade under it -
+    closest point of the nearest same-facing stock triangle of the converted
+    model's lists (G_COL/G_VTX/G_TRI walk, `beanStockTriangles()`),
+    barycentric. 472 of 568 vertices (the plinth keeps its own).
+  - `beanReflectPicture()`: spot x landscape as one 256x256 sphere cell,
+    handed on in `gebeanmats.env/envamount/envkey` (gebean.h).
+- xblamesh.c: `xblameshmats.env*`; a TABLE material with a map gets
+  `envindex/envamount`; `xblaMeshBuildEnvironment()` takes the map as the atlas
+  cell (`m->envown`), no sheen copies, no dimming (added, as the screen is for a
+  dark base). `xblaMeshEnvironmentVertices()` puts the lookup in s/t from the
+  view-space normal through `root` (the release's lookup; the per-pixel
+  reflected ray of G_ENVMAP_EXT lit the whole near side), drawn without
+  G_ENVMAP_EXT; not cached per frame (split screen). `xblaMeshEnvironmentLight()`
+  now lets an own map through mode 9 (every object) when the object has no
+  fade/tint.
+- **Destroyed GoldenEye props** (all Bean props, not only the tank): under
+  objRender()'s destroyed mode (unk30 9, env alpha 100+50/level) the Bean mesh
+  vanished whole - shot tanks left only smoke. Now drawn with the env alpha off
+  round its own draw and its colours at a quarter (`XBLAMESH_SCORCH`), no
+  reflection: the tank stays, scorched, squashed and sunk with the object, as
+  the N64 look's does. objDeform's per-vertex jitter (+-10 units) is still not
+  mirrored on Bean meshes (`use` is NULL for them; pre-existing).
+- geproptable.h: only the Pgx117Z row added. The generator
+  (`.xbla-work/ge-arena/gen_proptable.py`, EXCLUDE now empty) also emits the
+  three autogun rows, which belong to fix/f3-runway-emplacement-hd /
+  fix/f3-tank-aim-fire; their merge brings the table to the generator's output.
+
+## Other props of the same family (release shaders all read)
+- Same maps, other shapes: CCTV (Pgx024Z) and ICBM nose/ICBM (092/093) put the
+  picture first and tint the reflection with it; desk lamp (040) and oil drum
+  (062) have the tank's slots but constants that lerp the reflection to black;
+  destroyed Seawolf (103) and the plane (291) differ again. None gets a
+  reflection pass (one pass cannot multiply by the picture).
+- Picture choice changed by the sphere-map rule: desk lamp (was the spot map
+  on a 32x32 picture - drew silver, now its dark head: `lamp_compare.jpg`),
+  ICBM's third material and the nose's second (were the spot map, now the
+  85x324 CCCP decal; derived from the data, not framed in game). Everything
+  else in the survey picks as before.
+
+## Verification (RX 580; rig `~/wt/f3gastank-rig`, pictures `~/wt/f3gastank-pics`)
+- `tanks_compare.jpg`: HD before (GoldenEye model) / HD biggest-picture trial
+  (white) / HD now / N64 look, from the bottling room aisle.
+- `tanks_gl_vk.jpg`: GL vs Vulkan, 98.2% identical, 31 px over 8 levels.
+- `tank_shot_compare.jpg`: tank 53 before / 3 hits / exploding / 3 s later;
+  rows GL, Vulkan, N64 look (`tankshot.sh TAG BIN [SAVE]`, VIEW env; objDamage
+  from gdb, after build/minethrow/tank1.py).
+- 20-mission HD sweep to frame 396 (`sweep2.sh`), pd.before (71ec65134 build)
+  vs this: all 20 frames pixel-identical, no crash, no new WARNING/ERROR.
+- Final binary = pd.after4 plus comment edits (tank frame 100% identical).
+
+## Open
+- The release's own look (pale grey) is not what this draws; GoldenEye's shade
+  is a deliberate fix (bean-release-incomplete memory). If the user wants the
+  release as it is, drop the `beanStockShade()` call.
+- objDeform's vertex jitter on Bean props; the CCTV/ICBM/plane reflections.
+
+## Update: the tank is gray (user, same day)
+The user: GoldenEye's gas tanks are gray - the black is only GoldenEye's baked
+vertex shading. `beanStockShade()` and its stock-triangle walk
+(`beanStockTriangles/Walk/Tri`, `struct beanstock`) are removed; the HD tank
+is the release's own picture (pale grey, pool of light at the top) times
+Bean's white vertex colours, plus the spot x landscape rim reflection.
+Everything else above stays (reflection pass, scorched destroyed props, the
+sphere-map picture rule). So the "Open" item about the release's look is
+settled, and the bullet on `beanStockShade()` above is history.
+- Pictures regenerated with the gray build (`pd.gray` in the rig):
+  `tanks_compare.jpg` (HD before / white trial / HD now / N64),
+  `tanks_gl_vk.jpg` (GL vs Vulkan 97.9% identical, 31 px over 8 levels),
+  `tank_shot_compare.jpg` (GL, Vulkan, N64: before / hit / exploding /
+  after; GL vs Vulkan 95-96% identical, under 50 px over 8 levels each).
+- The 20-mission sweep was not rerun: the removed code ran only for draws with
+  a reflection amount (the tank), and no sweep frame shows the tank.
+- The reflection is added, not screened; on the gray picture the difference
+  (picture x R) brightens the rim slightly over the release's. A rig trap
+  fixed: two screenshots in one second are named `X-2.png` and `X.png`, and
+  `-2` sorts first, so tankshot.sh now collects by time (`ls -tr`).
 
 ---
 

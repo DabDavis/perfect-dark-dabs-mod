@@ -188,6 +188,9 @@ s32 gebeanPoolNumBySource(const char *source);
 
 #define GEBEAN_MAXMATS 256
 
+// A reflection's sphere map, as the XBLA meshes' atlas cells are (XBLAMESH_ENV_CELL)
+#define GEBEAN_ENV_CELL 256
+
 /**
  * A GoldenEye XBLA level's HD mesh - files/new/background/<name> - for
  * gebeanstage.c, which serves it as the rooms of GoldenEye X's copy of the
@@ -341,6 +344,13 @@ struct gebeanmats {
 	// while the tube is empty; -1 for none
 	s8 spent[64];
 	u8 head;  // the mesh is a head's
+	// A material the release adds a reflection over (gebean.c's
+	// beanReflectPicture()): its sphere map, GEBEAN_ENV_CELL square RGBA,
+	// malloc'd and the caller's to free, and how much of it, out of 255. NULL
+	// and 0 for the rest. envkey names the mesh's maps for the atlas.
+	u8 *env[GEBEAN_MAXMATS];
+	u8 envamount[GEBEAN_MAXMATS];
+	char envkey[48];
 };
 
 /**

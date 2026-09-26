@@ -2,6 +2,8 @@
 // file, source, perm[3], sign[3], scale, beancentre[3], n64centre[3] (first list matrix space)
 	PROPROW("Pgx001Z", "prop/alarm2", 0, 1, 2, 1, 1, 1, 7.01461f, 0.00f, 0.00f, 0.00f, -960.13f, -1958.24f, 36.08f), // alarm2, 100%
 	PROPROW("Pgx003Z", "prop/ammocrate1", 0, 1, 2, 1, 1, 1, 7.00054f, 0.00f, 0.00f, 0.00f, 233.35f, -204.18f, -379.20f), // ammo_crate1, 80%
+	PROPROW("Pgx004Z", "prop/ammocrate2", 0, 1, 2, 1, 1, 1, 6.99975f, 0.00f, 0.00f, 0.00f, 233.20f, -204.14f, -379.09f), // ammo_crate2, 95%
+	PROPROW("Pgx005Z", "prop/ammocrate3", 0, 1, 2, 1, 1, 1, 7.00066f, 0.00f, 0.00f, 0.00f, 233.29f, -204.11f, -379.38f), // ammo_crate3, 83%
 	PROPROW("Pgx010Z", "prop/book1", 0, 1, 2, 1, 1, 1, 7.00610f, 0.00f, 0.00f, 0.00f, 984.16f, -849.00f, 2965.09f), // book1, 100%
 	PROPROW("Pgx011Z", "prop/bookshelf1", 0, 1, 2, 1, 1, 1, 7.00133f, 0.00f, 0.00f, 0.00f, 7467.34f, -2348.02f, 12426.62f), // bookshelf1, 100%
 	PROPROW("Pgx012Z", "prop/bridgeconsole1a", 0, 1, 2, 1, 1, 1, 6.99917f, 0.00f, 0.00f, 0.00f, 699.90f, -553.91f, 437.06f), // bridge_console1a, 90%
@@ -10,7 +12,10 @@
 	PROPROW("Pgx015Z", "prop/bridgeconsole2b", 0, 1, 2, 1, 1, 1, 7.00101f, 0.00f, 0.00f, 0.00f, -1400.20f, -554.12f, 437.96f), // bridge_console2b, 100%
 	PROPROW("Pgx016Z", "prop/bridgeconsole3a", 0, 1, 2, 1, 1, 1, 6.99942f, 0.00f, 0.00f, 0.00f, -2099.83f, -554.02f, 437.00f), // bridge_console3a, 85%
 	PROPROW("Pgx017Z", "prop/bridgeconsole3b", 0, 1, 2, 1, 1, 1, 6.99965f, 0.00f, 0.00f, 0.00f, -2799.85f, -554.17f, 437.05f), // bridge_console3b, 85%
+	PROPROW("Pgx018Z", "prop/cardbox1", 0, 1, 2, 1, 1, 1, 7.00000f, 0.00f, 0.00f, 0.00f, 0.00f, -637.78f, 163.33f), // card_box1, 100%
 	PROPROW("Pgx019Z", "prop/cardbox2", 0, 1, 2, 1, 1, 1, 7.00000f, 0.00f, 0.00f, 0.00f, 0.00f, -637.78f, 163.33f), // card_box2, 100%
+	PROPROW("Pgx020Z", "prop/cardbox3", 0, 1, 2, 1, 1, 1, 7.00000f, 0.00f, 0.00f, 0.00f, 0.00f, -637.78f, 163.33f), // card_box3, 100%
+	PROPROW("Pgx024Z", "prop/cctv", 0, 1, 2, 1, 1, 1, 6.99669f, 0.00f, 0.00f, 0.00f, -0.50f, 773.17f, 200.73f), // cctv, 100%
 	PROPROW("Pgx025Z", "prop/console1", 0, 1, 2, 1, 1, 1, 6.99937f, 0.00f, 0.00f, 0.00f, 489.96f, 52.16f, 979.98f), // console1, 100%
 	PROPROW("Pgx026Z", "prop/console2", 0, 1, 2, 1, 1, 1, 6.99910f, 0.00f, 0.00f, 0.00f, 1889.76f, 52.28f, 979.83f), // console2, 100%
 	PROPROW("Pgx027Z", "prop/console3", 0, 1, 2, 1, 1, 1, 6.99914f, 0.00f, 0.00f, 0.00f, 3289.60f, 52.27f, 979.84f), // console3, 100%
@@ -21,11 +26,14 @@
 	PROPROW("Pgx032Z", "prop/consolesev2a", 0, 1, 2, 1, 1, 1, 6.99796f, 0.00f, 0.00f, 0.00f, -349.90f, -962.37f, 437.18f), // console_sev2a, 100%
 	PROPROW("Pgx033Z", "prop/consolesev2b", 0, 1, 2, 1, 1, 1, 7.00106f, 0.00f, 0.00f, 0.00f, -1050.16f, -962.27f, 437.53f), // console_sev2b, 96%
 	PROPROW("Pgx034Z", "prop/consolesev2c", 0, 1, 2, 1, 1, 1, 6.99665f, 0.00f, 0.00f, 0.00f, -1749.17f, -962.01f, 436.93f), // console_sev2c, 100%
+	PROPROW("Pgx035Z", "prop/consolesev2d", 0, 1, 2, 1, 1, 1, 7.00187f, 0.00f, 0.00f, 0.00f, -3150.85f, -962.46f, 437.73f), // console_sev2d, 100%
+	PROPROW("Pgx036Z", "prop/consolesevGEa", 0, 1, 2, 1, 1, 1, 6.99663f, 0.00f, 0.00f, 0.00f, -1749.17f, -962.04f, 436.95f), // console_sev_GEa, 100%
 	PROPROW("Pgx040Z", "prop/desklamp2", 0, 1, 2, 1, 1, 1, 6.99753f, 0.00f, 0.00f, 0.00f, 320.63f, -583.22f, 0.00f), // desk_lamp2, 100%
 	PROPROW("Pgx042Z", "prop/diskdrive1", 0, 1, 2, 1, 1, 1, 7.01144f, 0.00f, 0.00f, 0.00f, -409.09f, -44.01f, 146.06f), // disk_drive1, 100%
 	PROPROW("Pgx043Z", "prop/filingcabinet1", 0, 1, 2, 1, 1, 1, 7.00027f, 0.00f, 0.00f, 0.00f, -1591.30f, -954.84f, 1177.38f), // filing_cabinet1, 100%
 	PROPROW("Pgx044Z", "prop/jerrycan1", 0, 1, 2, 1, 1, 1, 7.01077f, 0.00f, 0.00f, 0.00f, 671.46f, -292.09f, 29.21f), // jerry_can1, 100%
 	PROPROW("Pgx045Z", "prop/keyboard1", 0, 1, 2, 1, 1, 1, 7.00000f, 0.00f, 0.00f, 0.00f, -88.00f, -1545.67f, -496.33f), // keyboard1, 100%
+	PROPROW("Pgx046Z", "prop/kitunits1", 0, 1, 2, 1, 1, 1, 6.99995f, 0.00f, 0.00f, 0.00f, 350.00f, -1254.21f, 291.36f), // kit_units1, 100%
 	PROPROW("Pgx048Z", "prop/mainframe1", 0, 1, 2, 1, 1, 1, 7.00079f, 0.00f, 0.00f, 0.00f, 0.00f, -904.35f, 467.00f), // mainframe1, 100%
 	PROPROW("Pgx049Z", "prop/mainframe2", 0, 1, 2, 1, 1, 1, 7.00135f, 0.00f, 0.00f, 0.00f, 0.00f, -904.45f, 467.00f), // mainframe2, 100%
 	PROPROW("Pgx050Z", "prop/metalchair1", 0, 1, 2, 1, 1, 1, 6.99889f, 0.00f, 0.00f, 0.00f, -269.55f, -511.82f, 2678.19f), // metal_chair1, 100%
@@ -47,6 +55,7 @@
 	PROPROW("Pgx082Z", "prop/woodsmcrate4", 0, 1, 2, 1, 1, 1, 7.00000f, 0.00f, 0.00f, 0.00f, 0.00f, -637.78f, 163.33f), // wood_sm_crate4, 100%
 	PROPROW("Pgx083Z", "prop/woodsmcrate5", 0, 1, 2, 1, 1, 1, 7.00000f, 0.00f, 0.00f, 0.00f, 0.00f, -637.78f, 163.33f), // wood_sm_crate5, 98%
 	PROPROW("Pgx085Z", "prop/woodentable1", 0, 1, 2, 1, 1, 1, 7.00173f, 0.00f, 0.00f, 0.00f, 1602.09f, -398.30f, 3488.95f), // wooden_table1, 100%
+	PROPROW("Pgx086Z", "prop/swipecard2", 0, 1, 2, 1, 1, 1, 6.99636f, 0.00f, 0.00f, 0.00f, -664.66f, -2.88f, 172.04f), // swipe_card2, 100%
 	PROPROW("Pgx088Z", "prop/boxes4x4", 0, 1, 2, 1, 1, 1, 7.00000f, 0.00f, 0.00f, 0.00f, -0.00f, 0.00f, 0.00f), // boxes4x4, 100%
 	PROPROW("Pgx089Z", "prop/boxes3x4", 0, 1, 2, 1, 1, 1, 7.00000f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 1050.00f), // boxes3x4, 83%
 	PROPROW("Pgx090Z", "prop/boxes2x4", 0, 1, 2, 1, 1, 1, 7.00000f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 700.00f), // boxes2x4, 100%
@@ -55,6 +64,7 @@
 	PROPROW("Pgx093Z", "prop/ICBM", 0, 1, 2, 1, 1, 1, 6.99997f, 0.00f, 0.00f, 0.00f, 425.00f, 9812.02f, -31107.17f), // ICBM, 100%
 	PROPROW("Pgx094Z", "prop/tuningconsole1", 0, 1, 2, 1, 1, 1, 7.00111f, 0.00f, 0.00f, 0.00f, -59.00f, -845.98f, 320.92f), // tuning_console1, 94%
 	PROPROW("Pgx095Z", "prop/deskarecibo1", 0, 1, 2, 1, 1, 1, 7.00056f, 0.00f, 0.00f, 0.00f, 0.00f, -700.09f, 1312.99f), // desk_arecibo1, 100%
+	PROPROW("Pgx096Z", "prop/locker3", 0, 1, 2, 1, 1, 1, 7.07799f, 0.00f, 0.00f, 0.00f, 1201.97f, -776.53f, 412.88f), // locker3, 60%
 	PROPROW("Pgx097Z", "prop/locker4", 0, 1, 2, 1, 1, 1, 6.99468f, 0.00f, 0.00f, 0.00f, 1187.83f, -757.09f, 408.02f), // locker4, 100%
 	PROPROW("Pgx098Z", "prop/roofgun", 0, 1, 2, 1, 1, 1, 1.99997f, 0.00f, 0.00f, 0.00f, -0.00f, -199.88f, -0.00f), // roofgun, 100%
 	PROPROW("Pgx099Z", "prop/destengine", 0, 1, 2, 1, 1, 1, 6.99992f, 0.00f, 0.00f, 0.00f, 613.66f, 1119.70f, 36690.80f), // dest_engine, 100%
@@ -62,13 +72,26 @@
 	PROPROW("Pgx101Z", "prop/destgun", 0, 1, 2, 1, 1, 1, 7.00048f, 0.00f, 0.00f, 0.00f, -0.00f, -4082.42f, -9918.55f), // dest_gun, 100%
 	PROPROW("Pgx103Z", "prop/destseawolf", 0, 1, 2, 1, 1, 1, 6.99967f, 0.00f, 0.00f, 0.00f, 42.94f, -4316.56f, -3091.65f), // dest_seawolf, 90%
 	PROPROW("Pgx104Z", "prop/window", 0, 1, 2, 1, 1, 1, 7.01009f, 0.00f, 0.00f, 0.00f, -495.69f, -1719.12f, -0.00f), // window, 100%
+	PROPROW("Pgx105Z", "prop/windowliblg1", 0, 1, 2, 1, 1, 1, 6.99692f, 0.00f, 0.00f, 0.00f, -1341.23f, -2507.23f, 18541.85f), // window_lib_lg1, 100%
+	PROPROW("Pgx106Z", "prop/windowlibsm1", 0, 1, 2, 1, 1, 1, 6.99692f, 0.00f, 0.00f, 0.00f, 15335.46f, -2827.92f, 9562.46f), // window_lib_sm1, 100%
+	PROPROW("Pgx107Z", "prop/windowcor11", 0, 1, 2, 1, 1, 1, 7.00364f, 0.00f, 0.00f, 0.00f, 233.45f, -1021.73f, 2363.73f), // window_cor11, 100%
 	PROPROW("Pgx108Z", "prop/jungle3tree", 0, 1, 2, 1, 1, 1, 3.49996f, 0.00f, 0.00f, 0.00f, 15.00f, 9254.07f, -9.90f), // jungle3_tree, 94%
 	PROPROW("Pgx109Z", "prop/palm", 0, 1, 2, 1, 1, 1, 3.50002f, 0.00f, 0.00f, 0.00f, 0.10f, -350.19f, 349.93f), // palm, 100%
 	PROPROW("Pgx110Z", "prop/palmtree", 0, 1, 2, 1, 1, 1, 1.40038f, 0.00f, 0.00f, 0.00f, 0.24f, -0.38f, -0.09f), // palmtree, 100%
 	PROPROW("Pgx111Z", "prop/plant2b", 0, 1, 2, 1, 1, 1, 0.70003f, 0.00f, 0.00f, 0.00f, -70.18f, -499.08f, -74.09f), // plant2b, 100%
+	PROPROW("Pgx112Z", "prop/labbench", 0, 1, 2, 1, 1, 1, 2.00000f, 0.00f, 0.00f, 0.00f, 0.00f, 150.00f, 0.00f), // labbench, 100%
+	PROPROW("Pgx113Z", "prop/gasbarrel", 0, 1, 2, 1, 1, 1, 6.99915f, 0.00f, 0.00f, 0.00f, 653.26f, -592.05f, -653.26f), // gasbarrel, 100%
 	PROPROW("Pgx114Z", "prop/gasbarrels", 0, 1, 2, 1, 1, 1, 6.99945f, 0.00f, 0.00f, 0.00f, 233.33f, -592.09f, -233.30f), // gasbarrels, 100%
+	PROPROW("Pgx115Z", "prop/bodyarmour", 0, 1, 2, 1, 1, 1, 0.21285f, 0.00f, 0.00f, 0.00f, -5.08f, 135.71f, 170.14f), // bodyarmour, 100%
+	PROPROW("Pgx116Z", "prop/bodyarmourvest", 0, 1, 2, 1, 1, 1, 0.21289f, 0.00f, 0.00f, 0.00f, 0.00f, 198.28f, 298.17f), // bodyarmourvest, 100%
+	PROPROW("Pgx117Z", "prop/gastank", 0, 1, 2, 1, 1, 1, 2.00001f, 0.00f, 0.00f, 0.00f, -34500.16f, 750.00f, 11500.05f), // gastank, 100%
 	PROPROW("Pgx119Z", "prop/hatchbolt", 0, 1, 2, 1, 1, 1, 2.00000f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f), // hatchbolt, 100%
 	PROPROW("Pgx120Z", "prop/brakeunit", 0, 1, 2, 1, 1, 1, 1.99999f, 0.00f, 0.00f, 0.00f, 186.53f, 700.00f, 338.49f), // brakeunit, 100%
+	PROPROW("Pgx122Z", "prop/m16mag", 0, 1, 2, 1, 1, 1, 0.21310f, 0.00f, 0.00f, 0.00f, 311.41f, 388.59f, 35.25f), // m16mag, 100%
+	PROPROW("Pgx126Z", "prop/uzimag", 0, 1, 2, 1, 1, 1, 0.21204f, 0.00f, 0.00f, 0.00f, 304.98f, 205.18f, 183.77f), // uzimag, 100%
+	PROPROW("Pgx131Z", "prop/goldenshells", 0, 1, 2, 1, 1, 1, 0.21357f, 0.00f, 0.00f, 0.00f, 1.16f, -24.91f, -13.79f), // goldenshells, 81%
+	PROPROW("Pgx133Z", "prop/wppkmag", 0, 1, 2, 1, 1, 1, 0.21204f, 0.00f, 0.00f, 0.00f, 304.98f, 205.18f, 183.77f), // wppkmag, 100%
+	PROPROW("Pgx134Z", "prop/tt33mag", 0, 1, 2, 1, 1, 1, 0.21204f, 0.00f, 0.00f, 0.00f, 304.98f, 205.18f, 183.77f), // tt33mag, 100%
 	PROPROW("Pgx136Z", "prop/sevdoor3", 0, 1, 2, 1, 1, 1, 3.50000f, 0.00f, 0.00f, 0.00f, -43.79f, -1050.00f, 29.15f), // sev_door3, 100%
 	PROPROW("Pgx138Z", "prop/sevdoor4wind", 0, 1, 2, 1, 1, 1, 3.49990f, 0.00f, 0.00f, 0.00f, -43.73f, -1049.98f, 29.12f), // sev_door4_wind, 100%
 	PROPROW("Pgx139Z", "prop/sevtrislide", 0, 1, 2, 1, 1, 1, 3.49882f, 0.00f, 0.00f, 0.00f, 174.98f, -932.33f, 4431.81f), // sev_trislide, 100%
@@ -82,6 +105,7 @@
 	PROPROW("Pgx155Z", "prop/gasplantsw2do1", 0, 1, 2, 1, 1, 1, 3.50026f, 0.00f, 0.00f, 0.00f, 0.08f, -87.10f, -131.22f), // gas_plant_sw2_do1, 100%
 	PROPROW("Pgx158Z", "prop/gasplantmet1do1", 0, 1, 2, 1, 1, 1, 3.50001f, 0.00f, 0.00f, 0.00f, -6212.51f, 2012.82f, -8706.31f), // gas_plant_met1_do1, 100%
 	PROPROW("Pgx159Z", "prop/gasplantwccub1", 0, 1, 2, 1, 1, 1, 3.50009f, 0.00f, 0.00f, 0.00f, 1662.52f, -175.07f, -2231.37f), // gas_plant_wc_cub1, 91%
+	PROPROW("Pgx160Z", "prop/gasplantcleardoor", 0, 1, 2, 1, 1, 1, 3.50051f, 0.00f, 0.00f, 0.00f, -62484.05f, -787.33f, 1706.51f), // gasplant_clear_door, 100%
 	PROPROW("Pgx161Z", "prop/traindoor", 0, 1, 2, 1, 1, 1, 3.50324f, 0.00f, 0.00f, 0.00f, -452.50f, -788.27f, 656.86f), // train_door, 100%
 	PROPROW("Pgx162Z", "prop/traindoor2", 0, 1, 2, 1, 1, 1, 3.49912f, 0.00f, 0.00f, 0.00f, 685.90f, -779.95f, 729.04f), // train_door2, 100%
 	PROPROW("Pgx164Z", "prop/dooreyelid", 0, 1, 2, 1, 1, 1, 3.50067f, 0.00f, 0.00f, 0.00f, 525.05f, 349.80f, -0.41f), // door_eyelid, 100%
@@ -103,12 +127,22 @@
 	PROPROW("Pgx180Z", "prop/damchaindoor", 0, 1, 2, 1, 1, 1, 3.49823f, 0.00f, 0.00f, 0.00f, -1367.73f, -52.44f, 2627.04f), // damchaindoor, 100%
 	PROPROW("Pgx181Z", "prop/silotopdoor", 0, 1, 2, 1, 1, 1, 3.50013f, 0.00f, 0.00f, 0.00f, 482.97f, -3179.33f, 116.43f), // silotopdoor, 65%
 	PROPROW("Pgx182Z", "prop/doorprison1", 0, 1, 2, 1, 1, 1, 3.50288f, 0.00f, 0.00f, 0.00f, 24899.61f, -992.48f, -38824.54f), // doorprison1, 100%
+	PROPROW("Pgx202Z", "prop/chrrocket", 0, 1, 2, 1, 1, 1, 0.21328f, 0.00f, 0.00f, 0.00f, 21.84f, 0.08f, -317.66f), // chrrocket, 91%
 	PROPROW("Pgx223Z", "prop/hatpeaked", 0, 1, 2, 1, 1, 1, 0.21301f, 0.00f, 0.00f, 0.00f, 0.00f, -665.04f, -32.01f), // hatpeaked, 100%
+	PROPROW("Pgx234Z", "prop/chrdoordecoder", 1, 0, 2, 1, -1, 1, 0.21300f, 0.00f, 0.00f, 0.00f, 260.36f, -259.08f, -48.66f), // chrdoordecoder, 95%
+	PROPROW("Pgx243Z", "prop/chrkeyyale", 0, 1, 2, 1, 1, 1, 0.42680f, 0.00f, 0.00f, 0.00f, 109.64f, 0.21f, 108.18f), // chrkeyyale, 72%
+	PROPROW("Pgx244Z", "prop/chrkeybolt", 0, 1, 2, 1, 1, 1, 0.42658f, 0.00f, 0.00f, 0.00f, 99.84f, 0.83f, 26.24f), // chrkeybolt, 100%
+	PROPROW("Pgx248Z", "prop/chrgoldeneyekey", 0, 1, 2, 1, 1, 1, 0.21206f, 0.00f, 0.00f, 0.00f, 0.00f, -3.46f, -0.01f), // chrgoldeneyekey, 97%
 	PROPROW("Pgx254Z", "prop/safe", 0, 1, 2, 1, 1, 1, 2.00000f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 550.00f), // safe, 100%
 	PROPROW("Pgx258Z", "prop/chrblueprints", 0, 1, 2, 1, 1, 1, 1.00033f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f), // chrblueprints, 100%
 	PROPROW("Pgx259Z", "prop/chrcircuitboard", 0, 1, 2, 1, 1, 1, 6.96914f, 0.00f, 0.00f, 0.00f, -695.83f, -44.01f, 123.90f), // chrcircuitboard, 100%
 	PROPROW("Pgx260Z", "prop/chrmap", 0, 1, 2, 1, 1, 1, 1.00033f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f), // chrmap, 100%
+	PROPROW("Pgx269Z", "prop/chrclipboard", 0, 1, 2, 1, 1, 1, 0.21297f, 0.00f, 0.00f, 0.00f, 188.79f, 291.34f, 73.23f), // chrclipboard, 100%
+	PROPROW("Pgx270Z", "prop/chrdossierred", 0, 1, 2, 1, 1, 1, 0.21262f, 0.00f, 0.00f, 0.00f, -0.13f, 0.08f, -10.84f), // chrdossierred, 100%
+	PROPROW("Pgx271Z", "prop/chrstafflist", 0, 1, 2, 1, 1, 1, 0.21310f, 0.00f, 0.00f, 0.00f, -3.46f, 32.11f, -45.97f), // chrstafflist, 100%
 	PROPROW("Pgx272Z", "prop/chrdattape", 0, 1, 2, 1, 1, 1, 0.21307f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, -2.13f), // chrdattape, 100%
+	PROPROW("Pgx274Z", "prop/chrblackbox", 0, 1, 2, 1, 1, 1, 0.21289f, 0.00f, 0.00f, 0.00f, -0.02f, 2.75f, -14.04f), // chrblackbox, 100%
+	PROPROW("Pgx275Z", "prop/chrvideotape", 0, 1, 2, 1, 1, 1, 0.21387f, 0.00f, 0.00f, 0.00f, -0.00f, 1.63f, -21.50f), // chrvideotape, 100%
 	PROPROW("Pgx279Z", "prop/miltruck", 0, 1, 2, 1, 1, 1, 3.04989f, 0.00f, 0.00f, 0.00f, -0.07f, -415.50f, 3121.91f), // miltruck, 100%
 	PROPROW("Pgx280Z", "prop/jeep", 0, 1, 2, 1, 1, 1, 3.05019f, 0.00f, 0.00f, 0.00f, -486.74f, 945.39f, 3458.47f), // jeep, 100%
 	PROPROW("Pgx283Z", "prop/tiger", 0, 1, 2, 1, 1, 1, 3.04998f, 0.00f, 0.00f, 0.00f, -0.05f, -1481.99f, -200.80f), // tiger, 100%
@@ -118,7 +152,9 @@
 	PROPROW("Pgx291Z", "prop/plane", 0, 1, 2, 1, 1, 1, 3.04996f, 0.00f, 0.00f, 0.00f, -0.09f, 638.84f, 3364.81f), // plane, 97%
 	PROPROW("Pgx292Z", "prop/gunrunway1", 0, 1, 2, 1, 1, 1, 1.99913f, 0.00f, 0.00f, 0.00f, -29739.23f, 1599.33f, 65604.45f), // gun_runway1, 100%
 	PROPROW("Pgx293Z", "prop/safedoor", 0, 1, 2, 1, 1, 1, 2.00027f, 0.00f, 0.00f, 0.00f, 0.12f, 0.00f, 100.14f), // safedoor, 100%
+	PROPROW("Pgx294Z", "prop/keyholder", 0, 1, 2, 1, 1, 1, 6.99561f, 0.00f, 0.00f, 0.00f, 125.97f, -718.64f, 23.33f), // key_holder, 100%
 	PROPROW("Pgx295Z", "prop/hatchsevx", 0, 1, 2, 1, 1, 1, 3.50044f, 0.00f, 0.00f, 0.00f, -48014.47f, -2821.70f, 39257.22f), // hatchsevx, 100%
+	PROPROW("Pgx296Z", "prop/sevdish", 0, 1, 2, 1, 1, 1, 3.50008f, 0.00f, 0.00f, 0.00f, -14000.40f, -9450.22f, 80968.64f), // sevdish, 90%
 	PROPROW("Pgx297Z", "prop/archsecdoor1", 0, 1, 2, 1, 1, 1, 3.49997f, 0.00f, 0.00f, 0.00f, 4724.70f, -1166.66f, -4155.22f), // archsecdoor1, 100%
 	PROPROW("Pgx298Z", "prop/archsecdoor2", 0, 1, 2, 1, 1, 1, 3.50131f, 0.00f, 0.00f, 0.00f, 1243.38f, -1196.07f, -4438.39f), // archsecdoor2, 100%
 	PROPROW("Pgx299Z", "prop/groundgun", 0, 1, 2, 1, 1, 1, 2.00002f, 0.00f, 0.00f, 0.00f, 0.00f, 400.00f, 0.00f), // groundgun, 100%
@@ -128,7 +164,9 @@
 	PROPROW("Pgx304Z", "prop/carweird", 0, 1, 2, 1, 1, 1, 1.00020f, 0.00f, 0.00f, 0.00f, -0.00f, -116.75f, 850.11f), // carweird, 100%
 	PROPROW("Pgx306Z", "prop/shuttledoorl", 0, 1, 2, 1, 1, 1, 2.00016f, 0.00f, 0.00f, 0.00f, 4036.47f, -650.39f, -783.30f), // shuttle_door_l, 100%
 	PROPROW("Pgx307Z", "prop/shuttledoorr", 0, 1, 2, 1, 1, 1, 2.00008f, 0.00f, 0.00f, 0.00f, 3705.45f, -650.36f, -683.45f), // shuttle_door_r, 100%
+	PROPROW("Pgx310Z", "prop/glassware2", 0, 1, 2, 1, 1, 1, 1.99681f, 0.00f, 0.00f, 0.00f, 113.40f, -190.97f, -11.48f), // glassware2, 100%
 	PROPROW("Pgx311Z", "prop/glassware3", 0, 1, 2, 1, 1, 1, 2.00526f, 0.00f, 0.00f, 0.00f, -72.94f, -216.90f, -7.20f), // glassware3, 100%
+	PROPROW("Pgx312Z", "prop/glassware4", 0, 1, 2, 1, 1, 1, 1.99967f, 0.00f, 0.00f, 0.00f, 21.28f, -191.32f, -139.30f), // glassware4, 100%
 	PROPROW("Pgx313Z", "prop/landmine", 0, 1, 2, 1, 1, 1, 6.99829f, 0.00f, 0.00f, 0.00f, -0.01f, -743.67f, 0.01f), // landmine, 100%
 	PROPROW("Pgx314Z", "prop/plant1", 0, 1, 2, 1, 1, 1, 3.50013f, 0.00f, 0.00f, 0.00f, 248.87f, -1115.16f, 151.84f), // plant1, 100%
 	PROPROW("Pgx315Z", "prop/plant11", 0, 1, 2, 1, 1, 1, 3.50013f, 0.00f, 0.00f, 0.00f, 248.87f, -1115.16f, 151.84f), // plant11, 100%
