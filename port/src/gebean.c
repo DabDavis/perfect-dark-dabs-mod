@@ -8315,6 +8315,8 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 struct gebeanlevel {
 	struct beanmodel bm;
 	char source[64];
+	// the pictures its water buffers (stride 36) draw, as gebeanLevelTriangles() finds them
+	u8 water[GEBEAN_MAXMATS];
 };
 
 /**
@@ -8639,6 +8641,10 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 			istree |= treevbs[i] == draw->vb && (vb.stride == 20 || vb.stride == 28);
 		}
 
+		if (vb.stride == 36 && tex >= 0 && tex < GEBEAN_MAXMATS) {
+			level->water[tex] = 1;
+		}
+
 		if (istree) {
 			beanTreeMeasure(bm, &vb, &tree);
 		}
@@ -8737,6 +8743,11 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 s32 gebeanLevelNumTextures(struct gebeanlevel *level)
 {
 	return level->bm.numtex;
+}
+
+s32 gebeanLevelTextureIsWater(struct gebeanlevel *level, s32 tex)
+{
+	return tex >= 0 && tex < GEBEAN_MAXMATS && level->water[tex];
 }
 
 /* -------------------------------------------------------------------------

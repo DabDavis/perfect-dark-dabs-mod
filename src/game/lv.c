@@ -118,6 +118,7 @@
 #include "xblamesh.h"
 #include "xblastage.h"
 #include "gebeanstage.h"
+#include "gewater.h"
 #include "game/modrules.h"
 #include <stdlib.h>
 #include "system.h"
@@ -2466,6 +2467,11 @@ void lvTick(void)
 	g_Vars.lvframe240 += g_Vars.lvupdate240;
 	g_Vars.lvupdate60frealprev = g_Vars.lvupdate60freal;
 	g_Vars.lvupdate60freal = PALUPF(g_Vars.lvupdate60f);
+
+#ifndef PLATFORM_N64
+	// GE Plus: GoldenEye's water moves with the level's clock (gewater.c)
+	geWaterTick();
+#endif
 
 	bgunTickBoost();
 	hudmsgsTick();

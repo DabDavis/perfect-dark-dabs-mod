@@ -7345,6 +7345,24 @@ at its capped turn rate and stalls on the scenery; and a truck warped onto pad
 116 at frame 620 stalls on a guard who is standing there then and is gone by
 the time the truck really arrives.
 
+### The truck off its road after an F3 report (2026-09-26)
+
+F3 20260926-063814 (Odeyseis, HD Dam, build 1fc1832): after pressing F3 beside
+the truck between the gates, "the truck disappeared and appeared in an unusual
+place" - 900 units east of its road, crosswise. A truck's step is its speed
+times the frame (3.33 a tick on Dam), and nothing caps a frame
+(`frametimeCalculate()`), so the long frame an F3 makes (a 4K screenshot and
+the dump written before the dialog pauses anything) moved it hundreds of units
+at once. Arriving at a pad was the step's **end** within 100 of it; a step that
+ended past that circle never arrived, and the truck turned back for a pad
+behind it at its capped turn rate, round a circle wider than the road, into the
+yard's wall, where it stood for good. GoldenEye's own test is
+`chrlvIsArrivingLaterallyAtPos(prev, new, pad, 100)` - Perfect Dark's
+`posIsArrivingLaterallyAtPos()`, the same code - which takes the step as a
+line; `vehTruckTick()` uses it now. Probe: `~/wt/f3dam-run/trucklong.py`
+(`LONGAT`/`LONG` set `g_Vars.diffframe*` at one `lvTick()`; a 180-tick frame
+at 8030 left the old truck stuck at (14580, 13643), the new one ends its route).
+
 ## Bond seen twice all the way down the dam (2026-09-21)
 
 F3 report 20260921-092323: "doubling of bond while he is falling, only in
@@ -7536,6 +7554,22 @@ Read but not yet drawn:
   rock bed (`build/gexrom/hdtree/nearpad.sh 0x15 TAG` with `TX=-3458
   TZ=-10136 TY=12393` stands on the waypoint pad nearest the water's middle).
   Static: the release animates it with the normal map, which is not done.
+  *Moving since 2026-09-26* (F3 20260926-064418, "No dam water animation"):
+  GoldenEye's own water motion, `port/src/gewater.c`. GoldenEye's tex.c
+  follows pictures 1511 (Dam's reservoir) and 1508 (Caverns' water) with a
+  list that draws the picture as tile 0 and tile 1, 90/150 quarter texels
+  apart, both creeping (0.25 and 0.1 quarters a frame) and cross-faded by
+  `PRIM_LOD_FRAC = sin(phase) * 127 + 128` (+0.04 rad a frame), the list
+  rewritten each frame (`sub_GAME_7F092E50()`). Perfect Dark's loader had no
+  such test; tex.c now writes both tiles and calls `geWaterWrite()` on a remake
+  stage, and xblaStageWriteTexture() does the same for Bean's water picture
+  (`gebeanLevelTextureIsWater()`: the stride 36 draws). GoldenEye's list also
+  sets `G_RM_PASS, G_RM_AA_ZB_OPA_SURF2` (no fog) and back-face culling; taken
+  whole, the N64 look's reservoir read dark green to the horizon against
+  fogged rock, so only the blend is taken - whether GoldenEye's reservoir is
+  unfogged is open (oracle). The HD look's motion is GoldenEye's on the
+  release's colour picture, not the release's own normal-map shader. Probe
+  `~/wt/f3dam-run/water.py` (`VIEW=near` over the jetty).
 - **stride 20 has no UV at all** (position, normal, colour) and Surface's pine
   *branches* are stride 20 under a DXT3 branch picture (25344 indices): the
   shader makes the UVs, so they draw white. Generate them per quad. *Done

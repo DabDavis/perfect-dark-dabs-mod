@@ -315,6 +315,8 @@ const char *gebeanCeLevelName(const char *key, const char *name);
 s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg);
 s32 gebeanLevelNumTextures(struct gebeanlevel *level);
+/** Whether a level's picture is drawn by its water buffers (stride 36), once gebeanLevelTriangles() has walked it. */
+s32 gebeanLevelTextureIsWater(struct gebeanlevel *level, s32 tex);
 const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft);
 
 /** The pictures a built mesh's material words index (XBLAMESH_MAT_TABLE). */

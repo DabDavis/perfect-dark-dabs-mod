@@ -41,6 +41,7 @@
 #include "gebean.h"
 #include "gebeanstage.h"
 #include "gebeansky.h"
+#include "gewater.h"
 #include "wallhitclip.h"
 
 // The bg file's header: primary inflated size, section 1 size, primary stored
@@ -677,6 +678,13 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 	// and the next texture must not be allowed to skip a command on the
 	// strength of it.
 	texResetTiles();
+
+	// Bean's reservoir picture takes GoldenEye's moving water, on its
+	// leaf's own render mode (gewater.c); the two tiles above are the same
+	// picture at the same place already
+	if (gebeanStageRecordIsWater(record)) {
+		gdl = geWaterWrite(gdl, tilew, tileh);
+	}
 
 	if (xblaStageVerbose) {
 		sysLogPrintf(LOG_NOTE, "xblastage: record %u (%dx%d for %dx%d) bound%s as %dx%d, scale %04x %04x",

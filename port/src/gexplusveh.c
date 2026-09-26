@@ -33,6 +33,7 @@
 #include "lib/mtx.h"
 #include "lib/model.h"
 #include "game/chrai.h"
+#include "game/chraction.h"
 #include "gestan.h"
 #include "game/lv.h"
 #include "game/pad.h"
@@ -518,12 +519,18 @@ static void vehTruckTick(struct prop *prop)
 	func0f069c70(&truck->base, false, false);
 
 	// Arrived at the pad: the next one, and the path's end stops the truck
-	// over a second, which is GoldenEye's own wind-down
+	// over a second, which is GoldenEye's own wind-down. Arriving is
+	// GoldenEye's own test (chrlvIsArrivingLaterallyAtPos(), which is
+	// posIsArrivingLaterallyAtPos() here): the step from where the truck was
+	// passes within 100 of the pad, not the place it ended. A step is the
+	// speed times the frame, and one long frame (an F3 report writing a 4K
+	// screenshot, a stall on loading) carried the truck 300 units in one go,
+	// past the pad and out of its 100 - it then turned back for a pad it had
+	// driven past at a twentieth of a turn a second, round a circle wider than
+	// the road, into the wall of Dam's gate yard, and stood there for good
+	// (F3 20260926-063814).
 	if (haspath) {
-		const f32 dx = target.x - prop->pos.x;
-		const f32 dz = target.z - prop->pos.z;
-
-		if (dx * dx + dz * dz < 100.0f * 100.0f) {
+		if (posIsArrivingLaterallyAtPos(&prev, &prop->pos, &target, 100.0f)) {
 			truck->nextstep++;
 
 			if (truck->path->pads[truck->nextstep] < 0) {
