@@ -1,9 +1,9 @@
 # F3 pass 2026-09-26 (GE mission logic) - handoff
 
 Branch `fix/f3-ge-mission-logic` (worktree /home/sdg/wt/f3gemission), based on
-dabs-mod 5ac4c3176. Not merged, not pushed. **Converter now 74** (was 71; 72, 73
-and 74 are this branch's, one real change each). All 20 missions boot and run
-600 frames clean at converter 73 (~/wt/f3gemission-run/sweep.sh, sweep.out).
+dabs-mod 5ac4c3176. Not merged, not pushed. **Converter now 75** (was 71; 72 to 75
+are this branch's, one real change each). All 20 missions boot and run
+600 frames clean at converter 75 (~/wt/f3gemission-run/sweep.sh, sweep.out).
 
 Rig: `~/wt/f3gemission-run` (copy of ~/wt/f3cradle-run; `run.sh TAG PROBE` with
 STAGE/TMO/EXTRA env, `run2.sh` takes SAVE=save_hdbase for the HD look,
@@ -184,8 +184,55 @@ Verified (rig ~/wt/f3gemission-run, Cradle 0x68):
 Before 72 a converted floor gun's dualweaponnum was 0, so picking up a
 dual-wieldable one gave an odd pair (gun + nothing) and could put it in the
 left hand. Now such a pickup is a single gun, as a guard's dropped gun always
-was. Whether GoldenEye's own "second of a gun makes a pair" rule should be added
-for GE Plus is a user decision (tried and reverted, not committed).
+was. The user asked for GoldenEye's own pair rule: see section 6 (GoldenEye
+pairs only what its setup pairs).
+
+## 6. GoldenEye's pairs of guns (user: yes) - DONE, converter 75
+
+**GoldenEye has no "second of a gun makes a pair" rule** (the section above
+assumed it did). Its pickup (bondinv.c's bondinvAddWeaponByProp(), propobj.c's
+propPickupByPlayer()) pairs only guns its **setup** pairs:
+- two collectables joined by a PROPDEF_LINK (0x0e) record (prop.c's setup ->
+  propweaponSetDual()): the first picked up is a single gun, the second the pair;
+- a guard holding a gun in each hand (PROPFLAG_IS_DOUBLE, propobj.c's
+  chr-attach -> propweaponSetDual()): his two dropped guns are such a pair.
+A second of a gun that is no one's pair gives only its ammunition ("Picked up
+some ammo."), or is left lying if the ammo is full. CAN_DUAL_WIELD is never
+read by the pickup (only by the all-guns cheat). Perfect Dark's solo pickup is
+the same code (inv.c's invGiveWeaponsByProp(); its "second makes a pair" branch
+is multiplayer only), and IS_DOUBLE is PD's OBJFLAG_WEAPON_CANMIXDUAL (flags
+are copied whole), so guards' pairs already worked. What was missing:
+- ed432ee88 (**converter 75**): the link record was converted as a one-word
+  nothing; now OBJTYPE_LINKGUNS (s16 offsets; gesolo.py too). Two in the ROM:
+  Caverns' AR33s (inside two boxes) and Bunker 2's silenced PP7s.
+- ed432ee88: the pair's second gun is worded as GoldenEye does, "Picked up a
+  ZMG (9mm).", not PD's "Double ZMG (9mm)." - converted missions only
+  (currentPlayerQueuePickupWeaponHudmsg(), !normmplayerisrunning).
+
+ROM census (tools/geconvert, every Usetup*Z): guard pairs Bunker 1 Klobb x1,
+Archives DD44 x2 + Klobb x3, Train ZMG x2, Frigate Phantom/D5K (four guns), Bunker 2 Klobb
+x3, Aztec AR33, Egyptian ZMG x14, Jungle Xenia's RC-P90 + grenade launcher (a
+mixed pair), Caverns ZMG x2, Surface 2 Klobb; links as above. **No grenade or
+mine is ever paired**, and nothing in the rule reads weaponHasFlag(DUALWIELD),
+so Akimbo cannot make one; fix/f3-ge-mines needs nothing from this.
+
+Verified (probes/pair.py: duals/kill/list/pickw/pickc/free/msg/print; ALL=1
+walks contained props):
+- Caverns 0x66: linked AR33s -> single, then pair, "Picked up an AR33 Assault
+  Rifle." both times; guard 19's ZMGs -> pair, "Picked up a ZMG (9mm)." twice;
+  two single guards' ZMGs (Bond starts with one) -> "Picked up some ammo.", no pair.
+- Dam 0x15: two guards' KF7s -> "Picked up a KF7 Soviet." then "some ammo".
+- Jungle 0x62: Xenia's RC-P90 + GL -> mixed pair (right RC-P90, left GL).
+- Bunker 2 0x64: the two PP7 (silenced) on the floor are linked.
+- Defection 0x30 (PD): the same message call still says "Double Falcon 2."
+- Scratch merge with fix/f3-ge-mines (worktree /home/sdg/wt/pairmines, branch
+  scratch/pair-mines, not for merging): Bunker 1 guard 12's Klobbs pair;
+  Statue Park grenades three times -> grenade then ammo, never a pair; the
+  grenade and three mines have no DUALWIELD, PP7/Klobb/KF7/AR33 do.
+- 20-mission sweep clean at converter 75 (sweep.out).
+Open: GoldenEye does not draw the second gun on pickup; PD puts it in the left
+hand when the right already holds that gun (kept). Not checked in a real
+playthrough with the fire button (probe pickups).
 
 ## Before merging
 
