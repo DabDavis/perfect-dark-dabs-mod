@@ -24,6 +24,7 @@
 #include "game/gfxmemory.h"
 #include "game/env.h"
 #include "game/modoptions.h"
+#include "game/pad.h"
 #include "romdata.h"
 #include "xblatex.h"
 #include "xblastage.h"
@@ -2139,6 +2140,661 @@ static void clampCutouts(const struct collect *c)
 	}
 }
 
+/**
+ * Bean's doorways are Rare's remodel of GoldenEye's, and a few units wider or
+ * taller than the door GoldenEye's setup sizes to its pad's box: round
+ * Runway's double doors to the Facility the opening stood 4.5 above the doors
+ * and 2 past their right edge, and as the doors lead nowhere, the sky showed
+ * through in a strip round them (F3 20260925-230105). The N64 look has none:
+ * GoldenEye's own opening is the door's box. Over every GoldenEye mission
+ * most doors have a gap of a unit or two of the same kind, and a few up to
+ * ten. A vertex of Bean's mesh at the door's faces, just past a side or the
+ * top of a door's box, is pulled onto that edge, so that the opening is the
+ * door's size again, as GoldenEye has it; one further past the edge is some
+ * other wall's and stays, and so does every vertex past a side the level
+ * already closes. The foot of a door stands on the floor and is left, and
+ * the side a sliding door goes into: Bunker's doors rise into a slot over
+ * them, which pulled down would have shut on them.
+ */
+#define DOORGAP_REACH 12.0f  // the most a vertex is pulled
+#define DOORGAP_SHARE 0.06f  // and no more than this share of the door's side
+#define DOORGAP_DEPTH 10.0f  // in front of or behind the door's faces
+#define DOORGAP_ON    0.05f  // a vertex this near a door's edge is on it
+
+struct doorbox {
+	f32 mid[3];
+	f32 axis[3][3]; // the pad's normal, up and look, as units
+	f32 half[3];
+	f32 reach[3];
+	f32 radius;     // past this far from the middle, nothing is the door's
+	s32 thin;       // the axis through the door
+	s8 foot[3];     // the side of an axis that points down, 0 for neither
+	s8 slide[3];    // the side a sliding door goes into the wall at, 0 for neither
+	s32 first;      // its run of the triangles near it (doorNearTris())
+	s32 numnear;
+	u8 open[3][2];  // a side with nothing of the level past it (doorSideOpen())
+};
+
+static s32 doorBoxes(struct doorbox **out)
+{
+	struct doorbox *boxes = NULL;
+	s32 num = 0;
+
+	for (s32 list = 0; list < 2; list++) {
+		for (struct prop *prop = list ? g_Vars.pausedprops : g_Vars.activeprops; prop; prop = prop->next) {
+			struct doorbox *b;
+			struct doorbox *grown;
+			struct pad pad;
+			f32 lo[3], hi[3];
+
+			if (prop->type != PROPTYPE_DOOR || !prop->door || prop->door->base.pad < 0) {
+				continue;
+			}
+
+			grown = realloc(boxes, sizeof(*boxes) * (num + 1));
+
+			if (!grown) {
+				break;
+			}
+
+			boxes = grown;
+			b = &boxes[num];
+
+			padUnpack(prop->door->base.pad, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_UP | PADFIELD_NORMAL | PADFIELD_BBOX, &pad);
+
+			lo[0] = pad.bbox.xmin; hi[0] = pad.bbox.xmax;
+			lo[1] = pad.bbox.ymin; hi[1] = pad.bbox.ymax;
+			lo[2] = pad.bbox.zmin; hi[2] = pad.bbox.zmax;
+
+			for (s32 k = 0; k < 3; k++) {
+				b->axis[0][k] = pad.normal.f[k];
+				b->axis[1][k] = pad.up.f[k];
+				b->axis[2][k] = pad.look.f[k];
+			}
+
+			if (!normalize3(b->axis[0]) || !normalize3(b->axis[1]) || !normalize3(b->axis[2])) {
+				continue;
+			}
+
+			b->thin = 0;
+
+			for (s32 a = 0; a < 3; a++) {
+				b->half[a] = (hi[a] - lo[a]) * 0.5f;
+				b->reach[a] = MIN(DOORGAP_REACH, (hi[a] - lo[a]) * DOORGAP_SHARE);
+				b->foot[a] = b->axis[a][1] < -0.7f ? 1 : b->axis[a][1] > 0.7f ? -1 : 0;
+
+				if (b->half[a] < b->half[b->thin]) {
+					b->thin = a;
+				}
+			}
+
+			b->radius = sqrtf(b->half[0] * b->half[0] + b->half[1] * b->half[1] + b->half[2] * b->half[2])
+				+ DOORGAP_DEPTH + DOORGAP_REACH;
+
+			// A sliding door's move for all of frac (doorUpdateTiles())
+			for (s32 a = 0; a < 3; a++) {
+				const struct doorobj *door = prop->door;
+				const f32 by = door->doorflags & DOORFLAG_0080
+					? door->unk98.x * b->axis[a][0] + door->unk98.y * b->axis[a][1] + door->unk98.z * b->axis[a][2] : 0.0f;
+
+				b->slide[a] = by > 0.01f ? 1 : by < -0.01f ? -1 : 0;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				b->mid[k] = pad.pos.f[k];
+
+				for (s32 a = 0; a < 3; a++) {
+					b->mid[k] += (lo[a] + hi[a]) * 0.5f * b->axis[a][k];
+				}
+			}
+
+			num++;
+		}
+	}
+
+	*out = boxes;
+
+	return num;
+}
+
+/**
+ * Where a vertex stands in a door's box: its distance along each axis from
+ * the middle. Whether it is past the door's faces by more than the depth.
+ */
+static s32 doorBoxAt(const struct doorbox *b, const f32 *p, f32 *at)
+{
+	f32 d[3] = { p[0] - b->mid[0], p[1] - b->mid[1], p[2] - b->mid[2] };
+
+	for (s32 a = 0; a < 3; a++) {
+		at[a] = dot3(d, b->axis[a]);
+	}
+
+	return fabsf(at[b->thin]) <= b->half[b->thin] + DOORGAP_DEPTH;
+}
+
+static s32 addTri(struct collect *c, const struct stri *t)
+{
+	if (c->num >= c->cap) {
+		s32 cap = c->cap ? c->cap * 2 : 65536;
+		struct stri *n = realloc(c->tris, sizeof(*n) * cap);
+
+		if (!n) {
+			return 0;
+		}
+
+		c->tris = n;
+		c->cap = cap;
+	}
+
+	c->tris[c->num++] = *t;
+
+	return 1;
+}
+
+/**
+ * Whether a point is on a triangle of the level already, one lying in the
+ * plane with that normal: a strip there would fight it. The triangles are
+ * the ones near the door (list) and every strip added since the level's own
+ * (from first on).
+ */
+static s32 stripCovered(const struct collect *c, const s32 *list, s32 numlist, s32 first, const f32 *p, const f32 *normal)
+{
+	for (s32 i = 0; i < numlist + c->num - first; i++) {
+		const struct stri *tri = &c->tris[i < numlist ? list[i] : first + i - numlist];
+		f32 n[3], d[3];
+		s32 inside = 1;
+
+		for (s32 j = 0; j < 3 && inside; j++) {
+			inside = p[j] >= MIN(tri->pos[0][j], MIN(tri->pos[1][j], tri->pos[2][j])) - 0.5f
+				&& p[j] <= MAX(tri->pos[0][j], MAX(tri->pos[1][j], tri->pos[2][j])) + 0.5f;
+		}
+
+		if (!inside || triNormal(tri, n) <= 0.0f || fabsf(dot3(n, normal)) < 0.9f) {
+			continue;
+		}
+
+		d[0] = p[0] - tri->pos[0][0];
+		d[1] = p[1] - tri->pos[0][1];
+		d[2] = p[2] - tri->pos[0][2];
+
+		if (fabsf(dot3(d, n)) > 0.5f) {
+			continue;
+		}
+
+		// on the inner side of each edge, about the triangle's own normal
+		for (s32 k = 0; k < 3 && inside; k++) {
+			const f32 *a = tri->pos[k];
+			const f32 *b = tri->pos[(k + 1) % 3];
+			const f32 e[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] };
+			const f32 q[3] = { p[0] - a[0], p[1] - a[1], p[2] - a[2] };
+			const f32 x[3] = { e[1] * q[2] - e[2] * q[1], e[2] * q[0] - e[0] * q[2], e[0] * q[1] - e[1] * q[0] };
+
+			inside = dot3(x, n) >= 0.0f;
+		}
+
+		if (inside) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Bean's walls are sheets with no thickness, and a door stands in the middle
+ * of GoldenEye's, so the sheet round a doorway is a few units in front of the
+ * door's face (Runway's 2.4) and there is nothing between the two: from an
+ * angle the far side of the opening showed a line of sky past the door's
+ * edge even once the opening was the door's size, and looking down, a line
+ * of it along the door's foot, where the floor stops at the wall. Each edge
+ * of a wall's triangle that lies along a side or the top of a door, in front
+ * of its face, gets a strip from the wall back to the door's middle, in the
+ * wall's picture smeared across - the reveal a thicker wall would have - and
+ * so does the edge of the floor in front of the door's foot, in the floor's
+ * plane. To the middle and not the face: ending on the door's edge it left a
+ * dotted line of sky where the two met. Not where the level has a triangle
+ * there already (Bean's own reveal, or the floor going on under the door).
+ */
+static s32 fillDoorReveals(struct collect *c, const struct doorbox *boxes, s32 num, const s32 *nearby)
+{
+	const s32 numtris = c->num;
+	s32 fillers = 0;
+
+	for (s32 i = 0; i < num; i++) {
+		const struct doorbox *b = &boxes[i];
+		const s32 *near = &nearby[b->first];
+		const s32 numnear = b->numnear;
+
+		for (s32 q = 0; q < numnear; q++) {
+			struct stri from;
+			f32 n[3];
+			s32 wall;
+
+			// a copy: the strips added below can move the array
+			if (triNormal(&c->tris[near[q]], n) <= 0.0f) {
+				continue;
+			}
+
+			from = c->tris[near[q]];
+
+			wall = fabsf(dot3(n, b->axis[b->thin])) >= 0.9f;
+
+			for (s32 k = 0; k < 3; k++) {
+				const s32 k2 = (k + 1) % 3;
+				f32 at0[3], at1[3];
+				s32 face;
+
+				if (!doorBoxAt(b, from.pos[k], at0) || !doorBoxAt(b, from.pos[k2], at1)) {
+					continue;
+				}
+
+				face = at0[b->thin] < 0.0f ? -1 : 1;
+
+				if (at0[b->thin] * face - b->half[b->thin] < 0.25f || at1[b->thin] * face - b->half[b->thin] < 0.25f) {
+					continue;
+				}
+
+				for (s32 a = 0; a < 3; a++) {
+					const s32 o = 3 - a - b->thin;
+					const s32 side = at0[a] < 0.0f ? -1 : 1;
+					struct stri strip[2];
+					f32 u[2], lo, hi;
+					f32 end[2][3], back[2][3], mid[3];
+					f32 sn[3];
+
+					if (a == b->thin || fabsf(at1[o] - at0[o]) < 0.5f) {
+						continue;
+					}
+
+					if (wall) {
+						// along a side or the top
+						if (side == b->foot[a]
+								|| fabsf(at0[a] - side * b->half[a]) > DOORGAP_ON
+								|| fabsf(at1[a] - side * b->half[a]) > DOORGAP_ON) {
+							continue;
+						}
+					} else {
+						// the floor's edge across the door's foot
+						if (side != b->foot[a] || fabsf(dot3(n, b->axis[a])) < 0.9f
+								|| fabsf(at0[b->thin] - at1[b->thin]) > 0.5f
+								|| fabsf(fabsf(at0[a]) - b->half[a]) > b->reach[a]
+								|| fabsf(fabsf(at1[a]) - b->half[a]) > b->reach[a]) {
+							continue;
+						}
+					}
+
+					// The part of the edge along this door: the wall over a
+					// double door runs across both leaves
+					u[0] = (-b->half[o] - at0[o]) / (at1[o] - at0[o]);
+					u[1] = (b->half[o] - at0[o]) / (at1[o] - at0[o]);
+
+					if (u[0] > u[1]) {
+						const f32 swap = u[0];
+						u[0] = u[1];
+						u[1] = swap;
+					}
+
+					u[0] = MAX(u[0], 0.0f);
+					u[1] = MIN(u[1], 1.0f);
+					lo = at0[o] + (at1[o] - at0[o]) * u[0];
+					hi = at0[o] + (at1[o] - at0[o]) * u[1];
+
+					if (fabsf(hi - lo) < 0.5f || u[0] >= u[1]) {
+						continue;
+					}
+
+					for (s32 e = 0; e < 2; e++) {
+						const f32 depth = at0[b->thin] + (at1[b->thin] - at0[b->thin]) * u[e];
+
+						for (s32 j = 0; j < 3; j++) {
+							end[e][j] = from.pos[k][j] + (from.pos[k2][j] - from.pos[k][j]) * u[e];
+							back[e][j] = end[e][j] - depth * b->axis[b->thin][j];
+						}
+					}
+
+					for (s32 j = 0; j < 3; j++) {
+						mid[j] = (end[0][j] + end[1][j] + back[0][j] + back[1][j]) * 0.25f;
+					}
+
+					// a wall's strip lies square to the side, the floor's in the floor
+					if (stripCovered(c, near, numnear, numtris, mid, wall ? b->axis[a] : n)) {
+						continue;
+					}
+
+					strip[0] = strip[1] = from;
+					strip[0].decal = strip[1].decal = 0;
+					strip[0].backed = strip[1].backed = 0;
+
+					// end 0, end 1, back of 1; end 0, back of 1, back of 0
+					memcpy(strip[0].pos[0], end[0], sizeof(f32) * 3);
+					memcpy(strip[0].pos[1], end[1], sizeof(f32) * 3);
+					memcpy(strip[0].pos[2], back[1], sizeof(f32) * 3);
+					memcpy(strip[1].pos[0], end[0], sizeof(f32) * 3);
+					memcpy(strip[1].pos[1], back[1], sizeof(f32) * 3);
+					memcpy(strip[1].pos[2], back[0], sizeof(f32) * 3);
+
+					for (s32 j = 0; j < 2; j++) {
+						const f32 uv0 = from.uv[k][j] + (from.uv[k2][j] - from.uv[k][j]) * u[0];
+						const f32 uv1 = from.uv[k][j] + (from.uv[k2][j] - from.uv[k][j]) * u[1];
+
+						strip[0].uv[0][j] = strip[1].uv[0][j] = strip[1].uv[2][j] = uv0;
+						strip[0].uv[1][j] = strip[0].uv[2][j] = strip[1].uv[1][j] = uv1;
+					}
+
+					strip[0].argb[0] = strip[1].argb[0] = strip[1].argb[2] = from.argb[k];
+					strip[0].argb[1] = strip[0].argb[2] = strip[1].argb[1] = from.argb[k2];
+
+					// The side that culling keeps: a wall's strip faces into
+					// the doorway, the floor's up as the floor does
+					triNormal(&strip[0], sn);
+
+					if (wall ? dot3(sn, b->axis[a]) * side > 0.0f : dot3(sn, n) < 0.0f) {
+						for (s32 m = 0; m < 2; m++) {
+							f32 tp[3], tuv[2];
+							u32 targb = strip[m].argb[1];
+
+							memcpy(tp, strip[m].pos[1], sizeof(tp));
+							memcpy(strip[m].pos[1], strip[m].pos[2], sizeof(tp));
+							memcpy(strip[m].pos[2], tp, sizeof(tp));
+							memcpy(tuv, strip[m].uv[1], sizeof(tuv));
+							memcpy(strip[m].uv[1], strip[m].uv[2], sizeof(tuv));
+							memcpy(strip[m].uv[2], tuv, sizeof(tuv));
+							strip[m].argb[1] = strip[m].argb[2];
+							strip[m].argb[2] = targb;
+						}
+					}
+
+					if (!addTri(c, &strip[0]) || !addTri(c, &strip[1])) {
+						return fillers;
+					}
+
+					fillers++;
+				}
+			}
+		}
+	}
+
+	return fillers;
+}
+
+/**
+ * How far a triangle's UVs move for a move of delta along it: what is off its
+ * plane moves nothing (a reveal pulled sideways).
+ */
+static void triUvShift(const struct stri *t, const f32 *delta, f32 *duv)
+{
+	const f32 e1[3] = { t->pos[1][0] - t->pos[0][0], t->pos[1][1] - t->pos[0][1], t->pos[1][2] - t->pos[0][2] };
+	const f32 e2[3] = { t->pos[2][0] - t->pos[0][0], t->pos[2][1] - t->pos[0][1], t->pos[2][2] - t->pos[0][2] };
+	const f32 g11 = dot3(e1, e1), g12 = dot3(e1, e2), g22 = dot3(e2, e2);
+	const f32 det = g11 * g22 - g12 * g12;
+	f32 r1, r2, x, y;
+
+	duv[0] = duv[1] = 0.0f;
+
+	if (det <= 1e-6f * g11 * g22) {
+		return;
+	}
+
+	// delta's part in the plane as x e1 + y e2
+	r1 = dot3(delta, e1);
+	r2 = dot3(delta, e2);
+	x = (r1 * g22 - r2 * g12) / det;
+	y = (r2 * g11 - r1 * g12) / det;
+
+	for (s32 j = 0; j < 2; j++) {
+		duv[j] = x * (t->uv[1][j] - t->uv[0][j]) + y * (t->uv[2][j] - t->uv[0][j]);
+	}
+}
+
+/**
+ * Each door's run of the triangles whose box comes within its reach, in one
+ * list: a level has up to 180000 triangles and 50 doors.
+ */
+static s32 *doorNearTris(const struct collect *c, struct doorbox *boxes, s32 num)
+{
+	f32 (*tbox)[6] = malloc(sizeof(*tbox) * MAX(c->num, 1));
+	s32 *list = NULL;
+	s32 len = 0, cap = 0;
+
+	if (!tbox) {
+		return NULL;
+	}
+
+	for (s32 t = 0; t < c->num; t++) {
+		const struct stri *tri = &c->tris[t];
+
+		for (s32 j = 0; j < 3; j++) {
+			tbox[t][j] = MIN(tri->pos[0][j], MIN(tri->pos[1][j], tri->pos[2][j]));
+			tbox[t][3 + j] = MAX(tri->pos[0][j], MAX(tri->pos[1][j], tri->pos[2][j]));
+		}
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		struct doorbox *b = &boxes[i];
+
+		b->first = len;
+		b->numnear = 0;
+
+		for (s32 t = 0; t < c->num; t++) {
+			f32 dd = 0.0f;
+
+			// a big floor triangle's corners can all be far off
+			for (s32 j = 0; j < 3; j++) {
+				const f32 off = b->mid[j] < tbox[t][j] ? tbox[t][j] - b->mid[j]
+					: b->mid[j] > tbox[t][3 + j] ? b->mid[j] - tbox[t][3 + j] : 0.0f;
+
+				dd += off * off;
+			}
+
+			if (dd > b->radius * b->radius) {
+				continue;
+			}
+
+			if (len >= cap) {
+				s32 *grown = realloc(list, sizeof(*list) * (cap ? cap * 2 : 4096));
+
+				if (!grown) {
+					free(list);
+					free(tbox);
+					return NULL;
+				}
+
+				list = grown;
+				cap = cap ? cap * 2 : 4096;
+			}
+
+			list[len++] = t;
+			b->numnear++;
+		}
+	}
+
+	free(tbox);
+
+	return list;
+}
+
+/**
+ * Whether a line through the door's thickness, from a point just past one of
+ * its sides, meets nothing of the level: the side stands open onto whatever
+ * is behind. A side the level closes (Bunker's bevelled door frames, their
+ * slopes a few units over the doors) keeps its vertices where they are.
+ */
+static s32 doorSideOpen(const struct collect *c, const struct doorbox *b, const s32 *near, s32 a, s32 side)
+{
+	const s32 o = 3 - a - b->thin;
+	const f32 reach = b->half[b->thin] + DOORGAP_DEPTH;
+	const f32 *d = b->axis[b->thin];
+
+	for (s32 f = -1; f <= 1; f++) {
+		f32 q[3];
+		s32 hit = 0;
+
+		for (s32 j = 0; j < 3; j++) {
+			q[j] = b->mid[j] + b->axis[a][j] * side * (b->half[a] + 0.5f) + b->axis[o][j] * f * b->half[o] * 0.7f;
+		}
+
+		for (s32 m = 0; m < b->numnear && !hit; m++) {
+			const struct stri *tri = &c->tris[near[m]];
+			f32 e1[3], e2[3], h[3], w[3], x[3];
+			f32 det, u, v, t;
+
+			for (s32 j = 0; j < 3; j++) {
+				e1[j] = tri->pos[1][j] - tri->pos[0][j];
+				e2[j] = tri->pos[2][j] - tri->pos[0][j];
+				w[j] = q[j] - tri->pos[0][j];
+			}
+
+			h[0] = d[1] * e2[2] - d[2] * e2[1];
+			h[1] = d[2] * e2[0] - d[0] * e2[2];
+			h[2] = d[0] * e2[1] - d[1] * e2[0];
+			det = dot3(e1, h);
+
+			if (fabsf(det) < 1e-6f) {
+				continue;
+			}
+
+			u = dot3(w, h) / det;
+			x[0] = w[1] * e1[2] - w[2] * e1[1];
+			x[1] = w[2] * e1[0] - w[0] * e1[2];
+			x[2] = w[0] * e1[1] - w[1] * e1[0];
+			v = dot3(d, x) / det;
+			t = dot3(e2, x) / det;
+
+			hit = u >= 0.0f && v >= 0.0f && u + v <= 1.0f && fabsf(t) <= reach;
+		}
+
+		if (!hit) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static s32 closeDoorGaps(struct collect *c)
+{
+	struct doorbox *boxes;
+	const s32 num = doorBoxes(&boxes);
+	s32 *nearby = num > 0 ? doorNearTris(c, boxes, num) : NULL;
+	u8 *state = nearby ? calloc(c->num * 3, 1) : NULL; // 1 in a doorway, 2 done with
+	s32 moved = 0;
+	s32 fillers = 0;
+
+	if (!state) {
+		free(nearby);
+		free(boxes);
+		return 0;
+	}
+
+	// In a doorway (the other leaf's), whatever it is, it stays
+	for (s32 i = 0; i < num; i++) {
+		const struct doorbox *b = &boxes[i];
+
+		for (s32 q = 0; q < b->numnear; q++) {
+			const s32 t = nearby[b->first + q];
+
+			for (s32 k = 0; k < 3; k++) {
+				f32 at[3];
+				s32 out = 0;
+
+				if (!doorBoxAt(b, c->tris[t].pos[k], at)) {
+					continue;
+				}
+
+				for (s32 a = 0; a < 3; a++) {
+					out |= a != b->thin && fabsf(at[a]) > b->half[a];
+				}
+
+				if (!out) {
+					state[t * 3 + k] = 1;
+				}
+			}
+		}
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		for (s32 a = 0; a < 3; a++) {
+			for (s32 side = 0; side < 2; side++) {
+				boxes[i].open[a][side] = a != boxes[i].thin && boxes[i].slide[a] != (side ? 1 : -1)
+					&& doorSideOpen(c, &boxes[i], &nearby[boxes[i].first], a, side ? 1 : -1);
+			}
+		}
+	}
+
+	// the first door a vertex is near has it
+	for (s32 i = 0; i < num; i++) {
+		const struct doorbox *b = &boxes[i];
+
+		for (s32 q = 0; q < b->numnear; q++) {
+			const s32 t = nearby[b->first + q];
+
+			for (s32 k = 0; k < 3; k++) {
+				f32 *p = c->tris[t].pos[k];
+				f32 at[3];
+				f32 delta[3] = { 0.0f, 0.0f, 0.0f };
+				s32 near = 1;
+				s32 pulled = 0;
+
+				if (state[t * 3 + k] || !doorBoxAt(b, p, at)) {
+					continue;
+				}
+
+				for (s32 a = 0; a < 3; a++) {
+					if (a != b->thin && fabsf(at[a]) - b->half[a] > b->reach[a]) {
+						near = 0;
+					}
+				}
+
+				if (!near) {
+					continue;
+				}
+
+				for (s32 a = 0; a < 3; a++) {
+					const s32 side = at[a] < 0.0f ? -1 : 1;
+					const f32 by = side * b->half[a] - at[a];
+
+					if (a == b->thin || fabsf(at[a]) <= b->half[a] || side == b->foot[a] || !b->open[a][side > 0]) {
+						continue;
+					}
+
+					for (s32 j = 0; j < 3; j++) {
+						delta[j] += by * b->axis[a][j];
+					}
+
+					pulled = 1;
+				}
+
+				if (pulled) {
+					f32 duv[2];
+
+					state[t * 3 + k] = 2;
+
+					// the picture stays where it was on the wall or floor
+					triUvShift(&c->tris[t], delta, duv);
+
+					for (s32 j = 0; j < 3; j++) {
+						p[j] += delta[j];
+					}
+
+					c->tris[t].uv[k][0] += duv[0];
+					c->tris[t].uv[k][1] += duv[1];
+					moved++;
+				}
+			}
+		}
+	}
+
+	fillers = fillDoorReveals(c, boxes, num, nearby);
+
+	free(state);
+	free(nearby);
+	free(boxes);
+
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %d vertices pulled onto the edges of %d doors, %d reveals filled", moved, num, fillers);
+
+	return moved;
+}
+
 static s32 build(void)
 {
 	const u64 start = sysGetMicroseconds();
@@ -2196,6 +2852,7 @@ static s32 build(void)
 
 	takeBackdrop(&c, n);
 	clampCutouts(&c);
+	closeDoorGaps(&c);
 
 	for (s32 j = 0; j < 3; j++) {
 		meshMin[j] = 1e30f;
