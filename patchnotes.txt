@@ -46,7 +46,8 @@ Mods page: after binding a key the row can be selected again, instead of startin
 GE Plus, HD look: GoldenEye's characters show blood marks where they are shot, and a head shot leaves a smaller wound on any HD head (thanks Glazier)
 GE Plus: the watch looks, scales and works as GoldenEye's, page by page, and on a wide screen the arm and hand stay in view
 GE Plus: a thrown knife flies as GoldenEye's does, and the next one comes up as quickly as in GoldenEye
-GE Plus converts your GoldenEye ROM once more on the next start, for GoldenEye's own mines
+GE Plus Statue Park: GoldenEye's scripted shots at Natalya are back, as when the helicopter blows before you reach her, and the same scripted hits return in Facility, Frigate, Depot and Train
+GE Plus converts your GoldenEye ROM once more on the next start, for GoldenEye's own mines and scripted hits
 
 notes 4 2026-09-26
 GE Plus Dam: the tower ladders no longer lift you to the top in one jump (thanks dab)
