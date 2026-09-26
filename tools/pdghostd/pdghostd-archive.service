@@ -1,0 +1,27 @@
+[Unit]
+Description=Archive old problem reports for pdghostd (Dab's Mod)
+
+[Service]
+Type=oneshot
+User=sdg
+WorkingDirectory=/home/sdg
+# The same script as the server, in its own mode: moves reports older than
+# 30 days into ~/pdghosts/reports-archive/<YYYY-MM>.tar.xz and deletes them
+# only once the tar reads back. Never touches status.txt or patchnotes.txt.
+ExecStart=/usr/bin/python3 /home/sdg/pdghostd.py --archive
+# xz over a month of screenshots is minutes of one core; keep it out of the
+# server's way.
+Nice=10
+IOSchedulingClass=idle
+
+# The same walls as pdghostd.service - see there and the README.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=/home/sdg/pdghosts
+BindReadOnlyPaths=/home/sdg/pdghostd.py
+ReadWritePaths=/home/sdg/pdghosts
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+CapabilityBoundingSet=

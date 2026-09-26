@@ -71,9 +71,12 @@ a temporary directory and takes it through registration, uploads built the
 way the game builds them, two dozen forged headers, the hot-account slowdown,
 the quota, eviction, the three security questions (and accounts with one,
 and one from a database that predates `rec_count`), the two limiters behind
-resetting a PIN, the crash reports (what is stored, what is cut, what is
-stripped, the address limiter and the full directory) and the malformed
-requests that used to drop the connection. Standard library only; nothing outside the temporary directory is
+resetting a PIN, the crash and problem reports (what is stored, what is cut,
+what is stripped, the address limiter and the full directory), the report
+board (no address or dump on the page, escaping, the status and patch notes
+files, paging, filters, pictures and every path that is not one), the monthly
+archive (run as a subprocess against the temporary directory) and the
+malformed requests that used to drop the connection. Standard library only; nothing outside the temporary directory is
 touched, and the live database is never involved.
 
 ## Running it
@@ -203,7 +206,8 @@ at a local copy for testing.
 
 `POST /report` is the F3 key's *Report a Problem* dialog
 (`port/src/tracereport.c`): the same rules as a crash report - no account,
-nothing reads one back, nothing sent unless the player pressed Send - with a
+nothing sent unless the player pressed Send, and only the public part read
+back (see **The report board**) - with a
 bigger payload: `{report, note, version, platform, channel, screenshot}`, where
 `report` is the whole F3 state dump plus settings and log, and `screenshot` a
 base64 PNG the client has already scaled to at most 1280 wide.
@@ -219,9 +223,114 @@ scp 'sdg@10.8.0.1:~/pdghosts/reports/20260917-103319-ee727897.*' .
 
 Bounds: 8 MiB body on this route (`REPORT_MAX_BODY`; the ghost routes keep
 2 MiB), 512 KiB of text, 1000 characters of note, 5 MiB of picture, thirty an
-hour from one address, `REPORT_MAX_FILES` (2000) reports. **nginx's
+hour from one address, `REPORT_MAX_FILES` (10000) reports - counted by the
+shape of a report's name, so `status.txt` and `patchnotes.txt` beside them are
+not. 10000 is a backstop (~10 GB at ~1 MB a report); the monthly archive below
+is what keeps the directory to a month or two. **nginx's
 `client_max_body_size` must be at least 8m** for this route, or a report with a
 picture is refused by the proxy with a 413 the server never sees.
+
+## The report board
+
+`GET /board` is a public, read-only page of the problem reports:
+<https://texturepacks.art/pdghosts/board>. Two columns - the reports, newest
+first, 25 a page and grouped by day, and **Fixed**, every fix that shipped,
+newest first, each crediting its reporters and linking to their reports
+(a phone gets the reports and a link to the Fixed column). Filters are query
+parameters: `?name=<tester>`, `?status=<word>`, `?id=<id or stamp>`,
+`?page=<n>`. `GET /board.json` is the same page as data (plus every fix), and
+`GET /board/shot/<id>.png` and `/board/thumb/<id>.png` the picture and a
+320-wide copy. No script, no external anything, one inline stylesheet that
+follows the system's light or dark setting.
+
+What it shows of a report is only what the player typed or chose to send: the
+time, the `name:` (`-` or none reads "anonymous"), the note, the picture, the
+build and the OS name from `platform:`. The header is read line by line into
+named fields, so the `from:` address, the dump, the settings, the log and the
+paths are never read into anything the page can reach; every string is
+HTML-escaped and the page carries a `Content-Security-Policy` that runs no
+script. A picture is served only for an id that matches the exact shape the
+`/report` route writes (`YYYYmmdd-HHMMSS-<8 hex>`), of a report on the board,
+that has a picture - there is no path in the URL to traverse. Full pictures
+are limited to 300 an hour an address.
+
+Headers are cached and re-read when the directory's mtime moves; the status
+file, the patch notes and the archive index when theirs do - so editing any of
+them shows on the next request, no restart.
+
+Thumbnails are made without an imaging library (the box has no Pillow): the
+client writes every screenshot as 8-bit RGB with no row filters, which is
+shrunk by a 4x4 box filter in about a fifth of a second, once per report, and
+kept in `~/pdghosts/reportthumbs/`. Any other PNG is served full size.
+
+### status.txt
+
+`~/pdghosts/reports/status.txt`, edited by hand at each pass over the
+reports, says what became of each one. No file, or no line for a report,
+means *Received*. One report a line:
+
+    <report id or stamp> <status> [<when>] <public comment>
+
+    20260925-224209-e9d359f1 working Fixed, in the next update - Chicago: the patrol robot's shots no longer freeze
+    20260925-222028-fbe67314 fixed 1.17 Fixed in 5ac4c31
+    20260917-202627-b6421b31 fixed 2026-09-18 Fixed in f6b6f4c - GE-X Plus: the menu is no longer greyed out
+    20260925-224248-8a9f8748 duplicate 20260925-224209-e9d359f1 - same robot shots
+
+Status words: `received`, `working` (shown as *In progress*), `fixed`,
+`needinfo`, `notabug`, `wontfix`, `duplicate` (comment starts with the other
+report's id; it shares that report's fix), and `hidden` (off the board
+altogether - for a note that should not be public; the report is kept). A
+stamp without the hex names every report sent that second; a full id's line
+beats a stamp's, a later line beats an earlier one, and a line the board cannot
+read (bad id, unknown word) is skipped. `#` starts a comment. The comment is
+public: plain words, never an address, path or function name. Report ids in a
+comment become links.
+
+`<when>` is for `fixed`: either `<batch>.<line>`, a line of the patch notes
+(below), or `YYYY-MM-DD`, the day it shipped, for a fix the notes do not
+announce - in which case the comment is the whole fix line, and reports fixed
+by the same change get the identical date and comment so the Fixed column
+shows them once. `tools/pdghostd/status-seed.txt` has the full format at its
+top and was the first copy of the file.
+
+### patchnotes.txt
+
+The repo's `patchnotes.txt` (the game's own patch notes, see its header),
+copied to `~/pdghosts/reports/patchnotes.txt` at each release. Each of its
+lines is an entry in the Fixed column, with the batch's date and the line's
+`(thanks ...)` as the credit (a line that thanks nobody credits whoever sent
+the reports that name it). A status line `fixed 1.17 Fixed in 5ac4c31` ties a
+report to the seventeenth fix line under `notes 1`: the card then reads
+"Fixed in 5ac4c31 - <that line>", and the fix links to the report. A pushed
+batch is never edited, so the number stays right - so each fix is written once,
+in the patch notes. Without the file the board still works on dates alone.
+
+## Archiving reports
+
+`python3 ~/pdghostd.py --archive` moves every report pair older than 30 days
+(by the stamp in its name; `--days N` to change it, `--dry-run` to only list)
+into `~/pdghosts/reports-archive/<YYYY-MM>.tar.xz`, one tar per month of
+stamps. A month's tar is rebuilt as its old members plus the new files under a
+temporary name, read back and compared (every old member present, every new
+file byte for byte), renamed over the old one, and only then are the originals
+deleted - a failure anywhere leaves the originals and the old tar as they were
+and exits 1. Only report-shaped names are touched: `status.txt` and
+`patchnotes.txt` stay. Each archived report's id, time and name are appended to
+`reports-archive/index.txt`, which is how a fix whose reports were archived
+still credits them in the Fixed column (without a link); archived reports leave
+the reports column. Their thumbnails are deleted with them.
+
+It runs monthly from `pdghostd-archive.timer` (the 1st, 04:30 UTC,
+`Persistent=true`), a oneshot unit with the same walls as the server:
+
+```sh
+sudo cp tools/pdghostd/pdghostd-archive.service tools/pdghostd/pdghostd-archive.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pdghostd-archive.timer
+systemctl list-timers pdghostd-archive.timer
+```
+
+Read an archived report with `tar -xJf ~/pdghosts/reports-archive/2026-09.tar.xz 20260917-104752-a27712e9.txt -O | less`.
 
 ## Changing it
 

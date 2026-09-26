@@ -1,0 +1,274 @@
+# What became of each problem report - read by pdghostd's report board
+# (GET /board, https://texturepacks.art/pdghosts/board). Lives on the server as
+# ~/pdghosts/reports/status.txt and is edited by hand at each pass over the
+# reports; the board picks up a change on its next request, no restart.
+#
+# One report a line:
+#
+#     <report id> <status> [<when>] <public comment...>
+#
+#   report id  the report's file name without .txt (20260925-224209-e9d359f1),
+#              or its stamp alone (20260925-224209) for every report sent in
+#              that second. A full id's line beats a stamp's.
+#   status     received  - looked at or not, nothing to say yet (the default:
+#                          a report with no line here, or no file at all)
+#              working   - in progress; "Fixed, in the next update - ..." for
+#                          a fix that is committed but not shipped
+#              fixed     - shipped in a deployed build. Say when (below):
+#                          it places the fix in the Fixed column.
+#              needinfo  - waiting on the tester for more
+#              notabug   - works as intended (say why in the comment)
+#              wontfix   - a decision not to change it
+#              duplicate - the comment starts with the other report's id; if
+#                          that one is fixed, this one is credited with it
+#              hidden    - taken off the board altogether (spam, or a note
+#                          that should not be public); the report is kept
+#   when       only "fixed" uses it, in one of two forms:
+#              <batch>.<line>  the line of the patch notes that announced the
+#                          fix - 1.17 is the 17th fix line under "notes 1" in
+#                          patchnotes.txt (the repo's, copied beside this file
+#                          as ~/pdghosts/reports/patchnotes.txt). The Fixed
+#                          column then shows that line's words, date and
+#                          "(thanks ...)"; the comment need only be
+#                          "Fixed in <build>", and the report's card reads
+#                          "Fixed in <build> - <the patch notes line>".
+#                          Batches never change once pushed, so the number
+#                          stays right. Preferred: each fix is written once.
+#              YYYY-MM-DD  the date it shipped, for a fix the patch notes do
+#                          not announce; then write the whole comment as
+#                          "Fixed in <build> - <where>: <what>", and give
+#                          every report fixed by the SAME change the
+#                          identical date and comment - the Fixed column
+#                          shows them as one entry crediting all senders.
+#   comment    one line, shown to everyone - plain words, no IPs, no paths,
+#              no function names. Report ids in it become links.
+#
+# A later line for the same report replaces an earlier one. Lines starting
+# with # and lines the board cannot read are ignored (a typo costs its line).
+
+20260917-104752-a27712e9 fixed 2026-09-17 Fixed in b25c449 - Combat Simulator: closing Report a Problem no longer leaves a black screen you cannot leave
+20260917-110033-16c32bff received
+20260917-115028-be832dba received
+20260917-191719-0b8031d7 fixed 2026-09-18 Fixed in 764e50e - GE-X Plus: no more falling through the floor
+20260917-193613-b060db39 received
+20260917-202627-b6421b31 fixed 2026-09-18 Fixed in f6b6f4c - GE-X Plus: the menu is no longer greyed out when the arenas are installed
+20260918-010526-590df470 fixed 2026-09-18 Fixed in 764e50e - GE-X Plus: no more falling through the floor
+20260918-025636-10bd5454 received
+20260918-030718-5a716410 received
+20260918-040507-9a0b391f received
+20260918-043423-d188ae51 received
+20260918-061140-d3df5659 received
+20260918-135304-23c5fb20 received
+20260918-174318-cc0e376a received
+20260918-191559-767d09a0 received
+20260919-010226-e6bdd020 received
+20260919-010950-a051ba8b received
+20260919-152911-20213d5c received
+20260919-174510-405a4b82 fixed 2026-09-24 Fixed in d1250ec - GoldenEye's rocket launcher: its own rocket sits in the tube and the logos no longer flicker
+20260919-181659-1030cf1f fixed 2026-09-23 Fixed in 31c3416 - GoldenEye's guns: the Cougar Magnum fires normally, without the host gun's pistol whip
+20260919-224724-2aeeac04 received
+20260919-235457-7c68f58d received
+20260920-020352-194a3364 received
+20260920-150653-c3060404 received
+20260920-150721-af38ed95 received
+20260920-181610-31379563 fixed 2026-09-23 Fixed in 89b49db - Community Packs: the big texture packs download and install
+20260920-193338-ed3fd41f received
+20260920-205129-227d4da2 fixed 2026-09-20 Fixed in cb4a0a1 - GE Plus Dam: no more getting stuck on the outside stairs or pushed into the wall
+20260920-220247-b5d7f877 fixed 2026-09-20 Fixed in 361ea2a - GE Plus Dam: the tower stairwell no longer shows blue sky
+20260921-031503-907e9ded fixed 2026-09-21 Fixed in 1fc03ad - GE Plus Dam ending: Bond stands on the platform, the dam draws behind him, and no doubling as he dives
+20260921-052309-2521d3da received
+20260921-053406-53405ef2 received
+20260921-054441-c8197161 duplicate 20260921-053406-53405ef2 - same HD Dam ground problem
+20260921-054552-57662380 duplicate 20260921-053406-53405ef2 - same HD Dam ground problem
+20260921-054818-5beb2491 fixed 1.1 Fixed in 1fc1832
+20260921-055024-d4ab11af fixed 2026-09-21 Fixed in 215145e - Windows: sending a report no longer closes the game
+20260921-055535-0bd9b417 fixed 2026-09-21 Fixed in 1fc03ad - GE Plus Dam ending: Bond stands on the platform, the dam draws behind him, and no doubling as he dives
+20260921-084329-4118d449 fixed 2026-09-21 Fixed in 3798006 - GE Plus Facility: the vents hold you crouched, as in GoldenEye
+20260921-085035-020988dd fixed 2026-09-21 Fixed in 4a1f90d - GE Plus Facility ending: Ourumov's soldiers no longer get stuck at the door
+20260921-092323-f72e4a42 fixed 2026-09-21 Fixed in 1fc03ad - GE Plus Dam ending: Bond stands on the platform, the dam draws behind him, and no doubling as he dives
+20260921-092611-56c8ac1e fixed 2026-09-22 Fixed in a3dead9 - GE Plus Frigate: the water and sky are back
+20260921-125450-c3527c16 working Fixed, in the next update - GE Plus Bunker: the GoldenEye key is named when picked up, analyses, and its objective completes
+20260921-135227-db03a8cc fixed 2026-09-21 Fixed in 263e8a7 - GE Plus: helicopters and the Runway plane are drawn in place in the cutscenes
+20260921-225820-38c7e062 received
+20260921-225910-34a43aac received
+20260921-230130-2e1584c4 received
+20260921-230200-bf015ded received
+20260921-230436-6e91eae3 fixed 1.1 Fixed in 1fc1832
+20260921-230500-ab392823 fixed 2026-09-21 Fixed in 2ab37da - GE Plus Runway: the back doors of the first building draw instead of the void
+20260921-230511-ba0b7bb0 received
+20260921-230637-617b0193 received
+20260921-230729-6ddf4105 received
+20260921-230826-73121d50 received
+20260921-230944-73ede620 received
+20260921-231814-9a11fc52 received Mission select clicks are fixed; the Bunker door texture is still open
+20260921-231912-f7b443eb working Fixed, in the next update - GE Plus: security cameras sweep and face the right way, and one shot in the lens destroys them
+20260921-231947-767d03e2 fixed 1.1 Fixed in 1fc1832
+20260921-232046-826ecfd8 received
+20260921-232910-c8716e15 fixed 2026-09-21 Fixed in 2ab37da - GE Plus Runway: Bond climbs onto the tank instead of walking through it, and it steers the right way
+20260921-233039-475562db fixed 2026-09-21 Fixed in 2ab37da - GE Plus Runway: Bond climbs onto the tank instead of walking through it, and it steers the right way
+20260921-233640-108650fd fixed 1.1 Fixed in 1fc1832
+20260921-234623-d24f7045 received
+20260921-235327-df076cd7 received
+20260921-235833-593f2eda received
+20260922-000405-5f40d627 received
+20260922-000516-35347eaf received
+20260922-000709-ea4e97b7 received
+20260922-000750-d8f29bef fixed 2026-09-22 Fixed in 32dfcff - GE Plus Bunker: the hanging TVs hang from their frame, not below it
+20260922-003018-74554da5 fixed 2026-09-22 Fixed in 0d4291e - GE Plus: the sniper scope no longer fills the screen with crosshairs
+20260922-003132-559fb64e fixed 2026-09-22 Fixed in 0d4291e - GE Plus: the sniper scope no longer fills the screen with crosshairs
+20260922-003233-a808160a fixed 2026-09-22 Fixed in 0d4291e - GE Plus HD: the truck's wheels roll and steer
+20260922-003544-08ea24aa fixed 2026-09-22 Fixed in 0d4291e - GE Plus HD: holes in level floors and props filled, like the Dam bungee platform
+20260922-031550-139b4b07 fixed 2026-09-22 Fixed in cba4ab7 - GE Plus Frigate: no black void round the boat, and the water is no longer blocky
+20260922-034813-7fd19c08 fixed 2026-09-22 Fixed in d597256 - GE Plus Frigate: the sea is blue, not green
+20260922-054950-6dbd95a6 fixed 2026-09-22 Fixed in 81d6781 - GE Plus: rooms behind an open door draw instead of the void
+20260922-054953-ad4d0066 received
+20260922-060640-8c41759f fixed 2026-09-22 Fixed in 56300aa - GE Plus Facility opening: the camera swirl points at Bond and stays out of the walls
+20260922-060645-c0437234 received
+20260922-065116-6e653f5c received
+20260922-065328-637e241f fixed 1.9 Fixed in ef6bffc
+20260922-065720-b5e05608 fixed 2026-09-22 Fixed in 1c87205 - GE Plus Caverns: the doors are back and the popping triangle is gone
+20260922-072831-df3aa712 received
+20260922-101315-e7de234d received
+20260922-183126-1fa1af04 received
+20260922-195500-fe1c210e received
+20260922-202854-0d5a66ea fixed 2026-09-22 Fixed in ec13696 - Main menu: Perfect Dark's own textures again with the GoldenEye arenas installed
+20260922-222733-190d770e fixed 2026-09-22 Fixed in 0e2b50d - GE Plus HD: windows draw as clear glass, not black panes or floating reflections
+20260922-223445-ad47bc40 fixed 2026-09-22 Fixed in 0e2b50d - GE Plus HD: windows draw as clear glass, not black panes or floating reflections
+20260922-223726-32a3a817 fixed 2026-09-22 Fixed in 0e2b50d - GE Plus HD: windows draw as clear glass, not black panes or floating reflections
+20260922-232054-a063b71d fixed 2026-09-22 Fixed in 9d096e2 - GE Plus HD: window panes sit in their frames instead of floating in the air
+20260922-235134-bc45bb61 fixed 2026-09-22 Fixed in 94de6a5 - GE Plus HD: guards no longer turn invisible up close
+20260922-235226-2248833d fixed 2026-09-22 Fixed in 94de6a5 - GE Plus HD: guards no longer turn invisible up close
+20260923-002500-4ef6a86e fixed 2026-09-23 Fixed in 0a1afbb - GE Plus HD Facility: Ourumov turns up for the ending
+20260923-003253-0025d915 received
+20260923-040351-1732fc73 fixed 2026-09-23 Fixed in e09d10a - Combat Simulator: simulants find their way better and drop off ledges
+20260923-071340-1ee74939 fixed 2026-09-25 Fixed in 718d5dc - XBLA look: Female Guard 2 no longer wears glasses
+20260923-195335-5087e5fa fixed 2026-09-23 Fixed in 26dc8c6 - GoldenEye's guns: a guard's gun no longer shows a muzzle flash when not firing
+20260923-225158-1c06f6c8 working GE Plus HD Dam: white patches on the ground and the white pyramid in the server room
+20260923-225230-d1602e35 received
+20260923-225257-5ea746b0 fixed 2026-09-24 Fixed in 6fe54fe - GE Plus HD: labels and logos on props no longer flicker
+20260923-230110-6e7ebabc received
+20260923-230340-bc4980a2 received
+20260923-231217-60c13f01 received
+20260923-231740-50fe725f working Fixed, in the next update - GE Plus Bunker: the GoldenEye key is named when picked up, analyses, and its objective completes
+20260924-001600-41e15050 received
+20260924-001658-b7065221 received
+20260924-011911-0287ddde notabug the graphics driver's Vulkan tops out at 8x MSAA; 16x is only there with OpenGL
+20260924-014646-fe993023 received
+20260924-031141-39d8622d fixed 2026-09-24 Fixed in d1250ec - GoldenEye's rocket launcher: its own rocket sits in the tube and the logos no longer flicker
+20260924-031228-8983611b fixed 2026-09-24 Fixed in d1250ec - GE Plus Dam: the truck no longer drives into the tower
+20260924-035424-9b734a2f fixed 2026-09-24 Fixed in 56b7cc9 - GoldenEye's guns fire and reload with their own sounds
+20260924-040926-8152ce95 received
+20260924-044333-51f8b53a received
+20260924-053452-a527054e fixed 2026-09-24 Fixed in 987478f - GE Plus HD third person: guns sit in the hand, not below it
+20260924-062727-fc848cac fixed 2026-09-24 Fixed in 4146432 - GE Plus HD: no N64 neck showing under the HD heads
+20260924-083443-60d07ce6 fixed 2026-09-24 Fixed in e3f2e7d - GE Plus HD Dam: the tear in the sky is gone
+20260924-085244-c42aba6f fixed 2026-09-24 Fixed in 7000690 - GE Plus HD: gates and the truck are solid from both sides again
+20260924-085921-7eb999f5 fixed 2026-09-24 Fixed in 331aa81 - GE Plus HD: the truck's wheel textures fit
+20260924-094803-81da71a9 fixed 2026-09-24 Fixed in 1954635 - GE Plus HD Jungle: the vines in the background are no longer black
+20260924-101249-39114f06 fixed 2026-09-24 Fixed in 6fe54fe - GE Plus HD: labels and logos on props no longer flicker
+20260924-172508-2ba2f482 received
+20260924-172555-2ac7096f fixed 2026-09-24 Fixed in 5d51279 - GoldenEye's automatic guns fire at GoldenEye's rate
+20260924-172623-5550e457 received
+20260924-172713-b109a6fa fixed 2026-09-24 Fixed in 5d51279 - GE Plus: guards hold rifles in two hands, as in GoldenEye
+20260924-173807-6323edd7 fixed 2026-09-24 Fixed in 5d51279 - GE Plus Dam: the alarm switch in the second guard house shows from inside
+20260924-232600-c2e21e44 fixed 2026-09-25 Fixed in a462088 - Area 51 Infiltration: walls no longer turn see-through to the sky, then black
+20260924-232619-82b67881 fixed 2026-09-25 Fixed in a462088 - Area 51 Infiltration: walls no longer turn see-through to the sky, then black
+20260924-232641-dcf0cc49 fixed 2026-09-25 Fixed in a462088 - Area 51 Infiltration: walls no longer turn see-through to the sky, then black
+20260924-235150-60fcc6be fixed 2026-09-25 Fixed in a462088 - GE Plus HD Facility: the lab flasks draw as glass, not black and white stripes
+20260925-025537-854ceb70 fixed 2026-09-25 Fixed in 9f09335 - GE Plus HD: no more see-through catwalks or missing pieces of floor
+20260925-025836-f13e4b55 fixed 2026-09-25 Fixed in 9f09335 - GE Plus HD: stripes painted on props no longer flicker
+20260925-025958-35a295c6 wontfix Kept as it is - in the tank you use its cannon; the empty left hand is hidden now
+20260925-030046-3e4c0e0c fixed 2026-09-25 Fixed in 9f09335 - Akimbo: no more duplicated guns after leaving the tank or switching back
+20260925-030405-d10f2ba0 fixed 2026-09-25 Fixed in 9f09335 - GE Plus HD Surface: the mountain panorama draws as the backdrop to the sky
+20260925-030439-2aaf4458 fixed 2026-09-25 Fixed in 9f09335 - GE Plus HD Surface: the fence shadow is chain-link, not a black band
+20260925-030603-9c0a75d8 fixed 2026-09-25 Fixed in 9f09335 - GE Plus HD: the whole level draws out to its edge, no trees popping in
+20260925-030742-12d50b73 fixed 2026-09-25 Fixed in 9f09335 - Report a Problem opens on the GE Plus folder, the watch and the title screen
+20260925-030812-3a5d629b fixed 2026-09-25 Fixed in 9f09335 - GE Plus HD watch: the letter I no longer goes missing
+20260925-030904-9f58d2ad fixed 2026-09-25 Fixed in 9f09335 - GE Plus watch: lists only this difficulty's objectives
+20260925-032341-55068f59 fixed 2026-09-25 Fixed in 9f09335 - GE Plus HD: no flicker under two-sided platforms
+20260925-032416-24d617d1 fixed 2026-09-25 Fixed in 9f09335 - GE Plus HD: the throwing knife is held by the blade
+20260925-035107-ee8e1581 fixed 1.20 Fixed in 6b17756
+20260925-044735-71df548d fixed 2026-09-25 Fixed in 6b17756 - GE Plus: the Golden Gun fires and reloads as in GoldenEye, not like the Magnum
+20260925-044809-12b8056b fixed 2026-09-25 Fixed in 6b17756 - GE Plus HD: Bond's winter hood no longer clips, and his neck is solid
+20260925-044839-a6d058ab fixed 2026-09-25 Fixed in 6b17756 - GE Plus HD: the Golden Gun is gold in the hand and on the floor
+20260925-051544-1a3f7a67 fixed 2026-09-25 Fixed in 718d5dc - GE Plus HD: each level uses the release's own fog on everything, so mountains show and nothing pops in
+20260925-062114-881c49fb fixed 2026-09-25 Fixed in 718d5dc - GE Plus HD: the rocket launcher shows one rocket, not two
+20260925-062522-81b86981 fixed 2026-09-25 Fixed in 718d5dc - GE Plus HD: each level uses the release's own fog on everything, so mountains show and nothing pops in
+20260925-064302-7dbb8353 fixed 1.5 Fixed in 718d5dc
+20260925-064727-5e136705 fixed 1.5 Fixed in 718d5dc
+20260925-065032-7b3a4959 fixed 1.1 Fixed in 1fc1832
+20260925-065515-95e98492 fixed 1.4 Fixed in 718d5dc
+20260925-065924-7a36d41e fixed 1.15 Fixed in 718d5dc
+20260925-070207-44b3fc4b fixed 1.2 Fixed in 718d5dc
+20260925-070337-52a4aa9a fixed 1.16 Fixed in 718d5dc
+20260925-074723-714d090b fixed 1.6 Fixed in ef6bffc
+20260925-080836-6633b1e7 fixed 1.7 Fixed in ef6bffc
+20260925-081417-bfb6f0ee fixed 1.7 Fixed in 718d5dc
+20260925-082140-d44984af fixed 1.7 Fixed in 718d5dc
+20260925-082543-c173b99e fixed 1.8 Fixed in ef6bffc
+20260925-162651-946538f9 fixed 1.9 Fixed in ef6bffc
+20260925-162703-50ed155d fixed 1.9 Fixed in ef6bffc
+20260925-162754-7c454765 fixed 1.9 Fixed in ef6bffc
+20260925-162954-54ccb07b fixed 1.11 Fixed in ef6bffc
+20260925-163132-a95b6fa2 fixed 1.10 Fixed in ef6bffc
+20260925-163455-4eaf3d92 fixed 1.11 Fixed in ef6bffc
+20260925-163518-d4a9a630 fixed 1.11 Fixed in ef6bffc
+20260925-222028-fbe67314 fixed 1.17 Fixed in 5ac4c31
+20260925-222134-f66fa14b fixed 1.18 Fixed in 5ac4c31
+20260925-222309-cb2065f6 fixed 1.17 Fixed in 5ac4c31
+20260925-223245-fc8504f5 fixed 1.19 Fixed in 5ac4c31
+20260925-223456-b9f5f392 received
+20260925-224209-e9d359f1 working Fixed, in the next update - Chicago: the patrol robot's shots no longer freeze in mid-air
+20260925-224248-8a9f8748 working Fixed, in the next update - Chicago: the patrol robot's shots no longer freeze in mid-air
+20260925-224436-ca0395c7 working blood splats will stop at the edge of the surface they land on
+20260925-224721-798a6c7c received
+20260925-224836-5070ebf7 working lights and the sun glaring through walls
+20260925-224933-0278af9d working lights and the sun glaring through walls
+20260925-225349-5d307248 fixed 1.3 Fixed in 1fc1832
+20260925-225423-ad8c0795 working guards standing at their posts will idle like GoldenEye's instead of standing frozen
+20260925-225534-959e8efc received
+20260925-225628-59f7512d working distant HD windows will look the way the N64 version's do
+20260925-225738-588b23cc received
+20260925-230009-c0cd3262 working mines will work like GoldenEye's: one in the hand, remote mines set off from the watch
+20260925-230034-f695819a received
+20260925-230105-3075525b working the gaps round the Runway door to the Facility
+20260925-230158-9586b9ba received
+20260925-230256-2e47a43d working Fixed, in the next update - GE Plus HD Runway: the tank's barrel turns with its turret
+20260925-230611-9a23d043 working Fixed, in the next update - GE Plus Runway: tank shells fire at GoldenEye's rate and no longer blow up in mid-air
+20260925-230637-955a5e11 working Fixed, in the next update - GE Plus Runway: the heavy gun emplacements wake up and fire, as in GoldenEye
+20260925-231104-2726cd59 fixed 1.12 Fixed in 1fc1832
+20260925-231132-9f31266f working Fixed, in the next update - GE Plus: security cameras sweep and face the right way, and one shot in the lens destroys them
+20260925-231159-f0d4c9a6 fixed 1.12 Fixed in 1fc1832
+20260925-231244-f6d8a1e6 fixed 1.12 Fixed in 1fc1832
+20260925-231502-c8e037aa working Fixed, in the next update - GE Plus Bunker: the GoldenEye key is named when picked up, analyses, and its objective completes
+20260925-231553-bf4bdf46 working Fixed, in the next update - GE Plus Bunker: the GoldenEye key is named when picked up, analyses, and its objective completes
+20260925-233118-d281007a working Fixed, in the next update - GE Plus: security cameras sweep and face the right way, and one shot in the lens destroys them
+20260925-233253-07829de0 received
+20260925-233617-435aa6fb received
+20260925-233626-f24d0b98 received
+20260925-233641-f3149b0a fixed 1.13 Fixed in ef6bffc
+20260925-233940-be574819 working Fixed, in the next update - GE Plus: a headshot does GoldenEye's damage, so Ourumov and Trevelyan flee instead of dying at once
+20260925-234037-9690d973 working Fixed, in the next update - GE Plus Silo: Bond puts his gun away in the ending
+20260925-234109-d222b51a received
+20260925-234249-2065f22a working Fixed, in the next update - GE Plus HD Dam: the gate in the opening cutscene draws
+20260925-234351-67928cc7 working the HD look will use the release's own crosshair
+20260925-234625-7f17e175 received
+20260925-234751-eaa59e4e working GE Plus HD Dam: white patches on the ground and the white pyramid in the server room
+20260925-234912-ae49d527 working Fixed, in the next update - GE Plus: picking up a gun no longer says you got a double
+20260925-235034-ae5a6c08 duplicate 20260921-230944-73ede620 - same Dam monitor
+20260925-235312-7d6c5894 received
+20260925-235430-93cfd2aa working the Facility conveyor escape and the gas tanks' poison mist, as in GoldenEye
+20260925-235522-460d61f2 working characters always drawn in full detail, with no missing torsos at a distance
+20260925-235655-caf13a35 fixed 1.1 Fixed in 1fc1832
+20260925-235806-a256acd5 working GE Plus HD Dam: white patches on the ground and the white pyramid in the server room
+20260925-235810-dbc6d9de working lights and the sun glaring through walls
+20260926-000033-e04d2b30 working characters always drawn in full detail, with no missing torsos at a distance
+20260926-000440-98bac3a1 received
+20260926-001445-d86bd3cb working Fixed, in the next update - GE Plus Cradle: Trevelyan no longer climbs the ladder at the end, and Bond can climb down it
+20260926-001615-17e65333 working lights and the sun glaring through walls
+20260926-001945-8fca1951 notabug Baron Samedi's body does disappear, as on N64
+20260926-002010-b07a9512 notabug Baron Samedi's body does disappear, as on N64
+20260926-004756-627d4444 received
+20260926-005817-9ef97c2c working Fixed, in the next update - GE Plus: a headshot does GoldenEye's damage, so Ourumov and Trevelyan flee instead of dying at once
+20260926-005903-8b929f42 working Fixed, in the next update - GE Plus Cradle: Trevelyan no longer climbs the ladder at the end, and Bond can climb down it
+20260926-010126-40c0a72c working Fixed, in the next update - GE Plus: a headshot does GoldenEye's damage, so Ourumov and Trevelyan flee instead of dying at once
