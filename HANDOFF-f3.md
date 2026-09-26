@@ -288,3 +288,10 @@ edits. The addition is small (one function and a stub), but check the merge.
     chrMoveToPos() puts the guard 60 units nearer (spawn adjust), hence GX/GZ.
   - Facility (0x63 in this install, 0x7a in the tester's): X=-4544.9 Y=80
     Z=1361.7 ROOMS=8 TH=258.4 VA=-32 CHR=44.
+
+## Update 2026-09-26: Doak's head decision reversed by the user
+
+The user chose the release's own HD head for Cgx051Z (headdave) over GoldenEye's
+low-poly head, although the release's face is not Doak's. 332cf6283 is reverted
+(cb052e42c); the generator's NOT_THEIRS is now empty (outside git,
+.xbla-work/ge-bean/gen_chrtable.py). The neck fix (ad93e5904) stays.
