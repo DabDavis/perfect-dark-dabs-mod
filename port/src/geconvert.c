@@ -5453,8 +5453,18 @@ static void modelWalk(const buf *d, uint32_t o, uint32_t parent, nodes *out, int
 		// a character's shadow (the blob it stands on): Perfect Dark's model
 		// format has no such node and the port's model preprocessing refuses
 		// one, and every one of the 42 in the ROM is a childless leaf at the
-		// end of its chain, so leaving it out relinks nothing
-		if ((n.type & 0xff) != 0x0d) {
+		// end of its chain, so leaving it out relinks nothing.
+		// 0x0f, GoldenEye's interlink: two points and a size, drawn as
+		// nothing and read only as a prop's depth sort and, in the watch's
+		// detonator (GtriggerZ, and GwatchlaserZ, the same file), as the
+		// axis its switch 28 turns the pressing hand about (gunfire.c) -
+		// gegadgets.c keeps that axis. Perfect Dark has no such node either;
+		// the two in the ROM are childless leaves at the end of their chain
+		if ((n.type & 0xff) == 0x0f && (n.child || n.next)) {
+			fail("an interlink node with more after it");
+		}
+
+		if ((n.type & 0xff) != 0x0d && (n.type & 0xff) != 0x0f) {
 			VECPUSH(*out, n);
 
 			if (n.child) {
@@ -6031,9 +6041,12 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 		if (nds.v[i].next) {
 			const uint32_t a = ADDR(nds.v[i].next);
 			if (!a) {
-				// a character's next can be the shadow that was left out, which
-				// ends its chain there and has nothing to point back
-				if (ischr != 1) {
+				// a next can be the shadow or the interlink that was left out
+				// (modelWalk()), which ends its chain there and has nothing
+				// to point back
+				const uint32_t t = be16(d.v, nds.v[i].next) & 0xff;
+
+				if (t != 0x0d && t != 0x0f) {
 					fail("%s: a node's next is not a node", p->file);
 				}
 				continue;
@@ -6889,7 +6902,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// and the guns a hand holds (geguns.c): GoldenEye's own first person
 		// models, each with the hand that holds it, converted the same way
 		// and written under its item number - ITEM_KNIFE (2) to
-		// ITEM_REMOTEMINE (29), whichever of them the table gives a model
+		// ITEM_REMOTEMINE (29) and the detonator (30), whichever have a model
 		{
 			int written = 0;
 
@@ -6903,10 +6916,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				char rel[64];
 
 				// the silver and gold PP7s and the watch laser are no gun of
-				// the port's (g_GeItemWeapon gives them another's), and the
-				// watch laser's model is a node type nothing here reads
+				// the port's (g_GeItemWeapon gives them another's); past the
+				// remote mine, the watch's detonator (ITEM_TRIGGER, 30,
+				// WEAPON_GE_DETONATOR) and the gadgets
 				if (!g_Items[item].file || item == 20 || item == 21 || item == 23
-						|| (item > 29 && !soloGadgetItem(item))) {
+						|| (item > 30 && !soloGadgetItem(item))) {
 					continue;
 				}
 

@@ -235,9 +235,16 @@ def convert(num):
         while o:
             node = dict(at=o, type=struct.unpack_from('>H', d, o)[0], rodata=u(o + 4), parent=parent,
                         child=u(o + 20) - SEG if u(o + 20) else 0, next=u(o + 12) - SEG if u(o + 12) else 0)
-            nodes.append(node)
-            if node['child']:
-                walk(node['child'], o)
+            # 0x0f, GoldenEye's interlink, drawn as nothing and a node
+            # Perfect Dark has no reader for: left out, as gechr.py leaves a
+            # shadow out (no prop has one; the watch detonator's hand does)
+            if (node['type'] & 0xff) == 0x0f:
+                if node['child'] or node['next']:
+                    raise ValueError('%s: an interlink node with more after it' % name)
+            else:
+                nodes.append(node)
+                if node['child']:
+                    walk(node['child'], o)
             o = node['next']
     walk(root, 0)
 
@@ -329,7 +336,8 @@ def convert(num):
         struct.pack_into('>I', w.out, fixup, SEG + at)
     # prev pointers
     for i, n in enumerate(nodes):
-        if n['next']:
+        # an interlink left out ends its chain and has nothing to point back
+        if n['next'] and n['next'] in addr:
             struct.pack_into('>I', w.out, addr[n['next']] - SEG + 0x10, SEG + nodesat + 0x18 * i)
     for i, p in enumerate(switches):
         struct.pack_into('>I', w.out, partsat + 4 * i, reloc_node(p))
