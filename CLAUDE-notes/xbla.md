@@ -1419,14 +1419,20 @@ mask - a grafted head's box wounds the head, a body's `HITPART_HEAD` box both
 (they share the body's rest space, since `xblaMeshNodeRestOffset()` walks up
 through the headspot), anything else the body. PD's bodies have a part 8 box
 too, so a PD release head can now take a wound from it as well; a PD body
-shot is pixel-identical to before. A single head wound (radius 100) washes
-most of the face - the same radius as PD's, left alone.
+shot is pixel-identical to before. At the body's radius (100) a single head
+wound washed most of the face, PD's release heads as much as GoldenEye's, so
+a head mesh's wounds take `XBLAMESH_WOUND_RADIUS_HEAD` (40): about half a
+head's width across, as a body wound is to a torso - a patch over the nose
+and a cheek. Body wounds are untouched (GE back, GE front and a PD body shot
+pixel-identical before and after).
 
 The N64 look (GE Plus's converted `Cgx` models) bruises natively. Probe:
 `~/wt/f3-0926d-blood-run/probes/blood.py` (the nearest guard moved in front
 with `chrMoveToPos()`, `maxdamage` 1000, Z held through the `input.c:1050`
 hook; `NOAUTO=1` clears `OPTION_AUTOAIM`) and `headbruise.py` (`chrBruise()`
-called on the body's part 8 box). Do not name a gdb convenience variable
+called on the body's part 8 box; set `g_Vars.hitboundscount = 0` first or a
+stale count bruises nothing, and on a Combat Sim bot `FREEZE=1` returns from
+`botTickUnpaused` and `ROT=180` faces it to the camera). Do not name a gdb convenience variable
 `$bp` - it is the frame pointer register.
 
 #### The release's own tables (2026-09-15)

@@ -8549,6 +8549,9 @@ static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
  * the game's own bruises do.
  */
 #define XBLAMESH_WOUND_RADIUS 100.0f
+// A grafted head's: a head is about a third the size of a torso, and at the
+// body's radius one hit reddened most of the face (2026-09-26)
+#define XBLAMESH_WOUND_RADIUS_HEAD 40.0f
 #define XBLAMESH_WOUND_TINT_PEAK 96   // 160 read too bright; 40% darker (2026-09-15)
 #define XBLAMESH_WOUNDMODELS  128
 #define XBLAMESH_WOUNDRING    16
@@ -8685,7 +8688,8 @@ static const u8 *xblaMeshWoundStrength(const struct xblameshbuilt *m, const stru
 		const struct xblameshbruise *br, s32 kind)
 {
 	struct xblameshwounds *w = xblaMeshWoundsFor(model, 0);
-	const f32 r2 = XBLAMESH_WOUND_RADIUS * XBLAMESH_WOUND_RADIUS;
+	const f32 radius = kind ? XBLAMESH_WOUND_RADIUS_HEAD : XBLAMESH_WOUND_RADIUS;
+	const f32 r2 = radius * radius;
 	u32 from;
 
 	if (!w || !br->mappos) {
