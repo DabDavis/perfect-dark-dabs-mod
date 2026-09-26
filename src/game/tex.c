@@ -214,8 +214,8 @@ const char var7f1b7c2c[] = "";
 bool g_TexPipeSynced = false;
 
 #ifndef PLATFORM_N64
-// What the Carrington Institute lift's side panels draw with in the release's
-// rooms - see texLoadFromGdl(). 027b is the ROM's own chrome strip.
+// What the Carrington Institute's lift side panels and lamp housings draw with
+// in the release's rooms - see texLoadFromGdl(). 027b is the ROM's own chrome strip.
 s32 g_TexCiLiftSideTexture = 0x027b;
 #endif
 u32 var800844d4 = 0x00000000;
@@ -917,14 +917,19 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 			flag = ingdl->words.w0 & 0x200;
 
 #ifndef PLATFORM_N64
-			// The release points the Carrington Institute lift's side panels
-			// at 0671, one of the Dam's textures, where the ROM has its own
-			// chrome strip 027b; they read as see-through. They take the ROM's
-			// strip back, drawn flat as the N64 drew it. Reflecting the lift
-			// door's 038c off each triangle's face was tried and stretched a
-			// few of its 32x32 texels over the whole pillar, and the sphere
-			// maps 0042 and 006d drew dark or see-through.
-			if (xblaStageIsRelease() && g_Vars.stagenum == STAGE_CITRAINING
+			// The release points the Carrington Institute's chrome strip 027b
+			// at 0671, one of the Dam's textures, and it reads as see-through:
+			// the lift side panels (rooms 1 and 66) and the lamp housings under
+			// the hangar's striped beams (rooms 88 and 89). They take the
+			// ROM's strip back, drawn flat as the N64 drew it. Reflecting the
+			// lift door's 038c off each triangle's face was tried and
+			// stretched a few of its 32x32 texels over the whole pillar, and
+			// the sphere maps 0042 and 006d drew dark or see-through.
+			//
+			// Keyed on the level file rather than the stage: Defense is the
+			// same bg_dish as the Institute, and bg_dish has no 0671 of its
+			// own in the ROM - every one in the release's copy is this.
+			if (xblaStageIsRelease() && g_Stages[g_StageIndex].bgfileid == FILE_BG_DISH_SEG
 					&& ingdl->unkc0.subcmd != 1 && (ingdl->words.w1 & 0xffff) == 0x0671) {
 				texturenum = g_TexCiLiftSideTexture;
 			}
