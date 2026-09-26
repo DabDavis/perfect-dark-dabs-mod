@@ -12182,8 +12182,10 @@ void func0f041a74(struct chrdata *chr)
 			chr->prop->forcetick = false;
 		}
 
+#ifdef PLATFORM_N64
 		beamTick(chr->unk348[0]->beam);
 		beamTick(chr->unk348[1]->beam);
+#endif
 	} else if (chr->actiontype == ACT_ATTACKAMOUNT) {
 		if (chr->act_attack.numshots < chr->act_attack.maxshots
 				&& (chr->hidden & CHRHFLAG_FIRINGRIGHT)) {
@@ -12200,6 +12202,20 @@ void func0f041a74(struct chrdata *chr)
 			chr->hidden &= ~CHRHFLAG_FIRINGLEFT;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// A robot's shots fly on after its attack is over, so they are ticked
+	// whatever it is doing. Stock ticked them only during ACT_ROBOTATTACK,
+	// and the attack ends as soon as the guns have swung back to centre -
+	// which can be before the last shots reach their target. Those then hung
+	// in the air, drawn, until the next attack reset them. At 30 fps a shot
+	// lands in a tick or two and it hardly ever showed; at 60 fps and above
+	// a shot needs four ticks or more, so it did most bursts.
+	if (chr->unk348[0] && chr->unk348[1]) {
+		beamTick(chr->unk348[0]->beam);
+		beamTick(chr->unk348[1]->beam);
+	}
+#endif
 }
 
 bool func0f041c44(struct chrdata *chr)
