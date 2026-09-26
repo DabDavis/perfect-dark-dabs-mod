@@ -11204,3 +11204,57 @@ parts 8-13/35, decals) take the hand.
   (front or back, standing: 2 x torso), a miss at 120 whooshes. Sims on the GE
   Dam arena never fight at all in a seeded headless match (the stock build too),
   so the sims' slap path is untested.
+
+## A guard inside the Cradle's door, and Surface's padlocks that stayed whole (2026-09-26)
+
+F3 tenth pass, two Windows reports on 49783dc, both real on dabs-mod 7c28b6d41.
+
+**20260926-170419, Cradle: "guard clips through this door instead of opening".**
+The trace's chr 1 stood at (-2348 3869 -1496), act GOPOS, room 18, on the shut
+door of pad 155 (room 12's). A door prop's rooms come from its middle, and a
+converted level's room boxes meet at the door's plane: pad 155's door sits at x
+-2343, room 12's box starts at -2348 and room 18's ends there. The Cradle has no
+portals, so `geRoomDoorPortalRooms()` never ran and the door was room 12's
+alone. A guard from room 18 asks only his own rooms for props - his
+door-opening line (`chrOpenDoor()`) found no door, and his moves met none until
+he had crossed into room 12, inside the leaf. The probe
+(`~/wt/f3-0926d-doors-run/probes/doorthru.py`: chr 1 moved to pad 40's side,
+sent to pad 31 with `chrGoToRoomPos()`, the player at the report's spot) stuck
+him at **exactly** the report's coordinates; `ADDROOM=18` (the door put in room
+18 from gdb) let him open it and walk through. **Fix:**
+`geRoomDoorSideRooms()` (geroom.c), from `setupCreateDoor()` for every door on
+a remake stage: the room of the floor tile (`geStanRoomUnder()`) 20 and 60 units
+past each face of the leaf, at its foot; the thin axis is the smallest of the
+pad box's three, and a door lying flat is skipped. 50 doors on 9 of the 20
+missions gain a room (Bunker 2's 18 cell doors, Cradle's 5). The native port
+(`~/dam-oracle/gecraddoor.py`, guard slot 1 teleported to pad 40 and sent by
+`chrGoToPad()`): GoldenEye's guard stops about 160 short of the leaf, opens it,
+waits to ~0.66 and walks through to pad 31; ours now stops ~25 short (Perfect
+Dark's own door line), waits and walks through.
+
+**20260926-171951, Surface: "Locks doesnt destroy properly ... like in N64".**
+Measured against the oracle (`~/dam-oracle/gelocks.py`: every padlock given
+`objApplyDamage()`), the *mechanism* was already GoldenEye's: the locks stay
+where they hang (y 450) in both games, and once the fourth goes the grate (type
+FALLAWAY, maxfrac 65/65536 - "open" is falling) drops down the shaft to y -1302
+in both. What differed was the crumpling. Perfect Dark's `objDeform()` pushes a
+vertex at most ten units *times the object's scale* (0.1 for a GoldenEye prop),
+squashes the matrix, and blackens by pointing the vertex at the list's first
+colour entry; a converted list has one colour entry per vertex
+(gemodelconv.py), so nothing went black and the lock came out whole with its
+shackle open. On a remake stage a GoldenEye prop now takes GoldenEye's rule
+(`objDeformGe()` in propobj.c): press towards the list's lowest vertex (0.9, or
+by 60 from level 3), push up to 40 model units, write black into the vertex's
+own entry (90% of the upper half, 20% of the lower; reversed for the TV mount;
+desks and the wooden table never), alpha 0 on the rest at level 1, no matrix
+squash - seeded from GoldenEye's own per-prop seeds (`geexplosionseeds.h`,
+generated from the decomp's `object_explosion_details`, index level or level+3
+by a coin toss), the seed sign-extended as the MIPS register (and the native
+port) has it. With seed 0x6a2a a padlock is 178 black / 56 clear of 234 -
+exactly the oracle's count (`probes/lockcols2.py SALT=0x6a2a`, run2 rig).
+
+**Open:** the oracle draws the crumpled lock in Surface's lavender fog colour
+(97,97,129), ours draws the black vertices black. The combiner and blender on
+both sides are the same rows (G_CC_CUSTOM_17/18, FOG_PRIM_A), and the oracle's
+sky went to colour noise in the same frames, so its colour is not trusted
+yet; not chased.
