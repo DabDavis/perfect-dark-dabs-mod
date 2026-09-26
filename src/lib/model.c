@@ -2947,6 +2947,11 @@ void modelApplyRenderModeType3(struct modelrenderdata *renderdata, bool arg1)
 				gDPSetFogColorViaWord(renderdata->gdl++, renderdata->fogcolour);
 				gDPSetEnvColorViaWord(renderdata->gdl++, 0xffffffff);
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
+#ifndef PLATFORM_N64
+				if (modGetGlassSeeThrough() > 0) {
+					gDPSetCombineMode(renderdata->gdl++, G_CC_TRILERP, G_CC_CUSTOM_GLASS_LERP);
+				} else
+#endif
 				gDPSetCombineMode(renderdata->gdl++, G_CC_TRILERP, G_CC_CUSTOM_20);
 
 				if (renderdata->zbufferenabled) {
@@ -2976,6 +2981,11 @@ void modelApplyRenderModeType3(struct modelrenderdata *renderdata, bool arg1)
 				}
 			} else {
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
+#ifndef PLATFORM_N64
+				if (modGetGlassSeeThrough() > 0) {
+					gDPSetCombineMode(renderdata->gdl++, G_CC_CUSTOM_22, G_CC_CUSTOM_GLASS_LERP);
+				} else
+#endif
 				gDPSetCombineMode(renderdata->gdl++, G_CC_CUSTOM_22, G_CC_CUSTOM_23);
 
 				if (renderdata->zbufferenabled) {
@@ -3109,6 +3119,11 @@ void modelApplyRenderModeType4(struct modelrenderdata *renderdata, bool arg1)
 			gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
 
 			if (arg1) {
+#ifndef PLATFORM_N64
+				if (modGetGlassSeeThrough() > 0) {
+					gDPSetCombineMode(renderdata->gdl++, G_CC_TRILERP, G_CC_CUSTOM_GLASS_LERP);
+				} else
+#endif
 				gDPSetCombineMode(renderdata->gdl++, G_CC_TRILERP, G_CC_CUSTOM_20);
 
 				if (renderdata->zbufferenabled) {
@@ -3117,6 +3132,11 @@ void modelApplyRenderModeType4(struct modelrenderdata *renderdata, bool arg1)
 					gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_OPA_SURF2);
 				}
 			} else {
+#ifndef PLATFORM_N64
+				if (modGetGlassSeeThrough() > 0) {
+					gDPSetCombineMode(renderdata->gdl++, G_CC_TRILERP, G_CC_CUSTOM_GLASS_LERP);
+				} else
+#endif
 				gDPSetCombineMode(renderdata->gdl++, G_CC_TRILERP, G_CC_CUSTOM_20);
 
 				if (renderdata->zbufferenabled) {
@@ -3141,6 +3161,11 @@ void modelApplyRenderModeType4(struct modelrenderdata *renderdata, bool arg1)
 				}
 			} else {
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
+#ifndef PLATFORM_N64
+				if (modGetGlassSeeThrough() > 0) {
+					gDPSetCombineMode(renderdata->gdl++, G_CC_CUSTOM_22, G_CC_CUSTOM_GLASS_LERP);
+				} else
+#endif
 				gDPSetCombineMode(renderdata->gdl++, G_CC_CUSTOM_22, G_CC_CUSTOM_23);
 
 				if (renderdata->zbufferenabled) {

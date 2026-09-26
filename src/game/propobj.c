@@ -4956,6 +4956,27 @@ s32 glassCalculateOpacity(struct coord *pos, f32 xludist, f32 opadist, f32 arg3)
 		opacity = (((distance - xludist) * (1.0f - arg3)) / (opadist - xludist) + arg3) * 255;
 	}
 
+#ifndef PLATFORM_N64
+	{
+		// Glass See-Through (modGetGlassSeeThrough()): the fade stops short
+		// of opaque, keeping that share of the way back to the pane's clear
+		// look (arg3, its opacity up close). 255 is also what shuts the
+		// portal behind a tinted pane and a windowed door, so a pane held
+		// under it leaves the rooms beyond drawn at any distance - which is
+		// the see-through, and its cost. Off, this is stock to the bit.
+		s32 seethrough = modGetGlassSeeThrough();
+
+		if (seethrough > 0) {
+			s32 clear = arg3 * 255;
+			s32 cap = 255 - (255 - clear) * seethrough / 100;
+
+			if (opacity > cap) {
+				opacity = cap;
+			}
+		}
+	}
+#endif
+
 	return opacity;
 }
 

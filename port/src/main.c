@@ -413,6 +413,8 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.DisableFog", &g_ModOptions.nofog, 0, 1);
 	configRegisterInt("Mod.XblaReflectCutoff", &g_ModOptions.xblareflectcutoff, 0, 1);
 	configRegisterInt("Mod.GlareClip", &g_ModOptions.glareclip, 0, 1);
+	// Glass See-Through: how much of its clear look a distant window keeps. See modoptions.c.
+	configRegisterInt("Mod.GlassSeeThrough", &g_ModOptions.glassseethrough, 0, 100);
 	configRegisterInt("Mod.SmoothText", &g_ModOptions.smoothtext, 0, 1);
 	configRegisterInt("Mod.EnhanceTextures", &g_ModOptions.enhancetextures, MODENHANCE_OFF, MODENHANCE_MAX);
 	configRegisterInt("Mod.VividColours", &g_ModOptions.vividcolours, MODVIVID_OFF, MODVIVID_MAX);
