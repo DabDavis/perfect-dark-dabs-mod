@@ -9048,6 +9048,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					v[k].uv[0] = bv.uv[0];
 					v[k].uv[1] = bv.uv[1];
 					v[k].argb = bv.argb;
+					v[k].blend = draw->blend;
 				}
 			}
 

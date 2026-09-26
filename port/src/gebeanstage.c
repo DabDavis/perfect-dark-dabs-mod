@@ -89,6 +89,7 @@ struct stri {
 	u8 nofog;   // on a triangle GoldenEye draws without fog (fileRoomTrianglesEach())
 	u8 backed;  // one face of a two-faced sheet, drawn culled (markBacked())
 	u8 fights;  // a face with another face back to back over part of it (markFights())
+	u8 blend;   // drawn in the release's blended pass (triFades())
 };
 
 // The level being served, built when its first room is asked for
@@ -1224,10 +1225,17 @@ static s32 triCulled(const struct stri *t)
  * alpha is translucent, whatever its picture's texels are: as a cut-out its
  * alpha would be the threshold's, and Dam's server room lamp threw a cone of
  * solid white, its picture being opaque at the lamp (F3 20260925-235806).
+ *
+ * So is one the release draws in its blended pass (source alpha over the
+ * rest) whatever its picture: Archives' light shafts are an opaque 32x32 grey
+ * (DXT1) on vertices of alpha 0 to 126, and in the opaque leaf they stood as
+ * solid white slabs across the rooms (F3 20260926-101221). Outside that pass
+ * an opaque picture's vertex alpha is not a fade - the stride 32 vertex's
+ * blend word goes into it - and is left alone.
  */
 static s32 triFades(const struct stri *t)
 {
-	return texHasAlpha(t->tex)
+	return (texHasAlpha(t->tex) || t->blend)
 		&& ((t->argb[0] >> 24) < FADE_ALPHA || (t->argb[1] >> 24) < FADE_ALPHA || (t->argb[2] >> 24) < FADE_ALPHA);
 }
 
@@ -1713,6 +1721,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	}
 
 	t->tex = (s16)tex;
+	t->blend = v[0].blend;
 	t->room = 0;
 	t->decal = 0;
 	t->nofog = 0;
