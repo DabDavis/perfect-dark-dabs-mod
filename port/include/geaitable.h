@@ -338,7 +338,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* e4 BondEquipItemCinema                    */ {  2, 0x00ed,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {0, 1, 0} } },
 	/* e5 BondSetLockedVelocity                  */ {  3, 0x00ee,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {-1, 1, 0x00f2}, {0, 1, 0}, {1, 1, 0} } },
 	/* e6 IFObjectInRoomWithPad                  */ {  5, 0x00ef,  3, { 1, 2, 1 }, 0x0002, 0x0000, 0x0000, 0x0000,  3, { {0, 1, 0}, {1, 2, 0}, {2, 1, 0} } },
-	/* e7 IFImFiringAndLockedForward             */ {  2,     -1,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* e7 IFImFiringAndLockedForward             */ {  2, 0x00f0,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* e8 IFImFiring                             */ {  2, 0x00f1,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* e9 SwitchSky                              */ {  1, 0x00f2,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* ea TriggerFadeAndExitLevelOnButtonPress   */ {  1, 0x01e1,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
