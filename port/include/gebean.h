@@ -124,6 +124,22 @@ s32 gebeanRowKeepsHood(s32 bodyrow, s32 headrow);
 s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out);
 
 /**
+ * How far to move a GoldenEye gun a character holds, in the gun's own space,
+ * so that the release's pickup sits in the hand where GoldenEye holds its own
+ * rather than where its host's held position puts it; 0 when there is nothing
+ * to move (the N64 look, a gun whose host is held from GoldenEye's own point).
+ */
+s32 gebeanHeldGunOffset(struct model *model, s32 modelnum, f32 out[3]);
+
+/**
+ * How far along x (a weapon's posx units) the first-person gun is drawn from
+ * where its model is put - GoldenEye's position less its host's, for a gun the
+ * release's mesh draws where GoldenEye holds it - and whether there is such a
+ * shift.
+ */
+s32 gebeanFirstPersonOwnPlaceShiftX(s32 weaponnum, f32 *dx);
+
+/**
  * Whether the gun drawn in the hand for this weapon is made with its round in
  * the tube - the release's rocket launcher is - so that the hand's own held
  * rocket (bondgun.c) is not drawn over it.

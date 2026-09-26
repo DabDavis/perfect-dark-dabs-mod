@@ -102,6 +102,11 @@ struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef,
 void gegunsOwnMeleeStart(struct hand *hand, s32 handnum);
 void gegunsOwnMeleeTick(struct hand *hand, s32 handnum, f32 lvupdate60);
 
+// GoldenEye's knife throw on its own model, the same way: begun by a throw,
+// the draw back and, once the knife has gone, the follow-through
+void gegunsOwnThrowStart(struct hand *hand, s32 handnum);
+void gegunsOwnThrowTick(struct hand *hand, s32 handnum, f32 lvupdate60);
+
 // Whether a model is the gun in one of the current player's hands and that
 // hand has no rocket loaded (gebean.c's fpRound)
 s32 gegunsHandIsSpent(const struct model *model);

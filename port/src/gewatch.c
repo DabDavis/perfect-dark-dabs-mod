@@ -1523,8 +1523,12 @@ static void watchTakeGunBack(void)
 	}
 
 	g_Watch.hadweapons = 0;
-	bgunEquipWeapon2(HAND_RIGHT, g_Watch.weapons[HAND_RIGHT]);
-	bgunEquipWeapon2(HAND_LEFT, g_Watch.weapons[HAND_LEFT]);
+
+	// the hands as they were, pair or single: bgunEquipWeapon2(HAND_LEFT,
+	// WEAPON_NONE) only leaves the left hand undecided, and the switch then
+	// doubles any gun the inventory holds two of (a single KF7 came back
+	// as a pair when a second had been picked up)
+	bgunEquipHands(g_Watch.weapons[HAND_RIGHT], g_Watch.weapons[HAND_LEFT]);
 }
 
 /**

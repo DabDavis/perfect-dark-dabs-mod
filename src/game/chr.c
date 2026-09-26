@@ -98,6 +98,7 @@ static bool chrIsGeListBody(struct chrdata *chr)
 #ifndef PLATFORM_N64
 #include "trace.h"
 #include "xblamesh.h"
+#include "gebean.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
 #endif
@@ -2462,6 +2463,8 @@ void chr0f022214(struct chrdata *chr, struct prop *prop, bool fulltick)
 #ifndef PLATFORM_N64
 		Mtxf held;
 		f32 heldoff[3];
+		Mtxf gunheld;
+		f32 gunoff[3];
 #endif
 
 		prop->flags |= PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK;
@@ -2501,6 +2504,22 @@ void chr0f022214(struct chrdata *chr, struct prop *prop, bool fulltick)
 		}
 
 #ifndef PLATFORM_N64
+		// A GoldenEye gun drawn as the release's is held from GoldenEye's own
+		// point on it rather than its host's (gebeanHeldGunOffset()); the
+		// move is in the gun's space, after the left hand's flip
+		if ((obj->hidden & OBJHFLAG_EMBEDDED) == 0 && CHRRACE(chr) != RACE_SKEDAR
+				&& gebeanHeldGunOffset(model, obj->modelnum, gunoff)) {
+			const Mtxf *base = thing.unk00;
+
+			gunheld = *base;
+
+			for (s32 a = 0; a < 3; a++) {
+				gunheld.m[3][a] += gunoff[0] * base->m[0][a] + gunoff[1] * base->m[1][a] + gunoff[2] * base->m[2][a];
+			}
+
+			thing.unk00 = &gunheld;
+		}
+
 		// Out of matrix space for this frame: leave the held object out of it
 		// rather than take a pointer past the end of the pool. See gfxmemory.c.
 		if (!gfxHasVtxSpace(model->definition->nummatrices * sizeof(Mtxf))) {

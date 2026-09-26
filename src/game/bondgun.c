@@ -2426,6 +2426,11 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 				bgunStartAnimation(func->base.fire_animation, handnum, hand);
 				hand->unk0cc8_01 = true;
 			}
+
+#ifndef PLATFORM_N64
+			// GoldenEye's own throwing knife is swung whole (geguns.c)
+			gegunsOwnThrowStart(hand, handnum);
+#endif
 		}
 
 		if (func->base.fire_animation) {
@@ -3604,6 +3609,7 @@ void bgunTickHand(s32 handnum)
 #ifndef PLATFORM_N64
 	// after the states, which clear the hand's posrotmtx each pass
 	gegunsOwnMeleeTick(hand, handnum, g_Vars.lvupdate60freal);
+	gegunsOwnThrowTick(hand, handnum, g_Vars.lvupdate60freal);
 #endif
 }
 
