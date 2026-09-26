@@ -2840,6 +2840,27 @@ s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb)
 	// it its own (Surface 2's grey storm)
 	gebeanSkyFogColour(rgb);
 
+	// GoldenEye's gas cloud (and sky switch) fades the level's fog to its
+	// second sky (bgfog.c's fogSwitchToSolosky2(); env.c's
+	// envApplyTransitionFrac()): the release's fog closes in by the same
+	// share as GoldenEye's own far fog - Facility's from 5000 to 1000 - and
+	// takes the second sky's colour, the gas's green
+	{
+		struct fogenvironment *from, *to;
+		f32 frac;
+
+		if (envGetTransition(&frac, &from, &to) && from->far > 0) {
+			const f32 share = 1.0f + frac * ((f32)to->far / (f32)from->far - 1.0f);
+			const u8 torgb[3] = { to->sky_r, to->sky_g, to->sky_b };
+
+			*end = *start + (*end - *start) * share;
+
+			for (s32 i = 0; i < 3; i++) {
+				rgb[i] = rgb[i] + frac * ((f32)torgb[i] - (f32)rgb[i]);
+			}
+		}
+	}
+
 	return 1;
 }
 

@@ -17,7 +17,6 @@ s32 gegadgetsIsGadget(s32 weaponnum);
 // GoldenEye's ITEM_IDS for the weapon on the mission loaded, 0 for none
 s32 gegadgetsItem(s32 weaponnum);
 void gegadgetsStageLoad(s32 stagenum);
-void gegadgetsTick(void);
 // the trigger pulled with one in the hand
 void gegadgetsFire(s32 weaponnum);
 // lvRender(), after the player's props: the camera's photograph is judged here
@@ -29,7 +28,8 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 // gadget thrown from the hand
 struct prop;
 void gegadgetsKept(struct prop *prop);
-void gegadgetsThrown(s32 weaponnum);
+struct weaponobj;
+void gegadgetsThrown(s32 weaponnum, struct weaponobj *thrown);
 // the thrown prop's model state, -1 for the host's own
 s32 gegadgetsPropModel(s32 weaponnum);
 

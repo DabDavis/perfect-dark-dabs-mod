@@ -737,6 +737,39 @@ static bool chrWalkBotMove(struct chrdata *chr, struct coord *dst, f32 *mangroun
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * Whether a walking chr takes hold of a ladder it passes, on a level converted
+ * from GoldenEye. Perfect Dark's guards climb any ladder within a few steps of
+ * them, whichever way they are going. GoldenEye's have no ladders at all: a
+ * guard follows the tile graph, and where its way crosses a ladder's link it
+ * drops down it or is lifted up it, and one that only walks past the ladder's
+ * foot never leaves the floor. At the end of Cradle Trevelyan came down the
+ * shaft to its floor, ran past the ladder's foot for the platform's edge, and
+ * went back up the ladder instead (F3 report 20260926-001445). So a converted
+ * level's ladder is taken only by a chr whose next waypoint is a climb over it
+ * - more than a step's rise (pads are a waist over their floor). One taken is
+ * kept, as stock keeps it (the caller asks only for a ladder newly found).
+ */
+static bool chrGeTakesLadder(struct chrdata *chr)
+{
+	struct coord aim;
+	RoomNum rooms[8];
+
+	if (!geRoomActive()) {
+		return true;
+	}
+
+	if (chr->actiontype == ACT_GOPOS) {
+		chrGoPosGetCurWaypointInfo(chr, &aim, rooms);
+	} else {
+		chrPatrolGetCurWaypointInfo(chr, &aim, rooms);
+	}
+
+	return aim.y > chr->manground + 150.0f;
+}
+#endif
+
 bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f32 *mangroundptr)
 {
 	struct chrdata *chr = model->chr;
@@ -841,10 +874,20 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 		}
 
 		if (chr->actiontype == ACT_PATROL || chr->actiontype == ACT_GOPOS) {
+#ifndef PLATFORM_N64
+			const bool wasonladder = chr->onladder;
+#endif
+
 			chr->onladder = cdFindLadder(&chr->prop->pos, chr->radius * 2.5f,
 					chr->manground + chr->height - chr->prop->pos.y,
 					chr->manground + 1.0f - chr->prop->pos.y,
 					chr->prop->rooms, GEOFLAG_LADDER, &chr->laddernormal);
+
+#ifndef PLATFORM_N64
+			if (chr->onladder && !wasonladder && !chrGeTakesLadder(chr)) {
+				chr->onladder = false;
+			}
+#endif
 		} else {
 			chr->onladder = false;
 		}

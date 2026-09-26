@@ -27,6 +27,9 @@ void cdGetPropsOnPlatform(struct prop *platform, s16 *propnums, s32 len);
 s32 cd000274e0Block(struct geoblock *tile, f32 x, f32 z, f32 width, struct prop *prop, struct collision *collision);
 bool cd000276c8Cyl(struct geocyl *tile, f32 x, f32 z, f32 width, struct prop *prop, struct collision *collision);
 bool cdFindLadder(struct coord *pos, f32 width, f32 ymax, f32 ymin, RoomNum *rooms, u16 geoflags, struct coord *laddernormal);
+#ifndef PLATFORM_N64
+bool cdFindLadderDist(struct coord *pos, f32 width, f32 ymax, f32 ymin, RoomNum *rooms, u16 geoflags, struct coord *laddernormal, f32 *planedist, f32 *top);
+#endif
 bool cd0002a13c(struct coord *pos, f32 radius, f32 arg2, f32 arg3, RoomNum *rooms, u16 geoflags);
 f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u8 *floortype, u16 *floorflags, RoomNum *floorroom, s32 *inlift, struct prop **lift);
 f32 cdReturnZero(void);

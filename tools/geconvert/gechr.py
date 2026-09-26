@@ -26,6 +26,12 @@ What the prop converter (gemodelconv.py) does not meet in a prop but does here:
                                model preprocessing refuses one, and every one of
                                the 42 in the ROM is a childless leaf at the end
                                of its chain, so leaving it out relinks nothing
+  0x0f interlink -> dropped    two points and a size, drawn as nothing: a
+                               prop's depth sort, and the axis the watch
+                               detonator's pressing hand turns about
+                               (gegadgets.c keeps it); only in GtriggerZ and
+                               GwatchlaserZ (hand items, geconvert.c alone
+                               converts those), childless leaves too
   0x17 head      -> headspot   one u16, the same
   the type's high byte         GoldenEye sets 0x100 on a group whose matrix the
                                animation drives; Perfect Dark reads `type & 0xff`
@@ -58,7 +64,9 @@ def convert(num):
         while o:
             node = dict(at=o, type=struct.unpack_from('>H', d, o)[0], rodata=u(o + 4), parent=parent,
                         child=u(o + 20) - SEG if u(o + 20) else 0, next=u(o + 12) - SEG if u(o + 12) else 0)
-            if (node['type'] & 0xff) != 0x0d:
+            if (node['type'] & 0xff) == 0x0f and (node['child'] or node['next']):
+                raise ValueError('%s: an interlink node with more after it' % name)
+            if (node['type'] & 0xff) not in (0x0d, 0x0f):
                 nodes.append(node)
                 if node['child']:
                     walk(node['child'], o)

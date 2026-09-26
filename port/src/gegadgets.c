@@ -131,13 +131,12 @@ static struct {
 	struct modeldef *def;
 	struct model model;
 	u32 rwdata[GADGET_RWDATA_MAX];
-	s32 lastweapon;
 	s32 photo;         // the camera's trigger was pulled: judged in the render
 	struct prop *keyprop; // the GoldenEye key's own prop, while it is carried
 	s32 centreitem;    // the item `centre` was measured on
 	f32 centre[3];     // the model's middle from its root, in the camera's space
 	f32 size[3];
-} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .lastweapon = -1, .centreitem = -1 };
+} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .centreitem = -1 };
 
 s32 gegadgetsIsGadget(s32 weaponnum)
 {
@@ -186,7 +185,6 @@ void gegadgetsStageLoad(s32 stagenum)
 	gegadgetsUnloadModel();
 
 	g_Gadgets.failed = -1;
-	g_Gadgets.lastweapon = -1;
 	g_Gadgets.photo = 0;
 	g_Gadgets.keyprop = NULL;
 	g_Gadgets.mission = modloaderStageMission(stagenum);
@@ -551,12 +549,42 @@ void gegadgetsKept(struct prop *prop)
 	g_Gadgets.keyprop = prop;
 }
 
-void gegadgetsThrown(s32 weaponnum)
+void gegadgetsThrown(s32 weaponnum, struct weaponobj *thrown)
 {
-	if (weaponnum == WEAPON_GE_GOLDENEYEKEY && g_Gadgets.keyprop) {
-		invRemoveProp(g_Gadgets.keyprop);
-		g_Gadgets.keyprop = NULL;
+	struct prop *prop = g_Gadgets.keyprop;
+	struct defaultobj *obj;
+
+	if (weaponnum != WEAPON_GE_GOLDENEYEKEY || !prop) {
+		return;
 	}
+
+	g_Gadgets.keyprop = NULL;
+	invRemoveProp(prop);
+
+	if (!thrown || prop->type != PROPTYPE_WEAPON || !prop->obj) {
+		return;
+	}
+
+	// GoldenEye throws the very prop it picked up (gun.c: the key is taken
+	// out of the inventory with bondinvRemovePropWeaponByID(), objDetach()ed
+	// and thrown). Perfect Dark's throw builds a new prop, and the one picked
+	// up stayed a child of the player's prop - which invHasProp() counts as
+	// carried - so the "put it back" objective never completed however often
+	// the key was thrown (F3 20260925-231553). The tag moves to the thrown
+	// prop, which is the key from here on (picked up again, it is carried
+	// again), and the one in the hand is freed.
+	obj = prop->obj;
+
+	for (struct tag *tag = g_TagsLinkedList; tag; tag = tag->next) {
+		if (tag->obj == obj) {
+			tag->obj = &thrown->base;
+			thrown->base.hidden |= OBJHFLAG_TAGGED;
+		}
+	}
+
+	obj->hidden &= ~OBJHFLAG_TAGGED;
+	objDetach(prop);
+	objFreePermanently(obj, true);
 }
 
 /**
@@ -569,6 +597,31 @@ void gegadgetsAfterProps(void)
 	if (g_Gadgets.photo) {
 		g_Gadgets.photo = 0;
 		objectiveCheckHolograph(0.0f);
+	}
+}
+
+/**
+ * GoldenEye's key analyser (gunfire.c's analyzeGEKey()), run when its trigger
+ * is pulled - gunTickHandState() takes ITEM_KEYANALYSERCASE through
+ * GUN_ANIM_STATE_TRIGGER_PRESS to GUN_ANIM_STATE_USE_ITEM and analyses on that
+ * state's first frame; equipping it does nothing. With the GoldenEye key in
+ * the inventory the key is copied (`copiedgoldeneye`, which is all Bunker's
+ * PROPDEF_OBJECTIVE_COPY_ITEM asks) and the key is put in the right hand, the
+ * left emptied, to be put back (the same objective's DEPOSIT_OBJECT half);
+ * without it the player is told so. Until 2026-09-26 this ran when the
+ * analyser was equipped, so an analyser already in the hand when the key was
+ * picked up never analysed at all.
+ */
+static void gegadgetsAnalyseKey(void)
+{
+	if (invHasSingleWeaponIncAllGuns(WEAPON_GE_GOLDENEYEKEY)) {
+		hudmsgCreate("Analyzing the GoldenEye key...\n", HUDMSGTYPE_DEFAULT);
+		geSfxPlay(GESFX_KEY_ANALYSER, GESFX_VOLUME);
+		chrSetStageFlag(NULL, GEGADGET_COPY_FLAG);
+		bgunEquipWeapon2(HAND_RIGHT, WEAPON_GE_GOLDENEYEKEY);
+		bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+	} else {
+		hudmsgCreate("You do not have the GoldenEye key.\n", HUDMSGTYPE_DEFAULT);
 	}
 }
 
@@ -587,41 +640,8 @@ void gegadgetsFire(s32 weaponnum)
 		g_Gadgets.photo = 1;
 	} else if (weaponnum == WEAPON_GE_WATCHMAGNET) {
 		gegadgetsMagnet();
-	}
-}
-
-/**
- * Once a frame on a converted mission. GoldenEye's key analyser works the
- * moment it is equipped (gunfire.c's analyzeGEKey()): with the GoldenEye key
- * in the inventory the key is copied, which is what Bunker's objective asks,
- * and the key is put in the hand to be put back; without it the player is told
- * so.
- */
-void gegadgetsTick(void)
-{
-	s32 weaponnum;
-
-	if (g_Gadgets.moddir < 0 || !g_Vars.currentplayer) {
-		return;
-	}
-
-	weaponnum = bgunGetWeaponNum(HAND_RIGHT);
-
-	if (weaponnum == g_Gadgets.lastweapon) {
-		return;
-	}
-
-	g_Gadgets.lastweapon = weaponnum;
-
-	if (weaponnum == WEAPON_GE_GADGETA && g_Gadgets.mission == MISSION_BUNKER) {
-		if (invHasSingleWeaponIncAllGuns(WEAPON_GE_GOLDENEYEKEY)) {
-			hudmsgCreate("Analyzing the GoldenEye key...\n", HUDMSGTYPE_DEFAULT);
-			geSfxPlay(GESFX_KEY_ANALYSER, GESFX_VOLUME);
-			chrSetStageFlag(NULL, GEGADGET_COPY_FLAG);
-			bgunEquipWeapon2(HAND_RIGHT, WEAPON_GE_GOLDENEYEKEY);
-		} else {
-			hudmsgCreate("You do not have the GoldenEye key.\n", HUDMSGTYPE_DEFAULT);
-		}
+	} else if (weaponnum == WEAPON_GE_GADGETA && g_Gadgets.mission == MISSION_BUNKER) {
+		gegadgetsAnalyseKey();
 	}
 }
 

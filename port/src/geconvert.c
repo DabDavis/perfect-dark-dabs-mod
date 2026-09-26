@@ -864,6 +864,24 @@ static const uint8_t *romImage(int32_t num, size_t *len)
 	return at + *len <= g_RomLen ? g_Rom + at : NULL;
 }
 
+// a fog row's 30 values after the id, as bgfog.c lists them
+static void fogRowValues(const uint8_t *d, double *r)
+{
+	for (int i = 0; i < 6; ++i) r[i] = bef32(d, 4 * i);
+	for (int i = 0; i < 3; ++i) r[6 + i] = be32(d, 24 + 4 * i);
+	for (int i = 0; i < 4; ++i) r[9 + i] = d[36 + i];
+	r[13] = bef32(d, 40);
+	r[14] = be16(d, 44);
+	r[15] = be16(d, 46);
+	for (int i = 0; i < 3; ++i) r[16 + i] = bef32(d, 48 + 4 * i);
+	r[19] = d[60];
+	r[20] = r[21] = r[22] = 0;
+	r[23] = bef32(d, 64);
+	r[24] = be16(d, 68);
+	r[25] = be16(d, 70);
+	for (int i = 0; i < 4; ++i) r[26 + i] = bef32(d, 72 + 4 * i);
+}
+
 // a level's one-player fog row (the 30 values after the id, as bgfog.c lists them)
 static int romFogRow(uint32_t levelid, double *r)
 {
@@ -871,7 +889,6 @@ static int romFogRow(uint32_t levelid, double *r)
 
 	for (size_t o = FOG_AT; o + FOG_ROW <= g_DataLen; o += FOG_ROW) {
 		const uint32_t lid = be32(g_Data, o);
-		const uint8_t *d = g_Data + o + 4;
 
 		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
 			break;
@@ -881,23 +898,35 @@ static int romFogRow(uint32_t levelid, double *r)
 			continue;
 		}
 
-		for (int i = 0; i < 6; ++i) r[i] = bef32(d, 4 * i);
-		for (int i = 0; i < 3; ++i) r[6 + i] = be32(d, 24 + 4 * i);
-		for (int i = 0; i < 4; ++i) r[9 + i] = d[36 + i];
-		r[13] = bef32(d, 40);
-		r[14] = be16(d, 44);
-		r[15] = be16(d, 46);
-		for (int i = 0; i < 3; ++i) r[16 + i] = bef32(d, 48 + 4 * i);
-		r[19] = d[60];
-		r[20] = r[21] = r[22] = 0;
-		r[23] = bef32(d, 64);
-		r[24] = be16(d, 68);
-		r[25] = be16(d, 70);
-		for (int i = 0; i < 4; ++i) r[26 + i] = bef32(d, 72 + 4 * i);
+		fogRowValues(g_Data + o + 4, r);
 		found = 1;
 	}
 
 	return found;
+}
+
+// A level's second sky (ENVIRONMENTDATA_ALT, id + 100): bgfog.c's
+// g_EnvironmentAltp is the row after the level's own, and the fog is faded
+// towards it by fogSwitchToSolosky2() - Facility's gas cloud, which closes the
+// fog from 5000 to 1000 and turns it green, the sky switch of Train, Aztec and
+// Egypt. Only a row that is the level's +100 is taken: for the rest the row
+// after is another level's, and GoldenEye never fades to it.
+static int romFogAltRow(uint32_t levelid, double *r)
+{
+	for (size_t o = FOG_AT; o + 2 * FOG_ROW <= g_DataLen; o += FOG_ROW) {
+		const uint32_t lid = be32(g_Data, o);
+
+		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
+			break;
+		}
+
+		if (lid == levelid && be32(g_Data, o + FOG_ROW) == levelid + 100) {
+			fogRowValues(g_Data + o + FOG_ROW + 4, r);
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 // GoldenEye's three sky pictures (image_bank.c's skywaterimages: clouds,
@@ -4167,7 +4196,8 @@ static const uint8_t g_PdSizes[0x35] = {
 // door" is Perfect Dark's OBJTYPE_LINKLIFTDOOR a word shorter, and the branch
 // of doorCallLift() where the lift is a door is GoldenEye's own behaviour. It
 // is what opens Dam's gates. gesolo.py's AS_NOTHING.
-#define SOLO_AS_NOTHING(t) ((t) == 0x0e || (t) == 0x11 || (t) == 0x12)
+// A pair of guns (0x0e) is kept too, from converter 75: see soloLinkGuns().
+#define SOLO_AS_NOTHING(t) ((t) == 0x11 || (t) == 0x12)
 
 #define SOLO_NO_PAD 0xffff
 /**
@@ -4431,9 +4461,39 @@ static void weaponRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 
 	baseRecord(out, raw, 0x08, padNum(be16(raw, 6), numpads, 0));
 	out[0x5c] = item >= 2 ? (uint8_t)soloItemWeapon(item) : 0;
-	out[0x5d] = 0xff;
-	out[0x5e] = 0xff;
+	// no second gun: dualweaponnum (0x61) is -1, as the stock weapon() macro
+	// writes it. Until converter 72 this wrote 0x5d/0x5e (the gset's two
+	// spare bytes) and left dualweaponnum 0, so invGiveWeaponsByProp() took
+	// every converted pickup for one half of a pair: a gun that cannot be
+	// held in two hands counted as "not given" and the player was told only
+	// of its ammunition ("Picked up an ." for Bunker's GoldenEye key), and
+	// one that can was handed over as a pair with WEAPON_NONE
+	out[0x61] = 0xff;
 	set16(out, 0x62, be16(raw, 0x82));
+}
+
+/**
+ * GoldenEye's PROPDEF_LINK, two collectables that are one pair of guns, as
+ * Perfect Dark's OBJTYPE_LINKGUNS: the same two record offsets, relative to the
+ * link's own index, which the conversion keeps, as s16 where GoldenEye has s32.
+ *
+ * It is GoldenEye's only way but a guard's two guns to hold a pair: picking up
+ * one of them gives the gun, the other the pair (bondinv.c's
+ * bondinvAddWeaponByProp()), and a second of a gun that is no one's pair gives
+ * only its ammunition. Left out until converter 75, as a one-word nothing:
+ * Caverns' two AR33s and Bunker 2's two silenced PP7s were single guns.
+ * gesolo.py's link_guns_record().
+ */
+static void soloLinkGuns(buf *out, const uint8_t *raw)
+{
+	uint8_t *rec;
+
+	bufZeros(out, 8);
+	rec = out->v + out->n - 8;
+	memcpy(rec, raw, 3);
+	rec[3] = 0x0e;
+	set16(rec, 4, (uint32_t)bes32(raw, 4) & 0xffff);
+	set16(rec, 6, (uint32_t)bes32(raw, 8) & 0xffff);
 }
 
 /**
@@ -4653,6 +4713,17 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		// is below, since it is a pad number.
 		{ 0x0d, 0x88, 0x64, 4 }, { 0x0d, 0x8c, 0x68, 4 },  // ymaxleft, ymaxright
 		{ 0x0d, 0xa4, 0x80, 4 }, { 0x0d, 0xa8, 0x84, 4 },  // maxspeed, aimdist
+		// A security camera's sweep: GoldenEye's CCTVRecord and Perfect
+		// Dark's cctvobj hold the same fields, but GoldenEye keeps its s32
+		// toleft among them (0xd4) where Perfect Dark moved it beside the pad
+		// (0x5e), so the run after it is 0x28 on rather than 0x24. Both loads
+		// convert yleft, yright and ymaxspeed out of 16.16 turns and maxdist
+		// out of an integer (prop.c's setupCctv(), setup.c's
+		// setupCreateCctv()). Left at nought until converter 73, with the pad
+		// below: every camera stood still, and looked at pad 0 - the tester's
+		// "cameras do not rotate" (Bunker) and "facing backwards" (Surface)
+		{ 0x06, 0xcc, 0xa8, 4 }, { 0x06, 0xd0, 0xac, 4 },  // yleft, yright
+		{ 0x06, 0xdc, 0xb4, 4 }, { 0x06, 0xe8, 0xbc, 4 },  // ymaxspeed, maxdist
 		// glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and
 		// nothing more, and Perfect Dark finds a pane's portal at the load
 	};
@@ -4674,6 +4745,12 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 			memcpy(rec, raw, 3);
 			rec[3] = 0x1a;
 			set32(rec, 4, 0x80000000);
+			st->props++;
+			continue;
+		}
+
+		if (t == 0x0e) {
+			soloLinkGuns(&out, raw);
 			st->props++;
 			continue;
 		}
@@ -4718,6 +4795,13 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 				const int32_t target = bes32(raw, 0x80);
 
 				set16(rec, 0x5c, target < 0 ? 0xffff : padNum((uint32_t)target, numpads, 0));
+			}
+			if (t == 0x06 && recs.v[i].len >= 0x84) {
+				// the pad a camera looks at: GoldenEye's s32 at 0x80, Perfect
+				// Dark's s16 lookatpadnum at 0x5c, -1 for none (gesolo.py's CCTV)
+				const int32_t look = bes32(raw, 0x80);
+
+				set16(rec, 0x5c, look < 0 ? 0xffff : padNum((uint32_t)look, numpads, 0));
 			}
 			if (t == 0x0a && recs.v[i].len >= 0xfc) {
 				// A hanging TV's mount. GoldenEye's MonitorObjRecord ends
@@ -5167,6 +5251,15 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 				}
 			}
 
+			if (op == 0x20) {
+				// StartPatrol is two commands in Perfect Dark: aiSetPath only
+				// names the path, and aiStartPatrol sets off along it
+				// (gesolo.py's GE_STARTPATROL_OP). With the second left out
+				// every guard GoldenEye puts on patrol stood at his pad until
+				// he saw Bond (converter 76)
+				bufU16(out, 0x0022);
+			}
+
 			st->aikept++;
 		}
 
@@ -5389,8 +5482,18 @@ static void modelWalk(const buf *d, uint32_t o, uint32_t parent, nodes *out, int
 		// a character's shadow (the blob it stands on): Perfect Dark's model
 		// format has no such node and the port's model preprocessing refuses
 		// one, and every one of the 42 in the ROM is a childless leaf at the
-		// end of its chain, so leaving it out relinks nothing
-		if ((n.type & 0xff) != 0x0d) {
+		// end of its chain, so leaving it out relinks nothing.
+		// 0x0f, GoldenEye's interlink: two points and a size, drawn as
+		// nothing and read only as a prop's depth sort and, in the watch's
+		// detonator (GtriggerZ, and GwatchlaserZ, the same file), as the
+		// axis its switch 28 turns the pressing hand about (gunfire.c) -
+		// gegadgets.c keeps that axis. Perfect Dark has no such node either;
+		// the two in the ROM are childless leaves at the end of their chain
+		if ((n.type & 0xff) == 0x0f && (n.child || n.next)) {
+			fail("an interlink node with more after it");
+		}
+
+		if ((n.type & 0xff) != 0x0d && (n.type & 0xff) != 0x0f) {
 			VECPUSH(*out, n);
 
 			if (n.child) {
@@ -5607,8 +5710,8 @@ static size_t texDataSize(uint32_t width, uint32_t height, uint32_t level, uint3
  * of Facility's, Bunker's, Surface's and Train's doors stopped every shot.
  *
  * The rest are named here for what they are and left at SKEL_BASIC: their
- * models are one matrix or are posed by their object type (a CCTV, an autogun,
- * a mount).
+ * models are one matrix or are posed by their object type (an autogun, a
+ * mount). The CCTV is carried across for its lens (below).
  */
 static uint32_t propSkel(uint32_t skeleton, int32_t numswitches)
 {
@@ -5623,7 +5726,14 @@ static uint32_t propSkel(uint32_t skeleton, int32_t numswitches)
 		// skeleton just as GoldenEye's does by skeleton_prop_weapon - as
 		// SKEL_BASIC a guard's gun never flashed
 		return numswitches >= 3 ? 0x03 : 2;
-	case 0x8003a05c:               // cctv
+	case 0x8003a05c:               // cctv -> g_SkelCctv
+		// switch for switch: 0 the casing's position, 1 the lens, 3 the
+		// toggle; GoldenEye multiplies a shot that lands on the lens by a
+		// hundred and breaks the glass (propobj.c, Switches[1]), and Perfect
+		// Dark does the same only by g_SkelCctv - as SKEL_BASIC a camera
+		// took the same damage wherever it was hit (F3 20260925-231244).
+		// Converter 74
+		return numswitches >= 4 ? 0x0f : 2;
 	case 0x8003a070:               // console_one_screen
 	case 0x8003a084:               // console_four_screen
 	case 0x8003a0b0:               // tv_holder
@@ -5960,9 +6070,12 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 		if (nds.v[i].next) {
 			const uint32_t a = ADDR(nds.v[i].next);
 			if (!a) {
-				// a character's next can be the shadow that was left out, which
-				// ends its chain there and has nothing to point back
-				if (ischr != 1) {
+				// a next can be the shadow or the interlink that was left out
+				// (modelWalk()), which ends its chain there and has nothing
+				// to point back
+				const uint32_t t = be16(d.v, nds.v[i].next) & 0xff;
+
+				if (t != 0x0d && t != 0x0f) {
 					fail("%s: a node's next is not a node", p->file);
 				}
 				continue;
@@ -6510,6 +6623,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				textf(&missions, " fog \"");
 				fogValue(&missions, fog, offset, levelVisibility(lv->key));
 				textf(&missions, "\"");
+
+				if (romFogAltRow(lv->levelid, fog)) {
+					textf(&missions, " altfog \"");
+					fogValue(&missions, fog, offset, levelVisibility(lv->key));
+					textf(&missions, "\"");
+				}
 			} else if (romFoglessRow(lv->levelid, fog)) {
 				textf(&missions, " fog \"");
 				foglessValue(&missions, fog, offset, levelVisibility(lv->key));
@@ -6818,7 +6937,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// and the guns a hand holds (geguns.c): GoldenEye's own first person
 		// models, each with the hand that holds it, converted the same way
 		// and written under its item number - ITEM_KNIFE (2) to
-		// ITEM_REMOTEMINE (29), whichever of them the table gives a model
+		// ITEM_REMOTEMINE (29) and the detonator (30), whichever have a model
 		{
 			int written = 0;
 
@@ -6832,10 +6951,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				char rel[64];
 
 				// the silver and gold PP7s and the watch laser are no gun of
-				// the port's (g_GeItemWeapon gives them another's), and the
-				// watch laser's model is a node type nothing here reads
+				// the port's (g_GeItemWeapon gives them another's); past the
+				// remote mine, the watch's detonator (ITEM_TRIGGER, 30,
+				// WEAPON_GE_DETONATOR) and the gadgets
 				if (!g_Items[item].file || item == 20 || item == 21 || item == 23
-						|| (item > 29 && !soloGadgetItem(item))) {
+						|| (item > 30 && !soloGadgetItem(item))) {
 					continue;
 				}
 

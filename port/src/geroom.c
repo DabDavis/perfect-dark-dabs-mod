@@ -114,6 +114,30 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
 	return best.ground;
 }
 
+void geRoomAddNear(struct coord *pos, f32 radius, f32 ymin, f32 ymax, RoomNum *rooms, s32 maxlen)
+{
+	s32 len;
+
+	for (len = 0; rooms[len] != -1; len++);
+
+	for (s32 r = 1; r < g_Vars.roomcount && len < maxlen; r++) {
+		s32 k;
+
+		if (pos->x + radius < g_Rooms[r].bbmin[0] || pos->x - radius > g_Rooms[r].bbmax[0]
+				|| pos->z + radius < g_Rooms[r].bbmin[2] || pos->z - radius > g_Rooms[r].bbmax[2]
+				|| pos->y + ymax < g_Rooms[r].bbmin[1] || pos->y + ymin > g_Rooms[r].bbmax[1]) {
+			continue;
+		}
+
+		for (k = 0; k < len && rooms[k] != r; k++);
+
+		if (k == len) {
+			rooms[len++] = r;
+			rooms[len] = -1;
+		}
+	}
+}
+
 
 /**
  * Whether the plumb line from the foot, standing in `room`, up to the eye goes

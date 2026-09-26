@@ -706,6 +706,109 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32
 }
 
 /**
+ * The floor GoldenEye would lift the player onto as he walks from `pos` to
+ * `to`: the highest tile with an area in plan that his circle at `to` touches
+ * and that is linked to the one under his foot through edges within his reach
+ * - across tiles on edge, the way GoldenEye joins a floor to one well over it.
+ * GESTAN_NOCLIMBFLOOR where there is none.
+ */
+f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius)
+{
+	f32 best = GESTAN_NOCLIMBFLOOR;
+	f32 movelen;
+	s32 tile;
+	s32 cx0, cx1, cz0, cz1;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return best;
+	}
+
+	tile = stanTileUnder(pos->x, pos->z, ground + 40.0f, GESTAN_RISE);
+
+	if (tile < 0) {
+		return best;
+	}
+
+	stanFlood(tile, pos->x, pos->z, to->x, to->z, radius);
+
+	movelen = sqrtf((to->x - pos->x) * (to->x - pos->x) + (to->z - pos->z) * (to->z - pos->z));
+	cx0 = stanCellOf(to->x - radius, g_Stan.gridx, g_Stan.gridw);
+	cx1 = stanCellOf(to->x + radius, g_Stan.gridx, g_Stan.gridw);
+	cz0 = stanCellOf(to->z - radius, g_Stan.gridz, g_Stan.gridh);
+	cz1 = stanCellOf(to->z + radius, g_Stan.gridz, g_Stan.gridh);
+
+	for (s32 cz = cz0; cz <= cz1; cz++) {
+		for (s32 cx = cx0; cx <= cx1; cx++) {
+			const s32 c = cz * g_Stan.gridw + cx;
+
+			for (s32 k = g_Stan.cellstart[c]; k < g_Stan.cellstart[c + 1]; k++) {
+				const s32 i = g_Stan.celltiles[k];
+				const struct stantile *t = &g_Stan.tiles[i];
+				const struct stanpoint *p = &g_Stan.points[t->first];
+				f32 area = 0.0f;
+				f32 y = GESTAN_NOCLIMBFLOOR;
+
+				if (g_Stan.reached[i] != g_Stan.gen) {
+					continue;
+				}
+
+				// a tile on edge is the climb, not a floor
+				for (s32 a = 0, b = t->npts - 1; a < t->npts; b = a++) {
+					area += (f32)p[b].x * p[a].z - (f32)p[a].x * p[b].z;
+				}
+
+				if (area > -1.0f && area < 1.0f) {
+					continue;
+				}
+
+				if (stanHolds(t, to->x, to->z)) {
+					y = stanSurface(t, to->x, to->z);
+				} else if (!stanHolds(t, pos->x, pos->z)) {
+					// touched from outside - and only by a move into it, more
+					// than 30 degrees off its edge: GoldenEye lifts Bond once
+					// his middle is over the tile, and a body brushing along
+					// a ledge's edge never is
+					f32 nearto = 1e30f, nearfrom = 1e30f;
+					f32 ey = GESTAN_NOCLIMBFLOOR;
+
+					for (s32 a = 0; a < t->npts; a++) {
+						const struct stanpoint *e0 = &p[a], *e1 = &p[(a + 1) % t->npts];
+						const f32 dto = stanEdgeDistSq(e0, e1, to->x, to->z);
+						const f32 dfrom = stanEdgeDistSq(e0, e1, pos->x, pos->z);
+
+						nearfrom = dfrom < nearfrom ? dfrom : nearfrom;
+
+						if (dto <= radius * radius) {
+							nearto = dto < nearto ? dto : nearto;
+
+							if (e0->y > ey) ey = e0->y;
+							if (e1->y > ey) ey = e1->y;
+						}
+					}
+
+					if (sqrtf(nearfrom) - sqrtf(nearto) >= 0.5f * movelen && movelen > 0.0f) {
+						y = ey;
+					}
+				}
+
+				if (y > best) {
+					best = y;
+				}
+			}
+		}
+	}
+
+	// the marks are this flood's now, not the one a wall test remembers
+	g_Stan.lastreach = -1.0f;
+
+	return best;
+}
+
+/**
  * Whether GoldenEye would hold a body down here: a tile's special value 1 is
  * g_StanTileSpecialFlags[]'s STANTILEFLAG_FORCECROUCH - Facility's vents, the
  * crawl spaces of seven levels more - and bondview's move sets autocrouchpos

@@ -27,6 +27,9 @@ f32 g_EnvFogMinFrac;
 struct fogenvironment *g_EnvOrigFogEnvironment;
 struct fogenvironment *g_EnvTransitionFrom;
 struct fogenvironment *g_EnvTransitionTo;
+#ifndef PLATFORM_N64
+static f32 g_EnvTransitionFracNow; // envGetTransition()
+#endif
 
 f32 g_EnvFogMax = MAXFLOAT;
 f32 g_EnvFogMin = 0;
@@ -340,6 +343,10 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 
 	if (PLAYERCOUNT());
 
+#ifndef PLATFORM_N64
+	g_EnvTransitionFracNow = 0;
+#endif
+
 	g_EnvFogMax = MAXFLOAT;
 	g_EnvFogMin = 0;
 
@@ -361,9 +368,13 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 	// A Stage Loader map whose mod gave it a sky of its own
 	env1 = modloaderGetStageFog(stagenum);
 	if (env1) {
+		// and its second sky, if it has one: GoldenEye's gas cloud and sky
+		// switch fade to it as they do to the row after a stock stage's
+		struct fogenvironment *alt = modloaderGetStageFogAlt(stagenum);
+
 		g_EnvOrigFogEnvironment = env1;
 		g_EnvTransitionFrom = env1;
-		g_EnvTransitionTo = env1;
+		g_EnvTransitionTo = alt ? alt : env1;
 		envApplyFogEnvironment(g_EnvOrigFogEnvironment);
 		return;
 	}
@@ -409,9 +420,29 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 	g_EnvOrigFogEnvironment = NULL;
 }
 
+#ifndef PLATFORM_N64
+bool envGetTransition(f32 *frac, struct fogenvironment **from, struct fogenvironment **to)
+{
+	if (g_EnvTransitionFracNow <= 0.0f || !g_EnvOrigFogEnvironment
+			|| !g_EnvTransitionFrom || !g_EnvTransitionTo || g_EnvTransitionFrom == g_EnvTransitionTo) {
+		return false;
+	}
+
+	*frac = g_EnvTransitionFracNow;
+	*from = g_EnvTransitionFrom;
+	*to = g_EnvTransitionTo;
+
+	return true;
+}
+#endif
+
 void envApplyTransitionFrac(f32 frac)
 {
 	static struct fogenvironment tmp;
+
+#ifndef PLATFORM_N64
+	g_EnvTransitionFracNow = frac;
+#endif
 
 	tmp = *g_EnvTransitionFrom;
 

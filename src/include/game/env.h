@@ -34,4 +34,9 @@ s32 envGetObjShadeMode(struct prop *prop, f32 arg1[4]);
 // each ending at a 0 stage; NULL keeps the port's
 void envSetTables(struct fogenvironment *fog, struct nofogenvironment *nofog);
 void envGetTables(struct fogenvironment **fog, struct nofogenvironment **nofog);
+
+// How far the fog has been faded towards the stage's second sky
+// (envApplyTransitionFrac(): the gas, the sky switch), and the two skies;
+// false where it has not been, or the stage has no second sky
+bool envGetTransition(f32 *frac, struct fogenvironment **from, struct fogenvironment **to);
 #endif

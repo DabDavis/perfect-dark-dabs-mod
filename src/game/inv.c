@@ -1,6 +1,10 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/modunlocks.h"
+#include "game/modoptions.h"
+#ifndef PLATFORM_N64
+#include "gegadgets.h"
+#endif
 #include "game/cheats.h"
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
@@ -508,6 +512,29 @@ void invRemoveProp(struct prop *prop)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Akimbo's house rule, solo: a second of a weapon the player holds one of
+ * makes the pair, whatever the mission - Perfect Dark's own, where the
+ * pickup's "second makes a pair" branch is multiplayer only, and GoldenEye's,
+ * which pairs only what its setup pairs (link records, a guard's two guns).
+ * Any weapon Akimbo lets into a hand, GoldenEye's grenade and mines included;
+ * not GoldenEye's gadgets past the guns - the watch's detonator, the key, the
+ * camera, the tank's shells - which are no weapon to hold two of. The
+ * multiplayer branch below already pairs anything under Akimbo, a second
+ * copy from another pad.
+ */
+bool invAkimboPairsPickup(s32 weaponnum)
+{
+	return !g_Vars.normmplayerisrunning
+		&& modIsAkimboForPlayers()
+		&& modCanAkimbo(weaponnum)
+		&& !gegadgetsIsGadget(weaponnum)
+		&& invHasSingleWeaponExcAllGuns(weaponnum)
+		&& !invHasDoubleWeaponExcAllGuns(weaponnum, weaponnum);
+}
+#endif
+
 s32 invGiveWeaponsByProp(struct prop *prop)
 {
 	s32 numgiven = 0;
@@ -518,6 +545,9 @@ s32 invGiveWeaponsByProp(struct prop *prop)
 		struct weaponobj *otherweapon;
 		s32 weaponnum;
 		s32 otherweaponnum;
+#ifndef PLATFORM_N64
+		bool akimbopair;
+#endif
 
 		if (obj->type == OBJTYPE_WEAPON) {
 			weapon = prop->weapon;
@@ -533,6 +563,11 @@ s32 invGiveWeaponsByProp(struct prop *prop)
 					}
 				}
 			}
+#endif
+
+#ifndef PLATFORM_N64
+			// asked before the single below is given, which it would count
+			akimbopair = invAkimboPairsPickup(weaponnum);
 #endif
 
 			if (cheatIsActive(CHEAT_PERFECTDARKNESS) && weaponHost(weaponnum) == WEAPON_NIGHTVISION) {
@@ -590,6 +625,14 @@ s32 invGiveWeaponsByProp(struct prop *prop)
 					}
 				}
 			}
+
+#ifndef PLATFORM_N64
+			// after the link's bookkeeping above, so that its other gun is
+			// never left pointing at this one
+			if (akimbopair && numgiven != 2 && invGiveDoubleWeapon(weaponnum, weaponnum)) {
+				numgiven = 2;
+			}
+#endif
 		}
 	}
 

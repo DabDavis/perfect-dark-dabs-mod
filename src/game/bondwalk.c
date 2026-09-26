@@ -46,6 +46,36 @@ extern f32 fabsf(f32);
 #ifndef PLATFORM_N64
 // a converted level's ladder taken from the top, and by whom: it keeps its hold
 static struct player *g_GeLadderTopPlayer = NULL;
+
+/**
+ * The rooms one of the player's collision tests is asked of. On a level
+ * converted from GoldenEye that is the portal walk's rooms and every room whose
+ * box meets the player's (geRoomAddNear()): a wall is filed under its tile's
+ * room, and at the head of Cradle's stair down to the shaft the player, still
+ * in the landing's room, slid into the stair's side wall and was inside it,
+ * stuck for good, the moment the stair's room was theirs (F3 report
+ * 20260926-005903). `rooms` is left alone - it is the room list the player
+ * goes on with, which the AI asks "is Bond in the room with pad N" of - and
+ * the test's list is written to `out` (`maxlen` rooms at most).
+ */
+static RoomNum *bwalkCdRooms(RoomNum *rooms, struct coord *pos, f32 radius, f32 ymin, f32 ymax, RoomNum *out, s32 maxlen)
+{
+	s32 i;
+
+	if (!geRoomActive()) {
+		return rooms;
+	}
+
+	for (i = 0; i < maxlen && rooms[i] != -1; i++) {
+		out[i] = rooms[i];
+	}
+
+	out[i] = -1;
+
+	geRoomAddNear(pos, radius, ymin, ymax, out, maxlen);
+
+	return out;
+}
 #endif
 
 void bwalkInit(void)
@@ -230,6 +260,9 @@ s32 bwalkTryMoveUpwards(f32 amount)
 	bool result;
 	struct coord newpos;
 	RoomNum rooms[8];
+#ifndef PLATFORM_N64
+	RoomNum cdrooms[21];
+#endif
 	u32 stack;
 	u32 types;
 	f32 ymax;
@@ -264,9 +297,18 @@ s32 bwalkTryMoveUpwards(f32 amount)
 
 	ymin -= 0.1f;
 
+#ifndef PLATFORM_N64
+	result = cdTestVolume(&newpos, radius,
+			bwalkCdRooms(rooms, &newpos, radius, ymin - g_Vars.currentplayer->prop->pos.y,
+				ymax - g_Vars.currentplayer->prop->pos.y, cdrooms, ARRAYCOUNT(cdrooms) - 1),
+			types, CHECKVERTICAL_YES,
+			ymax - g_Vars.currentplayer->prop->pos.y,
+			ymin - g_Vars.currentplayer->prop->pos.y);
+#else
 	result = cdTestVolume(&newpos, radius, rooms, types, CHECKVERTICAL_YES,
 			ymax - g_Vars.currentplayer->prop->pos.y,
 			ymin - g_Vars.currentplayer->prop->pos.y);
+#endif
 
 	propSetPerimEnabled(g_Vars.currentplayer->prop, true);
 
@@ -292,6 +334,9 @@ bool bwalkCanMoveUpwards(f32 amount)
 	bool result;
 	struct coord newpos;
 	RoomNum rooms[8];
+#ifndef PLATFORM_N64
+	RoomNum cdrooms[21];
+#endif
 	u32 stack;
 	u32 types;
 	f32 ymax;
@@ -317,9 +362,18 @@ bool bwalkCanMoveUpwards(f32 amount)
 
 	ymin -= 0.1f;
 
+#ifndef PLATFORM_N64
+	result = cdTestVolume(&newpos, radius,
+			bwalkCdRooms(rooms, &newpos, radius, ymin - g_Vars.currentplayer->prop->pos.y,
+				ymax - g_Vars.currentplayer->prop->pos.y, cdrooms, ARRAYCOUNT(cdrooms) - 1),
+			types, CHECKVERTICAL_YES,
+			ymax - g_Vars.currentplayer->prop->pos.y,
+			ymin - g_Vars.currentplayer->prop->pos.y);
+#else
 	result = cdTestVolume(&newpos, radius, rooms, types, CHECKVERTICAL_YES,
 			ymax - g_Vars.currentplayer->prop->pos.y,
 			ymin - g_Vars.currentplayer->prop->pos.y);
+#endif
 
 	propSetPerimEnabled(g_Vars.currentplayer->prop, true);
 
@@ -462,6 +516,9 @@ bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, 
 	RoomNum dstrooms[8];
 	bool copyrooms = false;
 	RoomNum sp64[22];
+#ifndef PLATFORM_N64
+	RoomNum cdrooms[22];
+#endif
 	s32 types;
 	f32 ymax;
 	f32 ymin;
@@ -536,16 +593,36 @@ bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, 
 					ymin - g_Vars.currentplayer->prop->pos.y);
 
 			if (result == CDRESULT_NOCOLLISION) {
+#ifndef PLATFORM_N64
+				result = cdExamCylMove02(&g_Vars.currentplayer->prop->pos,
+						&dstpos, radius,
+						bwalkCdRooms(dstrooms, &dstpos, radius, ymin - g_Vars.currentplayer->prop->pos.y,
+							ymax - g_Vars.currentplayer->prop->pos.y, cdrooms, ARRAYCOUNT(cdrooms) - 1),
+						types, true,
+						ymax - g_Vars.currentplayer->prop->pos.y,
+						ymin - g_Vars.currentplayer->prop->pos.y);
+#else
 				result = cdExamCylMove02(&g_Vars.currentplayer->prop->pos,
 						&dstpos, radius, dstrooms, types, true,
 						ymax - g_Vars.currentplayer->prop->pos.y,
 						ymin - g_Vars.currentplayer->prop->pos.y);
+#endif
 			}
 		} else {
+#ifndef PLATFORM_N64
+			result = cdExamCylMove02(&g_Vars.currentplayer->prop->pos,
+					&dstpos, radius,
+					bwalkCdRooms(sp64, &dstpos, radius, ymin - g_Vars.currentplayer->prop->pos.y,
+						ymax - g_Vars.currentplayer->prop->pos.y, cdrooms, ARRAYCOUNT(cdrooms) - 1),
+					types, true,
+					ymax - g_Vars.currentplayer->prop->pos.y,
+					ymin - g_Vars.currentplayer->prop->pos.y);
+#else
 			result = cdExamCylMove02(&g_Vars.currentplayer->prop->pos,
 					&dstpos, radius, sp64, types, true,
 					ymax - g_Vars.currentplayer->prop->pos.y,
 					ymin - g_Vars.currentplayer->prop->pos.y);
+#endif
 		}
 
 		propSetPerimEnabled(g_Vars.currentplayer->prop, true);
@@ -946,6 +1023,13 @@ void bwalkUpdateVertical(void)
 	bool onladder;
 	bool onladder2 = false;
 	RoomNum rooms[8];
+#ifndef PLATFORM_N64
+	RoomNum ladderroomsbuf[21];
+	RoomNum *ladderrooms;
+#define LADDERROOMS(stock) (geRoomActive() ? ladderrooms : (stock))
+#else
+#define LADDERROOMS(stock) (stock)
+#endif
 	struct coord testpos;
 	struct coord newpos;
 	RoomNum newrooms[8];
@@ -985,10 +1069,21 @@ void bwalkUpdateVertical(void)
 	// If this comes up false, a second check is done... maybe checking if the
 	// player is touching a ladder from a room which shares the same coordinate
 	// space?
+#ifndef PLATFORM_N64
+	// A converted level's ladder is filed under its tile's room, which is
+	// seldom the room of the floor at its head: Cradle's shaft ladder is room
+	// 7's, the deck round its hatch room 8's, and from the deck it was never
+	// found at all (F3 report 20260926-005903). So it is looked for in every
+	// room near the player too (bwalkCdRooms()).
+	ladderrooms = bwalkCdRooms(g_Vars.currentplayer->prop->rooms, &g_Vars.currentplayer->prop->pos,
+			radius * 2.0f, g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->prop->pos.y - 10,
+			ymax - g_Vars.currentplayer->prop->pos.y, ladderroomsbuf, ARRAYCOUNT(ladderroomsbuf) - 1);
+#endif
+
 	onladder = cdFindLadder(&g_Vars.currentplayer->prop->pos,
 			radius * 1.2f, ymax - g_Vars.currentplayer->prop->pos.y,
 			g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->prop->pos.y + 1,
-			g_Vars.currentplayer->prop->rooms, GEOFLAG_LADDER | GEOFLAG_LADDER_PLAYERONLY,
+			LADDERROOMS(g_Vars.currentplayer->prop->rooms), GEOFLAG_LADDER | GEOFLAG_LADDER_PLAYERONLY,
 			&g_Vars.currentplayer->laddernormal);
 
 	if (!onladder) {
@@ -1000,7 +1095,7 @@ void bwalkUpdateVertical(void)
 		onladder2 = cdFindLadder(&g_Vars.currentplayer->prop->pos,
 				radius * 1.1f, ymax - g_Vars.currentplayer->prop->pos.y,
 				g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->prop->pos.y - 10,
-				rooms, GEOFLAG_LADDER | GEOFLAG_LADDER_PLAYERONLY, &g_Vars.currentplayer->laddernormal);
+				LADDERROOMS(rooms), GEOFLAG_LADDER | GEOFLAG_LADDER_PLAYERONLY, &g_Vars.currentplayer->laddernormal);
 	}
 
 	testpos.x = g_Vars.currentplayer->prop->pos.x;
@@ -1114,6 +1209,64 @@ void bwalkUpdateVertical(void)
 	// whose head is just under the feet; where it does and the player has
 	// stepped out over the drop, that is the ladder taken from the top.
 	if (geRoomActive()) {
+		// The drop is only found once the player's circle is clear of the
+		// floor's edge - a radius out from a ladder at the edge - and one step
+		// more is past the reach of the test above: from the deck round
+		// Cradle's shaft the player walked out across the hatch, fell, and hung
+		// in its far lip. So at the drop the ladder is looked for twice as far
+		// out, and the player is put back to just clear of the edge, where the
+		// hold is kept. It is looked for a step's height down too: Dam's three
+		// short ladders have their heads at the foot of a ramp 34 under the
+		// deck, and a player walking off the deck was never within 10 of one;
+		// they are let down onto the head.
+		if (!onladder && !onladder2 && !g_Vars.currentplayer->onladder
+				&& ground < g_Vars.currentplayer->vv_manground - 30.0f) {
+			struct coord normal;
+			f32 dist;
+			f32 top;
+
+			if (cdFindLadderDist(&g_Vars.currentplayer->prop->pos,
+						radius * 2.0f, ymax - g_Vars.currentplayer->prop->pos.y,
+						g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->prop->pos.y - 60,
+						ladderrooms, GEOFLAG_LADDER | GEOFLAG_LADDER_PLAYERONLY, &normal, &dist, &top)) {
+				const f32 want = g_Vars.currentplayer->bond2.radius + 1.5f;
+
+				onladder2 = true;
+				g_Vars.currentplayer->laddernormal = normal;
+
+				if (dist > want) {
+					RoomNum backrooms[21];
+
+					guNormalize(&normal.x, &normal.y, &normal.z);
+
+					newpos.x = g_Vars.currentplayer->prop->pos.x - normal.x * (dist - want);
+					newpos.y = g_Vars.currentplayer->prop->pos.y;
+					newpos.z = g_Vars.currentplayer->prop->pos.z - normal.z * (dist - want);
+
+					propSetPerimEnabled(g_Vars.currentplayer->prop, false);
+
+					if (cdTestVolume(&newpos, radius,
+								bwalkCdRooms(g_Vars.currentplayer->prop->rooms, &newpos, radius,
+									ymin - g_Vars.currentplayer->prop->pos.y, ymax - g_Vars.currentplayer->prop->pos.y,
+									backrooms, ARRAYCOUNT(backrooms) - 1),
+								CDTYPE_BG, CHECKVERTICAL_YES,
+								ymax - g_Vars.currentplayer->prop->pos.y,
+								ymin - g_Vars.currentplayer->prop->pos.y) == CDRESULT_NOCOLLISION) {
+						g_Vars.currentplayer->prop->pos.x = newpos.x;
+						g_Vars.currentplayer->prop->pos.z = newpos.z;
+					}
+
+					propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+				}
+
+				// the hold is on a ladder reaching over the feet
+				if (top - 2.0f < g_Vars.currentplayer->vv_manground
+						&& bwalkTryMoveUpwards(top - 2.0f - g_Vars.currentplayer->vv_manground) == CDRESULT_NOCOLLISION) {
+					g_Vars.currentplayer->vv_manground = top - 2.0f;
+				}
+			}
+		}
+
 		if (!onladder && onladder2 && ground < g_Vars.currentplayer->vv_manground - 30.0f) {
 			onladder = true;
 
@@ -1590,6 +1743,31 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 					geStanRise(true), g_Vars.currentplayer->bond2.radius)) {
 			g_Vars.currentplayer->autocrouchpos = CROUCHPOS_SQUAT;
 		}
+
+		// GoldenEye's climb. Its collision is the plan and nothing else: a
+		// floor joined to one well over it by tiles on edge is a link, Bond
+		// walks into it and is lifted onto the floor across, and the only say
+		// on height is an edge more than 175 over his eye
+		// (bondviewTryMoveToStan()). Facility's escape is one - the conveyor
+		// out of the bottling room, whose rim is 119 over the floor, walked up
+		// and crawled along to the plane. Perfect Dark steps up nothing over
+		// the foot of the player's box, and the conversion raises a wall on
+		// such a link, so the player is lifted here as the circle he is
+		// moving to touches the floor across, and walks on over the wall and
+		// the tiles on edge at their new height.
+		if (!g_Vars.currentplayer->onladder && !g_Vars.currentplayer->isfalling
+				&& !g_Vars.currentplayer->tank && (arg0->x != 0.0f || arg0->z != 0.0f)) {
+			const f32 floor = geStanClimbFloor(&g_Vars.currentplayer->prop->pos, &target,
+					g_Vars.currentplayer->vv_manground, g_Vars.currentplayer->bond2.radius);
+
+			if (floor > g_Vars.currentplayer->vv_manground + 30.0f
+					&& floor <= g_Vars.currentplayer->prop->pos.y + 175.0f
+					&& bwalkTryMoveUpwards(floor - g_Vars.currentplayer->vv_manground) == CDRESULT_NOCOLLISION) {
+				g_Vars.currentplayer->vv_manground = floor;
+				g_Vars.currentplayer->vv_ground = floor;
+				g_Vars.currentplayer->sumground = floor / (PAL ? 0.054400026798248f : 0.045499980449677f);
+			}
+		}
 	}
 #endif
 
@@ -2032,12 +2210,24 @@ void bwalk0f0c69b8(void)
 					spcc.f[2] += sp74 * g_Vars.currentplayer->laddernormal.f[2];
 					g_Vars.currentplayer->ladderupdown = sp74 * 0.3f;
 				} else {
+#ifndef PLATFORM_N64
+					RoomNum ladderrooms[21];
+#endif
+
 					playerGetBbox(g_Vars.currentplayer->prop, &radius, &ymax, &ymin);
 
 					if (!cd0002a13c(&g_Vars.currentplayer->prop->pos,
 							radius * 1.1f, ymax - g_Vars.currentplayer->prop->pos.y,
 							(g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->prop->pos.y) + 1.0f,
-							g_Vars.currentplayer->prop->rooms, GEOFLAG_LADDER | GEOFLAG_LADDER_PLAYERONLY)) {
+#ifndef PLATFORM_N64
+							// asked of the rooms near as well (bwalkUpdateVertical())
+							bwalkCdRooms(g_Vars.currentplayer->prop->rooms, &g_Vars.currentplayer->prop->pos,
+								radius * 1.1f, (g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->prop->pos.y) + 1.0f,
+								ymax - g_Vars.currentplayer->prop->pos.y, ladderrooms, ARRAYCOUNT(ladderrooms) - 1),
+#else
+							g_Vars.currentplayer->prop->rooms,
+#endif
+							GEOFLAG_LADDER | GEOFLAG_LADDER_PLAYERONLY)) {
 						g_Vars.currentplayer->ladderupdown = 0.0f;
 					} else {
 						spcc.f[0] += sp74 * g_Vars.currentplayer->laddernormal.f[0];

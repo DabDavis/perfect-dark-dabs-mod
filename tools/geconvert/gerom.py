@@ -153,6 +153,26 @@ class Rom:
             o += FOG_ROW
         return rows
 
+    def fog_alt_rows(self):
+        """{level id name: the 30 values after the id} of a level's second sky
+        (ENVIRONMENTDATA_ALT, the level's id + 100): bgfog.c's g_EnvironmentAltp is
+        the row after the level's own, which the gas (fogSwitchToSolosky2()) and
+        the sky switch fade towards. Only where that row is the level's + 100 -
+        Train, Facility, Aztec, Egypt; for the rest it is another level's.
+        geconvert.c's romFogAltRow()."""
+        names = {v: k for k, v in LEVELIDS.items()}
+        rows = {}
+        o = FOG_AT
+        while True:
+            lid = struct.unpack_from('>I', self.data, o)[0]
+            if lid == 0 and o > FOG_AT or lid >= 0x10000:
+                break
+            if lid in names and names[lid] not in rows and struct.unpack_from('>I', self.data, o + FOG_ROW)[0] == lid + 100:
+                f = struct.unpack_from('>6f3I4BfHH3fB3xfHH4f', self.data, o + FOG_ROW + 4)
+                rows[names[lid]] = list(f[:20]) + [0, 0, 0] + list(f[20:])
+            o += FOG_ROW
+        return rows
+
     def fogless_rows(self):
         """{level id name: the 18 values after the id} of GoldenEye's fogless table
         (bgfog.c's fog_tables2, 56-byte rows after the fog table's end row): sky rgb,

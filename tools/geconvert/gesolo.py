@@ -69,10 +69,17 @@ OBJ_TAILS = {
     # is AUTOGUN below.
     0x0d: ((0x88, 0x64, 4, 1), (0x8c, 0x68, 4, 1),     # autogun: ymaxleft, ymaxright
            (0xa4, 0x80, 4, 1), (0xa8, 0x84, 4, 1)),    #          maxspeed, aimdist
+    # A security camera's sweep: the same fields as Perfect Dark's cctvobj, but
+    # GoldenEye keeps its s32 toleft among them (0xd4), so the run after it is
+    # 0x28 on. Left at nought until converter 73 (with the pad, CCTV below):
+    # every camera stood still, looking at pad 0.
+    0x06: ((0xcc, 0xa8, 4, 1), (0xd0, 0xac, 4, 1),     # cctv: yleft, yright
+           (0xdc, 0xb4, 4, 1), (0xe8, 0xbc, 4, 1)),    #       ymaxspeed, maxdist
 }
 # An autogun's pad - the one it rests facing - is GoldenEye's s32 at 0x80 and
 # Perfect Dark's s16 at 0x5c, -1 for none.
 AUTOGUN = 0x0d
+CCTV = 0x06
 # Glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and nothing
 # more, and Perfect Dark's portalnum is found at the load. Reading one anyway
 # takes the head of the next record.
@@ -95,7 +102,10 @@ AUTOGUN = 0x0d
 # carries GoldenEye's behaviour as the branch of doorCallLift() where the
 # "lift" is a door, so it goes through as a short record: the two offsets are
 # relative record indices, which the conversion keeps.
-AS_NOTHING = {0x0e, 0x11, 0x12}
+#
+# **A pair of guns (0x0e) is kept** from converter 75: link_guns_record().
+AS_NOTHING = {0x11, 0x12}
+LINK_GUNS = 0x0e
 MONITOR = 0x0a
 MULTI_MONITOR = 0x0b
 
@@ -221,6 +231,13 @@ PD_CHRFLAG_GE_LOCKY = 0x40000000
 GE_PADROOM_OPS = (0x44, 0x54, 0x55, 0xe6)
 PD_PADROOM_PAD = 10000
 
+# GoldenEye's StartPatrol is two commands in Perfect Dark: aiSetPath (0x21, the
+# table's row) only names the path and aiStartPatrol (0x22) sets off along it.
+# With the second left out every guard GoldenEye puts on patrol stood at his pad
+# until he saw Bond (converter 76).
+GE_STARTPATROL_OP = 0x20
+PD_STARTPATROL_CMD = 0x0022
+
 # IFBondYPosLessThan (d6) has no twin in Perfect Dark and becomes the port's own
 # command, past the game's table beside aiGeExitOnButtonPress:
 #     01e3 <y:4, signed> <label:1>
@@ -337,6 +354,16 @@ def objective_room_record(t, raw, numpads):
     if 0 <= pad < NO_PAD:
         struct.pack_into('>i', rec, at, pad_num(pad, numpads) + PD_PADROOM_PAD)
     return bytes(rec)
+
+
+def link_guns_record(raw):
+    """GoldenEye's PROPDEF_LINK, two collectables that are one pair of guns, as
+    Perfect Dark's OBJTYPE_LINKGUNS: the same two record offsets, relative to
+    the link's own index, as s16 where GoldenEye has s32. Picking up one gives
+    the gun and the other the pair (bondinv.c's bondinvAddWeaponByProp()).
+    geconvert.c's soloLinkGuns()."""
+    first, second = struct.unpack_from('>ii', raw, 4)
+    return raw[0:3] + bytes([LINK_GUNS]) + struct.pack('>hh', first, second)
 
 
 def rename_record(raw):
@@ -523,8 +550,7 @@ def weapon_record(raw, numpads):
     out = base_record(raw, 0x08, PD_SIZES[0x08], pad_of(8, raw, numpads))
     item = raw[0x80]
     out[0x5c] = item_weapon(item) if item >= 2 else 0
-    out[0x5d] = 0xff          # no second gun
-    out[0x5e] = 0xff
+    out[0x61] = 0xff          # no second gun: dualweaponnum -1 (was 0x5d/0x5e until 72)
     struct.pack_into('>h', out, 0x62, struct.unpack_from('>h', raw, 0x82)[0])
     return out
 
@@ -656,6 +682,10 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
             out.append(rename_record(raw))
             stats['kept'][t] = stats['kept'].get(t, 0) + 1
             continue
+        if t == LINK_GUNS:
+            out.append(link_guns_record(raw))
+            stats['kept'][t] = stats['kept'].get(t, 0) + 1
+            continue
         if t in AS_NOTHING or t not in PD_SIZES:
             stats['dropped'][t] = stats['dropped'].get(t, 0) + 1
             out.append(struct.pack('>I', OBJTYPE_NOTHING))
@@ -681,6 +711,9 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
             for ge, pd, w, mul in OBJ_TAILS.get(t, ()):
                 v = int.from_bytes(raw[ge:ge + w], 'big') * mul
                 rec[pd:pd + w] = v.to_bytes(w, 'big')
+            if t == CCTV and len(raw) >= 0x84:
+                look = struct.unpack_from('>i', raw, 0x80)[0]
+                struct.pack_into('>H', rec, 0x5c, NO_PAD if look < 0 else pad_num(look, numpads))
             if t == AUTOGUN and len(raw) >= 0x84:
                 target = struct.unpack_from('>i', raw, 0x80)[0]
                 struct.pack_into('>H', rec, 0x5c, NO_PAD if target < 0 else pad_num(target, numpads))
@@ -1026,6 +1059,8 @@ def convert_ailist(d, at, stats, numpads, vehicle=False, offset=None):
                     out += (vals[s[0]] & ((1 << (8 * s[1])) - 1)).to_bytes(s[1], 'big')
                 else:
                     out += vals[s].to_bytes(args[s][1], 'big')
+            if op == GE_STARTPATROL_OP:
+                out += struct.pack('>H', PD_STARTPATROL_CMD)
             stats['ai_kept'] += 1
         at += ln
         if name == 'EndList':
