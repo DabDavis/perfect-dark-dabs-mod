@@ -7682,6 +7682,84 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 }
 
 /**
+ * Where GoldenEye's own pickup of each gun is held from: its root's origin,
+ * the point a character's hand is put on (the decomp's
+ * assets/obseg/prop/chr<gun>/Model.c, the first GroupSimple record). The
+ * release's pickup is laid onto GoldenEye's vertices (gegunstable.h), but
+ * drawn on its host's pickup, whose held position (the root's
+ * MODELNODETYPE_POSITIONHELD, modelUpdatePositionHeldNodeMtx()) is Perfect
+ * Dark's: a vertex lands at hand + host's position + vertex, where GoldenEye
+ * put it at hand + its own origin + vertex. Most hosts carry GoldenEye's own
+ * number, being conversions of the same guns; where they do not, the gun sat
+ * in the hand at the wrong place along its length - the Moonraker's host is
+ * Perfect Dark's Laser, held 275 units further along it, so Bond's fist
+ * closed round the emitter with the grip hanging behind his wrist (F3
+ * 20260926-100859, "wrong hand position"), and the Phantom's, both
+ * shotguns', the sniper rifle's and the grenade launcher's grips hung behind
+ * the hand too.
+ */
+static const f32 geHeldOrigin[NUM_GE_GUNS][3] = {
+	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = { -119.700188f, 7.668271f, 48.382500f },
+	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = { -143.855087f, 7.668271f, 54.997883f },
+	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = { -119.700188f, 7.668271f, 48.382500f },
+	[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = { -166.662476f, -11.955621f, 87.030342f },
+	[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = { -246.128662f, -11.955621f, 76.921669f },
+	[WEAPON_GE_ZMG             - WEAPON_GE_FIRST] = { -97.620056f, -11.955621f, 63.782967f },
+	[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = { -186.281738f, -11.955621f, 100.796684f },
+	[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = { -186.281738f, -11.955621f, 100.796684f },
+	[WEAPON_GE_PHANTOM         - WEAPON_GE_FIRST] = { -270.313324f, -11.955621f, 75.873955f },
+	[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = { -223.638229f, -11.955621f, 119.330536f },
+	[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = { -246.128662f, -11.955621f, 76.921669f },
+	[WEAPON_GE_SHOTGUN         - WEAPON_GE_FIRST] = { -275.302124f, -11.955621f, 93.865318f },
+	[WEAPON_GE_AUTOSHOTGUN     - WEAPON_GE_FIRST] = { -307.603943f, -11.955621f, 115.337097f },
+	[WEAPON_GE_SNIPERRIFLE     - WEAPON_GE_FIRST] = { -246.128647f, -11.955614f, 76.921669f },
+	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = { -150.628006f, 3.041844f, 84.618126f },
+	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = { -124.785019f, 7.668271f, 63.781876f },
+	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = { -179.337173f, -11.955621f, 89.609489f },
+	[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = { -377.373596f, -11.955621f, 86.970940f },
+	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { -32.417446f, 3.051919f, 111.177673f },
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = { -69.831062f, -5.615770f, 86.724915f },
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { -114.193726f, -5.615770f, 138.606949f },
+	[WEAPON_GE_GRENADE         - WEAPON_GE_FIRST] = { -72.152519f, -14.593716f, 17.884487f },
+	[WEAPON_GE_TIMEDMINE       - WEAPON_GE_FIRST] = { -141.967361f, -7.613092f, -0.473107f },
+	[WEAPON_GE_PROXIMITYMINE   - WEAPON_GE_FIRST] = { -141.994848f, -7.788863f, -0.473107f },
+	[WEAPON_GE_REMOTEMINE      - WEAPON_GE_FIRST] = { -141.994848f, -6.282878f, -0.473107f },
+};
+
+/**
+ * How far to move a gun a character holds, in the gun's own space, so that
+ * the release's pickup drawn on its host's model sits in the hand where
+ * GoldenEye holds its own (geHeldOrigin): GoldenEye's origin less the host's
+ * held position. 0 for anything else - the N64 look draws GoldenEye's own
+ * model, held from its own origin already, and a pickup on the floor is left
+ * where its host's box puts it.
+ */
+s32 gebeanHeldGunOffset(struct model *model, s32 modelnum, f32 out[3])
+{
+	const s32 i = modelnum - MODEL_GE_FIRST;
+	struct modelnode *root;
+
+	out[0] = out[1] = out[2] = 0.0f;
+
+	if (i < 0 || i >= (s32)ARRAYCOUNT(gunRows) || !gunSlot[i] || !model || !model->definition
+			|| model->definition != g_ModelStates[modelnum].modeldef) {
+		return 0;
+	}
+
+	root = model->definition->rootnode;
+
+	if (!root || (root->type & 0xff) != MODELNODETYPE_POSITIONHELD || !xblaMeshModelDrawsBean(model)) {
+		return 0;
+	}
+
+	out[0] = geHeldOrigin[i][0] - root->rodata->positionheld.pos.x;
+	out[1] = geHeldOrigin[i][1] - root->rodata->positionheld.pos.y;
+	out[2] = geHeldOrigin[i][2] - root->rodata->positionheld.pos.z;
+
+	return out[0] * out[0] + out[1] * out[1] + out[2] * out[2] > 0.01f;
+}
+
+/**
  * Where the gun drawn for this weapon ends, as an offset from its host's
  * muzzle node in the model's own space; 0 if the host's own model is the one
  * in the hand and its own node is right.

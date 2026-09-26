@@ -162,6 +162,9 @@ void xblaMeshNoteBruise(struct model *model, struct modelnode *bboxnode, const s
  */
 s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef);
 
+// Whether a model draws a built GoldenEye release mesh (gebean.c's) in place of its own lists
+s32 xblaMeshModelDrawsBean(struct model *model);
+
 /**
  * While on, xblaMeshRenderNode() leaves every node to the game, so a model the
  * release has a mesh for draws exactly as the N64 draws it: the mesh is not

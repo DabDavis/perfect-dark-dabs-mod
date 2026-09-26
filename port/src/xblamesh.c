@@ -10798,6 +10798,39 @@ s32 xblaMeshHeldOffset(struct model *model, struct modelnode *handnode, f32 out[
 	return cache[c].ok;
 }
 
+/**
+ * Whether a model draws a GoldenEye release mesh of gebean.c's in place of its
+ * own lists (xblaMeshRenderNode()'s frombean), in the current look, and that
+ * mesh has been built.
+ */
+s32 xblaMeshModelDrawsBean(struct model *model)
+{
+	struct modelnode *nodes[128];
+	const s32 look = !optEnabled;
+	s32 n;
+
+	if (!model || !model->definition || !g_XblaMeshNumNodes || !gebeanGetEnabled() || !beanBuilt[look]) {
+		return 0;
+	}
+
+	n = xblaMeshEnumListNodes(model->definition, nodes, ARRAYCOUNT(nodes));
+
+	for (s32 i = 0; i < n && i < (s32)ARRAYCOUNT(nodes); i++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(nodes[i]);
+
+		if (e && e->node == nodes[i] && e->modeldef == model->definition && e->beanrow >= 0
+				&& e->packpart != XBLAMESH_NOPART && e->fileid
+				&& !(e->matched && xblaMeshEntryLive(e) && opened > 0)
+				&& !modelpackFindN64(e->fileid)
+				&& (optEnabled || gebeanRowIsPool(e->beanrow) || gebeanRowIsFirstPerson(e->beanrow))
+				&& beanBuilt[look][e->fileid] && beanBuilt[look][e->fileid]->state > 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef)
 {
 	if (!modeldef || !g_XblaMeshNumNodes || (!optEnabled && !releaseOnlyLoaded) || opened <= 0 || !built) {
@@ -11507,6 +11540,7 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node) { return 0
 s32 xblaMeshModelHasMesh(struct model *model) { return 0; }
 s32 xblaMeshHeldOffset(struct model *model, struct modelnode *handnode, f32 out[3]) { return 0; }
 s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef) { return 0; }
+s32 xblaMeshModelDrawsBean(struct model *model) { return 0; }
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode) { return 0; }
