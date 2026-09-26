@@ -13,6 +13,9 @@ extern bool g_ModelPoseCapture;
 
 bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model);
 void modelSetDistanceChecksDisabled(bool disabled);
+#ifndef PLATFORM_N64
+bool modelDistanceIsFullDetail(void);
+#endif
 void modelSetDistanceScale(f32 value);
 void modelSetVtxAllocatorFunc(Vtx *(*fn)(s32 numvertices));
 s32 modelFindNodeMtxIndex(struct modelnode *node, s32 arg1);
