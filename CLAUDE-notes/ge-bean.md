@@ -11204,3 +11204,49 @@ parts 8-13/35, decals) take the hand.
   (front or back, standing: 2 x torso), a miss at 120 whooshes. Sims on the GE
   Dam arena never fight at all in a seeded headless match (the stock build too),
   so the sims' slap path is untested.
+
+## Nothing in the hand for the gadgets, and GoldenEye's own thrown mines (2026-09-26)
+
+Two F3s on build 49783dc: Facility, "Mines are the ones in perfect dark, not
+GE" (a remote mine stuck to a bottling tank, 20260926-171321), and Bunker,
+"Camera and goldeneye key appears in front of the player like a gun"
+(20260926-172234).
+
+**What GoldenEye does, asked of the native port** (`~/dam-oracle/gegadgethand.py`
+on 10.8.0.3: give, `gunRequestHandWeaponChange()`, 150 frames, the frame and
+`hands[0].field_87F`): the camera, the GoldenEye key, the covert modem
+(ITEM_BUG), the plastique, the watch magnet and the remote mine are all
+**drawn as nothing**, the PP7 as a gun. Every one carries
+`WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND` in `gunWeaponStats.inc.c`, and
+gunfire.c clears `field_87F` for it. Only the watch's detonator (the trigger)
+is drawn. What gun.c's throw makes is the item's own prop:
+PROP_CHRREMOTEMINE / PROXIMITYMINE / TIMEDMINE, PROP_CHRGRENADE, and for the
+throwing knife PROP_CHRKNIFE (the hunting knife's model).
+
+- **Gadgets**: `g_Hands` (gegadgets.c) keeps the detonator alone; the modem,
+  plastique, key and camera fall into the empty-hand return with the six that
+  have no model. The measuring and fitting to a width that placed them
+  (`gegadgetsMeasure()`) went with them - it was only ever for these four.
+- **Thrown mines and grenade**: `gegunsThrownModel()` (geguns.c), asked in
+  `bgunCreateThrownProjectile2()` after the gadgets' own: the ROM prop where the
+  stage has it (a converted level's `models` block, either look - the HD look
+  draws the release's `prop/chrremotemine` over it), lent on a stage of Perfect
+  Dark's where GoldenEye's own model is in the hand, the host's projectile
+  otherwise. The host function's model still decides stickiness. The throwing
+  knife is left alone (PROP_CHRKNIFE's axes under the host's blade spin are
+  unchecked).
+- **Converter**: the three mine props were in no `models` block (no setup
+  names them; 196 grenade and 186 knife were there through setups and
+  HELD_GUNS), so geconvert.c and gesolo.py's GE_GADGET_MODELS add 199-201.
+  **Committed without a GECONVERT_VERSION bump**: until the next bump a player's
+  conversion has no mine props and the throw falls back to Perfect Dark's mine.
+
+Checked in a private rig (`~/wt/f3-0926d-gadgets-probe/`, `mine.py` with
+SPOT/BACK/HD, `hand.py`): the tester's tank throw now sticks GoldenEye's mine
+flat on the tank (model 0x2c7 = REMAKE+199), floor throws of all three mines
+and the grenade draw GoldenEye's, detonation unchanged; Bunker shows an empty
+hand for camera/key/modem/plastique and the detonator as before. **Open:** in
+the HD look a mine stuck to a Facility tank is inside the HD tank's mesh (the
+mine sits on the ROM collision surface, the release's tank is fatter) - the
+same for Perfect Dark's mine before; and the PD-stage lend was not driven
+(the Combat Simulator boot did not reach play in the rig).

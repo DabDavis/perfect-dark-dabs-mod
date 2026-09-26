@@ -315,8 +315,9 @@ GE_GADGET_WEAPON = {
     73: 0x7d,           # DATTAPE          Aztec           gadget B
 }
 # the thrown ones' props, which no setup record need name: PROP_CHRBUG,
-# PROP_CHRGOLDENEYEKEY and PROP_CHRPLASTIQUE
-GE_GADGET_MODELS = (245, 248, 273)
+# PROP_CHRGOLDENEYEKEY and PROP_CHRPLASTIQUE, and the thrown mines'
+# PROP_CHRREMOTEMINE, PROP_CHRPROXIMITYMINE and PROP_CHRTIMEDMINE
+GE_GADGET_MODELS = (245, 248, 273, 199, 200, 201)
 
 # GoldenEye's PROPDEF_OBJECTIVE_COPY_ITEM (0x22, Bunker's "copy the GoldenEye
 # key") asks one thing - has the key analyser copied the key - and Perfect Dark
