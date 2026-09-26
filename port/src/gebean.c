@@ -62,8 +62,8 @@
 // fifth (".extracted5") before the levels were and the sixth (".extracted6")
 // before the remake's HD props were, so a cache holding any of them is unpacked
 // again. The tenth (".extracted10") is the menus' two fonts, the eleventh the
-// skydomes.
-#define GEBEAN_DONE_FILE ".extracted11"
+// skydomes, the twelfth the HUD's crosshair.
+#define GEBEAN_DONE_FILE ".extracted12"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -93,6 +93,8 @@
 #define GEBEAN_WANT_MENU_LEVELS "files/texture/level/"
 #define GEBEAN_WANT_MENU_SIGHT "files/texture/sight/"
 #define GEBEAN_WANT_MENU_ATTRACT "files/texture/attract/"
+// and the HUD's crosshair, texture/bg/sight (gehud.c)
+#define GEBEAN_WANT_HUD_SIGHT "files/texture/bg/sight/"
 // and their two fonts, which are files/misc/alps3 and doc0 (gebeanFontOpen())
 #define GEBEAN_WANT_MENU_FONTS "files/misc/"
 
@@ -1401,7 +1403,7 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 		|| strstr(lower, GEBEAN_WANT_SKIES) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_CHARS) != NULL || strstr(lower, GEBEAN_WANT_MENU_LEVELS) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_SIGHT) != NULL || strstr(lower, GEBEAN_WANT_MENU_ATTRACT) != NULL
-		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL;
+		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL || strstr(lower, GEBEAN_WANT_HUD_SIGHT) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
