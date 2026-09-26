@@ -913,10 +913,11 @@ const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height)
 		snprintf(source, sizeof(source), "texture/%s", name);
 		rgba = gebeanDecodePictureFile(source, &w, &h);
 
-		// The release's crosshair is blue, which is not how it is seen - the
-		// release colours it as it draws it - and GoldenEye's is red, drawn
-		// white. Its red is the blue channel.
-		if (rgba && strcmp(name, "sight") == 0) {
+		// The release's crosshairs - the menus' cursor and the HUD's HD one
+		// (gehud.c) - are blue, which is not how they are seen - the release
+		// colours them as it draws them - and GoldenEye's is red, drawn white.
+		// Their red is the blue channel.
+		if (rgba && (strcmp(name, "sight") == 0 || strcmp(name, "bg/sight") == 0)) {
 			for (s32 k = 0; k < w * h; k++) {
 				u8 *px = rgba + (size_t)k * 4;
 				const u8 r = px[0];
@@ -924,6 +925,23 @@ const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height)
 				px[0] = px[2];
 				px[2] = r;
 			}
+		}
+
+		// The HUD's is lit from above - a bevel, pale along the ring's top
+		// edge - and its rows are turned over here so that it stands the right
+		// way up when drawn as GoldenEye's own crosshair is, top row first. A
+		// rectangle stepping up the picture instead sits a texel higher.
+		if (rgba && strcmp(name, "bg/sight") == 0) {
+			const size_t pitch = (size_t)w * 4;
+			u8 *row = malloc(pitch);
+
+			for (s32 y = 0; row && y < h / 2; y++) {
+				memcpy(row, rgba + y * pitch, pitch);
+				memcpy(rgba + y * pitch, rgba + (h - 1 - y) * pitch, pitch);
+				memcpy(rgba + (h - 1 - y) * pitch, row, pitch);
+			}
+
+			free(row);
 		}
 
 		if (rgba) {

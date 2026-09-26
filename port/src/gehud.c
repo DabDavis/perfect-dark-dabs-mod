@@ -8,7 +8,8 @@
  *   reserve, at the bottom right, and again mirrored at the bottom left for a
  *   gun in the left hand;
  * - the sight (gunDrawSight()): its one 32x32 crosshair, the folder screens'
- *   cursor, at 0x6e of 255;
+ *   cursor, at 0x6e of 255 - or under the release's look the release's own
+ *   (texture/bg/sight), drawn the release's way;
  * - the health and armour gauges (bondviewRenderGaugeBars()): the watch's two
  *   arcs either side of the view, under its own orthographic frame;
  * - the messages (hudmsgBottomRender() and sub_GAME_7F08AAE8()): Bank Gothic
@@ -40,6 +41,7 @@
 #include "system.h"
 #include "video.h"
 #include "gehud.h"
+#include "gefolder.h"
 #include "gewatch.h"
 #include "gexfront.h"
 #include "game/bondgun.h"
@@ -119,6 +121,16 @@ static const struct {
 // GoldenEye's crosshair image (IMAGE_CROSSHAIR1), 32x32 RGBA32
 #define SIGHT_IMAGE 2236
 #define SIGHT_ALPHA 0x6e
+
+// The release's own (texture/bg/sight), 256x256 over the same 32 units: the
+// same crosshair, a clean ring and a faint bevel. It draws it darker and less
+// see-through than GoldenEye does. Measured off its Dam in Xenia at 1280x720,
+// PP7 and zoomed sniper rifle alike (it has no scope picture of its own): over
+// a flat wall the view behind keeps 0.40 of itself under the bars, whose own
+// red is 173 of 255 - 0x99 of 255 at a shade of 0xad.
+#define SIGHT_HD_PICTURE "bg/sight"
+#define SIGHT_HD_SHADE 0xad
+#define SIGHT_HD_ALPHA 0x99
 
 /**
  * What each of GoldenEye's weapons shows, from its gunWeaponStat row: the
@@ -262,9 +274,9 @@ static void hudFrame(struct hudframe *f)
 			viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
 }
 
-/** A picture of the conversion's over a box of the frame buffer, tinted white at `alpha`. */
+/** A picture of the conversion's over a box of the frame buffer, shaded by `shade` at `alpha`. */
 static Gfx *hudImage(Gfx *gdl, struct textureconfig *tex, s32 mode, s32 point, s32 flip,
-		f32 x1, f32 y1, f32 x2, f32 y2, s32 twidth, s32 theight, s32 alpha)
+		f32 x1, f32 y1, f32 x2, f32 y2, s32 twidth, s32 theight, s32 shade, s32 alpha)
 {
 	const s32 prevsrc = modSetTextureSourceMod(g_Hud.moddir);
 
@@ -277,7 +289,7 @@ static Gfx *hudImage(Gfx *gdl, struct textureconfig *tex, s32 mode, s32 point, s
 	gDPSetTextureLOD(gdl++, G_TL_TILE);
 	gDPSetTextureFilter(gdl++, point ? G_TF_POINT : G_TF_BILERP);
 	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
-	gDPSetEnvColor(gdl++, 255, 255, 255, alpha);
+	gDPSetEnvColor(gdl++, shade, shade, shade, alpha);
 	gDPSetCombineLERP(gdl++, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0, TEXEL0, 0, ENVIRONMENT, 0);
 	// the picture's rows run bottom to top (gexfront.c's frontImage() with a
 	// negative height), so t starts on the last row and counts back.
@@ -465,7 +477,7 @@ Gfx *geHudRenderAmmo(Gfx *gdl)
 		gdl = hudImage(gdl, tex, 2, 1, 1,
 				viGetViewLeft() + x0 * f.sx, viGetViewTop() + y0 * f.sy,
 				viGetViewLeft() + (x0 + width) * f.sx, viGetViewTop() + (y0 + g_IconRows[icon].height) * f.sy,
-				width, g_IconRows[icon].height, 255);
+				width, g_IconRows[icon].height, 255, 255);
 
 		gdl = gexFrontTextSetup(gdl);
 
@@ -494,13 +506,35 @@ Gfx *geHudRenderAmmo(Gfx *gdl)
 Gfx *geHudRenderSight(Gfx *gdl, f32 x, f32 y)
 {
 	struct hudframe f;
+	struct textureconfig release;
+	s32 w, h;
+	// the release's crosshair where the release is there and its look is on
+	// (gefolder.c's stand-in, which the renderer draws whole over the config's
+	// nominal 32 texels, and the right way up as GoldenEye's is drawn)
+	const void *tile = geFolderMenuPicture(SIGHT_HD_PICTURE, &w, &h);
 
 	hudFrame(&f);
 
 	gDPPipeSync(gdl++);
-	gdl = hudImage(gdl, &g_Hud.sight, 4, 0, 0,
-			x - 16.0f * f.sx, y - 16.0f * f.sy, x + 16.0f * f.sx, y + 16.0f * f.sy,
-			32, 32, SIGHT_ALPHA);
+
+	if (tile) {
+		memset(&release, 0, sizeof(release));
+		release.textureptr = (u8 *)tile;
+		release.width = 32;
+		release.height = 32;
+		release.format = G_IM_FMT_RGBA;
+		release.depth = G_IM_SIZ_32b;
+		release.s = G_TX_CLAMP;
+		release.t = G_TX_CLAMP;
+
+		gdl = hudImage(gdl, &release, 4, 0, 0,
+				x - 16.0f * f.sx, y - 16.0f * f.sy, x + 16.0f * f.sx, y + 16.0f * f.sy,
+				32, 32, SIGHT_HD_SHADE, SIGHT_HD_ALPHA);
+	} else {
+		gdl = hudImage(gdl, &g_Hud.sight, 4, 0, 0,
+				x - 16.0f * f.sx, y - 16.0f * f.sy, x + 16.0f * f.sx, y + 16.0f * f.sy,
+				32, 32, 255, SIGHT_ALPHA);
+	}
 
 	return hudEnd(gdl);
 }
