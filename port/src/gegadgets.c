@@ -11,6 +11,7 @@
 #include "game/bondgun.h"
 #include "game/chraction.h"
 #include "game/file.h"
+#include "game/game_0b0fd0.h"
 #include "game/gfxmemory.h"
 #include "game/hudmsg.h"
 #include "game/inv.h"
@@ -89,6 +90,12 @@ static struct gegadgetidentity g_Identities[] = {
 
 // Bunker, where the key analyser copies the GoldenEye key
 #define MISSION_BUNKER 4
+
+// Train, where Bond's watch laser (ITEM_WATCHLASER, 23) stands on the
+// Moonraker's weapon number (the conversion's g_GeItemWeapon: the same beam)
+#define MISSION_TRAIN 13
+#define ITEM_WATCHLASER 23
+#define ITEM_TRIGGER 30
 
 // GoldenEye's PROPDEF_OBJECTIVE_COPY_ITEM asks one thing, "has the key been
 // copied", and Perfect Dark has no such record: the conversion writes it as a
@@ -169,6 +176,21 @@ static struct {
 s32 gegadgetsIsGadget(s32 weaponnum)
 {
 	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum < NUM_WEAPONS;
+}
+
+/**
+ * The Moonraker's number on Train is GoldenEye's watch laser, which GoldenEye
+ * draws as Bond's two hands at his watch (GwatchlaserZ), held and turned
+ * exactly as the detonator (watchlaser_stats' PosX/Y/Z are trigger_stats',
+ * gunfire.c turns both by D_80035C70, gun.c presses both alike) - and not as
+ * the Moonraker's gun. The conversion leaves item 23 out (it is no gun of the
+ * port's), so the detonator's own GtriggerZ (Igx030Z) stands in for it: the
+ * two models have the same node count, matrices, bounds and textures, and the
+ * native port draws them alike.
+ */
+static s32 gegadgetsIsWatchLaser(s32 weaponnum)
+{
+	return weaponnum == WEAPON_GE_MOONRAKER && g_Gadgets.moddir >= 0 && g_Gadgets.mission == MISSION_TRAIN;
 }
 
 static const struct gegadgetidentity *gegadgetsIdentity(s32 weaponnum)
@@ -442,12 +464,14 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 {
 	const struct gegadgethand *held = NULL;
 	const struct weapon *host;
+	const s32 watchlaser = gegadgetsIsWatchLaser(weaponnum);
+	s32 watch;
 	Mtxf base;
 	Mtxf *matrices;
 	f32 fit = 1.0f;
 	s32 item;
 
-	if (!gegadgetsIsGadget(weaponnum)) {
+	if (!gegadgetsIsGadget(weaponnum) && !watchlaser) {
 		return 0;
 	}
 
@@ -459,7 +483,7 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	}
 
 	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_Hands); i++) {
-		if (g_Hands[i].weaponnum == weaponnum) {
+		if (g_Hands[i].weaponnum == (watchlaser ? WEAPON_GE_DETONATOR : weaponnum)) {
 			held = &g_Hands[i];
 		}
 	}
@@ -475,15 +499,19 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 		return 1;
 	}
 
-	item = gegadgetsItem(weaponnum);
+	item = watchlaser ? ITEM_TRIGGER : gegadgetsItem(weaponnum);
+	watch = weaponnum == WEAPON_GE_DETONATOR || watchlaser;
 
 	if (!hostmodel->matrices || !gegadgetsLoadModel(item)) {
 		return weaponnum == WEAPON_GE_DETONATOR;
 	}
 
 	// the host's root for its turn and its size, posed about the eye first so
-	// that the model can be measured from its own root
-	host = g_Weapons[g_GeWeaponHosts[weaponnum - WEAPON_GE_FIRST]];
+	// that the model can be measured from its own root. The watch laser's is
+	// the Moonraker's own definition, whose place is GoldenEye's laser's or
+	// its host's by the look (geguns.c)
+	host = watchlaser ? weaponFindById(weaponnum)
+		: g_Weapons[g_GeWeaponHosts[weaponnum - WEAPON_GE_FIRST]];
 	mtx4Copy(&hostmodel->matrices[0], &base);
 	base.m[3][0] = 0.0f;
 	base.m[3][1] = 0.0f;
@@ -528,14 +556,14 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 
 		modelSetDistanceChecksDisabled(true);
 
-		if (weaponnum == WEAPON_GE_DETONATOR) {
+		if (watch) {
 			gegadgetsDetonatorCuff();
 		}
 
 		modelUpdateRelations(&g_Gadgets.model);
 		modelSetMatrices(renderdata, &g_Gadgets.model);
 
-		if (weaponnum == WEAPON_GE_DETONATOR) {
+		if (watch) {
 			gegadgetsDetonatorPress(matrices);
 		}
 
