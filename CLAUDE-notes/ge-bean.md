@@ -10913,3 +10913,40 @@ Checked on two rigs with GoldenEye X installed and the setting naming it
 42 (86 before), Dam's music GoldenEye's own, the mission's sound identical to
 the `auto` build. GoldenEye X loaded as the mod still boots its Temple and
 plays; GE Plus reports it shut. Probes in `~/wt/gex-out-probe/`.
+
+## The release's ammunition display in the HD look (2026-09-26)
+
+F3 20260926-094419 ("time for bean xbla ammo hud"). Under the release's look
+(`gebeanGetEnabled() && xblaMeshGetEnabled()`, the same switch as the folder
+screens and the HD sight, so it follows F6 and has no setting of its own)
+`geHudRenderAmmo()` draws the release's own pictures and layout; the N64 look
+keeps GoldenEye's.
+
+- **The pictures** are `files/texture/bg/ammo*`, and the decomp's
+  `assets/oddtextures.c` names each beside GoldenEye's row. Like the sights
+  they are stored **red and blue swapped** (the 9mm case is blue in the file,
+  brass on screen) - `menuAmmoPicture()` in gefolder.c. Three have nothing
+  bigger than GoldenEye's own size (golden gun 5x12, timed and proximity mine
+  14x14) and looked like smears; they are made from the release's 9mm round in
+  gold and its one HD mine with its lights turned yellow/green
+  (`"name#variant"` in `geFolderMenuPicture()`). The tank's 7x22 shell is the
+  HD magnum round.
+- **Trap:** a stand-in picture drawn over a nominal 5x12 config showed only its
+  left 5/8 and bottom 3/4 - the tile is padded to 8x16. Draw over a 32x32
+  nominal square (`HUD_RELEASE_TEXELS`) and keep GoldenEye's box on screen.
+- **Layout, measured off Bean in Xenia at 1280x720** (shots in
+  `.xbla-work/ge-bean/xenia/shots/st1.png`, `s0`, `w20`): Xenia shows the top
+  695 rows of the 720 frame (the crosshair's middle is at y 359.5), so a shot's
+  pixel is the frame's, 3 pixels a unit. GoldenEye's rule in the **4:3 middle**
+  of the 16:9 screen (`hudReleaseInsets()`: an edge of the view that is the
+  window's comes in by half the width past 4:3), 5 units higher
+  (`HUD_RELEASE_RAISE`); numbers Bank Gothic at the release's own proportions
+  (`gexFrontTextNaturalWidth()`), 0.61 of GoldenEye's size, a unit higher
+  again, outlined in opaque 0x55 about two pixels out. Ours lands within a
+  pixel of the release's on the digits and within two on the round.
+- Not changed: the radar, gauges, messages and countdown stay GoldenEye's in
+  both looks (no gameplay capture of the release's to measure them from; its
+  2-player radar sits neither on GoldenEye's rule nor in the 4:3 middle).
+
+Probe: scratchpad `run/hud.py` pattern = build/gexrom/hudshot.py (`WEAPONS=`,
+`ARENA=1` sets g_GexPlusMode at geHudStageStart), 1280x720 save.

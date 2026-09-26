@@ -874,7 +874,7 @@ s32 geFolderRepaint(struct modeldef *modeldef)
  * of the game, so this is a lookup after that; a picture the release has not
  * got is remembered as missing and GoldenEye's own is drawn.
  */
-#define GEFOLDER_MAXMENU 96
+#define GEFOLDER_MAXMENU 128
 
 static struct {
 	char name[40];
@@ -883,6 +883,53 @@ static struct {
 	s32 height;
 } menuPictures[GEFOLDER_MAXMENU];
 static s32 numMenuPictures;
+
+/**
+ * The HUD's ammunition pictures (gehud.c, texture/bg/ammo*). Like the
+ * crosshairs they are stored with red and blue the other way round: the 9mm
+ * round is a blue case in the file and a brass one on the release's screen, the
+ * shotgun's shell blue and red, the remote mine's light blue and red.
+ *
+ * Three of GoldenEye's pictures have no picture of the release's own at more
+ * than GoldenEye's size - the golden gun's round (5x12), the timed and
+ * proximity mines' (14x14) - and stood out as a smear of a few texels beside
+ * the rest. They are made from the release's own: the golden gun's is its 9mm
+ * round in gold, and the two mines are its one mine with its lights turned the
+ * colour GoldenEye gives each (bg/ammoiconmineyellow, bg/ammoiconminegreen).
+ */
+static void menuAmmoPicture(u8 *rgba, s32 count, const char *variant)
+{
+	for (s32 k = 0; k < count; k++) {
+		u8 *px = rgba + (size_t)k * 4;
+		const u8 r = px[0];
+
+		px[0] = px[2];
+		px[2] = r;
+
+		if (strcmp(variant, "gold") == 0) {
+			// the case's shading carried on a ramp from dark to pale gold
+			const f32 l = (px[0] * 0.30f + px[1] * 0.59f + px[2] * 0.11f) / 255.0f;
+			static const f32 ramp[3][3] = { { 70, 45, 0 }, { 235, 180, 40 }, { 255, 245, 185 } };
+			const s32 hi = l > 0.6f;
+			const f32 t = hi ? (l - 0.6f) / 0.4f : l / 0.6f;
+
+			for (s32 c = 0; c < 3; c++) {
+				const f32 v = ramp[hi][c] + (ramp[hi + 1][c] - ramp[hi][c]) * (t > 1.0f ? 1.0f : t);
+				px[c] = (u8)(v + 0.5f);
+			}
+		} else if (px[0] > px[1] + 48 && px[0] > px[2] + 48) {
+			// a light, red in the release's picture
+			if (strcmp(variant, "yellow") == 0) {
+				px[1] = (u8)(px[0] * 0.85f + px[1] * 0.15f);
+			} else if (strcmp(variant, "green") == 0) {
+				const u8 red = px[0];
+
+				px[0] = px[1];
+				px[1] = red;
+			}
+		}
+	}
+}
 
 const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height)
 {
@@ -910,8 +957,19 @@ const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height)
 		snprintf(menuPictures[i].name, sizeof(menuPictures[i].name), "%s", name);
 		numMenuPictures++;
 
+		// "name#variant" is one of the release's pictures made over into one
+		// it has not got (menuPictureVariant())
 		snprintf(source, sizeof(source), "texture/%s", name);
+
+		if (strchr(source, '#')) {
+			*strchr(source, '#') = '\0';
+		}
+
 		rgba = gebeanDecodePictureFile(source, &w, &h);
+
+		if (rgba && strncmp(name, "bg/ammo", 7) == 0) {
+			menuAmmoPicture(rgba, w * h, strchr(name, '#') ? strchr(name, '#') + 1 : "");
+		}
 
 		// The release's crosshairs - the menus' cursor and the HUD's HD one
 		// (gehud.c) - are blue, which is not how they are seen - the release

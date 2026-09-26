@@ -100,6 +100,12 @@ Gfx *gexFrontTextPrint(Gfx *gdl, s32 gothic, s32 x, s32 y, const char *text, u32
  */
 void gexFrontTextFrame(f32 gew, f32 geh, s32 left, s32 top, s32 width, s32 height);
 void gexFrontTextFrameDefault(void);
+/**
+ * The release's glyphs at their own proportions until the frame is next put
+ * back (gexFrontTextFrameDefault()), rather than fitted across to GoldenEye's
+ * widths as the menus have them. No change to GoldenEye's own font.
+ */
+void gexFrontTextNaturalWidth(s32 on);
 void gexFrontTextMeasure(s32 gothic, const char *text, s32 *width, s32 *height);
 
 // A filled rectangle on the same frame, in the same colour word
