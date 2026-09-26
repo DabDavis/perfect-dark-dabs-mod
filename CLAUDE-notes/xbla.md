@@ -349,6 +349,17 @@ Test: `--boot-stage 0x33`, skip the intro (`g_CutsceneSkipRequested`,
 theta 0 for d from 200 to 18. The other five pads are 0x213-0x217
 (`MON` listing in the session's `view.py`).
 
+**00c2 is the second one (2026-09-26).** F3 20260926-230557/-230716, the
+same pack on Investigation's *wood-framed* terminals (rooms 36 and 39): the
+pack's 00c2 is a square ROM-layout screen, the release's 256x512 two stacked,
+so the blue gradient ran over the frame upside down. In `XBLA_REUSED_SLOTS`
+now. To look for more: `xblaconvert.read_records()` gives each numbered
+record's size and source size; the ones whose shape changed by 1.3x or more
+(about 120, most a 32x48 tile stretched square) beside the pack's picture.
+Candidates seen but not settled, since no report points at them: 00aa (a taxi
+atlas in the release, a headlight panel in the pack), 0937 (an atlas vs a
+strip), 0904/0905 (dirt vs sandstone), 0145.
+
 ### Row order
 
 The console art is in N64 row order, upside down on screen. A pack file
