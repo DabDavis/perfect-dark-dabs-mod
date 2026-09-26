@@ -3096,6 +3096,132 @@ Vtx *bgFindVerticesForGdl(s32 roomnum, Gfx *gdl)
 	return NULL;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Chicago's covered bridge over the alley has a row of windows on each face,
+ * and each window is two layers: the frame grid (texture 391, its panes cut
+ * out) in the room's translucent list, and behind it a pane of reflective
+ * glass drawn with texgen in the opaque list (458, 394 or 457 - rooms 42, 83,
+ * 87 and every other run of windows in the level). Room 41, the run facing
+ * the alley of room 38, was shipped without the glass, in the ROM and in the
+ * XBLA release alike: the bridge is hollow and nothing is behind its frames,
+ * so from the alley the grid is drawn over the sky (F3 20260925-224721).
+ *
+ * The missing pane is put back, drawn after the room's own opaque list as the
+ * pane of room 42 beside it is: 458 at the same scale, lit and texgenned from
+ * the same splayed corner normals, under the grid's own quad. Only when room
+ * 41 is the stock one - a Stage Loader map or a mod in Chicago's slot has its
+ * own rooms.
+ */
+static Gfx g_BgChicagoPaneGdl[96];
+static Vtx g_BgChicagoPaneVtx[4];
+static Col g_BgChicagoPaneCol[4];
+static struct roomgfxdata *g_BgChicagoPaneRoom;
+
+#define BG_CHICAGO_PANE_ROOM 41
+
+static bool bgChicagoPaneWanted(s32 roomnum)
+{
+	return g_Vars.stagenum == STAGE_CHICAGO && roomnum == BG_CHICAGO_PANE_ROOM
+		&& roomnum < g_Vars.roomcount && !modloaderStageIsRemake(g_Vars.stagenum)
+		&& g_Rooms[roomnum].bbmin[0] == -2500.0f && g_Rooms[roomnum].bbmax[0] == -1433.0f
+		&& g_Rooms[roomnum].bbmin[1] == 250.0f && g_Rooms[roomnum].bbmax[1] == 666.0f
+		&& g_Rooms[roomnum].bbmin[2] == 600.0f && g_Rooms[roomnum].bbmax[2] == 600.0f;
+}
+
+static void bgChicagoPaneGridDecal(struct roomblock *block)
+{
+	for (; block; block = block->next) {
+		if (block->type == ROOMBLOCKTYPE_PARENT) {
+			bgChicagoPaneGridDecal(block->child);
+		} else if (block->type == ROOMBLOCKTYPE_LEAF) {
+			for (Gfx *gdl = block->gdl; gdl && (s8)gdl->bytes[GFX_W0_BYTE(0)] != G_ENDDL; gdl++) {
+				if ((u32)gdl->words.w0 == 0xb900031d && (gdl->words.w1 & ZMODE_DEC) == ZMODE_XLU) {
+					gdl->words.w1 |= ZMODE_DEC;
+				}
+			}
+		} else {
+			break;
+		}
+	}
+}
+
+/**
+ * Called once the room's own lists have been through texLoadFromGdl(), so the
+ * pane's texture comes from the same pool as theirs.
+ */
+static void bgBuildChicagoPane(s32 roomnum)
+{
+	// The grid's quad in the world, and room 42's corner normals (x, y, z, a)
+	static const s16 corners[4][2] = { { -2500, 366 }, { -2500, 516 }, { -1500, 516 }, { -1500, 366 } };
+	static const s8 normals[4][3] = { { -88, -14, -89 }, { -88, 14, -89 }, { 88, 14, -89 }, { 88, -14, -89 } };
+	Gfx in[8];
+	Gfx *gdl = in;
+	s32 len;
+	s32 i;
+
+	if (!bgChicagoPaneWanted(roomnum)) {
+		return;
+	}
+
+	g_BgChicagoPaneRoom = NULL;
+
+	if (g_Rooms[roomnum].gfxdata == NULL) {
+		return;
+	}
+
+	for (i = 0; i < 4; i++) {
+		g_BgChicagoPaneVtx[i].x = corners[i][0] - (s32)g_BgRooms[roomnum].pos.x;
+		g_BgChicagoPaneVtx[i].y = corners[i][1] - (s32)g_BgRooms[roomnum].pos.y;
+		g_BgChicagoPaneVtx[i].z = 600 - (s32)g_BgRooms[roomnum].pos.z;
+		g_BgChicagoPaneVtx[i].flags = 1;
+		g_BgChicagoPaneVtx[i].colour = i * 4;
+		g_BgChicagoPaneVtx[i].s = 0;
+		g_BgChicagoPaneVtx[i].t = 0;
+
+		g_BgChicagoPaneCol[i].r = (u8)normals[i][0];
+		g_BgChicagoPaneCol[i].g = (u8)normals[i][1];
+		g_BgChicagoPaneCol[i].b = (u8)normals[i][2];
+		g_BgChicagoPaneCol[i].a = 210;
+	}
+
+	// In the level file's own form, as room 42 has it: the C0 texture
+	// command is expanded into the loads by texLoadFromGdl()
+	gSPTexture(gdl++, 0x0400, 0x0400, 0, G_TX_RENDERTILE, G_ON);
+	gdl->words.w0 = 0xc0080002;
+	gdl->words.w1 = 0x01ca;
+	gdl++;
+	gSPSetGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN);
+	gSPColor(gdl++, g_BgChicagoPaneCol, 4);
+	gSPVertex(gdl++, g_BgChicagoPaneVtx, 4, 0);
+	gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
+	gSPClearGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN);
+	gSPEndDisplayList(gdl++);
+
+	len = texLoadFromGdl(in, (uintptr_t)gdl - (uintptr_t)in, g_BgChicagoPaneGdl, NULL, NULL);
+
+	if (len <= 0 || len > (s32)sizeof(g_BgChicagoPaneGdl)) {
+		return;
+	}
+
+	// The grid is drawn over the pane at the same depth. Room 42's is a decal
+	// for that; room 41's, with nothing behind it, is plain translucent and
+	// fails the depth test against the pane, so it becomes a decal too.
+	bgChicagoPaneGridDecal(g_Rooms[roomnum].gfxdata->xlublocks);
+
+	g_BgChicagoPaneRoom = g_Rooms[roomnum].gfxdata;
+}
+
+static Gfx *bgRenderChicagoPane(Gfx *gdl, s32 roomnum)
+{
+	if (g_BgChicagoPaneRoom && g_BgChicagoPaneRoom == g_Rooms[roomnum].gfxdata && bgChicagoPaneWanted(roomnum)) {
+		gSPDisplayList(gdl++, g_BgChicagoPaneGdl);
+	}
+
+	return gdl;
+}
+#endif
+
 /**
  * The rough steps to load a room are:
  * - Allocate some memory out of mema.
@@ -3424,6 +3550,12 @@ void bgLoadRoom(s32 roomnum)
 			block2++;
 		}
 
+#ifndef PLATFORM_N64
+		// Ahead of the replaces below, which then treat the grid it
+		// changes as they treat room 42's
+		bgBuildChicagoPane(roomnum);
+#endif
+
 		// Do some find/replaces in the gdls based on environment configuration
 		if (g_FogEnabled) {
 			gfxReplaceGbiCommandsRecursively(g_Rooms[roomnum].gfxdata->opablocks, 1);
@@ -3751,6 +3883,7 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 #endif
 	gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->opablocks, true);
 #ifndef PLATFORM_N64
+	gdl = bgRenderChicagoPane(gdl, roomnum);
 	gdl = bgSpectateDepthBiasEnd(gdl, roomnum);
 	gdl = roomSheenStockEnd(gdl);
 #endif
