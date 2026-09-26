@@ -1,3 +1,66 @@
+# F3 XBLA prop overlays (2026-09-26), branch fix/f3-xbla-prop-overlays
+
+Reports (Parabolee, Windows 718d5dc, XBLA meshes on, release rooms off, pack
+"PD Ultimate Plus HD v0.10"), in /home/sdg/wt/f3-0926/:
+
+- 20260925-223456-b9f5f392 Villa (0x2c) "labels still missing from bottles".
+  `PaivillabotNZ` (files 0x78-0x7a, models 0x2f-0x31, slots 2060-2062): one list
+  node, mcount 4. The release mesh is one alpha atlas (records 3824-3826, labels
+  opaque in it); draw 0 is labels + cork at radius 38.1, draw 1 the glass at 38.0.
+  The pane sort put the glass triangles in the fading span and the label ones in
+  the alpha span, and the node being mcount 4 drew the alpha span in the
+  translucent pass with no depth write - then the glass (front and back, props
+  draw both faces) blended over each label: a dark green patch. Not the pack
+  (same with no pack; the pack's 0EF0-0EF2 pictures are fine).
+  Fix: a group's alpha span that is only pane-sorted cutouts (`groupxlucut`) and
+  has a fading span beside it is drawn as a cutout in the opaque pass; the glass
+  then blends over the depth it wrote. Labels show, tinted only from behind.
+- 20260925-230034-f695819a G5 (0x1e) "bafta is rendering both xbla and n64".
+  `PbaftaZ` (0x75c, model 0x196, slot 2070): the N64 face is the node's
+  *translucent* list (a flat textured quad, tex 2908); the mesh has no alpha, so
+  the old rule "no alpha span -> return 0, the game draws its own" drew that quad
+  through the release's sculpted face in patches.
+  Fix (the class): under a release mesh a node's stock translucent list never
+  draws, named node or covered. 4J marked translucent lists they kept 0xFFFF
+  (Skedar console, king's sceptre); those never reach the hook. Model packs and
+  GoldenEye (Bean) meshes keep the old rule.
+
+Class survey (rig `survey.py`/`survey2.py`): 63 mcount-4 list nodes in models
+with a release mesh. The 27 whose mesh group has no alpha drew their stock
+translucent list; nearly all lie within a few units of the mesh surface - cutout
+pieces 4J built solid: BAFTA face, dumpster castors, dd/a51/airbase chairs'
+bases, good/sinister station arms, Skedar console 2's glyphs, keycard, cardlock,
+chain, limo glass, cctv, hovercopter, interceptor, roofgun, autosurgeon x2 (the
+last four covered zero-id nodes). All now hidden. Seen fixed in A/B shots:
+BAFTA, dumpster castors, goodstation arms (AF1), sk_console2 glyphs (Attack Ship).
+The cutout move touches groups with both a cut span and a fading span (bottles,
+tables' glass tops, windowed doors, hovercars, cryopods, cable car, Skedar bridge
+- its edge shading changed in the Skedar Ruins shot, not judged against the
+release; the rubber plant, which has a fading span, cuts its leaves a touch
+lighter). A cut span with no fading span keeps the translucent-pass blend:
+moved to TEX_EDGE the spike plant went dark and speckled, so that was excluded.
+
+Verification (offscreen RX 580, --fixed-step --rng-seed 1, pd.base vs pd.final,
+XBLA look without pack; tester's pack checked on the two report views):
+bottles show labels (villa-ult-new-*, fvilla 1-5,8), BAFTA clean (g5-ult-new-1,
+fg5 0), castors (fg5 1-2); plants in Villa/Investigation 0 px except the rubber
+plant; N64 look 0 px on 13 Villa/G5 prop shots (fn64villa, fn64g5).
+
+Rig: run dir ~/wt/f3xblaprops-run (own save, pack hardlinked from
+f3extract-run), scripts ~/wt/f3xblaprops-rig: `views.sh STAGE TAG` (VIEWS=,
+LOOK=n64|xbla|ult), `sweep.sh STAGE MODELS TAG` (camera in front of every prop
+of the listed modelnums, base vs new; THOFF/VAOFF move it off the held gun),
+`pair.py`/`diffbox.py` (diff + crop), `runsweep.sh` (14 stages), `runfinal.sh`.
+Binaries pd.base (1fc1832d8) / pd.final. Pictures ~/wt/f3xblaprops-pics:
+villa-ult-{base,new}-*, g5-ult-{base,new}-*, pair-*/dbox-*.
+Never run two views.sh at once: they share the run dir (one run was spoiled).
+
+Open: the bottles' glass shows a triangle sawtooth where the per-triangle pane
+test splits a graded atlas (was at the bottoms before, now at the shoulders);
+pre-existing in kind. Not checked against the release in Xenia.
+
+---
+
 # F3 HD level rendering pass (2026-09-26), branch fix/f3-hd-level-render
 
 Reports: /home/sdg/wt/f3-0926/. Tester stage ids differ from ours: tester 0x86 = our
