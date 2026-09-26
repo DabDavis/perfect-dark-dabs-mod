@@ -127,4 +127,4 @@ wants it on the list. What is known (ge-bean.md, the stride 36 water entry):
   with a normal map and a time input), so it sits near the reflections work
   above;
 - the fog question stays separate: GoldenEye's own water list turns fog off,
-  and e13528f75 kept the level's fog (asked the user 2026-09-26).
+  and e13528f75 kept the level's fog - the user chose to keep it (2026-09-26).
