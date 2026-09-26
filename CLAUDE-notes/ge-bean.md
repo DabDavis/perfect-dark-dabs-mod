@@ -10710,3 +10710,49 @@ the headspot read inside `xblaMeshPose()`), Facility and Dam guards standing
 SWAPBODY=153`: Doak himself spawns late on Secret Agent and up); Ourumov (Silo)
 and the Jungle's `Cgx011Z` unchanged apart from the guards behind them; the N64
 look pixel-identical.
+
+## Cradle's walkway bounce and stairwell z-fighting (2026-09-26)
+
+F3 reports 20260926-082928 ("bouncing in air randomly") and 082748 ("z
+fighting when turning camera here"), Cradle, HD look.
+
+**The bounce was the climb (2f1c8a013) reading the wrong height.**
+`geStanClimbFloor()` lifts the player onto a linked floor his circle touches
+from outside, and it took that floor's height as the higher end of each edge
+touched. Cradle's walkways are ramps split into triangles (tiles 660/661
+run from 3203 at x -4910 down to 3126 at -4329), so crossing a triangle's
+diagonal lifted the player to the top of the ramp, 73 over his feet, and he
+fell back. Two changes: the height is the edge's own at the point the circle
+meets it, and an edge counts only where it is a climb
+(`stanEdgeClimbs()`): a link (GoldenEye's line walk stops at an unlinked
+edge) into a tile on edge, or into a floor whose matching edge lies at
+another height. A seam between two triangles of one deck or ramp is not one.
+Probe: `~/wt/f3cradle-b/probes/roam.py` (random stick in a box, logs every
+ground jump over 8) - 23 jumps before, none after; Facility's conveyor
+(walk.py from 2560,-3730 to 2305,-4104 on 0x63, Y -372, room 66) still lifts
++118.9 onto the rim. The ladder-drop code of ddf678d0b never fired on the
+walkway.
+
+**Faces back to back over part of their face fought.** `markBacked()` culls
+a sheet only when its face is wholly covered by faces the other way; where
+two opposite faces share only part of a plane (Cradle's stairwell landings:
+a tread grating facing up over a deck whose underside is one big plate facing
+down, y 4085 and 3765) both stayed two-sided and the back of each fought the
+face of the other. Same-picture pairs never became decals either
+(`markDecals()` skips `u->tex == t->tex`). `markFights()` marks every such
+face; `writeLeaf()` draws it culled with the other culled faces, then a
+second pass draws the backs of just those triangles (`G_CULL_FRONT` plus
+`G_SETDEPTHBIAS_EXT` 8), so a face turned to the camera always wins and a
+back with no face over it is still drawn. Opposite-facing pairs that used to
+be settled as decals are now settled this way (Cradle: 225 decals -> 163,
+112 faces back to back in part). Find a z-fight by rendering the same camera
+moved 0.05 units a frame and thresholding the frame difference: edges show as
+lines and a fight as blotches (`shotpath.py`, then a numpy diff).
+
+**The walkway's black triangles are Bean's own shadows.** Triangles of the
+girder picture (texture 1, alpha) with vertex colour ff000000 lie flat on the
+walkways (e.g. t463/t464 over the plate t1820/t1821). They are drawn with the
+cut-out shader 0xda0, whose colour is the vertex colour times the texel, so
+the release draws them black too: hard girder shadows. They come out as
+decals over the plate and do not flicker at a still camera, turning or
+walking in the rig; see results G-cradle.md for what is still open.
