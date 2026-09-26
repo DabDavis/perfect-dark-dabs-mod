@@ -2150,14 +2150,40 @@ struct menuitem g_ExtendedBindsMenuItems[] = {
 	{ MENUITEMTYPE_END },
 };
 
+/**
+ * The key that answered the Bind prompt, while it is still held.
+ *
+ * The prompt takes a key on its way down, but the dialog stays up until that
+ * key comes back up. Closed on the press, the same press went on to the page
+ * underneath: bind an Accept key (Return, a pad's A) and it opened the bind
+ * row's dropdown again with the first slot picked, so the next Accept asked
+ * for a key all over again (F3 20260926-155851). Escape and Delete wait the
+ * same way, so neither reaches the page as a back or anything else.
+ */
+static s32 g_BindReleaseKey = 0;
+
+static void menuBindClose(void)
+{
+	g_BindReleaseKey = 0;
+	menuPopDialog();
+}
+
 static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (!menuIsDialogOpen(&g_ExtendedBindKeyMenuDialog)) {
+		g_BindReleaseKey = 0;
+		return 0;
+	}
+
+	if (g_BindReleaseKey) {
+		if (!inputKeyPressed(g_BindReleaseKey)) {
+			menuBindClose();
+		}
 		return 0;
 	}
 
 	if (inputKeyPressed(VK_ESCAPE)) {
-		menuPopDialog();
+		g_BindReleaseKey = VK_ESCAPE;
 		return 0;
 	}
 
@@ -2169,7 +2195,14 @@ static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *i
 		} else {
 			inputKeyBind(g_ExtMenuPlayer, g_BindContKey, g_BindIndex, vk);
 		}
-		menuPopDialog();
+		inputClearLastKey();
+
+		// A wheel notch or anything else with no held state closes at once.
+		if (inputKeyPressed(key)) {
+			g_BindReleaseKey = key;
+		} else {
+			menuBindClose();
+		}
 	}
 
 	return 0;
