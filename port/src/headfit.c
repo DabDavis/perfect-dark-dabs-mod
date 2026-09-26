@@ -145,6 +145,9 @@ static void headfitMatrixRests(struct modeldef *modeldef, f32 rests[HEADFIT_MAXM
  * the neck" 400 units up until it was walked that way. A head file has one
  * space, so a head skips the walk (filebase NULL and single set).
  */
+// Whether a measure takes the lists under a toggle as well (headfitMeasureHeadWhole())
+static s32 headfitWithToggled;
+
 static void headfitEachVertex(struct modeldef *modeldef, const u8 *filebase, s32 walkmatrices,
 		void (*fn)(const f32 pos[3], const struct modelnode *node, void *arg), void *arg)
 {
@@ -164,7 +167,8 @@ static void headfitEachVertex(struct modeldef *modeldef, const u8 *filebase, s32
 		prev = node;
 		modelIterateDisplayLists(modeldef, &node, &gdl);
 
-		if (node && node != prev && (node->type & 0xff) == MODELNODETYPE_DL && !headfitUnderToggle(node)) {
+		if (node && node != prev && (node->type & 0xff) == MODELNODETYPE_DL
+				&& (headfitWithToggled || !headfitUnderToggle(node))) {
 			const struct modelrodata_dl *dl = &node->rodata->dl;
 			f32 rest[3];
 			s32 own = -1;
@@ -386,6 +390,22 @@ static s32 headfitCached(s32 filenum, s32 ishead, struct headfithead *head, stru
 s32 headfitMeasureHead(struct modeldef *head, struct headfithead *out)
 {
 	return headfitMeasureHeadAt(head, out);
+}
+
+/**
+ * A head's extent over every list it has, toggled or not: what it looks like
+ * whole, for framing it on its own (menu.c). GoldenEye's converted heads keep
+ * all of theirs under toggles (Joe 2, Graham), which the fit leaves out.
+ */
+s32 headfitMeasureHeadWhole(struct modeldef *head, struct headfithead *out)
+{
+	s32 ok;
+
+	headfitWithToggled = 1;
+	ok = headfitMeasureHeadAt(head, out);
+	headfitWithToggled = 0;
+
+	return ok;
 }
 
 s32 headfitMeasureBodyFile(s32 filenum, struct headfitbody *out)

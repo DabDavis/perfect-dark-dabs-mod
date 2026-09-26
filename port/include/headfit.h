@@ -29,6 +29,8 @@ struct headfithead {
 };
 
 s32 headfitMeasureHead(struct modeldef *head, struct headfithead *out);
+// The same over every list, toggled ones too
+s32 headfitMeasureHeadWhole(struct modeldef *head, struct headfithead *out);
 // A body's neck, measured from its file (a loaded model's lists are rewritten)
 s32 headfitMeasureBodyFile(s32 filenum, struct headfitbody *out);
 void headfitSurvey(void);
