@@ -311,6 +311,9 @@ static MenuItemHandlerResult menuhandlerCiCharacterBody(s32 operation, struct me
 	s32 head = modGhostCiHead(modGhostBodyDefaultHead(body));
 
 	switch (operation) {
+	case MENUOP_21:
+		// Every body, locked or not (see menuhandlerCiCharacterHead())
+		return 0;
 	case MENUOP_SET:
 		g_ModCiBody = data->carousel.value + 1;
 
@@ -328,9 +331,23 @@ static MenuItemHandlerResult menuhandlerCiCharacterBody(s32 operation, struct me
 	return mpCharacterBodyMenuHandler(operation, item, data, body, head, true);
 }
 
+/**
+ * Both carousels list every character, not only the Combat Simulator's
+ * unlocked ones. The handlers are the Combat Simulator's, whose MENUOP_21
+ * skips a body or head behind a challenge (challengeIsFeatureUnlocked()). Out
+ * of the Combat Simulator that counts only the agent file's challenge record,
+ * not a multiplayer player's (whose own completions count only while it holds
+ * a slot of the setup), so a player found Joanna's combat suit alone of her
+ * outfits here (F3 20260926-205057). This page picks who walks the Institute
+ * and the missions, which the challenges never governed.
+ */
 static MenuItemHandlerResult menuhandlerCiCharacterHead(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	s32 head = modGhostCiHead(0);
+
+	if (operation == MENUOP_21) {
+		return 0;
+	}
 
 	if (operation == MENUOP_SET) {
 		g_ModCiHead = data->carousel.value + 1;
