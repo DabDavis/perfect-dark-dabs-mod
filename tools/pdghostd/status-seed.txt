@@ -64,14 +64,14 @@
 20260919-010226-e6bdd020 received
 20260919-010950-a051ba8b received
 20260919-152911-20213d5c received
-20260919-174510-405a4b82 fixed 2026-09-24 Fixed in d1250ec - GoldenEye's rocket launcher: its own rocket sits in the tube and the logos no longer flicker
-20260919-181659-1030cf1f fixed 2026-09-23 Fixed in 31c3416 - GoldenEye's guns: the Cougar Magnum fires normally, without the host gun's pistol whip
+20260919-174510-405a4b82 received
+20260919-181659-1030cf1f received
 20260919-224724-2aeeac04 received
 20260919-235457-7c68f58d received
 20260920-020352-194a3364 received
 20260920-150653-c3060404 received
 20260920-150721-af38ed95 received
-20260920-181610-31379563 fixed 2026-09-23 Fixed in 89b49db - Community Packs: the big texture packs download and install
+20260920-181610-31379563 received
 20260920-193338-ed3fd41f received
 20260920-205129-227d4da2 fixed 2026-09-20 Fixed in cb4a0a1 - GE Plus Dam: no more getting stuck on the outside stairs or pushed into the wall
 20260920-220247-b5d7f877 fixed 2026-09-20 Fixed in 361ea2a - GE Plus Dam: the tower stairwell no longer shows blue sky
@@ -125,7 +125,7 @@
 20260922-060640-8c41759f fixed 2026-09-22 Fixed in 56300aa - GE Plus Facility opening: the camera swirl points at Bond and stays out of the walls
 20260922-060645-c0437234 received
 20260922-065116-6e653f5c received
-20260922-065328-637e241f fixed 1.9 Fixed in ef6bffc
+20260922-065328-637e241f received
 20260922-065720-b5e05608 fixed 2026-09-22 Fixed in 1c87205 - GE Plus Caverns: the doors are back and the popping triangle is gone
 20260922-072831-df3aa712 received
 20260922-101315-e7de234d received
@@ -140,7 +140,7 @@
 20260922-235226-2248833d fixed 2026-09-22 Fixed in 94de6a5 - GE Plus HD: guards no longer turn invisible up close
 20260923-002500-4ef6a86e fixed 2026-09-23 Fixed in 0a1afbb - GE Plus HD Facility: Ourumov turns up for the ending
 20260923-003253-0025d915 received
-20260923-040351-1732fc73 fixed 2026-09-23 Fixed in e09d10a - Combat Simulator: simulants find their way better and drop off ledges
+20260923-040351-1732fc73 received
 20260923-071340-1ee74939 fixed 2026-09-25 Fixed in 718d5dc - XBLA look: Female Guard 2 no longer wears glasses
 20260923-195335-5087e5fa fixed 2026-09-23 Fixed in 26dc8c6 - GoldenEye's guns: a guard's gun no longer shows a muzzle flash when not firing
 20260923-225158-1c06f6c8 working GE Plus HD Dam: white patches on the ground and the white pyramid in the server room
@@ -156,7 +156,7 @@
 20260924-014646-fe993023 received
 20260924-031141-39d8622d fixed 2026-09-24 Fixed in d1250ec - GoldenEye's rocket launcher: its own rocket sits in the tube and the logos no longer flicker
 20260924-031228-8983611b fixed 2026-09-24 Fixed in d1250ec - GE Plus Dam: the truck no longer drives into the tower
-20260924-035424-9b734a2f fixed 2026-09-24 Fixed in 56b7cc9 - GoldenEye's guns fire and reload with their own sounds
+20260924-035424-9b734a2f received
 20260924-040926-8152ce95 received
 20260924-044333-51f8b53a received
 20260924-053452-a527054e fixed 2026-09-24 Fixed in 987478f - GE Plus HD third person: guns sit in the hand, not below it
