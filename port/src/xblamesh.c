@@ -2299,6 +2299,11 @@ struct xblameshbuilder {
 	// both: see xblaMeshBuildCullBack.
 	s32 cullback;
 
+	// For a culled mesh, the triangles drawn turned round or both ways (one
+	// byte a triangle, or NULL), and how many were: see xblaMeshFindWinding().
+	u8 *turn;
+	s32 numturned;
+
 	// Whether the list being built has G_DECAL_EXT on (XBLAMESH_MAT_DECAL),
 	// which its end turns off again
 	s32 decal;
@@ -3266,6 +3271,8 @@ static void xblaMeshNoteTriangle(struct xblameshbuilder *b, s32 i0, s32 i1, s32 
 	}
 }
 
+static f32 xblaMeshTriWinding(const u8 *file, const struct xblameshhdr *h, u32 stride, const u32 mesh[3]);
+
 static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len,
 		const struct xblameshhdr *h, u32 stride, u32 firstdraw, u32 numdraws,
 		s32 wantspan)
@@ -3404,6 +3411,27 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 				return 0;
 			}
 
+			// Wound against the rest of a culled mesh: turned round
+			// (xblaMeshFindWinding())
+			if (b->turn && b->turn[firsttri + t]) {
+				if (b->turn[firsttri + t] == 2) {
+					// both ways: this one as it is, then turned round
+					if (!xblaMeshRoomForGfx(b, 2)) {
+						return 0;
+					}
+
+					gSP1Triangle(&b->gdl[b->numgfx], slot[0], slot[1], slot[2], 0);
+					b->numgfx++;
+					b->numtris++;
+				}
+
+				const s32 swap = slot[1];
+
+				slot[1] = slot[2];
+				slot[2] = swap;
+				b->numturned++;
+			}
+
 			gSP1Triangle(&b->gdl[b->numgfx], slot[0], slot[1], slot[2], 0);
 			b->numgfx++;
 			b->numtris++;
@@ -3465,6 +3493,124 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 }
 
 /**
+ * How a triangle of the file is wound against its vertices' normals: the
+ * cosine between the face's normal by its winding and the vertices' mean
+ * normal, or 0 where either is too short to say.
+ */
+static f32 xblaMeshTriWinding(const u8 *file, const struct xblameshhdr *h, u32 stride, const u32 mesh[3])
+{
+	f32 p[3][3];
+	f32 n[3] = { 0.0f, 0.0f, 0.0f };
+	f32 e1[3], e2[3], f[3];
+	f32 lf, ln;
+
+	for (s32 i = 0; i < 3; i++) {
+		const u8 *v = file + h->vertexoffset + mesh[i] * stride;
+
+		for (s32 k = 0; k < 3; k++) {
+			p[i][k] = xblaMeshBEF32(v + k * 4);
+			n[k] += xblaMeshBEF32(v + 20 + k * 4);
+		}
+	}
+
+	for (s32 k = 0; k < 3; k++) {
+		e1[k] = p[1][k] - p[0][k];
+		e2[k] = p[2][k] - p[0][k];
+	}
+
+	f[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	f[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	f[2] = e1[0] * e2[1] - e1[1] * e2[0];
+
+	lf = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+	ln = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+	if (!(lf > 1e-12f) || !(ln > 0.5f)) {
+		return 0.0f;
+	}
+
+	return (f[0] * n[0] + f[1] * n[1] + f[2] * n[2]) / (lf * ln);
+}
+
+/**
+ * How to draw each triangle of a culled mesh (b->turn): 0 as it is, 1 turned
+ * round, 2 both ways.
+ *
+ * A culled mesh shows nothing where a triangle is wound the other way round
+ * from the rest, and the release has a few: Natalya's jungle outfit has a
+ * patch of them at her left ear, which showed the room through her head once
+ * characters culled (F3 20260926-203535). Which way is out for a triangle is
+ * what its vertices' normals say, and which way the mesh winds its outsides
+ * is what most of its triangles say (Bean's and 4J's are opposite, so it is
+ * read, not assumed). A triangle clearly against both is turned round; one
+ * whose normals stand across its face - a fold, a crease, the rim of an ear -
+ * cannot be told, and is drawn from both sides, as every character was before
+ * they culled.
+ */
+static void xblaMeshFindWinding(struct xblameshbuilder *b, const u8 *file, u32 len,
+		const struct xblameshhdr *h, u32 stride)
+{
+	const u32 numtris = h->indexoffset < len ? (len - h->indexoffset) / 6 : 0;
+	s32 pos = 0;
+	s32 neg = 0;
+	f32 sign;
+
+	b->numturned = 0;
+	b->turn = NULL;
+
+	if (!b->cullback || stride < 32 || numtris == 0 || h->vertexoffset + (u64)h->numvertices * stride > len) {
+		return;
+	}
+
+	for (s32 pass = 0; pass < 2; pass++) {
+		for (u32 t = 0; t < numtris; t++) {
+			const u8 *idx = file + h->indexoffset + t * 6;
+			u32 mesh[3];
+			f32 c;
+
+			mesh[0] = xblaMeshBE16(idx);
+			mesh[1] = xblaMeshBE16(idx + 2);
+			mesh[2] = xblaMeshBE16(idx + 4);
+
+			if (mesh[0] >= h->numvertices || mesh[1] >= h->numvertices || mesh[2] >= h->numvertices) {
+				continue;
+			}
+
+			c = xblaMeshTriWinding(file, h, stride, mesh);
+
+			if (pass == 0) {
+				if (c > 0.5f) {
+					pos++;
+				} else if (c < -0.5f) {
+					neg++;
+				}
+			} else if (c * sign < -0.5f) {
+				b->turn[t] = 1;
+			} else if (c != 0.0f && c * sign < 0.3f) {
+				b->turn[t] = 2;
+			}
+		}
+
+		if (pass == 0) {
+			// A clear majority, or no telling
+			if (pos > neg * 9) {
+				sign = 1.0f;
+			} else if (neg > pos * 9) {
+				sign = -1.0f;
+			} else {
+				return;
+			}
+
+			b->turn = calloc(numtris, 1);
+
+			if (!b->turn) {
+				return;
+			}
+		}
+	}
+}
+
+/**
  * Every group's list, and one that calls all of them.
  *
  * The whole-mesh list is what a model draws when its parts and the mesh's
@@ -3486,6 +3632,8 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 
 	s32 numxlu = 0;
 	s32 numfade = 0;
+
+	xblaMeshFindWinding(b, file, len, h, stride);
 
 	b->numgroups = numgroups;
 	b->allxlu = -1;
@@ -5517,6 +5665,7 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		free(b.grad);
 		free(b.gradscore);
 		free(b.batches);
+		free(b.turn);
 		free(b.normals);
 		free(b.venv);
 		free(b.vink);
@@ -5529,6 +5678,12 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	free(b.batches);
 	free(b.gradscore);
 	free(b.inkrgba);
+	free(b.turn);
+
+	if (b.numturned > 0) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: %s: %d triangles drawn turned round or from both sides",
+				what, b.numturned);
+	}
 
 	if (b.skinned && !xblaMeshReadBind(m, file, &h, b.scale)) {
 		free(b.gdl);
