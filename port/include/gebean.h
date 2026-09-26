@@ -132,6 +132,14 @@ s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out);
 s32 gebeanHeldGunOffset(struct model *model, s32 modelnum, f32 out[3]);
 
 /**
+ * How far along x (a weapon's posx units) the first-person gun is drawn from
+ * where its model is put - GoldenEye's position less its host's, for a gun the
+ * release's mesh draws where GoldenEye holds it - and whether there is such a
+ * shift.
+ */
+s32 gebeanFirstPersonOwnPlaceShiftX(s32 weaponnum, f32 *dx);
+
+/**
  * Whether the gun drawn in the hand for this weapon is made with its round in
  * the tube - the release's rocket launcher is - so that the hand's own held
  * rocket (bondgun.c) is not drawn over it.

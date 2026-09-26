@@ -19,6 +19,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "geguns.h"
+#include "gebean.h"
 #include "gesfx.h"
 #endif
 
@@ -179,7 +180,16 @@ f32 func0f0b131c(s32 hand)
 		// into the other hand is the wrong side of the screen or off it.
 		// Held akimbo it sits where a pistol sits.
 		if (bgunIsAkimboIncompatible(bgunGetWeaponNum2(0))) {
+			f32 shift;
+
 			x = 9.0f;
+
+			// the gun that is drawn there, not its host's model: the
+			// release's Moonraker stands GoldenEye's position less the
+			// Laser's from it, and went off the screen (F3 20260926-101031)
+			if (gebeanFirstPersonOwnPlaceShiftX(bgunGetWeaponNum2(0), &shift)) {
+				x -= shift;
+			}
 		}
 #endif
 
@@ -196,7 +206,18 @@ f32 func0f0b131c(s32 hand)
 
 #ifndef PLATFORM_N64
 		if (bgunIsAkimboIncompatible(bgunGetWeaponNum2(1))) {
+			f32 shift;
+
 			x = -9.0f;
+
+			// mirrored into the left hand (bgunTickGunLoad()'s
+			// WEAPONFLAG_DUALFLIP) the shift is mirrored with it; a gun drawn
+			// there as it is (the sniper rifle) keeps its own
+			if (gebeanFirstPersonOwnPlaceShiftX(bgunGetWeaponNum2(1), &shift)) {
+				const s32 w = bgunGetWeaponNum2(1);
+
+				x += weaponHasFlag(w, WEAPONFLAG_DUALFLIP) && !bgunLeftHandSkipsFlip(w) ? shift : -shift;
+			}
 		}
 #endif
 

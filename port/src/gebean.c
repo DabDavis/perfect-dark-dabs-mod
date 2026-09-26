@@ -566,24 +566,14 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// size from the grip under the tube.
 	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { 1, { -102.0f, -808.0f, -588.0f }, 1.0f / 4.7f },
 
-	// The Moonraker has no hand of its own to be gripped by - GoldenEye draws
-	// the laser with none, where the PP7, DD44 and Golden Gun each carry the
-	// same hand mesh - and its shape gives no grip away either, so it is
-	// placed the way GoldenEye lines its guns up instead: on SKEL_TOP, the
-	// first bone of every gun file, which is the model's root. That hand sits
-	// at the same offset from SKEL_TOP in all three pistols - within ten units
-	// in y and eight in z, in the N64 files and the HD ones alike - so a gun's
-	// place in the view is its SKEL_TOP's, whatever its own origin.
-	//
-	// Which point of a gun that makes the hand's is read off the PP7, whose
-	// centring is right: its fitted centre lands at the middle of its host's
-	// lists and fpGripFromPalm's point is 49 lower and 50 further back, which
-	// at the PP7's 0.191 is Bean (-1.4, -519.7, -186) - the butt of the
-	// pistol, and SKEL_TOP + (-1.4, -247.6, 158.4). On the Moonraker's
-	// SKEL_TOP (0.4, -200, -1400) that is the point below, which is the front
-	// of the handle under its body. Drawn at its own size for the same reason
-	// as the launcher: the host laser is half its length.
-	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = { 1, { -1.0f, -447.6f, -1241.6f }, 1.0f / 4.7f },
+	// Placed where GoldenEye holds it, as the sniper rifle is. It was placed
+	// by a grip read off the PP7 (Bean's (-1, -447.6, -1241.6) onto the
+	// palm), which stood it high in the middle of the view and, held akimbo,
+	// off the edge of the screen (F3 20260926-101031, "first person moonraker
+	// laser is wrong position"). The host Laser's idle pose (anim 1070) holds
+	// its body 53 units along the barrel from its rest (measured as the
+	// sniper rifle's was: the body matrix against the root's, less the rest).
+	[WEAPON_GE_MOONRAKER       - WEAPON_GE_FIRST] = { FP_OWNPLACE, { 0.0f, 0.0f, -53.0f }, 1.0f / 4.7f },
 
 	// GoldenEye's knives are turned a quarter about z (Bean's y feeds the
 	// host's x), because the host's own knife is modelled along x and it is
@@ -7679,6 +7669,31 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	free(drawn);
 
 	return file;
+}
+
+/**
+ * How far along x the first-person gun of this weapon is drawn from where its
+ * model is put, in the view's units (a weapon's posx): for a gun placed where
+ * GoldenEye holds it (FP_OWNPLACE) the release's mesh stands GoldenEye's
+ * position less its host's from the host's model, which bondgun.c puts at the
+ * host's position; 0 for any other gun, or GoldenEye's own model.
+ */
+s32 gebeanFirstPersonOwnPlaceShiftX(s32 weaponnum, f32 *dx)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+	f32 own[3];
+	f32 host[3];
+
+	*dx = 0.0f;
+
+	if (i < 0 || i >= (s32)ARRAYCOUNT(fpRows) || fpGrip[i].set != FP_OWNPLACE || !fpSlot[i]
+			|| g_GeWeaponDefs[i].hi_model != fpSlot[i] || !gegunsViewPlacement(i, own, host)) {
+		return 0;
+	}
+
+	*dx = own[0] - host[0];
+
+	return 1;
 }
 
 /**
