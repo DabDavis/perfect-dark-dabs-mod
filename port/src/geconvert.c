@@ -4167,7 +4167,8 @@ static const uint8_t g_PdSizes[0x35] = {
 // door" is Perfect Dark's OBJTYPE_LINKLIFTDOOR a word shorter, and the branch
 // of doorCallLift() where the lift is a door is GoldenEye's own behaviour. It
 // is what opens Dam's gates. gesolo.py's AS_NOTHING.
-#define SOLO_AS_NOTHING(t) ((t) == 0x0e || (t) == 0x11 || (t) == 0x12)
+// A pair of guns (0x0e) is kept too, from converter 75: see soloLinkGuns().
+#define SOLO_AS_NOTHING(t) ((t) == 0x11 || (t) == 0x12)
 
 #define SOLO_NO_PAD 0xffff
 /**
@@ -4443,6 +4444,30 @@ static void weaponRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 }
 
 /**
+ * GoldenEye's PROPDEF_LINK, two collectables that are one pair of guns, as
+ * Perfect Dark's OBJTYPE_LINKGUNS: the same two record offsets, relative to the
+ * link's own index, which the conversion keeps, as s16 where GoldenEye has s32.
+ *
+ * It is GoldenEye's only way but a guard's two guns to hold a pair: picking up
+ * one of them gives the gun, the other the pair (bondinv.c's
+ * bondinvAddWeaponByProp()), and a second of a gun that is no one's pair gives
+ * only its ammunition. Left out until converter 75, as a one-word nothing:
+ * Caverns' two AR33s and Bunker 2's two silenced PP7s were single guns.
+ * gesolo.py's link_guns_record().
+ */
+static void soloLinkGuns(buf *out, const uint8_t *raw)
+{
+	uint8_t *rec;
+
+	bufZeros(out, 8);
+	rec = out->v + out->n - 8;
+	memcpy(rec, raw, 3);
+	rec[3] = 0x0e;
+	set16(rec, 4, (uint32_t)bes32(raw, 4) & 0xffff);
+	set16(rec, 6, (uint32_t)bes32(raw, 8) & 0xffff);
+}
+
+/**
  * A GoldenEye text id as a Perfect Dark one (gesolo.py's text_id).
  *
  * GoldenEye's is `bank * 0x400 + slot` and the bank is always the mission's
@@ -4691,6 +4716,12 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 			memcpy(rec, raw, 3);
 			rec[3] = 0x1a;
 			set32(rec, 4, 0x80000000);
+			st->props++;
+			continue;
+		}
+
+		if (t == 0x0e) {
+			soloLinkGuns(&out, raw);
 			st->props++;
 			continue;
 		}

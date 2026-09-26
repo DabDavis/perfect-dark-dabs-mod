@@ -102,7 +102,10 @@ CCTV = 0x06
 # carries GoldenEye's behaviour as the branch of doorCallLift() where the
 # "lift" is a door, so it goes through as a short record: the two offsets are
 # relative record indices, which the conversion keeps.
-AS_NOTHING = {0x0e, 0x11, 0x12}
+#
+# **A pair of guns (0x0e) is kept** from converter 75: link_guns_record().
+AS_NOTHING = {0x11, 0x12}
+LINK_GUNS = 0x0e
 MONITOR = 0x0a
 MULTI_MONITOR = 0x0b
 
@@ -344,6 +347,16 @@ def objective_room_record(t, raw, numpads):
     if 0 <= pad < NO_PAD:
         struct.pack_into('>i', rec, at, pad_num(pad, numpads) + PD_PADROOM_PAD)
     return bytes(rec)
+
+
+def link_guns_record(raw):
+    """GoldenEye's PROPDEF_LINK, two collectables that are one pair of guns, as
+    Perfect Dark's OBJTYPE_LINKGUNS: the same two record offsets, relative to
+    the link's own index, as s16 where GoldenEye has s32. Picking up one gives
+    the gun and the other the pair (bondinv.c's bondinvAddWeaponByProp()).
+    geconvert.c's soloLinkGuns()."""
+    first, second = struct.unpack_from('>ii', raw, 4)
+    return raw[0:3] + bytes([LINK_GUNS]) + struct.pack('>hh', first, second)
 
 
 def rename_record(raw):
@@ -660,6 +673,10 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
             continue
         if t == GE_RENAME:
             out.append(rename_record(raw))
+            stats['kept'][t] = stats['kept'].get(t, 0) + 1
+            continue
+        if t == LINK_GUNS:
+            out.append(link_guns_record(raw))
             stats['kept'][t] = stats['kept'].get(t, 0) + 1
             continue
         if t in AS_NOTHING or t not in PD_SIZES:

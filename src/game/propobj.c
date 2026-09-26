@@ -17686,6 +17686,16 @@ void currentPlayerQueuePickupWeaponHudmsg(u32 weaponnum, bool dual)
 		return;
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye words the gun that makes a pair as it does the first one,
+	// "Picked up a Klobb." (propobj.c's propPickupByPlayer() calls
+	// display_text_for_weapon_in_lower_left_corner() for either), where
+	// Perfect Dark's is "Double Klobb."
+	if (!g_Vars.normmplayerisrunning && modloaderStageIsMission(g_Vars.stagenum)) {
+		dual = false;
+	}
+#endif
+
 	weaponGetPickupText(buffer, weaponnum, dual);
 	hudmsgCreateWithFlags(buffer, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 }
