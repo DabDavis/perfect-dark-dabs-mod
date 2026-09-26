@@ -47,20 +47,50 @@ tester/user to say what they expected (idle animations? reaction to noise?).
 
 ## 3. Silo
 
-- 233940 Ourumov dies instead of fleeing: his converted list 0x414 is faithful
-  (armour 30 via aiAddHealth, max 20 -> 50 to kill; flees on list 0x415 when
-  target < 500 units (0052) or health < 20 (0081, correct direction); 0x415
-  sets CHRCFLAG_INVINCIBLE, runs to pad 0xc7, then aiRemoveChr). probes/ouru.py
-  showed the proximity flee working. So he died by taking >= 50 damage before the
-  health check fired: next step is per-hit damage of GE guns on chrs in PD
-  (chrDamage: head x4 * headshotdamagescale, torso x2) against GoldenEye's
-  chrlvDamage / gun damage - likely PD multipliers applied to GE guns.
-  Also measured (probes/ouru.py DIST=900 DMG=4 HIT=15): hits spaced 20 frames
-  apart -> he switches to 0x415 and flees the moment damage passes 0. GE and
-  PD use the same x4 head / x2 chest multipliers; KF7 GE damage 1.0. So the
-  tester's death needs ~50 damage between two polls of his list (a burst of
-  headshots, or something that multiplies damage). NOT FIXED; next: shoot him
-  with real bullets (gadgetprobe2 hold:N) and log chrDamage calls.
+- 233940 Ourumov dies instead of fleeing: FIXED + verified, fba0c1166 (3b).
+  His converted list 0x414 is faithful (armour 30 via aiAddHealth, max 20 -> 50
+  to kill; flees on 0x415 when target < 500 units or health < 20; 0x415 sets
+  CHRCFLAG_INVINCIBLE, runs to pad 0xc7, then aiRemoveChr). NB the GE decomp's
+  setup macros print their words byte-swapped: guard_flags_set_on(0x10000000)
+  is flag 0x10 (INVINCIBLE), armour 0x2c01 is 300 (30.0), list 0x1504 is 0x415.
+
+## 3b. Scripted chrs die to one headshot (233940 Silo, 005817 + 010126 Cradle) - FIXED
+
+Root cause: Perfect Dark's player headshot is x4 **and then x25**
+(`headshotdamagescale = g_ModPlayerHeadshotScale`, default 25) in solo, co-op
+and counter-op; GoldenEye's chrlvDamage is x4 only. A PP7 headshot on Agent
+(tx 2) did 1 x 2 x 4 x 25 = 200: Ourumov -30 -> 170 and Trevelyan -2 -> 198,
+dead in one shot, before their lists (0x414 health check; the Cradle's 0x411
+"damage off" that sets INVINCIBLE) got a tick. The tester traces match that
+exactly: dead chr 0 with INVINCIBLE set (0x00200b1c / 0x00280a1c) - the list
+set it *after* the death. Trevelyan is not invincible while running on list
+0x411 until a wound is seen (flags 0x00080a0c), so any headshot then killed him.
+
+Fix fba0c1166 (chraction.c chrDamage()): on a converted level
+(`geRoomActive()`) headshotdamagescale stays 1 - GoldenEye's own x4. Stock PD
+stages keep x25.
+
+Verified with real PP7 bullets, probes/headshot.py (teleport in front of CHR,
+aim at bbox top - HOFF each frame, trigger pulses, chrDamage logged with
+hitpart; WAITLIST waits for a list, DIFF sets g_Difficulty):
+- Cradle 0x68 chr 0, WAITLIST=0x413 HOFF=24 DIST=200: before, hitpart 8 ->
+  damage 198, ACT_DIE (hsb_trev_24.log). After, damage 6, INVINCIBLE set by his
+  list, he runs on to his next stand spot, which clears it (hsa_trev.log,
+  shots_hsa_trev2: spark on his head, then running out of the door).
+- Silo 0x6b chr 0, AT=300 DIST=550 HOFF=13: before, damage 170, dies
+  (hsb_ou_13.log). After, two headshots -30 -> -22 -> -14, he then switches
+  to 0x415 and flees to pad 0xc7 and is removed (hsa_ou.log, shots_hsa_ou).
+- Normal guards, one headshot on Agent: Silo chr 41 (no armour) 8 >= 4, dies;
+  Cradle chr 1 (armour 2) 6 >= 4, dies.
+- Behaviour change to know about: on Secret Agent / 00 Agent (tx 1) a headshot
+  is 4, so a guard GoldenEye gave armour (Cradle's guards: 2) takes a second
+  hit, as in GoldenEye (hsa_sa_c1.log); unarmoured guards still die at once
+  (hsa_sa_g41.log). If the user wants PD's one-shot heads for plain guards,
+  the scale would have to be kept for chrs whose lists never touch armour or
+  invincibility - not GoldenEye's rule.
+
+## 3c. Silo outro
+
 - 234037 Bond does not stow weapon in outro: FIXED + verified, eba3af6e4.
   GE BondHideWeapons -> aiChrDrawWeaponInCutscene(bond, WEAPON_NONE); PD's
   switch only completes when the gun ticks, which it does not under the outro
