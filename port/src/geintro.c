@@ -54,6 +54,7 @@
 #include "input.h"
 #include "mod.h"
 #include "modloader.h"
+#include "modborrow.h"
 #include "romdata.h"
 #include "system.h"
 #include "video.h"
@@ -2277,6 +2278,11 @@ s32 geIntroIsActive(void)
 
 s32 geIntroOpen(void)
 {
+	// GE Plus never opens over GoldenEye X loaded as the mod (gexFrontOpen())
+	if (modBorrowLoadedIsGoldenEyeX()) {
+		return 0;
+	}
+
 	if (!g_Intro.loaded && !introLoadAll()) {
 		return 0;
 	}

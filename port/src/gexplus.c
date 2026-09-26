@@ -1386,8 +1386,9 @@ void gexPlusWeaponSetsAppend(void)
 
 /**
  * The weapon sets GE Plus lists: how many, and the list index of the first.
- * GoldenEye's own out of the ROM, else GoldenEye X's; 0 when there are neither,
- * or when the player asked for Perfect Dark's guns too and so for the whole list.
+ * GoldenEye's own out of the ROM, and never GoldenEye X's (which it fell back
+ * to until 2026-09-26); 0 when there are none, or when the player asked for
+ * Perfect Dark's guns too and so for the whole list.
  */
 s32 gexPlusWeaponSets(s32 *first)
 {
@@ -1409,7 +1410,7 @@ s32 gexPlusWeaponSets(s32 *first)
 		return g_GeSetsNum;
 	}
 
-	return modBorrowWeaponSets(first);
+	return 0;
 }
 #endif
 

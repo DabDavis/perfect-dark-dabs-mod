@@ -602,11 +602,11 @@ static const char *frontMissionName(s32 mission, char *buf, size_t len)
  * (tools/geconvert/gesolo.py, modloader.c's missions block). They need nothing
  * else installed.
  *
- * Where the conversion has not run - an old converted directory, or none - the
- * folder falls back to GoldenEye X's own missions, which the port plays when
- * GoldenEye X is the mod the game is *loaded* with and its mission list has
- * been imported over the port's (moddata.c's importSoloStages()). With neither
- * the mode select's SELECT MISSION stays grey.
+ * Where the conversion has not written them - an old converted directory -
+ * the mode select's SELECT MISSION stays grey. It used to fall back to
+ * GoldenEye X's own missions when GoldenEye X was the mod loaded; GE Plus is
+ * the ROM's and the release's alone (2026-09-26), and does not open over
+ * GoldenEye X at all now (modBorrowLoadedIsGoldenEyeX()).
  */
 static s32 frontMissionsAreOwn(void)
 {
@@ -615,7 +615,7 @@ static s32 frontMissionsAreOwn(void)
 
 static s32 frontMissionsAvailable(void)
 {
-	return frontMissionsAreOwn() || (modBorrowIsGoldenEyeLoaded() && NUM_MISSIONS <= NUM_SOLOSTAGES);
+	return frontMissionsAreOwn();
 }
 
 /** The stage a mission runs, the remake's own where there is one. */
@@ -625,11 +625,7 @@ static s32 frontMissionStage(s32 mission)
 		return 0;
 	}
 
-	if (frontMissionsAreOwn()) {
-		return modloaderMissionStage(mission);
-	}
-
-	return g_SoloStages[mission].stagenum;
+	return frontMissionsAreOwn() ? modloaderMissionStage(mission) : 0;
 }
 
 /** Whether GoldenEye's 007 mode is open, by the rule Perfect Dark opens its own PD Mode by. */
@@ -1847,6 +1843,11 @@ static void frontStartCinema(s32 mission, s32 what)
 {
 	union handlerdata data;
 
+	// an old conversion has no missions to play a cinema on
+	if (frontMissionStage(mission) <= 0) {
+		return;
+	}
+
 	frontSetCinemaConfig(mission, what);
 
 	g_Front.active = 0;
@@ -2871,6 +2872,12 @@ s32 gexFrontIsActive(void)
 
 s32 gexFrontOpen(void)
 {
+	// never over GoldenEye X loaded as the mod: every file GE Plus does not
+	// convert itself would be its
+	if (modBorrowLoadedIsGoldenEyeX()) {
+		return 0;
+	}
+
 	if (!g_Front.loaded && !frontLoadAll()) {
 		return 0;
 	}
