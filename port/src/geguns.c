@@ -427,8 +427,8 @@ static struct noisesettings *gegunsNoise(s32 i)
  * with a fire animation to start (GEGUNS_PD_SHOT_OVERHEAD, measured: the PP7,
  * the DD44 and both launchers against the Golden Gun, the Moonraker, the
  * sniper rifle and the automatic shotgun). A fire animation longer than the
- * wait holds the next shot back itself (the Shotgun's pump, the Cougar's
- * kick). A recovery of SingleRate
+ * wait holds the next shot back itself, which is why the Shotgun's pump and
+ * the Cougar's kick are gone (gegunsOwnTrigger()). A recovery of SingleRate
  * itself fired every GoldenEye gun early - the PP7 at 29 ticks for 32, the
  * sniper rifle at 16 for 20 - and the watch laser at every tick for 4. Ticks,
  * not frames, so a faster frame rate does not change it.
@@ -516,10 +516,10 @@ static struct weaponfunc *gegunsFunc(s32 i, s32 f, const struct weaponfunc *src,
 			shoot->recoverytime60 = hasrow && stat->singlerate != 0xff ? (s8)stat->singlerate : from->recoverytime60;
 		}
 
-		// The Shotgun works its model's pump after every shot, and the timing
-		// is the pump's: GoldenEye's early refire would cut it short
-		// (GoldenEye X times its own pump too, 0 and 68)
-		if (hasrow && WEAPON_GE_FIRST + i != WEAPON_GE_SHOTGUN) {
+		// GoldenEye's own recoil for every gun, the Shotgun's too: it kept
+		// its host's pump timing while it worked the pump (75 ticks a shot
+		// for GoldenEye's 40), which it no longer does (gegunsOwnTrigger())
+		if (hasrow) {
 			shoot->unk24 = stat->recoilspeed[0];
 			shoot->unk25 = stat->recoilspeed[1];
 			shoot->unk26 = stat->recoilspeed[2];
@@ -935,9 +935,23 @@ static void gegunsOwnTrigger(s32 i)
 		case WEAPON_GE_AUTOSHOTGUN:
 			func->fire_animation = NULL;
 			break;
+		case WEAPON_GE_SHOTGUN:
+			// GoldenEye's Shotgun does not pump: its recoil kicks it and it
+			// fires again 40 ticks after (gunfire.c). The host's pump held
+			// every shot back to 75
+			if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+				func->fire_animation = NULL;
+			}
+			break;
 		case WEAPON_GE_COUGARMAGNUM:
 			if (func->type == INVENTORYFUNCTYPE_MELEE) {
 				func->flags &= ~FUNCFLAG_MAKEDIZZY;
+			}
+
+			// nor does the Cougar play a kick of its own: the DY357's held
+			// every shot back to 64 ticks for GoldenEye's 54
+			if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+				func->fire_animation = NULL;
 			}
 			break;
 		case WEAPON_GE_HUNTINGKNIFE:
