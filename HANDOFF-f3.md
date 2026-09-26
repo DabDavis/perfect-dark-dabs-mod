@@ -71,8 +71,8 @@ distance by default (as the release may), or is the slider enough?
 At the report camera on current code the double door (modelnum 0x29b, two props at
 (-3684 89 9467) and (-3583 89 9467)) shows sky along its top and right edges
 (runway-door-0.png): nothing is behind it and the HD door mesh does not fill the
-frame. Next: same shot in the N64 look (N64=1) to see whether GoldenEye's door fills
-it; compare the Bean door mesh's bbox with the N64 model's (setup scales doors to
+frame. HD only: in the N64 look the same camera shows one plain door filling the
+doorway with no sky (runway-door-n64-0.png). Next: compare the Bean door mesh's bbox with the N64 model's (setup scales doors to
 their pad bbox; if the HD mesh's extents differ from the N64 model's, scale the HD
 mesh to the N64 bbox).
 
