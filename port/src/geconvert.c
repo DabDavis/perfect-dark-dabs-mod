@@ -1039,6 +1039,11 @@ static uint32_t texRemap(uint32_t image)
 	return image;
 }
 
+uint32_t geconvertTexRemap(uint32_t image)
+{
+	return texRemap(image);
+}
+
 // sets of small numbers (texture and model numbers)
 #define SETBITS 65536
 typedef uint8_t numset[SETBITS / 8];
