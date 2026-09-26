@@ -3910,11 +3910,13 @@ bool playerIsThirdPerson(struct player *player)
 	// A long fall is watched from the eye too (bwalkUpdateLongFall()), and
 	// the camera goes back out when the player lands. That includes a death
 	// on the way down: the frozen death camera would be the one left far
-	// above at the top of the drop.
+	// above at the top of the drop. GoldenEye's death replay is not that
+	// camera - it is one of its own watching the body, which must be drawn
+	// even when the death came part way down a long fall (gedeathcam.c).
 	return playerWantsThirdPerson(player)
 		&& (!player->insightaimmode || player->isdead)
 		&& !geWatchIsOpen()
-		&& (!player->isfalling || !player->thirdpersonlongfall)
+		&& (!player->isfalling || !player->thirdpersonlongfall || geDeathCamWantsBody(player))
 		&& player->haschrbody;
 #endif
 }
