@@ -753,7 +753,7 @@ Gfx *geHudRenderGauges(Gfx *gdl)
 	gdl = geWatchDrawGauge(gdl, armour, armourc);
 	gdl = geWatchDrawGauge(gdl, health, healthc);
 
-	gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 
 	return gdl;
 }

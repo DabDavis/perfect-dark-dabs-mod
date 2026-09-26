@@ -4,6 +4,26 @@
 #include "data.h"
 #include "types.h"
 
+/**
+ * How the camera's two projection matrices are loaded: the rooms' (the
+ * "orthogonal" one, projection times view in one) and the props'
+ * (projection alone, their own modelview on it).
+ *
+ * The port keeps both as floats (G_MTX_FLOATS). In s15.16 each is rounded
+ * its own way - the rooms' product element by element, the props' before
+ * the modelview is put on it - and at a few thousand units the depth the
+ * two give one point differs by tens of units, far more than a 24-bit depth
+ * buffer resolves there: a console standing inside a wall came through the
+ * wall on some frames and not others (GoldenEye's Frigate, the opening shot
+ * of the ship, F3 report 20260926-172812 - the bridge's consoles and crew
+ * flickering through the bridge's front).
+ */
+#ifdef PLATFORM_N64
+#define CAM_PROJ_MTX_FLAGS 0
+#else
+#define CAM_PROJ_MTX_FLAGS G_MTX_FLOATS
+#endif
+
 void camSetScreenSize(f32 width, f32 height);
 void camSetScreenPosition(f32 left, f32 top);
 void camSetPerspective(f32 near, f32 fovy, f32 aspect);

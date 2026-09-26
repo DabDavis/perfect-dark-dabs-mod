@@ -129,7 +129,7 @@ Gfx *func0f0d479c(Gfx *gdl)
 Gfx *func0f0d49c8(Gfx *gdl)
 {
 	gSPViewport(gdl++, OS_K0_TO_PHYSICAL(viGetCurrentPlayerViewport()));
-	gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 
 	return gdl;
 }

@@ -763,6 +763,141 @@ static bool skyWaterTwinkleSetup(Gfx **gdlptr, struct environment *env)
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * The cloud plane's shading, laid out on the screen as the N64 lays it.
+ *
+ * A corner's colour is the fog's plus the clouds' by how high the corner
+ * looks (skyChooseCloudVtxColour()), and the horizon's is the fog's alone.
+ * The N64 draws the plane as 2D triangles between the screen's corners and
+ * the horizon, and the RDP steps shade linearly across the screen - so the
+ * clouds fade to the fog colour evenly down the screen and are nearly the
+ * fog's colour for the last few degrees over the horizon. The port draws
+ * the same polygon as 3D triangles whose far corners are 300000 units off,
+ * and a GPU interpolates a vertex colour perspective-correctly, which is
+ * linear in the world: almost all of the screen is within the first tenth
+ * of the way to the horizon, so the clouds stayed nearly their full
+ * brightness to within a hair of it. On GoldenEye's Dam that bright band
+ * showed through every seam between the low-poly cliffs, which are fogged
+ * to the fog colour and meet the horizon's own dark shade on the N64 (F3
+ * report 20260926-170859, "mountains ... incomplete in certain portions").
+ *
+ * So a triangle is split at its edges' midpoints *on the screen* - a point
+ * a fraction wa / (wa + wb) of the way along the edge in the world, where w
+ * is the depth - with the colour the plain average of its ends, as the RDP
+ * would give it there, and the texture coordinates the world's (the RDP
+ * corrects those for perspective too). It stops once perspective and
+ * linear shading would differ by less than a few steps of colour (some
+ * 350 triangles for the whole sky looking out over Dam).
+ */
+struct skycloudvtx {
+	f32 x, y, z, s, t, w;
+	f32 r, g, b, a;
+};
+
+static void skyCloudVtxFrom(struct skycloudvtx *dst, const struct skyvtx3d *src, const Mtxf *view)
+{
+	dst->x = src->x;
+	dst->y = src->y;
+	dst->z = src->z;
+	dst->s = src->s;
+	dst->t = src->t;
+	dst->w = -(view->m[0][2] * src->x + view->m[1][2] * src->y + view->m[2][2] * src->z + view->m[3][2]);
+	dst->r = src->r;
+	dst->g = src->g;
+	dst->b = src->b;
+	dst->a = src->a;
+
+	if (dst->w < 1.0f) {
+		dst->w = 1.0f;
+	}
+}
+
+static void skyCloudMid(const struct skycloudvtx *a, const struct skycloudvtx *b, struct skycloudvtx *m)
+{
+	const f32 f = a->w / (a->w + b->w);
+
+	m->x = a->x + (b->x - a->x) * f;
+	m->y = a->y + (b->y - a->y) * f;
+	m->z = a->z + (b->z - a->z) * f;
+	m->s = a->s + (b->s - a->s) * f;
+	m->t = a->t + (b->t - a->t) * f;
+	m->w = 2.0f * a->w * b->w / (a->w + b->w);
+	m->r = (a->r + b->r) * 0.5f;
+	m->g = (a->g + b->g) * 0.5f;
+	m->b = (a->b + b->b) * 0.5f;
+	m->a = (a->a + b->a) * 0.5f;
+}
+
+static f32 skyCloudSpread(const struct skycloudvtx *a, const struct skycloudvtx *b)
+{
+	f32 d = SKYABS(a->r - b->r);
+
+	if (SKYABS(a->g - b->g) > d) d = SKYABS(a->g - b->g);
+	if (SKYABS(a->b - b->b) > d) d = SKYABS(a->b - b->b);
+
+	return d;
+}
+
+static Gfx *skyRenderCloudTri(Gfx *gdl, const struct skycloudvtx *a, const struct skycloudvtx *b, const struct skycloudvtx *c, s32 depth)
+{
+	const struct skycloudvtx *v[3] = { a, b, c };
+	f32 wmin = a->w, wmax = a->w;
+	f32 spread;
+	Vtx *verts;
+	Col *cols;
+	s32 i;
+
+	for (i = 1; i < 3; i++) {
+		if (v[i]->w < wmin) wmin = v[i]->w;
+		if (v[i]->w > wmax) wmax = v[i]->w;
+	}
+
+	spread = skyCloudSpread(a, b);
+	if (skyCloudSpread(b, c) > spread) spread = skyCloudSpread(b, c);
+	if (skyCloudSpread(c, a) > spread) spread = skyCloudSpread(c, a);
+
+	// how far a perspective-correct colour strays from the screen-linear
+	// one, at most, across this triangle
+	if (depth < 8 && spread * (wmax - wmin) / (wmax + wmin) > 4.0f) {
+		struct skycloudvtx ab, bc, ca;
+
+		skyCloudMid(a, b, &ab);
+		skyCloudMid(b, c, &bc);
+		skyCloudMid(c, a, &ca);
+
+		gdl = skyRenderCloudTri(gdl, a, &ab, &ca, depth + 1);
+		gdl = skyRenderCloudTri(gdl, &ab, b, &bc, depth + 1);
+		gdl = skyRenderCloudTri(gdl, &ca, &bc, c, depth + 1);
+		gdl = skyRenderCloudTri(gdl, &ab, &bc, &ca, depth + 1);
+
+		return gdl;
+	}
+
+	verts = gfxAllocateVertices(3);
+	cols = gfxAllocateColours(3);
+
+	for (i = 0; i < 3; i++) {
+		verts[i].x = v[i]->x;
+		verts[i].y = v[i]->y;
+		verts[i].z = v[i]->z;
+		verts[i].s = skyClamp(v[i]->s, -32768.f, 32767.f);
+		verts[i].t = skyClamp(v[i]->t, -32768.f, 32767.f);
+		verts[i].colour = i * 4;
+		cols[i].r = (u8) (v[i]->r + 0.5f);
+		cols[i].g = (u8) (v[i]->g + 0.5f);
+		cols[i].b = (u8) (v[i]->b + 0.5f);
+		cols[i].a = (u8) (v[i]->a + 0.5f);
+	}
+
+	gSPColor(gdl++, osVirtualToPhysical(cols), 3);
+	gSPVertex(gdl++, osVirtualToPhysical(verts), 3, 0);
+	gSPTri1(gdl++, 0, 1, 2);
+
+	return gdl;
+}
+#endif
+
 Gfx *skyRender(Gfx *gdl)
 {
 	struct coord tl3dpos;
@@ -1916,37 +2051,31 @@ Gfx *skyRender(Gfx *gdl)
 			gdl = skyRenderTri(gdl, &skyvertices2d[0], &skyvertices2d[1], &skyvertices2d[2], 130.0f, true);
 		}
 #else
-		Vtx *verts = gfxAllocateVertices(numvertices);
-		Col *cols = gfxAllocateColours(numvertices);
 		Mtxf *mtx = gfxAllocateMatrix();
+		struct skycloudvtx cv[5];
 		mtx4MultMtx4(camGetWorldToScreenMtxf(), &g_SkyMtx, mtx);
+
+		// each corner's depth, from the unsheared view (the shear only
+		// moves the picture up the screen)
+		for (s32 i = 0; i < numvertices; ++i) {
+			skyCloudVtxFrom(&cv[i], &skyvertices3d[i], mtx);
+		}
+
 		skyShearForCloudHeight(mtx);
 		mtxF2L(mtx, mtx);
 
 		gSPSetExtraGeometryModeEXT(gdl++, G_NO_CLIPPING_EXT);
 		gSPMatrix(gdl++, osVirtualToPhysical(mtx), G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_PUSH);
-		gSPColor(gdl++, osVirtualToPhysical(cols), numvertices);
-		gSPVertex(gdl++, osVirtualToPhysical(verts), numvertices, 0);
-
-		for (s32 i = 0; i < numvertices; ++i) {
-			verts[i].x = skyvertices3d[i].x;
-			verts[i].y = skyvertices3d[i].y;
-			verts[i].z = skyvertices3d[i].z;
-			verts[i].s = skyClamp(skyvertices3d[i].s, -32768.f, 32767.f);
-			verts[i].t = skyClamp(skyvertices3d[i].t, -32768.f, 32767.f);
-			verts[i].colour = i * 4;
-			cols[i].r = skyvertices3d[i].r;
-			cols[i].g = skyvertices3d[i].g;
-			cols[i].b = skyvertices3d[i].b;
-			cols[i].a = skyvertices3d[i].a;
-		}
 
 		if (numvertices == 4) {
-			gSPTri2(gdl++, 0, 1, 3, 3, 2, 0);
+			gdl = skyRenderCloudTri(gdl, &cv[0], &cv[1], &cv[3], 0);
+			gdl = skyRenderCloudTri(gdl, &cv[3], &cv[2], &cv[0], 0);
 		} else if (numvertices == 5) {
-			gSPTri3(gdl++, 0, 1, 2, 0, 2, 3, 0, 3, 4);
+			gdl = skyRenderCloudTri(gdl, &cv[0], &cv[1], &cv[2], 0);
+			gdl = skyRenderCloudTri(gdl, &cv[0], &cv[2], &cv[3], 0);
+			gdl = skyRenderCloudTri(gdl, &cv[0], &cv[3], &cv[4], 0);
 		} else if (numvertices == 3) {
-			gSPTri1(gdl++, 0, 1, 2);
+			gdl = skyRenderCloudTri(gdl, &cv[0], &cv[1], &cv[2], 0);
 		}
 
 		gSPPopMatrix(gdl++, G_MTX_MODELVIEW);

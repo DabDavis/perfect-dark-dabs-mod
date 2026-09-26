@@ -3423,7 +3423,7 @@ Gfx *playerRenderHealthBar(Gfx *gdl)
 
 	gdl = healthbarDraw(gdl, NULL, 0, 0);
 
-	gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 
 	return gdl;
 }
@@ -6215,8 +6215,14 @@ void playerAllocateMatrices(struct coord *cam_pos, struct coord *cam_look, struc
 	}
 
 	camSetMtxF006c(s0);
+#ifdef PLATFORM_N64
 	guMtxF2L(s0->m, s1);
 	camSetOrthogonalMtxL(s1);
+#else
+	// kept as floats (CAM_PROJ_MTX_FLAGS in camera.h)
+	*(Mtxf *) s1 = *s0;
+	camSetOrthogonalMtxL(s1);
+#endif
 	mtx00015f04(scale, &sp8c);
 	guMtxF2L(sp8c.m, g_Vars.currentplayer->mtxl005c);
 	mtx00016820(g_Vars.currentplayer->mtxl005c, g_Vars.currentplayer->mtxl0060);

@@ -653,7 +653,7 @@ Gfx *smokeRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		}
 
 		gSPClearGeometryMode(gdl++, G_CULL_BOTH | G_FOG);
-		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 
 		gdl = roomApplyMtx(gdl, roomnum);
 
@@ -687,7 +687,7 @@ Gfx *smokeRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		}
 
 		gDPSetColorDither(gdl++, G_CD_BAYER);
-		gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 	}
 
 	return gdl;

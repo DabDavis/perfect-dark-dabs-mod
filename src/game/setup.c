@@ -1072,6 +1072,22 @@ void setupCreateSingleMonitor(struct singlemonitorobj *monitor, s32 cmdindex)
 			mtx00015f04(monitor->base.model->scale / owner->model->scale, &sp64);
 			modelGetRootPosition(monitor->base.model, &spa4);
 
+#ifndef PLATFORM_N64
+			// GoldenEye hangs the TV by the rotation and the scale alone
+			// (its setupSingleMonitor()), so the TV's root position node is
+			// where it lands under the arm. Perfect Dark takes the root back
+			// off, which for its own models (root at the origin) is nothing,
+			// but GoldenEye's Ptv1Z has its root 1694 units up and 496 across:
+			// taken off, the TVs hung 1.7 m under the ceiling, and moving the
+			// mount's arms up by the mount's own root instead (32dfcff91) put
+			// them near but not where GoldenEye has them - Bunker ii's
+			// clusters hung low and askew over the big screen (F3 report
+			// 20260926-141506, "monitors misplaced").
+			if (modloaderStageIsRemake(g_Vars.stagenum)) {
+				spa4.x = spa4.y = spa4.z = 0.0f;
+			}
+#endif
+
 			spa4.x = -spa4.x;
 			spa4.y = -spa4.y;
 			spa4.z = -spa4.z;
