@@ -7347,6 +7347,18 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 							func0f065e74(&prop->pos, prop->rooms, &sp5dc, rooms);
 
+#ifndef PLATFORM_N64
+							// GoldenEye keeps a moving prop's rooms and adds
+							// to them (chrpropUpdateRoomList()), where Perfect
+							// Dark swaps them for the rooms its origin has
+							// walked into. Aztec's shuttle, launched from its
+							// silo, was left in the room above its nose and
+							// the silo it is filmed from stopped drawing it.
+							if (projectile->flags & PROJECTILEFLAG_GEROCKET) {
+								roomsAppend(prop->rooms, rooms, 7);
+							}
+#endif
+
 							prop->pos.x = sp5dc.x;
 							prop->pos.y = sp5dc.y;
 							prop->pos.z = sp5dc.z;

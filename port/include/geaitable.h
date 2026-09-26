@@ -73,6 +73,11 @@
 //     01e4 <chr:1> <label:1>
 #define GEAI_WASHIT_CMD 0x01e4
 
+// And GoldenEye's ObjectRocketLaunch, which Perfect Dark has no command for:
+// the tagged object becomes a projectile that climbs away (Aztec's shuttle in
+// its ending). Three bytes: 01e5 <object tag:1>
+#define GEAI_ROCKET_CMD 0x01e5
+
 // GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 // six of its commands), and neither of Perfect Dark's two banks has eight bits
 // to spare - every bit of theirs means something to the game. The byte gets a
@@ -359,7 +364,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* f9 BondKilledInAction                     */ {  1, 0x00fe,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* fa RaiseArms                              */ {  1, 0x00ff,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* fb GasLeakAndFadeFog                      */ {  1,     -1,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* fc ObjectRocketLaunch                     */ {  2,     -1,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* fc ObjectRocketLaunch                     */ {  2, 0x01e5,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 };
 
 #endif

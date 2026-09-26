@@ -316,6 +316,6 @@ TABLE = [
     ('BondKilledInAction',                  1,    [],                                            0x00fe, (),                                          'hand'),  # f9 aiKillBond
     ('RaiseArms',                           1,    [],                                            0x00ff, (),                                          'hand'),  # fa aiBeSurprisedSurrender
     ('GasLeakAndFadeFog',                   1,    [],                                            None,   (),                                          'hand'),  # fb -
-    ('ObjectRocketLaunch',                  2,    [('OBJECT_TAG', 1)],                           None,   (),                                          'hand'),  # fc -
+    ('ObjectRocketLaunch',                  2,    [('OBJECT_TAG', 1)],                           0x01e5, (0,),                                        'hand'),  # fc aiGeObjectRocketLaunch (port's own)
 ]
 

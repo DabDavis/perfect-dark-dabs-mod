@@ -10291,4 +10291,51 @@ bool aiGeIfChrWasHit(void)
 
 	return false;
 }
+
+/**
+ * @cmd 01e5
+ *
+ * GoldenEye's ObjectRocketLaunch (chrai.c): the tagged object is made a
+ * projectile - airborne, not turned by what it touches (0x200), falling,
+ * sticky - that starts up at a sixtieth of a unit a tick and gains 0.2917 a
+ * tick against the fall's 0.2778, so it climbs away slowly and then fast.
+ * Aztec's ending launches the Moonraker shuttle with it, and the conversion
+ * had left it out: the shuttle sat in its silo through the whole of the
+ * launch (F3 20260926-064254). Perfect Dark's projectile is GoldenEye's field
+ * for field here - speed at 0x04, the push at 0x10 - and so is its tick.
+ * Three bytes: 01e5 <object tag:1>
+ */
+bool aiGeObjectRocketLaunch(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	struct defaultobj *obj = objFindByTagId(cmd[2]);
+
+	if (obj && obj->prop) {
+		struct projectile *projectile = NULL;
+
+		func0f0685e4(obj->prop);
+
+		if (obj->hidden & OBJHFLAG_EMBEDDED) {
+			projectile = obj->embedment->projectile;
+		} else if (obj->hidden & OBJHFLAG_PROJECTILE) {
+			projectile = obj->projectile;
+		}
+
+		if (projectile) {
+			projectile->flags |= PROJECTILEFLAG_AIRBORNE | PROJECTILEFLAG_GEROCKET | PROJECTILEFLAG_FALLING;
+			projectileSetSticky(obj->prop);
+			mtx4LoadIdentity(&projectile->mtx);
+			projectile->speed.x = 0.0f;
+			projectile->speed.y = 1.0f / 60.0f;
+			projectile->speed.z = 0.0f;
+			projectile->unk010 = 0.0f;
+			projectile->unk014 = 0.29166666f;
+			projectile->unk018 = 0.0f;
+		}
+	}
+
+	g_Vars.aioffset += 3;
+
+	return false;
+}
 #endif
