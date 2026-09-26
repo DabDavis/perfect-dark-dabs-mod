@@ -194,7 +194,12 @@ s32 roomTouchMtx(s32 roomnum)
 			|| fabsf(mtx.m[3][1]) >= 32767.0f
 			|| fabsf(mtx.m[3][2]) >= 32767.0f);
 
+	// The floats miss the draw scale mtxF2L() folds in, which the zoom
+	// shrinks (playerUpdateZoom()): under the sniper's the far rooms stood
+	// three times deeper than the rest, solid in the fog's colour (tester F3
+	// 20260925-235312)
 	if (g_RoomMtxFloats[index]) {
+		mtxApplyGfxScale(&mtx);
 		g_RoomMtxMatrices[index] = mtx;
 		return index;
 	}

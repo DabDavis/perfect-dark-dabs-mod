@@ -2802,6 +2802,17 @@ void playerUpdateZoom(void)
 		scale = 0.1;
 	}
 
+#ifndef PLATFORM_N64
+	// Perfect Dark draws the world smaller under a zoom, which carries its fog
+	// and far plane out with it: a sniper's 7 degrees saw three times further.
+	// GoldenEye sets its level's scale once, at load (bg.c's
+	// sub_GAME_7F0B4810()), and its fog stays where it is at any zoom - Dam's
+	// island stays in the fog at the sniper's (tester F3 20260925-235312)
+	if (geRoomActive()) {
+		scale = 1;
+	}
+#endif
+
 	stage = stageGetCurrent();
 	bgSetScaleBg2Gfx((1 - (1 - stage->unk34) * (1 - scale) * (10.f / 9.0f)) * scale);
 }
