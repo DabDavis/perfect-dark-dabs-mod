@@ -589,6 +589,38 @@ s32 xblaTexImageInfo(const void *addr, s32 *outAlpha, s32 *outSoft)
 	return found;
 }
 
+s32 xblaTexImageEdgeAlpha(const void *addr, s32 *outFirst, s32 *outLast)
+{
+	const struct xblatexentry *e;
+	s32 found = 0;
+
+	if (!lock || numBound == 0) {
+		return 0;
+	}
+
+	SDL_LockMutex(lock);
+
+	e = xblaTexFind(addr);
+
+	if (e && e->image && e->width > 0 && e->height > 0) {
+		const u8 *last = e->image + (size_t)(e->height - 1) * e->width * 4;
+		u32 first = 0, lastsum = 0;
+
+		for (s32 x = 0; x < e->width; x++) {
+			first += e->image[x * 4 + 3];
+			lastsum += last[x * 4 + 3];
+		}
+
+		*outFirst = (s32)(first / (u32)e->width);
+		*outLast = (s32)(lastsum / (u32)e->width);
+		found = 1;
+	}
+
+	SDL_UnlockMutex(lock);
+
+	return found;
+}
+
 s32 xblaTexHaveTextures(void)
 {
 	// A picture of its own is not the release's art and is not what the

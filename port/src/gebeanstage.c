@@ -1198,6 +1198,22 @@ static s32 texHasAlpha(s32 tex)
 	return tex >= 0 && texAlpha[tex];
 }
 
+// Below this a vertex alpha is a fade and not a rounding, as xblamesh.c's
+// XBLAMESH_FADE_ALPHA reads a mesh's
+#define FADE_ALPHA 0xf0
+
+/**
+ * A triangle of a picture with alpha that the release fades by its vertices'
+ * alpha is translucent, whatever its picture's texels are: as a cut-out its
+ * alpha would be the threshold's, and Dam's server room lamp threw a cone of
+ * solid white, its picture being opaque at the lamp (F3 20260925-235806).
+ */
+static s32 triFades(const struct stri *t)
+{
+	return texHasAlpha(t->tex)
+		&& ((t->argb[0] >> 24) < FADE_ALPHA || (t->argb[1] >> 24) < FADE_ALPHA || (t->argb[2] >> 24) < FADE_ALPHA);
+}
+
 static const struct stri *sortTris;
 static s32 sortCutoutsLast;
 
@@ -1490,7 +1506,7 @@ static u8 *writeRoom(s32 r, const struct stri *tris, s32 *list, s32 num, const u
 	}
 
 	for (s32 i = 0; i < num; i++) {
-		if (texIsXlu(tris[list[i]].tex)) {
+		if (texIsXlu(tris[list[i]].tex) || triFades(&tris[list[i]])) {
 			xlulist[numxlu++] = list[i];
 		} else {
 			opalist[numopa++] = list[i];
@@ -2072,15 +2088,25 @@ static void takeBackdrop(struct collect *c, s32 n)
  * edge: Surface's forest wall (1024x512, clear at the top, snow at the foot)
  * drew its top edge as a thin line of the snow's texels, a dotted wire across
  * the sky above the treeline (F3 20260925-030405).
+ *
+ * So is a picture of triangles the release fades by their vertices
+ * (triFades()) when their v starts at a repeat and runs on past it by less
+ * than half, and the picture is itself a fade - opaque at one edge, clear at
+ * the other - which does not repeat: the rows past its end are its clear
+ * edge's, not its opaque edge again. Dam's server room lamp throws a cone of
+ * light (v 0 at the lamp to 1.32 at the floor); wrapped, its foot was a band
+ * of the lamp end, a solid white skirt round the cone (F3 20260925-235806).
  */
 static void clampCutouts(const struct collect *c)
 {
 	f32 vmin[GEBEAN_MAXMATS];
 	f32 vmax[GEBEAN_MAXMATS];
+	u8 fades[GEBEAN_MAXMATS];
 
 	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
 		vmin[t] = 1e30f;
 		vmax[t] = -1e30f;
+		fades[t] = 0;
 	}
 
 	for (s32 t = 0; t < c->num; t++) {
@@ -2094,13 +2120,19 @@ static void clampCutouts(const struct collect *c)
 			vmin[tri->tex] = MIN(vmin[tri->tex], tri->uv[k][1]);
 			vmax[tri->tex] = MAX(vmax[tri->tex], tri->uv[k][1]);
 		}
+
+		fades[tri->tex] |= triFades(tri);
 	}
 
 	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
 		// the UVs are whole 1/256ths, or 1/1024ths, of a repeat
 		const f32 k = floorf(vmin[t] + 1.0f / 2048.0f);
+		s32 first, last;
 
-		if (texAlpha[t] && vmin[t] <= vmax[t] && vmax[t] <= k + 1.0f + 1.0f / 2048.0f) {
+		if (texAlpha[t] && vmin[t] <= vmax[t] && (vmax[t] <= k + 1.0f + 1.0f / 2048.0f
+					|| (fades[t] && vmin[t] <= k + 1.0f / 2048.0f && vmax[t] < k + 1.5f
+						&& xblaTexImageEdgeAlpha(texTile[t], &first, &last)
+						&& (first - last >= 0x80 || last - first >= 0x80)))) {
 			texClampV[t] = 1;
 			texClampShift[t] = (s16)(k + 1.0f);
 		}
@@ -2887,14 +2919,24 @@ s32 gebeanStageObjFog(f32 z, f32 *frac, u8 *rgb)
 }
 
 /**
- * A room served from the HD level, once bg.c's fog swap has run over it: every
- * render mode left without the fog blend in its first cycle takes it. The swap
- * knows GoldenEye's own modes; the HD rooms also draw cut-outs (the pines, the
- * forest wall, Jungle's leaves: the texture edge with 1 - alpha, 0x0c183078),
- * decals in the decal modes, and the surfaces GoldenEye drew unfogged, and the
- * release fogs every one of them.
+ * A room served from the HD level, once bg.c's swaps have run over it. With
+ * fog, every render mode left without the fog blend in its first cycle takes
+ * it. The swap knows GoldenEye's own modes; the HD rooms also draw cut-outs
+ * (the pines, the forest wall, Jungle's leaves: the texture edge with
+ * 1 - alpha, 0x0c183078), decals in the decal modes, and the surfaces
+ * GoldenEye drew unfogged, and the release fogs every one of them.
+ *
+ * With fog or without transparency, the swap also takes the vertex alpha out
+ * of the combiner (G_CC_MODULATEIA2 to G_CC_CUSTOM_06, the environment's
+ * alpha): on the N64 the RSP writes the fog into the shade alpha, and a level
+ * without transparency draws none. The renderer keeps the fog apart from the
+ * shade alpha, and the release fades pictures by their vertices' alpha - Dam's
+ * painted road markings (white at half), the lamp's light cone in the server
+ * room (0x82) - so the picture leaves take it back. Drawn by the texels'
+ * alpha alone, the markings were solid white patches and the cone a white
+ * pyramid (F3 20260925-234751, 20260925-235806).
  */
-void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu)
+void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu, s32 fog)
 {
 	struct roomblock *blocks[2] = { opa, xlu };
 
@@ -2915,9 +2957,14 @@ void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xl
 
 			if (block->type == ROOMBLOCKTYPE_LEAF) {
 				for (Gfx *gdl = block->gdl; gdl && (u8)(gdl->words.w0 >> 24) != (u8)G_ENDDL; gdl++) {
-					if ((u32)gdl->words.w0 == 0xb900031d
+					if (fog && (u32)gdl->words.w0 == 0xb900031d
 							&& ((u32)gdl->words.w1 & 0xcccc0000) != (G_RM_FOG_SHADE_A & 0xcccc0000)) {
 						gdl->words.w1 = ((u32)gdl->words.w1 & ~0xcccc0000) | (G_RM_FOG_SHADE_A & 0xcccc0000);
+					}
+
+					// writeLeaf()'s picture combiner, as the swap left it
+					if ((u32)gdl->words.w0 == 0xfc26a004 && (u32)gdl->words.w1 == 0x1f1493ff) {
+						gdl->words.w1 = 0x1f1093ff;
 					}
 				}
 
@@ -3249,7 +3296,7 @@ s32 gebeanStageFogFactor(s32 min, s32 max, f32 *fm, f32 *fo) { return 0; }
 s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb) { return 0; }
 s32 gebeanStageFogLine(f32 depth, f32 *mul, f32 *offset, u8 *rgb) { return 0; }
 s32 gebeanStageObjFog(f32 z, f32 *frac, u8 *rgb) { return 0; }
-void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu) { }
+void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu, s32 fog) { }
 u32 gebeanStageFogTableFind(const u8 *xex, u32 len, u32 *at) { return 0; }
 
 #endif
