@@ -5740,6 +5740,8 @@ struct beanscreen {
 	f32 lo[2];
 	f32 hi[2];
 	f32 size;
+	u8 quad;   // its node's list is the screen's quad alone (beanScreenFace())
+	u8 corners; // which of its corners a vertex of Bean's lies on (beanScreenRecesses())
 };
 
 // Bean's placeholder picture for a screen the release draws a programme into
@@ -5810,6 +5812,8 @@ static s32 beanFindScreens(struct modeldef *modeldef, struct beanscreen *screens
 		}
 
 		s->size = s->hi[0] - s->lo[0] > s->hi[1] - s->lo[1] ? s->hi[0] - s->lo[0] : s->hi[1] - s->lo[1];
+		s->quad = node->rodata->dl.numvertices == 4;
+		s->corners = 0;
 		num++;
 	}
 
@@ -5849,6 +5853,107 @@ static s32 beanScreenBacking(const struct beanscreen *screens, s32 numscreens, f
 	return 0;
 }
 
+/**
+ * A vertex of Bean's own model (not the placeholder) that lies on one of the
+ * screens - within 1% of the screen's size of its plane and of its edges - is
+ * the back of the recess the screen sits in, and is laid 2% of the size
+ * behind the plane as a placeholder is. Dam's modem box (prop/modembox,
+ * PROP_MODEMBOX) has its recess's back as a quad of the case's metal 0.19
+ * units in front of GoldenEye's screen quad on a screen 400 across: the two
+ * fought, and half the programme along the quad's diagonal showed the metal
+ * (F3 20260926-093826, "visual glitch with terminal and camera"). Anything
+ * standing off the plane - the case's front, its bevel's outer edge - or past
+ * the screen's edges is left where it is; a bevel's inner edge on the screen's
+ * rim goes back with the recess it shares its corners with.
+ *
+ * Only a screen whose node is a quad alone and that Bean's model has a recess
+ * on all four corners of (beanScreenRecesses()): parts 0 to 3 are a monitor's
+ * screens, but on a prop that is no monitor they are whatever the model
+ * numbers so - Jungle's trees have lists of their own there, and their
+ * trunks' vertices went back off their places.
+ */
+static s32 beanScreenFace(const struct beanscreen *screens, s32 numscreens, f32 *pos)
+{
+	for (s32 i = 0; i < numscreens; i++) {
+		const struct beanscreen *s = &screens[i];
+		const f32 d[3] = { pos[0] - s->origin[0], pos[1] - s->origin[1], pos[2] - s->origin[2] };
+		const f32 u = d[0] * s->axis[0][0] + d[1] * s->axis[0][1] + d[2] * s->axis[0][2];
+		const f32 v = d[0] * s->axis[1][0] + d[1] * s->axis[1][1] + d[2] * s->axis[1][2];
+		const f32 w = d[0] * s->axis[2][0] + d[1] * s->axis[2][1] + d[2] * s->axis[2][2];
+		const f32 margin = s->size * 0.01f;
+
+		if (s->quad && s->corners == 0xf && w >= -margin && w <= margin
+				&& u >= s->lo[0] - margin && u <= s->hi[0] + margin
+				&& v >= s->lo[1] - margin && v <= s->hi[1] + margin) {
+			const f32 back = w + s->size * 0.02f;
+
+			for (s32 k = 0; k < 3; k++) {
+				pos[k] -= s->axis[2][k] * back;
+			}
+
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Which of the screens have a recess of Bean's behind them for
+ * beanScreenFace(): a vertex of the model on each of the screen's four
+ * corners, in its plane. The modem box's back quad is the screen to within a
+ * unit; a CCTV's lens or a door's window pane that part 0 happens to be only
+ * touches a corner or two, and is left alone.
+ */
+static void beanScreenRecesses(const struct beanmodel *bm, const struct gebeangunrow *g, const char *source,
+		struct beanscreen *screens, s32 numscreens)
+{
+	for (s32 di = 0; di < bm->numdraws && numscreens > 0; di++) {
+		const struct beandraw *d = &bm->draws[di];
+		struct beanvb vb;
+
+		if (!beanReadVb(bm, d->vb, &vb)
+				|| strncmp(beanTextureName(bm, (s32)d->tex), beanScreenPlaceholder, sizeof(beanScreenPlaceholder) - 1) == 0) {
+			continue;
+		}
+
+		for (u32 vi = 0; vi < vb.count; vi++) {
+			struct beanvtx v;
+			f32 pos[3];
+
+			if (beanVertexDropped(source, vb.off, vi) || !beanVertex(bm, &vb, vi, &v)) {
+				continue;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				pos[k] = (g->sign[k] * v.pos[g->perm[k]] - g->beancentre[k]) * g->scale + g->n64centre[k];
+			}
+
+			for (s32 i = 0; i < numscreens; i++) {
+				struct beanscreen *sc = &screens[i];
+				const f32 dd[3] = { pos[0] - sc->origin[0], pos[1] - sc->origin[1], pos[2] - sc->origin[2] };
+				const f32 u = dd[0] * sc->axis[0][0] + dd[1] * sc->axis[0][1] + dd[2] * sc->axis[0][2];
+				const f32 w2 = dd[0] * sc->axis[1][0] + dd[1] * sc->axis[1][1] + dd[2] * sc->axis[1][2];
+				const f32 w = dd[0] * sc->axis[2][0] + dd[1] * sc->axis[2][1] + dd[2] * sc->axis[2][2];
+				const f32 margin = sc->size * 0.01f;
+
+				if (w < -margin || w > margin) {
+					continue;
+				}
+
+				for (s32 c = 0; c < 4; c++) {
+					const f32 cu = (c == 1 || c == 2) ? sc->hi[0] : sc->lo[0];
+					const f32 cv = c >= 2 ? sc->hi[1] : sc->lo[1];
+
+					if (fabsf(u - cu) <= margin && fabsf(w2 - cv) <= margin) {
+						sc->corners |= 1 << c;
+					}
+				}
+			}
+		}
+	}
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -5873,6 +5978,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	struct beanscreen screens[4];
 	s32 numscreens;
 	s32 numbacking = 0;
+	s32 numrecess = 0;
 	u8 *file;
 
 	memset(glass, 0, sizeof(glass));
@@ -6072,6 +6178,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	}
 
 	numscreens = g->weaponnum >= 0 ? 0 : beanFindScreens(modeldef, screens);
+	// a monitor is converted on the basic skeleton; a windowed door's glass
+	// or a CCTV's lens is a part of a skeleton of its own
+	if (modeldef->skel == &g_SkelBasic) {
+		beanScreenRecesses(&bm, g, source, screens, numscreens);
+	}
 
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
@@ -6171,6 +6282,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				if (placeholder && beanScreenBacking(screens, numscreens, pos)) {
 					backing = 1;
 					numbacking++;
+				} else if (!placeholder && beanScreenFace(screens, numscreens, pos)) {
+					numrecess++;
 				}
 
 				if (part >= 0) {
@@ -6318,9 +6431,9 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 
 	file = beanWriteMesh(&out, numnodes, nummatrices, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals, %d glass, %d screen backing), "
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals, %d glass, %d screen backing, %d screen recess), "
 			"rigid on matrix %d of %d%s%s%s%s",
-			g->row.file, source, out.numverts, out.numtris, numdecals, numglass, numbacking, mtx, nummatrices,
+			g->row.file, source, out.numverts, out.numtris, numdecals, numglass, numbacking, numrecess, mtx, nummatrices,
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
