@@ -4834,6 +4834,13 @@ static u32 beanFixVertexColour(const char *source, u32 vboff, u32 vi, u32 argb)
  *   of grey). The Community Edition moves those 16 vertices to the origin
  *   ("Resolved z-fighting for console1/console2/tuningconsole1 models"); its
  *   copy draws nothing there either way.
+ * - modembox and doorpanel, Dam's covert modem screen and its gate switches:
+ *   the screen is a quad of its own (the modem box's one, the gate switch's
+ *   two lamps) on one flat grey texel, in the screen's plane and in front of
+ *   GoldenEye's own quad, which runs the monitor programme. In the HD look
+ *   the modem's green text and the lamp the gate's AI turns red and green
+ *   were a grey card, and the two props looked the same (F3 20260925-235034,
+ *   20260925-234625).
  */
 static const struct {
 	const char *source;
@@ -4843,6 +4850,8 @@ static const struct {
 } beanVertexDrops[] = {
 	{ "new/prop/console2", 0, 118, 133 },
 	{ "new/prop/console3", 0, 118, 133 },
+	{ "new/prop/modembox", 1264, 0, 3 },
+	{ "new/prop/doorpanel", 1160, 0, 7 },
 };
 
 static s32 beanVertexDropped(const char *source, u32 vboff, u32 vi)

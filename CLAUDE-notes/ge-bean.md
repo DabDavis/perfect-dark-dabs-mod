@@ -9784,6 +9784,21 @@ Bean's mesh in the HD look it still shows the glass. Probes and pictures:
 `~/wt/f3gelight-run/` (`pos.sh`, `views.sh` - several views per boot,
 `--spectate` with `thirdperson = 0` set each tick), `~/wt/f3gelight-pics/`.
 
+**Dam's modem screen and gate switches (F3 20260925-235034, 20260925-234625,
+HD Dam).** *"the wrong model ... it should be the monitor, not the gate
+switch"* and *"this button normally glows green when pressed"*. The models
+were right (`Pgx335Z` = `PROP_MODEMBOX`, a SingleMonitor on programme 5, green
+text; `Pgx336Z` = `PROP_DOORPANEL`, a MultiMonitor whose screens 0 and 1 the
+level's AI sets 46-50 by gate 8's or 9's door state - red closed, green open).
+Bean's two meshes are the same frame, and each has its screen as a quad of its
+own on one flat grey texel (modembox: `.gpu` 1264, 4 vertices; doorpanel: 1160,
+8 - the two lamps), in front of GoldenEye's quad. The screen node was handed
+back as above and drew the programme, under Bean's grey card. Both quads are in
+`beanVertexDrops[]` now; of every GoldenEye monitor prop with a Bean mesh (tv1,
+console1-3, consolesev2b, doorconsole) only these two have such a card. Probe:
+`~/wt/f3dammon-run/button.py` (views, `propobjInteract()` on the nearest
+switch, shots as the gate opens), pictures in `~/wt/f3dammon-pics/`.
+
 ## Alerted guards running on the spot at Facility's stairs (2026-09-25)
 
 F3 report 20260925-070207 (ODEYSEIS, Facility 0x63, build 9f09335): "alerted
