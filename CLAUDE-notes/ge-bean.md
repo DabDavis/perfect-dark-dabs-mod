@@ -11256,3 +11256,71 @@ pad more than 150 above the chr, and no pair got worse.
 The F3 trace now carries a `mission:` line (stage flags, each objective's
 status) and each chr's `ailist <id>+<offset>`, which would have answered this
 report's "never appeared or stuck?" from the text alone.
+
+## Facility's vent: held at the mouth until the squat is done (2026-09-26)
+
+F3 report 20260926-171016 (Facility 0x63, 49783dc): "bond can clip through
+the vents in the second mission" - the picture looks along the *outside* of
+the duct from over it, at x -4464, eye 125 over the vent floor (331), frame
+599. Walked from the spawn with the stick held (`spawnwalk.py`, below) the
+squat starts at x -4428 (the circle reaches the first force-crouch tile) and
+takes 25 frames; the player walked straight on, and from about -4446 to -4473
+his eye was over the duct's roof (~105 over its floor), which culls from
+above. The report's position is that stretch exactly.
+
+**GoldenEye holds the move.** `stanTileDistanceRelated()` walks out from
+Bond's tile with `stanCheckLinkedSpecialTile()` as its edge callback, which
+answers 1 for a link into a force-crouch tile - the walk takes it for a wall
+and returns STAN_COLLISION_FOUND (2) - and `bondviewTryMoveToStan()` makes the
+move only if `ducking_height_offset == FULL_CROUCH_OFFSET || sp7C < 0`. The
+native port walked into the vent (`~/dam-oracle/f3vent/` on 10.8.0.3:
+`walk.padscript` is dam.padscript plus a held stick from 2100, `gevent.py`
+swaps the stage to Facility and prints per frame): autocrouch at x 96, Bond
+stands at 89.7 for 30 frames while the eye comes down 167 -> 57, then crawls.
+
+**Fix:** `geStanForcesCrouch()` also says (`hold`) whether a force-crouch tile
+other than the one under the body's present position was reached, and
+`bwalk0f0c63bc()` refuses the move while that is so and `crouchoffset` is
+short of -90 (capped at 90 ticks so a squat that cannot finish never roots
+anyone). Walked: held at x -4418 for 26 frames, eye 157 -> 66, no frame
+shows the outside, on down the duct as before. Probe:
+`~/wt/f3-0926d-stan-run/probes/spawnwalk.py` (from the mission's own spawn,
+FWD/SIDE/THETA, SHOTS at walk frames).
+
+## Dam: the player's height went NaN (2026-09-26)
+
+F3 reports 20260926-152525 and -152615 (Dam, HD, 49783dc): "went down ladder
+and i see either blue or black screen"; both traces have the player at
+(1864 nan 5281) then (1829 nan 5411) - off the west edge of the first tower's
+deck (room 72, deck at 13467 from x 1956), 700 units from its ladder, over no
+tile at all, every chr's distance NaN.
+
+**Not reproduced.** A sweep of 350 descents of the room-72 ladder from its
+deck (`downsweep.py`: ladsweep.py from the top, seven speeds including
+backwards, ten headings, five offsets along the head) found no NaN on the
+tester's own 49783dc or on dabs-mod; neither did the reading. What was
+established:
+
+- The player's eye is `vv_manground + eyeheight` each tick, and every change
+  to `vv_manground` goes through `bwalkTryMoveUpwards(amount)` (the lift's
+  own move aside). A NaN `amount` collides with nothing - every comparison
+  in the volume test is false - so it was let through, and then the height,
+  the eye and the camera were NaN for good: `vv_manground`, `sumground`, the
+  head's bob sum (`headpossum`) and the landing squat (`sumcrouch`) are all
+  running sums, and nothing finite added to a NaN is ever finite again.
+  That is why 50 seconds later the player was still at y NaN.
+- `ladderupdown` is never initialised; it is only written while on a ladder.
+  A headless run showed 2e29 in it before any climb. It is only read after a
+  tick on a ladder has written it, so harmless as far as found, but a ladder
+  taken now starts it at 0.
+
+**Guards (in the tree now):** `bwalkTryMoveUpwards()` refuses a non-finite
+amount; the eye height falls back to `vv_eyeheight` if it is not finite; and
+`bwalkKeepFinite()` at the end of each walk tick puts any non-finite height,
+position or running sum back to the last finite one (or a rest value).
+Each of them logs `bwalk: <what> is nan at frame N: ...` with the ladder,
+fall, lift, head and squat state, so the next report's log tail names the
+source. Checked by poking NaN into `headpossum.y`, `vv_manground`,
+`sumground`, `ladderupdown` (on a ladder) and `sumcrouch` in turn from gdb
+(`naninject.py`): the player stays put and finite every time. If a report
+comes back with a `bwalk:` line, that line is the lead.

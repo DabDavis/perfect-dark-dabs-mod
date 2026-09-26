@@ -929,11 +929,24 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
  * his circle touches (stanTileDistanceRelated()), carries it. It is asked from
  * the edge and not from inside, so he is down before his head is under the
  * duct.
+ *
+ * `hold` (may be NULL) is whether GoldenEye would hold the move as well: its
+ * walk out from Bond's tile (stanCheckLinkedSpecialTile()) takes a link into a
+ * force-crouch tile for a wall, and bondview's move goes on through it only
+ * once `ducking_height_offset` is the full squat. So Bond stops at the mouth
+ * of a vent until he is down, and never walks under its roof with his head up.
+ * It is true where a force-crouch tile other than the one under `from` - the
+ * body's own, where it stands now - was reached.
  */
-bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach)
+bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach, struct coord *from, bool *hold)
 {
 	s32 tile;
+	s32 own = -1;
 	bool result = false;
+
+	if (hold) {
+		*hold = false;
+	}
 
 	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
 		stanBuild();
@@ -949,12 +962,24 @@ bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach)
 		return false;
 	}
 
+	if (hold && from) {
+		own = stanTileUnder(from->x, from->z, limit, rise);
+	}
+
 	stanFlood(tile, pos->x, pos->z, pos->x, pos->z, reach, true);
 
 	for (s32 i = 0; i < g_Stan.numtiles; i++) {
 		if (g_Stan.reached[i] == g_Stan.gen && g_Stan.tiles[i].special == GESTAN_SPECIAL_CROUCH) {
 			result = true;
-			break;
+
+			if (!hold) {
+				break;
+			}
+
+			if (i != own) {
+				*hold = true;
+				break;
+			}
 		}
 	}
 

@@ -107,8 +107,11 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 /**
  * Whether a body at `pos` is on, or within `reach` of an edge linked to, a tile
  * GoldenEye forces a crouch on (STANTILEFLAG_FORCECROUCH: a vent, a crawl space).
+ * `hold` (may be NULL) says whether one was reached other than the tile under
+ * `from`, where the body stands: GoldenEye holds such a move until Bond is
+ * fully down.
  */
-bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach);
+bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach, struct coord *from, bool *hold);
 
 /** Counters for a probe: walls asked about, walls left out, bodies found over no tile. */
 // GoldenEye's death camera's line along the tile graph (gedeathcam.c): 1 clear
