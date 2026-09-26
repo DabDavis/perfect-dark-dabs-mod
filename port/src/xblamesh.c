@@ -347,6 +347,7 @@ struct xblameshbuilt {
 	Gfx *logogdl[XBLAMESH_LOGO_MATS]; // gdl with one replaced material, on the level's picture
 	Gfx *logoglint;    // gdl with the materials that glint, on the glint's picture
 	Gfx *logometal;    // gdl with the materials the levels' metal is added over
+	Gfx *glassrefl;    // gdl with a tinted pane on its reflection map: see xblaMeshGlassCopy()
 	Col *logocol;      // the bind normals as colours, for the logo passes' lighting
 	s32 logotried;
 	s32 numenvcells;
@@ -4810,6 +4811,82 @@ static Gfx *xblaMeshLogoCopy(const struct xblameshbuilt *m, s32 which,
 }
 
 /**
+ * A GoldenEye tinted pane's reflection, as a copy of gdl: every pane that has
+ * one (gebeanmats.glassrefl) bound to that map instead, under a combiner that
+ * takes the map lit by the shade and the primitive alpha - the pane's opacity
+ * under mode 9 - for its alpha; everything else in the copy left out.
+ *
+ * GoldenEye's pane goes opaque in its own glass picture past opadist, a dark
+ * streaked grey. Bean's pane is a flat blue that was left on its own there,
+ * and the release lays this map over it: drawn over the pane by the opacity it
+ * is nothing up close and the whole of it at opadist, which is the N64 look's
+ * pane going dark. NULL for a mesh with no such pane.
+ */
+static Gfx *xblaMeshGlassCopy(const struct xblameshbuilt *m, const void *const *panes,
+		const void *const *refls, s32 num)
+{
+	Gfx *copy;
+	Gfx combine;
+	Gfx *cc = &combine;
+	s32 keep = 0;
+	s32 any = 0;
+
+	if (num == 0) {
+		return NULL;
+	}
+
+	copy = malloc((size_t)m->numgfx * sizeof(Gfx));
+
+	if (!copy) {
+		return NULL;
+	}
+
+	gDPSetCombineLERP(cc++, TEXEL0, 0, SHADE, 0, 0, 0, 0, PRIMITIVE,
+			0, 0, 0, COMBINED, 0, 0, 0, COMBINED);
+	memcpy(copy, m->gdl, (size_t)m->numgfx * sizeof(Gfx));
+
+	for (s32 i = 0; i < m->numgfx; i++) {
+		const Gfx *g = &m->gdl[i];
+		const u8 op = (u8)(g->words.w0 >> 24);
+
+		if (op == G_SETTIMG) {
+			keep = 0;
+
+			for (s32 k = 0; k < num; k++) {
+				if ((const void *)g->words.w1 == panes[k]) {
+					copy[i].words.w1 = (uintptr_t)refls[k];
+					keep = 1;
+					break;
+				}
+			}
+		} else if (op == G_SETCOMBINE) {
+			copy[i] = combine;
+		} else if (op == G_DL && g->words.w1 >= (uintptr_t)m->gdl &&
+				g->words.w1 < (uintptr_t)(m->gdl + m->numgfx)) {
+			copy[i].words.w1 = (uintptr_t)copy + (g->words.w1 - (uintptr_t)m->gdl);
+		} else if (op == (u8)G_ENDDL) {
+			keep = 0;
+		}
+
+		if (op == G_COL || op == G_VTX || op == (u8)G_TRI1 || op == (u8)G_TRI4) {
+			if (!keep) {
+				copy[i].words.w0 = (uintptr_t)G_NOOP << 24;
+				copy[i].words.w1 = 0;
+			} else {
+				any = 1;
+			}
+		}
+	}
+
+	if (!any) {
+		free(copy);
+		return NULL;
+	}
+
+	return copy;
+}
+
+/**
  * The logo copies, made on the first draw that asks. A mesh with none of the
  * logos' materials keeps none of them.
  */
@@ -6084,6 +6161,9 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	struct xblameshuse *use;
 	struct xblameshmats mats;
 	struct gebeanmats *bmats;
+	const void *reflpanes[8];
+	const void *refls[8];
+	s32 numrefl = 0;
 	char what[80];
 	u8 *file;
 	u32 len = 0;
@@ -6166,6 +6246,16 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 
 	m->beanhead = bmats->head;
 	m->beanrow = e->beanrow;
+
+	// The tinted panes' reflection maps, by the pane's picture
+	for (s32 i = 0; i < mats.num; i++) {
+		if (bmats->glassrefl[i] && mats.tile[i] && numrefl < ARRAYCOUNT(reflpanes)) {
+			reflpanes[numrefl] = mats.tile[i];
+			refls[numrefl] = bmats->glassrefl[i];
+			numrefl++;
+		}
+	}
+
 	free(bmats);
 
 	snprintf(what, sizeof(what), "model file %d's GoldenEye model%s", e->fileid,
@@ -6178,6 +6268,10 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	xblaMeshBuildCullBack = m->frombean && gebeanRowIsChr(e->beanrow) ? G_CULL_BACK : 0;
 	ok = xblaMeshBuildFile(m, file, len, &mats, what);
 	xblaMeshBuildCullBack = 0;
+
+	if (ok) {
+		m->glassrefl = xblaMeshGlassCopy(m, reflpanes, refls, numrefl);
+	}
 
 	return ok ? m : NULL;
 }
@@ -10050,6 +10144,12 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0,
 				renderdata->unk30 == 9 ? (renderdata->envcolour >> 8) & 0xff : 0);
 		gSPDisplayList(renderdata->gdl++, fadelist);
+
+		// A tinted pane's reflection map over it by the same opacity, so the
+		// pane goes dark where GoldenEye's does: see xblaMeshGlassCopy()
+		if (m->glassrefl && renderdata->unk30 == 9 && ((renderdata->envcolour >> 8) & 0xff) != 0) {
+			gSPDisplayList(renderdata->gdl++, m->glassrefl + (fadelist - m->gdl));
+		}
 	}
 
 	// Put segment 5 back to what the game's own draw of this node leaves in it:
