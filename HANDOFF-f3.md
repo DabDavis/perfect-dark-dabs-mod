@@ -259,6 +259,50 @@ Open: GoldenEye does not draw the second gun on pickup; PD puts it in the left
 hand when the right already holds that gun (kept). Not checked in a real
 playthrough with the fire button (probe pickups).
 
+## 7. Akimbo house rule: a second of any weapon makes a pair (user decided) - DONE
+
+User, 2026-09-26: with **Akimbo on** (Akimbo = Everyone or Players and Sims,
+modIsAkimboForPlayers()), picking up a second of any weapon already held makes a
+pair, on PD missions and GE Plus missions alike, **GoldenEye's grenade and mines
+included**; the GE Detonator (WEAPON_GE_DETONATOR, fix/f3-ge-mines) stays single.
+With Akimbo off, section 6 stands (GoldenEye's setup pairs only) and PD solo is stock.
+(Section 6's "Akimbo cannot make one" is superseded.)
+
+- src/game/inv.c invAkimboPairsPickup(w): solo, Akimbo for players, modCanAkimbo(w),
+  not gegadgetsIsGadget(w) (detonator, key, camera, modem, plastique, tank shells: items),
+  holds a single and no pair. invGiveWeaponsByProp() asks it *before* the single is given
+  and gives the pair *after* the link/guard-pair bookkeeping (so a linked gun's partner
+  never keeps a pointer to the freed prop).
+- src/game/propobj.c propPickupByPlayer(): a full gun's second is no longer left lying
+  when it would make the pair.
+- fix/f3-ge-mines 097d9a2c5: gegunsNeverPairs() is now the detonator alone (modCanAkimbo
+  honours it); grenade/mine definitions keep no WEAPONFLAG_DUALWIELD, so Akimbo off never
+  pairs them.
+
+**PD before** (verified with the converter-75 binary, Akimbo on, Defection 0x30): a second
+grenade / CMP150 / Dragon picked up solo gave ammo only (the pickup's "second makes a pair"
+branch is multiplayer only; Akimbo only paired Start Armed's gun and the switch's carried
+pair). **After**: pair. Akimbo off: unchanged. Multiplayer/Combat Sim: unchanged (its branch
+already paired any weapon under Akimbo from a different pad).
+
+Verified (rig ~/wt/f3gemission-run, pd-am.x86_64 = scratch/pair-mines merge of both branches,
+probes/pair.py + new ops spawn:W (weaponCreateForPlayerDrop, the MP drop), skipcut, bt;
+am.sh <tag> <stage> <DO> runs Akimbo off (save_base) and on (save_akon, Akimbo=2)):
+- Dam 0x15: two guards' KF7s -> off: single + ammo; on: pair. Remote/timed/prox mines and
+  grenades, two each -> off: singles; on: pairs. Detonator: modCanAkimbo 0,
+  invAkimboPairsPickup 0, never a pair. (spawn:0x7f crashes in projectileTick - no model,
+  playermgrGetModelOfWeapon -1 - a probe artefact: the detonator is undroppable.)
+- Caverns 0x66, Akimbo off: linked AR33s single then pair; guard 19's ZMGs pair. Akimbo
+  on: AR33s the same (Bond starts with a ZMG pair under Akimbo).
+- Defection 0x30: on -> Falcon/grenade/remote mine/full-ammo CMP150 pairs; off -> stock.
+- Throwing a pair (~/wt/f3mines-run, probes/mines.py + pair/qty ops and a throw log, Facility
+  0x63): PD's dual throw alternates hands (right, left, right...), one ammo per throw.
+  Remote-mine pair: 4 throws, then both hands go to the detonator (single), which sets
+  them all off. Timed pair: alternating throws, 300-frame fuse, the second chains off the
+  first. Grenade pair: alternating, each explodes; out of grenades the hands stay on the
+  empty grenade as with a single one. No crash or stuck state.
+- 20-mission sweep, Akimbo off and on (sweep.am.off / sweep.am.on): all 20 clean, no fatal/crash.
+
 ## Before merging
 
 Converter 72 and 73 touch every mission's setup: run the 20-mission sweep
