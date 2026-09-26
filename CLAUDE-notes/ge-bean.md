@@ -9663,6 +9663,31 @@ are converted fogless, so nothing of them is fogged at all. Only the HD
 columns (end, colour) are read; the N64 look is GoldenEye's ROM row as
 before, whatever the CE did to its own copy of the N64 columns.
 
+### Vertex alpha on the HD rooms: the fog swap took it (2026-09-26)
+
+F3 20260925-234751 (Dam's truck park: painted markings as solid white patches)
+and 20260925-235806 (Dam's server room: "weird pyramid"). Both are Bean room
+triangles faded by their **vertex alpha** - the markings (tex 61) at 0x80/0x88,
+the lamp's light cone (tex 59, a white 250 -> 6 fade) at 0x82. bg.c's fog swap
+(g_GfxGroup01/05, and 06/07 on a level without transparency) turns
+writeLeaf()'s picture combiner (G_CC_TRILERP, G_CC_MODULATEIA2) into
+(G_CC_TRILERP, G_CC_CUSTOM_06): alpha from ENV, since the RSP writes fog into
+shade alpha. gfx_pc.cpp keeps fog apart from the vertex alpha, so
+gebeanStageFogRoom() now puts 1f1093ff back in the HD rooms after either swap.
+Only fog levels had lost it: Silo and Depot (no fog) already drew their signs
+at 0xb3/0x93. Traced with a DBGTRI hook in gfx_sp_tri1 (tile address =
+gebeanStageTile(0xc000 + tex)): both cycles, 2-cycle mode, vertex colours
+intact - the one-cycle theory was wrong.
+
+Two more pieces for the cone: a picture with alpha whose triangles fade by
+vertex (under 0xf0, xblamesh.c's rule) goes to the translucent leaf -
+as a cut-out the renderer makes alpha 1 above 0.19; and such a picture is
+clamped in t when its v starts at a repeat, overruns it by under half, and its
+edge rows differ by 0x80 or more (tex 59's v runs 0..1.32, and wrapped its
+foot was the lamp end again). Keep that rule tight: a first version (any
+faded picture, range under 2) clamped Silo's tex 42/43/45 and erased its
+catwalk rails. Branch fix/f3-dam-white-decals, HANDOFF-f3.md there.
+
 ## The HD rocket launcher is made loaded: a rocket on top of the rocket (2026-09-25)
 
 F3 20260925-062114 (Surface, HD look, akimbo, the launcher in the left hand):

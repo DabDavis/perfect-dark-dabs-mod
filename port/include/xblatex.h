@@ -109,6 +109,12 @@ const void *xblaTexBindTexture(s32 texturenum, u8 *rgba, s32 width, s32 height);
 s32 xblaTexImageInfo(const void *addr, s32 *outAlpha, s32 *outSoft);
 
 /**
+ * A picture bound above: the mean alpha of its first and of its last row, in
+ * the row order it was bound in. Zero when addr is not such a stand-in.
+ */
+s32 xblaTexImageEdgeAlpha(const void *addr, s32 *outFirst, s32 *outLast);
+
+/**
  * Whether anything has been bound, which is the renderer's early out. Every
  * texture upload in the game goes past this.
  */

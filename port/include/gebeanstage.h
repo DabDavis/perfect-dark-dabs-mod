@@ -87,7 +87,7 @@ struct roomblock;
 s32 gebeanStageFog(f32 *start, f32 *end, u8 *rgb);
 s32 gebeanStageFogLine(f32 depth, f32 *mul, f32 *offset, u8 *rgb);
 s32 gebeanStageObjFog(f32 z, f32 *frac, u8 *rgb);
-void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu);
+void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xlu, s32 fog);
 
 /**
  * Where the release's environment table is in a default.xex, and its length
