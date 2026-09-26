@@ -16249,9 +16249,24 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 
 	obj = hit->prop->obj;
 
+#ifndef PLATFORM_N64
+	// The depth from the camera, taken from the origin's own depth: see
+	// chrHit(). In third person the origin is up the ray at the player, and
+	// stock's sum put the hit the pull-back beyond what was hit - the firing
+	// range scored every shot from 200 units behind the target's face as
+	// zone 3.
+	{
+		f32 depth = hit->distance + shotdata->gunpos2d.z;
+
+		sp110.x = shotdata->gunpos2d.x - depth * shotdata->gundir2d.x / shotdata->gundir2d.z;
+		sp110.y = shotdata->gunpos2d.y - depth * shotdata->gundir2d.y / shotdata->gundir2d.z;
+		sp110.z = shotdata->gunpos2d.z - depth;
+	}
+#else
 	sp110.x = shotdata->gunpos2d.x - hit->distance * shotdata->gundir2d.x / shotdata->gundir2d.z;
 	sp110.y = shotdata->gunpos2d.y - hit->distance * shotdata->gundir2d.y / shotdata->gundir2d.z;
 	sp110.z = shotdata->gunpos2d.z - hit->distance;
+#endif
 
 	mtx4TransformVecInPlace(camGetProjectionMtxF(), &sp110);
 
@@ -18804,12 +18819,60 @@ struct weaponobj *weaponFindChildByWeaponNum(s32 weaponnum, struct prop *prop)
 	return NULL;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * weaponFindChildByWeaponNum() leaving out a gun in a chr's hand.
+ *
+ * A held weapon is a child of its chr's prop, so the stock walk found it as
+ * readily as one lying on the floor. Stock's solo player has no body and so
+ * holds nothing in the world; this fork's third person body does - it holds
+ * the gun the player has equipped (playerSyncBodyWeapons()) - and holding a
+ * mission's thrown gadget read as "thrown and landed": GE Plus Dam's "Covert
+ * modem incorrectly installed" the moment the modem was in hand (F3
+ * 20260926-070256), Surface 2's remote mine the same.
+ */
+static struct weaponobj *weaponFindLandedChild(s32 weaponnum, struct prop *prop)
+{
+	struct weaponobj *weapon;
+	struct prop *child;
+
+	if (prop->type == PROPTYPE_WEAPON && weaponnum == prop->weapon->weaponnum) {
+		struct prop *parent = prop->parent;
+
+		if (parent == NULL
+				|| (parent->type != PROPTYPE_CHR && parent->type != PROPTYPE_PLAYER)
+				|| parent->chr == NULL
+				|| (parent->chr->weapons_held[HAND_RIGHT] != prop && parent->chr->weapons_held[HAND_LEFT] != prop)) {
+			return prop->weapon;
+		}
+	}
+
+	child = prop->child;
+
+	while (child) {
+		weapon = weaponFindLandedChild(weaponnum, child);
+
+		if (weapon) {
+			return weapon;
+		}
+
+		child = child->next;
+	}
+
+	return NULL;
+}
+#endif
+
 struct weaponobj *weaponFindLanded(s32 weaponnum)
 {
 	struct prop *prop = g_Vars.activeprops;
 
 	while (prop) {
+#ifndef PLATFORM_N64
+		struct weaponobj *weapon = weaponFindLandedChild(weaponnum, prop);
+#else
 		struct weaponobj *weapon = weaponFindChildByWeaponNum(weaponnum, prop);
+#endif
 
 		if (weapon && (weapon->base.hidden & OBJHFLAG_PROJECTILE) == 0) {
 			return weapon;

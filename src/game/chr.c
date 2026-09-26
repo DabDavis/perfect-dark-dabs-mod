@@ -1252,7 +1252,21 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 					// twice all the way down. GoldenEye never draws faster than
 					// it animates. On a converted level the height is left to
 					// tween like the rest.
-					if (nodetype == MODELNODETYPE_CHRINFO && !geRoomActive())
+					//
+					// But not a player's body seen through this fork's own
+					// third person camera (CAMERAMODE_DEFAULT; a cutscene's is
+					// CAMERAMODE_THIRDPERSON). playerTickThirdPerson() forces that
+					// one to the ground every tick too - stock's
+					// CHRHFLAG_DROPPINGITEM there is this bit - and the snap is
+					// what lands the body on a new animation's height: the
+					// crouch rows hold one frame at speed 0.001, so tweened the
+					// body took a thousand frames to crouch and was seen
+					// floating over the floor, sinking (Dam, F3
+					// 20260926-063144).
+					if (nodetype == MODELNODETYPE_CHRINFO
+							&& (!geRoomActive()
+								|| (prop->type == PROPTYPE_PLAYER
+									&& g_Vars.players[playermgrGetPlayerNumByProp(prop)]->cameramode == CAMERAMODE_DEFAULT)))
 #else
 					if (nodetype == MODELNODETYPE_CHRINFO)
 #endif
@@ -5398,9 +5412,26 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 	chr = prop->chr;
 
 	if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0) {
+#ifndef PLATFORM_N64
+		// hit->distance is the hit's depth in front of the camera, not in
+		// front of the shot's origin, and in third person the origin has
+		// been slid up the ray to the player (bgunCalculatePlayerShotSpread()).
+		// Stock's sum took the depth from the origin, which put every hit
+		// position the pull-back further along the ray - two metres behind
+		// the body it hit. Measured from the origin's own depth it is the
+		// same point stock finds whenever the origin is at the camera.
+		{
+			f32 depth = hit->distance + shotdata->gunpos2d.z;
+
+			sp98.x = shotdata->gunpos2d.x - (depth * shotdata->gundir2d.x) / shotdata->gundir2d.z;
+			sp98.y = shotdata->gunpos2d.y - (depth * shotdata->gundir2d.y) / shotdata->gundir2d.z;
+			sp98.z = shotdata->gunpos2d.z - depth;
+		}
+#else
 		sp98.x = shotdata->gunpos2d.x - (hit->distance * shotdata->gundir2d.x) / shotdata->gundir2d.z;
 		sp98.y = shotdata->gunpos2d.y - (hit->distance * shotdata->gundir2d.y) / shotdata->gundir2d.z;
 		sp98.z = shotdata->gunpos2d.z - hit->distance;
+#endif
 
 		mtx4TransformVec(camGetProjectionMtxF(), &sp98, &hitpos);
 		bgunSetHitPos(&hitpos);
