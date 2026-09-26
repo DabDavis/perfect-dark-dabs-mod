@@ -2631,6 +2631,47 @@ static int gfx_opengl_get_max_msaa_level() {
     return level;
 }
 
+/*
+ * Occlusion queries (gfx_rendering_api.h). Made the first time one is wanted;
+ * a query is read two frames after it was drawn, by which time the driver has
+ * nearly always finished it, so the read simply waits when it has not.
+ */
+static GLuint gl_occlusion_queries[GFX_OCCLUSION_SLOTS];
+static bool gl_occlusion_made;
+
+static GLenum gfx_opengl_occlusion_target(void) {
+    // ES has no sample count, only whether any passed, which is all the
+    // glares ask
+    return gl_es ? GL_ANY_SAMPLES_PASSED : GL_SAMPLES_PASSED;
+}
+
+static bool gfx_opengl_occlusion_begin(int slot) {
+    if (!gl_occlusion_made) {
+        if (!glad_glGenQueries || !glad_glBeginQuery || !glad_glEndQuery || !glad_glGetQueryObjectuiv) {
+            return false;
+        }
+        glGenQueries(GFX_OCCLUSION_SLOTS, gl_occlusion_queries);
+        gl_occlusion_made = true;
+    }
+
+    glBeginQuery(gfx_opengl_occlusion_target(), gl_occlusion_queries[slot]);
+    return true;
+}
+
+static void gfx_opengl_occlusion_end(int slot) {
+    glEndQuery(gfx_opengl_occlusion_target());
+}
+
+static int gfx_opengl_occlusion_result(int slot) {
+    if (!gl_occlusion_made || slot < 0 || slot >= GFX_OCCLUSION_SLOTS) {
+        return -1;
+    }
+
+    GLuint samples = 0;
+    glGetQueryObjectuiv(gl_occlusion_queries[slot], GL_QUERY_RESULT, &samples);
+    return samples > INT32_MAX ? INT32_MAX : (int)samples;
+}
+
 struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_get_name,
     gfx_opengl_get_max_texture_size,
@@ -2677,5 +2718,8 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_capture_start,
     gfx_opengl_capture_read,
     gfx_opengl_capture_drain,
-    gfx_opengl_capture_stop
+    gfx_opengl_capture_stop,
+    gfx_opengl_occlusion_begin,
+    gfx_opengl_occlusion_end,
+    gfx_opengl_occlusion_result
 };

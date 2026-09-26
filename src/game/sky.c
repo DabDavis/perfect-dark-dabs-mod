@@ -3079,6 +3079,12 @@ Gfx *skyRenderFull(Gfx *gdl, struct skyvtx2d *vtx0, struct skyvtx2d *vtx1, struc
 	return gdl;
 }
 
+#ifndef PLATFORM_N64
+// Normalised depth the sun's occlusion test is made at: in front of the depth
+// buffer's clear value and behind anything drawn
+#define SUN_TEST_Z (1.0f - 1.0f / 65536.0f)
+#endif
+
 void skyCreateSunArtifact(struct artifact *artifact, s32 x, s32 y)
 {
 	s32 viewleft = viGetViewLeft();
@@ -3088,14 +3094,26 @@ void skyCreateSunArtifact(struct artifact *artifact, s32 x, s32 y)
 
 	if (x >= viewleft && x < viewleft + viewwidth && y >= viewtop && y < viewtop + viewheight) {
 #ifndef PLATFORM_N64
-		const s32 i = (artifact - schedGetWriteArtifacts()) >> 3;
-		struct coord zero = { 0.f };
-		struct environment *env = envGetCurrent();
-		struct coord sunpos;
-		sunpos.x = env->suns[i].pos[0];
-		sunpos.y = env->suns[i].pos[1];
-		sunpos.z = env->suns[i].pos[2];
-		artifact->visiblelos = artifactTestLos(&sunpos, &zero, x, y) * 0xfffc;
+		// The N64 sees the sun where nothing has been drawn over the sky: its
+		// z-buffer still holds the clear value there. The GPU is asked the same
+		// (artifactsTestOcclusion()) at the far end of the depth range, and only
+		// without it does the line of sight test stand in - which walks the
+		// rooms from the camera's alone, and passes wherever the collision does
+		// not match what is drawn.
+		artifact->testz = SUN_TEST_Z;
+
+		if (videoHasOcclusionQueries()) {
+			artifact->visiblelos = 0;
+		} else {
+			const s32 i = (artifact - schedGetWriteArtifacts()) >> 3;
+			struct coord zero = { 0.f };
+			struct environment *env = envGetCurrent();
+			struct coord sunpos;
+			sunpos.x = env->suns[i].pos[0];
+			sunpos.y = env->suns[i].pos[1];
+			sunpos.z = env->suns[i].pos[2];
+			artifact->visiblelos = artifactTestLos(&sunpos, &zero, x, y) * 0xfffc;
+		}
 #endif
 		artifact->zbufptr = &g_ZbufPtr1[(s32)camGetScreenWidth() * y + x];
 		artifact->screenx = x;
@@ -3157,6 +3175,13 @@ Gfx *skyRenderSuns(Gfx *gdl, bool xray)
 	if (env->numsuns <= 0 || !g_ZbufPtr1 || g_Vars.mplayerisrunning) {
 		return gdl;
 	}
+
+#ifndef PLATFORM_N64
+	// the front artifacts' answers from the GPU, which the flare timer reads
+	if (!xray) {
+		artifactsResolveOcclusion();
+	}
+#endif
 
 #if !PAL
 	if (g_ViRes == 1) {

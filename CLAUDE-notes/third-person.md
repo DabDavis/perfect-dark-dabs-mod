@@ -358,6 +358,74 @@ wrong spot every run (both F3 cameras here); without `--spectate`, holding
 `prop->pos`, `prop->rooms` and the angles every frame puts the eye exactly
 where the trace says (scratchpad `glarespot.py`).
 
+## Glares and the sun seen through walls: the GPU reads the depth (2026-09-26)
+
+Four F3s from one tester (Chicago's "puddle reflecting a light that doesn't
+exist", Air Base "light showing through wall", Crash Site "sun showing through
+walls"), all with Glare Clipping on. Two of the "lights" were the **sun's lens
+flare** (`skyRenderFlare()`), the other a light of the yard below Chicago's
+street. The halo's depth never mattered: whether a glare or the sun is *seen*
+came from `shotTestLos()`, and it was wrong in three ways:
+
+- **It walks the rooms from `cam_room` alone** (`portal00018148()`). At the
+  Air Base spot the eye stands in a doorway (prop rooms 108, 107; cam room
+  108): the wall in the way is room 107's, the line to the sun crosses no
+  portal into 107, so nothing was tested and all eight sun points passed.
+- **Collision is not the picture.** Crash Site's hills have none - no room's
+  batches hit the line to the sun at any length.
+- **Translucent surfaces are skipped** (`g_BgHitXluDisabled`). Chicago's
+  street is translucent over its reflection, so the yard's light (room 14,
+  300 units under the road) came up through it; Glare Clipping then cut the
+  halo along the kerb, which is the "puddle".
+
+The N64 decided all of this from its z-buffer (`zbufSaveArtifactDepths()`,
+read back in `schedUpdatePendingArtifacts()`); the port now asks the GPU the
+same question:
+
+- `artifactsTestOcclusion()` (from `bgRenderArtifacts()`, after the scene and
+  before the gun clears the depth) emits `gDPOcclusionTestEXT()` for every
+  artifact **written** this frame: a one-pixel rectangle at the point's own
+  depth, depth tested, never written, blended to nothing, inside an
+  occlusion query (`G_OCCLUSIONTEST_EXT`, `gfx_occlusion_test()` in
+  gfx_pc.cpp). A light's point is tested 30 room units in front of it (at
+  least 2% of the way back: `GLARE_TEST_SLACK`), so its own fitting and
+  GoldenEye's swinging lamp cages do not hide it; the sun's at
+  `SUN_TEST_Z`, just short of the depth buffer's clear value, so anything
+  drawn over the sky hides it (no sky writes depth: sky.c, xblasky.c,
+  gebeansky.c).
+- The query slot is the artifact's place in the three lists
+  (`list * MAX_ARTIFACTS + i`). `artifactsResolveOcclusion()` reads a list's
+  answers once, when it is the front list two frames later - the delay the
+  N64 had - before `skyRenderSuns()` or the glares look at `visiblelos`.
+- Backends: GL `GL_SAMPLES_PASSED` (`GL_ANY_SAMPLES_PASSED` on ES), read
+  with `GL_QUERY_RESULT`; Vulkan an occlusion query pool, each query reset in
+  the frame's upload command buffer (never inside rendering) and begun/ended
+  inside the rendering under way (`VKP_BEGIN_QUERY`/`VKP_END_QUERY`), the
+  read waiting for exactly the submission it went out in - which
+  `vk_begin_recording()` has already waited for two frames on, so nothing
+  stalls. Because it is the frame's own depth buffer, resolution, MSAA,
+  supersampling/FSR render scale and TAA need nothing of their own.
+- `artifactTestLos()` stays as the fallback when a backend cannot
+  (`videoHasOcclusionQueries()`).
+- A light's point outside its room's portal box on screen
+  (`bgGetRoomDrawSlot()`) is dropped before any test: the room is scissored to
+  that box, so the point is behind whatever the portal is cut in. That is what
+  hides Chicago's yard light: nothing that writes depth is under the street.
+
+Checked on the RX 580, GL and Vulkan, 1080p and 4K, MSAA 8x, SMAA +
+Supersampling 2x, SMAA + FSR Performance, TAA, the tester's `[Mod]` settings:
+the four spots lose their glare/flare, and a light in plain view (the yard
+from above, Chicago) and the sun over Crash Site's ridge still draw - the
+latter was *hidden* before (the line test hit something on the way). GE Plus
+Caverns' hanging lamps glare as before. Rig: `~/wt/f3glare-run` (`pos.sh`
+teleport + hold, `matrix.sh` runs spot x build x renderer x settings and
+counts glares seen and sun flares per frame with `prob.py`). Traps: under
+`--spectate` every room is on screen over the whole screen (no portal boxes),
+so repro without it and hold `vv_manground` where the ground lookup lands on
+the wrong floor (Air Base: -491); the tester's `ThirdPersonDistance` in the
+ini puts a headless run in third person, so hold `thirdperson = 0`; and the
+F3 trace's `[Video]` settings are not in the report.
+
 ## The player's own tracers (2026-09-20)
 
 "Bullet tracers only work in first person." The player's tracer is

@@ -3747,6 +3747,7 @@ struct artifact {
 #ifndef PLATFORM_N64
 	u16 visiblelos;
 	f32 clipz; // normalised depth a little in front of the light, for Glare Clipping
+	f32 testz; // normalised depth the GPU's occlusion test is made at (artifactsTestOcclusion())
 #endif
 	union {
 		u16 *depthptr;

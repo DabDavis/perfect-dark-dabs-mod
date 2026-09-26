@@ -197,4 +197,11 @@ bool gfx_capture_drain(void *dst);
 
 void gfx_capture_stop(void);
 
+// Occlusion queries (G_OCCLUSIONTEST_EXT): whether this renderer can answer
+// them, and how many samples of the test in a slot passed. A slot is read
+// once per test, in a later frame than the one that drew it; -1 when there is
+// no answer (not tested since the last read, or not supported).
+bool gfx_occlusion_supported(void);
+int gfx_occlusion_result(int slot);
+
 #endif

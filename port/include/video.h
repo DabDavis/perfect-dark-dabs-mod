@@ -96,6 +96,12 @@ void videoSetRenderer(s32 renderer);
 f32 videoGetGlareBrightness(void);
 f32 videoGetOverexposureScale(void);
 
+// The GPU's occlusion queries (gDPOcclusionTestEXT()): whether this renderer
+// answers them, and how many samples of the test in a slot passed, read once
+// in a later frame than the one that drew it; -1 for no answer.
+s32 videoHasOcclusionQueries(void);
+s32 videoGetOcclusionResult(s32 slot);
+
 f32 videoGetAverageFPS(void);
 
 void videoSetWindowOffset(s32 x, s32 y);
