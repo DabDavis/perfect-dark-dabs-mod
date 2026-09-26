@@ -22,6 +22,11 @@
  * What is taken follows xblaSwitchGetEnabled(): on with the whole release, the
  * N64's again the moment any part of it is off. A field is only moved from the
  * value the other mode expects, so one a mod has set is left alone.
+ *
+ * One rule of the release's is code rather than a table and is taken where it
+ * is used, on xblaTablesGetApplied(): its glassUpdatePortal() (default.xex
+ * 0x82209158) holds Area 52's tinted panes clear at any distance, and changes
+ * nothing else about the windows' distance fade (propobj.c).
  */
 
 // Each frame: puts the tables right if the release was switched since.
