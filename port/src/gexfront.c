@@ -3257,7 +3257,15 @@ static struct {
 	f32 gew, geh;
 	s32 left, top, width, height;
 	s32 set;
+	// the release's glyphs as the release draws them, not fitted across to
+	// GoldenEye's widths (frontHdFont()): its HUD's numbers (gehud.c)
+	s32 natural;
 } g_FrontFrame;
+
+void gexFrontTextNaturalWidth(s32 on)
+{
+	g_FrontFrame.natural = on;
+}
 
 void gexFrontTextFrame(f32 gew, f32 geh, s32 left, s32 top, s32 width, s32 height)
 {
@@ -3273,6 +3281,7 @@ void gexFrontTextFrame(f32 gew, f32 geh, s32 left, s32 top, s32 width, s32 heigh
 void gexFrontTextFrameDefault(void)
 {
 	g_FrontFrame.set = 0;
+	g_FrontFrame.natural = 0;
 }
 
 static f32 frontScaleY(void)
@@ -3397,7 +3406,7 @@ static const struct gefolderfont *frontHdFont(const struct gefont *font, f32 *sc
 		}
 
 		*scale = font->hdscale;
-		*xscale = font->hdxscale;
+		*xscale = g_FrontFrame.natural ? font->hdscale : font->hdxscale;
 	}
 
 	return hd;

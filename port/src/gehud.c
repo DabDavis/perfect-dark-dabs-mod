@@ -44,6 +44,8 @@
 #include "gefolder.h"
 #include "gewatch.h"
 #include "gexfront.h"
+#include "gebean.h"
+#include "xblamesh.h"
 #include "game/bondgun.h"
 #include "game/camera.h"
 #include "game/gfxmemory.h"
@@ -108,6 +110,31 @@ static const struct {
 	[ICON_TANK]         = { 2464,  7, 22, G_IM_FMT_IA,   G_IM_SIZ_8b,  0, -1 },
 };
 
+/**
+ * The release's own pictures of the same (files/texture/bg/, the names the
+ * decomp's oddtextures.c gives beside each row), drawn under its look over the
+ * same boxes GoldenEye's are - which is what the release does: its 9mm round
+ * is 80x180 over GoldenEye's 5x12 units. A name with a '#' is one the release
+ * has only at GoldenEye's own size, made from another of its pictures
+ * (gefolder.c's menuAmmoPicture()); the tank's shell, which it has only at
+ * 7x22 as well, is its magnum round, the one grey cartridge of the set.
+ */
+static const char *const g_IconHdPictures[NUM_ICONS] = {
+	[ICON_9MM]          = "bg/ammoicon9mm",
+	[ICON_RIFLE]        = "bg/ammoiconrifle",
+	[ICON_SHOTGUN]      = "bg/ammoiconshell",
+	[ICON_KNIFE]        = "bg/ammoiconknife",
+	[ICON_GRENADEROUND] = "bg/ammoicongrenade",
+	[ICON_ROCKET]       = "bg/ammoiconrocket",
+	[ICON_GRENADE]      = "bg/ammogrenadehand",
+	[ICON_MAGNUM]       = "bg/ammoiconmagnum",
+	[ICON_GOLDENGUN]    = "bg/ammoicon9mm#gold",
+	[ICON_REMOTEMINE]   = "bg/ammoiconmine",
+	[ICON_TIMEDMINE]    = "bg/ammoiconmine#yellow",
+	[ICON_PROXMINE]     = "bg/ammoiconmine#green",
+	[ICON_TANK]         = "bg/ammoiconmagnum",
+};
+
 // the radar's disc (image_bank.c's mpradarimages): 32x32 RGBA16 with six
 // levels, of which only the alpha is used
 #define RADAR_IMAGE 200
@@ -117,6 +144,21 @@ static const struct {
 #define COL_RADAR_SURROUND 0x00000040
 #define COL_RADAR_BLIP 0xffff0000
 #define COL_RADAR_SELF 0xffffff00
+
+/**
+ * The release's ammunition, measured off its Dam in Xenia at 1280x720 (PP7 "7
+ * 93", the sniper rifle's round, the shotgun's shell), 3 pixels a unit: the
+ * pictures are GoldenEye's size and across where GoldenEye puts them in the
+ * 4:3 middle (hudReleaseInsets()), but 5 units higher; the numbers are its
+ * Bank Gothic at its own proportions, 14 pixels to a digit where GoldenEye's
+ * are 23 (0.61 of the size), a unit higher again against the pictures, and
+ * outlined in an opaque 85 of 255 about two pixels out.
+ */
+#define HUD_RELEASE_RAISE 5
+// the nominal square a release picture is drawn over (hudReleaseIcon())
+#define HUD_RELEASE_TEXELS 32
+#define HUD_RELEASE_TEXT 0.61f
+#define COL_RELEASE_OUTLINE 0x555555ff
 
 // GoldenEye's crosshair image (IMAGE_CROSSHAIR1), 32x32 RGBA32
 #define SIGHT_IMAGE 2236
@@ -314,7 +356,8 @@ static Gfx *hudImage(Gfx *gdl, struct textureconfig *tex, s32 mode, s32 point, s
  * outlined as textRenderOutlined() does it - the text eight times in the
  * outline's colour, a unit out every way, and then itself over them.
  */
-static Gfx *hudString(Gfx *gdl, s32 gothic, const char *text, s32 x, s32 halign, s32 y, s32 valign, s32 outline)
+static Gfx *hudStringOutlined(Gfx *gdl, s32 gothic, const char *text, s32 x, s32 halign, s32 y, s32 valign,
+		s32 outline, u32 outlinecolour)
 {
 	s32 w, h;
 
@@ -336,13 +379,18 @@ static Gfx *hudString(Gfx *gdl, s32 gothic, const char *text, s32 x, s32 halign,
 		for (s32 dx = -1; dx <= 1; dx++) {
 			for (s32 dy = -1; dy <= 1; dy++) {
 				if (dx || dy) {
-					gdl = gexFrontTextPrint(gdl, gothic, x + dx, y + dy, text, COL_OUTLINE);
+					gdl = gexFrontTextPrint(gdl, gothic, x + dx, y + dy, text, outlinecolour);
 				}
 			}
 		}
 	}
 
 	return gexFrontTextPrint(gdl, gothic, x, y, text, COL_TEXT);
+}
+
+static Gfx *hudString(Gfx *gdl, s32 gothic, const char *text, s32 x, s32 halign, s32 y, s32 valign, s32 outline)
+{
+	return hudStringOutlined(gdl, gothic, text, x, halign, y, valign, outline, COL_OUTLINE);
 }
 
 static Gfx *hudInteger(Gfx *gdl, s32 value, s32 x, s32 halign, s32 y, s32 valign)
@@ -354,6 +402,32 @@ static Gfx *hudInteger(Gfx *gdl, s32 value, s32 x, s32 halign, s32 y, s32 valign
 	snprintf(buffer, sizeof(buffer), "%d\n", value);
 
 	return hudString(gdl, 1, buffer, x, halign, y, valign, 1);
+}
+
+/**
+ * A number the release's way (HUD_RELEASE_TEXT): the same view laid out on a
+ * frame of 1/0.61 as many units, so the text is that much smaller and its
+ * outline a unit of that frame out, and the release's glyphs at their own
+ * width. x and y are on the ordinary frame; the frame is put back after.
+ */
+static Gfx *hudReleaseInteger(Gfx *gdl, const struct hudframe *f, s32 value, s32 x, s32 halign, s32 y)
+{
+	const f32 k = HUD_RELEASE_TEXT;
+	char buffer[12];
+
+	snprintf(buffer, sizeof(buffer), "%d\n", value);
+
+	gexFrontTextFrame(viGetViewWidth() / f->sx / k, viGetViewHeight() / f->sy / k,
+			viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
+	gexFrontTextNaturalWidth(1);
+
+	gdl = hudStringOutlined(gdl, 1, buffer, (s32)lroundf(x / k), halign, (s32)lroundf(y / k), 2, 1, COL_RELEASE_OUTLINE);
+
+	gexFrontTextNaturalWidth(0);
+	gexFrontTextFrame(viGetViewWidth() / f->sx, viGetViewHeight() / f->sy,
+			viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
+
+	return gdl;
 }
 
 /** Back to what Perfect Dark's own HUD code leaves behind it (text0f153780()). */
@@ -433,16 +507,88 @@ static s32 hudHandAmmo(s32 handnum, s32 *icon, s32 *mag, s32 *reserve, s32 *nocl
 	return 1;
 }
 
+/** The release there and its look on (F6): the release's pictures, and its layout. */
+static s32 hudReleaseLook(void)
+{
+	return gebeanGetEnabled() && xblaMeshGetEnabled();
+}
+
+/**
+ * The release lays the ammunition out on GoldenEye's 320x240 as GoldenEye
+ * does, but that frame is the 4:3 middle of its 16:9 screen, not the whole
+ * width: measured off its Dam in Xenia at 1280x720 (PP7, "7 93"), the round's
+ * middle is 58 units in from the right of the 4:3 box and 3 pixels a unit, and
+ * GoldenEye's own rule is 59. So a view's edge that is the window's edge comes
+ * in by the window's width past 4:3, half of it each side; one that is not (a
+ * split screen's middle) stays where it is.
+ */
+static void hudReleaseInsets(const struct hudframe *f, s32 *left, s32 *right)
+{
+	const f32 spare = (HUD_FRAME_H * videoGetAspect() - HUD_FRAME_H * 4.0f / 3.0f) / 2.0f;
+
+	*left = 0;
+	*right = 0;
+
+	if (spare < 1.0f) {
+		return;
+	}
+
+	if (viGetViewLeft() <= 0) {
+		*left = (s32)(spare + 0.5f);
+	}
+
+	if (viGetViewLeft() + viGetViewWidth() >= viGetWidth()) {
+		*right = (s32)(spare + 0.5f);
+	}
+}
+
+/** The release's picture for one of GoldenEye's, in a config drawn over GoldenEye's box; NULL when there is none. */
+static struct textureconfig *hudReleaseIcon(s32 icon, struct textureconfig *tex)
+{
+	s32 w, h;
+	const void *tile = g_IconHdPictures[icon] ? geFolderMenuPicture(g_IconHdPictures[icon], &w, &h) : NULL;
+
+	if (!tile) {
+		return NULL;
+	}
+
+	// the renderer draws the whole picture over the config's nominal size -
+	// which must be a square it can take whole: at GoldenEye's own 5x12 the
+	// tile was padded out to 8x16 and only the left five eighths and the
+	// bottom three quarters of the round showed. The box it is drawn over is
+	// GoldenEye's whatever this is.
+	memset(tex, 0, sizeof(*tex));
+	tex->textureptr = (u8 *)tile;
+	tex->width = HUD_RELEASE_TEXELS;
+	tex->height = HUD_RELEASE_TEXELS;
+	tex->format = G_IM_FMT_RGBA;
+	tex->depth = G_IM_SIZ_32b;
+	tex->s = G_TX_CLAMP;
+	tex->t = G_TX_CLAMP;
+
+	return tex;
+}
+
 Gfx *geHudRenderAmmo(Gfx *gdl)
 {
 	struct hudframe f;
 	const s32 playercount = PLAYERCOUNT();
+	const s32 release = hudReleaseLook();
 	s32 leftx = 59;
 	s32 rightx = 59;
 	s32 bottom;
 
 	hudFrame(&f);
 	bottom = f.height;
+
+	if (release) {
+		s32 insetl, insetr;
+
+		hudReleaseInsets(&f, &insetl, &insetr);
+		leftx += insetl;
+		rightx += insetr;
+		bottom -= HUD_RELEASE_RAISE;
+	}
 
 	if (playercount >= 3) {
 		if (g_Vars.currentplayernum & 1) {
@@ -461,6 +607,7 @@ Gfx *geHudRenderAmmo(Gfx *gdl)
 		s32 width;
 		s32 x0, y0;
 		struct textureconfig *tex;
+		struct textureconfig hd;
 
 		if (!hudHandAmmo(handnum, &icon, &mag, &reserve, &noclip)) {
 			continue;
@@ -469,20 +616,43 @@ Gfx *geHudRenderAmmo(Gfx *gdl)
 		// microcode_generation_ammo_related(): an odd picture sits half a unit
 		// right of its middle and half a unit up, which is what keeps its
 		// edges on whole units
-		tex = &g_Hud.icons[icon];
+		tex = release ? hudReleaseIcon(icon, &hd) : NULL;
 		width = g_IconRows[icon].width;
 		x0 = cx - width / 2;
 		y0 = bottom - 20 + g_IconRows[icon].yoffset - (g_IconRows[icon].height + 1) / 2;
 
-		gdl = hudImage(gdl, tex, 2, 1, 1,
+		// GoldenEye's own a texel a pixel, the release's filtered down
+		gdl = hudImage(gdl, tex ? tex : &g_Hud.icons[icon], 2, tex == NULL, 1,
 				viGetViewLeft() + x0 * f.sx, viGetViewTop() + y0 * f.sy,
 				viGetViewLeft() + (x0 + width) * f.sx, viGetViewTop() + (y0 + g_IconRows[icon].height) * f.sy,
-				width, g_IconRows[icon].height, 255, 255);
+				tex ? tex->width : width, tex ? tex->height : g_IconRows[icon].height, 255, 255);
 
 		gdl = gexFrontTextSetup(gdl);
 
 		// the right hand's magazine is on the inside of its picture and its
 		// reserve on the outside, and the left hand's are the other way round
+		if (release) {
+			const s32 y = bottom - 19;
+
+			if (!noclip) {
+				if (left) {
+					gdl = hudReleaseInteger(gdl, &f, mag, cx + width / 2 + 3, 1, y);
+				} else {
+					gdl = hudReleaseInteger(gdl, &f, mag, cx - width / 2 - 4, 0, y);
+				}
+			}
+
+			if (reserve > 0 || noclip) {
+				if (left) {
+					gdl = hudReleaseInteger(gdl, &f, reserve, cx - (width + 1) / 2 - 4, 0, y);
+				} else {
+					gdl = hudReleaseInteger(gdl, &f, reserve, cx + (width + 1) / 2 + 3, 1, y);
+				}
+			}
+
+			continue;
+		}
+
 		if (!noclip) {
 			if (left) {
 				gdl = hudInteger(gdl, mag, cx + width / 2 + 3, 1, bottom - 18, 2);
