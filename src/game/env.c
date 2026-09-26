@@ -592,7 +592,7 @@ bool envIsPosInDrawDistance(struct coord *pos, f32 tolerance)
 {
 	struct coord *campos = &g_Vars.currentplayer->cam_pos;
 	struct coord *look = &g_Vars.currentplayer->cam_look;
-	f32 start, end, z;
+	f32 start, end, z, len;
 	u8 rgb[3];
 
 	// With the fog off, the far plane decides (gebeanStageTickFar())
@@ -604,8 +604,17 @@ bool envIsPosInDrawDistance(struct coord *pos, f32 tolerance)
 		return envIsPosInFogMaxDistance(pos, tolerance);
 	}
 
-	// its depth, which is what the fog is by
-	z = (pos->x - campos->x) * look->x + (pos->y - campos->y) * look->y + (pos->z - campos->z) * look->z;
+	// its depth, which is what the fog is by. cam_look is a unit in play but
+	// the look-at offset in a cutscene, thousands long, which put Dam's
+	// opening gate 2000 units off "past" the fog: never on screen, a blue
+	// hole where it stands (tester F3 20260925-234249)
+	len = sqrtf(look->x * look->x + look->y * look->y + look->z * look->z);
+
+	if (len <= 0.0f) {
+		return true;
+	}
+
+	z = ((pos->x - campos->x) * look->x + (pos->y - campos->y) * look->y + (pos->z - campos->z) * look->z) / len;
 
 	return z <= end + tolerance;
 }
