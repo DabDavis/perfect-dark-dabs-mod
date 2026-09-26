@@ -3889,6 +3889,83 @@ static s32 numTexCache;
  * +0x24. The texels are the asset's own .gpu entry, or - where it has none -
  * the file's shared "texture pairs" .gpu entry at the base offset in +0x28.
  */
+/**
+ * A cut-out's clear texels given the colour of the nearest solid one. A
+ * picture whose alpha is all or nothing - DXT1's punch-through, whose clear
+ * texel is black by the format, or a DXT3/5 cut that stayed binary - is
+ * filtered by the renderer across its edge, where half a solid texel and
+ * half a clear one is over the cut-out threshold and half black: every leaf
+ * and vine card had a dark rim, and a vine's end stood as a black dash in the
+ * air where its card's clear part filtered against the tip (F3
+ * 20260926-102443, Jungle, "residue ... in transparency of vines"). Only the
+ * colour of a texel with alpha 0 changes, which nothing drawn with its alpha
+ * shows; a picture with any partial alpha is left as it is.
+ */
+static void beanBleedCutout(u8 *rgba, u32 w, u32 h)
+{
+	const u32 n = w * h;
+	u32 *queue;
+	u8 *filled;
+	u32 head = 0, tail = 0;
+	s32 clear = 0;
+
+	for (u32 i = 0; i < n; i++) {
+		const u8 a = rgba[i * 4 + 3];
+
+		if (a != 0 && a != 0xff) {
+			return;
+		}
+
+		clear |= a == 0;
+	}
+
+	if (!clear || clear == (s32)n) {
+		return;
+	}
+
+	queue = malloc(n * sizeof(*queue));
+	filled = malloc(n);
+
+	if (!queue || !filled) {
+		free(queue);
+		free(filled);
+		return;
+	}
+
+	for (u32 i = 0; i < n; i++) {
+		filled[i] = rgba[i * 4 + 3] != 0;
+
+		if (filled[i]) {
+			queue[tail++] = i;
+		}
+	}
+
+	// Outward from the solid texels, a ring at a time; the picture repeats
+	while (head < tail) {
+		const u32 i = queue[head++];
+		const u32 x = i % w, y = i / w;
+		const u32 nb[4] = {
+			y * w + (x + 1) % w, y * w + (x + w - 1) % w,
+			((y + 1) % h) * w + x, ((y + h - 1) % h) * w + x,
+		};
+
+		for (s32 k = 0; k < 4; k++) {
+			const u32 j = nb[k];
+
+			if (!filled[j]) {
+				filled[j] = 1;
+				rgba[j * 4 + 0] = rgba[i * 4 + 0];
+				rgba[j * 4 + 1] = rgba[i * 4 + 1];
+				rgba[j * 4 + 2] = rgba[i * 4 + 2];
+				queue[tail++] = j;
+			}
+		}
+	}
+
+	free(queue);
+	free(filled);
+}
+
 static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *outH)
 {
 	const struct caff *c = &bm->caff;
@@ -4054,6 +4131,8 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 			}
 		}
 	}
+
+	beanBleedCutout(rgba, w, h);
 
 	// Decoded top row first, as a PNG of it would be; the renderer wants the
 	// first uploaded row first (modelpackBindMaterial() does the same).
@@ -5453,7 +5532,7 @@ static s32 beanMarkDecals(struct beanout *o, u32 *matwords, s32 *nummatwords, st
 			}
 
 			copy[tex] = (*nummatwords)++;
-			matwords[copy[tex]] = XBLAMESH_MAT_TABLE | (u32)copy[tex] | (matwords[tex] & 0x8000) | XBLAMESH_MAT_DECAL;
+			matwords[copy[tex]] = XBLAMESH_MAT_TABLE | (u32)copy[tex] | (matwords[tex] & (0x8000 | XBLAMESH_MAT_CLAMP)) | XBLAMESH_MAT_DECAL;
 			mats->tile[copy[tex]] = mats->tile[tex];
 			mats->tinted[copy[tex]] = mats->tinted[tex];
 			mats->alpha[copy[tex]] = mats->alpha[tex];
@@ -6058,6 +6137,54 @@ static void beanScreenRecesses(const struct beanmodel *bm, const struct gebeangu
 	}
 }
 
+/**
+ * A rigid prop's cut-out pictures laid once across their triangles - every UV
+ * of every triangle with the picture within 0 to 1 - are sampled clamped
+ * (XBLAMESH_MAT_CLAMP). Repeating, the filter at a card's edge reads the
+ * opposite edge's texels: Jungle's vine tree (prop/jungle3tree) hangs its
+ * vines from the top of their picture, so the foot of every vine card drew a
+ * row of the vines' tops as dark dashes floating in the air under it (F3
+ * 20260926-102443). Glass is left repeating. Returns how many were clamped.
+ */
+static s32 beanClampCards(const struct beanout *o, u32 *matwords, s32 nummatwords, const struct gebeanmats *mats,
+		const u8 *glass)
+{
+	const f32 slack = 1.0f / 64.0f; // the vine cards reach a texel or so past 0
+	u8 inside[GEBEAN_MAXMATS];
+	u8 used[GEBEAN_MAXMATS];
+	s32 num = 0;
+
+	memset(inside, 1, sizeof(inside));
+	memset(used, 0, sizeof(used));
+
+	for (s32 t = 0; t < o->numtris; t++) {
+		const s32 tex = o->tris[t].tex;
+
+		if (tex >= nummatwords || tex >= GEBEAN_MAXMATS) {
+			continue;
+		}
+
+		used[tex] = 1;
+
+		for (s32 k = 0; k < 3; k++) {
+			const f32 *uv = &o->uv[o->tris[t].v[k] * 2];
+
+			if (uv[0] < -slack || uv[0] > 1.0f + slack || uv[1] < -slack || uv[1] > 1.0f + slack) {
+				inside[tex] = 0;
+			}
+		}
+	}
+
+	for (s32 i = 0; i < nummatwords && i < GEBEAN_MAXMATS; i++) {
+		if (used[i] && inside[i] && mats->alpha[i] && !glass[i]) {
+			matwords[i] |= XBLAMESH_MAT_CLAMP;
+			num++;
+		}
+	}
+
+	return num;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -6083,6 +6210,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	s32 numscreens;
 	s32 numbacking = 0;
 	s32 numrecess = 0;
+	s32 numclamped = 0;
 	u8 *file;
 
 	memset(glass, 0, sizeof(glass));
@@ -6511,6 +6639,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 	}
 
+	numclamped = beanClampCards(&out, matwords, nummatwords, mats, glass);
+
 	// The reflection the release adds over a material (beanWalkStream()),
 	// drawn by the XBLA meshes' reflection pass on a sphere map of its own
 	snprintf(mats->envkey, sizeof(mats->envkey), "gebeanenv:%s", g->row.source);
@@ -6535,9 +6665,9 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 
 	file = beanWriteMesh(&out, numnodes, nummatrices, NULL, matwords, nummatwords, outAbsent, outLen);
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals, %d glass, %d screen backing, %d screen recess), "
+	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles (%d decals, %d glass, %d screen backing, %d screen recess, %d clamped cards), "
 			"rigid on matrix %d of %d%s%s%s%s",
-			g->row.file, source, out.numverts, out.numtris, numdecals, numglass, numbacking, numrecess, mtx, nummatrices,
+			g->row.file, source, out.numverts, out.numtris, numdecals, numglass, numbacking, numrecess, numclamped, mtx, nummatrices,
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
