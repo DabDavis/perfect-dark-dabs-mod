@@ -4,6 +4,9 @@
 #include "lib/memp.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "wallhitclip.h"
+#endif
 
 u16 *g_WallhitCountsPerRoom;
 s32 g_WallhitsMax;
@@ -136,4 +139,8 @@ void wallhitReset(void)
 			g_WallhitCountsPerRoom[i] = 0;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	wallhitClipReset();
+#endif
 }

@@ -407,6 +407,7 @@ struct modoptions {
 	s32 quickweaponswap; // a weapon switch skips the put-away and draw: the new gun is up the next frame
 	s32 nofog;       // Disable Fog: no level is fogged, and each is drawn out to its far side
 	s32 glassseethrough; // percent of a distant window's see-through kept: 0 is stock's fade to opaque
+	s32 decalclip;   // Clip Decals at Edges: a wall hit is cut to the surface it lies on, none of it over a drop
 };
 
 extern struct modoptions g_ModOptions;
@@ -448,6 +449,7 @@ bool modIsFogDisabled(void);
 bool modIsXblaReflectCutoffOn(void);
 bool modIsGlareClipOn(void);
 s32 modGetGlassSeeThrough(void);
+bool modIsDecalClipOn(void);
 s32 modGetSmoothTextScale(void);
 s32 modGetTextureEnhanceScale(void);
 f32 modGetVividSaturation(void);

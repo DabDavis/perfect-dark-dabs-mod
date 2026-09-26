@@ -26,6 +26,8 @@
 #include "xblafont.h"
 #include "xblastage.h"
 #include "gebeanstage.h"
+#include "wallhitclip.h"
+#include "game/modoptions.h"
 #include "modloader.h"
 #include "trace.h"
 #include "pngwrite.h"
@@ -362,6 +364,16 @@ static void traceWrite(FILE *f)
 			g_Vars.numonscreenprops, counts[PROPTYPE_OBJ], counts[PROPTYPE_DOOR],
 			counts[PROPTYPE_CHR], counts[PROPTYPE_WEAPON], counts[5],
 			counts[PROPTYPE_PLAYER], counts[7]);
+
+	{
+		s32 clipped;
+		s32 whole;
+		s32 waiting;
+
+		wallhitClipCounts(&clipped, &whole, &waiting);
+		fprintf(f, "wallhits: %d in use of %d; clip decals at edges %d: %d clipped, %d whole, %d not tried\n",
+				clipped + whole + waiting, g_WallhitsMax, modIsDecalClipOn(), clipped, whole, waiting);
+	}
 
 	fprintf(f, "\n[chrs] every character in the level; draw bits say what chrRender() did with it this frame\n");
 

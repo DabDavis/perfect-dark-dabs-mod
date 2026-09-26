@@ -2320,16 +2320,17 @@ struct modpreset {
 	s32 quickweaponswap;
 	s32 nofog;
 	s32 glassseethrough;
+	s32 decalclip;
 };
 
 #define MODPRESET_CUSTOM 0
 
 static const struct modpreset g_ModPresets[] = {
-	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          ghost            splits  xblacut  glareclip  quickswap  nofog  glass
-	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,               0,      0,       0,         0,         0,     0  },
-	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_OFF,    true,   true,    false,     false,     false, 0  },
-	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, MODGHOST_OFF,    true,   true,    true,      true,      false, 50 },
-	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_RACE,   true,   true,    false,     false,     false, 0  },
+	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          ghost            splits  xblacut  glareclip  quickswap  nofog  glass  decal
+	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,               0,      0,       0,         0,         0,     0,     0     },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_OFF,    true,   true,    false,     false,     false, 0,     true  },
+	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, MODGHOST_OFF,    true,   true,    true,      true,      false, 50,    true  },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_RACE,   true,   true,    false,     false,     false, 0,     true  },
 };
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)
@@ -2359,6 +2360,7 @@ static void menuhandlerModPresetApply(const struct modpreset *preset)
 	g_ModOptions.quickweaponswap = preset->quickweaponswap;
 	g_ModOptions.nofog = preset->nofog;
 	g_ModOptions.glassseethrough = preset->glassseethrough;
+	g_ModOptions.decalclip = preset->decalclip;
 
 	// The ways of playing, off in every preset.
 	g_ModOptions.spawnweapon = SPAWNWEAPON_OFF;
@@ -2400,6 +2402,7 @@ static bool menuhandlerModPresetMatches(const struct modpreset *preset)
 		&& g_ModOptions.quickweaponswap == preset->quickweaponswap
 		&& g_ModOptions.nofog == preset->nofog
 		&& g_ModOptions.glassseethrough == preset->glassseethrough
+		&& g_ModOptions.decalclip == preset->decalclip
 		&& g_ModOptions.spawnweapon == SPAWNWEAPON_OFF
 		&& g_ModOptions.guardsalerted == MODALARM_OFF
 		&& g_ModOptions.akimbo == MODAKIMBO_OFF
@@ -2948,6 +2951,25 @@ static MenuItemHandlerResult menuhandlerModDisableFog(s32 operation, struct menu
 		return modIsFogDisabled();
 	case MENUOP_SET:
 		g_ModOptions.nofog = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Clip Decals at Edges: a blood splat, bullet hole or scorch mark is cut down
+ * to the surface it lies on instead of hanging over a ledge or a table's edge
+ * (modIsDecalClipOn(), wallhitclip.c). Live: marks already made are clipped
+ * over the next few ticks.
+ */
+static MenuItemHandlerResult menuhandlerModDecalClip(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return modIsDecalClipOn();
+	case MENUOP_SET:
+		g_ModOptions.decalclip = data->checkbox.value;
 		break;
 	}
 
@@ -4613,6 +4635,14 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		(uintptr_t)"Glass See-Through",
 		100 / GLASS_SEETHROUGH_STEP,
 		menuhandlerModGlassSeeThrough,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Clip Decals at Edges",
+		0,
+		menuhandlerModDecalClip,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

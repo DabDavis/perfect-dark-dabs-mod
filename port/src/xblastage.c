@@ -41,6 +41,7 @@
 #include "gebean.h"
 #include "gebeanstage.h"
 #include "gebeansky.h"
+#include "wallhitclip.h"
 
 // The bg file's header: primary inflated size, section 1 size, primary stored
 // size. The primary's pointers are in the 0x0f000000 segment.
@@ -177,6 +178,8 @@ void xblaStageSwitched(void)
 	// dyntex keeps a room's vertex offsets for the level and would apply the
 	// other copy's to the rooms about to load.
 	dyntexForgetRooms();
+	// A wall hit's clip was cut to the other copy's triangles.
+	wallhitClipForgetAll();
 	roomsWant = want;
 
 	if (xblaStageVerbose) {
