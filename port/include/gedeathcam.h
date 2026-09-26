@@ -11,7 +11,7 @@
  * CAMERAMODE_DEATH_CAM_SP and pickDeathCameraAngles().
  */
 
-// The current player is dying on GoldenEye's ground: GoldenEye takes the gun
+// The current player is dying on a GE Plus mission: GoldenEye takes the gun
 // out of his hands, and the sight and the ammo with it.
 s32 geDeathCamIsGoldenEye(void);
 

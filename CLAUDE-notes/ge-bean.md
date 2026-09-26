@@ -10927,11 +10927,17 @@ cutting it short. `port/src/gedeathcam.c` puts it back, from four hooks in
 player.c (`playerWantsThirdPerson()` builds the body, the dead branch of the
 camera, the solo `mainEndStage()` and the multiplayer respawn wait on
 `geDeathCamHolds()`), one in mplayer.c (no Press START over it) and one in
-`playerTickThirdPerson()` (the head, below). Rules: GoldenEye's content only
-(a mission, or an arena while `g_GexPlusMode`, as geblood.c), one human player
-(`getPlayerCount() == 1` - so a Combat Sim with one human replays, split screen
-does not), not under Skip Death Screen, the Randomizer, Mission Respawn or the
-tank. No setting: it is GoldenEye's death on GoldenEye's content, as the blood is.
+`playerTickThirdPerson()` (the head, below). Rules: **GE Plus's converted
+solo missions only** (`modloaderStageIsMission()` and not the Combat Sim) - the
+user's answer, 2026-09-26: no Combat Sim gets it, GE Plus's arenas included,
+since GoldenEye's own multiplayer never had one. One human player
+(`getPlayerCount() == 1`; co-op/counter-op keep PD's), not under the
+Randomizer, Mission Respawn or the tank; Skip Death Screen wins (the user's
+answer too, though it only acts in the Combat Sim, which is out anyway). The
+sight and ammo hide during the fall has the same scope. The multiplayer half
+(Press START held back, a press as the respawn) was built and verified on
+Jungle before the gate was narrowed and is left in, unreached. No setting: it is
+GoldenEye's death on GoldenEye's missions, as the blood is.
 
 **The oracle recipe** (native GE port on 10.8.0.3): `PORT_DEMO=0`, gdb on
 `currentPlayerDrawFade`, `call bondviewKillCurrentPlayer()` a few frames into

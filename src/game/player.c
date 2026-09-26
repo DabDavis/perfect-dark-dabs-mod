@@ -6829,7 +6829,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 		// (gedeathcam.c)
 		const bool cinema = gecinemaIsOn() || gecinemaIntroIsOn() || geWatchIsOpen()
 			|| geDeathCamWantsBody(g_Vars.currentplayer);
-		// and a death on GoldenEye's ground takes the gun out of Bond's hands
+		// and a death on a GE Plus mission takes the gun out of Bond's hands
 		// as he falls, with its sight and its ammo (bondview2.c)
 		const bool nogun = cinema || geDeathCamIsGoldenEye();
 #else

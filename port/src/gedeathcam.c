@@ -33,12 +33,13 @@
  * 182 units from what they looked at, the look climbing from the fallen eye
  * to the standing head and down with the body.
  *
- * Only in a one player game, as GoldenEye does it (getPlayerCount() == 1): a
- * death in a Combat Simulator match with one human in it has its replay and
- * then the Press START that Perfect Dark's own has - which a press during the
- * replay also is, after the fade. Split screen, co-operative and
- * counter-operative keep Perfect Dark's. Skip Death Screen has no fall to
- * replay, and the Randomizer and Mission Respawn their own ends. A death in
+ * Only on GE Plus's converted missions, played alone, as GoldenEye does it
+ * (getPlayerCount() == 1). No Combat Simulator match has it - GE Plus's arenas
+ * included, the user's call (2026-09-26); co-operative and counter-operative
+ * keep Perfect Dark's. Skip Death Screen has no fall to replay (it only acts
+ * in the Combat Simulator anyway), and the Randomizer and Mission Respawn
+ * their own ends. The multiplayer half (Press START held back, a press as the
+ * respawn) is still here, unreached, should the arenas ever be let in. A death in
  * GoldenEye's tank is not replayed (GoldenEye blows the tank up and watches
  * that instead).
  *
@@ -153,11 +154,14 @@ static struct deathcam *deathcamGet(void)
 	return dc;
 }
 
-/** A GoldenEye mission, or one of its arenas while GE Plus is the mode (geBloodDeathActive()). */
+/**
+ * One of GE Plus's converted GoldenEye missions, and nothing else: the user's
+ * call (2026-09-26) - no Combat Simulator gets the replay, GE Plus's arenas
+ * included, since GoldenEye's own multiplayer never had it.
+ */
 static s32 deathcamStageIsGoldenEye(void)
 {
-	return modloaderStageIsMission(g_Vars.stagenum)
-		|| (g_GexPlusMode && modloaderStageIsRemake(g_Vars.stagenum));
+	return modloaderStageIsMission(g_Vars.stagenum) && !g_Vars.normmplayerisrunning;
 }
 
 /** Whether this death is one GoldenEye would replay. */
