@@ -222,3 +222,55 @@ edits. The addition is small (one function and a stub), but check the merge.
     chrMoveToPos() puts the guard 60 units nearer (spawn adjust), hence GX/GZ.
   - Facility (0x63 in this install, 0x7a in the tester's): X=-4544.9 Y=80
     Z=1361.7 ROOMS=8 TH=258.4 VA=-32 CHR=44.
+
+# F3 20260925-224721 Chicago windows (2026-09-26), branch fix/f3-chicago-windows
+
+Report (Parabolee, Windows 718d5dc, stage 0x1d, cam -1503.7 159.0 241.6 theta 33.1
+verta 22.0 room 38): "these windows should show a reflection but instead are
+transparent and show the sky. Even with XBLA models and textures off."
+
+## Cause - level data, not the port (FIXED d388b62fb)
+
+- The windows are room 41 (a flat facade room at z 600, x -2500..-1433, reached
+  only through portal 58 from room 38). Its translucent list draws the frame grid
+  (texture 391, IA8, panes alpha 0; the release draws 388, same grid, black panes
+  as I) and its opaque list has NO glass behind it.
+- Every other run of 391 windows in Chicago has a texgen glass quad coplanar behind
+  the grid in the opaque list: rooms 42 (458, same facade's other run), 83 (394,
+  the bridge's far face), 87, 2, 16, 18, 20, 24, 43, 57, 64-66, 72, 74, 84, 90, 100.
+  Those grids are ZMODE_DEC (c184dd8); room 41's is ZMODE_XLU (c1849d8).
+- The bridge is hollow (nothing between z 600 and 1000 above y 250) and no portal
+  leads on from room 41, so the N64 shows the sky through those panes as well; the
+  XBLA release's room 41 is the same. Ruled out: texgen handling, Glass See-Through
+  (not in 718d5dc at all), SMAA/FSR, the texture pack (no replacement for 391),
+  Level Reflections, fog.
+- Fix (src/game/bg.c, port-only): bgBuildChicagoPane() at room 41's load (before
+  the fog replaces) builds room 42's pane in the level file's own form (gSPTexture
+  0x400, C0 command c0080002/0x1ca, G_LIGHTING|G_TEXTURE_GEN, room 42's splayed
+  corner normals, the grid's quad) and runs it through texLoadFromGdl() - the output
+  matches room 42's converted commands word for word; it makes room 41's grid a
+  decal. bgRenderChicagoPane() draws it after room 41's opaque pass (inside the
+  sheen wrapper, so Level Reflections turn it too). Guarded by stage + room 41's
+  exact bounds + not a remake stage. The pane is not in collision (bullets pass, as
+  before).
+
+## Verification (RX 580, seeded, --spectate teleport)
+
+Rig: ~/wt/f3chiwin-rig (views.sh STAGE TAG, VIEWS='x,y,z,theta,verta,room;...',
+LOOK=n64|n64pack|xbla|xblanopack, VK=1 for Vulkan, PRESHOT=probe.py; probes
+rooms.py/roomgbi.py (room GBI), texgenverts.py/alltexgen.py (texgen spans with
+world extents), portals.py, bbox.py, col42.py (room 42's pane normals),
+magenta.py). Run dir ~/wt/f3chiwin-run (xbla save = tester's ini + PD Ultimate
+Plus HD v0.10). Pictures ~/wt/f3chiwin-pics:
+- report camera, before/after: base_n64/fix_n64, base_xbla/fix_xbla (GL),
+  vk_grid.png (Vulkan, both looks), fogfollow_grid.png (fog on + LevelReflectFollow).
+- mag_n64/mag_xbla: magenta sky shows nothing is behind room 41's panes at base.
+- three_*/threefix_*: rooms 42 and 83 from their own sides unchanged (differences
+  = run-to-run noise, base vs base shows as much); room 41's corner seen from
+  room 2 now reflective. villa_base/villa_fix: Villa glass unchanged (146 px noise).
+
+## Open
+
+- This deviates from the N64 on purpose (the ROM has the hole); no setting gates it.
+  If the user wants Vanilla faithful, gate bgBuildChicagoPane() on a preset flag.
+- Not checked: the Windows build (plain C, no new deps).
