@@ -110,8 +110,6 @@ static u8 texSoft[GEBEAN_MAXMATS];
 // A cut-out whose every triangle keeps v within one repeat [k, k + 1]: drawn
 // with t clamped, from a batch whose v shift is k + 1 (texClampShift[])
 static u8 texClampV[GEBEAN_MAXMATS];
-// in the release's blended pass on some vertex of alpha under 0x10 (triFades())
-static u8 texBlendFadesOut[GEBEAN_MAXMATS];
 static s16 texClampShift[GEBEAN_MAXMATS];
 // The reservoir's picture: Bean's water buffers (stride 36) draw it
 static u8 texWater[GEBEAN_MAXMATS];
@@ -1229,18 +1227,15 @@ static s32 triCulled(const struct stri *t)
  * solid white, its picture being opaque at the lamp (F3 20260925-235806).
  *
  * So is one the release draws in its blended pass (source alpha over the
- * rest) whatever its picture, where the picture's draws fade out to nothing:
- * Archives' light shafts are an opaque 32x32 grey (DXT1) on vertices of alpha
- * 0 to 126, and in the opaque leaf they stood as solid white slabs across the
- * rooms (F3 20260926-101221). A picture the pass lays on evenly - Egyptian's
- * pool, 63 to 128 all over - stays opaque: drawn as the release draws it the
- * water was a quarter there, the pool's floor grey under it, and it read as
- * no water at all. Outside that pass an opaque picture's vertex alpha is not
- * a fade - the stride 32 vertex's blend word goes into it - and is left alone.
+ * rest) whatever its picture: Archives' light shafts are an opaque 32x32 grey
+ * (DXT1) on vertices of alpha 0 to 126, and in the opaque leaf they stood as
+ * solid white slabs across the rooms (F3 20260926-101221). Outside that pass
+ * an opaque picture's vertex alpha is not a fade - the stride 32 vertex's
+ * blend word goes into it - and is left alone.
  */
 static s32 triFades(const struct stri *t)
 {
-	return (texHasAlpha(t->tex) || (t->blend && t->tex >= 0 && texBlendFadesOut[t->tex]))
+	return (texHasAlpha(t->tex) || t->blend)
 		&& ((t->argb[0] >> 24) < FADE_ALPHA || (t->argb[1] >> 24) < FADE_ALPHA || (t->argb[2] >> 24) < FADE_ALPHA);
 }
 
@@ -2966,7 +2961,7 @@ static s32 build(void)
 
 	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
 		texTile[t] = NULL;
-		texAlpha[t] = texSoft[t] = texClampV[t] = texWater[t] = texBlendFadesOut[t] = 0;
+		texAlpha[t] = texSoft[t] = texClampV[t] = texWater[t] = 0;
 		texClampShift[t] = 0;
 	}
 
@@ -2992,15 +2987,6 @@ static s32 build(void)
 
 	for (s32 t = 0; t < gebeanLevelNumTextures(level) && t < GEBEAN_MAXMATS; t++) {
 		texWater[t] = gebeanLevelTextureIsWater(level, t);
-	}
-
-	for (s32 t = 0; t < c.num; t++) {
-		const struct stri *tri = &c.tris[t];
-
-		if (tri->blend && tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS
-				&& ((tri->argb[0] >> 24) < 0x10 || (tri->argb[1] >> 24) < 0x10 || (tri->argb[2] >> 24) < 0x10)) {
-			texBlendFadesOut[tri->tex] = 1;
-		}
 	}
 
 	takeBackdrop(&c, n);
