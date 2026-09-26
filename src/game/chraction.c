@@ -7484,9 +7484,31 @@ void chrStartPatrol(struct chrdata *chr, struct path *path)
 	RoomNum sp60[2];
 
 	if (CHRRACE(chr) != RACE_EYESPY) {
+		if (geRoomActive()) {
+			// GoldenEye's set_actor_on_path(): the first step is one whose
+			// pad the guard stands on (its tile, here its room, and within a
+			// metre), and failing that the path's first - never the nearest
+			// and never where he left off
+			for (i = 0; path->pads[i] >= 0; i++) {
+				padUnpack(path->pads[i], PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+				xdiff = pad.pos.x - prop->pos.x;
+				zdiff = pad.pos.z - prop->pos.z;
+
+				if (pad.room == prop->rooms[0] && xdiff * xdiff + zdiff * zdiff < 10000) {
+					nextstep = i;
+					break;
+				}
+			}
+
+			if (nextstep < 0 && path->pads[0] >= 0) {
+				nextstep = 0;
+			}
+		}
+
 		// Do some kind of collision test with the pad to resume from...
 		// maybe a line of sight check?
-		if (chr->patrolnextstep >= 0 && chr->patrolnextstep < path->len) {
+		if (nextstep < 0 && chr->patrolnextstep >= 0 && chr->patrolnextstep < path->len) {
 			padnumptr = &path->pads[chr->patrolnextstep];
 			padUnpack(*padnumptr, PADFIELD_POS | PADFIELD_ROOM, &pad);
 

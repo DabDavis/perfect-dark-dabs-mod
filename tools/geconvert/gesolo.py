@@ -231,6 +231,13 @@ PD_CHRFLAG_GE_LOCKY = 0x40000000
 GE_PADROOM_OPS = (0x44, 0x54, 0x55, 0xe6)
 PD_PADROOM_PAD = 10000
 
+# GoldenEye's StartPatrol is two commands in Perfect Dark: aiSetPath (0x21, the
+# table's row) only names the path and aiStartPatrol (0x22) sets off along it.
+# With the second left out every guard GoldenEye puts on patrol stood at his pad
+# until he saw Bond (converter 76).
+GE_STARTPATROL_OP = 0x20
+PD_STARTPATROL_CMD = 0x0022
+
 # IFBondYPosLessThan (d6) has no twin in Perfect Dark and becomes the port's own
 # command, past the game's table beside aiGeExitOnButtonPress:
 #     01e3 <y:4, signed> <label:1>
@@ -1052,6 +1059,8 @@ def convert_ailist(d, at, stats, numpads, vehicle=False, offset=None):
                     out += (vals[s[0]] & ((1 << (8 * s[1])) - 1)).to_bytes(s[1], 'big')
                 else:
                     out += vals[s].to_bytes(args[s][1], 'big')
+            if op == GE_STARTPATROL_OP:
+                out += struct.pack('>H', PD_STARTPATROL_CMD)
             stats['ai_kept'] += 1
         at += ln
         if name == 'EndList':

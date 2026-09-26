@@ -5222,6 +5222,15 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 				}
 			}
 
+			if (op == 0x20) {
+				// StartPatrol is two commands in Perfect Dark: aiSetPath only
+				// names the path, and aiStartPatrol sets off along it
+				// (gesolo.py's GE_STARTPATROL_OP). With the second left out
+				// every guard GoldenEye puts on patrol stood at his pad until
+				// he saw Bond (converter 76)
+				bufU16(out, 0x0022);
+			}
+
 			st->aikept++;
 		}
 

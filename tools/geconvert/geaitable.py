@@ -96,7 +96,7 @@ TABLE = [
     ('RunToPadPreset',                      1,    [],                                            0x001e, (('=', 0, 1),),                              'hand'),  # 1d aiGoToPadPreset
     ('WalkToPad',                           3,    [('PAD', 2)],                                  0x001f, (0,),                                        'both'),  # 1e aiWalkToPad
     ('SprintToPad',                         3,    [('PAD', 2)],                                  0x0020, (0,),                                        'both'),  # 1f aiRunToPad
-    ('StartPatrol',                         2,    [('PATH_NUM', 1)],                             0x0021, (0,),                                        'both'),  # 20 aiSetPath
+    ('StartPatrol',                         2,    [('PATH_NUM', 1)],                             0x0021, (0,),                                        'both'),  # 20 aiSetPath + aiStartPatrol (gesolo.py)
     ('Surrender',                           1,    [],                                            0x0024, (),                                          'both'),  # 21 aiSurrender
     ('RemoveMe',                            1,    [],                                            0x0025, (),                                          'table'),  # 22 aiFadeOut
     ('ChrRemoveInstant',                    2,    [('CHR_NUM', 1)],                              0x0026, (0,),                                        'table'),  # 23 aiRemoveChr
