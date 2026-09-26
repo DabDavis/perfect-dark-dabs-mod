@@ -35,7 +35,7 @@ notes 4 2026-09-26
 GE Plus Dam: the tower ladders no longer lift you to the top in one jump (thanks dab)
 GE Plus Dam: the tunnel under the dam no longer turns into sky at one spot (thanks dab)
 GE Plus: shots hit what GoldenEye's surfaces are made of, so Dam's doors take bullet holes and only their windows ring like glass (thanks dab)
-GE Plus Streets: the first guards shot keep their blood pools, and the same goes for every GoldenEye level (thanks to an anonymous Windows tester)
+GE Plus Streets: the first guards shot keep their blood pools, and the same goes for every GoldenEye level
 GE Plus: lights can be shot out, which darkens the lamp and its room's other lamps, in both looks (thanks dab)
 GE Plus Caverns, HD look: the eye and iris doors open leaf by leaf instead of swinging out whole (thanks dab)
 GE Plus Dam, HD look: the modem box's screen is no longer half grey (thanks dab)
@@ -51,7 +51,7 @@ GoldenEye's women, like Natalya and Xenia, yelp and die in a woman's voice (than
 XBLA look: Agent 4 no longer shows the inside of his helmet up close (thanks dab)
 Third person: bodies no longer shake at a slow run (thanks dab)
 GE Plus, HD look: the ammo display is the release's own, with its pictures and lettering (thanks dab)
-GE Plus missions: dying plays GoldenEye's death replay; Skip Death Screen still skips it (thanks dab)
+GE Plus missions: dying plays GoldenEye's death replay (thanks dab)
 GE Plus: unarmed on a GoldenEye level is GoldenEye's own slap, hand and all (thanks dab)
 Third person: a long fall, like Dam's bungee jump, is watched through Bond's eyes until he lands (thanks dab)
 GE Plus converts your GoldenEye ROM once more on the next start, for the slapping hand
