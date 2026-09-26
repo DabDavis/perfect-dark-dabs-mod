@@ -35,6 +35,7 @@
 #include "modloader.h"
 #include "geroom.h"
 #include "gestan.h"
+#include "system.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
 #endif
@@ -50,6 +51,96 @@ static struct player *g_GeLadderTopPlayer = NULL;
 // how long each player's move has been held at the edge of a force-crouch tile
 // while the squat finishes (bwalk0f0c63bc())
 static s32 g_GeCrouchHoldTicks[MAX_PLAYERS];
+
+/**
+ * Something that is not a number was about to go into the player's height.
+ * Said once a second at most, with what the player was doing, so a report's
+ * log names the source.
+ */
+static void bwalkNoteNotFinite(const char *what, f32 value)
+{
+	static s32 lastframe = -100000;
+	struct player *player = g_Vars.currentplayer;
+
+	if (g_Vars.lvframenum - lastframe < 60 && g_Vars.lvframenum >= lastframe) {
+		return;
+	}
+
+	lastframe = g_Vars.lvframenum;
+
+	sysLogPrintf(LOG_WARNING, "bwalk: %s is %f at frame %d: pos (%.1f %.1f %.1f) manground %f ground %f sumground %f"
+			" deltay %f ladder %d/%f top %d fall %d lift %d headpos %f/%f sumcrouch %f crouch %f tick %d/%d",
+			what, value, g_Vars.lvframenum,
+			player->prop->pos.x, player->prop->pos.y, player->prop->pos.z,
+			player->vv_manground, player->vv_ground, player->sumground, player->bdeltapos.y,
+			player->onladder, player->ladderupdown, g_GeLadderTopPlayer == player,
+			player->isfalling, player->inlift, player->headpos.y, player->standheight,
+			player->sumcrouch, player->crouchoffset, g_Vars.lvupdate60, g_Vars.lvupdate240);
+}
+
+/**
+ * The player's height is kept by running sums (vv_manground, sumground, the
+ * head's bob, the landing's squat): one NaN in any of them and it is NaN from
+ * then on, and so is the eye. bwalkTryMoveUpwards() turns one away; this is
+ * the net under the rest. At the end of each walk tick a height that is not a
+ * number goes back to the last one that was, and the sums start again.
+ */
+static struct {
+	struct coord pos;
+	f32 manground;
+	f32 ground;
+	bool valid;
+} g_BwalkLastFinite[MAX_PLAYERS];
+
+static void bwalkKeepFinite(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 num = g_Vars.currentplayernum;
+	bool bad = false;
+
+#define BWALK_FIX(field, value) \
+	if (!__builtin_isfinite(field)) { \
+		bwalkNoteNotFinite(#field, field); \
+		field = (value); \
+		bad = true; \
+	}
+
+	BWALK_FIX(player->headpossum.x, 0);
+	BWALK_FIX(player->headpossum.y, player->standheight / (PAL ? 0.021499991416931f : 0.018000006f));
+	BWALK_FIX(player->headpossum.z, 0);
+	BWALK_FIX(player->headpos.x, 0);
+	BWALK_FIX(player->headpos.y, player->standheight);
+	BWALK_FIX(player->headpos.z, 0);
+	BWALK_FIX(player->sumcrouch, 0);
+	BWALK_FIX(player->crouchfall, 0);
+	BWALK_FIX(player->bdeltapos.y, 0);
+	BWALK_FIX(player->ladderupdown, 0);
+
+	if (g_BwalkLastFinite[num].valid) {
+		BWALK_FIX(player->vv_manground, g_BwalkLastFinite[num].manground);
+		BWALK_FIX(player->vv_ground, g_BwalkLastFinite[num].ground);
+		BWALK_FIX(player->prop->pos.x, g_BwalkLastFinite[num].pos.x);
+		BWALK_FIX(player->prop->pos.y, g_BwalkLastFinite[num].pos.y);
+		BWALK_FIX(player->prop->pos.z, g_BwalkLastFinite[num].pos.z);
+	}
+
+	BWALK_FIX(player->sumground, player->vv_manground / (PAL ? 0.054400026798248f : 0.045499980449677f));
+
+#undef BWALK_FIX
+
+	if (bad) {
+		player->isfalling = false;
+	}
+
+	if (__builtin_isfinite(player->vv_manground) && __builtin_isfinite(player->vv_ground)
+			&& __builtin_isfinite(player->prop->pos.x) && __builtin_isfinite(player->prop->pos.y)
+			&& __builtin_isfinite(player->prop->pos.z)) {
+		g_BwalkLastFinite[num].pos = player->prop->pos;
+		g_BwalkLastFinite[num].manground = player->vv_manground;
+		g_BwalkLastFinite[num].ground = player->vv_ground;
+		g_BwalkLastFinite[num].valid = true;
+	}
+}
 
 /**
  * The rooms one of the player's collision tests is asked of. On a level
@@ -273,6 +364,21 @@ s32 bwalkTryMoveUpwards(f32 amount)
 	f32 ymin;
 	f32 radius;
 
+#ifndef PLATFORM_N64
+	// Every change to the player's height goes through here, and the callers
+	// add `amount` to vv_manground when it is allowed. A NaN tested nothing
+	// (every comparison in the volume test is false, so nothing collides) and
+	// was let through, and from then on the player's height, their eye and
+	// the camera were NaN for good: nothing finite is ever added to a NaN
+	// again (F3 reports 20260926-152525/152615, Dam: "went down ladder and i
+	// see either blue or black screen", cam pos (1864.0 nan 5280.8)). An
+	// amount that is not a number is a move that cannot be made.
+	if (!__builtin_isfinite(amount)) {
+		bwalkNoteNotFinite("move upwards", amount);
+		return CDRESULT_COLLISION;
+	}
+#endif
+
 	if (g_Vars.currentplayer->floorflags & GEOFLAG_SLOPE) {
 		g_Vars.enableslopes = false;
 	} else {
@@ -346,6 +452,21 @@ bool bwalkCanMoveUpwards(f32 amount)
 	f32 ymax;
 	f32 ymin;
 	f32 radius;
+
+#ifndef PLATFORM_N64
+	// Every change to the player's height goes through here, and the callers
+	// add `amount` to vv_manground when it is allowed. A NaN tested nothing
+	// (every comparison in the volume test is false, so nothing collides) and
+	// was let through, and from then on the player's height, their eye and
+	// the camera were NaN for good: nothing finite is ever added to a NaN
+	// again (F3 reports 20260926-152525/152615, Dam: "went down ladder and i
+	// see either blue or black screen", cam pos (1864.0 nan 5280.8)). An
+	// amount that is not a number is a move that cannot be made.
+	if (!__builtin_isfinite(amount)) {
+		bwalkNoteNotFinite("move upwards", amount);
+		return CDRESULT_COLLISION;
+	}
+#endif
 
 	if (g_Vars.currentplayer->floorflags & GEOFLAG_SLOPE) {
 		g_Vars.enableslopes = false;
@@ -1338,6 +1459,16 @@ void bwalkUpdateVertical(void)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// ladderupdown is only ever written by the walk while the player is on a
+	// ladder, and nothing starts it: until the first climb it is whatever the
+	// allocation held (2e29 in one headless run). Taking hold of a ladder
+	// starts it at rest
+	if (onladder && !g_Vars.currentplayer->onladder) {
+		g_Vars.currentplayer->ladderupdown = 0.0f;
+	}
+#endif
+
 	g_Vars.currentplayer->onladder = onladder;
 
 	if (g_Vars.currentplayer->onladder) {
@@ -1606,6 +1737,15 @@ void bwalkUpdateVertical(void)
 		if (eyeheight < 30) {
 			eyeheight = 30;
 		}
+
+#ifndef PLATFORM_N64
+		// the head's bob divided by the height it stands at: never let it
+		// make the eye, and so the player's position, NaN
+		if (!__builtin_isfinite(eyeheight)) {
+			bwalkNoteNotFinite("eye height", eyeheight);
+			eyeheight = g_Vars.currentplayer->vv_eyeheight;
+		}
+#endif
 
 #ifndef PLATFORM_N64
 		eyeheight = geTankEyeHeight(eyeheight);
@@ -2443,6 +2583,7 @@ void bwalkTick(void)
 	bwalkUpdateVertical();
 
 #ifndef PLATFORM_N64
+	bwalkKeepFinite();
 	geTankTick();
 #endif
 
