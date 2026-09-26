@@ -19,6 +19,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "wallhitclip.h"
+#include "geroom.h"
 #endif
 
 #define WALLHITTYPE_SOFT   0
@@ -643,6 +644,41 @@ const char var7f1b5c24[] = "tLifeTime=%s%s%f, tScalarGbl=%f";
 const char var7f1b5c44[] = "";
 const char var7f1b5c48[] = "";
 
+/**
+ * How many marks one room of the background may hold before its oldest are
+ * faded to make room for a new one.
+ *
+ * F3 20260926-110653 (GE Plus Streets, "Blood disappears on the streets
+ * level"): the pools under the first guards shot at the start were gone while
+ * newer bodies still lay in theirs. Perfect Dark caps a room at
+ * g_MaxBgWallhitsPerRoom (60 for one player), sized for its own rooms - a
+ * corridor or an office; Chicago's median room is 0.1 million square units.
+ * A level converted from GoldenEye has GoldenEye's rooms, and Streets' start
+ * is one room of 4100 x 3400 (14 million): half a dozen guards dying there
+ * (up to six pools each, splat.c's splatTickChr()) and a handful of
+ * missed shots reach 60, and from then on every new mark fades the room's
+ * oldest - its blood first while blood is more than half of what the room
+ * holds (wallhitRemoveOneInRoom()), so the earliest bodies lose all of theirs.
+ *
+ * GoldenEye itself has no room limit: its impacts are one ring of
+ * BULLET_IMPACT_BUFFER_LEN (100) for the whole level, the oldest overwritten
+ * wherever it is (explosion.c's explosionCreateBulletImpact()). So on its
+ * levels the room cap is the whole pool, and what bounds the marks is Perfect
+ * Dark's own pool-wide rule (g_WallhitsMax, trimmed by wallhitRemoveOne() when
+ * the spare runs low, offscreen rooms first) - the same "oldest anywhere" as
+ * GoldenEye's ring, with 3.6 times the room.
+ */
+static s32 wallhitMaxBgPerRoom(void)
+{
+#ifndef PLATFORM_N64
+	if (geRoomActive()) {
+		return g_WallhitsMax;
+	}
+#endif
+
+	return g_MaxBgWallhitsPerRoom;
+}
+
 void wallhitCreate(struct coord *relpos, struct coord *arg1, struct coord *arg2, s16 arg3[3],
 		s16 arg4[3], s16 texnum, RoomNum room, struct prop *objprop,
 		s8 mtxindex, s8 arg9, struct chrdata *chr, bool xlu)
@@ -778,14 +814,14 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 		if (objprop) {
 			max = g_MaxPropWallhits - 1;
 		} else {
-			max = g_MaxBgWallhitsPerRoom - 1;
+			max = wallhitMaxBgPerRoom() - 1;
 		}
 
 		if (g_WallhitCountsPerRoom[room2] > max) {
 			if (!wallhitRemoveOneInRoom(room2)) {
 				return;
 			}
-		} else if (g_WallhitCountsPerRoom[room] > g_MaxBgWallhitsPerRoom) {
+		} else if (g_WallhitCountsPerRoom[room] > wallhitMaxBgPerRoom()) {
 			if (!wallhitRemoveOneInRoom(room)) {
 				return;
 			}
