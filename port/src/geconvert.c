@@ -6938,7 +6938,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 		// and the guns a hand holds (geguns.c): GoldenEye's own first person
 		// models, each with the hand that holds it, converted the same way
-		// and written under its item number - ITEM_KNIFE (2) to
+		// and written under its item number - ITEM_FIST (1), Bond's own hand
+		// that slaps when he is unarmed (geslappers.c), ITEM_KNIFE (2) to
 		// ITEM_REMOTEMINE (29) and the detonator (30), whichever have a model
 		{
 			int written = 0;
@@ -6946,7 +6947,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			// ...and the gadgets a mission puts in the hand (gegadgets.c),
 			// which are hand items like any gun: ITEM_PLASTIQUE (34) to
 			// ITEM_DATTAPE (73), whichever of them the table gives a model
-			for (int32_t item = 2; item <= 73; ++item) {
+			for (int32_t item = 1; item <= 73; ++item) {
 				const size_t keep = g_NumAllocs;
 				double scale;
 				buf data, z;
