@@ -279,12 +279,6 @@
  */
 
 /**
- * Model LOD: whether the game swaps in its low-detail bodies past a few
- * metres, as it always did. Off, every distance node keeps its near model,
- * which is the whole model at any range.
- */
-
-/**
  * Smooth Text: the font's glyphs scaled up four times over on their way to
  * the GPU, with the letter's edge sharpened as they go (port/fast3d/
  * gfx_texscale.cpp). The fonts were drawn one texel to one pixel of a
@@ -400,7 +394,6 @@ struct modoptions {
 	s32 runseal;       // whether a run's room is shut until its objective is done
 	s32 runbestscore;  // the best run's objectives, kept between sessions
 	s32 runbestrooms;  // and how many rooms that run got through
-	s32 modellod;    // the game's distance models, swapped in past a few metres
 	s32 smoothtext;  // font glyphs scaled up with their edges sharpened
 	s32 enhancetextures; // MODENHANCE_*: the game's textures scaled up on upload
 	s32 vividcolours; // MODVIVID_*: the frame's saturation and contrast turned up
@@ -451,7 +444,6 @@ f32 modGetCameraTiltScale(void);
 bool modIsCameraTiltInverted(void);
 bool modIsForwardTiltOn(void);
 f32 modGetGunSwayScale(void);
-bool modIsModelLodOn(void);
 bool modIsFogDisabled(void);
 bool modIsXblaReflectCutoffOn(void);
 bool modIsGlareClipOn(void);

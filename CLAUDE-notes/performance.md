@@ -199,22 +199,37 @@ Counting the process counts Mesa's eight `llvmpipe` threads too, which on
 this box is 25 times the number you want and looks plausible until you
 compare it with the same binary's `perfrun.sh` figure.
 
-## Model LOD was decided in two places, and does nothing in a match
+## Every model is full detail: the distance nodes always keep the near model
 
 `modelUpdateDistanceRelations` (model.c) is not the only place a distance
 node is decided: `modelasm_c.c` has a second copy of the same rule for
-`MODELNODETYPE_DISTANCE`, and it did not consult the option at all. Most
-models come through that one, so **turning Model LOD off in the menu did
-nothing to them**. Both paths now ask `modIsModelLodOn()`.
+`MODELNODETYPE_DISTANCE`, and most models come through that one. Both now ask
+`modelDistanceIsFullDetail()`, which is always true on the port (2026-09-26,
+the user's call: models always at full detail). The Model LOD option is gone.
 
-None of which changes a frame. In the seeded match, and in Crash Site, Air
-Base and Villa, **Model LOD on and off render the same triangle and vertex
-counts to the digit**, before the change and after it, with the setting on
-or off. 177 distance nodes in the match are past their threshold, so the
-flags do flip; the geometry either side of them is evidently the same. The
-change is worth keeping because the option now means what it says in both
-code paths, but do not expect frames from it, and do not repeat the estimate
-that the near meshes of a distant crowd are costing anything.
+**Why "Model LOD on and off render the same triangles" (2026-09-09) was
+true, and misread.** `mainInit()` (pdmain.c) calls
+`modelSetDistanceChecksDisabled(true)` at boot - the port has never used the
+LODs - so the option had nothing to act on and the conclusion "the geometry
+either side is the same" was wrong. What turned the checks back on was the
+GoldenEye intro, watch and gadgets (geintro.c, gewatch.c, gegadgets.c), which
+disable them around their own models and then set them to *false*: from the
+first GE Plus visit in a session, every distance node chose by distance. A
+tester fresh from Facility met Extraction's shock troopers in N64 low-poly
+bodies, and in the XBLA look without a torso (CddshockZ's pairs go far at
+530, 600 and 670 units; in between, the pair carrying the release's mesh had
+gone far while the torso's near list, covered by the mesh, was still chosen
+and still suppressed). The `g_ModelDistanceDisabled` calls are harmless now.
+
+What full detail costs against that LOD-on state (seeded 80-sim match, level
+frames 300-2400, main thread; `--fixed-step`): N64 look 18.36 -> 21.20M
+instructions a frame (+15%), 4180 -> 5461 triangles; XBLA look 70.94 ->
+80.90M (+14%), 21873 -> 24923 triangles. Against a session that never
+entered GE Plus it costs nothing: identical geometry and 21.20 / 80.90M
+either way. XBLA runs of this match stop being reproducible when the box is
+loaded (other sessions' builds): the match diverges and the level frames
+stall, so check the `gfx:` sample count (40 over 2400 frames) before
+trusting a figure.
 
 **The offscreen driver renders 640x480 whatever pd.ini says.** `videoGetHeight()`
 returns 480 in a `SDL_VIDEODRIVER=offscreen` run with `DefaultHeight=1080`

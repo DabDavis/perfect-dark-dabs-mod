@@ -132,6 +132,36 @@ void modelSetDistanceChecksDisabled(bool disabled)
 	g_ModelDistanceDisabled = disabled;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether a distance node keeps its near model whatever the distance: always,
+ * on this port. Every model is drawn at full detail, at any range (the user's
+ * call, 2026-09-26).
+ *
+ * The port has turned the checks off at boot since it began (mainInit(),
+ * "don't use LODs"), so the far models were not meant to be seen. But the
+ * GoldenEye intro, watch and gadgets turn the checks off around their own
+ * models and then back *on*, and from the first of those in a session every
+ * distance node chose by distance again - under the Model LOD option, on by
+ * default, which until then had had nothing to act on. A tester fresh from GE
+ * Plus met Extraction's shock troopers in their low-poly N64 bodies, and in
+ * the XBLA look without a torso. Each distance node chooses from the depth of
+ * its own matrix against its own threshold - CddshockZ's pairs go far at 530,
+ * 600 and 670 units - and in between, the pair that carries the release's
+ * mesh had gone far while the torso's near list, which the mesh covers
+ * (xblamesh.c, xblaMeshIsCovered()), was still chosen and still suppressed,
+ * so nothing was drawn in its place.
+ *
+ * So it is not a flag a caller can leave in the wrong state: the answer is
+ * yes. modelasm_c.c asks the same, being the other place a distance node is
+ * decided. g_ModelDistanceDisabled and the distance scale are the N64's.
+ */
+bool modelDistanceIsFullDetail(void)
+{
+	return true;
+}
+#endif
+
 void modelSetDistanceScale(f32 scale)
 {
 	g_ModelDistanceScale = scale;
@@ -1286,8 +1316,8 @@ void modelUpdateDistanceRelations(struct model *model, struct modelnode *node)
 #endif
 
 #ifndef PLATFORM_N64
-	// Model LOD off: the near model at any distance
-	if (g_ModelDistanceDisabled || !mtx || !modIsModelLodOn()) {
+	// Always the near model, at any distance: see modelDistanceIsFullDetail()
+	if (modelDistanceIsFullDetail() || !mtx) {
 #else
 	if (g_ModelDistanceDisabled || !mtx) {
 #endif

@@ -2313,7 +2313,6 @@ struct modpreset {
 	s32 enhancetextures;
 	s32 vividcolours;
 	s32 blacklevel;
-	s32 modellod;
 	s32 ghostmode;
 	s32 ghostsplits;
 	s32 xblareflectcutoff;
@@ -2326,11 +2325,11 @@ struct modpreset {
 #define MODPRESET_CUSTOM 0
 
 static const struct modpreset g_ModPresets[] = {
-	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          lod   ghost            splits  xblacut  glareclip  quickswap  nofog  glass
-	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,    0,               0,      0,       0,         0,         0,     0  },
-	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_OFF,    true,   true,    false,     false,     false, 0  },
-	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, true, MODGHOST_OFF,    true,   true,    true,      true,      false, 50 },
-	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  true, MODGHOST_RACE,   true,   true,    false,     false,     false, 0  },
+	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          ghost            splits  xblacut  glareclip  quickswap  nofog  glass
+	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,               0,      0,       0,         0,         0,     0  },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_OFF,    true,   true,    false,     false,     false, 0  },
+	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, MODGHOST_OFF,    true,   true,    true,      true,      false, 50 },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_RACE,   true,   true,    false,     false,     false, 0  },
 };
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)
@@ -2353,7 +2352,6 @@ static void menuhandlerModPresetApply(const struct modpreset *preset)
 	g_ModOptions.enhancetextures = preset->enhancetextures;
 	g_ModOptions.vividcolours = preset->vividcolours;
 	g_ModOptions.blacklevel = preset->blacklevel;
-	g_ModOptions.modellod = preset->modellod;
 	g_ModGhostMode = preset->ghostmode;
 	g_ModGhostSplits = preset->ghostsplits;
 	g_ModOptions.xblareflectcutoff = preset->xblareflectcutoff;
@@ -2395,7 +2393,6 @@ static bool menuhandlerModPresetMatches(const struct modpreset *preset)
 		&& g_ModOptions.enhancetextures == preset->enhancetextures
 		&& g_ModOptions.vividcolours == preset->vividcolours
 		&& g_ModOptions.blacklevel == preset->blacklevel
-		&& g_ModOptions.modellod == preset->modellod
 		&& g_ModGhostMode == preset->ghostmode
 		&& g_ModGhostSplits == preset->ghostsplits
 		&& g_ModOptions.xblareflectcutoff == preset->xblareflectcutoff
@@ -2934,22 +2931,6 @@ static MenuItemHandlerResult menuhandlerModCleanText(s32 operation, struct menui
 	case MENUOP_SET:
 		g_ModOptions.cleantext = data->checkbox.value;
 		videoSetCleanTextOutlines(g_ModOptions.cleantext);
-		break;
-	}
-
-	return 0;
-}
-
-/**
- * Model LOD: the game's own distance models, swapped in past a few metres.
- */
-static MenuItemHandlerResult menuhandlerModModelLod(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_GET:
-		return modIsModelLodOn();
-	case MENUOP_SET:
-		g_ModOptions.modellod = data->checkbox.value;
 		break;
 	}
 
@@ -4592,14 +4573,6 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		(uintptr_t)"Smooth Text",
 		0,
 		menuhandlerModSmoothText,
-	},
-	{
-		MENUITEMTYPE_CHECKBOX,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Model LOD",
-		0,
-		menuhandlerModModelLod,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,
