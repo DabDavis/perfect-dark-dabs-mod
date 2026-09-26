@@ -43,6 +43,10 @@ CRASH_MAX_FILES = 6
 REPORT_MAX_FILES = 4
 # The server's own cap on the optional credit name, mirrored here.
 REPORT_MAX_NAME = 64
+# A page of the report board, and a thumbnail's width, small enough that a
+# handful of reports and a picture of a few dozen pixels reach both.
+BOARD_PAGE = 3
+THUMB_WIDTH = 16
 
 passed = 0
 failed = 0
@@ -80,7 +84,9 @@ def build_daemon():
     sub("USER_SLOW_DELAY = 3.0", "USER_SLOW_DELAY = %r" % USER_SLOW_DELAY)
     sub("RESET_DELAY = 2.0", "RESET_DELAY = %r" % RESET_DELAY)
     sub("CRASH_MAX_FILES = 5000", "CRASH_MAX_FILES = %d" % CRASH_MAX_FILES)
-    sub("REPORT_MAX_FILES = 2000", "REPORT_MAX_FILES = %d" % REPORT_MAX_FILES)
+    sub("REPORT_MAX_FILES = 10000", "REPORT_MAX_FILES = %d" % REPORT_MAX_FILES)
+    sub("BOARD_PAGE = 25", "BOARD_PAGE = %d" % BOARD_PAGE)
+    sub("THUMB_WIDTH = 320", "THUMB_WIDTH = %d" % THUMB_WIDTH)
     open(DAEMON, "w").write(src)
 
 
@@ -1036,6 +1042,394 @@ def test_problem_reports():
     clear_reports()
 
 
+# ------------------------------------------------------------ report board
+
+STATUS_FILE = os.path.join(REPORT_DIR, "status.txt")
+THUMB_DIR = os.path.join(ROOT, "reportthumbs")
+ARCHIVE_DIR = os.path.join(ROOT, "reports-archive")
+# What a report carries that the board must never show: the address it came
+# from, and the dump, settings, log and paths underneath the header.
+SECRETS = ("10.99.88.77", "10.66.55.44", "SECRET-DUMP-LINE", "Mod.SecretSetting",
+           "/home/tester", "from:")
+
+
+def make_png(w, h, filters=(0,)):
+    """An 8-bit RGB PNG of a gradient, its rows filtered by turns with `filters`.
+
+    The same picture comes out whatever the filters, which is what lets the
+    thumbnailer's unfiltering be checked against the plain one.
+    """
+    import zlib
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff))
+
+    rows = [bytes(((x * 7 + y * 3 + c * 50) & 0xff) for x in range(w) for c in range(3))
+            for y in range(h)]
+    raw = bytearray()
+    prev = bytes(w * 3)
+    for y, row in enumerate(rows):
+        f = filters[y % len(filters)]
+        out = bytearray()
+        for i, v in enumerate(row):
+            left = row[i - 3] if i >= 3 else 0
+            up = prev[i]
+            ul = prev[i - 3] if i >= 3 else 0
+            if f == 0:
+                pred = 0
+            elif f == 1:
+                pred = left
+            elif f == 2:
+                pred = up
+            elif f == 3:
+                pred = (left + up) >> 1
+            else:
+                p = left + up - ul
+                pa, pb, pc = abs(p - left), abs(p - up), abs(p - ul)
+                pred = left if pa <= pb and pa <= pc else (up if pb <= pc else ul)
+            out.append((v - pred) & 0xff)
+        raw += bytes([f]) + out
+        prev = row
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes(raw))) + chunk(b"IEND", b""))
+
+
+def put_report(base, name="-", note="-", png=None, version="abc1234",
+               platform="x86_64-windows", ip="10.99.88.77", header_name=True):
+    """A report written straight to disk the way the /report route writes one,
+    which is the only way to have one with a stamp from months ago."""
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    if png is not None:
+        with open(os.path.join(REPORT_DIR, base + ".png"), "wb") as f:
+            f.write(png)
+    with open(os.path.join(REPORT_DIR, base + ".txt"), "w") as f:
+        f.write("received: %s-%s-%s %s:%s:%s\n" % (
+            base[0:4], base[4:6], base[6:8], base[9:11], base[11:13], base[13:15]))
+        f.write("from: %s\nversion: %s\nplatform: %s\nchannel: dev\n" % (ip, version, platform))
+        f.write("screenshot: %s\n" % (base + ".png" if png is not None else "-"))
+        if header_name:
+            f.write("name: %s\n" % name)
+        f.write("note: %s\n\n" % note)
+        f.write("Dab's Mod problem report\nSECRET-DUMP-LINE\n[Mod]\nMod.SecretSetting=1\n"
+                "path: /home/tester/pd\n")
+
+
+def put_status(text):
+    with open(STATUS_FILE, "w") as f:
+        f.write(text)
+    # The board notices a change by mtime and size; a rewrite within the same
+    # tick of the clock at the same size would be missed, which a person
+    # editing by hand never does and a test can.
+    time.sleep(0.02)
+
+
+def board_json(query=""):
+    st, body, _ = req("GET", "/board.json" + query)
+    return st, body
+
+
+def board_page(query=""):
+    st, body, headers = req("GET", "/board" + query)
+    return st, body.decode("utf8") if isinstance(body, bytes) else str(body), headers
+
+
+def clear_board():
+    clear_reports()
+    for d in (THUMB_DIR, ARCHIVE_DIR):
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_report_board():
+    print("report board")
+    clear_board()
+
+    # One through the real route, so that what it writes is what is read.
+    st, body, _ = send_report("Dab's Mod problem report\nSECRET-DUMP-LINE\n" + "x" * 64,
+                              note="posted <b>live</b>", name="Poster", screenshot=tiny_png(),
+                              ip="10.66.55.44")
+    posted = body.get("id", "")
+    check(st == 200, "a report posted to /report ...")
+
+    shot = make_png(64, 32)
+    put_report("20260920-100000-aaaaaaa1", name="Alice", note="first", png=shot)
+    put_report("20260920-110000-aaaaaaa2", name="-", note="-")
+    put_report("20260921-100000-aaaaaaa3", header_name=False,
+               note="<script>alert(1)</script> & \"quotes\" 'too'")
+    put_report("20260921-110000-aaaaaaa4", name="<i>Bob</i>", note="second", png=shot,
+               platform="x86_64-linux")
+    put_report("20260922-100000-aaaaaaa5", name="alice", note="third")
+    put_report("20260922-110000-aaaaaaa6", name="Carol", note="hide me", png=shot)
+
+    st, page, headers = board_page()
+    check(st == 200 and headers.get("Content-Type", "").startswith("text/html"),
+          "... and GET /board is a page")
+    check("posted &lt;b&gt;live&lt;/b&gt;" in page and "Poster" in page,
+          "which shows it, its note escaped")
+    check(not any(x in page for x in SECRETS),
+          "no address, dump, setting or path anywhere on the page")
+    st, js = board_json("?page=1")
+    check(st == 200 and not any(x in json.dumps(js) for x in SECRETS),
+          "nor in board.json")
+    st, one, _ = board_page("?id=20260921-100000-aaaaaaa3")
+    check("<script>alert(1)</script>" not in one
+          and "&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;quotes&quot; &#x27;too&#x27;" in one,
+          "a note's markup is escaped, quotes included")
+    check("<i>Bob</i>" not in page and "&lt;i&gt;Bob&lt;/i&gt;" in page, "and so is a name")
+    check("script-src" not in headers.get("Content-Security-Policy", "x")
+          and "default-src 'none'" in headers.get("Content-Security-Policy", ""),
+          "and the page is served with a policy that runs no script")
+
+    # No status file: everything is received.
+    check(not os.path.exists(STATUS_FILE), "with no status file ...")
+    st, js = board_json()
+    check(js.get("total") == 7 and all(r["status"] == "received" for r in js["reports"]),
+          "... every report is received")
+    check(js["reports"][0]["id"] == "20260922-110000-aaaaaaa6" or js["reports"][0]["id"] == posted,
+          "newest first")
+
+    names = {r["id"]: r["name"] for r in board_json("?page=3")[1]["reports"]}
+    names.update({r["id"]: r["name"] for r in board_json("?page=2")[1]["reports"]})
+    check(names.get("20260920-110000-aaaaaaa2") == "anonymous"
+          and names.get("20260921-100000-aaaaaaa3") == "anonymous",
+          'a name of "-", or no name line at all, is "anonymous"')
+
+    # Pagination: seven reports at three a page.
+    st, js = board_json("?page=2")
+    check(js.get("page") == 2 and js.get("pages") == 3 and len(js["reports"]) == 3,
+          "three to a page, three pages")
+    check(board_json("?page=99")[1].get("page") == 3, "a page past the end is the last")
+    check(board_json("?page=nope")[1].get("page") == 1, "a page that is not a number is the first")
+    st, page, _ = board_page("?page=2")
+    check("Page 2 of 3" in page and "Newer" in page and "Older" in page,
+          "the page links both ways from the middle")
+
+    # The status file.
+    put_status(
+        "# a comment line\n"
+        "\n"
+        "20260920-100000-aaaaaaa1 fixed 2026-09-24 Fixed in abc1234 - the thing works\n"
+        "20260921-110000-aaaaaaa4 fixed 2026-09-24 Fixed in abc1234 - the thing works\n"
+        "20260922-100000-aaaaaaa5 duplicate 20260920-100000-aaaaaaa1 - same thing\n"
+        "20260921-100000 needinfo which level? <b>bold</b>\n"
+        "20260920-110000-aaaaaaa2 bogusword not a status\n"
+        "not-an-id fixed nothing\n"
+        "20260922-110000-aaaaaaa6 hidden\n"
+        "%s working first\n"
+        "%s working second, later lines win\n" % (posted, posted))
+    st, js = board_json()
+    by_id = {}
+    for n in (1, 2, 3):
+        for r in board_json("?page=%d" % n)[1]["reports"]:
+            by_id[r["id"]] = r
+    check(by_id["20260920-100000-aaaaaaa1"]["status"] == "fixed"
+          and by_id["20260920-100000-aaaaaaa1"]["comment"] == "Fixed in abc1234 - the thing works",
+          "a status line sets the word and the comment, the date apart")
+    check(by_id["20260921-100000-aaaaaaa3"]["status"] == "needinfo",
+          "a stamp alone names the report sent that second")
+    check(by_id["20260920-110000-aaaaaaa2"]["status"] == "received",
+          "a line with an unknown word is skipped")
+    check(by_id[posted]["comment"] == "second, later lines win", "a later line replaces an earlier one")
+    check("20260922-110000-aaaaaaa6" not in by_id and js.get("total") == 6,
+          "a hidden report is off the board ...")
+    st, _, _ = req("GET", "/board/shot/20260922-110000-aaaaaaa6.png")
+    check(st == 404, "... picture and all")
+    st, page, _ = board_page("?status=needinfo")
+    check("which level? &lt;b&gt;bold&lt;/b&gt;" in page, "a status comment is escaped too")
+
+    # Filters.
+    st, js = board_json("?name=ALICE")
+    check(sorted(r["id"] for r in js["reports"]) ==
+          ["20260920-100000-aaaaaaa1", "20260922-100000-aaaaaaa5"],
+          "the tester filter takes a name whatever its capitals")
+    st, js = board_json("?status=fixed")
+    check(js.get("total") == 2, "the status filter")
+    check(board_json("?status=hidden")[1].get("total") == 6, "and hidden is not one it takes")
+    st, js = board_json("?id=20260921-100000-aaaaaaa3")
+    check(js.get("total") == 1, "one report by its id")
+
+    # The Fixed column: one change, two reports and a duplicate, one entry.
+    fixes = board_json()[1].get("fixes", [])
+    check(len(fixes) == 1 and fixes[0]["names"] == ["Alice", "<i>Bob</i>"]
+          and len(fixes[0]["reports"]) == 3,
+          "reports fixed by one change are one fix, crediting each name once")
+    put_status(open(STATUS_FILE).read()
+               + "20260921-110000-aaaaaaa4 fixed 2026-09-25 Fixed in def5678 - another thing\n")
+    fixes = board_json()[1].get("fixes", [])
+    check([f["date"] for f in fixes] == ["2026-09-25", "2026-09-24"], "newest fix first")
+    st, page, _ = board_page()
+    check('id="fixes"' in page and "Thanks Alice" in page and "build def5678" in page,
+          "and the page has the column")
+
+    # A status for a report that is not there changes nothing and breaks nothing.
+    put_status(open(STATUS_FILE).read() + "20250101-000000-deadbeef fixed 2025-01-01 gone\n")
+    st, js = board_json()
+    check(st == 200 and js.get("total") == 6 and len(js["fixes"]) == 2,
+          "a status line for a report that does not exist is ignored")
+
+    # The patch notes: a fix that names a line of them is that line.
+    with open(os.path.join(REPORT_DIR, "patchnotes.txt"), "w") as f:
+        f.write("# header, and anything above the first notes line, is skipped\n"
+                "not a fix\n\n"
+                "notes 2 2026-09-27\n"
+                "Somewhere: a newer fix that nobody reported\n\n"
+                "notes 1 2026-09-26\n"
+                "Area: the first fix (thanks Zed)\n"
+                "Area: the <second> fix\n")
+    put_status("20260920-100000-aaaaaaa1 fixed 1.2 Fixed in abc1234\n"
+               "20260921-110000-aaaaaaa4 fixed 1.2 Fixed in abc1234\n"
+               "20260922-100000-aaaaaaa5 fixed 1.1 A comment of its own\n"
+               "20260921-100000-aaaaaaa3 fixed 9.9 Fixed in abc1234 - a line the notes lack\n")
+    st, js = board_json("?id=20260920-100000-aaaaaaa1")
+    check(js["reports"][0]["comment"] == "Fixed in abc1234 - Area: the <second> fix",
+          "a card whose fix is a patch notes line says that line")
+    fixes = js.get("fixes", [])
+    check([(f["notes"], f["date"]) for f in fixes][:3]
+          == [("2.1", "2026-09-27"), ("1.1", "2026-09-26"), ("1.2", "2026-09-26")],
+          "every patch notes line is a fix, newest batch first and in the notes' order")
+    by_ref = {f["notes"]: f for f in fixes}
+    check(by_ref["1.1"]["names"] == ["Zed"] and by_ref["1.2"]["names"] == ["Alice", "<i>Bob</i>"]
+          and by_ref["2.1"]["reports"] == [],
+          "credited by the notes' thanks, else by the reports' senders")
+    check(by_ref["1.2"]["comment"] == "Fixed in abc1234 - Area: the <second> fix"
+          and len(by_ref["1.2"]["reports"]) == 2,
+          "and one line fixed for two reports is one fix with the build they agree on")
+    check(any(f["notes"] is None and f["date"] == "" and "the notes lack" in f["comment"] for f in fixes),
+          "a line the notes do not have is a fix in the status file's own words")
+    st, page, _ = board_page()
+    check("Area: the &lt;second&gt; fix" in page and "Thanks Zed" in page
+          and "a newer fix that nobody reported" in page,
+          "and the page shows them, escaped")
+    os.remove(os.path.join(REPORT_DIR, "patchnotes.txt"))
+
+    # Pictures, and everything that is not one.
+    st, body, headers = req("GET", "/board/shot/20260920-100000-aaaaaaa1.png")
+    check(st == 200 and body == shot and headers.get("Content-Type") == "image/png",
+          "a report's picture is served as it was sent")
+    st, body, _ = req("GET", "/board/thumb/20260920-100000-aaaaaaa1.png")
+    check(st == 200 and isinstance(body, bytes) and body[16:24] == struct.pack(">II", 16, 8),
+          "its thumbnail is the picture shrunk to the thumbnail width")
+    check(os.path.exists(os.path.join(THUMB_DIR, "20260920-100000-aaaaaaa1.png")),
+          "and is kept for next time")
+    st, body, _ = req("GET", "/board/thumb/%s.png" % posted)
+    check(st == 200 and body == tiny_png(), "a picture already small is its own thumbnail")
+    for path in ("/board/shot/..%2F..%2Fghosts.db", "/board/shot/../../ghosts.db",
+                 "/board/shot/../reports/status.txt", "/board/shot/20260920-100000-aaaaaaa1.txt",
+                 "/board/shot/20260920-100000-AAAAAAA1.png", "/board/shot/20260920-100000-aaaaaaa1",
+                 "/board/shot/20260920-110000-aaaaaaa2.png", "/board/thumb/status.png",
+                 "/board/shot/%2e%2e/ghosts.png", "/board/other"):
+        st, _, _ = req("GET", path)
+        check(st == 404, "%s -> 404" % path)
+
+    st, _, headers = req("GET", "/board/?status=fixed")
+    check(st == 301 and headers.get("Location") == "../board?status=fixed",
+          "a trailing slash is sent back to where the relative links work")
+
+    # The status file is not a report, for the directory's cap.
+    clear_board()
+    put_status("# nothing\n")
+    taken = sum(send_report("Dab's Mod problem report\n" + "y" * 64, ip="10.6.2.%d" % i)[0] == 200
+                for i in range(REPORT_MAX_FILES))
+    check(taken == REPORT_MAX_FILES, "the status file does not count against the report cap")
+    clear_board()
+
+
+def run_archive(*args):
+    r = subprocess.run([sys.executable, DAEMON, "--archive"] + list(args),
+                       capture_output=True, text=True, timeout=120)
+    return r.returncode, r.stdout + r.stderr
+
+
+def tar_members(path):
+    import tarfile
+    with tarfile.open(path, "r:xz") as t:
+        return {m.name: t.extractfile(m).read() for m in t}
+
+
+def test_report_archive():
+    print("report archive")
+    clear_board()
+
+    new = time.strftime("%Y%m%d-%H%M%S") + "-bbbbbbb1"
+    shot = make_png(32, 16)
+    put_report("20200115-120000-aaaaaaa1", name="Oldie", note="old one", png=shot)
+    put_report("20200120-120000-aaaaaaa2", name="-", note="old two")
+    put_report("20200210-120000-aaaaaaa3", name="Febby", note="february", png=shot)
+    put_report(new, name="Newbie", note="new one", png=shot)
+    put_status("20200115-120000-aaaaaaa1 fixed 2020-03-01 Fixed in 1111111 - old fix\n"
+               "20200210-120000-aaaaaaa3 working later\n")
+    with open(os.path.join(REPORT_DIR, "patchnotes.txt"), "w") as f:
+        f.write("notes 1 2020-03-01\nSomething (thanks Someone)\n")
+    req("GET", "/board/thumb/20200115-120000-aaaaaaa1.png")
+    before = {n: open(os.path.join(REPORT_DIR, n), "rb").read() for n in report_files()}
+
+    code, out = run_archive("--dry-run")
+    check(code == 0 and report_files() == sorted(before) and not os.path.exists(ARCHIVE_DIR),
+          "a dry run moves nothing")
+
+    code, out = run_archive()
+    check(code == 0, "the archive runs")
+    check(report_files() == sorted([new + ".png", new + ".txt", "status.txt", "patchnotes.txt"]),
+          "old pairs leave the reports directory; new ones, status and patch notes stay")
+    jan = tar_members(os.path.join(ARCHIVE_DIR, "2020-01.tar.xz"))
+    feb = tar_members(os.path.join(ARCHIVE_DIR, "2020-02.tar.xz"))
+    check(sorted(jan) == ["20200115-120000-aaaaaaa1.png", "20200115-120000-aaaaaaa1.txt",
+                          "20200120-120000-aaaaaaa2.txt"]
+          and sorted(feb) == ["20200210-120000-aaaaaaa3.png", "20200210-120000-aaaaaaa3.txt"],
+          "one tar per month of stamps")
+    check(all(before[n] == data for n, data in list(jan.items()) + list(feb.items())),
+          "every file in them byte for byte")
+    check(not os.path.exists(os.path.join(THUMB_DIR, "20200115-120000-aaaaaaa1.png")),
+          "an archived report's thumbnail goes with it")
+    index = open(os.path.join(ARCHIVE_DIR, "index.txt")).read()
+    check("20200115-120000-aaaaaaa1\t2020-01-15 12:00:00\tOldie\n" in index
+          and "10.99.88.77" not in index and "SECRET" not in index,
+          "the index keeps the id, time and name, and nothing private")
+
+    # The board after: the archived report is gone from the list, its fix is not.
+    st, js = board_json()
+    check(js.get("total") == 1 and js["reports"][0]["id"] == new,
+          "archived reports drop off the board")
+    fixes = [f for f in js.get("fixes", []) if f["notes"] is None]
+    check(len(fixes) == 1 and fixes[0]["names"] == ["Oldie"]
+          and fixes[0]["archived"] == ["20200115-120000-aaaaaaa1"],
+          "a fix whose report was archived still credits its sender")
+    st, page, _ = board_page()
+    check(st == 200 and "old fix" in page and "Thanks Oldie" in page
+          and "#r-20200115-120000-aaaaaaa1" not in page,
+          "and shows on the page without a link to a report that is not there")
+    st, _, _ = req("GET", "/board/shot/20200115-120000-aaaaaaa1.png")
+    check(st == 404, "nor its picture")
+
+    # Again, with one more January report: the month's tar gains it.
+    put_report("20200125-120000-aaaaaaa4", name="Late", note="late january")
+    code, out = run_archive()
+    jan2 = tar_members(os.path.join(ARCHIVE_DIR, "2020-01.tar.xz"))
+    check(code == 0 and sorted(jan2) == sorted(list(jan) + ["20200125-120000-aaaaaaa4.txt"])
+          and all(jan2[n] == jan[n] for n in jan),
+          "a second run adds to a month's tar and loses nothing in it")
+
+    # A month whose tar cannot be read back: nothing deleted, nothing replaced.
+    put_report("20200305-120000-aaaaaaa5", name="March", note="march", png=shot)
+    with open(os.path.join(ARCHIVE_DIR, "2020-03.tar.xz"), "wb") as f:
+        f.write(b"this is not a tar")
+    code, out = run_archive()
+    check(code == 1 and os.path.exists(os.path.join(REPORT_DIR, "20200305-120000-aaaaaaa5.txt"))
+          and os.path.exists(os.path.join(REPORT_DIR, "20200305-120000-aaaaaaa5.png")),
+          "a month that fails keeps its originals")
+    check(open(os.path.join(ARCHIVE_DIR, "2020-03.tar.xz"), "rb").read() == b"this is not a tar"
+          and not os.path.exists(os.path.join(ARCHIVE_DIR, "2020-03.tar.xz.tmp")),
+          "and its old tar, with no temporary left behind")
+
+    code, out = run_archive("--days", "100000")
+    check(code == 0 and "nothing older" in out, "--days moves the cutoff")
+    clear_board()
+    try:
+        os.remove(STATUS_FILE)
+    except OSError:
+        pass
+
+
 def main():
     build_daemon()
     seed_old_schema()
@@ -1055,6 +1449,8 @@ def main():
         test_three_questions()
         test_crash_reports()
         test_problem_reports()
+        test_report_board()
+        test_report_archive()
     finally:
         stop_server()
     print("\n%d passed, %d failed" % (passed, failed))

@@ -21,6 +21,7 @@ import contextlib
 import gzip
 import hashlib
 import hmac
+import html
 import json
 import os
 import re
@@ -28,6 +29,8 @@ import sqlite3
 import struct
 import threading
 import time
+import urllib.parse
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HOST = "127.0.0.1"
@@ -79,10 +82,11 @@ CRASH_MAX = 12
 CRASH_MAX_FILES = 5000
 
 # Problem reports: what a player sends from the F3 key when something on screen
-# is wrong without the game having died. Same rules as a crash - no account, no
-# endpoint that reads one back, nothing sent unless the player pressed Send -
-# with more in each: the whole F3 state dump rather than a stack, a note that
-# is a sentence rather than a line, and a picture of the frame.
+# is wrong without the game having died. Same rules as a crash - no account,
+# nothing sent unless the player pressed Send, and nothing read back but the
+# public part the board below shows - with more in each: the whole F3 state
+# dump rather than a stack, a note that is a sentence rather than a line, and a
+# picture of the frame.
 #
 # Each report is two files under one name, <stamp>-<hex>.txt and .png. The
 # screenshot arrives base64 inside the JSON, already scaled down by the client
@@ -98,11 +102,77 @@ REPORT_MAX_NAME = 64
 REPORT_MAX_SHOT = 5 * 1024 * 1024
 REPORT_WINDOW = 3600
 REPORT_MAX = 30
-# At the text cap plus the picture cap a report, this is a few GB at worst and
-# a small fraction of that in practice (a report is ~100KB of text and a
-# ~1MB picture).
-REPORT_MAX_FILES = 2000
+# A report is ~100KB of text and a ~1MB picture, so this is ~10GB in practice
+# (and more at the caps) - but it is a backstop, not the budget. What keeps the
+# directory small is the monthly archive below, which leaves about a month of
+# reports here; 2000 was reached in weeks at thirty reports a day, and a full
+# directory refuses the next report.
+REPORT_MAX_FILES = 10000
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+# The report board: GET /board, a public page that lists the problem reports
+# and says what became of each. It is the one thing here that reads a report
+# back out, and it reads back only what the player typed or chose to send -
+# when, the name they gave, their note, their picture, the build, the kind of
+# computer - and never the address, the dump, the settings or the log, which
+# are what make a report useful to read over ssh and are nobody else's.
+#
+# A report's name is its id everywhere, and REPORT_ID_RE is the only way an id
+# from a URL becomes a filename: it is exactly the shape the /report route
+# writes, so nothing that matches it can name anything but a report.
+REPORT_ID_RE = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$")
+# The stamp alone, which is how reports get talked about. The status file
+# takes either, and a stamp names every report sent in that second.
+REPORT_STAMP_RE = re.compile(r"^[0-9]{8}-[0-9]{6}$")
+# What became of each report: written by hand at each pass over the reports,
+# read by the board whenever it changes. See the README, "The report board",
+# for its lines; a report it does not mention is "received", and so is every
+# report when the file is not there at all.
+STATUS_PATH = os.path.join(REPORT_DIR, "status.txt")
+# Word, what the page calls it, and the class its badge is drawn with. The
+# order is the order the page counts them in. "hidden" takes a report off the
+# board altogether - the note is whatever a stranger typed, and a public page
+# needs a way to take one down that does not mean deleting the report.
+REPORT_STATUSES = (
+    ("received", "Received"),
+    ("working", "In progress"),
+    ("fixed", "Fixed"),
+    ("needinfo", "Needs more info"),
+    ("notabug", "Not a bug"),
+    ("wontfix", "Won't fix"),
+    ("duplicate", "Duplicate"),
+    ("hidden", "Hidden"),
+)
+REPORT_STATUS_LABELS = dict(REPORT_STATUSES)
+BOARD_MAX_COMMENT = 300
+BOARD_PAGE = 25
+# Thumbnails are made here, once each, the first time the board shows one,
+# and kept beside the reports rather than among them so that a listing of the
+# reports is still only reports. Stdlib only means no imaging library: the
+# client writes every screenshot as 8-bit RGB with no row filters, which is
+# simple enough to shrink by hand, and anything else is served full size.
+THUMB_DIR = os.path.join(ROOT, "reportthumbs")
+THUMB_WIDTH = 320
+THUMB_MAX_PIXELS = 4096 * 4096
+# Full-size pictures are the one heavy thing the board serves.
+BOARD_SHOT_WINDOW = 3600
+BOARD_SHOT_MAX = 300
+
+# The monthly archive: `pdghostd.py --archive`, run by pdghostd-archive.timer,
+# moves every report older than ARCHIVE_DAYS (by the stamp in its name) into
+# reports-archive/<YYYY-MM>.tar.xz, one tar a month of stamps, and deletes the
+# originals only once the tar has been read back and matched. The reports are
+# read over ssh at each pass over them, so a month is left where they are.
+# index.txt beside the tars keeps each archived report's id, time and name -
+# the public part of its header - so that the board can still credit a fix to
+# whoever reported it after the report itself has gone into a tar.
+ARCHIVE_DIR = os.path.join(ROOT, "reports-archive")
+ARCHIVE_INDEX = os.path.join(ARCHIVE_DIR, "index.txt")
+# A copy of the repo's patchnotes.txt, put beside the status file at each
+# release, so that the Fixed column says each fix in the words and with the
+# credit the game's own patch notes give it. See patchnotes_parse().
+PATCHNOTES_PATH = os.path.join(REPORT_DIR, "patchnotes.txt")
+ARCHIVE_DAYS = 30
 
 # The stages a trial can be set on: the solo missions, as g_SoloStages in the
 # client's mainmenu.c lists them. modGhostStageIsEligible() in modghost.c is
@@ -290,6 +360,7 @@ _reset_failures = {}   # account -> failed resets, the day's budget
 _reset_ips = {}        # address -> reset attempts, whatever they were for
 _crash_counts = {}     # address -> crash reports sent
 _report_counts = {}    # address -> problem reports sent
+_shot_counts = {}      # address -> full-size board pictures fetched
 
 
 def db():
@@ -776,7 +847,10 @@ def crash_dir_count():
 def report_dir_count():
     """How many problem reports are on disk (their .txt halves), or -1."""
     try:
-        return sum(1 for n in os.listdir(REPORT_DIR) if n.endswith(".txt"))
+        # By the shape of a report's name, not by its extension: the status
+        # file lives in the same directory and is not a report.
+        return sum(1 for n in os.listdir(REPORT_DIR)
+                   if n.endswith(".txt") and REPORT_ID_RE.match(n[:-4]))
     except OSError:
         return -1
 
@@ -798,6 +872,837 @@ def report_shot(value):
     if len(data) > REPORT_MAX_SHOT or not data.startswith(PNG_MAGIC):
         return None
     return data
+
+
+# ------------------------------------------------------------ report board
+#
+# Everything the board shows comes through report_entry() and status_parse(),
+# and each builds its answer out of named fields rather than passing a report
+# through: a line that neither asks for is never read into anything the page
+# can reach. That is what keeps the address off the page - not care in the
+# template, which is one edit away from forgetting.
+
+_board_lock = threading.Lock()
+_board_cache = {"dir": None, "entries": {}}
+_thumb_lock = threading.Lock()
+_thumb_failed = set()
+
+
+def board_text(value, limit):
+    """Text from a report or the status file, as one line fit for the page.
+
+    Control characters out and the length bounded, the same as a report's
+    fields on the way in, so that a file edited by hand is held to what the
+    route would have written. Escaping is the page's job and happens there.
+    """
+    value = crash_field(value, limit) or ""
+    return " ".join(value.split())
+
+
+def board_os(platform):
+    """The kind of computer, from the build's target, and nothing finer."""
+    platform = platform.lower()
+    for key, name in (("windows", "Windows"), ("linux", "Linux"),
+                      ("mac", "macOS"), ("darwin", "macOS")):
+        if key in platform:
+            return name
+    return ""
+
+
+def png_size(path):
+    """(width, height) of a PNG from its header, or None if it is not one."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+    except OSError:
+        return None
+    if len(head) < 24 or not head.startswith(PNG_MAGIC) or head[12:16] != b"IHDR":
+        return None
+    width, height = struct.unpack(">II", head[16:24])
+    if not (0 < width <= 65535 and 0 < height <= 65535):
+        return None
+    return width, height
+
+
+def report_entry(base):
+    """What the board may show of one report, or None if it is not readable yet.
+
+    Only the header is read, and only the lines named here are kept. A report
+    whose header has no "received:" line is one the /report route is still
+    writing - it creates the file before it fills it - and is left for the
+    next look rather than cached half-read.
+    """
+    fields = {}
+    try:
+        with open(os.path.join(REPORT_DIR, base + ".txt"), encoding="utf-8",
+                  errors="replace") as f:
+            for _ in range(16):
+                line = f.readline(4096)
+                if not line.strip():
+                    break
+                key, sep, value = line.partition(": ")
+                if sep and key in ("received", "version", "platform",
+                                   "screenshot", "name", "note"):
+                    fields.setdefault(key, value.rstrip("\n"))
+    except OSError:
+        return None
+
+    received = board_text(fields.get("received", ""), 32)
+    if not received:
+        return None
+
+    name = board_text(fields.get("name", ""), REPORT_MAX_NAME)
+    note = board_text(fields.get("note", ""), REPORT_MAX_NOTE)
+    shot = None
+    if fields.get("screenshot", "-") == base + ".png":
+        shot = png_size(os.path.join(REPORT_DIR, base + ".png"))
+
+    return {
+        "id": base,
+        "received": received,
+        "name": "anonymous" if name in ("", "-") else name,
+        "note": "" if note == "-" else note,
+        "version": board_text(fields.get("version", ""), CRASH_MAX_FIELD).strip("-"),
+        "os": board_os(fields.get("platform", "")),
+        "shot": shot,
+    }
+
+
+def status_parse(text):
+    """The status file's lines as {id or stamp: (word, comment, when)}.
+
+    One report a line: its id (or its stamp, for every report sent in that
+    second), a status word, optionally a "when", and the rest of the line as
+    the comment the page shows. The when of a fix is either the date it
+    shipped, YYYY-MM-DD, or the line of the patch notes that announced it,
+    <batch>.<line> - see patchnotes_parse() - and it is what places the fix
+    in the Fixed column; other words may carry one and nothing shows it.
+    Blank lines and lines starting with # are
+    skipped, and so is a line whose id or word is not one - a typo costs that
+    line, not the board. A later line for the same key replaces an earlier
+    one, so a status can be changed by adding a line as well as by editing one.
+    """
+    statuses = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 2)
+        if len(parts) < 2:
+            continue
+        key, word = parts[0], parts[1].lower()
+        if not (REPORT_ID_RE.match(key) or REPORT_STAMP_RE.match(key)):
+            continue
+        if word not in REPORT_STATUS_LABELS:
+            continue
+        rest = parts[2] if len(parts) > 2 else ""
+        when = ""
+        m = re.match(r"([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{1,6}\.[0-9]{1,4})(?:\s+|$)", rest)
+        if m:
+            when, rest = m.group(1), rest[m.end():]
+        statuses[key] = (word, board_text(rest, BOARD_MAX_COMMENT), when)
+    return statuses
+
+
+def archive_index_parse(text):
+    """The archive's index as {id: (received, name)}; see archive_reports()."""
+    index = {}
+    for line in text.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 3 and REPORT_ID_RE.match(parts[0]):
+            index[parts[0]] = (board_text(parts[1], 32),
+                               board_text(parts[2], REPORT_MAX_NAME) or "anonymous")
+    return index
+
+
+def patchnotes_parse(text):
+    """The patch notes as {(batch, line): (date, text, [names])}.
+
+    patchnotes.txt is the game's own list of what each update fixed (the
+    repo's root has it, and its header says how it is written): "notes
+    <number> <date>" opens a batch, and each line under it is one fix,
+    ending "(thanks Name)" when somebody reported it. A batch is never
+    changed once pushed, so a line's place in its batch - 1.17 is the
+    seventeenth line of batch 1 - is an address that stays put, and it is
+    how a report's status says which announced fix answered it. The board
+    reads a copy beside the status file; without one, a fix says its own
+    words and dates as the status file gives them.
+    """
+    notes = {}
+    batch, date, line = None, "", 0
+    for raw in text.splitlines():
+        raw = raw.strip()
+        if not raw or raw.startswith("#"):
+            continue
+        m = re.match(r"notes\s+([0-9]{1,6})\s+([0-9]{4}-[0-9]{2}-[0-9]{2})\s*$", raw)
+        if m:
+            batch, date, line = int(m.group(1)), m.group(2), 0
+            continue
+        if batch is None:
+            continue
+        line += 1
+        names = []
+        t = re.search(r"\s*\(thanks ([^()]*)\)\s*$", raw)
+        if t:
+            names = [n.strip() for n in re.split(r",|\band\b", t.group(1)) if n.strip()]
+            raw = raw[:t.start()]
+        notes[(batch, line)] = (date, board_text(raw, BOARD_MAX_COMMENT),
+                                [board_text(n, REPORT_MAX_NAME) for n in names])
+    return notes
+
+
+def board_cached_file(slot, path, parse):
+    """A small file parsed once and again only when its mtime or size moves.
+
+    Called with _board_lock held. A missing or unreadable file parses as
+    nothing, which for the status file means every report is "received" and
+    for the archive index means no report has been archived.
+    """
+    try:
+        st = os.stat(path)
+        key = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        key = None
+    # Never read is not the same as missing: a key of None is a file that
+    # is not there, and it still has to be parsed once, as nothing.
+    if slot not in _board_cache or key != _board_cache[slot + "_key"]:
+        value = parse("")
+        if key is not None:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as f:
+                    value = parse(f.read(4 * 1024 * 1024))
+            except OSError:
+                pass
+        _board_cache[slot] = value
+        _board_cache[slot + "_key"] = key
+    return _board_cache[slot]
+
+
+def board_reports():
+    """Every report the board may show, newest first, with its status, and the
+    archived reports that the Fixed column still credits.
+
+    The headers are read once each and kept; the directory is listed again
+    only when its mtime moves (a report arrives or one is deleted), and the
+    status file and the archive index are read again only when theirs do.
+
+    An archived report is gone from the directory, so it leaves the reports
+    column, but the fix it was part of is history and stays in the Fixed one:
+    the archive keeps each report's time and name in an index for that, and
+    an archived report comes back here with "present" false and no picture.
+    """
+    with _board_lock:
+        try:
+            dir_key = os.stat(REPORT_DIR).st_mtime_ns
+        except OSError:
+            dir_key = None
+
+        if dir_key is None:
+            _board_cache["entries"] = {}
+            _board_cache["dir"] = None
+        elif dir_key != _board_cache["dir"]:
+            try:
+                names = os.listdir(REPORT_DIR)
+            except OSError:
+                names = []
+            old = _board_cache["entries"]
+            entries = {}
+            complete = True
+            for name in names:
+                if not name.endswith(".txt") or not REPORT_ID_RE.match(name[:-4]):
+                    continue
+                base = name[:-4]
+                entry = old.get(base) or report_entry(base)
+                if entry is None:
+                    complete = False
+                    continue
+                entries[base] = entry
+            _board_cache["entries"] = entries
+            # A report caught half-written keeps the listing stale, so that
+            # the next request reads it again rather than never.
+            _board_cache["dir"] = dir_key if complete else None
+
+        entries = _board_cache["entries"]
+        statuses = board_cached_file("statuses", STATUS_PATH, status_parse)
+        index = board_cached_file("index", ARCHIVE_INDEX, archive_index_parse)
+        notes = board_cached_file("notes", PATCHNOTES_PATH, patchnotes_parse)
+
+    def status_of(base):
+        # The id's own line beats its stamp's, wherever each is in the file.
+        word, comment, when = (statuses.get(base) or statuses.get(base[:15])
+                               or ("received", "", ""))
+        # A fix that names a line of the patch notes takes its date from the
+        # notes, and its card says what the notes say when the status file
+        # says no more than which build.
+        ref = None
+        m = re.fullmatch(r"([0-9]+)\.([0-9]+)", when)
+        if m and (int(m.group(1)), int(m.group(2))) in notes:
+            ref = (int(m.group(1)), int(m.group(2)))
+            date, text, _names = notes[ref]
+            if not comment or re.fullmatch(r"Fixed in \S+", comment):
+                comment = "%s - %s" % (comment or "Fixed", text)
+            when = date
+        elif m:
+            when = ""
+        return word, comment, when, ref
+
+    reports = []
+    for base in sorted(entries, reverse=True):
+        word, comment, date, ref = status_of(base)
+        if word == "hidden":
+            continue
+        entry = dict(entries[base])
+        entry.update(status=word, comment=comment, date=date, ref=ref, present=True)
+        reports.append(entry)
+
+    archived = []
+    for base in sorted(index, reverse=True):
+        word, comment, date, ref = status_of(base)
+        if base in entries or word not in ("fixed", "duplicate"):
+            continue
+        received, name = index[base]
+        archived.append({"id": base, "received": received, "name": name,
+                         "status": word, "comment": comment, "date": date,
+                         "ref": ref, "present": False})
+    return reports, archived, notes
+
+
+def png_thumbnail(data, width):
+    """A smaller copy of a PNG the client wrote, or None if it cannot be made.
+
+    None covers every PNG that is not the client's kind - another bit depth, a
+    palette, interlacing - and one that is already no wider than asked; the
+    caller serves the original for those. The client never filters its rows,
+    but a filtered row is undone here anyway rather than refused, since the
+    cost of that is only time and a thumbnail is made once.
+    """
+    if not data.startswith(PNG_MAGIC):
+        return None
+
+    pos, ihdr, idat = 8, None, []
+    while pos + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[pos:pos + 8])
+        chunk = data[pos + 8:pos + 8 + length]
+        if len(chunk) != length:
+            return None
+        if kind == b"IHDR":
+            ihdr = chunk
+        elif kind == b"IDAT":
+            idat.append(chunk)
+        elif kind == b"IEND":
+            break
+        pos += 12 + length
+
+    if ihdr is None or len(ihdr) != 13 or not idat:
+        return None
+    w, h, depth, ctype, comp, filt, interlace = struct.unpack(">IIBBBBB", ihdr)
+    if depth != 8 or ctype not in (2, 6) or comp or filt or interlace:
+        return None
+    if w <= 0 or h <= 0 or w * h > THUMB_MAX_PIXELS:
+        return None
+
+    k = -(-w // width)
+    if k <= 1:
+        return None
+    ch = 3 if ctype == 2 else 4
+    rowsize = w * ch
+    stride = rowsize + 1
+
+    # Bounded, so that a small file cannot inflate to more than its header
+    # says it holds.
+    inflater = zlib.decompressobj()
+    try:
+        raw = inflater.decompress(b"".join(idat), stride * h + 1)
+    except zlib.error:
+        return None
+    if len(raw) != stride * h:
+        return None
+
+    rows = []
+    prev = bytes(rowsize)
+    for y in range(h):
+        ftype = raw[y * stride]
+        row = raw[y * stride + 1:(y + 1) * stride]
+        if ftype == 0:
+            pass
+        elif ftype == 2:
+            row = bytes((a + b) & 0xff for a, b in zip(row, prev))
+        elif ftype in (1, 3, 4):
+            cur = bytearray(row)
+            for i in range(rowsize):
+                left = cur[i - ch] if i >= ch else 0
+                up = prev[i]
+                if ftype == 1:
+                    pred = left
+                elif ftype == 3:
+                    pred = (left + up) >> 1
+                else:
+                    ul = prev[i - ch] if i >= ch else 0
+                    p = left + up - ul
+                    pa, pb, pc = abs(p - left), abs(p - up), abs(p - ul)
+                    pred = left if pa <= pb and pa <= pc else (up if pb <= pc else ul)
+                cur[i] = (cur[i] + pred) & 0xff
+            row = bytes(cur)
+        else:
+            return None
+        rows.append(row)
+        prev = row
+
+    # A box filter, k by k. Adding up k*k samples a byte at a time was a
+    # second a picture, so each strided slice of a row - one channel of every
+    # k-th pixel, taken in C - is spread into the low byte of a 32-bit lane
+    # of one big integer, and the k*k integers are added whole: the lanes are
+    # wide enough that no sum carries into its neighbour.
+    outw, outh = w // k, h // k
+    area = k * k
+    step = k * ch
+    lanes = bytearray(outw * 4)
+    out = bytearray()
+    for y in range(outh):
+        line = bytearray(outw * 3)
+        for c in range(3):
+            total = 0
+            for dy in range(k):
+                src = rows[y * k + dy]
+                for dx in range(k):
+                    start = dx * ch + c
+                    lanes[0::4] = src[start:start + outw * step:step]
+                    total += int.from_bytes(lanes, "little")
+            sums = total.to_bytes(outw * 4, "little")
+            line[c::3] = bytes(
+                int.from_bytes(sums[i:i + 4], "little") // area
+                for i in range(0, outw * 4, 4))
+        out += b"\0" + line
+
+    def chunk(kind, body):
+        return (struct.pack(">I", len(body)) + kind + body
+                + struct.pack(">I", zlib.crc32(kind + body) & 0xffffffff))
+
+    return (PNG_MAGIC
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", outw, outh, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes(out), 9))
+            + chunk(b"IEND", b""))
+
+
+def report_thumbnail(base):
+    """The thumbnail of a report's picture as bytes, made and kept on first ask.
+
+    None when there is no thumbnail to be had, which the caller answers with
+    the full picture. One is made at a time: making one is a second or so of
+    Python, and at most one per report ever, so a queue costs nothing a
+    thundering first page would not have cost anyway.
+    """
+    path = os.path.join(THUMB_DIR, base + ".png")
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        pass
+
+    with _thumb_lock:
+        if base in _thumb_failed:
+            return None
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except OSError:
+            pass
+        try:
+            with open(os.path.join(REPORT_DIR, base + ".png"), "rb") as f:
+                data = f.read(REPORT_MAX_SHOT + 1)
+        except OSError:
+            return None
+        thumb = png_thumbnail(data, THUMB_WIDTH)
+        if thumb is None:
+            _thumb_failed.add(base)
+            return None
+        # Written aside and renamed, so a thumbnail on disk is always whole.
+        try:
+            os.makedirs(THUMB_DIR, exist_ok=True)
+            tmp = path + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(thumb)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+        return thumb
+
+
+def board_filter(reports, query):
+    """The reports a query asks for, and the query as the page understood it."""
+    def one(key):
+        value = query.get(key, [""])[0]
+        return value.strip()[:REPORT_MAX_NAME]
+
+    want = {"name": one("name"), "status": one("status").lower(), "id": one("id")}
+    if want["status"] not in REPORT_STATUS_LABELS or want["status"] == "hidden":
+        want["status"] = ""
+    if not (REPORT_ID_RE.match(want["id"]) or REPORT_STAMP_RE.match(want["id"])):
+        want["id"] = ""
+
+    by_name = [r for r in reports
+               if not want["name"] or r["name"].lower() == want["name"].lower()]
+    shown = [r for r in by_name
+             if (not want["status"] or r["status"] == want["status"])
+             and (not want["id"] or r["id"].startswith(want["id"]))]
+    return want, by_name, shown
+
+
+def board_page(query, total):
+    """Which page, clamped to the ones there are, and how many there are."""
+    pages = max(1, -(-total // BOARD_PAGE))
+    try:
+        page = int(query.get("page", ["1"])[0])
+    except ValueError:
+        page = 1
+    return max(1, min(page, pages)), pages
+
+
+def board_fixes(reports, notes):
+    """The Fixed column: one entry per fix, newest first, crediting its reporters.
+
+    Every line of the patch notes is a fix, with the reports whose status
+    names that line; its words, date and "(thanks ...)" are the notes' own,
+    and a line that thanks nobody credits whoever sent its reports. A fix the
+    notes never announced is the reports marked fixed with the same date and
+    the same comment - one change that answered several reports is written
+    as the same line for each, and shows once. Either way a report marked a
+    duplicate of one of its reports is part of it, and its sender credited.
+    """
+    groups = {}
+    of_report = {}
+    for r in reports:
+        if r["status"] == "fixed":
+            key = ("notes", r["ref"]) if r["ref"] else ("own", r["date"], r["comment"])
+            groups.setdefault(key, []).append(r)
+            of_report[r["id"]] = key
+    for r in reports:
+        if r["status"] == "duplicate":
+            words = r["comment"].split()
+            other = words[0].rstrip(".,;:") if words else ""
+            if other in of_report:
+                groups[of_report[other]].append(r)
+    for ref in notes:
+        groups.setdefault(("notes", ref), [])
+
+    fixes = []
+    for key, members in groups.items():
+        members.sort(key=lambda r: r["id"], reverse=True)
+        names = []
+        for r in sorted(members, key=lambda r: r["id"]):
+            if r["name"] != "anonymous" and r["name"].lower() not in [n.lower() for n in names]:
+                names.append(r["name"])
+        if key[0] == "notes":
+            date, comment, thanks = notes[key[1]]
+            names = thanks or names
+            # The build, when the reports agree on one, as the status file
+            # gives it: the notes are the same words in every build.
+            builds = set(m.group(1) for m in (
+                re.match(r"Fixed in (\S+)", r["comment"]) for r in members
+                if r["status"] == "fixed") if m)
+            if len(builds) == 1:
+                comment = "Fixed in %s - %s" % (builds.pop(), comment)
+            ref = "%d.%d" % key[1]
+            order = (date, 1, key[1][0], -key[1][1])
+        else:
+            date, comment, ref = key[1], key[2], None
+            order = (date, 0, 0, 0)
+        fixes.append({"date": date, "comment": comment, "names": names, "notes": ref,
+                      "reports": [r["id"] for r in members],
+                      "archived": [r["id"] for r in members if not r["present"]],
+                      "order": order + ((members[0]["id"] if members else ""),)})
+    # Newest fix first, the patch notes' own order within a batch; a fix with
+    # no date is written after every one with.
+    fixes.sort(key=lambda f: f.pop("order"), reverse=True)
+    return fixes
+
+
+BOARD_CSS = """
+:root{--bg:#f6f6f4;--card:#fff;--text:#1b1b1b;--dim:#5d5d5d;--line:#dcdcd6;
+--link:#0b57b0;--hl:#fff3c4;--received:#6b6b6b;--working:#9a6200;--fixed:#1d7a35;
+--needinfo:#7a3fb0;--notabug:#35607a;--wontfix:#8a3030;--duplicate:#6b6b6b}
+@media (prefers-color-scheme:dark){:root{--bg:#121314;--card:#1d1f21;--text:#e6e6e3;
+--dim:#a2a29d;--line:#34373a;--link:#8ab8ff;--hl:#3a3420;--received:#9a9a9a;
+--working:#e0a33a;--fixed:#5cc475;--needinfo:#c49af0;--notabug:#7fb4d6;
+--wontfix:#f08a8a;--duplicate:#9a9a9a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1320px;margin:0 auto;padding:16px}
+a{color:var(--link)}
+h1{font-size:1.5em;margin:.2em 0}
+h2{font-size:1.05em;margin:1.4em 0 .5em;color:var(--dim);font-weight:600}
+h2.col{font-size:1.2em;color:var(--text);margin:.2em 0 .6em}
+.lead{color:var(--dim);margin:.2em 0 1em;max-width:60em}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:24px;align-items:start}
+.fixes{position:sticky;top:0;max-height:100vh;overflow:auto;padding:12px 4px 12px 0}
+.jump{display:none}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+.chip{padding:3px 10px;border:1px solid var(--line);border-radius:999px;
+text-decoration:none;color:var(--text);background:var(--card);font-size:.9em}
+.chip.on{border-color:var(--text);font-weight:600}
+form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 8px}
+select,button{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:6px;
+background:var(--card);color:var(--text)}
+.card{display:flex;gap:14px;background:var(--card);border:1px solid var(--line);
+border-radius:10px;padding:12px;margin:0 0 10px;scroll-margin-top:12px}
+.card:target{background:var(--hl);border-color:var(--working)}
+.shot{flex:0 0 240px}
+.shot img{display:block;width:100%;height:auto;border-radius:6px;background:var(--line)}
+.body{flex:1;min-width:0}
+.note{margin:0 0 .3em;font-size:1.05em;overflow-wrap:anywhere}
+.none{color:var(--dim);font-style:italic}
+.meta{color:var(--dim);font-size:.88em;margin:0}
+.status{margin:.6em 0 0;padding:.4em .6em;border-left:3px solid var(--line);
+overflow-wrap:anywhere}
+.badge{display:inline-block;font-size:.8em;font-weight:700;letter-spacing:.02em;
+padding:0 8px;border-radius:999px;border:1px solid currentColor;margin-right:6px}
+.s-received{color:var(--received)}.s-working{color:var(--working)}.s-fixed{color:var(--fixed)}
+.s-needinfo{color:var(--needinfo)}.s-notabug{color:var(--notabug)}
+.s-wontfix{color:var(--wontfix)}.s-duplicate{color:var(--duplicate)}
+.status.s-fixed{border-color:var(--fixed)}.status.s-working{border-color:var(--working)}
+.status.s-needinfo{border-color:var(--needinfo)}.status>span:last-child{color:var(--text)}
+.fix{border-left:3px solid var(--fixed);padding:.1em 0 .1em .7em;margin:0 0 14px}
+.fix p{margin:0}
+.fix .when{color:var(--dim);font-size:.85em}
+.fix .thanks{color:var(--dim);font-size:.88em}
+.pager{display:flex;justify-content:space-between;align-items:center;margin:18px 0;gap:8px}
+.foot{color:var(--dim);font-size:.85em;margin:24px 0}
+@media (max-width:860px){
+.cols{display:block}
+.jump{display:inline-block;margin:0 0 12px}
+.fixes{display:none;position:static;max-height:none;overflow:visible;padding:0}
+.fixes:target{display:block}
+.cols:has(.fixes:target) .reports{display:none}}
+@media (max-width:620px){.card{flex-direction:column}.shot{flex:none}}
+"""
+
+
+def board_link(want, **change):
+    """A link back to the board with the filters changed, relative to it.
+
+    Only a query, never a path: nginx serves this under /pdghosts/ and the
+    server never sees the prefix, so a path written here would be wrong
+    behind the proxy.
+    """
+    query = {k: v for k, v in want.items() if v}
+    for k, v in change.items():
+        if v:
+            query[k] = v
+        else:
+            query.pop(k, None)
+    return "?" + urllib.parse.urlencode(query) if query else "board"
+
+
+def board_comment(comment, known):
+    """A status comment with any report id it names made a link to that report."""
+    out = []
+    for word in re.split(r"(\s+)", comment):
+        core = word.rstrip(".,;:)")
+        if core in known:
+            out.append('<a href="?id=%s#r-%s">%s</a>%s' % (
+                core, core, html.escape(core), html.escape(word[len(core):])))
+        else:
+            out.append(html.escape(word))
+    return "".join(out)
+
+
+def board_when(stamp):
+    """A report's stamp as a short date and time, "25 Sep 22:42"."""
+    try:
+        return time.strftime("%d %b %H:%M", time.strptime(stamp[:15], "%Y%m%d-%H%M%S")).lstrip("0")
+    except ValueError:
+        return stamp
+
+
+def board_html(reports, archived, notes, query):
+    """The board as a page, for the reports board_reports() handed over.
+
+    Two columns: the reports on the left, paged and filtered, and on the
+    right every fix that shipped, each linking to the reports it answered.
+    On a narrow screen the Fixed column is a link away (#fixes) rather than a
+    second screenful above the reports, and CSS alone switches between them.
+    """
+    esc = html.escape
+    want, by_name, shown = board_filter(reports, query)
+    page, pages = board_page(query, len(shown))
+    rows = shown[(page - 1) * BOARD_PAGE:page * BOARD_PAGE]
+    known = set(r["id"] for r in reports)
+    where = {r["id"]: i // BOARD_PAGE + 1 for i, r in enumerate(shown)}
+
+    fixes = board_fixes(reports + archived, notes)
+    if want["name"]:
+        fixes = [f for f in fixes if want["name"].lower() in [n.lower() for n in f["names"]]]
+
+    def report_href(base):
+        # Same page: only the fragment, so nothing reloads. Elsewhere in the
+        # current list: that page. Filtered out of it: that report alone.
+        if where.get(base) == page:
+            return "#r-" + base
+        if base in where:
+            return board_link(want, page=str(where[base]) if where[base] > 1 else "") + "#r-" + base
+        return "?id=%s#r-%s" % (base, base)
+
+    counts = {}
+    for r in by_name:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+
+    # Testers by how many reports each sent, one entry per name whatever its
+    # capitals, spelled the way their newest report spells it.
+    names = {}
+    for r in reports:
+        key = r["name"].lower()
+        if key not in names:
+            names[key] = [r["name"], 0]
+        names[key][1] += 1
+    tester_order = sorted(names.values(), key=lambda n: (-n[1], n[0].lower()))
+
+    p = []
+    p.append('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+             '<meta name="viewport" content="width=device-width,initial-scale=1">'
+             '<meta name="color-scheme" content="light dark">'
+             '<title>Dab\'s Mod problem reports</title>'
+             '<style>%s</style></head><body><main>' % BOARD_CSS)
+    p.append('<h1>Problem reports</h1>')
+    p.append('<p class="lead">Everything sent from the F3 <b>Report a Problem</b> '
+             'dialog in Dab\'s Mod, newest first, and what became of it. '
+             'This page is read-only; Dab updates the statuses as reports are '
+             'looked at. Times are UTC.</p>')
+    p.append('<div class="cols"><section class="reports" id="reports">')
+    p.append('<a class="jump chip s-fixed" href="#fixes">Fixed so far: %d &darr;</a>' % len(fixes))
+
+    chips = ['<a class="chip%s" href="%s">All %d</a>' % (
+        "" if want["status"] else " on", esc(board_link(want, status="", page="", id="")),
+        len(by_name))]
+    for word, label in REPORT_STATUSES:
+        if counts.get(word):
+            chips.append('<a class="chip s-%s%s" href="%s">%s %d</a>' % (
+                word, " on" if want["status"] == word else "",
+                esc(board_link(want, status=word, page="", id="")),
+                esc(label), counts[word]))
+    p.append('<nav class="chips">%s</nav>' % "".join(chips))
+
+    opts = ['<option value="">Everyone</option>']
+    for label, n in tester_order:
+        opts.append('<option value="%s"%s>%s (%d)</option>' % (
+            esc(label), " selected" if label.lower() == want["name"].lower() else "",
+            esc(label), n))
+    sopts = ['<option value="">Any status</option>']
+    for word, label in REPORT_STATUSES:
+        if word != "hidden":
+            sopts.append('<option value="%s"%s>%s</option>' % (
+                word, " selected" if want["status"] == word else "", esc(label)))
+    p.append('<form method="get" action="board">'
+             '<label>Tester <select name="name">%s</select></label>'
+             '<label>Status <select name="status">%s</select></label>'
+             '<button type="submit">Show</button>%s</form>' % (
+                 "".join(opts), "".join(sopts),
+                 ' <a href="board">Clear</a>' if any(want.values()) else ""))
+
+    if not rows:
+        p.append('<p class="lead">No reports to show.</p>')
+
+    day = None
+    for r in rows:
+        if r["id"][:8] != day:
+            day = r["id"][:8]
+            try:
+                heading = time.strftime("%A %d %B %Y", time.strptime(day, "%Y%m%d"))
+            except ValueError:
+                heading = day
+            p.append('<h2>%s</h2>' % esc(heading))
+
+        shot = ""
+        if r["shot"]:
+            w, h = r["shot"]
+            tw = min(w, THUMB_WIDTH)
+            shot = ('<div class="shot"><a href="board/shot/%s.png">'
+                    '<img src="board/thumb/%s.png" loading="lazy" width="%d" height="%d" '
+                    'alt="Screenshot sent with the report"></a></div>' % (
+                        r["id"], r["id"], tw, max(1, h * tw // w)))
+
+        note = ('<p class="note">%s</p>' % esc(r["note"]) if r["note"]
+                else '<p class="note none">No note.</p>')
+        meta = [esc(r["received"][11:16] or r["received"]),
+                '<a href="%s">%s</a>' % (esc(board_link(want, name=r["name"], page="", id="")),
+                                         esc(r["name"]))]
+        if r["version"]:
+            meta.append("build " + esc(r["version"]))
+        if r["os"]:
+            meta.append(esc(r["os"]))
+        meta.append('<a href="?id=%s#r-%s">link</a>' % (r["id"], r["id"]))
+        status = '<p class="status s-%s"><span class="badge">%s</span><span>%s</span></p>' % (
+            r["status"], esc(REPORT_STATUS_LABELS[r["status"]]),
+            board_comment(r["comment"], known))
+
+        p.append('<article class="card" id="r-%s">%s<div class="body">%s'
+                 '<p class="meta">%s</p>%s</div></article>' % (
+                     r["id"], shot, note, " &middot; ".join(meta), status))
+
+    if pages > 1:
+        newer = ('<a href="%s">&larr; Newer</a>' % esc(board_link(want, page=str(page - 1) if page > 2 else ""))
+                 if page > 1 else "<span></span>")
+        older = ('<a href="%s">Older &rarr;</a>' % esc(board_link(want, page=str(page + 1)))
+                 if page < pages else "<span></span>")
+        p.append('<nav class="pager">%s<span>Page %d of %d</span>%s</nav>' % (
+            newer, page, pages, older))
+    p.append('</section>')
+
+    p.append('<aside class="fixes" id="fixes"><h2 class="col">Fixed</h2>')
+    p.append('<a class="jump" href="#reports">&uarr; Back to the reports</a>')
+    if not fixes:
+        p.append('<p class="lead">Nothing yet.</p>')
+    for f in fixes:
+        # An archived report has no card to go to: its time, not a link.
+        links = ", ".join(esc(board_when(b)) if b in f["archived"] else
+                          '<a href="%s">%s</a>' % (esc(report_href(b)), esc(board_when(b)))
+                          for b in f["reports"])
+        if f["names"]:
+            thanks = "Thanks " + esc(", ".join(f["names"]))
+        else:
+            thanks = "Reported anonymously" if f["reports"] else ""
+        # "Fixed in <build> - what" is how a fixed report's comment reads on
+        # its card; in a column headed Fixed the build goes by the date.
+        when = f["date"]
+        try:
+            when = time.strftime("%d %b %Y", time.strptime(when, "%Y-%m-%d")).lstrip("0")
+        except ValueError:
+            when = when or "Earlier"
+        text = f["comment"]
+        m = re.match(r"Fixed in (\S+) - (.+)", text)
+        if m:
+            when, text = "%s &middot; build %s" % (esc(when), esc(m.group(1))), m.group(2)
+        else:
+            when = esc(when)
+        credit = [x for x in (thanks, links and "%s %s" % (
+            "report" if len(f["reports"]) == 1 else "reports", links)) if x]
+        p.append('<div class="fix"><p class="when">%s</p><p>%s</p>%s</div>' % (
+            when, board_comment(text, known) or "Fixed",
+            '<p class="thanks">%s</p>' % " &middot; ".join(credit) if credit else ""))
+    p.append('</aside></div>')
+
+    p.append('<p class="foot">Send one from the game with F3. Only the date, '
+             'the name you typed, your note, your screenshot, the build and the '
+             'kind of computer are shown here; the rest of a report is only '
+             'read by Dab. Also as <a href="board.json">JSON</a>.</p>')
+    p.append('</main></body></html>')
+    return "".join(p)
+
+
+def board_json(reports, archived, notes, query):
+    """The same reports and filters as the page, and the fixes, for anything
+    that wants data rather than a page."""
+    want, _by_name, shown = board_filter(reports, query)
+    page, pages = board_page(query, len(shown))
+    rows = shown[(page - 1) * BOARD_PAGE:page * BOARD_PAGE]
+    return {"ok": True, "page": page, "pages": pages, "total": len(shown),
+            "reports": [{
+                "id": r["id"], "received": r["received"], "name": r["name"],
+                "note": r["note"], "version": r["version"], "os": r["os"],
+                "status": r["status"], "comment": r["comment"],
+                "screenshot": bool(r["shot"]),
+            } for r in rows],
+            "fixes": board_fixes(reports + archived, notes)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1114,7 +2019,80 @@ class Handler(BaseHTTPRequestHandler):
                 row["stagenum"], row["difficulty"],
                 re.sub(r"[^A-Za-z0-9]", "_", row["username"]), row["time60"]))
 
+        if path in ("/board", "/board.json") or path.startswith("/board/"):
+            return self.board_get(path)
+
         return self.send_json(404, {"ok": False, "error": "no such endpoint"})
+
+    def send_page(self, body, ctype, cache):
+        """A page or a picture: bytes, their type, and how long to keep them.
+
+        The policy says the page runs no script and loads nothing that is not
+        its own, which is what it is written to do - said here too, so that a
+        note that got past the escaping would still have nothing to run.
+        """
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", cache)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        if ctype.startswith("text/html"):
+            self.send_header("Content-Security-Policy",
+                             "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; "
+                             "form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def board_get(self, path):
+        """The report board: its page, its JSON and its pictures, all read-only."""
+        raw, _, qs = self.path.partition("?")
+        try:
+            query = urllib.parse.parse_qs(qs, max_num_fields=16)
+        except ValueError:
+            query = {}
+
+        # The page's links are relative to "board", which a trailing slash
+        # would move one level down; send that back to where they work. The
+        # target is relative too, because the proxy's prefix is not ours.
+        if raw == "/board/":
+            self.send_response(301)
+            self.send_header("Location", "../board" + ("?" + qs if qs else ""))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        reports, archived, notes = board_reports()
+
+        if path == "/board":
+            return self.send_page(board_html(reports, archived, notes, query).encode("utf-8"),
+                                  "text/html; charset=utf-8", "no-cache")
+        if path == "/board.json":
+            return self.send_json(200, board_json(reports, archived, notes, query))
+
+        # A picture: by an id of exactly the shape the report route writes,
+        # of a report the board is showing, which has a picture.
+        m = re.fullmatch(r"/board/(shot|thumb)/([^/]+)\.png", path)
+        base = m.group(2) if m else ""
+        if not REPORT_ID_RE.match(base):
+            return self.send_json(404, {"ok": False, "error": "no such picture"})
+        entry = next((r for r in reports if r["id"] == base), None)
+        if entry is None or not entry["shot"]:
+            return self.send_json(404, {"ok": False, "error": "no such picture"})
+
+        if m.group(1) == "thumb":
+            data = report_thumbnail(base)
+            if data is not None:
+                return self.send_page(data, "image/png", "public, max-age=86400")
+        elif not rate_ok(_shot_counts, self.client_ip(), BOARD_SHOT_WINDOW, BOARD_SHOT_MAX):
+            return self.send_json(429, {"ok": False, "error": "too many pictures, wait a while"})
+
+        try:
+            with open(os.path.join(REPORT_DIR, base + ".png"), "rb") as f:
+                data = f.read(REPORT_MAX_SHOT + 1)
+        except OSError:
+            return self.send_json(404, {"ok": False, "error": "no such picture"})
+        return self.send_page(data, "image/png", "public, max-age=86400")
 
     def do_POST(self):
         path, query = self.path_parts()
@@ -1674,7 +2652,146 @@ class Handler(BaseHTTPRequestHandler):
         return self.send_json(404, {"ok": False, "error": "no such endpoint"})
 
 
+def file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def archive_reports(days=ARCHIVE_DAYS, dry_run=False, now=None):
+    """Move reports older than `days` into one tar.xz per month. Returns 0 or 1.
+
+    Safe to run again at any point, including after it failed half-way: a
+    month's tar is rebuilt as the old tar's members plus the new files, into a
+    temporary name, read back and compared - every old member there, every new
+    file byte for byte - and only then renamed over the old one. The originals
+    are deleted after that and not before; a failure anywhere leaves them, and
+    the old tar, exactly as they were. Nothing but report pairs is touched: the
+    status file is not a report, and a name that is not a report's is skipped.
+    """
+    import tarfile
+
+    now = time.time() if now is None else now
+    cutoff = now - days * 86400
+
+    try:
+        names = os.listdir(REPORT_DIR)
+    except OSError as ex:
+        print("archive: cannot read %s: %s" % (REPORT_DIR, ex))
+        return 1
+
+    months = {}
+    for name in sorted(names):
+        base, ext = os.path.splitext(name)
+        if ext not in (".txt", ".png") or not REPORT_ID_RE.match(base):
+            continue
+        try:
+            stamp = time.mktime(time.strptime(base[:15], "%Y%m%d-%H%M%S"))
+        except ValueError:
+            continue
+        if stamp < cutoff:
+            months.setdefault(base[:4] + "-" + base[4:6], []).append(name)
+
+    if not months:
+        print("archive: nothing older than %d days" % days)
+        return 0
+
+    for month in sorted(months):
+        print("archive: %s: %d files%s" % (month, len(months[month]),
+                                          " (dry run)" if dry_run else ""))
+    if dry_run:
+        return 0
+
+    os.makedirs(ARCHIVE_DIR, exist_ok=True)
+    status = 0
+
+    for month, files in sorted(months.items()):
+        final = os.path.join(ARCHIVE_DIR, month + ".tar.xz")
+        tmp = final + ".tmp"
+        try:
+            want = {name: file_sha256(os.path.join(REPORT_DIR, name)) for name in files}
+
+            # The old tar's members, copied across as they are. A member of
+            # the same name as a new file is dropped for the new one: that is
+            # a run that died after renaming and before deleting, and the file
+            # on disk is the same report.
+            kept = []
+            with tarfile.open(tmp, "w:xz") as out:
+                if os.path.exists(final):
+                    with tarfile.open(final, "r:xz") as old:
+                        for member in old:
+                            if member.name in want or not member.isfile():
+                                continue
+                            out.addfile(member, old.extractfile(member))
+                            kept.append(member.name)
+                for name in files:
+                    out.add(os.path.join(REPORT_DIR, name), arcname=name, recursive=False)
+
+            # Read back: every member there, every new file intact.
+            seen = {}
+            with tarfile.open(tmp, "r:xz") as check:
+                for member in check:
+                    h = hashlib.sha256()
+                    f = check.extractfile(member)
+                    for block in iter(lambda: f.read(1 << 20), b""):
+                        h.update(block)
+                    seen[member.name] = h.hexdigest()
+            missing = [n for n in kept if n not in seen]
+            wrong = [n for n, digest in want.items() if seen.get(n) != digest]
+            if missing or wrong:
+                raise ValueError("tar did not read back (%d missing, %d different)"
+                                 % (len(missing), len(wrong)))
+
+            with open(tmp, "rb") as f:
+                os.fsync(f.fileno())
+            os.replace(tmp, final)
+        except (OSError, tarfile.TarError, EOFError, ValueError, zlib.error) as ex:
+            print("archive: %s: not archived, nothing deleted: %s" % (month, ex))
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            status = 1
+            continue
+
+        # The index before the deletes, so that a report is never gone from
+        # the directory without its name being kept for the board.
+        with open(ARCHIVE_INDEX, "a", encoding="utf-8") as idx:
+            for name in files:
+                if name.endswith(".txt"):
+                    entry = report_entry(name[:-4])
+                    if entry is not None:
+                        idx.write("%s\t%s\t%s\n" % (entry["id"], entry["received"],
+                                                   entry["name"]))
+
+        for name in files:
+            try:
+                os.unlink(os.path.join(REPORT_DIR, name))
+            except OSError:
+                pass
+            if name.endswith(".png"):
+                try:
+                    os.unlink(os.path.join(THUMB_DIR, name))
+                except OSError:
+                    pass
+        print("archive: %s: %d files into %s" % (month, len(files), final))
+
+    return status
+
+
 def main():
+    import sys
+
+    # The monthly archive runs as its own short-lived process, from its own
+    # timer, and never inside the server.
+    if "--archive" in sys.argv[1:]:
+        days = ARCHIVE_DAYS
+        if "--days" in sys.argv[1:]:
+            days = int(sys.argv[sys.argv.index("--days") + 1])
+        sys.exit(archive_reports(days, dry_run="--dry-run" in sys.argv[1:]))
+
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print("pdghostd listening on %s:%d, data in %s" % (HOST, PORT, ROOT), flush=True)

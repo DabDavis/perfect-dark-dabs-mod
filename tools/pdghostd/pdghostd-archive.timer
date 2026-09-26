@@ -1,0 +1,12 @@
+[Unit]
+Description=Monthly archive of old pdghostd problem reports
+
+[Timer]
+# The first of the month, early in the morning UTC; a run the box was off for
+# happens at the next boot.
+OnCalendar=*-*-01 04:30:00
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

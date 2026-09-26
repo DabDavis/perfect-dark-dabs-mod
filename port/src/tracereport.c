@@ -115,7 +115,7 @@ static SDL_Thread *g_Thread;
 static volatile s32 g_State;
 // When a sent report's dialog closes itself, in SDL ticks; 0 while not yet sent.
 static u32 g_CloseAt;
-#define TRACEREPORT_SENT_LINGER_MS 2000
+#define TRACEREPORT_SENT_LINGER_MS 5000
 
 s32 traceReportEnabled(void)
 {
@@ -667,9 +667,15 @@ static char *menutextTraceReportStatus(struct menuitem *item)
 	case STATE_BUSY:
 		snprintf(g_Text, sizeof(g_Text), "Sending...\n");
 		return g_Text;
-	case STATE_SENT:
-		snprintf(g_Text, sizeof(g_Text), "Sent. Thank you!\n");
+	case STATE_SENT: {
+		// Where it can be seen once sent: the server's public board, named
+		// without its scheme, which is noise on a line that is only read.
+		const char *where = strstr(g_GhostNetUrl, "://");
+
+		where = where ? where + 3 : g_GhostNetUrl;
+		snprintf(g_Text, sizeof(g_Text), "Sent. Thank you!\nSee all reports at\n%s/board\n", where);
 		return g_Text;
+	}
 	case STATE_FAILED:
 		snprintf(g_Text, sizeof(g_Text), "Not sent: %s\nThe files are still in traces/.\n", g_Err);
 		return g_Text;
@@ -952,7 +958,8 @@ static MenuDialogHandlerResult menudialogTraceReport(s32 operation, struct menud
 
 			inputClearLastKey();
 
-			// Long enough to read "Sent", then back to the game.
+			// Long enough to read "Sent" and where the reports are, then
+			// back to the game.
 			if (g_State == STATE_SENT) {
 				if (g_CloseAt == 0) {
 					g_CloseAt = SDL_GetTicks() + TRACEREPORT_SENT_LINGER_MS;
