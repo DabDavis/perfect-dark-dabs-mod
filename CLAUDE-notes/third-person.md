@@ -537,3 +537,31 @@ a shoulder camera is not enough. The ray is traced and the direction starts
 as the line from the spawn point to where it stops. First person is gated
 out and lands on identical coordinates. A point further than the throw can
 reach still falls short or long (as in first person).
+
+## A long fall is watched from the eye (2026-09-26)
+
+F3 20260926-112604 (GE Plus Dam): *"dam dive in third person should auto
+transition to first person to avoid awkward pose while falling."* The body has
+no falling animation; it stands bolt upright from behind for the whole of the
+dive (list 0x1004 waits 350 ticks of falling before the fade, and the fall is
+ordinary gameplay, not a cutscene - the cutscene cameras never used this camera
+anyway).
+
+`playerIsThirdPerson()` now also answers no while `isfalling` and the new
+`player->thirdpersonlongfall` are both set, the same way aiming and GE Plus's
+watch hand the eye back: the request (`thirdperson`) is left alone, the body
+stays built, and the camera goes back out on the first tick the player is on
+something again. `bwalkUpdateLongFall()` (bondwalk.c, called on every falling
+tick after the first) latches it when the player is descending, has been in the
+air `TICKS(10)` and still has more than `LONGFALL_DROP` (1000) to the floor
+beneath - the shortest fall that counts is about 10 m / 1.4 s, so a jump or a
+drop to the floor below never flicks the camera. It latches rather than being
+re-asked because the distance left shrinks to nothing on the way down; the
+"Just started falling" branch clears it. A death during the fall stays in first
+person (the frozen death camera would be the one left at the top of the drop).
+
+Measured (`~/wt/f3-0926c-dive-run/diveprobe3p.py`, pad 330 with `thirdperson`
+set, and `dropprobe.py`, the player lifted `H` units where they stand on Dam):
+the dive leaves third person 19 ticks in and stays in first person to the
+fade; H 2500 goes to the eye at +20 and back out (dist 152) on landing at
++140; H 600 never leaves third person.
