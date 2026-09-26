@@ -85,6 +85,16 @@ bool geStanReaches(struct coord *from, f32 ground, struct coord *to);
 // cross no wall of the tile graph, starting on the tile under the first at y
 bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y);
 /**
+ * The highest floor a player walking from `pos` (feet at `ground`) to `to`
+ * touches there with his circle, of the tiles linked to the one under his foot
+ * within `radius` - through tiles on edge, which is how GoldenEye joins a floor
+ * to a ledge, a sill or a conveyor well over it and lifts Bond up (bondview2.c's
+ * bondviewTryMoveToStan()). GESTAN_NOCLIMBFLOOR where there is none.
+ */
+#define GESTAN_NOCLIMBFLOOR (-1e30f)
+f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius);
+
+/**
  * Whether a body at `pos` is on, or within `reach` of an edge linked to, a tile
  * GoldenEye forces a crouch on (STANTILEFLAG_FORCECROUCH: a vent, a crawl space).
  */

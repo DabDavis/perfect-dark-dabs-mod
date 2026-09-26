@@ -1743,6 +1743,31 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 					geStanRise(true), g_Vars.currentplayer->bond2.radius)) {
 			g_Vars.currentplayer->autocrouchpos = CROUCHPOS_SQUAT;
 		}
+
+		// GoldenEye's climb. Its collision is the plan and nothing else: a
+		// floor joined to one well over it by tiles on edge is a link, Bond
+		// walks into it and is lifted onto the floor across, and the only say
+		// on height is an edge more than 175 over his eye
+		// (bondviewTryMoveToStan()). Facility's escape is one - the conveyor
+		// out of the bottling room, whose rim is 119 over the floor, walked up
+		// and crawled along to the plane. Perfect Dark steps up nothing over
+		// the foot of the player's box, and the conversion raises a wall on
+		// such a link, so the player is lifted here as the circle he is
+		// moving to touches the floor across, and walks on over the wall and
+		// the tiles on edge at their new height.
+		if (!g_Vars.currentplayer->onladder && !g_Vars.currentplayer->isfalling
+				&& !g_Vars.currentplayer->tank && (arg0->x != 0.0f || arg0->z != 0.0f)) {
+			const f32 floor = geStanClimbFloor(&g_Vars.currentplayer->prop->pos, &target,
+					g_Vars.currentplayer->vv_manground, g_Vars.currentplayer->bond2.radius);
+
+			if (floor > g_Vars.currentplayer->vv_manground + 30.0f
+					&& floor <= g_Vars.currentplayer->prop->pos.y + 175.0f
+					&& bwalkTryMoveUpwards(floor - g_Vars.currentplayer->vv_manground) == CDRESULT_NOCOLLISION) {
+				g_Vars.currentplayer->vv_manground = floor;
+				g_Vars.currentplayer->vv_ground = floor;
+				g_Vars.currentplayer->sumground = floor / (PAL ? 0.054400026798248f : 0.045499980449677f);
+			}
+		}
 	}
 #endif
 
