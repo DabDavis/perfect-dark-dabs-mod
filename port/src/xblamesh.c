@@ -9768,9 +9768,20 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// the king's sceptre's), and those never reach here. Until
 		// 2026-09-26 this left the game to draw its own on the rule the hair
 		// follows - take nothing away that nothing here replaces - but the
-		// mesh does replace it. A model pack's file and a GoldenEye model
-		// keep that rule.
-		const s32 stock = xblaMeshNodeDrawsXlu(node) && (frompack || frombean);
+		// mesh does replace it. A model pack's file and a GoldenEye
+		// character keep that rule.
+		//
+		// A GoldenEye prop does not: Bean's HD prop is built rigid over the
+		// whole model (gebeanBuildRigid()), glass included, so the converted
+		// model's translucent lists are the N64 prop drawn inside it. Dam's
+		// truck carries one on every node - its wheels' treads and hubs among
+		// them - and the N64 wheel drew over the HD one (F3 20260926-085130,
+		// "n64 wheel rendering with xbla in back"), and Surface's dish drew
+		// its N64 truss along the HD one, shimmering as the two fought (F3
+		// 20260926-090027). Eighteen props in the twenty missions had one
+		// drawn: palms and the vine tree, door and slide panes, the tank.
+		const s32 stock = xblaMeshNodeDrawsXlu(node)
+			&& (frompack || (frombean && !gebeanRowIsProp(e->beanrow)));
 
 		if (xblaMeshVerbose && stock) {
 			xblaMeshNoteDraw(model, e->slot, 0, 5);

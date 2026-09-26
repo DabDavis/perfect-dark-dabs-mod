@@ -10808,3 +10808,32 @@ cut-out shader 0xda0, whose colour is the vertex colour times the texel, so
 the release draws them black too: hard girder shadows. They come out as
 decals over the plate and do not flicker at a still camera, turning or
 walking in the rig; see results G-cradle.md for what is still open.
+
+## The N64 prop inside the HD one: GoldenEye props' translucent lists (2026-09-26)
+
+Two F3s on f6e947b15, HD look, both openings: 20260926-085130 on Dam, "n64
+wheel rendering with xbla in back", and 20260926-090027 on Surface, "shimmering
+from dish parts". One cause. ede0c83b2 stopped a release mesh's node from
+drawing the game's own translucent list (the BAFTA's face) but left model packs
+and **GoldenEye models** on the old rule, so every converted prop under a Bean
+rigid mesh still drew its N64 xlu list in the translucent pass. Dam's truck
+(`Pgx791Z`) has an xlu list on all six of its list nodes, the four wheel nodes
+among them: the N64 far wheel stood in front of the HD one. The dish
+(`Pgx296Z`, `prop/sevdish`) has two, its truss, laid along Bean's truss and
+fighting it frame to frame.
+
+`xblaMeshRenderNode()` now drops the stock xlu list for a GoldenEye **prop**
+row (`gebeanRowIsProp()`, the `propRows` range); characters, guns and model
+packs keep the old rule. A probe over all twenty missions (700 frames of the
+opening each, plus the truck) found eighteen prop files with such a list drawn: the tank, the
+tiger, Jungle's palms and vine tree (N64 fronds mixed into the HD canopy - the
+HD canopy and vines are whole without them), door and slide panes (the HD
+glass is Bean's own), the dish, cctv, roof gun, lamp, jerrycan, chair, TV
+holder, clear door. Before/after shots of each: only the N64 geometry goes.
+
+Probe recipe (in ~/wt/f3hdprops2-run): `truckring.py` rings Dam's truck
+(`OBJTYPE_TRUCK` 0x27 in `g_Vars.activeprops`) with `--spectate`; `view2.py`
+holds a camera at a report's position for consecutive frames;
+`propab.sh <stage> "x,y,z,r;..."` shoots props with two binaries and diffs.
+The opening stills differ from the tester's run (lvframenum is per drawn
+frame, the user runs uncapped), so hold the report's camera in gameplay.
