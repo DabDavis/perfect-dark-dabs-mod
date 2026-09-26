@@ -193,6 +193,7 @@ static const struct { s16 geanim; f32 start; f32 end; f32 speed; } g_GeIntroAnim
 	{ 176,  0.0f, -1.0f, 0.5f  },  // bond_eye_fire_alt
 };
 
+static s32 g_GeBondBodyWeapon = WEAPON_NONE;   // gecinemaBondBodyWeapon()
 static s32 g_GeIntroPending;          // this stage is a mission that has not opened yet
 static s32 g_GeIntroStage;
 static const u8 *g_GeIntroShot;
@@ -284,6 +285,8 @@ void gecinemaStageStart(void)
 		g_GeLoopSeen[i] = g_SeqLoopPoints[i];
 	}
 
+	g_GeBondBodyWeapon = WEAPON_NONE;
+
 	// A mission that is not the Cinema page's opens on its own cinema. The
 	// probes that boot straight into a level can ask for it not to.
 	g_GeIntroStage = GEINTRO_NONE;
@@ -322,6 +325,16 @@ s32 gecinemaIntroIsStill(void)
 s32 gecinemaIntroIsSwirl(void)
 {
 	return g_GeIntroStage == GEINTRO_SWIRL;
+}
+
+void gecinemaSetBondBodyWeapon(s32 weaponnum)
+{
+	g_GeBondBodyWeapon = weaponnum;
+}
+
+s32 gecinemaBondBodyWeapon(void)
+{
+	return g_GeBondBodyWeapon;
 }
 
 s32 gecinemaWantsFolder(void)

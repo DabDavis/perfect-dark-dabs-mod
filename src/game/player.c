@@ -1833,6 +1833,10 @@ void playerTickChrBody(void)
 		// empty while the opening runs
 		if (gecinemaIntroIsOn()) {
 			weaponnum = g_DefaultWeapons[HAND_RIGHT];
+		} else if (gecinemaBondBodyWeapon() > WEAPON_NONE) {
+			// and his endings' body holds the gun that was in his hand
+			// when its list hid his weapons (aiChrDrawWeaponInCutscene())
+			weaponnum = gecinemaBondBodyWeapon();
 		}
 #endif
 

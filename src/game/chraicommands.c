@@ -5612,17 +5612,40 @@ bool aiChrDrawWeaponInCutscene(void)
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 		setCurrentPlayerNum(playernum);
+
+#ifndef PLATFORM_N64
+		// On a converted mission this is GoldenEye's BondEquipItemCinema or,
+		// with WEAPON_NONE, its BondHideWeapons. The equip sets the hand's
+		// weaponnum at once (currentPlayerUnEquipWeaponWrapper()); the hide
+		// only empties the first person hands (remove_item_in_hand() clears
+		// hand_item, the model in the hand) and leaves weaponnum alone; and
+		// the body Bond's ending is filmed with is made at the CameraSwitch
+		// holding weaponnum (solo_char_load()). So Bond is armed in his
+		// endings: Depot's hands him a PP7 if he holds no gun, hides it, and
+		// has him shoot the two guards in the train with it - with an empty
+		// body he never fired and the scene stood still (F3
+		// 20260926-064122). The body takes its gun from here
+		// (playerTickChrBody()), not from the first person hands emptied
+		// below.
+		if (modloaderStageIsMission(g_Vars.stagenum)) {
+			if ((s8)cmd[3] > WEAPON_NONE) {
+				gecinemaSetBondBodyWeapon((s8)cmd[3]);
+			} else if (gecinemaBondBodyWeapon() <= WEAPON_NONE) {
+				gecinemaSetBondBodyWeapon(g_Vars.currentplayer->gunctrl.switchtoweaponnum > WEAPON_NONE
+						? g_Vars.currentplayer->gunctrl.switchtoweaponnum
+						: bgunGetWeaponNum(HAND_RIGHT));
+			}
+		}
+#endif
+
 		bgunEquipWeapon((s8)cmd[3]);
 
 #ifndef PLATFORM_N64
-		// GoldenEye's BondHideWeapons (a converted mission's outro) empties
-		// both hands there and then (remove_item_in_hand()), and Bond's body
-		// is filmed without a gun. Perfect Dark's switch only completes as the
-		// gun ticks, which it does not under the cinema's camera, so Bond
-		// stood in Silo's lift still holding his rifle (F3 20260925-234037).
-		// The hands are emptied now (bgunGetWeaponNum() answers WEAPON_NONE
-		// for a hand not in use) and the body's held guns go with them, so
-		// playerTickChrBody() has nothing to put back.
+		// The hide empties the first person hands there and then. Perfect
+		// Dark's switch only completes as the gun ticks, which it does not
+		// under the cinema's camera (F3 20260925-234037, Silo's lift), so
+		// they are emptied now (bgunGetWeaponNum() answers WEAPON_NONE for a
+		// hand not in use) and a body already up lets go of what they held.
 		if ((s8)cmd[3] <= WEAPON_NONE && modloaderStageIsRemake(g_Vars.stagenum)) {
 			g_Vars.currentplayer->hands[HAND_RIGHT].inuse = false;
 			g_Vars.currentplayer->hands[HAND_LEFT].inuse = false;

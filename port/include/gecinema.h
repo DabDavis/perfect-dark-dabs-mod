@@ -58,6 +58,14 @@ s32 gecinemaIntroIsSwirl(void);
 // From playerTick()'s TICKMODE_WARP: the swirl's camera. True while it has it.
 s32 gecinemaSwirlTick(void);
 
+// The gun Bond's body holds in a converted mission's ending: GoldenEye's
+// hands[].weaponnum, which BondEquipItemCinema sets and BondHideWeapons leaves
+// alone (it only empties the first person hands), and which solo_char_load()
+// puts in the hand of the body it makes at the CameraSwitch. WEAPON_NONE until
+// either command runs; every stage starts without one.
+void gecinemaSetBondBodyWeapon(s32 weaponnum);
+s32 gecinemaBondBodyWeapon(void);
+
 // Whether the folder should open again on the Cinema page, and the mission it
 // should be showing; taking it clears both.
 s32 gecinemaWantsFolder(void);
