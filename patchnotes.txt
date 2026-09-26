@@ -45,6 +45,7 @@ GE Plus: the camera, GoldenEye key, covert modem and plastique leave the hand em
 Mods page: after binding a key the row can be selected again, instead of starting the bind prompt over
 GE Plus, HD look: GoldenEye's characters show blood marks where they are shot, and a head shot leaves a smaller wound on any HD head (thanks Glazier)
 GE Plus: the watch looks, scales and works as GoldenEye's, page by page, and on a wide screen the arm and hand stay in view
+GE Plus: a thrown knife flies as GoldenEye's does, and the next one comes up as quickly as in GoldenEye
 GE Plus converts your GoldenEye ROM once more on the next start, for GoldenEye's own mines
 
 notes 4 2026-09-26
