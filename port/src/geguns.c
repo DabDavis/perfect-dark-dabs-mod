@@ -965,9 +965,17 @@ static void gegunsOwnTrigger(s32 i)
 			// GoldenEye throws its knife straight, 25 a sixtieth along the
 			// aim and 5 up (gun.c's generate_player_thrown_knife(),
 			// gegunsThrowSpeed()), not on the combat knife's trajectory to the
-			// aim point at 21.7
+			// aim point at 21.7. And the hand is free again 18 sixtieths after
+			// the knife has gone (THROWKNIFE_RECOVER's 16 and the tick or two
+			// idle before RELOAD_SWAP, measured on the native port) where the
+			// combat knife's recovery is 60 from the start of the throw, the
+			// knife leaving at 15: the next knife came up 40 later than
+			// GoldenEye's
 			if (weaponnum == WEAPON_GE_THROWINGKNIFE && func->type == INVENTORYFUNCTYPE_THROW) {
+				struct weaponfunc_throw *throwfunc = (struct weaponfunc_throw *)func;
+
 				func->flags &= ~FUNCFLAG_CALCULATETRAJECTORY;
+				throwfunc->recoverytime60 = 15 + 18;
 			}
 			break;
 		case WEAPON_GE_GOLDENGUN:
@@ -1723,6 +1731,19 @@ f32 gegunsThrowSpeed(s32 weaponnum, f32 speed)
 }
 
 /**
+ * Whether a reload goes straight to taking the next one up, the hand already
+ * out of view: GoldenEye's throwing knife, whose one-knife clip is only ever
+ * reloaded after a throw, and GoldenEye goes from the follow-through straight
+ * to RELOAD_SWAP (measured on the native port: 17 sixtieths with nothing in
+ * the hand, then 24 raising the knife). Perfect Dark lowered the empty hand
+ * for 15 first.
+ */
+s32 gegunsReloadSkipsLower(s32 weaponnum)
+{
+	return weaponnum == WEAPON_GE_THROWINGKNIFE;
+}
+
+/**
  * A guard's rocket and grenade round, where GoldenEye's own models are drawn:
  * its chraction.c fires PROP_CHRROCKET (202) and PROP_CHRGRENADEROUND (203),
  * where the host's function names Perfect Dark's.
@@ -2271,6 +2292,32 @@ static s32 gegunsOwnThrowKnifeGone(const struct hand *hand)
 	for (s32 i = 0; player && i < 2; i++) {
 		if (hand == &player->hands[i]) {
 			return geThrowStep[i] == GETHROW_RECOVER;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Whether nothing of GoldenEye's own throwing knife is drawn in this hand:
+ * from two sixtieths after the knife has gone until the next is taken up.
+ * GoldenEye clears field_87F then (gunfire.c: an empty magazine on a
+ * SINGLE_USE_RELOAD item), so its follow-through is never seen - on the
+ * native port the hand is gone the second tick after the release and the
+ * screen is empty until the next knife rises. The follow-through pose drew
+ * the empty hand at the bottom of the screen through the recovery.
+ */
+s32 gegunsOwnThrowHidesHand(const struct hand *hand)
+{
+	struct player *player = g_Vars.currentplayer;
+
+	if (!hand || hand->gset.weaponnum != WEAPON_GE_THROWINGKNIFE) {
+		return 0;
+	}
+
+	for (s32 i = 0; player && i < 2; i++) {
+		if (hand == &player->hands[i]) {
+			return geThrowStep[i] == GETHROW_RECOVER && geThrowTime[i] >= 2.0f;
 		}
 	}
 

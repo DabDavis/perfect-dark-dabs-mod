@@ -11266,3 +11266,34 @@ registered in the N64 look (props' Bean meshes draw with F6 on only), so it is
 unchanged there - checked: same position and picture at the tester's spot, and
 floor and wall sticks (level geometry, not props) untouched in both looks.
 `propobj: landed prop moved ...` is logged when it moves one.
+
+### The throwing knife: GoldenEye's knife in the air, and its re-draw (2026-09-26)
+
+Measured on the native port (`~/dam-oracle/geknifetime.py` on 10.8.0.3: per
+frame `hands[0]` state, `field_890`, `field_87E/87F`, magazine and the knife's
+matrix, `gunInitProjectileFromPlayer()`'s launch matrices; `knife.padscript`
+presses Z at 1800; ZERO=1 empties the reserve first) and ours
+(`~/wt/f3-0926d-gadgets-probe/knifet.py`, Dam, trigger on `triggeron`,
+LAUNCH lines from `bgun0f09ebcc()`).
+
+- **In the air**: GoldenEye throws PROP_CHRKNIFE (the hunting knife's
+  model) straight at 25 a sixtieth plus 5 up; the host threw the combat
+  knife at 21.7 on a trajectory. Launch turn and spin constants are the same
+  code in both games; in the camera's space the N64 look's launch is within
+  3 degrees of GoldenEye's, the HD look (host hand) was level and now takes
+  GoldenEye's measured matrix (`gegunsThrowKnifeLaunch()`). It does not stick
+  and settles flat, in either game.
+- **Throw to ready** (sixtieths from the knife leaving the hand): GoldenEye
+  recovers 16, idles a tick or two, RELOAD_SWAP 17-18 with nothing drawn,
+  RELOAD_RAISE 24: ready at 60. **Nothing is drawn from two ticks after the
+  release until the raise** (field_87F: an empty magazine on a
+  SINGLE_USE_RELOAD item). Ours was the combat knife's recovery (60 from the
+  start of the throw, the knife leaving at 15), then a 15-tick lowering of an
+  already lowered hand, swap 17, raise 23: ready at 100. Now recovery 15 + 18,
+  no lowering (`gegunsReloadSkipsLower()`), ready at 58, both looks; the N64
+  look's follow-through is not drawn (`gegunsOwnThrowHidesHand()`).
+- **The last knife**: GoldenEye goes recover 16, idle 2, switch lower 16,
+  swap + hold 8, raise 24 (the next gun drawn 42 after the release, ready at
+  66); ours 18, lower 16, load 18, raise 23 (52, 75). The difference is the
+  weapon change's load phase, which waits for the next gun's model, the same
+  for every weapon change - left as it is.

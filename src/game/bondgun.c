@@ -1759,7 +1759,11 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 	}
 
 	if (hand->stateminor == HANDSTATEMINOR_RELOAD_LOWER) {
-		if (hand->count60 > TICKS(15) || !hand->visible) {
+		if (hand->count60 > TICKS(15) || !hand->visible
+#ifndef PLATFORM_N64
+				|| gegunsReloadSkipsLower(info->weaponnum)
+#endif
+				) {
 			hand->mode = HANDMODE_11;
 			hand->stateminor++; // to HANDSTATEMINOR_RELOAD_SOUND
 			hand->pausetime60 = TICKS(17);
@@ -12613,6 +12617,11 @@ void bgunRender(Gfx **gdlptr)
 			// and GoldenEye's grenade and mines on its own model are not
 			// drawn in the hand at all (geguns.c)
 			if (gegunsOwnModelHidden(weaponnum)) {
+				geshown = true;
+			}
+
+			// nor its throwing knife's empty hand after a throw
+			if (gegunsOwnThrowHidesHand(hand)) {
 				geshown = true;
 			}
 
