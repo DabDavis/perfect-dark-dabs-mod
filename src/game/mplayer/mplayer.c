@@ -40,6 +40,7 @@
 #include "romdata.h"
 #include "modborrow.h"
 #include "modloader.h"
+#include "gedeathcam.h"
 
 // bss
 struct chrdata *g_MpAllChrPtrs[MAX_MPCHRS];
@@ -1815,6 +1816,11 @@ Gfx *mpRenderModalText(Gfx *gdl)
 			&& g_Vars.currentplayer->isdead
 			&& g_Vars.currentplayer->redbloodfinished
 			&& g_Vars.currentplayer->deathanimfinished
+#ifndef PLATFORM_N64
+			// not over GoldenEye's death replay, which a press cuts short
+			// (gedeathcam.c)
+			&& !geDeathCamHolds()
+#endif
 			&& !(g_Vars.coopplayernum >= 0 && ((g_Vars.bond->isdead && g_Vars.coop->isdead) || !g_Vars.currentplayer->coopcanrestart || g_InCutscene))
 			&& !(g_Vars.antiplayernum >= 0 && ((g_Vars.currentplayer != g_Vars.anti || g_InCutscene)))
 			&& g_NumReasonsToEndMpMatch == 0) {

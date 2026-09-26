@@ -2,6 +2,7 @@
 #include "constants.h"
 #ifndef PLATFORM_N64
 #include "geblood.h"
+#include "gedeathcam.h"
 #include "mod.h"
 // a mod with its own hero names another body and head in its code
 #define MOD_PLAYER_BODY modDataPlayerBody(BODY_DARK_COMBAT)
@@ -1632,7 +1633,8 @@ static bool playerWantsThirdPerson(struct player *player)
 #ifdef PLATFORM_N64
 	return false;
 #else
-	return player->thirdperson;
+	// GoldenEye's death replay watches the body fall again (gedeathcam.c)
+	return player->thirdperson || geDeathCamWantsBody(player);
 #endif
 }
 
@@ -5538,15 +5540,28 @@ void playerTick(bool arg0)
 		// and while the player is alive only the position of it does.
 		playerTiltCamera(&spf4, &camup, &camlook);
 
-		if (g_Vars.currentplayer->isdead) {
-			playerDeathCamera(&spf4, &camup, &camlook);
-		} else {
-			playerPullBackCamera(&spf4);
-		}
+#ifndef PLATFORM_N64
+		// GoldenEye's death replay: a camera of its own round the body, in a
+		// room of its own (gedeathcam.c)
+		struct coord deathcamhint;
+		RoomNum deathcamrooms[8];
 
-		player0f0c1840(&spf4, &camup, &camlook,
-				&g_Vars.currentplayer->prop->pos,
-				g_Vars.currentplayer->prop->rooms);
+		if (g_Vars.currentplayer->isdead
+				&& geDeathCamCamera(&spf4, &camup, &camlook, &deathcamhint, deathcamrooms)) {
+			player0f0c1840(&spf4, &camup, &camlook, &deathcamhint, deathcamrooms);
+		} else
+#endif
+		{
+			if (g_Vars.currentplayer->isdead) {
+				playerDeathCamera(&spf4, &camup, &camlook);
+			} else {
+				playerPullBackCamera(&spf4);
+			}
+
+			player0f0c1840(&spf4, &camup, &camlook,
+					&g_Vars.currentplayer->prop->pos,
+					g_Vars.currentplayer->prop->rooms);
+		}
 
 #ifndef PLATFORM_N64
 		// On a level converted from GoldenEye the picture is drawn from the
@@ -6014,6 +6029,9 @@ void playerTick(bool arg0)
 					if (playerIsFadeComplete()) {
 						modRespawnBegin();
 					}
+				} else if (geDeathCamHolds()) {
+					// GoldenEye's death replay first: the mission ends when
+					// its last fade to black does (gedeathcam.c)
 				} else
 #endif
 				{
@@ -6616,7 +6634,12 @@ Gfx *playerRenderHud(Gfx *gdl)
 				playerStartChrFade(120, 0);
 			}
 
-			if (playerIsFadeComplete()) {
+			if (playerIsFadeComplete()
+#ifndef PLATFORM_N64
+					// the respawn waits for GoldenEye's death replay
+					&& !geDeathCamHolds()
+#endif
+					) {
 				bool canrestart = false;
 
 				if (g_Vars.mplayerisrunning) {
@@ -6773,6 +6796,13 @@ Gfx *playerRenderHud(Gfx *gdl)
 						}
 
 #ifndef PLATFORM_N64
+						// the press that cut GoldenEye's death replay short
+						if (geDeathCamTakeRespawn() && !mpIsPaused() && g_NumReasonsToEndMpMatch == 0) {
+							canrestart = true;
+						}
+#endif
+
+#ifndef PLATFORM_N64
 						// You Only Live Twice (GE Plus): twice dead is out
 						if (gexPlusLivesSpent(g_Vars.currentplayer->prop->chr)) {
 							canrestart = false;
@@ -6795,12 +6825,19 @@ Gfx *playerRenderHud(Gfx *gdl)
 		// and GE Plus's watch is GoldenEye's own pause, which takes the sight,
 		// the ammo, the radar and the messages off the screen with it
 		// (gewatch.c, GoldenEye's gunSetSightVisible()/hudmsgsSetOff())
-		const bool cinema = gecinemaIsOn() || gecinemaIntroIsOn() || geWatchIsOpen();
+		// and GoldenEye's death replay is a camera watching the body fall
+		// (gedeathcam.c)
+		const bool cinema = gecinemaIsOn() || gecinemaIntroIsOn() || geWatchIsOpen()
+			|| geDeathCamWantsBody(g_Vars.currentplayer);
+		// and a death on a GE Plus mission takes the gun out of Bond's hands
+		// as he falls, with its sight and its ammo (bondview2.c)
+		const bool nogun = cinema || geDeathCamIsGoldenEye();
 #else
 		const bool cinema = false;
+		const bool nogun = false;
 #endif
 
-		if (!cinema) {
+		if (!nogun) {
 			gdl = bgunDrawSight(gdl);
 		}
 
@@ -6808,7 +6845,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = bviewDrawHorizonScanner(gdl);
 		}
 
-		if (optionsGetAmmoOnScreen(g_Vars.currentplayerstats->mpindex) && !cinema) {
+		if (optionsGetAmmoOnScreen(g_Vars.currentplayerstats->mpindex) && !nogun) {
 			gdl = bgunDrawHud(gdl);
 		}
 
@@ -7706,6 +7743,14 @@ s32 playerTickThirdPerson(struct prop *prop)
 		chr->chrflags |= CHRHFLAG_DROPPINGITEM;
 
 		tickop2 = chrTick(prop);
+
+#ifndef PLATFORM_N64
+		// what GoldenEye's death replay looks at: the body's head, while its
+		// matrices for this frame are still floats (gedeathcam.c)
+		if (playernum == g_Vars.currentplayernum) {
+			geDeathCamSeeHead();
+		}
+#endif
 
 		prop->pos.x = sp80.x;
 		prop->pos.y = sp80.y;
