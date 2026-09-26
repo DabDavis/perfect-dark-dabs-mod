@@ -1,0 +1,54 @@
+# Dab's Mod patch notes: what got fixed, and who reported it.
+#
+# The game shows these on Check for Updates (what an update brings, or what is
+# new in the running build) and, once after an update, on the main menu. The
+# build carries its own copy from when it was configured; the release job
+# uploads this file next to update.txt, and Check for Updates fetches it from
+# there. See port/src/patchnotes.c.
+#
+# HOW TO ADD AN ENTRY (at each merge onto dabs-mod that fixes something):
+#
+#   1. Add a new "notes" line ABOVE the newest entry:
+#          notes <number> <date>
+#      The number is one more than the highest one in the file, the date is
+#      YYYY-MM-DD. A build knows which notes it already has by that number, so
+#      every batch that gets pushed needs its own number. Never renumber, and
+#      never add lines to an entry that has already been pushed: a player who
+#      has that build has seen it, and will not be shown what was added.
+#   2. Under it, one line per fix, in the words a player would use: where it
+#      happens, then what is different now. Short - one line, not a paragraph.
+#          Chicago: the patrol robot's shots no longer freeze in mid-air (thanks Parabolee)
+#   3. Credit the tester with "(thanks Name)" at the end, Name exactly as the
+#      report's "name:" field (or the name they typed into the note) spells
+#      it. A report with no name gets no credit. Never an IP address, a report
+#      stamp or a commit hash - the game drops any line with an IP address in
+#      it, but do not rely on that.
+#   4. One blank line between entries. Lines starting with # are ignored, and
+#      so is anything above the first "notes" line.
+#   5. Plain ASCII only (no curly quotes or dashes: the menu font has none),
+#      and no "|" (the menu uses it to start a heading).
+#
+# CMake reads the newest number when it configures, and configures again by
+# itself when this file changes, so an ordinary rebuild picks up an entry.
+
+notes 1 2026-09-26
+GE Plus: guards in converted missions aim at Bond and can hit him (thanks Odeyseis)
+GE Plus Facility: alerted guards no longer get stuck on the stairs (thanks Odeyseis)
+GE Plus Facility, HD look: bullets go through the gaps in the railings (thanks savantique)
+GE Plus Facility, HD look: scientists' coats no longer show grey flaps (thanks Odeyseis)
+GE Plus, HD look: the door consoles' green and red light works again (thanks Odeyseis)
+GE Plus Surface, HD look: the release's own daytime sky is back (thanks Odeyseis)
+GE Plus Surface II: the fog matches the sky, the white patch by the cabins is gone, and the satellite dish no longer pops in (thanks Odeyseis)
+GE Plus: parked helicopters' rotors turn (thanks Odeyseis)
+GE Plus Cradle: Trevelyan runs his route and falls at the end, so the mission can be finished (thanks LINKmendez)
+GE Plus Egyptian: the fountain no longer makes the rest of the level vanish (thanks LINKmendez)
+GE Plus: automatic guns track and fire again (Egyptian and ten other missions), and the Golden Gun sits in its case (thanks LINKmendez)
+GE Plus Bunker, HD look: the plaques and vents no longer flicker into patches of rock and brick (thanks savantique)
+GE Plus Silo, HD look: the consoles show their screens instead of a spiral (thanks savantique)
+GE Plus: a crash while GoldenEye music played on the folder screens is fixed (thanks savantique)
+Investigation, XBLA look: the wall terminals' screens fit their frames and hold up close (thanks Parabolee)
+Investigation, XBLA look: the SECTOR THREE door lettering shows from a distance instead of popping in (thanks Parabolee)
+Extraction: walls and the bar counter no longer turn see-through, with or without night vision (thanks Parabolee)
+Quick Weapon Swap: the left hand holds two-handed guns after a swap, with no ghost gun flickering (thanks Parabolee)
+New: Mods: Display > Glass See-Through keeps distant windows partly clear instead of black (thanks Parabolee)
+Stage Loader: GoldenEye X maps played without the mod have their own objects, sky and GoldenEye weapon sets again (thanks dblaney1)

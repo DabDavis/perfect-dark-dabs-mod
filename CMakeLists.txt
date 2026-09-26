@@ -157,6 +157,32 @@ message(STATUS "Version: ${VERSION_ROMID}, hash ${VERSION_HASH}, branch ${VERSIO
 
 configure_file("${CMAKE_SOURCE_DIR}/port/include/versioninfo.h.in" "${CMAKE_BINARY_DIR}/port/include/versioninfo.h" @ONLY)
 
+# The patch notes (patchnotes.txt; the top of that file says how to add an
+# entry, port/src/patchnotes.c what the game does with them). The build carries
+# the newest entry's number, which is how it knows what an update would bring
+# that it does not have, and a copy of the whole file, which is how the main
+# menu can say what the update just started brought without asking anything.
+#
+# Unlike the commit hash, a new entry does not need `cmake -B build .` by hand:
+# the file is a configure dependency, so the next build configures again.
+set(PATCHNOTES_FILE "${CMAKE_SOURCE_DIR}/patchnotes.txt")
+set(PATCHNOTES_NUMBER 0)
+set(PATCHNOTES_BYTES "")
+if(EXISTS "${PATCHNOTES_FILE}")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PATCHNOTES_FILE}")
+  file(STRINGS "${PATCHNOTES_FILE}" PATCHNOTES_HEADERS REGEX "^notes +[0-9]+")
+  foreach(PATCHNOTES_LINE IN LISTS PATCHNOTES_HEADERS)
+    string(REGEX MATCH "^notes +([0-9]+)" PATCHNOTES_MATCH "${PATCHNOTES_LINE}")
+    if(CMAKE_MATCH_1 GREATER PATCHNOTES_NUMBER)
+      set(PATCHNOTES_NUMBER "${CMAKE_MATCH_1}")
+    endif()
+  endforeach()
+  file(READ "${PATCHNOTES_FILE}" PATCHNOTES_HEX HEX)
+  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," PATCHNOTES_BYTES "${PATCHNOTES_HEX}")
+endif()
+message(STATUS "Patch notes: newest entry ${PATCHNOTES_NUMBER}")
+configure_file("${CMAKE_SOURCE_DIR}/port/include/patchnotesdata.h.in" "${CMAKE_BINARY_DIR}/port/include/patchnotesdata.h" @ONLY)
+
 set(ASSET_DIR "src/assets/${ROMID}")
 set(GENERATED_DIR "src/generated/${ROMID}")
 

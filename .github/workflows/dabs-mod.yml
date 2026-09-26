@@ -246,6 +246,14 @@ jobs:
           cp ci-artifacts/pd-dabs-mod-x86_64-osx/pd.x86_64           ci-release/pd.x86_64-osx
           cp ci-artifacts/pd-dabs-mod-arm64-osx/pd.arm64             ci-release/pd.arm64-osx
 
+          # The patch notes, beside the manifest. Check for Updates fetches
+          # them after update.txt to show what the release brings; a release
+          # without them is one with nothing to say, so the file is optional
+          # here as it is in the game. See the top of patchnotes.txt.
+          if [ -f patchnotes.txt ]; then
+            cp patchnotes.txt ci-release/patchnotes.txt
+          fi
+
           # The commit the binaries were built from, in the same form CMake put
           # inside them: `git rev-parse --short` picks its own length and both
           # sides have to agree, so both sides ask git rather than cutting a

@@ -27,6 +27,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "input.h"
+#include "patchnotes.h"
 #define MENU_KEYBOARD_ROWS 6
 #else
 #define MENU_KEYBOARD_ROWS 5
@@ -3058,6 +3059,9 @@ char *menuitemScrollableGetText(u32 type)
 	case DESCRIPTION_HOLOTIP2:       return htGetTip2();
 	case DESCRIPTION_DEVICETIP1:     return dtGetTip1();
 	case DESCRIPTION_DEVICETIP2:     return dtGetTip2();
+#ifndef PLATFORM_N64
+	case DESCRIPTION_PATCHNOTES:     return patchnotesGetText();
+#endif
 	}
 
 	return langGet(g_Briefing.briefingtextnum);
@@ -3188,6 +3192,15 @@ bool menuitemScrollableTick(struct menuitem *item, struct menudialog *dialog, st
 {
 	u32 stack;
 
+#ifndef PLATFORM_N64
+	// The patch notes are measured every tick rather than only when the
+	// dialog changes size: Check for Updates can fetch them while the page
+	// is open, and a length measured before that would stop the scroll short
+	// of the end. The renderer wraps the same text every frame already.
+	if (item->param == DESCRIPTION_PATCHNOTES) {
+		data->scrollable.dialogheight = -1;
+	}
+#endif
 #if VERSION >= VERSION_PAL_BETA
 	if ((s16)dialog->height != data->scrollable.dialogheight || data->scrollable.language != g_LanguageId) {
 #else

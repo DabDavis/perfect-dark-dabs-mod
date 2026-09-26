@@ -11,6 +11,7 @@
 #include "lib/vi.h"
 #include <stdlib.h>
 #include "update.h"
+#include "patchnotes.h"
 #include "versioninfo.h"
 
 /**
@@ -146,6 +147,48 @@ static MenuItemHandlerResult menuhandlerUpdateAgain(s32 operation, struct menuit
 }
 
 /**
+ * The patch notes: what the release found brings, or what this build has.
+ *
+ * One row whose text says which, the way the row above says what pressing it
+ * does. The count is how many fixes the release has that this build does not,
+ * which is the number worth seeing before deciding whether to install it.
+ */
+static char *menutextUpdateNotes(struct menuitem *item)
+{
+	static char text[48];
+	s32 count = patchnotesCountForUpdate();
+
+	if (count > 0) {
+		snprintf(text, sizeof(text), "What's in the Update (%d)\n", count);
+		return text;
+	}
+
+	return "What's New in This Build\n";
+}
+
+static MenuItemHandlerResult menuhandlerUpdateNotes(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		patchnotesOpenForUpdate();
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerUpdateNotesPopup(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return patchnotesPopupIsEnabled();
+	case MENUOP_SET:
+		patchnotesPopupSetEnabled(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * A bar for the download, drawn rather than written.
  *
  * Sixteen megabytes on a slow line is long enough that a number changing once
@@ -259,6 +302,32 @@ struct menuitem g_UpdateMenuItems[] = {
 		(uintptr_t)&menutextUpdateAgain,
 		0,
 		menuhandlerUpdateAgain,
+	},
+	{
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		0,
+		(uintptr_t)&menutextUpdateNotes,
+		0,
+		menuhandlerUpdateNotes,
+	},
+	{
+		// Mod.PatchNotesPopup. Here rather than on an options page because
+		// this is where a player looking at patch notes already is.
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Show What's New After Updating",
+		0,
+		menuhandlerUpdateNotesPopup,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
