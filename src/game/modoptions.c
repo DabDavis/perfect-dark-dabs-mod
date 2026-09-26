@@ -84,6 +84,7 @@ struct modoptions g_ModOptions = {
 	false,                    // quickweaponswap: stock's put-away and draw on every switch
 	false,                    // nofog: every level's own fog
 	0,                        // glassseethrough: stock's windows, opaque past their fade distance
+	false,                    // decalclip: stock's marks, whole however far they hang over an edge
 };
 
 /**
@@ -572,6 +573,18 @@ s32 modGetGlassSeeThrough(void)
 	}
 
 	return value;
+}
+
+/**
+ * Clip Decals at Edges (Dab's Display page): a blood splat, bullet hole or
+ * scorch mark on a room is cut down to the triangles lying in its plane, so
+ * none of it hangs in the air past a ledge, a table's edge or a doorway
+ * (port/src/wallhitclip.c). Stock draws each as a whole quad the size of the
+ * mark. Live: a mark made while it was off is clipped once it is turned on.
+ */
+bool modIsDecalClipOn(void)
+{
+	return g_ModOptions.decalclip != 0;
 }
 
 /**

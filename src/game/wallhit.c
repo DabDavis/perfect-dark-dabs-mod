@@ -17,6 +17,9 @@
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "wallhitclip.h"
+#endif
 
 #define WALLHITTYPE_SOFT   0
 #define WALLHITTYPE_BULLET 1
@@ -561,6 +564,10 @@ void wallhitsTick(void)
 						wallhit->vertices2[j2].colour = wallhit->vertices[j].colour;
 					}
 
+#ifndef PLATFORM_N64
+					wallhitClipSetScale(wallhit, 0.2f + f30);
+#endif
+
 					f24 *= 2.0f;
 
 					if (f24 > 1.0f) {
@@ -599,6 +606,10 @@ void wallhitsTick(void)
 		}
 
 		wallhit->unk6f_05 = true;
+
+#ifndef PLATFORM_N64
+		wallhitClipTick(wallhit);
+#endif
 	}
 }
 
@@ -1031,6 +1042,10 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 		wallhit->createdframe = g_Vars.lvframenum;
 		wallhit->unk6f_05 = false;
 
+#ifndef PLATFORM_N64
+		wallhitClipBegin(wallhit);
+#endif
+
 		for (i = 0; i < ARRAYCOUNT(sp17c); i++) {
 			struct coord sp58;
 			s16 x;
@@ -1241,13 +1256,18 @@ Gfx *wallhitRenderOpaBgHits(s32 roomnum, Gfx *gdl)
 
 			gSPColor(gdl++, osVirtualToPhysical(colours), 4);
 
-			if (wallhit->vertices2 != NULL) {
-				gSPVertex(gdl++, wallhit->vertices2, 4, 0);
-			} else {
-				gSPVertex(gdl++, osVirtualToPhysical(&wallhit->vertices), 4, 0);
-			}
+#ifndef PLATFORM_N64
+			if (!wallhitClipRender(&gdl, wallhit))
+#endif
+			{
+				if (wallhit->vertices2 != NULL) {
+					gSPVertex(gdl++, wallhit->vertices2, 4, 0);
+				} else {
+					gSPVertex(gdl++, osVirtualToPhysical(&wallhit->vertices), 4, 0);
+				}
 
-			gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
+				gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
+			}
 		}
 
 		wallhit = wallhit->localnext;
@@ -1299,13 +1319,18 @@ Gfx *wallhitRenderXluBgHits(s32 roomnum, Gfx *gdl)
 
 			gSPColor(gdl++, osVirtualToPhysical(colours), 4);
 
-			if (wallhit->vertices2 != NULL) {
-				gSPVertex(gdl++, wallhit->vertices2, 4, 0);
-			} else {
-				gSPVertex(gdl++, osVirtualToPhysical(&wallhit->vertices), 4, 0);
-			}
+#ifndef PLATFORM_N64
+			if (!wallhitClipRender(&gdl, wallhit))
+#endif
+			{
+				if (wallhit->vertices2 != NULL) {
+					gSPVertex(gdl++, wallhit->vertices2, 4, 0);
+				} else {
+					gSPVertex(gdl++, osVirtualToPhysical(&wallhit->vertices), 4, 0);
+				}
 
-			gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
+				gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
+			}
 		}
 
 		wallhit = wallhit->localnext;
