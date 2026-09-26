@@ -19,6 +19,12 @@
 // how far the conversion can move a floor off GoldenEye's: one rounding to a
 // whole world unit (tools/geconvert/geconvert.py, write_tiles()/write_stan())
 #define GEROOM_FLOOR_ROUNDING 0.5f
+// geRoomDoorSideRooms(): where the floor either side of a door is sampled, past
+// the leaf's face - near, and a body's width out - and how far under the leaf's
+// foot the floor may sit and still be the one it stands on
+#define GEROOM_DOORSIDE_NEAR 20.0f
+#define GEROOM_DOORSIDE_FAR  60.0f
+#define GEROOM_DOORSIDE_SINK 40.0f
 
 s32 geRoomActive(void)
 {
@@ -256,6 +262,97 @@ s32 geRoomCutsceneCamera(struct coord *campos, struct coord *padpos, s32 padroom
 	}
 
 	return geRoomCamera(campos, ground, room);
+}
+
+/** Adds `room` to a prop's list unless it is there or the list is full; deregisters first on the first change. */
+static bool geRoomPropAdd(struct prop *prop, s32 room, bool *changed)
+{
+	s32 i;
+
+	if (room < 0 || room >= g_Vars.roomcount) {
+		return false;
+	}
+
+	for (i = 0; i < 7 && prop->rooms[i] != -1 && prop->rooms[i] != room; i++);
+
+	// already there, or the list is full
+	if (i >= 7 || prop->rooms[i] != -1) {
+		return false;
+	}
+
+	if (!*changed) {
+		propDeregisterRooms(prop);
+		*changed = true;
+	}
+
+	prop->rooms[i] = room;
+	prop->rooms[i + 1] = -1;
+
+	return true;
+}
+
+void geRoomDoorSideRooms(struct prop *prop, struct pad *pad)
+{
+	// the pad's box is along its normal (x), up (y) and look (z); a door leaf
+	// is thin along one of them, and that is the way through it
+	const f32 ext[3] = {
+		pad->bbox.xmax - pad->bbox.xmin,
+		pad->bbox.ymax - pad->bbox.ymin,
+		pad->bbox.zmax - pad->bbox.zmin,
+	};
+	const struct coord *axes[3] = { &pad->normal, &pad->up, &pad->look };
+	const RoomNum was = prop->rooms[0];
+	bool changed = false;
+	s32 thin = 0;
+	f32 bottom = 1e30f;
+	s32 i, side, step;
+
+	for (i = 1; i < 3; i++) {
+		if (ext[i] < ext[thin]) {
+			thin = i;
+		}
+	}
+
+	// a door lying flat (Surface's grate, Train's floor panel) has floors
+	// above and below it, not beside it
+	if (axes[thin]->y > 0.7f || axes[thin]->y < -0.7f) {
+		return;
+	}
+
+	// the leaf's lowest corner, where the floor either side of it is
+	for (i = 0; i < 8; i++) {
+		const f32 a = (i & 1) ? pad->bbox.xmax : pad->bbox.xmin;
+		const f32 b = (i & 2) ? pad->bbox.ymax : pad->bbox.ymin;
+		const f32 c = (i & 4) ? pad->bbox.zmax : pad->bbox.zmin;
+		const f32 y = pad->pos.y + a * pad->normal.y + b * pad->up.y + c * pad->look.y;
+
+		if (y < bottom) {
+			bottom = y;
+		}
+	}
+
+	for (side = -1; side <= 1; side += 2) {
+		for (step = 0; step < 2; step++) {
+			const f32 dist = ext[thin] * 0.5f + (step ? GEROOM_DOORSIDE_FAR : GEROOM_DOORSIDE_NEAR);
+			struct coord pt;
+			s32 room;
+
+			pt.x = prop->pos.x + axes[thin]->x * dist * side;
+			pt.y = bottom;
+			pt.z = prop->pos.z + axes[thin]->z * dist * side;
+
+			room = geStanRoomUnder(&pt, bottom + GEROOM_DOORSIDE_SINK, -1);
+
+			if (geRoomPropAdd(prop, room, &changed)) {
+				sysLogPrintf(LOG_NOTE, "gexplus: door on pad %d also in room %d, the floor beside it (it was room %d's)",
+						prop->door ? prop->door->base.pad : -1, room, was);
+			}
+		}
+	}
+
+	if (changed) {
+		propRegisterRooms(prop);
+	}
 }
 
 void geRoomDoorPortalRooms(struct prop *prop, s32 portalnum)

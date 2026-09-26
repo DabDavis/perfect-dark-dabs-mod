@@ -1309,6 +1309,13 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 #endif
 		}
 
+#ifndef PLATFORM_N64
+		// and in the rooms of the floor either side of it, portal or none
+		if (prop && geRoomActive()) {
+			geRoomDoorSideRooms(prop, &pad);
+		}
+#endif
+
 		if (door->base.model) {
 			scale = xscale;
 
