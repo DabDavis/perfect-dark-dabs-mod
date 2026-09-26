@@ -54,10 +54,12 @@
  * eleven items: the six with nothing in the hand share two, and the mission
  * says which each is (g_Identities, the conversion's GE_GADGET_WEAPON).
  *
- * What is drawn in the hand is GoldenEye's own first person model out of the
- * ROM (the conversion's Igx%03dZ, by GoldenEye's item number), in place of the
- * host's: on the host's own root matrix, so it rises, lowers and sways as the
- * host does, moved to where GoldenEye's own weapon stats hold it.
+ * In the hand GoldenEye draws none of them but the watch's detonator (the
+ * rest carry WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND, as the mines do): that
+ * is GoldenEye's own first person model out of the ROM (the conversion's
+ * Igx%03dZ, by GoldenEye's item number), in place of the host's, on the
+ * host's own root matrix, so it rises, lowers and sways as the host does,
+ * moved to where GoldenEye's own weapon stats hold it.
  */
 
 struct gegadgetidentity {
@@ -110,33 +112,27 @@ static struct gegadgetidentity g_Identities[] = {
 #define GESFX_CAMERA_CLICK 244
 #define GESFX_KEY_ANALYSER 245
 
-// Where the middle of each stands in the hand, in the camera's space.
-// GoldenEye holds these with a hand animation playing (gunfire.c's field_8EC),
-// and the model's own origin is a long way from the thing itself - the covert
-// modem hangs thirty units under it - so its WeaponStats position places
-// nothing without that animation. The model is measured instead and its middle
-// put here, low and to the right where GoldenEye shows it.
-// The models are authored at sizes of their own as well (GoldenEye scales each
-// in the hand; the plastique is twice the modem and the watch arm six times the
-// camera at the host's scale), so each is brought to a width across the screen.
-//
-// A width of 0 is a model GoldenEye holds with no animation, which is posed as
-// GoldenEye poses it instead: at its own size, turned by `turn` (radians,
-// gunfire.c's own for it) and its root at `pos`, its WeaponStats PosX/Y/Z.
+// A model GoldenEye holds with no animation, posed as GoldenEye poses it: at
+// its own size, turned by `turn` (radians, gunfire.c's own for it) and its
+// root at `pos`, its WeaponStats PosX/Y/Z.
 struct gegadgethand {
 	u8 weaponnum;
 	f32 pos[3];
-	f32 width;
 	f32 turn[3];
 };
 
+/**
+ * The gadgets GoldenEye draws in the hand: the watch's detonator alone. The
+ * covert modem (ITEM_BUG), the plastique, the GoldenEye key and the camera
+ * carry WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND like the mines, and the
+ * native port draws nothing of any of them 150 frames after each is equipped
+ * (field_87F 0; ~/dam-oracle/gegadgethand.py on 10.8.0.3). Their models had
+ * been measured and held low on the right like a gun (F3 20260926-172234,
+ * Bunker: "camera and goldeneye key appears in front of the player").
+ */
 static const struct gegadgethand g_Hands[] = {
-	{ WEAPON_GE_COVERTMODEM,  { 11.0f, -10.5f, -30.0f }, 17.0f },
-	{ WEAPON_GE_PLASTIQUE,    { 11.0f, -11.5f, -30.0f }, 19.0f },
-	{ WEAPON_GE_GOLDENEYEKEY, { 11.0f, -10.5f, -30.0f }, 14.0f },
-	{ WEAPON_GE_CAMERA,       { 11.0f, -10.0f, -30.0f }, 14.0f },
 	// trigger_stats, and gunfire.c's D_80035C70 for ITEM_TRIGGER
-	{ WEAPON_GE_DETONATOR,    { -2.0f, -21.5f, -19.0f }, 0.0f, { 6.2536321f, 6.2592888f, 0.204238f } },
+	{ WEAPON_GE_DETONATOR,    { -2.0f, -21.5f, -19.0f }, { 6.2536321f, 6.2592888f, 0.204238f } },
 };
 
 #define GADGET_RWDATA_MAX 1024
@@ -178,10 +174,7 @@ static struct {
 	u32 rwdata[GADGET_RWDATA_MAX];
 	s32 photo;         // the camera's trigger was pulled: judged in the render
 	struct prop *keyprop; // the GoldenEye key's own prop, while it is carried
-	s32 centreitem;    // the item `centre` was measured on
-	f32 centre[3];     // the model's middle from its root, in the camera's space
-	f32 size[3];
-} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .centreitem = -1, .flashframe = -1 };
+} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .flashframe = -1 };
 
 s32 gegadgetsIsGadget(s32 weaponnum)
 {
@@ -356,85 +349,6 @@ static s32 gegadgetsLoadModel(s32 item)
 	return 1;
 }
 
-static struct modelnode *gegadgetsNextNode(struct modelnode *node)
-{
-	if (node->child) {
-		return node->child;
-	}
-
-	while (node && !node->next) {
-		node = node->parent;
-	}
-
-	return node ? node->next : NULL;
-}
-
-/**
- * The middle of everything the posed model draws, from its root: once a model,
- * on the first frame it is posed. `--gadget-measure` says what it found.
- */
-static void gegadgetsMeasure(void)
-{
-	f32 min[3] = { 1e9f, 1e9f, 1e9f };
-	f32 max[3] = { -1e9f, -1e9f, -1e9f };
-	s32 any = 0;
-
-	for (struct modelnode *node = g_Gadgets.def->rootnode; node; node = gegadgetsNextNode(node)) {
-		const Mtxf *mtx;
-		struct modelnode *up;
-		s32 index = 0;
-
-		if ((node->type & 0xff) != MODELNODETYPE_DL || !node->rodata || !node->rodata->dl.vertices) {
-			continue;
-		}
-
-		for (up = node->parent; up; up = up->parent) {
-			if ((up->type & 0xff) == MODELNODETYPE_POSITION) {
-				index = up->rodata->position.mtxindex0;
-				break;
-			}
-
-			if ((up->type & 0xff) == MODELNODETYPE_POSITIONHELD) {
-				index = up->rodata->positionheld.mtxindex;
-				break;
-			}
-		}
-
-		if (index < 0 || index >= g_Gadgets.def->nummatrices) {
-			continue;
-		}
-
-		mtx = &g_Gadgets.model.matrices[index];
-
-		for (s32 i = 0; i < node->rodata->dl.numvertices; i++) {
-			const Vtx *v = &node->rodata->dl.vertices[i];
-			const f32 in[3] = { v->x, v->y, v->z };
-
-			for (s32 a = 0; a < 3; a++) {
-				const f32 out = in[0] * mtx->m[0][a] + in[1] * mtx->m[1][a] + in[2] * mtx->m[2][a] + mtx->m[3][a];
-
-				if (out < min[a]) min[a] = out;
-				if (out > max[a]) max[a] = out;
-			}
-
-			any = 1;
-		}
-	}
-
-	for (s32 a = 0; a < 3; a++) {
-		g_Gadgets.centre[a] = any ? (min[a] + max[a]) * 0.5f : 0.0f;
-		g_Gadgets.size[a] = any ? max[a] - min[a] : 0.0f;
-	}
-
-	g_Gadgets.centreitem = g_Gadgets.item;
-
-	if (sysArgCheck("--gadget-measure")) {
-		sysLogPrintf(LOG_NOTE, "gadget: item %d middle %.1f %.1f %.1f size %.1f %.1f %.1f from its root",
-				g_Gadgets.item, g_Gadgets.centre[0], g_Gadgets.centre[1], g_Gadgets.centre[2],
-				g_Gadgets.size[0], g_Gadgets.size[1], g_Gadgets.size[2]);
-	}
-}
-
 /** The detonator's cuff for the player's outfit, before its matrices are set. */
 static void gegadgetsDetonatorCuff(void)
 {
@@ -512,7 +426,6 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	s32 watch;
 	Mtxf base;
 	Mtxf *matrices;
-	f32 fit = 1.0f;
 	s32 item;
 
 	if (!gegadgetsIsGadget(weaponnum) && !watchlaser) {
@@ -532,13 +445,13 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 		}
 	}
 
-	// the six GoldenEye gives no model, and the watch magnet, whose
-	// watchmagnetattract_stats carry WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND
-	// (gunfire.c then leaves field_87F clear and draws nothing): an empty
-	// hand, as it has it. Measured and fitted to a width, the magnet's watch
+	// the six GoldenEye gives no model, and the rest but the detonator,
+	// whose stats carry WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND (gunfire.c
+	// then leaves field_87F clear and draws nothing): an empty hand, as it
+	// has it (g_Hands). Measured and fitted to a width, the magnet's watch
 	// arm (GwatchmagnetattractZ) was a giant watch floating at the lower
-	// right (F3 20260922-000405); the native port shows nothing in the hand
-	// 30, 90 and 200 frames after equipping it, attract or repel.
+	// right (F3 20260922-000405), and the camera and the GoldenEye key were
+	// held like guns (F3 20260926-172234).
 	if (!held) {
 		return 1;
 	}
@@ -561,7 +474,7 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	base.m[3][1] = 0.0f;
 	base.m[3][2] = 0.0f;
 
-	if (held->width <= 0.0f) {
+	{
 		// GoldenEye's own turn, under whatever the host's root turns by (the
 		// sway of a walk): its gunmtx is the look times this, at the size
 		// the host is drawn at, which is GoldenEye's own (0.1 a unit)
@@ -572,14 +485,6 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 		mtx4LoadRotation(&turn, &rot);
 		mtx4MultMtx4(&base, &rot, &out);
 		mtx4Copy(&out, &base);
-	} else if (g_Gadgets.centreitem == item && g_Gadgets.size[0] > 0.0f) {
-		fit = held->width / g_Gadgets.size[0];
-
-		for (s32 r = 0; r < 3; r++) {
-			for (s32 c = 0; c < 3; c++) {
-				base.m[r][c] *= fit;
-			}
-		}
 	}
 
 	matrices = gfxAllocate(g_Gadgets.def->nummatrices * sizeof(Mtxf));
@@ -611,25 +516,12 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 			gegadgetsDetonatorPress(matrices);
 		}
 
-		if (held->width > 0.0f && g_Gadgets.centreitem != g_Gadgets.item) {
-			// the first frame of a model: measured at the host's own size,
-			// and drawn from the next frame on, once it has a size of its own
-			gegadgetsMeasure();
-			modelSetDistanceChecksDisabled(false);
-			renderdata->unk00 = prevbase;
-			renderdata->unk10 = prevmatrices;
-			mtxF2LBulk(matrices, g_Gadgets.def->nummatrices);
-
-			return 1;
-		}
-
-		// its middle to its place, and with it whatever the host's own root
+		// its root to its place, and with it whatever the host's own root
 		// has moved from where the host is held: the rise and fall of an
 		// equip, and the sway of a walk
 		for (s32 a = 0; a < 3; a++) {
 			const f32 hostrest = a == 0 ? host->posx : (a == 1 ? host->posy : host->posz);
-			const f32 middle = held->width > 0.0f ? g_Gadgets.centre[a] * fit : 0.0f;
-			const f32 shift = held->pos[a] - middle + hostmodel->matrices[0].m[3][a] - hostrest;
+			const f32 shift = held->pos[a] + hostmodel->matrices[0].m[3][a] - hostrest;
 
 			for (s32 i = 0; i < g_Gadgets.def->nummatrices; i++) {
 				matrices[i].m[3][a] += shift;
