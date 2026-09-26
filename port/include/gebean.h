@@ -182,6 +182,12 @@ s32 gebeanListLoadedMatrix(const struct modelnode *node);
 s32 gebeanListVertexMatrices(const struct modelnode *node, const u8 *filebase, s16 *vtxmtx, s32 numvertices);
 s32 gebeanIsPoolRow(s32 headorbodynum);
 
+/**
+ * Whether a head or body row is the pool's filled from the ROM's conversion
+ * instead (no release present): GoldenEye's own N64 model, no mesh over it.
+ */
+s32 gebeanIsRomPoolRow(s32 headorbodynum);
+
 // The pool's body or head for one of GoldenEye's characters by its Bean source
 // ("char/oliveguard"), or -1 when the pool is not Bean's.
 s32 gebeanPoolNumBySource(const char *source);

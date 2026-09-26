@@ -527,6 +527,12 @@ s32 headfitWanted(s32 headnum, s32 bodynum)
 		return 0;
 	}
 
+	// and the same two in the Combat Simulator, from the ROM with no release
+	// (gebean.c's pool filled from the conversion)
+	if (gebeanIsRomPoolRow(headnum) && gebeanIsRomPoolRow(bodynum)) {
+		return 0;
+	}
+
 	// The ROM's own pairs of one type: the game's answer
 	if (g_HeadsAndBodies[headnum].type == g_HeadsAndBodies[bodynum].type
 			&& romdataFileIsStock(g_HeadsAndBodies[headnum].filenum)

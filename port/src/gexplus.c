@@ -525,33 +525,26 @@ static struct geromrow g_GeRomRows[GEROM_MAX_ROWS];
 static s32 g_GeRomNumRows;
 
 /**
- * menu/gechrs.bin for the mod a stage belongs to, once.
+ * A conversion's menu/gechrs.bin into `out`: how many characters it holds, or 0
+ * where it has none. `out` is cleared first, so a row the file skips reads as
+ * a character with no flags.
  */
-static s32 geRomLoadTable(s32 stagenum)
+static s32 geRomReadTable(const char *dir, struct geromchr *out, s32 warn)
 {
-	const s32 moddir = modloaderGetStageModDirIndex(stagenum);
-	const char *dir = modloaderGetStageModDir(stagenum);
 	char path[FS_MAXPATH + 1];
 	u32 len = 0;
 	u8 *d;
 	s32 numchrs;
 
-	if (moddir < 0 || !dir) {
-		return 0;
-	}
-
-	if (g_GeRomTableModDir == moddir) {
-		return g_GeRomNumChrs > 0;
-	}
-
-	g_GeRomTableModDir = moddir;
-	g_GeRomNumChrs = 0;
-
+	memset(out, 0, sizeof(struct geromchr) * GEROM_NUM_CHRS);
 	snprintf(path, sizeof(path), "%s/menu/gechrs.bin", dir);
 	d = fsFileLoad(path, &len);
 
 	if (!d || len < 8 || memcmp(d, "GEC1", 4)) {
-		sysLogPrintf(LOG_WARNING, "gexplus: the conversion has no characters at %s", path);
+		if (warn) {
+			sysLogPrintf(LOG_WARNING, "gexplus: the conversion has no characters at %s", path);
+		}
+
 		sysMemFree(d);
 		return 0;
 	}
@@ -575,14 +568,44 @@ static s32 geRomLoadTable(s32 stagenum)
 			continue;
 		}
 
-		g_GeRomChrs[i].flags = row[3];
+		out[i].flags = row[3];
 		bits = ((u32)row[4] << 24) | (row[5] << 16) | (row[6] << 8) | row[7];
-		memcpy(&g_GeRomChrs[i].scale, &bits, sizeof(f32));
+		memcpy(&out[i].scale, &bits, sizeof(f32));
 		bits = ((u32)row[8] << 24) | (row[9] << 16) | (row[10] << 8) | row[11];
-		memcpy(&g_GeRomChrs[i].pov, &bits, sizeof(f32));
+		memcpy(&out[i].pov, &bits, sizeof(f32));
 	}
 
 	sysMemFree(d);
+
+	return numchrs;
+}
+
+/**
+ * menu/gechrs.bin for the mod a stage belongs to, once.
+ */
+static s32 geRomLoadTable(s32 stagenum)
+{
+	const s32 moddir = modloaderGetStageModDirIndex(stagenum);
+	const char *dir = modloaderGetStageModDir(stagenum);
+	s32 numchrs;
+
+	if (moddir < 0 || !dir) {
+		return 0;
+	}
+
+	if (g_GeRomTableModDir == moddir) {
+		return g_GeRomNumChrs > 0;
+	}
+
+	g_GeRomTableModDir = moddir;
+	g_GeRomNumChrs = 0;
+
+	numchrs = geRomReadTable(dir, g_GeRomChrs, 1);
+
+	if (numchrs <= 0) {
+		return 0;
+	}
+
 	g_GeRomNumChrs = numchrs;
 
 	return 1;
@@ -606,6 +629,34 @@ static void geRomReleaseRows(void)
 }
 
 /**
+ * A row of g_HeadsAndBodies as GoldenEye's character `c`, whose model is file
+ * `fileid`. It starts as one of Perfect Dark's own - the dataDyne guard for a
+ * man, the Institute's female technician for a woman, a stock head for a head -
+ * with the model file and the two scales replaced: the rest of a row is what
+ * the game asks of any body (its race, its hands, whether its height varies)
+ * and a converted character answers the same way.
+ */
+static void geRomFillRow(struct headorbody *hb, const struct geromchr *c, s32 ishead, s32 fileid)
+{
+	const struct headorbody *host = &g_HeadsAndBodies[ishead
+			? ((c->flags & GEROM_MALE) ? HEAD_JAMIE : HEAD_ANKA)
+			: ((c->flags & GEROM_MALE) ? BODY_DD_GUARD : BODY_CIFEMTECH)];
+
+	*hb = *host;
+	hb->filenum = (u16)fileid;
+	hb->modeldef = NULL;
+	hb->scale = c->scale;
+	hb->animscale = c->pov;
+	hb->ismale = (c->flags & GEROM_MALE) != 0;
+	// GoldenEye's own hasHead, which its retrieve_header_for_body_and_head()
+	// tests before it looks for a head at all
+	hb->unk00_01 = (c->flags & GEROM_HASHEAD) != 0;
+	// a guard is the height GoldenEye modelled it at: nothing in its own
+	// makeonebody() varies one
+	hb->canvaryheight = 0;
+}
+
+/**
  * The row GoldenEye's character `num` wears in this mission, taking one and
  * filling it out of the ROM's own table the first time it is asked for. -1
  * where there is no row left to take, or no such character.
@@ -613,20 +664,13 @@ static void geRomReleaseRows(void)
  * `ownhead` is the row of the head a body is to wear where a record named one,
  * and -1 where it takes the pool's - a body wanted both ways takes a row each
  * way, so that Facility's fifteen scientists still get GoldenEye's own faces
- * while Doctor Doak, who is the same body, keeps his.
- *
- * A row starts as one of Perfect Dark's own - the dataDyne guard for a man, the
- * Institute's female technician for a woman, a stock head for a head - with the
- * model file and the two scales replaced: the rest of a row is what the game
- * asks of any body (its race, its hands, whether its height varies) and a
- * converted character answers the same way.
+ * while Doctor Doak, who is the same body, keeps his. The row is filled by
+ * geRomFillRow().
  */
 static s32 geRomTake(s32 num, s32 ownhead)
 {
 	const s32 ishead = GEROM_IS_HEAD(num);
 	char name[16];
-	struct headorbody *hb;
-	const struct headorbody *host;
 	s32 row = -1;
 	s32 fileid;
 
@@ -675,22 +719,7 @@ static s32 geRomTake(s32 num, s32 ownhead)
 		return -1;
 	}
 
-	host = &g_HeadsAndBodies[ishead
-			? ((g_GeRomChrs[num].flags & GEROM_MALE) ? HEAD_JAMIE : HEAD_ANKA)
-			: ((g_GeRomChrs[num].flags & GEROM_MALE) ? BODY_DD_GUARD : BODY_CIFEMTECH)];
-	hb = &g_HeadsAndBodies[row];
-	*hb = *host;
-	hb->filenum = (u16)fileid;
-	hb->modeldef = NULL;
-	hb->scale = g_GeRomChrs[num].scale;
-	hb->animscale = g_GeRomChrs[num].pov;
-	hb->ismale = (g_GeRomChrs[num].flags & GEROM_MALE) != 0;
-	// GoldenEye's own hasHead, which its retrieve_header_for_body_and_head()
-	// tests before it looks for a head at all
-	hb->unk00_01 = (g_GeRomChrs[num].flags & GEROM_HASHEAD) != 0;
-	// a guard is the height GoldenEye modelled it at: nothing in its own
-	// makeonebody() varies one
-	hb->canvaryheight = 0;
+	geRomFillRow(&g_HeadsAndBodies[row], &g_GeRomChrs[num], ishead, fileid);
 
 	// in a crash report's log ring, which is where the question "what was that
 	// chr wearing" gets asked
@@ -812,6 +841,93 @@ s32 gexPlusRomIsPoolRow(s32 num)
 	}
 
 	return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * GoldenEye's own characters in the Combat Simulator's lists
+ * ------------------------------------------------------------------------- */
+
+/**
+ * With no XBLA release to dress the Combat Simulator's GoldenEye characters
+ * (gebean.c's pool), they are the conversion's own models - GoldenEye's N64
+ * characters, the ones its missions wear. The table is read into a copy of its
+ * own, so a mission's (g_GeRomChrs, keyed by the stage's mod) is never moved
+ * under it, and the conversion is found as the gun models are
+ * (gegunsFindConverted()): the mounted directory that holds the table.
+ */
+static struct geromchr g_GeRomMpChrs[GEROM_NUM_CHRS];
+static s32 g_GeRomMpNumChrs;
+static s32 g_GeRomMpDir = -1;
+
+s32 gexPlusRomMpBegin(void)
+{
+	const s32 numdirs = fsGetNumModDirs();
+
+	g_GeRomMpDir = -1;
+	g_GeRomMpNumChrs = 0;
+
+	for (s32 i = 0; i < numdirs; i++) {
+		const char *at = fsGetModDirAt(i);
+		char path[FS_MAXPATH + 1];
+		s32 n;
+
+		if (!at) {
+			continue;
+		}
+
+		// the first body is the conversion's marker, as the PP7 is the guns'
+		snprintf(path, sizeof(path), "%s/files/Cgx000Z", at);
+
+		if (fsFileSize(path) <= 0) {
+			continue;
+		}
+
+		n = geRomReadTable(at, g_GeRomMpChrs, 0);
+
+		if (n > 0) {
+			g_GeRomMpDir = i;
+			g_GeRomMpNumChrs = n;
+			break;
+		}
+	}
+
+	return g_GeRomMpNumChrs;
+}
+
+s32 gexPlusRomMpFill(s32 num, struct headorbody *hb)
+{
+	char name[16];
+	char path[FS_MAXPATH + 1];
+	s32 fileid;
+
+	if (g_GeRomMpDir < 0 || num < 0 || num >= g_GeRomMpNumChrs || !fsGetModDirAt(g_GeRomMpDir)) {
+		return 0;
+	}
+
+	snprintf(name, sizeof(name), "Cgx%03dZ", num);
+	snprintf(path, sizeof(path), "%s/files/%s", fsGetModDirAt(g_GeRomMpDir), name);
+
+	// a name the conversion did not write would take a slot all the same, and
+	// fail only when a match loads it
+	if (fsFileSize(path) <= 0) {
+		return 0;
+	}
+
+	fileid = romdataRegisterModFile(name, g_GeRomMpDir);
+
+	if (fileid <= 0) {
+		return 0;
+	}
+
+	geRomFillRow(hb, &g_GeRomMpChrs[num], GEROM_IS_HEAD(num), fileid);
+
+	// GoldenEye seats any of its heads on any of its bodies as they are: one
+	// type for them all, so the ROM's type table moves none of them
+	// (bodyCalculateHeadOffset()), where a man's head on a woman's body would
+	// otherwise take the host's male-on-female offset
+	hb->type = HEADBODYTYPE_DEFAULT;
+
+	return fileid;
 }
 
 /**
