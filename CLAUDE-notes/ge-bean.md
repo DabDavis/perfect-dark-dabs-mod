@@ -10924,11 +10924,17 @@ stages boot the same Bean files: Dam 0x15, Archives 0x65, Jungle 0x62).
   drawn in the release's blended pass (render states 0x48 6 / 0x4c 7 = source
   alpha, one minus). `triFades()` only looked at pictures with alpha. Each
   level vertex now carries its draw's `blend` flag (`gebeanlevelvtx.blend`),
-  and a blended picture that **fades out** - some vertex under 0x10,
-  `texBlendFadesOut[]` - goes to the translucent leaf. Egyptian's pool (tex
-  13, opaque blue at 63-128 everywhere, same blend) is the one other case on
-  the twenty missions and stays opaque on purpose: faithful, it is a quarter
-  there and reads as no water.
+  and every triangle of the blended pass with a vertex under FADE_ALPHA is
+  translucent, as the release draws it. **The user chose "match release"
+  (2026-09-26)**, so an exception that kept Egyptian's evenly-blended pool
+  (tex 13, 63-128 all over) opaque was reverted: the pool is a quarter to a
+  half there over its floor, as in the release. A shot of every such picture
+  on the eleven levels that have one (`mkviews.py` + `views.py` + `sheet.sh`
+  in the rig, `sheet_bl_*.jpg` in the pictures) found the rest to be painted
+  markings and stencils - Dam's hazard stripes and "CTO", Runway's and
+  Aztec's road lines, Caverns' "3" and hazard bands, Silo's and Depot's
+  floor marks - now half-faded, worn paint; a stencil's black box is a
+  translucent dark box where it was solid black. Nothing else changed.
 - **Dam's wall terminal half grey (20260926-093826).** Not the placeholder
   card (e72e2dffa dropped that): `prop/modembox` has the back of its recess
   as a metal quad 0.19 units in front of GoldenEye's screen quad (400
@@ -10953,12 +10959,17 @@ stages boot the same Bean files: Dam 0x15, Archives 0x65, Jungle 0x62).
   change.
 - **Magenta bushes (seen in 20260926-101852).** Rare's stand-in for missing
   art: flat 16x16 magenta pictures, sampled by the release too. Jungle 39/40
-  (56 frond clusters by the spawn), Aztec 29/47/53/54/55, Depot 76/77.
-  `beanBindTexture()` paints one (`beanTexIsPlaceholder()`) the mean opaque
-  colour of the pictures its neighbouring draws use under the same vertex
-  shader (`beandraw.vs`); Jungle's come out leaf green, grey without a
-  neighbour. A flat colour - the geometry is the frond's shape - not a
-  picture; the log names each.
+  (56 frond clusters by the spawn), Aztec 29/47/53/54/55, Depot 76/77. The
+  user wants the release's own art on them ("match release"), so
+  `beanPlaceholderStandIn()`: an all-alpha-tested placeholder takes the
+  picture of the nearest alpha-tested draw beside one of its own (same vertex
+  shader, `beandraw.vs`) that is a real cut-out - Jungle 39 <- 38 (canopy
+  leaves `_0x0764A7F5`), 40 <- 41 (fern), Aztec 47 <- 46 (the same leaves);
+  an all-blended placeholder borrows the stand-in of the alpha-tested
+  placeholder drawn nearest it (Aztec 53 <- 46, sheets in the same
+  undergrowth that went grey slabs). The rest - Aztec's mural-bay strips 29,
+  54, 55 and Depot's shadow cards - are painted the neighbours' mean colour
+  (`beanPlaceholderColour()`, grey with none). The log names each.
 
 Rig: `~/wt/f3-0926c-hdfx-run/` (`run.sh` + `view2.py` holds a report's
 camera, `skipview.py` SKIP="m == 0x26c" skips a model's objRender,
