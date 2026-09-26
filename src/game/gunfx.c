@@ -16,6 +16,9 @@
 #include "lib/rng.h"
 #include "lib/mtx.h"
 #include "data.h"
+#ifndef PLATFORM_N64
+#include "gegadgets.h"
+#endif
 #include "types.h"
 
 #define BOLTBEAMTICKMODE_MANUAL    0
@@ -52,6 +55,24 @@ void beamCreate(struct beam *beam, s32 weaponnum, struct coord *from, struct coo
 	beam->age = 0;
 	beam->weaponnum = weaponnum;
 	beam->maxdist = distance;
+
+#ifndef PLATFORM_N64
+	// GoldenEye's watch laser (CapBeamLengthAndDecideIfRendered(), gunfire.c):
+	// at most 300 units long, where every other beam may run to 10000, drawn
+	// whole from the watch the frame it is fired (its unk28, the start, is 0)
+	// and gone at twice its drawn length a frame
+	if (gegadgetsWatchLaserActive(weaponnum)) {
+		if (beam->maxdist > 300) {
+			beam->maxdist = 300;
+		}
+
+		distance = beam->maxdist < 500 ? 500 : beam->maxdist;
+		beam->mindist = distance > 3000 ? 3000 : distance;
+		beam->speed = 2.0f * distance;
+		beam->dist = 0;
+		return;
+	}
+#endif
 
 	if (distance < 500) {
 		distance = 500;

@@ -30,6 +30,7 @@
 #include "modloader.h"
 #include "gesfx.h"
 #include "gewatch.h"
+#include "geguns.h"
 #include "gegadgets.h"
 
 #ifndef PLATFORM_N64
@@ -283,6 +284,9 @@ void gegadgetsStageLoad(s32 stagenum)
 			laser->name = g_Gadgets.laserhostname;
 			laser->shortname = g_Gadgets.laserhostshort;
 		}
+
+		// and its own numbers, ammunition and sound (geguns.c)
+		gegunsSetWatchLaser(gegadgetsIsWatchLaser(WEAPON_GE_MOONRAKER));
 	}
 }
 
@@ -659,6 +663,28 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	mtxF2LBulk(matrices, g_Gadgets.def->nummatrices);
 
 	return 1;
+}
+
+// Train's StartAmmo for it (UsetuptraZ.c: AMMO_WATCH_LASER, 300)
+#define WATCHLASER_START_AMMO 300
+
+/**
+ * A weapon the stage's intro gives the player (playerreset.c): the watch
+ * laser comes with GoldenEye's charge for it. The conversion's ammunition
+ * table stops before AMMO_WATCH_LASER (24), so the intro's own grant of 300
+ * is not in the converted setup; a conversion that writes it is left alone.
+ */
+void gegadgetsIntroWeapon(s32 weaponnum)
+{
+	if (gegadgetsIsWatchLaser(weaponnum) && bgunGetReservedAmmoCount(AMMOTYPE_WATCHLASER) == 0) {
+		bgunSetAmmoQuantity(AMMOTYPE_WATCHLASER, WATCHLASER_START_AMMO);
+	}
+}
+
+/** Whether this weapon is the watch laser on this stage (gunfx.c's beam). */
+s32 gegadgetsWatchLaserActive(s32 weaponnum)
+{
+	return gegadgetsIsWatchLaser(weaponnum);
 }
 
 /**

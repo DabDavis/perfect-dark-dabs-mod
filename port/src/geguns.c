@@ -15,6 +15,7 @@
 #include "romdata.h"
 #include "system.h"
 #include "lib/model.h"
+#include "lib/rng.h"
 #include "geguns.h"
 #include "modloader.h"
 
@@ -286,10 +287,20 @@ s32 gegunsShootSoundRate(s32 weaponnum)
 	return shootsoundrates[weaponnum - WEAPON_GE_FIRST];
 }
 
+static s32 gegunsWatchLaserInstalled(void);
+
+// GoldenEye's watchlaser_fire_sounds (gun.c): RICO_LASER2_SFX and
+// RICO_LASER3_SFX, one of the two at random with each shot (gunfire.c)
+#define GESFX_RICO_LASER2 92
+
 s32 gegunsShootSound(s32 weaponnum)
 {
 	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_WEAPONS) {
 		return 0;
+	}
+
+	if (weaponnum == WEAPON_GE_MOONRAKER && gegunsWatchLaserInstalled()) {
+		return GESFX_RICO_LASER2 + (rngRandom() & 1);
 	}
 
 	return shootsounds[weaponnum - WEAPON_GE_FIRST];
@@ -1950,6 +1961,135 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 			g_ModelStates[MODEL_GE_FIRST + i].scale = g_ModelStates[hostmodel].scale;
 		}
 	}
+}
+
+
+/**
+ * GoldenEye's watch laser (ITEM_WATCHLASER), which the conversion stands on
+ * the Moonraker's number (Train; gegadgets.c decides where). It is the same
+ * beam but not the same gun: watchlaser_stats (obseg/gun/watchlaser) against
+ * laser_stats -
+ *
+ * - its own ammunition, AMMO_WATCH_LASER, MagSize 1000 with no clip reloads
+ *   and 1000 at most (gun.c's ammo_related[24]); Train starts Bond with 300.
+ *   The Moonraker has none to run out of. The port's AMMOTYPE_WATCHLASER.
+ * - SingleRate 0 (it fires as fast as the trigger is pulled) where the
+ *   Moonraker's is 6, ObjectsShootThrough 1 and not 2, ForceOfImpact 0 and
+ *   not 2, recoil speed bytes 0, 0, 0, 0xff and not 6, 0, 6, 6.
+ * - quiet: loudness 1 to 4 with 0.2 a shot and a linear time of 1, where
+ *   the Moonraker's is 2 to 16 with 2 a shot and 2.
+ * - no auto-aim (no HAS_AUTO_AIM) and no hold time (no USE_HOLD_TIME).
+ * - its own sound, watchlaser_fire_sounds (gegunsShootSound()).
+ *
+ * The same DestructionAmount, 2, and the same spread, 0, so the damage a hit
+ * does is the Moonraker's: GoldenEye's chrDamage() takes 2 times the AI
+ * health modifier times 2 on the chest, 4 on the head. Its beam is drawn at
+ * most 300 units long (gunfx.c's beamCreate()).
+ *
+ * Swapped in and out whole, as the definition's own pointers, so the
+ * Moonraker is itself again on every other stage.
+ */
+static const struct gegunstat watchlaserstat = {
+	1000, 0xff, 0x00, 1, 2.0f, 0.0f, 0.0f,
+	{ 1.0f, 4.0f, 0.2f, 1.0f, 4.0f },
+	{ 0, 0, 0, -1 }, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 24, 0x00601091,
+};
+
+static struct {
+	struct weaponfunc *func;       // the watch laser's shot, NULL until the first
+	struct inventory_ammo ammo;
+	struct invaimsettings aim;
+	struct noisesettings noise;
+	struct weaponfunc *hostfunc;   // the Moonraker's own, while the watch laser's is in
+	struct inventory_ammo *hostammo;
+	struct invaimsettings *hostaim;
+	u32 hostflags;
+	u32 hostflags3;
+} g_WatchLaser;
+
+static s32 gegunsWatchLaserInstalled(void)
+{
+	return g_WatchLaser.func && g_GeWeaponDefs[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST].functions[0] == g_WatchLaser.func;
+}
+
+void gegunsSetWatchLaser(s32 on)
+{
+	struct weapon *def = &g_GeWeaponDefs[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST];
+	const struct gegunstat *stat = &watchlaserstat;
+	struct weaponfunc_shoot *shoot;
+	u32 size;
+
+	if (!on) {
+		if (gegunsWatchLaserInstalled()) {
+			def->functions[0] = g_WatchLaser.hostfunc;
+			def->ammos[0] = g_WatchLaser.hostammo;
+			def->aimsettings = g_WatchLaser.hostaim;
+			def->flags = g_WatchLaser.hostflags;
+			def->flags3 = g_WatchLaser.hostflags3;
+		}
+
+		return;
+	}
+
+	if (gegunsWatchLaserInstalled() || !def->functions[0]
+			|| (((struct weaponfunc *)def->functions[0])->type & 0xff) != INVENTORYFUNCTYPE_SHOOT) {
+		return;
+	}
+
+	g_WatchLaser.hostfunc = def->functions[0];
+	g_WatchLaser.hostammo = def->ammos[0];
+	g_WatchLaser.hostaim = def->aimsettings;
+	g_WatchLaser.hostflags = def->flags;
+	g_WatchLaser.hostflags3 = def->flags3;
+
+	size = gegunsFuncSize(((struct weaponfunc *)def->functions[0])->type);
+
+	if (!g_WatchLaser.func) {
+		g_WatchLaser.func = calloc(1, 0x80 > size ? 0x80 : size);
+
+		if (!g_WatchLaser.func) {
+			return;
+		}
+	}
+
+	memcpy(g_WatchLaser.func, def->functions[0], size);
+	shoot = (struct weaponfunc_shoot *)g_WatchLaser.func;
+	shoot->damage = stat->damage;
+	shoot->spread = stat->spread;
+	shoot->penetration = stat->penetration;
+	shoot->impactforce = stat->impactforce;
+	shoot->recoildist = stat->recoilback;
+	shoot->recoilangle = stat->recoilup;
+	shoot->slidemax = stat->boltback;
+	shoot->recoverytime60 = stat->singlerate;
+	shoot->unk24 = stat->recoilspeed[0];
+	shoot->unk25 = stat->recoilspeed[1];
+	shoot->unk26 = stat->recoilspeed[2];
+	shoot->unk27 = stat->recoilspeed[3];
+
+	// the Moonraker's shot takes nothing from a magazine (-1); the watch
+	// laser's takes its charge
+	g_WatchLaser.func->ammoindex = 0;
+
+	g_WatchLaser.noise = stat->noise;
+	g_WatchLaser.func->noisesettings = &g_WatchLaser.noise;
+
+	memset(&g_WatchLaser.ammo, 0, sizeof(g_WatchLaser.ammo));
+	g_WatchLaser.ammo.type = AMMOTYPE_WATCHLASER;
+	g_WatchLaser.ammo.clipsize = stat->magsize;
+	def->ammos[0] = &g_WatchLaser.ammo;
+
+	if (def->aimsettings) {
+		g_WatchLaser.aim = *def->aimsettings;
+		g_WatchLaser.aim.flags &= ~INVAIMFLAG_AUTOAIM;
+		def->aimsettings = &g_WatchLaser.aim;
+	}
+
+	def->flags &= ~WEAPONFLAG_TRACKTIMEUSED;
+	// the laser's shots are free (WEAPONFLAG3_FREESHOTS); each of the watch
+	// laser's takes one of its charge
+	def->flags3 &= ~WEAPONFLAG3_FREESHOTS;
+	def->functions[0] = g_WatchLaser.func;
 }
 
 #endif
