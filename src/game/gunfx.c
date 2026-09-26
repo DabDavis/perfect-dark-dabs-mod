@@ -9,6 +9,7 @@
 #include "game/mtxf2lbulk.h"
 #include "game/gfxmemory.h"
 #include "game/file.h"
+#include "game/modrules.h"
 #include "bss.h"
 #include "lib/main.h"
 #include "lib/model.h"
@@ -136,7 +137,7 @@ void beamCreateForHand(s32 handnum)
 #endif
 		beamCreate(beam, weaponnum, &hand->muzzlepos, &hand->hitpos);
 
-		if (weaponHost(beam->weaponnum) == WEAPON_MAULER) {
+		if (weaponHasFlag3(beam->weaponnum, WEAPONFLAG3_CHARGEBEAM)) {
 			beam->weaponnum = -3 - (s32)player->hands[handnum].matmot1;
 		}
 
@@ -168,7 +169,7 @@ void beamCreateForHand(s32 handnum)
 				if (!(radians > 0.08725257f) || weaponnum == -2) {
 					beamCreate(&g_Fireslots[chr->fireslots[handnum]].beam, weaponnum, &player->chrmuzzlelastpos[handnum], &hand->hitpos);
 
-					if (weaponHost(g_Fireslots[chr->fireslots[handnum]].beam.weaponnum) == WEAPON_MAULER) {
+					if (weaponHasFlag3(g_Fireslots[chr->fireslots[handnum]].beam.weaponnum, WEAPONFLAG3_CHARGEBEAM)) {
 						g_Fireslots[chr->fireslots[handnum]].beam.weaponnum = -3 - (s32)player->hands[handnum].matmot1;
 					}
 				}
@@ -356,6 +357,13 @@ Gfx *beamRender(Gfx *gdl, struct beam *beam, bool arg2, u8 arg3)
 		case WEAPON_FARSIGHT:
 			texconfig = &g_TexBeamConfigs[4];
 			break;
+		}
+
+		// a mod's own tracer for the weapon, -1 the one asked for (game/modrules.h)
+		if (beam->weaponnum >= 0 && beam->weaponnum < MODRULES_NUMWEAPONS
+				&& g_ModWeaponBeamTexture[beam->weaponnum] != MODRULES_STOCKGUNFX) {
+			s32 tex = g_ModWeaponBeamTexture[beam->weaponnum];
+			texconfig = &g_TexBeamConfigs[tex >= 0 ? tex : arg3];
 		}
 
 		if (beam->weaponnum == -1 || weaponHasFlag2(beam->weaponnum, WEAPONFLAG2_FAINTTRACER)) {

@@ -4916,7 +4916,7 @@ enum weaponnum {
 // mod that renumbers the weapons cannot change. See modconfig's weapon block.
 #define WEAPONFLAG2_UNEQUIPPEDRELOAD 0x00000001 // Reloads while unequipped; the animation is unequippedreloadindex
 #define WEAPONFLAG2_PUMPACTION       0x00000002 // Keeps the gun moving while the reload animation plays
-#define WEAPONFLAG2_CHARGEABLE       0x00000004 // Holding the trigger winds the shot up
+#define WEAPONFLAG2_CHARGEABLE       0x00000004 // Its shot's sound drops in pitch with the charge wound up: the Mauler's
 #define WEAPONFLAG2_MISSIONCRITICAL  0x00000008 // Never dropped on disarm: the mission may need it
 #define WEAPONFLAG2_NOEJECT          0x00000010 // Throws the whole thing, so there is no casing to eject
 #define WEAPONFLAG2_LANDSONHIT       0x00000020 // A device that lands rather than strikes: mine sound, no ricochet
@@ -4972,6 +4972,8 @@ enum weaponnum {
 #define WEAPONFLAG3_SDGRENADE        0x02000000 // Its grenade rounds burst the SuperDragon's way, the small explosion of a third function
 #define WEAPONFLAG3_PIERCESBULLETPROOF 0x04000000 // Its shot goes through a bulletproof object's parts: the DY357 Magnum's
 #define WEAPONFLAG3_FREESHOTS        0x08000000 // Its shots spend no ammo: the laser's
+#define WEAPONFLAG3_CHARGEBEAM       0x10000000 // Its tracer is the charge's, wider as the shot winds up: the Mauler's
+#define WEAPONFLAG3_CHARGESPENT      0x20000000 // A shot spends the charge wound up: the Mauler's
 #define WEAPONFLAG2_PELLETS          0x40000000 // A pull of the trigger is six shots at once, the shotgun's
 #define WEAPONFLAG2_BOTLIMITLESS     0x80000000 // A simulant's clip of it never runs dry, the laser's
 

@@ -34,6 +34,7 @@
 #include "game/splat.h"
 #include "game/wallhit.h"
 #include "game/mpstats.h"
+#include "game/modrules.h"
 #include "bss.h"
 #include "lib/collision.h"
 #include "lib/lib_17ce0.h"
@@ -1021,6 +1022,11 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 								case WEAPON_TRANQUILIZER:
 									sparktype = SPARKTYPE_BGHIT_TRANQULIZER;
 									break;
+								}
+
+								// a mod's own sparks for the weapon (game/modrules.h)
+								if (g_ModWeaponHitSparks[shotdata.gset.weaponnum] != MODRULES_STOCKGUNFX) {
+									sparktype = g_ModWeaponHitSparks[shotdata.gset.weaponnum];
 								}
 
 #ifndef PLATFORM_N64

@@ -126,6 +126,18 @@ extern s32 g_ModSightCheat;
 extern s32 g_ModSightSplitMin;
 extern s32 g_ModZoomRangeWeapon;
 
+// The sparks a weapon's shot throws off a wall (SPARKTYPE_*) and the texture
+// its tracer is drawn with (an index into g_TexBeamConfigs, or -1 for the one
+// the beam's drawer asks for), or MODRULES_STOCKGUNFX for the port's switches
+// in shotCalculateHits() and beamRender() (a mod's `weapon N { hitsparks S }`
+// and `weapon N { beamtexture T }`). Both switches are jump tables in rodata:
+// GE-X points every entry but its Moonraker's at the default, so its Klobb,
+// KF7, Phantom, AR33 and golden PP7 - at the Mauler's, Phoenix's, Cyclone's,
+// Callisto's and Reaper's numbers - throw plain sparks behind a plain tracer
+#define MODRULES_STOCKGUNFX (-2)
+extern s32 g_ModWeaponHitSparks[MODRULES_NUMWEAPONS];
+extern s32 g_ModWeaponBeamTexture[MODRULES_NUMWEAPONS];
+
 // A head number the game tests literally (the Maian and Joanna grunts, the
 // Maian eyes, the quips), as the mod's code has it: GE-X gives three of the
 // four Maian heads to humans and tests head 5 alone (and head 4 alone for

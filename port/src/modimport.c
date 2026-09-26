@@ -4033,8 +4033,11 @@ static u32 followFlagSite(const u8 *stockcode, u32 stocklen, const u8 *modcode, 
 // xori tests), SITE_IMM only
 static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 at; u32 kind; u32 at2; } flagSites[] = {
 	{ "pumpaction", "bgun_tick_inc_attacking_shoot", 19, 0, 0 },
-	{ "chargeable", "bgun_tick_inc_attacking_shoot", 6, 0, 0 },
+	// the Mauler's charge at its two sites: the shot's sound pitched down by
+	// it, and the shot spending it. GE-X takes the second out whole and
+	// leaves the first on its Klobb's 6
 	{ "chargeable", "bgun0f09a6f8", 6, 0, 0 },
+	{ "chargespent", "bgun_tick_inc_attacking_shoot", 6, 0, 0 },
 	{ "pistolcasing", "casing_create_for_hand", 36, 0, 0 },
 	{ "nocarteject", "casing_create_for_hand", 8, 0, 0 },
 	{ "nocarteject", "bgun_create_fx", 8, 0, 0 },
@@ -4141,6 +4144,10 @@ static const struct { const char *flag; const char *fn; u32 value; u32 occ; u32 
 	// range's waste check
 	{ "freeshots",    "bgun0f09a6f8", 29, 0, 0 },
 	{ "freeshots",    "fr_is_ammo_wasted", 29, 0, 0 },
+	// the Mauler's tracer, wound up with its charge: the hand's beam and the
+	// fireslot's a second player sees. GE-X points both at 119, no weapon,
+	// where its Klobb sits at the Mauler's 6
+	{ "chargebeam",   "beam_create_for_hand", 6, 0, 0 },
 };
 
 // the port's function flags that stand in for a test of weapon and function
@@ -4292,6 +4299,84 @@ static s32 ammoQtyEntry(const u8 *code, u32 codelen, u32 table, u32 i)
 	}
 	w = be32(code, e - GAME_VRAM + 4);
 	return (w >> 16) == 0x2403 ? (s32)(w & 0xffff) : 1;
+}
+
+/* -- the sparks and tracers, by weapon ------------------------------------- */
+
+#define GUNFX_BEGIN "# importer: gunfx begin"
+#define GUNFX_END   "# importer: gunfx end"
+
+// the switches on the weapon number that pick the sparks a shot throws off a
+// wall and the texture its tracer is drawn with, by the stock address of
+// their `jr`
+#define GUNFX_SPARKS_JR 0x7f061accu   // shot_calculate_hits
+#define GUNFX_BEAM_JR   0x7f0acc98u   // beam_render
+
+/**
+ * The switch on a weapon number whose `jr rY` is at jr: its table and count
+ * as ammoQtyTable() reads them, the `beqz at,DEFAULT` after the sltiu, and
+ * the `addiu rZ,rX,-BIAS` before it that makes the number an index.
+ */
+static s32 weaponSwitchAt(const u8 *code, u32 codelen, u32 start, u32 jr, u32 *table, u32 *count, s32 *bias, u32 *def)
+{
+	const u32 ofs = jr - GAME_VRAM;
+	if (ofs < start || ofs + 4 > codelen || (be32(code, ofs) & 0xfc1fffff) != 0x00000008
+			|| !ammoQtyTable(code, codelen, start, ofs, table, count)) {
+		return 0;
+	}
+	for (u32 o = ofs - 4; o > start && o + 64 >= ofs; o -= 4) {
+		const u32 z = be32(code, o);
+		if ((z >> 26) == 0x0b && ((z >> 16) & 0x1f) == 1 && (z & 0xffff) == *count) {
+			const u32 rz = (z >> 21) & 0x1f;
+			const u32 br = be32(code, o + 4), b = be32(code, o - 4);
+			if ((br >> 16) != 0x1020 || (b >> 26) != 0x09 || ((b >> 16) & 0x1f) != rz) {
+				return 0;
+			}
+			*def = GAME_VRAM + o + 8 + (u32)((s32)(s16)(br & 0xffff) * 4);
+			*bias = -(s32)(s16)(b & 0xffff);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/**
+ * The sparks (key 0) or tracer texture (key 1) weapon w gets from the switch:
+ * a case is the `li` it loads, after a `b` or not, or `lw rA,0(s0)` then
+ * `addiu rB,rA,12*N` (g_TexBeamConfigs[N]); the default SPARKTYPE_DEFAULT
+ * and -1, the beam's own. -100 where it does not read.
+ */
+static s32 weaponSwitchValue(const u8 *code, u32 codelen, u32 start, u32 end, u32 table, u32 count, s32 bias, u32 def, u32 w, s32 key)
+{
+	const s32 i = (s32)w - bias;
+	u32 target = def, t, x, y;
+	if (i >= 0 && (u32)i < count) {
+		const u32 o = table - GAME_VRAM + 4 * (u32)i;
+		if (table < GAME_VRAM || o + 4 > codelen) {
+			return -100;
+		}
+		target = be32(code, o);
+	}
+	if (target == def) {
+		return key ? -1 : 0;
+	}
+	t = target - GAME_VRAM;
+	if (target < GAME_VRAM || t < start || t + 8 > end || t + 8 > codelen) {
+		return -100;
+	}
+	x = be32(code, t);
+	y = be32(code, t + 4);
+	if (!key) {
+		if ((x >> 16) == 0x1000) {
+			x = y;
+		}
+		return (x >> 26) == 0x09 && ((x >> 21) & 0x1f) == 0 ? (s32)(x & 0xffff) : -100;
+	}
+	if ((x >> 26) != 0x23 || (x & 0xffff) || (y >> 26) != 0x09 || ((y >> 21) & 0x1f) != ((x >> 16) & 0x1f)
+			|| (y & 0xffff) % 12 || (y & 0xffff) / 12 > 4) {
+		return -100;
+	}
+	return (s32)((y & 0xffff) / 12);
 }
 
 /* -- the unlocks: what the mod's code forces to true ----------------------- */
@@ -6315,6 +6400,78 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		}
 	}
 
+	// The sparks each weapon's shot throws off a wall and the texture its
+	// tracer is drawn with: two jump tables in rodata the stock code switches
+	// on the weapon number with (shot_calculate_hits: the Mauler, Phoenix,
+	// Callisto and Reaper green, the Cyclone electrical, the FarSight orange,
+	// the tranquilizer its own; beam_render: those weapons' textures). GE-X
+	// rewrites both tables and not one instruction - every entry but its
+	// Moonraker's (21, 22) at the default, where its Klobb, KF7, Phantom,
+	// AR33 and golden PP7 sit at the stock numbers that draw green. Only what
+	// differs from stock is written. And whether the mod's beam_render still
+	// loads the Cyclone's half-alpha colour, `li rX,0xffffff7f`: GE-X folds it
+	// away, which the fainttracer site cannot read as a chain.
+	char *gunfxcfg = NULL;
+	u32 gunfxlen = 0, gunfxcap = 0;
+	if (t.followed) {
+		static const char *const labels[2] = { "hitsparks", "beamtexture" };
+		static const u32 jrs[2] = { GUNFX_SPARKS_JR, GUNFX_BEAM_JR };
+		static const char *const fns[2] = { "shot_calculate_hits", "beam_render" };
+		static s32 value[2][2][256];
+		s32 faint[2] = { 0, 0 };
+		s32 ok = 1;
+		for (u32 pass = 0; pass < 2 && ok; ++pass) {
+			const u8 *code = pass ? t.modcode : t.stockcode;
+			const u32 codelen = pass ? t.modcodelen : t.stockcodelen;
+			for (u32 k = 0; k < 2 && ok; ++k) {
+				u32 start, end, table, count, def;
+				s32 bias;
+				ok = codeSym(fns[k], &start, &end) && jrs[k] - GAME_VRAM >= start && jrs[k] - GAME_VRAM < end
+					&& weaponSwitchAt(code, codelen, start, jrs[k], &table, &count, &bias, &def);
+				for (u32 w = 1; ok && w < hcount && w < 256; ++w) {
+					value[pass][k][w] = weaponSwitchValue(code, codelen, start, end, table, count, bias, def, w, k);
+					ok = value[pass][k][w] != -100;
+				}
+				if (ok && k == 1) {
+					for (u32 o = start; o + 4 <= end && o + 4 <= codelen; o += 4) {
+						if ((be32(code, o) & 0xffe0ffff) == 0x2400ff7f) {
+							faint[pass] = 1;
+						}
+					}
+				}
+			}
+		}
+		if (!ok) {
+			rep("  the sparks and tracers in shot_calculate_hits and beam_render do not read; left as the port has them");
+		} else {
+			const u32 weaponsaddr = locateTable(&t, "g_Weapons", tnote, sizeof(tnote));
+			for (u32 k = 0; k < 2; ++k) {
+				char prose[1024] = "";
+				u32 proselen = 0;
+				for (u32 w = 1; w < hcount && w < 256; ++w) {
+					// a weapon block for a number the mod defines no weapon at is refused
+					const u8 *we = weaponsaddr ? tableEntry(&t, weaponsaddr, w, 4) : NULL;
+					if (value[0][k][w] != value[1][k][w] && we && be32(we, 0)) {
+						appendf(&gunfxcfg, &gunfxlen, &gunfxcap, "weapon %u { %s %d }\n", w, labels[k], value[1][k][w]);
+						proselen += snprintf(prose + proselen, sizeof(prose) - proselen, "%s%u %d (stock %d)",
+								proselen ? ", " : "", w, value[1][k][w], value[0][k][w]);
+						if (proselen >= sizeof(prose)) {
+							proselen = sizeof(prose) - 1;
+						}
+					}
+				}
+				if (proselen) {
+					rep("  %s: %s", k ? "tracers draw with other textures" : "weapons throw other sparks off a wall", prose);
+				}
+			}
+			// the Cyclone's half-alpha tracer folded away: every tracer solid
+			if (faint[0] && !faint[1]) {
+				appendf(&gunfxcfg, &gunfxlen, &gunfxcap, "weaponflags fainttracer { clear }\n");
+				rep("  the mod's beam_render draws no tracer at half alpha");
+			}
+		}
+	}
+
 	// The mod's own AI commands that go to their label on one of the game's
 	// options: GE-X fills the empty slots 0xe6 and 0xe7 with handlers in a
 	// code cave that test the Language Filter (its "Additional Dialogue") and
@@ -6702,12 +6859,12 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				}
 			}
 			{
-				static const char *const tailmarks[7][2] = {
-					{ CHRMODEL_BEGIN, CHRMODEL_END }, { SIGHT_BEGIN, SIGHT_END }, { AICMD_BEGIN, AICMD_END },
-					{ MOVEMENT_BEGIN, MOVEMENT_END }, { KOH_BEGIN, KOH_END }, { COLOURS_BEGIN, COLOURS_END },
-					{ MAPS_BEGIN, MAPS_END }
+				static const char *const tailmarks[8][2] = {
+					{ CHRMODEL_BEGIN, CHRMODEL_END }, { SIGHT_BEGIN, SIGHT_END }, { GUNFX_BEGIN, GUNFX_END },
+					{ AICMD_BEGIN, AICMD_END }, { MOVEMENT_BEGIN, MOVEMENT_END }, { KOH_BEGIN, KOH_END },
+					{ COLOURS_BEGIN, COLOURS_END }, { MAPS_BEGIN, MAPS_END }
 				};
-				for (u32 i = 0; i < 7; ++i) {
+				for (u32 i = 0; i < 8; ++i) {
 					at = strstr(text, tailmarks[i][0]);
 					if (at) {
 						char *end = strstr(at, tailmarks[i][1]);
@@ -6722,9 +6879,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 			existinglen = strlen(text);
 		}
 
-		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + chrmodellen + 256 + sightlen + 256 + aicmdlen + 256 + unlockslen + 256 + movementlen + 256 + kohlen + 256 + colourslen + 256 + mapslen + 512 + existinglen + 2;
+		blocklen = sizeof(head) - 1 + 32 + lineslen + 4 + weatherlen + 256 + shieldlen + 256 + hitsoundlen + 256 + flagsitelen + 256 + damagelen + 256 + ammolen + 256 + reloadlen + 256 + chrmodellen + 256 + sightlen + 256 + gunfxlen + 256 + aicmdlen + 256 + unlockslen + 256 + movementlen + 256 + kohlen + 256 + colourslen + 256 + mapslen + 512 + existinglen + 2;
 		block = malloc(blocklen);
-		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
+		snprintf(block, blocklen, "%s  base 0x%08x\n%s}\n\n%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", head, base, lines,
 				weather ? "# The weather of the mod's stages, as its weather code decides it: read by\n"
 				          "# running that code. Written by the game's mod importer.\n" WEATHER_BEGIN "\n" : "",
 				weather ? weather : "", weather ? WEATHER_END "\n\n" : "",
@@ -6751,6 +6908,9 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 				sightcfg ? "# The sight each weapon draws and the rules around it: read by running the mod's\n"
 				           "# code. Written by the game's mod importer.\n" SIGHT_BEGIN "\n" : "",
 				sightcfg ? sightcfg : "", sightcfg ? SIGHT_END "\n\n" : "",
+				gunfxcfg ? "# The sparks a shot throws off a wall and the texture its tracer is drawn with, by\n"
+				           "# weapon: read from the mod's code. Written by the game's mod importer.\n" GUNFX_BEGIN "\n" : "",
+				gunfxcfg ? gunfxcfg : "", gunfxcfg ? GUNFX_END "\n\n" : "",
 				aicmdcfg ? "# The mod's own AI commands that go to their label on one of the game's options:\n"
 				           "# read from the mod's handlers. Written by the game's mod importer.\n" AICMD_BEGIN "\n" : "",
 				aicmdcfg ? aicmdcfg : "", aicmdcfg ? AICMD_END "\n\n" : "",
@@ -6784,6 +6944,7 @@ static u32 writeDataSegment(const u8 *stock, u32 stocklen, const u8 *mod, u32 mo
 		free(chrmodelcfg);
 		free(aicmdcfg);
 		free(sightcfg);
+		free(gunfxcfg);
 		free(unlocks);
 		free(movementcfg);
 		free(kohcfg);

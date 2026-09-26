@@ -1671,7 +1671,11 @@ def follow_flag_sites(stockcode, modcode, start, end, stockvalue):
 # every site in the code where the game made that test: a flag is written
 # only when the mod's lists agree across all its sites
 FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
-              ('chargeable', (('bgun_tick_inc_attacking_shoot', 6), ('bgun0f09a6f8', 6))),
+              # the Mauler's charge at its two sites: the shot's sound pitched
+              # down by it, and the shot spending it. GE-X takes the second
+              # out whole and leaves the first on its Klobb's 6
+              ('chargeable', (('bgun0f09a6f8', 6),)),
+              ('chargespent', (('bgun_tick_inc_attacking_shoot', 6),)),
               ('pistolcasing', (('casing_create_for_hand', 36),)),
               ('nocarteject', (('casing_create_for_hand', 8), ('bgun_create_fx', 8))),
               ('stickstowall', (('projectile_tick', 34),)),
@@ -1775,7 +1779,11 @@ FLAG_SITES = (('pumpaction', (('bgun_tick_inc_attacking_shoot', 19),)),
               ('botignores', (('bot_is_obj_collectable', 31),)),
               # the laser's shots spend no ammo: the hand's shot count, and the
               # firing range's waste check
-              ('freeshots', (('bgun0f09a6f8', 29), ('fr_is_ammo_wasted', 29))))
+              ('freeshots', (('bgun0f09a6f8', 29), ('fr_is_ammo_wasted', 29))),
+              # the Mauler's tracer, wound up with its charge: the hand's beam
+              # and the fireslot's a second player sees. GE-X points both at
+              # 119, no weapon, where its Klobb sits at the Mauler's 6
+              ('chargebeam', (('beam_create_for_hand', 6),)))
 
 # the port's function flags that stand in for a test of weapon and function
 # together, and their sites: the weapon site (as a FLAG_SITES site) and the
@@ -2030,6 +2038,110 @@ def sights_from_code(stockcode, modcode, codesyms, nweapons):
                 return None
             sights[w] = res[0]
         out[name] = {'cheat': cheat, 'melee': melee, 'sights': sights}
+    return out
+
+
+GUNFX_BEGIN = '# importer: gunfx begin'
+GUNFX_END = '# importer: gunfx end'
+# the switches on the weapon number that pick the sparks a shot throws off a
+# wall and the texture its tracer is drawn with, by the stock address of
+# their `jr`; and the Cyclone's half-alpha tracer colour, `li rX,0xffffff7f`
+GUNFX_SPARKS_JR = ('shot_calculate_hits', 0x7f061acc)
+GUNFX_BEAM_JR = ('beam_render', 0x7f0acc98)
+
+
+def weapon_switch_at(code, start, jr):
+    """(table, count, bias, default) for the switch on a weapon number whose
+    `jr rY` is at the address jr: `lui at,HI` and `lw rY,LO(at)` in the four
+    words before it, the index register from the `sll rZ,rZ,2` there, its
+    `sltiu at,rZ,COUNT` with the `beqz at,DEFAULT` after it, and the
+    `addiu rZ,rX,-BIAS` before it that makes the number an index; or None."""
+    ofs = jr - GAME_VRAM
+    if ofs < start or ofs + 4 > len(code) or be32(code, ofs) & 0xfc1fffff != 0x00000008:
+        return None
+    ry = (be32(code, ofs) >> 21) & 0x1f
+    hi = lo = rz = None
+    for o in range(ofs - 4, max(start, ofs - 20) - 4, -4):
+        z = be32(code, o)
+        if z >> 26 == 0x0f and (z >> 16) & 0x1f == 1:
+            hi = z & 0xffff
+        elif z >> 26 == 0x23 and (z >> 21) & 0x1f == 1 and (z >> 16) & 0x1f == ry:
+            lo = (z & 0xffff) - (0x10000 if z & 0x8000 else 0)
+        elif z & 0xfc0007ff == 0x00000080 and (z >> 16) & 0x1f == (z >> 11) & 0x1f:
+            rz = (z >> 16) & 0x1f
+    if None in (hi, lo, rz):
+        return None
+    for o in range(ofs - 4, max(start, ofs - 64) - 4, -4):
+        z = be32(code, o)
+        if z >> 26 == 0x0b and (z >> 16) & 0x1f == 1 and (z >> 21) & 0x1f == rz:
+            br, b = be32(code, o + 4), be32(code, o - 4)
+            if br >> 16 != 0x1020 or b >> 26 != 0x09 or (b >> 16) & 0x1f != rz:
+                return None
+            default = GAME_VRAM + o + 8 + ((br & 0xffff) - (0x10000 if br & 0x8000 else 0)) * 4
+            bias = 0x10000 - (b & 0xffff) if b & 0x8000 else -(b & 0xffff)
+            return ((hi << 16) + lo) & 0xffffffff, z & 0xffff, bias, default
+    return None
+
+
+def gunfx_from_code(stockcode, modcode, codesyms, nweapons):
+    """The sparks each weapon's shot throws off a wall and the texture its
+    tracer is drawn with, read from the two jump tables in rodata the stock
+    code switches on the weapon number with (shot_calculate_hits: the Mauler,
+    Phoenix, Callisto and Reaper green, the Cyclone electrical, the FarSight
+    orange, the tranquilizer its own; beam_render: those weapons' textures).
+    GE-X rewrites both tables and not one instruction - every entry but its
+    Moonraker's (21, 22) at the default, where its Klobb, KF7, Phantom, AR33
+    and golden PP7 sit at the stock numbers that draw green. A case is the
+    `li` it loads, after a `b` or not (sparks), or `lw rA,0(s0)` then `addiu
+    rB,rA,12*N` (g_TexBeamConfigs[N]); the default is SPARKTYPE_DEFAULT and
+    -1, the beam's own texture. Also whether the mod's beam_render still loads
+    the Cyclone's half-alpha colour. {'stock': {...}, 'mod': {...}} with
+    'sparks' and 'beam' {w: value} and 'faint', or None where a table does not
+    read."""
+    out = {}
+    for name, code in (('stock', stockcode), ('mod', modcode)):
+        res = {}
+        for key, (fn, jr) in (('sparks', GUNFX_SPARKS_JR), ('beam', GUNFX_BEAM_JR)):
+            if fn not in codesyms:
+                return None
+            start, end = (a - GAME_VRAM for a in codesyms[fn])
+            if not start <= jr - GAME_VRAM < end:
+                return None
+            sw = weapon_switch_at(code, start, jr)
+            if sw is None:
+                return None
+            table, count, bias, default = sw
+            values = {}
+            for w in range(1, min(nweapons, 256)):
+                i = w - bias
+                target = default
+                if 0 <= i < count:
+                    o = table - GAME_VRAM + 4 * i
+                    if o < 0 or o + 4 > len(code):
+                        return None
+                    target = be32(code, o)
+                if target == default:
+                    values[w] = 0 if key == 'sparks' else -1
+                    continue
+                t = target - GAME_VRAM
+                if t < start or t + 8 > end:
+                    return None
+                x, y = be32(code, t), be32(code, t + 4)
+                if key == 'sparks':
+                    if x >> 16 == 0x1000:
+                        x = y
+                    if x >> 26 != 0x09 or (x >> 21) & 0x1f != 0:
+                        return None
+                    values[w] = x & 0xffff
+                else:
+                    if (x >> 26 != 0x23 or x & 0xffff != 0 or y >> 26 != 0x09
+                            or (y >> 21) & 0x1f != (x >> 16) & 0x1f or (y & 0xffff) % 12 or (y & 0xffff) // 12 > 4):
+                        return None
+                    values[w] = (y & 0xffff) // 12
+            res[key] = values
+        start, end = (a - GAME_VRAM for a in codesyms['beam_render'])
+        res['faint'] = any(be32(code, o) & 0xffe0ffff == 0x2400ff7f for o in range(start, min(end, len(code) - 3), 4))
+        out[name] = res
     return out
 
 
@@ -4403,6 +4515,31 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                            '# code. Written by tools/importmod.\n'
                            + SIGHT_BEGIN + '\n' + '\n'.join(lines_) + '\n' + SIGHT_END + '\n')
 
+    # The sparks a shot throws off a wall and the tracer's texture, by weapon,
+    # from the code's two jump tables; only what differs from stock
+    gunfxregion = ''
+    if followed and codesyms:
+        lines_ = []
+        fx = gunfx_from_code(stockcode, modcode, codesyms, stockcount('g_Weapons', 4))
+        if fx is None:
+            notes.append('the sparks and tracers in shot_calculate_hits and beam_render do not read; left as the port has them')
+        else:
+            for key, label in (('sparks', 'hitsparks'), ('beam', 'beamtexture')):
+                changed = [(w, fx['mod'][key][w], fx['stock'][key][w]) for w in sorted(fx['mod'][key])
+                           if fx['mod'][key][w] != fx['stock'][key][w] and weapon_defined(w)]
+                lines_ += ['weapon %d { %s %d }' % (w, label, v) for w, v, _ in changed]
+                if changed:
+                    notes.append('%s: %s' % ('weapons throw other sparks off a wall' if key == 'sparks' else 'tracers draw with other textures',
+                                             ', '.join('%d %d (stock %d)' % c for c in changed)))
+            # the Cyclone's half-alpha tracer folded away: every tracer solid
+            if fx['stock']['faint'] and not fx['mod']['faint']:
+                lines_.append('weaponflags fainttracer { clear }')
+                notes.append("the mod's beam_render draws no tracer at half alpha")
+        if lines_:
+            gunfxregion = ('# The sparks a shot throws off a wall and the texture its tracer is drawn with, by\n'
+                           '# weapon: read from the mod\'s code. Written by tools/importmod.\n'
+                           + GUNFX_BEGIN + '\n' + '\n'.join(lines_) + '\n' + GUNFX_END + '\n')
+
     # The mod's own AI commands that go to their label on one of the game's
     # options: GE-X fills the empty slots 0xe6 and 0xe7 with handlers in a
     # code cave that test the Language Filter (its "Additional Dialogue") and
@@ -4549,7 +4686,8 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                           '', existing, flags=re.S)
         existing = re.sub(r'(#[^\n]*\n)*' + re.escape(RELOAD_BEGIN) + r'\n.*?' + re.escape(RELOAD_END) + r'\n*',
                           '', existing, flags=re.S)
-        for begin, end in ((CHRMODEL_BEGIN, CHRMODEL_END), (SIGHT_BEGIN, SIGHT_END), (AICMD_BEGIN, AICMD_END),
+        for begin, end in ((CHRMODEL_BEGIN, CHRMODEL_END), (SIGHT_BEGIN, SIGHT_END), (GUNFX_BEGIN, GUNFX_END),
+                           (AICMD_BEGIN, AICMD_END),
                            (MOVEMENT_BEGIN, MOVEMENT_END), (KOH_BEGIN, KOH_END),
                            (COLOURS_BEGIN, COLOURS_END), (MAPS_BEGIN, MAPS_END)):
             existing = re.sub(r'(#[^\n]*\n)*' + re.escape(begin) + r'\n.*?' + re.escape(end) + r'\n*',
@@ -4564,6 +4702,7 @@ def write_data_segment(stock, mod, romid, outdir, dryrun, files):
                            + (reloadregion + '\n' if reloadregion else '')
                            + (chrmodelregion + '\n' if chrmodelregion else '')
                            + (sightregion + '\n' if sightregion else '')
+                           + (gunfxregion + '\n' if gunfxregion else '')
                            + (aicmdregion + '\n' if aicmdregion else '')
                            + (unlocksregion + '\n' if unlocksregion else '')
                            + (movementregion + '\n' if movementregion else '')
