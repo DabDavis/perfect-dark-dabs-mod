@@ -4239,11 +4239,111 @@ static u32 beanPlaceholderColour(const struct beanmodel *bm, s32 t)
 	return (u32)(sum[0] / count) << 16 | (u32)(sum[1] / count) << 8 | (u32)(sum[2] / count);
 }
 
+/**
+ * The release's own picture a cut-out placeholder takes in its place: where
+ * every draw of the placeholder is alpha-tested, the nearest draw before or
+ * after one of them, under the same vertex shader, that is alpha-tested too
+ * and whose picture is a real cut-out (clear texels, not a placeholder).
+ * Jungle's frond clusters (39, 40) sit between its canopy leaves (38) and its
+ * fern (41) and take the leaves; Aztec's 47, among its undergrowth, the same
+ * leaves. -1 when there is none; the placeholder is then painted a colour
+ * (beanPlaceholderColour()) - Aztec's strips over the mural bays (29, 54,
+ * 55) and Depot's two black shadow cards.
+ */
+static s32 beanPlaceholderStandIn(const struct beanmodel *bm, s32 t, s32 borrow)
+{
+	s32 best = -1, bestdist = 0x7fffffff;
+	s32 tested = 1, blended = 1;
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		if (bm->draws[di].tex == (u32)t) {
+			tested &= bm->draws[di].alphatest != 0;
+			blended &= bm->draws[di].blend != 0;
+		}
+	}
+
+	// A placeholder of the blended pass has no cut-out neighbour of its own
+	// to go by; it takes the stand-in of the placeholder drawn nearest it.
+	// Aztec's 53, sheets over the same undergrowth as its 47, drew grey slabs
+	// among the leaves 47 takes
+	if (!tested && blended && borrow) {
+		for (s32 di = 0; di < bm->numdraws; di++) {
+			if (bm->draws[di].tex != (u32)t) {
+				continue;
+			}
+
+			for (s32 dj = 0; dj < bm->numdraws; dj++) {
+				const u32 ot = bm->draws[dj].tex;
+				const s32 dist = dj > di ? dj - di : di - dj;
+				s32 w, h, st, isph;
+				u8 *rgba;
+
+				if (ot == (u32)t || ot >= (u32)bm->numtex || dist >= bestdist || !bm->draws[dj].alphatest) {
+					continue;
+				}
+
+				rgba = beanDecodeTexture(bm, (s32)ot, &w, &h);
+				isph = beanTexIsPlaceholder(rgba, w, h);
+				free(rgba);
+
+				if (isph && (st = beanPlaceholderStandIn(bm, (s32)ot, 0)) >= 0) {
+					best = st;
+					bestdist = dist;
+				}
+			}
+		}
+
+		return best;
+	}
+
+	if (!tested) {
+		return -1;
+	}
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		if (bm->draws[di].tex != (u32)t) {
+			continue;
+		}
+
+		for (s32 dir = -1; dir <= 1; dir += 2) {
+			for (s32 dj = di + dir; dj >= 0 && dj < bm->numdraws && bm->draws[dj].vs == bm->draws[di].vs; dj += dir) {
+				const struct beandraw *n = &bm->draws[dj];
+				const s32 dist = dj > di ? dj - di : di - dj;
+				s32 w, h, clear = 0;
+				u8 *rgba;
+
+				if (n->tex == (u32)t || n->tex >= (u32)bm->numtex || !n->alphatest || dist >= bestdist) {
+					continue;
+				}
+
+				rgba = beanDecodeTexture(bm, (s32)n->tex, &w, &h);
+
+				if (rgba && !beanTexIsPlaceholder(rgba, w, h)) {
+					for (u32 i = 0; i < (u32)w * (u32)h && !clear; i++) {
+						clear = rgba[i * 4 + 3] < 0x80;
+					}
+				}
+
+				free(rgba);
+
+				if (clear) {
+					best = (s32)n->tex;
+					bestdist = dist;
+					break;
+				}
+			}
+		}
+	}
+
+	return best;
+}
+
 static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t,
 		const void **tile, u8 *alpha, u8 *soft)
 {
 	char key[80];
 	s32 w, h, a = 0, s = 0;
+	s32 standin;
 	u8 *rgba;
 
 	snprintf(key, sizeof(key), "gebean:%s:%d", source, t);
@@ -4258,6 +4358,20 @@ static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t
 	}
 
 	rgba = beanDecodeTexture(bm, t, &w, &h);
+
+	if (beanTexIsPlaceholder(rgba, w, h) && (standin = beanPlaceholderStandIn(bm, t, 1)) >= 0) {
+		s32 sw, sh;
+		u8 *pic = beanDecodeTexture(bm, standin, &sw, &sh);
+
+		if (pic) {
+			free(rgba);
+			rgba = pic;
+			w = sw;
+			h = sh;
+			sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is the release's magenta placeholder, drawn with its neighbour %d (%s)",
+					source, t, beanTextureName(bm, t), standin, beanTextureName(bm, standin));
+		}
+	}
 
 	if (beanTexIsPlaceholder(rgba, w, h)) {
 		const u32 c = beanPlaceholderColour(bm, t);
