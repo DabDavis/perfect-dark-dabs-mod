@@ -68,6 +68,7 @@
 #include "game/zbuf.h"
 #include "game/propobj.h"
 #include "gefolder.h"
+#include "xblamesh.h"
 #include "gexfront.h"
 #include "gemusic.h"
 #include "gesfx.h"
@@ -5106,7 +5107,14 @@ static Gfx *frontDrawTvs(Gfx *gdl)
 		renderdata.flags = 3;
 		renderdata.zbufferenabled = true;
 		renderdata.gdl = gdl;
+
+		// In the HD look the set is Bean's mesh, whose screen is a still
+		// picture of dark glass; named here as objRenderProp() names a
+		// level's monitors, its screen node draws the list the programme
+		// just wrote instead
+		xblaMeshSetScreens(model);
 		modelRender(&renderdata, model);
+		xblaMeshSetScreens(NULL);
 		gdl = renderdata.gdl;
 
 		for (s32 i = 0; i < g_Front.tvdef->nummatrices; i++) {
