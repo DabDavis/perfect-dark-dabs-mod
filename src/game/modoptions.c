@@ -84,7 +84,7 @@ struct modoptions g_ModOptions = {
 	false,                    // quickweaponswap: stock's put-away and draw on every switch
 	false,                    // nofog: every level's own fog
 	0,                        // glassseethrough: stock's windows, opaque past their fade distance
-	false,                    // decalclip: stock's marks, whole however far they hang over an edge
+	true,                     // decalclip: on for everyone (user, 2026-09-26); off is stock's whole marks
 };
 
 /**
