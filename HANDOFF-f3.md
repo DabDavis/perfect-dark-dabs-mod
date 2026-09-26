@@ -308,3 +308,24 @@ am.sh <tag> <stage> <DO> runs Akimbo off (save_base) and on (save_akon, Akimbo=2
 Converter 72 and 73 touch every mission's setup: run the 20-mission sweep
 (build/gexrom/runall.sh or hdsweep/ab.sh) after a forced reconvert, and the C vs
 Python parity check (should stay the known 210 diffs).
+
+## 8. GoldenEye's detonator model: node type 0xf (converter 77) - DONE
+
+GoldenEye's model node type 0x0f is MODELNODE_OPCODE_INTERLINK
+(bondtypes.h ModelRoData_InterlinkageRecord: pos, pos2, scale). It draws nothing; GE
+reads it only as a prop's depth sort (objecthandler.c) and, in the detonator, as switch
+28 = the hinge axis switch 6 (the right hand) turns about to press the watch
+(gunfire.c:829). Perfect Dark has no such node (filemodel.c maps 0x0f to -1), so
+modelWalk() leaves it out like the 0x0d shadow; the prev-pointer check now accepts a
+next that is a dropped 0x0d/0x0f. The draw side keeps the axis (fix/f3-ge-mines,
+gegadgets.c).
+- Scan of every GE prop, character and hand item in the ROM: only GtriggerZ (item 30)
+  and GwatchlaserZ (item 23, the same file) have a 0x0f, each one childless leaf at the
+  end of its chain. Nothing was silently skipped: an unknown node fails the whole
+  conversion, and item 23 was (and stays) excluded as no gun of the port's.
+- The item loop takes item 30 (`item > 30 && !soloGadgetItem`): files/Igx030Z.
+- Python twin (gechr.py, gemodelconv.py) drops 0x0f too; it converts no hand items.
+- Verified: standalone C 76 vs 77 output differs only by the new Igx030Z; Python 76 vs 77
+  identical; C vs Python = the known 210 diffs + Igx030Z (C only). Draw/probe/sweep: see
+  fix/f3-ge-mines HANDOFF "Detonator model". 20-mission 1800-frame sweep after a forced
+  reconvert to 77 (~/wt/f3gemission-run/sweep77.sh, sweep.out.pair77): all clean.
