@@ -18100,6 +18100,10 @@ s32 objTestForPickup(struct prop *prop)
 						if ((item && item->type_weap.pickuppad == weapon->base.pad) || weapon->base.pad < 0) {
 							return TICKOP_NONE;
 						}
+#ifndef PLATFORM_N64
+					} else if (invAkimboPairsPickup(weapon->weaponnum)) {
+						// Akimbo: the full gun's second makes the pair
+#endif
 					} else {
 						return TICKOP_NONE;
 					}

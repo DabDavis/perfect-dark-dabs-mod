@@ -33,6 +33,9 @@ void invRemoveItemByNum(s32 weaponnum);
 bool invGiveProp(struct prop *prop);
 void invRemoveProp(struct prop *prop);
 s32 invGiveWeaponsByProp(struct prop *prop);
+#ifndef PLATFORM_N64
+bool invAkimboPairsPickup(s32 weaponnum);
+#endif
 void invChooseCycleForwardWeapon(s32 *weaponnum1, s32 *weaponnum2, bool arg2);
 void invChooseCycleBackWeapon(s32 *weaponnum1, s32 *weaponnum2, bool arg2);
 bool invHasKeyFlags(u32 wantkeyflags);
