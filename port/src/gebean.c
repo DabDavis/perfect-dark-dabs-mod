@@ -4979,6 +4979,96 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 	}
 
+	// And a part that hangs from another part: the tank's barrel (part 3) is
+	// under its turret (part 1), which is under the hull's matrix. The test
+	// above passes over it - its node's position is the turret's offset, not
+	// the model's - so the barrel's bone of new/prop/tank rode the hull and
+	// the HD barrel pointed along the hull wherever the turret turned (F3
+	// 20260925-230256, "tank cannon direction is inconsistent with aiming
+	// position"). The node's place in the model is its offset plus each
+	// parent part's up to the first list's matrix, and Bean's bone for it
+	// stands there or near: the barrel's 65 units ahead of GoldenEye's pivot,
+	// which it now pitches about. A prop's only - a gun's parts are what its
+	// holder poses.
+	for (s32 b = 0; b < bm.numbones && b < BEAN_MAXBONES && g->weaponnum < 0; b++) {
+		f32 at[3];
+		f32 bestdist = 100.0f * 100.0f;
+
+		if (bonemtx[b] >= 0) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			const f32 p = g->sign[k] * bm.bind[b][g->perm[k]];
+
+			at[k] = (p - g->beancentre[k]) * g->scale + g->n64centre[k];
+		}
+
+		for (s32 k = 0; k < numnodes; k++) {
+			const f32 *ppos = NULL;
+			s32 pmtx = -1;
+			const struct modelnode *pn = gebeanListPositionNode(nodes[k], &ppos, &pmtx);
+			const struct modelnode *up;
+			f32 place[3];
+			s32 walked = 0;
+			f32 dist;
+
+			if (!pn || (pn->type & 0xff) != MODELNODETYPE_POSITION
+					|| pmtx == mtx || pmtx < 0 || pmtx >= nummatrices || gebeanListNodeMatrix(pn) == mtx) {
+				continue;
+			}
+
+			place[0] = ppos[0];
+			place[1] = ppos[1];
+			place[2] = ppos[2];
+
+			// up through the parts over it, to the one on the first list's
+			// matrix. Anything else in the way and it is not a part of this;
+			// and under a switch or a level of detail its matrix is only
+			// worked out while that branch is chosen (modelUpdateMatrices()
+			// follows the child pointers those set), which the HD mesh,
+			// drawn whole every time, cannot know
+			for (up = pn->parent; up && walked < 64; up = up->parent, walked++) {
+				const u32 type = up->type & 0xff;
+
+				if (type == MODELNODETYPE_POSITION) {
+					if (up->rodata->position.mtxindex0 == mtx || up->rodata->position.part <= 0) {
+						break;
+					}
+
+					place[0] += up->rodata->position.pos.x;
+					place[1] += up->rodata->position.pos.y;
+					place[2] += up->rodata->position.pos.z;
+				} else if (type == MODELNODETYPE_POSITIONHELD || type == MODELNODETYPE_CHRINFO
+						|| type == MODELNODETYPE_TOGGLE || type == MODELNODETYPE_DISTANCE
+						|| type == MODELNODETYPE_REORDER || type == MODELNODETYPE_HEADSPOT) {
+					up = NULL;
+					break;
+				}
+			}
+
+			if (!up || (up->type & 0xff) != MODELNODETYPE_POSITION || up->rodata->position.mtxindex0 != mtx) {
+				continue;
+			}
+
+			dist = (at[0] - place[0]) * (at[0] - place[0])
+				+ (at[1] - place[1]) * (at[1] - place[1])
+				+ (at[2] - place[2]) * (at[2] - place[2]);
+
+			if (dist < bestdist) {
+				bestdist = dist;
+				bonemtx[b] = pmtx;
+				bonepos[b][0] = place[0];
+				bonepos[b][1] = place[1];
+				bonepos[b][2] = place[2];
+			}
+		}
+
+		if (bonemtx[b] >= 0) {
+			numparts++;
+		}
+	}
+
 	// a gun's painted muzzle flash; a prop has none, and a flat end of one is
 	// its own geometry
 	if (g->weaponnum >= 0) {
