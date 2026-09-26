@@ -106,3 +106,29 @@ PD's dual throw alternates hands, one ammo per throw; the remote-mine pair's las
 goes to the (single) detonator, which sets them all off; timed pair 300-frame fuse;
 grenade pair alternates and explodes. No crash or stuck state.
 Merge note: both branches add HANDOFF-f3.md (add/add conflict) - keep both texts.
+
+## Detonator model (converter 77 on fix/f3-ge-mission-logic) - 29fb8c20e
+
+Converter 77 (1e37e3ff2, fix/f3-ge-mission-logic, which owns the converter) leaves
+GoldenEye's interlink node 0x0f out and writes Igx030Z. The draw is here, because
+WEAPON_GE_DETONATOR and its g_Hands row live on this branch; the two branches touch
+disjoint files (except HANDOFF: keep both texts). gegadgets.c's new `press` field sits
+after `def` so it does not conflict with mission-logic's removal of `lastweapon`.
+- Pose: a g_Hands row with width 0 = GoldenEye's own pose, not measured and fitted: model
+  at its own size under the host root's rotation (sway) times gunfire.c's ITEM_TRIGGER
+  turn (D_80035C70), root at trigger_stats PosX/Y/Z (-2, -21.5, -19) plus the host's
+  motion. Matches the oracle frame (trigger_060) to a few pixels at 4:3.
+- Press: switch 6 turns about the interlink axis (20.21, 32.67, -18.41), -5 degrees at
+  rest, 0 while the trigger is held (GE's field_A84 rates). Cuffs 29-34: one worn, chosen
+  as the watch arm's (geWatchCuff(), new in gewatch.c).
+- Crash found on the way (fixed, src/lib/modelasm_c.c): with no animation,
+  modelasm00018680() read a position node's flags from sp00[part], cleared only for
+  i < nummatrices; GE's parts run past that (pressing hand part 4 of 4 matrices), so stack
+  garbage sent it to anim->animscale with anim NULL (SIGSEGV, depended on the build's stack).
+  Now 0 in the port. May be what gave the older "grenade/mines garbage matrices" note.
+- Verified (scratch/pair-mines = both heads merged, fa42d3b2e; ~/wt/f3mines-run,
+  go43.sh = 1024x768, probes/mines.py + new op hold:N): Facility 0x63, 5 remote mines
+  thrown -> 6th trigger is the detonator -> all 5 explode; the detonator drawn N64 and HD
+  look, rest vs press differ in the right hand only; no SIGSEGV. Pictures
+  ~/wt/f3mines-pics/detonator/ (oracle_n64_hd.png, press_cmp.png).
+- 20-mission 1800-frame sweep of that merge after a forced reconvert to 77: all clean.
