@@ -47,6 +47,7 @@
 #include "system.h"
 #include "config.h"
 #include "fs.h"
+#include "lib/audiodma.h"
 #include "romdata.h"
 #include "mod.h"
 #include "modborrow.h"
@@ -715,7 +716,10 @@ static s32 borrowLoadMusic(void)
 	sysMemFree(raw);
 
 	snprintf(path, sizeof(path), "%s/segs/seqtbl", src.dir);
-	music.tbl = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
+	// padded: the sound DMA reads a whole item from wherever a sample
+	// starts, and a sample near the end ran it off the heap block (crash
+	// 20260925-211932)
+	music.tbl = fsFileSize(path) > 0 ? fsFileLoadPadded(path, &len, ADMA_ITEM_SIZE) : NULL;
 
 	snprintf(path, sizeof(path), "%s/segs/sequences", src.dir);
 	music.sequences = fsFileSize(path) > 0 ? fsFileLoad(path, &music.seqlen) : NULL;

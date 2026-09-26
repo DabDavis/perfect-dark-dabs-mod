@@ -33,6 +33,7 @@
 #include "game/music.h"
 #include "game/mplayer/mplayer.h"
 #include "lib/rng.h"
+#include "lib/audiodma.h"
 #include "lib/snd.h"
 
 #define MAX_SEQUENCES 128
@@ -57,7 +58,7 @@ static u32 be32(const u8 *p)
 	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
 }
 
-static u8 *musicLoadFile(const char *dir, const char *name, u32 *len)
+static u8 *musicLoadFile(const char *dir, const char *name, u32 *len, u32 pad)
 {
 	char path[FS_MAXPATH + 1];
 
@@ -66,7 +67,7 @@ static u8 *musicLoadFile(const char *dir, const char *name, u32 *len)
 
 	// asked for first: a load of a file that is not there is an error line of
 	// its own, and every mod dir but one has no menu/
-	return fsFileSize(path) > 0 ? fsFileLoad(path, len) : NULL;
+	return fsFileSize(path) > 0 ? fsFileLoadPadded(path, len, pad) : NULL;
 }
 
 static s32 musicLoad(void)
@@ -93,14 +94,15 @@ static s32 musicLoad(void)
 		u8 *seqs;
 		u8 *list;
 
-		if (!dir || !(raw = musicLoadFile(dir, "instrumentsctl", &len))) {
+		if (!dir || !(raw = musicLoadFile(dir, "instrumentsctl", &len, 0))) {
 			continue;
 		}
 
 		ctl = preprocessALBankFile(raw, len, &ctllen);
 		sysMemFree(raw);
-		tbl = musicLoadFile(dir, "instrumentstbl", &len);
-		seqs = musicLoadFile(dir, "sequences", &seqlen);
+		// padded: the sound DMA reads a whole item from where a sample starts
+		tbl = musicLoadFile(dir, "instrumentstbl", &len, ADMA_ITEM_SIZE);
+		seqs = musicLoadFile(dir, "sequences", &seqlen, 0);
 
 		if (!ctl || !tbl || !seqs || seqlen < 4) {
 			sysMemFree(ctl);
@@ -127,7 +129,7 @@ static s32 musicLoad(void)
 
 		// a conversion from before these were written plays every sequence
 		// at the folders theme's volume, and draws nothing
-		if ((list = musicLoadFile(dir, "musicvolumes.bin", &len))) {
+		if ((list = musicLoadFile(dir, "musicvolumes.bin", &len, 0))) {
 			for (u32 n = 0; n < len / 2 && n < MAX_SEQUENCES; n++) {
 				g_GeMusic.volumes[n] = (s16)((list[n * 2] << 8) | list[n * 2 + 1]);
 			}
@@ -135,7 +137,7 @@ static s32 musicLoad(void)
 			sysMemFree(list);
 		}
 
-		if ((list = musicLoadFile(dir, "musicrandom.bin", &len))) {
+		if ((list = musicLoadFile(dir, "musicrandom.bin", &len, 0))) {
 			for (u32 n = 0; n < len / 2 && g_GeMusic.numrandom < MAX_RANDOM; n++) {
 				const s16 geseq = (s16)((list[n * 2] << 8) | list[n * 2 + 1]);
 
