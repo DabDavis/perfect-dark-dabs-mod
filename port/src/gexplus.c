@@ -258,10 +258,11 @@ void gexPlusTick(void)
 
 /**
  * GE Plus's simulants wear GoldenEye's characters (Oddjob, Trevelyan, Jaws
- * ...) - the ones GoldenEye X lends the Combat Simulator, which are also the
- * folder's Characters page - rather than a simulant profile's Perfect Dark
- * body. Each sim takes a character nobody else in the match is wearing while
- * one is left, then any. Nothing changes when none are borrowed.
+ * ...) - the XBLA release's, else the ROM's conversion (gebean.c), which are
+ * also the folder's Characters page, and never GoldenEye X's - rather than a
+ * simulant profile's Perfect Dark body. Each sim takes a character nobody else
+ * in the match is wearing while one is left, then any. Nothing changes when
+ * there are none.
  *
  * From mpStartMatch(), after the quick team has made its simulants.
  */
@@ -276,7 +277,7 @@ void gexPlusThemeSimulants(void)
 	}
 
 	for (i = 0; i < g_MpListCounts.bodies && numbodies < ARRAYCOUNT(bodies); i++) {
-		if (modBorrowBodyName(g_MpBodies[i].bodynum)) {
+		if (gebeanIsGoldenEyeBody(g_MpBodies[i].bodynum)) {
 			bodies[numbodies++] = i;
 		}
 	}
