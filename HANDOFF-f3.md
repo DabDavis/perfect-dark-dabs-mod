@@ -362,3 +362,24 @@ the bottling room's tanks white). Built on 71ec65134 (fast-forward).
   is a deliberate fix (bean-release-incomplete memory). If the user wants the
   release as it is, drop the `beanStockShade()` call.
 - objDeform's vertex jitter on Bean props; the CCTV/ICBM/plane reflections.
+
+## Update: the tank is gray (user, same day)
+The user: GoldenEye's gas tanks are gray - the black is only GoldenEye's baked
+vertex shading. `beanStockShade()` and its stock-triangle walk
+(`beanStockTriangles/Walk/Tri`, `struct beanstock`) are removed; the HD tank
+is the release's own picture (pale grey, pool of light at the top) times
+Bean's white vertex colours, plus the spot x landscape rim reflection.
+Everything else above stays (reflection pass, scorched destroyed props, the
+sphere-map picture rule). So the "Open" item about the release's look is
+settled, and the bullet on `beanStockShade()` above is history.
+- Pictures regenerated with the gray build (`pd.gray` in the rig):
+  `tanks_compare.jpg` (HD before / white trial / HD now / N64),
+  `tanks_gl_vk.jpg` (GL vs Vulkan 97.9% identical, 31 px over 8 levels),
+  `tank_shot_compare.jpg` (GL, Vulkan, N64: before / hit / exploding /
+  after; GL vs Vulkan 95-96% identical, under 50 px over 8 levels each).
+- The 20-mission sweep was not rerun: the removed code ran only for draws with
+  a reflection amount (the tank), and no sweep frame shows the tank.
+- The reflection is added, not screened; on the gray picture the difference
+  (picture x R) brightens the rim slightly over the release's. A rig trap
+  fixed: two screenshots in one second are named `X-2.png` and `X.png`, and
+  `-2` sorts first, so tankshot.sh now collects by time (`ls -tr`).
