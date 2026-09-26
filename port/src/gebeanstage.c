@@ -106,6 +106,8 @@ static u8 texSoft[GEBEAN_MAXMATS];
 // with t clamped, from a batch whose v shift is k + 1 (texClampShift[])
 static u8 texClampV[GEBEAN_MAXMATS];
 static s16 texClampShift[GEBEAN_MAXMATS];
+// The reservoir's picture: Bean's water buffers (stride 36) draw it
+static u8 texWater[GEBEAN_MAXMATS];
 
 // The level's backdrop: a picture whose every triangle stands outside the
 // level (gebeanStageRenderBackdrop())
@@ -2826,7 +2828,7 @@ static s32 build(void)
 
 	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
 		texTile[t] = NULL;
-		texAlpha[t] = texSoft[t] = texClampV[t] = 0;
+		texAlpha[t] = texSoft[t] = texClampV[t] = texWater[t] = 0;
 		texClampShift[t] = 0;
 	}
 
@@ -2849,6 +2851,10 @@ static s32 build(void)
 	c.scale = row->scale;
 	c.offset = row->offset;
 	gebeanLevelTriangles(level, collectTri, &c);
+
+	for (s32 t = 0; t < gebeanLevelNumTextures(level) && t < GEBEAN_MAXMATS; t++) {
+		texWater[t] = gebeanLevelTextureIsWater(level, t);
+	}
 
 	takeBackdrop(&c, n);
 	clampCutouts(&c);
@@ -3908,6 +3914,13 @@ s32 gebeanStageOwnsRecord(u32 record)
 	return built && record >= GEBEANSTAGE_TEXBASE && record <= GEBEANSTAGE_TEXNONE;
 }
 
+s32 gebeanStageRecordIsWater(u32 record)
+{
+	const u32 t = record - GEBEANSTAGE_TEXBASE;
+
+	return gebeanStageOwnsRecord(record) && t < GEBEAN_MAXMATS && texWater[t];
+}
+
 const void *gebeanStageTile(u32 record)
 {
 	const u32 t = record - GEBEANSTAGE_TEXBASE;
@@ -3965,6 +3978,7 @@ s32 gebeanStageCullsBackFaces(void) { return 0; }
 const char *gebeanStageLevelKey(void) { return NULL; }
 s32 gebeanStageOwnsRecord(u32 record) { return 0; }
 const void *gebeanStageTile(u32 record) { return NULL; }
+s32 gebeanStageRecordIsWater(u32 record) { return 0; }
 s32 gebeanStageTilePassesShots(uintptr_t tile) { return 0; }
 void gebeanStageTrace(FILE *f) { }
 Gfx *gebeanStageRenderBackdrop(Gfx *gdl) { return gdl; }

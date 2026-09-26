@@ -110,6 +110,9 @@ void gebeanStageLevelReset(void);
 s32 gebeanStageOwnsRecord(u32 record);
 const void *gebeanStageTile(u32 record);
 
+/** A served room's record that is the level's water picture (Bean's stride 36 draws; Dam's reservoir). */
+s32 gebeanStageRecordIsWater(u32 record);
+
 /** A served room's loaded picture that bullets pass through (cut-outs, translucent). */
 s32 gebeanStageTilePassesShots(uintptr_t tile);
 

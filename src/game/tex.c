@@ -14,6 +14,9 @@
 #include "platform.h"
 #ifndef PLATFORM_N64
 #include "mod.h"
+#ifndef PLATFORM_N64
+#include "gewater.h"
+#endif
 // a mod may give the animated textures below other numbers in its code
 #define MOD_TEX(x) modDataTexNum(x)
 #else
@@ -1029,6 +1032,20 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 					outgdl = texHandleType4(outgdl, tex1, smode, tmode, offset);
 					break;
 				}
+
+#ifndef PLATFORM_N64
+				// GE Plus: GoldenEye's moving water on the two pictures its
+				// own loader follows with a list (gewater.c) - tile 0 and
+				// tile 1 both the picture at TMEM 0, repeating, as that list
+				// sets them, then the list itself
+				if (geWaterIsWaterTexture(texturenum)) {
+					texResetTiles();
+					outgdl = texWriteTile(outgdl, tex1, TXMODE_WRAP, TXMODE_WRAP, 0, 0);
+					outgdl = texWriteTile(outgdl, tex1, TXMODE_WRAP, TXMODE_WRAP, 0, 1);
+					outgdl = geWaterWrite(outgdl, tex1->width, tex1->height);
+					texResetTiles();
+				}
+#endif
 
 				if (spe0 != 0) {
 					// Deep Sea - green river under floor
