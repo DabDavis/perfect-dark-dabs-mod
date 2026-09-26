@@ -68,6 +68,7 @@
 #include "game/zbuf.h"
 #include "game/propobj.h"
 #include "gefolder.h"
+#include "xblamesh.h"
 #include "gexfront.h"
 #include "gemusic.h"
 #include "gesfx.h"
@@ -5033,6 +5034,36 @@ static Gfx *frontDrawMonitorView(Gfx *gdl)
 			modSetTextureSourceMod(prevsrc);
 			frontMonitorClock(0, &lvupdate60, &lvupdate60f);
 
+			// The list sets its texture and nothing else: in a set the
+			// model's own node draw puts the combiner and the render mode
+			// in first (modelRenderNodeDl()), and alone here it ran in
+			// whatever the folder had left - the N64 folder's by luck, and
+			// under the release's folder its stamps' blend, which drew
+			// the radar as a black sweep over a green screen.
+			{
+				struct modelrenderdata renderdata = { NULL, false, 3 };
+
+				renderdata.unk30 = 1;
+				renderdata.gdl = gdl;
+
+				switch (node->rodata->dl.mcount) {
+				case 2:
+					modelApplyRenderModeType2(&renderdata);
+					break;
+				case 3:
+					modelApplyRenderModeType3(&renderdata, true);
+					break;
+				case 4:
+					modelApplyRenderModeType4(&renderdata, true);
+					break;
+				default:
+					modelApplyRenderModeType1(&renderdata);
+					break;
+				}
+
+				gdl = renderdata.gdl;
+			}
+
 			gSPDisplayList(gdl++, ((union modelrwdata *)modelGetNodeRwData(model, node))->dl.gdl);
 			gSPClearGeometryMode(gdl++, G_CULL_BOTH);
 			gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
@@ -5106,7 +5137,14 @@ static Gfx *frontDrawTvs(Gfx *gdl)
 		renderdata.flags = 3;
 		renderdata.zbufferenabled = true;
 		renderdata.gdl = gdl;
+
+		// In the HD look the set is Bean's mesh, whose screen is a still
+		// picture of dark glass; named here as objRenderProp() names a
+		// level's monitors, its screen node draws the list the programme
+		// just wrote instead
+		xblaMeshSetScreens(model);
 		modelRender(&renderdata, model);
+		xblaMeshSetScreens(NULL);
 		gdl = renderdata.gdl;
 
 		for (s32 i = 0; i < g_Front.tvdef->nummatrices; i++) {

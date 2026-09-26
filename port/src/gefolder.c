@@ -1587,8 +1587,16 @@ static Gfx *beanFolderBuildList(struct gebeanpictures *pics, s32 rom, const f32 
 			tc.s = beanFolderWraps(t->tex) ? G_TX_WRAP : G_TX_CLAMP;
 			tc.t = tc.s;
 
+			// The tile's origin at 0, not the half texel an N64 texture
+			// is given against its bilerp's: the renderer samples the
+			// release's picture as it is (exact_uv) and drops the other
+			// half, so this one alone moved every picture a sixty-fourth
+			// of its width right and down - half of a BEANFOLDER_TEXELS
+			// texel. The page ends a sixtieth of it past the crest, which
+			// was cut off at the page's edge, and the clamped OHMSS title
+			// lost the right of its last S.
 			if (tc.textureptr) {
-				texSelect(&g, &tc, 1, 0, 2, 1, NULL);
+				texSelect(&g, &tc, 1, 0, 0, 1, NULL);
 			}
 
 			g = beanFolderPictureState(g, t->tex);
