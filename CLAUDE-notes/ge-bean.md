@@ -11246,9 +11246,8 @@ stands at pad 1 ~660 frames after spawning and does the same. The full drive
 (Valentin from his west side - a wall blocks his sight to the east and north -,
 the statue unarmed, Natalya, the helicopter with the countdown cut to 5 s,
 the recorder, pad 22) ends on `aiEndLevel` with all five objectives complete.
-Natalya dies in the blast if left by the helicopter (the drive once left her
-stuck circling Bond's old spot beside it); GoldenEye's scripted hit on her
-(`HitChrWithItem` in 0x1001/0x1003) is still dropped by the conversion.
+Natalya dies in the blast if left by the helicopter; see below, that is
+GoldenEye's own outcome.
 `probes/routeall.py` base -> fix: Facility 22 -> 24 of 25, Dam 12 of 12
 both, Statue 17 -> 20 of 20; every baseline failure ended 10-50 short of a
 pad more than 150 above the chr, and no pair got worse.
@@ -11256,3 +11255,32 @@ pad more than 150 above the chr, and no pair got worse.
 The F3 trace now carries a `mission:` line (stage flags, each objective's
 status) and each chr's `ailist <id>+<offset>`, which would have answered this
 report's "never appeared or stuck?" from the text alone.
+
+### Natalya and the helicopter: HitChrWithItem, and the blast is GoldenEye's (2026-09-26)
+
+**HitChrWithItem** (GoldenEye's AI 0x18, `<chr> <part> <item>`, chrai.c ->
+`handles_shot_actors(chr, part, zero vector, item, FALSE)`) had no row and was
+dropped from every converted list: nine commands in Archives, Aztec, Depot,
+Train and Statue Park. Statue Park's bg 0x1001 fires it 3 ticks after the bomb
+when Bond never reached Natalya (flag 0x20000000 unset: a DD44, item 6, to the
+head, part 8), and 0x1003 when Mishkin's men open fire (KF7, item 8). It is
+the port's **0x01e7** `aiGeHitChrWithItem` now: `chrDamage()` with the item's
+own Destruction (`gegunsItemDamage()` / `gegunsItemWeapon()` map GoldenEye's
+hand item to our WEAPON_GE_*), the part as the hitpart (our HITPART_* are its
+HIT_* number for number), a zero vector and no attacker. Rows in both
+geaitable.py and geaitable.h; the conversion changes only those five setups,
+C and Python still byte for byte (committed without a GECONVERT_VERSION bump,
+taken by the 0926d batch's 81).
+
+**The blast and the circling are GoldenEye's own.** The drive's Natalya "stuck
+circling beside the helicopter": with Bond stood at pad 24 + (300, 0) the
+oracle's Natalya circles the helicopter's far side for good too (~370-450 from
+it, `genat3.py`; ours in f5 circled the same spot, pad 24 + (-20, -370)), and
+Bond within 500 of pad 24 starts GoldenEye's 15 s proximity fuse (bg 0x1001,
+flag 0x10000000). Stood still at pad 24 + (167, 133) or + (-20, -370),
+rescued (so no hit), the blast kills her outright in both games
+(`genat4.py` / `probes/natblast.py`: damage 0 -> 4 on the first explosion
+that reaches her). One difference left alone: GoldenEye's explosions start
+hurting ~8-12 ticks after bg 0x1008's first object_destroy, ours on the same
+tick, so on the unrescued branch GoldenEye's hit lands first and ours a tick
+after the blast - she dies either way.
