@@ -27,10 +27,10 @@ void modBorrowCommit(void);
 // leaves its maps out, since nobody asked for them.
 s32 modBorrowIsGunsOnlyMount(s32 moddir);
 
-// Whether GoldenEye X is the mod the game is loaded with, rather than one it is
-// only borrowing from: its own missions and stage files are there to be played,
-// which is what GE Plus's Select Mission needs (gexfront.c).
-s32 modBorrowIsGoldenEyeLoaded(void);
+// Whether the mod loaded over the game is GoldenEye X, whatever the borrow
+// setting: GE Plus does not open over it, since everything it does not
+// convert itself would be GoldenEye X's.
+s32 modBorrowLoadedIsGoldenEyeX(void);
 
 /**
  * GoldenEye X's own characters, appended to g_HeadsAndBodies from base and to

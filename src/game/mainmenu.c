@@ -40,6 +40,7 @@
 #include "modloader.h"
 #include "gexplusrom.h"
 #include "gexfront.h"
+#include "modborrow.h"
 #include "geintro.h"
 #include "game/mplayer/setup.h"
 #endif
@@ -4924,7 +4925,7 @@ static MenuItemHandlerResult menuhandlerGexPlusCombatSimulator(s32 operation, st
 	const s32 first = gexPlusFirstArena();
 
 	if (operation == MENUOP_CHECKDISABLED) {
-		return first < 0;
+		return first < 0 || modBorrowLoadedIsGoldenEyeX();
 	}
 
 	if (operation == MENUOP_SET && first >= 0) {
@@ -4966,7 +4967,22 @@ static MenuItemHandlerResult menuhandlerGexPlusMissions(s32 operation, struct me
 static MenuItemHandlerResult menuhandlerGexPlusWhyNoArena(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKHIDDEN) {
-		return gexPlusFirstArena() >= 0 || gexPlusRomGetState() != (s32)item->param;
+		return gexPlusFirstArena() >= 0 || gexPlusRomGetState() != (s32)item->param || modBorrowLoadedIsGoldenEyeX();
+	}
+
+	return 0;
+}
+
+/**
+ * GoldenEye X is the mod loaded, and GE Plus is GoldenEye's ROM and the XBLA
+ * release alone (2026-09-26): over GoldenEye X every file it does not convert
+ * itself - its guns' hosts, the sound bank, the animations, the textures -
+ * would be GoldenEye X's, so it does not open until that is unloaded.
+ */
+static MenuItemHandlerResult menuhandlerGexPlusGoldenEyeXLoaded(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return !modBorrowLoadedIsGoldenEyeX();
 	}
 
 	return 0;
@@ -5043,6 +5059,14 @@ static struct menuitem g_GexPlusMenuItems[] = {
 		(uintptr_t)"The arenas are converted, but\ntheir maps are switched off in\nExtended Options > Stage Loader.\n",
 		0,
 		menuhandlerGexPlusWhyNoArena,
+	},
+	{
+		MENUITEMTYPE_LABEL,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		(uintptr_t)"GE Plus is built from the GoldenEye\nROM alone. Unload GoldenEye X in\nLoad Mods to play it.\n",
+		0,
+		menuhandlerGexPlusGoldenEyeXLoaded,
 	},
 	{
 		MENUITEMTYPE_LABEL,

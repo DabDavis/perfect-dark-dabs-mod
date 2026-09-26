@@ -590,7 +590,7 @@ extern s32 g_MpWeaponSetNum;
 MenuItemHandlerResult menuhandlerMpWeaponSetDropdown(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 #ifndef PLATFORM_N64
-	// GE Plus: GoldenEye's own weapon sets (borrowed from GoldenEye X) and
+	// GE Plus: GoldenEye's own weapon sets (the ROM's, gexplus.c) and
 	// nothing else - Perfect Dark's sets are Perfect Dark's guns
 	{
 		s32 first = 0;

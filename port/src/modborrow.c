@@ -30,8 +30,8 @@
  * models in the slots GoldenEye X put them - and Mod.BorrowGoldenEyeGuns
  * names one outright, or "none".
  *
- * **"auto" borrows nothing once the ROM conversion has run** - borrowDormant()
- * below, and the comment there for why.
+ * **Nothing is borrowed once the ROM conversion has run**, whatever the
+ * setting says - borrowDormant() below, and the comment there for why.
  */
 
 #include <string.h>
@@ -216,10 +216,18 @@ static s32 borrowScoreGoldenEye(const char *dir, struct moddataspec *spec)
  * are a second GoldenEye mixed into the first: its repainted textures on the
  * conversion's models, its own numbers where the ROM's should be.
  *
- * So with the arenas converted, "auto" borrows nothing. The mod stays
- * installed and stays playable - loading it still plays GoldenEye X, and
- * naming it outright in Mod.BorrowGoldenEyeGuns still borrows from it - it is
- * simply no longer what GE Plus is built out of.
+ * So with the arenas converted nothing is borrowed, whatever
+ * Mod.BorrowGoldenEyeGuns says. The mod stays installed and stays playable -
+ * loading it still plays GoldenEye X, and its own maps through the Stage
+ * Loader still take its own objects (borrowFindMapsSource()) - it is simply
+ * never what GE Plus is built out of.
+ *
+ * A mod named outright used to borrow anyway. That was the last way into GE
+ * Plus: the borrow is global, it fills the same WEAPON_GE_* slots, character
+ * rows, weapon sets and music list GE Plus plays with, so naming GoldenEye X
+ * put its guns (and 33 overflowed sounds) into every GE Plus mission. The
+ * user's rule of 2026-09-26: GE Plus is the GoldenEye ROM and the GoldenEye
+ * XBLA release only, never GoldenEye X, even with the setting on.
  */
 static s32 borrowDormant(void)
 {
@@ -242,9 +250,9 @@ static void borrowFind(void)
 		return;
 	}
 
-	if (!strcasecmp(borrowSetting, "auto") && borrowDormant()) {
-		sysLogPrintf(LOG_NOTE, "modborrow: the GoldenEye arenas are converted from the ROM, "
-				"so an installed GoldenEye X is left dormant (Mod.BorrowGoldenEyeGuns names one to borrow anyway)");
+	if (borrowDormant()) {
+		sysLogPrintf(LOG_NOTE, "modborrow: GE Plus is converted from the GoldenEye ROM, so nothing is borrowed "
+				"from an installed GoldenEye X (Mod.BorrowGoldenEyeGuns=%s is not followed while it is)", borrowSetting);
 		return;
 	}
 
@@ -310,14 +318,38 @@ static s32 borrowIsLoaded(void)
 }
 
 /**
- * Whether GoldenEye X is the mod the game is loaded with. Then its missions are
- * the port's mission list (moddata.c's importSoloStages()) and its stage files
- * are mounted, so GE Plus's Select Mission can play them; when it is only
- * borrowed from, they are not there and the folder leaves the missions grey.
+ * Whether the mod the game is loaded with - the overlay over the ROM, not a
+ * mount beside it - is GoldenEye X, found by its guns the way the borrow finds
+ * it. Then every file GE Plus does not convert itself is GoldenEye X's: the
+ * guns' hosts and their definitions, the sound bank, the rewritten
+ * animations, the textures. GE Plus is the ROM's and the release's alone, so
+ * it does not open over it (gexfront.c, geintro.c, mainmenu.c). Scored once
+ * per loaded mod; a live swap changes the answer.
  */
-s32 modBorrowIsGoldenEyeLoaded(void)
+s32 modBorrowLoadedIsGoldenEyeX(void)
 {
-	return src.found > 0 && borrowIsLoaded();
+	static char scored[FS_MAXPATH + 1];
+	static s32 answer = 0;
+	const char *loaded = fsGetModDir();
+	struct moddataspec spec;
+
+	if (!loaded || !loaded[0]) {
+		scored[0] = '\0';
+		answer = 0;
+		return 0;
+	}
+
+	if (strcmp(scored, loaded) != 0) {
+		snprintf(scored, sizeof(scored), "%s", loaded);
+		answer = borrowScoreGoldenEye(loaded, &spec) >= GE_MIN_MATCHES;
+
+		if (answer) {
+			sysLogPrintf(LOG_NOTE, "modborrow: the loaded mod `%s` is GoldenEye X, so GE Plus stays shut until it is unloaded",
+					borrowBaseName(loaded));
+		}
+	}
+
+	return answer;
 }
 
 void modBorrowMount(void)
@@ -963,9 +995,10 @@ static s32 borrowFindMapsSource(void)
 		return 1;
 	}
 
-	// only where "auto" would have borrowed but for the conversion: "none"
-	// and a named mod that is not installed mean nothing at all, as before
-	if (strcasecmp(borrowSetting, "auto") || !borrowDormant()) {
+	// only where the setting would have borrowed but for the conversion:
+	// "none" means nothing at all, as before, and a mod named outright is
+	// the only one looked at
+	if (!borrowSetting[0] || !strcasecmp(borrowSetting, "none") || !borrowDormant()) {
 		return 0;
 	}
 
@@ -974,7 +1007,13 @@ static s32 borrowFindMapsSource(void)
 
 		for (s32 i = 0; i < modListGetCount(); i++) {
 			struct moddataspec spec;
-			const s32 score = borrowScoreGoldenEye(modListGetPath(i), &spec);
+			s32 score;
+
+			if (strcasecmp(borrowSetting, "auto") && strcasecmp(borrowSetting, modListGetName(i))) {
+				continue;
+			}
+
+			score = borrowScoreGoldenEye(modListGetPath(i), &spec);
 
 			if (score >= GE_MIN_MATCHES && score > best) {
 				best = score;
