@@ -34,6 +34,7 @@
 #include "archive.h"
 #include "video.h"
 #include "gexplusrom.h"
+#include "gexplus.h"
 #include <SDL.h>
 #include "x360.h"
 #include "xblatex.h"
@@ -46,6 +47,7 @@
 #include "data.h"
 #include "lib/model.h"
 #include "lib/main.h"
+#include "lib/rng.h"
 #include "game/playermgr.h"
 #include "game/bondgun.h"
 #include "bss.h"
@@ -255,6 +257,47 @@ static const struct gebeanpoolrow poolRows[] = {
 #define GEBEAN_MAX_MPINDEX 126
 
 static s32 poolSlot[ARRAYCOUNT(poolRows)];
+
+// The same rows filled from the ROM's conversion instead, with no release to
+// take them from (gebeanPoolRefreshRom()): each one's converted model file, or
+// 0. Apart from poolSlot, which says "a Bean mesh stands on a host here".
+static s32 romSlot[ARRAYCOUNT(poolRows)];
+
+/**
+ * GoldenEye's characters the release does not have - three it shipped broken
+ * (bluewoman, greyman, blueman), Natalya's jungle fatigues and four heads -
+ * from the ROM's conversion alone, after the pool's in both lists, with or
+ * without the release. Their rows follow the pool's. `num` is GoldenEye's own
+ * character number (Cgx%03dZ).
+ */
+struct gebeanextrarow {
+	s16 num;
+	u8 ishead;
+	const char *name;  // a body's Combat Simulator name, a head's face
+	const char *head;  // a body's default head, a pool head's source
+};
+
+// The three civilians are the decomp's BODY_Unused_Female, _Male_1 and
+// _Male_2: no setup of GoldenEye's places them, so nothing pairs them with a
+// head. They take faces no other character defaults to - a woman's for the
+// woman - so a GoldenEye body never draws a Perfect Dark face.
+static const struct gebeanextrarow extraRows[] = {
+	{ 26, 0, "Civilian\n",         "head/headmandy" }, // CbluewomanZ
+	{ 30, 0, "Civilian\n",         "head/headpete" },  // CgreymanZ
+	{ 31, 0, "Civilian\n",         "head/headdes" },   // CbluemanZ
+	{ 79, 0, "Natalya (Jungle)\n", NULL },             // CspicebondZ, her own head
+	{ 60, 1, "Balaclava\n",        NULL },             // CheadbalaclavaZ
+	{ 61, 1, "Biker\n",            NULL },             // CheadbikeZ
+	{ 62, 1, "Graham\n",           NULL },             // CheadgrahamZ
+	{ 68, 1, "Joe 2\n",            NULL },             // Cheadjoe2Z
+};
+
+#define GEBEAN_EXTRA_BASE (GEBEAN_POOL_BASE + ARRAYCOUNT(poolRows))
+
+static s32 extraSlot[ARRAYCOUNT(extraRows)];
+
+_Static_assert(GEBEAN_EXTRA_BASE + ARRAYCOUNT(extraRows) <= NUM_HEADSANDBODIES,
+		"GoldenEye's extra characters must fit g_HeadsAndBodies");
 
 _Static_assert(GEBEAN_POOL_BASE + ARRAYCOUNT(poolRows) <= NUM_HEADSANDBODIES,
 		"the GoldenEye pool must fit g_HeadsAndBodies");
@@ -765,7 +808,14 @@ const char *gebeanPoolBodyName(s32 bodynum)
 		return borrowed;
 	}
 
-	if (i < 0 || i >= ARRAYCOUNT(poolRows) || !poolRows[i].name || !poolSlot[i]) {
+	for (s32 j = 0; j < ARRAYCOUNT(extraRows); j++) {
+		if (bodynum == GEBEAN_EXTRA_BASE + j && extraSlot[j] && !extraRows[j].ishead
+				&& g_HeadsAndBodies[bodynum].filenum == extraSlot[j]) {
+			return extraRows[j].name;
+		}
+	}
+
+	if (i < 0 || i >= ARRAYCOUNT(poolRows) || !poolRows[i].name || (!poolSlot[i] && !romSlot[i])) {
 		return NULL;
 	}
 
@@ -877,6 +927,77 @@ s32 gebeanIsPoolRow(s32 num)
 		&& poolSlot[i] && poolSlot[i] == g_HeadsAndBodies[num].filenum;
 }
 
+s32 gebeanIsRomPoolRow(s32 num)
+{
+	const s32 i = num - GEBEAN_POOL_BASE;
+	const s32 x = num - GEBEAN_EXTRA_BASE;
+
+	if (x >= 0 && x < ARRAYCOUNT(extraRows)) {
+		return extraSlot[x] && extraSlot[x] == g_HeadsAndBodies[num].filenum;
+	}
+
+	return i >= 0 && i < ARRAYCOUNT(poolRows) && num < NUM_HEADSANDBODIES
+		&& romSlot[i] && romSlot[i] == g_HeadsAndBodies[num].filenum;
+}
+
+/**
+ * A GoldenEye face for a GoldenEye body that names none (a Combat Simulator
+ * body's headnum 1000), of the body's sex, as a g_HeadsAndBodies row - never a
+ * Perfect Dark face. GoldenEye's own random pools (chr.c's random_male_heads
+ * and random_female_heads): the staff heads, Graeme and the altered Joe, not
+ * Mishkin, the terrorist's balaclava, the biker or Brosnan. -1 where the body is not
+ * GoldenEye's or there is no such head, and the caller picks as the game does.
+ */
+s32 gebeanRandomHeadForBody(s32 bodynum)
+{
+	s32 rows[ARRAYCOUNT(poolRows) + ARRAYCOUNT(extraRows)];
+	s32 n = 0;
+	s32 male;
+
+	if (!gebeanIsGoldenEyeBody(bodynum)) {
+		return -1;
+	}
+
+	male = g_HeadsAndBodies[bodynum].ismale;
+
+	for (s32 i = 0; i < g_MpListCounts.heads && n < ARRAYCOUNT(rows); i++) {
+		const s32 row = g_MpHeads[i].headnum;
+		const s32 p = row - GEBEAN_POOL_BASE;
+		const s32 x = row - GEBEAN_EXTRA_BASE;
+
+		if (p >= 0 && p < ARRAYCOUNT(poolRows)) {
+			if (poolRows[p].row.kind == GEBEAN_HEAD && strncmp(poolRows[p].row.source, "head/", 5) == 0
+					&& strcmp(poolRows[p].row.source, "head/headmishkin") != 0
+					&& (poolRows[p].female == 0) == (male != 0)
+					&& ((poolSlot[p] && poolSlot[p] == g_HeadsAndBodies[row].filenum)
+						|| (romSlot[p] && romSlot[p] == g_HeadsAndBodies[row].filenum))) {
+				rows[n++] = row;
+			}
+		} else if (x >= 0 && x < ARRAYCOUNT(extraRows)) {
+			// the extra heads are all men's; the balaclava and the biker are
+			// worn only where a setup names them
+			if (extraRows[x].ishead && male && extraRows[x].num != 60 && extraRows[x].num != 61
+					&& extraSlot[x] && extraSlot[x] == g_HeadsAndBodies[row].filenum) {
+				rows[n++] = row;
+			}
+		}
+	}
+
+	return n > 0 ? rows[rngRandom() % n] : -1;
+}
+
+s32 gebeanIsGoldenEyeBody(s32 num)
+{
+	const s32 i = num - GEBEAN_POOL_BASE;
+
+	if (num < 0 || num >= NUM_HEADSANDBODIES) {
+		return 0;
+	}
+
+	return gebeanIsRomPoolRow(num)
+		|| (i >= 0 && i < ARRAYCOUNT(poolRows) && poolSlot[i] && poolSlot[i] == g_HeadsAndBodies[num].filenum);
+}
+
 const char *gebeanHeadName(s32 headnum)
 {
 	const s32 i = headnum - GEBEAN_POOL_BASE;
@@ -889,9 +1010,15 @@ const char *gebeanHeadName(s32 headnum)
 
 	filenum = g_HeadsAndBodies[headnum].filenum;
 
+	for (s32 j = 0; j < ARRAYCOUNT(extraRows); j++) {
+		if (headnum == GEBEAN_EXTRA_BASE + j && extraSlot[j] && extraRows[j].ishead && filenum == extraSlot[j]) {
+			return extraRows[j].name;
+		}
+	}
+
 	// the release's pool, with no GoldenEye X to borrow from
-	if (i >= 0 && i < ARRAYCOUNT(poolRows) && poolSlot[i] && poolSlot[i] == filenum
-			&& poolRows[i].row.kind == GEBEAN_HEAD) {
+	if (i >= 0 && i < ARRAYCOUNT(poolRows) && poolRows[i].row.kind == GEBEAN_HEAD
+			&& ((poolSlot[i] && poolSlot[i] == filenum) || (romSlot[i] && romSlot[i] == filenum))) {
 		return gebeanSourceName(poolRows[i].row.source);
 	}
 
@@ -1068,6 +1195,173 @@ void gebeanMeshesSwitched(void)
 	}
 }
 
+/**
+ * GoldenEye's own character number (c_item_entries, the conversion's
+ * Cgx%03dZ) for a pool row's release source: gebeanchrtable.h pairs the two by
+ * name, and a Bond's head and his body share a source, told apart by kind.
+ */
+static s32 gebeanRomChrForSource(const char *source, s32 ishead)
+{
+	for (s32 i = 0; i < ARRAYCOUNT(chrRows); i++) {
+		if ((chrRows[i].kind == GEBEAN_HEAD) == (ishead != 0) && strcmp(chrRows[i].source, source) == 0) {
+			return atoi(chrRows[i].file + 3);
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * GoldenEye's extra characters (extraRows) on the tail of both lists, after the
+ * pool's, whenever the ROM is converted. A row something else holds - a
+ * mission's heads take rows from the top of the table down - is left alone.
+ */
+static void gebeanPoolAppendExtras(void)
+{
+	s32 addedbodies = 0;
+	s32 addedheads = 0;
+
+	memset(extraSlot, 0, sizeof(extraSlot));
+
+	if (gexPlusRomMpBegin() <= 0) {
+		return;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(extraRows); i++) {
+		const struct gebeanextrarow *x = &extraRows[i];
+		const s32 row = GEBEAN_EXTRA_BASE + i;
+		struct headorbody *hb = &g_HeadsAndBodies[row];
+		struct headorbody made;
+		struct modeldef *keep;
+		s32 nb = g_MpListCounts.bodies;
+		s32 nh = g_MpListCounts.heads;
+
+		if (!gexPlusRomMpFill(x->num, &made)) {
+			continue;
+		}
+
+		if (hb->filenum && hb->filenum != made.filenum) {
+			continue;
+		}
+
+		if (x->ishead ? (nh >= ARRAYCOUNT(g_MpHeads) || nh > GEBEAN_MAX_MPINDEX)
+				: (nb >= ARRAYCOUNT(g_MpBodies) || nb >= GEBEAN_MAX_MPINDEX)) {
+			continue;
+		}
+
+		keep = hb->filenum == made.filenum ? hb->modeldef : NULL;
+		*hb = made;
+		hb->modeldef = keep;
+		extraSlot[i] = made.filenum;
+
+		if (x->ishead) {
+			g_MpHeads[nh].headnum = row;
+			g_MpHeads[nh].requirefeature = 0;
+			g_MpListCounts.heads = nh + 1;
+			addedheads++;
+		} else {
+			g_MpBodies[nb].bodynum = row;
+			g_MpBodies[nb].name = 0;
+			g_MpBodies[nb].headnum = 1000; // any head of the body's sex
+			g_MpBodies[nb].requirefeature = 0;
+			g_MpListCounts.bodies = nb + 1;
+
+			for (s32 j = 0; x->head && j < ARRAYCOUNT(poolRows); j++) {
+				if (poolRows[j].row.kind == GEBEAN_HEAD && (poolSlot[j] || romSlot[j])
+						&& strcmp(poolRows[j].row.source, x->head) == 0) {
+					g_MpBodies[nb].headnum = GEBEAN_POOL_BASE + j;
+					break;
+				}
+			}
+			addedbodies++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "gebean: %d more GoldenEye characters and %d heads from the ROM, which the release lacks",
+			addedbodies, addedheads);
+}
+
+/**
+ * The pool with no release to draw it: every row filled with GoldenEye's own
+ * N64 character, converted from the player's ROM (gexplus.c), in the rows and
+ * list places the release's would take. So a saved Combat Simulator setup or
+ * Customize Character pick names the same character with the release added or
+ * taken away, and nothing already in the lists moves. The release's meshes do
+ * not come into it: with it absent nothing is paired, and a converted model is
+ * GoldenEye's N64 one already, the model its missions' guards wear.
+ */
+static void gebeanPoolRefreshRom(s32 numbodies, s32 numheads)
+{
+	s32 addedbodies = 0;
+	s32 addedheads = 0;
+
+	memset(poolSlot, 0, sizeof(poolSlot));
+	memset(romSlot, 0, sizeof(romSlot));
+
+	if (gexPlusRomMpBegin() <= 0) {
+		return;
+	}
+
+	// Every row first, so a body's own head can be asked about before the
+	// list reaches it
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
+		const struct gebeanpoolrow *p = &poolRows[i];
+		const s32 num = gebeanRomChrForSource(p->row.source, p->row.kind == GEBEAN_HEAD);
+		struct headorbody *hb = &g_HeadsAndBodies[GEBEAN_POOL_BASE + i];
+		struct headorbody made;
+		struct modeldef *keep;
+
+		if (num < 0 || !gexPlusRomMpFill(num, &made)) {
+			continue;
+		}
+
+		// A row a stage has already loaded keeps its model: a chr may be
+		// wearing it, and this can run from the pause menu
+		keep = hb->filenum == made.filenum ? hb->modeldef : NULL;
+		*hb = made;
+		hb->modeldef = keep;
+		romSlot[i] = made.filenum;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
+		const struct gebeanpoolrow *p = &poolRows[i];
+
+		if (!romSlot[i]) {
+			continue;
+		}
+
+		if (p->row.kind == GEBEAN_HEAD) {
+			if (numheads + addedheads < ARRAYCOUNT(g_MpHeads) && numheads + addedheads <= GEBEAN_MAX_MPINDEX) {
+				g_MpHeads[numheads + addedheads].headnum = GEBEAN_POOL_BASE + i;
+				g_MpHeads[numheads + addedheads].requirefeature = 0;
+				addedheads++;
+			}
+		} else if (numbodies + addedbodies < ARRAYCOUNT(g_MpBodies) && numbodies + addedbodies < GEBEAN_MAX_MPINDEX) {
+			struct mpbody *body = &g_MpBodies[numbodies + addedbodies];
+
+			body->bodynum = GEBEAN_POOL_BASE + i;
+			body->name = 0;
+			body->headnum = 1000; // any head of the body's sex
+			body->requirefeature = 0;
+
+			for (s32 j = 0; p->head && j < ARRAYCOUNT(poolRows); j++) {
+				if (poolRows[j].row.kind == GEBEAN_HEAD && romSlot[j] && strcmp(poolRows[j].row.source, p->head) == 0) {
+					body->headnum = GEBEAN_POOL_BASE + j;
+					break;
+				}
+			}
+
+			addedbodies++;
+		}
+	}
+
+	g_MpListCounts.bodies = numbodies + addedbodies;
+	g_MpListCounts.heads = numheads + addedheads;
+
+	sysLogPrintf(LOG_NOTE, "gebean: %d GoldenEye characters and %d heads in the Combat Simulator's lists, from the ROM",
+			addedbodies, addedheads);
+}
+
 void gebeanPoolRefresh(void)
 {
 	s32 numbodies = g_MpListCounts.bodies;
@@ -1076,6 +1370,7 @@ void gebeanPoolRefresh(void)
 	s32 addedheads = 0;
 
 	gebeanGunsRefresh();
+	memset(extraSlot, 0, sizeof(extraSlot));
 
 	// Off with whatever this put on last time: the tail of each list whose
 	// rows are the pool's, or Agent 4's before them
@@ -1108,12 +1403,18 @@ void gebeanPoolRefresh(void)
 	// when there is no GoldenEye X to borrow from.
 	if (modBorrowCharacters(GEBEAN_POOL_BASE, NUM_HEADSANDBODIES - 1 - GEBEAN_POOL_BASE, GEBEAN_MAX_MPINDEX) > 0) {
 		memset(poolSlot, 0, sizeof(poolSlot));
+		memset(romSlot, 0, sizeof(romSlot));
+		memset(extraSlot, 0, sizeof(extraSlot));
 		return;
 	}
 
 	if (!gebeanIsAvailable()) {
+		gebeanPoolRefreshRom(numbodies, numheads);
+		gebeanPoolAppendExtras();
 		return;
 	}
+
+	memset(romSlot, 0, sizeof(romSlot));
 
 	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
 		const struct gebeanpoolrow *p = &poolRows[i];
@@ -1192,6 +1493,8 @@ void gebeanPoolRefresh(void)
 
 	sysLogPrintf(LOG_NOTE, "gebean: %d GoldenEye characters and %d heads in the Combat Simulator's lists",
 			addedbodies, addedheads);
+
+	gebeanPoolAppendExtras();
 }
 
 static u32 gebeanBE32(const u8 *p)

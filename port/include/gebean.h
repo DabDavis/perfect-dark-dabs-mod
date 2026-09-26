@@ -188,6 +188,27 @@ s32 gebeanListLoadedMatrix(const struct modelnode *node);
 s32 gebeanListVertexMatrices(const struct modelnode *node, const u8 *filebase, s16 *vtxmtx, s32 numvertices);
 s32 gebeanIsPoolRow(s32 headorbodynum);
 
+/**
+ * Whether a head or body row is the pool's filled from the ROM's conversion
+ * instead (no release present): GoldenEye's own N64 model, no mesh over it.
+ */
+s32 gebeanIsRomPoolRow(s32 headorbodynum);
+
+/**
+ * Whether a body row is one of GoldenEye's own characters for GE Plus: the
+ * release's pool, or the ROM's (the pool filled from the conversion and the
+ * extras the release lacks). Never GoldenEye X's - GE Plus is made of the
+ * ROM and the release alone.
+ */
+s32 gebeanIsGoldenEyeBody(s32 bodynum);
+
+/**
+ * A random GoldenEye head (a g_HeadsAndBodies row, of the body's sex) for a
+ * GoldenEye body that names none, or -1 for any other body: a GoldenEye body
+ * never draws a Perfect Dark face.
+ */
+s32 gebeanRandomHeadForBody(s32 bodynum);
+
 // The pool's body or head for one of GoldenEye's characters by its Bean source
 // ("char/oliveguard"), or -1 when the pool is not Bean's.
 s32 gebeanPoolNumBySource(const char *source);

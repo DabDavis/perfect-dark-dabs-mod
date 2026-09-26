@@ -213,6 +213,39 @@ order (camguard = Jungle Commando, greyguard = St. Petersburg Guard, ...).
   techwoman and rusguard built and drew in the survey, the other two have not
   been looked at.
 
+### From the ROM alone, with no release (2026-09-26)
+
+F3 20260924-001658: a player with the GE ROM and no GoldenEye XBLA had no
+GoldenEye characters in the Combat Simulator (GE-X, the other source, is
+dormant once the ROM is converted). `gebeanPoolRefreshRom()` fills the same
+pool rows and list places from the conversion's `Cgx%03dZ` models, paired to
+each pool row through `gebeanchrtable.h` (a head and a body sharing a source,
+the Bond pairs, told apart by kind): 38 bodies and 33 heads, so a saved index
+names the same character with the release added or removed. `romSlot[]` marks
+them (not `poolSlot[]`, which means "a Bean mesh stands on a host");
+`gebeanIsRomPoolRow()` for headfit, which leaves a GoldenEye head on a
+GoldenEye body alone, and the rows share one head/body type so the ROM's type
+table moves none of them. The table is read by `gexPlusRomMpBegin()`/`Fill()`
+(gexplus.c) into a copy of its own; the conversion is the mount with
+`files/Cgx000Z` and `menu/gechrs.bin`, so it needs GoldenEye Arenas' maps on
+(as the guns do). With the release present the lists and a seeded match are
+byte/pixel-identical to before. Probes: `~/wt/gerom-mpchars-run/`
+(`cisweep.py` wears every body in the Institute, `match.py` a Combat Sim
+with chosen sim bodies, `cimenu.py` the Customize Character page).
+
+**Extras and GE Plus's pages (2026-09-26, the user's call).** `extraRows` adds
+what the release lacks - bluewoman, greyman, blueman, Natalya's jungle fatigues
+(spicebond) and the balaclava, biker, Graham and Joe 2 heads - from the ROM on
+the lists' tail after the pool, with or without the release (rows
+`GEBEAN_EXTRA_BASE`.., the last at 256; a row a mission's head holds is left
+alone). GE Plus's folder Characters page and `gexPlusThemeSimulants()` take
+`gebeanIsGoldenEyeBody()`: the release's pool or the ROM's rows, **never
+GoldenEye X's** (the user: GE Plus is the ROM and the release only), Perfect
+Dark's bodies with neither. Probe `front.py` in the same rig opens the folder
+from the title (`mainEndStage()`, then `gexFrontOpen()` and
+`frontSelectRow(ROW_CHARACTERS)`); a screenshot is taken on the next render,
+so set nothing before stepping a frame.
+
 ## Walking the Carrington Institute as one (2026-09-15)
 
 The Perfect Menu's **Customize Character** (between Carrington Institute and

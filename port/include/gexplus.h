@@ -4,6 +4,7 @@
 #include <PR/ultratypes.h>
 
 struct chrdata;
+struct headorbody;
 
 /**
  * GE Plus, the GoldenEye remake's Combat Simulator: GoldenEye's own
@@ -30,7 +31,7 @@ s32 gexPlusMatchOver(void);
 // The Man with the Golden Gun: keeps its one Golden Gun in the arena, each frame
 void gexPlusTick(void);
 
-// Simulants wear GoldenEye X's borrowed GoldenEye characters, at match start
+// Simulants wear GoldenEye's own characters (release or ROM, never GoldenEye X), at match start
 void gexPlusThemeSimulants(void);
 
 
@@ -66,6 +67,14 @@ s32 gexPlusRomIsPoolRow(s32 num);
 // a row that is not one of its characters. The watch asks, to dress its arm in
 // the sleeve the player's own character is wearing (gewatch.c).
 s32 gexPlusRomChrForRow(s32 row);
+
+// GoldenEye's own characters for the Combat Simulator's lists when there is no
+// XBLA release to take them from (gebean.c's pool): Begin finds the ROM's
+// conversion and reads its table, answering how many characters it has (0 for
+// none); Fill makes `hb` GoldenEye's character `num` (its own c_item_entries
+// number) on its converted model and answers the model's file, or 0
+s32 gexPlusRomMpBegin(void);
+s32 gexPlusRomMpFill(s32 num, struct headorbody *hb);
 
 // A converted GoldenEye mission's own text bank - its objectives and its radio
 // messages - loaded out of the mod's menu/ into LANGBANK_GEMISSION. Cleared

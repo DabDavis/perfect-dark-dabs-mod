@@ -26,10 +26,10 @@
  *   on their own controller and the page closing when all have;
  * - the Characters page (constructor_menu0F_mpcharsel): a panel a player with
  *   a strip of GoldenEye's four-tile portraits scrolling under the player's
- *   choice. The characters are the remake's - GoldenEye X's, borrowed into
- *   the Combat Simulator's list (modborrow.c), or Perfect Dark's own without
- *   it - and a portrait is GoldenEye's for the character of that name, or its
- *   silhouette.
+ *   choice. The characters are GoldenEye's own in the Combat Simulator's
+ *   list - the XBLA release's, else the ROM's conversion (gebean.c), never
+ *   GoldenEye X's - or Perfect Dark's own with neither, and a portrait is
+ *   GoldenEye's for the character of that name, or its silhouette.
  *
  * The music is GoldenEye's too: its folders theme (sequence 23, M_FOLDERS) on
  * its own instrument bank, both copied out of the ROM into menu/ and appended
@@ -58,6 +58,7 @@
 #include "input.h"
 #include "mod.h"
 #include "modborrow.h"
+#include "gebean.h"
 #include "modloader.h"
 #include "romdata.h"
 #include "system.h"
@@ -1185,9 +1186,7 @@ static const struct { const char *key; const char *picture; } g_FrontReleasePort
 
 static const char *frontCharacterName(s32 mpbodynum)
 {
-	const char *name = modBorrowBodyName(g_MpBodies[mpbodynum].bodynum);
-
-	return name ? name : mpGetBodyName(mpbodynum);
+	return mpGetBodyName(mpbodynum);
 }
 
 /** The character's name, the letters before any bracket, lower case. */
@@ -1246,15 +1245,15 @@ static const char *frontReleasePortrait(s32 mpbodynum)
 }
 
 /**
- * The Characters page's list: GoldenEye X's characters where they are
- * borrowed, else every Combat Simulator body.
+ * The Characters page's list: GoldenEye's own characters (the release's or
+ * the ROM's, gebeanIsGoldenEyeBody()), else every Combat Simulator body.
  */
 static void frontBuildCharacters(void)
 {
 	g_Front.numcharacters = 0;
 
 	for (s32 i = 0; i < g_MpListCounts.bodies && g_Front.numcharacters < MAX_CHARACTERS; i++) {
-		if (modBorrowBodyName(g_MpBodies[i].bodynum)) {
+		if (gebeanIsGoldenEyeBody(g_MpBodies[i].bodynum)) {
 			g_Front.characters[g_Front.numcharacters++] = i;
 		}
 	}
