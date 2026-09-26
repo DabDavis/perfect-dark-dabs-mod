@@ -47,6 +47,7 @@
 #include "data.h"
 #include "lib/model.h"
 #include "lib/main.h"
+#include "lib/rng.h"
 #include "game/playermgr.h"
 #include "game/bondgun.h"
 #include "bss.h"
@@ -273,17 +274,22 @@ struct gebeanextrarow {
 	s16 num;
 	u8 ishead;
 	const char *name;  // a body's Combat Simulator name, a head's face
+	const char *head;  // a body's default head, a pool head's source
 };
 
+// The three civilians are the decomp's BODY_Unused_Female, _Male_1 and
+// _Male_2: no setup of GoldenEye's places them, so nothing pairs them with a
+// head. They take faces no other character defaults to - a woman's for the
+// woman - so a GoldenEye body never draws a Perfect Dark face.
 static const struct gebeanextrarow extraRows[] = {
-	{ 26, 0, "Civilian\n" },          // CbluewomanZ
-	{ 30, 0, "Civilian\n" },          // CgreymanZ
-	{ 31, 0, "Civilian\n" },          // CbluemanZ
-	{ 79, 0, "Natalya (Jungle)\n" },  // CspicebondZ
-	{ 60, 1, "Balaclava\n" },         // CheadbalaclavaZ
-	{ 61, 1, "Biker\n" },             // CheadbikeZ
-	{ 62, 1, "Graham\n" },            // CheadgrahamZ
-	{ 68, 1, "Joe 2\n" },             // Cheadjoe2Z
+	{ 26, 0, "Civilian\n",         "head/headmandy" }, // CbluewomanZ
+	{ 30, 0, "Civilian\n",         "head/headpete" },  // CgreymanZ
+	{ 31, 0, "Civilian\n",         "head/headdes" },   // CbluemanZ
+	{ 79, 0, "Natalya (Jungle)\n", NULL },             // CspicebondZ, her own head
+	{ 60, 1, "Balaclava\n",        NULL },             // CheadbalaclavaZ
+	{ 61, 1, "Biker\n",            NULL },             // CheadbikeZ
+	{ 62, 1, "Graham\n",           NULL },             // CheadgrahamZ
+	{ 68, 1, "Joe 2\n",            NULL },             // Cheadjoe2Z
 };
 
 #define GEBEAN_EXTRA_BASE (GEBEAN_POOL_BASE + ARRAYCOUNT(poolRows))
@@ -925,6 +931,52 @@ s32 gebeanIsRomPoolRow(s32 num)
 		&& romSlot[i] && romSlot[i] == g_HeadsAndBodies[num].filenum;
 }
 
+/**
+ * A GoldenEye face for a GoldenEye body that names none (a Combat Simulator
+ * body's headnum 1000), of the body's sex, as a g_HeadsAndBodies row - never a
+ * Perfect Dark face. GoldenEye's own random pools (chr.c's random_male_heads
+ * and random_female_heads): the staff heads, Graeme and the altered Joe, not
+ * Mishkin, the terrorist's balaclava, the biker or Brosnan. -1 where the body is not
+ * GoldenEye's or there is no such head, and the caller picks as the game does.
+ */
+s32 gebeanRandomHeadForBody(s32 bodynum)
+{
+	s32 rows[ARRAYCOUNT(poolRows) + ARRAYCOUNT(extraRows)];
+	s32 n = 0;
+	s32 male;
+
+	if (!gebeanIsGoldenEyeBody(bodynum)) {
+		return -1;
+	}
+
+	male = g_HeadsAndBodies[bodynum].ismale;
+
+	for (s32 i = 0; i < g_MpListCounts.heads && n < ARRAYCOUNT(rows); i++) {
+		const s32 row = g_MpHeads[i].headnum;
+		const s32 p = row - GEBEAN_POOL_BASE;
+		const s32 x = row - GEBEAN_EXTRA_BASE;
+
+		if (p >= 0 && p < ARRAYCOUNT(poolRows)) {
+			if (poolRows[p].row.kind == GEBEAN_HEAD && strncmp(poolRows[p].row.source, "head/", 5) == 0
+					&& strcmp(poolRows[p].row.source, "head/headmishkin") != 0
+					&& (poolRows[p].female == 0) == (male != 0)
+					&& ((poolSlot[p] && poolSlot[p] == g_HeadsAndBodies[row].filenum)
+						|| (romSlot[p] && romSlot[p] == g_HeadsAndBodies[row].filenum))) {
+				rows[n++] = row;
+			}
+		} else if (x >= 0 && x < ARRAYCOUNT(extraRows)) {
+			// the extra heads are all men's; the balaclava and the biker are
+			// worn only where a setup names them
+			if (extraRows[x].ishead && male && extraRows[x].num != 60 && extraRows[x].num != 61
+					&& extraSlot[x] && extraSlot[x] == g_HeadsAndBodies[row].filenum) {
+				rows[n++] = row;
+			}
+		}
+	}
+
+	return n > 0 ? rows[rngRandom() % n] : -1;
+}
+
 s32 gebeanIsGoldenEyeBody(s32 num)
 {
 	const s32 i = num - GEBEAN_POOL_BASE;
@@ -1204,6 +1256,14 @@ static void gebeanPoolAppendExtras(void)
 			g_MpBodies[nb].headnum = 1000; // any head of the body's sex
 			g_MpBodies[nb].requirefeature = 0;
 			g_MpListCounts.bodies = nb + 1;
+
+			for (s32 j = 0; x->head && j < ARRAYCOUNT(poolRows); j++) {
+				if (poolRows[j].row.kind == GEBEAN_HEAD && (poolSlot[j] || romSlot[j])
+						&& strcmp(poolRows[j].row.source, x->head) == 0) {
+					g_MpBodies[nb].headnum = GEBEAN_POOL_BASE + j;
+					break;
+				}
+			}
 			addedbodies++;
 		}
 	}

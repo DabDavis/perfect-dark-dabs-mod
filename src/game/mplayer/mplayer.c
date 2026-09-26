@@ -3304,6 +3304,17 @@ s32 mpGetMpheadnumByMpbodynum(s32 mpbodynum)
 
 	headnum = g_MpBodies[mpbodynum].headnum;
 
+#ifndef PLATFORM_N64
+	// a GoldenEye character takes one of GoldenEye's faces (gebean.c)
+	if (headnum == 1000) {
+		const s32 ge = gebeanRandomHeadForBody(g_MpBodies[mpbodynum].bodynum);
+
+		if (ge >= 0) {
+			headnum = ge;
+		}
+	}
+#endif
+
 	if (headnum == 1000) {
 		if (g_HeadsAndBodies[g_MpBodies[mpbodynum].bodynum].ismale) {
 			headnum = g_MpMaleHeads[rngRandom() % g_MpListCounts.maleheads];

@@ -196,6 +196,13 @@ s32 gebeanIsRomPoolRow(s32 headorbodynum);
  */
 s32 gebeanIsGoldenEyeBody(s32 bodynum);
 
+/**
+ * A random GoldenEye head (a g_HeadsAndBodies row, of the body's sex) for a
+ * GoldenEye body that names none, or -1 for any other body: a GoldenEye body
+ * never draws a Perfect Dark face.
+ */
+s32 gebeanRandomHeadForBody(s32 bodynum);
+
 // The pool's body or head for one of GoldenEye's characters by its Bean source
 // ("char/oliveguard"), or -1 when the pool is not Bean's.
 s32 gebeanPoolNumBySource(const char *source);
