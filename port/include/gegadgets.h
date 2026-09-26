@@ -33,4 +33,8 @@ void gegadgetsThrown(s32 weaponnum, struct weaponobj *thrown);
 // the thrown prop's model state, -1 for the host's own
 s32 gegadgetsPropModel(s32 weaponnum);
 
+// Where the watch laser's beam starts (at the watch), in the camera's space;
+// 0 for any other weapon or before the watch is drawn
+s32 gegadgetsWatchLaserMuzzle(s32 weaponnum, f32 *campos);
+
 #endif

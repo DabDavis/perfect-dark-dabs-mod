@@ -9258,6 +9258,25 @@ void bgun0f0a5550(s32 handnum)
 	}
 
 #ifndef PLATFORM_N64
+	// GoldenEye's watch laser on Train fires from the watch (gunfire.c's
+	// field_B58: the watch model's flash node), not from where the
+	// Moonraker's muzzle would be - in the XBLA look the host's, at the left
+	// of the screen. gegadgets.c knows where it drew the watch.
+	{
+		f32 watchmuzzle[3];
+
+		if (gegadgetsWatchLaserMuzzle(hand->gset.weaponnum, watchmuzzle)) {
+			hand->muzzlemat.m[3][0] = watchmuzzle[0];
+			hand->muzzlemat.m[3][1] = watchmuzzle[1];
+			hand->muzzlemat.m[3][2] = watchmuzzle[2];
+			hand->muzzlepos.x = watchmuzzle[0];
+			hand->muzzlepos.y = watchmuzzle[1];
+			hand->muzzlepos.z = watchmuzzle[2];
+			mtx4TransformVecInPlace(camGetProjectionMtxF(), &hand->muzzlepos);
+			hand->muzzlez = -watchmuzzle[2];
+		}
+	}
+
 	// Every branch above put the muzzle where the view model's is, and the view
 	// model is placed from the camera - posmtx is cammtx through the camera
 	// matrix, and the two node branches transform by it directly. In third

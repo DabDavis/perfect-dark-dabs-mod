@@ -97,6 +97,10 @@ static struct gegadgetidentity g_Identities[] = {
 #define ITEM_WATCHLASER 23
 #define ITEM_TRIGGER 30
 
+// The part whose position is the watch laser's muzzle: GoldenEye's switch 3,
+// where gunfire.c hangs the flash and starts the beam (field_B58)
+#define WATCH_PART_FLASH 3
+
 // GoldenEye's PROPDEF_OBJECTIVE_COPY_ITEM asks one thing, "has the key been
 // copied", and Perfect Dark has no such record: the conversion writes it as a
 // complete-on-flag objective on this stage flag (gesolo.py's GE_COPYITEM_FLAG)
@@ -164,6 +168,11 @@ static struct {
 	u32 buflen;
 	struct modeldef *def;
 	f32 press;         // the detonator's hand, 0 off the watch to DETONATOR_PRESS on it
+	f32 flash[3];      // the watch laser's muzzle in the camera's space, last drawn
+	s32 flashframe;    // the frame it was drawn on, -1 for none
+	u16 laserhostname; // the Moonraker's own name, while Train wears the watch laser's
+	u16 laserhostshort;
+	u16 lasertext;
 	struct model model;
 	u32 rwdata[GADGET_RWDATA_MAX];
 	s32 photo;         // the camera's trigger was pulled: judged in the render
@@ -171,7 +180,7 @@ static struct {
 	s32 centreitem;    // the item `centre` was measured on
 	f32 centre[3];     // the model's middle from its root, in the camera's space
 	f32 size[3];
-} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .centreitem = -1 };
+} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .centreitem = -1, .flashframe = -1 };
 
 s32 gegadgetsIsGadget(s32 weaponnum)
 {
@@ -184,9 +193,10 @@ s32 gegadgetsIsGadget(s32 weaponnum)
  * exactly as the detonator (watchlaser_stats' PosX/Y/Z are trigger_stats',
  * gunfire.c turns both by D_80035C70, gun.c presses both alike) - and not as
  * the Moonraker's gun. The conversion leaves item 23 out (it is no gun of the
- * port's), so the detonator's own GtriggerZ (Igx030Z) stands in for it: the
- * two models have the same node count, matrices, bounds and textures, and the
- * native port draws them alike.
+ * port's), so where there is no Igx023Z the detonator's own GtriggerZ
+ * (Igx030Z) stands in for it: the two models have the same node count,
+ * matrices, bounds and textures, and the native port draws them alike. A
+ * conversion that writes GwatchlaserZ as Igx023Z is picked up by itself.
  */
 static s32 gegadgetsIsWatchLaser(s32 weaponnum)
 {
@@ -236,6 +246,7 @@ void gegadgetsStageLoad(s32 stagenum)
 
 	g_Gadgets.failed = -1;
 	g_Gadgets.photo = 0;
+	g_Gadgets.flashframe = -1;
 	g_Gadgets.keyprop = NULL;
 	g_Gadgets.mission = modloaderStageMission(stagenum);
 	g_Gadgets.moddir = modloaderStageIsRemake(stagenum) ? modloaderGetStageModDirIndex(stagenum) : -1;
@@ -250,6 +261,27 @@ void gegadgetsStageLoad(s32 stagenum)
 
 			g_GeWeaponDefs[w - WEAPON_GE_FIRST].name = id->text;
 			g_GeWeaponDefs[w - WEAPON_GE_FIRST].shortname = id->text;
+		}
+	}
+
+	// The watch laser on the Moonraker's number wears GoldenEye's name for
+	// it (LGUN's GUN_STR_7B) in the inventory, the watch and the messages;
+	// every other stage gives the Moonraker its own name back
+	{
+		struct weapon *laser = &g_GeWeaponDefs[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST];
+
+		if (!g_Gadgets.lasertext) {
+			g_Gadgets.lasertext = langAddPortText("Watch Laser\n");
+			g_Gadgets.laserhostname = laser->name;
+			g_Gadgets.laserhostshort = laser->shortname;
+		}
+
+		if (gegadgetsIsWatchLaser(WEAPON_GE_MOONRAKER)) {
+			laser->name = g_Gadgets.lasertext;
+			laser->shortname = g_Gadgets.lasertext;
+		} else {
+			laser->name = g_Gadgets.laserhostname;
+			laser->shortname = g_Gadgets.laserhostshort;
 		}
 	}
 }
@@ -275,6 +307,14 @@ static s32 gegadgetsLoadModel(s32 item)
 	snprintf(name, sizeof(name), "Igx%03dZ", item);
 	fileid = romdataRegisterModFile(name, g_Gadgets.moddir);
 	size = fileid > 0 ? fileGetInflatedSize(fileid, LOADTYPE_MODEL) : 0;
+
+	// GwatchlaserZ where the conversion writes it, the detonator's GtriggerZ
+	// in its place where it does not (gegadgetsIsWatchLaser())
+	if (size <= 0 && item == ITEM_WATCHLASER) {
+		snprintf(name, sizeof(name), "Igx%03dZ", ITEM_TRIGGER);
+		fileid = romdataRegisterModFile(name, g_Gadgets.moddir);
+		size = fileid > 0 ? fileGetInflatedSize(fileid, LOADTYPE_MODEL) : 0;
+	}
 
 	if (size <= 0) {
 		return 0;
@@ -499,7 +539,7 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 		return 1;
 	}
 
-	item = watchlaser ? ITEM_TRIGGER : gegadgetsItem(weaponnum);
+	item = watchlaser ? ITEM_WATCHLASER : gegadgetsItem(weaponnum);
 	watch = weaponnum == WEAPON_GE_DETONATOR || watchlaser;
 
 	if (!hostmodel->matrices || !gegadgetsLoadModel(item)) {
@@ -595,11 +635,49 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 		modelRender(renderdata, &g_Gadgets.model);
 		modelSetDistanceChecksDisabled(false);
 
+		// the watch laser's muzzle, as gunfire.c takes it: gunmtx (the
+		// model's root) times switch 3's position
+		if (watchlaser) {
+			struct modelnode *flash = modelGetPart(g_Gadgets.def, WATCH_PART_FLASH);
+
+			if (flash && (flash->type & 0xff) == MODELNODETYPE_POSITION) {
+				const struct coord *at = &flash->rodata->position.pos;
+
+				for (s32 a = 0; a < 3; a++) {
+					g_Gadgets.flash[a] = at->x * matrices[0].m[0][a] + at->y * matrices[0].m[1][a]
+						+ at->z * matrices[0].m[2][a] + matrices[0].m[3][a];
+				}
+
+				g_Gadgets.flashframe = g_Vars.lvframenum;
+			}
+		}
+
 		renderdata->unk00 = prevbase;
 		renderdata->unk10 = prevmatrices;
 	}
 
 	mtxF2LBulk(matrices, g_Gadgets.def->nummatrices);
+
+	return 1;
+}
+
+/**
+ * Where the watch laser's beam starts, in the camera's space: GoldenEye starts
+ * it at the watch (gunfire.c's field_B58, the flash node on the watch model),
+ * not at the Moonraker's muzzle, which in the XBLA look is the host's, off at
+ * the left of the screen. 0 for any other weapon, or before the watch has
+ * been drawn; bondgun.c keeps its own muzzle then.
+ */
+s32 gegadgetsWatchLaserMuzzle(s32 weaponnum, f32 *campos)
+{
+	if (!gegadgetsIsWatchLaser(weaponnum) || g_Gadgets.item != ITEM_WATCHLASER
+			|| g_Gadgets.flashframe < 0 || g_Vars.lvframenum - g_Gadgets.flashframe > 2) {
+		return 0;
+	}
+
+	campos[0] = g_Gadgets.flash[0];
+	campos[1] = g_Gadgets.flash[1];
+	campos[2] = g_Gadgets.flash[2];
 
 	return 1;
 }
