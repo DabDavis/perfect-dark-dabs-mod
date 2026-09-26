@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+struct model;
 struct modeldef;
 struct modelnode;
 
