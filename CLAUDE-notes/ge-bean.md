@@ -11608,3 +11608,37 @@ What was wrong, and is now GoldenEye's:
   middle of the view. Widened, the open arm keeps the room's shade instead of
   GoldenEye's 0xcd black, which made the arm a black mass. 4:3 is untouched:
   59 capture frames compared pixel for pixel, none differ.
+
+## Frigate's hostages and Facility's alarm squad (2026-09-26, 11th F3 pass)
+
+**Frigate 0x6c, F3 20260926-230045** ("hostages keep running around in
+circles", 00 Agent): GoldenEye's hostage list 0x404 (UsetupdestZ ai_3) picks a
+random pad preset of 0x8f/0x91/0x93/0x94/0xa8/0xa9, runs there, and escapes
+(fade, next of flags 0x100..0x1000; 00 Agent needs all five, Agent's ai_11
+presets three) only once it has **stopped** within 500 of the pad and Bond
+cannot see it; stopped further off, it re-picks. Pads 0xa8/0xa9 stand over
+the stern's upper deck, ~730 above the floor the route ends on - in
+GoldenEye too (the oracle's `~/dam-oracle/gehostage.py`: a hostage stood at
+(567 249 -7160) under 0xa9 at 969.7, then re-picked). The tester's build
+(7c28b6d41) wanted the pad within 150 in y to arrive, so a hostage sent to
+0xa8/0xa9 circled under it for good - the tester's two in rooms 36/37; the
+lateral arrival (fce7692c7, in 593cbc5c0) already ends it. Measured,
+freeing all six at f62/f122: 7c28b6d41 four escape, two circle under
+0xa8/0xa9 to f12002; 593cbc5c0 all five by f7442 (N64) / f3002 (HD); the
+oracle four by t 3791. Probe: `probes/hostage.py` in
+`~/wt/f3-0926e-hostages-run` (hostages found by list 0x402/0x404 or chrflag
+0x100000, freed by setting list 0x404).
+
+**Facility 0x63, F3 20260926-215214** ("Alec is just shooting at a wall"):
+Trevelyan's 0x414 (ai_19) at pad 0x7c aims then fires at the first existing
+of 0x48, 0x46, 0x45, 0x47, 0x44 (bg 0x1000's alarm squad, list 0x423,
+sprinting from the upper floor to pads 0x73-0x79), else at pad 0x6d.
+Chr 0x48 waited at the upper door on pad 430 that its own body held at frac
+8/90, went off screen, and took the magic move still in its stand
+animation: func0f0370a8() x the 0.25 anim speed a turn had left = minutes
+per segment, so Trevelyan fired through the wall at it. GoldenEye's magic
+move is walking speed whatever the anim. `chrMagicResumeMoving()` (converted
+levels) restores the go/patrol animation as the magic move starts; the whole
+squad is in the bottling room by ~f1800 (probe `probes/alec.py`, alarm list
+forced at f300 with offset 452). Trevelyan can still die in the fight if
+Bond stands by (both builds, ~f3000) - not looked into.
