@@ -85,7 +85,12 @@
 #define TANK_ENTER_FRAMES   45.0f
 #define TANK_PENALTY_TICKS  90
 #define TANK_SHELL_SPEED    66.666664f
-#define TANK_SHELL_GAP      TICKS(60)
+// GoldenEye's tank shells (gunWeaponStats.inc.c tank_stats): a magazine of
+// one, and after each shot the hand's recoil state holds for the first byte
+// of its RecoilSpeed, 0x78 = 120 ticks (a rocket launcher's is 0), then the
+// empty magazine's reload swaps for 17 (WHEN_A_FLD8B0; the hand is hidden,
+// so nothing is lowered or raised) - about two and a quarter seconds
+#define TANK_SHELL_GAP      TICKS(120 + 17)
 #define TANK_AMMOTYPE       AMMOTYPE_1D
 
 // a standing eye is 159 over the feet; half a crouch takes about a third off
@@ -1361,6 +1366,14 @@ static void tankFire(struct tankobj *tank)
 
 	bgun0f09ebcc(&shell->base, &pos, playerprop->rooms, &rot, &speed, &identity, playerprop, &pos);
 
+	// An explosion's sustained damage sets off a rocket in it (objDamage()),
+	// and each shell into the smoke of the last went off in it, the next one
+	// sooner, walking the blasts back towards the tank (F3 20260925-230611).
+	// GoldenEye hurts what is in a blast once every quarter of the blast's
+	// life (explosion.c), not every frame, and its shells all but always fly
+	// through: this one goes off at what it hits
+	shell->base.flags2 |= OBJFLAG2_IMMUNETOEXPLOSIONS;
+
 	if (shell->base.hidden & OBJHFLAG_PROJECTILE) {
 		shell->timer240 = -1;
 		shell->base.projectile->flags |= PROJECTILEFLAG_POWERED;
@@ -1383,7 +1396,7 @@ void geTankFireCannon(void)
 	const s32 p = g_Vars.currentplayernum;
 	struct tankobj *tank = geTankIsDriving() ? tankDriven() : NULL;
 
-	// a shell a second, which is as fast as GoldenEye's reloads
+	// a shell as fast as GoldenEye's recoil and reload allow
 	if (tank && g_Tank[p].state == TANK_RUNNING
 			&& g_Vars.lvframe60 - g_Tank[p].lastshot60 >= TANK_SHELL_GAP
 			&& bgunGetReservedAmmoCount(TANK_AMMOTYPE) > 0
