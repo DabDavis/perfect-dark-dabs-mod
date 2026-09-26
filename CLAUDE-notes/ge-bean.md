@@ -9777,6 +9777,35 @@ minus ours) shows it pulsing red.
   so the palette was read 8 bytes late: four colours off along the ramp and
   the last four from past its end - blue and black on the key's lit bevel.
   `gemonitor.c` caps the pictures' level at 5.
+- **HD: the spiral was still there, under the programme (F3 20260925-225534,
+  "weird z-fighting glitch happening with door terminal button").** "The
+  mesh's other group has the hole" above is wrong for a rigid prop:
+  `gebeanBuildRigid()` lays every triangle in group 0, and the screen node's
+  group is one degenerate triangle. Bean's placeholder quad (texture
+  `_0x008C4635`, the spiral; the Community Edition's grille has the same
+  name) is in the body, on GoldenEye's screen quad to within a unit and
+  through it - the door console's runs from 0.35 in front at the top to 0.29
+  behind at the bottom. Head on, every door console in the HD look showed the
+  spiral over the top half of the lamp; the tester's higher camera, a strip.
+  Same placeholder on Frigate's bridge consoles (1a, 2a, 3a, 3b: spiral
+  streaks at every screen's edges, one screen all spiral) and Silo's tuning
+  console (spiral over half of each screen). Dropping it, or handing it back
+  with the node, leaves a hole: a programme is often drawn without a depth
+  write (a MultiMonitor's screens 1-3 when flagged, `screen->alpha` under
+  255), and the room drawn after the prop paints through - Frigate's screens
+  showed the wall behind. So `beanScreenBacking()` keeps it as the screen's
+  backing: its vertices within 5% of a screen's plane and 10% of its edges
+  (parts 0-3, the quad of the part's list) are laid on the plane 2% of the
+  screen's size behind it and coloured black. 2% is 1.8 units on the door
+  console, whose posed mesh snaps to a sixteenth of a game unit (0.6 of the
+  model's own at scale 0.103). The build's log line counts the vertices,
+  `N screen backing`: doorconsole 4, bridgeconsole1a/2a/3a/3b 4,
+  tuningconsole1 6, nothing else on the twenty missions' monitors. Frigate's radars (texture `_0x07D75EC5`) are a still
+  sweep over a bezel that hides GoldenEye's quad and are left as they were.
+  Silo's console2/console3 placeholders are still dropped by
+  `beanVertexDrops[]` (a97daeb6e). Probes: `~/wt/f3faccon-rig/` (`look.sh`
+  - a camera square on each monitor of a stage; `use.sh` - the door console
+  used, programmes 46/47 followed), pictures in `~/wt/f3faccon-pics/`.
 
 Not done: GE Plus's folder page of TV sets (`frontDrawTvs()`) does its own
 `modelRender()` and does not call `xblaMeshSetScreens()`; if its set draws
