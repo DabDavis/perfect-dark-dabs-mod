@@ -53,6 +53,7 @@
 #ifndef PLATFORM_N64
 #include "geroom.h"
 #include "geguns.h"
+#include "geslappers.h"
 #include "modborrow.h"
 #include "modloader.h"
 #ifndef PLATFORM_N64
@@ -1468,6 +1469,8 @@ void setupLoadFiles(s32 stagenum)
 	modBorrowStageModels(stagenum);
 	// and a Stage Loader map's own models (the GoldenEye remake's props)
 	modloaderApplyStageModels(stagenum);
+	// and whose unarmed it is: GoldenEye's slappers on its own levels
+	geslappersStageLoad(stagenum);
 #endif
 
 	for (i = 0; i < NUM_MODELS; i++) {

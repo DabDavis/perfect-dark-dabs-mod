@@ -11165,3 +11165,42 @@ Traps:
   in gestan.c), as GoldenEye's are; PD's collision only where a level has none.
 - `--no-sound` makes every `geMusicSequence()` -1 (death tune and swoosh alike);
   check music with `SDL_AUDIODRIVER=disk`.
+
+## GoldenEye's slappers: unarmed on a converted level (2026-09-26)
+
+F3 20260926-112255 (Dam, GE Arenas Combat Sim): "no slappers yet, still using PD
+punches". `port/src/geslappers.c`. There is **no weapon number** to give them
+(0x5e-0x7f are all taken and gunctrl.weaponnum is an s8), and none is wanted:
+everything that gives, takes or tests "no gun" says `WEAPON_UNARMED`. So
+`geslappersStageLoad()` (setup.c, beside `modloaderApplyStageModels()`) swaps
+`g_Weapons[WEAPON_UNARMED]` for a definition built from GoldenEye's fist row
+(`gegunsfist.h`, generated with gegunstats.h by tools/geguns/gen_gunstats.py)
+on a remake stage whose conversion has `Igx001Z` (GfistZ, ITEM_FIST), and puts
+the previous pointer back on every other stage. `gegunsOwnModelInUse(WEAPON_UNARMED)`
+answers `geslappersActive()`, so the own-model draw paths (no host anim, GE's
+parts 8-13/35, decals) take the hand.
+
+- **Timing is GoldenEye's swing**, not an animation script: `fistMeleeKeyframes1/2`
+  sampled by geguns.c's `gegunsSampleTrack()` (exported for this), lands at 30
+  sixtieths (WHEN_1E_FLD890, US), ends at **42** - the last two 20-tick keys are
+  spline control points. bondgun.c's melee state has its own branch; the
+  posrotmtx is set in `bgunTickHand()` after the states.
+- **Hit**: range 50 (chraiFistAttackHandler's reach, GE units = converted
+  units), damage 2 (row), no BLUNTIMPACT/MAKEDIZZY/NOSTUN: no knock-out, no
+  dizziness, no shove (sp80), no dodge (MELEENOUNCLOAK), no glass, no wall shot;
+  GoldenEye's own cut (`geslappersDamageScale()`: full on a guard standing,
+  patrolling, walking, surrendering or animating; else 1/8 front, 1/4 side,
+  1/2 back). Hit thuds are PD's 47-49 = GE's PUNCH1-3 by number (remapped on a
+  converted level); a miss plays GE's PUNCHING_AIR 105.
+- **Needs the next GECONVERT_VERSION bump** (not made on this branch: the item
+  loop now starts at ITEM_FIST, 9a7191272). Without
+  Igx001Z unarmed stays PD's punch. HD look draws the N64 hand; the release's
+  `files/new/gun/fist/default.bin` is not wired (gebean.c's first-person rows
+  are all NUM_GE_GUNS-indexed and skin onto a host, not onto GE's own model).
+- **Verified**: `~/wt/f3-0926c-slappers-run/slap.py` (FORCETRACK=1) against the
+  native GE port (`~/dam-oracle/geslap2.py` on 10.8.0.3, PORT_LOCKSTEP=1): the
+  hand's posrotmtx translation matches GoldenEye's field_8EC to the hundredth on
+  every tick 1-41. `slaphit.py`: a Dam guard dies to one slap at 35-45 units
+  (front or back, standing: 2 x torso), a miss at 120 whooshes. Sims on the GE
+  Dam arena never fight at all in a seeded headless match (the stock build too),
+  so the sims' slap path is untested.

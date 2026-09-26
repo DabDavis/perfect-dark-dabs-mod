@@ -18,6 +18,7 @@
 #include "lib/mtx.h"
 #include "lib/rng.h"
 #include "geguns.h"
+#include "geslappers.h"
 #include "modloader.h"
 
 #ifndef PLATFORM_N64
@@ -1488,6 +1489,11 @@ s32 gegunsOwnModelInUse(s32 weaponnum)
 {
 	const s32 index = weaponnum - WEAPON_GE_FIRST;
 
+	// unarmed on a converted level is GoldenEye's own hand (geslappers.c)
+	if (weaponnum == WEAPON_UNARMED) {
+		return geslappersActive();
+	}
+
 	return index >= 0 && index < NUM_GE_GUNS && ownInUse[index];
 }
 
@@ -1745,14 +1751,7 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model)
  * where Perfect Dark's own slash script lands its hit (waittime 24), and the
  * whole swing is 52.
  */
-struct geknifekey {
-	s32 last;
-	f32 pos[3];
-	f32 rot[3];
-	f32 tension;
-	f32 duration;
-};
-
+// (struct geknifekey is geguns.h's: the slappers' swing is sampled the same way)
 static const struct geknifekey geKnifeSlash[2][10] = {
 	{ // D_80034CA4
 		{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
@@ -1908,8 +1907,9 @@ static void geQuatSquad(f32 *q0, f32 *q1, f32 *q2, f32 *q3, f32 t, f32 *r)
  * gunSample1PTransform(): the transform `time` sixtieths into a track, into
  * `mtx`. 0 once the track has ended (its last pose is written).
  */
-static s32 gegunsSampleTrack(const struct geknifekey *keys, f32 time, Mtxf *mtx, s32 left)
+s32 gegunsSampleTrack(const struct geknifekey *keys, f32 time, void *out, s32 left)
 {
+	Mtxf *mtx = out;
 	const struct geknifekey *cur;
 	f32 q[4][4];
 	f32 rot[4];

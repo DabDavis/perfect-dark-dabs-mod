@@ -73,6 +73,7 @@
 #include "gesfx.h"
 #include "getank.h"
 #include "gewatch.h"
+#include "geslappers.h"
 #endif
 
 #define GUNLOADSTATE_FLUX     0
@@ -2549,6 +2550,35 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 		return false;
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye's slap is timed by its own swing, and lands once 30
+	// sixtieths in (geslappers.c). Nothing reaches out as the hand comes up
+	// (Perfect Dark's MELEENOUNCLOAK, which makes a guard in front dodge),
+	// and the swing is seen out before the next.
+	if (geslappersInHand(hand)) {
+		if (hand->stateminor == HANDSTATEMINOR_ATTACK_MELEE_0) {
+			if (hand->statecycles == 0) {
+				geslappersStart(hand, handnum);
+			}
+
+			if (!geslappersStruck(handnum)) {
+				return false;
+			}
+
+			hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_1;
+		}
+
+		if (hand->stateminor == HANDSTATEMINOR_ATTACK_MELEE_1) {
+			hand->firing = true;
+			hand->attacktype = HANDATTACKTYPE_MELEE;
+			hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_2;
+			return false;
+		}
+
+		return !geslappersSwinging(handnum) || hand->stateframes > TICKS(120);
+	}
+#endif
+
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_MELEE_0) {
 		if (hand->statecycles == 0) {
 			hand->firing = true;
@@ -3607,6 +3637,11 @@ void bgunTickHand(s32 handnum)
 	}
 
 #ifndef PLATFORM_N64
+	// GoldenEye's slap, swung whole like its knife (geslappers.c)
+	geslappersTick(hand, handnum, g_Vars.lvupdate60freal);
+#endif
+
+#ifndef PLATFORM_N64
 	// after the states, which clear the hand's posrotmtx each pass
 	gegunsOwnMeleeTick(hand, handnum, g_Vars.lvupdate60freal);
 	gegunsOwnThrowTick(hand, handnum, g_Vars.lvupdate60freal);
@@ -4546,7 +4581,13 @@ void bgunTickMasterLoad(void)
 					}
 #endif
 
-					if (newweaponnum == WEAPON_UNARMED) {
+					if (newweaponnum == WEAPON_UNARMED
+#ifndef PLATFORM_N64
+							// GoldenEye's slappers are a model of their own,
+							// the hand and all (geslappers.c)
+							&& !geslappersActive()
+#endif
+							) {
 						// For unarmed, the fists are implemented
 						// as weapon models rather than hand models
 						filenum = handfilenum;
