@@ -11254,3 +11254,10 @@ What was wrong, and is now GoldenEye's:
   values of every row shown with the set one bright; values clamp; the sliders
   move while held.
 - Every open starts on the mission status with the briefing on its objectives.
+- **Amended the same day (the user): keep the arm on 16:9.** `watchWiden()`:
+  1 on 4:3, 11/5.9 by 16:9 (the pre-rework framing), and every screen's zoom
+  is GoldenEye's times it, so the steps keep their ratios. The words and items
+  shrink with the face (`watchFaceShrink()`, tan(fov/w/2)/tan(fov/2)) about the
+  middle of the view. Widened, the open arm keeps the room's shade instead of
+  GoldenEye's 0xcd black, which made the arm a black mass. 4:3 is untouched:
+  59 capture frames compared pixel for pixel, none differ.
