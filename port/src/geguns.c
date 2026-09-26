@@ -1256,6 +1256,32 @@ void gegunsSetOwnModelInUse(s32 index, s32 inuse)
 	}
 }
 
+/**
+ * Where GoldenEye holds gun `index` in front of the eye (ownpos) and where its
+ * host's model is held when the release's gun is drawn on that instead, in
+ * the camera's space; 0 when there is no such gun.
+ */
+s32 gegunsViewPlacement(s32 index, f32 *own, f32 *host)
+{
+	const struct weapon *def;
+
+	if (index < 0 || index >= NUM_GE_GUNS) {
+		return 0;
+	}
+
+	def = &g_GeWeaponDefs[index];
+
+	for (s32 a = 0; a < 3; a++) {
+		own[a] = ownpos[index][a];
+	}
+
+	host[0] = hostSaved[index] ? hostPos[index][0] : def->posx;
+	host[1] = hostSaved[index] ? hostPos[index][1] : def->posy;
+	host[2] = hostSaved[index] ? hostPos[index][2] : def->posz;
+
+	return 1;
+}
+
 /** Whether this weapon is drawn in first person on GoldenEye's own model. */
 s32 gegunsOwnModelInUse(s32 weaponnum)
 {
