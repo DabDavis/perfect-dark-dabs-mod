@@ -6950,11 +6950,13 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				buf data, z;
 				char rel[64];
 
-				// the silver and gold PP7s and the watch laser are no gun of
-				// the port's (g_GeItemWeapon gives them another's); past the
-				// remote mine, the watch's detonator (ITEM_TRIGGER, 30,
-				// WEAPON_GE_DETONATOR) and the gadgets
-				if (!g_Items[item].file || item == 20 || item == 21 || item == 23
+				// the silver and gold PP7s are no gun of the port's
+				// (g_GeItemWeapon gives them another's); past the remote
+				// mine, the watch's detonator (ITEM_TRIGGER, 30,
+				// WEAPON_GE_DETONATOR) and the gadgets. The watch laser
+				// (23) rides WEAPON_GE_MOONRAKER but is drawn with its own
+				// model, GwatchlaserZ, the detonator's twin (gegadgets.c)
+				if (!g_Items[item].file || item == 20 || item == 21
 						|| (item > 30 && !soloGadgetItem(item))) {
 					continue;
 				}
