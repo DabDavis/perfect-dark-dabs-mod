@@ -1269,7 +1269,8 @@ s32 gegunsOwnModelInUse(s32 weaponnum)
  * GoldenEye's own model of this gun in a hand - its PROP_CHR* prop, which the
  * conversion's `models` block numbers MODEL_REMAKE_FIRST + prop - wherever the
  * gun is drawn in GoldenEye's own look and the stage has the block loaded; -1
- * otherwise.
+ * otherwise. On a stage of Perfect Dark's the prop is lent for the stage the
+ * first time it is asked for, and read in when the first one is made.
  *
  * The model state a GoldenEye gun otherwise has (MODEL_GE_FIRST) is an alias
  * of its host's pickup that only the release's HD pickup is drawn over, so in
@@ -1316,7 +1317,22 @@ s32 gegunsOwnPropModel(s32 weaponnum)
 
 	prop = props[index];
 
-	return prop > 0 && g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid ? MODEL_REMAKE_FIRST + prop : -1;
+	// lent on a stage of Perfect Dark's (modloaderLendRemakeModel()), where
+	// a sim or a guard held the host's gun and the floor had it
+	return prop > 0 ? modloaderLendRemakeModel(prop) : -1;
+}
+
+/**
+ * What one of GoldenEye's guns lies on the floor as, from a Combat Simulator
+ * or random weapon row: its own held prop where that is drawn
+ * (gegunsOwnPropModel()), as its setups lay it and as it is dropped, and the
+ * row's `fallback` (the host's pickup, MODEL_GE_FIRST) otherwise.
+ */
+s32 gegunsFloorModel(s32 weaponnum, s32 fallback)
+{
+	const s32 model = gegunsOwnPropModel(weaponnum);
+
+	return model >= 0 ? model : fallback;
 }
 
 /**
