@@ -26,6 +26,7 @@
 #endif
 #include "game/bondeyespy.h"
 #include "game/bondmove.h"
+#include "game/bondwalk.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/floor.h"
@@ -5538,6 +5539,11 @@ void playerTick(bool arg0)
 
 		camup = g_Vars.currentplayer->bond2.unk28;
 		camlook = g_Vars.currentplayer->bond2.unk1c;
+
+#ifndef PLATFORM_N64
+		// a climb up one of GoldenEye's links, seen eased as GoldenEye eases it
+		spf4.y += bwalkGeClimbEyeLag();
+#endif
 
 		// The eye position and both basis vectors in bond2 are left alone, so
 		// everything downstream carries on as if the camera had not moved -
