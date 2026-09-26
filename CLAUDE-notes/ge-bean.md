@@ -7723,6 +7723,58 @@ the ceiling. A converted level's offset is `our pad - GE pad` for any pad.
 Python `print` is block-buffered under redirection, so an empty log means a
 stuck breakpoint, not no output.
 
+**Correction, 2026-09-26 (F3 20260926-141506, Bunker ii, "Monitors
+misplaced").** The fix above was the wrong half. GoldenEye does have a special
+case: its `PROPDEF_RACK` matrices build the arms on the object's matrix alone,
+exactly as Perfect Dark's `hangingmonitorInitMatrices()` always did (the
+oracle's arm matrices read back to world sit at the mount's origin, y 410.8
+of 412.2). What lifts a TV to the ceiling is the **TV's** root: `Ptv1Z` has its
+root position node at (495.8, 1694.2, -204.2), GoldenEye's
+`setupSingleMonitor()` hangs it by the 21 degree rotation and the scale only,
+and Perfect Dark's `setupCreateSingleMonitor()` also multiplies in
+`T(-root)` - nothing for Perfect Dark's own TVs, 1.7 m for GoldenEye's. Moving
+the arms up the mount's root put the TVs near but not where GoldenEye has them
+(low and askew over the big screen). The arms are back as they were and a
+remake stage's TV keeps its root (`modloaderStageIsRemake()`). Probes:
+`~/dam-oracle/f3vrack.py` (the rack matrices and GoldenEye's view-to-world
+matrix; break at the rack branch's last multiply, `propobj.c:6231` in the
+oracle's tree), `f3vprops.py` (monitor and mount positions), `f3vview.py` (any
+level, a view list in our coordinates, the rooms drawn). **GoldenEye's
+`vv_verta` does not give the same pitch as ours** (18.7 set, about 16 drawn), so
+compare such pictures at pitch 0.
+
+## Three visuals from the 2026-09-26 pass
+
+**Dam's cliffs "incomplete" (F3 20260926-170859, N64 look).** Not geometry: the
+oracle draws the same room set from the report's spot. The cloud plane's corner
+colours are GoldenEye's formula (fog colour plus cloud by `1 - 2 tan(elevation)`,
+horizon = fog colour), and the N64 steps shade linearly across the *screen*.
+The port draws the plane as 3D triangles whose horizon corners are 300000
+units off, and a GPU interpolates colour perspective-correctly, i.e. linearly
+in the *world*: nearly the whole screen sits in the first tenth of the way to
+the horizon, so the clouds were near full brightness right down to it, and that
+band showed through every seam between the far cliff rooms (which are fogged
+to the fog colour, dark). `skyRenderCloudTri()` splits each sky triangle at
+its edges' screen midpoints (world fraction `wa / (wa + wb)`), colour averaged,
+texture coordinates the world's, until the two shadings differ by under a few
+steps: ~370 triangles over Dam. The oracle's Frigate shows the same dark
+horizon. Every cloudy level, Perfect Dark's included, is drawn this way.
+
+**Frigate's bridge "can clip" in the opening (F3 20260926-172812).** Shot 4 of
+five (`g_GeCinemaShots[4]`, camera (-3883, 14.5, 6450), 5000 units from the
+ship). The bridge's consoles (objtypes 10/11 at y 344) and crew came through
+the bridge's front wall on about a frame in three as the still's camera drifts.
+Rooms are drawn under `camGetOrthogonalMtxL()` (projection times view in one)
+and props under `camGetPerspectiveMtxL()` with their own modelview, and both
+were s15.16: rounded differently, at 5000 units with a near plane of 15 their
+depths for one point differed by tens of units. Both are floats now, loaded
+with `CAM_PROJ_MTX_FLAGS` (G_MTX_FLOATS on the port) at every site. The
+oracle's intro camera can be forced: `~/dam-oracle/f3vintro.py` breaks after
+the random pick (`bondview_r.c:365`) and sets `ptr_random06cam_entry`, on a
+pad script without the Z presses (`f3vnoz.padscript`), so the still holds. Our
+side: set `g_GeIntroShot = g_GeCinemaShots[n]` at the first
+`gecinemaIntroTick`.
+
 ## Frigate's sky and water: GoldenEye's fogless table (2026-09-22)
 
 A tester's F3 on Frigate (20260921-092611): "missing water, missing sky" -
