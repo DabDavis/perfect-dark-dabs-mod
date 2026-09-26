@@ -11204,3 +11204,55 @@ parts 8-13/35, decals) take the hand.
   (front or back, standing: 2 x torso), a miss at 120 whooshes. Sims on the GE
   Dam arena never fight at all in a seeded headless match (the stock build too),
   so the sims' slap path is untested.
+
+## Statue Park's Trevelyan circled pad 1: GoldenEye arrives by x and z (2026-09-26)
+
+Tester F3s 20260926-142434/142732 (Glazier, Windows 49783dc, Statue Park
+0x5f): "trevelyan either appears and stumbles or just doesn't appear, mission
+uncompleteable". Reproduced on dabs-mod 7c28b6d41.
+
+**How GoldenEye's Statue Park runs** (UsetupstatueZ; flags below are the real
+ones - the decomp's AI macros print u32 arguments byte-reversed, so its
+`objective_bitfield_set_on(0x00010000)` is flag 0x100, and its pads read
+`0x3600` for pad 0x36): Valentin (chr 1, list 0x412) talks once he sees Bond
+and after ~30 s sets 0x100 (objective A) and leaves; if Bond walks 2000 away
+first he leaves with "Contact failed!" and 0x100 is never set, so Trevelyan
+never comes - GoldenEye's own design, one reading of "doesn't appear".
+bg 0x1000 then waits for Bond within 800 of pad 59, spawns Trevelyan (body 8,
+list 0x413) at pad 54 and sets 0x400 (objective B). 0x413 walks him to pad 1
+and waits for him to stop; he tells Bond to put the gun away, and only an
+**unarmed** Bond gets the talk (0x414, flag 0x4000); a gun kept out ends in
+0x200000, which fails every objective. 0x415 sends him to pad 50, where he
+fades if Bond cannot see him, and sets 0x8000, which starts the helicopter
+(bg 0x1001: Natalya on 0x416/0x417, the 180 s bomb, 0x200 within 3000 of pad
+24), then the recorder and the gates (pad 22's room ends the level).
+
+**The fault**: pads 1-4 by the statue stand **276 over the grass** in both
+games (oracle: pad 1 y 289.2, Trevelyan's ground there 12.8; ours 163 over
+-113). GoldenEye's go-pos and patrol arrive by x and z alone
+(`chrlvIsArrivingLaterallyAtPos()`, range 30); Perfect Dark's
+`posIsArrivingAtPos()` also wants the chr within 150 of the pad in y, so he
+never arrived and circled under pad 1 for good (the tester's chr 5030, act 15
+at (11034 -5 687)). `chrGoPosIsArrivingAtPos()` and `chrTickPatrol()` arrive
+laterally for a non-simulant chr on a converted level (`geRoomActive()`).
+Converted pads carry no flags, so the lift branch never sees it.
+
+**Measured** (`~/wt/f3-0926d-statue-run`, `probes/statue.py`,
+`probes/statue_full.py`; oracle `~/dam-oracle/gestatue.py`, run like
+gecradleend.py with the stage swapped to LEVELID_STATUE and flag 0x100 set):
+the oracle's Trevelyan stands at pad 1 540 frames after spawning, talks, runs
+to pad 50 and fades; ours before circled pad 1 to the end of the run, after
+stands at pad 1 ~660 frames after spawning and does the same. The full drive
+(Valentin from his west side - a wall blocks his sight to the east and north -,
+the statue unarmed, Natalya, the helicopter with the countdown cut to 5 s,
+the recorder, pad 22) ends on `aiEndLevel` with all five objectives complete.
+Natalya dies in the blast if left by the helicopter (the drive once left her
+stuck circling Bond's old spot beside it); GoldenEye's scripted hit on her
+(`HitChrWithItem` in 0x1001/0x1003) is still dropped by the conversion.
+`probes/routeall.py` base -> fix: Facility 22 -> 24 of 25, Dam 12 of 12
+both, Statue 17 -> 20 of 20; every baseline failure ended 10-50 short of a
+pad more than 150 above the chr, and no pair got worse.
+
+The F3 trace now carries a `mission:` line (stage flags, each objective's
+status) and each chr's `ailist <id>+<offset>`, which would have answered this
+report's "never appeared or stuck?" from the text alone.

@@ -7050,6 +7050,18 @@ static bool chrGoPosIsArrivingAtPos(struct chrdata *chr, struct coord *pos)
 	f32 dy;
 
 	if (!chr->aibot) {
+#ifndef PLATFORM_N64
+		// GoldenEye's go-pos arrives by x and z alone, at a waypoint's pad and
+		// at the end (chrlvIsArrivingLaterallyAtPos(), range 30), and its pads
+		// are placed with that in mind: Statue Park's pads 1-4 by the statue
+		// stand 276 over the grass. Asked for the 150 in y as well, Trevelyan
+		// walked to pad 1 and circled it for good, so the talk at the statue
+		// never started and the mission could not be finished.
+		if (geRoomActive()) {
+			return posIsArrivingLaterallyAtPos(&chr->prevpos, &chr->prop->pos, pos, 30);
+		}
+#endif
+
 		return posIsArrivingAtPos(&chr->prevpos, &chr->prop->pos, pos, 30);
 	}
 
@@ -14835,6 +14847,13 @@ void chrTickPatrol(struct chrdata *chr)
 		arrivinglaterally = posIsArrivingLaterallyAtPos(&chr->prevpos, &prop->pos, &sp58, 30);
 		arriving = posIsArrivingAtPos(&chr->prevpos, &prop->pos, &sp58, 30);
 		advance = false;
+
+#ifndef PLATFORM_N64
+		// GoldenEye's patrol arrives by x and z alone too (chrGoPosIsArrivingAtPos())
+		if (!chr->aibot && geRoomActive()) {
+			arriving = arrivinglaterally;
+		}
+#endif
 
 		if ((flags & PADFLAG_AIWAITLIFT) || (flags & PADFLAG_AIONLIFT)) {
 			advance = chrGoPosUpdateLiftAction(chr, flags, arrivinglaterally, arriving,

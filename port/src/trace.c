@@ -28,6 +28,8 @@
 #include "gebeanstage.h"
 #include "wallhitclip.h"
 #include "game/modoptions.h"
+#include "game/chrai.h"
+#include "game/objectives.h"
 #include "modloader.h"
 #include "trace.h"
 #include "pngwrite.h"
@@ -239,6 +241,12 @@ static void traceChr(FILE *f, const struct player *pl, struct prop *prop, struct
 			chr->chrflags, chr->hidden, chr->fadealpha,
 			(void *)chr->model, chr->model ? (void *)chr->model->definition : NULL,
 			chr->model ? chr->model->scale : 0.0f);
+	// Which AI list a chr is on and where in it: a stuck set piece (Statue
+	// Park's Trevelyan circling pad 1 on list 0x413) reads straight off it
+	if (prop->type != PROPTYPE_PLAYER && chr->ailist) {
+		s32 global = 0; // the game's bool is an s32; this file's is stdbool's
+		fprintf(f, " ailist %#x+%d", chraiGetListIdByList(chr->ailist, (void *)&global), chr->aioffset);
+	}
 	if (chr->tracedrawframe == (u32)g_Vars.lvframenum) {
 		fprintf(f, "\n    draw: this frame, alpha %d: %s\n", chr->tracedrawalpha,
 				traceDrawBits(chr->tracedrawbits, bits, sizeof(bits)));
@@ -287,6 +295,16 @@ static void traceWrite(FILE *f)
 			fprintf(f, "stage map \"%s\" of mod \"%s\"\n",
 					mapname ? mapname : "-", moddir ? moddir : "-");
 		}
+	}
+	// A solo mission's progress: its stage flags and each objective's status
+	// (0 incomplete, 1 complete, 2 failed), which say how far its set pieces
+	// have got when a report says one never happened
+	if (!g_Vars.normmplayerisrunning && objectiveGetCount() > 0) {
+		fprintf(f, "mission: stage flags %08x, objectives", g_StageFlags);
+		for (s32 i = 0; i < objectiveGetCount(); i++) {
+			fprintf(f, " %d", objectiveCheck(i));
+		}
+		fprintf(f, "\n");
 	}
 	fprintf(f, "xbla: meshes %d stages %d meshtextures %d font %d, rooms from release %d; texture pack replacements %d\n",
 			xblaMeshGetEnabled(), xblaStageGetEnabled(), xblaTexGetEnabled(),
