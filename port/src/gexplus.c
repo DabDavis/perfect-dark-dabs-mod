@@ -1555,3 +1555,24 @@ s32 gexPlusPropExplosionType(s32 modelnum)
 
 	return types[prop];
 }
+
+/**
+ * GoldenEye's seed for crumpling a converted prop (objDeform()), by its prop
+ * number and the seed's index: the destroyed level, or the level plus three,
+ * whichever a coin toss picks. GoldenEye has six a prop and reads a seventh
+ * past the end at level 3 and up; that, a model that is not GoldenEye's, and
+ * a prop without seeds are 0, which is "take a random one" in both games.
+ */
+u16 gexPlusPropDeformSeed(s32 modelnum, s32 index)
+{
+	static const u16 seeds[][6] = {
+#include "geexplosionseeds.h"
+	};
+	const s32 prop = modelnum - MODEL_REMAKE_FIRST;
+
+	if (prop < 0 || prop >= (s32)ARRAYCOUNT(seeds) || index < 0 || index >= 6) {
+		return 0;
+	}
+
+	return seeds[prop][index];
+}

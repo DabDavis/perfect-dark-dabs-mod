@@ -14402,6 +14402,109 @@ bool modelIsNodeNotTvscreen(struct modeldef *modeldef, struct modelnode *node)
 /**
  * Deform an object due to it being destroyed.
  */
+#ifndef PLATFORM_N64
+// GoldenEye's props (bondconstants.h's PROP_* order, the converted model's
+// slot): the three that are never blackened and the one that is not pressed
+// down (propobj.c's objDeform())
+#define GEPROP_DESK1         38
+#define GEPROP_DESK2         39
+#define GEPROP_TV_HOLDER     76
+#define GEPROP_WOODEN_TABLE1 85
+
+/**
+ * GoldenEye's objDeform() over one list of a converted prop, level being the
+ * same "destroyed level" Perfect Dark passes (1 when the prop is destroyed,
+ * the shot count's quarter plus one before that).
+ *
+ * The two games' versions are one function grown apart. Perfect Dark's pushes a
+ * vertex at most ten units, scaled by the object's scale, squashes the object's
+ * matrix and blackens a vertex by pointing it at the list's first colour entry,
+ * clearing the alpha of every other - which on its own models is a black one.
+ * A converted list has a colour entry per vertex (gemodelconv.py), so the first
+ * entry is just the first vertex's colour, the prop came through its
+ * destruction its own colour, and ten units scaled by a GoldenEye prop's scale
+ * is under one: Surface's padlocks were shot off the grate looking whole (F3
+ * report 20260926-171951, "locks doesnt destroy properly like in N64").
+ * GoldenEye presses the vertices towards the list's lowest (to 0.9 of its
+ * height, or by 60 units from the fourth level on), pushes each up to 40 of the
+ * model's own units in every axis, and writes black into the vertex itself -
+ * 90% of the upper half's and 20% of the lower's, the other way round for the
+ * hanging TV mount - and at level 1 the alpha of every vertex it did not
+ * blacken goes to 0. A converted vertex's entry is its own, so the colour is
+ * written there and the index left alone.
+ */
+extern u64 g_Rng2Seed;
+
+static void objDeformGe(struct defaultobj *obj, s32 level, s32 geprop, struct modelrodata_dl *rodata,
+		struct modelrwdata_dl *rwdata, s32 salt)
+{
+	const bool blacken = geprop != GEPROP_DESK1 && geprop != GEPROP_DESK2 && geprop != GEPROP_WOODEN_TABLE1;
+	const bool press = geprop != GEPROP_TV_HOLDER;
+	s32 ymin = 99999;
+	s32 ymax = -99999;
+	s32 ymid;
+	f32 yscale;
+	s32 i;
+
+	for (i = 0; i < rodata->numvertices; i++) {
+		if (rwdata->vertices[i].y < ymin) {
+			ymin = rwdata->vertices[i].y;
+		}
+
+		if (rwdata->vertices[i].y > ymax) {
+			ymax = rwdata->vertices[i].y;
+		}
+	}
+
+	ymid = (ymin + ymax) >> 1;
+
+	if (level == 3 && ymid - ymin > 40) {
+		ymid = ymin + 40;
+	}
+
+	if (ymax - ymin > 60) {
+		yscale = level < 3 ? 0.9f : (f32)(ymax - ymin - 60) / (f32)(ymax - ymin);
+	} else {
+		yscale = 1.0f;
+	}
+
+	for (i = 0; i < rodata->numvertices; i++) {
+		Vtx *v = &rwdata->vertices[i];
+		s32 chance = 0;
+		s32 y;
+
+		// GoldenEye's seeding adds one to the whole 64-bit register, where
+		// a 32-bit argument arrives sign-extended (the native port's
+		// chrObjRandomSetSeed() does the same); this file's u32 prototype
+		// of rng2SetSeed() would zero-extend a negative sum
+		g_Rng2Seed = (u64)((s64)(s32)(rodata->vertices[i].x + rodata->vertices[i].y + rodata->vertices[i].z + salt) + 1);
+
+		if (blacken) {
+			const bool upper = obj->realrot[1][1] >= 0.0f ? v->y >= ymid : v->y <= ymid;
+
+			chance = upper == press ? 90 : 20;
+		}
+
+		if ((s32)(random2() % 100) < chance) {
+			rwdata->colours[i].r = 0;
+			rwdata->colours[i].g = 0;
+			rwdata->colours[i].b = 0;
+			rwdata->colours[i].a = 255;
+		} else if (level == 1) {
+			rwdata->colours[i].a = 0;
+		}
+
+		y = (s32)((f32)(v->y - ymin) * yscale + (f32)ymin);
+
+		v->x += (s32)(random2() % 80) - 40;
+		y += (s32)(random2() % 80) - 40;
+		v->z += (s32)(random2() % 80) - 40;
+
+		v->y = y < ymin ? ymin : y;
+	}
+}
+#endif
+
 void objDeform(struct defaultobj *obj, s32 level)
 {
 	f32 min;
@@ -14427,6 +14530,13 @@ void objDeform(struct defaultobj *obj, s32 level)
 	s32 axis;
 	s32 chance;
 
+#ifndef PLATFORM_N64
+	// A converted level's own prop is crumpled as GoldenEye crumples it
+	// (objDeformGe()): no squash of the matrix, its vertices pressed down
+	// and pushed about four times as far, and its colours blackened
+	const s32 geprop = modloaderStageIsRemake(g_Vars.stagenum) ? gexPlusPropExplosionType(obj->modelnum) >= 0 ? obj->modelnum - MODEL_REMAKE_FIRST : -1 : -1;
+#endif
+
 	psStopSound(obj->prop, PSTYPE_COMMHUB, 0xffff);
 
 	salt = 0;
@@ -14439,6 +14549,18 @@ void objDeform(struct defaultobj *obj, s32 level)
 	if (debugIsObjDeformDebugEnabled()) {
 		salt &= 0xffff;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye crumples its props from a seed of the prop's own (a random
+	// one where it has none), so a padlock is crumpled as GoldenEye's is
+	if (geprop >= 0) {
+		const u16 seed = gexPlusPropDeformSeed(obj->modelnum, (rngRandom() & 1) ? level : level + 3);
+
+		if (seed != 0) {
+			salt = seed;
+		}
+	}
+#endif
 
 	wallhitsFreeByProp(obj->prop, 1);
 
@@ -14507,6 +14629,12 @@ void objDeform(struct defaultobj *obj, s32 level)
 	} else {
 		mult = 1.0f;
 	}
+
+#ifndef PLATFORM_N64
+	if (geprop >= 0) {
+		mult = 1.0f;
+	}
+#endif
 
 	obj->realrot[1][0] *= mult;
 	obj->realrot[1][1] *= mult;
@@ -14585,6 +14713,11 @@ void objDeform(struct defaultobj *obj, s32 level)
 					}
 				}
 
+#ifndef PLATFORM_N64
+				if (ok && geprop >= 0 && rodata->numcolours == rodata->numvertices) {
+					objDeformGe(obj, level, geprop, rodata, rwdata, salt);
+				} else
+#endif
 				if (ok) {
 					for (i = 0; i < rodata->numcolours; i++) {
 						if (i > 0) {
