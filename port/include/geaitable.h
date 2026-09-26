@@ -83,6 +83,12 @@
 //     01e6 <chr:1> <hand:1>
 #define GEAI_REMOVEITEM_CMD 0x01e6
 
+// And its HitChrWithItem: a chr hit on a body part by one shot of an item,
+// from nowhere (Statue Park's helicopter kills a Natalya Bond has not reached).
+// The item stays GoldenEye's own number. Five bytes:
+//     01e7 <chr:1> <part:1> <item:1>
+#define GEAI_HITCHR_CMD 0x01e7
+
 // GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 // six of its commands), and neither of Perfect Dark's two banks has eight bits
 // to spare - every bit of theirs means something to the game. The byte gets a
@@ -141,7 +147,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* 15 TRYFireOrAimAtTargetKneel              */ {  6, 0x0016,  3, { 2, 2, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 2, 0}, {1, 2, 0}, {2, 1, 0} } },
 	/* 16 TRYFireOrAimAtTargetUpdate             */ {  6, 0x0017,  3, { 2, 2, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 2, 0}, {1, 2, 0}, {2, 1, 0} } },
 	/* 17 TRYFacingTarget                        */ {  6, 0x0018,  3, { 2, 2, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 2, 0}, {1, 2, 0}, {2, 1, 0} } },
-	/* 18 HitChrWithItem                         */ {  4,     -1,  3, { 1, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* 18 HitChrWithItem                         */ {  4, 0x01e7,  3, { 1, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 1, 0}, {1, 1, 0}, {2, 1, 0} } },
 	/* 19 ChrHitChr                              */ {  4, 0x001a,  3, { 1, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 1, 0}, {1, 1, 0}, {2, 1, 0} } },
 	/* 1a TRYThrowingGrenade                     */ {  2, 0x001b,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {-1, 2, 0x0200}, {-1, 2, 0x0000}, {0, 1, 0} } },
 	/* 1b TRYDroppingItem                        */ {  5, 0x001c,  3, { 2, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 2, 0}, {1, 1, 0}, {2, 1, 0} } },

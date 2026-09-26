@@ -88,7 +88,7 @@ TABLE = [
     ('TRYFireOrAimAtTargetKneel',           6,    [('BITFIELD', 2), ('TARGET', 2), ('GOTOLABEL', 1)], 0x0016, (0, 1, 2),                                   'both'),  # 15 aiTryAttackKneel
     ('TRYFireOrAimAtTargetUpdate',          6,    [('BITFIELD', 2), ('TARGET', 2), ('GOTOLABEL', 1)], 0x0017, (0, 1, 2),                                   'both'),  # 16 aiTryModifyAttack
     ('TRYFacingTarget',                     6,    [('BITFIELD', 2), ('TARGET', 2), ('GOTOLABEL', 1)], 0x0018, (0, 1, 2),                                   'both'),  # 17 aiFaceEntity
-    ('HitChrWithItem',                      4,    [('CHR_NUM', 1), ('PART_NUM', 1), ('ITEM_NUM', 1)], None,   (),                                          'hand'),  # 18 -
+    ('HitChrWithItem',                      4,    [('CHR_NUM', 1), ('PART_NUM', 1), ('ITEM_NUM', 1)], 0x01e7, (0, 1, 2),                                   'hand'),  # 18 aiGeHitChrWithItem (port's own; the item stays GoldenEye's)
     ('ChrHitChr',                           4,    [('CHR_NUM', 1), ('CHR_NUM_TARGET', 1), ('PART_NUM', 1)], 0x001a, (0, 1, 2),                                   'table'),  # 19 aiChrDamageChr
     ('TRYThrowingGrenade',                  2,    [('GOTOLABEL', 1)],                            0x001b, (('=', 512, 2), ('=', 0, 2), 0),             'hand'),  # 1a aiConsiderGrenadeThrow
     ('TRYDroppingItem',                     5,    [('PROP_NUM', 2), ('ITEM_NUM', 1), ('GOTOLABEL', 1)], 0x001c, (0, 1, 2),                                   'table'),  # 1b aiDropItem

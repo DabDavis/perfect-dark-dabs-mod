@@ -1234,6 +1234,28 @@ s32 gegunsItemNumber(s32 index)
 	return index >= 0 && index < NUM_GE_WEAPONS ? items[index] : 0;
 }
 
+s32 gegunsItemWeapon(s32 item)
+{
+	if (item <= 0) {
+		return WEAPON_NONE;
+	}
+
+	for (s32 i = 0; i < NUM_GE_WEAPONS; i++) {
+		if (gegunsItemNumber(i) == item) {
+			return WEAPON_GE_FIRST + i;
+		}
+	}
+
+	return WEAPON_NONE;
+}
+
+f32 gegunsItemDamage(s32 item)
+{
+	s32 weaponnum = gegunsItemWeapon(item);
+
+	return weaponnum == WEAPON_NONE ? 0.0f : stats[weaponnum - WEAPON_GE_FIRST].damage;
+}
+
 /**
  * The gun's own model, converted from the player's ROM.
  *

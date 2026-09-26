@@ -10365,4 +10365,38 @@ bool aiGeChrRemoveItemInHand(void)
 
 	return false;
 }
+
+/**
+ * @cmd 01e7
+ *
+ * GoldenEye's HitChrWithItem (chrai.c -> handles_shot_actors()): the chr is
+ * hit on a body part as if by one shot of the item - the item's own damage
+ * (its gunWeaponStat Destruction), the part's multiplier (head 4x, torso 2x,
+ * gun and hat none), the flinch or the death - from nowhere: GoldenEye hands
+ * it a zero vector and no attacker. Statue Park's helicopter kills Natalya
+ * with it when Bond has not reached her by the time it blows (a DD44 to the
+ * head), and so do Archives, Aztec, Depot and Train's set pieces. It had no
+ * Perfect Dark equivalent and was left out of the converted lists, so a
+ * Natalya left by the helicopter lived through a scripted death.
+ * Five bytes, GoldenEye's own arguments: 01e7 <chr:1> <part:1> <item:1>
+ */
+bool aiGeHitChrWithItem(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+
+	if (chr && chr->prop) {
+		struct coord vector = {0, 0, 0};
+		struct gset gset = {0};
+
+		gset.weaponnum = gegunsItemWeapon(cmd[4]);
+
+		chrDamage(chr, gegunsItemDamage(cmd[4]), &vector, &gset, NULL, (s8)cmd[3],
+				false, NULL, NULL, NULL, 0, NULL, false, NULL);
+	}
+
+	g_Vars.aioffset += 5;
+
+	return false;
+}
 #endif
