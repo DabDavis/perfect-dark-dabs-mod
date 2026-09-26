@@ -21852,7 +21852,9 @@ void currentPlayerDropAllItems(void)
 	weaponDeleteFromChr(chr, HAND_LEFT);
 
 	for (i = WEAPON_UNARMED; i < NUM_WEAPONS; i++) {
-		if (playermgrGetModelOfWeapon(i) >= 0 && invHasSingleWeaponExcAllGuns(i)) {
+		// held first: asking for the model lends a GoldenEye gun's prop on a
+		// stage of Perfect Dark's (gegunsOwnPropModel())
+		if (invHasSingleWeaponExcAllGuns(i) && playermgrGetModelOfWeapon(i) >= 0) {
 			if (!weaponHasFlag(i, WEAPONFLAG_UNDROPPABLE)
 					|| (g_Vars.normmplayerisrunning
 						&& g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL

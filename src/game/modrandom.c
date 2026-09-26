@@ -27,6 +27,9 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include "geguns.h"
+#endif
 
 #ifndef PLATFORM_N64
 extern void sysLogPrintf(s32 level, const char *fmt, ...);
@@ -760,6 +763,9 @@ static void modRandomRollWeapons(struct modrandomlists *lists)
 
 			weapon->weaponnum = mpweapon->weaponnum;
 			weapon->base.modelnum = mpweapon->model;
+#ifndef PLATFORM_N64
+			weapon->base.modelnum = gegunsFloorModel(weapon->weaponnum, weapon->base.modelnum);
+#endif
 			weapon->base.extrascale = mpweapon->extrascale;
 			break;
 		}

@@ -16,6 +16,7 @@
 #include "system.h"
 #include "lib/model.h"
 #include "geguns.h"
+#include "modloader.h"
 
 #ifndef PLATFORM_N64
 
@@ -1435,7 +1436,8 @@ s32 gegunsChrProp(s32 index)
  * GoldenEye's own model of this gun in a hand - its PROP_CHR* prop, which the
  * conversion's `models` block numbers MODEL_REMAKE_FIRST + prop - wherever the
  * gun is drawn in GoldenEye's own look and the stage has the block loaded; -1
- * otherwise.
+ * otherwise. On a stage of Perfect Dark's the prop is lent for the stage the
+ * first time it is asked for, and read in when the first one is made.
  *
  * The model state a GoldenEye gun otherwise has (MODEL_GE_FIRST) is an alias
  * of its host's pickup that only the release's HD pickup is drawn over, so in
@@ -1466,7 +1468,22 @@ s32 gegunsOwnPropModel(s32 weaponnum)
 
 	prop = gegunsChrProp(index);
 
-	return prop > 0 && g_ModelStates[MODEL_REMAKE_FIRST + prop].fileid ? MODEL_REMAKE_FIRST + prop : -1;
+	// lent on a stage of Perfect Dark's (modloaderLendRemakeModel()), where
+	// a sim or a guard held the host's gun and the floor had it
+	return prop > 0 ? modloaderLendRemakeModel(prop) : -1;
+}
+
+/**
+ * What one of GoldenEye's guns lies on the floor as, from a Combat Simulator
+ * or random weapon row: its own held prop where that is drawn
+ * (gegunsOwnPropModel()), as its setups lay it and as it is dropped, and the
+ * row's `fallback` (the host's pickup, MODEL_GE_FIRST) otherwise.
+ */
+s32 gegunsFloorModel(s32 weaponnum, s32 fallback)
+{
+	const s32 model = gegunsOwnPropModel(weaponnum);
+
+	return model >= 0 ? model : fallback;
 }
 
 /**
@@ -1475,17 +1492,24 @@ s32 gegunsOwnPropModel(s32 weaponnum)
  * origin is its tail at the barrel's end. The host's Perfect Dark rocket has
  * its origin further along its length, so it sat inside GoldenEye's tube with
  * nothing showing at the mouth. `fallback` otherwise.
+ *
+ * Only a converted level's `models` block has the rocket, so on a stage of
+ * Perfect Dark's it is lent for the stage the first time it is asked for
+ * (modloaderLendRemakeModel()): the Combat Simulator's launcher held and fired
+ * Perfect Dark's rocket, which again showed nothing at the mouth (F3
+ * 20260919-174510, Pipes).
  */
 s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback)
 {
-	const s32 model = MODEL_REMAKE_FIRST + 202; // PROP_CHRROCKET
+	s32 model;
 
-	if (weaponnum != WEAPON_GE_ROCKETLAUNCHER || !gegunsOwnModelInUse(weaponnum)
-			|| !g_ModelStates[model].fileid) {
+	if (weaponnum != WEAPON_GE_ROCKETLAUNCHER || !gegunsOwnModelInUse(weaponnum)) {
 		return fallback;
 	}
 
-	return model;
+	model = modloaderLendRemakeModel(202); // PROP_CHRROCKET
+
+	return model >= 0 ? model : fallback;
 }
 
 /**
@@ -1501,13 +1525,14 @@ s32 gegunsChrProjectileModel(s32 weaponnum, s32 fallback)
 		return fallback;
 	}
 
+	// lent on a stage of Perfect Dark's, as the player's (gegunsOwnRocketModel())
 	switch (weaponnum) {
-	case WEAPON_GE_ROCKETLAUNCHER:  model = MODEL_REMAKE_FIRST + 202; break;
-	case WEAPON_GE_GRENADELAUNCHER: model = MODEL_REMAKE_FIRST + 203; break;
+	case WEAPON_GE_ROCKETLAUNCHER:  model = modloaderLendRemakeModel(202); break;
+	case WEAPON_GE_GRENADELAUNCHER: model = modloaderLendRemakeModel(203); break;
 	default: return fallback;
 	}
 
-	return g_ModelStates[model].fileid ? model : fallback;
+	return model >= 0 ? model : fallback;
 }
 
 /**

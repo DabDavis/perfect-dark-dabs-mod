@@ -868,7 +868,17 @@ void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 						if (s2 >= cmd->unk02 && s4 < cmd->unk02 && s4 < s2) {
 							switch (cmd->type) {
 							case GUNCMD_PLAYSOUND:
-#if VERSION >= VERSION_NTSC_1_0
+#ifndef PLATFORM_N64
+								// a GoldenEye gun's reload on a stage of
+								// Perfect Dark's clicks as on a converted
+								// level (gesfx.c)
+								if (hasspeed) {
+									snd00010718(0, 0, AL_VOL_FULL, AL_PAN_CENTER, geSfxGunSound(hand->gset.weaponnum, cmd->unk04), speed, 1, -1, 1);
+									hasspeed = false;
+								} else {
+									snd00010718(0, 0, AL_VOL_FULL, AL_PAN_CENTER, geSfxGunSound(hand->gset.weaponnum, cmd->unk04), 1.0f, 1, -1, 1);
+								}
+#elif VERSION >= VERSION_NTSC_1_0
 								if (hasspeed) {
 									snd00010718(0, 0, AL_VOL_FULL, AL_PAN_CENTER, cmd->unk04, speed, 1, -1, 1);
 									hasspeed = false;
@@ -1778,7 +1788,11 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 					&& !g_PlayerInvincible
 					&& !g_Vars.currentplayer->isdead) {
 				if (!weaponHasFlag2(info->weaponnum, WEAPONFLAG2_NORELOADSOUND)) {
+#ifndef PLATFORM_N64
+					sndStart(var80095200, geSfxGunSound(info->weaponnum, SFX_RELOAD_DEFAULT), 0, -1, -1, -1, -1, -1);
+#else
 					sndStart(var80095200, SFX_RELOAD_DEFAULT, 0, -1, -1, -1, -1, -1);
+#endif
 				}
 			}
 		}
@@ -2780,7 +2794,11 @@ s32 bgunTickIncAttackEmpty(struct handweaponinfo *info, s32 handnum, struct hand
 			break;
 		default:
 			// Default click sound effect
+#ifndef PLATFORM_N64
+			sndStart(var80095200, geSfxGunSound(info->weaponnum, SFX_FIREEMPTY), NULL, -1, -1, -1, -1, -1);
+#else
 			sndStart(var80095200, SFX_FIREEMPTY, NULL, -1, -1, -1, -1, -1);
+#endif
 			break;
 		}
 	}

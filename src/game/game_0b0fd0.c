@@ -642,9 +642,9 @@ f32 gsetGetDamage(struct gset *gset)
 u8 gsetGetFireslotDuration(struct gset *gset)
 {
 #ifndef PLATFORM_N64
-	// GoldenEye's SoundTriggerRate for one of its guns on a converted level,
-	// which is what this number is a descendant of (geguns.c)
-	if (gegunsShootSoundRate(gset->weaponnum) >= 0 && geSfxStage()) {
+	// GoldenEye's SoundTriggerRate for one of its guns wherever it fires with
+	// GoldenEye's sound, which is what this number is a descendant of (geguns.c)
+	if (gegunsShootSoundRate(gset->weaponnum) >= 0 && geSfxGuns()) {
 		return gegunsShootSoundRate(gset->weaponnum);
 	}
 #endif
@@ -683,11 +683,19 @@ u16 gsetGetSingleShootSound(struct gset *gset)
 		struct weaponfunc_shoot *funcshoot = (struct weaponfunc_shoot *)func;
 
 #ifndef PLATFORM_N64
-		// one of GoldenEye's guns on a converted level fires with its own
-		// sound rather than its host's (geguns.c)
-		if (funcshoot->shootsound && gegunsShootSound(gset->weaponnum) && geSfxStage()) {
-			return gegunsShootSound(gset->weaponnum);
+		// one of GoldenEye's guns fires with its own sound rather than its
+		// host's (geguns.c), on any stage the conversion's bank is had on
+		// (gesfx.c); one GoldenEye fires in silence, the rocket launcher,
+		// sounds as the host's does on a converted level
+		if (funcshoot->shootsound && gegunsShootSound(gset->weaponnum)) {
+			const s32 num = geSfxGunShot(gegunsShootSound(gset->weaponnum));
+
+			if (num) {
+				return num;
+			}
 		}
+
+		return geSfxGunSound(gset->weaponnum, funcshoot->shootsound);
 #endif
 
 		return funcshoot->shootsound;

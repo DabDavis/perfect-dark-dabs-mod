@@ -795,6 +795,10 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 				g_SetupCurMpLocation = locationindex;
 				weapon->weaponnum = mpweapon->weaponnum;
 				weapon->base.modelnum = mpweapon->model;
+#ifndef PLATFORM_N64
+				// GoldenEye's own on the floor in its own look, as in its hand
+				weapon->base.modelnum = gegunsFloorModel(weapon->weaponnum, weapon->base.modelnum);
+#endif
 				weapon->base.extrascale = mpweapon->extrascale;
 				createweapon = mpweapon->hasweapon;
 

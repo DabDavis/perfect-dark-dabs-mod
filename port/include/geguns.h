@@ -63,6 +63,8 @@ s32 gegunsViewPlacement(s32 index, f32 *own, f32 *host);
 // GoldenEye's own held prop for this gun where its own look is drawn and the
 // stage has it (MODEL_REMAKE_FIRST + PROP_CHR*), or -1
 s32 gegunsOwnPropModel(s32 weaponnum);
+// ... and on the floor, from a weapon row whose model is `fallback`
+s32 gegunsFloorModel(s32 weaponnum, s32 fallback);
 // Gun `index`'s PROP_CHR* number, thrown ones included, or -1
 s32 gegunsChrProp(s32 index);
 // GoldenEye's own rocket for its launcher where its own model is drawn, or fallback
