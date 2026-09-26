@@ -2571,7 +2571,7 @@ static s32 watchCuffForChr(s32 chr)
  * those - the model is a single display list, so the skin cannot be dressed
  * separately from the sleeve.
  */
-static void watchSetCuff(void)
+s32 geWatchCuff(void)
 {
 	const u32 outfit = g_Vars.currentplayer->bondtype;
 	s32 body = -1;
@@ -2591,6 +2591,13 @@ static void watchSetCuff(void)
 		default:             wear = CUFF_PART_TUXEDO; break;
 		}
 	}
+
+	return wear - CUFF_FIRST;
+}
+
+static void watchSetCuff(void)
+{
+	const s32 wear = CUFF_FIRST + geWatchCuff();
 
 	for (s32 i = CUFF_FIRST; i <= CUFF_PART_SNOW; i++) {
 		struct modelnode *node = modelGetPart(g_Watch.modeldef, i);

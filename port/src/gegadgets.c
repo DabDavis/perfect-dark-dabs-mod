@@ -28,6 +28,7 @@
 #include "romdata.h"
 #include "modloader.h"
 #include "gesfx.h"
+#include "gewatch.h"
 #include "gegadgets.h"
 
 #ifndef PLATFORM_N64
@@ -83,6 +84,7 @@ static struct gegadgetidentity g_Identities[] = {
 	{ -1, WEAPON_GE_GADGETA,       0, "Gadget\n" },
 	{ -1, WEAPON_GE_GADGETB,       0, "Gadget\n" },
 	{ -1, WEAPON_GE_TANKSHELLS,   33, "Tank\n" },
+	{ -1, WEAPON_GE_DETONATOR,    30, "Detonator\n" },
 };
 
 // Bunker, where the key analyser copies the GoldenEye key
@@ -105,10 +107,15 @@ static struct gegadgetidentity g_Identities[] = {
 // The models are authored at sizes of their own as well (GoldenEye scales each
 // in the hand; the plastique is twice the modem and the watch arm six times the
 // camera at the host's scale), so each is brought to a width across the screen.
+//
+// A width of 0 is a model GoldenEye holds with no animation, which is posed as
+// GoldenEye poses it instead: at its own size, turned by `turn` (radians,
+// gunfire.c's own for it) and its root at `pos`, its WeaponStats PosX/Y/Z.
 struct gegadgethand {
 	u8 weaponnum;
 	f32 pos[3];
 	f32 width;
+	f32 turn[3];
 };
 
 static const struct gegadgethand g_Hands[] = {
@@ -117,9 +124,30 @@ static const struct gegadgethand g_Hands[] = {
 	{ WEAPON_GE_GOLDENEYEKEY, { 11.0f, -10.5f, -30.0f }, 14.0f },
 	{ WEAPON_GE_CAMERA,       { 11.0f, -10.0f, -30.0f }, 14.0f },
 	{ WEAPON_GE_WATCHMAGNET,  { 10.0f, -13.0f, -30.0f }, 13.0f },
+	// trigger_stats, and gunfire.c's D_80035C70 for ITEM_TRIGGER
+	{ WEAPON_GE_DETONATOR,    { -2.0f, -21.5f, -19.0f }, 0.0f, { 6.2536321f, 6.2592888f, 0.204238f } },
 };
 
 #define GADGET_RWDATA_MAX 1024
+
+/**
+ * The detonator (GtriggerZ) is Bond's two hands at his watch, and GoldenEye
+ * moves one piece of it: switch 6, the right hand, turns about an axis that
+ * its switch 28 gives - an interlink node, which the conversion leaves out
+ * (Perfect Dark has no such node), so its two points are here. Held still the
+ * hand stands five degrees back off the watch; while the trigger is held it
+ * turns in to press the button, and back when let go (gunfire.c, gun.c's
+ * sub_GAME_7F05E6B4() and get_value_if_watch_is_on_hand_or_not()). The six
+ * cuffs are switches 29 to 34, one of them worn (bondviewSelectCuff()).
+ */
+#define DETONATOR_PART_HAND  6
+#define DETONATOR_PART_CUFF  29
+#define DETONATOR_AXIS_X     20.208658f  // the interlink's first point, less its second (0, 0, 0)
+#define DETONATOR_AXIS_Y     32.669170f
+#define DETONATOR_AXIS_Z     (-18.414536f)
+#define DETONATOR_PRESS      0.08726647f  // radians: the whole press
+#define DETONATOR_IN         0.029088823f // a tick, pressing
+#define DETONATOR_OUT        0.017453294f // a tick, letting go
 
 static struct {
 	s32 mission;
@@ -129,6 +157,7 @@ static struct {
 	u8 *buf;
 	u32 buflen;
 	struct modeldef *def;
+	f32 press;         // the detonator's hand, 0 off the watch to DETONATOR_PRESS on it
 	struct model model;
 	u32 rwdata[GADGET_RWDATA_MAX];
 	s32 photo;         // the camera's trigger was pulled: judged in the render
@@ -341,6 +370,68 @@ static void gegadgetsMeasure(void)
 	}
 }
 
+/** The detonator's cuff for the player's outfit, before its matrices are set. */
+static void gegadgetsDetonatorCuff(void)
+{
+	const s32 wear = geWatchCuff();
+
+	for (s32 i = 0; i < 6; i++) {
+		struct modelnode *node = modelGetPart(g_Gadgets.def, DETONATOR_PART_CUFF + i);
+		union modelrwdata *rwdata;
+
+		if (node && (node->type & 0xff) == MODELNODETYPE_TOGGLE) {
+			rwdata = modelGetNodeRwData(&g_Gadgets.model, node);
+
+			if (rwdata) {
+				rwdata->toggle.visible = i == wear;
+			}
+		}
+	}
+}
+
+/**
+ * The detonator's right hand turned about its hinge, once its matrices are
+ * set: GoldenEye's `rwmtx[switch 6] = gun * (position * turn)` where the
+ * matrix was `gun * position`, so the turn goes on the right of it.
+ */
+static void gegadgetsDetonatorPress(Mtxf *matrices)
+{
+	struct modelnode *node = modelGetPart(g_Gadgets.def, DETONATOR_PART_HAND);
+	const f32 step = g_Vars.lvupdate60freal;
+	Mtxf turn;
+	Mtxf out;
+	s32 index;
+
+	if (g_Vars.currentplayer->hands[HAND_RIGHT].triggeron) {
+		g_Gadgets.press += DETONATOR_IN * step;
+	} else {
+		g_Gadgets.press -= DETONATOR_OUT * step;
+	}
+
+	if (g_Gadgets.press > DETONATOR_PRESS) {
+		g_Gadgets.press = DETONATOR_PRESS;
+	}
+
+	if (g_Gadgets.press < 0.0f) {
+		g_Gadgets.press = 0.0f;
+	}
+
+	if (!node || (node->type & 0xff) != MODELNODETYPE_POSITION) {
+		return;
+	}
+
+	index = node->rodata->position.mtxindex0;
+
+	if (index < 0 || index >= g_Gadgets.def->nummatrices) {
+		return;
+	}
+
+	guRotateF(turn.m, (g_Gadgets.press - DETONATOR_PRESS) * (180.0f / 3.1415927f),
+			DETONATOR_AXIS_X, DETONATOR_AXIS_Y, DETONATOR_AXIS_Z);
+	mtx4MultMtx4(&matrices[index], &turn, &out);
+	mtx4Copy(&out, &matrices[index]);
+}
+
 /**
  * The hand's gun, for bgunRender(): 0 when the weapon is no gadget and the
  * host's own model is to be drawn as ever; 1 when the gadget has been dealt
@@ -357,8 +448,15 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	f32 fit = 1.0f;
 	s32 item;
 
-	if (!gegadgetsIsGadget(weaponnum) || g_Gadgets.moddir < 0) {
+	if (!gegadgetsIsGadget(weaponnum)) {
 		return 0;
+	}
+
+	// The watch's detonator is GoldenEye's own model or nothing: its host is
+	// the Data Uplink, which is no detonator, and GoldenEye's remote mines go
+	// wherever the Combat Simulator offers its guns
+	if (g_Gadgets.moddir < 0) {
+		return weaponnum == WEAPON_GE_DETONATOR;
 	}
 
 	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_Hands); i++) {
@@ -375,7 +473,7 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	item = gegadgetsItem(weaponnum);
 
 	if (!hostmodel->matrices || !gegadgetsLoadModel(item)) {
-		return 0;
+		return weaponnum == WEAPON_GE_DETONATOR;
 	}
 
 	// the host's root for its turn and its size, posed about the eye first so
@@ -386,7 +484,18 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	base.m[3][1] = 0.0f;
 	base.m[3][2] = 0.0f;
 
-	if (g_Gadgets.centreitem == item && g_Gadgets.size[0] > 0.0f) {
+	if (held->width <= 0.0f) {
+		// GoldenEye's own turn, under whatever the host's root turns by (the
+		// sway of a walk): its gunmtx is the look times this, at the size
+		// the host is drawn at, which is GoldenEye's own (0.1 a unit)
+		struct coord turn = { held->turn[0], held->turn[1], held->turn[2] };
+		Mtxf rot;
+		Mtxf out;
+
+		mtx4LoadRotation(&turn, &rot);
+		mtx4MultMtx4(&base, &rot, &out);
+		mtx4Copy(&out, &base);
+	} else if (g_Gadgets.centreitem == item && g_Gadgets.size[0] > 0.0f) {
 		fit = held->width / g_Gadgets.size[0];
 
 		for (s32 r = 0; r < 3; r++) {
@@ -413,10 +522,19 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 		renderdata->unk10 = matrices;
 
 		modelSetDistanceChecksDisabled(true);
+
+		if (weaponnum == WEAPON_GE_DETONATOR) {
+			gegadgetsDetonatorCuff();
+		}
+
 		modelUpdateRelations(&g_Gadgets.model);
 		modelSetMatrices(renderdata, &g_Gadgets.model);
 
-		if (g_Gadgets.centreitem != g_Gadgets.item) {
+		if (weaponnum == WEAPON_GE_DETONATOR) {
+			gegadgetsDetonatorPress(matrices);
+		}
+
+		if (held->width > 0.0f && g_Gadgets.centreitem != g_Gadgets.item) {
 			// the first frame of a model: measured at the host's own size,
 			// and drawn from the next frame on, once it has a size of its own
 			gegadgetsMeasure();
@@ -433,7 +551,8 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 		// equip, and the sway of a walk
 		for (s32 a = 0; a < 3; a++) {
 			const f32 hostrest = a == 0 ? host->posx : (a == 1 ? host->posy : host->posz);
-			const f32 shift = held->pos[a] - g_Gadgets.centre[a] * fit + hostmodel->matrices[0].m[3][a] - hostrest;
+			const f32 middle = held->width > 0.0f ? g_Gadgets.centre[a] * fit : 0.0f;
+			const f32 shift = held->pos[a] - middle + hostmodel->matrices[0].m[3][a] - hostrest;
 
 			for (s32 i = 0; i < g_Gadgets.def->nummatrices; i++) {
 				matrices[i].m[3][a] += shift;

@@ -6458,6 +6458,7 @@ struct weapon *g_Weapons[] = {
 	[WEAPON_GE_GADGETA         ] = &g_GeWeaponDefs[WEAPON_GE_GADGETA - WEAPON_GE_FIRST],
 	[WEAPON_GE_GADGETB         ] = &g_GeWeaponDefs[WEAPON_GE_GADGETB - WEAPON_GE_FIRST],
 	[WEAPON_GE_TANKSHELLS      ] = &g_GeWeaponDefs[WEAPON_GE_TANKSHELLS - WEAPON_GE_FIRST],
+	[WEAPON_GE_DETONATOR       ] = &g_GeWeaponDefs[WEAPON_GE_DETONATOR - WEAPON_GE_FIRST],
 #endif
 };
 
@@ -6505,5 +6506,8 @@ const u8 g_GeWeaponHosts[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_GADGETA         - WEAPON_GE_FIRST] = WEAPON_DATAUPLINK,
 	[WEAPON_GE_GADGETB         - WEAPON_GE_FIRST] = WEAPON_DATAUPLINK,
 	[WEAPON_GE_TANKSHELLS      - WEAPON_GE_FIRST] = WEAPON_DATAUPLINK,
+	// the watch's detonator has nothing of its own in the hand but a trigger,
+	// which is the remote mine's detonate (geguns.c)
+	[WEAPON_GE_DETONATOR       - WEAPON_GE_FIRST] = WEAPON_DATAUPLINK,
 };
 #endif

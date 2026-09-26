@@ -8,6 +8,7 @@
 #ifndef PLATFORM_N64
 #include "game/modghost.h"
 #include "bss.h"
+#include "geguns.h"
 #endif
 #include "types.h"
 
@@ -684,9 +685,17 @@ bool modIsWeaponAGun(s32 weaponnum)
  * a weapon, two-handed or not. The weapon table's own dual-wield flag is
  * the pistols and the small automatics; the stock cheat "dual wield all
  * guns" already ignores it for the player, and so does this, for everyone.
+ * Not GoldenEye's watch's detonator (gegunsNeverPairs()); its grenade and
+ * mines, which GoldenEye itself never pairs, are paired here.
  */
 bool modCanAkimbo(s32 weaponnum)
 {
+#ifndef PLATFORM_N64
+	if (gegunsNeverPairs(weaponnum)) {
+		return false;
+	}
+#endif
+
 	return modIsWeaponAGun(weaponnum);
 }
 

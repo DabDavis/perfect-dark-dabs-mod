@@ -75,6 +75,14 @@ s32 gegunsEnemyRocketModel(void);
 
 // Whether drawing one of GoldenEye's weapons makes no sound: its gadgets
 s32 gegunsEquipSilent(s32 weaponnum);
+
+// Whether one of GoldenEye's weapons is never a pair, not even under Akimbo:
+// the watch's detonator
+s32 gegunsNeverPairs(s32 weaponnum);
+
+// How long one of GoldenEye's mines takes, thrown, to arm or (the timed mine)
+// to go off, in sixtieths; 0 for any other weapon, which keeps its function's
+s32 gegunsThrownFuse60(s32 weaponnum);
 void gegunsOwnModelParts(struct hand *hand, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);
 struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef, f32 *offset);

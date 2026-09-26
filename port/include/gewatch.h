@@ -38,6 +38,13 @@ s32 geWatchHidesGun(void);
 // All the way up with the level stopped, and neither opening nor closing
 s32 geWatchIsSettled(void);
 
+/**
+ * The sleeve GoldenEye's hands wear (bondviewSelectCuff()), as the first of
+ * six cuff switches counts: 0 boiler suit, 1 tuxedo, 2 Connery, 3 blue, 4
+ * jungle, 5 snow - the watch arm's order, and the detonator's (gegadgets.c).
+ */
+s32 geWatchCuff(void);
+
 // Every frame of a level, from playerTick(), before or after the pause menu's
 void geWatchTick(void);
 
