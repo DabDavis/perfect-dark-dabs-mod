@@ -5586,6 +5586,24 @@ bool aiChrDrawWeaponInCutscene(void)
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 		setCurrentPlayerNum(playernum);
 		bgunEquipWeapon((s8)cmd[3]);
+
+#ifndef PLATFORM_N64
+		// GoldenEye's BondHideWeapons (a converted mission's outro) empties
+		// both hands there and then (remove_item_in_hand()), and Bond's body
+		// is filmed without a gun. Perfect Dark's switch only completes as the
+		// gun ticks, which it does not under the cinema's camera, so Bond
+		// stood in Silo's lift still holding his rifle (F3 20260925-234037).
+		// The hands are emptied now (bgunGetWeaponNum() answers WEAPON_NONE
+		// for a hand not in use) and the body's held guns go with them, so
+		// playerTickChrBody() has nothing to put back.
+		if ((s8)cmd[3] <= WEAPON_NONE && modloaderStageIsRemake(g_Vars.stagenum)) {
+			g_Vars.currentplayer->hands[HAND_RIGHT].inuse = false;
+			g_Vars.currentplayer->hands[HAND_LEFT].inuse = false;
+			playermgrDeleteWeapon(HAND_RIGHT);
+			playermgrDeleteWeapon(HAND_LEFT);
+		}
+#endif
+
 		setCurrentPlayerNum(prevplayernum);
 	}
 
