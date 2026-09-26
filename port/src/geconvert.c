@@ -4290,10 +4290,11 @@ static uint32_t soloItemWeapon(uint32_t item)
  * DD44, its submachine gun rounds for the rest), so a grant of it fills both;
  * since every 9mm gun draws on the submachine gun's (geguns.c, geammotypes[])
  * the pistol half is left over and harmless. Everything past the golden
- * bullet is a gadget's count, which nothing in the port holds. gesolo.py's
+ * bullet is a gadget's count, which nothing in the port holds, but for the
+ * watch laser's charge, which Train starts Bond with. gesolo.py's
  * GE_AMMO_TYPES.
  */
-static const uint8_t g_GeAmmoTypes[24][2] = {
+static const uint8_t g_GeAmmoTypes[25][2] = {
 	{ 0, 0 },
 	{ 0x01, 0x02 },    // 9MM            pistol and SMG
 	{ 0x01, 0x02 },    // 9MM_2
@@ -4311,6 +4312,7 @@ static const uint8_t g_GeAmmoTypes[24][2] = {
 	[20] = { 0x20, 0 }, // BUG           the covert modem stands on the ECM mine
 	[22] = { 0x20, 0 }, // GEKEY         and so do the GoldenEye key
 	[23] = { 0x20, 0 }, // PLASTIQUE     and the plastique
+	[24] = { 0x1b, 0 }, // WATCH_LASER   the watch laser's charge (geguns.c, AMMOTYPE_WATCHLASER): Train's 300
 };
 
 /** The port's type for one of GoldenEye's, the first or the second; 0 for none. */

@@ -176,6 +176,7 @@ GE_AMMO_TYPES = {
     20: (0x20,),        # BUG            the covert modem stands on the ECM mine
     22: (0x20,),        # GEKEY          and so do the GoldenEye key
     23: (0x20,),        # PLASTIQUE      and the plastique; no mission holds two of the three
+    24: (0x1b,),        # WATCH_LASER    the watch laser's charge (AMMOTYPE_WATCHLASER): Train's 300
 }
 
 # The commands whose ITEM_NUM is a weapon somebody holds (geaitable.py): the two
