@@ -2553,6 +2553,12 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 				bgunStartAnimation(func->fire_animation, handnum, hand);
 				hand->unk0cc8_01 = true;
 			}
+
+#ifndef PLATFORM_N64
+			// GoldenEye's own knife is not animated joint by joint, but swung
+			// whole (geguns.c)
+			gegunsOwnMeleeStart(hand, handnum);
+#endif
 		}
 
 		if (func->fire_animation) {
@@ -3594,6 +3600,11 @@ void bgunTickHand(s32 handnum)
 			break;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// after the states, which clear the hand's posrotmtx each pass
+	gegunsOwnMeleeTick(hand, handnum, g_Vars.lvupdate60freal);
+#endif
 }
 
 void bgunTickSwitch(void)
