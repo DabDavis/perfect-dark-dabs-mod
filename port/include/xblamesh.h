@@ -273,6 +273,12 @@ void xblaMeshSetLogoFade(s32 alpha);
 s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, struct coord *dir,
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode);
+/**
+ * The first surface of the release's mesh drawn for a model on a world-space
+ * segment, into `hit`: where a stuck mine is pushed to so that it sits on
+ * what is drawn rather than inside it. 0 in the N64 look or on no surface.
+ */
+s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const struct coord *to, struct coord *hit);
 
 /** --xbla-mesh-verbose: log each replaced node's box against its mesh's. */
 void xblaMeshSetVerbose(s32 verbose);
