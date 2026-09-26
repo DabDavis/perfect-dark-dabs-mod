@@ -685,7 +685,8 @@ bool modIsWeaponAGun(s32 weaponnum)
  * a weapon, two-handed or not. The weapon table's own dual-wield flag is
  * the pistols and the small automatics; the stock cheat "dual wield all
  * guns" already ignores it for the player, and so does this, for everyone.
- * Not GoldenEye's grenade, mines or detonator, which GoldenEye never pairs.
+ * Not GoldenEye's watch's detonator (gegunsNeverPairs()); its grenade and
+ * mines, which GoldenEye itself never pairs, are paired here.
  */
 bool modCanAkimbo(s32 weaponnum)
 {

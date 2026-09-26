@@ -908,12 +908,13 @@ static void gegunsOwnTrigger(s32 i)
  * - **Moving on when they run out.** GoldenEye goes to the next thing in
  *   the cycle once the last mine is thrown, the remote mine to its detonator
  *   (bgunAutoSwitchWeapon()); Perfect Dark's own mines stay in the hand empty.
- * - **Never a pair.** GoldenEye pairs none of these (no CAN_DUAL_WIELD), and
- *   none of their hosts has WEAPONFLAG_DUALWIELD; it is cleared here all the
- *   same, so that a rule that pairs a second pickup of a gun, reading the
- *   definition's own flag, never pairs them. (weaponHasFlag() answers yes for
- *   any weapon while Akimbo is on; such a rule reads the definition, or asks
- *   gegunsNeverPairs() as Akimbo does.)
+ * - **Not a pair of GoldenEye's own.** GoldenEye pairs none of these (no
+ *   CAN_DUAL_WIELD), and none of their hosts has WEAPONFLAG_DUALWIELD; it is
+ *   cleared here all the same, so that a rule reading the definition's own
+ *   flag never pairs them. Akimbo is the house rule that does (weaponHasFlag()
+ *   answers yes for any weapon modCanAkimbo() lets into a hand): two grenades
+ *   or two mines under it, as the user asked - but never two detonators
+ *   (gegunsNeverPairs()).
  *
  * The same after a borrow (gegunsBorrow()), whose flags2 are the host's
  * again - Perfect Dark's remote mine's, detonator hand and all.
@@ -967,23 +968,16 @@ static void gegunsOwnThrown(s32 i)
 
 /**
  * Whether one of GoldenEye's weapons is never held as a pair, however it is
- * picked up and whatever Akimbo says: the grenade, the three mines and the
- * watch's detonator (gegunsOwnThrown()). Their definitions have no
- * WEAPONFLAG_DUALWIELD either; this is the answer for a rule that pairs guns
- * without asking that flag (modCanAkimbo()).
+ * picked up and whatever Akimbo says: the watch's detonator, which is Bond's
+ * two hands at the watch and one trigger for every mine (gegunsOwnThrown()).
+ * Its definition has no WEAPONFLAG_DUALWIELD either; this is the answer for
+ * a rule that pairs guns without asking that flag (modCanAkimbo()). The
+ * grenade and the mines are not on it: Akimbo pairs them (user's call,
+ * 2026-09-26), GoldenEye's own rule never does.
  */
 s32 gegunsNeverPairs(s32 weaponnum)
 {
-	switch (weaponnum) {
-	case WEAPON_GE_GRENADE:
-	case WEAPON_GE_TIMEDMINE:
-	case WEAPON_GE_PROXIMITYMINE:
-	case WEAPON_GE_REMOTEMINE:
-	case WEAPON_GE_DETONATOR:
-		return 1;
-	}
-
-	return 0;
+	return weaponnum == WEAPON_GE_DETONATOR;
 }
 
 /**
