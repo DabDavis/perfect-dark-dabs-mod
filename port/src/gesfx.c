@@ -43,6 +43,7 @@
 #include "modloader.h"
 #include "preprocess.h"
 #include "system.h"
+#include "lib/audiodma.h"
 #include "lib/snd.h"
 #include "game/propsnd.h"
 
@@ -104,7 +105,8 @@ static s32 sfxLoad(void)
 		sysMemFree(raw);
 
 		snprintf(path, sizeof(path), "%s/menu/sfxtbl", dir);
-		g_SfxTbl = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
+		// padded: the sound DMA reads a whole item from where a sample starts
+		g_SfxTbl = fsFileSize(path) > 0 ? fsFileLoadPadded(path, &len, ADMA_ITEM_SIZE) : NULL;
 
 		if (g_SfxCtl && g_SfxTbl) {
 			ALBankFile *file = (ALBankFile *)g_SfxCtl;

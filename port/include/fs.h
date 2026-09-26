@@ -14,6 +14,7 @@ s32 fsPathIsAbsolute(const char *path);
 s32 fsPathIsCwdRelative(const char *path);
 
 void *fsFileLoad(const char *name, u32 *outSize);
+void *fsFileLoadPadded(const char *name, u32 *outSize, u32 pad);
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize);
 s32 fsFileSize(const char *name);
 

@@ -612,6 +612,13 @@ s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 
 void *fsFileLoad(const char *name, u32 *outSize)
 {
+	return fsFileLoadPadded(name, outSize, 0);
+}
+
+// The file followed by pad zeroed bytes the size does not count, for readers
+// that run past the end the way the N64's did through more ROM
+void *fsFileLoadPadded(const char *name, u32 *outSize, u32 pad)
+{
 	const char *fullName = fsFullPath(name);
 
 	FILE *f = fopen(fullName, "rb");
@@ -632,7 +639,7 @@ void *fsFileLoad(const char *name, u32 *outSize)
 
 	void *buf = NULL;
 	if (size) {
-		buf = sysMemZeroAlloc(size + 1); // sick hack for a free null terminator
+		buf = sysMemZeroAlloc(size + pad + 1); // sick hack for a free null terminator
 		if (!buf) {
 			sysLogPrintf(LOG_ERROR, "fsFileLoad: could not alloc %d bytes for file: %s", size, fullName);
 			fclose(f);

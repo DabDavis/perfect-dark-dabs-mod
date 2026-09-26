@@ -6,7 +6,6 @@
 #include "types.h"
 
 #define ADMA_MAX_ITEMS 80
-#define ADMA_ITEM_SIZE 0x400
 
 struct admaitem {
 	ALLink node;
