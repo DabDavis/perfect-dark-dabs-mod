@@ -48,6 +48,7 @@
 #include "game/chraction.h"
 #include "game/env.h"
 #include "lib/model.h"
+#include "lib/ailist.h"
 #include "lib/rng.h"
 #include "lib/snd.h"
 #include "system.h"
@@ -86,7 +87,8 @@ static s32 g_GeCinemaArmed = -1;
 static s32 g_GeCinemaArmedWhat;
 // which of the mission's two it is: GECINEMA_OPENING or GECINEMA_ENDING
 static s32 g_GeCinemaWhat;
-// the ending: 0 at the load, 1 once the screen is black, 2 once its list has been started
+// the ending: 0 at the load, 1 once the screen is black, 3 once its cast is made
+// (gecinemaEndingCast()), 2 once its list has been started
 static s32 g_GeEndingKicked;
 // and once it has: the mission being watched, or -1
 static s32 g_GeCinemaMission = -1;
@@ -569,11 +571,14 @@ static s32 gecinemaLeavePressed(void)
  * list's own EndLevel - except that both come back to the folder
  * (gecinemaEndingOver()).
  */
-static void gecinemaKickEnding(void)
+/**
+ * Where the ending starts: the pair's list, the command it starts on (the
+ * pair, or Runway's camera switch before it) and the pair itself. NULL when the
+ * mission's lists have none.
+ */
+static u8 *gecinemaFindEnding(struct ailist **which, u8 **pair)
 {
 	struct ailist *lists = g_StageSetup.ailists;
-
-	g_GeEndingKicked = 2;
 
 	for (s32 i = 0; lists && lists[i].list; i++) {
 		u8 *cmd = lists[i].list;
@@ -589,39 +594,18 @@ static void gecinemaKickEnding(void)
 			}
 
 			if (type == 0x01d5 && cmd[2] == 0 && ((cmd[len] << 8) | cmd[len + 1]) == 0x01e1) {
-				struct chrdata *runner = NULL;
-
-				for (s32 k = 0; k < g_NumBgChrs; k++) {
-					if (g_BgChrs[k].ailist == lists[i].list) {
-						runner = &g_BgChrs[k];
-						break;
-					}
-				}
-
-				if (!runner && g_NumBgChrs > 0) {
-					runner = &g_BgChrs[0];
-				}
-
-				if (!runner) {
-					break;
-				}
+				*which = &lists[i];
+				*pair = cmd;
 
 				// Runway switches its camera *before* the pair where the
 				// others do after it, and started on the pair its ending
 				// played out unseen from Bond's own eyes at the far end of the
 				// level
 				if (prev && ((prev[0] << 8) | prev[1]) == 0x00df) {
-					cmd = prev;
+					return prev;
 				}
 
-				sysLogPrintf(LOG_NOTE, "gecinema: the ending is list %d at +%d, run by background chr %d",
-						lists[i].id, (s32)(cmd - lists[i].list), runner->chrnum);
-
-				runner->ailist = lists[i].list;
-				runner->aioffset = cmd - lists[i].list;
-				runner->aireturnlist = -1;
-				runner->sleep = 0;
-				return;
+				return cmd;
 			}
 
 			prev = cmd;
@@ -629,8 +613,124 @@ static void gecinemaKickEnding(void)
 		}
 	}
 
-	sysLogPrintf(LOG_WARNING, "gecinema: no ending found in this mission's lists");
-	gecinemaFinish();
+	return NULL;
+}
+
+/**
+ * The chrs an ending hands a list to or shows again, where the level has not
+ * made them yet.
+ *
+ * In play the ending comes after the mission has spawned its cast; here it is
+ * started on a level nobody has played. Statue Park's is the one that names
+ * chrs its setup does not place (build/gexrom's endsurvey): Trevelyan and the
+ * two troops who walk Bond out through the gates are spawned by list 0x1004 as
+ * he nears the end, and the ending unhides chrs 10-12 and hands them their
+ * lists - on a cold level there was nobody to hand them to and Bond walked out
+ * alone (F3 20260926-064036). So each such chr is spawned here the way the
+ * level's own list spawns it: the spawn command whose list claims that number
+ * (SetMyChrNum), run early enough for the new chr's own list to arm it.
+ */
+static void gecinemaEndingCast(void)
+{
+	struct ailist *lists = g_StageSetup.ailists;
+	struct ailist *which;
+	u8 *pair;
+	u8 *cmd;
+	struct chrdata *base = g_NumBgChrs > 0 ? &g_BgChrs[0] : NULL;
+
+	if (!base || !gecinemaFindEnding(&which, &pair)) {
+		return;
+	}
+
+	for (cmd = pair; ((cmd[0] << 8) | cmd[1]) != AICMD_END; cmd += chraiGetCommandLength(cmd, 0)) {
+		const s32 type = (cmd[0] << 8) | cmd[1];
+		const s32 chrnum = cmd[2];
+		s32 spawned = 0;
+
+		// SetChrAiList and GoldenEye's UnsetChrchrflags
+		if ((type != 0x0005 && type != 0x00a8) || chrnum >= 0xf0 || chrFindById(base, chrnum)) {
+			continue;
+		}
+
+		for (s32 i = 0; lists[i].list && !spawned; i++) {
+			u8 *sp = lists[i].list;
+			s32 steps = 0;
+
+			for (; ((sp[0] << 8) | sp[1]) != AICMD_END && steps++ < 100000; sp += chraiGetCommandLength(sp, 0)) {
+				u8 *newlist;
+				u8 *first;
+				s32 n;
+
+				if (((sp[0] << 8) | sp[1]) != 0x00c6) {
+					continue;
+				}
+
+				newlist = ailistFindById((sp[6] << 8) | sp[7]);
+
+				// the list the spawn gives claims this number in its first
+				// few commands
+				for (first = newlist, n = 0; first && n < 4
+						&& ((first[0] << 8) | first[1]) != AICMD_END; n++) {
+					if (((first[0] << 8) | first[1]) == 0x0095 && first[2] == chrnum) {
+						struct prop *prop = chrSpawnAtPad(base, sp[2], (s8)sp[3], (sp[4] << 8) | sp[5],
+								newlist, ((u32)sp[8] << 24) | (sp[9] << 16) | (sp[10] << 8) | sp[11]);
+
+						if (prop && prop->chr) {
+							chrSetChrnum(prop->chr, chrnum);
+							spawned = 1;
+						}
+
+						sysLogPrintf(LOG_NOTE, "gecinema: the ending's chr %d spawned by list %d: %s",
+								chrnum, lists[i].id, spawned ? "ok" : "failed");
+						break;
+					}
+
+					first += chraiGetCommandLength(first, 0);
+				}
+
+				if (spawned) {
+					break;
+				}
+			}
+		}
+	}
+}
+
+static void gecinemaKickEnding(void)
+{
+	struct ailist *which;
+	u8 *pair;
+	u8 *cmd = gecinemaFindEnding(&which, &pair);
+	struct chrdata *runner = NULL;
+
+	g_GeEndingKicked = 2;
+
+	if (cmd) {
+		for (s32 k = 0; k < g_NumBgChrs; k++) {
+			if (g_BgChrs[k].ailist == which->list) {
+				runner = &g_BgChrs[k];
+				break;
+			}
+		}
+
+		if (!runner && g_NumBgChrs > 0) {
+			runner = &g_BgChrs[0];
+		}
+	}
+
+	if (!runner) {
+		sysLogPrintf(LOG_WARNING, "gecinema: no ending found in this mission's lists");
+		gecinemaFinish();
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gecinema: the ending is list %d at +%d, run by background chr %d",
+			which->id, (s32)(cmd - which->list), runner->chrnum);
+
+	runner->ailist = which->list;
+	runner->aioffset = cmd - which->list;
+	runner->aireturnlist = -1;
+	runner->sleep = 0;
 }
 
 s32 gecinemaEndingOver(void)
@@ -655,8 +755,15 @@ static void gecinemaEndingTick(void)
 	g_GeCinemaTotal60 += g_Vars.diffframe60f;
 
 	// a level's chrs and lists settle over its first frames (its guards are
-	// made, its background chrs number themselves)
-	if (g_GeEndingKicked == 1 && g_Vars.lvframenum >= 20) {
+	// made, its background chrs number themselves); the cast the ending needs
+	// and the level has not made is made halfway, so that its own lists have
+	// armed it by the time the ending hands it another
+	if (g_GeEndingKicked == 1 && g_Vars.lvframenum >= 10) {
+		g_GeEndingKicked = 3;
+		gecinemaEndingCast();
+	}
+
+	if (g_GeEndingKicked == 3 && g_Vars.lvframenum >= 20) {
 		gecinemaKickEnding();
 	}
 
