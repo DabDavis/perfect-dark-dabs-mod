@@ -2100,6 +2100,7 @@ struct beandraw {
 	u8 alphatest; // drawn with the alpha test on (render state 0x60)
 	u8 masktexslot; // the slot masktex fills, which is the UV set it is read with
 	u32 masktex;  // the material's other picture, where it has two (else ~0)
+	u8 ownmat;    // a material set since its vertex shader was (record 0x02)
 	u8 numpal;
 	u8 pal[BEAN_MAXPAL];
 };
@@ -2152,6 +2153,8 @@ struct beanmodel {
 	struct beanib ibs[BEAN_MAXIBS];
 
 	f32 uvscale;
+	// A stride 20 vertex carries a UV rather than a colour (beanShaderUv20())
+	s32 uv20;
 };
 
 struct beanvb {
@@ -2159,6 +2162,7 @@ struct beanvb {
 	u32 off;
 	u32 count;
 	s32 col28; // stride 28 carries a colour rather than a UV
+	s32 uv20;  // stride 20 carries a UV rather than a colour
 };
 
 struct beanvtx {
@@ -2184,11 +2188,12 @@ static s32 beanReadVb(const struct beanmodel *bm, u32 desc, struct beanvb *vb)
 	vb->off = gebeanBE32(bm->data + desc + 8);
 	size = gebeanBE32(bm->data + desc + 12);
 
-	if (vb->stride < 20 || !gebeanFits(vb->off, size, bm->gpulen)) {
+	if (vb->stride < 16 || !gebeanFits(vb->off, size, bm->gpulen)) {
 		return 0;
 	}
 
 	vb->count = size / vb->stride;
+	vb->uv20 = vb->stride == 20 && bm->uv20;
 
 	// Stride 28 is a skinned vertex with one of a UV and a colour: a colour's
 	// alpha byte is 0xff on every vertex, a UV's high byte is not.
@@ -2234,6 +2239,8 @@ static u32 beanColour(u32 abgr)
  * has four u16 palette slots written three times over (0xf000 for none), and
  * the stride 36 one four weight bytes in reverse; then a 10:10:10 normal, an
  * s16 UV and an ARGB colour, whichever of those the stride has room for.
+ * Stride 20 is the normal and one of a UV and a colour (vb->uv20), stride 16
+ * the normal alone (the saloon car's windows).
  */
 static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i, struct beanvtx *v)
 {
@@ -2288,8 +2295,15 @@ static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i
 		break;
 	case 20:
 		k = 12;
+		hasuv = vb->uv20;
+
+		if (!vb->uv20) {
+			v->argb = beanColour(gebeanBE32(p + 16));
+		}
+		break;
+	case 16:
+		k = 12;
 		hasuv = 0;
-		v->argb = beanColour(gebeanBE32(p + 16));
 		break;
 	case 24:
 		k = 12;
@@ -2364,7 +2378,12 @@ static f32 beanMeasureUvScale(struct beanmodel *bm)
 		case 32: uvo = 24; break;
 		case 28: uvo = 24; break;
 		case 24: uvo = 16; break;
+		case 20: uvo = 16; break;
 		default: continue;
+		}
+
+		if (vb.stride == 20 && !vb.uv20) {
+			continue;
 		}
 
 		if (vb.stride == 28 && vb.col28) {
@@ -2426,6 +2445,29 @@ static f32 beanMeasureUvScale(struct beanmodel *bm)
 	return (f32)scale;
 }
 
+/** Where the file's vertex and index buffers end in its .gpu: its shaders follow. */
+static u32 beanBuffersEnd(const struct beanmodel *bm)
+{
+	u32 end = 0;
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		const struct beandraw *d = &bm->draws[di];
+		struct beanvb vb;
+
+		if (beanReadVb(bm, d->vb, &vb) && vb.off + vb.count * vb.stride > end) {
+			end = vb.off + vb.count * vb.stride;
+		}
+
+		for (s32 i = 0; i < bm->numibs; i++) {
+			if (bm->ibs[i].obj == d->ib && bm->ibs[i].off + bm->ibs[i].size > end) {
+				end = bm->ibs[i].off + bm->ibs[i].size;
+			}
+		}
+	}
+
+	return end;
+}
+
 /**
  * What one texture repeat is in an HD file's UVs, as its own vertex shaders
  * say, or 0 when they do not. Each vertex shader multiplies the fetched s16
@@ -2447,23 +2489,8 @@ static f32 beanMeasureUvScale(struct beanmodel *bm)
  */
 static f32 beanShaderUvScale(const struct beanmodel *bm)
 {
-	u32 end = 0;
+	const u32 end = beanBuffersEnd(bm);
 	f32 found = 0.0f;
-
-	for (s32 di = 0; di < bm->numdraws; di++) {
-		const struct beandraw *d = &bm->draws[di];
-		struct beanvb vb;
-
-		if (beanReadVb(bm, d->vb, &vb) && vb.off + vb.count * vb.stride > end) {
-			end = vb.off + vb.count * vb.stride;
-		}
-
-		for (s32 i = 0; i < bm->numibs; i++) {
-			if (bm->ibs[i].obj == d->ib && bm->ibs[i].off + bm->ibs[i].size > end) {
-				end = bm->ibs[i].off + bm->ibs[i].size;
-			}
-		}
-	}
 
 	if (end == 0) {
 		return 0.0f;
@@ -2494,6 +2521,48 @@ static f32 beanShaderUvScale(const struct beanmodel *bm)
 	}
 
 	return found;
+}
+
+/**
+ * Whether the file's stride 20 vertices carry a UV where they usually carry a
+ * colour, as its own vertex shaders fetch them. A stride 20 vertex is a
+ * position and a normal and then four bytes, and those are the vertex colour
+ * in all but four of the release's files - a 16:16 UV in the saloon car,
+ * the Escort, the ZIL and the landmine, whose pictures then drew at their
+ * first texel over colours that were the UV's bytes (F3 20260925-233253,
+ * Surface's toy car in purple and blue). The alpha byte does not tell them
+ * apart: 4J's colours carry alphas of 0, 0x7f, 0x80 and 0xb3 on whole
+ * buffers. The shaders do: each vertex fetch instruction (12 bytes, opcode 0
+ * with bit 19 set) names its format in the second word, 6 for 8:8:8:8 and 25
+ * for 16:16, and its stride and offset in dwords in the third. Any fetch of a
+ * UV at dword 4 of 5 and none of a colour there; Complex's level does both
+ * and keeps the colour, as it always had.
+ */
+static s32 beanShaderUv20(const struct beanmodel *bm)
+{
+	const u32 end = beanBuffersEnd(bm);
+	s32 uv = 0;
+
+	if (end == 0) {
+		return 0;
+	}
+
+	for (u32 at = (end + 3) & ~3u; at + 12 <= bm->gpulen; at += 4) {
+		const u32 w0 = gebeanBE32(bm->gpu + at);
+		const u32 fmt = (gebeanBE32(bm->gpu + at + 4) >> 16) & 63;
+
+		if ((w0 & 31) != 0 || !((w0 >> 19) & 1) || (gebeanBE32(bm->gpu + at + 8) & 0x7fffffff) != (4 << 8 | 5)) {
+			continue;
+		}
+
+		if (fmt == 6) {
+			return 0;
+		}
+
+		uv |= fmt == 25;
+	}
+
+	return uv;
 }
 
 /**
@@ -2669,6 +2738,7 @@ static void beanWalkStream(struct beanmodel *bm)
 	u8 masktexslot = 0;
 	u32 secend = 0;
 	u8 secblend = 0;
+	u8 ownmat = 0;
 
 	pal[0] = 0;
 
@@ -2734,6 +2804,10 @@ static void beanWalkStream(struct beanmodel *bm)
 			}
 		} else if (type == 0x2e && size >= 12) {
 			vb = gebeanBE32(st + pc + 8);
+		} else if (type == 0x02) {
+			// The vertex shader (its microcode's place in .gpu): the material
+			// before it is not necessarily this one's (beanDrawIsSphereMapped())
+			ownmat = 0;
 		} else if (type == 0x1a && size >= 8) {
 			// The pass what follows is drawn in, by its low byte: 1 the opaque
 			// one, 2 the blended one (source alpha over the rest, set by the
@@ -2754,6 +2828,7 @@ static void beanWalkStream(struct beanmodel *bm)
 			alphatest = gebeanBE32(st + pc + 8) != 0;
 		} else if (type == 0x2d && size >= 20) {
 			tex = beanMaterialTexture(bm, st, pc, size, len);
+			ownmat = 1;
 			alpha = 0xff;
 			masktex = ~0u;
 			masktexslot = 0;
@@ -2844,6 +2919,7 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->alphatest = alphatest;
 				d->masktex = masktex;
 				d->masktexslot = masktexslot;
+				d->ownmat = ownmat;
 				d->numpal = numpal;
 				memcpy(d->pal, pal, numpal);
 			}
@@ -3250,6 +3326,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	beanReadPose(bm, names, numnames);
 	beanWalkStream(bm);
 	beanFindIndexBuffers(bm);
+	bm->uv20 = beanShaderUv20(bm);
 	bm->uvscale = beanMeasureUvScale(bm);
 
 	// An HD model's shaders say what its UVs are in (beanShaderUvScale()); a
@@ -4857,6 +4934,148 @@ static s32 beanVertexDropped(const char *source, u32 vboff, u32 vi)
 	return 0;
 }
 
+/**
+ * A draw the release sphere-maps: its vertices carry no UV - stride 16, the
+ * saloon car's windows, or stride 20 with a colour - and its vertex shader has
+ * a picture of its own, which is the round reflection map the shader looks up
+ * by the normal as GoldenEye's texgen did: the satellite's blue panels in
+ * Silo, the car's windows, the Yale key. With no UV to read they drew the
+ * map's first texel - black, the corner outside the sphere - so the
+ * satellite's panels were black squares (F3 20260925-233617) and the car's
+ * windows, a stride the reader did not take, were left out. A draw with no
+ * picture since its shader was set is plain colour and is left as it was.
+ */
+static s32 beanDrawIsSphereMapped(const struct beanmodel *bm, const struct beandraw *d, const struct beanvb *vb)
+{
+	return d->ownmat && d->tex < (u32)bm->numtex && (vb->stride == 16 || (vb->stride == 20 && !vb->uv20));
+}
+
+/**
+ * The lookup a sphere-mapped draw is given in place of the live one: the
+ * renderer has no texgen for the release's meshes, so each vertex takes where
+ * its normal would land for a viewer square to the draw, with the draw's
+ * surface spread across the middle of the map as a mirror's reflection
+ * travels across it. The draw's mean normal is the view, a little from above
+ * as the player mostly is; up is the model's +y (a face that looks straight up
+ * or down takes +z), so the map's sky stays above its horizon. A draw round a
+ * solid - the key - has no mean to speak of and is looked at from the front.
+ * Kept within the sphere's disc.
+ */
+struct beansphere {
+	f32 t[3];     // across the map
+	f32 b[3];     // up the map
+	f32 c[3];     // the draw's middle
+	f32 reach;    // half its biggest extent
+	f32 spread;   // how far its surface travels across the map
+};
+
+static void beanSphereFrame(const struct beanmodel *bm, const struct beanvb *vb, const u16 *tris, s32 numtris,
+		struct beansphere *sp)
+{
+	f32 n[3] = { 0.0f, 0.0f, 0.0f };
+	f32 lo[3] = { 1e30f, 1e30f, 1e30f };
+	f32 hi[3] = { -1e30f, -1e30f, -1e30f };
+	f32 up[3] = { 0.0f, 1.0f, 0.0f };
+	f32 ref[3] = { 0.0f, 0.0f, 0.0f };
+	s32 count = 0;
+	f32 len;
+
+	for (s32 i = 0; i < numtris * 3; i++) {
+		struct beanvtx v;
+		f32 side;
+
+		if (!beanVertex(bm, vb, tris[i], &v)) {
+			continue;
+		}
+
+		// A panel's back is in the same draw as its front, facing the other
+		// way: both sides are square to one view
+		if (count == 0) {
+			ref[0] = v.nrm[0];
+			ref[1] = v.nrm[1];
+			ref[2] = v.nrm[2];
+		}
+
+		side = v.nrm[0] * ref[0] + v.nrm[1] * ref[1] + v.nrm[2] * ref[2] < 0.0f ? -1.0f : 1.0f;
+
+		for (s32 k = 0; k < 3; k++) {
+			n[k] += v.nrm[k] * side;
+			lo[k] = v.pos[k] < lo[k] ? v.pos[k] : lo[k];
+			hi[k] = v.pos[k] > hi[k] ? v.pos[k] : hi[k];
+		}
+
+		count++;
+	}
+
+	len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+	sp->spread = 0.2f;
+
+	if (count == 0 || len < 0.5f * count) {
+		n[0] = 0.0f;
+		n[1] = 0.0f;
+		n[2] = 1.0f;
+		sp->spread = 0.0f;
+	} else {
+		for (s32 k = 0; k < 3; k++) {
+			n[k] /= len;
+		}
+	}
+
+	if (fabsf(n[1]) > 0.9f) {
+		up[1] = 0.0f;
+		up[2] = 1.0f;
+	}
+
+	vecCross(up, n, sp->t);
+	len = sqrtf(sp->t[0] * sp->t[0] + sp->t[1] * sp->t[1] + sp->t[2] * sp->t[2]);
+
+	for (s32 k = 0; k < 3; k++) {
+		sp->t[k] /= len;
+	}
+
+	vecCross(n, sp->t, sp->b);
+	sp->reach = 0.0f;
+
+	for (s32 k = 0; k < 3 && count > 0; k++) {
+		sp->c[k] = (lo[k] + hi[k]) * 0.5f;
+
+		if ((hi[k] - lo[k]) * 0.5f > sp->reach) {
+			sp->reach = (hi[k] - lo[k]) * 0.5f;
+		}
+	}
+
+	if (sp->reach <= 0.0f) {
+		sp->spread = 0.0f;
+		sp->reach = 1.0f;
+	}
+}
+
+static void beanSphereUv(const struct beansphere *sp, const struct beanvtx *v, f32 *uv)
+{
+	f32 d[3];
+	f32 s;
+	f32 w;
+	f32 r;
+
+	for (s32 k = 0; k < 3; k++) {
+		d[k] = (v->pos[k] - sp->c[k]) / sp->reach;
+	}
+
+	s = 0.45f * (v->nrm[0] * sp->t[0] + v->nrm[1] * sp->t[1] + v->nrm[2] * sp->t[2])
+		+ sp->spread * (d[0] * sp->t[0] + d[1] * sp->t[1] + d[2] * sp->t[2]);
+	w = 0.45f * (v->nrm[0] * sp->b[0] + v->nrm[1] * sp->b[1] + v->nrm[2] * sp->b[2])
+		+ sp->spread * (d[0] * sp->b[0] + d[1] * sp->b[1] + d[2] * sp->b[2]) + sp->spread * 0.5f;
+	r = sqrtf(s * s + w * w);
+
+	if (r > 0.45f) {
+		s *= 0.45f / r;
+		w *= 0.45f / r;
+	}
+
+	uv[0] = 0.5f + s;
+	uv[1] = 0.5f - w;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -4988,9 +5207,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
 		struct beanvb vb;
+		struct beansphere sp;
 		u16 *tris;
 		s32 numtris;
 		s32 *mapped;
+		s32 sphere;
 
 		// GoldenEye's own muzzle flash, which nothing here turns off again
 		if (di < 64 && (flash & (1ull << di))) {
@@ -5007,6 +5228,12 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		if (numtris <= 0) {
 			free(tris);
 			continue;
+		}
+
+		sphere = beanDrawIsSphereMapped(&bm, d, &vb);
+
+		if (sphere) {
+			beanSphereFrame(&bm, &vb, tris, numtris, &sp);
 		}
 
 		mapped = malloc(vb.count * sizeof(s32));
@@ -5047,6 +5274,10 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				if (!beanVertex(&bm, &vb, vi, &v)) {
 					ok = 0;
 					break;
+				}
+
+				if (sphere) {
+					beanSphereUv(&sp, &v, v.uv);
 				}
 
 				if (numparts > 0 && v.slot[0] >= 0 && v.slot[0] < d->numpal) {

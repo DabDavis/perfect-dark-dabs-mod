@@ -222,3 +222,49 @@ edits. The addition is small (one function and a stub), but check the merge.
     chrMoveToPos() puts the guard 60 units nearer (spawn adjust), hence GX/GZ.
   - Facility (0x63 in this install, 0x7a in the tester's): X=-4544.9 Y=80
     Z=1361.7 ROOMS=8 TH=258.4 VA=-32 CHR=44.
+
+# HD prop textures (F3 pass 2026-09-26) - fix/f3-hd-prop-textures
+
+Three tester reports, HD look (Bean meshes on, `xbla: meshes 1`), GE Plus missions.
+There are three separate causes, one per report. Each fix covers a class of props.
+
+| Report | Prop | Cause | Fix |
+|---|---|---|---|
+| 20260925-233253 Surface (0x69) "mini-car missing texture" | Pgx301Z <- `new/prop/carbmw` | (b) HD mesh misread. The car's stride-20 vertices are position + normal + **16:16 UV**. The reader took the last 4 bytes as a colour, so the car came out purple/blue and sampled texel (0,0). Its windows are stride 16 (position + normal), which the reader refused, so they were dropped. | `beanShaderUv20()`: the file's own Xenos vertex-fetch instructions decide UV or colour. Stride 16 is now read. |
+| 20260925-233617 Silo (tester 0x82 = mission Silo, 0x6b here) "missing reflective texture on satellite" | Pgx069Z <- `new/prop/sat1reflect` | (b) sphere map. The panels are a UV-less draw with a material of their own (44x44 blue sphere). The release's shader generates the UV from the normal (GoldenEye's texgen). We read UV 0,0, which is the black corner. | `beanDrawIsSphereMapped()` + `beanSphereFrame()/beanSphereUv()` in the rigid build bake a sphere lookup from the normal (mean-normal view, slightly from above, surface spread ±0.2). |
+| 20260926-000440 Facility (0x63) "computer uses n64 texture" | Pgx035Z console_sev2d | (a) no HD mapping. `geproptable.h` (propfit.json, 2026-09-17) was fitted only on the arenas' props. Mission props never got rows. | propfit run for every Pgx model the 20 missions load without HD. 37 rows added (`geproptable.h` 143 -> 180). |
+
+Commit files: `port/src/gebean.c`, `port/src/geproptable.h` (generated). No converter change, no GECONVERT bump.
+The shared functions touched are small: `beanReadVb`, `beanVertex`, `beanWalkStream` (`ownmat`) and `beanLoad` (one line). `beanShaderUvScale` now calls the new `beanBuffersEnd()` helper for its buffer-end loop.
+
+## Class coverage
+- **stride-20 UV** (per shaders, all Bean files): new/prop carbmw, carescort, carzil, landmine. `new/background/complex` fetches both a UV and a colour, so it keeps the colour reading as before. Every other file is unchanged: 4J's colours carry non-0xff alphas on whole buffers (0x00/0x7f/0x80/0xb3/0xfc), so an alpha-byte heuristic would be wrong.
+- **sphere-mapped rigid draws** (UV-less + own material): sat1reflect panels, carbmw windows, chrkeyyale, chrgoldeneyekey, glassware2 panes, sevdoorwind, sevdoorwood, cargolf/carweird windscreens, rarewarelogo.
+  - Skinned col28 draws (tank, helicopter, tiger, cctv, cartridges) are not touched. Their shaders show stride 28 has **no UV at all**, so how the tank etc. get their UVs is a separate open question (maybe a second vertex stream).
+  - UV-less draws that inherit a material across a shader change (0x02) are plain colour in the release. They still sample their inherited picture's first texel, which was left alone.
+- **props without rows**: the before sweep (`~/wt/f3hdprops-rig/sweep.sh`, 20 missions to frame 400) found 75 Pgx models loaded without HD. Now covered: 004 005 018 020 024 035 036 046 086 096 105 106 107 112 113 115 116 122 126 131 133 134 160 202 234 243 244 248 269-271 274 275 294 296 310 312. After the fix, these are still N64 in HD:
+  - no Bean model: 023 041 320-324.
+  - fit 0 / below 0.6: 038 desk1, 118 glassware1, 198 briefcase 0.47, 273 plastique, 282 helicopter 0.40.
+  - 077/078 TV screens: the Bean file has no stream the fitter reads, and they are monitor programmes anyway.
+  - 183 doorstatgate: the fitter finds no GE points. Open.
+  - 184-211 chr guns: done on fix/f3-ge-sniper-hd (112ac8278), not here.
+  - **Deliberately excluded** (EXCLUDE in `.xbla-work/ge-arena/gen_proptable.py`):
+    - autoguns 098 roofgun, 299 groundgun, 292 gunrunway1. The rigid build puts most of the gun on the base/first matrix, so turret yaw/pitch would not carry the HD gun.
+    - 117 gastank. The material blends 3 pictures (spot map, landscape reflection, pale base), and the largest-picture rule draws GoldenEye's black bottling-room tanks white.
+    - Each needs its own build work, or a call from the user.
+
+## Verification (RX 580 offscreen, `~/wt/f3hdprops-rig`, save_hd has XblaMeshes=1)
+- `~/wt/f3hdprops-pics/reports_before_after_n64.jpg`: rows car / satellite / console. Columns HD before, HD after, N64 look.
+- New rows: `boxes_compare.jpg` (cardbox3), `barrels_compare.jpg` (gasbarrel), `lockers_compare.jpg` (locker3), `lab_compare.jpg`, and `misc_compare.jpg` (sevdish moves on its 2 bones; the runway/roof guns shown were before the exclusion).
+- `tanks_compare.jpg` shows why the gas tank is excluded.
+- The 20-mission sweep with the final binary is in `sweep_final/`. No crash, and no new WARNING lines against `sweep_before/`.
+- Rig: `cam.sh TAG BIN STAGE cx cy cz lx ly lz`, `shot3.sh NAME STAGE c.. t..` (HD before/after/N64), `objs.sh STAGE "modelnums"` (modelnum = 0x200 + GE prop number).
+
+## Offline tools
+- `.xbla-work/ge-arena/propfit.json` now has the new fits. The old file is kept as `propfit.json.before-f3hdprops`.
+- `gen_proptable.py` gained EXCLUDE and reproduces the committed header byte for byte.
+- Fetch scan research: the scratch `vf.py` pattern is w0&31==0, bit19, w2&0x7fffffff == offset<<8|stride in dwords, fmt=(w1>>16)&63 (6 = 8:8:8:8, 25 = 16:16).
+
+## Open
+- The sphere lookup is baked, so it does not move with the view. A live version would need a per-material texgen pass for TABLE materials in xblamesh.c (the logo path, `m->logocol`, is the model to follow).
+- Gas tank look and autogun parts, as above.
