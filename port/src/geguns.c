@@ -83,6 +83,7 @@ static const char *const names[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_GADGETA         - WEAPON_GE_FIRST] = "Gadget\n",
 	[WEAPON_GE_GADGETB         - WEAPON_GE_FIRST] = "Gadget\n",
 	[WEAPON_GE_TANKSHELLS      - WEAPON_GE_FIRST] = "Tank\n",
+	[WEAPON_GE_DETONATOR       - WEAPON_GE_FIRST] = "Detonator\n",
 };
 
 /**
@@ -766,9 +767,9 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
  *   knife's throw, which GoldenEye has not: the Cougar has no second
  *   function, the sniper rifle not the host's crouch, the hunting knife only
  *   slashes and the throwing knife only throws (gunfire.c's ITEM_KNIFE and
- *   ITEM_THROWKNIFE), so its throw is its first. The remote mine's detonator
- *   stays - GoldenEye detonates with A and B, which the port's does too. It was
- *   more than a spare button: the choice of function is saved per *host*
+ *   ITEM_THROWKNIFE), so its throw is its first. The remote mine's detonate
+ *   goes too, to an item of its own (gegunsOwnThrown()). It was more than a
+ *   spare button: the choice of function is saved per *host*
  *   (bgunIsUsingSecondaryFunctionForHand()), so a player who had left the
  *   DY357-LX on its whip drew the Golden Gun whipping and never firing, and
  *   one who left the timed mine on its detector could not place GoldenEye's
@@ -881,6 +882,111 @@ static void gegunsOwnTrigger(s32 i)
 }
 
 /**
+ * GoldenEye's grenade and mines, which are thrown whole, and the watch's
+ * detonator that sets the remote mines off. A copy of a host's brought along
+ * Perfect Dark's remote mine as it is, which GoldenEye's is not:
+ *
+ * - **The detonator in the left hand.** Perfect Dark holds a remote mine in
+ *   the right and its detonator in the left (WEAPONFLAG2_DETONATORHAND), so
+ *   the left hand was in use with the mine's own number: GoldenEye's HUD drew
+ *   the mine's icon at both bottom corners and the mine was held "as though
+ *   it was wielded akimbo" (F3 20260925-230009). GoldenEye holds one mine in
+ *   one hand, and draws nothing of it (gegunsOwnModelHidden()).
+ * - **The second function.** Perfect Dark detonates with the remote mine's
+ *   second function, chosen as any second function is and saved per host, so
+ *   a player who left Perfect Dark's remote mine on it drew GoldenEye's and
+ *   could not throw one. GoldenEye's remote mine does one thing. Its mines
+ *   go off two ways, both kept: A and B pressed together while the remote
+ *   mine is in the hand (bondview2.c's moveData.detonating, which Perfect
+ *   Dark kept whole in bondmove.c), and the watch's detonator, ITEM_TRIGGER -
+ *   an item of its own, given with the remote mines (propobj.c), after them
+ *   in the cycle, drawn to when the last one is thrown (gun.c's
+ *   autoadvance_on_deplete_all_ammo()), shown as Bond's two hands at the
+ *   watch, and pulling its trigger sets them off (chrprop.c's
+ *   chraiCheckUseHeldItem()). That is WEAPON_GE_DETONATOR, on the Data
+ *   Uplink, whose one function becomes Perfect Dark's own detonate.
+ * - **Moving on when they run out.** GoldenEye goes to the next thing in
+ *   the cycle once the last mine is thrown, the remote mine to its detonator
+ *   (bgunAutoSwitchWeapon()); Perfect Dark's own mines stay in the hand empty.
+ * - **Never a pair.** GoldenEye pairs none of these (no CAN_DUAL_WIELD), and
+ *   none of their hosts has WEAPONFLAG_DUALWIELD; it is cleared here all the
+ *   same, so that a rule that pairs a second pickup of a gun, reading the
+ *   definition's own flag, never pairs them. (weaponHasFlag() answers yes for
+ *   any weapon while Akimbo is on; such a rule reads the definition, or asks
+ *   gegunsNeverPairs() as Akimbo does.)
+ *
+ * The same after a borrow (gegunsBorrow()), whose flags2 are the host's
+ * again - Perfect Dark's remote mine's, detonator hand and all.
+ */
+static void gegunsOwnThrown(s32 i)
+{
+	const s32 weaponnum = WEAPON_GE_FIRST + i;
+	struct weapon *def = &g_GeWeaponDefs[i];
+
+	switch (weaponnum) {
+	case WEAPON_GE_GRENADE:
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE:
+	case WEAPON_GE_REMOTEMINE:
+		// thrown whole, so the last one gone the hand moves on
+		// (bgunAutoSwitchWeapon()); gegunsOwnTrigger() took it off them
+		// with the hunting knife's
+		def->flags |= WEAPONFLAG_THROWABLE;
+		// fall through
+	case WEAPON_GE_DETONATOR:
+		def->flags &= ~WEAPONFLAG_DUALWIELD;
+		def->flags2 &= ~WEAPONFLAG2_DETONATORHAND;
+		break;
+	default:
+		return;
+	}
+
+	if (weaponnum == WEAPON_GE_REMOTEMINE) {
+		def->functions[1] = NULL;
+	}
+
+	if (weaponnum == WEAPON_GE_DETONATOR) {
+		// Perfect Dark's own detonate (HANDATTACKTYPE_DETONATE, which
+		// playerActivateRemoteMineDetonator() answers), as the one function:
+		// the host's Data Uplink would uplink whatever was in front of it
+		const struct weaponfunc *detonate = g_Weapons[WEAPON_REMOTEMINE]->functions[1];
+		struct weaponfunc *copy = detonate ? malloc(gegunsFuncSize(detonate->type)) : NULL;
+
+		if (copy) {
+			memcpy(copy, detonate, gegunsFuncSize(detonate->type));
+			def->functions[0] = copy;
+		}
+
+		def->functions[1] = NULL;
+		def->ammos[0] = NULL;
+		def->ammos[1] = NULL;
+		def->flags &= ~(WEAPONFLAG_FIRETOACTIVATE | WEAPONFLAG_THROWABLE);
+		def->flags |= WEAPONFLAG_ONEHANDED | WEAPONFLAG_UNDROPPABLE;
+	}
+}
+
+/**
+ * Whether one of GoldenEye's weapons is never held as a pair, however it is
+ * picked up and whatever Akimbo says: the grenade, the three mines and the
+ * watch's detonator (gegunsOwnThrown()). Their definitions have no
+ * WEAPONFLAG_DUALWIELD either; this is the answer for a rule that pairs guns
+ * without asking that flag (modCanAkimbo()).
+ */
+s32 gegunsNeverPairs(s32 weaponnum)
+{
+	switch (weaponnum) {
+	case WEAPON_GE_GRENADE:
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE:
+	case WEAPON_GE_REMOTEMINE:
+	case WEAPON_GE_DETONATOR:
+		return 1;
+	}
+
+	return 0;
+}
+
+/**
  * GoldenEye's guns as another installed mod made them (modborrow.c): GoldenEye
  * X's definition as the model gegunsBuild() draws on - its model, hands,
  * positions, fire and reload scripts with their animations and sounds already
@@ -957,6 +1063,7 @@ void gegunsBorrow(s32 index, const struct weapon *def, u16 pickupfile, u16 picku
 	// noise at all - a shot added nothing to its radius, so nobody on Dam
 	// could hear Bond fire.
 	gegunsBuild(index, def, g_Weapons[g_GeWeaponHosts[index]]);
+	gegunsOwnThrown(index);
 
 	// Text ids are the mod's language files', which say something else here
 	// (its KF7's function read "Burst Fire"): the port's own names stay
@@ -1389,12 +1496,30 @@ s32 gegunsEnemyRocketModel(void)
 /**
  * GoldenEye draws its gadgets in silence (gunfire.c's equip sound leaves out
  * the covert modem, the plastique, the GoldenEye key, the camera, the watch
- * magnet and the tank's shells); their hosts, the ECM mine and the Data
- * Uplink, play the mine's.
+ * magnet, the tank's shells and the watch's detonator); their hosts, the ECM
+ * mine and the Data Uplink, play the mine's.
  */
 s32 gegunsEquipSilent(s32 weaponnum)
 {
-	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum <= WEAPON_GE_TANKSHELLS;
+	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum <= WEAPON_GE_DETONATOR;
+}
+
+/**
+ * GoldenEye's mines take five seconds from the throw to arm - or, the timed
+ * one, to go off - and three in a game of more than one player (gun.c's
+ * THROWN_ITEM_TIMER_SOLO and THROWN_ITEM_TIMER_MULTI, NTSC's 300 and 180 on a
+ * clock of sixtieths). Perfect Dark's are four in either (activatetime60 240).
+ */
+s32 gegunsThrownFuse60(s32 weaponnum)
+{
+	switch (weaponnum) {
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE:
+	case WEAPON_GE_REMOTEMINE:
+		return PLAYERCOUNT() == 1 ? 300 : 180;
+	}
+
+	return 0;
 }
 
 static void gegunsSetPart(struct model *model, s32 part, s32 visible)
@@ -1732,6 +1857,7 @@ PD_CONSTRUCTOR static void gegunsInit(void)
 
 		gegunsBuild(i, host, host);
 		gegunsOwnTrigger(i);
+		gegunsOwnThrown(i);
 		gegunsBotPrefs(i);
 
 		gegunsNameThrow(i);

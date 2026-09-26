@@ -392,6 +392,15 @@ bool invGiveSingleWeapon(s32 weaponnum)
 			invInsertItem(item);
 		}
 
+#ifndef PLATFORM_N64
+		// GoldenEye gives the watch's detonator with the remote mines,
+		// however they come (propobj.c's add_ammo_to_inventory() and
+		// propPickupByPlayer(): ITEM_REMOTEMINE and ITEM_TRIGGER together)
+		if (weaponnum == WEAPON_GE_REMOTEMINE) {
+			invGiveSingleWeapon(WEAPON_GE_DETONATOR);
+		}
+#endif
+
 		return true;
 	}
 

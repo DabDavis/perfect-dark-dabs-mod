@@ -18687,7 +18687,13 @@ void playerActivateRemoteMineDetonator(s32 playernum)
 {
 	g_PlayersDetonatingMines |= 1 << playernum;
 
+#ifndef PLATFORM_N64
+	// on a converted GoldenEye level, the watch's own beep
+	// (trigger_remote_mine_detonation()'s WATCH_DETONATE_MINE_SFX)
+	sndStart(var80095200, geSfxOurs(243, SFX_DETONATE), 0, -1, -1, -1, -1, -1);
+#else
 	sndStart(var80095200, SFX_DETONATE, 0, -1, -1, -1, -1, -1);
+#endif
 
 	bgunStartDetonateAnimation(playernum);
 }

@@ -83,6 +83,7 @@ static struct gegadgetidentity g_Identities[] = {
 	{ -1, WEAPON_GE_GADGETA,       0, "Gadget\n" },
 	{ -1, WEAPON_GE_GADGETB,       0, "Gadget\n" },
 	{ -1, WEAPON_GE_TANKSHELLS,   33, "Tank\n" },
+	{ -1, WEAPON_GE_DETONATOR,    30, "Detonator\n" },
 };
 
 // Bunker, where the key analyser copies the GoldenEye key
@@ -117,6 +118,9 @@ static const struct gegadgethand g_Hands[] = {
 	{ WEAPON_GE_GOLDENEYEKEY, { 11.0f, -10.5f, -30.0f }, 14.0f },
 	{ WEAPON_GE_CAMERA,       { 11.0f, -10.0f, -30.0f }, 14.0f },
 	{ WEAPON_GE_WATCHMAGNET,  { 10.0f, -13.0f, -30.0f }, 13.0f },
+	// not yet seen: the conversion has no GtriggerZ, whose node type 0xf
+	// geconvert.c does not read, so nothing is drawn
+	{ WEAPON_GE_DETONATOR,    { 4.0f, -12.0f, -30.0f }, 20.0f },
 };
 
 #define GADGET_RWDATA_MAX 1024
@@ -359,8 +363,15 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	f32 fit = 1.0f;
 	s32 item;
 
-	if (!gegadgetsIsGadget(weaponnum) || g_Gadgets.moddir < 0) {
+	if (!gegadgetsIsGadget(weaponnum)) {
 		return 0;
+	}
+
+	// The watch's detonator is GoldenEye's own model or nothing: its host is
+	// the Data Uplink, which is no detonator, and GoldenEye's remote mines go
+	// wherever the Combat Simulator offers its guns
+	if (g_Gadgets.moddir < 0) {
+		return weaponnum == WEAPON_GE_DETONATOR;
 	}
 
 	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_Hands); i++) {
@@ -377,7 +388,7 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 	item = gegadgetsItem(weaponnum);
 
 	if (!hostmodel->matrices || !gegadgetsLoadModel(item)) {
-		return 0;
+		return weaponnum == WEAPON_GE_DETONATOR;
 	}
 
 	// the host's root for its turn and its size, posed about the eye first so

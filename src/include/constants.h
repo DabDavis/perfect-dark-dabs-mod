@@ -170,8 +170,10 @@
 // Whether next/previous weapon stops at an inventory item: the guns below
 // NUM_CYCLEABLE_WEAPONS, and GoldenEye's guns past the stock table - not its
 // gadgets or the tank's shells after them, which, like Perfect Dark's own
-// gadgets, are chosen from the menus
-#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < WEAPON_GE_FIRST + NUM_GE_GUNS))
+// gadgets, are chosen from the menus. The detonator is in GoldenEye's cycle
+// (bondinvCycleForward() takes every item below ITEM_BOMBCASE), after the
+// remote mine.
+#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < WEAPON_GE_FIRST + NUM_GE_GUNS) || (weaponnum) == WEAPON_GE_DETONATOR)
 #else
 #define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS)
 #endif
@@ -4844,6 +4846,10 @@ enum weaponnum {
 	// trigger is the cannon (getank.c); any other weapon he switches to in
 	// there fires as it always does.
 	/*0x7e*/ WEAPON_GE_TANKSHELLS,       // Data Uplink
+	// GoldenEye's ITEM_TRIGGER, the watch's detonator: given with the remote
+	// mines, drawn to after the last is thrown, and its trigger sets off every
+	// one of them. The last number an s8 has.
+	/*0x7f*/ WEAPON_GE_DETONATOR,        // Data Uplink
 #endif
 	NUM_WEAPONS
 };

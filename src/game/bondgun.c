@@ -5043,6 +5043,12 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 			// Note this timer is converted to 240 time immediately below
 			weaponobj->timer240 = func->activatetime60;
 
+#ifndef PLATFORM_N64
+			if (gegunsThrownFuse60(weaponobj->weaponnum) > 0) {
+				weaponobj->timer240 = gegunsThrownFuse60(weaponobj->weaponnum);
+			}
+#endif
+
 			if (weaponobj->timer240 >= 2) {
 				weaponobj->timer240 = TICKS(weaponobj->timer240 * 4);
 			}
@@ -6726,6 +6732,44 @@ void bgunAutoSwitchWeapon(void)
 	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
 		return;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye's mines, the last of them thrown and the trigger let go
+	// (gun.c's autoadvance_on_deplete_all_ammo()): the remote mine's hand
+	// comes up with the watch's detonator, and the others go on to the next
+	// thing in the cycle with ammunition in it - back through it where
+	// forwards has nothing. Ammunition in it is bondwalkItemHasAmmo(), which
+	// bgun0f0a1a10() is to the letter (WEAPONFLAG_00000400 is GoldenEye's
+	// WEAPONSTATBITFLAG_HAS_AMMO), and no mine has it: it is a gun. Perfect
+	// Dark's own lists below have none of GoldenEye's guns.
+	switch (curweaponnum) {
+	case WEAPON_GE_REMOTEMINE:
+		if (invHasSingleWeaponIncAllGuns(WEAPON_GE_DETONATOR)) {
+			bgunEquipHands(WEAPON_GE_DETONATOR, WEAPON_NONE);
+			return;
+		}
+		// fall through
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE: {
+		s32 right = curweaponnum;
+		s32 left = WEAPON_NONE;
+
+		invChooseCycleForwardWeapon(&right, &left, true);
+
+		if (right <= WEAPON_NONE || right == curweaponnum) {
+			right = curweaponnum;
+			left = WEAPON_NONE;
+			invChooseCycleBackWeapon(&right, &left, true);
+		}
+
+		if (right > WEAPON_NONE && right != curweaponnum) {
+			bgunEquipHands(right, left);
+			return;
+		}
+		break;
+	}
+	}
+#endif
 
 	// Loop through g_AutoSwitchWeaponsPrimary, checking which weapons the
 	// player has which are usable. Stop when both a usable weapon is found
