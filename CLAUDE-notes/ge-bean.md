@@ -233,6 +233,19 @@ byte/pixel-identical to before. Probes: `~/wt/gerom-mpchars-run/`
 (`cisweep.py` wears every body in the Institute, `match.py` a Combat Sim
 with chosen sim bodies, `cimenu.py` the Customize Character page).
 
+**Extras and GE Plus's pages (2026-09-26, the user's call).** `extraRows` adds
+what the release lacks - bluewoman, greyman, blueman, Natalya's jungle fatigues
+(spicebond) and the balaclava, biker, Graham and Joe 2 heads - from the ROM on
+the lists' tail after the pool, with or without the release (rows
+`GEBEAN_EXTRA_BASE`.., the last at 256; a row a mission's head holds is left
+alone). GE Plus's folder Characters page and `gexPlusThemeSimulants()` take
+`gebeanIsGoldenEyeBody()`: the release's pool or the ROM's rows, **never
+GoldenEye X's** (the user: GE Plus is the ROM and the release only), Perfect
+Dark's bodies with neither. Probe `front.py` in the same rig opens the folder
+from the title (`mainEndStage()`, then `gexFrontOpen()` and
+`frontSelectRow(ROW_CHARACTERS)`); a screenshot is taken on the next render,
+so set nothing before stepping a frame.
+
 ## Walking the Carrington Institute as one (2026-09-15)
 
 The Perfect Menu's **Customize Character** (between Carrington Institute and
