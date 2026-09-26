@@ -605,9 +605,14 @@ Gfx *vi0000ad5c(Gfx *gdl, Vp *vp)
 
 	var80092870 = gfxAllocateMatrix();
 	guPerspectiveF(var80092830.m, &g_ViPerspScale, g_ViBackData->fovy, g_ViBackData->aspect, g_ViBackData->znear, g_ViBackData->zfar, 1);
+#ifdef PLATFORM_N64
 	guMtxF2L(var80092830.m, var80092870);
+#else
+	// kept as floats, as the rooms' is (CAM_PROJ_MTX_FLAGS in camera.h)
+	*(Mtxf *) var80092870 = var80092830;
+#endif
 
-	gSPMatrix(gdl++, OS_K0_TO_PHYSICAL(var80092870), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPMatrix(gdl++, OS_K0_TO_PHYSICAL(var80092870), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 	gSPPerspNormalize(gdl++, g_ViPerspScale);
 
 	camSetPerspectiveMtxL(var80092870);
@@ -634,9 +639,14 @@ Gfx *vi0000af00(Gfx *gdl, Vp *vp)
 
 	var80092870 = gfxAllocateMatrix();
 	guPerspectiveF(var80092830.m, &g_ViPerspScale, g_ViBackData->fovy, g_ViBackData->aspect, g_ViBackData->znear, g_ViBackData->zfar, 1);
+#ifdef PLATFORM_N64
 	guMtxF2L(var80092830.m, var80092870);
+#else
+	// kept as floats, as the rooms' is (CAM_PROJ_MTX_FLAGS in camera.h)
+	*(Mtxf *) var80092870 = var80092830;
+#endif
 
-	gSPMatrix(gdl++, OS_K0_TO_PHYSICAL(var80092870), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	gSPMatrix(gdl++, OS_K0_TO_PHYSICAL(var80092870), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 	gSPPerspNormalize(gdl++, g_ViPerspScale);
 
 	camSetPerspectiveMtxL(var80092870);

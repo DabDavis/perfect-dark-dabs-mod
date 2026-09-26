@@ -1352,7 +1352,7 @@ Gfx *explosionRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		}
 
 		gSPClearGeometryMode(gdl++, G_CULL_BOTH | G_FOG);
-		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 
 		gdl = roomApplyMtx(gdl, roomnum);
 
@@ -1440,7 +1440,7 @@ Gfx *explosionRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			}
 		}
 
-		gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 
 #if PAL
 		tmp = (g_ExplosionTypes[exp->type].flarespeed * 15.0f) * 0.83333331346512f;

@@ -13974,7 +13974,7 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 		}
 
 		if (orthogonal) {
-			gSPMatrix(gdl++, camGetOrthogonalMtxL(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+			gSPMatrix(gdl++, camGetOrthogonalMtxL(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 		}
 
 		renderdata->gdl = gdl;
@@ -14001,7 +14001,7 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 		}
 
 		if (orthogonal) {
-			gSPMatrix(gdl++, camGetPerspectiveMtxL(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+			gSPMatrix(gdl++, camGetPerspectiveMtxL(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 		}
 
 		renderdata->gdl = gdl;

@@ -227,7 +227,7 @@ Gfx *shardsRenderWood(Gfx *gdl)
 		gDPSetTextureFilter(gdl++, G_TF_BILERP);
 		gDPSetCycleType(gdl++, G_CYC_2CYCLE);
 		gDPSetTextureLOD(gdl++, G_TL_LOD);
-		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 
 		for (i = 0; i < g_MaxShards; i++) {
 			if (g_Shards[i].age60 > 0 && g_Shards[i].type == SHARDTYPE_WOOD) {
@@ -318,7 +318,7 @@ Gfx *shardsRenderWood(Gfx *gdl)
 		}
 
 		gSPClearGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN);
-		gSPMatrix(gdl++, camGetPerspectiveMtxL(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gSPMatrix(gdl++, camGetPerspectiveMtxL(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 		gSPMatrix(gdl++, camGetMtxL173c(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 	}
 
@@ -354,7 +354,7 @@ Gfx *shardsRenderGlass(Gfx *gdl)
 #endif
 		}
 
-		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 
 		for (i = 0; i < g_MaxShards; i++) {
 			if (g_Shards[i].age60 > 0 && g_Shards[i].type != SHARDTYPE_WOOD) {
@@ -448,7 +448,7 @@ Gfx *shardsRenderGlass(Gfx *gdl)
 #ifndef PLATFORM_N64
 		gdl = roomSheenStockEnd(gdl);
 #endif
-		gSPMatrix(gdl++, camGetPerspectiveMtxL(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gSPMatrix(gdl++, camGetPerspectiveMtxL(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 		gSPMatrix(gdl++, camGetMtxL173c(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 	}
 

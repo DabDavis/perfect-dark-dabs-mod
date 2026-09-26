@@ -2400,7 +2400,7 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 		if (modeltype < MENUMODELTYPE_3) {
 			if (modeltype != MENUMODELTYPE_DEFAULT) {
 				gdl = func0f0d49c8(gdl);
-				gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+				gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 			} else {
 #ifdef PLATFORM_N64
 				s32 x1 = g_MenuScissorX1;
@@ -5804,7 +5804,7 @@ Gfx *menuRender(Gfx *gdl)
 
 		g_MpPlayerNum = 0;
 
-		gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);
 		gSPDisplayList(gdl++, var800613a0);
 
 		text0f153b40();
