@@ -63,6 +63,16 @@
 // had a reason to build. It is written by the release job and read by this.
 #define UPDATE_MANIFEST "update.txt"
 
+// The patch notes, which the release job uploads beside the manifest. Unlike the
+// manifest they are a courtesy: a release without them - every release cut
+// before they existed - is a release with nothing to say, not a failed check.
+// See patchnotes.c for the format and what the menu does with them.
+#define UPDATE_NOTES "patchnotes.txt"
+
+// Far more than the notes will ever be; it is here so that a redirect to
+// something that is not the notes cannot fill memory before it is noticed.
+#define UPDATE_NOTESMAXBYTES (512 * 1024)
+
 // A whole copy of the game, so minutes rather than the twenty seconds a
 // leaderboard gets. The manifest itself keeps the ordinary budget.
 #define UPDATE_DOWNLOADTIMEOUT 600
@@ -139,6 +149,12 @@ static char g_Commit[UPDATE_MAXCOMMIT + 1] = { 0 };
 static char g_Asset[64] = { 0 };
 static char g_Sha[65] = { 0 };
 static u32 g_Size = 0;
+
+// The release's patch notes as fetched, or NULL when the last check found none.
+// The generation counts every change to them, so the menu can tell that the
+// text it formatted is stale without comparing the text itself.
+static char *g_Notes = NULL;
+static u32 g_NotesGeneration = 0;
 
 static void updateSetResult(s32 state, const char *msg)
 {
@@ -341,6 +357,96 @@ static bool updateFetchManifest(char *err, u32 errsize)
 	free(buf.data);
 
 	return ok;
+}
+
+static void updateSetNotes(char *notes)
+{
+	SDL_LockMutex(g_Lock);
+	free(g_Notes);
+	g_Notes = notes;
+	g_NotesGeneration++;
+	SDL_UnlockMutex(g_Lock);
+}
+
+/**
+ * Fetch the release's patch notes, after its manifest and on the same budget.
+ *
+ * Every failure here is quiet on purpose. The check has already answered the
+ * question the player asked - is there a newer build - and a release that
+ * predates the notes, or a notes file that did not come through, changes
+ * nothing about that answer. The log says what happened, for whoever wonders
+ * why the page has nothing new on it.
+ */
+static void updateFetchNotes(void)
+{
+	struct ghostnetbuf buf = { NULL, 0, NULL, 0 };
+	struct ghostnetreq req;
+	char url[512];
+	char err[160] = { 0 };
+	s32 status = 0;
+
+	snprintf(url, sizeof(url), "%s/%s", updateBaseUrl(), UPDATE_NOTES);
+
+	memset(&req, 0, sizeof(req));
+	req.url = url;
+	req.redirect = true;
+	req.cancel = &g_Cancel;
+	buf.maxlen = UPDATE_NOTESMAXBYTES;
+
+	if (!ghostnetSend(&req, &buf, &status, err, sizeof(err))) {
+		// err normally says why already
+		if (err[0] == '\0') {
+			snprintf(err, sizeof(err), "the request failed");
+		}
+	} else if (status == 404) {
+		snprintf(err, sizeof(err), "the release has none");
+	} else if (status != 200) {
+		snprintf(err, sizeof(err), "the server answered %d", status);
+	} else if (buf.len == 0) {
+		snprintf(err, sizeof(err), "the file was empty");
+	}
+
+	if (err[0]) {
+		sysLogPrintf(LOG_NOTE, "update: no patch notes (%s)", err);
+		free(buf.data);
+		updateSetNotes(NULL);
+		return;
+	}
+
+	// The transport terminates what it hands back, the way the manifest
+	// parser relies on; the notes are parsed the same way.
+	sysLogPrintf(LOG_NOTE, "update: patch notes, %u bytes", (u32)buf.len);
+	updateSetNotes(buf.data);
+}
+
+/**
+ * The fetched patch notes, as a copy the caller frees, or NULL when there are
+ * none. A copy because the worker may replace them while the menu reads them.
+ */
+char *updateCopyNotes(void)
+{
+	char *copy = NULL;
+
+	SDL_LockMutex(g_Lock);
+
+	if (g_Notes) {
+		copy = strdup(g_Notes);
+	}
+
+	SDL_UnlockMutex(g_Lock);
+
+	return copy;
+}
+
+u32 updateGetNotesGeneration(void)
+{
+	u32 generation;
+
+	SDL_LockMutex(g_Lock);
+	generation = g_NotesGeneration;
+	SDL_UnlockMutex(g_Lock);
+
+	return generation;
 }
 
 /**
@@ -575,7 +681,16 @@ static int updateWorker(void *arg)
 	SDL_UnlockMutex(g_Lock);
 
 	if (job == UPDATE_JOB_CHECK) {
-		if (!updateFetchManifest(msg, sizeof(msg))) {
+		bool fetched = updateFetchManifest(msg, sizeof(msg));
+
+		// Only once there is a release to describe. The notes are fetched
+		// before the result is published, so the page never shows "is out"
+		// with an empty notes row that fills in a moment later.
+		if (fetched) {
+			updateFetchNotes();
+		}
+
+		if (!fetched) {
 			updateSetResult(UPDATE_ERROR, msg);
 		} else if (updateIsNewer()) {
 			SDL_LockMutex(g_Lock);
@@ -949,4 +1064,7 @@ void updateShutdown(void)
 		SDL_DestroyMutex(g_Lock);
 		g_Lock = NULL;
 	}
+
+	free(g_Notes);
+	g_Notes = NULL;
 }

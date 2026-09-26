@@ -12,6 +12,7 @@
 #include "ghostnet.h"
 #include "crashreport.h"
 #include "update.h"
+#include "patchnotes.h"
 #include "community.h"
 #include "game/modspectate.h"
 #include "game/stagetable.h"
@@ -196,6 +197,9 @@ int main(int argc, const char **argv)
 	sysInit();
 	fsInit();
 	configInit();
+	// Straight after the config and before anything can write it: whether
+	// pd.ini was there when the game started is half of what decides it.
+	patchnotesInit();
 
 	// A pd.ini keeps the MemorySize it was written with, and 16 was the default
 	// here before v1.0 and still is upstream. That heap cannot hold the XBLA

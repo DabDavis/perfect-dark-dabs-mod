@@ -48,6 +48,12 @@ const char *updateGetMessage(void);
 const char *updateGetVersion(void);
 void updateGetProgress(u32 *done, u32 *total);
 
+// The patch notes the last check fetched from the release, beside its manifest.
+// NULL when it found none, which is an ordinary answer rather than an error;
+// the caller frees the copy. The generation changes whenever they do.
+char *updateCopyNotes(void);
+u32 updateGetNotesGeneration(void);
+
 void updateForceRedownload(void);
 bool updateIsForced(void);
 

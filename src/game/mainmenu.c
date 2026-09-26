@@ -44,6 +44,9 @@
 #include "game/mplayer/setup.h"
 #endif
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "patchnotes.h"
+#endif
 
 u8 g_InventoryWeapon;
 
@@ -5117,6 +5120,10 @@ MenuDialogHandlerResult menudialogMainMenu(s32 operation, struct menudialogdef *
 				g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef) {
 			g_MissionConfig.iscoop = false;
 			g_MissionConfig.isanti = false;
+#ifndef PLATFORM_N64
+			// What the update the player just started brought, once.
+			patchnotesMainMenuTick();
+#endif
 		}
 		break;
 	}
