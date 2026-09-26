@@ -55,6 +55,9 @@
 // lettering, floor arrows and hazard stripes flat on the floor
 #define DECAL_DIST 1.0f
 #define DECAL_COS  0.999f
+// How far the back of a face that fights another back to back is pushed from
+// the eye (G_SETDEPTHBIAS_EXT, the depth buffer's smallest steps)
+#define FIGHT_DEPTH_BIAS 8
 
 #define MAXPALETTE 64
 #define BATCHVERTS 16
@@ -85,6 +88,7 @@ struct stri {
 	u8 decal;
 	u8 nofog;   // on a triangle GoldenEye draws without fog (fileRoomTrianglesEach())
 	u8 backed;  // one face of a two-faced sheet, drawn culled (markBacked())
+	u8 fights;  // a face with another face back to back over part of it (markFights())
 };
 
 // The level being served, built when its first room is asked for
@@ -1201,6 +1205,16 @@ static s32 texHasAlpha(s32 tex)
 	return tex >= 0 && texAlpha[tex];
 }
 
+/**
+ * Whether the opaque leaf draws the triangle's front alone at first: one face
+ * of a two-faced sheet (markBacked()) or one that fights another over part of
+ * its face (markFights(), whose back is drawn after, pushed away).
+ */
+static s32 triCulled(const struct stri *t)
+{
+	return t->backed || t->fights;
+}
+
 // Below this a vertex alpha is a fade and not a rounding, as xblamesh.c's
 // XBLAMESH_FADE_ALPHA reads a mesh's
 #define FADE_ALPHA 0xf0
@@ -1234,10 +1248,10 @@ static int compareTex(const void *a, const void *b)
 
 	// The faces of two-faced sheets after the rest of their kind, which
 	// is where writeLeaf() turns culling on for them
-	if (ta->backed != tb->backed) {
+	if (triCulled(ta) != triCulled(tb)) {
 		// solid pictures: the sheets last; cut-outs: the sheets first,
 		// before the cut-outs that turn culling off
-		return texHasAlpha(ta->tex) ? tb->backed - ta->backed : ta->backed - tb->backed;
+		return texHasAlpha(ta->tex) ? triCulled(tb) - triCulled(ta) : triCulled(ta) - triCulled(tb);
 	}
 
 	// Decals after what they lie on
@@ -1270,9 +1284,14 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	// (bgRenderRoomOpaque()), then 1 once a two-faced sheet has turned it on
 	// or 0 once the cut-outs, sorted last, have turned it off
 	s32 curcull = -1;
+	s32 numfights = 0;
 
 	if (num == 0) {
 		return 0;
+	}
+
+	for (s32 i = 0; i < num && !xlu; i++) {
+		numfights += tris[list[i]].fights;
 	}
 
 	sortTris = tris;
@@ -1301,6 +1320,25 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	emit(&l->gdl, 0xfb000000, 0x000000ff);
 	emit(&l->gdl, (G_COL << 24) | (((numpal - 1) << 2) << 16) | (numpal * COLSIZE), 0x0d000000);
 
+	// Side 0 is every triangle, side 1 the backs of those that fight
+	// another face back to back (markFights()): culled to their backs and
+	// pushed away from the eye, so a face turned to the camera is always
+	// drawn over the back of the one it shares its plane with, and a back
+	// with no face over it is still drawn
+	for (s32 side = 0; side < (numfights ? 2 : 1); side++) {
+	if (side == 1) {
+		batchFlush(l, &b);
+		memset(&b, 0, sizeof(b));
+		curtex = -2;
+		curdecal = -1;
+		curalpha = -1;
+		curbacked = -1;
+		curcull = 0;
+		emit(&l->gdl, 0xb6000000, G_CULL_BACK);
+		emit(&l->gdl, 0xb7000000, G_CULL_FRONT);
+		emit(&l->gdl, G_SETDEPTHBIAS_EXT << 24, FIGHT_DEPTH_BIAS);
+	}
+
 	for (s32 i = 0; i < num; i++) {
 		const struct stri *t = &tris[list[i]];
 		struct rvtx rv[3];
@@ -1308,10 +1346,14 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		s32 ok = 1;
 		s32 need = 0;
 
+		if (side == 1 && !t->fights) {
+			continue;
+		}
+
 		// Compared whole in batchFind(), padding and all
 		memset(rv, 0, sizeof(rv));
 
-		if (t->tex != curtex || t->decal != curdecal || t->nofog != curnofog || t->backed != curbacked) {
+		if (t->tex != curtex || t->decal != curdecal || t->nofog != curnofog || triCulled(t) != curbacked) {
 			const s32 alpha = xlu || texHasAlpha(t->tex);
 
 			batchFlush(l, &b);
@@ -1357,15 +1399,17 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 			// faces lie in one plane back to back and both sides would be
 			// drawn, which is Surface's platform decks fighting their own
 			// undersides (markBacked())
-			if (!xlu && t->backed && curcull != 1) {
+			if (side == 1) {
+				// culled to the back already, for the whole side
+			} else if (!xlu && triCulled(t) && curcull != 1) {
 				curcull = 1;
 				emit(&l->gdl, 0xb7000000, 0x00002000);
-			} else if (!xlu && !t->backed && texHasAlpha(t->tex) && curcull != 0) {
+			} else if (!xlu && !triCulled(t) && texHasAlpha(t->tex) && curcull != 0) {
 				curcull = 0;
 				emit(&l->gdl, 0xb6000000, 0x00002000);
 			}
 
-			curbacked = t->backed;
+			curbacked = triCulled(t);
 
 			emit(&l->gdl, alpha ? 0xbb002801 : 0xbb003001, 0xffffffff);
 			// Bits 20-21 are t's mode (xblaStageWriteTexture()), 1 the clamp
@@ -1465,8 +1509,14 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		b.tris[b.numtris][2] = idx[2];
 		b.numtris++;
 	}
+	}
 
 	batchFlush(l, &b);
+
+	if (numfights) {
+		emit(&l->gdl, 0xb6000000, G_CULL_FRONT);
+		emit(&l->gdl, G_SETDEPTHBIAS_EXT << 24, 0);
+	}
 
 	// Culling back off for what follows in the room, as it was before the
 	// sheets unless a camera outside the level had it on (the next room
@@ -1667,6 +1717,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->decal = 0;
 	t->nofog = 0;
 	t->backed = 0;
+	t->fights = 0;
 }
 
 static f32 triNormal(const struct stri *t, f32 *n)
@@ -1761,6 +1812,77 @@ static s32 markBacked(struct stri *tris, s32 num, const struct tgrid *g)
 }
 
 /**
+ * Marks the faces that fight another back to back over part of their face.
+ * markBacked() takes a sheet whose face is wholly covered by faces the other
+ * way; where they meet over part of it only, each is left two-sided so the
+ * part with no face under it shows from both sides - and over the part they
+ * share, the back of each fought the face of the other. Cradle's stairwell
+ * landings are a tread grating over a deck whose underside is one big plate
+ * facing down (F3 20260926-082748: "z fighting when turning camera here").
+ * writeLeaf() draws such a triangle's face culled and then its back, pushed
+ * away from the eye, so the face turned to the camera wins wherever two
+ * share the plane. Asked at its middle and its corners pulled a tenth of the
+ * way in; the translucent layer is left alone, as markBacked() leaves it.
+ */
+static s32 markFights(struct stri *tris, s32 num, const struct tgrid *g)
+{
+	s32 count = 0;
+
+	for (s32 i = 0; i < num; i++) {
+		struct stri *t = &tris[i];
+		f32 ni[3], mid[3], pts[4][3];
+		s32 fights = 0;
+
+		if (t->backed || texIsXlu(t->tex) || triNormal(t, ni) <= 0) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			for (s32 j = 0; j < 3; j++) {
+				pts[k][j] = t->pos[k][j] + (mid[j] - t->pos[k][j]) * 0.1f;
+			}
+		}
+
+		memcpy(pts[3], mid, sizeof(mid));
+
+		for (s32 k = 0; k < 4 && !fights; k++) {
+			const f32 *q = pts[k];
+
+			for (s32 e = g->head[gridKey((s32)floorf(q[0] / g->cell), (s32)floorf(q[1] / g->cell), (s32)floorf(q[2] / g->cell))];
+					e >= 0 && !fights; e = g->entnext[e]) {
+				const s32 o = g->room[g->enttri[e]];
+				const struct stri *u = &tris[o];
+				f32 nu[3];
+				s32 flat = 1;
+
+				if (o == i || texIsXlu(u->tex) || triNormal(u, nu) <= 0 || dot3(ni, nu) > -DECAL_COS) {
+					continue;
+				}
+
+				for (s32 c = 0; c < 3 && flat; c++) {
+					f32 rel[3] = { t->pos[c][0] - u->pos[0][0], t->pos[c][1] - u->pos[0][1], t->pos[c][2] - u->pos[0][2] };
+
+					flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
+				}
+
+				fights = flat && pointTriDist(q, u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST;
+			}
+		}
+
+		if (fights) {
+			t->fights = 1;
+			count++;
+		}
+	}
+
+	return count;
+}
+
+/**
  * Marks the triangles that lie flat on another picture's triangle. Bean's
  * decals share the plane of the surface under them exactly, and drawn with
  * the ordinary depth test the two fought (a tester's F3 on Aztec, every HD
@@ -1794,7 +1916,7 @@ static s32 decalOnOther(const struct stri *tris, const struct tgrid *g, s32 i, c
 
 		cosang = dot3(ni, nu);
 
-		if ((cosang < DECAL_COS && cosang > -DECAL_COS) || (cosang < 0 && t->backed && u->backed)) {
+		if ((cosang < DECAL_COS && cosang > -DECAL_COS) || (cosang < 0 && triCulled(t) && triCulled(u))) {
 			continue;
 		}
 
@@ -1900,9 +2022,10 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 				continue;
 			}
 
-			// Back to back and drawn culled (markBacked()): each side shows
-			// its own face, and a decal would show from behind as well
-			if (cosang < 0 && t->backed && u->backed) {
+			// Back to back and drawn culled (markBacked(), markFights()):
+			// each side shows its own face, and a decal would show from
+			// behind as well
+			if (cosang < 0 && triCulled(t) && triCulled(u)) {
 				continue;
 			}
 
@@ -2466,6 +2589,7 @@ static s32 fillDoorReveals(struct collect *c, const struct doorbox *boxes, s32 n
 					strip[0] = strip[1] = from;
 					strip[0].decal = strip[1].decal = 0;
 					strip[0].backed = strip[1].backed = 0;
+					strip[0].fights = strip[1].fights = 0;
 
 					// end 0, end 1, back of 1; end 0, back of 1, back of 0
 					memcpy(strip[0].pos[0], end[0], sizeof(f32) * 3);
@@ -2808,7 +2932,7 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, nofogs = 0;
+	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0;
 	u32 bytes = 0;
 
 	row = levelRow();
@@ -2916,6 +3040,7 @@ static s32 build(void)
 		}
 
 		backed = markBacked(c.tris, c.num, &beantris);
+		fights = markFights(c.tris, c.num, &beantris);
 		decals = markDecals(c.tris, c.num, &beantris);
 
 		mark[2] = sysGetMicroseconds();
@@ -3096,8 +3221,8 @@ static s32 build(void)
 		sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles of backdrop, %d cut-outs clamped in t", row->bean, numBackdrop, clamped);
 	}
 
-	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept, %d of them not drawn), %d triangles (%d decals, %d two-faced, %d unfogged), %u bytes, %d triangles off a room's range (%d dealt to another in reach, %d to the backdrop), %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
-			row->bean, row->key, row->scale, numServed, n - 1, kept, numHidden, c.num, decals, backed, nofogs, bytes, dropped, moved, farOff,
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept, %d of them not drawn), %d triangles (%d decals, %d two-faced, %d back to back in part, %d unfogged), %u bytes, %d triangles off a room's range (%d dealt to another in reach, %d to the backdrop), %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
+			row->bean, row->key, row->scale, numServed, n - 1, kept, numHidden, c.num, decals, backed, fights, nofogs, bytes, dropped, moved, farOff,
 			(sysGetMicroseconds() - start) / 1000.0,
 			(mark[0] - start) / 1000.0, (mark[1] - mark[0]) / 1000.0, mark[2] ? (mark[2] - mark[1]) / 1000.0 : 0.0,
 			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0,

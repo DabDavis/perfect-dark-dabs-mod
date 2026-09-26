@@ -705,6 +705,63 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32
 	return true;
 }
 
+/** Whether the tile's area in plan is next to nothing: a tile on edge, a wall or a riser. */
+static bool stanTileUpright(s32 i)
+{
+	const struct stantile *t = &g_Stan.tiles[i];
+	const struct stanpoint *p = &g_Stan.points[t->first];
+	f32 area = 0.0f;
+
+	for (s32 a = 0, b = t->npts - 1; a < t->npts; b = a++) {
+		area += (f32)p[b].x * p[a].z - (f32)p[a].x * p[b].z;
+	}
+
+	return area > -1.0f && area < 1.0f;
+}
+
+/**
+ * Whether a floor's edge, from e0 to the point after it, is one a body climbs
+ * across rather than walks over. Only a link is crossed at all (GoldenEye's
+ * line walk stops at an unlinked edge), and a link into a floor lying flush
+ * with it - the next triangle of the same deck or ramp, the matching edge at
+ * the same heights - is level ground: the step it makes is the floor's own
+ * slope, which Perfect Dark's feet follow. A link into a tile on edge is the
+ * climb itself (Facility's conveyor rim), and so is one whose far side is at
+ * another height.
+ */
+static bool stanEdgeClimbs(const struct stanpoint *e0, const struct stanpoint *e1)
+{
+	const s32 n = e0->across;
+	const struct stantile *t;
+	const struct stanpoint *p;
+
+	if (n < 0) {
+		return false;
+	}
+
+	if (stanTileUpright(n)) {
+		return true;
+	}
+
+	t = &g_Stan.tiles[n];
+	p = &g_Stan.points[t->first];
+
+	for (s32 a = 0; a < t->npts; a++) {
+		const struct stanpoint *q0 = &p[a], *q1 = &p[(a + 1) % t->npts];
+
+		if (q0->x == e1->x && q0->z == e1->z && q1->x == e0->x && q1->z == e0->z) {
+			return q0->y - e1->y > 2 || e1->y - q0->y > 2 || q1->y - e0->y > 2 || e0->y - q1->y > 2;
+		}
+
+		if (q0->x == e0->x && q0->z == e0->z && q1->x == e1->x && q1->z == e1->z) {
+			return q0->y - e0->y > 2 || e0->y - q0->y > 2 || q1->y - e1->y > 2 || e1->y - q1->y > 2;
+		}
+	}
+
+	// joined along part of an edge only: whatever it is, it is no seam
+	return true;
+}
+
 /**
  * The floor GoldenEye would lift the player onto as he walks from `pos` to
  * `to`: the highest tile with an area in plan that his circle at `to` touches
@@ -749,7 +806,6 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 				const s32 i = g_Stan.celltiles[k];
 				const struct stantile *t = &g_Stan.tiles[i];
 				const struct stanpoint *p = &g_Stan.points[t->first];
-				f32 area = 0.0f;
 				f32 y = GESTAN_NOCLIMBFLOOR;
 
 				if (g_Stan.reached[i] != g_Stan.gen) {
@@ -757,11 +813,7 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 				}
 
 				// a tile on edge is the climb, not a floor
-				for (s32 a = 0, b = t->npts - 1; a < t->npts; b = a++) {
-					area += (f32)p[b].x * p[a].z - (f32)p[a].x * p[b].z;
-				}
-
-				if (area > -1.0f && area < 1.0f) {
+				if (stanTileUpright(i)) {
 					continue;
 				}
 
@@ -782,11 +834,24 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 
 						nearfrom = dfrom < nearfrom ? dfrom : nearfrom;
 
-						if (dto <= radius * radius) {
+						if (dto <= radius * radius && stanEdgeClimbs(e0, e1)) {
+							// the floor's height where the circle meets
+							// the edge, not the edge's higher end: Cradle's
+							// walkways are ramps split into triangles, and
+							// touching the next triangle's diagonal gave
+							// the top of the ramp, 70 over the player -
+							// lifted there, he fell back (F3 report
+							// 20260926-082928)
+							const f32 ex = (f32)(e1->x - e0->x), ez = (f32)(e1->z - e0->z);
+							const f32 len = ex * ex + ez * ez;
+							f32 f = len > 0.0f ? ((to->x - e0->x) * ex + (to->z - e0->z) * ez) / len : 0.0f;
+							f32 y;
+
+							f = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+							y = e0->y + (e1->y - e0->y) * f;
 							nearto = dto < nearto ? dto : nearto;
 
-							if (e0->y > ey) ey = e0->y;
-							if (e1->y > ey) ey = e1->y;
+							if (y > ey) ey = y;
 						}
 					}
 
