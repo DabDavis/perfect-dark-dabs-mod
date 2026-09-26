@@ -1,3 +1,69 @@
+# F3 HD character heads (2026-09-26), branch fix/f3-hd-doak-head
+
+Reports (tester savantique, 718d5dc, HD look, GE Plus solo missions), in /home/sdg/wt/f3-0926/:
+- 20260925-225738-588b23cc, tester stage 0x7a = our Facility 0x63: "dr doak using wrong face texture"
+- 20260925-230158-9586b9ba, tester stage 0x75 = our Runway 0x5e: "geometry bug: head and body are disjointed"
+
+## 1. Dr. Doak's face (225738) - FIXED + VERIFIED
+
+Doak = chr 79, body Cgx035Z (char/techman), head Cgx051Z = GoldenEye's CheaddaveZ
+(HEAD_Male_Dave_Dr_Doak). The release's new/head/headdave is a different man (clean-shaven,
+glasses, one 256x256 face picture); GoldenEye's Doak (and Bean's own original/head/headdave)
+has dark curly hair, moustache, goatee. Not a wrong-texture pick: the file has no other face
+and no release file has Doak's. Fix: Cgx051Z left out of gebeanchrtable.h ("the release's is
+another face, left in the N64 look"), so Doak wears GoldenEye's own converted head on the HD
+coat in the HD look (N64 neck stub under it, as with GoldenEye X heads). Generator:
+/home/sdg/perfect-dark/.xbla-work/ge-bean/gen_chrtable.py gained NOT_THEIRS = {'headdave'}
+(that file is outside git; the header in the tree is its output, byte-for-byte).
+Also affects any random guard/scientist rolled the Dave head (GoldenEye's random pool has it).
+Not changed: PD Combat Simulator pool rows "Scientist" (POOLBODY CgeTechmanZ, head/headdave)
+and POOLHEAD "CgeheadDaveZ" in gebean.c still show the release's face under the name "Dave".
+
+Verified: Facility, a scientist given the Dave head at model build (Doak himself spawns late,
+Secret Agent+): pics /home/sdg/wt/f3doak-run/doakb_cmp.png (rows: before HD, after HD, N64 look).
+
+Open for the user: if a low-poly N64 head on an HD body is not wanted for Doak, the alternative
+is picking a release head that resembles him (none is close: headlee has curly hair and a full
+beard) - a creative call, not made here.
+
+## 2. Head and body disjointed (230158) - FIXED + VERIFIED
+
+Dead Runway guard, body Cgx037Z (greatguard2), head Cgx059Z (headsteveh), head thrown back:
+the ground showed through the throat in a row of teeth. Cause (gebean.c, gebeanBuild(), head
+files `head/*`): (a) the head was rigid on the neck, but a release head file's neck reaches into
+the collar weighted to the back (lowest ring ~3/4 back, as Bean skins it), so the ring swung out
+of the collar; (b) only neck-dominant triangles were kept, dropping the neck's lowest band and
+leaving a zig-zag edge (also visible standing: dark notches at nape/jaw from the side/back).
+Fix: `neckback` heads (HD head files on the conversion's rows only - not originals, not the
+Brosnan heads cut from their own Bond bodies, not pool/GE-X rows) keep the band and carry two
+palette entries: 0 = neck, 1 = the back's share. xblamesh.c xblaMeshNeckBack() resolves entry 1
+on the body the head is grafted to (joint above matrix 0, bound by the neck's rest offset from
+the body's nodes); drawn alone it follows entry 0. Same in xblaMeshHitTest().
+
+Verified (pics in /home/sdg/wt/f3doak-run/): dead guard, tester-like pose (rw_final.png: before,
+after, N64 look), Facility guard standing 4 sides (fg_cmp.png, before|after pairs), Dam
+greatguard2 guard 3 sides (dam_cmp.png, top before, bottom after). Ourumov (Silo) and Jungle
+Cgx011Z: identical except the guards behind them; Xenia-row 0 px; N64 look 0 px on the Facility
+guard. Not visually checked: female heads (mandy/marion/sally/vivien; same code path, female
+Bean skeleton), Bond (unchanged by construction: fromchar heads keep the rigid path).
+
+## Commits (on fix/f3-hd-doak-head, based on 1fc1832d8; not merged/pushed/deployed)
+- Doak table: port/src/gebeanchrtable.h
+- Neck: port/src/gebean.c, port/include/gebean.h, port/src/xblamesh.c (head build path +
+  pose/hit test only; separable from fix/f3-tank-aim-fire and fix/f3-ge-sniper-hd)
+- Notes: CLAUDE-notes/ge-bean.md "Two HD heads: Dr. Doak's face, and a neck that left the collar"
+
+## Rig
+/home/sdg/wt/f3doak-run (own mods/ copy, ROM + Bean symlinked), build dir /home/sdg/wt/f3doak-build.
+`run.sh TAG probes/look.py` with env: STAGE, HD (1/0 = XblaMeshes), BIN, CHR or HEAD=<file>,
+AT, DIST, HOFF, SIDES=deg,..; KILL=1 (chrDamageByImpact, DEAD frames later, KANGLE, HITPART),
+UP/HDIST aim at the headspot (read inside xblaMeshPose) or HEADPOS=x,y,z; SWAPHEAD=<file>
+SWAPBODY=<bodynum> grafts a head at the first body0f02ce8c for that body (not with DIFF).
+Runway chr 23 killed at AT=259 lands in the tester's pose. Binaries: pd-base (1fc1832d8),
+pd-new (fix).
+
+---
+
 # F3 HD level rendering pass (2026-09-26), branch fix/f3-hd-level-render
 
 Reports: /home/sdg/wt/f3-0926/. Tester stage ids differ from ours: tester 0x86 = our
