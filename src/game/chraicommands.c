@@ -10338,4 +10338,31 @@ bool aiGeObjectRocketLaunch(void)
 
 	return false;
 }
+
+/**
+ * @cmd 01e6
+ *
+ * GoldenEye's ChrRemoveItemInHand (chrai.c -> chrSetWeaponFlag4()): the gun
+ * the chr holds in that hand is removed, not dropped. Nineteen uses over ten
+ * missions, all dropped by the conversion until converter 79. Silo's ending
+ * has Bond put his gun away before he folds his arms in the lift: checked
+ * against the native GoldenEye port, whose body holds the gun for the first
+ * two seconds of the shot and none after (F3 20260925-234037).
+ * Four bytes: 01e6 <chr:1> <hand:1>
+ */
+bool aiGeChrRemoveItemInHand(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
+	s32 hand = cmd[3] & 1;
+
+	if (chr && chr->weapons_held[hand]) {
+		chr->weapons_held[hand]->obj->hidden |= OBJHFLAG_DELETING;
+		chr->weapons_held[hand] = NULL;
+	}
+
+	g_Vars.aioffset += 4;
+
+	return false;
+}
 #endif

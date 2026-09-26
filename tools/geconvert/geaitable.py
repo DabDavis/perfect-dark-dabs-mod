@@ -288,7 +288,7 @@ TABLE = [
     ('HideAllChrs',                         1,    [],                                            0x01d5, (('=', 0, 1),),                              'hand'),  # dd aiShowCutsceneChrs
     ('ShowAllChrs',                         1,    [],                                            0x01d5, (('=', 1, 1),),                              'hand'),  # de aiShowCutsceneChrs
     ('DoorOpenInstant',                     2,    [('OBJECT_TAG', 1)],                           0x00e8, (0,),                                        'hand'),  # df aiSetDoorOpen
-    ('ChrRemoveItemInHand',                 3,    [('CHR_NUM', 1), ('HAND_INDEX', 1)],           None,   (),                                          'hand'),  # e0 -
+    ('ChrRemoveItemInHand',                 3,    [('CHR_NUM', 1), ('HAND_INDEX', 1)],           0x01e6, (0, 1),                                      'hand'),  # e0 aiGeChrRemoveItemInHand (port's own)
     ('IfNumberOfActivePlayersLessThan',     3,    [('NUMBER', 1), ('GOTOLABEL', 1)],             0x00ea, (0, 1),                                      'hand'),  # e1 aiIfNumPlayersLessThan
     ('IFBondItemTotalAmmoLessThan',         4,    [('ITEM_NUM', 1), ('AMMO_TOTAL', 1), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # e2 -
     ('BondEquipItem',                       2,    [('ITEM_NUM', 1)],                             0x00ec, (('=', 242, 1), 0),                          'hand'),  # e3 aiChrDrawWeapon

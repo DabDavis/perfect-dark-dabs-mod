@@ -78,6 +78,11 @@
 // its ending). Three bytes: 01e5 <object tag:1>
 #define GEAI_ROCKET_CMD 0x01e5
 
+// And its ChrRemoveItemInHand: the gun a chr holds in one hand goes (Silo's
+// ending, where Bond puts his away and crosses his arms). Four bytes:
+//     01e6 <chr:1> <hand:1>
+#define GEAI_REMOVEITEM_CMD 0x01e6
+
 // GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 // six of its commands), and neither of Perfect Dark's two banks has eight bits
 // to spare - every bit of theirs means something to the game. The byte gets a
@@ -336,7 +341,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* dd HideAllChrs                            */ {  1, 0x01d5,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 0x0000} } },
 	/* de ShowAllChrs                            */ {  1, 0x01d5,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 0x0001} } },
 	/* df DoorOpenInstant                        */ {  2, 0x00e8,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
-	/* e0 ChrRemoveItemInHand                    */ {  3,     -1,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* e0 ChrRemoveItemInHand                    */ {  3, 0x01e6,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {0, 1, 0}, {1, 1, 0} } },
 	/* e1 IfNumberOfActivePlayersLessThan        */ {  3, 0x00ea,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {0, 1, 0}, {1, 1, 0} } },
 	/* e2 IFBondItemTotalAmmoLessThan            */ {  4,     -1,  3, { 1, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* e3 BondEquipItem                          */ {  2, 0x00ec,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {0, 1, 0} } },
