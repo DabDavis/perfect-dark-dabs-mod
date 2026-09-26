@@ -89,6 +89,23 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
 		geRoomAsk(pos, radius, batch, &best);
 	}
 
+	// The room is the tile's under the middle of the body, as GoldenEye's is.
+	// The search above takes it from whichever floor in the body's circle is
+	// highest, and where two rooms' floors meet level at a doorway that is the
+	// first room asked - the one the body was in. On Dam's tunnel under the
+	// dam (rooms 92 and 93, the upright portal 171 between them) a player
+	// twenty units past the portal into 93, with their circle still over 92's
+	// floor, stayed in 92 and drew from it: 92 is all behind the portal, so
+	// the screen was sky (F3 report 20260926-111451). GoldenEye has them on
+	// 93's tile and draws the tunnel.
+	if (floorroom && best.ground > GEROOM_NOGROUND && !best.inlift) {
+		const s32 tileroom = geStanRoomUnder(pos, best.ground, best.floorroom);
+
+		if (tileroom > 0 && tileroom < g_Vars.roomcount) {
+			best.floorroom = tileroom;
+		}
+	}
+
 	if (best.ground > GEROOM_NOGROUND) {
 		if (floorcol) {
 			*floorcol = best.floorcol;

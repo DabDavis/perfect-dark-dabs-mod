@@ -45,6 +45,13 @@ int geconvertTotal(void);
  */
 const char *geconvertMissionLangFile(int mission);
 
+/**
+ * The texture number the conversion gives GoldenEye's image number image:
+ * its own, unless Perfect Dark's texture config tables load that number
+ * (texRemap(), tools/geconvert/texremap.py).
+ */
+uint32_t geconvertTexRemap(uint32_t image);
+
 // where its per-level report lines go (stderr until set)
 void geconvertSetLog(void (*fn)(const char *msg));
 

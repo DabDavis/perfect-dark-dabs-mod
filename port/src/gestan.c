@@ -1022,6 +1022,29 @@ bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
 	return geStanWalkFromRoom(from, -1, to, room, ground);
 }
 
+s32 geStanRoomUnder(struct coord *pos, f32 ground, s32 prefer)
+{
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return -1;
+	}
+
+	// the floor found is the highest in the body's circle, which a tile at
+	// the circle's edge can give: the one under its middle is at it or under
+	tile = stanTileUnderPrefer(pos->x, pos->z, ground + 1.0f, 1.0f, prefer);
+
+	if (tile < 0 || ground - stanSurface(&g_Stan.tiles[tile], pos->x, pos->z) > GESTAN_RISE) {
+		return -1;
+	}
+
+	return g_Stan.tiles[tile].room;
+}
+
 /**
  * Whether a guard may run straight from `from` (standing on the floor at
  * `ground`) to `to`, past the waypoints between: GoldenEye's test before it

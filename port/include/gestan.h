@@ -75,6 +75,16 @@ bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground);
 bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 *room, f32 *ground);
 
 /**
+ * The room of the tile under the middle of a body standing on the floor at
+ * `ground` - GoldenEye's room for it (bondview2.c's current_tile_ptr, which
+ * is the tile under the point, not under the circle) - the tile of room
+ * `prefer` where the point is on a seam between two at the same height. -1
+ * where the level has no graph, or no tile is under the point within a stair's
+ * rise of the floor (the middle out over a drop).
+ */
+s32 geStanRoomUnder(struct coord *pos, f32 ground, s32 prefer);
+
+/**
  * Whether a guard standing at `from` on the floor at `ground` may run straight
  * to `to`, past waypoints: GoldenEye's walk along the tile graph from its tile
  * ends on the tile under `to` (sub_GAME_7F030128). True with no graph.
