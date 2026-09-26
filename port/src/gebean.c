@@ -628,10 +628,19 @@ static u8 fpMuzzleSet[2][ARRAYCOUNT(fpRows)];
 struct fpround {
 	u8 num;
 	u8 draws[8];
+	s8 split;    // a listed draw that is only partly the round, or -1
+	f32 splitz;  // and where: its triangles wholly behind this z are the gun's
 };
 
+// Draw 2 is not only the rocket. On the rocket's own picture with it is the
+// launcher's thick back half - the sleeve round the back of the tube, with
+// the grille and the Cyrillic lettering (z -2920..-33, a radius of 277 about
+// the tube's 190): its triangles are joined to none of the rocket's, which
+// starts at the neck in the mouth (1275) and ends at the warhead (4006). All
+// of draw 2 was taken as the round, so the back of the gun went with the
+// rocket on every shot (F3 20260926-071801).
 static const struct fpround fpRound[ARRAYCOUNT(fpRows)] = {
-	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { 8, { 1, 2, 3, 4, 5, 6, 21, 22 } },
+	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { 8, { 1, 2, 3, 4, 5, 6, 21, 22 }, 2, 1000.0f },
 };
 
 // Whether the gun built for each look carries its round, as fpMuzzleSet
@@ -2377,6 +2386,28 @@ static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i
 	if (hasuv) {
 		v->uv[0] = (s16)gebeanBE16(p + k + 4) / bm->uvscale;
 		v->uv[1] = (s16)gebeanBE16(p + k + 6) / bm->uvscale;
+	}
+
+	return 1;
+}
+
+/**
+ * Whether triangle `idx` of a draw lies wholly behind `z` in the file's own
+ * space, when `split` asks (fpRound's split draw); 0 otherwise, and for a
+ * vertex that cannot be read.
+ */
+static s32 beanTriBehind(const struct beanmodel *bm, const struct beanvb *vb, const u16 *idx, s32 split, f32 z)
+{
+	if (!split) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		struct beanvtx v;
+
+		if (!beanVertex(bm, vb, idx[i], &v) || v.pos[2] >= z) {
+			return 0;
+		}
 	}
 
 	return 1;
@@ -7191,7 +7222,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				beanAddTri(&out, spentof[group], 0, 0, 0, 0);
 			}
 
-			if (drawn[di] == 2) {
+			if (drawn[di] == 2 && !beanTriBehind(&bm, &vb, &tris[t * 3], fpRound[fp].split == di, fpRound[fp].splitz)) {
 				roundgroups |= 1ull << group;
 			} else if (spentof[group] >= 0
 					&& !beanAddTri(&out, spentof[group], (s32)d->tex, idx[0], idx[1], idx[2])) {

@@ -15,6 +15,8 @@
 #include "romdata.h"
 #include "system.h"
 #include "lib/model.h"
+#include "lib/mtx.h"
+#include "lib/rng.h"
 #include "geguns.h"
 #include "modloader.h"
 
@@ -1621,6 +1623,330 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model)
 	gegunsSetPart(model, 14, 1);
 	gegunsSetPart(model, 15, 1);
 	gegunsSetPart(model, 1, hand->flashon ? 1 : 0);
+}
+
+/**
+ * GoldenEye's knife slash on its own model (the N64 look).
+ *
+ * Perfect Dark's combat knife slashes with a skeletal animation of its own
+ * model (ANIM_GUN_KNIFE_SLASH), which the hunting knife still runs for its
+ * timing; on GoldenEye's model it is not applied (bgunSetGunMatrices()), since
+ * that model has none of Perfect Dark's joints - so in the N64 look the knife
+ * stood still in the hand while it cut (F3 20260926-063909, Silo). GoldenEye
+ * moves the whole gun instead: gunfire.c picks one of two keyframe tracks at
+ * random (GUN_ANIM_STATE_KNIFE_SLASH1/2, D_80034CA4 and D_80034E0C in gun.c),
+ * and gunSample1PTransform() turns the time since the slash began into a
+ * matrix (field_8EC) that the gun's placement takes before its sway - the
+ * descendant of which in Perfect Dark is the hand's posrotmtx, taken in the
+ * same place by the same arithmetic (bgun0f0a5550()).
+ *
+ * The keyframes are GoldenEye's: a position in the camera's space (+x right,
+ * +y up, +z back), three angles in radians, the spline's tension and the
+ * keyframe's length in sixtieths. The strike lands 24 sixtieths in, which is
+ * where Perfect Dark's own slash script lands its hit (waittime 24), and the
+ * whole swing is 52.
+ */
+struct geknifekey {
+	s32 last;
+	f32 pos[3];
+	f32 rot[3];
+	f32 tension;
+	f32 duration;
+};
+
+static const struct geknifekey geKnifeSlash[2][10] = {
+	{ // D_80034CA4
+		{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+		{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+		{ 0, { 6.0f, -1.5f, 0.0f }, { 5.6415639f, 0.23511f, 0.13564f }, 0.5f, 8.0f },
+		{ 0, { 12.5f, -3.5f, 0.0f }, { 6.0422268f, 0.04475f, 0.555717f }, 0.5f, 8.0f },
+		{ 0, { -10.0f, -11.0f, 0.0f }, { 1.241009f, 0.316988f, 1.086363f }, 0.5f, 8.0f },
+		{ 0, { -14.0f, -15.0f, 0.0f }, { 1.830307f, 6.1436629f, 1.274134f }, 0.5f, 10.0f },
+		{ 0, { -1.0f, -9.0f, 0.0f }, { 0.384244f, 0.360323f, 0.105151f }, 0.5f, 10.0f },
+		{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 20.0f },
+		{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 20.0f },
+		{ 1, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f },
+	},
+	{ // D_80034E0C
+		{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+		{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 8.0f },
+		{ 0, { -8.5f, -6.0f, 0.0f }, { 5.4830351f, 5.8345609f, 6.0827341f }, 0.5f, 8.0f },
+		{ 0, { -3.0f, -3.5f, 0.0f }, { 0.402412f, 5.7293859f, 5.6918988f }, 0.5f, 8.0f },
+		{ 0, { -0.5f, -8.5f, 0.0f }, { 1.234298f, 5.7315431f, 5.608871f }, 0.5f, 8.0f },
+		{ 0, { 7.0f, -28.5f, -1.5f }, { 1.306924f, 5.695158f, 5.6958299f }, 0.5f, 10.0f },
+		{ 0, { -1.5f, -9.0f, 0.0f }, { 0.067808f, 6.2595758f, 0.203519f }, 0.5f, 10.0f },
+		{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 20.0f },
+		{ 0, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.5f, 20.0f },
+		{ 1, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, 0.0f, 0.0f },
+	},
+};
+
+// Each hand's slash: which track, and how far into it in sixtieths (-1 none)
+static s8 geKnifeTrack[2] = { -1, -1 };
+static f32 geKnifeTime[2];
+
+// quaternion.c's own, from GoldenEye's: w first
+static void geQuatFromAngles(const f32 *angles, f32 *q)
+{
+	const f32 cx = cosf(angles[0] * 0.5f), sx = sinf(angles[0] * 0.5f);
+	const f32 cy = cosf(angles[1] * 0.5f), sy = sinf(angles[1] * 0.5f);
+	const f32 cz = cosf(angles[2] * 0.5f), sz = sinf(angles[2] * 0.5f);
+
+	q[0] = cx * cy * cz + sx * sy * sz;
+	q[1] = sx * cy * cz - cx * sy * sz;
+	q[2] = cx * sy * cz + sx * cy * sz;
+	q[3] = cx * cy * sz - sx * sy * cz;
+}
+
+static void geQuatShortest(const f32 *q1, f32 *q2)
+{
+	if (q1[0] * q2[0] + q1[1] * q2[1] + q1[2] * q2[2] + q1[3] * q2[3] < 0.0f) {
+		for (s32 i = 0; i < 4; i++) {
+			q2[i] = -q2[i];
+		}
+	}
+}
+
+static void geQuatMult(const f32 *a, const f32 *b, f32 *r)
+{
+	r[0] = a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3];
+	r[1] = a[0] * b[1] + b[0] * a[1] + a[2] * b[3] - a[3] * b[2];
+	r[2] = a[0] * b[2] + b[0] * a[2] + a[3] * b[1] - a[1] * b[3];
+	r[3] = a[0] * b[3] + b[0] * a[3] + a[1] * b[2] - a[2] * b[1];
+}
+
+// quaternion_slerp()
+static void geQuatSlerp(const f32 *q1, const f32 *q2, f32 t, f32 *r)
+{
+	const f32 dot = q1[0] * q2[0] + q1[1] * q2[1] + q1[2] * q2[2] + q1[3] * q2[3];
+
+	if (dot < -1.0f + 0.00001001f) {
+		for (s32 i = 0; i < 4; i++) {
+			r[i] = (1.0f - t) * q1[i] - q2[i] * t;
+		}
+	} else if (dot <= 1.0f - 0.00001001f) {
+		const f32 theta = acosf(dot);
+		const f32 sine = sinf(theta);
+		const f32 a = sinf((1.0f - t) * theta) / sine;
+		const f32 b = sinf(t * theta) / sine;
+
+		for (s32 i = 0; i < 4; i++) {
+			r[i] = a * q1[i] + q2[i] * b;
+		}
+	} else {
+		for (s32 i = 0; i < 4; i++) {
+			r[i] = (1.0f - t) * q1[i] + q2[i] * t;
+		}
+	}
+}
+
+// quaternion_7F05BFD4() and quaternion_7F05C068(): log and exp
+static void geQuatLog(const f32 *q, f32 *r)
+{
+	const f32 angle = acosf(q[0] > 1.0f ? 1.0f : q[0] < -1.0f ? -1.0f : q[0]);
+	const f32 sine = sinf(angle);
+
+	r[0] = 0.0f;
+
+	for (s32 i = 1; i < 4; i++) {
+		r[i] = sine == 0.0f ? 0.0f : q[i] * (angle / sine);
+	}
+}
+
+static void geQuatExp(const f32 *q, f32 *r)
+{
+	const f32 angle = sqrtf(q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+
+	if (angle == 0.0f) {
+		r[0] = 1.0f;
+		r[1] = r[2] = r[3] = 0.0f;
+	} else {
+		const f32 k = sinf(angle) / angle;
+
+		r[0] = cosf(angle);
+		r[1] = q[1] * k;
+		r[2] = q[2] * k;
+		r[3] = q[3] * k;
+	}
+}
+
+// quaternion_7F05C138(): the inner control point of a squad at q1
+static void geQuatInner(const f32 *q0, const f32 *q1, const f32 *q2, f32 *r)
+{
+	const f32 conj[4] = { q1[0], -q1[1], -q1[2], -q1[3] };
+	f32 a[4], b[4], la[4], lb[4], e[4];
+
+	geQuatMult(conj, q0, a);
+	geQuatMult(conj, q2, b);
+	geQuatLog(a, la);
+	geQuatLog(b, lb);
+
+	for (s32 i = 0; i < 4; i++) {
+		la[i] = -(la[i] + lb[i]) * 0.25f;
+	}
+
+	geQuatExp(la, e);
+	geQuatMult(q1, e, r);
+}
+
+// quaternion_7F05C2F0() by way of quaternion_7F05C250(): squad
+static void geQuatSquad(f32 *q0, f32 *q1, f32 *q2, f32 *q3, f32 t, f32 *r)
+{
+	f32 s1[4], s2[4], a[4], b[4];
+
+	geQuatInner(q0, q1, q2, s1);
+	geQuatInner(q1, q2, q3, s2);
+
+	geQuatShortest(q1, q2);
+	geQuatSlerp(q1, q2, t, a);
+	geQuatShortest(s1, s2);
+	geQuatSlerp(s1, s2, t, b);
+	geQuatShortest(a, b);
+	geQuatSlerp(a, b, 2.0f * t * (1.0f - t), r);
+}
+
+/**
+ * gunSample1PTransform(): the transform `time` sixtieths into a track, into
+ * `mtx`. 0 once the track has ended (its last pose is written).
+ */
+static s32 gegunsSampleTrack(const struct geknifekey *keys, f32 time, Mtxf *mtx, s32 left)
+{
+	const struct geknifekey *cur;
+	f32 q[4][4];
+	f32 rot[4];
+	f32 pos[3];
+	f32 frac, sq, cube, tension, a, b, c, d, n;
+	s32 i = 1;
+
+	while (time >= keys[i].duration) {
+		time -= keys[i].duration;
+		i++;
+
+		if (keys[i + 2].last & 1) {
+			break;
+		}
+	}
+
+	cur = &keys[i];
+
+	if (cur[2].last & 1) {
+		// matrix_4x4_set_rotation_around_xyz() of the pose it ends on
+		struct coord angles = { cur->rot[0], cur->rot[1], cur->rot[2] };
+
+		mtx4LoadRotation(&angles, mtx);
+		mtx->m[3][0] = cur->pos[0];
+		mtx->m[3][1] = cur->pos[1];
+		mtx->m[3][2] = cur->pos[2];
+		return 0;
+	}
+
+	frac = time / cur->duration;
+	tension = cur->tension;
+
+	geQuatFromAngles(cur[-1].rot, q[0]);
+	geQuatFromAngles(cur[0].rot, q[1]);
+	geQuatFromAngles(cur[1].rot, q[2]);
+	geQuatFromAngles(cur[2].rot, q[3]);
+
+	geQuatShortest(q[1], q[2]);
+	geQuatShortest(q[2], q[3]);
+	geQuatShortest(q[1], q[0]);
+
+	geQuatSquad(q[0], q[1], q[2], q[3], frac, rot);
+
+	// coord3dCubicSplineInterp()
+	sq = frac * frac;
+	cube = sq * frac;
+	a = (2.0f * sq - (frac + cube)) * tension;
+	b = (2.0f - tension) * cube + sq * (tension - 3.0f) + 1.0f;
+	c = (tension - 2.0f) * cube + sq * (3.0f - 2.0f * tension) + frac * tension;
+	d = (cube - sq) * tension;
+
+	for (s32 k = 0; k < 3; k++) {
+		pos[k] = a * cur[-1].pos[k] + b * cur[0].pos[k] + c * cur[1].pos[k] + d * cur[2].pos[k];
+	}
+
+	if (left) {
+		pos[0] = -pos[0];
+		rot[0] = -rot[0];
+		rot[1] = -rot[1];
+	}
+
+	// quaternion_to_matrix()
+	n = 2.0f / (rot[0] * rot[0] + rot[1] * rot[1] + rot[2] * rot[2] + rot[3] * rot[3]);
+
+	{
+		const f32 x2 = rot[1] * n, y2 = rot[2] * n, z2 = rot[3] * n;
+		const f32 wx = rot[0] * x2, wy = rot[0] * y2, wz = rot[0] * z2;
+		const f32 xx = rot[1] * x2, xy = rot[1] * y2, xz = rot[1] * z2;
+		const f32 yy = rot[2] * y2, yz = rot[2] * z2, zz = rot[3] * z2;
+
+		mtx->m[0][0] = 1.0f - (yy + zz);
+		mtx->m[0][1] = xy + wz;
+		mtx->m[0][2] = xz - wy;
+		mtx->m[0][3] = 0.0f;
+		mtx->m[1][0] = xy - wz;
+		mtx->m[1][1] = 1.0f - (xx + zz);
+		mtx->m[1][2] = yz + wx;
+		mtx->m[1][3] = 0.0f;
+		mtx->m[2][0] = xz + wy;
+		mtx->m[2][1] = yz - wx;
+		mtx->m[2][2] = 1.0f - (xx + yy);
+		mtx->m[2][3] = 0.0f;
+		mtx->m[3][0] = pos[0];
+		mtx->m[3][1] = pos[1];
+		mtx->m[3][2] = pos[2];
+		mtx->m[3][3] = 1.0f;
+	}
+
+	return 1;
+}
+
+/**
+ * A slash has begun in this hand (bgunTickIncAttackingMelee()): GoldenEye's
+ * swing, one of its two at random, where the hunting knife is drawn on
+ * GoldenEye's own model. A slash begun during one starts it again, as
+ * GoldenEye's does.
+ */
+void gegunsOwnMeleeStart(struct hand *hand, s32 handnum)
+{
+	if (handnum < 0 || handnum > 1) {
+		return;
+	}
+
+	if (hand->gset.weaponnum != WEAPON_GE_HUNTINGKNIFE || !gegunsOwnModelInUse(hand->gset.weaponnum)) {
+		geKnifeTrack[handnum] = -1;
+		return;
+	}
+
+	geKnifeTrack[handnum] = (rngRandom() & 1) ? 1 : 0;
+	geKnifeTime[handnum] = 0.0f;
+}
+
+/**
+ * Each tick, after the hand's states (which clear posrotmtx): the swing
+ * `lvupdate60` sixtieths further on, as the hand's posrotmtx. It stops at the
+ * track's end, and at once if the knife is put away or the look changes.
+ */
+void gegunsOwnMeleeTick(struct hand *hand, s32 handnum, f32 lvupdate60)
+{
+	if (handnum < 0 || handnum > 1 || geKnifeTrack[handnum] < 0) {
+		return;
+	}
+
+	if (hand->gset.weaponnum != WEAPON_GE_HUNTINGKNIFE || !gegunsOwnModelInUse(hand->gset.weaponnum)
+			|| hand->state == HANDSTATE_CHANGEGUN) {
+		geKnifeTrack[handnum] = -1;
+		return;
+	}
+
+	geKnifeTime[handnum] += lvupdate60;
+
+	if (gegunsSampleTrack(geKnifeSlash[geKnifeTrack[handnum]], geKnifeTime[handnum], &hand->posrotmtx, handnum == HAND_LEFT)) {
+		hand->useposrot = true;
+	} else {
+		geKnifeTrack[handnum] = -1;
+	}
 }
 
 /**

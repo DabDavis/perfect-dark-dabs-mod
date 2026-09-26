@@ -93,6 +93,11 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);
 struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef, f32 *offset);
 
+// GoldenEye's knife slash on its own model (the N64 look): begun by a melee
+// attack, ticked after the hand's states, as the hand's posrotmtx
+void gegunsOwnMeleeStart(struct hand *hand, s32 handnum);
+void gegunsOwnMeleeTick(struct hand *hand, s32 handnum, f32 lvupdate60);
+
 // Whether a model is the gun in one of the current player's hands and that
 // hand has no rocket loaded (gebean.c's fpRound)
 s32 gegunsHandIsSpent(const struct model *model);
