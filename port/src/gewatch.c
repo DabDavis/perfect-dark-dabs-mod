@@ -1581,9 +1581,15 @@ s32 geWatchPause(void)
 	}
 
 	// a match's pause is GoldenEye's own multiplayer overlay rather than the
-	// arm, and every player works their own
+	// arm, and every player works their own - but only in a match GE Plus
+	// started: the Combat Simulator's own, on a GoldenEye arena or not, keeps
+	// Perfect Dark's pause dialog (the user, after F3 20260926-052358)
 	if (watchIsMp()) {
 		const s32 num = g_Vars.currentplayernum;
+
+		if (!gexFrontIsInside()) {
+			return 0;
+		}
 
 		if (g_MpWatch[num].on) {
 			g_MpWatch[num].on = 0;
@@ -4213,11 +4219,8 @@ static void watchMpTick(void)
 	g_MpWatch[num].sticky = stickx > 0x10 || stickx < -0x10;
 }
 
-// the overlay's rows above the first player's, its panel's half width and
-// colour, in GoldenEye's units
-#define MP_ROWS_TOP    48
-#define MP_PANEL_HALFW 96
-#define COL_MPPANEL    0x000000a0
+// the overlay's rows above the first player's, in GoldenEye's units
+#define MP_ROWS_TOP 48
 
 /**
  * GoldenEye's in-game 320x240 over the player's own viewport. Not the solo
@@ -4273,13 +4276,6 @@ static Gfx *watchMpRender(Gfx *gdl)
 	y = top;
 
 	watchMpTextFrame();
-
-	// and a dark panel behind them: GoldenEye's thin green is drawn straight
-	// onto the view, which on Runway's snow at a PC's resolution all but
-	// disappeared (Perfect Dark's own pause dialog has a body of its own)
-	gdl = gexFrontFillRect(gdl, (s32)(WATCH_FRAME_W * 0.5f) - MP_PANEL_HALFW, top - 6,
-			(s32)(WATCH_FRAME_W * 0.5f) + MP_PANEL_HALFW, top + MP_ROWS_TOP + rows * step + 2, COL_MPPANEL);
-
 	gdl = gexFrontTextSetup(gdl);
 
 	switch (g_MpWatch[num].mode) {
