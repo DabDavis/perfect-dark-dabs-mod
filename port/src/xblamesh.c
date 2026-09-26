@@ -400,6 +400,10 @@ struct xblameshbuilt {
 	u64 beanspent;     // a first-person launcher's nodes with a group for an empty tube
 	s8 beanspentgroup[64]; // and that group (gebeanmats.spent)
 	s32 beanhead;      // the mesh is a head's (gebeanmats.head)
+	s32 beanneckback;  // and its palette entry 1 is the joint above its own (gebeanmats.neckback)
+	const struct modeldef *neckbackdef; // the body that joint was last found on,
+	s32 neckbackmtx;   // its matrix there (-1 for none)
+	f32 neckbackofs[3]; // and the head's joint from it at rest
 	s32 beanrow;       // the row it was built from, for the hood's test (gebeanRowKeepsHood())
 	u32 packgen;       // modelpackGetGeneration() when it was built
 };
@@ -6221,6 +6225,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	}
 
 	m->beanhead = bmats->head;
+	m->beanneckback = bmats->neckback;
 	m->beanrow = e->beanrow;
 	free(bmats);
 
@@ -6265,6 +6270,7 @@ static void xblaMeshResetBeanMeshes(void)
 			m->bruisemodel = NULL;
 			m->envmodel = NULL;
 			m->keptmodel = NULL;
+			m->neckbackdef = NULL;
 		}
 	}
 }
@@ -6735,6 +6741,97 @@ static s32 xblaMeshPoseFineness(const struct xblameshbuilt *m, const Mtxf *pal)
 }
 
 /**
+ * Palette entry 1 of a GoldenEye XBLA head that keeps its neck's back weights
+ * (gebean.c's neckback): the joint above the one the head is drawn on, which
+ * is the body's, not the head's. A head hangs under matrix 0 of GoldenEye's
+ * bodies, the neck, and the joint over the neck is the back. Hands back that
+ * joint's matrix and a bind taking a vertex from the head's space (the neck's
+ * joint at the origin) into the back's: a translation, GoldenEye's rest pose
+ * having no turns in it. 0 when the model has no such joint - a head drawn
+ * on its own - and the entry follows the neck.
+ */
+static s32 xblaMeshNeckBack(struct xblameshbuilt *m, const struct modeldef *def, s32 *outmtx, Mtxf *outbind)
+{
+	if (!m->beanneckback || !def || !def->rootnode) {
+		return 0;
+	}
+
+	if (m->neckbackdef != def) {
+		struct modelnode *node = def->rootnode;
+		struct modelnode *neck = NULL;
+		struct modelnode *back;
+		s32 walked = 0;
+
+		m->neckbackdef = def;
+		m->neckbackmtx = -1;
+
+		while (node && walked++ < 4096) {
+			const u32 type = node->type & 0xff;
+
+			if (type == MODELNODETYPE_POSITION && node->rodata->position.mtxindex0 == 0) {
+				neck = node;
+				break;
+			}
+
+			// Not down into a head grafted on it
+			if (node->child && type != MODELNODETYPE_HEADSPOT) {
+				node = node->child;
+				continue;
+			}
+
+			while (node) {
+				if (node->next) {
+					node = node->next;
+					break;
+				}
+
+				node = node->parent;
+			}
+		}
+
+		for (back = neck ? neck->parent : NULL; back; back = back->parent) {
+			if ((back->type & 0xff) == MODELNODETYPE_POSITION) {
+				break;
+			}
+		}
+
+		if (back && back->rodata->position.mtxindex0 > 0
+				&& back->rodata->position.mtxindex0 < def->nummatrices) {
+			m->neckbackmtx = back->rodata->position.mtxindex0;
+
+			for (s32 k = 0; k < 3; k++) {
+				m->neckbackofs[k] = 0.0f;
+			}
+
+			// The neck's rest less the back's: the offsets between the two
+			for (node = neck; node && node != back; node = node->parent) {
+				if ((node->type & 0xff) == MODELNODETYPE_POSITION) {
+					m->neckbackofs[0] += node->rodata->position.pos.x;
+					m->neckbackofs[1] += node->rodata->position.pos.y;
+					m->neckbackofs[2] += node->rodata->position.pos.z;
+				} else if ((node->type & 0xff) == MODELNODETYPE_POSITIONHELD) {
+					m->neckbackofs[0] += node->rodata->positionheld.pos.x;
+					m->neckbackofs[1] += node->rodata->positionheld.pos.y;
+					m->neckbackofs[2] += node->rodata->positionheld.pos.z;
+				}
+			}
+		}
+	}
+
+	if (m->neckbackmtx < 0) {
+		return 0;
+	}
+
+	*outmtx = m->neckbackmtx;
+	mtx4LoadIdentity(outbind);
+	outbind->m[3][0] = m->neckbackofs[0];
+	outbind->m[3][1] = m->neckbackofs[1];
+	outbind->m[3][2] = m->neckbackofs[2];
+
+	return 1;
+}
+
+/**
  * Poses one mesh into a copy of its vertices, and hands back the copy.
  *
  * Palette entry i is posed by whatever the game has done to the node carrying
@@ -6814,6 +6911,15 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 			continue;
 		}
 
+		// A head's second entry is the body's back, not a matrix of its own
+		s32 src = i;
+		Mtxf backbind;
+		Mtxf *bind = &m->invbind[i];
+
+		if (i == 1 && xblaMeshNeckBack(m, model->definition, &src, &backbind)) {
+			bind = &backbind;
+		}
+
 		// Out of the bind pose, into the game's, and then out of the matrix
 		// this list is drawn under - which is what keeps the result small
 		// enough to be the s16 a Perfect Dark vertex holds.
@@ -6822,15 +6928,15 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 			// (bodyCalculateHeadOffset(), headfit.c) moved its N64 vertices
 			// along its own up; the mesh moves the same way, in the matrix's
 			// frame before it is turned.
-			Mtxf lifted = model->matrices[i];
+			Mtxf lifted = model->matrices[src];
 
 			for (s32 j = 0; j < 3; j++) {
-				lifted.m[3][j] += model->matrices[i].m[1][j] * headlift;
+				lifted.m[3][j] += model->matrices[src].m[1][j] * headlift;
 			}
 
-			mtx4MultMtx4(&lifted, &m->invbind[i], &step);
+			mtx4MultMtx4(&lifted, bind, &step);
 		} else {
-			mtx4MultMtx4(&model->matrices[i], &m->invbind[i], &step);
+			mtx4MultMtx4(&model->matrices[src], bind, &step);
 		}
 
 		mtx4MultMtx4(&invroot, &step, &pal[i]);
@@ -10702,7 +10808,12 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 				? m->nummatrices : model->definition->nummatrices;
 
 			for (s32 i = 0; i < m->nummatrices; i++) {
-				if (i < posable) {
+				s32 back;
+				Mtxf backbind;
+
+				if (i == 1 && i < posable && xblaMeshNeckBack(m, model->definition, &back, &backbind)) {
+					mtx4MultMtx4(&model->matrices[back], &backbind, &pal[i]);
+				} else if (i < posable) {
 					mtx4MultMtx4(&model->matrices[i], &m->invbind[i], &pal[i]);
 				} else if (posable > 0) {
 					mtx4Copy(&pal[0], &pal[i]);

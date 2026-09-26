@@ -7290,6 +7290,19 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	memset(&out, 0, sizeof(out));
 	memset(&rig, 0, sizeof(rig));
 
+	// A head file of the release's on one of GoldenEye's own bodies (the
+	// conversion's rows) is not rigid all the way down. Its neck reaches into
+	// the collar, and the ring there is weighted to the back as much as three
+	// quarters, as Bean skins it. Rigid on the neck, that ring swung out of
+	// the collar with the head: a guard dead on his back with his head thrown
+	// back showed the ground through his throat ("head and body are
+	// disjointed", F3 20260925-230158, Runway). So the head keeps two palette
+	// entries, the neck it is drawn on and the joint above it, which
+	// xblaMeshPose() finds on the body the head is grafted to. The originals
+	// weight whole faces to the back (above), and a head cut off a character's
+	// own neck is pinned to its body at the seam instead, so neither changes.
+	const s32 neckback = ishead && !original && !fromchar && row >= GEBEAN_CHRROW_BASE;
+
 	if (ishead) {
 		// A head is rigid on the neck, in the head file's own space, whose
 		// origin is the body's neck joint. One taken from a whole character
@@ -7316,7 +7329,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			rotationBetween(up, up, headrot);
 		}
 
-		nummatrices = 1;
+		nummatrices = neckback ? 2 : 1;
 	} else {
 		if (!beanRigFromModel(modeldef, &rig, joints, jointskel, &numjoints)
 				|| !beanFitRig(&rig, (const f32 (*)[3])bind, havebind)) {
@@ -7570,6 +7583,15 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 				dominant = SK_NECK;
 			}
 
+			// And a head file's own neck, where it reaches into the collar, is
+			// weighted more to the back than to the neck: dropped, it left the
+			// neck's lower edge a row of teeth that the collar covered only
+			// while the head stood straight. With the back on the palette it
+			// goes down into the collar the way Bean draws it
+			if (neckback && dominant == SK_BACK) {
+				dominant = SK_NECK;
+			}
+
 			if (pass == -1) {
 				if (dominant == SK_NECK && d->tex < GEBEAN_MAXMATS) {
 					neckontex[d->tex]++;
@@ -7738,6 +7760,29 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 						}
 
 						rotApply(headrot, v3[i].nrm, nrm);
+
+						// The back's share of the vertex on entry 1; the neck, and a
+						// stray bone (a few heads name a wrist), on entry 0
+						if (neckback) {
+							f32 back = 0.0f;
+							f32 sum = 0.0f;
+
+							for (s32 s = 0; s < 4; s++) {
+								if (sk[i][s] >= 0) {
+									sum += wt[i][s];
+
+									if (sk[i][s] == SK_BACK) {
+										back += wt[i][s];
+									}
+								}
+							}
+
+							if (sum > 0.0f && back > 0.0f) {
+								bone[1] = 1;
+								weight[0] = 1.0f - back / sum;
+								weight[1] = back / sum;
+							}
+						}
 					} else {
 						// Bean's own bind, at the rig's scale. Each bone's palette
 						// entry (beanFitPalette()) takes a vertex from there onto the
@@ -8045,12 +8090,13 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	}
 
 	mats->head = ishead;
+	mats->neckback = neckback;
 
 	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
 
 	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles over %d lists, %s %.4f%s%s",
 			r->file, source, out.numverts, out.numtris, numnodes,
-			ishead ? "rigid on the neck, scale" : "skinned to the model's matrices, scale",
+			neckback ? "on the neck and the back below it, scale" : ishead ? "rigid on the neck, scale" : "skinned to the model's matrices, scale",
 			ishead ? headscale : rig.scale, headtex >= 0 ? ", the hood in groups of its own" : "",
 			file ? "" : " - did not write");
 

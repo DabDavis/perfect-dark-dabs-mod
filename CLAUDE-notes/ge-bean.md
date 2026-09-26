@@ -10591,3 +10591,53 @@ Crate-to-weapon medians 419-784, maxima under 1150, height under 57: inside
 GoldenEye's own range. In game, `build/rig/itemcheck.py` (UMP= the setup file)
 reads the setup's order and checks every live crate against
 `mpGetMpWeaponByLocation()` of the spot before it.
+
+## Two HD heads: Dr. Doak's face, and a neck that left the collar (2026-09-26)
+
+Tester F3s on the conversion's missions in the HD look (tester stage 0x7a is
+our Facility 0x63, 0x75 our Runway 0x5e):
+
+- **20260925-225738, "dr doak using wrong face texture".** Doak is `Cgx035Z`
+  (`char/techman`) wearing `Cgx051Z`, GoldenEye's `CheaddaveZ`
+  (`HEAD_Male_Dave_Dr_Doak`). The release's `head/headdave` is another man
+  altogether: a clean-shaven face in glasses on its one 256x256 picture, where
+  GoldenEye's Doak (Bean's own `original/head/headdave` too) has dark curly hair,
+  a moustache and a goatee. It is not a mixed-up picture - the file has no other
+  face, and no other file of the release has his (several of the staff heads
+  are other faces in the release too; Doak is the named character among them,
+  and techman's own carried head is Scott's). So `gen_chrtable.py` (`NOT_THEIRS`) leaves `Cgx051Z`
+  out of `gebeanchrtable.h` and he keeps GoldenEye's own head in both looks, on
+  the HD coat, with the N64 neck stub under it as GoldenEye X's heads have. The
+  Combat Simulator pool's "Dave" and "Scientist" rows (`poolRows`) still take
+  the release's face; they were not part of the report.
+- **20260925-230158, "head and body are disjointed".** A dead Runway guard
+  (`Cgx037Z` greatguard2, head `Cgx059Z` steveh) on his back with his head
+  thrown back: the ground showed through his throat in a row of teeth. Two
+  faults in how a release head file (`head/*`) was cut, both showing standing
+  too - dark notches at the nape and under the jaw at a side view:
+  - the head was rigid on the neck, and **a head file's neck reaches into the
+    collar weighted to the back** (the lowest ring 187/255 back on headjoel), as
+    Bean skins it. Rigid, the ring swung out of the collar with the head.
+  - the head took only its triangles whose dominant bone is the neck, so the
+    lowest band of its neck (dominant back) was dropped, leaving a zig-zag edge.
+  Fix (`neckback` in `gebeanBuild()`, only HD head files on the conversion's
+  rows; the originals weight whole faces to the back, and the Brosnan heads cut
+  off their own body's neck are pinned at the seam instead): the band is kept,
+  and the head has **two palette entries** - 0 the neck it is drawn on, 1 the
+  back's share of each vertex. Entry 1 is not a matrix of the head's: when the
+  head is grafted, `xblaMeshNeckBack()` (xblamesh.c) finds the joint above
+  matrix 0 on the body (GoldenEye's bodies hang the head under matrix 0, the
+  neck; the joint above it is the back) and binds by the neck's rest offset from
+  it, from the body's own nodes, so the head sits exactly at rest on any body.
+  Drawn alone (Character page) the model has one matrix and entry 1 follows
+  entry 0, as before. The hit test poses the same way; bruises on a grafted head
+  match by position and are unaffected. Unpinning the body's collar instead was
+  tried and was worse.
+
+Checked (rig `/home/sdg/wt/f3doak-run`, `probes/look.py`): the dead guard from
+four sides (`KILL=1`, frame 259 gives the tester's pose; the camera is aimed at
+the headspot read inside `xblaMeshPose()`), Facility and Dam guards standing
+(notches gone), Doak by a head swap at `body0f02ce8c` (`SWAPHEAD=Cgx051Z
+SWAPBODY=153`: Doak himself spawns late on Secret Agent and up); Ourumov (Silo)
+and the Jungle's `Cgx011Z` unchanged apart from the guards behind them; the N64
+look pixel-identical.

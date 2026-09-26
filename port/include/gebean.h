@@ -351,6 +351,10 @@ struct gebeanmats {
 	u8 *env[GEBEAN_MAXMATS];
 	u8 envamount[GEBEAN_MAXMATS];
 	char envkey[48];
+	// A head whose palette entry 1 is the joint above the one it is drawn on
+	// (the back), not a second matrix of its own: xblaMeshPose() finds it on
+	// the body the head is grafted to
+	u8 neckback;
 };
 
 /**
