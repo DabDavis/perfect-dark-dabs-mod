@@ -9832,11 +9832,29 @@ minus ours) shows it pulsing red.
   - a camera square on each monitor of a stage; `use.sh` - the door console
   used, programmes 46/47 followed), pictures in `~/wt/f3faccon-pics/`.
 
-Not done: GE Plus's folder page of TV sets (`frontDrawTvs()`) does its own
-`modelRender()` and does not call `xblaMeshSetScreens()`; if its set draws
-Bean's mesh in the HD look it still shows the glass. Probes and pictures:
-`~/wt/f3gelight-run/` (`pos.sh`, `views.sh` - several views per boot,
-`--spectate` with `thirdperson = 0` set each tick), `~/wt/f3gelight-pics/`.
+**The folder's page of TV sets (F3 20260926-064737, "monitor programmes not
+playing in xbla extra menu").** `frontDrawTvs()` does its own `modelRender()`,
+so in the HD look every set showed Bean's dark glass until it named the model
+to `xblaMeshSetScreens()` as objRenderProp() does (c93b4c298). tv1 has no
+placeholder backing (its front face is one picture, glass included), so a
+programme that is mostly transparent - the radar - sweeps over Bean's glass
+there where the N64 set is black. The large view never used the mesh, but it
+ran the screen's list with no combiner or render mode of its own and took the
+folder's last one (the release's stamp blend drew the radar green with a black
+sweep, depending on the frame the page turned on); it applies the node's own
+render mode first now (2e4b5deaf). Probes: `~/wt/f3extra-rig/` (`run.sh`,
+`extra.gdb` the sets, `views.gdb` twelve programmes large).
+
+**The release's folder sat a 64th of each picture right and down (F3
+20260926-064819, "OHMSS and lion, crown, unicorn logo is clipped on the right
+side").** `beanFolderBuildList()` bound its pictures with texSelect's `ulst`
+2, the N64's half-texel tile origin; the renderer drops the bilerp's other
+half for the release's art (`exact_uv`), so the origin alone moved every
+picture half a `BEANFOLDER_TEXELS` texel - 8 pixels of the 512 page. The
+crest ends 1/60 of the page picture before the page's edge, so the unicorn
+was cut there, and the clamped OHMSS title lost its last S's right edge.
+Origin 0, as the glyphs have it (0f1b612d1). Check: fit the page picture's
+crest columns to the screen (`u = 0.963` should land on the page's edge).
 
 **Dam's modem screen and gate switches (F3 20260925-235034, 20260925-234625,
 HD Dam).** *"the wrong model ... it should be the monitor, not the gate
