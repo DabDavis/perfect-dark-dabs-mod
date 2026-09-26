@@ -26,6 +26,10 @@ void modloaderApplyStageModels(s32 stagenum);
 // is the remake's arenas only.
 extern s32 g_GexPlusMode;
 s32 modloaderStageIsRemake(s32 stagenum);
+// One of the remake's models (MODEL_REMAKE_FIRST + slot) on a stage of
+// Perfect Dark's, from the mod that brings it, until the next stage; -1 where
+// no mod has it or the stage is one of the remake's own
+s32 modloaderLendRemakeModel(s32 slot);
 
 // The GoldenEye remake's solo missions, from a mod's `missions` block: the
 // stage mission n registered as (0 for none), and how many there are.

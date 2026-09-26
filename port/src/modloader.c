@@ -914,6 +914,50 @@ void modloaderApplyStageModels(s32 stagenum)
 	}
 }
 
+/**
+ * One of the remake's models on a stage of Perfect Dark's: the model state
+ * modloaderApplyStageModels() left empty, filled from the mod's `models` block
+ * for the rest of the stage. For what one of GoldenEye's guns carries with it
+ * wherever it is played - the rocket its launcher holds and fires. Nothing is
+ * loaded here: the model is read into the stage's memory when something is
+ * first made of it, and a stage where nothing is takes no more than the file
+ * slot. A map of the remake's own is left to its block. The model's number,
+ * or -1.
+ */
+s32 modloaderLendRemakeModel(s32 slot)
+{
+	if (slot < 0 || slot >= NUM_REMAKE_MODELS) {
+		return -1;
+	}
+
+	if (g_ModelStates[MODEL_REMAKE_FIRST + slot].fileid) {
+		return MODEL_REMAKE_FIRST + slot;
+	}
+
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < g_NumModModels; i++) {
+		const struct modmodel *m = &g_ModModels[i];
+
+		if (m->slot == slot) {
+			const s32 fileid = modloaderRegister(m->modindex, "%s", m->name);
+
+			if (fileid > 0) {
+				g_ModelStates[MODEL_REMAKE_FIRST + slot].fileid = fileid;
+				g_ModelStates[MODEL_REMAKE_FIRST + slot].scale = m->scale;
+				g_ModelStates[MODEL_REMAKE_FIRST + slot].modeldef = NULL;
+				sysLogPrintf(LOG_NOTE, "modloader: stage 0x%02x: the remake's %s lent", g_Vars.stagenum, m->name);
+
+				return MODEL_REMAKE_FIRST + slot;
+			}
+		}
+	}
+
+	return -1;
+}
+
 static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modloaderScan *scan)
 {
 	char path[FS_MAXPATH + 1];

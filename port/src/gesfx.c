@@ -522,14 +522,19 @@ s32 geSfxPickup(s32 pdsound, struct prop *prop)
  * 101 the laser's stream, 245 the hoverbike. And 62, its HUD message beep, is
  * GoldenEye's tank: GoldenEye prints a message in silence, so it is silent.
  */
-s32 geSfxRemaps(s32 id)
+static s32 sfxRemappable(s32 id)
 {
 	switch (id) {
 	case 2: case 7: case 9: case 16: case 43: case 55: case 100: case 101: case 245:
 		return 0;
 	}
 
-	return id > 0 && id <= 261 && geSfxStage();
+	return id > 0 && id <= 261;
+}
+
+s32 geSfxRemaps(s32 id)
+{
+	return sfxRemappable(id) && geSfxStage();
 }
 
 s32 geSfxRemap(s32 id)
@@ -600,4 +605,81 @@ s32 geSfxNumRange(s32 id, f32 dist2, f32 dist3)
 	nummade++;
 
 	return 0x8000 | row;
+}
+
+/* ------------------------------------------------------------------------ */
+/* GoldenEye's guns on a stage of Perfect Dark's                             */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * On a converted level a GoldenEye gun's sounds are GoldenEye's by the remap
+ * above: its shot is GoldenEye's own number (gegunsShootSound()), and the
+ * clicks of a reload that its host's animation asks for are numbers under 262,
+ * which are GoldenEye's too. Everywhere else they were the host's - the PP7
+ * fired with the Falcon 2's shot, the shotguns with the Shotgun's (F3
+ * 20260924-035424, "in perfect dark mode, almost all goldeneye weapons use the
+ * wrong sound effects") - and the remap cannot be turned on for a whole stage
+ * of Perfect Dark's, whose own guns and walls play the same numbers. So the
+ * gun asks for GoldenEye's sample itself: the bank is loaded the first time
+ * one of its guns does (about 800 KB, from the heap, kept after), and nothing
+ * of Perfect Dark's own changes.
+ */
+s32 geSfxGuns(void)
+{
+	return sfxLoad();
+}
+
+s32 geSfxGunShot(s32 id)
+{
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		return geSfxStage() ? id : 0;
+	}
+
+	return sfxLoad() ? sfxPropNum(id) : 0;
+}
+
+// a sound number with a config -> the row appended for GoldenEye's sample
+// under the same config, + 1; -1 for none
+static s16 g_SfxGunRow[SND_RUSS_CAPACITY];
+
+s32 geSfxGunSound(s32 weaponnum, s32 soundnum)
+{
+	union soundnumhack num;
+	union soundnumhack raw;
+	s32 ours;
+	s32 row;
+
+	if (!WEAPON_IS_GE(weaponnum) || !soundnum || modloaderStageIsRemake(g_Vars.stagenum)) {
+		return soundnum;
+	}
+
+	num.packed = soundnum;
+	raw.packed = num.hasconfig ? g_AudioRussMappings[num.confignum].soundnum : num.packed;
+	raw.hasconfig = false;
+
+	if (sndIsMp3(raw.packed) || !sfxRemappable(raw.id) || !sfxLoad()) {
+		return soundnum;
+	}
+
+	if (raw.id == 62) {
+		return 0;
+	}
+
+	ours = geSfxGet(raw.id);
+
+	if (ours <= 0 || !num.hasconfig) {
+		return ours > 0 ? ours : soundnum;
+	}
+
+	// kept under the config, which is what a guard's shot is heard by
+	if (num.confignum >= SND_RUSS_CAPACITY || g_SfxGunRow[num.confignum] < 0) {
+		return ours;
+	}
+
+	if (g_SfxGunRow[num.confignum] == 0) {
+		row = sndAppendRussMapping(ours, g_AudioRussMappings[num.confignum].audioconfig_index);
+		g_SfxGunRow[num.confignum] = row >= 0 ? row + 1 : -1;
+	}
+
+	return g_SfxGunRow[num.confignum] > 0 ? 0x8000 | (g_SfxGunRow[num.confignum] - 1) : ours;
 }
