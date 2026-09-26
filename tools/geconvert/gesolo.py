@@ -69,10 +69,17 @@ OBJ_TAILS = {
     # is AUTOGUN below.
     0x0d: ((0x88, 0x64, 4, 1), (0x8c, 0x68, 4, 1),     # autogun: ymaxleft, ymaxright
            (0xa4, 0x80, 4, 1), (0xa8, 0x84, 4, 1)),    #          maxspeed, aimdist
+    # A security camera's sweep: the same fields as Perfect Dark's cctvobj, but
+    # GoldenEye keeps its s32 toleft among them (0xd4), so the run after it is
+    # 0x28 on. Left at nought until converter 73 (with the pad, CCTV below):
+    # every camera stood still, looking at pad 0.
+    0x06: ((0xcc, 0xa8, 4, 1), (0xd0, 0xac, 4, 1),     # cctv: yleft, yright
+           (0xdc, 0xb4, 4, 1), (0xe8, 0xbc, 4, 1)),    #       ymaxspeed, maxdist
 }
 # An autogun's pad - the one it rests facing - is GoldenEye's s32 at 0x80 and
 # Perfect Dark's s16 at 0x5c, -1 for none.
 AUTOGUN = 0x0d
+CCTV = 0x06
 # Glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and nothing
 # more, and Perfect Dark's portalnum is found at the load. Reading one anyway
 # takes the head of the next record.
@@ -680,6 +687,9 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
             for ge, pd, w, mul in OBJ_TAILS.get(t, ()):
                 v = int.from_bytes(raw[ge:ge + w], 'big') * mul
                 rec[pd:pd + w] = v.to_bytes(w, 'big')
+            if t == CCTV and len(raw) >= 0x84:
+                look = struct.unpack_from('>i', raw, 0x80)[0]
+                struct.pack_into('>H', rec, 0x5c, NO_PAD if look < 0 else pad_num(look, numpads))
             if t == AUTOGUN and len(raw) >= 0x84:
                 target = struct.unpack_from('>i', raw, 0x80)[0]
                 struct.pack_into('>H', rec, 0x5c, NO_PAD if target < 0 else pad_num(target, numpads))

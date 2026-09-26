@@ -4659,6 +4659,17 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		// is below, since it is a pad number.
 		{ 0x0d, 0x88, 0x64, 4 }, { 0x0d, 0x8c, 0x68, 4 },  // ymaxleft, ymaxright
 		{ 0x0d, 0xa4, 0x80, 4 }, { 0x0d, 0xa8, 0x84, 4 },  // maxspeed, aimdist
+		// A security camera's sweep: GoldenEye's CCTVRecord and Perfect
+		// Dark's cctvobj hold the same fields, but GoldenEye keeps its s32
+		// toleft among them (0xd4) where Perfect Dark moved it beside the pad
+		// (0x5e), so the run after it is 0x28 on rather than 0x24. Both loads
+		// convert yleft, yright and ymaxspeed out of 16.16 turns and maxdist
+		// out of an integer (prop.c's setupCctv(), setup.c's
+		// setupCreateCctv()). Left at nought until converter 73, with the pad
+		// below: every camera stood still, and looked at pad 0 - the tester's
+		// "cameras do not rotate" (Bunker) and "facing backwards" (Surface)
+		{ 0x06, 0xcc, 0xa8, 4 }, { 0x06, 0xd0, 0xac, 4 },  // yleft, yright
+		{ 0x06, 0xdc, 0xb4, 4 }, { 0x06, 0xe8, 0xbc, 4 },  // ymaxspeed, maxdist
 		// glass (0x2a) has no tail: GoldenEye's record is the ObjectRecord and
 		// nothing more, and Perfect Dark finds a pane's portal at the load
 	};
@@ -4724,6 +4735,13 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 				const int32_t target = bes32(raw, 0x80);
 
 				set16(rec, 0x5c, target < 0 ? 0xffff : padNum((uint32_t)target, numpads, 0));
+			}
+			if (t == 0x06 && recs.v[i].len >= 0x84) {
+				// the pad a camera looks at: GoldenEye's s32 at 0x80, Perfect
+				// Dark's s16 lookatpadnum at 0x5c, -1 for none (gesolo.py's CCTV)
+				const int32_t look = bes32(raw, 0x80);
+
+				set16(rec, 0x5c, look < 0 ? 0xffff : padNum((uint32_t)look, numpads, 0));
 			}
 			if (t == 0x0a && recs.v[i].len >= 0xfc) {
 				// A hanging TV's mount. GoldenEye's MonitorObjRecord ends
