@@ -47,6 +47,10 @@ extern f32 fabsf(f32);
 // a converted level's ladder taken from the top, and by whom: it keeps its hold
 static struct player *g_GeLadderTopPlayer = NULL;
 
+// how long each player's move has been held at the edge of a force-crouch tile
+// while the squat finishes (bwalk0f0c63bc())
+static s32 g_GeCrouchHoldTicks[MAX_PLAYERS];
+
 /**
  * The rooms one of the player's collision tests is asked of. On a level
  * converted from GoldenEye that is the portal walk's rooms and every room whose
@@ -1783,9 +1787,30 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 		target.y = g_Vars.currentplayer->prop->pos.y;
 		target.z = g_Vars.currentplayer->prop->pos.z + arg0->z;
 
+		bool hold = false;
+
 		if (geStanForcesCrouch(&target, g_Vars.currentplayer->vv_manground + 40.0f,
-					geStanRise(true), g_Vars.currentplayer->bond2.radius)) {
+					geStanRise(true), g_Vars.currentplayer->bond2.radius,
+					&g_Vars.currentplayer->prop->pos, &hold)) {
 			g_Vars.currentplayer->autocrouchpos = CROUCHPOS_SQUAT;
+		}
+
+		// and GoldenEye holds the move at the edge of such a tile until Bond
+		// is all the way down (bondviewTryMoveToStan(): a link into one is a
+		// wall to its walk until ducking_height_offset is the full squat).
+		// Walking straight on, the player was under Facility's duct roof with
+		// the squat a third done, and for a few frames his eye was over it,
+		// looking along the outside of the duct (F3 report 20260926-171016).
+		// The hold gives way after a second and a half whatever happens, so
+		// a squat that cannot finish never leaves the player rooted
+		if (hold && g_Vars.currentplayer->crouchoffset > -89.5f
+				&& g_GeCrouchHoldTicks[g_Vars.currentplayernum] < TICKS(90)) {
+			g_GeCrouchHoldTicks[g_Vars.currentplayernum] += g_Vars.lvupdate60;
+			return;
+		}
+
+		if (!hold || g_Vars.currentplayer->crouchoffset <= -89.5f) {
+			g_GeCrouchHoldTicks[g_Vars.currentplayernum] = 0;
 		}
 
 		// GoldenEye's climb. Its collision is the plan and nothing else: a
