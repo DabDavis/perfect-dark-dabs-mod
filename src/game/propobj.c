@@ -96,6 +96,8 @@
 #include "gexplus.h"
 #include "modloader.h"
 #include "gbiex.h"
+#include "romdata.h"
+#include "xblatables.h"
 #endif
 #endif
 
@@ -4955,6 +4957,27 @@ s32 glassCalculateOpacity(struct coord *pos, f32 xludist, f32 opadist, f32 arg3)
 	} else {
 		opacity = (((distance - xludist) * (1.0f - arg3)) / (opadist - xludist) + arg3) * 255;
 	}
+
+#ifndef PLATFORM_N64
+	{
+		// Glass See-Through (modGetGlassSeeThrough()): the fade stops short
+		// of opaque, keeping that share of the way back to the pane's clear
+		// look (arg3, its opacity up close). 255 is also what shuts the
+		// portal behind a tinted pane and a windowed door, so a pane held
+		// under it leaves the rooms beyond drawn at any distance - which is
+		// the see-through, and its cost. Off, this is stock to the bit.
+		s32 seethrough = modGetGlassSeeThrough();
+
+		if (seethrough > 0) {
+			s32 clear = arg3 * 255;
+			s32 cap = 255 - (255 - clear) * seethrough / 100;
+
+			if (opacity > cap) {
+				opacity = cap;
+			}
+		}
+	}
+#endif
 
 	return opacity;
 }
@@ -10900,6 +10923,18 @@ void glassUpdatePortal(struct prop *prop, s32 playercount, bool *arg2)
 
 	if (g_TintedGlassEnabled) {
 		glass->opacity = 255;
+#ifndef PLATFORM_N64
+	} else if (xblaTablesGetApplied() && mainGetStageNum() == STAGE_MP_AREA52
+			&& romdataFileIsStock(g_Stages[g_StageIndex].bgfileid)) {
+		// The XBLA release's own rule, read out of its glassUpdatePortal()
+		// (default.xex 0x82209158): after the script's switch and before the
+		// fade, Area 52's tinted panes are clear at any distance. It is the
+		// release's only change to the fade - the Villa's and every other
+		// level's windows go opaque there as on the N64 - and it is taken
+		// with the rest of its tables (xblatables.h) while the whole release
+		// is on, and only while Area 52 is the game's own.
+		glass->opacity = 0;
+#endif
 	} else {
 		glass->opacity = glassCalculateOpacity(&prop->pos, glass->xludist, glass->opadist, glass->unk64);
 	}

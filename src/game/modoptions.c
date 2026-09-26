@@ -82,6 +82,8 @@ struct modoptions g_ModOptions = {
 	false,                    // glareclip: stock draws the whole glare over whatever is in front of the light
 	false,                    // skipdeathscreen: stock's fall, red wash and fade before Press START
 	false,                    // quickweaponswap: stock's put-away and draw on every switch
+	false,                    // nofog: every level's own fog
+	0,                        // glassseethrough: stock's windows, opaque past their fade distance
 };
 
 /**
@@ -536,6 +538,40 @@ bool modIsXblaReflectCutoffOn(void)
 bool modIsGlareClipOn(void)
 {
 	return g_ModOptions.glareclip != 0;
+}
+
+/**
+ * Glass See-Through (Dab's Display page), 0 to 100: how much of its
+ * see-through a tinted window or a door's window keeps however far away it
+ * is. The game fades each one from its clear look at its xludist to opaque at
+ * its opadist - the Villa's at 300 and 600 units, so the house's windows are
+ * black panes from a few metres off - and shuts the portal behind it once it
+ * is opaque, so the rooms beyond it are not drawn. 0 is that; 20 keeps a
+ * fifth of the clear look at any distance, and because the pane is then never
+ * opaque its portal stays open and the rooms behind it are drawn through it
+ * as they are up close. glassCalculateOpacity() applies it.
+ *
+ * The cap alone is not enough in the N64 look: the game's mode 9 combiner
+ * (G_CC_CUSTOM_20/23) *adds* the pane's opacity to its texel alpha, so any
+ * texel with alpha over a fifth still clamps to opaque at 80%. While this is
+ * on, model.c lays the opacity over the texel instead (G_CC_CUSTOM_GLASS_LERP,
+ * the way the XBLA meshes' fade span always has), which is the same picture
+ * at nought opacity - a pane up close is unchanged - and leaves (1 - opacity)
+ * of the pane's own see-through everywhere else. The cost is every room
+ * behind every pane in view: 3-4x the draws looking at the Villa's windows
+ * from across a room or at Defection's towers from outside.
+ */
+s32 modGetGlassSeeThrough(void)
+{
+	s32 value = g_ModOptions.glassseethrough;
+
+	if (value < 0) {
+		value = 0;
+	} else if (value > 100) {
+		value = 100;
+	}
+
+	return value;
 }
 
 /**

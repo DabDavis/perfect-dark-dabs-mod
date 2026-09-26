@@ -175,6 +175,11 @@
 #define G_CC_CUSTOM_21  TEXEL1,    TEXEL0,      LOD_FRACTION, TEXEL0,      1,         0,           SHADE,         ENVIRONMENT
 #define G_CC_CUSTOM_22  TEXEL1,    TEXEL0,      LOD_FRACTION, TEXEL0,      SHADE,     ENVIRONMENT, TEXEL0,        0
 #define G_CC_CUSTOM_23  COMBINED,  0,           SHADE,        0,           1,         0,           PRIMITIVE,     COMBINED
+// Glass See-Through (modGetGlassSeeThrough()): the second cycle of 20 and 23
+// with the primitive alpha laid over the texel's as a blend, (1 - a) * prim + a,
+// where theirs adds it. A pane then keeps (1 - prim) of its own see-through
+// rather than going opaque as soon as prim reaches 1 - a. Identical at prim 0.
+#define G_CC_CUSTOM_GLASS_LERP  COMBINED,  0,     SHADE,        0,           1,         COMBINED,    PRIMITIVE,     COMBINED
 #define G_CC_CUSTOM_24  TEXEL1,    TEXEL0,      LOD_FRACTION, TEXEL0,      1,         SHADE,       ENVIRONMENT,   0
 #define G_CC_CUSTOM_25  TEXEL1,    TEXEL0,      LOD_FRACTION, TEXEL0,      1,         0,           ENVIRONMENT,   0
 #define G_CC_CUSTOM_26  TEXEL1,    TEXEL0,      LOD_FRACTION, TEXEL0,      TEXEL0,    0,           ENVIRONMENT,   0
