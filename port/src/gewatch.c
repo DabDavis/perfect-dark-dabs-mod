@@ -122,9 +122,9 @@
  * inventory and the briefing at 4.6, the control and options screens at 3.95
  * (options.c's watch_screen*_navigation(), each trigger_watch_zoom() to the
  * screen it goes to, over 15 sixtieths). They are vertical fields of view over
- * the player's viewport, so the face is the same size against the height of the
- * view on any window; a 16:9 one has the watch's own case either side of it,
- * where GoldenEye's 16:9 mode stretched the whole picture sideways.
+ * the player's viewport. On a window wider than 4:3 the view stands further out
+ * by one factor for every screen (watchWiden()), so the arm and the hand are
+ * beside the watch, where GoldenEye's 16:9 mode stretched the picture sideways.
  */
 #define WATCHZOOM1             4.6f
 #define WATCHZOOM2             5.9f
@@ -1509,19 +1509,69 @@ static void watchUpdateZoom(void)
 	viSetFovY(player->zoominfovy);
 }
 
+/**
+ * How much further out the view stands on a window wider than 4:3, so that the
+ * arm and the hand are either side of the watch (the user, 2026-09-19 and again
+ * 2026-09-26): 1 on 4:3, GoldenEye's own framing, and 11/5.9 by 16:9, which is
+ * the whole watch with the cuff and the hand beside it. Every screen's zoom is
+ * GoldenEye's times this, so the steps between the screens keep their ratios,
+ * and the words and items shrink with the face (watchFaceShrink()).
+ */
+#define WATCHZOOM_WIDE         11.0f
+#define WATCH_ASPECT_NARROW    (4.0f / 3.0f)
+#define WATCH_ASPECT_WIDE      (16.0f / 9.0f)
+
+static f32 watchWiden(void)
+{
+	const f32 t = (videoGetAspect() - WATCH_ASPECT_NARROW) / (WATCH_ASPECT_WIDE - WATCH_ASPECT_NARROW);
+
+	// 4:3, give or take a pixel
+	if (t <= 0.001f) {
+		return 1.0f;
+	}
+
+	if (t >= 1.0f) {
+		return WATCHZOOM_WIDE / WATCHZOOM2;
+	}
+
+	return (WATCHZOOM2 + (WATCHZOOM_WIDE - WATCHZOOM2) * t) / WATCHZOOM2;
+}
+
 /** Where each screen keeps the zoom (options.c's navigation functions). */
 static f32 watchPageZoom(s32 page)
 {
+	f32 zoom = WATCHZOOM2;
+
 	switch (page) {
 	case PAGE_INVENTORY:
 	case PAGE_BRIEFING:
-		return WATCHZOOM1;
+		zoom = WATCHZOOM1;
+		break;
 	case PAGE_CONTROL:
 	case PAGE_OPTIONS:
-		return WATCHZOOM3;
+		zoom = WATCHZOOM3;
+		break;
 	}
 
-	return WATCHZOOM2;
+	return watchWiden() == 1.0f ? zoom : zoom * watchWiden();
+}
+
+/**
+ * The face's size on the screen against GoldenEye's at the same screen: 1 on
+ * 4:3, and on a wider window the share of the view the face keeps under the
+ * widened zoom. The words and items are laid out on GoldenEye's frame shrunk by
+ * this about the middle of the view, which is where the face is.
+ */
+static f32 watchFaceShrink(void)
+{
+	const f32 w = watchWiden();
+	const f32 fovy = g_Vars.currentplayer->zoominfovy;
+
+	if (w == 1.0f || fovy <= 0.0f) {
+		return 1.0f;
+	}
+
+	return tanf(fovy / w * (M_PI / 360.0f)) / tanf(fovy * (M_PI / 360.0f));
 }
 
 // bondviewZoomToWatchOnOpen() and bondviewZoomFromWatchOnExit(): the duration
@@ -1529,9 +1579,10 @@ static f32 watchPageZoom(s32 page)
 // opens on the mission status (sub_GAME_7F0A69A8()).
 static void watchZoomIn(void)
 {
-	f32 f = ((WATCHZOOM2 - g_Vars.currentplayer->zoominfovy) * 45.0f) / -54.1f;
+	const f32 zoom = watchPageZoom(PAGE_MISSION);
+	f32 f = ((zoom - g_Vars.currentplayer->zoominfovy) * 45.0f) / -54.1f;
 
-	watchZoomTo(WATCHZOOM2, f < 0.0f ? -f : f);
+	watchZoomTo(zoom, f < 0.0f ? -f : f);
 }
 
 static void watchZoomOut(void)
@@ -3450,7 +3501,11 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	// the model is fogged towards, the room's shade on the way up and 0xcd of
 	// black with the watch open, which is how dark GoldenEye's open dial is
 	renderdata.unk30 = 4;
-	renderdata.envcolour = g_Watch.state == WS_OPEN || g_Watch.state == WS_CLOSING
+	//
+	// On a window wider than 4:3 the arm and the hand are in the picture beside
+	// the watch, and fogged that dark they read as a black mass: there the
+	// room's shade stays on the whole model, as it is on the way up.
+	renderdata.envcolour = (g_Watch.state == WS_OPEN || g_Watch.state == WS_CLOSING) && watchWiden() == 1.0f
 		? 0x000000cd
 		: (g_Vars.currentplayer->gunshadecol[0] << 24 | g_Vars.currentplayer->gunshadecol[1] << 16
 			| g_Vars.currentplayer->gunshadecol[2] << 8 | g_Vars.currentplayer->gunshadecol[3]);
@@ -3781,7 +3836,9 @@ static void watchGunSetPart(s32 part, s32 visible)
 
 static f32 watchFrameScaleY(void)
 {
-	return (f32)viGetViewHeight() / GE_VIEW_HEIGHT;
+	const f32 shrink = watchFaceShrink();
+
+	return shrink == 1.0f ? (f32)viGetViewHeight() / GE_VIEW_HEIGHT : (f32)viGetViewHeight() / GE_VIEW_HEIGHT * shrink;
 }
 
 // the frame buffer's columns are not square on a window of another shape
@@ -3798,6 +3855,11 @@ static f32 watchFrameX(f32 x)
 
 static f32 watchFrameY(f32 y)
 {
+	if (watchFaceShrink() != 1.0f) {
+		// about the middle of the view, which is GoldenEye's row 120
+		return viGetViewTop() + viGetViewHeight() * 0.5f + (y - WATCH_FRAME_H * 0.5f) * watchFrameScaleY();
+	}
+
 	return viGetViewTop() + (y - GE_VIEW_TOP) * watchFrameScaleY();
 }
 
@@ -3820,7 +3882,7 @@ static Gfx *watchItemProjection(Gfx *gdl, f32 fovy, f32 aspect, f32 near, f32 fa
 	guPerspectiveF(persp.m, &perspnorm, fovy, aspect, near, far, 1.0f);
 	mtx4LoadIdentity(&squeeze);
 	squeeze.m[0][0] = WATCH_FRAME_W * watchFrameScaleX() / (f32)viGetViewWidth();
-	squeeze.m[1][1] = 1.0f;
+	squeeze.m[1][1] = watchFaceShrink();
 	mtx4MultMtx4(&squeeze, &persp, &tmp);
 	guMtxF2L(tmp.m, projection);
 
@@ -4335,6 +4397,13 @@ static Gfx *watchDrawController(Gfx *gdl)
 static void watchTextFrame(void)
 {
 	const f32 sy = watchFrameScaleY();
+
+	if (watchFaceShrink() != 1.0f) {
+		gexFrontTextFrame(WATCH_FRAME_W, WATCH_FRAME_H,
+				viGetViewLeft(), (s32)(viGetViewTop() + viGetViewHeight() * 0.5f - WATCH_FRAME_H * 0.5f * sy),
+				viGetViewWidth(), (s32)(WATCH_FRAME_H * sy + 0.5f));
+		return;
+	}
 
 	gexFrontTextFrame(WATCH_FRAME_W, WATCH_FRAME_H,
 			viGetViewLeft(), (s32)(viGetViewTop() - GE_VIEW_TOP * sy),
