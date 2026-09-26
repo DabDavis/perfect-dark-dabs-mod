@@ -3763,7 +3763,37 @@ static u32 watchRowColour(s32 row, s32 cursor)
 	return g_Watch.selected ? COL_WHITE : COL_HIGHLIGHT;
 }
 
-/** draw_text_mission_status() and draw_abort_cancel_confirm(). */
+/**
+ * A point of GoldenEye's own 320x240 screen in the watch's text frame. The
+ * frame is GoldenEye's screen shrunk by WATCH_TEXT_SCALE, so the pages' text
+ * fits inside the face; an item's projection is GoldenEye's screen itself
+ * (WATCH_ITEM_FILL). Text that has to stand where GoldenEye puts it, beside an
+ * item, is placed through this so the two agree. It is the text's size that
+ * stays shrunk, not its place.
+ */
+// GoldenEye's text rows against its gauge ring, over the watch's text frame's:
+// its 240-row text screen is not the 230-row viewport its items are projected
+// over, so this is WATCH_ITEM_FILL / WATCH_TEXT_SCALE and a little more,
+// measured (the inventory list's rows and bar against the native port's), and
+// its rows sit WATCH_GE_TEXT_DY lower than the frame's centre puts them
+#define WATCH_GE_TEXT    1.40f
+#define WATCH_GE_TEXT_DY 4.0f
+
+static s32 watchGeX(f32 x)
+{
+	return (s32)(WATCH_FRAME_W * 0.5f + (x - WATCH_FRAME_W * 0.5f) * WATCH_GE_TEXT);
+}
+
+static s32 watchGeY(f32 y)
+{
+	return (s32)(WATCH_FRAME_H * 0.5f + (y + WATCH_GE_TEXT_DY - WATCH_FRAME_H * 0.5f) * WATCH_GE_TEXT);
+}
+
+/**
+ * draw_text_mission_status() and draw_abort_cancel_confirm(), at GoldenEye's
+ * places on the face (watchGeX()): shrunk towards the middle with the rest of
+ * the text, the abort row lay over the top of the gun GoldenEye stands below it.
+ */
 static Gfx *watchDrawMissionPage(Gfx *gdl)
 {
 	const char *status;
@@ -3772,10 +3802,10 @@ static Gfx *watchDrawMissionPage(Gfx *gdl)
 	u32 colour;
 
 	gdl = watchDrawGun(gdl, g_Watch.hadweapons ? g_Watch.weapons[HAND_RIGHT] : bgunGetWeaponNum(HAND_RIGHT), 0);
-	gdl = watchPrint(gdl, 0x65, YOFFSET_7, watchString(STR_QWATCH), COL_GREEN);
+	gdl = watchPrint(gdl, watchGeX(0x65), watchGeY(YOFFSET_7), watchString(STR_QWATCH), COL_GREEN);
 
-	x = 0x51;
-	y = YOFFSET_MISSIONSTATUS;
+	x = watchGeX(0x51);
+	y = watchGeY(YOFFSET_MISSIONSTATUS);
 	watchMeasure(watchString(STR_MISSIONSTATUS), &w, &h);
 	gdl = watchPrint(gdl, x, y, watchString(STR_MISSIONSTATUS), COL_GREEN);
 
@@ -3795,11 +3825,11 @@ static Gfx *watchDrawMissionPage(Gfx *gdl)
 
 	// abort: confirm cancel, which is the only way out of a mission here as it
 	// is in GoldenEye
-	gdl = watchPrint(gdl, 0x51, 0x4c, watchString(STR_ABORT),
+	gdl = watchPrint(gdl, watchGeX(0x51), watchGeY(0x4c), watchString(STR_ABORT),
 			g_Watch.selected ? COL_HIGHLIGHT : COL_DIM);
-	gdl = watchPrint(gdl, 0xbd, 0x4c, watchString(STR_CONFIRM),
+	gdl = watchPrint(gdl, watchGeX(0xbd), watchGeY(0x4c), watchString(STR_CONFIRM),
 			g_Watch.selected ? (g_Watch.confirm ? COL_WHITE : COL_GREEN) : COL_DIM);
-	gdl = watchPrint(gdl, 0x88, 0x4c, watchString(STR_CANCEL),
+	gdl = watchPrint(gdl, watchGeX(0x88), watchGeY(0x4c), watchString(STR_CANCEL),
 			g_Watch.selected ? (g_Watch.confirm ? COL_GREEN : COL_WHITE) : COL_DIM);
 
 	// draw_current_hand_item_and_ammo(): what is in the player's hands, under
@@ -3810,24 +3840,42 @@ static Gfx *watchDrawMissionPage(Gfx *gdl)
 
 		if (name) {
 			watchMeasure(name, &w, &h);
-			gdl = watchPrint(gdl, (s32)(WATCH_FRAME_W * 0.5f) - w / 2, YOFFSET_WEAPTEXT, name, COL_GREEN);
+			gdl = watchPrint(gdl, (s32)(WATCH_FRAME_W * 0.5f) - w / 2, watchGeY(YOFFSET_WEAPTEXT), name, COL_GREEN);
 		}
 	}
 
 	return gdl;
 }
 
+// draw_watch_inventory_page(), the US column
+#define INV_X         0x4e   // the list's left
+#define INV_BASE_Y    0x8c   // the top of its five-line window
+#define INV_LINE      12     // LINEHEIGHT()
+#define INV_ROWS      5
+#define INV_ROWCOLOUR 0x00aa00b0
+#define INV_BARCOLOUR 0x00800050
+
 /**
  * draw_watch_inventory_page(): what the player is carrying, with the cursor on
- * one of them, and that one's own model turning on the face beside the names
+ * one of them, and that one's own model turning on the face above the names
  * (watchDrawGun()).
+ *
+ * As GoldenEye lays it out: a window five lines tall at the bottom left of the
+ * face, the list scrolled so the cursor's item is on its third line, a bar
+ * behind that line as wide as the widest name, and that name drawn again in
+ * the light green over it. The list eases to a new cursor a third of the way
+ * a frame (game_options_inventory_navigation()). It stood in the middle of the
+ * face under the turning gun, with a "Left Hand" row and the item's name under
+ * the face, neither of which GoldenEye's inventory has (F3 20260926-093659 and
+ * the user after it).
  */
 static Gfx *watchDrawInventoryPage(Gfx *gdl)
 {
+	static s32 texty = 2 * INV_LINE;
 	const s32 count = invGetCount();
-	const s32 rows = 5;
-	s32 first = g_Watch.invrow - rows / 2;
-	s32 y = YOFFSET_1;
+	const s32 target = 2 * INV_LINE - g_Watch.invrow * INV_LINE;
+	s32 widest = 0;
+	s32 w, h;
 
 	if (count <= 0) {
 		return gdl;
@@ -3835,35 +3883,45 @@ static Gfx *watchDrawInventoryPage(Gfx *gdl)
 
 	gdl = watchDrawGun(gdl, invGetWeaponNumByIndex(g_Watch.invrow), 1);
 
-	if (first > count - rows) {
-		first = count - rows;
+	if (target < texty) {
+		texty = texty - (texty - target) / 3 - 1;
+	} else if (texty < target) {
+		texty = texty + (target - texty) / 3 + 1;
 	}
 
-	if (first < 0) {
-		first = 0;
-	}
-
-	for (s32 i = first; i < count && i < first + rows; i++) {
+	for (s32 i = 0; i < count; i++) {
 		const char *name = invGetNameByIndex(i);
 
 		if (name) {
-			gdl = watchPrint(gdl, XOFFSET_1, y, name, watchRowColour(i, g_Watch.invrow));
-		}
+			watchMeasure(name, &w, &h);
 
-		y += YINC;
+			if (w > widest) {
+				widest = w;
+			}
+		}
 	}
 
+	// the bar behind the cursor's line; the text's own widths are in the
+	// frame's units, GoldenEye's x in its screen's
 	{
-		const s32 weaponnum = invGetWeaponNumByIndex(g_Watch.invrow);
-		const char *name = weaponnum > 0 ? bgunGetName(weaponnum) : NULL;
-		s32 w, h;
+		const s32 top = watchGeY(INV_BASE_Y + 2 * INV_LINE + 1);
+		const s32 bottom = watchGeY(INV_BASE_Y + 3 * INV_LINE - 1);
 
-		if (name) {
-			watchMeasure(name, &w, &h);
-			gdl = watchPrint(gdl, (s32)(WATCH_FRAME_W * 0.5f) - w / 2, YOFFSET_WEAPTEXT, name, COL_HIGHLIGHT);
+		gdl = gexFrontFillRect(gdl, watchGeX(INV_X - 3), top, watchGeX(INV_X) + widest + 4, bottom, INV_BARCOLOUR);
+		gdl = gexFrontTextSetup(gdl);
+	}
+
+	for (s32 i = 0; i < count; i++) {
+		const s32 line = INV_BASE_Y + texty + i * INV_LINE;
+		const char *name = invGetNameByIndex(i);
+
+		// GoldenEye clips the list to its five lines
+		if (!name || line < INV_BASE_Y || line > INV_BASE_Y + (INV_ROWS - 1) * INV_LINE) {
+			continue;
 		}
 
-		gdl = watchPrint(gdl, XOFFSET_1, YOFFSET_ACTIONTEXT, watchString(STR_LEFTHAND), COL_DIM);
+		gdl = watchPrint(gdl, watchGeX(INV_X), watchGeY(line), name,
+				i == g_Watch.invrow && texty == target ? watchRowColour(i, g_Watch.invrow) : INV_ROWCOLOUR);
 	}
 
 	return gdl;
@@ -3901,7 +3959,10 @@ static Gfx *watchDrawControlPage(Gfx *gdl)
 		static const s32 names[] = { STR_FORWARD, STR_BACK, STR_SIDESTEP1, STR_UP, STR_DOWN };
 
 		for (s32 i = 0; i < (s32)(sizeof(names) / sizeof(names[0])); i++) {
-			gdl = watchPrint(gdl, XOFFSET_1, y, watchString(names[i]), COL_GREEN);
+			// out at GoldenEye's own left for the page's text, clear of the pad,
+			// which stands where GoldenEye's does (WATCH_ITEM_FILL) and ran
+			// over them at the text frame's XOFFSET_1
+			gdl = watchPrint(gdl, watchGeX(XOFFSET_1), y, watchString(names[i]), COL_GREEN);
 			y += YINC;
 		}
 	}
