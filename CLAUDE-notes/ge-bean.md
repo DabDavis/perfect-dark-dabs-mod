@@ -8221,6 +8221,36 @@ auto-close", `doorInit()` sets `openPosition = maxFrac` from it, and Perfect
 Dark's `OBJFLAG_DOOR_KEEPOPEN` is the same bit doing the same thing - so a door
 that is not drawn where you expect it is not necessarily a fault.
 
+## Caverns' eye and iris doors in the HD look (2026-09-26)
+
+F3 20260926-094343, Caverns in HD, "these doors are not correct": through an
+open iris door's hexagonal frame, the whole closed iris hung askew over the
+top-left of the frame. The skeleton fix above (converter 59) made the N64
+model's leaves move; the **HD** mesh never did. `gebeanBuildRigid()` laid
+every vertex on the first list's matrix, and on these two models the first
+list is a leaf's: the iris's part 2 (an inner leaf, under outer part 1), the
+eyelid's part 1 (the top lid). The build log said so -
+`rigid on matrix 2 of 13` / `rigid on matrix 1 of 3`. The fit
+(`geproptable.h`) was made in that leaf's space, so a shut door looked
+right and an open one drew the whole iris swung out with leaf 0 (and the
+eyelid's lower lid rose with the upper).
+
+Bean's own rigs have a bone on each hinge: `new/prop/dooriris` has 19 bones,
+1-6 on GoldenEye's outer parts (1 3 5 7 9 11) and 7-12 on the inner (2 4 ..
+12; 13-18 duplicate those), and the palette remap sends every vertex to one
+of 1-12; `new/prop/dooreyelid` has bones 1/4 on part 2 and 2/3 on part 1.
+Neither earlier bone pass looks for them - both walk down from the first
+list's matrix. A third pass, only for `g_Skel11`/`g_Skel13` when nothing
+else matched, sums each part's positions up to the root (the root's own is
+not applied: `doorInitMatrices()` writes matrix 0 from the prop), puts the
+fit's space at the first list's part, and gives each bone the part standing
+within 100 units of it; the vertex is stored relative to that part. Log line
+now ends `204 vertices on 18 bones over the model's own moving parts`
+(iris), `128 vertices on 4 bones` (eyelid). Verified by opening and shutting
+the pair from the report's camera in both looks: the HD leaves now retract
+into the frame and meet exactly where GoldenEye's N64 leaves do.
+Rig: `~/wt/f3-0926c-caverns/build/rig/doorshot.py` (VIEW=eye for the eyelid).
+
 ## An HD level is paired by GoldenEye's name for it, not by its rooms (2026-09-22)
 
 The user, after the credits audit and `ge-rom-first`: *"we exposed a bug that we
