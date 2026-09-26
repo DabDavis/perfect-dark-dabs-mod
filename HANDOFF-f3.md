@@ -1,9 +1,9 @@
 # F3 pass 2026-09-26 (GE mission logic) - handoff
 
 Branch `fix/f3-ge-mission-logic` (worktree /home/sdg/wt/f3gemission), based on
-dabs-mod 5ac4c3176. Not merged, not pushed. **Converter now 75** (was 71; 72 to 75
+dabs-mod 5ac4c3176. Not merged, not pushed. **Converter now 76** (was 71; 72 to 76
 are this branch's, one real change each). All 20 missions boot and run
-600 frames clean at converter 75 (~/wt/f3gemission-run/sweep.sh, sweep.out).
+1800 frames clean at converter 76 (~/wt/f3gemission-run/sweep1800.sh, sweep.out).
 
 Rig: `~/wt/f3gemission-run` (copy of ~/wt/f3cradle-run; `run.sh TAG PROBE` with
 STAGE/TMO/EXTRA env, `run2.sh` takes SAVE=save_hdbase for the HD look,
@@ -12,7 +12,7 @@ Facility 0x63, Silo 0x6b, Cradle 0x68, Surface 0x69 (the tester's differ).
 Probes in `~/wt/f3gemission-run/probes/`: keyrun.py (gadgetprobe2.py + HUD
 trace; gadgetprobe2 adds `hold:N` = trigger held N ticks), face.py (teleport in
 front of a chr, watch act/alert), ouru.py (Ourumov), dumplist.py (LISTS=0x414
-dumps a converted AI list with command lengths), cctv.py.
+dumps a converted AI list with command lengths), cctv.py, idle.py (CHRS= act/anim/pos every STEP; TELE= puts Bond by the first), place.py (Bond at PX/PY/PZ/ROOM/THETA, logs CHRS + shots), patcount.py (chr actions at AT).
 
 ## 1. Bunker GoldenEye key (231502, 231553) - FIXED + verified
 
@@ -36,14 +36,39 @@ dumps a converted AI list with command lengths), cctv.py.
 - Player-facing: after analysing, the key is in hand and must be THROWN (fire)
   to "leave original" - same as GoldenEye.
 
-## 2. Facility HD guards standing at spawn (225349, 225423) - NOT A BUG as measured
+## 2. Facility guards standing at spawn (225349, 225423) - FIXED, converter 76
 
-Guards in the shots (chr 39 in the toilet stall, the one under the stairs) run
-GoldenEye's global SIMPLE_GUARD list (0x807): stand still, no idle animations,
-until they see/hear Bond or see a shot/death. probes/face.py puts Bond in front
-of chr 39: surprised (act 18) then attacks (act 8) in both N64 and HD looks.
-Both tester shots have Bond behind the guard with a silenced PP7. Needs the
-tester/user to say what they expected (idle animations? reaction to noise?).
+The user asked for GoldenEye's idle. **GoldenEye's idle is the AI list's, not the
+chr tick's**: an ACT_STAND guard only loops the stance (chraction.c's
+chrlvIdleAnimationRelated(): ANIM_idle 0-120 at 0.25, ours already the same,
+row 1 = GE idle); the fidgets (yawn, swat flies, scratch leg/butt, adjust
+crotch, sneeze) are global list 3, GAILIST_PLAY_IDLE_ANIMATION (chraidata.c's
+m_IdleAnimations), CALLed only by GAILIST_STANDARD_GUARD (0x802) - about a 2/256
+chance a tick while stopped and not already animating. GAILIST_SIMPLE_GUARD
+(0x807) is "no clones, no animations" by design. Measured (probes/idle.py):
+Facility's 0x802 guards (chrs 0, 3, 12, 13, 16) already play them (ACT_ANIM,
+GE anims 1350-1354) - nothing to do there.
+
+**The real bug**: the two guards were never meant to stand. Facility's setup
+gives chr 39 list 0x406 = `guard_start_patrol(5)` then 0x807, and chr 44 (under
+the stairs) 0x401 = patrol 0; twelve Facility guards are on 0x401-0x407.
+GoldenEye's StartPatrol converted to PD's **aiSetPath (0x21) only**, which just
+stores the path; PD's aiStartPatrol (0x22) never followed, so **no GE Plus guard
+ever patrolled** (decomp setups: ~76 StartPatrols - Facility 7, Caverns 7, Dam
+7, Silo 15, Surface/Surface 2 16 each, Bunker, Runway, Aztec...).
+- converter 76 (geconvert.c writeSoloAilist(), gesolo.py GE_STARTPATROL_OP):
+  StartPatrol -> `0021 <path> 0022`. C and Python setups identical (ark, dam).
+- chraction.c chrStartPatrol(), remake stages only (geRoomActive()): GoldenEye's
+  set_actor_on_path() first step - a path pad in the guard's room within 100
+  units, else step 0 (not PD's nearest / resume step). PD missions unchanged.
+Verified: Facility 0x63 chrs 39/40/44/45 all ACT_PATROL from frame 1 and walk
+their paths (39 out through the double doors, 44 across the stairs room, 40
+upstairs), N64 and HD (save with XblaMeshes=1 - save_hdbase has it 0, so
+earlier "HD" runs in this rig were N64 levels); face.py: chr 44 surprised ->
+gopos -> attack, chr 39 (HD) attacks. PD stage 0x30: chr actions/positions at
+frame 600 identical old vs new binary. 20-mission sweep 1800 frames clean at 76.
+Open: not compared against the native GE oracle (decomp is unambiguous); PD's
+line-of-sight/gopos lead-in to the first step kept (GE walks it as a patrol).
 
 ## 3. Silo
 
