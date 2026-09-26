@@ -41,6 +41,8 @@ s32 modloaderGetStageProps(s32 stagenum, const char **from);
 
 // A Stage Loader map's fog table row from its mod's maps block, or NULL.
 struct fogenvironment *modloaderGetStageFog(s32 stagenum);
+// a mission's second sky, which its gas and sky switch fade to; NULL where it has none
+struct fogenvironment *modloaderGetStageFogAlt(s32 stagenum);
 struct nofogenvironment *modloaderGetStageNoFog(s32 stagenum);
 
 // A Stage Loader map's music from its mod's maps or missions block - main

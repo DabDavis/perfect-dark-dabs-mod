@@ -102,6 +102,8 @@ static s32 g_ModMissionStages[MODLOADER_MAX_MISSIONS];
 // And its sky and fog where the maps block gives them, else the default the
 // chooser falls back to for a stage no table names
 static struct fogenvironment g_ModStageFog[STAGE_MAX_ID + 1];
+// a mission's second sky (`altfog`): the one its gas and its sky switch fade to
+static struct fogenvironment g_ModStageFogAlt[STAGE_MAX_ID + 1];
 static struct nofogenvironment g_ModStageNoFog[STAGE_MAX_ID + 1];
 // And the music its line gives it, as its mod's own sequence numbers - the
 // GoldenEye remake's levels play GoldenEye's (gemusic.c): main theme,
@@ -484,29 +486,18 @@ static void modloaderSetStageNoFog(s32 stagenum, const char *name, const char *t
 	g_ModStageFog[stagenum].stage = 0;
 }
 
-static void modloaderSetStageFog(s32 stagenum, const char *name, const char *text)
+/** A fog row's seventeen values into `env`, filed under `stagenum`. */
+static bool modloaderParseFog(s32 stagenum, const char *text, struct fogenvironment *env)
 {
 	s32 v[7], clouds[3], water[3], height;
 	u32 sky, cloudrgb, waterrgb;
-
-	if (stagenum <= 0 || stagenum > STAGE_MAX_ID) {
-		return;
-	}
-
-	if (!strncmp(text, "nofog ", 6)) {
-		modloaderSetStageNoFog(stagenum, name, text + 6);
-		return;
-	}
 
 	if (sscanf(text, "%d %d %d %d %d %d %d %x %d %d %d %x %d %d %d %x %d",
 				&v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &sky,
 				&clouds[0], &clouds[1], &clouds[2], &cloudrgb,
 				&water[0], &water[1], &water[2], &waterrgb, &height) != 17) {
-		sysLogPrintf(LOG_WARNING, "modloader: %s: fog \"%s\" is not a fog row; the map keeps the default sky", name, text);
-		return;
+		return false;
 	}
-
-	struct fogenvironment *env = &g_ModStageFog[stagenum];
 
 	memset(env, 0, sizeof(*env));
 	env->stage = stagenum;
@@ -534,7 +525,44 @@ static void modloaderSetStageFog(s32 stagenum, const char *name, const char *tex
 	env->water_b = waterrgb;
 	env->clouds_height = height;
 
+	return true;
+}
+
+static void modloaderSetStageFog(s32 stagenum, const char *name, const char *text)
+{
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID) {
+		return;
+	}
+
+	if (!strncmp(text, "nofog ", 6)) {
+		modloaderSetStageNoFog(stagenum, name, text + 6);
+		return;
+	}
+
+	if (!modloaderParseFog(stagenum, text, &g_ModStageFog[stagenum])) {
+		sysLogPrintf(LOG_WARNING, "modloader: %s: fog \"%s\" is not a fog row; the map keeps the default sky", name, text);
+		return;
+	}
+
 	g_ModStageNoFog[stagenum].stage = 0;
+}
+
+/**
+ * A mission's `altfog`: GoldenEye's second sky for the level (its fog table's
+ * row for the level's id + 100), which bgfog.c's fogSwitchToSolosky2() fades
+ * the fog towards - Facility's gas cloud (propobj.c's gasTick()) and the sky
+ * switch of three more (aiSwitchToAltSky()).
+ */
+static void modloaderSetStageFogAlt(s32 stagenum, const char *name, const char *text)
+{
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID) {
+		return;
+	}
+
+	if (!modloaderParseFog(stagenum, text, &g_ModStageFogAlt[stagenum])) {
+		g_ModStageFogAlt[stagenum].stage = 0;
+		sysLogPrintf(LOG_WARNING, "modloader: %s: altfog \"%s\" is not a fog row; the mission has no second sky", name, text);
+	}
 }
 
 /**
@@ -562,6 +590,15 @@ struct fogenvironment *modloaderGetStageFog(s32 stagenum)
 	}
 
 	return &g_ModStageFog[stagenum];
+}
+
+struct fogenvironment *modloaderGetStageFogAlt(s32 stagenum)
+{
+	if (!modloaderGetStageFog(stagenum) || g_ModStageFogAlt[stagenum].stage != stagenum) {
+		return NULL;
+	}
+
+	return &g_ModStageFogAlt[stagenum];
 }
 
 struct nofogenvironment *modloaderGetStageNoFog(s32 stagenum)
@@ -687,6 +724,7 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 			char name[UTIL_MAX_TOKEN + 1] = { 0 };
 			char files[4][UTIL_MAX_TOKEN + 1] = { { 0 } };
 			char fog[UTIL_MAX_TOKEN + 1] = { 0 };
+			char altfog[UTIL_MAX_TOKEN + 1] = { 0 };
 			char music[UTIL_MAX_TOKEN + 1] = { 0 };
 			s32 mission;
 
@@ -711,12 +749,15 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 					}
 				}
 				const bool isfog = !strcmp(token, "fog");
+				const bool isaltfog = !strcmp(token, "altfog");
 				const bool ismusic = !strcmp(token, "music");
 				p = strParseToken(p, token, NULL);
 				if (which >= 0) {
 					snprintf(files[which], sizeof(files[which]), "%s", strUnquote(token));
 				} else if (isfog) {
 					snprintf(fog, sizeof(fog), "%s", strUnquote(token));
+				} else if (isaltfog) {
+					snprintf(altfog, sizeof(altfog), "%s", strUnquote(token));
 				} else if (ismusic) {
 					snprintf(music, sizeof(music), "%s", strUnquote(token));
 				}
@@ -743,6 +784,10 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 
 				if (fog[0]) {
 					modloaderSetStageFog(stageId, name, fog);
+				}
+
+				if (altfog[0]) {
+					modloaderSetStageFogAlt(stageId, name, altfog);
 				}
 
 				if (music[0]) {
@@ -1096,6 +1141,7 @@ void modloaderInit(void)
 	memset(g_ModStageMapNames, 0, sizeof(g_ModStageMapNames));
 	memset(g_ModMissionStages, 0, sizeof(g_ModMissionStages));
 	memset(g_ModStageFog, 0, sizeof(g_ModStageFog));
+	memset(g_ModStageFogAlt, 0, sizeof(g_ModStageFogAlt));
 	memset(g_ModStageHasMusic, 0, sizeof(g_ModStageHasMusic));
 	memset(g_ModStageProps, 0, sizeof(g_ModStageProps));
 	free(g_ModModels);

@@ -864,6 +864,24 @@ static const uint8_t *romImage(int32_t num, size_t *len)
 	return at + *len <= g_RomLen ? g_Rom + at : NULL;
 }
 
+// a fog row's 30 values after the id, as bgfog.c lists them
+static void fogRowValues(const uint8_t *d, double *r)
+{
+	for (int i = 0; i < 6; ++i) r[i] = bef32(d, 4 * i);
+	for (int i = 0; i < 3; ++i) r[6 + i] = be32(d, 24 + 4 * i);
+	for (int i = 0; i < 4; ++i) r[9 + i] = d[36 + i];
+	r[13] = bef32(d, 40);
+	r[14] = be16(d, 44);
+	r[15] = be16(d, 46);
+	for (int i = 0; i < 3; ++i) r[16 + i] = bef32(d, 48 + 4 * i);
+	r[19] = d[60];
+	r[20] = r[21] = r[22] = 0;
+	r[23] = bef32(d, 64);
+	r[24] = be16(d, 68);
+	r[25] = be16(d, 70);
+	for (int i = 0; i < 4; ++i) r[26 + i] = bef32(d, 72 + 4 * i);
+}
+
 // a level's one-player fog row (the 30 values after the id, as bgfog.c lists them)
 static int romFogRow(uint32_t levelid, double *r)
 {
@@ -871,7 +889,6 @@ static int romFogRow(uint32_t levelid, double *r)
 
 	for (size_t o = FOG_AT; o + FOG_ROW <= g_DataLen; o += FOG_ROW) {
 		const uint32_t lid = be32(g_Data, o);
-		const uint8_t *d = g_Data + o + 4;
 
 		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
 			break;
@@ -881,23 +898,35 @@ static int romFogRow(uint32_t levelid, double *r)
 			continue;
 		}
 
-		for (int i = 0; i < 6; ++i) r[i] = bef32(d, 4 * i);
-		for (int i = 0; i < 3; ++i) r[6 + i] = be32(d, 24 + 4 * i);
-		for (int i = 0; i < 4; ++i) r[9 + i] = d[36 + i];
-		r[13] = bef32(d, 40);
-		r[14] = be16(d, 44);
-		r[15] = be16(d, 46);
-		for (int i = 0; i < 3; ++i) r[16 + i] = bef32(d, 48 + 4 * i);
-		r[19] = d[60];
-		r[20] = r[21] = r[22] = 0;
-		r[23] = bef32(d, 64);
-		r[24] = be16(d, 68);
-		r[25] = be16(d, 70);
-		for (int i = 0; i < 4; ++i) r[26 + i] = bef32(d, 72 + 4 * i);
+		fogRowValues(g_Data + o + 4, r);
 		found = 1;
 	}
 
 	return found;
+}
+
+// A level's second sky (ENVIRONMENTDATA_ALT, id + 100): bgfog.c's
+// g_EnvironmentAltp is the row after the level's own, and the fog is faded
+// towards it by fogSwitchToSolosky2() - Facility's gas cloud, which closes the
+// fog from 5000 to 1000 and turns it green, the sky switch of Train, Aztec and
+// Egypt. Only a row that is the level's +100 is taken: for the rest the row
+// after is another level's, and GoldenEye never fades to it.
+static int romFogAltRow(uint32_t levelid, double *r)
+{
+	for (size_t o = FOG_AT; o + 2 * FOG_ROW <= g_DataLen; o += FOG_ROW) {
+		const uint32_t lid = be32(g_Data, o);
+
+		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
+			break;
+		}
+
+		if (lid == levelid && be32(g_Data, o + FOG_ROW) == levelid + 100) {
+			fogRowValues(g_Data + o + FOG_ROW + 4, r);
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 // GoldenEye's three sky pictures (image_bank.c's skywaterimages: clouds,
@@ -6594,6 +6623,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				textf(&missions, " fog \"");
 				fogValue(&missions, fog, offset, levelVisibility(lv->key));
 				textf(&missions, "\"");
+
+				if (romFogAltRow(lv->levelid, fog)) {
+					textf(&missions, " altfog \"");
+					fogValue(&missions, fog, offset, levelVisibility(lv->key));
+					textf(&missions, "\"");
+				}
 			} else if (romFoglessRow(lv->levelid, fog)) {
 				textf(&missions, " fog \"");
 				foglessValue(&missions, fog, offset, levelVisibility(lv->key));
