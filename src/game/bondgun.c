@@ -9481,6 +9481,16 @@ void bgunTickGameplay2(void)
 		bgun0f0a5550(HAND_LEFT);
 	} else {
 		player->hands[HAND_LEFT].ejectstate = EJECTSTATE_INACTIVE;
+#ifndef PLATFORM_N64
+		// Only bgun0f0a5550() clears visible, and stock always calls it for
+		// a hand going out of use on the ticks it is down (HANDMODE_6/7).
+		// Quick Weapon Swap takes those steps in one tick, so a left hand
+		// let go - the remote mine's detonator, an akimbo pair given up for
+		// a two-handed gun - stayed visible, and bgunRender() drew its gun
+		// on matrices from a frame long gone: a ghost gun flickering every
+		// other frame over the right hand's.
+		player->hands[HAND_LEFT].visible = false;
+#endif
 	}
 
 	bgunIsUsingSecondaryFunction();
