@@ -4401,9 +4401,23 @@ void chrChoke(struct chrdata *chr, s32 choketype)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// A body that carries its own head has no head row to ask: its headnum is
+	// 0 (body.c), row 0 is a man's, and GoldenEye's Natalya and Xenia yelped
+	// and died in a man's voice (F3 20260926-101852). A multiplayer head on
+	// such a body is not drawn either, so the body is the one to ask.
+	if (chr->bodynum >= 0 && chr->bodynum < NUM_HEADSANDBODIES
+			&& (g_HeadsAndBodies[chr->bodynum].unk00_01
+				|| chr->headnum <= 0 || chr->headnum >= NUM_HEADSANDBODIES)) {
+		male = g_HeadsAndBodies[chr->bodynum].ismale ? true : false;
+	} else if (g_HeadsAndBodies[chr->headnum].ismale) {
+		male = true;
+	}
+#else
 	if (g_HeadsAndBodies[chr->headnum].ismale) {
 		male = true;
 	}
+#endif
 
 	if (race == RACE_DRCAROLL) {
 		s16 sounds[] = {
