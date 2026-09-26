@@ -1110,4 +1110,131 @@ bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y)
 	return true;
 }
 
+/**
+ * GoldenEye's death camera's line (stanTestLineUnobstructed() and, where it
+ * stops, chrlvStanPointPointIntersection()): the walk from the tile under
+ * `from` (standing at or under from->y) along the line in plan to x1/z1.
+ * 1 when it ends on a tile holding the end, with that tile's room and its
+ * surface there; 0 when an edge stops it, with where the line leaves the last
+ * tile it reached in `hitx`/`hitz`; -1 where the level has no graph or `from`
+ * is over no tile.
+ */
+s32 geStanLineReach(struct coord *from, f32 x1, f32 z1, f32 *hitx, f32 *hitz, s32 *room, f32 *ground)
+{
+	const struct stantile *t;
+	const struct stanpoint *p;
+	f32 best = 0.0f;
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return -1;
+	}
+
+	tile = stanTileUnder(from->x, from->z, from->y, GESTAN_RISE);
+
+	if (tile < 0) {
+		return -1;
+	}
+
+	tile = stanWalkLine(tile, from->x, from->z, x1, z1, false);
+	t = &g_Stan.tiles[tile];
+
+	if (stanHolds(t, x1, z1)) {
+		*room = t->room;
+		*ground = stanSurface(t, x1, z1);
+		*hitx = x1;
+		*hitz = z1;
+		return 1;
+	}
+
+	// the furthest along the line that the last tile's edges cross it
+	p = &g_Stan.points[t->first];
+
+	for (s32 k = 0; k < t->npts; k++) {
+		const struct stanpoint *a = &p[k], *b = &p[(k + 1) % t->npts];
+		const f32 dx = x1 - from->x, dz = z1 - from->z;
+		const f32 ex = (f32)(b->x - a->x), ez = (f32)(b->z - a->z);
+		const f32 den = dx * ez - dz * ex;
+		f32 u, v;
+
+		if (den > -1e-6f && den < 1e-6f) {
+			continue;
+		}
+
+		u = ((a->x - from->x) * ez - (a->z - from->z) * ex) / den;
+		v = ((a->x - from->x) * dz - (a->z - from->z) * dx) / den;
+
+		if (u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f && u > best) {
+			best = u;
+		}
+	}
+
+	*hitx = from->x + (x1 - from->x) * best;
+	*hitz = from->z + (z1 - from->z) * best;
+	*room = t->room;
+	*ground = stanSurface(t, *hitx, *hitz);
+
+	return 0;
+}
+
+/**
+ * Whether the floor between `a` and `b` stays under the line joining them: the
+ * tile graph walked from the tile under `a` in steps of GESTAN_SIGHTSTEP, each
+ * step's surface held against the line's height there. A converted level's
+ * rolling ground - Jungle's mounds - is floor to the tile graph and nothing at
+ * all to Perfect Dark's own line of sight tests. Where the walk meets an edge
+ * with nothing across it the floor beyond is not the graph's to say, and the
+ * line is taken as clear from there. True with no graph.
+ */
+#define GESTAN_SIGHTSTEP 16.0f
+
+bool geStanSightClear(struct coord *a, struct coord *b)
+{
+	const f32 dx = b->x - a->x, dy = b->y - a->y, dz = b->z - a->z;
+	const f32 len = sqrtf(dx * dx + dz * dz);
+	f32 px = a->x, pz = a->z;
+	s32 steps;
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return true;
+	}
+
+	tile = stanTileUnder(a->x, a->z, a->y, 0.0f);
+
+	if (tile < 0) {
+		return true;
+	}
+
+	steps = (s32)(len / GESTAN_SIGHTSTEP);
+
+	for (s32 i = 1; i < steps; i++) {
+		const f32 t = (f32)i / (f32)steps;
+		const f32 x = a->x + dx * t, z = a->z + dz * t;
+
+		tile = stanWalkLine(tile, px, pz, x, z, false);
+
+		if (!stanHolds(&g_Stan.tiles[tile], x, z)) {
+			return true;
+		}
+
+		if (stanSurface(&g_Stan.tiles[tile], x, z) > a->y + dy * t) {
+			return false;
+		}
+
+		px = x;
+		pz = z;
+	}
+
+	return true;
+}
+
 #endif

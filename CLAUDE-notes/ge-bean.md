@@ -10913,3 +10913,49 @@ Checked on two rigs with GoldenEye X installed and the setting naming it
 42 (86 before), Dam's music GoldenEye's own, the mission's sound identical to
 the `auto` build. GoldenEye X loaded as the mod still boots its Temple and
 plays; GE Plus reports it shut. Probes in `~/wt/gex-out-probe/`.
+
+## GoldenEye's death replay (2026-09-26, F3 20260926-101804)
+
+The user, dying on Jungle in a GE Arenas match: "missing death cam replay that
+goldeneye employs". Perfect Dark kept GoldenEye's death up to the fade to black
+(the blood above) and dropped `CAMERAMODE_DEATH_CAM_SP`: the body put back where
+Bond died, the first person fall's own animation (and flip) replayed on it from
+frame 0 at 0.5, a camera at random round it (`pickDeathCameraAngles()`), a 60
+tick fade in, a 60 tick fade out when the body's animation ends
+(`CAMERAMODE_DEATH_CAM_MP`), three times (`camera_mode` 0..2), any of A/B/Z/START
+cutting it short. `port/src/gedeathcam.c` puts it back, from four hooks in
+player.c (`playerWantsThirdPerson()` builds the body, the dead branch of the
+camera, the solo `mainEndStage()` and the multiplayer respawn wait on
+`geDeathCamHolds()`), one in mplayer.c (no Press START over it) and one in
+`playerTickThirdPerson()` (the head, below). Rules: GoldenEye's content only
+(a mission, or an arena while `g_GexPlusMode`, as geblood.c), one human player
+(`getPlayerCount() == 1` - so a Combat Sim with one human replays, split screen
+does not), not under Skip Death Screen, the Randomizer, Mission Respawn or the
+tank. No setting: it is GoldenEye's death on GoldenEye's content, as the blood is.
+
+**The oracle recipe** (native GE port on 10.8.0.3): `PORT_DEMO=0`, gdb on
+`currentPlayerDrawFade`, `call bondviewKillCurrentPlayer()` a few frames into
+the demo, and a breakpoint on `ramromFadeToTitle` that `return`s - a demo is
+~450 HUD frames and ends mid-death otherwise. `call stop_demo_playback()` at the
+kill too. Scripts kept in `~/wt/f3-0926c-deathcam/caps/oracle/` (not in git;
+`death3.gdb` with `$KILLAT`/`$SPAN` substituted:
+print `g_CameraMode`, `camera_mode`, fade, fp and body anim frames,
+`flt_CODE_bss_800799E8` (camera) and `field_3C4` (look) per frame). With
+rendering on, `PORT_FRAME_FROM` is ~3400 for demo 0's first level and every
+HUD frame is one task.
+
+Traps:
+- **A body's matrices are floats only between its tick and its drawing.**
+  `model->matrices` read from `playerTick()` (next frame) gave the camera's own
+  position, and from `playerRenderHud()` garbage: the render converts them in
+  place to fixed point (`mtxF2L`). Read them right after `chrTick()` in
+  `playerTickThirdPerson()`, with `PROPFLAG_ONTHISSCREENTHISTICK` set - which is
+  where stock reads a body's root.
+- **Jungle's bushes have no collision** (and `objGetBbox()` is radius 1 for
+  them); PD's line of sight passed straight through a fern and the first replay
+  watched a wall of leaves. The bounding box rodata times `model->scale` (not
+  `modelGetEffectiveScale()`, over a thousand times that) is the test.
+- The line tests are the tile graph's (`geStanLineReach()`, `geStanSightClear()`
+  in gestan.c), as GoldenEye's are; PD's collision only where a level has none.
+- `--no-sound` makes every `geMusicSequence()` -1 (death tune and swoosh alike);
+  check music with `SDL_AUDIODRIVER=disk`.

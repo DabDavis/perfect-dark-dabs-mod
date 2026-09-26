@@ -101,6 +101,13 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach);
 
 /** Counters for a probe: walls asked about, walls left out, bodies found over no tile. */
+// GoldenEye's death camera's line along the tile graph (gedeathcam.c): 1 clear
+// to the end, 0 stopped at hitx/hitz, -1 no graph here
+s32 geStanLineReach(struct coord *from, f32 x1, f32 z1, f32 *hitx, f32 *hitz, s32 *room, f32 *ground);
+
+// Whether the tile graph's floor stays under the line from a to b
+bool geStanSightClear(struct coord *a, struct coord *b);
+
 extern s32 g_GeStanAsked;
 extern s32 g_GeStanSkipped;
 extern s32 g_GeStanNoTile;
