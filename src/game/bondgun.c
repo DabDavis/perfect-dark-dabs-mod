@@ -2974,6 +2974,93 @@ static void bgunQuickSwapLoad(void)
 		bgunTickMasterLoad();
 	}
 }
+
+/**
+ * Quick Weapon Swap: the new gun's equip animation is not played, but it is
+ * still put on the pose that animation leaves it in, because that pose is
+ * how the gun is held. Without an animation the gun model sits in its rest
+ * pose: the sniper rifle turned side-on, the left hand off it and out of
+ * sight (F3 20260925-222134).
+ *
+ * Two kinds of gun take their hold from the equip animation. A gun with
+ * WEAPONFLAG_00004000 - the sniper rifle, the CMP150, the AR34, 24 in all -
+ * is held on the animation's first frame for as long as it is out: its
+ * "equip animation" is often its reload or its shot, frozen at the start
+ * (hand->unk0cc8_02 stops the frames, and stock never clears it for these).
+ * Any other gun plays its animation through and stays on the last frame.
+ * So the model is set on that frame, with the part toggles the script has
+ * made by then (a left hand shown, a magazine hidden), and the hand is left
+ * idle, as stock ends. The script's sounds are not played - the draw is
+ * what the swap leaves out.
+ */
+static void bgunQuickSwapEquipPose(struct handweaponinfo *info, s32 handnum, struct hand *hand)
+{
+	struct modeldef *modeldef = bgunGetGunModelDefForHand(handnum);
+	bool held = weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00004000);
+	struct guncmd *cmd;
+	s16 animnum;
+	f32 speed;
+	s32 frame;
+	s32 numframes;
+	s32 i;
+	s32 j;
+	s32 count = 0;
+	s16 partnums[15];
+	bool partsvisible[15];
+	s32 partframes[15];
+
+	hand->animload = -1;
+
+	bgunStartAnimation(info->definition->equip_animation, handnum, hand);
+
+	animnum = hand->animload;
+	cmd = hand->unk0ce8;
+
+	hand->animload = -1;
+	hand->animmode = HANDANIMMODE_IDLE;
+
+	if (animnum < 0 || cmd == NULL || modeldef == NULL) {
+		return;
+	}
+
+	speed = cmd->unk04 / 10000.0f;
+	numframes = animGetNumFrames(animnum);
+
+	// How far into the animation the hold is, counted as bgun0f09815c()
+	// counts: from the end for one played backwards, which stock starts on
+	// its last frame
+	frame = held || numframes <= 0 ? 0 : numframes - 1;
+
+	modelSetAnimation(&hand->gunmodel, animnum, false, 0.0f, speed, 0.0f);
+	modelSetAnimFrame(&hand->gunmodel, speed < 0.0f ? numframes - frame : frame);
+
+	// The part toggles made by then, the latest for each part, as
+	// bgun0f0981e8() applies them
+	for (; cmd->type != GUNCMD_END; cmd++) {
+		if ((cmd->type == GUNCMD_SHOWPART || cmd->type == GUNCMD_HIDEPART) && cmd->unk02 <= frame) {
+			for (i = 0; i < count && partnums[i] != cmd->unk04; i++);
+
+			if (i == count) {
+				if (count >= (s32) ARRAYCOUNT(partnums)) {
+					continue;
+				}
+
+				partnums[i] = cmd->unk04;
+				partframes[i] = -1;
+				count++;
+			}
+
+			if (cmd->unk02 > partframes[i]) {
+				partframes[i] = cmd->unk02;
+				partsvisible[i] = cmd->type == GUNCMD_SHOWPART;
+			}
+		}
+	}
+
+	for (j = 0; j < count; j++) {
+		bgunSetPartVisible(partnums[j], partsvisible[j], hand, modeldef);
+	}
+}
 #endif
 
 s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
@@ -3132,6 +3219,13 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 						bgunStartAnimation(info->definition->equip_animation, handnum, hand);
 						hand->unk0cc8_02 = true;
 					}
+#ifndef PLATFORM_N64
+					else if (info->definition->equip_animation) {
+						// no draw, but the hold it ends on
+						bgunQuickSwapEquipPose(info, handnum, hand);
+						hand->unk0cc8_02 = true;
+					}
+#endif
 
 					hand->mode = HANDMODE_EQUIP;
 					hand->stateminor++; // to HANDSTATEMINOR_CHANGEGUN_RAISE
