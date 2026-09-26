@@ -14,6 +14,7 @@
  */
 
 #define GESFX_OPTION_CLICK2     18
+#define GESFX_OPTION_CHOOSE     43  // an option's value changed on the watch
 #define GESFX_PAPER_TURN        77  // a difficulty picked
 #define GESFX_GUN_RIFLE7BIG_1   111 // the gun barrel's shot
 #define GESFX_CAMERA_BEEP1      159 // the watch's beep
