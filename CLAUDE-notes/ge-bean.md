@@ -11047,3 +11047,32 @@ camera, `skipview.py` SKIP="m == 0x26c" skips a model's objRender,
 with two binaries, `all-with-debug.patch` has the GEBEAN_TEXLOG /
 STREAMLOG / DRAWLOG / VTXDBG dumps used to find each picture). Pictures in
 `~/wt/f3-0926c-hdfx-pics/`.
+
+## Lifted to the top of Dam's tower ladders (2026-09-26)
+
+F3 report 20260926-113743 (dab, 49783dc0d, GE Arenas Combat Sim, Dam, HD):
+"teleporting to top of ladder intermittently". The climb of 2f1c8a013
+(`geStanClimbFloor()`, Facility's conveyor) flooded from the tile underfoot
+across every link within the player's circle - and a ladder is a link: the
+tower ladders' two upright special-3 tiles (Dam 2396/2397 in room 72) join
+the ground at 13112 to the lip at 13433. Walking into a ladder, the circle
+touched the lip's edge (across it: a tile on edge, so `stanEdgeClimbs()`
+said climb), the lip was under the 175-over-the-eye limit, and the player
+was put on it in one frame - whenever that frame came before
+`cdFindLadder()` had taken hold of him, hence "intermittently" (a quick
+approach at an angle, or strafing along the ladder).
+
+**Fix:** the climb's flood stops at a ladder (`stanTileLadder()`: special
+3, or a tile on edge beside one, as geconvert's `stanClimb()` has it), and
+an edge into one is no climb. Wall skipping and the force-crouch flood still
+cross ladders. Only the three 321-high tower ladders (rooms 72, 75, 78)
+could do it: the two down the dam's face are 535, over the limit.
+
+Probe: `~/wt/f3-0926c-ladder-run/probes/ladsweep.py` (385 approaches per
+ladder in one boot - offsets along and past its ends, seven headings,
+forwards/half/creep/strafe - flags a ground rise over 60 in a frame):
+before 5, 6 and 2 teleports on the ladders of rooms 72, 75, 78; after none,
+and as many climbs reach the top. Up and down the room 72 ladder with
+`realwalk.py` unchanged (181 / 177 frames); Facility's conveyor still lifts
++118.9 (walk.py on 0x63); a 3000-frame roam of Cradle's walkway has no
+ground rise over 8.
