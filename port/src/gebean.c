@@ -6524,6 +6524,95 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 	}
 
+	// Caverns' eye and iris doors: every leaf is a part of its own, and the
+	// first list is a leaf's (the iris's part 2 - an inner leaf, under the
+	// outer one - and the eyelid's part 1, the top lid). The HD mesh was
+	// fitted in that leaf's space and laid whole on its matrix, so an open
+	// iris drew as one closed iris swung out with leaf 0, hanging askew over
+	// the top of its frame, and the eyelid's lower lid rose with the upper
+	// (F3 20260926-094343, "these doors are not correct"). Bean's own
+	// rigs have a bone on each leaf's hinge (the iris's 1 to 6 on GoldenEye's
+	// outer parts, 7 to 12 on the inner), which the two passes above never
+	// look for: they only go from the first list's matrix down. Here each
+	// part's place is the sum of its positions up to the root, the fit's
+	// space is the first list's part's, and a bone takes the part standing
+	// on it - so doorInitMatrices() turns each leaf on its own.
+	if (numparts == 0 && g->weaponnum < 0 && mtx != 0
+			&& (modeldef->skel == &g_Skel11 || modeldef->skel == &g_Skel13)) {
+		f32 mtxplace[3] = { 0, 0, 0 };
+		f32 places[GEBEAN_MAXMTX][3];
+		u8 have[GEBEAN_MAXMTX];
+		s32 found = 0;
+
+		memset(have, 0, sizeof(have));
+
+		for (s32 k = 0; k < numnodes; k++) {
+			const f32 *ppos = NULL;
+			s32 pmtx = -1;
+			const struct modelnode *pn = gebeanListPositionNode(nodes[k], &ppos, &pmtx);
+			const struct modelnode *up;
+			f32 place[3] = { 0, 0, 0 };
+			s32 walked = 0;
+
+			if (!pn || (pn->type & 0xff) != MODELNODETYPE_POSITION || pmtx <= 0 || pmtx >= nummatrices) {
+				continue;
+			}
+
+			for (up = pn; up && walked < 64; up = up->parent, walked++) {
+				if ((up->type & 0xff) == MODELNODETYPE_POSITION && up->rodata->position.part > 0) {
+					place[0] += up->rodata->position.pos.x;
+					place[1] += up->rodata->position.pos.y;
+					place[2] += up->rodata->position.pos.z;
+				}
+			}
+
+			memcpy(places[pmtx], place, sizeof(place));
+			have[pmtx] = 1;
+
+			if (pmtx == mtx) {
+				memcpy(mtxplace, place, sizeof(place));
+				found = 1;
+			}
+		}
+
+		for (s32 b = 0; found && b < bm.numbones && b < BEAN_MAXBONES; b++) {
+			f32 at[3];
+			f32 bestdist = 100.0f * 100.0f;
+
+			for (s32 k = 0; k < 3; k++) {
+				const f32 p = g->sign[k] * bm.bind[b][g->perm[k]];
+
+				at[k] = (p - g->beancentre[k]) * g->scale + g->n64centre[k] + mtxplace[k];
+			}
+
+			for (s32 m = 1; m < nummatrices; m++) {
+				f32 dist;
+
+				if (!have[m]) {
+					continue;
+				}
+
+				dist = (at[0] - places[m][0]) * (at[0] - places[m][0])
+					+ (at[1] - places[m][1]) * (at[1] - places[m][1])
+					+ (at[2] - places[m][2]) * (at[2] - places[m][2]);
+
+				if (dist < bestdist) {
+					bestdist = dist;
+					bonemtx[b] = m;
+
+					// relative to the part, in the fit's (the first list's part's) space
+					for (s32 k = 0; k < 3; k++) {
+						bonepos[b][k] = places[m][k] - mtxplace[k];
+					}
+				}
+			}
+
+			if (bonemtx[b] >= 0) {
+				numparts++;
+			}
+		}
+	}
+
 	// a gun's painted muzzle flash; a prop has none, and a flat end of one is
 	// its own geometry
 	if (g->weaponnum >= 0) {

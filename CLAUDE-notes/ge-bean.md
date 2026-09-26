@@ -8221,6 +8221,76 @@ auto-close", `doorInit()` sets `openPosition = maxFrac` from it, and Perfect
 Dark's `OBJFLAG_DOOR_KEEPOPEN` is the same bit doing the same thing - so a door
 that is not drawn where you expect it is not necessarily a fault.
 
+## Caverns' eye and iris doors in the HD look (2026-09-26)
+
+F3 20260926-094343, Caverns in HD, "these doors are not correct": through an
+open iris door's hexagonal frame, the whole closed iris hung askew over the
+top-left of the frame. The skeleton fix above (converter 59) made the N64
+model's leaves move; the **HD** mesh never did. `gebeanBuildRigid()` laid
+every vertex on the first list's matrix, and on these two models the first
+list is a leaf's: the iris's part 2 (an inner leaf, under outer part 1), the
+eyelid's part 1 (the top lid). The build log said so -
+`rigid on matrix 2 of 13` / `rigid on matrix 1 of 3`. The fit
+(`geproptable.h`) was made in that leaf's space, so a shut door looked
+right and an open one drew the whole iris swung out with leaf 0 (and the
+eyelid's lower lid rose with the upper).
+
+Bean's own rigs have a bone on each hinge: `new/prop/dooriris` has 19 bones,
+1-6 on GoldenEye's outer parts (1 3 5 7 9 11) and 7-12 on the inner (2 4 ..
+12; 13-18 duplicate those), and the palette remap sends every vertex to one
+of 1-12; `new/prop/dooreyelid` has bones 1/4 on part 2 and 2/3 on part 1.
+Neither earlier bone pass looks for them - both walk down from the first
+list's matrix. A third pass, only for `g_Skel11`/`g_Skel13` when nothing
+else matched, sums each part's positions up to the root (the root's own is
+not applied: `doorInitMatrices()` writes matrix 0 from the prop), puts the
+fit's space at the first list's part, and gives each bone the part standing
+within 100 units of it; the vertex is stored relative to that part. Log line
+now ends `204 vertices on 18 bones over the model's own moving parts`
+(iris), `128 vertices on 4 bones` (eyelid). Verified by opening and shutting
+the pair from the report's camera in both looks: the HD leaves now retract
+into the frame and meet exactly where GoldenEye's N64 leaves do.
+Rig: `~/wt/f3-0926c-caverns/build/rig/doorshot.py` (VIEW=eye for the eyelid).
+
+## Shooting out GoldenEye's lights (2026-09-26)
+
+F3 20260926-094614, Caverns in HD, "can't shoot out the lights xbla". Not an
+HD fault: it held in the N64 look too (nine hits on a lamp from the report's
+camera, none broke it). GoldenEye breaks a fixture when a shot lands on any
+triangle drawn with one of its ten light textures, darkens the fixture's
+vertices to a quarter (`>> 2`) and sheds glass (`lightfixture.c`).
+Caverns' hanging lamp is a hexagonal prism with `IMAGE_HANGING_LAMP` (428) on
+all 24 faces, but `fixtureLights()` (geconvert.c, and the .py) only collects
+**G_TRI1** light triangles - GoldenEye draws most of them with G_TRI4 - so
+each lamp became two Perfect Dark lights of one triangle each, 11 units
+across, at its top and bottom cap. Perfect Dark breaks a light only when the
+shot's line crosses its rectangle, and a shot at the lamp's side stops on the
+glass 3-16 units short of both. When one did break, only the glare went and
+the room dimmed; the lamp stayed white.
+
+`port/src/gelights.c`, remake stages only: `lightsHandleHit()` first asks
+`geLightsHandleHit()`, which breaks a light when the hit (2 units into the
+surface) lies in its box grown by 16, and then every light of the room within
+100 (manhattan, GoldenEye's spread) of it - the lamp goes out whole.
+`roomSetLightBroken()` (explosions too) darkens the room's vertices in the
+box: the N64 conversion gives every vertex its own colour at its own index
+(`numcolours == numvertices`), so that colour goes to a quarter; an HD room
+has one palette of up to 64 (gebeanstage.c `writeLeaf()`), so the vertex's
+colour byte takes the entry nearest a quarter of its colour. Which kind a
+room is comes from `xblaStageIsRelease()` while `bgLoadRoom()` loads it
+(`gebeanStageRoomSize()` is non-zero in the N64 look too - the first try
+remapped N64 vertices through a "palette"). `geLightsRoomLoaded()` darkens
+the broken fixtures again whenever a room reloads. Glass: `shardCreate()`
+over the box (now in shards.h). Log lines `gelights: room R light L shot
+out, N vertices darkened`; every Caverns light darkens 28-44 vertices (room
+53's wall lamps 74-76, all lamp), Dam's five 12-44.
+
+The converter is left alone: the whole prism's normals sum to zero, which
+`fixtureLights()` drops, and any change there rewrites every level's file.
+Rig: `~/wt/f3-0926c-caverns/build/rig/lightshot.py` (report camera; LIGHT=16
+CAM=954,120,3470 for a close look; RELOAD=1 unloads room 16 and comes back),
+`lightsweep.py` (every light, counts). Stdout is block-buffered - `call
+(int)fflush(0)` before `kill` or the last log lines are lost.
+
 ## An HD level is paired by GoldenEye's name for it, not by its rooms (2026-09-22)
 
 The user, after the credits audit and `ge-rom-first`: *"we exposed a bug that we
