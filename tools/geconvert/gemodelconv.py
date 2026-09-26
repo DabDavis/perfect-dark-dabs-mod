@@ -54,7 +54,7 @@ GEPROP = '/home/sdg/perfect-dark/claude-007/007/assets/obseg/prop'
 # which is not converted.
 SKEL_BASIC = 2
 GE_SKELETONS = {
-    0x8003a05c: SKEL_BASIC,  # cctv
+    0x8003a05c: 0x0f,        # cctv -> g_SkelCctv (4 switches; converter 74: the lens shot)
     0x8003a070: SKEL_BASIC,  # console_one_screen
     0x8003a084: SKEL_BASIC,  # console_four_screen
     0x8003a0b0: SKEL_BASIC,  # tv_holder
@@ -76,7 +76,7 @@ def prop_skel(skeleton, numswitches):
     """The Perfect Dark skeleton id for a GoldenEye prop's skeleton pointer.
     A windowed door needs its four switches: box, toggle, box, glass."""
     skel = GE_SKELETONS.get(skeleton, SKEL_BASIC)
-    if skel == 0x10 and numswitches < 4:
+    if skel in (0x0f, 0x10) and numswitches < 4:
         return SKEL_BASIC
     if skel == 0x03 and numswitches < 3:
         return SKEL_BASIC

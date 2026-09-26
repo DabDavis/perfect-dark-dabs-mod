@@ -5631,8 +5631,8 @@ static size_t texDataSize(uint32_t width, uint32_t height, uint32_t level, uint3
  * of Facility's, Bunker's, Surface's and Train's doors stopped every shot.
  *
  * The rest are named here for what they are and left at SKEL_BASIC: their
- * models are one matrix or are posed by their object type (a CCTV, an autogun,
- * a mount).
+ * models are one matrix or are posed by their object type (an autogun, a
+ * mount). The CCTV is carried across for its lens (below).
  */
 static uint32_t propSkel(uint32_t skeleton, int32_t numswitches)
 {
@@ -5647,7 +5647,14 @@ static uint32_t propSkel(uint32_t skeleton, int32_t numswitches)
 		// skeleton just as GoldenEye's does by skeleton_prop_weapon - as
 		// SKEL_BASIC a guard's gun never flashed
 		return numswitches >= 3 ? 0x03 : 2;
-	case 0x8003a05c:               // cctv
+	case 0x8003a05c:               // cctv -> g_SkelCctv
+		// switch for switch: 0 the casing's position, 1 the lens, 3 the
+		// toggle; GoldenEye multiplies a shot that lands on the lens by a
+		// hundred and breaks the glass (propobj.c, Switches[1]), and Perfect
+		// Dark does the same only by g_SkelCctv - as SKEL_BASIC a camera
+		// took the same damage wherever it was hit (F3 20260925-231244).
+		// Converter 74
+		return numswitches >= 4 ? 0x0f : 2;
 	case 0x8003a070:               // console_one_screen
 	case 0x8003a084:               // console_four_screen
 	case 0x8003a0b0:               // tv_holder
