@@ -5121,6 +5121,89 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
  * 2 = fumbling grenade from right hand (due to nbomb)
  * 3 = fumbling grenade from left hand (actually not possible)
  */
+#ifndef PLATFORM_N64
+/**
+ * Third person: turn a throw from the hands towards what the crosshair is on.
+ *
+ * The throw's direction is the shot's, and the shot is a ray from the camera
+ * through the crosshair (third-person.md). A bullet travels down that ray, so
+ * it lands where the crosshair is from any camera; a thrown thing is launched
+ * from the hands, and along a direction parallel to the ray it misses the
+ * crosshair by the camera's offset - Camera Height above it, Camera Sideways
+ * beside it. First person never does, because there the ray starts at the eye.
+ *
+ * The throws with FUNCFLAG_CALCULATETRAJECTORY (the mines, the grenades) did
+ * already aim an arc at the point under the crosshair, but only within 20
+ * degrees of this direction, and close in from a camera behind the shoulder the
+ * line from the hands is further round than that: the arc was capped short of
+ * the point. Starting from the line to the point, the cap has nothing to do.
+ *
+ * So the ray is traced (the same query propFindAimingAt() makes) and the
+ * direction becomes the line from the spawn point to where it stops. A ray
+ * that reaches nothing, or stops behind the hands, leaves the direction as it
+ * was. The hands' laser dot is the query's by-product and is put back.
+ */
+static void bgunAimThrowAtCrosshair(s32 handnum, struct coord *spawnpos, struct coord *gunpos2d,
+		struct coord *gundir2d, struct coord *gundir)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct coord eyeoffset;
+	struct coord gunpos3d;
+	struct coord gundir3d;
+	struct coord aim;
+	struct coord dir;
+	bool hadinfo[2];
+	struct coord dotpos[2];
+	struct coord dotrot[2];
+	bool found;
+	f32 len;
+	s32 i;
+
+	if (!playerGetCameraToEyeOffset(&eyeoffset)) {
+		return;
+	}
+
+	for (i = 0; i < 2; i++) {
+		hadinfo[i] = player->hands[i].hasdotinfo;
+		dotpos[i] = player->hands[i].dotpos;
+		dotrot[i] = player->hands[i].dotrot;
+		player->hands[i].hasdotinfo = false;
+	}
+
+	mtx4TransformVec(camGetProjectionMtxF(), gunpos2d, &gunpos3d);
+	mtx4RotateVec(camGetProjectionMtxF(), gundir2d, &gundir3d);
+
+	shotCalculateHits(handnum, false, gunpos2d, gundir2d, &gunpos3d, &gundir3d, 0, 4294836224, false);
+
+	found = player->hands[HAND_RIGHT].hasdotinfo;
+	aim = player->hands[HAND_RIGHT].dotpos;
+
+	for (i = 0; i < 2; i++) {
+		player->hands[i].hasdotinfo = hadinfo[i];
+		player->hands[i].dotpos = dotpos[i];
+		player->hands[i].dotrot = dotrot[i];
+	}
+
+	if (!found) {
+		return;
+	}
+
+	dir.x = aim.x - spawnpos->x;
+	dir.y = aim.y - spawnpos->y;
+	dir.z = aim.z - spawnpos->z;
+
+	len = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+
+	if (len < 1.0f || dir.x * gundir->x + dir.y * gundir->y + dir.z * gundir->z <= 0.0f) {
+		return;
+	}
+
+	gundir->x = dir.x / len;
+	gundir->y = dir.y / len;
+	gundir->z = dir.z / len;
+}
+#endif
+
 void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 {
 	struct coord velocity = {0, 0, 0};
@@ -5199,7 +5282,20 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 	playerSetPerimEnabled(playerprop, true);
 
 	bgunCalculatePlayerShotSpread(&gunpos, &gundir, handnum, true);
+
+#ifndef PLATFORM_N64
+	{
+		struct coord gundir2d = gundir;
+
+		mtx4RotateVecInPlace(camGetProjectionMtxF(), &gundir);
+
+		if (!droppinggrenade) {
+			bgunAimThrowAtCrosshair(handnum, &spawnpos, &gunpos, &gundir2d, &gundir);
+		}
+	}
+#else
 	mtx4RotateVecInPlace(camGetProjectionMtxF(), &gundir);
+#endif
 
 	if (droppinggrenade) {
 		// Dropping a grenade because player is in an nbomb storm
