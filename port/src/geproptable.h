@@ -83,6 +83,7 @@
 	PROPROW("Pgx114Z", "prop/gasbarrels", 0, 1, 2, 1, 1, 1, 6.99945f, 0.00f, 0.00f, 0.00f, 233.33f, -592.09f, -233.30f), // gasbarrels, 100%
 	PROPROW("Pgx115Z", "prop/bodyarmour", 0, 1, 2, 1, 1, 1, 0.21285f, 0.00f, 0.00f, 0.00f, -5.08f, 135.71f, 170.14f), // bodyarmour, 100%
 	PROPROW("Pgx116Z", "prop/bodyarmourvest", 0, 1, 2, 1, 1, 1, 0.21289f, 0.00f, 0.00f, 0.00f, 0.00f, 198.28f, 298.17f), // bodyarmourvest, 100%
+	PROPROW("Pgx117Z", "prop/gastank", 0, 1, 2, 1, 1, 1, 2.00001f, 0.00f, 0.00f, 0.00f, -34500.16f, 750.00f, 11500.05f), // gastank, 100%
 	PROPROW("Pgx119Z", "prop/hatchbolt", 0, 1, 2, 1, 1, 1, 2.00000f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f), // hatchbolt, 100%
 	PROPROW("Pgx120Z", "prop/brakeunit", 0, 1, 2, 1, 1, 1, 1.99999f, 0.00f, 0.00f, 0.00f, 186.53f, 700.00f, 338.49f), // brakeunit, 100%
 	PROPROW("Pgx122Z", "prop/m16mag", 0, 1, 2, 1, 1, 1, 0.21310f, 0.00f, 0.00f, 0.00f, 311.41f, 388.59f, 35.25f), // m16mag, 100%
