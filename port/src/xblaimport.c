@@ -299,10 +299,15 @@ static void xblaCollectName(const char *name, void *arg)
 		list->max = max;
 	}
 
-	list->names[list->count] = strdup(name);
+	{
+		// no strdup: the build is plain C11
+		size_t len = strlen(name) + 1;
+		char *copy = malloc(len);
 
-	if (list->names[list->count]) {
-		list->count++;
+		if (copy) {
+			memcpy(copy, name, len);
+			list->names[list->count++] = copy;
+		}
 	}
 }
 
