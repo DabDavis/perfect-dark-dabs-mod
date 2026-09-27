@@ -12224,3 +12224,20 @@ berets, one chr fewer at the frame); Surface has none in either. Probe
 `~/wt/f3-0927b-hats-rig/hats.py` (SHOOTHAT=1 hits the hat through
 `chrDamage(..., HITPART_HAT)`).
 
+### 13th F3 pass: props with no HD row (fix/f3-0927b-hdprops, 2026-09-27)
+
+- **Jungle's drone guns "N64" (F3 20260927-192053)**: they are the release's own. `Pgx299Z <- new/prop/groundgun`
+  builds and draws (log line, black-spotted 256px camo). Bean's HD groundgun is GoldenEye's geometry (206 verts,
+  108 tris vs 186/98) with bigger pictures; roofgun likewise (110/57 both). Only gunrunway1 was remodelled
+  (302 tris vs 80). Nothing to map. (Early probe runs missed the log line: kill loses buffered stdout -
+  `call (void)fflush(0)` before `kill`.)
+- **Sweep of all 20 missions** (`~/wt/f3-0927b-hdprops-run/probes/objs.py`, `gebeanFindRow()` per placed model):
+  placed props with no row were desk1 (10 missions), tvscreen/tv4screen, glassware1, doorstatgate, card_box6_lg,
+  disc_reader, the five st_pete_room props (Streets' road/building blocks), chrplastique, the Cradle helicopter.
+- propfit.py: `ALIAS` (card_box4/5/6_lg -> cardbox4/5/6, disc_reader -> diskreader, st_pete_room_* ->
+  pstpeteroom*), Bean vertex bound 1e8 (Statue's gate is in its 1248x frame), and a plain fit (identity axes,
+  one scale agreeing on all extents to 1%, boxes centred, scored on GoldenEye's side) for release copies with
+  more vertices than GoldenEye's (desk1, glassware1 had scored 0). 12 rows added.
+- Left without: tvscreen/tv4screen (the release's files have no .gpu - no geometry; GE Plus draws the programme),
+  chrplastique (the release's is another shape, extents 0.25/0.24/0.29), helicopter (fits at 0.65 but GoldenEye's
+  model carries Natalya inside - 1003 of its vertices - which the release's lacks; a rigid swap would lose her).
