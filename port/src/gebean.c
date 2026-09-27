@@ -2458,6 +2458,7 @@ struct beandraw {
 	u8 ownmat;    // a material set since its vertex shader was (record 0x02)
 	u32 vs;       // that vertex shader's record (0x02), which draws of one kind share
 	u8 reflamount; // how much of its sphere-mapped pair it adds, 0 for none (beanWalkStream())
+	u32 matcolour; // its material's pixel shader constant 13 (c_constant1) as ARGB, white for none
 	u16 reflspot; // and the pair: the spot map, then the landscape
 	u16 reflenv;
 	u8 numpal;
@@ -3205,6 +3206,7 @@ static void beanWalkStream(struct beanmodel *bm)
 	s32 reflform = 0;
 	u16 reflspot = 0;
 	u16 reflenv = 0;
+	u32 matcolour = 0xffffffff;
 
 	pal[0] = 0;
 
@@ -3301,6 +3303,7 @@ static void beanWalkStream(struct beanmodel *bm)
 			tex = beanMaterialTexture(bm, st, pc, size, len);
 			ownmat = 1;
 			alpha = 0xff;
+			matcolour = 0xffffffff;
 			masktex = ~0u;
 			masktexslot = 0;
 			reflamount = 0;
@@ -3356,6 +3359,28 @@ static void beanWalkStream(struct beanmodel *bm)
 				}
 			}
 		} else if (type == 0x06 && size >= 28 && gebeanBE32(st + pc + 4) == 0
+				&& (gebeanBE32(st + pc + 8) >> 16) <= 0x0d
+				&& (gebeanBE32(st + pc + 8) >> 16) + (gebeanBE32(st + pc + 8) & 0xffff) > 0x0d) {
+			// The material's second colour, pixel shader constant 13
+			// (c_constant1): what a level's untextured draw is drawn in
+			// (gebeanLevelTriangles())
+			const u32 at = pc + 12 + 16 * (0x0d - (gebeanBE32(st + pc + 8) >> 16));
+
+			if (at + 16 <= pc + size) {
+				u32 argb = 0;
+
+				for (s32 k = 0; k < 4; k++) {
+					const f32 f = gebeanBEF32(st + at + k * 4);
+					const u32 b = f >= 1.0f ? 0xff : f <= 0.0f ? 0 : (u32)(f * 255.0f + 0.5f);
+
+					argb |= b << (k == 3 ? 24 : 16 - k * 8);
+				}
+
+				matcolour = argb;
+			}
+		}
+
+		if (type == 0x06 && size >= 28 && gebeanBE32(st + pc + 4) == 0
 				&& (gebeanBE32(st + pc + 8) >> 16) == 0x0c) {
 			// The material's colour, pixel shader constant 12
 			// (c_constant0): {0, register << 16 | count, then four floats a
@@ -3434,6 +3459,7 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->reflamount = reflamount;
 				d->reflspot = reflspot;
 				d->reflenv = reflenv;
+				d->matcolour = matcolour;
 				d->numpal = numpal;
 				memcpy(d->pal, pal, numpal);
 			}
@@ -9582,6 +9608,8 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 	s32 count = 0;
 	u32 treevbs[32];
 	s32 numtreevbs = 0;
+	s32 numdrifts = 0;
+	s32 numflats = 0;
 
 	// The buffers any instancing record draws - its first copy is drawn
 	// without one, where the tree was modelled
@@ -9612,6 +9640,9 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		s32 istree = 0;
 		s32 tex = draw->tex < (u32)bm->numtex ? (s32)draw->tex : -1;
 		s32 ismask = 0;
+		s32 drift = -1;
+		struct gebeanlevelvtx dv[3];
+		u32 flat = 0;
 
 		if (!beanReadVb(bm, draw->vb, &vb)) {
 			continue;
@@ -9636,6 +9667,26 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 			}
 		}
 
+		// Not alpha tested, the picture with alpha in the material's first
+		// slot (read with the first UV set) and a solid one in the second
+		// (the second set): a surface under drifts of its own. The solid
+		// picture is the ground, tiled over the whole surface by its own UVs,
+		// and the drift is laid over it by its alpha. Drawn as the ground
+		// alone at the drift's UVs, Bunker's helipad was the ice picture
+		// stretched strip by strip under grey patches (F3 20260926-210317)
+		if (!draw->alphatest && !ismask && tex >= 0 && draw->masktex < (u32)bm->numtex
+				&& vb.stride == 32 && draw->masktexslot == 0) {
+			const void *tile;
+			u8 solid, cut, soft;
+
+			if (beanBindTexture(bm, level->source, tex, &tile, &solid, &soft)
+					&& beanBindTexture(bm, level->source, (s32)draw->masktex, &tile, &cut, &soft)
+					&& !solid && cut) {
+				drift = (s32)draw->masktex;
+				numdrifts++;
+			}
+		}
+
 		for (s32 i = 0; i < numtreevbs; i++) {
 			istree |= treevbs[i] == draw->vb && (vb.stride == 20 || vb.stride == 28);
 		}
@@ -9646,6 +9697,25 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 
 		if (istree) {
 			beanTreeMeasure(bm, &vb, &tree);
+		}
+
+		// A stride 20 buffer that is no tree has no UVs. Where its material's
+		// second colour (c_constant1) is an opaque grey, its shader reads no
+		// picture at all: the vertex colour times that grey, whatever
+		// pictures the material names (Bunker's, Caverns', Control's, Silo's
+		// and Streets' shaders of the kind, disassembled). Drawn with the
+		// first texel of its picture, Bunker's helipad puddles were dark blots
+		// of an ice ramp (F3 20260926-210317). The other stride 20 draws'
+		// shaders read other constants (a white or black c_constant1) or are
+		// glass (a translucent one), and are left as they were
+		if (vb.stride == 20 && !istree && tex >= 0 && !beanTexSphereMap(bm, tex)
+				&& (draw->matcolour >> 24) == 0xff
+				&& (draw->matcolour & 0xff) == ((draw->matcolour >> 8) & 0xff)
+				&& (draw->matcolour & 0xff) == ((draw->matcolour >> 16) & 0xff)
+				&& (draw->matcolour & 0xff) > 0 && (draw->matcolour & 0xff) < 0xff) {
+			tex = -1;
+			flat = draw->matcolour;
+			numflats++;
 		}
 
 		numtris = beanTriangles32(bm, draw, &tris);
@@ -9687,7 +9757,21 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 				// (0xffff) and Runway's road drew as streaks
 				if (ok && vb.stride == 32) {
 					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
-					const u32 uvat = ismask ? 20 : 16;
+					const u32 uvat = ismask || drift >= 0 ? 20 : 16;
+
+					// The drift over the ground: the first UV set, its two
+					// halves read the other way round (so the drift's edge
+					// runs along the strips it lies on, not across them
+					// as bands), faded by its picture's alpha times the
+					// blend word's (the stride 32 vertex's other colour).
+					// The shader is not read here; this is the look that
+					// matches GoldenEye's own snow round the pad
+					if (drift >= 0) {
+						dv[k].uv[0] = (s16)gebeanBE16(p + 18) / bm->uvscale;
+						dv[k].uv[1] = (s16)gebeanBE16(p + 16) / bm->uvscale;
+						dv[k].argb = (beanColour(gebeanBE32(p + 28)) & 0x00ffffff)
+								| ((beanColour(gebeanBE32(p + 24)) & 0x00ff0000) << 8);
+					}
 
 					bv.uv[0] = (s16)gebeanBE16(p + uvat) / bm->uvscale;
 					bv.uv[1] = (s16)gebeanBE16(p + uvat + 2) / bm->uvscale;
@@ -9720,6 +9804,19 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 				beanTreeUvs(bm, &vb, &tree, &tris[t * 3], v);
 			}
 
+			if (flat) {
+				for (s32 k = 0; k < 3; k++) {
+					u32 argb = 0;
+
+					for (s32 sh = 0; sh < 32; sh += 8) {
+						argb |= ((((v[k].argb >> sh) & 0xff) * ((flat >> sh) & 0xff) + 127) / 255) << sh;
+					}
+
+					v[k].argb = argb;
+					v[k].uv[0] = v[k].uv[1] = 0;
+				}
+			}
+
 			if (m) {
 				for (s32 k = 0; k < 3; k++) {
 					const f32 x = v[k].pos[0], y = v[k].pos[1], z = v[k].pos[2];
@@ -9732,9 +9829,23 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 
 			fn(arg, tex, v);
 			count++;
+
+			if (drift >= 0) {
+				for (s32 k = 0; k < 3; k++) {
+					memcpy(dv[k].pos, v[k].pos, sizeof(dv[k].pos));
+					dv[k].blend = v[k].blend;
+				}
+
+				fn(arg, drift, dv);
+				count++;
+			}
 		}
 
 		free(tris);
+	}
+
+	if (numdrifts || numflats) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws of ground under drifts, %d untextured", level->source, numdrifts, numflats);
 	}
 
 	return count;
