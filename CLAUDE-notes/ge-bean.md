@@ -7017,9 +7017,16 @@ Things worth knowing:
   (`report2.gdb` completes it with `g_ObjectiveLastIndex = -1`). Four seconds a
   run.
 
-**Not done**: unlocking missions and difficulties by completion (all are open),
-showing completion on the mission select, GoldenEye's cheats and "New Cheat
-Available".
+**Unlocks (2026-09-27, F3 212705)**: GoldenEye's own rules in gexfront.c
+(`frontMissionStatus()` = fileIsStageUnlockedAtDifficulty(),
+`frontHighestDifficulty()`, `front007Unlocked()`), read from geplus-times.txt:
+a time at a difficulty counts for every one below; 007 opens with all twenty
+on 00 Agent or PD Mode's own rule. The difficulty page ticks completed ones
+(release attract/tick, else IMAGE_CHECK at texRemap(4) = 0a8d.bin in newer
+conversions, else squares). Test: scratchpad unlock.py pattern - write
+geplus-times.txt, call `'gexfront.c'::frontHighestDifficulty(m)` from gdb.
+
+**Not done**: GoldenEye's cheats and "New Cheat Available".
 
 
 ## GoldenEye's HUD (2026-09-21, converter 53)
