@@ -287,7 +287,7 @@ belongs to one of five ROM props - `taxicab`, `policecar`, `hovbike`,
 vehicles - so all 79 slots those five bind were compared picture by picture
 too (`bgtexscan.py --models`). Three more came out of it: 0217, 0230, 08ac,
 which no room of either copy binds and which therefore only need keeping out
-of the pack. Twenty-five slots in all.
+of the pack. Twenty-five slots in all (28 since: 00dd, 00c2 and 007b, below).
 
 Where the release binds them: Villa and Villa (MP) the original six plus
 0219, Crash Site 0221/0223/0226, Defection 0216/021b, Ravine 021a, Skedar
@@ -297,8 +297,7 @@ the Chicago-band slots came *from*, and its release rooms drop 00a5, 00a9
 and 00a6-00ad - the other half of the same move.
 
 Deliberately not listed, because the picture says redraw rather than reuse:
-007b (Defection's billboard, a printed poster in the ROM and a lit video
-panel in the release, and **both** copies' rooms bind it), 0215 (the rope
+0215 (the rope
 prop, and both copies' Air Base rooms bind it), 08ad, 08b8 (the
 hovercopter's rotor, still a rotor). A false entry costs an upscale and
 mis-scales the release room that binds the slot, so the bar is the picture
@@ -359,6 +358,36 @@ record's size and source size; the ones whose shape changed by 1.3x or more
 Candidates seen but not settled, since no report points at them: 00aa (a taxi
 atlas in the release, a headlight panel in the pack), 0937 (an atlas vs a
 strip), 0904/0905 (dirt vs sandstone), 0145.
+
+**007b is the third, and was once filed as a redraw (2026-09-27).** F3
+20260927-083325 (Defection rooftop, XBLA Plus HD pack, build 705725a): the
+two towers in front of the start wore blotchy red and orange streaks with a
+face on the roof. That is the ROM's 007b - the 48x32 "BIG-BOY" billboard
+poster - on 4J's coordinates: the release's record 007b is a 1024x1024 atlas
+of the towers round the rooftop (facades, window strips, roofs), and
+bg_ame's release rooms 6, 7 and 11 map whole towers onto it. The note above
+used to list 007b as "a lit video panel", a redraw; the dump
+(`texture-dumps/ntsc-final/xbla/007b.png`) says atlas. Any 007b that is not
+the release's own paints the poster there: a pack's (PD Forever Plus HD
+ships `007b.png`, the poster) or the ROM's whenever the numbered record is
+not asked for - which in the tester's build was every texture loaded before
+the level's first gun load (the registry wipe, ge-bean.md "Faces in Streets'
+windows", 943f660e6). Listed now; the release rooms bind it through the
+stand-in whatever the pack or registry says, and the ROM's rooms (N64 look)
+keep the poster instead of a squeezed atlas.
+
+**The registry wipe was also the 13th pass's "HD textures not loading"**
+(F3 20260927-072100, PD Ultimate Plus HD, 4K): with the ids gone,
+`texpackLoadReplacement()` and `xblaTexLoadNumbered()` both have no number,
+so a texture draws as the ROM's the next time the renderer's cache misses on
+it - and **F9 makes it worse**, because the reload clears the whole cache and
+leaves the registry alone by design (`texpackReload()`), so everything on
+screen goes back to N64 at once. Measured at the tester's camera: 385-397 of
+the 411 textures in the shared pool had no id after a gun change on HEAD,
+0 with the fix. Probe: `texFindInPool(n, 0)` for every n, then
+`texpackGetTextureNum(t->data) == n` (gdb Python, `~/wt/f3-0927b-hdtex-run/
+tmp/regcount.py`); reproduce the tester's frame with `bgunEquipWeapon(1)`
+then `texpackReload()` from a videoEndFrame stop.
 
 ### Row order
 
