@@ -5259,6 +5259,14 @@ bool ai00df(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct tag *tag = tagFindById(cmd[2]);
 
+#ifndef PLATFORM_N64
+	// GoldenEye's CameraSwitch: the ending's Bond is the player's own body,
+	// which is not drawn while it drives the tank
+	if (modloaderStageIsMission(g_Vars.stagenum)) {
+		geTankLeaveForCutscene();
+	}
+#endif
+
 	if (tag) {
 		s32 cmdindex = setupGetCmdIndexByTag(tag);
 

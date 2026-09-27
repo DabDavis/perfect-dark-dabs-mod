@@ -11794,6 +11794,30 @@ types, flag tokens) - each is a changelog line already classed above.
 - HD "camera outside the level" test: GoldenEye triangles drawn with G_CULL_BACK cleared (the Cradle platform) now count as front from either side (shellTwo[], fileRoomTrianglesEach bit 17). The platform underside shows in the Cradle ending. A/B over 10 openings/endings: only Cradle's ending changed. PD_CULLLOG=1 logs the decision changes.
 - Aztec launch: GoldenEye's rocket block (explosion 20 1800 below, alternating +-400 z, every 8th frame; smoke 10 every 40th) added in propobj.c for PROJECTILEFLAG_GEROCKET.
 - Ending body weapon: the Cinema page kicks the ending before the hands draw a gun; falls back to g_DefaultWeapons; third person's body sync no longer strips it in a cutscene.
+
+### F3 pass 12 (fix/f3-0927-outro): the tank at an ending, the Cradle's exit
+- **Streets' ending with no Bond (000905)**: the tester had driven the tank to
+  the end. GoldenEye's ending draws a Bond of its own (the CameraSwitch loads
+  him) and never takes the player out of the tank; ours is the player's body,
+  which `geTankHidesChr()` does not draw while he drives and which the tank is
+  put under every tick. The trace's "alpha 0: opa xlu" is that early return
+  (it notes nothing, so the frame's reset alpha stays 0). `ai00df`
+  (CameraSwitch) on a converted mission now calls `geTankLeaveForCutscene()`
+  (`tankExit(1)` for every driver). Probe `~/wt/f3-0927-outro-run/streets.py`
+  (boot 0x61, board the tank, jump list 0x1000 past its pad test to offset 30):
+  before tank 2 / hides 1 / alpha 0 with the tester's camera (10076.7, 9482.5);
+  after tank 0 / alpha 255, Bond walks into shot (`streets_before_after.png`).
+- **Cradle "Bond flies to outer space" (010532)**: GoldenEye's own ending -
+  shot 1 under the helicopter with Bond hanging from the skid, shot 2 from the
+  platform as it flies off, EndLevel ~1060 frames after the kick (oracle ~1107,
+  `oracle_cradle_late.png` vs `ours_heli.png`). The earlier "no level exit past
+  frame 1000" was a kick during the level's opening cinema: the intro's end
+  returns the tick mode to normal and Bond's list stops at its first timer.
+  Real play cannot overlap the two. Kick after the intro (`end.py AT=1000`).
+- The chain from a finished Cradle (`chain.py`, cinema + credits merged, a
+  fresh conversion): folder -> Cradle -> ending -> report -> stats -> Cuba
+  (0x71) roll -> long cast -> grid on the Cradle (`chain_sheet.png`).
+
 ## GoldenEye's credits after the Cradle: Cuba (2026-09-27, 12th F3 pass)
 
 F3 20260926-235740 (Linkmendez): "implement credits scene after cradle". The
