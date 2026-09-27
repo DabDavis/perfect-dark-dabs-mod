@@ -19,6 +19,8 @@ s32 gegadgetsItem(s32 weaponnum);
 void gegadgetsStageLoad(s32 stagenum);
 // the trigger pulled with one in the hand
 void gegadgetsFire(s32 weaponnum);
+// the watch magnet's running time and hum, every tick of the current player's gun
+void gegadgetsTick(void);
 // lvRender(), after the player's props: the camera's photograph is judged here
 void gegadgetsAfterProps(void);
 // bgunRender(): 1 when the hand has been drawn (or is empty, as GoldenEye has

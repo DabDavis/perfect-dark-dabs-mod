@@ -13481,6 +13481,9 @@ void bgunTickGameplay(bool triggeron)
 #ifndef PLATFORM_N64
 	bool lefttrigger = g_BgunLeftTrigger[g_Vars.currentplayernum];
 	bool split = false;
+
+	// GoldenEye's watch magnet runs on after its trigger (gegadgets.c)
+	gegadgetsTick();
 #endif
 
 	// Remove weapons if in passive mode

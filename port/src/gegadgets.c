@@ -22,6 +22,8 @@
 #include "game/prop.h"
 #include "game/propobj.h"
 #include "game/tex.h"
+#include "lib/snd.h"
+#include "lib/lib_317f0.h"
 #include "lib/model.h"
 #include "lib/mtx.h"
 #include "system.h"
@@ -176,6 +178,9 @@ static struct {
 	struct prop *keyprop; // the GoldenEye key's own prop, while it is carried
 } g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .flashframe = -1 };
 
+// the watch magnet's hum, each player's (gegadgetsTick())
+static struct sndstate *g_MagnetHum[MAX_PLAYERS];
+
 s32 gegadgetsIsGadget(s32 weaponnum)
 {
 	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum < NUM_WEAPONS;
@@ -242,6 +247,7 @@ void gegadgetsStageLoad(s32 stagenum)
 	g_Gadgets.photo = 0;
 	g_Gadgets.flashframe = -1;
 	g_Gadgets.keyprop = NULL;
+	memset(g_MagnetHum, 0, sizeof(g_MagnetHum));
 	g_Gadgets.mission = modloaderStageMission(stagenum);
 	g_Gadgets.moddir = modloaderStageIsRemake(stagenum) ? modloaderGetStageModDirIndex(stagenum) : -1;
 
@@ -620,58 +626,59 @@ s32 gegadgetsPropModel(s32 weaponnum)
 }
 
 /**
- * The watch magnet: GoldenEye draws whatever a guard could drop towards Bond.
- * Here the nearest thing that can be picked up, in front of the player and
- * within reach of the magnet, comes to hand.
+ * The watch magnet, GoldenEye's way (chrprop.c, gunfire.c, propobj.c): the
+ * trigger starts `magnetattracttime`, the magnetic hum plays while it runs
+ * (restarted whenever it stops, five seconds in all), and a second after the
+ * trigger objTestForPickup() - which Perfect Dark kept GoldenEye's test in -
+ * takes anything collectable within 350 across and 500 up or down, however
+ * the player is looking. Until 2026-09-27 the nearest item in front came to
+ * hand the moment the trigger was pulled, in silence (F3 20260926-230818,
+ * Bunker 2's key: "in the original, it took a second or two").
  */
-#define MAGNET_REACH 1000.0f
-#define MAGNET_CONE  0.8f
+#define MAGNET_HUM_SFX   246 // MAGNETIC_HUM_SFX
+#define MAGNET_HUM_TICKS 300 // WATCH_SOUND_DURATION_TICKS (NTSC)
+
+static void gegadgetsMagnetStop(s32 playernum)
+{
+	if (g_MagnetHum[playernum] && sndGetState(g_MagnetHum[playernum]) != AL_STOPPED) {
+		audioStop(g_MagnetHum[playernum]);
+	}
+
+	g_MagnetHum[playernum] = NULL;
+}
+
+/** Every tick of the current player's gun (bgunTickGameplay()). */
+void gegadgetsTick(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	const s32 playernum = g_Vars.currentplayernum;
+
+	if (player->magnetattracttime < 0) {
+		return;
+	}
+
+	player->magnetattracttime += g_Vars.lvupdate60;
+
+	if (player->magnetattracttime < MAGNET_HUM_TICKS && g_Gadgets.moddir >= 0) {
+		if ((g_MagnetHum[playernum] == NULL || sndGetState(g_MagnetHum[playernum]) == AL_STOPPED)
+				&& player->bondmovemode != MOVEMODE_CUTSCENE) {
+			const s32 ours = geSfxGet(MAGNET_HUM_SFX);
+
+			g_MagnetHum[playernum] = NULL;
+
+			if (ours > 0) {
+				sndStart(var80095200, ours, &g_MagnetHum[playernum], GESFX_VOLUME, -1, -1, -1, -1);
+			}
+		}
+	} else {
+		player->magnetattracttime = -1;
+		gegadgetsMagnetStop(playernum);
+	}
+}
 
 static void gegadgetsMagnet(void)
 {
-	struct player *player = g_Vars.currentplayer;
-	const f32 theta = player->vv_theta * M_BADTAU / 360.0f;
-	const f32 lookx = -sinf(theta);
-	const f32 lookz = cosf(theta);
-	struct prop *best = NULL;
-	f32 bestdist = MAGNET_REACH * MAGNET_REACH;
-
-	// a prop nobody is looking at is on the paused list, and the key Bunker 2
-	// hangs outside its cell is exactly that until the player turns to it
-	for (s32 list = 0; list < 2; list++)
-	for (struct prop *prop = list ? g_Vars.pausedprops : g_Vars.activeprops; prop; prop = prop->next) {
-		f32 dx, dy, dz, dist;
-
-		if ((prop->type != PROPTYPE_WEAPON && prop->type != PROPTYPE_OBJ) || !prop->obj || prop->parent) {
-			continue;
-		}
-
-		if (prop->type == PROPTYPE_OBJ && prop->obj->type != OBJTYPE_KEY) {
-			continue;
-		}
-
-		dx = prop->pos.x - player->prop->pos.x;
-		dy = prop->pos.y - player->prop->pos.y;
-		dz = prop->pos.z - player->prop->pos.z;
-		dist = dx * dx + dy * dy + dz * dz;
-
-		if (dist >= bestdist || dist < 1.0f) {
-			continue;
-		}
-
-		if ((dx * lookx + dz * lookz) / sqrtf(dx * dx + dz * dz + 1.0f) < MAGNET_CONE) {
-			continue;
-		}
-
-		best = prop;
-		bestdist = dist;
-	}
-
-	if (best) {
-		// what a pickup asks to have done with the prop - given to the
-		// player, freed - is the caller's to carry out
-		propExecuteTickOperation(best, propPickupByPlayer(best, true));
-	}
+	g_Vars.currentplayer->magnetattracttime = 0;
 }
 
 /**
