@@ -1307,6 +1307,13 @@ static Gfx *introDrawBond(Gfx *gdl)
 		Mtxf *mtx = hand ? modelFindNodeMtx(g_Intro.body.model, hand, 0) : NULL;
 
 		if (mtx) {
+			// The gun is not lit. GoldenEye starts each frame of the barrel
+			// with dlBasicGeometry, G_LIGHTING off; a chr's own lists turn it
+			// on for themselves and the PPK's never do, its vertices carrying
+			// colours, not normals. Drawn under the light set for Bond above,
+			// those colours were read as normals and lit a white stripe down
+			// a gun GoldenEye draws black
+			gSPClearGeometryMode(gdl++, G_LIGHTING);
 			gdl = introDrawModel(gdl, g_Intro.gun.model, g_Intro.gun.modeldef, mtx, true);
 			introFinishModel(g_Intro.gun.model, g_Intro.gun.modeldef);
 		}
@@ -2163,6 +2170,8 @@ static Gfx *introRenderCast(Gfx *gdl)
 					mtx = &turned;
 				}
 
+				// unlit, as in the barrel (introDrawBond())
+				gSPClearGeometryMode(gdl++, G_LIGHTING);
 				gdl = introDrawModel(gdl, g_Intro.gun.model, g_Intro.gun.modeldef, mtx, true);
 				introFinishModel(g_Intro.gun.model, g_Intro.gun.modeldef);
 			}
