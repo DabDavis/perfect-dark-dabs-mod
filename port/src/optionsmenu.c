@@ -40,6 +40,7 @@
 #include "xblaexpl.h"
 #include "xblasky.h"
 #include "gexplus.h"
+#include "gexfront.h"
 #include "gebean.h"
 #include "menuimage.h"
 #include "xblastage.h"
@@ -4745,6 +4746,7 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 };
 
 static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menuitem *item, union handlerdata *data);
+static MenuItemHandlerResult menuhandlerGePlusLocked(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGeXblaCe(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGeXblaCeRestart(s32 operation, struct menuitem *item, union handlerdata *data);
 
@@ -4884,6 +4886,14 @@ struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 		(uintptr_t)"GE Plus: Include Perfect Dark Guns",
 		0,
 		menuhandlerGePlusPdGuns,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GE Plus: Locked Progression",
+		0,
+		menuhandlerGePlusLocked,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -5541,6 +5551,23 @@ static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menui
 		return gexPlusGetPdGuns();
 	case MENUOP_SET:
 		gexPlusSetPdGuns(!gexPlusGetPdGuns());
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * "GE Plus: Locked Progression": GoldenEye's missions and difficulties open
+ * one by one as they are completed, as GoldenEye's own. Off, all are open.
+ */
+static MenuItemHandlerResult menuhandlerGePlusLocked(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return gexFrontGetLockedProgression();
+	case MENUOP_SET:
+		gexFrontSetLockedProgression(!gexFrontGetLockedProgression());
 		break;
 	}
 

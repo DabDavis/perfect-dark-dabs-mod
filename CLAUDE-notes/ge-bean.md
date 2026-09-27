@@ -7017,7 +7017,7 @@ Things worth knowing:
   (`report2.gdb` completes it with `g_ObjectiveLastIndex = -1`). Four seconds a
   run.
 
-**Unlocks (2026-09-27, F3 212705)**: GoldenEye's own rules in gexfront.c
+**Unlocks (2026-09-27, F3 212705)**: behind Mod.GePlusLockedProgression (menu: Mods: Missions, "GE Plus: Locked Progression", default off = all open, 007 by PD Mode's rule only). GoldenEye's own rules in gexfront.c
 (`frontMissionStatus()` = fileIsStageUnlockedAtDifficulty(),
 `frontHighestDifficulty()`, `front007Unlocked()`), read from geplus-times.txt:
 a time at a difficulty counts for every one below; 007 opens with all twenty

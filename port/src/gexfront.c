@@ -72,6 +72,8 @@
 #include "xblamesh.h"
 #include "gexfront.h"
 #include "geconvert.h"
+#include "config.h"
+#include "platform.h"
 #include "gemusic.h"
 #include "gesfx.h"
 #include "game/modghost.h"
@@ -644,6 +646,30 @@ static void frontLoadBestTimes(void);
 static u16 g_BestTimes[NUM_MISSIONS][NUM_DIFFICULTIES];
 
 /**
+ * Mod.GePlusLockedProgression: GoldenEye's locked progression - missions and
+ * difficulties open by completion (frontMissionStatus()). Off, as it ships:
+ * every mission is open at every difficulty, and 007 by PD Mode's rule as
+ * before; on, 007 also opens GoldenEye's way (all twenty on 00 Agent).
+ * The ticks for completed difficulties show either way.
+ */
+static s32 g_GePlusLockedProgression = 0;
+
+PD_CONSTRUCTOR static void gexFrontConfigInit(void)
+{
+	configRegisterInt("Mod.GePlusLockedProgression", &g_GePlusLockedProgression, 0, 1);
+}
+
+s32 gexFrontGetLockedProgression(void)
+{
+	return g_GePlusLockedProgression;
+}
+
+void gexFrontSetLockedProgression(s32 on)
+{
+	g_GePlusLockedProgression = on ? 1 : 0;
+}
+
+/**
  * fileGetSaveStageCompletedForDifficulty(): whether a mission has been
  * completed at a difficulty, in the remake's own file of best times
  * (geplus-times.txt). GoldenEye's end_of_mission_briefing() files a
@@ -683,6 +709,11 @@ static s32 front007Unlocked(void)
 
 	if (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] != 0 || (g_ModUnlocks & MODUNLOCK_COMPLETION)) {
 		return 1;
+	}
+
+	// GoldenEye's own way only with its progression on (Mod.GePlusLockedProgression)
+	if (!g_GePlusLockedProgression) {
+		return 0;
 	}
 
 	for (mission = 0; mission < NUM_MISSIONS; mission++) {
@@ -781,6 +812,10 @@ static s32 frontHighestDifficulty(s32 mission)
 {
 	if (!frontMissionsAvailable() || mission < 0 || mission >= NUM_MISSIONS) {
 		return -1;
+	}
+
+	if (!g_GePlusLockedProgression) {
+		return front007Unlocked() ? DIFFICULTY_007 : DIFF_PA;
 	}
 
 	for (s32 d = front007Unlocked() ? DIFFICULTY_007 : DIFF_PA; d >= 0; d--) {

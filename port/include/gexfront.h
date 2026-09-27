@@ -42,6 +42,10 @@ s32 gexFrontMissionEnded(void);
 // left for the folder's own report and statistics pages, as GoldenEye's is.
 s32 gexFrontMissionReport(void);
 s32 gexFrontWantsMain(void);
+
+// Mod.GePlusLockedProgression: GoldenEye's missions open by completion (off: all open)
+s32 gexFrontGetLockedProgression(void);
+void gexFrontSetLockedProgression(s32 on);
 s32 gexFrontOpenAfterMission(void);
 void gexFrontTick(void);
 Gfx *gexFrontRender(Gfx *gdl);
