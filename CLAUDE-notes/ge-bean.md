@@ -11808,5 +11808,11 @@ types, flag tokens) - each is a changelog line already classed above.
   with HD textures (no Bean mesh built for it); doorDestroyGlass() hides the pane and its crack texture in both looks
   (probes/doorglass.py, every windowed door on the level broken). What stays in view through the frame is the level
   behind, which matches the tester's picture.
-- **Statue helicopter wreck**: GE objDeform() keeps the crumpled aircraft; ours leaves only scattered debris
-  after the smoke. Not changed - needs an oracle comparison (dam-oracle genat4.py style).
+- **Statue helicopter wreck** (235233): oracle side by side (10.8.0.3 ~/dam-oracle/gewreck.py, Bond invincible at
+  pad 24 + (700, -300); ours probes/heliboom.py DX=700 DZ=300): GoldenEye keeps the whole helicopter where it stood,
+  blackened and crumpled; ours loses nearly all of it and leaves a few floating pieces - the tester's "parts".
+  Found so far: the prop stays (pos, anim 1380, realrot unchanged); objDeformGe() runs on the 744-vertex hull list
+  and its vertices stay inside the model's bbox; with objDeform() skipped for OBJTYPE_HELI the hull stays drawn.
+  Writing the new colour buffer white does not bring it back, while pointing rwdata->colours back at a static
+  address does - so the hull disappears on the swap to the vtxstore colour buffer (segment 6, COL2), not on the
+  crumpled data. Open: why a vtxstore colour buffer hides this animated (gexPlusVehicleFliesAnim) list.
