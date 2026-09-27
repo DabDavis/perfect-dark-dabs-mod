@@ -417,6 +417,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.DisableFog", &g_ModOptions.nofog, 0, 1);
 	configRegisterInt("Mod.XblaReflectCutoff", &g_ModOptions.xblareflectcutoff, 0, 1);
 	configRegisterInt("Mod.GlareClip", &g_ModOptions.glareclip, 0, 1);
+	configRegisterInt("Mod.FlashLighting", &g_ModOptions.flashlighting, 0, 2);
 	// Glass See-Through: how much of its clear look a distant window keeps. See modoptions.c.
 	configRegisterInt("Mod.GlassSeeThrough", &g_ModOptions.glassseethrough, 0, 100);
 	// Clip Decals at Edges: wall hits cut to the surface under them. See wallhitclip.c.

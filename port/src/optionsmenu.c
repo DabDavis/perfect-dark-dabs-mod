@@ -1258,6 +1258,33 @@ static MenuItemHandlerResult menuhandlerGlareClip(s32 operation, struct menuitem
 	return 0;
 }
 
+/**
+ * Flash Lighting: whether gunfire, explosions and sparks light up the rooms
+ * round them (roomFlashLighting()). Stock is On; GoldenEye's levels are lit
+ * per vertex on few, large polygons, where a flash reads as a wall blinking
+ * (F3 20260927-040023). Live.
+ */
+static MenuItemHandlerResult menuhandlerFlashLighting(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "On", "Not on GoldenEye Levels" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.flashlighting = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.flashlighting;
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerOverexposureScale(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -1489,6 +1516,14 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"GE64-style Muzzle Flashes",
 		0,
 		menuhandlerGeMuzzleFlashes,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Flash Lighting",
+		0,
+		menuhandlerFlashLighting,
 	},
 	{
 		MENUITEMTYPE_SLIDER,
