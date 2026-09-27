@@ -157,7 +157,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* 1a TRYThrowingGrenade                     */ {  2, 0x001b,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {-1, 2, 0x0200}, {-1, 2, 0x0000}, {0, 1, 0} } },
 	/* 1b TRYDroppingItem                        */ {  5, 0x001c,  3, { 2, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 2, 0}, {1, 1, 0}, {2, 1, 0} } },
 	/* 1c RunToPad                               */ {  3, 0x001d,  1, { 2 }, 0x0001, 0x0000, 0x0000, 0x0000,  1, { {0, 2, 0} } },
-	/* 1d RunToPadPreset                         */ {  1, 0x001e,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 0x0000} } },
+	/* 1d RunToPadPreset                         */ {  1, 0x001e,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 0x0001} } },
 	/* 1e WalkToPad                              */ {  3, 0x001f,  1, { 2 }, 0x0001, 0x0000, 0x0000, 0x0000,  1, { {0, 2, 0} } },
 	/* 1f SprintToPad                            */ {  3, 0x0020,  1, { 2 }, 0x0001, 0x0000, 0x0000, 0x0000,  1, { {0, 2, 0} } },
 	/* 20 StartPatrol                            */ {  2, 0x0021,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },  // + aiStartPatrol, writeSoloAilist()
