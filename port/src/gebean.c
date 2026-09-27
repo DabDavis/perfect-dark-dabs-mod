@@ -2453,6 +2453,7 @@ struct beandraw {
 	u8 blend;     // in the release's blended pass (beanWalkStream())
 	u8 alpha;     // its material colour's alpha, 255 for none
 	u8 alphatest; // drawn with the alpha test on (render state 0x60)
+	u8 alpharef;  // and the reference it passes texels over (render state 0x64), 0 for none set
 	u8 masktexslot; // the slot masktex fills, which is the UV set it is read with
 	u32 masktex;  // the material's other picture, where it has two (else ~0)
 	u8 ownmat;    // a material set since its vertex shader was (record 0x02)
@@ -3196,6 +3197,7 @@ static void beanWalkStream(struct beanmodel *bm)
 	u8 blend = 0;
 	u8 alpha = 0xff;
 	u8 alphatest = 0;
+	u8 alpharef = 0;
 	u32 masktex = ~0u;
 	u8 masktexslot = 0;
 	u32 secend = 0;
@@ -3291,6 +3293,10 @@ static void beanWalkStream(struct beanmodel *bm)
 			// or 0x2702 section among 0x4701s
 			secend = gebeanBE32(st + pc + 4);
 			secblend = (gebeanBE32(st + pc + 8) & 0xff) == 2;
+		} else if (type == 0x0c && size >= 12 && gebeanBE32(st + pc + 4) == 0x64) {
+			// The alpha test's reference, 0 to 255 (its function, 0x68, is
+			// greater on every level draw that sets one)
+			alpharef = (u8)MIN(gebeanBE32(st + pc + 8), 0xff);
 		} else if (type == 0x0c && size >= 12 && gebeanBE32(st + pc + 4) == 0x60) {
 			// Render state 0x60 is the alpha test (0x64 its reference, 0x68
 			// its function), on for a level's cut-outs and 4J's shadow masks
@@ -3452,6 +3458,7 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->blend = blend;
 				d->alpha = alpha;
 				d->alphatest = alphatest;
+				d->alpharef = alpharef;
 				d->masktex = masktex;
 				d->masktexslot = masktexslot;
 				d->ownmat = ownmat;
@@ -10244,6 +10251,99 @@ void gebeanFontClose(struct gebeanfont *font)
 }
 
 /** A texture's stand-in tile, decoded and bound the first time it is asked for. */
+/**
+ * A level picture every draw of which is alpha tested, as the release cuts it:
+ * texels over the draws' reference kept whole, the rest gone. NULL where that
+ * changes little (the picture's alpha is mostly 0 and 255 already, as on
+ * leaves, fences and railings, whose soft edges the renderer's own cut takes
+ * as it always has) or a draw of it is not tested.
+ *
+ * Frigate's bridge windows are a frame round a pane of alpha 0x1f to 0x4e,
+ * a streak of reflection painted into it, tested at 0x7f: the release shows
+ * the pane clear. The renderer cuts a picture at a fifth, and kept the streak
+ * as a grey wedge across every window (F3 20260926-225146).
+ */
+static const void *beanLevelCutTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft)
+{
+	struct beanmodel *bm = &level->bm;
+	char key[80];
+	u32 ref = 0;
+	u32 lost = 0;
+	s32 w, h;
+	u8 *rgba;
+	const void *tile;
+	s32 a = 0, s = 0;
+
+	for (s32 d = 0; d < bm->numdraws; d++) {
+		if (bm->draws[d].tex == (u32)tex) {
+			if (!bm->draws[d].alphatest || bm->draws[d].alpharef == 0) {
+				return NULL;
+			}
+
+			ref = MAX(ref, bm->draws[d].alpharef);
+		}
+	}
+
+	// Under a fifth the renderer's own cut drops the texel already
+	if (ref <= 0x33) {
+		return NULL;
+	}
+
+	snprintf(key, sizeof(key), "gebean:%s:%d:cut%u", level->source, tex, ref);
+
+	for (s32 i = 0; i < numTexCache; i++) {
+		if (strcmp(texCache[i].key, key) == 0) {
+			*alpha = texCache[i].alpha;
+			*soft = texCache[i].soft;
+			return texCache[i].tile;
+		}
+	}
+
+	rgba = beanDecodeTexture(bm, tex, &w, &h);
+
+	if (!rgba || beanTexIsPlaceholder(rgba, w, h)) {
+		free(rgba);
+		return NULL;
+	}
+
+	for (u32 i = 0; i < (u32)w * (u32)h; i++) {
+		lost += rgba[i * 4 + 3] > 0x33 && rgba[i * 4 + 3] <= ref;
+	}
+
+	// A pane, not an edge: a tenth of the picture between the two cuts
+	if (lost * 10 < (u32)w * (u32)h) {
+		free(rgba);
+		return NULL;
+	}
+
+	for (u32 i = 0; i < (u32)w * (u32)h; i++) {
+		rgba[i * 4 + 3] = rgba[i * 4 + 3] > ref ? 0xff : 0;
+	}
+
+	tile = xblaTexBindImage(key, rgba, w, h);
+
+	if (!tile) {
+		return NULL;
+	}
+
+	xblaTexImageInfo(tile, &a, &s);
+	*alpha = (u8)a;
+	*soft = (u8)s;
+
+	sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) cut at the release's alpha test, %u of %d texels gone",
+			level->source, tex, beanTextureName(bm, tex), lost, w * h);
+
+	if (numTexCache < GEBEAN_TEXCACHE) {
+		snprintf(texCache[numTexCache].key, sizeof(texCache[numTexCache].key), "%s", key);
+		texCache[numTexCache].tile = tile;
+		texCache[numTexCache].alpha = *alpha;
+		texCache[numTexCache].soft = *soft;
+		numTexCache++;
+	}
+
+	return tile;
+}
+
 const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft)
 {
 	const void *tile = NULL;
@@ -10255,7 +10355,11 @@ const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8
 		return NULL;
 	}
 
-	beanBindTexture(&level->bm, level->source, tex, &tile, alpha, soft);
+	tile = beanLevelCutTexture(level, tex, alpha, soft);
+
+	if (!tile) {
+		beanBindTexture(&level->bm, level->source, tex, &tile, alpha, soft);
+	}
 
 	return tile;
 }
