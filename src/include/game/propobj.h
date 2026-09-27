@@ -340,6 +340,9 @@ void doorsChooseSwingDirection(struct prop *chrprop, struct doorobj *door);
 bool propdoorInteract(struct prop *doorprop);
 void alarmStopAudio(void);
 void gasReleaseFromPos(struct coord *pos);
+#ifndef PLATFORM_N64
+void gasReleaseHarmless(struct coord *pos);
+#endif
 void gasStopAudio(void);
 bool gasIsActive(void);
 void gasTick(void);

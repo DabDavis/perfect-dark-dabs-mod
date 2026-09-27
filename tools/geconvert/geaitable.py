@@ -315,7 +315,7 @@ TABLE = [
     ('IFChrWasShotSinceLastCheck',          3,    [('CHR_NUM', 1), ('GOTOLABEL', 1)],            0x01e4, (0, 1),                                      'hand'),  # f8 aiGeIfChrWasHit (port's own: CHRFLAG_WAS_HIT, set invincible or not)
     ('BondKilledInAction',                  1,    [],                                            0x00fe, (),                                          'hand'),  # f9 aiKillBond
     ('RaiseArms',                           1,    [],                                            0x00ff, (),                                          'hand'),  # fa aiBeSurprisedSurrender
-    ('GasLeakAndFadeFog',                   1,    [],                                            None,   (),                                          'hand'),  # fb -
+    ('GasLeakAndFadeFog',                   1,    [],                                            0x01e8, (('=', 1, 1),),                              'hand'),  # fb aiGeGasLeak (port's own; harmless as on Egypt, its only user)
     ('ObjectRocketLaunch',                  2,    [('OBJECT_TAG', 1)],                           0x01e5, (0,),                                        'hand'),  # fc aiGeObjectRocketLaunch (port's own)
 ]
 
