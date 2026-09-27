@@ -60,6 +60,7 @@
 #include "config.h"
 #include "platform.h"
 #include "geroom.h"
+#include "trace.h"
 
 #ifndef PLATFORM_N64
 
@@ -1044,7 +1045,7 @@ s32 gecinemaSwirlTick(void)
 		return 0;
 	}
 
-	if (gecinemaIsOn() && gecinemaLeavePressed()) {
+	if (gecinemaIsOn() && !traceReportHoldsInput() && gecinemaLeavePressed()) {
 		gecinemaIntroEnd();
 		return 1;
 	}
@@ -1103,7 +1104,7 @@ s32 gecinemaSwirlTick(void)
 			gecinemaIntroEnd();
 			return g_GeIntroStage == GEINTRO_HOLD;
 		}
-	} else if (left > 60.0f && !lvIsPaused() && gecinemaPressed()) {
+	} else if (left > 60.0f && !lvIsPaused() && !traceReportHoldsInput() && gecinemaPressed()) {
 		g_GeIntroFadingOut = 1;
 		playerSetFadeColour(0, 0, 0, pl->colourscreenfrac);
 		playerSetFadeFrac(playerIsFadeComplete() ? 60 : pl->colourfadetime60, 1);
@@ -1218,6 +1219,16 @@ void gecinemaTick(void)
 	const u8 *shot;
 	f32 end;
 	s32 skip;
+
+	// Under F3's Report a Problem the level is paused, but a cinema runs on
+	// the frame's own clock and reads presses of its own: its stills went on
+	// behind the dialog, and the Escape that stops typing a note (or the
+	// right-click that is its Back) left the cinema for the folder, taking
+	// the report with it (F3 20260927-194744, "gecinema: over at frame 681").
+	// It holds still until the dialog is gone and its last press let go.
+	if (traceReportHoldsInput()) {
+		return;
+	}
 
 	if (g_GeIntroPending && g_Vars.currentplayer && g_Vars.currentplayer->prop
 			&& !g_Vars.currentplayer->isdead) {
