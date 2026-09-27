@@ -11788,3 +11788,40 @@ watch item table, the level entry table, strings, the end-of-RAM block, and
 setup bytes in files the locator missed (Dam intro cameras, Jungle AI + sky,
 Runway guards/doors, Surface bookshelf pads + railing, armour moves, Temple crate
 types, flag tokens) - each is a changelog line already classed above.
+
+### GoldenEye's own bullet holes (2026-09-27, F3 003252 follow-up)
+
+User's call: GE Plus leaves GoldenEye's bullet holes, not Perfect Dark's. PD's
+wallhit tables *are* GoldenEye's impact tables renumbered (g_WallhitTexes =
+explosion.c's g_ImpactTypes, g_TcWallhitConfigs = oddtextures.c's
+s_impactimages) with PD's own art, so `port/src/geimpact.c` puts GoldenEye's
+twenty impact types in as wallhit texture numbers 0x12..0x25
+(WALLHITTEX_GE_FIRST) and wallhit.c reads size/colouring/config through
+wallhitTexWidth/Height/Type/Config(). The four pick sites (prop.c bg hit, chr.c
+gun and hat, propobj.c objects) pass PD's pick through geImpactTexnum(surface,
+pdtex), which on a converted level picks from tex.c's g_HitTypeSounds[surface]
+lists (default/metal {7}, stone/wood/snow/tile {1}, dirt/mud/chr {2}, glass
+{4,5,6}, metal object {1,7}, glass xlu {0x11..0x13}, water none -> -1, no hole).
+GoldenEye holes are its own size (no PD 0.6-0.7 random scale) and never turned.
+
+Images: GoldenEye image ids by images.def order (NOT image_externs.h's enum,
+which has gaps): IMPACTLOTS 206, REDBRICK1/3 1475/1476, BROWNBRICK1/2 1478/1479,
+IMPACT1..4 2168..2171, IMPACTMULTI 2172, REDBRICK2 2173, BRICK2/3 2174/2175.
+The converter writes all 13 into textures/ (geconvert.c g_GeImpactImages,
+geconvert.py IMPACT_IMAGES; converter bump at merge); geImpactStageStart()
+turns GoldenEye's holes on only when all 13 are there, so an older conversion
+keeps PD's. HD look: the Bean release has all 13 as
+`files/texture/bulletholes/<decomp name>/default.rba` (windowhit, bullethit,
+wallhit, bulletholesplaster, bullethole, bulletholesplasterrgb, wallhole1-3,
+6-9), bound with xblaTexBindPictureAt() at the loaded texture's address
+(re-bound when F6 flips the look).
+
+Checked on Dam against the oracle (`~/dam-oracle/geholes.py` +
+`holes.padscript` on 10.8.0.3, same four aims, vv_theta matches ours with no
+offset): rock image 949 is HIT_DEFAULT in GoldenEye too (type 7, IMPACT4), dirt
+2720 is type 2. Sheet: `~/wt/f3-0927-holes-run/holes_oracle_base_n64_hd.png`
+(oracle | 705725a27 | N64 | HD). Probe `~/wt/f3-0927-holes-run/holes.py`
+(shotCreate grid per aim, lists wallhit texnums, HIT lines per bg hit).
+Open, pre-existing (705725a27 too): on Dam at theta 270 from the start the
+brown corrugated wall takes shots (hit texture 949 at ~290 units) but no hole
+shows in the N64 look; the HD look shows them.
