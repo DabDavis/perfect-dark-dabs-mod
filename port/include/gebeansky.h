@@ -33,6 +33,13 @@ s32 gebeanSkyIsDrawn(void);
  */
 s32 gebeanSkyFogColour(u8 *rgb);
 
+/**
+ * The Community Edition's HD picture for the sea under the dome - GoldenEye's
+ * grey water (1) or blue (2) - as a stand-in tile of XBLATEX_TILE texels,
+ * which is the ROM's picture's size, or NULL where there is none.
+ */
+const void *gebeanSkyWaterTile(s32 which);
+
 /** A new level: the last one's dome goes. */
 void gebeanSkyLevelReset(void);
 

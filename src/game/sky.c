@@ -572,6 +572,8 @@ static struct {
 	u8 *data;
 } g_SkyWaterTwinkles[4];
 
+static Gfx *skyWaterTwinkleLerp(Gfx *gdl);
+
 static u8 *skyWaterTwinkleTexture(struct textureconfig *tconfig)
 {
 	struct tex *tex;
@@ -721,7 +723,6 @@ static bool skyWaterTwinkleSetup(Gfx **gdlptr, struct environment *env)
 {
 	Gfx *gdl = *gdlptr;
 	u8 *data;
-	u8 lodfrac;
 
 	if (env->water_type < SKY_WATER_GE_FIRST) {
 		return false;
@@ -733,9 +734,6 @@ static bool skyWaterTwinkleSetup(Gfx **gdlptr, struct environment *env)
 		return false;
 	}
 
-	// sub_GAME_7F092E50(): 0.04 a tick of the 60 Hz clock
-	lodfrac = (u8)(sinf(g_Vars.lvframe60 * 0.04f) * 127.0f + 128.0f);
-
 	gDPPipeSync(gdl++);
 	gDPSetTextureImage(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, data);
 	gDPLoadSync(gdl++);
@@ -745,6 +743,38 @@ static bool skyWaterTwinkleSetup(Gfx **gdlptr, struct environment *env)
 	gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, SKY_WATER_TWINKLE_DIM * 2 / 8, 0x0000, 0, 0,
 			G_TX_NOMIRROR | G_TX_WRAP, 5, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_WRAP, 5, G_TX_NOLOD);
 	gDPSetTileSize(gdl++, 0, 0, 0, (SKY_WATER_TWINKLE_DIM - 1) << 2, (SKY_WATER_TWINKLE_DIM - 1) << 2);
+
+	*gdlptr = skyWaterTwinkleLerp(gdl);
+
+	return true;
+}
+
+/**
+ * The same shimmer over the Community Edition's HD sea (gebeanSkyWaterTile()):
+ * its picture on the ROM's 32 texel tile, so the sea keeps GoldenEye's scale,
+ * and not sheared - the halved line is how the N64 fetches a TMEM row, and the
+ * HD picture is drawn as it is painted. The caller resets the cycle type.
+ */
+static Gfx *skyWaterTwinkleSetupTile(Gfx *gdl, const void *tile)
+{
+	gDPPipeSync(gdl++);
+	gDPSetTextureLUT(gdl++, G_TT_NONE);
+	gDPLoadTextureBlock(gdl++, (void *)tile, G_IM_FMT_RGBA, G_IM_SIZ_16b,
+			SKY_WATER_TWINKLE_DIM, SKY_WATER_TWINKLE_DIM, 0,
+			G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, 5, 5, G_TX_NOLOD, G_TX_NOLOD);
+
+	return skyWaterTwinkleLerp(gdl);
+}
+
+/**
+ * The second tile over the first's TMEM, (22.5, 37.5) texels along, and the
+ * combiner that cross-fades them by sin(t) before the shade.
+ */
+static Gfx *skyWaterTwinkleLerp(Gfx *gdl)
+{
+	// sub_GAME_7F092E50(): 0.04 a tick of the 60 Hz clock
+	const u8 lodfrac = (u8)(sinf(g_Vars.lvframe60 * 0.04f) * 127.0f + 128.0f);
+
 	gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, SKY_WATER_TWINKLE_DIM * 2 / 8, 0x0000, 1, 0,
 			G_TX_NOMIRROR | G_TX_WRAP, 5, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_WRAP, 5, G_TX_NOLOD);
 	gDPSetTileSize(gdl++, 1, 90, 150, 90 + ((SKY_WATER_TWINKLE_DIM - 1) << 2), 150 + ((SKY_WATER_TWINKLE_DIM - 1) << 2));
@@ -757,9 +787,7 @@ static bool skyWaterTwinkleSetup(Gfx **gdlptr, struct environment *env)
 	gDPSetCycleType(gdl++, G_CYC_2CYCLE);
 	gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
 
-	*gdlptr = gdl;
-
-	return true;
+	return gdl;
 }
 #endif
 
@@ -1028,15 +1056,29 @@ Gfx *skyRender(Gfx *gdl)
 			gdl = domegdl;
 
 			if (env->water_enabled) {
+				// the Community Edition's HD sea where it has one for the
+				// level's water (GoldenEye's grey, then blue: rows 4 and 5)
+				const void *hdwater = env->water_type > SKY_WATER_GE_FIRST
+					? gebeanSkyWaterTile(env->water_type - SKY_WATER_GE_FIRST) : NULL;
 				bool twinkle;
 
 				gDPPipeSync(gdl++);
 				gDPSetCycleType(gdl++, G_CYC_1CYCLE);
 				gDPSetCombineMode(gdl++, G_CC_MODULATERGB, G_CC_MODULATERGB);
-				texSelect(&gdl, &g_TexSkyWaterConfigs[env->water_type], 1, 0, 2, 1, NULL);
 				gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
 
-				twinkle = skyWaterTwinkleSetup(&gdl, env);
+				if (hdwater) {
+					gDPSetTexturePersp(gdl++, G_TP_PERSP);
+					gDPSetTextureDetail(gdl++, G_TD_CLAMP);
+					gDPSetTextureFilter(gdl++, G_TF_BILERP);
+					gDPSetTextureLOD(gdl++, G_TL_TILE);
+					gdl = skyWaterTwinkleSetupTile(gdl, hdwater);
+					twinkle = true;
+				} else {
+					texSelect(&gdl, &g_TexSkyWaterConfigs[env->water_type], 1, 0, 2, 1, NULL);
+					twinkle = skyWaterTwinkleSetup(&gdl, env);
+				}
+
 				gdl = skyRenderWaterPlane(gdl);
 
 				if (twinkle) {

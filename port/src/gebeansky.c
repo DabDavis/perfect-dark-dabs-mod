@@ -16,6 +16,7 @@
  */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <ultra64.h>
@@ -512,6 +513,48 @@ s32 gebeanSkyIsDrawn(void)
 	return skyDrawn;
 }
 
+/**
+ * The sea's picture for a level served in HD: GoldenEye's grey (1) or blue (2)
+ * water, texture/bg/water1 and water2 in the release. The release's own are
+ * GoldenEye's 32x32 again, which the ROM's are already; the Community
+ * Edition's are 512x512 (new/texture/bg/), and those are what its Frigate's
+ * sea is drawn with (Xenia, 2026-09-27: dark blue with pale glints where the
+ * release draws the ROM's). The stand-in is bound for the game's life, and
+ * NULL where there is no picture bigger than GoldenEye's.
+ */
+const void *gebeanSkyWaterTile(s32 which)
+{
+	static const void *tiles[3];
+	static u8 tried[3];
+	char source[48];
+	char key[48];
+	s32 w = 0, h = 0;
+	u8 *rgba;
+
+	if (which < 1 || which > 2) {
+		return NULL;
+	}
+
+	if (tried[which]) {
+		return tiles[which];
+	}
+
+	tried[which] = 1;
+
+	snprintf(source, sizeof(source), "new/texture/bg/water%d", which);
+	rgba = gebeanDecodePictureFile(source, &w, &h);
+
+	if (rgba && w > 32 && h > 32) {
+		snprintf(key, sizeof(key), "gebeansky/%s", source);
+		tiles[which] = xblaTexBindImage(key, rgba, w, h);
+		sysLogPrintf(LOG_NOTE, "gebeansky: the sea's picture %d is the Community Edition's %dx%d", which, w, h);
+	} else {
+		free(rgba);
+	}
+
+	return tiles[which];
+}
+
 #else
 
 #include <PR/ultratypes.h>
@@ -521,5 +564,6 @@ Gfx *gebeanSkyRender(Gfx *gdl) { return NULL; }
 s32 gebeanSkyFogColour(u8 *rgb) { return 0; }
 s32 gebeanSkyIsDrawn(void) { return 0; }
 void gebeanSkyLevelReset(void) { }
+const void *gebeanSkyWaterTile(s32 which) { return NULL; }
 
 #endif

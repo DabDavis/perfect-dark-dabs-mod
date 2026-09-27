@@ -885,10 +885,10 @@ static struct {
 static s32 numMenuPictures;
 
 /**
- * The HUD's ammunition pictures (gehud.c, texture/bg/ammo*). Like the
- * crosshairs they are stored with red and blue the other way round: the 9mm
- * round is a blue case in the file and a brass one on the release's screen, the
- * shotgun's shell blue and red, the remote mine's light blue and red.
+ * The HUD's ammunition pictures (gehud.c, texture/bg/ammo*). Their red and
+ * blue once looked traded (a blue 9mm case), and were traded back here and for
+ * the crosshairs; that was the decoder reading Bean's 8888 files as BGRA,
+ * corrected where they are decoded (beanDecodeTexture()).
  *
  * Three of GoldenEye's pictures have no picture of the release's own at more
  * than GoldenEye's size - the golden gun's round (5x12), the timed and
@@ -901,10 +901,6 @@ static void menuAmmoPicture(u8 *rgba, s32 count, const char *variant)
 {
 	for (s32 k = 0; k < count; k++) {
 		u8 *px = rgba + (size_t)k * 4;
-		const u8 r = px[0];
-
-		px[0] = px[2];
-		px[2] = r;
 
 		if (strcmp(variant, "gold") == 0) {
 			// the case's shading carried on a ramp from dark to pale gold
@@ -969,20 +965,6 @@ const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height)
 
 		if (rgba && strncmp(name, "bg/ammo", 7) == 0) {
 			menuAmmoPicture(rgba, w * h, strchr(name, '#') ? strchr(name, '#') + 1 : "");
-		}
-
-		// The release's crosshairs - the menus' cursor and the HUD's HD one
-		// (gehud.c) - are blue, which is not how they are seen - the release
-		// colours them as it draws them - and GoldenEye's is red, drawn white.
-		// Their red is the blue channel.
-		if (rgba && (strcmp(name, "sight") == 0 || strcmp(name, "bg/sight") == 0)) {
-			for (s32 k = 0; k < w * h; k++) {
-				u8 *px = rgba + (size_t)k * 4;
-				const u8 r = px[0];
-
-				px[0] = px[2];
-				px[2] = r;
-			}
 		}
 
 		// The HUD's is lit from above - a bevel, pale along the ring's top

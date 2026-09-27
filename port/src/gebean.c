@@ -4288,6 +4288,22 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 
 	free(copy);
 
+	// x360DecodeTexture() reads an 8888 surface as the Perfect Dark release's
+	// cube maps are laid out, BGRA; Bean's own files hold RGBA. Every one of
+	// them the port drew was grey (the portraits, the barrel, the fonts), or
+	// had its channels traded back by the caller (the crosshairs, the ammo
+	// icons), until the sea's picture came out rust red: the Community
+	// Edition's HD water is blue, as Xenia draws it, and so is the release's
+	// muzzle flash orange rather than cyan
+	if (fetch.format == X360_FMT_8888) {
+		for (u32 i = 0; i < w * h; i++) {
+			const u8 r = rgba[i * 4];
+
+			rgba[i * 4] = rgba[i * 4 + 2];
+			rgba[i * 4 + 2] = r;
+		}
+	}
+
 	// Bean's N64 pictures went to DXT1 without their alpha. A picture whose
 	// source was a cut-out keeps the name it was made from (".rgba", against
 	// ".rgb" for the rest) and its cut texels dark, so the cut-out comes back
