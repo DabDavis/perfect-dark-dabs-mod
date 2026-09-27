@@ -33,9 +33,7 @@
  * 0230 and 08ac are the three more that came out of it; they are in the
  * pack's half of this list alone, since no room of either copy binds them.
  *
- * Slots a redraw rather than a reuse, left out deliberately: 007b is
- * Defection's street billboard, a printed poster in the ROM and a lit video
- * panel in the release, and both copies' rooms bind it; 0215 is the rope
+ * Slots a redraw rather than a reuse, left out deliberately: 0215 is the rope
  * prop's, purple in the ROM and planks in the release, and both copies' Air
  * Base rooms bind it; 08ad is the rubber plant's leaf in both; 08b8 is the
  * hovercopter's rotor, still a rotor. A false entry here costs an upscale
@@ -52,14 +50,23 @@
  * with a pack's to find 00c2 (tools/texpack/xblaconvert.py's read_records,
  * record size against source size).
  *
+ * 007b was once listed above as a redraw. It is a re-laid slot like those
+ * two, only more so: the ROM's is Defection's 48x32 "BIG-BOY" billboard
+ * poster, the release's a 1024x1024 atlas of the skyline towers round the
+ * rooftop - facades, window strips, roofs - and 4J's rooms of bg_ame map
+ * whole towers onto it. Any 007b that is not the release's own then paints
+ * the poster over the towers in red and orange streaks: a pack's (PD
+ * Forever Plus HD ships the poster), or the ROM's whenever the numbered
+ * record is not asked for (F3 20260927-083325).
+ *
  * See CLAUDE-notes/xbla.md, "The slots 4J reused".
  * tools/texpack/xblaconvert.py reads this file, so the list lives here and
  * nowhere else. Keep it sorted.
  */
 #define XBLA_REUSED_SLOTS \
-	0x00a5, 0x00a9, 0x00c2, 0x00dd, 0x0216, 0x0217, 0x0219, 0x021a, \
-	0x021b, 0x0221, 0x0222, 0x0223, 0x0224, 0x0226, 0x0227, 0x022f, \
-	0x0230, 0x089e, 0x089f, 0x08a2, 0x08a3, 0x08ac, 0x08bb, 0x08bf, \
-	0x08c0, 0x08c1, 0x08c3
+	0x007b, 0x00a5, 0x00a9, 0x00c2, 0x00dd, 0x0216, 0x0217, 0x0219, \
+	0x021a, 0x021b, 0x0221, 0x0222, 0x0223, 0x0224, 0x0226, 0x0227, \
+	0x022f, 0x0230, 0x089e, 0x089f, 0x08a2, 0x08a3, 0x08ac, 0x08bb, \
+	0x08bf, 0x08c0, 0x08c1, 0x08c3
 
 #endif
