@@ -4038,7 +4038,7 @@ Gfx *menuRenderDialogs(Gfx *gdl)
 
 		memcpy(saved, g_MenuColours, sizeof(saved));
 
-		for (i = 0; i < (s32)(sizeof(g_MenuColours) / sizeof(u32)); i++) {
+		for (i = 0; i < (s32)(sizeof(g_MenuColours) / (sizeof(u32))); i++) {
 			colours[i] = (colours[i] & 0xffffff00) | (u32)((colours[i] & 0xff) * alpha);
 		}
 
