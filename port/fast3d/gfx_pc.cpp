@@ -3040,7 +3040,17 @@ static inline __attribute__((always_inline)) void gfx_emit_tri_done(void) {
  * Whether the triangle faces away under the current culling mode.
  */
 static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3) {
-    if ((rsp.geometry_mode & G_CULL_BOTH) == 0 || (rsp.extra_geometry_mode & G_NO_CULLING_EXT)) {
+    if ((rsp.geometry_mode & G_CULL_BOTH) == 0) {
+        return false;
+    }
+    // G_NO_CULLING_EXT draws both sides only where the triangle writes depth,
+    // since that is what sorts a closed shape's near faces over its far ones.
+    // A GoldenEye gun's secondary lists are translucent and write none, and
+    // the KF7 is most of its body in them: with both sides drawn, the far
+    // faces landed over the near ones in list order (F3 20260927-105948,
+    // "part of the texture seems invisible"). Those keep the lists' culling,
+    // which is what GoldenEye draws them with.
+    if ((rsp.extra_geometry_mode & G_NO_CULLING_EXT) && (rdp.other_mode_l & Z_UPD)) {
         return false;
     }
     if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {

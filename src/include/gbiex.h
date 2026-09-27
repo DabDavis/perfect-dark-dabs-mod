@@ -226,7 +226,7 @@
 #define G_TEXGEN_FACE_EXT        0x00004000 // with G_LIGHTING: each triangle is lit and texgenned from its own face normal, turned to the eye, not from its vertices' colours (a flat room panel with no normals of its own)
 #define G_TEXGEN_EYE_EXT         0x00002000 // with G_TEXTURE_GEN: the lookup follows the eye ray and adds G_SETTEXGENSHIFT_EXT's shift (the K7 sheen)
 #define G_DECAL_EXT              0x00008000 // what follows is drawn in the decal z mode (ZMODE_DEC) whatever the render mode says: a mesh's overlay flat on its own surface (xblamesh.c)
-#define G_NO_CULLING_EXT         0x00010000 // every face is drawn whatever culling the lists set: GoldenEye's own guns, whose lists cull and some of whose faces are wound backwards (the silenced D5K's silencer)
+#define G_NO_CULLING_EXT         0x00010000 // every depth-writing face is drawn whatever culling the lists set (translucent ones keep the lists' culling): GoldenEye's own guns, whose lists cull and some of whose faces are wound backwards (the silenced D5K's silencer)
 
 /* Extra texture filtering mode */
 
