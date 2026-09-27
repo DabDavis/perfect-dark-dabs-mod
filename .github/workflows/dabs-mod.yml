@@ -316,3 +316,9 @@ jobs:
               --title "Dab's Mod (latest dev build)" \
               --notes "Automatic build of the latest \`dabs-mod\` commit, which may be ahead of the stable release and less tested. You need your own Perfect Dark \`ntsc-final\` ROM — see README.md inside the download."
           gh release upload --clobber dabs-mod-dev ci-release/*
+          # The release page says what the build brings: the newest patch
+          # notes entries, the same lines Check for Updates shows in game.
+          if [ -f patchnotes.txt ]; then
+            sh tools/patchnotes-md.sh patchnotes.txt "Automatic build of the latest \`dabs-mod\` commit, which may be ahead of the stable release and less tested. You need your own Perfect Dark \`ntsc-final\` ROM - see README.md inside the download." 5 > dev-notes.md
+            gh release edit dabs-mod-dev --notes-file dev-notes.md
+          fi
