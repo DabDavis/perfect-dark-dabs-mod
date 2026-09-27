@@ -5175,6 +5175,15 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 
 			chr->chrflags |= CHRCFLAG_SHIELDDAMAGED;
 
+#ifndef PLATFORM_N64
+			// GoldenEye's body armour has no shimmer: a hit on it is only
+			// the red flash (bondview2.c's record_damage_kills(), below at
+			// playerDisplayDamage()), on the player and on anyone else
+			// (F3 20260926-203211/225303)
+			if (geRoomActive()) {
+				// nothing drawn
+			} else
+#endif
 			if (prop2 && node && chr->model) {
 				func0f034080(chr, node, prop2, model, side, arg11);
 			} else {
@@ -5191,6 +5200,13 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				chrSetShield(chr, shield);
 			} else {
 				// Shield is now gone
+#ifndef PLATFORM_N64
+				if (geRoomActive()) {
+					// GoldenEye's armour takes what it can and the body
+					// the rest (record_damage_kills())
+					damage -= shield * armourscale;
+				} else
+#endif
 				if (!g_ModShieldBreakHits) {
 					damage = 0;
 				}
@@ -5537,6 +5553,12 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				}
 
 				if (showshield) {
+#ifndef PLATFORM_N64
+					if (geRoomActive()) {
+						// GoldenEye flashes red for a hit on the armour too
+						playerDisplayDamage();
+					} else
+#endif
 					playerDisplayShield();
 				}
 
