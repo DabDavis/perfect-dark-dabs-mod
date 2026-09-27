@@ -1079,6 +1079,54 @@ void hudmsgCreateFromArgs(char *text, s32 type, s32 conf00, s32 conf01, s32 conf
 			}
 		}
 
+#ifndef PLATFORM_N64
+		// GoldenEye's top line - an AI list's TextPrintTop, which is an
+		// in-game subtitle here - is a window of two (hudmsgTopShow() and
+		// bondviewUpperTextWindowTimerTick()): a line that comes while one
+		// shows cuts it to a second, and one that comes while two are held
+		// is not shown at all. Queued one after another at four seconds
+		// each, Facility's countdown - a line every two seconds - fell
+		// behind, and Ourumov fired on "One" with "Six" still on the screen
+		// (F3 20260927-194027).
+		if (geHudActive() && type == HUDMSGTYPE_INGAMESUBTITLE
+				&& (alignv == HUDMSGALIGN_TOP || alignv == HUDMSGALIGN_SCREENTOP)) {
+			struct hudmessage *showing = NULL;
+			s32 held = 0;
+
+			for (index = 0; index < g_NumHudMessages; index++) {
+				struct hudmessage *other = &g_HudMessages[index];
+
+				if (other->state == HUDMSGSTATE_FREE || other->state == HUDMSGSTATE_FADINGOUT
+						|| other->playernum != g_Vars.currentplayernum
+						|| other->type != HUDMSGTYPE_INGAMESUBTITLE
+						|| (other->alignv != HUDMSGALIGN_TOP && other->alignv != HUDMSGALIGN_SCREENTOP)) {
+					continue;
+				}
+
+				held++;
+
+				if (other->state != HUDMSGSTATE_QUEUED) {
+					showing = other;
+				}
+			}
+
+			if (held >= 2) {
+				return;
+			}
+
+			// BONDVIEW_UPPER_TEXT_TIMER_A/B: more than 61 left becomes 60
+			if (showing && showing->showduration > 0) {
+				if (showing->state == HUDMSGSTATE_ONSCREEN) {
+					if (showing->showduration - showing->timer > TICKS(61)) {
+						showing->showduration = showing->timer + TICKS(60);
+					}
+				} else if (showing->showduration > TICKS(61)) {
+					showing->showduration = TICKS(60);
+				}
+			}
+		}
+#endif
+
 #if PAL
 		g_ScaleX = 1;
 #else
