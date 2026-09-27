@@ -438,6 +438,23 @@ static struct noisesettings *gegunsNoise(s32 i)
 #define GEGUNS_GE_FRAME_TICKS    2
 #define GEGUNS_PD_SHOT_OVERHEAD  1
 
+/**
+ * How long GoldenEye holds a shot back after the trigger is pressed, in
+ * sixtieths: the Cougar and the grenade launcher sit in GUN_ANIM_STATE_TRIGGER_PRESS
+ * until field_890 reaches 6 (gunfire.c) - the Cougar cocking its hammer - and
+ * only then fire. Every other gun fires on the press. bgunTickIncAttackingShoot()
+ * waits this long before the shot, and gegunsRecovery() takes it off the wait
+ * after, so a held trigger still fires at GoldenEye's rate.
+ */
+s32 gegunsTriggerDelay60(s32 weaponnum)
+{
+	if (weaponnum == WEAPON_GE_COUGARMAGNUM || weaponnum == WEAPON_GE_GRENADELAUNCHER) {
+		return 6;
+	}
+
+	return 0;
+}
+
 static s32 gegunsGeSingleWait(s32 weaponnum, const struct gegunstat *stat)
 {
 	s32 speeds = stat->recoilspeed[0] + stat->recoilspeed[1];
@@ -465,7 +482,10 @@ static s8 gegunsRecovery(s32 weaponnum, const struct gegunstat *stat, s32 hasani
 		speeds = 0;
 	}
 
-	rec = gegunsGeSingleWait(weaponnum, stat) - speeds - (hasanim ? GEGUNS_PD_SHOT_OVERHEAD : 0);
+	// a fire animation's tick to start runs inside the trigger's wait
+	rec = gegunsGeSingleWait(weaponnum, stat) - speeds
+		- (hasanim && !gegunsTriggerDelay60(weaponnum) ? GEGUNS_PD_SHOT_OVERHEAD : 0)
+		- gegunsTriggerDelay60(weaponnum);
 
 	return rec < 0 ? 0 : (rec > 127 ? 127 : rec);
 }
@@ -2485,7 +2505,7 @@ static void gegunsFlashMatrix(Mtxf *out, const Mtxf *parent, f32 roll, f32 scale
  * lets the model pose it. The flash (part 3's matrix) is the gun's matrix
  * with a random roll, 1 to 1.25 times the size, and stretched along the barrel
  * by the gun's MuzzleFlashExtension; the star (part 2's, and part 4's on the
- * KF7) faces the eye at its place in the flash, a tenth the size. Posed as a
+ * KF7 alone) faces the eye at its place in the flash, a tenth the size. Posed as a
  * plain model both sat at their rest offsets unturned: a streak lying along
  * the top of the slide.
  */
@@ -2523,6 +2543,14 @@ void gegunsOwnModelFlash(struct hand *hand, struct model *model)
 	for (s32 part = 2; part <= 4; part += 2) {
 		struct modelnode *star = modelGetPart(def, part);
 		f32 at[3];
+
+		// part 4 is a second star only on the KF7 (gunfire.c tests for
+		// skeleton_gun_kf7). On the Cougar's revolver skeleton it is the
+		// cylinder, which this billboarded into the flash for the frame of
+		// every shot: "shows a drum for a second when it's fired"
+		if (part == 4 && hand->gset.weaponnum != WEAPON_GE_KF7SOVIET) {
+			continue;
+		}
 
 		if (!star || (star->type & 0xff) != MODELNODETYPE_POSITION
 				|| modelFindNodeMtxIndex(star, 0) == modelFindNodeMtxIndex(flash, 0)) {

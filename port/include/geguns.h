@@ -68,6 +68,7 @@ u16 gegunsOwnModel(s32 index);
 void gegunsSetOwnModelInUse(s32 index, s32 inuse);
 s32 gegunsOwnModelInUse(s32 weaponnum);
 s32 gegunsOwnModelHidden(s32 weaponnum);
+s32 gegunsTriggerDelay60(s32 weaponnum);
 // Where GoldenEye holds the gun in front of the eye, and where its host is held
 s32 gegunsViewPlacement(s32 index, f32 *own, f32 *host);
 
