@@ -5719,6 +5719,25 @@ bool bgCmdGetNthValueFromEnd(s32 n)
  * these statements should be executed, or whether the condition failed and
  * it's just passing over them to get to the endif command.
  */
+#ifndef PLATFORM_N64
+/**
+ * The player's view as a screen box. The player keeps it in floats
+ * (screenxminf and on), which the stock commands read as a screenbox's four
+ * shorts - two floats' halves, a box that is nothing like the view. A
+ * converted GoldenEye level's commands, which test against the view
+ * (GoldenEye's g_CurrentPlayer->screensize), are given the real one.
+ */
+static struct screenbox *bgGetPlayerScreenBox(struct screenbox *box)
+{
+	box->xmin = g_Vars.currentplayer->screenxminf;
+	box->ymin = g_Vars.currentplayer->screenyminf;
+	box->xmax = g_Vars.currentplayer->screenxmaxf;
+	box->ymax = g_Vars.currentplayer->screenymaxf;
+
+	return box;
+}
+#endif
+
 struct bgcmd *bgCmdExecuteBranch(struct bgcmd *cmd, bool execute)
 {
 	s32 i;
@@ -5786,6 +5805,32 @@ struct bgcmd *bgCmdExecuteBranch(struct bgcmd *cmd, bool execute)
 			cmd += cmd->len;
 			break;
 		case BGCMD_SETRESULT_IFPORTALINFOV:
+#ifndef PLATFORM_N64
+			// GoldenEye's VISOP_MATCH_PORTAL_VIS on a converted level: the
+			// box becomes the portal's own on the screen, and the portal is
+			// judged against the whole screen - not against whatever box the
+			// script's last rule left behind. Perfect Dark's narrows that box
+			// by the portal instead, and on Facility the tanks' room (17),
+			// which no portal leads into, was shown from the corridor only
+			// through the box the rule before it had left: never, from the
+			// doorway (F3 20260926-203516, "the tanks disappear right outside
+			// the door")
+			if (execute && g_BgGePortals) {
+				struct screenbox screen;
+
+				bgGetPlayerScreenBox(&screen);
+
+				if (PORTAL_IS_CLOSED(cmd[1].param) || !bgGetPortalScreenBbox(cmd[1].param, &g_BgCmdScreenBox)
+						|| !bgGetBoxIntersection(&g_BgCmdScreenBox, &screen)) {
+					g_BgCmdResult = BGRESULT_FALSE;
+				} else {
+					g_BgCmdResult = BGRESULT_TRUE;
+				}
+
+				cmd += cmd->len;
+				break;
+			}
+#endif
 			if (execute) {
 				if (!PORTAL_IS_CLOSED(cmd[1].param)) {
 					if (!bgGetPortalScreenBbox(cmd[1].param, &g_PortalScreenBbox)) {
@@ -5802,9 +5847,22 @@ struct bgcmd *bgCmdExecuteBranch(struct bgcmd *cmd, bool execute)
 		case BGCMD_SETRESULT_TRUEIFTHROUGHPORTAL:
 			if (execute) {
 				struct screenbox portalbox;
+#ifndef PLATFORM_N64
+				struct screenbox screen;
+#endif
 
 				if (!PORTAL_IS_CLOSED(cmd[1].param)) {
-					if (bgGetPortalScreenBbox(cmd[1].param, &portalbox) && bgGetBoxIntersection(&g_BgCmdScreenBox, &portalbox)) {
+					// GoldenEye's VISOP_VISIBLE_IF_SEEN_THROUGH_PORTAL tests the
+					// portal against the screen, not against the rule's box
+					if (bgGetPortalScreenBbox(cmd[1].param, &portalbox)
+#ifndef PLATFORM_N64
+							&& (g_BgGePortals
+								? bgGetBoxIntersection(&portalbox, bgGetPlayerScreenBox(&screen))
+								: bgGetBoxIntersection(&g_BgCmdScreenBox, &portalbox))
+#else
+							&& bgGetBoxIntersection(&g_BgCmdScreenBox, &portalbox)
+#endif
+							) {
 						if (g_BgCmdResult != BGRESULT_TRUE) {
 							bgCopyBox(&g_BgCmdScreenBox, &portalbox);
 							g_BgCmdResult = BGRESULT_TRUE;
@@ -5820,14 +5878,26 @@ struct bgcmd *bgCmdExecuteBranch(struct bgcmd *cmd, bool execute)
 			if (execute) {
 				if (g_BgCmdResult == BGRESULT_TRUE) {
 					struct screenbox portalbox;
+#ifndef PLATFORM_N64
+					struct screenbox screen;
+#endif
 
 					if (PORTAL_IS_CLOSED(cmd[1].param)) {
 						g_BgCmdResult = BGRESULT_FALSE;
 					} else if (!bgGetPortalScreenBbox(cmd[1].param, &portalbox)) {
 						g_BgCmdResult = BGRESULT_FALSE;
-					} else if (bgGetBoxIntersection(&portalbox, (struct screenbox *)&g_Vars.currentplayer->screenxminf) == 0) {
+					} else if (
+#ifndef PLATFORM_N64
+							g_BgGePortals ? !bgGetBoxIntersection(&portalbox, bgGetPlayerScreenBox(&screen)) :
+#endif
+							bgGetBoxIntersection(&portalbox, (struct screenbox *)&g_Vars.currentplayer->screenxminf) == 0) {
 						g_BgCmdResult = BGRESULT_FALSE;
-					} else if (bgGetBoxIntersection(&g_PortalScreenBbox, &portalbox) == 0) {
+					} else if (bgGetBoxIntersection(
+#ifndef PLATFORM_N64
+								// GoldenEye's is against the rule's own box
+								g_BgGePortals ? &g_BgCmdScreenBox :
+#endif
+								&g_PortalScreenBbox, &portalbox) == 0) {
 						g_BgCmdResult = BGRESULT_FALSE;
 					}
 				}
