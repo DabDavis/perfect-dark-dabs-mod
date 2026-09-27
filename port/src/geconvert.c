@@ -139,6 +139,13 @@ static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
 #define INTRO_BLOOD_AT 0xada0
 #define INTRO_BLOOD_SIZE 2524
 
+// headHat_array_8003E464: where a hat sits on each of GoldenEye's 28 random
+// heads, a row per hat type (beret, side cap, peaked, helmet, fur, moon) of
+// an offset and a scale in the hat's own space (chr.c's chrRender()), which
+// the port applies as GoldenEye does (gexPlusHeadHat())
+#define HEAD_HATS_AT 0x1d6d4
+#define HEAD_HATS_SIZE (28 * 6 * 24)
+
 /**
  * The missions' text, in GoldenEye's mission order: each mission's briefing file
  * (front.h's struct BriefStruct - four paragraph text ids then ten objectives of
@@ -4221,15 +4228,18 @@ static const uint8_t g_PdSizes[0x35] = {
 
 // GoldenEye types with no Perfect Dark record of the same shape: they keep
 // their place in the list as a one-word OBJTYPE_22
-// Hats (0x11) are left out with them: GoldenEye's hat is its own model, and a
-// converted one is a rigid prop - one matrix, a position node at its root -
-// which Perfect Dark cannot pose on a head. See gesolo.py.
+// Hats (0x11) were left out with them until converter 84, on a crash the first
+// conversion met (a hat is a rigid prop, one matrix and a position node at its
+// root): Perfect Dark still carries GoldenEye's own hat code - hatApplyToChr()
+// sets it on the chr's head joint, part 6 - and it is a plain ObjectRecord
+// whose pad is the chr it belongs to. Without them 366 guards over thirteen
+// missions went bareheaded (F3 20260927-191839, Bunker 2).
 // A switch (0x13) is kept: GoldenEye's "activating this console activates that
 // door" is Perfect Dark's OBJTYPE_LINKLIFTDOOR a word shorter, and the branch
 // of doorCallLift() where the lift is a door is GoldenEye's own behaviour. It
 // is what opens Dam's gates. gesolo.py's AS_NOTHING.
 // A pair of guns (0x0e) is kept too, from converter 75: see soloLinkGuns().
-#define SOLO_AS_NOTHING(t) ((t) == 0x11 || (t) == 0x12)
+#define SOLO_AS_NOTHING(t) ((t) == 0x12)
 
 #define SOLO_NO_PAD 0xffff
 /**
@@ -5283,6 +5293,14 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 			// remake's own model, as a setup record's does.
 			if (op == 0x59 || op == 0x57 || op == 0x58) {
 				vals[0] = soloItemWeapon(vals[0]);
+			} else if (op == 0xc0) {
+				// TRYGiveMeHat: GoldenEye's hat prop as the remake's model,
+				// as a hat record's is (Facility, Bunker, Surface 2)
+				if (st->models) {
+					setAdd(st->models, vals[0]);
+				}
+
+				vals[0] = (uint32_t)MODEL_REMAKE_FIRST + vals[0];
 			} else if (op == 0xbf || op == 0x1b) {
 				if (st->models) {
 					setAdd(st->models, vals[0]);
@@ -6861,6 +6879,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			fail("the blood runs off the data segment");
 		}
 		writeFile(outdir, "menu/introblood.bin", g_Data + INTRO_BLOOD_AT, INTRO_BLOOD_SIZE);
+
+		if (HEAD_HATS_AT + HEAD_HATS_SIZE > g_DataLen) {
+			fail("the heads' hat table runs off the data segment");
+		}
+		writeFile(outdir, "menu/headhats.bin", g_Data + HEAD_HATS_AT, HEAD_HATS_SIZE);
 
 		// gitem_structs as it stands, for where the watch holds each item up on
 		// its face (gewatch.c): a row's two pointers mean nothing out of the

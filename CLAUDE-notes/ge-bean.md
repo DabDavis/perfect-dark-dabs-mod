@@ -2271,11 +2271,12 @@ is **not** the order chrobjdata.h declares the headers in - Bond in a tuxedo is
 Xenia, Cradle's five trevguards and its Trevelyan, Facility's fifteen
 scientists.
 
-**Hats are left out.** GoldenEye's hat is its own model, and a converted one is
-a rigid prop - one matrix, a position node at its root - which Perfect Dark
-cannot pose on a head: the frame a guard wearing one was ticked,
-`modelasm00018680()` took the parent's matrix of a node that has none and the
-mission died. GoldenEye's own heads carry their hats anyway.
+**Hats are left out** - they were, until converter 84 (F3 20260927-191839,
+the user: Bunker 2's guards bareheaded). GoldenEye's own heads do **not** carry
+their hats: 366 records over thirteen missions (Bunker 2's 36 black fur hats
+and 3 berets, Facility's 45 side caps and 4 helmets, Frigate's 29 berets, ...)
+plus `TRYGiveMeHat` on Facility, Bunker and Surface 2. See "Hats, converter 84"
+below.
 
 **A weapon's model is left alone.** Pointing the record at the GoldenEye
 weapon's own model was tried and is wrong: `MODEL_GE_FIRST + n` aliases the
@@ -2294,11 +2295,10 @@ where the conversion has not run. All four difficulties are open, since a
 mission of the remake's is not in the save's solo stage table to unlock against.
 
 **Hats again, from the AI.** `TRYGiveMeHat` (0xc0) hands a chr a hat by
-GoldenEye's own hat number, which Perfect Dark reads as one of its model
-numbers: Cradle's Trevelyan was given Perfect Dark's model 220 and died the
-same way the hat records do. It is dropped with them. **A held object whose
+GoldenEye's own hat number; from converter 84 it is `try_equip_hat` (0xc9) with
+the prop as the remake's model, as `TRYGiveMeItem`'s is. **A held object whose
 model cannot be posed kills the chr's tick**, so anything a mission hands a chr
-has to be something Perfect Dark can pose - that is the shape of both faults.
+has to be something Perfect Dark can pose.
 
 **A runaway list hangs the game with nothing to report.** `chraiExecute()` runs
 a list until one of its commands yields and nothing bounds that, so a converted
@@ -4563,9 +4563,7 @@ the aligner had matched them in order without reading the bodies, so GoldenEye's
 **Deliberately still dropped**, and why:
 
 - `PRINT` (381) - a debug comment.
-- `TRYGiveMeHat` (33) - the hat *records* are already left out, because a
-  converted hat is a rigid prop Perfect Dark cannot pose on a head and the
-  frame a guard wearing one is ticked kills the mission.
+- `TRYGiveMeHat` (33) - converted since converter 84 (see "Hats, converter 84").
 - `ChrRemoveItemInHand` (19) - GoldenEye marks the held weapon `REMOVE`, so it
   vanishes; Perfect Dark's nearest, `aiChrDropWeapon`, *drops* it on the floor,
   which leaves the player a free gun in the middle of a cinema.
@@ -12190,3 +12188,39 @@ units under the hit, else -1 (default) - when the SETTIMG is an HD tile
 (gebeanStageIsTile()). Dam, same four aims: all 19 bg hits read the same
 texture in HD as in the N64 look (2720 dirt, 949 rock), holes by type identical.
 Probe `~/wt/f3-0927-holes-run/holetex2.py`.
+
+## Hats, converter 84 (F3 20260927-191839)
+
+The user's "guards in ge plus not wearing their hats" (Bunker 2, HD look).
+GoldenEye's hat is a setup record of its own (PROPDEF_HAT 0x11, an
+ObjectRecord whose pad is the chr's id and flag 0x4000 "assigned to chr"),
+which the conversion had turned into a one-word nothing on a crash the first
+conversion met. Perfect Dark still carries GoldenEye's whole hat path
+(`setupCreateHat()` -> `hatApplyToChr()` on part 6, the head joint, as
+`weapons_held[2]`; `chrRender()`'s per-head fit; the shot in `chrDamage()`),
+so the fix is mostly letting it through:
+
+- **geconvert.c**: 0x11 goes through `baseRecord()` (model 0x200 + GoldenEye's
+  prop, 212 fur hat .. 223 peaked cap); `TRYGiveMeHat` -> `try_equip_hat`;
+  `menu/headhats.bin` is `headHat_array_8003E464` (data segment 0x1d6d4, 28
+  heads x 6 hat types x offset+scale).
+- **propobj.c `hatGetType()`** was a stub answering -1; it maps the twelve GE
+  hats to GoldenEye's types, which are Perfect Dark's HATTYPE_* numbers - so a
+  shot fur hat, side cap, beret or peaked cap falls off, a helmet takes no
+  damage and rings, the moon headgear counts as the head (chraction.c).
+- **chr.c**: the per-head fit for a GE head row (`gexPlusHeadHat()`, head
+  45 Karl .. 72 Mishkin, by the row's GoldenEye character in `g_GeRomRows`),
+  and a peaked cap hides the head's crown (part 1), as GoldenEye's does.
+- **HD look**: the twelve hats have `geproptable.h` rows (propfit.py; Bean
+  names side caps `hatbird`), and `chr0f022214()` no longer applies
+  `xblaMeshHeldOffset()` to a hat - measured on the head joint it is the
+  body's neck lists, and put every hat round the guard's chin.
+
+Checked against the oracle (`~/dam-oracle/gehats.py` on 10.8.0.3, which faces
+the nearest guards and prints each chr's hat): the per-model counts match
+GoldenEye's on Bunker 2 (33 fur + 3 beret), Facility (45 side cap + 4 helmet),
+Bunker (19 side cap, 2+1 beret, 1 peaked) and Frigate (28 of GoldenEye's 29
+berets, one chr fewer at the frame); Surface has none in either. Probe
+`~/wt/f3-0927b-hats-rig/hats.py` (SHOOTHAT=1 hits the hat through
+`chrDamage(..., HITPART_HAT)`).
+

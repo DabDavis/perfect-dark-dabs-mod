@@ -1592,6 +1592,9 @@ def main():
         f.write(gefiles.rom_file('LtitleE'))
     with open(os.path.join(outdir, 'menu', 'introblood.bin'), 'wb') as f:
         f.write(rom.data[INTRO_BLOOD_AT:INTRO_BLOOD_AT + INTRO_BLOOD_SIZE])
+    # where a hat sits on each of GoldenEye's random heads (geconvert.c's HEAD_HATS_AT)
+    with open(os.path.join(outdir, 'menu', 'headhats.bin'), 'wb') as f:
+        f.write(rom.data[0x1d6d4:0x1d6d4 + 28 * 6 * 24])
     # and the solo missions' briefings, with the text bank each one indexes
     for names in MENU_TEXT:
         for name in names:

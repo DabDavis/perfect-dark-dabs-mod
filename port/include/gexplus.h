@@ -83,6 +83,10 @@ void gexPlusMissionLangLoad(s32 stagenum);
 
 // The animations a converted mission's PlayAnimation commands name, appended
 // after the game's own, and what GoldenEye's own animation id is once they are
+// Where GoldenEye sets a hat of `hattype` on the head row `headnum`: offset
+// x/y/z and scale x/y/z (headHat_array_8003E464). 0 where it has no row.
+s32 gexPlusHeadHat(s32 headnum, s32 hattype, f32 *out);
+
 void gexPlusMissionAnimLoad(s32 stagenum);
 s32 gexPlusMissionAnim(s32 geid);
 

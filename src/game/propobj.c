@@ -19956,6 +19956,24 @@ bool weaponIsGunfireVisible(struct prop *prop)
 
 s32 hatGetType(struct prop *prop)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's twelve hats, converted as the remake's models 0x200 + their
+	// prop number (PROP_HATFURRY 212 to PROP_HATPEAKED 223), by
+	// get_hat_model()'s types, which are Perfect Dark's HATTYPE_* numbers: a
+	// shot fur hat, side cap, beret or peaked cap falls off, a helmet rings
+	// (HATTYPE_METAL) and the moon headgear is the head (HATTYPE_CLOTH)
+	if (prop && prop->obj) {
+		switch (prop->obj->modelnum - MODEL_REMAKE_FIRST) {
+		case 212: case 213: case 214: return 4;             // fur hats
+		case 215: case 216: return 1;                       // side caps
+		case 217: case 218: return HATTYPE_METAL;           // helmets
+		case 219: return HATTYPE_CLOTH;                     // moon headgear
+		case 220: case 221: case 222: return 0;             // berets
+		case 223: return HATTYPE_2;                         // peaked cap
+		}
+	}
+#endif
+
 	return -1;
 }
 
