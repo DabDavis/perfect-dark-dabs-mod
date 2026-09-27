@@ -612,6 +612,92 @@ static s32 geRomLoadTable(s32 stagenum)
 	return 1;
 }
 
+/*
+ * GoldenEye's headHat_array_8003E464 (menu/headhats.bin, converter 84): where a
+ * hat sits on each of its 28 random heads, Karl (45) to Mishkin (72), a row per
+ * hat type - beret, side cap, peaked cap, helmet, fur hat, moon - of an offset
+ * and a scale in the hat's own space. chrRender() moves the hat by it as
+ * GoldenEye's does, every frame (chr.c).
+ */
+#define GEHAT_HEAD_FIRST 45
+#define GEHAT_NUM_HEADS  28
+#define GEHAT_NUM_TYPES  6
+#define GEHAT_ROW        24
+
+static u8 *g_GeHeadHats;
+static u32 g_GeHeadHatsLen;
+static s32 g_GeHeadHatsModDir = -2;
+
+static f32 geHatFloat(const u8 *p)
+{
+	union { u32 u; f32 f; } v;
+
+	v.u = ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
+
+	return v.f;
+}
+
+/**
+ * Where GoldenEye puts a hat of `hattype` (propobj.c's hatGetType()) on the
+ * chr's head row `headnum`: an offset in its units (x 21.3 by the caller, as
+ * GoldenEye's) and a scale per axis. 0 for a head that is not one of
+ * GoldenEye's random ones (a woman's, Bond's, anything off a converted
+ * mission), which wears the hat as the model has it.
+ */
+s32 gexPlusHeadHat(s32 headnum, s32 hattype, f32 *out)
+{
+	const s32 moddir = modloaderGetStageModDirIndex(g_Vars.stagenum);
+	s32 gehead = -1;
+
+	if (hattype < 0 || hattype >= GEHAT_NUM_TYPES || headnum <= 0 || moddir < 0
+			|| !modloaderStageIsMission(g_Vars.stagenum)) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < g_GeRomNumRows; i++) {
+		if (g_GeRomRows[i].row == headnum) {
+			gehead = g_GeRomRows[i].chr;
+			break;
+		}
+	}
+
+	if (gehead < GEHAT_HEAD_FIRST || gehead >= GEHAT_HEAD_FIRST + GEHAT_NUM_HEADS) {
+		return 0;
+	}
+
+	if (g_GeHeadHatsModDir != moddir) {
+		const char *dir = modloaderGetStageModDir(g_Vars.stagenum);
+		char path[FS_MAXPATH + 1];
+
+		sysMemFree(g_GeHeadHats);
+		g_GeHeadHats = NULL;
+		g_GeHeadHatsLen = 0;
+		g_GeHeadHatsModDir = moddir;
+
+		if (dir) {
+			snprintf(path, sizeof(path), "%s/menu/headhats.bin", dir);
+
+			if (fsFileSize(path) > 0) {
+				g_GeHeadHats = fsFileLoad(path, &g_GeHeadHatsLen);
+			}
+		}
+	}
+
+	{
+		const u32 at = ((u32)(gehead - GEHAT_HEAD_FIRST) * GEHAT_NUM_TYPES + (u32)hattype) * GEHAT_ROW;
+
+		if (!g_GeHeadHats || at + GEHAT_ROW > g_GeHeadHatsLen) {
+			return 0;
+		}
+
+		for (s32 k = 0; k < 6; k++) {
+			out[k] = geHatFloat(g_GeHeadHats + at + 4 * k);
+		}
+	}
+
+	return 1;
+}
+
 /**
  * Every row this held, given back: a mission's rows are its own, and the next
  * one asks for whichever characters it wants.

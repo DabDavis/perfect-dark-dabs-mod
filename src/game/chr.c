@@ -7,6 +7,9 @@
 #include "game/modbodies.h"
 #include "game/debug.h"
 #include "game/chr.h"
+#ifndef PLATFORM_N64
+#include "gexplus.h"
+#endif
 #include "game/env.h"
 #include "game/nbomb.h"
 #include "game/prop.h"
@@ -2474,7 +2477,11 @@ void chr0f022214(struct chrdata *chr, struct prop *prop, bool fulltick)
 #ifndef PLATFORM_N64
 		// Into the hand a GoldenEye XBLA character draws, which is not where
 		// GoldenEye's N64 hand closes round the gun (xblaMeshHeldOffset())
+		// Not a hat: it sits on the head joint, and the offset is measured on
+		// the body's own lists under a joint's matrix, which for the head are
+		// the neck's - it put GoldenEye's hats round the guards' chins
 		if ((obj->hidden & OBJHFLAG_EMBEDDED) == 0 && CHRRACE(chr) != RACE_SKEDAR
+				&& prop != chr->weapons_held[2]
 				&& xblaMeshHeldOffset(model->attachedtomodel, model->attachedtonode, heldoff)) {
 			held = *sp104;
 
@@ -3465,6 +3472,39 @@ s32 chrTick(struct prop *prop)
 						}
 					}
 				}
+#ifndef PLATFORM_N64
+				else {
+					// A GoldenEye hat on one of GoldenEye's random heads, set
+					// where its headHat_array_8003E464 row puts it: an offset
+					// and a scale in the hat's own space, and a peaked cap
+					// takes the crown of the head off (converter 84, F3
+					// 20260927-191839)
+					s32 hattype = hatGetType(chr->weapons_held[2]);
+					f32 fit[6];
+
+					if (hatmodel && hatmodel->matrices && (chr->weapons_held[2]->flags & PROPFLAG_ONTHISSCREENTHISTICK)
+							&& gexPlusHeadHat(chr->headnum, hattype, fit)) {
+						struct coord hatpos;
+						Mtxf fitmtx;
+						Mtxf moved;
+
+						hatpos.x = fit[0] * 21.3f;
+						hatpos.y = fit[1] * 21.3f;
+						hatpos.z = fit[2] * 21.3f;
+
+						mtx4LoadTranslation(&hatpos, &fitmtx);
+						mtx00015e24(fit[3], &fitmtx);
+						mtx00015e80(fit[4], &fitmtx);
+						mtx00015edc(fit[5], &fitmtx);
+						mtx00015be4(hatmodel->matrices, &fitmtx, &moved);
+						mtx4Copy(&moved, hatmodel->matrices);
+
+						if (hattype == HATTYPE_2) {
+							hatvisible = false;
+						}
+					}
+				}
+#endif
 			}
 
 			if (model->definition->skel == &g_SkelChr) {

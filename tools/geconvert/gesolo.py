@@ -87,12 +87,7 @@ CCTV = 0x06
 # GoldenEye types with no Perfect Dark record of the same shape. They keep their
 # place in the list as a one-word OBJTYPE_22, which the engine walks over.
 #
-# **Hats (0x11)** are left out with them. GoldenEye's hat is its own model, and
-# a converted one is a rigid prop - one matrix, a position node at its root -
-# which Perfect Dark cannot pose on a head: the frame a guard wearing one was
-# ticked, modelasm00018680() took the parent's matrix of a node that has none
-# and the mission died. GoldenEye's own heads carry their hats anyway, and the
-# remake's guards wear Bean's, GE-X's or Perfect Dark's heads.
+# **Hats (0x11)** were left out with them until converter 84 - see below.
 #
 # **A switch (0x13) is kept.** GoldenEye's PROPDEF_SWITCH - "activating the
 # first object activates the second, a door" - is what opens Dam's gates from
@@ -104,7 +99,10 @@ CCTV = 0x06
 # relative record indices, which the conversion keeps.
 #
 # **A pair of guns (0x0e) is kept** from converter 75: link_guns_record().
-AS_NOTHING = {0x11, 0x12}
+# **Hats (0x11) are kept** from converter 84 (F3 20260927-191839): the record
+# is a plain ObjectRecord whose pad is its chr, and hatApplyToChr() sets it on
+# the head joint as GoldenEye does. TRYGiveMeHat (0xc0) is try_equip_hat.
+AS_NOTHING = {0x12}
 LINK_GUNS = 0x0e
 MONITOR = 0x0a
 MULTI_MONITOR = 0x0b
@@ -195,7 +193,7 @@ GE_EQUIP_OPS = (0xe3, 0xe4, 0x59, 0x57, 0x58)
 # twenty missions, so every guard a list armed - Statue Park's troops, Bond in
 # Archives' ending - carried a door for a gun. The prop becomes the remake's own
 # model, as a setup record's does, and the item goes through GE_ITEM_WEAPON.
-GE_GIVE_OPS = (0xbf, 0x1b)
+GE_GIVE_OPS = (0xbf, 0x1b, 0xc0)
 
 # The two commands that ask about Bond's own health (geaitable.py rows 7f and
 # 80). GoldenEye's threshold is a byte where 255 is a full one (chrai.c divides

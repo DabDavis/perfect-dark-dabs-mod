@@ -128,6 +128,17 @@
 	PROPROW("Pgx181Z", "prop/silotopdoor", 0, 1, 2, 1, 1, 1, 3.50013f, 0.00f, 0.00f, 0.00f, 482.97f, -3179.33f, 116.43f), // silotopdoor, 65%
 	PROPROW("Pgx182Z", "prop/doorprison1", 0, 1, 2, 1, 1, 1, 3.50288f, 0.00f, 0.00f, 0.00f, 24899.61f, -992.48f, -38824.54f), // doorprison1, 100%
 	PROPROW("Pgx202Z", "prop/chrrocket", 0, 1, 2, 1, 1, 1, 0.21328f, 0.00f, 0.00f, 0.00f, 21.84f, 0.08f, -317.66f), // chrrocket, 91%
+	PROPROW("Pgx212Z", "prop/hatfurry", 0, 1, 2, 1, 1, 1, 0.21279f, 0.00f, 0.00f, 0.00f, -0.00f, -681.61f, -25.12f), // hatfurry, 100%
+	PROPROW("Pgx213Z", "prop/hatfurrybrown", 0, 1, 2, 1, 1, 1, 0.21279f, 0.00f, 0.00f, 0.00f, -0.00f, -681.61f, -25.12f), // hatfurrybrown, 100%
+	PROPROW("Pgx214Z", "prop/hatfurryblack", 0, 1, 2, 1, 1, 1, 0.21279f, 0.00f, 0.00f, 0.00f, -0.00f, -681.61f, -25.12f), // hatfurryblack, 100%
+	PROPROW("Pgx215Z", "prop/hatbird", 0, 1, 2, 1, 1, 1, 0.21222f, 0.00f, 0.00f, 0.00f, 11.52f, -717.13f, -52.13f), // hattbird, 100%
+	PROPROW("Pgx216Z", "prop/hatbirdbrown", 0, 1, 2, 1, 1, 1, 0.21259f, 0.00f, 0.00f, 0.00f, 11.38f, -718.49f, -52.16f), // hattbirdbrown, 72%
+	PROPROW("Pgx217Z", "prop/hathelmet", 0, 1, 2, 1, 1, 1, 0.21274f, 0.00f, 0.00f, 0.00f, -0.05f, -659.70f, -23.99f), // hathelmet, 100%
+	PROPROW("Pgx218Z", "prop/hathelmetgrey", 0, 1, 2, 1, 1, 1, 0.21274f, 0.00f, 0.00f, 0.00f, -0.05f, -659.70f, -23.99f), // hathelmetgrey, 100%
+	PROPROW("Pgx219Z", "prop/hatmoon", 0, 1, 2, 1, 1, 1, 0.21305f, 0.00f, 0.00f, 0.00f, 0.11f, -636.06f, -16.76f), // hatmoon, 100%
+	PROPROW("Pgx220Z", "prop/hatberet", 0, 1, 2, 1, 1, 1, 0.21290f, 0.00f, 0.00f, 0.00f, -0.25f, -670.79f, -45.42f), // hatberet, 100%
+	PROPROW("Pgx221Z", "prop/hatberetblue", 0, 1, 2, 1, 1, 1, 0.21290f, 0.00f, 0.00f, 0.00f, -0.25f, -670.79f, -45.42f), // hatberetblue, 100%
+	PROPROW("Pgx222Z", "prop/hatberetred", 0, 1, 2, 1, 1, 1, 0.21297f, 0.00f, 0.00f, 0.00f, -0.04f, -671.17f, -45.35f), // hatberetred, 100%
 	PROPROW("Pgx223Z", "prop/hatpeaked", 0, 1, 2, 1, 1, 1, 0.21301f, 0.00f, 0.00f, 0.00f, 0.00f, -665.04f, -32.01f), // hatpeaked, 100%
 	PROPROW("Pgx234Z", "prop/chrdoordecoder", 1, 0, 2, 1, -1, 1, 0.21300f, 0.00f, 0.00f, 0.00f, 260.36f, -259.08f, -48.66f), // chrdoordecoder, 95%
 	PROPROW("Pgx243Z", "prop/chrkeyyale", 0, 1, 2, 1, 1, 1, 0.42680f, 0.00f, 0.00f, 0.00f, 109.64f, 0.21f, 108.18f), // chrkeyyale, 72%
