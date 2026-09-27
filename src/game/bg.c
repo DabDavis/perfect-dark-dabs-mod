@@ -1487,6 +1487,14 @@ Gfx *bgRenderArtifacts(Gfx *gdl)
 	artifactsResolveOcclusion();
 #endif
 
+#ifndef PLATFORM_N64
+	// GoldenEye has neither light glares nor sun flares: its remade levels
+	// keep the converted lights for shading only (F3 20260927-005229)
+	if (geRoomActive()) {
+		return gdl;
+	}
+#endif
+
 	if (g_Vars.mplayerisrunning == false && g_NumRoomsWithGlares > 0) {
 		gdl = artifactsConfigureForGlares(gdl);
 
