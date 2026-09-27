@@ -18,6 +18,10 @@
 bool g_FogEnabled;
 bool g_EnvHasTransparency;
 struct distfadesettings *g_EnvDistFadeSettingsPtr;
+#ifndef PLATFORM_N64
+// The far plane of the fog row the fade came with - see envGetDistFadeSettings().
+static f32 g_EnvDistFadeFogFar;
+#endif
 struct distfadesettings g_EnvDistFadeSettings;
 u32 var800a65fc;
 
@@ -247,6 +251,10 @@ void envApplyFogEnvironment(struct fogenvironment *env)
 		g_EnvDistFadeSettings.refdist = env->refdist;
 		g_EnvDistFadeSettingsPtr = &g_EnvDistFadeSettings;
 	}
+
+#ifndef PLATFORM_N64
+	g_EnvDistFadeFogFar = env->far;
+#endif
 
 	envTick();
 }
@@ -631,9 +639,30 @@ bool envIsPosInDrawDistance(struct coord *pos, f32 tolerance)
 struct distfadesettings *envGetDistFadeSettings(void)
 {
 #ifndef PLATFORM_N64
+	f32 start;
+	f32 end;
+	u8 rgb[3];
+
 	// The fog row's distances objects fade out over go with the fog
 	if (modIsFogDisabled()) {
 		return NULL;
+	}
+
+	// GoldenEye's levels in the HD look are fogged at the release's own
+	// distance, which is further out than GoldenEye's far plane - Depot's is
+	// 3000, and its guards were gone at 2000 while the yard past them was
+	// still drawn, so they shot from nothing (F3 report 20260927-024938). The
+	// fade moves out with the fog, by the same share.
+	if (g_EnvDistFadeSettingsPtr && g_EnvDistFadeFogFar > 0
+			&& gebeanStageFog(&start, &end, rgb) && end > g_EnvDistFadeFogFar) {
+		static struct distfadesettings scaled;
+		const f32 k = end / g_EnvDistFadeFogFar;
+
+		scaled.opaperc = g_EnvDistFadeSettingsPtr->opaperc * k;
+		scaled.xluperc = g_EnvDistFadeSettingsPtr->xluperc * k;
+		scaled.refdist = g_EnvDistFadeSettingsPtr->refdist * k;
+
+		return &scaled;
 	}
 #endif
 

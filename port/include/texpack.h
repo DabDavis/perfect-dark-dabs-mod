@@ -328,6 +328,8 @@ s32 texpackDecodedIsGlyph(s32 id, u32 glyph);
 s32 texpackHaveXblaReplacement(s32 record);
 
 u8 *texpackLoadXblaReplacement(s32 record, s32 *outWidth, s32 *outHeight);
+u8 *texpackDecodeXblaReplacementNow(s32 record, s32 *outWidth, s32 *outHeight);
+s32 texpackGetIndexSerial(void);
 s32 texpackGetNumXblaReplacements(void); // never scans; 0 until something has drawn
 
 /**
@@ -355,6 +357,7 @@ void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record);
 /** The same file whether or not the F7 dump is on; 1 when it was written. */
 s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record);
 void texpackAsyncShutdown(void);
+void texpackDumpFlush(void);
 
 /**
  * Expands one texture to RGBA32, bottom row first, in a buffer the caller

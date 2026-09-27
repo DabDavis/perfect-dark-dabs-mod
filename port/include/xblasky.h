@@ -42,6 +42,13 @@ Gfx *xblaSkyRender(Gfx *gdl);
  */
 s32 xblaSkyIsDrawn(void);
 
+/**
+ * With a cube drawn that has a sun painted in it, where one of the game's
+ * suns at `pos` goes instead: the same distance out, towards the cube's sun.
+ * 0, and `out` untouched, otherwise.
+ */
+s32 xblaSkySunPos(const f32 pos[3], f32 out[3]);
+
 #ifdef __cplusplus
 }
 #endif

@@ -17,6 +17,7 @@
 #include "bss.h"
 #include "config.h"
 #include "system.h"
+#include <math.h>
 #include "gbiex.h"
 #include "game/camera.h"
 #include "game/gfxmemory.h"
@@ -406,4 +407,130 @@ Gfx *xblaSkyRender(Gfx *gdl)
 s32 xblaSkyIsDrawn(void)
 {
 	return xblaSkyDrawn;
+}
+
+/**
+ * Where a cube's sun is: the middle of its brightest spot, as a direction in
+ * the game's world, or 0 when the cube has no one small near-white spot to
+ * call a sun. Worked out once a cube, from the six pictures.
+ *
+ * The game's sun (env.c's suns_*) was placed for the N64's sky, which has no
+ * sun of its own in the picture, and the cube's is where 4J painted it - so
+ * with the cube drawn the orb and its flare sat off the bright circle they
+ * belong on (Villa, F3 report 20260927-070754).
+ */
+static s32 xblaSkyCubeSun(s32 cube, f32 out[3])
+{
+	static s8 tried[XBLASKY_NUMCUBES];
+	static f32 dirs[XBLASKY_NUMCUBES][3];
+	s32 bestface = -1;
+	s32 best = 0;
+
+	if (tried[cube]) {
+		out[0] = dirs[cube][0];
+		out[1] = dirs[cube][1];
+		out[2] = dirs[cube][2];
+		return tried[cube] > 0;
+	}
+
+	tried[cube] = -1;
+
+	// The brightest texel of the cube, and its face
+	for (s32 face = 0; face < XBLASKY_FACES; face++) {
+		s32 w, h;
+		u8 *rgba = xblaTexDecodeRecord(xblaSkyFirstFace[cube] + face, &w, &h);
+
+		if (!rgba) {
+			return 0;
+		}
+
+		for (s32 i = 0; i < w * h; i++) {
+			const s32 lum = rgba[i * 4] * 3 + rgba[i * 4 + 1] * 6 + rgba[i * 4 + 2];
+
+			if (lum > best) {
+				best = lum;
+				bestface = face;
+			}
+		}
+
+		free(rgba);
+	}
+
+	// Near white, or it is the brightest cloud rather than a sun
+	if (bestface < 0 || best < 245 * 10) {
+		return 0;
+	}
+
+	{
+		s32 w, h;
+		u8 *rgba = xblaTexDecodeRecord(xblaSkyFirstFace[cube] + bestface, &w, &h);
+		f32 su = 0, sv = 0;
+		s32 n = 0;
+
+		if (!rgba) {
+			return 0;
+		}
+
+		for (s32 y = 0; y < h; y++) {
+			for (s32 x = 0; x < w; x++) {
+				const u8 *p = &rgba[(y * w + x) * 4];
+
+				// The burnt-out core only: the glow round it spreads
+				// further one way than the other, and taking any of it
+				// pulled Villa's sun four degrees off the disc
+				if (p[0] * 3 + p[1] * 6 + p[2] >= best - 5) {
+					// Row 0 is the first the record stores, the bottom of
+					// the face (xblaSkyBuildVertices()): v = 1 - t
+					su += (x + 0.5f) / w;
+					sv += 1.0f - (y + 0.5f) / h;
+					n++;
+				}
+			}
+		}
+
+		free(rgba);
+
+		// A sun is a spot: a sky whose whole horizon is that bright has none
+		if (n == 0 || n * 50 > w * h) {
+			return 0;
+		}
+
+		xblaSkyFacePoint(bestface, su / n * 2 - 1, sv / n * 2 - 1, dirs[cube]);
+	}
+
+	sysLogPrintf(LOG_NOTE, "xblasky: cube %04x's sun is on face %d, towards (%.3f %.3f %.3f)",
+			xblaSkyFirstFace[cube], bestface, dirs[cube][0], dirs[cube][1], dirs[cube][2]);
+
+	tried[cube] = 1;
+	out[0] = dirs[cube][0];
+	out[1] = dirs[cube][1];
+	out[2] = dirs[cube][2];
+
+	return 1;
+}
+
+s32 xblaSkySunPos(const f32 pos[3], f32 out[3])
+{
+	f32 dir[3];
+	s32 cube;
+	f32 dist;
+
+	if (!xblaSkyDrawn) {
+		return 0;
+	}
+
+	cube = xblaSkyCubeOfStage(mainGetStageNum());
+
+	if (cube < 0 || !xblaSkyCubeSun(cube, dir)) {
+		return 0;
+	}
+
+	dist = sqrtf(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2])
+		/ sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+
+	out[0] = dir[0] * dist;
+	out[1] = dir[1] * dist;
+	out[2] = dir[2] * dist;
+
+	return 1;
 }

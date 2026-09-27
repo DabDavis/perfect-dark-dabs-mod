@@ -3291,6 +3291,10 @@ void skyCreateSunArtifact(struct artifact *artifact, s32 x, s32 y)
 			sunpos.x = env->suns[i].pos[0];
 			sunpos.y = env->suns[i].pos[1];
 			sunpos.z = env->suns[i].pos[2];
+
+			if (env->numsuns == 1) {
+				xblaSkySunPos(env->suns[i].pos, sunpos.f);
+			}
 			artifact->visiblelos = artifactTestLos(&sunpos, &zero, x, y) * 0xfffc;
 		}
 #endif
@@ -3384,6 +3388,13 @@ Gfx *skyRenderSuns(Gfx *gdl, bool xray)
 		g_SunPositions[i].f[0] = sun->pos[0];
 		g_SunPositions[i].f[1] = sun->pos[1];
 		g_SunPositions[i].f[2] = sun->pos[2];
+
+#ifndef PLATFORM_N64
+		// A release sky has its own sun painted in; the orb goes on it
+		if (env->numsuns == 1) {
+			xblaSkySunPos(sun->pos, g_SunPositions[i].f);
+		}
+#endif
 
 		colour[0] = sun->red;
 		colour[1] = sun->green;
