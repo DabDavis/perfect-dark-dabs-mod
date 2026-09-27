@@ -31,6 +31,25 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 8 2026-09-27
+GE Plus: guards wear their hats again, and a shot hat flies off as in GoldenEye (helmets ring and stay on) (thanks dab)
+GE Plus: levels no longer draw other games' pictures on their walls, like faces in Streets' windows or the Institute's floor in Egyptian
+XBLA look: HD textures and texture packs stay loaded all level, even after F9, like on the Defection rooftop (thanks Parabolee)
+Defection, XBLA look: the skyline towers keep their HD art instead of a red poster, with or without a texture pack (thanks Chloe)
+GE Plus: the KF7 is drawn whole in first person, and so are the Cougar's frame and the Moonraker's side holes (thanks dblaney1)
+GE Plus Dam: in the N64 look the sky no longer turns black at some angles (thanks Linkmendez)
+GE Plus Statue Park, HD look: the Community Edition's storm sky instead of the N64 one (thanks dab)
+GE Plus, HD look: desks, glassware, Statue Park's gate, the card boxes, the disc reader and Streets' buildings use the HD models (thanks dab)
+GE Plus Facility: Ourumov counts all the way down before he fires, the subtitles no longer fall behind (thanks dab)
+GE Plus folder, HD look: the lion, crown and unicorn crest shows whole (thanks dab)
+GE Plus Cinema: F3 works during a cinema, and Escape stops typing instead of leaving the cinema (thanks dab)
+Customize Character: GoldenEye heads sit on the body instead of floating above it in the classic look
+Customize Character: Bond's boiler suit and similar bodies have one pair of hands, not two
+Third person: walls no longer cut you to first person; your character fades out as the camera gets close (thanks dab)
+Third person: new Camera Body Fade setting (replaces Camera Minimum Distance) sets how close the camera gets before your character is gone
+Third person: the camera holds still while the game is paused (thanks dab)
+Perfect Menu: after a GE Plus mission the menu's background shows the Institute instead of black
+
 notes 7 2026-09-27
 GE Plus Jungle: with Disable Fog on, Xenia no longer comes for you the moment the mission starts
 GE Plus Statue Park: Mishkin and his squad arrive even with Keep Bodies turned up (thanks Glazier)
