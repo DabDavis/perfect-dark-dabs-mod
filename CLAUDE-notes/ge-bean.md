@@ -12282,3 +12282,27 @@ oracle (`~/dam-oracle/gestreets.py` on 10.8.0.3, Streets swapped in at
 `bossSetLoadedStage`) has dark panes with frames, as the fix. Rig and shots:
 `~/wt/f3-0927b-streets-run` (`cmp_pete_headfix.png`, `cmp_levels_headfix.png`,
 `oracle_streets.png`), tester build in `~/wt/f3-0927b-streets-run705`.
+
+## Dam's sky black looking up at the first tower's cliffs (2026-09-27)
+
+Tester F3 20260927-181500 (705725a, N64 look): "in certain angles the sky can
+turn black". Eye (13903, 13272, 27016), theta 330.4, verta 30.2 - the whole sky
+above the cliffs pure black; the oracle (`~/dam-oracle/geskyview.py`, Dam
+offset (-3390, 13219, 8584)) draws clouds there, same rooms 132/133/135.
+
+Not the rooms and not the corner maths (state TOP, sane cloud vertices): the
+port's cloud quad was drawn under `WorldToScreen * scale(30)`, and that matrix's
+translation is the eye's position in view space - here 32903 along the view
+axis, past the 32768 an s15.16 `Mtx` from `mtxF2L()` holds, so it wrapped and
+only a sliver of the quad survived. Heading-dependent (theta 29.6 = 20919
+along the view, fine), which is why it came and went. Only far from the origin:
+Dam is the one converted level that big. Fix: the clouds are drawn
+camera-relative like `skyRenderWaterPlane()` (translation by the eye folded
+into the matrix, the eye taken off each vertex). A 12-heading sweep at the
+report's spot: pure-black 18% -> 0 at 330; Villa and Crash Site skies and
+Dam's working views unchanged within 3% fuzz. The HD domes/cubes drop the
+translation altogether, so HD never showed it.
+
+The same pass's Depot (175706) and Train (181008) "black void" reports were the
+closed-portal door, already fixed by adcb8a576: HEAD draws GoldenEye's rooms
+there (Depot 9 7 2 5, Train 53-56 in the oracle).
