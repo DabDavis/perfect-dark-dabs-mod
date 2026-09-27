@@ -9400,6 +9400,14 @@ struct gebeanlevel *gebeanLevelOpen(const char *name)
 			scale = 128.0f;
 		} else if (counts[1] >= 3) {
 			scale = 256.0f;
+		} else if (strcmp(name, "silo") == 0) {
+			// Silo carries no literal either, and is in 512ths: its signs -
+			// the flame triangle, the no-smoking disc, the C5 crest - run
+			// their UVs to half a repeat in 1024ths, and drew a quarter of
+			// their picture, a black corner with a yellow tip (F3
+			// 20260926-224957). In 512ths they are whole and its walls,
+			// treads and rock at the density of every other level
+			scale = 512.0f;
 		}
 
 		sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws, %d textures, UVs in 1/%.0f (shader literals: %d of 1/128, %d of 1/256)",
