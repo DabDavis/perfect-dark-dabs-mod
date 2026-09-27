@@ -31,6 +31,11 @@
 #include "lib/anim.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "geroom.h"
+
+#define GE_EXPLOSION_HARMLESS_TICKS 8
+#endif
 
 #ifdef PLATFORM_N64
 #define SHAKE_TIME 6
@@ -709,6 +714,18 @@ void explosionInflictDamage(struct prop *expprop)
 	if (type->damage <= 0.0f) {
 		return;
 	}
+
+#ifndef PLATFORM_N64
+	// A GoldenEye mission's explosion hurts nothing for its first eight
+	// ticks, as GoldenEye's own does (explosion.c there: damage only from
+	// age 8). Its scripts count on it - Egyptian's Baron Samedi is spawned
+	// beside a sarcophagus the same list blows open, and turns himself
+	// invincible on his first tick; hurt on the explosion's first frame he
+	// died of his own entrance (tester F3 20260927-021505)
+	if (exp->age < GE_EXPLOSION_HARMLESS_TICKS && geRoomActive() && !g_Vars.normmplayerisrunning) {
+		return;
+	}
+#endif
 
 	if (isfirstframe) {
 		damageradius = type->damageradius;
