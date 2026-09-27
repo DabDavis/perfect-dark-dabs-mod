@@ -31,6 +31,50 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 7 2026-09-27
+GE Plus Jungle: with Disable Fog on, Xenia no longer comes for you the moment the mission starts
+GE Plus Statue Park: Mishkin and his squad arrive even with Keep Bodies turned up (thanks Glazier)
+GE Plus Egyptian: Baron Samedi no longer blows himself up; GoldenEye's explosions do no harm for their first moment (thanks Linkmendez)
+GE Plus Egyptian: the temple goes dark after Baron Samedi's second appearance, as in GoldenEye (thanks Linkmendez)
+GE Plus: Trevelyan runs at the end of Caverns, and every "run to" order in GoldenEye's missions is a run again (thanks Linkmendez)
+GE Plus Archives: the magazine beside the PP7 in the interrogation room gives it ammunition (thanks Linkmendez and savantique)
+GE Plus: Natalya no longer bounces while she lies by the helicopter (thanks Linkmendez, savantique and Glazier)
+GE Plus Statue Park: the helicopter stays standing, blackened, after it blows up, instead of a few floating pieces (thanks Linkmendez)
+GE Plus: finishing the Cradle plays GoldenEye's credits in Cuba, then the long cast reel (thanks Linkmendez)
+GE Plus Cradle: the Cinema page plays the real ending with Trevelyan, and in the HD look the platform is drawn from underneath (thanks dab)
+GE Plus Aztec: the shuttle launches on a column of fire and smoke (thanks dab)
+GE Plus Surface 1: Bond keeps his gun in the ending (thanks dab)
+GE Plus Streets: Bond appears in the ending even when you finish in the tank (thanks Linkmendez)
+GE Plus Streets: the jeeps stand on the road instead of sunk into it (thanks Linkmendez)
+GE Plus Depot and Train: the garage walls and the rest of the level are drawn at every angle (thanks Linkmendez and Glazier)
+GE Plus Aztec: stepping sideways off the ladder no longer walks you out of the level (thanks Linkmendez)
+GE Plus Facility: coming down from the vents into the toilets no longer lets you through the stall walls
+GE Plus: the Cougar Magnum fires after GoldenEye's short delay, and no longer flashes a drum (thanks raffine52)
+GE Plus: Bond's gun is black in the gun barrel opening, as in GoldenEye (thanks dab)
+GE Plus, HD look: the throwing knife sits in the hand properly (thanks savantique)
+GE Plus: shooting a guard's gun makes him yelp and flinch, as in GoldenEye (thanks Odeyseis)
+GE Plus: bullet holes are GoldenEye's own, and the release's in the HD look (thanks Odeyseis)
+GE Plus, HD look: the watch's inventory shows the HD guns, bare and centred (thanks Glazier)
+GE Plus: objectives complete as a, b, c, as GoldenEye and the watch have them (thanks dblaney1)
+GE Plus: GoldenEye's synth bass plays again (Runway, Surface, Jungle and more) (thanks dblaney1)
+GE Plus watch: the PC control style names every button (thanks dab)
+GE Plus Frigate, HD look: the sea is the Community Edition's water (thanks dab)
+GE Plus Egyptian, HD look: the pool in the pillared hall has its water (thanks dab)
+GE Plus: no Perfect Dark glare around lights and no sun flares on GoldenEye's levels (thanks Linkmendez)
+GE Plus, HD look: guards stay drawn as far as the level is drawn (thanks savantique)
+Texture packs: textures no longer drop out until a reload, and saving textures (Dump Textures) no longer stutters the game (thanks Parabolee)
+Texture packs: a pack's own copy of the XBLA fonts is used (thanks Parabolee)
+Texture packs: the next-pack key shows the pack's name (thanks Parabolee)
+XBLA look: the dataDyne sniper's visor is tinted glass (thanks Odeyseis)
+XBLA look: Villa's and Crash Site's sun sits on the sun in the sky (thanks Parabolee)
+XBLA look: wounds are smaller, so they sit where you hit (thanks savantique)
+New option: Flash Lighting (Extended Video Options), to turn off the light from muzzle flashes and explosions, everywhere or only on GoldenEye's levels (thanks dblaney1)
+New option: Enhancements On/Off under Settings Preset, and a key for it, to switch to the vanilla game and back (thanks Parabolee)
+Mods: Camera: the level plays live behind the menu while you change the 3rd-person camera, and the menu fades while you move a slider (thanks Odeyseis)
+Spectator mode is the CamSpy (thanks Parabolee)
+A mod whose model has no bounding box no longer crashes the level it is in
+GE Plus converts your GoldenEye ROM once more on the next start, for the credits, bullet holes, Egyptian and the Archives magazine
+
 notes 6 2026-09-27
 GE Plus Facility: Trevelyan no longer shoots at a wall; the alarm squad he is firing at comes down to him instead of crawling along behind it (thanks Parabolee)
 GE Plus: walking up stairs is smooth again, and climbing onto Facility's conveyor belt eases up instead of snapping to the top (thanks dab)
