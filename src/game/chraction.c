@@ -17124,7 +17124,11 @@ struct prop *chrSpawnAtCoord(s32 bodynum, s32 headnum, struct coord *pos, RoomNu
 			// A kept body is not a corpse to be reaped for a slot: the pool
 			// reserved its slots at stage load (modBodiesSetReserve()), so a
 			// spawn short of them is short of the level's own, not the pool's.
-			if (modBodyIsKept(&g_ChrSlots[index])) {
+			// Only a match reserves any, though. A mission's kept bodies sit
+			// in the level's own ten spare slots, and holding on to them
+			// starved every spawn after the tenth kill - Statue Park's Mishkin
+			// and his squad never came (tester F3 20260927-035851)
+			if (modBodyIsKept(&g_ChrSlots[index]) && modBodiesGetReserve() > 0) {
 				index = (index + 1) % g_NumChrSlots;
 				continue;
 			}
@@ -17156,6 +17160,10 @@ struct prop *chrSpawnAtCoord(s32 bodynum, s32 headnum, struct coord *pos, RoomNu
 		} while (index != startindex);
 
 		if (replacechr) {
+#ifndef PLATFORM_N64
+			// out of the pool, or chrTickDead() would hold it solid
+			replacechr->keptbody60 = -1;
+#endif
 			replacechr->act_dead.fadewheninvis = true;
 			replacechr->act_dead.fadenow = true;
 		}
