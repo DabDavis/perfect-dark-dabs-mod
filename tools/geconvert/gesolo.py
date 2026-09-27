@@ -740,9 +740,11 @@ def convert_props(d, numpads, bodies, models, stats, offset=None):
                 # four MonitorRecords, which are 0x74 in both games
                 rec[0x22c:0x230] = raw[0x250:0x254]
             if t == AMMO_CRATE:
-                # the crate's one type, in the port's numbering
+                # the crate's one type, in the port's numbering: a 9mm
+                # magazine takes the submachine gun's rounds, which every
+                # GoldenEye 9mm gun draws on (geconvert.c)
                 pdtypes = GE_AMMO_TYPES.get(struct.unpack_from('>i', raw, 0x80)[0], (0,))
-                struct.pack_into('>i', rec, 0x5c, pdtypes[0])
+                struct.pack_into('>i', rec, 0x5c, pdtypes[-1])
             if t == TINTED_GLASS and len(raw) >= 0x94:
                 # A tinted pane's distances and its portal: a word each at
                 # GoldenEye's 0x80, an s16 each at Perfect Dark's 0x5c, then the
