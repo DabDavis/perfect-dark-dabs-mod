@@ -2298,6 +2298,8 @@ struct xblameshbuilder {
 	// The face the lists cull (G_CULL_FRONT or G_CULL_BACK), or 0 to draw
 	// both: see xblaMeshBuildCullBack.
 	s32 cullback;
+	s32 meshcull;     // the mesh's own (xblaMeshBuildCullBack), cullback being each group's
+	u64 twosided;     // groups drawn both sides whatever the mesh culls (xblaMeshBuildTwoSided)
 
 	// Whether the list being built has G_DECAL_EXT on (XBLAMESH_MAT_DECAL),
 	// which its end turns off again
@@ -3500,6 +3502,8 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 		s32 anyfade = 0;
 		s32 anyblend = 0;
 
+		b->cullback = g < 64 && (b->twosided & (1ull << g)) ? 0 : b->meshcull;
+
 		if ((u32)numgroups == intable) {
 			const u8 *group = file + h->groupoffset + (u32)g * XBLAMESH_ENTRY;
 
@@ -3601,6 +3605,8 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 			}
 		}
 	}
+
+	b->cullback = b->meshcull;
 
 	// The lists that call them all. Their commands hold addresses inside the
 	// array they are in, which is still growing, so they go in after the
@@ -4313,6 +4319,15 @@ static void xblaMeshCompactSkin(struct xblameshbuilt *m)
  * showed the inside of its walls).
  */
 static s32 xblaMeshBuildCullBack = 0;
+
+/**
+ * Groups of the mesh being built that are drawn both sides though the mesh
+ * culls (xblaMeshBuildCullBack): the parka's hood (gebeanmats.hood). Its
+ * lining does not cover the whole inside of the hood, and where it stops the
+ * hood's own inner face is a back face - culled, the sky showed through a
+ * sliver beside Bond's temple (F3 20260926-205739).
+ */
+static u64 xblaMeshBuildTwoSided = 0;
 
 /**
  * Whether a file is a character's body or head: those cull their back faces,
@@ -5505,6 +5520,8 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	b.scale = xblaMeshScale(&h);
 	b.mats = mats;
 	b.cullback = xblaMeshBuildCullBack;
+	b.meshcull = xblaMeshBuildCullBack;
+	b.twosided = xblaMeshBuildTwoSided;
 	b.keepnormals = 1;
 	b.ink = xblaMeshInkFile(xblaMeshBuildBorrowFile);
 	b.inkrecord = -1;
@@ -6254,6 +6271,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	struct gebeanmats *bmats;
 	const void *tintpanes[8];
 	s32 numtint = 0;
+	u64 twosided = 0;
 	char what[80];
 	char envkey[sizeof(bmats->envkey)];
 	u8 *file;
@@ -6340,6 +6358,12 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	m->beanneck = bmats->neckblank;
 	memcpy(m->beanneckfill, bmats->neckfill, sizeof(m->beanneckfill));
 	memcpy(m->beanhood, bmats->hood, sizeof(m->beanhood));
+
+	for (s32 k = 0; k < 64; k++) {
+		if (bmats->hood[k] >= 0 && bmats->hood[k] < 64) {
+			twosided |= 1ull << bmats->hood[k];
+		}
+	}
 	memcpy(m->beanbare, bmats->bare, sizeof(m->beanbare));
 	memcpy(m->beanspentgroup, bmats->spent, sizeof(m->beanspentgroup));
 
@@ -6370,8 +6394,10 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	// not the release's. Its props and guns stay two-sided: Dam's truck cab
 	// and gates lost their far walls when they culled
 	xblaMeshBuildCullBack = m->frombean && gebeanRowIsChr(e->beanrow) ? G_CULL_BACK : 0;
+	xblaMeshBuildTwoSided = twosided;
 	ok = xblaMeshBuildFile(m, file, len, &mats, what);
 	xblaMeshBuildCullBack = 0;
+	xblaMeshBuildTwoSided = 0;
 
 	for (s32 i = 0; i < mats.num; i++) {
 		free((u8 *)mats.env[i]);
