@@ -55,6 +55,11 @@
 // lettering, floor arrows and hazard stripes flat on the floor
 #define DECAL_DIST 1.0f
 #define DECAL_COS  0.999f
+// How far a decal is moved off its base, world units: more than the room's
+// whole-unit vertices can put it behind (writeLeaf())
+#define DECAL_LIFT 2.0f
+// Vertex colours this far apart (mean of r, g, b) make one picture two (triOther())
+#define SHADE_APART 48.0f
 // How far the back of a face that fights another back to back is pushed from
 // the eye (G_SETDEPTHBIAS_EXT, the depth buffer's smallest steps)
 #define FIGHT_DEPTH_BIAS 8
@@ -1279,6 +1284,8 @@ static int compareTex(const void *a, const void *b)
  * modes and combiners GoldenEye X's own rooms use, so bg.c's fog swaps
  * (gfxReplaceGbiCommandsRecursively()) find them.
  */
+static f32 triNormal(const struct stri *t, f32 *n);
+
 static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num, s32 xlu,
 		const f32 *roompos, const u32 *palette, s32 numpal, s32 *dropped)
 {
@@ -1350,6 +1357,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	for (s32 i = 0; i < num; i++) {
 		const struct stri *t = &tris[list[i]];
 		struct rvtx rv[3];
+		f32 lift[3];
 		u8 idx[3];
 		s32 ok = 1;
 		s32 need = 0;
@@ -1432,13 +1440,30 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 			b.shifted = 1;
 		}
 
+		// A decal is lifted off its base before its corners are rounded to
+		// whole units: on a wall square to no axis the rounding put one end
+		// of Dam's CTON up to a unit behind the wall it is painted on, and
+		// the decal offset lost it there by distance (F3 20260926-205834,
+		// -213530: the N came and went as Bond walked)
+		lift[0] = lift[1] = lift[2] = 0.0f;
+
+		if (t->decal) {
+			f32 n[3];
+
+			if (triNormal(t, n) > 0.0f) {
+				for (s32 j = 0; j < 3; j++) {
+					lift[j] = n[j] * DECAL_LIFT;
+				}
+			}
+		}
+
 		for (s32 pass = 0; pass < 2; pass++) {
 			ok = 1;
 
 			for (s32 k = 0; k < 3 && ok; k++) {
-				ok = clampS16(t->pos[k][0] - roompos[0], &rv[k].x)
-					&& clampS16(t->pos[k][1] - roompos[1], &rv[k].y)
-					&& clampS16(t->pos[k][2] - roompos[2], &rv[k].z)
+				ok = clampS16(t->pos[k][0] + lift[0] - roompos[0], &rv[k].x)
+					&& clampS16(t->pos[k][1] + lift[1] - roompos[1], &rv[k].y)
+					&& clampS16(t->pos[k][2] + lift[2] - roompos[2], &rv[k].z)
 					&& clampS16((t->uv[k][0] - b.shiftu) * XBLATEX_TILE_SCALE, &rv[k].s)
 					// Turned over: the picture was decoded bottom row first for the
 					// renderer (beanDecodeTexture()), which the meshes undo by
@@ -1891,6 +1916,29 @@ static s32 markFights(struct stri *tris, s32 num, const struct tgrid *g)
 	return count;
 }
 
+/** How bright a triangle's vertex colours are, 0 to 255. */
+static f32 triShade(const struct stri *t)
+{
+	f32 sum = 0.0f;
+
+	for (s32 k = 0; k < 3; k++) {
+		sum += ((t->argb[k] >> 16) & 0xff) + ((t->argb[k] >> 8) & 0xff) + (t->argb[k] & 0xff);
+	}
+
+	return sum / 9.0f;
+}
+
+/**
+ * Whether u is another picture than t for the decals: another texture, or
+ * the same one painted much darker or lighter by its vertices. Frigate's
+ * black hazard arrows are the wall's own picture on vertices of 0x000020,
+ * lying on the wall, and the two fought in dots (F3 20260926-225352).
+ */
+static s32 triOther(const struct stri *t, const struct stri *u)
+{
+	return u->tex != t->tex || fabsf(triShade(t) - triShade(u)) > SHADE_APART;
+}
+
 /**
  * Marks the triangles that lie flat on another picture's triangle. Bean's
  * decals share the plane of the surface under them exactly, and drawn with
@@ -1898,7 +1946,8 @@ static s32 markFights(struct stri *tris, s32 num, const struct tgrid *g)
  * level): the decal is drawn in a decal render mode instead, pulled towards
  * the camera. Of a pair, the one lying wholly on other pictures is the decal
  * (decalCovered()); if both or neither do, the one with a cut-out picture
- * over the one without, else the smaller, else the one Bean draws later.
+ * over the one without, else (both wholly on the other) the one Bean draws
+ * later, else the smaller, else the one Bean draws later.
  *
  * Wholly on first: Bunker's hammer and sickle plaques overlap a wall panel
  * and hang past it onto the panels round it, and the panel's half-quad was
@@ -1907,6 +1956,12 @@ static s32 markFights(struct stri *tris, s32 num, const struct tgrid *g)
  * the part of the panel off the plaque, drawn as a decal on nothing, was
  * painted over by the rock of a room drawn after it (F3 20260925-231104:
  * "z-fighting texture and inconsistent wall").
+ *
+ * Where each lies wholly on the other, the one Bean draws later, as the
+ * release's depth test (less or equal) shows it: Bunker's other hammer and
+ * sickle plaques lie on a wall cut into pieces smaller than the plaque, and
+ * by size every piece was the decal and the wall was drawn over the plaque
+ * (F3 20260926-210116).
  */
 static s32 decalOnOther(const struct stri *tris, const struct tgrid *g, s32 i, const f32 *ni, const f32 *q)
 {
@@ -1919,7 +1974,7 @@ static s32 decalOnOther(const struct stri *tris, const struct tgrid *g, s32 i, c
 		f32 nu[3], cosang;
 		s32 flat = 1;
 
-		if (o == i || u->tex == t->tex || triNormal(u, nu) <= 0) {
+		if (o == i || !triOther(t, u) || triNormal(u, nu) <= 0) {
 			continue;
 		}
 
@@ -2020,7 +2075,7 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 			f32 nu[3], au, cosang, d;
 			s32 flat = 1;
 
-			if (o == i || u->tex == t->tex) {
+			if (o == i || !triOther(t, u)) {
 				continue;
 			}
 
@@ -2056,6 +2111,7 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 
 			if (full && full[i] != full[o] ? full[i]
 					: alphai != alphau ? alphai > alphau
+					: full && full[i] ? i > o
 					: ai < au * 0.999f ? 1
 					: ai <= au * 1.001f && i > o) {
 				t->decal = 1;
