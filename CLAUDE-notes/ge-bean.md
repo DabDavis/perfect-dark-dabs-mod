@@ -11813,6 +11813,15 @@ types, flag tokens) - each is a changelog line already classed above.
   blackened and crumpled; ours loses nearly all of it and leaves a few floating pieces - the tester's "parts".
   Found so far: the prop stays (pos, anim 1380, realrot unchanged); objDeformGe() runs on the 744-vertex hull list
   and its vertices stay inside the model's bbox; with objDeform() skipped for OBJTYPE_HELI the hull stays drawn.
-  Writing the new colour buffer white does not bring it back, while pointing rwdata->colours back at a static
-  address does - so the hull disappears on the swap to the vtxstore colour buffer (segment 6, COL2), not on the
-  crumpled data. Open: why a vtxstore colour buffer hides this animated (gexPlusVehicleFliesAnim) list.
+  **Solved (agent M, fix/f3-0927-wreck): the hull is drawn, but black on a black night.** Neither buffer is at
+  fault: the file-base "colours" that seemed to bring it back were random bytes that escaped the prop's shade, and
+  the crumpled hull draws whole with them (~/wt/f3-0927-wreck-run, EXP=colfile). The cause is the object shade
+  (objRender: `mult = 0xff - shots * 21`, alpha `+ shots * 15`, the same formula as GoldenEye's propobj.c): after
+  aiDestroyObject() (level 1, f7208) the two explosions spawned beside the helicopter hit it at full strength on
+  their first frame (f7209, 4.85 and 4.04, each rounded up to a whole level), so it went to level 4 with damage 8,
+  12 shots, mult 3 - RGB 0 at full fog alpha, pure black. The oracle (~/dam-oracle/gewreck_dmg.py) keeps it at
+  destroyed level 1, damage 0, 4 shots, the whole time: GoldenEye's explosions hurt nothing before age 8, and
+  after that PD's sustained damage skips a destroyed object. So 247709d26 (fix/f3-0927-scripts, GoldenEye's
+  eight harmless ticks) is the fix: with it the helicopter stays level 1 / damage 0 and stands blackened and
+  crumpled where it was, as the oracle's does (wreck_oracle_before_after.png: oracle, before, after; the oracle
+  view is from the other side of pad 24).
