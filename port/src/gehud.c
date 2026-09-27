@@ -36,6 +36,7 @@
 #include "bss.h"
 #include "data.h"
 #include "gbiex.h"
+#include "fs.h"
 #include "mod.h"
 #include "modloader.h"
 #include "system.h"
@@ -292,6 +293,48 @@ s32 geHudActive(void)
 static s32 hudWeaponIsGoldenEyes(s32 weaponnum)
 {
 	return weaponnum <= WEAPON_UNARMED || weaponnum >= WEAPON_GE_FIRST;
+}
+
+/**
+ * A string of GoldenEye's LpropobjE, the pickups' own bank, which the
+ * conversion copies to the mod's menu/ with the watch's (geconvert.c's
+ * g_WatchLang); NULL when it is not there. Loaded once for each mod folder
+ * and kept: it is a few hundred bytes.
+ */
+const char *geHudPropobjString(s32 slot)
+{
+	static u8 *bank;
+	static u32 banklen;
+	static s32 bankdir = -2;
+	const s32 moddir = modloaderGetStageModDirIndex(g_Vars.stagenum);
+	u32 at;
+
+	if (moddir != bankdir) {
+		char path[FS_MAXPATH + 1];
+		const char *dir = moddir >= 0 ? fsGetModDirAt(moddir) : NULL;
+
+		sysMemFree(bank);
+		bank = NULL;
+		banklen = 0;
+		bankdir = moddir;
+
+		if (dir) {
+			snprintf(path, sizeof(path), "%s/menu/LpropobjE", dir);
+			bank = fsFileLoad(path, &banklen);
+		}
+	}
+
+	if (!bank || slot < 0 || (u32)(slot + 1) * 4 > banklen) {
+		return NULL;
+	}
+
+	at = ((u32)bank[slot * 4] << 24) | ((u32)bank[slot * 4 + 1] << 16) | ((u32)bank[slot * 4 + 2] << 8) | bank[slot * 4 + 3];
+
+	if (at == 0 || at >= banklen || memchr(bank + at, 0, banklen - at) == NULL) {
+		return NULL;
+	}
+
+	return (const char *)bank + at;
 }
 
 s32 geHudOwnsWeapon(void)

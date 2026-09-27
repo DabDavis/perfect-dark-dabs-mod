@@ -5175,6 +5175,15 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 
 			chr->chrflags |= CHRCFLAG_SHIELDDAMAGED;
 
+#ifndef PLATFORM_N64
+			// GoldenEye's body armour has no shimmer: a hit on it is only
+			// the red flash (bondview2.c's record_damage_kills(), below at
+			// playerDisplayDamage()), on the player and on anyone else
+			// (F3 20260926-203211/225303)
+			if (geRoomActive()) {
+				// nothing drawn
+			} else
+#endif
 			if (prop2 && node && chr->model) {
 				func0f034080(chr, node, prop2, model, side, arg11);
 			} else {
@@ -5191,6 +5200,13 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				chrSetShield(chr, shield);
 			} else {
 				// Shield is now gone
+#ifndef PLATFORM_N64
+				if (geRoomActive()) {
+					// GoldenEye's armour takes what it can and the body
+					// the rest (record_damage_kills())
+					damage -= shield * armourscale;
+				} else
+#endif
 				if (!g_ModShieldBreakHits) {
 					damage = 0;
 				}
@@ -5537,6 +5553,12 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				}
 
 				if (showshield) {
+#ifndef PLATFORM_N64
+					if (geRoomActive()) {
+						// GoldenEye flashes red for a hit on the armour too
+						playerDisplayDamage();
+					} else
+#endif
 					playerDisplayShield();
 				}
 
@@ -7071,11 +7093,27 @@ static bool chrGoPosIsArrivingAtPos(struct chrdata *chr, struct coord *pos)
 	// and not the 260 first tried, which took a simulant half way up a
 	// ladder as arrived at the pad at its top: it turned for the next pad,
 	// stepped off the ladder and circled under that pad.
-	if (dy < -60.0f || dy > 210.0f) {
+	if (dy < -60.0f || dy > 300.0f) {
 		return false;
 	}
 
-	return posIsArrivingLaterallyAtPos(&chr->prevpos, &chr->prop->pos, pos, 30);
+	if (!posIsArrivingLaterallyAtPos(&chr->prevpos, &chr->prop->pos, pos, 30)) {
+		return false;
+	}
+
+	if (dy > 210.0f) {
+		// A few pads stand higher still: Area 52's bridge pads are 214 over
+		// it, and a simulant stood under one for good, a step from its
+		// next (F3 20260926-223358). Those are arrived at when the floor
+		// under the pad is the floor the simulant stands on, which the
+		// ladder's head is not to a simulant half way up the ladder.
+		struct coord padpos = *pos;
+		f32 padground = cdFindGroundAtCyl(&padpos, chr->radius, chr->prop->rooms, NULL, NULL);
+
+		return padground > -100000.0f && fabsf(padground - chr->manground) <= 30.0f;
+	}
+
+	return true;
 }
 
 /**

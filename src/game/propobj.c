@@ -17746,10 +17746,44 @@ s16 g_AmmoTypeWeapons[AMMOTYPE_ECM_MINE + 1] = {
 	[AMMOTYPE_BOOST]       = WEAPON_COMBATBOOST,
 };
 
+#ifndef PLATFORM_N64
+/**
+ * On GoldenEye's own levels the throwables an ammunition type gives are
+ * GoldenEye's: its grenades out of a crate are its hand grenade, as its
+ * add_ammo_to_inventory() gives ITEM_GRENADE (F3 20260926-222337, Runway: a
+ * crate's grenades put Perfect Dark's grenade and its HUD in Bond's hand with
+ * "Include Perfect Dark Guns" off). The Perfect Dark one stays the answer when
+ * it is already held - the two share the pool - and for anything a mod set.
+ */
+static s32 ammotypeGeWeapon(s32 weapon)
+{
+	s32 ge;
+
+	if (!geRoomActive()) {
+		return weapon;
+	}
+
+	switch (weapon) {
+	case WEAPON_GRENADE:       ge = WEAPON_GE_GRENADE; break;
+	case WEAPON_REMOTEMINE:    ge = WEAPON_GE_REMOTEMINE; break;
+	case WEAPON_PROXIMITYMINE: ge = WEAPON_GE_PROXIMITYMINE; break;
+	case WEAPON_TIMEDMINE:     ge = WEAPON_GE_TIMEDMINE; break;
+	case WEAPON_COMBATKNIFE:   ge = WEAPON_GE_THROWINGKNIFE; break;
+	default: return weapon;
+	}
+
+	return invHasSingleWeaponExcAllGuns(weapon) ? weapon : ge;
+}
+#endif
+
 s32 ammotypeGetWeapon(s32 ammotype)
 {
 	if (ammotype >= 0 && ammotype < ARRAYCOUNT(g_AmmoTypeWeapons) && g_AmmoTypeWeapons[ammotype]) {
+#ifndef PLATFORM_N64
+		return ammotypeGeWeapon(g_AmmoTypeWeapons[ammotype]);
+#else
 		return g_AmmoTypeWeapons[ammotype];
+#endif
 	}
 
 	return -1;
@@ -18238,6 +18272,20 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 					} else {
 						text = langGet(L_PROPOBJ_042); // "A shield."
 					}
+
+#ifndef PLATFORM_N64
+					// GoldenEye's is body armour, and says so in its own words
+					// (propobj.c's PROPDEF_ARMOUR: PROPOBJ_STR_3D "Picked up
+					// some body armor.", or 3E "body armor." for three players
+					// and more). F3 20260926-203211/225220.
+					if (geRoomActive()) {
+						const char *getext = geHudPropobjString(playercount < 3 ? 0x3d : 0x3e);
+
+						if (getext) {
+							text = (char *) getext;
+						}
+					}
+#endif
 				}
 
 				hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE);
@@ -18425,14 +18473,14 @@ s32 objTestForPickup(struct prop *prop)
 		struct ammocrateobj *crate = (struct ammocrateobj *) prop->obj;
 
 		if (bgunGetReservedAmmoCount(crate->ammotype) >= bgunGetCapacityByAmmotype(crate->ammotype)) {
-			if ((crate->ammotype != AMMOTYPE_GRENADE || invHasSingleWeaponExcAllGuns(WEAPON_GRENADE))
+			if ((crate->ammotype != AMMOTYPE_GRENADE || invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_GRENADE)))
 					&& (crate->ammotype != AMMOTYPE_CLOAK || invHasSingleWeaponExcAllGuns(WEAPON_CLOAKINGDEVICE))
 					&& (crate->ammotype != AMMOTYPE_BOOST || invHasSingleWeaponExcAllGuns(WEAPON_COMBATBOOST))
 					&& (crate->ammotype != AMMOTYPE_NBOMB || invHasSingleWeaponExcAllGuns(WEAPON_NBOMB))
-					&& (crate->ammotype != AMMOTYPE_REMOTE_MINE || invHasSingleWeaponExcAllGuns(WEAPON_REMOTEMINE))
-					&& (crate->ammotype != AMMOTYPE_PROXY_MINE || invHasSingleWeaponExcAllGuns(WEAPON_PROXIMITYMINE))
-					&& (crate->ammotype != AMMOTYPE_TIMED_MINE || invHasSingleWeaponExcAllGuns(WEAPON_TIMEDMINE))
-					&& (crate->ammotype != AMMOTYPE_KNIFE || invHasSingleWeaponExcAllGuns(WEAPON_COMBATKNIFE))) {
+					&& (crate->ammotype != AMMOTYPE_REMOTE_MINE || invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_REMOTE_MINE)))
+					&& (crate->ammotype != AMMOTYPE_PROXY_MINE || invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_PROXY_MINE)))
+					&& (crate->ammotype != AMMOTYPE_TIMED_MINE || invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_TIMED_MINE)))
+					&& (crate->ammotype != AMMOTYPE_KNIFE || invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_KNIFE)))) {
 				return TICKOP_NONE;
 			}
 		}
@@ -18454,14 +18502,14 @@ s32 objTestForPickup(struct prop *prop)
 					break;
 				}
 
-				if ((ammotype == AMMOTYPE_GRENADE && !invHasSingleWeaponExcAllGuns(WEAPON_GRENADE))
+				if ((ammotype == AMMOTYPE_GRENADE && !invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_GRENADE)))
 						|| (ammotype == AMMOTYPE_CLOAK && !invHasSingleWeaponExcAllGuns(WEAPON_CLOAKINGDEVICE))
 						|| (ammotype == AMMOTYPE_BOOST && !invHasSingleWeaponExcAllGuns(WEAPON_COMBATBOOST))
 						|| (ammotype == AMMOTYPE_NBOMB && !invHasSingleWeaponExcAllGuns(WEAPON_NBOMB))
-						|| (ammotype == AMMOTYPE_REMOTE_MINE && !invHasSingleWeaponExcAllGuns(WEAPON_REMOTEMINE))
-						|| (ammotype == AMMOTYPE_PROXY_MINE && !invHasSingleWeaponExcAllGuns(WEAPON_PROXIMITYMINE))
-						|| (ammotype == AMMOTYPE_TIMED_MINE && !invHasSingleWeaponExcAllGuns(WEAPON_TIMEDMINE))
-						|| (ammotype == AMMOTYPE_KNIFE && !invHasSingleWeaponExcAllGuns(WEAPON_COMBATKNIFE))) {
+						|| (ammotype == AMMOTYPE_REMOTE_MINE && !invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_REMOTE_MINE)))
+						|| (ammotype == AMMOTYPE_PROXY_MINE && !invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_PROXY_MINE)))
+						|| (ammotype == AMMOTYPE_TIMED_MINE && !invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_TIMED_MINE)))
+						|| (ammotype == AMMOTYPE_KNIFE && !invHasSingleWeaponExcAllGuns(ammotypeGetWeapon(AMMOTYPE_KNIFE)))) {
 					ignore = false;
 					break;
 				}

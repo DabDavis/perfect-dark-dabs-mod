@@ -27,6 +27,9 @@ s32 geHudActive(void);
 // on and the weapon is not one of Perfect Dark's own.
 s32 geHudOwnsWeapon(void);
 
+// A string of GoldenEye's pickups' bank (LpropobjE) by its slot, or NULL.
+const char *geHudPropobjString(s32 slot);
+
 // generate_ammo_total_microcode(), for bgunDrawHud()
 Gfx *geHudRenderAmmo(Gfx *gdl);
 
