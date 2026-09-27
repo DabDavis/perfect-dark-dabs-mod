@@ -149,6 +149,10 @@ def objects(d, numpads, first_index, bodyarmour=None, bikepads=()):
             struct.pack_into('>i', rec, 0xbc, newindex[sib] - newindex[i] if rel and sib in newindex and recs[sib][0] == 1 else 0)
             rec[0xc6] = b[0xa7]
             rec[0xcc] = 0xff
+            # a windowed door's glass: clear to TintDist, opaque from the word
+            # GoldenEye reads whole at 0xc4 (DOOR_OPADIST(): 600), as s16s
+            for ge, pd in ((0xc0, 0x88), (0xc4, 0x8a)):
+                struct.pack_into('>h', rec, pd, max(-32768, min(32767, struct.unpack_from('>i', b, ge)[0])))
         elif t == 47:
             rec = _base(b, pdtype, words, padnum, flags)
             tint, cull, opacity, portal = struct.unpack_from('>4i', b, 0x80)

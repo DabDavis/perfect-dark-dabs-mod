@@ -134,6 +134,7 @@ static f32 meshMax[3];
 static s32 farRaised;
 static f32 farOwn;
 static f32 farSet;
+static f32 farLogged; // the own plane last logged as raised
 
 static void fogTableLoad(void);
 
@@ -2145,6 +2146,7 @@ static void forget(void)
 	backdropDist = NULL;
 	numBackdrop = 0;
 	farRaised = 0;
+	farLogged = -1.0f;
 	roomData = NULL;
 	roomLen = NULL;
 	roomHidden = NULL;
@@ -3357,8 +3359,12 @@ void gebeanStageTickFar(void)
 			farOwn = zrange.far;
 		}
 
-		sysLogPrintf(LOG_NOTE, "gebeanstage: far plane %.0f -> %.0f for the %s", farOwn, want,
-				xblaStageDrawsEveryRoom() ? "HD level" : "level without its fog");
+		// Once, not every tick an environment's transition sets the plane
+		if (farOwn != farLogged) {
+			farLogged = farOwn;
+			sysLogPrintf(LOG_NOTE, "gebeanstage: far plane %.0f -> %.0f for the %s", farOwn, want,
+					xblaStageDrawsEveryRoom() ? "HD level" : "level without its fog");
+		}
 
 		farRaised = 1;
 		farSet = want;

@@ -4361,6 +4361,12 @@ static void baseRecord(uint8_t *out, const uint8_t *raw, uint32_t pdtype, uint32
 	set32(out, 0x58, 0x0fff0000);
 }
 
+/** A GoldenEye word as one of Perfect Dark's s16 distances. */
+static int32_t clampS16(int32_t v)
+{
+	return v < -32768 ? -32768 : v > 32767 ? 32767 : v;
+}
+
 /** The fields a door moved between the two formats (geobjects.py's rules). */
 static void doorRecord(uint8_t *out, const uint8_t *raw, size_t numpads, const records *recs, size_t index)
 {
@@ -4381,6 +4387,15 @@ static void doorRecord(uint8_t *out, const uint8_t *raw, size_t numpads, const r
 	set32(out, 0xbc, (uint32_t)(rel && sib >= 0 && (size_t)sib < recs->n && recs->v[sib].type == 1 ? rel : 0));
 	out[0xc6] = raw[0xa7];
 	out[0xcc] = 0xff;
+
+	// A windowed door's glass: clear to TintDist (0xc0), opaque from the word
+	// at 0xc4, which GoldenEye reads whole over CullDist, soundType and
+	// fadeTime60 (the decomp's DOOR_OPADIST(): 0, 2, 88 = 600). Left at 0 the
+	// door was opaque at every distance and doorUpdatePortalIfWindowed() shut
+	// its portal: Facility's clear doors drew black, nothing behind them
+	// (F3 20260926-220839). Perfect Dark's xludist and opadist are s16s.
+	set16(out, 0x88, (uint32_t)clampS16(bes32(raw, 0xc0)));
+	set16(out, 0x8a, (uint32_t)clampS16(bes32(raw, 0xc4)));
 }
 
 /**
