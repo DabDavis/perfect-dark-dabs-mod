@@ -5685,6 +5685,13 @@ Gfx *menuRender(Gfx *gdl)
 
 		overfront = true;
 	}
+
+	// A blurred backdrop held back while the folder was up
+	// (schedConsiderScreenshot()) is taken from this frame: the level alone,
+	// not the menus over it
+	if (g_MenuBlurDeferred && g_MenuData.screenshottimer) {
+		return gdl;
+	}
 #endif
 
 	gdl = func0f0d479c(gdl);
