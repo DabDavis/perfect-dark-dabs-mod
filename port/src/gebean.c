@@ -40,6 +40,7 @@
 #include "xblatex.h"
 #include "xblamesh.h"
 #include "gebean.h"
+#include "handtint.h"
 #include "geguns.h"
 #include "modborrow.h"
 #include "headfit.h"
@@ -314,63 +315,68 @@ struct gebeanhand {
 	const char *file;  // a pool row's file, or NULL for an extra row's number
 	s16 num;           // GoldenEye's character number, for the extra rows
 	u16 hand;
+	// and the shape to repaint when the hands are painted in the character's
+	// own colours (handtint.c): a bare hand for a character with bare hands,
+	// where the picture above chose a gloved one for its camouflage sleeve
+	u16 tinthand;
 };
 
 static const struct gebeanhand beanHands[] = {
-	{ "CgeNatalyaZ",      -1, FILE_GHAND_STEWARDESS_COAT }, // blue cardigan
-	{ "CgeTrevelyanZ",    -1, FILE_GHAND_DDSECURITY },      // black jacket
-	{ "CgeXeniaZ",        -1, FILE_GHAND_JOTRENCH },        // black, gloved
-	{ "CgeOurumovZ",      -1, FILE_GHAND_CIA },             // khaki uniform
-	{ "CgeBorisZ",        -1, FILE_GHAND_JOFROCK },         // short sleeves
-	{ "CgeValentinZ",     -1, FILE_GHAND_CARRINGTON },      // grey suit
-	{ "CgeMaydayZ",       -1, FILE_GHAND_JOFROCK },         // bare arms
-	{ "CgeJawsZ",         -1, FILE_GHAND_MRBLONDE },        // white shirt
-	{ "CgeOddjobZ",       -1, FILE_GHAND_DDSECURITY },      // black suit
-	{ "CgeBaronSamediZ",  -1, FILE_GHAND_MRBLONDE },        // white
-	{ "CgeSnowguardZ",    -1, FILE_GHAND_JOSNOW },          // white snow suit
-	{ "CgePilotZ",        -1, FILE_GHAND_A51AIRMAN },       // flight suit, gloves
-	{ "CgeDjbondZ",       -1, FILE_GHAND_DDSECURITY },      // tuxedo (Perfect Dark's own Bond's)
-	{ "CgeBoilerbondZ",   -1, FILE_GHAND_DDSECURITY },      // dark boiler suit
-	{ "CgeSuitbondZ",     -1, FILE_GHAND_CARRINGTON },      // grey suit
-	{ "CgeTimberbondZ",   -1, FILE_GHAND_DDSHOCK },         // jungle green
-	{ "CgeSnowbondZ",     -1, FILE_GHAND_JOSNOW },          // white parka
-	{ "CgeBoilertrevZ",   -1, FILE_GHAND_DDSECURITY },      // dark boiler suit
-	{ "CgeOliveguardZ",   -1, FILE_GHAND_CIA },             // khaki
-	{ "CgeRusguardZ",     -1, FILE_GHAND_CIA },             // khaki
-	{ "CgeTechmanZ",      -1, FILE_GHAND_MRBLONDE },        // lab coat (Perfect Dark's own lab technicians')
-	{ "CgeTechwomanZ",    -1, FILE_GHAND_MRBLONDE },        // lab coat
-	{ "CgeCommguardZ",    -1, FILE_GHAND_CIA },             // tan uniform
-	{ "CgeArmourguardZ",  -1, FILE_GHAND_DDFODDER },        // grey armour, gloves
-	{ "CgeNavyguardZ",    -1, FILE_GHAND_DDSHOCK },         // green
-	{ "CgeGreyguardZ",    -1, FILE_GHAND_A51AIRMAN },       // blue uniform
-	{ "CgeJeanwomanZ",    -1, FILE_GHAND_STEWARDESS_COAT }, // blue shirt
-	{ "CgeCardimanZ",     -1, FILE_GHAND_TRAGIC_PELAGIC },  // light shirt
-	{ "CgeCheckmanZ",     -1, FILE_GHAND_TRENT },           // purple check
-	{ "CgeRedmanZ",       -1, FILE_GHAND_TRENT },           // red shirt
-	{ "CgeGreatguardZ",   -1, FILE_GHAND_DDFODDER },        // dark greatcoat
-	{ "CgeBluecamguardZ", -1, FILE_GHAND_CISOLDIER },       // blue camouflage
-	{ "CgeGreatguard2Z",  -1, FILE_GHAND_A51GUARD },        // brown greatcoat
-	{ "CgeCamguardZ",     -1, FILE_GHAND_G5GUARD },         // camouflage
-	{ "CgeTrevguardZ",    -1, FILE_GHAND_BLACKGUARD },      // black
-	{ "CgeMoonguardZ",    -1, FILE_GHAND_DDBIO },           // yellow jumpsuit
-	{ "CgeMoonfemaleZ",   -1, FILE_GHAND_DDBIO },           // yellow jumpsuit
-	{ "CgeFattechwomanZ", -1, FILE_GHAND_MRBLONDE },        // white
-	{ NULL, 26, FILE_GHAND_STEWARDESS_COAT },               // bluewoman: blue shirt
-	{ NULL, 30, FILE_GHAND_CARRINGTON },                    // greyman: grey
-	{ NULL, 31, FILE_GHAND_A51AIRMAN },                     // blueman: blue
-	{ NULL, 79, FILE_GHAND_TRAGIC_PELAGIC },                // Natalya's jungle outfit: grey sweater
+	{ "CgeNatalyaZ",      -1, FILE_GHAND_STEWARDESS_COAT, FILE_GHAND_STEWARDESS_COAT }, // blue cardigan
+	{ "CgeTrevelyanZ",    -1, FILE_GHAND_DDSECURITY, FILE_GHAND_DDSECURITY },      // black jacket
+	{ "CgeXeniaZ",        -1, FILE_GHAND_JOTRENCH, FILE_GHAND_JOTRENCH },        // black, gloved
+	{ "CgeOurumovZ",      -1, FILE_GHAND_CIA, FILE_GHAND_CIA },             // khaki uniform
+	{ "CgeBorisZ",        -1, FILE_GHAND_JOFROCK, FILE_GHAND_JOFROCK },         // short sleeves
+	{ "CgeValentinZ",     -1, FILE_GHAND_CARRINGTON, FILE_GHAND_CARRINGTON },      // grey suit
+	{ "CgeMaydayZ",       -1, FILE_GHAND_JOFROCK, FILE_GHAND_JOFROCK },         // bare arms
+	{ "CgeJawsZ",         -1, FILE_GHAND_MRBLONDE, FILE_GHAND_MRBLONDE },        // white shirt
+	{ "CgeOddjobZ",       -1, FILE_GHAND_DDSECURITY, FILE_GHAND_DDSECURITY },      // black suit
+	{ "CgeBaronSamediZ",  -1, FILE_GHAND_MRBLONDE, FILE_GHAND_MRBLONDE },        // white
+	{ "CgeSnowguardZ",    -1, FILE_GHAND_JOSNOW, FILE_GHAND_JOSNOW },          // white snow suit
+	{ "CgePilotZ",        -1, FILE_GHAND_A51AIRMAN, FILE_GHAND_A51AIRMAN },       // flight suit, gloves
+	{ "CgeDjbondZ",       -1, FILE_GHAND_DDSECURITY, FILE_GHAND_DDSECURITY },      // tuxedo (Perfect Dark's own Bond's)
+	{ "CgeBoilerbondZ",   -1, FILE_GHAND_DDSECURITY, FILE_GHAND_DDSECURITY },      // dark boiler suit
+	{ "CgeSuitbondZ",     -1, FILE_GHAND_CARRINGTON, FILE_GHAND_CARRINGTON },      // grey suit
+	{ "CgeTimberbondZ",   -1, FILE_GHAND_DDSHOCK, FILE_GHAND_CARRINGTON },         // jungle green
+	{ "CgeSnowbondZ",     -1, FILE_GHAND_JOSNOW, FILE_GHAND_JOSNOW },          // white parka
+	{ "CgeBoilertrevZ",   -1, FILE_GHAND_DDSECURITY, FILE_GHAND_DDSECURITY },      // dark boiler suit
+	{ "CgeOliveguardZ",   -1, FILE_GHAND_CIA, FILE_GHAND_CIA },             // khaki
+	{ "CgeRusguardZ",     -1, FILE_GHAND_CIA, FILE_GHAND_CIA },             // khaki
+	{ "CgeTechmanZ",      -1, FILE_GHAND_MRBLONDE, FILE_GHAND_MRBLONDE },        // lab coat (Perfect Dark's own lab technicians')
+	{ "CgeTechwomanZ",    -1, FILE_GHAND_MRBLONDE, FILE_GHAND_MRBLONDE },        // lab coat
+	{ "CgeCommguardZ",    -1, FILE_GHAND_CIA, FILE_GHAND_CIA },             // tan uniform
+	{ "CgeArmourguardZ",  -1, FILE_GHAND_DDFODDER, FILE_GHAND_CARRINGTON },        // grey armour, gloves
+	{ "CgeNavyguardZ",    -1, FILE_GHAND_DDSHOCK, FILE_GHAND_CARRINGTON },         // green
+	{ "CgeGreyguardZ",    -1, FILE_GHAND_A51AIRMAN, FILE_GHAND_CARRINGTON },       // blue uniform
+	{ "CgeJeanwomanZ",    -1, FILE_GHAND_STEWARDESS_COAT, FILE_GHAND_STEWARDESS_COAT }, // blue shirt
+	{ "CgeCardimanZ",     -1, FILE_GHAND_TRAGIC_PELAGIC, FILE_GHAND_TRAGIC_PELAGIC },  // light shirt
+	{ "CgeCheckmanZ",     -1, FILE_GHAND_TRENT, FILE_GHAND_TRENT },           // purple check
+	{ "CgeRedmanZ",       -1, FILE_GHAND_TRENT, FILE_GHAND_TRENT },           // red shirt
+	{ "CgeGreatguardZ",   -1, FILE_GHAND_DDFODDER, FILE_GHAND_CARRINGTON },        // dark greatcoat
+	{ "CgeBluecamguardZ", -1, FILE_GHAND_CISOLDIER, FILE_GHAND_CARRINGTON },       // blue camouflage
+	{ "CgeGreatguard2Z",  -1, FILE_GHAND_A51GUARD, FILE_GHAND_CARRINGTON },        // brown greatcoat
+	{ "CgeCamguardZ",     -1, FILE_GHAND_G5GUARD, FILE_GHAND_CARRINGTON },         // camouflage
+	{ "CgeTrevguardZ",    -1, FILE_GHAND_BLACKGUARD, FILE_GHAND_CARRINGTON },      // black
+	{ "CgeMoonguardZ",    -1, FILE_GHAND_DDBIO, FILE_GHAND_CARRINGTON },           // yellow jumpsuit
+	{ "CgeMoonfemaleZ",   -1, FILE_GHAND_DDBIO, FILE_GHAND_CARRINGTON },           // yellow jumpsuit
+	{ "CgeFattechwomanZ", -1, FILE_GHAND_MRBLONDE, FILE_GHAND_MRBLONDE },        // white
+	{ NULL, 26, FILE_GHAND_STEWARDESS_COAT, FILE_GHAND_STEWARDESS_COAT },               // bluewoman: blue shirt
+	{ NULL, 30, FILE_GHAND_CARRINGTON, FILE_GHAND_CARRINGTON },                    // greyman: grey
+	{ NULL, 31, FILE_GHAND_A51AIRMAN, FILE_GHAND_A51AIRMAN },                     // blueman: blue
+	{ NULL, 79, FILE_GHAND_TRAGIC_PELAGIC, FILE_GHAND_TRAGIC_PELAGIC },                // Natalya's jungle outfit: grey sweater
 };
 
 /**
  * The hands for a pool row's file or an extra row's number; the row's own
- * (its host's) where there is none.
+ * (its host's) where there is none. A row the release fills, whose hands
+ * handtint.c repaints in the character's colours, takes the shape to repaint.
  */
-static void gebeanSetHands(struct headorbody *hb, const char *file, s32 num)
+static void gebeanSetHands(struct headorbody *hb, const char *file, s32 num, s32 release)
 {
 	for (s32 i = 0; i < ARRAYCOUNT(beanHands); i++) {
 		if (file ? (beanHands[i].file && strcmp(beanHands[i].file, file) == 0)
 				: (!beanHands[i].file && beanHands[i].num == num)) {
-			hb->handfilenum = beanHands[i].hand;
+			hb->handfilenum = release && g_HandTintMode >= 1 ? beanHands[i].tinthand : beanHands[i].hand;
 			return;
 		}
 	}
@@ -1329,7 +1335,7 @@ static void gebeanPoolAppendExtras(void)
 		extraSlot[i] = made.filenum;
 
 		if (!x->ishead) {
-			gebeanSetHands(hb, NULL, x->num);
+			gebeanSetHands(hb, NULL, x->num, 0);
 		}
 
 		if (x->ishead) {
@@ -1401,7 +1407,7 @@ static void gebeanPoolRefreshRom(s32 numbodies, s32 numheads)
 		romSlot[i] = made.filenum;
 
 		if (p->row.kind != GEBEAN_HEAD) {
-			gebeanSetHands(hb, p->row.file, -1);
+			gebeanSetHands(hb, p->row.file, -1, 0);
 		}
 	}
 
@@ -1534,7 +1540,7 @@ void gebeanPoolRefresh(void)
 		hb->scale = host->scale * p->scale;
 
 		if (!ishead) {
-			gebeanSetHands(hb, p->row.file, -1);
+			gebeanSetHands(hb, p->row.file, -1, 1);
 		}
 		height = (u32)(host->height * p->scale + 0.5f);
 
