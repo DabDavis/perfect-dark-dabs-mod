@@ -11788,3 +11788,14 @@ watch item table, the level entry table, strings, the end-of-RAM block, and
 setup bytes in files the locator missed (Dam intro cameras, Jungle AI + sky,
 Runway guards/doors, Surface bookshelf pads + railing, armour moves, Temple crate
 types, flag tokens) - each is a changelog line already classed above.
+
+## No PD glares or sun flares on GoldenEye's levels (2026-09-27)
+
+F3 20260927-005229 (Caverns): GoldenEye draws neither light glares nor lens
+flares, and the converted lights brought Perfect Dark's star-shaped glares with
+them. `bgRenderArtifacts()` returns before both on a remade stage
+(`geRoomActive()`); the lights still shade the rooms. Separately, the
+Flash Lighting option (Extended Video Options, `Mod.FlashLighting`: Off / On /
+Not on GoldenEye Levels, default On) gates every brightening
+`roomFlashLighting()` - muzzle flashes, explosions, sparks - through
+`modIsFlashLightingOn()`; the N-bomb's darkening (negative start) always runs.
