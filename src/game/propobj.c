@@ -7683,6 +7683,38 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 					func0f069c70(obj, true, true);
 				}
+
+#ifndef PLATFORM_N64
+				// GoldenEye's rocket launch (aiGeObjectRocketLaunch()) has its
+				// engines' fire and smoke made here, under the object: every
+				// eighth frame an explosion of type 20 (the two games' rows 0 to
+				// 20 are the same) 1800 below and 400 to the side, its side
+				// swapped every other time, and every fortieth a cloud of smoke
+				// type 10. Perfect Dark had dropped the block and Aztec's
+				// shuttle rose out of its silo in silence (F3 20260927-000223).
+				// GoldenEye counts its frames, which it drew at about thirty a
+				// second in this shot; the port counts sixteen 60ths a time
+				if ((projectile->flags & (PROJECTILEFLAG_GEROCKET | PROJECTILEFLAG_FALLING))
+						== (PROJECTILEFLAG_GEROCKET | PROJECTILEFLAG_FALLING)) {
+					static s32 lastburst = -1;
+					const s32 burst = g_Vars.lvframe60 / 16;
+
+					if (burst != lastburst) {
+						struct coord pos;
+
+						lastburst = burst;
+						pos.x = prop->pos.x + 400.0f;
+						pos.y = prop->pos.y - 1800.0f;
+						pos.z = prop->pos.z + ((burst & 1) ? -400.0f : 400.0f);
+
+						explosionCreate(NULL, &pos, prop->rooms, 20, 0, false, NULL, 0, NULL);
+
+						if (burst % 5 == 0) {
+							smokeCreateSimple(&pos, prop->rooms, 10);
+						}
+					}
+				}
+#endif
 			} else if (projectile->flags & PROJECTILEFLAG_FALLING) {
 				// Some objects are placed in mid-air and then given this flag
 				// at level start, which causes them fall down to their resting

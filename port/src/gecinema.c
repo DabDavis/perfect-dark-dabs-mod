@@ -597,6 +597,7 @@ static u8 *gecinemaFindEnding(struct ailist **which, u8 **pair)
 		u8 *cmd = lists[i].list;
 		u8 *prev = NULL;
 		s32 steps = 0;
+		s32 killsbond = 0;
 
 		while (steps++ < 100000) {
 			const s32 type = (cmd[0] << 8) | cmd[1];
@@ -606,7 +607,15 @@ static u8 *gecinemaFindEnding(struct ailist **which, u8 **pair)
 				break;
 			}
 
-			if (type == 0x01d5 && cmd[2] == 0 && ((cmd[len] << 8) | cmd[len + 1]) == 0x01e1) {
+			// BondKilledInAction (aiKillBond): the Cradle has a second ending,
+			// list 0x41c, for Bond falling off the platform while Trevelyan
+			// stands on it, and it comes first in the file - the Cinema page
+			// played Bond's death with nobody in shot (F3 20260927-000125)
+			if (type == 0x00fe) {
+				killsbond = 1;
+			}
+
+			if (type == 0x01d5 && cmd[2] == 0 && ((cmd[len] << 8) | cmd[len + 1]) == 0x01e1 && !killsbond) {
 				*which = &lists[i];
 				*pair = cmd;
 

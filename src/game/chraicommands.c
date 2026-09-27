@@ -5634,6 +5634,15 @@ bool aiChrDrawWeaponInCutscene(void)
 				gecinemaSetBondBodyWeapon(g_Vars.currentplayer->gunctrl.switchtoweaponnum > WEAPON_NONE
 						? g_Vars.currentplayer->gunctrl.switchtoweaponnum
 						: bgunGetWeaponNum(HAND_RIGHT));
+
+				// The Cinema page starts the ending on a level twenty frames
+				// old, before the hands have drawn the gun the mission starts
+				// with, and Bond went out of Surface's vent empty handed (F3
+				// 20260927-001331): he holds what GoldenEye's solo_char_load()
+				// would give him, the mission's starting weapon
+				if (gecinemaBondBodyWeapon() <= WEAPON_NONE) {
+					gecinemaSetBondBodyWeapon(g_DefaultWeapons[HAND_RIGHT]);
+				}
 			}
 		}
 #endif

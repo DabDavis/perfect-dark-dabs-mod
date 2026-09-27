@@ -11788,3 +11788,9 @@ watch item table, the level entry table, strings, the end-of-RAM block, and
 setup bytes in files the locator missed (Dam intro cameras, Jungle AI + sky,
 Runway guards/doors, Surface bookshelf pads + railing, armour moves, Temple crate
 types, flag tokens) - each is a changelog line already classed above.
+
+### F3 pass 12 (fix/f3-0927-cinema): endings
+- Cradle has two endings with the HideAllChrs/ExitOnButton pair; 0x41c (Bond falls, BondKilledInAction 0x00fe) came first in the file, so the Cinema page played Bond's death with nobody in shot. gecinemaFindEnding() skips a list that kills Bond before the pair; now 0x41d (Trevelyan falls, Bond jumps to the helicopter).
+- HD "camera outside the level" test: GoldenEye triangles drawn with G_CULL_BACK cleared (the Cradle platform) now count as front from either side (shellTwo[], fileRoomTrianglesEach bit 17). The platform underside shows in the Cradle ending. A/B over 10 openings/endings: only Cradle's ending changed. PD_CULLLOG=1 logs the decision changes.
+- Aztec launch: GoldenEye's rocket block (explosion 20 1800 below, alternating +-400 z, every 8th frame; smoke 10 every 40th) added in propobj.c for PROJECTILEFLAG_GEROCKET.
+- Ending body weapon: the Cinema page kicks the ending before the hands draw a gun; falls back to g_DefaultWeapons; third person's body sync no longer strips it in a cutscene.
