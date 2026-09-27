@@ -3765,7 +3765,13 @@ static s32 watchItemLoad(struct watchitem *it, s32 key)
 	it->failed = key;
 
 	if (key >= GUN_HD_KEY) {
-		fileid = gebeanFirstPersonReleaseFile(key - GUN_HD_KEY);
+		// the bare copy of a gun holding its own glove, GoldenEye showing
+		// every gun on the face without one
+		fileid = gebeanFirstPersonWatchFile(key - GUN_HD_KEY);
+
+		if (!fileid) {
+			fileid = gebeanFirstPersonReleaseFile(key - GUN_HD_KEY);
+		}
 	} else if (key >= GUN_PD_KEY) {
 		fileid = weaponGetFileNum(key - GUN_PD_KEY);
 	} else if (key >= 0 && key < GUN_NUM_ITEMS) {
@@ -3961,7 +3967,7 @@ static Gfx *watchRenderGun(Gfx *gdl, Mtxf *base, u32 envcolour)
 	// pistols came out a hand's length nearer the eye, twice their size. At
 	// rest every matrix is the base moved to that rest, so they are set so
 	if (g_WatchHdWeapon) {
-		for (s32 i = 1; i < g_WatchGun.def->nummatrices; i++) {
+		for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
 			struct coord rest;
 			f32 r[3];
 

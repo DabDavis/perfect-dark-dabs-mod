@@ -154,6 +154,7 @@ s32 gebeanFirstPersonHasRound(s32 weaponnum);
  */
 s32 gebeanFirstPersonIsRelease(s32 weaponnum);
 u16 gebeanFirstPersonReleaseFile(s32 weaponnum);
+u16 gebeanFirstPersonWatchFile(s32 weaponnum);
 s32 gebeanFirstPersonMatrixRest(s32 weaponnum, s32 mtx, f32 out[3]);
 u16 gebeanFirstPersonToOwn(s32 weaponnum, f32 tomodel[4][4], f32 ownlo[3], f32 ownhi[3]);
 
