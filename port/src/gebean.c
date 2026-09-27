@@ -344,6 +344,15 @@ static s32 gunSlot[ARRAYCOUNT(gunRows)];
 
 static const struct gebeangunrow propRows[] = {
 #include "geproptable.h"
+
+	// Two of GoldenEye's hand items (the conversion's Igx%03dZ), laid on the
+	// same way from Bean's first-person copies (fitted as propfit.py does,
+	// on the N64-look copy where Bean has one): the watch alone, which the
+	// watch's inventory shows for the detonator and the watch laser
+	// (set_enviro_fog_for_items_in_solo_watch_menu()), and the detonator
+	// in the hand, the arm raised with the watch on it
+	PROPROW("Igx060Z", "gun/watchmagnetattract", 0, 1, 2, 1, 1, 1, 2.16710f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f),
+	PROPROW("Igx030Z", "gun/trigger", 0, 1, 2, 1, 1, 1, 0.18886f, 0.00f, 0.00f, 0.00f, 1.33f, 161.70f, 646.46f),
 };
 
 /**
@@ -717,6 +726,12 @@ static const struct gebeanrow *gebeanRowAt(s32 row)
 	return NULL;
 }
 
+/** GoldenEye's floating arm, whose model has the left arm's joints and no others. */
+static s32 gebeanRowIsWatchArm(const struct gebeanrow *r)
+{
+	return r && strcmp(r->source, "char/suitlfhand") == 0;
+}
+
 /**
  * The row number of a pool or gun file - an alias this registered - or -1.
  * The alias keeps the table's own string, so a pointer compare names it.
@@ -749,7 +764,7 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 
 	// the remake's own files, props and characters, found by their name
 	if (name[1] == 'g' && name[2] == 'x' && romdataFileGetModDir(fileid) >= 0) {
-		if (name[0] == 'P') {
+		if (name[0] == 'P' || name[0] == 'I') {
 			for (s32 i = 0; i < ARRAYCOUNT(propRows); i++) {
 				if (strcmp(name, propRows[i].row.file) == 0) {
 					return GEBEAN_PROPROW_BASE + i;
@@ -764,7 +779,7 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 			// every guard's gun stayed GoldenEye's N64 one in the HD look
 			// beside the player's HD one (F3 20260925-233626, Surface's
 			// sniper rifles).
-			if (name[3] >= '0' && name[3] <= '9') {
+			if (name[0] == 'P' && name[3] >= '0' && name[3] <= '9') {
 				const s32 prop = atoi(name + 3);
 
 				for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
@@ -2487,6 +2502,7 @@ struct beanmodel {
 	// A bone at or below SKEL_MUZZLE, SKEL_FLASH or SKEL_EXTRAFLASH: what
 	// GoldenEye hangs its painted muzzle flash off (beanDrawIsFlash())
 	u8 muzzlebone[BEAN_MAXBONES];
+	u8 watchhand[BEAN_MAXBONES]; // the watch arm's hour, minute and second hands: 1, 2, 3
 	// Whether the pieces numbered past 0 are taken. A gun file keeps its
 	// hand and its working parts there and wants them; a head keeps
 	// sunglasses there and does not.
@@ -3444,6 +3460,37 @@ static void beanWalkStream(struct beanmodel *bm)
 }
 
 /**
+ * Whether a bone of Bean's is one of the skeleton's joints. The watch's arm
+ * (char/suitlfhand) names its bones with the exporter's flags left on the end
+ * - SKEL_BASE_W_, SKEL_LF_ELBOW_ER, SKEL_POSITION__R - where every other
+ * character has the joint's name alone.
+ */
+static s32 beanBoneNameIs(const char *name, const char *joint)
+{
+	const size_t len = strlen(joint);
+
+	if (strncmp(name, joint, len) != 0) {
+		return 0;
+	}
+
+	if (name[len] == '\0') {
+		return 1;
+	}
+
+	if (name[len] != '_') {
+		return 0;
+	}
+
+	for (const char *c = name + len; *c; c++) {
+		if (*c != '_' && *c != 'W' && *c != 'P' && *c != 'R' && *c != 'E') {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+/**
  * The skeleton: a 'pose' record (19.12.06.0036) holds a count at +0x18 and
  * its entries at the offset in +0x34, 52 bytes each - a local translation,
  * the absolute bind, a spare, 1.0, then parent/child and sibling/self - in
@@ -3479,6 +3526,7 @@ static void beanReadPose(struct beanmodel *bm, const char **names, s32 numnames)
 		const u16 up = gebeanBE16(e + 40);
 
 		bm->skel[i] = -1;
+		bm->watchhand[i] = 0;
 		bm->muzzlebone[i] = 0;
 		parent[i] = up == 0xffff || up >= count ? -1 : (s16)up;
 
@@ -3488,10 +3536,19 @@ static void beanReadPose(struct beanmodel *bm, const char **names, s32 numnames)
 
 		if ((s32)i < numnames) {
 			for (s32 s = 0; s < SK_COUNT; s++) {
-				if (strcmp(names[i], skelNames[s]) == 0) {
+				if (beanBoneNameIs(names[i], skelNames[s])) {
 					bm->skel[i] = (s8)s;
 					break;
 				}
+			}
+
+			// The watch's three hands (char/suitlfhand), which hang off the
+			// wrist, where its case and its dial are skinned too: fitted as
+			// the wrist, and drawn on the arm's own hands (beanFitPalette())
+			if (bm->skel[i] < 0 && (strcmp(names[i], "SKEL_HOUR") == 0
+						|| strcmp(names[i], "SKEL_MINUTE") == 0 || strcmp(names[i], "SKEL_SECOND") == 0)) {
+				bm->skel[i] = SK_LF_WRIST;
+				bm->watchhand[i] = names[i][5] == 'H' ? 1 : names[i][5] == 'M' ? 2 : 3;
 			}
 
 			// The flash's own bones. GoldenEye moves its painted flash with
@@ -4688,6 +4745,15 @@ struct beanrig {
 	// model's rest, about the bone's own joint: beanFitRig().
 	f32 lin[SK_COUNT][3][3];
 
+	// The watch's arm (beanRigArmFill()): the matrix of the joint the
+	// shoulder hangs from, which the figure Bean has round the arm moves with.
+	s32 armanchor;
+
+	// And its watch's hour, minute and second hands, which the watch turns by
+	// the clock about the middle of the face (gewatch.c): each one's matrix,
+	// -1 for none. Bean's hands are skinned to these.
+	s32 handmtx[3];
+
 	// Every joint of the model by matrix, for the palette's inverse binds.
 	s32 hasrest[GEBEAN_MAXMTX];
 	f32 rest[GEBEAN_MAXMTX][3];
@@ -4710,7 +4776,7 @@ struct beanlimbjoint {
  * GoldenEye's star rest pose, where the limbs run along x.
  */
 static s32 beanRigFromModel(struct modeldef *modeldef, struct beanrig *rig,
-		struct modelnode **joints, s8 *jointskel, s32 *outnumjoints)
+		struct modelnode **joints, s8 *jointskel, s32 *outnumjoints, s32 armonly)
 {
 	struct beanlimbjoint limbs[4][8];
 	s32 numlimb[4] = { 0, 0, 0, 0 };
@@ -4718,6 +4784,7 @@ static s32 beanRigFromModel(struct modeldef *modeldef, struct beanrig *rig,
 	s32 walked = 0;
 
 	memset(rig, 0, sizeof(*rig));
+	rig->handmtx[0] = rig->handmtx[1] = rig->handmtx[2] = -1;
 
 	for (struct modelnode *node = modeldef->rootnode; node && walked < 4096; node = gebeanNextNode(node), walked++) {
 		const u32 type = node->type & 0xff;
@@ -4780,6 +4847,10 @@ static s32 beanRigFromModel(struct modeldef *modeldef, struct beanrig *rig,
 			{ SK_RT_HIP, SK_RT_KNEE, SK_RT_ANKLE },
 		};
 
+		if (armonly && limb != 0 && numlimb[limb] == 0) {
+			continue;
+		}
+
 		if (numlimb[limb] != 3) {
 			sysLogPrintf(LOG_WARNING, "gebean: a limb of the model has %d joints, not 3", numlimb[limb]);
 			return 0;
@@ -4812,10 +4883,58 @@ static s32 beanRigFromModel(struct modeldef *modeldef, struct beanrig *rig,
 		}
 	}
 
-	for (s32 s = 0; s < SK_COUNT; s++) {
+	for (s32 s = 0; s < SK_COUNT && !armonly; s++) {
 		if (s != SK_POSITION && !rig->have[s]) {
 			sysLogPrintf(LOG_WARNING, "gebean: the model has no joint for %s", skelNames[s]);
 			return 0;
+		}
+	}
+
+	if (armonly) {
+		// GoldenEye's floating arm has its root, the joint the shoulder hangs
+		// from and the left arm's three. The one on the middle line above the
+		// root was taken for the neck; on the arm it is only the arm's
+		// anchor, and the rest of the figure is Bean's (beanRigArmFill())
+		if (!rig->have[SK_LF_SHOULDER] || !rig->have[SK_BASE]) {
+			return 0;
+		}
+
+		if (rig->have[SK_NECK]) {
+			for (s32 j = 0; j < numjoints; j++) {
+				if (jointskel[j] == SK_NECK) {
+					jointskel[j] = -1;
+				}
+			}
+
+			rig->armanchor = rig->mtx[SK_NECK];
+			rig->have[SK_NECK] = 0;
+		} else {
+			rig->armanchor = rig->mtx[SK_BASE];
+		}
+
+		// the hands are the model's parts 0 to 2, on the wrist, at the middle
+		// of the face (gewatch.c's watchFindHands())
+		for (s32 h = 0; h < 3; h++) {
+			struct modelnode *hand = modelGetPart(modeldef, h);
+			s32 m;
+
+			rig->handmtx[h] = -1;
+
+			if (!hand || (hand->type & 0xff) != MODELNODETYPE_POSITIONHELD || !hand->rodata) {
+				continue;
+			}
+
+			m = hand->rodata->positionheld.mtxindex;
+
+			if (m < 0 || m >= GEBEAN_MAXMTX || m == rig->mtx[SK_LF_WRIST]) {
+				continue;
+			}
+
+			rig->handmtx[h] = m;
+			rig->hasrest[m] = 1;
+			rig->rest[m][0] = rig->joint[SK_LF_WRIST][0] + hand->rodata->positionheld.pos.x;
+			rig->rest[m][1] = rig->joint[SK_LF_WRIST][1] + hand->rodata->positionheld.pos.y;
+			rig->rest[m][2] = rig->joint[SK_LF_WRIST][2] + hand->rodata->positionheld.pos.z;
 		}
 	}
 
@@ -4824,6 +4943,109 @@ static s32 beanRigFromModel(struct modeldef *modeldef, struct beanrig *rig,
 	memcpy(rig->joint[SK_POSITION], rig->joint[SK_BASE], sizeof(rig->joint[0]));
 
 	*outnumjoints = numjoints;
+
+	return 1;
+}
+
+/**
+ * The watch's arm, char/suitlfhand, carries a sleeve for each of Bond's
+ * outfits on the one forearm, all drawn at once in its own file; GoldenEye's
+ * arm has a cuff toggle for each (Csuit_lf_handZ's parts 4 to 9, in
+ * bondviewSelectCuff()'s order: boiler suit, tuxedo, Connery's suit, the blue
+ * suit, jungle, snow). The file's pictures in its own order: 0-2 the watch's
+ * edge, frame and face, 3 the hand, 4 the tuxedo's sleeve, 5 the jungle
+ * fatigues', 6 the snow suit's, 7 the boiler suit's, 8 the suit's with its
+ * blue shirt cuff, 9 a sliver of the communicator watch, and 10 and 11 a
+ * stray pair of Boris's (his head and his glasses), which is what lay as an
+ * opaque grey plate over the dial.
+ */
+#define GEBEAN_ARM_CUFF_FIRST 4
+#define GEBEAN_ARM_CUFFS      6
+#define GEBEAN_ARM_TEXTURES   12
+
+static s32 beanArmSleeve(const struct beanmodel *bm, u32 tex)
+{
+	// by cuff: boiler, tuxedo, Connery (Bean has none of his own), blue
+	// suit, jungle, snow
+	static const s8 sleeveof[GEBEAN_ARM_TEXTURES] = { -1, -1, -1, -1, 1, 4, 5, 0, 3, -1, -1, -1 };
+
+	if (bm->numtex != GEBEAN_ARM_TEXTURES || tex >= GEBEAN_ARM_TEXTURES) {
+		return -1;
+	}
+
+	return sleeveof[tex];
+}
+
+// the one sleeve that dresses two cuffs: the suit's is Connery's too
+static s32 beanArmSleeveAlso(const struct beanmodel *bm, u32 tex)
+{
+	return bm->numtex == GEBEAN_ARM_TEXTURES && tex == 8 ? 2 : -1;
+}
+
+static s32 beanArmDropsTexture(const struct beanmodel *bm, u32 tex)
+{
+	return bm->numtex == GEBEAN_ARM_TEXTURES && tex >= 9;
+}
+
+/**
+ * The rest of the figure round GoldenEye's floating arm (Csuit_lf_handZ),
+ * which has a left arm and nothing else: Bean's own joints, turned and sized
+ * the way its upper arm is onto the model's, from the model's shoulder, on the
+ * matrix the shoulder hangs from. Only the arm and the watch are drawn, so
+ * these are there for the fit to have a whole figure to read.
+ */
+static s32 beanRigArmFill(struct beanrig *rig, const f32 bind[SK_COUNT][3], const s32 *havebind)
+{
+	f32 db[3], dj[3], rot[3][3];
+	f32 k;
+
+	if (!havebind[SK_LF_SHOULDER] || !havebind[SK_LF_ELBOW] || !rig->have[SK_LF_ELBOW]) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		db[i] = bind[SK_LF_ELBOW][i] - bind[SK_LF_SHOULDER][i];
+		dj[i] = rig->joint[SK_LF_ELBOW][i] - rig->joint[SK_LF_SHOULDER][i];
+	}
+
+	if (vecLen(db) < 1e-6f) {
+		return 0;
+	}
+
+	k = vecLen(dj) / vecLen(db);
+	rotationBetween(db, dj, rot);
+
+	for (s32 s = 0; s < SK_COUNT; s++) {
+		f32 d[3], r[3];
+
+		if (rig->have[s] || s == SK_POSITION || !havebind[s]) {
+			continue;
+		}
+
+		for (s32 i = 0; i < 3; i++) {
+			d[i] = (bind[s][i] - bind[SK_LF_SHOULDER][i]) * k;
+		}
+
+		rotApply(rot, d, r);
+
+		for (s32 i = 0; i < 3; i++) {
+			rig->joint[s][i] = rig->joint[SK_LF_SHOULDER][i] + r[i];
+		}
+
+		rig->mtx[s] = rig->armanchor;
+		rig->have[s] = 1;
+	}
+
+	rig->have[SK_POSITION] = 1;
+	rig->mtx[SK_POSITION] = rig->mtx[SK_BASE];
+	memcpy(rig->joint[SK_POSITION], rig->joint[SK_BASE], sizeof(rig->joint[0]));
+
+	for (s32 s = 0; s < SK_COUNT; s++) {
+		if (!rig->have[s]) {
+			sysLogPrintf(LOG_WARNING, "gebean: the watch's arm has no %s", skelNames[s]);
+			return 0;
+		}
+	}
 
 	return 1;
 }
@@ -5052,6 +5274,33 @@ static void beanFitPalette(struct beanrig *rig, const f32 bind[SK_COUNT][3])
 			}
 
 			rig->pal[m][r * 4 + 3] = target[r] - rest - turned[r];
+		}
+
+		rig->haspal[m] = 1;
+	}
+
+	// The watch's hands: the wrist's fit, less the rest of the hand's own
+	// matrix, which is the middle of the face
+	for (s32 h = 0; h < 3; h++) {
+		const s32 m = rig->handmtx[h];
+		f32 sb[3], turned[3];
+
+		if (m < 0 || m >= GEBEAN_MAXMTX || rig->haspal[m] || !rig->hasrest[m]) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			sb[k] = bind[SK_LF_WRIST][k] * rig->scale;
+		}
+
+		rotApply((const f32 (*)[3])rig->lin[SK_LF_WRIST], sb, turned);
+
+		for (s32 r = 0; r < 3; r++) {
+			for (s32 c = 0; c < 3; c++) {
+				rig->pal[m][r * 4 + c] = rig->lin[SK_LF_WRIST][r][c];
+			}
+
+			rig->pal[m][r * 4 + 3] = rig->joint[SK_LF_WRIST][r] - rig->rest[m][r] - turned[r];
 		}
 
 		rig->haspal[m] = 1;
@@ -9145,6 +9394,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 	ishead = r->kind == GEBEAN_HEAD;
 	fromchar = strncmp(r->source, "char/", 5) == 0;
+	const s32 arm = !ishead && gebeanRowIsWatchArm(r);
 
 	// Also what the pictures are keyed on, so the two looks never share one
 	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", r->source);
@@ -9163,7 +9413,8 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	memset(bind, 0, sizeof(bind));
 
 	for (s32 b = 0; b < bm.numbones; b++) {
-		if (bm.skel[b] >= 0) {
+		// (the watch's hands stand in for the wrist, and are not where it is)
+		if (bm.skel[b] >= 0 && !bm.watchhand[b]) {
 			memcpy(bind[(s32)bm.skel[b]], bm.bind[b], sizeof(bind[0]));
 			havebind[(s32)bm.skel[b]] = 1;
 		}
@@ -9239,8 +9490,13 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 		nummatrices = neckback ? 2 : 1;
 	} else {
-		if (!beanRigFromModel(modeldef, &rig, joints, jointskel, &numjoints)
+		if (!beanRigFromModel(modeldef, &rig, joints, jointskel, &numjoints, arm)
+				|| (arm && !beanRigArmFill(&rig, (const f32 (*)[3])bind, havebind))
 				|| !beanFitRig(&rig, (const f32 (*)[3])bind, havebind)) {
+			if (arm) {
+				sysLogPrintf(LOG_WARNING, "gebean: %s would not fit GoldenEye's floating arm", source);
+			}
+
 			beanFree(&bm);
 			return NULL;
 		}
@@ -9254,6 +9510,25 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		if (nummatrices <= 0 || nummatrices > GEBEAN_MAXMTX) {
 			beanFree(&bm);
 			return NULL;
+		}
+	}
+
+	// The arm's lists by the cuff toggle each is under (Csuit_lf_handZ's
+	// parts 4 to 9, gewatch.c's CUFF_PART_*), -1 for one under none
+	s8 armcuffof[64];
+
+	memset(armcuffof, -1, sizeof(armcuffof));
+
+	for (s32 c = 0; arm && c < GEBEAN_ARM_CUFFS; c++) {
+		struct modelnode *toggle = modelGetPart(modeldef, GEBEAN_ARM_CUFF_FIRST + c);
+
+		for (s32 k = 0; toggle && k < numnodes && k < 64; k++) {
+			for (struct modelnode *up = nodes[k]->parent; up; up = up->parent) {
+				if (up == toggle) {
+					armcuffof[k] = (s8)c;
+					break;
+				}
+			}
 		}
 	}
 
@@ -9397,6 +9672,12 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		s32 *mapped;
 		s32 *mappedhood;
 
+		const s32 armsleeve = arm ? beanArmSleeve(&bm, d->tex) : -1;
+
+		if (arm && beanArmDropsTexture(&bm, d->tex)) {
+			continue;
+		}
+
 		if (!beanReadVb(&bm, d->vb, &vb)) {
 			continue;
 		}
@@ -9426,6 +9707,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		for (s32 t = 0; t < numtris; t++) {
 			struct beanvtx v3[3];
 			s32 sk[3][4];
+			s8 hk[3][4]; // the watch's hand a slot is on (bm.watchhand), 0 for none
 			f32 wt[3][4];
 			f32 total[SK_COUNT];
 			s32 dominant = -1;
@@ -9442,6 +9724,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 					s32 bone;
 
 					sk[i][s] = -1;
+					hk[i][s] = 0;
 					wt[i][s] = 0.0f;
 
 					if (slot < 0 || slot >= d->numpal || v3[i].weight[s] == 0) {
@@ -9456,6 +9739,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 					}
 
 					sk[i][s] = bm.skel[bone];
+					hk[i][s] = (s8)bm.watchhand[bone];
 					wt[i][s] = (f32)v3[i].weight[s];
 					total[sk[i][s]] += wt[i][s];
 				}
@@ -9744,15 +10028,17 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 						for (s32 s = 0; s < 4; s++) {
 							const s32 b = sk[i][s];
 							s32 at = -1;
+							s32 bm_;
 
 							if (b < 0) {
 								continue;
 							}
 
+							bm_ = hk[i][s] > 0 && rig.handmtx[hk[i][s] - 1] >= 0 ? rig.handmtx[hk[i][s] - 1] : rig.mtx[b];
 							sum += wt[i][s];
 
 							for (s32 m = 0; m < nm; m++) {
-								if (mtx[m] == rig.mtx[b]) {
+								if (mtx[m] == bm_) {
 									at = m;
 								}
 							}
@@ -9760,7 +10046,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 							if (at >= 0) {
 								mw[at] += wt[i][s];
 							} else {
-								mtx[nm] = rig.mtx[b];
+								mtx[nm] = bm_;
 								mw[nm] = wt[i][s];
 								nm++;
 							}
@@ -9885,14 +10171,22 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 						takes = k < 64 && hoodof[k] >= 0;
 					} else if (ishead) {
 						takes = !beanNodeIsToggled(nodes[k]);
+					} else if (arm && armsleeve >= 0) {
+						// a sleeve goes with the outfit's cuff and nothing else
+						takes = k < 64 && armcuffof[k] >= 0 && (armcuffof[k] == armsleeve
+								|| armcuffof[k] == beanArmSleeveAlso(&bm, d->tex));
 					} else {
 						s32 want = dominant == SK_POSITION ? SK_BASE : dominant;
 						s32 any = 0;
+						s32 bare = 0;
 
 						for (s32 j = 0; j < numnodes; j++) {
 							if (nodeskel[j] == want) {
 								any = 1;
-								break;
+
+								if (!arm || j >= 64 || armcuffof[j] < 0) {
+									bare = 1;
+								}
 							}
 						}
 
@@ -9901,6 +10195,12 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 						}
 
 						takes = nodeskel[k] == want;
+
+						// the arm's own skin and watch in a list no cuff hides
+						// (drawn under every cuff, it was drawn over itself)
+						if (arm && bare && k < 64 && armcuffof[k] >= 0) {
+							takes = 0;
+						}
 					}
 
 					if (takes && !beanAddTri(&out, asfill ? fillof[k] : ashood ? hoodof[k] : k, (s32)d->tex, idx[0], idx[1], idx[2])) {

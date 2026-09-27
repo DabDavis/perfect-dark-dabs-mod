@@ -57,6 +57,7 @@
 #include "system.h"
 #include "video.h"
 #include "gewatch.h"
+#include "xblamesh.h"
 #include "gehud.h"
 #include "gegadgets.h"
 #include "gexfront.h"
@@ -3520,7 +3521,11 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	// watch sorts itself over whatever of the arm is under it, the dial being
 	// lower on a body's wrist than the top of its forearm (the intro's gun
 	// barrel takes a z buffer for the same reason, geintro.c).
-	if (wmodel) {
+	// The HD look's arm (char/suitlfhand, gebean.c) is Bean's mesh, which has
+	// no order of its own either: its watch comes before the skin under it
+	const s32 hd = xblaMeshModelDrawsBean(model);
+
+	if (wmodel || hd) {
 		renderdata.zbufferenabled = true;
 	}
 
@@ -3555,12 +3560,16 @@ static Gfx *watchDrawModel(Gfx *gdl)
 		gDPSetTextureFilter(renderdata.gdl++, G_TF_BILERP);
 		renderdata.gdl = lightsSetDefault(renderdata.gdl);
 
-		if (wmodel) {
+		if (wmodel || hd) {
 			renderdata.gdl = zbufClear(renderdata.gdl);
 			gSPSetGeometryMode(renderdata.gdl++, G_ZBUFFER);
 		}
 
 		modelRender(&renderdata, model);
+
+		if (hd && !wmodel) {
+			gSPClearGeometryMode(renderdata.gdl++, G_ZBUFFER);
+		}
 
 		if (headdef) {
 			spotrw->headspot.headmodeldef = headdef;
@@ -3628,6 +3637,12 @@ static Gfx *watchDrawModel(Gfx *gdl)
 #define GUN_ITEM_ROW   56
 #define GUN_NUM_ITEMS  120
 #define GUN_RWDATA_MAX 1024
+
+// GoldenEye's ITEM_IDS the watch draws another item's model for
+#define GEITEM_DD44                6
+#define GEITEM_WATCHLASER          23
+#define GEITEM_TRIGGER             30
+#define GEITEM_WATCHMAGNETATTRACT  60
 
 struct watchitem {
 	u8 *items;
@@ -4027,13 +4042,20 @@ static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 {
 	struct modelrenderdata renderdata = { NULL, false, 3 };
-	const s32 item = watchGunItem(weaponnum);
+	s32 item = watchGunItem(weaponnum);
 	Mtxf base;
 	Mtxf tmp;
 	f32 rotx, roty;
 
 	if (item < 0) {
 		return watchDrawPdGun(gdl, weaponnum, turning);
+	}
+
+	// set_enviro_fog_for_items_in_solo_watch_menu(): the detonator and the
+	// watch laser are drawn as the watch magnet's model - GoldenEye's watch
+	// on its own - and not as their first-person arm raising the watch
+	if (item == GEITEM_TRIGGER || item == GEITEM_WATCHLASER) {
+		item = GEITEM_WATCHMAGNETATTRACT;
 	}
 
 	if (!watchGunLoad(item)) {
@@ -4072,6 +4094,17 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	// 1)) - which are the whole of the throwing knife
 	for (s32 part = 8; part <= 13; part++) {
 		watchGunSetPart(part, 0);
+	}
+
+	// Except the DD44's part 11, which is not a hand but the bore at the end
+	// of its slide. GoldenEye hides it here too and never shows the hole,
+	// drawing the gun with no z buffer so the slide's front paints over it;
+	// with one here the muzzle was cut off flat (F3 20260926-202154). The
+	// user asked for the whole barrel. The only such part: every other gun
+	// with a toggle among 8 to 13 (the PP7s, the Cougar, the Golden Gun, the
+	// knife) has the hand there and nothing else.
+	if (item == GEITEM_DD44) {
+		watchGunSetPart(11, 1);
 	}
 
 	watchGunSetPart(35, 0);
