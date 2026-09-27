@@ -45,6 +45,7 @@
 #include "geguns.h"
 #include "files.h"
 #include "xblamesh.h"
+#include "handtint.h"
 #include "headfit.h"
 #include "xblatex.h"
 #include "objmesh.h"
@@ -163,6 +164,9 @@
 
 // Palette entries a mesh can have. The largest in the release has 46.
 #define XBLAMESH_MAXMTX 64
+
+// The textures of a mesh handtint.c keeps apart (xblaMeshAnalyse())
+#define XBLAMESH_ANATEX 32
 
 u32 g_XblaMeshNumMeshes = 0;
 u32 g_XblaMeshNumNodes = 0;
@@ -409,6 +413,15 @@ struct xblameshbuilt {
 	s32 neckbackmtx;   // its matrix there (-1 for none)
 	f32 neckbackofs[3]; // and the head's joint from it at rest
 	s32 beanrow;       // the row it was built from, for the hood's test (gebeanRowKeepsHood())
+	// What handtint.c asks of a skinned mesh (xblaMeshAnalyse()): the
+	// textures its materials bind, with how many triangles of each hang off
+	// each bone, and - for a character - the colour each bone is painted,
+	// as a sum of r, g, b and a weight per palette entry. NULL for a mesh
+	// that was not asked.
+	s32 numanatex;
+	const void *anatex[XBLAMESH_ANATEX];
+	u16 *anatexbone;   // XBLAMESH_ANATEX rows of XBLAMESH_MAXMTX
+	f32 *anabonecol;   // XBLAMESH_MAXMTX rows of four
 	u32 packgen;       // modelpackGetGeneration() when it was built
 	u8 beanscreenfit;  // a monitor's screens moved onto Bean's own (gebeanmats.screenfit)
 	f32 beanscreenquad[4][4][3]; // and where to (gebeanmats.screenquad)
@@ -437,6 +450,10 @@ static s32 releaseOnlyLoaded;
 // The mesh being built is for a file only the release has (Agent 4, past the
 // ROM's file ids), which is drawn in both looks, so its pictures are too
 static s32 xblaMeshBuildKeepArt = 0;
+
+// Whether the mesh being built is analysed for handtint.c: 1 its textures by
+// bone, 2 and the colour each bone is painted (a character's)
+static s32 xblaMeshBuildAnalyse = 0;
 static s32 optOnlySlot; // Mod.XblaMeshOnly: draw one mesh and leave the rest alone
 static s32 optBoth;     // Mod.XblaMeshBoth: draw the game's geometry over it too
 
@@ -2303,6 +2320,11 @@ struct xblameshbuilder {
 	s32 meshcull;     // the mesh's own (xblaMeshBuildCullBack), cullback being each group's
 	u64 twosided;     // groups drawn both sides whatever the mesh culls (xblaMeshBuildTwoSided)
 
+	// For a culled mesh, the triangles drawn turned round or both ways (one
+	// byte a triangle, or NULL), and how many were: see xblaMeshFindWinding().
+	u8 *turn;
+	s32 numturned;
+
 	// Whether the list being built has G_DECAL_EXT on (XBLAMESH_MAT_DECAL),
 	// which its end turns off again
 	s32 decal;
@@ -3270,6 +3292,8 @@ static void xblaMeshNoteTriangle(struct xblameshbuilder *b, s32 i0, s32 i1, s32 
 	}
 }
 
+static f32 xblaMeshTriWinding(const u8 *file, const struct xblameshhdr *h, u32 stride, const u32 mesh[3]);
+
 static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len,
 		const struct xblameshhdr *h, u32 stride, u32 firstdraw, u32 numdraws,
 		s32 wantspan)
@@ -3408,6 +3432,27 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 				return 0;
 			}
 
+			// Wound against the rest of a culled mesh: turned round
+			// (xblaMeshFindWinding())
+			if (b->turn && b->turn[firsttri + t]) {
+				if (b->turn[firsttri + t] == 2) {
+					// both ways: this one as it is, then turned round
+					if (!xblaMeshRoomForGfx(b, 2)) {
+						return 0;
+					}
+
+					gSP1Triangle(&b->gdl[b->numgfx], slot[0], slot[1], slot[2], 0);
+					b->numgfx++;
+					b->numtris++;
+				}
+
+				const s32 swap = slot[1];
+
+				slot[1] = slot[2];
+				slot[2] = swap;
+				b->numturned++;
+			}
+
 			gSP1Triangle(&b->gdl[b->numgfx], slot[0], slot[1], slot[2], 0);
 			b->numgfx++;
 			b->numtris++;
@@ -3469,6 +3514,124 @@ static s32 xblaMeshBuildGroup(struct xblameshbuilder *b, const u8 *file, u32 len
 }
 
 /**
+ * How a triangle of the file is wound against its vertices' normals: the
+ * cosine between the face's normal by its winding and the vertices' mean
+ * normal, or 0 where either is too short to say.
+ */
+static f32 xblaMeshTriWinding(const u8 *file, const struct xblameshhdr *h, u32 stride, const u32 mesh[3])
+{
+	f32 p[3][3];
+	f32 n[3] = { 0.0f, 0.0f, 0.0f };
+	f32 e1[3], e2[3], f[3];
+	f32 lf, ln;
+
+	for (s32 i = 0; i < 3; i++) {
+		const u8 *v = file + h->vertexoffset + mesh[i] * stride;
+
+		for (s32 k = 0; k < 3; k++) {
+			p[i][k] = xblaMeshBEF32(v + k * 4);
+			n[k] += xblaMeshBEF32(v + 20 + k * 4);
+		}
+	}
+
+	for (s32 k = 0; k < 3; k++) {
+		e1[k] = p[1][k] - p[0][k];
+		e2[k] = p[2][k] - p[0][k];
+	}
+
+	f[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	f[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	f[2] = e1[0] * e2[1] - e1[1] * e2[0];
+
+	lf = sqrtf(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+	ln = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+	if (!(lf > 1e-12f) || !(ln > 0.5f)) {
+		return 0.0f;
+	}
+
+	return (f[0] * n[0] + f[1] * n[1] + f[2] * n[2]) / (lf * ln);
+}
+
+/**
+ * How to draw each triangle of a culled mesh (b->turn): 0 as it is, 1 turned
+ * round, 2 both ways.
+ *
+ * A culled mesh shows nothing where a triangle is wound the other way round
+ * from the rest, and the release has a few: Natalya's jungle outfit has a
+ * patch of them at her left ear, which showed the room through her head once
+ * characters culled (F3 20260926-203535). Which way is out for a triangle is
+ * what its vertices' normals say, and which way the mesh winds its outsides
+ * is what most of its triangles say (Bean's and 4J's are opposite, so it is
+ * read, not assumed). A triangle clearly against both is turned round; one
+ * whose normals stand across its face - a fold, a crease, the rim of an ear -
+ * cannot be told, and is drawn from both sides, as every character was before
+ * they culled.
+ */
+static void xblaMeshFindWinding(struct xblameshbuilder *b, const u8 *file, u32 len,
+		const struct xblameshhdr *h, u32 stride)
+{
+	const u32 numtris = h->indexoffset < len ? (len - h->indexoffset) / 6 : 0;
+	s32 pos = 0;
+	s32 neg = 0;
+	f32 sign;
+
+	b->numturned = 0;
+	b->turn = NULL;
+
+	if (!b->cullback || stride < 32 || numtris == 0 || h->vertexoffset + (u64)h->numvertices * stride > len) {
+		return;
+	}
+
+	for (s32 pass = 0; pass < 2; pass++) {
+		for (u32 t = 0; t < numtris; t++) {
+			const u8 *idx = file + h->indexoffset + t * 6;
+			u32 mesh[3];
+			f32 c;
+
+			mesh[0] = xblaMeshBE16(idx);
+			mesh[1] = xblaMeshBE16(idx + 2);
+			mesh[2] = xblaMeshBE16(idx + 4);
+
+			if (mesh[0] >= h->numvertices || mesh[1] >= h->numvertices || mesh[2] >= h->numvertices) {
+				continue;
+			}
+
+			c = xblaMeshTriWinding(file, h, stride, mesh);
+
+			if (pass == 0) {
+				if (c > 0.5f) {
+					pos++;
+				} else if (c < -0.5f) {
+					neg++;
+				}
+			} else if (c * sign < -0.5f) {
+				b->turn[t] = 1;
+			} else if (c != 0.0f && c * sign < 0.3f) {
+				b->turn[t] = 2;
+			}
+		}
+
+		if (pass == 0) {
+			// A clear majority, or no telling
+			if (pos > neg * 9) {
+				sign = 1.0f;
+			} else if (neg > pos * 9) {
+				sign = -1.0f;
+			} else {
+				return;
+			}
+
+			b->turn = calloc(numtris, 1);
+
+			if (!b->turn) {
+				return;
+			}
+		}
+	}
+}
+
+/**
  * Every group's list, and one that calls all of them.
  *
  * The whole-mesh list is what a model draws when its parts and the mesh's
@@ -3490,6 +3653,8 @@ static s32 xblaMeshBuildLists(struct xblameshbuilder *b, const u8 *file, u32 len
 
 	s32 numxlu = 0;
 	s32 numfade = 0;
+
+	xblaMeshFindWinding(b, file, len, h, stride);
 
 	b->numgroups = numgroups;
 	b->allxlu = -1;
@@ -5505,6 +5670,227 @@ static void xblaMeshBorrowEnvironment(struct xblameshbuilt *m, s32 fileid, const
 			"its first-person model, file %d", what, percent, gunfile);
 }
 
+/**
+ * What handtint.c needs of a skinned mesh, read off the file while it is still
+ * here: which textures its materials bind and how many triangles of each hang
+ * off each bone - a hand's sleeve is the texture on its forearm - and, for a
+ * character, the colour each bone is painted, the texel under each
+ * triangle's middle times its vertices' colour, weighted by the triangle's
+ * size. The bone of a triangle is the one most of its weight is on.
+ */
+static void xblaMeshAnalyse(struct xblameshbuilt *m, const struct xblameshbuilder *b, const u8 *file, u32 len,
+		const struct xblameshhdr *h, u32 stride, s32 mode)
+{
+	const u32 numtris = h->indexoffset < len ? (len - h->indexoffset) / 6 : 0;
+	u8 *rgba[XBLAMESH_ANATEX];
+	s32 tw[XBLAMESH_ANATEX];
+	s32 th[XBLAMESH_ANATEX];
+
+	free(m->anatexbone);
+	free(m->anabonecol);
+	m->anatexbone = NULL;
+	m->anabonecol = NULL;
+	m->numanatex = 0;
+
+	if (!b->skinned || stride < 48 || h->vertexoffset + (u64)h->numvertices * stride > len) {
+		return;
+	}
+
+	m->anatexbone = calloc(XBLAMESH_ANATEX * XBLAMESH_MAXMTX, sizeof(u16));
+	m->anabonecol = mode >= 2 ? calloc(XBLAMESH_MAXMTX * 4, sizeof(f32)) : NULL;
+
+	if (!m->anatexbone) {
+		free(m->anabonecol);
+		m->anabonecol = NULL;
+		return;
+	}
+
+	memset(rgba, 0, sizeof(rgba));
+
+	for (u32 d = 0; d < h->numdraws; d++) {
+		const u8 *draw = file + h->drawoffset + d * XBLAMESH_ENTRY;
+		const u32 firsttri = xblaMeshBE32(draw);
+		const u32 drawtris = xblaMeshBE32(draw + 4);
+		const u32 material = xblaMeshBE32(draw + 8);
+		const void *tile = (material & XBLAMESH_MAT_TABLE)
+				? ((b->mats && (s32)(material & 0xfff) < b->mats->num) ? b->mats->tile[material & 0xfff] : NULL)
+				: xblaMeshBuildKeepArt ? xblaTexBindKept(material & 0x1fff) : xblaTexBind(material & 0x1fff);
+		s32 ti;
+
+		if (firsttri > numtris || drawtris > numtris - firsttri || !tile) {
+			continue;
+		}
+
+		for (ti = 0; ti < m->numanatex && m->anatex[ti] != tile; ti++);
+
+		if (ti == m->numanatex) {
+			if (ti == XBLAMESH_ANATEX) {
+				continue;
+			}
+
+			m->anatex[ti] = tile;
+			m->numanatex++;
+
+			if (m->anabonecol) {
+				rgba[ti] = xblaTexLoadReplacement(tile, &tw[ti], &th[ti]);
+			}
+		}
+
+		for (u32 t = 0; t < drawtris; t++) {
+			const u8 *idx = file + h->indexoffset + (firsttri + t) * 6;
+			f32 vote[3];
+			u8 bone[3];
+			f32 p[3][3];
+			f32 uv[2] = { 0.0f, 0.0f };
+			f32 col[3] = { 0.0f, 0.0f, 0.0f };
+			s32 best = -1;
+			f32 bestw = 0.0f;
+			s32 k;
+
+			for (k = 0; k < 3; k++) {
+				const u32 vi = xblaMeshBE16(idx + k * 2);
+				const u8 *v;
+				u32 packed;
+				f32 w[3];
+
+				if (vi >= h->numvertices) {
+					break;
+				}
+
+				v = file + h->vertexoffset + vi * stride;
+				packed = xblaMeshBE32(v + 44);
+				w[0] = xblaMeshBEF32(v + 36);
+				w[1] = xblaMeshBEF32(v + 40);
+				w[2] = 1.0f - w[0] - w[1];
+
+				// the vertex's own heaviest bone
+				bone[k] = (u8)(packed >> 24);
+				vote[k] = w[0];
+
+				if (w[1] > vote[k]) {
+					bone[k] = (u8)(packed >> 16);
+					vote[k] = w[1];
+				}
+
+				if (w[2] > vote[k]) {
+					bone[k] = (u8)(packed >> 8);
+					vote[k] = w[2];
+				}
+
+				p[k][0] = xblaMeshBEF32(v);
+				p[k][1] = xblaMeshBEF32(v + 4);
+				p[k][2] = xblaMeshBEF32(v + 8);
+				uv[0] += xblaMeshBEF32(v + 12) / 3.0f;
+				uv[1] += xblaMeshBEF32(v + 16) / 3.0f;
+
+				{
+					const u32 c = xblaMeshBE32(v + 32);
+
+					col[0] += (f32)((c >> 16) & 0xff) / (3.0f * 255.0f);
+					col[1] += (f32)((c >> 8) & 0xff) / (3.0f * 255.0f);
+					col[2] += (f32)(c & 0xff) / (3.0f * 255.0f);
+				}
+			}
+
+			if (k < 3) {
+				continue;
+			}
+
+			// the bone two or three of its corners share, else the first's
+			best = bone[0];
+			bestw = vote[0];
+
+			if (bone[1] == bone[2] && bone[1] != bone[0]) {
+				best = bone[1];
+			}
+
+			(void)bestw;
+
+			if (best < 0 || best >= XBLAMESH_MAXMTX) {
+				continue;
+			}
+
+			if (m->anatexbone[ti * XBLAMESH_MAXMTX + best] < 0xffff) {
+				m->anatexbone[ti * XBLAMESH_MAXMTX + best]++;
+			}
+
+			if (m->anabonecol && rgba[ti] && tw[ti] > 0 && th[ti] > 0) {
+				f32 e1[3], e2[3], cr[3];
+				f32 area;
+				f32 fu = uv[0] - floorf(uv[0]);
+				f32 fv = (1.0f - uv[1]) - floorf(1.0f - uv[1]);
+				s32 x = (s32)(fu * tw[ti]);
+				s32 y = (s32)(fv * th[ti]);
+				const u8 *px;
+
+				if (x >= tw[ti]) {
+					x = tw[ti] - 1;
+				}
+
+				if (y >= th[ti]) {
+					y = th[ti] - 1;
+				}
+
+				px = rgba[ti] + ((size_t)y * tw[ti] + x) * 4;
+
+				if (px[3] < 128) {
+					continue;
+				}
+
+				for (s32 j = 0; j < 3; j++) {
+					e1[j] = p[1][j] - p[0][j];
+					e2[j] = p[2][j] - p[0][j];
+				}
+
+				cr[0] = e1[1] * e2[2] - e1[2] * e2[1];
+				cr[1] = e1[2] * e2[0] - e1[0] * e2[2];
+				cr[2] = e1[0] * e2[1] - e1[1] * e2[0];
+				area = sqrtf(cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]);
+
+				m->anabonecol[best * 4 + 0] += area * px[0] * col[0];
+				m->anabonecol[best * 4 + 1] += area * px[1] * col[1];
+				m->anabonecol[best * 4 + 2] += area * px[2] * col[2];
+				m->anabonecol[best * 4 + 3] += area;
+			}
+		}
+	}
+
+	for (s32 i = 0; i < XBLAMESH_ANATEX; i++) {
+		xblaTexFreeReplacement(rgba[i]);
+	}
+}
+
+/**
+ * For handtint.c: a mesh's textures and how many of each one's triangles hang
+ * off each bone (rows of XBLAMESH_MAXMTX), and the colour it paints a bone.
+ */
+s32 xblaMeshAnalysedTextures(const struct xblameshbuilt *m, const void ***outtex, const u16 **outbones)
+{
+	if (!m || !m->anatexbone) {
+		return 0;
+	}
+
+	*outtex = (const void **)m->anatex;
+	*outbones = m->anatexbone;
+
+	return m->numanatex;
+}
+
+s32 xblaMeshAnalysedBoneColour(const struct xblameshbuilt *m, s32 bone, f32 *rgb, f32 *weight)
+{
+	if (!m || !m->anabonecol || bone < 0 || bone >= XBLAMESH_MAXMTX || m->anabonecol[bone * 4 + 3] <= 0.0f) {
+		return 0;
+	}
+
+	for (s32 j = 0; j < 3; j++) {
+		rgb[j] = m->anabonecol[bone * 4 + j] / m->anabonecol[bone * 4 + 3];
+	}
+
+	*weight = m->anabonecol[bone * 4 + 3];
+
+	return 1;
+}
+
 static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		const struct xblameshmats *mats, const char *what)
 {
@@ -5536,6 +5922,7 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		free(b.grad);
 		free(b.gradscore);
 		free(b.batches);
+		free(b.turn);
 		free(b.normals);
 		free(b.venv);
 		free(b.vink);
@@ -5545,9 +5932,19 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		return 0;
 	}
 
+	if (xblaMeshBuildAnalyse) {
+		xblaMeshAnalyse(m, &b, file, len, &h, stride, xblaMeshBuildAnalyse);
+	}
+
 	free(b.batches);
 	free(b.gradscore);
 	free(b.inkrgba);
+	free(b.turn);
+
+	if (b.numturned > 0) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: %s: %d triangles drawn turned round or from both sides",
+				what, b.numturned);
+	}
 
 	if (b.skinned && !xblaMeshReadBind(m, file, &h, b.scale)) {
 		free(b.gdl);
@@ -5764,7 +6161,9 @@ static struct xblameshbuilt *xblaMeshBuild(s32 slot)
 		xblaMeshBuildCullBack = fileid == FILE_PNLOGO2 || (!m->frompack && xblaMeshFileIsChr(fileid)) ? G_CULL_FRONT : 0;
 		xblaMeshBuildBorrowFile = m->frompack ? 0 : fileid;
 		xblaMeshBuildKeepArt = !m->frompack && fileid >= NUM_FILES;
+		xblaMeshBuildAnalyse = m->frompack ? 0 : handtintWantsMesh(fileid, xblaMeshFileIsChr(fileid));
 		ok = xblaMeshBuildFile(m, file, len, &mats, what);
+		xblaMeshBuildAnalyse = 0;
 		xblaMeshBuildCullBack = 0;
 		xblaMeshBuildBorrowFile = 0;
 		xblaMeshBuildKeepArt = 0;
@@ -6236,6 +6635,8 @@ static void xblaMeshFreePackMeshes(void)
 		free(m->vink);
 		free(m->weights);
 		free(m->bones);
+		free(m->anatexbone);
+		free(m->anabonecol);
 		free(m);
 		packBuilt[i] = NULL;
 	}
@@ -6398,9 +6799,11 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	// not the release's. Its props and guns stay two-sided: Dam's truck cab
 	// and gates lost their far walls when they culled
 	xblaMeshBuildCullBack = m->frombean && gebeanRowIsChr(e->beanrow) ? G_CULL_BACK : 0;
+	xblaMeshBuildAnalyse = m->frombean && gebeanRowIsChr(e->beanrow) ? 2 : 0;
 	xblaMeshBuildTwoSided = twosided;
 	ok = xblaMeshBuildFile(m, file, len, &mats, what);
 	xblaMeshBuildCullBack = 0;
+	xblaMeshBuildAnalyse = 0;
 	xblaMeshBuildTwoSided = 0;
 
 	for (s32 i = 0; i < mats.num; i++) {
@@ -11573,6 +11976,69 @@ s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const st
 s32 xblaMeshIsAvailable(void)
 {
 	return xblaImportIsAvailable();
+}
+
+/**
+ * For handtint.c: the mesh a model's lists are drawn from in the look the
+ * game is in, analysed at its build (xblaMeshAnalyse()) - a GoldenEye
+ * character's Bean mesh in either look, the release's own mesh in the XBLA
+ * look - or NULL, where the model draws its N64 lists or a model pack's.
+ */
+struct xblameshbuilt *xblaMeshAnalysedForModel(const struct modeldef *def)
+{
+	struct modelnode *node;
+
+	if (!def || !def->rootnode || !g_XblaMeshNumNodes || bypass) {
+		return NULL;
+	}
+
+	for (node = def->rootnode; node; ) {
+		struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == def) {
+			const s32 frompack = e->packpart != XBLAMESH_NOPART && e->fileid && modelpackFindN64(e->fileid) != NULL;
+			struct xblameshbuilt *m = NULL;
+			s32 mine = 0;
+
+			// built here if it has not been drawn yet: the player's own body
+			// is not drawn at all in first person
+			if (frompack) {
+				mine = 1;
+			} else if (e->matched && !e->suppress) {
+				mine = 1;
+
+				if (xblaMeshEntryLive(e) && opened > 0) {
+					m = xblaMeshBuild(e->slot);
+				}
+			} else if (!e->matched && e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART) {
+				mine = 1;
+
+				if (gebeanGetEnabled() && (optEnabled || gebeanRowIsPool(e->beanrow))) {
+					m = xblaMeshBuildBean(e, !optEnabled);
+				}
+			}
+
+			if (mine) {
+				return m && m->state > 0 && m->anatexbone ? m : NULL;
+			}
+		}
+
+		if (node->child) {
+			node = node->child;
+			continue;
+		}
+
+		while (node) {
+			if (node->next) {
+				node = node->next;
+				break;
+			}
+
+			node = node->parent;
+		}
+	}
+
+	return NULL;
 }
 
 s32 xblaMeshGetEnabled(void)

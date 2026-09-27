@@ -10,6 +10,7 @@
 #include "game/modrun.h"
 #include "game/modghost.h"
 #include "ghostnet.h"
+#include "handtint.h"
 #include "crashreport.h"
 #include "update.h"
 #include "patchnotes.h"
@@ -455,6 +456,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 
 	// Who the Carrington Institute is walked as, stored the same way.
 	configRegisterInt("Mod.InstituteCharacter", &g_ModCiBody, 0, MAX_MPBODIES);
+	configRegisterInt("Mod.HandsMatchBody", &g_HandTintMode, 0, 2);
 	configRegisterInt("Mod.InstituteCharacterHead", &g_ModCiHead, 0, 255);
 	configRegisterInt("Mod.CharacterMissionDefault", &g_ModCiMissionDefault, 0, 1);
 

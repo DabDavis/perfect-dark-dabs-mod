@@ -3,6 +3,7 @@
 #include "game/modrules.h"
 #ifndef PLATFORM_N64
 #include "gexfront.h"
+#include "headfit.h"
 #include "geintro.h"
 #include "gewatch.h"
 #include "trace.h"
@@ -2147,6 +2148,27 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					haszoom = true;
 					zoomy = menumodel->zoom / ((bbox->ymax - bbox->ymin) * 0.5f);
 				}
+#ifndef PLATFORM_N64
+				else {
+					// A model with no bounding box: GoldenEye's heads as the
+					// ROM conversion writes them (Joe 2, Graham, Biker,
+					// Balaclava). Without a zoom the head was drawn at the
+					// scale the character page draws a whole body, and filled
+					// Customize Character past its edges (F3 20260926-203721).
+					// Framed by its measured height instead, about the axis
+					// a head is modelled on, over every list it has (Joe 2's
+					// and Graham's are all under toggles).
+					struct headfithead extent;
+
+					if (headfitMeasureHeadWhole(menumodel->bodymodeldef, &extent) && extent.top > extent.bottom) {
+						zoompos.x = 0.0f;
+						zoompos.y = -(extent.top - (extent.top - extent.bottom) * 0.5f);
+						zoompos.z = 0.0f;
+						haszoom = true;
+						zoomy = menumodel->zoom / ((extent.top - extent.bottom) * 0.5f);
+					}
+				}
+#endif
 			}
 		}
 

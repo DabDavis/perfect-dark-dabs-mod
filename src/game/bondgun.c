@@ -66,6 +66,7 @@
 #ifndef PLATFORM_N64
 #include "game/stagetable.h"
 #include "video.h"
+#include "handtint.h"
 #include "platform.h"
 #include "gehud.h"
 #include "system.h"
@@ -4344,6 +4345,17 @@ void bgunTickGunLoad(void)
 		osSyncPrintf("BriGun:  Texture Block at 0x%08x size %d, endp 0x%08x\n");
 
 		texInitPool(&player->gunctrl.texpool, (u8 *)end, remaining);
+
+#ifndef PLATFORM_N64
+		// The renderer keeps each texture by its address, and this pool
+		// hands the next file's textures the same addresses the last one's
+		// had. A gun's rarely came out the same size and format at the same
+		// place, but a hand's sleeve does: every hand file lays its textures
+		// out alike, so a change of character kept the first hands' sleeve
+		// in the N64 look (Mr Blonde's white cuff drawn in the CIA's tan,
+		// F3 20260926-204323). What was cached for the pool is let go.
+		videoFreeCachedTextures((u8 *)end, (u8 *)end + remaining);
+#endif
 
 		// Tidy up the model
 		modelPromoteTypeToPointer(modeldef);
@@ -12657,6 +12669,10 @@ void bgunRender(Gfx **gdlptr)
 #endif
 
 			// Render the hand
+#ifndef PLATFORM_N64
+			// painted in the character's own colours (handtint.c)
+			handtintTick();
+#endif
 			if (player->gunctrl.handmodeldef && renderhand
 #ifndef PLATFORM_N64
 					&& !geshown

@@ -187,6 +187,7 @@ s32 videoCaptureIsFlipped(s32 fmt);
 void videoResetTextureCache(void);
 void videoResetTextureIds(void);
 void videoFreeCachedTexture(const void *texptr);
+void videoEvictCachedTexture(const void *texptr);
 void videoFreeCachedTextures(const void *start, const void *end);
 
 void videoRestoreDesktop(void);

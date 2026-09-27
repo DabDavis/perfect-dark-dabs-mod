@@ -1085,6 +1085,13 @@ void videoFreeCachedTexture(const void *texptr)
 	texpackForgetTexture(texptr);
 }
 
+// The renderer's copy alone, the texture keeping its number: for a picture
+// that is to be uploaded again the same, repainted (handtint.c)
+void videoEvictCachedTexture(const void *texptr)
+{
+	gfx_texture_cache_delete(texptr);
+}
+
 void videoFreeCachedTextures(const void *start, const void *end)
 {
 	gfx_texture_cache_delete_range(start, end);
