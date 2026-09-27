@@ -92,6 +92,10 @@ static s32 mouseLocked = 0;
 static s32 mouseLockMode = MLOCK_AUTO;
 static u64 mouseCursorTime = 0;
 static s32 mouseShowCursor = 1;
+// frames left of a screen's request to hide the pointer (inputMouseHideCursorThisFrame())
+static s32 mouseHideFrames = 0;
+// what SDL was last told
+static s32 mouseCursorShown = 1;
 
 static f32 mouseSensX = 2.5f;
 static f32 mouseSensY = 2.5f;
@@ -1102,6 +1106,16 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 	return 0;
 }
 
+static void inputMouseApplyCursor(void)
+{
+	const s32 shown = mouseShowCursor && mouseHideFrames == 0;
+
+	if (shown != mouseCursorShown) {
+		mouseCursorShown = shown;
+		SDL_ShowCursor(shown);
+	}
+}
+
 static inline void inputUpdateMouse(void)
 {
 	s32 mx, my;
@@ -1151,6 +1165,12 @@ void inputUpdate(void)
 	if (mouseEnabled) {
 		inputUpdateMouse();
 	}
+
+	if (mouseHideFrames > 0) {
+		mouseHideFrames--;
+	}
+
+	inputMouseApplyCursor();
 
 	memcpy(vkLastFrameState, vkFrameState, sizeof(vkFrameState));
 
@@ -1583,10 +1603,18 @@ s32 inputAutoLockMouse(s32 wantlock)
 void inputMouseShowCursor(s32 show)
 {
 	mouseShowCursor = !!show;
-	SDL_ShowCursor(mouseShowCursor);
+	mouseCursorShown = mouseShowCursor && mouseHideFrames == 0;
+	SDL_ShowCursor(mouseCursorShown);
 	if (show) {
 		mouseCursorTime = sysGetMicroseconds() + CURSOR_HIDE_TIME;
 	}
+}
+
+void inputMouseHideCursorThisFrame(void)
+{
+	// two, as a frame's inputUpdate() may come before or after the asking
+	mouseHideFrames = 2;
+	inputMouseApplyCursor();
 }
 
 s32 inputGetMouseLockMode(void)

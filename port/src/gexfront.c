@@ -409,6 +409,7 @@ static struct {
 	s32 mousex;
 	s32 mousey;
 	s32 mouseseen;
+	s32 mousedriving;   // the mouse moved the cursor last, not the stick
 	s32 highlight;      // the row (or mode) under the cursor, -1 for none
 	s32 tabprev;
 	s32 tabstart;
@@ -1849,6 +1850,23 @@ static void frontClose(void)
 
 /* ---- input -------------------------------------------------------------- */
 
+/**
+ * The cursor on the mouse pointer, in the 4:3 frame the folder is drawn in.
+ * frontX() read backwards: the pointer is in this frame's 320x220 and
+ * G_ASPECT_CENTER_EXT holds what is drawn at SCREEN_ASPECT.
+ */
+static void frontCursorToMouse(s32 mx, s32 my)
+{
+	g_Front.cursorx = GEFRONT_W / 2
+		+ ((f32)mx - SCREEN_WIDTH_LO / 2) * videoGetAspect() * GEFRONT_H / SCREEN_WIDTH_LO;
+	g_Front.cursory = (f32)my * GEFRONT_H / SCREEN_HEIGHT_LO;
+
+	if (g_Front.cursorx > GEFRONT_W - 20) g_Front.cursorx = GEFRONT_W - 20;
+	if (g_Front.cursorx < 20) g_Front.cursorx = 20;
+	if (g_Front.cursory > GEFRONT_H - 20) g_Front.cursory = GEFRONT_H - 20;
+	if (g_Front.cursory < 20) g_Front.cursory = 20;
+}
+
 static void frontMoveCursor(void)
 {
 	// frontUpdateControlStickPosition(): a 5 dead zone, 70 at most
@@ -1882,11 +1900,16 @@ static void frontMoveCursor(void)
 		inputMouseGetPosition(&mx, &my);
 
 		if (g_Front.mouseseen && (mx != g_Front.mousex || my != g_Front.mousey)) {
-			// frontX() read backwards: the pointer is in this frame's 320x220
-			// and G_ASPECT_CENTER_EXT holds what is drawn at SCREEN_ASPECT
-			g_Front.cursorx = GEFRONT_W / 2
-				+ ((f32)mx - SCREEN_WIDTH_LO / 2) * videoGetAspect() * GEFRONT_H / SCREEN_WIDTH_LO;
-			g_Front.cursory = (f32)my * GEFRONT_H / SCREEN_HEIGHT_LO;
+			g_Front.mousedriving = 1;
+		}
+
+		// the stick takes the cursor back from the mouse
+		if (stickx || sticky) {
+			g_Front.mousedriving = 0;
+		}
+
+		if (g_Front.mousedriving) {
+			frontCursorToMouse(mx, my);
 		}
 
 		g_Front.mousex = mx;
@@ -2848,14 +2871,35 @@ static void frontSetCursorForMode(s32 mode)
 	g_Front.cursory = mode * 0x20 + 0xe2;
 }
 
+static void frontTickScreen(void);
+
 void gexFrontTick(void)
 {
-	s32 pick;
-	s32 back;
-
 	if (!g_Front.active) {
 		return;
 	}
+
+	// the crosshair is the pointer here; the system's own over it is a
+	// second one (F3 20260926-215427)
+	if (inputMouseIsEnabled()) {
+		inputMouseHideCursorThisFrame();
+	}
+
+	frontTickScreen();
+
+	// A page GoldenEye opens puts the cursor on its first choice (the
+	// difficulty's 007, the briefing's NEXT tab), which is the stick's way.
+	// A mouse's cursor stays under the pointer, where the player left it
+	// (F3 20260926-215623, 215803).
+	if (g_Front.active && g_Front.mousedriving && inputMouseIsEnabled() && !inputMouseIsLocked()) {
+		frontCursorToMouse(g_Front.mousex, g_Front.mousey);
+	}
+}
+
+static void frontTickScreen(void)
+{
+	s32 pick;
+	s32 back;
 
 	frontMoveCursor();
 
@@ -3025,6 +3069,7 @@ s32 gexFrontOpen(void)
 	g_FrontInside = 1;
 	g_Front.screen = SCREEN_MODE;
 	g_Front.mouseseen = 0;
+	g_Front.mousedriving = 0;
 
 	if (frontMusic() >= 0) {
 		musicStartTrackAsMenu(frontMusic());
@@ -3878,8 +3923,11 @@ static Gfx *frontDrawCursor(Gfx *gdl)
 	const s32 prevsrc = modSetTextureSourceMod(g_Front.moddir);
 	struct textureconfig release;
 
-	// the release's own crosshair (texture/sight), the same 32 texels square
-	if (frontReleasePicture("sight", &release)) {
+	// the release's own crosshair, the same 32 texels square: the HUD's
+	// 256x256 one (texture/bg/sight, turned the right way up by gefolder.c),
+	// as the in-game sight is drawn; the release's menu one (texture/sight) is
+	// 32x32 and a 4K window blew it up to blocks (F3 20260926-215235)
+	if (frontReleasePicture("bg/sight", &release) || frontReleasePicture("sight", &release)) {
 		texSelect(&gdl, &release, 4, 0, 2, 1, NULL);
 		gDPSetTextureFilter(gdl++, G_TF_BILERP);
 	} else {
