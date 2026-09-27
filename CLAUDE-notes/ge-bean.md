@@ -2735,7 +2735,18 @@ the boot's Dam load for `LEVELID_RUNWAY`, script /tmp/jaudio/run.py on
 10.8.0.3; the header is left unfinished by the kill - read it as stereo s16 at
 22050 from byte 44): share of the mix in 40-130 Hz, median over loud frames,
 oracle 0.47, before 0.15, after 0.63; flatness 0.018 / 0.026 / 0.014; bass
-notes E2 (half), B1, D2 in both, harmonic profile within a few dB. Nothing stock is affected: every wave in Perfect Dark's own banks is
+notes E2 (half), B1, D2 in both, harmonic profile within a few dB.
+
+**Caveat on that oracle:** swapping the attract demo's stage does not change its
+music - `musicTrack1Play` is never called after the swap, and the Runway and
+Surface runs give the same song note for note - and the demo's inputs replay
+(gunfire, the intro cinema's sounds). So the oracle's "share of the mix" is not
+a like-for-like number, and 0.63 against 0.47 is not a level fault. What does
+compare: the bass band's own level over steady stretches, oracle 3034 against
+ours 2880 median (-0.4 dB). Nothing in either path scales raw against ADPCM -
+both hand the resampler plain s16 and every voice shares the envelope mixer.
+Surface I (0x69, track 57) is unchanged by the fix (no instrument 51 in its
+first 30 s). Nothing stock is affected: every wave in Perfect Dark's own banks is
 ADPCM, so the guard never fires for them.
 
 **Every test until then ran `--no-sound`**, which is why this reached a
