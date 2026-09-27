@@ -8982,7 +8982,10 @@ static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
  * vertex store taking a corpse's copies back - so they last exactly as long as
  * the game's own bruises do.
  */
-#define XBLAMESH_WOUND_RADIUS 100.0f
+// 100 spread one hit over most of a back, and it read as landing somewhere
+// other than the shot (F3 report 20260927-010513); 60 still reads as a wound
+// rather than a dot after three hits (2026-09-27)
+#define XBLAMESH_WOUND_RADIUS 60.0f
 // A grafted head's: a head is about a third the size of a torso, and at the
 // body's radius one hit reddened most of the face (2026-09-26)
 #define XBLAMESH_WOUND_RADIUS_HEAD 40.0f
