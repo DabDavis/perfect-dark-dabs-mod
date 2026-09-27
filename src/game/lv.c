@@ -108,6 +108,7 @@
 #include "gexplus.h"
 #include "gemusic.h"
 #include "gecinema.h"
+#include "gexfront.h"
 #include "gegadgets.h"
 #include "modloader.h"
 #endif
@@ -1986,6 +1987,18 @@ Gfx *lvRender(Gfx *gdl)
 	gDPSetScissor(gdl++, G_SC_NON_INTERLACE, 0, 0, viGetWidth(), viGetHeight());
 
 #ifndef PLATFORM_N64
+	// On the way back to GE Plus's folder (a mission or cinema it started,
+	// over): the Institute is only the stage the folder opens on, and its
+	// first frames were drawn before menuTick() blacked the screen - the
+	// stage change's own vi reconfigure unblacks it (F3 20260926-223215).
+	if (g_Vars.stagenum == STAGE_CITRAINING && var80087260 > 0 && !gexFrontIsActive()
+			&& (gexFrontWantsMain() || gecinemaWantsFolder())) {
+		gdl = text0f153628(gdl);
+		gdl = textSetPrimColour(gdl, 0x000000ff);
+		gDPFillRectangle(gdl++, 0, 0, viGetWidth(), viGetHeight());
+		gdl = text0f153838(gdl);
+	}
+
 	if (videoGetDisplayFPS()) {
 		gdl = lvRenderFPS(gdl);
 	}
