@@ -3639,6 +3639,7 @@ static Gfx *watchDrawModel(Gfx *gdl)
 #define GUN_RWDATA_MAX 1024
 
 // GoldenEye's ITEM_IDS the watch draws another item's model for
+#define GEITEM_DD44                6
 #define GEITEM_WATCHLASER          23
 #define GEITEM_TRIGGER             30
 #define GEITEM_WATCHMAGNETATTRACT  60
@@ -4093,6 +4094,17 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	// 1)) - which are the whole of the throwing knife
 	for (s32 part = 8; part <= 13; part++) {
 		watchGunSetPart(part, 0);
+	}
+
+	// Except the DD44's part 11, which is not a hand but the bore at the end
+	// of its slide. GoldenEye hides it here too and never shows the hole,
+	// drawing the gun with no z buffer so the slide's front paints over it;
+	// with one here the muzzle was cut off flat (F3 20260926-202154). The
+	// user asked for the whole barrel. The only such part: every other gun
+	// with a toggle among 8 to 13 (the PP7s, the Cougar, the Golden Gun, the
+	// knife) has the hand there and nothing else.
+	if (item == GEITEM_DD44) {
+		watchGunSetPart(11, 1);
 	}
 
 	watchGunSetPart(35, 0);
