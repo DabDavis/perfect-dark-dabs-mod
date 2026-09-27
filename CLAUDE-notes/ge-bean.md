@@ -11803,7 +11803,16 @@ types, flag tokens) - each is a changelog line already classed above.
 - Probes: ~/wt/f3-0927-guns-run (cg.py = equip/fire/log/screenshot per frame,
   gb.py = GE Plus intro frames, wcap.sh = watch inventory sweep);
   oracle ~/dam-oracle/gecougar.py + cougar.padscript on 10.8.0.3.
-- Open: HD throwing knife floats above the hand (release fit, not the N64 look);
-  HD watch inventory shows GoldenEye's N64 gun models (an attempt drawing the
-  release model misplaced long guns and blanked the mines - needs per-gun
-  centring); guards' gun-hit flinch not looked at; double bullet holes not looked at.
+- **HD throwing knife** (2e22bf209, F3 011210): the release mesh is knife + hand
+  in one; fitted to the host knife's box the hand was pushed off-screen. Now
+  FP_OWNPLACE at 1/4.7 with axis {2,-1,3}; hand grips the blade as N64.
+- **Guard's gun shot** (85cdc25e1, F3 003621): GoldenEye runs the whole hit for
+  HIT_GUN at zero damage (argh sound + flinch_gun); PD skipped the branch at zero
+  damage. Converted levels, solo, non-bot: chrChoke + chrReactToDamage, damage 0.
+  Probe gh.py calls chrDamage(..., 100, ...) directly (chrDamageByImpact rewrites
+  hitpart through the shield test).
+- Bullet holes (003252): not changed. Every hole is one of PD's 18 wallhit
+  textures (textureconfig.c), all under XBLAIMPORT_NUM_REPLACED, so in the HD
+  look all come from the release; GoldenEye's own impact textures are not used.
+  Needs the tester's close-up to say which two looks they saw.
+- Open: HD watch inventory shows GoldenEye's N64 gun models (042924, with the user).
