@@ -410,6 +410,8 @@ struct xblameshbuilt {
 	f32 neckbackofs[3]; // and the head's joint from it at rest
 	s32 beanrow;       // the row it was built from, for the hood's test (gebeanRowKeepsHood())
 	u32 packgen;       // modelpackGetGeneration() when it was built
+	u8 beanscreenfit;  // a monitor's screens moved onto Bean's own (gebeanmats.screenfit)
+	f32 beanscreenquad[4][4][3]; // and where to (gebeanmats.screenquad)
 };
 
 // The pictures a build's materials draw with, when they are not records.
@@ -6352,6 +6354,8 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	m->beanhead = bmats->head;
 	m->beanneckback = bmats->neckback;
 	m->beanrow = e->beanrow;
+	m->beanscreenfit = bmats->screenfit;
+	memcpy(m->beanscreenquad, bmats->screenquad, sizeof(m->beanscreenquad));
 
 	// The tinted panes, by their picture
 	for (s32 i = 0; i < mats.num; i++) {
@@ -9087,6 +9091,87 @@ static s32 xblaMeshNodeIsLiveScreen(struct model *model, struct modelnode *node)
 	}
 
 	return 0;
+}
+
+/**
+ * Moves the corners of a monitor's screen tvscreenRender() is writing onto
+ * the screen of the model it will be drawn as, when that is Bean's HD model
+ * and its screen is not where GoldenEye's quad is (gebean.c's
+ * beanScreenFit()): Facility's wall console, Silo's banks of four. The
+ * texture coordinates are the programme's and stay; only x, y and z move.
+ * Nothing changes for a model drawn as GoldenEye's own.
+ */
+void xblaMeshScreenQuad(struct model *model, struct modelnode *node, Vtx *vertices)
+{
+	struct xblameshentry *e;
+	const struct xblameshbuilt *m;
+	s32 part = -1;
+
+	if (!model || !model->definition || !node || !g_XblaMeshNumNodes || bypass) {
+		return;
+	}
+
+	for (s32 p = MODELPART_0000; p <= MODELPART_0003; p++) {
+		if (modelGetPart(model->definition, p) == node) {
+			part = p;
+			break;
+		}
+	}
+
+	if (part < 0) {
+		return;
+	}
+
+	// The screen's own node when the mesh has a group for it, else any list
+	// of the model's: Facility's wall console has none for its screen, and
+	// the game draws the programme on its own node beside the mesh
+	e = xblaMeshSlotFor(node);
+
+	if (!e || e->node != node || e->modeldef != model->definition) {
+		struct modelnode *walk = model->definition->rootnode;
+
+		e = NULL;
+
+		for (s32 walked = 0; walk && walked < 512 && !e; walked++) {
+			struct xblameshentry *we = xblaMeshSlotFor(walk);
+
+			if (we && we->node == walk && we->modeldef == model->definition && we->beanrow >= 0
+					&& we->packpart != XBLAMESH_NOPART) {
+				e = we;
+			}
+
+			if (walk->child) {
+				walk = walk->child;
+			} else {
+				while (walk && !walk->next) {
+					walk = walk->parent;
+				}
+
+				walk = walk ? walk->next : NULL;
+			}
+		}
+	}
+
+	// the test xblaMeshRenderNode() draws Bean's model by
+	if (!e || e->suppress
+			|| e->beanrow < 0 || e->packpart == XBLAMESH_NOPART
+			|| (e->fileid && modelpackFindN64(e->fileid))
+			|| (e->matched && xblaMeshEntryLive(e) && opened > 0)
+			|| !gebeanGetEnabled() || !(optEnabled || gebeanRowIsPool(e->beanrow))) {
+		return;
+	}
+
+	m = xblaMeshBuildBean(e, !optEnabled);
+
+	if (!m || !(m->beanscreenfit & (1 << part))) {
+		return;
+	}
+
+	for (s32 c = 0; c < 4; c++) {
+		vertices[c].x = (s16)floorf(m->beanscreenquad[part][c][0] + 0.5f);
+		vertices[c].y = (s16)floorf(m->beanscreenquad[part][c][1] + 0.5f);
+		vertices[c].z = (s16)floorf(m->beanscreenquad[part][c][2] + 0.5f);
+	}
 }
 
 void xblaMeshSetEnvironment(s32 force)

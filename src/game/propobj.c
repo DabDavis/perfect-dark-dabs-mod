@@ -13788,6 +13788,11 @@ Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen
 		vertices[2] = rodata->dl.vertices[2];
 		vertices[3] = rodata->dl.vertices[3];
 
+#ifndef PLATFORM_N64
+		// where Bean's HD model has its screen, when that is what is drawn
+		xblaMeshScreenQuad(model, node, vertices);
+#endif
+
 		if ((u32)screen->tconfig < 100) {
 			tconfig = &g_TexScreenConfigs[(s32)screen->tconfig];
 #ifndef PLATFORM_N64

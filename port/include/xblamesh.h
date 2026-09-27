@@ -205,6 +205,14 @@ void xblaMeshSetOrthogonal(s32 on);
 void xblaMeshSetScreens(struct model *model);
 
 /**
+ * tvscreenRender()'s corners for a monitor's screen node, moved onto the
+ * screen of Bean's HD model when that is what the model is drawn as and its
+ * screen is not GoldenEye's quad (gebean.c's beanScreenFit()); left alone
+ * otherwise.
+ */
+void xblaMeshScreenQuad(struct model *model, struct modelnode *node, Vtx *vertices);
+
+/**
  * Mod.XblaReflections, "Enable Reflections": the release's reflections on its
  * meshes. Each material whose byte 16 is not zero is blended that percentage
  * of the way towards environment map byte 24, looked up by the eye's ray

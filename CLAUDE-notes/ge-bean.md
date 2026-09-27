@@ -11642,3 +11642,38 @@ levels) restores the go/patrol animation as the magic move starts; the whole
 squad is in the bottling room by ~f1800 (probe `probes/alec.py`, alarm list
 forced at f300 with offset 452). Trevelyan can still die in the fight if
 Bond stands by (both builds, ~f3000) - not looked into.
+
+## Programmes on Bean's own screens (2026-09-26)
+
+F3 20260926-210911 and -220636 (Facility, HD: "scrolling screen texture
+overlaps screen and flickers when close") and -224740 (Silo, HD: "monitor
+screens ... overlapping the frame"). The programme is drawn on GoldenEye's
+screen quad (tvscreenRender(), since c5ed72971), and the HD cases are not
+GoldenEye's shape: consolesev2b's screen is a pane of its own 594x377 where
+GoldenEye's quad is 535x423 and 20 lower; Silo's console1-3 are one flat
+quad each with the screen painted on the picture. The programme ran over
+the bezel and, on the pane's plane, fought it for the depth test.
+
+`beanScreenFit()` (gebean.c) finds Bean's screen for each quad-only screen
+of a rigid basic-skeleton prop with no placeholder and no recess on the
+quad's corners: the flat (1% of size) triangle over the quad's middle and
+the flat triangles joined to it by shared vertices; if that is the whole
+front, the seed triangle alone; if that is too, `beanScreenFitPicture()`
+floods the dark patch of the picture from the texel under the middle
+(limit: its shade + 16 - Silo's bezel flecks reach 44 against a screen of
+29, and +48 leaked round the picture) and maps it back through the
+triangle's UVs. Accepted at 0.5-1.5x the quad's area, middle within 10% of
+size. The corners go to `gebeanmats.screenquad` (kept past the rigid
+builder's `memset(mats)`), and `xblaMeshScreenQuad()` moves
+tvscreenRender()'s corners onto them, 1% of size in front, whenever the
+model is drawn as Bean's (the screen node often has no mesh entry of its
+own - consolesev2b's has none - so any list of the model's settles it).
+The log says `screen N: Bean's pane ... programme fitted` or `left alone`.
+Fitted across the missions: consolesev2b, consolesevb, console1-3, tv1;
+the bridge consoles (placeholders) are left alone. The N64 look is
+untouched. Checked with `look.py` over every mission, base vs fix. The
+EXTRA page's large view sizes itself from the same corners
+(`frontDrawMonitorView()` asks `xblaMeshScreenQuad()` too), so a fitted set
+still fills the tube; the page of sets and the large view are unchanged in
+the HD look.
+

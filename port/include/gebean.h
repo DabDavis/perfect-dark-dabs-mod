@@ -405,6 +405,12 @@ struct gebeanmats {
 	// (the back), not a second matrix of its own: xblaMeshPose() finds it on
 	// the body the head is grafted to
 	u8 neckback;
+	// A monitor's screens (parts 0 to 3) whose programme goes on Bean's own
+	// pane rather than GoldenEye's quad (gebean.c's beanScreenFit()): a bit
+	// per part, and the four corners in the model's space, in the order of
+	// the part's own vertices (xblaMeshScreenQuad())
+	u8 screenfit;
+	f32 screenquad[4][4][3];
 };
 
 /**
