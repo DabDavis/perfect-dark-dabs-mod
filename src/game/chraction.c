@@ -5670,7 +5670,21 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			// Handle applying damage to NPCs
 			// Don't enter this branch if there is no damage to give,
 			// or we are making a chr dizzy in solo mode (unless force is set)
-			if (damage > 0 && (g_Vars.normmplayerisrunning || !makedizzy || forceapplydamage)) {
+			bool gunhit = false;
+
+#ifndef PLATFORM_N64
+			// A shot to a guard's gun hurts no one in GoldenEye either, but it
+			// still takes the guard through the whole of a hit: the yelp and
+			// the gun hand's flinch (chrlvDamage, flinch_gun), where Perfect
+			// Dark's zero damage skipped the lot and the guard stood unmoved
+			// (F3 20260927-003621). A converted level's guards only.
+			if (damage <= 0 && hitpart == HITPART_GUN && !g_Vars.normmplayerisrunning
+					&& chr->aibot == NULL && modloaderStageIsRemake(g_Vars.stagenum)) {
+				gunhit = true;
+			}
+#endif
+
+			if ((damage > 0 || gunhit) && (g_Vars.normmplayerisrunning || !makedizzy || forceapplydamage)) {
 				f32 amount = damage;
 
 				if (chr->damage + damage > chr->maxdamage) {
