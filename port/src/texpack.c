@@ -23,6 +23,7 @@
 #include "constants.h"
 #include "game/tex.h"
 #include "game/texdecompress.h"
+#include "game/hudmsg.h"
 #include "platform.h"
 #include "config.h"
 #include "archive.h"
@@ -4483,6 +4484,16 @@ static void texpackCycleSelected(void)
 
 	sysLogPrintf(LOG_NOTE, "texpack: now using %s",
 			next < 0 ? "no pack" : texpackGetPackName(next));
+
+	// Said on screen too: a pack that changes little is otherwise a guess
+	// (F3 20260926-232924). A HUD message needs a player to show it to, so
+	// on the title and in the front menus the log line is all there is.
+	if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
+		char text[128];
+
+		snprintf(text, sizeof(text), "Texture Pack: %s\n", next < 0 ? "None" : texpackGetPackName(next));
+		hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
+	}
 }
 
 void texpackTick(void)

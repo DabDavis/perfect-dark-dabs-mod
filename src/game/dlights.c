@@ -18,6 +18,7 @@
 #include "game/propobj.h"
 #include "game/utils.h"
 #include "game/wallhit.h"
+#include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "gelights.h"
 #include "modloader.h"
@@ -1522,6 +1523,10 @@ void func0f004384(void)
 void roomFlashLighting(s32 roomnum, s32 start, s32 limit)
 {
 #ifndef PLATFORM_N64
+	if (start > 0 && !modIsFlashLightingOn()) {
+		return;
+	}
+
 	// The neighbour lists above are built for rooms 1 to roomcount - 1, so
 	// room 0 and anything past the end have none, and the walk below starts
 	// from whatever the allocation happened to hold. Stock could only be

@@ -351,6 +351,13 @@
 #define MODLIVES_STEP      5
 #define MODLIVES_MAX       50
 
+// Flash Lighting: a muzzle flash, explosion or spark brightens the rooms round
+// it (roomFlashLighting()). GoldenEye's levels are few, large polygons lit per
+// vertex, where the flash reads as whole walls blinking.
+#define MODFLASHLIGHT_OFF    0
+#define MODFLASHLIGHT_ON     1 // stock
+#define MODFLASHLIGHT_NOTGE  2 // on, except on GoldenEye's remade levels
+
 struct modoptions {
 	s32 jumpheight;  // 0 for off, else the height multiplier, up to JUMPHEIGHT_MAX
 	s32 jumpwho;     // MODWHO_*: whether simulants jump too
@@ -408,6 +415,7 @@ struct modoptions {
 	s32 nofog;       // Disable Fog: no level is fogged, and each is drawn out to its far side
 	s32 glassseethrough; // percent of a distant window's see-through kept: 0 is stock's fade to opaque
 	s32 decalclip;   // Clip Decals at Edges: a wall hit is cut to the surface it lies on, none of it over a drop
+	s32 flashlighting; // MODFLASHLIGHT_*: whether gunfire, explosions and sparks light up the rooms round them
 };
 
 extern struct modoptions g_ModOptions;
@@ -450,6 +458,7 @@ bool modIsXblaReflectCutoffOn(void);
 bool modIsGlareClipOn(void);
 s32 modGetGlassSeeThrough(void);
 bool modIsDecalClipOn(void);
+bool modIsFlashLightingOn(void);
 s32 modGetSmoothTextScale(void);
 s32 modGetTextureEnhanceScale(void);
 f32 modGetVividSaturation(void);

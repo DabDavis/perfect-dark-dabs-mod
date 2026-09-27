@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stddef.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
 #include "data.h"
@@ -45,6 +46,9 @@
 #include "menuimage.h"
 #include "xblastage.h"
 #include "roomsheen.h"
+#include "modenhance.h"
+#include "optionsmenu.h"
+#include "game/hudmsg.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -1258,6 +1262,33 @@ static MenuItemHandlerResult menuhandlerGlareClip(s32 operation, struct menuitem
 	return 0;
 }
 
+/**
+ * Flash Lighting: whether gunfire, explosions and sparks light up the rooms
+ * round them (roomFlashLighting()). Stock is On; GoldenEye's levels are lit
+ * per vertex on few, large polygons, where a flash reads as a wall blinking
+ * (F3 20260927-040023). Live.
+ */
+static MenuItemHandlerResult menuhandlerFlashLighting(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Off", "On", "Not on GoldenEye Levels" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.flashlighting = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_ModOptions.flashlighting;
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerOverexposureScale(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -1489,6 +1520,14 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"GE64-style Muzzle Flashes",
 		0,
 		menuhandlerGeMuzzleFlashes,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Flash Lighting",
+		0,
+		menuhandlerFlashLighting,
 	},
 	{
 		MENUITEMTYPE_SLIDER,
@@ -2308,6 +2347,17 @@ static MenuItemHandlerResult menuhandlerOpenBindsMenu(s32 operation, struct menu
 }
 
 /**
+ * When a Mods: Camera slider last moved, for fading the dialog off the
+ * player while the camera is being set (optionsMenuDialogAlpha()).
+ */
+static u64 g_OptionsCamAdjustedUs = 0;
+
+static void optionsMenuCameraAdjusted(void)
+{
+	g_OptionsCamAdjustedUs = sysGetMicroseconds();
+}
+
+/**
  * Settings Preset: the fork's additions turned on or off as a set.
  *
  * Vanilla is stock Perfect Dark with the fixes on, but with the ROM's own text
@@ -2469,6 +2519,214 @@ static MenuItemHandlerResult menuhandlerModPreset(s32 operation, struct menuitem
 				break;
 			}
 		}
+	}
+
+	return 0;
+}
+
+/**
+ * Enhancements On/Off: every addition off at once, and back as the player had
+ * it (F3 20260926-232841, for looking at the original next to the fork).
+ *
+ * Off takes a note of what a preset covers and the ways of playing every
+ * preset turns off, then puts on Vanilla. Like the presets it leaves the
+ * release's assets (the XBLA switch) and the texture packs as the player has
+ * them (user, 2026-09-27). The note is kept
+ * in pd.ini (Mod.EnhancementsSaved), so a restart while off still comes back
+ * to it; On puts every noted setting back and forgets the note. An empty note
+ * is On. A setting changed while off is lost when the note comes back, which
+ * is the point of the note: the switch is a comparison, not a new preset.
+ */
+char g_ModEnhancementsSaved[MODENHANCE_SAVED_LEN] = "";
+char g_ModEnhancementsKeyName[32] = "";
+static s32 g_ModEnhancementsKeyVk = -1;
+
+#define MODENHANCE_SAVED_VERSION 2
+
+// The preset's own fields (every s32 after its name), then these, in this order.
+enum {
+	MODENHANCE_EXTRA_SPAWNWEAPON,
+	MODENHANCE_EXTRA_GUARDSALERTED,
+	MODENHANCE_EXTRA_AKIMBO,
+	MODENHANCE_EXTRA_MISSIONRESPAWN,
+	MODENHANCE_EXTRA_COUNT
+};
+
+#define MODENHANCE_PRESET_FIELDS ((sizeof(struct modpreset) - offsetof(struct modpreset, jumpheight)) / sizeof(s32))
+
+static void modEnhancementsCapture(struct modpreset *preset, s32 *extra)
+{
+	preset->name = NULL;
+	preset->jumpheight = g_ModOptions.jumpheight;
+	preset->roll = g_ModOptions.roll;
+	preset->melee = g_ModOptions.melee;
+	preset->flinch = g_ModOptions.flinch;
+	preset->cameratilt = g_ModOptions.cameratilt;
+	preset->tiltforward = g_ModOptions.tiltforward;
+	preset->gunsway = g_ModOptions.gunsway;
+	preset->bodies = g_ModOptions.bodies;
+	preset->bodytime = g_ModOptions.bodytime;
+	preset->bodiesdrawn = g_ModOptions.bodiesdrawn;
+	preset->codaiming = g_ModOptions.codaiming;
+	preset->explosionshake = g_ModOptions.explosionshake;
+	preset->tranqeffect = g_ModOptions.tranqeffect;
+	preset->cleantext = g_ModOptions.cleantext;
+	preset->smoothtext = g_ModOptions.smoothtext;
+	preset->enhancetextures = g_ModOptions.enhancetextures;
+	preset->vividcolours = g_ModOptions.vividcolours;
+	preset->blacklevel = g_ModOptions.blacklevel;
+	preset->ghostmode = g_ModGhostMode;
+	preset->ghostsplits = g_ModGhostSplits;
+	preset->xblareflectcutoff = g_ModOptions.xblareflectcutoff;
+	preset->glareclip = g_ModOptions.glareclip;
+	preset->quickweaponswap = g_ModOptions.quickweaponswap;
+	preset->nofog = g_ModOptions.nofog;
+	preset->glassseethrough = g_ModOptions.glassseethrough;
+	preset->decalclip = g_ModOptions.decalclip;
+
+	extra[MODENHANCE_EXTRA_SPAWNWEAPON] = g_ModOptions.spawnweapon;
+	extra[MODENHANCE_EXTRA_GUARDSALERTED] = g_ModOptions.guardsalerted;
+	extra[MODENHANCE_EXTRA_AKIMBO] = g_ModOptions.akimbo;
+	extra[MODENHANCE_EXTRA_MISSIONRESPAWN] = g_ModOptions.missionrespawn;
+}
+
+s32 modEnhancementsAreOn(void)
+{
+	return g_ModEnhancementsSaved[0] == '\0';
+}
+
+void modEnhancementsSetOn(s32 on)
+{
+	struct modpreset preset;
+	s32 extra[MODENHANCE_EXTRA_COUNT];
+	s32 *fields = &preset.jumpheight;
+	u32 i;
+
+	if (!on == !modEnhancementsAreOn()) {
+		return;
+	}
+
+	if (!on) {
+		char *out = g_ModEnhancementsSaved;
+		char *end = g_ModEnhancementsSaved + sizeof(g_ModEnhancementsSaved);
+
+		modEnhancementsCapture(&preset, extra);
+
+		out += snprintf(out, end - out, "%d", MODENHANCE_SAVED_VERSION);
+
+		for (i = 0; i < MODENHANCE_PRESET_FIELDS && out < end; i++) {
+			out += snprintf(out, end - out, ",%d", fields[i]);
+		}
+
+		for (i = 0; i < MODENHANCE_EXTRA_COUNT && out < end; i++) {
+			out += snprintf(out, end - out, ",%d", extra[i]);
+		}
+
+		menuhandlerModPresetApply(&g_ModPresets[1]); // Vanilla
+	} else {
+		const char *in = g_ModEnhancementsSaved;
+		char *next;
+		s32 values[MODENHANCE_PRESET_FIELDS + MODENHANCE_EXTRA_COUNT];
+		s32 count = 0;
+		s32 version = strtol(in, &next, 10);
+
+		while (next != in && *next == ',' && count < (s32)ARRAYCOUNT(values)) {
+			in = next + 1;
+			values[count] = strtol(in, &next, 10);
+
+			if (next != in) {
+				count++;
+			}
+		}
+
+		g_ModEnhancementsSaved[0] = '\0';
+
+		// A note this build cannot read (a different field count) is dropped
+		// rather than half applied: the settings stay Vanilla.
+		if (version != MODENHANCE_SAVED_VERSION || count != (s32)ARRAYCOUNT(values)) {
+			sysLogPrintf(LOG_WARNING, "enhancements: saved settings unreadable (version %d, %d values); left as they are", version, count);
+			return;
+		}
+
+		preset.name = NULL;
+
+		for (i = 0; i < MODENHANCE_PRESET_FIELDS; i++) {
+			fields[i] = values[i];
+		}
+
+		menuhandlerModPresetApply(&preset);
+
+		for (i = 0; i < MODENHANCE_EXTRA_COUNT; i++) {
+			extra[i] = values[MODENHANCE_PRESET_FIELDS + i];
+		}
+
+		g_ModOptions.spawnweapon = extra[MODENHANCE_EXTRA_SPAWNWEAPON];
+		g_ModOptions.guardsalerted = extra[MODENHANCE_EXTRA_GUARDSALERTED];
+		g_ModOptions.akimbo = extra[MODENHANCE_EXTRA_AKIMBO];
+		g_ModOptions.missionrespawn = extra[MODENHANCE_EXTRA_MISSIONRESPAWN];
+	}
+
+	sysLogPrintf(LOG_NOTE, "enhancements: %s", on ? "on (settings restored)" : "off (Vanilla)");
+	configSave(CONFIG_PATH);
+}
+
+s32 modEnhancementsGetKey(void)
+{
+	if (g_ModEnhancementsKeyVk < 0) {
+		g_ModEnhancementsKeyVk = 0;
+
+		if (g_ModEnhancementsKeyName[0] && strcmp(g_ModEnhancementsKeyName, "NONE") != 0) {
+			const s32 vk = inputGetKeyByName(g_ModEnhancementsKeyName);
+
+			if (vk > 0) {
+				g_ModEnhancementsKeyVk = vk;
+			}
+		}
+	}
+
+	return g_ModEnhancementsKeyVk;
+}
+
+void modEnhancementsSetKey(s32 vk)
+{
+	if (vk <= 0 || vk >= VK_TOTAL_COUNT) {
+		g_ModEnhancementsKeyName[0] = '\0';
+		g_ModEnhancementsKeyVk = 0;
+		return;
+	}
+
+	strncpy(g_ModEnhancementsKeyName, inputGetKeyName(vk), sizeof(g_ModEnhancementsKeyName) - 1);
+	g_ModEnhancementsKeyName[sizeof(g_ModEnhancementsKeyName) - 1] = '\0';
+	g_ModEnhancementsKeyVk = vk;
+}
+
+/**
+ * The key, unbound unless the player binds one (Mods: Display). Said on screen
+ * in a level, since nothing else tells a player which half they are looking at.
+ */
+void modEnhancementsTick(void)
+{
+	const s32 vk = modEnhancementsGetKey();
+
+	if (vk > 0 && inputKeyJustPressed(vk)) {
+		const s32 on = !modEnhancementsAreOn();
+
+		modEnhancementsSetOn(on);
+
+		if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
+			hudmsgCreateWithFlags(on ? "Enhancements On\n" : "Enhancements Off\n", HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
+		}
+	}
+}
+
+static MenuItemHandlerResult menuhandlerModEnhancements(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return modEnhancementsAreOn();
+	case MENUOP_SET:
+		modEnhancementsSetOn(data->checkbox.value);
+		break;
 	}
 
 	return 0;
@@ -3434,6 +3692,7 @@ static MenuItemHandlerResult menuhandlerModCamDist(s32 operation, struct menuite
 		data->slider.value = (s32)(g_ModOptions.camdist + 0.5f) - MODCAM_MINDIST;
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camdist = (f32)(data->slider.value + MODCAM_MINDIST);
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3451,6 +3710,7 @@ static MenuItemHandlerResult menuhandlerModCamClearance(s32 operation, struct me
 		data->slider.value = (s32)(g_ModOptions.camclearance + 0.5f);
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camclearance = (f32)data->slider.value;
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3468,6 +3728,7 @@ static MenuItemHandlerResult menuhandlerModCamMinDist(s32 operation, struct menu
 		data->slider.value = (s32)(g_ModOptions.cammindist + 0.5f);
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.cammindist = (f32)data->slider.value;
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3500,6 +3761,7 @@ static MenuItemHandlerResult menuhandlerModCamSide(s32 operation, struct menuite
 		data->slider.value = (side + MODCAM_MAXSIDE) / MODCAM_SIDESTEP;
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camside = (f32)((s32)data->slider.value * MODCAM_SIDESTEP - MODCAM_MAXSIDE);
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3541,6 +3803,7 @@ static MenuItemHandlerResult menuhandlerModCamFwd(s32 operation, struct menuitem
 		data->slider.value = (fwd + MODCAM_MAXFWD) / MODCAM_FWDSTEP;
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camfwd = (f32)((s32)data->slider.value * MODCAM_FWDSTEP - MODCAM_MAXFWD);
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3581,6 +3844,7 @@ static MenuItemHandlerResult menuhandlerModCamHeight(s32 operation, struct menui
 		data->slider.value = (height + MODCAM_MAXHEIGHT) / MODCAM_HEIGHTSTEP;
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camheight = (f32)((s32)data->slider.value * MODCAM_HEIGHTSTEP - MODCAM_MAXHEIGHT);
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -4151,6 +4415,7 @@ static const struct {
 	{ "Next Texture Pack\n",    texpackCycleGetKey,  texpackCycleSetKey  },
 	{ "XBLA Assets On/Off\n",   xblaSwitchGetKey,     xblaSwitchSetKey     },
 	{ "Report a Problem\n",     traceGetKey,          traceSetKey          },
+	{ "Enhancements On/Off\n",  modEnhancementsGetKey, modEnhancementsSetKey },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)
@@ -4221,6 +4486,14 @@ struct menuitem g_ExtendedDabsModPlayerMenuItems[] = {
 		(uintptr_t)"Settings Preset",
 		0,
 		menuhandlerModPreset,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enhancements",
+		0,
+		menuhandlerModEnhancements,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -4727,6 +5000,14 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		menuhandlerModKeyBind,
 	},
 	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		8,
+		menuhandlerModKeyBind,
+	},
+	{
 		MENUITEMTYPE_SEPARATOR,
 		0,
 		0,
@@ -5052,6 +5333,63 @@ struct menudialogdef g_ExtendedDabsModCameraMenuDialog = {
 	MENUDIALOGFLAG_LITERAL_TEXT,
 	&g_ExtendedDabsModDisplayMenuDialog,
 };
+
+/**
+ * Whether the menu wants the paused level drawn live behind it rather than a
+ * blurred still (menuTick()): Mods: Camera, over a single player's level, so
+ * the third person settings are seen as they change (F3 20260926-234214).
+ */
+s32 optionsMenuWantsLiveWorld(void)
+{
+	if (!STAGE_IS_LEVEL(g_Vars.stagenum) || PLAYERCOUNT() != 1 || g_MenuData.root != MENUROOT_MAINMENU) {
+		return false;
+	}
+
+	return g_Menus[0].curdialog && g_Menus[0].curdialog->definition == &g_ExtendedDabsModCameraMenuDialog;
+}
+
+/**
+ * How opaque the menu's dialogs are drawn, 0 to 1 (menuRenderDialogs()).
+ * With the level live behind Mods: Camera, a moving camera slider fades the
+ * dialog down so the body can be seen (user, 2026-09-27), and it comes back
+ * once the slider has been still for a moment. Eased both ways, per frame.
+ */
+#define OPTIONS_CAMFADE_HOLD_US 700000
+#define OPTIONS_CAMFADE_MIN     0.15f
+#define OPTIONS_CAMFADE_OUT_PER_S 8.0f
+#define OPTIONS_CAMFADE_IN_PER_S  3.0f
+
+f32 optionsMenuDialogAlpha(void)
+{
+	static f32 alpha = 1.0f;
+	static u64 lastus = 0;
+	const u64 now = sysGetMicroseconds();
+	f32 dt = lastus ? (now - lastus) * 1e-6f : 0.0f;
+	f32 target = 1.0f;
+
+	lastus = now;
+
+	if (dt > 0.1f) {
+		dt = 0.1f;
+	}
+
+	if (optionsMenuWantsLiveWorld() && g_OptionsCamAdjustedUs
+			&& now - g_OptionsCamAdjustedUs < OPTIONS_CAMFADE_HOLD_US) {
+		target = OPTIONS_CAMFADE_MIN;
+	}
+
+	if (!optionsMenuWantsLiveWorld()) {
+		alpha = 1.0f;
+	} else if (alpha > target) {
+		alpha -= OPTIONS_CAMFADE_OUT_PER_S * dt;
+		alpha = alpha < target ? target : alpha;
+	} else if (alpha < target) {
+		alpha += OPTIONS_CAMFADE_IN_PER_S * dt;
+		alpha = alpha > target ? target : alpha;
+	}
+
+	return alpha;
+}
 
 // The head of the chain, and the one Extended Options opens.
 struct menudialogdef g_ExtendedDabsModMenuDialog = {

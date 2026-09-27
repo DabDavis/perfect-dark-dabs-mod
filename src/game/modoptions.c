@@ -9,6 +9,7 @@
 #include "game/modghost.h"
 #include "bss.h"
 #include "geguns.h"
+#include "geroom.h"
 #endif
 #include "types.h"
 
@@ -84,6 +85,7 @@ struct modoptions g_ModOptions = {
 	false,                    // nofog: every level's own fog
 	0,                        // glassseethrough: stock's windows, opaque past their fade distance
 	true,                     // decalclip: on for everyone (user, 2026-09-26); off is stock's whole marks
+	MODFLASHLIGHT_ON,         // flashlighting: stock's flashes everywhere
 };
 
 /**
@@ -576,6 +578,25 @@ s32 modGetGlassSeeThrough(void)
 bool modIsDecalClipOn(void)
 {
 	return g_ModOptions.decalclip != 0;
+}
+
+/**
+ * Whether a flash (gunfire, an explosion, a spark) may brighten the rooms
+ * round it on this stage. The darkening an N-bomb or a light shot out gives
+ * is not a flash and is not asked about.
+ */
+bool modIsFlashLightingOn(void)
+{
+	switch (g_ModOptions.flashlighting) {
+	case MODFLASHLIGHT_OFF:
+		return false;
+#ifndef PLATFORM_N64
+	case MODFLASHLIGHT_NOTGE:
+		return !geRoomActive();
+#endif
+	}
+
+	return true;
 }
 
 /**

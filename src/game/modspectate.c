@@ -95,6 +95,9 @@ static bool g_ModSpectateOldThirdPerson = false;
 // rest of playerTick() holding a chr whose model had gone.
 static bool g_ModSpectateBodyStale[MAX_PLAYERS] = { false, false, false, false };
 
+// How far under the eye the CamSpy's model is put (modSpectateTick()).
+#define MODSPECTATE_EYESPY_DROP 100.0f
+
 // Which stage --spectate has already been acted on for.
 static s32 g_ModSpectateAppliedStage = -1;
 
@@ -187,12 +190,14 @@ void modSpectateSetOn(bool on)
 /**
  * The model the spectator wears, or -1 for the one the player would have had.
  *
- * Dr Caroll is a laptop with wings and a pair of eyes on the screen - the one
- * model in the game that reads as something watching rather than something
- * taking part, and the only one whose shape says the thing wearing it cannot
- * shoot back. BODY_DRCAROLL carries its own head, so playerTickChrBody() forces
- * headnum to -1 and none of the head machinery runs; its height is 159, the
- * same as the body it replaces, so the eye does not move when the model does.
+ * The CamSpy: the game's own flying camera, so a spectator reads as what it
+ * is (F3 20260927-065812; Dr Caroll until then). BODY_EYESPY is the chr body
+ * a deployed CamSpy wears (bodyAllocateEyespy()) and carries no head, so
+ * playerTickChrBody() forces headnum to -1 and none of the head machinery
+ * runs; its height is 159, the same as the body it replaces, so the eye does
+ * not move when the model does. Its race is RACE_EYESPY, which plays no
+ * animations, and chrToEyespy() finds no CamSpy for a player's own chr, so
+ * the eyespy paths that race turns on leave it alone.
  *
  * The model is loaded from MEMPOOL_STAGE on demand, and a match with the body
  * cap raised can be near the end of that pool. If it will not load, the
@@ -206,13 +211,13 @@ s32 modSpectateGetBodyNum(void)
 		return -1;
 	}
 
-	bodyLoad(BODY_DRCAROLL);
+	bodyLoad(BODY_EYESPY);
 
-	if (g_HeadsAndBodies[BODY_DRCAROLL].modeldef == NULL) {
+	if (g_HeadsAndBodies[BODY_EYESPY].modeldef == NULL) {
 		return -1;
 	}
 
-	return BODY_DRCAROLL;
+	return BODY_EYESPY;
 }
 
 /**
@@ -405,6 +410,13 @@ void modSpectateTick(void)
 	// mode that is not the walk has to say where its own ground is.
 	g_Vars.currentplayer->vv_ground = prop->pos.y - g_Vars.currentplayer->vv_height;
 	g_Vars.currentplayer->vv_manground = g_Vars.currentplayer->vv_ground;
+
+	// The CamSpy is the camera itself, so it flies where the eye is rather
+	// than standing on the floor under it the way a body does: its model is
+	// put at the eye, less the drop the anim's root takes it down by.
+	if (prop->chr && prop->chr->bodynum == BODY_EYESPY) {
+		g_Vars.currentplayer->vv_manground = prop->pos.y - MODSPECTATE_EYESPY_DROP;
+	}
 
 	// The tail of bwalkTick(), and the part that is easy to leave out: moving
 	// the prop does not move the view. bmove0f0cc654() refreshes the look and

@@ -565,3 +565,52 @@ set, and `dropprobe.py`, the player lifted `H` units where they stand on Dam):
 the dive leaves third person 19 ticks in and stays in first person to the
 fade; H 2500 goes to the eye at +20 and back out (dist 152) on landing at
 +140; H 600 never leaves third person.
+
+## The spectator wears the CamSpy (2026-09-27)
+
+F3 20260927-065812: the spectator's body was Dr Caroll; it is `BODY_EYESPY`
+now (`modSpectateGetBodyNum()`), the body a deployed CamSpy wears. Two traps:
+
+- `bodyGetRace()` gives it `RACE_EYESPY`, and `chrTick()` treats an eyespy chr
+  that `chrToEyespy()` cannot match to a player's CamSpy as one lying in the
+  inventory: `needsupdate = false`, never posed, never on screen (trace:
+  `draw: not this frame`), and `chr0f01f378()` keeps its own ground. A player's
+  chr in that body is set back to `RACE_HUMAN` (playerTickChrBody()).
+- A body stands on `vv_manground`, 159 under the eye; the CamSpy is the camera,
+  so `modSpectateTick()` puts `vv_manground` 100 under the eye
+  (`MODSPECTATE_EYESPY_DROP`) and the anim root lifts the model to about the eye.
+  At the default 200 distance it is small and dark - it is the real size.
+
+Test: `--boot-stage 0x32 --mpsims 1 --spectate`, write `prop->pos` from gdb,
+`ThirdPersonDistance=100` in the probe's pd.ini (at 60 the body is faded out by
+the minimum distance). ~/wt/f3-0927-options-run/shots.py.
+
+## Camera settings seen while they change (2026-09-27)
+
+F3 20260926-234214: the solo pause is `MENUROOT_MAINMENU`, whose background is
+`MENUBG_BLUR` - a still taken as the menu opened - and while any background is
+up the level is not drawn at all (`var8009dfc0`, lv.c) and the player's body is
+taken down (`playerRemoveChrBody()`, menutick.c). So nothing on Mods: Camera
+could be seen until the menu closed. Now `menuTick()` asks
+`optionsMenuWantsLiveWorld()` (optionsmenu.c: Mods: Camera is the current
+dialog, one player, a level, the main-menu root) and fades the background to 0,
+which is what the Combat Simulator's pause always had: the paused level is
+drawn live behind the dialog, body rebuilt, and a slider moves the camera as it
+is dragged. Leaving the page (Back or a swipe) calls
+`menuSetBackground(MENUBG_BLUR)`, which takes a fresh still first. The game
+stays paused (`lvframenum` does not move).
+
+The dialog covers the middle of the screen, the body with it, so a moving
+camera slider (MENUOP_SET on Distance, Wall Clearance, Minimum Distance,
+Sideways, Forward/Back, Height -> `optionsMenuCameraAdjusted()`) fades it to
+15% (user, 2026-09-27): `menuRenderDialogs()` scales the alpha of every
+`g_MenuColours` entry by `optionsMenuDialogAlpha()` for the draw and puts the
+palettes back; out at 8/s, back at 3/s once the slider has been still 0.7 s.
+The slider bars and the cable keep their own colours and stay visible, which
+leaves the row being dragged readable.
+
+Probe: ~/wt/f3-0927-options-run/cam.py (Villa, cutscene skipped at 600,
+`menuPushRootDialog(&g_SoloMissionPauseMenuDialog, 2)` then
+`menuPushDialog(&g_ExtendedDabsModCameraMenuDialog)`, `g_ModOptions.camdist`
+written). Popping the root from gdb leaves `menuisactive` 1 and the pointer on
+screen - stock does the same under that harness.

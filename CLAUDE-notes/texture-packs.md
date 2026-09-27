@@ -546,6 +546,13 @@ it would put everyone who has bound their own key back on F6.
 Both are safe with the decode worker running - the reload path stops it first -
 and both are worth re-testing on Windows, threads being what they are.
 
+Since 2026-09-27 (F3 20260926-232924) F10 also puts "Texture Pack: <name>" up
+as a HUD message (`texpackCycleSelected()`), only in a level
+(`STAGE_IS_LEVEL`, a current player, `lvframenum > 0`): `hudmsgCreate()` needs a
+player to show it to, so the title and front menus keep the log line only.
+The sibling `Mod.EnhancementsKey` (unbound; optionsmenu.c, "Enhancements
+On/Off") turns every addition off and back the same way, with a HUD message.
+
 ## Emulator cache files, and matching font glyphs by checksum (2026-09-04)
 
 GE-X ships its text pack as two plugin cache files, `1964_HIRES_Files/GoldenEye

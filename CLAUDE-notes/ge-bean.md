@@ -12030,3 +12030,14 @@ GoldenEye.
   look all come from the release; GoldenEye's own impact textures are not used.
   Needs the tester's close-up to say which two looks they saw.
 - Open: HD watch inventory shows GoldenEye's N64 gun models (042924, with the user).
+
+## No PD glares or sun flares on GoldenEye's levels (2026-09-27)
+
+F3 20260927-005229 (Caverns): GoldenEye draws neither light glares nor lens
+flares, and the converted lights brought Perfect Dark's star-shaped glares with
+them. `bgRenderArtifacts()` returns before both on a remade stage
+(`geRoomActive()`); the lights still shade the rooms. Separately, the
+Flash Lighting option (Extended Video Options, `Mod.FlashLighting`: Off / On /
+Not on GoldenEye Levels, default On) gates every brightening
+`roomFlashLighting()` - muzzle flashes, explosions, sparks - through
+`modIsFlashLightingOn()`; the N-bomb's darkening (negative start) always runs.

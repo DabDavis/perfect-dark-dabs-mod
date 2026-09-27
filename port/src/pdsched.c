@@ -33,6 +33,7 @@
 #include "assetdump.h"
 #include "community.h"
 #include "xblaimport.h"
+#include "modenhance.h"
 
 /*
  * private typedefs and defines
@@ -304,6 +305,7 @@ void schedEndFrame(OSSched *sc)
 	traceTick();
 	texpackTick();
 	xblaSwitchTick();
+	modEnhancementsTick();
 	assetDumpTick();
 	communityTick();
 	xblaImportTick();

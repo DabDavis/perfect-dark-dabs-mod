@@ -1906,3 +1906,17 @@ never wound up in the port either; what it lost is a pitch event at 1.0 on
 every shot. Rig: `~/wt/gexpp7-rig/hold.sh` holds the trigger (pulsed) per
 weapon/function and logs `matmot1`, the loaded ammo and every `audioPostEvent`
 from `bgun0f09a6f8` (needs sound: `SDL_AUDIODRIVER=dummy`, not `--no-sound`).
+
+## Enhancements On/Off (2026-09-27)
+
+F3 20260926-232841. A checkbox under Settings Preset (Mods: Player) and an
+unbound key (`Mod.EnhancementsKey`, Mods: Display). Off writes what a preset
+covers (every `struct modpreset` field after the name, in order), the four ways
+of playing to `Mod.EnhancementsSaved` as `2,<values...>` and saves pd.ini, then
+applies Vanilla. The XBLA switch and texture packs are left alone, as the
+presets leave them (user, 2026-09-27; version 1 notes also held those two and
+are dropped on read). On parses it back (a note of the wrong version or length is
+dropped, settings left Vanilla) and clears it. Adding a field to
+`struct modpreset` changes the length: bump `MODENHANCE_SAVED_VERSION`.
+Probe: gdb `call (void)modEnhancementsSetOn(0)` then `(1)` and print
+`g_ModOptions` (~/wt/f3-0927-options-run, run `en`).
