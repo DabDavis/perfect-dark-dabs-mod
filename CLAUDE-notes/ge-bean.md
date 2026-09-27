@@ -11788,3 +11788,22 @@ watch item table, the level entry table, strings, the end-of-RAM block, and
 setup bytes in files the locator missed (Dam intro cameras, Jungle AI + sky,
 Runway guards/doors, Surface bookshelf pads + railing, armour moves, Temple crate
 types, flag tokens) - each is a changelog line already classed above.
+
+### 12th F3 pass, group B (fix/f3-0927-props, 2026-09-27)
+
+- **Archives' magazine gave unusable rounds** (F3 20260926-235923, 20260927-012938). GoldenEye's PP7 in the
+  interrogation room carries PROPFLAG_NO_AMMO (0 rounds, as GE); the magazine beside it (PROPDEF_MAGAZINE, type 9mm)
+  is the ammo, 10 x the solo multiplier. The converter gave a single crate the first of GE 9mm's pair, Perfect
+  Dark's pistol rounds, which no GE gun fires (they all draw on AMMOTYPE_SMG, geguns.c). Crate now takes the SMG
+  type (geconvert.c + gesolo.py). Probe: ~/wt/f3-0927-props-run/probes/arcammo.py (t2 0 -> 20). Needs a converter bump.
+- **Natalya bouncing by the helicopter** (Statue, 3 reports): not reproduced headless. Her list 0x416 sits at +17
+  re-issuing PlayAnimation 0x801e frames 83..84 (GE flag 0x04 = hold) every ~16 ticks; each re-issue restarts a
+  16-tick merge. Fixed-step and 2..4 tick-per-frame runs settle her prop y at 752 (ground 742); the three testers'
+  traces caught y 781/788/847, i.e. mid-merge. Next step: frame-rate-variable repro (probes/natb.py, pd-tick).
+- **Egyptian Golden Gun case "missing"**: GE's case is four PROP_DOOR_WIN doors (models 326) that ai_17 closes
+  once Bond enters the room; they start open (frac 0.95), which is GE's own. Both looks show the case closed after.
+- **Bunker 2 door glass** (20260927-011445): windowed doors' HD mesh does not carry GoldenEye's glass list, so
+  doorDestroyGlass()'s toggle has nothing to hide in HD. Tried grouping the pane on the glass part (reverted - the
+  release pane is not a separate draw on 0x28a); open.
+- **Statue helicopter wreck**: GE objDeform() keeps the crumpled aircraft; ours leaves only scattered debris
+  after the smoke. Not changed - needs an oracle comparison (dam-oracle genat4.py style).
