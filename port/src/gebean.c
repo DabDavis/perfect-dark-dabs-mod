@@ -2600,6 +2600,65 @@ enum {
 	SK_COUNT
 };
 
+/**
+ * Where a head's rim and a body's collar are read, for the pool's seat
+ * (gebeanmats.seat), in the neck's frame: by direction round the neck joint,
+ * GEBEAN_SEAT_SAMPLES sectors, over a band of distances out from it - a head
+ * at the lowest of its shell there (its neck or its jaw; a head file is open
+ * underneath), a body at the highest below BEAN_SEAT_HIGHEST (the collar,
+ * not a hood or a raised arm). Read along the triangles' edges, since the
+ * N64 look's are few and large.
+ */
+#define BEAN_SEAT_HIGHEST 80.0f
+#define BEAN_SEAT_NEAREST 15.0f
+#define BEAN_SEAT_FURTHEST 75.0f
+
+static void beanSeatPoint(const f32 *p, s32 highest, f32 *seat, u32 *hit)
+{
+	const f32 r = sqrtf(p[0] * p[0] + p[2] * p[2]);
+	f32 angle;
+	s32 i;
+
+	if (r < BEAN_SEAT_NEAREST || r > BEAN_SEAT_FURTHEST || (highest && p[1] > BEAN_SEAT_HIGHEST)) {
+		return;
+	}
+
+	angle = atan2f(p[0], p[2]);
+
+	if (angle < 0.0f) {
+		angle += 2.0f * M_PI;
+	}
+
+	i = (s32)(angle * GEBEAN_SEAT_SAMPLES / (2.0f * M_PI) + 0.5f) % GEBEAN_SEAT_SAMPLES;
+
+	if (!(*hit & (1u << i)) || (highest ? p[1] > seat[i] : p[1] < seat[i])) {
+		seat[i] = p[1];
+		*hit |= 1u << i;
+	}
+}
+
+/** Folds a triangle's edges into seat[]: highest (a body's) or lowest. */
+static void beanSeatTriangle(const f32 *a, const f32 *b, const f32 *c, s32 highest, f32 *seat, u32 *hit)
+{
+	const f32 *corner[3] = { a, b, c };
+
+	for (s32 e = 0; e < 3; e++) {
+		const f32 *p = corner[e];
+		const f32 *q = corner[(e + 1) % 3];
+
+		for (s32 k = 0; k < 8; k++) {
+			const f32 t = k / 8.0f;
+			f32 at[3];
+
+			for (s32 j = 0; j < 3; j++) {
+				at[j] = p[j] + (q[j] - p[j]) * t;
+			}
+
+			beanSeatPoint(at, highest, seat, hit);
+		}
+	}
+}
+
 // How far under the model's N64 neck top the body's own neck filler stops (neckfill)
 #define BEAN_NECKFILL_TUCK 0.0f
 
@@ -9895,6 +9954,47 @@ s32 gebeanFirstPersonIsRelease(s32 weaponnum)
 		&& !gegunsOwnModelInUse(weaponnum) && !fpN64Glove[i];
 }
 
+/**
+ * The joint a vertex skinned to a forearm or a shin really moves with. Some
+ * of GoldenEye's N64-look bodies skin a piece of the hand to the elbow (the
+ * boiler-suited Bond's fists: four triangles under each, on a picture of
+ * their own) and of the shoe to the knee. On GoldenEye's own skeleton that
+ * is the same place, but the fit stretches each limb's bone to the host's
+ * length (beanFitRig()) and a point past the end of the forearm is carried on
+ * past it by the forearm's stretch, while the hand goes where the wrist is:
+ * the piece stood out beside the fist as a second one ("some body models
+ * (like bond boiler suit) have two sets of hands stacked together", F3
+ * 20260927-175711). A point past the next joint along the limb goes with
+ * that joint.
+ */
+static s32 beanPastTheJoint(s32 skel, const f32 *pos, const f32 bind[SK_COUNT][3], const s32 *havebind)
+{
+	s32 next;
+	f32 axis[3], rel[3];
+	f32 along = 0.0f, len = 0.0f;
+
+	switch (skel) {
+	case SK_LF_ELBOW: next = SK_LF_WRIST; break;
+	case SK_RT_ELBOW: next = SK_RT_WRIST; break;
+	case SK_LF_KNEE: next = SK_LF_ANKLE; break;
+	case SK_RT_KNEE: next = SK_RT_ANKLE; break;
+	default: return skel;
+	}
+
+	if (!havebind[skel] || !havebind[next]) {
+		return skel;
+	}
+
+	for (s32 k = 0; k < 3; k++) {
+		axis[k] = bind[next][k] - bind[skel][k];
+		rel[k] = pos[k] - bind[skel][k];
+		along += axis[k] * rel[k];
+		len += axis[k] * axis[k];
+	}
+
+	return len > 0.0f && along > len ? next : skel;
+}
+
 u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -10243,6 +10343,9 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	s32 numpins = 0;
 	s32 cappins = 0;
 
+	f32 seat[GEBEAN_SEAT_SAMPLES];
+	u32 seathit = 0;
+
 	for (s32 pass = hoodsplit ? -1 : pinseam ? 0 : 1; pass < 2; pass++) {
 	if (pass == 0 && !pinseam) {
 		continue;
@@ -10364,6 +10467,10 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 					}
 
 					sk[i][s] = bm.skel[bone];
+
+					if (!ishead) {
+						sk[i][s] = beanPastTheJoint(sk[i][s], v3[i].pos, (const f32 (*)[3])bind, havebind);
+					}
 					hk[i][s] = (s8)bm.watchhand[bone];
 					wt[i][s] = (f32)v3[i].weight[s];
 					total[sk[i][s]] += wt[i][s];
@@ -10448,6 +10555,27 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 						neckzone = 1;
 						break;
 					}
+				}
+			}
+
+			// The collar round the neck, for the pool's seat (beanSeatTriangle())
+			if (pass == 1 && !ishead && r->kind == GEBEAN_BODY && dominant != SK_NECK && rig.mtx[SK_NECK] >= 0) {
+				const s32 bmx = rig.mtx[dominant];
+				const s32 nmx = rig.mtx[SK_NECK];
+
+				if (bmx >= 0 && bmx < GEBEAN_MAXMTX && rig.haspal[bmx] && rig.hasrest[bmx] && rig.hasrest[nmx]) {
+					f32 q[3][3];
+
+					for (s32 i = 0; i < 3; i++) {
+						for (s32 r2 = 0; r2 < 3; r2++) {
+							const f32 *pl = &rig.pal[bmx][r2 * 4];
+
+							q[i][r2] = (pl[0] * v3[i].pos[0] + pl[1] * v3[i].pos[1] + pl[2] * v3[i].pos[2]) * rig.scale + pl[3]
+								+ rig.rest[bmx][r2] - rig.rest[nmx][r2];
+						}
+					}
+
+					beanSeatTriangle(q[0], q[1], q[2], 1, seat, &seathit);
 				}
 			}
 
@@ -10877,6 +11005,12 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		}
 	}
 
+	// A head's underside round the neck (beanSeatTriangle())
+	for (s32 t = 0; ishead && t < out.numtris; t++) {
+		beanSeatTriangle(&out.pos[out.tris[t].v[0] * 3], &out.pos[out.tris[t].v[1] * 3],
+				&out.pos[out.tris[t].v[2] * 3], 0, seat, &seathit);
+	}
+
 	free(seam);
 	free(seamhead);
 	free(pins);
@@ -10924,8 +11058,22 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 	mats->head = ishead;
 	mats->neckback = neckback;
+	memcpy(mats->seat, seat, sizeof(mats->seat));
+	mats->seathit = seathit;
 
 	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
+
+	if (seathit) {
+		char line[256];
+		s32 len = 0;
+
+		for (s32 i = 0; i < GEBEAN_SEAT_SAMPLES && len < (s32)sizeof(line) - 8; i++) {
+			len += snprintf(line + len, sizeof(line) - len, (seathit & (1u << i)) ? " %.0f" : " -", seat[i]);
+		}
+
+		sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %s round the neck:%s", r->file, source,
+				ishead ? "underside" : "collar", line);
+	}
 
 	sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d vertices, %d triangles over %d lists, %s %.4f%s%s",
 			r->file, source, out.numverts, out.numtris, numnodes,
