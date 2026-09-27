@@ -1007,6 +1007,7 @@ const u8 *xblaTexRecordAlphaMap(u32 record, s32 *outSize)
 			const u32 total = (u32)width * (u32)height;
 			u32 mid = 0;
 			u32 clear = 0;
+			u32 midtint = 0;
 			u8 midlo = 0xff;
 			u8 midhi = 0;
 
@@ -1017,6 +1018,10 @@ const u8 *xblaTexRecordAlphaMap(u32 record, s32 *outSize)
 					mid++;
 					midlo = a < midlo ? a : midlo;
 					midhi = a > midhi ? a : midhi;
+
+					if (a < 0x80) {
+						midtint++;
+					}
 				} else if (a < 0x10) {
 					clear++;
 				}
@@ -1025,6 +1030,18 @@ const u8 *xblaTexRecordAlphaMap(u32 record, s32 *outSize)
 			// A flat pane: no texel clear, and every one between clear and
 			// opaque within a narrow band - glass, not a fringe.
 			flatPane[record] = clear == 0 && mid * 100 >= total && midhi - midlo <= XBLATEX_FLATPANE_BAND;
+
+			// Or a record that is glass nearly all over: the dataDyne
+			// sniper's visor (4909) is a tint from 0x10 to 0x6f over nine
+			// tenths of its picture, a purple stripe at 255 down the middle
+			// and a few clear texels at the rim - too wide a band for the
+			// test above, so it drew as a solid pale slab (F3 report
+			// 20260927-001258). Hair is a fifth or more clear, and the
+			// sunglasses' lenses (4870) a third of theirs, all above 0x80.
+			if (!flatPane[record] && clear * 1000 <= total && mid * 2 >= total
+					&& midtint * 10 >= mid * 9) {
+				flatPane[record] = 1;
+			}
 
 			if (flatPane[record]) {
 				sysLogPrintf(LOG_NOTE, "xblatex: record %u is a flat pane, alpha %u to %u over %u of %u texels",
