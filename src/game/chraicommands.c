@@ -1532,7 +1532,12 @@ bool aiIfNeverBeenOnScreen(void)
  */
 bool aiIfOnScreen(void)
 {
-	if (g_Vars.chrdata->prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK | PROPFLAG_ONANYSCREENPREVTICK)) {
+	if ((g_Vars.chrdata->prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK | PROPFLAG_ONANYSCREENPREVTICK))
+#ifndef PLATFORM_N64
+			// past the level's fog, drawn only because the fog is off (chr.c)
+			&& (g_Vars.chrdata->hidden2 & CHRH2FLAG_PASTLEVELFOG) == 0
+#endif
+			) {
 		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
