@@ -4086,6 +4086,36 @@ void chrRenderAttachedObject(struct prop *prop, struct modelrenderdata *renderda
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * chrRenderAttachedObject()'s draw alone, for a faded body's depth pass
+ * (chrRender()): no wall hits, and the matrices left as floats, because the
+ * real pass after it still has to read them.
+ */
+static void chrRenderAttachedDepth(struct prop *prop, struct modelrenderdata *renderdata)
+{
+	if (prop->flags & PROPFLAG_ONTHISSCREENTHISTICK) {
+		struct defaultobj *obj = prop->obj;
+		struct prop *child;
+		const bool bothsides = gegunsObjDrawsBothSides(obj);
+
+		if (bothsides) {
+			gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_NO_CULLING_EXT);
+		}
+
+		modelRender(renderdata, obj->model);
+
+		if (bothsides) {
+			gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_NO_CULLING_EXT);
+		}
+
+		for (child = prop->child; child; child = child->next) {
+			chrRenderAttachedDepth(child, renderdata);
+		}
+	}
+}
+#endif
+
 void chrGetBloodColour(s16 bodynum, u8 *colour1, u32 *colour2)
 {
 	switch (bodynum) {
@@ -4179,6 +4209,9 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	f32 xrayalphafrac;
 	u8 spec[4];
 	u8 speb = 0;
+#ifndef PLATFORM_N64
+	bool ownfade = false;
+#endif
 
 	// Don't render the eyespy if we're the one controlling it
 	if (CHRRACE(chr) == RACE_EYESPY) {
@@ -4245,9 +4278,13 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	}
 
 #ifndef PLATFORM_N64
-	// The player's own body while a cutscene's camera swoops into its head.
+	// The player's own body while a camera comes into it: a cutscene's swoop
+	// into the eyes, or the third person camera brought in by a wall.
 	if (prop->type == PROPTYPE_PLAYER) {
-		alpha = alpha * playerGetCutsceneBodyAlphaFrac(prop);
+		f32 frac = playerGetOwnBodyAlphaFrac(prop);
+
+		alpha = alpha * frac;
+		ownfade = frac < 1.0f;
 	}
 #endif
 
@@ -4417,6 +4454,29 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		// Render the chr's model
 #ifndef PLATFORM_N64
 		traceChrNote(chr, TRACECHR_DREW);
+
+		// The player's own body faded (above) is drawn twice: once for its
+		// depth alone and once blended over the surface that left nearest.
+		// Blended in one pass it wrote no depth, so every layer of it showed
+		// through every other - the far arm through the chest, the inside of
+		// the shoulder through its outside - which is what a camera against
+		// the body sees most of. This way it is one surface fading out, the
+		// held guns included, and the same for the release's meshes, whose
+		// lists the two flags override whatever render mode they set.
+		ownfade = ownfade && renderdata.zbufferenabled;
+
+		if (ownfade) {
+			gSPSetExtraGeometryModeEXT(renderdata.gdl++, G_DEPTH_PREPASS_EXT);
+
+			modelRender(&renderdata, model);
+
+			for (child = prop->child; child; child = child->next) {
+				chrRenderAttachedDepth(child, &renderdata);
+			}
+
+			gSPClearExtraGeometryModeEXT(renderdata.gdl++, G_DEPTH_PREPASS_EXT);
+			gSPSetExtraGeometryModeEXT(renderdata.gdl++, G_DEPTH_FRONT_EXT);
+		}
 #endif
 		modelRender(&renderdata, model);
 
@@ -4427,6 +4487,12 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			chrRenderAttachedObject(child, &renderdata, xlupass, chr);
 			child = child->next;
 		}
+
+#ifndef PLATFORM_N64
+		if (ownfade) {
+			gSPClearExtraGeometryModeEXT(renderdata.gdl++, G_DEPTH_FRONT_EXT);
+		}
+#endif
 
 		gdl = renderdata.gdl;
 

@@ -3608,7 +3608,7 @@ static MenuItemHandlerResult menuhandlerModBodyTime(s32 operation, struct menuit
  * offsets match none of them, which is what moving any slider leaves behind, so
  * the row follows the sliders rather than having to be put back by hand.
  *
- * Wall Clearance and Minimum Distance are left alone: they are what the camera
+ * Wall Clearance and Body Fade are left alone: they are what the camera
  * does about the level rather than where it is put, and a preset that quietly
  * retuned the collision would be a preset nobody could undo.
  */
@@ -3721,15 +3721,21 @@ static MenuItemHandlerResult menuhandlerModCamClearance(s32 operation, struct me
 	return 0;
 }
 
-static MenuItemHandlerResult menuhandlerModCamMinDist(s32 operation, struct menuitem *item, union handlerdata *data)
+/**
+ * Camera Body Fade: how close the camera comes to the player's own body before
+ * the body is faded out altogether (playerGetOwnBodyAlphaFrac()). It replaces
+ * Camera Minimum Distance, which cut to first person below it and is gone
+ * (F3 20260927-193659).
+ */
+static MenuItemHandlerResult menuhandlerModCamBodyFade(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
 	case MENUOP_GETSLIDER:
-		data->slider.value = (s32)(g_ModOptions.cammindist + 0.5f);
+		data->slider.value = (s32)(g_ModOptions.camfade + 0.5f);
 		break;
 	case MENUOP_SET:
 		optionsMenuCameraAdjusted();
-		g_ModOptions.cammindist = (f32)data->slider.value;
+		g_ModOptions.camfade = (f32)data->slider.value;
 		break;
 	case MENUOP_GETSLIDERLABEL:
 		sprintf(data->slider.label, "%d", (s32)data->slider.value);
@@ -4791,9 +4797,9 @@ struct menuitem g_ExtendedDabsModCameraMenuItems[] = {
 		MENUITEMTYPE_SLIDER,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SLIDER_WIDE,
-		(uintptr_t)"Camera Minimum Distance",
-		300,
-		menuhandlerModCamMinDist,
+		(uintptr_t)"Camera Body Fade",
+		150,
+		menuhandlerModCamBodyFade,
 	},
 	{
 		MENUITEMTYPE_SLIDER,

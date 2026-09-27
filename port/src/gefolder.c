@@ -1730,6 +1730,83 @@ static s32 beanFolderKind(s32 tex)
 	return BEANFOLDER_PICTURE;
 }
 
+/**
+ * The crest, moved left on the release's page (F3 20260927-194612: "lion,
+ * crown, unicorn logo still cutoff a tad on the right").
+ *
+ * The page is one picture (2) mapped continuously over the model's page,
+ * whose right edge stands at u 0.929 behind the first tab; 4J's crest runs to
+ * u 0.955, so the unicorn's right side was under the tab - in the release as
+ * well as here. The ink is carried BEANFOLDER_CRESTSHIFT of the picture's
+ * width to the left, the square it leaves bare is filled with the page's own
+ * paper from under the crest (plain paper, the same columns, so the edge's
+ * darkening still matches), and both are feathered in over a few texels.
+ * Measured on the file: ink in u 0.756..0.955, v 0.041..0.201 (v down).
+ */
+#define BEANFOLDER_PAGE        2
+#define BEANFOLDER_CRESTSHIFT  0.05f
+#define BEANFOLDER_CRESTU0     0.745f
+#define BEANFOLDER_CRESTU1     0.965f
+#define BEANFOLDER_CRESTV0     0.030f
+#define BEANFOLDER_CRESTV1     0.212f
+#define BEANFOLDER_CRESTFEATHER 6
+
+static f32 beanFolderRamp(s32 at, s32 lo, s32 hi, s32 feather)
+{
+	// 1 inside [lo, hi), falling to 0 over `feather` texels outside it
+	s32 out = at < lo ? lo - at : at >= hi ? at - hi + 1 : 0;
+
+	return out >= feather ? 0.0f : 1.0f - (f32)out / feather;
+}
+
+static void beanFolderMoveCrest(u8 *rgba, s32 w, s32 h)
+{
+	const s32 f = BEANFOLDER_CRESTFEATHER;
+	const s32 d = (s32)(w * BEANFOLDER_CRESTSHIFT + 0.5f);
+	const s32 x0 = (s32)(w * BEANFOLDER_CRESTU0);
+	const s32 x1 = (s32)(w * BEANFOLDER_CRESTU1);
+	// the rows are the game's, bottom up, and the release's v runs down
+	const s32 y0 = (s32)(h * (1.0f - BEANFOLDER_CRESTV1));
+	const s32 y1 = (s32)(h * (1.0f - BEANFOLDER_CRESTV0));
+	// the paper under the crest, a crest's height and a feather further down
+	const s32 dy = (y1 - y0) + 2 * f;
+	u8 *copy;
+
+	if (d <= 0 || x0 - d - f < 0 || x1 + f > w || y0 - f - dy < 0 || y1 + f > h) {
+		return;
+	}
+
+	copy = malloc((size_t)w * h * 4);
+
+	if (!copy) {
+		return;
+	}
+
+	memcpy(copy, rgba, (size_t)w * h * 4);
+
+	for (s32 y = y0 - f; y < y1 + f; y++) {
+		for (s32 x = x0 - d - f; x < x1 + f; x++) {
+			// the bare square (old place and new) takes paper, the new place
+			// the crest, each faded in at its edge
+			const f32 wbare = beanFolderRamp(x, x0 - d, x1, f) * beanFolderRamp(y, y0, y1, f);
+			const f32 wink = beanFolderRamp(x, x0 - d, x1 - d, f) * beanFolderRamp(y, y0, y1, f);
+			u8 *out = rgba + ((size_t)y * w + x) * 4;
+			const u8 *old = copy + ((size_t)y * w + x) * 4;
+			const u8 *paper = copy + ((size_t)(y - dy) * w + x) * 4;
+			const u8 *ink = copy + ((size_t)y * w + x + d) * 4;
+
+			for (s32 k = 0; k < 4; k++) {
+				f32 v = old[k] + (paper[k] - old[k]) * wbare;
+
+				v += (ink[k] - v) * wink;
+				out[k] = (u8)(v < 0.0f ? 0.0f : v > 255.0f ? 255.0f : v + 0.5f);
+			}
+		}
+	}
+
+	free(copy);
+}
+
 // A picture's stand-in by the model's index, bound once for the game's life:
 // a mask as white with its brightness for alpha
 static const void *beanFolderTile(struct gebeanpictures *pics, s32 tex)
@@ -1740,6 +1817,10 @@ static const void *beanFolderTile(struct gebeanpictures *pics, s32 tex)
 
 	snprintf(key, sizeof(key), "gefolder/bean/%d", tex);
 	rgba = gebeanPicturesDecode(pics, tex, &w, &h);
+
+	if (rgba && tex == BEANFOLDER_PAGE) {
+		beanFolderMoveCrest(rgba, w, h);
+	}
 
 	if (rgba && beanFolderKind(tex) == BEANFOLDER_MASK) {
 		for (s32 i = 0; i < w * h; i++) {

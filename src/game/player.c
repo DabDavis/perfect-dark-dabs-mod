@@ -51,6 +51,7 @@
 #include "game/player.h"
 #ifndef PLATFORM_N64
 #include "gewatch.h"
+#include "optionsmenu.h"
 #include "gehud.h"
 #endif
 #ifndef PLATFORM_N64
@@ -3989,6 +3990,90 @@ f32 playerGetCutsceneBodyAlphaFrac(struct prop *prop)
 
 	return (dist - gonewithin) / (fullbeyond - gonewithin);
 }
+
+/**
+ * How much of the player's own body to draw: 1 for all of it, 0 for none.
+ *
+ * Outside a cutscene it is the third person camera's distance from the body
+ * (F3 20260927-193547: "third person needs work, especially when camera is
+ * tight, should fade out the char model"). A wall brings the camera in, and
+ * with a shoulder offset it came in against the shoulder, which then filled
+ * the screen; and all the way in it used to cut to first person, which drew
+ * the first person arms in front of the body's (20260927-193659). Now the
+ * camera may come in as close as the level makes it and the body fades out on
+ * the way: whole beyond Camera Body Fade plus BODYFADE_SPAN, gone inside
+ * Camera Body Fade, smoothstepped between.
+ *
+ * The distance is to the body and not to the eye: to the upright segment from
+ * a little above the ground to a little above the eye, under the prop. A camera
+ * level with the eye is the same either way, but looking up walks the camera
+ * down behind the back, where it is a long way from the eye and right against
+ * the body.
+ *
+ * Any camera the player's own view has: aiming and GE Plus's watch put it on
+ * the eye (0, and so the first person gun and the body are never both drawn),
+ * a CamSpy or a Slayer rocket is a long way off (1).
+ */
+#define BODYFADE_SPAN   60.0f // from gone to whole
+#define BODYFADE_FEET   20.0f // the segment's bottom, above the ground
+#define BODYFADE_CROWN  15.0f // and its top, above the eye
+
+f32 playerGetOwnBodyAlphaFrac(struct prop *prop)
+{
+	struct player *player;
+	struct coord *cam;
+	f32 top;
+	f32 bottom;
+	f32 dx;
+	f32 dy;
+	f32 dz;
+	f32 dist;
+	f32 frac;
+
+	if (prop->type != PROPTYPE_PLAYER
+			|| playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum) {
+		return 1;
+	}
+
+	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
+		return playerGetCutsceneBodyAlphaFrac(prop);
+	}
+
+	player = g_Vars.currentplayer;
+	cam = &player->cam_pos;
+
+	top = player->bond2.unk10.y + BODYFADE_CROWN;
+	bottom = player->vv_manground + BODYFADE_FEET;
+
+	if (bottom > top) {
+		bottom = top;
+	}
+
+	dx = cam->x - prop->pos.x;
+	dz = cam->z - prop->pos.z;
+
+	if (cam->y > top) {
+		dy = cam->y - top;
+	} else if (cam->y < bottom) {
+		dy = bottom - cam->y;
+	} else {
+		dy = 0;
+	}
+
+	dist = sqrtf(dx * dx + dy * dy + dz * dz);
+
+	if (dist <= g_ModOptions.camfade) {
+		return 0;
+	}
+
+	if (dist >= g_ModOptions.camfade + BODYFADE_SPAN) {
+		return 1;
+	}
+
+	frac = (dist - g_ModOptions.camfade) / BODYFADE_SPAN;
+
+	return frac * frac * (3 - 2 * frac);
+}
 #endif
 
 #ifndef PLATFORM_N64
@@ -4098,11 +4183,16 @@ static void playerSyncBodyWeapons(struct player *player)
  * same event. A wall arriving is this frame's problem - anything slower draws
  * the inside of it - while a wall leaving is only space becoming free again,
  * and snapping the camera out through the metre it gave back is the jump that
- * reads as a fault. The eye is outside that: below the minimum distance there
- * is no view to ease towards and the gun comes back, so that one is a cut in
- * both directions.
+ * reads as a fault. That holds all the way in to the eye: a wall close
+ * behind the head brings the camera onto the eye and the view stays third
+ * person - no gun, the body faded out (playerGetOwnBodyAlphaFrac()) - and it
+ * eases back out when the wall goes. It used to cut to first person below a
+ * minimum distance, which drew the first person arms and guns in front of the
+ * body's own (F3 20260927-193659, "four arms"), and the user asked for it to
+ * stay third person instead.
  */
 #define THIRDPERSON_EASE_RATE 0.2f // of what is left to give back, per 60Hz tick
+#define THIRDPERSON_EYE_DIST 0.01f // thirdpersondist for a camera jammed onto the eye: third person still, just no distance
 
 /**
  * Keep the camera out of the walls, the floor and the ceiling.
@@ -4133,14 +4223,16 @@ static void playerSyncBodyWeapons(struct player *player)
  * If after all that the volume is still not clear - a corridor narrower than
  * twice the radius has no clear spot in it - the camera comes in along the
  * line by half the radius at a time until a volume of half the radius fits,
- * which is what a corridor that narrow has room for. Below the minimum
- * distance there is no view, and false says so.
+ * which is what a corridor that narrow has room for, and all the way to
+ * the eye if nothing fits - the eye is where the player stands, so it is
+ * clear by definition. The body fades out as the camera comes in, so a camera
+ * that close is a view of the level and not of the inside of the body.
  */
 #define CAMERA_VCLEAR       20.0f // above a floor and below a ceiling
 #define CAMERA_CLEAR_PASSES 3
 #define CAMERA_SHORTEN_PASSES 8
 
-static bool playerClearCamera(struct player *player, struct coord *eye, struct coord *cam)
+static void playerClearCamera(struct player *player, struct coord *eye, struct coord *cam)
 {
 	RoomNum camrooms[8];
 	RoomNum crossed[21];
@@ -4233,8 +4325,9 @@ static bool playerClearCamera(struct player *player, struct coord *eye, struct c
 				+ (hit.y - eye->y) * (hit.y - eye->y)
 				+ (hit.z - eye->z) * (hit.z - eye->z)) - g_ModOptions.camclearance;
 
-		if (d < g_ModOptions.cammindist || dist < 1) {
-			return false;
+		if (d <= 0 || dist < 1) {
+			*cam = *eye;
+			return;
 		}
 
 		cam->x = eye->x + (cam->x - eye->x) * (d / dist);
@@ -4247,7 +4340,7 @@ static bool playerClearCamera(struct player *player, struct coord *eye, struct c
 
 		if (cdTestVolume(cam, radius * 0.5f, camrooms, CDTYPE_BG | CDTYPE_CLOSEDDOORS,
 					CHECKVERTICAL_YES, CAMERA_VCLEAR, -CAMERA_VCLEAR)) {
-			return true;
+			return;
 		}
 
 		dist = sqrtf((cam->x - eye->x) * (cam->x - eye->x)
@@ -4256,16 +4349,15 @@ static bool playerClearCamera(struct player *player, struct coord *eye, struct c
 
 		d = dist - radius * 0.5f;
 
-		if (d < g_ModOptions.cammindist || dist < 1) {
-			return false;
+		if (d <= 0 || dist < 1) {
+			*cam = *eye;
+			return;
 		}
 
 		cam->x = eye->x + (cam->x - eye->x) * (d / dist);
 		cam->y = eye->y + (cam->y - eye->y) * (d / dist);
 		cam->z = eye->z + (cam->z - eye->z) * (d / dist);
 	}
-
-	return true;
 }
 
 /**
@@ -4422,7 +4514,7 @@ static void playerTetherCamera(struct player *player, struct coord *eye, struct 
 	player->thirdpersontethered = true;
 }
 
-static void playerPullBackCamera(struct coord *campos)
+static void playerPullBackCameraNow(struct coord *campos)
 {
 	struct player *player = g_Vars.currentplayer;
 	struct coord offset;
@@ -4525,9 +4617,13 @@ static void playerPullBackCamera(struct coord *campos)
 				+ (hit.y - campos->y) * (hit.y - campos->y)
 				+ (hit.z - campos->z) * (hit.z - campos->z)) - g_ModOptions.camclearance;
 
-		// Nothing between here and the minimum distance is a view: leave the
-		// camera on the eye and let the HUD put the gun back.
-		if (dist < g_ModOptions.cammindist) {
+		// A wall closer than the clearance: the camera comes all the way
+		// in to the eye, and the view stays third person (below). Not
+		// through playerClearCamera(), whose push off the wall behind would
+		// stand the camera in front of the player's face.
+		if (dist <= 0) {
+			player->thirdpersondist = THIRDPERSON_EYE_DIST;
+			player->thirdpersoncampos = *campos;
 			return;
 		}
 	}
@@ -4540,8 +4636,12 @@ static void playerPullBackCamera(struct coord *campos)
 	// Off the walls, the floor and the ceiling: a volume where the line
 	// above was a line. This may move the camera off the line, so the
 	// distance is read back from wherever it ends up.
-	if (!playerClearCamera(player, campos, &back)) {
-		return;
+	playerClearCamera(player, campos, &back);
+
+	// The push off a wall can carry a camera that was brought right in past
+	// the eye to the other side of it, in front of the player; the eye it is.
+	if ((back.x - campos->x) * offset.x + (back.y - campos->y) * offset.y + (back.z - campos->z) * offset.z <= 0) {
+		back = *campos;
 	}
 
 	offset.x = back.x - campos->x;
@@ -4550,7 +4650,16 @@ static void playerPullBackCamera(struct coord *campos)
 
 	len = sqrtf(offset.x * offset.x + offset.y * offset.y + offset.z * offset.z);
 
-	if (len < g_ModOptions.cammindist || len < 1) {
+	// Jammed onto the eye. This is still third person and not a cut to first:
+	// thirdpersondist stays above zero, which is what everything that asks
+	// "is the gun drawn" reads (the HUD, the tracers, a launcher's rocket), so
+	// the first person arms and guns never come up in front of the body's own
+	// (F3 20260927-193659). The body fades out by the camera's distance from
+	// it (playerGetOwnBodyAlphaFrac()), so what is left is the level and the
+	// crosshair, and the ease below takes the camera back out from here.
+	if (len < THIRDPERSON_EYE_DIST) {
+		player->thirdpersondist = THIRDPERSON_EYE_DIST;
+		player->thirdpersoncampos = *campos;
 		return;
 	}
 
@@ -4577,6 +4686,40 @@ static void playerPullBackCamera(struct coord *campos)
 	// Kept for the death camera, which stops here rather than working out
 	// somewhere of its own to stand.
 	player->thirdpersoncampos = *campos;
+}
+
+/**
+ * The camera behind a paused level holds still (F3 20260927-191658: "the
+ * screen behind the menu still moves when navigating different menus").
+ *
+ * With the level paused the eye does not move, but the camera was still built
+ * again every frame: a trace against a wall, the clear-camera push and the
+ * tether can each land somewhere else from the same eye, and third person
+ * switched on or off inside a pause jumped the view to the new placement on
+ * the spot - all of it behind the Perfect Menu, the pause menu and every blur
+ * taken of them. While paused the last unpaused frame's camera is used as it
+ * was, eye or pulled back, and the first frame after the pause carries on from
+ * it (the ease takes it out from there). Two screens still want it live: the
+ * watch, which moves the view to the face while the level is stopped, and
+ * Mods: Camera, which shows the settings as they change
+ * (optionsMenuWantsLiveWorld()).
+ */
+static void playerPullBackCamera(struct coord *campos)
+{
+	struct player *player = g_Vars.currentplayer;
+
+	if (player->thirdpersonholdvalid && lvIsPaused()
+			&& !geWatchIsOpen() && !optionsMenuWantsLiveWorld()) {
+		*campos = player->thirdpersonholdpos;
+		player->thirdpersondist = player->thirdpersonholddist;
+		return;
+	}
+
+	playerPullBackCameraNow(campos);
+
+	player->thirdpersonholdpos = *campos;
+	player->thirdpersonholddist = player->thirdpersondist;
+	player->thirdpersonholdvalid = true;
 }
 
 /**

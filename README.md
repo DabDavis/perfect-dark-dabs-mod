@@ -76,8 +76,10 @@ setting persists to `pd.ini` under a `Mod.` key.
 ### Third person
 
 **V** on the keyboard, Back on a pad, in solo and multiplayer both. You drop back
-to first person while aiming. Camera Distance, Camera Wall Clearance and Camera
-Minimum Distance tune the framing.
+to first person while aiming. Camera Distance and Camera Wall Clearance tune the
+framing. A wall behind you brings the camera in, as far as the eye if it must,
+and your character fades out as it comes close (Camera Body Fade is how close)
+rather than the view cutting to first person.
 
 **Camera Tether** makes the camera a pole attached to you instead of one bolted
 to the back of your head. The right stick orbits the camera all the way round

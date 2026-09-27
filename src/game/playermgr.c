@@ -596,6 +596,7 @@ void playermgrAllocatePlayer(s32 index)
 	g_Vars.players[index]->thirdpersonbodyset = false;
 	g_Vars.players[index]->thirdpersonfirehold = 0;
 	g_Vars.players[index]->thirdpersonlongfall = false;
+	g_Vars.players[index]->thirdpersonholdvalid = false;
 	g_Vars.players[index]->rollspeed.x = 0;
 	g_Vars.players[index]->rollspeed.y = 0;
 	g_Vars.players[index]->rollspeed.z = 0;

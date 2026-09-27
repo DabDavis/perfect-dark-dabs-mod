@@ -368,7 +368,7 @@ struct modoptions {
 	s32 spawnweaponwho; // MODWHO_*: whether simulants spawn armed too
 	f32 camdist;     // third person camera, units behind the eye
 	f32 camclearance;// how far short of a wall it stops
-	f32 cammindist;  // below which it is not worth leaving the eye at all
+	f32 camfade;     // Camera Body Fade: the player's own body is gone with the camera this close to it (playerGetOwnBodyAlphaFrac())
 	f32 camside;     // units to one side of the eye, negative for the left
 	f32 camfwd;      // units along the facing, flattened level; negative puts the camera in front
 	f32 camheight;   // units straight up in the world, negative for below the eye

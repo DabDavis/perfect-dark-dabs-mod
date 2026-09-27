@@ -34,6 +34,7 @@
 #include "community.h"
 #include "xblaimport.h"
 #include "modenhance.h"
+#include "gexfront.h"
 
 /*
  * private typedefs and defines
@@ -399,9 +400,19 @@ void schedUpdatePendingArtifacts(void)
 	schedIncrementPendingArtifacts();
 }
 
+s32 g_MenuBlurDeferred = false;
+
 void schedConsiderScreenshot(void)
 {
-	if (g_MenuData.screenshottimer == 1) {
+	// no level on this frame to blur (GE Plus's folder or intro, or the
+	// Institute blacked on the way back to it): the next real one
+	if (g_MenuData.screenshottimer >= 1 && gexFrontHidesLevel()) {
+		// and the copy is of the frame before, so a frame of the level
+		// has to have been drawn first
+		g_MenuBlurDeferred = true;
+		g_MenuData.screenshottimer = 3;
+	} else if (g_MenuData.screenshottimer == 1) {
+		g_MenuBlurDeferred = false;
 		if (IS8MB()) {
 			menugfxCreateBlur();
 		}

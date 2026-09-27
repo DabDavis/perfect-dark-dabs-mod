@@ -3353,6 +3353,21 @@ s32 gexFrontWantsMain(void)
 }
 
 /**
+ * Whether the frame being drawn has no level in it to take a picture of: GE
+ * Plus's intro or folder is over it, or the Institute is blacked out on the way
+ * back to the folder (lvRender()). A menu's blurred backdrop asked for on such a
+ * frame waits for a real one (schedConsiderScreenshot()) - the Perfect Menu is
+ * pushed under the folder in exactly that window, and its backdrop was a blur
+ * of black once the folder closed.
+ */
+s32 gexFrontHidesLevel(void)
+{
+	return geIntroIsActive() || g_Front.active
+		|| (g_Vars.stagenum == STAGE_CITRAINING && var80087260 > 0
+			&& (g_FrontWantMain || gecinemaWantsFolder()));
+}
+
+/**
  * Back from a mission: GoldenEye's report on it, where there is one to give
  * (gexFrontMissionReport()). Otherwise - a mission that ended on Perfect Dark's
  * endscreen - GE Plus's main menu, the mode select, with SELECT MISSION under

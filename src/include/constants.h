@@ -546,19 +546,18 @@
 #define THIRDPERSON_CAMHEIGHT    0.0f
 
 /**
- * The shortest pull-back worth having.
+ * Camera Body Fade's default: the player's own body is gone once the camera
+ * is this close to it, and whole again 60 units further out
+ * (playerGetOwnBodyAlphaFrac()). 40 is a little more than the shoulders'
+ * half width, so a camera against the shoulder sees through it rather than
+ * into it.
  *
- * A corridor or a corner can clamp the camera down to nothing, and a camera
- * sitting inside Joanna's head is neither view: it looks like first person with
- * the gun missing, because the view model is dropped whenever the camera is off
- * the eye. Below this the camera stays on the eye and the gun comes back, so a
- * tight spot gives first person for as long as it lasts rather than a broken
- * third one.
- *
- * 60 is roughly where she stops filling the screen - a third of the standing
- * height, which is about 180 units.
+ * It replaced THIRDPERSON_CAMMINDIST (60), below which the camera cut to the
+ * eye and the first person gun came back - in front of the body's own arms
+ * (F3 20260927-193659). The camera now comes in as close as the level makes
+ * it and stays third person.
  */
-#define THIRDPERSON_CAMMINDIST 60.0f
+#define THIRDPERSON_CAMFADE 40.0f
 
 #define CASING_NONE     -1
 #define CASING_STANDARD 0
