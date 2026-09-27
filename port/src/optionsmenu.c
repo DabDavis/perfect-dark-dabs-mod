@@ -2517,9 +2517,10 @@ static MenuItemHandlerResult menuhandlerModPreset(s32 operation, struct menuitem
  * Enhancements On/Off: every addition off at once, and back as the player had
  * it (F3 20260926-232841, for looking at the original next to the fork).
  *
- * Off takes a note of what a preset covers, the ways of playing every preset
- * turns off, the release's assets (the XBLA switch) and the texture packs,
- * then puts on Vanilla with the release and the packs off. The note is kept
+ * Off takes a note of what a preset covers and the ways of playing every
+ * preset turns off, then puts on Vanilla. Like the presets it leaves the
+ * release's assets (the XBLA switch) and the texture packs as the player has
+ * them (user, 2026-09-27). The note is kept
  * in pd.ini (Mod.EnhancementsSaved), so a restart while off still comes back
  * to it; On puts every noted setting back and forgets the note. An empty note
  * is On. A setting changed while off is lost when the note comes back, which
@@ -2529,7 +2530,7 @@ char g_ModEnhancementsSaved[MODENHANCE_SAVED_LEN] = "";
 char g_ModEnhancementsKeyName[32] = "";
 static s32 g_ModEnhancementsKeyVk = -1;
 
-#define MODENHANCE_SAVED_VERSION 1
+#define MODENHANCE_SAVED_VERSION 2
 
 // The preset's own fields (every s32 after its name), then these, in this order.
 enum {
@@ -2537,8 +2538,6 @@ enum {
 	MODENHANCE_EXTRA_GUARDSALERTED,
 	MODENHANCE_EXTRA_AKIMBO,
 	MODENHANCE_EXTRA_MISSIONRESPAWN,
-	MODENHANCE_EXTRA_XBLA,
-	MODENHANCE_EXTRA_TEXPACKS,
 	MODENHANCE_EXTRA_COUNT
 };
 
@@ -2578,8 +2577,6 @@ static void modEnhancementsCapture(struct modpreset *preset, s32 *extra)
 	extra[MODENHANCE_EXTRA_GUARDSALERTED] = g_ModOptions.guardsalerted;
 	extra[MODENHANCE_EXTRA_AKIMBO] = g_ModOptions.akimbo;
 	extra[MODENHANCE_EXTRA_MISSIONRESPAWN] = g_ModOptions.missionrespawn;
-	extra[MODENHANCE_EXTRA_XBLA] = xblaSwitchGetEnabled();
-	extra[MODENHANCE_EXTRA_TEXPACKS] = texpackLoadEnabled();
 }
 
 s32 modEnhancementsAreOn(void)
@@ -2615,8 +2612,6 @@ void modEnhancementsSetOn(s32 on)
 		}
 
 		menuhandlerModPresetApply(&g_ModPresets[1]); // Vanilla
-		xblaSwitchSetEnabled(false);
-		texpackSetLoadEnabled(false);
 	} else {
 		const char *in = g_ModEnhancementsSaved;
 		char *next;
@@ -2658,12 +2653,6 @@ void modEnhancementsSetOn(s32 on)
 		g_ModOptions.guardsalerted = extra[MODENHANCE_EXTRA_GUARDSALERTED];
 		g_ModOptions.akimbo = extra[MODENHANCE_EXTRA_AKIMBO];
 		g_ModOptions.missionrespawn = extra[MODENHANCE_EXTRA_MISSIONRESPAWN];
-
-		if (extra[MODENHANCE_EXTRA_XBLA]) {
-			xblaSwitchSetEnabled(true);
-		}
-
-		texpackSetLoadEnabled(extra[MODENHANCE_EXTRA_TEXPACKS]);
 	}
 
 	sysLogPrintf(LOG_NOTE, "enhancements: %s", on ? "on (settings restored)" : "off (Vanilla)");
