@@ -3074,7 +3074,14 @@ static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct Loaded
     // faces landed over the near ones in list order (F3 20260927-105948,
     // "part of the texture seems invisible"). Those keep the lists' culling,
     // which is what GoldenEye draws them with.
-    if ((rsp.extra_geometry_mode & G_NO_CULLING_EXT) && (rdp.other_mode_l & Z_UPD)) {
+    // A faded own body's two passes (chrRender()) count as writing depth
+    // whatever the lists' render mode: the chr's fade puts every list in a
+    // translucent mode, so its held GoldenEye gun lost its backward-wound
+    // faces (the silenced D5K's silencer) while fading. The depth pass sorts
+    // both sides, and the front pass draws only what the depth pass left
+    // nearest, so drawing both sides is right in both.
+    if ((rsp.extra_geometry_mode & G_NO_CULLING_EXT) &&
+        ((rdp.other_mode_l & Z_UPD) || (rsp.extra_geometry_mode & (G_DEPTH_PREPASS_EXT | G_DEPTH_FRONT_EXT)))) {
         return false;
     }
     if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
