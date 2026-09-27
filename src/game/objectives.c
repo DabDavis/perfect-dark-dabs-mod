@@ -24,6 +24,7 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "gehud.h"
 
 struct objective *g_Objectives[MAX_OBJECTIVES];
 u32 g_ObjectiveStatuses[MAX_OBJECTIVES];
@@ -412,7 +413,12 @@ void objectivesCheckAll(void)
 					jpnstr[1] = 0x80 | (0x11 + availableindex);
 					sprintf(buffer, "%s %s: ", langGet(L_MISC_044), jpnstr); // "Objective"
 #else
-					sprintf(buffer, "%s %d: ", langGet(L_MISC_044), availableindex + 1); // "Objective"
+					if (geHudActive()) {
+						// GoldenEye letters its objectives, as its watch does
+						sprintf(buffer, "%s %c: ", langGet(L_MISC_044), 'a' + availableindex); // "Objective"
+					} else {
+						sprintf(buffer, "%s %d: ", langGet(L_MISC_044), availableindex + 1); // "Objective"
+					}
 #endif
 
 #if VERSION >= VERSION_NTSC_1_0
