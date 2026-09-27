@@ -292,6 +292,90 @@ static const struct gebeanextrarow extraRows[] = {
 	{ 68, 1, "Joe 2\n",            NULL },             // Cheadjoe2Z
 };
 
+/**
+ * The first person hands a GoldenEye character wears: one of Perfect Dark's
+ * hand files, picked by the sleeve that matches the outfit (F3
+ * 20260926-204323 - Xenia wore the Institute technician's green sleeves,
+ * every man a dataDyne guard's, taken with the host row).
+ *
+ * GoldenEye itself has no hands per character: the hand and cuff are pieces
+ * of every gun model, and in multiplayer everyone wears Bond's blue suit cuff
+ * (bondview2.c, bondtype CUFF_BLUE). The XBLA release has nothing more - its
+ * one hand of its own is Bond's floating suit arm - so these are Perfect
+ * Dark's, drawn in 4J's HD in the XBLA look. The sleeves, by their pictures:
+ * ddsecurity dark navy, carrington grey suit, mrblonde white shirt, cia tan,
+ * stewardess_coat navy (a woman's), jotrench black gloves (a woman's), jofrock
+ * bare, josnow white, a51airman navy and black gloves, a51guard brown and
+ * gloves, blackguard black, ddfodder dark navy and gloves, ddshock green camo,
+ * g5guard olive camo, cisoldier blue camo, trent red, tragic_pelagic light
+ * grey, ddbio a jumpsuit's sheen (nothing of Perfect Dark's is yellow).
+ */
+struct gebeanhand {
+	const char *file;  // a pool row's file, or NULL for an extra row's number
+	s16 num;           // GoldenEye's character number, for the extra rows
+	u16 hand;
+};
+
+static const struct gebeanhand beanHands[] = {
+	{ "CgeNatalyaZ",      -1, FILE_GHAND_STEWARDESS_COAT }, // blue cardigan
+	{ "CgeTrevelyanZ",    -1, FILE_GHAND_DDSECURITY },      // black jacket
+	{ "CgeXeniaZ",        -1, FILE_GHAND_JOTRENCH },        // black, gloved
+	{ "CgeOurumovZ",      -1, FILE_GHAND_CIA },             // khaki uniform
+	{ "CgeBorisZ",        -1, FILE_GHAND_JOFROCK },         // short sleeves
+	{ "CgeValentinZ",     -1, FILE_GHAND_CARRINGTON },      // grey suit
+	{ "CgeMaydayZ",       -1, FILE_GHAND_JOFROCK },         // bare arms
+	{ "CgeJawsZ",         -1, FILE_GHAND_MRBLONDE },        // white shirt
+	{ "CgeOddjobZ",       -1, FILE_GHAND_DDSECURITY },      // black suit
+	{ "CgeBaronSamediZ",  -1, FILE_GHAND_MRBLONDE },        // white
+	{ "CgeSnowguardZ",    -1, FILE_GHAND_JOSNOW },          // white snow suit
+	{ "CgePilotZ",        -1, FILE_GHAND_A51AIRMAN },       // flight suit, gloves
+	{ "CgeDjbondZ",       -1, FILE_GHAND_DDSECURITY },      // tuxedo (Perfect Dark's own Bond's)
+	{ "CgeBoilerbondZ",   -1, FILE_GHAND_DDSECURITY },      // dark boiler suit
+	{ "CgeSuitbondZ",     -1, FILE_GHAND_CARRINGTON },      // grey suit
+	{ "CgeTimberbondZ",   -1, FILE_GHAND_DDSHOCK },         // jungle green
+	{ "CgeSnowbondZ",     -1, FILE_GHAND_JOSNOW },          // white parka
+	{ "CgeBoilertrevZ",   -1, FILE_GHAND_DDSECURITY },      // dark boiler suit
+	{ "CgeOliveguardZ",   -1, FILE_GHAND_CIA },             // khaki
+	{ "CgeRusguardZ",     -1, FILE_GHAND_CIA },             // khaki
+	{ "CgeTechmanZ",      -1, FILE_GHAND_MRBLONDE },        // lab coat (Perfect Dark's own lab technicians')
+	{ "CgeTechwomanZ",    -1, FILE_GHAND_MRBLONDE },        // lab coat
+	{ "CgeCommguardZ",    -1, FILE_GHAND_CIA },             // tan uniform
+	{ "CgeArmourguardZ",  -1, FILE_GHAND_DDFODDER },        // grey armour, gloves
+	{ "CgeNavyguardZ",    -1, FILE_GHAND_DDSHOCK },         // green
+	{ "CgeGreyguardZ",    -1, FILE_GHAND_A51AIRMAN },       // blue uniform
+	{ "CgeJeanwomanZ",    -1, FILE_GHAND_STEWARDESS_COAT }, // blue shirt
+	{ "CgeCardimanZ",     -1, FILE_GHAND_TRAGIC_PELAGIC },  // light shirt
+	{ "CgeCheckmanZ",     -1, FILE_GHAND_TRENT },           // purple check
+	{ "CgeRedmanZ",       -1, FILE_GHAND_TRENT },           // red shirt
+	{ "CgeGreatguardZ",   -1, FILE_GHAND_DDFODDER },        // dark greatcoat
+	{ "CgeBluecamguardZ", -1, FILE_GHAND_CISOLDIER },       // blue camouflage
+	{ "CgeGreatguard2Z",  -1, FILE_GHAND_A51GUARD },        // brown greatcoat
+	{ "CgeCamguardZ",     -1, FILE_GHAND_G5GUARD },         // camouflage
+	{ "CgeTrevguardZ",    -1, FILE_GHAND_BLACKGUARD },      // black
+	{ "CgeMoonguardZ",    -1, FILE_GHAND_DDBIO },           // yellow jumpsuit
+	{ "CgeMoonfemaleZ",   -1, FILE_GHAND_DDBIO },           // yellow jumpsuit
+	{ "CgeFattechwomanZ", -1, FILE_GHAND_MRBLONDE },        // white
+	{ NULL, 26, FILE_GHAND_STEWARDESS_COAT },               // bluewoman: blue shirt
+	{ NULL, 30, FILE_GHAND_CARRINGTON },                    // greyman: grey
+	{ NULL, 31, FILE_GHAND_A51AIRMAN },                     // blueman: blue
+	{ NULL, 79, FILE_GHAND_TRAGIC_PELAGIC },                // Natalya's jungle outfit: grey sweater
+};
+
+/**
+ * The hands for a pool row's file or an extra row's number; the row's own
+ * (its host's) where there is none.
+ */
+static void gebeanSetHands(struct headorbody *hb, const char *file, s32 num)
+{
+	for (s32 i = 0; i < ARRAYCOUNT(beanHands); i++) {
+		if (file ? (beanHands[i].file && strcmp(beanHands[i].file, file) == 0)
+				: (!beanHands[i].file && beanHands[i].num == num)) {
+			hb->handfilenum = beanHands[i].hand;
+			return;
+		}
+	}
+}
+
 #define GEBEAN_EXTRA_BASE (GEBEAN_POOL_BASE + ARRAYCOUNT(poolRows))
 
 static s32 extraSlot[ARRAYCOUNT(extraRows)];
@@ -1244,6 +1328,10 @@ static void gebeanPoolAppendExtras(void)
 		hb->modeldef = keep;
 		extraSlot[i] = made.filenum;
 
+		if (!x->ishead) {
+			gebeanSetHands(hb, NULL, x->num);
+		}
+
 		if (x->ishead) {
 			g_MpHeads[nh].headnum = row;
 			g_MpHeads[nh].requirefeature = 0;
@@ -1311,6 +1399,10 @@ static void gebeanPoolRefreshRom(s32 numbodies, s32 numheads)
 		*hb = made;
 		hb->modeldef = keep;
 		romSlot[i] = made.filenum;
+
+		if (p->row.kind != GEBEAN_HEAD) {
+			gebeanSetHands(hb, p->row.file, -1);
+		}
 	}
 
 	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
@@ -1440,6 +1532,10 @@ void gebeanPoolRefresh(void)
 		hb->filenum = slot;
 		hb->modeldef = keep;
 		hb->scale = host->scale * p->scale;
+
+		if (!ishead) {
+			gebeanSetHands(hb, p->row.file, -1);
+		}
 		height = (u32)(host->height * p->scale + 0.5f);
 
 		if (!ishead) {
