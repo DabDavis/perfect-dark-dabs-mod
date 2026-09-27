@@ -2518,7 +2518,12 @@ struct gunctrl {
 	/*0x15b2*/ u16 loadfilenum;
 	/*0x15b4*/ struct modeldef **loadtomodeldef;
 	/*0x15b8*/ uintptr_t *loadmemptr;
-	/*0x15bc*/ uintptr_t*loadmemremaining;
+	// Points at handmemloadremaining or memloadremaining, both 32 bits. It was
+	// a uintptr_t *, which on 64-bit read memloadremaining together with the
+	// four bytes after it (masterloadstate, gunloadstate, loadfilenum), so
+	// bgunTickGunLoad()'s "remaining" was petabytes and the texture ids it
+	// let go reached past gunmem to every texture of the level's.
+	/*0x15bc*/ u32 *loadmemremaining;
 	/*0x15c0*/ struct texpool texpool;
 	/*0x15d0*/ u32 nexttexturetoload;
 	/*0x15d4*/ struct fileinfo fileinfo;
