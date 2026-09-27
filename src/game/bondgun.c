@@ -66,6 +66,7 @@
 #ifndef PLATFORM_N64
 #include "game/stagetable.h"
 #include "video.h"
+#include "handtint.h"
 #include "platform.h"
 #include "gehud.h"
 #include "system.h"
@@ -12649,6 +12650,10 @@ void bgunRender(Gfx **gdlptr)
 #endif
 
 			// Render the hand
+#ifndef PLATFORM_N64
+			// painted in the character's own colours (handtint.c)
+			handtintTick();
+#endif
 			if (player->gunctrl.handmodeldef && renderhand
 #ifndef PLATFORM_N64
 					&& !geshown

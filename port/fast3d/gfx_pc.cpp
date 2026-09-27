@@ -33,6 +33,7 @@
 
 #include "texpack.h"
 #include "xblatex.h"
+#include "handtint.h"
 #include "xblafont.h"
 #include "menuimage.h"
 #include "gfx_texscale.h"
@@ -1028,6 +1029,10 @@ static uint32_t import_enhance_tile_w; // the clamped tile, when narrower than t
 static uint32_t import_enhance_tile_h;
 static bool import_decode_only; // decode into tex_upload_buffer and stop short of the GPU
 
+// The texture import_texture() is uploading, for handtint.c's repaint
+static const uint8_t* import_tint_addr;
+static std::vector<uint8_t> import_tint_buf;
+
 static void gfx_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height, bool gen_mipmaps) {
     // The dump and the dimensions the rest of the import works from stay the
     // game's; only what reaches the GPU is bigger.
@@ -1036,6 +1041,19 @@ static void gfx_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32
 
     if (import_decode_only) {
         return;
+    }
+
+    // The first person hands, painted in the player's character's colours
+    // (handtint.c): a copy, since the buffer may be the pack's or the
+    // release's own, kept for the next upload of the same picture
+    {
+        uint8_t tint[3];
+
+        if (import_tint_addr && handtintLookup(import_tint_addr, tint)) {
+            import_tint_buf.assign(rgba32_buf, rgba32_buf + (size_t)width * height * 4);
+            handtintApply(import_tint_buf.data(), width, height, tint);
+            rgba32_buf = import_tint_buf.data();
+        }
     }
 
     if (import_enhance_scale > 1) {
@@ -1578,6 +1596,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
     const RawTexMetadata* metadata = &loaded_texture.raw_tex_metadata;
     const uint8_t* orig_addr = loaded_texture.addr;
     SUPPORT_CHECK(orig_addr);
+    import_tint_addr = orig_addr;
 
     // A glyph adds its name to the key rather than replacing it. The palette
     // still matters for one that is not replaced: the fonts are CI4 through a

@@ -11,6 +11,14 @@ struct objmesh;
 extern "C" {
 #endif
 
+struct xblameshbuilt;
+
+// For handtint.c: the mesh a model draws from in this look, and what its build
+// read off it (xblamesh.c's xblaMeshAnalyse())
+struct xblameshbuilt *xblaMeshAnalysedForModel(const struct modeldef *def);
+s32 xblaMeshAnalysedTextures(const struct xblameshbuilt *m, const void ***outtex, const u16 **outbones);
+s32 xblaMeshAnalysedBoneColour(const struct xblameshbuilt *m, s32 bone, f32 *rgb, f32 *weight);
+
 /**
  * Drawing the XBLA release's high resolution meshes in place of the game's own
  * display lists.
