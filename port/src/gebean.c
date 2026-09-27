@@ -6046,6 +6046,10 @@ struct beanscreen {
 	f32 size;
 	u8 quad;   // its node's list is the screen's quad alone (beanScreenFace())
 	u8 corners; // which of its corners a vertex of Bean's lies on (beanScreenRecesses())
+	s8 part;   // the model part the screen is (0 to 3)
+	u8 fit;    // Bean's own screen found on it (beanScreenFit()): fitlo/fithi
+	f32 fitlo[2];
+	f32 fithi[2];
 };
 
 // Bean's placeholder picture for a screen the release draws a programme into
@@ -6118,6 +6122,8 @@ static s32 beanFindScreens(struct modeldef *modeldef, struct beanscreen *screens
 		s->size = s->hi[0] - s->lo[0] > s->hi[1] - s->lo[1] ? s->hi[0] - s->lo[0] : s->hi[1] - s->lo[1];
 		s->quad = node->rodata->dl.numvertices == 4;
 		s->corners = 0;
+		s->part = (s8)part;
+		s->fit = 0;
 		num++;
 	}
 
@@ -6200,6 +6206,460 @@ static s32 beanScreenFace(const struct beanscreen *screens, s32 numscreens, f32 
 	}
 
 	return 0;
+}
+
+/**
+ * The screen painted on a flat front (beanScreenFit()): the dark patch of the
+ * picture under the quad's middle, flooded out from the texel there, taken
+ * back through the triangle's own mapping to the quad's plane. tri's three
+ * vertices are read again for their texture coordinates. 1 with lo/hi set, 0
+ * when the middle is not dark or the patch runs off the picture.
+ */
+static s32 beanScreenFitPicture(const struct beanmodel *bm, const struct beandraw *d, const struct beanvb *vb,
+		const u16 *tri, f32 (*uvw)[3], f32 cu, f32 cv, f32 *lo, f32 *hi)
+{
+	f32 p[3][2];
+	f32 t[3][2];
+	f32 det;
+	f32 m[2][2];  // plane to picture
+	f32 mi[2][2]; // picture to plane
+	f32 cs;
+	f32 ct;
+	s32 w;
+	s32 h;
+	u8 *rgba;
+	u8 *seen;
+	s32 *queue;
+	s32 head = 0;
+	s32 tail = 0;
+	s32 x0;
+	s32 y0;
+	s32 minx;
+	s32 maxx;
+	s32 miny;
+	s32 maxy;
+	s32 limit;
+	s32 start;
+	s32 ok = 1;
+
+	for (s32 k = 0; k < 3; k++) {
+		struct beanvtx v;
+
+		if (!beanVertex(bm, vb, tri[k], &v)) {
+			return 0;
+		}
+
+		p[k][0] = uvw[tri[k]][0];
+		p[k][1] = uvw[tri[k]][1];
+		t[k][0] = v.uv[0];
+		t[k][1] = v.uv[1];
+	}
+
+	det = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]);
+
+	if (fabsf(det) < 1e-6f) {
+		return 0;
+	}
+
+	// m = [dT1 dT2] * inverse([dP1 dP2])
+	{
+		const f32 a = (p[2][1] - p[0][1]) / det;
+		const f32 b = -(p[2][0] - p[0][0]) / det;
+		const f32 c = -(p[1][1] - p[0][1]) / det;
+		const f32 e = (p[1][0] - p[0][0]) / det;
+
+		for (s32 r = 0; r < 2; r++) {
+			const f32 d1 = t[1][r] - t[0][r];
+			const f32 d2 = t[2][r] - t[0][r];
+
+			m[r][0] = d1 * a + d2 * c;
+			m[r][1] = d1 * b + d2 * e;
+		}
+	}
+
+	det = m[0][0] * m[1][1] - m[0][1] * m[1][0];
+
+	if (fabsf(det) < 1e-12f) {
+		return 0;
+	}
+
+	mi[0][0] = m[1][1] / det;
+	mi[0][1] = -m[0][1] / det;
+	mi[1][0] = -m[1][0] / det;
+	mi[1][1] = m[0][0] / det;
+
+	cs = t[0][0] + m[0][0] * (cu - p[0][0]) + m[0][1] * (cv - p[0][1]);
+	ct = t[0][1] + m[1][0] * (cu - p[0][0]) + m[1][1] * (cv - p[0][1]);
+
+	rgba = beanDecodeTexture(bm, (s32)d->tex, &w, &h);
+
+	if (!rgba || w <= 0 || h <= 0) {
+		free(rgba);
+		return 0;
+	}
+
+	seen = calloc((size_t)w * h, 1);
+	queue = malloc((size_t)w * h * 2 * sizeof(s32));
+
+	if (!seen || !queue) {
+		free(rgba);
+		free(seen);
+		free(queue);
+		return 0;
+	}
+
+	// the picture's rows are its bottom first (beanDecodeTexture())
+	x0 = (s32)floorf(cs * w);
+	y0 = (s32)floorf((1.0f - ct) * h);
+	minx = maxx = x0;
+	miny = maxy = y0;
+
+	{
+		const s32 wx = ((x0 % w) + w) % w;
+		const s32 wy = ((y0 % h) + h) % h;
+		const u8 *px = &rgba[(wy * w + wx) * 4];
+		s32 dark = px[0] > px[1] ? px[0] : px[1];
+
+		dark = px[2] > dark ? px[2] : dark;
+		start = dark;
+	}
+
+	// a screen is dark; the case round it is not
+	if (start > 96) {
+		ok = 0;
+	}
+
+	// Close to the texel's own shade: Silo's screens are 29 with a glass's
+	// glow on them, their bezel grey flecked down to 44 and edged in black,
+	// and a flood to 77 ran out through the flecks round the whole picture
+	limit = start + 16;
+	queue[tail++] = x0;
+	queue[tail++] = y0;
+	seen[(((y0 % h) + h) % h) * w + ((x0 % w) + w) % w] = 1;
+
+	while (ok && head < tail) {
+		const s32 x = queue[head++];
+		const s32 y = queue[head++];
+		static const s32 step[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+
+		minx = x < minx ? x : minx;
+		maxx = x > maxx ? x : maxx;
+		miny = y < miny ? y : miny;
+		maxy = y > maxy ? y : maxy;
+
+		// a patch the width or height of the picture is not a screen on it
+		if (maxx - minx >= w - 1 || maxy - miny >= h - 1) {
+			ok = 0;
+			break;
+		}
+
+		for (s32 k = 0; k < 4; k++) {
+			const s32 nx = x + step[k][0];
+			const s32 ny = y + step[k][1];
+			const s32 wx = ((nx % w) + w) % w;
+			const s32 wy = ((ny % h) + h) % h;
+			const u8 *px = &rgba[(wy * w + wx) * 4];
+			s32 lum = px[0] > px[1] ? px[0] : px[1];
+
+			lum = px[2] > lum ? px[2] : lum;
+
+			if (!seen[wy * w + wx] && lum <= limit && tail + 2 <= w * h * 2) {
+				seen[wy * w + wx] = 1;
+				queue[tail++] = nx;
+				queue[tail++] = ny;
+			}
+		}
+	}
+
+	free(rgba);
+	free(seen);
+	free(queue);
+
+	if (!ok) {
+		return 0;
+	}
+
+	lo[0] = lo[1] = 1e30f;
+	hi[0] = hi[1] = -1e30f;
+
+	// the patch's corners, texel edges included, back on the plane
+	for (s32 c = 0; c < 4; c++) {
+		const f32 s = (f32)((c & 1) ? maxx + 1 : minx) / w - t[0][0];
+		const f32 tt = (1.0f - (f32)((c & 2) ? maxy + 1 : miny) / h) - t[0][1];
+
+		for (s32 a = 0; a < 2; a++) {
+			const f32 at = p[0][a] + mi[a][0] * s + mi[a][1] * tt;
+
+			lo[a] = at < lo[a] ? at : lo[a];
+			hi[a] = at > hi[a] ? at : hi[a];
+		}
+	}
+
+	return 1;
+}
+
+/**
+ * Bean's own screen on a monitor whose HD case is not GoldenEye's shape: the
+ * programme goes where the release's model has its screen, not on
+ * GoldenEye's quad.
+ *
+ * Facility's wall console (prop/consolesev2b, Pgx033Z) and Silo's banks of
+ * four (prop/console1-3) have their screen as a pane of its own, flat on the
+ * front of the case in the plane of GoldenEye's quad (to half a unit on a
+ * screen 535 across) but not its size: consolesev2b's is 594 wide and 377
+ * high where GoldenEye's is 535 by 423, and it sits 20 units higher. The
+ * programme drawn on GoldenEye's quad ran over the case's bezel above and
+ * below and left a strip of Bean's dark pane at its sides, and on the same
+ * plane as the pane it fought it for the depth test up close (F3
+ * 20260926-210911, -220636 on Facility, -224740 on Silo, HD look). The
+ * N64 look draws GoldenEye's case round GoldenEye's quad and is untouched.
+ *
+ * The pane is the triangles of one draw, joined by the vertices they share,
+ * that lie in the quad's plane (within 1% of its size) with one of them over
+ * the quad's middle. When those are the whole front of the case (Silo's), the
+ * triangle over the middle alone, the half of a pane's quad that has its
+ * extent; and when that triangle is the case's front too, the screen is
+ * painted on it and beanScreenFitPicture() finds it in the picture. Its
+ * extent in the quad's plane is the screen the programme is given
+ * (xblaMeshScreenQuad() moves tvscreenRender()'s corners onto it), a
+ * hundredth of the size in front so that the programme and not the pane or
+ * the painted front wins the depth test. Only when the pane is a screen's
+ * size - its area half to one and a half times the quad's, its middle within
+ * a tenth of the size of the quad's - and not where Bean has the placeholder
+ * the release draws its programme into (beanScreenBacking()) or a recess on
+ * the quad's corners (beanScreenFace()). The build's log names each.
+ */
+static void beanScreenFit(const struct beanmodel *bm, const struct gebeangunrow *g, const char *source,
+		struct beanscreen *screens, s32 numscreens)
+{
+	for (s32 i = 0; i < numscreens; i++) {
+		struct beanscreen *sc = &screens[i];
+		const f32 cu = (sc->lo[0] + sc->hi[0]) * 0.5f;
+		const f32 cv = (sc->lo[1] + sc->hi[1]) * 0.5f;
+		const f32 area = (sc->hi[0] - sc->lo[0]) * (sc->hi[1] - sc->lo[1]);
+		const f32 margin = sc->size * 0.01f;
+		s32 placeholder = 0;
+		s32 settled = 0;
+
+		if (!sc->quad || sc->corners == 0xf || area <= 0.0f) {
+			continue;
+		}
+
+		// Every draw twice: the placeholder's first, wherever the model has
+		// them, then the rest for the pane
+		for (s32 k = 0; k < 2 * bm->numdraws && !settled && !placeholder; k++) {
+			const s32 di = k % bm->numdraws;
+			const struct beandraw *d = &bm->draws[di];
+			const s32 isplaceholder = strncmp(beanTextureName(bm, (s32)d->tex), beanScreenPlaceholder,
+					sizeof(beanScreenPlaceholder) - 1) == 0;
+			struct beanvb vb;
+			u16 *tris = NULL;
+			s32 numtris;
+			f32 (*uvw)[3];
+			u8 *state;
+			s32 seed = -1;
+
+			if (isplaceholder != (k < bm->numdraws)) {
+				continue;
+			}
+
+			if (!beanReadVb(bm, d->vb, &vb) || vb.count == 0) {
+				continue;
+			}
+
+			numtris = beanTriangles(bm, d, &tris);
+
+			if (numtris <= 0) {
+				free(tris);
+				continue;
+			}
+
+			uvw = malloc(vb.count * sizeof(*uvw));
+			state = calloc(vb.count, 1); // 1 read, 2 dropped or unreadable, 4 in the pane
+
+			if (!uvw || !state) {
+				free(uvw);
+				free(state);
+				free(tris);
+				continue;
+			}
+
+			for (u32 vi = 0; vi < vb.count; vi++) {
+				struct beanvtx v;
+				f32 pos[3];
+
+				if (beanVertexDropped(source, vb.off, vi) || !beanVertex(bm, &vb, vi, &v)) {
+					state[vi] = 2;
+					continue;
+				}
+
+				for (s32 k = 0; k < 3; k++) {
+					pos[k] = (g->sign[k] * v.pos[g->perm[k]] - g->beancentre[k]) * g->scale + g->n64centre[k];
+				}
+
+				for (s32 a = 0; a < 3; a++) {
+					uvw[vi][a] = (pos[0] - sc->origin[0]) * sc->axis[a][0] + (pos[1] - sc->origin[1]) * sc->axis[a][1]
+						+ (pos[2] - sc->origin[2]) * sc->axis[a][2];
+				}
+
+				state[vi] = 1;
+			}
+
+			// a placeholder anywhere on the screen: the release's own screen,
+			// which beanScreenBacking() sees to
+			if (isplaceholder) {
+				for (u32 vi = 0; vi < vb.count && !placeholder; vi++) {
+					if (state[vi] == 1 && uvw[vi][2] >= -sc->size * 0.05f && uvw[vi][2] <= sc->size * 0.05f
+							&& uvw[vi][0] >= sc->lo[0] - sc->size * 0.1f && uvw[vi][0] <= sc->hi[0] + sc->size * 0.1f
+							&& uvw[vi][1] >= sc->lo[1] - sc->size * 0.1f && uvw[vi][1] <= sc->hi[1] + sc->size * 0.1f) {
+						placeholder = 1;
+					}
+				}
+
+				free(uvw);
+				free(state);
+				free(tris);
+				continue;
+			}
+
+			// the flat triangle over the quad's middle
+			for (s32 t = 0; t < numtris && seed < 0; t++) {
+				const u16 *tv = &tris[t * 3];
+				s32 flat = 1;
+				f32 e0;
+				f32 e1;
+				f32 e2;
+
+				for (s32 k = 0; k < 3; k++) {
+					if (tv[k] >= vb.count || state[tv[k]] != 1 || uvw[tv[k]][2] < -margin || uvw[tv[k]][2] > margin) {
+						flat = 0;
+					}
+				}
+
+				if (!flat) {
+					continue;
+				}
+
+				e0 = (uvw[tv[1]][0] - uvw[tv[0]][0]) * (cv - uvw[tv[0]][1]) - (uvw[tv[1]][1] - uvw[tv[0]][1]) * (cu - uvw[tv[0]][0]);
+				e1 = (uvw[tv[2]][0] - uvw[tv[1]][0]) * (cv - uvw[tv[1]][1]) - (uvw[tv[2]][1] - uvw[tv[1]][1]) * (cu - uvw[tv[1]][0]);
+				e2 = (uvw[tv[0]][0] - uvw[tv[2]][0]) * (cv - uvw[tv[2]][1]) - (uvw[tv[0]][1] - uvw[tv[2]][1]) * (cu - uvw[tv[2]][0]);
+
+				if ((e0 >= 0.0f && e1 >= 0.0f && e2 >= 0.0f) || (e0 <= 0.0f && e1 <= 0.0f && e2 <= 0.0f)) {
+					seed = t;
+				}
+			}
+
+			if (seed >= 0) {
+				const s32 seedtri = seed;
+				s32 grew = 1;
+				f32 lo[2];
+				f32 hi[2];
+				f32 fitarea;
+
+				for (s32 k = 0; k < 3; k++) {
+					state[tris[seed * 3 + k]] |= 4;
+				}
+
+				// every flat triangle sharing a vertex with the pane is the pane
+				while (grew) {
+					grew = 0;
+
+					for (s32 t = 0; t < numtris; t++) {
+						const u16 *tv = &tris[t * 3];
+						s32 flat = 1;
+						s32 touches = 0;
+						s32 all = 1;
+
+						for (s32 k = 0; k < 3; k++) {
+							if (tv[k] >= vb.count || !(state[tv[k]] & 1) || uvw[tv[k]][2] < -margin || uvw[tv[k]][2] > margin) {
+								flat = 0;
+								break;
+							}
+
+							touches |= (state[tv[k]] & 4) != 0;
+							all &= (state[tv[k]] & 4) != 0;
+						}
+
+						if (flat && touches && !all) {
+							for (s32 k = 0; k < 3; k++) {
+								state[tv[k]] |= 4;
+							}
+
+							grew = 1;
+						}
+					}
+				}
+
+				lo[0] = lo[1] = 1e30f;
+				hi[0] = hi[1] = -1e30f;
+
+				for (u32 vi = 0; vi < vb.count; vi++) {
+					if (state[vi] & 4) {
+						for (s32 a = 0; a < 2; a++) {
+							lo[a] = uvw[vi][a] < lo[a] ? uvw[vi][a] : lo[a];
+							hi[a] = uvw[vi][a] > hi[a] ? uvw[vi][a] : hi[a];
+						}
+					}
+				}
+
+				fitarea = (hi[0] - lo[0]) * (hi[1] - lo[1]);
+
+				// A pane joined to its bezel by the vertices they share is the
+				// whole front of the case (Silo's banks of four, 490 square
+				// round a screen 378 by 369): the triangle over the middle is
+				// half of the pane itself, and has the pane's extent
+				if (fitarea > area * 1.5f) {
+					f32 slo[2] = { 1e30f, 1e30f };
+					f32 shi[2] = { -1e30f, -1e30f };
+
+					for (s32 k = 0; k < 3; k++) {
+						const u16 vi = tris[seedtri * 3 + k];
+
+						for (s32 a = 0; a < 2; a++) {
+							slo[a] = uvw[vi][a] < slo[a] ? uvw[vi][a] : slo[a];
+							shi[a] = uvw[vi][a] > shi[a] ? uvw[vi][a] : shi[a];
+						}
+					}
+
+					lo[0] = slo[0];
+					lo[1] = slo[1];
+					hi[0] = shi[0];
+					hi[1] = shi[1];
+					fitarea = (hi[0] - lo[0]) * (hi[1] - lo[1]);
+				}
+
+				// and a triangle wider than the screen is the case's front,
+				// with the screen painted on it
+				if (fitarea > area * 1.5f
+						&& beanScreenFitPicture(bm, d, &vb, &tris[seedtri * 3], uvw, cu, cv, lo, hi)) {
+					fitarea = (hi[0] - lo[0]) * (hi[1] - lo[1]);
+				}
+
+				if (fitarea >= area * 0.5f && fitarea <= area * 1.5f
+						&& fabsf((lo[0] + hi[0]) * 0.5f - cu) <= sc->size * 0.1f
+						&& fabsf((lo[1] + hi[1]) * 0.5f - cv) <= sc->size * 0.1f) {
+					sc->fit = 1;
+					sc->fitlo[0] = lo[0];
+					sc->fitlo[1] = lo[1];
+					sc->fithi[0] = hi[0];
+					sc->fithi[1] = hi[1];
+				}
+
+				sysLogPrintf(LOG_NOTE, "gebean: %s screen %d: Bean's pane in draw %d is %.0f..%.0f x %.0f..%.0f, GoldenEye's quad %.0f..%.0f x %.0f..%.0f%s",
+						source, sc->part, di, lo[0], hi[0], lo[1], hi[1], sc->lo[0], sc->hi[0], sc->lo[1], sc->hi[1],
+						sc->fit ? ", programme fitted to the pane" : ", not a screen's size: left alone");
+
+				// the draw with the flat triangle over the middle settles it
+				seed = numtris;
+			}
+
+			free(uvw);
+			free(state);
+			free(tris);
+
+			settled = seed == numtris;
+		}
+	}
 }
 
 /**
@@ -6332,6 +6792,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	s32 numbacking = 0;
 	s32 numrecess = 0;
 	s32 numclamped = 0;
+	u8 screenfit = 0;
+	f32 screenquad[4][4][3];
 	u8 *file;
 
 	memset(glass, 0, sizeof(glass));
@@ -6624,6 +7086,45 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	// or a CCTV's lens is a part of a skeleton of its own
 	if (modeldef->skel == &g_SkelBasic) {
 		beanScreenRecesses(&bm, g, source, screens, numscreens);
+
+		// a rigid prop's screens and Bean's vertices are both in the model's
+		// own space on its first matrix, which tvscreenRender()'s quad is
+		// drawn in
+		if (numparts == 0 && mtx == 0) {
+			beanScreenFit(&bm, g, source, screens, numscreens);
+		}
+	}
+
+	for (s32 i = 0; i < numscreens; i++) {
+		const struct beanscreen *sc = &screens[i];
+		struct modelnode *node = modelGetPart(modeldef, sc->part);
+
+		if (!sc->fit || !node) {
+			continue;
+		}
+
+		// GoldenEye's corners, each taken to the same place on Bean's pane
+		for (s32 c = 0; c < 4; c++) {
+			const Vtx *vtx = &node->rodata->dl.vertices[c];
+			const f32 d[3] = { vtx->x - sc->origin[0], vtx->y - sc->origin[1], vtx->z - sc->origin[2] };
+			f32 at[2];
+
+			for (s32 a = 0; a < 2; a++) {
+				const f32 on = d[0] * sc->axis[a][0] + d[1] * sc->axis[a][1] + d[2] * sc->axis[a][2];
+				const f32 frac = sc->hi[a] > sc->lo[a] ? (on - sc->lo[a]) / (sc->hi[a] - sc->lo[a]) : 0.0f;
+
+				at[a] = sc->fitlo[a] + frac * (sc->fithi[a] - sc->fitlo[a]);
+			}
+
+			// a hundredth of the size in front of Bean's screen, which is
+			// on the quad's plane: the depth test is the programme's
+			for (s32 k = 0; k < 3; k++) {
+				screenquad[sc->part][c][k] = sc->origin[k] + at[0] * sc->axis[0][k] + at[1] * sc->axis[1][k]
+					+ sc->size * 0.01f * sc->axis[2][k];
+			}
+		}
+
+		screenfit |= 1 << sc->part;
 	}
 
 	for (s32 di = 0; di < bm.numdraws; di++) {
@@ -6819,6 +7320,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	memset(mats->bare, -1, sizeof(mats->bare));
 	memset(mats->spent, -1, sizeof(mats->spent));
 	mats->num = nummatwords;
+	mats->screenfit = screenfit;
+	memcpy(mats->screenquad, screenquad, sizeof(mats->screenquad));
 
 	for (s32 i = 0; i < nummatwords; i++) {
 		matwords[i] = XBLAMESH_MAT_TABLE | (u32)i;

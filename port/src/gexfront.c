@@ -4999,9 +4999,18 @@ static Gfx *frontDrawMonitorView(Gfx *gdl)
 			(s32)(MONITOR_CX + MONITOR_HW) + 3, (s32)(MONITOR_CY + MONITOR_HH) + 3, 0x000000ff);
 
 	if (model && node && (node->type & 0xff) == MODELNODETYPE_DL && g_Front.monitorscreen.cmdlist) {
-		const Vtx *v = node->rodata->dl.vertices;
-		s32 min[3] = { v[0].x, v[0].y, v[0].z };
-		s32 max[3] = { v[0].x, v[0].y, v[0].z };
+		Vtx v[4];
+		s32 min[3];
+		s32 max[3];
+
+		// the corners tvscreenRender() will draw: in the HD look Bean's
+		// screen's, not GoldenEye's quad (xblaMeshScreenQuad())
+		memcpy(v, node->rodata->dl.vertices, sizeof(v));
+		xblaMeshScreenQuad(model, node, v);
+
+		for (s32 k = 0; k < 3; k++) {
+			min[k] = max[k] = v[0].v[k];
+		}
 
 		for (s32 i = 1; i < 4; i++) {
 			for (s32 k = 0; k < 3; k++) {
