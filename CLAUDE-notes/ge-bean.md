@@ -11608,3 +11608,34 @@ What was wrong, and is now GoldenEye's:
   middle of the view. Widened, the open arm keeps the room's shade instead of
   GoldenEye's 0xcd black, which made the arm a black mass. 4:3 is untouched:
   59 capture frames compared pixel for pixel, none differ.
+
+## Statue Park in HD: not a remodel, 1248 times bigger (2026-09-27)
+
+User 2026-09-26 "we should build the release's statue park", tester F3
+20260926-231931 ("still no bean xbla statue park yet"). The 2026-09-22 finding
+that 4J remodelled Statue Park (fit 0.003) was the fit tool's blind spot, not
+the level: Bean's `statuepark` is GoldenEye's `stat` in the same frame, scaled
+by **1248.43** (Bean units -> GoldenEye's 0.000801004). Every other Bean level
+is within 0.02-20 of GoldenEye's units, so `beancover.py`'s sweep
+(geomspace 0.01..20) never reached it, and `stagefit.bean_points()` threw away
+every vertex past 1e6, which is half of Statue Park (it reaches 3.12 million).
+Measured with the scale: 99.8% of Bean's N64-look vertices lie within 1.5 GoldenEye
+units of GoldenEye's, and the HD mesh covers 77% of GoldenEye's vertices within
+1.5 (94% within 4) - the same as Jungle/Streets. No rotation, mirror or offset.
+
+Port side: the row `{ "stat", "statuepark", 0.007471857f, { -10709, 126, 3204 } }`
+(beanscales.json updated by hand; beancover.py's sweep now starts at 0.0005;
+gen_stagetable.py brought back in line with the in-tree table, GE-X rows gone)
+and gebeanLevelTriangles()'s sane-position bound 1e6 -> 1e8 (Dam's broken
+vertices are past 1e30, nothing else in any Bean level lies between). All 27
+rooms served, 63707 triangles, 0 kept, 0 backdrop, load ~1.9 s.
+
+Verified (rig ~/wt/f3-0926e-statuehd/build/run: shot.sh, padshots.sh, statue_full.py):
+spawn, pads 1 (Trevelyan's statue), 54, 59, 24 (helicopter), 22 (gates) and ten
+more, N64 against HD - props and gates sit on the HD ground; the opening swirl and
+title shot match; the full drive (statue_full.py, UNARMED=1) ends on aiEndLevel
+at f7149 with all five objectives complete in HD, as in the N64 look. HD is
+darker than the N64 look (the release's own vertex lighting). A few set pieces
+are 4J's own shapes on GoldenEye's footprint (the hammer-and-sickle monument
+reads as a beige block, the fallen statue pieces are rounder); the collision
+under them is GoldenEye's.
