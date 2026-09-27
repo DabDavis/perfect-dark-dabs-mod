@@ -271,6 +271,10 @@ s32 inputAutoLockMouse(s32 wantlock);
 // show/hide mouse cursor; if mouse lock is on the cursor is always hidden
 void inputMouseShowCursor(s32 show);
 
+// hide the system's pointer for this frame and the next, for a screen that
+// draws its own cursor where the pointer is (GE Plus's folder)
+void inputMouseHideCursorThisFrame(void);
+
 void inputStartTextInput(void);
 void inputStopTextInput(void);
 s32 inputIsTextInputActive(void);

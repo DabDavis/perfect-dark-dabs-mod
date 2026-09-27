@@ -82,7 +82,9 @@ MENU_IMAGES = ([2236, 2631] + list(range(2578, 2598)) + list(range(2686, 2690)) 
                # and the HUD's ammunition pictures (port/src/gehud.c)
                + list(range(2161, 2168)) + list(range(2231, 2236)) + [2238, 2464]
                # and its radar's disc (mpradarimages)
-               + [200])
+               + [200]
+               # and the difficulty page's tick (IMAGE_CHECK)
+               + [4])
 MENU_RAW = (('fontbankgothic.bin', 0x2e63f0, 0x24b0), ('fontzurichbold.bin', 0x2e88a0, 0x3540),
               # and its music: the instrument bank, and the sequence table ({u16 count, pad, then
               # u32 offset, u16 inflated, u16 zipped} a sequence) with the sequences after it

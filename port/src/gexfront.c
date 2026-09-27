@@ -71,6 +71,9 @@
 #include "gefolder.h"
 #include "xblamesh.h"
 #include "gexfront.h"
+#include "geconvert.h"
+#include "config.h"
+#include "platform.h"
 #include "gemusic.h"
 #include "gesfx.h"
 #include "game/modghost.h"
@@ -146,6 +149,11 @@ extern s32 g_MpWeaponSetNum;
 // the film strip's holes (IMAGE_DOT), 16x16 I8
 #define DOT_IMAGE 2631
 #define DOT_RELEASE "attract/sprocket"
+// the difficulty page's tick for a completed difficulty (IMAGE_CHECK), 20x20
+// IA8, under the number the conversion moves it to (geconvertTexRemap()): 4
+// is one of Perfect Dark's own texture numbers
+#define CHECK_IMAGE 4
+#define CHECK_RELEASE "attract/tick"
 // a stage picture: 68x44 I8
 #define STAGE_IMAGE_W 0x44
 #define STAGE_IMAGE_H 0x2c
@@ -251,6 +259,9 @@ enum { SCREEN_MODE, SCREEN_MPOPTIONS, SCREEN_LEVEL, SCREEN_SCENARIO, SCREEN_HEAL
  * indexes, both converted out of the ROM into menu/ (geconvert.c's g_MenuText).
  */
 #define NUM_MISSIONS 20
+// SP_LEVEL_AZTEC and SP_LEVEL_EGYPT, the two missions after the grid's eighteen
+#define MISSION_AZTEC 18
+#define MISSION_EGYPT 19
 #define MISSION_COLS 5
 #define MISSION_ROWS 4
 
@@ -400,6 +411,7 @@ static struct {
 	s32 mousex;
 	s32 mousey;
 	s32 mouseseen;
+	s32 mousedriving;   // the mouse moved the cursor last, not the stick
 	s32 highlight;      // the row (or mode) under the cursor, -1 for none
 	s32 tabprev;
 	s32 tabstart;
@@ -630,17 +642,171 @@ static s32 frontMissionStage(s32 mission)
 	return frontMissionsAreOwn() ? modloaderMissionStage(mission) : 0;
 }
 
-/** Whether GoldenEye's 007 mode is open, by the rule Perfect Dark opens its own PD Mode by. */
+static void frontLoadBestTimes(void);
+static u16 g_BestTimes[NUM_MISSIONS][NUM_DIFFICULTIES];
+
+/**
+ * Mod.GePlusLockedProgression: GoldenEye's locked progression - missions and
+ * difficulties open by completion (frontMissionStatus()). Off, as it ships:
+ * every mission is open at every difficulty, and 007 by PD Mode's rule as
+ * before; on, 007 also opens GoldenEye's way (all twenty on 00 Agent).
+ * The ticks for completed difficulties show either way.
+ */
+static s32 g_GePlusLockedProgression = 0;
+
+PD_CONSTRUCTOR static void gexFrontConfigInit(void)
+{
+	configRegisterInt("Mod.GePlusLockedProgression", &g_GePlusLockedProgression, 0, 1);
+}
+
+s32 gexFrontGetLockedProgression(void)
+{
+	return g_GePlusLockedProgression;
+}
+
+void gexFrontSetLockedProgression(s32 on)
+{
+	g_GePlusLockedProgression = on ? 1 : 0;
+}
+
+/**
+ * fileGetSaveStageCompletedForDifficulty(): whether a mission has been
+ * completed at a difficulty, in the remake's own file of best times
+ * (geplus-times.txt). GoldenEye's end_of_mission_briefing() files a
+ * completion at the difficulty played and every one below it
+ * (fileUnlockStageInFolderAtDifficulty()), so a time at any of Agent to
+ * 00 Agent at or above this one counts; 007 files nothing, as in GoldenEye.
+ */
+static s32 frontMissionCompleted(s32 mission, s32 difficulty)
+{
+	if (mission < 0 || mission >= NUM_MISSIONS || difficulty < 0 || difficulty >= DIFFICULTY_007) {
+		return 0;
+	}
+
+	if (g_ModUnlocks & MODUNLOCK_DIFFICULTIES) {
+		return 1;
+	}
+
+	frontLoadBestTimes();
+
+	for (s32 d = difficulty; d < DIFFICULTY_007; d++) {
+		if (g_BestTimes[mission][d]) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Whether GoldenEye's 007 mode is open: fileIs007ModeUnlocked(), every
+ * mission completed on 00 Agent - or, as GE Plus opened it before it kept
+ * GoldenEye's own record, the rule Perfect Dark opens its PD Mode by.
+ */
 static s32 front007Unlocked(void)
 {
-	return g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] != 0 || (g_ModUnlocks & MODUNLOCK_COMPLETION);
+	s32 mission;
+
+	if (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] != 0 || (g_ModUnlocks & MODUNLOCK_COMPLETION)) {
+		return 1;
+	}
+
+	// GoldenEye's own way only with its progression on (Mod.GePlusLockedProgression)
+	if (!g_GePlusLockedProgression) {
+		return 0;
+	}
+
+	for (mission = 0; mission < NUM_MISSIONS; mission++) {
+		if (!frontMissionCompleted(mission, DIFF_PA)) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+/** fileGetSaveStageCompletedForDifficulty() for 007 as well: open counts as completed. */
+static s32 frontMissionDone(s32 mission, s32 difficulty)
+{
+	return difficulty == DIFFICULTY_007 ? front007Unlocked() : frontMissionCompleted(mission, difficulty);
+}
+
+#define STAGESTATUS_LOCKED    0
+#define STAGESTATUS_UNLOCKED  1
+#define STAGESTATUS_COMPLETED 3
+
+/**
+ * fileIsStageUnlockedAtDifficulty(): locked, open or completed. A mission is
+ * open at a difficulty when every one before it is completed at that
+ * difficulty or a harder one, or the one just before it is (Aztec and Egypt
+ * excepted); Aztec needs Secret Agent and Egypt 00 Agent at the least.
+ */
+static s32 frontMissionStatus(s32 mission, s32 difficulty)
+{
+	s32 i;
+	s32 m;
+
+	if (mission < 0 || mission >= NUM_MISSIONS || difficulty < 0 || difficulty >= NUM_DIFFICULTIES) {
+		return STAGESTATUS_LOCKED;
+	}
+
+	if (frontMissionDone(mission, difficulty)) {
+		return STAGESTATUS_COMPLETED;
+	}
+
+	if ((mission == MISSION_AZTEC && difficulty < DIFF_SA) || (mission == MISSION_EGYPT && difficulty < DIFF_PA)) {
+		return STAGESTATUS_LOCKED;
+	}
+
+	for (i = difficulty; i < NUM_DIFFICULTIES; i++) {
+		for (m = 0; m < mission; m++) {
+			if (!frontMissionDone(m, i)) {
+				break;
+			}
+		}
+
+		if (mission <= m) {
+			return STAGESTATUS_UNLOCKED;
+		}
+	}
+
+	if (difficulty < DIFFICULTY_007 && mission < MISSION_AZTEC) {
+		for (i = difficulty; i < NUM_DIFFICULTIES; i++) {
+			if (frontMissionDone(mission - 1, i)) {
+				return STAGESTATUS_UNLOCKED;
+			}
+		}
+	}
+
+	if (difficulty < DIFFICULTY_007) {
+		for (m = 0; m < MISSION_AZTEC; m++) {
+			if (!frontMissionDone(m, DIFF_A)) {
+				break;
+			}
+		}
+
+		if (m >= MISSION_AZTEC) {
+			for (i = DIFF_A; i < difficulty; i++) {
+				if (!frontMissionDone(mission, i)) {
+					break;
+				}
+			}
+
+			if (difficulty <= i) {
+				return STAGESTATUS_UNLOCKED;
+			}
+		}
+	}
+
+	return mission == 0 ? STAGESTATUS_UNLOCKED : STAGESTATUS_LOCKED;
 }
 
 /**
  * get_highest_unlocked_difficulty_for_level(): the highest difficulty a mission
  * can be played at, or -1 when it cannot be played at all. GoldenEye's first
  * three are Perfect Dark's three, and its 007 is Perfect Dark's PD Mode - the
- * same sliders over the hardest difficulty.
+ * same sliders over the hardest difficulty. The remake keeps GoldenEye's
+ * record of what has been completed (F3 20260926-212705).
  */
 static s32 frontHighestDifficulty(s32 mission)
 {
@@ -648,16 +814,13 @@ static s32 frontHighestDifficulty(s32 mission)
 		return -1;
 	}
 
-	// The remake's own missions are stages of their own and have no place in
-	// the save's solo stage table, so there is nothing to unlock them
-	// against: they are all open, as GoldenEye X's are with its modconfig.
-	if (frontMissionsAreOwn()) {
+	if (!g_GePlusLockedProgression) {
 		return front007Unlocked() ? DIFFICULTY_007 : DIFF_PA;
 	}
 
-	for (s32 d = DIFF_PA; d >= 0; d--) {
-		if (isStageDifficultyUnlocked(mission, d)) {
-			return d == DIFF_PA && front007Unlocked() ? DIFFICULTY_007 : d;
+	for (s32 d = front007Unlocked() ? DIFFICULTY_007 : DIFF_PA; d >= 0; d--) {
+		if (frontMissionStatus(mission, d) != STAGESTATUS_LOCKED) {
+			return d;
 		}
 	}
 
@@ -895,7 +1058,6 @@ static const s16 g_TargetTimes[NUM_MISSIONS][3] = {
 #define BESTTIMES_FILE "$S/geplus-times.txt"
 #define BESTTIME_MAX 0x3ff
 
-static u16 g_BestTimes[NUM_MISSIONS][NUM_DIFFICULTIES];
 static s32 g_BestTimesLoaded;
 
 static void frontLoadBestTimes(void)
@@ -1723,6 +1885,23 @@ static void frontClose(void)
 
 /* ---- input -------------------------------------------------------------- */
 
+/**
+ * The cursor on the mouse pointer, in the 4:3 frame the folder is drawn in.
+ * frontX() read backwards: the pointer is in this frame's 320x220 and
+ * G_ASPECT_CENTER_EXT holds what is drawn at SCREEN_ASPECT.
+ */
+static void frontCursorToMouse(s32 mx, s32 my)
+{
+	g_Front.cursorx = GEFRONT_W / 2
+		+ ((f32)mx - SCREEN_WIDTH_LO / 2) * videoGetAspect() * GEFRONT_H / SCREEN_WIDTH_LO;
+	g_Front.cursory = (f32)my * GEFRONT_H / SCREEN_HEIGHT_LO;
+
+	if (g_Front.cursorx > GEFRONT_W - 20) g_Front.cursorx = GEFRONT_W - 20;
+	if (g_Front.cursorx < 20) g_Front.cursorx = 20;
+	if (g_Front.cursory > GEFRONT_H - 20) g_Front.cursory = GEFRONT_H - 20;
+	if (g_Front.cursory < 20) g_Front.cursory = 20;
+}
+
 static void frontMoveCursor(void)
 {
 	// frontUpdateControlStickPosition(): a 5 dead zone, 70 at most
@@ -1756,11 +1935,16 @@ static void frontMoveCursor(void)
 		inputMouseGetPosition(&mx, &my);
 
 		if (g_Front.mouseseen && (mx != g_Front.mousex || my != g_Front.mousey)) {
-			// frontX() read backwards: the pointer is in this frame's 320x220
-			// and G_ASPECT_CENTER_EXT holds what is drawn at SCREEN_ASPECT
-			g_Front.cursorx = GEFRONT_W / 2
-				+ ((f32)mx - SCREEN_WIDTH_LO / 2) * videoGetAspect() * GEFRONT_H / SCREEN_WIDTH_LO;
-			g_Front.cursory = (f32)my * GEFRONT_H / SCREEN_HEIGHT_LO;
+			g_Front.mousedriving = 1;
+		}
+
+		// the stick takes the cursor back from the mouse
+		if (stickx || sticky) {
+			g_Front.mousedriving = 0;
+		}
+
+		if (g_Front.mousedriving) {
+			frontCursorToMouse(mx, my);
 		}
 
 		g_Front.mousex = mx;
@@ -2722,14 +2906,35 @@ static void frontSetCursorForMode(s32 mode)
 	g_Front.cursory = mode * 0x20 + 0xe2;
 }
 
+static void frontTickScreen(void);
+
 void gexFrontTick(void)
 {
-	s32 pick;
-	s32 back;
-
 	if (!g_Front.active) {
 		return;
 	}
+
+	// the crosshair is the pointer here; the system's own over it is a
+	// second one (F3 20260926-215427)
+	if (inputMouseIsEnabled()) {
+		inputMouseHideCursorThisFrame();
+	}
+
+	frontTickScreen();
+
+	// A page GoldenEye opens puts the cursor on its first choice (the
+	// difficulty's 007, the briefing's NEXT tab), which is the stick's way.
+	// A mouse's cursor stays under the pointer, where the player left it
+	// (F3 20260926-215623, 215803).
+	if (g_Front.active && g_Front.mousedriving && inputMouseIsEnabled() && !inputMouseIsLocked()) {
+		frontCursorToMouse(g_Front.mousex, g_Front.mousey);
+	}
+}
+
+static void frontTickScreen(void)
+{
+	s32 pick;
+	s32 back;
 
 	frontMoveCursor();
 
@@ -2899,6 +3104,7 @@ s32 gexFrontOpen(void)
 	g_FrontInside = 1;
 	g_Front.screen = SCREEN_MODE;
 	g_Front.mouseseen = 0;
+	g_Front.mousedriving = 0;
 
 	if (frontMusic() >= 0) {
 		musicStartTrackAsMenu(frontMusic());
@@ -3752,8 +3958,11 @@ static Gfx *frontDrawCursor(Gfx *gdl)
 	const s32 prevsrc = modSetTextureSourceMod(g_Front.moddir);
 	struct textureconfig release;
 
-	// the release's own crosshair (texture/sight), the same 32 texels square
-	if (frontReleasePicture("sight", &release)) {
+	// the release's own crosshair, the same 32 texels square: the HUD's
+	// 256x256 one (texture/bg/sight, turned the right way up by gefolder.c),
+	// as the in-game sight is drawn; the release's menu one (texture/sight) is
+	// 32x32 and a 4K window blew it up to blocks (F3 20260926-215235)
+	if (frontReleasePicture("bg/sight", &release) || frontReleasePicture("sight", &release)) {
 		texSelect(&gdl, &release, 4, 0, 2, 1, NULL);
 		gDPSetTextureFilter(gdl++, G_TF_BILERP);
 	} else {
@@ -5277,6 +5486,68 @@ static Gfx *frontDrawCinemaPick(Gfx *gdl)
 	return gdl;
 }
 
+/**
+ * GoldenEye's tick (IMAGE_CHECK) centred on a point, in its red: the
+ * release's picture where its look is on, else GoldenEye's own where the
+ * conversion carries it, else one drawn the same size out of squares.
+ */
+static Gfx *frontDrawCheck(Gfx *gdl, f32 cx, f32 cy)
+{
+	static s32 haveimage = -1;
+	static s32 havedir = -1;
+	struct textureconfig tex;
+	struct textureconfig *image = NULL;
+	s32 theight = -20;
+
+	// an older conversion has not got GoldenEye's own
+	if (haveimage < 0 || havedir != g_Front.moddir) {
+		const char *dir = fsGetModDirAt(g_Front.moddir);
+		char path[1024];
+
+		snprintf(path, sizeof(path), "%s/textures/%04x.bin", dir ? dir : "", geconvertTexRemap(CHECK_IMAGE));
+		haveimage = dir && fsFileSize(path) > 0;
+		havedir = g_Front.moddir;
+	}
+
+	if (frontReleasePicture(CHECK_RELEASE, &tex)) {
+		// the release's rows run bottom to top, and its tick is white
+		texSelect(&gdl, &tex, 1, 0, 2, 1, NULL);
+		theight = -FRONT_PICTURE_TEXELS;
+		image = &tex;
+	} else if (haveimage && (image = frontTexture(geconvertTexRemap(CHECK_IMAGE), 20, 20, G_IM_FMT_IA, G_IM_SIZ_8b, false))) {
+		const s32 prevsrc = modSetTextureSourceMod(g_Front.moddir);
+
+		texSelect(&gdl, image, 1, 0, 2, 1, NULL);
+		modSetTextureSourceMod(prevsrc);
+	}
+
+	if (image) {
+		// display_image_at_position(): tinted 0xb40000, through the tick's own alpha
+		gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+		gdl = frontImageRect(gdl, cx, cy, 10, 10, -theight, theight, 0xb40000ff, false, true);
+
+		return frontTextSetup(gdl);
+	}
+
+	// else one drawn the same size out of squares: a stroke down to the
+	// corner and a longer one up from it
+	for (s32 k = 0; k <= 4; k++) {
+		const s32 x = (s32)cx - 8 + k * 2;
+		const s32 y = (s32)cy + k * 2 - 2;
+
+		gdl = frontFillRect(gdl, x, y, x + 3, y + 3, 0xb40000ff);
+	}
+
+	for (s32 k = 1; k <= 7; k++) {
+		const s32 x = (s32)cx + k * 2;
+		const s32 y = (s32)cy + 6 - k * 2;
+
+		gdl = frontFillRect(gdl, x - 2, y, x + 1, y + 3, 0xb40000ff);
+	}
+
+	return frontTextSetup(gdl);
+}
+
 /** constructor_menu08_difficulty(): the difficulties open to this mission, numbered. */
 static Gfx *frontDrawDifficulty(Gfx *gdl)
 {
@@ -5300,6 +5571,13 @@ static Gfx *frontDrawDifficulty(Gfx *gdl)
 		snprintf(num, sizeof(num), "%d.\n", i + 1);
 		gdl = frontPrint(gdl, 0x82, i * 0x1e + 0xb4, num, COLOUR_ON);
 		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, frontString(TITLE_DIFF2_FIRST + i), COLOUR_ON);
+	}
+
+	// the tick beside each of the first three completed, at x 280
+	for (s32 i = 0; i < DIFFICULTY_007; i++) {
+		if ((i == 0 || highest >= i) && frontMissionStatus(g_Front.mission, i) == STAGESTATUS_COMPLETED) {
+			gdl = frontDrawCheck(gdl, 280.0f, i * 0x1e + 0xba);
+		}
 	}
 
 	return gdl;

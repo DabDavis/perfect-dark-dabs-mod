@@ -209,22 +209,31 @@ Gfx *menugfxRenderBgBlur(Gfx *gdl, u32 colour, s16 arg2, s16 arg3)
 #elif PAL || !defined(PLATFORM_N64)
 #ifdef PLATFORM_N64
 	width = viGetWidth() * 10;
+	// the N64's 40x30 average stood a few pixels up and left of the screen
+	// it was taken of, and the quad reaches past the edges to put it back
+#define BLUR_OVERSCAN_X 40
+#define BLUR_OVERSCAN_Y 50
 #else
 	width = SCREEN_320 * 10;
+	// the port's copy is the whole view, edge to edge, and is not stretched
+	// (with BLUR_TEXEL_OFS below: the backdrop behind a pause menu or F3's
+	// report stood off the view it was taken of, F3 20260926-202253)
+#define BLUR_OVERSCAN_X 0
+#define BLUR_OVERSCAN_Y 0
 #endif
 	height = viGetHeight() * 10;
 
 	*(u16 *)&vertices[0].x = arg2;
 	*(u16 *)&vertices[0].y = arg3;
 	vertices[0].z = -10;
-	*(u16 *)&vertices[1].x = (s32)width + arg2 + 40;
+	*(u16 *)&vertices[1].x = (s32)width + arg2 + BLUR_OVERSCAN_X;
 	*(u16 *)&vertices[1].y = arg3;
 	vertices[1].z = -10;
-	*(u16 *)&vertices[2].x = (s32)width + arg2 + 40;
-	*(u16 *)&vertices[2].y = (s32)height + arg3 + 50;
+	*(u16 *)&vertices[2].x = (s32)width + arg2 + BLUR_OVERSCAN_X;
+	*(u16 *)&vertices[2].y = (s32)height + arg3 + BLUR_OVERSCAN_Y;
 	vertices[2].z = -10;
 	*(u16 *)&vertices[3].x = arg2;
-	*(u16 *)&vertices[3].y = (s32)height + arg3 + 50;
+	*(u16 *)&vertices[3].y = (s32)height + arg3 + BLUR_OVERSCAN_Y;
 	vertices[3].z = -10;
 #else
 	*(u16 *)&vertices[0].x = arg2;
@@ -241,14 +250,24 @@ Gfx *menugfxRenderBgBlur(Gfx *gdl, u32 colour, s16 arg2, s16 arg3)
 	vertices[3].z = -10;
 #endif
 
-	vertices[0].s = 0;
-	vertices[0].t = 0;
-	vertices[1].s = SCREEN_320 * 4;
-	vertices[1].t = 0;
-	vertices[2].s = SCREEN_320 * 4;
-	vertices[2].t = SCREEN_320 * 3;
-	vertices[3].s = 0;
-	vertices[3].t = SCREEN_320 * 3;
+#ifdef PLATFORM_N64
+#define BLUR_TEXEL_OFS 0
+#else
+	// The renderer moves a filtered triangle's texture coordinates half a
+	// texel on, and counts the texel in the 40x30 that was loaded, not in the
+	// screen-sized framebuffer drawn from: half of one of those is 16 by 12
+	// pixels at 1280x720, which the backdrop slid up and left by. Half a texel
+	// back puts it where it was taken (32 of these units a texel).
+#define BLUR_TEXEL_OFS 16
+#endif
+	vertices[0].s = -BLUR_TEXEL_OFS;
+	vertices[0].t = -BLUR_TEXEL_OFS;
+	vertices[1].s = SCREEN_320 * 4 - BLUR_TEXEL_OFS;
+	vertices[1].t = -BLUR_TEXEL_OFS;
+	vertices[2].s = SCREEN_320 * 4 - BLUR_TEXEL_OFS;
+	vertices[2].t = SCREEN_320 * 3 - BLUR_TEXEL_OFS;
+	vertices[3].s = -BLUR_TEXEL_OFS;
+	vertices[3].t = SCREEN_320 * 3 - BLUR_TEXEL_OFS;
 
 	vertices[0].colour = 0;
 	vertices[1].colour = 0;

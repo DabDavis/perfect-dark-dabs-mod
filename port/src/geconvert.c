@@ -111,6 +111,9 @@ static const struct { uint32_t first, count; } g_MenuImages[] = {
 	{ 2161, 7 }, { 2231, 5 }, { 2238, 1 }, { 2464, 1 },
 	// and its radar's disc (mpradarimages)
 	{ 200, 1 },
+	// and the difficulty page's tick (IMAGE_CHECK), which gexfront.c draws
+	// only where a conversion has it
+	{ 4, 1 },
 };
 
 static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
