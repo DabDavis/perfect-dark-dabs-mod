@@ -11816,12 +11816,22 @@ wallhit, bulletholesplaster, bullethole, bulletholesplasterrgb, wallhole1-3,
 6-9), bound with xblaTexBindPictureAt() at the loaded texture's address
 (re-bound when F6 flips the look).
 
-Checked on Dam against the oracle (`~/dam-oracle/geholes.py` +
-`holes.padscript` on 10.8.0.3, same four aims, vv_theta matches ours with no
-offset): rock image 949 is HIT_DEFAULT in GoldenEye too (type 7, IMPACT4), dirt
-2720 is type 2. Sheet: `~/wt/f3-0927-holes-run/holes_oracle_base_n64_hd.png`
-(oracle | 705725a27 | N64 | HD). Probe `~/wt/f3-0927-holes-run/holes.py`
-(shotCreate grid per aim, lists wallhit texnums, HIT lines per bg hit).
-Open, pre-existing (705725a27 too): on Dam at theta 270 from the start the
-brown corrugated wall takes shots (hit texture 949 at ~290 units) but no hole
-shows in the N64 look; the HD look shows them.
+Checked on Dam against the oracle (`~/dam-oracle/geholes2.py` + `holes.padscript`
+on 10.8.0.3, `TH=<deg> VA=<deg>`; ours `~/wt/f3-0927-holes-run/holes2.py`, same
+absolute vv_theta/vv_verta - both games start at theta 90.3 facing the truck):
+every aim takes the same texture and impact type in both (rock 949 -> type 7,
+dirt 2720 -> type 2, the corrugated shutter is a door, model 178 pad 19 in GE,
+-> objHit type 7). Loaded IMPACT4 (2171): CI8 + IA16 palette, 218 entries,
+byte-identical in both games; combiner MODULATEIA and XLU decal render mode the
+same; hole maxima 164 (GE) vs 156 (ours); a single hole 1.8% vs 2.0% of the
+screen's height at 285 units. Sheet `~/wt/f3-0927-holes-run/holes_oracle_base_n64_hd_v2.png`
+(oracle | 705725a27 | N64 | HD), single hole `one_cmp.png`.
+
+Probe traps, both of which made a first sheet look wrong:
+- the oracle's pad-script frame numbers are not `currentFrameCounter`: setting
+  the aim at "the frame of the Z press" aimed a different shot. Hold the aim on
+  every `lvlRender` (a breakpoint whose stop() sets vv_theta/vv_verta).
+- ours: `call shotCreate()` from gdb at videoEndFrame hits the bg but misses
+  every prop (modelTestForHit on stale matrices), so doors took no holes.
+  Fire through the game instead: a breakpoint on bgunTickGameplay setting
+  `$rdi` (the trigger) and holding the aim there.
