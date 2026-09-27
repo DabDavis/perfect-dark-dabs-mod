@@ -11788,3 +11788,28 @@ watch item table, the level entry table, strings, the end-of-RAM block, and
 setup bytes in files the locator missed (Dam intro cameras, Jungle AI + sky,
 Runway guards/doors, Surface bookshelf pads + railing, armour moves, Temple crate
 types, flag tokens) - each is a changelog line already classed above.
+
+## 12th F3 pass, group D: levels (2026-09-27, fix/f3-0927-levels)
+
+- **Parked trucks** (Streets' jeeps sunk to their axles, F3 000514/000832): GoldenEye's
+  first vehicle tick runs `sub_GAME_7F044B38()`, which sets the height whether the truck
+  moves or not; ours only set it on a step. `vehTruckGround()` now serves both (729c0278a).
+- **A door's portal** (Depot garage fronts invisible from outside, F3 001001/001101/044721;
+  Train track beyond a door unrendered, F3 002745): GoldenEye's `setupDoor()` takes the
+  portal joining the rooms the floor is in fifty either side of the door
+  (`sub_GAME_7F00324C()`), crossed by the line between. `setupGetPortalByDoorPad()` took
+  whichever portal the line through the door crossed nearest its middle: Depot's shutters
+  sit five units in front of the portal of the whole garage front. `geStanDoorSideRooms()`
+  (adcb8a576); checked door by door against the native port (`~/dam-oracle/gedoorportals3.py`,
+  NPROPS=600) on Depot, Frigate, Train, Egyptian - all match. The load logs each door that
+  differs from Perfect Dark's pick ("closes portal N, GoldenEye's").
+- Caverns water (F3 005659, 593cbc5): room 61 is shown by the visibility script; already
+  fixed on 705725a27 by 86124e8ac.
+- Aztec door after Jaws (F3 021009): pads 297/298 carry keyflags 2 and no key 2 is in the
+  setup (Jaws holds key 1); guards ignore keys. GoldenEye's own.
+- Aztec ladder (F3 020503): reproduced with `probes/ladder.py` in ~/wt/f3-0927-levels-run -
+  at the top of the ladder at (-4234, -437), strafing left walks off the ladder at ~y 725
+  and out of the level (ground -30000). The ladder tiles' outer edges are points in plan,
+  so no wall is raised there. Not fixed.
+- Aztec grate door fall (F3 013516) and Facility vent -> toilets through walls (F3 051458):
+  the grate walk (-5300,900 -> 0) does not fall on 593cbc5 or now; toilets not probed.
