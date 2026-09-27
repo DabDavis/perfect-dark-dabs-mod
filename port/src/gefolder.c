@@ -1267,6 +1267,7 @@ static const struct { s16 cond; s16 rom; } beanFolderByCond[] = {
 struct beanfoldertri {
 	s16 rom;
 	s16 tex;
+	s16 node;       // the release's node number (gebeanmodeldraw's), -1 for none
 	struct gebeanmodelvtx v[3];
 };
 
@@ -1309,10 +1310,264 @@ static s32 beanFolderRomFor(const struct gebeanmodeldraw *d)
 	return -1;
 }
 
+/**
+ * The release's folder was built for a 4:3 picture stretched to the television,
+ * and has four faults the GoldenEye XBLA Community Edition corrects in its copy
+ * of the file ("Tweaked menu briefing model for widescreen"). We draw the folder
+ * at its own shape on any window, as the Community Edition does, so the same
+ * four show here without its copy - the tester's F3s of 2026-09-26 (20260926-
+ * 215623 and four more): a black corner above the back cover and the olive desk
+ * ending in a dark band right of the tabs, a black strip down the page's left
+ * edge and over its top, and white where the photographs cast their shadows.
+ *
+ * - The desk behind the folder (picture 0, the cover's) is a frame sized for
+ *   4:3. The Community Edition moves its outer edges out to 21:9 and repaints
+ *   the picture's white margin where the longer quad then samples it; here it
+ *   gets a wing either side instead (beanFolderDeskWings()), the cloth folded
+ *   back on itself at the edge, so no margin is ever sampled and no picture
+ *   is touched - out to 32:9.
+ * - The inner cover's strip between the spine and the page has two vertices
+ *   black (0x111111) where every other vertex of the cover is its olive
+ *   (0x97cdcd in the file's ABGR): they take the olive.
+ * - The drop shadows (picture 64, a soft square drawn as a mask in its vertex
+ *   colour) of the page and the two photographs are white; they are black.
+ * - Where those shadows meet their picture's last row, v stops a sixty-fourth
+ *   short of it, so the clamped edge does not bleed.
+ *
+ * Each fix is keyed on the release's own vertex - picture, position, raw UV and
+ * colour as the file has them - so a copy that has already had it (the
+ * Community Edition's, gebeance.c) matches nothing and is drawn as it is.
+ */
+struct beanfolderfix {
+	s16 tex;
+	f32 pos[3];     // the release's
+	s16 uv[2];      // raw, as the file has them
+	u32 abgr;       // as the file has it
+	s16 v;          // the new raw v
+	u32 newabgr;
+};
+
+static const struct beanfolderfix beanFolderFixes[] = {
+	// the inner cover's strip: olive, not black
+	{  0, { -430.0f,  500.0f, -30.0f }, { 510,   43 }, 0xfc111111,   43, 0xfc97cdcd },
+	{  0, { -430.0f, -500.0f, -30.0f }, { 510, 1011 }, 0xfc111111, 1011, 0xfc97cdcd },
+	// the page's shadow
+	{ 64, {  316.4f, -483.4f, -20.0f }, { 1167, 1023 }, 0xfcffffff, 1007, 0xfc000000 },
+	{ 64, {  290.0f,  460.0f, -20.0f }, { -8563, 1023 }, 0xfcffffff, 1007, 0xfc000000 },
+	{ 64, {  290.0f, -460.0f, -20.0f }, { 1024,    0 }, 0xfcffffff,    0, 0xfc000000 },
+	// Bond's photograph's
+	{ 64, { -393.6f,  124.8f,  -9.5f }, { -168, 1023 }, 0xfcffffff, 1007, 0xfc000000 },
+	{ 64, { -132.5f,  124.8f,  -9.5f }, { 2264, 1024 }, 0xfcffffff, 1008, 0xfc000000 },
+	{ 64, { -132.5f,  143.8f,  -9.5f }, { 2264,    0 }, 0xfcffffff,    0, 0xfc000000 },
+	{ 64, { -368.3f,  143.8f,  -9.5f }, {   27,    0 }, 0xfcffffff,    0, 0xfc000000 },
+	{ 64, { -393.6f,  124.8f,  -9.5f }, { 1024, 1024 }, 0xfcffffff, 1008, 0xfc000000 },
+	{ 64, { -368.3f,  143.8f,  -9.5f }, { 1024,    0 }, 0xfcffffff,    0, 0xfc000000 },
+	{ 64, { -368.3f,  462.9f,  -9.5f }, { -3481, 1023 }, 0xfcffffff, 1007, 0xfc000000 },
+	// the briefing photograph's
+	{ 64, {  -22.9f,  183.8f,  -9.5f }, { 1024, 1023 }, 0xfcffffff, 1007, 0xfc000000 },
+	{ 64, {   -1.5f,  202.5f,  -9.5f }, { 1024,    0 }, 0xfcffffff,    0, 0xfc000000 },
+	{ 64, {   -1.5f,  462.9f,  -9.5f }, { -1972, 1024 }, 0xfcffffff, 1008, 0xfc000000 },
+	{ 64, {   -1.5f,  202.5f,  -9.5f }, { -2467,   0 }, 0xfcffffff,    0, 0xfc000000 },
+	{ 64, {  -22.9f,  183.8f,  -9.5f }, { -2886, 1024 }, 0xfcffffff, 1008, 0xfc000000 },
+	{ 64, {  244.4f,  183.8f,  -9.5f }, { 2886, 1024 }, 0xfcffffff, 1008, 0xfc000000 },
+	{ 64, {  244.4f,  202.5f,  -9.5f }, { 2845,    0 }, 0xfcffffff,    0, 0xfc000000 },
+};
+
+// the file's ABGR as gebean.c hands it over, ARGB
+static u32 beanFolderArgb(u32 abgr)
+{
+	return (abgr & 0xff00ff00) | ((abgr >> 16) & 0xff) | ((abgr & 0xff) << 16);
+}
+
+static s32 beanFolderFixed;
+
+static void beanFolderFix(const struct gebeanmodeldraw *d, struct gebeanmodelvtx *v)
+{
+	const f32 scale = d->uvscale > 0.0f ? d->uvscale : 1.0f;
+	const s32 raw[2] = { (s32)floorf(v->uv[0] * scale + 0.5f), (s32)floorf(v->uv[1] * scale + 0.5f) };
+
+
+	for (s32 i = 0; i < ARRAYCOUNT(beanFolderFixes); i++) {
+		const struct beanfolderfix *f = &beanFolderFixes[i];
+
+		if (f->tex != d->tex || raw[0] != f->uv[0] || raw[1] != f->uv[1]
+				|| v->argb != beanFolderArgb(f->abgr)
+				|| fabsf(v->pos[0] - f->pos[0]) > 0.2f
+				|| fabsf(v->pos[1] - f->pos[1]) > 0.2f
+				|| fabsf(v->pos[2] - f->pos[2]) > 0.2f) {
+			continue;
+		}
+
+		v->uv[1] = f->v / scale;
+		v->argb = beanFolderArgb(f->newabgr);
+		beanFolderFixed++;
+		return;
+	}
+}
+
+/**
+ * The desk's wings (see beanFolderFixes[]): from each outer edge of the frame
+ * the release's node 0 draws in picture 0 (the back cover, drawn to GoldenEye's
+ * node 0 too, is the release's section -1 and not part of it), a quad as tall
+ * as that edge out to BEANFOLDER_DESKREACH units either side of the frame's
+ * middle (32:9). Its u goes on at the frame's own density - the right one into
+ * the right hand panel, as the Community Edition's longer quad does - and
+ * turns back, a mirror, wherever it would leave the cloth: the white round the
+ * picture on the left, the crest on the right. So no seam shows and neither is
+ * ever sampled. A frame whose edges are already off that cloth - the Community
+ * Edition's, 21:9 wide over its repainted rows - gets none.
+ */
+#define BEANFOLDER_DESKREACH 1260.0f
+#define BEANFOLDER_CLOTH0    54.0f   // picture 0's cloth the wings may use, in the file's raw u:
+#define BEANFOLDER_CLOTH1    620.0f  // from the frame's left edge to short of the crest
+
+static f32 beanFolderUvScale = 1.0f;
+
+static void beanFolderDeskWings(void)
+{
+	struct gebeanmodelvtx lo[2], hi[2];
+	s32 nlo = 0, nhi = 0;
+	f32 minx = 1e9f, maxx = -1e9f;
+	const f32 scale = beanFolderUvScale;
+	f32 mid, density;
+	s32 at = 0;
+
+	for (s32 i = 0; i < beanFolder.numtris; i++) {
+		if (beanFolder.tris[i].node != 0 || beanFolder.tris[i].tex != 0) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			const f32 x = beanFolder.tris[i].v[j].pos[0];
+
+			if (x < minx) minx = x;
+			if (x > maxx) maxx = x;
+		}
+	}
+
+	if (maxx <= minx) {
+		return;
+	}
+
+	// the two vertices on each outer edge, top and bottom
+	for (s32 i = 0; i < beanFolder.numtris; i++) {
+		if (beanFolder.tris[i].node != 0 || beanFolder.tris[i].tex != 0) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			const struct gebeanmodelvtx *v = &beanFolder.tris[i].v[j];
+			struct gebeanmodelvtx *edge = v->pos[0] == minx ? lo : v->pos[0] == maxx ? hi : NULL;
+			s32 *n = v->pos[0] == minx ? &nlo : &nhi;
+
+			if (!edge || (*n == 1 && edge[0].pos[1] == v->pos[1]) || *n == 2) {
+				continue;
+			}
+
+			edge[(*n)++] = *v;
+		}
+	}
+
+	mid = (minx + maxx) * 0.5f;
+
+	if (nlo != 2 || nhi != 2 || maxx - mid >= BEANFOLDER_DESKREACH
+			|| lo[0].uv[0] != lo[1].uv[0] || hi[0].uv[0] != hi[1].uv[0]
+			|| lo[0].uv[0] < BEANFOLDER_CLOTH0 / scale || hi[0].uv[0] > BEANFOLDER_CLOTH1 / scale) {
+		return;
+	}
+
+	density = (hi[0].uv[0] - lo[0].uv[0]) / (maxx - minx);
+
+	// drawn straight after the desk and before the back cover, which stands
+	// over the left wing: after the last of the desk's triangles
+	for (s32 i = 0; i < beanFolder.numtris; i++) {
+		if (beanFolder.tris[i].node == 0 && beanFolder.tris[i].tex == 0) {
+			at = i + 1;
+		}
+	}
+
+	for (s32 side = 0; side < 2; side++) {
+		const struct gebeanmodelvtx *edge = side ? hi : lo;
+		const f32 far = side ? mid + BEANFOLDER_DESKREACH : mid - BEANFOLDER_DESKREACH;
+		const f32 step = side ? 1.0f : -1.0f;
+		const f32 ulo = BEANFOLDER_CLOTH0 / scale;
+		const f32 uhi = BEANFOLDER_CLOTH1 / scale;
+		f32 x = edge[0].pos[0];
+		f32 u = edge[0].uv[0];
+		f32 du = density * step; // u per unit of x, going outwards
+
+		// segment by segment: on at the frame's density until u meets the
+		// cloth's bound, then back the other way, a mirror at each turn
+		for (s32 seg = 0; seg < 8 && (far - x) * step > 0.5f; seg++) {
+			struct gebeanmodelvtx q[4];
+			f32 len = (far - x) * step;
+			f32 room;
+
+			if ((du < 0 && u <= ulo) || (du > 0 && u >= uhi)) {
+				du = -du;
+			}
+
+			room = du < 0 ? (u - ulo) / -du : (uhi - u) / du;
+
+			if (room < len) {
+				len = room;
+			}
+
+			if (len <= 0.5f) {
+				du = -du;
+				continue;
+			}
+
+			if (beanFolder.numtris + 2 > beanFolder.maxtris) {
+				struct beanfoldertri *grown = realloc(beanFolder.tris, sizeof(*grown) * (beanFolder.maxtris + 16));
+
+				if (!grown) {
+					return;
+				}
+
+				beanFolder.tris = grown;
+				beanFolder.maxtris += 16;
+			}
+
+			q[0] = edge[0];
+			q[1] = edge[1];
+			q[0].pos[0] = q[1].pos[0] = x;
+			q[0].uv[0] = q[1].uv[0] = u;
+			q[2] = q[1];
+			q[3] = q[0];
+			q[2].pos[0] = q[3].pos[0] = x + len * step;
+			q[2].uv[0] = q[3].uv[0] = u + len * du;
+
+			memmove(&beanFolder.tris[at + 2], &beanFolder.tris[at], sizeof(*beanFolder.tris) * (beanFolder.numtris - at));
+			beanFolder.numtris += 2;
+
+			for (s32 t = 0; t < 2; t++) {
+				struct beanfoldertri *tri = &beanFolder.tris[at++];
+
+				tri->rom = 0;
+				tri->tex = 0;
+				tri->node = 0;
+				tri->v[0] = q[0];
+				tri->v[1] = q[t ? 2 : 1];
+				tri->v[2] = q[t ? 3 : 2];
+			}
+
+			x += len * step;
+			u += len * du;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "gefolder: the desk carried out to %.0f either side of the folder", BEANFOLDER_DESKREACH);
+}
+
 static void beanFolderTake(const struct gebeanmodeldraw *d, void *arg)
 {
 	const s32 rom = beanFolderRomFor(d);
 	s32 tex = BEANFOLDER_NOTEX;
+
+	if (d->uvscale > 0.0f) {
+		beanFolderUvScale = d->uvscale;
+	}
 
 	for (s32 i = 0; i < d->numvtx; i++) {
 		if (d->vtx[i].uv[0] != 0.0f || d->vtx[i].uv[1] != 0.0f) {
@@ -1342,7 +1597,13 @@ static void beanFolderTake(const struct gebeanmodeldraw *d, void *arg)
 
 		beanFolder.tris[beanFolder.numtris].rom = rom;
 		beanFolder.tris[beanFolder.numtris].tex = tex;
+		beanFolder.tris[beanFolder.numtris].node = d->node;
 		memcpy(beanFolder.tris[beanFolder.numtris].v, &d->vtx[i], sizeof(struct gebeanmodelvtx) * 3);
+
+		for (s32 j = 0; j < 3; j++) {
+			beanFolderFix(d, &beanFolder.tris[beanFolder.numtris].v[j]);
+		}
+
 		beanFolder.numtris++;
 	}
 }
@@ -1748,9 +2009,13 @@ static s32 geFolderBeanBuild(struct gebeanpictures *pics, struct modeldef *model
 		return 0;
 	}
 
+	beanFolderFixed = 0;
+
 	if (gebeanPicturesWalk(pics, beanFolderTake, NULL) == 0) {
 		return 0;
 	}
+
+	beanFolderDeskWings();
 
 	// The shift, off the paper with the crest (node 2, picture 2): the middle
 	// of the release's rectangle less a fifth of the middle of GoldenEye's
@@ -1785,7 +2050,8 @@ static s32 geFolderBeanBuild(struct gebeanpictures *pics, struct modeldef *model
 	}
 
 	sysLogPrintf(LOG_NOTE, "gefolder: the release's own folder, %d triangles on %d of GoldenEye's %d nodes "
-			"(shift %.1f %.1f %.1f)", beanFolder.numtris, lists, BEANFOLDER_ROMNODES, shift[0], shift[1], shift[2]);
+			"(shift %.1f %.1f %.1f), %d of its vertices corrected", beanFolder.numtris, lists, BEANFOLDER_ROMNODES,
+			shift[0], shift[1], shift[2], beanFolderFixed);
 
 	free(beanFolder.tris);
 	beanFolder.tris = NULL;

@@ -9912,6 +9912,7 @@ s32 gebeanPicturesWalk(struct gebeanpictures *pics, void (*fn)(const struct gebe
 			d.numconds = numconds;
 			memcpy(d.conds, condid, sizeof(s32) * numconds);
 			d.tex = (s32)tex;
+			d.uvscale = bm->uvscale;
 			d.vtx = n > 0 ? malloc(sizeof(*d.vtx) * 3 * n) : NULL;
 
 			if (d.vtx) {
