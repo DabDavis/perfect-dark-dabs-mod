@@ -25,5 +25,5 @@
 	{ "sevxb", "surface", 0.497385395f, { -5604.0f, -168.0f, -10382.0f } }, // 85% of its vertices
 	{ "silo", "silo", 0.615140709f, { 1315.0f, -1173.0f, 1374.0f } }, // 98% of its vertices
 	{ "stack", "library", 0.573907333f, { -804.0f, 29.0f, -1033.0f } }, // 100% of its vertices
-	// stat: GoldenEye XBLA's statuepark is a remodel, not this level (0% of it)
+	{ "stat", "statuepark", 0.007471857f, { -10709.0f, 126.0f, 3204.0f } }, // 77% of its vertices
 	{ "tra", "train", 1.300371514f, { -16592.0f, 50.0f, 50.0f } }, // 91% of its vertices

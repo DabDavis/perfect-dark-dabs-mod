@@ -895,7 +895,6 @@ static const struct stagerow *levelRow(void)
 		}
 	}
 
-	// Statue Park is the one GoldenEye level the release remodelled
 	sysLogPrintf(LOG_NOTE, "gebeanstage: no GoldenEye XBLA level is paired with GoldenEye's %s", name);
 
 	return NULL;

@@ -10408,8 +10408,10 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					}
 				}
 
+				// Statue Park was modelled 1248 times GoldenEye's size, out to
+				// 3.1 million units; Dam's broken vertices are past 1e30
 				for (s32 j = 0; j < 3 && ok; j++) {
-					ok = bv.pos[j] == bv.pos[j] && bv.pos[j] > -1e6f && bv.pos[j] < 1e6f;
+					ok = bv.pos[j] == bv.pos[j] && bv.pos[j] > -1e8f && bv.pos[j] < 1e8f;
 				}
 
 				if (ok) {
