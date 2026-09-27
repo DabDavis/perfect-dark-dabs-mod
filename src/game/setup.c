@@ -53,6 +53,9 @@
 #include "modloader.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
+#include "gestan.h"
+#include "system.h"
+#include "lib/lib_17ce0.h"
 #include "geguns.h"
 #include "geslappers.h"
 #include "modborrow.h"
@@ -1156,9 +1159,51 @@ s32 setupGetPortalByDoorPad(s32 padnum)
 	struct coord coord;
 	u32 stack;
 	struct pad pad;
+#ifndef PLATFORM_N64
+	s32 gefound = -1;
+	bool geasked = false;
+#endif
 
 	padGetCentre(padnum, &centre);
 	padUnpack(padnum, PADFIELD_BBOX | PADFIELD_NORMAL, &pad);
+
+#ifndef PLATFORM_N64
+	// A converted GoldenEye level takes the door's portal GoldenEye's way
+	// (prop.c's setupDoor()): the portal joining the rooms the floor either
+	// side of the door is in, that the line between those two places goes
+	// through. The line through the door alone takes whichever portal it
+	// crosses nearest the middle, and Depot's garage shutters sit five units
+	// in front of the portal of the whole garage front, which that line took:
+	// the shut shutter closed it, and the front walls round the shutter
+	// vanished from outside (F3 20260927-001001, -001101, -044721).
+	if (geRoomActive()) {
+		struct coord padpos;
+		struct coord pt1;
+		struct coord pt2;
+		s32 room1;
+		s32 room2;
+
+		padUnpack(padnum, PADFIELD_POS, &pad);
+		padpos = pad.pos;
+		padUnpack(padnum, PADFIELD_BBOX | PADFIELD_NORMAL, &pad);
+
+		if (geStanDoorSideRooms(&padpos, &centre, &pad.normal, &room1, &room2, &pt1, &pt2)) {
+			s32 found = -1;
+			s32 i;
+
+			for (i = 0; room1 >= 0 && room2 >= 0 && g_BgPortals[i].verticesoffset; i++) {
+				if (((g_BgPortals[i].roomnum1 == room1 && g_BgPortals[i].roomnum2 == room2)
+							|| (g_BgPortals[i].roomnum1 == room2 && g_BgPortals[i].roomnum2 == room1))
+						&& portalCalculateIntersection(i, &pt1, &pt2) != PORTALINTERSECTION_NONE) {
+					found = i;
+				}
+			}
+
+			gefound = found;
+			geasked = true;
+		}
+	}
+#endif
 
 	mult = (pad.bbox.xmax - pad.bbox.xmin) * 0.5f + 10;
 
@@ -1169,6 +1214,19 @@ s32 setupGetPortalByDoorPad(s32 padnum)
 	centre.x = centre.x - pad.normal.x * mult;
 	centre.y = centre.y - pad.normal.y * mult;
 	centre.z = centre.z - pad.normal.z * mult;
+
+#ifndef PLATFORM_N64
+	if (geasked) {
+		const s32 pdfound = bgFindPortalBetweenPositions(&centre, &coord);
+
+		if (pdfound != gefound) {
+			sysLogPrintf(LOG_NOTE, "gexplus: door on pad %d closes portal %d, GoldenEye's (the line through it crossed %d)",
+					padnum, gefound, pdfound);
+		}
+
+		return gefound;
+	}
+#endif
 
 	return bgFindPortalBetweenPositions(&centre, &coord);
 }

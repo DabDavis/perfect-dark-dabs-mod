@@ -41,6 +41,7 @@ struct stantile {
 struct stanwall {
 	const struct geo *geo;
 	s32 tile;
+	s32 point;       // the point its edge starts at, in `points`
 };
 
 static struct {
@@ -273,6 +274,7 @@ static bool stanMatchWalls(void)
 
 				g_Stan.walls[at].geo = geo;
 				g_Stan.walls[at].tile = i;
+				g_Stan.walls[at].point = t->first + k;
 				at++;
 				geo = (const struct geo *)((uintptr_t)geo + wall->header.numvertices * 6 + 0xe);
 			}
@@ -706,7 +708,11 @@ f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin)
 	return checkvertical ? pos->y + ymin + 10.0f : pos->y - 60.0f;
 }
 
-bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32 limit, f32 rise, f32 reach)
+/**
+ * Which of the conversion's walls `geo` is, with the tiles a body at `pos`
+ * reaches worked out (stanFlood()), or -1 for a wall that is not one of them.
+ */
+static s32 stanWallFind(struct geo *geo, struct coord *pos, struct coord *to, f32 limit, f32 rise, f32 reach)
 {
 	s32 lo, hi;
 
@@ -717,7 +723,7 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32
 	if (!g_Stan.active || g_Stan.numwalls == 0
 			|| (const struct geo *)geo < g_Stan.walls[0].geo
 			|| (const struct geo *)geo > g_Stan.walls[g_Stan.numwalls - 1].geo) {
-		return false;
+		return -1;
 	}
 
 	// one of the conversion's walls?
@@ -735,10 +741,8 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32
 	}
 
 	if (g_Stan.walls[lo].geo != (const struct geo *)geo) {
-		return false;
+		return -1;
 	}
-
-	g_GeStanAsked++;
 
 	// where the body stands, worked out once for all the walls of one test
 	if (!to) {
@@ -765,19 +769,49 @@ bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32
 		}
 	}
 
+	return lo;
+}
+
+bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32 limit, f32 rise, f32 reach)
+{
+	const s32 w = stanWallFind(geo, pos, to, limit, rise, reach);
+
+	if (w < 0) {
+		return false;
+	}
+
+	g_GeStanAsked++;
+
+
 	// a body over no tile at all - thrown, falling, out of the level - is
 	// asked of every wall, as it always was
 	if (!g_Stan.lastfound) {
 		return false;
 	}
 
-	if (g_Stan.reached[g_Stan.walls[lo].tile] == g_Stan.gen) {
+	if (g_Stan.reached[g_Stan.walls[w].tile] == g_Stan.gen) {
 		return false;
 	}
 
 	g_GeStanSkipped++;
 
 	return true;
+}
+
+bool geStanWallOverhead(struct geo *geo, struct coord *pos, f32 limit, f32 rise, f32 reach)
+{
+	const s32 w = stanWallFind(geo, pos, NULL, limit, rise, reach);
+	s32 tile;
+
+	if (w < 0 || !g_Stan.lastfound) {
+		return false;
+	}
+
+	tile = g_Stan.walls[w].tile;
+
+	return g_Stan.reached[tile] == g_Stan.gen
+		&& g_Stan.points[g_Stan.walls[w].point].across == GESTAN_UNLINKED
+		&& !stanTileUpright(tile) && !stanTileLadder(tile);
 }
 
 /**
@@ -1103,6 +1137,99 @@ static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb)
 	return tile;
 }
 
+/**
+ * A tile with an area in plan that is a wall all the same: a sliver under half
+ * a body across rising more than three times its width. Facility's vent ends
+ * in two, a lip leaning 10 across and 257 up from the toilet seat to the duct.
+ */
+static bool stanTileSheer(s32 i)
+{
+	const struct stantile *t = &g_Stan.tiles[i];
+	const struct stanpoint *p = &g_Stan.points[t->first];
+	f32 area = 0.0f, longest = 0.0f, width;
+	s32 ymin = 0x7fff, ymax = -0x8000;
+
+	for (s32 a = 0, b = t->npts - 1; a < t->npts; b = a++) {
+		const f32 len = sqrtf((f32)(p[a].x - p[b].x) * (p[a].x - p[b].x) + (f32)(p[a].z - p[b].z) * (p[a].z - p[b].z));
+
+		area += (f32)p[b].x * p[a].z - (f32)p[a].x * p[b].z;
+
+		if (len > longest) longest = len;
+		if (p[a].y < ymin) ymin = p[a].y;
+		if (p[a].y > ymax) ymax = p[a].y;
+	}
+
+	if (longest <= 0.0f) {
+		return false;
+	}
+
+	width = fabsf(area) / longest;
+
+	return width < 16.0f && ymax - ymin > 3.0f * width;
+}
+
+static s32 g_StanPlayerTile[MAX_PLAYERS] = { -1, -1, -1, -1 };
+static s32 g_StanPlayerTileStage = -1;
+
+void geStanForgetPlayerTile(s32 playernum)
+{
+	if (playernum >= 0 && playernum < MAX_PLAYERS) {
+		g_StanPlayerTile[playernum] = -1;
+	}
+}
+
+bool geStanFloorAhead(s32 playernum, struct coord *pos, struct coord *to, f32 ground, f32 *surface, bool *sheer)
+{
+	s32 tile, end;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active || playernum < 0 || playernum >= MAX_PLAYERS) {
+		return false;
+	}
+
+	if (g_StanPlayerTileStage != g_Stan.stagenum) {
+		for (s32 i = 0; i < MAX_PLAYERS; i++) {
+			g_StanPlayerTile[i] = -1;
+		}
+
+		g_StanPlayerTileStage = g_Stan.stagenum;
+	}
+
+	// the tile the player was left on, while it still holds them in plan,
+	// whatever Perfect Dark's feet make of its height: GoldenEye keeps Bond's
+	// (current_tile_ptr) and walks on from it. Found afresh by height, a
+	// player held on the edge of the toilet seat by the ground cylinder with
+	// his centre over the vent's lip was on the floor a storey under it, and
+	// every wall round the seat was left out of his collision
+	tile = g_StanPlayerTile[playernum];
+
+	if (tile < 0 || tile >= g_Stan.numtiles || stanTileUpright(tile)
+			|| !stanHolds(&g_Stan.tiles[tile], pos->x, pos->z)) {
+		tile = stanTileUnder(pos->x, pos->z, ground + 10.0f, GESTAN_RISE);
+	}
+
+	g_StanPlayerTile[playernum] = tile;
+
+	if (tile < 0) {
+		return false;
+	}
+
+	end = stanWalkLine(tile, pos->x, pos->z, to->x, to->z, false);
+
+	if (!stanHolds(&g_Stan.tiles[end], to->x, to->z) || stanTileUpright(end)) {
+		return false;
+	}
+
+	g_StanPlayerTile[playernum] = end;
+	*surface = stanSurface(&g_Stan.tiles[end], to->x, to->z);
+	*sheer = stanTileSheer(end) && !stanTileLadder(end);
+
+	return true;
+}
+
 bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 *room, f32 *ground)
 {
 	s32 tile;
@@ -1127,6 +1254,68 @@ bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 
 
 	*room = g_Stan.tiles[tile].room;
 	*ground = stanSurface(&g_Stan.tiles[tile], to->x, to->z);
+
+	return true;
+}
+
+/**
+ * The rooms either side of a door, GoldenEye's way (prop.c's
+ * sub_GAME_7F00324C()): from the pad's own tile along the floor to the
+ * middle of the door's box (or the pad itself, if the walk cannot get there),
+ * then fifty either way along the door's normal, each walk ending on a tile
+ * whose room is that side's. `pt1`/`pt2` get the two ends, at the middle's
+ * height. `room2` is -1 where both walks end in the same room. False where
+ * there is no tile graph or no tile under the pad.
+ */
+bool geStanDoorSideRooms(struct coord *padpos, struct coord *centre, struct coord *normal,
+		s32 *room1, s32 *room2, struct coord *pt1, struct coord *pt2)
+{
+	struct coord mid = *centre;
+	f32 nx = normal->x, ny = normal->y, nz = normal->z;
+	f32 len = sqrtf(nx * nx + ny * ny + nz * nz);
+	s32 tile, start, end;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active || len <= 0.0f) {
+		return false;
+	}
+
+	nx /= len;
+	nz /= len;
+
+	tile = stanTileUnderPrefer(padpos->x, padpos->z, padpos->y + 5.0f, GESTAN_RISE, -1);
+
+	if (tile < 0) {
+		return false;
+	}
+
+	start = stanWalkLine(tile, padpos->x, padpos->z, mid.x, mid.z, false);
+
+	if (!stanHolds(&g_Stan.tiles[start], mid.x, mid.z)) {
+		start = tile;
+		mid = *padpos;
+	}
+
+	pt1->x = mid.x + nx * 50.0f;
+	pt1->y = mid.y;
+	pt1->z = mid.z + nz * 50.0f;
+
+	pt2->x = mid.x - nx * 50.0f;
+	pt2->y = mid.y;
+	pt2->z = mid.z - nz * 50.0f;
+
+	end = stanWalkLine(start, mid.x, mid.z, pt1->x, pt1->z, false);
+	*room1 = g_Stan.tiles[end].room;
+
+	end = stanWalkLine(start, mid.x, mid.z, pt2->x, pt2->z, false);
+	*room2 = g_Stan.tiles[end].room;
+
+	if (*room2 == *room1) {
+		*room2 = -1;
+	}
 
 	return true;
 }

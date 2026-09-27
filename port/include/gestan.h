@@ -53,6 +53,37 @@
  */
 bool geStanWallSkipped(struct geo *geo, struct coord *pos, struct coord *to, f32 limit, f32 rise, f32 reach);
 
+/**
+ * Whether a wall of the converted level stands in a body's way however far
+ * over its top the body is: GoldenEye's collision is the plan alone, and an
+ * edge with nothing across it stops Bond at any height (stan.c's
+ * sub_GAME_7F0B1DDC walks out from his tile through links, and an unlinked
+ * edge his circle touches is a wall). True for a wall raised on an unlinked
+ * edge of a floor tile the body over `pos` reaches (as geStanWallSkipped()
+ * works that out), not for a climb wall or a tile on edge.
+ */
+bool geStanWallOverhead(struct geo *geo, struct coord *pos, f32 limit, f32 rise, f32 reach);
+
+/**
+ * The floor a player's move from `pos` to `to` ends on in GoldenEye's own
+ * collision: its line walk (stanWalkLine(), links only) from the tile the
+ * player was left on - GoldenEye keeps Bond's, current_tile_ptr - or, where
+ * that no longer holds them in plan, the tile under them at `ground`. True, with the
+ * floor's height at `to`, where the walk ends on a tile that holds `to`.
+ *
+ * GoldenEye lifts Bond onto that floor however far over his feet it is, up
+ * to 175 over his eye. Perfect Dark's feet find only a floor a step over
+ * them, and a floor joined by tiles that lean rather than stand straight up
+ * has no climb wall raised before it (geconvert.c's stanClimb()): Facility's
+ * vent ends in a lip leaning 10 across and 257 up from the toilet seat, the
+ * player walked up it on Perfect Dark's feet, on under the vent, off the lip
+ * and down to the stairs a storey below (F3 report 20260927-051458).
+ */
+bool geStanFloorAhead(s32 playernum, struct coord *pos, struct coord *to, f32 ground, f32 *surface, bool *sheer);
+
+/** The player's tile is to be found afresh: they fell, climbed a ladder or rode. */
+void geStanForgetPlayerTile(s32 playernum);
+
 /** The `rise` for a body's cylinder: a couple of steps where the limit is its foot, else none. */
 f32 geStanRise(bool checkvertical);
 
@@ -72,6 +103,8 @@ bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground);
  * between it and another room's tile at the same height: GoldenEye starts from
  * the tile the pad names, and the conversion's pad room is that tile's.
  */
+bool geStanDoorSideRooms(struct coord *padpos, struct coord *centre, struct coord *normal,
+		s32 *room1, s32 *room2, struct coord *pt1, struct coord *pt2);
 bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 *room, f32 *ground);
 
 /**

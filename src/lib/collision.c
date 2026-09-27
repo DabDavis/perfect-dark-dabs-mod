@@ -1189,6 +1189,21 @@ s32 cdTestRampWall(struct geotilei *tile, struct coord *pos, f32 width, f32 y1, 
 // and a line: the tiles it crosses and no others, as GoldenEye's own line test
 // walks them (gestan.c's stanFlood() says what a circle the line's length did)
 #define GESTAN_LINEREACH GESTAN_MARGIN
+
+/**
+ * A body wholly over the top of one of a converted level's walls that is an
+ * edge with nothing across it, on a floor the body reaches: GoldenEye stops
+ * Bond there whatever his height (gestan.h's geStanWallOverhead()). A player
+ * who climbed Aztec's ladder and strafed off its side was 370 over the floor
+ * at its foot, over the top of the wall on that floor's edge, and walked on
+ * out of the level (F3 report 20260927-020503).
+ */
+static bool cdGeWallOverhead(struct geo *geo, struct coord *pos, f32 radius, u16 geoflags, bool checkvertical, f32 ymin, f32 wallymax)
+{
+	return checkvertical && (geoflags & GEOFLAG_WALL)
+		&& pos->y + ymin > wallymax
+		&& geStanWallOverhead(geo, pos, geStanLimit(pos, checkvertical, ymin), geStanRise(checkvertical), radius + GESTAN_MARGIN);
+}
 #endif
 
 void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *end, u16 geoflags,
@@ -1208,7 +1223,11 @@ void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *en
 					&& pos->z >= *(s16 *)(tile->zmin + (uintptr_t)tile) - radius
 					&& pos->z <= *(s16 *)(tile->zmax + (uintptr_t)tile) + radius
 					&& (!checkvertical || (pos->y + arg6 >= *(s16 *)(tile->ymin + (uintptr_t)tile)
-							&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile)))
+							&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile))
+#ifndef PLATFORM_N64
+						|| cdGeWallOverhead(geo, pos, radius, geoflags, checkvertical, arg7, *(s16 *)(tile->ymax + (uintptr_t)tile))
+#endif
+						)
 #ifndef PLATFORM_N64
 					// GoldenEye's collision on a level converted from it: a
 					// wall is there for a body only if its tile is linked to
@@ -1600,7 +1619,11 @@ void cdCollectGeoForCylMoveFromList(u8 *start, u8 *end, struct coord *pos, f32 r
 						&& pos->z >= *(s16 *)(tile->zmin + (uintptr_t)tile) - radius
 						&& pos->z <= *(s16 *)(tile->zmax + (uintptr_t)tile) + radius
 						&& (!checkvertical || (pos->y + arg6 >= *(s16 *)(tile->ymin + (uintptr_t)tile)
-								&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile)))
+								&& pos->y + arg7 <= *(s16 *)(tile->ymax + (uintptr_t)tile))
+#ifndef PLATFORM_N64
+							|| cdGeWallOverhead(geo, pos, radius, geoflags, checkvertical, arg7, *(s16 *)(tile->ymax + (uintptr_t)tile))
+#endif
+							)
 #ifndef PLATFORM_N64
 						&& !((geoflags & GEOFLAG_WALL)
 							&& geStanWallSkipped(geo, pos, NULL, geStanLimit(pos, checkvertical, arg7), geStanRise(checkvertical), radius + GESTAN_MARGIN))

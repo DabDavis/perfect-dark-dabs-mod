@@ -2022,6 +2022,32 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 				g_Vars.currentplayer->sumground = floor / (PAL ? 0.054400026798248f : 0.045499980449677f);
 			}
 		}
+
+		// and the same for a floor over him that GoldenEye's own walk puts
+		// him on where the conversion raised no wall (gestan.h): he is
+		// lifted onto it, or stops as at a wall
+		if (g_Vars.currentplayer->onladder || g_Vars.currentplayer->tank) {
+			geStanForgetPlayerTile(g_Vars.currentplayernum);
+		} else if (arg0->x != 0.0f || arg0->z != 0.0f) {
+			f32 floor;
+			bool sheer = false;
+
+			if (geStanFloorAhead(g_Vars.currentplayernum, &g_Vars.currentplayer->prop->pos, &target,
+						g_Vars.currentplayer->vv_ground, &floor, &sheer)
+					&& floor > g_Vars.currentplayer->vv_ground + (sheer ? 10.0f : 30.0f)) {
+				if (!sheer && !g_Vars.currentplayer->isfalling
+						&& floor <= g_Vars.currentplayer->prop->pos.y + 175.0f
+						&& bwalkTryMoveUpwards(floor - g_Vars.currentplayer->vv_manground) == CDRESULT_NOCOLLISION) {
+					g_GeClimbEyeLag[g_Vars.currentplayernum] -= floor - g_Vars.currentplayer->vv_manground;
+					g_Vars.currentplayer->vv_manground = floor;
+					g_Vars.currentplayer->vv_ground = floor;
+					g_Vars.currentplayer->sumground = floor / (PAL ? 0.054400026798248f : 0.045499980449677f);
+				} else {
+					geStanForgetPlayerTile(g_Vars.currentplayernum);
+					return;
+				}
+			}
+		}
 	}
 #endif
 

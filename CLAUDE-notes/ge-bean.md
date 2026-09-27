@@ -11935,3 +11935,70 @@ Not done: the credits on the Cinema page; GoldenEye's secret cast rows (Jaws,
 Mayday, Oddjob, Samedi, Moonraker Elite are gated on Aztec/Egypt there, the
 port's reel shows its four guest stars always); no button skips the roll, as
 GoldenEye.
+
+## 12th F3 pass, group D: levels (2026-09-27, fix/f3-0927-levels)
+
+- **Parked trucks** (Streets' jeeps sunk to their axles, F3 000514/000832): GoldenEye's
+  first vehicle tick runs `sub_GAME_7F044B38()`, which sets the height whether the truck
+  moves or not; ours only set it on a step. `vehTruckGround()` now serves both (729c0278a).
+- **A door's portal** (Depot garage fronts invisible from outside, F3 001001/001101/044721;
+  Train track beyond a door unrendered, F3 002745): GoldenEye's `setupDoor()` takes the
+  portal joining the rooms the floor is in fifty either side of the door
+  (`sub_GAME_7F00324C()`), crossed by the line between. `setupGetPortalByDoorPad()` took
+  whichever portal the line through the door crossed nearest its middle: Depot's shutters
+  sit five units in front of the portal of the whole garage front. `geStanDoorSideRooms()`
+  (adcb8a576); checked door by door against the native port (`~/dam-oracle/gedoorportals3.py`,
+  NPROPS=600) on Depot, Frigate, Train, Egyptian - all match. The load logs each door that
+  differs from Perfect Dark's pick ("closes portal N, GoldenEye's").
+- Caverns water (F3 005659, 593cbc5): room 61 is shown by the visibility script; already
+  fixed on 705725a27 by 86124e8ac.
+- Aztec door after Jaws (F3 021009): pads 297/298 carry keyflags 2 and no key 2 is in the
+  setup (Jaws holds key 1); guards ignore keys. GoldenEye's own.
+- Aztec ladder (F3 020503): reproduced with `probes/ladder.py` in ~/wt/f3-0927-levels-run -
+  at the top of the ladder at (-4234, -437), strafing left walks off the ladder at ~y 725
+  and out of the level (ground -30000). The ladder tiles' outer edges are points in plan,
+  so no wall is raised there. Not fixed.
+- Aztec grate door fall (F3 013516) and Facility vent -> toilets through walls (F3 051458):
+  the grate walk (-5300,900 -> 0) does not fall on 593cbc5 or now; toilets not probed.
+
+## 12th F3 pass, Aztec's ladder and Facility's vent lip (2026-09-27, fix/f3-0927-stan)
+
+- **Off the side of a ladder** (F3 020503, Aztec's ladder at (-4266, -437)): strafing
+  sideways near the top left the ladder 370-1000 over the floor at its foot, over the top
+  of the 400-high wall on that floor's unlinked edge, and out of the level. GoldenEye's
+  collision is the plan alone: an unlinked edge Bond's circle touches stops him at any
+  height. `geStanWallOverhead()` (gestan.c) + `cdGeWallOverhead()` (collision.c): a
+  body wholly over the top of a conversion wall on an unlinked edge (not a climb wall, not
+  a tile on edge or a ladder panel) of a floor it reaches (the same flood as
+  `geStanWallSkipped()`) is stopped by it. Strafing off either side now stops at the
+  foot floor's edge (z -523, the same place a body at the foot stops) or drops to that
+  floor; topping out onto the 1095 deck is unchanged. Probe: `probes/ladder.py` in
+  ~/wt/f3-0927-stan-run (START=-4330,-437 Y=208 ROOM=66 THETA=270 TOPY=1200 SIDE2=-1,
+  STAGE=0x70 there).
+- **Facility's vent lip** (F3 051458, Glazier on 705725a: from the toilets "through the
+  stall ... through the far wall" onto the stairs a storey below): the vent (331) ends in
+  two tiles 2374/2375 that lean 10 across and 257 up from the toilet seat (61) - they
+  have an area in plan, so `stanClimb()` took the first as the floor across (climb 0) and
+  raised no wall. On Perfect Dark's feet the player walked up the lip's steep floor or
+  was held on it by the ground cylinder, his centre passed beyond it under the vent, and
+  he fell to the floor at -319 / the stairs. A fuzz from the seat (random stick every 20
+  frames, uncapped frame rate: `probes/fuzz.py`, `runpy_var.sh`) escaped in 5 of 6 seeds.
+  - A climb wall is the wrong fix here: tried (corner-nearest + sheer tiles in
+    `stanClimb()`), and a player dropping out of the vent lands 20 from the lip, inside
+    the wall's radius: he hung on its top, then stood stuck in it.
+  - Fix: `geStanFloorAhead()` keeps the player's tile as GoldenEye does
+    (current_tile_ptr), re-found by `stanTileUnder()` only when it no longer holds them in
+    plan - found by height, a body held on the seat's edge by the ground cylinder with its
+    centre over the lip was "on" the floor at -319, and every wall round the seat was
+    skipped. Each move's line is walked from it (`stanWalkLine()`). Where the walk ends on
+    a floor more than 30 over vv_ground, bondwalk lifts the player onto it as
+    `geStanClimbFloor()` does (not while falling, up to 175 over the eye, if
+    `bwalkTryMoveUpwards()` clears), else the move is not made. A sheer tile
+    (`stanTileSheer()`: under 16 across, rising over 3x its width, not a ladder) is never
+    lifted onto, and is climbed into no more than 10 over the ground. Dropping out of the
+    vent is a move down and unaffected; walking back up into the vent from the seat is
+    GoldenEye's own and happens where a move carries the player across the lip.
+  - Checked: vent drop into stall 1 (`probes/walk.py`), 8 fuzz seeds x 5000 frames from
+    the seat at uncapped frame rate clean (5 of 6 escaped before), Facility's stairs up and
+    down, Aztec ladder, and a Dam fuzz frame-identical to the base binary.
+  - Converter unchanged (no GECONVERT bump).
