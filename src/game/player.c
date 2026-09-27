@@ -4010,9 +4010,11 @@ f32 playerGetCutsceneBodyAlphaFrac(struct prop *prop)
  * down behind the back, where it is a long way from the eye and right against
  * the body.
  *
- * Any camera the player's own view has: aiming and GE Plus's watch put it on
- * the eye (0, and so the first person gun and the body are never both drawn),
- * a CamSpy or a Slayer rocket is a long way off (1).
+ * Aiming and GE Plus's watch put the camera on the eye (0, and so the first
+ * person gun and the body are never both drawn). Nothing else is faded: not
+ * another player, a simulant, a cutscene (which has its own swoop above), a
+ * CamSpy's or a rocket's view, or the level behind a menu. Menu previews and
+ * the watch's arm are models drawn by themselves and never come here.
  */
 #define BODYFADE_SPAN   60.0f // from gone to whole
 #define BODYFADE_FEET   20.0f // the segment's bottom, above the ground
@@ -4040,6 +4042,23 @@ f32 playerGetOwnBodyAlphaFrac(struct prop *prop)
 	}
 
 	player = g_Vars.currentplayer;
+
+	// Only while this player's own third person camera is live in play: asked
+	// for (thirdperson - aiming, the watch and a long fall keep the request
+	// and put the camera on the eye, where the body has to go), the normal
+	// tick's camera (not a CamSpy, a Slayer rocket or anything else), and no
+	// menu over the level - the Perfect Menu in the Institute draws the level
+	// live behind Customize Character, and a body there at the default fade
+	// read as the character being faded (merge smoke test, 2026-09-27).
+	// Mods: Camera's live preview is play as far as this goes: it is where
+	// Camera Body Fade is set.
+	if (g_Vars.tickmode != TICKMODE_NORMAL
+			|| player->cameramode != CAMERAMODE_DEFAULT
+			|| !player->thirdperson
+			|| (player->menuisactive && !optionsMenuWantsLiveWorld())) {
+		return 1;
+	}
+
 	cam = &player->cam_pos;
 
 	top = player->bond2.unk10.y + BODYFADE_CROWN;

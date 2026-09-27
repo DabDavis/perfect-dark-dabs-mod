@@ -266,6 +266,26 @@ clearance, or `playerClearCamera()` finding no clear spot, returned early too.
   meshes need nothing of their own; fast3d transforms on the CPU, so both passes
   have identical depths, and GL and Vulkan agree (checked).
 
+- **Only the local player's own body, only in play** (merge smoke test,
+  2026-09-27: a body partly faded behind Customize Character with Camera
+  Distance 80): `playerGetOwnBodyAlphaFrac()` answers 1 unless the prop is the
+  current player's, the tick is `TICKMODE_NORMAL`, the camera is
+  `CAMERAMODE_DEFAULT`, `thirdperson` is asked for (aiming, the watch and a long
+  fall keep it and put the camera on the eye, where the body must go), and no
+  menu is up - except Mods: Camera's live preview (`optionsMenuWantsLiveWorld()`),
+  where Camera Body Fade is set. Cutscenes keep their own swoop fade. Menu
+  previews and the watch's arm are models drawn by themselves (`modelRender()`
+  directly), never through `chrRender()`. Trade-off: a pause over a live level
+  with the camera jammed on the eye draws the body whole behind the menu.
+- **Held GoldenEye guns keep both sides while faded.** `gfx_tri_is_culled()`
+  draws both sides under `G_NO_CULLING_EXT` only where the face writes depth
+  (the KF7's translucent lists, F3 20260927-105948), and a fading chr puts every
+  list in a translucent mode, so the gun's backward-wound faces (the silenced
+  D5K's silencer) were culled in both passes. Inside `G_DEPTH_PREPASS_EXT` /
+  `G_DEPTH_FRONT_EXT` every face counts as writing depth. Measured with a
+  `gfx_sp_tri_emit` counter: the D5K at half fade sends 110 triangles a frame
+  down that path, none when solid.
+
 Probe: `~/wt/f3-0927b-3p-run` (`matrix.sh "before after" "n64 hd" "<scenes>"`,
 `probe/spot.py` - `PAD`/`POS`/`THETA` teleport and hold, `SETS` writes globals,
 `AIM=1` forces aiming by breaking in `playerPullBackCamera()`, which is the only
