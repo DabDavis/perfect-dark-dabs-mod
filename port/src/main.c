@@ -43,6 +43,7 @@
 #include "system.h"
 #include "utils.h"
 #include "gebean.h"
+#include "modenhance.h"
 
 u32 g_OsMemSize = 0;
 // Upstream's 16 is the N64's 8MB with room to spare. This fork spends memory the
@@ -418,6 +419,9 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.XblaReflectCutoff", &g_ModOptions.xblareflectcutoff, 0, 1);
 	configRegisterInt("Mod.GlareClip", &g_ModOptions.glareclip, 0, 1);
 	configRegisterInt("Mod.FlashLighting", &g_ModOptions.flashlighting, 0, 2);
+	// Enhancements On/Off: the settings put away while off. See optionsmenu.c.
+	configRegisterString("Mod.EnhancementsSaved", g_ModEnhancementsSaved, MODENHANCE_SAVED_LEN);
+	configRegisterString("Mod.EnhancementsKey", g_ModEnhancementsKeyName, sizeof(g_ModEnhancementsKeyName));
 	// Glass See-Through: how much of its clear look a distant window keeps. See modoptions.c.
 	configRegisterInt("Mod.GlassSeeThrough", &g_ModOptions.glassseethrough, 0, 100);
 	// Clip Decals at Edges: wall hits cut to the surface under them. See wallhitclip.c.

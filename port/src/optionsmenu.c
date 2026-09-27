@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stddef.h>
 #include <PR/ultratypes.h>
 #include "platform.h"
 #include "data.h"
@@ -45,6 +46,8 @@
 #include "menuimage.h"
 #include "xblastage.h"
 #include "roomsheen.h"
+#include "modenhance.h"
+#include "game/hudmsg.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -2510,6 +2513,225 @@ static MenuItemHandlerResult menuhandlerModPreset(s32 operation, struct menuitem
 }
 
 /**
+ * Enhancements On/Off: every addition off at once, and back as the player had
+ * it (F3 20260926-232841, for looking at the original next to the fork).
+ *
+ * Off takes a note of what a preset covers, the ways of playing every preset
+ * turns off, the release's assets (the XBLA switch) and the texture packs,
+ * then puts on Vanilla with the release and the packs off. The note is kept
+ * in pd.ini (Mod.EnhancementsSaved), so a restart while off still comes back
+ * to it; On puts every noted setting back and forgets the note. An empty note
+ * is On. A setting changed while off is lost when the note comes back, which
+ * is the point of the note: the switch is a comparison, not a new preset.
+ */
+char g_ModEnhancementsSaved[MODENHANCE_SAVED_LEN] = "";
+char g_ModEnhancementsKeyName[32] = "";
+static s32 g_ModEnhancementsKeyVk = -1;
+
+#define MODENHANCE_SAVED_VERSION 1
+
+// The preset's own fields (every s32 after its name), then these, in this order.
+enum {
+	MODENHANCE_EXTRA_SPAWNWEAPON,
+	MODENHANCE_EXTRA_GUARDSALERTED,
+	MODENHANCE_EXTRA_AKIMBO,
+	MODENHANCE_EXTRA_MISSIONRESPAWN,
+	MODENHANCE_EXTRA_XBLA,
+	MODENHANCE_EXTRA_TEXPACKS,
+	MODENHANCE_EXTRA_COUNT
+};
+
+#define MODENHANCE_PRESET_FIELDS ((sizeof(struct modpreset) - offsetof(struct modpreset, jumpheight)) / sizeof(s32))
+
+static void modEnhancementsCapture(struct modpreset *preset, s32 *extra)
+{
+	preset->name = NULL;
+	preset->jumpheight = g_ModOptions.jumpheight;
+	preset->roll = g_ModOptions.roll;
+	preset->melee = g_ModOptions.melee;
+	preset->flinch = g_ModOptions.flinch;
+	preset->cameratilt = g_ModOptions.cameratilt;
+	preset->tiltforward = g_ModOptions.tiltforward;
+	preset->gunsway = g_ModOptions.gunsway;
+	preset->bodies = g_ModOptions.bodies;
+	preset->bodytime = g_ModOptions.bodytime;
+	preset->bodiesdrawn = g_ModOptions.bodiesdrawn;
+	preset->codaiming = g_ModOptions.codaiming;
+	preset->explosionshake = g_ModOptions.explosionshake;
+	preset->tranqeffect = g_ModOptions.tranqeffect;
+	preset->cleantext = g_ModOptions.cleantext;
+	preset->smoothtext = g_ModOptions.smoothtext;
+	preset->enhancetextures = g_ModOptions.enhancetextures;
+	preset->vividcolours = g_ModOptions.vividcolours;
+	preset->blacklevel = g_ModOptions.blacklevel;
+	preset->ghostmode = g_ModGhostMode;
+	preset->ghostsplits = g_ModGhostSplits;
+	preset->xblareflectcutoff = g_ModOptions.xblareflectcutoff;
+	preset->glareclip = g_ModOptions.glareclip;
+	preset->quickweaponswap = g_ModOptions.quickweaponswap;
+	preset->nofog = g_ModOptions.nofog;
+	preset->glassseethrough = g_ModOptions.glassseethrough;
+	preset->decalclip = g_ModOptions.decalclip;
+
+	extra[MODENHANCE_EXTRA_SPAWNWEAPON] = g_ModOptions.spawnweapon;
+	extra[MODENHANCE_EXTRA_GUARDSALERTED] = g_ModOptions.guardsalerted;
+	extra[MODENHANCE_EXTRA_AKIMBO] = g_ModOptions.akimbo;
+	extra[MODENHANCE_EXTRA_MISSIONRESPAWN] = g_ModOptions.missionrespawn;
+	extra[MODENHANCE_EXTRA_XBLA] = xblaSwitchGetEnabled();
+	extra[MODENHANCE_EXTRA_TEXPACKS] = texpackLoadEnabled();
+}
+
+s32 modEnhancementsAreOn(void)
+{
+	return g_ModEnhancementsSaved[0] == '\0';
+}
+
+void modEnhancementsSetOn(s32 on)
+{
+	struct modpreset preset;
+	s32 extra[MODENHANCE_EXTRA_COUNT];
+	s32 *fields = &preset.jumpheight;
+	u32 i;
+
+	if (!on == !modEnhancementsAreOn()) {
+		return;
+	}
+
+	if (!on) {
+		char *out = g_ModEnhancementsSaved;
+		char *end = g_ModEnhancementsSaved + sizeof(g_ModEnhancementsSaved);
+
+		modEnhancementsCapture(&preset, extra);
+
+		out += snprintf(out, end - out, "%d", MODENHANCE_SAVED_VERSION);
+
+		for (i = 0; i < MODENHANCE_PRESET_FIELDS && out < end; i++) {
+			out += snprintf(out, end - out, ",%d", fields[i]);
+		}
+
+		for (i = 0; i < MODENHANCE_EXTRA_COUNT && out < end; i++) {
+			out += snprintf(out, end - out, ",%d", extra[i]);
+		}
+
+		menuhandlerModPresetApply(&g_ModPresets[1]); // Vanilla
+		xblaSwitchSetEnabled(false);
+		texpackSetLoadEnabled(false);
+	} else {
+		const char *in = g_ModEnhancementsSaved;
+		char *next;
+		s32 values[MODENHANCE_PRESET_FIELDS + MODENHANCE_EXTRA_COUNT];
+		s32 count = 0;
+		s32 version = strtol(in, &next, 10);
+
+		while (next != in && *next == ',' && count < (s32)ARRAYCOUNT(values)) {
+			in = next + 1;
+			values[count] = strtol(in, &next, 10);
+
+			if (next != in) {
+				count++;
+			}
+		}
+
+		g_ModEnhancementsSaved[0] = '\0';
+
+		// A note this build cannot read (a different field count) is dropped
+		// rather than half applied: the settings stay Vanilla.
+		if (version != MODENHANCE_SAVED_VERSION || count != (s32)ARRAYCOUNT(values)) {
+			sysLogPrintf(LOG_WARNING, "enhancements: saved settings unreadable (version %d, %d values); left as they are", version, count);
+			return;
+		}
+
+		preset.name = NULL;
+
+		for (i = 0; i < MODENHANCE_PRESET_FIELDS; i++) {
+			fields[i] = values[i];
+		}
+
+		menuhandlerModPresetApply(&preset);
+
+		for (i = 0; i < MODENHANCE_EXTRA_COUNT; i++) {
+			extra[i] = values[MODENHANCE_PRESET_FIELDS + i];
+		}
+
+		g_ModOptions.spawnweapon = extra[MODENHANCE_EXTRA_SPAWNWEAPON];
+		g_ModOptions.guardsalerted = extra[MODENHANCE_EXTRA_GUARDSALERTED];
+		g_ModOptions.akimbo = extra[MODENHANCE_EXTRA_AKIMBO];
+		g_ModOptions.missionrespawn = extra[MODENHANCE_EXTRA_MISSIONRESPAWN];
+
+		if (extra[MODENHANCE_EXTRA_XBLA]) {
+			xblaSwitchSetEnabled(true);
+		}
+
+		texpackSetLoadEnabled(extra[MODENHANCE_EXTRA_TEXPACKS]);
+	}
+
+	sysLogPrintf(LOG_NOTE, "enhancements: %s", on ? "on (settings restored)" : "off (Vanilla)");
+	configSave(CONFIG_PATH);
+}
+
+s32 modEnhancementsGetKey(void)
+{
+	if (g_ModEnhancementsKeyVk < 0) {
+		g_ModEnhancementsKeyVk = 0;
+
+		if (g_ModEnhancementsKeyName[0] && strcmp(g_ModEnhancementsKeyName, "NONE") != 0) {
+			const s32 vk = inputGetKeyByName(g_ModEnhancementsKeyName);
+
+			if (vk > 0) {
+				g_ModEnhancementsKeyVk = vk;
+			}
+		}
+	}
+
+	return g_ModEnhancementsKeyVk;
+}
+
+void modEnhancementsSetKey(s32 vk)
+{
+	if (vk <= 0 || vk >= VK_TOTAL_COUNT) {
+		g_ModEnhancementsKeyName[0] = '\0';
+		g_ModEnhancementsKeyVk = 0;
+		return;
+	}
+
+	strncpy(g_ModEnhancementsKeyName, inputGetKeyName(vk), sizeof(g_ModEnhancementsKeyName) - 1);
+	g_ModEnhancementsKeyName[sizeof(g_ModEnhancementsKeyName) - 1] = '\0';
+	g_ModEnhancementsKeyVk = vk;
+}
+
+/**
+ * The key, unbound unless the player binds one (Mods: Display). Said on screen
+ * in a level, since nothing else tells a player which half they are looking at.
+ */
+void modEnhancementsTick(void)
+{
+	const s32 vk = modEnhancementsGetKey();
+
+	if (vk > 0 && inputKeyJustPressed(vk)) {
+		const s32 on = !modEnhancementsAreOn();
+
+		modEnhancementsSetOn(on);
+
+		if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
+			hudmsgCreateWithFlags(on ? "Enhancements On\n" : "Enhancements Off\n", HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
+		}
+	}
+}
+
+static MenuItemHandlerResult menuhandlerModEnhancements(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return modEnhancementsAreOn();
+	case MENUOP_SET:
+		modEnhancementsSetOn(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * Dab's Mod Options - the fork's own settings, all in one page.
  *
  * Jump and Start Armed were arena rules in mpsetup.options until they moved
@@ -4186,6 +4408,7 @@ static const struct {
 	{ "Next Texture Pack\n",    texpackCycleGetKey,  texpackCycleSetKey  },
 	{ "XBLA Assets On/Off\n",   xblaSwitchGetKey,     xblaSwitchSetKey     },
 	{ "Report a Problem\n",     traceGetKey,          traceSetKey          },
+	{ "Enhancements On/Off\n",  modEnhancementsGetKey, modEnhancementsSetKey },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)
@@ -4256,6 +4479,14 @@ struct menuitem g_ExtendedDabsModPlayerMenuItems[] = {
 		(uintptr_t)"Settings Preset",
 		0,
 		menuhandlerModPreset,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Enhancements",
+		0,
+		menuhandlerModEnhancements,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,
@@ -4759,6 +4990,14 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		0,
 		(uintptr_t)menutextModKeyBind,
 		6,
+		menuhandlerModKeyBind,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		8,
 		menuhandlerModKeyBind,
 	},
 	{
