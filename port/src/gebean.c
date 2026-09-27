@@ -6189,6 +6189,46 @@ static u32 beanFixVertexColour(const char *source, u32 vboff, u32 vi, u32 argb)
 }
 
 /**
+ * UVs the release's HD props got wrong, mended where the release's own UV is
+ * still there (the Community Edition's copy carries the mended one). By file,
+ * vertex buffer (.gpu offset) and vertex; UVs raw, as the file has them.
+ *
+ * - stool1: the seat's rim quad (vertices 40-43) stops 3% short of its strip of
+ *   the picture at one end and runs a 32nd past it at the other, so a band of
+ *   the wrong texels showed round the seat's edge ("Fixed metalchair1/stool1
+ *   prop vertex colors"; the colours themselves, black under the seat, are
+ *   white here as they are in GoldenEye's own - the rule below).
+ */
+static const struct {
+	const char *source;
+	u32 vboff;
+	u16 vi;
+	s16 old[2];
+	s16 fix[2];
+} beanVertexUvFixes[] = {
+	{ "new/prop/stool1", 0, 40, { -8191, 15455 }, { -7936, 16384 } },
+	{ "new/prop/stool1", 0, 41, {     0, 15455 }, {     0, 16384 } },
+	{ "new/prop/stool1", 0, 42, {     0,  8191 }, {     0,  8192 } },
+	{ "new/prop/stool1", 0, 43, { -8192,  8192 }, { -7936,  8192 } },
+};
+
+static void beanFixVertexUv(const char *source, const struct beanmodel *bm, u32 vboff, u32 vi, f32 *uv)
+{
+	const f32 scale = bm->uvscale;
+
+	for (u32 i = 0; i < ARRAYCOUNT(beanVertexUvFixes); i++) {
+		if (beanVertexUvFixes[i].vboff == vboff && beanVertexUvFixes[i].vi == vi
+				&& (s32)floorf(uv[0] * scale + 0.5f) == beanVertexUvFixes[i].old[0]
+				&& (s32)floorf(uv[1] * scale + 0.5f) == beanVertexUvFixes[i].old[1]
+				&& strcmp(source, beanVertexUvFixes[i].source) == 0) {
+			uv[0] = beanVertexUvFixes[i].fix[0] / scale;
+			uv[1] = beanVertexUvFixes[i].fix[1] / scale;
+			return;
+		}
+	}
+}
+
+/**
  * Triangles the release's HD props draw that they should not, left out where
  * the release's geometry is still there. By file, vertex buffer (.gpu offset)
  * and vertex range; a triangle touching the range is not drawn.
@@ -7714,6 +7754,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				// vertices is painted (the jeep's is bright under 96% of them),
 				// and drawn black the bike's bars came out as flat black shapes.
 				v.argb = beanFixVertexColour(source, vb.off, vi, v.argb);
+				beanFixVertexUv(source, &bm, vb.off, vi, v.uv);
 				argb = v.argb == 0xff000000 ? 0xffffffff : v.argb;
 
 				// The Golden Gun's pickup is the first-person gun's near-white
@@ -11157,6 +11198,7 @@ s32 gebeanPicturesWalk(struct gebeanpictures *pics, void (*fn)(const struct gebe
 			d.numconds = numconds;
 			memcpy(d.conds, condid, sizeof(s32) * numconds);
 			d.tex = (s32)tex;
+			d.uvscale = bm->uvscale;
 			d.vtx = n > 0 ? malloc(sizeof(*d.vtx) * 3 * n) : NULL;
 
 			if (d.vtx) {

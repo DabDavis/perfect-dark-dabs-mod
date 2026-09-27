@@ -298,6 +298,7 @@ struct gebeanmodeldraw {
 	s32 numconds;
 	s32 conds[GEBEAN_MAXCONDS];  // the 0x17 sections it stands in, outermost first
 	s32 tex;                     // the model's picture index (gebeanPicturesDecode())
+	f32 uvscale;                 // the file's UV units in one picture (uv = raw s16 / uvscale)
 	s32 numvtx;
 	struct gebeanmodelvtx *vtx;
 };
