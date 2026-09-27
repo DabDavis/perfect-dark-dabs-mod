@@ -7093,11 +7093,27 @@ static bool chrGoPosIsArrivingAtPos(struct chrdata *chr, struct coord *pos)
 	// and not the 260 first tried, which took a simulant half way up a
 	// ladder as arrived at the pad at its top: it turned for the next pad,
 	// stepped off the ladder and circled under that pad.
-	if (dy < -60.0f || dy > 210.0f) {
+	if (dy < -60.0f || dy > 300.0f) {
 		return false;
 	}
 
-	return posIsArrivingLaterallyAtPos(&chr->prevpos, &chr->prop->pos, pos, 30);
+	if (!posIsArrivingLaterallyAtPos(&chr->prevpos, &chr->prop->pos, pos, 30)) {
+		return false;
+	}
+
+	if (dy > 210.0f) {
+		// A few pads stand higher still: Area 52's bridge pads are 214 over
+		// it, and a simulant stood under one for good, a step from its
+		// next (F3 20260926-223358). Those are arrived at when the floor
+		// under the pad is the floor the simulant stands on, which the
+		// ladder's head is not to a simulant half way up the ladder.
+		struct coord padpos = *pos;
+		f32 padground = cdFindGroundAtCyl(&padpos, chr->radius, chr->prop->rooms, NULL, NULL);
+
+		return padground > -100000.0f && fabsf(padground - chr->manground) <= 30.0f;
+	}
+
+	return true;
 }
 
 /**
