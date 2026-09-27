@@ -52,6 +52,11 @@ static struct player *g_GeLadderTopPlayer = NULL;
 // while the squat finishes (bwalk0f0c63bc())
 static s32 g_GeCrouchHoldTicks[MAX_PLAYERS];
 
+// how far under the player's own the eye is drawn, after GoldenEye's climb
+// lifted him (bwalk0f0c63bc()): 0 or less, back to 0 at the pace a step up is
+// eased (bwalkUpdateVertical())
+static f32 g_GeClimbEyeLag[MAX_PLAYERS];
+
 /**
  * Something that is not a number was about to go into the player's height.
  * Said once a second at most, with what the player was doing, so a report's
@@ -219,6 +224,7 @@ void bwalkInit(void)
 	g_Vars.currentplayer->camtiltpitch = 0;
 	g_Vars.currentplayer->camstepphase = 0;
 	g_Vars.currentplayer->camstepamp = 0;
+	g_GeClimbEyeLag[g_Vars.currentplayernum] = 0;
 #endif
 
 	if (prevmode != MOVEMODE_WALK && prevmode != MOVEMODE_CUTSCENE) {
@@ -1175,6 +1181,21 @@ static void bwalkUpdateLongFall(void)
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * How far under the player's eye the camera is to be drawn while a climb up
+ * one of GoldenEye's links is eased out (bwalk0f0c63bc()). 0 or less.
+ */
+f32 bwalkGeClimbEyeLag(void)
+{
+	if (!geRoomActive() || g_Vars.currentplayer->isdead) {
+		return 0.0f;
+	}
+
+	return g_GeClimbEyeLag[g_Vars.currentplayernum];
+}
+#endif
+
 void bwalkUpdateVertical(void)
 {
 	s32 i;
@@ -1214,6 +1235,21 @@ void bwalkUpdateVertical(void)
 #endif
 
 	playerGetBbox(g_Vars.currentplayer->prop, &radius, &ymax, &ymin);
+
+#ifndef PLATFORM_N64
+	// a climb's eye let out as a step up is (sumground's pace below)
+	if (g_GeClimbEyeLag[g_Vars.currentplayernum] < 0.0f) {
+		f32 *lag = &g_GeClimbEyeLag[g_Vars.currentplayernum];
+
+		for (i = 0; i < g_Vars.lvupdate240; i++) {
+			*lag *= PAL ? 0.94559997320175f : 0.9545f;
+		}
+
+		if (*lag > -0.05f || !__builtin_isfinite(*lag)) {
+			*lag = 0.0f;
+		}
+	}
+#endif
 
 #if VERSION >= VERSION_NTSC_1_0
 	// Maybe reset counter-op's radius - not sure why
@@ -1972,6 +2008,15 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 			if (floor > g_Vars.currentplayer->vv_manground + 30.0f
 					&& floor <= g_Vars.currentplayer->prop->pos.y + 175.0f
 					&& bwalkTryMoveUpwards(floor - g_Vars.currentplayer->vv_manground) == CDRESULT_NOCOLLISION) {
+				// The feet go up at once - the climb wall is under them and
+				// Perfect Dark's box would stand in it otherwise - but the eye
+				// does not. GoldenEye puts the floor under Bond and eases his
+				// height to it (bondviewUpdatePlayerY(), 0.83 of what is left
+				// each tick, however far), so he is seen to climb onto the
+				// conveyor; here the view went up 119 in a frame (F3 report
+				// 20260926-222046). The difference is drawn under the eye and
+				// let out at the same pace (bwalkGeClimbEyeLag())
+				g_GeClimbEyeLag[g_Vars.currentplayernum] -= floor - g_Vars.currentplayer->vv_manground;
 				g_Vars.currentplayer->vv_manground = floor;
 				g_Vars.currentplayer->vv_ground = floor;
 				g_Vars.currentplayer->sumground = floor / (PAL ? 0.054400026798248f : 0.045499980449677f);

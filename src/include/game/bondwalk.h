@@ -25,6 +25,9 @@ s32 bwalk0f0c4a5c(struct coord *a, struct coord *b, struct coord *c, s32 types);
 void bwalk0f0c4d98(void);
 void bwalkUpdateSpeedSideways(f32 targetspeed, f32 accelspeed, s32 mult);
 void bwalkUpdateSpeedForwards(f32 targetspeed, f32 accelspeed);
+#ifndef PLATFORM_N64
+f32 bwalkGeClimbEyeLag(void);
+#endif
 void bwalkUpdateVertical(void);
 void bwalkApplyCrouchSpeed(void);
 bool bwalkCanUncrouch(void);

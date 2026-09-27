@@ -598,6 +598,17 @@ static bool stanTileLadder(s32 i)
 	return false;
 }
 
+static bool stanListHas(const s32 *list, s32 n, s32 tile)
+{
+	for (s32 k = 0; k < n; k++) {
+		if (list[k] == tile) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 /**
  * The tiles a body reaches: its own, and every tile linked to it - through any
  * number of links - across an edge that comes within `reach` of where it
@@ -621,11 +632,12 @@ static bool stanTileLadder(s32 i)
  * its feet.
  *
  * `ladders` false stops the flood at a ladder (stanTileLadder()): the climb
- * asks that way, a ladder being climbed as Perfect Dark's own are.
+ * asks that way, a ladder being climbed as Perfect Dark's own are. `noclimb`
+ * stops it at a link the conversion raised a wall on (stanClimb()), which
+ * leaves the tiles a body walks to on Perfect Dark's own feet.
  */
-static void stanFlood(s32 start, f32 x, f32 z, f32 x2, f32 z2, f32 reach, bool ladders)
+static s32 stanFloodList(s32 start, f32 x, f32 z, f32 x2, f32 z2, f32 reach, bool ladders, bool noclimb, s32 *queue)
 {
-	s32 queue[GESTAN_MAXFLOOD];
 	s32 head = 0, tail = 0;
 
 	g_Stan.gen++;
@@ -657,10 +669,23 @@ static void stanFlood(s32 start, f32 x, f32 z, f32 x2, f32 z2, f32 reach, bool l
 				continue;
 			}
 
+			if (noclimb && p[k].climbwall) {
+				continue;
+			}
+
 			g_Stan.reached[n] = g_Stan.gen;
 			queue[tail++] = n;
 		}
 	}
+
+	return tail;
+}
+
+static void stanFlood(s32 start, f32 x, f32 z, f32 x2, f32 z2, f32 reach, bool ladders)
+{
+	s32 queue[GESTAN_MAXFLOOD];
+
+	stanFloodList(start, x, z, x2, z2, reach, ladders, false, queue);
 }
 
 f32 geStanRise(bool checkvertical)
@@ -807,11 +832,14 @@ static bool stanEdgeClimbs(const struct stanpoint *e0, const struct stanpoint *e
  * The floor GoldenEye would lift the player onto as he walks from `pos` to
  * `to`: the highest tile with an area in plan that his circle at `to` touches
  * and that is linked to the one under his foot through edges within his reach
- * - across tiles on edge, the way GoldenEye joins a floor to one well over it.
+ * - across tiles on edge, the way GoldenEye joins a floor to one well over it -
+ * and that is reached only across a link the conversion raised a wall on.
  * GESTAN_NOCLIMBFLOOR where there is none.
  */
 f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius)
 {
+	s32 walked[GESTAN_MAXFLOOD];
+	s32 nwalked;
 	f32 best = GESTAN_NOCLIMBFLOOR;
 	f32 movelen;
 	s32 tile;
@@ -838,6 +866,15 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 	// ladder's whole height in one frame whenever that came before the
 	// ladder took hold of him (F3 report 20260926-113743, Dam's tower
 	// ladders, 321 high)
+	//
+	// And only a floor behind one of the conversion's climb walls: anything
+	// else the player walks onto on Perfect Dark's own feet, which ease him
+	// up the step as GoldenEye's do (bwalkUpdateVertical()). A stair was a
+	// climb as well - its risers are tiles on edge - and the circle a move
+	// goes to reaches two treads on: the player was put on the second, 47 up,
+	// fell back onto the first and was put up again, every other step of
+	// every flight (F3 reports 20260926-204407 Surface, 213221 Dam)
+	nwalked = stanFloodList(tile, pos->x, pos->z, to->x, to->z, radius, false, true, walked);
 	stanFlood(tile, pos->x, pos->z, to->x, to->z, radius, false);
 
 	movelen = sqrtf((to->x - pos->x) * (to->x - pos->x) + (to->z - pos->z) * (to->z - pos->z));
@@ -862,6 +899,10 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 
 				// a tile on edge is the climb, not a floor
 				if (stanTileUpright(i)) {
+					continue;
+				}
+
+				if (stanListHas(walked, nwalked, i)) {
 					continue;
 				}
 

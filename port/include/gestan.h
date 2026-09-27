@@ -99,7 +99,9 @@ bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y);
  * touches there with his circle, of the tiles linked to the one under his foot
  * within `radius` - through tiles on edge, which is how GoldenEye joins a floor
  * to a ledge, a sill or a conveyor well over it and lifts Bond up (bondview2.c's
- * bondviewTryMoveToStan()). GESTAN_NOCLIMBFLOOR where there is none.
+ * bondviewTryMoveToStan()). Only a floor the way to which crosses one of the
+ * conversion's climb walls: the rest are walked onto. GESTAN_NOCLIMBFLOOR
+ * where there is none.
  */
 #define GESTAN_NOCLIMBFLOOR (-1e30f)
 f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius);
