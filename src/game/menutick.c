@@ -33,6 +33,7 @@
 #include "geintro.h"
 #include "modloader.h"
 #include "trace.h"
+#include "optionsmenu.h"
 #endif
 
 u8 g_FileState = 0;
@@ -145,6 +146,32 @@ void menuTick(void)
 			g_MenuData.unk66f++;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// Mods: Camera over a paused level takes the blurred still away and lets
+	// the level itself be drawn behind the dialog, so the camera settings are
+	// seen as they change (F3 20260926-234214). With a background up the
+	// world is not drawn at all and the player's body is taken down
+	// (var8009dfc0 below); a background of 0 is what the Combat Simulator's
+	// pause has always had. Leaving the page puts the blur back, from a fresh
+	// still of the view the new settings give.
+	{
+		static bool liveworld = false;
+
+		if (anyopen && optionsMenuWantsLiveWorld()) {
+			if (g_MenuData.bg == MENUBG_BLUR && g_MenuData.nextbg == 255) {
+				menuSetBackground(0);
+				liveworld = true;
+			}
+		} else if (liveworld) {
+			liveworld = false;
+
+			if (anyopen && (g_MenuData.bg == 0 || g_MenuData.nextbg == 0)) {
+				menuSetBackground(MENUBG_BLUR);
+			}
+		}
+	}
+#endif
 
 	if (g_MenuData.nextbg != 255) {
 		if (g_MenuData.nextbg == g_MenuData.bg) {

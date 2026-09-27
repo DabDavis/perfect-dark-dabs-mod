@@ -47,6 +47,7 @@
 #include "xblastage.h"
 #include "roomsheen.h"
 #include "modenhance.h"
+#include "optionsmenu.h"
 #include "game/hudmsg.h"
 
 static s32 g_ExtMenuPlayer = 0;
@@ -5326,6 +5327,20 @@ struct menudialogdef g_ExtendedDabsModCameraMenuDialog = {
 	MENUDIALOGFLAG_LITERAL_TEXT,
 	&g_ExtendedDabsModDisplayMenuDialog,
 };
+
+/**
+ * Whether the menu wants the paused level drawn live behind it rather than a
+ * blurred still (menuTick()): Mods: Camera, over a single player's level, so
+ * the third person settings are seen as they change (F3 20260926-234214).
+ */
+s32 optionsMenuWantsLiveWorld(void)
+{
+	if (!STAGE_IS_LEVEL(g_Vars.stagenum) || PLAYERCOUNT() != 1 || g_MenuData.root != MENUROOT_MAINMENU) {
+		return false;
+	}
+
+	return g_Menus[0].curdialog && g_Menus[0].curdialog->definition == &g_ExtendedDabsModCameraMenuDialog;
+}
 
 // The head of the chain, and the one Extended Options opens.
 struct menudialogdef g_ExtendedDabsModMenuDialog = {
