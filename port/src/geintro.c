@@ -57,6 +57,8 @@
 #include "modborrow.h"
 #include "romdata.h"
 #include "system.h"
+#include "gecredits.h"
+#include "gexfront.h"
 #include "video.h"
 #include "gbiex.h"
 #include "geblood.h"
@@ -65,7 +67,6 @@
 #include "xblamesh.h"
 #include "gesfx.h"
 #include "geintro.h"
-#include "gexfront.h"
 #include "gemusic.h"
 #include "preprocess.h"
 #include "game/file.h"
@@ -301,6 +302,8 @@ static struct {
 	struct coord camtargetacc;
 	struct coord camtarget;
 	s32 camreset;
+	// the long reel after the credits (full_actor_intro)
+	s32 full;
 } g_Intro;
 
 /* ------------------------------------------------------------------------ */
@@ -1850,7 +1853,7 @@ static void introCastStart(s32 first)
 		g_Intro.castindex = 0;
 	}
 
-	while (g_Intro.castindex < NUM_CAST && g_Cast[g_Intro.castindex].extra) {
+	while (g_Intro.castindex < NUM_CAST && g_Cast[g_Intro.castindex].extra && !g_Intro.full) {
 		g_Intro.castindex++;
 	}
 
@@ -2188,7 +2191,8 @@ static Gfx *introRenderCast(Gfx *gdl)
 		gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 		gdl = gexFrontTextSetup(gdl);
 
-		for (s32 i = 0; i < 3; i++) {
+		// the long reel leaves the first line out (constructor_menu18_displaycast())
+		for (s32 i = g_Intro.full ? 1 : 0; i < 3; i++) {
 			const char *text = gexFrontTitleString(ids[i]);
 			s32 w = 0;
 			s32 h = 0;
@@ -2251,6 +2255,13 @@ static void introClose(void)
 	introFreeModel(&g_Intro.gun);
 	introLogoMetalForget();
 	introFreeModel(&g_Intro.logo);
+
+	if (g_Intro.full) {
+		g_Intro.full = 0;
+		gexFrontOpenAtMission(GEMISSION_CRADLE);
+		return;
+	}
+
 	gexFrontOpen();
 }
 
@@ -2307,6 +2318,33 @@ s32 geIntroOpen(void)
 	return 1;
 }
 
+s32 geIntroOpenCastAfterCredits(void)
+{
+	if (modBorrowLoadedIsGoldenEyeX()) {
+		return 0;
+	}
+
+	if (!g_Intro.loaded && !introLoadAll()) {
+		return 0;
+	}
+
+	if (!gexFrontLoadShared()) {
+		return 0;
+	}
+
+	g_Intro.active = 1;
+	g_Intro.full = 1;
+	g_Intro.stage = STAGE_CAST;
+	g_Intro.inputdelay = 2;
+	introCastStart(1);
+
+	if (introMusic() >= 0) {
+		musicStartTrackAsMenu(introMusic());
+	}
+
+	return 1;
+}
+
 void geIntroTick(void)
 {
 	if (!g_Intro.active) {
@@ -2315,6 +2353,8 @@ void geIntroTick(void)
 
 	if (g_Intro.inputdelay > 0) {
 		g_Intro.inputdelay--;
+	} else if (g_Intro.full) {
+		// "&& (!full_actor_intro)": no press leaves the long reel
 	} else if (joyGetButtonsPressedThisFrame(0, 0xffff | BUTTON_UI_ACCEPT | BUTTON_UI_CANCEL)) {
 		// as GoldenEye's, a press moves the intro on rather than ending it -
 		// except from the cast reel, which a press leaves for the folder

@@ -4,7 +4,8 @@
 #include <PR/ultratypes.h>
 
 // GoldenEye's twenty solo missions, as its own mission folder orders them
-#define MODLOADER_MAX_MISSIONS 20
+// GoldenEye's twenty, and Cuba, its credits (gecredits.h)
+#define MODLOADER_MAX_MISSIONS 21
 
 void modloaderInit(void);
 void modloaderGetStats(s32 *registered, s32 *found, s32 *mods);

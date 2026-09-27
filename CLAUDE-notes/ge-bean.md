@@ -11794,3 +11794,68 @@ types, flag tokens) - each is a changelog line already classed above.
 - HD "camera outside the level" test: GoldenEye triangles drawn with G_CULL_BACK cleared (the Cradle platform) now count as front from either side (shellTwo[], fileRoomTrianglesEach bit 17). The platform underside shows in the Cradle ending. A/B over 10 openings/endings: only Cradle's ending changed. PD_CULLLOG=1 logs the decision changes.
 - Aztec launch: GoldenEye's rocket block (explosion 20 1800 below, alternating +-400 z, every 8th frame; smoke 10 every 40th) added in propobj.c for PROJECTILEFLAG_GEROCKET.
 - Ending body weapon: the Cinema page kicks the ending before the hands draw a gun; falls back to g_DefaultWeapons; third person's body sync no longer strips it in a cutscene.
+## GoldenEye's credits after the Cradle: Cuba (2026-09-27, 12th F3 pass)
+
+F3 20260926-235740 (Linkmendez): "implement credits scene after cradle". The
+user approved it as a feature.
+
+**GoldenEye's credits are a level.** Finishing the Cradle's report runs
+LEVELID_CUBA (front.c: `mission_num == SP_LEVEL_CRADLE` -> `frontChangeMenu(
+MENU_RUN_STAGE)`, `selected_stage = LEVELID_CUBA`): `bg_len` with setup
+`UsetuplenZ`, Bond and Natalya in a jungle clearing. Its list 0x1000 locks the
+controls, hides Bond's gun, starts **CameraOrbitPad** (CAMERAMODE_POSEND - the
+camera circles pad 46 at 300 units, 100 over a point 70 below the pad, 18
+65536ths of a turn a tick), hands Bond list 0x402 and Natalya 0x401 (the two
+kissing animations, 0xb5/0xb6), fades in, prints its three lines, then
+**CreditsRoll**, waits on **IFCreditsHasCompleted**, fades out and leaves. With
+no report (`bossReturnTitleStage()` skips it for Cuba) the front end plays the
+cast reel in its **long version** (`do_extended_cast_display(TRUE)`: every row,
+the extras too, the first caption line left out, no button leaves it) and then
+the mission grid with the Cradle under the cursor.
+
+**The port does the same** (`port/src/gecredits.c`, converter change, **needs a
+GECONVERT_VERSION bump at merge**):
+- the conversion makes Cuba a level (`g_Levels` "len", levelid 54, **not an
+  arena**: no maps line, no Ump file - `levelIsArena()`) and a mission, **number
+  20** (`GEMISSION_CUBA`, `MODLOADER_MAX_MISSIONS` 21); the folder's grid and
+  Cinema page stay at their twenty. Its bank `LlenE` goes to menu/ with no
+  briefing (`g_MenuText` row with a NULL brief). `writeCredits()` copies the
+  272 rows Cuba's INTROTYPE_CREDITS record points at to **menu/credits.bin**
+  ("GEC1", count, 12-byte rows as the ROM has them);
+- three port AI commands: **0x01e8** CameraOrbitPad (14 bytes, pad moved into
+  the conversion), **0x01e9** CreditsRoll, **0x01ea** IFCreditsHasCompleted
+  (geaitable.h and the reference tools/geconvert/geaitable.py both);
+- the orbit is the opening swirl's trick: `TICKMODE_WARP` builds and ticks
+  Bond's body and `gecreditsCameraTick()` is asked before `gecinemaSwirlTick()`
+  in player.c; the camera's room is `geRoomCutsceneCamera()` from the pad;
+- the roll is `bondviewRenderCredits()` row for row on the 440x330 frame
+  (Cuba is GoldenEye's one level drawn at the front end's resolution -
+  bondview.c allocates it a 440x330 buffer), drawn after `lvRenderFade()`;
+  0x5011 is "nothing in this column", -1 position/alignment carries over;
+- the flow: `frontTickReport()` on a completed Cradle -> `frontStartCredits()`
+  (the folder's mission stays 17) -> the list's exit -> `gexFrontMissionReport()`
+  sees `g_FrontCredits` and goes back with no report -> `gexFrontOpenAfterMission()`
+  opens `geIntroOpenCastAfterCredits()` -> its close opens
+  `gexFrontOpenAtMission(GEMISSION_CRADLE)`. A conversion older than Cuba
+  (`modloaderMissionStage(20) == 0`) keeps the old way (straight to Aztec).
+
+**The roll's speed is a judgement.** GoldenEye moves it one unit a *frame
+drawn*; the native port (dam-oracle/gecuba.py, stage overridden from the
+attract Dam) runs lockstep - a frame a tick - and **faults in
+bondviewRenderCredits** (langGet(0x1050): it reads the rows unswapped), so it
+shows Cuba but not the roll. The port rolls at 20 units a second (a frame in
+three ticks, GoldenEye's usual rate): 272 rows + a screen = ~3 min 54 s. Cuba's
+frames from the oracle at ~/dam-oracle/cuba on 10.8.0.3 match ours (the kiss,
+"Natalya: Ohhh, James..." at the top).
+
+**Probes** (~/wt/f3-0927-credits-run): `cuba.py` boots `--boot-stage 0x71`
+(Cuba's stage in a fresh conversion) and shoots every STEP frames; `cuba2.py`
+sets `'gexfront.c'::g_FrontInside`/`g_FrontCredits` and
+`'gecredits.c'::g_Credits.frame = 4540` to run the end, the long cast and the
+grid; `chain.py` calls `gexFrontOpen()` then `'gexfront.c'::frontStartCredits()`
+from the Institute - the whole chain from the folder.
+
+Not done: the credits on the Cinema page; GoldenEye's secret cast rows (Jaws,
+Mayday, Oddjob, Samedi, Moonraker Elite are gated on Aztec/Egypt there, the
+port's reel shows its four guest stars always); no button skips the roll, as
+GoldenEye.

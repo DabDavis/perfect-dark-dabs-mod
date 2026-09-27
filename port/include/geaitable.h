@@ -89,6 +89,17 @@
 //     01e7 <chr:1> <part:1> <item:1>
 #define GEAI_HITCHR_CMD 0x01e7
 
+// And the three Cuba's credits run on (gecredits.c). CameraOrbitPad: the camera
+// circles a pad (GoldenEye's CAMERAMODE_POSEND), its own six halfwords with the
+// pad moved into the conversion, 14 bytes:
+//     01e8 <distance:2> <height:2> <speed:2> <pad:2> <look height:2> <start:2>
+// CreditsRoll starts the crawl, 2 bytes: 01e9
+// IFCreditsHasCompleted, when the crawl has run off the top, 3 bytes:
+//     01ea <label:1>
+#define GEAI_ORBIT_CMD   0x01e8
+#define GEAI_CREDITS_CMD 0x01e9
+#define GEAI_IFCREDITS_CMD 0x01ea
+
 // GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 // six of its commands), and neither of Perfect Dark's two banks has eight bits
 // to spare - every bit of theirs means something to the game. The byte gets a
@@ -361,9 +372,9 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* eb IFBondIsDead                           */ {  2, 0x0034,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {0, 1, 0} } },
 	/* ec BondDisableDamageAndPickups            */ {  1, 0x00f3,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 0x00f2} } },
 	/* ed BondHideWeapons                        */ {  1, 0x00ed,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {-1, 1, 0x0000} } },
-	/* ee CameraOrbitPad                         */ { 13,     -1,  6, { 2, 2, 2, 2, 2, 2 }, 0x0008, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* ef CreditsRoll                            */ {  1,     -1,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* f0 IFCreditsHasCompleted                  */ {  2,     -1,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* ee CameraOrbitPad                         */ { 13, 0x01e8,  6, { 2, 2, 2, 2, 2, 2 }, 0x0008, 0x0000, 0x0000, 0x0000,  6, { {0, 2, 0}, {1, 2, 0}, {2, 2, 0}, {3, 2, 0}, {4, 2, 0}, {5, 2, 0} } },
+	/* ef CreditsRoll                            */ {  1, 0x01e9,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* f0 IFCreditsHasCompleted                  */ {  2, 0x01ea,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* f1 IFObjectiveAllCompleted                */ {  2, 0x00f7,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* f2 IFFolderActorIsEqual                   */ {  3,     -1,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* f3 IFBondDamageAndPickupsDisabled         */ {  2, 0x00f8,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {0, 1, 0} } },

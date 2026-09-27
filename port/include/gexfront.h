@@ -47,6 +47,8 @@ s32 gexFrontWantsMain(void);
 s32 gexFrontGetLockedProgression(void);
 void gexFrontSetLockedProgression(s32 on);
 s32 gexFrontOpenAfterMission(void);
+// The folder on the mission grid with `mission` under the cursor
+s32 gexFrontOpenAtMission(s32 mission);
 void gexFrontTick(void);
 Gfx *gexFrontRender(Gfx *gdl);
 

@@ -65,6 +65,8 @@
 #include "video.h"
 #include "gexplus.h"
 #include "gecinema.h"
+#include "gecredits.h"
+#include "geintro.h"
 #include "gemonitor.h"
 #include "game/zbuf.h"
 #include "game/propobj.h"
@@ -1862,6 +1864,44 @@ static void frontStartMission(void)
 }
 
 /**
+ * The Cradle finished: GoldenEye's credits, which are its level Cuba
+ * (front.c: `mission_num == SP_LEVEL_CRADLE` -> `selected_stage =
+ * LEVELID_CUBA`), started as a mission is but not one of the folder's - the
+ * Cradle stays the folder's mission, so the grid comes back with it under the
+ * cursor (gecredits.c). False where the conversion is older than Cuba.
+ */
+// 1 while the credits run, 2 once they are over and the long cast reel is owed
+static s32 g_FrontCredits;
+
+static s32 frontStartCredits(void)
+{
+	union handlerdata data;
+	const s32 stagenum = modloaderMissionStage(GEMISSION_CUBA);
+
+	if (!stagenum) {
+		return 0;
+	}
+
+	g_MissionConfig.stageindex = GEMISSION_CUBA;
+	g_MissionConfig.stagenum = stagenum;
+	g_MissionConfig.iscoop = false;
+	g_MissionConfig.isanti = false;
+	g_MissionConfig.pdmode = false;
+	g_MissionConfig.difficulty = g_Front.difficulty == DIFFICULTY_007 ? DIFF_PA : g_Front.difficulty;
+
+	g_FrontCredits = 1;
+	g_Front.active = 0;
+	frontFreeBriefing();
+	frontUnload();
+
+	sysLogPrintf(LOG_NOTE, "gexfront: the Cradle is done, GoldenEye's credits on stage 0x%02x", stagenum);
+
+	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
+
+	return 1;
+}
+
+/**
  * Inside GE Plus: from the folder opening until the player backs out of its
  * mode select to the Perfect Menu. Starting a mission, a match or a cinema from
  * it does not end that - the folder is put away while the level runs, and
@@ -2879,6 +2919,10 @@ static void frontTickReport(s32 pick, s32 back)
 	}
 
 	if (g_FrontReport.completed) {
+		if (g_Front.mission == GEMISSION_CRADLE && frontStartCredits()) {
+			return;
+		}
+
 		// SP_LEVEL_AZTEC and on
 		if (g_Front.mission >= NUM_MISSIONS - 2) {
 			frontFreeBriefing();
@@ -3203,8 +3247,23 @@ s32 gexFrontMissionReport(void)
 	char *end;
 
 	if (!g_FrontInside || !frontMissionsAreOwn() || !player
-			|| g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0
-			|| g_Vars.stagenum != frontMissionStage(g_Front.mission)) {
+			|| g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
+		return 0;
+	}
+
+	// the credits (bossReturnTitleStage(): Cuba has no report) - the long cast
+	// reel is next, then the grid (gexFrontOpenAfterMission())
+	if (g_FrontCredits && g_Vars.stagenum == modloaderMissionStage(GEMISSION_CUBA)) {
+		g_FrontCredits = 2;
+		g_FrontReport.valid = 0;
+		g_FrontWantMain = 1;
+		gexFrontGoBack();
+		return 1;
+	}
+
+	g_FrontCredits = 0;
+
+	if (g_Vars.stagenum != frontMissionStage(g_Front.mission)) {
 		return 0;
 	}
 
@@ -3303,6 +3362,18 @@ s32 gexFrontOpenAfterMission(void)
 {
 	g_FrontWantMain = 0;
 
+	// after the credits GoldenEye plays its cast reel whole, and only then
+	// the grid (update_menu18_displaycast()'s full_actor_intro)
+	if (g_FrontCredits == 2) {
+		g_FrontCredits = 0;
+
+		if (geIntroOpenCastAfterCredits()) {
+			return 1;
+		}
+
+		return gexFrontOpenAtMission(GEMISSION_CRADLE);
+	}
+
 	if (!gexFrontOpen()) {
 		return 0;
 	}
@@ -3326,6 +3397,28 @@ s32 gexFrontOpenAfterMission(void)
 	}
 
 	g_FrontReport.valid = 0;
+
+	return 1;
+}
+
+/**
+ * The folder straight onto the mission grid with `mission` under the cursor,
+ * as GoldenEye comes back from its long cast reel (set_cursor_to_stage_solo(
+ * SP_LEVEL_CRADLE)).
+ */
+s32 gexFrontOpenAtMission(s32 mission)
+{
+	if (!gexFrontOpen()) {
+		return 0;
+	}
+
+	g_Front.inputdelay = 10;
+
+	if (mission >= 0 && mission < NUM_MISSIONS && frontMissionsAvailable()) {
+		g_Front.mission = mission;
+		g_Front.screen = SCREEN_MISSION;
+		frontSetCursorForMission(mission);
+	}
 
 	return 1;
 }

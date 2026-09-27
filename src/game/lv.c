@@ -108,6 +108,7 @@
 #include "gexplus.h"
 #include "gemusic.h"
 #include "gecinema.h"
+#include "gecredits.h"
 #include "gexfront.h"
 #include "gegadgets.h"
 #include "modloader.h"
@@ -1860,6 +1861,10 @@ Gfx *lvRender(Gfx *gdl)
 #if VERSION >= VERSION_NTSC_1_0
 				gdl = scenarioRenderHud(gdl);
 				gdl = lvRenderFade(gdl);
+#ifndef PLATFORM_N64
+				// GoldenEye rolls its credits over the fade (bondview2.c)
+				gdl = gecreditsRender(gdl);
+#endif
 #else
 				gdl = lvRenderFade(gdl);
 				gdl = scenarioRenderHud(gdl);
@@ -2344,6 +2349,9 @@ void lvTick(void)
 	// and GE Plus's Cinema, which is a mission's stage with its own opening
 	// camera shots played on it and no player in it (gecinema.c)
 	gecinemaTick();
+
+	// and the credits' roll, on Cuba (gecredits.c)
+	gecreditsTick();
 #endif
 
 	lvCheckPauseStateChanged();

@@ -20,6 +20,11 @@
 // Starts the intro. False when the conversion's files are not there, and the
 // caller opens the folder screens (or Perfect Dark's dialog) straight away.
 s32 geIntroOpen(void);
+// The cast reel alone in its long version - every character, the extras too,
+// with no button to leave it - which GoldenEye plays after the credits, and
+// the folder's mission grid on the Cradle after it (gexfront.c). False when
+// the conversion's files are not there.
+s32 geIntroOpenCastAfterCredits(void);
 s32 geIntroIsActive(void);
 void geIntroTick(void);
 Gfx *geIntroRender(Gfx *gdl);

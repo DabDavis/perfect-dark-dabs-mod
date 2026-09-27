@@ -59,6 +59,7 @@
 #include "gesfx.h"
 #include "getank.h"
 #include "gecinema.h"
+#include "gecredits.h"
 #include "geroom.h"
 #include "geguns.h"
 #include "modloader.h"
@@ -10405,6 +10406,58 @@ bool aiGeHitChrWithItem(void)
 	}
 
 	g_Vars.aioffset += 5;
+
+	return false;
+}
+/**
+ * @cmd 01e8
+ *
+ * GoldenEye's CameraOrbitPad (chrai.c): the camera circles a pad, as Cuba's
+ * credits have it (gecredits.c). GoldenEye's own six halfwords, the pad moved
+ * into the conversion:
+ *     01e8 <distance:2> <height:2> <speed:2> <pad:2> <look height:2> <start:2>
+ */
+bool aiGeCameraOrbitPad(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	gecreditsOrbit((u16)(cmd[2] << 8 | cmd[3]), (s16)(cmd[4] << 8 | cmd[5]), (s16)(cmd[6] << 8 | cmd[7]),
+			(u16)(cmd[8] << 8 | cmd[9]), (s16)(cmd[10] << 8 | cmd[11]), (u16)(cmd[12] << 8 | cmd[13]));
+
+	g_Vars.aioffset += 14;
+
+	return false;
+}
+
+/**
+ * @cmd 01e9
+ *
+ * GoldenEye's CreditsRoll: the credits start up the screen (gecredits.c).
+ */
+bool aiGeCreditsRoll(void)
+{
+	gecreditsRoll();
+
+	g_Vars.aioffset += 2;
+
+	return false;
+}
+
+/**
+ * @cmd 01ea
+ *
+ * GoldenEye's IFCreditsHasCompleted: whether the roll has run off the top.
+ *     01ea <label:1>
+ */
+bool aiGeIfCreditsHaveRolled(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (gecreditsHaveRolled()) {
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+	} else {
+		g_Vars.aioffset += 3;
+	}
 
 	return false;
 }

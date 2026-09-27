@@ -111,6 +111,7 @@
 #ifndef PLATFORM_N64
 #include "gexplus.h"
 #include "gecinema.h"
+#include "gecredits.h"
 #include "geroom.h"
 #include "modloader.h"
 #endif
@@ -5878,7 +5879,7 @@ void playerTick(bool arg0)
 #ifndef PLATFORM_N64
 		// a GoldenEye remake mission's opening swirl is this mode with a
 		// camera of its own (gecinema.c)
-		if (!gecinemaSwirlTick())
+		if (!gecreditsCameraTick() && !gecinemaSwirlTick())
 #endif
 		if (g_Vars.tickmode == TICKMODE_WARP) {
 			playerExecutePreparedWarp();
