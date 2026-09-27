@@ -1818,7 +1818,7 @@ void playerTickChrBody(void)
 		if (spectatorbody >= 0) {
 			bodynum = spectatorbody;
 
-			// BODY_DRCAROLL carries its own head. The branch below that builds
+			// The spectator's body carries no head. The branch below that builds
 			// a multiplayer body works this out from unk00_01 on its own; the
 			// gunmem branch does not, and would make room for a head model that
 			// body0f02ce8c() then ignores.
@@ -2053,6 +2053,17 @@ void playerTickChrBody(void)
 		chr->bodynum = bodynum;
 		chr->race = bodyGetRace(chr->bodynum);
 		chr->radius = g_Vars.currentplayer->bond2.radius;
+
+#ifndef PLATFORM_N64
+		// The spectator's CamSpy body (modSpectateGetBodyNum()) is a player's,
+		// not a deployed CamSpy. As RACE_EYESPY, chrTick() would take it for
+		// one lying undeployed in the inventory and never pose or draw it, and
+		// chr0f01f378() would keep its own ground rather than the flying
+		// camera's.
+		if (chr->race == RACE_EYESPY) {
+			chr->race = RACE_HUMAN;
+		}
+#endif
 
 		// The eyes on the screen are the half of Dr Caroll that makes the model
 		// read as something watching. chrRender() sets the screen from these
