@@ -2145,11 +2145,26 @@ Gfx *skyRender(Gfx *gdl)
 #else
 		Mtxf *mtx = gfxAllocateMatrix();
 		struct skycloudvtx cv[5];
-		mtx4MultMtx4(camGetWorldToScreenMtxf(), &g_SkyMtx, mtx);
+		Mtxf camtrans;
+		Mtxf camview;
+
+		// Camera-relative, as the water plane is: the view matrix's
+		// translation is the eye's distance from the world's origin, and
+		// past 32768 units along any of the view's axes it wraps in the
+		// s15.16 matrix mtxF2L() writes - the whole sky quad then lands
+		// behind the eye and only a sliver of it is drawn, black round it
+		// (Dam's first tower looking up at the cliffs, F3 20260927-181500:
+		// eye 33170 from the origin, 32903 of it along the view).
+		mtx4LoadTranslation(&g_Vars.currentplayer->cam_pos, &camtrans);
+		mtx4MultMtx4(camGetWorldToScreenMtxf(), &camtrans, &camview);
+		mtx4MultMtx4(&camview, &g_SkyMtx, mtx);
 
 		// each corner's depth, from the unsheared view (the shear only
 		// moves the picture up the screen)
 		for (s32 i = 0; i < numvertices; ++i) {
+			skyvertices3d[i].x -= g_Vars.currentplayer->cam_pos.x * scale;
+			skyvertices3d[i].y -= g_Vars.currentplayer->cam_pos.y * scale;
+			skyvertices3d[i].z -= g_Vars.currentplayer->cam_pos.z * scale;
 			skyCloudVtxFrom(&cv[i], &skyvertices3d[i], mtx);
 		}
 
