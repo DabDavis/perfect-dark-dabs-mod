@@ -1128,8 +1128,9 @@ bool bgunLeftHandSkipsFlip(s32 weaponnum)
 	// view, whose lettering reads the right way (gebean.c's beanLettering).
 	// Mirrored, the side that faced the view was the right hand's, and its
 	// lettering read backwards - the rocket launcher's stencil (F3
-	// 20260926-204243).
-	if (gebeanFirstPersonIsRelease(weaponnum)) {
+	// 20260926-204243). Only the rocket launcher: the others read better
+	// mirrored, lettering backwards and all (F3 20260927-225543).
+	if (weaponnum == WEAPON_GE_ROCKETLAUNCHER && gebeanFirstPersonIsRelease(weaponnum)) {
 		return true;
 	}
 
