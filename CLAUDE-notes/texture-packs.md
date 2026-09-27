@@ -723,3 +723,22 @@ The worker stops at "the files are on disk". `communityTick()`, from the
 scheduler beside `texpackTick()`, does the rest - rescanning the folder,
 selecting the new pack, switching packs on if they were off - because all of
 that is the game thread's.
+
+## 12th F3 pass notes (2026-09-27, fix/f3-0927-pd)
+
+- **Decoded-but-unreported images are never dropped.** The decode worker used
+  to free READY jobs past its 48 MB budget before the poll reported them; the
+  renderer had already cached the original and never asked again, so pack
+  textures stayed the game's own until a reload. The worker now waits
+  (backpressure) and the poll wakes it.
+- **F7 dumps are written on a thread** (`texpackDumpWrite`, 256 MB queue,
+  flushed in `cleanup()`); a saved `Mod.DumpTextures=1` used to hitch every
+  doorway. Asset dump (`texpackWriteXblaRecord`) stays synchronous.
+- **XBLA font atlases 0dbb/0dbc (and 0db8-0dba) take a pack's xbla/ picture**
+  (xblafont.c): same size or a whole multiple, cells scaled; an atlas without
+  alpha uses brightness; the font is rebuilt when `texpackGetIndexSerial()`
+  changes.
+- Also on the branch: HD GoldenEye distance fade scaled with the release's fog
+  (env.c), a nearly-all-glass record counts as a flat pane (xblatex.c, DD
+  sniper visor 4909), XBLA sky cubes move the sun onto their painted disc
+  (xblasky.c `xblaSkySunPos`).
