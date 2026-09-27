@@ -93,7 +93,7 @@ TABLE = [
     ('TRYThrowingGrenade',                  2,    [('GOTOLABEL', 1)],                            0x001b, (('=', 512, 2), ('=', 0, 2), 0),             'hand'),  # 1a aiConsiderGrenadeThrow
     ('TRYDroppingItem',                     5,    [('PROP_NUM', 2), ('ITEM_NUM', 1), ('GOTOLABEL', 1)], 0x001c, (0, 1, 2),                                   'table'),  # 1b aiDropItem
     ('RunToPad',                            3,    [('PAD', 2)],                                  0x001d, (0,),                                        'both'),  # 1c aiJogToPad
-    ('RunToPadPreset',                      1,    [],                                            0x001e, (('=', 0, 1),),                              'hand'),  # 1d aiGoToPadPreset
+    ('RunToPadPreset',                      1,    [],                                            0x001e, (('=', 1, 1),),                              'hand'),  # 1d aiGoToPadPreset (GoldenEye's SPEED_RUN = Perfect Dark's jog, as RunToPad)
     ('WalkToPad',                           3,    [('PAD', 2)],                                  0x001f, (0,),                                        'both'),  # 1e aiWalkToPad
     ('SprintToPad',                         3,    [('PAD', 2)],                                  0x0020, (0,),                                        'both'),  # 1f aiRunToPad
     ('StartPatrol',                         2,    [('PATH_NUM', 1)],                             0x0021, (0,),                                        'both'),  # 20 aiSetPath + aiStartPatrol (gesolo.py)
@@ -315,7 +315,7 @@ TABLE = [
     ('IFChrWasShotSinceLastCheck',          3,    [('CHR_NUM', 1), ('GOTOLABEL', 1)],            0x01e4, (0, 1),                                      'hand'),  # f8 aiGeIfChrWasHit (port's own: CHRFLAG_WAS_HIT, set invincible or not)
     ('BondKilledInAction',                  1,    [],                                            0x00fe, (),                                          'hand'),  # f9 aiKillBond
     ('RaiseArms',                           1,    [],                                            0x00ff, (),                                          'hand'),  # fa aiBeSurprisedSurrender
-    ('GasLeakAndFadeFog',                   1,    [],                                            None,   (),                                          'hand'),  # fb -
+    ('GasLeakAndFadeFog',                   1,    [],                                            0x01e8, (('=', 1, 1),),                              'hand'),  # fb aiGeGasLeak (port's own; harmless as on Egypt, its only user)
     ('ObjectRocketLaunch',                  2,    [('OBJECT_TAG', 1)],                           0x01e5, (0,),                                        'hand'),  # fc aiGeObjectRocketLaunch (port's own)
 ]
 

@@ -3219,12 +3219,27 @@ s32 chrTick(struct prop *prop)
 	}
 #endif
 
+#ifndef PLATFORM_N64
+	// Disable Fog draws a chr out past the level's fog, but its AI keeps
+	// seeing by that fog: GoldenEye's Jungle starts Xenia's attack (and her
+	// music) the moment she is on screen, which with the fog off was from
+	// the mission's first frame, 14000 units away (tester F3 20260927-003241)
+	chr->hidden2 &= ~CHRH2FLAG_PASTLEVELFOG;
+
+	if (needsupdate && modIsFogDisabled() && !envIsPosInFogMaxDistance(&prop->pos, modelGetEffectiveScale(model))) {
+		chr->hidden2 |= CHRH2FLAG_PASTLEVELFOG;
+	}
+#endif
+
 	if (needsupdate) {
 #ifdef DEBUG
 		debug0f1199f0nb();
 #endif
 
 		prop->flags |= PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK;
+#ifndef PLATFORM_N64
+		if ((chr->hidden2 & CHRH2FLAG_PASTLEVELFOG) == 0)
+#endif
 		chr->chrflags |= CHRCFLAG_EVERONSCREEN;
 
 		if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.bond) {

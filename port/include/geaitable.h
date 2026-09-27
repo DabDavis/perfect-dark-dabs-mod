@@ -89,6 +89,11 @@
 //     01e7 <chr:1> <part:1> <item:1>
 #define GEAI_HITCHR_CMD 0x01e7
 
+// And its GasLeakAndFadeFog: the gas and its fog, which only Egyptian's list
+// uses, and GoldenEye makes harmless and quick on that level. Three bytes:
+//     01e8 <harmless:1>, written 1
+#define GEAI_GASLEAK_CMD 0x01e8
+
 // GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 // six of its commands), and neither of Perfect Dark's two banks has eight bits
 // to spare - every bit of theirs means something to the game. The byte gets a
@@ -152,7 +157,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* 1a TRYThrowingGrenade                     */ {  2, 0x001b,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {-1, 2, 0x0200}, {-1, 2, 0x0000}, {0, 1, 0} } },
 	/* 1b TRYDroppingItem                        */ {  5, 0x001c,  3, { 2, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 2, 0}, {1, 1, 0}, {2, 1, 0} } },
 	/* 1c RunToPad                               */ {  3, 0x001d,  1, { 2 }, 0x0001, 0x0000, 0x0000, 0x0000,  1, { {0, 2, 0} } },
-	/* 1d RunToPadPreset                         */ {  1, 0x001e,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 0x0000} } },
+	/* 1d RunToPadPreset                         */ {  1, 0x001e,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 0x0001} } },
 	/* 1e WalkToPad                              */ {  3, 0x001f,  1, { 2 }, 0x0001, 0x0000, 0x0000, 0x0000,  1, { {0, 2, 0} } },
 	/* 1f SprintToPad                            */ {  3, 0x0020,  1, { 2 }, 0x0001, 0x0000, 0x0000, 0x0000,  1, { {0, 2, 0} } },
 	/* 20 StartPatrol                            */ {  2, 0x0021,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },  // + aiStartPatrol, writeSoloAilist()
@@ -374,7 +379,7 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* f8 IFChrWasShotSinceLastCheck             */ {  3, 0x01e4,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {0, 1, 0}, {1, 1, 0} } },
 	/* f9 BondKilledInAction                     */ {  1, 0x00fe,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* fa RaiseArms                              */ {  1, 0x00ff,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
-	/* fb GasLeakAndFadeFog                      */ {  1,     -1,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	/* fb GasLeakAndFadeFog                      */ {  1, 0x01e8,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 1} } },
 	/* fc ObjectRocketLaunch                     */ {  2, 0x01e5,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 };
 

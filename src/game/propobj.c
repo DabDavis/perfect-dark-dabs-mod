@@ -21916,6 +21916,23 @@ void gasReleaseFromPos(struct coord *pos)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye's GasLeakAndFadeFog on Egyptian, where its own code gives the gas
+ * two seconds to close in and no damage (propobj.c there,
+ * init_trigger_toxic_gas_effect(): the level is LEVELID_EGYPT) - the room
+ * goes dark after Baron Samedi's second appearance. The Perfect Dark stage
+ * gasReleaseFromPos() keys the same rule on is not a converted one.
+ */
+void gasReleaseHarmless(struct coord *pos)
+{
+	gasReleaseFromPos(pos);
+
+	g_GasReleaseTimerMax240 = 120;
+	g_GasEnableDamage = false;
+}
+#endif
+
 void gasStopAudio(void)
 {
 	if (g_GasAudioHandle && sndGetState(g_GasAudioHandle)) {

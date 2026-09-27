@@ -1532,7 +1532,12 @@ bool aiIfNeverBeenOnScreen(void)
  */
 bool aiIfOnScreen(void)
 {
-	if (g_Vars.chrdata->prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK | PROPFLAG_ONANYSCREENPREVTICK)) {
+	if ((g_Vars.chrdata->prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK | PROPFLAG_ONANYSCREENPREVTICK))
+#ifndef PLATFORM_N64
+			// past the level's fog, drawn only because the fog is off (chr.c)
+			&& (g_Vars.chrdata->hidden2 & CHRH2FLAG_PASTLEVELFOG) == 0
+#endif
+			) {
 		u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
 	} else {
@@ -10396,6 +10401,34 @@ bool aiGeHitChrWithItem(void)
 	}
 
 	g_Vars.aioffset += 5;
+
+	return false;
+}
+
+/**
+ * @cmd 01e8
+ *
+ * GoldenEye's GasLeakAndFadeFog: its gas, from the world's origin, the fog
+ * closing in on the level's second sky (gasTick(), envApplyTransitionFrac()).
+ * Only Egyptian's list has one - the temple goes dark once Baron Samedi has
+ * come back the second time - and GoldenEye makes the gas harmless there and
+ * quick, two seconds; the conversion writes that as the argument, as the
+ * command's only use. It had no Perfect Dark equivalent and was left out, so
+ * the temple never darkened (tester F3 20260927-021623).
+ * Three bytes: 01e8 <harmless:1>
+ */
+bool aiGeGasLeak(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	struct coord origin = {0, 0, 0};
+
+	if (cmd[2]) {
+		gasReleaseHarmless(&origin);
+	} else {
+		gasReleaseFromPos(&origin);
+	}
+
+	g_Vars.aioffset += 3;
 
 	return false;
 }

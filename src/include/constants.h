@@ -770,6 +770,9 @@
 #define CHRH2FLAG_CONSIDERPROXIES   0x0040
 #define CHRH2FLAG_SPAWNED           0x0080
 #define CHRH2FLAG_HEADSHOTTED       0x1000
+#ifndef PLATFORM_N64
+#define CHRH2FLAG_PASTLEVELFOG      0x0800 // drawn past the level's fog under Disable Fog: off screen to the AI
+#endif
 
 // chr->chrflags
 #define CHRCFLAG_FORCETOGROUND               0x00000001
