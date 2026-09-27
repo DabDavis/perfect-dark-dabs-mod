@@ -749,6 +749,47 @@ static struct xblafontatlas *xblaFontOpenFace(s32 which)
 		return NULL;
 	}
 
+	// A pack's picture for the atlas wins, the way it does for any other
+	// record (F3 report 20260927-000755: a pack's repainted 0dbb and 0dbc never
+	// showed, because this read the release's straight out of the package).
+	// It may be drawn bigger - the cells are in the release's pixels, so they
+	// are scaled up to it - but not a different shape.
+	{
+		s32 packwidth;
+		s32 packheight;
+		u8 *pack = texpackDecodeXblaReplacementNow((s32)faces[which].record, &packwidth, &packheight);
+
+		if (pack) {
+			const s32 sx = packwidth / width;
+			const s32 sy = packheight / height;
+
+			if (sx >= 1 && sx == sy && packwidth == width * sx && packheight == height * sy) {
+				free(rgba);
+				rgba = pack;
+				width = packwidth;
+				height = packheight;
+
+				for (i = 0; i < (s32)atlas->numCells; i++) {
+					atlas->cells[i].x1 *= sx;
+					atlas->cells[i].y1 *= sy;
+					atlas->cells[i].x2 *= sx;
+					atlas->cells[i].y2 *= sy;
+					atlas->cells[i].a *= sx;
+					atlas->cells[i].b *= sx;
+					atlas->cells[i].c *= sx;
+				}
+
+				sysLogPrintf(LOG_NOTE, "xblafont: record %04x from the texture pack, %dx%d",
+						faces[which].record, width, height);
+			} else {
+				sysLogPrintf(LOG_WARNING, "xblafont: the pack's record %04x is %dx%d, not %dx%d"
+						" or a whole multiple of it; using the release's",
+						faces[which].record, packwidth, packheight, width, height);
+				texpackFreeReplacement(pack);
+			}
+		}
+	}
+
 	atlas->alpha = malloc((u32)width * height);
 
 	if (!atlas->alpha) {
@@ -756,8 +797,21 @@ static struct xblafontatlas *xblaFontOpenFace(s32 which)
 		return NULL;
 	}
 
-	for (i = 0; i < width * height; i++) {
-		atlas->alpha[i] = rgba[i * 4 + 3];
+	{
+		// An atlas painted without an alpha channel is white letters on
+		// black, and its brightness is the coverage.
+		s32 opaque = 1;
+
+		for (i = 0; i < width * height && opaque; i++) {
+			opaque = rgba[i * 4 + 3] == 0xff;
+		}
+
+		for (i = 0; i < width * height; i++) {
+			const u8 *px = &rgba[i * 4];
+			atlas->alpha[i] = opaque
+				? (u8)((px[0] > px[1] ? (px[0] > px[2] ? px[0] : px[2]) : (px[1] > px[2] ? px[1] : px[2])))
+				: px[3];
+		}
 	}
 
 	free(rgba);
@@ -1652,6 +1706,27 @@ s32 xblaFontHaveGlyphs(void)
 	return optEnabled && xblaImportIsAvailable();
 }
 
+/** Throws away every atlas, line and glyph, to be built again on the next ask. */
+static void xblaFontForget(void)
+{
+	s32 b, f, c;
+
+	xblaFontShutdown();
+
+	for (b = 0; b < XBLAFONT_NUM_BANKS; b++) {
+		for (f = 0; f < XBLAFONT_NUM_FONTS; f++) {
+			for (c = 0; c < XBLAFONT_NUM_CHARS; c++) {
+				free(glyphs[b][f][c].rgba);
+				memset(&glyphs[b][f][c], 0, sizeof(glyphs[b][f][c]));
+			}
+		}
+	}
+
+	numBuilt = 0;
+	numMissing = 0;
+	numOffLine = 0;
+}
+
 u8 *xblaFontLoadGlyph(u32 glyph, s32 *outWidth, s32 *outHeight)
 {
 	struct xblafontglyph *out;
@@ -1662,6 +1737,20 @@ u8 *xblaFontLoadGlyph(u32 glyph, s32 *outWidth, s32 *outHeight)
 
 	if (!optEnabled || !(glyph & TEXPACK_GLYPH_SET)) {
 		return NULL;
+	}
+
+	// A pack may repaint the atlases, so a different pack is a different font.
+	{
+		static s32 seenSerial = -1;
+		const s32 serial = texpackGetIndexSerial();
+
+		if (serial != seenSerial) {
+			if (seenSerial >= 0) {
+				xblaFontForget();
+			}
+
+			seenSerial = serial;
+		}
 	}
 
 	// Which band tile 0 is drawn from is the switch's to say - see

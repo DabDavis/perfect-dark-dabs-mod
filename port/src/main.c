@@ -126,6 +126,8 @@ static void cleanup(void)
 	// Before videoShutdown(): the decode worker hands its images to the
 	// renderer, so it has to be the one that stops first.
 	texpackAsyncShutdown();
+	// F7 dumps still queued for the writer thread.
+	texpackDumpFlush();
 	inputSaveBinds();
 	configSave(CONFIG_PATH);
 	videoShutdown();

@@ -2416,9 +2416,15 @@ static void texpackIndexFile(const char *name, void *arg)
 static void texpackAsyncReset(void);
 static void texpackModDrop(void);
 
+// Counts the index being thrown away, for what builds on the pack's pictures
+// outside the renderer's cache - see texpackGetIndexSerial().
+static volatile s32 indexSerial;
+
 static void texpackFreeIndex(void)
 {
 	s32 i;
+
+	indexSerial++;
 
 	// Before anything below is freed: the worker reads the index, and only
 	// stops between jobs.
@@ -3453,34 +3459,6 @@ static void texpackBacklogClear(void)
 	jobBacklogCount = 0;
 }
 
-/**
- * Frees the oldest decoded-but-unclaimed image until the budget is met. Called
- * with the lock held.
- */
-static void texpackTrimReady(void)
-{
-	while (jobReadyBytes > TEXPACK_READY_BUDGET) {
-		s32 oldest = -1;
-		s32 i;
-
-		for (i = 0; i < TEXPACK_MAX_PENDING; i++) {
-			if (jobs[i].state == TEXPACK_JOB_READY
-					&& (oldest < 0 || jobs[i].serial < jobs[oldest].serial)) {
-				oldest = i;
-			}
-		}
-
-		if (oldest < 0) {
-			break;
-		}
-
-		jobReadyBytes -= texpackJobBytes(&jobs[oldest]);
-		free(jobs[oldest].rgba);
-		jobs[oldest].rgba = NULL;
-		jobs[oldest].state = TEXPACK_JOB_FREE;
-	}
-}
-
 static int texpackDecodeWorker(void *arg)
 {
 	SDL_LockMutex(jobLock);
@@ -3503,7 +3481,15 @@ static int texpackDecodeWorker(void *arg)
 			}
 		}
 
-		if (found < 0) {
+		// Decoded images nobody has taken yet are held to a budget by not
+		// making more, never by throwing one away. One dropped before the poll
+		// reported it was a texture the renderer had already cached as the
+		// original and would never ask about again - the pack's picture gone
+		// for the rest of the stage. That happened when the game thread stood
+		// still long enough for a dozen decodes to land (a stage load, or a
+		// frame writing F7 dumps), so it read as textures randomly not loading.
+		// The poll takes them every frame and wakes this thread.
+		if (found < 0 || jobReadyBytes > TEXPACK_READY_BUDGET) {
 			SDL_CondWait(jobWake, jobLock);
 			continue;
 		}
@@ -3588,7 +3574,6 @@ static int texpackDecodeWorker(void *arg)
 			jobs[found].height = height;
 			jobs[found].state = TEXPACK_JOB_READY;
 			jobReadyBytes += texpackJobBytes(&jobs[found]);
-			texpackTrimReady();
 		} else {
 			jobs[found].state = TEXPACK_JOB_FAILED;
 		}
@@ -3917,6 +3902,11 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 	// Slots were freed above, and by the claims made since the last call.
 	texpackBacklogRefill();
 
+	// A worker held back by the ready budget waits for exactly this.
+	if (jobReadyBytes <= TEXPACK_READY_BUDGET) {
+		SDL_CondSignal(jobWake);
+	}
+
 	SDL_UnlockMutex(jobLock);
 
 	return count;
@@ -4081,6 +4071,31 @@ u8 *texpackDecodeReplacementNow(s32 texturenum, s32 *outWidth, s32 *outHeight)
 			replaceAlphaPaths ? replaceAlphaPaths[texturenum] : NULL,
 			replaceKinds ? replaceKinds[texturenum] : TEXPACK_KIND_NATIVE,
 			replaceFlip ? replaceFlip[texturenum] : 1, outWidth, outHeight);
+}
+
+/**
+ * The pack's picture for one of the release's records, decoded here and now on
+ * the caller's thread, in the release decode's row order. For a picture that
+ * is read once and kept rather than drawn - the XBLA font's atlases.
+ */
+u8 *texpackDecodeXblaReplacementNow(s32 record, s32 *outWidth, s32 *outHeight)
+{
+	if (!texpackHaveXblaReplacement(record)) {
+		return NULL;
+	}
+
+	return texpackDecodeReplacement(xblaReplacePaths[record], NULL, TEXPACK_KIND_NATIVE,
+			xblaReplaceFlip ? xblaReplaceFlip[record] : 1, outWidth, outHeight);
+}
+
+/**
+ * Changes whenever the index is thrown away - a reload, a different pack,
+ * packs turned off. Anything that keeps what it built from a pack's picture
+ * compares it to know when to build again.
+ */
+s32 texpackGetIndexSerial(void)
+{
+	return indexSerial;
 }
 
 /**
@@ -4624,6 +4639,154 @@ static void texpackDumpRaw(s32 texturenum, u32 fmt, u32 siz, const struct texpac
 	}
 }
 
+/**
+ * F7's pictures, written off the render thread.
+ *
+ * A dump is written the first time a texture is drawn, which is the frame a
+ * new area comes into view - dozens of textures at once, and a 1024x1024 PNG
+ * from a pack or the release's art is tens of milliseconds to compress. Done
+ * in the draw, that was a hitch at every doorway for as long as the dump was
+ * on, and the setting is saved, so a player who once pressed F7 carried it
+ * into every later session without knowing (F3 report 20260927-070653).
+ *
+ * So the draw copies the picture and a thread writes it. Held to a byte
+ * budget: past it the draw writes the picture itself, as it always did.
+ */
+struct texpackdumpwrite {
+	struct texpackdumpwrite *next;
+	u8 *rgba;
+	u32 width;
+	u32 height;
+	char path[FS_MAXPATH + 1];
+};
+
+#define TEXPACK_DUMP_QUEUE_BUDGET (256 * 1024 * 1024)
+
+static SDL_Thread *dumpThread;
+static SDL_mutex *dumpLock;
+static SDL_cond *dumpWake;
+static struct texpackdumpwrite *dumpHead;
+static struct texpackdumpwrite *dumpTail;
+static u32 dumpQueuedBytes;
+static s32 dumpBusy;
+
+static int texpackDumpWorker(void *arg)
+{
+	SDL_LockMutex(dumpLock);
+
+	for (;;) {
+		struct texpackdumpwrite *w;
+
+		while (!dumpHead) {
+			SDL_CondWait(dumpWake, dumpLock);
+		}
+
+		w = dumpHead;
+		dumpHead = w->next;
+
+		if (!dumpHead) {
+			dumpTail = NULL;
+		}
+
+		dumpBusy = 1;
+		SDL_UnlockMutex(dumpLock);
+
+		if (!pngWrite(w->path, w->rgba, (s32)w->width, (s32)w->height, 4, 1)) {
+			// Logged from here rather than the queue: the write is what failed.
+			sysLogPrintf(LOG_ERROR, "texpack: could not write %s", w->path);
+		}
+
+		SDL_LockMutex(dumpLock);
+		dumpQueuedBytes -= w->width * w->height * 4;
+		dumpBusy = 0;
+		free(w->rgba);
+		free(w);
+		SDL_CondBroadcast(dumpWake);
+	}
+
+	return 0;
+}
+
+/** Writes a picture as a bottom-row-first PNG, on the dump thread if it can. */
+static s32 texpackDumpWrite(const char *path, const u8 *rgba32, u32 width, u32 height)
+{
+	const u32 bytes = width * height * 4;
+	struct texpackdumpwrite *w;
+
+	if (!dumpLock) {
+		dumpLock = SDL_CreateMutex();
+		dumpWake = SDL_CreateCond();
+	}
+
+	if (dumpLock && dumpWake && !dumpThread) {
+		dumpThread = SDL_CreateThread(texpackDumpWorker, "texpackdump", NULL);
+
+		if (dumpThread) {
+			SDL_DetachThread(dumpThread);
+		}
+	}
+
+	if (!dumpThread) {
+		return pngWrite(path, rgba32, width, height, 4, 1) != 0;
+	}
+
+	SDL_LockMutex(dumpLock);
+
+	if (dumpQueuedBytes + bytes > TEXPACK_DUMP_QUEUE_BUDGET) {
+		SDL_UnlockMutex(dumpLock);
+		return pngWrite(path, rgba32, width, height, 4, 1) != 0;
+	}
+
+	SDL_UnlockMutex(dumpLock);
+
+	w = malloc(sizeof(*w));
+
+	if (!w || !(w->rgba = malloc(bytes))) {
+		free(w);
+		return pngWrite(path, rgba32, width, height, 4, 1) != 0;
+	}
+
+	memcpy(w->rgba, rgba32, bytes);
+	w->width = width;
+	w->height = height;
+	w->next = NULL;
+	snprintf(w->path, sizeof(w->path), "%s", path);
+
+	SDL_LockMutex(dumpLock);
+
+	if (dumpTail) {
+		dumpTail->next = w;
+	} else {
+		dumpHead = w;
+	}
+
+	dumpTail = w;
+	dumpQueuedBytes += bytes;
+	SDL_CondBroadcast(dumpWake);
+	SDL_UnlockMutex(dumpLock);
+
+	return 1;
+}
+
+/**
+ * Waits for the queued dumps to land. At exit, so a session ended by quitting
+ * keeps the last area's pictures.
+ */
+void texpackDumpFlush(void)
+{
+	if (!dumpLock || !dumpThread) {
+		return;
+	}
+
+	SDL_LockMutex(dumpLock);
+
+	while (dumpHead || dumpBusy) {
+		SDL_CondWait(dumpWake, dumpLock);
+	}
+
+	SDL_UnlockMutex(dumpLock);
+}
+
 void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 siz,
 		const struct texpackrawinfo *raw)
 {
@@ -4663,7 +4826,7 @@ void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 si
 	// flips it, so the game's own texture coordinates are what account for it -
 	// and an artist opening a dump wants the picture the right way up. A loader
 	// reading a pack back has to undo this.
-	if (pngWrite(path, rgba32, width, height, 4, 1)) {
+	if (texpackDumpWrite(path, rgba32, width, height)) {
 		sysLogPrintf(LOG_NOTE, "texpack: dumped %04x %ux%u %s",
 				texturenum, width, height, texpackFormatName(fmt, siz));
 	}
@@ -4687,6 +4850,8 @@ void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 si
  * every other dump is - the picture is in the game's row order and an image
  * editor wants it the other way up.
  */
+static s32 texpackWriteXblaRecordTo(const u8 *rgba32, u32 width, u32 height, u32 record, s32 queued);
+
 void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
 {
 	static u8 xblaDumpDone[(TEXPACK_XBLA_RECORDS + 7) / 8];
@@ -4703,7 +4868,7 @@ void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
 	// again on every cache miss for the rest of the run.
 	xblaDumpDone[record >> 3] |= (u8)(1 << (record & 7));
 
-	if (texpackWriteXblaRecord(rgba32, width, height, record)) {
+	if (texpackWriteXblaRecordTo(rgba32, width, height, record, 1)) {
 		sysLogPrintf(LOG_NOTE, "texpack: dumped XBLA record %04x %ux%u", record, width, height);
 	}
 }
@@ -4712,7 +4877,7 @@ void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
  * The same file, written whether or not the F7 dump is on: what the asset
  * dump calls for every record in the package.
  */
-s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
+static s32 texpackWriteXblaRecordTo(const u8 *rgba32, u32 width, u32 height, u32 record, s32 queued)
 {
 	static s32 xblaDumpDirState; // 0 = not tried, 1 = ready, -1 = gave up
 	char path[FS_MAXPATH + 1];
@@ -4742,7 +4907,13 @@ s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
 
 	snprintf(path, sizeof(path), "%s/" TEXPACK_XBLA_DIR "/%04x.png", dumpDir, record);
 
-	return pngWrite(path, rgba32, width, height, 4, 1) != 0;
+	return queued ? texpackDumpWrite(path, rgba32, width, height)
+		: pngWrite(path, rgba32, width, height, 4, 1) != 0;
+}
+
+s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
+{
+	return texpackWriteXblaRecordTo(rgba32, width, height, record, 0);
 }
 
 const char *texpackGetDumpDir(void)
