@@ -331,6 +331,39 @@ static bool vehTruckWallsClear(struct truckobj *truck, struct coord *from, struc
 	return true;
 }
 
+/**
+ * The height a truck's origin rides at over `pos`, written into `pos->y`, and
+ * the rooms there. GoldenEye's own height (sub_GAME_7F044B38()'s level
+ * branch): the ground less the bottom of the front wheel, which is the wheel's
+ * box under the wheel's node (parts 6 and 1), at the model's scale. The bare
+ * ground put the truck's *origin* on the road and its wheels fifty units under
+ * it. False when no room holds the place.
+ */
+static bool vehTruckGround(struct truckobj *truck, struct coord *pos, RoomNum *rooms)
+{
+	RoomNum inrooms[21];
+	RoomNum aboverooms[21];
+	RoomNum bestroom;
+	f32 ground;
+
+	bgFindRoomsByPos(pos, inrooms, aboverooms, 20, &bestroom);
+
+	if (inrooms[0] == -1) {
+		return false;
+	}
+
+	ground = cdFindGroundInfoAtCyl(pos, 30, inrooms, NULL, NULL, NULL, NULL, NULL, NULL);
+
+	if (ground > -1000000.0f) {
+		pos->y = ground + vehTruckClearance(truck->base.model);
+	}
+
+	inrooms[7] = -1;
+	roomsCopy(inrooms, rooms);
+
+	return true;
+}
+
 static void vehTruckTick(struct prop *prop)
 {
 	struct truckobj *truck = (struct truckobj *)prop->obj;
@@ -380,6 +413,21 @@ static void vehTruckTick(struct prop *prop)
 		truck->roty = haspath ? aimangle
 			: vehWrapTau(atan2f(truck->base.realrot[2][0], truck->base.realrot[2][2]));
 		vehTruckFace(truck);
+
+		// ...and GoldenEye's first tick sets the height too, standing the
+		// truck on its wheels wherever it was placed, moving or not. A truck
+		// with no speed never reached the height below, and Streets' parked
+		// jeeps stood with their origin on the road and their wheels sunk
+		// into it (F3 20260927-000514, -000832).
+		{
+			struct coord pos = prop->pos;
+
+			if (vehTruckGround(truck, &pos, rooms)) {
+				prop->pos.y = pos.y;
+				vehTruckRooms(prop, rooms);
+			}
+		}
+
 		func0f069c1c(&truck->base);
 	}
 
@@ -428,31 +476,8 @@ static void vehTruckTick(struct prop *prop)
 
 	// The ground under the step, the way a chr's move asks for it: a converted
 	// road is not level and the pads are on it, not above it.
-	{
-		RoomNum inrooms[21];
-		RoomNum aboverooms[21];
-		RoomNum bestroom;
-		f32 ground;
-
-		bgFindRoomsByPos(&next, inrooms, aboverooms, 20, &bestroom);
-
-		if (inrooms[0] != -1) {
-			ground = cdFindGroundInfoAtCyl(&next, 30, inrooms, NULL, NULL, NULL, NULL, NULL, NULL);
-
-			if (ground > -1000000.0f) {
-				// GoldenEye's own height (sub_GAME_7F044B38()'s level branch):
-				// the ground less the bottom of the front wheel, which is the
-				// wheel's box under the wheel's node (parts 6 and 1), at the
-				// model's scale. The bare ground put the truck's *origin* on
-				// the road and its wheels fifty units under it.
-				next.y = ground + vehTruckClearance(truck->base.model);
-			}
-
-			inrooms[7] = -1;
-			roomsCopy(inrooms, rooms);
-		} else {
-			return;
-		}
+	if (!vehTruckGround(truck, &next, rooms)) {
+		return;
 	}
 
 	prev.x = prop->pos.x;
