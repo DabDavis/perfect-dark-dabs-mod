@@ -31,6 +31,43 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 6 2026-09-27
+GE Plus Facility: Trevelyan no longer shoots at a wall; the alarm squad he is firing at comes down to him instead of crawling along behind it (thanks Parabolee)
+GE Plus: walking up stairs is smooth again, and climbing onto Facility's conveyor belt eases up instead of snapping to the top (thanks dab)
+GE Plus, HD look: monitor programmes fill the HD screens in Facility and Silo instead of spilling over the frame and flickering (thanks Parabolee)
+Investigation: with a texture pack, the terminal screens no longer spill over their frames (thanks Parabolee)
+GE Plus, HD look: the watch is the HD arm and Omega watch, and the remote mine detonator shows GoldenEye's watch instead of a raised arm
+GE Plus watch: the DD44 shows its whole barrel on the inventory page (thanks dab)
+Customize Character lists every body and head again, not only the ones unlocked in the Combat Simulator (thanks Parabolee)
+Customize Character: GoldenEye's heads are framed properly instead of zoomed in too far (thanks Parabolee)
+Natalya's Jungle outfit no longer has a hole by her ear (thanks Parabolee)
+GE Plus: your first-person hands wear the sleeve and skin of the character you are playing (thanks Parabolee)
+N64 look: after changing character, the first-person hands no longer keep the last character's sleeve
+GE Plus, HD look: lettering on crates, walls and signs no longer sits on a black box, and CTON no longer vanishes as you walk up to it (thanks Parabolee)
+GE Plus, HD look: Bunker's logos and plaques and Frigate's floor arrows no longer flicker through their walls (thanks dab and savantique)
+GE Plus, HD look: Statue Park is the release's own HD Statue Park (thanks dab)
+GE Plus Facility: the windowed doors are see-through glass again, in both looks
+GE Plus Silo, HD look: the signs show their whole picture instead of a quarter of it
+GE Plus Frigate, HD look: the bridge windows no longer show a grey wedge (thanks savantique)
+GE Plus, HD look: no more sky showing through Bond's parka hood (thanks dab)
+GE Plus Facility: with Disable Fog on, the gas no longer leaves a green wall in the distance after it clears (thanks Parabolee)
+GE Plus: the D5K's silencer and the rocket launcher are drawn from every side (thanks dab)
+GE Plus Runway: the tank's shell leaves from the end of the barrel (thanks dab)
+GE Plus, HD look: the HUD's ammunition pictures are the sharp HD ones
+GE Plus Facility: in the N64 look the gas tanks no longer vanish just outside the door (thanks dab)
+GE Plus, HD look: the lettering on guns held in the left hand reads the right way round (thanks dab)
+Pause menus: the blurred picture behind the menu no longer stands a little off the view (thanks dab)
+GE Plus: no flash of the Carrington Institute between the end of a mission and its report
+GE Plus folder with a mouse: the HD crosshair is sharp, the system pointer is hidden, and the pointer no longer jumps to a button on every new page
+GE Plus: the difficulty page ticks each difficulty you have completed; GoldenEye's locked mission order is an option (Mods: Missions, GE Plus: Locked Progression), off by default (thanks Parabolee)
+GE Plus: body armour says body armour when picked up, and hits on it flash red as in GoldenEye instead of the Perfect Dark shield shimmer (thanks dab)
+GE Plus: ammunition gives GoldenEye's grenades, mines and knives, not Perfect Dark's
+GE Plus Bunker 2: the watch magnet hums and pulls the key in after a second, as in GoldenEye
+Combat Simulator, Area 52: simulants no longer get stuck at the bridge (thanks Parabolee)
+GE Plus, HD look: the folder menus fit a wide screen without the Community Edition
+Windows: with the Community Edition zip beside the Perfect Dark release in added-content, the Perfect Dark release is used again (Agent 4 is back)
+GE Plus converts your GoldenEye ROM once more on the next start, for the glass doors and the difficulty ticks
+
 notes 5 2026-09-26
 GE Plus Statue Park: Trevelyan comes to meet you at the statue instead of circling out of reach, and the mission can be finished (thanks Glazier)
 GE Plus Facility: Bond no longer clips through the vents; he waits at the mouth until he has crouched, as in GoldenEye
