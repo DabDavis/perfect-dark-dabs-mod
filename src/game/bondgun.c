@@ -2348,6 +2348,14 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 			sp64 = 0;
 		}
 
+#ifndef PLATFORM_N64
+		// GoldenEye's Cougar and grenade launcher fire a moment after the
+		// press, not on it (gegunsTriggerDelay60())
+		if (hand->stateframes <= TICKS(gegunsTriggerDelay60(hand->gset.weaponnum)) && gegunsTriggerDelay60(hand->gset.weaponnum) > 0) {
+			sp64 = 0;
+		}
+#endif
+
 		if (sp64) {
 			hand->stateminor = HANDSTATEMINOR_ATTACK_SHOOT_1;
 		}

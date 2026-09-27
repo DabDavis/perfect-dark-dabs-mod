@@ -62,6 +62,7 @@
 #include "gegadgets.h"
 #include "gexfront.h"
 #include "gexplus.h"
+#include "gebean.h"
 #include "geanimtable.h"
 #include "game/bondmove.h"
 #include "game/body.h"
@@ -3656,6 +3657,9 @@ struct watchitem {
 	u32 rwdata[GUN_RWDATA_MAX];
 };
 
+// the weapon whose release model is in the gun slot while it is drawn, else 0
+static s32 g_WatchHdWeapon;
+
 // the gun, and the controller on the control page, which is a hand item too
 static struct watchitem g_WatchGun = { .item = -1, .failed = -1 };
 static struct watchitem g_WatchPad = { .item = -1, .failed = -1 };
@@ -3735,6 +3739,8 @@ static void watchGunUnload(void)
 
 // a slot's key for one of Perfect Dark's own guns, past GoldenEye's items
 #define GUN_PD_KEY 0x1000
+// and for a GoldenEye gun's release model, in the look that draws it
+#define GUN_HD_KEY 0x2000
 
 /**
  * A model into a slot under `key`, which is what says it is already there:
@@ -3758,7 +3764,15 @@ static s32 watchItemLoad(struct watchitem *it, s32 key)
 	watchItemUnload(it);
 	it->failed = key;
 
-	if (key >= GUN_PD_KEY) {
+	if (key >= GUN_HD_KEY) {
+		// the bare copy of a gun holding its own glove, GoldenEye showing
+		// every gun on the face without one
+		fileid = gebeanFirstPersonWatchFile(key - GUN_HD_KEY);
+
+		if (!fileid) {
+			fileid = gebeanFirstPersonReleaseFile(key - GUN_HD_KEY);
+		}
+	} else if (key >= GUN_PD_KEY) {
 		fileid = weaponGetFileNum(key - GUN_PD_KEY);
 	} else if (key >= 0 && key < GUN_NUM_ITEMS) {
 		char name[16];
@@ -3775,7 +3789,13 @@ static s32 watchItemLoad(struct watchitem *it, s32 key)
 		return 0;
 	}
 
-	it->buflen = ALIGN64(size) + 0x20000;
+	// A host's first-person model is loaded the way the hand's gun memory
+	// loads it, which reserves twice the file on a 64-bit build: its lists
+	// are rewritten longer as they are read, and its textures follow them
+	// (bondgun.c's bgunTickGunLoad()). Given the one file's room and no more,
+	// the Moonraker's host ran over the end of it into the watch's own
+	// pictures, which came out as speckle
+	it->buflen = (key >= GUN_HD_KEY ? ALIGN64(size) * 2 : ALIGN64(size)) + 0x20000;
 	it->buf = sysMemZeroAlloc(it->buflen);
 
 	if (!it->buf) {
@@ -3808,8 +3828,15 @@ static s32 watchItemLoad(struct watchitem *it, s32 key)
 	return 1;
 }
 
+static s32 watchGunLoadKey(s32 key);
+
 /** A gun, which also wants its row of gitem_structs to stand by. */
 static s32 watchGunLoad(s32 item)
+{
+	return watchGunLoadKey(item);
+}
+
+static s32 watchGunLoadKey(s32 key)
 {
 	if (!g_WatchGun.items) {
 		g_WatchGun.items = watchLoad("geitems.bin", &g_WatchGun.itemslen);
@@ -3819,7 +3846,7 @@ static s32 watchGunLoad(s32 item)
 		return 0;
 	}
 
-	return watchItemLoad(&g_WatchGun, item);
+	return watchItemLoad(&g_WatchGun, key);
 }
 
 static void watchGunSetPart(s32 part, s32 visible)
@@ -3933,6 +3960,27 @@ static Gfx *watchRenderGun(Gfx *gdl, Mtxf *base, u32 envcolour)
 	modelUpdateRelations(&g_WatchGun.model);
 	modelSetMatrices(&renderdata, &g_WatchGun.model);
 
+	// A release gun's vertices were placed from each matrix's rest as the
+	// build saw it (gebean.c), and a list that loads a matrix of its own -
+	// the PP9i's gun list, under 33 and 34 - takes that list's own rest, not
+	// the position node's that modelSetMatrices() poses the matrix by: the
+	// pistols came out a hand's length nearer the eye, twice their size. At
+	// rest every matrix is the base moved to that rest, so they are set so
+	if (g_WatchHdWeapon) {
+		for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
+			struct coord rest;
+			f32 r[3];
+
+			if (gebeanFirstPersonMatrixRest(g_WatchHdWeapon, i, r)) {
+				rest.x = r[0];
+				rest.y = r[1];
+				rest.z = r[2];
+				mtx4LoadTranslation(&rest, &tmp);
+				mtx4MultMtx4(base, &tmp, &matrices[i]);
+			}
+		}
+	}
+
 	renderdata.unk30 = 4;
 	renderdata.envcolour = envcolour;
 	renderdata.flags = 3;
@@ -4042,6 +4090,141 @@ static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	return watchRenderGun(gdl, &base, turning ? 0xa0ffa03c : 0x64dc6428);
 }
 
+/** The gun's switches as GoldenEye sets them on the face. */
+static void watchGunParts(s32 item)
+{
+	// no hands on it (sub_GAME_7F05E978(model, 0): parts 8 to 13, and 35) and
+	// no flash at its muzzle (part 1), but 14 and 15 on (sub_GAME_7F05EA94(model,
+	// 1)) - which are the whole of the throwing knife
+	for (s32 part = 8; part <= 13; part++) {
+		watchGunSetPart(part, 0);
+	}
+
+	// Except the DD44's part 11, which is not a hand but the bore at the end
+	// of its slide. GoldenEye hides it here too and never shows the hole,
+	// drawing the gun with no z buffer so the slide's front paints over it;
+	// with one here the muzzle was cut off flat (F3 20260926-202154). The
+	// user asked for the whole barrel. The only such part: every other gun
+	// with a toggle among 8 to 13 (the PP7s, the Cougar, the Golden Gun, the
+	// knife) has the hand there and nothing else.
+	if (item == GEITEM_DD44) {
+		watchGunSetPart(11, 1);
+	}
+
+	watchGunSetPart(35, 0);
+	watchGunSetPart(14, 1);
+	watchGunSetPart(15, 1);
+	watchGunSetPart(1, 0);
+}
+
+struct watchbox {
+	s32 set;
+	f32 lo[3];
+	f32 hi[3];
+};
+
+// GoldenEye's own model's box for each item, as the face shows it
+static struct watchbox g_WatchOwnBox[GUN_NUM_ITEMS];
+
+static void watchBoxWalk(struct modelnode *node, Mtxf *matrices, s32 nummatrices, struct watchbox *box)
+{
+	for (; node; node = node->next) {
+		const u32 type = node->type & 0xff;
+		Vtx *vtx = NULL;
+		s32 num = 0;
+
+		if (type == MODELNODETYPE_TOGGLE) {
+			union modelrwdata *rw = modelGetNodeRwData(&g_WatchGun.model, node);
+
+			if (rw && !rw->toggle.visible) {
+				continue;
+			}
+		} else if (type == MODELNODETYPE_DL) {
+			vtx = node->rodata->dl.vertices;
+			num = node->rodata->dl.numvertices;
+		} else if (type == MODELNODETYPE_GUNDL) {
+			vtx = node->rodata->gundl.vertices;
+			num = node->rodata->gundl.numvertices;
+		}
+
+		if (vtx && num > 0) {
+			const s32 index = modelFindNodeMtxIndex(node, 0);
+			Mtxf *m = index >= 0 && index < nummatrices ? &matrices[index] : &matrices[0];
+
+			for (s32 i = 0; i < num; i++) {
+				const f32 x = vtx[i].v[0], y = vtx[i].v[1], z = vtx[i].v[2];
+
+				for (s32 a = 0; a < 3; a++) {
+					const f32 p = x * m->m[0][a] + y * m->m[1][a] + z * m->m[2][a] + m->m[3][a];
+
+					if (!box->set || p < box->lo[a]) {
+						box->lo[a] = p;
+					}
+
+					if (!box->set || p > box->hi[a]) {
+						box->hi[a] = p;
+					}
+				}
+
+				box->set = 1;
+			}
+		}
+
+		if (node->child) {
+			watchBoxWalk(node->child, matrices, nummatrices, box);
+		}
+	}
+}
+
+/** GoldenEye's own model of `item` measured, once: its box at rest, as shown. */
+static s32 watchOwnBox(s32 item)
+{
+	struct modelrenderdata renderdata = { NULL, false, 3 };
+	struct watchbox *box;
+	Mtxf *matrices;
+	Mtxf base;
+
+	if (item < 0 || item >= GUN_NUM_ITEMS) {
+		return 0;
+	}
+
+	box = &g_WatchOwnBox[item];
+
+	if (box->set) {
+		return 1;
+	}
+
+	if (!watchGunLoad(item)) {
+		return 0;
+	}
+
+	matrices = calloc(g_WatchGun.def->nummatrices, sizeof(Mtxf));
+
+	if (!matrices) {
+		return 0;
+	}
+
+	watchGunParts(item);
+	mtx4LoadIdentity(&base);
+
+	for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
+		mtx4LoadIdentity(&matrices[i]);
+	}
+
+	g_WatchGun.model.matrices = matrices;
+	renderdata.unk00 = &base;
+	renderdata.unk10 = matrices;
+	modelUpdateRelations(&g_WatchGun.model);
+	modelSetMatrices(&renderdata, &g_WatchGun.model);
+
+	watchBoxWalk(g_WatchGun.def->rootnode, matrices, g_WatchGun.def->nummatrices, box);
+
+	g_WatchGun.model.matrices = NULL;
+	free(matrices);
+
+	return box->set;
+}
+
 /**
  * The gun of `weaponnum` on the face: still and side on (`turning` 0, the
  * mission page) or circled by the camera (the inventory's).
@@ -4052,7 +4235,11 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	s32 item = watchGunItem(weaponnum);
 	Mtxf base;
 	Mtxf tmp;
+	Mtxf toown;
 	f32 rotx, roty;
+	f32 hdlo[3], hdhi[3];
+	s32 ownitem;
+	u16 hdfile;
 
 	if (item < 0) {
 		return watchDrawPdGun(gdl, weaponnum, turning);
@@ -4065,7 +4252,87 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 		item = GEITEM_WATCHMAGNETATTRACT;
 	}
 
-	if (!watchGunLoad(item)) {
+	// In the release's look the gun on the face is the release's, as it is in
+	// the hand (F3 20260927-042924, "GE N64 weapons still show up on the xbla
+	// mode"): the model Bean's gun is drawn on, taken back into GoldenEye's
+	// own model's space (gebeanFirstPersonToOwn()) so GoldenEye's row places
+	// it as it places its own. Not the watch magnet's watch, which is not a gun
+	hdfile = item != GEITEM_WATCHMAGNETATTRACT ? gebeanFirstPersonReleaseFile(weaponnum) : 0;
+
+	if (hdfile && !watchGunLoadKey(GUN_HD_KEY + weaponnum)) {
+		hdfile = 0;
+	}
+
+	// GoldenEye's own gun's box, measured on its own model, which the
+	// release's is squared with: a first time loads that model for it
+	// The silenced PP7 and D5K are squared with their plain selves: the
+	// release's box for them is the gun without the silencer (its own draw,
+	// left out of the fit), GoldenEye's has it on, and set against each other
+	// the two drew the gun half as big again
+	ownitem = item == 5 ? 4 : (item == 11 ? 10 : item);
+
+	if (hdfile && !watchOwnBox(ownitem)) {
+		hdfile = 0;
+	}
+
+	if (hdfile && !watchGunLoadKey(GUN_HD_KEY + weaponnum)) {
+		hdfile = 0;
+	}
+
+	// The release's gun is laid onto its host the first time that is drawn,
+	// which for a gun never held yet is here: drawn once where it cannot be
+	// seen, so the frame after knows where it stands
+	if (hdfile && !gebeanFirstPersonToOwn(weaponnum, toown.m, hdlo, hdhi)) {
+		Mtxf hidden;
+
+		mtx4LoadIdentity(&hidden);
+
+		for (s32 r = 0; r < 3; r++) {
+			for (s32 c = 0; c < 3; c++) {
+				hidden.m[r][c] = 0.0f;
+			}
+		}
+
+		hidden.m[3][2] = -100000.0f;
+		g_WatchHdWeapon = weaponnum;
+		gdl = watchRenderGun(gdl, &hidden, 0);
+		g_WatchHdWeapon = 0;
+
+		if (!gebeanFirstPersonToOwn(weaponnum, toown.m, hdlo, hdhi)) {
+			return gdl;
+		}
+	}
+
+	// Bean's gun is GoldenEye's at 4.7 times, but not to the unit: a stock or
+	// a sight of its own, or its origin somewhere else, stood a launcher off
+	// the face's edge and a shotgun short of its middle. So its box (hand
+	// left out) is laid onto GoldenEye's by its longest side and its middle
+	if (hdfile) {
+		const struct watchbox *own = &g_WatchOwnBox[ownitem];
+		s32 la = 0;
+		f32 k;
+		Mtxf square;
+
+		for (s32 a = 1; a < 3; a++) {
+			if (hdhi[a] - hdlo[a] > hdhi[la] - hdlo[la]) {
+				la = a;
+			}
+		}
+
+		k = hdhi[la] - hdlo[la] > 1.0f ? (own->hi[la] - own->lo[la]) / (hdhi[la] - hdlo[la]) : 1.0f;
+
+		mtx4LoadIdentity(&square);
+
+		for (s32 a = 0; a < 3; a++) {
+			square.m[a][a] = k;
+			square.m[3][a] = (own->lo[a] + own->hi[a]) * 0.5f - (hdlo[a] + hdhi[a]) * 0.5f * k;
+		}
+
+		mtx4MultMtx4(&square, &toown, &tmp);
+		mtx4Copy(&tmp, &toown);
+	}
+
+	if (!hdfile && !watchGunLoad(item)) {
 		return gdl;
 	}
 
@@ -4096,28 +4363,17 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 
 	mtx4MultMtx4InPlace(&tmp, &base);
 
-	// no hands on it (sub_GAME_7F05E978(model, 0): parts 8 to 13, and 35) and
-	// no flash at its muzzle (part 1), but 14 and 15 on (sub_GAME_7F05EA94(model,
-	// 1)) - which are the whole of the throwing knife
-	for (s32 part = 8; part <= 13; part++) {
-		watchGunSetPart(part, 0);
+	if (hdfile) {
+		mtx4MultMtx4(&base, &toown, &tmp);
+
+		g_WatchHdWeapon = weaponnum;
+		gdl = watchRenderGun(gdl, &tmp, turning ? 0xa0ffa03c : 0x64dc6428);
+		g_WatchHdWeapon = 0;
+
+		return gdl;
 	}
 
-	// Except the DD44's part 11, which is not a hand but the bore at the end
-	// of its slide. GoldenEye hides it here too and never shows the hole,
-	// drawing the gun with no z buffer so the slide's front paints over it;
-	// with one here the muzzle was cut off flat (F3 20260926-202154). The
-	// user asked for the whole barrel. The only such part: every other gun
-	// with a toggle among 8 to 13 (the PP7s, the Cougar, the Golden Gun, the
-	// knife) has the hand there and nothing else.
-	if (item == GEITEM_DD44) {
-		watchGunSetPart(11, 1);
-	}
-
-	watchGunSetPart(35, 0);
-	watchGunSetPart(14, 1);
-	watchGunSetPart(15, 1);
-	watchGunSetPart(1, 0);
+	watchGunParts(item);
 
 	return watchRenderGun(gdl, &base, turning ? 0xa0ffa03c : 0x64dc6428);
 }

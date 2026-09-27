@@ -521,6 +521,44 @@ static const struct gebeanrow fpRows[NUM_GE_GUNS] = {
 static s32 fpSlot[ARRAYCOUNT(fpRows)];
 
 /**
+ * The same guns again for the watch's inventory page, under names of their
+ * own so they are built apart: a gun GoldenEye draws a hand on (fpN64Glove)
+ * carries it in the release's model as draws of the glove's own 512x511
+ * picture, and on the face GoldenEye shows every gun bare, so these are built
+ * with those draws left out (beanGunExtent()'s handoff). Only the file and
+ * the source matter; the rest is the hand's row's.
+ */
+static const struct gebeanrow fpWatchRows[NUM_GE_GUNS] = {
+	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = FPROW("GgePP7WZ",            "gun/ppk"),
+	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = FPROW("GgePP7silWZ",         "gun/ppksilenced"),
+	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = FPROW("GgeDD44WZ",           "gun/tt33"),
+	[WEAPON_GE_COUGARMAGNUM    - WEAPON_GE_FIRST] = FPROW("GgeCougarWZ",         "gun/ruger"),
+	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = FPROW("GgeGoldenGunWZ",      "gun/goldengun"),
+	[WEAPON_GE_HUNTINGKNIFE    - WEAPON_GE_FIRST] = FPROW("GgeKnifeWZ",          "gun/knife"),
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = FPROW("GgeThrowingKnifeWZ",  "gun/throwingknife"),
+};
+
+static s32 fpWatchSlot[NUM_GE_GUNS];
+static s32 fpBuildBare; // gebeanBuildFirstPerson() is building one of fpWatchRows
+
+// How each first-person gun was last laid onto its host (gebeanBuildFirstPerson()):
+// a point of Bean's at `p` is drawn at axis(p - beanc) * scale + hostc
+static struct {
+	f32 beanc[3];
+	f32 hostc[3];
+	f32 scale;
+	s8 axis[3];
+	f32 lo[3];  // Bean's box of the gun alone, the hand left out (beanGunExtent())
+	f32 hi[3];
+	// each matrix's rest the gun's vertices were placed from: a list that
+	// loads a matrix of its own (the PP9i's 33 and 34) is drawn from one that
+	// no position node of the model poses, which only a hand in the game fills
+	f32 rest[GEBEAN_MAXMTX][3];
+	u8 hasrest[GEBEAN_MAXMTX];
+	s32 set;
+} fpPlaced[ARRAYCOUNT(fpRows)];
+
+/**
  * Guns GoldenEye draws with no hands, which Perfect Dark's are taken off for
  * (WEAPONFLAG_HASHANDS) while Bean's gun is the one drawn. Only the pistols
  * carry a hand in Bean's geometry at all - the 512x511 picture - and the
@@ -698,7 +736,13 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// N64 look on GoldenEye's own model). It was turned the other quarter
 	// from 2026-09-16, to be held by the handle in Perfect Dark's hands, until
 	// a tester's F3 asked for it flipped back (2026-09-25).
-	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 0, { 0.0f, 0.0f, 0.0f }, 0.0f, { 2, -1, 3 } },
+	//
+	// Placed where GoldenEye holds it, at its own size, as the sniper rifle
+	// is. Fitted onto the host its box - the knife *and* the hand holding its
+	// blade, one mesh - was squeezed into the host knife's, which pushed the
+	// hand off the bottom right of the view away from the blade (F3
+	// 20260927-011210, "disjointed hand model holding the knives").
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { FP_OWNPLACE, { 0.0f, 0.0f, 0.0f }, 1.0f / 4.7f, { 2, -1, 3 } },
 };
 
 /**
@@ -787,6 +831,9 @@ static u8 fpRoundSet[2][ARRAYCOUNT(fpRows)];
 
 #define GEBEAN_PROPROW_BASE (ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows) + ARRAYCOUNT(fpRows))
 #define GEBEAN_CHRROW_BASE (GEBEAN_PROPROW_BASE + ARRAYCOUNT(propRows))
+// and past the characters, the watch's bare copies of the guns that carry
+// their own hand (fpWatchRows)
+#define GEBEAN_FPWATCH_BASE (GEBEAN_CHRROW_BASE + ARRAYCOUNT(chrRows))
 
 /**
  * A row of any table: GoldenEye X's first, then the pool's, then the guns',
@@ -818,6 +865,10 @@ static const struct gebeanrow *gebeanRowAt(s32 row)
 
 	if (row >= GEBEAN_CHRROW_BASE && row < GEBEAN_CHRROW_BASE + ARRAYCOUNT(chrRows)) {
 		return &chrRows[row - GEBEAN_CHRROW_BASE];
+	}
+
+	if (row >= GEBEAN_FPWATCH_BASE && row < GEBEAN_FPWATCH_BASE + ARRAYCOUNT(fpWatchRows)) {
+		return &fpWatchRows[row - GEBEAN_FPWATCH_BASE];
 	}
 
 	return NULL;
@@ -856,6 +907,10 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 	for (s32 i = 0; i < ARRAYCOUNT(fpRows); i++) {
 		if (fpSlot[i] == fileid && name == fpRows[i].file) {
 			return ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows) + i;
+		}
+
+		if (fpWatchSlot[i] && fpWatchSlot[i] == fileid && name == fpWatchRows[i].file) {
+			return GEBEAN_FPWATCH_BASE + i;
 		}
 	}
 
@@ -1225,6 +1280,7 @@ static void gebeanGunsRefresh(void)
 		// a Perfect Dark gun and GoldenEye's own is the better answer
 		own = gebeanGunsAreN64() || !bean ? gegunsOwnModel(i) : 0;
 		fpSlot[i] = 0;
+		fpWatchSlot[i] = 0;
 		g_GeWeaponDefs[i].hi_model = own ? own : gegunsModelFile(i);
 		gegunsSetOwnModelInUse(i, own != 0);
 
@@ -1234,6 +1290,11 @@ static void gebeanGunsRefresh(void)
 			if (slot) {
 				fpSlot[i] = slot;
 				g_GeWeaponDefs[i].hi_model = (u16)slot;
+			}
+
+			// and the watch's bare copy of a gun holding its own glove
+			if (fpN64Glove[i] && fpWatchRows[i].file) {
+				fpWatchSlot[i] = romdataRegisterAliasFile(fpWatchRows[i].file, gegunsModelFile(i));
 			}
 		}
 
@@ -2057,7 +2118,8 @@ s32 gebeanRowIsFirstPerson(s32 row)
 {
 	const s32 base = ARRAYCOUNT(rows) + ARRAYCOUNT(poolRows) + ARRAYCOUNT(gunRows);
 
-	return row >= base && row < base + ARRAYCOUNT(fpRows);
+	return (row >= base && row < base + ARRAYCOUNT(fpRows))
+		|| (row >= GEBEAN_FPWATCH_BASE && row < GEBEAN_FPWATCH_BASE + ARRAYCOUNT(fpWatchRows));
 }
 
 s32 gebeanRowIsProp(s32 row)
@@ -8909,7 +8971,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		return NULL;
 	}
 
-	numleftout = beanGunExtent(&bm, original, !fpN64Glove[fp], drawn, fitted, beanlo, beanhi, &owncloud);
+	numleftout = beanGunExtent(&bm, original, !fpN64Glove[fp] || fpBuildBare, drawn, fitted, beanlo, beanhi, &owncloud);
 
 	// The round the HD model is made loaded with, if every draw of it is
 	// there and taken; a file laid out otherwise is drawn as it is
@@ -9177,6 +9239,27 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		fpRefinePlacement(fitcloud.num ? &fitcloud : &owncloud, &hostcloud,
 				fpaxis, beanc, scale, hostc);
 	}
+
+	// kept for the watch, which shows this gun where GoldenEye shows its own
+	// (gebeanFirstPersonToOwn())
+	for (s32 a = 0; a < 3; a++) {
+		fpPlaced[fp].beanc[a] = beanc[a];
+		fpPlaced[fp].hostc[a] = hostc[a];
+		fpPlaced[fp].axis[a] = fpaxis ? fpaxis[a] : 0;
+		fpPlaced[fp].lo[a] = beanlo[a];
+		fpPlaced[fp].hi[a] = beanhi[a];
+	}
+
+	for (s32 m = 0; m < GEBEAN_MAXMTX; m++) {
+		fpPlaced[fp].hasrest[m] = rig.hasrest[m] ? 1 : 0;
+
+		for (s32 a = 0; a < 3; a++) {
+			fpPlaced[fp].rest[m][a] = rig.rest[m][a];
+		}
+	}
+
+	fpPlaced[fp].scale = scale;
+	fpPlaced[fp].set = scale > 0.0f;
 
 	// Where the gun that is drawn ends, so the shot comes out of it rather
 	// than out of the host's own muzzle node (bondgun.c). Forward along the
@@ -9688,6 +9771,104 @@ s32 gebeanFirstPersonHasRound(s32 weaponnum)
 	return i >= 0 && i < (s32)ARRAYCOUNT(fpRows) && fpSlot[i] && fpRoundSet[look][i];
 }
 
+/**
+ * The file the release's first-person gun of this weapon is drawn on in the
+ * look that draws it - its host's model under the alias Bean's gun is skinned
+ * to - else 0; and in `tomodel` the matrix that takes that model's space to
+ * GoldenEye's own model's. Bean's guns are GoldenEye's at 4.7 times in
+ * GoldenEye's own frame, so undoing the placement onto the host and the 4.7
+ * puts the release's gun where GoldenEye's own would stand, at its size -
+ * near enough: `ownlo` and `ownhi` are the gun's box (the hand left out) in
+ * that space, for the caller to square with GoldenEye's own model's. The
+ * watch shows the gun on the face from it (gewatch.c).
+ */
+#define FP_BEAN_TO_OWN (1.0f / 4.7f)
+
+/**
+ * The file the release's first-person gun of this weapon is drawn on, in the
+ * look that draws it, else 0. It is laid onto its host the first time it is
+ * drawn, and only then does gebeanFirstPersonToOwn() know where it stands.
+ */
+u16 gebeanFirstPersonReleaseFile(s32 weaponnum)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	if (i < 0 || i >= (s32)ARRAYCOUNT(fpRows) || !fpSlot[i] || gebeanGunsAreN64()
+			|| g_GeWeaponDefs[i].hi_model != fpSlot[i]) {
+		return 0;
+	}
+
+	return (u16)fpSlot[i];
+}
+
+u16 gebeanFirstPersonToOwn(s32 weaponnum, f32 tomodel[4][4], f32 ownlo[3], f32 ownhi[3])
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+	f32 k;
+
+	if (!gebeanFirstPersonReleaseFile(weaponnum) || !fpPlaced[i].set) {
+		return 0;
+	}
+
+	// own = (beanc + unturn(host - hostc) / scale) / 4.7, unturn being the
+	// inverse of beanAxisMap(): host axis a is Bean's axis |axis[a]| - 1
+	k = FP_BEAN_TO_OWN / fpPlaced[i].scale;
+
+	for (s32 r = 0; r < 4; r++) {
+		for (s32 c = 0; c < 4; c++) {
+			tomodel[r][c] = r == c ? 1.0f : 0.0f;
+		}
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		const s8 ax = fpPlaced[i].axis[a];
+		const s32 b = ax ? (ax < 0 ? -ax : ax) - 1 : a;
+		const f32 sign = ax < 0 ? -1.0f : 1.0f;
+
+		tomodel[a][a] = 0.0f;
+		tomodel[a][b] = sign * k;
+	}
+
+	for (s32 b = 0; b < 3; b++) {
+		f32 t = fpPlaced[i].beanc[b] * FP_BEAN_TO_OWN;
+
+		for (s32 a = 0; a < 3; a++) {
+			t -= fpPlaced[i].hostc[a] * tomodel[a][b];
+		}
+
+		tomodel[3][b] = t;
+		ownlo[b] = fpPlaced[i].lo[b] * FP_BEAN_TO_OWN;
+		ownhi[b] = fpPlaced[i].hi[b] * FP_BEAN_TO_OWN;
+	}
+
+	return (u16)fpSlot[i];
+}
+
+/** The rest of matrix `mtx` the release's gun of this weapon was placed from. */
+s32 gebeanFirstPersonMatrixRest(s32 weaponnum, s32 mtx, f32 out[3])
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	if (i < 0 || i >= (s32)ARRAYCOUNT(fpRows) || !fpPlaced[i].set
+			|| mtx < 0 || mtx >= GEBEAN_MAXMTX || !fpPlaced[i].hasrest[mtx]) {
+		return 0;
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		out[a] = fpPlaced[i].rest[mtx][a];
+	}
+
+	return 1;
+}
+
+/** The watch's bare copy of the release's gun, for a gun that carries its own glove; else 0. */
+u16 gebeanFirstPersonWatchFile(s32 weaponnum)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	return gebeanFirstPersonReleaseFile(weaponnum) && i < NUM_GE_GUNS ? (u16)fpWatchSlot[i] : 0;
+}
+
 s32 gebeanFirstPersonIsRelease(s32 weaponnum)
 {
 	const s32 i = weaponnum - WEAPON_GE_FIRST;
@@ -9716,6 +9897,50 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			return modeldef && numnodes > 0 && numnodes <= 64
 				? gebeanBuildFirstPerson(fp, original, modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;
 		}
+	}
+
+	// the watch's bare copy: built as the hand's, with the glove left out and
+	// what the build notes of the gun (placement, muzzle, round) kept the hand's
+	if (row >= GEBEAN_FPWATCH_BASE && row < GEBEAN_FPWATCH_BASE + (s32)ARRAYCOUNT(fpWatchRows)) {
+		const s32 fp = row - GEBEAN_FPWATCH_BASE;
+		u8 *file = NULL;
+
+		*outLen = 0;
+		*outAbsent = 0;
+
+		if (!original && modeldef && numnodes > 0 && numnodes <= 64) {
+			static f32 muzzle[2][3];
+			static s16 part[2];
+			static u8 mset[2], rset[2];
+			static __typeof__(fpPlaced[0]) placed;
+
+			for (s32 l = 0; l < 2; l++) {
+				memcpy(muzzle[l], fpMuzzle[l][fp], sizeof(muzzle[l]));
+				part[l] = fpMuzzlePart[l][fp];
+				mset[l] = fpMuzzleSet[l][fp];
+				rset[l] = fpRoundSet[l][fp];
+			}
+
+			placed = fpPlaced[fp];
+			fpBuildBare = 1;
+			file = gebeanBuildFirstPerson(fp, original, modeldef, nodes, numnodes, mats, outAbsent, outLen);
+			fpBuildBare = 0;
+			// a gun not yet held has nothing of the hand's to keep, and the
+			// watch places it by what this build noted (the glove is never in
+			// the fitted box either way)
+			if (placed.set) {
+				fpPlaced[fp] = placed;
+			}
+
+			for (s32 l = 0; l < 2; l++) {
+				memcpy(fpMuzzle[l][fp], muzzle[l], sizeof(muzzle[l]));
+				fpMuzzlePart[l][fp] = part[l];
+				fpMuzzleSet[l][fp] = mset[l];
+				fpRoundSet[l][fp] = rset[l];
+			}
+		}
+
+		return file;
 	}
 
 	{

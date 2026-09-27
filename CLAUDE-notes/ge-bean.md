@@ -12002,3 +12002,31 @@ GoldenEye.
     the seat at uncapped frame rate clean (5 of 6 escaped before), Facility's stairs up and
     down, Aztec ladder, and a Dam fuzz frame-identical to the base binary.
   - Converter unchanged (no GECONVERT bump).
+
+## F3 pass 2026-09-27, GE weapons (fix/f3-0927-guns)
+
+- **Gun barrel PPK drawn unlit** (4ccd4d92c, F3 001811). GoldenEye begins every
+  barrel frame with dlBasicGeometry (G_LIGHTING off); chr lists light themselves,
+  the PPK's never do. Under Bond's light its vertex colours read as normals: a
+  white stripe down the gun. Oracle frame f001350 (native port) shows it black.
+- **Cougar** (b042c4162, F3 234506). gegunsOwnModelFlash() billboarded part 4 as a
+  second star on every gun; GoldenEye does that only on skeleton_gun_kf7. On the
+  revolver skeleton part 4 is the cylinder - the "drum" in the flash. And
+  gegunsTriggerDelay60(): Cougar + grenade launcher fire 6 ticks after the press
+  (oracle: press 2001, shot 2008), taken off the recovery so held rate stays 54.
+- Probes: ~/wt/f3-0927-guns-run (cg.py = equip/fire/log/screenshot per frame,
+  gb.py = GE Plus intro frames, wcap.sh = watch inventory sweep);
+  oracle ~/dam-oracle/gecougar.py + cougar.padscript on 10.8.0.3.
+- **HD throwing knife** (2e22bf209, F3 011210): the release mesh is knife + hand
+  in one; fitted to the host knife's box the hand was pushed off-screen. Now
+  FP_OWNPLACE at 1/4.7 with axis {2,-1,3}; hand grips the blade as N64.
+- **Guard's gun shot** (85cdc25e1, F3 003621): GoldenEye runs the whole hit for
+  HIT_GUN at zero damage (argh sound + flinch_gun); PD skipped the branch at zero
+  damage. Converted levels, solo, non-bot: chrChoke + chrReactToDamage, damage 0.
+  Probe gh.py calls chrDamage(..., 100, ...) directly (chrDamageByImpact rewrites
+  hitpart through the shield test).
+- Bullet holes (003252): not changed. Every hole is one of PD's 18 wallhit
+  textures (textureconfig.c), all under XBLAIMPORT_NUM_REPLACED, so in the HD
+  look all come from the release; GoldenEye's own impact textures are not used.
+  Needs the tester's close-up to say which two looks they saw.
+- Open: HD watch inventory shows GoldenEye's N64 gun models (042924, with the user).
