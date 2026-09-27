@@ -166,7 +166,7 @@
 #define XBLAMESH_MAXMTX 64
 
 // The textures of a mesh handtint.c keeps apart (xblaMeshAnalyse())
-#define XBLAMESH_ANATEX 8
+#define XBLAMESH_ANATEX 32
 
 u32 g_XblaMeshNumMeshes = 0;
 u32 g_XblaMeshNumNodes = 0;

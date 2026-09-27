@@ -53,6 +53,7 @@
 s32 g_HandTintMode = 1;
 
 #define HANDTINT_MAX 24
+#define XBLAMESH_MAXMTX_HT 64 // xblamesh.c's XBLAMESH_MAXMTX, the rows xblaMeshAnalysedTextures() hands back
 
 struct handtint {
 	const void *addr;
@@ -491,8 +492,8 @@ static s32 handtintMake(s32 bodynum, struct modeldef *handdef)
 			u32 fore = 0;
 			u32 other = 0;
 
-			for (s32 b = 0; b < 64; b++) {
-				const u32 c = bones[i * 64 + b];
+			for (s32 b = 0; b < XBLAMESH_MAXMTX_HT; b++) {
+				const u32 c = bones[i * XBLAMESH_MAXMTX_HT + b];
 
 				if (!c) {
 					continue;
