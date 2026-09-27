@@ -59,6 +59,7 @@
 #include "gesfx.h"
 #include "getank.h"
 #include "gecinema.h"
+#include "gecredits.h"
 #include "geroom.h"
 #include "geguns.h"
 #include "modloader.h"
@@ -5283,6 +5284,14 @@ bool ai00df(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct tag *tag = tagFindById(cmd[2]);
 
+#ifndef PLATFORM_N64
+	// GoldenEye's CameraSwitch: the ending's Bond is the player's own body,
+	// which is not drawn while it drives the tank
+	if (modloaderStageIsMission(g_Vars.stagenum)) {
+		geTankLeaveForCutscene();
+	}
+#endif
+
 	if (tag) {
 		s32 cmdindex = setupGetCmdIndexByTag(tag);
 
@@ -5659,6 +5668,15 @@ bool aiChrDrawWeaponInCutscene(void)
 				gecinemaSetBondBodyWeapon(g_Vars.currentplayer->gunctrl.switchtoweaponnum > WEAPON_NONE
 						? g_Vars.currentplayer->gunctrl.switchtoweaponnum
 						: bgunGetWeaponNum(HAND_RIGHT));
+
+				// The Cinema page starts the ending on a level twenty frames
+				// old, before the hands have drawn the gun the mission starts
+				// with, and Bond went out of Surface's vent empty handed (F3
+				// 20260927-001331): he holds what GoldenEye's solo_char_load()
+				// would give him, the mission's starting weapon
+				if (gecinemaBondBodyWeapon() <= WEAPON_NONE) {
+					gecinemaSetBondBodyWeapon(g_DefaultWeapons[HAND_RIGHT]);
+				}
 			}
 		}
 #endif
@@ -10424,9 +10442,61 @@ bool aiGeHitChrWithItem(void)
 
 	return false;
 }
-
 /**
  * @cmd 01e8
+ *
+ * GoldenEye's CameraOrbitPad (chrai.c): the camera circles a pad, as Cuba's
+ * credits have it (gecredits.c). GoldenEye's own six halfwords, the pad moved
+ * into the conversion:
+ *     01e8 <distance:2> <height:2> <speed:2> <pad:2> <look height:2> <start:2>
+ */
+bool aiGeCameraOrbitPad(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	gecreditsOrbit((u16)(cmd[2] << 8 | cmd[3]), (s16)(cmd[4] << 8 | cmd[5]), (s16)(cmd[6] << 8 | cmd[7]),
+			(u16)(cmd[8] << 8 | cmd[9]), (s16)(cmd[10] << 8 | cmd[11]), (u16)(cmd[12] << 8 | cmd[13]));
+
+	g_Vars.aioffset += 14;
+
+	return false;
+}
+
+/**
+ * @cmd 01e9
+ *
+ * GoldenEye's CreditsRoll: the credits start up the screen (gecredits.c).
+ */
+bool aiGeCreditsRoll(void)
+{
+	gecreditsRoll();
+
+	g_Vars.aioffset += 2;
+
+	return false;
+}
+
+/**
+ * @cmd 01ea
+ *
+ * GoldenEye's IFCreditsHasCompleted: whether the roll has run off the top.
+ *     01ea <label:1>
+ */
+bool aiGeIfCreditsHaveRolled(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (gecreditsHaveRolled()) {
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[2]);
+	} else {
+		g_Vars.aioffset += 3;
+	}
+
+	return false;
+}
+
+/**
+ * @cmd 01eb
  *
  * GoldenEye's GasLeakAndFadeFog: its gas, from the world's origin, the fog
  * closing in on the level's second sky (gasTick(), envApplyTransitionFrac()).
@@ -10435,7 +10505,7 @@ bool aiGeHitChrWithItem(void)
  * quick, two seconds; the conversion writes that as the argument, as the
  * command's only use. It had no Perfect Dark equivalent and was left out, so
  * the temple never darkened (tester F3 20260927-021623).
- * Three bytes: 01e8 <harmless:1>
+ * Three bytes: 01eb <harmless:1>
  */
 bool aiGeGasLeak(void)
 {

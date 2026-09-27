@@ -44,6 +44,7 @@
 #include "types.h"
 #include "gexplus.h"
 #include "gecinema.h"
+#include "gecredits.h"
 #include "gemonitor.h"
 #include "gewatch.h"
 #include "gehud.h"
@@ -1549,6 +1550,9 @@ void setupLoadFiles(s32 stagenum)
 
 		// and GoldenEye's HUD over it (gehud.c)
 		geHudStageStart(stagenum);
+
+		// and whether it is Cuba, GoldenEye's credits (gecredits.c)
+		gecreditsStageStart(stagenum);
 
 		// and GoldenEye's own programmes for a remake mission's screens, before
 		// the props that show them are made (gemonitor.c)

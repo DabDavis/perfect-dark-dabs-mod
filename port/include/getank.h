@@ -23,6 +23,9 @@ s32 geTankPlayerDriving(struct player *player);
 // a driver's own body is not drawn
 s32 geTankHidesChr(struct chrdata *chr);
 
+// an ending's camera takes every driver out of the tank
+void geTankLeaveForCutscene(void);
+
 // GoldenEye shows the tank from behind and above while it is driven: the
 // third person camera's four settings, replaced while the current player drives
 void geTankCamera(f32 *dist, f32 *height, f32 *side, f32 *fwd);

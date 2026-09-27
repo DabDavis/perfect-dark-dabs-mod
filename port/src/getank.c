@@ -856,6 +856,29 @@ static s32 tankExit(s32 force)
 	return 1;
 }
 
+/**
+ * An ending's camera (CameraSwitch) takes the player out of the tank.
+ * GoldenEye never does: its ending draws a Bond of its own, loaded by the
+ * CameraSwitch, and the tank's Bond is not drawn at all. Here the ending's
+ * Bond is the player's own body, which a driver's is not drawn
+ * (geTankHidesChr()) and which the tank is put under every tick - Streets'
+ * ending (F3 20260927-000905) teleported him to his pad inside a tank no one
+ * could see him in.
+ */
+void geTankLeaveForCutscene(void)
+{
+	const s32 prevplayernum = g_Vars.currentplayernum;
+
+	for (s32 i = 0; i < PLAYERCOUNT(); i++) {
+		if (g_Tank[i].state != TANK_OUT) {
+			setCurrentPlayerNum(i);
+			tankExit(1);
+		}
+	}
+
+	setCurrentPlayerNum(prevplayernum);
+}
+
 s32 geTankActivate(void)
 {
 	const s32 p = g_Vars.currentplayernum;

@@ -460,6 +460,10 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 	const u32 base = g_BgRooms[r].unk00;
 	u32 stack[64];
 	s32 depth = 0;
+	// whether GoldenEye culls what it draws here: its rooms are drawn culled,
+	// and a leaf turns it off for a sheet meant to be seen from both sides -
+	// the Cradle's platform, seen from under it in the ending
+	s32 twosided = 0;
 
 	stack[depth++] = be32(raw + 8);
 
@@ -496,7 +500,11 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 				for (u32 c = gdl - base; c + 8 <= len; c += 8) {
 					const u8 op = raw[c];
 
-					if (op == (u8)G_SETOTHERMODE_L && be32(raw + c) == 0xb900031d) {
+					if (op == (u8)G_CLEARGEOMETRYMODE && (be32(raw + c + 4) & G_CULL_BACK)) {
+						twosided = 1;
+					} else if (op == (u8)G_SETGEOMETRYMODE && (be32(raw + c + 4) & G_CULL_BACK)) {
+						twosided = 0;
+					} else if (op == (u8)G_SETOTHERMODE_L && be32(raw + c) == 0xb900031d) {
 						const u32 c1 = be32(raw + c + 4) & 0xcccc0000;
 
 						nofog = c1 != (GBL_c1(G_BL_CLR_IN, G_BL_0, G_BL_CLR_IN, G_BL_1) & 0xcccc0000)
@@ -527,7 +535,7 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 							memcpy(v[0], loaded[x], sizeof(v[0]));
 							memcpy(v[1], loaded[y], sizeof(v[1]));
 							memcpy(v[2], loaded[z], sizeof(v[2]));
-							fn(arg, (const f32 (*)[3])v, (u16)r | (nofog << 16));
+							fn(arg, (const f32 (*)[3])v, (u16)r | (nofog << 16) | (twosided << 17));
 						}
 					} else if (op == (u8)G_ENDDL) {
 						break;
@@ -592,6 +600,8 @@ static void fileRoomTriangles(struct tgrid *g, s32 r, const u8 *raw, u32 len)
  * ------------------------------------------------------------------------- */
 
 static f32 *shellTri;
+static u8 *shellTwo;  // per triangle: GoldenEye draws it unculled, so it has no back
+static s32 shellNumTwo;
 static s32 shellNum;
 static s32 shellCap;
 static s32 *shellFirst;
@@ -608,16 +618,26 @@ static void fileTriToShell(void *arg, const f32 v[3][3], s32 room)
 	if (shellNum >= shellCap) {
 		const s32 cap = shellCap ? shellCap * 2 : 16384;
 		f32 *t = realloc(shellTri, sizeof(f32) * 9 * cap);
+		u8 *two;
 
 		if (!t) {
 			return;
 		}
 
 		shellTri = t;
+		two = realloc(shellTwo, cap);
+
+		if (!two) {
+			return;
+		}
+
+		shellTwo = two;
 		shellCap = cap;
 	}
 
 	memcpy(shellTri + shellNum * 9, v, sizeof(f32) * 9);
+	shellTwo[shellNum] = (room >> 17) & 1;
+	shellNumTwo += shellTwo[shellNum];
 	shellNum++;
 }
 
@@ -639,9 +659,12 @@ static s32 normalize3(f32 *v)
 static void shellForget(void)
 {
 	free(shellTri);
+	free(shellTwo);
 	free(shellFirst);
 	free(shellCount);
 	shellTri = NULL;
+	shellTwo = NULL;
+	shellNumTwo = 0;
 	shellFirst = shellCount = NULL;
 	shellNum = shellCap = 0;
 	cullOutside = 0;
@@ -733,7 +756,7 @@ static s32 shellRay(const f32 *o, const f32 *d)
 				// det is the triangle's normal (e1 x e2) against -d, so it is
 				// positive where the ray meets the side that faces it - the
 				// side G_CULL_BACK keeps
-				facing = det > 0.0f ? 1 : -1;
+				facing = det > 0.0f || shellTwo[i] ? 1 : -1;
 			}
 		}
 	}
@@ -808,6 +831,21 @@ void gebeanStageTickCamera(s32 authored)
 	shellHits = hits;
 	shellBacks = backs;
 	cullOutside = hits >= 8 && backs * 3 >= hits * 2;
+
+	{
+		static s32 logged = -1;
+		static s32 wantlog = -1;
+
+		if (wantlog < 0) {
+			wantlog = getenv("PD_CULLLOG") != NULL;
+		}
+
+		if (wantlog && cullOutside != logged) {
+			logged = cullOutside;
+			sysLogPrintf(LOG_NOTE, "gebeanstage: frame %d camera outside %d (%d of %d back)",
+					g_Vars.lvframenum, cullOutside, backs, hits);
+		}
+	}
 }
 
 s32 gebeanStageCullsBackFaces(void)
@@ -3099,6 +3137,9 @@ static s32 build(void)
 
 		if (!shellFirst || !shellCount) {
 			shellForget();
+		} else {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %d of GoldenEye's opaque triangles for the camera test, %d of them unculled",
+					shellNum, shellNumTwo);
 		}
 
 		for (s32 t = 0; t < c.num; t++) {
@@ -3130,7 +3171,7 @@ static s32 build(void)
 				const s32 file = near >= 0 ? filetris.room[near] : nearestRoomBox(mid, n);
 
 				tri->room = file & 0xffff;
-				tri->nofog = file >> 16;
+				tri->nofog = (file >> 16) & 1;
 				nofogs += tri->nofog;
 			}
 
@@ -4152,8 +4193,8 @@ void gebeanStageTrace(FILE *f)
 {
 	fprintf(f, "gebeanstage: tried %d built %d level %s scale %.5f, %d of %d rooms served, %d of the file's not drawn\n",
 			tried, built, row ? row->bean : "-", row ? row->scale : 0.0f, numServed, numRooms ? numRooms - 1 : 0, numHidden);
-	fprintf(f, "gebeanstage: camera outside the level %d (%d of %d rays on its back faces, %d of GoldenEye's triangles)\n",
-			cullOutside, shellBacks, shellHits, shellNum);
+	fprintf(f, "gebeanstage: camera outside the level %d (%d of %d rays on its back faces, %d of GoldenEye's triangles, %d of them unculled)\n",
+			cullOutside, shellBacks, shellHits, shellNum, shellNumTwo);
 	fprintf(f, "gebeanstage: %d triangles of backdrop\n", numBackdrop);
 }
 

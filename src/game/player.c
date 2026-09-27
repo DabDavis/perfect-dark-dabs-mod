@@ -111,6 +111,7 @@
 #ifndef PLATFORM_N64
 #include "gexplus.h"
 #include "gecinema.h"
+#include "gecredits.h"
 #include "geroom.h"
 #include "modloader.h"
 #endif
@@ -4020,6 +4021,13 @@ static void playerSyncBodyWeapons(struct player *player)
 		return;
 	}
 
+	// A GoldenEye ending has emptied the first person hands and handed the
+	// body the gun Bond held (aiChrDrawWeaponInCutscene()); matching the body
+	// to the empty hands took it away again in third person
+	if (gecinemaBondBodyWeapon() > WEAPON_NONE && g_Vars.tickmode != TICKMODE_NORMAL) {
+		return;
+	}
+
 	for (handnum = 0; handnum < 2; handnum++) {
 		struct prop *held = chr->weapons_held[handnum];
 
@@ -5871,7 +5879,7 @@ void playerTick(bool arg0)
 #ifndef PLATFORM_N64
 		// a GoldenEye remake mission's opening swirl is this mode with a
 		// camera of its own (gecinema.c)
-		if (!gecinemaSwirlTick())
+		if (!gecreditsCameraTick() && !gecinemaSwirlTick())
 #endif
 		if (g_Vars.tickmode == TICKMODE_WARP) {
 			playerExecutePreparedWarp();

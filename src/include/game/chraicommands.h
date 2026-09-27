@@ -457,7 +457,10 @@
 /*0x01e5*/ bool aiGeObjectRocketLaunch(void);
 /*0x01e6*/ bool aiGeChrRemoveItemInHand(void);
 /*0x01e7*/ bool aiGeHitChrWithItem(void);
-/*0x01e8*/ bool aiGeGasLeak(void);
+/*0x01e8*/ bool aiGeCameraOrbitPad(void);
+/*0x01e9*/ bool aiGeCreditsRoll(void);
+/*0x01ea*/ bool aiGeIfCreditsHaveRolled(void);
+/*0x01eb*/ bool aiGeGasLeak(void);
 #endif
 
 void propDecrementSoundCount(struct prop *prop);
