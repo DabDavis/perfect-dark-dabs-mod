@@ -11796,14 +11796,17 @@ types, flag tokens) - each is a changelog line already classed above.
   is the ammo, 10 x the solo multiplier. The converter gave a single crate the first of GE 9mm's pair, Perfect
   Dark's pistol rounds, which no GE gun fires (they all draw on AMMOTYPE_SMG, geguns.c). Crate now takes the SMG
   type (geconvert.c + gesolo.py). Probe: ~/wt/f3-0927-props-run/probes/arcammo.py (t2 0 -> 20). Needs a converter bump.
-- **Natalya bouncing by the helicopter** (Statue, 3 reports): not reproduced headless. Her list 0x416 sits at +17
-  re-issuing PlayAnimation 0x801e frames 83..84 (GE flag 0x04 = hold) every ~16 ticks; each re-issue restarts a
-  16-tick merge. Fixed-step and 2..4 tick-per-frame runs settle her prop y at 752 (ground 742); the three testers'
-  traces caught y 781/788/847, i.e. mid-merge. Next step: frame-rate-variable repro (probes/natb.py, pd-tick).
+- **Natalya bouncing by the helicopter** (Statue, 3 reports): GoldenEye's list 0x416 (u/UsetupstatueZ.c ai_21)
+  plays frames 83..84 of 0x801e every tick (hold flag), re-setting it with a merge from the same pose. Ours waited
+  for each 16-tick merge (CHRHFLAG_NEEDANIM) and began another, and one begun from any other pose lifted her and let
+  her fall back (her y 781/788/847 in the traces vs 752 settled; the old binary is caught mid-merge at f6066 even at
+  fixed step). aiChrDoAnimation() now sets the same animation on the same side again at once, without a merge, on
+  converted levels (0fc8d534c). Merge stays 0 for 60 frames; statue_full.py UNARMED completes 5/5.
 - **Egyptian Golden Gun case "missing"**: GE's case is four PROP_DOOR_WIN doors (models 326) that ai_17 closes
   once Bond enters the room; they start open (frac 0.95), which is GE's own. Both looks show the case closed after.
-- **Bunker 2 door glass** (20260927-011445): windowed doors' HD mesh does not carry GoldenEye's glass list, so
-  doorDestroyGlass()'s toggle has nothing to hide in HD. Tried grouping the pane on the glass part (reverted - the
-  release pane is not a separate draw on 0x28a); open.
+- **Bunker 2 door glass** (20260927-011445): not reproduced. Pgx138Z (sev_door4_wind) is drawn as the N64 model
+  with HD textures (no Bean mesh built for it); doorDestroyGlass() hides the pane and its crack texture in both looks
+  (probes/doorglass.py, every windowed door on the level broken). What stays in view through the frame is the level
+  behind, which matches the tester's picture.
 - **Statue helicopter wreck**: GE objDeform() keeps the crumpled aircraft; ours leaves only scattered debris
   after the smoke. Not changed - needs an oracle comparison (dam-oracle genat4.py style).
