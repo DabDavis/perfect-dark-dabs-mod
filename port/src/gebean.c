@@ -9684,11 +9684,13 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 
 		// Not alpha tested, the picture with alpha in the material's first
 		// slot (read with the first UV set) and a solid one in the second
-		// (the second set): a surface under drifts of its own. The solid
-		// picture is the ground, tiled over the whole surface by its own UVs,
-		// and the drift is laid over it by its alpha. Drawn as the ground
-		// alone at the drift's UVs, Bunker's helipad was the ice picture
-		// stretched strip by strip under grey patches (F3 20260926-210317)
+		// (the second set): a surface under drifts of its own. The release's
+		// pixel shader lerps from the ground (second picture, second UV set,
+		// times the second colour) to the drift (first picture, first set,
+		// times the first colour) by the drift's alpha times the first
+		// colour's. Drawn as the ground alone at the drift's UVs, Bunker's
+		// helipad was the ice picture stretched strip by strip under grey
+		// patches (F3 20260926-210317)
 		if (!draw->alphatest && !ismask && tex >= 0 && draw->masktex < (u32)bm->numtex
 				&& vb.stride == 32 && draw->masktexslot == 0) {
 			const void *tile;
@@ -9774,18 +9776,18 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
 					const u32 uvat = ismask || drift >= 0 ? 20 : 16;
 
-					// The drift over the ground: the first UV set, its two
-					// halves read the other way round (so the drift's edge
-					// runs along the strips it lies on, not across them
-					// as bands), faded by its picture's alpha times the
-					// blend word's (the stride 32 vertex's other colour).
-					// The shader is not read here; this is the look that
-					// matches GoldenEye's own snow round the pad
+					// The drift over the ground, as the release's shaders
+					// draw it (Bunker's vertex shader at .gpu 0xa05e0 and
+					// its pixel shader, disassembled): the first UV set,
+					// read as the ground's second is, and the first colour
+					// (+24) - its RGB times the drift's picture, its alpha
+					// times the picture's, which is the share of the drift
+					// over the ground. The ground takes the second colour
+					// (+28), as every stride 32 draw does
 					if (drift >= 0) {
-						dv[k].uv[0] = (s16)gebeanBE16(p + 18) / bm->uvscale;
-						dv[k].uv[1] = (s16)gebeanBE16(p + 16) / bm->uvscale;
-						dv[k].argb = (beanColour(gebeanBE32(p + 28)) & 0x00ffffff)
-								| ((beanColour(gebeanBE32(p + 24)) & 0x00ff0000) << 8);
+						dv[k].uv[0] = (s16)gebeanBE16(p + 16) / bm->uvscale;
+						dv[k].uv[1] = (s16)gebeanBE16(p + 18) / bm->uvscale;
+						dv[k].argb = beanColour(gebeanBE32(p + 24));
 					}
 
 					bv.uv[0] = (s16)gebeanBE16(p + uvat) / bm->uvscale;
