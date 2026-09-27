@@ -2717,7 +2717,36 @@ plays one, which is why the folder screens had been fine for a day.
 The voice is now cleared and skipped for as long as the raw wave lasts (there is
 no raw path in this synthesiser to send it down instead), and
 `aLoadADPCMImpl()` refuses a null book as a backstop for any other bank that
-reaches it. Nothing stock is affected: every wave in Perfect Dark's own banks is
+reaches it.
+
+**Correction (2026-09-27, F3 043005, dblaney1: "instrument 51 ... does not play
+properly"):** the wave is not an 18ms one-shot. Both instruments point at the
+same `AL_RAW16_WAVE`, 395 big-endian samples looping 3..360 for ever (count
+-1) - one 357-sample cycle, 61.8 Hz at keybase 35 (B1): GoldenEye's **synth
+bass**. Silencing it dropped the bass line out of Runway (channel 8), Surface
+I, Jungle X and the rest. It now plays through `n_alRaw16Pull()` in
+src/lib/naudio/n_load.c, GoldenEye's `alRaw16Pull()` (007 src/libultra/audio/
+load.c) in the port's terms: chunks of at most 256 samples through the voice's
+DMA callback (`admaExec` serves 0x400 bytes a call), swapped to host order on
+the way into DMEM, looping by the wave's loop points and count, zeros past the
+end. Measured with `SDL_AUDIODRIVER=disk` on a Runway boot (0x5e, fixed step,
+1800 frames) against the oracle's `PORT_AUDIO_WAV` of the same level (gdb swaps
+the boot's Dam load for `LEVELID_RUNWAY`, script /tmp/jaudio/run.py on
+10.8.0.3; the header is left unfinished by the kill - read it as stereo s16 at
+22050 from byte 44): share of the mix in 40-130 Hz, median over loud frames,
+oracle 0.47, before 0.15, after 0.63; flatness 0.018 / 0.026 / 0.014; bass
+notes E2 (half), B1, D2 in both, harmonic profile within a few dB.
+
+**Caveat on that oracle:** swapping the attract demo's stage does not change its
+music - `musicTrack1Play` is never called after the swap, and the Runway and
+Surface runs give the same song note for note - and the demo's inputs replay
+(gunfire, the intro cinema's sounds). So the oracle's "share of the mix" is not
+a like-for-like number, and 0.63 against 0.47 is not a level fault. What does
+compare: the bass band's own level over steady stretches, oracle 3034 against
+ours 2880 median (-0.4 dB). Nothing in either path scales raw against ADPCM -
+both hand the resampler plain s16 and every voice shares the envelope mixer.
+Surface I (0x69, track 57) is unchanged by the fix (no instrument 51 in its
+first 30 s). Nothing stock is affected: every wave in Perfect Dark's own banks is
 ADPCM, so the guard never fires for them.
 
 **Every test until then ran `--no-sound`**, which is why this reached a
