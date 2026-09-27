@@ -1131,6 +1131,68 @@ bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 
 	return true;
 }
 
+/**
+ * The rooms either side of a door, GoldenEye's way (prop.c's
+ * sub_GAME_7F00324C()): from the pad's own tile along the floor to the
+ * middle of the door's box (or the pad itself, if the walk cannot get there),
+ * then fifty either way along the door's normal, each walk ending on a tile
+ * whose room is that side's. `pt1`/`pt2` get the two ends, at the middle's
+ * height. `room2` is -1 where both walks end in the same room. False where
+ * there is no tile graph or no tile under the pad.
+ */
+bool geStanDoorSideRooms(struct coord *padpos, struct coord *centre, struct coord *normal,
+		s32 *room1, s32 *room2, struct coord *pt1, struct coord *pt2)
+{
+	struct coord mid = *centre;
+	f32 nx = normal->x, ny = normal->y, nz = normal->z;
+	f32 len = sqrtf(nx * nx + ny * ny + nz * nz);
+	s32 tile, start, end;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active || len <= 0.0f) {
+		return false;
+	}
+
+	nx /= len;
+	nz /= len;
+
+	tile = stanTileUnderPrefer(padpos->x, padpos->z, padpos->y + 5.0f, GESTAN_RISE, -1);
+
+	if (tile < 0) {
+		return false;
+	}
+
+	start = stanWalkLine(tile, padpos->x, padpos->z, mid.x, mid.z, false);
+
+	if (!stanHolds(&g_Stan.tiles[start], mid.x, mid.z)) {
+		start = tile;
+		mid = *padpos;
+	}
+
+	pt1->x = mid.x + nx * 50.0f;
+	pt1->y = mid.y;
+	pt1->z = mid.z + nz * 50.0f;
+
+	pt2->x = mid.x - nx * 50.0f;
+	pt2->y = mid.y;
+	pt2->z = mid.z - nz * 50.0f;
+
+	end = stanWalkLine(start, mid.x, mid.z, pt1->x, pt1->z, false);
+	*room1 = g_Stan.tiles[end].room;
+
+	end = stanWalkLine(start, mid.x, mid.z, pt2->x, pt2->z, false);
+	*room2 = g_Stan.tiles[end].room;
+
+	if (*room2 == *room1) {
+		*room2 = -1;
+	}
+
+	return true;
+}
+
 bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
 {
 	return geStanWalkFromRoom(from, -1, to, room, ground);

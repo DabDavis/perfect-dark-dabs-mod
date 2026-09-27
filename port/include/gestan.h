@@ -72,6 +72,8 @@ bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground);
  * between it and another room's tile at the same height: GoldenEye starts from
  * the tile the pad names, and the conversion's pad room is that tile's.
  */
+bool geStanDoorSideRooms(struct coord *padpos, struct coord *centre, struct coord *normal,
+		s32 *room1, s32 *room2, struct coord *pt1, struct coord *pt2);
 bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 *room, f32 *ground);
 
 /**
