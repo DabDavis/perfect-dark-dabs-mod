@@ -2609,8 +2609,10 @@ void bmoveTick(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 		}
 	}
 
-	// Update footstep sounds
-	if ((g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK || g_Vars.currentplayer->bondmovemode == MOVEMODE_GRAB)
+	// Update footstep sounds. Not while spectating: the camera flies, and
+	// at its speed it stepped every few frames (F3 20260927-210959).
+	if (!modSpectateIsOn()
+			&& (g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK || g_Vars.currentplayer->bondmovemode == MOVEMODE_GRAB)
 			&& (g_Vars.currentplayer->speedforwards || g_Vars.currentplayer->speedsideways)
 			&& (!g_Vars.normmplayerisrunning || PLAYERCOUNT() == 1)) {
 		chr = g_Vars.currentplayer->prop->chr;
