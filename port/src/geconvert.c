@@ -942,6 +942,13 @@ static int romFogAltRow(uint32_t levelid, double *r)
 #define GE_IMAGE_WATER_BLUE 1509
 #define GE_SKYTEX_FIRST 3
 
+// GoldenEye's bullet-hole images (oddtextures.c's s_impactimages), which the
+// game's own code draws rather than any level: they go out with every
+// conversion too, for geimpact.c
+static const uint16_t g_GeImpactImages[] = {
+	206, 1475, 1476, 1478, 1479, 2168, 2169, 2170, 2171, 2172, 2173, 2174, 2175,
+};
+
 // a level's row of GoldenEye's *fogless* table (bgfog.c's fog_tables2, which
 // follows the fog table's end row: Frigate and Cuba, drawn with no fog and a
 // fixed z range) - the 18 values after the id, as bgfog.c lists them
@@ -7141,6 +7148,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		setAdd(alltex, GE_IMAGE_CLOUDS);
 		setAdd(alltex, GE_IMAGE_WATER_GREY);
 		setAdd(alltex, GE_IMAGE_WATER_BLUE);
+
+		for (size_t i = 0; i < sizeof(g_GeImpactImages) / sizeof(g_GeImpactImages[0]); ++i) {
+			setAdd(alltex, g_GeImpactImages[i]);
+		}
 
 		for (uint32_t num = 0; num < SETBITS; ++num) {
 			const uint8_t *data;

@@ -75,6 +75,9 @@ MENU_TV_MODEL = 75
 # rows 3-5 of Perfect Dark's g_TcSkyWaterConfigs (src/textureconfig.c) - its own
 # three are different pictures
 SKY_IMAGES = [2228, 1508, 1509]
+# GoldenEye's bullet-hole images (s_impactimages), drawn by the game's own code
+# rather than any level: out with every conversion too (port/src/geimpact.c)
+IMPACT_IMAGES = [206, 1475, 1476, 1478, 1479, 2168, 2169, 2170, 2171, 2172, 2173, 2174, 2175]
 SKYTEX_FIRST = 3
 MENU_IMAGES = ([2236, 2631] + list(range(2578, 2598)) + list(range(2686, 2690)) + [2695]
                + list(range(2602, 2618)) + list(range(2632, 2672)) + list(range(2682, 2686))
@@ -1579,6 +1582,7 @@ def main():
     allmodels.update(gesolo.GE_GADGET_MODELS)
     alltex.update(MENU_IMAGES)
     alltex.update(SKY_IMAGES)
+    alltex.update(IMPACT_IMAGES)
     os.makedirs(os.path.join(outdir, 'menu'), exist_ok=True)
     rom = gefiles.rom()
     for name, at, size in MENU_RAW:

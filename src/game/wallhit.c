@@ -20,6 +20,7 @@
 #ifndef PLATFORM_N64
 #include "wallhitclip.h"
 #include "geroom.h"
+#include "geimpact.h"
 #endif
 
 #define WALLHITTYPE_SOFT   0
@@ -70,6 +71,63 @@ struct wallhittex g_WallhitTexes[] = {
 	/*0x10*/ { 4,   4,   WALLHITTYPE_BULLET }, // WALLHITTEX_WOOD
 	/*0x11*/ { 6,   6,   WALLHITTYPE_BULLET }, // WALLHITTEX_METAL
 };
+
+/**
+ * A wallhit texture's size, colouring and config: Perfect Dark's own, or on a
+ * converted GoldenEye level one of GoldenEye's (port/src/geimpact.c).
+ */
+static f32 wallhitTexWidth(s32 texnum)
+{
+#ifndef PLATFORM_N64
+	if (geImpactIsGe(texnum)) {
+		f32 width, height;
+		u8 type;
+		geImpactSize(texnum, &width, &height, &type);
+		return width;
+	}
+#endif
+
+	return g_WallhitTexes[texnum].width;
+}
+
+static f32 wallhitTexHeight(s32 texnum)
+{
+#ifndef PLATFORM_N64
+	if (geImpactIsGe(texnum)) {
+		f32 width, height;
+		u8 type;
+		geImpactSize(texnum, &width, &height, &type);
+		return height;
+	}
+#endif
+
+	return g_WallhitTexes[texnum].height;
+}
+
+static u8 wallhitTexType(s32 texnum)
+{
+#ifndef PLATFORM_N64
+	if (geImpactIsGe(texnum)) {
+		f32 width, height;
+		u8 type;
+		geImpactSize(texnum, &width, &height, &type);
+		return type;
+	}
+#endif
+
+	return g_WallhitTexes[texnum].type;
+}
+
+static struct textureconfig *wallhitTexConfig(s32 texnum)
+{
+#ifndef PLATFORM_N64
+	if (geImpactIsGe(texnum)) {
+		return geImpactConfig(texnum);
+	}
+#endif
+
+	return &g_TexWallhitConfigs[texnum];
+}
 
 s16 wallhitFinaliseAxis(f32 value)
 {
@@ -262,7 +320,7 @@ void wallhitFade(struct wallhit *wallhit, u32 arg1)
 		g_WallhitsNumSettled--;
 		g_WallhitsNumUsed++;
 
-		if (g_WallhitTexes[wallhit->texturenum].type == WALLHITTYPE_BLOOD) {
+		if (wallhitTexType(wallhit->texturenum) == WALLHITTYPE_BLOOD) {
 			g_WallhitsNumBloodSettled--;
 		} else {
 			g_WallhitsNumNonbloodSettled--;
@@ -683,9 +741,27 @@ void wallhitCreate(struct coord *relpos, struct coord *arg1, struct coord *arg2,
 		s16 arg4[3], s16 texnum, RoomNum room, struct prop *objprop,
 		s8 mtxindex, s8 arg9, struct chrdata *chr, bool xlu)
 {
-	f32 scale = RANDOMFRAC() * 0.1f + 0.6f;
-	f32 width = g_WallhitTexes[texnum].width * scale;
-	f32 height = g_WallhitTexes[texnum].height * scale;
+	f32 scale;
+	f32 width;
+	f32 height;
+
+#ifndef PLATFORM_N64
+	// GoldenEye leaves no hole in water (geImpactTexnum())
+	if (texnum < 0) {
+		return;
+	}
+
+	// and its holes are drawn at their size
+	if (geImpactIsGe(texnum)) {
+		scale = 1.0f;
+	} else
+#endif
+	{
+		scale = RANDOMFRAC() * 0.1f + 0.6f;
+	}
+
+	width = wallhitTexWidth(texnum) * scale;
+	height = wallhitTexHeight(texnum) * scale;
 
 	wallhitCreateWith20Args(relpos, arg1, arg2, arg3,
 			arg4, texnum, room, objprop,
@@ -742,7 +818,7 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 #if VERSION >= VERSION_NTSC_1_0
 	paintball = chrIsUsingPaintball(chr);
 
-	if (paintball && g_WallhitTexes[texnum].type != WALLHITTYPE_BLOOD) {
+	if (paintball && wallhitTexType(texnum) != WALLHITTYPE_BLOOD) {
 		if (texnum != WALLHITTEX_SCORCH) {
 			width = 15.0f;
 			height = 15.0f;
@@ -771,7 +847,14 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 		break;
 	}
 
-	type = paintball ? WALLHITTYPE_PAINT : g_WallhitTexes[texnum].type;
+#ifndef PLATFORM_N64
+	// GoldenEye lays its holes square to the surface, never turned
+	if (geImpactIsGe(texnum)) {
+		rotdeg = 0;
+	}
+#endif
+
+	type = paintball ? WALLHITTYPE_PAINT : wallhitTexType(texnum);
 #else
 	switch (texnum) {
 	case WALLHITTEX_BULLET2:
@@ -792,7 +875,7 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 		break;
 	}
 
-	if (chrIsUsingPaintball(chr) && g_WallhitTexes[texnum].type != WALLHITTYPE_BLOOD) {
+	if (chrIsUsingPaintball(chr) && wallhitTexType(texnum) != WALLHITTYPE_BLOOD) {
 		if (texnum != WALLHITTEX_SCORCH) {
 			width = 15.0f;
 			height = 15.0f;
@@ -802,7 +885,7 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 		type = WALLHITTYPE_PAINT;
 		timermax = TICKS(10);
 	} else {
-		type = g_WallhitTexes[texnum].type;
+		type = wallhitTexType(texnum);
 	}
 #endif
 
@@ -832,7 +915,7 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 		g_WallhitsNumFree--;
 		g_WallhitsNumSettled++;
 
-		if (g_WallhitTexes[texnum].type == WALLHITTYPE_BLOOD) {
+		if (wallhitTexType(texnum) == WALLHITTYPE_BLOOD) {
 			g_WallhitsNumBloodSettled++;
 		} else {
 			g_WallhitsNumNonbloodSettled++;
@@ -1103,13 +1186,13 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 		}
 
 		wallhit->vertices[0].s = 0;
-		wallhit->vertices[0].t = g_TexWallhitConfigs[texnum].height * 32;
+		wallhit->vertices[0].t = wallhitTexConfig(texnum)->height * 32;
 		wallhit->vertices[1].s = 0;
 		wallhit->vertices[1].t = 0;
-		wallhit->vertices[2].s = g_TexWallhitConfigs[texnum].width * 32;
+		wallhit->vertices[2].s = wallhitTexConfig(texnum)->width * 32;
 		wallhit->vertices[2].t = 0;
-		wallhit->vertices[3].s = g_TexWallhitConfigs[texnum].width * 32;
-		wallhit->vertices[3].t = g_TexWallhitConfigs[texnum].height * 32;
+		wallhit->vertices[3].s = wallhitTexConfig(texnum)->width * 32;
+		wallhit->vertices[3].t = wallhitTexConfig(texnum)->height * 32;
 
 		if (wallhit->objprop) {
 			struct prop *prop = wallhit->objprop;
@@ -1278,7 +1361,7 @@ Gfx *wallhitRenderOpaBgHits(s32 roomnum, Gfx *gdl)
 			}
 
 			if (wallhit->texturenum != prevtexturenum || wallhit->unk6b != prev6b) {
-				texSelect(&gdl, &g_TexWallhitConfigs[wallhit->texturenum], 2, wallhit->unk6b, 2, 1, NULL);
+				texSelect(&gdl, wallhitTexConfig(wallhit->texturenum), 2, wallhit->unk6b, 2, 1, NULL);
 
 				prevtexturenum = wallhit->texturenum;
 				prev6b = wallhit->unk6b;
@@ -1341,7 +1424,7 @@ Gfx *wallhitRenderXluBgHits(s32 roomnum, Gfx *gdl)
 			wallhit->unk6b = 1;
 
 			if (wallhit->texturenum != prevtexturenum || wallhit->unk6b != prev6b) {
-				texSelect(&gdl, &g_TexWallhitConfigs[wallhit->texturenum], 2, wallhit->unk6b, 2, 1, NULL);
+				texSelect(&gdl, wallhitTexConfig(wallhit->texturenum), 2, wallhit->unk6b, 2, 1, NULL);
 
 				prevtexturenum = wallhit->texturenum;
 				prev6b = wallhit->unk6b;
@@ -1433,7 +1516,7 @@ Gfx *wallhitRenderPropHits(Gfx *gdl, struct prop *prop, bool xlu)
 			}
 
 			if (prevtexturenum != wallhit->texturenum || prev6b != wallhit->unk6b) {
-				texSelect(&gdl, &g_TexWallhitConfigs[wallhit->texturenum], 2, wallhit->unk6b, 2, 1, NULL);
+				texSelect(&gdl, wallhitTexConfig(wallhit->texturenum), 2, wallhit->unk6b, 2, 1, NULL);
 
 				prevtexturenum = wallhit->texturenum;
 				prev6b = wallhit->unk6b;
@@ -1546,7 +1629,7 @@ void wallhitFadeSplatsForRemovedChr(struct prop *chrprop)
 		if (wallhit->chrprop
 				&& wallhit->roomnum > 0
 				&& wallhit->chrprop == chrprop
-				&& g_WallhitTexes[wallhit->texturenum].type == WALLHITTYPE_BLOOD) {
+				&& wallhitTexType(wallhit->texturenum) == WALLHITTYPE_BLOOD) {
 			if (IS_BLOOD_DROP(wallhit->texturenum) || (rngRandom() % 100) < 35) {
 				wallhitFade(wallhit, TICKS(120));
 			} else {
@@ -1569,7 +1652,7 @@ void wallhitRemoveOldestWoundedSplatByChr(struct prop *chrprop)
 				&& wallhit->roomnum > 0
 				&& wallhit->chrprop == chrprop
 				&& !wallhit->fading
-				&& g_WallhitTexes[wallhit->texturenum].type == WALLHITTYPE_BLOOD
+				&& wallhitTexType(wallhit->texturenum) == WALLHITTYPE_BLOOD
 				&& IS_BLOOD_DROP(wallhit->texturenum)
 				&& wallhit->createdframe < oldestframe) {
 			oldestframe = wallhit->createdframe;

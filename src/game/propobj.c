@@ -80,6 +80,7 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "textures.h"
+#include "geimpact.h"
 #include "types.h"
 #include "string.h"
 #ifndef PLATFORM_N64
@@ -16611,6 +16612,13 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 
 					spc4 = true;
 				}
+
+#ifndef PLATFORM_N64
+				// GoldenEye's own on its levels (geimpact.c)
+				textureindex = geImpactTexnum(hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES
+						|| g_Textures[hit->hitthing.texturenum].surfacetype >= 15
+						? SURFACETYPE_DEFAULT : g_Textures[hit->hitthing.texturenum].surfacetype, textureindex);
+#endif
 
 				wallhitCreate(&hit->hitthing.pos, &hit->hitthing.unk0c, &shotdata->gunpos3d, 0,
 						0, textureindex, 1, hit->prop, hit->mtxindex, spcb, g_Vars.currentplayer->prop->chr, spc4);

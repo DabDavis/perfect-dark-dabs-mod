@@ -126,6 +126,7 @@
 #ifndef PLATFORM_N64
 #include "getank.h"
 #include "getexsurface.h"
+#include "geimpact.h"
 #include "game/camera.h"
 #include "gbiex.h"
 #endif
@@ -355,6 +356,7 @@ void lvReset(s32 stagenum)
 
 	// what a shot does to a converted GoldenEye level's images is GoldenEye's
 	geTexSurfaceReset(stagenum);
+	geImpactStageStart(stagenum);
 #endif
 
 	textReset();
