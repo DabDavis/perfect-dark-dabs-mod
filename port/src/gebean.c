@@ -64,8 +64,9 @@
 // fifth (".extracted5") before the levels were and the sixth (".extracted6")
 // before the remake's HD props were, so a cache holding any of them is unpacked
 // again. The tenth (".extracted10") is the menus' two fonts, the eleventh the
-// skydomes, the twelfth the HUD's crosshair.
-#define GEBEAN_DONE_FILE ".extracted12"
+// skydomes, the twelfth the HUD's crosshair, the thirteenth the HUD's
+// ammunition pictures.
+#define GEBEAN_DONE_FILE ".extracted13"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -97,6 +98,12 @@
 #define GEBEAN_WANT_MENU_ATTRACT "files/texture/attract/"
 // and the HUD's crosshair, texture/bg/sight (gehud.c)
 #define GEBEAN_WANT_HUD_SIGHT "files/texture/bg/sight/"
+// and its ammunition pictures, texture/bg/ammoicon* and ammogrenadehand
+// (gehud.c): not taken until 2026-09-26, so from the archive the HUD fell back
+// to GoldenEye's own 5x28 round, blurred up to the screen (F3 20260926-220918,
+// "the bullet on my hud looks blurry"); only a folder of the whole release had
+// them
+#define GEBEAN_WANT_HUD_AMMO "files/texture/bg/ammo"
 // and their two fonts, which are files/misc/alps3 and doc0 (gebeanFontOpen())
 #define GEBEAN_WANT_MENU_FONTS "files/misc/"
 
@@ -1705,7 +1712,8 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 		|| strstr(lower, GEBEAN_WANT_SKIES) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_CHARS) != NULL || strstr(lower, GEBEAN_WANT_MENU_LEVELS) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_SIGHT) != NULL || strstr(lower, GEBEAN_WANT_MENU_ATTRACT) != NULL
-		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL || strstr(lower, GEBEAN_WANT_HUD_SIGHT) != NULL;
+		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL || strstr(lower, GEBEAN_WANT_HUD_SIGHT) != NULL
+		|| strstr(lower, GEBEAN_WANT_HUD_AMMO) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
