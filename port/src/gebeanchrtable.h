@@ -41,7 +41,7 @@
 	CHRROW("Cgx038Z", GEBEAN_BODY,   "char/bluecamguard"), // CbluecamguardZ
 	CHRROW("Cgx039Z", GEBEAN_BODY,   "char/moonguard"), // CmoonguardZ
 	CHRROW("Cgx040Z", GEBEAN_BODY,   "char/moonfemale"), // CmoonfemaleZ
-	// 41 Csuit_lf_handZ: the release has no such file
+	CHRROW("Cgx041Z", GEBEAN_WHOLE,  "char/suitlfhand"), // Csuit_lf_handZ, the watch's floating arm
 	CHRROW("Cgx042Z", GEBEAN_HEAD,   "head/headkarl"), // CheadkarlZ
 	CHRROW("Cgx043Z", GEBEAN_HEAD,   "head/headalan"), // CheadalanZ
 	CHRROW("Cgx044Z", GEBEAN_HEAD,   "head/headpete"), // CheadpeteZ

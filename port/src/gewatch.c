@@ -57,6 +57,7 @@
 #include "system.h"
 #include "video.h"
 #include "gewatch.h"
+#include "xblamesh.h"
 #include "gehud.h"
 #include "gegadgets.h"
 #include "gexfront.h"
@@ -3520,7 +3521,11 @@ static Gfx *watchDrawModel(Gfx *gdl)
 	// watch sorts itself over whatever of the arm is under it, the dial being
 	// lower on a body's wrist than the top of its forearm (the intro's gun
 	// barrel takes a z buffer for the same reason, geintro.c).
-	if (wmodel) {
+	// The HD look's arm (char/suitlfhand, gebean.c) is Bean's mesh, which has
+	// no order of its own either: its watch comes before the skin under it
+	const s32 hd = xblaMeshModelDrawsBean(model);
+
+	if (wmodel || hd) {
 		renderdata.zbufferenabled = true;
 	}
 
@@ -3555,12 +3560,16 @@ static Gfx *watchDrawModel(Gfx *gdl)
 		gDPSetTextureFilter(renderdata.gdl++, G_TF_BILERP);
 		renderdata.gdl = lightsSetDefault(renderdata.gdl);
 
-		if (wmodel) {
+		if (wmodel || hd) {
 			renderdata.gdl = zbufClear(renderdata.gdl);
 			gSPSetGeometryMode(renderdata.gdl++, G_ZBUFFER);
 		}
 
 		modelRender(&renderdata, model);
+
+		if (hd && !wmodel) {
+			gSPClearGeometryMode(renderdata.gdl++, G_ZBUFFER);
+		}
 
 		if (headdef) {
 			spotrw->headspot.headmodeldef = headdef;
