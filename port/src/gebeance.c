@@ -49,8 +49,8 @@
 
 #ifndef PLATFORM_N64
 
-// Where the updater keeps its file patch, and its executable's
-#define GEBEANCE_DIFF_ENTRY "CEUpdate/files.diff"
+// Where the updater keeps its file patch (GEBEANCE_DIFF_ENTRY, gebean.h), and
+// its executable's
 #define GEBEANCE_XEX_ENTRY "CEUpdate/xex.diff"
 // The environment table's rows out of the patched executable, in the overlay
 #define GEBEANCE_FOG_FILE "fogtable.bin"

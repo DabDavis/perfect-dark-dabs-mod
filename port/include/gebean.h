@@ -340,6 +340,11 @@ void gebeanFontClose(struct gebeanfont *font);
 // patch changes - so a scan of the cache must never take it for the release.
 #define GEBEAN_CE_DIR "ce"
 
+// The entry that makes an archive the Community Edition's updater zip, as
+// opposed to either release: gebeance.c looks for it to find the updater, and
+// xblaimport.c to pass it over when looking for Perfect Dark's release.
+#define GEBEANCE_DIFF_ENTRY "CEUpdate/files.diff"
+
 s32 gebeanTreeInfo(char *root, u32 rootLen, char *archive, u32 archiveLen, char *cache, u32 cacheLen);
 
 /**

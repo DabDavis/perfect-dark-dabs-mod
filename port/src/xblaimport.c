@@ -27,6 +27,7 @@
 #include "archive.h"
 #include "config.h"
 #include "fs.h"
+#include "gebean.h"
 #include "pngwrite.h"
 #include "system.h"
 #include "texpack.h"
@@ -250,9 +251,16 @@ static void xblaScanForPackage(const char *name, void *arg)
 	// Not the GoldenEye XBLA release, which goes in the same folder
 	// (gebean.h): an archive is looked into for its characters before it is
 	// taken for this one.
+	//
+	// Nor the Community Edition's updater zip (gebeance.c), which goes there
+	// too and holds no package at all. Taken for the release, it left a player
+	// with both files without Perfect Dark's XBLA art and Agent 4: the scan
+	// went in directory order, and Windows lists "CommunityEdition..." before
+	// "Perfect Dark XBLA.7z" where ext4 happened not to.
 	if (xblaLooksLikePackage(path) ||
 			(scan->archives && archiveIsSupported(path) && fsFileSize(path) >= 0 &&
-			 !archiveFindEntry(path, "files/new/char/"))) {
+			 !archiveFindEntry(path, "files/new/char/") &&
+			 !archiveFindEntry(path, GEBEANCE_DIFF_ENTRY))) {
 		strncpy(scan->found, path, sizeof(scan->found) - 1);
 		return;
 	}
@@ -269,16 +277,64 @@ static void xblaScanForPackage(const char *name, void *arg)
  * and fsFullPath()'s buffer is one deep, so a "$E/..." handed down through the
  * recursion would be re-expanded under itself.
  */
+struct xblanames {
+	char **names;
+	s32 count;
+	s32 max;
+};
+
+static void xblaCollectName(const char *name, void *arg)
+{
+	struct xblanames *list = arg;
+
+	if (list->count == list->max) {
+		s32 max = list->max ? list->max * 2 : 16;
+		char **names = realloc(list->names, max * sizeof(*names));
+
+		if (!names) {
+			return;
+		}
+
+		list->names = names;
+		list->max = max;
+	}
+
+	list->names[list->count] = strdup(name);
+
+	if (list->names[list->count]) {
+		list->count++;
+	}
+}
+
+static s32 xblaCompareNames(const void *a, const void *b)
+{
+	return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
 static s32 xblaScanDir(const char *dir, s32 archives, s32 depth, char *dst, u32 dstLen)
 {
 	struct xblascan scan;
+	struct xblanames list = { NULL, 0, 0 };
 
 	memset(&scan, 0, sizeof(scan));
 	scan.dir = dir;
 	scan.archives = archives;
 	scan.depth = depth;
 
-	fsScanDir(dir, xblaScanForPackage, &scan);
+	// In name order, so the first match is the same on every system: the
+	// order a directory lists in is Windows' alphabetical but ext4's hash.
+	fsScanDir(dir, xblaCollectName, &list);
+
+	if (list.count > 1) {
+		qsort(list.names, list.count, sizeof(*list.names), xblaCompareNames);
+	}
+
+	for (s32 i = 0; i < list.count; i++) {
+		xblaScanForPackage(list.names[i], &scan);
+		free(list.names[i]);
+	}
+
+	free(list.names);
 
 	if (!scan.found[0]) {
 		return 0;
