@@ -38,7 +38,7 @@ struct modoptions g_ModOptions = {
 	MODWHO_EVERYONE,          // spawnweaponwho
 	THIRDPERSON_CAMDIST,      // camdist
 	THIRDPERSON_CAMCLEARANCE, // camclearance
-	THIRDPERSON_CAMMINDIST,   // cammindist
+	THIRDPERSON_CAMFADE,      // camfade
 	THIRDPERSON_CAMSIDE,      // camside: centred, like the view the fork shipped
 	THIRDPERSON_CAMFWD,       // camfwd: level with the eye, likewise
 	THIRDPERSON_CAMHEIGHT,    // camheight: at the eye, likewise

@@ -2306,13 +2306,21 @@ static void gfx_derive_batch_state(void) {
     const bool use_noise = (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_DITHER;
     const bool use_2cyc = (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)) == G_CYC_2CYCLE;
     const bool alpha_threshold = (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_THRESHOLD;
-    const bool invisible = (rdp.other_mode_l & (3 << 24)) == (G_BL_0 << 24) && (rdp.other_mode_l & (3 << 20)) == (G_BL_CLR_MEM << 20);
+    bool invisible = (rdp.other_mode_l & (3 << 24)) == (G_BL_0 << 24) && (rdp.other_mode_l & (3 << 20)) == (G_BL_CLR_MEM << 20);
     const bool use_grayscale = rdp.grayscale;
     const bool use_blur = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) == G_TF_BLUR_EXT;
     const bool use_envmap = (rsp.extra_geometry_mode & G_ENVMAP_EXT) != 0;
 
     if (texture_edge) {
         use_alpha = true;
+    }
+
+    // A faded body's depth pass (chrRender()): blended to nothing, so only the
+    // depth it writes is left (gfx_emit_prepare() turns the write on). A
+    // cutout's clear texels are still discarded before it, as they would be.
+    if (rsp.extra_geometry_mode & G_DEPTH_PREPASS_EXT) {
+        use_alpha = true;
+        invisible = true;
     }
 
     if (use_alpha) {
@@ -2883,6 +2891,22 @@ static inline __attribute__((always_inline)) void gfx_emit_prepare(void) {
     bool depth_compare = (rdp.other_mode_l & Z_CMP) == Z_CMP;
     bool depth_source_prim = (rdp.other_mode_l & G_ZS_PRIM) == G_ZS_PRIM /* && gDP.primDepth.z == 1.0f */;
     uint16_t zmode = (rsp.extra_geometry_mode & G_DECAL_EXT) ? ZMODE_DEC : (rdp.other_mode_l & ZMODE_DEC);
+
+    // A faded body in two passes (chrRender()): the first lays down the depth
+    // of its nearest surface and draws nothing, the second compares
+    // less-or-equal without writing, so exactly that surface is blended once
+    // and the arm behind the chest, or the inside of the far shoulder, is not
+    // seen through it.
+    if (rsp.extra_geometry_mode & G_DEPTH_PREPASS_EXT) {
+        depth_update = true;
+        depth_compare = true;
+        zmode = ZMODE_OPA;
+    } else if (rsp.extra_geometry_mode & G_DEPTH_FRONT_EXT) {
+        depth_update = false;
+        depth_compare = true;
+        zmode = ZMODE_INTER;
+    }
+
     uint32_t depth_mode = (depth_test ? 1 : 0) | (depth_update ? 2 : 0) | (depth_compare ? 4 : 0) | (depth_source_prim ? 8 : 0) | (zmode >> 6) |
                           ((uint32_t)(uint16_t)rdp.depth_bias << 8);
 

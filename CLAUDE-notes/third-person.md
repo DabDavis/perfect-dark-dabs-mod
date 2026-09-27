@@ -218,8 +218,69 @@ longer on the offset's line.
 Coming in is immediate, going back out is eased (`THIRDPERSON_EASE_RATE`). They
 are not the same event: a wall arriving is this frame's problem or the camera
 draws the inside of it, while a wall leaving is only space becoming free again.
-The eye is outside the easing - below `cammindist` there is no view to ease
-towards, so that one cuts in both directions.
+Since 2026-09-27 the eye is inside the easing too: the camera is never cut to
+first person by a wall (next section).
+
+## No cut to first person; the body fades out instead (2026-09-27)
+
+F3 20260927-193547 (GE Plus Facility, the camera jammed into Bond's shoulder:
+"should fade out the char model") and 20260927-193659 ("against the wall you
+look like you have four arms ... don't auto transition to 1st person"). Below
+`cammindist` (Camera Minimum Distance) the camera used to cut to the eye, where
+`thirdpersondist == 0` brought the first person arms and gun back while the
+body - still built for the request, and drawn with its arms out in front of the
+eye - was drawn too. Even at Minimum Distance 0 it cut: a wall nearer than the
+clearance, or `playerClearCamera()` finding no clear spot, returned early too.
+
+- **The camera never leaves third person for a wall.** A trace nearer than the
+  clearance, a push that finds nothing clear, or a push that carries the camera
+  round past the eye to the player's front (`playerClearCamera()`'s push off a
+  wall right behind did that: the view was taken from 30-75 units in front of
+  the face) all put it on the eye with `thirdpersondist = THIRDPERSON_EYE_DIST`
+  (0.01). Everything that asks "is the gun drawn" reads `thirdpersondist > 0`
+  (the HUD's `bgunRender()`, the tracers, a launcher's rocket, the muzzle
+  correction), so none of it changes and the first person gun cannot come up
+  while third person is on. The ease takes the camera back out from there.
+  Aiming, GE Plus's watch and a long fall still ask for the eye through
+  `playerIsThirdPerson()` and get the gun.
+- **The body fades by the camera's distance from it**
+  (`playerGetOwnBodyAlphaFrac()`, player.c, from `chrRender()`; the cutscene
+  swoop's fade is folded into it): the distance from `cam_pos` to the upright
+  segment from 20 above `vv_manground` to 15 above the eye, gone within Camera
+  Body Fade (`Mod.ThirdPersonBodyFade`, `g_ModOptions.camfade`, 40 by default,
+  0-150; the row replaced Camera Minimum Distance and `Mod.ThirdPersonMinDistance`
+  is dropped from pd.ini), whole 60 further out (`BODYFADE_SPAN`), smoothstep
+  between. To the segment and not the eye because looking up walks the camera
+  down behind the back. Any camera: aiming's is on the eye, so the gun and the
+  body are never both drawn.
+- **A faded own body is drawn twice, depth first** (`chrRender()`): the xlu pass
+  draws it once under `G_DEPTH_PREPASS_EXT` (gfx_pc.cpp: blended to nothing -
+  the blender's "invisible" mode - with the depth write and `ZMODE_OPA` forced
+  on) and once under `G_DEPTH_FRONT_EXT` (less-or-equal, no write), held guns
+  included (`chrRenderAttachedDepth()`, which leaves the matrices as floats -
+  `chrRenderAttachedObject()` converts them at the end of the xlu pass, so the
+  real pass must come after). Blended in one pass, the way a cloaked chr is,
+  every layer showed through every other - the far arm through the chest, the
+  inside of the shoulder - which is most of what a camera against the body sees.
+  Both flags override whatever render mode the lists set, so the XBLA/Bean
+  meshes need nothing of their own; fast3d transforms on the CPU, so both passes
+  have identical depths, and GL and Vulkan agree (checked).
+
+Probe: `~/wt/f3-0927b-3p-run` (`matrix.sh "before after" "n64 hd" "<scenes>"`,
+`probe/spot.py` - `PAD`/`POS`/`THETA` teleport and hold, `SETS` writes globals,
+`AIM=1` forces aiming by breaking in `playerPullBackCamera()`, which is the only
+way: `insightaimmode` written from `videoEndFrame` is overwritten by the input
+before the camera reads it; `probe/sweep.py` prints `thirdpersondist` at 24
+headings to find a wall, a tight spot and open ground). Scenes on the RX 580,
+tester's camera (Distance 200, Clearance 80, Sideways 55, Height 25, Tether
+Tight): Combat Sim 0x32 spawn heading 180 (wall), 255 (tight, 45 away), 0
+(open); GE Plus Facility 0x63 `--skip-mission-intro`, the vent spawn heading 0,
+pad 100 headings 270 (wall), 225 (tight), 165 (open). Open ground is
+pixel-identical before and after (a GE Plus monitor programme runs on the wall
+clock and differs between any two runs). **The run directory's `pd.ini` is the
+one read**, not `data/save/pd.ini`: a copied rig's own ini had Distance 600,
+which read as the camera flying off.
+
 
 ## Testing it headlessly
 
@@ -251,7 +312,7 @@ number is the whole muzzle fix.
 Two things that waste a run:
 
 - **A spawn against a wall reads as a broken camera.** `thirdpersondist` comes
-  back 0 because the trace clamped below `cammindist`, which is correct
+  back 0.01 (`THIRDPERSON_EYE_DIST`, the camera on the eye), which is correct
   behaviour. `set g_Vars.players[0]->vv_theta = ... + 180` turns round and the
   distance goes to its full value.
 - **A `while` loop in a `gdb -batch` script hangs the game**, and the gdb has to
@@ -583,7 +644,7 @@ now (`modSpectateGetBodyNum()`), the body a deployed CamSpy wears. Two traps:
 
 Test: `--boot-stage 0x32 --mpsims 1 --spectate`, write `prop->pos` from gdb,
 `ThirdPersonDistance=100` in the probe's pd.ini (at 60 the body is faded out by
-the minimum distance). ~/wt/f3-0927-options-run/shots.py.
+Camera Body Fade). ~/wt/f3-0927-options-run/shots.py.
 
 ## Camera settings seen while they change (2026-09-27)
 
@@ -601,7 +662,7 @@ is dragged. Leaving the page (Back or a swipe) calls
 stays paused (`lvframenum` does not move).
 
 The dialog covers the middle of the screen, the body with it, so a moving
-camera slider (MENUOP_SET on Distance, Wall Clearance, Minimum Distance,
+camera slider (MENUOP_SET on Distance, Wall Clearance, Body Fade,
 Sideways, Forward/Back, Height -> `optionsMenuCameraAdjusted()`) fades it to
 15% (user, 2026-09-27): `menuRenderDialogs()` scales the alpha of every
 `g_MenuColours` entry by `optionsMenuDialogAlpha()` for the draw and puts the

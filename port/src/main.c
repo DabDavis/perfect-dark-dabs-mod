@@ -381,7 +381,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.StartArmedFor", &g_ModOptions.spawnweaponwho, MODWHO_EVERYONE, MODWHO_PLAYERSONLY);
 	configRegisterFloat("Mod.ThirdPersonDistance", &g_ModOptions.camdist, 60.f, 600.f);
 	configRegisterFloat("Mod.ThirdPersonClearance", &g_ModOptions.camclearance, 0.f, 120.f);
-	configRegisterFloat("Mod.ThirdPersonMinDistance", &g_ModOptions.cammindist, 0.f, 300.f);
+	configRegisterFloat("Mod.ThirdPersonBodyFade", &g_ModOptions.camfade, 0.f, 150.f);
 	configRegisterFloat("Mod.ThirdPersonSideways", &g_ModOptions.camside, -150.f, 150.f);
 	configRegisterFloat("Mod.ThirdPersonForward", &g_ModOptions.camfwd, -150.f, 150.f);
 	configRegisterFloat("Mod.ThirdPersonHeight", &g_ModOptions.camheight, -150.f, 150.f);
