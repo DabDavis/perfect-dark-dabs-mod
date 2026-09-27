@@ -85,6 +85,12 @@ s32 gegunsOwnRocketModel(s32 weaponnum, s32 fallback);
 // GoldenEye's rocket and grenade round; `fallback` otherwise
 s32 gegunsChrProjectileModel(s32 weaponnum, s32 fallback);
 s32 gegunsThrownModel(s32 weaponnum, s32 fallback);
+
+// Whether a weapon object is one of GoldenEye's own converted props (a gun in
+// a hand or on the floor, a thrown mine or grenade, a rocket), which is drawn
+// with every face (G_NO_CULLING_EXT) rather than culled by its lists
+struct defaultobj;
+s32 gegunsObjDrawsBothSides(struct defaultobj *obj);
 f32 gegunsThrowSpeed(s32 weaponnum, f32 speed);
 void gegunsThrowKnifeLaunch(s32 weaponnum, Mtxf *mtx, Mtxf *camtoworld);
 s32 gegunsReloadSkipsLower(s32 weaponnum);

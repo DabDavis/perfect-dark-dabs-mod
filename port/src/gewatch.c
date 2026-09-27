@@ -3931,10 +3931,17 @@ static Gfx *watchRenderGun(Gfx *gdl, Mtxf *base, u32 envcolour)
 	gdl = zbufClear(gdl);
 	gSPSetGeometryMode(gdl++, G_ZBUFFER);
 
+	// every face, as a weapon in the hand is drawn (bondgun.c): the lists
+	// cull their back faces, and the silenced D5K's silencer is wound the
+	// other way round from the rest of it, so turned towards the camera it
+	// showed only the inside of its far half (F3 20260926-202346)
+	gSPSetExtraGeometryModeEXT(gdl++, G_NO_CULLING_EXT);
+
 	renderdata.gdl = gdl;
 	modelRender(&renderdata, &g_WatchGun.model);
 	gdl = renderdata.gdl;
 
+	gSPClearExtraGeometryModeEXT(gdl++, G_NO_CULLING_EXT);
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 	modelSetDistanceChecksDisabled(false);
 

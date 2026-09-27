@@ -12629,12 +12629,21 @@ void bgunRender(Gfx **gdlptr)
 			// lists, flat on the surface under them (model.c)
 			g_ModelXluDecal = gegunsOwnModelInUse(weaponnum);
 
+			// and with every face, as its props are (gegunsObjDrawsBothSides())
+			if (!geshown && gegunsOwnModelInUse(weaponnum)) {
+				gSPSetExtraGeometryModeEXT(renderdata.gdl++, G_NO_CULLING_EXT);
+			}
+
 			if (!geshown)
 #endif
 			modelRender(&renderdata, &hand->gunmodel);
 
 #ifndef PLATFORM_N64
 			g_ModelXluDecal = 0;
+
+			if (!geshown && gegunsOwnModelInUse(weaponnum)) {
+				gSPClearExtraGeometryModeEXT(renderdata.gdl++, G_NO_CULLING_EXT);
+			}
 #endif
 
 			// Render the hand
