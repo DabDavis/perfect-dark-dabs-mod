@@ -70,6 +70,9 @@ static s32 lastBody = -1;
 static s32 lastLook = -1;
 static const void *lastHandDef;
 static const void *lastHandTex;  // where its textures were loaded, which moves with every gun load
+static s32 lastHandFile;         // and which hand file it is: a new one can load at the same address,
+                                 // its textures in the same places (Russian Soldier's hands, then
+                                 // the Moonraker Elite's, kept the first's tints and drew unpainted)
 static s32 lastMode = -1;
 static s32 retries;
 static s32 retryWait;
@@ -573,7 +576,8 @@ void handtintTick(void)
 	look = xblaMeshGetEnabled();
 
 	if (bodynum == lastBody && look == lastLook && (const void *)handdef == lastHandDef
-			&& handtex == lastHandTex && g_HandTintMode == lastMode) {
+			&& handtex == lastHandTex && player->gunctrl.handfilenum == lastHandFile
+			&& g_HandTintMode == lastMode) {
 		// the character's mesh may be built a moment after its hands load
 		if (retries > 0 && --retryWait <= 0) {
 			retries--;
@@ -591,6 +595,7 @@ void handtintTick(void)
 	lastLook = look;
 	lastHandDef = handdef;
 	lastHandTex = handtex;
+	lastHandFile = player->gunctrl.handfilenum;
 	lastMode = g_HandTintMode;
 	retries = 0;
 
