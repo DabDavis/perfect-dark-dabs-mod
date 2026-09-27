@@ -198,6 +198,9 @@ static const struct { const char *brief, *lang; } g_MenuText[] = {
 	{ "UbriefjunZ", "LjunE" },        { "UbriefcontrolZ", "LarecE" },
 	{ "UbriefcaveZ", "LcaveE" },      { "UbriefcradZ", "LcradE" },
 	{ "UbriefaztZ", "LaztE" },        { "UbriefcrypZ", "LcrypE" },
+	// Cuba, the credits (GEMISSION_CUBA): no briefing, and its bank holds the
+	// credits' own names as well as its three lines
+	{ NULL, "LlenE" },
 };
 
 // the watch's own banks (gewatch.c): LoptionsE is the solo watch's screens,
@@ -1142,9 +1145,20 @@ static const struct level g_Levels[] = {
 	{ "arec",  "bg_arec", "Tbg_arec", "UsetupcontrolZ",   NULL,               0.49886572,  23, "Control",     0 },
 	{ "sev",   "bg_sev",  "Tbg_sev",  "UsetupsevbunkerZ", NULL,               0.53931433,  9,  "Bunker 1",    0 },
 	{ "azt",   "bg_azt",  "Tbg_azt",  "UsetupaztZ",       NULL,               0.35300568,  28, "Aztec",       0 },
+	// Cuba, LEVELID_CUBA: the credits after the Cradle (gecredits.c), a
+	// mission and never an arena - its maps line and multiplayer setup are
+	// left out (levelIsArena())
+	{ "len",   "bg_len",  "Tbg_len",  "UsetuplenZ",       NULL,               0.094662853, 54, "Cuba",        0 },
 };
 
 #define NUM_LEVELS (sizeof(g_Levels) / sizeof(g_Levels[0]))
+
+// Whether a level is an arena as well as a mission's ground: all but Cuba,
+// which is only GoldenEye's credits
+static int levelIsArena(const struct level *lv)
+{
+	return strcmp(lv->key, "len") != 0;
+}
 
 /* ------------------------------------------------------------------------ */
 /* bg files (gefiles.py Bg) */
@@ -4178,6 +4192,9 @@ static const struct { const char *key, *setup, *name; } g_Missions[] = {
 	{ "crad",  "UsetupcradZ",      "Cradle" },
 	{ "azt",   "UsetupaztZ",       "Aztec" },
 	{ "cryp",  "UsetupcrypZ",      "Egyptian" },
+	// not in the folder: the credits GoldenEye plays when the Cradle is
+	// finished (gexfront.c, gecredits.c)
+	{ "len",   "UsetuplenZ",       "Cuba" },
 };
 
 #define NUM_MISSIONS (sizeof(g_Missions) / sizeof(g_Missions[0]))
@@ -5429,6 +5446,57 @@ static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head,
 }
 
 /** A GoldenEye solo setup as a Perfect Dark one (gesolo.py's convert()). */
+static void note(const char *fmt, ...);
+
+/**
+ * GoldenEye's credits, which Cuba's intro names (INTROTYPE_CREDITS, bondview_r.c
+ * sets credits_pointer from it) and bondviewRenderCredits() rolls: rows of two
+ * text ids, two x positions and two alignments, six big-endian halfwords, to a
+ * row whose two ids are both 0. Copied as they are to menu/credits.bin behind
+ * "GEC1" and the row count; gecredits.c reads the ids against Cuba's own bank.
+ */
+static void writeCredits(const char *outdir, const buf *f)
+{
+	const uint32_t at = be32(f->v, 8);
+	size_t o = at;
+	buf out = {0};
+
+	while (at && o + 4 <= f->n) {
+		static const uint8_t words[9] = { 3, 4, 4, 8, 2, 2, 10, 3, 2 };
+		const uint32_t t = be32(f->v, o) & 0xff;
+
+		if (t >= sizeof(words) || t == 9) {
+			break;
+		}
+
+		if (t == 8 && o + 8 <= f->n) {
+			const uint32_t rows = be32(f->v, o + 4);
+			size_t n = 0;
+
+			while (rows + 12 * (n + 1) <= f->n) {
+				const uint8_t *row = f->v + rows + 12 * n;
+
+				n++;
+
+				if (be16(row, 0) == 0 && be16(row, 2) == 0) {
+					break;
+				}
+			}
+
+			bufPut(&out, (const uint8_t *)"GEC1", 4);
+			bufU32(&out, (uint32_t)n);
+			bufPut(&out, f->v + rows, 12 * n);
+			writeFile(outdir, "menu/credits.bin", out.v, out.n);
+			note("geconvert: the credits, %d rows", (int)n);
+			return;
+		}
+
+		o += 4 * (size_t)words[t];
+	}
+
+	fail("Cuba's setup has no credits");
+}
+
 static buf writeSoloSetup(const buf *f, size_t numpads, uint8_t *models, struct solostats *st,
 		double levelscale, const double *offset)
 {
@@ -6517,6 +6585,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	makeDirs(sub);
 	snprintf(sub, sizeof(sub), "%s/textures", outdir);
 	makeDirs(sub);
+	// Cuba's credits are written with its mission (writeCredits())
+	snprintf(sub, sizeof(sub), "%s/menu", outdir);
+	makeDirs(sub);
 
 	for (size_t li = 0; li < NUM_LEVELS; ++li) {
 		const struct level *lv = &g_Levels[li];
@@ -6594,22 +6665,25 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 		snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_padsZ", lv->key);
 		writeFile(outdir, rel, padsdata.v, padsdata.n);
-		snprintf(rel, sizeof(rel), "files/Ump_setupgx%sZ", lv->key);
-		writeFile(outdir, rel, mpsetup.v, mpsetup.n);
-
-		textf(&maps, "%s  map \"%s\" bg \"bgdata/bg_gx%s.seg\" tiles \"bgdata/bg_gx%s_tilesZ\" pads \"bgdata/bg_gx%s_padsZ\" mpsetup \"Ump_setupgx%sZ\"",
-			maps.n ? "\n" : "", lv->name, lv->key, lv->key, lv->key, lv->key);
-		if (romFogRow(lv->levelid, fog)) {
-			textf(&maps, " fog \"");
-			fogValue(&maps, fog, offset, levelVisibility(lv->key));
-			textf(&maps, "\"");
-		} else if (romFoglessRow(lv->levelid, fog)) {
-			textf(&maps, " fog \"");
-			foglessValue(&maps, fog, offset, levelVisibility(lv->key));
-			textf(&maps, "\"");
-		}
 		romMusicRow(lv->levelid, music);
-		textf(&maps, " music \"%d %d %d\"", music[0], music[1], music[2]);
+
+		if (levelIsArena(lv)) {
+			snprintf(rel, sizeof(rel), "files/Ump_setupgx%sZ", lv->key);
+			writeFile(outdir, rel, mpsetup.v, mpsetup.n);
+
+			textf(&maps, "%s  map \"%s\" bg \"bgdata/bg_gx%s.seg\" tiles \"bgdata/bg_gx%s_tilesZ\" pads \"bgdata/bg_gx%s_padsZ\" mpsetup \"Ump_setupgx%sZ\"",
+				maps.n ? "\n" : "", lv->name, lv->key, lv->key, lv->key, lv->key);
+			if (romFogRow(lv->levelid, fog)) {
+				textf(&maps, " fog \"");
+				fogValue(&maps, fog, offset, levelVisibility(lv->key));
+				textf(&maps, "\"");
+			} else if (romFoglessRow(lv->levelid, fog)) {
+				textf(&maps, " fog \"");
+				foglessValue(&maps, fog, offset, levelVisibility(lv->key));
+				textf(&maps, "\"");
+			}
+			textf(&maps, " music \"%d %d %d\"", music[0], music[1], music[2]);
+		}
 
 		note("geconvert: %s: %d rooms, %d portals, %d tiles (+%d walls), %d pads, %d lights",
 			lv->name, bg.numrooms, (int)bg.portals.n, (int)stan.n, walls, (int)setup.pads.n, numlights);
@@ -6638,6 +6712,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 			snprintf(rel, sizeof(rel), "files/bgdata/bg_gs%s_padsZ", lv->key);
 			writeFile(outdir, rel, mpads.v, mpads.n);
+
+			if (!strcmp(lv->key, "len")) {
+				writeCredits(outdir, &mfile);
+			}
 			snprintf(rel, sizeof(rel), "files/Usetupgs%sZ", lv->key);
 			writeFile(outdir, rel, mprops.v, mprops.n);
 
@@ -6784,7 +6862,13 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 			for (int j = 0; j < 2; ++j) {
 				char rel[64];
-				buf f = romFile(names[j]);
+				buf f;
+
+				if (!names[j]) {
+					continue;
+				}
+
+				f = romFile(names[j]);
 
 				snprintf(rel, sizeof(rel), "menu/%s", names[j]);
 				writeFile(outdir, rel, f.v, f.n);

@@ -302,9 +302,9 @@ TABLE = [
     ('IFBondIsDead',                        2,    [('GOTOLABEL', 1)],                            0x0034, (('=', 242, 1), 0),                          'hand'),  # eb aiIfChrDeathAnimationFinished
     ('BondDisableDamageAndPickups',         1,    [],                                            0x00f3, (('=', 242, 1),),                            'hand'),  # ec aiChrSetInvincible
     ('BondHideWeapons',                     1,    [],                                            0x00ed, (('=', 242, 1), ('=', 0, 1)),                'hand'),  # ed aiChrDrawWeaponInCutscene
-    ('CameraOrbitPad',                      13,   [('LAT_DISTANCE', 2), ('VERT_DISTANCE', 2), ('ORBIT_SPEED60', 2), ('PAD', 2), ('Y_POS_OFFSET', 2), ('INITIAL_ROTATION', 2)], None,   (),                                          'hand'),  # ee -
-    ('CreditsRoll',                         1,    [],                                            None,   (),                                          'hand'),  # ef -
-    ('IFCreditsHasCompleted',               2,    [('GOTOLABEL', 1)],                            None,   (),                                          'hand'),  # f0 -
+    ('CameraOrbitPad',                      13,   [('LAT_DISTANCE', 2), ('VERT_DISTANCE', 2), ('ORBIT_SPEED60', 2), ('PAD', 2), ('Y_POS_OFFSET', 2), ('INITIAL_ROTATION', 2)], 0x01e8, (0, 1, 2, 3, 4, 5),                         'hand'),  # ee aiGeCameraOrbitPad (port's own; Cuba's credits)
+    ('CreditsRoll',                         1,    [],                                            0x01e9, (),                                          'hand'),  # ef aiGeCreditsRoll (port's own)
+    ('IFCreditsHasCompleted',               2,    [('GOTOLABEL', 1)],                            0x01ea, (0,),                                        'hand'),  # f0 aiGeIfCreditsHasCompleted (port's own)
     ('IFObjectiveAllCompleted',             2,    [('GOTOLABEL', 1)],                            0x00f7, (0,),                                        'hand'),  # f1 aiIfAllObjectivesComplete
     ('IFFolderActorIsEqual',                3,    [('BOND_ACTOR_INDEX', 1), ('GOTOLABEL', 1)],   None,   (),                                          'hand'),  # f2 -
     ('IFBondDamageAndPickupsDisabled',      2,    [('GOTOLABEL', 1)],                            0x00f8, (('=', 242, 1), 0),                          'hand'),  # f3 aiIfPlayerIsInvincible
