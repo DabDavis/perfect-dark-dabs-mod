@@ -11608,3 +11608,50 @@ What was wrong, and is now GoldenEye's:
   middle of the view. Widened, the open arm keeps the room's shade instead of
   GoldenEye's 0xcd black, which made the arm a black mass. 4:3 is untouched:
   59 capture frames compared pixel for pixel, none differ.
+## The folder at 16:9 without the Community Edition, and the rest of its inventory (2026-09-27)
+
+Tester F3s 20260926-215623/212705/215803/223215/215235 (4K window, HD look, no
+CE zip): black corner above the back cover, the desk ending in a dark band right
+of the tabs, a black strip down the page's left edge and over its top, white
+halos where the photographs cast shadows. **Framing was already right**: the
+Community Edition run in Xenia (`.xbla-work/ge-bean/BeanCE/defaultCE.xex`,
+filesCE hard-linked in - a symlinked files dir hangs Xenia at boot; musCE/sfxCE
+made with hpatchz under wine; `xenia/runpkg.sh` with PKG=) shows the same 4:3
+folder at the same place, bottom row of tan tabs cut off too - retail Bean
+stretches it, CE's xex stops that, and we never stretched. The faults were all
+in walletbond's vertices, which CE's copy corrects:
+
+- the desk frame (release node 0, picture 0) is 4:3 wide. CE moves its outer
+  x to -863.8/775.8 **and repaints rows 30-75 of picture 0** (the white margin
+  the longer quad then samples - an art change). Ours: `beanFolderDeskWings()`
+  adds quads either side out to 1260 units from the middle (32:9), u continued
+  at the frame's density and mirrored wherever it would leave cloth u 54-620
+  (the margin on the left, the crest on the right). Inserted straight after the
+  desk's triangles, before the back cover (which is also on ROM node 0 -
+  `beanfoldertri.node` tells them apart).
+- inner cover strip v187/188 0x111111 -> the cover's olive; three drop shadows
+  (picture 64, a mask in vertex colour) white -> black, v off the last row.
+  `beanFolderFixes[]`, keyed on picture + position + raw UV + colour (needs
+  `gebeanmodeldraw.uvscale`, new). CE's v 43->45 nudges were dropped: a
+  duplicate vertex CE left alone would have changed with the CE on.
+
+With the CE on nothing matches and the picture is pixel-identical; without it
+the folder is within 0.65/255 mean of CE-on at 16:9. Pictures in
+`~/wt/f3-0926e-ce-pics/` (before / CE on / after, 4:3, 21:9, 32:9, vs Xenia CE).
+Rig `~/wt/f3-0926e-ce-run/run.sh TAG BIN W H` (CE=1 for the zip).
+
+The rest of the inventory's n/a rows re-checked: the port *does* read the
+HD props via `geproptable.h` (the earlier classifier's used-prop list is gone).
+ammocrate3 white -> baked face shades and woodcrates: taste (GoldenEye lights
+them from normals). gunrunway1 black -> c8 and stool1/metalchair1 black -> 7f:
+the opaque-black rule makes them white, which is GoldenEye's own (original/
+props are fefefe) - kept. stool1's seat rim UVs: done (`beanVertexUvFixes[]`).
+Caves/Complex hit files: covered, impacts come from GoldenEye's own per-image
+surface byte (getexsurface.c). loc/: ark's "Dr. Rakhmanov" -> "Dr. Doak" is
+the ROM's own text already; len/title are 4J credits and MP names. CE's new
+mine/gold ammo icons: art; gehud.c makes its own from the release's. The 212
+xex runs outside a located file are 4J engine code (~45 .text patches), the
+watch item table, the level entry table, strings, the end-of-RAM block, and
+setup bytes in files the locator missed (Dam intro cameras, Jungle AI + sky,
+Runway guards/doors, Surface bookshelf pads + railing, armour moves, Temple crate
+types, flag tokens) - each is a changelog line already classed above.
