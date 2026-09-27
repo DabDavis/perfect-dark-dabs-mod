@@ -3026,6 +3026,12 @@ struct player {
 	// has to clear it. A long fall is watched from the eye: the body has no
 	// falling pose and holds its stand the whole way down (playerIsThirdPerson()).
 	bool thirdpersonlongfall;
+	// The camera as the last unpaused frame placed it (playerPullBackCamera()),
+	// held while the level is paused so nothing behind a menu moves: not the
+	// ease, the tether, the wall push, nor third person switched in the pause.
+	struct coord thirdpersonholdpos;
+	f32 thirdpersonholddist;
+	bool thirdpersonholdvalid;
 	f32 codaimfrac; // COD Style Aiming: how far the gun has come up to the sights, 0 to 1
 	s32 spawnweaponnums[2]; // what playerSpawn() put in each hand, for the mission script's chr_draw_weapon to put back
 	// Camera Tilt: where the lean has got to, in degrees, chasing the

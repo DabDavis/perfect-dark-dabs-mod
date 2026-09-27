@@ -51,6 +51,7 @@
 #include "game/player.h"
 #ifndef PLATFORM_N64
 #include "gewatch.h"
+#include "optionsmenu.h"
 #include "gehud.h"
 #endif
 #ifndef PLATFORM_N64
@@ -4513,7 +4514,7 @@ static void playerTetherCamera(struct player *player, struct coord *eye, struct 
 	player->thirdpersontethered = true;
 }
 
-static void playerPullBackCamera(struct coord *campos)
+static void playerPullBackCameraNow(struct coord *campos)
 {
 	struct player *player = g_Vars.currentplayer;
 	struct coord offset;
@@ -4685,6 +4686,40 @@ static void playerPullBackCamera(struct coord *campos)
 	// Kept for the death camera, which stops here rather than working out
 	// somewhere of its own to stand.
 	player->thirdpersoncampos = *campos;
+}
+
+/**
+ * The camera behind a paused level holds still (F3 20260927-191658: "the
+ * screen behind the menu still moves when navigating different menus").
+ *
+ * With the level paused the eye does not move, but the camera was still built
+ * again every frame: a trace against a wall, the clear-camera push and the
+ * tether can each land somewhere else from the same eye, and third person
+ * switched on or off inside a pause jumped the view to the new placement on
+ * the spot - all of it behind the Perfect Menu, the pause menu and every blur
+ * taken of them. While paused the last unpaused frame's camera is used as it
+ * was, eye or pulled back, and the first frame after the pause carries on from
+ * it (the ease takes it out from there). Two screens still want it live: the
+ * watch, which moves the view to the face while the level is stopped, and
+ * Mods: Camera, which shows the settings as they change
+ * (optionsMenuWantsLiveWorld()).
+ */
+static void playerPullBackCamera(struct coord *campos)
+{
+	struct player *player = g_Vars.currentplayer;
+
+	if (player->thirdpersonholdvalid && lvIsPaused()
+			&& !geWatchIsOpen() && !optionsMenuWantsLiveWorld()) {
+		*campos = player->thirdpersonholdpos;
+		player->thirdpersondist = player->thirdpersonholddist;
+		return;
+	}
+
+	playerPullBackCameraNow(campos);
+
+	player->thirdpersonholdpos = *campos;
+	player->thirdpersonholddist = player->thirdpersondist;
+	player->thirdpersonholdvalid = true;
 }
 
 /**
