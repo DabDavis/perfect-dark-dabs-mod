@@ -3629,6 +3629,11 @@ static Gfx *watchDrawModel(Gfx *gdl)
 #define GUN_NUM_ITEMS  120
 #define GUN_RWDATA_MAX 1024
 
+// GoldenEye's ITEM_IDS the watch draws another item's model for
+#define GEITEM_WATCHLASER          23
+#define GEITEM_TRIGGER             30
+#define GEITEM_WATCHMAGNETATTRACT  60
+
 struct watchitem {
 	u8 *items;
 	u32 itemslen;
@@ -4027,13 +4032,20 @@ static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 {
 	struct modelrenderdata renderdata = { NULL, false, 3 };
-	const s32 item = watchGunItem(weaponnum);
+	s32 item = watchGunItem(weaponnum);
 	Mtxf base;
 	Mtxf tmp;
 	f32 rotx, roty;
 
 	if (item < 0) {
 		return watchDrawPdGun(gdl, weaponnum, turning);
+	}
+
+	// set_enviro_fog_for_items_in_solo_watch_menu(): the detonator and the
+	// watch laser are drawn as the watch magnet's model - GoldenEye's watch
+	// on its own - and not as their first-person arm raising the watch
+	if (item == GEITEM_TRIGGER || item == GEITEM_WATCHLASER) {
+		item = GEITEM_WATCHMAGNETATTRACT;
 	}
 
 	if (!watchGunLoad(item)) {
