@@ -11788,3 +11788,31 @@ watch item table, the level entry table, strings, the end-of-RAM block, and
 setup bytes in files the locator missed (Dam intro cameras, Jungle AI + sky,
 Runway guards/doors, Surface bookshelf pads + railing, armour moves, Temple crate
 types, flag tokens) - each is a changelog line already classed above.
+
+## HD Frigate's sea, Bean's 8888 colour order, Egyptian's pool (2026-09-27, 12th F3 pass)
+
+- **8888 pictures are RGBA.** `beanDecodeTexture()` sent Bean's A8R8G8B8 files
+  through `x360DecodeTexture()`, which reads PD's cube maps as BGRA. Grey art hid
+  it (portraits, barrel, fonts); the crosshairs and ammo icons had been swapped
+  back by hand in gefolder.c (removed). Found on the Community Edition's
+  `new/texture/bg/water2` (512x512) decoding rust red where Xenia draws it blue.
+  Also affects the few 8888 textures inside level files (Silo 2, Temple 1) -
+  not eye-checked in Xenia.
+- **Frigate's sea (F3 20260927-000828).** Xenia (CE, `BeanCE/defaultCE.xex`,
+  xenia/runpkg.sh; shots `.xbla-work/ge-bean/xenia/shots/cs*.png`, an*.png) shows
+  the CE sea as that picture: dark blue with pale glints; the plain release
+  draws GoldenEye's 32x32 flat. `gebeanSkyWaterTile()` binds the CE picture on a
+  32 texel stand-in (so GoldenEye's scale holds) and sky.c's HD branch draws the
+  plane with it under GoldenEye's two-tile sin(t) cross-fade, unsheared. Only
+  with the CE on; otherwise the ROM path as before.
+- **Egyptian's pool (the user's F3 20260927-000453, "lighting/pool").** Bean's
+  temple is a bare stone basin; GoldenEye (and our N64 look) lays a sheet of
+  blue water 1509 at half alpha over it - room 3's translucent leaf, and 5 more
+  leaves elsewhere. `fileWaterLeaves()` keeps a file room's translucent leaves
+  that draw only 1508/1509/1511 and appends them after the HD leaf
+  (`writeRoom()`); `gebeanStageFogRoom()` leaves them alone. Skipped when Bean has
+  water of its own (Dam). 21-mission sweep: Egyptian only.
+  Lighting: the release (Xenia, ei*.png) is ~20% darker than our HD overall -
+  the known "room shade vs the release's unlit texel x vertex colour" gap
+  (ge-bean-shader-uv-scale), not changed here.
+- Rig: `~/wt/f3-0927-hdwater-run` (wr.sh Frigate views, egshots*.py, sweep.sh).
