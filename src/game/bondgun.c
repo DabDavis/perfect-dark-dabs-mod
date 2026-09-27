@@ -4335,6 +4335,17 @@ void bgunTickGunLoad(void)
 
 		texInitPool(&player->gunctrl.texpool, (u8 *)end, remaining);
 
+#ifndef PLATFORM_N64
+		// The renderer keeps each texture by its address, and this pool
+		// hands the next file's textures the same addresses the last one's
+		// had. A gun's rarely came out the same size and format at the same
+		// place, but a hand's sleeve does: every hand file lays its textures
+		// out alike, so a change of character kept the first hands' sleeve
+		// in the N64 look (Mr Blonde's white cuff drawn in the CIA's tan,
+		// F3 20260926-204323). What was cached for the pool is let go.
+		videoFreeCachedTextures((u8 *)end, (u8 *)end + remaining);
+#endif
+
 		// Tidy up the model
 		modelPromoteTypeToPointer(modeldef);
 		modelPromoteOffsetsToPointers(modeldef, 0x05000000, (uintptr_t)modeldef);
