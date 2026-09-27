@@ -381,6 +381,9 @@ s32 gebeanLevelNumTextures(struct gebeanlevel *level);
 s32 gebeanLevelTextureIsWater(struct gebeanlevel *level, s32 tex);
 const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft);
 
+// The directions round the neck a pool head is seated by (gebeanmats.seat)
+#define GEBEAN_SEAT_SAMPLES 16
+
 /** The pictures a built mesh's material words index (XBLAMESH_MAT_TABLE). */
 struct gebeanmats {
 	u16 fileid;  // in: the model file the mesh is built for
@@ -422,6 +425,13 @@ struct gebeanmats {
 	// (the back), not a second matrix of its own: xblaMeshPose() finds it on
 	// the body the head is grafted to
 	u8 neckback;
+	// A head's rim, or a body's collar, by direction round the neck joint in
+	// the neck's frame (gebean.c's beanSeatPoint()): a head's lowest, a
+	// body's highest; seathit says which directions were found.
+	// The pool's heads are seated on its bodies by them (xblamesh.c's
+	// xblaMeshPoolHeadSeat())
+	f32 seat[GEBEAN_SEAT_SAMPLES];
+	u32 seathit;
 	// A monitor's screens (parts 0 to 3) whose programme goes on Bean's own
 	// pane rather than GoldenEye's quad (gebean.c's beanScreenFit()): a bit
 	// per part, and the four corners in the model's space, in the order of
