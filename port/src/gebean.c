@@ -4328,6 +4328,207 @@ static s32 beanPlaceholderStandIn(const struct beanmodel *bm, s32 t, s32 borrow)
 	return best;
 }
 
+/**
+ * Whether every draw of picture t is in the release's blended pass, and it is
+ * not a glass pane. Such a picture drawn with no alpha of its own is a stencil
+ * the release painted on black (beanKeyStencil()).
+ */
+static s32 beanTexBlendedOnly(const struct beanmodel *bm, s32 t)
+{
+	s32 blended = 0;
+
+	if (t < 0 || t >= bm->numtex || bm->glasspane[t]) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < bm->numdraws; i++) {
+		if (bm->draws[i].tex == (u32)t) {
+			if (!bm->draws[i].blend) {
+				return 0;
+			}
+
+			blended = 1;
+		}
+	}
+
+	return blended;
+}
+
+#define STENCIL_DARK 48 // a texel darker than this (mean of r, g, b) is background
+
+/**
+ * Lettering and signs that Rare drew on black in pictures with no alpha, and
+ * put over walls and crates in the blended pass: Dam's CTON, Facility's
+ * ВАДКО, the numbers and stars on the container stack, the wooden crates'
+ * stencils, the hazard triangles. The release draws them with the vertex
+ * alpha alone (Dam's CTON at 0x80), so each was a black or grey box round its
+ * lettering; GoldenEye's own pictures have the black clear (F3 20260926-205703,
+ * -213533, -205834). The black is made clear here, ramped by brightness so the
+ * edges stay soft:
+ *
+ * - grey lettering (every bright texel near grey, few texels between black
+ *   and bright, black round a good part of the edge): all the black, the
+ *   insides of the letters too;
+ * - a coloured sign on black (black all round the edge): the black joined to
+ *   the edge, so a hazard triangle's black skull stays.
+ *
+ * A pattern - stripes, a checker board - is left alone: its black is paint.
+ * So is a photograph (too many middle tones) and a picture that is nearly all
+ * black. Returns whether anything was made clear.
+ */
+static s32 beanKeyStencil(u8 *rgba, s32 w, s32 h)
+{
+	const s32 n = w * h;
+	s32 dark = 0, mid = 0, bright = 0, edge = 0, edgedark = 0;
+	u32 satsum = 0;
+	s32 grey, sign, rows, cols;
+	u8 *clear;
+
+	if (!rgba || w < 8 || h < 8) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < n; i++) {
+		const u8 *p = rgba + i * 4;
+		const s32 lum = (p[0] + p[1] + p[2]) / 3;
+		const s32 hi = p[0] > p[1] ? (p[0] > p[2] ? p[0] : p[2]) : (p[1] > p[2] ? p[1] : p[2]);
+		const s32 lo = p[0] < p[1] ? (p[0] < p[2] ? p[0] : p[2]) : (p[1] < p[2] ? p[1] : p[2]);
+		const s32 x = i % w, y = i / w;
+
+		if (p[3] < 0xf0) {
+			return 0;
+		}
+
+		if (lum < STENCIL_DARK) {
+			dark++;
+		} else if (lum < 120) {
+			mid++;
+		} else {
+			bright++;
+			satsum += hi - lo;
+		}
+
+		if (x == 0 || y == 0 || x == w - 1 || y == h - 1) {
+			edge++;
+			edgedark += lum < STENCIL_DARK;
+		}
+	}
+
+	if (dark * 4 < n || dark * 100 > n * 95 || bright * 20 < n) {
+		return 0;
+	}
+
+	// Stripes and checks: few different rows, or few different columns, of
+	// black and not black
+	rows = cols = 0;
+
+	for (s32 pass = 0; pass < 2; pass++) {
+		const s32 len = pass ? h : w;   // along a column : along a row
+		const s32 num = pass ? w : h;
+		s32 distinct = 0;
+
+		for (s32 a = 0; a < num && distinct <= 4; a++) {
+			s32 same = 0;
+
+			for (s32 b = 0; b < a && !same; b++) {
+				s32 k;
+
+				for (k = 0; k < len; k++) {
+					const u8 *pa = rgba + (pass ? k * w + a : a * w + k) * 4;
+					const u8 *pb = rgba + (pass ? k * w + b : b * w + k) * 4;
+
+					if (((pa[0] + pa[1] + pa[2]) / 3 < STENCIL_DARK) != ((pb[0] + pb[1] + pb[2]) / 3 < STENCIL_DARK)) {
+						break;
+					}
+				}
+
+				same = k == len;
+			}
+
+			distinct += !same;
+		}
+
+		if (pass) {
+			cols = distinct;
+		} else {
+			rows = distinct;
+		}
+	}
+
+	if (rows <= 4 || cols <= 4) {
+		return 0;
+	}
+
+	grey = satsum / (u32)bright < 24 && mid * 10 < n && edgedark * 10 >= edge * 3;
+	sign = !grey && satsum / (u32)bright >= 40 && edgedark * 10 >= edge * 9;
+
+	if (!grey && !sign) {
+		return 0;
+	}
+
+	clear = calloc(n, 1);
+
+	if (!clear) {
+		return 0;
+	}
+
+	if (grey) {
+		for (s32 i = 0; i < n; i++) {
+			const u8 *p = rgba + i * 4;
+			clear[i] = (p[0] + p[1] + p[2]) / 3 < STENCIL_DARK;
+		}
+	} else {
+		// Flood the black in from the edge
+		s32 *stack = malloc(sizeof(s32) * n);
+		s32 sp = 0;
+
+		if (!stack) {
+			free(clear);
+			return 0;
+		}
+
+		for (s32 i = 0; i < n; i++) {
+			const s32 x = i % w, y = i / w;
+			const u8 *p = rgba + i * 4;
+
+			if ((x == 0 || y == 0 || x == w - 1 || y == h - 1) && (p[0] + p[1] + p[2]) / 3 < STENCIL_DARK) {
+				clear[i] = 1;
+				stack[sp++] = i;
+			}
+		}
+
+		while (sp > 0) {
+			const s32 i = stack[--sp];
+			const s32 x = i % w, y = i / w;
+			const s32 next[4] = { x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1 };
+
+			for (s32 k = 0; k < 4; k++) {
+				if (next[k] >= 0 && !clear[next[k]]) {
+					const u8 *p = rgba + next[k] * 4;
+
+					if ((p[0] + p[1] + p[2]) / 3 < STENCIL_DARK) {
+						clear[next[k]] = 1;
+						stack[sp++] = next[k];
+					}
+				}
+			}
+		}
+
+		free(stack);
+	}
+
+	for (s32 i = 0; i < n; i++) {
+		if (clear[i]) {
+			u8 *p = rgba + i * 4;
+			p[3] = (u8)((p[0] + p[1] + p[2]) / 3 * 255 / STENCIL_DARK);
+		}
+	}
+
+	free(clear);
+
+	return 1;
+}
+
 static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t,
 		const void **tile, u8 *alpha, u8 *soft)
 {
@@ -4374,6 +4575,11 @@ static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t
 
 		sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is the release's magenta placeholder, painted %06x",
 				source, t, beanTextureName(bm, t), c);
+	}
+
+	if (rgba && beanTexBlendedOnly(bm, t) && beanKeyStencil(rgba, w, h)) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is lettering on black, the black made clear",
+				source, t, beanTextureName(bm, t));
 	}
 
 	*tile = rgba ? xblaTexBindImage(key, rgba, w, h) : NULL;

@@ -11608,3 +11608,29 @@ What was wrong, and is now GoldenEye's:
   middle of the view. Widened, the open arm keeps the room's shade instead of
   GoldenEye's 0xcd black, which made the arm a black mass. 4:3 is untouched:
   59 capture frames compared pixel for pixel, none differ.
+
+## Lettering on black, decals behind their wall, and same-picture decals (2026-09-27)
+
+Eleventh F3 pass, HD levels. Four causes, rig `~/wt/f3-0926e-decals-run` (`run.sh <tag>` with STAGE X Y Z TH VA,
+XS for extra per-tick gdb lines - Facility, Bunker and Frigate need `vv_manground`/`vv_ground` set or the eye snaps
+to another floor; `survey.py`/`stats.txt` list every picture drawn only in the blended pass; `coplanar.py <level> <tex>`
+lists the triangles flat under a picture's; `sweep.sh <bin> <tag>` counts decals and keyed pictures per mission).
+
+- **Black backgrounds** (20260926-205703 crate, -213533 Facility ВАДКО, Dam's CTON): Rare drew lettering and signs in
+  pictures with no alpha (DXT1, black ground) and put them in the blended pass; the release blends them by vertex alpha
+  alone, so they were black or half-black boxes. `beanKeyStencil()` (gebean.c, from `beanBindTexture()`) makes the
+  black clear for a picture every draw of which is blended and not glass: grey lettering (bright texels near grey,
+  under a tenth middle tones, black on 30%+ of the edge) loses all its black; a coloured sign black all round loses the
+  black joined to the edge (hazard skulls stay). Stripes/checks (4 or fewer distinct rows or columns) are left alone.
+  19 pictures over the 20 missions plus the container stack's three (log: "lettering on black").
+- **CTON's N came and went** (-205834, -213530): room vertices are whole units; on a wall square to no axis the
+  rounding put one end of the decal up to a unit behind its wall, lost by the decal offset with distance. writeLeaf()
+  lifts a decal triangle DECAL_LIFT (2 world units) along its normal before rounding.
+- **Bunker's hammer and sickle hidden** (-210116): the plaque lies on a wall cut into pieces smaller than it; each
+  piece and the plaque lie wholly on the other, and by size every piece became the decal. Both wholly on the other
+  now goes to the one Bean draws later (the release's less-or-equal depth test).
+- **Frigate's black arrows fought in dots** (-225352): the arrows are the wall's own picture on vertices of 0x000020,
+  and decals only paired different textures. `triOther()`: the same picture with vertex colours 48+ apart counts as
+  another (Frigate decals 1353 -> 4247, spawn views pixel-identical elsewhere).
+- 215440 (Dam "2") drew whole on 593cbc5c0 already; 203350 (Facility "transparent black" strip) not reproduced at
+  its camera, no prop or level triangle there - likely a transient (tracer).
