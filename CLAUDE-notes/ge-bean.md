@@ -11788,3 +11788,27 @@ watch item table, the level entry table, strings, the end-of-RAM block, and
 setup bytes in files the locator missed (Dam intro cameras, Jungle AI + sky,
 Runway guards/doors, Surface bookshelf pads + railing, armour moves, Temple crate
 types, flag tokens) - each is a changelog line already classed above.
+
+## 12th F3 pass, mission scripting (fix/f3-0927-scripts, 2026-09-27)
+
+- **Disable Fog and on-screen AI** (97bdb91b7). GoldenEye's IFImOnScreen is
+  posIsOnScreen(), which fails past the fog. With Disable Fog a chr is drawn to
+  the far plane, so Jungle's Xenia (list 0x402, "on screen or in sight") began
+  her attack and music at frame 1 from 14000 units. chrTick() sets
+  CHRH2FLAG_PASTLEVELFOG on a chr drawn past the level's own fog;
+  aiIfOnScreen() and CHRCFLAG_EVERONSCREEN ignore it. Probe: probes/xenia.py.
+- **Keep Bodies starved mission spawns** (d7a0ee100). chrSpawnAtCoord() never
+  reaped a kept body, but only a match reserves slots for them
+  (modBodiesSetReserve()); in a mission they filled the level's ten spare slots
+  and every later spawn failed - Statue Park's Mishkin (list 0x1004 retries
+  forever) never came. Probe: probes/slots.py (Bodies=128).
+- **Explosions harmless for 8 ticks** on converted missions (247709d26), as
+  GoldenEye's explosion.c (damage only from age 8). Egyptian's Samedi is
+  spawned beside the sarcophagus his list destroys.
+- **GasLeakAndFadeFog** converts to the port's 0x01e8 aiGeGasLeak <harmless>
+  (aa3c81228): only Egyptian uses it, harmless and 120 ticks as GoldenEye's
+  init_trigger_toxic_gas_effect() makes it there. Needs a converter bump.
+- **RunToPadPreset is a run** (GoldenEye SPEED_RUN = PD jog); it converted as a
+  walk. Caverns' Trevelyan walked to his exit. Needs a converter bump.
+- probes/gedis.py (in ~/wt/f3-0927-scripts-run) disassembles a mission's
+  lists by GoldenEye command name straight from the ROM.
