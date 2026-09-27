@@ -7,6 +7,69 @@
 
 Acmd *_decodeChunk(Acmd *ptr, N_PVoice *f, s32 tsam, s32 nbytes, s16 outp, s16 inp, u32 flags);
 
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye's alRaw16Pull() for the port: outCount samples of a big-endian
+ * 16-bit wave into DMEM at *outp, looping between the wave's loop points as
+ * often as its count says (-1 for ever) and zeros past its end. The mixer's
+ * DMEM holds host-order samples, so each chunk is swapped on the way in.
+ */
+static Acmd *n_alRaw16Pull(N_PVoice *f, s16 *outp, s32 outCount, Acmd *ptr)
+{
+	// admaExec() serves at most ADMA_ITEM_SIZE bytes a call
+	static s16 chunk[0x100];
+	intptr_t base = (intptr_t) f->dc_table->base;
+	s32 total = f->dc_table->len >> 1;
+	s32 done = 0;
+
+	while (done < outCount) {
+		s32 nSam = outCount - done;
+		s32 i;
+
+		if (f->dc_loop.count != 0 && f->dc_loop.end > f->dc_loop.start
+				&& f->dc_sample >= f->dc_loop.end) {
+			if (f->dc_loop.count != -1) {
+				f->dc_loop.count--;
+			}
+
+			f->dc_sample = f->dc_loop.start;
+			f->dc_memin = base + (f->dc_loop.start << 1);
+		}
+
+		if (f->dc_loop.count != 0 && f->dc_loop.end > f->dc_sample) {
+			nSam = MIN(nSam, f->dc_loop.end - f->dc_sample);
+		}
+
+		if (f->dc_sample >= total) {
+			// past the end of a wave that no longer loops
+			aClearBuffer(ptr++, *outp + (done << 1), nSam << 1);
+			f->dc_sample += nSam;
+			done += nSam;
+			continue;
+		}
+
+		nSam = MIN(nSam, total - f->dc_sample);
+		nSam = MIN(nSam, (s32) (sizeof(chunk) / sizeof(chunk[0])));
+
+		{
+			u8 *src = (u8 *) (f->dc_dma)(f->dc_memin, nSam << 1, f->dc_dmaState);
+
+			for (i = 0; i < nSam; i++) {
+				chunk[i] = (s16) ((src[i * 2] << 8) | src[i * 2 + 1]);
+			}
+		}
+
+		aLoadBuffer(ptr++, nSam << 1, *outp + (done << 1), chunk);
+
+		f->dc_sample += nSam;
+		f->dc_memin += nSam << 1;
+		done += nSam;
+	}
+
+	return ptr;
+}
+#endif
+
 Acmd *n_alAdpcmPull(N_PVoice *filter, s16 *outp, s32 outCount, Acmd *p)
 {
 	Acmd *ptr = p;
@@ -33,14 +96,15 @@ Acmd *n_alAdpcmPull(N_PVoice *filter, s16 *outp, s32 outCount, Acmd *p)
 	inp = N_AL_DECODER_IN;
 
 #ifndef PLATFORM_N64
-	// A wave that is not ADPCM has no book, and this decoder loads one before
-	// it looks at the type - n_alLoadParam() above knows about AL_RAW16_WAVE
-	// and this does not, because Perfect Dark's own banks hold nothing but
-	// ADPCM and the raw branch is dead code in its ROM. GoldenEye's music bank
-	// is not: two of its 138 waves are raw (an 18ms one-shot on instruments 2
-	// and 51), and its intro theme plays one, which dereferenced a null book
-	// and killed the audio thread. Perfect Dark's synthesiser has no raw path
-	// to send it down instead, so the voice is silent for as long as it lasts.
+	// Perfect Dark's own banks hold nothing but ADPCM, so its synthesiser
+	// dropped libultra's raw branch; GoldenEye's music bank has two raw waves
+	// (instruments 2 and 51 - 51 is the synth bass, a looped single cycle).
+	// They play through n_alRaw16Pull(), GoldenEye's alRaw16Pull() in the
+	// port's terms. Anything else without a book is silent rather than fatal.
+	if (f->dc_table && f->dc_table->type == AL_RAW16_WAVE) {
+		return n_alRaw16Pull(f, outp, outCount, ptr);
+	}
+
 	if (!f->dc_table || f->dc_table->type != AL_ADPCM_WAVE
 			|| !f->dc_table->waveInfo.adpcmWave.book) {
 		aClearBuffer(ptr++, *outp, outCount << 1);
