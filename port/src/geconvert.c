@@ -4850,8 +4850,15 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 				memcpy(rec + 0x22c, raw + 0x250, 4);
 			}
 			if (t == 0x07 && recs.v[i].len >= 0x84) {
-				// the crate's one type, in the port's numbering
-				set32(rec, 0x5c, soloAmmoType(be32(raw, 0x80), 0));
+				// the crate's one type, in the port's numbering. A 9mm
+				// magazine takes the second of the pair, the submachine gun's
+				// rounds every GoldenEye 9mm gun draws on (geguns.c,
+				// geammotypes[]): with the first, Perfect Dark's pistol
+				// rounds, Archives' magazine beside the PP7 in the
+				// interrogation room gave Bond ten rounds no gun of his
+				// could fire (F3 20260926-235923, 20260927-012938)
+				const uint32_t getype = be32(raw, 0x80);
+				set32(rec, 0x5c, soloAmmoType(getype, 1) ? soloAmmoType(getype, 1) : soloAmmoType(getype, 0));
 			}
 			if (t == 0x2f && recs.v[i].len >= 0x94) {
 				// A tinted pane's distances and its portal. GoldenEye's

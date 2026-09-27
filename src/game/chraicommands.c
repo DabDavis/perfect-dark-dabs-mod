@@ -450,6 +450,26 @@ bool aiChrDoAnimation(void)
 			chr->prop->propupdate240 = 0;
 		}
 
+#ifndef PLATFORM_N64
+		// A converted mission's list can hold a chr on one frame by playing the
+		// same animation again every tick - Statue Park's Natalya lying by the
+		// helicopter (list 0x416, frames 83 to 84 of 0x801e) - which GoldenEye
+		// does by setting it again each time, merging from a pose that is the
+		// same one. Here a merge must finish before the next is set
+		// (CHRHFLAG_NEEDANIM), so she sat in back-to-back 16-tick merges; one
+		// that began from any other pose lifted her 30 to 95 units and let her
+		// fall back again, the "bouncing" three testers saw (F3 20260926-234944,
+		// 20260927-012507, 20260927-031856). The same animation on the same
+		// side is set again at once, without a merge.
+		if (modloaderStageIsRemake(g_Vars.stagenum) && chr->actiontype == ACT_ANIM
+				&& chr->act_anim.animnum == (s32)anim_id
+				&& modelGetAnimNum(chr->model) == (s32)anim_id
+				&& chr->act_anim.flip == ((cmd[8] & CHRANIMFLAG_FLIP) != 0)
+				&& !g_Vars.in_cutscene) {
+			chr->hidden &= ~CHRHFLAG_NEEDANIM;
+			chrTryStartAnim(chr, anim_id, fstartframe, fendframe, cmd[8], 0, speed);
+		} else
+#endif
 		chrTryStartAnim(chr, anim_id, fstartframe, fendframe, cmd[8], cmd[9], speed);
 
 		if (startframe == 0xfffe) {
