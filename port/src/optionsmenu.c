@@ -2347,6 +2347,17 @@ static MenuItemHandlerResult menuhandlerOpenBindsMenu(s32 operation, struct menu
 }
 
 /**
+ * When a Mods: Camera slider last moved, for fading the dialog off the
+ * player while the camera is being set (optionsMenuDialogAlpha()).
+ */
+static u64 g_OptionsCamAdjustedUs = 0;
+
+static void optionsMenuCameraAdjusted(void)
+{
+	g_OptionsCamAdjustedUs = sysGetMicroseconds();
+}
+
+/**
  * Settings Preset: the fork's additions turned on or off as a set.
  *
  * Vanilla is stock Perfect Dark with the fixes on, but with the ROM's own text
@@ -3681,6 +3692,7 @@ static MenuItemHandlerResult menuhandlerModCamDist(s32 operation, struct menuite
 		data->slider.value = (s32)(g_ModOptions.camdist + 0.5f) - MODCAM_MINDIST;
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camdist = (f32)(data->slider.value + MODCAM_MINDIST);
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3698,6 +3710,7 @@ static MenuItemHandlerResult menuhandlerModCamClearance(s32 operation, struct me
 		data->slider.value = (s32)(g_ModOptions.camclearance + 0.5f);
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camclearance = (f32)data->slider.value;
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3715,6 +3728,7 @@ static MenuItemHandlerResult menuhandlerModCamMinDist(s32 operation, struct menu
 		data->slider.value = (s32)(g_ModOptions.cammindist + 0.5f);
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.cammindist = (f32)data->slider.value;
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3747,6 +3761,7 @@ static MenuItemHandlerResult menuhandlerModCamSide(s32 operation, struct menuite
 		data->slider.value = (side + MODCAM_MAXSIDE) / MODCAM_SIDESTEP;
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camside = (f32)((s32)data->slider.value * MODCAM_SIDESTEP - MODCAM_MAXSIDE);
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3788,6 +3803,7 @@ static MenuItemHandlerResult menuhandlerModCamFwd(s32 operation, struct menuitem
 		data->slider.value = (fwd + MODCAM_MAXFWD) / MODCAM_FWDSTEP;
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camfwd = (f32)((s32)data->slider.value * MODCAM_FWDSTEP - MODCAM_MAXFWD);
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -3828,6 +3844,7 @@ static MenuItemHandlerResult menuhandlerModCamHeight(s32 operation, struct menui
 		data->slider.value = (height + MODCAM_MAXHEIGHT) / MODCAM_HEIGHTSTEP;
 		break;
 	case MENUOP_SET:
+		optionsMenuCameraAdjusted();
 		g_ModOptions.camheight = (f32)((s32)data->slider.value * MODCAM_HEIGHTSTEP - MODCAM_MAXHEIGHT);
 		break;
 	case MENUOP_GETSLIDERLABEL:
@@ -5329,6 +5346,49 @@ s32 optionsMenuWantsLiveWorld(void)
 	}
 
 	return g_Menus[0].curdialog && g_Menus[0].curdialog->definition == &g_ExtendedDabsModCameraMenuDialog;
+}
+
+/**
+ * How opaque the menu's dialogs are drawn, 0 to 1 (menuRenderDialogs()).
+ * With the level live behind Mods: Camera, a moving camera slider fades the
+ * dialog down so the body can be seen (user, 2026-09-27), and it comes back
+ * once the slider has been still for a moment. Eased both ways, per frame.
+ */
+#define OPTIONS_CAMFADE_HOLD_US 700000
+#define OPTIONS_CAMFADE_MIN     0.15f
+#define OPTIONS_CAMFADE_OUT_PER_S 8.0f
+#define OPTIONS_CAMFADE_IN_PER_S  3.0f
+
+f32 optionsMenuDialogAlpha(void)
+{
+	static f32 alpha = 1.0f;
+	static u64 lastus = 0;
+	const u64 now = sysGetMicroseconds();
+	f32 dt = lastus ? (now - lastus) * 1e-6f : 0.0f;
+	f32 target = 1.0f;
+
+	lastus = now;
+
+	if (dt > 0.1f) {
+		dt = 0.1f;
+	}
+
+	if (optionsMenuWantsLiveWorld() && g_OptionsCamAdjustedUs
+			&& now - g_OptionsCamAdjustedUs < OPTIONS_CAMFADE_HOLD_US) {
+		target = OPTIONS_CAMFADE_MIN;
+	}
+
+	if (!optionsMenuWantsLiveWorld()) {
+		alpha = 1.0f;
+	} else if (alpha > target) {
+		alpha -= OPTIONS_CAMFADE_OUT_PER_S * dt;
+		alpha = alpha < target ? target : alpha;
+	} else if (alpha < target) {
+		alpha += OPTIONS_CAMFADE_IN_PER_S * dt;
+		alpha = alpha > target ? target : alpha;
+	}
+
+	return alpha;
 }
 
 // The head of the chain, and the one Extended Options opens.

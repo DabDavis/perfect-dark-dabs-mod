@@ -4,5 +4,6 @@
 #include <PR/ultratypes.h>
 
 s32 optionsMenuWantsLiveWorld(void);
+f32 optionsMenuDialogAlpha(void);
 
 #endif

@@ -598,8 +598,16 @@ which is what the Combat Simulator's pause always had: the paused level is
 drawn live behind the dialog, body rebuilt, and a slider moves the camera as it
 is dragged. Leaving the page (Back or a swipe) calls
 `menuSetBackground(MENUBG_BLUR)`, which takes a fresh still first. The game
-stays paused (`lvframenum` does not move). The dialog still covers the middle
-of the screen, the body with it at default distances.
+stays paused (`lvframenum` does not move).
+
+The dialog covers the middle of the screen, the body with it, so a moving
+camera slider (MENUOP_SET on Distance, Wall Clearance, Minimum Distance,
+Sideways, Forward/Back, Height -> `optionsMenuCameraAdjusted()`) fades it to
+15% (user, 2026-09-27): `menuRenderDialogs()` scales the alpha of every
+`g_MenuColours` entry by `optionsMenuDialogAlpha()` for the draw and puts the
+palettes back; out at 8/s, back at 3/s once the slider has been still 0.7 s.
+The slider bars and the cable keep their own colours and stay visible, which
+leaves the row being dragged readable.
 
 Probe: ~/wt/f3-0927-options-run/cam.py (Villa, cutscene skipped at 600,
 `menuPushRootDialog(&g_SoloMissionPauseMenuDialog, 2)` then

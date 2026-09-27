@@ -2,6 +2,9 @@
 #include "constants.h"
 #include "game/modrules.h"
 #ifndef PLATFORM_N64
+#include "optionsmenu.h"
+#endif
+#ifndef PLATFORM_N64
 #include "gexfront.h"
 #include "headfit.h"
 #include "geintro.h"
@@ -3918,7 +3921,7 @@ const char var7f1b2768[] = "StartSelects\n";
  * transitioning between dialogs. This happens when swiping left or right beteen
  * dialogs on the same layer, or when opening or closing dialogs.
  */
-Gfx *menuRenderDialogs(Gfx *gdl)
+static Gfx *menuRenderDialogsInner(Gfx *gdl)
 {
 	if (g_Menus[g_MpPlayerNum].curdialog) {
 		if (g_MenuData.root == MENUROOT_MPPAUSE
@@ -4018,6 +4021,36 @@ Gfx *menuRenderDialogs(Gfx *gdl)
 #endif
 
 	return gdl;
+}
+
+Gfx *menuRenderDialogs(Gfx *gdl)
+{
+#ifndef PLATFORM_N64
+	// Faded while a Mods: Camera slider moves, so the player can see the
+	// camera it sets (optionsMenuDialogAlpha()): every palette's alpha is
+	// scaled for the draw and put back after.
+	const f32 alpha = optionsMenuDialogAlpha();
+
+	if (alpha < 1.0f) {
+		struct menucolourpalette saved[ARRAYCOUNT(g_MenuColours)];
+		u32 *colours = (u32 *)g_MenuColours;
+		s32 i;
+
+		memcpy(saved, g_MenuColours, sizeof(saved));
+
+		for (i = 0; i < (s32)(sizeof(g_MenuColours) / sizeof(u32)); i++) {
+			colours[i] = (colours[i] & 0xffffff00) | (u32)((colours[i] & 0xff) * alpha);
+		}
+
+		gdl = menuRenderDialogsInner(gdl);
+
+		memcpy(g_MenuColours, saved, sizeof(saved));
+
+		return gdl;
+	}
+#endif
+
+	return menuRenderDialogsInner(gdl);
 }
 
 u32 var800714e8 = 0;
