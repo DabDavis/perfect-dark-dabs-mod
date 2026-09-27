@@ -698,7 +698,13 @@ static const struct fpgrip fpGrip[ARRAYCOUNT(fpRows)] = {
 	// N64 look on GoldenEye's own model). It was turned the other quarter
 	// from 2026-09-16, to be held by the handle in Perfect Dark's hands, until
 	// a tester's F3 asked for it flipped back (2026-09-25).
-	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { 0, { 0.0f, 0.0f, 0.0f }, 0.0f, { 2, -1, 3 } },
+	//
+	// Placed where GoldenEye holds it, at its own size, as the sniper rifle
+	// is. Fitted onto the host its box - the knife *and* the hand holding its
+	// blade, one mesh - was squeezed into the host knife's, which pushed the
+	// hand off the bottom right of the view away from the blade (F3
+	// 20260927-011210, "disjointed hand model holding the knives").
+	[WEAPON_GE_THROWINGKNIFE   - WEAPON_GE_FIRST] = { FP_OWNPLACE, { 0.0f, 0.0f, 0.0f }, 1.0f / 4.7f, { 2, -1, 3 } },
 };
 
 /**
