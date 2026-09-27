@@ -5,6 +5,8 @@
 #include <PR/ultratypes.h>
 #include <PR/gbi.h>
 
+struct coord;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -115,6 +117,13 @@ s32 gebeanStageRecordIsWater(u32 record);
 
 /** A served room's loaded picture that bullets pass through (cut-outs, translucent). */
 s32 gebeanStageTilePassesShots(uintptr_t tile);
+
+// tile is one of an HD room's stand-in tiles
+s32 gebeanStageIsTile(uintptr_t tile);
+
+// The texture number of GoldenEye's own opaque triangle a shot at pos in
+// room hit, or -1: an HD room's lists say nothing a hit can read
+s32 gebeanStageHitTexture(s32 room, const struct coord *pos);
 
 /**
  * The level's backdrop - a panorama 4J ring some levels with, far outside

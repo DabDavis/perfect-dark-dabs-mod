@@ -11835,3 +11835,15 @@ Probe traps, both of which made a first sheet look wrong:
   every prop (modelTestForHit on stale matrices), so doors took no holes.
   Fire through the game instead: a breakpoint on bgunTickGameplay setting
   `$rdi` (the trigger) and holding the aim there.
+
+**HD rooms' hit texture (2026-09-27, W vs L).** An HD room's list loads Bean's
+pictures from stand-in tiles, so bg.c's "the s16 before the G_SETTIMG's image"
+read arbitrary bytes there (Dam: 2065 on Linux, 129 on Windows) and the hole
+type differed per build. gebeanstage.c now keeps each shell triangle's texture
+number (the last 0xc0 of its leaf, the one the N64 hit reads, `eachTex` in
+fileRoomTrianglesEach()), and bgTestHitInVtxBatch() asks
+gebeanStageHitTexture(room, hit point) - GoldenEye's opaque triangle within 8
+units under the hit, else -1 (default) - when the SETTIMG is an HD tile
+(gebeanStageIsTile()). Dam, same four aims: all 19 bg hits read the same
+texture in HD as in the N64 look (2720 dirt, 949 rock), holes by type identical.
+Probe `~/wt/f3-0927-holes-run/holetex2.py`.
