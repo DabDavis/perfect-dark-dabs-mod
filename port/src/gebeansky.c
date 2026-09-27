@@ -71,6 +71,7 @@ static const struct { const char *key, *sky; } skyNames[] = {
 	{ "sevxb", "sf2" },
 	{ "silo",  "silo" },
 	{ "stack", "library" },
+	{ "stat",  "statuepark" },
 	{ "tra",   "train" },
 };
 
