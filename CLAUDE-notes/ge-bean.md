@@ -11788,3 +11788,22 @@ watch item table, the level entry table, strings, the end-of-RAM block, and
 setup bytes in files the locator missed (Dam intro cameras, Jungle AI + sky,
 Runway guards/doors, Surface bookshelf pads + railing, armour moves, Temple crate
 types, flag tokens) - each is a changelog line already classed above.
+
+## F3 pass 2026-09-27, GE weapons (fix/f3-0927-guns)
+
+- **Gun barrel PPK drawn unlit** (4ccd4d92c, F3 001811). GoldenEye begins every
+  barrel frame with dlBasicGeometry (G_LIGHTING off); chr lists light themselves,
+  the PPK's never do. Under Bond's light its vertex colours read as normals: a
+  white stripe down the gun. Oracle frame f001350 (native port) shows it black.
+- **Cougar** (b042c4162, F3 234506). gegunsOwnModelFlash() billboarded part 4 as a
+  second star on every gun; GoldenEye does that only on skeleton_gun_kf7. On the
+  revolver skeleton part 4 is the cylinder - the "drum" in the flash. And
+  gegunsTriggerDelay60(): Cougar + grenade launcher fire 6 ticks after the press
+  (oracle: press 2001, shot 2008), taken off the recovery so held rate stays 54.
+- Probes: ~/wt/f3-0927-guns-run (cg.py = equip/fire/log/screenshot per frame,
+  gb.py = GE Plus intro frames, wcap.sh = watch inventory sweep);
+  oracle ~/dam-oracle/gecougar.py + cougar.padscript on 10.8.0.3.
+- Open: HD throwing knife floats above the hand (release fit, not the N64 look);
+  HD watch inventory shows GoldenEye's N64 gun models (an attempt drawing the
+  release model misplaced long guns and blanked the mines - needs per-gun
+  centring); guards' gun-hit flinch not looked at; double bullet holes not looked at.
