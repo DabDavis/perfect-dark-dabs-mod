@@ -314,31 +314,73 @@ void objUpdateLinkedScenery(struct defaultobj *obj, struct prop *prop)
 
 f32 objGetLocalXMin(struct modelrodata_bbox *bbox)
 {
+#ifndef PLATFORM_N64
+	// a mod's model without a bbox node (crash 20260927-042228)
+	if (bbox == NULL) {
+		return 0;
+	}
+#endif
+
 	return bbox->xmin;
 }
 
 f32 objGetLocalXMax(struct modelrodata_bbox *bbox)
 {
+#ifndef PLATFORM_N64
+	// a mod's model without a bbox node (crash 20260927-042228)
+	if (bbox == NULL) {
+		return 0;
+	}
+#endif
+
 	return bbox->xmax;
 }
 
 f32 objGetLocalYMin(struct modelrodata_bbox *bbox)
 {
+#ifndef PLATFORM_N64
+	// a mod's model without a bbox node (crash 20260927-042228)
+	if (bbox == NULL) {
+		return 0;
+	}
+#endif
+
 	return bbox->ymin;
 }
 
 f32 objGetLocalYMax(struct modelrodata_bbox *bbox)
 {
+#ifndef PLATFORM_N64
+	// a mod's model without a bbox node (crash 20260927-042228)
+	if (bbox == NULL) {
+		return 0;
+	}
+#endif
+
 	return bbox->ymax;
 }
 
 f32 objGetLocalZMin(struct modelrodata_bbox *bbox)
 {
+#ifndef PLATFORM_N64
+	// a mod's model without a bbox node (crash 20260927-042228)
+	if (bbox == NULL) {
+		return 0;
+	}
+#endif
+
 	return bbox->zmin;
 }
 
 f32 objGetLocalZMax(struct modelrodata_bbox *bbox)
 {
+#ifndef PLATFORM_N64
+	// a mod's model without a bbox node (crash 20260927-042228)
+	if (bbox == NULL) {
+		return 0;
+	}
+#endif
+
 	return bbox->zmax;
 }
 
@@ -406,6 +448,12 @@ f32 objGetRotatedLocalMin(struct modelrodata_bbox *bbox, f32 arg1, f32 arg2, f32
 {
 	f32 sum = 0;
 
+#ifndef PLATFORM_N64
+	if (bbox == NULL) {
+		return 0;
+	}
+#endif
+
 	if (arg1 >= 0) {
 		sum += bbox->xmin * arg1;
 	} else {
@@ -430,6 +478,12 @@ f32 objGetRotatedLocalMin(struct modelrodata_bbox *bbox, f32 arg1, f32 arg2, f32
 f32 objGetRotatedLocalMax(struct modelrodata_bbox *bbox, f32 arg1, f32 arg2, f32 arg3)
 {
 	f32 sum = 0;
+
+#ifndef PLATFORM_N64
+	if (bbox == NULL) {
+		return 0;
+	}
+#endif
 
 	if (arg1 <= 0) {
 		sum += bbox->xmin * arg1;
