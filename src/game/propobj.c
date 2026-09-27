@@ -96,6 +96,7 @@
 #include "gexplus.h"
 #include "modloader.h"
 #include "gbiex.h"
+#include "geguns.h"
 #include "romdata.h"
 #include "xblatables.h"
 #endif
@@ -14030,9 +14031,18 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 		if ((renderdata->flags & 1) && (obj->type == OBJTYPE_SINGLEMONITOR || obj->type == OBJTYPE_MULTIMONITOR)) {
 			xblaMeshSetScreens(model);
 		}
+
+		// GoldenEye's own gun, mine or rocket, with every face (geguns.c)
+		if (gegunsObjDrawsBothSides(obj)) {
+			gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_NO_CULLING_EXT);
+		}
 #endif
 		modelRender(renderdata, model);
 #ifndef PLATFORM_N64
+		if (gegunsObjDrawsBothSides(obj)) {
+			gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_NO_CULLING_EXT);
+		}
+
 		xblaMeshSetOrthogonal(false);
 		xblaMeshSetScreens(NULL);
 #endif

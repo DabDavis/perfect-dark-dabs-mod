@@ -148,6 +148,13 @@ s32 gebeanFirstPersonOwnPlaceShiftX(s32 weaponnum, f32 *dx);
 s32 gebeanFirstPersonHasRound(s32 weaponnum);
 
 /**
+ * Whether the gun drawn in first person for this weapon is the release's HD
+ * mesh (the HD look) with no hand on it, which is drawn in the left hand as
+ * it is rather than mirrored.
+ */
+s32 gebeanFirstPersonIsRelease(s32 weaponnum);
+
+/**
  * GoldenEye's characters and heads in the Combat Simulator's own lists, for
  * Perfect Dark rather than for GoldenEye X: each one a row of g_HeadsAndBodies
  * past the stock table, whose file is an alias of a Perfect Dark body or head

@@ -64,8 +64,9 @@
 // fifth (".extracted5") before the levels were and the sixth (".extracted6")
 // before the remake's HD props were, so a cache holding any of them is unpacked
 // again. The tenth (".extracted10") is the menus' two fonts, the eleventh the
-// skydomes, the twelfth the HUD's crosshair.
-#define GEBEAN_DONE_FILE ".extracted12"
+// skydomes, the twelfth the HUD's crosshair, the thirteenth the HUD's
+// ammunition pictures.
+#define GEBEAN_DONE_FILE ".extracted13"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -97,6 +98,12 @@
 #define GEBEAN_WANT_MENU_ATTRACT "files/texture/attract/"
 // and the HUD's crosshair, texture/bg/sight (gehud.c)
 #define GEBEAN_WANT_HUD_SIGHT "files/texture/bg/sight/"
+// and its ammunition pictures, texture/bg/ammoicon* and ammogrenadehand
+// (gehud.c): not taken until 2026-09-26, so from the archive the HUD fell back
+// to GoldenEye's own 5x28 round, blurred up to the screen (F3 20260926-220918,
+// "the bullet on my hud looks blurry"); only a folder of the whole release had
+// them
+#define GEBEAN_WANT_HUD_AMMO "files/texture/bg/ammo"
 // and their two fonts, which are files/misc/alps3 and doc0 (gebeanFontOpen())
 #define GEBEAN_WANT_MENU_FONTS "files/misc/"
 
@@ -1720,7 +1727,8 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 		|| strstr(lower, GEBEAN_WANT_SKIES) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_CHARS) != NULL || strstr(lower, GEBEAN_WANT_MENU_LEVELS) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_SIGHT) != NULL || strstr(lower, GEBEAN_WANT_MENU_ATTRACT) != NULL
-		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL || strstr(lower, GEBEAN_WANT_HUD_SIGHT) != NULL;
+		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL || strstr(lower, GEBEAN_WANT_HUD_SIGHT) != NULL
+		|| strstr(lower, GEBEAN_WANT_HUD_AMMO) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
@@ -7768,6 +7776,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 	}
 
+
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
 	memset(mats->neckfill, -1, sizeof(mats->neckfill));
@@ -8331,6 +8340,217 @@ static s32 fpMuzzlePoint(const struct fpcloud *bean, const s8 *axis, const f32 *
  * the palette, as a character's is. A toggled list (a muzzle flash) keeps its
  * own geometry; any other list Bean's gun does not reach draws nothing.
  */
+/**
+ * The release's first-person guns are mostly symmetric and paint both sides
+ * from one picture: the triangles of the far side are the near side's
+ * mirrored, on the same texels. Its lettering then reads backwards on one of
+ * the two. In the right hand that side is out of sight; the left hand draws
+ * the gun as it is (bgunLeftHandSkipsFlip()) and shows it - the rocket
+ * launcher's stencil read backwards there (F3 20260926-204243). Not the
+ * guns that carry GoldenEye's glove (fpN64Glove): their hand is a right
+ * hand, so the left hand's copy stays mirrored and shows the side the right
+ * hand's does, lettering and all.
+ *
+ * Each patch of lettering below is where it lies in its picture (u across,
+ * v down, 0 to 1), found by eye in the release's textures. A triangle over
+ * one is on the mirrored side when its texture is laid on it the other way
+ * round from the surface (beanTriFacesBack()); those are given a copy of
+ * the picture with each patch turned over along u, the gun's length, so the
+ * mirrored side reads as the other does. The side that read correctly keeps
+ * the picture as it was.
+ */
+struct beanlettering {
+	s8 weapon; // WEAPON_GE_* - WEAPON_GE_FIRST
+	u8 tex;    // the model's picture index
+	f32 u0, v0, u1, v1;
+};
+
+#define LETTERING(w, t, a, b, c, d) { (w) - WEAPON_GE_FIRST, t, a, b, c, d }
+
+static const struct beanlettering beanLettering[] = {
+	// "Ракетно-картофельная пусковая установка", "сброс горячий",
+	// "оптический прицел"
+	LETTERING(WEAPON_GE_ROCKETLAUNCHER, 1, 0.330f, 0.600f, 0.520f, 0.710f),
+	LETTERING(WEAPON_GE_ROCKETLAUNCHER, 2, 0.215f, 0.150f, 0.410f, 0.185f),
+	LETTERING(WEAPON_GE_ROCKETLAUNCHER, 2, 0.400f, 0.855f, 0.795f, 0.905f),
+	// "P90 cal 5.7x28", and "P90 - 50 ROUND MAGAZINE" on the magazine
+	LETTERING(WEAPON_GE_RCP90, 5, 0.160f, 0.520f, 0.510f, 0.590f),
+	LETTERING(WEAPON_GE_RCP90, 6, 0.310f, 0.460f, 0.730f, 0.530f),
+	// "KLOBB"
+	LETTERING(WEAPON_GE_KLOBB, 0, 0.650f, 0.460f, 0.760f, 0.520f),
+	// the scope's maker's plate (not its rings' "3-9x32" and numbers, which
+	// run round the scope, both halves of them in sight at once)
+	LETTERING(WEAPON_GE_SNIPERRIFLE, 0, 0.310f, 0.670f, 0.410f, 0.720f),
+	// the receiver's markings: maker, selector, serial block
+	LETTERING(WEAPON_GE_AR33, 1, 0.510f, 0.560f, 0.850f, 0.625f),
+	LETTERING(WEAPON_GE_AR33, 1, 0.120f, 0.570f, 0.260f, 0.800f),
+	// the slide's
+	LETTERING(WEAPON_GE_PHANTOM, 5, 0.330f, 0.205f, 0.820f, 0.240f),
+	// the receiver's serial
+	LETTERING(WEAPON_GE_D5K, 5, 0.170f, 0.005f, 0.310f, 0.040f),
+	LETTERING(WEAPON_GE_D5KSILENCED, 5, 0.170f, 0.005f, 0.310f, 0.040f),
+};
+
+/**
+ * Whether a triangle's texture is laid on it the other way round from its
+ * surface: the turn of its corners in the picture against their turn about
+ * its own normal. Both halves of a mirrored gun are wound the same way, so
+ * the half made as the other's mirror is the one whose picture turns back.
+ */
+static s32 beanTriFacesBack(const struct beanout *o, const struct beantri *t)
+{
+	const f32 *p0 = &o->pos[t->v[0] * 3], *p1 = &o->pos[t->v[1] * 3], *p2 = &o->pos[t->v[2] * 3];
+	const f32 *t0 = &o->uv[t->v[0] * 2], *t1 = &o->uv[t->v[1] * 2], *t2 = &o->uv[t->v[2] * 2];
+	f32 e1[3], e2[3], g[3], d = 0.0f, s;
+
+	for (s32 a = 0; a < 3; a++) {
+		e1[a] = p1[a] - p0[a];
+		e2[a] = p2[a] - p0[a];
+	}
+
+	g[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	g[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	g[2] = e1[0] * e2[1] - e1[1] * e2[0];
+
+	for (s32 a = 0; a < 3; a++) {
+		d += g[a] * (o->nrm[t->v[0] * 3 + a] + o->nrm[t->v[1] * 3 + a] + o->nrm[t->v[2] * 3 + a]);
+	}
+
+	s = (t1[0] - t0[0]) * (t2[1] - t0[1]) - (t2[0] - t0[0]) * (t1[1] - t0[1]);
+
+	if (s == 0.0f || d == 0.0f) {
+		return 0;
+	}
+
+	return (s > 0.0f) == (d > 0.0f);
+}
+
+/** Whether a triangle's corners in the picture fall on a patch. */
+static s32 beanTriOnPatch(const struct beanout *o, const struct beantri *t, const struct beanlettering *l)
+{
+	f32 lo[2] = { 1e30f, 1e30f }, hi[2] = { -1e30f, -1e30f };
+	f32 mid[2] = { 0.0f, 0.0f };
+
+	for (s32 k = 0; k < 3; k++) {
+		for (s32 a = 0; a < 2; a++) {
+			mid[a] += o->uv[t->v[k] * 2 + a] / 3.0f;
+		}
+	}
+
+	// a picture repeats, so by the repeat the triangle's middle is in
+	mid[0] = floorf(mid[0]);
+	mid[1] = floorf(mid[1]);
+
+	for (s32 k = 0; k < 3; k++) {
+		for (s32 a = 0; a < 2; a++) {
+			const f32 c = o->uv[t->v[k] * 2 + a] - mid[a];
+
+			if (c < lo[a]) lo[a] = c;
+			if (c > hi[a]) hi[a] = c;
+		}
+	}
+
+	return hi[0] > l->u0 && lo[0] < l->u1 && hi[1] > l->v0 && lo[1] < l->v1;
+}
+
+/**
+ * The HD look's first-person gun: its mirrored side's lettering drawn from
+ * a copy of the picture with the lettering turned over (beanLettering).
+ * `nummatwords` grows by a material for each picture that needs one.
+ */
+static void beanFixLettering(struct beanmodel *bm, const char *source, s32 fp, struct beanout *out,
+		u32 *matwords, s32 *nummatwords, struct gebeanmats *mats)
+{
+	for (s32 tex = 0; tex < bm->numtex; tex++) {
+		s32 any = 0;
+		s32 count = 0;
+		s32 m;
+		s32 w, h, a = 0, sft = 0;
+		u8 *rgba;
+		char key[96];
+
+		for (s32 i = 0; i < (s32)ARRAYCOUNT(beanLettering); i++) {
+			any |= beanLettering[i].weapon == fp && beanLettering[i].tex == tex;
+		}
+
+		if (!any || *nummatwords >= GEBEAN_MAXMATS) {
+			continue;
+		}
+
+		m = *nummatwords;
+
+		for (s32 t = 0; t < out->numtris; t++) {
+			struct beantri *tri = &out->tris[t];
+
+			if (tri->tex != tex || !beanTriFacesBack(out, tri)) {
+				continue;
+			}
+
+			for (s32 i = 0; i < (s32)ARRAYCOUNT(beanLettering); i++) {
+				if (beanLettering[i].weapon == fp && beanLettering[i].tex == tex
+						&& beanTriOnPatch(out, tri, &beanLettering[i])) {
+					tri->tex = (u16)m;
+					count++;
+					break;
+				}
+			}
+		}
+
+		if (count == 0 || (rgba = beanDecodeTexture(bm, tex, &w, &h)) == NULL) {
+			for (s32 t = 0; t < out->numtris; t++) {
+				if (out->tris[t].tex == m) {
+					out->tris[t].tex = (u16)tex;
+				}
+			}
+
+			continue;
+		}
+
+		// the picture's rows are stored bottom first: v runs up them
+		for (s32 i = 0; i < (s32)ARRAYCOUNT(beanLettering); i++) {
+			const struct beanlettering *l = &beanLettering[i];
+			s32 c0, c1, r0, r1;
+
+			if (l->weapon != fp || l->tex != tex) {
+				continue;
+			}
+
+			c0 = (s32)(l->u0 * w);
+			c1 = (s32)(l->u1 * w);
+			r0 = (s32)((1.0f - l->v1) * h);
+			r1 = (s32)((1.0f - l->v0) * h);
+
+			for (s32 y = r0 < 0 ? 0 : r0; y < r1 && y < h; y++) {
+				u8 *row = rgba + (size_t)y * w * 4;
+
+				for (s32 x0 = c0, x1 = (c1 > w ? w : c1) - 1; x0 < x1; x0++, x1--) {
+					u32 tmp;
+
+					memcpy(&tmp, row + x0 * 4, 4);
+					memcpy(row + x0 * 4, row + x1 * 4, 4);
+					memcpy(row + x1 * 4, &tmp, 4);
+				}
+			}
+		}
+
+		snprintf(key, sizeof(key), "gebean:%s:%d:lettering", source, tex);
+		mats->tile[m] = xblaTexBindImage(key, rgba, w, h);
+
+		if (mats->tile[m]) {
+			xblaTexImageInfo(mats->tile[m], &a, &sft);
+		}
+
+		mats->alpha[m] = (u8)a;
+		mats->soft[m] = (u8)sft;
+		matwords[m] = XBLAMESH_MAT_TABLE | (u32)m | (a ? 0x8000 : 0);
+		(*nummatwords)++;
+		mats->num = *nummatwords;
+
+		sysLogPrintf(LOG_NOTE, "gebean: %s: %d triangles of the mirrored side's lettering on picture %d turned round",
+				source, count, tex);
+	}
+}
+
 static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modeldef, struct modelnode **nodes,
 		s32 numnodes, struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -9108,6 +9328,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		}
 	}
 
+	if (!original) {
+		beanFixLettering(&bm, source, fp, &out, matwords, &nummatwords, mats);
+	}
+
 	numdecals = beanMarkDecals(&out, matwords, &nummatwords, mats);
 
 	// A list the round did not touch draws the same either way, so only
@@ -9312,6 +9536,16 @@ s32 gebeanFirstPersonHasRound(s32 weaponnum)
 	const s32 look = gebeanGunsAreN64();
 
 	return i >= 0 && i < (s32)ARRAYCOUNT(fpRows) && fpSlot[i] && fpRoundSet[look][i];
+}
+
+s32 gebeanFirstPersonIsRelease(s32 weaponnum)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	// a gun holding its own glove has a right hand on it, which mirrored
+	// is the left hand's
+	return i >= 0 && i < (s32)ARRAYCOUNT(fpRows) && fpSlot[i] && !gebeanGunsAreN64()
+		&& !gegunsOwnModelInUse(weaponnum) && !fpN64Glove[i];
 }
 
 u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,

@@ -1122,6 +1122,16 @@ bool bgunWantsLoweredReload(s32 weaponnum)
  */
 bool bgunLeftHandSkipsFlip(s32 weaponnum)
 {
+	// The release's HD guns have no hand on them: in the left hand one is the
+	// gun itself turned in towards the middle, its other side towards the
+	// view, whose lettering reads the right way (gebean.c's beanLettering).
+	// Mirrored, the side that faced the view was the right hand's, and its
+	// lettering read backwards - the rocket launcher's stencil (F3
+	// 20260926-204243).
+	if (gebeanFirstPersonIsRelease(weaponnum)) {
+		return true;
+	}
+
 	return weaponHasFlag(weaponnum, WEAPONFLAG_02000000) && bgunIsAkimboIncompatible(weaponnum);
 }
 
@@ -12629,12 +12639,21 @@ void bgunRender(Gfx **gdlptr)
 			// lists, flat on the surface under them (model.c)
 			g_ModelXluDecal = gegunsOwnModelInUse(weaponnum);
 
+			// and with every face, as its props are (gegunsObjDrawsBothSides())
+			if (!geshown && gegunsOwnModelInUse(weaponnum)) {
+				gSPSetExtraGeometryModeEXT(renderdata.gdl++, G_NO_CULLING_EXT);
+			}
+
 			if (!geshown)
 #endif
 			modelRender(&renderdata, &hand->gunmodel);
 
 #ifndef PLATFORM_N64
 			g_ModelXluDecal = 0;
+
+			if (!geshown && gegunsOwnModelInUse(weaponnum)) {
+				gSPClearExtraGeometryModeEXT(renderdata.gdl++, G_NO_CULLING_EXT);
+			}
 #endif
 
 			// Render the hand

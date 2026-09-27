@@ -1317,11 +1317,64 @@ void geTankDrive(struct coord *delta)
 /* The cannon                                                                */
 /* ------------------------------------------------------------------------ */
 
+/**
+ * Where the barrel ends, from the middle of the tank, in the world: the muzzle
+ * (part 4) along the barrel (part 3) tipped by the elevation, the pair about
+ * the turret's pivot (part 1) by the turret's angle, and all of it by the
+ * hull's - carried round as tankSeat() carries the seat, and as
+ * geTankUpdateModel() poses the parts. The model's own matrices are no use
+ * here: once drawn they are the renderer's fixed point.
+ */
+static s32 tankMuzzle(struct tankobj *tank, struct coord *out)
+{
+	struct modeldef *def = tank->base.model ? tank->base.model->definition : NULL;
+	struct modelnode *pivot = def ? modelGetPart(def, TANK_PART_TURRET) : NULL;
+	struct modelnode *barrel = def ? modelGetPart(def, TANK_PART_BARREL) : NULL;
+	struct modelnode *muzzle = def ? modelGetPart(def, TANK_PART_MUZZLE) : NULL;
+	const f32 scale = tankScale(tank);
+	struct coord m;
+	struct coord b;
+	struct coord local;
+	f32 s;
+	f32 c;
+
+	if (!pivot || (pivot->type & 0xff) != MODELNODETYPE_POSITION
+			|| !barrel || (barrel->type & 0xff) != MODELNODETYPE_POSITION
+			|| !muzzle || (muzzle->type & 0xff) != MODELNODETYPE_POSITION) {
+		return false;
+	}
+
+	// the muzzle about the barrel's pivot by the elevation (up is +y)
+	m = muzzle->rodata->position.pos;
+	s = sinf(tank->turretpitch);
+	c = cosf(tank->turretpitch);
+
+	b.x = barrel->rodata->position.pos.x + m.x;
+	b.y = barrel->rodata->position.pos.y + m.y * c + m.z * s;
+	b.z = barrel->rodata->position.pos.z - m.y * s + m.z * c;
+
+	// then about the turret's pivot, then with the hull
+	s = sinf(tank->turretyaw);
+	c = cosf(tank->turretyaw);
+
+	local.x = pivot->rodata->position.pos.x + b.x * c + b.z * s;
+	local.y = pivot->rodata->position.pos.y + b.y;
+	local.z = pivot->rodata->position.pos.z - b.x * s + b.z * c;
+
+	s = sinf(tank->hullyaw);
+	c = cosf(tank->hullyaw);
+
+	out->x = (local.x * c + local.z * s) * scale;
+	out->y = local.y * scale;
+	out->z = (-local.x * s + local.z * c) * scale;
+
+	return true;
+}
+
 static void tankFire(struct tankobj *tank)
 {
 	struct prop *playerprop = g_Vars.currentplayer->prop;
 	struct weaponobj *shell;
-	struct modelnode *node;
 	struct coord pos;
 	struct coord dir;
 	struct coord speed;
@@ -1336,16 +1389,21 @@ static void tankFire(struct tankobj *tank)
 	dir.y = sinf(tank->turretpitch);
 	dir.z = cosf(yaw) * cosf(tank->turretpitch);
 
-	// out of the muzzle: the barrel's length in front of the turret, at the
-	// barrel's height
-	node = tank->base.model ? modelGetPart(tank->base.model->definition, TANK_PART_BARREL) : NULL;
-
-	pos.x = tank->base.prop->pos.x + dir.x * (halflength + 60.0f);
-	pos.y = tank->base.prop->pos.y + bottom + height * 0.8f + dir.y * (halflength + 60.0f);
-	pos.z = tank->base.prop->pos.z + dir.z * (halflength + 60.0f);
-
-	if (node && (node->type & 0xff) == MODELNODETYPE_POSITION) {
-		pos.y = tank->base.prop->pos.y + node->rodata->position.pos.y * tankScale(tank) + dir.y * (halflength + 60.0f);
+	// out of the muzzle: GoldenEye's gunFireTankShell() starts the shell at
+	// the model's matrix 4, the muzzle node at the barrel's end
+	// (tankMuzzle()). The hull's half length in front of its middle, at the
+	// barrel's own height under the turret's, was short of the end and to
+	// one side of it once the turret turned, the barrel's pivot being ahead
+	// of the hull's middle (F3 20260926-204021, "tank shell slightly off
+	// center and back from barrel")
+	if (tankMuzzle(tank, &pos)) {
+		pos.x += tank->base.prop->pos.x;
+		pos.y += tank->base.prop->pos.y;
+		pos.z += tank->base.prop->pos.z;
+	} else {
+		pos.x = tank->base.prop->pos.x + dir.x * (halflength + 60.0f);
+		pos.y = tank->base.prop->pos.y + bottom + height * 0.8f + dir.y * (halflength + 60.0f);
+		pos.z = tank->base.prop->pos.z + dir.z * (halflength + 60.0f);
 	}
 
 	shell = weaponCreateProjectileFromWeaponNum(MODEL_CHRDYROCKETMIS, WEAPON_ROCKET, playerprop->chr);

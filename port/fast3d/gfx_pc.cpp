@@ -3021,7 +3021,7 @@ static inline __attribute__((always_inline)) void gfx_emit_tri_done(void) {
  * Whether the triangle faces away under the current culling mode.
  */
 static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct LoadedVertex* v2, const struct LoadedVertex* v3) {
-    if ((rsp.geometry_mode & G_CULL_BOTH) == 0) {
+    if ((rsp.geometry_mode & G_CULL_BOTH) == 0 || (rsp.extra_geometry_mode & G_NO_CULLING_EXT)) {
         return false;
     }
     if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {

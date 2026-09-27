@@ -1703,6 +1703,21 @@ s32 gegunsThrownModel(s32 weaponnum, s32 fallback)
 }
 
 /**
+ * GoldenEye's own weapons are drawn with every face. Their lists cull their
+ * back faces, and not every part of every gun is wound the same way round:
+ * the silenced D5K's silencer is wound backwards from the rest of it, so on
+ * the watch, turned towards the camera, it was the inside of its far half
+ * with its near half gone (F3 20260926-202346, "d5k silenced barrel is
+ * getting culled ... maybe disable backface culling for weapons only").
+ * Drawn with the depth buffer, a closed shape looks the same either way, and
+ * a face wound backwards is there.
+ */
+s32 gegunsObjDrawsBothSides(struct defaultobj *obj)
+{
+	return obj && obj->type == OBJTYPE_WEAPON && obj->modelnum >= MODEL_REMAKE_FIRST && obj->modelnum < NUM_MODELS;
+}
+
+/**
  * The throwing knife's turn as it leaves the hand where the hand is not
  * GoldenEye's own (the HD look): the knife is turned from the hand's matrix,
  * which there is the host's combat knife under its own throw animation - the

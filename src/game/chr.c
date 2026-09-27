@@ -99,6 +99,7 @@ static bool chrIsGeListBody(struct chrdata *chr)
 #include "trace.h"
 #include "xblamesh.h"
 #include "gebean.h"
+#include "geguns.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
 #endif
@@ -3993,7 +3994,22 @@ void chrRenderAttachedObject(struct prop *prop, struct modelrenderdata *renderda
 		struct model *model = obj->model;
 		struct prop *child;
 
+#ifndef PLATFORM_N64
+		// GoldenEye's own gun in a hand, with every face (geguns.c)
+		const bool bothsides = gegunsObjDrawsBothSides(obj);
+
+		if (bothsides) {
+			gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_NO_CULLING_EXT);
+		}
+#endif
+
 		modelRender(renderdata, model);
+
+#ifndef PLATFORM_N64
+		if (bothsides) {
+			gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_NO_CULLING_EXT);
+		}
+#endif
 
 		// Note: OBJH2FLAG_HASOPA << 1 is OBJH2FLAG_HASXLU
 		// so this is just checking if the appropriate flag is enabled
