@@ -108,6 +108,11 @@ static s32 numRooms;
 static s32 numServed;
 static u8 *roomHidden;  // a room of the file's that Bean's mesh leaves out (gebeanStageRoomHidden())
 static s32 numHidden;
+// A room whose translucent chain ends in GoldenEye's own water leaves
+// (fileWaterLeaves()), after its HD leaf where it has one (1 + that)
+static u8 *roomWaterKept;
+static s32 numWaterKept;
+static s32 levelHasWater; // Bean draws water of its own (texWater[])
 
 static const void *texTile[GEBEAN_MAXMATS];
 static u8 texAlpha[GEBEAN_MAXMATS];
@@ -1564,13 +1569,127 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 }
 
 /**
+ * GoldenEye's water pictures: the grey (1508) and the blue (1509), which it
+ * also draws its sea with, and Dam and Complex's (1511)
+ */
+static s32 texIsGeWater(u32 texnum)
+{
+	return texnum == 0x5e4 || texnum == 0x5e5 || texnum == 0x5e7;
+}
+
+/**
+ * A leaf of the file's room kept under the HD level: its display list, and
+ * the vertices and colours it loads, all in the file's own form
+ */
+struct keptleaf {
+	const u8 *gdl;
+	u32 gdllen;
+	const u8 *vtx;
+	u32 numvtx;
+	const u8 *col;
+	u32 numcol;
+};
+
+#define MAXKEPTLEAVES 8
+
+/**
+ * The translucent leaves of room r of the file that draw nothing but
+ * GoldenEye's water, which Bean's mesh has nowhere: Egyptian's pool in the
+ * pillared hall is a plain stone basin in the release, and GoldenEye's is a
+ * sheet of its blue water at half alpha laid over it (room 3's translucent
+ * leaf; F3 20260927-000453, "lighting/pool"). A level whose Bean mesh draws
+ * water (Dam's reservoir) keeps none, or it would draw both.
+ */
+static s32 fileWaterLeaves(s32 r, const u8 *raw, u32 len, struct keptleaf *out, s32 max)
+{
+	const u32 base = g_BgRooms[r].unk00;
+	u32 stack[64];
+	s32 depth = 0;
+	s32 num = 0;
+
+	if (levelHasWater || len < GFXHEADER || !be32(raw + 12)) {
+		return 0;
+	}
+
+	stack[depth++] = be32(raw + 12);
+
+	while (depth > 0 && num < max) {
+		u32 b = stack[--depth];
+
+		for (s32 guard = 0; b && guard < 256 && num < max; guard++) {
+			const u32 o = b - base;
+
+			if (o + ROOMBLOCKSIZE > len) {
+				break;
+			}
+
+			if (raw[o] == 1) {
+				if (depth < ARRAYCOUNT(stack) && be32(raw + o + 8)) {
+					stack[depth++] = be32(raw + o + 8);
+				}
+			} else if (raw[o] == 0) {
+				const u32 gdl = be32(raw + o + 8) - base;
+				const u32 vtx = be32(raw + o + 12) - base;
+				const u32 col = be32(raw + o + 16) - base;
+				u32 vtxend = 0, colend = 0, c;
+				s32 water = 0, other = 0;
+
+				for (c = gdl; c + 8 <= len; c += 8) {
+					const u8 op = raw[c];
+					const u32 w0 = be32(raw + c), w1 = be32(raw + c + 4);
+
+					if (op == 0xc0) {
+						if (texIsGeWater(w1 & 0xfff)) {
+							water = 1;
+						} else {
+							other = 1;
+						}
+					} else if (op == G_VTX) {
+						const u32 end = (w1 & 0xffffff) + (((w0 >> 20) & 0xf) + 1) * VTXSIZE;
+
+						vtxend = end > vtxend ? end : vtxend;
+					} else if (op == G_COL) {
+						const u32 end = (w1 & 0xffffff) + ((((w0 >> 16) & 0xff) >> 2) + 1) * COLSIZE;
+
+						colend = end > colend ? end : colend;
+					} else if (op == (u8)G_DL) {
+						other = 1;
+					} else if (op == (u8)G_ENDDL) {
+						c += 8;
+						break;
+					}
+				}
+
+				if (water && !other && gdl < len && vtxend && colend
+						&& vtx + vtxend <= len && col + colend <= len) {
+					out[num].gdl = raw + gdl;
+					out[num].gdllen = c - gdl;
+					out[num].vtx = raw + vtx;
+					out[num].numvtx = vtxend / VTXSIZE;
+					out[num].col = raw + col;
+					out[num].numcol = colend / COLSIZE;
+					num++;
+				}
+			}
+
+			b = be32(raw + o + 4);
+		}
+	}
+
+	return num;
+}
+
+/**
  * Room r in the room format, big-endian as the file stores it, its pointers
  * relative to the room's own entry in the room table (as the release's rooms
  * are served, xblastage.c): the header, an opaque and a translucent leaf, the
  * vertices of both, the shared palette, then the two display lists.
  */
-static u8 *writeRoom(s32 r, const struct stri *tris, s32 *list, s32 num, const u8 *fileroom, u32 *outLen, s32 *dropped)
+static u8 *writeRoom(s32 r, const struct stri *tris, s32 *list, s32 num, const u8 *fileroom, u32 filelen, u32 *outLen, s32 *dropped)
 {
+	struct keptleaf keep[MAXKEPTLEAVES];
+	const s32 numkeep = fileWaterLeaves(r, fileroom, filelen, keep, ARRAYCOUNT(keep));
+	u32 keepvtx = 0, keepcol = 0, keepgdl = 0;
 	const u32 base = g_BgRooms[r].unk00;
 	const f32 roompos[3] = { g_BgRooms[r].pos.x, g_BgRooms[r].pos.y, g_BgRooms[r].pos.z };
 	struct leaf opa, xlu;
@@ -1611,24 +1730,30 @@ static u8 *writeRoom(s32 r, const struct stri *tris, s32 *list, s32 num, const u
 
 	numblocks = (opa.gdl.len ? 1 : 0) + (xlu.gdl.len ? 1 : 0);
 
+	for (s32 k = 0; k < numkeep; k++) {
+		keepvtx += keep[k].numvtx;
+		keepcol += keep[k].numcol;
+		keepgdl += keep[k].gdllen;
+	}
+
 	// The converter (convertRoomGfxData()) starts the host's vertices and
 	// colours each on an eight byte boundary of their own but places the
 	// first display list by the file's distance from the colours, so that
 	// distance must come out whole: the colours start on a boundary here too,
 	// which an even number of vertices after an aligned start gives. The
 	// padding is short of a block, so the block walk does not read it.
-	if ((opa.numvtx + xlu.numvtx) & 1) {
+	if ((opa.numvtx + xlu.numvtx + keepvtx) & 1) {
 		struct rvtx pad;
 
 		memset(&pad, 0, sizeof(pad));
 		leafAddVtx(xlu.gdl.len ? &xlu : &opa, &pad);
 	}
 
-	vtxat = ALIGN8(GFXHEADER + ROOMBLOCKSIZE * numblocks);
-	colat = vtxat + (opa.numvtx + xlu.numvtx) * VTXSIZE;
-	opagdlat = ALIGN8(colat + numpal * COLSIZE);
+	vtxat = ALIGN8(GFXHEADER + ROOMBLOCKSIZE * (numblocks + numkeep));
+	colat = vtxat + (opa.numvtx + xlu.numvtx + keepvtx) * VTXSIZE;
+	opagdlat = ALIGN8(colat + (numpal + keepcol) * COLSIZE);
 	xlugdlat = opagdlat + opa.gdl.len;
-	total = ALIGN8(xlugdlat + xlu.gdl.len);
+	total = ALIGN8(xlugdlat + xlu.gdl.len + keepgdl);
 
 	out = calloc(1, total + 16);
 
@@ -1644,11 +1769,11 @@ static u8 *writeRoom(s32 r, const struct stri *tris, s32 *list, s32 num, const u
 	put32(out + 0x00, base + vtxat);
 	put32(out + 0x04, base + colat);
 	put32(out + 0x08, opa.gdl.len ? base + GFXHEADER : 0);
-	put32(out + 0x0c, xlu.gdl.len ? base + GFXHEADER + (opa.gdl.len ? ROOMBLOCKSIZE : 0) : 0);
+	put32(out + 0x0c, xlu.gdl.len || numkeep ? base + GFXHEADER + (opa.gdl.len ? ROOMBLOCKSIZE : 0) : 0);
 	// The lights are the file's room's: the level's light table is its
 	memcpy(out + 0x10, fileroom + 0x10, 4);
-	put16(out + 0x14, (u16)(opa.numvtx + xlu.numvtx));
-	put16(out + 0x16, (u16)numpal);
+	put16(out + 0x14, (u16)(opa.numvtx + xlu.numvtx + keepvtx));
+	put16(out + 0x16, (u16)(numpal + keepcol));
 
 	at = GFXHEADER;
 
@@ -1663,11 +1788,40 @@ static u8 *writeRoom(s32 r, const struct stri *tris, s32 *list, s32 num, const u
 
 	if (xlu.gdl.len) {
 		out[at] = 0;
-		put32(out + at + 4, 0);
+		put32(out + at + 4, numkeep ? base + at + ROOMBLOCKSIZE : 0);
 		put32(out + at + 8, base + xlugdlat);
 		put32(out + at + 12, base + vtxat + opa.numvtx * VTXSIZE);
 		put32(out + at + 16, base + colat);
 		at += ROOMBLOCKSIZE;
+	}
+
+	// GoldenEye's water, after the HD leaf: the file's own lists, vertices
+	// and colours, each leaf loading from where its own were put
+	{
+		u32 vat = vtxat + (opa.numvtx + xlu.numvtx) * VTXSIZE;
+		u32 cat = colat + numpal * COLSIZE;
+		u32 gat = xlugdlat + xlu.gdl.len;
+
+		for (s32 k = 0; k < numkeep; k++) {
+			out[at] = 0;
+			put32(out + at + 4, k + 1 < numkeep ? base + at + ROOMBLOCKSIZE : 0);
+			put32(out + at + 8, base + gat);
+			put32(out + at + 12, base + vat);
+			put32(out + at + 16, base + cat);
+			at += ROOMBLOCKSIZE;
+
+			memcpy(out + vat, keep[k].vtx, keep[k].numvtx * VTXSIZE);
+			memcpy(out + cat, keep[k].col, keep[k].numcol * COLSIZE);
+			memcpy(out + gat, keep[k].gdl, keep[k].gdllen);
+			vat += keep[k].numvtx * VTXSIZE;
+			cat += keep[k].numcol * COLSIZE;
+			gat += keep[k].gdllen;
+		}
+	}
+
+	if (numkeep && roomWaterKept && r < numRooms) {
+		roomWaterKept[r] = 1 + (xlu.gdl.len ? 1 : 0);
+		numWaterKept += numkeep;
 	}
 
 	at = vtxat;
@@ -2138,6 +2292,7 @@ static void forget(void)
 	free(roomData);
 	free(roomLen);
 	free(roomHidden);
+	free(roomWaterKept);
 	free(backdrop);
 	free(backdropOrder);
 	free(backdropDist);
@@ -2150,9 +2305,12 @@ static void forget(void)
 	roomData = NULL;
 	roomLen = NULL;
 	roomHidden = NULL;
+	roomWaterKept = NULL;
 	numRooms = 0;
 	numServed = 0;
 	numHidden = 0;
+	numWaterKept = 0;
+	levelHasWater = 0;
 	gebeanLevelClose(level);
 	level = NULL;
 	row = NULL;
@@ -3042,8 +3200,11 @@ static s32 build(void)
 	c.offset = row->offset;
 	gebeanLevelTriangles(level, collectTri, &c);
 
+	levelHasWater = 0;
+
 	for (s32 t = 0; t < gebeanLevelNumTextures(level) && t < GEBEAN_MAXMATS; t++) {
 		texWater[t] = gebeanLevelTextureIsWater(level, t);
+		levelHasWater |= texWater[t];
 	}
 
 	takeBackdrop(&c, n);
@@ -3071,6 +3232,8 @@ static s32 build(void)
 	roomData = calloc(n + 1, sizeof(*roomData));
 	roomLen = calloc(n + 1, sizeof(*roomLen));
 	roomHidden = calloc(n + 1, sizeof(*roomHidden));
+	roomWaterKept = calloc(n + 1, sizeof(*roomWaterKept));
+	numWaterKept = 0;
 	numRooms = n;
 
 	if (!filerooms || !filelens || !lists || !listlen || !roomData || !roomLen || c.num == 0
@@ -3236,7 +3399,7 @@ static s32 build(void)
 				continue;
 			}
 
-			roomData[r] = writeRoom(r, c.tris, lists[r], listlen[r], filerooms[r], &roomLen[r], &dropped);
+			roomData[r] = writeRoom(r, c.tris, lists[r], listlen[r], filerooms[r], filelens[r], &roomLen[r], &dropped);
 
 			if (roomData[r]) {
 				numServed++;
@@ -3285,6 +3448,10 @@ static s32 build(void)
 		}
 
 		sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles of backdrop, %d cut-outs clamped in t", row->bean, numBackdrop, clamped);
+	}
+
+	if (numWaterKept) {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d of GoldenEye's water leaves kept over the HD rooms", row->bean, numWaterKept);
 	}
 
 	sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s) at scale %.5f: %d of %d rooms from GoldenEye XBLA (%d kept, %d of them not drawn), %d triangles (%d decals, %d two-faced, %d back to back in part, %d unfogged), %u bytes, %d triangles off a room's range (%d dealt to another in reach, %d to the backdrop), %.0f ms (pictures %.0f, mesh %.0f, grids %.0f, dealing %.0f, writing %.0f)",
@@ -3827,11 +3994,18 @@ void gebeanStageFogRoom(s32 roomnum, struct roomblock *opa, struct roomblock *xl
 		struct roomblock *stack[16];
 		s32 depth = 0;
 		struct roomblock *block = blocks[i];
+		// GoldenEye's own water leaves, which end the translucent chain, keep
+		// the file's modes as bg.c's swaps left them (fileWaterLeaves())
+		s32 hdleaves = i == 1 && roomWaterKept && roomWaterKept[roomnum] ? roomWaterKept[roomnum] - 1 : 99;
 
 		while (block || depth > 0) {
 			if (!block) {
 				block = stack[--depth];
 				continue;
+			}
+
+			if (block->type == ROOMBLOCKTYPE_LEAF && hdleaves-- <= 0) {
+				break;
 			}
 
 			if (block->type == ROOMBLOCKTYPE_LEAF) {
