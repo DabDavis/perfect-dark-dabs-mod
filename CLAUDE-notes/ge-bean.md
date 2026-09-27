@@ -11645,6 +11645,26 @@ What was wrong, and is now GoldenEye's:
   GoldenEye's 0xcd black, which made the arm a black mass. 4:3 is untouched:
   59 capture frames compared pixel for pixel, none differ.
 
+## The control page's words in PC mode (2026-09-27, 12th F3 pass)
+
+F3 20260926-232136 (the user, "this watch screen still isnt correct"): the
+control page in Perfect Dark's own PC mode drew GoldenEye's loose buttons with
+no word beside any of them, since `watchDrawControlLabels()` gave up on a mode
+outside GoldenEye's eight. It now has its own row, `g_PcControlStyle`, taken
+from what bondmove.c does in `CONTROLMODE_PC`: Z FIRE, R AIM (shootbuttons,
+aimbuttons), A and B both ACTION (its usemask), the pad WEAPON (left the last
+gun, down the radial menu - no direction words while CONTROLLER is held), the
+C buttons MOVE (WASD, with FORWARD/BACK/SIDESTEP while held), START PAUSE and
+the stick LOOK (MOVE SIGHT while R aims). L is the port's fire mode, which
+GoldenEye has no word for: `FIRE MODE` is the one word not from LoptionsE, and
+it clears the pad's shoulder. GoldenEye's eight styles draw as before.
+
+Captures: `~/wt/f3-0927-watch-run/{cap.sh,gencap.py}` (the 09-26 walk, control
+page only, `CMODE=8` for PC); screenshots land beside the *binary*
+(`build/screenshots`), not in the run folder. Before/after:
+`~/wt/f3-0927-watch-run/232136_{before,after}_pc.png`. The chequered squares in
+them are GoldenEye's own interference (one press in thirty-two), not a fault.
+
 ## Frigate's hostages and Facility's alarm squad (2026-09-26, 11th F3 pass)
 
 **Frigate 0x6c, F3 20260926-230045** ("hostages keep running around in

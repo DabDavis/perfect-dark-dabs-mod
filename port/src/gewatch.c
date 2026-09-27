@@ -4996,6 +4996,25 @@ static const u8 g_ControlStyles[8][NUM_CS] = {
 	{ 0x10, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION, STR_QUESTION },
 };
 
+/**
+ * Perfect Dark's own PC mode (CONTROLMODE_PC) as the page's words, which
+ * GoldenEye never had: Z fires and R aims (bondmove.c's shootbuttons and
+ * aimbuttons), A and B both act (its usemask), the pad picks weapons (left
+ * the last, down the radial menu), the C buttons move - the keyboard's WASD -
+ * and the stick looks. L is the port's fire mode, which has no word of
+ * GoldenEye's, so it is the one word not from LoptionsE.
+ */
+#define STR_PC_FIREMODE 0xff
+
+static const u8 g_PcControlStyle[NUM_CS] = {
+	0, STR_ACTION, STR_ACTION, STR_FIRE, STR_PC_FIREMODE, STR_AIM, STR_MOVE, STR_WEAPON, STR_PAUSE, STR_LOOK,
+};
+
+static const char *watchStyleWord(u8 id)
+{
+	return id == STR_PC_FIREMODE ? "FIRE MODE\n" : watchString(id);
+}
+
 static const char *watchStyleName(s32 mode)
 {
 	return mode >= 0 && mode < 8 ? watchString(g_ControlStyles[mode][CS_NAME]) : "PC\n";
@@ -5014,8 +5033,8 @@ static const char *watchStyleName(s32 mode)
  * outline while it is held. While the player has hold of the CONTROLLER row
  * the pad and the C buttons name the direction held instead (FORWARD, BACK,
  * the two SIDESTEPs, and UP and DOWN by LOOK UP/DOWN), and an AIM held shows
- * the stick's word as MOVE SIGHT. Perfect Dark's own mouse and keyboard has
- * no words of GoldenEye's.
+ * the stick's word as MOVE SIGHT. Perfect Dark's own PC mode gets its own
+ * row (g_PcControlStyle), its pad naming no direction since it picks weapons.
  */
 static Gfx *watchDrawControlLabels(Gfx *gdl, s32 mode)
 {
@@ -5027,18 +5046,20 @@ static Gfx *watchDrawControlLabels(Gfx *gdl, s32 mode)
 	s32 movesight = 0;
 	s32 y;
 
-	if (mode < 0 || mode >= 8) {
+	if (mode == CONTROLMODE_PC) {
+		cs = g_PcControlStyle;
+	} else if (mode >= 0 && mode < 8) {
+		cs = g_ControlStyles[mode];
+	} else {
 		return gdl;
 	}
 
-	cs = g_ControlStyles[mode];
-
-	gdl = watchLabel(gdl, 0x32, OPTLABELS_ROW1_Y, watchString(cs[CS_L]), COL_LIST, joyGetButtons(0, L_TRIG) != 0, 0);
+	gdl = watchLabel(gdl, 0x32, OPTLABELS_ROW1_Y, watchStyleWord(cs[CS_L]), COL_LIST, joyGetButtons(0, L_TRIG) != 0, 0);
 	movesight |= joyGetButtons(0, L_TRIG) && cs[CS_L] == STR_AIM;
 
 	y = OPTLABELS_ROW2_Y;
 
-	if (holding && joyGetButtons(0, U_JPAD | D_JPAD | L_JPAD | R_JPAD)) {
+	if (holding && cs[CS_DPAD] != STR_WEAPON && joyGetButtons(0, U_JPAD | D_JPAD | L_JPAD | R_JPAD)) {
 		const char *text;
 
 		if (joyGetButtons(0, U_JPAD)) {
@@ -5053,17 +5074,17 @@ static Gfx *watchDrawControlLabels(Gfx *gdl, s32 mode)
 
 		gdl = watchLabel(gdl, 0x32, y, text, COL_LIST, 1, 0);
 	} else {
-		gdl = watchLabel(gdl, 0x32, y, watchString(cs[CS_DPAD]), COL_LIST, 0, 0);
+		gdl = watchLabel(gdl, 0x32, y, watchStyleWord(cs[CS_DPAD]), COL_LIST, 0, 0);
 	}
 
 	y += OPTLABELS_ROW_PITCH;
-	gdl = watchLabel(gdl, 0x32, y, watchString(cs[CS_START]), COL_LIST, 0, 0);
+	gdl = watchLabel(gdl, 0x32, y, watchStyleWord(cs[CS_START]), COL_LIST, 0, 0);
 	y += OPTLABELS_ROW_PITCH;
-	gdl = watchLabel(gdl, 0x32, y, watchString(cs[CS_Z]), COL_LIST, joyGetButtons(0, Z_TRIG) != 0, 0);
+	gdl = watchLabel(gdl, 0x32, y, watchStyleWord(cs[CS_Z]), COL_LIST, joyGetButtons(0, Z_TRIG) != 0, 0);
 	movesight |= joyGetButtons(0, Z_TRIG) && cs[CS_Z] == STR_AIM;
 
 	y = OPTLABELS_ROW1_Y;
-	gdl = watchLabel(gdl, 0x10e, y, watchString(cs[CS_R]), COL_LIST, joyGetButtons(0, R_TRIG) != 0, 2);
+	gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_R]), COL_LIST, joyGetButtons(0, R_TRIG) != 0, 2);
 	movesight |= joyGetButtons(0, R_TRIG) && cs[CS_R] == STR_AIM;
 	y += OPTLABELS_ROW_PITCH;
 
@@ -5085,19 +5106,19 @@ static Gfx *watchDrawControlLabels(Gfx *gdl, s32 mode)
 
 			gdl = watchLabel(gdl, 0x10e, y, text, COL_LIST, 1, 2);
 		} else {
-			gdl = watchLabel(gdl, 0x10e, y, watchString(cs[CS_C]), COL_LIST, 0, 2);
+			gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_C]), COL_LIST, 0, 2);
 		}
 	}
 
 	y += OPTLABELS_ROW_PITCH;
-	gdl = watchLabel(gdl, 0x10e, y, watchString(cs[CS_B]), COL_LIST, joyGetButtons(0, B_BUTTON) != 0, 2);
+	gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_B]), COL_LIST, joyGetButtons(0, B_BUTTON) != 0, 2);
 	y += OPTLABELS_ROW_PITCH;
-	gdl = watchLabel(gdl, 0x10e, y, watchString(cs[CS_A]), COL_LIST, joyGetButtons(0, A_BUTTON) != 0, 2);
+	gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_A]), COL_LIST, joyGetButtons(0, A_BUTTON) != 0, 2);
 
 	if (movesight) {
 		gdl = watchLabel(gdl, 0xfa, OPTLABELS_HINT_Y, watchString(STR_MOVESIGHT), COL_LIST, 1, 2);
 	} else {
-		gdl = watchLabel(gdl, 0xfa, OPTLABELS_HINT_Y, watchString(cs[CS_STICK]), COL_LIST, 0, 2);
+		gdl = watchLabel(gdl, 0xfa, OPTLABELS_HINT_Y, watchStyleWord(cs[CS_STICK]), COL_LIST, 0, 2);
 	}
 
 	return gdl;
