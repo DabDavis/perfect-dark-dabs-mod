@@ -12190,3 +12190,24 @@ units under the hit, else -1 (default) - when the SETTIMG is an HD tile
 (gebeanStageIsTile()). Dam, same four aims: all 19 bg hits read the same
 texture in HD as in the N64 look (2720 dirt, 949 rock), holes by type identical.
 Probe `~/wt/f3-0927-holes-run/holetex2.py`.
+
+## 13th F3 pass, Statue Park in HD (2026-09-27, fix/f3-0927b-statue)
+
+- **N64 sky with the Community Edition on (20260927-072125).** `gebeansky.c`'s `skyNames[]` was written before
+  Statue Park had HD rooms (1ee0e711f), so `stat` had no row. The CE ships `new/skydome/statuepark`, a grey storm of
+  its own (not the release's placeholder), and now draws there with the CE on only. Without the CE Statue Park keeps
+  GoldenEye's orange night sky on purpose, like every level except Surface. No `ceHorizons[]` entry: the CE's own fog
+  row is used and the dark treeline against the dome has no seam.
+- **Translucent sheets, a red streak, thin lines and a white sprite in the sky (072208, 072246, 072438).** These
+  were not reproduced on HEAD or on the report's own build (705725a27, `~/wt/merge0926e`), at the report cameras,
+  under GL and Vulkan (Xvfb with `MESA_VK_WSI_DEBUG=sw`; offscreen cannot make a Vulkan window). The runs covered
+  the player's own fire held on the trigger (a gdb breakpoint on `bgunTickGameplay` that sets `$rdi = 1`), 60
+  `shotCreate()`s around each view, three guards moved next to the player with `chrMoveToPos()` and told to
+  `chrAttackStand(chr, 1, 0)`, and the spawner on (GuardsAlerted). Each report was filed with guards in combat close
+  by (act 8-10 in the trace's chr list). Most likely cause: guards' tracer beams passing a few units from the eye
+  (`beamRender()` quads 6 units wide, which fill the screen at that range; the Moonraker's beam is red), plus
+  the wall marks that 924b5d719/0bc256cad have reworked since. Rig: `~/wt/f3-0927b-statue-run` (`view.sh`/`view.py`
+  VIEWS=x,y,z,theta,verta,rooms with FIRE= and HOLD=, `gf.sh`/`guardfire.py` for guards, `viewx.sh` for Vulkan).
+- **HD characters not lit by the level (072037)** is the known parked item: the release sets its shader light to
+  ambient 1 and never turns it on ("The release's lighting", above), and project-list.md holds real lighting as a
+  future project.
