@@ -4362,6 +4362,11 @@ void bgunTickGunLoad(void)
 		// out alike, so a change of character kept the first hands' sleeve
 		// in the N64 look (Mr Blonde's white cuff drawn in the CIA's tan,
 		// F3 20260926-204323). What was cached for the pool is let go.
+		// Only the pool's own: this let go of the level's textures too while
+		// remaining was read 64 bits wide (see gunctrl.loadmemremaining), and
+		// a GoldenEye level's own art then counted as the ROM's, so the
+		// release's Perfect Dark pictures for those numbers went over it -
+		// faces in Streets' windows in the N64 look.
 		videoFreeCachedTextures((u8 *)end, (u8 *)end + remaining);
 #endif
 
@@ -4671,7 +4676,7 @@ void bgunTickMasterLoad(void)
 									player->gunctrl.loadfilenum = handfilenum;
 									player->gunctrl.loadtomodeldef = &player->gunctrl.handmodeldef;
 									player->gunctrl.loadmemptr = (uintptr_t *) &player->gunctrl.handmemloadptr;
-									player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.handmemloadremaining;
+									player->gunctrl.loadmemremaining = (u32 *) &player->gunctrl.handmemloadremaining;
 								}
 
 								bgunTickGunLoad();
@@ -4699,7 +4704,7 @@ void bgunTickMasterLoad(void)
 							player->gunctrl.loadfilenum = filenum;
 							player->gunctrl.loadtomodeldef = &player->gunctrl.gunmodeldef;
 							player->gunctrl.loadmemptr = (uintptr_t*) &player->gunctrl.memloadptr;
-							player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.memloadremaining;
+							player->gunctrl.loadmemremaining = (u32 *) &player->gunctrl.memloadremaining;
 						}
 
 						bgunTickGunLoad();
@@ -4726,7 +4731,7 @@ void bgunTickMasterLoad(void)
 							player->gunctrl.loadfilenum = weaponGetFileNum(player->gunctrl.leftweaponnum);
 							player->gunctrl.loadtomodeldef = &player->gunctrl.leftgunmodeldef;
 							player->gunctrl.loadmemptr = (uintptr_t*) &player->gunctrl.memloadptr;
-							player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.memloadremaining;
+							player->gunctrl.loadmemremaining = (u32 *) &player->gunctrl.memloadremaining;
 						}
 
 						bgunTickGunLoad();
@@ -4769,7 +4774,7 @@ void bgunTickMasterLoad(void)
 											player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
 											player->gunctrl.loadtomodeldef = &player->gunctrl.cartmodeldef;
 											player->gunctrl.loadmemptr = (uintptr_t *) &player->gunctrl.memloadptr;
-											player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.memloadremaining;
+											player->gunctrl.loadmemremaining = (u32 *) &player->gunctrl.memloadremaining;
 											break;
 										}
 
@@ -4802,7 +4807,7 @@ void bgunTickMasterLoad(void)
 									player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
 									player->gunctrl.loadtomodeldef = &player->gunctrl.leftcartmodeldef;
 									player->gunctrl.loadmemptr = (uintptr_t *) &player->gunctrl.memloadptr;
-									player->gunctrl.loadmemremaining = (uintptr_t*) &player->gunctrl.memloadremaining;
+									player->gunctrl.loadmemremaining = (u32 *) &player->gunctrl.memloadremaining;
 								}
 							}
 						}

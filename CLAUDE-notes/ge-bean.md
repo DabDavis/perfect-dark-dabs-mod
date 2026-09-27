@@ -12190,3 +12190,44 @@ units under the hit, else -1 (default) - when the SETTIMG is an HD tile
 (gebeanStageIsTile()). Dam, same four aims: all 19 bg hits read the same
 texture in HD as in the N64 look (2720 dirt, 949 rock), holes by type identical.
 Probe `~/wt/f3-0927-holes-run/holetex2.py`.
+
+## Faces in Streets' windows: the gun load let go of the level's texture ids (2026-09-27, 13th F3 pass)
+
+Found in the 13th F3 pass (another agent's HD-props run, N64 look): Streets'
+street blocks (`Pgx320Z`-`Pgx324Z`) wore a woman's face in every window panel,
+kerbs had red and white stripes. It was not a texture-number clash in the
+conversion - GoldenEye's window (`textures/05ec.bin`, dumped with
+`--dump-texture 0x5ec`) is the right picture. The face is **the Perfect Dark
+XBLA release's record 1516**, drawn over it by `gfx_pc.cpp`'s numbered branch
+(`xblaTexLoadNumbered()`), which is only asked when `texpackTextureArt(addr)`
+says ROM.
+
+The texture had been registered as the stage's own art (`TEXPACK_ART_MODSTAGE`,
+bgReset) and then forgotten: `bgunTickGunLoad()` calls
+`videoFreeCachedTextures(end, end + remaining)` (4eafe71dd, 2026-09-27, the
+hands' sleeve fix) and `remaining` was **petabytes**, because
+`gunctrl.loadmemremaining` was a `uintptr_t *` pointing at the 32-bit
+`memloadremaining` - a 64-bit read took `masterloadstate`, `gunloadstate` and
+`loadfilenum` as the high half (an upstream port type; harmless until something
+used the full width). So the first gun load of a level let go of every texture
+id above gunmem, and each of those drew as the ROM's from then on: on a
+converted level (or any Stage Loader map) that is the release's Perfect Dark
+picture for the number, and a mod stage's own pack was lost the same way.
+
+Fix: `loadmemremaining` is a `u32 *` (types.h, the five casts in bondgun.c).
+`loadsize > remaining` in the same function now clamps as the N64's did, too.
+
+**Regression:** from 4eafe71dd; the tester build 705725a27 has it (Streets
+faces reproduced on it, Egyptian 33 numbered stand-ins).
+
+**Measured** (`numbered.py`: breakpoint on `xblaTexLoadNumbered`, renderer
+cache dropped at frame 120, spawn view to 240; N64 look with the PD release's
+textures on): distinct GoldenEye numbers drawn as Perfect Dark art, HEAD -> fix -
+Dam 8->0, Facility 0x5e 4->0, 0x5f 13->0, Streets 25->0, 0x64 8->0, 0x65 7->0,
+0x67 5->0, 0x68 5->0, 0x6b 9->0, Frigate 14->0, 0x6d 5->0, 0x6e 7->0, 0x6f 2->0,
+Egyptian 33->0 (its floor and walls wore the Institute's); six levels showed none
+from the spawn. The one left on some levels, 0xc, is Perfect Dark's own. The
+oracle (`~/dam-oracle/gestreets.py` on 10.8.0.3, Streets swapped in at
+`bossSetLoadedStage`) has dark panes with frames, as the fix. Rig and shots:
+`~/wt/f3-0927b-streets-run` (`cmp_pete_headfix.png`, `cmp_levels_headfix.png`,
+`oracle_streets.png`), tester build in `~/wt/f3-0927b-streets-run705`.
