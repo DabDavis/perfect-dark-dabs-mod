@@ -51,6 +51,7 @@
 #include "lib/anim.h"
 #include "lib/lib_317f0.h"
 #include "data.h"
+#include "geimpact.h"
 #include "types.h"
 #include <string.h>
 
@@ -975,6 +976,15 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 						// Use bulletproof glass hit textures instead
 						texnum += 10;
 					}
+
+#ifndef PLATFORM_N64
+					// GoldenEye's own on its levels (geimpact.c); none is 0 here
+					if (geImpactActive()) {
+						texnum = geImpactTexnum(sp694.texturenum >= 0 && sp694.texturenum < NUM_TEXTURES
+								? g_Textures[sp694.texturenum].surfacetype : SURFACETYPE_DEFAULT, texnum);
+						texnum = texnum < 0 ? 0 : texnum;
+					}
+#endif
 
 					if (texnum) {
 						wallhitCreate(&sp694.pos, &sp694.unk0c, &shotdata.gunpos3d, 0, 0, texnum, room, 0, -1, 0, g_Vars.currentplayer->prop->chr, sp694.unk2c == 2);

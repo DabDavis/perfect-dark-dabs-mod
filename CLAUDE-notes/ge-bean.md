@@ -12131,3 +12131,62 @@ Not on GoldenEye Levels, default On) gates every brightening
   eight harmless ticks) is the fix: with it the helicopter stays level 1 / damage 0 and stands blackened and
   crumpled where it was, as the oracle's does (wreck_oracle_before_after.png: oracle, before, after; the oracle
   view is from the other side of pad 24).
+
+### GoldenEye's own bullet holes (2026-09-27, F3 003252 follow-up)
+
+User's call: GE Plus leaves GoldenEye's bullet holes, not Perfect Dark's. PD's
+wallhit tables *are* GoldenEye's impact tables renumbered (g_WallhitTexes =
+explosion.c's g_ImpactTypes, g_TcWallhitConfigs = oddtextures.c's
+s_impactimages) with PD's own art, so `port/src/geimpact.c` puts GoldenEye's
+twenty impact types in as wallhit texture numbers 0x12..0x25
+(WALLHITTEX_GE_FIRST) and wallhit.c reads size/colouring/config through
+wallhitTexWidth/Height/Type/Config(). The four pick sites (prop.c bg hit, chr.c
+gun and hat, propobj.c objects) pass PD's pick through geImpactTexnum(surface,
+pdtex), which on a converted level picks from tex.c's g_HitTypeSounds[surface]
+lists (default/metal {7}, stone/wood/snow/tile {1}, dirt/mud/chr {2}, glass
+{4,5,6}, metal object {1,7}, glass xlu {0x11..0x13}, water none -> -1, no hole).
+GoldenEye holes are its own size (no PD 0.6-0.7 random scale) and never turned.
+
+Images: GoldenEye image ids by images.def order (NOT image_externs.h's enum,
+which has gaps): IMPACTLOTS 206, REDBRICK1/3 1475/1476, BROWNBRICK1/2 1478/1479,
+IMPACT1..4 2168..2171, IMPACTMULTI 2172, REDBRICK2 2173, BRICK2/3 2174/2175.
+The converter writes all 13 into textures/ (geconvert.c g_GeImpactImages,
+geconvert.py IMPACT_IMAGES; converter bump at merge); geImpactStageStart()
+turns GoldenEye's holes on only when all 13 are there, so an older conversion
+keeps PD's. HD look: the Bean release has all 13 as
+`files/texture/bulletholes/<decomp name>/default.rba` (windowhit, bullethit,
+wallhit, bulletholesplaster, bullethole, bulletholesplasterrgb, wallhole1-3,
+6-9), bound with xblaTexBindPictureAt() at the loaded texture's address
+(re-bound when F6 flips the look).
+
+Checked on Dam against the oracle (`~/dam-oracle/geholes2.py` + `holes.padscript`
+on 10.8.0.3, `TH=<deg> VA=<deg>`; ours `~/wt/f3-0927-holes-run/holes2.py`, same
+absolute vv_theta/vv_verta - both games start at theta 90.3 facing the truck):
+every aim takes the same texture and impact type in both (rock 949 -> type 7,
+dirt 2720 -> type 2, the corrugated shutter is a door, model 178 pad 19 in GE,
+-> objHit type 7). Loaded IMPACT4 (2171): CI8 + IA16 palette, 218 entries,
+byte-identical in both games; combiner MODULATEIA and XLU decal render mode the
+same; hole maxima 164 (GE) vs 156 (ours); a single hole 1.8% vs 2.0% of the
+screen's height at 285 units. Sheet `~/wt/f3-0927-holes-run/holes_oracle_base_n64_hd_v2.png`
+(oracle | 705725a27 | N64 | HD), single hole `one_cmp.png`.
+
+Probe traps, both of which made a first sheet look wrong:
+- the oracle's pad-script frame numbers are not `currentFrameCounter`: setting
+  the aim at "the frame of the Z press" aimed a different shot. Hold the aim on
+  every `lvlRender` (a breakpoint whose stop() sets vv_theta/vv_verta).
+- ours: `call shotCreate()` from gdb at videoEndFrame hits the bg but misses
+  every prop (modelTestForHit on stale matrices), so doors took no holes.
+  Fire through the game instead: a breakpoint on bgunTickGameplay setting
+  `$rdi` (the trigger) and holding the aim there.
+
+**HD rooms' hit texture (2026-09-27, W vs L).** An HD room's list loads Bean's
+pictures from stand-in tiles, so bg.c's "the s16 before the G_SETTIMG's image"
+read arbitrary bytes there (Dam: 2065 on Linux, 129 on Windows) and the hole
+type differed per build. gebeanstage.c now keeps each shell triangle's texture
+number (the last 0xc0 of its leaf, the one the N64 hit reads, `eachTex` in
+fileRoomTrianglesEach()), and bgTestHitInVtxBatch() asks
+gebeanStageHitTexture(room, hit point) - GoldenEye's opaque triangle within 8
+units under the hit, else -1 (default) - when the SETTIMG is an HD tile
+(gebeanStageIsTile()). Dam, same four aims: all 19 bg hits read the same
+texture in HD as in the N64 look (2720 dirt, 949 rock), holes by type identical.
+Probe `~/wt/f3-0927-holes-run/holetex2.py`.

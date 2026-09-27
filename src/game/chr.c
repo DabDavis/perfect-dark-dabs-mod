@@ -48,6 +48,7 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "gbiex.h"
+#include "geimpact.h"
 #include "types.h"
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
@@ -5580,7 +5581,7 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 								&shotdata->gunpos3d,
 								0,
 								0,
-								type->wallhittexes[index],
+								geImpactTexnum(surfacetype, type->wallhittexes[index]),
 								1,
 								hit->prop,
 								hit->mtxindex,
@@ -5616,7 +5617,9 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 						&shotdata->gunpos3d,
 						0,
 						0,
-						type->wallhittexes[index],
+						geImpactTexnum(hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES
+								? SURFACETYPE_DEFAULT : g_Textures[hit->hitthing.texturenum].surfacetype,
+								type->wallhittexes[index]),
 						1,
 						chr->weapons_held[2],
 						hit->mtxindex,

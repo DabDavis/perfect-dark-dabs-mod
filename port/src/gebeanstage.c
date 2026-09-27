@@ -459,6 +459,9 @@ static u8 *readRoom(s32 r, u32 *outLen)
  * them: each leaf's G_VTX loads up to 16 of the leaf's vertices, each G_TRI4
  * draws up to four of them.
  */
+// The texture number of the triangle fileRoomTrianglesEach() is handing over
+static s32 eachTex = -1;
+
 static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 		void (*fn)(void *arg, const f32 v[3][3], s32 room), void *arg)
 {
@@ -496,6 +499,10 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 				}
 			} else if (gdl && gdl - base < len && vtx - base < len) {
 				f32 loaded[16][3];
+
+				// the texture GoldenEye's hit test reads for the triangles
+				// that follow: the last one the leaf's own list loads
+				eachTex = -1;
 				// Whether the leaf's render mode is one bg.c's fog swap
 				// (g_GfxGroup01/05) leaves alone: cycle 1 neither G_RM_PASS,
 				// which the swap turns to fog, nor fog already. GoldenEye draws
@@ -509,6 +516,8 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 						twosided = 1;
 					} else if (op == (u8)G_SETGEOMETRYMODE && (be32(raw + c + 4) & G_CULL_BACK)) {
 						twosided = 0;
+					} else if (op == 0xc0) {
+						eachTex = be32(raw + c + 4) & 0xfff;
 					} else if (op == (u8)G_SETOTHERMODE_L && be32(raw + c) == 0xb900031d) {
 						const u32 c1 = be32(raw + c + 4) & 0xcccc0000;
 
@@ -607,6 +616,7 @@ static void fileRoomTriangles(struct tgrid *g, s32 r, const u8 *raw, u32 len)
 static f32 *shellTri;
 static u8 *shellTwo;  // per triangle: GoldenEye draws it unculled, so it has no back
 static s32 shellNumTwo;
+static s16 *shellTex;  // each one's texture number, for gebeanStageHitTexture()
 static s32 shellNum;
 static s32 shellCap;
 static s32 *shellFirst;
@@ -624,6 +634,7 @@ static void fileTriToShell(void *arg, const f32 v[3][3], s32 room)
 		const s32 cap = shellCap ? shellCap * 2 : 16384;
 		f32 *t = realloc(shellTri, sizeof(f32) * 9 * cap);
 		u8 *two;
+		s16 *tex;
 
 		if (!t) {
 			return;
@@ -637,12 +648,21 @@ static void fileTriToShell(void *arg, const f32 v[3][3], s32 room)
 		}
 
 		shellTwo = two;
+
+		tex = realloc(shellTex, sizeof(s16) * cap);
+
+		if (!tex) {
+			return;
+		}
+
+		shellTex = tex;
 		shellCap = cap;
 	}
 
 	memcpy(shellTri + shellNum * 9, v, sizeof(f32) * 9);
 	shellTwo[shellNum] = (room >> 17) & 1;
 	shellNumTwo += shellTwo[shellNum];
+	shellTex[shellNum] = (s16)eachTex;
 	shellNum++;
 }
 
@@ -665,6 +685,8 @@ static void shellForget(void)
 {
 	free(shellTri);
 	free(shellTwo);
+	free(shellTex);
+	shellTex = NULL;
 	free(shellFirst);
 	free(shellCount);
 	shellTri = NULL;
@@ -4363,6 +4385,97 @@ s32 gebeanStageTilePassesShots(uintptr_t tile)
 	return 0;
 }
 
+s32 gebeanStageIsTile(uintptr_t tile)
+{
+	if (!built || !tile) {
+		return 0;
+	}
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		if ((uintptr_t)texTile[t] == tile) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * The texture number of GoldenEye's own triangle a shot at pos in room hit.
+ *
+ * An HD room is Bean's mesh, whose lists load the release's pictures from
+ * stand-in tiles, so what a hit reads before a G_SETTIMG's image (bg.c) is
+ * whatever bytes precede the tile - different from one build to the next
+ * (F3 12th pass, W vs L). GoldenEye's room is still here (the shell), so the
+ * hit takes the texture of its opaque triangle nearest the point, the one the
+ * N64 look's hit reads: -1 (default) when none is within a few units.
+ */
+s32 gebeanStageHitTexture(s32 room, const struct coord *pos)
+{
+	const f32 p[3] = { pos->x, pos->y, pos->z };
+	f32 best = 8.0f * 8.0f;
+	s32 tex = -1;
+
+	if (!built || !shellTri || !shellTex || !shellFirst || !shellCount || room <= 0 || room >= numRooms) {
+		return -1;
+	}
+
+	for (s32 i = shellFirst[room]; i < shellFirst[room] + shellCount[room]; i++) {
+		const f32 *v = shellTri + i * 9;
+		f32 e1[3], e2[3], n[3], d[3], q[3];
+		f32 len, dist, u, w, d00, d01, d11, d20, d21, den;
+
+		for (s32 k = 0; k < 3; k++) {
+			e1[k] = v[3 + k] - v[k];
+			e2[k] = v[6 + k] - v[k];
+			d[k] = p[k] - v[k];
+		}
+
+		n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+		n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+		n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+		len = sqrtf(dot3(n, n));
+
+		if (len < 1e-6f) {
+			continue;
+		}
+
+		dist = dot3(d, n) / len;
+
+		if (dist * dist >= best) {
+			continue;
+		}
+
+		// inside the triangle once projected onto its plane (barycentric)
+		for (s32 k = 0; k < 3; k++) {
+			q[k] = d[k] - n[k] / len * dist;
+		}
+
+		d00 = dot3(e1, e1);
+		d01 = dot3(e1, e2);
+		d11 = dot3(e2, e2);
+		d20 = dot3(q, e1);
+		d21 = dot3(q, e2);
+		den = d00 * d11 - d01 * d01;
+
+		if (den == 0.0f) {
+			continue;
+		}
+
+		u = (d11 * d20 - d01 * d21) / den;
+		w = (d00 * d21 - d01 * d20) / den;
+
+		if (u < -0.01f || w < -0.01f || u + w > 1.01f) {
+			continue;
+		}
+
+		best = dist * dist;
+		tex = shellTex[i];
+	}
+
+	return tex;
+}
+
 void gebeanStageTrace(FILE *f)
 {
 	fprintf(f, "gebeanstage: tried %d built %d level %s scale %.5f, %d of %d rooms served, %d of the file's not drawn\n",
@@ -4390,6 +4503,8 @@ s32 gebeanStageOwnsRecord(u32 record) { return 0; }
 const void *gebeanStageTile(u32 record) { return NULL; }
 s32 gebeanStageRecordIsWater(u32 record) { return 0; }
 s32 gebeanStageTilePassesShots(uintptr_t tile) { return 0; }
+s32 gebeanStageIsTile(uintptr_t tile) { return 0; }
+s32 gebeanStageHitTexture(s32 room, const struct coord *pos) { return -1; }
 void gebeanStageTrace(FILE *f) { }
 Gfx *gebeanStageRenderBackdrop(Gfx *gdl) { return gdl; }
 void gebeanStageTickFar(void) { }
