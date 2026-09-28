@@ -52,6 +52,13 @@ void gexFrontSetLockedProgression(s32 on);
 s32 gexFrontOpenAfterMission(void);
 // The folder on the mission grid with `mission` under the cursor
 s32 gexFrontOpenAtMission(s32 mission);
+// After GoldenEye's credits and the long cast reel: the grid on the Cradle, or
+// the Cradle's Cinema page where the credits were picked there
+s32 gexFrontOpenAfterCredits(void);
+// Whether the credits playing were picked on the Cinema page
+s32 gexFrontCreditsAreCinema(void);
+// The Cinema page's credits, left early: back to the page with no cast reel
+void gexFrontLeaveCredits(void);
 void gexFrontTick(void);
 Gfx *gexFrontRender(Gfx *gdl);
 

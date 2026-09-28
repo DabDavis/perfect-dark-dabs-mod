@@ -55,6 +55,10 @@
 #include "gecredits.h"
 #include "geroom.h"
 #include "gexfront.h"
+#include "input.h"
+#include "lib/joy.h"
+#include "game/options.h"
+#include "trace.h"
 
 // GoldenEye's frame the roll is laid out on, and its line
 #define CREDITS_W       440
@@ -93,6 +97,8 @@ static struct {
 
 	s32 state;       // GoldenEye's credits_state: 0, 1 rolling, 2 over
 	f32 frame;       // camera_80036438
+
+	f32 age60;       // since the stage started, for the Cinema page's leave
 } g_Credits;
 
 static u16 be16(const u8 *p)
@@ -260,6 +266,27 @@ void gecreditsTick(void)
 {
 	if (g_Credits.on && g_Credits.state == 1) {
 		g_Credits.frame += g_Vars.lvupdate60freal * CREDITS_PER_60;
+	}
+
+	// Picked on the Cinema page they are one of its cinemas, which the button
+	// that backs out of a page of the folder leaves (gecinema.c's
+	// gecinemaLeavePressed()); after the Cradle they are GoldenEye's, which
+	// nothing skips. A sixth of a second first, so that the pick that started
+	// them is not read as a press in them.
+	if (g_Credits.on && gexFrontCreditsAreCinema() && !traceReportHoldsInput()) {
+		g_Credits.age60 += g_Vars.diffframe60f;
+
+		if (g_Credits.age60 > 10.0f) {
+			const s8 contpad = optionsGetContpadNum1(g_Vars.currentplayerstats
+					? g_Vars.currentplayerstats->mpindex : 0);
+			// the two UI buttons and the keyboard belong to the first pad
+			const u32 ui = contpad == 0 ? ~0u : ~(u32)BUTTON_UI_CANCEL;
+
+			if (joyGetButtonsPressedThisFrame(contpad, (B_BUTTON | BUTTON_UI_CANCEL) & ui)
+					|| inputKeyPressedThisFrame(VK_ESCAPE)) {
+				gexFrontLeaveCredits();
+			}
+		}
 	}
 }
 

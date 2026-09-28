@@ -438,7 +438,7 @@ static struct {
 	s32 charsize[MAX_PLAYERS];    // how far a chosen portrait has grown, to 11
 	s32 charpicked;               // player 1 chose on the Characters page this session
 
-	s32 cinemawhat;     // the cinema last picked for a mission: its opening or its ending
+	s32 cinemawhat;     // the cinema last picked for a mission: its opening, its ending or the Cradle's credits
 	s32 monitor;        // the Monitor Programmes page: the programme showing
 	s32 nummonitors;    // and how many the conversion has
 	struct tvscreen monitorscreen;   // the screen the big view runs on
@@ -1872,8 +1872,10 @@ static void frontStartMission(void)
  */
 // 1 while the credits run, 2 once they are over and the long cast reel is owed
 static s32 g_FrontCredits;
+// and they were picked on the Cinema page, which they go back to
+static s32 g_FrontCreditsCinema;
 
-static s32 frontStartCredits(void)
+static s32 frontStartCredits(s32 cinema)
 {
 	union handlerdata data;
 	const s32 stagenum = modloaderMissionStage(GEMISSION_CUBA);
@@ -1887,14 +1889,17 @@ static s32 frontStartCredits(void)
 	g_MissionConfig.iscoop = false;
 	g_MissionConfig.isanti = false;
 	g_MissionConfig.pdmode = false;
-	g_MissionConfig.difficulty = g_Front.difficulty == DIFFICULTY_007 ? DIFF_PA : g_Front.difficulty;
+	g_MissionConfig.difficulty = cinema ? DIFF_A
+		: g_Front.difficulty == DIFFICULTY_007 ? DIFF_PA : g_Front.difficulty;
 
 	g_FrontCredits = 1;
+	g_FrontCreditsCinema = cinema;
 	g_Front.active = 0;
 	frontFreeBriefing();
 	frontUnload();
 
-	sysLogPrintf(LOG_NOTE, "gexfront: the Cradle is done, GoldenEye's credits on stage 0x%02x", stagenum);
+	sysLogPrintf(LOG_NOTE, "gexfront: %s, GoldenEye's credits on stage 0x%02x",
+			cinema ? "the Cinema page" : "the Cradle is done", stagenum);
 
 	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
 
@@ -2034,14 +2039,54 @@ static void frontOpenExtra(s32 row);
 #define EXTRA_CINEMA   0
 #define EXTRA_MONITORS 1
 
-#define NUM_CINEMA_ROWS 4
-#define CINEMA_LOOP     2   // the third row is no cinema but the Loop switch for the Intro
-#define CINEMA_TIME     3   // and the fourth Loop All's minutes a level: the left half of it less, the right more
+// What a row of the Cinema's second page is: GECINEMA_OPENING and
+// GECINEMA_ENDING, then these
+#define CINEMA_LOOP     2   // no cinema but the Loop switch for the Intro
+#define CINEMA_TIME     3   // Loop All's minutes a level: the left half of it less, the right more
+#define CINEMA_CREDITS  4   // the Cradle's alone: GoldenEye's credits (Cuba) and the long cast reel
+#define MAX_CINEMA_ROWS 5
+
+/**
+ * The page's rows, top to bottom. The Cradle's has the credits under its
+ * Outro, as GoldenEye plays them after its ending, where the conversion has
+ * made Cuba a stage.
+ */
+static s32 frontCinemaRows(s32 *rows)
+{
+	s32 n = 0;
+
+	rows[n++] = GECINEMA_OPENING;
+	rows[n++] = GECINEMA_ENDING;
+
+	if (g_Front.mission == GEMISSION_CRADLE && modloaderMissionStage(GEMISSION_CUBA)) {
+		rows[n++] = CINEMA_CREDITS;
+	}
+
+	rows[n++] = CINEMA_LOOP;
+	rows[n++] = CINEMA_TIME;
+
+	return n;
+}
+
+// The row a kind of row is on, and 0 where the page has none
+static s32 frontCinemaRowOf(s32 what)
+{
+	s32 rows[MAX_CINEMA_ROWS];
+	const s32 n = frontCinemaRows(rows);
+
+	for (s32 i = 0; i < n; i++) {
+		if (rows[i] == what) {
+			return i;
+		}
+	}
+
+	return 0;
+}
 
 static void frontSetCursorForCinemaPick(s32 what)
 {
 	g_Front.cursorx = 106.0f;
-	g_Front.cursory = what * 0x1e + 0xba;
+	g_Front.cursory = frontCinemaRowOf(what) * 0x1e + 0xba;
 }
 
 static void frontOpenCinema(void)
@@ -2377,12 +2422,30 @@ static void frontTickMonitorView(s32 pick, s32 back)
 
 }
 
-/** The opening or the ending: the difficulty page's rows and its thresholds. */
+/**
+ * The opening or the ending: the difficulty page's rows and its thresholds -
+ * and the Cradle's fifth row, the credits, a row further down on the same
+ * pitch. g_Front.highlight is the kind of row under the cursor.
+ */
 static void frontTickCinemaPick(s32 pick, s32 back)
 {
 	if (!g_Front.tabprev) {
-		g_Front.highlight = g_Front.cursory >= 275 ? CINEMA_TIME : g_Front.cursory >= 243 ? CINEMA_LOOP
-			: g_Front.cursory >= 211 ? GECINEMA_ENDING : GECINEMA_OPENING;
+		// the four rows' own thresholds, and five rows' on the same pitch
+		static const s32 tops4[] = { 0, 211, 243, 275 };
+		static const s32 tops5[] = { 0, 211, 241, 271, 301 };
+		s32 rows[MAX_CINEMA_ROWS];
+		const s32 n = frontCinemaRows(rows);
+		const s32 *tops = n > 4 ? tops5 : tops4;
+		s32 row = 0;
+
+		for (s32 i = n - 1; i > 0; i--) {
+			if (g_Front.cursory >= tops[i]) {
+				row = i;
+				break;
+			}
+		}
+
+		g_Front.highlight = rows[row];
 	}
 
 	if (back || (pick && g_Front.tabprev)) {
@@ -2406,6 +2469,13 @@ static void frontTickCinemaPick(s32 pick, s32 back)
 		// Off, Level, All: a switch, and the page stays
 		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		gecinemaSetLoop((gecinemaGetLoop() + 1) % GECINEMA_NUM_LOOPS);
+		return;
+	}
+
+	if (pick && g_Front.highlight == CINEMA_CREDITS) {
+		frontSfx(GESFX_PAPER_TURN, MENUSOUND_SWIPE);
+		g_Front.cinemawhat = CINEMA_CREDITS;
+		frontStartCredits(1);
 		return;
 	}
 
@@ -2919,7 +2989,7 @@ static void frontTickReport(s32 pick, s32 back)
 	}
 
 	if (g_FrontReport.completed) {
-		if (g_Front.mission == GEMISSION_CRADLE && frontStartCredits()) {
+		if (g_Front.mission == GEMISSION_CRADLE && frontStartCredits(0)) {
 			return;
 		}
 
@@ -3386,7 +3456,13 @@ s32 gexFrontOpenAfterMission(void)
 			return 1;
 		}
 
-		return gexFrontOpenAtMission(GEMISSION_CRADLE);
+		return gexFrontOpenAfterCredits();
+	}
+
+	// the credits the Cinema page played, left before their end
+	if (g_FrontCreditsCinema) {
+		g_FrontCredits = 0;
+		return gexFrontOpenAfterCredits();
 	}
 
 	if (!gexFrontOpen()) {
@@ -3436,6 +3512,45 @@ s32 gexFrontOpenAtMission(s32 mission)
 	}
 
 	return 1;
+}
+
+/**
+ * The credits and the long cast reel are over: GoldenEye puts the player on
+ * the mission grid with the Cradle under the cursor, and the Cinema page's
+ * credits go back to the Cradle's page there, with the credits under it.
+ */
+s32 gexFrontOpenAfterCredits(void)
+{
+	if (g_FrontCreditsCinema) {
+		g_FrontCreditsCinema = 0;
+		g_Front.cinemawhat = CINEMA_CREDITS;
+		return gexFrontOpenAfterCinema(GEMISSION_CRADLE);
+	}
+
+	return gexFrontOpenAtMission(GEMISSION_CRADLE);
+}
+
+s32 gexFrontCreditsAreCinema(void)
+{
+	return g_FrontCreditsCinema;
+}
+
+/**
+ * The Cinema page's credits, left with the button that leaves any of its
+ * cinemas: straight back to the page, with no long cast reel after them.
+ */
+void gexFrontLeaveCredits(void)
+{
+	if (!g_FrontCreditsCinema || g_FrontWantMain) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gexfront: the Cinema page's credits left at frame %d", g_Vars.lvframenum);
+
+	g_FrontCredits = 0;
+	g_FrontReport.valid = 0;
+	g_FrontWantMain = 1;
+	gexFrontGoBack();
 }
 
 /**
@@ -5581,8 +5696,12 @@ static Gfx *frontDrawMonitors(Gfx *gdl)
  */
 static Gfx *frontDrawCinemaPick(Gfx *gdl)
 {
-	static const char *rows[NUM_CINEMA_ROWS] = { "Intro\n", "Outro\n", NULL, NULL };   // the user's names, in the case GoldenEye sets its difficulties in
+	// the user's names, in the case GoldenEye sets its difficulties in, by
+	// the kind of row
+	static const char *names[MAX_CINEMA_ROWS] = { "Intro\n", "Outro\n", NULL, NULL, "Credits\n" };
 	static const char *loops[GECINEMA_NUM_LOOPS] = { "Loop: Off\n", "Loop: Level\n", "Loop: All\n" };
+	s32 rows[MAX_CINEMA_ROWS];
+	const s32 n = frontCinemaRows(rows);
 
 	gdl = frontMissionHeader(gdl, false);
 	gdl = frontPrint(gdl, 0x37, 0x8f, "CINEMA:\n", COLOUR_ON);
@@ -5590,17 +5709,18 @@ static Gfx *frontDrawCinemaPick(Gfx *gdl)
 	if (g_Front.highlight >= 0) {
 		// the Time row's "- ... +" is the one wider than the difficulty page's rows
 		const s32 right = g_Front.highlight == CINEMA_TIME ? 0x10c : 0xf0;
+		const s32 row = frontCinemaRowOf(g_Front.highlight);
 
-		gdl = frontFillRect(gdl, 0x7e, g_Front.highlight * 0x1e + 0xb2, right, g_Front.highlight * 0x1e + 0xc3, COLOUR_HIGHLIGHT);
+		gdl = frontFillRect(gdl, 0x7e, row * 0x1e + 0xb2, right, row * 0x1e + 0xc3, COLOUR_HIGHLIGHT);
 		gdl = frontTextSetup(gdl);
 	}
 
-	for (s32 i = 0; i < NUM_CINEMA_ROWS; i++) {
+	for (s32 i = 0; i < n; i++) {
 		char num[8];
 		char time[24];
-		const char *text = i == CINEMA_LOOP ? loops[gecinemaGetLoop()] : rows[i];
+		const char *text = rows[i] == CINEMA_LOOP ? loops[gecinemaGetLoop()] : names[rows[i]];
 
-		if (i == CINEMA_TIME) {
+		if (rows[i] == CINEMA_TIME) {
 			snprintf(time, sizeof(time), "- Time: %d min +\n", gecinemaGetMinutes());
 			text = time;
 		}
