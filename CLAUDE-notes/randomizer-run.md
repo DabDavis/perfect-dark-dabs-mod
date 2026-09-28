@@ -50,10 +50,15 @@ Everything carries across a portal: health, shield, guns, ammunition. Each part
 goes back at the point the game already has for it, and the points are not the
 same one:
 
-- **the guns and the ammunition** inside `playerStartNewLife()`, after the
-  intro stream has handed out the map's own kit (the two add up, which is why
-  a run's inventory grows as it goes) — it cannot be earlier, because that
-  call runs `invClear()` on its way past for a solo player;
+- **the guns and the ammunition** inside `playerStartNewLife()`, where the
+  intro stream hands out the map's own kit — it cannot be earlier, because
+  that call runs `invClear()` on its way past for a solo player. The map's
+  kit is handed out **at the run's first landing only** (user, 2026-09-28:
+  "carry only what you pick up"): `modRunSkipsMapKit()` stops the intro's
+  weapon and ammo commands on every landing that has a carry, and a first
+  stage that gives no gun at all (an arena) starts the run with a Falcon 2 in
+  hand and 64 rounds (`modRunGiveStartingKit()`, which sets
+  `g_DefaultWeapons` before `playerSpawnWeapons()` reads it);
 - **the hands** from `playerSpawnWeapons()`, which is the override Mission
   Respawn uses and the only place a hand may be filled from — a gun in a hand
   is a model to load, and the load is a state machine that runs from the spawn;
@@ -486,8 +491,10 @@ three things read waypoints: the alarm's spawn, a guard's walk
 stands where it appeared), and the run's landing.
 
 `modAlarmBuildPadWaypoints()` (modalarm.c), called from `setupLoadFiles()`
-between `setupPreparePads()` and `setupLoadWaypoints()` while the alarm is
-on, builds one: a waypoint on every pad `modRandomPadCanSpawn()` passes, links
+between `setupPreparePads()` and `setupLoadWaypoints()` **during a Randomizer
+run only** (user, 2026-09-28: Guards Alerted matches and missions on the same
+maps must play as before - a Statue Park Guards Alerted boot builds none),
+builds one: a waypoint on every pad `modRandomPadCanSpawn()` passes, links
 to the nearest ten within 2500 units in the same or a neighbouring room that
 pass the `cdTestLos05` + `cdExamCylMove05` pair `waypointFindClosestToPos()`
 uses, and **one waygroup per connected piece with no group links** - the
@@ -536,9 +543,19 @@ while the new map's kit had taken the room. The logs show it: `portal out
 `MODRUN_MAXCARRY` (128) slots more (`invreset.c`), and the carry holds as
 many; a 337-hop autohop chain climbed to 64 guns and never dropped one.
 
-The map's own kit still adds to the carry at every landing (see "The kit goes
-back through the spawn") - that part of the report ("weapons appeared") is
-the design, not the bug.
+The other half of the report ("weapons appeared") was the map's own kit being
+added at every landing. By the user's call that is gone too: only the first
+landing hands out a kit (see "The kit goes back through the spawn"). A
+230-hop chain from Statue Park carried exactly its one Falcon 2 all the way.
+
+One unreproduced fault from that testing: the first 230-hop chain (seed
+1452969403, pool 2, `--run-autohop 150`) died at hop 231 in `lvReset()` ->
+`playerReset()` -> `cdFindGroundInfoAtCyl()` -> `cdCollectGeoForCyl()` ->
+`propIsOfCdType()` (SIGSEGV), loading MP Complex (0x1f) solo right after
+0x1a was skipped for starting the player dead. Replaying hop 230 from gdb and
+the same seed from the start (481 hops) both ran clean, so it depends on
+state built up over the chain; a prop list in a room the ground search walks
+is the place to look if it comes back.
 
 ## Whose guards: Maian heads and GoldenEye's own
 
@@ -553,6 +570,8 @@ the design, not the bug.
   stream so a PD map's seed deals what it always did; and
   `gebeanRandomHeadForBody()` gives each one a GoldenEye face. Checked on
   Statue Park: `alarm: guard body 200 head 238`, a jungle commando on screen.
+  With the XBLA release installed they are its HD soldiers, which the user
+  chose to keep (the "GE N64" filter set has almost no soldiers then).
 
 ## G5 robots rarely hit - stock
 
