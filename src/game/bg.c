@@ -3895,8 +3895,18 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 		}
 	}
 #endif
+#ifndef PLATFORM_N64
+	// The rooms' faces do not always meet: T-junctions all over the ROM's
+	// levels, and some a fraction of a unit off the edge they end on, which a
+	// high resolution shows as a line of whatever is behind (F3
+	// 20260928-012509, the Institute's walls: "blue sky lines appearing top
+	// and bottom of the wall"). The renderer grows each opaque face half a
+	// pixel along its own plane, which closes any crack narrower than that.
+	gSPSetExtraGeometryModeEXT(gdl++, G_SEAL_SEAMS_EXT);
+#endif
 	gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->opablocks, true);
 #ifndef PLATFORM_N64
+	gSPClearExtraGeometryModeEXT(gdl++, G_SEAL_SEAMS_EXT);
 	gdl = bgRenderChicagoPane(gdl, roomnum);
 	gdl = bgSpectateDepthBiasEnd(gdl, roomnum);
 	gdl = roomSheenStockEnd(gdl);

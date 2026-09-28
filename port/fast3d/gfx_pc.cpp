@@ -3108,6 +3108,141 @@ static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct Loaded
     return cross >= 0;
 }
 
+/*
+ * G_SEAL_SEAMS_EXT: a room's opaque faces grown on screen, so that faces which
+ * do not quite meet still cover the pixels between them.
+ *
+ * Perfect Dark's levels are full of T-junctions - a corner of one face lying
+ * on the edge of another rather than at its end - and on a wall square to no
+ * axis the corner's whole-unit position is up to a unit off that edge. The
+ * N64's 320x240 hid it; at 1080p it is a line of whatever lies behind: the
+ * Institute's walls, whose feet stand a fraction of a unit off the top of the
+ * reflection under the glass floor, drew a line of the sky's clear colour
+ * along the floor (F3 20260928-012509, "blue sky lines appearing top and
+ * bottom of the wall").
+ *
+ * Each edge is moved out by g_GfxSealSeams pixels (half of one: any crack
+ * narrower than a pixel is covered from both sides) and each corner goes to
+ * where its two moved edges meet, held to three times that at a sharp corner.
+ * The new corner is put back on the face's own plane - the point of the
+ * triangle, extended, that lands on that pixel - so its depth, texture
+ * coordinates and colour are the face's own there, perspective-correct: no
+ * texture shifts and no depth changes under a decal. Opaque faces only (a
+ * translucent one would blend twice where it overlaps its neighbour), never a
+ * decal, and only where every corner is in front of the eye.
+ */
+float g_GfxSealSeams = 0.5f; // pixels; 0 turns it off (gdb)
+
+static bool gfx_seal_seams(const struct LoadedVertex* const in[3], struct LoadedVertex out[3]) {
+    const float hw = rdp.viewport.width * 0.5f;
+    const float hh = rdp.viewport.height * 0.5f;
+    const float grow = g_GfxSealSeams;
+    float px[3], py[3], nx[3], ny[3];
+
+    for (int i = 0; i < 3; i++) {
+        if (!(in[i]->w > 1e-3f)) {
+            return false;
+        }
+        px[i] = in[i]->x / in[i]->w * hw;
+        py[i] = in[i]->y / in[i]->w * hh;
+    }
+
+    const float area2 = (px[1] - px[0]) * (py[2] - py[0]) - (py[1] - py[0]) * (px[2] - px[0]);
+
+    if (!(fabsf(area2) > 1e-4f)) {
+        return false;
+    }
+
+    const float sgn = area2 > 0 ? 1.0f : -1.0f;
+
+    // Edge i runs from corner i to corner i + 1; its outward normal is on its
+    // right with the corners anticlockwise
+    for (int i = 0; i < 3; i++) {
+        const int j = (i + 1) % 3;
+        const float dx = px[j] - px[i];
+        const float dy = py[j] - py[i];
+        const float len = sqrtf(dx * dx + dy * dy);
+
+        if (!(len > 1e-6f)) {
+            return false;
+        }
+
+        nx[i] = sgn * dy / len;
+        ny[i] = -sgn * dx / len;
+    }
+
+    for (int k = 0; k < 3; k++) {
+        const int a = (k + 2) % 3; // the edge that ends at corner k
+        const int b = k;           // and the one that starts there
+        const float denom = 1.0f + nx[a] * nx[b] + ny[a] * ny[b];
+        float mx = nx[a] + nx[b];
+        float my = ny[a] + ny[b];
+        const float scale = grow / (denom > 0.05f ? denom : 0.05f);
+
+        mx *= scale;
+        my *= scale;
+
+        const float mlen = sqrtf(mx * mx + my * my);
+
+        if (mlen > grow * 3.0f) {
+            mx *= grow * 3.0f / mlen;
+            my *= grow * 3.0f / mlen;
+        }
+
+        const float qx = px[k] + mx;
+        const float qy = py[k] + my;
+
+        // The new corner's barycentric coordinates on screen, then the weights
+        // of the corners in clip space that land there: b / w, normalised
+        float bc[3];
+        bc[0] = ((px[1] - qx) * (py[2] - qy) - (py[1] - qy) * (px[2] - qx)) / area2;
+        bc[1] = ((px[2] - qx) * (py[0] - qy) - (py[2] - qy) * (px[0] - qx)) / area2;
+        bc[2] = 1.0f - bc[0] - bc[1];
+
+        float c[3];
+        float sum = 0;
+
+        for (int i = 0; i < 3; i++) {
+            c[i] = bc[i] / in[i]->w;
+            sum += c[i];
+        }
+
+        if (!(sum > 1e-12f)) {
+            return false;
+        }
+
+        for (int i = 0; i < 3; i++) {
+            c[i] /= sum;
+        }
+
+        struct LoadedVertex* o = &out[k];
+        *o = *in[k];
+
+#define SEAL_MIX(f) (c[0] * in[0]->f + c[1] * in[1]->f + c[2] * in[2]->f)
+        o->x = SEAL_MIX(x);
+        o->y = SEAL_MIX(y);
+        o->z = SEAL_MIX(z);
+        o->w = SEAL_MIX(w);
+        o->u = SEAL_MIX(u);
+        o->v = SEAL_MIX(v);
+
+        for (int e = 0; e < 6; e++) {
+            o->env[e] = SEAL_MIX(env[e]);
+        }
+
+        const float rgba[4] = { SEAL_MIX(color.r), SEAL_MIX(color.g), SEAL_MIX(color.b), SEAL_MIX(color.a) };
+#undef SEAL_MIX
+        uint8_t* dst[4] = { &o->color.r, &o->color.g, &o->color.b, &o->color.a };
+
+        for (int e = 0; e < 4; e++) {
+            const float f = rgba[e] + 0.5f;
+            *dst[e] = f <= 0 ? 0 : f >= 255 ? 255 : (uint8_t)f;
+        }
+    }
+
+    return true;
+}
+
 static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, struct LoadedVertex* v3, bool is_rect) {
     if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0) {
         if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
@@ -3120,6 +3255,20 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
     if (gfx_tri_is_culled(v1, v2, v3)) {
         g_GfxTrisCulled++;
         return;
+    }
+
+    struct LoadedVertex sealed[3];
+
+    if ((rsp.extra_geometry_mode & G_SEAL_SEAMS_EXT) && g_GfxSealSeams > 0 && !is_rect &&
+        (rdp.other_mode_l & Z_UPD) && !(rdp.other_mode_l & FORCE_BL) &&
+        (rdp.other_mode_l & ZMODE_DEC) != ZMODE_DEC && !(rsp.extra_geometry_mode & G_DECAL_EXT)) {
+        const struct LoadedVertex* const in[3] = { v1, v2, v3 };
+
+        if (gfx_seal_seams(in, sealed)) {
+            v1 = &sealed[0];
+            v2 = &sealed[1];
+            v3 = &sealed[2];
+        }
     }
 
     // G_TEXGEN_FACE_EXT: a flat surface with no normals of its own (a room's
