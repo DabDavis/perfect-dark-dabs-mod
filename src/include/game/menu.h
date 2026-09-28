@@ -84,6 +84,9 @@ void func0f0f3704(struct menudialogdef *dialogdef);
 void menuConfigureModel(struct menumodel *menumodel, f32 x, f32 y, f32 z, f32 rotx, f32 roty, f32 rotz, f32 scale, u8 flags);
 void menuUnsetModel(struct menumodel *menumodel);
 Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype);
+#ifndef PLATFORM_N64
+void menuModelYieldGunMem(struct menumodel *menumodel);
+#endif
 void menuGetTeamTitlebarColours(u32 *top, u32 *middle, u32 *bottom);
 Gfx *menuApplyScissor(Gfx *gdl);
 Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool lightweight);

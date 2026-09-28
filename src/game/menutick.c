@@ -173,11 +173,27 @@ void menuTick(void)
 				menuSetBackground(0);
 				g_MenuLiveWorld = true;
 			}
+
+			// The level draws with the gun memory a menu model may hold
+			// (menuModelYieldGunMem())
+			if (g_MenuLiveWorld) {
+				menuModelYieldGunMem(&g_Menus[0].menumodel);
+			}
 		} else if (g_MenuLiveWorld) {
 			g_MenuLiveWorld = false;
 
 			if (!anyopen && g_MenuData.bg == 0 && g_MenuData.nextbg == 255) {
 				func0f0fa6ac();
+			} else if (anyopen && g_MenuData.bg == MENUBG_BLUR && g_MenuData.nextbg == 0) {
+				// Left before the blur had faded out: the fade is called
+				// off and the blur stays. Asking for the blur again does
+				// nothing here (it is the background already), and the
+				// fade carried on to none with the page gone, which handed
+				// the level back - unpaused under the menu, the pad moving
+				// the player, whenever the pages were turned quickly past
+				// Mods: Camera (F3 20260928-085835)
+				g_MenuData.nextbg = 255;
+				g_MenuData.unk010 = 0;
 			} else if (anyopen && (g_MenuData.bg == 0 || g_MenuData.nextbg == 0)) {
 				menuSetBackground(MENUBG_BLUR);
 
