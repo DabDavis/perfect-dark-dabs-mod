@@ -78,6 +78,7 @@ extern "C" {
 
 // gfx_sdl2.cpp: the window, and the hooks it presents and sets vsync through
 SDL_Window *gfx_sdl_window(void);
+extern "C" int gfx_sdl_vulkan_headless(void);
 void gfx_sdl_set_vulkan_hooks(void (*present)(void), int (*get_interval)(void), bool (*set_interval)(int));
 
 using namespace std;
@@ -2927,6 +2928,11 @@ static bool vk_set_swap_interval(int interval) {
  */
 
 static int gfx_vk_create_framebuffer(void) {
+    if (vk_failed || !vk_dev) {
+        // gfx_init() asks for its framebuffers before video.c sees the failure
+        // and starts again on OpenGL: no device to make a sampler on
+        return 0;
+    }
     const size_t i = vk_fbs.size();
     vk_fbs.resize(i + 1);
     vk_fbs[i].sampler_key = vk_sampler_key(true, true, 0, VK_WRAP_REPEAT, VK_WRAP_REPEAT, 1);
@@ -3843,8 +3849,28 @@ static void vk_shutdown(void) {
     }
 }
 
+// SDL's offscreen driver loads no Vulkan library of its own (it has no Vulkan
+// at all), so a headless run opens the loader itself. Kept open to the end.
+static PFN_vkGetInstanceProcAddr vk_load_loader_headless(void) {
+#if defined(_WIN32)
+    static const char *const names[] = { "vulkan-1.dll" };
+#elif defined(__APPLE__)
+    static const char *const names[] = { "libvulkan.1.dylib", "libMoltenVK.dylib" };
+#else
+    static const char *const names[] = { "libvulkan.so.1", "libvulkan.so" };
+#endif
+    static void *lib;
+    for (size_t i = 0; !lib && i < sizeof(names) / sizeof(names[0]); i++) {
+        lib = SDL_LoadObject(names[i]);
+    }
+    return lib ? (PFN_vkGetInstanceProcAddr)SDL_LoadFunction(lib, "vkGetInstanceProcAddr") : NULL;
+}
+
 static bool vk_init_instance(SDL_Window *wnd, bool debug) {
-    vk_get_instance_proc = (PFN_vkGetInstanceProcAddr)SDL_Vulkan_GetVkGetInstanceProcAddr();
+    const bool headless = gfx_sdl_vulkan_headless() != 0;
+
+    vk_get_instance_proc = headless ? vk_load_loader_headless()
+                                    : (PFN_vkGetInstanceProcAddr)SDL_Vulkan_GetVkGetInstanceProcAddr();
     if (!vk_get_instance_proc) {
         vk_fail("no Vulkan loader: %s", SDL_GetError());
         return false;
@@ -3865,13 +3891,29 @@ static bool vk_init_instance(SDL_Window *wnd, bool debug) {
         return false;
     }
 
-    unsigned int n = 0;
-    if (!SDL_Vulkan_GetInstanceExtensions(wnd, &n, NULL)) {
-        vk_fail("SDL has no Vulkan surface for this window: %s", SDL_GetError());
-        return false;
+    std::vector<const char *> exts;
+    if (headless) {
+        uint32_t count = 0;
+        vkEnumerateInstanceExtensionProperties(NULL, &count, NULL);
+        std::vector<VkExtensionProperties> avail(count);
+        vkEnumerateInstanceExtensionProperties(NULL, &count, avail.data());
+        if (!vk_has_ext(avail, VK_KHR_SURFACE_EXTENSION_NAME) ||
+            !vk_has_ext(avail, VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME)) {
+            vk_fail("SDL's offscreen driver needs %s, which no Vulkan driver here offers",
+                    VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME);
+            return false;
+        }
+        exts.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+        exts.push_back(VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME);
+    } else {
+        unsigned int n = 0;
+        if (!SDL_Vulkan_GetInstanceExtensions(wnd, &n, NULL)) {
+            vk_fail("SDL has no Vulkan surface for this window: %s", SDL_GetError());
+            return false;
+        }
+        exts.resize(n);
+        SDL_Vulkan_GetInstanceExtensions(wnd, &n, exts.data());
     }
-    std::vector<const char *> exts(n);
-    SDL_Vulkan_GetInstanceExtensions(wnd, &n, exts.data());
 
     std::vector<const char *> layers;
     if (debug) {
@@ -3937,7 +3979,21 @@ static bool vk_init_instance(SDL_Window *wnd, bool debug) {
         }
     }
 
-    if (!SDL_Vulkan_CreateSurface(wnd, vk_instance, &vk_surface)) {
+    if (headless) {
+        // The swapchain takes the window's size (currentExtent is undefined
+        // on a headless surface) and is read back like any other
+        PFN_vkCreateHeadlessSurfaceEXT create_headless =
+            (PFN_vkCreateHeadlessSurfaceEXT)vk_get_instance_proc(vk_instance, "vkCreateHeadlessSurfaceEXT");
+        VkHeadlessSurfaceCreateInfoEXT hi = { VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT };
+        const VkResult hr = create_headless ? create_headless(vk_instance, &hi, NULL, &vk_surface)
+                                            : VK_ERROR_EXTENSION_NOT_PRESENT;
+        if (hr != VK_SUCCESS) {
+            vk_fail("could not create a headless surface (%d)", (int)hr);
+            vk_surface = VK_NULL_HANDLE;
+            return false;
+        }
+        sysLogPrintf(LOG_NOTE, "Vulkan: headless surface for SDL's offscreen driver");
+    } else if (!SDL_Vulkan_CreateSurface(wnd, vk_instance, &vk_surface)) {
         vk_fail("could not create a surface: %s", SDL_GetError());
         vk_surface = VK_NULL_HANDLE;
         return false;
