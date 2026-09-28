@@ -55,6 +55,7 @@ bool modRunIsSealed(void);
 bool modRunSealMove(RoomNum *fromrooms, struct coord *frompos, RoomNum *torooms, struct coord *dstpos);
 bool modRunTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle);
 bool modRunIsLanding(void);
+bool modRunSkipsMapKit(void);
 void modRunRestoreInventory(void);
 s32 modRunGetHandWeapon(s32 handnum);
 void modRunRestoreHealth(void);
