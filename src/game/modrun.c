@@ -1980,6 +1980,7 @@ static void modRunBuildRing(void)
 	s32 *queue;
 	s32 head = 0;
 	s32 tail = 0;
+	s32 landgroups;
 	s32 num;
 	s32 i;
 
@@ -2025,8 +2026,25 @@ static void modRunBuildRing(void)
 		return;
 	}
 
-	// The zone's own groups, then everything their links reach
-	for (i = 0; waypoints[i].padnum >= 0; i++) {
+	// The group the player landed in, then everything its links reach. Not
+	// every group with a waypoint somewhere in the zone: a zone can hold two
+	// pieces of the graph (Facility's gantry room and the room beside it,
+	// F3 20260928-170555), and a guard dealt onto the piece the player is not
+	// on has no route to them and stands where it appeared for good.
+	for (i = 0; g_ModRunLandPad >= 0 && waypoints[i].padnum >= 0; i++) {
+		const s32 group = waypoints[i].groupnum;
+
+		if (waypoints[i].padnum == g_ModRunLandPad && group >= 0 && group < g_ModRunNumGroups) {
+			g_ModRunReachGroups[group] = 1;
+			queue[tail++] = group;
+			break;
+		}
+	}
+
+	// A landing that is not a waypoint: the zone's own groups
+	landgroups = tail;
+
+	for (i = 0; landgroups == 0 && waypoints[i].padnum >= 0; i++) {
 		const s32 group = waypoints[i].groupnum;
 
 		if (group >= 0 && group < g_ModRunNumGroups && !g_ModRunReachGroups[group]
@@ -2233,6 +2251,19 @@ bool modRunGuardRingOk(s32 room, s32 groupnum)
 	}
 
 	return false;
+}
+
+/**
+ * Whether a guard on this waygroup has a route to where the player landed,
+ * as far as the ring knows; true when it does not know.
+ */
+bool modRunGuardGroupReaches(s32 groupnum)
+{
+	if (!modRunIsOn() || g_ModRunReachGroups == NULL || groupnum < 0 || groupnum >= g_ModRunNumGroups) {
+		return true;
+	}
+
+	return g_ModRunReachGroups[groupnum] != 0;
 }
 
 f32 modRunGuardMinDist(void)

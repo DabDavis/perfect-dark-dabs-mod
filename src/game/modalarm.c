@@ -352,9 +352,130 @@ static s32 modAlarmCountWaypoints(void)
 	return count;
 }
 
+#define MODALARM_VOID        (-50000.0f) // under the level: cdFindGroundInfoAtCyl() answers -100000 for no floor
 #define MODALARM_PADLINKS    10    // links sought per pad when building a graph
 #define MODALARM_PADLINKDIST 2500.0f // and no longer than this
 #define MODALARM_PADCANDS    32    // nearest candidates tested per pad
+#define MODALARM_WALKSTEP    40.0f // a link is walked in steps this long
+#define MODALARM_WALKSTAIR   40.0f // and the floor may rise or fall this much a step
+#define MODALARM_WALKKNEE    20.0f // an edge lower than this is stepped over (chrGetBbox())
+#define MODALARM_WALKHEAD    150.0f // and one higher than this is walked under
+#define MODALARM_WALKWAIST   30.0f // the height the steps are taken at, clear of the floor
+
+/**
+ * The floor under a point, looked for from a little above it, or false when
+ * there is none or it kills.
+ */
+static bool modAlarmWalkGround(struct coord *pos, f32 above, RoomNum *rooms, f32 *ground, RoomNum *floorroom)
+{
+	struct coord query = *pos;
+	u16 floorflags = 0;
+
+	query.y += above;
+	*floorroom = -1;
+	*ground = cdFindGroundInfoAtCyl(&query, 20, rooms, NULL, NULL, &floorflags, floorroom, NULL, NULL);
+
+	return *floorroom >= 0 && *ground > -100000.0f && (floorflags & GEOFLAG_DIE) == 0;
+}
+
+/**
+ * Whether a chr could walk from one pad to another along the straight line
+ * between them, in both directions.
+ *
+ * The line is walked in short steps the way a chr's own move goes: the floor
+ * under each step found from a stair's height above the last, no step up or
+ * down more than a stair, and a cylinder from knee to head moved from each
+ * step to the next through the bg. It has to end on the second pad's floor.
+ *
+ * The first version asked one straight line and one cylinder at the pads'
+ * heights. That linked a catwalk to the floor under it - the line runs off
+ * the edge and the cylinder, tested flat, meets no wall - and a guard routed
+ * off Facility's gantry stood at its railing (F3 20260928-170555); and it
+ * never linked a flight of stairs, whose risers are walls to a flat
+ * cylinder, so the two levels of a room were two pieces of the graph and the
+ * guards dealt on one never came to a player on the other.
+ */
+static bool modAlarmPadsWalkable(struct coord *from, RoomNum fromroom, struct coord *to, RoomNum toroom)
+{
+	struct coord cur;
+	struct coord next;
+	RoomNum currooms[2];
+	RoomNum nextrooms[2];
+	RoomNum near[12];
+	RoomNum floorroom;
+	f32 ground;
+	f32 toground;
+	f32 dx = to->x - from->x;
+	f32 dz = to->z - from->z;
+	s32 steps = (s32)(sqrtf(dx * dx + dz * dz) / MODALARM_WALKSTEP) + 1;
+	s32 k;
+
+	currooms[0] = toroom;
+	currooms[1] = -1;
+
+	if (!modAlarmWalkGround(to, 10.0f, currooms, &toground, &floorroom)) {
+		return false;
+	}
+
+	currooms[0] = fromroom;
+	currooms[1] = -1;
+
+	if (!modAlarmWalkGround(from, 10.0f, currooms, &ground, &floorroom)) {
+		return false;
+	}
+
+	currooms[0] = floorroom;
+
+	// Each step is taken at waist height rather than on the floor, clear of
+	// the floor's own edges
+	cur.x = from->x;
+	cur.y = ground + MODALARM_WALKWAIST;
+	cur.z = from->z;
+
+	for (k = 1; k <= steps; k++) {
+		f32 frac = (f32)k / (f32)steps;
+		f32 stepground;
+		s32 i;
+
+		next.x = from->x + dx * frac;
+		next.z = from->z + dz * frac;
+		next.y = ground;
+
+		// The floor is looked for in the room the last step stood in and the
+		// rooms beside it, and the room it is in is where the walk now is.
+		// Rooms overlap in height - a stairwell over the floor below it - so
+		// following portals at waist height leaves the walk in the lower
+		// room and finds its floor, a drop, under the stairs.
+		near[0] = currooms[0];
+
+		for (i = 1; i < ARRAYCOUNT(near); i++) {
+			near[i] = -1;
+		}
+
+		bgRoomGetNeighbours(currooms[0], &near[1], ARRAYCOUNT(near) - 2);
+
+		if (!modAlarmWalkGround(&next, MODALARM_WALKSTAIR, near, &stepground, &floorroom)
+				|| stepground < ground - MODALARM_WALKSTAIR) {
+			return false;
+		}
+
+		next.y = stepground + MODALARM_WALKWAIST;
+		nextrooms[0] = floorroom;
+		nextrooms[1] = -1;
+
+		if (cdExamCylMove05(&cur, currooms, &next, nextrooms, CDTYPE_BG, true,
+					MODALARM_WALKHEAD - MODALARM_WALKWAIST, MODALARM_WALKKNEE - MODALARM_WALKWAIST) != CDRESULT_NOCOLLISION) {
+			return false;
+		}
+
+		cur = next;
+		currooms[0] = floorroom;
+		ground = stepground;
+	}
+
+	// On the other pad's floor, not on one above or below it
+	return ground - toground < MODALARM_WALKSTAIR && toground - ground < MODALARM_WALKSTAIR;
+}
 
 /**
  * A waypoint graph for a stage that came without one.
@@ -377,8 +498,7 @@ static s32 modAlarmCountWaypoints(void)
  *   (modRandomPadCanSpawn(), the landing's own test);
  * - a link from each to its nearest few, where the two are in the same or
  *   neighbouring rooms (waypointFindClosestToPos() only ever looks that far)
- *   and a chr could walk between them - the same line and cylinder tests
- *   waypointFindClosestToPos() makes to join a chr to a waypoint;
+ *   and a chr could walk the line between them (modAlarmPadsWalkable());
  * - one waygroup per connected piece, with no links between groups, so a
  *   route between two pieces is refused rather than walked into a wall.
  *
@@ -513,8 +633,6 @@ void modAlarmBuildPadWaypoints(void)
 		}
 
 		for (k = 0; k < numcands && linked < MODALARM_PADLINKS; k++) {
-			RoomNum torooms[8];
-
 			j = cand[k];
 
 			if (adj[(size_t)i * n + j]) {
@@ -522,13 +640,7 @@ void modAlarmBuildPadWaypoints(void)
 				continue;
 			}
 
-			if (cdTestLos05(&pos[i], rooms[i], &pos[j], rooms[j], CDTYPE_BG, GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2) == CDRESULT_COLLISION) {
-				continue;
-			}
-
-			roomsCopy(rooms[j], torooms);
-
-			if (cdExamCylMove05(&pos[i], rooms[i], &pos[j], torooms, CDTYPE_BG, true, 0.0f, 0.0f) != CDRESULT_NOCOLLISION) {
+			if (!modAlarmPadsWalkable(&pos[i], rooms[i][0], &pos[j], rooms[j][0])) {
 				continue;
 			}
 
@@ -627,6 +739,7 @@ void modAlarmBuildPadWaypoints(void)
 		g_StageSetup.waypoints = waypoints;
 		g_StageSetup.waygroups = groups;
 		g_ModAlarmPadGraph = true;
+
 
 		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads (%d lowered onto their floors), %d links, %d groups (largest %d), in %d ms",
 				g_Vars.stagenum, n, numpads, numsettled, numlinks, numgroups, largest,
@@ -999,7 +1112,8 @@ static s32 modAlarmArm(struct chrdata *chr, s32 playernum)
 
 /**
  * A waypoint inside the rooms a Randomizer run has the player sealed into, far
- * enough from them to not be on top of them, or NULL.
+ * enough from them to not be on top of them, or NULL - or one in the rooms
+ * around them, or anywhere with a route to the player (where).
  *
  * The whole list is walked and one of the waypoints that qualify is taken at
  * random, rather than a dozen random draws being tried the way the spawn does
@@ -1011,12 +1125,21 @@ static s32 modAlarmArm(struct chrdata *chr, s32 playernum)
  * version of this did. See modrun.c on why a run's guards have to be dealt
  * into the room rather than walked to it.
  */
-static struct waypoint *modAlarmFindZoneWaypoint(bool ring)
+#define MODALARM_FIND_ZONE  0 // in the sealed rooms
+#define MODALARM_FIND_RING  1 // in the rooms around them, on a group with a route in
+#define MODALARM_FIND_REACH 2 // anywhere by the ordinary distances, on such a group
+
+static struct waypoint *modAlarmFindZoneWaypoint(s32 where)
 {
 	struct waypoint *chosen = NULL;
 	s32 count = 0;
+	s32 pass;
 	s32 i;
 
+	// Inside the zone, a waypoint on the player's piece of the graph first:
+	// one on another piece is a guard that stands where it appeared until
+	// the player goes to it (Complex's pad graph is twenty-odd pieces)
+	for (pass = where == MODALARM_FIND_ZONE ? 0 : 1; pass < 2 && chosen == NULL; pass++)
 	for (i = 0; i < g_ModAlarmNumWaypoints; i++) {
 		struct waypoint *waypoint = &g_StageSetup.waypoints[i];
 		struct pad pad;
@@ -1024,7 +1147,13 @@ static struct waypoint *modAlarmFindZoneWaypoint(bool ring)
 
 		padUnpack(waypoint->padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
 
-		if (ring ? !modRunGuardRingOk(pad.room, waypoint->groupnum) : !modRunGuardRoomOk(pad.room)) {
+		if (where == MODALARM_FIND_RING ? !modRunGuardRingOk(pad.room, waypoint->groupnum)
+				: where == MODALARM_FIND_ZONE ? !modRunGuardRoomOk(pad.room)
+				: !modRunGuardGroupReaches(waypoint->groupnum)) {
+			continue;
+		}
+
+		if (pass == 0 && !modRunGuardGroupReaches(waypoint->groupnum)) {
 			continue;
 		}
 
@@ -1032,7 +1161,8 @@ static struct waypoint *modAlarmFindZoneWaypoint(bool ring)
 			return NULL; // nobody alive to come for
 		}
 
-		if (dist < modRunGuardMinDist()) {
+		if (where == MODALARM_FIND_REACH ? dist < MODALARM_MINDIST || dist > MODALARM_MAXDIST
+				: dist < modRunGuardMinDist()) {
 			continue;
 		}
 
@@ -1064,6 +1194,7 @@ static bool modAlarmSpawnOne(s32 bodynum)
 	s32 toonear = 0;
 	s32 toofar = 0;
 	s32 refused = 0;
+	s32 unreachable = 0;
 
 	for (attempt = 0; attempt < MODALARM_TRIES; attempt++) {
 		struct waypoint *waypoint;
@@ -1077,7 +1208,7 @@ static bool modAlarmSpawnOne(s32 bodynum)
 		s32 i;
 
 		if (phase < 2) {
-			waypoint = modAlarmFindZoneWaypoint(phase == 0);
+			waypoint = modAlarmFindZoneWaypoint(phase == 0 ? MODALARM_FIND_RING : MODALARM_FIND_ZONE);
 
 			if (waypoint == NULL) {
 				// Nowhere around the room, or nowhere in it far enough from
@@ -1085,6 +1216,17 @@ static bool modAlarmSpawnOne(s32 bodynum)
 				// stop asking and spend the attempts left on the next way.
 				phase = phase == 0 && modRunGuardsWantZone() ? 1 : 2;
 				continue;
+			}
+		} else if (modRunIsOn()) {
+			// Nor, during a run, anywhere with no route to where the player
+			// landed: a guard there stands where it appeared (Bunker's pad
+			// graph is fifteen pieces), so the waypoints are walked for one
+			// that has one rather than drawn blind
+			waypoint = modAlarmFindZoneWaypoint(MODALARM_FIND_REACH);
+
+			if (waypoint == NULL) {
+				unreachable++;
+				break;
 			}
 		} else {
 			waypoint = &g_StageSetup.waypoints[rngRandom() % g_ModAlarmNumWaypoints];
@@ -1168,8 +1310,8 @@ static bool modAlarmSpawnOne(s32 bodynum)
 
 #ifndef PLATFORM_N64
 	if (g_ChrSpawnTrace) {
-		sysLogPrintf(LOG_NOTE, "alarm: no place for a guard this time: of %d waypoints tried, %d too near, %d too far, %d in view or blocked",
-				MODALARM_TRIES, toonear, toofar, refused);
+		sysLogPrintf(LOG_NOTE, "alarm: no place for a guard this time: of %d waypoints tried, %d too near, %d too far, %d in view or blocked, %d with no route to the player",
+				MODALARM_TRIES, toonear, toofar, refused, unreachable);
 	}
 #endif
 
@@ -1361,6 +1503,15 @@ void modAlarmTick(void)
 			guard->chr = NULL;
 			guard->chrnum = -1;
 		} else if (!modAlarmGuardIsDead(guard)) {
+			// One that walked off the level stands at the collision system's
+			// floor of last resort for good, holding its place in the count.
+			// Stock deletes a guard that lands on a floor that kills; so does
+			// this, and the next one comes.
+			if (guard->chr->manground < MODALARM_VOID) {
+				guard->chr->hidden |= CHRHFLAG_DELETING;
+				continue;
+			}
+
 			alive++;
 		}
 	}

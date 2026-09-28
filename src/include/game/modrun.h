@@ -77,6 +77,7 @@ bool modRunGuardsWantZone(void);
 bool modRunGuardRoomOk(s32 room);
 bool modRunGuardsWalkIn(void);
 bool modRunGuardRingOk(s32 room, s32 groupnum);
+bool modRunGuardGroupReaches(s32 groupnum);
 bool modRunHighlightRoom(s32 room, s32 *r, s32 *g, s32 *b);
 f32 modRunGuardMinDist(void);
 
