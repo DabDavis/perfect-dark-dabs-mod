@@ -144,3 +144,32 @@ GL and Vulkan the same; a Combat Sim view and Surface in HD differ only on
 edges (0.2% of pixels), nothing visible. Closes cracks narrower than a pixel,
 which is what they are from more than a few metres; a wall's foot a metre away
 can still show one.
+
+**Cost, and what is sealed (2026-09-28, the same day).** Measured with
+instructions/frame on the game thread (`perf stat -t --no-inherit`, seeded
+`--fixed-step` runs, `g_GfxSealSeams` 0 vs 0.5 set by gdb in the same binary;
+`~/wt/f3-0928-cracks-run/perfseal.sh` for a match, `ciperf.sh` +
+`probe/ciperf.py` for the Institute, which pops the menus first). Growing every
+opaque room face: Combat Sim (8 sims, 4450 tris/frame) +0.5-1%, the Institute
+(2550) +1.9%, Surface in HD (31800, the whole level drawn) **+25%**. Now:
+- **HD levels' rooms are never sealed** (`gebeanStageDrawsEveryRoom()` in
+  `bgRenderRoomOpaque()`): Bean's meshes are welded. Surface +0%.
+- **Only faces at a T-junction.** `bgMarkRoomSeams()` (bg.c, from `bgLoadRoom()`
+  before the vertex batches) walks the room's opaque lists, finds every edge
+  with another corner within a unit of its inside, and marks that face and every
+  face with a corner at such a point: bit 16+k of a G_TRI4's w0 (its pad byte)
+  for triangle k, bit 24 of a G_TRI1's w1 (its flag byte). `gfx_sp_tri4()` /
+  the G_TRI1 case set `gfx_seal_this`. A quarter of the Institute's faces
+  (room 12: 79 of 335). The comparisons use `G_ENDDL`/`G_TRI4` uncast, as
+  `bgTestHitInVtxBatch()` does: `dma.cmd` is signed, and `(u8)G_ENDDL` never
+  matched (the first build hung in the walk). `g_BgSeamVerbose = 1` logs each
+  room's count as it loads.
+- The corner math is closed form: a corner at signed distance -grow from both
+  its edges has barycentrics -grow*len/area2 for the other two corners (one
+  sqrt per edge, no per-corner normals), capped at 3*grow of movement; `env`
+  is mixed only under `G_ENVMAP_EXT`/`G_TEXGEN_FACE_EXT`.
+Result: Institute +0.02 to +0.06 M of 9.36 M (0.2-0.6%), Combat Sim +0.01 to
++0.04 M of 9.33 M (0.1-0.5%), Surface 0; run-to-run noise is about 1%. Crack
+counts unchanged (the report's view and the near view: only the rim of the real
+hole left). Vulkan was not measured separately: all of this runs on the game
+thread before either backend sees a vertex.

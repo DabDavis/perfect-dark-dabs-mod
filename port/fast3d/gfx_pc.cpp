@@ -3129,91 +3129,91 @@ static bool gfx_tri_is_culled(const struct LoadedVertex* v1, const struct Loaded
  * coordinates and colour are the face's own there, perspective-correct: no
  * texture shifts and no depth changes under a decal. Opaque faces only (a
  * translucent one would blend twice where it overlaps its neighbour), never a
- * decal, and only where every corner is in front of the eye.
+ * decal, and only where every corner is in front of the eye. Only the faces
+ * bgMarkRoomSeams() found at a T-junction (gfx_seal_this), and never an HD
+ * level's rooms: growing every face cost a quarter of the game thread on
+ * Surface in HD (post-process.md).
  */
 float g_GfxSealSeams = 0.5f; // pixels; 0 turns it off (gdb)
+// The triangle being drawn is one bgMarkRoomSeams() found a crack along (a
+// corner on another face's edge, or a face with one on its own): its bit in
+// the G_TRI4's pad byte or the G_TRI1's flag byte. Only those are grown - the
+// rest of a room's faces meet their neighbours corner to corner.
+static bool gfx_seal_this;
 
 static bool gfx_seal_seams(const struct LoadedVertex* const in[3], struct LoadedVertex out[3]) {
     const float hw = rdp.viewport.width * 0.5f;
     const float hh = rdp.viewport.height * 0.5f;
     const float grow = g_GfxSealSeams;
-    float px[3], py[3], nx[3], ny[3];
+    float px[3], py[3], iw[3], len[3];
 
     for (int i = 0; i < 3; i++) {
         if (!(in[i]->w > 1e-3f)) {
             return false;
         }
-        px[i] = in[i]->x / in[i]->w * hw;
-        py[i] = in[i]->y / in[i]->w * hh;
+        iw[i] = 1.0f / in[i]->w;
+        px[i] = in[i]->x * iw[i] * hw;
+        py[i] = in[i]->y * iw[i] * hh;
     }
 
-    const float area2 = (px[1] - px[0]) * (py[2] - py[0]) - (py[1] - py[0]) * (px[2] - px[0]);
+    const float area2 = fabsf((px[1] - px[0]) * (py[2] - py[0]) - (py[1] - py[0]) * (px[2] - px[0]));
 
-    if (!(fabsf(area2) > 1e-4f)) {
+    if (!(area2 > 1e-4f)) {
         return false;
     }
 
-    const float sgn = area2 > 0 ? 1.0f : -1.0f;
-
-    // Edge i runs from corner i to corner i + 1; its outward normal is on its
-    // right with the corners anticlockwise
+    // The length of the edge opposite each corner
     for (int i = 0; i < 3; i++) {
         const int j = (i + 1) % 3;
-        const float dx = px[j] - px[i];
-        const float dy = py[j] - py[i];
-        const float len = sqrtf(dx * dx + dy * dy);
-
-        if (!(len > 1e-6f)) {
-            return false;
-        }
-
-        nx[i] = sgn * dy / len;
-        ny[i] = -sgn * dx / len;
+        const int k = (i + 2) % 3;
+        const float dx = px[k] - px[j];
+        const float dy = py[k] - py[j];
+        len[i] = sqrtf(dx * dx + dy * dy);
     }
 
+    // A point's barycentric coordinate for corner i is its distance from the
+    // opposite edge over that corner's height, area2 / len[i]. The corner
+    // moved to where both of its edges, moved out by grow, meet lies grow
+    // outside each: -grow * len[i] / area2 for the two other corners.
+    const float s = grow / area2;
+    const float cap2 = grow * grow * 9.0f;
+
     for (int k = 0; k < 3; k++) {
-        const int a = (k + 2) % 3; // the edge that ends at corner k
-        const int b = k;           // and the one that starts there
-        const float denom = 1.0f + nx[a] * nx[b] + ny[a] * ny[b];
-        float mx = nx[a] + nx[b];
-        float my = ny[a] + ny[b];
-        const float scale = grow / (denom > 0.05f ? denom : 0.05f);
+        const int a = (k + 1) % 3;
+        const int b = (k + 2) % 3;
+        float da = -s * len[a];
+        float db = -s * len[b];
 
-        mx *= scale;
-        my *= scale;
+        // How far that moves the corner on screen, held to three times grow at
+        // a sharp corner (a sliver's would be many pixels)
+        const float mx = da * (px[a] - px[k]) + db * (px[b] - px[k]);
+        const float my = da * (py[a] - py[k]) + db * (py[b] - py[k]);
+        const float m2 = mx * mx + my * my;
 
-        const float mlen = sqrtf(mx * mx + my * my);
-
-        if (mlen > grow * 3.0f) {
-            mx *= grow * 3.0f / mlen;
-            my *= grow * 3.0f / mlen;
+        if (m2 > cap2) {
+            const float f = sqrtf(cap2 / m2);
+            da *= f;
+            db *= f;
         }
 
-        const float qx = px[k] + mx;
-        const float qy = py[k] + my;
-
-        // The new corner's barycentric coordinates on screen, then the weights
-        // of the corners in clip space that land there: b / w, normalised
-        float bc[3];
-        bc[0] = ((px[1] - qx) * (py[2] - qy) - (py[1] - qy) * (px[2] - qx)) / area2;
-        bc[1] = ((px[2] - qx) * (py[0] - qy) - (py[2] - qy) * (px[0] - qx)) / area2;
-        bc[2] = 1.0f - bc[0] - bc[1];
-
+        // The weights of the corners in clip space that land there: b / w,
+        // normalised
         float c[3];
-        float sum = 0;
+        c[a] = da * iw[a];
+        c[b] = db * iw[b];
+        c[k] = (1.0f - da - db) * iw[k];
 
-        for (int i = 0; i < 3; i++) {
-            c[i] = bc[i] / in[i]->w;
-            sum += c[i];
-        }
+        const float sum = c[0] + c[1] + c[2];
 
         if (!(sum > 1e-12f)) {
             return false;
         }
 
-        for (int i = 0; i < 3; i++) {
-            c[i] /= sum;
-        }
+        const float isum = 1.0f / sum;
+
+        c[0] *= isum;
+        c[1] *= isum;
+        c[2] *= isum;
 
         struct LoadedVertex* o = &out[k];
         *o = *in[k];
@@ -3226,8 +3226,11 @@ static bool gfx_seal_seams(const struct LoadedVertex* const in[3], struct Loaded
         o->u = SEAL_MIX(u);
         o->v = SEAL_MIX(v);
 
-        for (int e = 0; e < 6; e++) {
-            o->env[e] = SEAL_MIX(env[e]);
+        // Only these read env (gfx_sp_load_vertex(), gfx_sp_tri_emit())
+        if (rsp.extra_geometry_mode & (G_ENVMAP_EXT | G_TEXGEN_FACE_EXT)) {
+            for (int e = 0; e < 6; e++) {
+                o->env[e] = SEAL_MIX(env[e]);
+            }
         }
 
         const float rgba[4] = { SEAL_MIX(color.r), SEAL_MIX(color.g), SEAL_MIX(color.b), SEAL_MIX(color.a) };
@@ -3259,7 +3262,7 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
 
     struct LoadedVertex sealed[3];
 
-    if ((rsp.extra_geometry_mode & G_SEAL_SEAMS_EXT) && g_GfxSealSeams > 0 && !is_rect &&
+    if (gfx_seal_this && (rsp.extra_geometry_mode & G_SEAL_SEAMS_EXT) && g_GfxSealSeams > 0 && !is_rect &&
         (rdp.other_mode_l & Z_UPD) && !(rdp.other_mode_l & FORCE_BL) &&
         (rdp.other_mode_l & ZMODE_DEC) != ZMODE_DEC && !(rsp.extra_geometry_mode & G_DECAL_EXT)) {
         const struct LoadedVertex* const in[3] = { v1, v2, v3 };
@@ -3329,37 +3332,20 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 
 static inline void gfx_sp_tri4(Gfx *cmd) {
     // the game issues gSPTri2 for quads, which uses G_TRI4 with 2 empty triangles
-    uint8_t x = C1(0, 4);
-    uint8_t y = C1(4, 4);
-    uint8_t z = C0(0, 4);
+    static const uint8_t xs[4] = { 0, 8, 16, 24 };
 
-    if(x || y || z) {
-        gfx_sp_tri1(x, y, z, false);
+    for (int k = 0; k < 4; k++) {
+        const uint8_t x = C1(xs[k], 4);
+        const uint8_t y = C1(xs[k] + 4, 4);
+        const uint8_t z = C0(k * 4, 4);
+
+        if (x || y || z) {
+            gfx_seal_this = C0(16 + k, 1);
+            gfx_sp_tri1(x, y, z, false);
+        }
     }
 
-    x = C1(8, 4);
-    y = C1(12, 4);
-    z = C0(4, 4);
-
-    if (x || y || z) {
-        gfx_sp_tri1(x, y, z, false);
-    }
-
-    x = C1(16, 4);
-    y = C1(20, 4);
-    z = C0(8, 4);
-
-    if (x || y || z) {
-        gfx_sp_tri1(x, y, z, false);
-    }
-
-    x = C1(24, 4);
-    y = C1(28, 4);
-    z = C0(12, 4);
-
-    if (x || y || z) {
-        gfx_sp_tri1(x, y, z, false);
-    }
+    gfx_seal_this = false;
 }
 
 static void gfx_sp_geometry_mode(uint32_t clear, uint32_t set) {
@@ -4523,7 +4509,9 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case (uint8_t)G_TRI1:
                 if (!gfx_vertices_lost) {
+                    gfx_seal_this = C1(24, 1);
                     gfx_sp_tri1(C1(16, 8) / 10, C1(8, 8) / 10, C1(0, 8) / 10, false);
+                    gfx_seal_this = false;
                 }
                 break;
             case (uint8_t)G_TRI4:

@@ -1,3 +1,7 @@
+#ifndef PLATFORM_N64
+#include <stdlib.h>
+#include <string.h>
+#endif
 #include <ultra64.h>
 #include "constants.h"
 #include "game/debug.h"
@@ -3247,6 +3251,269 @@ static Gfx *bgRenderChicagoPane(Gfx *gdl, s32 roomnum)
  * - Find each batch of vertices and build a bbox for each batch.
  *   These are used for hit detection.
  */
+#ifndef PLATFORM_N64
+/**
+ * Which of a room's opaque faces are grown to close a crack
+ * (G_SEAL_SEAMS_EXT, gfx_seal_seams() in gfx_pc.cpp).
+ *
+ * A crack is where a corner of one face lies on the edge of another instead of
+ * at its end - a T-junction - exactly or a fraction of a unit off it (the
+ * Institute's wall feet over the reflection under the glass floor, F3
+ * 20260928-012509). The face with the edge and every face with a corner at
+ * that point are marked: a bit in the G_TRI4's pad byte for each of its four
+ * triangles, bit 24 of a G_TRI1's second word, neither of which anything else
+ * reads. Growing every face cost 1.8% of the game thread in the Institute;
+ * about a third of its faces have such an edge or corner.
+ */
+struct seamtri {
+	s16 p[3][3];
+	Gfx *cmd;
+	s8 slot; // 0-3 in a G_TRI4, -1 a G_TRI1
+	u8 edge; // a corner lies on one of its edges
+};
+
+s32 g_BgSeamVerbose = 0; // gdb: log each room's count as it loads
+
+static s32 bgSeamPosCmp(const void *a, const void *b)
+{
+	const s16 *pa = a;
+	const s16 *pb = b;
+	s32 i;
+
+	for (i = 0; i < 3; i++) {
+		if (pa[i] != pb[i]) {
+			return pa[i] - pb[i];
+		}
+	}
+
+	return 0;
+}
+
+static s32 bgSeamFindX(s16 (*pos)[3], s32 num, s32 x)
+{
+	s32 lo = 0;
+	s32 hi = num;
+
+	while (lo < hi) {
+		s32 mid = (lo + hi) / 2;
+
+		if (pos[mid][0] < x) {
+			lo = mid + 1;
+		} else {
+			hi = mid;
+		}
+	}
+
+	return lo;
+}
+
+static void bgMarkRoomSeams(s32 roomnum)
+{
+	struct seamtri *tris = NULL;
+	s16 (*pos)[3] = NULL;
+	u8 *tvert = NULL;
+	s32 numtris = 0;
+	s32 maxtris = 0;
+	s32 numpos = 0;
+	s32 marked = 0;
+	Gfx *gdl = NULL;
+	s32 i;
+
+	if (gebeanStageDrawsEveryRoom()) {
+		// Never sealed (bgRenderRoomOpaque())
+		return;
+	}
+
+	while ((gdl = bgGetNextGdlInLayer(roomnum, gdl, VTXBATCHTYPE_OPA)) != NULL) {
+		Vtx *vtxbase = bgFindVerticesForGdl(roomnum, gdl);
+		s16 cache[16][3];
+		u16 valid = 0;
+		Gfx *iter;
+
+		if (vtxbase == NULL) {
+			continue;
+		}
+
+		for (iter = gdl; iter->dma.cmd != G_ENDDL; iter++) {
+			if (iter->dma.cmd == G_VTX) {
+				const u8 b1 = iter->bytes[GFX_W0_BYTE(1)];
+				s32 n = (b1 >> 4) + 1;
+				s32 v0 = b1 & 0xf;
+				Vtx *v = (Vtx *)((UNSEGADDR(iter->words.w1) & 0xffffff) + (uintptr_t)vtxbase);
+
+				for (i = 0; i < n && v0 + i < 16; i++) {
+					cache[v0 + i][0] = v[i].x;
+					cache[v0 + i][1] = v[i].y;
+					cache[v0 + i][2] = v[i].z;
+					valid |= 1 << (v0 + i);
+				}
+			} else if (iter->dma.cmd == G_TRI1 || iter->dma.cmd == G_TRI4) {
+				s32 idx[4][3];
+				s32 count;
+				s32 k;
+
+				if (iter->dma.cmd == G_TRI1) {
+					count = 1;
+					idx[0][0] = iter->tri.tri.v[GFX_TRI_VTX(0)] / 10;
+					idx[0][1] = iter->tri.tri.v[GFX_TRI_VTX(1)] / 10;
+					idx[0][2] = iter->tri.tri.v[GFX_TRI_VTX(2)] / 10;
+				} else {
+					count = 4;
+					idx[0][0] = iter->tri4.x1; idx[0][1] = iter->tri4.y1; idx[0][2] = iter->tri4.z1;
+					idx[1][0] = iter->tri4.x2; idx[1][1] = iter->tri4.y2; idx[1][2] = iter->tri4.z2;
+					idx[2][0] = iter->tri4.x3; idx[2][1] = iter->tri4.y3; idx[2][2] = iter->tri4.z3;
+					idx[3][0] = iter->tri4.x4; idx[3][1] = iter->tri4.y4; idx[3][2] = iter->tri4.z4;
+				}
+
+				for (k = 0; k < count; k++) {
+					s32 c;
+
+					if (idx[k][0] == 0 && idx[k][1] == 0 && idx[k][2] == 0) {
+						continue;
+					}
+
+					if (idx[k][0] > 15 || idx[k][1] > 15 || idx[k][2] > 15
+							|| !(valid & (1 << idx[k][0])) || !(valid & (1 << idx[k][1])) || !(valid & (1 << idx[k][2]))) {
+						continue;
+					}
+
+					if (numtris >= maxtris) {
+						s32 newmax = maxtris ? maxtris * 2 : 512;
+						struct seamtri *grown = realloc(tris, sizeof(*tris) * newmax);
+
+						if (grown == NULL) {
+							goto end;
+						}
+
+						tris = grown;
+						maxtris = newmax;
+					}
+
+					for (c = 0; c < 3; c++) {
+						tris[numtris].p[c][0] = cache[idx[k][c]][0];
+						tris[numtris].p[c][1] = cache[idx[k][c]][1];
+						tris[numtris].p[c][2] = cache[idx[k][c]][2];
+					}
+
+					tris[numtris].cmd = iter;
+					tris[numtris].slot = iter->dma.cmd == G_TRI1 ? -1 : k;
+					tris[numtris].edge = 0;
+					numtris++;
+				}
+			}
+		}
+	}
+
+	if (numtris == 0) {
+		goto end;
+	}
+
+	// Every corner's position, sorted by x, without repeats
+	pos = malloc(sizeof(*pos) * numtris * 3);
+	tvert = calloc(numtris * 3, 1);
+
+	if (pos == NULL || tvert == NULL) {
+		goto end;
+	}
+
+	for (i = 0; i < numtris; i++) {
+		memcpy(pos[i * 3], tris[i].p, sizeof(tris[i].p));
+	}
+
+	qsort(pos, numtris * 3, sizeof(*pos), bgSeamPosCmp);
+
+	for (i = 0; i < numtris * 3; i++) {
+		if (numpos == 0 || bgSeamPosCmp(pos[numpos - 1], pos[i]) != 0) {
+			memcpy(pos[numpos], pos[i], sizeof(pos[i]));
+			numpos++;
+		}
+	}
+
+	// An edge with a corner within a unit of its inside is a T-junction: its
+	// face is marked, and the corner (tvert) marks its own faces below
+	for (i = 0; i < numtris; i++) {
+		s32 e;
+		bool hit = false;
+
+		for (e = 0; e < 3; e++) {
+			const s16 *a = tris[i].p[e];
+			const s16 *b = tris[i].p[(e + 1) % 3];
+			const f32 dx = b[0] - a[0];
+			const f32 dy = b[1] - a[1];
+			const f32 dz = b[2] - a[2];
+			const f32 l2 = dx * dx + dy * dy + dz * dz;
+			s32 lox = (a[0] < b[0] ? a[0] : b[0]) - 1;
+			s32 hix = (a[0] > b[0] ? a[0] : b[0]) + 1;
+			s32 j;
+
+			if (l2 < 4) {
+				continue;
+			}
+
+			for (j = bgSeamFindX(pos, numpos, lox); j < numpos && pos[j][0] <= hix; j++) {
+				const s16 *q = pos[j];
+				f32 t;
+				f32 ex;
+				f32 ey;
+				f32 ez;
+
+				if (q[1] < (a[1] < b[1] ? a[1] : b[1]) - 1 || q[1] > (a[1] > b[1] ? a[1] : b[1]) + 1
+						|| q[2] < (a[2] < b[2] ? a[2] : b[2]) - 1 || q[2] > (a[2] > b[2] ? a[2] : b[2]) + 1) {
+					continue;
+				}
+
+				t = ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy + (q[2] - a[2]) * dz) / l2;
+
+				if (t <= 0.001f || t >= 0.999f) {
+					continue;
+				}
+
+				ex = a[0] + dx * t - q[0];
+				ey = a[1] + dy * t - q[1];
+				ez = a[2] + dz * t - q[2];
+
+				if (ex * ex + ey * ey + ez * ez < 1.0f) {
+					hit = true;
+					tvert[j] = 1;
+				}
+			}
+		}
+
+		tris[i].edge = hit;
+	}
+
+	for (i = 0; i < numtris; i++) {
+		bool mark = tris[i].edge;
+		s32 c;
+
+		for (c = 0; c < 3 && !mark; c++) {
+			s16 (*found)[3] = bsearch(tris[i].p[c], pos, numpos, sizeof(*pos), bgSeamPosCmp);
+
+			mark = found != NULL && tvert[found - pos];
+		}
+
+		if (mark) {
+			if (tris[i].slot < 0) {
+				tris[i].cmd->words.w1 |= 1u << 24;
+			} else {
+				tris[i].cmd->words.w0 |= 1u << (16 + tris[i].slot);
+			}
+
+			marked++;
+		}
+	}
+
+	if (g_BgSeamVerbose) {
+		sysLogPrintf(LOG_NOTE, "bg: room %d: %d of %d opaque faces sealed", roomnum, marked, numtris);
+	}
+
+end:
+	free(tris);
+	free(pos);
+	free(tvert);
+}
+#endif
+
 void bgLoadRoom(s32 roomnum)
 {
 	s32 alloclen;
@@ -3590,6 +3857,10 @@ void bgLoadRoom(s32 roomnum)
 		}
 #endif
 
+#ifndef PLATFORM_N64
+		bgMarkRoomSeams(roomnum);
+#endif
+
 		// Create vertex batches - these are used for hit detection
 		bgFindRoomVtxBatches(roomnum);
 
@@ -3902,7 +4173,12 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 	// 20260928-012509, the Institute's walls: "blue sky lines appearing top
 	// and bottom of the wall"). The renderer grows each opaque face half a
 	// pixel along its own plane, which closes any crack narrower than that.
-	gSPSetExtraGeometryModeEXT(gdl++, G_SEAL_SEAMS_EXT);
+	// Not the HD levels' rooms: Bean's meshes are welded (no crack of this
+	// kind in them), and they draw the whole level, 30000 faces a frame on
+	// Surface, where sealing cost a quarter of the game thread
+	if (!gebeanStageDrawsEveryRoom()) {
+		gSPSetExtraGeometryModeEXT(gdl++, G_SEAL_SEAMS_EXT);
+	}
 #endif
 	gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->opablocks, true);
 #ifndef PLATFORM_N64
