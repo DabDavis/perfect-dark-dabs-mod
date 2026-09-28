@@ -6094,13 +6094,30 @@ up unchanged (166-184 frames to the deck); the two dam-face ladders (71, 69)
 climb. Probe trap: Dam's room 72 deck has something at x 2573 z 5570 that
 stops a walk down x 2575 (both binaries, both stages) - walk at x 2590.
 
-**Open: Cradle's shaft (0x68) at full speed.** Walking into the hatch at a
-walk (FWD=0.3) drops to the platform. At full speed the hover carries the
-player out over the hatch, they fall ~80, and Perfect Dark's step-up lifts
-them onto the far lip (z -881, the deck) - no hang, but no drop either. In
-GoldenEye Bond over the hatch stands on the platform's tile and has no lip
-to catch. If a tester reports it, the fix is a remake-stage limit on
-stepping up onto a floor while falling.
+**Cradle's shaft (0x68) at full speed - a fall is not caught by a floor over
+the feet** (second commit, user-approved). Walking into the hatch at a walk
+dropped to the platform; running, the hover at the head carried the player out
+over the hatch, they fell ~100, went on *under* the far lip (the shaft's floor,
+room 7 at 1162, runs on under the deck - the floor-ahead walk said 1162 at z
+-923) and Perfect Dark's ground, the highest floor the cylinder touches under
+the body's middle, was the deck 2609: "landed", then eased up onto it. In
+GoldenEye Bond falls on the tile he is on and a floor over his feet is never
+his. Fix in `bwalkUpdateVertical()` (remake stages): while falling towards a
+real floor (`bdeltapos.y < 0`, `vv_ground` under the feet and not the -30000
+floor of the world), a ground more than 10 over the feet is replaced by the
+floor under the middle of the body asked from 10 over the feet
+(`geRoomGround()` radius 1), or else by the floor the fall was going to.
+Landing on a ledge from above is untouched (the ledge is under the feet until
+the landing), as is every step up while walking (not falling). The -30000
+guard matters: a teleported probe with no floor under it (Dam room 71 start)
+fell out of the world without it.
+
+Checked (`walks.sh`, `pd-fix2`): Cradle cr1 (run), cr3 (backwards) now fall
+into the shaft (before: stepped up onto the deck at z -881 and stayed); cr2
+(walk) lands at 1162 and climbs back up the ladder. Every Dam/GE Arenas ladder
+walk above identical to the first commit's. Dam's outside stair up and back
+down (`rt`) and with a strafe (`rts`) identical to the base binary frame for
+frame; Facility's conveyor climb (`fc`, 0x63) identical (+118.9).
 
 ## A mission's own opening, and the endings Bond was never in (2026-09-20)
 

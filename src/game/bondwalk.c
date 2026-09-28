@@ -1332,6 +1332,52 @@ void bwalkUpdateVertical(void)
 				&g_Vars.currentplayer->floorcol, &g_Vars.currentplayer->floortype,
 				&g_Vars.currentplayer->floorflags, &g_Vars.currentplayer->floorroom,
 				&newinlift, &lift);
+
+		// A fall is not caught by a floor over the feet. Perfect Dark's ground
+		// is the highest floor its cylinder touches under the body's middle
+		// height, so a player falling past a lip is stepped up onto it the
+		// moment the body reaches it. GoldenEye's is the tile Bond is on,
+		// and a fall stays on the tile it began on (the floor it lands on)
+		// until his walk crosses a link; a floor over his feet is never his.
+		// Running across Cradle's shaft hatch the player fell 100 under the
+		// deck, on under the far lip - the shaft's floor runs on under the
+		// deck - and was stepped up 100 onto the deck again. So while
+		// falling, a floor more than a step over the feet is not ground: the
+		// floor under the middle of the body is, if it is under the feet,
+		// and otherwise the floor the fall was going to.
+		//
+		// Only a fall towards a floor: a player with no floor under them at
+		// all (vv_ground at the -30000 floor of the world - a room the
+		// search missed) is caught by whatever floor turns up, as ever.
+		if (g_Vars.currentplayer->bdeltapos.y < 0.0f
+				&& g_Vars.currentplayer->vv_ground > -29000.0f
+				&& g_Vars.currentplayer->vv_ground < g_Vars.currentplayer->vv_manground
+				&& ground > g_Vars.currentplayer->vv_manground + 10.0f) {
+			u16 midcol;
+			u8 midtype;
+			u16 midflags;
+			RoomNum midroom;
+			s32 midinlift;
+			struct prop *midlift = NULL;
+			struct coord midpos = testpos;
+			f32 mid;
+
+			midpos.y = g_Vars.currentplayer->vv_manground + 10.0f;
+			mid = geRoomGround(&midpos, 1.0f, rooms, &midcol, &midtype, &midflags, &midroom,
+					&midinlift, &midlift);
+
+			if (mid > -29000.0f && mid <= g_Vars.currentplayer->vv_manground + 10.0f) {
+				ground = mid;
+				g_Vars.currentplayer->floorcol = midcol;
+				g_Vars.currentplayer->floortype = midtype;
+				g_Vars.currentplayer->floorflags = midflags;
+				g_Vars.currentplayer->floorroom = midroom;
+				newinlift = midinlift;
+				lift = midlift;
+			} else {
+				ground = g_Vars.currentplayer->vv_ground - g_Vars.currentplayer->bondonground;
+			}
+		}
 	}
 #endif
 
