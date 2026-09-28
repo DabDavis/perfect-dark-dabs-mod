@@ -1117,7 +1117,11 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
  */
 static void playerSpawnWeapons(void)
 {
-	const s32 spawnweapon = mpGetSpawnWeapon();
+	// GoldenEye's credits (Cuba): Bond starts unarmed (its StartWeapon record
+	// is ITEM_UNARMED) and the list hides the hands, but the body the camera
+	// circles holds the gun the hands hold - Start Armed's roll put one in his
+	// hand for the kiss (F3 20260928-002443)
+	const s32 spawnweapon = modloaderStageMission(g_Vars.stagenum) == GEMISSION_CUBA ? -1 : mpGetSpawnWeapon();
 
 	// A Randomizer run: the guns held when the player stepped through the
 	// portal. The same override as Mission Respawn's below and for the same

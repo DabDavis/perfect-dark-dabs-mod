@@ -4323,7 +4323,18 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	chr->tracedrawalpha = alpha > 0xff ? 0xff : (alpha < 0 ? 0 : alpha);
 #endif
 
-	if (alpha < 0xff) {
+	if (alpha < 0xff
+#ifndef PLATFORM_N64
+			// GoldenEye's CHRFLAG_00020000 (chr.c's chrRender, the
+			// conversion's CHRCFLAG_GE_XLUPASS): the whole chr in the
+			// translucent pass, where the props are drawn far to near. Cuba
+			// sets it on Bond and Natalya because the jungle's plants there
+			// are drawn with no depth (OBJFLAG2_DRAWONTOP): drawn in the
+			// opaque pass the two were painted over by a plant standing
+			// behind them (F3 20260928-002401, 20260928-005549)
+			|| (chr->chrflags & CHRCFLAG_GE_XLUPASS)
+#endif
+			) {
 		if (!xlupass) {
 #ifndef PLATFORM_N64
 			traceChrNote(chr, TRACECHR_DEFERRED);

@@ -5279,11 +5279,30 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 					// compares it against bondhealth * 8, where a full one is
 					// 80 (gesolo.py's GE_BOND_HEALTH_FULL)
 					v = v * 80 / 255;
-				} else if (op >= 0x9d && op <= 0xa2 && cmd->gewidth[i] == 4 && (v & 0x1000)) {
+				} else if (op >= 0x9d && op <= 0xa2 && cmd->gewidth[i] == 4) {
 					// GoldenEye's CHRFLAG_LOCK_Y_POS is Perfect Dark's
 					// CHRCFLAG_UNEXPLODABLE: it goes to the port's own
 					// CHRCFLAG_GE_LOCKY (gesolo.py's GE_CHRFLAG_OPS)
-					v = (v & ~0x1000u) | 0x40000000u;
+					if (v & 0x1000) {
+						v = (v & ~0x1000u) | 0x40000000u;
+					}
+
+					// And its CHRFLAG_00020000, which chrRender() reads as
+					// "draw me in the translucent pass, far to near with the
+					// props" - Cuba's Bond and Natalya, among plants drawn
+					// with no depth, which the kiss stood behind rather than
+					// in front of - is Perfect Dark's CHRCFLAG_FORCEAUTOAIM:
+					// it goes to the port's own CHRCFLAG_GE_XLUPASS, which is
+					// stock's unused 0x00400000. GoldenEye's own 0x00400000
+					// means nothing there (Statue Park's guard sets it) and
+					// is left out.
+					if (v & 0x00400000) {
+						v &= ~0x00400000u;
+					}
+
+					if (v & 0x00020000) {
+						v = (v & ~0x00020000u) | 0x00400000u;
+					}
 				}
 
 				vals[i] = v;

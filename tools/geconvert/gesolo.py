@@ -218,6 +218,15 @@ GE_BOND_HEALTH_FULL = 80          # and GoldenEye's own is 255
 GE_CHRFLAG_OPS = (0x9d, 0x9e, 0x9f, 0xa0, 0xa1, 0xa2)
 GE_CHRFLAG_LOCKY = 0x00001000
 PD_CHRFLAG_GE_LOCKY = 0x40000000
+# And GoldenEye's CHRFLAG_00020000 - drawn in the translucent pass, far to near
+# with the props (chr.c's chrRender), which Cuba's Bond and Natalya need among
+# plants drawn with no depth - is Perfect Dark's CHRCFLAG_FORCEAUTOAIM. It goes
+# to the port's own CHRCFLAG_GE_XLUPASS, stock's unused 0x00400000; GoldenEye's
+# own 0x00400000 means nothing (Statue Park's guard sets it) and is left out
+# (converter 85).
+GE_CHRFLAG_XLUPASS = 0x00020000
+GE_CHRFLAG_UNUSED = 0x00400000
+PD_CHRFLAG_GE_XLUPASS = 0x00400000
 
 # The four commands that ask whether something is in **a pad's room** (44, 54,
 # 55 and e6). GoldenEye's argument is a pad and it compares the room of the
@@ -1047,8 +1056,12 @@ def convert_ailist(d, at, stats, numpads, vehicle=False, offset=None):
                     v = MODEL_REMAKE_FIRST + v
                 elif a == 'HEALTH' and op in GE_BOND_HEALTH_OPS:
                     v = v * GE_BOND_HEALTH_FULL // 255
-                elif a == 'CHRFLAGS' and op in GE_CHRFLAG_OPS and v & GE_CHRFLAG_LOCKY:
-                    v = (v & ~GE_CHRFLAG_LOCKY) | PD_CHRFLAG_GE_LOCKY
+                elif a == 'CHRFLAGS' and op in GE_CHRFLAG_OPS:
+                    if v & GE_CHRFLAG_LOCKY:
+                        v = (v & ~GE_CHRFLAG_LOCKY) | PD_CHRFLAG_GE_LOCKY
+                    v &= ~GE_CHRFLAG_UNUSED
+                    if v & GE_CHRFLAG_XLUPASS:
+                        v = (v & ~GE_CHRFLAG_XLUPASS) | PD_CHRFLAG_GE_XLUPASS
                 vals.append(v)
                 o += w
             out += struct.pack('>H', pd)

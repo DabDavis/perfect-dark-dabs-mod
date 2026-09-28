@@ -2267,7 +2267,7 @@ static void introClose(void)
 
 	if (g_Intro.full) {
 		g_Intro.full = 0;
-		gexFrontOpenAtMission(GEMISSION_CRADLE);
+		gexFrontOpenAfterCredits();
 		return;
 	}
 
@@ -2362,8 +2362,9 @@ void geIntroTick(void)
 
 	if (g_Intro.inputdelay > 0) {
 		g_Intro.inputdelay--;
-	} else if (g_Intro.full) {
-		// "&& (!full_actor_intro)": no press leaves the long reel
+	} else if (g_Intro.full && !gexFrontCreditsAreCinema()) {
+		// "&& (!full_actor_intro)": no press leaves the long reel - but the
+		// Cinema page's credits are one of its cinemas, which a press leaves
 	} else if (joyGetButtonsPressedThisFrame(0, 0xffff | BUTTON_UI_ACCEPT | BUTTON_UI_CANCEL)) {
 		// as GoldenEye's, a press moves the intro on rather than ending it -
 		// except from the cast reel, which a press leaves for the folder
