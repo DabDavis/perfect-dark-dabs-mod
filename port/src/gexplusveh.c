@@ -567,6 +567,50 @@ static void vehTruckTick(struct prop *prop)
 	}
 }
 
+/**
+ * The box a vehicle's collision is built from: GoldenEye's own
+ * chrobjGetBboxFromObjFile(), which looks along the root's children for a
+ * bounding box and then along the first child's, and nowhere deeper.
+ *
+ * Perfect Dark's modelFindBboxNode() walks the whole tree depth first and
+ * takes the first box it meets. Streets' jeep (Pgx280Z) is a position node
+ * per wheel, each with the wheel's own box under it, and the body's box after
+ * them as the root's last child: Perfect Dark found the front left wheel's box,
+ * and each jeep's collision was a slab 28 units wide and 78 long by one wheel,
+ * which Bond walked straight through (F3 20260927-204814, dab). Dam's truck
+ * keeps its body's box first and was never short of one.
+ */
+struct modelnode *gexPlusVehicleBboxNode(struct defaultobj *obj)
+{
+	struct modelnode *first;
+	struct modelnode *node;
+
+	if (!obj || !obj->model || (obj->type != OBJTYPE_TRUCK && obj->type != OBJTYPE_HELI)
+			|| !modloaderStageIsMission(g_Vars.stagenum)) {
+		return NULL;
+	}
+
+	first = obj->model->definition->rootnode ? obj->model->definition->rootnode->child : NULL;
+
+	if (!first) {
+		return NULL;
+	}
+
+	for (node = first; node; node = node->next) {
+		if ((node->type & 0xff) == MODELNODETYPE_BBOX) {
+			return node;
+		}
+	}
+
+	for (node = first->child; node; node = node->next) {
+		if ((node->type & 0xff) == MODELNODETYPE_BBOX) {
+			return node;
+		}
+	}
+
+	return NULL;
+}
+
 void gexPlusVehicleTick(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;

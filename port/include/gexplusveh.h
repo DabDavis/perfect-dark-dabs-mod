@@ -31,4 +31,9 @@ s32 gexPlusVehicleFliesAnim(struct prop *prop);
 // A node of a vehicle's model turned on its own pivot (a wheel, a rotor, a turret)
 void gexPlusVehiclePutPart(struct model *model, s32 partnum, Mtxf *rot);
 
+// The bounding box a vehicle's collision is built from, found the way
+// GoldenEye finds it (the root's children, then the first child's), or NULL
+// when the object is not one of GoldenEye's vehicles or the model has none there.
+struct modelnode *gexPlusVehicleBboxNode(struct defaultobj *obj);
+
 #endif
