@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include <strings.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
 #include <PR/gbi.h>
@@ -27,6 +28,11 @@
 #include "xblamesh.h"
 #include "objmesh.h"
 #include "assetdump.h"
+#include "mod.h"
+#include "pngwrite.h"
+#include "gebean.h"
+#include "geconvert.h"
+#include "gexplusrom.h"
 #include "game/file.h"
 #include "game/tex.h"
 #include "game/texdecompress.h"
@@ -37,6 +43,14 @@
 #define ASSETDUMP_DIR "model-dumps"
 #define ASSETDUMP_N64_SUB "n64"
 #define ASSETDUMP_XBLA_SUB "xbla"
+// GoldenEye's, each in a folder of its own under both model-dumps/ and
+// texture-dumps/: the conversion of the player's ROM, and the XBLA release
+#define ASSETDUMP_GEN64_SUB "ge-n64"
+#define ASSETDUMP_GEXBLA_SUB "ge-xbla"
+
+// Texture numbers a model's texture command can name: twelve bits, which is
+// more than the ROM's table, since GoldenEye's conversion has its own
+#define ASSETDUMP_MAXTEX 4096
 
 // Microseconds of a frame given to the dump when it runs from the menu.
 #define ASSETDUMP_BUDGET 12000
@@ -57,6 +71,9 @@ enum {
 	PHASE_RECORDS,
 	PHASE_MODELS,
 	PHASE_MESHES,
+	PHASE_GE_TEXTURES,
+	PHASE_GE_MODELS,
+	PHASE_BEAN,
 	PHASE_DONE,
 };
 
@@ -65,11 +82,15 @@ static s32 cursor;
 static s32 total;
 static s32 haveXbla;
 static s32 numTextures, numRecords, numModels, numMeshes, numRefused, numUnnamed;
+static s32 numGeTextures, numGeModels, numBeanModels, numBeanTextures, numBeanRefused;
 static u64 phaseStart; // for the log: how long each pass took
 static char status[128];
 static char modelDir[FS_MAXPATH + 1];   // model-dumps, expanded
 static char texDir[FS_MAXPATH + 1];     // texture-dumps/<romid>, expanded
 static char texRel[FS_MAXPATH + 1];     // the same as an MTL from model-dumps/n64/ sees it
+static char texRoot[FS_MAXPATH + 1];    // texture-dumps, expanded
+static char texRootName[64];            // its own name, "texture-dumps"
+static s32 texRootShared;               // under the same folder as model-dumps
 
 // What is known about each texture number as the models are dumped: the
 // padded size a coordinate is measured against, whether the coordinates were
@@ -126,6 +147,8 @@ static s32 assetDumpOpenDirs(void)
 	const char *tex;
 	const char *romid;
 
+	texRootShared = 0;
+
 	if (fsChooseOutputDir(ASSETDUMP_DIR, rel, sizeof(rel)) != 0) {
 		sysLogPrintf(LOG_ERROR, "assetdump: nowhere to write " ASSETDUMP_DIR);
 		return 0;
@@ -178,11 +201,21 @@ static s32 assetDumpOpenDirs(void)
 
 		if (texname && texroot == modelroot && !strncmp(texDir, modelDir, texroot)) {
 			snprintf(texRel, sizeof(texRel), "../..%s", texname);
+			texRootShared = 1;
 		} else {
 			snprintf(texRel, sizeof(texRel), "%s", texDir);
 		}
+
+		snprintf(texRoot, sizeof(texRoot), "%.*s", (int)(romid - texDir), texDir);
 	} else {
 		snprintf(texRel, sizeof(texRel), "%s", texDir);
+		snprintf(texRoot, sizeof(texRoot), "%s/..", texDir);
+	}
+
+	{
+		const char *slash = strrchr(texRoot, '/');
+
+		snprintf(texRootName, sizeof(texRootName), "%s", slash ? slash + 1 : texRoot);
 	}
 
 	return 1;
@@ -305,7 +338,7 @@ static const struct assetdumptex *assetDumpTexInfo(s32 texturenum)
 	struct texpool pool;
 	struct tex *tex;
 
-	if (texturenum < 0 || texturenum >= NUM_TEXTURES || !texInfo || !texPool) {
+	if (texturenum < 0 || texturenum >= ASSETDUMP_MAXTEX || !texInfo || !texPool) {
 		return NULL;
 	}
 
@@ -608,18 +641,32 @@ static void assetDumpWalkList(struct assetdumplist *l, const Gfx *gdl, s32 depth
  * position nodes put it, so the file opens as the whole model and the pack
  * loader can take each group back to its node.
  */
+static s32 assetDumpModelTo(s32 fileid, const char *name, s32 gun, const char *path, const char *about);
+
 static s32 assetDumpModel(s32 fileid, const char *name)
+{
+	char path[FS_MAXPATH + 1];
+
+	snprintf(path, sizeof(path), "%s/" ASSETDUMP_N64_SUB "/%s.obj", modelDir, name);
+
+	return assetDumpModelTo(fileid, name, name[0] == 'G', path, NULL);
+}
+
+/**
+ * The same for any model file, written to path. about, when there is one, is
+ * a line for the top of the file saying whose model it is.
+ */
+static s32 assetDumpModelTo(s32 fileid, const char *name, s32 gun, const char *path, const char *about)
 {
 	struct modelnode *nodes[ASSETDUMP_MAXNODES];
 	struct modeldef *modeldef;
 	struct objmesh *m;
-	char path[FS_MAXPATH + 1];
-	char comment[512];
+	char comment[768];
 	u8 *buffer = NULL;
 	s32 n;
 	s32 written = 0;
 
-	modeldef = assetDumpLoadModel(fileid, name[0] == 'G', &buffer);
+	modeldef = assetDumpLoadModel(fileid, gun, &buffer);
 
 	if (!modeldef) {
 		return 0;
@@ -689,12 +736,11 @@ static s32 assetDumpModel(s32 fileid, const char *name)
 	}
 
 	if (m->numtris > 0) {
-		snprintf(path, sizeof(path), "%s/" ASSETDUMP_N64_SUB "/%s.obj", modelDir, name);
 		snprintf(comment, sizeof(comment),
-				"model %s, file id 0x%04x, %d list nodes\n"
+				"%s%smodel %s, file id 0x%04x, %d list nodes\n"
 				"a group per list node (node0..), in the order the pack loader numbers them,\n"
 				"each at the model's rest position; textures are n64_<number> in %s",
-				name, fileid, n, texRel);
+				about ? about : "", about ? "\n" : "", name, fileid, n, texRel);
 		written = objmeshWrite(m, path, comment);
 	}
 
@@ -836,6 +882,971 @@ static s32 assetDumpMesh(s32 slot, s32 numslots)
 }
 
 /* -------------------------------------------------------------------------
+ * GoldenEye's, in folders of their own
+ *
+ * model-dumps/ge-n64/{props,chars,hand}/  the conversion of the player's
+ *                                          GoldenEye ROM (mods/GoldenEye
+ *                                          Arenas/files/Pgx, Cgx, Igx), named
+ *                                          by GoldenEye's own file names
+ * texture-dumps/ge-n64/                    its textures/, by the number the
+ *                                          conversion gave each
+ * model-dumps/ge-xbla/<look>/<kind>/       the XBLA release's (Project
+ *                                          Bean's) files/new/ and original/
+ *                                          models, by Rare's own names
+ * texture-dumps/ge-xbla/<look>/<kind>/<name>/  each model's pictures, and
+ *                                          files/texture/ as one picture a
+ *                                          folder
+ *
+ * Only what is there: the conversion when it is mounted, the release when the
+ * game has found it (added-content/).
+ * ------------------------------------------------------------------------- */
+
+// The names of what the pass is to walk, sorted so a run is the same twice
+static char **jobList;
+static s32 numJobs, maxJobs;
+
+static void assetDumpJobsClear(void)
+{
+	for (s32 i = 0; i < numJobs; i++) {
+		free(jobList[i]);
+	}
+
+	free(jobList);
+	jobList = NULL;
+	numJobs = maxJobs = 0;
+}
+
+static void assetDumpJobAdd(const char *name)
+{
+	if (numJobs == maxJobs) {
+		const s32 grow = maxJobs ? maxJobs * 2 : 256;
+		char **list = realloc(jobList, sizeof(*jobList) * grow);
+
+		if (!list) {
+			return;
+		}
+
+		jobList = list;
+		maxJobs = grow;
+	}
+
+	jobList[numJobs] = malloc(strlen(name) + 1);
+
+	if (jobList[numJobs]) {
+		memcpy(jobList[numJobs], name, strlen(name) + 1);
+	}
+
+	if (jobList[numJobs]) {
+		numJobs++;
+	}
+}
+
+static int assetDumpJobCompare(const void *a, const void *b)
+{
+	return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+static void assetDumpJobsSort(void)
+{
+	if (numJobs > 1) {
+		qsort(jobList, numJobs, sizeof(*jobList), assetDumpJobCompare);
+	}
+}
+
+/** mkdir -p, for a path already expanded. */
+static s32 assetDumpMakeDirs(const char *path)
+{
+	char buf[FS_MAXPATH + 1];
+
+	snprintf(buf, sizeof(buf), "%s", path);
+
+	for (char *p = buf + 1; *p; p++) {
+		if (*p == '/') {
+			*p = '\0';
+			assetDumpMakeDir(buf);
+			*p = '/';
+		}
+	}
+
+	return assetDumpMakeDir(buf);
+}
+
+/**
+ * The texture folder sub as an MTL depth folders under model-dumps/ reaches
+ * it: relative when the two dumps share a root, the whole path when not.
+ */
+static void assetDumpTexRelFrom(char *dst, size_t len, s32 depth, const char *sub)
+{
+	size_t at = 0;
+
+	if (!texRootShared) {
+		snprintf(dst, len, "%s/%s", texRoot, sub);
+		return;
+	}
+
+	dst[0] = '\0';
+
+	for (s32 i = 0; i <= depth && at + 3 < len; i++) {
+		memcpy(dst + at, "../", 3);
+		at += 3;
+		dst[at] = '\0';
+	}
+
+	snprintf(dst + at, len - at, "%s/%s", texRootName, sub);
+}
+
+/** A file name made of anything: letters, digits, - _ . and nothing else. */
+static void assetDumpSafeName(char *dst, size_t len, const char *src)
+{
+	size_t i = 0;
+
+	for (; src && *src && i + 1 < len; src++) {
+		const char c = *src;
+
+		dst[i++] = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+				|| c == '-' || c == '_' || c == '.' ? c : '_';
+	}
+
+	dst[i] = '\0';
+}
+
+/* ---- the conversion of the GoldenEye ROM ---- */
+
+#define GENAMES_KINDS 3
+#define GENAMES_MAX 340
+#define GENAMES_LEN 40
+
+static s32 geDir = -1;               // the mounted mod dir holding the conversion
+static char geTexOut[FS_MAXPATH + 1];    // texture-dumps/ge-n64, expanded
+static char geModelOut[FS_MAXPATH + 1];  // model-dumps/ge-n64, expanded
+static char (*geNames)[GENAMES_MAX][GENAMES_LEN];
+static FILE *geIndex;
+static char texRelRom[FS_MAXPATH + 1];   // texRel while the GE models have it
+
+static void assetDumpGeName(void *arg, int kind, int num, const char *file)
+{
+	if (geNames && kind >= 0 && kind < GENAMES_KINDS && num >= 0 && num < GENAMES_MAX) {
+		snprintf(geNames[kind][num], GENAMES_LEN, "%s", file);
+	}
+}
+
+/** The mounted mod that is GoldenEye's conversion (its first body is the marker, as in gexplus.c), or -1. */
+static s32 assetDumpFindGeDir(void)
+{
+	const s32 numdirs = fsGetNumModDirs();
+
+	for (s32 i = 0; i < numdirs; i++) {
+		const char *at = fsGetModDirAt(i);
+		char path[FS_MAXPATH + 1];
+
+		if (!at) {
+			continue;
+		}
+
+		snprintf(path, sizeof(path), "%s/files/Cgx000Z", at);
+
+		if (fsFileSize(path) > 0) {
+			snprintf(path, sizeof(path), "%s/modconfig.txt", at);
+
+			if (fsFileSize(path) > 0) {
+				return i;
+			}
+		}
+	}
+
+	return -1;
+}
+
+static void assetDumpScanGeTexture(const char *name, void *arg)
+{
+	u32 num;
+	char tail[8];
+
+	if (strlen(name) == 8 && sscanf(name, "%4x%7s", &num, tail) == 2 && !strcmp(tail, ".bin")
+			&& num < ASSETDUMP_MAXTEX) {
+		assetDumpJobAdd(name);
+	}
+}
+
+static void assetDumpScanGeModel(const char *name, void *arg)
+{
+	if ((name[0] == 'P' || name[0] == 'C' || name[0] == 'I') && name[1] == 'g' && name[2] == 'x'
+			&& strlen(name) == 7 && name[6] == 'Z') {
+		assetDumpJobAdd(name);
+	}
+}
+
+/** The GE textures pass's list; 0 when there is no conversion to dump. */
+static s32 assetDumpGeTexturesBegin(void)
+{
+	char path[FS_MAXPATH + 1];
+
+	assetDumpJobsClear();
+	geDir = assetDumpFindGeDir();
+
+	if (geDir < 0) {
+		sysLogPrintf(LOG_NOTE, "assetdump: no GoldenEye conversion mounted (mods/" GEXPLUSROM_DIR "), so no " ASSETDUMP_GEN64_SUB " dump");
+		return 0;
+	}
+
+	snprintf(geTexOut, sizeof(geTexOut), "%s/" ASSETDUMP_GEN64_SUB, texRoot);
+	snprintf(geModelOut, sizeof(geModelOut), "%s/" ASSETDUMP_GEN64_SUB, modelDir);
+
+	if (!assetDumpMakeDirs(geTexOut)) {
+		sysLogPrintf(LOG_ERROR, "assetdump: could not create %s", geTexOut);
+		geDir = -1;
+		return 0;
+	}
+
+	snprintf(path, sizeof(path), "%s/textures", fsGetModDirAt(geDir));
+	fsScanDir(path, assetDumpScanGeTexture, NULL);
+	assetDumpJobsSort();
+
+	// A model's numbers are the conversion's now, not the ROM's
+	memset(texInfo, 0, sizeof(*texInfo) * ASSETDUMP_MAXTEX);
+
+	snprintf(path, sizeof(path), "%s/index.csv", geTexOut);
+	geIndex = fopen(path, "wb");
+
+	if (geIndex) {
+		fprintf(geIndex, "texnum,goldeneye_image,fmt,width,height,png\n");
+	}
+
+	sysLogPrintf(LOG_NOTE, "assetdump: GoldenEye's conversion in %s: %d textures", fsGetModDirAt(geDir), numJobs);
+
+	return numJobs;
+}
+
+/** One of the conversion's textures, as the models' MTLs name it. */
+static s32 assetDumpGeTexture(const char *file)
+{
+	char path[FS_MAXPATH + 1];
+	struct texpool pool;
+	struct tex *tex;
+	u32 num = 0;
+	s32 written = 0;
+	s32 prev;
+
+	if (sscanf(file, "%4x", &num) != 1) {
+		return 0;
+	}
+
+	prev = modSetTextureSourceMod(geDir);
+
+	texInitPool(&pool, texPool, ASSETDUMP_TEXPOOL);
+	texLoadFromTextureNum(num, &pool);
+	tex = texFindInPool((s32)num, &pool);
+
+	if (tex && tex->data) {
+		s32 width = 0;
+		s32 height = 0;
+		u8 *rgba = texpackTexToRgba(tex, &width, &height);
+
+		if (rgba) {
+			const char *fmt = assetDumpFormatName(tex->gbiformat, tex->depth);
+
+			snprintf(path, sizeof(path), "%s/%04x_%s.png", geTexOut, num, fmt);
+			written = pngWrite(path, rgba, width, height, 4, 0) != 0;
+
+			if (written && geIndex) {
+				fprintf(geIndex, "%04x,%u,%s,%d,%d,%04x_%s.png\n", num, geconvertTexUnremap(num), fmt,
+						width, height, num, fmt);
+			}
+
+			free(rgba);
+		}
+	}
+
+	texpackForgetRange(texPool, texPool + ASSETDUMP_TEXPOOL);
+	modSetTextureSourceMod(prev);
+
+	return written;
+}
+
+static void assetDumpGeTexturesEnd(void)
+{
+	if (geIndex) {
+		fclose(geIndex);
+		geIndex = NULL;
+	}
+}
+
+static const char *const geKindDirs[GENAMES_KINDS] = { "props", "chars", "hand" };
+
+static s32 assetDumpGeModelsBegin(void)
+{
+	char path[FS_MAXPATH + 1];
+	s32 named = 0;
+
+	assetDumpJobsClear();
+
+	if (geDir < 0 || !fsGetModDirAt(geDir)) {
+		return 0;
+	}
+
+	for (s32 k = 0; k < GENAMES_KINDS; k++) {
+		snprintf(path, sizeof(path), "%s/%s", geModelOut, geKindDirs[k]);
+
+		if (!assetDumpMakeDirs(path)) {
+			sysLogPrintf(LOG_ERROR, "assetdump: could not create %s", path);
+			return 0;
+		}
+	}
+
+	geNames = calloc(GENAMES_KINDS, sizeof(*geNames));
+
+	if (geNames && gexPlusRomReadNames(assetDumpGeName, NULL)) {
+		named = 1;
+	} else {
+		sysLogPrintf(LOG_NOTE, "assetdump: no GoldenEye ROM to read its own names from; the conversion's are used");
+	}
+
+	snprintf(path, sizeof(path), "%s/files", fsGetModDirAt(geDir));
+	fsScanDir(path, assetDumpScanGeModel, NULL);
+	assetDumpJobsSort();
+
+	snprintf(path, sizeof(path), "%s/index.csv", geModelOut);
+	geIndex = fopen(path, "wb");
+
+	if (geIndex) {
+		fprintf(geIndex, "obj,conversion_file,kind,goldeneye_number,goldeneye_file\n");
+	}
+
+	// The MTLs' way to texture-dumps/ge-n64 is one folder deeper than n64/'s
+	snprintf(texRelRom, sizeof(texRelRom), "%s", texRel);
+	assetDumpTexRelFrom(texRel, sizeof(texRel), 2, ASSETDUMP_GEN64_SUB);
+
+	sysLogPrintf(LOG_NOTE, "assetdump: %d of GoldenEye's converted models%s", numJobs,
+			named ? ", named by the ROM's own file names" : "");
+
+	return numJobs;
+}
+
+/** One of the conversion's models, under GoldenEye's own name for it. */
+static s32 assetDumpGeModel(const char *file)
+{
+	const s32 kind = file[0] == 'P' ? 0 : file[0] == 'C' ? 1 : 2;
+	const s32 num = atoi(file + 3);
+	const char *gename = geNames && num >= 0 && num < GENAMES_MAX && geNames[kind][num][0] ? geNames[kind][num] : NULL;
+	char outname[GENAMES_LEN + 16];
+	char path[FS_MAXPATH + 1];
+	char about[256];
+	const s32 existed = romdataFileGetNumForName(file);
+	s32 fileid;
+	s32 written;
+	s32 prev;
+
+	fileid = romdataRegisterModFile(file, geDir);
+
+	if (fileid <= 0) {
+		return 0;
+	}
+
+	assetDumpSafeName(outname, sizeof(outname), gename ? gename : file);
+
+	// Two of GoldenEye's numbers can be the one file (hand items share
+	// models); the later is told apart by its number
+	for (s32 i = 0; gename && i < num; i++) {
+		if (!strcmp(geNames[kind][i], gename)) {
+			char taken[GENAMES_LEN + 16];
+
+			snprintf(taken, sizeof(taken), "%s", outname);
+			snprintf(outname, sizeof(outname), "%s_%03d", taken, num);
+			break;
+		}
+	}
+
+	snprintf(path, sizeof(path), "%s/%s/%s.obj", geModelOut, geKindDirs[kind], outname);
+
+	snprintf(about, sizeof(about), "GoldenEye's %s %d%s%s, converted from the ROM as %s (mods/" GEXPLUSROM_DIR "/files/%s)",
+			kind == 0 ? "prop" : kind == 1 ? "character" : "hand item", num,
+			gename ? ", " : "", gename ? gename : "", file, file);
+
+	prev = modSetTextureSourceMod(geDir);
+	written = assetDumpModelTo(fileid, file, 0, path, about);
+	modSetTextureSourceMod(prev);
+
+	// what this pass loaded is let go again, unless the game had it before
+	if (existed <= 0) {
+		romdataFileFree(fileid);
+	}
+
+	if (written && geIndex) {
+		fprintf(geIndex, "%s/%s.obj,%s,%s,%d,%s\n", geKindDirs[kind], outname, file,
+				kind == 0 ? "prop" : kind == 1 ? "character" : "hand item", num, gename ? gename : "");
+	}
+
+	return written;
+}
+
+static void assetDumpGeModelsEnd(void)
+{
+	if (geIndex) {
+		fclose(geIndex);
+		geIndex = NULL;
+	}
+
+	free(geNames);
+	geNames = NULL;
+	// back to the ROM's, for anything after
+	if (texRelRom[0]) {
+		snprintf(texRel, sizeof(texRel), "%s", texRelRom);
+		texRelRom[0] = '\0';
+	}
+}
+
+/* ---- the GoldenEye XBLA release (Project Bean) ---- */
+
+static char beanRoot[FS_MAXPATH + 1];    // the release's files/
+static char beanModelOut[FS_MAXPATH + 1]; // model-dumps/ge-xbla
+static char beanTexOut[FS_MAXPATH + 1];   // texture-dumps/ge-xbla
+
+// What of the release is dumped, by look and kind. A model's collision
+// copy (<name>_hits) is left out: it is not drawn.
+static const char *const beanLooks[] = { "new", "original" };
+static const char *const beanKinds[] = { "char", "head", "gun", "prop", "background", "skydome" };
+
+static char beanScanPrefix[FS_MAXPATH + 1];
+
+static void assetDumpScanBeanModel(const char *name, void *arg)
+{
+	const size_t len = strlen(name);
+	char path[FS_MAXPATH + 1];
+	char job[FS_MAXPATH + 1];
+
+	if (len > 5 && !strcmp(name + len - 5, "_hits")) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/%s/%s/default.bin", beanRoot, beanScanPrefix, name);
+
+	if (fsFileSize(path) > 0) {
+		snprintf(job, sizeof(job), "m:%s/%s", beanScanPrefix, name);
+		assetDumpJobAdd(job);
+	}
+}
+
+// files/texture/ and files/new/texture/: a folder a picture, some of them
+// folders of folders
+static void assetDumpScanBeanPictures(const char *rel);
+
+static void assetDumpScanBeanPicture(const char *name, void *arg)
+{
+	const char *rel = arg;
+	char path[FS_MAXPATH + 1];
+	char sub[FS_MAXPATH + 1];
+
+	snprintf(sub, sizeof(sub), "%s/%s", rel, name);
+	snprintf(path, sizeof(path), "%s/%s/default.rba", beanRoot, sub);
+
+	if (fsFileSize(path) > 0) {
+		char job[FS_MAXPATH + 1];
+
+		snprintf(job, sizeof(job), "t:%s", sub);
+		assetDumpJobAdd(job);
+	} else if (!strchr(name, '.')) {
+		assetDumpScanBeanPictures(sub);
+	}
+}
+
+static void assetDumpScanBeanPictures(const char *rel)
+{
+	char path[FS_MAXPATH + 1];
+	s32 slashes = 0;
+
+	for (const char *p = rel; *p; p++) {
+		slashes += *p == '/';
+	}
+
+	// texture/sfx/firebomb1 is as deep as they go
+	if (slashes > 4) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/%s", beanRoot, rel);
+	fsScanDir(path, assetDumpScanBeanPicture, (void *)rel);
+}
+
+static s32 assetDumpBeanBegin(void)
+{
+	char archive[FS_MAXPATH + 1];
+	char cache[FS_MAXPATH + 1];
+
+	assetDumpJobsClear();
+
+	// Unpacks the archive if nothing has yet, once, as the game would
+	if (!gebeanIsAvailable() || !gebeanTreeInfo(beanRoot, sizeof(beanRoot), archive, sizeof(archive), cache, sizeof(cache))) {
+		sysLogPrintf(LOG_NOTE, "assetdump: no GoldenEye XBLA release in " FS_ADDED_CONTENT_DIR "/, so no " ASSETDUMP_GEXBLA_SUB " dump");
+		return 0;
+	}
+
+	snprintf(beanModelOut, sizeof(beanModelOut), "%s/" ASSETDUMP_GEXBLA_SUB, modelDir);
+	snprintf(beanTexOut, sizeof(beanTexOut), "%s/" ASSETDUMP_GEXBLA_SUB, texRoot);
+
+	for (u32 l = 0; l < ARRAYCOUNT(beanLooks); l++) {
+		for (u32 k = 0; k < ARRAYCOUNT(beanKinds); k++) {
+			char path[FS_MAXPATH + 1];
+
+			snprintf(beanScanPrefix, sizeof(beanScanPrefix), "%s/%s", beanLooks[l], beanKinds[k]);
+			snprintf(path, sizeof(path), "%s/%s", beanRoot, beanScanPrefix);
+			fsScanDir(path, assetDumpScanBeanModel, NULL);
+		}
+	}
+
+	assetDumpScanBeanPictures("texture");
+	assetDumpScanBeanPictures("new/texture");
+	assetDumpJobsSort();
+
+	sysLogPrintf(LOG_NOTE, "assetdump: GoldenEye XBLA release in %s: %d models and pictures", beanRoot, numJobs);
+
+	return numJobs;
+}
+
+// One Bean model being made into an OBJ: its vertices shared where they are
+// the same, found through a hash of the last few thousand
+#define BEANHASH_BITS 16
+
+struct beanobj {
+	struct objmesh *m;
+	s32 *hash;          // (1 << BEANHASH_BITS) vertex indices, -1 for none
+	s32 material;
+	s32 draw;
+	const s32 *texmat;  // picture index -> material
+	s32 numtex;
+	s32 lastnode;
+	s32 lastconds;
+};
+
+static u32 assetDumpHashVertex(const struct objvertex *v)
+{
+	u32 h = 2166136261u;
+	const u8 *p = (const u8 *)v->pos;
+
+	for (size_t i = 0; i < sizeof(v->pos) + sizeof(v->uv); i++) {
+		h = (h ^ p[i]) * 16777619u;
+	}
+
+	p = (const u8 *)v->nrm;
+
+	for (size_t i = 0; i < sizeof(v->nrm); i++) {
+		h = (h ^ p[i]) * 16777619u;
+	}
+
+	for (s32 i = 0; i < 4; i++) {
+		h = (h ^ v->rgba[i]) * 16777619u;
+	}
+
+	return h >> (32 - BEANHASH_BITS);
+}
+
+static s32 assetDumpBeanVertex(struct beanobj *o, const struct objvertex *v)
+{
+	u32 h = assetDumpHashVertex(v);
+	const s32 at = o->hash ? o->hash[h] : -1;
+
+	// one probe: a collision just writes the vertex again
+	if (at >= 0 && (u32)at < o->m->numvertices) {
+		const struct objvertex *w = &o->m->vertices[at];
+
+		if (!memcmp(w->pos, v->pos, sizeof(v->pos)) && !memcmp(w->uv, v->uv, sizeof(v->uv))
+				&& !memcmp(w->nrm, v->nrm, sizeof(v->nrm)) && !memcmp(w->rgba, v->rgba, sizeof(v->rgba))) {
+			return at;
+		}
+	}
+
+	{
+		const s32 added = objmeshAddVertex(o->m, v);
+
+		if (added >= 0 && o->hash) {
+			o->hash[h] = added;
+		}
+
+		return added;
+	}
+}
+
+/** One triangle of a Bean model or level, in its picture's material. */
+static void assetDumpBeanTriangle(struct beanobj *o, s32 tex, const f32 pos[3][3], const f32 uv[3][2], const f32 nrm[3][3],
+		const u32 argb[3])
+{
+	const s32 material = tex >= 0 && tex < o->numtex ? o->texmat[tex] : -1;
+	struct objvertex v[3];
+	s32 idx[3];
+	f32 e1[3], e2[3], n[3], len;
+
+	for (s32 j = 0; j < 3; j++) {
+		e1[j] = pos[1][j] - pos[0][j];
+		e2[j] = pos[2][j] - pos[0][j];
+	}
+
+	n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+	n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+	n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+	len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+	if (!(len > 0)) {
+		return;
+	}
+
+	for (s32 k = 0; k < 3; k++) {
+		memset(&v[k], 0, sizeof(v[k]));
+		memcpy(v[k].pos, pos[k], sizeof(v[k].pos));
+		// the release's v runs down the picture, OBJ's up it, as for the
+		// PD release's meshes
+		v[k].uv[0] = uv[k][0];
+		v[k].uv[1] = 1.0f - uv[k][1];
+
+		// the file's own normal, so a smooth surface stays smooth and its
+		// vertices shared; the face's where the file has none
+		{
+			const f32 vl = sqrtf(nrm[k][0] * nrm[k][0] + nrm[k][1] * nrm[k][1] + nrm[k][2] * nrm[k][2]);
+
+			for (s32 j = 0; j < 3; j++) {
+				v[k].nrm[j] = vl > 1e-6f ? nrm[k][j] / vl : n[j] / len;
+			}
+		}
+
+		v[k].rgba[0] = (argb[k] >> 16) & 0xff;
+		v[k].rgba[1] = (argb[k] >> 8) & 0xff;
+		v[k].rgba[2] = argb[k] & 0xff;
+		v[k].rgba[3] = argb[k] >> 24;
+		v[k].weight[0] = 1.0f;
+		idx[k] = assetDumpBeanVertex(o, &v[k]);
+
+		if (idx[k] < 0) {
+			return;
+		}
+	}
+
+	if (o->draw < 0 || o->m->draws[o->draw].material != material) {
+		o->draw = objmeshAddDraw(o->m, o->m->numtris, 0, material);
+
+		if (o->draw < 0) {
+			return;
+		}
+	}
+
+	if (objmeshAddTriangle(o->m, (u32)idx[0], (u32)idx[1], (u32)idx[2]) >= 0) {
+		o->m->draws[o->draw].numtris++;
+	}
+}
+
+static void assetDumpBeanCloseGroup(struct beanobj *o)
+{
+	if (o->m->numgroups) {
+		struct objgroup *g = &o->m->groups[o->m->numgroups - 1];
+
+		g->numdraws = o->m->numdraws - g->firstdraw;
+	}
+}
+
+static void assetDumpBeanModelDraw(const struct gebeanmodeldraw *d, void *arg)
+{
+	struct beanobj *o = arg;
+
+	// A group per node the draws name, and per section they stand in, so
+	// what the release shows only some of the time can be hidden
+	if (o->m->numgroups == 0 || d->node != o->lastnode || d->numconds != o->lastconds) {
+		char gname[OBJMESH_NAMELEN];
+
+		if (d->numconds) {
+			snprintf(gname, sizeof(gname), "%s%d_if%x", d->node >= 0 ? "node" : "part", d->node >= 0 ? d->node : o->m->numgroups,
+					(u32)d->conds[d->numconds - 1]);
+		} else if (d->node >= 0) {
+			snprintf(gname, sizeof(gname), "node%d", d->node);
+		} else {
+			snprintf(gname, sizeof(gname), "part%u", o->m->numgroups);
+		}
+
+		assetDumpBeanCloseGroup(o);
+
+		if (objmeshAddGroup(o->m, gname, o->m->numdraws, 0) < 0) {
+			return;
+		}
+
+		o->lastnode = d->node;
+		o->lastconds = d->numconds;
+		o->draw = -1;
+	}
+
+	for (s32 t = 0; t + 2 < d->numvtx; t += 3) {
+		f32 pos[3][3], uv[3][2], nrm[3][3];
+		u32 argb[3];
+
+		for (s32 k = 0; k < 3; k++) {
+			memcpy(pos[k], d->vtx[t + k].pos, sizeof(pos[k]));
+			memcpy(uv[k], d->vtx[t + k].uv, sizeof(uv[k]));
+			memcpy(nrm[k], d->vtx[t + k].nrm, sizeof(nrm[k]));
+			argb[k] = d->vtx[t + k].argb;
+		}
+
+		assetDumpBeanTriangle(o, d->tex, pos, uv, nrm, argb);
+	}
+}
+
+static void assetDumpBeanLevelTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
+{
+	struct beanobj *o = arg;
+	f32 pos[3][3], uv[3][2], nrm[3][3];
+	u32 argb[3];
+
+	for (s32 k = 0; k < 3; k++) {
+		memcpy(pos[k], v[k].pos, sizeof(pos[k]));
+		memcpy(uv[k], v[k].uv, sizeof(uv[k]));
+		memcpy(nrm[k], v[k].nrm, sizeof(nrm[k]));
+		argb[k] = v[k].argb;
+	}
+
+	assetDumpBeanTriangle(o, tex, pos, uv, nrm, argb);
+}
+
+static void assetDumpBeanTexName(char *dst, size_t len, const char *name);
+
+/**
+ * The pictures of one model, written to texture-dumps/ge-xbla/<source>/ as
+ * <index>_<the file's name for it>.png, and a material each in m.
+ */
+static s32 assetDumpBeanPictures(struct objmesh *m, const char *source, s32 numtex, s32 *texmat,
+		u8 *(*decode)(void *handle, s32 i, s32 *w, s32 *h), const char *(*texname)(void *handle, s32 i), void *handle)
+{
+	char dir[FS_MAXPATH + 1];
+	char rel[FS_MAXPATH + 1];
+	s32 written = 0;
+
+	snprintf(dir, sizeof(dir), "%s/%s", beanTexOut, source);
+
+	if (numtex > 0 && !assetDumpMakeDirs(dir)) {
+		sysLogPrintf(LOG_ERROR, "assetdump: could not create %s", dir);
+	}
+
+	// model-dumps/ge-xbla/<look>/<kind>/<name>.obj is three folders down
+	{
+		char sub[FS_MAXPATH + 1];
+
+		snprintf(sub, sizeof(sub), ASSETDUMP_GEXBLA_SUB "/%s", source);
+		assetDumpTexRelFrom(rel, sizeof(rel), 3, sub);
+	}
+
+	for (s32 i = 0; i < numtex; i++) {
+		char safe[64];
+		char file[128];
+		char path[FS_MAXPATH + 1];
+		char image[FS_MAXPATH + 1];
+		char mname[OBJMESH_NAMELEN];
+		s32 w = 0, h = 0, alpha = 0;
+		u8 *rgba = decode(handle, i, &w, &h);
+
+		texmat[i] = -1;
+		assetDumpBeanTexName(safe, sizeof(safe), texname(handle, i));
+		snprintf(file, sizeof(file), "%02d%s%s.png", i, safe[0] ? "_" : "", safe);
+		snprintf(mname, sizeof(mname), "bean_%02d%s%.40s", i, safe[0] ? "_" : "", safe);
+
+		if (!rgba || w <= 0 || h <= 0) {
+			free(rgba);
+			texmat[i] = objmeshAddMaterial(m, mname, OBJMAT_NONE, 0, 0, NULL);
+			continue;
+		}
+
+		for (s32 p = 0; p < w * h; p++) {
+			if (rgba[p * 4 + 3] < 0xf0) {
+				alpha = 1;
+				break;
+			}
+		}
+
+		snprintf(path, sizeof(path), "%s/%s", dir, file);
+
+		if (pngWrite(path, rgba, w, h, 4, 1) != 0) {
+			written++;
+		}
+
+		free(rgba);
+		snprintf(image, sizeof(image), "%s/%s", rel, file);
+		texmat[i] = objmeshAddMaterial(m, mname, OBJMAT_IMAGE, 0, alpha, image);
+	}
+
+	return written;
+}
+
+/** "_0x0169EB91.tga.bin" as "0x0169EB91": the release names a picture by a hash. */
+static void assetDumpBeanTexName(char *dst, size_t len, const char *name)
+{
+	static const char *const tails[] = { ".bin", ".tga", ".dds", ".png" };
+	size_t n;
+
+	while (name && *name == '_') {
+		name++;
+	}
+
+	assetDumpSafeName(dst, len, name);
+
+	for (s32 again = 1; again; ) {
+		again = 0;
+		n = strlen(dst);
+
+		for (u32 i = 0; i < ARRAYCOUNT(tails); i++) {
+			const size_t t = strlen(tails[i]);
+
+			if (n > t && !strcasecmp(dst + n - t, tails[i])) {
+				dst[n - t] = '\0';
+				again = 1;
+				break;
+			}
+		}
+	}
+}
+
+static u8 *assetDumpBeanPicsDecode(void *handle, s32 i, s32 *w, s32 *h)
+{
+	return gebeanPicturesDecode(handle, i, w, h);
+}
+
+static const char *assetDumpBeanPicsName(void *handle, s32 i)
+{
+	return gebeanPicturesName(handle, i);
+}
+
+static u8 *assetDumpBeanLevelDecode(void *handle, s32 i, s32 *w, s32 *h)
+{
+	return gebeanLevelDecode(handle, i, w, h);
+}
+
+static const char *assetDumpBeanLevelName(void *handle, s32 i)
+{
+	return gebeanLevelTextureName(handle, i);
+}
+
+/** One model, level or sky of the release: source is "new/prop/cardbox1". */
+static s32 assetDumpBeanModel(const char *source)
+{
+	const char *slash = strrchr(source, '/');
+	const char *name = slash ? slash + 1 : source;
+	const s32 islevel = strstr(source, "/background/") != NULL;
+	const s32 issky = strstr(source, "/skydome/") != NULL;
+	struct gebeanpictures *pics = NULL;
+	struct gebeanlevel *level = NULL;
+	struct beanobj o;
+	s32 texmat[GEBEAN_MAXMATS];
+	s32 numtex;
+	char path[FS_MAXPATH + 1];
+	char dir[FS_MAXPATH + 1];
+	char comment[512];
+	s32 written = 0;
+
+	if (issky) {
+		level = strncmp(source, "new/", 4) == 0 ? gebeanSkyOpen(name) : NULL;
+	} else if (islevel) {
+		level = gebeanLevelOpenSource(source);
+	} else {
+		pics = gebeanPicturesOpen(source);
+	}
+
+	if (!pics && !level) {
+		return 0;
+	}
+
+	memset(&o, 0, sizeof(o));
+	o.m = objmeshAlloc(name);
+	o.hash = malloc(sizeof(s32) << BEANHASH_BITS);
+	o.draw = -1;
+	o.lastnode = -2;
+	o.texmat = texmat;
+
+	if (!o.m) {
+		free(o.hash);
+		gebeanPicturesClose(pics);
+		gebeanLevelClose(level);
+		return 0;
+	}
+
+	if (o.hash) {
+		memset(o.hash, 0xff, sizeof(s32) << BEANHASH_BITS);
+	}
+
+	numtex = pics ? gebeanPicturesCount(pics) : gebeanLevelNumTextures(level);
+
+	if (numtex > GEBEAN_MAXMATS) {
+		numtex = GEBEAN_MAXMATS;
+	}
+
+	o.numtex = numtex;
+	numBeanTextures += pics
+		? assetDumpBeanPictures(o.m, source, numtex, texmat, assetDumpBeanPicsDecode, assetDumpBeanPicsName, pics)
+		: assetDumpBeanPictures(o.m, source, numtex, texmat, assetDumpBeanLevelDecode, assetDumpBeanLevelName, level);
+
+	if (pics) {
+		gebeanPicturesWalk(pics, assetDumpBeanModelDraw, &o);
+		assetDumpBeanCloseGroup(&o);
+	} else {
+		objmeshAddGroup(o.m, islevel ? "level" : "sky", 0, 0);
+		gebeanLevelTriangles(level, assetDumpBeanLevelTri, &o);
+		assetDumpBeanCloseGroup(&o);
+	}
+
+	if (o.m->numtris > 0) {
+		snprintf(dir, sizeof(dir), "%s/%.*s", beanModelOut, (int)(slash ? slash - source : 0), source);
+		assetDumpMakeDirs(dir);
+		snprintf(path, sizeof(path), "%s/%s.obj", dir, name);
+		snprintf(comment, sizeof(comment),
+				"GoldenEye XBLA (Project Bean) %s files/%s, in the file's own units and pose\n"
+				"%s; pictures in texture-dumps/" ASSETDUMP_GEXBLA_SUB "/%s",
+				islevel ? "level" : issky ? "sky" : "model", source,
+				pics ? "a group per node the draws name (node<N>), part<N> for a plain draw, _if<id> for one in a section the release shows only sometimes"
+					: "one group; a level is drawn whole, with no rooms",
+				source);
+		written = objmeshWrite(o.m, path, comment);
+	}
+
+	objmeshFree(o.m);
+	free(o.hash);
+	gebeanPicturesClose(pics);
+	gebeanLevelClose(level);
+
+	return written;
+}
+
+/** One of the release's pictures that is a file of its own: texture/circle. */
+static s32 assetDumpBeanPictureFile(const char *source)
+{
+	char path[FS_MAXPATH + 1];
+	char dir[FS_MAXPATH + 1];
+	const char *slash = strrchr(source, '/');
+	s32 w = 0, h = 0;
+	s32 written = 0;
+	u8 *rgba = gebeanDecodePictureFile(source, &w, &h);
+
+	if (!rgba) {
+		return 0;
+	}
+
+	snprintf(dir, sizeof(dir), "%s/%.*s", beanTexOut, (int)(slash ? slash - source : 0), source);
+	assetDumpMakeDirs(dir);
+	snprintf(path, sizeof(path), "%s/%s.png", beanTexOut, source);
+
+	if (w > 0 && h > 0) {
+		written = pngWrite(path, rgba, w, h, 4, 1) != 0;
+	}
+
+	free(rgba);
+
+	return written;
+}
+
+static void assetDumpBeanStep(const char *job)
+{
+	if (job[0] == 'm') {
+		if (assetDumpBeanModel(job + 2)) {
+			numBeanModels++;
+		} else {
+			numBeanRefused++;
+			sysLogPrintf(LOG_NOTE, "assetdump: files/%s is not a model this reads, or has no triangles", job + 2);
+		}
+	} else {
+		numBeanTextures += assetDumpBeanPictureFile(job + 2);
+	}
+}
+
+/* -------------------------------------------------------------------------
  * Driving it
  * ------------------------------------------------------------------------- */
 
@@ -847,11 +1858,29 @@ static void assetDumpFinish(void)
 	texInfo = NULL;
 	texPool = NULL;
 	phase = PHASE_DONE;
+	assetDumpGeTexturesEnd();
+	assetDumpGeModelsEnd();
+	assetDumpJobsClear();
 
-	assetDumpSetStatus("Wrote %d textures, %d XBLA textures, %d models, %d XBLA meshes",
-			numTextures, numRecords, numModels, numMeshes);
+	if (numGeModels || numBeanModels) {
+		assetDumpSetStatus("Wrote %d textures, %d models, %d XBLA meshes; GoldenEye: %d models, %d XBLA models",
+				numTextures + numRecords + numGeTextures + numBeanTextures, numModels, numMeshes, numGeModels, numBeanModels);
+	} else {
+		assetDumpSetStatus("Wrote %d textures, %d XBLA textures, %d models, %d XBLA meshes",
+				numTextures, numRecords, numModels, numMeshes);
+	}
 	sysLogPrintf(LOG_NOTE, "assetdump: %s; textures in %s, models in %s%s", status, texDir, modelDir,
 			haveXbla ? "" : " (no XBLA package, so no XBLA textures or meshes)");
+
+	if (numGeTextures || numGeModels) {
+		sysLogPrintf(LOG_NOTE, "assetdump: GoldenEye's conversion: %d textures in %s, %d models in %s",
+				numGeTextures, geTexOut, numGeModels, geModelOut);
+	}
+
+	if (numBeanModels || numBeanTextures) {
+		sysLogPrintf(LOG_NOTE, "assetdump: GoldenEye XBLA: %d models in %s, %d pictures in %s (%d files not read)",
+				numBeanModels, beanModelOut, numBeanTextures, beanTexOut, numBeanRefused);
+	}
 
 	if (numRefused) {
 		sysLogPrintf(LOG_NOTE, "assetdump: %d files with a model's name were not models and were left out", numRefused);
@@ -869,6 +1898,8 @@ void assetDumpStart(void)
 	}
 
 	numTextures = numRecords = numModels = numMeshes = numRefused = numUnnamed = 0;
+	numGeTextures = numGeModels = numBeanModels = numBeanTextures = numBeanRefused = 0;
+	geDir = -1;
 	meshPrevName[0] = '\0';
 	meshSincePrev = 0;
 	cursor = 0;
@@ -880,7 +1911,7 @@ void assetDumpStart(void)
 		return;
 	}
 
-	texInfo = calloc(NUM_TEXTURES, sizeof(*texInfo));
+	texInfo = calloc(ASSETDUMP_MAXTEX, sizeof(*texInfo));
 	texPool = malloc(ASSETDUMP_TEXPOOL);
 
 	if (!texInfo || !texPool) {
@@ -967,6 +1998,51 @@ static void assetDumpStep(void)
 			assetDumpSetStatus("XBLA meshes: slot %d of %d (%d written)", cursor, total, numMeshes);
 		} else {
 			assetDumpLogPhase("XBLA meshes", numMeshes);
+			phase = PHASE_GE_TEXTURES;
+			cursor = 0;
+			total = assetDumpGeTexturesBegin();
+		}
+		break;
+	case PHASE_GE_TEXTURES:
+		if (cursor < total) {
+			numGeTextures += assetDumpGeTexture(jobList[cursor]);
+			cursor++;
+			assetDumpSetStatus("GoldenEye textures: %d of %d", cursor, total);
+		} else {
+			assetDumpGeTexturesEnd();
+			assetDumpLogPhase("GoldenEye textures", numGeTextures);
+			phase = PHASE_GE_MODELS;
+			cursor = 0;
+			total = assetDumpGeModelsBegin();
+		}
+		break;
+	case PHASE_GE_MODELS:
+		if (cursor < total) {
+			if (assetDumpGeModel(jobList[cursor])) {
+				numGeModels++;
+			} else {
+				numRefused++;
+				sysLogPrintf(LOG_NOTE, "assetdump: GoldenEye's %s is not a model, or has no geometry", jobList[cursor]);
+			}
+
+			cursor++;
+			assetDumpSetStatus("GoldenEye models: %d of %d", cursor, total);
+		} else {
+			assetDumpGeModelsEnd();
+			assetDumpLogPhase("GoldenEye models", numGeModels);
+			phase = PHASE_BEAN;
+			cursor = 0;
+			// Unpacks the GoldenEye release's archive if nothing has yet
+			total = assetDumpBeanBegin();
+		}
+		break;
+	case PHASE_BEAN:
+		if (cursor < total) {
+			assetDumpBeanStep(jobList[cursor]);
+			cursor++;
+			assetDumpSetStatus("GoldenEye XBLA: %d of %d (%d models)", cursor, total, numBeanModels);
+		} else {
+			assetDumpLogPhase("GoldenEye XBLA models and pictures", numBeanModels + numBeanTextures);
 			assetDumpFinish();
 		}
 		break;

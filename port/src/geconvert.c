@@ -1064,6 +1064,16 @@ uint32_t geconvertTexRemap(uint32_t image)
 	return texRemap(image);
 }
 
+uint32_t geconvertTexUnremap(uint32_t num)
+{
+	for (size_t i = 0; i < sizeof(g_TexRemap) / sizeof(g_TexRemap[0]); ++i) {
+		if (g_TexRemap[i][1] == num) {
+			return g_TexRemap[i][0];
+		}
+	}
+	return num;
+}
+
 // sets of small numbers (texture and model numbers)
 #define SETBITS 65536
 typedef uint8_t numset[SETBITS / 8];
@@ -7311,6 +7321,65 @@ done:
 	g_Rom = NULL;
 	g_Data = NULL;
 	g_Files = NULL;
+	return ok;
+}
+
+/**
+ * The ROM's own names for the models the conversion writes by number - a prop
+ * (kind 0, Pgx%03uZ), a character (1, Cgx%03uZ) or a hand item (2, Igx%03uZ) -
+ * handed to fn one by one, for the asset dump (assetdump.c). Converts nothing
+ * and writes nothing. The name is only good during the call.
+ */
+int geconvertReadNames(uint8_t *rom, size_t romlen, void (*fn)(void *arg, int kind, int num, const char *file), void *arg)
+{
+	volatile int ok = 0;
+
+	g_FailMsg[0] = '\0';
+	memset(g_Props, 0, sizeof(g_Props));
+	memset(g_Chrs, 0, sizeof(g_Chrs));
+	memset(g_Items, 0, sizeof(g_Items));
+
+	if (setjmp(g_Fail)) {
+		goto done;
+	}
+
+	if (!geconvertIsGoldenEyeUs(rom, romlen)) {
+		fail("not GoldenEye 007 (US)");
+	}
+
+	g_Rom = rom;
+	g_RomLen = romlen;
+	romOpen();
+
+	for (int k = 0; k < NUM_PROPS; ++k) {
+		if (g_Props[k].file) {
+			fn(arg, 0, k, g_Props[k].file);
+		}
+	}
+
+	for (int k = 0; k < NUM_CHRS; ++k) {
+		if (g_Chrs[k].file) {
+			fn(arg, 1, k, g_Chrs[k].file);
+		}
+	}
+
+	for (int k = 0; k < NUM_ITEMS; ++k) {
+		if (g_Items[k].file) {
+			fn(arg, 2, k, g_Items[k].file);
+		}
+	}
+
+	ok = 1;
+
+done:
+	gcFreeAll();
+	g_Rom = NULL;
+	g_Data = NULL;
+	g_Files = NULL;
+	// the rows name strings in the data segment just let go of
+	memset(g_Props, 0, sizeof(g_Props));
+	memset(g_Chrs, 0, sizeof(g_Chrs));
+	memset(g_Items, 0, sizeof(g_Items));
 	return ok;
 }
 

@@ -257,10 +257,12 @@ struct gebeanlevelvtx {
 	f32 pos[3];
 	f32 uv[2];
 	u32 argb;
+	f32 nrm[3]; // the file's own, zero where it has none
 	u8 blend; // its draw is in the release's blended pass (the same on all three)
 };
 
 struct gebeanlevel *gebeanLevelOpen(const char *name);
+struct gebeanlevel *gebeanLevelOpenSource(const char *source);
 void gebeanLevelClose(struct gebeanlevel *level);
 
 /**
@@ -282,6 +284,7 @@ struct gebeanpictures *gebeanPicturesOpen(const char *source);
 void gebeanPicturesClose(struct gebeanpictures *pics);
 s32 gebeanPicturesCount(struct gebeanpictures *pics);
 u8 *gebeanPicturesDecode(struct gebeanpictures *pics, s32 index, s32 *outWidth, s32 *outHeight);
+const char *gebeanPicturesName(struct gebeanpictures *pics, s32 index);
 
 /**
  * The model's draws, each handed to fn with its triangles expanded (three
@@ -295,6 +298,7 @@ struct gebeanmodelvtx {
 	f32 pos[3];
 	f32 uv[2];
 	u32 argb;
+	f32 nrm[3]; // the file's own, zero where it has none
 };
 
 struct gebeanmodeldraw {
@@ -377,6 +381,8 @@ const char *gebeanCeLevelName(const char *key, const char *name);
 s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		void (*fn)(void *arg, s32 tex, const struct gebeanlevelvtx *v), void *arg);
 s32 gebeanLevelNumTextures(struct gebeanlevel *level);
+u8 *gebeanLevelDecode(struct gebeanlevel *level, s32 tex, s32 *outWidth, s32 *outHeight);
+const char *gebeanLevelTextureName(struct gebeanlevel *level, s32 tex);
 /** Whether a level's picture is drawn by its water buffers (stride 36), once gebeanLevelTriangles() has walked it. */
 s32 gebeanLevelTextureIsWater(struct gebeanlevel *level, s32 tex);
 const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft);

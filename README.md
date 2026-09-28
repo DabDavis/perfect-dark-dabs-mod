@@ -225,7 +225,18 @@ model-dumps/n64/               every model in the ROM as OBJ, a group per part, 
 model-dumps/xbla/              every mesh of the XBLA release the same way
 ```
 
-The two XBLA folders are written when a copy of the release is in `xbla/`. It
+and GoldenEye's, each in folders of its own:
+
+```
+texture-dumps/ge-n64/                    the textures of GoldenEye converted from your ROM (index.csv: GoldenEye's own numbers)
+model-dumps/ge-n64/props, chars, hand/   its props, characters and first person guns/gadgets, by GoldenEye's own file names
+model-dumps/ge-xbla/new/..., original/...  the GoldenEye XBLA release's char, head, gun, prop, background (levels) and skydome, by its own names
+texture-dumps/ge-xbla/...                those models' pictures, a folder each, and the release's own picture files
+```
+
+The two XBLA folders are written when a copy of the release is in
+`added-content/`; the GoldenEye ones when the GoldenEye ROM (or its
+conversion) and the GoldenEye XBLA release are there. It
 takes a few minutes and the game stays usable while it runs; the line under the
 row says where it is up to. F7 still writes out the textures the game draws as
 it draws them, which is the way to learn which file a particular wall or jacket

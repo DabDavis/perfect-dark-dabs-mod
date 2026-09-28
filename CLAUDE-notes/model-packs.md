@@ -16,6 +16,10 @@ texture-dumps/<romid>/         the whole texture table; was texturedump/
 texture-dumps/<romid>/xbla/    every Textures.raw record
 model-dumps/n64/<name>.obj     every C*, P* and G* file in the ROM
 model-dumps/xbla/<name>.obj    every mesh in the package, named for the model that names it
+model-dumps/ge-n64/{props,chars,hand}/   GoldenEye's conversion, by the GE ROM's own names
+model-dumps/ge-xbla/<look>/<kind>/<name>.obj   the GoldenEye XBLA release, by Rare's names
+texture-dumps/ge-n64/          the conversion's textures, by the conversion's number
+texture-dumps/ge-xbla/...      the GoldenEye release's pictures, a folder a model
 model-packs/<pack>/n64/        replacements for the ROM's models, same names
 model-packs/<pack>/xbla/       replacements for the release's meshes, same names
 ```
@@ -43,6 +47,79 @@ over `xblaTexGetNumRecords()` records written by `texpackWriteXblaRecord()`
 with C, P or G through `assetDumpModel()`, and every package slot through
 `xblaMeshSlotToObj()`. The two XBLA passes run only with a package, and
 opening it unpacks the archive if that has not happened.
+
+## GoldenEye's, in folders of their own (2026-09-28)
+
+F3 20260927-232222 (dab): the dump now does GoldenEye too, after the four
+Perfect Dark passes, each half only when it is there. Three more passes, the
+same state machine (`jobList`, a sorted list of names built at the start of
+each pass):
+
+- **ge-n64 textures.** The mounted mod dir whose `files/Cgx000Z` and
+  `modconfig.txt` exist (as `gexPlusRomMpBegin()` finds it) is the
+  conversion. Every `textures/%04x.bin` is loaded with
+  `modSetTextureSourceMod(geDir)` set, so `texLoadFromTextureNum()` reads the
+  conversion's file and `texFindInPool()` keys on the same source, and
+  written as `texture-dumps/ge-n64/<num>_<fmt>.png` - the conversion's
+  number, which is what the models' `n64_<num>` materials say. `index.csv`
+  gives GoldenEye's own image number beside it (`geconvertTexUnremap()`, the
+  inverse of the converter's remap table). `texInfo` is cleared first (the
+  numbers mean other pictures now) and is 4096 wide, not `NUM_TEXTURES`.
+- **ge-n64 models.** Every `files/Pgx|Cgx|IgxNNNZ` is registered
+  (`romdataRegisterModFile()`, freed again unless the game had it) and goes
+  through `assetDumpModelTo()` - `assetDumpModel()` with the path and a line
+  of its own - into `props/`, `chars/` or `hand/`, **named by GoldenEye's own
+  file name** (`Pcard_box1Z`, `CborisZ`, `Gfnp90Z`). The names are read from
+  the ROM the startup scan found (`gexPlusRomReadNames()` ->
+  `geconvertReadNames()`: `romOpen()` and the prop/chr/item tables, nothing
+  converted or written); with no ROM the conversion's names are used.
+  `model-dumps/ge-n64/index.csv` maps each OBJ to its `Pgx018Z`. Two item
+  numbers on one file get `_NNN`. The MTLs reach
+  `../../../texture-dumps/ge-n64`.
+- **ge-xbla.** With the release found (`gebeanTreeInfo()`), every
+  `files/{new,original}/{char,head,gun,prop,background,skydome}/<name>` but
+  the `_hits` collision copies becomes
+  `model-dumps/ge-xbla/<look>/<kind>/<name>.obj`, its pictures
+  `texture-dumps/ge-xbla/<look>/<kind>/<name>/<NN>_<file's name>.png`
+  (written the XBLA way up, `pngWrite(..., 1)`, and v flipped as
+  `xblaMeshSlotToObj()` does). Models through `gebeanPicturesOpen()` +
+  `gebeanPicturesWalk()` (a group per node the draws name, `_if<id>` for a
+  draw inside a 0x17 section the release shows only sometimes, all
+  alternatives written, first taken at a switch), levels through
+  `gebeanLevelOpenSource()` (new; `gebeanLevelOpen()` is it with
+  `new/background/`) + `gebeanLevelTriangles()`, skies through
+  `gebeanSkyOpen()` - one group each, the level whole, no rooms. Pictures that
+  are files of their own (`files/texture/**`, `files/new/texture/**`,
+  `default.rba`) go to `texture-dumps/ge-xbla/<same path>.png`. Vertices are
+  shared through a one-probe hash on position, UV, face normal and colour.
+  The Community Edition's copy is what is dumped where the session draws it.
+- **Cost** (2026-09-28, headless, the whole release unpacked in
+  added-content/): ge-n64 textures 2272 in 1.5 s, models 356 in 0.7 s;
+  ge-xbla 983 models + 8169 pictures in 65 s (the levels most of it, ~590MB
+  on disk together); the whole dump 151 s against ~85 s before. A level is
+  one step, a few seconds for Frigate or Statue Park, so the menu stalls that
+  long on each when the dump runs from there.
+- **Not dumped:** the conversion's levels (`files/bgdata/bg_gx*.seg` are
+  Perfect Dark bg files, and reading a room means the game's own room loader
+  with a stage set up) - Bean's `original/background/` is Rare's own N64-look
+  export of the same levels and is there instead; the release's `_hits`.
+  `original/background/` is read with the HD levels' UV rule, which was
+  measured on `new/` only.
+
+**Model packs and the GoldenEye folders.** A pack's `n64/` file is found by
+`romdataFileGetNumForName(stem)` when the pack is scanned, and the
+conversion's files are not registered then - GE Plus registers each as it
+first loads it. To take `ge-n64/` files a pack would need: a `ge-n64/` folder
+read by `modelpack.c`, GoldenEye's names turned back into `Pgx/Cgx/IgxNNNZ`
+(the dump's `index.csv`, or `gexPlusRomReadNames()` again), and the lookup
+made by name at the model's load rather than by file id at the scan (or the
+conversion's files registered up front). The draw side needs nothing: a
+registered `Pgx` is a model file like any other and `xblaMeshRegisterPackModel()`
+files it. `ge-xbla/` is further off: Bean's meshes are drawn by `gebean.c`,
+not by the XBLA mesh builder, keyed by GoldenEye's key in `gebeanchrtable.h` /
+`geproptable.h` / `gegunstable.h`, and its OBJs are in Bean's units and bind
+pose rather than GoldenEye's, so a replacement would need the rig fit gebean
+does to its own files. Not built.
 
 ## Dumping a Perfect Dark model without loading it
 
@@ -245,7 +322,7 @@ was filed as those models loaded. The next level has it.
 ## Recipes
 
 ```sh
-# everything, headless, a few minutes
+# everything, headless, a few minutes (~2.5 with both GoldenEyes)
 cd build && xvfb-run -a ./pd.x86_64 --dump-assets --savedir /tmp/pdsave --no-sound --log
 
 # make a pack out of the dump and see it drawn

@@ -52,6 +52,15 @@ const char *geconvertMissionLangFile(int mission);
  */
 uint32_t geconvertTexRemap(uint32_t image);
 
+// GoldenEye's own image number for a texture number the conversion wrote (the
+// inverse of geconvertTexRemap())
+uint32_t geconvertTexUnremap(uint32_t num);
+
+// The ROM's file names for the props (kind 0), characters (1) and hand items
+// (2) the conversion writes as Pgx/Cgx/Igx%03uZ, for the asset dump; 0 when
+// the ROM is not GoldenEye 007 (US)
+int geconvertReadNames(uint8_t *rom, size_t romlen, void (*fn)(void *arg, int kind, int num, const char *file), void *arg);
+
 // where its per-level report lines go (stderr until set)
 void geconvertSetLog(void (*fn)(const char *msg));
 

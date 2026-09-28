@@ -340,6 +340,32 @@ static s32 gexPlusRomIsCurrent(const char *dir)
 		&& (first[strlen(GEXPLUSROM_STAMP_LINE)] == '\n' || first[strlen(GEXPLUSROM_STAMP_LINE)] == '\0');
 }
 
+// the ROM the startup scan found, "" for none: read again by the asset dump
+// for GoldenEye's own model names (gexPlusRomReadNames())
+static char g_GexPlusRomPath[FS_MAXPATH + 1];
+
+s32 gexPlusRomReadNames(void (*fn)(void *arg, int kind, int num, const char *file), void *arg)
+{
+	u32 romlen = 0;
+	u8 *rom;
+	s32 ok;
+
+	if (!g_GexPlusRomPath[0]) {
+		return 0;
+	}
+
+	rom = fsFileLoad(g_GexPlusRomPath, &romlen);
+
+	if (!rom) {
+		return 0;
+	}
+
+	ok = geconvertReadNames(rom, romlen, fn, arg);
+	sysMemFree(rom);
+
+	return ok;
+}
+
 void gexPlusRomConvert(void)
 {
 	static const char *const containers[] = { "$E/mods", "$H/mods" };
@@ -391,6 +417,8 @@ void gexPlusRomConvert(void)
 			sysLogPrintf(LOG_WARNING, "gexplus: could not move %s into added-content/; it is still read where it is", search.path);
 		}
 	}
+
+	snprintf(g_GexPlusRomPath, sizeof(g_GexPlusRomPath), "%s", search.path);
 
 	if (!search.path[0]) {
 		// The arenas may be there from before, converted where the ROM was
