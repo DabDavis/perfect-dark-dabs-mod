@@ -24,9 +24,17 @@
 #define MODRUN_OBJ_SURVIVE 1 // still standing when the clock runs out
 #define MODRUN_OBJ_COLLECT 2 // the gun lying in this room
 
+// How many guns a run carries through a portal, and so how many inventory
+// slots a run's level gives the player on top of the stock thirty. A run's
+// kit only grows, and the stock thirty filled up by the twentieth room: past
+// that invFindUnusedSlot() had nothing to give and the carried guns that came
+// back after the map's own kit were dropped without a word.
+#define MODRUN_MAXCARRY 128
+
 #ifndef PLATFORM_N64
 extern bool g_ModRunAutoStart; // --random-run: begin one without a menu press
 extern s32 g_ModRunAutoHop;    // --run-autohop N: hop after N frames, for a headless chain
+extern s32 g_ModRunFirstStage; // --run-stage N: the first room's stage, for testing one map
 #endif
 
 bool modRunIsOn(void);
@@ -47,6 +55,7 @@ bool modRunIsSealed(void);
 bool modRunSealMove(RoomNum *fromrooms, struct coord *frompos, RoomNum *torooms, struct coord *dstpos);
 bool modRunTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle);
 bool modRunIsLanding(void);
+bool modRunSkipsMapKit(void);
 void modRunRestoreInventory(void);
 s32 modRunGetHandWeapon(s32 handnum);
 void modRunRestoreHealth(void);

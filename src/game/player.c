@@ -732,6 +732,15 @@ void playerStartNewLife(void)
 
 	invGiveSingleWeapon(WEAPON_UNARMED);
 
+	// A Randomizer run's landing after the first: the player carries what
+	// they picked up and nothing else, so the map's own intro kit is not
+	// handed out on top (modRunSkipsMapKit()).
+#ifndef PLATFORM_N64
+#define MODRUN_SKIPS_MAP_KIT() modRunSkipsMapKit()
+#else
+#define MODRUN_SKIPS_MAP_KIT() false
+#endif
+
 	if (cmd) {
 		if (cmd);
 		if (cmd);
@@ -754,7 +763,7 @@ void playerStartNewLife(void)
 					cmd += 2;
 					break;
 				case INTROCMD_WEAPON:
-					if (cmd[3] == 0) {
+					if (cmd[3] == 0 && !MODRUN_SKIPS_MAP_KIT()) {
 						if (cmd[2] >= 0) {
 							invGiveDoubleWeapon(cmd[1], cmd[2]);
 						} else {
@@ -764,7 +773,7 @@ void playerStartNewLife(void)
 					cmd += 4;
 					break;
 				case INTROCMD_AMMO:
-					if (cmd[3] == 0) {
+					if (cmd[3] == 0 && !MODRUN_SKIPS_MAP_KIT()) {
 						bgunSetAmmoQuantity(cmd[1], cmd[2]);
 					}
 					cmd += 4;
@@ -791,7 +800,8 @@ void playerStartNewLife(void)
 
 #ifndef PLATFORM_N64
 	// A Randomizer run: the guns and the ammunition carried through the
-	// portal, on top of whatever the map's own intro just handed out. Here
+	// portal (the map's own intro kit is only handed out at the first
+	// landing). Here
 	// rather than from the tick because a gun in a hand is a model to load and
 	// the load runs from the spawn below.
 	modRunRestoreInventory();

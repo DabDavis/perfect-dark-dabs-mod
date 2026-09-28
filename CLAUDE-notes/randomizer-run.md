@@ -50,10 +50,15 @@ Everything carries across a portal: health, shield, guns, ammunition. Each part
 goes back at the point the game already has for it, and the points are not the
 same one:
 
-- **the guns and the ammunition** inside `playerStartNewLife()`, after the
-  intro stream has handed out the map's own kit (the two add up, which is why
-  a run's inventory grows as it goes) — it cannot be earlier, because that
-  call runs `invClear()` on its way past for a solo player;
+- **the guns and the ammunition** inside `playerStartNewLife()`, where the
+  intro stream hands out the map's own kit — it cannot be earlier, because
+  that call runs `invClear()` on its way past for a solo player. The map's
+  kit is handed out **at the run's first landing only** (user, 2026-09-28:
+  "carry only what you pick up"): `modRunSkipsMapKit()` stops the intro's
+  weapon and ammo commands on every landing that has a carry, and a first
+  stage that gives no gun at all (an arena) starts the run with a Falcon 2 in
+  hand and 64 rounds (`modRunGiveStartingKit()`, which sets
+  `g_DefaultWeapons` before `playerSpawnWeapons()` reads it);
 - **the hands** from `playerSpawnWeapons()`, which is the override Mission
   Respawn uses and the only place a hand may be filled from — a gun in a hand
   is a model to load, and the load is a state machine that runs from the spawn;
@@ -473,6 +478,113 @@ numbers, and `modAlarmChooseBody()` asks `modRunChooseBody()` — one body per
 landing, drawn from a list that includes `BODY_SKEDAR` and `BODY_MINISKEDAR`.
 One body per landing rather than per guard keeps the head loads to one, which
 is what `modbodies.c` learned the expensive way.
+
+## A stage with no waypoints gets a graph from its pads
+
+Tester, 2026-09-28 (reports 013705, 014951, 020546, 021631, 022404): no
+enemies on Statue Park, Facility, Bunker, Cradle and Temple - every one a
+**GoldenEye Arenas** map, every hop logging `land pad -1 room -1`.
+GoldenEye's multiplayer setups carry no path table (nothing in GoldenEye's
+multiplayer walked), so the converted arenas load with **zero waypoints**, and
+three things read waypoints: the alarm's spawn, a guard's walk
+(`chrGoToRoomPos()` is a route between two waypoints; with none the guard
+stands where it appeared), and the run's landing.
+
+`modAlarmBuildPadWaypoints()` (modalarm.c), called from `setupLoadFiles()`
+between `setupPreparePads()` and `setupLoadWaypoints()` **during a Randomizer
+run only** (user, 2026-09-28: Guards Alerted matches and missions on the same
+maps must play as before - a Statue Park Guards Alerted boot builds none),
+builds one: a waypoint on every pad `modRandomPadCanSpawn()` passes, links
+to the nearest ten within 2500 units in the same or a neighbouring room that
+pass the `cdTestLos05` + `cdExamCylMove05` pair `waypointFindClosestToPos()`
+uses, and **one waygroup per connected piece with no group links** - the
+route finder then refuses a route between pieces instead of walking into a
+wall. `setupLoadWaypoints()` files them by room as it would a setup's.
+Facility: `built 385 from its 446 pads, 1522 links, 17 groups (largest 143),
+in 22 ms`. The pieces are small on Cradle (35 groups) and Temple (9); the
+zone spawn still reaches the player because it spawns inside the zone.
+
+Traps: the waypoint neighbour lists and group lists end at a negative entry,
+the waypoint array at `padnum < 0`, the group array at `neighbours == NULL` -
+so a group with no neighbours needs a pointer to a lone `-1`, not NULL.
+Nothing random goes into the graph, so a seed's landing stays put.
+
+A stage that still has no waypoints is never dealt a kill objective
+(`modRunDealObjective()`); the draw count is unchanged.
+
+**A sealed zone in full view got nobody**, on any stage: the zone spawn walked
+the zone's waypoints only, and `chrAdjustPosForSpawn()` refuses anything on
+screen, so a Villa landing looking down its corridor (seed 2761361319, room
+257) logged `12 in view or blocked` for the whole level. After half of
+`MODALARM_TRIES` are refused, the rest go to the whole map by the ordinary
+8-45 m rule and walk in.
+
+`--run-stage N` starts the `--random-run` on stage N instead of the seed's
+first stage, which is how each of the five maps was tested:
+
+```sh
+printf '[Mod]\nMapMods=GoldenEye Arenas\nRunMapPool=2\n' > save/pd.ini
+SDL_VIDEODRIVER=offscreen ./pd.x86_64 --savedir save --skip-intro --no-sound --log \
+    --boot-stage 0x53 --random-run --run-stage 0x53 --fixed-step --exit-frame 3000 --chr-trace
+```
+
+The stage ids are the Stage Loader's (`modloader: Statue Park (GoldenEye
+Arenas) -> stage 0x53`); with the same mods installed they match a tester's.
+
+## The kit overflowed the inventory at thirty
+
+Tester, reports 023644 and 025018: "DD44 disappeared ... weapons I did not
+grab appeared". `invInit()` gives a solo player **30** slots, a run's kit only
+grows, and the map's own intro kit is handed out *before* the carried guns go
+back - so once the thirty were full the carried guns were the ones
+`invGiveSingleWeapon()` silently had no slot for (it returns true either way),
+while the new map's kit had taken the room. The logs show it: `portal out
+... 30 guns` then 29, 30, 29 for twenty hops. A run's levels now get
+`MODRUN_MAXCARRY` (128) slots more (`invreset.c`), and the carry holds as
+many; a 337-hop autohop chain climbed to 64 guns and never dropped one.
+
+The other half of the report ("weapons appeared") was the map's own kit being
+added at every landing. By the user's call that is gone too: only the first
+landing hands out a kit (see "The kit goes back through the spawn"). A
+230-hop chain from Statue Park carried exactly its one Falcon 2 all the way.
+
+One unreproduced fault from that testing: the first 230-hop chain (seed
+1452969403, pool 2, `--run-autohop 150`) died at hop 231 in `lvReset()` ->
+`playerReset()` -> `cdFindGroundInfoAtCyl()` -> `cdCollectGeoForCyl()` ->
+`propIsOfCdType()` (SIGSEGV), loading MP Complex (0x1f) solo right after
+0x1a was skipped for starting the player dead. Replaying hop 230 from gdb and
+the same seed from the start (481 hops) both ran clean, so it depends on
+state built up over the chain; a prop list in a room the ground search walks
+is the place to look if it comes back.
+
+## Whose guards: Maian heads and GoldenEye's own
+
+- `BODY_MAIAN_SOLDIER` guards took a human face from the stage's active male
+  heads (`bodyChooseHead()`); `modAlarmOwnHead()` gives them
+  `MOD_HEADNUM(HEAD_MAIAN_S)` - `MOD_HEADNUM` because the game's own Maian
+  tests (eyes, death cries) compare against it.
+- On a converted GoldenEye stage (`modloaderStageIsRemake()`), `modRunRoll()`
+  replaces the landing's body with one of GoldenEye's soldiers
+  (`gebeanGuardBodies()`: the pool's guard bodies filled on this install, from
+  the release or else the ROM), drawn **after** the stock draw on the same
+  stream so a PD map's seed deals what it always did; and
+  `gebeanRandomHeadForBody()` gives each one a GoldenEye face. Checked on
+  Statue Park: `alarm: guard body 200 head 238`, a jungle commando on screen.
+  With the XBLA release installed they are its HD soldiers, which the user
+  chose to keep (the "GE N64" filter set has almost no soldiers then).
+
+## G5 robots rarely hit - stock
+
+Tester report 021222. `BODY_CHICROB` fires through `projectileCreate()`: a
+shot does damage only when an accumulator (`fireslotthing.unk14`) reaches 1,
+growing `0.16 * 0.85` per firing frame the ray passes within 30 units of the
+target, scaled down by `200 / distance` past two metres, and `robotAttack()`
+zeroes it at the start of every burst of at most 19 shots. At ten metres a
+burst reaches about 0.5 and can never hit; only inside about five metres does
+a full burst on target land one. The turret also turns at 0.15 a frame within
++-30 degrees, so a strafing player is often outside the 30-unit cone. None of it reads the run's difficulty
+beyond the stock PA damage multiplier, and the run sets nothing on a robot
+but what `bodyInitSpecialChr()` sets for any spawn. Stock behaviour, left.
 
 ## A room won is a room to rest in
 

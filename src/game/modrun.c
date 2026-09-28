@@ -35,6 +35,10 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include "gebean.h"
+#include "modloader.h"
+#endif
 #include "math.h"
 #include <string.h>
 #include <stdio.h>
@@ -234,6 +238,7 @@ struct modrunobjective {
 #ifndef PLATFORM_N64
 bool g_ModRunAutoStart = false; // --random-run
 s32 g_ModRunAutoHop = 0;        // --run-autohop N
+s32 g_ModRunFirstStage = -1;    // --run-stage N
 #endif
 
 static s32 g_ModRunState = MODRUN_OFF;
@@ -284,7 +289,7 @@ struct modruncarry {
 	f32 health;
 	f32 shield;
 	s32 ammo[33]; // ammoheldarr's length
-	u8 weapons[64];
+	u8 weapons[MODRUN_MAXCARRY];
 	s32 numweapons;
 	s32 hands[2];
 };
@@ -654,6 +659,11 @@ void modRunStart(void)
 	g_ModRunState = MODRUN_LANDING;
 
 	menuStop();
+#ifndef PLATFORM_N64
+	if (g_ModRunFirstStage > 0) {
+		modRunEnterStage(g_ModRunFirstStage);
+	} else
+#endif
 	modRunEnterStage(modRunChooseStage());
 
 #ifndef PLATFORM_N64
@@ -774,6 +784,11 @@ static void modRunChooseLanding(void)
 #endif
 
 	if (chosen < 0) {
+#ifndef PLATFORM_N64
+		sysLogPrintf(0, "run: stage 0x%02x - no landing among its %d waypoints (%d standable in a room with a door)",
+				g_ModRunStage, numwaypoints, count);
+#endif
+
 		// No waypoint in a room with a door. Let the stage start the player
 		// where it would have: a hop with no landing of its own is still a
 		// room, and the portal out of it is the same test. The new life is
@@ -920,6 +935,14 @@ static void modRunDealObjective(void)
 		kind = MODRUN_OBJ_KILL;
 	}
 
+	// The alarm's guards spawn on waypoints and walk the graph, and a stage
+	// with none - not even the graph modAlarmBuildPadWaypoints() makes out of
+	// its pads - sends nobody, so a kill objective there could only ever be
+	// re-dealt by the starve clock. Same number of draws either way.
+	if (kind == MODRUN_OBJ_KILL && modRunCountWaypoints() == 0) {
+		kind = MODRUN_OBJ_SURVIVE;
+	}
+
 	modRunDealFight(kind == MODRUN_OBJ_SURVIVE);
 
 	g_ModRunHasObjective = true;
@@ -966,6 +989,23 @@ void modRunRoll(void)
 	// A landing's guards are one kind of thing, chosen with the room.
 	modRunOpen(MODRUN_STREAM_BODY, g_ModRunHop);
 	g_ModRunBody = g_ModRunBodies[modRunBelow(ARRAYCOUNT(g_ModRunBodies))];
+
+#ifndef PLATFORM_N64
+	// On a GoldenEye map - a converted level, the GoldenEye Arenas and GE
+	// Plus's missions - the room is held by GoldenEye's own soldiers (tester
+	// 2026-09-28), one kind per landing as ever, each with a GoldenEye face
+	// (modalarm.c). The draw comes after the stock one on the same stream, so
+	// every other map's body is what the seed always dealt, and a map with
+	// none of GoldenEye's characters installed keeps the stock draw.
+	if (modloaderStageIsRemake(g_ModRunStage)) {
+		s32 rows[32];
+		const s32 numrows = gebeanGuardBodies(rows, ARRAYCOUNT(rows));
+
+		if (numrows > 0) {
+			g_ModRunBody = rows[modRunBelow(numrows)];
+		}
+	}
+#endif
 
 	modRunChooseLanding();
 	modRunDealObjective();
@@ -1146,8 +1186,57 @@ bool modRunIsLanding(void)
 }
 
 /**
+ * Whether the landing being set up should skip the map's own intro kit.
+ *
+ * A run is one life, and the player carries what they picked up: the map's
+ * starting guns and ammunition are handed out at the first landing only.
+ * Adding every map's kit on top at every hop filled the inventory with guns
+ * the player never picked up (tester, 2026-09-28: "weapons I did not grab
+ * appeared"). A landing with a carry is every landing after the first, and
+ * a first stage skipped for starting the player dead has no carry yet, so the
+ * run's first real landing is the one that takes a kit.
+ */
+bool modRunSkipsMapKit(void)
+{
+	return modRunIsLanding();
+}
+
+/**
+ * The run's first landing: the first stage's own kit, or a Falcon 2 and its
+ * ammunition when that stage hands out no gun at all (an arena's solo setup
+ * has no intro kit), so a run never starts with bare hands alone. Given
+ * before playerSpawnWeapons() reads g_DefaultWeapons, which is what puts the
+ * pistol in the hand.
+ */
+static void modRunGiveStartingKit(void)
+{
+	s32 count = invGetCount();
+	s32 i;
+
+	for (i = 0; i < count; i++) {
+		const s32 weaponnum = invGetWeaponNumByIndex(i);
+
+		if (weaponnum > WEAPON_UNARMED && bgunGetAmmoTypeForWeapon(weaponnum, FUNC_PRIMARY) > 0) {
+			return;
+		}
+	}
+
+	invGiveSingleWeapon(WEAPON_FALCON2);
+	bgunSetAmmoQuantity(AMMOTYPE_PISTOL, 64); // eight clips, about what a mission starts with
+
+	if (g_DefaultWeapons[HAND_RIGHT] <= WEAPON_UNARMED) {
+		g_DefaultWeapons[HAND_RIGHT] = WEAPON_FALCON2;
+	}
+
+#ifndef PLATFORM_N64
+	sysLogPrintf(0, "run: stage 0x%02x hands out no gun; starting kit is a Falcon 2", g_ModRunStage);
+#endif
+}
+
+/**
  * The guns and the ammunition, given back where the mission's own kit is
- * handed out - after the intro stream has had its say, so the two add up.
+ * handed out - after the intro stream has had its say, which on every landing
+ * but the first hands out nothing (modRunSkipsMapKit()).
  *
  * This has to be here rather than a frame later from the tick, because a gun
  * put in a hand is a model to load and the load is a state machine that runs
@@ -1160,7 +1249,16 @@ void modRunRestoreInventory(void)
 	struct player *player = g_Vars.currentplayer;
 	s32 i;
 
-	if (!modRunIsLanding() || player == NULL) {
+	if (player == NULL) {
+		return;
+	}
+
+	if (modRunIsOn() && g_ModRunSpawnState == 2 && g_ModRunKitDue && !g_ModRunHasCarry) {
+		modRunGiveStartingKit();
+		return;
+	}
+
+	if (!modRunIsLanding()) {
 		return;
 	}
 

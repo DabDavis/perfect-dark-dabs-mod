@@ -242,6 +242,9 @@ s32 gebeanIsGoldenEyeBody(s32 bodynum);
  */
 s32 gebeanRandomHeadForBody(s32 bodynum);
 
+// GoldenEye's own soldier bodies installed (g_HeadsAndBodies rows), up to max
+s32 gebeanGuardBodies(s32 *rows, s32 max);
+
 // The pool's body or head for one of GoldenEye's characters by its Bean source
 // ("char/oliveguard"), or -1 when the pool is not Bean's.
 s32 gebeanPoolNumBySource(const char *source);
