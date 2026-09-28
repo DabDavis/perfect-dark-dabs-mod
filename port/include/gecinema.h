@@ -71,4 +71,10 @@ s32 gecinemaBondBodyWeapon(void);
 s32 gecinemaWantsFolder(void);
 s32 gecinemaTakeFolderMission(void);
 
+// Whether the player is invincible only because the cinema made him so, which
+// a list's IfPlayerIsInvincible (GoldenEye's IFBondDamageAndPickupsDisabled)
+// must not see; and a list's own SetInvincible, which takes it over.
+s32 gecinemaOwnsInvincible(void);
+void gecinemaInvincibleByList(void);
+
 #endif

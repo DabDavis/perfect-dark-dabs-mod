@@ -1424,11 +1424,28 @@ struct modelrodata_bbox *modelFindBboxRodata(struct model *model)
 
 struct modelnode *objFindBboxNode(struct defaultobj *obj)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's truck and aircraft find their box its own way (gexplusveh.c)
+	struct modelnode *node = gexPlusVehicleBboxNode(obj);
+
+	if (node) {
+		return node;
+	}
+#endif
+
 	return modelFindBboxNode(obj->model);
 }
 
 struct modelrodata_bbox *objFindBboxRodata(struct defaultobj *obj)
 {
+#ifndef PLATFORM_N64
+	struct modelnode *node = gexPlusVehicleBboxNode(obj);
+
+	if (node) {
+		return &node->rodata->bbox;
+	}
+#endif
+
 	return modelFindBboxRodata(obj->model);
 }
 

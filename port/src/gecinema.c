@@ -104,6 +104,7 @@ static f32 g_GeCinemaTotal60;         // since the cinema began, not the shot
 static s32 g_GeCinemaLine;            // how many of the shot's lines have shown
 static s32 g_GeCinemaEntered;         // the one-off setup has run
 static s32 g_GeCinemaLeft;            // the player backed out rather than watching to the end
+static s32 g_GeCinemaInvincible;      // the player is invincible because the cinema made him so
 
 /**
  * The Loop row (gexfront.c): an opening's shots go round and round with the
@@ -274,6 +275,7 @@ void gecinemaStageStart(void)
 	g_GeCinemaLine = 0;
 	g_GeCinemaEntered = 0;
 	g_GeCinemaLeft = 0;
+	g_GeCinemaInvincible = 0;
 	g_GeCinemaCamRoom = -1;
 
 	g_GeCinemaLooping = g_GeCinemaMission >= 0 && g_GeCinemaWhat == GECINEMA_OPENING
@@ -424,8 +426,33 @@ static void gecinemaEnter(void)
 	bgunEquipWeapon(WEAPON_NONE);
 
 	g_PlayersWithControl[g_Vars.currentplayernum] = false;
+	g_GeCinemaInvincible = !g_PlayerInvincible;
 	g_PlayerInvincible = true;
 	g_Vars.bondvisible = false;
+}
+
+/**
+ * Whether the player's invincibility is the cinema's rather than a list's.
+ *
+ * Perfect Dark's IfPlayerIsInvincible is what GoldenEye's
+ * IFBondDamageAndPickupsDisabled converts to, and GoldenEye sets that state
+ * only with its own command (BondDisableDamageAndPickups, an ending's) - its
+ * opening camera leaves Bond open to harm. Streets' three civilian spawners ask
+ * it before each spawn and, when it passes, count a civilian as spawned without
+ * spawning one; its casualty list counts every civilian spawned and not walked
+ * off again. So a Cinema Loop on Streets, invincible for minutes, failed the
+ * mission on "too many civilian casualties" with no civilian ever in the level
+ * (F3 20260927-220746, dab). The lists ask chraicommands.c, which asks here.
+ */
+s32 gecinemaOwnsInvincible(void)
+{
+	return g_GeCinemaInvincible;
+}
+
+/** A list made the player invincible itself (SetInvincible): it is its now. */
+void gecinemaInvincibleByList(void)
+{
+	g_GeCinemaInvincible = 0;
 }
 
 /**
@@ -830,6 +857,7 @@ static void gecinemaIntroEnd(void)
 
 	g_PlayersWithControl[g_Vars.currentplayernum] = true;
 	g_PlayerInvincible = false;
+	g_GeCinemaInvincible = 0;
 	g_Vars.bondvisible = true;
 
 	if (pl->prop->chr) {

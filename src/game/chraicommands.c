@@ -5773,6 +5773,7 @@ bool aiChrSetInvincible(void)
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 		setCurrentPlayerNum(playernum);
 		g_PlayerInvincible = true;
+		gecinemaInvincibleByList();
 		setCurrentPlayerNum(prevplayernum);
 	}
 
@@ -5864,7 +5865,9 @@ bool aiIfPlayerIsInvincible(void)
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 		setCurrentPlayerNum(playernum);
-		pass = g_PlayerInvincible;
+		// not a GE Plus cinema's invincibility, which GoldenEye's
+		// lists never see (gecinemaOwnsInvincible())
+		pass = g_PlayerInvincible && !gecinemaOwnsInvincible();
 		setCurrentPlayerNum(prevplayernum);
 	}
 
