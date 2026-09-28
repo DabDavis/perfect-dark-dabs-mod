@@ -423,6 +423,7 @@ def write_room(room, inv, offset, base_ptr, textures, lightsindex=0, tilebox=Non
 PORTAL_NEAR = 300.0      # a tile or vertex this close to a portal speaks for its room
 PORTAL_EPS = 1.0         # a point this close to the plane says nothing
 PORTAL_MARGIN = 40.0     # how far the room's own geometry must clear the plane
+PORTAL_FLAT = 0.999    # a portal whose normal is this upright lies flat: a floor or ceiling
 
 
 # GoldenEye's portal record carries two bytes Perfect Dark's does not. The first
@@ -487,6 +488,17 @@ def portal_side(points, n, mid, at, keep):
     return float(np.median(s))
 
 
+def portal_tiles_on_plane(points, n, mid, at):
+    """Whether a room's tiles near a portal all lie on its plane: a floor flush
+    with a floor portal, which says nothing on its own (portal_side() leaves
+    such points out) but does say the room stands on the portal."""
+    if not len(points):
+        return False
+    d = np.linalg.norm(points - at, axis=1)
+    s = points[d <= PORTAL_NEAR].dot(n) - mid
+    return bool(len(s)) and bool(np.all(np.abs(s) <= PORTAL_EPS))
+
+
 def room_world_vtx(room, inv, offset):
     """A room's own vertices at world scale - scaled_room()'s `world`."""
     vtx = room['vtx'] or b''
@@ -517,8 +529,10 @@ def portal_room_order(bg, inv, offset, stan):
     vertices say the same thing (given PORTAL_MARGIN they agree with the tiles
     662 times out of 662 where both speak; at 20 they part twice, and one of
     those two was Depot's 27/18, where a wall reaches 27 units past the plane
-    and the room's bulk is plainly the other side). Where neither says
-    anything, GoldenEye's own order is kept: bgInitPortal() will have it.
+    and the room's bulk is plainly the other side). A floor portal one
+    room's floor lies flush with is settled by the other room's tiles alone:
+    the flush room stands on it. Where none of these says anything,
+    GoldenEye's own order is kept: bgInitPortal() will have it.
     """
     centroids = {}
     for t in stan:
@@ -540,10 +554,18 @@ def portal_room_order(bg, inv, offset, stan):
         at = v.mean(0)
         mid = (lo + hi) / 2.0
         front = None
-        s1 = portal_side(centroids.get(r1, np.zeros((0, 3))), n, mid, at, 5)
-        s2 = portal_side(centroids.get(r2, np.zeros((0, 3))), n, mid, at, 5)
+        c1 = centroids.get(r1, np.zeros((0, 3)))
+        c2 = centroids.get(r2, np.zeros((0, 3)))
+        s1 = portal_side(c1, n, mid, at, 5)
+        s2 = portal_side(c2, n, mid, at, 5)
         if s1 is not None and s2 is not None and (s1 > 0) != (s2 > 0):
             front = r1 if s1 > 0 else r2
+        elif (abs(n[1]) >= PORTAL_FLAT and (s1 is None) != (s2 is None)
+                and portal_tiles_on_plane(c2 if s1 is not None else c1, n, mid, at)):
+            # one room's floor lies on a floor portal, so it stands on it, on
+            # the far side from the room whose tiles speak - Archives' 44/53,
+            # a stairwell under the upper landing
+            front = (r1 if s1 > 0 else r2) if s1 is not None else (r2 if s2 > 0 else r1)
         else:
             for r in (r1, r2):
                 if r not in worlds:

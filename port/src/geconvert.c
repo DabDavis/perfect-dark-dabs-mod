@@ -2172,6 +2172,7 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 #define PORTAL_NEAR 300.0   // a tile or vertex this close to a portal speaks for its room
 #define PORTAL_EPS 1.0      // a point this close to the plane says nothing
 #define PORTAL_MARGIN 40.0  // how far the room's own geometry must clear the plane
+#define PORTAL_FLAT 0.999   // a portal whose normal is this upright lies flat: a floor or ceiling
 
 // The normal a portal's winding gives it, and the slab its vertices span,
 // exactly as bg.c works them out at the load (g_PortalMetrics in bgSetup()).
@@ -2290,6 +2291,37 @@ static int portalSide(const double (*pts)[3], int n, const double *normal, doubl
 	return 1;
 }
 
+// Whether a room's tiles near a portal all lie on its plane: a floor flush
+// with a floor portal, which says nothing on its own (portalSide() leaves such
+// points out) but does say the room stands on the portal.
+static int portalTilesOnPlane(const double (*pts)[3], int n, const double *normal, double mid,
+		const double *at)
+{
+	int near = 0;
+
+	for (int k = 0; k < n; ++k) {
+		double q = 0.0, v;
+
+		for (int c = 0; c < 3; ++c) {
+			q += (pts[k][c] - at[c]) * (pts[k][c] - at[c]);
+		}
+
+		if (sqrt(q) > PORTAL_NEAR) {
+			continue;
+		}
+
+		v = pts[k][0] * normal[0] + pts[k][1] * normal[1] + pts[k][2] * normal[2] - mid;
+
+		if (fabs(v) > PORTAL_EPS) {
+			return 0;
+		}
+
+		near++;
+	}
+
+	return near > 0;
+}
+
 // A room's own vertices at world scale - scaledRoom()'s `world`.
 static double (*roomWorldVtx(const struct bgroom *room, double inv, const double *offset, int *count))[3]
 {
@@ -2330,8 +2362,10 @@ static double (*roomWorldVtx(const struct bgroom *room, double inv, const double
  * Each room's own geometry settles it. The tiles either side of a doorway are
  * on the sides their rooms are, and where a room has none - or both rooms'
  * tiles fall one side, as Runway's 13/14 does - the room's drawn vertices say
- * the same thing. Where neither says anything, GoldenEye's own order is kept:
- * bgInitPortal() will have it.
+ * the same thing. A floor portal one room's floor lies flush with is settled
+ * by the other room's tiles alone: the flush room stands on it. Where none of
+ * these says anything, GoldenEye's own order is kept: bgInitPortal() will have
+ * it.
  */
 static int (*portalRoomOrder(const struct bg *bg, double inv, const double *offset, const tiles *stan))[2]
 {
@@ -2383,7 +2417,8 @@ static int (*portalRoomOrder(const struct bg *bg, double inv, const double *offs
 		const struct portal *p = &bg->portals.v[i];
 		double (*v)[3] = gcAlloc((p->npts ? p->npts : 1) * sizeof(*v));
 		double normal[3], lo = 0.0, hi = 0.0, at[3] = {0.0, 0.0, 0.0}, mid, s1, s2;
-		int r1 = p->room1, r2 = p->room2, front = 0;
+		int r1 = p->room1, r2 = p->room2, front = 0, have1, have2, nc1, nc2;
+		double (*c1)[3], (*c2)[3];
 
 		for (int k = 0; k < p->npts; ++k) {
 			for (int c = 0; c < 3; ++c) {
@@ -2405,12 +2440,23 @@ static int (*portalRoomOrder(const struct bg *bg, double inv, const double *offs
 
 		mid = (lo + hi) / 2.0;
 
-		if (portalSide(centroids[r1 >= 1 && r1 <= n ? r1 : 0], r1 >= 1 && r1 <= n ? ncentroids[r1] : 0,
-					normal, mid, at, 5, &s1)
-				&& portalSide(centroids[r2 >= 1 && r2 <= n ? r2 : 0], r2 >= 1 && r2 <= n ? ncentroids[r2] : 0,
-					normal, mid, at, 5, &s2)
-				&& (s1 > 0.0) != (s2 > 0.0)) {
+		c1 = centroids[r1 >= 1 && r1 <= n ? r1 : 0];
+		c2 = centroids[r2 >= 1 && r2 <= n ? r2 : 0];
+		nc1 = r1 >= 1 && r1 <= n ? ncentroids[r1] : 0;
+		nc2 = r2 >= 1 && r2 <= n ? ncentroids[r2] : 0;
+		have1 = portalSide(c1, nc1, normal, mid, at, 5, &s1);
+		have2 = portalSide(c2, nc2, normal, mid, at, 5, &s2);
+
+		if (have1 && have2 && (s1 > 0.0) != (s2 > 0.0)) {
 			front = s1 > 0.0 ? r1 : r2;
+		} else if (fabs(normal[1]) >= PORTAL_FLAT && have1 != have2
+				&& portalTilesOnPlane(have1 ? c2 : c1, have1 ? nc2 : nc1, normal, mid, at)) {
+			// One room's floor lies on a floor portal, so it stands on it,
+			// on the far side from the room whose tiles speak - Archives'
+			// 44/53, a stairwell under the upper landing, whose floor
+			// would otherwise be judged by the vertices and was left
+			// GoldenEye's way round
+			front = have1 ? (s1 > 0.0 ? r1 : r2) : (s2 > 0.0 ? r2 : r1);
 		} else {
 			int rr[2] = { r1, r2 };
 			double d[2];

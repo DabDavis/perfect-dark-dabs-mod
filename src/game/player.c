@@ -7571,6 +7571,23 @@ bool playerUpdateGeometry(struct prop *prop, u8 **start, u8 **end)
 {
 	s32 playernum = playermgrGetPlayerNumByProp(prop);
 
+#ifndef PLATFORM_N64
+	// GoldenEye's Bond is solid only while the camera is his own eye: any
+	// other camera - the opening swirl, an ending, Cuba's orbit round the
+	// credits - sets the player's cameramode to 1 and his collision bounds
+	// go (bondviewGetPropHeightRelatedValues()). Cuba's Natalya walks the
+	// twenty units into Bond's arms through where his cylinder would be;
+	// with it she was held off at arm's length for the whole roll (F3
+	// 20260928-092203). A converted mission's frozen camera is the port's
+	// TICKMODE_WARP.
+	if (g_Vars.tickmode == TICKMODE_WARP && geRoomActive() && modloaderStageIsMission(g_Vars.stagenum)) {
+		*end = NULL;
+		*start = NULL;
+
+		return false;
+	}
+#endif
+
 	if (g_Vars.players[playernum]->bondperimenabled
 			&& (!g_Vars.mplayerisrunning || !g_Vars.players[playernum]->isdead)) {
 		if (g_Vars.useperimshoot) {

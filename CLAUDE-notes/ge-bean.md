@@ -12590,6 +12590,29 @@ Perfect Dark's missions.
   B/Cancel/Escape leaves (gexFrontLeaveCredits()), a press leaves the reel.
   Probe ~/wt/f3-0928b-credits-run/cin.py (LEAVE=1 for the early exit).
 
+## 18th F3 pass: Cuba's kiss at arm's length (2026-09-28, fix/f3-0928d-credits, converter 88)
+
+F3 20260928-092203 "bond and natalya, aren't close enough". Measured against
+the native port (~/dam-oracle/gecuba3.py on 10.8.0.3: chr pos, getsuboffset,
+anim frame every 30 frames) and ours (run dir ~/wt/f3-0928d-credits-run,
+pos.py / pos_hd.py, `--boot-stage 0x71`):
+- **Natalya never walked in.** Her first PlayAnimation (0xb6, flags 0x06)
+  carries her 19.8 units toward Bond between anim frames ~83 and ~280 in
+  GoldenEye; ours stayed on pad 45. chrCalculatePushPos() refused every step:
+  she was already inside the player's cylinder (46.6 apart, radii 30 + 20).
+  GoldenEye's Bond has **no collision bounds while the camera is not his eye**
+  (the player's cameramode is 1 in every frozen camera and
+  bondviewGetPropHeightRelatedValues() returns no edges then). The port's frozen
+  camera on a converted mission is TICKMODE_WARP, so playerUpdateGeometry()
+  gives no cylinder there. Now she ends 24.47 from Bond, GoldenEye 24.46.
+- **Bond on pad 44, not 47** (2.3 units back): IFFolderActorIsEqual (f2, Cuba's
+  only use) was dropped; GoldenEye's Brosnan (actor 0) takes the branch to pad
+  47. Converted as GotoNext(label) - the port's Bond is always Brosnan.
+- HD look checked the same way (xblaSwitchSetEnabled): same positions, embrace.
+- Harness artefact: on the run that also converted the ROM, a load hitch put
+  Natalya's anim 19 frames ahead of Bond's for good; not seen on warm runs
+  (both from frame 6, in step).
+
 ## Pool heads seated on Bean's own neck joint (16th F3 pass, 2026-09-28)
 
 Customize Character picks (a GoldenEye head on a GoldenEye body, both from the

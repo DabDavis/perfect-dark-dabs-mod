@@ -306,7 +306,7 @@ TABLE = [
     ('CreditsRoll',                         1,    [],                                            0x01e9, (),                                          'hand'),  # ef aiGeCreditsRoll (port's own)
     ('IFCreditsHasCompleted',               2,    [('GOTOLABEL', 1)],                            0x01ea, (0,),                                        'hand'),  # f0 aiGeIfCreditsHasCompleted (port's own)
     ('IFObjectiveAllCompleted',             2,    [('GOTOLABEL', 1)],                            0x00f7, (0,),                                        'hand'),  # f1 aiIfAllObjectivesComplete
-    ('IFFolderActorIsEqual',                3,    [('BOND_ACTOR_INDEX', 1), ('GOTOLABEL', 1)],   None,   (),                                          'hand'),  # f2 -
+    ('IFFolderActorIsEqual',                3,    [('BOND_ACTOR_INDEX', 1), ('GOTOLABEL', 1)],   0x0000, (1,),                                        'hand'),  # f2 aiGoToNext (the port's Bond is always Brosnan, actor 0)
     ('IFBondDamageAndPickupsDisabled',      2,    [('GOTOLABEL', 1)],                            0x00f8, (('=', 242, 1), 0),                          'hand'),  # f3 aiIfPlayerIsInvincible
     ('MusicPlaySlot',                       4,    [('MUSIC_SLOT', 1), ('SECONDS_STOPPED_DURATION', 1), ('SECONDS_TOTAL_DURATION', 1)], 0x00f9, (0, 1, 2),                                   'hand'),  # f4 aiPlayXTrack
     ('MusicStopSlot',                       2,    [('MUSIC_SLOT', 1)],                           0x00fa, (0,),                                        'hand'),  # f5 aiStopXTrack
