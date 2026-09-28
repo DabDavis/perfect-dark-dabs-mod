@@ -4,6 +4,7 @@
 #include <PR/ultratypes.h>
 
 struct modeldef;
+struct model;
 
 struct headfitbody {
 	f32 spot[3];     // the headspot, in the body's own space
@@ -34,6 +35,9 @@ s32 headfitMeasureHeadWhole(struct modeldef *head, struct headfithead *out);
 // A body's neck, measured from its file (a loaded model's lists are rewritten)
 s32 headfitMeasureBodyFile(s32 filenum, struct headfitbody *out);
 void headfitSurvey(void);
+// The box round what a model draws as its toggles stand, over lists big enough to see
+s32 headfitMeasureModelBox(struct model *model, const u8 *filebase, f32 lo[3], f32 hi[3]);
+void headfitSurveyGuns(void);
 void headfitSurveyHeads(void);
 
 // Whether a head on a body is fitted by measurement rather than the ROM's type table

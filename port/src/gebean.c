@@ -11081,6 +11081,46 @@ u16 gebeanFirstPersonToOwn(s32 weaponnum, f32 tomodel[4][4], f32 ownlo[3], f32 o
 	return (u16)fpSlot[i];
 }
 
+/**
+ * Whether `filenum` is a file the release's first-person gun of this weapon is
+ * drawn on (the hand's or the watch's bare copy), in the look that draws it.
+ */
+s32 gebeanFirstPersonIsReleaseFile(s32 weaponnum, s32 filenum)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	return i >= 0 && i < (s32)ARRAYCOUNT(fpRows) && filenum > 0 && !gebeanGunsAreN64()
+		&& (filenum == fpSlot[i] || (i < NUM_GE_GUNS && filenum == fpWatchSlot[i]));
+}
+
+/**
+ * The box round the release's gun of this weapon, the hand left out, where it
+ * is drawn in its host's space: Bean's box laid on as the gun was
+ * (axis(p - beanc) * scale + hostc). 0 until it has been laid on, which is
+ * the first time either of its files is drawn.
+ */
+s32 gebeanFirstPersonHostBox(s32 weaponnum, f32 lo[3], f32 hi[3])
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	if (i < 0 || i >= (s32)ARRAYCOUNT(fpRows) || !fpPlaced[i].set || gebeanGunsAreN64()) {
+		return 0;
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		const s8 ax = fpPlaced[i].axis[a];
+		const s32 b = ax ? (ax < 0 ? -ax : ax) - 1 : a;
+		const f32 sign = ax < 0 ? -1.0f : 1.0f;
+		const f32 p = sign * (fpPlaced[i].lo[b] - fpPlaced[i].beanc[b]) * fpPlaced[i].scale + fpPlaced[i].hostc[a];
+		const f32 q = sign * (fpPlaced[i].hi[b] - fpPlaced[i].beanc[b]) * fpPlaced[i].scale + fpPlaced[i].hostc[a];
+
+		lo[a] = p < q ? p : q;
+		hi[a] = p < q ? q : p;
+	}
+
+	return 1;
+}
+
 /** The rest of matrix `mtx` the release's gun of this weapon was placed from. */
 s32 gebeanFirstPersonMatrixRest(s32 weaponnum, s32 mtx, f32 out[3])
 {

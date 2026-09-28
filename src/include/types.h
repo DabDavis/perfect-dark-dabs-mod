@@ -4210,6 +4210,13 @@ struct menumodel {
 	/*0x5b1*/ u8 unk5b1_06 : 1; // unused
 	/*0x5b1*/ u8 drawbehinddialog : 1;
 	/*0x5b4*/ struct modelpartvisibility *partvisibility;
+#ifndef PLATFORM_N64
+	// The model is framed by its measured box once loaded, not by a table row:
+	// the params it was asked for with (func0f105948()), else 0
+	u32 fitparams;
+	s16 fitweapon;  // and the weapon it is
+	u8 fitpending;  // waiting for the release's gun to be laid on (first draw)
+#endif
 };
 
 // Every stacked dialog's rows, columns and item data blocks share one set of
