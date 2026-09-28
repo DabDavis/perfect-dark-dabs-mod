@@ -1931,6 +1931,8 @@ void bgReset(s32 stagenum)
 			g_BgCommands = (struct bgcmd *)(g_BgPrimaryData2[3] + g_BgPrimaryData - 0x0f000000);
 		}
 
+		g_BgNumLightsTotal = 0;
+
 		if (g_BgPrimaryData2[4] == 0) {
 			g_BgLightsFileData = NULL;
 		} else {
@@ -2332,6 +2334,8 @@ void bgBuildTables(s32 stagenum)
 		for (i = 1; i < g_Vars.roomcount; i++) {
 			j += g_Rooms[i].numlights;
 		}
+
+		g_BgNumLightsTotal = j;
 
 		if (j) {
 			var800a41a0 = mempAlloc(ALIGN16(j * 3), MEMPOOL_STAGE);

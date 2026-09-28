@@ -214,6 +214,7 @@ extern s32 g_NextSparkIndex;
 extern struct sparkgroup g_SparkGroups[10];
 extern s32 g_NextSparkGroupIndex;
 extern u8 *var800a41a0;
+extern s32 g_BgNumLightsTotal;
 extern struct wallhit *g_Wallhits;
 extern struct wallhit *g_FreeWallhits;
 extern struct wallhit *g_ActiveWallhits;
