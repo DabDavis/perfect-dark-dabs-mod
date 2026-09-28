@@ -13,6 +13,9 @@ s32 hudmsg0f0ddb1c(s32 *arg0, s32 arg1);
 void hudmsgsHideByChannel(s32 value);
 void hudmsgsReset(void);
 void hudmsgRemoveAll(void);
+#ifndef PLATFORM_N64
+void hudmsgRemoveByPrefix(const char *prefix);
+#endif
 s32 hudmsgGetNext(s32 refid);
 void hudmsgCreate(char *text, s32 type);
 void hudmsgCreateWithFlags(char *text, s32 type, u32 flags);

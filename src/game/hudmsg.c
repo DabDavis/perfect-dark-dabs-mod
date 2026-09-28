@@ -18,6 +18,9 @@
 #include "bss.h"
 #include "lib/lib_317f0.h"
 #include "lib/memp.h"
+#ifndef PLATFORM_N64
+#include <string.h>
+#endif
 #include "lib/mtx.h"
 #include "lib/snd.h"
 #include "lib/str.h"
@@ -522,6 +525,30 @@ void hudmsgRemoveAll(void)
 		g_HudMessages[i].state = HUDMSGSTATE_FREE;
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Takes down this player's messages that begin with the prefix, shown or still
+ * queued. For the port's own toggle keys (Enhancements, Texture Pack): each
+ * press says where the setting now stands, and a message waiting its turn
+ * behind the last one is already out of date. Left alone, pressing a key a few
+ * times replayed every step one after another, several seconds each
+ * (F3 20260927-235736). Freed the same way hudmsgRemoveAll() frees them.
+ */
+void hudmsgRemoveByPrefix(const char *prefix)
+{
+	const size_t len = strlen(prefix);
+	s32 i;
+
+	for (i = 0; i < g_NumHudMessages; i++) {
+		if (g_HudMessages[i].state != HUDMSGSTATE_FREE
+				&& g_HudMessages[i].playernum == g_Vars.currentplayernum
+				&& strncmp(g_HudMessages[i].text, prefix, len) == 0) {
+			g_HudMessages[i].state = HUDMSGSTATE_FREE;
+		}
+	}
+}
+#endif
 
 s32 hudmsgGetNext(s32 refid)
 {

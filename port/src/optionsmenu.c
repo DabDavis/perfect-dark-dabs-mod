@@ -2717,6 +2717,8 @@ void modEnhancementsTick(void)
 		modEnhancementsSetOn(on);
 
 		if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
+			// Replaces the last press's message rather than queueing behind it
+			hudmsgRemoveByPrefix("Enhancements ");
 			hudmsgCreateWithFlags(on ? "Enhancements On\n" : "Enhancements Off\n", HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
 		}
 	}
