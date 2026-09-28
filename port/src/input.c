@@ -1004,6 +1004,54 @@ static inline s32 inputBindPressed(const s32 idx, const u32 ck)
 	return 0;
 }
 
+// inputSetCancelExclusive(): the keys bound to cancel stand for cancel only,
+// and stay so, once turned off, until each is let go
+static s32 cancelExclusive[INPUT_MAX_CONTROLLERS];
+static s32 cancelLatched[INPUT_MAX_CONTROLLERS];
+
+void inputSetCancelExclusive(s32 idx, s32 on)
+{
+	if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS) {
+		return;
+	}
+
+	if (!on && cancelExclusive[idx]) {
+		cancelLatched[idx] = 1;
+	}
+
+	cancelExclusive[idx] = !!on;
+}
+
+static s32 inputIsCancelKey(const s32 idx, const u32 vk)
+{
+	for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
+		if (binds[idx][CK_CANCEL][i] == vk) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static s32 inputCancelKeyHeld(const s32 idx)
+{
+	return inputBindPressed(idx, CK_CANCEL);
+}
+
+// as inputBindPressed(), leaving out the keys bound to cancel
+static s32 inputBindPressedNotCancel(const s32 idx, const u32 ck)
+{
+	for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
+		const u32 vk = binds[idx][ck][i];
+
+		if (vk && !inputIsCancelKey(idx, vk) && inputKeyPressed(vk)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 static inline s32 inputAxisScale(s32 x, const s32 deadzone, const f32 scale)
 {
 	if (abs(x) < deadzone) {
@@ -1038,8 +1086,18 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		return 0;
 	}
 
+	if (cancelLatched[idx] && !inputCancelKeyHeld(idx)) {
+		cancelLatched[idx] = 0;
+	}
+
+	const s32 cancelonly = cancelExclusive[idx] || cancelLatched[idx];
+
 	for (u32 i = 0; i < CONT_NUM_BUTTONS; ++i) {
-		if (inputBindPressed(idx, i)) {
+		const s32 pressed = (cancelonly && i != CK_CANCEL)
+			? inputBindPressedNotCancel(idx, i)
+			: inputBindPressed(idx, i);
+
+		if (pressed) {
 			npad->button |= 1U << i;
 		}
 	}

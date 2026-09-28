@@ -3,7 +3,8 @@
  *
  * The use button on one of the Institute's office chairs or sofas
  * (g_SeatModels) sits the player in it - the free seat nearest him on a sofa - and the use button again
- * stands him up where he was. Seated he cannot move and the chair stays put.
+ * stands him up where he was, as does the cancel button (pad B, the right
+ * mouse button) whichever way he looks. Seated he cannot move and the chair stays put.
  *
  * Every chair is at a desk with a terminal on it, and both are in reach from
  * behind the chair: the nearer of the two is used (sitChairKeepsInteract()),
@@ -38,6 +39,8 @@
 #include "lib/vars.h"
 #include "lib/model.h"
 #include "lib/anim.h"
+#include "game/options.h"
+#include "input.h"
 #include "game/bondmove.h"
 #include "game/modoptions.h"
 #include "game/player.h"
@@ -100,6 +103,7 @@ struct sitstate {
 	s32 seat;           // which of a sofa's seats
 	struct coord standpos;
 	f32 standtheta;
+	s32 cancelarmed;    // the cancel button was seen up, with no menu open
 };
 
 static struct sitstate g_Sit[MAX_PLAYERS];
@@ -215,8 +219,17 @@ static void sitMovePlayer(f32 x, f32 z)
 	propRegisterRooms(playerprop);
 }
 
+static s32 sitContpad(void)
+{
+	return optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
+}
+
 static void sitRelease(struct sitstate *sit)
 {
+	// the cancel button held to stand up stays cancel's, not weapon back or
+	// aim, until it is let go
+	inputSetCancelExclusive(sitContpad(), false);
+
 	if (sit->chair) {
 		propSetPerimEnabled(sit->chair, true);
 	}
@@ -228,6 +241,11 @@ static void sitRelease(struct sitstate *sit)
 
 void sitChairReset(void)
 {
+	// a level left seated leaves no key bound to cancel only
+	for (s32 i = 0; i < INPUT_MAX_CONTROLLERS; i++) {
+		inputSetCancelExclusive(i, false);
+	}
+
 	memset(g_Sit, 0, sizeof(g_Sit));
 }
 
@@ -363,6 +381,12 @@ s32 sitChairInteract(struct prop *prop)
 	sit->chair = prop;
 	sit->standpos = g_Vars.currentplayer->prop->pos;
 	sit->standtheta = g_Vars.currentplayer->vv_theta;
+	sit->cancelarmed = false;
+
+	// seated, the keys bound to cancel stand him up and do nothing else
+	// (sitChairTick()): by default pad B is weapon back too, and the right
+	// mouse button aims
+	inputSetCancelExclusive(sitContpad(), true);
 
 	g_Vars.currentplayer->speedforwards = 0;
 	g_Vars.currentplayer->speedsideways = 0;
@@ -428,16 +452,47 @@ void sitChairTick(void)
 		return;
 	}
 
-	// anything that is not walking - a cutscene, a death, the chair gone -
-	// lets go of the chair where he is
+	// anything that is not walking - Sit In Chairs turned off in the pause
+	// menu, a cutscene, a death, the chair gone - lets go of the chair. He
+	// goes back to where he sat down from, a place he could stand: let go
+	// in the seat, the sofa's perimeter came back on round him and he could
+	// not walk out of it (F3 20260928-143510, "stuck in the couch")
 	if (!sitAllowed()
 			|| player->bondmovemode != MOVEMODE_WALK
 			|| player->isdead
 			|| sit->chair == NULL
 			|| sit->chair->obj == NULL
 			|| (sit->chair->obj->hidden2 & OBJH2FLAG_DESTROYED)) {
+		if (sit->t > 0 && !player->isdead) {
+			sitMovePlayer(sit->standpos.x, sit->standpos.z);
+		}
+
 		sitRelease(sit);
 		return;
+	}
+
+	// the cancel button (pad B, the right mouse button: what backs out of a
+	// menu) stands him up, so the use button can stay on the terminal. A
+	// press counts only once the button has been seen up with no menu open:
+	// the press that closed a menu, the terminal's or the pause menu, is
+	// still held when the game comes back, and must not stand him up
+	{
+		// the menus are per player number (a solo player's mpindex is 4)
+		const s32 menuopen = g_Menus[g_Vars.currentplayernum].curdialog != NULL
+			|| player->activemenumode != AMMODE_CLOSED;
+		// the key itself, not the game's pad: after a menu the pad reads
+		// nothing held for up to a second (joyDisableTemporarily()), which
+		// would count the press that closed it as let go
+		const s32 held = inputButtonPressed(sitContpad(), BUTTON_UI_CANCEL) != 0;
+
+		if (menuopen) {
+			sit->cancelarmed = false;
+		} else if (!held) {
+			sit->cancelarmed = true;
+		} else if (sit->cancelarmed && sit->state != SIT_UP) {
+			sit->cancelarmed = false;
+			sit->state = SIT_UP;
+		}
 	}
 
 	// turned on the tick that finishes sitting down too, or a long frame

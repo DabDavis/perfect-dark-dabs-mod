@@ -781,6 +781,21 @@ stands him up where he sat down from. Built the way GoldenEye's tank is: still
   (`playerGetNearChrAlphaFrac()`, same Camera Body Fade distance, box from
   `propGetBbox()`): a seated player cannot step away from a staffer walking
   between him and the camera, which filled the screen with a green shirt.
+- **Let go of the seat, he goes back to where he sat down from** (F3
+  20260928-143510, "stuck in the couch"): Sit In Chairs turned off in the
+  pause menu while seated (or a cutscene, or the chair destroyed) released him
+  where he was, in the seat, and the sofa's perimeter came back on round him.
+  Every release now moves him to the stand spot first (not when dead).
+- **The cancel button stands him up** (the user's decision, same report): pad
+  B / the right mouse button - what backs out of a menu - so use can stay on
+  the terminal; use looking away still works. Two traps: by default those
+  keys are also weapon back and aim, so while seated (and until the key is
+  let go after) `inputSetCancelExclusive()` makes the keys bound to cancel
+  press cancel only; and the press that closes a menu must not stand him up,
+  so a press counts only after the key was seen up with no menu open - read
+  from the key itself (`inputButtonPressed()`), because after a menu the pad
+  reads nothing held for up to a second (`joyDisableTemporarily()`), and the
+  menu is `g_Menus[currentplayernum]` (a solo player's mpindex is 4).
 
 Probe traps: a gdb teleport must resolve rooms (`func0f065e74()` from the
 chair's own) or the walk refuses every step and the camera trace leaves the
