@@ -12666,21 +12666,25 @@ bodies from the ROM (Cgx%03dZ, `chrRows`) and never had the problem.
   modghost.c's ghost model, and handtint.c. `playerChooseBodyAndHead()` still
   answers the pool row, so hands, name and saved picks are unchanged; the
   player's chr->bodynum becomes the own-rig row once the body is built.
-- **Size** (`gebeanOwnRigSize()`, on a row's first use): GoldenEye's bodies are
-  ~10% larger in their own units (camguard ankle-to-neck 638.0, dataDyne guard
-  581.6; `headfitSkeletonExtent()` reads a file's joints). Scale =
-  pool scale x host span / own span, so the pick is exactly as tall as it was
-  (and the row keeps the pool's height = eye height); animscale = host
-  animscale x own ankle depth / host ankle depth, so PD's walk keeps the hips
-  over GoldenEye's legs. Native size (as guards) would have been +9.7%.
+- **Size**: GoldenEye's own (the ROM row's scale and pov), as its guards
+  (user 2026-09-28). Its bodies are ~10% larger in their own units (camguard
+  ankle-to-neck 638.0, dataDyne guard 581.6), so a pick stands ~9.7% taller
+  than on the host. The row keeps the pool's height, so the player's eye
+  height and collision are unchanged. Tried first: scaling to the pool's
+  height with animscale x own/host ankle depth - at native size that ankle
+  scaling sank the boots into the floor, GoldenEye's pov stands them on it.
+- Eye vs head at native size (camera at the eye, level): the eye line crosses
+  the brow/hairline; on the host rig it crossed the crown or above. The
+  camera is never inside the neck or chest. Third person frames a bigger
+  figure (Jaws's head reaches the top of the default frame from behind). The
+  Character-page preview fits the model to its box, so it looks the same.
 - Measured, Institute third person, pairs Joel/Jungle Commando, Ken/St.
   Petersburg, Grant/Janus Marine, Valentin on three bodies, Trevelyan,
   Trevelyan's head on the Civilian, Sally/Vivien on both scientists: heads sit
   on a neck in both looks; women lose the +35 (Anka type on a DEFAULT body)
   lift that stood them on a band of neck. Eye/head height unchanged (160/173,
-  Rosika 142/155, Jaws 192/182); standing span unchanged to 0.1; the pool
-  rows' random 95-115% player height (the host's canvaryheight) is gone for
-  own-rig pairs. Hit boxes are the ROM body's own parts (GoldenEye has a head
+  Rosika 142/155, Jaws 192/182); the pool rows' random 95-115% player height
+  (the host's canvaryheight) is gone for own-rig pairs. Hit boxes are the ROM body's own parts (GoldenEye has a head
   box on the body, 282 tall against the guard's 85). Dam guards, no-ROM
   fallback, mixed pairs and first-person hands pixel-identical. HD heads lose
   the pool's grey hair sheen (a guard's has none).
@@ -12689,6 +12693,7 @@ bodies from the ROM (Cgx%03dZ, `chrRows`) and never had the problem.
   a foreign collar, as before.
 
 Rig: `~/wt/f3-0928c-rig-run`: `pairs.py` (MEASURE=1 prints scale, joint span,
-hit boxes), `menushot.py` (CLEAN=1 hides the filter rows), `bots.py` (a
+hit boxes; CROUCH=0 squats; ANIM1=x forces the animation scale; CAMS 80:0:180
+puts the camera level at the eye), `menushot.py` (CLEAN=1 hides the filter rows), `bots.py` (a
 simulant on MPB:MPH, armed), `fpmp.py` (player on an arena with a gun),
 `sheets.sh`, `norom-content` + moving mods/GoldenEye Arenas aside for no ROM.

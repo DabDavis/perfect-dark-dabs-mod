@@ -1568,46 +1568,16 @@ _Static_assert(GEBEAN_OWNRIG_BASE + ARRAYCOUNT(poolRows) <= NUM_HEADSANDBODIES -
 
 static s32 ownRigSlot[ARRAYCOUNT(poolRows)];
 
-static u8 ownRigSized[ARRAYCOUNT(poolRows)];
-
 /*
- * GoldenEye's bodies are modelled some 10% larger than Perfect Dark's: its
- * Jungle Commando's joints span 638.0 units from ankle to neck in its own
- * bind, the dataDyne guard's the pool was fitted to 581.6. The pool drew each
- * at the host's size times GoldenEye's own height for the character, which is
- * also what the player's eye height is (the row's height). So the ROM's body
- * is drawn as tall as the pool's was, measured the same way (its skeleton
- * against the host's, headfitSkeletonExtent()): the pick keeps its height,
- * its eye height and its reach, and only its proportions become GoldenEye's.
- * Once per row, on its first use, since the measure loads both files.
+ * Drawn at GoldenEye's own size and stride (its scale and pov), as its
+ * mission guards are (user 2026-09-28): GoldenEye's bodies are modelled some
+ * 10% larger than Perfect Dark's (the Jungle Commando's joints span 638.0
+ * units ankle to neck, the dataDyne guard's 581.6), so a pick stands about a
+ * tenth taller than it did on the host. The row keeps the pool's height,
+ * which is the player's eye height and collision. Perfect Dark's animations
+ * stand the feet on the floor at GoldenEye's own pov: a stride scaled by the
+ * ankles' depth against the host's sank the boots into it.
  */
-static void gebeanOwnRigSize(s32 i)
-{
-	struct headorbody *hb = &g_HeadsAndBodies[GEBEAN_OWNRIG_BASE + i];
-	const struct headorbody *pool = &g_HeadsAndBodies[GEBEAN_POOL_BASE + i];
-	f32 ownlo, own, hostlo, host;
-
-	if (ownRigSized[i]) {
-		return;
-	}
-
-	ownRigSized[i] = 1;
-
-	if (headfitSkeletonExtent(hb->filenum, &ownlo, &own) && headfitSkeletonExtent(pool->filenum, &hostlo, &host)
-			&& own > 1.0f && host > 1.0f && ownlo < -1.0f && hostlo < -1.0f) {
-		const f32 was = hb->scale;
-		const f32 wasanim = hb->animscale;
-
-		hb->scale = pool->scale * host / own;
-		// and Perfect Dark's animations, which move the root as far as they
-		// move the host's, stand it as high over GoldenEye's ankles as over
-		// the host's: its hips, not the whole figure, give the stride
-		hb->animscale = pool->animscale * ownlo / hostlo;
-		sysLogPrintf(LOG_NOTE, "gebean: %s on GoldenEye's own rig: skeleton %.1f (ankles %.1f) against the host's %.1f (%.1f), "
-				"scale %.4f to %.4f, animation scale %.4f to %.4f",
-				poolRows[i].row.source, own, ownlo, host, hostlo, was, hb->scale, wasanim, hb->animscale);
-	}
-}
 
 /** Lets go of the own-rig rows: any still holding what this put there are emptied. */
 static void gebeanOwnRigClear(void)
@@ -1659,7 +1629,7 @@ static void gebeanOwnRigRefresh(void)
 		}
 
 		if (num >= 0 && gexPlusRomMpFill(num, &made)) {
-			// GoldenEye's own model, sized to the pool's on its first use (gebeanOwnRigSize())
+			// GoldenEye's own model, at its own size and stride
 		} else if (ishead) {
 			made = *pool;
 			made.type = HEADBODYTYPE_DEFAULT;
@@ -1677,8 +1647,6 @@ static void gebeanOwnRigRefresh(void)
 		keep = hb->filenum == made.filenum ? hb->modeldef : NULL;
 		*hb = made;
 		hb->modeldef = keep;
-		// (sized again on its next use, gebeanOwnRigSize())
-		ownRigSized[i] = 0;
 
 		// what the player's view and hands are measured by stays the pool's
 		hb->height = pool->height;
@@ -1727,10 +1695,6 @@ s32 gebeanOwnRigPair(s32 *bodynum, s32 *headnum)
 	const s32 romhead = *headnum > 0 && gebeanIsRomPoolRow(*headnum);
 
 	// A whole character takes no head, so there is no pair to keep apart
-	if (body >= 0) {
-		gebeanOwnRigSize(body - GEBEAN_OWNRIG_BASE);
-	}
-
 	if (body >= 0 && g_HeadsAndBodies[*bodynum].unk00_01) {
 		*bodynum = body;
 		return 1;

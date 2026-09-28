@@ -33,13 +33,6 @@ s32 headfitMeasureHead(struct modeldef *head, struct headfithead *out);
 s32 headfitMeasureHeadWhole(struct modeldef *head, struct headfithead *out);
 // A body's neck, measured from its file (a loaded model's lists are rewritten)
 s32 headfitMeasureBodyFile(s32 filenum, struct headfitbody *out);
-
-/**
- * A body file's skeleton in its own units: its lowest joint under the root
- * (the ankles, negative) and its lowest to its highest (the neck). False when
- * it has none.
- */
-s32 headfitSkeletonExtent(s32 filenum, f32 *lowest, f32 *height);
 void headfitSurvey(void);
 void headfitSurveyHeads(void);
 
