@@ -111,6 +111,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
+#include "gebean.h"
 #include "gecinema.h"
 #include "gecredits.h"
 #include "geroom.h"
@@ -1827,6 +1828,13 @@ void playerTickChrBody(void)
 					&& gexPlusMissionBond(g_Vars.currentplayer->bondtype, &bodynum, &headnum)) {
 				sp60 = false;
 			}
+		}
+
+		// A GoldenEye body with a GoldenEye head stands on GoldenEye's own
+		// rig when the ROM is converted, as a converted mission's guards do
+		// (gebean.c's gebeanOwnRigPair()); the pool row's height stays
+		if (!sp60) {
+			gebeanOwnRigPair(&bodynum, &headnum);
 		}
 #endif
 

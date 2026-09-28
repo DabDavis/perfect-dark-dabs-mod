@@ -511,6 +511,78 @@ static s32 headfitCached(s32 filenum, s32 ishead, struct headfithead *head, stru
 	return ok;
 }
 
+/**
+ * How a body's skeleton stands in its own units: its joints' (position
+ * nodes') lowest point under the root - the ankles - and how far its highest
+ * - the neck joint - stands over that, read from the file. False where it has
+ * none or will not load. Remembered per file for the session.
+ */
+s32 headfitSkeletonExtent(s32 filenum, f32 *lowest, f32 *height)
+{
+	static struct {
+		u16 filenum;
+		f32 lo, height;
+	} seen[64];
+	static s32 numseen;
+	struct modeldef *modeldef;
+	struct modelnode *node;
+	f32 lo = 1e9f, hi = -1e9f;
+	u8 *buf;
+
+	for (s32 i = 0; i < numseen; i++) {
+		if (seen[i].filenum == filenum) {
+			*lowest = seen[i].lo;
+			*height = seen[i].height;
+			return *height > 0.0f;
+		}
+	}
+
+	modeldef = headfitLoadFile(filenum, &buf);
+	node = modeldef ? modeldef->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 1024; walked++) {
+		if ((node->type & 0xff) == MODELNODETYPE_POSITION) {
+			f32 y = 0.0f;
+
+			for (struct modelnode *up = node; up; up = up->parent) {
+				if ((up->type & 0xff) == MODELNODETYPE_POSITION) {
+					y += up->rodata->position.pos.y;
+				}
+			}
+
+			lo = y < lo ? y : lo;
+			hi = y > hi ? y : hi;
+		}
+
+		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	free(buf);
+
+	hi = hi > lo ? hi - lo : 0.0f;
+	lo = hi > 0.0f ? lo : 0.0f;
+
+	if (numseen < ARRAYCOUNT(seen)) {
+		seen[numseen].filenum = (u16)filenum;
+		seen[numseen].lo = lo;
+		seen[numseen].height = hi;
+		numseen++;
+	}
+
+	*lowest = lo;
+	*height = hi;
+
+	return hi > 0.0f;
+}
+
 /* -------------------------------------------------------------------------
  * The fit
  * ------------------------------------------------------------------------- */
@@ -547,6 +619,13 @@ s32 headfitWanted(s32 headnum, s32 bodynum)
 	// body, sitting on the body's headspot where GoldenEye put it: a neck
 	// measured between two of them would move one that already fits
 	if (gexPlusRomIsPoolRow(headnum) && gexPlusRomIsPoolRow(bodynum)) {
+		return 0;
+	}
+
+	// A GoldenEye pair moved onto the ROM's own rig (gebean.c's
+	// gebeanOwnRigPair()): GoldenEye's head on GoldenEye's body, as a guard
+	if ((gebeanIsOwnRigRow(headnum) || gebeanIsRomPoolRow(headnum))
+			&& (gebeanIsOwnRigRow(bodynum) || gebeanIsRomPoolRow(bodynum))) {
 		return 0;
 	}
 

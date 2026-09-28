@@ -247,6 +247,19 @@ s32 gebeanIsPoolRow(s32 headorbodynum);
 s32 gebeanIsRomPoolRow(s32 headorbodynum);
 
 /**
+ * A Customize Character pick of one of the pool's bodies with one of its
+ * heads, moved onto GoldenEye's own rig when the ROM is converted: the rows
+ * of the ROM's matching body (and head, where the ROM has it), which the
+ * release's meshes are fitted to as a mission guard's are. The pair is left
+ * alone and 0 returned for anything else - a Perfect Dark head or body, no
+ * ROM - which keeps the host rig.
+ */
+s32 gebeanOwnRigPair(s32 *bodynum, s32 *headnum);
+
+/** Whether a row is one of gebeanOwnRigPair()'s. */
+s32 gebeanIsOwnRigRow(s32 headorbodynum);
+
+/**
  * Whether a body row is one of GoldenEye's own characters for GE Plus: the
  * release's pool, or the ROM's (the pool filled from the conversion and the
  * extras the release lacks). Never GoldenEye X's - GE Plus is made of the

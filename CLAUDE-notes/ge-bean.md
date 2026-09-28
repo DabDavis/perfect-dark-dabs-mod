@@ -12639,3 +12639,56 @@ dist:height:rot, DUMP=1), `menushot.py` (the Customize Character preview),
 `guard.py`/`guardhat.py` (a mission guard stood in front, HAT=1 one with a
 hat), `pair.sh`, `shotat.py`. ROM-only content (`CONTENT=rom`) is GoldenEye's
 own N64 models: the reference for where a GoldenEye head sits.
+
+## Customize Character pairs on GoldenEye's own rig (17th F3 pass, 2026-09-28)
+
+The root of every Character-page head report was the host rig: a pool body is
+fitted onto the dataDyne guard (or the female technician), whose collar stands
+13-23 units over the head's attach point, and pass 16 made that up with
+thresholds by eye. Converted-mission guards stand on GoldenEye's own N64
+bodies from the ROM (Cgx%03dZ, `chrRows`) and never had the problem.
+
+- **Own-rig rows** (`gebeanOwnRigRefresh()`, gebean.c): with the release and
+  the ROM's conversion both there, a row per pool row past the extras
+  (`GEBEAN_OWNRIG_BASE` = extras' end, 268 here): a body's is the ROM body
+  (`gexPlusRomMpFill()`), a head's the ROM head, or for a face the ROM has no
+  head of (Valentin, Natalya, the named characters' `char/` heads) a copy of
+  the pool's row with type DEFAULT. The release's mesh finds a Cgx file by name
+  as a chr row, so the pair is drawn exactly as a mission guard: HD mesh on the
+  ROM rig, the ROM's N64 model in the N64 look, head on the body's headspot,
+  no headfit (`headfitWanted()` rule), no type offset, no
+  `xblaMeshPoolHeadSeat()` / `xblaMeshPoolNeckOwn()` (those only act on pool
+  bodies, so the pass-16 thresholds stay only for the no-ROM fallback).
+- **`gebeanOwnRigPair(&body, &head)`** swaps a pool body + pool head (or a ROM
+  extra on either side, or a whole character alone) for the own-rig rows.
+  Called where a model is built: player.c `playerTickChrBody` (not for a
+  perfect head), menu.c's preview (Combat Simulator index branch), botmgr.c,
+  modghost.c's ghost model, and handtint.c. `playerChooseBodyAndHead()` still
+  answers the pool row, so hands, name and saved picks are unchanged; the
+  player's chr->bodynum becomes the own-rig row once the body is built.
+- **Size** (`gebeanOwnRigSize()`, on a row's first use): GoldenEye's bodies are
+  ~10% larger in their own units (camguard ankle-to-neck 638.0, dataDyne guard
+  581.6; `headfitSkeletonExtent()` reads a file's joints). Scale =
+  pool scale x host span / own span, so the pick is exactly as tall as it was
+  (and the row keeps the pool's height = eye height); animscale = host
+  animscale x own ankle depth / host ankle depth, so PD's walk keeps the hips
+  over GoldenEye's legs. Native size (as guards) would have been +9.7%.
+- Measured, Institute third person, pairs Joel/Jungle Commando, Ken/St.
+  Petersburg, Grant/Janus Marine, Valentin on three bodies, Trevelyan,
+  Trevelyan's head on the Civilian, Sally/Vivien on both scientists: heads sit
+  on a neck in both looks; women lose the +35 (Anka type on a DEFAULT body)
+  lift that stood them on a band of neck. Eye/head height unchanged (160/173,
+  Rosika 142/155, Jaws 192/182); standing span unchanged to 0.1; the pool
+  rows' random 95-115% player height (the host's canvaryheight) is gone for
+  own-rig pairs. Hit boxes are the ROM body's own parts (GoldenEye has a head
+  box on the body, 282 tall against the guard's 85). Dam guards, no-ROM
+  fallback, mixed pairs and first-person hands pixel-identical. HD heads lose
+  the pool's grey hair sheen (a guard's has none).
+- Switch: `PD_GEBEAN_NO_OWN_RIG=1` keeps every pair on the host rig.
+- Left: a `char/` head (Trevelyan's) shows a flat flap of its own neck behind
+  a foreign collar, as before.
+
+Rig: `~/wt/f3-0928c-rig-run`: `pairs.py` (MEASURE=1 prints scale, joint span,
+hit boxes), `menushot.py` (CLEAN=1 hides the filter rows), `bots.py` (a
+simulant on MPB:MPH, armed), `fpmp.py` (player on an arena with a gun),
+`sheets.sh`, `norom-content` + moving mods/GoldenEye Arenas aside for no ROM.

@@ -1230,7 +1230,7 @@ s32 gebeanIsGoldenEyeBody(s32 num)
 		return 0;
 	}
 
-	return gebeanIsRomPoolRow(num)
+	return gebeanIsRomPoolRow(num) || gebeanIsOwnRigRow(num)
 		|| (i >= 0 && i < ARRAYCOUNT(poolRows) && poolSlot[i] && poolSlot[i] == g_HeadsAndBodies[num].filenum);
 }
 
@@ -1538,6 +1538,219 @@ static void gebeanPoolAppendExtras(void)
 			addedbodies, addedheads);
 }
 
+/*
+ * GoldenEye's own rig under a Customize Character pick (F3 pass 17,
+ * 2026-09-28). The pool's bodies are fitted onto a Perfect Dark host rig (the
+ * dataDyne guard, the female technician), whose collar stands 13 to 23 units
+ * over the head's attach point: every head-fit report on the Character page
+ * came back to that, and the pool's seat (xblamesh.c's
+ * xblaMeshPoolHeadSeat()) made it up with thresholds set by eye. A converted
+ * mission's guards stand on GoldenEye's own N64 bodies from the ROM, the
+ * release's meshes fitted to those joints, and their heads sit right.
+ *
+ * So with the ROM converted, a pool body worn with one of the pool's heads is
+ * drawn on the matching ROM body instead: a row per pool row, past the
+ * extras, holding GoldenEye's converted model (Cgx%03dZ) - which the release's
+ * mesh finds by name as it does a mission guard's (gebeanPoolRowForFile()), so
+ * the pair is drawn exactly as a guard is, in both looks. The head is the
+ * ROM's own too where it has one; a face GoldenEye only has on a whole
+ * character (Valentin, Natalya ...) stays the pool's, in a row of its own
+ * that seats on the ROM body's headspot with nothing added. A pair with a
+ * Perfect Dark head or body, or no ROM, keeps the host rig and the pool's
+ * seat. Only the model changes: the eye height, the hands and the name are
+ * the pool row's.
+ */
+#define GEBEAN_OWNRIG_BASE (GEBEAN_EXTRA_BASE + ARRAYCOUNT(extraRows))
+
+// (a mission's heads take free rows from the top of the table down, 24 at most)
+_Static_assert(GEBEAN_OWNRIG_BASE + ARRAYCOUNT(poolRows) <= NUM_HEADSANDBODIES - 1 - GEROM_BODY_ROWS,
+		"the own-rig rows must fit g_HeadsAndBodies under a mission's heads");
+
+static s32 ownRigSlot[ARRAYCOUNT(poolRows)];
+
+static u8 ownRigSized[ARRAYCOUNT(poolRows)];
+
+/*
+ * GoldenEye's bodies are modelled some 10% larger than Perfect Dark's: its
+ * Jungle Commando's joints span 638.0 units from ankle to neck in its own
+ * bind, the dataDyne guard's the pool was fitted to 581.6. The pool drew each
+ * at the host's size times GoldenEye's own height for the character, which is
+ * also what the player's eye height is (the row's height). So the ROM's body
+ * is drawn as tall as the pool's was, measured the same way (its skeleton
+ * against the host's, headfitSkeletonExtent()): the pick keeps its height,
+ * its eye height and its reach, and only its proportions become GoldenEye's.
+ * Once per row, on its first use, since the measure loads both files.
+ */
+static void gebeanOwnRigSize(s32 i)
+{
+	struct headorbody *hb = &g_HeadsAndBodies[GEBEAN_OWNRIG_BASE + i];
+	const struct headorbody *pool = &g_HeadsAndBodies[GEBEAN_POOL_BASE + i];
+	f32 ownlo, own, hostlo, host;
+
+	if (ownRigSized[i]) {
+		return;
+	}
+
+	ownRigSized[i] = 1;
+
+	if (headfitSkeletonExtent(hb->filenum, &ownlo, &own) && headfitSkeletonExtent(pool->filenum, &hostlo, &host)
+			&& own > 1.0f && host > 1.0f && ownlo < -1.0f && hostlo < -1.0f) {
+		const f32 was = hb->scale;
+		const f32 wasanim = hb->animscale;
+
+		hb->scale = pool->scale * host / own;
+		// and Perfect Dark's animations, which move the root as far as they
+		// move the host's, stand it as high over GoldenEye's ankles as over
+		// the host's: its hips, not the whole figure, give the stride
+		hb->animscale = pool->animscale * ownlo / hostlo;
+		sysLogPrintf(LOG_NOTE, "gebean: %s on GoldenEye's own rig: skeleton %.1f (ankles %.1f) against the host's %.1f (%.1f), "
+				"scale %.4f to %.4f, animation scale %.4f to %.4f",
+				poolRows[i].row.source, own, ownlo, host, hostlo, was, hb->scale, wasanim, hb->animscale);
+	}
+}
+
+/** Lets go of the own-rig rows: any still holding what this put there are emptied. */
+static void gebeanOwnRigClear(void)
+{
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
+		struct headorbody *hb = &g_HeadsAndBodies[GEBEAN_OWNRIG_BASE + i];
+
+		if (ownRigSlot[i] && hb->filenum == ownRigSlot[i]) {
+			memset(hb, 0, sizeof(*hb));
+		}
+	}
+
+	memset(ownRigSlot, 0, sizeof(ownRigSlot));
+}
+
+/**
+ * Fills the own-rig rows for the release's pool (gebeanPoolRefresh()), when
+ * the ROM's conversion is there: a body's with its ROM model, a head's with
+ * its ROM model or, for a face the ROM has no head of, a copy of the pool's.
+ */
+static void gebeanOwnRigRefresh(void)
+{
+	s32 bodies = 0;
+	s32 heads = 0;
+
+	if (getenv("PD_GEBEAN_NO_OWN_RIG") || gexPlusRomMpBegin() <= 0) {
+		gebeanOwnRigClear();
+		return;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
+		const struct gebeanpoolrow *p = &poolRows[i];
+		const s32 ishead = p->row.kind == GEBEAN_HEAD;
+		const s32 poolrow = GEBEAN_POOL_BASE + i;
+		const struct headorbody *pool = &g_HeadsAndBodies[poolrow];
+		struct headorbody *hb = &g_HeadsAndBodies[GEBEAN_OWNRIG_BASE + i];
+		struct headorbody made;
+		struct modeldef *keep;
+		const s32 num = gebeanRomChrForSource(p->row.source, ishead);
+
+		if (!gebeanIsPoolRow(poolrow)) {
+			// the release does not draw this one (the ROM's or nothing)
+			if (ownRigSlot[i] && hb->filenum == ownRigSlot[i]) {
+				memset(hb, 0, sizeof(*hb));
+			}
+
+			ownRigSlot[i] = 0;
+			continue;
+		}
+
+		if (num >= 0 && gexPlusRomMpFill(num, &made)) {
+			// GoldenEye's own model, sized to the pool's on its first use (gebeanOwnRigSize())
+		} else if (ishead) {
+			made = *pool;
+			made.type = HEADBODYTYPE_DEFAULT;
+		} else {
+			if (ownRigSlot[i] && hb->filenum == ownRigSlot[i]) {
+				memset(hb, 0, sizeof(*hb));
+			}
+
+			ownRigSlot[i] = 0;
+			continue;
+		}
+
+		// A row a stage has already loaded keeps its model: a chr may be
+		// wearing it, and this can run from the pause menu
+		keep = hb->filenum == made.filenum ? hb->modeldef : NULL;
+		*hb = made;
+		hb->modeldef = keep;
+		// (sized again on its next use, gebeanOwnRigSize())
+		ownRigSized[i] = 0;
+
+		// what the player's view and hands are measured by stays the pool's
+		hb->height = pool->height;
+		hb->handfilenum = pool->handfilenum;
+		hb->ismale = pool->ismale;
+		ownRigSlot[i] = made.filenum;
+
+		if (ishead) {
+			heads++;
+		} else {
+			bodies++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "gebean: %d GoldenEye bodies and %d heads on GoldenEye's own rig from the ROM, "
+			"for the Character page's GoldenEye pairs", bodies, heads);
+}
+
+s32 gebeanIsOwnRigRow(s32 num)
+{
+	const s32 i = num - GEBEAN_OWNRIG_BASE;
+
+	return i >= 0 && i < ARRAYCOUNT(poolRows) && ownRigSlot[i] && ownRigSlot[i] == g_HeadsAndBodies[num].filenum;
+}
+
+/** The own-rig row for a pool row of the given kind, or -1. */
+static s32 gebeanOwnRigFor(s32 num, s32 wanthead)
+{
+	const s32 i = num - GEBEAN_POOL_BASE;
+
+	if (i < 0 || i >= ARRAYCOUNT(poolRows) || (poolRows[i].row.kind == GEBEAN_HEAD) != (wanthead != 0)
+			|| !gebeanIsPoolRow(num) || !gebeanIsOwnRigRow(GEBEAN_OWNRIG_BASE + i)) {
+		return -1;
+	}
+
+	return GEBEAN_OWNRIG_BASE + i;
+}
+
+s32 gebeanOwnRigPair(s32 *bodynum, s32 *headnum)
+{
+	const s32 body = gebeanOwnRigFor(*bodynum, 0);
+	const s32 head = *headnum > 0 ? gebeanOwnRigFor(*headnum, 1) : -1;
+	// GoldenEye's own N64 characters the release lacks (the extras), which
+	// are the ROM's already
+	const s32 rombody = gebeanIsRomPoolRow(*bodynum);
+	const s32 romhead = *headnum > 0 && gebeanIsRomPoolRow(*headnum);
+
+	// A whole character takes no head, so there is no pair to keep apart
+	if (body >= 0) {
+		gebeanOwnRigSize(body - GEBEAN_OWNRIG_BASE);
+	}
+
+	if (body >= 0 && g_HeadsAndBodies[*bodynum].unk00_01) {
+		*bodynum = body;
+		return 1;
+	}
+
+	if ((body < 0 && !rombody) || (head < 0 && !romhead) || (body < 0 && head < 0)) {
+		return 0;
+	}
+
+	if (body >= 0) {
+		*bodynum = body;
+	}
+
+	if (head >= 0) {
+		*headnum = head;
+	}
+
+	return 1;
+}
+
 /**
  * One pool row filled with GoldenEye's own N64 character from the ROM's
  * conversion (gexPlusRomMpBegin() first): its converted model file, or 0 where
@@ -1809,6 +2022,7 @@ void gebeanPoolRefresh(void)
 	poolFromRelease = 0;
 
 	if (numbodies != GEBEAN_STOCK_MPBODIES || numheads != GEBEAN_STOCK_MPHEADS) {
+		gebeanOwnRigClear();
 		return;
 	}
 
@@ -1828,10 +2042,12 @@ void gebeanPoolRefresh(void)
 		memset(poolSlot, 0, sizeof(poolSlot));
 		memset(romSlot, 0, sizeof(romSlot));
 		memset(extraSlot, 0, sizeof(extraSlot));
+		gebeanOwnRigClear();
 		return;
 	}
 
 	if (!gebeanIsAvailable()) {
+		gebeanOwnRigClear();
 		gebeanPoolRefreshRom(numbodies, numheads);
 		gebeanPoolAppendExtras();
 		return;
@@ -1964,6 +2180,7 @@ listed:
 			addedbodies, addedheads);
 
 	gebeanPoolAppendExtras();
+	gebeanOwnRigRefresh();
 }
 
 static u32 gebeanBE32(const u8 *p)
