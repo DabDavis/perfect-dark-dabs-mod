@@ -741,6 +741,17 @@ stands him up where he sat down from. Built the way GoldenEye's tank is: still
   hand into the cushion); the office chair stays at 0 (8 took her back off
   the backrest and her knees into the desk). `g_SeatModels` is writable so
   gdb can move a seat live.
+- **The sofa's body is lifted 12 over the floor** (`lift`, F3
+  20260928-015819 "sitting a bit too low still, clipping pelvis", both looks):
+  `ANIM_SITTING_DORMANT` was made for the office chair, the cushion is higher.
+  Applied as the player's ground in `chr0f01f378()` (`sitChairBodyLift()`),
+  eased with the sit; the seated eye rises by the same. Side views at 0-18: 0
+  sinks the thighs, 16 hovers.
+- **The pose rests the left forearm on an armrest**, so a sofa's two seats
+  are at its ends (spacing 160; 180 puts the hip inside the armrest), and
+  seat 0 - the -x end, armrest on her right - plays the pose mirrored
+  (`mirrorfirst`, the anim's flip) so the raised arm is over its armrest.
+  The user's ask, same day.
 - **Anyone near the third person camera fades** like the own body
   (`playerGetNearChrAlphaFrac()`, same Camera Body Fade distance, box from
   `propGetBbox()`): a seated player cannot step away from a staffer walking

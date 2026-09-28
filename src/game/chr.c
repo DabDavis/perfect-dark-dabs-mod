@@ -104,6 +104,7 @@ static bool chrIsGeListBody(struct chrdata *chr)
 #include "xblamesh.h"
 #include "gebean.h"
 #include "geguns.h"
+#include "sitchair.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
 #endif
@@ -1154,6 +1155,11 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 						) {
 					struct player *player = g_Vars.players[playermgrGetPlayerNumByProp(prop)];
 					ground = player->vv_manground;
+#ifndef PLATFORM_N64
+					// on a sofa's cushion, higher than the chair the seated
+					// animation was made for (sitchair.c)
+					ground += sitChairBodyLift(prop);
+#endif
 					chr->floorcol = player->floorcol;
 					chr->floortype = player->floortype;
 				} else {

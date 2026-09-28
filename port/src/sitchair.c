@@ -71,17 +71,26 @@ enum {
  * at desks, 16 two-seater sofas). Each seat is `forward` in front of the model's origin,
  * the way it faces (its +z, towards the desk or away from the sofa's back),
  * and a sofa's are `spacing` apart along its length (its x), world units.
+ * `lift` raises the body over the floor: the seated animation was made for
+ * the office chair, and the sofa's cushion is higher.
+ *
+ * The seated animation rests the left forearm on an armrest. A sofa's seats
+ * are at its ends, against its armrests, and on seat 0 - the -x end, whose
+ * armrest is on the sitter's right - the pose is played mirrored
+ * (`mirrorfirst`) so the arm raised is the one over the armrest.
  */
 struct seatmodel {
 	s32 modelnum;
 	f32 forward;
 	s32 numseats;
 	f32 spacing;
+	f32 lift;
+	s32 mirrorfirst;
 };
 
 static struct seatmodel g_SeatModels[] = {
-	{ MODEL_DD_CHAIR, 0.0f,  1, 0.0f },
-	{ MODEL_CI_SOFA,  24.0f, 2, 100.0f },
+	{ MODEL_DD_CHAIR, 0.0f,  1, 0.0f,   0.0f,  false },
+	{ MODEL_CI_SOFA,  24.0f, 2, 160.0f, 12.0f, true },
 };
 
 struct sitstate {
@@ -270,6 +279,13 @@ static s32 sitSeatTaken(struct prop *chair, s32 index)
 /**
  * The free seat of a chair or sofa nearest the current player, or -1.
  */
+static s32 sitSeatMirrored(struct sitstate *sit)
+{
+	const struct seatmodel *def = sit->chair ? sitSeatModel(sit->chair) : NULL;
+
+	return def && def->mirrorfirst && sit->seat == 0;
+}
+
 static s32 sitFindSeat(struct prop *chair)
 {
 	const struct seatmodel *def = sitSeatModel(chair);
@@ -493,6 +509,10 @@ f32 sitChairEyeHeight(f32 eyeheight)
 
 	target = g_Vars.currentplayer->vv_eyeheight * SIT_EYE_SCALE;
 
+	if (sit->chair && sitSeatModel(sit->chair)) {
+		target += sitSeatModel(sit->chair)->lift;
+	}
+
 	return eyeheight + (target - eyeheight) * sitEase(sit->t);
 }
 
@@ -534,25 +554,41 @@ s32 sitChairAnimateBody(struct chrdata *chr, f32 *angleoffset)
 		const s32 animnum = modelGetAnimNum(chr->model);
 		const f32 speed = modelGetAnimSpeed(chr->model);
 		const f32 last = animGetNumFrames(ANIM_STAND_UP_FROM_SITTING) - 1;
+		const s32 flip = sitSeatMirrored(sit);
+		const s32 flipped = modelIsFlipped(chr->model) != 0;
 
 		if (sit->state == SIT_DOWN) {
 			// the stand up backwards, from as far into it as the move is
-			if (animnum != ANIM_STAND_UP_FROM_SITTING || speed >= 0) {
-				modelSetAnimation(chr->model, ANIM_STAND_UP_FROM_SITTING, false,
+			if (animnum != ANIM_STAND_UP_FROM_SITTING || speed >= 0 || flipped != flip) {
+				modelSetAnimation(chr->model, ANIM_STAND_UP_FROM_SITTING, flip,
 						last * (1.0f - sit->t), -SIT_ANIM_SPEED, 16);
 			}
 		} else if (sit->state == SIT_SEATED) {
-			if (animnum != ANIM_SITTING_DORMANT) {
-				modelSetAnimation(chr->model, ANIM_SITTING_DORMANT, false, 0, 0.5f, 16);
+			if (animnum != ANIM_SITTING_DORMANT || flipped != flip) {
+				modelSetAnimation(chr->model, ANIM_SITTING_DORMANT, flip, 0, 0.5f, 16);
 				modelSetAnimLooping(chr->model, 0, 16);
 			}
 		} else if (sit->state == SIT_UP) {
-			if (animnum != ANIM_STAND_UP_FROM_SITTING || speed <= 0) {
-				modelSetAnimation(chr->model, ANIM_STAND_UP_FROM_SITTING, false,
+			if (animnum != ANIM_STAND_UP_FROM_SITTING || speed <= 0 || flipped != flip) {
+				modelSetAnimation(chr->model, ANIM_STAND_UP_FROM_SITTING, flip,
 						last * (1.0f - sit->t), SIT_ANIM_SPEED, 16);
 			}
 		}
 	}
 
 	return 1;
+}
+
+f32 sitChairBodyLift(struct prop *playerprop)
+{
+	struct sitstate *sit = &g_Sit[playermgrGetPlayerNumByProp(playerprop)];
+	const struct seatmodel *def;
+
+	if (sit->state == SIT_OFF || sit->chair == NULL) {
+		return 0;
+	}
+
+	def = sitSeatModel(sit->chair);
+
+	return def ? def->lift * sitEase(sit->t) : 0;
 }

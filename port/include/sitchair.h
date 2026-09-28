@@ -46,4 +46,7 @@ s32 sitChairBodyFacing(struct player *player, f32 *facing);
 // playerChooseThirdPersonAnimation(): the body sits down, sits and stands. 1 when it was the chair's
 s32 sitChairAnimateBody(struct chrdata *chr, f32 *angleoffset);
 
+// chr0f01f378(): how far the seat raises the player's body over his floor
+f32 sitChairBodyLift(struct prop *playerprop);
+
 #endif
