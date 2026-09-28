@@ -12,6 +12,11 @@ it. Added 2026-09-23. OpenGL stays the default.
   If anything in init fails (no loader, no device, no surface) `video.c`
   destroys the window, remakes it for GL and runs `gfx_init()` again
   (`gfx_vulkan_failed()`); `Video.Renderer` is left as the player set it.
+  `gfx_init()` still asks the failed renderer for its two framebuffers
+  before `video.c` looks, so every entry point it calls must return quietly
+  with no device: `gfx_vk_create_framebuffer()` did not, and a failed start
+  (no window, no loader, no device) was a `PC=(nil)` segfault in
+  `vk_get_sampler()` until 2026-09-28.
 - Needs Vulkan 1.2 with dynamic rendering (core 1.3 or the KHR extension) and
   descriptor indexing (partially bound, update-after-bind,
   update-unused-while-pending). No render passes, no framebuffer objects.
@@ -78,18 +83,46 @@ GPU (`vulkan:` wait is 0.000) - not yet explained, and not the renderer's.
 
 ## Testing it headlessly
 
-- SDL's **offscreen** driver has no Vulkan: use Xvfb. RADV cannot present to
-  Xvfb (no DRI3) and the renderer then picks llvmpipe; `MESA_VK_WSI_DEBUG=sw`
-  makes RADV present through a CPU copy, so the RX 580 renders.
-  `--vk-no-present` skips presenting altogether, for benchmarks.
+- **On the card, no window** (since 2026-09-28), the same way as GL:
+  `SDL_VIDEODRIVER=offscreen ./pd.x86_64 --vulkan ...`. SDL 2's offscreen
+  driver has no Vulkan at all (no `SDL_WINDOW_VULKAN`, no instance
+  extensions, no surface, no loader), so when `SDL_GetCurrentVideoDriver()`
+  is `offscreen` (`gfx_sdl_vulkan_headless()`) the window is a plain one, the
+  renderer opens `libvulkan.so.1` itself, enables `VK_KHR_surface` +
+  `VK_EXT_headless_surface` and makes the surface with
+  `vkCreateHeadlessSurfaceEXT`. Everything after is the normal path: the
+  swapchain takes the window's size (640x480; a headless surface has no
+  currentExtent), presents go nowhere, and `screenshotRequest()` /
+  `--screenshot-frame`, traces and F3 read back fb 0 exactly as before. The
+  log says `Vulkan: headless surface for SDL's offscreen driver` and lists
+  the devices; RADV and llvmpipe both offer the extension and the discrete
+  RX 580 wins. Check `Vulkan: using AMD Radeon RX 580` and grep for
+  `renderD128: Permission denied` before calling a run "on the card".
+  Cost: a 1500-frame seeded match took 13% of one core against 92% for the
+  Xvfb recipe below (game + Xvfb), same wall time. No other platform is
+  touched: Windows never runs the offscreen driver.
+- **Fallback, Xvfb**: RADV cannot present to Xvfb (no DRI3) and the renderer
+  then picks llvmpipe; `MESA_VK_WSI_DEBUG=sw` makes RADV present through a
+  CPU copy, so the RX 580 renders. Needed only when the test needs a window
+  (xdotool input). `--vk-no-present` skips presenting altogether, for
+  benchmarks.
+- A start that fails is testable headlessly: `VK_ICD_FILENAMES=/nonexistent.json`
+  with the offscreen driver fails for want of the headless extension, under
+  Xvfb for want of a Vulkan window; both must log `VIDEO: Vulkan could not
+  start, using OpenGL` and play on.
 - Validation: `apt-get download vulkan-validationlayers`, `dpkg -x` it under
   `build/tmp/vvl`, point the json's `library_path` at the `.so`, then
   `VK_LAYER_PATH=... --debug-vk`; `VK_LAYER_VALIDATE_SYNC=1` adds
   synchronisation validation, which found the one hazard so far (a first-use
   clear followed by a blit into the same layout, with no barrier between).
 - Compare against GL frame-exactly (`--rng-seed --fixed-step`, gdb at
-  `'video.c'::frames` - `lvframenum` stops while a menu is up); a clean
+  `'video.c'::frames` - `lvframenum` stops while a menu is up - or simply
+  `--screenshot-frame N --exit-frame N+10` on both renderers); a clean
   result is ~95% of pixels identical and none more than 8 levels off.
+  2026-09-28, offscreen on the card, seed 1: Skedar arena (`0x32 --mpsims 1`,
+  frame 500) 98.0% identical, 3 pixels over 8; GE Plus mission `0x66`
+  (frame 700) 99.0%, 42 pixels (0.014%) over 8, nearly all in three rows
+  of a lit wall panel.
 - A benchmark must not use a conditional breakpoint (it stops the game every
   frame): attach once, set `'gfx_sdl2.cpp'::target_fps = 0` and
   `g_TickRateDiv = 0` (the tick loop waits on real time even under

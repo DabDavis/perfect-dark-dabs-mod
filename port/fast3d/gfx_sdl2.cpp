@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <SDL.h>
 #include <SDL_vulkan.h>
 #include <unistd.h>
@@ -22,6 +23,7 @@ static void (*vk_present_hook)(void);
 static int (*vk_get_interval_hook)(void);
 static bool (*vk_set_interval_hook)(int);
 static bool vsync_enabled = true;
+extern "C" int gfx_sdl_vulkan_headless(void);
 // OTRTODO: These are redundant. Info can be queried from SDL.
 static int window_width = DESIRED_SCREEN_WIDTH;
 static int window_height = DESIRED_SCREEN_HEIGHT;
@@ -97,13 +99,19 @@ static void get_drawable_size(int *w, int *h) {
 // A window for the Vulkan renderer, which makes its own surface on it. No
 // window at all is left for the renderer to report, so that the game can put
 // one back up for OpenGL.
+// SDL's offscreen driver (SDL_VIDEODRIVER=offscreen, the headless tests) has
+// no Vulkan: its window is a plain one and the renderer makes a headless
+// surface (VK_EXT_headless_surface) of the window's size instead.
 static void gfx_sdl_init_vulkan(const struct GfxWindowInitSettings *set, int posX, int posY, Uint32 flags) {
-    wnd = SDL_CreateWindow(set->title, posX, posY, window_width, window_height, flags | SDL_WINDOW_VULKAN);
+    const bool headless = gfx_sdl_vulkan_headless() != 0;
+    wnd = SDL_CreateWindow(set->title, posX, posY, window_width, window_height,
+                           headless ? flags : flags | SDL_WINDOW_VULKAN);
     if (!wnd) {
         sysLogPrintf(LOG_WARNING, "SDL: could not open a Vulkan window: %s", SDL_GetError());
         return;
     }
-    sysLogPrintf(LOG_NOTE, "SDL: created a Vulkan window");
+    sysLogPrintf(LOG_NOTE, headless ? "SDL: created an offscreen window for a headless Vulkan surface"
+                                    : "SDL: created a Vulkan window");
     SDL_ShowWindow(wnd);
     qpc_freq = SDL_GetPerformanceFrequency();
 }
@@ -490,6 +498,11 @@ int gfx_sdl_get_num_display_modes(void) {
 
 extern "C" void gfx_sdl_set_vulkan(int enable) {
     use_vulkan = enable != 0;
+}
+
+extern "C" int gfx_sdl_vulkan_headless(void) {
+    const char *drv = SDL_GetCurrentVideoDriver();
+    return drv && !strcmp(drv, "offscreen") ? 1 : 0;
 }
 
 extern "C" int gfx_sdl_is_vulkan(void) {
