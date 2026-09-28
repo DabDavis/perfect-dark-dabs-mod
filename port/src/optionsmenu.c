@@ -5195,6 +5195,16 @@ struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 		menuhandlerModGhostSplits,
 	},
 	{
+		// GoldenEye's rows a group of their own, not the ghost's (F3
+		// 20260928-025120)
+		MENUITEMTYPE_SEPARATOR,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+	},
+	{
 		MENUITEMTYPE_CHECKBOX,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,

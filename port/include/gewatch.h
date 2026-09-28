@@ -32,6 +32,13 @@ s32 geWatchPause(void);
 // Anywhere but closed: the watch owns the pad and Perfect Dark's pause is off
 s32 geWatchIsOpen(void);
 
+/**
+ * The current player's GE Plus multiplayer overlay is up, and has their pad:
+ * GoldenEye's disablePlayerActionsWhenPausedOrInMpMenu(). playerTick() then
+ * ticks the movement with no control, as under Perfect Dark's own pause menu.
+ */
+s32 geWatchMpHoldsInput(void);
+
 // and whether the view model is out of the player's hands while it is
 s32 geWatchHidesGun(void);
 
