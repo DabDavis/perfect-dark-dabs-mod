@@ -31,6 +31,21 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 12 2026-09-28
+Randomizer: enemies now spawn and hunt you on GoldenEye Arenas maps (Statue Park, Facility, Bunker, Cradle, Temple and the rest) (thanks Odeyseis)
+Randomizer: you carry only what you pick up - a starting kit at the start of the run, no map adds its own guns after that, and carried guns no longer disappear after many rooms (thanks Odeyseis)
+Randomizer: Maian soldiers spawn with Maian heads (thanks Odeyseis)
+Randomizer: on GoldenEye maps the enemies are GoldenEye's own soldiers with GoldenEye faces (thanks Odeyseis)
+GoldenEye maps: Perfect Dark guns sound like Perfect Dark again - shots, reloads, impacts, ricochets and casings (thanks Odeyseis)
+GE Plus: ladders no longer grab you from the top, and running across a hatch drops you in - as in GoldenEye (thanks Odeyseis)
+Mods: Camera no longer unpauses the game or lets the controls move you while it is open (thanks Parabolee, thanks Odeyseis)
+GE Plus: the multiplayer pause menu stops your movement, aiming and firing while it is open (thanks ElmoBear)
+Mods: Missions: the GE Plus options have their own group (thanks ElmoBear)
+Thin sky-coloured lines no longer show where walls meet floors and ceilings (thanks dab)
+GE Plus HD: no more dark lines along Surface's snow drifts (thanks Odeyseis)
+Third-person camera no longer passes through slanted walls (thanks dab)
+GoldenEye characters: one missing or broken XBLA character now shows its N64 model from your ROM instead of a Perfect Dark stand-in
+
 notes 11 2026-09-28
 Customize Character: filter boxes for GE XBLA, GE N64, PD N64 and PD XBLA characters, so the one you want is easier to find (thanks dab)
 Customize Character: Match Head to Body puts a body's own head back on it
