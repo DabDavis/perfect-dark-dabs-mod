@@ -248,6 +248,11 @@ s32 inputMouseIsEnabled(void);
 void inputMouseEnable(s32 enabled);
 
 // call this every frame
+// while on, the keys and buttons bound to cancel press nothing else (a
+// seated player's stand up: pad B is also weapon back, the right mouse button
+// also aims); turned off, each stays cancel's only until it is let go
+void inputSetCancelExclusive(s32 idx, s32 on);
+
 void inputUpdate(void);
 
 // call this before configSave()
