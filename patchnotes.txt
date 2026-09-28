@@ -31,6 +31,9 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 10 2026-09-28
+Institute, Sit In Chairs: you sit on the sofa's cushion instead of sinking into it, at its ends with your arm on the armrest (thanks dab)
+
 notes 9 2026-09-28
 New: Dump All Assets also dumps GoldenEye's N64 and XBLA textures and models, each in a folder of its own (thanks dab)
 GE Plus Streets: the jeeps are solid, you no longer walk through them (thanks dab)
