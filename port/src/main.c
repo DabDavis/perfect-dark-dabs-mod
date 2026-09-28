@@ -427,6 +427,8 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	// Enhancements On/Off: the settings put away while off. See optionsmenu.c.
 	configRegisterString("Mod.EnhancementsSaved", g_ModEnhancementsSaved, MODENHANCE_SAVED_LEN);
 	configRegisterString("Mod.EnhancementsKey", g_ModEnhancementsKeyName, sizeof(g_ModEnhancementsKeyName));
+	configRegisterString("Mod.HdAssetsSaved", g_ModHdAssetsSaved, MODHDASSETS_SAVED_LEN);
+	configRegisterString("Mod.HdAssetsKey", g_ModHdAssetsKeyName, sizeof(g_ModHdAssetsKeyName));
 	// Glass See-Through: how much of its clear look a distant window keeps. See modoptions.c.
 	configRegisterInt("Mod.GlassSeeThrough", &g_ModOptions.glassseethrough, 0, 100);
 	// Clip Decals at Edges: wall hits cut to the surface under them. See wallhitclip.c.

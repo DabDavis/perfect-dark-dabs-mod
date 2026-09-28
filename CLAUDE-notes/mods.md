@@ -1920,3 +1920,16 @@ dropped, settings left Vanilla) and clears it. Adding a field to
 `struct modpreset` changes the length: bump `MODENHANCE_SAVED_VERSION`.
 Probe: gdb `call (void)modEnhancementsSetOn(0)` then `(1)` and print
 `g_ModOptions` (~/wt/f3-0927-options-run, run `en`).
+
+## HD Assets On/Off (2026-09-28)
+
+F3 20260927-235543 (Parabolee; user approved it for the 16th pass): the
+texture packs and the XBLA release on their own switch, since Enhancements
+leaves both alone. Mods: Display, "HD Assets" checkbox + "HD Assets On/Off"
+key row (`Mod.HdAssetsKey`, unbound; the key puts up an "HD Assets On/Off"
+HUD message). Off notes `1,<Mod.LoadTextures>,<xblaSwitchGetParts() bits>` in
+`Mod.HdAssetsSaved`, saves pd.ini, then `texpackSetLoadEnabled(0)` +
+`xblaSwitchSetParts(0)`; On restores the note (no usable note: everything on).
+The checkbox reads the live state, not the note. GoldenEye's HD (Bean) data is
+not on it - that follows whether the release is installed. Code:
+optionsmenu.c `modHdAssets*`, xblaswitch.c `xblaSwitch{Get,Set}Parts()`.

@@ -45,6 +45,7 @@
 #include "gebean.h"
 #include "menuimage.h"
 #include "xblastage.h"
+#include "game/title.h"
 #include "roomsheen.h"
 #include "modenhance.h"
 #include "optionsmenu.h"
@@ -2703,13 +2704,18 @@ void modEnhancementsSetKey(s32 vk)
 	g_ModEnhancementsKeyVk = vk;
 }
 
+static void modHdAssetsTick(void);
+
 /**
  * The key, unbound unless the player binds one (Mods: Display). Said on screen
  * in a level, since nothing else tells a player which half they are looking at.
+ * HD Assets' key is polled from here too.
  */
 void modEnhancementsTick(void)
 {
 	const s32 vk = modEnhancementsGetKey();
+
+	modHdAssetsTick();
 
 	if (vk > 0 && inputKeyJustPressed(vk)) {
 		const s32 on = !modEnhancementsAreOn();
@@ -2722,6 +2728,140 @@ void modEnhancementsTick(void)
 			hudmsgCreateWithFlags(on ? "Enhancements On\n" : "Enhancements Off\n", HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
 		}
 	}
+}
+
+/**
+ * HD Assets On/Off: the texture packs and the XBLA release's assets off at
+ * once, and back as the player had them (F3 20260927-235543). Enhancements
+ * leaves both alone, as the presets do, so a player comparing against the
+ * original had two more keys to press (F6 and F8) and no one checkbox.
+ *
+ * On means "as the player has them": this takes nothing over while on, and
+ * the checkbox reads whether either is on at all. Off notes
+ * which were on - the pack switch and each part of the release by its own bit
+ * (xblaSwitchGetParts()) - in Mod.HdAssetsSaved, so a restart while off comes
+ * back to it, then turns every one of them off. On puts the note back and
+ * forgets it; with no note (both were off already, or the note was lost) it
+ * turns both fully on, which is what ticking the box asks for.
+ */
+char g_ModHdAssetsSaved[MODHDASSETS_SAVED_LEN] = "";
+char g_ModHdAssetsKeyName[32] = "";
+static s32 g_ModHdAssetsKeyVk = -1;
+
+#define MODHDASSETS_SAVED_VERSION 1
+
+s32 modHdAssetsAreOn(void)
+{
+	// What is switched on now, not whether there is a note: F6, F8 or the
+	// pages' own checkboxes can turn either back on behind this one's back,
+	// and the next Off notes that state afresh.
+	return texpackLoadEnabled() || xblaSwitchGetParts() != 0;
+}
+
+void modHdAssetsSetOn(s32 on)
+{
+	if (!on == !modHdAssetsAreOn()) {
+		return;
+	}
+
+	if (!on) {
+		snprintf(g_ModHdAssetsSaved, sizeof(g_ModHdAssetsSaved), "%d,%d,%u",
+				MODHDASSETS_SAVED_VERSION, texpackLoadEnabled() ? 1 : 0, xblaSwitchGetParts());
+
+		texpackSetLoadEnabled(0);
+		xblaSwitchSetParts(0);
+	} else {
+		s32 version = 0;
+		s32 textures = 1;
+		u32 parts = XBLASWITCH_PART_ALL;
+
+		if (g_ModHdAssetsSaved[0]
+				&& (sscanf(g_ModHdAssetsSaved, "%d,%d,%u", &version, &textures, &parts) != 3
+					|| version != MODHDASSETS_SAVED_VERSION
+					|| (textures == 0 && (parts & XBLASWITCH_PART_ALL) == 0))) {
+			// Unreadable, or a note of nothing: take the box at its word
+			sysLogPrintf(LOG_WARNING, "hdassets: saved note \"%s\" not usable; turning everything on", g_ModHdAssetsSaved);
+			textures = 1;
+			parts = XBLASWITCH_PART_ALL;
+		}
+
+		g_ModHdAssetsSaved[0] = '\0';
+
+		texpackSetLoadEnabled(textures);
+		xblaSwitchSetParts(parts & XBLASWITCH_PART_ALL);
+	}
+
+	sysLogPrintf(LOG_NOTE, "hdassets: %s (texture packs %s, release parts %02x)", on ? "on" : "off",
+			texpackLoadEnabled() ? "on" : "off", xblaSwitchGetParts());
+	configSave(CONFIG_PATH);
+}
+
+s32 modHdAssetsGetKey(void)
+{
+	if (g_ModHdAssetsKeyVk < 0) {
+		g_ModHdAssetsKeyVk = 0;
+
+		if (g_ModHdAssetsKeyName[0] && strcmp(g_ModHdAssetsKeyName, "NONE") != 0) {
+			const s32 vk = inputGetKeyByName(g_ModHdAssetsKeyName);
+
+			if (vk > 0) {
+				g_ModHdAssetsKeyVk = vk;
+			}
+		}
+	}
+
+	return g_ModHdAssetsKeyVk;
+}
+
+void modHdAssetsSetKey(s32 vk)
+{
+	if (vk <= 0 || vk >= VK_TOTAL_COUNT) {
+		g_ModHdAssetsKeyName[0] = '\0';
+		g_ModHdAssetsKeyVk = 0;
+		return;
+	}
+
+	strncpy(g_ModHdAssetsKeyName, inputGetKeyName(vk), sizeof(g_ModHdAssetsKeyName) - 1);
+	g_ModHdAssetsKeyName[sizeof(g_ModHdAssetsKeyName) - 1] = '\0';
+	g_ModHdAssetsKeyVk = vk;
+}
+
+/**
+ * Its key, unbound unless the player binds one (Mods: Display), polled beside
+ * the Enhancements key. Not while the boot logos play, for the reason F6 is
+ * not (xblaSwitchTick()).
+ */
+static void modHdAssetsTick(void)
+{
+	const s32 vk = modHdAssetsGetKey();
+
+	if (vk > 0 && inputKeyJustPressed(vk)) {
+		if (titleIsBootSequence()) {
+			return;
+		}
+
+		const s32 on = !modHdAssetsAreOn();
+
+		modHdAssetsSetOn(on);
+
+		if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
+			hudmsgRemoveByPrefix("HD Assets ");
+			hudmsgCreateWithFlags(on ? "HD Assets On\n" : "HD Assets Off\n", HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
+		}
+	}
+}
+
+static MenuItemHandlerResult menuhandlerModHdAssets(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return modHdAssetsAreOn();
+	case MENUOP_SET:
+		modHdAssetsSetOn(data->checkbox.value);
+		break;
+	}
+
+	return 0;
 }
 
 static MenuItemHandlerResult menuhandlerModEnhancements(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -4444,6 +4584,7 @@ static const struct {
 	{ "XBLA Assets On/Off\n",   xblaSwitchGetKey,     xblaSwitchSetKey     },
 	{ "Report a Problem\n",     traceGetKey,          traceSetKey          },
 	{ "Enhancements On/Off\n",  modEnhancementsGetKey, modEnhancementsSetKey },
+	{ "HD Assets On/Off\n",     modHdAssetsGetKey,     modHdAssetsSetKey     },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)
@@ -4994,6 +5135,24 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		0,
 		0,
 		NULL,
+	},
+	{
+		// The texture packs and the XBLA release together, apart from
+		// Enhancements (F3 20260927-235543)
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"HD Assets",
+		0,
+		menuhandlerModHdAssets,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		0,
+		(uintptr_t)menutextModKeyBind,
+		9,
+		menuhandlerModKeyBind,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

@@ -38,26 +38,40 @@ s32 xblaSwitchGetEnabled(void)
 		&& xblaMeshGetReflections();
 }
 
-void xblaSwitchSetEnabled(s32 enabled)
+u32 xblaSwitchGetParts(void)
 {
-	enabled = enabled ? 1 : 0;
+	return (xblaMeshGetEnabled() ? XBLASWITCH_PART_MESHES : 0)
+		| (xblaTexGetEnabled() ? XBLASWITCH_PART_TEXTURES : 0)
+		| (xblaStageGetEnabled() ? XBLASWITCH_PART_STAGES : 0)
+		| (xblaFontGetEnabled() ? XBLASWITCH_PART_FONT : 0)
+		| (xblaExplGetEnabled() ? XBLASWITCH_PART_EXPLOSIONS : 0)
+		| (xblaSkyGetEnabled() ? XBLASWITCH_PART_SKIES : 0)
+		| (xblaMeshGetReflections() ? XBLASWITCH_PART_REFLECTIONS : 0);
+}
 
+void xblaSwitchSetParts(u32 parts)
+{
 	// The rooms before the models: both setters drop the rooms loaded under
 	// the old setting (xblaStageSwitched()), and the rooms count only while
 	// the meshes are on, so setting them this way round means the models have
 	// the last word and the drop that matters is the last one.
-	xblaStageSetEnabled(enabled);
-	xblaMeshSetEnabled(enabled);
+	xblaStageSetEnabled((parts & XBLASWITCH_PART_STAGES) != 0);
+	xblaMeshSetEnabled((parts & XBLASWITCH_PART_MESHES) != 0);
 
-	xblaTexSetEnabled(enabled);
+	xblaTexSetEnabled((parts & XBLASWITCH_PART_TEXTURES) != 0);
 
 	// GE Plus's folder screens wear the release's art with the meshes on
 	// (gefolder.c), and the switch is live while the folder is up
 	gexFrontMeshesSwitched();
-	xblaFontSetEnabled(enabled);
-	xblaExplSetEnabled(enabled);
-	xblaSkySetEnabled(enabled);
-	xblaMeshSetReflections(enabled);
+	xblaFontSetEnabled((parts & XBLASWITCH_PART_FONT) != 0);
+	xblaExplSetEnabled((parts & XBLASWITCH_PART_EXPLOSIONS) != 0);
+	xblaSkySetEnabled((parts & XBLASWITCH_PART_SKIES) != 0);
+	xblaMeshSetReflections((parts & XBLASWITCH_PART_REFLECTIONS) != 0);
+}
+
+void xblaSwitchSetEnabled(s32 enabled)
+{
+	xblaSwitchSetParts(enabled ? XBLASWITCH_PART_ALL : 0);
 }
 
 /**
@@ -141,6 +155,8 @@ PD_CONSTRUCTOR static void xblaSwitchConfigInit(void)
 
 s32 xblaSwitchGetEnabled(void) { return 0; }
 void xblaSwitchSetEnabled(s32 enabled) { }
+u32 xblaSwitchGetParts(void) { return 0; }
+void xblaSwitchSetParts(u32 parts) { }
 s32 xblaSwitchGetKey(void) { return 0; }
 void xblaSwitchSetKey(s32 vk) { }
 void xblaSwitchTick(void) { }

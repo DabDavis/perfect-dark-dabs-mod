@@ -38,6 +38,25 @@ s32 xblaSwitchGetEnabled(void);
 void xblaSwitchSetEnabled(s32 enabled);
 
 /**
+ * Each part's own switch as a bit (XBLASWITCH_PART_*), and all of them set
+ * back from one. For HD Assets (optionsmenu.c), which takes the release off
+ * with the texture packs and has to put back exactly what was on - a player
+ * with the meshes and not their reflections gets that back, not the whole
+ * release the way the key above gives it.
+ */
+#define XBLASWITCH_PART_MESHES      0x01
+#define XBLASWITCH_PART_TEXTURES    0x02
+#define XBLASWITCH_PART_STAGES      0x04
+#define XBLASWITCH_PART_FONT        0x08
+#define XBLASWITCH_PART_EXPLOSIONS  0x10
+#define XBLASWITCH_PART_SKIES       0x20
+#define XBLASWITCH_PART_REFLECTIONS 0x40
+#define XBLASWITCH_PART_ALL         0x7f
+
+u32 xblaSwitchGetParts(void);
+void xblaSwitchSetParts(u32 parts);
+
+/**
  * Mod.XblaMeshKey (F6): the switch above from a key, polled by xblaSwitchTick()
  * each frame beside texpackTick(). Bound from Dab's Mod Options with the
  * texture pack keys.
