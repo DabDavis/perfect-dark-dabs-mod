@@ -31,6 +31,30 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 13 2026-09-28
+GoldenEye heads on GoldenEye bodies sit on a proper neck instead of sinking into the collar (thanks dab, thanks dblaney1)
+Valentin's head no longer grows a bump on top and sits at the right height on every body (thanks Parabolee)
+The see-through crack at the back of Trevelyan's neck is gone (thanks dab)
+The female scientist's HD neck no longer shows a gap under the chin (thanks dab)
+In the credits after the Cradle, the jungle plants no longer cover Bond and Natalya (thanks dab, thanks Linkmendez)
+Start Armed no longer puts a gun in Bond's hand during the credits (thanks dab)
+The credits roll scrolls smoothly, and rows leaving the top of the screen no longer draw streaks in the N64 look (thanks dab)
+New: EXTRA > Cinema: the Cradle's page has Credits, GoldenEye's end credits and cast (thanks dab)
+GE Plus Cradle: far railings no longer show through the girders in front of them, and the walkway's near railing is back (thanks Linkmendez)
+Thrown knives come to rest on the floor instead of bouncing and rattling forever (thanks dab)
+GoldenEye's grenade launcher turns its drum as it fires and shows its muzzle flash (thanks raffine52)
+GoldenEye's Cougar Magnum cocks its hammer and turns its cylinder when fired (thanks raffine52)
+Randomizer: guards now reach you on GoldenEye Arenas' Complex (thanks Odeyseis)
+Randomizer: walking out of G5 Building's exit no longer freezes you or marks the room's objective (thanks Odeyseis)
+Randomizer: you no longer land in pitch-black rooms (Deep Sea) (thanks Odeyseis)
+New: Randomizer: bigger rooms, the level outside the room tinted like King of the Hill, and guards walk in through the doors (all three switchable on Randomizer Options) (thanks Parabolee)
+Fixed a crash when using spectator mode in third person with a character picked in Customize Character (thanks Parabolee)
+Pressing the Enhancements or Next Texture Pack key several times shows only the latest setting (thanks Parabolee)
+The texture dump key saves textures shown with the XBLA release's art, such as the Carrington Institute terminal screen (thanks dab)
+New: HD Assets checkbox and key (Mods: Display) turns texture packs and XBLA assets off and on together, separately from Enhancements (thanks Parabolee)
+New option (Mods: Missions, off by default): GE Plus: Perfect Dark Death Animations, alongside GoldenEye's own (thanks Odeyseis)
+Vulkan: if it cannot start, the game now falls back to OpenGL instead of crashing
+
 notes 12 2026-09-28
 Randomizer: enemies now spawn and hunt you on GoldenEye Arenas maps (Statue Park, Facility, Bunker, Cradle, Temple and the rest) (thanks Odeyseis)
 Randomizer: you carry only what you pick up - a starting kit at the start of the run, no map adds its own guns after that, and carried guns no longer disappear after many rooms (thanks Odeyseis)
