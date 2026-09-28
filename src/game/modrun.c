@@ -130,12 +130,16 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 #define MODRUN_HOPPING 3 // fading out, the next stage chosen
 #define MODRUN_OVER    4 // dead, showing the score
 
-// The stage flag a generated objective's COMPFLAGS requirement reads. The top
-// bit: g_StageFlags is one word that the stage's own script owns, and scripts
-// set the low bits - the highest anything in stock names is 0x00010000. It is
-// cleared at every landing regardless, so the worst a stage that used it could
-// do is finish one room's objective early.
-#define MODRUN_STAGEFLAG 0x80000000
+// What a room's objective's COMPFLAGS requirement names instead of a stage
+// flag: none at all. It used to be the top bit of g_StageFlags, on the belief
+// that stock scripts stop at 0x00010000 - thirteen stages use 0x80000000 for
+// their own (G5 Building's "left by the exit catwalk", Chicago's taxi, Deep
+// Sea's door cylinder, Area 51's chamber...), so a landing cleared the stage's
+// own flag, a room won set it and ran the stage's script on it, and a stage
+// setting it finished the room's objective on the pause menu. A zero mask is
+// something no stock objective names and no script can set, and
+// objectiveCheck() asks modRunObjectiveIsDone() for it during a run.
+#define MODRUN_OBJFLAGS 0
 
 // How long the run's own messages stay up. The landing message has to survive
 // the fade-in it is shown under, which is a second on its own.
@@ -377,6 +381,15 @@ bool modRunIsPlaying(void)
 bool modRunIsOver(void)
 {
 	return g_ModRunState == MODRUN_OVER;
+}
+
+/**
+ * Whether this room's objective is met, for objectiveCheck(): the run's
+ * objective is a COMPFLAGS requirement naming no flag (MODRUN_OBJFLAGS).
+ */
+bool modRunObjectiveIsDone(void)
+{
+	return g_ModRunHasObjective && g_ModRunObjective.done;
 }
 
 s32 modRunGetScore(void)
@@ -1119,11 +1132,6 @@ void modRunInsertObjectives(void)
 		return;
 	}
 
-	// The flag starts clear: it is what says this room's objective is not done,
-	// and a stage that set it for its own reasons would otherwise hand the
-	// player a point for landing.
-	g_StageFlags &= ~MODRUN_STAGEFLAG;
-
 	for (i = 0; i < MAX_OBJECTIVES; i++) {
 		g_Objectives[i] = NULL;
 		g_ObjectiveStatuses[i] = OBJECTIVE_INCOMPLETE;
@@ -1149,7 +1157,7 @@ void modRunInsertObjectives(void)
 	cmd += setupGetCmdLength(cmd);
 
 	cmd[0] = PD_BE32(OBJECTIVETYPE_COMPFLAGS);
-	cmd[1] = MODRUN_STAGEFLAG;
+	cmd[1] = MODRUN_OBJFLAGS;
 
 	cmd += setupGetCmdLength(cmd);
 
@@ -1385,11 +1393,6 @@ static void modRunTickObjective(void)
 
 	g_ModRunObjective.done = true;
 	g_ModRunScore++;
-
-	// The flag is what the objective's COMPFLAGS requirement reads, so setting
-	// it is what completes the objective as far as the rest of the game is
-	// concerned.
-	g_StageFlags |= MODRUN_STAGEFLAG;
 
 	// And the way out has to be one: a room whose every door wants a key is
 	// shut as firmly as the seal was.

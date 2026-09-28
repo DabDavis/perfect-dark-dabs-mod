@@ -6,6 +6,7 @@
 #include "game/setuputils.h"
 #include "game/objectives.h"
 #include "game/modrandom.h"
+#include "game/modrun.h"
 #include "game/tex.h"
 #include "game/camera.h"
 #include "game/hudmsg.h"
@@ -237,6 +238,16 @@ s32 objectiveCheck(s32 index)
 					}
 					break;
 				case OBJECTIVETYPE_COMPFLAGS:
+#ifndef PLATFORM_N64
+					// A Randomizer run's room objective names no flag and is
+					// the run's to answer (modrun.c, MODRUN_OBJFLAGS)
+					if (cmd[1] == 0 && modRunIsOn()) {
+						if (!modRunObjectiveIsDone()) {
+							reqstatus = OBJECTIVE_INCOMPLETE;
+						}
+						break;
+					}
+#endif
 					if (!chrHasStageFlag(NULL, cmd[1])) {
 						reqstatus = OBJECTIVE_INCOMPLETE;
 					}
