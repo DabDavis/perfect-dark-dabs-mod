@@ -27,6 +27,7 @@ bool modRandomTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle);
 // modrandom.c.
 bool modRandomPadSpawnPos(s32 padnum, struct coord *pos, RoomNum *room);
 bool modRandomPadCanSpawn(s32 padnum);
+bool modRandomPadSettle(s32 padnum);
 void modRandomInsertObjectives(void);
 char *modRandomGetObjectiveText(s32 index);
 

@@ -11,6 +11,9 @@ void padRotateForDoor(s32 padnum);
 void padCopyBboxFromPad(s32 padnum, struct pad *src);
 void padSetFlag(s32 padnum, u32 flag);
 void padUnsetFlag(s32 padnum, u32 flag);
+#ifndef PLATFORM_N64
+void padSetPosY(s32 padnum, f32 y);
+#endif
 s32 coverGetCount(void);
 bool coverUnpack(s32 covernum, struct cover *cover);
 bool coverIsInUse(s32 covernum);

@@ -392,6 +392,7 @@ void modAlarmBuildPadWaypoints(void)
 	s32 i;
 	s32 j;
 	s32 numlinks = 0;
+	s32 numsettled = 0;
 	s32 numgroups = 0;
 	s32 largest = 0;
 	s16 *spots;
@@ -435,6 +436,12 @@ void modAlarmBuildPadWaypoints(void)
 
 	for (i = 0; i < numpads; i++) {
 		struct pad pad;
+
+		// A pad floating high over its floor (all of Complex's) is lowered
+		// onto it first, or the drop rule refuses it
+		if (modRandomPadSettle(i)) {
+			numsettled++;
+		}
 
 		padUnpack(i, PADFIELD_POS | PADFIELD_ROOM, &pad);
 
@@ -617,8 +624,8 @@ void modAlarmBuildPadWaypoints(void)
 		g_StageSetup.waypoints = waypoints;
 		g_StageSetup.waygroups = groups;
 
-		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads, %d links, %d groups (largest %d), in %d ms",
-				g_Vars.stagenum, n, numpads, numlinks, numgroups, largest,
+		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads (%d lowered onto their floors), %d links, %d groups (largest %d), in %d ms",
+				g_Vars.stagenum, n, numpads, numsettled, numlinks, numgroups, largest,
 				(s32)((sysGetMicroseconds() - started) / 1000));
 	}
 
