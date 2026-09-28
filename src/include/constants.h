@@ -797,6 +797,7 @@
 #define CHRCFLAG_KILLCOUNTABLE               0x00100000
 #define CHRCFLAG_TRIGGERSHOTLIST             0x00200000
 #define CHRCFLAG_00400000                    0x00400000 // Not used
+#define CHRCFLAG_GE_XLUPASS                  0x00400000 // Port: GoldenEye's CHRFLAG_00020000, drawn in the translucent pass with the props (Cuba's credits)
 #define CHRCFLAG_UNPLAYABLE                  0x00800000
 #define CHRCFLAG_PUSHABLE                    0x01000000 // Typically set on allies during init
 #define CHRCFLAG_SHIELDDAMAGED               0x02000000
