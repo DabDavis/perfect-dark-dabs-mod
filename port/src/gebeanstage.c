@@ -95,6 +95,7 @@ struct stri {
 	u8 backed;  // one face of a two-faced sheet, drawn culled (markBacked())
 	u8 fights;  // a face with another face back to back over part of it (markFights())
 	u8 blend;   // drawn in the release's blended pass (triFades())
+	u8 undersea; // the reflection under a sea, faded and culled (markUnderSea())
 };
 
 // The level being served, built when its first room is asked for
@@ -457,10 +458,15 @@ static u8 *readRoom(s32 r, u32 *outLen)
 /**
  * Files every triangle of a room of the level file, as its display lists draw
  * them: each leaf's G_VTX loads up to 16 of the leaf's vertices, each G_TRI4
- * draws up to four of them.
+ * draws up to four of them. `xlutoo` 0 walks the opaque leaves, 1 both, and
+ * EACH_XLU_ONLY the translucent ones alone.
  */
+#define EACH_XLU_ONLY 2
+
 // The texture number of the triangle fileRoomTrianglesEach() is handing over
 static s32 eachTex = -1;
+// and the alpha of the environment colour its leaf last set (G_SETENVCOLOR)
+static u8 eachEnvAlpha = 0xff;
 
 static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 		void (*fn)(void *arg, const f32 v[3][3], s32 room), void *arg)
@@ -473,7 +479,9 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 	// the Cradle's platform, seen from under it in the ending
 	s32 twosided = 0;
 
-	stack[depth++] = be32(raw + 8);
+	if (xlutoo != EACH_XLU_ONLY) {
+		stack[depth++] = be32(raw + 8);
+	}
 
 	if (xlutoo) {
 		stack[depth++] = be32(raw + 12);
@@ -503,6 +511,7 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 				// the texture GoldenEye's hit test reads for the triangles
 				// that follow: the last one the leaf's own list loads
 				eachTex = -1;
+				eachEnvAlpha = 0xff;
 				// Whether the leaf's render mode is one bg.c's fog swap
 				// (g_GfxGroup01/05) leaves alone: cycle 1 neither G_RM_PASS,
 				// which the swap turns to fog, nor fog already. GoldenEye draws
@@ -518,6 +527,8 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 						twosided = 0;
 					} else if (op == 0xc0) {
 						eachTex = be32(raw + c + 4) & 0xfff;
+					} else if (op == (u8)G_SETENVCOLOR) {
+						eachEnvAlpha = raw[c + 7];
 					} else if (op == (u8)G_SETOTHERMODE_L && be32(raw + c) == 0xb900031d) {
 						const u32 c1 = be32(raw + c + 4) & 0xcccc0000;
 
@@ -1177,7 +1188,10 @@ static s32 buildPalette(const struct stri *tris, const s32 *list, s32 num, u32 *
 				numcols++;
 			}
 
-			weight[h]++;
+			// The reflection's few fades (markUnderSea()) are always
+			// seeds: a handful of vertices among the hull's thousands, they
+			// went to the nearest of the hull's own colours, at full alpha
+			weight[h] += tris[list[i]].undersea ? 1 << 20 : 1;
 		}
 	}
 
@@ -1332,6 +1346,11 @@ static int compareTex(const void *a, const void *b)
 		return texHasAlpha(ta->tex) ? triCulled(tb) - triCulled(ta) : triCulled(ta) - triCulled(tb);
 	}
 
+	// The reflection's culled faces after the rest
+	if (ta->undersea != tb->undersea) {
+		return ta->undersea - tb->undersea;
+	}
+
 	// Decals after what they lie on
 	if (ta->decal != tb->decal) {
 		return ta->decal - tb->decal;
@@ -1360,6 +1379,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	s32 curalpha = -1;
 	s32 curnofog = 0;
 	s32 curbacked = -1;
+	s32 curundersea = 0;
 	// -1 while the solid pictures take the room's culling
 	// (bgRenderRoomOpaque()), then 1 once a two-faced sheet has turned it on
 	// or 0 once the cut-outs, sorted last, have turned it off
@@ -1434,7 +1454,8 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		// Compared whole in batchFind(), padding and all
 		memset(rv, 0, sizeof(rv));
 
-		if (t->tex != curtex || t->decal != curdecal || t->nofog != curnofog || triCulled(t) != curbacked) {
+		if (t->tex != curtex || t->decal != curdecal || t->nofog != curnofog || triCulled(t) != curbacked
+				|| t->undersea != curundersea) {
 			const s32 alpha = xlu || texHasAlpha(t->tex);
 
 			batchFlush(l, &b);
@@ -1482,6 +1503,12 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 			// undersides (markBacked())
 			if (side == 1) {
 				// culled to the back already, for the whole side
+			} else if (xlu) {
+				// The reflection under a sea (markUnderSea()) shows its near
+				// side alone, as the hull it mirrors would
+				if (t->undersea != curundersea) {
+					emit(&l->gdl, t->undersea ? 0xb7000000 : 0xb6000000, 0x00002000);
+				}
 			} else if (!xlu && triCulled(t) && curcull != 1) {
 				curcull = 1;
 				emit(&l->gdl, 0xb7000000, 0x00002000);
@@ -1491,6 +1518,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 			}
 
 			curbacked = triCulled(t);
+			curundersea = t->undersea;
 
 			emit(&l->gdl, alpha ? 0xbb002801 : 0xbb003001, 0xffffffff);
 			// Bits 20-21 are t's mode (xblaStageWriteTexture()), 1 the clamp
@@ -1619,7 +1647,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 	// Culling back off for what follows in the room, as it was before the
 	// sheets unless a camera outside the level had it on (the next room
 	// sets its own either way)
-	if (curcull == 1) {
+	if (curcull == 1 || curundersea) {
 		emit(&l->gdl, 0xb6000000, 0x00002000);
 	}
 
@@ -1966,6 +1994,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->nofog = 0;
 	t->backed = 0;
 	t->fights = 0;
+	t->undersea = 0;
 }
 
 static f32 triNormal(const struct stri *t, f32 *n)
@@ -3081,6 +3110,172 @@ static s32 doorSideOpen(const struct collect *c, const struct doorbox *b, const 
 	return 0;
 }
 
+/**
+ * What lies under a level's sea is seen through it, as GoldenEye has it.
+ *
+ * GoldenEye's sea is the sky's water plane, drawn before everything, so
+ * nothing can be under it; Frigate's reflection is the hull built again
+ * upside down below its foot (-767 to -1384), in room 35's translucent leaf
+ * at half alpha (environment alpha 0x7f) over the sea. Bean builds the same
+ * mirrored hull, on both sides where GoldenEye has only the port one, but
+ * among the hull's own opaque draws: served as it is it stood under the ship
+ * as a second, solid hull and the ship looked to be flying (F3
+ * 20260927-214623, 214759).
+ *
+ * So below the lowest of GoldenEye's opaque geometry, where that is under the
+ * sea and GoldenEye draws something translucent there, Bean's triangles are
+ * drawn translucent: at that leaf's alpha at the waterline, fading to nothing
+ * at the deepest, as a reflection is clearest where the hull meets it (Bean
+ * lights its mirror brightest at its foot, where the deck edge is, and at a
+ * flat half alpha it still read as a second hull in pale grey). They take
+ * the mirror's mean colour and a few steps of fade, which the room's palette
+ * keeps (buildPalette()), and are turned outwards and culled so that the far
+ * side's mirror is not seen through the near one's. What is above - the
+ * hull's own foot, the decks inside - is as it was.
+ */
+struct undersea {
+	f32 floor;  // the lowest of GoldenEye's opaque vertices
+	s32 alpha;  // the most opaque of its translucent leaves wholly under that
+};
+
+// Slack between GoldenEye's vertices and Bean's on the same surface
+#define UNDERSEA_SLACK 2.0f
+// Steps of the reflection's fade
+#define UNDERSEA_STEPS 8
+
+static void fileTriLowest(void *arg, const f32 v[3][3], s32 room)
+{
+	struct undersea *u = arg;
+
+	for (s32 k = 0; k < 3; k++) {
+		u->floor = MIN(u->floor, v[k][1]);
+	}
+}
+
+static void fileTriBelow(void *arg, const f32 v[3][3], s32 room)
+{
+	struct undersea *u = arg;
+
+	if (v[0][1] <= u->floor + UNDERSEA_SLACK && v[1][1] <= u->floor + UNDERSEA_SLACK
+			&& v[2][1] <= u->floor + UNDERSEA_SLACK) {
+		u->alpha = MAX(u->alpha, eachEnvAlpha);
+	}
+}
+
+static s32 triUnderSea(const struct stri *tri, f32 top)
+{
+	return tri->pos[0][1] <= top && tri->pos[1][1] <= top && tri->pos[2][1] <= top;
+}
+
+static s32 markUnderSea(struct collect *c, u8 **filerooms, u32 *filelens, s32 n)
+{
+	struct environment *env = envGetCurrent();
+	struct undersea u = { 1e30f, 0 };
+	f32 top, bottom = 1e30f;
+	f32 centre[3] = { 0, 0, 0 };
+	f64 mean[3] = { 0, 0, 0 };
+	u32 rgb = 0;
+	s32 num = 0;
+	s32 marked = 0;
+
+	if (!env || !env->water_enabled || !filerooms || !filelens) {
+		return 0;
+	}
+
+	for (s32 r = 1; r < n; r++) {
+		if (filerooms[r]) {
+			fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriLowest, &u);
+		}
+	}
+
+	if (u.floor >= env->water_scale) {
+		return 0;
+	}
+
+	for (s32 r = 1; r < n; r++) {
+		if (filerooms[r]) {
+			fileRoomTrianglesEach(r, filerooms[r], filelens[r], EACH_XLU_ONLY, fileTriBelow, &u);
+		}
+	}
+
+	if (u.alpha == 0) {
+		return 0;
+	}
+
+	top = u.floor + UNDERSEA_SLACK;
+
+	for (s32 t = 0; t < c->num; t++) {
+		const struct stri *tri = &c->tris[t];
+
+		if (!triUnderSea(tri, top)) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			bottom = MIN(bottom, tri->pos[k][1]);
+
+			for (s32 j = 0; j < 3; j++) {
+				centre[j] += tri->pos[k][j];
+				mean[j] += (tri->argb[k] >> (16 - j * 8)) & 0xff;
+			}
+		}
+
+		num += 3;
+	}
+
+	if (num == 0) {
+		return 0;
+	}
+
+	for (s32 j = 0; j < 3; j++) {
+		centre[j] /= num;
+		rgb |= (u32)(mean[j] / num + 0.5) << (16 - j * 8);
+	}
+
+	for (s32 t = 0; t < c->num; t++) {
+		struct stri *tri = &c->tris[t];
+		f32 mid[3], normal[3];
+
+		if (!triUnderSea(tri, top)) {
+			continue;
+		}
+
+		// Turned to face away from the middle of the mirror, so culling
+		// keeps the side towards the eye
+		for (s32 j = 0; j < 3; j++) {
+			mid[j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f;
+		}
+
+		if (triNormal(tri, normal) > 0.0f
+				&& normal[0] * (mid[0] - centre[0]) + normal[2] * (mid[2] - centre[2]) < 0.0f) {
+			const struct stri swap = *tri;
+
+			for (s32 j = 0; j < 3; j++) {
+				tri->pos[1][j] = swap.pos[2][j];
+				tri->pos[2][j] = swap.pos[1][j];
+			}
+
+			for (s32 j = 0; j < 2; j++) {
+				tri->uv[1][j] = swap.uv[2][j];
+				tri->uv[2][j] = swap.uv[1][j];
+			}
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			const f32 fade = top > bottom ? (tri->pos[k][1] - bottom) / (top - bottom) : 1.0f;
+			const s32 step = (s32)(fade * UNDERSEA_STEPS + 0.5f);
+
+			tri->argb[k] = rgb | (u32)(u.alpha * step / UNDERSEA_STEPS) << 24;
+		}
+
+		tri->blend = 1;
+		tri->undersea = 1;
+		marked++;
+	}
+
+	return marked;
+}
+
 static s32 closeDoorGaps(struct collect *c)
 {
 	struct doorbox *boxes;
@@ -3270,6 +3465,15 @@ static s32 build(void)
 	takeBackdrop(&c, n);
 	clampCutouts(&c);
 	closeDoorGaps(&c);
+
+	{
+		const s32 undersea = markUnderSea(&c, filerooms, filelens, n);
+
+		if (undersea) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles of the reflection under the sea drawn through it",
+					row->bean, undersea);
+		}
+	}
 
 	for (s32 j = 0; j < 3; j++) {
 		meshMin[j] = 1e30f;
