@@ -13,6 +13,7 @@
 #include "game/modrandom.h"
 #include "game/bg.h"
 #include "game/modrun.h"
+#include "game/modrules.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
 #include "game/prop.h"
@@ -720,6 +721,21 @@ static bool modAlarmRetireOldest(void)
 }
 
 /**
+ * The head a body wears whatever the stage's active heads are: a Maian
+ * soldier's is the Maian's own (tester 2026-09-28: a Randomizer run's Maian
+ * soldiers came in wearing the stage's human faces, since bodyChooseHead()
+ * deals from the male list). -1 for a body that takes the stage's.
+ */
+static s32 modAlarmOwnHead(s32 bodynum)
+{
+	if (bodynum == BODY_MAIAN_SOLDIER) {
+		return MOD_HEADNUM(HEAD_MAIAN_S);
+	}
+
+	return -1;
+}
+
+/**
  * A head for the next guard, and its modeldef where this has to hold one.
  *
  * Solo hands back NULL for the modeldef and lets body0f02ce8c() share the
@@ -730,8 +746,12 @@ static bool modAlarmRetireOldest(void)
  */
 static s32 modAlarmChooseHead(s32 bodynum, struct modeldef **headmodeldef)
 {
-	s32 headnum = bodyChooseHead(bodynum);
+	s32 headnum = modAlarmOwnHead(bodynum);
 	s32 i;
+
+	if (headnum < 0) {
+		headnum = bodyChooseHead(bodynum);
+	}
 
 	*headmodeldef = NULL;
 
