@@ -298,6 +298,15 @@ struct xblafontatlas {
 	u8 *alpha;                  // one byte a texel; the colour is white throughout
 	s32 width;
 	s32 height;
+	// What a glyph's pixels are read from: a pack's repainting of the atlas,
+	// `pixscale` times the release's size, or the release's own (alpha, and a
+	// scale of 1). Everything is *measured* on the release's - see "A pack's
+	// atlas" in xblaFontOpenFace().
+	u8 *pix;
+	s32 pixwidth;
+	s32 pixheight;
+	s32 pixscale;
+	s32 pixflipped;             // the pack's picture was the other way up
 	struct xblafontcell *cells;
 	u32 numCells;
 	u16 *trans;                 // the character table, one based
@@ -669,6 +678,188 @@ static s32 xblaFontReadAbc(struct xblafontatlas *atlas, const u8 *data, u32 len)
 }
 
 /**
+ * An atlas's coverage, one byte a texel. An atlas painted without an alpha
+ * channel is white letters on black, and its brightness is the coverage.
+ */
+static u8 *xblaFontAlphaOf(const u8 *rgba, s32 width, s32 height)
+{
+	u8 *alpha = malloc((u32)width * height);
+	s32 opaque = 1;
+	s32 i;
+
+	if (!alpha) {
+		return NULL;
+	}
+
+	for (i = 0; i < width * height && opaque; i++) {
+		opaque = rgba[i * 4 + 3] == 0xff;
+	}
+
+	for (i = 0; i < width * height; i++) {
+		const u8 *px = &rgba[i * 4];
+		alpha[i] = opaque
+			? (u8)((px[0] > px[1] ? (px[0] > px[2] ? px[0] : px[2]) : (px[1] > px[2] ? px[1] : px[2])))
+			: px[3];
+	}
+
+	return alpha;
+}
+
+/**
+ * How well a pack's atlas, boxed down by `scale`, agrees with the release's:
+ * the correlation of the two coverages, read the right way up or turned over.
+ */
+static f32 xblaFontPackAgreement(const struct xblafontatlas *atlas, const u8 *pack, s32 scale, s32 flipped)
+{
+	const f32 area = (f32)(scale * scale);
+	f64 sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+	f64 n = (f64)atlas->width * atlas->height;
+	f64 va;
+	f64 vb;
+	s32 x;
+	s32 y;
+
+	for (y = 0; y < atlas->height; y++) {
+		const s32 py = (flipped ? atlas->height - 1 - y : y) * scale;
+
+		for (x = 0; x < atlas->width; x++) {
+			const f64 a = atlas->alpha[y * atlas->width + x];
+			u32 sum = 0;
+			f64 b;
+			s32 i;
+			s32 j;
+
+			for (j = 0; j < scale; j++) {
+				const u8 *row = &pack[(py + j) * atlas->width * scale + x * scale];
+
+				for (i = 0; i < scale; i++) {
+					sum += row[i];
+				}
+			}
+
+			b = sum / area;
+			sa += a;
+			sb += b;
+			saa += a * a;
+			sbb += b * b;
+			sab += a * b;
+		}
+	}
+
+	va = n * saa - sa * sa;
+	vb = n * sbb - sb * sb;
+
+	if (va <= 0 || vb <= 0) {
+		return 0;
+	}
+
+	return (f32)((n * sab - sa * sb) / sqrt(va * vb));
+}
+
+/**
+ * A pack's atlas: the release's picture drawn bigger, which is where a glyph's
+ * pixels come from when there is one.
+ *
+ * ## A pack's atlas
+ *
+ * The pack wins, the way it does for any other record (F3 report
+ * 20260927-000755: a pack's repainted 0dbb and 0dbc never showed, because this
+ * read the release's straight out of the package) - but only as pixels. Every
+ * measurement - the font's line, its condensation, each glyph's ink box - is
+ * taken on the release's own atlas and the pack is read at the same place a
+ * whole multiple finer. Measured on the pack instead (F3 20260927-231848,
+ * savantique), the Plus HD v0.10 atlases' softer edges fitted the sm font's
+ * line 7% off the release's and put 40 characters off it, which is the 's'
+ * drawn small and high in the middle of every word.
+ *
+ * **Which way up is not the pack's to be trusted with.** Our dump of the atlas
+ * is upside down to look at (the record is in the game's row order, and the
+ * dump turns it over for editing), so a painter who turns it the right way up
+ * to see the letters hands back a picture that reads upside down to the glyph
+ * table: every cell a slice of some other line's letters (F3 20260927-232919,
+ * Parabolee, whose redrawn 0dbb and 0dbc are upright; the released v0.10
+ * atlases are in dump order). So the pack's picture is compared with the
+ * release's both ways and taken the way it agrees, and a picture that agrees
+ * with neither - a different layout - is not taken at all.
+ */
+#define XBLAFONT_PACK_MIN_AGREEMENT 0.5f
+
+static void xblaFontOpenPack(struct xblafontatlas *atlas, s32 which)
+{
+	const u32 record = faces[which].record;
+	s32 packwidth;
+	s32 packheight;
+	u8 *rgba = texpackDecodeXblaReplacementNow((s32)record, &packwidth, &packheight);
+	u8 *pack;
+	f32 upright;
+	f32 over;
+	s32 scale;
+
+	if (!rgba) {
+		return;
+	}
+
+	scale = packwidth / atlas->width;
+
+	if (scale < 1 || packwidth != atlas->width * scale || packheight != atlas->height * scale) {
+		sysLogPrintf(LOG_WARNING, "xblafont: the pack's record %04x is %dx%d, not %dx%d"
+				" or a whole multiple of it; using the release's",
+				record, packwidth, packheight, atlas->width, atlas->height);
+		texpackFreeReplacement(rgba);
+		return;
+	}
+
+	pack = xblaFontAlphaOf(rgba, packwidth, packheight);
+	texpackFreeReplacement(rgba);
+
+	if (!pack) {
+		return;
+	}
+
+	upright = xblaFontPackAgreement(atlas, pack, scale, 0);
+	over = xblaFontPackAgreement(atlas, pack, scale, 1);
+
+	if (upright < XBLAFONT_PACK_MIN_AGREEMENT && over < XBLAFONT_PACK_MIN_AGREEMENT) {
+		sysLogPrintf(LOG_WARNING, "xblafont: the pack's record %04x does not have the release's glyphs"
+				" where the release has them (%.2f, turned over %.2f); using the release's",
+				record, upright, over);
+		free(pack);
+		return;
+	}
+
+	if (over > upright) {
+		const u32 stride = (u32)packwidth;
+		u8 *tmp = malloc(stride);
+		s32 y;
+
+		if (!tmp) {
+			free(pack);
+			return;
+		}
+
+		for (y = 0; y < packheight / 2; y++) {
+			u8 *a = &pack[y * stride];
+			u8 *b = &pack[(packheight - 1 - y) * stride];
+
+			memcpy(tmp, a, stride);
+			memcpy(a, b, stride);
+			memcpy(b, tmp, stride);
+		}
+
+		free(tmp);
+	}
+
+	atlas->pix = pack;
+	atlas->pixwidth = packwidth;
+	atlas->pixheight = packheight;
+	atlas->pixscale = scale;
+	atlas->pixflipped = over > upright;
+
+	sysLogPrintf(LOG_NOTE, "xblafont: record %04x from the texture pack, %dx%d, %s (agreement %.2f, turned over %.2f)",
+			record, packwidth, packheight, over > upright ? "turned over" : "as it is", upright, over);
+}
+
+/**
  * The atlas and the metrics for one face, read once.
  *
  * The picture is kept as alpha alone. Every texel of these records is white
@@ -749,75 +940,22 @@ static struct xblafontatlas *xblaFontOpenFace(s32 which)
 		return NULL;
 	}
 
-	// A pack's picture for the atlas wins, the way it does for any other
-	// record (F3 report 20260927-000755: a pack's repainted 0dbb and 0dbc never
-	// showed, because this read the release's straight out of the package).
-	// It may be drawn bigger - the cells are in the release's pixels, so they
-	// are scaled up to it - but not a different shape.
-	{
-		s32 packwidth;
-		s32 packheight;
-		u8 *pack = texpackDecodeXblaReplacementNow((s32)faces[which].record, &packwidth, &packheight);
-
-		if (pack) {
-			const s32 sx = packwidth / width;
-			const s32 sy = packheight / height;
-
-			if (sx >= 1 && sx == sy && packwidth == width * sx && packheight == height * sy) {
-				free(rgba);
-				rgba = pack;
-				width = packwidth;
-				height = packheight;
-
-				for (i = 0; i < (s32)atlas->numCells; i++) {
-					atlas->cells[i].x1 *= sx;
-					atlas->cells[i].y1 *= sy;
-					atlas->cells[i].x2 *= sx;
-					atlas->cells[i].y2 *= sy;
-					atlas->cells[i].a *= sx;
-					atlas->cells[i].b *= sx;
-					atlas->cells[i].c *= sx;
-				}
-
-				sysLogPrintf(LOG_NOTE, "xblafont: record %04x from the texture pack, %dx%d",
-						faces[which].record, width, height);
-			} else {
-				sysLogPrintf(LOG_WARNING, "xblafont: the pack's record %04x is %dx%d, not %dx%d"
-						" or a whole multiple of it; using the release's",
-						faces[which].record, packwidth, packheight, width, height);
-				texpackFreeReplacement(pack);
-			}
-		}
-	}
-
-	atlas->alpha = malloc((u32)width * height);
+	atlas->alpha = xblaFontAlphaOf(rgba, width, height);
+	free(rgba);
 
 	if (!atlas->alpha) {
-		free(rgba);
 		return NULL;
 	}
 
-	{
-		// An atlas painted without an alpha channel is white letters on
-		// black, and its brightness is the coverage.
-		s32 opaque = 1;
-
-		for (i = 0; i < width * height && opaque; i++) {
-			opaque = rgba[i * 4 + 3] == 0xff;
-		}
-
-		for (i = 0; i < width * height; i++) {
-			const u8 *px = &rgba[i * 4];
-			atlas->alpha[i] = opaque
-				? (u8)((px[0] > px[1] ? (px[0] > px[2] ? px[0] : px[2]) : (px[1] > px[2] ? px[1] : px[2])))
-				: px[3];
-		}
-	}
-
-	free(rgba);
-
 	atlas->width = width;
 	atlas->height = height;
+	atlas->pix = atlas->alpha;
+	atlas->pixwidth = width;
+	atlas->pixheight = height;
+	atlas->pixscale = 1;
+
+	xblaFontOpenPack(atlas, which);
+
 	atlas->tried = 1;
 
 	sysLogPrintf(LOG_NOTE, "xblafont: %s, %u glyphs in record %04x",
@@ -1193,18 +1331,18 @@ static u8 xblaFontArea(const struct xblafontatlas *atlas, f32 x0, f32 x1, f32 y0
 		// a fraction at the first and last row and all of it between.
 		const f32 ry = (iy + 1 < y1 ? iy + 1 : y1) - (iy > y0 ? iy : y0);
 
-		if (iy < 0 || iy >= atlas->height || ry <= 0) {
+		if (iy < 0 || iy >= atlas->pixheight || ry <= 0) {
 			continue;
 		}
 
 		for (ix = (s32)x0; ix <= (s32)(x1 - 0.0001f); ix++) {
 			const f32 rx = (ix + 1 < x1 ? ix + 1 : x1) - (ix > x0 ? ix : x0);
 
-			if (ix < 0 || ix >= atlas->width || rx <= 0) {
+			if (ix < 0 || ix >= atlas->pixwidth || rx <= 0) {
 				continue;
 			}
 
-			sum += atlas->alpha[iy * atlas->width + ix] * rx * ry;
+			sum += atlas->pix[iy * atlas->pixwidth + ix] * rx * ry;
 			weight += rx * ry;
 		}
 	}
@@ -1404,8 +1542,16 @@ static s32 xblaFontBuildBody(struct xblafontglyph *out, s32 id, s32 index)
 		}
 	}
 
+	// The ink box was measured on the release's atlas; the pixels are read
+	// from the picture the glyph comes from, which is a pack's a whole
+	// multiple finer or the release's itself.
+	ink.x1 *= atlas->pixscale;
+	ink.x2 *= atlas->pixscale;
+	ink.y1 *= atlas->pixscale;
+	ink.y2 *= atlas->pixscale;
+
 	// One scale for both axes, so the sampling is as fine across as it is
-	// down, and never below the release's own resolution.
+	// down, and never below the resolution of the picture it is read from.
 	scale = (s32)((ink.x2 - ink.x1) / (dst.x2 - dst.x1) + 0.999f);
 
 	y = (s32)((ink.y2 - ink.y1) / (dst.y2 - dst.y1) + 0.999f);
@@ -1824,6 +1970,10 @@ void xblaFontShutdown(void)
 	s32 i;
 
 	for (i = 0; i < XBLAFONT_NUM_FACES; i++) {
+		if (atlases[i].pix != atlases[i].alpha) {
+			free(atlases[i].pix);
+		}
+
 		free(atlases[i].alpha);
 		free(atlases[i].cells);
 		free(atlases[i].trans);
@@ -1852,9 +2002,16 @@ void xblaFontTrace(FILE *f)
 
 	for (i = 0; i < XBLAFONT_NUM_FACES; i++) {
 		if (atlases[i].tried) {
-			fprintf(f, "  %s: %s, %u glyphs, %dx%d\n", faces[i].abc,
+			fprintf(f, "  %s: %s, %u glyphs, %dx%d", faces[i].abc,
 					atlases[i].tried > 0 ? "read" : "gave up",
 					atlases[i].numCells, atlases[i].width, atlases[i].height);
+
+			if (atlases[i].pixscale > 1) {
+				fprintf(f, ", pixels from the pack's %dx%d%s", atlases[i].pixwidth, atlases[i].pixheight,
+						atlases[i].pixflipped ? " turned over" : "");
+			}
+
+			fprintf(f, "\n");
 		}
 	}
 }
