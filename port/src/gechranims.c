@@ -9,6 +9,7 @@
 #include "gechranims.h"
 #include "gechranimtable.h"
 #include "system.h"
+#include "config.h"
 #include "game/race.h"
 #include "lib/anim.h"
 
@@ -183,6 +184,133 @@ s32 geChrAnimsBlast(s32 side, u32 pick, s32 *animnum, s32 *flip, f32 *speed, f32
 	return *animnum >= 0;
 }
 
+/* ---- Perfect Dark's deaths beside GoldenEye's --------------------------- */
+
+/**
+ * "GE Plus: Perfect Dark Death Animations" (Mod.GePlusPdDeathAnims, off by
+ * default; F3 20260928-055343): a converted level's characters die by
+ * GoldenEye's animations or by Perfect Dark's, picked from one pool per hit
+ * part. Perfect Dark's frames sit under the numbers GoldenEye's took over for
+ * the stage (animOverride()), so its rows play under animOriginal()'s numbers.
+ * Its slump against a wall, its fall forward and its blast deaths join
+ * GoldenEye's the same way (chraction.c, geChrAnimsPdDeaths()).
+ */
+static s32 g_GePdDeathsWanted = 0;
+static s32 g_GeMixBuilt;
+static struct animtablerow g_GeMixRows[GE_MAX_ROWS * 3];
+static struct animtable g_GeMixTables[ARRAYCOUNT(g_GeTables)];
+
+PD_CONSTRUCTOR static void geChrAnimsConfigInit(void)
+{
+	configRegisterInt("Mod.GePlusPdDeathAnims", &g_GePdDeathsWanted, 0, 1);
+}
+
+static const struct animtable *geChrAnimsPdTable(s32 hitpart)
+{
+	for (s32 i = 0; g_PdHumanTables && g_PdHumanTables[i].hitpart != -1; i++) {
+		if (i > 0 && g_PdHumanTables[i].hitpart == hitpart) {
+			return &g_PdHumanTables[i];
+		}
+	}
+
+	return NULL;
+}
+
+static s32 geChrAnimsBuildMix(void)
+{
+	s32 used = 0;
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_GeTables); i++) {
+		const struct animtable *ge = &g_GeTables[i];
+		const struct animtable *pd;
+		struct animtable *t = &g_GeMixTables[i];
+		s32 count = 0;
+
+		*t = *ge;
+
+		if (ge->hitpart == -1) {
+			break;
+		}
+
+		pd = ge->hitpart > 0 && ge->hitpart != HITPART_HAT ? geChrAnimsPdTable(ge->hitpart) : NULL;
+
+		if (!pd || !pd->deathanims || pd->deathanimcount <= 0) {
+			continue;
+		}
+
+		if (used + ge->deathanimcount + pd->deathanimcount + 1 > (s32)ARRAYCOUNT(g_GeMixRows)) {
+			return 0;
+		}
+
+		t->deathanims = &g_GeMixRows[used];
+
+		for (s32 j = 0; j < ge->deathanimcount; j++) {
+			g_GeMixRows[used + count++] = ge->deathanims[j];
+		}
+
+		for (s32 j = 0; j < pd->deathanimcount; j++) {
+			s32 num = animOriginal(pd->deathanims[j].animnum);
+
+			if (num > 0) {
+				g_GeMixRows[used + count] = pd->deathanims[j];
+				g_GeMixRows[used + count].animnum = num;
+				count++;
+			}
+		}
+
+		g_GeMixRows[used + count].animnum = 0;
+		t->deathanimcount = count;
+		used += count + 1;
+	}
+
+	// the numbers chraction.c asks for at a death, made now and not mid-level
+	for (s32 i = 0; g_AnimTableHumanSlumped[i].animnum; i++) {
+		animOriginal(g_AnimTableHumanSlumped[i].animnum);
+	}
+
+	animOriginal(0x005b);
+	animOriginal(0x0255);
+
+	// the blast deaths (g_YeetAnimsHuman)
+	for (s32 i = 0x82; i <= 0x8e; i++) {
+		animOriginal(i);
+	}
+
+	return 1;
+}
+
+static void geChrAnimsApply(void)
+{
+	if (g_GeChrAnims) {
+		g_AnimTablesByRace[RACE_HUMAN] = geChrAnimsPdDeaths() ? g_GeMixTables : g_GeTables;
+	}
+}
+
+s32 geChrAnimsPdDeaths(void)
+{
+	return g_GeChrAnims && g_GePdDeathsWanted && g_GeMixBuilt;
+}
+
+s32 geChrAnimsGetPdDeaths(void)
+{
+	return g_GePdDeathsWanted;
+}
+
+void geChrAnimsSetPdDeaths(s32 on)
+{
+	g_GePdDeathsWanted = on ? 1 : 0;
+
+	// the pool is taken at the next death; the numbers were made at the stage's start
+	geChrAnimsApply();
+}
+
+s32 geChrAnimsPd(s32 animnum)
+{
+	s32 num = animOriginal(animnum);
+
+	return num > 0 ? num : animnum;
+}
+
 /* ---- the switch --------------------------------------------------------- */
 
 /**
@@ -246,5 +374,14 @@ void geChrAnimsStageStart(s32 stagenum)
 	if (on != g_GeChrAnims) {
 		geChrAnimsSet(on);
 		sysLogPrintf(LOG_NOTE, "gechranims: characters play %s animations", on ? "GoldenEye's" : "Perfect Dark's");
+	}
+
+	if (on) {
+		// after the overrides, so the ROM's own entries are the saved ones
+		g_GeMixBuilt = geChrAnimsBuildMix();
+		geChrAnimsApply();
+
+		sysLogPrintf(LOG_NOTE, "gechranims: Perfect Dark's death animations %s (pool %s)",
+			geChrAnimsPdDeaths() ? "beside GoldenEye's" : "off", g_GeMixBuilt ? "built" : "not built");
 	}
 }

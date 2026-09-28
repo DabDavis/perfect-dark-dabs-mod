@@ -11,6 +11,7 @@ void animsReset(void);
 s32 animAppendExternal(const struct animtableentry *entry, u8 *data);
 s32 animIsSame(s32 num, const struct animtableentry *entry, const u8 *data);
 s32 animOverride(s32 num, s32 from);
+s32 animOriginal(s32 num);
 #endif
 s32 animGetNumFrames(s16 anim_id);
 bool animHasFrames(s16 animnum);

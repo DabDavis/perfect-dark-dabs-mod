@@ -3280,15 +3280,26 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 
 #ifndef PLATFORM_N64
 					// GoldenEye's two: death_stagger_back_to_wall either way round
+					// (or Perfect Dark's own slump, one time in two, when
+					// its deaths are in GE Plus's pool)
+					s32 slumpanim = row->animnum;
+
 					if (g_GeChrAnims) {
-						row = geChrAnimsStagger(rngRandom());
+						if (geChrAnimsPdDeaths() && (rngRandom() & 1)) {
+							slumpanim = geChrAnimsPd(row->animnum);
+						} else {
+							row = geChrAnimsStagger(rngRandom());
+							slumpanim = row->animnum;
+						}
 					}
+#else
+					s32 slumpanim = row->animnum;
 #endif
 
 					chr->act_die.thudframe1 = row->thudframe1;
 					chr->act_die.thudframe2 = row->thudframe2;
 
-					modelSetAnimationWithMerge(model, row->animnum, row->flip, 0, row->speed, 16, !instant);
+					modelSetAnimationWithMerge(model, slumpanim, row->flip, 0, row->speed, 16, !instant);
 
 					if (row->endframe >= 0) {
 						modelSetAnimEndFrame(model, row->endframe);
@@ -3307,8 +3318,10 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 					&& rngRandom() % 5 < 2
 					&& chr->specialdie == SPECIALDIE_NONE
 #ifndef PLATFORM_N64
-					// Perfect Dark's own; GoldenEye's guard falls by its table
-					&& !g_GeChrAnims
+					// Perfect Dark's own; GoldenEye's guard falls by its table,
+					// or by this one time in two when Perfect Dark's deaths are
+					// in GE Plus's pool
+					&& (!g_GeChrAnims || (geChrAnimsPdDeaths() && (rngRandom() & 1)))
 #endif
 					) {
 				struct animtablerow *row;
@@ -3337,6 +3350,13 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 
 				chr->act_die.thudframe1 = row->thudframe1;
 				chr->act_die.thudframe2 = row->thudframe2;
+
+#ifndef PLATFORM_N64
+				// Perfect Dark's frames on a GE Plus level (gechranims.c)
+				if (g_GeChrAnims) {
+					row->animnum = geChrAnimsPd(row->animnum);
+				}
+#endif
 
 				modelSetAnimationWithMerge(model, row->animnum, flip, 0, row->speed, 16, !instant);
 
@@ -4154,7 +4174,14 @@ static bool chrYeetFromPosWithAction(struct chrdata *chr, struct coord *exppos, 
 #ifndef PLATFORM_N64
 			// GoldenEye's own blast deaths, which Perfect Dark cut down and
 			// re-made (gechranims.c)
-			if (g_GeChrAnims) {
+			if (g_GeChrAnims && geChrAnimsPdDeaths() && (rngRandom() & 1)) {
+				// Perfect Dark's own, when its deaths are in GE Plus's pool
+				static struct yeetanim pdrow;
+
+				pdrow = *row;
+				pdrow.animnum = geChrAnimsPd(row->animnum);
+				row = &pdrow;
+			} else if (g_GeChrAnims) {
 				static struct yeetanim gerow;
 				s32 animnum, flip;
 

@@ -253,6 +253,63 @@ s32 animOverride(s32 num, s32 from)
 }
 
 /**
+ * A number that plays animation num as the ROM has it, whatever animOverride()
+ * has put behind num: num itself when it is not overridden, else a row
+ * appended once a session with the ROM's own entry (and the bytes a borrowed
+ * mod had given it). GE Plus plays Perfect Dark's own death animations beside
+ * GoldenEye's this way, whose frames sit under the same numbers (gechranims.c).
+ * -1 when there is no room.
+ */
+static s16 *g_AnimOriginals;
+
+s32 animOriginal(s32 num)
+{
+	s32 alias;
+
+	if (!g_Anims || num <= 0 || num >= g_NumRomAnimations) {
+		return -1;
+	}
+
+	if (!g_AnimIsOverridden || !g_AnimIsOverridden[num]) {
+		return num;
+	}
+
+	if (!g_AnimOriginals) {
+		g_AnimOriginals = sysMemZeroAlloc(g_AnimCapacity * sizeof(*g_AnimOriginals));
+
+		if (!g_AnimOriginals) {
+			return -1;
+		}
+	}
+
+	if (g_AnimOriginals[num] > 0) {
+		return g_AnimOriginals[num];
+	}
+
+	if (g_NumRomAnimations >= g_AnimCapacity) {
+		return -1;
+	}
+
+	alias = g_NumRomAnimations;
+
+	// the ROM's entry keeps its segment offset, or the replacement's bytes
+	g_RomAnims[alias] = g_AnimSaved[num];
+	g_AnimReplacements[alias] = g_AnimSavedData[num];
+	g_AnimToHeaderSlot[alias] = 0xff;
+	var8005f014[alias] = 0;
+
+	g_NumRomAnimations++;
+
+	if (g_Anims == g_RomAnims) {
+		g_NumAnimations = g_NumRomAnimations;
+	}
+
+	g_AnimOriginals[num] = alias;
+
+	return alias;
+}
+
+/**
  * Whether animation num as the game has it is entry with the bytes at data
  * (header then frames, as a segment holds them): a borrowed mod's animation
  * that is the same as ours plays under our number, with nothing appended.

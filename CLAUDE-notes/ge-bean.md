@@ -12536,3 +12536,31 @@ greatcoat and N64 Joel beside an HD head; ROM only -> all 42 GoldenEye bodies
 from the ROM (`Cgx`), Dam's guards N64, lists identical to the base binary.
 The Randomizer's `gebeanGuardBodies()` (fix/f3-0928-rand) takes
 `gebeanIsGoldenEyeBody()`, which a fallback row answers yes to (checked).
+
+## Perfect Dark's death animations beside GoldenEye's (2026-09-28)
+
+F3 20260928-055343 (Odeyseis): "GE Plus: Perfect Dark Death Animations" on the
+Mods: Missions page, `Mod.GePlusPdDeathAnims`, off by default. On a remake
+stage each hit part's death pool is GoldenEye's rows followed by Perfect
+Dark's (`g_GeMixTables`, gechranims.c), and Perfect Dark's slump, fall forward
+and blast deaths take one pick in two beside GoldenEye's (chraction.c,
+`geChrAnimsPdDeaths()`). The trap: Perfect Dark's frames for rows 2-175 are
+not there on a remake stage - `animOverride()` has put GoldenEye's behind the
+same numbers - so a Perfect Dark row plays under `animOriginal()`, which
+appends once a session a row holding the ROM's own entry (the saved one, with
+its segment offset). They are made at the stage's start whether the setting is
+on or not, so the checkbox works mid-mission. Rows past 182 (0x24e-0x255 and
+the like, Perfect Dark's own new deaths) were never overridden and play as
+they are; many of the aliased rows are GoldenEye's own deaths re-encoded and
+look alike. A converted mission's chrDamageByImpact() hit part is re-traced
+(15 arrived as 7), so a probe forces every table, not one
+(`run/animpd.py`, `run/killall.py` in the fix/f3-0928b-deathanims worktree).
+Checked: both looks pose it, the corpse lands on the floor, 63 Facility and 42
+Jungle chrs all reach ACT_DEAD, and Jungle's kill-triggered objectives (Xenia
+complete, one failed) flip at the same frames with it on or off.
+
+The reverse (GoldenEye's deaths in Perfect Dark's own missions, 20260926-233237)
+is not built: the same mix the other way round, but it needs the conversion's
+animations loaded on a stage that is not a remake (`gexPlusMissionAnimLoad()`
+finds them through the stage's mod), a second key and row, and its own pass on
+Perfect Dark's missions.

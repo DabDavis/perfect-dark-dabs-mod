@@ -36,4 +36,17 @@ struct animtablerow *geChrAnimsStagger(s32 index);
  */
 s32 geChrAnimsBlast(s32 side, u32 pick, s32 *animnum, s32 *flip, f32 *speed, f32 *startframe, f32 *thudframe, f32 *endframe);
 
+/**
+ * Whether a converted level's characters die by Perfect Dark's death
+ * animations as well as GoldenEye's (Mod.GePlusPdDeathAnims, on a remake stage).
+ */
+s32 geChrAnimsPdDeaths(void);
+
+/** The setting as the menu has it, and its switch. */
+s32 geChrAnimsGetPdDeaths(void);
+void geChrAnimsSetPdDeaths(s32 on);
+
+/** A number that plays Perfect Dark's own animation animnum on a remake stage. */
+s32 geChrAnimsPd(s32 animnum);
+
 #endif
