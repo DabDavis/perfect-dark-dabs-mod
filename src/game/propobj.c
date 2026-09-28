@@ -7652,6 +7652,23 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						}
 
 						if (sp350) {
+#ifndef PLATFORM_N64
+							// GoldenEye's thrown knife is launched sticky as
+							// every thrown thing is, but it has no reason to
+							// stick (it is not STICKSTOWALL, as GoldenEye's
+							// does not stick), so nothing below ever let it
+							// rest: it hopped along the floor for good,
+							// ringing on every hop (F3 20260928-001016,
+							// Caverns). Perfect Dark's knife stuck on the
+							// first hit. After the six bounces anything else
+							// gets, it lies down on a surface that faces up
+							if (projectile->bouncecount >= 6 && sp5f4.y > 0.7f
+									&& obj->type == OBJTYPE_WEAPON
+									&& weaponHost(((struct weaponobj *) obj)->weaponnum) == WEAPON_COMBATKNIFE
+									&& !weaponHasFlag2(((struct weaponobj *) obj)->weaponnum, WEAPONFLAG2_STICKSTOWALL)) {
+								projectileFall(obj, realrot);
+							} else
+#endif
 							if ((projectile->flags & PROJECTILEFLAG_STICKY) == 0 && projectile->bouncecount >= 6) {
 								if (sp354) {
 									projectileFall(obj, realrot);
