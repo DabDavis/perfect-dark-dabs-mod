@@ -1136,12 +1136,22 @@ bool bgunLeftHandSkipsFlip(s32 weaponnum)
 	return weaponHasFlag(weaponnum, WEAPONFLAG_02000000) && bgunIsAkimboIncompatible(weaponnum);
 }
 
+/**
+ * Whether the player's hands go on this weapon's first-person model: its own
+ * flag, or a GoldenEye gun drawn without the glove it carries because the
+ * player is not a GoldenEye character (gebeanFirstPersonTakesPlayersHands()).
+ */
+bool bgunWeaponHasHands(s32 weaponnum)
+{
+	return weaponHasFlag(weaponnum, WEAPONFLAG_HASHANDS) || gebeanFirstPersonTakesPlayersHands(weaponnum);
+}
+
 bool bgunHandHasHands(s32 handnum)
 {
 	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
 	s32 weaponnum = handnum == HAND_LEFT && ctrl->leftweaponnum > WEAPON_NONE ? ctrl->leftweaponnum : ctrl->weaponnum;
 
-	return ctrl->handmodeldef != NULL && weaponHasFlag(weaponnum, WEAPONFLAG_HASHANDS);
+	return ctrl->handmodeldef != NULL && bgunWeaponHasHands(weaponnum);
 }
 #endif
 
@@ -4606,7 +4616,11 @@ void bgunTickMasterLoad(void)
 				if (filenum) {
 					hashands = false;
 
+#ifndef PLATFORM_N64
+					if (bgunWeaponHasHands(newweaponnum)) {
+#else
 					if (weaponHasFlag(newweaponnum, WEAPONFLAG_HASHANDS)) {
+#endif
 						hashands = true;
 					}
 
@@ -4615,7 +4629,7 @@ void bgunTickMasterLoad(void)
 					// when the right's does not
 					if (player->gunctrl.dualwielding
 							&& player->gunctrl.leftweaponnum > WEAPON_NONE
-							&& weaponHasFlag(player->gunctrl.leftweaponnum, WEAPONFLAG_HASHANDS)) {
+							&& bgunWeaponHasHands(player->gunctrl.leftweaponnum)) {
 						hashands = true;
 					}
 #endif

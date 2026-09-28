@@ -50,6 +50,8 @@
 #include "lib/main.h"
 #include "lib/rng.h"
 #include "game/playermgr.h"
+#include "game/player.h"
+#include "game/modghost.h"
 #include "game/bondgun.h"
 #include "bss.h"
 
@@ -576,7 +578,9 @@ static const u8 fpNoHands[ARRAYCOUNT(fpRows)] = {
 /**
  * The guns whose own hand is drawn, the seven files that carry GoldenEye's
  * glove (beanGloveTextures): the pistols and both knives. The model holds
- * itself, so Perfect Dark's hands come off for it in either look.
+ * itself, so Perfect Dark's hands come off for it in either look - for a
+ * GoldenEye character. Anybody else holds the HD look's gun bare in their own
+ * hands (gebeanFirstPersonBareForPlayer()).
  *
  * The throwing knife's hand grips the blade with the handle up, ready to
  * throw, and that is how GoldenEye draws it in first person (the decomp's
@@ -9945,6 +9949,65 @@ s32 gebeanFirstPersonMatrixRest(s32 weaponnum, s32 mtx, f32 out[3])
 	}
 
 	return 1;
+}
+
+/**
+ * Whether the player being drawn wears GoldenEye's glove on a gun that
+ * carries one (fpN64Glove): a GoldenEye character does. Anybody else - Joanna
+ * in a Perfect Dark mission, a Perfect Dark character in the Combat Simulator
+ * - holds the gun in their own hands, as they hold Perfect Dark's guns; Bond's
+ * bare hand on Joanna read as a bug (F3 20260927-224927, "joanna got that bond
+ * hand!?", Defection, the silenced PP7).
+ */
+static s32 gebeanPlayerWearsGlove(void)
+{
+	s32 bodynum;
+	s32 headnum;
+
+	if (!g_Vars.currentplayer) {
+		return 1;
+	}
+
+	// Bond on a converted mission, as player.c dresses the player there:
+	// playerChooseBodyAndHead() answers Joanna, whose hands the watch's
+	// sleeve and the first person hands take their own way
+	if (!g_Vars.normmplayerisrunning
+			&& !modGhostGetTrialCharacter(&bodynum, &headnum)
+			&& !modGhostGetMenuCharacter(&bodynum, &headnum)
+			&& gexPlusMissionBond(g_Vars.currentplayer->bondtype, &bodynum, &headnum)) {
+		return 1;
+	}
+
+	playerChooseBodyAndHead(&bodynum, &headnum, NULL);
+
+	return gebeanIsGoldenEyeBody(bodynum) || gexPlusRomIsPoolRow(bodynum);
+}
+
+/**
+ * The first-person gun drawn in the HD look for a gun holding its own glove
+ * in the hands of a player who is not a GoldenEye character: the same gun
+ * with the glove left out (the watch's bare copy, fitted and placed the same,
+ * since the glove is never in the fitted box), held in the player's hands.
+ */
+static s32 gebeanFirstPersonBareForPlayer(s32 i)
+{
+	return i >= 0 && i < (s32)ARRAYCOUNT(fpRows) && fpN64Glove[i] && fpSlot[i] && fpWatchSlot[i]
+		&& !gebeanGunsAreN64() && !gegunsOwnModelInUse(WEAPON_GE_FIRST + i)
+		&& g_GeWeaponDefs[i].hi_model == fpSlot[i] && !gebeanPlayerWearsGlove();
+}
+
+u16 gebeanFirstPersonFileForPlayer(s32 weaponnum, u16 filenum)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	return gebeanFirstPersonBareForPlayer(i) && filenum == fpSlot[i] ? (u16)fpWatchSlot[i] : filenum;
+}
+
+s32 gebeanFirstPersonTakesPlayersHands(s32 weaponnum)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	return gebeanFirstPersonBareForPlayer(i) && gegunsHandsFlag(i) != 0;
 }
 
 /** The watch's bare copy of the release's gun, for a gun that carries its own glove; else 0. */
