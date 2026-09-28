@@ -46,9 +46,6 @@ extern f32 fabsf(f32);
 #endif
 
 #ifndef PLATFORM_N64
-// a converted level's ladder taken from the top, and by whom: it keeps its hold
-static struct player *g_GeLadderTopPlayer = NULL;
-
 // how long each player's move has been held at the edge of a force-crouch tile
 // while the squat finishes (bwalk0f0c63bc())
 static s32 g_GeCrouchHoldTicks[MAX_PLAYERS];
@@ -75,11 +72,11 @@ static void bwalkNoteNotFinite(const char *what, f32 value)
 	lastframe = g_Vars.lvframenum;
 
 	sysLogPrintf(LOG_WARNING, "bwalk: %s is %f at frame %d: pos (%.1f %.1f %.1f) manground %f ground %f sumground %f"
-			" deltay %f ladder %d/%f top %d fall %d lift %d headpos %f/%f sumcrouch %f crouch %f tick %d/%d",
+			" deltay %f ladder %d/%f fall %d lift %d headpos %f/%f sumcrouch %f crouch %f tick %d/%d",
 			what, value, g_Vars.lvframenum,
 			player->prop->pos.x, player->prop->pos.y, player->prop->pos.z,
 			player->vv_manground, player->vv_ground, player->sumground, player->bdeltapos.y,
-			player->onladder, player->ladderupdown, g_GeLadderTopPlayer == player,
+			player->onladder, player->ladderupdown,
 			player->isfalling, player->inlift, player->headpos.y, player->standheight,
 			player->sumcrouch, player->crouchoffset, g_Vars.lvupdate60, g_Vars.lvupdate240);
 }
@@ -183,12 +180,6 @@ void bwalkInit(void)
 {
 	u32 prevmode = g_Vars.currentplayer->bondmovemode;
 	s32 i;
-
-#ifndef PLATFORM_N64
-	if (g_GeLadderTopPlayer == g_Vars.currentplayer) {
-		g_GeLadderTopPlayer = NULL;
-	}
-#endif
 
 	g_Vars.currentplayer->bondmovemode = MOVEMODE_WALK;
 	g_Vars.currentplayer->bondonground = 0;
@@ -1401,86 +1392,24 @@ void bwalkUpdateVertical(void)
 	g_Vars.currentplayer->lift = lift;
 
 #ifndef PLATFORM_N64
-	// A converted level's ladder, taken from the top. Perfect Dark takes hold
-	// of a ladder that reaches over the player's feet (the test above asks
-	// from manground + 1 up), and its own ladders come up through a hatch and
-	// stand proud of the floor. GoldenEye's end level with the floor at their
-	// head, which is straight on over the top, and it takes hold of Bond there
-	// through the tile's link - so a converted ladder could be climbed and
-	// never climbed down: stepping off the top was a fall its whole height.
-	// (Raising the ladder's head instead does not work: a ladder's normal is
-	// turned to face the player, so from the floor behind it the head is
-	// climbed and then fallen off.) The second test already finds a ladder
-	// whose head is just under the feet; where it does and the player has
-	// stepped out over the drop, that is the ladder taken from the top.
-	if (geRoomActive()) {
-		// The drop is only found once the player's circle is clear of the
-		// floor's edge - a radius out from a ladder at the edge - and one step
-		// more is past the reach of the test above: from the deck round
-		// Cradle's shaft the player walked out across the hatch, fell, and hung
-		// in its far lip. So at the drop the ladder is looked for twice as far
-		// out, and the player is put back to just clear of the edge, where the
-		// hold is kept. It is looked for a step's height down too: Dam's three
-		// short ladders have their heads at the foot of a ramp 34 under the
-		// deck, and a player walking off the deck was never within 10 of one;
-		// they are let down onto the head.
-		if (!onladder && !onladder2 && !g_Vars.currentplayer->onladder
-				&& ground < g_Vars.currentplayer->vv_manground - 30.0f) {
-			struct coord normal;
-			f32 dist;
-			f32 top;
-
-			if (cdFindLadderDist(&g_Vars.currentplayer->prop->pos,
-						radius * 2.0f, ymax - g_Vars.currentplayer->prop->pos.y,
-						g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->prop->pos.y - 60,
-						ladderrooms, GEOFLAG_LADDER | GEOFLAG_LADDER_PLAYERONLY, &normal, &dist, &top)) {
-				const f32 want = g_Vars.currentplayer->bond2.radius + 1.5f;
-
-				onladder2 = true;
-				g_Vars.currentplayer->laddernormal = normal;
-
-				if (dist > want) {
-					RoomNum backrooms[21];
-
-					guNormalize(&normal.x, &normal.y, &normal.z);
-
-					newpos.x = g_Vars.currentplayer->prop->pos.x - normal.x * (dist - want);
-					newpos.y = g_Vars.currentplayer->prop->pos.y;
-					newpos.z = g_Vars.currentplayer->prop->pos.z - normal.z * (dist - want);
-
-					propSetPerimEnabled(g_Vars.currentplayer->prop, false);
-
-					if (cdTestVolume(&newpos, radius,
-								bwalkCdRooms(g_Vars.currentplayer->prop->rooms, &newpos, radius,
-									ymin - g_Vars.currentplayer->prop->pos.y, ymax - g_Vars.currentplayer->prop->pos.y,
-									backrooms, ARRAYCOUNT(backrooms) - 1),
-								CDTYPE_BG, CHECKVERTICAL_YES,
-								ymax - g_Vars.currentplayer->prop->pos.y,
-								ymin - g_Vars.currentplayer->prop->pos.y) == CDRESULT_NOCOLLISION) {
-						g_Vars.currentplayer->prop->pos.x = newpos.x;
-						g_Vars.currentplayer->prop->pos.z = newpos.z;
-					}
-
-					propSetPerimEnabled(g_Vars.currentplayer->prop, true);
-				}
-
-				// the hold is on a ladder reaching over the feet
-				if (top - 2.0f < g_Vars.currentplayer->vv_manground
-						&& bwalkTryMoveUpwards(top - 2.0f - g_Vars.currentplayer->vv_manground) == CDRESULT_NOCOLLISION) {
-					g_Vars.currentplayer->vv_manground = top - 2.0f;
-				}
-			}
-		}
-
-		if (!onladder && onladder2 && ground < g_Vars.currentplayer->vv_manground - 30.0f) {
-			onladder = true;
-
-			if (!g_Vars.currentplayer->onladder) {
-				g_GeLadderTopPlayer = g_Vars.currentplayer;
-			}
-		} else if (!onladder && g_GeLadderTopPlayer == g_Vars.currentplayer) {
-			g_GeLadderTopPlayer = NULL;
-		}
+	// A converted level's ladder is GoldenEye's: it only ever lifts. Bond's
+	// climb there (bondview2.c, stanGetMoveBondCollisionTiles() and the
+	// stanHeight test after it) raises him a quarter of each step taken while
+	// his circle touches the ladder's link, capped at its head, and never
+	// lowers him; off the ladder his height is the floor under him again. So
+	// there is no climbing down: walking off the top through the hole beside
+	// it is a fall, as is letting go on the way up. Perfect Dark takes hold of
+	// any ladder reaching over the feet - including one the player falls past,
+	// which on a converted level is every player who stepped off its head
+	// (F3 report 20260928-020203, Dam's tower: "the game makes you climb down
+	// the ladder"). So on a converted level a ladder is taken only from the
+	// floor at the player's feet, never in the air; one already held is kept.
+	// (The second test's hover just past the head, while the circle is still
+	// on the ladder, is GoldenEye's as well: Bond keeps the head's height
+	// while he touches it.)
+	if (geRoomActive() && onladder && !g_Vars.currentplayer->onladder
+			&& ground < g_Vars.currentplayer->vv_manground - 30.0f) {
+		onladder = false;
 	}
 #endif
 
@@ -2488,20 +2417,7 @@ void bwalk0f0c69b8(void)
 
 			sp74 = -(spcc.f[0] * g_Vars.currentplayer->laddernormal.f[0] + spcc.f[2] * g_Vars.currentplayer->laddernormal.f[2]);
 
-#ifndef PLATFORM_N64
-			// moving off a ladder faster than this lets go of it - which, for
-			// one taken from the top (bwalkUpdateVertical()), is every player
-			// who walked off the top rather than crept. It keeps its hold for
-			// as long as they keep walking; once they have slowed the ladder
-			// is any other, and pushing off it lets go
 			if (-4.0f * g_Vars.lvupdate60freal < sp74) {
-				g_GeLadderTopPlayer = NULL;
-			}
-
-			if (-4.0f * g_Vars.lvupdate60freal < sp74 || g_GeLadderTopPlayer == g_Vars.currentplayer) {
-#else
-			if (-4.0f * g_Vars.lvupdate60freal < sp74) {
-#endif
 				if (sp74 < 0.0f) {
 					spcc.f[0] += sp74 * g_Vars.currentplayer->laddernormal.f[0];
 					spcc.f[2] += sp74 * g_Vars.currentplayer->laddernormal.f[2];

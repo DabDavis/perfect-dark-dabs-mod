@@ -5998,6 +5998,9 @@ stair is fenced by a prop and the other candidates on Dam were ladders.
 
 ## Dam's ladders: up was fine, down was a fall (2026-09-20)
 
+(Superseded 2026-09-28: ladders are a drop again, as in GoldenEye - see
+"Ladders drop like GoldenEye's" below.)
+
 The user, after the stair fix: *"test the ladders on dam"*. Converter **51**.
 Dam has six (upright stan tiles with special 3, which the conversion has always
 written with Perfect Dark's ladder flag): three 321 high up to the lips at 13433
@@ -6047,6 +6050,57 @@ it never happens there. Checked: five up, five down, the stair walks, the sweep
 identical, the two converters identical on Dam, Severnaya (its twelve ladder
 tiles) and Depot. **Not tested: the ladders of the other levels** (Severnaya's
 bunkers, Cradle), and nobody has looked at a ladder on screen.
+
+## Ladders drop like GoldenEye's: no climbing down (2026-09-28)
+
+**Supersedes the climb-down of the two sections above and of ddf678d0b
+(Cradle's shaft).** F3 report 20260928-020203 (Odeyseis, 506930b, GE Arenas
+Dam 0x51, tower ladder room 78): *"I intended to fall down from the tower
+through the space where there is a ladder, but the game makes you climb down
+the ladder."* The user: ladders should let you drop like GoldenEye does.
+
+**GoldenEye's rule** (decomp `src/game/bondview2.c` ~7261-7394, the locus
+tests and `stanGetMoveBondCollisionTiles()` in `src/game/stan.c` ~2435;
+`bondviewUpdatePlayerY()` bondview2.c ~4392): while Bond's circle touches a
+link into a ladder tile (special 3, `stanCheckLinkedSpecialTile()` stan.c
+~2359) and his `stanHeight` is at or under the ladder's head, a quarter of
+each step's length is added to `stanHeight`, capped at the head, and the
+step is shortened by what went up. The added amount is never negative, so
+**GoldenEye has no climbing down at all**: from the top, Bond keeps the
+head's height while his circle still touches the ladder (a short hover), then
+his height is the floor under him again and he falls; backing off half way
+up is a fall too. There is no ladder flag on the floor, no facing test, no
+speed test.
+
+**Ours** (`bwalkUpdateVertical()`, remake stages only): the take-from-the-top
+block (the look two radii out and 60 down, putting the player back to the
+ladder, `g_GeLadderTopPlayer` keeping the hold at walking speed) is gone, and
+a ladder is taken only from the floor at the feet - `onladder` is refused when
+the player did not hold it last frame and the ground is more than 30 under
+their feet, so a player falling past a ladder (every drop down a hole beside
+one) is not caught by Perfect Dark's "any ladder reaching over the feet".
+Kept: Perfect Dark's own controls once on a ladder (pull back slowly to go
+down, fast to let go), the stock `onladder2` hover at the head (it is
+GoldenEye's hover), `bwalkCdRooms()` for the ladder tests, and the converter's
+"upright tile touching a ladder gets no climb wall". Guards (chr.c
+`chrGeTakesLadder()`) untouched.
+
+Verified with `realwalk.py` (rig `~/wt/f3-0928-ladder-run`, `walks.sh <bin>
+<stage>`, before `pd-base`, after `pd-fix`): Dam 0x15 and GE Arenas Dam 0x51,
+the three tower ladders (rooms 72, 75, 78): walking off the deck full speed,
+creeping (FWD=0.15) and backwards all fall to 13112 with `ladder 0`
+throughout (before: all three held and climbed down, ~180 frames); climbing
+up unchanged (166-184 frames to the deck); the two dam-face ladders (71, 69)
+climb. Probe trap: Dam's room 72 deck has something at x 2573 z 5570 that
+stops a walk down x 2575 (both binaries, both stages) - walk at x 2590.
+
+**Open: Cradle's shaft (0x68) at full speed.** Walking into the hatch at a
+walk (FWD=0.3) drops to the platform. At full speed the hover carries the
+player out over the hatch, they fall ~80, and Perfect Dark's step-up lifts
+them onto the far lip (z -881, the deck) - no hang, but no drop either. In
+GoldenEye Bond over the hatch stands on the platform's tile and has no lip
+to catch. If a tester reports it, the fix is a remake-stage limit on
+stepping up onto a floor while falling.
 
 ## A mission's own opening, and the endings Bond was never in (2026-09-20)
 
