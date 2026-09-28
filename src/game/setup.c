@@ -51,6 +51,7 @@
 #include "gegadgets.h"
 #include "gechranims.h"
 #include "modloader.h"
+#include "romdata.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
 #include "gestan.h"
@@ -1237,6 +1238,13 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 	s32 modelnum = door->base.modelnum;
 	s32 portalnum = -1;
 	struct pad pad;
+
+#ifndef PLATFORM_N64
+	// A Stage Loader map of a mod that replaces the door files by name is
+	// built for its own doors: its pads fit them, and a stock door scaled to
+	// one is a wedge (modloaderGetStageOwnModelsDir())
+	romdataFileFollowStage(g_ModelStates[modelnum].fileid);
+#endif
 
 	setupLoadModeldef(modelnum);
 

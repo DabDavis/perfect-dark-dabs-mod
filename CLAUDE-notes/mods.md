@@ -1651,6 +1651,17 @@ the setup's ids: a mod that renumbered its file table (GE-X) gets stock
 props on its maps, the crate GE-X calls `Pmulti_ammo_crateZ` being a
 different model - `--modfiles` in romdata.c follows the stage's mod for
 every unpinned slot and is the experiment for that, not safe in general.
+**Doors are the exception (2026-09-28, F3 20260928-092708 / -094406):** a
+map of a mod in the port's own format (no `IMPORT.txt`, no `segs/` - the All
+in One Mod's `mod_gex`) keeps stock model numbers and replaces the files by
+name, and its door pads are sized for its own doors; the stock file scaled to
+such a pad drew Facility BZ's door as a stretched wedge and Train's as Dr.
+Carroll's blue door lying across the corridor. `setupCreateDoor()` marks the
+door's file (`romdataFileFollowStage()`) and `romdataFileLoad()` reads it from
+`modloaderGetStageOwnModelsDir()`; the slot's `stagedir` makes
+`romdataFileGetModDir()` name that mod for the model's textures, and the file
+being external keeps the XBLA mesh off it. Imported console mods are left as
+they were (GoldenEye X's maps take its model states through modborrow.c).
 A map whose setup depends on the mod's own AI commands or weapon numbers
 plays as the port has them.
 

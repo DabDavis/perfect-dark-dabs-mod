@@ -150,6 +150,44 @@ const char *modloaderGetStageModDir(s32 stagenum)
 	return fsGetModDirAt(g_ModStageDirs[stagenum] - 1);
 }
 
+/**
+ * The mod directory whose model files a runtime-registered stage's doors are
+ * made of, or NULL: the stage's own mod when that mod is one of the port's own
+ * format (a `mod_` directory of the PC port, the All in One Mod's `mod_gex`).
+ * Such a mod keeps the game's model numbers and replaces the files behind
+ * them - its Facility doors are GoldenEye's under the Villa door's file name -
+ * and its maps' door pads are sized for its own doors. The stock file under
+ * that name is another shape: scaled to the pad it was a stretched wedge or a
+ * slab lying across a corridor (F3 20260928-092708, 20260928-094406).
+ *
+ * Not an imported console mod (IMPORT.txt, segs/): its setups can number
+ * models by the mod's own table, and GoldenEye X's maps take GoldenEye X's
+ * model states whole (modborrow.c).
+ */
+const char *modloaderGetStageOwnModelsDir(s32 stagenum)
+{
+	const char *dir = modloaderGetStageModDir(stagenum);
+	char path[FS_MAXPATH + 1];
+
+	if (!dir) {
+		return NULL;
+	}
+
+	snprintf(path, sizeof(path), "%s/IMPORT.txt", dir);
+
+	if (fsFileSize(path) >= 0) {
+		return NULL;
+	}
+
+	snprintf(path, sizeof(path), "%s/segs", dir);
+
+	if (fsFileSize(path) >= 0) {
+		return NULL;
+	}
+
+	return dir;
+}
+
 s32 modloaderGetStageModDirIndex(s32 stagenum)
 {
 	if (stagenum < 0 || stagenum >= (s32)ARRAYCOUNT(g_ModStageDirs) || !g_ModStageDirs[stagenum]) {

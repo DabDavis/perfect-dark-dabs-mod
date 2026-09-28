@@ -110,6 +110,12 @@ struct romfile {
 	// Nonzero: the XBLA release's file id this slot is read from, out of the
 	// release's own package (romdataRegisterXblaFile())
 	s32 xblaid;
+	// Nonzero: a door's model, read from the running stage's own mod when
+	// that mod has the file (romdataFileFollowStage())
+	s32 followstage;
+	// 1-based index of the mod dir an unpinned slot was last read from for
+	// its stage, or 0: that mod's textures are the model's
+	s32 stagedir;
 };
 
 /* patches for individual files; applied on file load, before preprocFuncs, but */
@@ -629,11 +635,27 @@ s32 romdataRegisterModFile(const char *name, s32 modDirIndex)
 	return 0;
 }
 
+/**
+ * A door's model file: read from the running stage's own mod when that mod is
+ * one whose model files its maps are made for (modloaderGetStageOwnModelsDir()),
+ * and from the search order everywhere else. A slot pinned to a mod, an alias
+ * and a release file are left as they are.
+ */
+void romdataFileFollowStage(s32 fileNum)
+{
+	if (fileNum < 1 || fileNum >= ROMDATA_MAX_FILES || fileSlots[fileNum].moddir
+			|| fileSlots[fileNum].alias || fileSlots[fileNum].xblaid) {
+		return;
+	}
+
+	fileSlots[fileNum].followstage = 1;
+}
+
 s32 romdataFileGetModDir(s32 fileNum)
 {
 	for (s32 depth = 0; depth < 8 && fileNum >= 1 && fileNum < ROMDATA_MAX_FILES; depth++) {
 		if (!fileSlots[fileNum].alias) {
-			const s32 dir = fileSlots[fileNum].moddir - 1;
+			const s32 dir = (fileSlots[fileNum].moddir ? fileSlots[fileNum].moddir : fileSlots[fileNum].stagedir) - 1;
 
 			return dir >= fsGetNumOverlayModDirs() ? dir : -1;
 		}
@@ -848,6 +870,8 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 		}
 	} else if (sysArgCheck("--modfiles")) {
 		wantdir = modloaderGetStageModDir(mainGetStageNum());
+	} else if (fileSlots[fileNum].followstage) {
+		wantdir = modloaderGetStageOwnModelsDir(mainGetStageNum());
 	}
 
 	// Slots are cached for the life of the process, so a file resolved for one
@@ -865,6 +889,7 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 		char tmp[FS_MAXPATH] = { 0 };
 
 		fileSlots[fileNum].loadeddir = wantdir;
+		fileSlots[fileNum].stagedir = 0;
 
 		if (wantdir) {
 			// build an absolute path so the mod search order cannot substitute
@@ -877,6 +902,13 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 		if (fsFileSize(tmp) <= 0 && !fileSlots[fileNum].moddir && wantdir) {
 			// the stage's mod does not have it; fall back to the search order
 			snprintf(tmp, sizeof(tmp), ROMDATA_FILEDIR "/%s", fileSlots[fileNum].name);
+		} else if (!fileSlots[fileNum].moddir && wantdir) {
+			for (s32 i = 0; i < fsGetNumModDirs(); i++) {
+				if (fsGetModDirAt(i) == wantdir) {
+					fileSlots[fileNum].stagedir = i + 1;
+					break;
+				}
+			}
 		}
 
 		if (fsFileSize(tmp) > 0) {
