@@ -12639,3 +12639,33 @@ dist:height:rot, DUMP=1), `menushot.py` (the Customize Character preview),
 `guard.py`/`guardhat.py` (a mission guard stood in front, HAT=1 one with a
 hat), `pair.sh`, `shotat.py`. ROM-only content (`CONTENT=rom`) is GoldenEye's
 own N64 models: the reference for where a GoldenEye head sits.
+
+## Surface 2's dark opening and the Cradle's Bond left behind the helicopter (2026-09-28, converter 86)
+
+F3 20260928-082353 (dab, 3a7c055ba, Surface 2, "just a bit too dark"): GoldenEye
+draws a mission's opening stills in the fog table's row for the level **+ 900**
+(ENVIRONMENTDATA_CINEMA; bondview.c's CAMERAMODE_INTRO calls
+`fogLoadLevelEnvironment(level, 1)`, CAMERAMODE_SWIRL loads the level's own).
+Only Dam (near 30, not 5) and Surface 2 (fog 8000, not 2000) have one. Both
+converters now write it as the mission line's `cinemafog`, modloader.c files
+it (`modloaderGetStageFogCinema()`), `envChooseAndApply()`'s stock-unused
++900 override applies it, and gecinema.c turns it on in `gecinemaPlace()` and
+off in `gecinemaIntroBeginSwirl()`. Oracle (native port, `~/cinema-f3/gesurf2intro.py`
+on 10.8.0.3) at the dish shot: mean colour 51.6/39.8/40.6; ours 36.3/21.0/21.1
+before, 53.8/40.8/41.5 after. Far 40000 during the stills, 10000 from the swirl on.
+
+F3 20260928-082450 (dab, Cradle, "bond becomes detached from chopper and flies
+vertically"): Bond's ending (0x419) plays `cradle_jump`, whose root motion
+carries him under the helicopter's skid. Cradle has no portals, so his rooms
+come from `func0f065d1c()`'s tile-walk fallback, which also asked the room's
+box for the height: past room 9's top (y 1562) every step was refused and he
+rose on the spot at (-1707, 1326) while the helicopter flew on (both shots,
+the last ~30 frames of each). The fallback now also takes a room whose box
+holds the point across x/z only when the prop **already holds that room** -
+never a room above or below, so stacked floors (Facility, Bunker, Silo,
+Archives, Train, Caverns) cannot change floor through it; it only answers
+where the walk would otherwise have given no room at all. (A first version
+dropped the height test outright; narrowed on review.) Kicked endings of Dam,
+Surface, Frigate and Cradle's fall branch end at the same frames as before
+(1404, 679, 647, 1361). Probe: `~/wt/f3-0928c-cinema-run/probes/end2.py`
+(Bond + helicopter per 2 frames, frame-named shots).

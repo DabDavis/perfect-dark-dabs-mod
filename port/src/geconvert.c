@@ -942,6 +942,30 @@ static int romFogAltRow(uint32_t levelid, double *r)
 	return 0;
 }
 
+// A level's opening sky (ENVIRONMENTDATA_CINEMA, id + 900): bondview.c's
+// CAMERAMODE_INTRO loads it (fogLoadLevelEnvironment(level, 1)) for the still
+// shots a mission opens on, and CAMERAMODE_SWIRL puts the level's own back.
+// Dam's pulls the near plane out (5 -> 30) and Surface 2's pushes its fog from
+// 2000 to 8000, which is why its opening shot of the dish is not a wall of
+// dark red. Only Dam and Surface 2 have one.
+static int romFogCinemaRow(uint32_t levelid, double *r)
+{
+	for (size_t o = FOG_AT; o + FOG_ROW <= g_DataLen; o += FOG_ROW) {
+		const uint32_t lid = be32(g_Data, o);
+
+		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
+			break;
+		}
+
+		if (lid == levelid + 900) {
+			fogRowValues(g_Data + o + 4, r);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 // GoldenEye's three sky pictures (image_bank.c's skywaterimages: clouds,
 // grey water, blue water), which are Perfect Dark's three sky/water texture
 // configs in the same order but different pictures - Perfect Dark redrew its
@@ -6790,6 +6814,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 				if (romFogAltRow(lv->levelid, fog)) {
 					textf(&missions, " altfog \"");
+					fogValue(&missions, fog, offset, levelVisibility(lv->key));
+					textf(&missions, "\"");
+				}
+
+				if (romFogCinemaRow(lv->levelid, fog)) {
+					textf(&missions, " cinemafog \"");
 					fogValue(&missions, fog, offset, levelVisibility(lv->key));
 					textf(&missions, "\"");
 				}

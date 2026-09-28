@@ -104,6 +104,8 @@ static s32 g_ModMissionStages[MODLOADER_MAX_MISSIONS];
 static struct fogenvironment g_ModStageFog[STAGE_MAX_ID + 1];
 // a mission's second sky (`altfog`): the one its gas and its sky switch fade to
 static struct fogenvironment g_ModStageFogAlt[STAGE_MAX_ID + 1];
+// and its opening sky (`cinemafog`): the one its still shots are drawn in
+static struct fogenvironment g_ModStageFogCinema[STAGE_MAX_ID + 1];
 static struct nofogenvironment g_ModStageNoFog[STAGE_MAX_ID + 1];
 // And the music its line gives it, as its mod's own sequence numbers - the
 // GoldenEye remake's levels play GoldenEye's (gemusic.c): main theme,
@@ -566,6 +568,23 @@ static void modloaderSetStageFogAlt(s32 stagenum, const char *name, const char *
 }
 
 /**
+ * A mission's `cinemafog`: GoldenEye's opening sky for the level (its fog
+ * table's row for the level's id + 900), which bondview.c's CAMERAMODE_INTRO
+ * loads for the still shots a mission opens on - Dam and Surface 2.
+ */
+static void modloaderSetStageFogCinema(s32 stagenum, const char *name, const char *text)
+{
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID) {
+		return;
+	}
+
+	if (!modloaderParseFog(stagenum, text, &g_ModStageFogCinema[stagenum])) {
+		g_ModStageFogCinema[stagenum].stage = 0;
+		sysLogPrintf(LOG_WARNING, "modloader: %s: cinemafog \"%s\" is not a fog row; the opening keeps the level's sky", name, text);
+	}
+}
+
+/**
  * A map's `props` and `propsfrom`: a setup of its own that carries another
  * mod's objects, and the solo setup of that mod's stage they are from. The
  * objects' model numbers are that mod's, so the setup is only used when
@@ -599,6 +618,15 @@ struct fogenvironment *modloaderGetStageFogAlt(s32 stagenum)
 	}
 
 	return &g_ModStageFogAlt[stagenum];
+}
+
+struct fogenvironment *modloaderGetStageFogCinema(s32 stagenum)
+{
+	if (!modloaderGetStageFog(stagenum) || g_ModStageFogCinema[stagenum].stage != stagenum) {
+		return NULL;
+	}
+
+	return &g_ModStageFogCinema[stagenum];
 }
 
 struct nofogenvironment *modloaderGetStageNoFog(s32 stagenum)
@@ -725,6 +753,7 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 			char files[4][UTIL_MAX_TOKEN + 1] = { { 0 } };
 			char fog[UTIL_MAX_TOKEN + 1] = { 0 };
 			char altfog[UTIL_MAX_TOKEN + 1] = { 0 };
+			char cinemafog[UTIL_MAX_TOKEN + 1] = { 0 };
 			char music[UTIL_MAX_TOKEN + 1] = { 0 };
 			s32 mission;
 
@@ -750,6 +779,7 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 				}
 				const bool isfog = !strcmp(token, "fog");
 				const bool isaltfog = !strcmp(token, "altfog");
+				const bool iscinemafog = !strcmp(token, "cinemafog");
 				const bool ismusic = !strcmp(token, "music");
 				p = strParseToken(p, token, NULL);
 				if (which >= 0) {
@@ -758,6 +788,8 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 					snprintf(fog, sizeof(fog), "%s", strUnquote(token));
 				} else if (isaltfog) {
 					snprintf(altfog, sizeof(altfog), "%s", strUnquote(token));
+				} else if (iscinemafog) {
+					snprintf(cinemafog, sizeof(cinemafog), "%s", strUnquote(token));
 				} else if (ismusic) {
 					snprintf(music, sizeof(music), "%s", strUnquote(token));
 				}
@@ -788,6 +820,10 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 
 				if (altfog[0]) {
 					modloaderSetStageFogAlt(stageId, name, altfog);
+				}
+
+				if (cinemafog[0]) {
+					modloaderSetStageFogCinema(stageId, name, cinemafog);
 				}
 
 				if (music[0]) {
@@ -1186,6 +1222,7 @@ void modloaderInit(void)
 	memset(g_ModMissionStages, 0, sizeof(g_ModMissionStages));
 	memset(g_ModStageFog, 0, sizeof(g_ModStageFog));
 	memset(g_ModStageFogAlt, 0, sizeof(g_ModStageFogAlt));
+	memset(g_ModStageFogCinema, 0, sizeof(g_ModStageFogCinema));
 	memset(g_ModStageHasMusic, 0, sizeof(g_ModStageHasMusic));
 	memset(g_ModStageProps, 0, sizeof(g_ModStageProps));
 	free(g_ModModels);

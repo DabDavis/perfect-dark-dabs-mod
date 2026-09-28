@@ -360,6 +360,19 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 
 	// If allowoverride is set, try to find an env1 with stage + 900.
 	// But allowoverride is never set, so this never happens.
+#ifndef PLATFORM_N64
+	// Port: it is for a converted GoldenEye mission's opening stills, whose
+	// level has its own row for them (GoldenEye's ENVIRONMENTDATA_CINEMA,
+	// the mission line's `cinemafog`; gecinema.c)
+	if (allowoverride && (env1 = modloaderGetStageFogCinema(stagenum)) != NULL) {
+		g_EnvOrigFogEnvironment = env1;
+		g_EnvTransitionFrom = env1;
+		g_EnvTransitionTo = env1;
+		envApplyFogEnvironment(g_EnvOrigFogEnvironment);
+		return;
+	}
+#endif
+
 	if (allowoverride) {
 		for (env1 = &g_FogEnvs[0]; env1->stage != 0; env1++) {
 			if (env1->stage == stagenum + 900) {
