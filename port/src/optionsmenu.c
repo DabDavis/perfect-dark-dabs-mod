@@ -2405,16 +2405,17 @@ struct modpreset {
 	s32 nofog;
 	s32 glassseethrough;
 	s32 decalclip;
+	s32 sitinchairs;
 };
 
 #define MODPRESET_CUSTOM 0
 
 static const struct modpreset g_ModPresets[] = {
-	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          ghost            splits  xblacut  glareclip  quickswap  nofog  glass  decal
-	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,               0,      0,       0,         0,         0,     0,     0     },
-	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_OFF,    true,   true,    false,     false,     false, 0,     true  },
-	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, MODGHOST_OFF,    true,   true,    true,      true,      false, 50,    true  },
-	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_RACE,   true,   true,    false,     false,     false, 0,     true  },
+	//  name              jump  roll              melee  flinch  tilt            fwd    sway  bodies  time  drawn  cod    shake  tranq  clean  smooth  enhance        vivid          black          ghost            splits  xblacut  glareclip  quickswap  nofog  glass  decal  sit
+	{ "Custom",           0,    0,                0,     0,      0,              0,     0,    0,      0,    0,     0,     0,     0,     0,     0,      0,             0,             0,             0,               0,      0,       0,         0,         0,     0,     0,     0     },
+	{ "Vanilla",          0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_OFF,    true,   true,    false,     false,     false, 0,     true,  false },
+	{ "Dab's Settings",   1,    MODROLL_EVERYONE, true,  true,   MODTILT_NORMAL, false, true, 128,    0,    64,    false, false, true,  true,  true,   MODENHANCE_2X, MODVIVID_LIGHT, MODBLACK_LIGHT, MODGHOST_OFF,    true,   true,    true,      true,      false, 50,    true,  true  },
+	{ "Ghost Trials",     0,    MODROLL_OFF,      false, false,  MODTILT_OFF,    false, true, 0,      0,    64,    false, false, true,  false, false,  MODENHANCE_OFF, MODVIVID_OFF,  MODBLACK_OFF,  MODGHOST_RACE,   true,   true,    false,     false,     false, 0,     true,  false },
 };
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)
@@ -2445,6 +2446,7 @@ static void menuhandlerModPresetApply(const struct modpreset *preset)
 	g_ModOptions.nofog = preset->nofog;
 	g_ModOptions.glassseethrough = preset->glassseethrough;
 	g_ModOptions.decalclip = preset->decalclip;
+	g_ModOptions.sitinchairs = preset->sitinchairs;
 
 	// The ways of playing, off in every preset.
 	g_ModOptions.spawnweapon = SPAWNWEAPON_OFF;
@@ -2487,6 +2489,7 @@ static bool menuhandlerModPresetMatches(const struct modpreset *preset)
 		&& g_ModOptions.nofog == preset->nofog
 		&& g_ModOptions.glassseethrough == preset->glassseethrough
 		&& g_ModOptions.decalclip == preset->decalclip
+		&& g_ModOptions.sitinchairs == preset->sitinchairs
 		&& g_ModOptions.spawnweapon == SPAWNWEAPON_OFF
 		&& g_ModOptions.guardsalerted == MODALARM_OFF
 		&& g_ModOptions.akimbo == MODAKIMBO_OFF
@@ -2839,6 +2842,23 @@ static MenuItemHandlerResult menuhandlerModSkipDeathScreen(s32 operation, struct
 		return g_ModOptions.skipdeathscreen;
 	case MENUOP_SET:
 		g_ModOptions.skipdeathscreen = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Sit In Chairs: the use button on a Carrington Institute chair sits the
+ * player in it (sitchair.c).
+ */
+static MenuItemHandlerResult menuhandlerModSitInChairs(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.sitinchairs;
+	case MENUOP_SET:
+		g_ModOptions.sitinchairs = data->checkbox.value;
 		break;
 	}
 
@@ -4588,6 +4608,14 @@ struct menuitem g_ExtendedDabsModPlayerMenuItems[] = {
 		(uintptr_t)"Quick Weapon Swap",
 		0,
 		menuhandlerModQuickWeaponSwap,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Sit In Chairs",
+		0,
+		menuhandlerModSitInChairs,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

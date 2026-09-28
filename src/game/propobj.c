@@ -100,6 +100,7 @@
 #include "geguns.h"
 #include "romdata.h"
 #include "xblatables.h"
+#include "sitchair.h"
 #endif
 #endif
 
@@ -16902,6 +16903,11 @@ bool objTestForInteract(struct prop *prop)
 				&& g_Vars.currentplayer->crouchoffset == 0.0f) {
 			maybe = true;
 		}
+#ifndef PLATFORM_N64
+	} else if (sitChairIsSeat(obj)) {
+		// an Institute chair to sit in (sitchair.c)
+		maybe = true;
+#endif
 	} else if ((obj->flags3 & OBJFLAG3_GRABBABLE)
 			&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
 			&& bmoveGetCrouchPos() == CROUCHPOS_STAND
@@ -16962,6 +16968,10 @@ bool objTestForInteract(struct prop *prop)
 			if (angle <= cone) {
 				if ((obj->flags2 & OBJFLAG2_INTERACTCHECKLOS) == 0
 						|| cdTestLos06(&playerprop->pos, playerprop->rooms, &prop->pos, prop->rooms, CDTYPE_BG)) {
+#ifndef PLATFORM_N64
+					// a chair and the terminal on its desk: the nearer one
+					if (!sitChairKeepsInteract(g_InteractProp, prop))
+#endif
 					g_InteractProp = prop;
 				}
 			}
@@ -17025,6 +17035,12 @@ bool propobjInteract(struct prop *prop)
 	struct defaultobj *obj = prop->obj;
 	bool result = false;
 	u32 tag_id = propobjGetCiTagId(prop);
+
+#ifndef PLATFORM_N64
+	if (sitChairInteract(prop)) {
+		return TICKOP_NONE;
+	}
+#endif
 
 	if (tag_id) {
 		// CI object - terminals etc

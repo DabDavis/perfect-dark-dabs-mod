@@ -695,3 +695,40 @@ Probe: ~/wt/f3-0927-options-run/cam.py (Villa, cutscene skipped at 600,
 `menuPushDialog(&g_ExtendedDabsModCameraMenuDialog)`, `g_ModOptions.camdist`
 written). Popping the root from gdb leaves `menuisactive` 1 and the pointer on
 screen - stock does the same under that harness.
+
+## Sitting in the Institute's chairs (2026-09-28)
+
+`port/src/sitchair.c`, behind **Sit In Chairs** (`Mod.SitInChairs`, off by
+default, on in Dab's Settings). The use button on one of the Carrington
+Institute's nineteen office chairs (`MODEL_DD_CHAIR`, setuptra.c) sits the
+player in it; seated he cannot move and the chair stays put (the user's rule),
+the camera looks about freely, and the use button looking away from the desk
+stands him up where he sat down from. Built the way GoldenEye's tank is: still
+`MOVEMODE_WALK`, with hooks in the walk (input, the move held in
+`bwalk0f0c63bc()`, the eye at `SIT_EYE_SCALE`, roll and jump refused).
+
+- **Stock has no animation of sitting down**, only the guards'
+  `ANIM_STAND_UP_FROM_SITTING` (17 frames); sitting down is that played
+  backwards from its last frame at -0.5, then `ANIM_SITTING_DORMANT` looping.
+  The body faces the chair (`sitChairBodyFacing()`) whatever the camera does.
+- **A chair's +z (`realrot[2]`) is its front**, towards its desk: seated the
+  view is the desk's terminal.
+- **Every chair is at a desk with a terminal in reach**, and stock's
+  interaction took the terminal from behind the chair, so nobody could sit:
+  with a chair among them the *nearer* prop wins (`sitChairKeepsInteract()` at
+  the `g_InteractProp` assignment in `objTestForInteract()`), and seated, use
+  works the terminal whenever `propFindForInteract()` finds one
+  (`bmoveHandleActivate()` runs in the tick, the level's interaction later in
+  `lvRender()`, so the chair answers first and leaves the press). A chair a
+  staffer sits in (a chr within 50 of its middle) is not a seat.
+- **Anyone near the third person camera fades** like the own body
+  (`playerGetNearChrAlphaFrac()`, same Camera Body Fade distance, box from
+  `propGetBbox()`): a seated player cannot step away from a staffer walking
+  between him and the camera, which filled the screen with a green shirt.
+
+Probe traps: a gdb teleport must resolve rooms (`func0f065e74()` from the
+chair's own) or the walk refuses every step and the camera trace leaves the
+level; the chair's front is inside its desk, so stand the probe behind it (the
+tp distance negative); a gdb call stalls the game into one huge tick, so boot
+`--fixed-step` before stepping an animation frame by frame; in third person the
+use test needs the prop on screen *from the camera*.

@@ -4298,6 +4298,14 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		solidfade = solidfade || frac < 1.0f;
 	}
 
+	// and anyone else the third person camera is right up against
+	{
+		f32 frac = playerGetNearChrAlphaFrac(prop);
+
+		alpha = alpha * frac;
+		solidfade = solidfade || frac < 1.0f;
+	}
+
 	if (g_Vars.currentplayer->visionmode == VISIONMODE_XRAY
 			|| (!USINGDEVICE(DEVICE_IRSCANNER) && chrGetCloakAlpha(chr) < 0xff)) {
 		solidfade = false;

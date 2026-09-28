@@ -126,6 +126,7 @@
 #include "system.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
+#include "sitchair.h"
 #include "getexsurface.h"
 #include "geimpact.h"
 #include "game/camera.h"
@@ -386,6 +387,7 @@ void lvReset(s32 stagenum)
 
 #ifndef PLATFORM_N64
 		geTankReset();
+		sitChairReset();
 #endif
 
 #ifndef PLATFORM_N64

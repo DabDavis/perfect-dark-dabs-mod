@@ -416,6 +416,7 @@ struct modoptions {
 	s32 glassseethrough; // percent of a distant window's see-through kept: 0 is stock's fade to opaque
 	s32 decalclip;   // Clip Decals at Edges: a wall hit is cut to the surface it lies on, none of it over a drop
 	s32 flashlighting; // MODFLASHLIGHT_*: whether gunfire, explosions and sparks light up the rooms round them
+	s32 sitinchairs; // the use button on a Carrington Institute chair sits the player in it (sitchair.c)
 };
 
 extern struct modoptions g_ModOptions;

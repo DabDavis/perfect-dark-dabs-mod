@@ -86,6 +86,7 @@ struct modoptions g_ModOptions = {
 	0,                        // glassseethrough: stock's windows, opaque past their fade distance
 	true,                     // decalclip: on for everyone (user, 2026-09-26); off is stock's whole marks
 	MODFLASHLIGHT_ON,         // flashlighting: stock's flashes everywhere
+	false,                    // sitinchairs: stock's chairs are furniture
 };
 
 /**

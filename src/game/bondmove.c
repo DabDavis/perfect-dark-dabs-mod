@@ -51,6 +51,7 @@
 #include "video.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
+#include "sitchair.h"
 #endif
 
 static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c1buttonsthisframe, u32 buttons1, u32 buttons2) {
@@ -319,6 +320,11 @@ void bmoveHandleActivate(void)
 #ifndef PLATFORM_N64
 	// GoldenEye's tank: in beside it, out of it (getank.c)
 	if (geTankActivate()) {
+		return;
+	}
+
+	// seated in an Institute chair, the use button stands him up (sitchair.c)
+	if (sitChairActivate()) {
 		return;
 	}
 #endif

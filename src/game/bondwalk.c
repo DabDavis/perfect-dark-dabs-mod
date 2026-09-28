@@ -38,6 +38,7 @@
 #include "system.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
+#include "sitchair.h"
 #endif
 #endif
 #ifndef PLATFORM_N64
@@ -555,7 +556,11 @@ bool bwalkIsRolling(void)
 void bwalkTryJump(void)
 {
 	if (!modIsJumpEnabled()
-			|| g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK) {
+			|| g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK
+#ifndef PLATFORM_N64
+			|| sitChairHoldsMove()
+#endif
+			) {
 		return;
 	}
 
@@ -614,6 +619,7 @@ void bwalkTryRoll(void)
 			|| g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK
 			|| g_Vars.currentplayer->isfalling
 			|| g_Vars.currentplayer->onladder
+			|| sitChairHoldsMove()
 			|| g_Vars.lvframe60 - g_Vars.currentplayer->rolltime60 < ROLL_COOLDOWN) {
 		return;
 	}
@@ -1785,6 +1791,7 @@ void bwalkUpdateVertical(void)
 
 #ifndef PLATFORM_N64
 		eyeheight = geTankEyeHeight(eyeheight);
+		eyeheight = sitChairEyeHeight(eyeheight);
 #endif
 
 		newpos.x = g_Vars.currentplayer->prop->pos.x;
@@ -1953,6 +1960,11 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 		return;
 	}
 
+	// seated, the walk moves nothing: sitChairTick() puts him in the seat
+	if (sitChairHoldsMove()) {
+		return;
+	}
+
 	// GoldenEye's vents and crawl spaces: a converted level has no ceiling to
 	// hold the player down, and GoldenEye has none either - its tiles say
 	// where Bond squats, asked where this move is going (gestan.h)
@@ -2110,6 +2122,11 @@ void bwalkApplyMoveData(struct movedata *data)
 #ifndef PLATFORM_N64
 	// driving GoldenEye's tank, the sticks are the tank's (getank.c)
 	if (geTankApplyMoveData(data)) {
+		return;
+	}
+
+	// seated in a chair, the sticks move nothing (sitchair.c)
+	if (sitChairApplyMoveData(data)) {
 		return;
 	}
 #endif
@@ -2648,6 +2665,10 @@ void bwalk0f0c69b8(void)
 void bwalkTick(void)
 {
 	bwalkUpdatePrevPos();
+#ifndef PLATFORM_N64
+	// carried into a chair and out of it, before the walk (sitchair.c)
+	sitChairTick();
+#endif
 	bwalkUpdateTheta();
 	bmoveUpdateVerta();
 	bwalk0f0c69b8();

@@ -122,6 +122,7 @@
 #include "platform.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
+#include "sitchair.h"
 #endif
 #endif
 
@@ -4011,65 +4012,54 @@ f32 playerGetCutsceneBodyAlphaFrac(struct prop *prop)
  * the body.
  *
  * Aiming and GE Plus's watch put the camera on the eye (0, and so the first
- * person gun and the body are never both drawn). Nothing else is faded: not
- * another player, a simulant, a cutscene (which has its own swoop above), a
- * CamSpy's or a rocket's view, or the level behind a menu. Menu previews and
+ * person gun and the body are never both drawn). Nothing else fades the own
+ * body: not a cutscene (which has its own swoop above), a CamSpy's or a
+ * rocket's view, or the level behind a menu. Other chrs close to the camera
+ * fade by the same rule (playerGetNearChrAlphaFrac()). Menu previews and
  * the watch's arm are models drawn by themselves and never come here.
  */
 #define BODYFADE_SPAN   60.0f // from gone to whole
 #define BODYFADE_FEET   20.0f // the segment's bottom, above the ground
 #define BODYFADE_CROWN  15.0f // and its top, above the eye
 
-f32 playerGetOwnBodyAlphaFrac(struct prop *prop)
+/**
+ * Whether the current player's own third person camera is live in play: asked
+ * for (thirdperson - aiming, the watch and a long fall keep the request and
+ * put the camera on the eye, where the body has to go), the normal tick's
+ * camera (not a CamSpy, a Slayer rocket or anything else), and no menu over
+ * the level - the Perfect Menu in the Institute draws the level live behind
+ * Customize Character, and a body there at the default fade read as the
+ * character being faded (merge smoke test, 2026-09-27). Mods: Camera's live
+ * preview is play as far as this goes: it is where Camera Body Fade is set.
+ */
+static bool playerCamFadeLive(struct player *player)
 {
-	struct player *player;
-	struct coord *cam;
-	f32 top;
-	f32 bottom;
+	return g_Vars.tickmode == TICKMODE_NORMAL
+		&& player->cameramode == CAMERAMODE_DEFAULT
+		&& player->thirdperson
+		&& (!player->menuisactive || optionsMenuWantsLiveWorld());
+}
+
+/**
+ * The camera's distance from the upright segment from `bottom` to `top` under
+ * `pos`, as a fraction to draw: gone within Camera Body Fade, whole
+ * BODYFADE_SPAN further out, smoothstepped between.
+ */
+static f32 playerCamFadeFrac(struct coord *pos, f32 top, f32 bottom)
+{
+	struct coord *cam = &g_Vars.currentplayer->cam_pos;
 	f32 dx;
 	f32 dy;
 	f32 dz;
 	f32 dist;
 	f32 frac;
 
-	if (prop->type != PROPTYPE_PLAYER
-			|| playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum) {
-		return 1;
-	}
-
-	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
-		return playerGetCutsceneBodyAlphaFrac(prop);
-	}
-
-	player = g_Vars.currentplayer;
-
-	// Only while this player's own third person camera is live in play: asked
-	// for (thirdperson - aiming, the watch and a long fall keep the request
-	// and put the camera on the eye, where the body has to go), the normal
-	// tick's camera (not a CamSpy, a Slayer rocket or anything else), and no
-	// menu over the level - the Perfect Menu in the Institute draws the level
-	// live behind Customize Character, and a body there at the default fade
-	// read as the character being faded (merge smoke test, 2026-09-27).
-	// Mods: Camera's live preview is play as far as this goes: it is where
-	// Camera Body Fade is set.
-	if (g_Vars.tickmode != TICKMODE_NORMAL
-			|| player->cameramode != CAMERAMODE_DEFAULT
-			|| !player->thirdperson
-			|| (player->menuisactive && !optionsMenuWantsLiveWorld())) {
-		return 1;
-	}
-
-	cam = &player->cam_pos;
-
-	top = player->bond2.unk10.y + BODYFADE_CROWN;
-	bottom = player->vv_manground + BODYFADE_FEET;
-
 	if (bottom > top) {
 		bottom = top;
 	}
 
-	dx = cam->x - prop->pos.x;
-	dz = cam->z - prop->pos.z;
+	dx = cam->x - pos->x;
+	dz = cam->z - pos->z;
 
 	if (cam->y > top) {
 		dy = cam->y - top;
@@ -4092,6 +4082,56 @@ f32 playerGetOwnBodyAlphaFrac(struct prop *prop)
 	frac = (dist - g_ModOptions.camfade) / BODYFADE_SPAN;
 
 	return frac * frac * (3 - 2 * frac);
+}
+
+f32 playerGetOwnBodyAlphaFrac(struct prop *prop)
+{
+	struct player *player;
+
+	if (prop->type != PROPTYPE_PLAYER
+			|| playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum) {
+		return 1;
+	}
+
+	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
+		return playerGetCutsceneBodyAlphaFrac(prop);
+	}
+
+	player = g_Vars.currentplayer;
+
+	if (!playerCamFadeLive(player)) {
+		return 1;
+	}
+
+	return playerCamFadeFrac(&prop->pos,
+			player->bond2.unk10.y + BODYFADE_CROWN,
+			player->vv_manground + BODYFADE_FEET);
+}
+
+/**
+ * Anyone else the third person camera has come right up against - a guard
+ * or an Institute staffer walking between the camera and the player, most
+ * often while the player sits in a chair (sitchair.c) and cannot step away -
+ * fades the way the player's own body does, measured to the same kind of
+ * upright segment through their own collision box. Only while the current
+ * player's own third person camera is live, so first person, aiming and
+ * every other camera draw everyone whole as before.
+ */
+f32 playerGetNearChrAlphaFrac(struct prop *prop)
+{
+	f32 radius;
+	f32 ymax;
+	f32 ymin;
+
+	if ((prop->type != PROPTYPE_CHR && prop->type != PROPTYPE_PLAYER)
+			|| prop == g_Vars.currentplayer->prop
+			|| !playerCamFadeLive(g_Vars.currentplayer)) {
+		return 1;
+	}
+
+	propGetBbox(prop, &radius, &ymax, &ymin);
+
+	return playerCamFadeFrac(&prop->pos, ymax, ymin + BODYFADE_FEET);
 }
 #endif
 
@@ -7873,6 +7913,10 @@ s32 playerTickThirdPerson(struct prop *prop)
 		} else {
 			player->thirdpersonbodyset = false;
 		}
+
+		// seated in a chair, the body faces the way the chair does while the
+		// camera looks where it likes (sitchair.c)
+		sitChairBodyFacing(player, &facing);
 #endif
 
 		if ((chr->hidden & CHRHFLAG_00000800) == 0) {
@@ -8096,6 +8140,14 @@ void playerChooseThirdPersonAnimation(struct chrdata *chr, s32 crouchpos, f32 sp
 	}
 
 	prevanimnum = modelGetAnimNum(chr->model);
+
+#ifndef PLATFORM_N64
+	// sitting down, seated and standing up in an Institute chair (sitchair.c)
+	if (!chrIsDead(chr) && sitChairAnimateBody(chr, angleoffset)) {
+		*animcfgptr = NULL;
+		return;
+	}
+#endif
 
 	if (chrIsDead(chr)) {
 		// Choose a death animation
