@@ -31,6 +31,14 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 11 2026-09-28
+Customize Character: filter boxes for GE XBLA, GE N64, PD N64 and PD XBLA characters, so the one you want is easier to find (thanks dab)
+Customize Character: Match Head to Body puts a body's own head back on it
+Customize Character: Trevelyan, Natalya, Xenia, Ourumov, Boris, Valentin, May Day, Jaws, Oddjob and Baron Samedi have their own heads in the head list, and Trevelyan (006) wears his own face in the HD look (thanks dab)
+GE HD characters: no more pale band and spiky seam at the back of the neck (thanks dab)
+GE characters: a GoldenEye head on another body gets a smooth neck in its own skin colour instead of spiky pieces of the body's (thanks dab)
+Heads of one game on bodies of the other sit at the right height instead of floating or sinking into the collar (thanks dab)
+
 notes 10 2026-09-28
 Institute, Sit In Chairs: you sit on the sofa's cushion instead of sinking into it, at its ends with your arm on the armrest (thanks dab)
 
