@@ -368,7 +368,7 @@ static s32 modAlarmCountWaypoints(void)
  * Temple). The run's landing is a waypoint too, which is why every one of
  * those hops logged "land pad -1".
  *
- * So while the alarm is on, a stage with no waypoints gets them from its pads,
+ * So during a Randomizer run, a stage with no waypoints gets them from its pads,
  * after setupPreparePads() has put each pad in its room and before
  * setupLoadWaypoints() files the waypoints by room:
  *
@@ -411,7 +411,9 @@ void modAlarmBuildPadWaypoints(void)
 	s32 grpos;
 	u64 started;
 
-	if (!modIsGuardsAlertedOn() || g_PadsFile == NULL || g_StageSetup.padfiledata == NULL) {
+	// Only for a Randomizer run's landings and guards: a Guards Alerted
+	// match or mission on the same map plays exactly as it did before.
+	if (!modRunIsOn() || g_PadsFile == NULL || g_StageSetup.padfiledata == NULL) {
 		return;
 	}
 
