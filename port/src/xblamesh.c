@@ -406,12 +406,19 @@ struct xblameshbuilt {
 	s8 beanhood[64];   // a node's group with the parka's hood (gebeanmats.hood)
 	s8 beanneckof[64]; // a head node's group with a neck made under it (gebeanmats.neck)
 	s8 beanbare[64];   // a neck node's group of the collar the hood covers (gebeanmats.bare)
+	s8 beanownneck[64]; // a neck node's group of the body's whole neck (gebeanmats.ownneck)
 	u64 beanspent;     // a first-person launcher's nodes with a group for an empty tube
 	s8 beanspentgroup[64]; // and that group (gebeanmats.spent)
 	s32 beanhead;      // the mesh is a head's (gebeanmats.head)
 	s32 beanneckback;  // and its palette entry 1 is the joint above its own (gebeanmats.neckback)
 	f32 beanseat[GEBEAN_SEAT_SAMPLES]; // a head's underside or a body's collar round the neck (gebeanmats.seat)
 	u32 beanseathit;
+	f32 beanneckshift[3]; // a body's own neck joint from the model's (gebeanmats.neckshift)
+	s32 beanhasneckshift;
+	f32 beancollarshift; // gebeanmats.collarshift
+	s32 beanhascollarshift;
+	s32 beanfromchar;  // gebeanmats.fromchar
+	f32 beanopenrim;   // gebeanmats.openrim
 	const struct modeldef *neckbackdef; // the body that joint was last found on,
 	s32 neckbackmtx;   // its matrix there (-1 for none)
 	f32 neckbackofs[3]; // and the head's joint from it at rest
@@ -6765,6 +6772,7 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 	memcpy(m->beanneckfill, bmats->neckfill, sizeof(m->beanneckfill));
 	memcpy(m->beanhood, bmats->hood, sizeof(m->beanhood));
 	memcpy(m->beanneckof, bmats->neck, sizeof(m->beanneckof));
+	memcpy(m->beanownneck, bmats->ownneck, sizeof(m->beanownneck));
 
 	for (s32 k = 0; k < 64; k++) {
 		if (bmats->hood[k] >= 0 && bmats->hood[k] < 64) {
@@ -6784,6 +6792,12 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 	m->beanneckback = bmats->neckback;
 	memcpy(m->beanseat, bmats->seat, sizeof(m->beanseat));
 	m->beanseathit = bmats->seathit;
+	memcpy(m->beanneckshift, bmats->neckshift, sizeof(m->beanneckshift));
+	m->beanhasneckshift = bmats->hasneckshift;
+	m->beancollarshift = bmats->collarshift;
+	m->beanhascollarshift = bmats->hascollarshift;
+	m->beanfromchar = bmats->fromchar;
+	m->beanopenrim = bmats->openrim;
 	m->beanrow = e->beanrow;
 	m->beanscreenfit = bmats->screenfit;
 	memcpy(m->beanscreenquad, bmats->screenquad, sizeof(m->beanscreenquad));
@@ -7475,7 +7489,7 @@ static s32 xblaMeshNeckBack(struct xblameshbuilt *m, const struct modeldef *def,
  * NULL when there is no room this frame, and the caller draws the bind pose.
  */
 static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *root,
-		Mtxf **outmtx, s32 *outfine, s32 normals, f32 headlift)
+		Mtxf **outmtx, s32 *outfine, s32 normals, const f32 *headshift)
 {
 	Mtxf pal[XBLAMESH_MAXMTX];
 	Mtxf invroot;
@@ -7550,15 +7564,18 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 		// Out of the bind pose, into the game's, and then out of the matrix
 		// this list is drawn under - which is what keeps the result small
 		// enough to be the s16 a Perfect Dark vertex holds.
-		if (headlift != 0.0f) {
+		if (headshift && (headshift[0] != 0.0f || headshift[1] != 0.0f || headshift[2] != 0.0f)) {
 			// A head seated higher or lower on this body than on its own
 			// (bodyCalculateHeadOffset(), headfit.c) moved its N64 vertices
 			// along its own up; the mesh moves the same way, in the matrix's
-			// frame before it is turned.
+			// frame before it is turned. (And a pool head onto its body's own
+			// neck joint, xblaMeshPoolHeadSeat(), in all three.)
 			Mtxf lifted = model->matrices[src];
 
 			for (s32 j = 0; j < 3; j++) {
-				lifted.m[3][j] += model->matrices[src].m[1][j] * headlift;
+				lifted.m[3][j] += model->matrices[src].m[0][j] * headshift[0]
+					+ model->matrices[src].m[1][j] * headshift[1]
+					+ model->matrices[src].m[2][j] * headshift[2];
 			}
 
 			mtx4MultMtx4(&lifted, bind, &step);
@@ -8180,7 +8197,7 @@ static s32 xblaMeshHeadBeanRow(struct model *model)
  * A model definition drawn as one of the release's GoldenEye meshes, measured
  * round the neck (gebeanmats.seat): a head's rim or a body's collar, the
  * middle of the directions found, in the model's own units about the neck
- * joint; and for a head whether it ends at its jaw (GEBEAN_NECKLESS). For
+ * joint; and for a head whether it ends at its jaw (GEBEAN_OPENRIM_JAW). For
  * seating a head of one game on a body of the other (headfit.c), whose
  * measure of the N64 geometry says nothing about a mesh drawn over it. 0 when
  * the model is not drawn so in this look, or its mesh has no such ring.
@@ -8219,7 +8236,7 @@ s32 xblaMeshBeanSeat(struct modeldef *def, s32 head, f32 *out, s32 *outneckless)
 			*out = n & 1 ? found[n / 2] : (found[n / 2 - 1] + found[n / 2]) * 0.5f;
 
 			if (outneckless) {
-				*outneckless = (m->beanseathit & 1) && m->beanseat[0] > GEBEAN_NECKLESS;
+				*outneckless = m->beanopenrim > GEBEAN_OPENRIM_JAW;
 			}
 
 			return 1;
@@ -8274,34 +8291,61 @@ static s32 xblaMeshBodyBeanRow(struct model *model)
 }
 
 /**
- * How far to lower one of the pool's heads onto one of its bodies, along the
- * neck. The pool's rows stand on a host's models, whose N64 geometry says
- * nothing about the mesh, so headfit.c leaves them alone. GoldenEye's
- * N64-look head files have no neck - they end at the jaw, open underneath,
- * the neck being a short tube of the body's that Bean skins with the head the
- * body leaves out - and the body, fitted onto the host's rig, carries its
- * collar lower under the neck joint than GoldenEye did. So a head stood with
- * its jaw clear of the collar and the room showing through under it (F3
- * 20260927-174737: "many head/body combos make the head float above the body
- * ... especially with classic mode, much less with xbla").
+ * How far to move one of the pool's heads along the neck on one of its
+ * bodies. The pool's rows stand on a host's models, whose N64 geometry says
+ * nothing about the mesh, so headfit.c leaves them alone. The body is fitted
+ * onto the host's rig, and the fit carries Bean's neck joint on the back's
+ * fit rather than onto the host's neck joint (gebean.c's beanFitPalette()),
+ * some 13 to 33 units above it: the collar and the body's own neck go with
+ * Bean's joint, while the head is grafted at the host's. GoldenEye hangs any
+ * head on the body's own neck joint, so the head goes there
+ * (gebeanmats.neckshift, .collarshift), a neck of the body's under a head that
+ * ends at its jaw as in GoldenEye (xblaMeshPoolNeckOwn()). The Customize
+ * Character pick and the Combat Simulator's GoldenEye characters: a converted
+ * mission's guards stand on GoldenEye's own N64 bodies and never come here.
  *
- * The head's rim and the body's collar are read by direction round the neck
- * (gebeanmats.seat); the head goes down as far as the widest gap needs, less
- * XBLAMESH_SEAT_TUCK, and never up: a head with a neck of its own (the HD
- * heads, the Bond heads cut off their bodies) reaches into the collar
- * already and stays where it is.
+ * Until 2026-09-28 this lowered the head as far as the widest gap round the
+ * neck between its rim and the collar - which, on a head ending at its jaw,
+ * is the nape, where GoldenEye's gap is the neck: every such head sat with
+ * its chin in the collar and no neck at all (F3 20260928-071022, "head
+ * sitting too low still"; 035938 "mr no neck").
  */
-#define XBLAMESH_SEAT_TUCK 4.0f
 #define XBLAMESH_SEAT_MOST 80.0f
-#define XBLAMESH_NECKLESS GEBEAN_NECKLESS
+// How far under the middle of a collar a head's open rim may stand and still
+// be a neck reaching into it
+#define XBLAMESH_RIM_CLEAR 5.0f
 
-static f32 xblaMeshPoolHeadSeat(const struct xblameshbuilt *head, const struct xblameshentry *he, struct model *model)
+/** The middle of a body's collar round the neck (gebeanmats.seat). */
+static f32 xblaMeshCollarMiddle(const struct xblameshbuilt *body)
+{
+	f32 found[GEBEAN_SEAT_SAMPLES];
+	s32 n = 0;
+
+	for (s32 i = 0; i < GEBEAN_SEAT_SAMPLES; i++) {
+		if (body->beanseathit & (1u << i)) {
+			s32 at = n++;
+
+			while (at > 0 && found[at - 1] > body->beanseat[i]) {
+				found[at] = found[at - 1];
+				at--;
+			}
+
+			found[at] = body->beanseat[i];
+		}
+	}
+
+	return n > 0 ? found[n / 2] : 0.0f;
+}
+
+static void xblaMeshPoolHeadSeat(const struct xblameshbuilt *head, const struct xblameshentry *he, struct model *model, f32 out[3])
 {
 	struct modelnode *node;
 
-	if (!head || !head->frombean || !head->beanhead || !head->beanseathit
+	out[0] = out[1] = out[2] = 0.0f;
+
+	if (!head || !head->frombean || !head->beanhead
 			|| !gebeanRowIsPool(he->beanrow) || !model || !model->definition) {
-		return 0.0f;
+		return;
 	}
 
 	node = model->definition->rootnode;
@@ -8311,36 +8355,55 @@ static f32 xblaMeshPoolHeadSeat(const struct xblameshbuilt *head, const struct x
 
 		if (e && e->node == node && e->modeldef == model->definition && !e->suppress && e->beanrow >= 0) {
 			const struct xblameshbuilt *body;
-			f32 lift;
 
 			if (!gebeanRowIsPool(e->beanrow)) {
-				return 0.0f;
+				return;
+			}
+
+			// A head cut off this very body's own neck (a Bond outfit's)
+			// stands where its body pins it at the seam
+			if (head->beanfromchar && gebeanRowKeepsHood(e->beanrow, he->beanrow)) {
+				return;
+			}
+
+			// One of the women, fitted onto Joanna: her head already sits
+			// where GoldenEye's does at the host's joint (the ROM's Sally on
+			// the technician, the release's on the Civilian and the Moonraker
+			// woman); lifted by the fit's neck she stood on a ring of the room
+			if (gebeanRowIsFemale(e->beanrow)) {
+				return;
 			}
 
 			body = xblaMeshBuildBean(e, !optEnabled);
 
-			if (!body || !body->beanseathit) {
-				return 0.0f;
+			if (!body || !body->beanhasneckshift) {
+				return;
 			}
 
-			// As far down as the widest gap round the neck needs
-			lift = 0.0f;
+			// Across, onto Bean's own neck joint; up, by as much as the fit
+			// moved the collar against the host's joint (gebeanmats.collarshift,
+			// which is the joint's own lift give or take the fit's stretch)
+			for (s32 k = 0; k < 3; k++) {
+				const f32 v = k == 1 && body->beanhascollarshift ? body->beancollarshift : body->beanneckshift[k];
 
-			for (s32 i = 0; i < GEBEAN_SEAT_SAMPLES; i++) {
-				if ((body->beanseathit & head->beanseathit) & (1u << i)) {
-					const f32 need = body->beanseat[i] - XBLAMESH_SEAT_TUCK - head->beanseat[i];
+				out[k] = v > XBLAMESH_SEAT_MOST ? XBLAMESH_SEAT_MOST : v < -XBLAMESH_SEAT_MOST ? -XBLAMESH_SEAT_MOST : v;
+			}
 
-					if (need < lift) {
-						lift = need;
-					}
+			// A head with a neck of its own (the release's, GEBEAN_OPENRIM_JAW)
+			// goes no higher than keeps its neck's foot in the collar: only a
+			// head ending at the jaw has the body's neck to fill under it
+			// (xblaMeshPoolNeckOwn()), and the release's women, their necks
+			// short, stood on a band of the room (the Civilian, the Moonraker
+			// woman) where they had sat well
+			if (head->beanopenrim > -1e8f && head->beanopenrim <= GEBEAN_OPENRIM_JAW && body->beanseathit) {
+				const f32 most = xblaMeshCollarMiddle(body) - XBLAMESH_RIM_CLEAR - head->beanopenrim;
+
+				if (out[1] > most) {
+					out[1] = most > 0.0f ? most : 0.0f;
 				}
 			}
 
-			if (lift < -XBLAMESH_SEAT_MOST) {
-				lift = -XBLAMESH_SEAT_MOST;
-			}
-
-			return lift < 0.0f ? lift : 0.0f;
+			return;
 		}
 
 		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
@@ -8354,7 +8417,66 @@ static f32 xblaMeshPoolHeadSeat(const struct xblameshbuilt *head, const struct x
 		}
 	}
 
-	return 0.0f;
+	return;
+}
+
+static s32 xblaMeshPoolHeadIsSeated(struct model *model);
+
+/**
+ * Whether this pool body draws its own neck (gebeanmats.ownneck) under the
+ * pool head grafted on it, one ending at its jaw: GoldenEye's own
+ * arrangement, the neck the body's and the head only a face, in place of the
+ * collar's filler (which is clamped to the host's N64 neck, for the heads
+ * headfit.c fits). Not under the head cut off this very body's neck, which
+ * its body keeps the hood round.
+ */
+static s32 xblaMeshPoolNeckOwn(struct model *model)
+{
+	struct modelnode *node;
+
+	if (!xblaMeshPoolHeadIsSeated(model)) {
+		return 0;
+	}
+
+	{
+		const s32 bodyrow = xblaMeshBodyBeanRow(model);
+		const s32 headrow = xblaMeshHeadBeanRow(model);
+
+		if (bodyrow >= 0 && headrow >= 0 && gebeanRowKeepsHood(bodyrow, headrow)) {
+			return 0;
+		}
+	}
+
+	node = model->definition->rootnode;
+
+	for (s32 walked = 0; node && walked < 512; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == model->definition && !e->suppress && e->beanrow >= 0) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+
+			for (s32 k = 0; m && k < 64; k++) {
+				if (m->beanownneck[k] >= 0 && m->beanownneck[k] < m->numgroups
+						&& !(m->groupabsent & (1ull << m->beanownneck[k]))) {
+					return 1;
+				}
+			}
+
+			return 0;
+		}
+
+		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return 0;
 }
 
 /**
@@ -8410,16 +8532,47 @@ static s32 xblaMeshHeadBringsNeck(struct model *model)
 	return 0;
 }
 
+
+/** The pool body's own mesh, built, or NULL (a body of any other kind). */
+static const struct xblameshbuilt *xblaMeshBodyBuilt(struct model *model)
+{
+	struct modelnode *node = model && model->definition ? model->definition->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 512; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == model->definition && !e->suppress && e->beanrow >= 0) {
+			return gebeanRowIsPool(e->beanrow) ? xblaMeshBuildBean(e, !optEnabled) : NULL;
+		}
+
+		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return NULL;
+}
+
 /**
- * Whether the head on a pool body was lowered onto it (xblaMeshPoolHeadSeat()),
- * which is a head with no neck of its own: the body's own neck at the collar
- * (gebeanmats.neckfill) fills the collar under it, as it does under a head
- * headfit.c fitted. Looking down into the collar past the chin, a body with
- * nothing there is open to the room behind it.
+ * Whether the pool head on a pool body has no neck reaching into its collar:
+ * its open rim (gebeanmats.openrim), where xblaMeshPoolHeadSeat() seats it,
+ * stands over the middle of the collar. Every N64-look head ends at its jaw,
+ * and some of the release's women's; the body's own neck fills the collar
+ * under such a head (gebeanmats.ownneck, else .neckfill), as it does under a
+ * head headfit.c fitted. With nothing there, looking down into the collar
+ * past the chin showed the room behind it (F3 20260928-040029, a dark ring
+ * round the scientist's neck).
  */
 static s32 xblaMeshPoolHeadIsSeated(struct model *model)
 {
-	struct modelnode *spot = model && model->definition ? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
+	// Only one of the pool's bodies: the walk below is for a head grafted on one
+	struct modelnode *spot = xblaMeshBodyBuilt(model) ? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
 	union modelrwdata *rw = spot ? modelGetNodeRwData(model, spot) : NULL;
 	struct modeldef *head = rw ? rw->headspot.headmodeldef : NULL;
 	struct modelnode *node = head ? head->rootnode : NULL;
@@ -8430,11 +8583,27 @@ static s32 xblaMeshPoolHeadIsSeated(struct model *model)
 		if (e && e->node == node && e->modeldef == head && !e->suppress && e->beanrow >= 0) {
 			const struct xblameshbuilt *m = gebeanRowIsPool(e->beanrow) ? xblaMeshBuildBean(e, !optEnabled) : NULL;
 
-			// (or one ending at the jaw that the collar already reaches: a
-			// high-collared body's hole shows round the sides of the neck)
-			return m && (xblaMeshPoolHeadSeat(m, e, model) < 0.0f
-					|| (m->beanhead && (m->beanseathit & 1) && m->beanseat[0] > XBLAMESH_NECKLESS
-						&& xblaMeshBodyBeanRow(model) >= 0 && gebeanRowIsPool(xblaMeshBodyBeanRow(model))));
+			const struct xblameshbuilt *body = xblaMeshBodyBuilt(model);
+			f32 shift[3];
+
+			if (!m || !m->beanhead || !body || !body->beanseathit || m->beanopenrim < -1e8f) {
+				return 0;
+			}
+
+			// Whether its open rim, where the fit seats it (xblaMeshPoolHeadSeat()),
+			// stands clear of the middle of the collar: a head ending at its jaw
+			// (every N64-look head, and some of the release's women's), whose
+			// neck is the body's
+			xblaMeshPoolHeadSeat(m, e, model, shift);
+
+			// A head with a neck of its own (GEBEAN_OPENRIM_JAW) against the
+			// collar's front, where a coat opens lowest round a throat: the
+			// technician's HD Sally, whose neck is short of her V
+			if (m->beanopenrim <= GEBEAN_OPENRIM_JAW) {
+				return (body->beanseathit & 1) && m->beanopenrim + shift[1] > body->beanseat[0] - XBLAMESH_RIM_CLEAR;
+			}
+
+			return m->beanopenrim + shift[1] > xblaMeshCollarMiddle(body) - XBLAMESH_RIM_CLEAR;
 		}
 
 		if (node->child) {
@@ -10520,7 +10689,13 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			part = (u16)m->beanneckof[e->packpart];
 		}
 
-		if (part < 64 && m->beanneckfill[part] >= 0 && m->beanneckfill[part] < m->numgroups
+		if (!m->beanhead && gebeanRowIsPool(m->beanrow)
+				&& part < 64 && m->beanownneck[part] >= 0 && m->beanownneck[part] < m->numgroups
+				&& !(m->groupabsent & (1ull << m->beanownneck[part]))
+				&& xblaMeshPoolNeckOwn(model)) {
+			// The body's own whole neck under a pool head ending at its jaw
+			part = (u16)m->beanownneck[part];
+		} else if (part < 64 && m->beanneckfill[part] >= 0 && m->beanneckfill[part] < m->numgroups
 				&& !(m->groupabsent & (1ull << m->beanneckfill[part]))
 				&& (xblaMeshHeadIsFitted(model) || xblaMeshPoolHeadIsSeated(model))) {
 			// drawing nothing, and not the N64 stub either
@@ -10688,10 +10863,17 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			} else {
 				// Normals only for a draw that will reflect: the opaque pass,
 				// within the cutoff.
+				f32 headshift[3] = { 0.0f, 0.0f, 0.0f };
+
+				if (e->modeldef != model->definition) {
+					xblaMeshPoolHeadSeat(m, e, model, headshift);
+					headshift[1] += (f32)headfitAppliedOffset(e->modeldef);
+				}
+
 				pose = xblaMeshPose(m, model, root, &finemtx, &fine,
 						opa && m->envgdl && xblaTexGetEnabled() && XBLAMESH_ENV_WANTED() &&
 						xblaMeshEnvironmentReach(m, root) > 0,
-						e->modeldef != model->definition ? (f32)headfitAppliedOffset(e->modeldef) + xblaMeshPoolHeadSeat(m, e, model) : 0.0f);
+						headshift);
 
 				if (pose) {
 					framePoses++;
