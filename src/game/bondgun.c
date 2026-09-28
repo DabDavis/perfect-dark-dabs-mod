@@ -8657,7 +8657,9 @@ static void bgunSetGunMatrices(struct modelrenderdata *renderdata, struct hand *
 		struct anim *anim = hand->gunmodel.anim;
 
 		hand->gunmodel.anim = NULL;
+		gegunsOwnModelRevolverBegin(hand, &hand->gunmodel);
 		modelSetMatricesWithAnim(renderdata, &hand->gunmodel);
+		gegunsOwnModelRevolverEnd();
 		hand->gunmodel.anim = anim;
 	} else {
 		modelSetMatricesWithAnim(renderdata, &hand->gunmodel);
@@ -9140,6 +9142,14 @@ void bgun0f0a5550(s32 handnum)
 			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 				a0 = false;
 			}
+
+#ifndef PLATFORM_N64
+			// GoldenEye's revolver skeleton turns its drum and hammer each
+			// shot (gegunsOwnModelRevolverBegin()): not a pose to keep
+			if (gegunsOwnModelRevolver(weaponnum)) {
+				a0 = false;
+			}
+#endif
 
 			switch (weaponHost(weaponnum)) {
 			case WEAPON_COMBATKNIFE:

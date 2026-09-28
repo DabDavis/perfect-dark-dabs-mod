@@ -113,6 +113,9 @@ s32 gegunsNeverPairs(s32 weaponnum);
 s32 gegunsThrownFuse60(s32 weaponnum);
 void gegunsOwnModelParts(struct hand *hand, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);
+s32 gegunsOwnModelRevolver(s32 weaponnum);
+void gegunsOwnModelRevolverBegin(struct hand *hand, struct model *model);
+void gegunsOwnModelRevolverEnd(void);
 struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef, f32 *offset);
 
 // GoldenEye's knife slash on its own model (the N64 look): begun by a melee

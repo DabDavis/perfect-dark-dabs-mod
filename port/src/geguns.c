@@ -884,8 +884,11 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
  *   each shot ("auto shotgun reloads every shot"). GoldenEye X's has no fire
  *   animation at all: the recoil does the kick. The plain Shotgun is a pump
  *   action in GoldenEye X and keeps its host's.
- * - **A muzzle flash** on the silenced guns and the two launchers, whose
- *   GoldenEye models have no flash to show.
+ * - **A muzzle flash** on the silenced guns and the rocket launcher, whose
+ *   GoldenEye models have no flash to show. The grenade launcher keeps its
+ *   flash: its model has one (the switch on part 1) and gunfire.c lights it
+ *   on every shot, as it does the rocket launcher's, which has none (F3
+ *   20260928-002238, "no muzzle flash when fired").
  *
  * - **The Golden Gun's magnum.** It stands on the DY357-LX, and the model's
  *   scripts it took were the magnum's: every shot played the revolver's kick,
@@ -948,7 +951,6 @@ static void gegunsOwnTrigger(s32 i)
 		switch (weaponnum) {
 		case WEAPON_GE_PP7SILENCED:
 		case WEAPON_GE_D5KSILENCED:
-		case WEAPON_GE_GRENADELAUNCHER:
 		case WEAPON_GE_ROCKETLAUNCHER:
 			if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 				func->flags |= FUNCFLAG_NOMUZZLEFLASH;
@@ -2605,6 +2607,145 @@ void gegunsOwnModelFlash(struct hand *hand, struct model *model)
 		gegunsFlashMatrix(&model->matrices[modelFindNodeMtxIndex(star, 0)], NULL,
 				gegunsRandFrac() * M_BADTAU, unit * scale, ext, at, 1);
 	}
+}
+
+/**
+ * The revolver skeleton's moving parts, posed as gunfire.c poses them on
+ * GoldenEye's own model: part 4 is the cylinder, part 5 the hammer
+ * (skeleton_gun_revolver: the Cougar has both, the grenade launcher only the
+ * drum). Posed as a plain model both stood still, so the grenade launcher's
+ * drum never turned and the Cougar's hammer never moved (F3 20260928-002238
+ * and -002802).
+ *
+ * GoldenEye turns them while the trigger is held down before the shot
+ * (GUN_ANIM_STATE_TRIGGER_PRESS, field_890 counting sixtieths up to 6), which
+ * here is the attack's first minor state for the six ticks of
+ * gegunsTriggerDelay60(). The grenade launcher's drum turns a sixth of a turn
+ * over those six ticks; the Cougar's turns a chamber on to the one the shot
+ * leaves (and rests at one chamber a spent round), and its hammer goes back
+ * 30 degrees over the first three ticks and falls over the last three. Each is
+ * a rotation in the part's own space, about z for the drum and x for the
+ * hammer, as GoldenEye's rwmtx[3] and [4] are the gun's matrix times the
+ * rotation at the part's place. It is applied as the model's matrices are
+ * set (g_ModelJointPositionedFunc), so whatever hangs under the part follows.
+ */
+static s32 geRevCylMtx = -1;
+static s32 geRevHammerMtx = -1;
+static f32 geRevCylAngle;
+static f32 geRevHammerAngle;
+static void (*geRevPrevFunc)(s32 mtxindex, Mtxf *mtx);
+
+static void gegunsRevolverRotate(Mtxf *mtx, s32 axis, f32 angle)
+{
+	const f32 c = cosf(angle);
+	const f32 s = sinf(angle);
+	Mtxf rot;
+	Mtxf out;
+
+	// matrixmath.c's matrix_4x4_set_rotation_around_x/z
+	mtx4LoadIdentity(&rot);
+
+	if (axis == 0) {
+		rot.m[1][1] = c; rot.m[1][2] = s;
+		rot.m[2][1] = -s; rot.m[2][2] = c;
+	} else {
+		rot.m[0][0] = c; rot.m[0][1] = s;
+		rot.m[1][0] = -s; rot.m[1][1] = c;
+	}
+
+	mtx4MultMtx4(mtx, &rot, &out);
+	mtx4Copy(&out, mtx);
+}
+
+static void gegunsRevolverJoint(s32 mtxindex, Mtxf *mtx)
+{
+	if (geRevPrevFunc) {
+		geRevPrevFunc(mtxindex, mtx);
+	}
+
+	if (mtxindex == geRevCylMtx && geRevCylAngle != 0.0f) {
+		gegunsRevolverRotate(mtx, 2, geRevCylAngle);
+	}
+
+	if (mtxindex == geRevHammerMtx && geRevHammerAngle != 0.0f) {
+		gegunsRevolverRotate(mtx, 0, geRevHammerAngle);
+	}
+}
+
+/** Whether the gun is drawn on GoldenEye's own revolver skeleton, whose parts move. */
+s32 gegunsOwnModelRevolver(s32 weaponnum)
+{
+	return (weaponnum == WEAPON_GE_COUGARMAGNUM || weaponnum == WEAPON_GE_GRENADELAUNCHER)
+		&& gegunsOwnModelInUse(weaponnum);
+}
+
+/** Before the own model's matrices are set: install the drum's and hammer's turn. */
+void gegunsOwnModelRevolverBegin(struct hand *hand, struct model *model)
+{
+	const s32 weaponnum = hand->gset.weaponnum;
+	struct modeldef *def = model->definition;
+	struct modelnode *cyl;
+	struct modelnode *hammer;
+	s32 pressing;
+	s32 t;
+	s32 ammo;
+
+	geRevCylMtx = geRevHammerMtx = -1;
+	geRevPrevFunc = NULL;
+
+	if (!gegunsOwnModelRevolver(weaponnum) || !def) {
+		return;
+	}
+
+	cyl = modelGetPart(def, 4);
+	hammer = modelGetPart(def, 5);
+
+	if (cyl && (cyl->type & 0xff) == MODELNODETYPE_POSITION) {
+		geRevCylMtx = modelFindNodeMtxIndex(cyl, 0);
+	}
+
+	if (hammer && (hammer->type & 0xff) == MODELNODETYPE_POSITION) {
+		geRevHammerMtx = modelFindNodeMtxIndex(hammer, 0);
+	}
+
+	if (geRevCylMtx < 0 && geRevHammerMtx < 0) {
+		return;
+	}
+
+	// field_890 in TRIGGER_PRESS: the ticks since the press, before the shot
+	pressing = hand->state == HANDSTATE_ATTACK && hand->stateminor == HANDSTATEMINOR_ATTACK_SHOOT_0
+		&& hand->stateframes < TICKS(gegunsTriggerDelay60(weaponnum));
+	t = hand->stateframes * 60 / TICKS(60);
+	ammo = hand->loadedammo[0];
+
+	geRevCylAngle = 0.0f;
+	geRevHammerAngle = 0.0f;
+
+	if (weaponnum == WEAPON_GE_COUGARMAGNUM) {
+		geRevCylAngle = pressing
+			? ((t - ammo * 6) + 30) * M_BADTAU / 36.0f
+			: (6 - ammo) * M_BADTAU / 6.0f;
+
+		if (pressing) {
+			geRevHammerAngle = (t < 3 ? -t : -(6 - t)) * 2.0f * (M_BADTAU / 12.0f) / 6.0f;
+		}
+	} else if (pressing && t < 6) {
+		geRevCylAngle = t * M_BADTAU / 36.0f;
+	}
+
+	geRevPrevFunc = g_ModelJointPositionedFunc;
+	g_ModelJointPositionedFunc = gegunsRevolverJoint;
+}
+
+/** After: put back whatever joint function was there. */
+void gegunsOwnModelRevolverEnd(void)
+{
+	if (g_ModelJointPositionedFunc == gegunsRevolverJoint) {
+		g_ModelJointPositionedFunc = geRevPrevFunc;
+	}
+
+	geRevCylMtx = geRevHammerMtx = -1;
+	geRevPrevFunc = NULL;
 }
 
 /** The first-person model file the gun's own definition names: the borrowed one's, or the host's. */
