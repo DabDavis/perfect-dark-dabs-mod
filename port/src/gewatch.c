@@ -462,12 +462,15 @@ static struct {
 	u8 mode;
 	u8 confirm;
 	u8 sticky;
+	u8 opened; // by Start since the overlay's last tick, which is not also a Start to close it
+	u8 closed; // since its last tick: the movement tick after it still has no pad
 } g_MpWatch[MAX_PLAYERS];
 
 // who paused, so that only they can let the match go again (who_paused)
 static s32 g_MpWatchPauser = -1;
 
 static void watchMpTick(void);
+static void watchMpClose(s32 num);
 static Gfx *watchMpRender(Gfx *gdl);
 static s32 watchIsMp(void);
 
@@ -1730,17 +1733,12 @@ s32 geWatchPause(void)
 		}
 
 		if (g_MpWatch[num].on) {
-			g_MpWatch[num].on = 0;
-			g_MpWatch[num].confirm = 0;
-
-			if (mpIsPaused() && g_MpWatchPauser == num) {
-				g_MpWatchPauser = -1;
-				mpSetPaused(MPPAUSEMODE_UNPAUSED);
-			}
+			watchMpClose(num);
 		} else {
 			g_MpWatch[num].on = 1;
 			g_MpWatch[num].mode = MPPAGE_SCORES;
 			g_MpWatch[num].confirm = 0;
+			g_MpWatch[num].opened = 1;
 		}
 
 		watchBeep();
@@ -5457,6 +5455,35 @@ static s32 watchIsMp(void)
 	return g_Vars.mplayerisrunning;
 }
 
+s32 geWatchMpHoldsInput(void)
+{
+	const s32 num = g_Vars.currentplayernum;
+
+	if (!g_Watch.loaded || !watchIsMp() || num < 0 || num >= MAX_PLAYERS) {
+		return 0;
+	}
+
+	return g_MpWatch[num].on || g_MpWatch[num].closed;
+}
+
+/**
+ * The overlay put away. The buttons that did it are held back from the player
+ * until they are let go, as Perfect Dark's own menus hand the pad back
+ * (joybutinhibit), so an A or Z to leave does not fire as well.
+ */
+static void watchMpClose(s32 num)
+{
+	g_MpWatch[num].on = 0;
+	g_MpWatch[num].confirm = 0;
+	g_MpWatch[num].closed = 1;
+	g_Vars.currentplayer->joybutinhibit = 0xffffffff;
+
+	if (mpIsPaused() && g_MpWatchPauser == num) {
+		g_MpWatchPauser = -1;
+		mpSetPaused(MPPAUSEMODE_UNPAUSED);
+	}
+}
+
 static void watchMpTick(void)
 {
 	const s32 num = g_Vars.currentplayernum;
@@ -5468,6 +5495,14 @@ static void watchMpTick(void)
 		|| (stickx > 0x2e && !g_MpWatch[num].sticky);
 	const s32 accept = joyGetButtonsPressedThisFrame(pad, A_BUTTON | Z_TRIG | (num == 0 ? BUTTON_UI_ACCEPT : 0)) != 0;
 	const s32 back = joyGetButtonsPressedThisFrame(pad, B_BUTTON | (num == 0 ? BUTTON_UI_CANCEL : 0)) != 0;
+	// Start (or Esc, the keyboard's pause) put it away: with the overlay
+	// holding the pad the movement tick no longer sees it (geWatchMpHoldsInput())
+	const s32 start = joyGetButtonsPressedThisFrame(pad, START_BUTTON) != 0
+		|| (num == 0 && inputKeyJustPressed(VK_ESCAPE));
+	const s32 opened = g_MpWatch[num].opened;
+
+	g_MpWatch[num].opened = 0;
+	g_MpWatch[num].closed = 0;
 
 	// F3's Report a Problem, pushed over the overlay, has the pad (as on the
 	// solo watch)
@@ -5476,6 +5511,13 @@ static void watchMpTick(void)
 	}
 
 	if (!g_MpWatch[num].on) {
+		g_MpWatch[num].sticky = stickx > 0x10 || stickx < -0x10;
+		return;
+	}
+
+	if (start && !opened) {
+		watchMpClose(num);
+		watchBeep();
 		g_MpWatch[num].sticky = stickx > 0x10 || stickx < -0x10;
 		return;
 	}
@@ -5539,17 +5581,13 @@ static void watchMpTick(void)
 			break;
 		default:
 			g_MpWatch[num].on = 0;
+			g_MpWatch[num].closed = 1;
+			g_Vars.currentplayer->joybutinhibit = 0xffffffff;
 			watchBeep();
 			break;
 		}
 	} else if (back) {
-		g_MpWatch[num].on = 0;
-
-		if (mpIsPaused() && g_MpWatchPauser == num) {
-			g_MpWatchPauser = -1;
-			mpSetPaused(MPPAUSEMODE_UNPAUSED);
-		}
-
+		watchMpClose(num);
 		watchBeep();
 	}
 

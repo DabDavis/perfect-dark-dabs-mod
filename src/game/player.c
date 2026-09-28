@@ -5741,7 +5741,14 @@ void playerTick(bool arg0)
 			playerRemoveChrBody();
 		}
 
-		if (g_PlayersWithControl[g_Vars.currentplayernum]) {
+		// No control while a menu is up (g_PlayersWithControl), and none while
+		// GE Plus's multiplayer overlay is, which has the pad the same way
+		// (F3 20260928-025615)
+		if (g_PlayersWithControl[g_Vars.currentplayernum]
+#ifndef PLATFORM_N64
+				&& !geWatchMpHoldsInput()
+#endif
+				) {
 			bmoveTick(1, 1, arg0, 0);
 		} else {
 			bmoveTick(0, 0, 0, 1);
