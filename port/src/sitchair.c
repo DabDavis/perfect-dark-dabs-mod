@@ -79,9 +79,9 @@ struct seatmodel {
 	f32 spacing;
 };
 
-static const struct seatmodel g_SeatModels[] = {
+static struct seatmodel g_SeatModels[] = {
 	{ MODEL_DD_CHAIR, 0.0f,  1, 0.0f },
-	{ MODEL_CI_SOFA,  10.0f, 2, 100.0f },
+	{ MODEL_CI_SOFA,  24.0f, 2, 100.0f },
 };
 
 struct sitstate {
@@ -91,7 +91,6 @@ struct sitstate {
 	s32 seat;           // which of a sofa's seats
 	struct coord standpos;
 	f32 standtheta;
-	s32 bodyphase;      // the state whose animation the body was last given
 };
 
 static struct sitstate g_Sit[MAX_PLAYERS];
@@ -348,7 +347,6 @@ s32 sitChairInteract(struct prop *prop)
 	sit->chair = prop;
 	sit->standpos = g_Vars.currentplayer->prop->pos;
 	sit->standtheta = g_Vars.currentplayer->vv_theta;
-	sit->bodyphase = SIT_OFF;
 
 	g_Vars.currentplayer->speedforwards = 0;
 	g_Vars.currentplayer->speedsideways = 0;
@@ -427,8 +425,13 @@ void sitChairTick(void)
 	}
 
 	// turned on the tick that finishes sitting down too, or a long frame
-	// that sits him in one step leaves him facing the way he came
-	turning = sit->state == SIT_DOWN;
+	// that sits him in one step leaves him facing the way he came. Only in
+	// first person: in third person the view is left where he was looking,
+	// at the seat, so the camera stays out in front and he watches himself
+	// sit down. Turned round with him, the camera went behind the seat - into
+	// the wall a sofa stands against - came in onto the eye, and the body
+	// faded out: "it auto transitions to first person"
+	turning = sit->state == SIT_DOWN && !playerIsThirdPerson(player);
 
 	if (sit->state == SIT_DOWN) {
 		sit->t += g_Vars.lvupdate60freal / SIT_TICKS;
@@ -523,22 +526,33 @@ s32 sitChairAnimateBody(struct chrdata *chr, f32 *angleoffset)
 	*angleoffset = 0;
 	chr->hidden2 |= CHRH2FLAG_AUTOANIM;
 
-	if (sit->bodyphase == sit->state) {
-		return 1;
-	}
+	// asked every tick rather than once a phase: the body is only built
+	// while it is drawn, so a player who sat down in first person and then
+	// switched to third person had a body that missed the phase's start and
+	// stood up in the middle of the sofa
+	{
+		const s32 animnum = modelGetAnimNum(chr->model);
+		const f32 speed = modelGetAnimSpeed(chr->model);
+		const f32 last = animGetNumFrames(ANIM_STAND_UP_FROM_SITTING) - 1;
 
-	if (sit->state == SIT_DOWN) {
-		// the stand up, backwards from its last frame
-		modelSetAnimation(chr->model, ANIM_STAND_UP_FROM_SITTING, false,
-				animGetNumFrames(ANIM_STAND_UP_FROM_SITTING) - 1, -SIT_ANIM_SPEED, 16);
-	} else if (sit->state == SIT_SEATED) {
-		modelSetAnimation(chr->model, ANIM_SITTING_DORMANT, false, 0, 0.5f, 16);
-		modelSetAnimLooping(chr->model, 0, 16);
-	} else if (sit->state == SIT_UP) {
-		modelSetAnimation(chr->model, ANIM_STAND_UP_FROM_SITTING, false, 0, SIT_ANIM_SPEED, 16);
+		if (sit->state == SIT_DOWN) {
+			// the stand up backwards, from as far into it as the move is
+			if (animnum != ANIM_STAND_UP_FROM_SITTING || speed >= 0) {
+				modelSetAnimation(chr->model, ANIM_STAND_UP_FROM_SITTING, false,
+						last * (1.0f - sit->t), -SIT_ANIM_SPEED, 16);
+			}
+		} else if (sit->state == SIT_SEATED) {
+			if (animnum != ANIM_SITTING_DORMANT) {
+				modelSetAnimation(chr->model, ANIM_SITTING_DORMANT, false, 0, 0.5f, 16);
+				modelSetAnimLooping(chr->model, 0, 16);
+			}
+		} else if (sit->state == SIT_UP) {
+			if (animnum != ANIM_STAND_UP_FROM_SITTING || speed <= 0) {
+				modelSetAnimation(chr->model, ANIM_STAND_UP_FROM_SITTING, false,
+						last * (1.0f - sit->t), SIT_ANIM_SPEED, 16);
+			}
+		}
 	}
-
-	sit->bodyphase = sit->state;
 
 	return 1;
 }

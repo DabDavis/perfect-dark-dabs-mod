@@ -727,6 +727,20 @@ stands him up where he sat down from. Built the way GoldenEye's tank is: still
   (`bmoveHandleActivate()` runs in the tick, the level's interaction later in
   `lvRender()`, so the chair answers first and leaves the press). A chair a
   staffer sits in (a chr within 50 of its middle) is not a seat.
+- **Third person keeps the view where it was** (2026-09-28, the user's
+  report): sitting down turns the view to face out of the seat only in first
+  person. Turned in third person, the camera went behind the seat, into the
+  wall a sofa stands against, came in onto the eye and faded the body: "it
+  auto transitions to first person". Left alone, he watches himself sit.
+- **The body's animation is asked for every tick**, not once a phase: the
+  body is only built while drawn, so sitting in first person and then
+  switching to third person gave a body that missed the phase and stood in
+  the middle of the sofa. The reversed stand-up starts at the move's own
+  fraction.
+- **The sofa's seat is 24 in front of its origin** (10 sank the thighs and a
+  hand into the cushion); the office chair stays at 0 (8 took her back off
+  the backrest and her knees into the desk). `g_SeatModels` is writable so
+  gdb can move a seat live.
 - **Anyone near the third person camera fades** like the own body
   (`playerGetNearChrAlphaFrac()`, same Camera Body Fade distance, box from
   `propGetBbox()`): a seated player cannot step away from a staffer walking
