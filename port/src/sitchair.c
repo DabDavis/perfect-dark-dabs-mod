@@ -1,8 +1,8 @@
 /**
  * Sitting in the Carrington Institute's chairs (Mod.SitInChairs).
  *
- * The use button on one of the Institute's office chairs (MODEL_DD_CHAIR, the
- * nineteen in setuptra.c) sits the player in it, and the use button again
+ * The use button on one of the Institute's office chairs or sofas
+ * (g_SeatModels) sits the player in it - the free seat nearest him on a sofa - and the use button again
  * stands him up where he was. Seated he cannot move and the chair stays put.
  *
  * Every chair is at a desk with a terminal on it, and both are in reach from
@@ -60,19 +60,35 @@ enum {
 // the stand up is played at this speed, and backwards at its negative
 #define SIT_ANIM_SPEED 0.5f
 
-// a chr standing this close to a chair's middle is sitting in it
-#define SIT_TAKEN_DIST 50.0f
+// a chr standing this close to a seat is sitting in it
+#define SIT_TAKEN_DIST 45.0f
 
 // a seated man's eye, as a share of a standing one's
 #define SIT_EYE_SCALE 0.66f
 
-// how far in front of the chair's origin he sits, along the way it faces
-#define SIT_SEAT_FORWARD 0.0f
+/**
+ * What the Institute has to sit on (a census of its props: 19 office chairs
+ * at desks, 16 two-seater sofas). Each seat is `forward` in front of the model's origin,
+ * the way it faces (its +z, towards the desk or away from the sofa's back),
+ * and a sofa's are `spacing` apart along its length (its x), world units.
+ */
+struct seatmodel {
+	s32 modelnum;
+	f32 forward;
+	s32 numseats;
+	f32 spacing;
+};
+
+static const struct seatmodel g_SeatModels[] = {
+	{ MODEL_DD_CHAIR, 0.0f,  1, 0.0f },
+	{ MODEL_CI_SOFA,  10.0f, 2, 100.0f },
+};
 
 struct sitstate {
 	s32 state;
 	f32 t;              // 0 standing where he was, 1 in the seat
 	struct prop *chair;
+	s32 seat;           // which of a sofa's seats
 	struct coord standpos;
 	f32 standtheta;
 	s32 bodyphase;      // the state whose animation the body was last given
@@ -116,13 +132,59 @@ static f32 sitChairTheta(struct prop *chair)
 	return sitWrap360(atan2f(-dx, dz) * 360.0f / M_BADTAU);
 }
 
-static void sitSeatPos(struct prop *chair, struct coord *seat)
+static const struct seatmodel *sitSeatModel(struct prop *prop)
 {
-	struct defaultobj *obj = chair->obj;
+	if (prop == NULL || prop->type != PROPTYPE_OBJ || prop->obj == NULL) {
+		return NULL;
+	}
 
-	seat->x = chair->pos.x + obj->realrot[2][0] * SIT_SEAT_FORWARD;
+	for (s32 i = 0; i < ARRAYCOUNT(g_SeatModels); i++) {
+		if (g_SeatModels[i].modelnum == prop->obj->modelnum) {
+			return &g_SeatModels[i];
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * Seat `index` of a chair or sofa. realrot carries the model's scale, so its
+ * axes are made unit length first.
+ */
+static void sitSeatPos(struct prop *chair, s32 index, struct coord *seat)
+{
+	const struct seatmodel *def = sitSeatModel(chair);
+	struct defaultobj *obj = chair->obj;
+	f32 xx = obj->realrot[0][0];
+	f32 xz = obj->realrot[0][2];
+	f32 zx = obj->realrot[2][0];
+	f32 zz = obj->realrot[2][2];
+	f32 len;
+	f32 along = 0;
+	f32 forward = 0;
+
+	len = sqrtf(xx * xx + xz * xz);
+
+	if (len > 0) {
+		xx /= len;
+		xz /= len;
+	}
+
+	len = sqrtf(zx * zx + zz * zz);
+
+	if (len > 0) {
+		zx /= len;
+		zz /= len;
+	}
+
+	if (def) {
+		along = (index - (def->numseats - 1) * 0.5f) * def->spacing;
+		forward = def->forward;
+	}
+
+	seat->x = chair->pos.x + xx * along + zx * forward;
 	seat->y = chair->pos.y;
-	seat->z = chair->pos.z + obj->realrot[2][2] * SIT_SEAT_FORWARD;
+	seat->z = chair->pos.z + xz * along + zz * forward;
 }
 
 static void sitMovePlayer(f32 x, f32 z)
@@ -169,19 +231,21 @@ static s32 sitAllowed(void)
 }
 
 /**
- * Whether someone is already in the chair: the Institute's staff sit at some
- * of the desks (a setup chr's `chair`), and another player may be in it.
+ * Whether someone is already in a seat: the Institute's staff sit at some of
+ * the desks (a setup chr's `chair`), and another player may be in it.
  */
-static s32 sitChairTaken(struct prop *chair)
+static s32 sitSeatTaken(struct prop *chair, s32 index)
 {
 	s16 propnums[MAX_ROOMPROPS];
+	struct coord seat;
 
 	for (s32 i = 0; i < PLAYERCOUNT(); i++) {
-		if (g_Sit[i].state != SIT_OFF && g_Sit[i].chair == chair) {
+		if (g_Sit[i].state != SIT_OFF && g_Sit[i].chair == chair && g_Sit[i].seat == index) {
 			return 1;
 		}
 	}
 
+	sitSeatPos(chair, index, &seat);
 	roomGetProps(chair->rooms, propnums, MAX_ROOMPROPS);
 
 	for (s32 i = 0; propnums[i] >= 0; i++) {
@@ -193,8 +257,8 @@ static s32 sitChairTaken(struct prop *chair)
 			continue;
 		}
 
-		dx = prop->pos.x - chair->pos.x;
-		dz = prop->pos.z - chair->pos.z;
+		dx = prop->pos.x - seat.x;
+		dz = prop->pos.z - seat.z;
 
 		if (dx * dx + dz * dz < SIT_TAKEN_DIST * SIT_TAKEN_DIST) {
 			return 1;
@@ -204,19 +268,53 @@ static s32 sitChairTaken(struct prop *chair)
 	return 0;
 }
 
+/**
+ * The free seat of a chair or sofa nearest the current player, or -1.
+ */
+static s32 sitFindSeat(struct prop *chair)
+{
+	const struct seatmodel *def = sitSeatModel(chair);
+	struct coord *pos = &g_Vars.currentplayer->prop->pos;
+	s32 best = -1;
+	f32 bestdist = 0;
+
+	if (def == NULL) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < def->numseats; i++) {
+		struct coord seat;
+		f32 dist;
+
+		if (sitSeatTaken(chair, i)) {
+			continue;
+		}
+
+		sitSeatPos(chair, i, &seat);
+		dist = (seat.x - pos->x) * (seat.x - pos->x) + (seat.z - pos->z) * (seat.z - pos->z);
+
+		if (best < 0 || dist < bestdist) {
+			best = i;
+			bestdist = dist;
+		}
+	}
+
+	return best;
+}
+
 s32 sitChairIsSeat(struct defaultobj *obj)
 {
 	return sitAllowed()
-		&& obj->modelnum == MODEL_DD_CHAIR
+		&& obj->prop
+		&& sitSeatModel(obj->prop)
 		&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
 		&& sitCurrent()->state == SIT_OFF
-		&& obj->prop
-		&& !sitChairTaken(obj->prop);
+		&& sitFindSeat(obj->prop) >= 0;
 }
 
 static s32 sitPropIsSeat(struct prop *prop)
 {
-	return prop->type == PROPTYPE_OBJ && prop->obj && prop->obj->modelnum == MODEL_DD_CHAIR && sitAllowed();
+	return sitAllowed() && sitSeatModel(prop);
 }
 
 s32 sitChairKeepsInteract(struct prop *current, struct prop *candidate)
@@ -243,6 +341,8 @@ s32 sitChairInteract(struct prop *prop)
 		return 0;
 	}
 
+	// chosen before he is in it, or his own state takes the seat he wants
+	sit->seat = sitFindSeat(prop);
 	sit->state = SIT_DOWN;
 	sit->t = 0;
 	sit->chair = prop;
@@ -348,7 +448,7 @@ void sitChairTick(void)
 	}
 
 	// across to the seat, turning to face the way it does
-	sitSeatPos(sit->chair, &seat);
+	sitSeatPos(sit->chair, sit->seat, &seat);
 	e = sitEase(sit->t);
 
 	sitMovePlayer(sit->standpos.x + (seat.x - sit->standpos.x) * e,

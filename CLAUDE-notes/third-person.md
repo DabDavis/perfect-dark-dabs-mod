@@ -712,7 +712,13 @@ stands him up where he sat down from. Built the way GoldenEye's tank is: still
   backwards from its last frame at -0.5, then `ANIM_SITTING_DORMANT` looping.
   The body faces the chair (`sitChairBodyFacing()`) whatever the camera does.
 - **A chair's +z (`realrot[2]`) is its front**, towards its desk: seated the
-  view is the desk's terminal.
+  view is the desk's terminal. The Institute's **sofas** (`MODEL_CI_SOFA`, 16
+  of them - a census of its props found no other seat) face +z too and are
+  two-seaters along their x: `g_SeatModels` holds each model's forward offset,
+  seat count and spacing, the free seat nearest the player is taken, and
+  `realrot` carries the model's scale (0.25), so its axes are normalised first.
+  The seat is chosen *before* the player's own state names the sofa, or his
+  own entry marks the seat he wants as taken.
 - **Every chair is at a desk with a terminal in reach**, and stock's
   interaction took the terminal from behind the chair, so nobody could sit:
   with a chair among them the *nearer* prop wins (`sitChairKeepsInteract()` at
