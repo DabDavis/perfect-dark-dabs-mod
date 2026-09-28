@@ -2501,6 +2501,42 @@ static void gegunsFlashMatrix(Mtxf *out, const Mtxf *parent, f32 roll, f32 scale
 }
 
 /**
+ * A star under the flash that gunfire.c never poses: the ZMG carries a second
+ * one in the flash as the KF7 does (part 4, 68 units out past its first), but
+ * only the KF7's skeleton has it posed, and GoldenEye leaves its matrix the
+ * identity - at the eye, where the near plane clips it away. Here it kept the
+ * matrix the model's own pose gave it, and its quad covered the whole view
+ * in grey for every frame the flash was lit (F3 20260927-210532 and
+ * -210555, the ZMG akimbo on GoldenEye Arenas' Control). Nothing of it is
+ * drawn: every vertex goes to the flash's own place.
+ */
+static void gegunsOwnModelFlashUnposed(struct model *model, struct modelnode *star, struct modelnode *flash, Mtxf *flashmtx)
+{
+	struct modelnode *node;
+	Mtxf *mtx;
+
+	if (!star || (star->type & 0xff) != MODELNODETYPE_POSITION
+			|| modelFindNodeMtxIndex(star, 0) == modelFindNodeMtxIndex(flash, 0)) {
+		return;
+	}
+
+	// under the flash, not the Cougar's cylinder
+	for (node = star->parent; node && node != flash; node = node->parent);
+
+	if (!node) {
+		return;
+	}
+
+	mtx = &model->matrices[modelFindNodeMtxIndex(star, 0)];
+
+	for (s32 r = 0; r < 4; r++) {
+		for (s32 col = 0; col < 4; col++) {
+			mtx->m[r][col] = r == 3 ? flashmtx->m[3][col] : 0.0f;
+		}
+	}
+}
+
+/**
  * GoldenEye's own muzzle flash, posed as gunfire.c poses it: GoldenEye never
  * lets the model pose it. The flash (part 3's matrix) is the gun's matrix
  * with a random roll, 1 to 1.25 times the size, and stretched along the barrel
@@ -2549,6 +2585,7 @@ void gegunsOwnModelFlash(struct hand *hand, struct model *model)
 		// cylinder, which this billboarded into the flash for the frame of
 		// every shot: "shows a drum for a second when it's fired"
 		if (part == 4 && hand->gset.weaponnum != WEAPON_GE_KF7SOVIET) {
+			gegunsOwnModelFlashUnposed(model, star, flash, flashmtx);
 			continue;
 		}
 
