@@ -1401,6 +1401,50 @@ bool geStanReaches(struct coord *from, f32 ground, struct coord *to)
 }
 
 /**
+ * An autogun's pad is where GoldenEye stands the object (autogunGeEye()), and
+ * its tile is the pad's; the gun sees Bond where stanTestLineUnobstructed()
+ * from it to him gets through and ends on his own tile (`collisionTile ==
+ * playerProp2->stan`). Perfect Dark's line of sight from the pad is a line in
+ * three dimensions through the level's geometry, and Control's gun hung in
+ * the corner of the room over the blast door's corridor saw and shot Bond
+ * through the wall of it (F3 20260927-234309), where GoldenEye's walk meets
+ * the wall's edge and stops on the gun's side of it. The pad is on the floor
+ * under a ceiling gun or up at it; either way the tile is the one of the
+ * pad's room at or under it.
+ */
+s32 geStanAutogunSees(struct coord *from, s32 fromroom, struct coord *to, f32 toground)
+{
+	s32 fromtile;
+	s32 totile;
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return -1;
+	}
+
+	fromtile = stanTileUnderPrefer(from->x, from->z, from->y + 5.0f, GESTAN_RISE, fromroom);
+	totile = stanTileUnder(to->x, to->z, toground + 10.0f, GESTAN_RISE);
+
+	if (fromtile < 0 || totile < 0) {
+		return -1;
+	}
+
+	tile = stanWalkLine(fromtile, from->x, from->z, to->x, to->z, false);
+
+	if (tile == totile) {
+		return 1;
+	}
+
+	// the target on the seam between two tiles at the same height
+	return stanHolds(&g_Stan.tiles[tile], to->x, to->z)
+		&& fabsf(stanSurface(&g_Stan.tiles[tile], to->x, to->z) - stanSurface(&g_Stan.tiles[totile], to->x, to->z)) < 1.0f;
+}
+
+/**
  * Whether a vehicle can drive `n` lines laid end to end in plan, GoldenEye's
  * walkTilesBetweenPoints_NoCallback() chained through its truck's outline:
  * each line starts on the tile the last one ended on, and a line that meets

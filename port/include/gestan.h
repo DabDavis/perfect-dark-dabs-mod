@@ -156,6 +156,15 @@ s32 geStanLineReach(struct coord *from, f32 x1, f32 z1, f32 *hitx, f32 *hitz, s3
 // Whether the tile graph's floor stays under the line from a to b
 bool geStanSightClear(struct coord *a, struct coord *b);
 
+/**
+ * GoldenEye's autogun's sight of its target (propobj.c's autogun tick): the
+ * tile graph walked in plan from the tile of its pad `from` (room `fromroom`)
+ * towards `to`, seeing only where the walk ends on the tile the target stands
+ * on (feet at `toground`). 1 sees, 0 does not, -1 where the level has no graph
+ * or either end is over no tile.
+ */
+s32 geStanAutogunSees(struct coord *from, s32 fromroom, struct coord *to, f32 toground);
+
 extern s32 g_GeStanAsked;
 extern s32 g_GeStanSkipped;
 extern s32 g_GeStanNoTile;
