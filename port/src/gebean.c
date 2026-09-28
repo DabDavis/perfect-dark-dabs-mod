@@ -2919,6 +2919,8 @@ enum {
 // joint, nor further out than a throat: a woman's joint is at her jaw, her
 // throat forward of it; any higher is the chin of the head the file carries
 #define BEAN_OWNNECK_THROAT -15.0f
+// and in the release's, whose women carry their heads' lips lower
+#define BEAN_OWNNECK_THROAT_HD -22.0f
 #define BEAN_OWNNECK_REACH 125.0f
 
 static void beanSeatPoint(const f32 *p, s32 highest, f32 *seat, u32 *hit)
@@ -6046,13 +6048,13 @@ static int beanEdgeCompare(const void *x, const void *y)
  * the release's women carry their heads' lips below this, their neck joint
  * being at the jaw.
  */
-static s32 beanTriInNeck(const struct beanvtx v3[3], const f32 *neck, f32 scale)
+static s32 beanTriInNeck(const struct beanvtx v3[3], const f32 *neck, f32 scale, f32 top)
 {
 	for (s32 i = 0; i < 3; i++) {
 		const f32 dx = (v3[i].pos[0] - neck[0]) * scale;
 		const f32 dz = (v3[i].pos[2] - neck[2]) * scale;
 
-		if ((v3[i].pos[1] - neck[1]) * scale > BEAN_OWNNECK_THROAT || dx * dx + dz * dz > BEAN_OWNNECK_REACH * BEAN_OWNNECK_REACH) {
+		if ((v3[i].pos[1] - neck[1]) * scale > top || dx * dx + dz * dz > BEAN_OWNNECK_REACH * BEAN_OWNNECK_REACH) {
 			return 0;
 		}
 	}
@@ -11761,7 +11763,8 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 				if (!ishead && numfill > 0 && dominant == SK_NECK && collar) {
 					filler = 1;
-				} else if (!hoodcopy && ownneck && original && beanTriInNeck(v3, bind[SK_NECK], rig.scale)) {
+				} else if (!hoodcopy && ownneck
+						&& beanTriInNeck(v3, bind[SK_NECK], rig.scale, original ? BEAN_OWNNECK_THROAT : BEAN_OWNNECK_THROAT_HD)) {
 					ownonly = 1;
 				} else if (!hoodcopy) {
 					dropped++;
