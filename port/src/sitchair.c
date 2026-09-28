@@ -428,14 +428,21 @@ void sitChairTick(void)
 		return;
 	}
 
-	// anything that is not walking - a cutscene, a death, the chair gone -
-	// lets go of the chair where he is
+	// anything that is not walking - Sit In Chairs turned off in the pause
+	// menu, a cutscene, a death, the chair gone - lets go of the chair. He
+	// goes back to where he sat down from, a place he could stand: let go
+	// in the seat, the sofa's perimeter came back on round him and he could
+	// not walk out of it (F3 20260928-143510, "stuck in the couch")
 	if (!sitAllowed()
 			|| player->bondmovemode != MOVEMODE_WALK
 			|| player->isdead
 			|| sit->chair == NULL
 			|| sit->chair->obj == NULL
 			|| (sit->chair->obj->hidden2 & OBJH2FLAG_DESTROYED)) {
+		if (sit->t > 0 && !player->isdead) {
+			sitMovePlayer(sit->standpos.x, sit->standpos.z);
+		}
+
 		sitRelease(sit);
 		return;
 	}
