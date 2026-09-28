@@ -381,7 +381,9 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* ef CreditsRoll                            */ {  1, 0x01e9,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* f0 IFCreditsHasCompleted                  */ {  2, 0x01ea,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* f1 IFObjectiveAllCompleted                */ {  2, 0x00f7,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
-	/* f2 IFFolderActorIsEqual                   */ {  3,     -1,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	// f2: Cuba's one use sends Bond to pad 47 when the folder's Bond is actor 0,
+	// Brosnan, and the port's Bond is always him: a GotoNext to its label
+	/* f2 IFFolderActorIsEqual                   */ {  3, 0x0000,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {1, 1, 0} } },
 	/* f3 IFBondDamageAndPickupsDisabled         */ {  2, 0x00f8,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {-1, 1, 0x00f2}, {0, 1, 0} } },
 	/* f4 MusicPlaySlot                          */ {  4, 0x00f9,  3, { 1, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 1, 0}, {1, 1, 0}, {2, 1, 0} } },
 	/* f5 MusicStopSlot                          */ {  2, 0x00fa,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
