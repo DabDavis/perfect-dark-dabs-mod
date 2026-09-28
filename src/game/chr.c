@@ -4210,7 +4210,7 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	u8 spec[4];
 	u8 speb = 0;
 #ifndef PLATFORM_N64
-	bool ownfade = false;
+	bool solidfade = false;
 #endif
 
 	// Don't render the eyespy if we're the one controlling it
@@ -4248,6 +4248,17 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	chr0f0246e4(spec);
 	alpha *= objCalculateFadeDistOpacityFrac(prop, modelGetEffectiveScale(model));
 
+#ifndef PLATFORM_N64
+	// Faded by distance (the stage's fog fade), fading in on a respawn or
+	// fading out dead, a character is still a solid one, and is drawn as one
+	// surface the way the player's own faded body is (below). Blended in one
+	// pass the body wrote no depth, and the gun in its hand, drawn after it,
+	// came through the torso of a guard seen from behind at the edge of the
+	// fog (F3 20260927-215816, Bunker 2). X-ray and the cloak are meant to be
+	// seen through and keep the one pass.
+	solidfade = alpha < 0xff;
+#endif
+
 	if (g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		f32 fadedist;
 		f32 chrdist = sqrtf(ERASERSQDIST(prop->pos.f));
@@ -4284,7 +4295,12 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		f32 frac = playerGetOwnBodyAlphaFrac(prop);
 
 		alpha = alpha * frac;
-		ownfade = frac < 1.0f;
+		solidfade = solidfade || frac < 1.0f;
+	}
+
+	if (g_Vars.currentplayer->visionmode == VISIONMODE_XRAY
+			|| (!USINGDEVICE(DEVICE_IRSCANNER) && chrGetCloakAlpha(chr) < 0xff)) {
+		solidfade = false;
 	}
 #endif
 
@@ -4455,17 +4471,18 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 #ifndef PLATFORM_N64
 		traceChrNote(chr, TRACECHR_DREW);
 
-		// The player's own body faded (above) is drawn twice: once for its
-		// depth alone and once blended over the surface that left nearest.
+		// A faded body (above: the player's own, or one at the fog's edge) is
+		// drawn twice: once for its depth alone and once blended over the
+		// surface that left nearest.
 		// Blended in one pass it wrote no depth, so every layer of it showed
 		// through every other - the far arm through the chest, the inside of
 		// the shoulder through its outside - which is what a camera against
 		// the body sees most of. This way it is one surface fading out, the
 		// held guns included, and the same for the release's meshes, whose
 		// lists the two flags override whatever render mode they set.
-		ownfade = ownfade && renderdata.zbufferenabled;
+		solidfade = solidfade && renderdata.zbufferenabled;
 
-		if (ownfade) {
+		if (solidfade) {
 			gSPSetExtraGeometryModeEXT(renderdata.gdl++, G_DEPTH_PREPASS_EXT);
 
 			modelRender(&renderdata, model);
@@ -4489,7 +4506,7 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 		}
 
 #ifndef PLATFORM_N64
-		if (ownfade) {
+		if (solidfade) {
 			gSPClearExtraGeometryModeEXT(renderdata.gdl++, G_DEPTH_FRONT_EXT);
 		}
 #endif
