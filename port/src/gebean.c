@@ -1162,6 +1162,44 @@ s32 gebeanRandomHeadForBody(s32 bodynum)
 	return n > 0 ? rows[rngRandom() % n] : -1;
 }
 
+/**
+ * GoldenEye's own soldiers, as g_HeadsAndBodies body rows: the pool's
+ * guard bodies (the ones a GoldenEye mission posts - Russian infantry,
+ * Janus marines, jungle commandos...) that are filled on this install, from
+ * the release or else the ROM's conversion (gebeanIsGoldenEyeBody()). Never
+ * a named character and never a whole model, whose head is in the mesh.
+ * Writes up to `max` rows and answers how many.
+ *
+ * For a Randomizer run's guards on a GoldenEye map (modrun.c), which the
+ * tester asked to be GoldenEye's guards rather than Perfect Dark's.
+ */
+s32 gebeanGuardBodies(s32 *rows, s32 max)
+{
+	static const char *guards[] = {
+		"char/oliveguard", "char/rusguard", "char/commguard", "char/armourguard",
+		"char/navyguard", "char/greyguard", "char/greatguard", "char/greatguard2",
+		"char/bluecamguard", "char/camguard", "char/trevguard", "char/moonguard",
+	};
+	s32 n = 0;
+
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows) && n < max; i++) {
+		const s32 row = GEBEAN_POOL_BASE + i;
+
+		if (poolRows[i].row.kind != GEBEAN_BODY || !gebeanIsGoldenEyeBody(row)) {
+			continue;
+		}
+
+		for (s32 j = 0; j < ARRAYCOUNT(guards); j++) {
+			if (strcmp(poolRows[i].row.source, guards[j]) == 0) {
+				rows[n++] = row;
+				break;
+			}
+		}
+	}
+
+	return n;
+}
+
 s32 gebeanIsGoldenEyeBody(s32 num)
 {
 	const s32 i = num - GEBEAN_POOL_BASE;

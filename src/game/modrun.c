@@ -35,6 +35,10 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include "gebean.h"
+#include "modloader.h"
+#endif
 #include "math.h"
 #include <string.h>
 #include <stdio.h>
@@ -985,6 +989,23 @@ void modRunRoll(void)
 	// A landing's guards are one kind of thing, chosen with the room.
 	modRunOpen(MODRUN_STREAM_BODY, g_ModRunHop);
 	g_ModRunBody = g_ModRunBodies[modRunBelow(ARRAYCOUNT(g_ModRunBodies))];
+
+#ifndef PLATFORM_N64
+	// On a GoldenEye map - a converted level, the GoldenEye Arenas and GE
+	// Plus's missions - the room is held by GoldenEye's own soldiers (tester
+	// 2026-09-28), one kind per landing as ever, each with a GoldenEye face
+	// (modalarm.c). The draw comes after the stock one on the same stream, so
+	// every other map's body is what the seed always dealt, and a map with
+	// none of GoldenEye's characters installed keeps the stock draw.
+	if (modloaderStageIsRemake(g_ModRunStage)) {
+		s32 rows[32];
+		const s32 numrows = gebeanGuardBodies(rows, ARRAYCOUNT(rows));
+
+		if (numrows > 0) {
+			g_ModRunBody = rows[modRunBelow(numrows)];
+		}
+	}
+#endif
 
 	modRunChooseLanding();
 	modRunDealObjective();

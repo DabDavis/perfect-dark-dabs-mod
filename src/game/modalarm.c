@@ -27,6 +27,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "system.h"
+#include "gebean.h"
 #include <stdlib.h>
 #include <string.h>
 #endif
@@ -724,7 +725,8 @@ static bool modAlarmRetireOldest(void)
  * The head a body wears whatever the stage's active heads are: a Maian
  * soldier's is the Maian's own (tester 2026-09-28: a Randomizer run's Maian
  * soldiers came in wearing the stage's human faces, since bodyChooseHead()
- * deals from the male list). -1 for a body that takes the stage's.
+ * deals from the male list), and a GoldenEye body's is one of GoldenEye's.
+ * -1 for a body that takes the stage's.
  */
 static s32 modAlarmOwnHead(s32 bodynum)
 {
@@ -732,7 +734,13 @@ static s32 modAlarmOwnHead(s32 bodynum)
 		return MOD_HEADNUM(HEAD_MAIAN_S);
 	}
 
+#ifndef PLATFORM_N64
+	// A GoldenEye body - a Randomizer run's guards on a GoldenEye map - wears
+	// one of GoldenEye's own faces of its sex, never a Perfect Dark one
+	return gebeanRandomHeadForBody(bodynum);
+#else
 	return -1;
+#endif
 }
 
 /**
