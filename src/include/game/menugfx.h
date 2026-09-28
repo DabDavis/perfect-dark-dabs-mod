@@ -5,6 +5,10 @@
 #include "types.h"
 
 void menugfxCreateBlur(void);
+#ifndef PLATFORM_N64
+void menugfxCreateBlurInList(void);
+Gfx *menugfxCaptureBlur(Gfx *gdl);
+#endif
 Gfx *menugfxRenderBgBlur(Gfx *gdl, u32 colour, s16 arg2, s16 arg3);
 Gfx *menugfxRenderDialogBackground(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2, struct menudialog *dialog, u32 colour1, u32 colour2, f32 arg8);
 Gfx *menugfxRenderBgGreenHaze(Gfx *gdl, s32 x1, s32 y1, s32 x2, s32 y2);

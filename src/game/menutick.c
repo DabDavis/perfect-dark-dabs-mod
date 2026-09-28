@@ -168,6 +168,14 @@ void menuTick(void)
 
 			if (anyopen && (g_MenuData.bg == 0 || g_MenuData.nextbg == 0)) {
 				menuSetBackground(MENUBG_BLUR);
+
+				// The last frame shown has Mods: Camera's dialog over the
+				// level, so the still is taken from this one before the
+				// menus are drawn on it (F3 20260927-234742)
+				if (g_MenuData.screenshottimer == 1 && IS8MB()) {
+					g_MenuData.screenshottimer = 0;
+					menugfxCreateBlurInList();
+				}
 			}
 		}
 	}

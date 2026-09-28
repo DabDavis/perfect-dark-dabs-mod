@@ -5692,6 +5692,10 @@ Gfx *menuRender(Gfx *gdl)
 	if (g_MenuBlurDeferred && g_MenuData.screenshottimer) {
 		return gdl;
 	}
+
+	// A blur asked for from this frame is taken here, under the menus
+	// (menugfxCreateBlurInList())
+	gdl = menugfxCaptureBlur(gdl);
 #endif
 
 	gdl = func0f0d479c(gdl);

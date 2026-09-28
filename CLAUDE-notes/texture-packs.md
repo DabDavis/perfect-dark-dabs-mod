@@ -315,6 +315,18 @@ flicker and reads like a scale error. Do not reintroduce it.
 the pack *has* (`texpackHaveFontReplacementFor()`) rather than what it
 returned, since a queued decode also answers NULL.
 
+**A pack's `xbla/0dba`-`0dbc` (the release's font atlases) are pixels only**
+(2026-09-28, F3 20260927-232919 + 231848). `xblaFontOpenPack()` takes one only
+at a whole multiple of the release's size, compares it with the release's
+atlas both ways up and keeps it the way it agrees (a correlation under 0.5 both
+ways and it is refused), and every measurement - line, condensation, ink boxes
+- is still made on the release's atlas and read from the pack at `pixscale`.
+Our dump of an atlas reads upside down, so a painter who turns it the right way
+up hands back a picture every glyph cell reads garbage from (Parabolee's
+redrawn fonts, `xbla-fonts-para.zip`); the released v0.10 atlases are in dump
+order. Measured on the pack itself, v0.10's softer edges fitted the sm font 7%
+off and put 40 characters off the line (the small, raised 's').
+
 **Check it on a menu, not the HUD.** The ammo counter is a handful of digits that
 may not be replaced at the moment you look, and reading it cost a long detour
 here; the file select screen is dense with text in three fonts and is the same
