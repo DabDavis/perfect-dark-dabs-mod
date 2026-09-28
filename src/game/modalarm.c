@@ -129,6 +129,7 @@ static s32 g_ModAlarmNumHeads = 0;
 static s32 g_ModAlarmCountdown60 = 0;
 static s32 g_ModAlarmNumWaypoints = 0;
 static s32 g_ModAlarmReserve = 0;
+static bool g_ModAlarmPadGraph = false; // this stage's waypoints are modAlarmBuildPadWaypoints()'s
 
 /**
  * The match's guard tally, by match slot: how many guards each player or
@@ -412,6 +413,8 @@ void modAlarmBuildPadWaypoints(void)
 	s32 grpos;
 	u64 started;
 
+	g_ModAlarmPadGraph = false;
+
 	// Only for a Randomizer run's landings and guards: a Guards Alerted
 	// match or mission on the same map plays exactly as it did before.
 	if (!modRunIsOn() || g_PadsFile == NULL || g_StageSetup.padfiledata == NULL) {
@@ -623,6 +626,7 @@ void modAlarmBuildPadWaypoints(void)
 
 		g_StageSetup.waypoints = waypoints;
 		g_StageSetup.waygroups = groups;
+		g_ModAlarmPadGraph = true;
 
 		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads (%d lowered onto their floors), %d links, %d groups (largest %d), in %d ms",
 				g_Vars.stagenum, n, numpads, numsettled, numlinks, numgroups, largest,
@@ -1243,6 +1247,22 @@ bool modAlarmIsGuard(struct chrdata *chr)
 	}
 
 	return false;
+}
+
+/**
+ * Whether this chr may open a door the stage marks as one the AI cannot use.
+ *
+ * A graph built from pads links through any door, since the doors are not
+ * props yet when it is built - and a route through one the guards may not
+ * open is a squad pressed against it for the rest of the room. GoldenEye
+ * Arenas' Archives keeps its secret wall between rooms 17 and 62 shut to the
+ * AI, and a run sealed in room 16 dealt every guard's route through it
+ * (F3 20260928-170416). The player can open it, so the run's guards may too,
+ * on such a stage only: a map's own waypoints were laid out around its doors.
+ */
+bool modAlarmGuardOpensAnyDoor(struct chrdata *chr)
+{
+	return g_ModAlarmPadGraph && modAlarmIsGuard(chr);
 }
 
 /**
