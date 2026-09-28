@@ -1432,6 +1432,42 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 	if (1);
 
+#ifndef PLATFORM_N64
+	// GoldenEye draws the translucent passes from the deepest draw order to
+	// the nearest, as this does, but the rooms of one draw order in the order
+	// they were added (bg.c's second loop over dword_CODE_bss_8007FFA0), where
+	// the loop below takes them backwards. A converted level's visibility
+	// script puts most of its rooms on screen at draw order 0 in the script's
+	// order, so on Cradle the far truss's railings (room 22) were blended
+	// after the girder beside the camera (room 23), whose translucent faces
+	// write no depth, and showed through it in the fog colour (F3
+	// 20260928-004222). Each run of equal draw orders is turned round here,
+	// after the opaque passes have used the list, so the loop below meets
+	// them in GoldenEye's order. Not when every room is drawn (HD, the
+	// spectator camera): those draw orders are distances, not GoldenEye's.
+	if (g_BgGePortals && !modSpectateIsOn() && !xblaStageDrawsEveryRoom()) {
+		s32 start = 0;
+
+		while (start < g_BgNumDrawSlots) {
+			s32 end = start;
+			s32 lo;
+			s32 hi;
+
+			while (end + 1 < g_BgNumDrawSlots && roomorder[end + 1] == roomorder[start]) {
+				end++;
+			}
+
+			for (lo = start, hi = end; lo < hi; lo++, hi--) {
+				tmp = roomnums[lo];
+				roomnums[lo] = roomnums[hi];
+				roomnums[hi] = tmp;
+			}
+
+			start = end + 1;
+		}
+	}
+#endif
+
 	for (i = g_BgNumDrawSlots - 1; i >= 0; i--) {
 		roomnum = roomnums[i];
 
