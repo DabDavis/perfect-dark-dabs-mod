@@ -4036,7 +4036,8 @@ static Gfx *frontHdText(Gfx *gdl, const struct gefont *font, const struct gefold
 						(s32)(n / ((r - l) * sy) * 1024.0f),
 						(s32)(n / ((b - t) * sx) * 1024.0f));
 			} else {
-				// cut at the window's edges, as GoldenEye's glyphs are
+				// cut at the window's edges, as GoldenEye's glyphs are, and
+				// not wrapped past twelve bits (above)
 				const s32 x1 = (s32)(frontX(l) * 4);
 				const s32 y1 = (s32)(frontY(t) * 4);
 				const s32 x2 = (s32)(frontX(r) * 4);
@@ -4045,7 +4046,7 @@ static Gfx *frontHdText(Gfx *gdl, const struct gefont *font, const struct gefold
 				const s32 dsdx = (s32)(n / ((r - l) * sx) * 1024.0f);
 				const s32 dtdy = (s32)(-n / ((b - t) * sy) * 1024.0f);
 
-				gSPScisTextureRectangle(gdl++, x1, y1, x2, y2, G_TX_RENDERTILE, 0, t0, dsdx, dtdy);
+				gSPTextureRectangleWideEXT(gdl++, x1, y1, x2, y2, G_TX_RENDERTILE, 0, t0, dsdx, dtdy, false);
 			}
 		}
 
@@ -4111,10 +4112,11 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 					G_TX_RENDERTILE, 0, (cur->height - 1) << 5,
 					(s32)(1024 / sy), (s32)(-1024 / sx));
 		} else {
-			// the Scis form: a glyph running off the top of the window (the
-			// credits' roll) is cut at the edge, where the plain one's
-			// negative top wrapped round and drew a streak down the whole
-			// window
+			// the wide form: a glyph running off the window (the credits'
+			// roll) is cut at its edge. The plain one's twelve bits wrapped:
+			// a negative top drew a streak down the whole window, and a row
+			// coming in under a 1080p window's 1024th line (4096 quarters)
+			// was drawn at the top of it (F3 20260928-002510)
 			const s32 x1 = (s32)(frontX(*x) * 4);
 			const s32 y1 = (s32)(frontY(*y + cur->baseline) * 4);
 			const s32 x2 = (s32)(frontX(*x + cur->width) * 4);
@@ -4122,7 +4124,7 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 			const s32 dsdx = (s32)(1024 / sx);
 			const s32 dtdy = (s32)(1024 / sy);
 
-			gSPScisTextureRectangle(gdl++, x1, y1, x2, y2, G_TX_RENDERTILE, 0, 0, dsdx, dtdy);
+			gSPTextureRectangleWideEXT(gdl++, x1, y1, x2, y2, G_TX_RENDERTILE, 0, 0, dsdx, dtdy, false);
 		}
 
 		*x += cur->width;
