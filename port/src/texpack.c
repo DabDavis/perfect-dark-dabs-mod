@@ -4492,6 +4492,8 @@ static void texpackCycleSelected(void)
 		char text[128];
 
 		snprintf(text, sizeof(text), "Texture Pack: %s\n", next < 0 ? "None" : texpackGetPackName(next));
+		// Replaces the last press's message rather than queueing behind it
+		hudmsgRemoveByPrefix("Texture Pack: ");
 		hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
 	}
 }

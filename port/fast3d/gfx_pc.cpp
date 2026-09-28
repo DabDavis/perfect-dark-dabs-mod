@@ -1746,6 +1746,25 @@ static void import_texture(int i, int tile, bool importReplacement) {
             if (texturenum >= 0 && !texpackHaveReplacementFor(texturenum)) {
                 rep = xblaTexLoadNumbered(texturenum, &rep_width, &rep_height);
                 xbla_rep = rep != nullptr;
+
+                // F7 writes out what is drawn, and with the release's art on
+                // what is drawn for most of the game's own textures is this -
+                // which returns below before the dump at the end of the
+                // function, so a dump taken with it on held next to nothing of
+                // the level (F3 20260927-235833, the Institute's desk terminal
+                // screen). Written under the texture's own number, as a pack
+                // reads it back, and in the same row order as the ROM's texels.
+                if (xbla_rep && texpackDumpEnabled()) {
+                    struct texpackrawinfo raw;
+                    raw.data = orig_addr;
+                    raw.sizeBytes = loaded_texture.size_bytes;
+                    raw.lineSizeBytes = tex_row_bytes;
+                    raw.tileWidth = rdp.texture_tile[tile].width;
+                    raw.tileHeight = rdp.texture_tile[tile].height;
+                    raw.paletteIndex = palette_index;
+                    raw.palette = fmt == G_IM_FMT_CI ? rdp.palette : NULL;
+                    texpackDumpTexture(rep, (uint32_t)rep_width, (uint32_t)rep_height, fmt, siz, &raw);
+                }
             }
         }
 
