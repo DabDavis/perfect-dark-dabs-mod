@@ -12660,8 +12660,12 @@ carries him under the helicopter's skid. Cradle has no portals, so his rooms
 come from `func0f065d1c()`'s tile-walk fallback, which also asked the room's
 box for the height: past room 9's top (y 1562) every step was refused and he
 rose on the spot at (-1707, 1326) while the helicopter flew on (both shots,
-the last ~30 frames of each). GoldenEye's rooms are its tiles', flat on the
-map; the fallback now asks the box across x/z only. Kicked endings of Dam,
+the last ~30 frames of each). The fallback now also takes a room whose box
+holds the point across x/z only when the prop **already holds that room** -
+never a room above or below, so stacked floors (Facility, Bunker, Silo,
+Archives, Train, Caverns) cannot change floor through it; it only answers
+where the walk would otherwise have given no room at all. (A first version
+dropped the height test outright; narrowed on review.) Kicked endings of Dam,
 Surface, Frigate and Cradle's fall branch end at the same frames as before
 (1404, 679, 647, 1361). Probe: `~/wt/f3-0928c-cinema-run/probes/end2.py`
 (Bond + helicopter per 2 frames, frame-named shots).

@@ -3417,6 +3417,19 @@ void propRegisterRooms(struct prop *prop)
 	}
 }
 
+#ifndef PLATFORM_N64
+static bool roomsHold(RoomNum *rooms, RoomNum room)
+{
+	for (s32 i = 0; rooms && rooms[i] != -1; i++) {
+		if (rooms[i] == room) {
+			return true;
+		}
+	}
+
+	return false;
+}
+#endif
+
 void func0f065d1c(struct coord *pos, RoomNum *rooms, struct coord *newpos, RoomNum *newrooms, RoomNum *morerooms, u32 arg5)
 {
 	RoomNum stackrooms[8];
@@ -3445,19 +3458,22 @@ void func0f065d1c(struct coord *pos, RoomNum *rooms, struct coord *newpos, RoomN
 	// door. Where the walk found nothing, the room is the one GoldenEye would
 	// say: the tile the line ends on, walked along the tile graph.
 	//
-	// GoldenEye's rooms are its tiles', flat on the map: nothing is out of a
-	// room for being over it. So the room's box is asked across the floor
-	// and not up it - the Cradle's ending has Bond carried off under the
-	// helicopter's skid, and the move that took him over the top of room 9's
-	// box (1562) was refused for every step after it: he rose on the spot
-	// while the helicopter flew on (F3 20260928-082450).
+	// And a move that leaves the room's box only upwards or downwards keeps
+	// the room it was already in, if the tile under it is still that room's:
+	// the Cradle's ending has Bond carried off under the helicopter's skid,
+	// and the move that took him over the top of room 9's box (1562) was
+	// refused for every step after it - he rose on the spot while the
+	// helicopter flew on (F3 20260928-082450). Only a room the prop already
+	// holds is kept this way, so no move can land in a floor above or below.
 	if (index == 0 && geRoomActive()) {
 		s32 room;
 		f32 ground;
 
 		if (geStanWalk(pos, newpos, &room, &ground) && room > 0
-				&& newpos->x >= g_Rooms[room].bbmin[0] && newpos->x <= g_Rooms[room].bbmax[0]
-				&& newpos->z >= g_Rooms[room].bbmin[2] && newpos->z <= g_Rooms[room].bbmax[2]) {
+				&& (bgRoomContainsCoord(newpos, room)
+					|| (roomsHold(rooms, room)
+						&& newpos->x >= g_Rooms[room].bbmin[0] && newpos->x <= g_Rooms[room].bbmax[0]
+						&& newpos->z >= g_Rooms[room].bbmin[2] && newpos->z <= g_Rooms[room].bbmax[2]))) {
 			newrooms[index] = room;
 			index++;
 
