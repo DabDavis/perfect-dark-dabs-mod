@@ -1323,6 +1323,13 @@ static void gebeanGunsRefresh(void)
 	}
 }
 
+/** Whether a gun in a hand has to be loaded again when the look changes. */
+static s32 gebeanSwitchReloads(s32 weaponnum)
+{
+	return weaponnum >= WEAPON_GE_FIRST && weaponnum < WEAPON_GE_FIRST + NUM_GE_GUNS
+		&& gegunsHasOwnModel(weaponnum - WEAPON_GE_FIRST);
+}
+
 /**
  * The release's meshes were switched (F6), and the guns' hands follow the look
  * they are drawn in. The meshes themselves need nothing: each one is built
@@ -1334,23 +1341,27 @@ void gebeanMeshesSwitched(void)
 
 	// GoldenEye's own model is a file of its own in the N64 look, where the
 	// other look draws on the host's, so a gun already in a hand has the wrong
-	// one loaded: load it again
+	// one loaded: load it again. Either hand's: a mixed Akimbo pair loads the
+	// left hand's gun behind the right's, and a Perfect Dark gun on the right
+	// with a GoldenEye one on the left kept the left's other-look model, its
+	// pictures read from wherever they now lay, until a weapon swap (F3
+	// 20260927-225203, the PP7 on the left after the XBLA look went off)
 	if (STAGE_IS_LEVEL(mainGetStageNum())) {
 		const s32 prev = g_Vars.currentplayernum;
 
 		for (s32 p = 0; p < MAX_PLAYERS; p++) {
-			s32 weaponnum;
+			struct gunctrl *ctrl;
 
 			if (!g_Vars.players[p]) {
 				continue;
 			}
 
 			setCurrentPlayerNum(p);
-			weaponnum = g_Vars.currentplayer->gunctrl.weaponnum;
+			ctrl = &g_Vars.currentplayer->gunctrl;
 
-			if (weaponnum >= WEAPON_GE_FIRST && weaponnum < WEAPON_GE_FIRST + NUM_GE_GUNS
-					&& gegunsHasOwnModel(weaponnum - WEAPON_GE_FIRST)) {
-				bgunSetGunMemWeapon(weaponnum);
+			if (gebeanSwitchReloads(ctrl->weaponnum)
+					|| (ctrl->dualwielding && gebeanSwitchReloads(ctrl->leftweaponnum))) {
+				bgunSetGunMemWeapon(ctrl->weaponnum);
 			}
 		}
 
