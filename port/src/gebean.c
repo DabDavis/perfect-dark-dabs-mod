@@ -11182,7 +11182,21 @@ struct gebeanlevel {
  */
 struct gebeanlevel *gebeanLevelOpen(const char *name)
 {
+	char source[64];
+
+	snprintf(source, sizeof(source), "new/background/%s", name);
+
+	return gebeanLevelOpenSource(source);
+}
+
+/**
+ * The same for any level file under files/ - "original/background/dam", the
+ * N64-look copy the asset dump writes beside the HD one (assetdump.c).
+ */
+struct gebeanlevel *gebeanLevelOpenSource(const char *source)
+{
 	struct gebeanlevel *level;
+	const char *name = strrchr(source, '/') ? strrchr(source, '/') + 1 : source;
 
 	if (!gebeanLocate(1)) {
 		return NULL;
@@ -11194,7 +11208,7 @@ struct gebeanlevel *gebeanLevelOpen(const char *name)
 		return NULL;
 	}
 
-	snprintf(level->source, sizeof(level->source), "new/background/%s", name);
+	snprintf(level->source, sizeof(level->source), "%s", source);
 
 	// The pieces a 0x30 draw numbers are all the level's
 	if (!beanLoad(&level->bm, level->source, 1)) {
@@ -11575,6 +11589,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					v[k].uv[1] = bv.uv[1];
 					v[k].argb = bv.argb;
 					v[k].blend = draw->blend;
+					memcpy(v[k].nrm, bv.nrm, sizeof(v[k].nrm));
 				}
 			}
 
@@ -11593,6 +11608,14 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					for (s32 j = 0; j < 3; j++) {
 						v[k].pos[j] = x * m[j] + y * m[4 + j] + z * m[8 + j] + m[12 + j];
 					}
+
+					{
+						const f32 nx = v[k].nrm[0], ny = v[k].nrm[1], nz = v[k].nrm[2];
+
+						for (s32 j = 0; j < 3; j++) {
+							v[k].nrm[j] = nx * m[j] + ny * m[4 + j] + nz * m[8 + j];
+						}
+					}
 				}
 			}
 
@@ -11609,6 +11632,22 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 s32 gebeanLevelNumTextures(struct gebeanlevel *level)
 {
 	return level->bm.numtex;
+}
+
+/** A level's picture as RGBA32 in the game's row order, malloc'd and the caller's (the asset dump). */
+u8 *gebeanLevelDecode(struct gebeanlevel *level, s32 tex, s32 *outWidth, s32 *outHeight)
+{
+	if (!level || tex < 0 || tex >= level->bm.numtex) {
+		return NULL;
+	}
+
+	return beanDecodeTexture(&level->bm, tex, outWidth, outHeight);
+}
+
+/** The name the file gives a level's picture, "" for none. */
+const char *gebeanLevelTextureName(struct gebeanlevel *level, s32 tex)
+{
+	return level ? beanTextureName(&level->bm, tex) : "";
 }
 
 s32 gebeanLevelTextureIsWater(struct gebeanlevel *level, s32 tex)
@@ -11665,6 +11704,12 @@ void gebeanPicturesClose(struct gebeanpictures *pics)
 s32 gebeanPicturesCount(struct gebeanpictures *pics)
 {
 	return pics ? pics->bm.numtex : 0;
+}
+
+/** The name the file gives picture `index`, "" for none. */
+const char *gebeanPicturesName(struct gebeanpictures *pics, s32 index)
+{
+	return pics ? beanTextureName(&pics->bm, index) : "";
 }
 
 /** Picture `index` as RGBA32 in the game's row order, malloc'd and the caller's. */
@@ -11788,6 +11833,7 @@ s32 gebeanPicturesWalk(struct gebeanpictures *pics, void (*fn)(const struct gebe
 					if (beanVertex(bm, &v, tris[i], &bv)) {
 						memcpy(d.vtx[d.numvtx].pos, bv.pos, sizeof(bv.pos));
 						memcpy(d.vtx[d.numvtx].uv, bv.uv, sizeof(bv.uv));
+						memcpy(d.vtx[d.numvtx].nrm, bv.nrm, sizeof(bv.nrm));
 						d.vtx[d.numvtx].argb = bv.argb;
 						d.numvtx++;
 					}

@@ -33,6 +33,13 @@ void gexPlusRomConvert(void);
 s32 gexPlusRomGetState(void);
 
 /**
+ * GoldenEye's own file names for the models the conversion writes by number
+ * (geconvertReadNames()), read from the ROM the startup scan found; 0 when
+ * there is none. For the asset dump.
+ */
+s32 gexPlusRomReadNames(void (*fn)(void *arg, int kind, int num, const char *file), void *arg);
+
+/**
  * The startup notice the conversion draws - black, a title, a line under it and
  * a bar of done out of total - as one frame, for other work done once before
  * the game's own fonts are loaded (gebeanUnpackAtStartup()). Upper case,

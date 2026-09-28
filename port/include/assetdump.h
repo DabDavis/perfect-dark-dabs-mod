@@ -11,8 +11,8 @@ extern "C" {
  * The asset dump: every texture and every model the game has, written out
  * as files somebody can edit, in one go.
  *
- * Four passes, each of which is the whole of its table rather than what the
- * game happened to draw:
+ * Four passes for Perfect Dark, each of which is the whole of its table
+ * rather than what the game happened to draw:
  *
  *   texture-dumps/<romid>/          every texture in the ROM, as texpack's
  *                                   --dump-textures wrote them: a PNG the
@@ -30,8 +30,25 @@ extern "C" {
  *                                   package, the same way, named for the
  *                                   model it replaces
  *
- * The two XBLA passes run only with a package in xbla/ (and unpack the
- * archive if that has not happened yet). Both directories sit beside the
+ * and GoldenEye's, each in folders of their own, only when there is one:
+ *
+ *   texture-dumps/ge-n64/           the textures of the conversion of the
+ *                                   player's GoldenEye ROM (mods/GoldenEye
+ *                                   Arenas/textures), by the conversion's
+ *                                   number, with index.csv giving GoldenEye's
+ *   model-dumps/ge-n64/{props,chars,hand}/  its models (files/Pgx, Cgx,
+ *                                   Igx), named by the ROM's own file names,
+ *                                   index.csv saying which is which
+ *   model-dumps/ge-xbla/<look>/<kind>/<name>.obj  the GoldenEye XBLA
+ *                                   release's (Project Bean's) files/new/ and
+ *                                   original/ char, head, gun, prop,
+ *                                   background and skydome, by Rare's names
+ *   texture-dumps/ge-xbla/<look>/<kind>/<name>/  each one's pictures, and
+ *                                   files/texture/ and new/texture/ as a PNG
+ *                                   a picture
+ *
+ * The two XBLA passes run only with a package in added-content/ (and unpack
+ * the archive if that has not happened yet). Both directories sit beside the
  * executable, or in the save directory where that cannot be written.
  *
  * From the menu it runs a few files a frame under a time budget so the game
