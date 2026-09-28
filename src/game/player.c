@@ -4291,6 +4291,61 @@ static void playerSyncBodyWeapons(struct player *player)
 #define CAMERA_CLEAR_PASSES 3
 #define CAMERA_SHORTEN_PASSES 8
 
+/**
+ * The trace from the eye to where the camera wants to be: the nearest of the
+ * collision's walls, floors and ceilings and the rooms' drawn triangles.
+ * Answers whether anything was hit, with the point in *hit.
+ *
+ * The collision alone is not the room. It is built for a walking player, and
+ * above head height it often stops: the Carrington Institute's offices have
+ * a back wall that leans in over the desk from 458 to the ceiling at 583,
+ * and the collision has the wall only up to 458 (F3 20260928-012021, "camera
+ * clipping here in third person joanna's office near slanted wall"). A camera
+ * lifted by Height over the top of it passed through the leaning face into
+ * the void behind and drew the room below from above, sky and all. The drawn
+ * triangles are what a shot hits (bgTestHitInRoom(), the rooms' vertex
+ * batches - the ROM's, the XBLA release's or GoldenEye's alike), and they are
+ * exactly what the camera must not see through; the rooms tested are the ones
+ * the line crosses, from the portal walk.
+ */
+static bool playerTraceCamera(struct player *player, struct coord *eye, struct coord *cam, struct coord *hit)
+{
+	RoomNum camrooms[8];
+	RoomNum crossed[21];
+	struct hitthing hitthing;
+	f32 best = -1;
+	f32 d;
+	s32 i;
+
+	if (cdExamLos08(eye, player->prop->rooms, cam,
+				CDTYPE_BG | CDTYPE_CLOSEDDOORS,
+				GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT
+				| GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_LIFTFLOOR) == CDRESULT_COLLISION) {
+		cdGetPos(hit, __LINE__, "player.c");
+
+		best = (hit->x - eye->x) * (hit->x - eye->x)
+			+ (hit->y - eye->y) * (hit->y - eye->y)
+			+ (hit->z - eye->z) * (hit->z - eye->z);
+	}
+
+	func0f065dfc(eye, player->prop->rooms, cam, camrooms, crossed, 20);
+
+	for (i = 0; i < ARRAYCOUNT(crossed) && crossed[i] != -1; i++) {
+		if (bgTestHitInRoom(eye, cam, crossed[i], &hitthing)) {
+			d = (hitthing.pos.x - eye->x) * (hitthing.pos.x - eye->x)
+				+ (hitthing.pos.y - eye->y) * (hitthing.pos.y - eye->y)
+				+ (hitthing.pos.z - eye->z) * (hitthing.pos.z - eye->z);
+
+			if (best < 0 || d < best) {
+				best = d;
+				*hit = hitthing.pos;
+			}
+		}
+	}
+
+	return best >= 0;
+}
+
 static void playerClearCamera(struct player *player, struct coord *eye, struct coord *cam)
 {
 	RoomNum camrooms[8];
@@ -4370,12 +4425,7 @@ static void playerClearCamera(struct player *player, struct coord *eye, struct c
 		moved = true;
 	}
 
-	if (moved && cdExamLos08(eye, player->prop->rooms, cam,
-				CDTYPE_BG | CDTYPE_CLOSEDDOORS,
-				GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT
-				| GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_LIFTFLOOR) == CDRESULT_COLLISION) {
-		cdGetPos(&hit, __LINE__, "player.c");
-
+	if (moved && playerTraceCamera(player, eye, cam, &hit)) {
 		dist = sqrtf((cam->x - eye->x) * (cam->x - eye->x)
 				+ (cam->y - eye->y) * (cam->y - eye->y)
 				+ (cam->z - eye->z) * (cam->z - eye->z));
@@ -4666,12 +4716,7 @@ static void playerPullBackCameraNow(struct coord *campos)
 
 	dist = len;
 
-	if (cdExamLos08(campos, player->prop->rooms, &back,
-				CDTYPE_BG | CDTYPE_CLOSEDDOORS,
-				GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT
-				| GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_LIFTFLOOR) == CDRESULT_COLLISION) {
-		cdGetPos(&hit, __LINE__, "player.c");
-
+	if (playerTraceCamera(player, campos, &back, &hit)) {
 		dist = sqrtf((hit.x - campos->x) * (hit.x - campos->x)
 				+ (hit.y - campos->y) * (hit.y - campos->y)
 				+ (hit.z - campos->z) * (hit.z - campos->z)) - g_ModOptions.camclearance;
