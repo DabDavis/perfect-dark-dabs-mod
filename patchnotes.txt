@@ -31,6 +31,25 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 9 2026-09-28
+New: Dump All Assets also dumps GoldenEye's N64 and XBLA textures and models, each in a folder of its own (thanks dab)
+GE Plus Streets: the jeeps are solid, you no longer walk through them (thanks dab)
+GE Plus Streets: the mission no longer fails for civilian casualties while the opening plays (thanks dab)
+GE Plus: the Carrington Institute's music no longer plays over the folder's theme (thanks dab)
+GE Plus Frigate, HD look: the ship's reflection fades into the sea instead of standing as a second hull under the boat (thanks dab)
+GE Plus Control: the autoguns no longer see and shoot you through walls (thanks savantique)
+GE Plus Jungle: Bond keeps the gun he walked into the lift with in the ending (thanks savantique)
+GE Plus: the gun on the watch no longer shows its muzzle flash (thanks savantique)
+GoldenEye guns, HD look: only the rocket launcher is unmirrored in the left hand; the others look as before (thanks dab)
+GoldenEye guns, HD look: Joanna and other Perfect Dark characters hold GoldenEye's pistols and knives in their own hands, not Bond's glove (thanks dab)
+GoldenEye guns: switching the XBLA look fixes the left hand's gun at once, no weapon swap needed (thanks dab)
+GoldenEye guns: the ZMG's muzzle flash no longer turns the whole screen grey (thanks dab)
+Far guards fading into the fog are no longer see-through, their guns no longer show through their bodies (thanks dab)
+Spectating: no more footsteps from the flying camera (thanks dab)
+XBLA look: redrawn font packs no longer garble every menu (thanks Parabolee)
+XBLA look: the menu font's small letters like s and r sit on the line at the right size (thanks savantique)
+Menus: leaving Mods: Camera no longer leaves a ghost of its page behind the other menus (thanks Parabolee)
+
 notes 8 2026-09-27
 GE Plus: guards wear their hats again, and a shot hat flies off as in GoldenEye (helmets ring and stay on) (thanks dab)
 GE Plus: levels no longer draw other games' pictures on their walls, like faces in Streets' windows or the Institute's floor in Egyptian
