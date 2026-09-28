@@ -536,7 +536,12 @@ u16 weaponGetFileNum(s32 weaponnum)
 		}
 #endif
 
+#ifndef PLATFORM_N64
+		// the player's own hands on a GoldenEye pistol, not Bond's glove
+		return gebeanFirstPersonFileForPlayer(weaponnum, weapon->hi_model);
+#else
 		return weapon->hi_model;
+#endif
 	}
 
 	return 0;
