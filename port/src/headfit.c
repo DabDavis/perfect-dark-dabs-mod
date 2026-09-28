@@ -34,6 +34,8 @@
 #include "lib/model.h"
 #include "game/file.h"
 #include "game/modeldef.h"
+#include "game/game_0b0fd0.h"
+#include "game/mainmenu.h"
 #include "gebean.h"
 #include "gexplus.h"
 #include "headfit.h"
@@ -148,6 +150,23 @@ static void headfitMatrixRests(struct modeldef *modeldef, f32 rests[HEADFIT_MAXM
  */
 // Whether a measure takes the lists under a toggle as well (headfitMeasureHeadWhole())
 static s32 headfitWithToggled;
+// Or, set, the toggles as this model's own switches have them (headfitMeasureModelBox())
+static struct model *headfitToggleModel;
+
+static s32 headfitToggleHidden(const struct modelnode *node)
+{
+	for (node = node ? node->parent : NULL; node; node = node->parent) {
+		if ((node->type & 0xff) == MODELNODETYPE_TOGGLE) {
+			const union modelrwdata *rwdata = modelGetNodeRwData(headfitToggleModel, (struct modelnode *)node);
+
+			if (rwdata && !rwdata->toggle.visible) {
+				return 1;
+			}
+		}
+	}
+
+	return 0;
+}
 
 static void headfitEachVertex(struct modeldef *modeldef, const u8 *filebase, s32 walkmatrices,
 		void (*fn)(const f32 pos[3], const struct modelnode *node, void *arg), void *arg)
@@ -168,42 +187,48 @@ static void headfitEachVertex(struct modeldef *modeldef, const u8 *filebase, s32
 		prev = node;
 		modelIterateDisplayLists(modeldef, &node, &gdl);
 
-		if (node && node != prev && (node->type & 0xff) == MODELNODETYPE_DL
-				&& (headfitWithToggled || !headfitUnderToggle(node))) {
-			const struct modelrodata_dl *dl = &node->rodata->dl;
+		// a gun's lists are gun lists, measured for a whole model's box only
+		if (node && node != prev
+				&& ((node->type & 0xff) == MODELNODETYPE_DL
+					|| (headfitToggleModel && (node->type & 0xff) == MODELNODETYPE_GUNDL))
+				&& (headfitToggleModel ? !headfitToggleHidden(node)
+					: headfitWithToggled || !headfitUnderToggle(node))) {
+			const s32 isgun = (node->type & 0xff) == MODELNODETYPE_GUNDL;
+			const Vtx *vertices = isgun ? node->rodata->gundl.vertices : node->rodata->dl.vertices;
+			const s32 numvertices = isgun ? node->rodata->gundl.numvertices : node->rodata->dl.numvertices;
 			f32 rest[3];
 			s32 own = -1;
 
-			if (!dl->vertices || dl->numvertices <= 0) {
+			if (!vertices || numvertices <= 0) {
 				continue;
 			}
 
 			headfitRestOffset(node, rest);
 
 			if (walkmatrices) {
-				if (dl->numvertices > cap) {
-					s16 *grown = realloc(vtxmtx, dl->numvertices * sizeof(s16));
+				if (numvertices > cap) {
+					s16 *grown = realloc(vtxmtx, numvertices * sizeof(s16));
 
 					if (!grown) {
 						break;
 					}
 
 					vtxmtx = grown;
-					cap = dl->numvertices;
+					cap = numvertices;
 				}
 
 				own = gebeanListNodeMatrix(node);
-				gebeanListVertexMatrices(node, filebase, vtxmtx, dl->numvertices);
+				gebeanListVertexMatrices(node, filebase, vtxmtx, numvertices);
 			}
 
-			for (s32 i = 0; i < dl->numvertices; i++) {
+			for (s32 i = 0; i < numvertices; i++) {
 				const s32 mtx = !walkmatrices ? -1 : vtxmtx[i] >= 0 ? vtxmtx[i] : own;
 				const f32 *r = mtx >= 0 && mtx < HEADFIT_MAXMTX && have[mtx] ? rests[mtx] : rest;
 				f32 p[3];
 
-				p[0] = dl->vertices[i].x + r[0];
-				p[1] = dl->vertices[i].y + r[1];
-				p[2] = dl->vertices[i].z + r[2];
+				p[0] = vertices[i].x + r[0];
+				p[1] = vertices[i].y + r[1];
+				p[2] = vertices[i].z + r[2];
 				fn(p, node, arg);
 			}
 		}
@@ -925,5 +950,410 @@ void headfitSurvey(void)
 			sysLogPrintf(LOG_NOTE, "headfit: body %3d %-22s type %d neck %6.1f..%6.1f | no own head",
 					bodynum, bname ? bname : "?", g_HeadsAndBodies[bodynum].type, b.neckbottom, b.necktop);
 		}
+	}
+}
+
+/* -------------------------------------------------------------------------
+ * A whole model's box, for framing it in a menu
+ * ------------------------------------------------------------------------- */
+
+#define HEADFIT_BOXNODES 512
+
+struct headfitboxes {
+	const struct modelnode *node; // the list being collected
+	s32 num;
+	s32 dropped;
+	f32 lo[HEADFIT_BOXNODES][3];
+	f32 hi[HEADFIT_BOXNODES][3];
+};
+
+static void headfitCollectBox(const f32 pos[3], const struct modelnode *node, void *arg)
+{
+	struct headfitboxes *c = arg;
+
+	if (node != c->node) {
+		if (c->num >= HEADFIT_BOXNODES) {
+			c->dropped++;
+			return;
+		}
+
+		c->node = node;
+
+		for (s32 a = 0; a < 3; a++) {
+			c->lo[c->num][a] = c->hi[c->num][a] = pos[a];
+		}
+
+		c->num++;
+		return;
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		f32 *lo = &c->lo[c->num - 1][a];
+		f32 *hi = &c->hi[c->num - 1][a];
+
+		if (pos[a] < *lo) *lo = pos[a];
+		if (pos[a] > *hi) *hi = pos[a];
+	}
+}
+
+/**
+ * The box round what a model draws as its switches stand now, in its own
+ * space: every list not under a toggle this model has switched off, each
+ * list's vertices in the space of the matrix they were loaded under (so
+ * `filebase`, the file as it was loaded, is wanted).
+ *
+ * A list collapsed to a point is left out: GoldenEye's N64 guns carry pieces
+ * it moves into place as it fires, parked far off (the AK's is 760 triangles
+ * in a two-unit box 1574 units to the side), which draw nothing where they
+ * sit and would stretch the box - so a list under 2% of the biggest one's
+ * size does not count.
+ */
+s32 headfitMeasureModelBox(struct model *model, const u8 *filebase, f32 lo[3], f32 hi[3])
+{
+	struct headfitboxes *c = model && model->definition ? calloc(1, sizeof(*c)) : NULL;
+	f32 biggest = 0.0f;
+	s32 any = 0;
+
+	if (!c) {
+		return 0;
+	}
+
+	headfitToggleModel = model;
+	headfitEachVertex(model->definition, filebase, 1, headfitCollectBox, c);
+	headfitToggleModel = NULL;
+
+	for (s32 i = 0; i < c->num; i++) {
+		for (s32 a = 0; a < 3; a++) {
+			if (c->hi[i][a] - c->lo[i][a] > biggest) {
+				biggest = c->hi[i][a] - c->lo[i][a];
+			}
+		}
+	}
+
+	for (s32 i = 0; i < c->num; i++) {
+		f32 size = 0.0f;
+
+		for (s32 a = 0; a < 3; a++) {
+			if (c->hi[i][a] - c->lo[i][a] > size) {
+				size = c->hi[i][a] - c->lo[i][a];
+			}
+		}
+
+		if (size < biggest * 0.02f) {
+			continue;
+		}
+
+		for (s32 a = 0; a < 3; a++) {
+			if (!any || c->lo[i][a] < lo[a]) lo[a] = c->lo[i][a];
+			if (!any || c->hi[i][a] > hi[a]) hi[a] = c->hi[i][a];
+		}
+
+		any = 1;
+	}
+
+	free(c);
+
+	return any && biggest > 0.0f;
+}
+
+/* -------------------------------------------------------------------------
+ * A blade's own frame, for laying a knife down in a menu
+ * ------------------------------------------------------------------------- */
+
+struct headfitcloud {
+	f32 *p;
+	s32 num;
+	s32 cap;
+};
+
+static void headfitCollectCloud(const f32 pos[3], const struct modelnode *node, void *arg)
+{
+	struct headfitcloud *c = arg;
+
+	if (c->num >= c->cap) {
+		const s32 cap = c->cap ? c->cap * 2 : 1024;
+		f32 *grown = realloc(c->p, (size_t)cap * 3 * sizeof(f32));
+
+		if (!grown) {
+			return;
+		}
+
+		c->p = grown;
+		c->cap = cap;
+	}
+
+	memcpy(&c->p[c->num++ * 3], pos, 3 * sizeof(f32));
+}
+
+/** The eigenvectors of a symmetric 3x3 (Jacobi), as rows of vec, largest value first. */
+static void headfitEigen3(f64 a[3][3], f64 vec[3][3], f64 val[3])
+{
+	f64 v[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+	s32 order[3] = { 0, 1, 2 };
+
+	for (s32 sweep = 0; sweep < 50; sweep++) {
+		const f64 off = fabs(a[0][1]) + fabs(a[0][2]) + fabs(a[1][2]);
+
+		if (off < 1e-9) {
+			break;
+		}
+
+		for (s32 p = 0; p < 2; p++) {
+			for (s32 q = p + 1; q < 3; q++) {
+				if (fabs(a[p][q]) < 1e-12) {
+					continue;
+				}
+
+				{
+					const f64 theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
+					const f64 t = (theta >= 0 ? 1.0 : -1.0) / (fabs(theta) + sqrt(theta * theta + 1.0));
+					const f64 c = 1.0 / sqrt(t * t + 1.0);
+					const f64 sn = t * c;
+
+					for (s32 k = 0; k < 3; k++) {
+						const f64 akp = a[k][p], akq = a[k][q];
+						a[k][p] = c * akp - sn * akq;
+						a[k][q] = sn * akp + c * akq;
+					}
+
+					for (s32 k = 0; k < 3; k++) {
+						const f64 apk = a[p][k], aqk = a[q][k];
+						a[p][k] = c * apk - sn * aqk;
+						a[q][k] = sn * apk + c * aqk;
+					}
+
+					for (s32 k = 0; k < 3; k++) {
+						const f64 vkp = v[k][p], vkq = v[k][q];
+						v[k][p] = c * vkp - sn * vkq;
+						v[k][q] = sn * vkp + c * vkq;
+					}
+				}
+			}
+		}
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		for (s32 j = i + 1; j < 3; j++) {
+			if (a[order[j]][order[j]] > a[order[i]][order[i]]) {
+				const s32 t = order[i];
+				order[i] = order[j];
+				order[j] = t;
+			}
+		}
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		val[i] = a[order[i]][order[i]];
+
+		for (s32 k = 0; k < 3; k++) {
+			vec[i][k] = v[k][order[i]];
+		}
+	}
+}
+
+/**
+ * A knife's own frame, from its points: axes[0] along it towards the point
+ * of the blade, axes[1] across the blade's face, axes[2] through it (its
+ * thinnest way), and the middle and length of it along those. The blade is
+ * whichever end is thinner through: a blade is flat, a handle round. Which
+ * way round the face is (edge or spine up) takes the sign nearest the
+ * model's own z, the way both games draw the blade's width.
+ */
+s32 headfitBladeFrame(const f32 *pts, s32 num, f32 axes[3][3], f32 mid[3], f32 *length)
+{
+	f64 mean[3] = { 0, 0, 0 };
+	f64 cov[3][3] = { { 0 } };
+	f64 vec[3][3];
+	f64 val[3];
+	f64 lo[3] = { 1e30, 1e30, 1e30 };
+	f64 hi[3] = { -1e30, -1e30, -1e30 };
+	f64 thick[2] = { 0, 0 };
+	s32 count[2] = { 0, 0 };
+	f64 e[3][3];
+
+	if (num < 8) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		for (s32 a = 0; a < 3; a++) {
+			mean[a] += pts[i * 3 + a];
+		}
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		mean[a] /= num;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		for (s32 a = 0; a < 3; a++) {
+			for (s32 b = 0; b < 3; b++) {
+				cov[a][b] += (pts[i * 3 + a] - mean[a]) * (pts[i * 3 + b] - mean[b]);
+			}
+		}
+	}
+
+	headfitEigen3(cov, vec, val);
+
+	// along, across (middle), through (least)
+	memcpy(e[0], vec[0], sizeof(e[0]));
+	memcpy(e[1], vec[1], sizeof(e[1]));
+
+	for (s32 i = 0; i < num; i++) {
+		const f64 t = (pts[i * 3] - mean[0]) * e[0][0] + (pts[i * 3 + 1] - mean[1]) * e[0][1] + (pts[i * 3 + 2] - mean[2]) * e[0][2];
+
+		if (t < lo[0]) lo[0] = t;
+		if (t > hi[0]) hi[0] = t;
+	}
+
+	// which end is the blade: the thinner through (along vec[2])
+	for (s32 i = 0; i < num; i++) {
+		f64 t = 0, d = 0;
+
+		for (s32 a = 0; a < 3; a++) {
+			t += (pts[i * 3 + a] - mean[a]) * e[0][a];
+			d += (pts[i * 3 + a] - mean[a]) * vec[2][a];
+		}
+
+		if (t > lo[0] + (hi[0] - lo[0]) * 0.7) {
+			thick[1] += d * d;
+			count[1]++;
+		} else if (t < lo[0] + (hi[0] - lo[0]) * 0.3) {
+			thick[0] += d * d;
+			count[0]++;
+		}
+	}
+
+	if (count[0] && count[1] && thick[0] / count[0] < thick[1] / count[1]) {
+		for (s32 a = 0; a < 3; a++) {
+			e[0][a] = -e[0][a];
+		}
+	}
+
+	if (e[1][2] < 0) {
+		for (s32 a = 0; a < 3; a++) {
+			e[1][a] = -e[1][a];
+		}
+	}
+
+	// through = across x along, so the three are a turn and not a mirror
+	e[2][0] = e[1][1] * e[0][2] - e[1][2] * e[0][1];
+	e[2][1] = e[1][2] * e[0][0] - e[1][0] * e[0][2];
+	e[2][2] = e[1][0] * e[0][1] - e[1][1] * e[0][0];
+
+	for (s32 k = 0; k < 3; k++) {
+		lo[k] = 1e30;
+		hi[k] = -1e30;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		for (s32 k = 0; k < 3; k++) {
+			const f64 t = (pts[i * 3] - mean[0]) * e[k][0] + (pts[i * 3 + 1] - mean[1]) * e[k][1] + (pts[i * 3 + 2] - mean[2]) * e[k][2];
+
+			if (t < lo[k]) lo[k] = t;
+			if (t > hi[k]) hi[k] = t;
+		}
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		mid[a] = (f32)mean[a];
+
+		for (s32 k = 0; k < 3; k++) {
+			axes[k][a] = (f32)e[k][a];
+			mid[a] += (f32)((lo[k] + hi[k]) * 0.5 * e[k][a]);
+		}
+	}
+
+	*length = (f32)(hi[0] - lo[0]);
+
+	return *length > 0.0f;
+}
+
+/** headfitBladeFrame() over what a model draws as its switches stand (see headfitMeasureModelBox()). */
+s32 headfitMeasureModelBlade(struct model *model, const u8 *filebase, f32 axes[3][3], f32 mid[3], f32 *length)
+{
+	struct headfitcloud c = { NULL, 0, 0 };
+	s32 ok;
+
+	if (!model || !model->definition) {
+		return 0;
+	}
+
+	headfitToggleModel = model;
+	headfitEachVertex(model->definition, filebase, 1, headfitCollectCloud, &c);
+	headfitToggleModel = NULL;
+
+	ok = headfitBladeFrame(c.p, c.num, axes, mid, length);
+	free(c.p);
+
+	return ok;
+}
+
+/**
+ * Research, from gdb: every weapon's menu model measured as the inventory
+ * shows it (its partvisibility applied), beside the inventory's table row -
+ * the row's displacement against the box's middle, and the drawn size.
+ */
+void headfitSurveyGuns(void)
+{
+	for (s32 w = WEAPON_UNARMED + 1; w < NUM_WEAPONS; w++) {
+		struct weapon *weapon = g_Weapons[w];
+		const s32 filenum = weapon ? weaponGetFileNum(w) : 0;
+		const char *name = filenum ? romdataFileGetName(filenum) : NULL;
+		struct modeldef *modeldef;
+		struct model model;
+		u32 *rwdata;
+		u8 *buf;
+		f32 lo[3];
+		f32 hi[3];
+		f32 config[5];
+		s32 hasrow;
+
+		if (!filenum) {
+			continue;
+		}
+
+		modeldef = headfitLoadFile(filenum, &buf);
+
+		if (!modeldef) {
+			sysLogPrintf(LOG_NOTE, "gunfit: %02x %-22s no file", w, name ? name : "?");
+			continue;
+		}
+
+		modelAllocateRwData(modeldef);
+		rwdata = calloc(modeldef->rwdatalen + 16, sizeof(u32));
+		modelInit(&model, modeldef, rwdata, true);
+
+		if (weapon->partvisibility) {
+			for (struct modelpartvisibility *ptr = weapon->partvisibility; ptr->part != 255; ptr++) {
+				struct modelnode *node = modelGetPart(modeldef, ptr->part);
+				union modelrwdata *rw = node && (node->type & 0xff) == MODELNODETYPE_TOGGLE ? modelGetNodeRwData(&model, node) : NULL;
+
+				if (rw) {
+					rw->toggle.visible = ptr->visible ? true : false;
+				}
+			}
+		}
+
+		hasrow = menuGetWeaponModelConfig(w, config);
+
+		if (headfitMeasureModelBox(&model, buf, lo, hi)) {
+			const f32 dx = hi[0] - lo[0];
+			const f32 dy = hi[1] - lo[1];
+			const f32 dz = hi[2] - lo[2];
+			const f32 big = dx > dy ? (dx > dz ? dx : dz) : (dy > dz ? dy : dz);
+
+			sysLogPrintf(LOG_NOTE, "gunfit: %02x %-22s size %6.1f %6.1f %6.1f mid %7.1f %7.1f %7.1f | row %s disp %7.1f %7.1f %7.1f scale %.4f drawn %6.1f diag %6.1f",
+					w, name ? name : "?", dx, dy, dz,
+					(lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f,
+					hasrow ? "yes" : "no ", hasrow ? config[0] : 0.0f, hasrow ? config[1] : 0.0f, hasrow ? config[2] : 0.0f,
+					hasrow ? config[4] : 0.0f, hasrow ? big * config[4] : 0.0f,
+					hasrow ? sqrtf(dx * dx + dy * dy + dz * dz) * config[4] : 0.0f);
+		} else {
+			sysLogPrintf(LOG_NOTE, "gunfit: %02x %-22s nothing measured", w, name ? name : "?");
+		}
+
+		free(rwdata);
+		free(buf);
 	}
 }

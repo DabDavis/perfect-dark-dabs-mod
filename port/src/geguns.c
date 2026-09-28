@@ -1916,6 +1916,28 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model)
 }
 
 /**
+ * The same switches for the gun held up bare in a menu (Perfect Dark's
+ * inventory): no hand, no cuff, no flash, a thrown item's own pieces on - as
+ * GoldenEye's watch shows its guns. Its model's toggles all start on, and
+ * showed Bond's hand and a lit flash on every gun in the N64 look.
+ */
+void gegunsOwnModelMenuParts(s32 weaponnum, struct model *model)
+{
+	if (!gegunsOwnModelInUse(weaponnum)) {
+		return;
+	}
+
+	for (s32 part = 8; part <= 13; part++) {
+		gegunsSetPart(model, part, 0);
+	}
+
+	gegunsSetPart(model, 35, 0);
+	gegunsSetPart(model, 14, 1);
+	gegunsSetPart(model, 15, 1);
+	gegunsSetPart(model, 1, 0);
+}
+
+/**
  * GoldenEye's knife slash on its own model (the N64 look).
  *
  * Perfect Dark's combat knife slashes with a skeletal animation of its own

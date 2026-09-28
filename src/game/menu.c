@@ -68,6 +68,7 @@
 #include "platform.h"
 #include "system.h"
 #include "game/modrules.h"
+#include "geguns.h"
 #define BLUR_OFS 10
 #else
 #define BLUR_OFS 30
@@ -1869,6 +1870,12 @@ void menuUnsetModel(struct menumodel *menumodel)
 	menumodel->unk5b1_06 = false;
 	menumodel->drawbehinddialog = false;
 	menumodel->partvisibility = NULL;
+#ifndef PLATFORM_N64
+	menumodel->fitparams = 0;
+	menumodel->fitweapon = 0;
+	menumodel->fitpending = false;
+	menumodel->fitrotset = false;
+#endif
 	menumodel->unk560 = -1;
 	menumodel->headnum = -1;
 	menumodel->bodynum = -1;
@@ -1920,6 +1927,204 @@ void menuModelYieldGunMem(struct menumodel *menumodel)
 	menumodel->bodymodeldef = NULL;
 	menumodel->allocstart = NULL;
 	menumodel->loaddelay = 0;
+}
+#endif
+
+#ifndef PLATFORM_N64
+/**
+ * How big the inventory draws a gun framed by its box rather than a table row,
+ * as the length its longest side is drawn at (the side times the scale).
+ * Perfect Dark's own rows, measured the same way (headfitSurveyGuns()), draw
+ * a longer gun a little bigger, not in proportion: the Falcon 2's 228 units
+ * at 111, the PP7's 171 at 102, the AR34's 925 at 170 and the M16's 1107 at
+ * 204 - about 111 x (length / 228)^0.3, which is the rule here, kept inside
+ * the range their guns span.
+ */
+#define MENUMODEL_FIT_REFLEN   228.0f
+#define MENUMODEL_FIT_REFDRAWN 111.0f
+#define MENUMODEL_FIT_POWER    0.3f
+#define MENUMODEL_FIT_MIN      100.0f
+#define MENUMODEL_FIT_MAX      205.0f
+#define MENUMODEL_FIT_WAIT     10 // frames
+
+/**
+ * A weapon past the inventory's table - GoldenEye's guns, 0x5e on - has no row
+ * saying where its model's middle is or how big to draw it, and took the first
+ * row's, the Falcon 2's: its middle, which is not theirs, so the gun swung
+ * round a point off to its side as it turned, over the list, and its size, so
+ * a long gun came up huge (F3 20260928-165825, -165922, -170009). Such a
+ * model is measured once it is loaded, as it will be drawn, and turned about
+ * the middle of its box, sized by its length. In the HD look the release's
+ * gun is drawn over its host's lists where it was laid on them, and that
+ * box is the one; in the N64 look it is GoldenEye's own model, measured over
+ * its lists with GoldenEye's hand, cuff and flash off.
+ *
+ * Measured the same way, Perfect Dark's own guns come out where their rows put
+ * them - the Falcon 2 about (-22, 7, 156) against its row's (-23, 17, 153)
+ * at scale 0.487 against 0.488, the combat knife, timed mine and grenade as
+ * close - so the rule is the table's own, not a new look.
+ */
+static void menuModelFitToBox(struct menumodel *menumodel, s32 filenum)
+{
+	f32 lo[3];
+	f32 hi[3];
+	f32 longest = 0.0f;
+	f32 drawn;
+	s32 ok;
+
+	const s32 waited = menumodel->fitpending;
+	s32 release = 0;
+
+	menumodel->fitpending = 0;
+	menumodel->fitrotset = false;
+	ok = 0;
+
+	if (gebeanFirstPersonIsReleaseFile(menumodel->fitweapon, filenum)) {
+		// The HD look: the release's gun is drawn over the file's lists,
+		// laid on where the file's gun is but at its own size and shape, so
+		// its own box is the one. It is laid on the first time it is drawn;
+		// until then the model is drawn at no size and asked again each
+		// frame - for a few frames, and then the file's own lists are
+		// measured instead, where the release's gun was to be laid
+		ok = gebeanFirstPersonHostBox(menumodel->fitweapon, lo, hi);
+		release = ok;
+
+		if (!ok && waited < MENUMODEL_FIT_WAIT) {
+			menumodel->fitpending = waited + 1;
+			menumodel->curscale = menumodel->newscale = 0.0f;
+			return;
+		}
+	}
+
+	if (!ok) {
+		// GoldenEye's own model in the N64 look: the host's list of pieces
+		// to hide names the host's parts, not these, and GoldenEye's own
+		// switches say which of its pieces show
+		if (gegunsOwnModelInUse(menumodel->fitweapon)) {
+			menumodel->partvisibility = NULL;
+			gegunsOwnModelMenuParts(menumodel->fitweapon, &menumodel->bodymodel);
+		}
+
+		if (menumodel->partvisibility != NULL) {
+			struct modelpartvisibility *ptr;
+
+			for (ptr = menumodel->partvisibility; ptr->part != 255; ptr++) {
+				struct modelnode *node = modelGetPart(menumodel->bodymodeldef, ptr->part);
+				union modelrwdata *rwdata = node && (node->type & 0xff) == MODELNODETYPE_TOGGLE
+					? modelGetNodeRwData(&menumodel->bodymodel, node) : NULL;
+
+				if (rwdata) {
+					rwdata->toggle.visible = ptr->visible ? true : false;
+				}
+			}
+		}
+
+		ok = headfitMeasureModelBox(&menumodel->bodymodel, menumodel->allocstart, lo, hi);
+	}
+
+	if (!ok) {
+		return;
+	}
+
+	// Both boxes are in the space of the model's joints at rest, the root's
+	// offset included; a menu model is posed with no animation, which leaves
+	// the root where it is (modelUpdatePositionNodeMtx()), so every piece is
+	// drawn that much nearer the origin - 205 units along the Combat Knife
+	{
+		struct modelnode *root = menumodel->bodymodeldef->rootnode;
+
+		if (root && (root->type & 0xff) == MODELNODETYPE_POSITION) {
+			for (s32 a = 0; a < 3; a++) {
+				lo[a] -= root->rodata->position.pos.f[a];
+				hi[a] -= root->rodata->position.pos.f[a];
+			}
+		}
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		if (hi[a] - lo[a] > longest) {
+			longest = hi[a] - lo[a];
+		}
+	}
+
+	// A knife is laid along x, as Perfect Dark's is: its row tips that
+	// knife, which lies along x with its blade's face in x-z, and GoldenEye's
+	// knives do not - the release's is modelled turned 22 degrees in that
+	// plane, the way Bond holds it, and stood diagonally and low in the menu;
+	// GoldenEye's own runs up y and stood on end. The knife's own frame
+	// (along to the point, across the blade, through it) is measured off
+	// what is drawn and turned onto Perfect Dark's (x, z, y), about the
+	// middle of it, and it is sized by its length along that.
+	if (menumodel->fitweapon == WEAPON_GE_HUNTINGKNIFE || menumodel->fitweapon == WEAPON_GE_THROWINGKNIFE) {
+		f32 axes[3][3];
+		f32 mid[3];
+		f32 length;
+		const s32 have = release
+			? gebeanFirstPersonHostBlade(menumodel->fitweapon, axes, mid, &length)
+			: headfitMeasureModelBlade(&menumodel->bodymodel, menumodel->allocstart, axes, mid, &length);
+
+		if (have && length > 0.0f) {
+			struct modelnode *root = menumodel->bodymodeldef->rootnode;
+
+			for (s32 a = 0; a < 3; a++) {
+				const f32 r = root && (root->type & 0xff) == MODELNODETYPE_POSITION ? root->rodata->position.pos.f[a] : 0.0f;
+
+				lo[a] = hi[a] = mid[a] - r;
+
+				// the turn as the matrix takes it: column a is where the
+				// model's axis a goes - along to x, through to y, across to z
+				menumodel->fitrot[a][0] = axes[0][a];
+				menumodel->fitrot[a][1] = axes[2][a];
+				menumodel->fitrot[a][2] = axes[1][a];
+			}
+
+			menumodel->fitrotset = true;
+			longest = length;
+		}
+	}
+
+	if (longest <= 0.0f) {
+		return;
+	}
+
+	drawn = MENUMODEL_FIT_REFDRAWN * __builtin_powf(longest / MENUMODEL_FIT_REFLEN, MENUMODEL_FIT_POWER);
+	drawn = drawn < MENUMODEL_FIT_MIN ? MENUMODEL_FIT_MIN : drawn > MENUMODEL_FIT_MAX ? MENUMODEL_FIT_MAX : drawn;
+
+	// The rule reads a model's length as a gun's length, which holds for
+	// GoldenEye's own guns: they are modelled at Perfect Dark's scale (the
+	// PP7 194 units long against the Falcon 2's 228). Not for the hand
+	// grenade and the mines, which GoldenEye never draws in the hand
+	// (gegunsOwnModelHidden()) and so never had to be to scale: its grenade
+	// is 715 units tall, five times Perfect Dark's (144) and the release's
+	// (136), and the rule drew it at 156 - a grenade the size of a rifle.
+	// They take the smallest size, which is where Perfect Dark's own grenade
+	// (100.6) and mines (106.5) are drawn and where the release's already are.
+	if (gegunsOwnModelHidden(menumodel->fitweapon)) {
+		drawn = MENUMODEL_FIT_MIN;
+	}
+
+	menumodel->displacex = -(lo[0] + hi[0]) * 0.5f;
+	menumodel->displacey = -(lo[1] + hi[1]) * 0.5f;
+	menumodel->displacez = -(lo[2] + hi[2]) * 0.5f;
+	menumodel->newscale = drawn / longest;
+
+	// And a mine is drawn a little above the middle, as Perfect Dark's mine
+	// rows put theirs: the timed mine's row centres it (0.5, -11.4, 6.7)
+	// from the middle of its 118-unit box (root taken off), which is where
+	// the mines sit above the list. GoldenEye's, centred, sat low beside
+	// them. The same offset, for the size of the mine.
+	if (menumodel->fitweapon == WEAPON_GE_TIMEDMINE || menumodel->fitweapon == WEAPON_GE_PROXIMITYMINE
+			|| menumodel->fitweapon == WEAPON_GE_REMOTEMINE) {
+		const f32 k = longest / 118.0f;
+
+		menumodel->displacex -= 0.5f * k;
+		menumodel->displacey += 11.4f * k;
+		menumodel->displacez -= 6.7f * k;
+	}
+
+	sysLogPrintf(LOG_NOTE, "menu: weapon %x's model %x framed by its box: %.1f x %.1f x %.1f about %.1f %.1f %.1f, scale %.4f",
+			menumodel->fitweapon, filenum, hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2],
+			-menumodel->displacex, -menumodel->displacey, -menumodel->displacez, menumodel->newscale);
 }
 #endif
 
@@ -2119,6 +2324,14 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					menumodel->bodymodel.rwdatalen = 256;
 #endif
 					menumodel->bodymodel.anim = &menumodel->bodyanim;
+
+#ifndef PLATFORM_N64
+					menumodel->fitpending = 0;
+
+					if (menumodel->fitparams != 0 && menumodel->fitparams == menumodel->newparams) {
+						menuModelFitToBox(menumodel, MENUMODELPARAMS_GET_FILENUM(menumodel->newparams));
+					}
+#endif
 				}
 
 				menumodel->curparams = menumodel->newparams;
@@ -2129,6 +2342,13 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 			}
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// the release's gun has been drawn once since the model loaded: its box is known now
+	if (menumodel->bodymodeldef != NULL && menumodel->fitpending && menumodel->fitparams == menumodel->curparams) {
+		menuModelFitToBox(menumodel, MENUMODELPARAMS_GET_FILENUM(menumodel->curparams));
+	}
+#endif
 
 	if (menumodel->bodymodeldef != NULL) {
 		struct modelrenderdata renderdata = {NULL, true, 3};
@@ -2468,6 +2688,23 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 				mtx4MultMtx4(&sp1c4, &sp244, &sp184);
 				mtx4MultMtx4(&sp184, &sp204, &menumodel->mtx);
 			} else {
+#ifndef PLATFORM_N64
+				if (menumodel->fitrotset && !haszoom) {
+					Mtxf turn;
+					Mtxf turned;
+
+					mtx4LoadIdentity(&turn);
+
+					for (s32 a = 0; a < 3; a++) {
+						for (s32 b = 0; b < 3; b++) {
+							turn.m[a][b] = menumodel->fitrot[a][b];
+						}
+					}
+
+					mtx4MultMtx4(&sp244, &turn, &turned);
+					mtx4MultMtx4(&turned, &sp204, &menumodel->mtx);
+				} else
+#endif
 				mtx4MultMtx4(&sp244, &sp204, &menumodel->mtx);
 			}
 		}
@@ -4131,6 +4368,12 @@ void menuResetModel(struct menumodel *menumodel, u32 allocationlen, bool allocat
 	menumodel->unk56c = 0;
 	menumodel->unk570 = 0;
 	menumodel->partvisibility = NULL;
+#ifndef PLATFORM_N64
+	menumodel->fitparams = 0;
+	menumodel->fitweapon = 0;
+	menumodel->fitpending = false;
+	menumodel->fitrotset = false;
+#endif
 	menumodel->isperfecthead = false;
 	menumodel->unk5b1_02 = false;
 	menumodel->reverseanim = false;

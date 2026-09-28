@@ -3946,6 +3946,14 @@ void func0f105948(s32 weaponnum)
 
 	if ((u32)wantindex < 0 || wantindex >= ARRAYCOUNT(gunconfig)) {
 		useindex = 0;
+
+#ifndef PLATFORM_N64
+		// A GoldenEye gun is tipped as its host is: a mine lies as a mine
+		// does, a knife as a knife (its middle and size are measured below)
+		if (weaponHost(weaponnum) - 2 >= 0 && weaponHost(weaponnum) - 2 < ARRAYCOUNT(gunconfig)) {
+			useindex = weaponHost(weaponnum) - 2;
+		}
+#endif
 	}
 
 	if (weaponHasFlag(weaponnum, WEAPONFLAG_HIDEMENUMODEL) == false && (u32)wantindex >= 0 && useindex >= 0) {
@@ -3973,6 +3981,19 @@ void func0f105948(s32 weaponnum)
 		g_Menus[g_MpPlayerNum].menumodel.curscale = 0;
 		g_Menus[g_MpPlayerNum].menumodel.partvisibility = weapon->partvisibility;
 		g_Menus[g_MpPlayerNum].menumodel.zoom = -1;
+
+#ifndef PLATFORM_N64
+		// Past the table (GoldenEye's guns) the row above was the first
+		// one, the Falcon 2's, which is neither where the model's middle is
+		// nor its size (and now is its host's, whose model is not the one
+		// drawn in either look): framed by its measured box once it loads
+		// (menu.c's menuModelFitToBox()), tipped as the row tips it
+		g_Menus[g_MpPlayerNum].menumodel.fitparams = wantindex != useindex
+			? g_Menus[g_MpPlayerNum].menumodel.newparams : 0;
+		g_Menus[g_MpPlayerNum].menumodel.fitweapon = weaponnum;
+		g_Menus[g_MpPlayerNum].menumodel.fitpending = false;
+		g_Menus[g_MpPlayerNum].menumodel.fitrotset = false;
+#endif
 
 		// These indexes correspond to WEAPON_DISGUISE40 and WEAPON_DISGUISE41
 		if (wantindex == 0x3e || wantindex == 0x3f) {
