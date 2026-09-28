@@ -2155,9 +2155,32 @@ bool aiIfChrHasWeaponEquipped(void)
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 		setCurrentPlayerNum(playernum);
 
+#ifndef PLATFORM_N64
+		{
+			s32 held = bgunGetWeaponNum(HAND_RIGHT);
+
+			// GoldenEye asks the hand's weaponnum, which its BondHideWeapons
+			// leaves alone; here the hide empties the hands
+			// (aiChrDrawWeaponInCutscene()) and they answer WEAPON_NONE. Jungle's
+			// ending asks again from Bond's own list once his weapons are
+			// hidden, and a gun it does not find in his hand it swaps for a
+			// PP7: he went into the lift with the AR33 and was filmed with a
+			// PP7 (F3 20260927-234102). He holds what his ending's body holds
+			if (held <= WEAPON_NONE && modloaderStageIsRemake(g_Vars.stagenum)) {
+				held = gecinemaBondBodyWeapon() > WEAPON_NONE
+					? gecinemaBondBodyWeapon()
+					: g_Vars.currentplayer->gunctrl.weaponnum;
+			}
+
+			if (held == cmd[3]) {
+				passes = true;
+			}
+		}
+#else
 		if (bgunGetWeaponNum(HAND_RIGHT) == cmd[3]) {
 			passes = true;
 		}
+#endif
 
 		setCurrentPlayerNum(prevplayernum);
 	}
