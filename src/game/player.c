@@ -1964,7 +1964,18 @@ void playerTickChrBody(void)
 
 			bodymodeldef = g_HeadsAndBodies[bodynum].modeldef;
 
-			if (g_HeadsAndBodies[bodynum].unk00_01) {
+			if (g_HeadsAndBodies[bodynum].unk00_01
+#ifndef PLATFORM_N64
+					// No head chosen: the spectator's CamSpy says so above, and
+					// its row does not set unk00_01 the way Dr Caroll's did.
+					// Without this a Customize Character pick sent the branch
+					// below to load g_HeadsAndBodies[-1]'s file - a number past
+					// the file table, garbage promoted as a model, and a crash
+					// on entering or leaving spectator in third person
+					// (F3 20260928-000822, crash reports 20260928-000153 on)
+					|| headnum < 0
+#endif
+					) {
 				headnum = -1;
 			} else if (sp60) {
 				headmodeldef = func0f18e57c(headnum, &headnum);

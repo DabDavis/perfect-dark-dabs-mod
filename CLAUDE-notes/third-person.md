@@ -674,6 +674,18 @@ now (`modSpectateGetBodyNum()`), the body a deployed CamSpy wears. Two traps:
   so `modSpectateTick()` puts `vv_manground` 100 under the eye
   (`MODSPECTATE_EYESPY_DROP`) and the anim root lifts the model to about the eye.
   At the default 200 distance it is small and dark - it is the real size.
+- **Dr Caroll's row had `unk00_01` set (no head) and the CamSpy's does not.**
+  The heap branch of `playerTickChrBody()` (solo third person) only skipped the
+  head by that bit, so with the spectator's `headnum = -1` it went on to load
+  `g_HeadsAndBodies[-1]` - harmless-looking without a Customize Character pick
+  (a stray read of the row before), but with one (`modGhostMenuCharacterApplies()`)
+  it was `modeldefLoadToNew()` of file 16066: "romdataFileLoad: invalid file
+  num 16066", garbage promoted as a model, crash in
+  `modelPromoteNodeOffsetsToPointers()` on entering spectator in third person
+  (F3 20260928-000822; crash reports 20260927-234626 and 20260928-000153/000618/003047, all
+  Parabolee, `InstituteCharacter=1`). The branch now also skips a negative
+  `headnum`. Repro: CI, `InstituteCharacter=1`, gdb `thirdperson = 1` then
+  `call (void)modSpectateToggle()` (~/wt/f3-0928b-packs-run/spec.py).
 
 Test: `--boot-stage 0x32 --mpsims 1 --spectate`, write `prop->pos` from gdb,
 `ThirdPersonDistance=100` in the probe's pd.ini (at 60 the body is faded out by
