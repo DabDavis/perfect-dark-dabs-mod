@@ -81,6 +81,7 @@ const char *gebeanRowName(s32 row);
  * GoldenEye X model is GoldenEye's N64 one already and draws itself.
  */
 s32 gebeanRowIsPool(s32 row);
+s32 gebeanRowIsFemale(s32 row);
 
 /**
  * Whether the row is a GoldenEye gun's first-person model. Its mesh is built
@@ -415,9 +416,9 @@ const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8
 
 // The directions round the neck a pool head is seated by (gebeanmats.seat)
 #define GEBEAN_SEAT_SAMPLES 16
-// A head whose front ends higher than this on the neck ends at its jaw, with no
-// neck of its own (gebeanmats.seat[0])
-#define GEBEAN_NECKLESS -60.0f
+// A head whose open rim (gebeanmats.openrim) is higher than this ends at its
+// jaw: every N64-look head (-6 to -20); the release's with necks -33 to -74
+#define GEBEAN_OPENRIM_JAW -30.0f
 
 /** The pictures a built mesh's material words index (XBLAMESH_MAT_TABLE). */
 struct gebeanmats {
@@ -471,6 +472,24 @@ struct gebeanmats {
 	// xblaMeshPoolHeadSeat())
 	f32 seat[GEBEAN_SEAT_SAMPLES];
 	u32 seathit;
+	// A body's own neck joint as its fit placed it, from the model's neck
+	// joint in the model's rest space (gebean.c, after beanFitRig()): where
+	// GoldenEye hangs a head on it, which the pool's heads are seated by
+	f32 neckshift[3];
+	u8 hasneckshift;
+	// How far the fit moved the collar against the model's neck joint from
+	// where it stood against Bean's own neck (GoldenEye's): the lift that
+	// keeps a pool head's own gap to it
+	f32 collarshift;
+	u8 hascollarshift;
+	// A head cut off a whole character's own neck (a Bond outfit's), not a head file
+	u8 fromchar;
+	// A head's open rim, the middle of its edges one triangle has, in its own
+	// space about the neck joint: at the jaw, or at the foot of a neck of its own
+	f32 openrim;
+	// A body's neck node's group of its whole neck as Bean skins it, drawn
+	// under one of the pool's heads that ends at its jaw (gebean.c's ownof)
+	s8 ownneck[64];
 	// A monitor's screens (parts 0 to 3) whose programme goes on Bean's own
 	// pane rather than GoldenEye's quad (gebean.c's beanScreenFit()): a bit
 	// per part, and the four corners in the model's space, in the order of

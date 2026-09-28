@@ -12589,3 +12589,53 @@ Perfect Dark's missions.
   frontStartCredits(1), back to the page after the reel (gexFrontOpenAfterCredits());
   B/Cancel/Escape leaves (gexFrontLeaveCredits()), a press leaves the reel.
   Probe ~/wt/f3-0928b-credits-run/cin.py (LEAVE=1 for the early exit).
+
+## Pool heads seated on Bean's own neck joint (16th F3 pass, 2026-09-28)
+
+Customize Character picks (a GoldenEye head on a GoldenEye body, both from the
+pool) in the Institute: 071022 "head sitting too low still" (N64 Joel on the
+Jungle Commando), 035938 "mr no neck" (HD Ken on the St. Petersburg guard),
+042931 Valentin too high/low everywhere, 034042 a light slice in Trevelyan's
+nape, 040029 a dark ring round HD Sally's neck. Guards on converted missions
+stand on GoldenEye's own N64 bodies and never took this path (Dam guards
+pixel-identical before/after).
+
+- **The cause.** A pool body is fitted onto a host rig (the dataDyne guard,
+  Joanna). `beanFitPalette()` carries Bean's neck joint on the back's fit,
+  13-23 units *above* the host's neck joint, and the collar goes with it;
+  the head is grafted at the host's joint. 66fb18a1f's
+  `xblaMeshPoolHeadSeat()` then lowered a head by the widest rim-to-collar gap,
+  which on a jaw-ending head is the nape - chin in the collar, no neck.
+- **Now:** the head goes onto Bean's own joint (`gebeanmats.neckshift`, the
+  up component as `collarshift` - the fitted collar's move against the
+  collar in Bean's own bind, median of the directions). Heads with a neck of
+  their own are capped so the neck's foot stays in the collar; women's rows
+  (`gebeanRowIsFemale()`, fitted onto Joanna) take no shift - their heads
+  already sat right; a Bond head on its own suit (`gebeanRowKeepsHood`) stays
+  pinned at the seam.
+- **The body's own neck** (`gebeanmats.ownneck`, `xblaMeshPoolNeckOwn()`):
+  under a head whose open rim clears the collar, the body draws its neck and
+  collar as Bean skins it, unclamped, instead of the filler. Neck triangles
+  off the collar go in only below the jaw (`beanTriInNeck()`: -15 under the
+  joint in the N64 look, -22 in HD; the body files carry a head of their own,
+  whose beard/lips otherwise showed on another face). Not for Bond outfits
+  (`headtex >= 0`, they keep their hood).
+- **"Ends at the jaw"** is `beanOpenRimHeight()`: the median height of the
+  face group's one-triangle edges (UV seams welded by position). N64-look
+  heads -6..-20, the release's -33..-74; `GEBEAN_OPENRIM_JAW` -30. The old
+  test (lowest point in front, `seat[0] > GEBEAN_NECKLESS`) read Valentin's
+  and HD Ken's faces as neckless (their front reaches past the seat's radius)
+  - a made neck stood on Valentin's crown and headfit set his jaw on Perfect
+  Dark necks. `xblaMeshBeanSeat()`'s neckless answer uses it too.
+- **Trevelyan's nape**: `beanWeldSeams()` gives every body point Bean splits
+  in two (within half a unit) one skinning; the two halves were weighted
+  apart and cracked as he moved. Not for bodies with a hood.
+- Left open: the fat technician woman's shirt V shows a gap under HD Sally
+  (as before); HD Vivien on the technician has a hairline under the chin.
+
+Rig `~/wt/f3-0928b-heads-run`: `run.sh` (CONTENT=hd|rom, SAVE=save_hd|n64,
+BIN, PDENV), `pairs.py` (PAIRS by list index or `#bodynum:#headnum`, CAMS
+dist:height:rot, DUMP=1), `menushot.py` (the Customize Character preview),
+`guard.py`/`guardhat.py` (a mission guard stood in front, HAT=1 one with a
+hat), `pair.sh`, `shotat.py`. ROM-only content (`CONTENT=rom`) is GoldenEye's
+own N64 models: the reference for where a GoldenEye head sits.
