@@ -404,6 +404,7 @@ struct xblameshbuilt {
 	u64 beanneck;      // its groups blanked for a neck its own head carries (gebeanmats.neckblank)
 	s8 beanneckfill[64]; // a neck node's group of the body's own neck, for a fitted head (gebeanmats.neckfill)
 	s8 beanhood[64];   // a node's group with the parka's hood (gebeanmats.hood)
+	s8 beanneckof[64]; // a head node's group with a neck made under it (gebeanmats.neck)
 	s8 beanbare[64];   // a neck node's group of the collar the hood covers (gebeanmats.bare)
 	u64 beanspent;     // a first-person launcher's nodes with a group for an empty tube
 	s8 beanspentgroup[64]; // and that group (gebeanmats.spent)
@@ -6763,6 +6764,7 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	m->beanneck = bmats->neckblank;
 	memcpy(m->beanneckfill, bmats->neckfill, sizeof(m->beanneckfill));
 	memcpy(m->beanhood, bmats->hood, sizeof(m->beanhood));
+	memcpy(m->beanneckof, bmats->neck, sizeof(m->beanneckof));
 
 	for (s32 k = 0; k < 64; k++) {
 		if (bmats->hood[k] >= 0 && bmats->hood[k] < 64) {
@@ -8123,6 +8125,69 @@ static s32 xblaMeshHeadBeanRow(struct model *model)
 	return -1;
 }
 
+/**
+ * A model definition drawn as one of the release's GoldenEye meshes, measured
+ * round the neck (gebeanmats.seat): a head's rim or a body's collar, the
+ * middle of the directions found, in the model's own units about the neck
+ * joint; and for a head whether it ends at its jaw (GEBEAN_NECKLESS). For
+ * seating a head of one game on a body of the other (headfit.c), whose
+ * measure of the N64 geometry says nothing about a mesh drawn over it. 0 when
+ * the model is not drawn so in this look, or its mesh has no such ring.
+ */
+s32 xblaMeshBeanSeat(struct modeldef *def, s32 head, f32 *out, s32 *outneckless)
+{
+	struct modelnode *node = def ? def->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 512; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == def && !e->suppress
+				&& e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART
+				&& (optEnabled || gebeanRowIsPool(e->beanrow))) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+			f32 found[GEBEAN_SEAT_SAMPLES];
+			s32 n = 0;
+
+			if (!m || (m->beanhead != 0) != (head != 0) || !m->beanseathit) {
+				return 0;
+			}
+
+			for (s32 i = 0; i < GEBEAN_SEAT_SAMPLES; i++) {
+				if (m->beanseathit & (1u << i)) {
+					s32 at = n++;
+
+					while (at > 0 && found[at - 1] > m->beanseat[i]) {
+						found[at] = found[at - 1];
+						at--;
+					}
+
+					found[at] = m->beanseat[i];
+				}
+			}
+
+			*out = n & 1 ? found[n / 2] : (found[n / 2 - 1] + found[n / 2]) * 0.5f;
+
+			if (outneckless) {
+				*outneckless = (m->beanseathit & 1) && m->beanseat[0] > GEBEAN_NECKLESS;
+			}
+
+			return 1;
+		}
+
+		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return 0;
+}
+
 static s32 xblaMeshHeadDrawsBean(struct model *model)
 {
 	return xblaMeshHeadBeanRow(model) >= 0;
@@ -8177,8 +8242,7 @@ static s32 xblaMeshBodyBeanRow(struct model *model)
  */
 #define XBLAMESH_SEAT_TUCK 4.0f
 #define XBLAMESH_SEAT_MOST 80.0f
-// A head whose front ends higher than this on the neck ends at its jaw
-#define XBLAMESH_NECKLESS -60.0f
+#define XBLAMESH_NECKLESS GEBEAN_NECKLESS
 
 static f32 xblaMeshPoolHeadSeat(const struct xblameshbuilt *head, const struct xblameshentry *he, struct model *model)
 {
@@ -8240,6 +8304,59 @@ static f32 xblaMeshPoolHeadSeat(const struct xblameshbuilt *head, const struct x
 	}
 
 	return 0.0f;
+}
+
+/**
+ * Whether a head grafted on this body draws the neck made under it
+ * (gebeanmats.neck): on any body but its own character's, whose own neck is
+ * there, and not on one that takes no head.
+ */
+static s32 xblaMeshHeadNeckWanted(struct model *model)
+{
+	const s32 bodyrow = xblaMeshBodyBeanRow(model);
+	const s32 headrow = xblaMeshHeadBeanRow(model);
+
+	return !(bodyrow >= 0 && headrow >= 0 && gebeanRowKeepsHood(bodyrow, headrow));
+}
+
+/**
+ * Whether the head grafted on this body has a neck made for it, which then
+ * stands in for the body's own neck at the collar (gebeanmats.neckfill).
+ */
+static s32 xblaMeshHeadBringsNeck(struct model *model)
+{
+	struct modelnode *spot = model && model->definition ? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
+	union modelrwdata *rw = spot ? modelGetNodeRwData(model, spot) : NULL;
+	struct modeldef *head = rw ? rw->headspot.headmodeldef : NULL;
+	struct modelnode *node = head ? head->rootnode : NULL;
+
+	if (!xblaMeshHeadNeckWanted(model)) {
+		return 0;
+	}
+
+	for (s32 walked = 0; node && walked < 256; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == head && !e->suppress && e->beanrow >= 0) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+
+			if (m && m->beanhead && e->packpart < 64 && m->beanneckof[e->packpart] >= 0) {
+				return 1;
+			}
+		}
+
+		if (node->child) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return 0;
 }
 
 /**
@@ -10343,9 +10460,23 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			}
 		}
 
+		// Grafted onto a body, a head draws the neck made under its face
+		// (gebean.c's beanAddNeckTube()) in place of the body's own
+		if (m->beanhead && e->packpart < 64 && e->modeldef != model->definition
+				&& xblaMeshHeadNeckWanted(model)
+				&& m->beanneckof[e->packpart] >= 0 && m->beanneckof[e->packpart] < m->numgroups
+				&& !(m->groupabsent & (1ull << m->beanneckof[e->packpart]))) {
+			part = (u16)m->beanneckof[e->packpart];
+		}
+
 		if (part < 64 && m->beanneckfill[part] >= 0 && m->beanneckfill[part] < m->numgroups
 				&& !(m->groupabsent & (1ull << m->beanneckfill[part]))
 				&& (xblaMeshHeadIsFitted(model) || xblaMeshPoolHeadIsSeated(model))) {
+			// drawing nothing, and not the N64 stub either
+			if (xblaMeshHeadBringsNeck(model)) {
+				return 1;
+			}
+
 			part = (u16)m->beanneckfill[part];
 		} else if (!m->beanhead && part < 64 && m->beanhood[part] >= 0 && m->beanhood[part] < m->numgroups
 				&& !(m->groupabsent & (1ull << m->beanhood[part]))

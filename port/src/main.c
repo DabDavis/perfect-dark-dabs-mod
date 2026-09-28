@@ -467,6 +467,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.HandsMatchBody", &g_HandTintMode, 0, 2);
 	configRegisterInt("Mod.InstituteCharacterHead", &g_ModCiHead, 0, 255);
 	configRegisterInt("Mod.CharacterMissionDefault", &g_ModCiMissionDefault, 0, 1);
+	configRegisterInt("Mod.CharacterFilter", &g_ModCiCharFilter, 0, MODGHOST_CHRSET_ALL);
 
 	// The leaderboard account. The PIN is stored as typed, which is what a PIN
 	// with no password behind it amounts to - it is a claim on a name on a

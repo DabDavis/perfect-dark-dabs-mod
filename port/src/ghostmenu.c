@@ -22,6 +22,9 @@
 #include "game/camdraw.h"
 #include "video.h"
 #include "system.h"
+#include "game/challenge.h"
+#include "gebean.h"
+#include "modborrow.h"
 
 /**
  * Ghost Trials - the ghost feature's own corner of the main menu.
@@ -172,6 +175,192 @@ static MenuItemHandlerResult menuhandlerGhostPick(s32 operation, struct menuitem
 }
 
 /**
+ * Customize Character's filter: which of four sets the carousels step through,
+ * since with GoldenEye's characters and the release's on the lists there are
+ * well over a hundred of each to thumb past. A row belongs to the set it came
+ * from, not to the look it is drawn in: a stock character is Perfect Dark's
+ * N64 one even while F6 dresses it in the release's mesh, and the release's
+ * set is what it adds, Agent 4. GoldenEye's HD set is the Bean pool, whose
+ * rows stand on a release mesh; its N64 set is what only the ROM (or
+ * GoldenEye X) has.
+ */
+static s32 menuCharSetOfRow(s32 row)
+{
+	if (row == XBLA_AGENT4_HEADROW || row == XBLA_AGENT4_BODYROW) {
+		return MODGHOST_CHRSET_PD_XBLA;
+	}
+
+	if (gebeanIsPoolRow(row)) {
+		return MODGHOST_CHRSET_GE_XBLA;
+	}
+
+	if (gebeanIsRomPoolRow(row) || modBorrowIsGoldenEyeHead(row)) {
+		return MODGHOST_CHRSET_GE_N64;
+	}
+
+	return MODGHOST_CHRSET_PD_N64;
+}
+
+static s32 menuCharListRow(s32 index, bool ishead)
+{
+	return ishead ? g_MpHeads[index].headnum : g_MpBodies[index].bodynum;
+}
+
+static s32 menuCharListCount(bool ishead)
+{
+	return ishead ? mpGetNumHeads2() : (s32)mpGetNumBodies();
+}
+
+static bool menuCharListUnlocked(s32 index, bool ishead)
+{
+	return challengeIsFeatureUnlocked(ishead ? mpGetHeadRequiredFeature(index) : mpGetBodyRequiredFeature(index));
+}
+
+/**
+ * The carousel's MENUOP_21 for the filter: whether to step past this entry.
+ *
+ * menuitemCarouselTick() steps until an entry is not skipped, so a filter that
+ * passes nothing - every box unticked, or only a set that is not installed -
+ * would spin it for ever. Then nothing is skipped. `lockedtoo` is the trial
+ * page's, whose carousels also skip what the challenges have not unlocked: an
+ * entry that passes the filter but is locked does not count as one to land on.
+ */
+static bool menuCharFilterSkips(s32 index, bool ishead, bool lockedtoo)
+{
+	const s32 count = menuCharListCount(ishead);
+	s32 i;
+
+	if ((g_ModCiCharFilter & MODGHOST_CHRSET_ALL) == MODGHOST_CHRSET_ALL
+			|| (g_ModCiCharFilter & menuCharSetOfRow(menuCharListRow(index, ishead)))) {
+		return false;
+	}
+
+	for (i = 0; i < count; i++) {
+		if ((g_ModCiCharFilter & menuCharSetOfRow(menuCharListRow(i, ishead)))
+				&& (!lockedtoo || menuCharListUnlocked(i, ishead))) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static s32 menuCharSetCount(s32 set)
+{
+	const s32 count = mpGetNumBodies();
+	s32 n = 0;
+	s32 i;
+
+	for (i = 0; i < count; i++) {
+		if (menuCharSetOfRow(g_MpBodies[i].bodynum) == set) {
+			n++;
+		}
+	}
+
+	return n;
+}
+
+/**
+ * One box a set, the set's bit in the item's param. Labelled with how many
+ * bodies are in it, so a set that is not installed says so, and greyed out.
+ */
+static char *menutextCharFilter(struct menuitem *item)
+{
+	static char text[4][32];
+	const char *name;
+	s32 slot;
+
+	switch (item->param) {
+	case MODGHOST_CHRSET_GE_XBLA: name = "GE XBLA"; slot = 0; break;
+	case MODGHOST_CHRSET_GE_N64:  name = "GE N64";  slot = 1; break;
+	case MODGHOST_CHRSET_PD_N64:  name = "PD N64";  slot = 2; break;
+	default:                      name = "PD XBLA"; slot = 3; break;
+	}
+
+	snprintf(text[slot], sizeof(text[slot]), "%s (%d)", name, menuCharSetCount(item->param));
+
+	return text[slot];
+}
+
+static MenuItemHandlerResult menuhandlerCharFilter(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return (g_ModCiCharFilter & item->param) != 0;
+	case MENUOP_SET:
+		if (data->checkbox.value) {
+			g_ModCiCharFilter |= item->param;
+		} else {
+			g_ModCiCharFilter &= ~item->param;
+		}
+		break;
+	case MENUOP_CHECKDISABLED:
+		return menuCharSetCount(item->param) == 0;
+	}
+
+	return 0;
+}
+
+/**
+ * The body's own head as a list index: the one its row names (Joanna's for
+ * her outfits, Bond's for each of his, a GoldenEye character's cut off its own
+ * neck), else the default the page already gives a body with none.
+ */
+static s32 menuCharOwnHead(s32 mpbody)
+{
+	const s32 row = g_MpBodies[mpbody].headnum;
+	s32 i;
+
+	if (row != 1000) {
+		for (i = 0; i < mpGetNumHeads2(); i++) {
+			if (g_MpHeads[i].headnum == row) {
+				return i;
+			}
+		}
+	}
+
+	return modGhostBodyDefaultHead(mpbody);
+}
+
+/**
+ * Match Head to Body: put the body's own head back on it after trying others,
+ * which with well over a hundred heads is otherwise a long walk back.
+ */
+static MenuItemHandlerResult menuhandlerCiMatchHead(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		g_ModCiHead = menuCharOwnHead(g_ModCiBody > MODGHOST_BODY_DEFAULT ? g_ModCiBody - 1 : 0) + 1;
+		modGhostMarkMenuCharacterStale();
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerGhostMatchHead(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		g_ModGhostHead = menuCharOwnHead(g_ModGhostBody > MODGHOST_BODY_DEFAULT ? g_ModGhostBody - 1 : 0) + 1;
+	}
+
+	return 0;
+}
+
+#define MENU_CHARFILTER_ITEM(set) { \
+		MENUITEMTYPE_CHECKBOX, \
+		set, \
+		MENUITEMFLAG_SMALLFONT, \
+		(uintptr_t)&menutextCharFilter, \
+		0, \
+		menuhandlerCharFilter, \
+	}
+
+#define MENU_CHARFILTER_ITEMS \
+	MENU_CHARFILTER_ITEM(MODGHOST_CHRSET_GE_XBLA), \
+	MENU_CHARFILTER_ITEM(MODGHOST_CHRSET_GE_N64), \
+	MENU_CHARFILTER_ITEM(MODGHOST_CHRSET_PD_N64), \
+	MENU_CHARFILTER_ITEM(MODGHOST_CHRSET_PD_XBLA)
+
+/**
  * Customize Character: who the player is in a trial, and so who their ghost is.
  *
  * The Combat Simulator character page, pointed at the trial's own storage. The
@@ -207,6 +396,11 @@ static MenuItemHandlerResult menuhandlerGhostCharacterBody(s32 operation, struct
 	s32 head = g_ModGhostHead > MODGHOST_BODY_DEFAULT ? g_ModGhostHead - 1 : modGhostBodyDefaultHead(body);
 
 	switch (operation) {
+	case MENUOP_21:
+		if (menuCharFilterSkips(data->carousel.value, false, true)) {
+			return 1;
+		}
+		break;
 	case MENUOP_SET:
 		g_ModGhostBody = data->carousel.value + 1;
 
@@ -227,6 +421,10 @@ static MenuItemHandlerResult menuhandlerGhostCharacterBody(s32 operation, struct
 static MenuItemHandlerResult menuhandlerGhostCharacterHead(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	s32 head = g_ModGhostHead > MODGHOST_BODY_DEFAULT ? g_ModGhostHead - 1 : 0;
+
+	if (operation == MENUOP_21 && menuCharFilterSkips(data->carousel.value, true, true)) {
+		return 1;
+	}
 
 	if (operation == MENUOP_SET) {
 		g_ModGhostHead = data->carousel.value + 1;
@@ -266,7 +464,7 @@ struct menuitem g_GhostCharacterMenuItems[] = {
 		0,
 		0,
 		0,
-		0x00000022,
+		0x00000016, // shorter than the arena page's, so the filter rows fit
 		menuhandlerGhostCharacterHead,
 	},
 	{
@@ -274,9 +472,18 @@ struct menuitem g_GhostCharacterMenuItems[] = {
 		0,
 		0,
 		0,
-		0x0000001b,
+		0x00000016, // shorter than the arena page's, so the filter rows fit
 		menuhandlerGhostCharacterBody,
 	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"Match Head to Body\n",
+		0,
+		menuhandlerGhostMatchHead,
+	},
+	MENU_CHARFILTER_ITEMS,
 	{ MENUITEMTYPE_END },
 };
 
@@ -312,8 +519,9 @@ static MenuItemHandlerResult menuhandlerCiCharacterBody(s32 operation, struct me
 
 	switch (operation) {
 	case MENUOP_21:
-		// Every body, locked or not (see menuhandlerCiCharacterHead())
-		return 0;
+		// Every body, locked or not (see menuhandlerCiCharacterHead()), that
+		// the filter lets through
+		return menuCharFilterSkips(data->carousel.value, false, false);
 	case MENUOP_SET:
 		g_ModCiBody = data->carousel.value + 1;
 
@@ -346,7 +554,7 @@ static MenuItemHandlerResult menuhandlerCiCharacterHead(s32 operation, struct me
 	s32 head = modGhostCiHead(0);
 
 	if (operation == MENUOP_21) {
-		return 0;
+		return menuCharFilterSkips(data->carousel.value, true, false);
 	}
 
 	if (operation == MENUOP_SET) {
@@ -405,7 +613,7 @@ struct menuitem g_CiCharacterMenuItems[] = {
 		0,
 		0,
 		0,
-		0x00000022,
+		0x00000016, // shorter than the arena page's, so the filter rows fit
 		menuhandlerCiCharacterHead,
 	},
 	{
@@ -413,9 +621,18 @@ struct menuitem g_CiCharacterMenuItems[] = {
 		0,
 		0,
 		0,
-		0x0000001b,
+		0x00000016, // shorter than the arena page's, so the filter rows fit
 		menuhandlerCiCharacterBody,
 	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)"Match Head to Body\n",
+		0,
+		menuhandlerCiMatchHead,
+	},
+	MENU_CHARFILTER_ITEMS,
 	{
 		MENUITEMTYPE_CHECKBOX,
 		0,

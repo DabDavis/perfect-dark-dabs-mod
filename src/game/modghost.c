@@ -285,6 +285,8 @@ s32 g_ModCiHead = MODGHOST_BODY_DEFAULT;
 // pick is only who walks the Institute.
 s32 g_ModCiMissionDefault = 0;
 
+s32 g_ModCiCharFilter = MODGHOST_CHRSET_ALL;
+
 static bool g_ModCiBodyStale = false;
 
 /**

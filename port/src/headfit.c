@@ -37,6 +37,7 @@
 #include "gebean.h"
 #include "gexplus.h"
 #include "headfit.h"
+#include "xblamesh.h"
 
 #define HEADFIT_MAXVERTS 8192
 #define HEADFIT_MAXMTX   64
@@ -535,8 +536,10 @@ s32 headfitWanted(s32 headnum, s32 bodynum)
 	}
 
 	// The release's pool draws its meshes over a host's models, whose N64
-	// geometry says nothing about where the mesh is
-	if (gebeanIsPoolRow(headnum) || gebeanIsPoolRow(bodynum)) {
+	// geometry says nothing about where the mesh is: two of them are seated
+	// by their meshes alone (xblamesh.c's xblaMeshPoolHeadSeat()), and one of
+	// them with a head or body of Perfect Dark's is measured by its mesh here
+	if (gebeanIsPoolRow(headnum) && gebeanIsPoolRow(bodynum)) {
 		return 0;
 	}
 
@@ -564,6 +567,90 @@ s32 headfitWanted(s32 headnum, s32 bodynum)
 	return headfitOwnHead(bodynum) != headnum;
 }
 
+/**
+ * A head of one game on a body of the other, where one of the two is drawn as
+ * the release's GoldenEye mesh (gebean.c's pool) and is measured by it
+ * (xblaMeshBeanSeat()) - which the N64 geometry under it cannot say, and which
+ * left GoldenEye's heads sunk into Joanna's collar and Perfect Dark's standing
+ * off GoldenEye's bodies on a ring of neck (user 2026-09-28: "heads will need
+ * to be able to change heights to match body").
+ *
+ * - Perfect Dark's head on GoldenEye's body: the head's neck, from its base,
+ *   into the body's collar by HEADFIT_COLLAR_TUCK.
+ * - GoldenEye's head on Perfect Dark's body: one ending at its jaw has the
+ *   jaw at the top of the body's neck, the neck filling under it and the made
+ *   neck (gebean.c's beanAddNeckTube()) any gap; one with a neck of its own
+ *   has it where the body's own head's would be, as any head.
+ *
+ * The mesh is the one of the look the game is in; a head seated in one look
+ * keeps its seat in the other until it is attached again.
+ */
+#define HEADFIT_COLLAR_TUCK 25.0f
+#define HEADFIT_JAW_TUCK    8.0f
+
+static struct modeldef *headfitNextBody;
+
+void headfitSetBodyModel(struct modeldef *bodymodeldef)
+{
+	headfitNextBody = bodymodeldef;
+}
+
+static s32 headfitOffsetAcross(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struct modeldef *bodymodeldef)
+{
+	struct headfithead head;
+	struct headfithead own;
+	struct headfitbody body;
+	const s32 ownhead = headfitOwnHead(bodynum);
+	f32 base, target, offset;
+	s32 neckless = 0;
+	const char *how;
+
+	if (gebeanIsPoolRow(bodynum)) {
+		f32 collar;
+
+		if (!headfitMeasureHeadAt(headmodeldef, &head) || !bodymodeldef
+				|| !xblaMeshBeanSeat(bodymodeldef, 0, &collar, NULL)) {
+			sysLogPrintf(LOG_NOTE, "headfit: head %d on body %d across the two games: no collar to seat it on (body model %p)",
+					headnum, bodynum, (void *)bodymodeldef);
+			return 0;
+		}
+
+		base = head.base;
+		target = collar - HEADFIT_COLLAR_TUCK;
+		how = "the release body's collar";
+	} else {
+		if (!xblaMeshBeanSeat(headmodeldef, 1, &base, &neckless)) {
+			return 0;
+		}
+
+		if (neckless && headfitCached(g_HeadsAndBodies[bodynum].filenum, 0, NULL, &body)) {
+			target = body.necktop - HEADFIT_JAW_TUCK;
+			how = "the body's neck, a jaw on it";
+		} else if (!neckless && ownhead > 0 && headfitCached(g_HeadsAndBodies[ownhead].filenum, 1, &own, NULL)) {
+			target = own.base;
+			how = "the body's own head";
+		} else if (headfitCached(g_HeadsAndBodies[bodynum].filenum, 0, NULL, &body)) {
+			target = body.necktop + (neckless ? -HEADFIT_JAW_TUCK : HEADFIT_TUCK);
+			how = "the body's neck";
+		} else {
+			return 0;
+		}
+	}
+
+	offset = target - base;
+
+	if (offset > HEADFIT_MAXOFFSET) {
+		offset = HEADFIT_MAXOFFSET;
+	} else if (offset < -HEADFIT_MAXOFFSET) {
+		offset = -HEADFIT_MAXOFFSET;
+	}
+
+	sysLogPrintf(LOG_NOTE, "headfit: head %d on body %d across the two games: base %.0f to %.0f by %s, offset %d",
+			headnum, bodynum, base, target, how, (s32)lroundf(offset));
+
+	return (s32)lroundf(offset);
+}
+
 s32 headfitOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struct modeldef *bodymodeldef)
 {
 	struct headfithead head;
@@ -575,6 +662,17 @@ s32 headfitOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struc
 	(void)bodymodeldef;
 	f32 offset;
 	const char *how;
+
+	// One game's head on the other's body: the release's side by its mesh
+	if (gebeanIsPoolRow(headnum) || gebeanIsPoolRow(bodynum)) {
+		struct modeldef *def = headfitNextBody ? headfitNextBody : bodymodeldef;
+
+		headfitNextBody = NULL;
+
+		return headfitOffsetAcross(headmodeldef, headnum, bodynum, def);
+	}
+
+	headfitNextBody = NULL;
 
 	if (!headfitMeasureHeadAt(headmodeldef, &head)) {
 		return 0;

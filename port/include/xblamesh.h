@@ -349,6 +349,9 @@ s32 xblaMeshSlotModelFile(s32 slot);
 #define XBLAMESH_MAT_CLAMP 0x2000
 
 s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32 max);
+// A model drawn as one of the release's GoldenEye meshes, measured round the
+// neck: a head's rim (and whether it ends at its jaw) or a body's collar
+s32 xblaMeshBeanSeat(struct modeldef *def, s32 head, f32 *out, s32 *outneckless);
 void xblaMeshNodeRestOffset(const struct modelnode *node, f32 out[3]);
 
 /**

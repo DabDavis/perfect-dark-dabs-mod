@@ -1996,6 +1996,9 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					} else {
 						menumodel->headmodeldef = modeldefLoad(headfilenum, menumodel->allocstart + bodyfilelen2, totalfilelen - bodyfilelen2, &texpool);
 						fileGetLoadedSize(headfilenum);
+#ifndef PLATFORM_N64
+						headfitSetBodyModel(menumodel->bodymodeldef);
+#endif
 						bodyCalculateHeadOffset(menumodel->headmodeldef, headnum, bodynum);
 						modelAllocateRwData(menumodel->headmodeldef);
 					}

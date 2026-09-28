@@ -394,6 +394,9 @@ const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8
 
 // The directions round the neck a pool head is seated by (gebeanmats.seat)
 #define GEBEAN_SEAT_SAMPLES 16
+// A head whose front ends higher than this on the neck ends at its jaw, with no
+// neck of its own (gebeanmats.seat[0])
+#define GEBEAN_NECKLESS -60.0f
 
 /** The pictures a built mesh's material words index (XBLAMESH_MAT_TABLE). */
 struct gebeanmats {
@@ -424,6 +427,10 @@ struct gebeanmats {
 	// node the round is drawn in, the group of the same gun without it, drawn
 	// while the tube is empty; -1 for none
 	s8 spent[64];
+	// On a head, for a list node, the group of the node's own triangles with
+	// a neck made under its rim (gebean.c's beanAddNeckTube()), drawn on any
+	// body but the one it was made on; -1 for none
+	s8 neck[64];
 	u8 head;  // the mesh is a head's
 	// A material the release adds a reflection over (gebean.c's
 	// beanReflectPicture()): its sphere map, GEBEAN_ENV_CELL square RGBA,

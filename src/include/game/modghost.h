@@ -299,6 +299,15 @@ extern s32 g_ModCiHead;
 s32 modGhostCiHead(s32 unset);
 extern s32 g_ModCiMissionDefault;
 
+// Customize Character's filter: which sets of characters the carousels step
+// through, one bit each (pd.ini Mod.CharacterFilter, all four by default)
+#define MODGHOST_CHRSET_GE_XBLA 0x1
+#define MODGHOST_CHRSET_GE_N64  0x2
+#define MODGHOST_CHRSET_PD_N64  0x4
+#define MODGHOST_CHRSET_PD_XBLA 0x8
+#define MODGHOST_CHRSET_ALL     0xf
+extern s32 g_ModCiCharFilter;
+
 // The Customize Character pick, for whichever player would otherwise be Joanna.
 bool modGhostMenuCharacterApplies(void);
 bool modGhostGetMenuCharacter(s32 *bodynum, s32 *headnum);

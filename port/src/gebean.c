@@ -177,16 +177,16 @@ struct gebeanpoolrow {
 	{ { file, 0, 0, GEBEAN_HEAD, source }, NULL, female, 1.0f, NULL }
 
 static const struct gebeanpoolrow poolRows[] = {
-	POOLBODY("CgeNatalyaZ",      "char/natalya",      GEBEAN_WHOLE, "Natalya",                 1, 0.9661f, NULL),
-	POOLBODY("CgeTrevelyanZ",    "char/trevelyan",    GEBEAN_WHOLE, "Trevelyan",               0, 1.0f,    NULL),
-	POOLBODY("CgeXeniaZ",        "char/xenia",        GEBEAN_WHOLE, "Xenia",                   2, 1.0f,    NULL),
-	POOLBODY("CgeOurumovZ",      "char/orumov",       GEBEAN_WHOLE, "Ourumov",                 0, 1.0778f, NULL),
-	POOLBODY("CgeBorisZ",        "char/boris",        GEBEAN_WHOLE, "Boris",                   0, 0.9702f, NULL),
-	POOLBODY("CgeValentinZ",     "char/valentin",     GEBEAN_WHOLE, "Valentin",                0, 0.9324f, NULL),
-	POOLBODY("CgeMaydayZ",       "char/mayday",       GEBEAN_WHOLE, "Mayday",                  2, 1.0f,    NULL),
-	POOLBODY("CgeJawsZ",         "char/jaws",         GEBEAN_WHOLE, "Jaws",                    0, 1.199f,  NULL),
-	POOLBODY("CgeOddjobZ",       "char/oddjob",       GEBEAN_WHOLE, "Oddjob",                  0, 0.7878f, NULL),
-	POOLBODY("CgeBaronSamediZ",  "char/baronsamedi",  GEBEAN_WHOLE, "Baron Samedi",            0, 1.0f,    NULL),
+	POOLBODY("CgeNatalyaZ",      "char/natalya",      GEBEAN_WHOLE, "Natalya",                 1, 0.9661f, "char/natalya"),
+	POOLBODY("CgeTrevelyanZ",    "char/trevelyan",    GEBEAN_WHOLE, "Trevelyan",               0, 1.0f, "char/trevelyan"),
+	POOLBODY("CgeXeniaZ",        "char/xenia",        GEBEAN_WHOLE, "Xenia",                   2, 1.0f, "char/xenia"),
+	POOLBODY("CgeOurumovZ",      "char/orumov",       GEBEAN_WHOLE, "Ourumov",                 0, 1.0778f, "char/orumov"),
+	POOLBODY("CgeBorisZ",        "char/boris",        GEBEAN_WHOLE, "Boris",                   0, 0.9702f, "char/boris"),
+	POOLBODY("CgeValentinZ",     "char/valentin",     GEBEAN_WHOLE, "Valentin",                0, 0.9324f, "char/valentin"),
+	POOLBODY("CgeMaydayZ",       "char/mayday",       GEBEAN_WHOLE, "Mayday",                  2, 1.0f, "char/mayday"),
+	POOLBODY("CgeJawsZ",         "char/jaws",         GEBEAN_WHOLE, "Jaws",                    0, 1.199f, "char/jaws"),
+	POOLBODY("CgeOddjobZ",       "char/oddjob",       GEBEAN_WHOLE, "Oddjob",                  0, 0.7878f, "char/oddjob"),
+	POOLBODY("CgeBaronSamediZ",  "char/baronsamedi",  GEBEAN_WHOLE, "Baron Samedi",            0, 1.0f, "char/baronsamedi"),
 	POOLBODY("CgeSnowguardZ",    "char/snowguard",    GEBEAN_WHOLE, "Siberian Special Forces", 0, 1.0f,    NULL),
 	POOLBODY("CgePilotZ",        "char/pilot",        GEBEAN_WHOLE, "Helicopter Pilot",        0, 1.0f,    NULL),
 	POOLBODY("CgeDjbondZ",       "char/djbond",       GEBEAN_BODY,  "Bond (Tuxedo)",           0, 1.0f,    "char/djbond"),
@@ -194,7 +194,7 @@ static const struct gebeanpoolrow poolRows[] = {
 	POOLBODY("CgeSuitbondZ",     "char/suitbond",     GEBEAN_BODY,  "Bond (Suit)",             0, 1.0f,    "char/suitbond"),
 	POOLBODY("CgeTimberbondZ",   "char/timberbond",   GEBEAN_BODY,  "Bond (Jungle)",           0, 1.0f,    "char/timberbond"),
 	POOLBODY("CgeSnowbondZ",     "char/snowbond",     GEBEAN_BODY,  "Bond (Parka)",            0, 1.0f,    "char/snowbond"),
-	POOLBODY("CgeBoilertrevZ",   "char/boilertrev",   GEBEAN_BODY,  "Trevelyan (006)",         0, 1.0f,    NULL),
+	POOLBODY("CgeBoilertrevZ",   "char/boilertrev",   GEBEAN_BODY,  "Trevelyan (006)",         0, 1.0f,    "char/boilertrev"),
 	POOLBODY("CgeOliveguardZ",   "char/oliveguard",   GEBEAN_BODY,  "Russian Soldier",         0, 1.0f,    "head/headmark"),
 	POOLBODY("CgeRusguardZ",     "char/rusguard",     GEBEAN_BODY,  "Russian Infantry",        0, 1.0f,    "head/headkarl"),
 	POOLBODY("CgeTechmanZ",      "char/techman",      GEBEAN_BODY,  "Scientist",               0, 1.0f,    "head/headdave"),
@@ -251,6 +251,21 @@ static const struct gebeanpoolrow poolRows[] = {
 	POOLHEAD("CgeheadBondSuitZ",   "char/suitbond",   0),
 	POOLHEAD("CgeheadBondJungleZ", "char/timberbond", 0),
 	POOLHEAD("CgeheadBondParkaZ",  "char/snowbond",   0),
+	// The named characters' faces, taken off their own necks the way Bond's
+	// are: each is a whole model, its head in the mesh, so the head list had
+	// none of them (user 2026-09-28, "not seeing Trevelyan's head"). After
+	// the Bonds for the same reason the Bonds come last.
+	POOLHEAD("CgeheadNatalyaZ",    "char/natalya",    1),
+	POOLHEAD("CgeheadTrevelyanZ",  "char/trevelyan",  0),
+	POOLHEAD("CgeheadTrev006Z",    "char/boilertrev", 0),
+	POOLHEAD("CgeheadXeniaZ",      "char/xenia",      1),
+	POOLHEAD("CgeheadOurumovZ",    "char/orumov",     0),
+	POOLHEAD("CgeheadBorisZ",      "char/boris",      0),
+	POOLHEAD("CgeheadValentinZ",   "char/valentin",   0),
+	POOLHEAD("CgeheadMaydayZ",     "char/mayday",     1),
+	POOLHEAD("CgeheadJawsZ",       "char/jaws",       0),
+	POOLHEAD("CgeheadOddjobZ",     "char/oddjob",     0),
+	POOLHEAD("CgeheadBaronSamediZ", "char/baronsamedi", 0),
 };
 
 // Where the pool's rows start in g_HeadsAndBodies is GEBEAN_POOL_BASE
@@ -5713,6 +5728,362 @@ static s32 beanAddTri(struct beanout *o, s32 group, s32 tex, u16 a, u16 b, u16 c
 	return 1;
 }
 
+/**
+ * A neck made for a head, under its rim, for the bodies it was not made on.
+ *
+ * A head reaches a foreign body's collar with whatever it ends in: GoldenEye's
+ * N64-look heads at the jaw, open underneath; the release's with a neck of
+ * their own, cut to their own body's collar. Between the two there was either
+ * the room, or the body's own neck clamped down to fit (gebeanmats.neckfill),
+ * whose triangles, pulled in and down, stood out of the collar as spikes in
+ * the body's paint rather than the face's (F3 20260928-003007 and -003710).
+ *
+ * So a head that ends at its jaw brings a neck of its own: two rings just
+ * inside its shell at the rim, closing the underside, and a round neck under
+ * them going down into the collar, in the paint of the head's own face - one
+ * texel of the face's picture, at the nose, so the neck is the face's colour
+ * in either look and in any light. Built in the head's space (the neck joint
+ * at the origin): the rim is read as the lowest of the head round the neck
+ * and how far out it is there, smoothed so a jaw's corners do not make the
+ * neck square. The neck is as wide as GoldenEye's bodies' necks are (a
+ * little inside the rim's middle distance), so it stays inside the collar
+ * and shows only where the head and the body do not meet.
+ *
+ * Into group `dst`: a copy of group `src` (the face the node draws) with the
+ * tube, so a node draws the one or the other. backbone is the head's palette
+ * entry for the body's back (gebeanmats.neckback), which the lowest ring
+ * follows as a collar does, or -1 for a head rigid on its neck.
+ */
+#define BEAN_TUBE_RINGS   5
+#define BEAN_TUBE_RIMBAND 12.0f
+#define BEAN_TUBE_MAXPTS  8192
+#define BEAN_TUBE_NECK    0.95f // the neck's radius, of the rim's middle distance: GoldenEye's bodies'
+                              // necks stand about as far out as its heads' rims
+
+static int beanCompareF32(const void *a, const void *b)
+{
+	const f32 x = *(const f32 *)a;
+	const f32 y = *(const f32 *)b;
+
+	return x < y ? -1 : x > y;
+}
+
+static s32 beanTubeSector(f32 dx, f32 dz)
+{
+	f32 a = atan2f(dx, dz);
+
+	if (a < 0.0f) {
+		a += 2.0f * M_PI;
+	}
+
+	return (s32)(a * GEBEAN_SEAT_SAMPLES / (2.0f * M_PI) + 0.5f) % GEBEAN_SEAT_SAMPLES;
+}
+
+static s32 beanAddNeckTube(struct beanout *o, s32 src, s32 dst, s32 backbone, const char *source)
+{
+	enum { N = GEBEAN_SEAT_SAMPLES };
+	f32 low[N], r[N], y[N], rr[N];
+	u32 lowhit = 0;
+	f32 *pts;
+	s32 numpts = 0;
+	f32 cx = 0.0f, cz = 0.0f;
+	s32 sample = -1;
+	s32 sampletex = 0;
+	f32 meanr = 0.0f;
+	const s32 numtris = o->numtris;
+	s32 ring[BEAN_TUBE_RINGS][N];
+
+	pts = malloc(BEAN_TUBE_MAXPTS * 3 * sizeof(f32));
+
+	if (!pts) {
+		return 0;
+	}
+
+	// The head's lowest round the neck, by direction about the joint, over the
+	// same band out from it the seat reads (beanSeatPoint())
+	for (s32 t = 0; t < numtris; t++) {
+		const struct beantri *tri = &o->tris[t];
+
+		if (tri->group != src || (tri->v[0] == tri->v[1] && tri->v[1] == tri->v[2])) {
+			continue;
+		}
+
+		beanSeatTriangle(&o->pos[tri->v[0] * 3], &o->pos[tri->v[1] * 3], &o->pos[tri->v[2] * 3], 0, low, &lowhit);
+	}
+
+	if (lowhit == 0) {
+		free(pts);
+		return 0;
+	}
+
+	// The rim: the points of the head's edges near that lowest, whose middle
+	// the neck is centred on
+	for (s32 t = 0; t < numtris && numpts < BEAN_TUBE_MAXPTS; t++) {
+		const struct beantri *tri = &o->tris[t];
+
+		if (tri->group != src || (tri->v[0] == tri->v[1] && tri->v[1] == tri->v[2])) {
+			continue;
+		}
+
+		for (s32 e = 0; e < 3 && numpts < BEAN_TUBE_MAXPTS; e++) {
+			const f32 *p = &o->pos[tri->v[e] * 3];
+			const f32 *q = &o->pos[tri->v[(e + 1) % 3] * 3];
+
+			for (s32 k = 0; k < 8 && numpts < BEAN_TUBE_MAXPTS; k++) {
+				const f32 f = k / 8.0f;
+				f32 at[3];
+				f32 d;
+				s32 sec;
+
+				for (s32 j = 0; j < 3; j++) {
+					at[j] = p[j] + (q[j] - p[j]) * f;
+				}
+
+				d = sqrtf(at[0] * at[0] + at[2] * at[2]);
+				sec = beanTubeSector(at[0], at[2]);
+
+				if (d < BEAN_SEAT_NEAREST || d > BEAN_SEAT_FURTHEST || !(lowhit & (1u << sec))
+						|| at[1] > low[sec] + BEAN_TUBE_RIMBAND) {
+					continue;
+				}
+
+				memcpy(&pts[numpts * 3], at, sizeof(at));
+				cx += at[0];
+				cz += at[2];
+				numpts++;
+			}
+		}
+	}
+
+	if (numpts < N) {
+		free(pts);
+		return 0;
+	}
+
+	// The neck stands round the joint the head hangs on - the rim's own
+	// middle is pulled forward by the jaw, and a neck there missed the nape
+	cx = 0.0f;
+	cz = 0.0f;
+
+	// How far out the rim is, and how low, by direction about its middle
+	{
+		f32 sum[N];
+		s32 cnt[N];
+
+		for (s32 i = 0; i < N; i++) {
+			sum[i] = 0.0f;
+			cnt[i] = 0;
+			y[i] = 1e9f;
+		}
+
+		for (s32 i = 0; i < numpts; i++) {
+			const f32 dx = pts[i * 3] - cx;
+			const f32 dz = pts[i * 3 + 2] - cz;
+			const s32 sec = beanTubeSector(dx, dz);
+
+			sum[sec] += sqrtf(dx * dx + dz * dz);
+			cnt[sec]++;
+
+			if (pts[i * 3 + 1] < y[sec]) {
+				y[sec] = pts[i * 3 + 1];
+			}
+		}
+
+		for (s32 i = 0; i < N; i++) {
+			r[i] = cnt[i] ? sum[i] / cnt[i] : -1.0f;
+		}
+
+		// An empty direction takes the nearest found on either side
+		for (s32 i = 0; i < N; i++) {
+			for (s32 d = 1; r[i] < 0.0f && d < N / 2; d++) {
+				const s32 a = (i + N - d) % N;
+				const s32 b = (i + d) % N;
+
+				if (cnt[a] && cnt[b]) {
+					r[i] = (sum[a] / cnt[a] + sum[b] / cnt[b]) * 0.5f;
+					y[i] = y[a] > y[b] ? y[a] : y[b];
+				} else if (cnt[a] || cnt[b]) {
+					const s32 c = cnt[a] ? a : b;
+
+					r[i] = sum[c] / cnt[c];
+					y[i] = y[c];
+				}
+			}
+
+			if (r[i] < 0.0f) {
+				free(pts);
+				return 0;
+			}
+		}
+	}
+
+	free(pts);
+
+	// Smoothed twice round the ring, and kept near round: a neck is narrower
+	// than a jaw at the front
+	for (s32 pass = 0; pass < 2; pass++) {
+		f32 sr[N], sy[N];
+
+		for (s32 i = 0; i < N; i++) {
+			const s32 a = (i + N - 1) % N;
+			const s32 b = (i + 1) % N;
+
+			sr[i] = (r[a] + 2.0f * r[i] + r[b]) * 0.25f;
+			sy[i] = (y[a] + 2.0f * y[i] + y[b]) * 0.25f;
+		}
+
+		memcpy(r, sr, sizeof(r));
+		memcpy(y, sy, sizeof(y));
+	}
+
+	// Round, and well inside the rim: the rim is the skull's edge and the
+	// jaw's, sixty percent further out than a neck, and its median is what
+	// says how big the head is
+	{
+		f32 sorted[N];
+
+		memcpy(sorted, r, sizeof(sorted));
+		qsort(sorted, N, sizeof(f32), beanCompareF32);
+		meanr = (sorted[N / 2 - 1] + sorted[N / 2]) * 0.5f;
+	}
+
+	for (s32 i = 0; i < N; i++) {
+		rr[i] = meanr * BEAN_TUBE_NECK;
+	}
+
+	// The face's paint: its most forward point between a third and a half of
+	// the way up the head from the rim, which is the nose - skin on every
+	// face, where the lowest point in front can be a collar (a head cut off a
+	// character's neck brings the top of his jacket) and higher up a hat
+	{
+		f32 top = -1e9f;
+		f32 rim = 1e9f;
+		f32 bestz = -1e9f;
+
+		for (s32 i = 0; i < N; i++) {
+			if (y[i] < rim) {
+				rim = y[i];
+			}
+		}
+
+		for (s32 t = 0; t < numtris; t++) {
+			const struct beantri *tri = &o->tris[t];
+
+			if (tri->group != src || (tri->v[0] == tri->v[1] && tri->v[1] == tri->v[2])) {
+				continue;
+			}
+
+			for (s32 e = 0; e < 3; e++) {
+				const f32 py = o->pos[tri->v[e] * 3 + 1];
+
+				if (py > top) {
+					top = py;
+				}
+			}
+		}
+
+		for (s32 pass = 0; pass < 2 && sample < 0; pass++) {
+			const f32 lo = rim + (top - rim) * (pass == 0 ? 0.3f : 0.1f);
+			const f32 hi = rim + (top - rim) * (pass == 0 ? 0.5f : 0.7f);
+
+			for (s32 t = 0; t < numtris; t++) {
+				const struct beantri *tri = &o->tris[t];
+
+				if (tri->group != src || (tri->v[0] == tri->v[1] && tri->v[1] == tri->v[2])) {
+					continue;
+				}
+
+				for (s32 e = 0; e < 3; e++) {
+					const s32 v = tri->v[e];
+					const f32 *p = &o->pos[v * 3];
+
+					if (p[1] >= lo && p[1] <= hi && p[2] > 0.0f && fabsf(p[0]) < p[2] * 0.3f && p[2] > bestz) {
+						bestz = p[2];
+						sample = v;
+						sampletex = tri->tex;
+					}
+				}
+			}
+		}
+	}
+
+	if (sample < 0) {
+		return 0;
+	}
+
+	// Its own face first, so the node draws either the one group or the other
+	for (s32 t = 0; t < numtris; t++) {
+		if (o->tris[t].group == src
+				&& !beanAddTri(o, dst, o->tris[t].tex, o->tris[t].v[0], o->tris[t].v[1], o->tris[t].v[2])) {
+			return 0;
+		}
+	}
+
+	for (s32 j = 0; j < BEAN_TUBE_RINGS; j++) {
+		// Two rings out at the rim, just inside the head's shell and up into
+		// it, closing the underside a head open there shows the room through
+		// and screening its inside from behind (an N64-look head's hair is a
+		// shell whose inner faces are dark); then in to the neck under it,
+		// and down into the collar
+		static const f32 drop[BEAN_TUBE_RINGS] = { -0.7f, -0.3f, 0.1f, 0.7f, 1.5f };
+		static const f32 widen[BEAN_TUBE_RINGS] = { 0.0f, 0.0f, 1.0f, 1.02f, 1.05f };
+
+		for (s32 i = 0; i < N; i++) {
+			const f32 a = i * 2.0f * M_PI / N;
+			const f32 radius = widen[j] == 0.0f ? r[i] * 0.96f : rr[i] * widen[j];
+			f32 pos[3], nrm[3], uv[2];
+			u8 bone[3];
+			f32 weight[3];
+
+			pos[0] = cx + sinf(a) * radius;
+			pos[1] = y[i] - drop[j] * meanr;
+			pos[2] = cz + cosf(a) * radius;
+			nrm[0] = sinf(a);
+			nrm[1] = 0.0f;
+			nrm[2] = cosf(a);
+			uv[0] = o->uv[sample * 2];
+			uv[1] = o->uv[sample * 2 + 1];
+			memcpy(bone, &o->bone[sample * 3], sizeof(bone));
+			memcpy(weight, &o->weight[sample * 3], sizeof(weight));
+
+			// The lowest ring goes with the body's back where the head has it
+			if (j == BEAN_TUBE_RINGS - 1 && backbone >= 0) {
+				bone[0] = o->bone[sample * 3];
+				bone[1] = (u8)backbone;
+				bone[2] = 0;
+				weight[0] = 0.4f;
+				weight[1] = 0.6f;
+				weight[2] = 0.0f;
+			}
+
+			ring[j][i] = beanAddVertex(o, pos, nrm, uv, bone, weight, o->argb[sample]);
+
+			if (ring[j][i] < 0) {
+				return 0;
+			}
+		}
+	}
+
+	for (s32 j = 0; j + 1 < BEAN_TUBE_RINGS; j++) {
+		for (s32 i = 0; i < N; i++) {
+			const u16 a = (u16)ring[j][i];
+			const u16 b = (u16)ring[j][(i + 1) % N];
+			const u16 c = (u16)ring[j + 1][i];
+			const u16 d = (u16)ring[j + 1][(i + 1) % N];
+
+			// Faces out: round by increasing angle, rings going down
+			if (!beanAddTri(o, dst, sampletex, a, b, c) || !beanAddTri(o, dst, sampletex, b, d, c)) {
+				return 0;
+			}
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "gebean: %s: a neck under the rim, %.0f across about (%.0f, %.0f), rim %.0f to %.0f high",
+			source, meanr * BEAN_TUBE_NECK * 2.0f, cx, cz, y[0], y[N / 2]);
+
+	return 1;
+}
+
 static void beanOutFree(struct beanout *o)
 {
 	free(o->pos);
@@ -6020,6 +6391,107 @@ static void beanSmoothNeckWeights(struct beanout *o, s32 neck, s32 back, const u
 	free(share);
 	free(sum);
 	free(count);
+}
+
+/**
+ * Vertices standing at one place take one share between the neck and the
+ * back. The release's heads are cut along their pictures' seams, so the ring
+ * under a face is two vertices at every point of a seam, and Bean weights
+ * each on its own: turned apart by the neck and the back, the two halves
+ * opened a hairline round the nape and folded a band of it flat against the
+ * collar ("the neck ... is miscolored and sticks out like spikes", F3
+ * 20260928-003007, -003710).
+ */
+static s32 beanWeldOrder_numverts;
+static const f32 *beanWeldOrder_pos;
+
+static int beanWeldCompare(const void *a, const void *b)
+{
+	const s32 x = *(const s32 *)a;
+	const s32 y = *(const s32 *)b;
+	const int c = memcmp(&beanWeldOrder_pos[x * 3], &beanWeldOrder_pos[y * 3], 3 * sizeof(f32));
+
+	return c ? c : (x > y) - (x < y);
+}
+
+static void beanWeldNeckWeights(struct beanout *o, s32 neck, s32 back)
+{
+	s32 *order = malloc(o->numverts * sizeof(s32));
+	s32 welded = 0;
+
+	if (!order || neck == back) {
+		free(order);
+		return;
+	}
+
+	for (s32 v = 0; v < o->numverts; v++) {
+		order[v] = v;
+	}
+
+	beanWeldOrder_pos = o->pos;
+	beanWeldOrder_numverts = o->numverts;
+	qsort(order, o->numverts, sizeof(s32), beanWeldCompare);
+
+	for (s32 i = 0; i < o->numverts; ) {
+		s32 j = i + 1;
+		f32 sum = 0.0f;
+		s32 n = 0;
+		s32 mixed = 0;
+
+		while (j < o->numverts && memcmp(&o->pos[order[i] * 3], &o->pos[order[j] * 3], 3 * sizeof(f32)) == 0) {
+			j++;
+		}
+
+		for (s32 k = i; k < j && j - i > 1; k++) {
+			const s32 v = order[k];
+			f32 nw = 0.0f, bw = 0.0f, other = 0.0f;
+
+			for (s32 m = 0; m < 3; m++) {
+				const f32 w = o->weight[v * 3 + m];
+
+				if (w <= 0.0f) {
+					continue;
+				}
+
+				if (o->bone[v * 3 + m] == neck) {
+					nw += w;
+				} else if (o->bone[v * 3 + m] == back) {
+					bw += w;
+				} else {
+					other += w;
+				}
+			}
+
+			if (other > 0.0f || nw + bw <= 0.0f) {
+				mixed = 1;
+				break;
+			}
+
+			sum += bw / (nw + bw);
+			n++;
+		}
+
+		if (n > 1 && !mixed) {
+			const f32 share = sum / n;
+
+			for (s32 k = i; k < j; k++) {
+				const s32 v = order[k];
+
+				o->bone[v * 3] = (u8)neck;
+				o->bone[v * 3 + 1] = (u8)back;
+				o->bone[v * 3 + 2] = (u8)neck;
+				o->weight[v * 3] = 1.0f - share;
+				o->weight[v * 3 + 1] = share;
+				o->weight[v * 3 + 2] = 0.0f;
+			}
+
+			welded += n;
+		}
+
+		i = j;
+	}
+
+	free(order);
 }
 
 /**
@@ -8082,6 +8554,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
 	memset(mats->neckfill, -1, sizeof(mats->neckfill));
+	memset(mats->neck, -1, sizeof(mats->neck));
 	memset(mats->hood, -1, sizeof(mats->hood));
 	memset(mats->bare, -1, sizeof(mats->bare));
 	memset(mats->spent, -1, sizeof(mats->spent));
@@ -9620,6 +10093,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	nummatwords = bm.numtex + 1 < GEBEAN_MAXMATS ? bm.numtex + 1 : GEBEAN_MAXMATS;
 	memset(mats, 0, sizeof(*mats));
 	memset(mats->neckfill, -1, sizeof(mats->neckfill));
+	memset(mats->neck, -1, sizeof(mats->neck));
 	memset(mats->hood, -1, sizeof(mats->hood));
 	memset(mats->bare, -1, sizeof(mats->bare));
 	memset(mats->spent, -1, sizeof(mats->spent));
@@ -11079,10 +11553,60 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		}
 	}
 
+	// A head that keeps its neck's back weights: its seams' two halves one
+	// share each, and no vertex far from its neighbours'
+	if (ishead && neckback) {
+		beanWeldNeckWeights(&out, 0, 1);
+		beanSmoothNeckWeights(&out, 0, 1, NULL, 0);
+	}
+
 	// A head's underside round the neck (beanSeatTriangle())
 	for (s32 t = 0; ishead && t < out.numtris; t++) {
 		beanSeatTriangle(&out.pos[out.tris[t].v[0] * 3], &out.pos[out.tris[t].v[1] * 3],
 				&out.pos[out.tris[t].v[2] * 3], 0, seat, &seathit);
+	}
+
+	// A neck of its own under the face, for the bodies it was not made on
+	// (beanAddNeckTube()): into the node holding most of the face
+	s8 neckof[64];
+	s32 numneck = 0;
+
+	memset(neckof, -1, sizeof(neckof));
+
+	if (ishead && out.numtris > 0) {
+		s32 face = -1;
+		s32 facetris = 0;
+		const s32 nextgroup = numnodes + numfill + numhood + numbare;
+
+		for (s32 k = 0; k < numnodes && k < 64; k++) {
+			s32 n = 0;
+
+			if (beanNodeIsToggled(nodes[k])) {
+				continue;
+			}
+
+			for (s32 t = 0; t < out.numtris; t++) {
+				n += out.tris[t].group == k && out.tris[t].v[0] != out.tris[t].v[1];
+			}
+
+			if (n > facetris) {
+				facetris = n;
+				face = k;
+			}
+		}
+
+		// Only a head that ends at its jaw: one with a neck of its own (the
+		// release's HD heads, reaching down into their collars) has what this
+		// would make, and a tube round it only pokes out of the collar. The
+		// face alone, never a jacket's collar cut off with it (the hood's copy)
+		if (face >= 0 && nextgroup < 64 && (seathit & 1) && seat[0] > GEBEAN_NECKLESS) {
+			const s32 src = face;
+
+			if (beanAddNeckTube(&out, src, nextgroup, neckback ? 1 : -1, source)) {
+				neckof[face] = (s8)nextgroup;
+				numneck = 1;
+			}
+		}
 	}
 
 	free(seam);
@@ -11127,6 +11651,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	for (s32 k = 0; k < 64; k++) {
 		mats->neckfill[k] = fillof[k];
 		mats->hood[k] = hoodof[k];
+		mats->neck[k] = neckof[k];
 		mats->bare[k] = bareof[k];
 	}
 
@@ -11135,7 +11660,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	memcpy(mats->seat, seat, sizeof(mats->seat));
 	mats->seathit = seathit;
 
-	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
+	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare + numneck, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
 
 	if (seathit) {
 		char line[256];

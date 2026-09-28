@@ -40,6 +40,9 @@ void headfitSurveyHeads(void);
 s32 headfitWanted(s32 headnum, s32 bodynum);
 // How far to move the head's vertices up (bodymodeldef unused: bodies are measured from their files)
 s32 headfitOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struct modeldef *bodymodeldef);
+// The body model the next head is seated on, where the table has none (the
+// menu's own copy); cleared by the next headfitOffset()
+void headfitSetBodyModel(struct modeldef *bodymodeldef);
 // The offset a head copy's vertices were moved by, for the release's meshes;
 // measured 1 when it was fitted (not the body's own head), 0 not, -1 unchanged
 void headfitNoteApplied(const struct modeldef *modeldef, s32 offset, s32 measured);
