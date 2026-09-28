@@ -137,6 +137,47 @@ void menugfxCreateBlur(void)
 #endif
 }
 
+#ifndef PLATFORM_N64
+static bool g_MenuBlurInList = false;
+
+/**
+ * Takes the blur from the frame being drawn, at the point menuRender() starts
+ * (menugfxCaptureBlur()), rather than from the last frame shown.
+ *
+ * menugfxCreateBlur() copies what was last presented, which is right when the
+ * menu is opened over play - nothing was on top of the level yet. Leaving
+ * Mods: Camera is the other case: the level has been drawn live behind that
+ * dialog, so the last frame shown has the dialog in it, and a blur of it left
+ * Mods: Camera's rows ghosted behind whichever page came next (F3 report
+ * 20260927-234742, Parabolee).
+ */
+void menugfxCreateBlurInList(void)
+{
+	g_MenuBlurInList = true;
+}
+
+Gfx *menugfxCaptureBlur(Gfx *gdl)
+{
+	if (!g_MenuBlurInList) {
+		return gdl;
+	}
+
+	g_MenuBlurInList = false;
+
+	if (g_MenuBlurFb < 0) {
+		g_MenuBlurFb = videoCreateFramebuffer(BLURIMG_WIDTH, BLURIMG_HEIGHT, true, false);
+		g_MenuScreenFb = videoCreateFramebuffer(0, 0, false, true);
+	}
+
+	// the level as this frame drew it, downscaled to 40x30, before any menu
+	// goes over it
+	gDPCopyFramebufferEXT(gdl++, g_MenuBlurFb, 0, -1, -1, G_ON);
+	g_MenuBlurDone = false;
+
+	return gdl;
+}
+#endif
+
 Gfx *menugfxRenderBgBlur(Gfx *gdl, u32 colour, s16 arg2, s16 arg3)
 {
 	Col *colours;
