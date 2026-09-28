@@ -126,7 +126,6 @@ static struct modalarmhead g_ModAlarmHeads[MODALARM_MAXHEADS];
 static s32 g_ModAlarmNumHeads = 0;
 static s32 g_ModAlarmCountdown60 = 0;
 static s32 g_ModAlarmNumWaypoints = 0;
-static bool g_ModAlarmPadGraph = false; // this stage's waypoints were built from its pads
 static s32 g_ModAlarmReserve = 0;
 
 /**
@@ -410,8 +409,6 @@ void modAlarmBuildPadWaypoints(void)
 	s32 grpos;
 	u64 started;
 
-	g_ModAlarmPadGraph = false;
-
 	if (!modIsGuardsAlertedOn() || g_PadsFile == NULL || g_StageSetup.padfiledata == NULL) {
 		return;
 	}
@@ -615,7 +612,6 @@ void modAlarmBuildPadWaypoints(void)
 
 		g_StageSetup.waypoints = waypoints;
 		g_StageSetup.waygroups = groups;
-		g_ModAlarmPadGraph = true;
 
 		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads, %d links, %d groups (largest %d), in %d ms",
 				g_Vars.stagenum, n, numpads, numlinks, numgroups, largest,
@@ -1088,13 +1084,14 @@ static bool modAlarmSpawnOne(s32 bodynum)
 		if (chr == NULL) {
 			refused++;
 
-			// A GoldenEye arena's rooms are open ground, and the few the seal
-			// holds are often all in view at once: every waypoint in them is
-			// refused as a guard popping in in front of the player, attempt
-			// after attempt. A graph built from the pads is one piece across
-			// open ground, so a guard from outside has a way in - half the
-			// tries go to the rest of the map instead.
-			if (zonefirst && g_ModAlarmPadGraph && refused >= MODALARM_TRIES / 2) {
+			// The rooms the seal holds are often all in view at once - a
+			// GoldenEye arena's open ground, a Villa landing that looks down
+			// its own corridor - and then every waypoint in them is refused
+			// as a guard popping in in front of the player, attempt after
+			// attempt, for as long as the player stands looking: nobody came
+			// at all. Half the tries go to the rest of the map instead, by the
+			// ordinary distance rule, and the guard walks in.
+			if (zonefirst && refused >= MODALARM_TRIES / 2) {
 				zonefirst = false;
 			}
 
