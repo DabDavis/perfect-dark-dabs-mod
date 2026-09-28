@@ -12,6 +12,7 @@
 #include "game/camera.h"
 #include "game/chr.h"
 #include "game/chraction.h"
+#include "game/modalarm.h"
 #include "game/modrules.h"
 #include "game/chrai.h"
 #include "game/debug.h"
@@ -14008,7 +14009,11 @@ struct prop *chrOpenDoor(struct chrdata *chr, struct coord *rangepos)
 		struct doorobj *door = doorprop->door;
 
 #if VERSION >= VERSION_NTSC_1_0
-		if (chr->aibot || (door->base.flags2 & OBJFLAG2_AICANNOTUSE) == 0)
+		if (chr->aibot || (door->base.flags2 & OBJFLAG2_AICANNOTUSE) == 0
+#ifndef PLATFORM_N64
+				|| modAlarmGuardOpensAnyDoor(chr)
+#endif
+				)
 #else
 		if (chr->aibot
 				|| (door->base.flags2 & OBJFLAG2_AICANNOTUSE) == 0
@@ -14061,6 +14066,13 @@ void chrNavTickMain(struct chrdata *chr, struct coord *nextpos, struct waydata *
 	// By default, do collision checks for everything except doors that AI can
 	// open, but if they're blocking a door then include all doors
 	cdtypes = (CDTYPE_ALL & ~CDTYPE_DOORS) | CDTYPE_DOORSLOCKEDTOAI;
+
+#ifndef PLATFORM_N64
+	// One that may open those doors walks up to them like any other
+	if (modAlarmGuardOpensAnyDoor(chr)) {
+		cdtypes &= ~CDTYPE_DOORSLOCKEDTOAI;
+	}
+#endif
 
 	if (chr->hidden & CHRHFLAG_BLOCKINGDOOR) {
 		cdtypes = CDTYPE_ALL;

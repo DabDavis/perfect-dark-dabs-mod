@@ -178,6 +178,13 @@ Version 4 deals a run's landing again when its room has no light (Deep Sea's
 86, 87, 89) and lowers a pad-graph map's floating pads onto their floors before
 the graph is built - randomizer-run.md has both.
 
+Version 5 deals a stage's guards only weapons whose primary function shoots
+(`modRandomChrCanFire()`): grenades, mines and knives - PD's and GoldenEye's -
+were held and aimed like guns and never thrown (F3 20260928-172330, user's
+call). Stage 0x30 on seed 1558293169 put eight of them in guards' hands at v4
+and none at v5, and only the weapons fold moved. Guards Alerted and a run's
+arriving guards (modalarm.c) already drew from a guns-only list.
+
 ### Checking a change did not move old seeds
 
 The log prints a fold of each part of the roll:

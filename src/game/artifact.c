@@ -90,6 +90,7 @@
  */
 
 u8 *var800a41a0;
+s32 g_BgNumLightsTotal; // entries in var800a41a0 / lights in g_BgLightsFileData
 u32 var800a41a4;
 u32 var800a41a8;
 u32 var800a41ac;
@@ -723,6 +724,21 @@ Gfx *artifactsRenderGlaresForRoom(Gfx *gdl, s32 roomnum)
 		}
 
 		light = artifacts[i].light;
+
+#ifndef PLATFORM_N64
+		// A glare whose light is not one of this stage's lights: lvReset()
+		// clears the lists now, but should one ever get through, its index
+		// into var800a41a0 below would be anywhere in memory
+		if (count > 0 && ((uintptr_t)light < (uintptr_t)g_BgLightsFileData
+					|| (uintptr_t)light >= (uintptr_t)g_BgLightsFileData + g_BgNumLightsTotal * sizeof(struct light))) {
+			for (k = i; k < i + count; k++) {
+				artifacts[k].type = ARTIFACTTYPE_FREE;
+			}
+
+			i += count - 1;
+			continue;
+		}
+#endif
 
 		if (count > 0) {
 			if (roomnum == light->roomnum) {

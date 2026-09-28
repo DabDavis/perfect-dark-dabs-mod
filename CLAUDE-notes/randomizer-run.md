@@ -709,6 +709,87 @@ The crash handler's backtrace is module offsets, so `addr2line -f -e pd.x86_64
 every offset, and the nearest symbol in a binary that is one build out is a
 function with nothing to do with the crash.
 
+## A hop is a level straight to a level, and the glare lists came along
+
+Crash 20260928-130257 (Windows, `artifact.c:795`, `playerRenderHud` up the
+stack) was the first frames of a hop. The three artifact lists the scheduler
+rotates were only *rewound* by `lvReset()` (`schedResetArtifacts()`), so the
+list drawn on a new stage's first two frames was the one the last stage
+wrote, and its glares point into the last stage's light table. The room test
+reads whatever is at that address now; when it matches a room on screen, the
+light's index into `var800a41a0` is anywhere in memory - a read there faulted
+and a write there corrupts. A stage entered from the title or a menu arrives
+with lists nothing wrote glares into; a run's hop is a level straight to a
+level. A 35-hop autohop chain showed 8-16 glares left in the front list at
+the load and a first-frame glare whose light lay outside the new table.
+`lvReset()` now empties the lists (`schedInitArtifacts()`), and a glare whose
+light is not in `g_BgLightsFileData[0 .. g_BgNumLightsTotal)` is dropped.
+
+## Doors on a pad graph, and whose group the walkers come from
+
+The pad graph links through doors, since the doors are not props when it is
+built. Archives keeps its secret wall (room 17/62, model 809) shut to the AI
+with `OBJFLAG2_AICANNOTUSE`, and a room sealed at 16 routed every walking-in
+guard to it, where they stood and shot at the wall (F3 20260928-170416). On a
+stage whose graph came from its pads, a run's guards may open such doors
+(`modAlarmGuardOpensAnyDoor()`, asked by `chrOpenDoor()` and by
+`chrNavTickMain()`'s obstacle types); a map's own waypoints were laid around
+its doors and are left alone.
+
+The walk-in ring used to take every group with a waypoint anywhere in the
+zone. A zone can hold two pieces of the graph - Facility's gantry room 49 and
+room 40 beside it - and a guard dealt onto the piece the player is not on
+has no route to them and stands where it appeared (four of six on a forced
+Facility landing). The ring now starts from the landing waypoint's own group,
+and only a landing that is not a waypoint falls back to the zone's groups.
+The zone deal takes a waypoint on a reaching group first, and the map-wide
+deal skips unreachable ones (`modRunGuardGroupReaches()`; the log's "no place
+for a guard" line counts them). A kill objective with nobody able to come is
+then the starve rule's clock, rather than guards standing outside the seal.
+
+## A pad graph's links are walked, not sighted
+
+`modAlarmPadsWalkable()`. The first builder linked two pads when a line and a
+cylinder tested flat at the pads' heights met no bg. That links a gantry to
+the floor under it (the line runs off the edge, the flat cylinder meets no
+wall) and never links a flight of stairs (a riser is a wall to a flat
+cylinder). F3 20260928-170555 was both at once: Facility's gantry guards were
+routed off its edge and stood at the railing over the player. The link is now
+walked in 40-unit steps: the floor under each step looked for from a stair's
+height (40) above the last, in the room the walk stands in and the rooms
+beside it (rooms overlap in height - a stairwell over the floor below - and
+following portals at waist height leaves the walk in the lower room), no step
+more than 40 down, a knee-to-head cylinder (20..150) moved step to step, and
+the walk ending on the far pad's own floor. Build time goes from ~20 ms to
+~250 ms on Facility's 389 waypoints.
+
+Probed headlessly (`--random-run --run-stage N`, 60 kills forced from gdb so
+the objective never ends, guards sampled every 20 s): guards in the room with
+the player (within 10 m) of those alive, and STALL = in ACT_GOPOS and moved
+less than 60 units in 3 s.
+
+| stage | old graph | new graph + ring/zone rules |
+|---|---|---|
+| Facility 0x05 | 17/18, 7 stalls (gantry) | 18/18, 0 |
+| Archives 0x07 | 22/24 | 18/18 |
+| Statue 0x53 | 3/18, 14 stalls | 18/18 |
+| Cradle 0x0b | 18/18, 6 | 24/24, 13 (crowding at the player) |
+| Complex 0x59 | 6/18, 9 standing far | 6/18, 6 standing far |
+| Bunker 0x06 | 0/12 | none dealt (the starve clock) |
+
+Complex has 49 pads for the whole map: the graph is 26 pieces of at most 8
+whatever the link test, and pads alone cannot make it navigable. Bunker
+(0x06) is 15 pieces; a landing on a small piece gets few guards.
+
+A guard that walks off the level stands at the collision system's floor of
+last resort (-100000) for good, holding a place in the alarm's count; three
+did at Archives pad 444 in one probe. The alarm deletes a guard under
+`MODALARM_VOID`, as stock deletes one landing on a floor that kills.
+
+To put a run on the tester's landing, stop at `modrun.c` just after
+`modRunDealObjective()` (the `g_ModRunSpawnState = 1;` line) and set
+`'modrun.c'::g_ModRunLandPad` / `g_ModRunLandRoom` from gdb.
+
 ## A stage's ending takes control away, and a run never ends the level
 
 F3 20260928-034505/034754, G5 Building: the exit catwalk (rooms 0x60/0x61) runs

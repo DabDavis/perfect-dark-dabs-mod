@@ -552,6 +552,13 @@ void lvReset(s32 stagenum)
 	modelmgrSetLvResetting(false);
 	var80084018 = 1;
 	schedResetArtifacts();
+#ifndef PLATFORM_N64
+	// And empty them: the list drawn on the new stage's first frames is the
+	// one the last stage wrote, whose glares point at that stage's lights; a
+	// Randomizer run's hop, a level straight to a level, read one as an
+	// index into this stage's light table (crash 20260928-130257).
+	schedInitArtifacts();
+#endif
 	lvSetPaused(0);
 
 #if PIRACYCHECKS

@@ -14,6 +14,7 @@ s32 modAlarmSetReserve(void);
 s32 modAlarmGetReserve(void);
 void modAlarmTick(void);
 bool modAlarmIsGuard(struct chrdata *chr);
+bool modAlarmGuardOpensAnyDoor(struct chrdata *chr);
 void modAlarmRecordGuardKill(s32 aplayernum);
 void modAlarmRecordGuardDeath(s32 vplayernum);
 s32 modAlarmGetGuardKills(s32 mpindex);

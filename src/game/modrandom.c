@@ -126,6 +126,11 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * and a map with no waypoints of its own lowers a pad that floats high over
  * its floor onto it before the pad graph is built (modRandomPadSettle()),
  * which changes which of its pads a landing may be dealt on.
+ *
+ * Version 5 hands a stage's guards only weapons whose primary function
+ * shoots: a grenade, a mine or a knife in a guard's hand is held and aimed
+ * like a gun and never thrown (user, 2026-09-28). Stages whose guards drew a
+ * throwable under v4 draw again, in the same stream.
  */
 #define MODRANDOM_VERSION MODRANDOM_VERSION_DEFAULT
 
@@ -787,6 +792,14 @@ static s32 modRandomTagNumOf(struct modrandomlists *lists, struct defaultobj *ob
  * "Nothing" and is skipped: an empty weapon spot is a spot the player walks
  * past, and a mission where half of them are empty reads as a bug.
  */
+static bool modRandomChrCanFire(s32 weaponnum)
+{
+	struct weapon *weapon = weaponFindById(weaponnum);
+	struct weaponfunc *func = weapon ? weapon->functions[FUNC_PRIMARY] : NULL;
+
+	return func != NULL && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT;
+}
+
 static void modRandomRollWeapons(struct modrandomlists *lists)
 {
 	s32 i;
@@ -818,6 +831,15 @@ static void modRandomRollWeapons(struct modrandomlists *lists)
 			}
 
 			if (forchr && mpweapon->priammotype <= 0) {
+				continue;
+			}
+
+			// Nor one it would only hold like a gun: a grenade, a mine, a
+			// knife. The AI fires a guard's weapon and never throws it, so a
+			// throwable in a guard's hand was a guard pointing a grenade at
+			// the player (F3 20260928-172330). Only weapons whose primary
+			// function shoots, from generator version 5.
+			if (forchr && modRandomGetVersion() >= 5 && !modRandomChrCanFire(mpweapon->weaponnum)) {
 				continue;
 			}
 
