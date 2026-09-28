@@ -284,7 +284,7 @@ struct modruncarry {
 	f32 health;
 	f32 shield;
 	s32 ammo[33]; // ammoheldarr's length
-	u8 weapons[64];
+	u8 weapons[MODRUN_MAXCARRY];
 	s32 numweapons;
 	s32 hands[2];
 };
