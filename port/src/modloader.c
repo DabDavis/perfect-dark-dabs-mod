@@ -10,6 +10,7 @@
 #include <ultra64.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include "constants.h"
 #include "bss.h"
 #include "data.h"
@@ -186,6 +187,55 @@ const char *modloaderGetStageOwnModelsDir(s32 stagenum)
 	}
 
 	return dir;
+}
+
+/**
+ * The scale of a map's placed object whose file came from the map's own mod
+ * (modloaderGetStageOwnModelsDir()): the model state's, except where the mod
+ * made the file ten times the game's size and set its own scale for it in the
+ * ROM it came from. The All in One Mod's `mod_gex` and `mod_goldfinger_64`
+ * are GoldenEye X's and Goldfinger 64's multiplayer files; the port they are
+ * made for keeps those two mods' model-state tables, which differ from Perfect
+ * Dark's in these rows only (409 for 4096). Without it GoldenEye X's ammo
+ * crate on Facility BZ was seven metres wide.
+ */
+static const u16 g_GexOwnScaleModels[] = {
+	0x020, 0x022, 0x024, 0x051, 0x052, 0x079, 0x0b1, 0x0c1, 0x0e2, 0x155,
+	0x175, 0x187, 0x188, 0x189, 0x18c, 0x18d, 0x18e, 0x192, 0x1af,
+};
+
+static const u16 g_Goldfinger64OwnScaleModels[] = { 0x0c1, 0x0e2 };
+
+s32 modloaderGetStageModelScale(s32 stagenum, s32 modelnum, s32 fileid, s32 scale)
+{
+	const char *dir = modloaderGetStageOwnModelsDir(stagenum);
+	const char *base;
+	const u16 *list = NULL;
+	s32 num = 0;
+	s32 filedir = romdataFileGetModDir(fileid);
+
+	if (!dir || filedir < 0 || fsGetModDirAt(filedir) != dir) {
+		return scale;
+	}
+
+	base = strrchr(dir, '/');
+	base = base ? base + 1 : dir;
+
+	if (!strcasecmp(base, "mod_gex")) {
+		list = g_GexOwnScaleModels;
+		num = ARRAYCOUNT(g_GexOwnScaleModels);
+	} else if (!strcasecmp(base, "mod_goldfinger_64")) {
+		list = g_Goldfinger64OwnScaleModels;
+		num = ARRAYCOUNT(g_Goldfinger64OwnScaleModels);
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		if (list[i] == modelnum) {
+			return 409;
+		}
+	}
+
+	return scale;
 }
 
 s32 modloaderGetStageModDirIndex(s32 stagenum)

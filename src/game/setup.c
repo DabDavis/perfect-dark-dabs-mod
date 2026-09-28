@@ -1232,19 +1232,72 @@ s32 setupGetPortalByDoorPad(s32 padnum)
 	return bgFindPortalBetweenPositions(&centre, &coord);
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The files of the objects a Stage Loader map places - doors, crates,
+ * furniture, glass, monitors, lifts, vehicles - read from the map's own mod
+ * when it is one whose model files its maps are made for
+ * (modloaderGetStageOwnModelsDir()). Such a mod keeps the game's model
+ * numbers and replaces the files behind them, and its pads are sized for its
+ * own models: a stock door scaled to one was a stretched wedge
+ * (F3 20260928-092708, 20260928-094406). A file the mod does not ship stays
+ * the stock one (romdataFileLoad()).
+ *
+ * Not what a character carries or drops: guns, keys, hats, shields and mines
+ * share their models with the chrs and the player, whose files stay stock.
+ */
+static void setupFollowStageModels(void)
+{
+	struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
+
+	if (obj == NULL || modloaderGetStageOwnModelsDir(g_Vars.stagenum) == NULL) {
+		return;
+	}
+
+	while (obj->type != OBJTYPE_END) {
+		switch (obj->type) {
+		case OBJTYPE_DOOR:
+		case OBJTYPE_BASIC:
+		case OBJTYPE_ALARM:
+		case OBJTYPE_CCTV:
+		case OBJTYPE_AMMOCRATE:
+		case OBJTYPE_SINGLEMONITOR:
+		case OBJTYPE_MULTIMONITOR:
+		case OBJTYPE_HANGINGMONITORS:
+		case OBJTYPE_AUTOGUN:
+		case OBJTYPE_DEBRIS:
+		case OBJTYPE_MULTIAMMOCRATE:
+		case OBJTYPE_GASBOTTLE:
+		case OBJTYPE_TRUCK:
+		case OBJTYPE_HELI:
+		case OBJTYPE_GLASS:
+		case OBJTYPE_SAFE:
+		case OBJTYPE_TANK:
+		case OBJTYPE_TINTEDGLASS:
+		case OBJTYPE_LIFT:
+		case OBJTYPE_HOVERBIKE:
+		case OBJTYPE_HOVERPROP:
+		case OBJTYPE_FAN:
+		case OBJTYPE_HOVERCAR:
+		case OBJTYPE_CHOPPER:
+		case OBJTYPE_ESCASTEP:
+			if (obj->modelnum >= 0 && obj->modelnum < NUM_MODELS) {
+				romdataFileFollowStage(g_ModelStates[obj->modelnum].fileid);
+			}
+			break;
+		}
+
+		obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
+	}
+}
+#endif
+
 void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 {
 	f32 scale;
 	s32 modelnum = door->base.modelnum;
 	s32 portalnum = -1;
 	struct pad pad;
-
-#ifndef PLATFORM_N64
-	// A Stage Loader map of a mod that replaces the door files by name is
-	// built for its own doors: its pads fit them, and a stock door scaled to
-	// one is a wedge (modloaderGetStageOwnModelsDir())
-	romdataFileFollowStage(g_ModelStates[modelnum].fileid);
-#endif
 
 	setupLoadModeldef(modelnum);
 
@@ -1969,6 +2022,10 @@ void setupCreateProps(s32 stagenum)
 			if (nodoors) {
 				setupMarkLiftDoors();
 			}
+
+#ifndef PLATFORM_N64
+			setupFollowStageModels();
+#endif
 
 			obj = (struct defaultobj *)g_StageSetup.props;
 

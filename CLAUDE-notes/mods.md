@@ -1662,6 +1662,19 @@ door's file (`romdataFileFollowStage()`) and `romdataFileLoad()` reads it from
 `romdataFileGetModDir()` name that mod for the model's textures, and the file
 being external keeps the XBLA mesh off it. Imported console mods are left as
 they were (GoldenEye X's maps take its model states through modborrow.c).
+**Then every placed object (same day):** `setupFollowStageModels()` marks the
+file of each object the setup places - doors, crates, glass, furniture,
+monitors, lifts, vehicles - but never guns, keys, hats, shields or mines,
+whose models chrs and the player share. A file the mod does not ship stays
+stock. Scale trap: the port the All in One Mod is made for keeps GoldenEye X's
+and Goldfinger 64's model-state tables (`g_GexModelStates`, in
+~/perfect-dark/perfect_dark_netplay's modeldata/general.c), which give 19 rows
+(2 for Goldfinger) 409 instead of 4096 because those mods' files are ten times
+the size - GoldenEye X's ammo crate at the stock scale was 7 m wide. Those rows
+are `modloaderGetStageModelScale()`, keyed on the `mod_gex` /
+`mod_goldfinger_64` directory names, applied in `objInitWithModelDef()`.
+Checked pixel-identical at a fixed frame (`--fixed-step --screenshot-frame`)
+on stock GE-X, stock PD arenas and mod maps whose files it does not touch.
 A map whose setup depends on the mod's own AI commands or weapon numbers
 plays as the port has them.
 
