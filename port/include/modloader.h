@@ -14,6 +14,10 @@ const char *modloaderGetStageModDir(s32 stagenum);
 // loaded for that stage is registered under, so its own pack can be found
 // again at the draw - see texpackTextureArt().
 s32 modloaderGetStageModDirIndex(s32 stagenum);
+// The stage's own mod when its door models are its own files (modloader.c)
+const char *modloaderGetStageOwnModelsDir(s32 stagenum);
+// A placed object's scale when its file is the map's own mod's (modloader.c)
+s32 modloaderGetStageModelScale(s32 stagenum, s32 modelnum, s32 fileid, s32 scale);
 const char *modloaderGetStageAllocation(s32 stagenum);
 // A Stage Loader map's own name, as its mod calls it, or NULL for a stock stage.
 const char *modloaderGetStageMapName(s32 stagenum);

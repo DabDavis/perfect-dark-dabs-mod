@@ -2180,7 +2180,12 @@ struct prop *objInit(struct defaultobj *obj, struct modeldef *modeldef, struct p
 		obj->model->obj = obj;
 		obj->model->unk01 = 0;
 
+#ifndef PLATFORM_N64
+		modelSetScale(obj->model, modloaderGetStageModelScale(g_Vars.stagenum, obj->modelnum,
+					g_ModelStates[obj->modelnum].fileid, g_ModelStates[obj->modelnum].scale) * (1.0f / 4096.0f));
+#else
 		modelSetScale(obj->model, g_ModelStates[obj->modelnum].scale * (1.0f / 4096.0f));
+#endif
 
 		prop->type = PROPTYPE_OBJ;
 		prop->obj = obj;
