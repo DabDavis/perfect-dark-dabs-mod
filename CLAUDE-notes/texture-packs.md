@@ -761,3 +761,35 @@ that is the game thread's.
   (env.c), a nearly-all-glass record counts as a flat pane (xblatex.c, DD
   sniper visor 4909), XBLA sky cubes move the sun onto their painted disc
   (xblasky.c `xblaSkySunPos`).
+
+## 16th F3 pass notes (2026-09-28, fix/f3-0928b-packs)
+
+- **F7 missed everything the release repaints.** With the XBLA textures on,
+  most of the game's own numbered textures are drawn from the release's
+  picture (`xblaTexLoadNumbered()` in `import_texture()`), and that branch
+  returned before the dump at the end of the function - a dump taken with the
+  release on held almost nothing of the level (dab, F3 20260927-235833, the
+  Institute's desk terminal). The release's picture is now dumped there, under
+  the texture's own number (`<num>_<fmt>.png`, the pack name), same row order
+  as the ROM texels. A texture the pack itself replaces is still not dumped.
+- **Toggle messages replace each other.** `hudmsgRemoveByPrefix()` (hudmsg.c)
+  takes down the last "Texture Pack: ..." / "Enhancements ..." / "HD Assets ..."
+  message, shown or queued, before the next is made; pressing a key several
+  times used to replay every step one after another (F3 20260927-235736).
+- **HD Assets** (Mods: Display checkbox + unbound key, `Mod.HdAssetsKey`):
+  the texture packs and every part of the XBLA release off together and back
+  as they were, apart from Enhancements (F3 20260927-235543, user-approved).
+  Off writes `Mod.HdAssetsSaved` = `1,<packs on>,<release part bits>`
+  (`xblaSwitchGetParts()`, `XBLASWITCH_PART_*`), On restores it; with no
+  usable note On turns both fully on. The checkbox reads the live state
+  (packs on or any release part on), so F6/F8 behind its back are fine.
+- **"Pack textures not loading" on 117a093 was the gun-load registry wipe.**
+  Parabolee's F3s 20260928-000723 (Institute rooms in the ROM's art on the
+  first load) and 20260928-002550 (Mission Select thumbnails 0385/0617... in
+  the ROM's art, even after F9) both reproduce on the 117a093 CI build and
+  not on HEAD: the first gun load of a level forgot every texture number above
+  gunmem (`videoFreeCachedTextures(end, end + remaining)` with `remaining`
+  read 64 bits wide), so those textures were never asked of the pack. Fixed by
+  943f660e6 before this pass. Check: pack on, pop the Institute's file select
+  at frame 302 (`menuPopDialog()`), look at the marble at frame 760
+  (~/wt/f3-0928b-packs-run/fl2.py, tp.py; `pd.117a093` is the CI binary).
