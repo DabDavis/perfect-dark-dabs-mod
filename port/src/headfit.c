@@ -1056,6 +1056,239 @@ s32 headfitMeasureModelBox(struct model *model, const u8 *filebase, f32 lo[3], f
 	return any && biggest > 0.0f;
 }
 
+/* -------------------------------------------------------------------------
+ * A blade's own frame, for laying a knife down in a menu
+ * ------------------------------------------------------------------------- */
+
+struct headfitcloud {
+	f32 *p;
+	s32 num;
+	s32 cap;
+};
+
+static void headfitCollectCloud(const f32 pos[3], const struct modelnode *node, void *arg)
+{
+	struct headfitcloud *c = arg;
+
+	if (c->num >= c->cap) {
+		const s32 cap = c->cap ? c->cap * 2 : 1024;
+		f32 *grown = realloc(c->p, (size_t)cap * 3 * sizeof(f32));
+
+		if (!grown) {
+			return;
+		}
+
+		c->p = grown;
+		c->cap = cap;
+	}
+
+	memcpy(&c->p[c->num++ * 3], pos, 3 * sizeof(f32));
+}
+
+/** The eigenvectors of a symmetric 3x3 (Jacobi), as rows of vec, largest value first. */
+static void headfitEigen3(f64 a[3][3], f64 vec[3][3], f64 val[3])
+{
+	f64 v[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+	s32 order[3] = { 0, 1, 2 };
+
+	for (s32 sweep = 0; sweep < 50; sweep++) {
+		const f64 off = fabs(a[0][1]) + fabs(a[0][2]) + fabs(a[1][2]);
+
+		if (off < 1e-9) {
+			break;
+		}
+
+		for (s32 p = 0; p < 2; p++) {
+			for (s32 q = p + 1; q < 3; q++) {
+				if (fabs(a[p][q]) < 1e-12) {
+					continue;
+				}
+
+				{
+					const f64 theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
+					const f64 t = (theta >= 0 ? 1.0 : -1.0) / (fabs(theta) + sqrt(theta * theta + 1.0));
+					const f64 c = 1.0 / sqrt(t * t + 1.0);
+					const f64 sn = t * c;
+
+					for (s32 k = 0; k < 3; k++) {
+						const f64 akp = a[k][p], akq = a[k][q];
+						a[k][p] = c * akp - sn * akq;
+						a[k][q] = sn * akp + c * akq;
+					}
+
+					for (s32 k = 0; k < 3; k++) {
+						const f64 apk = a[p][k], aqk = a[q][k];
+						a[p][k] = c * apk - sn * aqk;
+						a[q][k] = sn * apk + c * aqk;
+					}
+
+					for (s32 k = 0; k < 3; k++) {
+						const f64 vkp = v[k][p], vkq = v[k][q];
+						v[k][p] = c * vkp - sn * vkq;
+						v[k][q] = sn * vkp + c * vkq;
+					}
+				}
+			}
+		}
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		for (s32 j = i + 1; j < 3; j++) {
+			if (a[order[j]][order[j]] > a[order[i]][order[i]]) {
+				const s32 t = order[i];
+				order[i] = order[j];
+				order[j] = t;
+			}
+		}
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		val[i] = a[order[i]][order[i]];
+
+		for (s32 k = 0; k < 3; k++) {
+			vec[i][k] = v[k][order[i]];
+		}
+	}
+}
+
+/**
+ * A knife's own frame, from its points: axes[0] along it towards the point
+ * of the blade, axes[1] across the blade's face, axes[2] through it (its
+ * thinnest way), and the middle and length of it along those. The blade is
+ * whichever end is thinner through: a blade is flat, a handle round. Which
+ * way round the face is (edge or spine up) takes the sign nearest the
+ * model's own z, the way both games draw the blade's width.
+ */
+s32 headfitBladeFrame(const f32 *pts, s32 num, f32 axes[3][3], f32 mid[3], f32 *length)
+{
+	f64 mean[3] = { 0, 0, 0 };
+	f64 cov[3][3] = { { 0 } };
+	f64 vec[3][3];
+	f64 val[3];
+	f64 lo[3] = { 1e30, 1e30, 1e30 };
+	f64 hi[3] = { -1e30, -1e30, -1e30 };
+	f64 thick[2] = { 0, 0 };
+	s32 count[2] = { 0, 0 };
+	f64 e[3][3];
+
+	if (num < 8) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		for (s32 a = 0; a < 3; a++) {
+			mean[a] += pts[i * 3 + a];
+		}
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		mean[a] /= num;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		for (s32 a = 0; a < 3; a++) {
+			for (s32 b = 0; b < 3; b++) {
+				cov[a][b] += (pts[i * 3 + a] - mean[a]) * (pts[i * 3 + b] - mean[b]);
+			}
+		}
+	}
+
+	headfitEigen3(cov, vec, val);
+
+	// along, across (middle), through (least)
+	memcpy(e[0], vec[0], sizeof(e[0]));
+	memcpy(e[1], vec[1], sizeof(e[1]));
+
+	for (s32 i = 0; i < num; i++) {
+		const f64 t = (pts[i * 3] - mean[0]) * e[0][0] + (pts[i * 3 + 1] - mean[1]) * e[0][1] + (pts[i * 3 + 2] - mean[2]) * e[0][2];
+
+		if (t < lo[0]) lo[0] = t;
+		if (t > hi[0]) hi[0] = t;
+	}
+
+	// which end is the blade: the thinner through (along vec[2])
+	for (s32 i = 0; i < num; i++) {
+		f64 t = 0, d = 0;
+
+		for (s32 a = 0; a < 3; a++) {
+			t += (pts[i * 3 + a] - mean[a]) * e[0][a];
+			d += (pts[i * 3 + a] - mean[a]) * vec[2][a];
+		}
+
+		if (t > lo[0] + (hi[0] - lo[0]) * 0.7) {
+			thick[1] += d * d;
+			count[1]++;
+		} else if (t < lo[0] + (hi[0] - lo[0]) * 0.3) {
+			thick[0] += d * d;
+			count[0]++;
+		}
+	}
+
+	if (count[0] && count[1] && thick[0] / count[0] < thick[1] / count[1]) {
+		for (s32 a = 0; a < 3; a++) {
+			e[0][a] = -e[0][a];
+		}
+	}
+
+	if (e[1][2] < 0) {
+		for (s32 a = 0; a < 3; a++) {
+			e[1][a] = -e[1][a];
+		}
+	}
+
+	// through = across x along, so the three are a turn and not a mirror
+	e[2][0] = e[1][1] * e[0][2] - e[1][2] * e[0][1];
+	e[2][1] = e[1][2] * e[0][0] - e[1][0] * e[0][2];
+	e[2][2] = e[1][0] * e[0][1] - e[1][1] * e[0][0];
+
+	for (s32 k = 0; k < 3; k++) {
+		lo[k] = 1e30;
+		hi[k] = -1e30;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		for (s32 k = 0; k < 3; k++) {
+			const f64 t = (pts[i * 3] - mean[0]) * e[k][0] + (pts[i * 3 + 1] - mean[1]) * e[k][1] + (pts[i * 3 + 2] - mean[2]) * e[k][2];
+
+			if (t < lo[k]) lo[k] = t;
+			if (t > hi[k]) hi[k] = t;
+		}
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		mid[a] = (f32)mean[a];
+
+		for (s32 k = 0; k < 3; k++) {
+			axes[k][a] = (f32)e[k][a];
+			mid[a] += (f32)((lo[k] + hi[k]) * 0.5 * e[k][a]);
+		}
+	}
+
+	*length = (f32)(hi[0] - lo[0]);
+
+	return *length > 0.0f;
+}
+
+/** headfitBladeFrame() over what a model draws as its switches stand (see headfitMeasureModelBox()). */
+s32 headfitMeasureModelBlade(struct model *model, const u8 *filebase, f32 axes[3][3], f32 mid[3], f32 *length)
+{
+	struct headfitcloud c = { NULL, 0, 0 };
+	s32 ok;
+
+	if (!model || !model->definition) {
+		return 0;
+	}
+
+	headfitToggleModel = model;
+	headfitEachVertex(model->definition, filebase, 1, headfitCollectCloud, &c);
+	headfitToggleModel = NULL;
+
+	ok = headfitBladeFrame(c.p, c.num, axes, mid, length);
+	free(c.p);
+
+	return ok;
+}
+
 /**
  * Research, from gdb: every weapon's menu model measured as the inventory
  * shows it (its partvisibility applied), beside the inventory's table row -

@@ -4216,6 +4216,10 @@ struct menumodel {
 	u32 fitparams;
 	s16 fitweapon;  // and the weapon it is
 	u8 fitpending;  // waiting for the release's gun to be laid on (first draw)
+	// A knife laid along x first (menuModelFitToBox()): the turn, taken about
+	// the middle before the row's own, and whether there is one
+	f32 fitrot[3][3];
+	u8 fitrotset;
 #endif
 };
 

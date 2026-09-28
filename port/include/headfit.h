@@ -37,6 +37,9 @@ s32 headfitMeasureBodyFile(s32 filenum, struct headfitbody *out);
 void headfitSurvey(void);
 // The box round what a model draws as its toggles stand, over lists big enough to see
 s32 headfitMeasureModelBox(struct model *model, const u8 *filebase, f32 lo[3], f32 hi[3]);
+// A knife's frame (along to the point, across the blade, through it), middle and length
+s32 headfitBladeFrame(const f32 *pts, s32 num, f32 axes[3][3], f32 mid[3], f32 *length);
+s32 headfitMeasureModelBlade(struct model *model, const u8 *filebase, f32 axes[3][3], f32 mid[3], f32 *length);
 void headfitSurveyGuns(void);
 void headfitSurveyHeads(void);
 

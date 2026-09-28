@@ -594,6 +594,11 @@ static struct {
 	f32 rest[GEBEAN_MAXMTX][3];
 	u8 hasrest[GEBEAN_MAXMTX];
 	s32 set;
+	// a knife's own frame as it is drawn (headfitBladeFrame()), for the menu
+	f32 blade[3][3];
+	f32 blademid[3];
+	f32 bladelen;
+	s32 bladeset;
 } fpPlaced[ARRAYCOUNT(fpRows)];
 
 /**
@@ -10039,6 +10044,9 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	s32 usegrip;
 	u8 *file;
 	s32 hasround = 0;   // the draws of fpRound[fp] are in the file, marked 2 in drawn
+	f32 *bladepts = NULL;
+	s32 numbladepts = 0;
+	s32 capbladepts = 0;
 	s8 spentof[64];     // each list's group of the gun without its round, or -1
 	s32 numspent = 0;
 	u64 roundgroups = 0; // the lists the round's triangles went to
@@ -10603,6 +10611,14 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 	memset(&out, 0, sizeof(out));
 
+	// A knife's points as they are drawn, for its frame in a menu
+	fpPlaced[fp].bladeset = 0;
+
+	if (fp == WEAPON_GE_HUNTINGKNIFE - WEAPON_GE_FIRST || fp == WEAPON_GE_THROWINGKNIFE - WEAPON_GE_FIRST) {
+		capbladepts = 65536;
+		bladepts = malloc((size_t)capbladepts * 3 * sizeof(f32));
+	}
+
 	for (s32 di = 0; di < bm.numdraws; di++) {
 		const struct beandraw *d = &bm.draws[di];
 		struct beanvb vb;
@@ -10685,6 +10701,14 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 						pos[a] = turned[a] * scale + hostc[a]
 							- (rig.hasrest[mtx] ? rig.rest[mtx][a] : 0.0f);
 					}
+
+					if (bladepts && numbladepts < capbladepts) {
+						for (s32 a = 0; a < 3; a++) {
+							bladepts[numbladepts * 3 + a] = turned[a] * scale + hostc[a];
+						}
+
+						numbladepts++;
+					}
 				}
 
 				// GoldenEye's N64 guns are painted by their vertex colours over
@@ -10740,6 +10764,13 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		free(mapped);
 		free(mappedmtx);
 		free(tris);
+	}
+
+	if (bladepts) {
+		fpPlaced[fp].bladeset = headfitBladeFrame(bladepts, numbladepts, fpPlaced[fp].blade,
+				fpPlaced[fp].blademid, &fpPlaced[fp].bladelen);
+		free(bladepts);
+		bladepts = NULL;
 	}
 
 	// Cover every list of the host's that Bean's gun did not take, so the
@@ -11117,6 +11148,25 @@ s32 gebeanFirstPersonHostBox(s32 weaponnum, f32 lo[3], f32 hi[3])
 		lo[a] = p < q ? p : q;
 		hi[a] = p < q ? q : p;
 	}
+
+	return 1;
+}
+
+/**
+ * A knife's own frame as the release's is drawn in its host's space
+ * (headfitBladeFrame()), once it has been laid on; 0 for anything else.
+ */
+s32 gebeanFirstPersonHostBlade(s32 weaponnum, f32 axes[3][3], f32 mid[3], f32 *length)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	if (i < 0 || i >= (s32)ARRAYCOUNT(fpRows) || !fpPlaced[i].set || !fpPlaced[i].bladeset || gebeanGunsAreN64()) {
+		return 0;
+	}
+
+	memcpy(axes, fpPlaced[i].blade, sizeof(fpPlaced[i].blade));
+	memcpy(mid, fpPlaced[i].blademid, sizeof(fpPlaced[i].blademid));
+	*length = fpPlaced[i].bladelen;
 
 	return 1;
 }

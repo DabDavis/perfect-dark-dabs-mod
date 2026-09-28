@@ -1874,6 +1874,7 @@ void menuUnsetModel(struct menumodel *menumodel)
 	menumodel->fitparams = 0;
 	menumodel->fitweapon = 0;
 	menumodel->fitpending = false;
+	menumodel->fitrotset = false;
 #endif
 	menumodel->unk560 = -1;
 	menumodel->headnum = -1;
@@ -1972,8 +1973,10 @@ static void menuModelFitToBox(struct menumodel *menumodel, s32 filenum)
 	s32 ok;
 
 	const s32 waited = menumodel->fitpending;
+	s32 release = 0;
 
 	menumodel->fitpending = 0;
+	menumodel->fitrotset = false;
 	ok = 0;
 
 	if (gebeanFirstPersonIsReleaseFile(menumodel->fitweapon, filenum)) {
@@ -1984,6 +1987,7 @@ static void menuModelFitToBox(struct menumodel *menumodel, s32 filenum)
 		// frame - for a few frames, and then the file's own lists are
 		// measured instead, where the release's gun was to be laid
 		ok = gebeanFirstPersonHostBox(menumodel->fitweapon, lo, hi);
+		release = ok;
 
 		if (!ok && waited < MENUMODEL_FIT_WAIT) {
 			menumodel->fitpending = waited + 1;
@@ -2043,6 +2047,42 @@ static void menuModelFitToBox(struct menumodel *menumodel, s32 filenum)
 		}
 	}
 
+	// A knife is laid along x, as Perfect Dark's is: its row tips that
+	// knife, which lies along x with its blade's face in x-z, and GoldenEye's
+	// knives do not - the release's is modelled turned 22 degrees in that
+	// plane, the way Bond holds it, and stood diagonally and low in the menu;
+	// GoldenEye's own runs up y and stood on end. The knife's own frame
+	// (along to the point, across the blade, through it) is measured off
+	// what is drawn and turned onto Perfect Dark's (x, z, y), about the
+	// middle of it, and it is sized by its length along that.
+	if (menumodel->fitweapon == WEAPON_GE_HUNTINGKNIFE || menumodel->fitweapon == WEAPON_GE_THROWINGKNIFE) {
+		f32 axes[3][3];
+		f32 mid[3];
+		f32 length;
+		const s32 have = release
+			? gebeanFirstPersonHostBlade(menumodel->fitweapon, axes, mid, &length)
+			: headfitMeasureModelBlade(&menumodel->bodymodel, menumodel->allocstart, axes, mid, &length);
+
+		if (have && length > 0.0f) {
+			struct modelnode *root = menumodel->bodymodeldef->rootnode;
+
+			for (s32 a = 0; a < 3; a++) {
+				const f32 r = root && (root->type & 0xff) == MODELNODETYPE_POSITION ? root->rodata->position.pos.f[a] : 0.0f;
+
+				lo[a] = hi[a] = mid[a] - r;
+
+				// the turn as the matrix takes it: column a is where the
+				// model's axis a goes - along to x, through to y, across to z
+				menumodel->fitrot[a][0] = axes[0][a];
+				menumodel->fitrot[a][1] = axes[2][a];
+				menumodel->fitrot[a][2] = axes[1][a];
+			}
+
+			menumodel->fitrotset = true;
+			longest = length;
+		}
+	}
+
 	if (longest <= 0.0f) {
 		return;
 	}
@@ -2067,6 +2107,20 @@ static void menuModelFitToBox(struct menumodel *menumodel, s32 filenum)
 	menumodel->displacey = -(lo[1] + hi[1]) * 0.5f;
 	menumodel->displacez = -(lo[2] + hi[2]) * 0.5f;
 	menumodel->newscale = drawn / longest;
+
+	// And a mine is drawn a little above the middle, as Perfect Dark's mine
+	// rows put theirs: the timed mine's row centres it (0.5, -11.4, 6.7)
+	// from the middle of its 118-unit box (root taken off), which is where
+	// the mines sit above the list. GoldenEye's, centred, sat low beside
+	// them. The same offset, for the size of the mine.
+	if (menumodel->fitweapon == WEAPON_GE_TIMEDMINE || menumodel->fitweapon == WEAPON_GE_PROXIMITYMINE
+			|| menumodel->fitweapon == WEAPON_GE_REMOTEMINE) {
+		const f32 k = longest / 118.0f;
+
+		menumodel->displacex -= 0.5f * k;
+		menumodel->displacey += 11.4f * k;
+		menumodel->displacez -= 6.7f * k;
+	}
 
 	sysLogPrintf(LOG_NOTE, "menu: weapon %x's model %x framed by its box: %.1f x %.1f x %.1f about %.1f %.1f %.1f, scale %.4f",
 			menumodel->fitweapon, filenum, hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2],
@@ -2634,6 +2688,23 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 				mtx4MultMtx4(&sp1c4, &sp244, &sp184);
 				mtx4MultMtx4(&sp184, &sp204, &menumodel->mtx);
 			} else {
+#ifndef PLATFORM_N64
+				if (menumodel->fitrotset && !haszoom) {
+					Mtxf turn;
+					Mtxf turned;
+
+					mtx4LoadIdentity(&turn);
+
+					for (s32 a = 0; a < 3; a++) {
+						for (s32 b = 0; b < 3; b++) {
+							turn.m[a][b] = menumodel->fitrot[a][b];
+						}
+					}
+
+					mtx4MultMtx4(&sp244, &turn, &turned);
+					mtx4MultMtx4(&turned, &sp204, &menumodel->mtx);
+				} else
+#endif
 				mtx4MultMtx4(&sp244, &sp204, &menumodel->mtx);
 			}
 		}
@@ -4301,6 +4372,7 @@ void menuResetModel(struct menumodel *menumodel, u32 allocationlen, bool allocat
 	menumodel->fitparams = 0;
 	menumodel->fitweapon = 0;
 	menumodel->fitpending = false;
+	menumodel->fitrotset = false;
 #endif
 	menumodel->isperfecthead = false;
 	menumodel->unk5b1_02 = false;

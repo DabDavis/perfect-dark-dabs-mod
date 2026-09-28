@@ -159,6 +159,8 @@ u16 gebeanFirstPersonReleaseFile(s32 weaponnum);
 s32 gebeanFirstPersonIsReleaseFile(s32 weaponnum, s32 filenum);
 // That gun's box in its host's space, once it has been drawn (laid on) once
 s32 gebeanFirstPersonHostBox(s32 weaponnum, f32 lo[3], f32 hi[3]);
+// A knife's own frame there (headfitBladeFrame()), likewise
+s32 gebeanFirstPersonHostBlade(s32 weaponnum, f32 axes[3][3], f32 mid[3], f32 *length);
 u16 gebeanFirstPersonWatchFile(s32 weaponnum);
 // A gun holding GoldenEye's glove, in the hands of a player who is not a
 // GoldenEye character: its file drawn bare (else `filenum`), and whether the

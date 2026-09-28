@@ -3992,6 +3992,7 @@ void func0f105948(s32 weaponnum)
 			? g_Menus[g_MpPlayerNum].menumodel.newparams : 0;
 		g_Menus[g_MpPlayerNum].menumodel.fitweapon = weaponnum;
 		g_Menus[g_MpPlayerNum].menumodel.fitpending = false;
+		g_Menus[g_MpPlayerNum].menumodel.fitrotset = false;
 #endif
 
 		// These indexes correspond to WEAPON_DISGUISE40 and WEAPON_DISGUISE41
