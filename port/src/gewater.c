@@ -26,9 +26,14 @@
  *
  * Perfect Dark's loader has no such test, and the conversion keeps both
  * picture numbers, so the converted reservoir stood still (F3 20260926-064418).
- * The HD look's reservoir is Bean's own mesh under its water colour picture;
- * the release moves it with a normal map in its own shader, which is not
- * drawn, so it takes GoldenEye's motion on that picture instead.
+ * The HD look's water is Bean's own mesh: Dam's reservoir under its water
+ * colour picture, Caverns' pools and Complex's pits under plain pictures
+ * (gebeanstage.c finds them lying on GoldenEye's water). The release moves
+ * them in shaders of its own, which are not drawn, so they take GoldenEye's
+ * motion instead - measured across the ground and carried into Bean's
+ * picture, which is laid bigger and turned against GoldenEye's (Caverns' at
+ * twice the size, Dam's with s and t swapped), so the water creeps the way
+ * and at the speed the N64 look's does (F3 20260928-082038).
  */
 #include <ultra64.h>
 #include <math.h>
@@ -42,12 +47,13 @@
 
 #ifndef PLATFORM_N64
 
-#define GEWATER_SLOTS 4
+#define GEWATER_SLOTS 8
 #define GEWATER_CMDS 16
 
 struct gewaterslot {
 	s32 w;
 	s32 h;
+	s32 hd; // an HD level's picture, moving at g_GeWaterHdRate
 	Gfx gdl[GEWATER_CMDS];
 };
 
@@ -59,11 +65,31 @@ static f32 g_GeWaterS;
 static f32 g_GeWaterT;
 static f32 g_GeWaterPhase;
 
+// The HD level's water picture: its tile 0's s and t, and how far they move
+// a frame - GoldenEye's motion across the ground, in that picture (gebeanstage.c)
+static f32 g_GeWaterHdS;
+static f32 g_GeWaterHdT;
+static s32 g_GeWaterHdMeasured;
+static f32 g_GeWaterHdRate[2] = { 0.25f, 0.1f };
+
+static f32 geWaterWrap(f32 v)
+{
+	while (v >= 256.0f) {
+		v -= 256.0f;
+	}
+
+	while (v < 0.0f) {
+		v += 256.0f;
+	}
+
+	return v;
+}
+
 static void geWaterBuild(struct gewaterslot *slot)
 {
 	Gfx *gdl = slot->gdl;
-	const s32 s = (s32)g_GeWaterS;
-	const s32 t = (s32)g_GeWaterT;
+	const s32 s = (s32)(slot->hd ? g_GeWaterHdS : g_GeWaterS);
+	const s32 t = (s32)(slot->hd ? g_GeWaterHdT : g_GeWaterT);
 	const s32 s1 = (s + 90) & 0xff;
 	const s32 t1 = (t + 150) & 0xff;
 	const s32 lodfrac = (s32)(sinf(g_GeWaterPhase) * 127.0f + 128.0f);
@@ -93,17 +119,10 @@ void geWaterTick(void)
 		return;
 	}
 
-	g_GeWaterS += delta * 0.25f;
-
-	while (g_GeWaterS >= 256.0f) {
-		g_GeWaterS -= 256.0f;
-	}
-
-	g_GeWaterT += delta * 0.1f;
-
-	while (g_GeWaterT >= 256.0f) {
-		g_GeWaterT -= 256.0f;
-	}
+	g_GeWaterS = geWaterWrap(g_GeWaterS + delta * 0.25f);
+	g_GeWaterT = geWaterWrap(g_GeWaterT + delta * 0.1f);
+	g_GeWaterHdS = geWaterWrap(g_GeWaterHdS + delta * g_GeWaterHdRate[0]);
+	g_GeWaterHdT = geWaterWrap(g_GeWaterHdT + delta * g_GeWaterHdRate[1]);
 
 	g_GeWaterPhase += delta * 0.04f;
 
@@ -122,12 +141,26 @@ s32 geWaterIsWaterTexture(s32 texturenum)
 		&& modloaderStageIsRemake(g_Vars.stagenum);
 }
 
-Gfx *geWaterWrite(Gfx *gdl, s32 w, s32 h)
+void geWaterSetHdRates(s32 measured, f32 s, f32 t)
+{
+	g_GeWaterHdMeasured = measured;
+	g_GeWaterHdRate[0] = measured ? s : 0.25f;
+	g_GeWaterHdRate[1] = measured ? t : 0.1f;
+
+	// Nothing that fast is GoldenEye's water: a measure gone wrong
+	if (fabsf(g_GeWaterHdRate[0]) > 8.0f || fabsf(g_GeWaterHdRate[1]) > 8.0f) {
+		g_GeWaterHdMeasured = 0;
+		g_GeWaterHdRate[0] = 0.25f;
+		g_GeWaterHdRate[1] = 0.1f;
+	}
+}
+
+static Gfx *geWaterWriteSlot(Gfx *gdl, s32 w, s32 h, s32 hd)
 {
 	struct gewaterslot *slot = NULL;
 
 	for (s32 i = 0; i < g_GeWaterNumSlots; i++) {
-		if (g_GeWaterSlots[i].w == w && g_GeWaterSlots[i].h == h) {
+		if (g_GeWaterSlots[i].w == w && g_GeWaterSlots[i].h == h && g_GeWaterSlots[i].hd == hd) {
 			slot = &g_GeWaterSlots[i];
 			break;
 		}
@@ -141,12 +174,23 @@ Gfx *geWaterWrite(Gfx *gdl, s32 w, s32 h)
 		slot = &g_GeWaterSlots[g_GeWaterNumSlots++];
 		slot->w = w;
 		slot->h = h;
+		slot->hd = hd;
 		geWaterBuild(slot);
 	}
 
 	gSPDisplayList(gdl++, slot->gdl);
 
 	return gdl;
+}
+
+Gfx *geWaterWrite(Gfx *gdl, s32 w, s32 h)
+{
+	return geWaterWriteSlot(gdl, w, h, 0);
+}
+
+Gfx *geWaterWriteHd(Gfx *gdl, s32 w, s32 h)
+{
+	return geWaterWriteSlot(gdl, w, h, 1);
 }
 
 #endif

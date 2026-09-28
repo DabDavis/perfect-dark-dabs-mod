@@ -683,7 +683,7 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 	// leaf's own render mode (gewater.c); the two tiles above are the same
 	// picture at the same place already
 	if (gebeanStageRecordIsWater(record)) {
-		gdl = geWaterWrite(gdl, tilew, tileh);
+		gdl = geWaterWriteHd(gdl, tilew, tileh);
 	}
 
 	if (xblaStageVerbose) {
