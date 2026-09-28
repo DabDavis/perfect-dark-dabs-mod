@@ -3522,6 +3522,57 @@ for " error" hid a failed compile** (gcc colours the word, so no space leads
 it) and a probe then ran an old binary: grep for `error`, and check `nm` for
 a new symbol when a probe says it is missing.
 
+### Perfect Dark's own guns on a converted level (F3 2026-09-28, Odeyseis)
+
+Nine reports from a Randomizer run over GoldenEye Arenas maps (Surface,
+Bunker): the MagSec 4, DY357, Falcon 2 (scope), CMP150, Laptop Gun and Dragon
+fired, and the Mauler, RCP-120 and Laptop Gun reloaded, with the wrong sound -
+only on GoldenEye maps. **The remap above did it**: a Perfect Dark gun asks
+for numbers under 262 like anything else (shots through `0x80xx` rows: MagSec
+121, DY357 116, Falcon 2 102 - which is GoldenEye's *gas* - CMP150 110, Laptop
+113, Dragon 117; the magazine-out click 83 and the Mauler's 200 from the gun's
+animation), and on a converted level (`modloaderStageIsRemake()`, which a GE
+Arenas map is as much as a GE Plus mission) the player swapped in GoldenEye's
+sample. Guns whose sounds are numbered past 261 (the RCP-120's shot 1521, the
+Laptop's deploy 1271-1275, every 47x reload rack) were never touched.
+
+Fix, the mirror of `geSfxGunSound()`'s GoldenEye-gun-on-a-PD-stage case, in
+the same function so every site that already routes a gun's sound through it
+(the shot via `gsetGetSingleShootSound()`, which a guard's/simulant's shot in
+chraction.c uses too; `GUNCMD_PLAYSOUND`; the default reload; the empty
+click) is covered: on a converted level a gun that is not GoldenEye's and not
+`WEAPON_UNARMED` (the slappers there, geslappers.c) gets **a copy of the same
+Perfect Dark sample under a fresh sound id** - `sndAppendSoundCopy()` in
+snd.c appends an id whose ROM offset is the original's - which is past 261 and
+so past the remap. A config-mapped number keeps its config through its own
+appended russ row (`g_SfxPdGunRow[]`), as a guard's shot needs its falloff.
+Nothing changes on a Perfect Dark stage.
+
+**Then its hits and casings too** (the user, same day, second commit): a PD
+gun's bullet impact, ricochet, body/shield hit and its casing landing on a
+converted level are Perfect Dark's samples as well. `bgunPlayPropHitSound()`
+and `bgunPlayBgHitSound()` pick their sounds in two dozen branches, so each
+is now a wrapper that names the gun for the call (`geSfxGunHitBegin()` /
+`geSfxGunHitEnd()`) around the original body (`...As()`), and `sndStart()`
+passes every sound through `geSfxGunHit()` meanwhile. The one deferred start
+in there, the crossbow/knife `psCreate(SFX_80AA)`, is wrapped by hand
+(psCreate() starts its sound on a later tick, after the context is gone).
+The casing (`casingTick()`, SFX_8051 = 122) takes the player's right-hand
+gun: casings are cleared when the gun changes. `geSfxGunHitSound()` is the
+PD-gun-on-a-converted-level case only - a GoldenEye gun's hit on a stage of
+Perfect Dark's stays Perfect Dark's, as it was. Measured on Dam, looking at
+the floor: MagSec/CMP150 hits PD 25 / 33 + ricochet 220 and casing 122
+(before: GoldenEye samples, the casing a two-sample chain); PP7 all
+GoldenEye's; Skedar arena identical before and after, frame for frame.
+
+Verified with a gdb probe breaking on `sndLoadSound()` and naming each sample
+by its ROM offset against the stock bank's (`~/wt/f3-0928-sounds-run/snd.py`,
+Dam 0x15, each gun given, one round loaded, fired, reloaded): before, every
+shot/click above loaded an appended GoldenEye sample; after, the stock one
+(PD 121/116/102/110/113/117/83/200), the PP7's shot still GoldenEye's, and a
+stock arena identical before and after. Trap: a `until ! pgrep -f "make ..."`
+wait matches its own command line and never ends.
+
 ### GoldenEye's tank (2026-09-21, `port/src/getank.c`)
 
 The user: "now do the tank". Runway (stage 0x5e) and Streets (0x61) each have

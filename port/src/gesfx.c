@@ -638,18 +638,60 @@ s32 geSfxGunShot(s32 id)
 	return sfxLoad() ? sfxPropNum(id) : 0;
 }
 
-// a sound number with a config -> the row appended for GoldenEye's sample
-// under the same config, + 1; -1 for none
-static s16 g_SfxGunRow[SND_RUSS_CAPACITY];
+/**
+ * And the other way round: on a converted level (a GoldenEye Arenas map, a GE
+ * Plus mission) one of Perfect Dark's own guns - the Randomizer's, a
+ * simulant's, one the player starts armed with - asks for the numbers under
+ * 262 as it always has, and the remap above gave it GoldenEye's sample of that
+ * number: the Falcon 2's shot (102) was GoldenEye's gas, and the MagSec's,
+ * DY357's, CMP150's, Laptop Gun's and Dragon's shots (121 116 110 113 117) and
+ * the magazine clicks of a reload (83, the Mauler's 200) were GoldenEye's too
+ * (F3 20260928-030000 and eight more, Odeyseis, "wrong sounds only on
+ * GoldenEye maps"). So its sound goes to the player under a
+ * second number for the same sample of Perfect Dark's (sndAppendSoundCopy()),
+ * one past the remap's reach. WEAPON_UNARMED is GoldenEye's slappers there
+ * (geslappers.c) and keeps GoldenEye's.
+ */
 
-s32 geSfxGunSound(s32 weaponnum, s32 soundnum)
+// Perfect Dark's sound id -> its copy past the remap; 0 not made yet, -1 none
+static s16 g_SfxPdCopy[262];
+
+static s32 sfxPdCopy(s32 id)
+{
+	if (!g_SfxPdCopy[id]) {
+		const s32 copy = sndAppendSoundCopy(id);
+
+		g_SfxPdCopy[id] = copy > 0 ? copy : -1;
+	}
+
+	return g_SfxPdCopy[id];
+}
+
+// a sound number with a config -> the row appended for the replacing sample
+// under the same config, + 1; -1 for none. One table for GoldenEye's samples
+// on a stage of Perfect Dark's, one for Perfect Dark's copies on a converted
+// level.
+static s16 g_SfxGunRow[SND_RUSS_CAPACITY];
+static s16 g_SfxPdGunRow[SND_RUSS_CAPACITY];
+
+// pdonly: only the case of Perfect Dark's gun on a converted level
+static s32 sfxGunSound(s32 weaponnum, s32 soundnum, s32 pdonly)
 {
 	union soundnumhack num;
 	union soundnumhack raw;
+	s16 *rows;
 	s32 ours;
 	s32 row;
 
-	if (!WEAPON_IS_GE(weaponnum) || !soundnum || modloaderStageIsRemake(g_Vars.stagenum)) {
+	if (!soundnum || soundnum == -1) {
+		return soundnum;
+	}
+
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		if (weaponnum <= WEAPON_UNARMED || WEAPON_IS_GE(weaponnum)) {
+			return soundnum;
+		}
+	} else if (pdonly || !WEAPON_IS_GE(weaponnum)) {
 		return soundnum;
 	}
 
@@ -661,25 +703,70 @@ s32 geSfxGunSound(s32 weaponnum, s32 soundnum)
 		return soundnum;
 	}
 
-	if (raw.id == 62) {
-		return 0;
-	}
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		ours = sfxPdCopy(raw.id);
+		rows = g_SfxPdGunRow;
+	} else {
+		if (raw.id == 62) {
+			return 0;
+		}
 
-	ours = geSfxGet(raw.id);
+		ours = geSfxGet(raw.id);
+		rows = g_SfxGunRow;
+	}
 
 	if (ours <= 0 || !num.hasconfig) {
 		return ours > 0 ? ours : soundnum;
 	}
 
 	// kept under the config, which is what a guard's shot is heard by
-	if (num.confignum >= SND_RUSS_CAPACITY || g_SfxGunRow[num.confignum] < 0) {
+	if (num.confignum >= SND_RUSS_CAPACITY || rows[num.confignum] < 0) {
 		return ours;
 	}
 
-	if (g_SfxGunRow[num.confignum] == 0) {
+	if (rows[num.confignum] == 0) {
 		row = sndAppendRussMapping(ours, g_AudioRussMappings[num.confignum].audioconfig_index);
-		g_SfxGunRow[num.confignum] = row >= 0 ? row + 1 : -1;
+		rows[num.confignum] = row >= 0 ? row + 1 : -1;
 	}
 
-	return g_SfxGunRow[num.confignum] > 0 ? 0x8000 | (g_SfxGunRow[num.confignum] - 1) : ours;
+	return rows[num.confignum] > 0 ? 0x8000 | (rows[num.confignum] - 1) : ours;
+}
+
+s32 geSfxGunSound(s32 weaponnum, s32 soundnum)
+{
+	return sfxGunSound(weaponnum, soundnum, 0);
+}
+
+/**
+ * What a Perfect Dark gun's bullet sets off where it lands - a surface's
+ * impact, a ricochet, a body, a shield - and its casing landing are the gun's
+ * too (the user, after F3 20260928-030000): on a converted level they are
+ * Perfect Dark's own samples for one of its guns, as its shot is. A
+ * GoldenEye gun's stay GoldenEye's on a converted level and Perfect Dark's on
+ * a stage of Perfect Dark's, as they were: only the one case is taken.
+ *
+ * bondgun.c's hit functions pick their sounds deep in two dozen branches, so
+ * they name the gun for their length (geSfxGunHitBegin() / End()) and
+ * sndStart() asks geSfxGunHit() for every sound it starts meanwhile.
+ */
+s32 geSfxGunHitSound(s32 weaponnum, s32 soundnum)
+{
+	return sfxGunSound(weaponnum, soundnum, 1);
+}
+
+static s32 g_SfxHitWeapon = -1;
+
+void geSfxGunHitBegin(s32 weaponnum)
+{
+	g_SfxHitWeapon = weaponnum;
+}
+
+void geSfxGunHitEnd(void)
+{
+	g_SfxHitWeapon = -1;
+}
+
+s32 geSfxGunHit(s32 soundnum)
+{
+	return g_SfxHitWeapon >= 0 ? geSfxGunHitSound(g_SfxHitWeapon, soundnum) : soundnum;
 }

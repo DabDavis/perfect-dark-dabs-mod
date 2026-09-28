@@ -9,6 +9,7 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#include "gesfx.h"
 
 void casingTick(struct casing *casing)
 {
@@ -45,7 +46,14 @@ void casingTick(struct casing *casing)
 			sp58 = RANDOMFRAC() * 0.25f + 0.98f;
 
 			var8009d0d8 = TICKS(20);
+#ifndef PLATFORM_N64
+			// the player's own gun's casing (the casings go when the gun
+			// does, bgunTickGunLoad()): Perfect Dark's sample for one of
+			// Perfect Dark's guns on a converted level (gesfx.c)
+			sndStart(var80095200, geSfxGunHitSound(g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum, SFX_8051), &g_CasingAudioHandles[i], -1, -1, -1.0f, -1, -1);
+#else
 			sndStart(var80095200, SFX_8051, &g_CasingAudioHandles[i], -1, -1, -1.0f, -1, -1);
+#endif
 
 			if (g_CasingAudioHandles[i]) {
 				audioPostEvent(g_CasingAudioHandles[i], AL_SNDP_PITCH_EVT, *(s32 *)&sp58);

@@ -26,6 +26,7 @@
 #include "system.h"
 #include "preprocess.h"
 #include "mod.h"
+#include "gesfx.h"
 #endif
 
 #define MAX_SEQ_SIZE_4MB 1024 * 14
@@ -1068,6 +1069,20 @@ s32 sndAppendSound(uintptr_t ctloffset)
 	g_NumSounds++;
 
 	return id;
+}
+
+/**
+ * A second number for sound `soundnum`, the same sample under an id of its own
+ * (sndAppendSound()); 0 for none. For a sound that must not be taken for
+ * another by its number (gesfx.c, Perfect Dark's guns on a converted level).
+ */
+s32 sndAppendSoundCopy(s32 soundnum)
+{
+	if (!g_ALSoundRomOffsets || soundnum <= 0 || soundnum >= g_NumSounds) {
+		return 0;
+	}
+
+	return sndAppendSound(g_ALSoundRomOffsets[soundnum - 1] - (romptr_t) REF_SEG _sfxctlSegmentRomStart);
 }
 
 uintptr_t sndGetCtlStart(void)
@@ -2375,6 +2390,11 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 	if (g_SndDisabled) {
 		return NULL;
 	}
+
+#ifndef PLATFORM_N64
+	// a Perfect Dark gun's hit on a converted level (gesfx.c)
+	sp44.packed = geSfxGunHit(sp44.packed);
+#endif
 
 	sp40.packed = sp44.hasconfig ? g_AudioRussMappings[sp44.confignum].soundnum : sp44.packed;
 
