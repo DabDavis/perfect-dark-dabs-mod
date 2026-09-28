@@ -32,6 +32,7 @@
 #include "fs.h"
 #include "gebeanstage.h"
 #include "gebeansky.h"
+#include "gewater.h"
 
 #define SEG 0x0f000000
 
@@ -470,6 +471,8 @@ static u8 *readRoom(s32 r, u32 *outLen)
 static s32 eachTex = -1;
 // and the alpha of the environment colour its leaf last set (G_SETENVCOLOR)
 static u8 eachEnvAlpha = 0xff;
+// and its three vertices' s and t, as the file stores them
+static s16 eachSt[3][2];
 
 static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 		void (*fn)(void *arg, const f32 v[3][3], s32 room), void *arg)
@@ -510,6 +513,7 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 				}
 			} else if (gdl && gdl - base < len && vtx - base < len) {
 				f32 loaded[16][3];
+				s16 loadedst[16][2];
 
 				// the texture GoldenEye's hit test reads for the triangles
 				// that follow: the last one the leaf's own list loads
@@ -542,6 +546,8 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 						const u32 at = vtx - base + (be32(raw + c + 4) & 0xffffff);
 
 						for (s32 i = 0; i < num && at + i * VTXSIZE + 6 <= len; i++) {
+							loadedst[i][0] = at + i * VTXSIZE + 12 <= len ? (s16)be16(raw + at + i * VTXSIZE + 8) : 0;
+							loadedst[i][1] = at + i * VTXSIZE + 12 <= len ? (s16)be16(raw + at + i * VTXSIZE + 10) : 0;
 							loaded[i][0] = g_BgRooms[r].pos.x + (s16)be16(raw + at + i * VTXSIZE);
 							loaded[i][1] = g_BgRooms[r].pos.y + (s16)be16(raw + at + i * VTXSIZE + 2);
 							loaded[i][2] = g_BgRooms[r].pos.z + (s16)be16(raw + at + i * VTXSIZE + 4);
@@ -563,6 +569,9 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 							memcpy(v[0], loaded[x], sizeof(v[0]));
 							memcpy(v[1], loaded[y], sizeof(v[1]));
 							memcpy(v[2], loaded[z], sizeof(v[2]));
+							memcpy(eachSt[0], loadedst[x], sizeof(eachSt[0]));
+							memcpy(eachSt[1], loadedst[y], sizeof(eachSt[1]));
+							memcpy(eachSt[2], loadedst[z], sizeof(eachSt[2]));
 							fn(arg, (const f32 (*)[3])v, (u16)r | (nofog << 16) | (twosided << 17));
 						}
 					} else if (op == (u8)G_ENDDL) {
@@ -3575,6 +3584,188 @@ static s32 closeDoorGaps(struct collect *c)
 	return moved;
 }
 
+/**
+ * GoldenEye's own moving water (gewater.c) under Bean's pictures that lie on
+ * it. Bean draws Dam's reservoir with a water shader of its own (stride 36,
+ * gebeanLevelTextureIsWater()), but Caverns' pools are plain pictures, which
+ * the release too moves in a shader of its own, not drawn here; they stood
+ * still (F3 20260928-082038). A picture of Bean's is taken for water when most
+ * of its triangles lie on GoldenEye's water (the two pictures its loader
+ * moves), so it moves as the N64 look's water does, on every level.
+ */
+#define WATER_CELL 1024.0f
+#define WATER_NEAR 64.0f
+
+struct watermeasure {
+	struct tgrid grid;
+	// how the picture's s and t (rows) change across the ground (x, z), in
+	// quarter texels a unit, summed over the triangles weighted by their area
+	f64 grad[2][2];
+	f64 area;
+};
+
+/**
+ * Adds a triangle's gradient of two values across the ground (x and z) to
+ * m's sums, weighted by its area on the ground. A wall adds nothing.
+ */
+static void waterGrad(struct watermeasure *m, const f32 v[3][3], const f32 f[3][2])
+{
+	const f32 ax = v[1][0] - v[0][0], az = v[1][2] - v[0][2];
+	const f32 bx = v[2][0] - v[0][0], bz = v[2][2] - v[0][2];
+	const f32 det = ax * bz - az * bx;
+	const f32 area = fabsf(det) * 0.5f;
+
+	if (area < 1.0f) {
+		return;
+	}
+
+	for (s32 j = 0; j < 2; j++) {
+		const f32 da = f[1][j] - f[0][j], db = f[2][j] - f[0][j];
+
+		m->grad[j][0] += (da * bz - db * az) / det * area;
+		m->grad[j][1] += (db * ax - da * bx) / det * area;
+	}
+
+	m->area += area;
+}
+
+static void fileTriToWater(void *arg, const f32 v[3][3], s32 room)
+{
+	struct watermeasure *m = arg;
+
+	if (eachTex == GEWATER_TEX_CAVERNS || eachTex == GEWATER_TEX_DAM) {
+		// the file's s and t are 32nds of a texel (s10.5), so an eighth of
+		// them is a quarter texel, the unit GoldenEye moves its water in
+		f32 f[3][2];
+
+		for (s32 k = 0; k < 3; k++) {
+			f[k][0] = eachSt[k][0] / 8.0f;
+			f[k][1] = eachSt[k][1] / 8.0f;
+		}
+
+		tgridAdd(&m->grid, v, room & 0xffff);
+		waterGrad(m, v, (const f32 (*)[2])f);
+	}
+}
+
+static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filelens, s32 n)
+{
+	struct watermeasure ge, hd;
+	struct tgrid *const water = &ge.grid;
+	s32 *on, *all;
+	s32 marked = 0;
+	f32 at[GEBEAN_MAXMATS][3];
+
+	memset(&ge, 0, sizeof(ge));
+	memset(&hd, 0, sizeof(hd));
+	geWaterSetHdRates(0, 0, 0);
+
+	if (!tgridInit(water, WATER_CELL)) {
+		return 0;
+	}
+
+	for (s32 r = 1; r < n; r++) {
+		if (filerooms[r]) {
+			fileRoomTrianglesEach(r, filerooms[r], filelens[r], 1, fileTriToWater, &ge);
+		}
+	}
+
+	on = calloc(GEBEAN_MAXMATS, sizeof(*on));
+	all = calloc(GEBEAN_MAXMATS, sizeof(*all));
+
+	if (water->numtri && on && all) {
+		for (s32 t = 0; t < c->num; t++) {
+			const struct stri *tri = &c->tris[t];
+			f32 mid[3], d;
+
+			if (tri->tex < 0 || tri->tex >= GEBEAN_MAXMATS) {
+				continue;
+			}
+
+			for (s32 j = 0; j < 3; j++) {
+				mid[j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f;
+			}
+
+			all[tri->tex]++;
+
+			if (tgridNearest(water, mid, 1, &d) >= 0 && d < WATER_NEAR * WATER_NEAR) {
+				if (on[tri->tex]++ == 0) {
+					memcpy(at[tri->tex], mid, sizeof(mid));
+				}
+			}
+		}
+
+		for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+			if (!texWater[t] && on[t] >= 2 && on[t] * 2 >= all[t]) {
+				texWater[t] = 1;
+				marked++;
+				sysLogPrintf(LOG_NOTE, "gebeanstage: %s: picture %d (%s) moves as GoldenEye's water, %d of its %d triangles on it (one at %.0f %.0f %.0f)",
+						row->bean, t, gebeanLevelTextureName(level, t), on[t], all[t], at[t][0], at[t][1], at[t][2]);
+			}
+		}
+	}
+
+	// How Bean's water pictures lie on the ground against GoldenEye's: its UV
+	// is in repeats of the picture, drawn as a stand-in tile of XBLATEX_TILE
+	// texels, t running the other way (writeRoom())
+	for (s32 t = 0; t < c->num && water->numtri; t++) {
+		const struct stri *tri = &c->tris[t];
+		f32 mid[3], d, f[3][2];
+
+		if (tri->tex < 0 || tri->tex >= GEBEAN_MAXMATS || !texWater[tri->tex]) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			mid[j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f;
+		}
+
+		if (tgridNearest(water, mid, 1, &d) < 0 || d >= WATER_NEAR * WATER_NEAR) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			f[k][0] = tri->uv[k][0] * XBLATEX_TILE * 4;
+			f[k][1] = -tri->uv[k][1] * XBLATEX_TILE * 4;
+		}
+
+		waterGrad(&hd, (const f32 (*)[3])tri->pos, (const f32 (*)[2])f);
+	}
+
+	// GoldenEye moves its tile 0.25 of a quarter texel a frame in s and 0.1
+	// in t: the same motion across the ground, in Bean's picture
+	if (ge.area > 0 && hd.area > 0) {
+		f64 g[2][2], b[2][2], det, dx, dz, rs, rt;
+
+		for (s32 j = 0; j < 2; j++) {
+			for (s32 k = 0; k < 2; k++) {
+				g[j][k] = ge.grad[j][k] / ge.area;
+				b[j][k] = hd.grad[j][k] / hd.area;
+			}
+		}
+
+		det = g[0][0] * g[1][1] - g[0][1] * g[1][0];
+
+		if (fabs(det) > 1e-9) {
+			dx = (0.25 * g[1][1] - 0.1 * g[0][1]) / det;
+			dz = (0.1 * g[0][0] - 0.25 * g[1][0]) / det;
+			rs = b[0][0] * dx + b[0][1] * dz;
+			rt = b[1][0] * dx + b[1][1] * dz;
+
+			geWaterSetHdRates(1, (f32)rs, (f32)rt);
+
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: water moves %.3f %.3f units a frame, in Bean's picture %.3f %.3f quarter texels (GoldenEye's s/t %.4f %.4f %.4f %.4f, Bean's %.4f %.4f %.4f %.4f a unit)",
+					row->bean, dx, dz, rs, rt, g[0][0], g[0][1], g[1][0], g[1][1], b[0][0], b[0][1], b[1][0], b[1][1]);
+		}
+	}
+
+	free(on);
+	free(all);
+	tgridFree(water);
+
+	return marked;
+}
+
 static s32 build(void)
 {
 	const u64 start = sysGetMicroseconds();
@@ -3714,6 +3905,7 @@ static s32 build(void)
 		fights = markFights(c.tris, c.num, &beantris);
 		decals = markDecals(c.tris, c.num, &beantris);
 		markDecalLifts(c.tris, c.num);
+		markWaterPictures(&c, filerooms, filelens, n);
 
 		mark[2] = sysGetMicroseconds();
 

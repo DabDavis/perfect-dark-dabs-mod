@@ -35,4 +35,13 @@ s32 geWaterIsWaterTexture(s32 texturenum);
  */
 Gfx *geWaterWrite(Gfx *gdl, s32 w, s32 h);
 
+/**
+ * The HD look's water (Bean's pictures lying on GoldenEye's water,
+ * gebeanstage.c): as geWaterWrite(), moving `s` and `t` quarter texels a
+ * frame, which is GoldenEye's motion across the ground measured in that
+ * picture. `measured` 0 moves it at GoldenEye's own rate in texels.
+ */
+void geWaterSetHdRates(s32 measured, f32 s, f32 t);
+Gfx *geWaterWriteHd(Gfx *gdl, s32 w, s32 h);
+
 #endif
