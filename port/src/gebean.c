@@ -288,6 +288,27 @@ static s32 poolSlot[ARRAYCOUNT(poolRows)];
 // 0. Apart from poolSlot, which says "a Bean mesh stands on a host here".
 static s32 romSlot[ARRAYCOUNT(poolRows)];
 
+/*
+ * The release is there but one of its characters will not do - its entry is
+ * missing (a partial or broken install), or it is there and will not build -
+ * and that one character is GoldenEye's own N64 model from the ROM, in the
+ * same row and list place, while every other keeps its HD one (user
+ * 2026-09-28). Before this the row stood on its Perfect Dark host with nothing
+ * drawn over it: a dataDyne guard, or Jamie's face, where Jaws should be.
+ *
+ * poolFailed is kept for the session, so a refresh from the pause menu does
+ * not put the broken one back; poolFromRelease says the pool is the release's
+ * (with its fallbacks), which is what gebeanPoolNumBySource() maps through.
+ */
+static u8 poolFailed[ARRAYCOUNT(poolRows)];
+static s32 poolFromRelease;
+
+// Why the last gebeanBuild() of a character gave up, for the fallback's line
+static const char *beanWhy;
+
+// Where the release's files/ is (gebeanLocate()), defined with the rest below
+static char rootPath[FS_MAXPATH + 1];
+
 /**
  * GoldenEye's characters the release does not have - three it shipped broken
  * (bluewoman, greyman, blueman), Natalya's jungle fatigues and four heads -
@@ -1082,12 +1103,13 @@ static const char *gebeanSourceName(const char *source)
  */
 s32 gebeanPoolNumBySource(const char *source)
 {
-	if (!poolSlot[0]) {
+	if (!poolFromRelease) {
 		return -1;   // no Bean pool: GE-X's characters, or Perfect Dark's own
 	}
 
+	// the release's rows, and those of them the ROM stands in for
 	for (s32 i = 0; i < (s32)ARRAYCOUNT(poolRows); i++) {
-		if (poolSlot[i] && !strcmp(poolRows[i].row.source, source)) {
+		if ((poolSlot[i] || romSlot[i]) && !strcmp(poolRows[i].row.source, source)) {
 			return GEBEAN_POOL_BASE + i;
 		}
 	}
@@ -1479,6 +1501,186 @@ static void gebeanPoolAppendExtras(void)
 }
 
 /**
+ * One pool row filled with GoldenEye's own N64 character from the ROM's
+ * conversion (gexPlusRomMpBegin() first): its converted model file, or 0 where
+ * the conversion has none, and the row is left as it was.
+ */
+static s32 gebeanPoolFillRomRow(s32 i)
+{
+	const struct gebeanpoolrow *p = &poolRows[i];
+	const s32 num = gebeanRomChrForSource(p->row.source, p->row.kind == GEBEAN_HEAD);
+	struct headorbody *hb = &g_HeadsAndBodies[GEBEAN_POOL_BASE + i];
+	struct headorbody made;
+	struct modeldef *keep;
+
+	if (num < 0 || !gexPlusRomMpFill(num, &made)) {
+		return 0;
+	}
+
+	// A row a stage has already loaded keeps its model: a chr may be
+	// wearing it, and this can run from the pause menu
+	keep = hb->filenum == made.filenum ? hb->modeldef : NULL;
+	*hb = made;
+	hb->modeldef = keep;
+	romSlot[i] = made.filenum;
+
+	if (p->row.kind != GEBEAN_HEAD) {
+		gebeanSetHands(hb, p->row.file, -1, 0);
+	}
+
+	return made.filenum;
+}
+
+
+/**
+ * Whether a comma-separated list in an environment variable names a source:
+ * the test switches PD_GEBEAN_MISSING (an entry treated as absent from the
+ * release) and PD_GEBEAN_FAILBUILD (one that is there and will not build).
+ */
+static s32 gebeanEnvNames(const char *var, const char *source)
+{
+	const char *list = getenv(var);
+	const size_t len = strlen(source);
+
+	while (list && *list) {
+		const char *end = strchr(list, ',');
+		const size_t n = end ? (size_t)(end - list) : strlen(list);
+
+		if (n == len && strncmp(list, source, n) == 0) {
+			return 1;
+		}
+
+		list = end ? end + 1 : NULL;
+	}
+
+	return 0;
+}
+
+/**
+ * Why pool row i's release entry is missing, or NULL where it is there - on
+ * disk, that is; whether it builds is found out at the model's load. The HD
+ * file always, and the N64-look original too while that look is the one being
+ * drawn. A stat or two a row, so nothing at startup to speak of. With the
+ * release still inside an archive nobody has unpacked yet there is nothing to
+ * look at, and the load's check stands alone.
+ */
+static const char *gebeanPoolEntryMissing(s32 i)
+{
+	static const char *const looks[] = { "new", "original" };
+
+	if (!rootPath[0]) {
+		return NULL;
+	}
+
+	if (gebeanEnvNames("PD_GEBEAN_MISSING", poolRows[i].row.source)) {
+		return "its entry is missing (PD_GEBEAN_MISSING)";
+	}
+
+	for (s32 look = 0; look < ARRAYCOUNT(looks); look++) {
+		char source[64];
+		char path[FS_MAXPATH + 1];
+
+		if (look == 1 && xblaMeshGetEnabled()) {
+			continue;
+		}
+
+		snprintf(source, sizeof(source), "%s/%s", looks[look], poolRows[i].row.source);
+
+		if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
+			snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
+		}
+
+		if (fsFileSize(path) <= 0) {
+			return look ? "its N64-look entry is missing" : "its entry is missing";
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * Pool row i, which the release was to fill, from the ROM instead: the row
+ * becomes the conversion's model (modeldef NULL, so the next load takes it),
+ * and poolSlot lets go of it, so everything that asks "is this the release's"
+ * (headfit.c, the Character page's sets, the draw) hears no. The row's number
+ * and list places stay. Returns the converted file, or 0 where the ROM has
+ * none either and the row is left as it was.
+ */
+static s32 gebeanPoolFallBack(s32 i, const char *why)
+{
+	const struct gebeanpoolrow *p = &poolRows[i];
+
+	poolFailed[i] = 1;
+
+	if (gexPlusRomMpBegin() <= 0 || !gebeanPoolFillRomRow(i)) {
+		sysLogPrintf(LOG_WARNING, "gebean: %s HD failed (%s), and there is no ROM model for it either",
+				p->row.source, why);
+		return 0;
+	}
+
+	poolSlot[i] = 0;
+
+	sysLogPrintf(LOG_NOTE, "gebean: %s HD failed (%s), using the ROM model", p->row.source, why);
+
+	return romSlot[i];
+}
+
+void gebeanBuildFailed(s32 row, u16 fileid)
+{
+	const char *why = beanWhy ? beanWhy : "its mesh did not build";
+	const s32 i = row - ARRAYCOUNT(rows);
+
+	if (i >= 0 && i < ARRAYCOUNT(poolRows)) {
+		if (poolSlot[i] && poolSlot[i] == fileid) {
+			gebeanPoolFallBack(i, why);
+		}
+
+		return;
+	}
+
+	// A converted mission's own character: its N64 model is underneath the
+	// HD skin that did not come, and draws itself. Said once a session, and
+	// not again for a character the pool has said it of
+	if (row >= GEBEAN_CHRROW_BASE && row < GEBEAN_CHRROW_BASE + ARRAYCOUNT(chrRows)) {
+		static u8 said[ARRAYCOUNT(chrRows)];
+		const struct gebeanrow *c = &chrRows[row - GEBEAN_CHRROW_BASE];
+
+		for (s32 j = 0; j < ARRAYCOUNT(poolRows); j++) {
+			if (poolFailed[j] && (poolRows[j].row.kind == GEBEAN_HEAD) == (c->kind == GEBEAN_HEAD)
+					&& strcmp(poolRows[j].row.source, c->source) == 0) {
+				return;
+			}
+		}
+
+		if (!said[row - GEBEAN_CHRROW_BASE]) {
+			said[row - GEBEAN_CHRROW_BASE] = 1;
+			sysLogPrintf(LOG_NOTE, "gebean: %s HD failed (%s), using the ROM model", c->source, why);
+		}
+	}
+}
+
+u16 gebeanPoolLoadCheck(struct modeldef *modeldef, u16 fileid)
+{
+	const char *name = fileid ? romdataFileGetName(fileid) : NULL;
+
+	if (!name || !modeldef) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
+		if (poolSlot[i] == fileid && name == poolRows[i].row.file) {
+			// built now rather than at the first draw, which would build it
+			// anyway: a failure goes through gebeanBuildFailed()
+			xblaMeshPrebuildBean(modeldef);
+
+			return !poolSlot[i] && romSlot[i] ? (u16)romSlot[i] : 0;
+		}
+	}
+
+	return 0;
+}
+
+/**
  * The pool with no release to draw it: every row filled with GoldenEye's own
  * N64 character, converted from the player's ROM (gexplus.c), in the rows and
  * list places the release's would take. So a saved Combat Simulator setup or
@@ -1502,26 +1704,7 @@ static void gebeanPoolRefreshRom(s32 numbodies, s32 numheads)
 	// Every row first, so a body's own head can be asked about before the
 	// list reaches it
 	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
-		const struct gebeanpoolrow *p = &poolRows[i];
-		const s32 num = gebeanRomChrForSource(p->row.source, p->row.kind == GEBEAN_HEAD);
-		struct headorbody *hb = &g_HeadsAndBodies[GEBEAN_POOL_BASE + i];
-		struct headorbody made;
-		struct modeldef *keep;
-
-		if (num < 0 || !gexPlusRomMpFill(num, &made)) {
-			continue;
-		}
-
-		// A row a stage has already loaded keeps its model: a chr may be
-		// wearing it, and this can run from the pause menu
-		keep = hb->filenum == made.filenum ? hb->modeldef : NULL;
-		*hb = made;
-		hb->modeldef = keep;
-		romSlot[i] = made.filenum;
-
-		if (p->row.kind != GEBEAN_HEAD) {
-			gebeanSetHands(hb, p->row.file, -1, 0);
-		}
+		gebeanPoolFillRomRow(i);
 	}
 
 	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
@@ -1585,6 +1768,7 @@ void gebeanPoolRefresh(void)
 
 	g_MpListCounts.bodies = numbodies;
 	g_MpListCounts.heads = numheads;
+	poolFromRelease = 0;
 
 	if (numbodies != GEBEAN_STOCK_MPBODIES || numheads != GEBEAN_STOCK_MPHEADS) {
 		return;
@@ -1616,6 +1800,10 @@ void gebeanPoolRefresh(void)
 	}
 
 	memset(romSlot, 0, sizeof(romSlot));
+	poolFromRelease = 1;
+
+	// The ROM's conversion is looked for once, and only when a row needs it
+	s32 rombegun = 0;
 
 	for (s32 i = 0; i < ARRAYCOUNT(poolRows); i++) {
 		const struct gebeanpoolrow *p = &poolRows[i];
@@ -1636,8 +1824,45 @@ void gebeanPoolRefresh(void)
 		s32 slot = romdataRegisterAliasFile(p->row.file, host->filenum);
 		struct modeldef *keep;
 		u32 height;
+		const char *missing = poolFailed[i] ? "it failed earlier this session" : gebeanPoolEntryMissing(i);
 
 		poolSlot[i] = slot;
+
+		// One the release cannot draw is GoldenEye's own N64 character from
+		// the ROM, in the same row and list place (gebeanPoolFallBack()); with
+		// no ROM either, the release's row as it always was
+		if (slot && missing) {
+			if (!rombegun) {
+				rombegun = gexPlusRomMpBegin() > 0 ? 1 : -1;
+			}
+
+			if (rombegun > 0 && gebeanPoolFillRomRow(i)) {
+				poolSlot[i] = 0;
+
+				if (!poolFailed[i]) {
+					poolFailed[i] = 1;
+					sysLogPrintf(LOG_NOTE, "gebean: %s HD failed (%s), using the ROM model", p->row.source, missing);
+				}
+
+				goto listed;
+			}
+
+			// A named character's face, cut off the release's whole model:
+			// GoldenEye has no head of its own for it (its head is in the
+			// body), so with the ROM there to say so it is left out of the
+			// heads list rather than listed as the host's Perfect Dark face
+			if (rombegun > 0 && ishead && strncmp(p->row.source, "char/", 5) == 0) {
+				poolSlot[i] = 0;
+
+				if (!poolFailed[i]) {
+					poolFailed[i] = 1;
+					sysLogPrintf(LOG_NOTE, "gebean: %s's face HD failed (%s), and the ROM has no face of its own: "
+							"left out of the heads list", p->row.source, missing);
+				}
+
+				continue;
+			}
+		}
 
 		if (!slot) {
 			continue;
@@ -1668,6 +1893,7 @@ void gebeanPoolRefresh(void)
 			hb->unk00_01 = 1;
 		}
 
+listed:
 		if (ishead) {
 			if (numheads + addedheads < ARRAYCOUNT(g_MpHeads) && numheads + addedheads <= GEBEAN_MAX_MPINDEX) {
 				g_MpHeads[numheads + addedheads].headnum = GEBEAN_POOL_BASE + i;
@@ -4086,11 +4312,13 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 
 	if (!fp) {
 		sysLogPrintf(LOG_ERROR, "gebean: %s is missing", path);
+		beanWhy = "its entry is missing";
 		return 0;
 	}
 
 	if (fseek(fp, 0, SEEK_END) != 0 || (size = ftell(fp)) <= 0 || size > 64 * 1024 * 1024) {
 		fclose(fp);
+		beanWhy = "its entry is empty";
 		return 0;
 	}
 
@@ -4100,6 +4328,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	if (!bm->file || fread(bm->file, 1, (size_t)size, fp) != (size_t)size) {
 		fclose(fp);
 		beanFree(bm);
+		beanWhy = "its entry could not be read";
 		return 0;
 	}
 
@@ -4110,6 +4339,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	if (!bm->draws || !caffOpen(c, bm->file, (u32)size)) {
 		sysLogPrintf(LOG_ERROR, "gebean: %s is not a CAFF this reads", path);
 		beanFree(bm);
+		beanWhy = "its entry is corrupt";
 		return 0;
 	}
 
@@ -4121,6 +4351,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	if (idata < 0 || igpu < 0 || istream < 0) {
 		sysLogPrintf(LOG_ERROR, "gebean: %s is not a rendergraph", path);
 		beanFree(bm);
+		beanWhy = "its entry is corrupt";
 		return 0;
 	}
 
@@ -10659,9 +10890,11 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	*outLen = 0;
 	*outAbsent = 0;
 
+	beanWhy = NULL;
 	r = gebeanRowAt(row);
 
 	if (!r || !modeldef || numnodes <= 0 || numnodes > 64) {
+		beanWhy = "its model has no list nodes the mesh can go on";
 		return NULL;
 	}
 
@@ -10672,7 +10905,17 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	// Also what the pictures are keyed on, so the two looks never share one
 	snprintf(source, sizeof(source), "%s/%s", original ? "original" : "new", r->source);
 
-	if (!gebeanLocate(1) || !beanLoad(&bm, source, 0)) {
+	if (gebeanEnvNames("PD_GEBEAN_FAILBUILD", r->source)) {
+		beanWhy = "its mesh did not build (PD_GEBEAN_FAILBUILD)";
+		return NULL;
+	}
+
+	if (!gebeanLocate(1)) {
+		beanWhy = "the release could not be found";
+		return NULL;
+	}
+
+	if (!beanLoad(&bm, source, 0)) {
 		return NULL;
 	}
 

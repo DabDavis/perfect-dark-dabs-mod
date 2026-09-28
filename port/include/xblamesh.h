@@ -117,6 +117,13 @@ s32 xblaMeshModelsAreLate(void);
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid);
 
 /**
+ * Builds the GoldenEye character mesh a just-registered model draws, in the
+ * look being drawn, as its first draw would (the result is the same cache):
+ * 1 built, 0 failed (gebeanBuildFailed() has been told), -1 nothing to build.
+ */
+s32 xblaMeshPrebuildBean(struct modeldef *modeldef);
+
+/**
  * Draws a node from the release's mesh instead of its own display list.
  *
  * Returns 0 when there is nothing to draw it from, and the caller carries on

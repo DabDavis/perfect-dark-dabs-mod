@@ -176,6 +176,24 @@ u16 gebeanFirstPersonToOwn(s32 weaponnum, f32 tomodel[4][4], f32 ownlo[3], f32 o
 void gebeanPoolRefresh(void);
 
 /**
+ * A GoldenEye character's release mesh has just failed to build (xblamesh.c,
+ * once per failure): a pool row the release was to fill takes GoldenEye's own
+ * N64 model from the ROM's conversion from then on, for the session, and a
+ * converted mission's character - whose N64 model is underneath already - is
+ * noted in the log. Logs "gebean: <source> HD failed (<why>), using the ROM
+ * model".
+ */
+void gebeanBuildFailed(s32 row, u16 fileid);
+
+/**
+ * modeldefLoad()'s check of a pool row's model as it loads: builds its release
+ * mesh there and then rather than at the first draw, and where that fails
+ * answers the ROM model's file the row has just been given (gebeanBuildFailed()),
+ * for the caller to load in its place; else 0.
+ */
+u16 gebeanPoolLoadCheck(struct modeldef *modeldef, u16 fileid);
+
+/**
  * The release's meshes moved (F6). GoldenEye's guns follow that switch as its
  * characters do - the release's gun with the meshes on, GoldenEye's own N64
  * one with them off - and what has to move with it rather than at the draw is
