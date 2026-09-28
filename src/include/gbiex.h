@@ -229,6 +229,7 @@
 #define G_NO_CULLING_EXT         0x00010000 // every depth-writing face is drawn whatever culling the lists set (translucent ones keep the lists' culling, except inside a faded body's G_DEPTH_PREPASS_EXT/G_DEPTH_FRONT_EXT passes, where every face counts as writing depth): GoldenEye's own guns, whose lists cull and some of whose faces are wound backwards (the silenced D5K's silencer)
 #define G_DEPTH_PREPASS_EXT      0x00020000 // what follows writes depth and no colour, whatever the render mode says: the first of a faded body's two passes (chrRender())
 #define G_DEPTH_FRONT_EXT        0x00040000 // what follows compares less-or-equal and writes no depth, whatever the render mode says: the second pass, which then draws only the surface the first left nearest
+#define G_SEAL_SEAMS_EXT         0x00080000 // opaque triangles that follow are grown half a pixel on screen, their corners slid along their own plane: a room's cracks between faces that do not quite meet (gfx_seal_seams(), gfx_pc.cpp)
 
 /* Extra texture filtering mode */
 

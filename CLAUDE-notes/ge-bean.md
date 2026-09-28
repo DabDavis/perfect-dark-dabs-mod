@@ -12449,3 +12449,24 @@ there (Depot 9 7 2 5, Train 53-56 in the oracle).
 - **HD characters not lit by the level (072037)** is the known parked item: the release sets its shader light to
   ambient 1 and never turns it on ("The release's lighting", above), and project-list.md holds real lighting as a
   future project.
+
+## Cracks along the snow drifts: the decal lift opened seams (2026-09-28)
+
+F3 20260928-025456 (Odeyseis, Surface I GE Arena, HD, Vulkan + TAA): dark lines
+along the edges of a snow drift by a cabin. Not the renderer (GL and Vulkan
+alike, TAA or not) and not T-junctions in Bean's mesh: a drift is an opaque snow
+face over a blended rock face on the same corners, `markDecals()` makes the snow
+the decal, and 646b97868's `DECAL_LIFT` moved it two units off its corners while
+the snow faces beside it (not decals) stayed - every edge between them a crack
+onto the sky. `markDecalLifts()` (after `markDecals()`) gathers decals into
+pieces by their rounded corners; a piece is lifted only when none of its corners
+is a corner of a non-decal triangle (Dam's CTON is an island and still lifts;
+its view is pixel-identical). A kept decal is in its base's plane again, and a
+translucent base drawn after it at the same depth shows through (the rock came
+through the snow in hard-edged patches), so such a base is sunk `DECAL_LIFT`
+behind it instead (`stri.sink`): a crack in a blended layer is only the layer
+missing along a hairline. Surface: 50 lifted, 150 kept, 18 bases sunk; Dam 138,
+73, 2 (Dam's red floor stripes are kept, drawn in the floor's plane under the
+decal mode). Rig `~/wt/f3-0928-cracks-run` (`run.sh`/`runvk.sh BIN INI NAME --
+args`, `probe/ci.py` spot, `probe/ray.py` pixel rays, `probe/tris.py` a room's
+triangles off its display lists, `tjunc.py`).

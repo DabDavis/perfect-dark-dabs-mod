@@ -194,6 +194,19 @@ the pair the rest of the game means by a floor and carries ceilings with it -
 flag - so the same two also stop a low ceiling when looking down.
 `GEOFLAG_LIFTFLOOR` goes with them, the way propobj.c asks for them.
 
+**The collision is not the room (2026-09-28).** F3 20260928-012021, the
+Institute's office (room 16): its back wall leans in over the desk from y 458
+to the ceiling at 583, and the collision has that wall only up to 458 (51
+tiles, none for the leaning face). With Height 25 the camera rode over the
+top of the collision into the void and drew room 10 from above, sky and all.
+`playerTraceCamera()` (player.c) is the trace now, at both places the line is
+traced: the collision as before, plus `bgTestHitInRoom()` - the rooms' drawn
+triangles, what a shot hits - for every room the portal walk crosses, nearest
+wins. Measured at the report's spot: before, the camera 210 back behind the
+wall; after, on the eye (the eye is 4 units from the leaning face); 162 units
+further in, 64 back instead of behind it. Combat Sim and Institute spawn
+distances at four headings are identical before and after.
+
 **The line is not enough on its own.** It has no width and takes its clearance
 along itself, so a wall running beside it - the player walking along one, or
 the tether swinging the camera round beside one - never registers and the near
