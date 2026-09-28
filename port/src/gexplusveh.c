@@ -854,6 +854,8 @@ void gexPlusVehicleUpdateModel(struct prop *prop)
 		vehTruckUpdateModel(prop);
 	} else if (obj->type == OBJTYPE_TANK) {
 		geTankUpdateModel(prop);
+	} else {
+		geTankUpdateParkedModel(prop);
 	}
 }
 

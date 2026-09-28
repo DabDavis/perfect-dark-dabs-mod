@@ -68,4 +68,7 @@ void geTankTick(void);
 // the turret and the barrel on their pivots, before it is drawn
 void geTankUpdateModel(struct prop *prop);
 
+// GoldenEye's tank model placed as a plain object: its cannon's flash off
+void geTankUpdateParkedModel(struct prop *prop);
+
 #endif
