@@ -573,6 +573,8 @@ void handtintTick(void)
 	handdef = player->gunctrl.handmodeldef;
 	handtex = handdef && handdef->numtexconfigs > 0 ? handdef->texconfigs[0].textureptr : NULL;
 	playerChooseBodyAndHead(&bodynum, &headnum, NULL);
+	// the body the player's model is, on GoldenEye's own rig for a GoldenEye pair (player.c)
+	gebeanOwnRigPair(&bodynum, &headnum);
 	look = xblaMeshGetEnabled();
 
 	if (bodynum == lastBody && look == lastLook && (const void *)handdef == lastHandDef

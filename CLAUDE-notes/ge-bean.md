@@ -12669,3 +12669,61 @@ dropped the height test outright; narrowed on review.) Kicked endings of Dam,
 Surface, Frigate and Cradle's fall branch end at the same frames as before
 (1404, 679, 647, 1361). Probe: `~/wt/f3-0928c-cinema-run/probes/end2.py`
 (Bond + helicopter per 2 frames, frame-named shots).
+
+## Customize Character pairs on GoldenEye's own rig (17th F3 pass, 2026-09-28)
+
+The root of every Character-page head report was the host rig: a pool body is
+fitted onto the dataDyne guard (or the female technician), whose collar stands
+13-23 units over the head's attach point, and pass 16 made that up with
+thresholds by eye. Converted-mission guards stand on GoldenEye's own N64
+bodies from the ROM (Cgx%03dZ, `chrRows`) and never had the problem.
+
+- **Own-rig rows** (`gebeanOwnRigRefresh()`, gebean.c): with the release and
+  the ROM's conversion both there, a row per pool row past the extras
+  (`GEBEAN_OWNRIG_BASE` = extras' end, 268 here): a body's is the ROM body
+  (`gexPlusRomMpFill()`), a head's the ROM head, or for a face the ROM has no
+  head of (Valentin, Natalya, the named characters' `char/` heads) a copy of
+  the pool's row with type DEFAULT. The release's mesh finds a Cgx file by name
+  as a chr row, so the pair is drawn exactly as a mission guard: HD mesh on the
+  ROM rig, the ROM's N64 model in the N64 look, head on the body's headspot,
+  no headfit (`headfitWanted()` rule), no type offset, no
+  `xblaMeshPoolHeadSeat()` / `xblaMeshPoolNeckOwn()` (those only act on pool
+  bodies, so the pass-16 thresholds stay only for the no-ROM fallback).
+- **`gebeanOwnRigPair(&body, &head)`** swaps a pool body + pool head (or a ROM
+  extra on either side, or a whole character alone) for the own-rig rows.
+  Called where a model is built: player.c `playerTickChrBody` (not for a
+  perfect head), menu.c's preview (Combat Simulator index branch), botmgr.c,
+  modghost.c's ghost model, and handtint.c. `playerChooseBodyAndHead()` still
+  answers the pool row, so hands, name and saved picks are unchanged; the
+  player's chr->bodynum becomes the own-rig row once the body is built.
+- **Size**: GoldenEye's own (the ROM row's scale and pov), as its guards
+  (user 2026-09-28). Its bodies are ~10% larger in their own units (camguard
+  ankle-to-neck 638.0, dataDyne guard 581.6), so a pick stands ~9.7% taller
+  than on the host. The row keeps the pool's height, so the player's eye
+  height and collision are unchanged. Tried first: scaling to the pool's
+  height with animscale x own/host ankle depth - at native size that ankle
+  scaling sank the boots into the floor, GoldenEye's pov stands them on it.
+- Eye vs head at native size (camera at the eye, level): the eye line crosses
+  the brow/hairline; on the host rig it crossed the crown or above. The
+  camera is never inside the neck or chest. Third person frames a bigger
+  figure (Jaws's head reaches the top of the default frame from behind). The
+  Character-page preview fits the model to its box, so it looks the same.
+- Measured, Institute third person, pairs Joel/Jungle Commando, Ken/St.
+  Petersburg, Grant/Janus Marine, Valentin on three bodies, Trevelyan,
+  Trevelyan's head on the Civilian, Sally/Vivien on both scientists: heads sit
+  on a neck in both looks; women lose the +35 (Anka type on a DEFAULT body)
+  lift that stood them on a band of neck. Eye/head height unchanged (160/173,
+  Rosika 142/155, Jaws 192/182); the pool rows' random 95-115% player height
+  (the host's canvaryheight) is gone for own-rig pairs. Hit boxes are the ROM body's own parts (GoldenEye has a head
+  box on the body, 282 tall against the guard's 85). Dam guards, no-ROM
+  fallback, mixed pairs and first-person hands pixel-identical. HD heads lose
+  the pool's grey hair sheen (a guard's has none).
+- Switch: `PD_GEBEAN_NO_OWN_RIG=1` keeps every pair on the host rig.
+- Left: a `char/` head (Trevelyan's) shows a flat flap of its own neck behind
+  a foreign collar, as before.
+
+Rig: `~/wt/f3-0928c-rig-run`: `pairs.py` (MEASURE=1 prints scale, joint span,
+hit boxes; CROUCH=0 squats; ANIM1=x forces the animation scale; CAMS 80:0:180
+puts the camera level at the eye), `menushot.py` (CLEAN=1 hides the filter rows), `bots.py` (a
+simulant on MPB:MPH, armed), `fpmp.py` (player on an arena with a gun),
+`sheets.sh`, `norom-content` + moving mods/GoldenEye Arenas aside for no ROM.

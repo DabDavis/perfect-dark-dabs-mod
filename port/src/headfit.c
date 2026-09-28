@@ -550,6 +550,13 @@ s32 headfitWanted(s32 headnum, s32 bodynum)
 		return 0;
 	}
 
+	// A GoldenEye pair moved onto the ROM's own rig (gebean.c's
+	// gebeanOwnRigPair()): GoldenEye's head on GoldenEye's body, as a guard
+	if ((gebeanIsOwnRigRow(headnum) || gebeanIsRomPoolRow(headnum))
+			&& (gebeanIsOwnRigRow(bodynum) || gebeanIsRomPoolRow(bodynum))) {
+		return 0;
+	}
+
 	// and the same two in the Combat Simulator, from the ROM with no release
 	// (gebean.c's pool filled from the conversion)
 	if (gebeanIsRomPoolRow(headnum) && gebeanIsRomPoolRow(bodynum)) {

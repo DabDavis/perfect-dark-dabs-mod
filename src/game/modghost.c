@@ -28,6 +28,7 @@
 #include "versioninfo.h"
 #include "ghostnet.h"
 #include "modloader.h"
+#include "gebean.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1098,6 +1099,9 @@ static struct model *modGhostBuildModel(struct modghostracer *racer)
 		bodynum = BODY_DARK_COMBAT;
 		headnum = HEAD_DARK_COMBAT;
 	}
+
+	// A GoldenEye pair on GoldenEye's own rig, as the player wearing it is (player.c)
+	gebeanOwnRigPair(&bodynum, &headnum);
 
 	(void)sunglasses;
 

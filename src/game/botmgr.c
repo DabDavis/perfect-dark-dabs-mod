@@ -14,6 +14,9 @@
 #include "lib/ailist.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "gebean.h"
+#endif
 
 void botmgrRemoveAll(void)
 {
@@ -46,6 +49,11 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 		headnum = HEAD_DDSHOCK;
 		bodynum = BODY_DDSHOCK;
 	}
+
+#ifndef PLATFORM_N64
+	// A GoldenEye pair on GoldenEye's own rig, as the player's (player.c)
+	gebeanOwnRigPair(&bodynum, &headnum);
+#endif
 
 	model = bodyAllocateModel(bodynum, headnum, 0);
 

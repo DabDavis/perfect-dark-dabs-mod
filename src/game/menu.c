@@ -7,6 +7,7 @@
 #ifndef PLATFORM_N64
 #include "gexfront.h"
 #include "headfit.h"
+#include "gebean.h"
 #include "geintro.h"
 #include "gewatch.h"
 #include "trace.h"
@@ -1953,6 +1954,10 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 
 						if (mpheadnum < mpGetNumHeads2()) {
 							headnum = mpGetHeadId(mpheadnum);
+#ifndef PLATFORM_N64
+							// as the player will wear it (gebean.c's gebeanOwnRigPair())
+							gebeanOwnRigPair(&bodynum, &headnum);
+#endif
 						} else {
 							headnum = func0f14a9f8(mpheadnum - mpGetNumHeads2());
 							headnum = mpGetBeauHeadId(headnum);
