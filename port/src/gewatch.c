@@ -4366,6 +4366,14 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	if (hdfile) {
 		mtx4MultMtx4(&base, &toown, &tmp);
 
+		// The release's gun rides its host's model, whose muzzle flashes are
+		// toggles left to flash (gebean.c) and which start out shown: the
+		// face showed the AR33 firing (F3 20260927-233302). GoldenEye's gun
+		// on the face has no flash (watchGunParts(), part 1)
+		watchGunSetPart(MODELPART_GUN_MUZZLEFLASH1, 0);
+		watchGunSetPart(MODELPART_GUN_MUZZLEFLASH2, 0);
+		watchGunSetPart(MODELPART_GUN_MUZZLEFLASH3, 0);
+
 		g_WatchHdWeapon = weaponnum;
 		gdl = watchRenderGun(gdl, &tmp, turning ? 0xa0ffa03c : 0x64dc6428);
 		g_WatchHdWeapon = 0;
