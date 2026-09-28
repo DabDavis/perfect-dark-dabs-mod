@@ -674,7 +674,8 @@ static s32 sfxPdCopy(s32 id)
 static s16 g_SfxGunRow[SND_RUSS_CAPACITY];
 static s16 g_SfxPdGunRow[SND_RUSS_CAPACITY];
 
-s32 geSfxGunSound(s32 weaponnum, s32 soundnum)
+// pdonly: only the case of Perfect Dark's gun on a converted level
+static s32 sfxGunSound(s32 weaponnum, s32 soundnum, s32 pdonly)
 {
 	union soundnumhack num;
 	union soundnumhack raw;
@@ -682,7 +683,7 @@ s32 geSfxGunSound(s32 weaponnum, s32 soundnum)
 	s32 ours;
 	s32 row;
 
-	if (!soundnum) {
+	if (!soundnum || soundnum == -1) {
 		return soundnum;
 	}
 
@@ -690,7 +691,7 @@ s32 geSfxGunSound(s32 weaponnum, s32 soundnum)
 		if (weaponnum <= WEAPON_UNARMED || WEAPON_IS_GE(weaponnum)) {
 			return soundnum;
 		}
-	} else if (!WEAPON_IS_GE(weaponnum)) {
+	} else if (pdonly || !WEAPON_IS_GE(weaponnum)) {
 		return soundnum;
 	}
 
@@ -729,4 +730,43 @@ s32 geSfxGunSound(s32 weaponnum, s32 soundnum)
 	}
 
 	return rows[num.confignum] > 0 ? 0x8000 | (rows[num.confignum] - 1) : ours;
+}
+
+s32 geSfxGunSound(s32 weaponnum, s32 soundnum)
+{
+	return sfxGunSound(weaponnum, soundnum, 0);
+}
+
+/**
+ * What a Perfect Dark gun's bullet sets off where it lands - a surface's
+ * impact, a ricochet, a body, a shield - and its casing landing are the gun's
+ * too (the user, after F3 20260928-030000): on a converted level they are
+ * Perfect Dark's own samples for one of its guns, as its shot is. A
+ * GoldenEye gun's stay GoldenEye's on a converted level and Perfect Dark's on
+ * a stage of Perfect Dark's, as they were: only the one case is taken.
+ *
+ * bondgun.c's hit functions pick their sounds deep in two dozen branches, so
+ * they name the gun for their length (geSfxGunHitBegin() / End()) and
+ * sndStart() asks geSfxGunHit() for every sound it starts meanwhile.
+ */
+s32 geSfxGunHitSound(s32 weaponnum, s32 soundnum)
+{
+	return sfxGunSound(weaponnum, soundnum, 1);
+}
+
+static s32 g_SfxHitWeapon = -1;
+
+void geSfxGunHitBegin(s32 weaponnum)
+{
+	g_SfxHitWeapon = weaponnum;
+}
+
+void geSfxGunHitEnd(void)
+{
+	g_SfxHitWeapon = -1;
+}
+
+s32 geSfxGunHit(s32 soundnum)
+{
+	return g_SfxHitWeapon >= 0 ? geSfxGunHitSound(g_SfxHitWeapon, soundnum) : soundnum;
 }

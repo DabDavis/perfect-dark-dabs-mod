@@ -94,6 +94,18 @@ s32 geSfxGunShot(s32 id);
 // weapon, number or stage
 s32 geSfxGunSound(s32 weaponnum, s32 soundnum);
 
+// A sound a gun's bullet or casing sets off (an impact, a ricochet, a casing
+// landing): Perfect Dark's own sample for one of its guns on a converted
+// level, `soundnum` for any other weapon or stage (gesfx.c)
+s32 geSfxGunHitSound(s32 weaponnum, s32 soundnum);
+
+// The gun whose hit bondgun.c is sounding, until End; meanwhile sndStart()
+// passes every sound through geSfxGunHit(), which is geSfxGunHitSound() for
+// that gun and `soundnum` outside a hit
+void geSfxGunHitBegin(s32 weaponnum);
+void geSfxGunHitEnd(void);
+s32 geSfxGunHit(s32 soundnum);
+
 // The four moments a door makes a sound at, in both games
 #define GESFX_DOOR_OPENING 0
 #define GESFX_DOOR_CLOSING 1

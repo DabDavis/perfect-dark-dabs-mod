@@ -3546,8 +3546,24 @@ Perfect Dark sample under a fresh sound id** - `sndAppendSoundCopy()` in
 snd.c appends an id whose ROM offset is the original's - which is past 261 and
 so past the remap. A config-mapped number keeps its config through its own
 appended russ row (`g_SfxPdGunRow[]`), as a guard's shot needs its falloff.
-Nothing changes on a Perfect Dark stage. World sounds a PD gun causes -
-impacts, ricochets, casings landing - stay GoldenEye's, as the level's are.
+Nothing changes on a Perfect Dark stage.
+
+**Then its hits and casings too** (the user, same day, second commit): a PD
+gun's bullet impact, ricochet, body/shield hit and its casing landing on a
+converted level are Perfect Dark's samples as well. `bgunPlayPropHitSound()`
+and `bgunPlayBgHitSound()` pick their sounds in two dozen branches, so each
+is now a wrapper that names the gun for the call (`geSfxGunHitBegin()` /
+`geSfxGunHitEnd()`) around the original body (`...As()`), and `sndStart()`
+passes every sound through `geSfxGunHit()` meanwhile. The one deferred start
+in there, the crossbow/knife `psCreate(SFX_80AA)`, is wrapped by hand
+(psCreate() starts its sound on a later tick, after the context is gone).
+The casing (`casingTick()`, SFX_8051 = 122) takes the player's right-hand
+gun: casings are cleared when the gun changes. `geSfxGunHitSound()` is the
+PD-gun-on-a-converted-level case only - a GoldenEye gun's hit on a stage of
+Perfect Dark's stays Perfect Dark's, as it was. Measured on Dam, looking at
+the floor: MagSec/CMP150 hits PD 25 / 33 + ricochet 220 and casing 122
+(before: GoldenEye samples, the casing a two-sample chain); PP7 all
+GoldenEye's; Skedar arena identical before and after, frame for frame.
 
 Verified with a gdb probe breaking on `sndLoadSound()` and naming each sample
 by its ROM offset against the stock bank's (`~/wt/f3-0928-sounds-run/snd.py`,

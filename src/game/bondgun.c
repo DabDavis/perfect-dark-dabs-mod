@@ -12810,7 +12810,26 @@ static s32 bgunLaserHitSound(s32 weaponnum, s32 soundnum)
 	return soundnum;
 }
 
+#ifndef PLATFORM_N64
+static void bgunPlayPropHitSoundAs(struct gset *gset, struct prop *prop, s32 texturenum);
+
+/**
+ * A hit's sound is the gun's as much as its shot: on a converted level every
+ * sound one of Perfect Dark's guns starts here - a body, a shield, a surface,
+ * a ricochet - is its own sample, not GoldenEye's of the same number
+ * (geSfxGunHitBegin(), gesfx.c).
+ */
 void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
+{
+	geSfxGunHitBegin(gset->weaponnum);
+	bgunPlayPropHitSoundAs(gset, prop, texturenum);
+	geSfxGunHitEnd();
+}
+
+static void bgunPlayPropHitSoundAs(struct gset *gset, struct prop *prop, s32 texturenum)
+#else
+void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
+#endif
 {
 #if VERSION >= VERSION_NTSC_1_0
 	u32 rand1 = rngRandom();
@@ -12827,7 +12846,12 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 	}
 
 	if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_LANDSONHIT)) {
+#ifndef PLATFORM_N64
+		// psCreate() starts it later, after the hit's context is gone
+		psCreate(NULL, prop, geSfxGunHit(SFX_80AA), -1, -1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
+#else
 		psCreate(NULL, prop, SFX_80AA, -1, -1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
+#endif
 		return;
 	}
 
@@ -13078,7 +13102,21 @@ void bgunPlayGlassHitSound(struct coord *pos, RoomNum *rooms, s32 texturenum)
 	}
 }
 
+#ifndef PLATFORM_N64
+static void bgunPlayBgHitSoundAs(struct gset *gset, struct coord *hitpos, s32 texturenum, RoomNum *rooms);
+
+// as bgunPlayPropHitSound()
 void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum, RoomNum *rooms)
+{
+	geSfxGunHitBegin(gset->weaponnum);
+	bgunPlayBgHitSoundAs(gset, hitpos, texturenum, rooms);
+	geSfxGunHitEnd();
+}
+
+static void bgunPlayBgHitSoundAs(struct gset *gset, struct coord *hitpos, s32 texturenum, RoomNum *rooms)
+#else
+void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum, RoomNum *rooms)
+#endif
 {
 #if VERSION >= VERSION_NTSC_1_0
 	struct sndstate **handle;

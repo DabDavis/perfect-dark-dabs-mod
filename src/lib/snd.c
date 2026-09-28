@@ -26,6 +26,7 @@
 #include "system.h"
 #include "preprocess.h"
 #include "mod.h"
+#include "gesfx.h"
 #endif
 
 #define MAX_SEQ_SIZE_4MB 1024 * 14
@@ -2389,6 +2390,11 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 	if (g_SndDisabled) {
 		return NULL;
 	}
+
+#ifndef PLATFORM_N64
+	// a Perfect Dark gun's hit on a converted level (gesfx.c)
+	sp44.packed = geSfxGunHit(sp44.packed);
+#endif
 
 	sp40.packed = sp44.hasconfig ? g_AudioRussMappings[sp44.confignum].soundnum : sp44.packed;
 
