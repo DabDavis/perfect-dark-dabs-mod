@@ -1468,13 +1468,15 @@ def fogless_value(r, offset, vis=1.0):
         i(10), i(11), i(12), rgb(14), i(17))
 
 
-def fog_string(key, fogs, foglesses, offset, alts=None):
+def fog_string(key, fogs, foglesses, offset, alts=None, cinemas=None):
     """The ` fog "..."` clause of a level's map or mission line, or ''; a mission's
-    (`alts`, fog_alt_rows()) carries its second sky as ` altfog "..."` too."""
+    (`alts`, fog_alt_rows()) carries its second sky as ` altfog "..."` too, and
+    (`cinemas`, fog_cinema_rows()) its opening sky as ` cinemafog "..."`."""
     lid = LEVELIDS[key]
     vis = VISIBILITY.get(key, 1.0)
     if lid in fogs:
         alt = ' altfog "%s"' % fog_value(alts[lid], offset, vis) if alts and lid in alts else ''
+        alt += ' cinemafog "%s"' % fog_value(cinemas[lid], offset, vis) if cinemas and lid in cinemas else ''
         return ' fog "%s"%s' % (fog_value(fogs[lid], offset, vis), alt)
     if lid in foglesses:
         return ' fog "%s"' % fogless_value(foglesses[lid], offset, vis)
@@ -1490,6 +1492,7 @@ def main():
     missions = []
     fogs = fog_rows()
     alts = gefiles.rom().fog_alt_rows()
+    cinemas = gefiles.rom().fog_cinema_rows()
     foglesses = fogless_rows()
     alltex = set()
     allmodels = set()
@@ -1551,7 +1554,7 @@ def main():
             missions.append('  mission %d "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ"'
                             ' pads "bgdata/bg_gs%s_padsZ" setup "Usetupgs%sZ"%s' % (
                                 [m[0] for m in MISSIONS].index(mkey), mname, short, short, mkey, mkey,
-                                fog_string(key, fogs, foglesses, offset, alts)))
+                                fog_string(key, fogs, foglesses, offset, alts, cinemas)))
             print('%-5s mission %-12s props %4d (+%d) pads %3d ai %5d (+%d) unknown %d' % (
                 key, mname, sum(mstats['kept'].values()), sum(mstats['dropped'].values()),
                 len(msetupdata['pads']), mstats['ai_kept'], sum(mstats['ai_dropped'].values()),

@@ -199,6 +199,8 @@ static s32 g_GeBondBodyWeapon = WEAPON_NONE;   // gecinemaBondBodyWeapon()
 static s32 g_GeIntroPending;          // this stage is a mission that has not opened yet
 static s32 g_GeIntroStage;
 static const u8 *g_GeIntroShot;
+// whether the level's opening sky is up (gecinemaCinemaFog())
+static s32 g_GeCinemaFogOn;
 static f32 g_GeIntroTimer;            // GoldenEye's camera_transition_timer
 static s32 g_GeIntroLeg;              // and its intro_camera_index
 static s32 g_GeIntroFadingOut;        // and its camera_fade_active
@@ -277,6 +279,7 @@ void gecinemaStageStart(void)
 	g_GeCinemaLeft = 0;
 	g_GeCinemaInvincible = 0;
 	g_GeCinemaCamRoom = -1;
+	g_GeCinemaFogOn = 0;
 
 	g_GeCinemaLooping = g_GeCinemaMission >= 0 && g_GeCinemaWhat == GECINEMA_OPENING
 		&& g_GeCinemaLoop != GECINEMA_LOOP_OFF;
@@ -477,10 +480,33 @@ void gecinemaInvincibleByList(void)
  * (gecinemaCameraTick). The angles still go through the player's own basis,
  * which is inert in a cutscene, because that is the game's own trigonometry.
  */
+/**
+ * GoldenEye draws the still shots in the level's opening sky where it has one
+ * (bondview.c: CAMERAMODE_INTRO loads the fog table's row for the level + 900,
+ * CAMERAMODE_SWIRL loads the level's own again). Only Dam and Surface 2 have
+ * one: Dam's near plane is 30 rather than 5, and Surface 2's fog is pushed out
+ * from 2000 to 8000 - drawn in the level's own, its opening shot of the dish
+ * was a wall of dark red (F3 20260928-082353).
+ */
+static void gecinemaCinemaFog(s32 on)
+{
+	if (on == g_GeCinemaFogOn) {
+		return;
+	}
+
+	g_GeCinemaFogOn = on;
+
+	if (modloaderGetStageFogCinema(mainGetStageNum())) {
+		envChooseAndApply(mainGetStageNum(), on ? true : false);
+	}
+}
+
 static void gecinemaPlace(const u8 *shot)
 {
 	struct player *pl = g_Vars.currentplayer;
 	struct pad pad;
+
+	gecinemaCinemaFog(1);
 
 	g_GeCinemaCamPos.x = *(const f32 *)(shot + 0x04);
 	g_GeCinemaCamPos.y = *(const f32 *)(shot + 0x08);
@@ -897,6 +923,7 @@ static void gecinemaIntroBeginSwirl(void)
 	g_GeCinemaCamRoom = -1;
 	g_GeIntroFadingOut = 0;
 	hudmsgRemoveAll();
+	gecinemaCinemaFog(0);
 
 	playerSetFadeColour(0, 0, 0, 1);
 	playerSetFadeFrac(60, 0);

@@ -173,6 +173,24 @@ class Rom:
             o += FOG_ROW
         return rows
 
+    def fog_cinema_rows(self):
+        """{level id name: the 30 values after the id} of a level's opening sky
+        (ENVIRONMENTDATA_CINEMA, the level's id + 900), which bondview.c's
+        CAMERAMODE_INTRO loads for the still shots - Dam and Surface 2.
+        geconvert.c's romFogCinemaRow()."""
+        names = {v: k for k, v in LEVELIDS.items()}
+        rows = {}
+        o = FOG_AT
+        while True:
+            lid = struct.unpack_from('>I', self.data, o)[0]
+            if lid == 0 and o > FOG_AT or lid >= 0x10000:
+                break
+            if lid >= 900 and lid - 900 in names and names[lid - 900] not in rows:
+                f = struct.unpack_from('>6f3I4BfHH3fB3xfHH4f', self.data, o + 4)
+                rows[names[lid - 900]] = list(f[:20]) + [0, 0, 0] + list(f[20:])
+            o += FOG_ROW
+        return rows
+
     def fogless_rows(self):
         """{level id name: the 18 values after the id} of GoldenEye's fogless table
         (bgfog.c's fog_tables2, 56-byte rows after the fog table's end row): sky rgb,
