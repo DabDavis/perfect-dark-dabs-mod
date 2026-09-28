@@ -12,6 +12,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gemusic.h"
+#include "gexfront.h"
 #endif
 
 #define FADETYPE_STOP  0
@@ -309,8 +310,31 @@ static s32 musicDeathTrack(s32 tracknum, s32 geseq)
 #define PRIMARYTRACK() (g_TemporaryPrimaryTrack != -1 ? g_TemporaryPrimaryTrack : stageGetPrimaryTrack(g_MusicStageNum))
 #define AMBIENTTRACK() (g_TemporaryAmbientTrack != -1 ? g_TemporaryAmbientTrack : stageGetAmbientTrack(g_MusicStageNum))
 
+/**
+ * GE Plus's folder is up over the Institute: its theme, a menu track, is the
+ * only music while it is. The Institute's own lists still reach for the level's
+ * tracks under it whenever the level ticks - its background list's
+ * stop_cutscene_track (musicEndCutscene()) on arrival started Carrington's tune
+ * over the folder's after a cinema the Report a Problem dialog was open over
+ * (F3 20260927-201332). Its cutscene and isolated tracks would also stop the
+ * folder's. The level's tracks come back when the folder closes to
+ * the Perfect Menu and that menu closes (musicEndMenu()).
+ */
+static bool musicLevelTracksHeld(void)
+{
+#ifndef PLATFORM_N64
+	return gexFrontIsActive() != 0;
+#else
+	return false;
+#endif
+}
+
 void musicStartPrimary(f32 arg0)
 {
+	if (musicLevelTracksHeld()) {
+		return;
+	}
+
 	if (PRIMARYTRACK() >= 0) {
 		musicQueueStartEvent(TRACKTYPE_PRIMARY, PRIMARYTRACK(), arg0, musicGetVolume());
 	}
@@ -319,6 +343,10 @@ void musicStartPrimary(f32 arg0)
 void musicStartAmbient(f32 arg0)
 {
 	s32 pass = false;
+
+	if (musicLevelTracksHeld()) {
+		return;
+	}
 
 	if (AMBIENTTRACK() >= 0) {
 		if (g_TemporaryAmbientTrack != -1) {
@@ -394,6 +422,10 @@ bool musicIsAnyPlayerInAmbientRoom(void)
 
 void musicStartNrg(f32 arg0)
 {
+	if (musicLevelTracksHeld()) {
+		return;
+	}
+
 	musicQueueStartEvent(TRACKTYPE_NRG, stageGetNrgTrack(g_MusicStageNum), arg0, musicGetVolume());
 }
 
@@ -465,6 +497,11 @@ void musicStop(void)
 
 void musicActivateNrg(void)
 {
+	// it would stop the folder's theme too
+	if (musicLevelTracksHeld()) {
+		return;
+	}
+
 #if VERSION >= VERSION_NTSC_1_0
 	if (!g_MusicNrgIsActive)
 #endif
@@ -607,6 +644,10 @@ void musicEndDeath(void)
  */
 void musicPlayTrackIsolated(s32 tracknum)
 {
+	if (musicLevelTracksHeld()) {
+		return;
+	}
+
 #if VERSION >= VERSION_NTSC_1_0
 	musicSaveInterval();
 #endif
@@ -658,6 +699,10 @@ void musicStartTemporaryPrimary(s32 tracknum)
 void musicStartCutscene(s32 tracknum)
 {
 	u32 volume;
+
+	if (musicLevelTracksHeld()) {
+		return;
+	}
 
 	musicQueueStopEvent(TRACKTYPE_MENU);
 	musicQueueStopEvent(TRACKTYPE_DEATH);
