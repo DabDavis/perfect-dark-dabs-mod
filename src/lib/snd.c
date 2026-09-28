@@ -1070,6 +1070,20 @@ s32 sndAppendSound(uintptr_t ctloffset)
 	return id;
 }
 
+/**
+ * A second number for sound `soundnum`, the same sample under an id of its own
+ * (sndAppendSound()); 0 for none. For a sound that must not be taken for
+ * another by its number (gesfx.c, Perfect Dark's guns on a converted level).
+ */
+s32 sndAppendSoundCopy(s32 soundnum)
+{
+	if (!g_ALSoundRomOffsets || soundnum <= 0 || soundnum >= g_NumSounds) {
+		return 0;
+	}
+
+	return sndAppendSound(g_ALSoundRomOffsets[soundnum - 1] - (romptr_t) REF_SEG _sfxctlSegmentRomStart);
+}
+
 uintptr_t sndGetCtlStart(void)
 {
 	return (uintptr_t)(romptr_t) REF_SEG _sfxctlSegmentRomStart;

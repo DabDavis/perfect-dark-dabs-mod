@@ -89,7 +89,9 @@ s32 geSfxGunShot(s32 id);
 // A sound one of GoldenEye's guns makes in the hand (a reload's clicks from
 // its host's animation, an empty click), as a converted level would play it:
 // on a stage of Perfect Dark's, GoldenEye's own sample for a number that is
-// GoldenEye's; `soundnum` for any other weapon, number or stage
+// GoldenEye's; and one of Perfect Dark's guns on a converted level keeps its
+// own sample under a number the remap leaves alone; `soundnum` for any other
+// weapon, number or stage
 s32 geSfxGunSound(s32 weaponnum, s32 soundnum);
 
 // The four moments a door makes a sound at, in both games

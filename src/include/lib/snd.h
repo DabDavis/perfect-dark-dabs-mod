@@ -18,6 +18,7 @@ void sndLoadSfxCtl(void);
 #define SND_NUM_ROM_CONFIGS 64
 #define SND_CONFIG_CAPACITY 256
 s32 sndAppendSound(uintptr_t ctloffset);
+s32 sndAppendSoundCopy(s32 soundnum);
 uintptr_t sndGetCtlStart(void);
 uintptr_t sndGetTblStart(void);
 s32 sndAppendRussMapping(s16 soundnum, u16 audioconfig_index);
