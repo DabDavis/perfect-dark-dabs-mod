@@ -6668,7 +6668,7 @@ static struct xblameshbuilt **beanBuilt[2];
  * - by the node's place among the model's lists - and a node with no group
  * keeps its own geometry.
  */
-static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s32 original)
+static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e, s32 original)
 {
 	const s32 look = original ? 1 : 0;
 	struct xblameshbuilt *m;
@@ -6821,6 +6821,57 @@ static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s3
 	}
 
 	return ok ? m : NULL;
+}
+
+/**
+ * The build, and a failure told to gebean.c the once it happens (a failed
+ * build is remembered until the stage ends): a Combat Simulator pool row then
+ * takes GoldenEye's own N64 model from the ROM instead of standing on its
+ * Perfect Dark host with nothing over it (gebeanBuildFailed()).
+ */
+static struct xblameshbuilt *xblaMeshBuildBean(const struct xblameshentry *e, s32 original)
+{
+	const s32 look = original ? 1 : 0;
+	const struct xblameshbuilt *was = beanBuilt[look] ? beanBuilt[look][e->fileid] : NULL;
+	const s32 fresh = !was || !was->state;
+	struct xblameshbuilt *m = xblaMeshBuildBeanOnce(e, original);
+
+	if (!m && fresh && gebeanGetEnabled()) {
+		gebeanBuildFailed(e->beanrow, e->fileid);
+	}
+
+	return m;
+}
+
+s32 xblaMeshPrebuildBean(struct modeldef *modeldef)
+{
+	struct modelnode *nodes[XBLAMESH_MAXPARTS];
+	const struct xblameshentry *e;
+	s32 n;
+
+	if (!modeldef || !modeldef->rootnode || !gebeanGetEnabled()) {
+		return -1;
+	}
+
+	n = xblaMeshEnumListNodes(modeldef, nodes, XBLAMESH_MAXPARTS);
+
+	if (n <= 0) {
+		return -1;
+	}
+
+	e = xblaMeshSlotFor(nodes[0]);
+
+	// what the draw asks before it builds one (xblaMeshRenderNode()'s
+	// frombean): a pack's file for the model wins, and so does a release mesh
+	if (!e || e->node != nodes[0] || e->modeldef != modeldef || e->beanrow < 0
+			|| e->packpart == XBLAMESH_NOPART || !e->fileid
+			|| modelpackFindN64(e->fileid) != NULL
+			|| (e->matched && xblaMeshEntryLive(e) && opened > 0)
+			|| !(optEnabled || gebeanRowIsPool(e->beanrow) || gebeanRowIsFirstPerson(e->beanrow))) {
+		return -1;
+	}
+
+	return xblaMeshBuildBean(e, !optEnabled) ? 1 : 0;
 }
 
 static void xblaMeshResetBeanMeshes(void)
@@ -12511,6 +12562,7 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 void xblaMeshTrace(FILE *f) { }
 s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent) { return 0; }
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid) { }
+s32 xblaMeshPrebuildBean(struct modeldef *modeldef) { return -1; }
 void xblaMeshSetBypass(s32 on) { }
 void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle) { }
 void xblaMeshSetEnvironment(s32 force) { }

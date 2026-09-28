@@ -20,6 +20,7 @@
 #include "bss.h"
 #ifndef PLATFORM_N64
 #include "xblamesh.h"
+#include "gebean.h"
 #endif
 #include "lib/vi.h"
 #include "lib/main.h"
@@ -246,6 +247,30 @@ struct modeldef *modeldefLoad(u16 fileid, u8 *dst, s32 size, struct texpool *arg
 #endif
 
 	modeldef0f1a7560(modeldef, fileid, 0x5000000, modeldef, arg3, dst == NULL);
+
+#ifndef PLATFORM_N64
+	// One of the Combat Simulator's GoldenEye characters whose release mesh
+	// will not build: its row is GoldenEye's own N64 model from the ROM now
+	// (gebean.c), and this load is that model rather than the Perfect Dark
+	// host the mesh was to stand on. A load into the caller's own memory
+	// takes it only where it fits the room made for the host, and says it is
+	// the size it is, since the caller places the next file by that;
+	// otherwise the host is kept this once and the row's next load is right.
+	{
+		const u16 romfile = gebeanPoolLoadCheck(modeldef, fileid);
+
+		if (romfile) {
+			if (!dst) {
+				return modeldefLoad(romfile, NULL, 0, arg3);
+			}
+
+			if (fileGetInflatedSize(romfile, LOADTYPE_MODEL) <= fileGetInflatedSize(fileid, LOADTYPE_MODEL)) {
+				modeldef = modeldefLoad(romfile, dst, size, arg3);
+				g_FileInfo[fileid].loadedsize = g_FileInfo[romfile].loadedsize;
+			}
+		}
+	}
+#endif
 
 	return modeldef;
 }

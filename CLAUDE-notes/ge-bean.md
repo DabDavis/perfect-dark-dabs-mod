@@ -12470,3 +12470,69 @@ missing along a hairline. Surface: 50 lifted, 150 kept, 18 bases sunk; Dam 138,
 decal mode). Rig `~/wt/f3-0928-cracks-run` (`run.sh`/`runvk.sh BIN INI NAME --
 args`, `probe/ci.py` spot, `probe/ray.py` pixel rays, `probe/tris.py` a room's
 triangles off its display lists, `tjunc.py`).
+
+## One HD character broken, the rest HD: the ROM model stands in (2026-09-28)
+
+User 2026-09-28 (approved feature): with the release installed but one of its
+characters missing (a partial or broken install), corrupt, or failing to build,
+that character is GoldenEye's own N64 model from the ROM's conversion, and every
+other keeps HD. Before this a pool row whose mesh did not come stood on its
+Perfect Dark host with nothing drawn over it - a dataDyne guard where Jaws
+should be, Jamie's face for Karl.
+
+**Two places, both in gebean.c:**
+
+- **Fill time**, `gebeanPoolRefresh()`'s release branch: `gebeanPoolEntryMissing()`
+  stats `new/<source>/default.bin` (the Community Edition's copy first, as
+  `beanLoad()` reads it), and `original/` too while the N64 look is on. A missing
+  one is filled by `gebeanPoolFillRomRow()` - the same fill `gebeanPoolRefreshRom()`
+  does for a ROM-only player - in the same row and list place, so saved indexes
+  hold. 71 stats a refresh; startup is inside run-to-run noise.
+- **Build time**: `xblaMeshBuildBean()` is now a wrapper that tells
+  `gebeanBuildFailed(row, fileid)` the once a build fails (the cache
+  remembers a failure until the stage ends). For a pool row that is
+  `gebeanPoolFallBack()`: the row becomes the ROM model (`modeldef` NULL,
+  `romSlot` set, `poolSlot` cleared, so headfit.c and the Character page's
+  sets see a GE N64 row). **And the build is moved to the load**:
+  `modeldefLoad()` calls `gebeanPoolLoadCheck()`, which for a pool alias
+  builds the mesh right there (`xblaMeshPrebuildBean()`, the draw's own
+  `frombean` conditions, same cache - so no extra cost) and, on failure,
+  answers the ROM file for `modeldefLoad()` to load in the host's place. A
+  load into the caller's memory (the menu preview, a solo body in gunmem)
+  takes it only when the ROM file is no bigger than the host, and copies the
+  ROM file's `loadedsize` onto the alias, since the caller places the next
+  file by `fileGetLoadedSize()` of the number it holds; otherwise the host
+  draws that once and the row's next load is right.
+- `poolFailed[]` keeps a failed row on the ROM for the session (the pool is
+  refreshed twice at boot and again from the pause menu).
+  `gebeanPoolNumBySource()` keys on `poolFromRelease` now, not `poolSlot[0]`,
+  and answers fallback rows too.
+- **A converted mission's own character** (`chrRows`, GE Plus) needed nothing
+  but the line: its N64 model is underneath the HD skin and draws itself when
+  the skin fails. Logged once a session, not again for a source the pool has
+  already reported.
+- **The named characters' faces** (`POOLHEAD` rows on `char/` sources - Jaws,
+  Natalya ... cut off the whole model's neck) have no ROM head of their own.
+  Missing at fill time with the ROM present, they are left out of the heads
+  list (which is also what a ROM-only player sees); failing only at build
+  time they stay on the host, as before.
+- With no ROM conversion either, every path keeps today's behaviour (a
+  WARNING says so).
+
+One line per fallback: `gebean: <source> HD failed (<why>), using the ROM
+model`, the why from `beanWhy` (`beanLoad()`: missing / empty / unreadable /
+corrupt; else "its mesh did not build").
+
+**Test switches** (comma-separated sources): `PD_GEBEAN_MISSING` (fill time,
+as if absent) and `PD_GEBEAN_FAILBUILD` (build time). Rig `~/wt/romfallback-run/`
+(`run.sh`, `CONTENT=hd|rom` swaps `added-content`, the HD one a symlink tree of
+Bean whose entries can be moved out; `lineup.py` stands chr slots in front of
+the camera facing it; `cisweep.py`, `cimenu.py`, `listdump.py`, `gecheck.py`).
+Shots in `report/`. Checked: full install lists and a preview byte-identical to
+the base binary; Jaws' entry moved out -> the N64 Jaws in the Institute and on
+the Character page; Karl failing -> HD Russian Infantry with the N64 Karl in the
+menu preview (the dst path); Dam with greatguard2 and headjoel failing -> N64
+greatcoat and N64 Joel beside an HD head; ROM only -> all 42 GoldenEye bodies
+from the ROM (`Cgx`), Dam's guards N64, lists identical to the base binary.
+The Randomizer's `gebeanGuardBodies()` (fix/f3-0928-rand) takes
+`gebeanIsGoldenEyeBody()`, which a fallback row answers yes to (checked).
