@@ -119,6 +119,13 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * before a start or a landing is put on it - modRandomPadSpawnPos() - which
  * moves the start on any stage whose pads include one that is not. v1 and v2
  * runs keep taking the pad on trust, out of bounds and all.
+ *
+ * Version 4 is two things a run's landing learnt. A landing in a room with no
+ * light at all - Deep Sea's rooms 86, 87 and 89 have black vertex colours and
+ * no lights - is dealt again on another pad (modrun.c, modRunRoomIsDark()),
+ * and a map with no waypoints of its own lowers a pad that floats high over
+ * its floor onto it before the pad graph is built (modRandomPadSettle()),
+ * which changes which of its pads a landing may be dealt on.
  */
 #define MODRANDOM_VERSION MODRANDOM_VERSION_DEFAULT
 

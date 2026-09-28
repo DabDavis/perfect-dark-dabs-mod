@@ -195,6 +195,12 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 // enough that a pool of nothing but bad maps is not an endless load.
 #define MODRUN_MAXSKIPS 3
 
+// A landing room that turns out to have no light is dealt again this many
+// times at most (see modRunRoomIsDark()); a room whose brightest vertex is
+// darker than this, with no light of its own, is one.
+#define MODRUN_MAXDARK  4
+#define MODRUN_DARKLUM  64
+
 // The guards a run brings with it, whatever the stage had. A run's rooms are
 // entered cold and left in a minute, so the stage's own sleeping guards are
 // mostly somewhere else: the ones that matter are the ones sent after the
@@ -258,6 +264,9 @@ static s32 g_ModRunLandRoom = -1;
 static s32 g_ModRunSpawnState; // 0 nothing to do, 1 waiting for control, 2 asked for
 static bool g_ModRunPendingLoad; // a hop's stage has been asked for and has not arrived
 static s32 g_ModRunSkips;        // maps in a row that could not be landed in
+static s32 g_ModRunLandTry;      // landings dealt again on this hop for a dark room
+static s32 g_ModRunLandWait;     // ticks waited for the landing room to load
+static s32 g_ModRunDarkRooms[MODRUN_MAXDARK]; // rooms this hop found dark
 static bool g_ModRunKitDue;    // the carried kit goes back on the next tick
 static s32 g_ModRunOverTicks;  // frames since the run ended
 
@@ -312,6 +321,7 @@ static bool g_ModRunHasCarry;
 #define MODRUN_STREAM_OBJ   3
 #define MODRUN_STREAM_BODY  4
 #define MODRUN_STREAM_STUCK 5
+#define MODRUN_STREAM_DARK  6
 
 static u32 modRunMix(u32 x)
 {
@@ -750,6 +760,49 @@ static s32 modRunPadRoom(s32 padnum)
  * modRandomPadSpawnPos()'s: it is asked here, before the draw, so that a bad
  * pad is not in the pool rather than being drawn and then worked around.
  */
+/**
+ * Whether a room is too dark to hold a fight in: 1 dark, 0 not, -1 not known
+ * yet (its geometry is not loaded).
+ *
+ * Deep Sea's rooms 86, 87 and 89 are corridors whose every vertex is black and
+ * which have no light of their own; they carry waypoints, so a landing could be
+ * dealt there and the player stood in total darkness (F3 20260928-043637,
+ * "room 27" - the run's 27th room). Stock never lights them for anybody. What
+ * a room looks like is only in its vertex colours, which exist once the room is
+ * loaded - at the roll nothing is - so the landing asks after the player is
+ * standing in it.
+ */
+static s32 modRunRoomIsDark(s32 room)
+{
+	const struct roomgfxdata *gfx;
+	s32 brightest = 0;
+	s32 i;
+
+	if (room <= 0 || room >= g_Vars.roomcount || g_Rooms == NULL) {
+		return 0;
+	}
+
+	gfx = g_Rooms[room].gfxdata;
+
+	if (!g_Rooms[room].loaded240 || gfx == NULL || gfx->colours == NULL) {
+		return -1;
+	}
+
+	if (g_Rooms[room].numlights > 0 || gfx->numcolours <= 0) {
+		return 0;
+	}
+
+	for (i = 0; i < gfx->numcolours; i++) {
+		const s32 lum = (gfx->colours[i].r + gfx->colours[i].g + gfx->colours[i].b) / 3;
+
+		if (lum > brightest) {
+			brightest = lum;
+		}
+	}
+
+	return brightest < MODRUN_DARKLUM;
+}
+
 static void modRunChooseLanding(void)
 {
 	const s32 numwaypoints = modRunCountWaypoints();
@@ -763,13 +816,30 @@ static void modRunChooseLanding(void)
 	g_ModRunLandRoom = -1;
 	g_ModRunNumZone = 0;
 
-	modRunOpen(MODRUN_STREAM_LAND, g_ModRunHop);
+	// A landing dealt again for a dark room draws from a stream of its own,
+	// so the first draw of every hop is the one the seed always dealt.
+	if (g_ModRunLandTry > 0) {
+		modRunOpen(MODRUN_STREAM_DARK, g_ModRunHop * (MODRUN_MAXDARK + 1) + g_ModRunLandTry);
+	} else {
+		modRunOpen(MODRUN_STREAM_LAND, g_ModRunHop);
+	}
 
 	for (i = 0; i < numwaypoints; i++) {
 		const s32 padnum = g_StageSetup.waypoints[i].padnum;
 		const s32 room = modRunPadRoom(padnum);
+		s32 d;
 
 		if (room <= 0 || room >= g_Vars.roomcount) {
+			continue;
+		}
+
+		for (d = 0; d < g_ModRunLandTry && d < MODRUN_MAXDARK; d++) {
+			if (g_ModRunDarkRooms[d] == room) {
+				break;
+			}
+		}
+
+		if (d < g_ModRunLandTry && d < MODRUN_MAXDARK) {
 			continue;
 		}
 
@@ -998,6 +1068,8 @@ void modRunRoll(void)
 	g_ModRunObjCmds = NULL;
 	g_ModRunOverTicks = 0;
 	g_ModRunObjective.done = false;
+	g_ModRunLandTry = 0;
+	g_ModRunLandWait = 0;
 
 	// A landing's guards are one kind of thing, chosen with the room.
 	modRunOpen(MODRUN_STREAM_BODY, g_ModRunHop);
@@ -2258,6 +2330,48 @@ void modRunTick(void)
 			g_ModRunSpawnState = 0;
 
 			return;
+		}
+
+		// A landing in a room with no light is dealt again elsewhere on the
+		// same map, a new life like the landing itself. Its room has to be
+		// loaded to be judged, which it is a frame or two after the player is
+		// stood in it.
+		if (modRandomGetVersion() >= 4 && g_ModRunLandPad >= 0 && g_ModRunLandTry < MODRUN_MAXDARK) {
+			const s32 room = player->prop->rooms[0];
+			const s32 dark = modRunRoomIsDark(room);
+
+			if (dark < 0 && ++g_ModRunLandWait < 30) {
+				return;
+			}
+
+			if (dark > 0) {
+				const s32 oldpad = g_ModRunLandPad;
+
+				g_ModRunDarkRooms[g_ModRunLandTry] = room;
+				g_ModRunLandTry++;
+				g_ModRunLandWait = 0;
+
+				modRunChooseLanding();
+
+#ifndef PLATFORM_N64
+				sysLogPrintf(0, "run: room %d on stage 0x%02x has no light; landing again on pad %d room %d",
+						room, g_ModRunStage, g_ModRunLandPad, g_ModRunLandRoom);
+#endif
+
+				if (g_ModRunLandPad >= 0) {
+					// A gun to recover was one lying in the dark room.
+					if (g_ModRunObjective.kind == MODRUN_OBJ_COLLECT) {
+						modRunOpen(MODRUN_STREAM_DARK, g_ModRunHop * (MODRUN_MAXDARK + 1));
+						modRunDealFight(modRunBelow(2) != 0);
+					}
+
+					g_ModRunSpawnState = 1;
+					return;
+				}
+
+				// Nowhere else to go: stay where the player is.
+				g_ModRunLandPad = oldpad;
+			}
 		}
 
 		g_ModRunSkips = 0;

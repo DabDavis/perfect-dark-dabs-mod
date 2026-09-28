@@ -439,7 +439,7 @@ void modAlarmBuildPadWaypoints(void)
 
 		// A pad floating high over its floor (all of Complex's) is lowered
 		// onto it first, or the drop rule refuses it
-		if (modRandomPadSettle(i)) {
+		if (modRandomGetVersion() >= 4 && modRandomPadSettle(i)) {
 			numsettled++;
 		}
 
