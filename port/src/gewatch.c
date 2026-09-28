@@ -5495,10 +5495,7 @@ static void watchMpTick(void)
 		|| (stickx > 0x2e && !g_MpWatch[num].sticky);
 	const s32 accept = joyGetButtonsPressedThisFrame(pad, A_BUTTON | Z_TRIG | (num == 0 ? BUTTON_UI_ACCEPT : 0)) != 0;
 	const s32 back = joyGetButtonsPressedThisFrame(pad, B_BUTTON | (num == 0 ? BUTTON_UI_CANCEL : 0)) != 0;
-	// Start (or Esc, the keyboard's pause) put it away: with the overlay
-	// holding the pad the movement tick no longer sees it (geWatchMpHoldsInput())
-	const s32 start = joyGetButtonsPressedThisFrame(pad, START_BUTTON) != 0
-		|| (num == 0 && inputKeyJustPressed(VK_ESCAPE));
+	s32 start;
 	const s32 opened = g_MpWatch[num].opened;
 
 	g_MpWatch[num].opened = 0;
@@ -5514,6 +5511,16 @@ static void watchMpTick(void)
 		g_MpWatch[num].sticky = stickx > 0x10 || stickx < -0x10;
 		return;
 	}
+
+	// Start (or Esc, the keyboard's pause) put it away: with the overlay
+	// holding the pad the movement tick no longer sees it (geWatchMpHoldsInput()).
+	// Esc is read only while the overlay is up: inputKeyJustPressed() spends
+	// the press, and playerTick() runs this tick before the movement tick
+	// whose Esc opens a pause - read here every frame, it had the press first
+	// and Esc never paused a match on a GoldenEye arena, into the GE overlay
+	// or Perfect Dark's own dialog (F3 20260928-131305)
+	start = joyGetButtonsPressedThisFrame(pad, START_BUTTON) != 0
+		|| (num == 0 && inputKeyJustPressed(VK_ESCAPE));
 
 	if (start && !opened) {
 		watchMpClose(num);
