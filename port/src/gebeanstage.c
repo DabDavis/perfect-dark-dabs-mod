@@ -91,6 +91,9 @@ struct stri {
 	s16 tex;
 	u16 room;
 	u8 decal;
+	u8 lift;    // a decal lifted off its base before rounding (markDecalLifts())
+	s8 sink;    // a translucent base sunk under its decal instead: +1 along its normal's back, -1 its front
+	s32 decalbase; // the triangle a decal was found lying on, or -1
 	u8 nofog;   // on a triangle GoldenEye draws without fog (fileRoomTrianglesEach())
 	u8 backed;  // one face of a two-faced sheet, drawn culled (markBacked())
 	u8 fights;  // a face with another face back to back over part of it (markFights())
@@ -1540,12 +1543,13 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		// -213530: the N came and went as Bond walked)
 		lift[0] = lift[1] = lift[2] = 0.0f;
 
-		if (t->decal) {
+		if (t->lift || t->sink) {
 			f32 n[3];
+			const f32 by = t->lift ? DECAL_LIFT : -t->sink * DECAL_LIFT;
 
 			if (triNormal(t, n) > 0.0f) {
 				for (s32 j = 0; j < 3; j++) {
-					lift[j] = n[j] * DECAL_LIFT;
+					lift[j] = n[j] * by;
 				}
 			}
 		}
@@ -1991,6 +1995,9 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->blend = v[0].blend;
 	t->room = 0;
 	t->decal = 0;
+	t->lift = 0;
+	t->sink = 0;
+	t->decalbase = -1;
 	t->nofog = 0;
 	t->backed = 0;
 	t->fights = 0;
@@ -2358,6 +2365,7 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 					: ai < au * 0.999f ? 1
 					: ai <= au * 1.001f && i > o) {
 				t->decal = 1;
+				t->decalbase = o;
 				count++;
 			}
 		}
@@ -2366,6 +2374,173 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 	free(full);
 
 	return count;
+}
+
+/**
+ * Which decals are lifted off their base (DECAL_LIFT, writeLeaf()).
+ *
+ * The lift is for a picture painted on a surface - Dam's CTON on its wall, a
+ * sign - whose corners are not the surface's own: rounded to whole units they
+ * can land behind it (646b97868). It is wrong for a decal that is part of a
+ * mesh. Surface's snow drifts are an opaque snow face over a blended one on
+ * the same corners, and the snow face is the decal; lifted two units, it came
+ * away from the faces beside it that are not decals, and every edge between
+ * them was a crack onto the sky (F3 20260928-025456: "colored lines on snow
+ * floor near one of the cabins").
+ *
+ * So decals are gathered into pieces by the corners they share once rounded
+ * (the same rounding writeLeaf() does), and a piece is lifted only when none
+ * of its corners is a corner of a triangle that is not a decal. A piece that
+ * shares a corner with the mesh around it stays where it is, and the decal
+ * mode alone keeps it in front, as before the lift.
+ */
+struct liftcorner {
+	s32 key[3];
+	s32 tri;
+};
+
+static s32 liftCornerCmp(const void *a, const void *b)
+{
+	const struct liftcorner *ca = a;
+	const struct liftcorner *cb = b;
+
+	for (s32 j = 0; j < 3; j++) {
+		if (ca->key[j] != cb->key[j]) {
+			return ca->key[j] < cb->key[j] ? -1 : 1;
+		}
+	}
+
+	return ca->tri - cb->tri;
+}
+
+static s32 liftFind(s32 *parent, s32 i)
+{
+	while (parent[i] != i) {
+		parent[i] = parent[parent[i]];
+		i = parent[i];
+	}
+
+	return i;
+}
+
+static s32 markDecalLifts(struct stri *tris, s32 num)
+{
+	struct liftcorner *corners;
+	s32 *parent;
+	u8 *pinned;
+	s32 numcorners = 0;
+	s32 lifted = 0;
+	s32 kept = 0;
+	s32 sunk = 0;
+	s32 i;
+	s32 j;
+
+	if (num <= 0) {
+		return 0;
+	}
+
+	corners = malloc(sizeof(*corners) * num * 3);
+	parent = malloc(sizeof(*parent) * num);
+	pinned = calloc(num, 1);
+
+	if (!corners || !parent || !pinned) {
+		// Nothing lifted: the decal mode alone, as before the lift
+		free(corners);
+		free(parent);
+		free(pinned);
+		return 0;
+	}
+
+	for (i = 0; i < num; i++) {
+		parent[i] = i;
+
+		for (s32 k = 0; k < 3; k++) {
+			for (j = 0; j < 3; j++) {
+				corners[numcorners].key[j] = (s32)roundf(tris[i].pos[k][j]);
+			}
+
+			corners[numcorners].tri = i;
+			numcorners++;
+		}
+	}
+
+	qsort(corners, numcorners, sizeof(*corners), liftCornerCmp);
+
+	for (i = 0; i < numcorners; i = j) {
+		s32 first = -1;
+		s32 plain = 0;
+
+		for (j = i; j < numcorners && memcmp(corners[j].key, corners[i].key, sizeof(corners[i].key)) == 0; j++) {
+			const s32 t = corners[j].tri;
+
+			if (!tris[t].decal) {
+				plain = 1;
+			} else if (first < 0) {
+				first = t;
+			} else {
+				const s32 a = liftFind(parent, first);
+				const s32 b = liftFind(parent, t);
+
+				if (a != b) {
+					parent[b] = a;
+					pinned[a] |= pinned[b];
+				}
+			}
+		}
+
+		if (plain && first >= 0) {
+			pinned[liftFind(parent, first)] = 1;
+		}
+	}
+
+	for (i = 0; i < num; i++) {
+		if (tris[i].decal) {
+			tris[i].lift = !pinned[liftFind(parent, i)];
+
+			if (tris[i].lift) {
+				lifted++;
+			} else {
+				kept++;
+			}
+		}
+	}
+
+	// A decal kept in its mesh is in the plane of its base again, and a
+	// translucent base drawn after it at the same depth passes the depth test
+	// and shows over it: the snow drifts' blended rock came through the snow
+	// in hard-edged patches. Such a base is sunk DECAL_LIFT behind the decal
+	// instead. A crack that opens in a blended layer is only the layer
+	// missing along a hairline over the solid face under it; an opaque base
+	// stays, and the decal mode keeps the decal in front of it.
+	for (i = 0; i < num; i++) {
+		const s32 o = tris[i].decalbase;
+		f32 ni[3];
+		f32 no[3];
+
+		if (!tris[i].decal || tris[i].lift || o < 0 || o >= num || tris[o].decal || tris[o].sink) {
+			continue;
+		}
+
+		if (!texIsXlu(tris[o].tex) && !triFades(&tris[o])) {
+			continue;
+		}
+
+		if (triNormal(&tris[i], ni) <= 0.0f || triNormal(&tris[o], no) <= 0.0f) {
+			continue;
+		}
+
+		tris[o].sink = dot3(ni, no) >= 0.0f ? 1 : -1;
+		sunk++;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %d decal triangles lifted off their base, %d kept in their mesh, %d translucent bases sunk under them",
+			lifted, kept, sunk);
+
+	free(corners);
+	free(parent);
+	free(pinned);
+
+	return lifted;
 }
 
 static void forget(void)
@@ -3538,6 +3713,7 @@ static s32 build(void)
 		backed = markBacked(c.tris, c.num, &beantris);
 		fights = markFights(c.tris, c.num, &beantris);
 		decals = markDecals(c.tris, c.num, &beantris);
+		markDecalLifts(c.tris, c.num);
 
 		mark[2] = sysGetMicroseconds();
 
