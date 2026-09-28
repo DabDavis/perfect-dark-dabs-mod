@@ -2050,6 +2050,19 @@ static void menuModelFitToBox(struct menumodel *menumodel, s32 filenum)
 	drawn = MENUMODEL_FIT_REFDRAWN * __builtin_powf(longest / MENUMODEL_FIT_REFLEN, MENUMODEL_FIT_POWER);
 	drawn = drawn < MENUMODEL_FIT_MIN ? MENUMODEL_FIT_MIN : drawn > MENUMODEL_FIT_MAX ? MENUMODEL_FIT_MAX : drawn;
 
+	// The rule reads a model's length as a gun's length, which holds for
+	// GoldenEye's own guns: they are modelled at Perfect Dark's scale (the
+	// PP7 194 units long against the Falcon 2's 228). Not for the hand
+	// grenade and the mines, which GoldenEye never draws in the hand
+	// (gegunsOwnModelHidden()) and so never had to be to scale: its grenade
+	// is 715 units tall, five times Perfect Dark's (144) and the release's
+	// (136), and the rule drew it at 156 - a grenade the size of a rifle.
+	// They take the smallest size, which is where Perfect Dark's own grenade
+	// (100.6) and mines (106.5) are drawn and where the release's already are.
+	if (gegunsOwnModelHidden(menumodel->fitweapon)) {
+		drawn = MENUMODEL_FIT_MIN;
+	}
+
 	menumodel->displacex = -(lo[0] + hi[0]) * 0.5f;
 	menumodel->displacey = -(lo[1] + hi[1]) * 0.5f;
 	menumodel->displacez = -(lo[2] + hi[2]) * 0.5f;
