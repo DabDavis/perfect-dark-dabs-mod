@@ -12536,3 +12536,28 @@ greatcoat and N64 Joel beside an HD head; ROM only -> all 42 GoldenEye bodies
 from the ROM (`Cgx`), Dam's guards N64, lists identical to the base binary.
 The Randomizer's `gebeanGuardBodies()` (fix/f3-0928-rand) takes
 `gebeanIsGoldenEyeBody()`, which a fallback row answers yes to (checked).
+
+## 16th F3 pass: Cuba's credits (2026-09-28, fix/f3-0928b-credits, converter 85)
+
+- **Plants over the kiss** (002401 HD, 005549 N64): every Cuba prop has GoldenEye's
+  flags2 0x10000 (no depth, PD's OBJFLAG2_DRAWONTOP, same test in both games), and
+  Cuba's list sets **CHRFLAG_00020000** on Bond and Natalya - GoldenEye's chrRender
+  draws such a chr whole in the translucent pass, far to near with the props. The
+  decomp's setup dump prints 32-bit AI args byte-reversed (`chr_flags_set_on(0xf8,
+  0x00000200)` is 0x00020000). Converted to the port's CHRCFLAG_GE_XLUPASS
+  (0x00400000; GoldenEye's own 0x00400000 is meaningless, dropped); chrRender()
+  honours it. The Cradle's `guard_flags_set_on(0x10000000)` is CHRFLAG_INVINCIBLE
+  (0x10), the same bit in PD.
+- **Gun in the kiss** (002443): Start Armed's roll; Cuba is skipped in
+  playerSpawnWeapons().
+- **Roll judder** (002510): rows on whole units, count moving a third a 60th;
+  gexFrontTextNudgeY(). N64 font: glyphs off the top wrapped into streaks;
+  gSPScisTextureRectangle in frontText()/frontHdText().
+- **Trevelyan killed early** (002123): GoldenEye's own lists - vulnerable only
+  while standing to fight (ai_18 clears INVINCIBLE, the first wound sets it), sent
+  invincible to the platform under 9 health; a burst over 19 in one tick kills
+  him there too, and GoldenEye's ending lists handle him dead (ai_36, ai_26).
+- **Cinema > Cradle > Credits** (002608, approved): third row on the Cradle's page;
+  frontStartCredits(1), back to the page after the reel (gexFrontOpenAfterCredits());
+  B/Cancel/Escape leaves (gexFrontLeaveCredits()), a press leaves the reel.
+  Probe ~/wt/f3-0928b-credits-run/cin.py (LEAVE=1 for the early exit).
