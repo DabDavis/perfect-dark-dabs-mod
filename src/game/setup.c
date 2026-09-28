@@ -1885,6 +1885,11 @@ void setupCreateProps(s32 stagenum)
 			setupPreparePads();
 		}
 
+		// A stage with no waypoint graph (every GoldenEye Arenas map) gets
+		// one built from its pads while the alarm is on, or the alarm's
+		// guards have nowhere to come from and no way to walk - modalarm.c
+		modAlarmBuildPadWaypoints();
+
 		setupLoadWaypoints();
 
 		// Randomizer: the mission is dealt again here, in the gap between the

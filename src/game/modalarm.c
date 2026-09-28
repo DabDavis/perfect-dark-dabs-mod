@@ -10,12 +10,15 @@
 #include "game/modeldef.h"
 #include "game/modelmgr.h"
 #include "game/modoptions.h"
+#include "game/modrandom.h"
+#include "game/bg.h"
 #include "game/modrun.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
 #include "game/prop.h"
 #include "bss.h"
 #include "lib/ailist.h"
+#include "lib/collision.h"
 #include "lib/memp.h"
 #include "lib/rng.h"
 #include "lib/vars.h"
@@ -23,6 +26,8 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "system.h"
+#include <stdlib.h>
+#include <string.h>
 #endif
 
 /**
@@ -121,6 +126,7 @@ static struct modalarmhead g_ModAlarmHeads[MODALARM_MAXHEADS];
 static s32 g_ModAlarmNumHeads = 0;
 static s32 g_ModAlarmCountdown60 = 0;
 static s32 g_ModAlarmNumWaypoints = 0;
+static bool g_ModAlarmPadGraph = false; // this stage's waypoints were built from its pads
 static s32 g_ModAlarmReserve = 0;
 
 /**
@@ -342,6 +348,289 @@ static s32 modAlarmCountWaypoints(void)
 	}
 
 	return count;
+}
+
+#define MODALARM_PADLINKS    10    // links sought per pad when building a graph
+#define MODALARM_PADLINKDIST 2500.0f // and no longer than this
+#define MODALARM_PADCANDS    32    // nearest candidates tested per pad
+
+/**
+ * A waypoint graph for a stage that came without one.
+ *
+ * Every GoldenEye Arenas map is such a stage: GoldenEye's multiplayer setups
+ * never carried a path table, since nothing in GoldenEye's multiplayer walked,
+ * and the converter has nothing to copy. The alarm needs a graph twice over -
+ * its guards spawn on waypoints, and "coming running" is chrGoToRoomPos(), a
+ * route from one waypoint to another - so with none the alarm spawned nobody,
+ * and a Randomizer run dealt "Eliminate 6 hostiles" into rooms nothing would
+ * ever come to (tester, 2026-09-28: Statue Park, Facility, Bunker, Cradle,
+ * Temple). The run's landing is a waypoint too, which is why every one of
+ * those hops logged "land pad -1".
+ *
+ * So while the alarm is on, a stage with no waypoints gets them from its pads,
+ * after setupPreparePads() has put each pad in its room and before
+ * setupLoadWaypoints() files the waypoints by room:
+ *
+ * - a waypoint on every pad a player could be put down on
+ *   (modRandomPadCanSpawn(), the landing's own test);
+ * - a link from each to its nearest few, where the two are in the same or
+ *   neighbouring rooms (waypointFindClosestToPos() only ever looks that far)
+ *   and a chr could walk between them - the same line and cylinder tests
+ *   waypointFindClosestToPos() makes to join a chr to a waypoint;
+ * - one waygroup per connected piece, with no links between groups, so a
+ *   route between two pieces is refused rather than walked into a wall.
+ *
+ * Built from the stage's own data and nothing random, so a seed deals the
+ * same landing on it every time.
+ */
+void modAlarmBuildPadWaypoints(void)
+{
+#ifndef PLATFORM_N64
+	s32 numpads;
+	s32 n = 0;
+	s32 i;
+	s32 j;
+	s32 numlinks = 0;
+	s32 numgroups = 0;
+	s32 largest = 0;
+	s16 *spots;
+	struct coord *pos;
+	RoomNum (*rooms)[2];
+	RoomNum (*near)[12];
+	u8 *adj;
+	s32 *deg;
+	s32 *group;
+	s32 *queue;
+	s32 *nblists;
+	s32 *grlists;
+	s32 *noneighbours;
+	struct waypoint *waypoints;
+	struct waygroup *groups;
+	s32 nbpos;
+	s32 grpos;
+	u64 started;
+
+	g_ModAlarmPadGraph = false;
+
+	if (!modIsGuardsAlertedOn() || g_PadsFile == NULL || g_StageSetup.padfiledata == NULL) {
+		return;
+	}
+
+	if (g_StageSetup.waypoints != NULL && g_StageSetup.waypoints[0].padnum >= 0) {
+		return;
+	}
+
+	numpads = g_PadsFile->numpads;
+	started = sysGetMicroseconds();
+
+	if (numpads <= 1) {
+		return;
+	}
+
+	spots = malloc(numpads * sizeof(*spots));
+	pos = malloc(numpads * sizeof(*pos));
+	rooms = malloc(numpads * sizeof(*rooms));
+	near = malloc(numpads * sizeof(*near));
+
+	for (i = 0; i < numpads; i++) {
+		struct pad pad;
+
+		padUnpack(i, PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+		if (pad.room > 0 && pad.room < g_Vars.roomcount && modRandomPadCanSpawn(i)) {
+			spots[n] = i;
+			pos[n] = pad.pos;
+			rooms[n][0] = pad.room;
+			rooms[n][1] = -1;
+			bgRoomGetNeighbours(pad.room, near[n], 10);
+			n++;
+		}
+	}
+
+	if (n < 2) {
+		free(spots); free(pos); free(rooms); free(near);
+		return;
+	}
+
+	adj = calloc((size_t)n * n, 1);
+	deg = calloc(n, sizeof(*deg));
+	group = malloc(n * sizeof(*group));
+	queue = malloc(n * sizeof(*queue));
+
+	for (i = 0; i < n; i++) {
+		s32 cand[MODALARM_PADCANDS];
+		f32 canddist[MODALARM_PADCANDS];
+		s32 numcands = 0;
+		s32 linked = 0;
+		s32 k;
+
+		// The nearest few in reach, nearest first
+		for (j = 0; j < n; j++) {
+			f32 dx = pos[j].x - pos[i].x;
+			f32 dy = pos[j].y - pos[i].y;
+			f32 dz = pos[j].z - pos[i].z;
+			f32 dist = dx * dx + dy * dy + dz * dz;
+			bool neighbour = rooms[j][0] == rooms[i][0];
+
+			if (j == i || dist > MODALARM_PADLINKDIST * MODALARM_PADLINKDIST) {
+				continue;
+			}
+
+			for (k = 0; !neighbour && near[i][k] != -1 && k < 10; k++) {
+				neighbour = near[i][k] == rooms[j][0];
+			}
+
+			if (!neighbour) {
+				continue;
+			}
+
+			for (k = numcands; k > 0 && canddist[k - 1] > dist; k--) {
+				if (k < MODALARM_PADCANDS) {
+					cand[k] = cand[k - 1];
+					canddist[k] = canddist[k - 1];
+				}
+			}
+
+			if (k < MODALARM_PADCANDS) {
+				cand[k] = j;
+				canddist[k] = dist;
+
+				if (numcands < MODALARM_PADCANDS) {
+					numcands++;
+				}
+			}
+		}
+
+		for (k = 0; k < numcands && linked < MODALARM_PADLINKS; k++) {
+			RoomNum torooms[8];
+
+			j = cand[k];
+
+			if (adj[(size_t)i * n + j]) {
+				linked++;
+				continue;
+			}
+
+			if (cdTestLos05(&pos[i], rooms[i], &pos[j], rooms[j], CDTYPE_BG, GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2) == CDRESULT_COLLISION) {
+				continue;
+			}
+
+			roomsCopy(rooms[j], torooms);
+
+			if (cdExamCylMove05(&pos[i], rooms[i], &pos[j], torooms, CDTYPE_BG, true, 0.0f, 0.0f) != CDRESULT_NOCOLLISION) {
+				continue;
+			}
+
+			adj[(size_t)i * n + j] = adj[(size_t)j * n + i] = 1;
+			deg[i]++;
+			deg[j]++;
+			numlinks++;
+			linked++;
+		}
+	}
+
+	// The connected pieces, each a waygroup
+	for (i = 0; i < n; i++) {
+		group[i] = -1;
+	}
+
+	for (i = 0; i < n; i++) {
+		s32 head = 0;
+		s32 tail = 0;
+
+		if (group[i] >= 0) {
+			continue;
+		}
+
+		group[i] = numgroups;
+		queue[tail++] = i;
+
+		while (head < tail) {
+			s32 cur = queue[head++];
+
+			for (j = 0; j < n; j++) {
+				if (adj[(size_t)cur * n + j] && group[j] < 0) {
+					group[j] = numgroups;
+					queue[tail++] = j;
+				}
+			}
+		}
+
+		if (tail > largest) {
+			largest = tail;
+		}
+
+		numgroups++;
+	}
+
+	waypoints = mempAlloc(ALIGN16((n + 1) * sizeof(struct waypoint)), MEMPOOL_STAGE);
+	nblists = mempAlloc(ALIGN16((numlinks * 2 + n) * sizeof(s32)), MEMPOOL_STAGE);
+	groups = mempAlloc(ALIGN16((numgroups + 1) * sizeof(struct waygroup)), MEMPOOL_STAGE);
+	grlists = mempAlloc(ALIGN16((n + numgroups) * sizeof(s32)), MEMPOOL_STAGE);
+	noneighbours = mempAlloc(ALIGN16(sizeof(s32)), MEMPOOL_STAGE);
+
+	if (waypoints && nblists && groups && grlists && noneighbours) {
+		nbpos = 0;
+
+		for (i = 0; i < n; i++) {
+			waypoints[i].padnum = spots[i];
+			waypoints[i].neighbours = &nblists[nbpos];
+			waypoints[i].groupnum = group[i];
+			waypoints[i].step = -1;
+
+			for (j = 0; j < n; j++) {
+				if (adj[(size_t)i * n + j]) {
+					nblists[nbpos++] = j;
+				}
+			}
+
+			nblists[nbpos++] = -1;
+		}
+
+		waypoints[n].padnum = -1;
+		waypoints[n].neighbours = NULL;
+		waypoints[n].groupnum = 0;
+		waypoints[n].step = 0;
+
+		*noneighbours = -1;
+		grpos = 0;
+
+		for (j = 0; j < numgroups; j++) {
+			groups[j].neighbours = noneighbours;
+			groups[j].waypoints = &grlists[grpos];
+			groups[j].step = -1;
+
+			for (i = 0; i < n; i++) {
+				if (group[i] == j) {
+					grlists[grpos++] = i;
+				}
+			}
+
+			grlists[grpos++] = -1;
+		}
+
+		groups[numgroups].neighbours = NULL;
+		groups[numgroups].waypoints = NULL;
+		groups[numgroups].step = 0;
+
+		g_StageSetup.waypoints = waypoints;
+		g_StageSetup.waygroups = groups;
+		g_ModAlarmPadGraph = true;
+
+		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads, %d links, %d groups (largest %d), in %d ms",
+				g_Vars.stagenum, n, numpads, numlinks, numgroups, largest,
+				(s32)((sysGetMicroseconds() - started) / 1000));
+	}
+
+	free(spots);
+	free(pos);
+	free(rooms);
+	free(near);
+	free(adj);
+	free(deg);
+	free(group);
+	free(queue);
+#endif
 }
 
 void modAlarmReset(void)
@@ -798,6 +1087,17 @@ static bool modAlarmSpawnOne(s32 bodynum)
 
 		if (chr == NULL) {
 			refused++;
+
+			// A GoldenEye arena's rooms are open ground, and the few the seal
+			// holds are often all in view at once: every waypoint in them is
+			// refused as a guard popping in in front of the player, attempt
+			// after attempt. A graph built from the pads is one piece across
+			// open ground, so a guard from outside has a way in - half the
+			// tries go to the rest of the map instead.
+			if (zonefirst && g_ModAlarmPadGraph && refused >= MODALARM_TRIES / 2) {
+				zonefirst = false;
+			}
+
 			continue;
 		}
 

@@ -313,6 +313,9 @@ int main(int argc, const char **argv)
 		modRandomArmMission();
 	}
 	g_ModRunAutoHop = sysArgGetInt("--run-autohop", 0);
+	// --run-stage N: the run's first room is on this stage rather than the
+	// seed's, so one map's landing can be tested without finding a seed
+	g_ModRunFirstStage = sysArgGetInt("--run-stage", -1);
 	g_FixedStep = sysArgCheck("--fixed-step");
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
 	g_ShotFrame = sysArgGetInt("--screenshot-frame", 0);

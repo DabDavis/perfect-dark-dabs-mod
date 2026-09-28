@@ -234,6 +234,7 @@ struct modrunobjective {
 #ifndef PLATFORM_N64
 bool g_ModRunAutoStart = false; // --random-run
 s32 g_ModRunAutoHop = 0;        // --run-autohop N
+s32 g_ModRunFirstStage = -1;    // --run-stage N
 #endif
 
 static s32 g_ModRunState = MODRUN_OFF;
@@ -654,6 +655,11 @@ void modRunStart(void)
 	g_ModRunState = MODRUN_LANDING;
 
 	menuStop();
+#ifndef PLATFORM_N64
+	if (g_ModRunFirstStage > 0) {
+		modRunEnterStage(g_ModRunFirstStage);
+	} else
+#endif
 	modRunEnterStage(modRunChooseStage());
 
 #ifndef PLATFORM_N64
@@ -774,6 +780,11 @@ static void modRunChooseLanding(void)
 #endif
 
 	if (chosen < 0) {
+#ifndef PLATFORM_N64
+		sysLogPrintf(0, "run: stage 0x%02x - no landing among its %d waypoints (%d standable in a room with a door)",
+				g_ModRunStage, numwaypoints, count);
+#endif
+
 		// No waypoint in a room with a door. Let the stage start the player
 		// where it would have: a hop with no landing of its own is still a
 		// room, and the portal out of it is the same test. The new life is
@@ -918,6 +929,14 @@ static void modRunDealObjective(void)
 		// dealing nothing, which would be a room worth no points through no
 		// choice of the player's.
 		kind = MODRUN_OBJ_KILL;
+	}
+
+	// The alarm's guards spawn on waypoints and walk the graph, and a stage
+	// with none - not even the graph modAlarmBuildPadWaypoints() makes out of
+	// its pads - sends nobody, so a kill objective there could only ever be
+	// re-dealt by the starve clock. Same number of draws either way.
+	if (kind == MODRUN_OBJ_KILL && modRunCountWaypoints() == 0) {
+		kind = MODRUN_OBJ_SURVIVE;
 	}
 
 	modRunDealFight(kind == MODRUN_OBJ_SURVIVE);

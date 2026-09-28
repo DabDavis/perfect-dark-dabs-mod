@@ -34,6 +34,7 @@
 #ifndef PLATFORM_N64
 extern bool g_ModRunAutoStart; // --random-run: begin one without a menu press
 extern s32 g_ModRunAutoHop;    // --run-autohop N: hop after N frames, for a headless chain
+extern s32 g_ModRunFirstStage; // --run-stage N: the first room's stage, for testing one map
 #endif
 
 bool modRunIsOn(void);
