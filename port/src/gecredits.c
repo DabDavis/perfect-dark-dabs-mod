@@ -364,6 +364,10 @@ Gfx *gecreditsRender(Gfx *gdl)
 
 	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 	gexFrontTextFrameDefault();
+	// the rows are laid out on whole units as GoldenEye's were, and the part
+	// of one the frame count is past moves them the rest of the way: stepped
+	// a unit every third frame, the roll juddered (F3 20260928-002510)
+	gexFrontTextNudgeY(-(g_Credits.frame - (f32)frame));
 	gdl = gexFrontTextSetup(gdl);
 
 	for (i = start; i < end && (g_Credits.rows[i].text1 || g_Credits.rows[i].text2); i++) {
@@ -395,6 +399,7 @@ Gfx *gecreditsRender(Gfx *gdl)
 		}
 	}
 
+	gexFrontTextNudgeY(0);
 	gDPPipeSync(gdl++);
 	gSPClearExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 

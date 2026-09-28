@@ -110,6 +110,14 @@ Gfx *gexFrontTextPrint(Gfx *gdl, s32 gothic, s32 x, s32 y, const char *text, u32
 void gexFrontTextFrame(f32 gew, f32 geh, s32 left, s32 top, s32 width, s32 height);
 void gexFrontTextFrameDefault(void);
 /**
+ * Everything drawn on the frame moved down by a fraction of one of its units
+ * until it is put back to 0: the credits' roll, whose rows stand on whole
+ * units, as GoldenEye's did, but whose frame count moves by a third of one a
+ * 60th - stepped a whole unit (three pixels and more on a 1080p window) every
+ * third frame, the roll juddered.
+ */
+void gexFrontTextNudgeY(f32 units);
+/**
  * The release's glyphs at their own proportions until the frame is next put
  * back (gexFrontTextFrameDefault()), rather than fitted across to GoldenEye's
  * widths as the menus have them. No change to GoldenEye's own font.

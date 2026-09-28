@@ -3598,6 +3598,14 @@ void gexFrontTextFrameDefault(void)
 	g_FrontFrame.natural = 0;
 }
 
+// a fraction of a GoldenEye unit every y is moved by (gexFrontTextNudgeY())
+static f32 g_FrontNudgeY;
+
+void gexFrontTextNudgeY(f32 units)
+{
+	g_FrontNudgeY = units;
+}
+
 static f32 frontScaleY(void)
 {
 	if (g_FrontFrame.set) {
@@ -3635,6 +3643,8 @@ static f32 frontX(f32 x)
 // and a GoldenEye y
 static f32 frontY(f32 y)
 {
+	y += g_FrontNudgeY;
+
 	if (g_FrontFrame.set) {
 		return g_FrontFrame.top + y * frontScaleY();
 	}
@@ -3911,12 +3921,16 @@ static Gfx *frontHdText(Gfx *gdl, const struct gefont *font, const struct gefold
 						(s32)(n / ((r - l) * sy) * 1024.0f),
 						(s32)(n / ((b - t) * sx) * 1024.0f));
 			} else {
-				gSPTextureRectangle(gdl++,
-						(s32)(frontX(l) * 4), (s32)(frontY(t) * 4),
-						(s32)(frontX(r) * 4), (s32)(frontY(b) * 4),
-						G_TX_RENDERTILE, 0, ((s32)n << 5) - 1,
-						(s32)(n / ((r - l) * sx) * 1024.0f),
-						(s32)(-n / ((b - t) * sy) * 1024.0f));
+				// cut at the window's edges, as GoldenEye's glyphs are
+				const s32 x1 = (s32)(frontX(l) * 4);
+				const s32 y1 = (s32)(frontY(t) * 4);
+				const s32 x2 = (s32)(frontX(r) * 4);
+				const s32 y2 = (s32)(frontY(b) * 4);
+				const s32 t0 = ((s32)n << 5) - 1;
+				const s32 dsdx = (s32)(n / ((r - l) * sx) * 1024.0f);
+				const s32 dtdy = (s32)(-n / ((b - t) * sy) * 1024.0f);
+
+				gSPScisTextureRectangle(gdl++, x1, y1, x2, y2, G_TX_RENDERTILE, 0, t0, dsdx, dtdy);
 			}
 		}
 
@@ -3982,13 +3996,18 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 					G_TX_RENDERTILE, 0, (cur->height - 1) << 5,
 					(s32)(1024 / sy), (s32)(-1024 / sx));
 		} else {
-			gSPTextureRectangle(gdl++,
-					(s32)(frontX(*x) * 4),
-					(s32)(frontY(*y + cur->baseline) * 4),
-					(s32)(frontX(*x + cur->width) * 4),
-					(s32)(frontY(*y + cur->baseline + cur->height) * 4),
-					G_TX_RENDERTILE, 0, 0,
-					(s32)(1024 / sx), (s32)(1024 / sy));
+			// the Scis form: a glyph running off the top of the window (the
+			// credits' roll) is cut at the edge, where the plain one's
+			// negative top wrapped round and drew a streak down the whole
+			// window
+			const s32 x1 = (s32)(frontX(*x) * 4);
+			const s32 y1 = (s32)(frontY(*y + cur->baseline) * 4);
+			const s32 x2 = (s32)(frontX(*x + cur->width) * 4);
+			const s32 y2 = (s32)(frontY(*y + cur->baseline + cur->height) * 4);
+			const s32 dsdx = (s32)(1024 / sx);
+			const s32 dtdy = (s32)(1024 / sy);
+
+			gSPScisTextureRectangle(gdl++, x1, y1, x2, y2, G_TX_RENDERTILE, 0, 0, dsdx, dtdy);
 		}
 
 		*x += cur->width;
