@@ -31,6 +31,14 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 14 2026-09-28
+Customize Character: a GoldenEye body worn with a GoldenEye head now stands on GoldenEye's own skeleton and at GoldenEye's own size from your ROM, like the mission guards, so heads sit on a proper neck (thanks dab, thanks dblaney1, thanks Parabolee)
+GE Plus: Surface II's (and Dam's) opening shots use GoldenEye's own opening fog, so the dish is no longer lost in dark red (thanks dab)
+GE Plus Cradle: Bond stays hanging under the helicopter to the end of the ending instead of drifting straight up on his own (thanks dab)
+GoldenEye HD look: Caverns' water ripples and drifts like GoldenEye's, and Dam's HD reservoir drifts GoldenEye's way (thanks dab)
+Mods: Camera no longer turns the screen black in missions, and the pages you turn to afterwards no longer sit on a black background (thanks Parabolee)
+Mods: turning the pages quickly past Mods: Camera no longer unpauses the game or lets the controls move you behind the menu (thanks Parabolee)
+
 notes 13 2026-09-28
 GoldenEye heads on GoldenEye bodies sit on a proper neck instead of sinking into the collar (thanks dab, thanks dblaney1)
 Valentin's head no longer grows a bump on top and sits at the right height on every body (thanks Parabolee)
