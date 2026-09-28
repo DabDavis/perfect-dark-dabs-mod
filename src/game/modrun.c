@@ -5,6 +5,7 @@
 #include "game/bondgun.h"
 #include "game/chr.h"
 #include "game/chraction.h"
+#include "game/dlights.h"
 #include "game/hudmsg.h"
 #include "game/inv.h"
 #include "game/lang.h"
@@ -42,6 +43,7 @@
 #include "math.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #ifndef PLATFORM_N64
 extern void sysLogPrintf(s32 level, const char *fmt, ...);
@@ -173,6 +175,18 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 // of them shut, which is a smaller area rather than a broken one.
 #define MODRUN_MAXZONE 32
 
+// A Large room's cap: two doors deep is most of a small map, so it stops at
+// this many rooms and at a third of the map's.
+#define MODRUN_LARGEZONE 12
+
+// The rooms around a sealed room a guard may start in, at most this many
+// doors out from it, to walk in (Guards Walk In).
+#define MODRUN_MAXRING   48
+#define MODRUN_RINGDEPTH 2
+
+// Rooms the tint can mark; a stage with more leaves the rest untinted.
+#define MODRUN_MAXTINTROOMS 2048
+
 // How near a guard may be dealt into a sealed room. The alarm's own eight
 // metres is most of a zone, so it is relaxed here; four is still not on top of
 // the player, and a spawn in view is refused whatever this says.
@@ -290,6 +304,19 @@ static bool g_ModRunSealLogged; // whether this room's seal has been logged once
 // the landing room asks about now.
 static RoomNum g_ModRunZone[MODRUN_MAXZONE];
 static s32 g_ModRunNumZone;
+
+// Around it: the rooms a guard may start in to walk in through its doors
+// (Guards Walk In), and the waygroups from which a route reaches the zone.
+static RoomNum g_ModRunRing[MODRUN_MAXRING];
+static s32 g_ModRunNumRing;
+static u8 *g_ModRunReachGroups; // one byte per waygroup, 1 when a route reaches the zone
+static s32 g_ModRunNumGroups;
+
+// Tint Outside the Room: which rooms the run put a highlight on, and how far
+// the tint has faded in.
+static u8 g_ModRunTinted[MODRUN_MAXTINTROOMS / 8];
+static bool g_ModRunTinting;
+static f32 g_ModRunTintFrac;
 
 /**
  * What the player is carrying between rooms.
@@ -1070,6 +1097,9 @@ void modRunRoll(void)
 	g_ModRunObjective.done = false;
 	g_ModRunLandTry = 0;
 	g_ModRunLandWait = 0;
+	g_ModRunTinting = false;
+	g_ModRunNumRing = 0;
+	memset(g_ModRunTinted, 0, sizeof(g_ModRunTinted));
 
 	// A landing's guards are one kind of thing, chosen with the room.
 	modRunOpen(MODRUN_STREAM_BODY, g_ModRunHop);
@@ -1787,6 +1817,55 @@ static void modRunOpenExits(void)
 }
 
 /**
+ * The rooms a walk over portals from the first `num` of `rooms` reaches in at
+ * most `depth` doors, not counting what is already in `rooms`, appended to it up to `max`.
+ * Breadth first, so a cap keeps the nearest rooms.
+ */
+static s32 modRunWalkRooms(RoomNum *rooms, s32 num, s32 max, s32 depth, bool (*skip)(s32 room))
+{
+	s32 start = 0;
+	s32 d;
+
+	for (d = 0; d < depth && num < max; d++) {
+		const s32 end = num;
+		s32 r;
+
+		for (r = start; r < end && num < max; r++) {
+			const struct room *room = &g_Rooms[rooms[r]];
+			s32 i;
+
+			for (i = 0; i < room->numportals && num < max; i++) {
+				const s32 portalnum = g_RoomPortals[room->roomportallistoffset + i];
+				const struct bgportal *portal = &g_BgPortals[portalnum];
+				const s32 other = portal->roomnum1 == rooms[r] ? portal->roomnum2 : portal->roomnum1;
+				s32 k;
+
+				// Room 0 is not a room the run lands in and not one it seals into.
+				if (other <= 0 || other >= g_Vars.roomcount || (skip && skip(other))) {
+					continue;
+				}
+
+				for (k = 0; k < num; k++) {
+					if (rooms[k] == other) {
+						break;
+					}
+				}
+
+				if (k == num) {
+					rooms[num++] = other;
+				}
+			}
+		}
+
+		start = end;
+	}
+
+	return num;
+}
+
+static void modRunBuildRing(void);
+
+/**
  * What the seal shuts the player into: the landing room and the rooms touching
  * it.
  *
@@ -1798,9 +1877,11 @@ static void modRunOpenExits(void)
  * a mission's worth of level.
  *
  * The far side of a *portal*, not of a walk: a room that merely overlaps the
- * landing room in a prop's rooms[] with no door between them is not in it. And
- * one door deep on purpose - two is most of a small map, and the helping of
- * level either side of a hop is the whole point of paying for the load.
+ * landing room in a prop's rooms[] with no door between them is not in it. One
+ * door deep is Room Size's Normal; Large (the default since the tester asked
+ * for bigger rooms, 2026-09-28) is two doors deep, capped at MODRUN_LARGEZONE
+ * rooms and a third of the map's, since two doors is most of a small map and
+ * the helping of level either side of a hop is what pays for the load.
  *
  * Built at the landing rather than at the roll, because the landing is the
  * only point that knows where the player actually stands: a stage with no
@@ -1820,6 +1901,7 @@ static void modRunBuildZone(void)
 	s32 i;
 
 	g_ModRunNumZone = 0;
+	g_ModRunNumRing = 0;
 
 	if (g_ModRunLandRoom < 0) {
 		return;
@@ -1832,32 +1914,39 @@ static void modRunBuildZone(void)
 		return;
 	}
 
-	{
-		const struct room *room = &g_Rooms[g_ModRunLandRoom];
+	// Large (tester 2026-09-28, "bigger rooms"): two doors deep, capped so a
+	// small map is not all one room. A zone with no door out of it cannot be
+	// left once it is won, so a Large one that has none is built again one
+	// door deep, and that again as the landing room alone.
+	if (modGetRunRoomSize() == MODRUN_ROOMS_LARGE) {
+		s32 cap = g_Vars.roomcount / 3;
 
-		for (i = 0; i < room->numportals && g_ModRunNumZone < MODRUN_MAXZONE; i++) {
-			const s32 portalnum = g_RoomPortals[room->roomportallistoffset + i];
-			const struct bgportal *portal = &g_BgPortals[portalnum];
-			const s32 other = portal->roomnum1 == g_ModRunLandRoom
-				? portal->roomnum2
-				: portal->roomnum1;
+		if (cap > MODRUN_LARGEZONE) {
+			cap = MODRUN_LARGEZONE;
+		}
 
-			// Room 0 is not a room the run lands in and not one it seals into.
-			if (other <= 0 || other >= g_Vars.roomcount || modRunZoneHas(other)) {
-				continue;
+		if (cap > 4) {
+			g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, cap, 2, NULL);
+
+			if (modRunZoneExitPortal(NULL) < 0) {
+				g_ModRunNumZone = 1;
 			}
-
-			g_ModRunZone[g_ModRunNumZone++] = other;
 		}
 	}
 
-	if (modRunZoneExitPortal(NULL) < 0) {
-		g_ModRunNumZone = 1;
+	if (g_ModRunNumZone == 1) {
+		g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, MODRUN_MAXZONE, 1, NULL);
+
+		if (modRunZoneExitPortal(NULL) < 0) {
+			g_ModRunNumZone = 1;
+		}
 	}
+
+	modRunBuildRing();
 
 #ifndef PLATFORM_N64
 	{
-		char rooms[128];
+		char rooms[160];
 		s32 len = 0;
 
 		rooms[0] = '\0';
@@ -1866,10 +1955,205 @@ static void modRunBuildZone(void)
 			len += sprintf(rooms + len, i == 0 ? "%d" : " %d", g_ModRunZone[i]);
 		}
 
-		sysLogPrintf(0, "run: sealing %d room(s) on stage 0x%02x - %s",
-				g_ModRunNumZone, g_ModRunStage, rooms);
+		sysLogPrintf(0, "run: sealing %d room(s) on stage 0x%02x - %s; %d room(s) around it to walk in from",
+				g_ModRunNumZone, g_ModRunStage, rooms, g_ModRunNumRing);
 	}
 #endif
+}
+
+/**
+ * The rooms around the zone a guard may start in and walk in from, and which
+ * waygroups have a route into the zone at all.
+ *
+ * Guards Walk In (tester 2026-09-28: "enemies spawn outside the room and walk
+ * in, not in front of or behind the player"). Up to MODRUN_RINGDEPTH doors out
+ * of the zone. A guard is only started on a waypoint whose group reaches one
+ * of the zone's own: a room behind a lift or across a gap the waypoint graph
+ * does not join would put a guard where it can never arrive, which is what
+ * sealing guards into the zone was first built to avoid.
+ */
+static void modRunBuildRing(void)
+{
+	RoomNum rooms[MODRUN_MAXZONE + MODRUN_MAXRING];
+	struct waygroup *groups = g_StageSetup.waygroups;
+	struct waypoint *waypoints = g_StageSetup.waypoints;
+	s32 *queue;
+	s32 head = 0;
+	s32 tail = 0;
+	s32 num;
+	s32 i;
+
+	g_ModRunNumRing = 0;
+	g_ModRunNumGroups = 0;
+
+	if (g_ModRunReachGroups) {
+		free(g_ModRunReachGroups);
+		g_ModRunReachGroups = NULL;
+	}
+
+	if (!modIsRunWalkInOn() || groups == NULL || waypoints == NULL || waypoints[0].padnum < 0) {
+		return;
+	}
+
+	for (i = 0; i < g_ModRunNumZone; i++) {
+		rooms[i] = g_ModRunZone[i];
+	}
+
+	num = modRunWalkRooms(rooms, g_ModRunNumZone, g_ModRunNumZone + MODRUN_MAXRING, MODRUN_RINGDEPTH, NULL);
+
+	for (i = g_ModRunNumZone; i < num; i++) {
+		g_ModRunRing[g_ModRunNumRing++] = rooms[i];
+	}
+
+	while (groups[g_ModRunNumGroups].neighbours != NULL) {
+		g_ModRunNumGroups++;
+	}
+
+	if (g_ModRunNumGroups <= 0) {
+		g_ModRunNumRing = 0;
+		return;
+	}
+
+	g_ModRunReachGroups = calloc(g_ModRunNumGroups, 1);
+	queue = malloc(g_ModRunNumGroups * sizeof(*queue));
+
+	if (g_ModRunReachGroups == NULL || queue == NULL) {
+		free(queue);
+		free(g_ModRunReachGroups);
+		g_ModRunReachGroups = NULL;
+		g_ModRunNumRing = 0;
+		return;
+	}
+
+	// The zone's own groups, then everything their links reach
+	for (i = 0; waypoints[i].padnum >= 0; i++) {
+		const s32 group = waypoints[i].groupnum;
+
+		if (group >= 0 && group < g_ModRunNumGroups && !g_ModRunReachGroups[group]
+				&& modRunZoneHas(modRunPadRoom(waypoints[i].padnum))) {
+			g_ModRunReachGroups[group] = 1;
+			queue[tail++] = group;
+		}
+	}
+
+	while (head < tail) {
+		const s32 *nb = groups[queue[head++]].neighbours;
+
+		for (i = 0; nb[i] >= 0; i++) {
+			if (nb[i] < g_ModRunNumGroups && !g_ModRunReachGroups[nb[i]]) {
+				g_ModRunReachGroups[nb[i]] = 1;
+				queue[tail++] = nb[i];
+			}
+		}
+	}
+
+	free(queue);
+}
+
+/**
+ * Tint Outside the Room: every room outside the seal is coloured the way King
+ * of the Hill colours its hill, and the colour fades out when the room is won
+ * (tester 2026-09-28). The rooms take the game's own LIGHTOP_HIGHLIGHT, which
+ * is how the hill does it, so walls, floors and the props standing in them are
+ * all coloured by the machinery that colours the hill; a room the stage's
+ * script has a light operation running on is left alone.
+ */
+static void modRunTintStart(void)
+{
+	s32 room;
+
+	memset(g_ModRunTinted, 0, sizeof(g_ModRunTinted));
+	g_ModRunTinting = false;
+	g_ModRunTintFrac = 0.0f;
+
+	if (!modIsRunTintOn() || g_Rooms == NULL || g_ModRunNumZone <= 0) {
+		return;
+	}
+
+	for (room = 1; room < g_Vars.roomcount && room < MODRUN_MAXTINTROOMS; room++) {
+		if (modRunZoneHas(room) || g_Rooms[room].lightop != LIGHTOP_NONE) {
+			continue;
+		}
+
+		roomSetLightOp(room, LIGHTOP_HIGHLIGHT, 0, 0, 0);
+		g_ModRunTinted[room >> 3] |= 1 << (room & 7);
+	}
+
+	g_ModRunTinting = true;
+}
+
+static bool modRunRoomIsTinted(s32 room)
+{
+	return room > 0 && room < MODRUN_MAXTINTROOMS && (g_ModRunTinted[room >> 3] & (1 << (room & 7)));
+}
+
+/**
+ * Fade the tint in while the room is sealed and out once it is not; the
+ * rooms go back to no light operation when it has gone.
+ */
+static void modRunTintTick(void)
+{
+	const bool want = modRunIsSealed() && modIsRunTintOn();
+	const f32 step = g_Vars.lvupdate60freal / 30.0f;
+	s32 room;
+
+	if (!g_ModRunTinting) {
+		return;
+	}
+
+	if (want) {
+		g_ModRunTintFrac += step;
+
+		if (g_ModRunTintFrac > 1.0f) {
+			g_ModRunTintFrac = 1.0f;
+		}
+
+		return;
+	}
+
+	g_ModRunTintFrac -= step;
+
+	if (g_ModRunTintFrac > 0.0f) {
+		return;
+	}
+
+	g_ModRunTintFrac = 0.0f;
+
+	for (room = 1; room < g_Vars.roomcount && room < MODRUN_MAXTINTROOMS; room++) {
+		if (modRunRoomIsTinted(room) && g_Rooms[room].lightop == LIGHTOP_HIGHLIGHT) {
+			roomSetLightOp(room, LIGHTOP_NONE, 0, 0, 0);
+			g_Rooms[room].flags |= ROOMFLAG_LIGHTS_DIRTY;
+		}
+	}
+
+	memset(g_ModRunTinted, 0, sizeof(g_ModRunTinted));
+	g_ModRunTinting = false;
+}
+
+/**
+ * From scenarioHighlightRoom(): true when the run answers for the room's
+ * colour, which is whenever a run is on - a solo level has no scenario, and
+ * the Combat Simulator's last one must not colour a run's rooms.
+ */
+bool modRunHighlightRoom(s32 room, s32 *r, s32 *g, s32 *b)
+{
+	extern f32 g_ModKohHillColour[3];
+
+	if (!modRunIsOn() || g_Vars.normmplayerisrunning) {
+		return false;
+	}
+
+	if (g_ModRunTinting && g_ModRunTintFrac > 0.0f && modRunRoomIsTinted(room)) {
+		const f32 fr = 1.0f + (g_ModKohHillColour[0] - 1.0f) * g_ModRunTintFrac;
+		const f32 fg = 1.0f + (g_ModKohHillColour[1] - 1.0f) * g_ModRunTintFrac;
+		const f32 fb = 1.0f + (g_ModKohHillColour[2] - 1.0f) * g_ModRunTintFrac;
+
+		*r = (s32)(*r * fr);
+		*g = (s32)(*g * fg);
+		*b = (s32)(*b * fb);
+	}
+
+	return true;
 }
 
 /**
@@ -1921,6 +2205,34 @@ bool modRunGuardsWantZone(void)
 bool modRunGuardRoomOk(s32 room)
 {
 	return modRunZoneHas(room);
+}
+
+/**
+ * Guards Walk In: while a room is sealed, whether its guards are started in
+ * the rooms around it (modRunBuildRing()) and whether a waypoint is one of
+ * those - in a ring room, in a waygroup with a route into the zone.
+ */
+bool modRunGuardsWalkIn(void)
+{
+	return modRunIsSealed() && modIsRunWalkInOn() && g_ModRunNumRing > 0 && g_ModRunReachGroups != NULL;
+}
+
+bool modRunGuardRingOk(s32 room, s32 groupnum)
+{
+	s32 i;
+
+	if (groupnum < 0 || groupnum >= g_ModRunNumGroups || g_ModRunReachGroups == NULL
+			|| !g_ModRunReachGroups[groupnum]) {
+		return false;
+	}
+
+	for (i = 0; i < g_ModRunNumRing; i++) {
+		if (g_ModRunRing[i] == room) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 f32 modRunGuardMinDist(void)
@@ -2396,6 +2708,15 @@ void modRunTick(void)
 		// knows where the player actually stands - see modRunBuildZone().
 		modRunBuildZone();
 
+		// Guards walking in need the doors in: the zone's way out loses its
+		// keys now rather than when the room is won. The seal is what keeps
+		// the player in, and it does not care whether a door is locked.
+		if (g_ModRunNumRing > 0) {
+			modRunOpenExits();
+		}
+
+		modRunTintStart();
+
 		g_ModRunObjective.progress = g_ModRunObjective.kind == MODRUN_OBJ_KILL
 			? (g_Vars.currentplayerstats ? g_Vars.currentplayerstats->killcount : 0)
 			: g_Vars.lvframe60;
@@ -2429,6 +2750,7 @@ void modRunTick(void)
 	}
 
 	modRunTickObjective();
+	modRunTintTick();
 
 #ifndef PLATFORM_N64
 	// --run-autohop N: take the portal after N frames in the room, without

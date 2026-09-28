@@ -17,6 +17,10 @@
 #define MODRUN_POOL_ALL  2 // and every map a mod brought with it
 #define MODRUN_POOL_MAX  MODRUN_POOL_ALL
 
+// How far a sealed room reaches past the room landed in, in doors.
+#define MODRUN_ROOMS_NORMAL 0 // the landing room and the rooms one door away
+#define MODRUN_ROOMS_LARGE  1 // and the rooms two doors away
+
 // What a room can ask for. One per kind of thing the run can check itself,
 // because the stage's own objectives are written for a mission and this is
 // one room of one.
@@ -71,6 +75,9 @@ s32 modRunGetGuardSpeed(void);
 // never happens: modalarm.c deals into the zone first while one is sealed.
 bool modRunGuardsWantZone(void);
 bool modRunGuardRoomOk(s32 room);
+bool modRunGuardsWalkIn(void);
+bool modRunGuardRingOk(s32 room, s32 groupnum);
+bool modRunHighlightRoom(s32 room, s32 *r, s32 *g, s32 *b);
 f32 modRunGuardMinDist(void);
 
 s32 modRunGetScore(void);
