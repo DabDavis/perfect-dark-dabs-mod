@@ -354,6 +354,54 @@ static s32 modAlarmCountWaypoints(void)
 #define MODALARM_PADLINKS    10    // links sought per pad when building a graph
 #define MODALARM_PADLINKDIST 2500.0f // and no longer than this
 #define MODALARM_PADCANDS    32    // nearest candidates tested per pad
+#define MODALARM_NEARROOMS   64    // rooms a pad may link into, -1 ended
+#define MODALARM_MATCHHOPS   3     // portals crossed to them in a match
+
+/**
+ * The rooms up to MODALARM_MATCHHOPS portals from a room, not counting it,
+ * ended by -1: how far a match's pad graph looks for a pad to link to.
+ * GoldenEye cut its levels into many small rooms (Library's 92 hold 84 pads),
+ * so pads a room or two apart down a clear corridor were never linked when
+ * only the rooms beside a pad's own were looked in - Library came out as 18
+ * pieces. The line and cylinder tests still decide every link.
+ */
+static void modAlarmRoomsWithinHops(RoomNum room, RoomNum *dst)
+{
+	RoomNum ring[MODALARM_NEARROOMS];
+	s32 count = 0;
+	s32 start = 0;
+	s32 hop;
+	s32 i;
+	s32 j;
+	s32 k;
+
+	dst[0] = -1;
+
+	for (hop = 0; hop < MODALARM_MATCHHOPS; hop++) {
+		const s32 end = count;
+
+		for (i = hop == 0 ? -1 : start; i < end; i++) {
+			RoomNum from = i < 0 ? room : dst[i];
+			s32 num = bgRoomGetNeighbours(from, ring, MODALARM_NEARROOMS - 1);
+
+			for (j = 0; j < num && count < MODALARM_NEARROOMS - 1; j++) {
+				bool seen = ring[j] == room;
+
+				for (k = 0; !seen && k < count; k++) {
+					seen = dst[k] == ring[j];
+				}
+
+				if (!seen) {
+					dst[count++] = ring[j];
+				}
+			}
+		}
+
+		start = end;
+	}
+
+	dst[count] = -1;
+}
 
 /**
  * A waypoint graph for a stage that came without one.
@@ -368,7 +416,9 @@ static s32 modAlarmCountWaypoints(void)
  * Temple). The run's landing is a waypoint too, which is why every one of
  * those hops logged "land pad -1".
  *
- * So during a Randomizer run, a stage with no waypoints gets them from its pads,
+ * So during a Randomizer run, and in a match with simulants (who stood still
+ * on such a stage, having no route anywhere), a stage with no waypoints gets
+ * them from its pads,
  * after setupPreparePads() has put each pad in its room and before
  * setupLoadWaypoints() files the waypoints by room:
  *
@@ -398,7 +448,8 @@ void modAlarmBuildPadWaypoints(void)
 	s16 *spots;
 	struct coord *pos;
 	RoomNum (*rooms)[2];
-	RoomNum (*near)[12];
+	RoomNum (*near)[MODALARM_NEARROOMS];
+	const bool wide = !modRunIsOn();
 	u8 *adj;
 	s32 *deg;
 	s32 *group;
@@ -412,9 +463,12 @@ void modAlarmBuildPadWaypoints(void)
 	s32 grpos;
 	u64 started;
 
-	// Only for a Randomizer run's landings and guards: a Guards Alerted
-	// match or mission on the same map plays exactly as it did before.
-	if (!modRunIsOn() || g_PadsFile == NULL || g_StageSetup.padfiledata == NULL) {
+	// For a Randomizer run's landings and guards, and for a match's
+	// simulants, who route between waypoints and with none stood where they
+	// spawned all match (F3 20260928-131305, GoldenEye Arenas' Library). A
+	// mission on the same map plays exactly as it did before.
+	if (!(modRunIsOn() || (g_Vars.normmplayerisrunning && mpHasSimulants()))
+			|| g_PadsFile == NULL || g_StageSetup.padfiledata == NULL) {
 		return;
 	}
 
@@ -450,7 +504,11 @@ void modAlarmBuildPadWaypoints(void)
 			pos[n] = pad.pos;
 			rooms[n][0] = pad.room;
 			rooms[n][1] = -1;
-			bgRoomGetNeighbours(pad.room, near[n], 10);
+			if (wide) {
+				modAlarmRoomsWithinHops(pad.room, near[n]);
+			} else {
+				bgRoomGetNeighbours(pad.room, near[n], 10);
+			}
 			n++;
 		}
 	}
@@ -484,7 +542,7 @@ void modAlarmBuildPadWaypoints(void)
 				continue;
 			}
 
-			for (k = 0; !neighbour && near[i][k] != -1 && k < 10; k++) {
+			for (k = 0; !neighbour && k < MODALARM_NEARROOMS && near[i][k] != -1; k++) {
 				neighbour = near[i][k] == rooms[j][0];
 			}
 
