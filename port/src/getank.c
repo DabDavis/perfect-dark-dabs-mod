@@ -77,6 +77,7 @@
 #include "getank.h"
 #include "gexplusveh.h"
 #include "modloader.h"
+#include "romdata.h"
 
 #define TANK_MAX_SPEED      15.0f
 #define TANK_TURN_FILTER    0.92f
@@ -1739,5 +1740,45 @@ void geTankUpdateModel(struct prop *prop)
 		if (off && (off->type & 0xff) == MODELNODETYPE_TOGGLE) {
 			((union modelrwdata *)modelGetNodeRwData(model, off))->toggle.visible = false;
 		}
+	}
+}
+
+/**
+ * GoldenEye's tank model standing as a plain object - the GoldenEye Arenas
+ * mod's Runway places it that way (OBJTYPE_BASIC, not OBJTYPE_TANK), so
+ * nothing above ever touches it. Its switch 8 is a flash of the cannon's that
+ * GoldenEye turns off every time it draws a tank; left at the model's default
+ * of on, it hung lit on the barrel's end for the whole match, in both looks
+ * (F3 20260928-165218, "a permanent effect of shooting"). Off, and the
+ * muzzle's own flash (switch 7) stays as the model starts it: off.
+ */
+void geTankUpdateParkedModel(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
+	struct model *model = obj->model;
+	struct modelnode *flash;
+	struct modelnode *off;
+	const char *name;
+
+	if (!model || !model->definition || model->definition->numparts <= TANK_PART_OFF) {
+		return;
+	}
+
+	flash = modelGetPart(model->definition, TANK_PART_FLASH);
+	off = modelGetPart(model->definition, TANK_PART_OFF);
+
+	if (!flash || (flash->type & 0xff) != MODELNODETYPE_CHRGUNFIRE
+			|| !off || (off->type & 0xff) != MODELNODETYPE_TOGGLE) {
+		return;
+	}
+
+	if (obj->modelnum < 0 || obj->modelnum >= NUM_MODELS) {
+		return;
+	}
+
+	name = romdataFileGetName(g_ModelStates[obj->modelnum].fileid);
+
+	if (name && strcmp(name, "Pgx288Z") == 0) {
+		((union modelrwdata *)modelGetNodeRwData(model, off))->toggle.visible = false;
 	}
 }
