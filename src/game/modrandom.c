@@ -119,6 +119,13 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * before a start or a landing is put on it - modRandomPadSpawnPos() - which
  * moves the start on any stage whose pads include one that is not. v1 and v2
  * runs keep taking the pad on trust, out of bounds and all.
+ *
+ * Version 4 is two things a run's landing learnt. A landing in a room with no
+ * light at all - Deep Sea's rooms 86, 87 and 89 have black vertex colours and
+ * no lights - is dealt again on another pad (modrun.c, modRunRoomIsDark()),
+ * and a map with no waypoints of its own lowers a pad that floats high over
+ * its floor onto it before the pad graph is built (modRandomPadSettle()),
+ * which changes which of its pads a landing may be dealt on.
  */
 #define MODRANDOM_VERSION MODRANDOM_VERSION_DEFAULT
 
@@ -161,6 +168,7 @@ struct modrandomintrocmd {
 // (chrAdjustPosForSpawn()).
 #define MODRANDOM_SPAWNLIFT      10.0f
 #define MODRANDOM_SPAWNDROP      400.0f
+#define MODRANDOM_SETTLEHEIGHT   50.0f
 #define MODRANDOM_NOGROUND       (-100000.0f)
 
 static u32 g_ModRandomSeed;    // the run's, as the player sees it
@@ -580,6 +588,58 @@ bool modRandomPadCanSpawn(s32 padnum)
 	if (cdTestVolume(&pad.pos, 20, rooms, CDTYPE_ALL, CHECKVERTICAL_YES, 200, -200) == CDRESULT_COLLISION) {
 		return false;
 	}
+
+	return true;
+}
+
+/**
+ * Lowers a pad that floats high over its own room's floor onto that floor.
+ *
+ * GoldenEye Arenas' Complex puts all 49 of its pads between 622 and 841 units
+ * up, over floors at 0 and 281 - a GoldenEye multiplayer pad is a spot on the
+ * map rather than a height - so modRandomPadCanSpawn() read 33 of them as
+ * pads over a drop and the run's pad graph (modAlarmBuildPadWaypoints()) was
+ * sixteen waypoints in eleven pieces: guards appeared twenty metres away and
+ * never came (F3 20260928-041926). The floor must be the pad's own room's,
+ * found straight below it, and it must not kill - a pad over a pit in another
+ * room is left where it is.
+ *
+ * Writes the stage's copy of the pads file, so only the run's builder calls
+ * it, and only on a map that came with no waypoints of its own.
+ */
+bool modRandomPadSettle(s32 padnum)
+{
+	struct pad pad;
+	struct coord query;
+	RoomNum rooms[2];
+	RoomNum floorroom = -1;
+	u16 floorflags = 0;
+	f32 ground;
+
+	if (padnum < 0 || g_PadsFile == NULL || padnum >= g_PadsFile->numpads) {
+		return false;
+	}
+
+	padUnpack(padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+	if (pad.room <= 0 || pad.room >= g_Vars.roomcount) {
+		return false;
+	}
+
+	rooms[0] = pad.room;
+	rooms[1] = -1;
+
+	query = pad.pos;
+	query.y += MODRANDOM_SPAWNLIFT;
+
+	ground = cdFindGroundInfoAtCyl(&query, 30, rooms, NULL, NULL, &floorflags, &floorroom, NULL, NULL);
+
+	if (floorroom != pad.room || ground < MODRANDOM_NOGROUND || (floorflags & GEOFLAG_DIE)
+			|| pad.pos.y - ground <= MODRANDOM_SPAWNDROP) {
+		return false;
+	}
+
+	padSetPosY(padnum, ground + MODRANDOM_SETTLEHEIGHT);
 
 	return true;
 }

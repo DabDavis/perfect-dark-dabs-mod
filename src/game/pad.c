@@ -361,6 +361,32 @@ void padUnsetFlag(s32 padnum, u32 flag)
 	*header = *header ^ ((*header >> 14) ^ ((*header >> 14) & ~flag)) << 14;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Moves a pad up or down in place, in the stage's own copy of the pads file.
+ * For the Randomizer's run on a map whose pads float above their floors
+ * (modRandomPadSettle()).
+ */
+void padSetPosY(s32 padnum, f32 y)
+{
+	u32 offset;
+	u32 *header;
+
+	if (!padIsInFile(padnum)) {
+		return;
+	}
+
+	offset = g_PadOffsets[padnum];
+	header = (u32 *)&g_StageSetup.padfiledata[offset];
+
+	if ((*header >> 14) & PADFLAG_INTPOS) {
+		((s16 *)(header + 1))[1] = (s16)y;
+	} else {
+		((f32 *)(header + 1))[1] = y;
+	}
+}
+#endif
+
 bool func0f1162c4(s32 padnum, s32 arg1)
 {
 	return padnum;

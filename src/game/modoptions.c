@@ -69,6 +69,9 @@ struct modoptions g_ModOptions = {
 	MODRUN_POOL_ALL,          // runpool: every map the build can load, which is the point of a run
 	DIFF_A,                   // rundifficulty: Agent, since a run is long and its rooms are cold
 	true,                     // runseal: the rule of the mode, not a preference; off is the old free-roaming score
+	MODRUN_ROOMS_LARGE,       // runroomsize: tester 2026-09-28, "bigger rooms"; Normal is the one-door zone
+	true,                     // runtint: the same request - where the player may not go is shown
+	true,                     // runwalkin: and the guards come in through the doors, not behind the player
 	0,                        // runbestscore: nothing survived yet
 	0,                        // runbestrooms
 	false,                    // smoothtext: the ROM's glyphs, like the rest of the text
@@ -804,6 +807,41 @@ s32 modGetRunDifficulty(void)
 bool modIsRunSealOn(void)
 {
 	return g_ModOptions.runseal != 0;
+}
+
+/**
+ * How much of the level a sealed room is: the landing room and the rooms one
+ * door away (Normal), or two doors (Large). See modRunBuildZone().
+ */
+s32 modGetRunRoomSize(void)
+{
+	if (g_ModOptions.runroomsize < MODRUN_ROOMS_NORMAL) {
+		return MODRUN_ROOMS_NORMAL;
+	}
+
+	if (g_ModOptions.runroomsize > MODRUN_ROOMS_LARGE) {
+		return MODRUN_ROOMS_LARGE;
+	}
+
+	return g_ModOptions.runroomsize;
+}
+
+/**
+ * Tint Outside the Room: the rooms a sealed room shuts the player out of
+ * are coloured the way King of the Hill colours its hill.
+ */
+bool modIsRunTintOn(void)
+{
+	return g_ModOptions.runtint != 0;
+}
+
+/**
+ * Guards Walk In: a sealed room's guards start in the rooms around it and
+ * come in through its doors, rather than appearing inside it.
+ */
+bool modIsRunWalkInOn(void)
+{
+	return g_ModOptions.runwalkin != 0;
 }
 
 bool modIsMissionRespawnOn(void)

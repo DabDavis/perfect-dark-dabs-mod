@@ -179,6 +179,56 @@ static MenuItemHandlerResult menuhandlerRunSeal(s32 operation, struct menuitem *
 }
 
 /**
+ * Room Size: how much of the level a sealed room is - the landing room and
+ * the rooms one door away, or two.
+ */
+static MenuItemHandlerResult menuhandlerRunRoomSize(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Normal", "Large" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		g_ModOptions.runroomsize = data->dropdown.value;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = modGetRunRoomSize();
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerRunTint(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.runtint;
+	case MENUOP_SET:
+		g_ModOptions.runtint = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerRunWalkIn(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.runwalkin;
+	case MENUOP_SET:
+		g_ModOptions.runwalkin = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * The seed: the run, or a fresh one every time.
  *
  * There is nowhere in this menu to type a number, and a seed is not a thing
@@ -297,6 +347,30 @@ struct menuitem g_RandomOptionsMenuItems[] = {
 		(uintptr_t)"Seal Rooms Until Done",
 		0,
 		menuhandlerRunSeal,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Room Size",
+		0,
+		menuhandlerRunRoomSize,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Tint Outside the Room",
+		0,
+		menuhandlerRunTint,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Guards Walk In",
+		0,
+		menuhandlerRunWalkIn,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

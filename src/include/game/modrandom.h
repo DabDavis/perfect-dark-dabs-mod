@@ -6,7 +6,7 @@
 
 // The generator this build deals with; a run's own version lives in
 // g_ModOptions.randomversion and may be older. See modrandom.c.
-#define MODRANDOM_VERSION_DEFAULT 3
+#define MODRANDOM_VERSION_DEFAULT 4
 
 void modRandomArmMission(void);
 void modRandomDisarmMission(void);
@@ -27,6 +27,7 @@ bool modRandomTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle);
 // modrandom.c.
 bool modRandomPadSpawnPos(s32 padnum, struct coord *pos, RoomNum *room);
 bool modRandomPadCanSpawn(s32 padnum);
+bool modRandomPadSettle(s32 padnum);
 void modRandomInsertObjectives(void);
 char *modRandomGetObjectiveText(s32 index);
 

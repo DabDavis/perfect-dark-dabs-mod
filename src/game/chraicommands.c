@@ -5337,7 +5337,19 @@ bool aiRevokeControl(void)
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
 	struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
-	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
+	// A Randomizer run keeps the player's control whatever the stage's script
+	// asks. A mission takes it away for its ending - G5 Building's exit
+	// catwalk, Chicago, Villa, Rescue, Escape, the Duel - and gives it back
+	// only by ending the level, which a run never lets a script do
+	// (aiEndLevel()): the player was left frozen in the doorway with the
+	// guards still shooting until a menu opened and closed (F3 20260928-034505).
+	// A forced walk does not need it taken - the autowalk tick mode drives the
+	// player on its own - and the run skips a cutscene the moment it may.
+	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER
+#ifndef PLATFORM_N64
+			&& !modRunIsOn()
+#endif
+			) {
 		u32 prevplayernum = g_Vars.currentplayernum;
 		u32 playernum = playermgrGetPlayerNumByProp(chr->prop);
 		setCurrentPlayerNum(playernum);

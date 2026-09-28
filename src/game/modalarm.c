@@ -392,6 +392,7 @@ void modAlarmBuildPadWaypoints(void)
 	s32 i;
 	s32 j;
 	s32 numlinks = 0;
+	s32 numsettled = 0;
 	s32 numgroups = 0;
 	s32 largest = 0;
 	s16 *spots;
@@ -435,6 +436,12 @@ void modAlarmBuildPadWaypoints(void)
 
 	for (i = 0; i < numpads; i++) {
 		struct pad pad;
+
+		// A pad floating high over its floor (all of Complex's) is lowered
+		// onto it first, or the drop rule refuses it
+		if (modRandomGetVersion() >= 4 && modRandomPadSettle(i)) {
+			numsettled++;
+		}
 
 		padUnpack(i, PADFIELD_POS | PADFIELD_ROOM, &pad);
 
@@ -617,8 +624,8 @@ void modAlarmBuildPadWaypoints(void)
 		g_StageSetup.waypoints = waypoints;
 		g_StageSetup.waygroups = groups;
 
-		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads, %d links, %d groups (largest %d), in %d ms",
-				g_Vars.stagenum, n, numpads, numlinks, numgroups, largest,
+		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads (%d lowered onto their floors), %d links, %d groups (largest %d), in %d ms",
+				g_Vars.stagenum, n, numpads, numsettled, numlinks, numgroups, largest,
 				(s32)((sysGetMicroseconds() - started) / 1000));
 	}
 
@@ -1000,7 +1007,7 @@ static s32 modAlarmArm(struct chrdata *chr, s32 playernum)
  * version of this did. See modrun.c on why a run's guards have to be dealt
  * into the room rather than walked to it.
  */
-static struct waypoint *modAlarmFindZoneWaypoint(void)
+static struct waypoint *modAlarmFindZoneWaypoint(bool ring)
 {
 	struct waypoint *chosen = NULL;
 	s32 count = 0;
@@ -1013,7 +1020,7 @@ static struct waypoint *modAlarmFindZoneWaypoint(void)
 
 		padUnpack(waypoint->padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
 
-		if (!modRunGuardRoomOk(pad.room)) {
+		if (ring ? !modRunGuardRingOk(pad.room, waypoint->groupnum) : !modRunGuardRoomOk(pad.room)) {
 			continue;
 		}
 
@@ -1046,7 +1053,9 @@ static struct waypoint *modAlarmFindZoneWaypoint(void)
  */
 static bool modAlarmSpawnOne(s32 bodynum)
 {
-	bool zonefirst = modRunGuardsWantZone();
+	// 0 the rooms around a sealed room, to walk in from (Guards Walk In);
+	// 1 the sealed rooms themselves; 2 anywhere, by the ordinary rule
+	s32 phase = modRunGuardsWalkIn() ? 0 : modRunGuardsWantZone() ? 1 : 2;
 	s32 attempt;
 	s32 toonear = 0;
 	s32 toofar = 0;
@@ -1063,15 +1072,14 @@ static bool modAlarmSpawnOne(s32 bodynum)
 		s32 gun;
 		s32 i;
 
-		if (zonefirst) {
-			waypoint = modAlarmFindZoneWaypoint();
+		if (phase < 2) {
+			waypoint = modAlarmFindZoneWaypoint(phase == 0);
 
 			if (waypoint == NULL) {
-				// The sealed rooms have no waypoint far enough from the
-				// player to put one on. That will not change while they stand
-				// there, so stop asking and spend the attempts left the way
-				// this always did.
-				zonefirst = false;
+				// Nowhere around the room, or nowhere in it far enough from
+				// the player. That will not change while they stand there, so
+				// stop asking and spend the attempts left on the next way.
+				phase = phase == 0 && modRunGuardsWantZone() ? 1 : 2;
 				continue;
 			}
 		} else {
@@ -1093,14 +1101,14 @@ static bool modAlarmSpawnOne(s32 bodynum)
 			return false; // nobody alive to come for
 		}
 
-		if (dist < (zonefirst ? modRunGuardMinDist() : (f32)MODALARM_MINDIST)) {
+		if (dist < (phase < 2 ? modRunGuardMinDist() : (f32)MODALARM_MINDIST)) {
 			toonear++;
 			continue;
 		}
 
 		// Inside the seal there is no such thing as too far: the zone is the
 		// whole of where the fight can happen.
-		if (!zonefirst && dist > MODALARM_MAXDIST) {
+		if (phase == 2 && dist > MODALARM_MAXDIST) {
 			toofar++;
 			continue;
 		}
@@ -1121,8 +1129,10 @@ static bool modAlarmSpawnOne(s32 bodynum)
 			// attempt, for as long as the player stands looking: nobody came
 			// at all. Half the tries go to the rest of the map instead, by the
 			// ordinary distance rule, and the guard walks in.
-			if (zonefirst && refused >= MODALARM_TRIES / 2) {
-				zonefirst = false;
+			if (phase == 0 && refused >= MODALARM_TRIES / 3) {
+				phase = modRunGuardsWantZone() ? 1 : 2;
+			} else if (phase == 1 && refused >= MODALARM_TRIES * 2 / 3) {
+				phase = 2;
 			}
 
 			continue;
@@ -1144,7 +1154,7 @@ static bool modAlarmSpawnOne(s32 bodynum)
 			sysLogPrintf(LOG_NOTE, "alarm: guard body %d head %d weapon %d left %d at pad %d in room %d%s, %.0fcm from player %d, %d free chr slots",
 					bodynum, chr->headnum, gun,
 					chr->weapons_held[HAND_LEFT] && chr->weapons_held[HAND_LEFT]->weapon ? chr->weapons_held[HAND_LEFT]->weapon->weaponnum : -1,
-					waypoint->padnum, pad.room, zonefirst ? " (sealed zone)" : "",
+					waypoint->padnum, pad.room, phase == 0 ? " (walking in)" : phase == 1 ? " (sealed zone)" : "",
 					dist, playernum, chrsGetNumFree());
 		}
 #endif

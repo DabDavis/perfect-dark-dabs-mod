@@ -418,6 +418,9 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.RunMapPool", &g_ModOptions.runpool, 0, MODRUN_POOL_MAX);
 	configRegisterInt("Mod.RunDifficulty", &g_ModOptions.rundifficulty, DIFF_A, DIFF_PA);
 	configRegisterInt("Mod.RunSealRooms", &g_ModOptions.runseal, 0, 1);
+	configRegisterInt("Mod.RunRoomSize", &g_ModOptions.runroomsize, MODRUN_ROOMS_NORMAL, MODRUN_ROOMS_LARGE);
+	configRegisterInt("Mod.RunTintOutside", &g_ModOptions.runtint, 0, 1);
+	configRegisterInt("Mod.RunGuardsWalkIn", &g_ModOptions.runwalkin, 0, 1);
 	configRegisterInt("Mod.RunBestScore", &g_ModOptions.runbestscore, 0, S32_MAX);
 	configRegisterInt("Mod.RunBestRooms", &g_ModOptions.runbestrooms, 0, S32_MAX);
 	configRegisterInt("Mod.DisableFog", &g_ModOptions.nofog, 0, 1);

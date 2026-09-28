@@ -174,6 +174,10 @@ Version 3 asks whether a pad is somewhere a player can be stood up alive before
 a start or a landing is dealt on it — the next section — which moves the start
 on any stage that has a pad that is not.
 
+Version 4 deals a run's landing again when its room has no light (Deep Sea's
+86, 87, 89) and lowers a pad-graph map's floating pads onto their floors before
+the graph is built - randomizer-run.md has both.
+
 ### Checking a change did not move old seeds
 
 The log prints a fold of each part of the roll:

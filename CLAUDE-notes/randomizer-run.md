@@ -238,18 +238,24 @@ run: room 38 on stage 0x2a stood sealed for 150 seconds; dealing a clock - "Hold
 The stuck clock is reachable without waiting two and a half minutes: set
 `g_ModRunObjDealt` back by 100000 and it deals on the next tick.
 
-## No objective type fits one room, so the run owns a stage flag
+## No objective type fits one room, so the run answers a flagless COMPFLAGS
 
 The game has eight objective types and every one of them is a mission's:
 collect a tagged object, reach a room, destroy a thing with a tag on it. What
 a room can ask for — put down what comes for you, hold the room, pick up the
 gun lying there — is none of them. So a run's objective is written as a single
-`OBJECTIVETYPE_COMPFLAGS` requirement on **the top bit of `g_StageFlags`**,
-which this file owns, clears at every landing and sets itself when its own
-condition is met. The objective is then the game's own — `objectiveCheck()`
+`OBJECTIVETYPE_COMPFLAGS` requirement **naming no flag at all** (a zero mask,
+`MODRUN_OBJFLAGS`), and `objectiveCheck()` asks `modRunObjectiveIsDone()` for a
+zero mask during a run. The objective is then the game's own — `objectiveCheck()`
 answers for it and the pause menu draws it — and only the condition is ours.
-The bit is the top one because a stage's script sets the low bits and the
-highest anything in stock names is `0x00010000`.
+
+**It used to be the top bit of `g_StageFlags`**, on the belief that stock
+scripts stop at `0x00010000`. Thirteen stages use `0x80000000` for their own
+(G5's `EXITED_BUILDING`, Chicago's `TAXI_READY_TO_CRASH`, Deep Sea's
+`MIDDOORCYLINDER_DESTROYED`, Area 51's `CHAMBER3_RAISED`, ...): every landing
+cleared the stage's flag, every room won set it and ran the stage's own script
+on it, and a stage setting it finished the room's objective on the pause menu
+(F3 20260928-034505, G5). Never borrow a stage flag bit: all 32 are somebody's.
 
 Two ways a generated collect objective becomes a free point, and both are
 handled: the gun is already in the kit coming through the portal (checked
@@ -504,6 +510,13 @@ Facility: `built 385 from its 446 pads, 1522 links, 17 groups (largest 143),
 in 22 ms`. The pieces are small on Cradle (35 groups) and Temple (9); the
 zone spawn still reaches the player because it spawns inside the zone.
 
+**Complex's pads float** (F3 20260928-041926): all 49 sit 622-841 units up
+over floors at 0 and 281, so 33 failed the drop rule and the graph was 16
+waypoints in 11 pieces - guards 20 m away that never came. Under generator
+version 4 the builder lowers such a pad onto its own room's floor first
+(`modRandomPadSettle()`, `padSetPosY()`): 49 of 49, guards in the zone at 7-9 m.
+Other GoldenEye arenas lower a handful each.
+
 Traps: the waypoint neighbour lists and group lists end at a negative entry,
 the waypoint array at `padnum < 0`, the group array at `neighbours == NULL` -
 so a group with no neighbours needs a pointer to a lone `-1`, not NULL.
@@ -695,6 +708,68 @@ The crash handler's backtrace is module offsets, so `addr2line -f -e pd.x86_64
 0x...` reads it — but only against the binary that produced it. A rebuild moves
 every offset, and the nearest symbol in a binary that is one build out is a
 function with nothing to do with the crash.
+
+## A stage's ending takes control away, and a run never ends the level
+
+F3 20260928-034505/034754, G5 Building: the exit catwalk (rooms 0x60/0x61) runs
+G5's ending - `set_invincible`, `revoke_control`, "Objectives incomplete -
+MISSION FAILED", then `end_level` after 280 ticks. A run swallows `end_level`
+(below), so control never came back; the player stood frozen in the doorway
+with the guards shooting until a menu opened and closed (`menu.c` gives
+control back on close). Chicago, Villa, Rescue, Escape and the Duel have the
+same revoke-then-end pattern. `aiRevokeControl()` does nothing to a player
+during a run; a forced walk does not need it, since `TICKMODE_AUTOWALK` drives
+the player whatever `g_PlayersWithControl` says. The "MISSION FAILED" message
+still shows - it is the stage's script talking, and harmless.
+
+Test: land a run on G5 (`--run-stage 0x1e`), then from gdb put the player's
+prop at (2116, 434, 588) with `rooms = {96, -1}`; a few seconds later
+`g_StageFlags` has `0x80000000`, `g_PlayersWithControl[0]` is still 1 and
+`objectiveCheck(0)` is still 0.
+
+## A room with no light is not a landing
+
+F3 20260928-043637, Deep Sea "room 27" (the HUD's room count is the hop, not a
+room number): pad 115 is a waypoint in room 87, a corridor whose two vertex
+colours are black and which has no light of its own, like 86 and 89 - black in
+stock too. The landing asks `modRunRoomIsDark()` once the player stands in the
+room and it has loaded (nothing is loaded at the roll): no lights and no vertex
+brighter than 64. A dark landing is dealt again on another pad, as a new life,
+from `MODRUN_STREAM_DARK` so every hop's first draw is unchanged, up to four
+times; a collect objective whose gun lay in the dark room becomes a fight.
+Behind generator version 4. Force a landing with a breakpoint on
+`modRunTakeSpawn` and `set var 'modrun.c'::g_ModRunLandPad = 115` on
+`--run-stage 0x38`; the log says `room 87 on stage 0x38 has no light; landing
+again on pad ...`.
+
+## Room Size, Tint Outside the Room, Guards Walk In
+
+Tester request 20260928-042800, built at the user's word: bigger rooms, the
+level outside the room coloured like King of the Hill's hill, and guards that
+come in through the doors rather than appearing in front of or behind the
+player. Three rows on the Randomizer Options page, all on by default
+(`Mod.RunRoomSize` 0/1, `Mod.RunTintOutside`, `Mod.RunGuardsWalkIn`):
+
+- **Room Size** Large walks two doors deep from the landing room
+  (`modRunWalkRooms()`, breadth first), capped at `MODRUN_LARGEZONE` (12) and a
+  third of the map's rooms, then falls back to one door deep and to the landing
+  room alone when the zone has no door out. Built at the landing, so no seed
+  changes.
+- **Tint** puts the game's own `LIGHTOP_HIGHLIGHT` on every room outside the
+  zone that has no light operation running, and `scenarioHighlightRoom()` asks
+  `modRunHighlightRoom()` first during a run (a solo level has no scenario, and
+  the Combat Simulator's last one must not colour a run). The colour is
+  `g_ModKohHillColour`, faded in over half a second while sealed and out when
+  the room is won, after which the rooms go back to `LIGHTOP_NONE`. Like the
+  hill, a highlighted room is lit dirty every tick. HD (release) rooms are not
+  known to take the tint.
+- **Walk In**: `modRunBuildRing()` lists the rooms up to two doors outside the
+  zone and the waygroups whose links reach one of the zone's waypoints; the
+  alarm deals a guard onto a ring waypoint in a reaching group first (log
+  `(walking in)`), then into the zone as before (`(sealed zone)`), then map
+  wide. The zone's way out loses its keys at the landing, since a guard cannot
+  open a locked door and the seal, not the door, is what holds the player.
+  A 79-hop chain dealt 77 guards walking in and 1 into the zone while sealed.
 
 ## A room's objective is the map's whole objective list
 

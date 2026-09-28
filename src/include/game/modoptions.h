@@ -399,6 +399,9 @@ struct modoptions {
 	s32 runpool;       // MODRUN_POOL_*: which maps a Randomizer run may land in
 	s32 rundifficulty; // the difficulty every room of a run is played on
 	s32 runseal;       // whether a run's room is shut until its objective is done
+	s32 runroomsize;   // MODRUN_ROOMS_*: how far past the landing room a sealed room reaches
+	s32 runtint;       // the level outside a sealed room tinted, the way King of the Hill tints its hill
+	s32 runwalkin;     // a sealed room's guards start outside it and walk in
 	s32 runbestscore;  // the best run's objectives, kept between sessions
 	s32 runbestrooms;  // and how many rooms that run got through
 	s32 smoothtext;  // font glyphs scaled up with their edges sharpened
@@ -468,6 +471,9 @@ f32 modGetBlackLevelLift(void);
 s32 modGetRunPool(void);
 s32 modGetRunDifficulty(void);
 bool modIsRunSealOn(void);
+s32 modGetRunRoomSize(void);
+bool modIsRunTintOn(void);
+bool modIsRunWalkInOn(void);
 bool modIsMissionRespawnOn(void);
 bool modIsSkipDeathScreenOn(void);
 bool modIsQuickWeaponSwapOn(void);

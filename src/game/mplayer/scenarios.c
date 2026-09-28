@@ -18,6 +18,7 @@
 #include "game/game_1531a0.h"
 #include "game/mplayer/setup.h"
 #include "game/mplayer/scenarios.h"
+#include "game/modrun.h"
 #include "game/radar.h"
 #include "game/botcmd.h"
 #include "game/botinv.h"
@@ -985,6 +986,13 @@ bool scenarioIsRoomHighlighted(RoomNum room)
  */
 void scenarioHighlightRoom(RoomNum room, s32 *arg1, s32 *arg2, s32 *arg3)
 {
+#ifndef PLATFORM_N64
+	// A Randomizer run tints the level outside a sealed room (modrun.c)
+	if (modRunHighlightRoom(room, arg1, arg2, arg3)) {
+		return;
+	}
+#endif
+
 	if (g_MpScenarios[g_MpSetup.scenario].highlightroomfunc) {
 		g_MpScenarios[g_MpSetup.scenario].highlightroomfunc(room, arg1, arg2, arg3);
 	}
