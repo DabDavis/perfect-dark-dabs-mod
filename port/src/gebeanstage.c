@@ -473,6 +473,9 @@ static s32 eachTex = -1;
 static u8 eachEnvAlpha = 0xff;
 // and its three vertices' s and t, as the file stores them
 static s16 eachSt[3][2];
+// and how bright its three vertices' colours are (the brightest of r, g and
+// b), or 0xff when the leaf's colours cannot be read
+static u8 eachShade[3];
 
 static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 		void (*fn)(void *arg, const f32 v[3][3], s32 room), void *arg)
@@ -514,6 +517,10 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 			} else if (gdl && gdl - base < len && vtx - base < len) {
 				f32 loaded[16][3];
 				s16 loadedst[16][2];
+				u8 loadedcol[16];
+				// the leaf's colours and where its last G_COL loaded from
+				const u32 colbase = be32(raw + o + 16);
+				s32 colat = -1;
 
 				// the texture GoldenEye's hit test reads for the triangles
 				// that follow: the last one the leaf's own list loads
@@ -541,11 +548,20 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 
 						nofog = c1 != (GBL_c1(G_BL_CLR_IN, G_BL_0, G_BL_CLR_IN, G_BL_1) & 0xcccc0000)
 							&& c1 != (GBL_c1(G_BL_CLR_FOG, G_BL_A_SHADE, G_BL_CLR_IN, G_BL_1MA) & 0xcccc0000);
+					} else if (op == G_COL) {
+						colat = colbase ? (s32)(colbase - base + (be32(raw + c + 4) & 0xffffff)) : -1;
 					} else if (op == G_VTX) {
 						const s32 num = (raw[c + 1] >> 4) + 1;
 						const u32 at = vtx - base + (be32(raw + c + 4) & 0xffffff);
 
 						for (s32 i = 0; i < num && at + i * VTXSIZE + 6 <= len; i++) {
+							// the vertex's colour: byte 7 is its offset into the
+							// colours G_COL loaded, four bytes each (r, g, b, a)
+							const u32 ca = colat >= 0 && at + i * VTXSIZE + 8 <= len
+								? (u32)colat + (raw[at + i * VTXSIZE + 7] & ~3) : len;
+
+							loadedcol[i] = ca + 3 <= len
+								? MAX(raw[ca], MAX(raw[ca + 1], raw[ca + 2])) : 0xff;
 							loadedst[i][0] = at + i * VTXSIZE + 12 <= len ? (s16)be16(raw + at + i * VTXSIZE + 8) : 0;
 							loadedst[i][1] = at + i * VTXSIZE + 12 <= len ? (s16)be16(raw + at + i * VTXSIZE + 10) : 0;
 							loaded[i][0] = g_BgRooms[r].pos.x + (s16)be16(raw + at + i * VTXSIZE);
@@ -572,6 +588,9 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 							memcpy(eachSt[0], loadedst[x], sizeof(eachSt[0]));
 							memcpy(eachSt[1], loadedst[y], sizeof(eachSt[1]));
 							memcpy(eachSt[2], loadedst[z], sizeof(eachSt[2]));
+							eachShade[0] = loadedcol[x];
+							eachShade[1] = loadedcol[y];
+							eachShade[2] = loadedcol[z];
 							fn(arg, (const f32 (*)[3])v, (u16)r | (nofog << 16) | (twosided << 17));
 						}
 					} else if (op == (u8)G_ENDDL) {
@@ -3595,6 +3614,8 @@ static s32 closeDoorGaps(struct collect *c)
  */
 #define WATER_CELL 1024.0f
 #define WATER_NEAR 64.0f
+// GoldenEye's water on vertices no brighter than this is drawn black
+#define WATER_BLACK 8
 
 struct watermeasure {
 	struct tgrid grid;
@@ -3632,6 +3653,14 @@ static void waterGrad(struct watermeasure *m, const f32 v[3][3], const f32 f[3][
 static void fileTriToWater(void *arg, const f32 v[3][3], s32 room)
 {
 	struct watermeasure *m = arg;
+
+	// GoldenEye shades its water by the vertices, and Complex's pits are its
+	// reservoir picture on black ones: a black floor whose motion nobody sees.
+	// Bean paints them a plain rusty floor, which crept like water under
+	// GoldenEye's motion (F3 20260928-170819), so water shaded black is none
+	if (eachShade[0] <= WATER_BLACK && eachShade[1] <= WATER_BLACK && eachShade[2] <= WATER_BLACK) {
+		return;
+	}
 
 	if (eachTex == GEWATER_TEX_CAVERNS || eachTex == GEWATER_TEX_DAM) {
 		// the file's s and t are 32nds of a texel (s10.5), so an eighth of
