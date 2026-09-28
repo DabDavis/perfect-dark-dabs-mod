@@ -8872,6 +8872,31 @@ static bool autogunGeEye(struct prop *prop, struct coord *pos, RoomNum *rooms)
 
 	return true;
 }
+
+/**
+ * Whether a GoldenEye autogun sees `target` the way GoldenEye's does: along
+ * the tile graph from its pad (geStanAutogunSees()). -1 where that cannot be
+ * asked - not a converted level, no pad, no graph - and Perfect Dark's own
+ * line of sight decides.
+ */
+static s32 autogunGeSees(struct prop *prop, struct prop *target)
+{
+	struct defaultobj *obj = prop->obj;
+	struct pad pad;
+	f32 ground;
+
+	if (!modloaderStageIsRemake(g_Vars.stagenum) || obj->pad < 0 || target->chr == NULL) {
+		return -1;
+	}
+
+	padUnpack(obj->pad, PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+	ground = target->type == PROPTYPE_PLAYER
+		? g_Vars.players[playermgrGetPlayerNumByProp(target)]->vv_manground
+		: target->chr->ground;
+
+	return geStanAutogunSees(&pad.pos, pad.room, &target->pos, ground);
+}
 #endif
 
 void autogunTick(struct prop *prop)
@@ -8906,6 +8931,7 @@ void autogunTick(struct prop *prop)
 #ifndef PLATFORM_N64
 	struct coord eyepos;
 	RoomNum eyerooms[8];
+	s32 gesees;
 #endif
 
 	autogun = (struct autogunobj *)prop->obj;
@@ -9192,6 +9218,11 @@ void autogunTick(struct prop *prop)
 					eyepos = prop->pos;
 					roomsCopy(prop->rooms, eyerooms);
 				}
+
+				// and on a converted level by GoldenEye's own walk along the
+				// floor from its pad's tile to the target's
+				// (geStanAutogunSees()), with a shut door still in the way
+				gesees = autogunGeSees(prop, target);
 #endif
 
 				if (relangleh <= autogun->ymaxleft
@@ -9200,7 +9231,9 @@ void autogunTick(struct prop *prop)
 #ifdef PLATFORM_N64
 						&& cdTestLos05(&prop->pos, prop->rooms, &target->pos, target->rooms, CDTYPE_ALL, GEOFLAG_BLOCK_SIGHT)) {
 #else
-						&& cdTestLos05(&eyepos, eyerooms, &target->pos, target->rooms, CDTYPE_ALL, GEOFLAG_BLOCK_SIGHT)) {
+						&& (gesees >= 0
+							? gesees && cdTestLos05(&eyepos, eyerooms, &target->pos, target->rooms, CDTYPE_DOORS, GEOFLAG_BLOCK_SIGHT)
+							: cdTestLos05(&eyepos, eyerooms, &target->pos, target->rooms, CDTYPE_ALL, GEOFLAG_BLOCK_SIGHT))) {
 #endif
 					// Target is in sight
 					obj->flags |= OBJFLAG_AUTOGUN_SEENTARGET;
