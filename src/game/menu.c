@@ -1885,6 +1885,43 @@ void menuUnsetModel(struct menumodel *menumodel)
 
 Lights1 var80071468 = gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0xb2, 0x4d, 0x2e);
 
+#ifndef PLATFORM_N64
+/**
+ * Mods: Camera draws the paused level live behind it (menuTick()), and the
+ * level needs the gun memory for that: the first person gun, or the player's
+ * own body in third person. A menu model - the inventory's gun, from a page
+ * seen earlier in the same pause - holds that memory until the menu closes, so
+ * the level's gun load failed every frame and asked for the last frame to be
+ * shown again: the screen went black behind the page, and the blur taken on
+ * leaving it was black too (F3 20260928-085653, -085835; the Institute's
+ * lobby, unarmed, never wanted the gun and was fine). Under the live page the
+ * model lets the memory go and is loaded again, from the start, the next time
+ * a page draws it. Called every tick from menuTick() while the page is up.
+ */
+void menuModelYieldGunMem(struct menumodel *menumodel)
+{
+	// Only a level's models borrow the gun memory; the Institute's and the
+	// credits' have memory of their own (menuRenderModel())
+	if (menumodel->allocstart == NULL
+			|| g_Vars.stagenum == STAGE_CITRAINING || g_Vars.stagenum == STAGE_CREDITS) {
+		return;
+	}
+
+	if (g_Vars.currentplayer->gunctrl.gunmemowner == GUNMEMOWNER_INVMENU) {
+		bgunFreeGunMem();
+	}
+
+	if (menumodel->newparams == 0) {
+		menumodel->newparams = menumodel->curparams;
+	}
+
+	menumodel->curparams = 0;
+	menumodel->bodymodeldef = NULL;
+	menumodel->allocstart = NULL;
+	menumodel->loaddelay = 0;
+}
+#endif
+
 /**
  * Render the hudpiece as well as any models within dialogs.
  */
@@ -1911,6 +1948,13 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 		}
 
 		if (menumodel->allocstart == NULL) {
+#ifndef PLATFORM_N64
+			// The level has the gun memory under Mods: Camera
+			if (optionsMenuWantsLiveWorld()) {
+				return gdl;
+			}
+#endif
+
 			if (bgunChangeGunMem(GUNMEMOWNER_INVMENU)) {
 				menumodel->allocstart = bgunGetGunMem();
 				menumodel->alloclen = bgunCalculateGunMemCapacity();
