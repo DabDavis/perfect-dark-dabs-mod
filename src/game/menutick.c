@@ -36,6 +36,11 @@
 #include "optionsmenu.h"
 #endif
 
+#ifndef PLATFORM_N64
+// Mods: Camera has the paused level drawn live behind it (menuTick())
+static bool g_MenuLiveWorld = false;
+#endif
+
 u8 g_FileState = 0;
 u8 var80062944 = 0;
 u8 var80062948 = 0;
@@ -155,18 +160,25 @@ void menuTick(void)
 	// (var8009dfc0 below); a background of 0 is what the Combat Simulator's
 	// pause has always had. Leaving the page puts the blur back, from a fresh
 	// still of the view the new settings give.
+	//
+	// A background reaching 0 is otherwise how a closing menu hands the
+	// level back (func0f0fa6ac() below: unpaused, and the pad the player's
+	// again), so under the live page that step is skipped and the level stays
+	// paused with the menu holding the pad, as under the blur (F3
+	// 20260928-014303, -020836). The menu closed straight from the page has
+	// no background left to fade, and gives the level back here instead.
 	{
-		static bool liveworld = false;
-
 		if (anyopen && optionsMenuWantsLiveWorld()) {
 			if (g_MenuData.bg == MENUBG_BLUR && g_MenuData.nextbg == 255) {
 				menuSetBackground(0);
-				liveworld = true;
+				g_MenuLiveWorld = true;
 			}
-		} else if (liveworld) {
-			liveworld = false;
+		} else if (g_MenuLiveWorld) {
+			g_MenuLiveWorld = false;
 
-			if (anyopen && (g_MenuData.bg == 0 || g_MenuData.nextbg == 0)) {
+			if (!anyopen && g_MenuData.bg == 0 && g_MenuData.nextbg == 255) {
+				func0f0fa6ac();
+			} else if (anyopen && (g_MenuData.bg == 0 || g_MenuData.nextbg == 0)) {
 				menuSetBackground(MENUBG_BLUR);
 
 				// The last frame shown has Mods: Camera's dialog over the
@@ -254,7 +266,11 @@ void menuTick(void)
 					}
 				}
 
-				if (g_MenuData.bg == 0) {
+				if (g_MenuData.bg == 0
+#ifndef PLATFORM_N64
+						&& !g_MenuLiveWorld
+#endif
+						) {
 					func0f0fa6ac();
 				}
 			}
