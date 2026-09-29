@@ -50,7 +50,7 @@ Gfx *geHudRenderGauges(Gfx *gdl);
  * bottom messages drawn this frame, which stack upwards where Perfect Dark
  * would have had them in different corners; start it at 0.
  */
-Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 *row);
+Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 intro, s32 *row);
 
 // countdownTimerRender()
 Gfx *geHudRenderCountdown(Gfx *gdl, s32 mins, s32 secs, s32 ms);
