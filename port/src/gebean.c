@@ -6352,6 +6352,24 @@ static f32 beanOpenRimHeight(const struct beanout *o, s32 numtris)
 		}
 	}
 
+	// Only the rim underneath: a face that goes up under a hat is open at
+	// its crown as well (Baron Samedi's, whose top hat is the hood's), and
+	// the crown's edges read it as ending at a jaw 110 over its neck joint -
+	// a neck was made under it, cut from the face alone, and the hat was
+	// lost on any other body (F3 20260929-051343)
+	f32 ylo = 1e9f;
+	f32 yhi = -1e9f;
+
+	for (s32 i = 0; i < n; i++) {
+		const f32 ya = edges[i].a[1] * 0.25f;
+		const f32 yb = edges[i].b[1] * 0.25f;
+
+		ylo = ya < ylo ? ya : ylo;
+		ylo = yb < ylo ? yb : ylo;
+		yhi = ya > yhi ? ya : yhi;
+		yhi = yb > yhi ? yb : yhi;
+	}
+
 	qsort(edges, n, sizeof(*edges), beanEdgeCompare);
 	ys = malloc((n + 1) * sizeof(f32));
 
@@ -6362,7 +6380,7 @@ static f32 beanOpenRimHeight(const struct beanout *o, s32 numtris)
 			j++;
 		}
 
-		if (j - i == 1) {
+		if (j - i == 1 && (edges[i].a[1] + edges[i].b[1]) * 0.125f < (ylo + yhi) * 0.5f) {
 			ys[numys++] = (edges[i].a[1] + edges[i].b[1]) * 0.125f;
 		}
 
