@@ -1862,7 +1862,18 @@ void chrRemove(struct prop *prop, bool free)
 		struct defaultobj *obj = child->obj;
 		struct prop *next = child->next;
 
-		if ((obj->hidden & OBJHFLAG_HASTEXTOVERRIDE) == 0
+		// A named item (a text override) is spared here because Perfect
+		// Dark always drops a character's items before it goes. GoldenEye's
+		// chrpropCleanupForRemoval() frees everything a removed character
+		// carries, and a converted mission's lists rely on it: Silo's
+		// Ourumov fades out with his renamed briefcase, which would
+		// otherwise stay a child of a freed prop.
+		if (((obj->hidden & OBJHFLAG_HASTEXTOVERRIDE) == 0
+#ifndef PLATFORM_N64
+					|| (modloaderStageIsMission(g_Vars.stagenum) && !g_Vars.normmplayerisrunning
+						&& prop->type == PROPTYPE_CHR)
+#endif
+					)
 				&& obj != eyespyobj
 				&& (prop->type != PROPTYPE_PLAYER || (obj->flags3 & OBJFLAG3_PLAYERUNDROPPABLE) == 0)) {
 			objDetach(child);

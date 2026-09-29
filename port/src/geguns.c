@@ -842,6 +842,23 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
 	if (WEAPON_GE_FIRST + i == WEAPON_GE_HUNTINGKNIFE || WEAPON_GE_FIRST + i == WEAPON_GE_THROWINGKNIFE) {
 		def->flags2 &= ~(WEAPONFLAG2_STICKSTOWALL | WEAPONFLAG2_POISONS);
 	}
+
+	// Thrown, the GoldenEye key lands and lies where it falls. It stands on
+	// the ECM mine, which sticks to whatever it meets, but GoldenEye's list
+	// of what embeds (propobj.c: remote, timed and proximity mines, the bomb
+	// case, the bug, the micro camera and plastique) leaves the key out, and
+	// thrown against Bunker's walls it hung there (F3 20260929-094251)
+	if (WEAPON_GE_FIRST + i == WEAPON_GE_GOLDENEYEKEY) {
+		def->flags2 &= ~WEAPONFLAG2_STICKSTOWALL;
+
+		for (s32 f = 0; f < 2; f++) {
+			struct weaponfunc *fn = def->functions[f];
+
+			if (fn && fn != model->functions[f]) {
+				fn->flags &= ~FUNCFLAG_STICKTOWALL;
+			}
+		}
+	}
 }
 
 /**

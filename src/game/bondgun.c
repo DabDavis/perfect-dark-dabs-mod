@@ -13044,7 +13044,12 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 			s32 vol;
 			s32 pan;
 
-			if (chrGetShield(chr) > 0) {
+			// GoldenEye's body armour makes no sound of its own when hit:
+			// record_damage_kills() plays Bond's one grunt for a hit on the
+			// armour as on the body (chrDamage() does that here), so on a
+			// converted level armour sounds as the body does rather than
+			// as Perfect Dark's shield (F3 20260929-094803)
+			if (chrGetShield(chr) > 0 && !geSfxStage()) {
 				soundnum = SFX_SHIELD_DAMAGE;
 			} else if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_BLADEHIT)) {
 				soundnum = SFX_05F6;
