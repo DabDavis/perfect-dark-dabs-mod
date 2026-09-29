@@ -18514,6 +18514,22 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 			hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 		}
 
+#ifndef PLATFORM_N64
+		// A plain object GoldenEye renames as one of its gadgets: Aztec's DAT
+		// is a prop on a desk (a collectable standard prop, not a weapon
+		// record) whose rename names ITEM_DATTAPE, and the mission asks for it
+		// in the hand at the mainframe. Carried as a prop it could never be
+		// equipped, and the launch could not be started (F3 20260928-214924).
+		if (obj->hidden & OBJHFLAG_HASTEXTOVERRIDE) {
+			struct textoverride *override = invGetTextOverrideForObj(obj);
+
+			if (override && gegadgetsIsGadget(override->weapon)) {
+				invGiveSingleWeapon(override->weapon);
+				given = true;
+			}
+		}
+#endif
+
 		result = TICKOP_GIVETOPLAYER;
 		break;
 	}
