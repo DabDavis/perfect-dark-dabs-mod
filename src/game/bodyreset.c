@@ -14,6 +14,47 @@
 #ifndef PLATFORM_N64
 #include "gexplus.h"
 #include "xblaagent4.h"
+#include "xblamesh.h"
+#include "files.h"
+
+/**
+ * The male guard heads as the XBLA release deals them. 4J remodelled Penny's
+ * head as a woman (the release's table makes her head type female) and took
+ * her out of both male guard lists: the full list drops her, the team list
+ * has Ben R in her place (read from the release's image). With the release's
+ * meshes on, her head is that woman, so a male guard dealt her comes out a
+ * woman's face on a man's body. Only while her row is still the stock file,
+ * so a mod's own table is left alone.
+ */
+static s32 bodyReleaseMaleHeads(s32 *list, s32 len, bool team, s32 **out)
+{
+	static s32 heads[256];
+	s32 n = 0;
+	s32 i;
+
+	*out = list;
+
+	if (!xblaMeshGetEnabled() || g_HeadsAndBodies[HEAD_PENNY].filenum != FILE_CHEADPENNY
+			|| len <= 1 || len > (s32)ARRAYCOUNT(heads)) {
+		return len;
+	}
+
+	for (i = 0; i < len; i++) {
+		if (list[i] != HEAD_PENNY) {
+			heads[n++] = list[i];
+		} else if (team) {
+			heads[n++] = HEAD_BEN_R;
+		}
+	}
+
+	if (n == len && !team) {
+		return len;
+	}
+
+	*out = heads;
+
+	return n;
+}
 #endif
 
 void bodiesReset(s32 stagenum)
@@ -76,6 +117,11 @@ void bodiesReset(s32 stagenum)
 		headsavailablelist = g_MaleGuardHeads;
 		headsavailablelen = g_NumMaleGuardHeads;
 	}
+
+#ifndef PLATFORM_N64
+	headsavailablelen = bodyReleaseMaleHeads(headsavailablelist, headsavailablelen,
+			headsavailablelist == g_MaleGuardTeamHeads, &headsavailablelist);
+#endif
 
 	for (i = 0; i < g_NumActiveHeadsPerGender; i++) {
 		do {

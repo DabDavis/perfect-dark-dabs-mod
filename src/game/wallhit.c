@@ -21,6 +21,7 @@
 #include "wallhitclip.h"
 #include "geroom.h"
 #include "geimpact.h"
+#include "xblamesh.h"
 #endif
 
 #define WALLHITTYPE_SOFT   0
@@ -1461,6 +1462,10 @@ Gfx *wallhitRenderXluBgHits(s32 roomnum, Gfx *gdl)
 	return gdl;
 }
 
+#ifndef PLATFORM_N64
+#define WALLHIT_FINE_PULL 0.998f
+#endif
+
 Gfx *wallhitRenderPropHits(Gfx *gdl, struct prop *prop, bool xlu)
 {
 	Col *colours;
@@ -1474,6 +1479,10 @@ Gfx *wallhitRenderPropHits(Gfx *gdl, struct prop *prop, bool xlu)
 	if (g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		return gdl;
 	}
+
+#ifndef PLATFORM_N64
+	const bool finemtx = xblaMeshTakeFineModel(obj->model);
+#endif
 
 	gSPClearGeometryMode(gdl++, G_CULL_BOTH);
 
@@ -1497,6 +1506,28 @@ Gfx *wallhitRenderPropHits(Gfx *gdl, struct prop *prop, bool xlu)
 				Mtxf *mtx = &obj->model->matrices[wallhit->mtxindex];
 				if (wallhit->mtxindex);
 				prevmtxindex = wallhit->mtxindex;
+#ifndef PLATFORM_N64
+				// Under the same float matrix the release's mesh went out
+				// under, so a hole on its face ties with it in depth
+				if (finemtx) {
+					Mtxf *copy = gfxAllocateMatrix();
+
+					*copy = *mtx;
+					mtxApplyGfxScale(copy);
+
+					// Toward the eye by a five-hundredth of the distance (the
+					// camera is the origin of this space, so the hole keeps
+					// its place on screen): tied exactly, the door's face
+					// still won - a thousandth was the least that showed all
+					// four of Archives' test holes at 80 units.
+					for (s32 r = 0; r < 4; r++) {
+						for (s32 k = 0; k < 3; k++) {
+							copy->m[r][k] *= WALLHIT_FINE_PULL;
+						}
+					}
+					gSPMatrix(gdl++, osVirtualToPhysical(copy), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW | G_MTX_FLOATS);
+				} else
+#endif
 				gSPMatrix(gdl++, osVirtualToPhysical(mtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 			}
 

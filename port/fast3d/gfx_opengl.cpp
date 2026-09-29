@@ -121,8 +121,12 @@ static void gfx_opengl_unload_shader(struct ShaderProgram* old_prg) {
     }
 }
 
+// The program bound last, for gfx_opengl_draw_triangles()'s bounds check
+static struct ShaderProgram* gl_cur_prg = NULL;
+
 static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
     // if (!new_prg) return;
+    gl_cur_prg = new_prg;
     glUseProgram(new_prg->opengl_program_id);
     gfx_opengl_vertex_array_set_attribs(new_prg);
     gfx_opengl_set_uniforms(new_prg);
@@ -987,6 +991,34 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate, bool additiv
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     // printf("flushing %d tris\n", buf_vbo_num_tris);
+
+    // Never ask for more vertices than were uploaded: a draw that reads past
+    // its buffer is read by the GPU from whatever the address lands on, and on
+    // the RX 580 that was a VM protection fault and a full GPU reset
+    // (2026-09-29). A batch whose floats do not cover its triangles at the
+    // bound program's stride is cut to what they do cover, and said once.
+    if (gl_cur_prg == NULL || gl_cur_prg->num_floats == 0 || buf_vbo_len == 0 || buf_vbo_num_tris == 0) {
+        return;
+    }
+
+    const size_t have = buf_vbo_len / (3 * (size_t)gl_cur_prg->num_floats);
+
+    if (buf_vbo_num_tris > have) {
+        static int warned = 0;
+
+        if (!warned) {
+            warned = 1;
+            sysLogPrintf(LOG_WARNING, "GL: a batch of %zu triangles has floats for %zu at %u a vertex; drawing those",
+                    buf_vbo_num_tris, have, (unsigned)gl_cur_prg->num_floats);
+        }
+
+        buf_vbo_num_tris = have;
+
+        if (buf_vbo_num_tris == 0) {
+            return;
+        }
+    }
+
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
 }

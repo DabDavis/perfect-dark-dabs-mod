@@ -10011,6 +10011,16 @@ static void xblaMeshApplyNodeMode(struct modelrenderdata *renderdata,
  * a body that is lit. So the first cycle is kept as the game set it and only
  * the second is chosen: `cycle2` is the *2 half of a G_RM pair.
  */
+// A soft-edged cutout: blended by the texel's alpha over what is there,
+// depth tested and written like an opaque surface (see the cutout span in
+// xblaMeshRenderNode()'s opaque pass).
+#define XBLAMESH_RM_SOFT_EDGE(clk) \
+	(AA_EN | Z_CMP | Z_UPD | IM_RD | CVG_DST_CLAMP | ZMODE_OPA | FORCE_BL | \
+	 GBL_c##clk(G_BL_CLR_IN, G_BL_A_IN, G_BL_CLR_MEM, G_BL_1MA))
+
+// 0 draws a skinned mesh's alpha span as a hard cutout again (gdb, to compare)
+s32 g_XblaMeshSoftCutouts = 1;
+
 static void xblaMeshSetSpanMode(struct modelrenderdata *renderdata,
 		const struct modelnode *node, u32 cycle2, u32 onecycle)
 {
@@ -10027,6 +10037,28 @@ static void xblaMeshSetSpanMode(struct modelrenderdata *renderdata,
 
 	gDPPipeSync(renderdata->gdl++);
 	gSPSetOtherMode(renderdata->gdl++, G_SETOTHERMODE_L, G_MDSFT_RENDERMODE, 29, word);
+}
+
+// The model whose opaque lists last went out under a float matrix: see
+// xblaMeshTakeFineModel()
+static struct model *fineModel = NULL;
+
+/**
+ * For wallhitRenderPropHits(): whether `model`'s release mesh was just drawn
+ * under a float matrix (a pose written finer than the game's units, or a rest
+ * shift taken off), which the bullet holes on it must be drawn under too.
+ * The game's own matrix reaches the renderer as s15.16, and on a door 80
+ * units away that rounding is more than the decal z mode's two depth units:
+ * a hole laid exactly on a GoldenEye HD door's face lost the depth test to it
+ * outright up close and in patches further out. Cleared by asking.
+ */
+s32 xblaMeshTakeFineModel(struct model *model)
+{
+	const s32 fine = model != NULL && fineModel == model;
+
+	fineModel = NULL;
+
+	return fine;
 }
 
 // While set, every node draws the game's own geometry: see xblaMeshSetBypass().
@@ -11123,6 +11155,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		gSPMatrix(renderdata->gdl++, osVirtualToPhysical(drawmtx),
 				G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW |
 				(drawmtx != root ? G_MTX_FLOATS : 0));
+
+		if (drawmtx != root && opa) {
+			fineModel = model;
+		}
 	}
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
@@ -11335,10 +11371,26 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// "SECTOR THREE" sign drew as the door faded - a black box over the
 		// letters from about 300 to 600 units out. The cutout is cut on its
 		// texels alone.
+		//
+		// A character's or a gun's (a skinned mesh's) alpha span is blended
+		// by its texels' alpha instead, still writing depth, with only the
+		// clear texels discarded - the release's own state for its models
+		// (blend on, depth written, no alpha test). Hair is a soft picture:
+		// cut at the edge test's fifth, every strand thinner than that came
+		// out solid, and Joanna's fringe drew as a thick slab over her face
+		// (F3 20260929-172810, "opacity of textures is lost, only
+		// transparency"). A hard-edged cutout comes out the same either way.
 		if (xlupart >= 0 && !xlulist) {
-			xblaMeshSetSpanMode(renderdata, node,
-					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
-					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
+			const s32 soft = g_XblaMeshSoftCutouts && m->nummatrices > 0 && renderdata->zbufferenabled;
+
+			if (soft) {
+				xblaMeshSetSpanMode(renderdata, node, XBLAMESH_RM_SOFT_EDGE(2), XBLAMESH_RM_SOFT_EDGE(1));
+				gDPSetAlphaCompare(renderdata->gdl++, G_AC_THRESHOLD);
+			} else {
+				xblaMeshSetSpanMode(renderdata, node,
+						renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
+						renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
+			}
 
 			if (renderdata->unk30 == 9) {
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, 0);
@@ -11348,6 +11400,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 			if (renderdata->unk30 == 9) {
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
+			}
+
+			if (soft) {
+				gDPSetAlphaCompare(renderdata->gdl++, G_AC_NONE);
 			}
 		}
 
@@ -12868,6 +12924,7 @@ s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
 void xblaMeshResetModels(void) { }
 void xblaMeshHitBegin(void) { }
+s32 xblaMeshTakeFineModel(struct model *model) { return 0; }
 s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node) { return 0; }
 s32 xblaMeshModelHasMesh(struct model *model) { return 0; }
 s32 xblaMeshHeldOffset(struct model *model, struct modelnode *handnode, f32 out[3]) { return 0; }

@@ -2725,8 +2725,31 @@ static void vk_resolve_textures(VkPush &push) {
 }
 
 static void gfx_vk_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
-    if (!vk_cur_prg || !buf_vbo_len || vk_cur_fb < 0 || (size_t)vk_cur_fb >= vk_fbs.size()) {
+    if (!vk_cur_prg || !buf_vbo_len || !buf_vbo_num_tris || !vk_cur_prg->num_floats
+            || vk_cur_fb < 0 || (size_t)vk_cur_fb >= vk_fbs.size()) {
         return;
+    }
+
+    // Never draw more vertices than the batch holds at the pipeline's stride:
+    // the GPU would read past the allocation (see gfx_opengl_draw_triangles())
+    {
+        const size_t have = buf_vbo_len / (3 * (size_t)vk_cur_prg->num_floats);
+
+        if (buf_vbo_num_tris > have) {
+            static int warned = 0;
+
+            if (!warned) {
+                warned = 1;
+                sysLogPrintf(LOG_WARNING, "vulkan: a batch of %zu triangles has floats for %zu at %u a vertex; drawing those",
+                        buf_vbo_num_tris, have, (unsigned)vk_cur_prg->num_floats);
+            }
+
+            buf_vbo_num_tris = have;
+
+            if (!buf_vbo_num_tris) {
+                return;
+            }
+        }
     }
 
     vk_ensure_recording();
