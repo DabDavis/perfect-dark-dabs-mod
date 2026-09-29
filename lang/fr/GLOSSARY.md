@@ -189,3 +189,17 @@ built "couteau" + " de combat" / "x de combat".
 | Cheat names | Poings ouragan, Munitions illimitées, Mode DK, Mini Jo, Ténèbres parfaites, As de la gâchette, Frappe éclair ... (mpweapons bank) |
 | Challenge | Défi |
 | Controller | Manette |
+
+## Lengths
+
+- The inventory list cuts a name at about 19-20 characters ("Falcon 2
+  (silencieux" lost its bracket), so inventory names stay at 19 or fewer:
+  "Falcon 2 silencieux", "Carte du bureau", "Disque de secours", "Médikit
+  alien", "Ampli de cible".
+- Menu labels drop articles before they are abbreviated: "Réglages partie",
+  "Ajouter simulant", "Supprimer fichier".
+- The controller diagram uses VUE for LOOK (VUE HAUT, VUE BAS, VUE/LATÉRAL),
+  LATÉRAL for STRAFE and BOUGER for WALK.
+- `--lang-audit` still lists 557 strings over 1.3x: nearly all are dialogue,
+  HUD messages and objectives (which wrap) or short words against shorter
+  English ("Back" -> "Retour"), which fit their boxes.
