@@ -31,6 +31,34 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 19 2026-09-29
+Controllers: a settings save no longer cuts your pad's binds down to just A (D-pad, B, Start and the rest stopped working); binds already cut are put back when the game starts (thanks Parabolee)
+GE Plus, HD look: levels build about twice as fast and are then kept on disk, so after the first time a mission loads in about the time a Perfect Dark level does (thanks Shockwave S08)
+GE Plus, HD look: the watch's text is sized to the face again, so every option fits under its slider (thanks Shockwave S08)
+GE Plus watch: the controller's stick leans only as far as a real N64 stick can (thanks Shockwave S08)
+GE Plus: the ammo counter shows while the next gun comes up, as in GoldenEye, not only once it is raised (thanks Graslu00)
+GE Plus: Bond's hands are emptied when he dies (thanks Graslu00)
+GE Plus Silo: Ourumov takes his briefcase and gun with him when he disappears (thanks Graslu00)
+GE Plus: a thrown key falls and lies on the floor instead of sticking to walls (thanks Graslu00)
+GE Plus: a hit on body armour no longer plays Perfect Dark's shield sound (thanks Graslu00)
+GE Plus Frigate: the engine hum is heard only in the engine rooms (thanks Graslu00)
+GE Plus Frigate: the extra doors GoldenEye never shows are gone (thanks Graslu00)
+GE Plus Train: the flat carriage doors are their proper size (thanks Glazier)
+GE Plus Bunker: the double doors close without a gap (thanks Graslu00)
+GE Plus Bunker: ceiling lights and other light fixtures can be shot out (thanks Graslu00)
+GE Plus Surface: the book crate scatters all twelve books when destroyed (thanks Graslu00)
+GE Plus: doors, objects, guards and the gun in Bond's hand are shaded by the floor under them, as in GoldenEye, so Silo's doors and Control's keyboards match their rooms (thanks Graslu00, thanks Linkmendez)
+GE Plus: helmets and caps sit at the right height on every head (thanks Graslu00)
+GE Plus Cuba: the credits' looping animations ease back to the start instead of snapping (thanks dab)
+GE Plus Bunker, HD look: the hazard stripes show the wall between the yellow bars, and the grey blotches over the helipad are gone (thanks Graslu00, thanks dab)
+GoldenEye guns: pistol slides move back when fired and spent cases leave the ejection port, in both looks (thanks Graslu00)
+GoldenEye guns: the muzzle flash shows once per shot instead of staying lit for the whole burst (thanks Graslu00)
+GE Plus: the mouse wheel moves on from the detonator instead of snapping back to it (thanks Graslu00)
+GE Plus: the covert modem and plastique show their count in the corner, as in GoldenEye (thanks Graslu00)
+GE Plus, HD look: the DD44 sits where GoldenEye holds it, and the throwing knife and a few other guns sit better (thanks Glazier)
+GE Plus, HD look: the Siberian guard's neck no longer shows a jagged pale edge under another head, such as Mark's (thanks Graslu00)
+Report a Problem (F3): you can now send up to 120 reports an hour
+
 notes 18 2026-09-29
 Randomizer: backing out of Random Mission no longer makes the next GE Plus, Co-Operative, Counter-Operative or Ghost Trials mission start randomized with the roll's guns
 GE Plus Runway: in the tank, next and previous weapon come back round to the tank's shells, with All Guns too (thanks dab)
