@@ -31,6 +31,32 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 18 2026-09-29
+Randomizer: backing out of Random Mission no longer makes the next GE Plus, Co-Operative, Counter-Operative or Ghost Trials mission start randomized with the roll's guns
+GE Plus Runway: in the tank, next and previous weapon come back round to the tank's shells, with All Guns too (thanks dab)
+Third person: the camera eases away from walls instead of jerking around in corridors and doorways (thanks dab)
+GE Plus, HD look: GoldenEye's pistols are held where GoldenEye holds them, not too high (thanks dab)
+COD Style Aiming: the gun's barrel lines up under the crosshair, so pistols no longer turn their side and the whole hand to you (thanks dab)
+GE Plus, HD look: every GoldenEye gun is drawn on GoldenEye's own model, with GoldenEye's placement, animations and shot origin (thanks dab)
+GE Plus, HD look: GoldenEye guns show their muzzle flash again, at the end of the barrel (thanks dab, thanks Graslu00)
+GE Plus: body armour no longer has a shield's idle shimmer (thanks dab)
+GoldenEye levels: muzzle flashes no longer light up the walls (option: Muzzle Flash Lights GoldenEye Rooms); Perfect Dark's levels keep the flash light (thanks dab)
+GE Plus Dam: diving off the dam puts Bond's guns away, in third person too, with Start Armed on (thanks dab)
+GE Plus, HD look, third person: shots and the Moonraker's laser come from the barrel, not Bond's hand (thanks dab)
+GE Plus, HD look, third person: the rocket launcher is held by its grip (thanks dab)
+GE Plus, HD look, third person: the Moonraker sits in Bond's hand (thanks dab)
+GE Plus Aztec, HD look: the black corner at the top of the shaft is lit like the walls beside it (thanks dick)
+GE Plus Dam, HD look: the water flows smoothly instead of shaking (thanks dab)
+GE Plus, HD look: the military truck has dual rear wheels, as in GoldenEye (thanks dab)
+Customize Character, HD look: Baron Samedi keeps his top hat on another body (thanks dab)
+Customize Character, HD look: no light cracks round the neck when a head is put on another body (thanks dab)
+Customize Character, HD look: Bond's parka no longer shows see-through gaps and dark spikes at the collar under another head (thanks dab)
+Customize Character, HD look: the skin of Bond's own neck no longer shows as a patch under another head (thanks dab)
+Choosing an arena past the end of the list no longer crashes; a stage with no level opens the Carrington Institute instead
+Dump All Assets: an empty file no longer makes the dump read past its end
+Textures: the renderer's texture cache grows with a busy scene instead of swapping pictures in and out, and a few ways a surface could show the wrong picture are closed
+Report a Problem (F3): the report now includes your display mode, refresh rate and recent frame times, to help with stutter reports
+
 notes 17 2026-09-29
 Dam, GE Plus and GoldenEye Arenas: walking into a window of the small bunker stops you at the window instead of lifting you up through its roof (thanks Shockwave S08)
 GoldenEye levels: switching from the HD look to the N64 look mid-mission no longer leaves gaps between the N64 cliffs and sky (thanks Shockwave S08)
