@@ -43,6 +43,9 @@
 #include "gebeansky.h"
 #include "gewater.h"
 #include "wallhitclip.h"
+#include "preprocess.h"
+#include "lib/memp.h"
+#include <zlib.h>
 
 // The bg file's header: primary inflated size, section 1 size, primary stored
 // size. The primary's pointers are in the 0x0f000000 segment.
@@ -695,6 +698,105 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 	return gdl;
 }
 
+/**
+ * The release's collision for the two levels where 4J corrected the ROM's.
+ *
+ * 58 of the release's 60 bg_*_tilesZ files are the ROM's to the byte. These
+ * two are not, and each differs only where 4J fixed a fault (CLAUDE-notes/
+ * xbla.md, "The collision tiles"):
+ *
+ * - Area 51 (bg_lue): three vertical faces in rooms 138 and 154 were flagged
+ *   as floor, so nothing stopped against them; the release makes them walls.
+ * - MP Ruins (bg_mp9): the ramp of rooms 84-87 gets the step flag on its four
+ *   floor tiles and walls on its open sides.
+ *
+ * The drawn rooms at those spots are the same in both copies of the level, so
+ * the fixes are right in either look. That, and the tiles being read once per
+ * level where the look switches live, is why this follows whether the release
+ * is installed rather than the XBLA switches.
+ *
+ * Only the exact release file is taken (length and CRC), and only in place of
+ * the stock ROM file: a mod's tiles are the mod's. Returns the converted tiles
+ * in the stage pool, or NULL to load the ROM's.
+ */
+struct xblatilesfix {
+	const char *name;
+	u32 len;
+	u32 crc;
+};
+
+static const struct xblatilesfix xblaTilesFixes[] = {
+	{ "bg_lue_tilesZ", 528864, 0x6779acf7 },
+	{ "bg_mp9_tilesZ", 37968,  0x379fc8e0 },
+};
+
+void *xblaStageLoadTiles(s32 fileNum)
+{
+	const struct xblatilesfix *fix = NULL;
+	const char *name;
+	const char *base;
+	u32 len = 0;
+	u32 outlen = 0;
+	u32 alloclen;
+	u8 *raw;
+	u8 *dst;
+
+	if (fileNum <= 0 || fileNum >= XBLASTAGE_MAXFILEID || !romdataFileIsStock(fileNum)) {
+		return NULL;
+	}
+
+	name = romdataFileGetName(fileNum);
+
+	if (!name) {
+		return NULL;
+	}
+
+	base = strrchr(name, '/');
+	base = base ? base + 1 : name;
+
+	for (u32 i = 0; i < ARRAYCOUNT(xblaTilesFixes); i++) {
+		if (strcmp(base, xblaTilesFixes[i].name) == 0) {
+			fix = &xblaTilesFixes[i];
+			break;
+		}
+	}
+
+	if (!fix) {
+		return NULL;
+	}
+
+	// Ready-only, as for the rooms: a package still in its archive gives the
+	// ROM's collision until something that may unpack it has
+	raw = xblaMeshReadFile((u16)fileNum, &len);
+
+	if (!raw) {
+		return NULL;
+	}
+
+	if (len != fix->len || (u32)crc32(0, raw, len) != fix->crc) {
+		sysLogPrintf(LOG_WARNING, "xblastage: %s in the release is not the one expected (%u bytes), using the ROM's", base, len);
+		free(raw);
+		return NULL;
+	}
+
+	alloclen = (romdataFileGetEstimatedSize(len, LOADTYPE_TILES) + 0x20) & ~0xf;
+	dst = mempAlloc(alloclen, MEMPOOL_STAGE);
+
+	if (!dst) {
+		free(raw);
+		return NULL;
+	}
+
+	memcpy(dst, raw, len);
+	free(raw);
+	preprocessTilesFile(dst, len, &outlen);
+	mempRealloc(dst, outlen, MEMPOOL_STAGE);
+
+	sysLogPrintf(LOG_NOTE, "xblastage: %s collision from the release (4J's fixes)", base);
+
+	return dst;
+}
+
 PD_CONSTRUCTOR static void xblaStageConfigInit(void)
 {
 	configRegisterInt("Mod.XblaStages", &optEnabled, 0, 1);
@@ -722,5 +824,6 @@ s32 xblaStageDrawsEveryRoom(void) { return 0; }
 s32 xblaStageIsRelease(void) { return 0; }
 s32 xblaStageSlotIsReused(u32 texturenum) { return 0; }
 void xblaStageSetVerbose(s32 verbose) { }
+void *xblaStageLoadTiles(s32 fileNum) { return NULL; }
 
 #endif

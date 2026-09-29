@@ -4156,7 +4156,8 @@ characters, whose index is past the ASCII the map is keyed on.
 
 62 `bgdata/bg_*.seg` files differ from the ROM's. 29 are the 512 byte
 placeholders of levels that were never built, two are tile files (collision,
-a few hundred bytes each, left alone), and **31 are real levels rewritten
+Area 51's and MP Ruins', 4J's own fixes - taken since 2026-09-29, see "The
+collision tiles" below), and **31 are real levels rewritten
 with two to four times the triangles** - `bg_arec.seg` goes from 20656 bytes
 to 72291, `bg_rit.seg` from 270K to 1.2M. Bevelled panel edges, rounded
 pipes, the Crash Site wreck. `port/src/xblastage.c` serves them
@@ -4380,6 +4381,47 @@ and tests overlap. A box-overlap threshold does not separate 4J's copies from
 the ROM's seams. Checked at the tester's pose on the GPU: step 0 against 4 and
 16 at the same camera changes 4% of the frame, all of it on the fighting
 bands; 4 and 16 change the same pixels.
+
+### The collision tiles: 4J's two fixes (2026-09-29)
+
+58 of the release's 60 `bg_*_tilesZ` files are the ROM's to the byte
+(`tools/xblastage/colgap.py` on research/f3-0929e-xblacol). Two differ, and
+each only where 4J fixed a fault. `xblaStageLoadTiles()` (called by
+`tilesReset()`) takes those two out of the package, checked by length and
+CRC, in place of the ROM's stock file; a mod's tiles stay the mod's.
+
+- **Area 51** (`bg_lue`, Infiltration, Rescue, Escape, Maian SOS): rooms
+  138 and 154 each have a short ramp (x 917..1117 and -1125..-925, floor
+  -533 up to -467) running beside the raised hazard-striped platform in the
+  hangar. The ramp's side against the platform's base was a vertical tile
+  flagged *floor*, so nothing stopped against it: from the middle of the ramp
+  you could step sideways up onto the platform through its base. 4J flag it
+  as wall (room 154's tile is split, its floor-level tail kept as floor).
+  Walked frame-exactly, same seed: from the ramp's middle heading west the ROM
+  player ends inside the platform (x 723, room 136 / 152), the release player
+  stops at the base (x 947 / -1095); from the top and along the foot nothing
+  changes.
+- **MP Ruins** (`bg_mp9`): the steep sandy passage of rooms 84-87 (y 3 down to
+  -502, up to 39 degrees). Its four floor tiles gain `GEOFLAG_STEP` ("take
+  this ground even when it is above the position"), and 16 wall tiles are
+  added under both side walls, hanging about 290 units below the ramp surface
+  (plus the room 87 west wall carried down). A walking player is unchanged,
+  up or down, straight or strafing into either wall (identical trajectories).
+  A simulant sent up the passage with `botApplyDefend()` turned back and forth
+  between rooms 85 and 86 for 250 frames on the ROM's tiles and climbed through
+  to room 87 on the release's. Four seeded 12-sim matches, 2400 frames each:
+  no crash, sims use the passage in both (23 visits ROM, 29 release), none
+  ever below ground. The waypoint pads on the ramp (waypoints 52-55, pads
+  128-131) find the same ground heights on both copies, now on step tiles.
+
+The drawn rooms at all these spots are the same in both copies of each level
+(colgap: identical distances), so the fixes are right in the N64 look too.
+That, and the tiles being read once per level while the look flips live with
+F6, is why this follows **whether the release is installed** (package ready
+to read), not the XBLA switches. Nothing replays inputs (ghosts are recorded
+positions, there is no netplay), so no replay can desync; Ghost Trials on
+Area 51 do differ by the platform side-step between players with and without
+the release.
 
 ## The whole release from one key (2026-09-12)
 

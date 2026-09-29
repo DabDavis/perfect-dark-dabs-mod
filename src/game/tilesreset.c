@@ -6,6 +6,9 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "xblastage.h"
+#endif
 
 void stageParseTiles(void);
 
@@ -18,6 +21,13 @@ void tilesReset(void)
 	}
 
 	g_LoadType = LOADTYPE_TILES;
+#ifndef PLATFORM_N64
+	// Area 51 and MP Ruins take the XBLA release's collision where it is
+	// installed: 4J fixed a few tiles in each
+	g_TileFileData.u8 = xblaStageLoadTiles(g_Stages[index].tilefileid);
+
+	if (!g_TileFileData.u8)
+#endif
 	g_TileFileData.u8 = fileLoadToNew(g_Stages[index].tilefileid, FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
 	g_TileNumRooms = *g_TileFileData.u32;
 	g_TileRooms = g_TileFileData.u32 + 1;
