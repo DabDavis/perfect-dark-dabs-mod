@@ -2145,10 +2145,10 @@ void setupCreateProps(s32 stagenum)
 						// PROPDEF_ARMOUR under j_text_trigger) - the same
 						// switch as Perfect Dark's early JPN build above.
 						// Decided here and not in the converter, since one
-						// converted setup serves both regions. Missions only:
-						// a Combat Simulator match on a GoldenEye arena keeps
-						// its player-count bits.
-						if (!g_Vars.mplayerisrunning && gexFrontIsJapanese() && modloaderStageIsRemake(g_Vars.stagenum)) {
+						// converted setup serves both regions. The Combat
+						// Simulator too, as GoldenEye's multiplayer ignored
+						// the player-count bits the same way.
+						if (gexFrontIsJapanese() && modloaderStageIsRemake(g_Vars.stagenum)) {
 							spawnarmour = true;
 						}
 #endif
