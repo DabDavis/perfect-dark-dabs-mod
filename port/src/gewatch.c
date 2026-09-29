@@ -397,6 +397,7 @@ struct gewatch {
 	s32 lrready;
 	s32 yready;
 	s32 yactive;
+	f32 navacc;      // 60ths owed to a list's held scroll (watchListNav())
 
 	// the pulses: INCOMPLETE on the mission status (D_80040AF4, a green that
 	// fades and jumps back) and on the objectives (D_80040AFC)
@@ -1547,6 +1548,14 @@ static f32 watchPageZoom(s32 page)
 {
 	f32 zoom = WATCHZOOM2;
 
+	// The HD look holds the watch at one zoom whatever the page (the user,
+	// F3 20260928-223306: "camera should be static"): the inventory's, which
+	// frames Bean's watch best. The N64 look zooms page by page as GoldenEye
+	// does.
+	if (g_Watch.model && xblaMeshModelDrawsBean(g_Watch.model)) {
+		page = PAGE_INVENTORY;
+	}
+
 	switch (page) {
 	case PAGE_INVENTORY:
 	case PAGE_BRIEFING:
@@ -1876,35 +1885,64 @@ static s32 watchPressedStart(void)
  * to the middle of its row once nothing is held. The text eases a third of the
  * way to the row a frame, and is settled when it is there.
  */
+// one of GoldenEye's frames on the watch, in 60ths
+#define WATCH_NAV_TICK 3.0f
+
 static void watchListNav(f32 *cursor, s32 *index, s32 count, s32 *texty, s32 top, s32 line, s32 *settled)
 {
 	const s32 sticky = joyGetStickY(0);
 	s32 target;
+	s32 ticks = 0;
 
-	if (joyGetButtonsPressedThisFrame(0, U_JPAD | U_CBUTTONS) || sticky >= 0x47) {
+	// GoldenEye moves a held list once a frame of its own, and it draws the
+	// watch at about twenty a second; the port calls this every frame at up to
+	// hundreds, so a held W or S (the C buttons), or the arrows (the stick
+	// pushed all the way), ran down the list three times and more too fast to
+	// stop on a row (F3 20260928-223517). The held moves are paid out in
+	// GoldenEye's frames instead; a press still moves at once.
+	g_Watch.navacc += watchDelta();
+
+	while (g_Watch.navacc >= WATCH_NAV_TICK) {
+		g_Watch.navacc -= WATCH_NAV_TICK;
+		ticks++;
+	}
+
+	if (joyGetButtonsPressedThisFrame(0, U_JPAD | U_CBUTTONS)) {
 		if ((s32)*cursor > 0) {
 			*cursor -= 1.0f;
 		}
-	} else if (joyGetButtonsPressedThisFrame(0, D_JPAD | D_CBUTTONS) || sticky < -0x46) {
+	} else if (joyGetButtonsPressedThisFrame(0, D_JPAD | D_CBUTTONS)) {
 		if ((s32)*cursor < count - 1) {
 			*cursor += 1.0f;
 		}
 	}
 
-	if (joyGetButtons(0, U_JPAD | U_CBUTTONS)) {
-		if ((s32)*cursor > 0) {
-			*cursor -= 0.1f;
+	for (s32 i = 0; i < ticks; i++) {
+		if (sticky >= 0x47) {
+			if ((s32)*cursor > 0) {
+				*cursor -= 1.0f;
+			}
+		} else if (sticky < -0x46) {
+			if ((s32)*cursor < count - 1) {
+				*cursor += 1.0f;
+			}
 		}
-	} else if (joyGetButtons(0, D_JPAD | D_CBUTTONS)) {
-		if ((s32)*cursor < count - 1) {
-			*cursor += 0.1f;
-		}
-	}
 
-	if (sticky >= 0x1f && sticky < 0x46 && *index > 0) {
-		*cursor -= (f32)sticky / 300.0f;
-	} else if (sticky < -0x1e && sticky >= -0x45 && (s32)*cursor < count - 1) {
-		*cursor -= (f32)sticky / 300.0f;
+		if (joyGetButtons(0, U_JPAD | U_CBUTTONS)) {
+			if ((s32)*cursor > 0) {
+				*cursor -= 0.1f;
+			}
+		} else if (joyGetButtons(0, D_JPAD | D_CBUTTONS)) {
+			if ((s32)*cursor < count - 1) {
+				*cursor += 0.1f;
+			}
+		}
+
+		if (sticky >= 0x1f && sticky < 0x46 && *index > 0) {
+			*cursor -= (f32)sticky / 300.0f;
+		} else if (sticky < -0x1e && sticky >= -0x45 && (s32)*cursor < count - 1) {
+			*cursor -= (f32)sticky / 300.0f;
+		}
 	}
 
 	if (sticky >= 0x10 && !g_Watch.yactive && *index > 0) {

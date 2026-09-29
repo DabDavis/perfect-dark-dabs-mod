@@ -1021,12 +1021,18 @@ s32 geHudMessageDuration(s32 top)
 	return top ? 0xf0 : 0x78;
 }
 
-Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 *row)
+/**
+ * `intro` is an opening shot's caption: GoldenEye prints those at the bottom
+ * left too, but in Zurich Bold, the top message's font
+ * (bondviewFrozenCameraTick(): setFontTables(ptrFontZurichBoldChars, ...)
+ * before hudmsgBottomShow(); F3 20260928-210334).
+ */
+Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 intro, s32 *row)
 {
 	struct hudframe f;
 	char wrapped[512];
 	char ended[512];
-	const s32 gothic = top ? 0 : 1;
+	const s32 gothic = top || intro ? 0 : 1;
 	s32 w, h;
 	s32 x = 0x1e;
 	s32 y;
@@ -1082,7 +1088,7 @@ Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 *row)
 	*row += h + 2;
 
 	gdl = gexFrontTextSetup(gdl);
-	gdl = hudString(gdl, 1, text, x, 1, y, 0, 1);
+	gdl = hudString(gdl, gothic, text, x, 1, y, 0, 1);
 
 	return hudEnd(gdl);
 }

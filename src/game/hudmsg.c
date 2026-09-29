@@ -1610,7 +1610,8 @@ Gfx *hudmsgsRender(Gfx *gdl)
 		// GoldenEye's fonts, with none of Perfect Dark's fades or boxes
 		if (gehud && msg->type != HUDMSGTYPE_CUTSCENESUBTITLE) {
 			gdl = geHudRenderMessage(gdl, msg->text,
-					msg->alignv == HUDMSGALIGN_TOP || msg->alignv == HUDMSGALIGN_SCREENTOP, &gerow);
+					msg->alignv == HUDMSGALIGN_TOP || msg->alignv == HUDMSGALIGN_SCREENTOP,
+					(msg->flags & HUDMSGFLAG_GEINTRO) != 0, &gerow);
 			gdl = text0f153628(gdl);
 
 			// and the countdown stays up under it, as GoldenEye's does: its

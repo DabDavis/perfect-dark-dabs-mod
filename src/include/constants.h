@@ -1598,6 +1598,7 @@
 #define HUDMSGFLAG_ALLOWDUPES  0x08
 #define HUDMSGFLAG_DELAY       0x10 // wait minimum 3 frames before showing
 #define HUDMSGFLAG_NOWRAP      0x20
+#define HUDMSGFLAG_GEINTRO     0x40 // port: a GE Plus opening shot's caption, in GoldenEye's Zurich Bold
 
 #define HUDMSGREASON_NOCONTROL 0x00000002
 

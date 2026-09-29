@@ -13993,8 +13993,9 @@ Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen
 		vertices[3] = rodata->dl.vertices[3];
 
 #ifndef PLATFORM_N64
-		// where Bean's HD model has its screen, when that is what is drawn
-		xblaMeshScreenQuad(model, node, vertices);
+		// where Bean's HD model has its screen, when that is what is drawn,
+		// and over the back of its recess when the model has one there
+		const s32 ondecal = g_TvscreenOnBg || xblaMeshScreenQuad(model, node, vertices);
 #endif
 
 		if ((u32)screen->tconfig < 100) {
@@ -14100,13 +14101,13 @@ Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen
 		gSPColor(gdl++, osVirtualToPhysical(colours), 1);
 		gSPVertex(gdl++, SEGADDR(SPSEGMENT_MODEL_VTX << 24), 4, 0);
 #ifndef PLATFORM_N64
-		if (g_TvscreenOnBg) {
+		if (ondecal) {
 			gSPSetExtraGeometryModeEXT(gdl++, G_DECAL_EXT);
 		}
 #endif
 		gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
 #ifndef PLATFORM_N64
-		if (g_TvscreenOnBg) {
+		if (ondecal) {
 			gSPClearExtraGeometryModeEXT(gdl++, G_DECAL_EXT);
 		}
 #endif

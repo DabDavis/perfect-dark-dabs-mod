@@ -582,7 +582,7 @@ static void gecinemaShowLine(const u8 *shot, s32 line)
 		char *text = langGet(textid);
 
 		if (text && text[0]) {
-			hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
+			hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_GEINTRO);
 		}
 	}
 }
