@@ -1059,6 +1059,12 @@ static bool gfx_opengl_supports_shaders(void) {
     return GLAD_GL_EXT_gpu_shader4;
 }
 
+static char gl_device_name[256];
+
+extern "C" const char *gfx_opengl_device_name(void) {
+    return gl_device_name;
+}
+
 static void gfx_opengl_log_info(void) {
     const char *version = (const char *)glGetString(GL_VERSION);
     const char *vendor = (const char *)glGetString(GL_VENDOR);
@@ -1140,6 +1146,14 @@ static void gfx_opengl_init(void) {
     gl_es = (val == SDL_GL_CONTEXT_PROFILE_ES);
 
     gfx_opengl_init_extensions();
+
+    {
+        // kept for the F3 trace's [display] section
+        const char *renderer = (const char *)glGetString(GL_RENDERER);
+        const char *version = (const char *)glGetString(GL_VERSION);
+        snprintf(gl_device_name, sizeof(gl_device_name), "%s, GL %s", renderer ? renderer : "unknown",
+                 version ? version : "?");
+    }
 
     if (sysArgCheck("--debug-gl")) {
         gfx_opengl_enable_debug();

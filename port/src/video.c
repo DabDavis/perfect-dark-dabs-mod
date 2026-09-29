@@ -104,6 +104,21 @@ static f64 accumDelta = 0.0;
 static f64 fpsTime = 0.0;
 static s32 fpsNumFrames = 0;
 
+// The last few seconds of frames for the F3 trace's [frames] section: each
+// frame's present-to-present time, the part of it spent before the swap
+// (game tick plus the renderer's submission; the rest is the limiter, vsync
+// or the driver holding the present) and the game's 240ths step. Written
+// once a frame into fixed arrays, read only when a trace is written.
+static f32 vidRingFrameMs[VIDEO_FRAME_HISTORY];
+static f32 vidRingWorkMs[VIDEO_FRAME_HISTORY];
+static u8 vidRingTicks[VIDEO_FRAME_HISTORY];
+static u32 vidRingPos = 0;
+static u32 vidRingCount = 0;
+static f64 vidPreSwapTime = 0.0;
+// g_Vars.diffframe240, handed in by the scheduler: this file has stdbool's
+// bool and types.h would redefine it (see the window settings struct)
+static s32 vidFrameStep240 = 0;
+
 static s32 videoInitDisplayModes(void);
 void optionsMenuInit();
 
@@ -241,6 +256,26 @@ void videoEndFrame(void)
 	++fpsNumFrames;
 
 	const f64 flipTime = wmAPI->get_time();
+
+	if (endTime > 0.0) {
+		const f64 frameSecs = flipTime - endTime;
+		f64 workSecs = (vidPreSwapTime >= startTime) ? vidPreSwapTime - startTime : frameSecs;
+		const s32 ticks = vidFrameStep240;
+
+		if (workSecs > frameSecs) {
+			workSecs = frameSecs;
+		}
+
+		vidRingFrameMs[vidRingPos] = (f32)(frameSecs * 1000.0);
+		vidRingWorkMs[vidRingPos] = (f32)(workSecs * 1000.0);
+		vidRingTicks[vidRingPos] = ticks < 0 ? 0 : ticks > 255 ? 255 : (u8)ticks;
+		vidRingPos = (vidRingPos + 1) % VIDEO_FRAME_HISTORY;
+
+		if (vidRingCount < VIDEO_FRAME_HISTORY) {
+			++vidRingCount;
+		}
+	}
+
 	accumDelta += flipTime - endTime;
 	endTime = flipTime;
 
@@ -263,6 +298,52 @@ void videoEndFrame(void)
 f32 videoGetAverageFPS(void)
 {
 	return vidAvgFPS;
+}
+
+void videoSetFrameStep(s32 diff240)
+{
+	vidFrameStep240 = diff240;
+}
+
+u32 videoGetFrameHistory(f32 *frameMs, f32 *workMs, u8 *ticks, u32 max)
+{
+	const u32 n = vidRingCount < max ? vidRingCount : max;
+	u32 src = (vidRingPos + VIDEO_FRAME_HISTORY - n) % VIDEO_FRAME_HISTORY;
+
+	for (u32 i = 0; i < n; ++i) {
+		frameMs[i] = vidRingFrameMs[src];
+		workMs[i] = vidRingWorkMs[src];
+		ticks[i] = vidRingTicks[src];
+		src = (src + 1) % VIDEO_FRAME_HISTORY;
+	}
+
+	return n;
+}
+
+s32 videoGetRefreshRate(void)
+{
+	u32 hz = 0;
+
+	if (initDone && wmAPI->get_active_window_refresh_rate) {
+		wmAPI->get_active_window_refresh_rate(&hz);
+	}
+
+	return (s32)hz;
+}
+
+const char *videoGetRendererName(void)
+{
+	return renderingAPI ? renderingAPI->get_name() : "none";
+}
+
+const char *videoGetGpuName(void)
+{
+#ifdef PD_HAVE_VULKAN
+	if (vidRendererActive == VIDEO_RENDERER_VULKAN) {
+		return gfx_vulkan_device_name();
+	}
+#endif
+	return gfx_opengl_device_name();
 }
 
 void videoClearScreen(void)
@@ -326,6 +407,12 @@ static s32 vidNumPreSwapCallbacks;
 
 static void videoPreSwap(void)
 {
+	if (initDone) {
+		// before the callbacks, so writing a trace or a screenshot does not
+		// count as the frame's work
+		vidPreSwapTime = wmAPI->get_time();
+	}
+
 	for (s32 i = 0; i < vidNumPreSwapCallbacks; ++i) {
 		vidPreSwapCallbacks[i]();
 	}

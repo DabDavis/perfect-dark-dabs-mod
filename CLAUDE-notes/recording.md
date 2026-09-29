@@ -166,6 +166,29 @@ and last-frame draws and refused poses (`xblaMeshTrace()`), the record store,
 the level loader and the pack's decode queue and kept store. From gdb,
 `call (void)traceRequest()` at any stop does the same.
 
+**[display] and [frames] (2026-09-29)**, right under the header, so a stutter
+report never needs a follow-up question. `[display]`: SDL's video driver, the
+window's display (name, index), its current and desktop modes with refresh
+(`SDL_GetCurrentDisplayMode` / `SDL_GetDesktopDisplayMode`, plus
+`SDL_GetWindowDisplayMode` in fullscreen), the window size and
+windowed / borderless / exclusive, the active renderer and GPU
+(`videoGetGpuName()`: GL_RENDERER + version kept at GL init, or the Vulkan
+device string), and what is *in effect* - swap interval, MSAA, the frame
+limiter (`none`, or the fps; vsync off with no limit shows the internal cap),
+the refresh the limiter sees and `Game.TickRateDivisor`. The configured values
+are in the context's `--- pd.ini [Video] ---` below. `[frames]`: a 600-frame
+ring (~10 s) filled in `videoEndFrame()` with three fixed arrays - the
+present-to-present time, the *work* part of it (from `videoStartFrame()` to the
+pre-swap hook: game tick plus the renderer's submission; the rest is the
+limiter, vsync or the driver holding the present) and `g_Vars.diffframe240`.
+Printed: avg fps and ms, the 1% low (mean of the slowest 1%), the worst frame
+and its work, frames over 1.5x and 2x the refresh interval (60 Hz assumed when
+SDL reports 0 Hz, as offscreen does), how many of the 1.5x ones were over in
+the work versus waiting at the present, and a histogram of the game step in
+240ths - a steady 4 at 60 Hz; a mix (3/5, 4/8) means the game advanced
+unevenly even when presentation was even. Frames before a stage load show as
+one long frame; the span printed says how far back the ring reaches.
+
 ### Report a Problem: F3 sends it (2026-09-17)
 
 With `Mod.TraceReport=1` (the default, and only in a build with the HTTP

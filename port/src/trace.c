@@ -35,6 +35,9 @@
 #include "pngwrite.h"
 #include "crashreport.h"
 #include "../fast3d/gfx_api.h"
+#include <SDL.h>
+
+extern s32 g_TickRateDiv;
 
 #define TRACE_DIR_NAME "traces"
 #define TRACE_KEYNAME_LEN 32
@@ -262,6 +265,167 @@ static void traceChr(FILE *f, const struct player *pl, struct prop *prop, struct
 	}
 }
 
+
+static const char *traceModeString(const SDL_DisplayMode *m, char *buf, u32 size)
+{
+	snprintf(buf, size, "%dx%d@%dHz", m->w, m->h, m->refresh_rate);
+	return buf;
+}
+
+/**
+ * What a stutter report needs about the screen: the monitor's refresh, the
+ * desktop and window modes, and the renderer, vsync, MSAA and frame limit
+ * actually in effect (pd.ini below says what was asked for).
+ */
+static void traceDisplay(FILE *f)
+{
+	SDL_Window *wnd = (SDL_Window *)videoGetWindowHandle();
+	const char *driver = SDL_GetCurrentVideoDriver();
+	const char *gpu = videoGetGpuName();
+	char buf[64];
+
+	fprintf(f, "\n[display]\n");
+
+	if (wnd) {
+		const s32 idx = SDL_GetWindowDisplayIndex(wnd);
+		const u32 flags = SDL_GetWindowFlags(wnd);
+		const char *name = idx >= 0 ? SDL_GetDisplayName(idx) : NULL;
+		SDL_DisplayMode mode;
+		s32 w = 0, h = 0;
+
+		fprintf(f, "video driver %s, display %d \"%s\" of %d\n",
+				driver ? driver : "-", idx, name ? name : "-", SDL_GetNumVideoDisplays());
+
+		if (idx >= 0 && SDL_GetCurrentDisplayMode(idx, &mode) == 0) {
+			fprintf(f, "display mode now %s", traceModeString(&mode, buf, sizeof(buf)));
+		} else {
+			fprintf(f, "display mode now unknown (%s)", SDL_GetError());
+		}
+
+		if (idx >= 0 && SDL_GetDesktopDisplayMode(idx, &mode) == 0) {
+			fprintf(f, ", desktop %s", traceModeString(&mode, buf, sizeof(buf)));
+		}
+
+		if ((flags & SDL_WINDOW_FULLSCREEN) && SDL_GetWindowDisplayMode(wnd, &mode) == 0) {
+			fprintf(f, ", window's fullscreen mode %s", traceModeString(&mode, buf, sizeof(buf)));
+		}
+
+		SDL_GetWindowSize(wnd, &w, &h);
+		fprintf(f, "\nwindow %dx%d %s%s%s\n", w, h,
+				(flags & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP ? "borderless fullscreen"
+				: (flags & SDL_WINDOW_FULLSCREEN) ? "exclusive fullscreen" : "windowed",
+				(flags & SDL_WINDOW_MAXIMIZED) ? ", maximized" : "",
+				(flags & SDL_WINDOW_INPUT_FOCUS) ? ", focused" : ", not focused");
+	} else {
+		fprintf(f, "video driver %s, no window\n", driver ? driver : "-");
+	}
+
+	fprintf(f, "renderer %s, gpu %s\n", videoGetRendererName(), gpu && gpu[0] ? gpu : "-");
+
+	{
+		const s32 limit = videoGetFramerateLimit();
+
+		if (limit > 0) {
+			snprintf(buf, sizeof(buf), "%d fps", limit);
+		} else {
+			snprintf(buf, sizeof(buf), "none");
+		}
+
+		fprintf(f, "active: vsync %d, msaa %dx, frame limit %s, refresh %d Hz, game tick divisor %d\n",
+				videoGetVsync(), videoGetMSAA(), buf, videoGetRefreshRate(), g_TickRateDiv);
+	}
+}
+
+static int traceCompareFloatDesc(const void *a, const void *b)
+{
+	const f32 x = *(const f32 *)a;
+	const f32 y = *(const f32 *)b;
+
+	return x < y ? 1 : x > y ? -1 : 0;
+}
+
+/**
+ * The last few seconds of frames: how even the presentation was, and whether
+ * the long frames were the game and renderer running over (work) or the
+ * present being held (vsync, the limiter or the driver).
+ */
+static void traceFrames(FILE *f)
+{
+	static f32 frameMs[VIDEO_FRAME_HISTORY];
+	static f32 workMs[VIDEO_FRAME_HISTORY];
+	static f32 sorted[VIDEO_FRAME_HISTORY];
+	static u8 ticks[VIDEO_FRAME_HISTORY];
+	const u32 n = videoGetFrameHistory(frameMs, workMs, ticks, VIDEO_FRAME_HISTORY);
+	const s32 hz = videoGetRefreshRate();
+	const f32 refreshMs = hz > 0 ? 1000.f / hz : 1000.f / 60.f;
+	u32 over15 = 0, over2 = 0, slowwork = 0, heldpresent = 0;
+	u32 tickhist[10] = {0};
+	f64 total = 0.0, worktotal = 0.0;
+	u32 onepct, i;
+	f32 worst = 0.f, worstwork = 0.f;
+
+	fprintf(f, "\n[frames]\n");
+
+	if (n == 0) {
+		fprintf(f, "no frames recorded yet\n");
+		return;
+	}
+
+	for (i = 0; i < n; i++) {
+		total += frameMs[i];
+		worktotal += workMs[i];
+		sorted[i] = frameMs[i];
+
+		if (frameMs[i] > worst) {
+			worst = frameMs[i];
+			worstwork = workMs[i];
+		}
+
+		if (frameMs[i] > refreshMs * 1.5f) {
+			over15++;
+
+			if (workMs[i] > refreshMs) {
+				slowwork++;
+			} else {
+				heldpresent++;
+			}
+		}
+
+		if (frameMs[i] > refreshMs * 2.f) {
+			over2++;
+		}
+
+		tickhist[ticks[i] < 9 ? ticks[i] : 9]++;
+	}
+
+	qsort(sorted, n, sizeof(sorted[0]), traceCompareFloatDesc);
+	onepct = n / 100 ? n / 100 : 1;
+
+	{
+		f64 lowsum = 0.0;
+
+		for (i = 0; i < onepct; i++) {
+			lowsum += sorted[i];
+		}
+
+		fprintf(f, "last %u frames over %.1f s: avg %.1f fps, avg %.2f ms, 1%% low %.2f ms (%.1f fps), worst %.2f ms (work %.2f ms)\n",
+				n, total / 1000.0, total > 0.0 ? n * 1000.0 / total : 0.0, total / n,
+				lowsum / onepct, lowsum > 0.0 ? onepct * 1000.0 / lowsum : 0.0, worst, worstwork);
+	}
+
+	fprintf(f, "refresh interval %.2f ms%s: %u frames over 1.5x, %u over 2x; of the 1.5x ones %u ran over in the game and renderer, %u waited at the present\n",
+			refreshMs, hz > 0 ? "" : " (refresh unknown, 60 Hz assumed)", over15, over2, slowwork, heldpresent);
+	fprintf(f, "work before the swap avg %.2f ms; game step in 240ths:", worktotal / n);
+
+	for (i = 0; i < 10; i++) {
+		if (tickhist[i]) {
+			fprintf(f, " %s%u x%u", i == 9 ? ">=" : "", i, tickhist[i]);
+		}
+	}
+
+	fprintf(f, "\n");
+}
+
 static void traceWrite(FILE *f)
 {
 	const struct player *pl = g_Vars.currentplayer;
@@ -309,6 +473,9 @@ static void traceWrite(FILE *f)
 	fprintf(f, "xbla: meshes %d stages %d meshtextures %d font %d, rooms from release %d; texture pack replacements %d\n",
 			xblaMeshGetEnabled(), xblaStageGetEnabled(), xblaTexGetEnabled(),
 			xblaFontGetEnabled(), xblaStageIsRelease(), texpackHaveReplacements());
+
+	traceDisplay(f);
+	traceFrames(f);
 
 	fprintf(f, "\n[memory]\n");
 	fprintf(f, "memp: stage pool free onboard %u expansion %u (total %u); permanent free onboard %u expansion %u\n",

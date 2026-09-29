@@ -319,6 +319,7 @@ void schedEndFrame(OSSched *sc)
 	sndHandleRetrace();
 	schedAudioFrame(sc);
 	schedRenderCrashPeriodically(sc->frameCount);
+	videoSetFrameStep(g_Vars.diffframe240);
 	videoEndFrame();
 
 	if (g_MainIsBooting == 0) {
