@@ -137,6 +137,7 @@ REPORT_STATUSES = (
     ("received", "Received"),
     ("working", "In progress"),
     ("fixed", "Fixed"),
+    ("feature", "Feature queue"),
     ("needinfo", "Needs more info"),
     ("notabug", "Not a bug"),
     ("wontfix", "Won't fix"),
@@ -1420,11 +1421,12 @@ def board_fixes(reports, notes):
 BOARD_CSS = """
 :root{--bg:#f6f6f4;--card:#fff;--text:#1b1b1b;--dim:#5d5d5d;--line:#dcdcd6;
 --link:#0b57b0;--hl:#fff3c4;--received:#6b6b6b;--working:#9a6200;--fixed:#1d7a35;
---needinfo:#7a3fb0;--notabug:#35607a;--wontfix:#8a3030;--duplicate:#6b6b6b}
+--needinfo:#7a3fb0;--notabug:#35607a;--wontfix:#8a3030;--duplicate:#6b6b6b;
+--feature:#1f6f8b}
 @media (prefers-color-scheme:dark){:root{--bg:#121314;--card:#1d1f21;--text:#e6e6e3;
 --dim:#a2a29d;--line:#34373a;--link:#8ab8ff;--hl:#3a3420;--received:#9a9a9a;
 --working:#e0a33a;--fixed:#5cc475;--needinfo:#c49af0;--notabug:#7fb4d6;
---wontfix:#f08a8a;--duplicate:#9a9a9a}}
+--wontfix:#f08a8a;--duplicate:#9a9a9a;--feature:#6cc3e0}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);
 font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -1460,6 +1462,7 @@ padding:0 8px;border-radius:999px;border:1px solid currentColor;margin-right:6px
 .s-received{color:var(--received)}.s-working{color:var(--working)}.s-fixed{color:var(--fixed)}
 .s-needinfo{color:var(--needinfo)}.s-notabug{color:var(--notabug)}
 .s-wontfix{color:var(--wontfix)}.s-duplicate{color:var(--duplicate)}
+.s-feature{color:var(--feature)}.status.s-feature{border-color:var(--feature)}
 .status.s-fixed{border-color:var(--fixed)}.status.s-working{border-color:var(--working)}
 .status.s-needinfo{border-color:var(--needinfo)}.status>span:last-child{color:var(--text)}
 .fix{border-left:3px solid var(--fixed);padding:.1em 0 .1em .7em;margin:0 0 14px}
@@ -1567,7 +1570,9 @@ def board_html(reports, archived, notes, query):
     p.append('<p class="lead">Everything sent from the F3 <b>Report a Problem</b> '
              'dialog in Dab\'s Mod, newest first, and what became of it. '
              'This page is read-only; Dab updates the statuses as reports are '
-             'looked at. Times are UTC.</p>')
+             'looked at. Bugs and crashes come first; feature requests wait '
+             'in the <b>Feature queue</b> and are fitted in between fixes or '
+             'taken up in a feature update. Times are UTC.</p>')
     p.append('<div class="cols"><section class="reports" id="reports">')
     p.append('<a class="jump chip s-fixed" href="#fixes">Fixed so far: %d &darr;</a>' % len(fixes))
 

@@ -1267,6 +1267,19 @@ def test_report_board():
     check(st == 200 and js.get("total") == 6 and len(js["fixes"]) == 2,
           "a status line for a report that does not exist is ignored")
 
+    # The feature queue: its own word, chip and filter, and not a fix.
+    before = open(STATUS_FILE).read()
+    put_status(before + "20260920-110000-aaaaaaa2 feature A GoldenEye-style weapon dial\n")
+    st, js = board_json("?status=feature")
+    check(st == 200 and [r["id"] for r in js["reports"]] == ["20260920-110000-aaaaaaa2"]
+          and js["reports"][0]["status"] == "feature",
+          "a feature line puts the report in the feature queue")
+    check(len(js["fixes"]) == 2, "a queued feature is not a fix")
+    st, page, _ = board_page("?status=feature")
+    check("Feature queue" in page and "s-feature" in page and "weapon dial" in page,
+          "the page names the feature queue and draws its badge")
+    put_status(before)
+
     # The patch notes: a fix that names a line of them is that line.
     with open(os.path.join(REPORT_DIR, "patchnotes.txt"), "w") as f:
         f.write("# header, and anything above the first notes line, is skipped\n"
