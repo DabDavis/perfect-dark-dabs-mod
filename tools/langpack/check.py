@@ -280,7 +280,13 @@ def read_language(srcdir, source=None):
         for key, text in load_json(path, p).items():
             if not isinstance(text, str) or text == '':
                 continue
-            en_text = key.split('|', 1)[1] if '|' in key and fname == 'port.json' else key
+            # "ctx|English" - unless the whole key is itself a port string's
+            # English, which may hold a '|' of its own (patchnotes.c's
+            # "%s|Patch %d%s%s\n\n", a briefing-style marker)
+            en_text = key
+            if '|' in key and fname == 'port.json' and \
+                    not (source is not None and strip_nl(key) in source.port):
+                en_text = key.split('|', 1)[1]
             if prefix == 'ge':
                 if re.fullmatch(r'ge\.[a-z0-9]+\.\d+', key):
                     k = key
