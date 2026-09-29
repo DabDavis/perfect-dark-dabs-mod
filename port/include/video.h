@@ -104,6 +104,14 @@ s32 videoGetOcclusionResult(s32 slot);
 
 f32 videoGetAverageFPS(void);
 
+// About ten seconds at 60 fps; see videoEndFrame()
+#define VIDEO_FRAME_HISTORY 600
+// Oldest first; returns how many frames were copied (at most max)
+u32 videoGetFrameHistory(f32 *frameMs, f32 *workMs, u8 *ticks, u32 max);
+s32 videoGetRefreshRate(void);
+const char *videoGetRendererName(void);
+const char *videoGetGpuName(void);
+
 void videoSetWindowOffset(s32 x, s32 y);
 void videoSetFullscreen(s32 fs);
 void videoSetFullscreenMode(s32 mode);
