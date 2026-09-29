@@ -944,8 +944,18 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 			// (subcmd 1 keeps its second texture in the bits over them), and
 			// slots under it that the release reused for other pictures.
 			// Those draw through the meshes' stand-in tile - xblastage.h.
-			if (xblaStageIsRelease() && ingdl->unkc0.subcmd != 1
-					&& ((ingdl->words.w1 & 0xffff) >= NUM_TEXTURES
+			//
+			// A reused slot counts on a two-texture surface too. Grid's
+			// release rooms (bg_mp15, eleven rooms) put its pillars on 08bf
+			// through subcmd 1 - the ROM's rooms have them on 0da8 - and the
+			// release's 08bf is a blue marble where the ROM's is the G5
+			// Building's diamond sign, so the XBLA look drew Grid's pillars
+			// with G5's diamonds (F3 20260929-024210). No other level binds a
+			// reused slot through subcmd 1. The detail half of the word is
+			// always 0 in the release (below), so the stand-in's picture in
+			// both tiles loses nothing.
+			if (xblaStageIsRelease()
+					&& ((ingdl->unkc0.subcmd != 1 && (ingdl->words.w1 & 0xffff) >= NUM_TEXTURES)
 						|| xblaStageSlotIsReused(ingdl->words.w1 & 0xffff))) {
 				outgdl = xblaStageWriteTexture(outgdl, ingdl, ingdl->words.w1 & 0xffff);
 
