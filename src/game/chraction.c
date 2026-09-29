@@ -74,6 +74,7 @@
 #include "gestan.h"
 #include "gechranims.h"
 #include "geguns.h"
+#include "gebean.h"
 #include "geslappers.h"
 #include "modloader.h"
 
@@ -11323,6 +11324,22 @@ bool chrGetGunPos(struct chrdata *chr, s32 handnum, struct coord *gunpos)
 		model = obj->model;
 
 		if ((chr->prop->flags & PROPFLAG_ONTHISSCREENTHISTICK) && (weaponprop->flags & PROPFLAG_ONTHISSCREENTHISTICK)) {
+#ifndef PLATFORM_N64
+			// A GoldenEye gun drawn as the release's fires from GoldenEye's
+			// own muzzle, not its host's node (gebeanHeldGunMuzzle())
+			f32 gemuzzle[3];
+
+			if (gebeanHeldGunMuzzle(model, obj->modelnum, gemuzzle)
+					&& (spac = modelGetRootMtx(model)) != NULL) {
+				gunpos->x = gemuzzle[0];
+				gunpos->y = gemuzzle[1];
+				gunpos->z = gemuzzle[2];
+
+				mtx00015be4(camGetProjectionMtxF(), spac, &sp6c);
+				mtx4TransformVecInPlace(&sp6c, gunpos);
+				result = true;
+			} else
+#endif
 			if ((part0 = modelGetPart(model->definition, MODELPART_0000))) {
 				spac = modelFindNodeMtx(model, part0, 0);
 				rodata = &part0->rodata->chrgunfire;

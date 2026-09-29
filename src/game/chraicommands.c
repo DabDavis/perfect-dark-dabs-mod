@@ -5642,7 +5642,25 @@ bool aiChrDrawWeapon(void)
 		// the script drew, giving the second one the way a pickup would.
 		// The left hand first, so that the right's switch sees what it is
 		// to pair with (bgunEquipWeapon2() records the left hand's ask).
-		if (g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT] != g_DefaultWeapons[HAND_RIGHT]
+		//
+		// Not on a converted GoldenEye mission: there this is GoldenEye's
+		// BondEquipItem, which puts exactly the item named in the hands,
+		// and its one use is Dam's bungee jump emptying them (item 0,
+		// unarmed) as Bond dives. Start Armed's gun stayed up for the whole
+		// fall, pair and all (F3 20260929-045753).
+		if (modloaderStageIsMission(g_Vars.stagenum)) {
+			bgunEquipWeapon2(HAND_RIGHT, weaponnum);
+			bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+
+			// And the third person body lets go at once: the body is not
+			// animated through the dive (its tick is the forced fall's), so
+			// playerSyncBodyWeapons() never came round to emptying its hands
+			// and Bond fell holding the guns in third person
+			if (weaponnum <= WEAPON_UNARMED) {
+				playermgrDeleteWeapon(HAND_RIGHT);
+				playermgrDeleteWeapon(HAND_LEFT);
+			}
+		} else if (g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT] != g_DefaultWeapons[HAND_RIGHT]
 				|| g_Vars.currentplayer->spawnweaponnums[HAND_LEFT] > WEAPON_NONE) {
 			bgunEquipWeapon2(HAND_LEFT, g_Vars.currentplayer->spawnweaponnums[HAND_LEFT]);
 			bgunEquipWeapon2(HAND_RIGHT, g_Vars.currentplayer->spawnweaponnums[HAND_RIGHT]);

@@ -132,6 +132,7 @@ s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out);
  * to move (the N64 look, a gun whose host is held from GoldenEye's own point).
  */
 s32 gebeanHeldGunOffset(struct model *model, s32 modelnum, f32 out[3]);
+s32 gebeanHeldGunMuzzle(struct model *model, s32 modelnum, f32 out[3]);
 
 /**
  * How far along x (a weapon's posx units) the first-person gun is drawn from
