@@ -10879,9 +10879,19 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	if (out.numverts > 0) {
 		struct modelnode *flash[3];
 
-		flash[0] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH1);
-		flash[1] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH2);
-		flash[2] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH3);
+		// GoldenEye's own model (fpOnOwn) has one flash switch, part 1, over
+		// the flash's lists and its stars (geguns.c's gegunsOwnModelParts()
+		// and gegunsOwnModelFlash()); Perfect Dark's part numbers name other
+		// things there. Covered, the Klobb and the D5K fired with no flash
+		if (fpOnOwn[fp]) {
+			flash[0] = modelGetPart(modeldef, 1);
+			flash[1] = NULL;
+			flash[2] = NULL;
+		} else {
+			flash[0] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH1);
+			flash[1] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH2);
+			flash[2] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH3);
+		}
 
 		for (s32 k = 0; k < numnodes; k++) {
 			// The parts are the toggles; the lists here hang under them, so
@@ -10891,7 +10901,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			const struct modelnode *up = nodes[k];
 
 			for (s32 walked = 0; up && walked < 64 && !isflash; up = up->parent, walked++) {
-				isflash = up == flash[0] || up == flash[1] || up == flash[2];
+				isflash = up && (up == flash[0] || up == flash[1] || up == flash[2]);
 			}
 
 			if (nodeused[k] || isflash) {
