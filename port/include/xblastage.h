@@ -97,6 +97,13 @@ s32 xblaStageSlotIsReused(u32 texturenum);
  * from the release, and each Xbox-only record bound. */
 void xblaStageSetVerbose(s32 verbose);
 
+/**
+ * The release's copy of a level's collision tiles, for the two levels where
+ * 4J fixed the ROM's (Area 51, MP Ruins), converted and in the stage pool;
+ * NULL for every other file, or when the release is not there to read.
+ */
+void *xblaStageLoadTiles(s32 fileNum);
+
 #ifdef __cplusplus
 }
 #endif
