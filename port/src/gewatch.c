@@ -4056,59 +4056,40 @@ static Gfx *watchRenderGun(Gfx *gdl, Mtxf *base, u32 envcolour)
 /**
  * One of Perfect Dark's own guns on the face, for a player carrying one
  * (Mod.GePlusPdGuns, a pickup a level left them): GoldenEye has no row for it,
- * so it is held up the way Perfect Dark's own inventory and firing range hold
- * it - the model its menus show (weaponGetFileNum()), its middle brought to
- * the origin, tipped and sized by the row of the inventory menu's table
- * (menuGetWeaponModelConfig()), and the pieces a weapon hides in a menu hidden
- * (its partvisibility list). Side on and still on the mission page, turning on
- * the inventory's, under the same camera and the same green as GoldenEye's.
+ * so it is placed the way GoldenEye's rows place GoldenEye's guns. Measured
+ * over them, every one of GoldenEye's is turned about its own middle, which
+ * stands in the middle of the face, and its longest side spans between a half
+ * and three quarters of the camera's distance (0.66 or so on the inventory
+ * page, a fifth less on the mission page's still one). Perfect Dark's model is
+ * measured by its lists (with the pieces a menu hides hidden, its
+ * partvisibility list), its middle brought to the origin and sized a little
+ * under that, Perfect Dark's guns being the bulkier; its tip towards the eye
+ * while it turns is the inventory menu's (menuGetWeaponModelConfig()). It was
+ * placed by that menu's own displacement and scale, sized for the menu's own
+ * camera, and a further 75 units right, which stood the Rocket Launcher off
+ * the face's right edge (F3 20260929-025625). Side on and still on the
+ * mission page, turning on the inventory's, under the same camera and the
+ * same green as GoldenEye's.
  */
 #define PDGUN_STILL -1.5707963f // side on and pointing left, as GoldenEye's stand
 #define PDGUN_EYE   420.0f  // how far back the camera stands
-#define PDGUN_ASIDE 75.0f   // and how far right of the list the inventory's gun turns
-#define PDGUN_SIZE  1.4f  // over the table's scale, which is sized for the menu's own camera
+#define PDGUN_SPAN_TURNING 0.58f // the longest side over the camera's distance
+#define PDGUN_SPAN_STILL   0.46f
+
+static s32 watchPdGunBox(s32 weaponnum, f32 *lo, f32 *hi);
 
 static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 {
 	struct weapon *weapon = weaponnum > WEAPON_UNARMED && weaponnum < WEAPON_GE_FIRST ? weaponFindById(weaponnum) : NULL;
 	struct coord displace;
 	f32 config[5];
+	f32 lo[3], hi[3];
+	f32 len = 0.0f;
 	Mtxf base;
 	Mtxf tmp;
 
 	if (!weapon || !menuGetWeaponModelConfig(weaponnum, config) || !watchItemLoad(&g_WatchGun, GUN_PD_KEY + weaponnum)) {
 		return gdl;
-	}
-
-	gdl = watchItemProjection(gdl, 45.0f, 1.3333334f, 10.0f, 10000.0f);
-
-	// the menu's own order: out to its place, its size, its turn, and last the
-	// displacement that brings the model's middle to where it turns about
-	displace.x = config[0];
-	displace.y = config[1];
-	displace.z = config[2];
-
-	mtx4LoadTranslation(&displace, &base);
-
-	// tipped towards the eye as the menu tips it while it turns; standing side
-	// on the same tip is a roll, and a pistol hangs crooked, so it is left out
-	mtx4LoadXRotation(turning ? config[3] : 0.0f, &tmp);
-	mtx4MultMtx4InPlace(&tmp, &base);
-
-	mtx4LoadYRotation(turning ? g_Watch.gunangle : PDGUN_STILL, &tmp);
-	mtx4MultMtx4InPlace(&tmp, &base);
-
-	mtx4LoadIdentity(&tmp);
-	mtx00015f04(config[4] * PDGUN_SIZE, &tmp);
-	mtx4MultMtx4InPlace(&tmp, &base);
-
-	mtx00016ae4(&tmp, 0.0f, 0.0f, PDGUN_EYE, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
-	mtx4MultMtx4InPlace(&tmp, &base);
-
-	// on the inventory page it turns to the right of the list, where
-	// GoldenEye's own rows (equip_watch_x) put its guns
-	if (turning) {
-		base.m[3][0] += PDGUN_ASIDE;
 	}
 
 	if (weapon->partvisibility) {
@@ -4122,6 +4103,44 @@ static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 			}
 		}
 	}
+
+	if (!watchPdGunBox(weaponnum, lo, hi)) {
+		return gdl;
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		if (hi[a] - lo[a] > len) {
+			len = hi[a] - lo[a];
+		}
+	}
+
+	if (len < 1.0f) {
+		return gdl;
+	}
+
+	gdl = watchItemProjection(gdl, 45.0f, 1.3333334f, 10.0f, 10000.0f);
+
+	// its middle to the origin, then its tip, its turn, its size and the camera
+	displace.x = -(lo[0] + hi[0]) * 0.5f;
+	displace.y = -(lo[1] + hi[1]) * 0.5f;
+	displace.z = -(lo[2] + hi[2]) * 0.5f;
+
+	mtx4LoadTranslation(&displace, &base);
+
+	// tipped towards the eye as the menu tips it while it turns; standing side
+	// on the same tip is a roll, and a pistol hangs crooked, so it is left out
+	mtx4LoadXRotation(turning ? config[3] : 0.0f, &tmp);
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	mtx4LoadYRotation(turning ? g_Watch.gunangle : PDGUN_STILL, &tmp);
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	mtx4LoadIdentity(&tmp);
+	mtx00015f04((turning ? PDGUN_SPAN_TURNING : PDGUN_SPAN_STILL) * PDGUN_EYE / len, &tmp);
+	mtx4MultMtx4InPlace(&tmp, &base);
+
+	mtx00016ae4(&tmp, 0.0f, 0.0f, PDGUN_EYE, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+	mtx4MultMtx4InPlace(&tmp, &base);
 
 	return watchRenderGun(gdl, &base, turning ? 0xa0ffa03c : 0x64dc6428);
 }
@@ -4212,13 +4231,12 @@ static void watchBoxWalk(struct modelnode *node, Mtxf *matrices, s32 nummatrices
 	}
 }
 
+static s32 watchMeasureGun(struct watchbox *box, s32 bylist);
+
 /** GoldenEye's own model of `item` measured, once: its box at rest, as shown. */
 static s32 watchOwnBox(s32 item)
 {
-	struct modelrenderdata renderdata = { NULL, false, 3 };
 	struct watchbox *box;
-	Mtxf *matrices;
-	Mtxf base;
 
 	if (item < 0 || item >= GUN_NUM_ITEMS) {
 		return 0;
@@ -4234,13 +4252,139 @@ static s32 watchOwnBox(s32 item)
 		return 0;
 	}
 
-	matrices = calloc(g_WatchGun.def->nummatrices, sizeof(Mtxf));
+	watchGunParts(item);
+
+	return watchMeasureGun(box, 0);
+}
+
+static void watchBoxAdd(struct watchbox *box, const Vtx *vtx, s32 num, const Mtxf *m)
+{
+	for (s32 i = 0; i < num; i++) {
+		const f32 x = vtx[i].v[0], y = vtx[i].v[1], z = vtx[i].v[2];
+
+		for (s32 a = 0; a < 3; a++) {
+			const f32 p = x * m->m[0][a] + y * m->m[1][a] + z * m->m[2][a] + m->m[3][a];
+
+			if (!box->set || p < box->lo[a]) {
+				box->lo[a] = p;
+			}
+
+			if (!box->set || p > box->hi[a]) {
+				box->hi[a] = p;
+			}
+		}
+
+		box->set = 1;
+	}
+}
+
+/**
+ * One list of a Perfect Dark gun's, read as the renderer reads it: a first
+ * person gun's single list loads its vertices under many of the model's
+ * matrices (G_MTX on the model's matrix segment), so a vertex stands where
+ * the matrix loaded before it puts it, not where its node's matrix does.
+ */
+static void watchBoxWalkList(struct watchbox *box, const Gfx *cmd, uintptr_t seg4, uintptr_t seg5,
+		Mtxf *matrices, s32 nummatrices, s32 *curmtx, s32 depth)
+{
+	for (s32 guard = 0; cmd && guard < 20000; guard++, cmd++) {
+		const u32 op = (u32)(cmd->words.w0 >> 24);
+		const uintptr_t w1 = cmd->words.w1;
+		const u32 seg = (w1 & 1) ? (u32)((w1 >> 24) & 0xf) : 0;
+		const uintptr_t addr = seg == 5 ? seg5 + (w1 & 0xfffffe) : seg == SPSEGMENT_MODEL_VTX ? seg4 + (w1 & 0xfffffe) : w1;
+
+		switch (op) {
+		case G_ENDDL & 0xff:
+			return;
+		case G_DL:
+			if (depth < 4 && (seg == 0 || seg == 5)) {
+				watchBoxWalkList(box, (const Gfx *)addr, seg4, seg5, matrices, nummatrices, curmtx, depth + 1);
+			}
+
+			if ((cmd->words.w0 >> 16) & 1) {
+				return;
+			}
+			break;
+		case G_MTX:
+			if (seg == SPSEGMENT_MODEL_MTX) {
+				*curmtx = (s32)((w1 & 0xfffffe) / sizeof(Mtx));
+			}
+			break;
+		case G_VTX:
+			if (addr && (seg == 0 || seg == 5 || seg == SPSEGMENT_MODEL_VTX)
+					&& *curmtx >= 0 && *curmtx < nummatrices) {
+				watchBoxAdd(box, (const Vtx *)addr, (s32)((cmd->words.w0 & 0xffff) / sizeof(Vtx)), &matrices[*curmtx]);
+			}
+			break;
+		}
+	}
+}
+
+static void watchBoxWalkLists(struct modelnode *node, Mtxf *matrices, s32 nummatrices, struct watchbox *box)
+{
+	for (; node; node = node->next) {
+		const u32 type = node->type & 0xff;
+		const Gfx *lists[2] = { NULL, NULL };
+		uintptr_t seg4 = 0, seg5 = 0;
+
+		if (type == MODELNODETYPE_TOGGLE) {
+			union modelrwdata *rw = modelGetNodeRwData(&g_WatchGun.model, node);
+
+			if (rw && !rw->toggle.visible) {
+				continue;
+			}
+		} else if (type == MODELNODETYPE_DL) {
+			lists[0] = node->rodata->dl.opagdl;
+			lists[1] = node->rodata->dl.xlugdl;
+			seg4 = (uintptr_t)node->rodata->dl.vertices;
+			seg5 = 0;
+		} else if (type == MODELNODETYPE_GUNDL) {
+			lists[0] = node->rodata->gundl.opagdl;
+			lists[1] = node->rodata->gundl.xlugdl;
+			seg4 = (uintptr_t)node->rodata->gundl.vertices;
+			seg5 = (uintptr_t)node->rodata->gundl.baseaddr;
+		}
+
+		for (s32 l = 0; l < 2; l++) {
+			uintptr_t gdl = (uintptr_t)lists[l];
+			s32 curmtx = modelFindNodeMtxIndex(node, 0);
+
+			if (!gdl) {
+				continue;
+			}
+
+			if ((gdl & 1) && ((gdl >> 24) & 0xf) == 5) {
+				if (!seg5) {
+					continue;
+				}
+
+				gdl = seg5 + (gdl & 0xfffffe);
+			}
+
+			watchBoxWalkList(box, (const Gfx *)gdl, seg4, seg5, matrices, nummatrices, &curmtx, 0);
+		}
+
+		if (node->child) {
+			watchBoxWalkLists(node->child, matrices, nummatrices, box);
+		}
+	}
+}
+
+/**
+ * The gun slot's model measured at rest, with its parts as they are set now:
+ * by its nodes' vertex arrays under their nodes' matrices (GoldenEye's own
+ * guns), or `bylist`, by its lists as they are drawn (Perfect Dark's).
+ */
+static s32 watchMeasureGun(struct watchbox *box, s32 bylist)
+{
+	struct modelrenderdata renderdata = { NULL, false, 3 };
+	Mtxf *matrices = calloc(g_WatchGun.def->nummatrices, sizeof(Mtxf));
+	Mtxf base;
 
 	if (!matrices) {
 		return 0;
 	}
 
-	watchGunParts(item);
 	mtx4LoadIdentity(&base);
 
 	for (s32 i = 0; i < g_WatchGun.def->nummatrices; i++) {
@@ -4253,12 +4397,42 @@ static s32 watchOwnBox(s32 item)
 	modelUpdateRelations(&g_WatchGun.model);
 	modelSetMatrices(&renderdata, &g_WatchGun.model);
 
-	watchBoxWalk(g_WatchGun.def->rootnode, matrices, g_WatchGun.def->nummatrices, box);
+	if (bylist) {
+		watchBoxWalkLists(g_WatchGun.def->rootnode, matrices, g_WatchGun.def->nummatrices, box);
+	} else {
+		watchBoxWalk(g_WatchGun.def->rootnode, matrices, g_WatchGun.def->nummatrices, box);
+	}
 
 	g_WatchGun.model.matrices = NULL;
 	free(matrices);
 
 	return box->set;
+}
+
+// Perfect Dark's guns' boxes, measured once each with their menu pieces
+static struct watchbox g_WatchPdBox[WEAPON_GE_FIRST];
+
+/** The loaded Perfect Dark gun of `weaponnum` measured, once: its box at rest. */
+static s32 watchPdGunBox(s32 weaponnum, f32 *lo, f32 *hi)
+{
+	struct watchbox *box;
+
+	if (weaponnum <= 0 || weaponnum >= WEAPON_GE_FIRST) {
+		return 0;
+	}
+
+	box = &g_WatchPdBox[weaponnum];
+
+	if (!box->set && !watchMeasureGun(box, 1)) {
+		return 0;
+	}
+
+	for (s32 a = 0; a < 3; a++) {
+		lo[a] = box->lo[a];
+		hi[a] = box->hi[a];
+	}
+
+	return 1;
 }
 
 /**

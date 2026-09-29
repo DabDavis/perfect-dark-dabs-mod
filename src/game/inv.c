@@ -4,6 +4,8 @@
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "gegadgets.h"
+#include "gexfront.h"
+#include "gexplus.h"
 #endif
 #include "game/cheats.h"
 #include "game/bondgun.h"
@@ -346,11 +348,180 @@ bool invCanHaveAllGunsWeapon(s32 weaponnum)
 	return canhave;
 }
 
+/**
+ * The All Guns cheat's list. Perfect Dark's is every weapon up to the
+ * Psychosis Gun, by number. In a level GE Plus started it is GoldenEye's
+ * instead (bondinv.c's equipallguns: ITEM_FIST up to ITEM_TANKSHELLS, in
+ * GoldenEye's item order) - the guns, the knives, the explosives and the
+ * detonator it gives with them, but not its tank's shells, which nothing can
+ * fire outside the tank, nor the Silver and Gold PP7s, the watch laser and
+ * the taser that the port has no weapon for; followed by Perfect Dark's own
+ * list only when the player has asked for Perfect Dark's guns in GE Plus
+ * (Mod.GePlusPdGuns). F3 20260929-025554.
+ */
+#ifndef PLATFORM_N64
+static const u8 g_GeAllGuns[] = {
+	WEAPON_UNARMED,
+	WEAPON_GE_HUNTINGKNIFE,
+	WEAPON_GE_THROWINGKNIFE,
+	WEAPON_GE_PP7,
+	WEAPON_GE_PP7SILENCED,
+	WEAPON_GE_DD44,
+	WEAPON_GE_KLOBB,
+	WEAPON_GE_KF7SOVIET,
+	WEAPON_GE_ZMG,
+	WEAPON_GE_D5K,
+	WEAPON_GE_D5KSILENCED,
+	WEAPON_GE_PHANTOM,
+	WEAPON_GE_AR33,
+	WEAPON_GE_RCP90,
+	WEAPON_GE_SHOTGUN,
+	WEAPON_GE_AUTOSHOTGUN,
+	WEAPON_GE_SNIPERRIFLE,
+	WEAPON_GE_COUGARMAGNUM,
+	WEAPON_GE_GOLDENGUN,
+	WEAPON_GE_MOONRAKER,
+	WEAPON_GE_GRENADELAUNCHER,
+	WEAPON_GE_ROCKETLAUNCHER,
+	WEAPON_GE_GRENADE,
+	WEAPON_GE_TIMEDMINE,
+	WEAPON_GE_PROXIMITYMINE,
+	WEAPON_GE_REMOTEMINE,
+	WEAPON_GE_DETONATOR,
+};
+
+#define NUM_GE_ALLGUNS ((s32)(sizeof(g_GeAllGuns) / sizeof(g_GeAllGuns[0])))
+
+static bool invAllGunsAreGe(void)
+{
+	return gexFrontIsInside() != 0;
+}
+
+/** Perfect Dark's own list after GoldenEye's, with its Unarmed left out. */
+static s32 invAllGunsPdCount(void)
+{
+	return gexPlusGetPdGuns() ? WEAPON_PSYCHOSISGUN - currentStageForbidsSlayer() - 1 : 0;
+}
+#endif
+
+/** How many weapons the All Guns cheat lists. */
+s32 invAllGunsCount(void)
+{
+#ifndef PLATFORM_N64
+	if (invAllGunsAreGe()) {
+		return NUM_GE_ALLGUNS + invAllGunsPdCount();
+	}
+#endif
+
+	return WEAPON_PSYCHOSISGUN - currentStageForbidsSlayer();
+}
+
+/** The weapon at `index` (from 0) of the All Guns cheat's list. */
+s32 invAllGunsWeaponAt(s32 index)
+{
+#ifndef PLATFORM_N64
+	if (invAllGunsAreGe()) {
+		if (index < 0) {
+			return WEAPON_NONE;
+		}
+
+		if (index < NUM_GE_ALLGUNS) {
+			return g_GeAllGuns[index];
+		}
+
+		index -= NUM_GE_ALLGUNS;
+
+		return index < invAllGunsPdCount() ? invAddOneIfCantHaveSlayer(index + 2) : WEAPON_NONE;
+	}
+#endif
+
+	return invAddOneIfCantHaveSlayer(index + 1);
+}
+
+/** Where `weaponnum` stands in the All Guns cheat's list, or -1. */
+static s32 invAllGunsIndexOf(s32 weaponnum)
+{
+	const s32 count = invAllGunsCount();
+
+	for (s32 i = 0; i < count; i++) {
+		if (invAllGunsWeaponAt(i) == weaponnum) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+/** Whether the All Guns cheat gives `weaponnum`. */
+bool invAllGunsGives(s32 weaponnum)
+{
+#ifndef PLATFORM_N64
+	if (invAllGunsAreGe()) {
+		if (weaponnum <= WEAPON_NONE) {
+			return false;
+		}
+
+		if (WEAPON_IS_GE(weaponnum)) {
+			return invAllGunsIndexOf(weaponnum) >= 0;
+		}
+
+		return weaponnum == WEAPON_UNARMED
+			|| (invAllGunsPdCount() > 0 && weaponnum <= WEAPON_PSYCHOSISGUN && invCanHaveAllGunsWeapon(weaponnum));
+	}
+#endif
+
+	return weaponnum && weaponnum <= WEAPON_PSYCHOSISGUN && invCanHaveAllGunsWeapon(weaponnum);
+}
+
+#ifndef PLATFORM_N64
+/**
+ * The next (`dir` 1) or previous (-1) weapon from `weaponnum` in the All Guns
+ * cheat's list, in the list's own order and round its end, skipping the empty
+ * ones when `needammo` asks; `weaponnum` itself when there is no other.
+ */
+static s32 invAllGunsStep(s32 weaponnum, s32 dir, bool needammo)
+{
+	const s32 count = invAllGunsCount();
+	s32 index = invAllGunsIndexOf(weaponnum);
+
+	if (index < 0) {
+		index = dir > 0 ? -1 : count;
+	}
+
+	for (s32 i = 0; i < count; i++) {
+		s32 candidate;
+
+		index = (index + dir + count) % count;
+		candidate = invAllGunsWeaponAt(index);
+
+		if (candidate == weaponnum) {
+			break;
+		}
+
+		if (!needammo || bgun0f0a1a10(candidate)) {
+			return candidate;
+		}
+	}
+
+	return weaponnum;
+}
+#endif
+
+/** Whether an inventory item of `weaponnum` is left out while the list shows it. */
+static bool invAllGunsHides(s32 weaponnum)
+{
+#ifndef PLATFORM_N64
+	if (invAllGunsAreGe()) {
+		return invAllGunsGives(weaponnum);
+	}
+#endif
+
+	return weaponnum <= WEAPON_PSYCHOSISGUN;
+}
+
 bool invHasSingleWeaponIncAllGuns(s32 weaponnum)
 {
-	if (g_Vars.currentplayer->equipallguns &&
-			weaponnum && weaponnum <= WEAPON_PSYCHOSISGUN &&
-			invCanHaveAllGunsWeapon(weaponnum)) {
+	if (g_Vars.currentplayer->equipallguns && invAllGunsGives(weaponnum)) {
 		return true;
 	}
 
@@ -364,10 +535,9 @@ bool invHasDoubleWeaponIncAllGuns(s32 weapon1, s32 weapon2)
 	}
 
 	if (g_Vars.currentplayer->equipallguns &&
-			weapon1 <= WEAPON_PSYCHOSISGUN &&
 			weapon1 == weapon2 &&
 			weaponHasFlag(weapon1, WEAPONFLAG_DUALWIELD) &&
-			invCanHaveAllGunsWeapon(weapon1)) {
+			invAllGunsGives(weapon1)) {
 		return true;
 	}
 
@@ -381,9 +551,7 @@ bool invGiveSingleWeapon(s32 weaponnum)
 	if (invHasSingleWeaponExcAllGuns(weaponnum) == 0) {
 		struct invitem *item;
 
-		if (g_Vars.currentplayer->equipallguns &&
-				weaponnum <= WEAPON_PSYCHOSISGUN &&
-				invCanHaveAllGunsWeapon(weaponnum)) {
+		if (g_Vars.currentplayer->equipallguns && invAllGunsGives(weaponnum)) {
 			return false;
 		}
 
@@ -699,6 +867,11 @@ void invChooseCycleForwardWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 			// Switching to dual from single
 			weapon1 = *ptr1;
 			weapon2 = *ptr1;
+#ifndef PLATFORM_N64
+		} else if (invAllGunsAreGe()) {
+			weapon1 = invAllGunsStep(weapon1, 1, arg2);
+			weapon2 = WEAPON_NONE;
+#endif
 		} else {
 			// Find next weapon
 			do {
@@ -767,6 +940,12 @@ void invChooseCycleBackWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 			// Switching from dual to single
 			weapon1 = candidate;
 			weapon2 = WEAPON_NONE;
+#ifndef PLATFORM_N64
+		} else if (invAllGunsAreGe()) {
+			candidate = invAllGunsStep(weapon1, -1, arg2);
+			weapon1 = candidate;
+			weapon2 = weaponHasFlag(candidate, WEAPONFLAG_DUALWIELD) ? candidate : WEAPON_NONE;
+#endif
 		} else {
 			// Find prev weapon
 			do {
@@ -924,7 +1103,7 @@ s32 invGetCount(void)
 	struct invitem *item;
 
 	if (g_Vars.currentplayer->equipallguns) {
-		numitems = WEAPON_PSYCHOSISGUN - currentStageForbidsSlayer();
+		numitems = invAllGunsCount();
 	}
 
 	item = g_Vars.currentplayer->weapons;
@@ -950,7 +1129,7 @@ s32 invGetCount(void)
 			}
 		} else if (item->type == INVITEMTYPE_WEAP) {
 			if (g_Vars.currentplayer->equipallguns == false
-					|| item->type_weap.weapon1 > WEAPON_PSYCHOSISGUN) {
+					|| !invAllGunsHides(item->type_weap.weapon1)) {
 				numitems++;
 			}
 		}
@@ -970,11 +1149,11 @@ struct invitem *invGetItemByIndex(s32 index)
 	struct invitem *item;
 
 	if (g_Vars.currentplayer->equipallguns) {
-		if (index < WEAPON_PSYCHOSISGUN - currentStageForbidsSlayer()) {
+		if (index < invAllGunsCount()) {
 			return NULL;
 		}
 
-		index += currentStageForbidsSlayer() - WEAPON_PSYCHOSISGUN;
+		index -= invAllGunsCount();
 	}
 
 	item = g_Vars.currentplayer->weapons;
@@ -1006,7 +1185,7 @@ struct invitem *invGetItemByIndex(s32 index)
 			}
 		} else if (item->type == INVITEMTYPE_WEAP) {
 			if (g_Vars.currentplayer->equipallguns == false
-					|| item->type_weap.weapon1 > WEAPON_PSYCHOSISGUN) {
+					|| !invAllGunsHides(item->type_weap.weapon1)) {
 				if (index == 0) {
 					return item;
 				}
@@ -1070,9 +1249,8 @@ s32 invGetWeaponNumByIndex(s32 index)
 			return item->type_weap.weapon1;
 		}
 	} else if (g_Vars.currentplayer->equipallguns) {
-		if (index < WEAPON_PSYCHOSISGUN - currentStageForbidsSlayer()) {
-			index++;
-			return invAddOneIfCantHaveSlayer(index);
+		if (index < invAllGunsCount()) {
+			return invAllGunsWeaponAt(index);
 		}
 	}
 
@@ -1107,9 +1285,8 @@ u16 invGetNameIdByIndex(s32 index)
 		}
 	} else {
 		if (g_Vars.currentplayer->equipallguns) {
-			if (index < WEAPON_PSYCHOSISGUN - currentStageForbidsSlayer()) {
-				index++;
-				return bgunGetNameId(invAddOneIfCantHaveSlayer(index));
+			if (index < invAllGunsCount()) {
+				return bgunGetNameId(invAllGunsWeaponAt(index));
 			}
 		}
 	}
@@ -1153,9 +1330,8 @@ char *invGetShortNameByIndex(s32 index)
 #endif
 		}
 	} else if (g_Vars.currentplayer->equipallguns) {
-		if (index < WEAPON_PSYCHOSISGUN - currentStageForbidsSlayer()) {
-			index++;
-			return bgunGetShortName(invAddOneIfCantHaveSlayer(index));
+		if (index < invAllGunsCount()) {
+			return bgunGetShortName(invAllGunsWeaponAt(index));
 		}
 	}
 
