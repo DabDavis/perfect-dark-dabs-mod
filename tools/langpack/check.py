@@ -288,8 +288,10 @@ def read_language(srcdir, source=None):
             if not isinstance(text, str) or text == '':
                 continue
             # a '|' is a ctx separator only when the whole key is not itself
-            # a port string ("%s|Patch %d%s%s" is one)
-            whole = source is not None and any(c in source.port for c in (strip_nl(key), strip_nl(key) + '\n'))
+            # a port string ("%s|Patch %d%s%s" is one); with no catalogs (build.py)
+            # a '|' whose left side holds a conversion is taken as English too
+            whole = (source is not None and any(c in source.port for c in (strip_nl(key), strip_nl(key) + '\n'))) \
+                or ('|' in key and '%' in key.split('|', 1)[0])
             en_text = key.split('|', 1)[1] if '|' in key and fname == 'port.json' and not whole else key
             if prefix == 'ge':
                 if re.fullmatch(r'ge\.[a-z0-9]+\.\d+', key):
