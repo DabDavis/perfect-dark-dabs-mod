@@ -4396,8 +4396,9 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * cache/xbla/goldeneye/levels/<key>_<file>[_ce].bin and read back instead.
  *
  * The key is a hash of everything the build reads: HDCACHE_VERSION (bump it
- * on ANY change to what build() or the functions it calls produce), the
- * struct layouts, the level's table row, the release's level file byte for
+ * on ANY change to what build() or the functions it calls produce, here or
+ * in gebean.c's level walk and pictures), the binary's commit, the struct
+ * layouts, the level's table row, the release's level file byte for
  * byte (which is also what the Community Edition's overlay changes), whether
  * that overlay is on, the pictures' alpha as bound, the level file's rooms
  * (their bytes, bases, positions and boxes), the doors' boxes and the
@@ -4484,6 +4485,11 @@ static u64 hdcacheKey(const char *levelname, u8 **filerooms, u32 *filelens, s32 
 	s32 numboxes;
 	u64 h = hashBytes(0, layout, sizeof(layout));
 
+#ifdef VERSION_HASH
+	// and the binary's own commit, so that a released build never serves a
+	// level an older one built, whether or not the version above was bumped
+	h = hashStr(h, VERSION_HASH);
+#endif
 	h = hashStr(h, row->key);
 	h = hashStr(h, row->bean);
 	h = hashBytes(h, &row->scale, sizeof(row->scale));
