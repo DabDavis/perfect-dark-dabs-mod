@@ -1561,6 +1561,19 @@ def main():
             return got
         files = {}
         mpsetup, nsp, nw, na = write_mpsetup(setup, mp, stan, bg, ls, objects_for)
+        # and the later cartridges' (gefiles.revision_setup()): an arena setup
+        # of its own where they changed one, and the portals they thickened
+        revportals = ' '.join('%d %d' % (p, portal_thickness(new, 1.0 / ls))
+                              for name, p, old, new in gefiles.REVISION_PORTALS
+                              if name == bgname and p < len(bg.portals) and bg.portals[p]['ctrl'] & 0xff == old)
+        revmp = gefiles.revision_setup(mpname, gedata) if mpname else None
+        if revmp:
+            def rev_objects_for(first):
+                got, used = geobjects.objects(revmp, len(setup['pads']), first, bodyarmour=0x182, bikepads=bikepads)
+                allmodels.update(used)
+                return got
+            files['Ump_setup%s_jZ' % short] = write_mpsetup(setup, mp, stan, bg, ls, rev_objects_for)[0]
+        rev = (' revmpsetup "Ump_setup%s_jZ"' % short if revmp else '') + (' revportals "%s"' % revportals if revportals else '')
         print('%-5s %d objects, %d bound pads' % (key, len(objs), len(boundpads)))
         # and the solo mission on this level, where there is one: its own pads
         # (the mission's pad list is not the arena's) and its own setup, over
@@ -1578,10 +1591,19 @@ def main():
             allanims.update(mstats['anims'])
             files['bgdata/bg_gs%s_padsZ' % mkey] = mpads
             files['Usetupgs%sZ' % mkey] = rzip1173(pad(mprops, 16))
+            # and the mission as the later cartridges have it, over the same pads
+            mrev = gefiles.revision_setup(msetup, md)
+            if mrev:
+                rprops, rmodels, rstats = gesolo.convert(mrev, len(msetupdata['pads']), gesolo.STOCK_BODIES, ls, offset,
+                                                         gefiles.rom().data)
+                allmodels.update(rmodels)
+                allanims.update(rstats['anims'])
+                files['Usetupgs%s_jZ' % mkey] = rzip1173(pad(rprops, 16))
+            mrevtext = (' revsetup "Usetupgs%s_jZ"' % mkey if mrev else '') + (' revportals "%s"' % revportals if revportals else '')
             missions.append('  mission %d "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ"'
-                            ' pads "bgdata/bg_gs%s_padsZ" setup "Usetupgs%sZ"%s' % (
+                            ' pads "bgdata/bg_gs%s_padsZ" setup "Usetupgs%sZ"%s%s' % (
                                 [m[0] for m in MISSIONS].index(mkey), mname, short, short, mkey, mkey,
-                                fog_string(key, fogs, foglesses, offset, alts, cinemas)))
+                                fog_string(key, fogs, foglesses, offset, alts, cinemas), mrevtext))
             print('%-5s mission %-12s props %4d (+%d) pads %3d ai %5d (+%d) unknown %d' % (
                 key, mname, sum(mstats['kept'].values()), sum(mstats['dropped'].values()),
                 len(msetupdata['pads']), mstats['ai_kept'], sum(mstats['ai_dropped'].values()),
@@ -1594,9 +1616,9 @@ def main():
         for rel, data in files.items():
             with open(os.path.join(outdir, 'files', rel), 'wb') as f:
                 f.write(data)
-        maps.append('  map "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ" pads "bgdata/bg_%s_padsZ" mpsetup "Ump_setup%sZ"%s' % (
+        maps.append('  map "%s" bg "bgdata/bg_%s.seg" tiles "bgdata/bg_%s_tilesZ" pads "bgdata/bg_%s_padsZ" mpsetup "Ump_setup%sZ"%s%s' % (
             NAMES[key], short, short, short, short,
-            fog_string(key, fogs, foglesses, offset)))
+            fog_string(key, fogs, foglesses, offset), rev))
         print('%-5s lights %d' % (key, numlights))
         print('%-5s rooms %3d portals %3d textures %3d tiles %4d (+%d walls) pads %3d waypoints %3d spawns %2d weapons %2d ammo %2d  bg %d bytes' % (
             key, bg.numrooms, len(bg.portals), len(tex), len(stan), walls, len(setup['pads']), len(setup['waypoints']), nsp, nw, na, len(bgdata)))

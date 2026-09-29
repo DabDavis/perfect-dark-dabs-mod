@@ -5433,7 +5433,7 @@ struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 		MENUITEMTYPE_CHECKBOX,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"GE Plus: Later Revision Fixes",
+		(uintptr_t)"GE Plus: Later Revision (JP/PAL)",
 		0,
 		menuhandlerGePlusRevisionFixes,
 	},
@@ -6220,8 +6220,12 @@ static MenuItemHandlerResult menuhandlerGePlusRegion(s32 operation, struct menui
 }
 
 /**
- * "GE Plus: Later Revision Fixes": the bug fixes GoldenEye's Japanese and PAL
- * cartridges carry over the US one (Mod.GePlusRevisionFixes). On by default.
+ * "GE Plus: Later Revision (JP/PAL)": GoldenEye as its Japanese and PAL
+ * cartridges have it rather than the US one (Mod.GePlusRevisionFixes) - their
+ * bug fixes, the setup files they changed (Silo's opening with five shots
+ * instead of one, from Wreck's report, and Frigate's, Statue Park's, Jungle's,
+ * Cradle's, Train's and Archives' mended setups) and the PAL cartridge's
+ * thicker portals. Takes effect at the next level load. On by default.
  */
 static MenuItemHandlerResult menuhandlerGePlusRevisionFixes(s32 operation, struct menuitem *item, union handlerdata *data)
 {

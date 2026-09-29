@@ -1512,6 +1512,13 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 		}
 
 		setupfilenum = g_Stages[stageindex].setupfileid;
+#ifndef PLATFORM_N64
+		// GE Plus: the mission as GoldenEye's later cartridges have it, whose
+		// objectives are its own (Mod.GePlusRevisionFixes)
+		if (gexFrontGetRevisionFixes()) {
+			setupfilenum = modloaderGetStageRevisionSetup(g_Stages[stageindex].id, setupfilenum);
+		}
+#endif
 #ifdef PLATFORM_N64 // bug?
 		g_LoadType = LOADTYPE_LANG;
 #else
@@ -1643,6 +1650,15 @@ void setupLoadFiles(s32 stagenum)
 		} else {
 			filenum = g_Stages[g_StageIndex].setupfileid;
 		}
+
+#ifndef PLATFORM_N64
+		// GE Plus: GoldenEye's later cartridges (JP/PAL) where they changed
+		// the setup - Silo's five opening shots, the lists they mended
+		// (geconvert.c's revisionSetup())
+		if (gexFrontGetRevisionFixes()) {
+			filenum = modloaderGetStageRevisionSetup(stagenum, filenum);
+		}
+#endif
 
 		g_LoadType = LOADTYPE_SETUP;
 

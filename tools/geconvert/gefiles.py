@@ -107,6 +107,167 @@ def rom_file(stem):
     return d
 
 
+# GoldenEye's Japanese and PAL cartridges changed eight of the US one's setup
+# files, and the PAL one five of its bg files' portals (geconvert.c's
+# revisionSetup(), which is this: the long form of every change is there).
+# GE Plus plays either (Mod.GePlusRevisionFixes), so a conversion writes both:
+# each changed setup again as the later cartridges have it, `revsetup` on a
+# mission line and `revmpsetup` on a map line, and the changed portals'
+# thickness codes as `revportals`. Cuba's, the eighth, changed only its credits
+# (gecredits.c). Checked against both ROMs; a setup any one of whose changes
+# does not find the US bytes it replaces gets no second file.
+REVISION_WORDS = (
+    # Frigate: the third opening shot, moved
+    ('UsetupdestZ', 0xbb3c, 0x0000801b, 0x0000a5dc),
+    ('UsetupdestZ', 0xbb40, 0x00006ea3, 0x000066d3),
+    ('UsetupdestZ', 0xbb44, 0xfffa7a99, 0xfffa5a45),
+    ('UsetupdestZ', 0xbb48, 0x0005bfa9, 0x0005aaff),
+    ('UsetupdestZ', 0xbb4c, 0x0005d453, 0x00060101),
+    # Jungle: objective 3 complete on bit 0x40000, not the spawners' 0x8000
+    ('UsetupjunZ', 0x6900, 0x00008000, 0x00040000),
+    # Archives (the arena): the prop on bound pad 10249 PROPFLAG2_NOFALL
+    ('Ump_setuparchZ', 0x7f98, 0x00000000, 0x00000100),
+)
+
+# Silo's opening: four more shots after the US one (Wreck's report)
+REVISION_SILO_SHOT = (0x00000006, 0x0007d0b2, 0xfffe687b, 0x000430b2, 0x000561d5, 0x00060101, 0x00000081,
+                      0x00008844, 0x00008845, 0x00000000)
+REVISION_SILO_SHOTS = (
+    (0x00000006, 0x0006ee17, 0xfffe31d9, 0x00019306, 0x0005adca, 0x000097e9, 0x0000000c, 0x00008844, 0x00008845, 0x00000000),
+    (0x00000006, 0x00040d2a, 0x0000115e, 0x0003aad5, 0x0002c9c5, 0x00052a8a, 0x000000dd, 0x00008844, 0x00008845, 0x00000000),
+    (0x00000006, 0x000045aa, 0xfffdd9d6, 0x0003beac, 0x0004240b, 0x00010325, 0x000000d8, 0x00008844, 0x00008845, 0x00000000),
+    (0x00000006, 0xfffcbca9, 0x00003e47, 0x000153ee, 0x000294b6, 0x0005c274, 0x0000005f, 0x00008844, 0x00008845, 0x00000000),
+)
+
+# the AI lists they changed, whole: (file, list id, the US list's length and
+# CRC-32 or 0 for a list they added, the list)
+REVISION_LISTS = (
+    ('UsetupstatueZ', 0x1009, 0, 0, bytes.fromhex(
+        'a0010010000003023303f70023013302239a0020000005fd000104')),
+    ('UsetupjunZ', 0x0409, 158, 0xe3ac8041, bytes.fromhex(
+        'ad6d646b00eb26020351006426035100c82c0351012c2c05fd040c022c40fc36000702363335803614002400fc3d0236'
+        '15002400fc3d17000400fc2c022cae020d03b400003c2c010d022c40fc36000702360103023d97fc80ae020b0330fc4b'
+        'b400003c2c010b022c16000400fc2c022c020c30fc4b31fc4b03b400012c2c2f2c010c022c3335802c0103022c020798'
+        'fc8005fd0407024b05fd040a022605fd040b04')),
+    ('UsetupjunZ', 0x040b, 159, 0x898d9724, bytes.fromhex(
+        'ad6576616400911497fc803335800a0a000b0014003c02100208032f2c0108022c020a15002400fc3d023dae020b0330'
+        'fc4bb400003c2c010b022c4f0019fc0916000400fc2c022c020c03b400012c2c2f2c010c022c30fc4b3335802c010802'
+        '2c020798fc8005fd0407024b05fd040a0209032f2ce72c0109022c16000400fc2c05fd0407022c0319fdfc08ad636865'
+        '61700098fc80020d032f2c010d022c05fd040704')),
+    ('UsetupjunZ', 0x1002, 187, 0x926bb643, bytes.fromhex(
+        '020303eb4c5501d42c0103022c9a00040000ecd700da020803dc2c0108022c31014b30014bf12c05fd000f022cddeadf'
+        '1fdf2059042c59052c59062c59072c59082c59092c590a2c590b2c590c2c590d2c590e2c590f2c59102c59112c59122c'
+        '59132c59162c59142c59152ce404022ced030303d51e00020000a10100000400a00104800000d901024f2c022c050104'
+        '1ea0f804800000d9f802502c022c05f8041f0303dbf40100ff05fd0001024bd205fd0001024c05fd000104')),
+    ('UsetupcradZ', 0x041d, 117, 0x730026ac, bytes.fromhex(
+        'eb3decd700da020703dc290107022931003000290230bd08ff0092041e0000001029022903033100300029023005fd04'
+        '1f0229ddeaed030303d50400020000a100000004000500041a5500740a5500940aa0f8000004000029020a05f8041b02'
+        '290208039c20000000290108022905fd041f023d05fd000104')),
+    ('UsetupcradZ', 0x041f, 40, 0x62b20580, bytes.fromhex(
+        'eb3decd700e300ddeaed030303d50100010000a1f800000400a0f81800000005f8041905fd0001023d05fd000104')),
+    ('UsetuptraZ', 0x1003, 178, 0x8dba61fc, bytes.fromhex(
+        '0206039c000008000101060201ae0211033046023146023048353148350202b40003840101110235b400070801011102'
+        '01aec390120212b400012c010301120201c39013b7003cb9b5021303960435bb001e140235960235bb00170202359601'
+        '35bb0014010235bb00001501130201c4003a00c70000000e10940101130202c901c400d702c602004700009402011302'
+        '14c400d603c6030047000003c400d801c60100470000940401130215b69a00080000020803010804')),
+)
+
+# the PAL cartridge's portal thicknesses: (bg, the portal's place in the table,
+# the US code, the PAL one)
+REVISION_PORTALS = (
+    ('bg_arch', 81, 0x0c, 0x28), ('bg_arch', 82, 0x0c, 0x28), ('bg_arch', 83, 0x38, 0x4a),
+    ('bg_arec', 99, 0x00, 0x19), ('bg_arec', 100, 0x00, 0x19), ('bg_arec', 101, 0x09, 0x19),
+    ('bg_arec', 102, 0x00, 0x19), ('bg_arec', 103, 0x00, 0x19), ('bg_arec', 104, 0x00, 0x19),
+    ('bg_arec', 105, 0x09, 0x19),
+    ('bg_jun', 22, 0x00, 0x2b),
+    ('bg_pete', 50, 0x49, 0x5a),
+    ('bg_silo', 63, 0x00, 0x08),
+)
+
+
+def revision_setup(stem, d):
+    """The setup `stem` as the later cartridges have it, out of the US one `d`
+    (as rom_file() reads it), or None where they have the US one's. What
+    changed length goes after the end of the file and is pointed at - Silo's
+    intro, each changed list, the list table where one is added."""
+    f = bytearray(d)
+    changes = missed = 0
+    u32 = lambda o: struct.unpack_from('>I', f, o)[0]
+    pad4 = lambda: f.extend(b'\0' * (-len(f) % 4))
+    for name, at, old, new in REVISION_WORDS:
+        if name != stem:
+            continue
+        if at + 4 <= len(f) and u32(at) == old:
+            struct.pack_into('>I', f, at, new)
+            changes += 1
+        else:
+            missed += 1
+    if stem == 'UsetupsiloZ':
+        words = (3, 4, 4, 8, 2, 2, 10, 3, 2)
+        at = u32(8) if len(f) >= 12 else 0
+        ok = at != 0 and at + 40 <= len(f) and struct.unpack_from('>10I', f, at) == REVISION_SILO_SHOT
+        end = at
+        while ok:
+            t = u32(end) & 0xff if end + 4 <= len(f) else 0xff
+            if t == 9:
+                end += 4
+                break
+            if t >= 9 or end + 4 * words[t] > len(f):
+                ok = False
+                break
+            end += 4 * words[t]
+        if ok:
+            newat = len(f)
+            f += d[at:at + 40]
+            for shot in REVISION_SILO_SHOTS:
+                f += struct.pack('>10I', *shot)
+            f += d[at + 40:end]
+            struct.pack_into('>I', f, 8, newat)
+            changes += 1
+        else:
+            missed += 1
+    table = u32(20) if len(f) >= 24 else 0
+    rows = []
+    o = table
+    while table and o + 8 <= len(f) and (u32(o) or u32(o + 4)):
+        rows.append([u32(o), u32(o + 4)])
+        o += 8
+    lists = 0
+    for name, lid, uslen, uscrc, data in REVISION_LISTS:
+        if name != stem:
+            continue
+        row = next((r for r in rows if r[1] == lid), None)
+        if uslen:
+            if row is None or row[0] + uslen > len(f) or zlib.crc32(bytes(f[row[0]:row[0] + uslen])) != uscrc:
+                missed += 1
+                continue
+        elif row is not None:
+            missed += 1
+            continue
+        else:
+            row = [0, lid]
+            rows.append(row)
+        pad4()
+        row[0] = len(f)
+        f += data
+        lists += 1
+    if lists:
+        pad4()
+        struct.pack_into('>I', f, 20, len(f))
+        for at, lid in rows:
+            f += struct.pack('>II', at, lid)
+        f += b'\0' * 8
+        changes += lists
+    if missed:
+        print('%s: %d of the later cartridges\' changes did not find the US bytes; only the US setup is written'
+              % (stem, missed))
+        return None
+    if not changes:
+        return None
+    f.extend(b'\0' * (-len(f) % 16))
+    return bytes(f)
+
+
 class Bg:
     """A bg file: rooms {pos, vertices (16-byte Vtx, room-relative), primary and
     secondary display lists}, portals, vis commands. Pointers are 0x0f segment."""

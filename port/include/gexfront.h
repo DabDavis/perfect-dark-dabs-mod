@@ -57,7 +57,8 @@ void gexFrontSetLockedProgression(s32 on);
 s32 gexFrontGetRegion(void);
 void gexFrontSetRegion(s32 region);
 s32 gexFrontIsJapanese(void);
-// Mod.GePlusRevisionFixes: the JP/PAL cartridges' bug fixes (BUGFIX_R1), on by default
+// Mod.GePlusRevisionFixes: GoldenEye's later revision (JP/PAL) - its bug fixes (BUGFIX_R1),
+// changed setups and thicker portals - on by default
 s32 gexFrontGetRevisionFixes(void);
 void gexFrontSetRevisionFixes(s32 on);
 s32 gexFrontOpenAfterMission(void);

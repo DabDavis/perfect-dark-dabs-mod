@@ -4,6 +4,7 @@
 #include "bss.h"
 #include "data.h"
 #include "modloader.h"
+#include "gexfront.h"
 #include "geroom.h"
 #include "system.h"
 #include "gestan.h"
@@ -398,6 +399,30 @@ f32 geRoomPortalThickness(s32 portalnum)
 	const u8 code = g_BgPortals[portalnum].gethickness;
 
 	return (code & 0xf) * 0.25f * (f32)(1u << (code >> 4));
+}
+
+void geRoomRevisionPortals(s32 stagenum)
+{
+	const u16 *portals;
+	const u8 *codes;
+	const s32 n = gexFrontGetRevisionFixes() ? modloaderGetStageRevisionPortals(stagenum, &portals, &codes) : 0;
+	s32 numportals = 0;
+
+	if (n <= 0 || !g_BgPortals) {
+		return;
+	}
+
+	while (g_BgPortals[numportals].verticesoffset != 0) {
+		numportals++;
+	}
+
+	for (s32 i = 0; i < n; i++) {
+		if (portals[i] < numportals) {
+			g_BgPortals[portals[i]].gethickness = codes[i];
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "gexplus: %d portals as GoldenEye's PAL cartridge has them", n);
 }
 
 

@@ -60,4 +60,12 @@ struct nofogenvironment *modloaderGetStageNoFog(s32 stagenum);
 // and false when its line gives none.
 s32 modloaderGetStageMusic(s32 stagenum, s32 *tracks);
 
+// GoldenEye's later cartridges (JP/PAL), from the converter's `revsetup`,
+// `revmpsetup` and `revportals` (geconvert.c's revisionSetup()): the setup file
+// the stage loads for `filenum` as they have it, `filenum` itself where they
+// did not change it; and their portal thickness codes, the count with each
+// portal's number and code. The caller asks gexFrontGetRevisionFixes() first.
+s32 modloaderGetStageRevisionSetup(s32 stagenum, s32 filenum);
+s32 modloaderGetStageRevisionPortals(s32 stagenum, const u16 **portals, const u8 **codes);
+
 #endif
