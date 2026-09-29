@@ -103,6 +103,7 @@
 #include "xblatables.h"
 #include "sitchair.h"
 #include "getank.h"
+#include "gexfront.h"
 #endif
 #endif
 
@@ -18063,6 +18064,16 @@ void ammoHandlePickup(s32 ammotype, s32 quantity, bool withsound, bool withhudms
 				currentPlayerQueuePickupAmmoHudmsg(ammotype, quantity);
 			}
 		}
+#ifndef PLATFORM_N64
+		else if (withhudmsg && geRoomActive() && gexFrontGetRevisionFixes()) {
+			// GoldenEye's JP/PAL revision (BUGFIX_R1, propobj.c's
+			// add_ammo_to_inventory()) moved the full check's brace so that
+			// only the count waits on it: a crate taken at full ammunition
+			// still says what was picked up, as it still gives the grenade,
+			// mine or knife (which Perfect Dark already does below)
+			currentPlayerQueuePickupAmmoHudmsg(ammotype, quantity);
+		}
+#endif
 
 		if (withsound) {
 			ammotypePlayPickupSound(ammotype);
