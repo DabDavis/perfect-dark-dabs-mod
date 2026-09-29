@@ -2655,6 +2655,11 @@ MenuItemHandlerResult filemgrChooseAgentListMenuHandler(s32 operation, struct me
 
 		x = renderdata->x + 62;
 		y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 3 : 4);
+#ifndef PLATFORM_N64
+		if (langpackIsCjk()) {
+			y = renderdata->y + 1;
+		}
+#endif
 		gdl = text0f153628(gdl);
 
 		if (data->list.unk04 == g_FileLists[0]->numfiles) {
@@ -2668,6 +2673,14 @@ MenuItemHandlerResult filemgrChooseAgentListMenuHandler(s32 operation, struct me
 
 			// Prepare and render stage name
 			y = renderdata->y + (VERSION == VERSION_JPN_FINAL ? 16 : 18);
+#ifndef PLATFORM_N64
+			// Japanese lines are 14 apart: three of them fit the row's 40
+			// only closer together (the time's line ends at 38, as the
+			// picture does)
+			if (langpackIsCjk()) {
+				y = renderdata->y + 14;
+			}
+#endif
 			x = renderdata->x + 62;
 
 			if (stage > 0) {
@@ -2686,6 +2699,11 @@ MenuItemHandlerResult filemgrChooseAgentListMenuHandler(s32 operation, struct me
 			// Prepare and render mission time
 			x = renderdata->x + 62;
 			y++;
+#ifndef PLATFORM_N64
+			if (langpackIsCjk()) {
+				y = renderdata->y + 27;
+			}
+#endif
 
 #if VERSION == VERSION_JPN_FINAL
 			x -= 3;

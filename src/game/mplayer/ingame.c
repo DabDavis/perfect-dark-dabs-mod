@@ -20,6 +20,13 @@
 #include "data.h"
 #include "types.h"
 
+// read only by the Japanese layout (JPNLAYOUT), which a CJK pack selects
+#if VERSION >= VERSION_JPN_FINAL || !defined(PLATFORM_N64)
+#define JPNFLAG_1000 MENUDIALOGFLAG_1000
+#else
+#define JPNFLAG_1000 0
+#endif
+
 struct menudialogdef g_MpEndscreenChallengeCompletedMenuDialog;
 struct menudialogdef g_MpEndscreenIndGameOverMenuDialog;
 struct menudialogdef g_MpEndscreenTeamGameOverMenuDialog;
@@ -530,7 +537,7 @@ struct menudialogdef g_MpPausePlayerStatsMenuDialog = {
 	(uintptr_t)&mpMenuTitleStatsFor,
 	g_MpInGamePlayerStatsMenuItems,
 	NULL,
-	VERSION >= VERSION_JPN_FINAL ? MENUDIALOGFLAG_1000 : 0,
+	JPNFLAG_1000,
 	&g_MpPauseInventoryMenuDialog,
 };
 
@@ -539,7 +546,7 @@ struct menudialogdef g_MpEndscreenPlayerStatsMenuDialog = {
 	(uintptr_t)&mpMenuTitleStatsFor,
 	g_MpInGamePlayerStatsMenuItems,
 	NULL,
-	VERSION >= VERSION_JPN_FINAL ? MENUDIALOGFLAG_1000 : 0,
+	JPNFLAG_1000,
 	NULL,
 };
 
@@ -560,7 +567,7 @@ struct menudialogdef g_MpPausePlayerRankingMenuDialog = {
 	L_MPMENU_276, // "Player Ranking"
 	g_MpPlayerRankingMenuItems,
 	NULL,
-	VERSION >= VERSION_JPN_FINAL ? MENUDIALOGFLAG_1000 : 0,
+	JPNFLAG_1000,
 	&g_MpPausePlayerStatsMenuDialog,
 };
 
@@ -569,7 +576,7 @@ struct menudialogdef g_MpEndscreenPlayerRankingMenuDialog = {
 	L_MPMENU_276, // "Player Ranking"
 	g_MpPlayerRankingMenuItems,
 	NULL,
-	VERSION >= VERSION_JPN_FINAL ? MENUDIALOGFLAG_1000 : 0,
+	JPNFLAG_1000,
 	&g_MpEndscreenPlayerStatsMenuDialog,
 };
 
@@ -590,7 +597,7 @@ struct menudialogdef g_MpPauseTeamRankingsMenuDialog = {
 	L_MPMENU_279, // "Team Ranking"
 	g_MpTeamRankingsMenuItems,
 	NULL,
-	VERSION >= VERSION_JPN_FINAL ? MENUDIALOGFLAG_1000 : 0,
+	JPNFLAG_1000,
 	&g_MpPausePlayerRankingMenuDialog,
 };
 
@@ -599,7 +606,7 @@ struct menudialogdef g_MpEndscreenTeamRankingMenuDialog = {
 	L_MPMENU_279, // "Team Ranking"
 	g_MpTeamRankingsMenuItems,
 	NULL,
-	VERSION >= VERSION_JPN_FINAL ? MENUDIALOGFLAG_1000 : 0,
+	JPNFLAG_1000,
 	&g_MpEndscreenPlayerRankingMenuDialog,
 };
 

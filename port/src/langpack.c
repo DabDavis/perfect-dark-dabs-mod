@@ -566,6 +566,11 @@ s32 langpackScript(void)
 	return g_Cur ? g_Cur->script : LANGPACK_SCRIPT_LATIN;
 }
 
+s32 langpackIsCjk(void)
+{
+	return g_Cur && g_Cur->script == LANGPACK_SCRIPT_CJK;
+}
+
 s32 langpackNeedsAccentSpacing(void)
 {
 	return g_Cur && g_Cur->script == LANGPACK_SCRIPT_LATIN && g_Cur->accents;

@@ -621,6 +621,11 @@ void menuGetItemBlocksRequired(struct menuitem *item, s32 *numwords)
 	}
 }
 
+#ifndef PLATFORM_N64
+// what a narrow text list grows by in a CJK pack (110 -> 132)
+#define PORT_CJK_LIST_EXTRA 22
+#endif
+
 void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struct menudialog *dialog)
 {
 	char *text;
@@ -680,10 +685,13 @@ void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struc
 		if (item->param2 > 0) {
 			*width = item->param2;
 #ifndef PLATFORM_N64
-			// a fixed-width list (the inventory's 110) holds half the
-			// letters in Japanese, whose every character is 12 wide
-			if (langpackScript() == LANGPACK_SCRIPT_CJK) {
-				*width = item->param2 * 6 / 5;
+			// a narrow text list (the inventory's 110) holds half the
+			// letters in Japanese, whose every character is 12 wide. A list
+			// that draws its own rows (the file select's 245) lays them out
+			// at fixed offsets and gains nothing from the room.
+			if (langpackIsCjk() && item->param2 < 160
+					&& (item->flags & MENUITEMFLAG_LIST_CUSTOMRENDER) == 0) {
+				*width = item->param2 + PORT_CJK_LIST_EXTRA;
 			}
 #endif
 		} else {
@@ -721,7 +729,7 @@ void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struc
 			}
 
 			*width = textwidth + 20;
-			*height = VERSION == VERSION_JPN_FINAL ? 14 : 12;
+			*height = JPNLAYOUT ? 14 : 12;
 
 			if (item->handler) {
 				handlerdata2.dropdown.value = 0;
@@ -757,14 +765,14 @@ void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struc
 		}
 
 		*width = 150;
-		*height = VERSION == VERSION_JPN_FINAL ? 14 : 12;
+		*height = JPNLAYOUT ? 14 : 12;
 
 		if (item->flags & MENUITEMFLAG_SLIDER_ALTSIZE) {
 			*height = 22;
 			*width = 120;
 		} else if (item->flags & MENUITEMFLAG_SLIDER_WIDE) {
 			*width = 200;
-			*height = VERSION == VERSION_JPN_FINAL ? 14 : 12;
+			*height = JPNLAYOUT ? 14 : 12;
 		}
 		break;
 	case MENUITEMTYPE_CHECKBOX:
@@ -784,30 +792,34 @@ void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struc
 			textMeasure(&textheight, &textwidth, text, chars, font, 0);
 			*width = (s16)textwidth + 34;
 		}
-		*height = VERSION == VERSION_JPN_FINAL ? 14 : 12;
+		*height = JPNLAYOUT ? 14 : 12;
 		break;
 	case MENUITEMTYPE_MODEL:
 		*width = item->param2;
 		*height = item->param3;
+#ifndef PLATFORM_N64
+		// the inventory's gun (140 wide, beside its 110 list) gives the
+		// list the room it gained above, so the dialog stays as wide as
+		// the ROM's and the side titles stay on screen
+		if (langpackIsCjk() && item->param2 == 0x8c && (item->flags & MENUITEMFLAG_NEWCOLUMN) == 0) {
+			*width -= PORT_CJK_LIST_EXTRA;
+		}
+#endif
 		break;
 	case MENUITEMTYPE_SEPARATOR:
 		*width = 1;
 		if (item->param2) {
 			*width = item->param2;
 		}
-		*height = VERSION == VERSION_JPN_FINAL ? 2 : 5;
+		*height = JPNLAYOUT ? 2 : 5;
 		break;
 	case MENUITEMTYPE_MARQUEE:
 		*width = 1;
-#if VERSION == VERSION_JPN_FINAL
-		*height = LINEHEIGHT;
-#else
-		if (item->flags & MENUITEMFLAG_SMALLFONT) {
+		if (JPNLAYOUT || (item->flags & MENUITEMFLAG_SMALLFONT)) {
 			*height = LINEHEIGHT;
 		} else {
 			*height = LINEHEIGHT + 2;
 		}
-#endif
 		break;
 	case MENUITEMTYPE_LABEL:
 	case MENUITEMTYPE_SELECTABLE:
@@ -840,15 +852,15 @@ void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struc
 				*width += 20;
 			}
 
-#if VERSION == VERSION_JPN_FINAL
-			*height = textheight;
-#else
-			*height = textheight + 3;
+			if (JPNLAYOUT) {
+				*height = textheight;
+			} else {
+				*height = textheight + 3;
 
-			if (item->flags & MENUITEMFLAG_SMALLFONT) {
-				*height -= 2;
+				if (item->flags & MENUITEMFLAG_SMALLFONT) {
+					*height -= 2;
+				}
 			}
-#endif
 
 			if ((item->flags & (MENUITEMFLAG_LABEL_HASRIGHTTEXT | MENUITEMFLAG_BIGFONT)) == 0) {
 #ifndef PLATFORM_N64
@@ -913,7 +925,17 @@ void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struc
 			*width = 120;
 		}
 #else
-		if (item->param == 0) {
+		if (JPNLAYOUT) {
+			if (item->param == 0) {
+				*height = 9 + numobjectives * 24;
+			} else if (item->param == 1) {
+				*height = 9 + numobjectives * 16;
+			} else if (item->param == 2) {
+				*height = 9 + numobjectives * 36;
+				*height -= 5;
+				*width = 120;
+			}
+		} else if (item->param == 0) {
 			*height = 9 + numobjectives * 18;
 		} else if (item->param == 1) {
 			*height = 9 + numobjectives * 14;
@@ -1157,15 +1179,15 @@ void dialogCalculateContentSize(struct menudialogdef *dialogdef, struct menudial
 		}
 	}
 
-#if VERSION == VERSION_JPN_FINAL
-	contentheight += 15;
+	if (JPNLAYOUT) {
+		contentheight += 15;
 
-	if ((dialog->definition->flags & MENUDIALOGFLAG_1000) == 0) {
-		contentheight += 2;
+		if ((dialog->definition->flags & MENUDIALOGFLAG_1000) == 0) {
+			contentheight += 2;
+		}
+	} else {
+		contentheight += 12;
 	}
-#else
-	contentheight += 12;
-#endif
 
 	// Calculate and consider the title width.
 	// Some of the multiplayer dialogs have a player number
@@ -3628,11 +3650,7 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 
 				textMeasure(&textheight, &textwidth, title, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
 
-#if VERSION == VERSION_JPN_FINAL
-				x = dialogright + 13;
-#else
-				x = dialogright + 7;
-#endif
+				x = dialogright + (JPNLAYOUT ? 13 : 7);
 				y = (dialogtop + dialogbottom) / 2 + 3;
 
 				if (y + textwidth > dialogbottom) {

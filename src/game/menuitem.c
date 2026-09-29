@@ -54,7 +54,11 @@ s32 g_ScissorY2 = 0;
 
 s32 var800711a0 = 0;
 s32 var800711a4 = 0;
+#ifdef PLATFORM_N64
 s32 g_LineHeight = LINEHEIGHT;
+#else
+s32 g_LineHeight = 11; // LINEHEIGHT is not a constant here; set before use
+#endif
 
 u8 g_KeyboardKeys[5][10] = {
 	{ '0','1','2','3','4','5','6','7','8','9' },
@@ -1824,7 +1828,7 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 #elif VERSION >= VERSION_PAL_FINAL
 		spbc = 16;
 #else
-		spbc = 12;
+		spbc = JPNLAYOUT ? 14 : 12;
 #endif
 	}
 
@@ -1899,14 +1903,14 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 		y = objy + spbc;
 		y += 10;
 #else
-		y = objy + spbc + 9;
+		y = objy + spbc + (JPNLAYOUT ? 10 : 9);
 #endif
 
 		gdl = textRenderProjected(gdl, &x, &y, spcc, g_CharsHandelGothicXs, g_FontHandelGothicXs, spc8, width, height, 0, 0);
 
 #if VERSION != VERSION_JPN_FINAL
 		x = objx + width - textwidth - 10;
-		y = objy + spbc + 9;
+		y = objy + spbc + (JPNLAYOUT ? 10 : 9);
 
 		gdl = textRenderProjected(gdl, &x, &y, spcc, g_CharsHandelGothicXs, g_FontHandelGothicXs, spc8 & 0xffffff7f, width, height, 0, 0);
 #endif
@@ -1928,9 +1932,9 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 		sp58 = (objx * 3 + objx + 66) / 4 - 1;
 		sp54 = (objx * 3 + objx + 66) / 4 + 14;
 
-#if VERSION == VERSION_JPN_FINAL
-		spa8 += 3;
-#endif
+		if (JPNLAYOUT) {
+			spa8 += 3;
+		}
 
 		gdl = menugfx0f0e2498(gdl);
 
@@ -1960,9 +1964,9 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 
 		textMeasure(&textheight, &textwidth, sp120, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 
-#if VERSION >= VERSION_JPN_FINAL
-		sp74 -= 2;
-#endif
+		if (JPNLAYOUT) {
+			sp74 -= 2;
+		}
 
 		sp6c = objx + textwidth + 25;
 		sp58 = (objx * 3 + objx + 66) / 4 - 1;
@@ -1974,11 +1978,7 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 		gdl = menugfxDrawProjectedLine(gdl, sp80, sp7c, sp80 + 1, sp78, (sp12c & 0xffffff00) | 0x3f, (sp12c & 0xffffff00) | 0x3f);
 		gdl = menugfxDrawProjectedLine(gdl, objx, sp78, sp58, sp78 + 1, sp12c & 0xffffff00, (sp12c & 0xffffff00) | 0x3f);
 		gdl = menugfxDrawProjectedLine(gdl, sp58 + 3, sp78, sp80 + 1, sp78 + 1, (sp12c & 0xffffff00) | 0x3f, (sp12c & 0xffffff00) | 0x3f);
-#if VERSION == VERSION_JPN_FINAL
-		gdl = menugfxDrawProjectedLine(gdl, sp58, sp78, sp58 + 1, sp74 + 3, (sp12c & 0xffffff00) | 0x3f, (sp12c & 0xffffff00) | 0x3f);
-#else
-		gdl = menugfxDrawProjectedLine(gdl, sp58, sp78, sp58 + 1, sp74 + 2, (sp12c & 0xffffff00) | 0x3f, (sp12c & 0xffffff00) | 0x3f);
-#endif
+		gdl = menugfxDrawProjectedLine(gdl, sp58, sp78, sp58 + 1, sp74 + (JPNLAYOUT ? 3 : 2), (sp12c & 0xffffff00) | 0x3f, (sp12c & 0xffffff00) | 0x3f);
 		gdl = menugfxDrawProjectedLine(gdl, sp58 + 2, sp78, sp58 + 3, sp74, (sp12c & 0xffffff00) | 0x3f, (sp12c & 0xffffff00) | 0x3f);
 		gdl = menugfxDrawProjectedLine(gdl, sp58 + 2, sp74, sp6c, sp74 + 1, (sp12c & 0xffffff00) | 0x3f, (sp12c & 0xffffff00) | 0x3f);
 	}
@@ -2011,7 +2011,15 @@ Gfx *menuitemObjectivesRender(Gfx *gdl, struct menurendercontext *context)
 				y += 16;
 			}
 #else
-			if (context->item->param == 0) {
+			if (JPNLAYOUT) {
+				if (context->item->param == 0) {
+					y += 24;
+				} else if (context->item->param == 2) {
+					y += 36;
+				} else {
+					y += 16;
+				}
+			} else if (context->item->param == 0) {
 				y += 18;
 			} else if (context->item->param == 2) {
 				y += VERSION >= VERSION_PAL_FINAL ? 34 : 30;
@@ -2089,7 +2097,10 @@ Gfx *menuitemLabelRender(Gfx *gdl, struct menurendercontext *context)
 	if (context->item->flags & MENUITEMFLAG_SMALLFONT) {
 		font1 = g_CharsHandelGothicXs;
 		font2 = g_FontHandelGothicXs;
-		y -= 2;
+
+		if (!JPNLAYOUT) {
+			y -= 2;
+		}
 	}
 #endif
 
@@ -2202,7 +2213,7 @@ Gfx *menuitemLabelRender(Gfx *gdl, struct menurendercontext *context)
 			y = context->y + 2;
 
 #if VERSION != VERSION_JPN_FINAL
-			if (context->item->flags & MENUITEMFLAG_SMALLFONT) {
+			if (!JPNLAYOUT && (context->item->flags & MENUITEMFLAG_SMALLFONT)) {
 				y -= 2;
 			}
 #endif

@@ -4294,7 +4294,8 @@ struct menudialogdef g_SoloMissionInventoryMenuDialog = {
 	L_OPTIONS_178, // "Inventory"
 	g_SoloMissionInventoryMenuItems,
 	inventoryMenuDialog,
-#if VERSION >= VERSION_JPN_FINAL
+#if VERSION >= VERSION_JPN_FINAL || !defined(PLATFORM_N64)
+	// 0x1000 is read only by the Japanese layout (JPNLAYOUT)
 	MENUDIALOGFLAG_0002 | MENUDIALOGFLAG_DISABLERESIZE | MENUDIALOGFLAG_0400 | MENUDIALOGFLAG_1000,
 #else
 	MENUDIALOGFLAG_0002 | MENUDIALOGFLAG_DISABLERESIZE | MENUDIALOGFLAG_0400,

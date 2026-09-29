@@ -143,7 +143,16 @@
 #define CYCLES_PER_FRAME    ((s32) OS_CPU_COUNTER / (PAL ? 50 : 60))
 #define IS4MB()             (g_Is4Mb == true)
 #define IS8MB()             (g_Is4Mb != true)
-#define LINEHEIGHT          (VERSION == VERSION_JPN_FINAL ? 14 : 11)
+// The Japanese ROM's menu layout (taller lines, rows and title bars) is wanted
+// whenever a CJK language pack is selected: its glyphs are as tall as the
+// Japanese ROM's. English and the Latin packs keep the ROM's own layout.
+#ifndef PLATFORM_N64
+s32 langpackIsCjk(void);
+#define JPNLAYOUT           (VERSION == VERSION_JPN_FINAL || langpackIsCjk())
+#else
+#define JPNLAYOUT           (VERSION == VERSION_JPN_FINAL)
+#endif
+#define LINEHEIGHT          (JPNLAYOUT ? 14 : 11)
 #define MIXCOLOUR(dialog, property) dialog->transitionfrac < 0.0f ? g_MenuColours[dialog->type].property : colourBlend(g_MenuColours[dialog->type2].property, g_MenuColours[dialog->type].property, dialog->colourweight)
 #define MPCHR(index)        ((index) < MAX_PLAYERS ? &g_PlayerConfigsArray[index].base : &g_BotConfigsArray[(index) - MAX_PLAYERS].base)
 #define RANDOMFRAC()        (rngRandom() * (1.0f / U32_MAX))

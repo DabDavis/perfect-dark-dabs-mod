@@ -39,6 +39,9 @@ u32 langpackGeneration(void);
 s32 langpackActive(void);
 s32 langpackScript(void);
 
+// Whether the selected pack is Japanese-style (the JPN ROM's menu layout).
+s32 langpackIsCjk(void);
+
 // Whether the selected pack draws any letter the ROM's fonts lack, which is
 // when PAL's one extra row of line spacing is wanted for the accents.
 s32 langpackNeedsAccentSpacing(void);

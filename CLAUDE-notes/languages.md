@@ -233,9 +233,22 @@ and score texts.
   (`PICKUP_JPN_ORDER` in propobj.c): name + "picked up", no article, no plural
   "s", no full stop. A pack cannot say "nothing" for a piece (an empty string
   falls back to English), so the pieces never drawn hold U+3000.
-- A fixed-width menu list (`param2`, the inventory's 110) is a fifth wider in a
-  CJK pack (menu.c): a Japanese character is 12 wide, and the widest weapon
-  names are nine.
+- A narrow text list (`param2` < 160, not `LIST_CUSTOMRENDER`: the inventory's
+  110) is 22 wider in a CJK pack (menu.c): a Japanese character is 12 wide,
+  and the widest weapon names are nine. The inventory's gun model (140) gives
+  the 22 back, so the dialog is no wider and the side titles stay on screen;
+  the file select's 245 custom list is not widened (it had pushed both side
+  titles off the screen).
+- **`JPNLAYOUT`** (constants.h): the decomp's `VERSION == VERSION_JPN_FINAL`
+  layout branches, taken at run time when `langpackIsCjk()`. `LINEHEIGHT` is
+  `JPNLAYOUT ? 14 : 11`, so every title bar, list row and group header is the
+  Japanese ROM's 14; also item heights (dropdown/slider/checkbox 14, labels
+  `textheight` with no +3, separators 2, marquees), the dialog's +15/+17
+  padding, the right side title +13, and the objectives' spacing, status and
+  leader lines. English and the Latin packs are pixel-identical (25 screens
+  diffed, en/fr/de). The file select's game-pak rows put three 14 px lines in
+  their 40 at +1/+14/+27. Branches that touch the JPN ROM's own font (md font
+  for marquees, 2-byte text) were left alone.
 - check.py (so build.py, which runs it with no catalogs) took the patch-notes
   heading key `%s|Patch %d%s%s` for a ctx key and left it out of every built
   pack; a `|` with a conversion on its left is English now in both.
