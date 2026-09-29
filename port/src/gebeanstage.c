@@ -618,6 +618,7 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 						eachTex = be32(raw + c + 4) & 0xfff;
 					} else if (op == (u8)G_SETENVCOLOR) {
 						eachEnvAlpha = raw[c + 7];
+
 					} else if (op == (u8)G_SETOTHERMODE_L && be32(raw + c) == 0xb900031d) {
 						const u32 c1 = be32(raw + c + 4) & 0xcccc0000;
 
@@ -706,7 +707,7 @@ static void fileTriNearBean(void *arg, const f32 v[3][3], s32 room)
 	}
 }
 
-static void gridBrightNote(s32 index);
+static void gridBrightNote(s32 index, s32 room);
 
 static void fileTriToGrid(void *arg, const f32 v[3][3], s32 room)
 {
@@ -716,7 +717,7 @@ static void fileTriToGrid(void *arg, const f32 v[3][3], s32 room)
 	tgridAdd(g, v, room);
 
 	if (g->numtri > before) {
-		gridBrightNote(before);
+		gridBrightNote(before, room);
 	}
 }
 
@@ -4431,7 +4432,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 4
+#define HDCACHE_VERSION 6
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
@@ -4940,7 +4941,12 @@ static s32 hdcacheLoad(u64 key, const char *levelname, s32 n)
  * release's light and shade across a wall and its hues are kept; a channel
  * past 255 is clamped, and the factor is capped at BRIGHT_MAX_GAIN. Only a
  * room darker than GoldenEye's as a whole is changed, and nothing is ever
- * made darker.
+ * made darker. No corner is lifted past GoldenEye's own brightness under it
+ * (brightCorner()), so a place the release already lit well stays as it is
+ * and nothing ends brighter than the N64 look (the owner: "lets match n64").
+ * GoldenEye's intensity (I4/I8) pictures are measured over every texel
+ * (texpackTextureMeans()); taken over their bright texels only, Silo's
+ * targets were twice what the N64 look draws (its floor grate is an I4).
  *
  * Every level measures its rooms and logs those under BRIGHT_REPORT of the
  * N64 look's brightness; only the listed levels are changed (the owner's
@@ -5006,7 +5012,7 @@ static void fileTriUsed(void *arg, const f32 v[3][3], s32 room)
 }
 
 /** How bright the file triangle fileRoomTrianglesEach() is handing over is. */
-static f32 fileTriBright(void)
+static f32 fileTriBright(s32 room)
 {
 	const f32 *tex = eachTex >= 0 && eachTex < BRIGHT_TEXNUMS && brightFileTex[eachTex][0] >= 0.0f
 		? brightFileTex[eachTex] : brightFileTex[BRIGHT_TEXNUMS];
@@ -5025,7 +5031,7 @@ static void fileTriToBright(void *arg, const f32 v[3][3], s32 room)
 	const f32 area = triArea3(v);
 
 	b->area += area;
-	b->sum += area * fileTriBright();
+	b->sum += area * fileTriBright(room);
 }
 
 /**
@@ -5036,7 +5042,7 @@ static void fileTriToBright(void *arg, const f32 v[3][3], s32 room)
 static f32 *gridBright;
 static s32 gridBrightCap;
 
-static void gridBrightNote(s32 index)
+static void gridBrightNote(s32 index, s32 room)
 {
 	if (!brightFileTex) {
 		return;
@@ -5054,7 +5060,7 @@ static void gridBrightNote(s32 index)
 		gridBrightCap = cap;
 	}
 
-	gridBright[index] = fileTriBright();
+	gridBright[index] = fileTriBright(room);
 }
 
 static f32 hdTriBright(const struct stri *t)
@@ -5171,6 +5177,62 @@ static s32 brightTexturesRead(u8 **filerooms, u32 *filelens, s32 n)
 	return 1;
 }
 
+/*
+ * A ceiling at each corner: the release baked some places much brighter than
+ * the rest of their room (Statue Park's fields: a pool of light where the
+ * player starts in grass that is otherwise deep shade, while GoldenEye lights
+ * the field evenly), so one factor for the room's grass took that pool to
+ * half as bright again as the N64 look. Each corner is given no more than
+ * GoldenEye's brightness under the triangles that meet at it over theirs, so
+ * nothing ends brighter than the N64 look there; corners at one position
+ * with one picture share the sums, so a surface stays smooth.
+ */
+struct brightcell {
+	s32 x, y, z;
+	s32 tex;
+	f64 hd, go, area;
+};
+
+static struct brightcell *brightCells;
+static u32 brightCellMask;
+
+static u32 brightCellHash(s32 x, s32 y, s32 z, s32 tex)
+{
+	u32 h = (u32)x * 73856093u ^ (u32)y * 19349663u ^ (u32)z * 83492791u ^ (u32)(tex + 1) * 2654435761u;
+
+	return h & brightCellMask;
+}
+
+static struct brightcell *brightCorner(const f32 *p, s32 tex, s32 add)
+{
+	const s32 x = (s32)floorf(p[0] + 0.5f);
+	const s32 y = (s32)floorf(p[1] + 0.5f);
+	const s32 z = (s32)floorf(p[2] + 0.5f);
+	u32 i = brightCellHash(x, y, z, tex);
+
+	for (u32 probe = 0; probe <= brightCellMask; probe++, i = (i + 1) & brightCellMask) {
+		struct brightcell *e = &brightCells[i];
+
+		if (e->tex == -2) {
+			if (!add) {
+				return NULL;
+			}
+
+			e->x = x;
+			e->y = y;
+			e->z = z;
+			e->tex = tex;
+			return e;
+		}
+
+		if (e->x == x && e->y == y && e->z == z && e->tex == tex) {
+			return e;
+		}
+	}
+
+	return NULL;
+}
+
 static void brightForget(void)
 {
 	free(brightFileTex);
@@ -5203,7 +5265,7 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 	struct brightsum *pgo = calloc((size_t)(n + 1) * GEBEAN_MAXMATS, sizeof(*pgo));
 	u8 *under1 = calloc(n + 1, 1);
 	f64 hdall = 0.0, hdallarea = 0.0, fileall = 0.0, fileallarea = 0.0;
-	s32 on = 0, changed = 0, under = 0, measured = 0, clamped = 0;
+	s32 on = 0, changed = 0, under = 0, measured = 0, clamped = 0, paired = 0;
 	char list[1536];
 	s32 at = 0;
 
@@ -5217,7 +5279,6 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 
 	if (hd && file && rhd && rgo && phd && pgo && under1 && brightFileTex) {
 		brightHdSums(c, n, hd);
-
 		for (s32 r = 1; r < n; r++) {
 			f32 ratio;
 
@@ -5273,6 +5334,37 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 				phd[k].area += area;
 				phd[k].sum += area * mine;
 				pgo[k].sum += area * target[t];
+				paired++;
+			}
+		}
+
+		// the corners: three a triangle at most, at most a third full
+		for (brightCellMask = 1024; brightCellMask < (u32)paired * 9; brightCellMask <<= 1);
+		brightCells = malloc(sizeof(*brightCells) * brightCellMask);
+		brightCellMask--;
+
+		for (u32 i = 0; brightCells && i <= brightCellMask; i++) {
+			brightCells[i].tex = -2;
+			brightCells[i].area = brightCells[i].hd = brightCells[i].go = 0.0;
+		}
+
+		for (s32 t = 0; brightCells && t < c->num; t++) {
+			const struct stri *tri = &c->tris[t];
+
+			if (hdTriMeasured(tri) && tri->room < n && under1[tri->room] && target[t] >= 0.0f
+					&& tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS) {
+				const f32 area = triArea3(tri->pos);
+				const f32 mine = hdTriBright(tri);
+
+				for (s32 k = 0; k < 3; k++) {
+					struct brightcell *e = brightCorner(tri->pos[k], tri->tex, 1);
+
+					if (e) {
+						e->area += area;
+						e->hd += area * mine;
+						e->go += area * target[t];
+					}
+				}
 			}
 		}
 
@@ -5280,6 +5372,8 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 			struct stri *tri = &c->tris[t];
 			const s32 r = tri->room;
 			f32 gain = 1.0f;
+			f32 vgain[3];
+			s32 any;
 
 			// Blended triangles keep their colours: glows, lamp flares, glass
 			// and water are the release's own, not light it baked too dark
@@ -5299,18 +5393,32 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 				}
 			}
 
-			gain = MIN(gain, BRIGHT_MAX_GAIN);
+			// each corner's share, no more than its ceiling (brightCorner())
+			any = 0;
 
-			if (gain <= 1.0f) {
+			for (s32 k = 0; k < 3; k++) {
+				const struct brightcell *e = brightCells ? brightCorner(tri->pos[k], tri->tex, 0) : NULL;
+
+				vgain[k] = MIN(gain, BRIGHT_MAX_GAIN);
+
+				if (e && e->hd > 0.0) {
+					vgain[k] = MIN(vgain[k], (f32)(e->go / e->hd));
+				}
+
+				any |= vgain[k] > 1.0f;
+			}
+
+			if (!any) {
 				continue;
 			}
 
 			for (s32 k = 0; k < 3; k++) {
 				const u32 v = tri->argb[k];
 				u32 out = v & 0xff000000;
+				const f32 g = MAX(vgain[k], 1.0f);
 
 				for (s32 sh = 0; sh <= 16; sh += 8) {
-					const s32 ch = (s32)(((v >> sh) & 0xff) * gain + 0.5f);
+					const s32 ch = (s32)(((v >> sh) & 0xff) * g + 0.5f);
 
 					out |= (u32)MIN(ch, 255) << sh;
 					clamped += ch > 255 && ((v >> sh) & 0xff) < 255;
@@ -5321,6 +5429,9 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 
 			changed++;
 		}
+
+		free(brightCells);
+		brightCells = NULL;
 
 		{
 			struct brightsum *post = calloc(n + 1, sizeof(*post));

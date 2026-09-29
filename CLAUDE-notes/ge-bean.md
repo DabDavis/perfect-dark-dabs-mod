@@ -13112,3 +13112,40 @@ Owner: "match train corridor to n64 brightness".
 - Rig: `~/wt/f3-0929e-hdbright-run` (`shots.sh <binary> <prefix> <look>` with
   CAMS, one shot per game run - the spectator camera drifts to the sim after a
   few seconds, so a second shot in the same run is from somewhere else).
+
+### Matching, not passing, the N64 look (same pass; the owner on Silo and Statue Park: "lets match n64")
+
+Silo's cells and Statue Park's start came out 1.3x and 1.5x the N64 look. Two
+causes, both fixed in the measure (`HDCACHE_VERSION` 6):
+- **GoldenEye's intensity pictures were measured over their bright texels only.**
+  An I4/I8 texture decodes with alpha = intensity, so "texels at least half
+  opaque" kept only the bright half: Silo's floor grate (`04d5`, I4) read 168
+  where it draws 81, and every Silo target was about twice what the N64 look
+  shows. `texpackTextureMeans()` now takes G_IM_FMT_I over every texel.
+- **One factor per room and picture lifted the release's own bright spots.**
+  Statue Park's fields are baked mostly deep shade with a pool of light where
+  the player starts; GoldenEye lights them evenly, so the room's factor for its
+  grass (about 2x) took the pool to 1.5x the N64 look. Each corner is now
+  capped at GoldenEye's brightness under the triangles that meet at it over
+  theirs (`brightCorner()`, a hash on the rounded position and picture, so
+  corners at one place agree and a surface stays smooth).
+- Ruled out on the way (all measured, none the cause): fog (Mod.DisableFog in
+  `[Mod]`; the copy of the ini with it elsewhere was silently ignored), the N64
+  look's room light cap in `roomHighlight()` (settled brightness is 255 in
+  these rooms; the HD rooms are scaled against the same full value), leaf
+  prim/env colours (GoldenEye's rooms combine texel x shade only, `fc26a004
+  1f1093ff`), and cube-by-cube (600/250 unit) gains, which overshot as much.
+  Also tried and dropped: not using GoldenEye's translucent triangles as a
+  target - Frigate's lattice mast is one, and without it the HD mast rose to
+  1.8x.
+- Result at the check cameras (HD after / N64): Silo 35/37 and 40/39, Statue
+  Park 35/32 and 17/21, Train 27/36, Streets 48/53, Complex 93/99, Library
+  66/68 and 75/76, Frigate 53/57 and 57/58, Depot 30/35, Surface unchanged (its
+  bright rooms are left alone). Nothing past 1.09x from this change; Dam's and
+  Surface's start views read over the N64 look before and after alike (the
+  release's own brightness, untouched).
+- GPU: two amdgpu VM faults (soft-recovered, no reset) in ~250 headless GL runs
+  of this pass, both about 3 s into a run started right after the previous one
+  was killed from gdb mid-frame (Streets 22:15:51, Surface 23:43:15, the latter
+  in a build carrying RENDER's batch guard daeaa8f58, which logged nothing).
+  Neither reproduced in six fresh first-load runs each of the old and new binary.

@@ -3092,8 +3092,11 @@ static u8 *texpackLoadImage(const char *path, s32 flip, s32 *outWidth, s32 *outH
 /**
  * The colour of each of the textures in nums[] as the port decodes it: the mean
  * r, g and b (0-255, three to a texture in out[]) over its texels at least half
- * opaque (every texel when none is), -1 for one that does not load. For gebeanstage.c, which lights the
- * HD level's rooms as brightly as the converted level's own. Like the checksum
+ * opaque (every texel when none is), -1 for one that does not load. An
+ * intensity texture (G_IM_FMT_I) is taken over every texel: its decoded alpha
+ * is its intensity, which a room's opaque leaf does not cut by, and counting
+ * only its bright texels made Silo's I4 floor grate twice as bright as drawn.
+ * For gebeanstage.c, which lights the HD level's rooms as brightly as the converted level's own. Like the checksum
  * index, the LOD size cache is put back and the pool's addresses forgotten.
  */
 void texpackTextureMeans(const s32 *nums, s32 count, f32 *out)
@@ -3137,16 +3140,17 @@ void texpackTextureMeans(const s32 *nums, s32 count, f32 *out)
 
 			for (u32 p = 0; p < total; p++) {
 				const u8 *px = &rgba[p * 4];
+				const s32 opaque = tex->gbiformat == G_IM_FMT_I || px[3] >= 0x80;
 
 				for (s32 c = 0; c < 3; c++) {
 					sumall[c] += px[c];
 
-					if (px[3] >= 0x80) {
+					if (opaque) {
 						sum[c] += px[c];
 					}
 				}
 
-				num += px[3] >= 0x80;
+				num += opaque;
 			}
 
 			for (s32 c = 0; c < 3 && total; c++) {
