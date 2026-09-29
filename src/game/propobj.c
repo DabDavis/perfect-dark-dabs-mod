@@ -1720,6 +1720,19 @@ void propCalculateShadeColour(struct prop *prop, u8 *nextcol, u16 floorcol)
 		nextcol[3] = 0xff;
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye shades a prop, a guard and the gun in hand by its tile's
+	// colour alone: the darkness is the colour's shortfall from white times
+	// three quarters, and no room brightness goes in (propobj.c's
+	// set_color_shading_from_tile()). The room's shade on top of the tile's
+	// drew a converted level's props half again as dark as GoldenEye's.
+	if (modloaderStageIsRemake(g_Vars.stagenum) && !cheatIsActive(CHEAT_PERFECTDARKNESS)
+			&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)) {
+		tmp = nextcol[0] * 79 + nextcol[1] * 156 + nextcol[2] * 21;
+		tmp >>= 8;
+		nextcol[3] = (0xff - tmp) * 0.75f;
+	} else
+#endif
 #if VERSION >= VERSION_NTSC_1_0
 	if (obj == NULL || (obj->flags & OBJFLAG_IGNOREROOMCOLOUR) == 0 || cheatIsActive(CHEAT_PERFECTDARKNESS))
 #else

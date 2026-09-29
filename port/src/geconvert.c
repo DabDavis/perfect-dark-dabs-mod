@@ -1400,6 +1400,7 @@ static void bgRead(const buf *file, struct bg *bg)
 struct tile {
 	int room;
 	int special;
+	uint16_t colour;         // the tile's 4-4-4 shade (StandTileHeaderMid r/g/b)
 	int npts;
 	int16_t pts[15][3];
 	uint16_t link[15];
@@ -1425,6 +1426,7 @@ static tiles stanRead(const buf *file)
 
 		t.room = d[o + 3];
 		t.special = be16(d, o + 4) >> 12;
+		t.colour = be16(d, o + 4) & 0x0fff;
 		t.npts = be16(d, o + 6) >> 12;
 
 		if (o + 8 + 8 * t.npts > file->n) {
@@ -3009,7 +3011,7 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 			flags |= 0x0040;
 		}
 
-#define EMIT(FLAGS, P, N) do { \
+#define EMIT(FLAGS, P, N, COL) do { \
 	buf *b = &bodies[t->room]; \
 	int32_t ints[15][3]; \
 	int mn[3], mx[3]; \
@@ -3024,11 +3026,18 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 	bufU8(b, 0); bufU8(b, (N)); bufU16(b, (FLAGS)); bufU16(b, 0); \
 	for (int c = 0; c < 3; ++c) bufU8(b, mn[c]); \
 	for (int c = 0; c < 3; ++c) bufU8(b, mx[c]); \
-	bufU16(b, 0x0fff); \
+	bufU16(b, (COL)); \
 	for (int k = 0; k < (N); ++k) for (int c = 0; c < 3; ++c) bufU16(b, (uint16_t)ints[k][c]); \
 } while (0)
 
-		EMIT(flags, pts, n);
+		// The tile's own colour, which GoldenEye shades an object, a door, a
+		// guard and the gun in Bond's hand by (the floor colour that
+		// propCalculateShadeColour() reads is the same 4-4-4 word). Written
+		// as white until converter 92, so nothing on a converted level was
+		// darkened by the floor it stood on - Silo's doors and Control's
+		// keyboards stood bright in rooms GoldenEye keeps dark (F3
+		// 20260929-094634, 20260927-003257). The raised walls stay white.
+		EMIT(flags, pts, n, t->colour);
 
 		for (int k = 0; k < n; ++k) {
 			double quad[4][3];
@@ -3067,7 +3076,7 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 			quad[1][0] = b[0]; quad[1][1] = b[1] - below; quad[1][2] = b[2];
 			quad[2][0] = b[0]; quad[2][1] = b[1] + above; quad[2][2] = b[2];
 			quad[3][0] = a[0]; quad[3][1] = a[1] + above; quad[3][2] = a[2];
-			EMIT(WALL_FLAGS, quad, 4);
+			EMIT(WALL_FLAGS, quad, 4, 0x0fff);
 			++walls;
 		}
 #undef EMIT

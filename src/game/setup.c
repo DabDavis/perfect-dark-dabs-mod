@@ -642,6 +642,24 @@ void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
 				func0f06a730(obj, &pos, &mtx, rooms, &centre);
 			}
 
+#ifndef PLATFORM_N64
+			// GoldenEye shades every object by its pad's tile (objInit()
+			// with the pad's stan), placed on the floor or not; Perfect Dark
+			// only looks a colour up for an object it sets down on one, and
+			// Control's wall-mounted monitors and keyboards stayed white in
+			// a dark room (F3 20260927-003257). The floor under the object's
+			// middle is the pad's tile, whose colour the conversion carries
+			// since converter 92.
+			if (geRoomActive()) {
+				f32 y;
+				u16 floorcol = 0x0fff;
+
+				if (cdFindFloorRoomYColourFlagsAtPos(&prop2->pos, prop2->rooms, &y, &floorcol, NULL) > 0) {
+					obj->floorcol = floorcol;
+				}
+			}
+#endif
+
 			if (obj->hidden & OBJHFLAG_00008000) {
 				propActivateThisFrame(prop2);
 			} else {
@@ -1429,6 +1447,22 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 		}
 
 		prop = doorInit(door, &pos, &finalmtx, rooms, &sp54, &centre);
+
+#ifndef PLATFORM_N64
+		// GoldenEye shades a door by the colour of its tile, as it does any
+		// object (propobj.c's sub_GAME_7F0402B4(), from the tile doorInit()
+		// is handed); Perfect Dark's own doors keep white. The conversion
+		// carries the tiles' colours since converter 92 (F3 20260929-094634,
+		// Silo's doors bright in a dark shaft).
+		if (prop && geRoomActive()) {
+			f32 y;
+			u16 floorcol = 0x0fff;
+
+			if (cdFindFloorRoomYColourFlagsAtPos(&centre, prop->rooms, &y, &floorcol, NULL) > 0) {
+				door->base.floorcol = floorcol;
+			}
+		}
+#endif
 
 		if (door->base.flags & OBJFLAG_DOOR_HASPORTAL) {
 			door->portalnum = portalnum;

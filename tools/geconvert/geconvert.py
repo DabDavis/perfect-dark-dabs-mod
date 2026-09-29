@@ -789,9 +789,10 @@ def read_stan(data):
             break
         room = data[o + 3]
         special = struct.unpack_from('>H', data, o + 4)[0] >> 12
+        colour = struct.unpack_from('>H', data, o + 4)[0] & 0x0fff
         npts = struct.unpack_from('>H', data, o + 6)[0] >> 12
         pts = [struct.unpack_from('>3hH', data, o + 8 + 8 * k) for k in range(npts)]
-        tiles.append(dict(room=room, points=pts, special=special, offset=o))
+        tiles.append(dict(room=room, points=pts, special=special, colour=colour, offset=o))
         o += 8 + 8 * npts
     at = {t['offset']: i for i, t in enumerate(tiles)}
     for t in tiles:
@@ -1003,7 +1004,7 @@ def write_tiles(stan, numrooms, ls, offset):
         flags = FLOOR_FLAGS
         if t['special'] == 3:
             flags |= 0x0040
-        rooms[t['room']].append((flags, pts))
+        rooms[t['room']].append((flags, pts, t['colour']))
         n = len(t['points'])
         for i in range(n):
             link = t['points'][i][3]
@@ -1029,16 +1030,16 @@ def write_tiles(stan, numrooms, ls, offset):
                 above = climb
             quad = [(a[0], a[1] - below, a[2]), (b[0], b[1] - below, b[2]),
                     (b[0], b[1] + above, b[2]), (a[0], a[1] + above, a[2])]
-            rooms[t['room']].append((WALL_FLAGS, quad))
+            rooms[t['room']].append((WALL_FLAGS, quad, 0x0fff))
             walls += 1
     body = []
     for tiles in rooms:
         b = b''
-        for flags, pts in tiles:
+        for flags, pts, colour in tiles:
             ints = [[s16(c) for c in p] for p in pts]
             mn = [min(range(len(ints)), key=lambda k: ints[k][a]) for a in range(3)]
             mx = [max(range(len(ints)), key=lambda k: ints[k][a]) for a in range(3)]
-            b += struct.pack('>BBHH6BH', 0, len(ints), flags, 0, *mn, *mx, 0x0fff)
+            b += struct.pack('>BBHH6BH', 0, len(ints), flags, 0, *mn, *mx, colour)
             for p in ints:
                 b += struct.pack('>3h', *p)
         body.append(b)
