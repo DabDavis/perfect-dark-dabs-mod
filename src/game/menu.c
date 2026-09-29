@@ -2015,6 +2015,15 @@ static void menuModelFitToBox(struct menumodel *menumodel, s32 filenum)
 	menumodel->fitrotset = false;
 	ok = 0;
 
+	// GoldenEye's own model, in either look (the HD look lays the release's
+	// gun on it): the host's list of pieces to hide names the host's parts,
+	// not these, and GoldenEye's own switches say which of its pieces show -
+	// its flash is one, which lit at the muzzle of the HD gun as it turned
+	if (gegunsOwnModelInUse(menumodel->fitweapon)) {
+		menumodel->partvisibility = NULL;
+		gegunsOwnModelMenuParts(menumodel->fitweapon, &menumodel->bodymodel);
+	}
+
 	if (gebeanFirstPersonIsReleaseFile(menumodel->fitweapon, filenum)) {
 		// The HD look: the release's gun is drawn over the file's lists,
 		// laid on where the file's gun is but at its own size and shape, so
@@ -2033,14 +2042,6 @@ static void menuModelFitToBox(struct menumodel *menumodel, s32 filenum)
 	}
 
 	if (!ok) {
-		// GoldenEye's own model in the N64 look: the host's list of pieces
-		// to hide names the host's parts, not these, and GoldenEye's own
-		// switches say which of its pieces show
-		if (gegunsOwnModelInUse(menumodel->fitweapon)) {
-			menumodel->partvisibility = NULL;
-			gegunsOwnModelMenuParts(menumodel->fitweapon, &menumodel->bodymodel);
-		}
-
 		if (menumodel->partvisibility != NULL) {
 			struct modelpartvisibility *ptr;
 
