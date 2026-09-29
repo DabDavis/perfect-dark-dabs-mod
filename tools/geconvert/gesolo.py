@@ -458,6 +458,10 @@ def pad_num(p, numpads, bound=False):
 
 
 def pad_of(t, raw, numpads):
+    # an object inside another keeps the s16 offset of its container's record
+    # there, not a pad (geconvert.c's objPadNum(), converter 92)
+    if t != 1 and struct.unpack_from('>I', raw, 8)[0] & 0x8000:
+        return struct.unpack_from('>H', raw, 6)[0]
     return pad_num(struct.unpack_from('>H', raw, 6)[0], numpads, bound=(t == 1))
 
 

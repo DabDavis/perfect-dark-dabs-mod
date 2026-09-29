@@ -4877,6 +4877,26 @@ static uint32_t padNum(uint32_t p, size_t numpads, int bound)
 	return p >= 10000 ? p + (uint32_t)numpads - 10000 : p;
 }
 
+/**
+ * An object's pad field. An object inside another one (GoldenEye's
+ * PROPFLAG_INSIDEANOTHEROBJ, Perfect Dark's OBJFLAG_INSIDEANOTHEROBJ, 0x8000
+ * in both) keeps there the s16 offset of its container's record from its own,
+ * not a pad (setup.c reads it that way, as GoldenEye's own loader does), and the
+ * conversion keeps one record per GoldenEye record, so the offset still holds.
+ * Read as a pad, -1 survived only because 0xffff is "no pad": Surface's crate
+ * of twelve books kept the first and lost the other eleven to pads past the
+ * table, and every such container on the other missions its children after the
+ * first (F3 20260929-093925, "only dropping one").
+ */
+static uint32_t objPadNum(const uint8_t *raw, size_t numpads)
+{
+	if (be32(raw, 8) & 0x8000) {
+		return be16(raw, 6);
+	}
+
+	return padNum(be16(raw, 6), numpads, 0);
+}
+
 /** GoldenEye's ObjectRecord as Perfect Dark's defaultobj. */
 static void baseRecord(uint8_t *out, const uint8_t *raw, uint32_t pdtype, uint32_t padnum)
 {
@@ -5014,7 +5034,7 @@ static void weaponRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 {
 	const uint32_t item = raw[0x80];
 
-	baseRecord(out, raw, 0x08, padNum(be16(raw, 6), numpads, 0));
+	baseRecord(out, raw, 0x08, objPadNum(raw, numpads));
 	out[0x5c] = item >= 2 ? (uint8_t)soloItemWeapon(item) : 0;
 	// no second gun: dualweaponnum (0x61) is -1, as the stock weapon() macro
 	// writes it. Until converter 72 this wrote 0x5d/0x5e (the gset's two
@@ -5151,7 +5171,7 @@ static void cameraRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t nu
  */
 static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t numpads)
 {
-	baseRecord(out, raw, 0x14, padNum(be16(raw, 6), numpads, 0));
+	baseRecord(out, raw, 0x14, objPadNum(raw, numpads));
 
 	for (size_t i = 0; i < 19; ++i) {
 		set16(out, 0x5c + 4 * i, 0xffff);
@@ -5337,7 +5357,7 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		} else if (t == 0x14) {
 			multiCrateRecord(rec, raw, recs.v[i].len, numpads);
 		} else if (g_GeSizes[t] >= 32) {
-			baseRecord(rec, raw, t, padNum(be16(raw, 6), numpads, 0));
+			baseRecord(rec, raw, t, objPadNum(raw, numpads));
 			for (size_t k = 0; k < sizeof(tails) / sizeof(tails[0]); ++k) {
 				if (tails[k].type == t && tails[k].ge + tails[k].width <= recs.v[i].len) {
 					memcpy(rec + tails[k].pd, raw + tails[k].ge, tails[k].width);
