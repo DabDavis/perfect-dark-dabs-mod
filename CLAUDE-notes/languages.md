@@ -180,6 +180,13 @@ loops, `textWrapN()`), `port/src/gexfront.c` (GE Plus's I8 glyphs).
   --rng-seed`, `--screenshot-frame`) give frame-exact pairs. The pause briefing
   of Defection is `L_AME_003`, not `_000` (that is the solo menu's).
 
+- A port key with a `|` is not always `ctx|English`: patchnotes.c's heading
+  format is `"%s|Patch %d%s%s\n\n"`, whose key keeps one `\n`. check.py (and
+  so build.py, which calls it with no source catalogs) took the part after the
+  `|` as the English and dropped the translation for a conversions mismatch;
+  a `|` whose left side holds a `%` is part of the English now, and an exact
+  key match is tried before the newline is stripped (2026-09-29, with `es`).
+
 **`--lang-log-missing`** (log lines, each once):
 - `lang: missing [fr] port "English"` - a port string asked of `langTr()` that
   the pack lacks (a string a lookup already handed out - a translation passed
