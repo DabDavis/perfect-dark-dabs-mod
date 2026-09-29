@@ -169,6 +169,12 @@ struct tgrid {
 	// The room a file triangle is in, or the index of a Bean one
 	s32 *room;
 	s32 numtri, captri;
+	// tgridNearest()'s: each triangle's box, and the last ask that measured
+	// it (a triangle is filed in every cell it touches, and was measured
+	// again in each of them)
+	f32 *box;
+	u32 *seen;
+	u32 ask;
 };
 
 static s32 tgridInit(struct tgrid *g, f32 cell)
@@ -193,6 +199,8 @@ static void tgridFree(struct tgrid *g)
 	free(g->enttri);
 	free(g->tri);
 	free(g->room);
+	free(g->box);
+	free(g->seen);
 	memset(g, 0, sizeof(*g));
 }
 
@@ -205,10 +213,14 @@ static void tgridAdd(struct tgrid *g, const f32 v[3][3], s32 room)
 		s32 cap = g->captri ? g->captri * 2 : 16384;
 		f32 *t = realloc(g->tri, sizeof(f32) * 9 * cap);
 		s32 *r = realloc(g->room, sizeof(s32) * cap);
+		f32 *b = realloc(g->box, sizeof(f32) * 6 * cap);
+		u32 *sn = realloc(g->seen, sizeof(u32) * cap);
 
 		if (t) g->tri = t;
 		if (r) g->room = r;
-		if (!t || !r) return;
+		if (b) g->box = b;
+		if (sn) g->seen = sn;
+		if (!t || !r || !b || !sn) return;
 
 		g->captri = cap;
 	}
@@ -237,6 +249,19 @@ static void tgridAdd(struct tgrid *g, const f32 v[3][3], s32 room)
 	}
 
 	g->room[g->numtri] = room;
+	g->seen[g->numtri] = 0;
+
+	for (s32 k = 0; k < 3; k++) {
+		f32 mn = v[0][k], mx = v[0][k];
+
+		for (s32 j = 1; j < 3; j++) {
+			if (v[j][k] < mn) mn = v[j][k];
+			if (v[j][k] > mx) mx = v[j][k];
+		}
+
+		g->box[g->numtri * 6 + k] = mn;
+		g->box[g->numtri * 6 + 3 + k] = mx;
+	}
 
 	for (s32 x = lo[0]; x <= hi[0]; x++) {
 		for (s32 y = lo[1]; y <= hi[1]; y++) {
@@ -347,7 +372,30 @@ done:
 	return dot3(d, d);
 }
 
-/** The triangle nearest p within `rings` cells, or -1; its squared distance in *outd. */
+/** The squared distance from p to a box, which no point of what is in it is nearer than. */
+static f32 boxDist(const f32 *p, const f32 *box)
+{
+	f32 d = 0.0f;
+
+	for (s32 k = 0; k < 3; k++) {
+		const f32 out = p[k] < box[k] ? box[k] - p[k] : (p[k] > box[3 + k] ? p[k] - box[3 + k] : 0.0f);
+
+		d += out * out;
+	}
+
+	return d;
+}
+
+/**
+ * The triangle nearest p within `rings` cells, or -1; its squared distance in *outd.
+ *
+ * Two shortcuts, neither of which can change the answer: a triangle already
+ * measured in another cell of this ask is not measured again (the same
+ * distance, and only a nearer one takes the place), and one whose box is
+ * clearly further than the best so far is not measured at all (its triangle
+ * is no nearer than its box; the margin is for the rounding of the exact
+ * measurement). Dealing Dam's 110000 triangles took 1.1 of its 2.9 seconds.
+ */
 static s32 tgridNearest(const struct tgrid *g, const f32 *p, s32 rings, f32 *outd)
 {
 	const s32 cx = (s32)floorf(p[0] / g->cell);
@@ -355,6 +403,16 @@ static s32 tgridNearest(const struct tgrid *g, const f32 *p, s32 rings, f32 *out
 	const s32 cz = (s32)floorf(p[2] / g->cell);
 	s32 best = -1;
 	f32 bestd = 0;
+	u32 ask;
+
+	// a tgrid is the builder's alone; the ask count is not part of what it holds
+	((struct tgrid *)g)->ask++;
+	ask = g->ask;
+
+	if (ask == 0) {
+		memset(g->seen, 0, sizeof(u32) * g->numtri);
+		((struct tgrid *)g)->ask = ask = 1;
+	}
 
 	for (s32 r = 0; r <= rings; r++) {
 		for (s32 x = cx - r; x <= cx + r; x++) {
@@ -366,7 +424,19 @@ static s32 tgridNearest(const struct tgrid *g, const f32 *p, s32 rings, f32 *out
 
 					for (s32 e = g->head[gridKey(x, y, z)]; e >= 0; e = g->entnext[e]) {
 						const s32 t = g->enttri[e];
-						const f32 d = pointTriDist(p, g->tri + t * 9, g->tri + t * 9 + 3, g->tri + t * 9 + 6);
+						f32 d;
+
+						if (g->seen[t] == ask) {
+							continue;
+						}
+
+						g->seen[t] = ask;
+
+						if (best >= 0 && boxDist(p, g->box + t * 6) > bestd * 1.001f + 1.0f) {
+							continue;
+						}
+
+						d = pointTriDist(p, g->tri + t * 9, g->tri + t * 9 + 3, g->tri + t * 9 + 6);
 
 						if (best < 0 || d < bestd) {
 							best = t;
@@ -1149,6 +1219,41 @@ static s32 triFitsRoom(const struct stri *tri, s32 r)
 	return 1;
 }
 
+static u8 paletteIndex(const u32 *palette, s32 num, u32 argb);
+
+/*
+ * paletteIndex() for every corner a leaf writes, remembered for the leaf: a
+ * room's triangles share their colours, and each ask walks the whole palette.
+ * leafPaletteBegin() forgets what the last leaf's palette answered.
+ */
+#define LEAFPAL_BITS 10
+
+static u32 leafPalKey[1 << LEAFPAL_BITS];
+static u32 leafPalGen[1 << LEAFPAL_BITS];
+static u8 leafPalVal[1 << LEAFPAL_BITS];
+static u32 leafPalNow;
+
+static void leafPaletteBegin(void)
+{
+	if (++leafPalNow == 0) {
+		memset(leafPalGen, 0, sizeof(leafPalGen));
+		leafPalNow = 1;
+	}
+}
+
+static u8 leafPaletteIndex(const u32 *palette, s32 num, u32 argb)
+{
+	const u32 h = (argb * 2654435761u) >> (32 - LEAFPAL_BITS);
+
+	if (leafPalGen[h] != leafPalNow || leafPalKey[h] != argb) {
+		leafPalGen[h] = leafPalNow;
+		leafPalKey[h] = argb;
+		leafPalVal[h] = paletteIndex(palette, num, argb);
+	}
+
+	return leafPalVal[h];
+}
+
 static u8 paletteIndex(const u32 *palette, s32 num, u32 argb)
 {
 	s32 best = 0;
@@ -1421,6 +1526,8 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		return 0;
 	}
 
+	leafPaletteBegin();
+
 	for (s32 i = 0; i < num && !xlu; i++) {
 		numfights += tris[list[i]].fights;
 	}
@@ -1595,7 +1702,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 					// flipping v and a room has to as well - the Temple's
 					// carvings stood on their heads
 					&& clampS16((b.shiftv - t->uv[k][1]) * XBLATEX_TILE_SCALE, &rv[k].t);
-				rv[k].colour = paletteIndex(palette, numpal, t->argb[k]) << 2;
+				rv[k].colour = leafPaletteIndex(palette, numpal, t->argb[k]) << 2;
 			}
 
 			if (ok || pass == 1) {
@@ -2032,7 +2139,79 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->undersea = 0;
 }
 
-static f32 triNormal(const struct stri *t, f32 *n)
+/*
+ * The normals and shades of the level's triangles, worked out once while
+ * markBacked(), markFights() and markDecals() ask for them: those ask a
+ * triangle's normal once for every triangle sharing a grid cell with it,
+ * which on Frigate was 5 of the 7 seconds the level took to build (F3
+ * 20260929-143105, "GE Plus levels load much slower"). The cached values are
+ * the ones triNormal() and triShade() work out, to the bit.
+ */
+static const struct stri *triCacheBase;
+static s32 triCacheNum;
+static f32 (*triCacheNormal)[4]; // x, y, z, and the area triNormal() returns
+static f32 *triCacheShade;
+
+static f32 triNormalWork(const struct stri *t, f32 *n);
+static f32 triShadeWork(const struct stri *t);
+
+static void triCacheFill(const struct stri *tris, s32 num)
+{
+	triCacheNormal = malloc(sizeof(*triCacheNormal) * (num > 0 ? num : 1));
+	triCacheShade = malloc(sizeof(*triCacheShade) * (num > 0 ? num : 1));
+
+	if (!triCacheNormal || !triCacheShade) {
+		free(triCacheNormal);
+		free(triCacheShade);
+		triCacheNormal = NULL;
+		triCacheShade = NULL;
+		return;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		triCacheNormal[i][3] = triNormalWork(&tris[i], triCacheNormal[i]);
+		triCacheShade[i] = triShadeWork(&tris[i]);
+	}
+
+	triCacheBase = tris;
+	triCacheNum = num;
+}
+
+static void triCacheForget(void)
+{
+	free(triCacheNormal);
+	free(triCacheShade);
+	triCacheNormal = NULL;
+	triCacheShade = NULL;
+	triCacheBase = NULL;
+	triCacheNum = 0;
+}
+
+static inline __attribute__((always_inline)) s32 triCacheIndex(const struct stri *t)
+{
+	if (triCacheBase && t >= triCacheBase && t < triCacheBase + triCacheNum) {
+		return (s32)(t - triCacheBase);
+	}
+
+	return -1;
+}
+
+static inline __attribute__((always_inline)) f32 triNormal(const struct stri *t, f32 *n)
+{
+	const s32 i = triCacheIndex(t);
+
+	if (i >= 0) {
+		n[0] = triCacheNormal[i][0];
+		n[1] = triCacheNormal[i][1];
+		n[2] = triCacheNormal[i][2];
+
+		return triCacheNormal[i][3];
+	}
+
+	return triNormalWork(t, n);
+}
+
+static f32 triNormalWork(const struct stri *t, f32 *n)
 {
 	f32 e1[3], e2[3], len;
 
@@ -2053,6 +2232,123 @@ static f32 triNormal(const struct stri *t, f32 *n)
 	}
 
 	return len * 0.5f;
+}
+
+/*
+ * The marking passes ask, of each of up to seven points on a triangle,
+ * whether a triangle of the cell the point is in lies under it - one that
+ * passes a test of its own against the triangle (facing, plane, picture) and
+ * comes within DECAL_DIST of the point. The test does not depend on the point
+ * and the points of one triangle mostly share a cell, so a cell is walked
+ * once, the test asked once of each of its triangles, and only the distance
+ * measured per point; the answers are the ones asking point by point gives.
+ */
+enum { MARKFILTER_BACKED, MARKFILTER_FIGHTS, MARKFILTER_DECAL };
+
+static s32 triOther(const struct stri *t, const struct stri *u);
+
+static s32 markCandidate(const struct stri *tris, s32 i, const f32 *ni, s32 o, s32 kind)
+{
+	const struct stri *t = &tris[i];
+	const struct stri *u = &tris[o];
+	f32 nu[3], area, cosang;
+	s32 flat = 1;
+
+	// The facing first, out of the cached normals: nearly every triangle of
+	// a cell fails it, and it is the one test that does not have to read the
+	// triangle itself. The tests only ever reject, so their order is free.
+	if (o == i) {
+		return 0;
+	}
+
+	area = triNormal(u, nu);
+
+	if (area <= 0) {
+		return 0;
+	}
+
+	cosang = dot3(ni, nu);
+
+	if (kind != MARKFILTER_DECAL) {
+		if (cosang > -DECAL_COS || texIsXlu(u->tex)) {
+			return 0;
+		}
+
+		if (kind == MARKFILTER_BACKED) {
+			return texHasAlpha(u->tex) == texHasAlpha(t->tex);
+		}
+	} else {
+		if ((cosang < DECAL_COS && cosang > -DECAL_COS) || !triOther(t, u)
+				|| (cosang < 0 && triCulled(t) && triCulled(u))) {
+			return 0;
+		}
+	}
+
+	for (s32 k = 0; k < 3 && flat; k++) {
+		f32 rel[3] = { t->pos[k][0] - u->pos[0][0], t->pos[k][1] - u->pos[0][1], t->pos[k][2] - u->pos[0][2] };
+
+		flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
+	}
+
+	return flat;
+}
+
+/**
+ * Whether every point (`all`) or any point is on a triangle of its cell that
+ * passes markCandidate().
+ */
+static s32 markPointsOn(const struct stri *tris, const struct tgrid *g, s32 i, const f32 *ni,
+		const f32 (*pts)[3], s32 npts, s32 kind, s32 all)
+{
+	u32 key[7];
+	u8 hit[7] = { 0 };
+	u8 done[7] = { 0 };
+
+	for (s32 k = 0; k < npts; k++) {
+		key[k] = gridKey((s32)floorf(pts[k][0] / g->cell), (s32)floorf(pts[k][1] / g->cell), (s32)floorf(pts[k][2] / g->cell));
+	}
+
+	for (s32 k = 0; k < npts; k++) {
+		s32 left = 0;
+
+		if (done[k]) {
+			continue;
+		}
+
+		for (s32 m = k; m < npts; m++) {
+			if (key[m] == key[k]) {
+				done[m] = 1;
+				left++;
+			}
+		}
+
+		for (s32 e = g->head[key[k]]; e >= 0 && left > 0; e = g->entnext[e]) {
+			const s32 o = g->room[g->enttri[e]];
+			const struct stri *u = &tris[o];
+
+			if (!markCandidate(tris, i, ni, o, kind)) {
+				continue;
+			}
+
+			for (s32 m = k; m < npts; m++) {
+				if (key[m] == key[k] && !hit[m]
+						&& pointTriDist(pts[m], u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST) {
+					hit[m] = 1;
+					left--;
+
+					if (!all) {
+						return 1;
+					}
+				}
+			}
+		}
+
+		if (all && left > 0) {
+			return 0;
+		}
+	}
+
+	return all;
 }
 
 /**
@@ -2094,25 +2390,7 @@ static s32 markBacked(struct stri *tris, s32 num, const struct tgrid *g)
 
 		memcpy(pts[3], mid, sizeof(mid));
 
-		for (s32 k = 0; k < 4 && covered; k++) {
-			const f32 *q = pts[k];
-
-			covered = 0;
-
-			for (s32 e = g->head[gridKey((s32)floorf(q[0] / g->cell), (s32)floorf(q[1] / g->cell), (s32)floorf(q[2] / g->cell))];
-					e >= 0 && !covered; e = g->entnext[e]) {
-				const s32 o = g->room[g->enttri[e]];
-				const struct stri *u = &tris[o];
-				f32 nu[3];
-
-				if (o == i || texIsXlu(u->tex) || texHasAlpha(u->tex) != texHasAlpha(t->tex)
-						|| triNormal(u, nu) <= 0 || dot3(ni, nu) > -DECAL_COS) {
-					continue;
-				}
-
-				covered = pointTriDist(q, u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST;
-			}
-		}
+		covered = markPointsOn(tris, g, i, ni, (const f32 (*)[3])pts, 4, MARKFILTER_BACKED, 1);
 
 		if (covered) {
 			t->backed = 1;
@@ -2161,29 +2439,7 @@ static s32 markFights(struct stri *tris, s32 num, const struct tgrid *g)
 
 		memcpy(pts[3], mid, sizeof(mid));
 
-		for (s32 k = 0; k < 4 && !fights; k++) {
-			const f32 *q = pts[k];
-
-			for (s32 e = g->head[gridKey((s32)floorf(q[0] / g->cell), (s32)floorf(q[1] / g->cell), (s32)floorf(q[2] / g->cell))];
-					e >= 0 && !fights; e = g->entnext[e]) {
-				const s32 o = g->room[g->enttri[e]];
-				const struct stri *u = &tris[o];
-				f32 nu[3];
-				s32 flat = 1;
-
-				if (o == i || texIsXlu(u->tex) || triNormal(u, nu) <= 0 || dot3(ni, nu) > -DECAL_COS) {
-					continue;
-				}
-
-				for (s32 c = 0; c < 3 && flat; c++) {
-					f32 rel[3] = { t->pos[c][0] - u->pos[0][0], t->pos[c][1] - u->pos[0][1], t->pos[c][2] - u->pos[0][2] };
-
-					flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
-				}
-
-				fights = flat && pointTriDist(q, u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST;
-			}
-		}
+		fights = markPointsOn(tris, g, i, ni, (const f32 (*)[3])pts, 4, MARKFILTER_FIGHTS, 0);
 
 		if (fights) {
 			t->fights = 1;
@@ -2195,7 +2451,14 @@ static s32 markFights(struct stri *tris, s32 num, const struct tgrid *g)
 }
 
 /** How bright a triangle's vertex colours are, 0 to 255. */
-static f32 triShade(const struct stri *t)
+static inline __attribute__((always_inline)) f32 triShade(const struct stri *t)
+{
+	const s32 i = triCacheIndex(t);
+
+	return i >= 0 ? triCacheShade[i] : triShadeWork(t);
+}
+
+static f32 triShadeWork(const struct stri *t)
 {
 	f32 sum = 0.0f;
 
@@ -2215,65 +2478,6 @@ static f32 triShade(const struct stri *t)
 static s32 triOther(const struct stri *t, const struct stri *u)
 {
 	return u->tex != t->tex || fabsf(triShade(t) - triShade(u)) > SHADE_APART;
-}
-
-/**
- * Marks the triangles that lie flat on another picture's triangle. Bean's
- * decals share the plane of the surface under them exactly, and drawn with
- * the ordinary depth test the two fought (a tester's F3 on Aztec, every HD
- * level): the decal is drawn in a decal render mode instead, pulled towards
- * the camera. Of a pair, the one lying wholly on other pictures is the decal
- * (decalCovered()); if both or neither do, the one with a cut-out picture
- * over the one without, else (both wholly on the other) the one Bean draws
- * later, else the smaller, else the one Bean draws later.
- *
- * Wholly on first: Bunker's hammer and sickle plaques overlap a wall panel
- * and hang past it onto the panels round it, and the panel's half-quad was
- * the smaller of the pair. It was made the decal, the other half of its quad
- * was not, and the plaque and the panel fought where they overlapped, while
- * the part of the panel off the plaque, drawn as a decal on nothing, was
- * painted over by the rock of a room drawn after it (F3 20260925-231104:
- * "z-fighting texture and inconsistent wall").
- *
- * Where each lies wholly on the other, the one Bean draws later, as the
- * release's depth test (less or equal) shows it: Bunker's other hammer and
- * sickle plaques lie on a wall cut into pieces smaller than the plaque, and
- * by size every piece was the decal and the wall was drawn over the plaque
- * (F3 20260926-210116).
- */
-static s32 decalOnOther(const struct stri *tris, const struct tgrid *g, s32 i, const f32 *ni, const f32 *q)
-{
-	const struct stri *t = &tris[i];
-
-	for (s32 e = g->head[gridKey((s32)floorf(q[0] / g->cell), (s32)floorf(q[1] / g->cell), (s32)floorf(q[2] / g->cell))];
-			e >= 0; e = g->entnext[e]) {
-		const s32 o = g->room[g->enttri[e]];
-		const struct stri *u = &tris[o];
-		f32 nu[3], cosang;
-		s32 flat = 1;
-
-		if (o == i || !triOther(t, u) || triNormal(u, nu) <= 0) {
-			continue;
-		}
-
-		cosang = dot3(ni, nu);
-
-		if ((cosang < DECAL_COS && cosang > -DECAL_COS) || (cosang < 0 && triCulled(t) && triCulled(u))) {
-			continue;
-		}
-
-		for (s32 k = 0; k < 3 && flat; k++) {
-			f32 rel[3] = { t->pos[k][0] - u->pos[0][0], t->pos[k][1] - u->pos[0][1], t->pos[k][2] - u->pos[0][2] };
-
-			flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
-		}
-
-		if (flat && pointTriDist(q, u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST) {
-			return 1;
-		}
-	}
-
-	return 0;
 }
 
 /**
@@ -2517,7 +2721,8 @@ static s32 markShadows(struct stri *tris, s32 num)
 static s32 decalCovered(const struct stri *tris, const struct tgrid *g, s32 i)
 {
 	const struct stri *t = &tris[i];
-	f32 ni[3], mid[3], q[3];
+	f32 ni[3], mid[3], pts[7][3];
+	s32 n = 0;
 
 	if (triNormal(t, ni) <= 0) {
 		return 0;
@@ -2527,33 +2732,51 @@ static s32 decalCovered(const struct stri *tris, const struct tgrid *g, s32 i)
 		mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
 	}
 
-	if (!decalOnOther(tris, g, i, ni, mid)) {
-		return 0;
-	}
+	memcpy(pts[n++], mid, sizeof(mid));
 
 	for (s32 k = 0; k < 3; k++) {
 		for (s32 j = 0; j < 3; j++) {
-			q[j] = t->pos[k][j] + (mid[j] - t->pos[k][j]) * 0.1f;
+			pts[n][j] = t->pos[k][j] + (mid[j] - t->pos[k][j]) * 0.1f;
 		}
 
-		if (!decalOnOther(tris, g, i, ni, q)) {
-			return 0;
-		}
+		n++;
 
 		for (s32 j = 0; j < 3; j++) {
 			const f32 edge = (t->pos[k][j] + t->pos[(k + 1) % 3][j]) * 0.5f;
 
-			q[j] = edge + (mid[j] - edge) * 0.1f;
+			pts[n][j] = edge + (mid[j] - edge) * 0.1f;
 		}
 
-		if (!decalOnOther(tris, g, i, ni, q)) {
-			return 0;
-		}
+		n++;
 	}
 
-	return 1;
+	return markPointsOn(tris, g, i, ni, (const f32 (*)[3])pts, n, MARKFILTER_DECAL, 1);
 }
 
+/**
+ * Marks the triangles that lie flat on another picture's triangle. Bean's
+ * decals share the plane of the surface under them exactly, and drawn with
+ * the ordinary depth test the two fought (a tester's F3 on Aztec, every HD
+ * level): the decal is drawn in a decal render mode instead, pulled towards
+ * the camera. Of a pair, the one lying wholly on other pictures is the decal
+ * (decalCovered()); if both or neither do, the one with a cut-out picture
+ * over the one without, else (both wholly on the other) the one Bean draws
+ * later, else the smaller, else the one Bean draws later.
+ *
+ * Wholly on first: Bunker's hammer and sickle plaques overlap a wall panel
+ * and hang past it onto the panels round it, and the panel's half-quad was
+ * the smaller of the pair. It was made the decal, the other half of its quad
+ * was not, and the plaque and the panel fought where they overlapped, while
+ * the part of the panel off the plaque, drawn as a decal on nothing, was
+ * painted over by the rock of a room drawn after it (F3 20260925-231104:
+ * "z-fighting texture and inconsistent wall").
+ *
+ * Where each lies wholly on the other, the one Bean draws later, as the
+ * release's depth test (less or equal) shows it: Bunker's other hammer and
+ * sickle plaques lie on a wall cut into pieces smaller than the plaque, and
+ * by size every piece was the decal and the wall was drawn over the plaque
+ * (F3 20260926-210116).
+ */
 static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 {
 	s32 count = 0;
@@ -4270,9 +4493,11 @@ static s32 build(void)
 			tgridAdd(&beantris, (const f32 (*)[3])c.tris[t].pos, t);
 		}
 
+		triCacheFill(c.tris, c.num);
 		backed = markBacked(c.tris, c.num, &beantris);
 		fights = markFights(c.tris, c.num, &beantris);
 		decals = markDecals(c.tris, c.num, &beantris);
+		triCacheForget();
 		markDecalLifts(c.tris, c.num);
 		{
 			const s32 shadows = markShadows(c.tris, c.num);
