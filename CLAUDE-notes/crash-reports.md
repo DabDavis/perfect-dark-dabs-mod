@@ -22,7 +22,10 @@ and holds:
   line naming the address and whether it was read or written
 - the `[Mod]` section of pd.ini, from `configDumpSection()` - the **live**
   values rather than the file's, because a setting changed from the menu since
-  the last save is exactly the sort of thing worth knowing
+  the last save is exactly the sort of thing worth knowing; then `[Game]`,
+  `[Video]`, and `[Input]`, `[Input.Player1]` and `[Input.Player1.Binds]`
+  (player 1's pad settings and binds as in use - an F3 of a dead D-pad, B and
+  Start could not show the binds, and they turned out cut by pd.ini saves)
 - the last `CRASHREPORT_LOGLINES` (200) lines of the log
 
 **Sending** is `crashReportSend()`, which POSTs to `<Mod.GhostServer>/crash`
