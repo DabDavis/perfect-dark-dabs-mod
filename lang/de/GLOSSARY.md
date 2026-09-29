@@ -282,6 +282,16 @@ back to English, so:
 | GoldenEye multiplayer scenarios | the German film titles: Man lebt nur zweimal, Der Hauch des Todes, Der Mann mit dem goldenen Colt, Lizenz zum Töten |
 | Spetznaz / Politburo | Speznas / Politbüro |
 
+GoldenEye's levels (the mission grid holds about nine capitals a picture):
+Staudamm, Anlage, Startbahn, Gelände (Surface), Bunker, Silo, Fregatte,
+Statue, Archiv, Straßen, Depot, Zug, Dschungel, Zentrale (Control), Höhlen,
+Wiege, Azteken, Ägypten; the long forms (Kontrollzentrum, Wasserhöhlen,
+Antennenwiege ...) stay in the briefings.
+
+The port's options pages put a slider or value at mid-row, so their labels
+stay near the English's length: Crosshair ... = Visier ... (Visiergröße,
+Visier-Schwanken), Simulant Skill = Sim-Können.
+
 GoldenEye's watch splits two-line gun names at the English's own break
 (Präzisions- / gewehr); "Grenade" is both the hand grenade and the top half
 of "Grenade Launcher", so the launchers read "Granate / Werfer".
