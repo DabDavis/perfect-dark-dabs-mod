@@ -388,7 +388,15 @@ static const struct geaicmd g_GeAiCommands[GEAI_NUM_COMMANDS] = {
 	/* f4 MusicPlaySlot                          */ {  4, 0x00f9,  3, { 1, 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  3, { {0, 1, 0}, {1, 1, 0}, {2, 1, 0} } },
 	/* f5 MusicStopSlot                          */ {  2, 0x00fa,  1, { 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {0, 1, 0} } },
 	/* f6 TriggerExplosionsAroundBond            */ {  1, 0x00fb,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  1, { {-1, 1, 0x00f2} } },
-	/* f7 IFKilledCiviliansGreaterThan           */ {  3,     -1,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
+	// f7: Perfect Dark kept GoldenEye's civilian counter under another name.
+	// GoldenEye's CHRFLAG_COUNT_DEATH_AS_CIVILIAN (0x00100000, which its lists
+	// set through the chrflags commands a0/9d) is Perfect Dark's
+	// CHRCFLAG_KILLCOUNTABLE, the same bit copied as it stands; a death by shot
+	// or blast of a chr carrying it bumps g_Vars.killcount
+	// (mpstatsIncrementTotalKillCount()) as GoldenEye's bumps killed_civilians,
+	// casingsReset() zeroes it at every stage load as GoldenEye's Bond init
+	// does, and aiIfKillCountGreaterThan is GoldenEye's test to the byte
+	/* f7 IFKilledCiviliansGreaterThan           */ {  3, 0x00fc,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {0, 1, 0}, {1, 1, 0} } },
 	/* f8 IFChrWasShotSinceLastCheck             */ {  3, 0x01e4,  2, { 1, 1 }, 0x0000, 0x0000, 0x0000, 0x0000,  2, { {0, 1, 0}, {1, 1, 0} } },
 	/* f9 BondKilledInAction                     */ {  1, 0x00fe,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },
 	/* fa RaiseArms                              */ {  1, 0x00ff,  0, { 0 }, 0x0000, 0x0000, 0x0000, 0x0000,  0, { {0, 0, 0} } },

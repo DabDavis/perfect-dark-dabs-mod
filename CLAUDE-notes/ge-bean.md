@@ -12949,10 +12949,50 @@ every load, so off needs nothing undone).
   indices). Read the ROMs (`007 - GoldenEye (Japan|Europe).zip`; a setup file is a
   1172 blob, found by its length and its pads' bytes) rather than the decomp's
   directories.
-- **Left inert**: Statue Park's new list waits on `IFKilledCiviliansGreaterThan`
-  (0xf7), which geaitable.h has no Perfect Dark command for and drops - as it
-  already does on Facility, Silo, Frigate and Caverns - so the list sets the chr
-  flag and loops. GoldenEye chr flags are copied raw (0x00100000 lands on Perfect
-  Dark's CHRCFLAG_KILLCOUNTABLE, Cradle's 0x18000000 on Bond on
-  CONSIDER_DODGE|AVOIDING), as for every other converted SetChrchrflags.
+- Statue Park's new list waits on `IFKilledCiviliansGreaterThan` (0xf7), which
+  converter 91 maps (next section). GoldenEye chr flags are copied raw (Cradle's
+  0x18000000 on Bond lands on CONSIDER_DODGE|AVOIDING), as for every other
+  converted SetChrchrflags.
 - `gecinema: N opening shots` in the log says which setup a mission opened on.
+
+## GoldenEye's civilian count is Perfect Dark's kill count (converter 91, 2026-09-29)
+
+`IFKilledCiviliansGreaterThan` (0xf7, `<n> <label>`) was dropped, so no
+civilian-casualty check ever fired: Facility (three scientists), Silo, Frigate
+(the hostages), Caverns, and the later cartridges' Statue Park list 0x1009
+(chr 1, more than 0 fails every objective through bit 0x00200000).
+
+**Perfect Dark kept the whole mechanism under other names, bit for bit**, so the
+fix is one table row in each converter and no engine code:
+
+| GoldenEye | Perfect Dark |
+| --- | --- |
+| `CHRFLAG_COUNT_DEATH_AS_CIVILIAN` 0x00100000 in `chrflags` | `CHRCFLAG_KILLCOUNTABLE` 0x00100000 in `chrflags` |
+| `g_playerPerm->killed_civilians`, `inc_cur_civilian_casualties()` | `g_Vars.killcount`, `mpstatsIncrementTotalKillCount()` |
+| counted in `triggered_on_shot_hit()` (shot death) and `chrlvExplosionDamage()` (blast death), whoever the killer | counted in `chrBeginDeath()` and chrDamage()'s explosion branch, whoever the killer |
+| zeroed in `init_player_BONDdata()` at each mission | zeroed in `casingsReset()` at each stage load |
+| `if (n < get_civilian_casualties()) goto label` | `aiIfKillCountGreaterThan` (0x00fc): `if (killcount > n) goto label` |
+
+geaitable row f7 is now 0x00fc with both bytes copied (GoldenEye's f1-f6 already
+sat on Perfect Dark's 0xf7-0xfb; the generator missed only this one). No new port
+command was needed. Knockouts (tranquilliser, `ACT_DRUGGEDCOMINGUP`) count in
+`knockoutcount` instead, and GoldenEye has none; Perfect Dark's global lists
+never set or read KILLCOUNTABLE, so nothing else acts on the raw bit.
+
+**The flag's value in the decompilation's setups reads 0x00001000** - which is
+`CHRFLAG_LOCK_Y_POS` - because `chr_flags_set_on` prints its bitfield with
+`CharArrayFrom32Rev`; the ROM's bytes are `00 10 00 00`. Read the bytes.
+
+**Checked** with a gdb probe whose breakpoint on `videoEndFrame` only stops at
+the kill frame, and `chrDamageByMisc(chr, 1000, ...)` with the player's prop is called from
+the top level between continues - an inferior call inside stop() hangs the game):
+Facility, scientists 52/53/54 carry 0x00100000 from frame 4; killing them at
+frames 300/400/500 moved killcount 1, 2, 3 and list 0x1008 fired on the third
+(TextPrintTop, stage flag 0x00004000), not before; Statue Park with Later
+Revision on, chr 1 killed at 400 -> killcount 1 and stage flag 0x00200000 the next
+frame; with no kill both stay 0 to frame 900. The five missions each ran 3600
+frames with Later Revision on and off without a fault; 0x00fc runs every frame
+on Caverns, Silo and Frigate. C and Python write the same AI bytes: Silo, Frigate,
+Caverns and Statue Park's setups are identical, and Facility's differs only in
+four prop records' 400/600 words, which have nothing to do with this row.
+
