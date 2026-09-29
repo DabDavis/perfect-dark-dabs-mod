@@ -226,6 +226,13 @@ struct layouts, cited in the source where they are used —
 port of that decomp, which is derived work kept in a separate tree and used
 only as an oracle.
 
+**GE Plus: Region Rules** and **Later Revision Fixes** were **Wreck**'s idea:
+playing GoldenEye by its Japanese cartridge's rules, and with the bug fixes
+the Japanese and PAL cartridges carry over the US one. Both are read from the
+decomp's own `LANG_JP` and `BUGFIX_R1` builds, which match those cartridges
+byte for byte, and run on the US ROM's assets; nothing from the other ROMs is
+converted.
+
 To be exact about a claim that has gone around: **no GoldenEye XBLA / "Bean" HD
 texture or model code from any third party is in this repository.** That path
 (`gebean.c`, `xblamesh.c`, `xblatex.c`, `x360.c`) was written here against the
