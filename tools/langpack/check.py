@@ -189,6 +189,9 @@ class Source:
 
     def port_english_of(self, key):
         """The English a port.json key stands for, or None if it is not one."""
+        # an English that itself ends in "\n\n" keeps one newline in its key
+        if key in self.port:
+            return self.port[key]
         k = strip_nl(key)
         for c in (k, k + '\n'):
             if c in self.port:
@@ -314,6 +317,9 @@ def read_language(srcdir, source=None):
                         p.error(key, 'is not a string of the port (%s/port.json; '
                                 'run tools/langpack/extract.py if the game changed)' % source.name)
                         continue
+                    # the English itself, not the key's text after a '|' (a
+                    # format such as "%s|Patch %d..." is no ctx key)
+                    en_text = found
             if check_string(p, key, en_text, text, script):
                 out[k] = text
 
