@@ -99,6 +99,11 @@
 #define MENU_FOLDER_MODEL 278
 #define MENU_TV_MODEL 75
 
+// an arena's ammo box: GoldenEye's PROP_AMMO_CRATE3 and the extra scale its
+// multiplayer setups give every one (writeMpSetup())
+#define MP_AMMO_MODEL 5
+#define MP_AMMO_SCALE 153
+
 // the crosshair cursor (IMAGE_CROSSHAIR1), the film strip's holes (IMAGE_DOT),
 // a stage picture for every level (IMAGE_MP_ARCHIVES..TRAIN, TEMPLE..CAVES, RANDOM)
 // and the character portraits' tiles (IMAGE_BROSNAN_UL..DALTON_LR,
@@ -4213,8 +4218,12 @@ static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const
 			bufU32(&props, 0x00ffffff);
 			bufU32(&props, 0);
 		} else {
-			bufU32(&props, (0x00ccu << 16) | 0x14);
-			bufU32(&props, (0x00c1u << 16) | ((uint32_t)items.v[i].pad & 0xffff));
+			// GoldenEye's own box, PROP_AMMO_CRATE3 at its extra scale
+			// (every AmmoBox record in its arena setups is model 5 at 153),
+			// where Perfect Dark's purple "AMMO" crate stood (F3
+			// 20260928-210156, Temple)
+			bufU32(&props, ((uint32_t)MP_AMMO_SCALE << 16) | 0x14);
+			bufU32(&props, ((uint32_t)(MODEL_REMAKE_FIRST + MP_AMMO_MODEL) << 16) | ((uint32_t)items.v[i].pad & 0xffff));
 			bufU32(&props, 1);
 			bufZeros(&props, 4 * 16);
 			bufU32(&props, 1000);
@@ -6905,6 +6914,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// (PROP_TV1, gexfront.c)
 		setAdd(allmodels, MENU_TV_MODEL);
 		setAdd(allmodels, INTRO_LOGO_MODEL);
+		setAdd(allmodels, MP_AMMO_MODEL);
 		// the thrown gadgets' props (gesolo.py's GE_GADGET_MODELS): PROP_CHRBUG,
 		// PROP_CHRGOLDENEYEKEY and PROP_CHRPLASTIQUE
 		setAdd(allmodels, 245);
