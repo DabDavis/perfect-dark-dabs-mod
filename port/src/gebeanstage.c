@@ -33,6 +33,7 @@
 #include "gebeanstage.h"
 #include "gebeansky.h"
 #include "gewater.h"
+#include "texpack.h"
 
 #define SEG 0x0f000000
 
@@ -547,6 +548,8 @@ static s16 eachSt[3][2];
 // and how bright its three vertices' colours are (the brightest of r, g and
 // b), or 0xff when the leaf's colours cannot be read
 static u8 eachShade[3];
+// and their colours, r, g and b (white where eachShade is 0xff for want of them)
+static u8 eachRgb[3][3];
 
 static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 		void (*fn)(void *arg, const f32 v[3][3], s32 room), void *arg)
@@ -589,6 +592,7 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 				f32 loaded[16][3];
 				s16 loadedst[16][2];
 				u8 loadedcol[16];
+				u8 loadedrgb[16][3];
 				// the leaf's colours and where its last G_COL loaded from
 				const u32 colbase = be32(raw + o + 16);
 				s32 colat = -1;
@@ -614,6 +618,7 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 						eachTex = be32(raw + c + 4) & 0xfff;
 					} else if (op == (u8)G_SETENVCOLOR) {
 						eachEnvAlpha = raw[c + 7];
+
 					} else if (op == (u8)G_SETOTHERMODE_L && be32(raw + c) == 0xb900031d) {
 						const u32 c1 = be32(raw + c + 4) & 0xcccc0000;
 
@@ -633,6 +638,9 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 
 							loadedcol[i] = ca + 3 <= len
 								? MAX(raw[ca], MAX(raw[ca + 1], raw[ca + 2])) : 0xff;
+							for (s32 ch = 0; ch < 3; ch++) {
+								loadedrgb[i][ch] = ca + 3 <= len ? raw[ca + ch] : 0xff;
+							}
 							loadedst[i][0] = at + i * VTXSIZE + 12 <= len ? (s16)be16(raw + at + i * VTXSIZE + 8) : 0;
 							loadedst[i][1] = at + i * VTXSIZE + 12 <= len ? (s16)be16(raw + at + i * VTXSIZE + 10) : 0;
 							loaded[i][0] = g_BgRooms[r].pos.x + (s16)be16(raw + at + i * VTXSIZE);
@@ -662,6 +670,9 @@ static void fileRoomTrianglesEach(s32 r, const u8 *raw, u32 len, s32 xlutoo,
 							eachShade[0] = loadedcol[x];
 							eachShade[1] = loadedcol[y];
 							eachShade[2] = loadedcol[z];
+							memcpy(eachRgb[0], loadedrgb[x], sizeof(eachRgb[0]));
+							memcpy(eachRgb[1], loadedrgb[y], sizeof(eachRgb[1]));
+							memcpy(eachRgb[2], loadedrgb[z], sizeof(eachRgb[2]));
 							fn(arg, (const f32 (*)[3])v, (u16)r | (nofog << 16) | (twosided << 17));
 						}
 					} else if (op == (u8)G_ENDDL) {
@@ -696,9 +707,18 @@ static void fileTriNearBean(void *arg, const f32 v[3][3], s32 room)
 	}
 }
 
+static void gridBrightNote(s32 index, s32 room);
+
 static void fileTriToGrid(void *arg, const f32 v[3][3], s32 room)
 {
-	tgridAdd(arg, v, room);
+	struct tgrid *g = arg;
+	const s32 before = g->numtri;
+
+	tgridAdd(g, v, room);
+
+	if (g->numtri > before) {
+		gridBrightNote(before, room);
+	}
 }
 
 static void fileRoomTriangles(struct tgrid *g, s32 r, const u8 *raw, u32 len)
@@ -4412,7 +4432,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 1
+#define HDCACHE_VERSION 6
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
@@ -4896,6 +4916,556 @@ static s32 hdcacheLoad(u64 key, const char *levelname, s32 n)
 	return 1;
 }
 
+/* -------------------------------------------------------------------------
+ * HD rooms as bright as GoldenEye's own
+ *
+ * The release bakes its light into the level's vertex colours, and in places
+ * baked it much darker than GoldenEye's own rooms are lit: Train's corridors
+ * drew at about 40% of the N64 look's brightness (F3 20260929-200831, "screen
+ * is too dark in this corridor"). The release was never finished (its lighting
+ * shader is never turned on), so on a level listed in brightLevels[] each
+ * room's HD vertex colours are scaled so that the room comes out as bright as
+ * the converted room it stands in.
+ *
+ * How bright a room is: over its opaque triangles, by area, the brightness
+ * (Rec. 601 luma) of vertex colour times picture colour, channel by channel -
+ * what the screen shows before the room's light. Both sides are measured the
+ * same way: the release's pictures as bound, GoldenEye's as the port decodes
+ * them. Pictures count because Train's HD wood is a darker, redder picture
+ * than GoldenEye's; matching the vertex colours alone left the corridor at
+ * two thirds of the N64 look.
+ *
+ * Each HD triangle is held against GoldenEye's triangle it lies on (the one
+ * the dealing found), and one factor is found per room and picture from those
+ * pairs (matchN64Brightness()), the same for every vertex it touches, so the
+ * release's light and shade across a wall and its hues are kept; a channel
+ * past 255 is clamped, and the factor is capped at BRIGHT_MAX_GAIN. Only a
+ * room darker than GoldenEye's as a whole is changed, and nothing is ever
+ * made darker. No corner is lifted past GoldenEye's own brightness under it
+ * (brightCorner()), so a place the release already lit well stays as it is
+ * and nothing ends brighter than the N64 look (the owner: "lets match n64").
+ * GoldenEye's intensity (I4/I8) pictures are measured over every texel
+ * (texpackTextureMeans()); taken over their bright texels only, Silo's
+ * targets were twice what the N64 look draws (its floor grate is an I4).
+ *
+ * Every level measures its rooms and logs those under BRIGHT_REPORT of the
+ * N64 look's brightness; only the listed levels are changed (the owner's
+ * call, level by level). Turning a level on is one more key in
+ * brightLevels[] plus a bump of HDCACHE_VERSION.
+ * ------------------------------------------------------------------------- */
+
+static const char *const brightLevels[] = {
+	"tra",   // Train (F3 20260929-200831)
+	// the owner, 2026-09-29: "turn it on for all the darker levels"
+	"depo",  // Depot
+	"cave",  // Caverns
+	"silo",  // Silo
+	"lib",   // Library
+	"base",  // Basement
+	"stack", // Stack
+	"ref",   // Complex
+	"stat",  // Statue Park
+	"azt",   // Aztec
+	"dest",  // Frigate
+	"dam",   // Dam
+	"sevx",  // Surface
+	"sevxb", // Surface 2
+	"pete",  // Streets
+};
+
+#define BRIGHT_REPORT   0.7f
+#define BRIGHT_MAX_GAIN 4.0f
+// A room with less of either surface than this (square units) is not measured
+#define BRIGHT_MIN_AREA 1000.0f
+// The converted level's texture numbers (the low 12 bits of its 0xc0 words)
+#define BRIGHT_TEXNUMS 0x1000
+
+static const f32 brightLuma[3] = { 0.299f, 0.587f, 0.114f };
+
+struct brightsum {
+	f64 area;
+	f64 sum;
+};
+
+// The pictures' mean colours, r g b, the last entry of each the mean of those
+// that could be read (standing in for one that could not)
+static f32 brightHdTex[GEBEAN_MAXMATS + 1][3];
+static f32 (*brightFileTex)[3];
+static u8 *brightFileUsed;
+
+static f32 triArea3(const f32 v[3][3])
+{
+	const f32 a[3] = { v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2] };
+	const f32 b[3] = { v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2] };
+	const f32 x = a[1] * b[2] - a[2] * b[1];
+	const f32 y = a[2] * b[0] - a[0] * b[2];
+	const f32 z = a[0] * b[1] - a[1] * b[0];
+
+	return 0.5f * sqrtf(x * x + y * y + z * z);
+}
+
+static void fileTriUsed(void *arg, const f32 v[3][3], s32 room)
+{
+	if (eachTex >= 0 && eachTex < BRIGHT_TEXNUMS) {
+		brightFileUsed[eachTex] = 1;
+	}
+}
+
+/** How bright the file triangle fileRoomTrianglesEach() is handing over is. */
+static f32 fileTriBright(s32 room)
+{
+	const f32 *tex = eachTex >= 0 && eachTex < BRIGHT_TEXNUMS && brightFileTex[eachTex][0] >= 0.0f
+		? brightFileTex[eachTex] : brightFileTex[BRIGHT_TEXNUMS];
+	f32 luma = 0.0f;
+
+	for (s32 ch = 0; ch < 3; ch++) {
+		luma += brightLuma[ch] * (eachRgb[0][ch] + eachRgb[1][ch] + eachRgb[2][ch]) / 3.0f * tex[ch] / 255.0f;
+	}
+
+	return luma;
+}
+
+static void fileTriToBright(void *arg, const f32 v[3][3], s32 room)
+{
+	struct brightsum *b = arg;
+	const f32 area = triArea3(v);
+
+	b->area += area;
+	b->sum += area * fileTriBright(room);
+}
+
+/**
+ * The brightness of each file triangle in the dealing grid (by its index
+ * there), so that each HD triangle can be held against the one of
+ * GoldenEye's it lies on.
+ */
+static f32 *gridBright;
+static s32 gridBrightCap;
+
+static void gridBrightNote(s32 index, s32 room)
+{
+	if (!brightFileTex) {
+		return;
+	}
+
+	if (index >= gridBrightCap) {
+		const s32 cap = MAX(index + 1, gridBrightCap ? gridBrightCap * 2 : 16384);
+		f32 *m = realloc(gridBright, sizeof(f32) * cap);
+
+		if (!m) {
+			return;
+		}
+
+		gridBright = m;
+		gridBrightCap = cap;
+	}
+
+	gridBright[index] = fileTriBright(room);
+}
+
+static f32 hdTriBright(const struct stri *t)
+{
+	const f32 *tex = t->tex >= 0 && t->tex < GEBEAN_MAXMATS && brightHdTex[t->tex][0] >= 0.0f
+		? brightHdTex[t->tex] : brightHdTex[GEBEAN_MAXMATS];
+	f32 luma = 0.0f;
+
+	// argb[] holds r in bits 16-23, g 8-15, b 0-7
+	for (s32 ch = 0; ch < 3; ch++) {
+		const s32 sh = 16 - ch * 8;
+		const f32 v = (((t->argb[0] >> sh) & 0xff) + ((t->argb[1] >> sh) & 0xff) + ((t->argb[2] >> sh) & 0xff)) / 3.0f;
+
+		luma += brightLuma[ch] * v * tex[ch] / 255.0f;
+	}
+
+	return luma;
+}
+
+static s32 hdTriMeasured(const struct stri *t)
+{
+	return t->room > 0 && !t->blend && !t->plain && !t->undersea;
+}
+
+static void brightHdSums(const struct collect *c, s32 n, struct brightsum *hd)
+{
+	for (s32 t = 0; t < c->num; t++) {
+		const struct stri *tri = &c->tris[t];
+
+		if (hdTriMeasured(tri) && tri->room < n) {
+			const f32 area = triArea3(tri->pos);
+
+			hd[tri->room].area += area;
+			hd[tri->room].sum += area * hdTriBright(tri);
+		}
+	}
+}
+
+/** Reads the pictures' colours for the measure; 0 if out of memory. */
+static s32 brightTexturesRead(u8 **filerooms, u32 *filelens, s32 n)
+{
+	s32 *nums;
+	f32 *means;
+	s32 num = 0;
+	f64 sum[3] = { 0 };
+	s32 known = 0;
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		brightHdTex[t][0] = -1.0f;
+
+		if (t < gebeanLevelNumTextures(level) && texTile[t] && xblaTexImageMean(texTile[t], brightHdTex[t])) {
+			for (s32 ch = 0; ch < 3; ch++) {
+				sum[ch] += brightHdTex[t][ch];
+			}
+
+			known++;
+		} else {
+			brightHdTex[t][0] = -1.0f;
+		}
+	}
+
+	for (s32 ch = 0; ch < 3; ch++) {
+		brightHdTex[GEBEAN_MAXMATS][ch] = known ? (f32)(sum[ch] / known) : 255.0f;
+		sum[ch] = 0.0;
+	}
+
+	brightFileTex = calloc(BRIGHT_TEXNUMS + 1, sizeof(*brightFileTex));
+	brightFileUsed = calloc(BRIGHT_TEXNUMS, 1);
+	nums = malloc(sizeof(s32) * BRIGHT_TEXNUMS);
+	means = malloc(sizeof(f32) * 3 * BRIGHT_TEXNUMS);
+
+	if (!brightFileTex || !brightFileUsed || !nums || !means) {
+		free(nums);
+		free(means);
+		return 0;
+	}
+
+	for (s32 r = 1; r < n; r++) {
+		if (filerooms[r]) {
+			fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriUsed, NULL);
+		}
+	}
+
+	for (s32 t = 0; t < BRIGHT_TEXNUMS; t++) {
+		brightFileTex[t][0] = -1.0f;
+
+		if (brightFileUsed[t]) {
+			nums[num++] = t;
+		}
+	}
+
+	texpackTextureMeans(nums, num, means);
+	known = 0;
+
+	for (s32 i = 0; i < num; i++) {
+		memcpy(brightFileTex[nums[i]], &means[i * 3], sizeof(brightFileTex[0]));
+
+		if (means[i * 3] >= 0.0f) {
+			for (s32 ch = 0; ch < 3; ch++) {
+				sum[ch] += means[i * 3 + ch];
+			}
+
+			known++;
+		}
+	}
+
+	for (s32 ch = 0; ch < 3; ch++) {
+		brightFileTex[BRIGHT_TEXNUMS][ch] = known ? (f32)(sum[ch] / known) : 255.0f;
+	}
+
+	free(nums);
+	free(means);
+
+	return 1;
+}
+
+/*
+ * A ceiling at each corner: the release baked some places much brighter than
+ * the rest of their room (Statue Park's fields: a pool of light where the
+ * player starts in grass that is otherwise deep shade, while GoldenEye lights
+ * the field evenly), so one factor for the room's grass took that pool to
+ * half as bright again as the N64 look. Each corner is given no more than
+ * GoldenEye's brightness under the triangles that meet at it over theirs, so
+ * nothing ends brighter than the N64 look there; corners at one position
+ * with one picture share the sums, so a surface stays smooth.
+ */
+struct brightcell {
+	s32 x, y, z;
+	s32 tex;
+	f64 hd, go, area;
+};
+
+static struct brightcell *brightCells;
+static u32 brightCellMask;
+
+static u32 brightCellHash(s32 x, s32 y, s32 z, s32 tex)
+{
+	u32 h = (u32)x * 73856093u ^ (u32)y * 19349663u ^ (u32)z * 83492791u ^ (u32)(tex + 1) * 2654435761u;
+
+	return h & brightCellMask;
+}
+
+static struct brightcell *brightCorner(const f32 *p, s32 tex, s32 add)
+{
+	const s32 x = (s32)floorf(p[0] + 0.5f);
+	const s32 y = (s32)floorf(p[1] + 0.5f);
+	const s32 z = (s32)floorf(p[2] + 0.5f);
+	u32 i = brightCellHash(x, y, z, tex);
+
+	for (u32 probe = 0; probe <= brightCellMask; probe++, i = (i + 1) & brightCellMask) {
+		struct brightcell *e = &brightCells[i];
+
+		if (e->tex == -2) {
+			if (!add) {
+				return NULL;
+			}
+
+			e->x = x;
+			e->y = y;
+			e->z = z;
+			e->tex = tex;
+			return e;
+		}
+
+		if (e->x == x && e->y == y && e->z == z && e->tex == tex) {
+			return e;
+		}
+	}
+
+	return NULL;
+}
+
+static void brightForget(void)
+{
+	free(brightFileTex);
+	free(brightFileUsed);
+	free(gridBright);
+	brightFileTex = NULL;
+	brightFileUsed = NULL;
+	gridBright = NULL;
+	gridBrightCap = 0;
+}
+
+/**
+ * target[t]: how bright GoldenEye's triangle under HD triangle t is (the one
+ * the dealing found for it), or < 0.
+ *
+ * The factor is found per room and per picture within it: Train's corridor
+ * walls are the release's darkest picture while its vents and ceiling came
+ * out brighter than GoldenEye's, so one factor for the room left the walls,
+ * most of what is on screen, at half the N64 look. A picture with less than
+ * BRIGHT_MIN_AREA of a room takes the room's factor.
+ */
+static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, s32 n, const f32 *target)
+{
+	struct brightsum *hd = calloc(n + 1, sizeof(*hd));
+	struct brightsum *file = calloc(n + 1, sizeof(*file));
+	// the HD side and GoldenEye's under it, per room and per room and picture
+	struct brightsum *rhd = calloc(n + 1, sizeof(*rhd));
+	struct brightsum *rgo = calloc(n + 1, sizeof(*rgo));
+	struct brightsum *phd = calloc((size_t)(n + 1) * GEBEAN_MAXMATS, sizeof(*phd));
+	struct brightsum *pgo = calloc((size_t)(n + 1) * GEBEAN_MAXMATS, sizeof(*pgo));
+	u8 *under1 = calloc(n + 1, 1);
+	f64 hdall = 0.0, hdallarea = 0.0, fileall = 0.0, fileallarea = 0.0;
+	s32 on = 0, changed = 0, under = 0, measured = 0, clamped = 0, paired = 0;
+	char list[1536];
+	s32 at = 0;
+
+	list[0] = '\0';
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(brightLevels); i++) {
+		if (strcmp(brightLevels[i], row->key) == 0) {
+			on = 1;
+		}
+	}
+
+	if (hd && file && rhd && rgo && phd && pgo && under1 && brightFileTex) {
+		brightHdSums(c, n, hd);
+		for (s32 r = 1; r < n; r++) {
+			f32 ratio;
+
+			if (!filerooms[r] || hd[r].area < BRIGHT_MIN_AREA) {
+				continue;
+			}
+
+			fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriToBright, &file[r]);
+
+			if (file[r].area < BRIGHT_MIN_AREA || file[r].sum <= 0.0) {
+				continue;
+			}
+
+			measured++;
+			hdall += hd[r].sum;
+			hdallarea += hd[r].area;
+			fileall += file[r].sum;
+			fileallarea += file[r].area;
+
+			// HD brightness over N64 brightness
+			ratio = (hd[r].sum / hd[r].area) / (file[r].sum / file[r].area);
+			under1[r] = ratio < 1.0f;
+
+			if (ratio < BRIGHT_REPORT) {
+				under++;
+
+				if (at < (s32)sizeof(list) - 40) {
+					at += snprintf(list + at, sizeof(list) - at, " %d:%.2f(%.0f/%.0f)", r, ratio,
+							hd[r].sum / hd[r].area, file[r].sum / file[r].area);
+				}
+			}
+		}
+
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %s brightness against GoldenEye's rooms: level %.2f (HD %.1f, N64 %.1f), %d of %d rooms under %.2f (room:ratio(HD/N64))%s%s",
+				row->bean, hdallarea > 0 && fileall > 0 ? (hdall / hdallarea) / (fileall / fileallarea) : 0.0,
+				hdallarea > 0 ? hdall / hdallarea : 0.0, fileallarea > 0 ? fileall / fileallarea : 0.0,
+				under, measured, BRIGHT_REPORT, list, on ? " - matched" : "");
+	}
+
+	if (on && hd && file && rhd && rgo && phd && pgo && under1 && brightFileTex && target) {
+		for (s32 t = 0; t < c->num; t++) {
+			const struct stri *tri = &c->tris[t];
+
+			if (hdTriMeasured(tri) && tri->room < n && under1[tri->room] && target[t] >= 0.0f
+					&& tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS) {
+				const f32 area = triArea3(tri->pos);
+				const f32 mine = hdTriBright(tri);
+				const s32 k = tri->room * GEBEAN_MAXMATS + tri->tex;
+
+				rhd[tri->room].area += area;
+				rhd[tri->room].sum += area * mine;
+				rgo[tri->room].sum += area * target[t];
+				phd[k].area += area;
+				phd[k].sum += area * mine;
+				pgo[k].sum += area * target[t];
+				paired++;
+			}
+		}
+
+		// the corners: three a triangle at most, at most a third full
+		for (brightCellMask = 1024; brightCellMask < (u32)paired * 9; brightCellMask <<= 1);
+		brightCells = malloc(sizeof(*brightCells) * brightCellMask);
+		brightCellMask--;
+
+		for (u32 i = 0; brightCells && i <= brightCellMask; i++) {
+			brightCells[i].tex = -2;
+			brightCells[i].area = brightCells[i].hd = brightCells[i].go = 0.0;
+		}
+
+		for (s32 t = 0; brightCells && t < c->num; t++) {
+			const struct stri *tri = &c->tris[t];
+
+			if (hdTriMeasured(tri) && tri->room < n && under1[tri->room] && target[t] >= 0.0f
+					&& tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS) {
+				const f32 area = triArea3(tri->pos);
+				const f32 mine = hdTriBright(tri);
+
+				for (s32 k = 0; k < 3; k++) {
+					struct brightcell *e = brightCorner(tri->pos[k], tri->tex, 1);
+
+					if (e) {
+						e->area += area;
+						e->hd += area * mine;
+						e->go += area * target[t];
+					}
+				}
+			}
+		}
+
+		for (s32 t = 0; t < c->num; t++) {
+			struct stri *tri = &c->tris[t];
+			const s32 r = tri->room;
+			f32 gain = 1.0f;
+			f32 vgain[3];
+			s32 any;
+
+			// Blended triangles keep their colours: glows, lamp flares, glass
+			// and water are the release's own, not light it baked too dark
+			if (r <= 0 || r >= n || tri->plain || tri->blend || tri->undersea
+					|| (tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS && texWater[tri->tex])
+					|| rhd[r].area < BRIGHT_MIN_AREA || rhd[r].sum <= 0.0) {
+				continue;
+			}
+
+			gain = rgo[r].sum / rhd[r].sum;
+
+			if (tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS) {
+				const s32 k = r * GEBEAN_MAXMATS + tri->tex;
+
+				if (phd[k].area >= BRIGHT_MIN_AREA && phd[k].sum > 0.0) {
+					gain = pgo[k].sum / phd[k].sum;
+				}
+			}
+
+			// each corner's share, no more than its ceiling (brightCorner())
+			any = 0;
+
+			for (s32 k = 0; k < 3; k++) {
+				const struct brightcell *e = brightCells ? brightCorner(tri->pos[k], tri->tex, 0) : NULL;
+
+				vgain[k] = MIN(gain, BRIGHT_MAX_GAIN);
+
+				if (e && e->hd > 0.0) {
+					vgain[k] = MIN(vgain[k], (f32)(e->go / e->hd));
+				}
+
+				any |= vgain[k] > 1.0f;
+			}
+
+			if (!any) {
+				continue;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				const u32 v = tri->argb[k];
+				u32 out = v & 0xff000000;
+				const f32 g = MAX(vgain[k], 1.0f);
+
+				for (s32 sh = 0; sh <= 16; sh += 8) {
+					const s32 ch = (s32)(((v >> sh) & 0xff) * g + 0.5f);
+
+					out |= (u32)MIN(ch, 255) << sh;
+					clamped += ch > 255 && ((v >> sh) & 0xff) < 255;
+				}
+
+				tri->argb[k] = out;
+			}
+
+			changed++;
+		}
+
+		free(brightCells);
+		brightCells = NULL;
+
+		{
+			struct brightsum *post = calloc(n + 1, sizeof(*post));
+			f64 postall = 0.0, postarea = 0.0;
+
+			if (post) {
+				brightHdSums(c, n, post);
+
+				for (s32 r = 1; r < n; r++) {
+					if (file[r].area >= BRIGHT_MIN_AREA && post[r].area >= BRIGHT_MIN_AREA) {
+						postall += post[r].sum;
+						postarea += post[r].area;
+					}
+				}
+
+				free(post);
+			}
+
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles brightened to GoldenEye's rooms (%d colour channels held at 255), level now %.2f",
+					row->bean, changed, clamped, postarea > 0 && fileall > 0 ? (postall / postarea) / (fileall / fileallarea) : 0.0);
+		}
+	}
+
+	free(hd);
+	free(file);
+	free(rhd);
+	free(rgo);
+	free(phd);
+	free(pgo);
+	free(under1);
+
+	return changed;
+}
+
 static s32 build(void)
 {
 	const u64 start = sysGetMicroseconds();
@@ -4913,6 +5483,7 @@ static s32 build(void)
 	u64 key = 0;
 	s32 keyed = 0;
 	s32 complete = 0;
+	f32 *hdTarget = NULL;
 
 	row = levelRow();
 	fogTableLoad();
@@ -5062,6 +5633,12 @@ static s32 build(void)
 	}
 
 	if (c.num) {
+		// the pictures' colours first: the grid notes how bright each of
+		// GoldenEye's triangles is as it is filled (matchN64Brightness())
+		if (!brightTexturesRead(filerooms, filelens, n)) {
+			brightForget();
+		}
+
 		for (s32 r = 1; r < n; r++) {
 			if (filerooms[r]) {
 				fileRoomTriangles(&filetris, r, filerooms[r], filelens[r]);
@@ -5090,6 +5667,12 @@ static s32 build(void)
 		markWaterPictures(&c, filerooms, filelens, n);
 
 		mark[2] = sysGetMicroseconds();
+
+		hdTarget = malloc(sizeof(f32) * c.num);
+
+		for (s32 t = 0; hdTarget && t < c.num; t++) {
+			hdTarget[t] = -1.0f;
+		}
 
 		// Deal each triangle to the room whose own triangle its middle lies
 		// on. Rooms share the vertices along their borders, so the nearest
@@ -5123,6 +5706,10 @@ static s32 build(void)
 
 				tri->room = file & 0xffff;
 				tri->nofog = (file >> 16) & 1;
+
+				if (hdTarget) {
+					hdTarget[t] = near >= 0 && gridBright && near < gridBrightCap ? gridBright[near] : -1.0f;
+				}
 				nofogs += tri->nofog;
 			}
 
@@ -5204,6 +5791,11 @@ static s32 build(void)
 		// room's surface Bean covers used to be measured here and rooms under
 		// 97% left alone. That was for GoldenEye X, whose levels were rebuilt
 		// from GoldenEye's and whose rooms Bean therefore disagreed with.)
+		matchN64Brightness(&c, filerooms, filelens, n, hdTarget);
+		free(hdTarget);
+		hdTarget = NULL;
+		brightForget();
+
 		mark[3] = sysGetMicroseconds();
 
 		for (s32 r = 1; r < n; r++) {

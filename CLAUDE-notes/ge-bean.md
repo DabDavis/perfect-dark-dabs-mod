@@ -13086,3 +13086,88 @@ in once it is clear or the opening is over. Outside an opening it returns 255 at
 once. Dam's truck fades at frame ~233 and is back for the swirl; its route is
 unchanged tick for tick. Logged as "gecinema: model N faded, inside the opening
 camera's near plane".
+
+## HD rooms lit as brightly as GoldenEye's own: Train (23rd F3 pass, 2026-09-29, fix/f3-0929e-hdbright)
+
+F3 20260929-200831 (Train 0x60, HD look): "screen is too dark in this corridor" -
+screen mean 12 in HD against 35 in the N64 look at the report's camera. The
+darkness is the release's own baked vertex colours (room 13's corridor walls
+~(80,73,54) on a dark red wood picture; GoldenEye's are 254 on a lighter brown).
+Owner: "match train corridor to n64 brightness".
+
+- `matchN64Brightness()` in gebeanstage.c, run in `build()` after the dealing,
+  before the rooms are written. Brightness = Rec. 601 luma of vertex colour
+  times the picture's mean colour, channel by channel, over opaque triangles by
+  area - measured the same way on both sides (release pictures via
+  `xblaTexImageMean()`, GoldenEye's via `texpackTextureMeans()`, which puts the
+  LOD size cache back like the rice index does).
+- Each HD triangle is held against the GoldenEye triangle the dealing grid found
+  for it (`gridBright[]`, filled as the grid is), and one factor is taken per
+  room and picture (a picture under `BRIGHT_MIN_AREA` of a room takes the room's),
+  capped at 4, never below 1, only in rooms darker than GoldenEye's as a whole.
+  **Tried first and not enough:** one factor per room from vertex colours alone
+  (12 -> 19 of 35 on screen) and per room with pictures (-> 19): the release's
+  vents/ceiling came out brighter than GoldenEye's, so a room-wide factor left
+  the walls, most of the screen, at half. Per picture: 12 -> 27.6 (walls
+  matched, luma 37 vs 35; the rest is the N64 look's bright blue ceiling and
+  props, which this does not touch).
+- On for Train only at first; the owner then said "turn it on for all the
+  darker levels": `brightLevels[]` now also holds depo cave silo lib base stack
+  ref stat azt dest dam sevx sevxb pete (`HDCACHE_VERSION` 4). Blended
+  triangles (glows, lamp flares, glass), water pictures and the sea's
+  reflection are never scaled. Checked per level (sheets in
+  `~/wt/f3-0929e-reports/hdbright/`): no blow-out on Surface's snow or Dam's
+  outdoors (bright rooms untouched), the 4x-capped rooms (Dam 95, Caverns,
+  Statue Park) read right; Silo's cells and Statue Park's night overshoot the N64
+  look (screen 48 vs 37, 50 vs 32 - the N64 look's night fog and GoldenEye's
+  combiner colours are outside the measure). First-load build +30-180 ms a level
+  (Frigate 2550 -> 2686 ms, Surface 872 -> 1050). Every level logs
+  `gebeanstage: <level> brightness against GoldenEye's rooms: ...` with its rooms
+  under 0.70 (room:ratio(HD/N64)), whether on or not; the level-wide figure is by
+  area and big outdoor rooms swamp it (Train's reads 1.72).
+- Survey 2026-09-29 (CE off), rooms under 0.70: Depot 45/59 (level 0.53), Caverns
+  26/63 (0.55), Silo 58/86 (0.64), Library/Basement/Stack 58/92 (0.65), Complex
+  26/44 (0.67), Statue Park 12/27 (0.69, several at 0.2), Aztec 44/92, Frigate
+  36/58, Dam 41/83 (indoor rooms; level 1.58 by area), Surface 10/39, Streets
+  9/20. About even: Facility, Bunker 1/2, Archives, Egyptian, Cradle, Runway,
+  Control, Caves, Temple; Jungle brighter than GoldenEye everywhere.
+- Rig: `~/wt/f3-0929e-hdbright-run` (`shots.sh <binary> <prefix> <look>` with
+  CAMS, one shot per game run - the spectator camera drifts to the sim after a
+  few seconds, so a second shot in the same run is from somewhere else).
+
+### Matching, not passing, the N64 look (same pass; the owner on Silo and Statue Park: "lets match n64")
+
+Silo's cells and Statue Park's start came out 1.3x and 1.5x the N64 look. Two
+causes, both fixed in the measure (`HDCACHE_VERSION` 6):
+- **GoldenEye's intensity pictures were measured over their bright texels only.**
+  An I4/I8 texture decodes with alpha = intensity, so "texels at least half
+  opaque" kept only the bright half: Silo's floor grate (`04d5`, I4) read 168
+  where it draws 81, and every Silo target was about twice what the N64 look
+  shows. `texpackTextureMeans()` now takes G_IM_FMT_I over every texel.
+- **One factor per room and picture lifted the release's own bright spots.**
+  Statue Park's fields are baked mostly deep shade with a pool of light where
+  the player starts; GoldenEye lights them evenly, so the room's factor for its
+  grass (about 2x) took the pool to 1.5x the N64 look. Each corner is now
+  capped at GoldenEye's brightness under the triangles that meet at it over
+  theirs (`brightCorner()`, a hash on the rounded position and picture, so
+  corners at one place agree and a surface stays smooth).
+- Ruled out on the way (all measured, none the cause): fog (Mod.DisableFog in
+  `[Mod]`; the copy of the ini with it elsewhere was silently ignored), the N64
+  look's room light cap in `roomHighlight()` (settled brightness is 255 in
+  these rooms; the HD rooms are scaled against the same full value), leaf
+  prim/env colours (GoldenEye's rooms combine texel x shade only, `fc26a004
+  1f1093ff`), and cube-by-cube (600/250 unit) gains, which overshot as much.
+  Also tried and dropped: not using GoldenEye's translucent triangles as a
+  target - Frigate's lattice mast is one, and without it the HD mast rose to
+  1.8x.
+- Result at the check cameras (HD after / N64): Silo 35/37 and 40/39, Statue
+  Park 35/32 and 17/21, Train 27/36, Streets 48/53, Complex 93/99, Library
+  66/68 and 75/76, Frigate 53/57 and 57/58, Depot 30/35, Surface unchanged (its
+  bright rooms are left alone). Nothing past 1.09x from this change; Dam's and
+  Surface's start views read over the N64 look before and after alike (the
+  release's own brightness, untouched).
+- GPU: two amdgpu VM faults (soft-recovered, no reset) in ~250 headless GL runs
+  of this pass, both about 3 s into a run started right after the previous one
+  was killed from gdb mid-frame (Streets 22:15:51, Surface 23:43:15, the latter
+  in a build carrying RENDER's batch guard daeaa8f58, which logged nothing).
+  Neither reproduced in six fresh first-load runs each of the old and new binary.

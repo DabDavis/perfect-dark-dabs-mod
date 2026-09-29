@@ -366,6 +366,7 @@ void texpackDumpFlush(void);
  * match. NULL for a texture whose format this does not know.
  */
 u8 *texpackTexToRgba(struct tex *tex, s32 *outWidth, s32 *outHeight);
+void texpackTextureMeans(const s32 *nums, s32 count, f32 *out);
 
 /**
  * Whether Mod.DumpTextures is on. Checked before the renderer bothers working
