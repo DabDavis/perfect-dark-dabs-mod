@@ -217,6 +217,35 @@ through `LANGBANK_GEMISSION`), GE gun/gadget/function names, GE and PD head and
 body names (`mpGetHeadName()`, `mpGetBodyName()`), the Randomizer's objective
 and score texts.
 
+**Japanese, 2026-09-29 (`lang/ja`, the pack and what it needed):**
+- Line breaking is shared: `langfontIsCjkBreakable()`, `langfontNoBreakBefore()`
+  (closing punctuation, small kana, ー) and `langfontNoBreakAfter()` (opening
+  brackets) in langfont.c, used by `textWrapN()` and by GE Plus's `frontWrap()`,
+  which broke only at spaces and now puts a break between two Japanese
+  characters where one is needed (ASCII wraps exactly as before).
+- `frontMissionName()` upper-cases through `langfontToUpper()`: ASCII, the
+  Latin-1 letters and oe (same byte length each), so the French grid reads
+  AZTÈQUE and FRÉGATE; Japanese and ß are left alone.
+- Pickup messages take the ROM's own JPN branch in a CJK pack
+  (`PICKUP_JPN_ORDER` in propobj.c): name + "picked up", no article, no plural
+  "s", no full stop. A pack cannot say "nothing" for a piece (an empty string
+  falls back to English), so the pieces never drawn hold U+3000.
+- A fixed-width menu list (`param2`, the inventory's 110) is a fifth wider in a
+  CJK pack (menu.c): a Japanese character is 12 wide, and the widest weapon
+  names are nine.
+- check.py (so build.py, which runs it with no catalogs) took the patch-notes
+  heading key `%s|Patch %d%s%s` for a ctx key and left it out of every built
+  pack; a `|` with a conversion on its left is English now in both.
+- Screens were checked headless with gdb calls: `menuPushDialog(&g_CiMenuViaPcMenuDialog)`,
+  `menuPushRootDialog(&g_SoloMissionInventoryMenuDialog, 2)` on a level,
+  `currentPlayerQueuePickupWeaponHudmsg(2, 0)`, `gexFrontOpen()`,
+  `gexFrontOpenAtMission(0)` then `frontLoadBriefing(0)` and
+  `'gexfront.c'::g_Front.screen = 10` (briefpage 2 is M's page),
+  `geWatchPause()` on `--boot-stage 0x15 --skip-mission-intro`, and the
+  story bio (`g_GameFile.besttimes[<MBR>][0]` set, `g_ChrBioSlot`,
+  `menuPushDialog(&g_BioTextMenuDialog)`). `PatchNotesPopup=0` in the scratch
+  pd.ini, or the What's New dialog covers the first menu.
+
 **Not done yet (the next agent's list):**
 - The XBLA font (`Mod.XblaFont`) and texture packs have no picture for a
   composed glyph (id 0x100+), so accented letters keep the ROM's look beside
@@ -224,9 +253,7 @@ and score texts.
   letter's release picture with the mark scaled up (`langfontGlyphSlot()` and
   the recipe give base, marks and the cell's row offset).
 - GE Plus with the release's font on draws a string that has a character past
-  ASCII in GoldenEye's N64 font (the release's has none). `frontWrap()`'s
-  Japanese breaking (it breaks only at spaces) is not done, and
-  `frontMissionName()` upper-cases ASCII only.
+  ASCII in GoldenEye's N64 font (the release's has none).
 - Messages a network worker formats (update.c's "%s is out. You have %s.",
   ghostnet.c's "uploaded %d of your ghosts", community.c's "Installing %s")
   stay English: only their fixed messages are `LANG_N()`-marked and translated
