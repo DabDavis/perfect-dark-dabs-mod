@@ -7737,9 +7737,11 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							// Caverns). Perfect Dark's knife stuck on the
 							// first hit. After the six bounces anything else
 							// gets, it lies down on a surface that faces up
+							// The GoldenEye key is the other such (geguns.c)
 							if (projectile->bouncecount >= 6 && sp5f4.y > 0.7f
 									&& obj->type == OBJTYPE_WEAPON
-									&& weaponHost(((struct weaponobj *) obj)->weaponnum) == WEAPON_COMBATKNIFE
+									&& (weaponHost(((struct weaponobj *) obj)->weaponnum) == WEAPON_COMBATKNIFE
+										|| ((struct weaponobj *) obj)->weaponnum == WEAPON_GE_GOLDENEYEKEY)
 									&& !weaponHasFlag2(((struct weaponobj *) obj)->weaponnum, WEAPONFLAG2_STICKSTOWALL)) {
 								projectileFall(obj, realrot);
 							} else
