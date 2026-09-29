@@ -3391,6 +3391,7 @@ struct doorbox {
 	s32 thin;       // the axis through the door
 	s8 foot[3];     // the side of an axis that points down, 0 for neither
 	s8 slide[3];    // the side a sliding door goes into the wall at, 0 for neither
+	f32 travel[3];  // how far it goes along each axis, fully open (fillDoorSlots())
 	s32 first;      // its run of the triangles near it (doorNearTris())
 	s32 numnear;
 	u8 open[3][2];  // a side with nothing of the level past it (doorSideOpen())
@@ -3459,6 +3460,7 @@ static s32 doorBoxes(struct doorbox **out)
 					? door->unk98.x * b->axis[a][0] + door->unk98.y * b->axis[a][1] + door->unk98.z * b->axis[a][2] : 0.0f;
 
 				b->slide[a] = by > 0.01f ? 1 : by < -0.01f ? -1 : 0;
+				b->travel[a] = fabsf(by) * door->maxfrac;
 			}
 
 			for (s32 k = 0; k < 3; k++) {
@@ -4181,6 +4183,530 @@ static s32 closeDoorGaps(struct collect *c)
 	sysLogPrintf(LOG_NOTE, "gebeanstage: %d vertices pulled onto the edges of %d doors, %d reveals filled", moved, num, fillers);
 
 	return moved;
+}
+
+/**
+ * The wall a raised door goes up into. A door that slides up in GoldenEye
+ * rises into the wall over its doorway, and GoldenEye's wall there is in the
+ * door's own thickness - Depot's warehouses have it on the door's middle.
+ * The N64 look never shows the raised door because the door is drawn through
+ * the doorway's portal, clipped to it. The HD look draws every room whole
+ * (gebeanStageDrawsEveryRoom()), and Bean's wall is a sheet a few units
+ * behind the door's face, so the raised door was drawn over the wall: a
+ * hazard-striped shutter over Depot's corrugated metal (F3 20260929-192603).
+ *
+ * For each door that slides up or down into the level, the band it travels
+ * through past its opening is looked at from each face, cell by cell: a line
+ * from a little in front of the face to the door's far face. Where GoldenEye's
+ * room has a triangle on that line (the wall the door goes into) and Bean's
+ * has none in front of the door's face, the cell gets wall a hair in front of
+ * the face, in the picture of Bean's own wall on that side - its plane's
+ * mapping carried across, so the pattern runs on - and lit like it. Only
+ * where GoldenEye has wall: a doorway with sky over it stays open. The cells
+ * go down as a few rectangles.
+ */
+#define SLOT_CELL   12.0f  // a cell of the band, at most this big
+#define SLOT_OUT    40.0f  // how far in front of the face the line starts
+#define SLOT_FACE   0.25f  // at or this near the face is in front of it
+#define SLOT_LIFT   2.0f   // a patch stands this far in front of the face
+#define SLOT_PAINT  0.25f  // and what was painted on the wall this far in front of that
+
+struct slotge {
+	f32 (*tris)[3][3];
+	s32 num;
+	s32 cap;
+	f32 lo[3], hi[3];
+};
+
+static void fileTriToSlot(void *arg, const f32 v[3][3], s32 room)
+{
+	struct slotge *g = arg;
+
+	for (s32 j = 0; j < 3; j++) {
+		if (MAX(v[0][j], MAX(v[1][j], v[2][j])) < g->lo[j] || MIN(v[0][j], MIN(v[1][j], v[2][j])) > g->hi[j]) {
+			return;
+		}
+	}
+
+	if (g->num >= g->cap) {
+		const s32 cap = g->cap ? g->cap * 2 : 256;
+		f32 (*grown)[3][3] = realloc(g->tris, sizeof(*grown) * cap);
+
+		if (!grown) {
+			return;
+		}
+
+		g->tris = grown;
+		g->cap = cap;
+	}
+
+	memcpy(g->tris[g->num++], v, sizeof(f32) * 9);
+}
+
+// How far along d (a unit) the line from o meets the triangle, either face,
+// or -1
+static f32 slotRayTri(const f32 *o, const f32 *d, const f32 v0[3], const f32 v1[3], const f32 v2[3])
+{
+	const f32 e1[3] = { v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2] };
+	const f32 e2[3] = { v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2] };
+	const f32 p[3] = { d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0] };
+	const f32 det = dot3(e1, p);
+	f32 tv[3], q[3], u, v, inv;
+
+	if (fabsf(det) < 1e-6f) {
+		return -1.0f;
+	}
+
+	inv = 1.0f / det;
+	tv[0] = o[0] - v0[0];
+	tv[1] = o[1] - v0[1];
+	tv[2] = o[2] - v0[2];
+	u = dot3(tv, p) * inv;
+
+	if (u < -1e-4f || u > 1.0001f) {
+		return -1.0f;
+	}
+
+	q[0] = tv[1] * e1[2] - tv[2] * e1[1];
+	q[1] = tv[2] * e1[0] - tv[0] * e1[2];
+	q[2] = tv[0] * e1[1] - tv[1] * e1[0];
+	v = dot3(d, q) * inv;
+
+	if (v < -1e-4f || u + v > 1.0001f) {
+		return -1.0f;
+	}
+
+	return dot3(e2, q) * inv;
+}
+
+// A point's picture on a triangle's plane, its mapping carried past its edges
+static void slotUvAt(const struct stri *t, const f32 *p, f32 *uv)
+{
+	const f32 delta[3] = { p[0] - t->pos[0][0], p[1] - t->pos[0][1], p[2] - t->pos[0][2] };
+	f32 duv[2];
+
+	triUvShift(t, delta, duv);
+	uv[0] = t->uv[0][0] + duv[0];
+	uv[1] = t->uv[0][1] + duv[1];
+}
+
+// A rectangle of wall a hair in front of a door's face, u0 to u1 across it
+// and a0 to a1 up its rise, in the donor's picture, facing out along -d
+static s32 slotPatch(struct collect *c, const struct doorbox *b, s32 t, s32 w, s32 a, s32 face,
+		const struct stri *donor, const f32 *d, f32 u0, f32 u1, f32 a0, f32 a1)
+{
+	struct stri patch = *donor;
+	f32 corner[4][3];
+	f32 nrm[3];
+	u32 argb = donor->argb[0] & 0xff000000;
+	s32 added = 0;
+
+	for (s32 k = 0; k < 4; k++) {
+		const f32 cu = k == 1 || k == 2 ? u1 : u0;
+		const f32 ca = k >= 2 ? a1 : a0;
+
+		for (s32 j = 0; j < 3; j++) {
+			corner[k][j] = b->mid[j] + face * (b->half[t] + SLOT_LIFT) * b->axis[t][j]
+				+ cu * b->axis[w][j] + b->slide[a] * ca * b->axis[a][j];
+		}
+	}
+
+	for (s32 ch = 0; ch < 3; ch++) {
+		u32 sum = 0;
+
+		for (s32 k = 0; k < 3; k++) {
+			sum += (donor->argb[k] >> (ch * 8)) & 0xff;
+		}
+
+		argb |= (sum / 3) << (ch * 8);
+	}
+
+	patch.decal = 0;
+	patch.lift = 0;
+	patch.sink = 0;
+	patch.decalbase = -1;
+	patch.backed = 0;
+	patch.fights = 0;
+
+	for (s32 half = 0; half < 2; half++) {
+		const s32 idx[3] = { 0, half ? 2 : 1, half ? 3 : 2 };
+
+		for (s32 k = 0; k < 3; k++) {
+			memcpy(patch.pos[k], corner[idx[k]], sizeof(f32) * 3);
+			slotUvAt(donor, patch.pos[k], patch.uv[k]);
+			patch.argb[k] = argb;
+		}
+
+		// facing the way the donor faces, out of the door
+		if (triNormalWork(&patch, nrm) > 0.0f && dot3(nrm, d) > 0.0f) {
+			const struct stri swap = patch;
+
+			for (s32 j = 0; j < 3; j++) {
+				patch.pos[1][j] = swap.pos[2][j];
+				patch.pos[2][j] = swap.pos[1][j];
+			}
+
+			for (s32 j = 0; j < 2; j++) {
+				patch.uv[1][j] = swap.uv[2][j];
+				patch.uv[2][j] = swap.uv[1][j];
+			}
+		}
+
+		added += addTri(c, &patch);
+	}
+
+	return added;
+}
+
+// Bean's wall on one side of a door: the nearest triangle facing out that
+// way, beside or over the doorway, in front of the door's middle
+static const struct stri *slotDonor(const struct collect *c, const struct doorbox *b, const s32 *near, s32 numnear,
+		s32 t, s32 w, s32 a, s32 face, const f32 *d, f32 extent)
+{
+	const struct stri *donor = NULL;
+	f32 donordist = 1e30f;
+
+	for (s32 q = 0; q < numnear; q++) {
+		const struct stri *tri = &c->tris[near[q]];
+		f32 nrm[3], mid[3], at[3];
+		f32 dw, da, dist;
+
+		if (triNormal(tri, nrm) <= 0.0f || dot3(nrm, d) > -0.9f) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			mid[j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f - b->mid[j];
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			at[k] = dot3(mid, b->axis[k]);
+		}
+
+		if (at[t] * face < 0.0f || at[t] * face > extent || at[a] * b->slide[a] < b->half[a] * 0.5f) {
+			continue;
+		}
+
+		dw = MAX(0.0f, fabsf(at[w]) - b->half[w]);
+		da = fabsf(at[a] * b->slide[a] - (b->half[a] + b->travel[a] * 0.5f));
+		dist = dw * dw + da * da;
+
+		if (dist < donordist) {
+			donordist = dist;
+			donor = tri;
+		}
+	}
+
+	return donor;
+}
+
+static s32 fillDoorSlots(struct collect *c, u8 **filerooms, u32 *filelens, s32 n)
+{
+	struct doorbox *boxes = NULL;
+	const s32 num = doorBoxes(&boxes);
+	const s32 numtris = c->num;
+	s32 patched = 0;
+	s32 doors = 0;
+
+	if (num <= 0 || !filerooms || !filelens) {
+		free(boxes);
+		return 0;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		const struct doorbox *b = &boxes[i];
+		const s32 t = b->thin;
+		const s32 before = patched;
+		struct slotge ge = { NULL, 0, 0 };
+		s32 *near;
+		s32 numnear = 0;
+		s32 a = -1, w;
+		s32 nw, na;
+		f32 cw, ca, extent;
+
+		for (s32 k = 0; k < 3; k++) {
+			if (k != t && b->slide[k] && fabsf(b->axis[k][1]) > 0.7f && b->travel[k] > 1.0f) {
+				a = k;
+			}
+		}
+
+		if (a < 0) {
+			continue;
+		}
+
+		w = 3 - t - a;
+		extent = b->half[t] + SLOT_OUT;
+
+		// The band's box, both faces' lines and all
+		for (s32 j = 0; j < 3; j++) {
+			f32 lo = 1e30f, hi = -1e30f;
+
+			for (s32 corner = 0; corner < 8; corner++) {
+				f32 ext[3];
+				f32 v = b->mid[j];
+
+				ext[t] = (corner & 1 ? 1 : -1) * extent;
+				ext[w] = (corner & 2 ? 1 : -1) * b->half[w];
+				ext[a] = b->slide[a] * (corner & 4 ? b->half[a] + b->travel[a] : b->half[a]);
+
+				for (s32 k = 0; k < 3; k++) {
+					v += ext[k] * b->axis[k][j];
+				}
+
+				lo = MIN(lo, v);
+				hi = MAX(hi, v);
+			}
+
+			ge.lo[j] = lo - 1.0f;
+			ge.hi[j] = hi + 1.0f;
+		}
+
+		for (s32 r = 1; r < n; r++) {
+			if (filerooms[r]) {
+				fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriToSlot, &ge);
+			}
+		}
+
+		near = ge.num ? malloc(sizeof(*near) * MAX(numtris, 1)) : NULL;
+
+		for (s32 q = 0; near && q < numtris; q++) {
+			const struct stri *tri = &c->tris[q];
+			s32 in = !tri->decal && !tri->blend;
+
+			for (s32 j = 0; j < 3 && in; j++) {
+				in = MAX(tri->pos[0][j], MAX(tri->pos[1][j], tri->pos[2][j])) >= ge.lo[j] - SLOT_OUT
+					&& MIN(tri->pos[0][j], MIN(tri->pos[1][j], tri->pos[2][j])) <= ge.hi[j] + SLOT_OUT;
+			}
+
+			if (in) {
+				near[numnear++] = q;
+			}
+		}
+
+		nw = MAX(1, (s32)ceilf(b->half[w] * 2.0f / SLOT_CELL));
+		na = MAX(1, (s32)ceilf(b->travel[a] / SLOT_CELL));
+		cw = b->half[w] * 2.0f / nw;
+		ca = b->travel[a] / na;
+
+		for (s32 face = -1; near && face <= 1; face += 2) {
+			const struct stri *found;
+			struct stri donor;
+			const s32 facebefore = patched;
+			s32 cells = 0, gecov = 0, hdcov = 0;
+			u8 *need;
+			u8 *hdfaces;
+			f32 d[3];
+
+			for (s32 j = 0; j < 3; j++) {
+				d[j] = -face * b->axis[t][j];
+			}
+
+			found = slotDonor(c, b, near, numnear, t, w, a, face, d, extent);
+
+			if (!found) {
+				continue;
+			}
+
+			// a copy: the patches added below can move the array
+			donor = *found;
+			need = calloc((size_t)nw * na, 1);
+			hdfaces = calloc(MAX(numnear, 1), 1);
+
+			for (s32 q = 0; hdfaces && q < numnear; q++) {
+				f32 nrm[3];
+
+				hdfaces[q] = triNormal(&c->tris[near[q]], nrm) > 0.0f && dot3(nrm, d) < 0.0f;
+			}
+
+			if (!hdfaces) {
+				free(need);
+				need = NULL;
+			}
+
+			for (s32 iw = 0; need && iw < nw; iw++) {
+				for (s32 ia = 0; ia < na; ia++) {
+					const f32 u0 = -b->half[w] + (iw + 0.5f) * cw;
+					const f32 a0 = b->half[a] + (ia + 0.5f) * ca;
+					f32 besthd = 1e30f, bestge = 1e30f;
+					f32 o[3];
+
+					for (s32 j = 0; j < 3; j++) {
+						o[j] = b->mid[j] + face * extent * b->axis[t][j] + u0 * b->axis[w][j]
+							+ b->slide[a] * a0 * b->axis[a][j];
+					}
+
+					cells++;
+
+					for (s32 q = 0; q < ge.num; q++) {
+						const f32 h = slotRayTri(o, d, ge.tris[q][0], ge.tris[q][1], ge.tris[q][2]);
+
+						if (h >= 0.0f && h < bestge) {
+							bestge = h;
+						}
+					}
+
+					// GoldenEye has wall here, in the door's thickness or in
+					// front of it
+					if (bestge > SLOT_OUT + b->half[t] * 2.0f + SLOT_FACE) {
+						continue;
+					}
+
+					gecov++;
+
+					// Bean's faces this way: one turned away is culled
+					for (s32 q = 0; q < numnear; q++) {
+						if (hdfaces[q]) {
+							const struct stri *tri = &c->tris[near[q]];
+							const f32 h = slotRayTri(o, d, tri->pos[0], tri->pos[1], tri->pos[2]);
+
+							if (h >= 0.0f && h < besthd) {
+								besthd = h;
+							}
+						}
+					}
+
+					// and Bean's is not in front of the door's face
+					if (besthd <= SLOT_OUT + SLOT_FACE) {
+						need[iw * na + ia] = 3;
+						hdcov++;
+						continue;
+					}
+
+					need[iw * na + ia] = 1;
+				}
+			}
+
+			// A cell Bean covers beside one it does not is covered only as
+			// far as its middle, where it was looked at: Depot's beam over
+			// the doorway left the raised door's top edge showing under it.
+			// The wall goes on under the cover, which is in front of it.
+			for (s32 iw = 0; need && iw < nw; iw++) {
+				for (s32 ia = 0; ia < na; ia++) {
+					if (need[iw * na + ia] == 3
+							&& ((iw > 0 && need[(iw - 1) * na + ia] == 1) || (iw + 1 < nw && need[(iw + 1) * na + ia] == 1)
+								|| (ia > 0 && need[iw * na + ia - 1] == 1) || (ia + 1 < na && need[iw * na + ia + 1] == 1))) {
+						need[iw * na + ia] = 4;
+					}
+				}
+			}
+
+			for (s32 q = 0; need && q < nw * na; q++) {
+				if (need[q] == 4) {
+					need[q] = 1;
+				}
+			}
+
+			// The cells as few rectangles: a column's run, carried over the
+			// columns after it that need the same run
+			for (s32 iw = 0; need && iw < nw; iw++) {
+				for (s32 ia = 0; ia < na; ia++) {
+					s32 top = ia, right = iw;
+
+					if (need[iw * na + ia] != 1) {
+						continue;
+					}
+
+					while (top + 1 < na && need[iw * na + top + 1] == 1) {
+						top++;
+					}
+
+					while (right + 1 < nw) {
+						s32 same = 1;
+
+						for (s32 k = ia; k <= top && same; k++) {
+							same = need[(right + 1) * na + k] == 1;
+						}
+
+						if (!same) {
+							break;
+						}
+
+						right++;
+					}
+
+					for (s32 x = iw; x <= right; x++) {
+						for (s32 k = ia; k <= top; k++) {
+							need[x * na + k] = 2;
+						}
+					}
+
+					patched += slotPatch(c, b, t, w, a, face, &donor, d,
+							-b->half[w] + iw * cw, -b->half[w] + (right + 1) * cw,
+							b->half[a] + ia * ca, b->half[a] + (top + 1) * ca);
+				}
+			}
+
+			// What Bean painted on its wall inside the band - Depot's "C5"
+			// over the warehouse door - comes forward with it
+			if (patched > facebefore) {
+				for (s32 q = 0; q < numnear; q++) {
+					struct stri copy = c->tris[near[q]];
+					f32 nrm[3];
+					f32 lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
+					f32 by;
+
+					if (copy.tex == donor.tex || triNormal(&c->tris[near[q]], nrm) <= 0.0f || dot3(nrm, d) > -0.9f) {
+						continue;
+					}
+
+					for (s32 k = 0; k < 3; k++) {
+						f32 rel[3];
+
+						for (s32 j = 0; j < 3; j++) {
+							rel[j] = copy.pos[k][j] - b->mid[j];
+						}
+
+						for (s32 x = 0; x < 3; x++) {
+							const f32 at = dot3(rel, b->axis[x]) * (x == t ? face : x == a ? b->slide[a] : 1);
+
+							lo[x] = MIN(lo[x], at);
+							hi[x] = MAX(hi[x], at);
+						}
+					}
+
+					if (lo[w] < -b->half[w] - SLOT_FACE || hi[w] > b->half[w] + SLOT_FACE
+							|| lo[a] < b->half[a] - SLOT_FACE || hi[a] > b->half[a] + b->travel[a] + SLOT_FACE
+							|| lo[t] < -b->half[t] || hi[t] > b->half[t] + SLOT_LIFT) {
+						continue;
+					}
+
+					by = b->half[t] + SLOT_LIFT + SLOT_PAINT - (lo[t] + hi[t]) * 0.5f;
+
+					for (s32 k = 0; k < 3; k++) {
+						for (s32 j = 0; j < 3; j++) {
+							copy.pos[k][j] += face * by * b->axis[t][j];
+						}
+					}
+
+					patched += addTri(c, &copy);
+				}
+			}
+
+			free(need);
+			free(hdfaces);
+
+			if (gecov > hdcov) {
+				sysLogPrintf(LOG_NOTE, "gebeanstage: door at %.0f %.0f %.0f, side %d (%.2f %.2f %.2f): GoldenEye's wall over %d of %d cells of its rise, Bean's in front of it at %d",
+						b->mid[0], b->mid[1], b->mid[2], face, face * b->axis[t][0], face * b->axis[t][1], face * b->axis[t][2],
+						gecov, cells, hdcov);
+			}
+		}
+
+		if (patched > before) {
+			doors++;
+		}
+
+		free(near);
+		free(ge.tris);
+	}
+
+	free(boxes);
+
+	if (patched) {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %d triangles of wall over %d raised doors, where GoldenEye's wall hides them", patched, doors);
+	}
+
+	return patched;
 }
 
 /**
@@ -5018,6 +5544,7 @@ static s32 build(void)
 	takeBackdrop(&c, n);
 	clampCutouts(&c);
 	closeDoorGaps(&c);
+	fillDoorSlots(&c, filerooms, filelens, n);
 
 	{
 		const s32 undersea = markUnderSea(&c, filerooms, filelens, n);
