@@ -4431,7 +4431,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 2
+#define HDCACHE_VERSION 4
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
@@ -4949,7 +4949,22 @@ static s32 hdcacheLoad(u64 key, const char *levelname, s32 n)
  * ------------------------------------------------------------------------- */
 
 static const char *const brightLevels[] = {
-	"tra", // Train (F3 20260929-200831)
+	"tra",   // Train (F3 20260929-200831)
+	// the owner, 2026-09-29: "turn it on for all the darker levels"
+	"depo",  // Depot
+	"cave",  // Caverns
+	"silo",  // Silo
+	"lib",   // Library
+	"base",  // Basement
+	"stack", // Stack
+	"ref",   // Complex
+	"stat",  // Statue Park
+	"azt",   // Aztec
+	"dest",  // Frigate
+	"dam",   // Dam
+	"sevx",  // Surface
+	"sevxb", // Surface 2
+	"pete",  // Streets
 };
 
 #define BRIGHT_REPORT   0.7f
@@ -5188,7 +5203,7 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 	struct brightsum *pgo = calloc((size_t)(n + 1) * GEBEAN_MAXMATS, sizeof(*pgo));
 	u8 *under1 = calloc(n + 1, 1);
 	f64 hdall = 0.0, hdallarea = 0.0, fileall = 0.0, fileallarea = 0.0;
-	s32 on = 0, changed = 0, under = 0, measured = 0;
+	s32 on = 0, changed = 0, under = 0, measured = 0, clamped = 0;
 	char list[1536];
 	s32 at = 0;
 
@@ -5266,7 +5281,11 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 			const s32 r = tri->room;
 			f32 gain = 1.0f;
 
-			if (r <= 0 || r >= n || tri->plain || rhd[r].area < BRIGHT_MIN_AREA || rhd[r].sum <= 0.0) {
+			// Blended triangles keep their colours: glows, lamp flares, glass
+			// and water are the release's own, not light it baked too dark
+			if (r <= 0 || r >= n || tri->plain || tri->blend || tri->undersea
+					|| (tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS && texWater[tri->tex])
+					|| rhd[r].area < BRIGHT_MIN_AREA || rhd[r].sum <= 0.0) {
 				continue;
 			}
 
@@ -5294,6 +5313,7 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 					const s32 ch = (s32)(((v >> sh) & 0xff) * gain + 0.5f);
 
 					out |= (u32)MIN(ch, 255) << sh;
+					clamped += ch > 255 && ((v >> sh) & 0xff) < 255;
 				}
 
 				tri->argb[k] = out;
@@ -5319,8 +5339,8 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 				free(post);
 			}
 
-			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles brightened to GoldenEye's rooms, level now %.2f",
-					row->bean, changed, postarea > 0 && fileall > 0 ? (postall / postarea) / (fileall / fileallarea) : 0.0);
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles brightened to GoldenEye's rooms (%d colour channels held at 255), level now %.2f",
+					row->bean, changed, clamped, postarea > 0 && fileall > 0 ? (postall / postarea) / (fileall / fileallarea) : 0.0);
 		}
 	}
 

@@ -13089,8 +13089,17 @@ Owner: "match train corridor to n64 brightness".
   the walls, most of the screen, at half. Per picture: 12 -> 27.6 (walls
   matched, luma 37 vs 35; the rest is the N64 look's bright blue ceiling and
   props, which this does not touch).
-- On for Train only: `brightLevels[]` = { "tra" }. Turning another level on is
-  one key there plus a bump of `HDCACHE_VERSION` (now 2). Every level logs
+- On for Train only at first; the owner then said "turn it on for all the
+  darker levels": `brightLevels[]` now also holds depo cave silo lib base stack
+  ref stat azt dest dam sevx sevxb pete (`HDCACHE_VERSION` 4). Blended
+  triangles (glows, lamp flares, glass), water pictures and the sea's
+  reflection are never scaled. Checked per level (sheets in
+  `~/wt/f3-0929e-reports/hdbright/`): no blow-out on Surface's snow or Dam's
+  outdoors (bright rooms untouched), the 4x-capped rooms (Dam 95, Caverns,
+  Statue Park) read right; Silo's cells and Statue Park's night overshoot the N64
+  look (screen 48 vs 37, 50 vs 32 - the N64 look's night fog and GoldenEye's
+  combiner colours are outside the measure). First-load build +30-180 ms a level
+  (Frigate 2550 -> 2686 ms, Surface 872 -> 1050). Every level logs
   `gebeanstage: <level> brightness against GoldenEye's rooms: ...` with its rooms
   under 0.70 (room:ratio(HD/N64)), whether on or not; the level-wide figure is by
   area and big outdoor rooms swamp it (Train's reads 1.72).
