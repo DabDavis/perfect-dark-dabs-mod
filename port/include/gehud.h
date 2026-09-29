@@ -39,6 +39,7 @@ s32 geHudWatchAmmo(s32 weaponnum, s32 *mag, s32 *reserve);
 Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox, f32 oy, f32 sx, f32 sy);
 
 // gunDrawSight(), at Perfect Dark's own crosshair position
+s32 geHudHasHdSight(void);
 Gfx *geHudRenderSight(Gfx *gdl, f32 x, f32 y);
 
 // bondviewRenderGaugeBars(), for playerRenderHealthBar()

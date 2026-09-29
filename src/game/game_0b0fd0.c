@@ -793,6 +793,16 @@ u32 currentPlayerGetSight(void)
 		return g_ModWeaponSight[weaponnum];
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye's own guns show GoldenEye's sight wherever they are held, as
+	// they do on GE Plus's levels (gehud.c) and as Perfect Dark's classic
+	// guns do: they took their host's, so a Phantom on a Perfect Dark level
+	// showed the CMP150's yellow cross (F3 20260929-195025)
+	if (WEAPON_IS_GE(weaponnum)) {
+		return SIGHT_CLASSIC;
+	}
+#endif
+
 	switch (weaponHost(weaponnum)) {
 	case WEAPON_HORIZONSCANNER:
 		return SIGHT_NONE;

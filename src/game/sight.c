@@ -950,6 +950,16 @@ Gfx *sightDrawClassic(Gfx *gdl, bool sighton, f32 crossx, f32 crossy)
 		return gdl;
 	}
 
+#ifndef PLATFORM_N64
+	// The GoldenEye XBLA release's own sight where the release is there and
+	// its look is on, as GE Plus's levels draw it: this one is GoldenEye's
+	// 32 texels, which at 4K stood out blocky among the HD guns (F3
+	// 20260929-194904)
+	if (geHudHasHdSight()) {
+		return geHudRenderSight(gdl, crossx, y);
+	}
+#endif
+
 	gDPSetColorDither(gdl++, G_CD_DISABLE);
 	gDPSetTexturePersp(gdl++, G_TP_NONE);
 	gDPSetAlphaCompare(gdl++, G_AC_NONE);
