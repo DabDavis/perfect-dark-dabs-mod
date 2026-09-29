@@ -1095,6 +1095,26 @@ void psModify(s32 channelnum, s32 volume, s16 padnum, struct prop *prop, s32 vol
 			psCreate(&g_PsChannels[channelnum], prop, channel->soundnum26, -1,
 					-1, flags, 0, PSTYPE_NONE, 0, -1, 0, -1, 400, dist2, dist3);
 		} else {
+#ifndef PLATFORM_N64
+			// GoldenEye's SfxSetChannelVolume and SfxFadeChannelVolume set
+			// the volume of a sound its list started with nowhere to be
+			// (SfxPlay), and that is how its levels place a hum: Frigate's
+			// engine room sound plays from the start at nothing and is
+			// raised while Bond is in the engine rooms. Perfect Dark marks a
+			// sound started nowhere as one whose volume is never worked out
+			// again (PSFLAG2_0010), so the volume was never applied and the
+			// engine played at full across the whole ship (F3
+			// 20260929-095357). A volume given for such a sound on a
+			// converted level is taken, as a share of the level the sound
+			// was started at (GoldenEye's full is its mix's full); with no
+			// position it stays centred.
+			if (geSfxStage() && volume >= 0 && prop == NULL && padnum == -1
+					&& channel->prop == NULL && channel->posptr == NULL) {
+				channel->flags2 &= ~PSFLAG2_0010;
+				volume = volume * channel->vol10 / AL_VOL_FULL;
+			}
+#endif
+
 			if ((channel->flags & PSFLAG_OUTOFRANGE) == 0 && volume >= 0) {
 				channel->targetvol = volume;
 			}
