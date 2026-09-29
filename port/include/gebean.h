@@ -440,6 +440,10 @@ const char *gebeanLevelTextureName(struct gebeanlevel *level, s32 tex);
 /** Whether a level's picture is drawn by its water buffers (stride 36), once gebeanLevelTriangles() has walked it. */
 s32 gebeanLevelTextureIsWater(struct gebeanlevel *level, s32 tex);
 const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft);
+/** The level file's bytes as read from disk, for keying the HD level cache (gebeanstage.c). */
+const u8 *gebeanLevelFileBytes(const struct gebeanlevel *level, u32 *len);
+/** The game's cache folder for the release, cache/xbla/goldeneye (made when missing). 0 when there is none. */
+s32 gebeanGetCacheDir(char *dst, u32 dstLen);
 
 // The directions round the neck a pool head is seated by (gebeanmats.seat)
 #define GEBEAN_SEAT_SAMPLES 16

@@ -794,6 +794,33 @@ static s32 normalize3(f32 *v)
 	return 1;
 }
 
+static void shellForget(void);
+
+/**
+ * GoldenEye's own opaque triangles, room by room, for the camera test
+ * (gebeanStageTickCamera()) and the hit's texture (gebeanStageHitTexture()).
+ */
+static void shellTake(u8 **filerooms, u32 *filelens, s32 n)
+{
+	shellFirst = calloc(n + 1, sizeof(*shellFirst));
+	shellCount = calloc(n + 1, sizeof(*shellCount));
+
+	for (s32 r = 1; r < n && shellFirst && shellCount; r++) {
+		if (filerooms[r]) {
+			shellFirst[r] = shellNum;
+			fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriToShell, NULL);
+			shellCount[r] = shellNum - shellFirst[r];
+		}
+	}
+
+	if (!shellFirst || !shellCount) {
+		shellForget();
+	} else {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %d of GoldenEye's opaque triangles for the camera test, %d of them unculled",
+				shellNum, shellNumTwo);
+	}
+}
+
 static void shellForget(void)
 {
 	free(shellTri);
@@ -3029,7 +3056,8 @@ static s32 markDecalLifts(struct stri *tris, s32 num)
 	return lifted;
 }
 
-static void forget(void)
+// What build() leaves, the level it read left open
+static void forgetBuilt(void)
 {
 	shellForget();
 
@@ -3061,6 +3089,11 @@ static void forget(void)
 	numHidden = 0;
 	numWaterKept = 0;
 	levelHasWater = 0;
+}
+
+static void forget(void)
+{
+	forgetBuilt();
 	gebeanLevelClose(level);
 	level = NULL;
 	row = NULL;
@@ -4224,6 +4257,18 @@ static void fileTriToWater(void *arg, const f32 v[3][3], s32 room)
 	}
 }
 
+// What the build last handed gewater.c, for the cache to hand it again
+static s32 waterMeasured;
+static f32 waterRate[2];
+
+static void setWaterRates(s32 measured, f32 s, f32 t)
+{
+	waterMeasured = measured;
+	waterRate[0] = s;
+	waterRate[1] = t;
+	geWaterSetHdRates(measured, s, t);
+}
+
 static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filelens, s32 n)
 {
 	struct watermeasure ge, hd;
@@ -4234,7 +4279,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
 
 	memset(&ge, 0, sizeof(ge));
 	memset(&hd, 0, sizeof(hd));
-	geWaterSetHdRates(0, 0, 0);
+	setWaterRates(0, 0, 0);
 
 	if (!tgridInit(water, WATER_CELL)) {
 		return 0;
@@ -4328,7 +4373,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
 			rs = b[0][0] * dx + b[0][1] * dz;
 			rt = b[1][0] * dx + b[1][1] * dz;
 
-			geWaterSetHdRates(1, (f32)rs, (f32)rt);
+			setWaterRates(1, (f32)rs, (f32)rt);
 
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: water moves %.3f %.3f units a frame, in Bean's picture %.3f %.3f quarter texels (GoldenEye's s/t %.4f %.4f %.4f %.4f, Bean's %.4f %.4f %.4f %.4f a unit)",
 					row->bean, dx, dz, rs, rt, g[0][0], g[0][1], g[1][0], g[1][1], b[0][0], b[0][1], b[1][0], b[1][1]);
@@ -4340,6 +4385,509 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
 	tgridFree(water);
 
 	return marked;
+}
+
+/* -------------------------------------------------------------------------
+ * The built level, kept on disk
+ *
+ * Building the release's mesh into the rooms takes a second or more a load
+ * (Dam 1.6 s, Frigate 2.5 s) and comes out the same every time for the same
+ * inputs, so what it leaves behind is written to
+ * cache/xbla/goldeneye/levels/<key>_<file>[_ce].bin and read back instead.
+ *
+ * The key is a hash of everything the build reads: HDCACHE_VERSION (bump it
+ * on ANY change to what build() or the functions it calls produce), the
+ * struct layouts, the level's table row, the release's level file byte for
+ * byte (which is also what the Community Edition's overlay changes), whether
+ * that overlay is on, the pictures' alpha as bound, the level file's rooms
+ * (their bytes, bases, positions and boxes), the doors' boxes and the
+ * environment's water. No setting is read by the build. A file whose header,
+ * length, key or checksum is wrong is built over and rewritten.
+ *
+ * Nothing written holds a host address: rooms carry the file's own segment
+ * addresses (g_BgRooms[].unk00 plus offsets, and the bases are in the key),
+ * which bg.c relocates as it does a room read from the file; the backdrop is
+ * plain triangles. The camera test's shell is GoldenEye's own rooms and is
+ * taken again each load.
+ * ------------------------------------------------------------------------- */
+
+#define HDCACHE_VERSION 1
+#define HDCACHE_MAGIC "GEHDLVL"
+
+struct hdcachehead {
+	char magic[8];
+	u32 version;
+	u32 headsize;
+	u64 key;
+	u64 paylen;
+	u64 paysum;
+};
+
+static u64 hashMix(u64 h)
+{
+	h ^= h >> 33;
+	h *= 0xff51afd7ed558ccdull;
+	h ^= h >> 33;
+	h *= 0xc4ceb9fe1a85ec53ull;
+	h ^= h >> 33;
+
+	return h;
+}
+
+static u64 hashBytes(u64 h, const void *data, size_t len)
+{
+	const u8 *p = data;
+	u64 a = h ^ 0x9e3779b97f4a7c15ull, b = h + len;
+
+	// two lanes, so that the multiplies overlap
+	while (len >= 16) {
+		u64 k0, k1;
+
+		memcpy(&k0, p, 8);
+		memcpy(&k1, p + 8, 8);
+		a = (a ^ (k0 * 0x87c37b91114253d5ull)) * 0x4cf5ad432745937full;
+		b = (b ^ (k1 * 0x4cf5ad432745937full)) * 0x87c37b91114253d5ull;
+		a = (a << 29) | (a >> 35);
+		b = (b << 31) | (b >> 33);
+		p += 16;
+		len -= 16;
+	}
+
+	while (len > 0) {
+		a = (a ^ *p++) * 0x100000001b3ull;
+		len--;
+	}
+
+	return hashMix(a ^ hashMix(b));
+}
+
+static u64 hashU32(u64 h, u32 v)
+{
+	return hashBytes(h, &v, sizeof(v));
+}
+
+static u64 hashStr(u64 h, const char *str)
+{
+	return hashBytes(h, str ? str : "", str ? strlen(str) + 1 : 1);
+}
+
+static u64 hdcacheKey(const char *levelname, u8 **filerooms, u32 *filelens, s32 n)
+{
+	const u32 layout[] = {
+		HDCACHE_VERSION, sizeof(struct stri), sizeof(struct hdcachehead), GEBEAN_MAXMATS,
+		sizeof(void *), 0x01020304,
+	};
+	struct environment *env = envGetCurrent();
+	struct doorbox *boxes = NULL;
+	const u8 *file;
+	u32 filelen;
+	s32 numboxes;
+	u64 h = hashBytes(0, layout, sizeof(layout));
+
+	h = hashStr(h, row->key);
+	h = hashStr(h, row->bean);
+	h = hashBytes(h, &row->scale, sizeof(row->scale));
+	h = hashBytes(h, row->offset, sizeof(row->offset));
+	h = hashStr(h, levelname);
+	h = hashU32(h, gebeanCeIsActive());
+
+	file = gebeanLevelFileBytes(level, &filelen);
+	h = hashU32(h, filelen);
+	h = hashBytes(h, file, filelen);
+
+	h = hashU32(h, gebeanLevelNumTextures(level));
+	h = hashBytes(h, texAlpha, sizeof(texAlpha));
+	h = hashBytes(h, texSoft, sizeof(texSoft));
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		h = hashU32(h, texTile[t] != NULL);
+	}
+
+	h = hashU32(h, n);
+
+	for (s32 r = 0; r <= n; r++) {
+		h = hashU32(h, (u32)g_BgRooms[r].unk00);
+	}
+
+	for (s32 r = 1; r < n; r++) {
+		h = hashBytes(h, &g_BgRooms[r].pos, sizeof(g_BgRooms[r].pos));
+		h = hashBytes(h, g_Rooms[r].bbmin, sizeof(g_Rooms[r].bbmin));
+		h = hashBytes(h, g_Rooms[r].bbmax, sizeof(g_Rooms[r].bbmax));
+		h = hashU32(h, filelens[r]);
+
+		if (filerooms[r]) {
+			h = hashBytes(h, filerooms[r], filelens[r]);
+		}
+	}
+
+	numboxes = doorBoxes(&boxes);
+	h = hashU32(h, numboxes);
+
+	for (s32 i = 0; i < numboxes; i++) {
+		// what doorBoxes() fills; the rest is the build's own
+		h = hashBytes(h, &boxes[i], offsetof(struct doorbox, slide) + sizeof(boxes[i].slide));
+	}
+
+	free(boxes);
+
+	h = hashU32(h, env != NULL);
+
+	if (env) {
+		h = hashU32(h, env->water_enabled);
+		h = hashBytes(h, &env->water_scale, sizeof(env->water_scale));
+		h = hashU32(h, (u32)env->water_type);
+		h = hashBytes(h, &env->water_r, sizeof(env->water_r));
+		h = hashBytes(h, &env->water_g, sizeof(env->water_g));
+		h = hashBytes(h, &env->water_b, sizeof(env->water_b));
+	}
+
+	return h;
+}
+
+static s32 hdcachePath(char *dst, u32 dstLen, const char *levelname, s32 temp)
+{
+	char dir[FS_MAXPATH + 1];
+
+	if (!gebeanGetCacheDir(dir, sizeof(dir))) {
+		return 0;
+	}
+
+	snprintf(dst, dstLen, "%s/levels", dir);
+
+	if (fsFileSize(dst) < 0) {
+		fsCreateDir(dst);
+	}
+
+	snprintf(dst, dstLen, "%s/levels/%s_%s%s.bin%s", dir, row->key, levelname,
+			gebeanCeIsActive() ? "_ce" : "", temp ? ".tmp" : "");
+
+	return 1;
+}
+
+struct hdbuf {
+	u8 *d;
+	size_t len, cap;
+	s32 bad;
+};
+
+static void hdPut(struct hdbuf *b, const void *src, size_t len)
+{
+	if (b->bad || len == 0) {
+		return;
+	}
+
+	if (b->len + len > b->cap) {
+		size_t cap = b->cap ? b->cap : 1 << 20;
+		u8 *d;
+
+		while (cap < b->len + len) {
+			cap *= 2;
+		}
+
+		d = realloc(b->d, cap);
+
+		if (!d) {
+			b->bad = 1;
+			return;
+		}
+
+		b->d = d;
+		b->cap = cap;
+	}
+
+	memcpy(b->d + b->len, src, len);
+	b->len += len;
+}
+
+static void hdPut32(struct hdbuf *b, u32 v)
+{
+	hdPut(b, &v, sizeof(v));
+}
+
+// A triangle field by field, so that no padding (whatever the build's copies
+// left in it) reaches the file
+#define HD_TRI_FIELDS(OP, t) \
+	OP(t->pos) OP(t->uv) OP(t->argb) OP(t->tex) OP(t->room) OP(t->decal) OP(t->lift) OP(t->sink) \
+	OP(t->decalbase) OP(t->nofog) OP(t->backed) OP(t->fights) OP(t->blend) OP(t->undersea) OP(t->plain)
+
+static void hdPutTri(struct hdbuf *b, const struct stri *t)
+{
+#define HD_PUT(f) hdPut(b, &(f), sizeof(f));
+	HD_TRI_FIELDS(HD_PUT, t)
+#undef HD_PUT
+}
+
+static void hdcacheSave(u64 key, const char *levelname)
+{
+	char path[FS_MAXPATH + 1];
+	char tmp[FS_MAXPATH + 1];
+	struct hdcachehead head;
+	struct hdbuf b = { 0 };
+	FILE *fp;
+	s32 ok;
+
+	if (!hdcachePath(path, sizeof(path), levelname, 0) || !hdcachePath(tmp, sizeof(tmp), levelname, 1)) {
+		return;
+	}
+
+	hdPut32(&b, numRooms);
+	hdPut32(&b, numServed);
+	hdPut32(&b, numHidden);
+	hdPut32(&b, numWaterKept);
+	hdPut32(&b, levelHasWater);
+	hdPut32(&b, numBackdrop);
+	hdPut32(&b, waterMeasured);
+	hdPut(&b, waterRate, sizeof(waterRate));
+	hdPut(&b, meshMin, sizeof(meshMin));
+	hdPut(&b, meshMax, sizeof(meshMax));
+	hdPut(&b, backdropMid, sizeof(backdropMid));
+	hdPut(&b, texClampV, sizeof(texClampV));
+	hdPut(&b, texClampShift, sizeof(texClampShift));
+	hdPut(&b, texWater, sizeof(texWater));
+	hdPut(&b, roomHidden, numRooms + 1);
+	hdPut(&b, roomWaterKept, numRooms + 1);
+
+	for (s32 r = 0; r <= numRooms; r++) {
+		hdPut32(&b, roomData[r] ? 1 : 0);
+		hdPut32(&b, roomLen[r]);
+	}
+
+	for (s32 r = 0; r <= numRooms; r++) {
+		if (roomData[r]) {
+			hdPut(&b, roomData[r], roomLen[r]);
+		}
+	}
+
+	for (s32 t = 0; t < numBackdrop; t++) {
+		hdPutTri(&b, &backdrop[t]);
+	}
+
+	if (b.bad) {
+		free(b.d);
+		return;
+	}
+
+	memset(&head, 0, sizeof(head));
+	memcpy(head.magic, HDCACHE_MAGIC, sizeof(HDCACHE_MAGIC));
+	head.version = HDCACHE_VERSION;
+	head.headsize = sizeof(head);
+	head.key = key;
+	head.paylen = b.len;
+	head.paysum = hashBytes(key, b.d, b.len);
+
+	fp = fopen(tmp, "wb");
+	ok = fp && fwrite(&head, sizeof(head), 1, fp) == 1 && fwrite(b.d, 1, b.len, fp) == b.len;
+
+	if (fp && fclose(fp) != 0) {
+		ok = 0;
+	}
+
+	free(b.d);
+
+	if (!ok || fsReplaceFile(tmp, path) != 0) {
+		sysLogPrintf(LOG_WARNING, "gebeanstage: could not keep the built level in %s", path);
+		fsRemoveFile(tmp);
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %s: built level kept in %s (%u bytes)", row->bean, path, (u32)(sizeof(head) + b.len));
+}
+
+struct hdread {
+	const u8 *d;
+	size_t len, at;
+	s32 bad;
+};
+
+static const void *hdTake(struct hdread *r, size_t len)
+{
+	const void *p;
+
+	if (r->bad || len > r->len - r->at) {
+		r->bad = 1;
+		return NULL;
+	}
+
+	p = r->d + r->at;
+	r->at += len;
+
+	return p;
+}
+
+static void hdGet(struct hdread *r, void *dst, size_t len)
+{
+	const void *p = hdTake(r, len);
+
+	if (p) {
+		memcpy(dst, p, len);
+	} else {
+		memset(dst, 0, len);
+	}
+}
+
+static void hdGetTri(struct hdread *r, struct stri *t)
+{
+	memset(t, 0, sizeof(*t));
+#define HD_GET(f) hdGet(r, &(f), sizeof(f));
+	HD_TRI_FIELDS(HD_GET, t)
+#undef HD_GET
+}
+
+static u32 hdGet32(struct hdread *r)
+{
+	u32 v;
+
+	hdGet(r, &v, sizeof(v));
+
+	return v;
+}
+
+/**
+ * The built level from the cache, into the state build() leaves. 0, with
+ * nothing kept, when there is none or it is not this level's as it is now.
+ */
+static s32 hdcacheLoad(u64 key, const char *levelname, s32 n)
+{
+	char path[FS_MAXPATH + 1];
+	struct hdcachehead head;
+	struct hdread rd = { 0 };
+	u8 *data = NULL;
+	u8 *present = NULL;
+	FILE *fp;
+	long size = 0;
+	const char *why = NULL;
+
+	if (!hdcachePath(path, sizeof(path), levelname, 0)) {
+		return 0;
+	}
+
+	fp = fopen(path, "rb");
+
+	if (!fp) {
+		return 0;
+	}
+
+	if (fseek(fp, 0, SEEK_END) != 0 || (size = ftell(fp)) < (long)sizeof(head) || size > 512L * 1024 * 1024) {
+		why = "a size that is not a built level's";
+	} else if (fseek(fp, 0, SEEK_SET) != 0 || fread(&head, sizeof(head), 1, fp) != 1) {
+		why = "an unreadable header";
+	} else if (memcmp(head.magic, HDCACHE_MAGIC, sizeof(HDCACHE_MAGIC)) != 0 || head.headsize != sizeof(head)) {
+		why = "a header that is not a built level's";
+	} else if (head.version != HDCACHE_VERSION) {
+		why = "an older builder's level";
+	} else if (head.key != key) {
+		why = "a level built from other inputs";
+	} else if (head.paylen != (u64)size - sizeof(head)) {
+		why = "a length that is not its header's (cut short?)";
+	} else if ((data = malloc(head.paylen ? head.paylen : 1)) == NULL
+			|| fread(data, 1, head.paylen, fp) != head.paylen) {
+		why = "a body that could not be read";
+	} else if (hashBytes(key, data, head.paylen) != head.paysum) {
+		why = "a checksum that does not match";
+	}
+
+	fclose(fp);
+
+	if (why) {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %s has %s, building it again", row->bean, path, why);
+		free(data);
+		return 0;
+	}
+
+	rd.d = data;
+	rd.len = head.paylen;
+
+	numRooms = hdGet32(&rd);
+	numServed = hdGet32(&rd);
+	numHidden = hdGet32(&rd);
+	numWaterKept = hdGet32(&rd);
+	levelHasWater = hdGet32(&rd);
+	numBackdrop = hdGet32(&rd);
+	waterMeasured = hdGet32(&rd);
+	hdGet(&rd, waterRate, sizeof(waterRate));
+	hdGet(&rd, meshMin, sizeof(meshMin));
+	hdGet(&rd, meshMax, sizeof(meshMax));
+	hdGet(&rd, backdropMid, sizeof(backdropMid));
+	hdGet(&rd, texClampV, sizeof(texClampV));
+	hdGet(&rd, texClampShift, sizeof(texClampShift));
+	hdGet(&rd, texWater, sizeof(texWater));
+
+	if (numRooms != n || numBackdrop < 0 || numBackdrop > 16 * 1024 * 1024) {
+		rd.bad = 1;
+	}
+
+	if (!rd.bad) {
+		roomData = calloc(n + 1, sizeof(*roomData));
+		roomLen = calloc(n + 1, sizeof(*roomLen));
+		roomHidden = calloc(n + 1, sizeof(*roomHidden));
+		roomWaterKept = calloc(n + 1, sizeof(*roomWaterKept));
+		present = calloc(n + 1, 1);
+
+		if (!roomData || !roomLen || !roomHidden || !roomWaterKept || !present) {
+			rd.bad = 1;
+		}
+	}
+
+	if (!rd.bad) {
+		hdGet(&rd, roomHidden, n + 1);
+		hdGet(&rd, roomWaterKept, n + 1);
+
+		for (s32 r = 0; r <= n; r++) {
+			present[r] = hdGet32(&rd) != 0;
+			roomLen[r] = hdGet32(&rd);
+		}
+
+		for (s32 r = 0; r <= n && !rd.bad; r++) {
+			if (present[r]) {
+				const void *src = hdTake(&rd, roomLen[r]);
+
+				roomData[r] = src ? malloc(roomLen[r] ? roomLen[r] : 1) : NULL;
+
+				if (!roomData[r]) {
+					rd.bad = 1;
+					break;
+				}
+
+				memcpy(roomData[r], src, roomLen[r]);
+			}
+		}
+	}
+
+	if (!rd.bad && numBackdrop) {
+		const struct stri *t = backdrop;
+		size_t each = 0;
+
+#define HD_SIZE(f) each += sizeof(f);
+		HD_TRI_FIELDS(HD_SIZE, t)
+#undef HD_SIZE
+
+		backdrop = (size_t)numBackdrop * each == rd.len - rd.at ? malloc(sizeof(*backdrop) * numBackdrop) : NULL;
+
+		for (s32 t = 0; backdrop && t < numBackdrop; t++) {
+			hdGetTri(&rd, &backdrop[t]);
+		}
+
+		if (!backdrop) {
+			rd.bad = 1;
+		}
+	}
+
+	if (!rd.bad && rd.at != rd.len) {
+		rd.bad = 1;
+	}
+
+	free(data);
+	free(present);
+
+	if (rd.bad) {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %s does not read as this level's, building it again", row->bean, path);
+		forgetBuilt();
+		return 0;
+	}
+
+	geWaterSetHdRates(waterMeasured, waterRate[0], waterRate[1]);
+
+	return 1;
 }
 
 static s32 build(void)
@@ -4355,6 +4903,10 @@ static s32 build(void)
 	s32 *listlen;
 	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0;
 	u32 bytes = 0;
+	const char *levelname;
+	u64 key = 0;
+	s32 keyed = 0;
+	s32 complete = 0;
 
 	row = levelRow();
 	fogTableLoad();
@@ -4364,7 +4916,8 @@ static s32 build(void)
 	}
 
 	// the Community Edition keeps Surface's two halves as files of their own
-	level = gebeanLevelOpen(gebeanCeLevelName(row->key, row->bean));
+	levelname = gebeanCeLevelName(row->key, row->bean);
+	level = gebeanLevelOpen(levelname);
 
 	if (!level) {
 		sysLogPrintf(LOG_WARNING, "gebeanstage: GoldenEye XBLA's %s is not on disk", row->bean);
@@ -4390,6 +4943,40 @@ static s32 build(void)
 
 	for (s32 r = 1; r < n && filerooms; r++) {
 		filerooms[r] = readRoom(r, &filelens[r]);
+	}
+
+	// What an earlier load built from these same inputs, if it was kept
+	if (filerooms && filelens) {
+		key = hdcacheKey(levelname, filerooms, filelens, n);
+		keyed = 1;
+		mark[1] = sysGetMicroseconds();
+
+		if (hdcacheLoad(key, levelname, n)) {
+			shellTake(filerooms, filelens, n);
+
+			for (s32 r = 0; r <= n; r++) {
+				free(filerooms[r]);
+			}
+
+			free(filerooms);
+			free(filelens);
+
+			if (numBackdrop) {
+				backdropOrder = malloc(sizeof(s32) * numBackdrop);
+				backdropDist = malloc(sizeof(f32) * numBackdrop);
+
+				if (!backdropOrder || !backdropDist) {
+					numBackdrop = 0;
+				}
+			}
+
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s): %d of %d rooms from GoldenEye XBLA as built before (%d kept, %d of them not drawn), %d triangles of backdrop, %.0f ms (pictures %.0f, key %.0f, reading %.0f)",
+					row->bean, row->key, numServed, n - 1, n - 1 - numServed, numHidden, numBackdrop,
+					(sysGetMicroseconds() - start) / 1000.0, (mark[0] - start) / 1000.0,
+					(mark[1] - mark[0]) / 1000.0, (sysGetMicroseconds() - mark[1]) / 1000.0);
+
+			return numServed > 0;
+		}
 	}
 
 	memset(&c, 0, sizeof(c));
@@ -4469,27 +5056,13 @@ static s32 build(void)
 	}
 
 	if (c.num) {
-		shellFirst = calloc(n + 1, sizeof(*shellFirst));
-		shellCount = calloc(n + 1, sizeof(*shellCount));
-
 		for (s32 r = 1; r < n; r++) {
 			if (filerooms[r]) {
 				fileRoomTriangles(&filetris, r, filerooms[r], filelens[r]);
-
-				if (shellFirst && shellCount) {
-					shellFirst[r] = shellNum;
-					fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriToShell, NULL);
-					shellCount[r] = shellNum - shellFirst[r];
-				}
 			}
 		}
 
-		if (!shellFirst || !shellCount) {
-			shellForget();
-		} else {
-			sysLogPrintf(LOG_NOTE, "gebeanstage: %d of GoldenEye's opaque triangles for the camera test, %d of them unculled",
-					shellNum, shellNumTwo);
-		}
+		shellTake(filerooms, filelens, n);
 
 		for (s32 t = 0; t < c.num; t++) {
 			tgridAdd(&beantris, (const f32 (*)[3])c.tris[t].pos, t);
@@ -4665,6 +5238,7 @@ static s32 build(void)
 
 		tgridFree(&filetris);
 		tgridFree(&beantris);
+		complete = 1;
 	}
 
 	for (s32 r = 0; r <= n; r++) {
@@ -4714,6 +5288,10 @@ static s32 build(void)
 			(mark[0] - start) / 1000.0, (mark[1] - mark[0]) / 1000.0, mark[2] ? (mark[2] - mark[1]) / 1000.0 : 0.0,
 			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0,
 			mark[3] ? (sysGetMicroseconds() - mark[3]) / 1000.0 : 0.0);
+
+	if (complete && keyed && numServed > 0) {
+		hdcacheSave(key, levelname);
+	}
 
 	return numServed > 0;
 }

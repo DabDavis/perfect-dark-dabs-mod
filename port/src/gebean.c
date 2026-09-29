@@ -2612,6 +2612,11 @@ s32 gebeanTreeInfo(char *root, u32 rootLen, char *archive, u32 archiveLen, char 
 	return 1;
 }
 
+s32 gebeanGetCacheDir(char *dst, u32 dstLen)
+{
+	return gebeanCacheDir(dst, dstLen);
+}
+
 static SDL_atomic_t unpackDone;
 
 static int gebeanUnpackWorker(void *arg)
@@ -13226,6 +13231,13 @@ struct gebeanlevel *gebeanSkyOpen(const char *name)
 	sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws, %d textures", level->source, level->bm.numdraws, level->bm.numtex);
 
 	return level;
+}
+
+const u8 *gebeanLevelFileBytes(const struct gebeanlevel *level, u32 *len)
+{
+	*len = level ? level->bm.caff.len : 0;
+
+	return level ? level->bm.file : NULL;
 }
 
 void gebeanLevelClose(struct gebeanlevel *level)

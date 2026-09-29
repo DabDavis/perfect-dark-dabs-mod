@@ -39,6 +39,9 @@ s32 fsCreateDir(const char *path);
 s32 fsRemoveDir(const char *path);
 // Renames a file or directory; the destination must not exist. Returns 0 on success.
 s32 fsRename(const char *from, const char *to);
+// Renames a file over another, replacing it in one step where the system
+// allows (a finished temporary file over a cache file). Returns 0 on success.
+s32 fsReplaceFile(const char *from, const char *to);
 // Removes a file. Returns 0 on success.
 s32 fsRemoveFile(const char *path);
 
