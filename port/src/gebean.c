@@ -3343,6 +3343,9 @@ struct beanmodel {
 	// A bone at or below SKEL_MUZZLE, SKEL_FLASH or SKEL_EXTRAFLASH: what
 	// GoldenEye hangs its painted muzzle flash off (beanDrawIsFlash())
 	u8 muzzlebone[BEAN_MAXBONES];
+	// A bone at or below SKEL_SLIDE: a pistol's slide, which GoldenEye moves
+	// back after each shot (its model's part 7, gegunsOwnModelSlide())
+	u8 slidebone[BEAN_MAXBONES];
 	u8 watchhand[BEAN_MAXBONES]; // the watch arm's hour, minute and second hands: 1, 2, 3
 	// Whether the pieces numbered past 0 are taken. A gun file keeps its
 	// hand and its working parts there and wants them; a head keeps
@@ -4375,6 +4378,7 @@ static void beanReadPose(struct beanmodel *bm, const char **names, s32 numnames)
 		bm->skel[i] = -1;
 		bm->watchhand[i] = 0;
 		bm->muzzlebone[i] = 0;
+		bm->slidebone[i] = 0;
 		parent[i] = up == 0xffff || up >= count ? -1 : (s16)up;
 
 		for (s32 k = 0; k < 3; k++) {
@@ -4406,6 +4410,7 @@ static void beanReadPose(struct beanmodel *bm, const char **names, s32 numnames)
 			// that closes the sniper rifle - is on SKEL_TOP with the gun.
 			bm->muzzlebone[i] = strncmp(names[i], "SKEL_MUZZLE", 11) == 0
 				|| strstr(names[i], "FLASH") != NULL;
+			bm->slidebone[i] = strcmp(names[i], "SKEL_SLIDE") == 0;
 		}
 
 		bm->numbones = (s32)i + 1;
@@ -4418,6 +4423,14 @@ static void beanReadPose(struct beanmodel *bm, const char **names, s32 numnames)
 				up = parent[up], steps++) {
 			if (bm->muzzlebone[up]) {
 				bm->muzzlebone[i] = 1;
+				break;
+			}
+		}
+
+		for (s32 up = parent[i], steps = 0; up >= 0 && up < bm->numbones && steps < BEAN_MAXBONES;
+				up = parent[up], steps++) {
+			if (bm->slidebone[up]) {
+				bm->slidebone[i] = 1;
 				break;
 			}
 		}
@@ -10895,6 +10908,39 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			}
 		}
 
+	}
+
+	// GoldenEye's own model moves its slide (part 7) back after each shot,
+	// and a pistol's slide is its biggest list - the list the release's gun
+	// was put on whole, so the whole HD gun would have gone back with it. The
+	// release's own gun has its slide on a bone of its own (SKEL_SLIDE):
+	// that, and only that, goes on the slide's matrix, and the rest on the
+	// matrix the slide hangs from (F3 20260929-092030, "Pistols have no slide
+	// animation").
+	if (fpOnOwn[fp]) {
+		struct modelnode *slide = modelGetPart(modeldef, 7);
+		const s32 slidemtx = slide && (slide->type & 0xff) == MODELNODETYPE_POSITION
+			? modelFindNodeMtxIndex(slide, 0) : -1;
+		const s32 framemtx = slide && slide->parent ? modelFindNodeMtxIndex(slide->parent, 0) : -1;
+
+		if (slidemtx >= 0 && slidemtx < nummatrices && framemtx >= 0 && framemtx < nummatrices
+				&& framemtx != slidemtx && mtxnode[framemtx] >= 0 && rig.hasrest[framemtx]) {
+			s32 numslide = 0;
+
+			for (s32 b = 0; b < bm.numbones && b < BEAN_MAXBONES; b++) {
+				numslide += bm.slidebone[b];
+			}
+
+			if (numslide > 0) {
+				for (s32 b = 0; b < BEAN_MAXBONES; b++) {
+					if (b < bm.numbones && bm.slidebone[b]) {
+						bonemtx[b] = slidemtx;
+					} else if (bonemtx[b] == slidemtx) {
+						bonemtx[b] = framemtx;
+					}
+				}
+			}
+		}
 	}
 
 	memset(&out, 0, sizeof(out));

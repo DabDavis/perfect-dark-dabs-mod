@@ -8790,6 +8790,13 @@ void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s3
 
 			node = modelGetPart(modeldef, partnum);
 
+#ifndef PLATFORM_N64
+			// GoldenEye's own model's ejection port is its part 0 (geguns.c)
+			if (!node) {
+				node = gegunsOwnModelCasingPort(weaponnum, modeldef);
+			}
+#endif
+
 			if (node) {
 				Mtxf *mtx = (Mtxf *)allocation;
 				Mtxf sp24;
@@ -9411,6 +9418,13 @@ void bgun0f0a5550(s32 handnum)
 #endif
 
 			node = modelGetPart(modeldef, MODELPART_GUN_SLIDE);
+
+#ifndef PLATFORM_N64
+			// GoldenEye's own model's slide is its part 7 (geguns.c)
+			if (!node) {
+				node = gegunsOwnModelSlide(weaponnum, modeldef);
+			}
+#endif
 
 			if (node) {
 				sp80 = modelFindNodeMtxIndex(node, 0);

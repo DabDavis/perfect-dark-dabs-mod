@@ -119,6 +119,8 @@ s32 gegunsOwnModelRevolver(s32 weaponnum);
 void gegunsOwnModelRevolverBegin(struct hand *hand, struct model *model);
 void gegunsOwnModelRevolverEnd(void);
 struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef, f32 *offset);
+struct modelnode *gegunsOwnModelSlide(s32 weaponnum, struct modeldef *modeldef);
+struct modelnode *gegunsOwnModelCasingPort(s32 weaponnum, struct modeldef *modeldef);
 
 // GoldenEye's knife slash on its own model (the N64 look): begun by a melee
 // attack, ticked after the hand's states, as the hand's posrotmtx
