@@ -28,6 +28,8 @@
 #include "game/stubs/game_00b200.h"
 #include "game/challenge.h"
 #include "game/title.h"
+#include "game/stagetable.h"
+#include "romdata.h"
 #include "game/pdmode.h"
 #include "game/objectives.h"
 #include "game/endscreen.h"
@@ -759,9 +761,37 @@ void mainEndStage(void)
 /**
  * Change to the given stage at the end of the current frame.
  */
+/**
+ * Whether a level has a background file to load. A stage number with no row,
+ * or a row with no bg file (the spare rows past the Stage Loader's maps are
+ * all zeros), crashed in bgReset(): it read a header out of file 0, which is
+ * nothing, and inflated from a failed allocation.
+ */
+static bool mainStageIsLoadable(s32 stagenum)
+{
+	const s32 index = stageGetIndex(stagenum);
+	s32 bgfileid;
+
+	if (index < 0) {
+		return false;
+	}
+
+	bgfileid = g_Stages[index].bgfileid;
+
+	return bgfileid > 0 && romdataFileGetName(bgfileid) != NULL;
+}
+
 void mainChangeToStage(s32 stagenum)
 {
 	pak0f11c6d0();
+
+	if (STAGE_IS_LEVEL(stagenum) && !mainStageIsLoadable(stagenum)) {
+		// the Carrington Institute, by way of the title's skip, rather than
+		// a crash
+		sysLogPrintf(LOG_WARNING, "main: stage 0x%02x has no level to load; going to the Carrington Institute", stagenum);
+		titleSetNextMode(TITLEMODE_SKIP);
+		stagenum = STAGE_TITLE;
+	}
 
 	g_MainChangeToStageNum = stagenum;
 }
