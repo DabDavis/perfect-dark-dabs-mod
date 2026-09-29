@@ -820,11 +820,33 @@ static s32 modRunRoomIsDark(s32 room)
 		return 0;
 	}
 
-	for (i = 0; i < gfx->numcolours; i++) {
-		const s32 lum = (gfx->colours[i].r + gfx->colours[i].g + gfx->colours[i].b) / 3;
+	// The colours the room's vertices use, not the whole table: the release's
+	// copy of Deep Sea's room 87 (Mod.XblaStages) lists a white that no
+	// vertex points at beside the black they all do, and the table's
+	// brightest let the room through as lit (F3 20260929-203835). A vertex's
+	// colour is a byte offset into the table, four to a colour.
+	if (gfx->vertices != NULL && gfx->numvertices > 0) {
+		for (i = 0; i < gfx->numvertices; i++) {
+			const s32 index = gfx->vertices[i].colour >> 2;
+			s32 lum;
 
-		if (lum > brightest) {
-			brightest = lum;
+			if (index >= gfx->numcolours) {
+				continue;
+			}
+
+			lum = (gfx->colours[index].r + gfx->colours[index].g + gfx->colours[index].b) / 3;
+
+			if (lum > brightest) {
+				brightest = lum;
+			}
+		}
+	} else {
+		for (i = 0; i < gfx->numcolours; i++) {
+			const s32 lum = (gfx->colours[i].r + gfx->colours[i].g + gfx->colours[i].b) / 3;
+
+			if (lum > brightest) {
+				brightest = lum;
+			}
 		}
 	}
 
