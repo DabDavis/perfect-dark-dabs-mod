@@ -90,6 +90,7 @@ struct modoptions g_ModOptions = {
 	true,                     // decalclip: on for everyone (user, 2026-09-26); off is stock's whole marks
 	MODFLASHLIGHT_ON,         // flashlighting: stock's flashes everywhere
 	false,                    // sitinchairs: stock's chairs are furniture
+	false,                    // muzzleflashlight: off until it is lit per pixel (user, F3 20260929-045427); on is stock's
 };
 
 /**
@@ -601,6 +602,22 @@ bool modIsFlashLightingOn(void)
 	}
 
 	return true;
+}
+
+/**
+ * Whether a muzzle flash - the player's or anyone else's - lights up the
+ * rooms round it. Stock does, but the light is laid on the room's vertices,
+ * so on large polygons it reads as whole walls blinking with every shot (F3
+ * 20260929-045427): off by default until a per-pixel flash light replaces it.
+ * Flash Lighting (above) still has the last word when this is on.
+ */
+bool modIsMuzzleFlashLightOn(void)
+{
+#ifndef PLATFORM_N64
+	return g_ModOptions.muzzleflashlight;
+#else
+	return true;
+#endif
 }
 
 /**

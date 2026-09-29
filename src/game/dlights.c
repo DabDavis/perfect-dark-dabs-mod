@@ -1506,7 +1506,7 @@ void lightsTick(void)
 
 	func0f005bb0();
 
-	if (hand1->flashon || hand2->flashon) {
+	if ((hand1->flashon || hand2->flashon) && modIsMuzzleFlashLightOn()) {
 		roomFlashLighting(g_Vars.currentplayer->prop->rooms[0], 64, 80);
 	}
 }

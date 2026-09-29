@@ -20098,7 +20098,7 @@ void weaponSetGunfireVisible(struct prop *prop, bool visible, RoomNum room)
 		}
 	}
 
-	if (flash && room != -1) {
+	if (flash && room != -1 && modIsMuzzleFlashLightOn()) {
 		roomFlashLighting(room, 48, 128);
 	}
 }

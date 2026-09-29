@@ -1291,6 +1291,25 @@ static MenuItemHandlerResult menuhandlerFlashLighting(s32 operation, struct menu
 	return 0;
 }
 
+/**
+ * Muzzle Flash Lights Rooms: stock's light a shot lays on the rooms round the
+ * gun. Off by default: it is lit per vertex, so on large polygons whole walls
+ * blink with every shot (F3 20260929-045427). Flash Lighting still has the
+ * last word. Live.
+ */
+static MenuItemHandlerResult menuhandlerMuzzleFlashLight(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.muzzleflashlight;
+	case MENUOP_SET:
+		g_ModOptions.muzzleflashlight = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerOverexposureScale(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -1530,6 +1549,14 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"Flash Lighting",
 		0,
 		menuhandlerFlashLighting,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Muzzle Flash Lights Rooms",
+		0,
+		menuhandlerMuzzleFlashLight,
 	},
 	{
 		MENUITEMTYPE_SLIDER,
