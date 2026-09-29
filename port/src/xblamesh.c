@@ -8498,6 +8498,58 @@ static s32 xblaMeshHeadNeckWanted(struct model *model)
  * Whether the head grafted on this body has a neck made for it, which then
  * stands in for the body's own neck at the collar (gebeanmats.neckfill).
  */
+/**
+ * Whether this body draws the bare collar round a head (gebeanmats.bare): the
+ * parka's, whose hood is left out round any head but its own face. Its collar
+ * opens wide and low, where the hood came up, and a foreign head's neck -
+ * one made to stand in a suit's collar - ends short of it: the room showed
+ * through between chin and collar (F3 20260929-051545).
+ */
+static s32 xblaMeshBodyDrawsBare(struct model *model)
+{
+	struct modelnode *node = model && model->definition ? model->definition->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 512; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == model->definition && !e->suppress && e->beanrow >= 0) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+
+			for (s32 k = 0; m && !m->beanhead && k < 64; k++) {
+				if (m->beanbare[k] >= 0 && m->beanbare[k] < m->numgroups
+						&& !(m->groupabsent & (1ull << m->beanbare[k]))) {
+					return 1;
+				}
+			}
+
+			return 0;
+		}
+
+		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Whether a head's made neck (gebeanmats.neck) is drawn on this body: always
+ * under a head ending at its jaw; under a head with a neck of its own only
+ * inside the parka's open collar, which that neck does not reach (on a suit's
+ * collar the tube stood out round it).
+ */
+static s32 xblaMeshHeadTubeOn(struct model *model, const struct xblameshbuilt *head)
+{
+	return head->beanopenrim > GEBEAN_OPENRIM_JAW || xblaMeshBodyDrawsBare(model);
+}
+
 static s32 xblaMeshHeadBringsNeck(struct model *model)
 {
 	struct modelnode *spot = model && model->definition ? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
@@ -8515,7 +8567,8 @@ static s32 xblaMeshHeadBringsNeck(struct model *model)
 		if (e && e->node == node && e->modeldef == head && !e->suppress && e->beanrow >= 0) {
 			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
 
-			if (m && m->beanhead && e->packpart < 64 && m->beanneckof[e->packpart] >= 0) {
+			if (m && m->beanhead && e->packpart < 64 && m->beanneckof[e->packpart] >= 0
+					&& xblaMeshHeadTubeOn(model, m)) {
 				return 1;
 			}
 		}
@@ -10691,6 +10744,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// (gebean.c's beanAddNeckTube()) in place of the body's own
 		if (m->beanhead && e->packpart < 64 && e->modeldef != model->definition
 				&& xblaMeshHeadNeckWanted(model)
+				&& xblaMeshHeadTubeOn(model, m)
 				&& m->beanneckof[e->packpart] >= 0 && m->beanneckof[e->packpart] < m->numgroups
 				&& !(m->groupabsent & (1ull << m->beanneckof[e->packpart]))) {
 			part = (u16)m->beanneckof[e->packpart];
