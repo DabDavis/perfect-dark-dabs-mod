@@ -9907,27 +9907,34 @@ static f32 fpCloudMedian(const struct fpcloud *cloud, s32 axis, f32 fallback)
 	return median;
 }
 
-static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *host,
-		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc)
+/**
+ * The rounds themselves, from `hostc`, over at most `points` of Bean's; the
+ * answer is how far the kept host vertices still are from Bean's (the mean
+ * square of the closest `FP_ICP_KEEP`, measured after the last move), or a
+ * negative number when there was nothing to measure.
+ */
+static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host,
+		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, s32 points)
 {
 	const f32 zero[3] = { 0.0f, 0.0f, 0.0f };
 	f32 *base;
 	f32 *dist;
 	f32 *delta;
 	f32 *sorted;
+	f32 residual = -1.0f;
 	s32 stride;
 	s32 num = 0;
 	s32 keep;
 
 	if (bean->num < 8 || host->num < 8) {
-		return;
+		return -1.0f;
 	}
 
 	// Only the translation moves between rounds, so each of Bean's points is
 	// placed once with none of it and the rounds are arithmetic. A gun can
 	// carry a few thousand and every one of them would otherwise be measured
 	// against every one of the host's, eight times over, at a model load.
-	stride = bean->num / FP_ICP_POINTS + 1;
+	stride = bean->num / points + 1;
 	base = malloc((size_t)(bean->num / stride + 1) * 3 * sizeof(f32));
 	dist = malloc((size_t)host->num * sizeof(f32));
 	delta = malloc((size_t)host->num * 3 * sizeof(f32));
@@ -9938,7 +9945,7 @@ static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *
 		free(dist);
 		free(delta);
 		free(sorted);
-		return;
+		return -1.0f;
 	}
 
 	for (s32 b = 0; b < bean->num; b += stride) {
@@ -9952,9 +9959,11 @@ static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *
 		keep = 8;
 	}
 
-	for (s32 round = 0; round < FP_ICP_ROUNDS; round++) {
+	// the last pass only measures
+	for (s32 round = 0; round <= FP_ICP_ROUNDS; round++) {
 		f32 cut;
 		f32 move[3] = { 0.0f, 0.0f, 0.0f };
+		f32 sum = 0.0f;
 		s32 taken = 0;
 
 		for (s32 h = 0; h < host->num; h++) {
@@ -9990,11 +9999,17 @@ static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *
 					move[a] += delta[h * 3 + a];
 				}
 
+				sum += dist[h];
 				taken++;
 			}
 		}
 
 		if (!taken) {
+			break;
+		}
+
+		if (round == FP_ICP_ROUNDS) {
+			residual = sum / taken;
 			break;
 		}
 
@@ -10007,6 +10022,85 @@ static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *
 	free(dist);
 	free(delta);
 	free(sorted);
+
+	return residual;
+}
+
+static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *host,
+		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc)
+{
+	fpRefineRounds(bean, host, axis, beanc, scale, hostc, FP_ICP_POINTS);
+}
+
+/**
+ * The same walk for a gun laid on GoldenEye's own model, started from several
+ * places along the host's box and kept where it ends closest.
+ *
+ * Bean's original is GoldenEye's own gun at 4.7 times the size, so there is
+ * an exact answer, but the walk only finds it from nearby: it starts from the
+ * middle of each side's points, and when the host's visible lists are part
+ * of the gun those middles are not the same place. The DD44's are its slide
+ * alone - the frame and grip are under the hand's toggles - so the release's
+ * gun started 86 units nearer the eye than the slide, and a slide gives the
+ * walk nothing to pull on along its own length: the HD DD44 sat that much
+ * closer, larger and further right than GoldenEye's (F3 20260929-135301,
+ * "DD44 FOV too low in XBLA mode"). A start is only taken over the first
+ * answer when it ends clearly closer.
+ */
+#define FP_SEARCH_POINTS 300
+
+static void fpRefinePlacementSearch(s32 fp, const struct fpcloud *bean, const struct fpcloud *host,
+		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, const f32 *hostlo, const f32 *hosthi)
+{
+	static const f32 alongz[] = { -0.45f, -0.3f, -0.15f, 0.0f, 0.15f, 0.3f, 0.45f };
+	static const f32 alongy[] = { -0.25f, 0.0f, 0.25f };
+	f32 first[3];
+	f32 best[3];
+	f32 bestres;
+	f32 firstres;
+
+	memcpy(first, hostc, sizeof(first));
+	firstres = fpRefineRounds(bean, host, axis, beanc, scale, first, FP_SEARCH_POINTS);
+
+	if (firstres < 0.0f) {
+		fpRefinePlacement(bean, host, axis, beanc, scale, hostc);
+		return;
+	}
+
+	memcpy(best, first, sizeof(best));
+	bestres = firstres;
+
+	for (s32 iz = 0; iz < (s32)ARRAYCOUNT(alongz); iz++) {
+		for (s32 iy = 0; iy < (s32)ARRAYCOUNT(alongy); iy++) {
+			f32 at[3];
+			f32 res;
+
+			if (alongz[iz] == 0.0f && alongy[iy] == 0.0f) {
+				continue;
+			}
+
+			at[0] = hostc[0];
+			at[1] = hostc[1] + alongy[iy] * (hosthi[1] - hostlo[1]);
+			at[2] = hostc[2] + alongz[iz] * (hosthi[2] - hostlo[2]);
+
+			res = fpRefineRounds(bean, host, axis, beanc, scale, at, FP_SEARCH_POINTS);
+
+			if (res >= 0.0f && res < bestres) {
+				bestres = res;
+				memcpy(best, at, sizeof(best));
+			}
+		}
+	}
+
+	// the first start's answer unless another is clearly better, then settled
+	// at the full count as every other gun is
+	if (bestres < firstres * 0.5f) {
+		sysLogPrintf(LOG_NOTE, "fpfit: row %d placement searched: %.1f %.1f %.1f from %.1f %.1f %.1f (residual %.2f from %.2f)",
+				fp, best[0], best[1], best[2], hostc[0], hostc[1], hostc[2], bestres, firstres);
+		memcpy(hostc, best, sizeof(best));
+	}
+
+	fpRefinePlacement(bean, host, axis, beanc, scale, hostc);
 }
 
 /**
@@ -10780,7 +10874,9 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	// Not for a gun placed by its grip: those are the ones whose host is a
 	// different shape or half their length, which is why they are placed that
 	// way, and the nearest vertex has nothing to say about them.
-	if (!usegrip) {
+	if (!usegrip && fpOnOwn[fp] && fitcloud.num) {
+		fpRefinePlacementSearch(fp, &fitcloud, &hostcloud, fpaxis, beanc, scale, hostc, hostlo, hosthi);
+	} else if (!usegrip) {
 		fpRefinePlacement(fitcloud.num ? &fitcloud : &owncloud, &hostcloud,
 				fpaxis, beanc, scale, hostc);
 	}
