@@ -978,8 +978,27 @@ Gfx *sightDrawClassic(Gfx *gdl, bool sighton, f32 crossx, f32 crossy)
 
 	texSelect(&gdl, tconfig, 2, 0, 0, 1, NULL);
 
+#ifndef PLATFORM_N64
+	// GoldenEye's crosshair has its vertical line a texel longer on one side
+	// of the bar than on the other: drawn this way up, twelve above and
+	// thirteen below, which shows as a pixel too many under the sight at any
+	// window size (F3 20260928-212041). The picture's last row of the line is
+	// the rectangle's 30th, and the scissor stops above it for this draw.
+	{
+		const s32 viewbottom = viGetViewTop() + viGetViewHeight();
+
+		gDPSetScissor(gdl++, G_SC_NON_INTERLACE, viGetViewLeft(), viGetViewTop(),
+				viGetViewLeft() + viGetViewWidth(), y1 + 29 < viewbottom ? y1 + 29 : viewbottom);
+	}
+#endif
+
 	func0f0b278c(&gdl, spc4, spbc, tconfig->width, tconfig->height,
 			0, 0, 1, 0xff, 0xff, 0xff, 0x7f, tconfig->level > 0, 0);
+
+#ifndef PLATFORM_N64
+	gDPSetScissor(gdl++, G_SC_NON_INTERLACE, viGetViewLeft(), viGetViewTop(),
+			viGetViewLeft() + viGetViewWidth(), viGetViewTop() + viGetViewHeight());
+#endif
 
 	gDPPipeSync(gdl++);
 	gDPSetColorDither(gdl++, G_CD_BAYER);
