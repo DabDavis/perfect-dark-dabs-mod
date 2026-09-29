@@ -203,3 +203,96 @@ built "couteau" + " de combat" / "x de combat".
 - `--lang-audit` still lists 557 strings over 1.3x: nearly all are dialogue,
   HUD messages and objectives (which wrap) or short words against shorter
   English ("Back" -> "Retour"), which fit their boxes.
+
+# GoldenEye (GE Plus, lang/fr/ge.json)
+
+Translated from GoldenEye 007's US English as GE Plus shows it. No other
+translation of GoldenEye was consulted. Official French titles of the Bond
+films are used where the game names a film.
+
+## Register
+
+- M, Q (Q Branch), Moneypenny, Mishkin, Valentin and the briefings: **vous**
+  to Bond ("007, vous ..."). Moneypenny may flirt, still vous.
+- Bond <-> Natalya: **tu** once they work together (the in-level lines).
+  Bond <-> Trevelyan (Alec, 006): **tu** - old friends, then enemies.
+- Villains to Bond (Ourumov, Xenia, guards): **vous**, "Monsieur Bond" for
+  "Mr. Bond"; Boris is rude and may say tu.
+- Objectives and HUD are infinitives / impersonal, as in Perfect Dark.
+- Speaker prefixes ("Natalya: ", "Guard: ") keep the name ("Garde : ") and the
+  continuation lines keep their indent under the text.
+
+## Levels (grid names short: 12 characters or fewer where possible)
+
+| English | French |
+|---|---|
+| Dam | Barrage |
+| Facility | Usine |
+| Runway | Piste |
+| Surface | Surface |
+| Bunker | Bunker |
+| Silo / Launch Silo #4 | Silo / Silo de lancement n°4 |
+| Frigate | Frégate |
+| Statue / Statue Park | Statue / Parc des statues |
+| Archives / Military Archives | Archives / Archives militaires |
+| Streets | Rues |
+| Depot | Dépôt |
+| Train | Train |
+| Jungle | Jungle |
+| Control / Control Center | Contrôle / Centre de contrôle |
+| Caverns / Water Caverns | Cavernes / Grottes inondées |
+| Cradle / Antenna Cradle | Berceau / Berceau de l'antenne |
+| Aztec / Aztec Complex | Aztèque / Complexe aztèque |
+| Egyptian / Egyptian Temple | Égyptien / Temple égyptien |
+| Places kept | Arkangelsk, Severnaya, Monte Carlo, Cuba, Teotihuaca'n, el-Saghira; Kirghizstan -> Kirghizistan; St. Petersburg -> Saint-Pétersbourg |
+| Multiplayer maps | Temple, Complexe, Bibliothèque (Library), Grottes (Caves), Citadelle, Sous-sol (Basement), Rayonnages (Stack) |
+
+Difficulty: Agent, Agent secret (Secret Agent), Agent 00 (00 Agent).
+Multiplayer scenarios (official French film titles): On ne vit que deux fois,
+Tuer n'est pas jouer [Drapeau], L'Homme au pistolet d'or, Permis de tuer.
+
+## Names kept
+
+James Bond, 007, M, Q, Moneypenny, Natalya Simonova, Alec Trevelyan, Janus,
+Xenia Onatopp, Arkady Ourumov, Boris Grishenko, Valentin Zukovsky, Dimitri
+Mishkin, Jaws, Oddjob, Mayday, Baron Samedi, GoldenEye, Pirate (the stolen
+helicopter), Tiger, Spetsnaz. Gun brands stay: PP7, DD44 Dostovei, Klobb,
+KF7 Soviet, ZMG (9mm), D5K Deutsche, Phantom, AR33, RC-P90, Cougar Magnum,
+Moonraker Laser; Golden Gun -> Pistolet d'or.
+
+## Gadgets and objects
+
+| English | French |
+|---|---|
+| Watch (Laser, Magnet Attract/Repel, Communicator, Geiger Counter, Identifier) | Montre (laser, aimant attraction/répulsion, communicateur, compteur Geiger, identificateur) |
+| Door Decoder / Door Exploder / Lock Exploder | Décodeur de porte / Brise-porte / Brise-serrure |
+| Datathief / Safecracker / Key Analyzer | Voleur de données / Perce-coffre / Analyseur de clé |
+| Bomb Defuser / Bug Detector / Bug | Désamorceur / Détecteur de micros / Micro |
+| Covert Modem / Tracker Bug | Modem espion / Mouchard |
+| Plastique / Remote, Proximity, Timed Mine | Plastic / Mine télécommandée, de proximité, à retardement |
+| Hunting Knife / Throwing Knife | Couteau de chasse / Couteau de lancer |
+| Sniper Rifle / Automatic Shotgun / Grenade Launcher / Rocket Launcher | Fusil de précision / Fusil auto / Lance-grenades / Lance-roquettes |
+| Keycard / Yale Key / Bolt Key | Carte-clé / Clé Yale / Clé de verrou |
+| Black box / flight recorder | Boîte noire |
+| Body armor | Gilet pare-balles |
+| Data thief / mainframe | Voleur de données / ordinateur central |
+| Drone guns | Tourelles automatiques |
+| Keycard / safe key / cell key | Carte-clé / clé du coffre / clé de cellule |
+| Blast door | Porte blindée |
+| Bungee rope / piton gun | Élastique / pistolet à pitons (Lance-piton in the item list) |
+| DAT tape / spool tape / CCTV tape | Cassette DAT / bande magnétique / bande de surveillance |
+| Double-0 agent | agent double zéro |
+
+Grid place names were shortened to fit: Silo de tir n°4, St-Pétersbourg,
+Berceau d'antenne. Letter-spaced level titles ("S E V E R N A Y A") stay
+letter-spaced in French. Cheats: Bond fantôme (Bond Phase), Mini Bond, Mode
+filaire. GoldenEye's pickup line is "Obtenu : " + "des "/"1 " + noun.
+
+## The port's own strings (lang/fr/port.json)
+
+Menus and options follow the Perfect Dark part: vous, short labels, "Oui/Non"
+for On/Off, "Mods : ..." page names, "Fantôme(s)" for Ghost Trials' ghosts
+(the mode's name, Ghost Trials, stays), "Randomizer" stays, "Configuration"
+for a Combat Simulator setup, "Pack de textures", "Contenus HD", "IPS" for
+FPS, "Mo" for MB. Messages split over several strings (the Stage Loader's
+help, the mod list's help) continue one French sentence across the pieces.
