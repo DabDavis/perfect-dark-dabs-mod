@@ -62,6 +62,9 @@
 #include "modloader.h"
 #include "romdata.h"
 #include "system.h"
+#include "langpack.h"
+#include "langfont.h"
+#include "langfont_cjk.h"
 #include "video.h"
 #include "gexplus.h"
 #include "gecinema.h"
@@ -534,10 +537,22 @@ static s32 frontLoadFont(struct gefont *font, const char *rel)
 	return 1;
 }
 
+// the briefing's bank file ("LdamE"), for a language pack's ge.dam.<slot>
+static char g_FrontLangFile[16];
+
 /** A string of LtitleE, as langGet() gives it: an offset table, then the strings. */
 static const char *frontString(s32 index)
 {
 	u32 at;
+
+	// the selected language's, keyed ge.title.<slot> (langpack.h)
+	if (langpackActive()) {
+		const char *tr = langpackGeFile("LtitleE", index);
+
+		if (tr) {
+			return tr;
+		}
+	}
 
 	if (!g_Front.title || (u32)(index + 1) * 4 > g_Front.titlelen) {
 		return "";
@@ -556,6 +571,14 @@ static const char *frontLangString(s32 id)
 {
 	const u32 index = (u32)id & 0x3ff;
 	u32 at;
+
+	if (langpackActive() && g_Front.lang) {
+		const char *tr = langpackGeFile(g_FrontLangFile, index);
+
+		if (tr) {
+			return tr;
+		}
+	}
 
 	if (!g_Front.lang || (index + 1) * 4 > g_Front.langlen) {
 		return "";
@@ -1036,6 +1059,7 @@ static s32 frontLoadBriefing(s32 mission)
 
 	g_Front.brief = frontLoad(g_Missions[row].brief, &brieflen);
 	g_Front.lang = frontLoad(g_Missions[row].lang, &g_Front.langlen);
+	snprintf(g_FrontLangFile, sizeof(g_FrontLangFile), "%s", g_Missions[row].lang);
 
 	if (!g_Front.brief || brieflen < BRIEF_SIZE || !g_Front.lang) {
 		frontFreeBriefing();
@@ -3972,12 +3996,405 @@ static void frontHdMeasure(const struct gefont *font, const struct gefolderfont 
 	*width = (s32)ceilf(w > longest ? w : longest);
 }
 
+/* ---- text past ASCII (CLAUDE-notes/languages.md) ------------------------ */
+
+/**
+ * GoldenEye's glyphs for characters its fonts do not have: the same recipes
+ * langfont.c follows for Perfect Dark's (the ROM's letter plus a mark drawn
+ * per size, two joined, one turned, the sharp s), made here because these
+ * glyphs are 8-bit intensity with no outline band, and Japanese from the baked
+ * set's I8 form. Each is made once and kept for good (the renderer keeps a
+ * texture by its address); a font loaded again has other data and gets its own.
+ */
+struct frontportglyph {
+	const struct gefont *font;
+	const u8 *fontdata;
+	u32 cp;
+	struct gefontchar ch;
+	u8 kern;
+	u8 space;
+	u8 ascii;   // drawn as this ASCII character of the font
+};
+
+#define FRONT_MAX_PORT_GLYPHS 1024
+
+static struct frontportglyph g_FrontPortGlyphs[FRONT_MAX_PORT_GLYPHS];
+static s32 g_FrontNumPortGlyphs;
+
+static s32 frontTextIsAscii(const char *text)
+{
+	for (; *text; text++) {
+		if ((u8)*text >= 0x80) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+static s32 frontSizeClass(const struct gefont *font)
+{
+	const s32 cap = font->chars['H' - 0x21].height;
+
+	return cap <= 8 ? 0 : cap <= 12 ? 1 : 2;
+}
+
+// an I8 cell being made: ink rows from line row top, columns 0..w-1
+struct frontcell {
+	s32 top;
+	s32 w;
+	s32 h;
+	u8 t[48][32];
+};
+
+static void frontCellFrom(struct frontcell *c, const struct gefontchar *g)
+{
+	const s32 stride = (g->width + 7) & ~7;
+
+	memset(c, 0, sizeof(*c));
+	c->top = g->baseline;
+	c->w = g->width < 32 ? g->width : 32;
+	c->h = g->height < 48 ? g->height : 48;
+
+	for (s32 y = 0; y < c->h; y++) {
+		for (s32 x = 0; x < c->w; x++) {
+			c->t[y][x] = g->pixels[y * stride + x];
+		}
+	}
+}
+
+static s32 frontCellGrow(struct frontcell *c, s32 y0, s32 y1)
+{
+	const s32 top = y0 < c->top ? y0 : c->top;
+	const s32 bottom = y1 + 1 > c->top + c->h ? y1 + 1 : c->top + c->h;
+	const s32 shift = c->top - top;
+
+	if (bottom - top > 48) {
+		return 0;
+	}
+
+	if (shift > 0) {
+		memmove(c->t[shift], c->t[0], (48 - shift) * 32);
+		memset(c->t[0], 0, shift * 32);
+	}
+
+	c->top = top;
+	c->h = bottom - top;
+
+	return 1;
+}
+
+static void frontCellWiden(struct frontcell *c, s32 w)
+{
+	const s32 shift = (w - c->w) / 2;
+
+	if (w <= c->w || w > 32) {
+		return;
+	}
+
+	for (s32 y = 0; y < 48; y++) {
+		memmove(&c->t[y][shift], &c->t[y][0], 32 - shift);
+		memset(&c->t[y][0], 0, shift);
+	}
+
+	c->w = w;
+}
+
+static void frontCellPaint(struct frontcell *c, const char *const *rows, s32 n, s32 x0, s32 y0)
+{
+	for (s32 r = 0; r < n; r++) {
+		for (s32 i = 0; rows[r][i]; i++) {
+			const char ch = rows[r][i];
+			const s32 v = ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : ch >= '0' && ch <= '9' ? ch - '0' : 0;
+			const s32 x = x0 + i;
+			const s32 y = y0 + r - c->top;
+
+			if (v >= 9 && x >= 0 && x < 32 && y >= 0 && y < c->h) {
+				c->t[y][x] = (u8)(0xff * (v - 8) / 7);
+			}
+		}
+	}
+}
+
+static s32 frontCellInk(const struct frontcell *c, s32 bottom)
+{
+	for (s32 i = 0; i < c->h; i++) {
+		const s32 y = bottom ? c->h - 1 - i : i;
+
+		for (s32 x = 0; x < c->w; x++) {
+			if (c->t[y][x] >= 0x40) {
+				return c->top + (bottom ? y + 1 : y);
+			}
+		}
+	}
+
+	return bottom ? c->top + c->h : c->top;
+}
+
+static void frontCellMark(struct frontcell *c, s32 size, s32 mark, s32 stack)
+{
+	s32 mw, mh;
+	const char *const *rows = langfontMarkRows(size, mark, &mw, &mh);
+	s32 x0, y0;
+
+	if (!rows) {
+		return;
+	}
+
+	frontCellWiden(c, mw);
+	x0 = (c->w - mw + 1) / 2;
+
+	if (langfontMarkIsBelow(mark)) {
+		y0 = frontCellInk(c, 1);
+	} else {
+		y0 = frontCellInk(c, 0) - 1 - mh - (stack ? 1 : 0);
+	}
+
+	if (frontCellGrow(c, y0, y0 + mh - 1)) {
+		frontCellPaint(c, rows, mh, x0, y0);
+	}
+}
+
+static void frontCellStore(struct frontportglyph *g, const struct frontcell *c, s32 kerningindex)
+{
+	const s32 stride = (c->w + 7) & ~7;
+	u8 *pix = calloc(stride * (c->h ? c->h : 1) + 8, 1);
+
+	if (!pix) {
+		g->ascii = '?';
+		return;
+	}
+
+	for (s32 y = 0; y < c->h; y++) {
+		memcpy(&pix[y * stride], c->t[y], c->w);
+	}
+
+	g->ch.index = 0;
+	g->ch.baseline = c->top;
+	g->ch.height = c->h;
+	g->ch.width = c->w;
+	g->ch.kerningindex = kerningindex;
+	g->ch.pixels = pix;
+}
+
+static const struct gefontchar *frontAscii(const struct gefont *font, u8 c)
+{
+	return &font->chars[(c >= 0x21 && c <= 0x7e ? c : '?') - 0x21];
+}
+
+static void frontBuildPortGlyph(struct frontportglyph *g, const struct gefont *font, u32 cp)
+{
+	s32 kind, mark1, mark2;
+	const char *text;
+	struct frontcell c;
+	const s32 size = frontSizeClass(font);
+
+	g->kern = 'H';
+
+	if (!langfontRecipeOf(cp, &kind, &text, &mark1, &mark2)) {
+		u8 w, h;
+		s8 base;
+		const u8 *pix = langfontCjkGlyphI8(cp, size == 2, &w, &h, &base);
+
+		if (pix) {
+			g->ch.index = 0;
+			g->ch.baseline = base;
+			g->ch.height = h;
+			g->ch.width = w;
+			g->ch.kerningindex = font->chars['H' - 0x21].kerningindex;
+			g->ch.pixels = (u8 *)pix;
+		} else if (cp == 0x3000) {
+			g->space = 1;
+		} else {
+			g->ascii = '?';
+		}
+
+		return;
+	}
+
+	g->kern = text[0];
+
+	switch (kind) {
+	case LANGFONT_KIND_FOLD:
+		if (text[0] == ' ') {
+			g->space = 1;
+			g->kern = 'H';
+		} else {
+			g->ascii = text[0];
+		}
+		return;
+	case LANGFONT_KIND_MARK: {
+		const struct gefontchar *base = frontAscii(font, text[0]);
+
+		frontCellFrom(&c, base);
+
+		// i and j lose their dot under a mark
+		if ((text[0] == 'i' || text[0] == 'j') && mark1 && !langfontMarkIsBelow(mark1)) {
+			const s32 cut = font->chars['x' - 0x21].baseline - c.top;
+
+			if (cut > 0 && cut < c.h) {
+				memmove(c.t[0], c.t[cut], (48 - cut) * 32);
+				c.top += cut;
+				c.h -= cut;
+			}
+		}
+
+		if (mark1) {
+			frontCellMark(&c, size, mark1, 0);
+		}
+
+		if (mark2) {
+			frontCellMark(&c, size, mark2, !langfontMarkIsBelow(mark1) && !langfontMarkIsBelow(mark2));
+		}
+
+		frontCellStore(g, &c, base->kerningindex);
+		return;
+	}
+	case LANGFONT_KIND_JOIN: {
+		const struct gefontchar *a = frontAscii(font, text[0]);
+		const struct gefontchar *b = frontAscii(font, text[1]);
+		struct frontcell cb;
+		const s32 overlap = text[0] >= 'A' ? 1 : 0;
+		const s32 at = a->width - overlap;
+
+		frontCellFrom(&c, a);
+		frontCellFrom(&cb, b);
+
+		if (at + cb.w > 32 || !frontCellGrow(&c, cb.top, cb.top + cb.h - 1)) {
+			g->ascii = text[0];
+			return;
+		}
+
+		for (s32 y = 0; y < cb.h; y++) {
+			for (s32 x = 0; x < cb.w; x++) {
+				u8 *d = &c.t[cb.top - c.top + y][at + x];
+
+				*d = cb.t[y][x] > *d ? cb.t[y][x] : *d;
+			}
+		}
+
+		c.w = at + cb.w;
+		frontCellStore(g, &c, a->kerningindex);
+		return;
+	}
+	case LANGFONT_KIND_TURN: {
+		const struct gefontchar *base = frontAscii(font, text[0]);
+		struct frontcell src;
+		const s32 xh = font->chars['x' - 0x21].baseline;
+
+		frontCellFrom(&src, base);
+		memset(&c, 0, sizeof(c));
+		c.w = src.w;
+		c.h = src.h;
+		c.top = xh > src.top ? xh : src.top;
+
+		for (s32 y = 0; y < c.h; y++) {
+			for (s32 x = 0; x < c.w; x++) {
+				c.t[y][x] = src.t[src.h - 1 - y][src.w - 1 - x];
+			}
+		}
+
+		frontCellStore(g, &c, base->kerningindex);
+		return;
+	}
+	case LANGFONT_KIND_DRAWN: {
+		s32 w, h;
+		const char *const *rows = langfontSharpSRows(size, &w, &h);
+		const struct gefontchar *x = frontAscii(font, 'x');
+
+		memset(&c, 0, sizeof(c));
+		c.w = w;
+		c.h = h;
+		c.top = x->baseline + x->height - h;
+		frontCellPaint(&c, rows, h, 0, c.top);
+		g->kern = 'B';
+		frontCellStore(g, &c, frontAscii(font, 'B')->kerningindex);
+		return;
+	}
+	case LANGFONT_KIND_MARKONLY: {
+		s32 w, h;
+		const char *const *rows = langfontMarkRows(size, mark1, &w, &h);
+
+		memset(&c, 0, sizeof(c));
+
+		if (!rows) {
+			g->ascii = '\'';
+			return;
+		}
+
+		c.w = w;
+		c.h = h;
+		c.top = langfontMarkIsBelow(mark1) ? font->chars['x' - 0x21].baseline + font->chars['x' - 0x21].height : font->chars['H' - 0x21].baseline;
+		frontCellPaint(&c, rows, h, 0, c.top);
+		g->kern = '\'';
+		frontCellStore(g, &c, frontAscii(font, '\'')->kerningindex);
+		return;
+	}
+	}
+
+	g->ascii = text[0];
+}
+
+/**
+ * The glyph for the character at *text (a byte of 0x80 or more), moving past
+ * it; NULL for a space. *prev becomes the character whose kerning it takes.
+ */
+static const struct gefontchar *frontPortChar(const struct gefont *font, const u8 **text, s32 *prev)
+{
+	const char *p = (const char *)*text;
+	const u32 cp = langfontNextCodepoint(&p);
+	struct frontportglyph *g = NULL;
+
+	*text = (const u8 *)p;
+
+	for (s32 i = 0; i < g_FrontNumPortGlyphs; i++) {
+		if (g_FrontPortGlyphs[i].cp == cp && g_FrontPortGlyphs[i].font == font && g_FrontPortGlyphs[i].fontdata == font->data) {
+			g = &g_FrontPortGlyphs[i];
+			break;
+		}
+	}
+
+	if (!g) {
+		if (g_FrontNumPortGlyphs >= FRONT_MAX_PORT_GLYPHS) {
+			*prev = '?';
+			return frontAscii(font, '?');
+		}
+
+		g = &g_FrontPortGlyphs[g_FrontNumPortGlyphs++];
+		memset(g, 0, sizeof(*g));
+		g->font = font;
+		g->fontdata = font->data;
+		g->cp = cp;
+		frontBuildPortGlyph(g, font, cp);
+	}
+
+	if (g->space) {
+		*prev = 'H';
+		return NULL;
+	}
+
+	if (g->ascii) {
+		*prev = g->ascii;
+		return frontAscii(font, g->ascii);
+	}
+
+	*prev = g->kern;
+
+	return &g->ch;
+}
+
 /** textMeasure(): the width of the widest line, and the height. */
 static void frontMeasure(const struct gefont *font, const char *text, s32 spacing, s32 *width, s32 *height)
 {
 	f32 scale, xscale;
 	const struct gefolderfont *hd = frontHdFont(font, &scale, &xscale);
 	s32 prev = 'H';
+
+	// The release's font has nothing past ASCII: a string that needs more is
+	// set in GoldenEye's own, measured and drawn alike (frontText()).
+	if (hd && !frontTextIsAscii(text)) {
+		hd = NULL;
+	}
 
 	if (hd) {
 		frontHdMeasure(font, hd, xscale, text, spacing, width, height);
@@ -4007,6 +4424,18 @@ static void frontMeasure(const struct gefont *font, const char *text, s32 spacin
 
 			w = cur->width + w - (font->kerning[p->kerningindex * 13 + cur->kerningindex] + spacing - 1);
 			prev = c;
+		} else if (c >= 0x80) {
+			const u8 *at = (const u8 *)text;
+			const struct gefontchar *p = &font->chars[prev - 0x21];
+			const struct gefontchar *cur = frontPortChar(font, &at, &prev);
+
+			text = (const char *)at - 1;
+
+			if (cur) {
+				w = cur->width + w - (font->kerning[p->kerningindex * 13 + cur->kerningindex] + spacing - 1);
+			} else {
+				w += 5;
+			}
 		}
 	}
 
@@ -4146,6 +4575,11 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 
 	gDPSetPrimColor(gdl++, 0, 0, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
 
+	// past ASCII the release's font has nothing: GoldenEye's own (frontMeasure())
+	if (hd && !frontTextIsAscii(text)) {
+		hd = NULL;
+	}
+
 	if (hd) {
 		return frontHdText(gdl, font, hd, scale, xscale, x, y, text, colour, spacing, rotated);
 	}
@@ -4168,12 +4602,24 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 			continue;
 		}
 
-		if (c < 0x21 || c >= 0x7f) {
-			continue;
-		}
+		if (c >= 0x80) {
+			const u8 *at = (const u8 *)text;
 
-		cur = &font->chars[c - 0x21];
-		p = &font->chars[prev - 0x21];
+			p = &font->chars[prev - 0x21];
+			cur = frontPortChar(font, &at, &prev);
+			text = (const char *)at - 1;
+
+			if (!cur) {
+				*x += 5;
+				continue;
+			}
+		} else if (c < 0x21 || c >= 0x7f) {
+			continue;
+		} else {
+			cur = &font->chars[c - 0x21];
+			p = &font->chars[prev - 0x21];
+			prev = c;
+		}
 		*x -= font->kerning[p->kerningindex * 13 + cur->kerningindex] + spacing - 1;
 
 		gDPLoadTextureBlock(gdl++, cur->pixels, G_IM_FMT_I, G_IM_SIZ_8b, (cur->width + 7) & ~7, cur->height, 0,
@@ -4205,7 +4651,6 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 		}
 
 		*x += cur->width;
-		prev = c;
 	}
 
 	return gdl;
