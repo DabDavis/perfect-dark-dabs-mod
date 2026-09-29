@@ -255,7 +255,8 @@ void inputSetCancelExclusive(s32 idx, s32 on);
 
 void inputUpdate(void);
 
-// call this before configSave()
+// binds[] into the strings pd.ini is written from; configSave() calls it,
+// and it does nothing before inputInit() has read them
 void inputSaveBinds(void);
 
 // reset given player's binds to either PC or N64 defaults

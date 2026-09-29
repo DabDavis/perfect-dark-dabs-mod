@@ -3,8 +3,10 @@
 #include <strings.h>
 #include <ctype.h>
 #include <PR/ultratypes.h>
+#include <ultra64.h>
 #include "fs.h"
 #include "config.h"
+#include "input.h"
 #include "system.h"
 #include "utils.h"
 
@@ -283,6 +285,10 @@ u32 configDumpSection(const char *section, char *dst, u32 dstsize)
 
 s32 configSave(const char *fname)
 {
+	// The binds are kept as keys and turned into pd.ini's text only on
+	// request; every save asks, not just the one on exit (input.c)
+	inputSaveBinds();
+
 	FILE *f = fsFileOpenWrite(fname);
 	if (!f) {
 		return 0;

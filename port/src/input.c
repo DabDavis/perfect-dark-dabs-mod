@@ -67,7 +67,10 @@ static struct controllercfg {
 };
 
 static u32 binds[MAXCONTROLLERS][CK_TOTAL_COUNT][INPUT_MAX_BINDS];
+// pd.ini's text for each bind: what configLoad() read until inputInit() has
+// parsed it, and what inputSaveBinds() makes of binds[] after that
 static char bindStrs[MAXCONTROLLERS][CK_TOTAL_COUNT][MAX_BIND_STR];
+static s32 bindsLoaded = 0;
 
 static s32 fakeControllers = 0;
 static s32 firstController = 0;
@@ -650,6 +653,12 @@ void inputSaveBinds(void)
 {
 	char *bindstr;
 
+	// Before inputInit() binds[] is empty and bindStrs[] is still what pd.ini
+	// said, which a save then has to write back as it is
+	if (!bindsLoaded) {
+		return;
+	}
+
 	for (s32 i = 0; i < MAXCONTROLLERS; ++i) {
 		for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
 			bindstr = bindStrs[i][ck];
@@ -669,12 +678,28 @@ void inputSaveBinds(void)
 	}
 }
 
-static inline void inputParseBindString(const s32 ctrl, const u32 ck, char *bindstr)
+/**
+ * The string is left as it is: strtok() cuts the one it is given at every
+ * comma, and cut in place it was bindStrs[] - the text pd.ini is written from -
+ * left holding only each bind's first key. Every save from the middle of a
+ * session (patch notes seen, Enhancements On/Off, HD Assets, the report name)
+ * then wrote that, and a game that did not get as far as cleanup() afterwards
+ * started next time with player 1's pad down to A and the left stick click:
+ * the keyboard key comes first in every line the pad shares with it (tester
+ * F3s 20260929-165655, -165841, -165957: D-pad, B and Start gone, the stick
+ * still working). inputMendCutPadBinds() puts a config left like that right.
+ */
+static inline void inputParseBindString(const s32 ctrl, const u32 ck, const char *src)
 {
-	if (!bindstr[0]) {
+	char bindstr[MAX_BIND_STR];
+
+	if (!src[0]) {
 		// empty string, keep defaults
 		return;
 	}
+
+	strncpy(bindstr, src, sizeof(bindstr) - 1);
+	bindstr[sizeof(bindstr) - 1] = '\0';
 
 	// unbind all first
 	memset(binds[ctrl][ck], 0, sizeof(binds[ctrl][ck]));
@@ -893,6 +918,69 @@ void inputApplyAkimboTriggers(s32 on)
 	}
 }
 
+static s32 inputHasPadBind(s32 ctrl, u32 ck)
+{
+	for (s32 b = 0; b < INPUT_MAX_BINDS; ++b) {
+		if (binds[ctrl][ck][b] >= VK_JOY_BEGIN) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Give player 1 back the pad buttons a cut pd.ini lost (inputParseBindString()).
+ *
+ * The cut kept the first key of every line, and in player 1's PC binds the
+ * keyboard's comes first everywhere but A and the left stick click. So the
+ * fingerprint is A still on the pad while Start, fire, the menus' accept and
+ * cancel and all four D-pad directions have no pad button at all - nobody
+ * binds a pad that way by hand. Each bind with no pad button then gets the PC
+ * default's back, and keeps its keys; a line with a pad button is left alone.
+ * Once mended the fingerprint is gone, so this does nothing on later starts.
+ */
+static void inputMendCutPadBinds(s32 ctrl)
+{
+	static const u32 cutcks[] = {
+		CK_START, CK_ZTRIG, CK_ACCEPT, CK_CANCEL, CK_C_U, CK_C_D, CK_C_L, CK_C_R,
+	};
+	u32 defaults[CK_TOTAL_COUNT][INPUT_MAX_BINDS];
+	u32 saved[CK_TOTAL_COUNT][INPUT_MAX_BINDS];
+	s32 mended = 0;
+
+	if (!inputHasPadBind(ctrl, CK_A)) {
+		return;
+	}
+
+	for (u32 i = 0; i < sizeof(cutcks) / sizeof(cutcks[0]); ++i) {
+		if (inputHasPadBind(ctrl, cutcks[i])) {
+			return;
+		}
+	}
+
+	memcpy(saved, binds[ctrl], sizeof(saved));
+	inputSetDefaultKeyBinds(ctrl, 0);
+	memcpy(defaults, binds[ctrl], sizeof(defaults));
+	memcpy(binds[ctrl], saved, sizeof(saved));
+
+	for (u32 ck = 0; ck < CK_TOTAL_COUNT; ++ck) {
+		if (inputHasPadBind(ctrl, ck)) {
+			continue;
+		}
+
+		for (s32 b = 0; b < INPUT_MAX_BINDS; ++b) {
+			if (defaults[ck][b] >= VK_JOY_BEGIN) {
+				inputKeyBind(ctrl, ck, -1, defaults[ck][b]);
+				mended++;
+			}
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "input: player %d's pad binds were cut down to A in pd.ini; %d put back from the PC defaults",
+			ctrl + 1, mended);
+}
+
 static inline void inputLoadBinds(void)
 {
 	for (s32 i = 0; i < MAXCONTROLLERS; ++i) {
@@ -901,7 +989,16 @@ static inline void inputLoadBinds(void)
 		}
 
 		inputMigrateRollBind(i);
+
+		if (i == 0) {
+			inputMendCutPadBinds(i);
+		}
 	}
+
+	bindsLoaded = 1;
+
+	// bindStrs[] from binds[], so a save before exit writes what is in use
+	inputSaveBinds();
 }
 
 s32 inputInit(void)

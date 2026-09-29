@@ -7,10 +7,12 @@
 #include <string.h>
 #include <time.h>
 #include <PR/ultratypes.h>
+#include <ultra64.h>
 #include "platform.h"
 #include "system.h"
 #include "fs.h"
 #include "config.h"
+#include "input.h"
 #include "ghostnet.h"
 #include "crashreport.h"
 #include "versioninfo.h"
@@ -120,6 +122,17 @@ void crashReportWriteContext(FILE *f)
 	// report could show the tester had on.
 	configDumpSection("Video", settings, sizeof(settings));
 	fprintf(f, "\n--- pd.ini [Video] ---\n%s", settings);
+
+	// Player 1's controller settings and binds: an F3 of a pad whose D-pad,
+	// B and Start had stopped working (20260929-165655) could not show what
+	// they were bound to. The binds as in use, not as last written.
+	inputSaveBinds();
+	configDumpSection("Input", settings, sizeof(settings));
+	fprintf(f, "\n--- pd.ini [Input] ---\n%s", settings);
+	configDumpSection("Input.Player1", settings, sizeof(settings));
+	fprintf(f, "\n--- pd.ini [Input.Player1] ---\n%s", settings);
+	configDumpSection("Input.Player1.Binds", settings, sizeof(settings));
+	fprintf(f, "\n--- pd.ini [Input.Player1.Binds] ---\n%s", settings);
 
 	fprintf(f, "\n--- memory ---\n"
 			"stage pool free onboard %d expansion %d (total %u); permanent free onboard %d expansion %d\n",
