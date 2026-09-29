@@ -180,8 +180,15 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	f32 animscale = g_HeadsAndBodies[bodynum].animscale;
 	struct modelnode *node = NULL;
 	u32 stack[2];
+#ifndef PLATFORM_N64
+	// GE Plus under the Japanese cartridge's rules keeps its named characters
+	// at their own size (chr_b.c: no 0.8 for them, BUGFIX_R1)
+	const bool dkmode = cheatIsActive(CHEAT_DKMODE) && !gexPlusDkModeSpares(bodynum, headnum);
+#else
+	const bool dkmode = cheatIsActive(CHEAT_DKMODE);
+#endif
 
-	if (cheatIsActive(CHEAT_DKMODE)) {
+	if (dkmode) {
 		scale *= 0.8f;
 	}
 
@@ -272,7 +279,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 						scale *= 0.4f;
 					}
 
-					if (cheatIsActive(CHEAT_DKMODE)) {
+					if (dkmode) {
 						scale *= 1.25f;
 					}
 				} else {

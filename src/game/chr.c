@@ -2168,7 +2168,13 @@ void chrHandleJointPositioned(s32 joint, Mtxf *mtx)
 			neckjoint = -1;
 		}
 
-		if (cheatIsActive(CHEAT_DKMODE) && CHRRACE(g_CurModelChr) == RACE_HUMAN) {
+		if (cheatIsActive(CHEAT_DKMODE) && CHRRACE(g_CurModelChr) == RACE_HUMAN
+#ifndef PLATFORM_N64
+				// the Japanese cartridge's named characters under GE Plus's
+				// region rules (GoldenEye chr.c, chrCanUseDKModeScaling())
+				&& !gexPlusDkModeSpares(g_CurModelChr->bodynum, g_CurModelChr->headnum)
+#endif
+				) {
 			if (joint == neckjoint) {
 				scale = 4.0f;
 			} else if (joint == lshoulderjoint || joint == rshoulderjoint) {
@@ -3260,7 +3266,11 @@ s32 chrTick(struct prop *prop)
 			chr->hidden |= CHRHFLAG_ONBONDSSCREEN;
 		}
 
-		if (cheatIsActive(CHEAT_DKMODE)) {
+		if (cheatIsActive(CHEAT_DKMODE)
+#ifndef PLATFORM_N64
+				&& !gexPlusDkModeSpares(chr->bodynum, chr->headnum)
+#endif
+				) {
 			modelSetDistanceScale(0.3125f);
 		}
 

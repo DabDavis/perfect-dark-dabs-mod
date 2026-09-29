@@ -400,6 +400,29 @@ static bool invAllGunsAreGe(void)
 	return gexFrontIsInside() != 0;
 }
 
+/**
+ * GoldenEye's list as the region's cartridge has it. The Japanese one leaves
+ * the hunting knife out of everything the cheat hands over (bondinv.c's
+ * bondinvItemAvailable(), bondinvItemAvailableForHand(), the cycles and the
+ * watch's list, all under j_text_trigger), so it is never cycled to, listed or
+ * held as a pair. A knife actually picked up is still the player's: the
+ * cartridge only tests it where the cheat is asked.
+ */
+static s32 invGeAllGunsCount(void)
+{
+	return gexFrontIsJapanese() ? NUM_GE_ALLGUNS - 1 : NUM_GE_ALLGUNS;
+}
+
+static s32 invGeAllGunsAt(s32 index)
+{
+	// the knife is the list's second, straight after Unarmed
+	if (gexFrontIsJapanese() && index >= 1) {
+		index++;
+	}
+
+	return g_GeAllGuns[index];
+}
+
 /** Perfect Dark's own list after GoldenEye's, with its Unarmed left out. */
 static s32 invAllGunsPdCount(void)
 {
@@ -412,7 +435,7 @@ s32 invAllGunsCount(void)
 {
 #ifndef PLATFORM_N64
 	if (invAllGunsAreGe()) {
-		return NUM_GE_ALLGUNS + invAllGunsPdCount();
+		return invGeAllGunsCount() + invAllGunsPdCount();
 	}
 #endif
 
@@ -428,11 +451,11 @@ s32 invAllGunsWeaponAt(s32 index)
 			return WEAPON_NONE;
 		}
 
-		if (index < NUM_GE_ALLGUNS) {
-			return g_GeAllGuns[index];
+		if (index < invGeAllGunsCount()) {
+			return invGeAllGunsAt(index);
 		}
 
-		index -= NUM_GE_ALLGUNS;
+		index -= invGeAllGunsCount();
 
 		return index < invAllGunsPdCount() ? invAddOneIfCantHaveSlayer(index + 2) : WEAPON_NONE;
 	}
