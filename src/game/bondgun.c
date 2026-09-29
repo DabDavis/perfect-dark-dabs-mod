@@ -8592,6 +8592,17 @@ void bgun0f0a4e44(struct hand *hand, struct weapon *weapondef, struct modeldef *
 	spb4 = RANDOMFRAC() * 0.25f + 1.0f;
 	muzzlez = weapondef->muzzlez;
 
+#ifndef PLATFORM_N64
+	// A GoldenEye gun's row carries GoldenEye's flash length, for GoldenEye's
+	// own flash; drawn on its host's model (the HD look) the flash is the
+	// host's, and at twice its length the Klobb's and D5K's stood off in
+	// the air past the barrel (F3 20260929-045235)
+	if (WEAPON_IS_GE(weaponnum) && !gegunsOwnModelInUse(weaponnum)
+			&& weaponHost(weaponnum) != weaponnum && g_Weapons[weaponHost(weaponnum)]) {
+		muzzlez = g_Weapons[weaponHost(weaponnum)]->muzzlez;
+	}
+#endif
+
 	mtx4LoadIdentity(&spd8);
 
 	if (funcdef && (funcdef->flags & FUNCFLAG_00000001)) {
@@ -8689,6 +8700,47 @@ static void bgunSetGunMatrices(struct modelrenderdata *renderdata, struct hand *
  * Create casing and beam for a fired weapon,
  * and uncloak if the weapon is a throwable or fired projectile.
  */
+#ifndef PLATFORM_N64
+/**
+ * A casing for the release's gun drawn on GoldenEye's own model (the HD look,
+ * gebean.c's fpOnOwnInHd), which carries no ejection port: GoldenEye throws
+ * no casings in first person, and its model has nowhere to throw them from.
+ * On the host's model the release's Klobb, D5K, RC-P90 and the rest threw
+ * them from the host's port, and falling back to the hand's origin put them
+ * behind the eye where they were never seen. The port is taken along the
+ * barrel, from the model's origin to its muzzle, in the muzzle's own frame so
+ * they fly out to the side the way the host's did.
+ */
+static bool bgunCreateOwnModelCasing(s32 handnum, s32 weaponnum, struct modeldef *modeldef, u8 *allocation, f32 ground)
+{
+	f32 offset[3];
+	struct modelnode *muzzle = gegunsOwnModelMuzzle(weaponnum, modeldef, offset);
+	Mtxf *mtxs = (Mtxf *)allocation;
+	Mtxf port;
+	s32 index;
+
+	if (!muzzle || (index = modelFindNodeMtxIndex(muzzle, 0)) < 0) {
+		return false;
+	}
+
+	mtx4Copy(&mtxs[index], &port);
+
+	for (s32 a = 0; a < 3; a++) {
+		const f32 end = mtxs[index].m[3][a] + mtxs[index].m[0][a] * offset[0]
+			+ mtxs[index].m[1][a] * offset[1] + mtxs[index].m[2][a] * offset[2];
+
+		port.m[3][a] = mtxs[0].m[3][a] + (end - mtxs[0].m[3][a]) * 0.55f;
+	}
+
+	mtx00015f04(9.999999f, &port);
+	mtx4MultMtx4InPlace(camGetProjectionMtxF(), &port);
+
+	casingCreateForHand(handnum, ground, &port);
+
+	return true;
+}
+#endif
+
 void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s32 weaponnum, struct modeldef *modeldef, u8 *allocation)
 {
 	f32 ground;
@@ -8720,7 +8772,15 @@ void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s3
 				mtx4MultMtx4InPlace(camGetProjectionMtxF(), &sp24);
 
 				casingCreateForHand(handnum, ground, &sp24);
-			} else {
+			}
+#ifndef PLATFORM_N64
+			else if (gebeanFirstPersonReleaseFile(weaponnum) && gegunsOwnModelInUse(weaponnum)
+					&& bgunCreateOwnModelCasing(handnum, weaponnum, modeldef, allocation, ground)) {
+				// the HD look's gun on GoldenEye's own model, which has no
+				// ejection port of its own
+			}
+#endif
+			else {
 				casingCreateForHand(handnum, ground, &hand->posmtx);
 			}
 
@@ -8936,7 +8996,13 @@ void bgun0f0a5550(s32 handnum)
 			inx = handnum == HAND_RIGHT ? 4.5f : -4.5f;
 		}
 
-		sp274.f[0] += (inx - func0f0b131c(handnum)) * player->codaimfrac;
+		// The barrel, not the model's origin, comes in to the middle: a
+		// model's origin need not be under its barrel, and on Perfect
+		// Dark's classic PP9i - which GoldenEye's PP7 is drawn on in the HD
+		// look - the muzzle stands 1.7 units to the left of it, which held
+		// the gun off to one side and turned its flank to the eye (F3
+		// 20260929-042906, "cod aim. bonds hand looks wrong with the pp7")
+		sp274.f[0] += (inx - func0f0b131c(handnum) - hand->codaimmuzzlex) * player->codaimfrac;
 		sp274.f[1] += 3.5f * player->codaimfrac;
 		sp274.f[2] += 3.0f * player->codaimfrac;
 	}
@@ -9440,10 +9506,20 @@ void bgun0f0a5550(s32 handnum)
 							+ mtx->m[2][a] * ownmuzzle[2];
 					}
 				} else if (gebeanFirstPersonMuzzleOffset(weaponnum, &gepart, gemuzzle)) {
+					// gebean.c measured from the node it names, which is not
+					// always this one: the classic hosts carry a muzzle node
+					// with no rest of its own, so it measured from their
+					// flash, on another matrix - hundreds of units off when
+					// laid on the muzzle node's (F3 20260929-045235)
+					struct modelnode *genode = gepart >= 0 ? modelGetPart(modeldef, gepart) : NULL;
+					s32 gemtx = genode && genode != node ? modelFindNodeMtxIndex(genode, 0) : -1;
+					Mtxf *from = gemtx >= 0 ? (Mtxf *)mtxallocation + gemtx : mtx;
+
 					for (s32 a = 0; a < 3; a++) {
-						geoffset[a] = mtx->m[0][a] * gemuzzle[0]
-							+ mtx->m[1][a] * gemuzzle[1]
-							+ mtx->m[2][a] * gemuzzle[2];
+						geoffset[a] = from->m[0][a] * gemuzzle[0]
+							+ from->m[1][a] * gemuzzle[1]
+							+ from->m[2][a] * gemuzzle[2]
+							+ from->m[3][a] - mtx->m[3][a];
 					}
 				}
 #endif
@@ -9458,6 +9534,12 @@ void bgun0f0a5550(s32 handnum)
 				hand->muzzlemat.m[3][1] += geoffset[1];
 				hand->muzzlemat.m[3][2] += geoffset[2];
 
+#ifndef PLATFORM_N64
+				// Both in the camera's space: where across the view the
+				// muzzle is from the model's origin (COD Style Aiming)
+				hand->codaimmuzzlex = hand->muzzlemat.m[3][0] - hand->cammtx.m[3][0];
+#endif
+
 				mtx4TransformVecInPlace(camGetProjectionMtxF(), &hand->muzzlepos);
 
 				hand->muzzlez = -(((Mtxf *)((uintptr_t)mtxallocation + sp6c * sizeof(Mtxf)))->m[3][2]
@@ -9470,6 +9552,21 @@ void bgun0f0a5550(s32 handnum)
 #endif
 						) {
 					bgun0f0a4e44(hand, weapondef, modeldef, funcdef, sp1e0, mtxallocation, weaponnum, sp1e4, sp6c, &sp234, &sp1f4);
+
+#ifndef PLATFORM_N64
+					// The host's flash hangs off this node, which is where
+					// the host's barrel ends: moved to where the GoldenEye
+					// gun drawn over it ends, as the shots are (F3
+					// 20260929-045235 - the Klobb's and D5K's burned in
+					// the air beside the gun)
+					if (!gegunsOwnModelInUse(weaponnum) && gebeanFirstPersonMuzzleOffset(weaponnum, &gepart, gemuzzle)) {
+						mtx = (Mtxf *)mtxallocation;
+						mtx += sp6c;
+						mtx->m[3][0] += geoffset[0];
+						mtx->m[3][1] += geoffset[1];
+						mtx->m[3][2] += geoffset[2];
+					}
+#endif
 				}
 			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_HELDMUZZLE)
 #ifndef PLATFORM_N64
@@ -9489,6 +9586,9 @@ void bgun0f0a5550(s32 handnum)
 				mtx4TransformVecInPlace(camGetProjectionMtxF(), &hand->muzzlepos);
 
 				hand->muzzlez = -((Mtxf *)((uintptr_t)mtxallocation + sp6c * sizeof(Mtxf)))->m[3][2];
+#ifndef PLATFORM_N64
+				hand->codaimmuzzlex = 0.0f;
+#endif
 			} else {
 				hand->muzzlepos.x = hand->posmtx.m[3][0];
 				hand->muzzlepos.y = hand->posmtx.m[3][1];
@@ -9497,6 +9597,9 @@ void bgun0f0a5550(s32 handnum)
 				mtx4Copy(&hand->posmtx, &hand->muzzlemat);
 
 				hand->muzzlez = -hand->cammtx.m[3][2];
+#ifndef PLATFORM_N64
+				hand->codaimmuzzlex = 0.0f;
+#endif
 			}
 		}
 	} else {

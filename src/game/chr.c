@@ -7569,6 +7569,22 @@ Gfx *chrRenderCloak(Gfx *gdl, struct prop *chrprop, struct prop *thisprop)
 
 Gfx *chrRenderShield(Gfx *gdl, struct chrdata *chr, u32 alpha)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's body armour is never drawn: not the shimmer Perfect Dark's
+	// shield gives every 300 frames while it lasts, nor one left by a hit
+	// (F3 20260929-043653). A cloak's fade still is.
+	if (geRoomActive()) {
+		if (chr->cloakfadefrac > 0 && !chr->cloakfadefinished) {
+			gSPSetGeometryMode(gdl++, G_CULL_BACK);
+			gdl = shieldhitRender(gdl, chr->prop, chr->prop, alpha, true,
+					chr->cmnum, chr->cmnum2, chr->cmnum3, chr->cmnum4);
+			gSPSetGeometryMode(gdl++, G_CULL_BACK);
+		}
+
+		return gdl;
+	}
+#endif
+
 	if (chrGetShield(chr) > 0 && g_Vars.lvupdate240 > 0) {
 		chr->cmcount++;
 
