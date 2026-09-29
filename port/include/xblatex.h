@@ -107,6 +107,7 @@ const void *xblaTexBindTexture(s32 texturenum, u8 *rgba, s32 width, s32 height);
  * addr is not such a stand-in.
  */
 s32 xblaTexImageInfo(const void *addr, s32 *outAlpha, s32 *outSoft);
+s32 xblaTexImageMean(const void *addr, f32 outMean[3]);
 
 /**
  * A picture bound above: the mean alpha of its first and of its last row, in

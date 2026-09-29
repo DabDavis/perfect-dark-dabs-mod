@@ -3090,6 +3090,80 @@ static u8 *texpackLoadImage(const char *path, s32 flip, s32 *outWidth, s32 *outH
 }
 
 /**
+ * The colour of each of the textures in nums[] as the port decodes it: the mean
+ * r, g and b (0-255, three to a texture in out[]) over its texels at least half
+ * opaque (every texel when none is), -1 for one that does not load. For gebeanstage.c, which lights the
+ * HD level's rooms as brightly as the converted level's own. Like the checksum
+ * index, the LOD size cache is put back and the pool's addresses forgotten.
+ */
+void texpackTextureMeans(const s32 *nums, s32 count, f32 *out)
+{
+	struct texcacheitem savedItems[ARRAYCOUNT(g_TexCacheItems)];
+	const s32 savedCount = g_TexCacheCount;
+	struct texpool pool;
+	u8 *buffer;
+
+	for (s32 i = 0; i < count * 3; i++) {
+		out[i] = -1.0f;
+	}
+
+	if (!g_Textures || count <= 0 || !(buffer = malloc(TEXPACK_RICE_SCRATCH))) {
+		return;
+	}
+
+	memcpy(savedItems, g_TexCacheItems, sizeof(savedItems));
+
+	for (s32 i = 0; i < count; i++) {
+		struct tex *tex;
+		s32 w, h;
+		u8 *rgba;
+
+		if (nums[i] < 0 || nums[i] >= NUM_TEXTURES) {
+			continue;
+		}
+
+		texInitPool(&pool, buffer, TEXPACK_RICE_SCRATCH);
+		texLoadFromTextureNum(nums[i], &pool);
+		tex = texFindInPool(nums[i], &pool);
+
+		if (!tex || !tex->data || !(rgba = texpackTexToRgba(tex, &w, &h))) {
+			continue;
+		}
+
+		{
+			f64 sum[3] = { 0 }, sumall[3] = { 0 };
+			u32 num = 0;
+			const u32 total = (u32)w * (u32)h;
+
+			for (u32 p = 0; p < total; p++) {
+				const u8 *px = &rgba[p * 4];
+
+				for (s32 c = 0; c < 3; c++) {
+					sumall[c] += px[c];
+
+					if (px[3] >= 0x80) {
+						sum[c] += px[c];
+					}
+				}
+
+				num += px[3] >= 0x80;
+			}
+
+			for (s32 c = 0; c < 3 && total; c++) {
+				out[i * 3 + c] = num ? (f32)(sum[c] / num) : (f32)(sumall[c] / total);
+			}
+		}
+
+		free(rgba);
+	}
+
+	memcpy(g_TexCacheItems, savedItems, sizeof(savedItems));
+	g_TexCacheCount = savedCount;
+	texpackForgetRange(buffer, buffer + TEXPACK_RICE_SCRATCH);
+	free(buffer);
+}
+
+/**
  * --dump-texture N,M,...: write those textures as the port decodes them, to
  * <exedir>/texdump_N.png, from lvTick() once a stage is up. For looking at
  * a mod's texture that draws wrong (GE-X's KF7 clip and some faces drew

@@ -589,6 +589,54 @@ s32 xblaTexImageInfo(const void *addr, s32 *outAlpha, s32 *outSoft)
 	return found;
 }
 
+/**
+ * A bound picture's colour: its mean r, g and b (0-255) over its texels at
+ * least half opaque, or over all of them when none is. 0 when the address
+ * holds no picture.
+ */
+s32 xblaTexImageMean(const void *addr, f32 outMean[3])
+{
+	const struct xblatexentry *e;
+	s32 found = 0;
+
+	if (!lock || numBound == 0) {
+		return 0;
+	}
+
+	SDL_LockMutex(lock);
+
+	e = xblaTexFind(addr);
+
+	if (e && e->image && e->width > 0 && e->height > 0) {
+		const u32 total = (u32)e->width * (u32)e->height;
+		f64 sum[3] = { 0 }, sumall[3] = { 0 };
+		u32 num = 0;
+
+		for (u32 i = 0; i < total; i++) {
+			const u8 *p = &e->image[i * 4];
+
+			for (s32 c = 0; c < 3; c++) {
+				sumall[c] += p[c];
+
+				if (p[3] >= 0x80) {
+					sum[c] += p[c];
+				}
+			}
+
+			num += p[3] >= 0x80;
+		}
+
+		for (s32 c = 0; c < 3; c++) {
+			outMean[c] = num ? (f32)(sum[c] / num) : (f32)(sumall[c] / total);
+		}
+		found = 1;
+	}
+
+	SDL_UnlockMutex(lock);
+
+	return found;
+}
+
 s32 xblaTexImageEdgeAlpha(const void *addr, s32 *outFirst, s32 *outLast)
 {
 	const struct xblatexentry *e;

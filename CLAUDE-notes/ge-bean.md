@@ -13064,3 +13064,42 @@ at a side view, the teeth come through.
   greatguard2 before/after; Brosnan head unchanged; N64 look pixel-identical.
   Rig `~/wt/markneck-run` (`heads.sh`, `stand.sh`, `bodies.sh`, `probes/look.py`
   with `SWAPHEAD`/`SETBODY` and `DUMP=<source>` to dump a built mesh).
+
+## HD rooms lit as brightly as GoldenEye's own: Train (23rd F3 pass, 2026-09-29, fix/f3-0929e-hdbright)
+
+F3 20260929-200831 (Train 0x60, HD look): "screen is too dark in this corridor" -
+screen mean 12 in HD against 35 in the N64 look at the report's camera. The
+darkness is the release's own baked vertex colours (room 13's corridor walls
+~(80,73,54) on a dark red wood picture; GoldenEye's are 254 on a lighter brown).
+Owner: "match train corridor to n64 brightness".
+
+- `matchN64Brightness()` in gebeanstage.c, run in `build()` after the dealing,
+  before the rooms are written. Brightness = Rec. 601 luma of vertex colour
+  times the picture's mean colour, channel by channel, over opaque triangles by
+  area - measured the same way on both sides (release pictures via
+  `xblaTexImageMean()`, GoldenEye's via `texpackTextureMeans()`, which puts the
+  LOD size cache back like the rice index does).
+- Each HD triangle is held against the GoldenEye triangle the dealing grid found
+  for it (`gridBright[]`, filled as the grid is), and one factor is taken per
+  room and picture (a picture under `BRIGHT_MIN_AREA` of a room takes the room's),
+  capped at 4, never below 1, only in rooms darker than GoldenEye's as a whole.
+  **Tried first and not enough:** one factor per room from vertex colours alone
+  (12 -> 19 of 35 on screen) and per room with pictures (-> 19): the release's
+  vents/ceiling came out brighter than GoldenEye's, so a room-wide factor left
+  the walls, most of the screen, at half. Per picture: 12 -> 27.6 (walls
+  matched, luma 37 vs 35; the rest is the N64 look's bright blue ceiling and
+  props, which this does not touch).
+- On for Train only: `brightLevels[]` = { "tra" }. Turning another level on is
+  one key there plus a bump of `HDCACHE_VERSION` (now 2). Every level logs
+  `gebeanstage: <level> brightness against GoldenEye's rooms: ...` with its rooms
+  under 0.70 (room:ratio(HD/N64)), whether on or not; the level-wide figure is by
+  area and big outdoor rooms swamp it (Train's reads 1.72).
+- Survey 2026-09-29 (CE off), rooms under 0.70: Depot 45/59 (level 0.53), Caverns
+  26/63 (0.55), Silo 58/86 (0.64), Library/Basement/Stack 58/92 (0.65), Complex
+  26/44 (0.67), Statue Park 12/27 (0.69, several at 0.2), Aztec 44/92, Frigate
+  36/58, Dam 41/83 (indoor rooms; level 1.58 by area), Surface 10/39, Streets
+  9/20. About even: Facility, Bunker 1/2, Archives, Egyptian, Cradle, Runway,
+  Control, Caves, Temple; Jungle brighter than GoldenEye everywhere.
+- Rig: `~/wt/f3-0929e-hdbright-run` (`shots.sh <binary> <prefix> <look>` with
+  CAMS, one shot per game run - the spectator camera drifts to the sim after a
+  few seconds, so a second shot in the same run is from somewhere else).
