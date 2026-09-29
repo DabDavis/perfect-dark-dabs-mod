@@ -8702,6 +8702,19 @@ void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s3
 		if (modeldef && !weaponHasFlag2(weaponnum, WEAPONFLAG2_NOCARTEJECT)) {
 			s32 partnum = MODELPART_GUN_CARTEJECTPOS;
 			struct modelnode *node;
+#ifndef PLATFORM_N64
+			// COD Style Aiming: at the sights the ejection port is just under
+			// the eye, and every casing flew across the middle of the view a
+			// hand's width from it - great brass bars over the target, drawn
+			// in the gun's own pass on top of the world and, on a gun with a
+			// zoom of its own, through the gun's projection rather than the
+			// view's, so they fell somewhere the floor was not (F3
+			// 20260929-044053, "when I aim with kf7 here, cod aim. causes
+			// graphical glitches"). None come out while the gun is up.
+			const bool ejectcasing = g_Vars.currentplayer->codaimfrac < 0.5f;
+#else
+			const bool ejectcasing = true;
+#endif
 
 			if (weaponHasFlag2(weaponnum, WEAPONFLAG2_MINIGUN)) {
 				partnum = (hand->burstbullets & 1) == 1 ? MODELPART_REAPER_CARTEJECTPOS1 : MODELPART_REAPER_CARTEJECTPOS2;
@@ -8719,8 +8732,10 @@ void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s3
 				mtx00015f04(9.999999f, &sp24);
 				mtx4MultMtx4InPlace(camGetProjectionMtxF(), &sp24);
 
-				casingCreateForHand(handnum, ground, &sp24);
-			} else {
+				if (ejectcasing) {
+					casingCreateForHand(handnum, ground, &sp24);
+				}
+			} else if (ejectcasing) {
 				casingCreateForHand(handnum, ground, &hand->posmtx);
 			}
 
