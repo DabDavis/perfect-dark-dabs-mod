@@ -658,9 +658,17 @@ f32 gsetGetDamage(struct gset *gset)
 		damage = (gset->unk063a / 3.0f + 1.0f) * damage;
 	}
 
+#ifndef PLATFORM_N64
+	// A pair of GoldenEye's guns is not doubled: each bullet does its
+	// Destruction (GoldenEye's chraction.c)
+	if (!WEAPON_IS_GE(gset->weaponnum) && bgunIsFiring(HAND_LEFT) && bgunIsFiring(HAND_RIGHT)) {
+		damage += damage;
+	}
+#else
 	if (bgunIsFiring(HAND_LEFT) && bgunIsFiring(HAND_RIGHT)) {
 		damage += damage;
 	}
+#endif
 
 	return damage;
 }

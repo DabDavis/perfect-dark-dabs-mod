@@ -811,6 +811,39 @@ static const f32 gunLight[3] = { 0.0f, 0.5f, 0.87f };
 
 static u32 beanShadeTint(u32 argb, const f32 *nrm, const f32 *light);
 
+/**
+ * Pieces of the release's first-person guns modelled out of line, moved back
+ * where GoldenEye's own model has them (the Bean build is unfinished; the
+ * user's rule is to mend what looks wrong in it rather than copy it). Each is
+ * the release's vertices past `zmin` along the barrel and above `ymin`, in the
+ * file's own units, moved `dx` across.
+ *
+ * - The KF7's front sight ring stands 26 units left of the barrel's middle
+ *   (its ring centred at x -24.1 over a barrel centred at 2.2), so at the
+ *   sights the post leant off the bore: "crooked ironsight" (F3
+ *   20260928-231721). GoldenEye's own KF7 (the conversion's Igx008Z) has its
+ *   post on the bore's line to within half a unit.
+ */
+struct fpmend {
+	s8 fp;
+	f32 zmin;
+	f32 ymin;
+	f32 dx;
+};
+
+static const struct fpmend fpMends[] = {
+	{ WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST, 2950.0f, 150.0f, 26.3f },
+};
+
+static void fpMendVertex(s32 fp, f32 *pos)
+{
+	for (s32 k = 0; k < (s32)ARRAYCOUNT(fpMends); k++) {
+		if (fpMends[k].fp == fp && pos[2] > fpMends[k].zmin && pos[1] > fpMends[k].ymin) {
+			pos[0] += fpMends[k].dx;
+		}
+	}
+}
+
 
 /**
  * Where the gun that was drawn ends, as an offset from the host's muzzle node
@@ -10688,6 +10721,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 					break;
 				}
 
+				if (!original) {
+					fpMendVertex(fp, v.pos);
+				}
+
 				if (v.slot[0] >= 0 && v.slot[0] < d->numpal) {
 					bone = d->pal[(s32)v.slot[0]];
 					bone = bm.numremap && bone < bm.numremap ? bm.remap[bone] : bone;
@@ -10726,10 +10763,14 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				// GoldenEye's N64 guns are painted by their vertex colours over
 				// intensity pictures (the sniper rifle's black scope, the
 				// Klobb's grey), and drew white without them. The release's
-				// colours are shading its own pictures already carry, and would
-				// draw its guns near black.
+				// guns take theirs too: its pixel shader is texel times vertex
+				// colour (ambient 1, no light, on every draw it makes), and
+				// its colours are the dark gunmetal shading the release's
+				// footage shows - the AR33 at 0x50-0x90, the PP7 at 0x30.
+				// Left white, every HD gun drew a bright silver (F3
+				// 20260928-231646, "all ge xbla weapons are the wrong shade").
 				mapped[vi] = beanAddVertex(&out, pos, v.nrm, v.uv, bones, weight,
-						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm, fpLight) : original ? v.argb : 0xffffffff);
+						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm, fpLight) : v.argb);
 				mappedmtx[vi] = mtx;
 
 				if (mapped[vi] < 0) {

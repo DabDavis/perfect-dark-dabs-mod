@@ -102,6 +102,7 @@
 #include "romdata.h"
 #include "xblatables.h"
 #include "sitchair.h"
+#include "getank.h"
 #endif
 #endif
 
@@ -7229,11 +7230,36 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 					propSetPerimEnabled(projectile->ownerprop, false);
 				}
 
+#ifndef PLATFORM_N64
+				// A GoldenEye tank's shell leaves from the barrel's end, inside
+				// the tank's own model and collision, which the tank's perim
+				// switch does not cover: the tank its owner drives is passed
+				// through, by the model test (projectileFindCollidingProp())
+				// and by the collision blocks (objUpdateGeometry())
+				{
+					struct prop *shelltank = geTankShellTank(projectile->ownerprop);
+					u32 tankflags2 = shelltank ? shelltank->obj->flags2 : 0;
+					u32 tankflags3 = shelltank ? shelltank->obj->flags3 : 0;
+
+					if (shelltank) {
+						shelltank->obj->flags2 |= OBJFLAG2_THROWTHROUGH;
+						shelltank->obj->flags3 |= OBJFLAG3_WALKTHROUGH;
+					}
+#endif
+
 				if (projectile->flags & PROJECTILEFLAG_STICKY) {
 					cdresult = func0f06cd00(obj, &sp5dc, &sp5e8, &sp5f4);
 				} else {
 					cdresult = func0f06d37c(obj, &sp5dc, &sp5e8, &sp5f4);
 				}
+
+#ifndef PLATFORM_N64
+					if (shelltank) {
+						shelltank->obj->flags2 = tankflags2;
+						shelltank->obj->flags3 = tankflags3;
+					}
+				}
+#endif
 
 				if (projectile->ownerprop) {
 					propSetPerimEnabled(projectile->ownerprop, true);

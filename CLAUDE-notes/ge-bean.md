@@ -972,11 +972,13 @@ the rocket launcher. Two faults in `beanVertex()`:
   `beanColour()` turns them round; the pickups had red and blue swapped since
   they were first tinted.
 
-First person takes the colour **in the N64 look only**. The HD files' colours
-are dark shading (the PP7 is `0xff303030` over half its vertices) that its full
-colour pictures already carry, and multiplied in they would draw the guns near
-black. Characters still write white. Checked over all 25 guns against GE-X
-6a's (`build/gexcmp`): the colours now match GE-X's, the HD look unchanged.
+First person takes the colour in both looks since 2026-09-29 (F3 20260928-231646,
+user: "match the release"). The note here used to say the HD colours were
+shading the pictures already carry and would draw the guns near black; the
+release's pixel shader is texel times vertex colour with ambient 1 on every draw,
+and its Dam footage (xenia/shots/w17.png, w1.png) shows the AR33 and PP7 as dark
+gunmetal, which is what multiplying them in gives (AR33 0x50-0x90, PP7 0x30).
+The Golden Gun keeps its tint. Characters still write white.
 
 ## Start Armed rolled GoldenEye's guns into other people's missions (2026-09-16)
 

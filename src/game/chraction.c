@@ -5158,8 +5158,12 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		}
 	}
 
-	// If using the shotgun, scale the damage based on distance
-	if (aprop && aprop->type == PROPTYPE_CHR && weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_SHOTGUNDAMAGE)) {
+	// If using the shotgun, scale the damage based on distance. Not one of
+	// GoldenEye's: a guard's shot from its shotguns is three times its damage
+	// flat (chrlvUpdateShotbondsum(), below where the shot lands), and was
+	// that and this again, up to eighteen times, from the host's flag
+	if (aprop && aprop->type == PROPTYPE_CHR && weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_SHOTGUNDAMAGE)
+			&& !WEAPON_IS_GE(gset->weaponnum)) {
 		f32 xdiff = aprop->pos.x - vprop->pos.x;
 		f32 ydiff = aprop->pos.y - vprop->pos.y;
 		f32 zdiff = aprop->pos.z - vprop->pos.z;
@@ -12079,8 +12083,7 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 #ifndef PLATFORM_N64
 							// GoldenEye's shotguns hurt three times over when they hit
 							// (chrlvUpdateShotbondsum()), a hit here being one shot
-							if ((gset.weaponnum == WEAPON_GE_SHOTGUN || gset.weaponnum == WEAPON_GE_AUTOSHOTGUN)
-									&& modloaderStageIsRemake(g_Vars.stagenum)) {
+							if (gset.weaponnum == WEAPON_GE_SHOTGUN || gset.weaponnum == WEAPON_GE_AUTOSHOTGUN) {
 								damage *= 3;
 							}
 #endif

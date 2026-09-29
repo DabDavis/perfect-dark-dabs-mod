@@ -1642,12 +1642,22 @@ void handTickAttack(s32 handnum)
 				mpstatsIncrementPlayerShotCount2(&gset, 0);
 
 				if (weaponHasFlag2(weaponnum, WEAPONFLAG2_PELLETS)) {
+#ifndef PLATFORM_N64
+					// GoldenEye's shotguns fire NUMBER_SHOTGUN_BULLETS, five
+					// (chrprop.c), where Perfect Dark's fire six
+					s32 pellets = WEAPON_IS_GE(weaponnum) ? 5 : 6;
+
+					while (pellets-- > 0) {
+						shotCreate(handnum, true, true, 1, true);
+					}
+#else
 					shotCreate(handnum, true, true, 1, true);
 					shotCreate(handnum, true, true, 1, true);
 					shotCreate(handnum, true, true, 1, true);
 					shotCreate(handnum, true, true, 1, true);
 					shotCreate(handnum, true, true, 1, true);
 					shotCreate(handnum, true, true, 1, true);
+#endif
 				} else {
 					shotCreate(handnum, true, true, bgunGetShotsToTake(handnum), g_Vars.mplayerisrunning);
 				}

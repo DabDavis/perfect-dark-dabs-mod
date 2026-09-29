@@ -411,10 +411,38 @@ bool invGiveSingleWeapon(s32 weaponnum)
 	return false;
 }
 
+#ifndef PLATFORM_N64
+static bool invGiveDoubleWeaponFlags(s32 weapon1, s32 weapon2, bool anyflags);
+
+bool invGiveDoubleWeapon(s32 weapon1, s32 weapon2)
+{
+	return invGiveDoubleWeaponFlags(weapon1, weapon2, false);
+}
+
+/**
+ * The second of a guard's two linked guns (setup's PROPFLAG_IS_DOUBLE, or a
+ * guard handed a pair) makes a pair in the hands. GoldenEye pairs any linked
+ * two (bondinv.c's bondinvAddDoublesInvItem() tests no flag; CAN_DUAL_WIELD
+ * is read only by the all-guns cheat), so one of its guns does here too
+ * whatever its Perfect Dark host allows: Aztec's guards with two Moonrakers
+ * left the second one lying, the Laser being single-handed (F3
+ * 20260928-214632). Two unlinked guns still pair only as they did.
+ */
+static bool invGiveDoubleWeaponLinked(s32 weapon1, s32 weapon2)
+{
+	return invGiveDoubleWeaponFlags(weapon1, weapon2, WEAPON_IS_GE(weapon1) && WEAPON_IS_GE(weapon2));
+}
+
+static bool invGiveDoubleWeaponFlags(s32 weapon1, s32 weapon2, bool anyflags)
+{
+	if (invHasDoubleWeaponExcAllGuns(weapon1, weapon2) == 0) {
+		if (anyflags || weaponHasFlag(weapon1, WEAPONFLAG_DUALWIELD)) {
+#else
 bool invGiveDoubleWeapon(s32 weapon1, s32 weapon2)
 {
 	if (invHasDoubleWeaponExcAllGuns(weapon1, weapon2) == 0) {
 		if (weaponHasFlag(weapon1, WEAPONFLAG_DUALWIELD)) {
+#endif
 			struct invitem *item = invFindUnusedSlot();
 
 			if (item) {
@@ -620,6 +648,16 @@ s32 invGiveWeaponsByProp(struct prop *prop)
 				weapon->dualweapon->dualweapon = NULL;
 				weapon->dualweapon = NULL;
 			} else if (weapon->dualweaponnum >= 0) {
+#ifndef PLATFORM_N64
+				if (weapon->base.flags & OBJFLAG_WEAPON_LEFTHANDED) {
+					if (invGiveDoubleWeaponLinked(weapon->dualweaponnum, weaponnum)) {
+						numgiven = 2;
+					} else {
+						numgiven = 0;
+					}
+				} else {
+					if (invGiveDoubleWeaponLinked(weaponnum, weapon->dualweaponnum)) {
+#else
 				if (weapon->base.flags & OBJFLAG_WEAPON_LEFTHANDED) {
 					if (invGiveDoubleWeapon(weapon->dualweaponnum, weaponnum)) {
 						numgiven = 2;
@@ -628,6 +666,7 @@ s32 invGiveWeaponsByProp(struct prop *prop)
 					}
 				} else {
 					if (invGiveDoubleWeapon(weaponnum, weapon->dualweaponnum)) {
+#endif
 						numgiven = 2;
 					} else {
 						numgiven = 0;

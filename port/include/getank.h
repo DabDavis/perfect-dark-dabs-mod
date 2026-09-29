@@ -68,6 +68,9 @@ void geTankTick(void);
 // the turret and the barrel on their pivots, before it is drawn
 void geTankUpdateModel(struct prop *prop);
 
+// The tank a projectile's owner is driving (its shells leave from inside it), or NULL
+struct prop *geTankShellTank(struct prop *ownerprop);
+
 // GoldenEye's tank model placed as a plain object: its cannon's flash off
 void geTankUpdateParkedModel(struct prop *prop);
 

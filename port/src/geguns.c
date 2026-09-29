@@ -112,8 +112,9 @@ static const char *const names[NUM_GE_WEAPONS] = {
  * runs them through the same code (bgun0f09aba4() is GoldenEye's recoil,
  * speed bytes, pull back, kick up and bolt slide in the same order).
  *
- * Not taken: a thrown weapon's damage, since every one of Perfect Dark's
- * carries 0 there and the explosion does the work; and the position on
+ * Not taken: a thrown weapon's damage, since Perfect Dark's grenade and mines
+ * carry 0 there and the explosion does the work - but the throwing knife's
+ * is its row's 3, a knife doing its damage itself; and the position on
  * screen, which is the fitted model's (gebean.c) and not GoldenEye's.
  *
  * Its loudness is taken, which it was not at first. The two games keep a
@@ -167,6 +168,9 @@ struct gegunstat {
  * weapon GoldenEye fires in silence: what is thrown, and the rocket launcher,
  * whose sound is the rocket's.
  */
+// GoldenEye's melee reach (chrprop.c): 50 in front of the camera
+#define GE_MELEE_REACH 50
+
 static const u8 shootsounds[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_PP7 - WEAPON_GE_FIRST]             = 107, // GUN_B2_HEAVY
 	[WEAPON_GE_PP7SILENCED - WEAPON_GE_FIRST]     = 46,  // GUN_SILPPK_A
@@ -596,16 +600,21 @@ static struct weaponfunc *gegunsFunc(s32 i, s32 f, const struct weaponfunc *src,
 		thr->projectilemodelnum = from->projectilemodelnum;
 		thr->activatetime60 = from->activatetime60;
 		thr->recoverytime60 = from->recoverytime60;
-		thr->damage = from->damage;
+		// GoldenEye's throwing knife hurts by its row's Destruction, 3, as
+		// a bullet does (propobj.c's thrown knife goes through
+		// handles_shot_actors); Perfect Dark's combat knife throw is 1
+		thr->damage = hasrow && WEAPON_GE_FIRST + i == WEAPON_GE_THROWINGKNIFE ? stat->damage : from->damage;
 		break;
 	}
 	case INVENTORYFUNCTYPE_MELEE: {
 		const struct weaponfunc_melee *from = (const struct weaponfunc_melee *)src;
 		struct weaponfunc_melee *melee = (struct weaponfunc_melee *)fn;
 
-		// GoldenEye's knife is a 3 against Perfect Dark's 2
+		// GoldenEye's knife is a 3 against Perfect Dark's 2, and reaches
+		// 50 in front of the camera (chrprop.c's melee test, camera space z
+		// as Perfect Dark's is) against the combat knife's 70
 		melee->damage = hasrow ? stat->damage : from->damage;
-		melee->range = from->range;
+		melee->range = hasrow ? GE_MELEE_REACH : from->range;
 		break;
 	}
 	case INVENTORYFUNCTYPE_SPECIAL: {
