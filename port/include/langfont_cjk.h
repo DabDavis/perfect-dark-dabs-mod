@@ -6,7 +6,7 @@
 
 #include <PR/ultratypes.h>
 
-#define LANGFONT_CJK_COUNT 3358
+#define LANGFONT_CJK_COUNT 3360
 
 // cell sizes: small for xs/sm/md, big for lg
 #define LANGFONT_CJK_SMALL_W 12
