@@ -75,6 +75,7 @@
 #include "getank.h"
 #include "gewatch.h"
 #include "geslappers.h"
+#include "modloader.h"
 #endif
 
 #define GUNLOADSTATE_FLUX     0
@@ -6171,14 +6172,21 @@ void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2
 		spread *= 0.25f;
 	}
 
-	// Decrease spread if double crouched
-	if (bmoveGetCrouchPos() == CROUCHPOS_SQUAT) {
-		spread *= 0.5f;
-	}
+#ifndef PLATFORM_N64
+	// GoldenEye's guns spread by their Inaccuracy alone: no halving for a
+	// squat and no half again for a pair (gunfire.c)
+	if (!WEAPON_IS_GE(bgunGetWeaponNum2(handnum)))
+#endif
+	{
+		// Decrease spread if double crouched
+		if (bmoveGetCrouchPos() == CROUCHPOS_SQUAT) {
+			spread *= 0.5f;
+		}
 
-	// Increase spread if dual wielding
-	if (player->hands[HAND_LEFT].inuse) {
-		spread *= 1.5f;
+		// Increase spread if dual wielding
+		if (player->hands[HAND_LEFT].inuse) {
+			spread *= 1.5f;
+		}
 	}
 
 	scaledspread = 120.0f * spread / viGetFovY();
@@ -6240,6 +6248,14 @@ void bgunCalculateBotShotSpread(struct coord *arg0, s32 weaponnum, s32 funcnum, 
 	if (arg3 && weaponHasAimFlag(weaponnum, INVAIMFLAG_ACCURATESINGLESHOT)) {
 		spread *= 0.25f;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye's guns: their Inaccuracy alone, as the player's (above)
+	if (WEAPON_IS_GE(weaponnum)) {
+		crouchpos = CROUCHPOS_STAND;
+		dual = false;
+	}
+#endif
 
 	if (crouchpos == CROUCHPOS_SQUAT) {
 		spread *= 0.5f;
@@ -13983,8 +13999,8 @@ void bgunSetAmmoQuantity(s32 ammotype, s32 quantity)
 		magamount = player->hands[0].loadedammo[funcnum] + player->hands[1].loadedammo[funcnum];
 	}
 
-	if (quantity > g_AmmoTypes[ammotype].capacity - magamount) {
-		player->ammoheldarr[ammotype] = g_AmmoTypes[ammotype].capacity - magamount;
+	if (quantity > bgunGetCapacityByAmmotype(ammotype) - magamount) {
+		player->ammoheldarr[ammotype] = bgunGetCapacityByAmmotype(ammotype) - magamount;
 	} else {
 		player->ammoheldarr[ammotype] = quantity;
 	}
@@ -14042,6 +14058,14 @@ s32 bgunGetAmmoCount(s32 ammotype)
 
 s32 bgunGetCapacityByAmmotype(s32 ammotype)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's grenade launcher shares the Devastator's grenades, and
+	// GoldenEye carries 12 of them (gun.c's ammo_related) to the Devastator's 40
+	if (ammotype == AMMOTYPE_DEVASTATOR && modloaderStageIsRemake(g_Vars.stagenum)) {
+		return 12;
+	}
+#endif
+
 	return g_AmmoTypes[ammotype].capacity;
 }
 
