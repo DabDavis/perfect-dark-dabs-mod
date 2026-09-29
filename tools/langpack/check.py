@@ -190,10 +190,14 @@ class Source:
     def port_english_of(self, key):
         """The English a port.json key stands for, or None if it is not one."""
         k = strip_nl(key)
-        if k in self.port:
-            return self.port[k]
-        if '|' in k and k.split('|', 1)[1] in self.port:
-            return self.port[k.split('|', 1)[1]]
+        for c in (k, k + '\n'):
+            if c in self.port:
+                return self.port[c]
+        if '|' in k:
+            rest = k.split('|', 1)[1]
+            for c in (rest, rest + '\n'):
+                if c in self.port:
+                    return self.port[c]
         return None
 
 
@@ -280,7 +284,10 @@ def read_language(srcdir, source=None):
         for key, text in load_json(path, p).items():
             if not isinstance(text, str) or text == '':
                 continue
-            en_text = key.split('|', 1)[1] if '|' in key and fname == 'port.json' else key
+            # a '|' is a ctx separator only when the whole key is not itself
+            # a port string ("%s|Patch %d%s%s" is one)
+            whole = source is not None and any(c in source.port for c in (strip_nl(key), strip_nl(key) + '\n'))
+            en_text = key.split('|', 1)[1] if '|' in key and fname == 'port.json' and not whole else key
             if prefix == 'ge':
                 if re.fullmatch(r'ge\.[a-z0-9]+\.\d+', key):
                     k = key

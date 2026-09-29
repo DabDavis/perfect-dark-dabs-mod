@@ -970,5 +970,6 @@
  "there is no report to send": "es gibt keinen Bericht zum Senden",
  "this build has no network support": "dieser Build hat keine Netzwerkunterstützung",
  "wrong name or pin - Create Account if it is new": "Name oder PIN falsch - neu? Konto erstellen",
- "your PIN or security answers, readable.": "Ihre PIN oder Sicherheitsantworten, lesbar.\n"
+ "your PIN or security answers, readable.": "Ihre PIN oder Sicherheitsantworten, lesbar.\n",
+ "%s|Patch %d%s%s": "%s|Patch %d%s%s"
 }
