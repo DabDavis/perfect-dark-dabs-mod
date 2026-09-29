@@ -5252,6 +5252,8 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 
 static MenuItemHandlerResult menuhandlerGePlusPdGuns(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGePlusLocked(s32 operation, struct menuitem *item, union handlerdata *data);
+static MenuItemHandlerResult menuhandlerGePlusRegion(s32 operation, struct menuitem *item, union handlerdata *data);
+static MenuItemHandlerResult menuhandlerGePlusRevisionFixes(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGePlusPdDeaths(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGeXblaCe(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGeXblaCeRestart(s32 operation, struct menuitem *item, union handlerdata *data);
@@ -5418,6 +5420,22 @@ struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 		(uintptr_t)"GE Plus: Locked Progression",
 		0,
 		menuhandlerGePlusLocked,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GE Plus: Region Rules",
+		0,
+		menuhandlerGePlusRegion,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GE Plus: Later Revision Fixes",
+		0,
+		menuhandlerGePlusRevisionFixes,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -6167,6 +6185,51 @@ static MenuItemHandlerResult menuhandlerGePlusLocked(s32 operation, struct menui
 		return gexFrontGetLockedProgression();
 	case MENUOP_SET:
 		gexFrontSetLockedProgression(!gexFrontGetLockedProgression());
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * "GE Plus: Region Rules": the rules of GoldenEye's US or Japanese cartridge
+ * (gexfront.c, Mod.GePlusRegion). Suggested by Wreck.
+ */
+static MenuItemHandlerResult menuhandlerGePlusRegion(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = {
+		"US",
+		"Japan",
+	};
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		gexFrontSetRegion(data->dropdown.value);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = gexFrontGetRegion();
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * "GE Plus: Later Revision Fixes": the bug fixes GoldenEye's Japanese and PAL
+ * cartridges carry over the US one (Mod.GePlusRevisionFixes). On by default.
+ */
+static MenuItemHandlerResult menuhandlerGePlusRevisionFixes(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return gexFrontGetRevisionFixes();
+	case MENUOP_SET:
+		gexFrontSetRevisionFixes(!gexFrontGetRevisionFixes());
 		break;
 	}
 

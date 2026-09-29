@@ -657,9 +657,51 @@ static u16 g_BestTimes[NUM_MISSIONS][NUM_DIFFICULTIES];
  */
 static s32 g_GePlusLockedProgression = 0;
 
+/**
+ * Mod.GePlusRegion: which of GoldenEye's releases GE Plus plays by - 0 the
+ * US cartridge (as it ships), 1 the Japanese one, whose own rules the decomp
+ * keeps behind LANG_JP and j_text_trigger: stronger auto-aim, no hunting
+ * knife, DK Mode sparing the named characters, body armour on every
+ * difficulty, the difficulty cursor on Agent and Nintendo's staff in the
+ * credits. The assets are the US ROM's either way; only the code differs.
+ *
+ * Mod.GePlusRevisionFixes: the bug fixes the Japanese and PAL cartridges
+ * carry and the US one does not (the decomp's BUGFIX_R1), on unless the US
+ * cartridge's behaviour is wanted exactly.
+ */
+static s32 g_GePlusRegion = GEREGION_US;
+static s32 g_GePlusRevisionFixes = 1;
+
 PD_CONSTRUCTOR static void gexFrontConfigInit(void)
 {
 	configRegisterInt("Mod.GePlusLockedProgression", &g_GePlusLockedProgression, 0, 1);
+	configRegisterInt("Mod.GePlusRegion", &g_GePlusRegion, 0, GEREGION_COUNT - 1);
+	configRegisterInt("Mod.GePlusRevisionFixes", &g_GePlusRevisionFixes, 0, 1);
+}
+
+s32 gexFrontGetRegion(void)
+{
+	return g_GePlusRegion;
+}
+
+void gexFrontSetRegion(s32 region)
+{
+	g_GePlusRegion = region >= 0 && region < GEREGION_COUNT ? region : GEREGION_US;
+}
+
+s32 gexFrontIsJapanese(void)
+{
+	return g_GePlusRegion == GEREGION_JP;
+}
+
+s32 gexFrontGetRevisionFixes(void)
+{
+	return g_GePlusRevisionFixes;
+}
+
+void gexFrontSetRevisionFixes(s32 on)
+{
+	g_GePlusRevisionFixes = on ? 1 : 0;
 }
 
 s32 gexFrontGetLockedProgression(void)

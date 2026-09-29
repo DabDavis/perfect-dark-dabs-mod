@@ -50,6 +50,16 @@ extern s32 g_MenuBlurDeferred;
 // Mod.GePlusLockedProgression: GoldenEye's missions open by completion (off: all open)
 s32 gexFrontGetLockedProgression(void);
 void gexFrontSetLockedProgression(s32 on);
+// Mod.GePlusRegion: the release whose rules GE Plus plays by (US ships)
+#define GEREGION_US    0
+#define GEREGION_JP    1
+#define GEREGION_COUNT 2
+s32 gexFrontGetRegion(void);
+void gexFrontSetRegion(s32 region);
+s32 gexFrontIsJapanese(void);
+// Mod.GePlusRevisionFixes: the JP/PAL cartridges' bug fixes (BUGFIX_R1), on by default
+s32 gexFrontGetRevisionFixes(void);
+void gexFrontSetRevisionFixes(s32 on);
 s32 gexFrontOpenAfterMission(void);
 // The folder on the mission grid with `mission` under the cursor
 s32 gexFrontOpenAtMission(s32 mission);
