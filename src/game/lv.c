@@ -2241,10 +2241,16 @@ void lvUpdateSoloHandicaps(void)
 				g_PlayerDamageRxScale = 1;
 			}
 
+			// GoldenEye's 007 auto-aims at 1.0 on every cartridge; played as
+			// PD Mode on DIFF_PA it had 00 Agent's 0.2 from above
+			if (g_Difficulty == DIFF_PA && g_MissionConfig.pdmode) {
+				g_AutoAimScale = 1;
+			}
+
 			// The Japanese cartridge widens auto-aim's reach on Secret Agent
 			// (1.1, not 0.75) and 00 Agent (0.75, not 0.2) - the decomp's
-			// lv.c under j_text_trigger. Agent's 1.5 and 007's own value are
-			// the same on both. The US figures are Perfect Dark's already, and
+			// lv.c under j_text_trigger. Agent's 1.5 and 007's 1.0 are the
+			// same on both. The US figures are Perfect Dark's already, and
 			// its early JPN build had the same switch (g_Jpn above).
 			if (gexFrontIsJapanese()) {
 				if (g_Difficulty == DIFF_SA) {
