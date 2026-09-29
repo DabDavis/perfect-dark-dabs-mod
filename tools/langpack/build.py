@@ -69,7 +69,9 @@ def languages(src, only=None):
     if not os.path.isdir(src):
         return []
     codes = []
-    for code in sorted(os.listdir(src)):
+    # English packs (en-GB) first, so the dropdown reads English (US),
+    # English (UK), then the rest by code.
+    for code in sorted(os.listdir(src), key=lambda c: (not c.startswith('en'), c)):
         if only and code not in only:
             continue
         if os.path.exists(os.path.join(src, code, 'meta.json')):

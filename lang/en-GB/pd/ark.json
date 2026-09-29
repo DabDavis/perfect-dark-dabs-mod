@@ -1,0 +1,10 @@
+{
+ "L_ARK_000": "|Background - \n\nThe alarm has been given, and there are dataDyne shock troops ready for you throughout the building. Exit via the foyer is impossible due to the number of ground troops present. The transport will collect you and Dr. Caroll from the helipad.\n\n|Carrington - \n\nI don't have to remind you to protect Dr. Caroll at all costs, Joanna. Cassandra and dataDyne are going to be throwing all the obstacles they can in your path to prevent you from getting Dr. Caroll out. Good luck.\n\n|Objective One: - Gain Access to Upper Floors\n\nFight your way around the foyer until you can get access to one of the lifts that will take you and Dr. Caroll to the upper floors of the building.\n\n|Objective Two: - Reactivate Lift\n\nWe traced an order to shut down the only accessible lift to a PC on the lowest floor of offices. You have to find that PC and change the order to get the lift going again.\n\n|Objective Three: - Destroy dataDyne Gunship\n\nThere is a dataDyne security gunship circling the building which outguns your jumpship and will shoot you out of the sky. Terminate it with extreme prejudice, since it will be trying to do the same thing to you.\n\n|Objective Four: - Defeat Cassandra's Bodyguards\n\nWe suspect that Cassandra has deployed her bodyguards to block the route to the helipad. It is almost certain that you'll be unable to avoid them, so expect serious resistance when you encounter them.\n\n|Objective Five: - Return to Helipad for Evacuation\n\nGet to the helipad where your dropship will be waiting. And don't forget Dr. Caroll.\n\nEND\n",
+ "L_ARK_009": "Access foyer lift\n",
+ "L_ARK_010": "Reactivate office lift\n",
+ "L_ARK_014": "Accessing lift controls...\n",
+ "L_ARK_033": "Foyer lift accessed.\n",
+ "L_ARK_034": "Office lift door has been unlocked.\n",
+ "L_ARK_051": "They've locked down the ground floor - \nget to the lift!\n",
+ "L_ARK_072": "Lift door is inactive on this floor.\n"
+}
