@@ -96,6 +96,7 @@
 #include "gestan.h"
 #include "gexplus.h"
 #include "modloader.h"
+#include "gebean.h"
 #include "gbiex.h"
 #include "geguns.h"
 #include "romdata.h"
@@ -3075,6 +3076,20 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 
 #ifndef PLATFORM_N64
 	xblaMeshHitBegin();
+
+	// A display list is tested only when the last box the walk passed was
+	// hit, and stock takes "last" in walk order. GoldenEye's bodies do not
+	// always keep a part's box beside its lists: CcommguardZ (the officer)
+	// hangs the head's group under the torso's box *before* the torso's own
+	// lists, so the walk came back out of the head holding the head's box and
+	// tested the chest only for shots through the head's - the chest was
+	// hollow (F3 20260928-211003, Dam and Surface). GoldenEye tests the boxes
+	// alone and never sees the order. For its bodies the walk restores, on
+	// the way back up, the box its parent level held.
+	struct { bool hit; struct modelnode *bbox; } byparent[32];
+	s32 depth = 0;
+	const bool restore = modloaderStageIsRemake(g_Vars.stagenum)
+		|| (model->chr && gebeanIsGoldenEyeBody(model->chr->bodynum));
 #endif
 
 	while (node) {
@@ -3170,6 +3185,14 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 		}
 
 		if (node->child) {
+#ifndef PLATFORM_N64
+			if (depth < ARRAYCOUNT(byparent)) {
+				byparent[depth].hit = s7;
+				byparent[depth].bbox = sp84;
+			}
+
+			depth++;
+#endif
 			node = node->child;
 		} else {
 			while (node) {
@@ -3184,6 +3207,14 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 				}
 
 				node = node->parent;
+#ifndef PLATFORM_N64
+				depth--;
+
+				if (restore && depth >= 0 && depth < ARRAYCOUNT(byparent)) {
+					s7 = byparent[depth].hit;
+					sp84 = byparent[depth].bbox;
+				}
+#endif
 			}
 		}
 	}
