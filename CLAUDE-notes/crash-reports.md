@@ -256,3 +256,30 @@ MENUOP_SET no longer takes the empty row past the list's end, and
 `mainChangeToStage()` sends a level with no row or no bg file to the Carrington
 Institute with a log line. ASan on Dump All Assets (checking 043047) also found
 `fileLoad()` reading one past its buffer for an empty file (6e8e9ec97).
+
+## A map's prop file lost the ROM's copy (2026-09-29, 23rd F3 pass)
+
+Reports 20260929-074716 (Linux dev build 5492a2732, Randomizer hop to the All
+in One Mod's Air Base, ammo crate) and 20260929-104448 (Windows 0f64985,
+the map after GoldenEye X's Attack Ship arena, PwindowZ) are one crash:
+`modelPromoteNodeOffsetsToPointers()` <- `setupLoadModeldef()` <-
+`setupCreateProps()`. A Linux dev build names nine hex digits (`5492a2732`);
+symbolise it with the deployed binary itself (`sdg@10.8.0.3:~/pd-test/
+pd.x86_64-linux.<hash7>`, not stripped), not the CI artifact or the release.
+
+Cause: a door/window/crate slot follows the stage's own mod
+(`romdataFileFollowStage()`). An external copy wrote over the slot's ROM
+`data`/`size`; when a later map wanted it from a dir without the file, the
+slot freed the copy, left `data` NULL and fell back to "SRC_ROM" with nothing
+behind it. `fileLoad()` got NULL and returned without writing, so the model's
+fresh stage-pool buffer held last stage's bytes. The slot now keeps
+`romdata`/`romsize` and `romdataSlotBackToRom()` restores them whenever an
+external copy goes. Repro: MapMods=*, `--boot-stage` mod_gex's `lee` arena
+(0x96 on this box's mod set), gdb `call mainChangeToStage(<mod_allinone cave>)`
+at lv.c's frame-300 log line.
+
+20260929-170457 (stable 5492a27 Windows, "Unknown GBI opcode 0xa2800000",
+w0 0x00a28000_00000100, w1 float 376.2): Carrington Institute (10 chrs of 21
+slots), right after F8 texture packs back on, after F6 and a Community Packs
+install. 48 F8/F6/model-pack reload toggles on CI with a pack under gdb did
+not reproduce it. Open.
