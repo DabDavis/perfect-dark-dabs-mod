@@ -13406,6 +13406,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		s32 istree = 0;
 		s32 tex = draw->tex < (u32)bm->numtex ? (s32)draw->tex : -1;
 		s32 ismask = 0;
+		s32 plain;
 
 		if (!beanReadVb(bm, draw->vb, &vb)) {
 			continue;
@@ -13443,6 +13444,15 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		}
 
 		numtris = beanTriangles32(bm, draw, &tris);
+
+		// A draw with no UV (stride 16, or 20 with a colour) and no picture
+		// since its vertex shader was set: the picture it is read with here is
+		// only the one the draw before it left bound, sampled at one texel.
+		// Bunker's helipad carries 107 triangles of one over the pad (vertex
+		// shader 0x3958, white vertices), which drew as a flat grey band of
+		// the concrete strip's corner (F3 20260926-210317); gebeanstage.c
+		// leaves the white ones lying on another surface out
+		plain = !draw->ownmat && !istree && (vb.stride == 16 || (vb.stride == 20 && !vb.uv20));
 
 		for (s32 t = 0; t < numtris; t++) {
 			struct gebeanlevelvtx v[3];
@@ -13505,6 +13515,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					v[k].uv[1] = bv.uv[1];
 					v[k].argb = bv.argb;
 					v[k].blend = draw->blend;
+					v[k].plain = plain;
 					memcpy(v[k].nrm, bv.nrm, sizeof(v[k].nrm));
 				}
 			}
@@ -14047,6 +14058,124 @@ static const void *beanLevelCutTexture(struct gebeanlevel *level, s32 tex, u8 *a
 	return tile;
 }
 
+/**
+ * A level picture with no alpha that the release only ever draws in its
+ * blended pass, and that is a grey mask - black to light, no colour of its
+ * own, the tint in the draw's vertex colours: its brightness is how much of
+ * the draw shows. Bunker's hazard stripes are a 64x1 of black and light
+ * grey bars on yellow vertices, laid over the wall as a decal, where
+ * GoldenEye's own picture is yellow bars with nothing between them; drawn
+ * with the picture's alpha of one, the gaps were solid black bars
+ * (F3 20260929-094443). Such a picture is drawn white, its alpha the
+ * brightness scaled to the brightest texel. NULL for any other picture:
+ * one drawn outside the blended pass or alpha tested, one with alpha of
+ * its own, one with colour, or one with no dark part to be a gap (the
+ * light shafts' flat grey).
+ */
+static const void *beanLevelMaskTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft)
+{
+	struct beanmodel *bm = &level->bm;
+	char key[80];
+	s32 used = 0;
+	s32 w, h;
+	s32 lo = 255, hi = 0, dark = 0, mid = 0;
+	u8 *rgba;
+	const void *tile;
+	s32 a = 0, s = 0;
+
+	for (s32 d = 0; d < bm->numdraws; d++) {
+		if (bm->draws[d].tex == (u32)tex) {
+			if (!bm->draws[d].blend || bm->draws[d].alphatest) {
+				return NULL;
+			}
+
+			used = 1;
+		}
+	}
+
+	if (!used) {
+		return NULL;
+	}
+
+	snprintf(key, sizeof(key), "gebean:%s:%d:mask", level->source, tex);
+
+	for (s32 i = 0; i < numTexCache; i++) {
+		if (strcmp(texCache[i].key, key) == 0) {
+			*alpha = texCache[i].alpha;
+			*soft = texCache[i].soft;
+			return texCache[i].tile;
+		}
+	}
+
+	rgba = beanDecodeTexture(bm, tex, &w, &h);
+
+	if (!rgba || beanTexIsPlaceholder(rgba, w, h)) {
+		free(rgba);
+		return NULL;
+	}
+
+	for (u32 i = 0; i < (u32)w * (u32)h; i++) {
+		const u8 *p = &rgba[i * 4];
+		const s32 mx = MAX(p[0], MAX(p[1], p[2]));
+		const s32 mn = MIN(p[0], MIN(p[1], p[2]));
+
+		if (p[3] != 0xff || mx - mn > 12) {
+			free(rgba);
+			return NULL;
+		}
+
+		lo = MIN(lo, mx);
+		hi = MAX(hi, mx);
+	}
+
+	// Black and light with little between (stripes, lettering), or mostly
+	// black (a glow on black); a metal panel or a ramp is mostly middle
+	// tones with less black, and its dark is paint
+	for (u32 i = 0; i < (u32)w * (u32)h; i++) {
+		const u8 *p = &rgba[i * 4];
+		const s32 v = MAX(p[0], MAX(p[1], p[2]));
+
+		dark += v <= 32;
+		mid += v > 32 && v <= 200;
+	}
+
+	if (lo > 24 || hi < 96 || !((dark * 4 >= w * h && mid * 5 <= w * h) || dark * 2 >= w * h)) {
+		free(rgba);
+		return NULL;
+	}
+
+	for (u32 i = 0; i < (u32)w * (u32)h; i++) {
+		u8 *p = &rgba[i * 4];
+		const s32 v = MAX(p[0], MAX(p[1], p[2]));
+
+		p[3] = (u8)MIN(255, v * 255 / hi);
+		p[0] = p[1] = p[2] = 0xff;
+	}
+
+	tile = xblaTexBindImage(key, rgba, w, h);
+
+	if (!tile) {
+		return NULL;
+	}
+
+	xblaTexImageInfo(tile, &a, &s);
+	*alpha = (u8)a;
+	*soft = (u8)s;
+
+	sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is a grey mask in the blended pass, drawn by its brightness",
+			level->source, tex, beanTextureName(bm, tex));
+
+	if (numTexCache < GEBEAN_TEXCACHE) {
+		snprintf(texCache[numTexCache].key, sizeof(texCache[numTexCache].key), "%s", key);
+		texCache[numTexCache].tile = tile;
+		texCache[numTexCache].alpha = *alpha;
+		texCache[numTexCache].soft = *soft;
+		numTexCache++;
+	}
+
+	return tile;
+}
+
 const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft)
 {
 	const void *tile = NULL;
@@ -14058,7 +14187,11 @@ const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8
 		return NULL;
 	}
 
-	tile = beanLevelCutTexture(level, tex, alpha, soft);
+	tile = beanLevelMaskTexture(level, tex, alpha, soft);
+
+	if (!tile) {
+		tile = beanLevelCutTexture(level, tex, alpha, soft);
+	}
 
 	if (!tile) {
 		beanBindTexture(&level->bm, level->source, tex, &tile, alpha, soft);
