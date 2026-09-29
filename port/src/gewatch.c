@@ -1548,6 +1548,14 @@ static f32 watchPageZoom(s32 page)
 {
 	f32 zoom = WATCHZOOM2;
 
+	// The HD look holds the watch at one zoom whatever the page (the user,
+	// F3 20260928-223306: "camera should be static"): the inventory's, which
+	// frames Bean's watch best. The N64 look zooms page by page as GoldenEye
+	// does.
+	if (g_Watch.model && xblaMeshModelDrawsBean(g_Watch.model)) {
+		page = PAGE_INVENTORY;
+	}
+
 	switch (page) {
 	case PAGE_INVENTORY:
 	case PAGE_BRIEFING:
