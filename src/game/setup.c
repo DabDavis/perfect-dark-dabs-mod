@@ -43,6 +43,7 @@
 #include "data.h"
 #include "types.h"
 #include "gexplus.h"
+#include "gexfront.h"
 #include "gecinema.h"
 #include "gecredits.h"
 #include "gemonitor.h"
@@ -2132,10 +2133,27 @@ void setupCreateProps(s32 stagenum)
 				case OBJTYPE_SHIELD:
 					if (withobjs) {
 #if VERSION >= VERSION_JPN_FINAL
-						if ((obj->flags2 & diffflag) == 0)
+						bool spawnarmour = (obj->flags2 & diffflag) == 0;
 #else
-						if ((obj->flags2 & diffflag) == 0 || g_Jpn)
+						bool spawnarmour = (obj->flags2 & diffflag) == 0 || g_Jpn;
 #endif
+
+#ifndef PLATFORM_N64
+						// GE Plus on the Japanese cartridge's rules: its
+						// setup loader lays every body armour whatever the
+						// record's exclude bits say (the decomp's prop.c,
+						// PROPDEF_ARMOUR under j_text_trigger) - the same
+						// switch as Perfect Dark's early JPN build above.
+						// Decided here and not in the converter, since one
+						// converted setup serves both regions. Missions only:
+						// a Combat Simulator match on a GoldenEye arena keeps
+						// its player-count bits.
+						if (!g_Vars.mplayerisrunning && gexFrontIsJapanese() && modloaderStageIsRemake(g_Vars.stagenum)) {
+							spawnarmour = true;
+						}
+#endif
+
+						if (spawnarmour)
 						{
 							struct shieldobj *shield = (struct shieldobj *)obj;
 							shield->initialamount = *(s32 *)&shield->initialamount / 65536.0f;
