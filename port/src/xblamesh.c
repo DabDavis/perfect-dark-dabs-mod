@@ -10039,6 +10039,28 @@ static void xblaMeshSetSpanMode(struct modelrenderdata *renderdata,
 	gSPSetOtherMode(renderdata->gdl++, G_SETOTHERMODE_L, G_MDSFT_RENDERMODE, 29, word);
 }
 
+// The model whose opaque lists last went out under a float matrix: see
+// xblaMeshTakeFineModel()
+static struct model *fineModel = NULL;
+
+/**
+ * For wallhitRenderPropHits(): whether `model`'s release mesh was just drawn
+ * under a float matrix (a pose written finer than the game's units, or a rest
+ * shift taken off), which the bullet holes on it must be drawn under too.
+ * The game's own matrix reaches the renderer as s15.16, and on a door 80
+ * units away that rounding is more than the decal z mode's two depth units:
+ * a hole laid exactly on a GoldenEye HD door's face lost the depth test to it
+ * outright up close and in patches further out. Cleared by asking.
+ */
+s32 xblaMeshTakeFineModel(struct model *model)
+{
+	const s32 fine = model != NULL && fineModel == model;
+
+	fineModel = NULL;
+
+	return fine;
+}
+
 // While set, every node draws the game's own geometry: see xblaMeshSetBypass().
 static s32 bypass = 0;
 
@@ -11133,6 +11155,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		gSPMatrix(renderdata->gdl++, osVirtualToPhysical(drawmtx),
 				G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW |
 				(drawmtx != root ? G_MTX_FLOATS : 0));
+
+		if (drawmtx != root && opa) {
+			fineModel = model;
+		}
 	}
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
@@ -12898,6 +12924,7 @@ s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
 void xblaMeshResetModels(void) { }
 void xblaMeshHitBegin(void) { }
+s32 xblaMeshTakeFineModel(struct model *model) { return 0; }
 s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node) { return 0; }
 s32 xblaMeshModelHasMesh(struct model *model) { return 0; }
 s32 xblaMeshHeldOffset(struct model *model, struct modelnode *handnode, f32 out[3]) { return 0; }

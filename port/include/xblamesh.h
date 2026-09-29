@@ -302,6 +302,7 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
  * segment, into `hit`: where a stuck mine is pushed to so that it sits on
  * what is drawn rather than inside it. 0 in the N64 look or on no surface.
  */
+s32 xblaMeshTakeFineModel(struct model *model);
 s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const struct coord *to, struct coord *hit);
 
 /** --xbla-mesh-verbose: log each replaced node's box against its mesh's. */
