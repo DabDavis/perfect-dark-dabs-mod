@@ -7117,7 +7117,7 @@ static int beanSeamOrderCompare(const void *a, const void *b)
 	return x < y ? -1 : x > y;
 }
 
-static void beanWeldSeams(struct beanout *o)
+static void beanWeldSeams(struct beanout *o, const u8 *keep, s32 numkeep)
 {
 	s32 *order = malloc(o->numverts * sizeof(s32));
 
@@ -7141,9 +7141,21 @@ static void beanWeldSeams(struct beanout *o)
 			j++;
 		}
 
-		for (s32 k = i + 1; k < j; k++) {
-			memcpy(&o->bone[order[k] * 3], &o->bone[order[i] * 3], 3);
-			memcpy(&o->weight[order[k] * 3], &o->weight[order[i] * 3], 3 * sizeof(f32));
+		// onto the first of them not in the hood's copies, which keep Bean's
+		// own weights
+		s32 from = -1;
+
+		for (s32 k = i; k < j && from < 0; k++) {
+			if (!(keep && order[k] < numkeep && keep[order[k]])) {
+				from = order[k];
+			}
+		}
+
+		for (s32 k = i; k < j && from >= 0; k++) {
+			if (order[k] != from && !(keep && order[k] < numkeep && keep[order[k]])) {
+				memcpy(&o->bone[order[k] * 3], &o->bone[from * 3], 3);
+				memcpy(&o->weight[order[k] * 3], &o->weight[from * 3], 3 * sizeof(f32));
+			}
 		}
 
 		i = j;
@@ -11741,6 +11753,9 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			&& (ishead || (r->kind == GEBEAN_BODY && gebeanSourceIsHead(r->source)));
 	s32 neckontex[GEBEAN_MAXMATS];
 	s32 headtex = -1;
+	// A Bond outfit with his whole head on one picture: its skin on that
+	// picture below the cut, which the back holds (skinsplit below)
+	s32 skintex = -1;
 	s8 hoodof[64];
 	s32 numhood = 0;
 	s8 bareof[64];
@@ -11806,10 +11821,11 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		}
 
 		if (pictures < 2) {
+			skintex = !ishead && r->kind == GEBEAN_BODY ? headtex : -1;
 			headtex = -1;
 		}
 
-		for (s32 k = 0; headtex >= 0 && k < numnodes && k < 64; k++) {
+		for (s32 k = 0; (headtex >= 0 || skintex >= 0) && k < numnodes && k < 64; k++) {
 			if ((ishead ? !beanNodeIsToggled(nodes[k]) : nodeskel[k] == SK_NECK)
 					&& numnodes + numfill + numhood < 64) {
 				hoodof[k] = (s8)(numnodes + numfill + numhood++);
@@ -11989,13 +12005,30 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 			const s32 hood = headtex >= 0 && dominant == SK_NECK && ((s32)d->tex != headtex || backcorner);
 
+			// The skin of a Bond outfit's own neck below the cut, weighted to the
+			// back: under his own face it closes his neck into the collar, and
+			// the body's lists drew it under every head - under another's it
+			// stood out at the nape as a flat patch of Bond's colour (F3
+			// 20260929-051458, Karl on the suit). It goes with his face as the
+			// parka's hood does, and in the filler for a fitted head
+			s32 skinsplit = 0;
+
+			for (s32 i = 0; i < 3 && !skinsplit && skintex >= 0 && (s32)d->tex == skintex && dominant != SK_NECK; i++) {
+				for (s32 k = 0; k < 4; k++) {
+					if (sk[i][k] == SK_NECK && wt[i][k] > 0.0f) {
+						skinsplit = 1;
+						break;
+					}
+				}
+			}
+
 			// And the body's own triangles the neck moves at all - the rim, the
 			// lining, the nape - go in the hood's groups too, with Bean's
 			// weights: smoothed (beanSmoothNeckWeights()) the lining's points
 			// came out through the hood beside the jaw. Their smoothed copies,
 			// which suit the collar round any other head, are drawn apart
 			// from the body's lists, by the neck, only when the hood is not
-			s32 neckzone = 0;
+			s32 neckzone = skinsplit;
 
 			for (s32 i = 0; i < 3 && !neckzone && headtex >= 0 && !ishead && dominant != SK_NECK; i++) {
 				for (s32 k = 0; k < 4; k++) {
@@ -12084,6 +12117,27 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			}
 
 			const s32 bare = neckzone;
+
+			// Round a head not its own the parka shows its bare collar
+			// (gebeanmats.bare), less what the hood brought up round Bond's
+			// face: the lining's triangles standing over the neck joint, which
+			// stood out of the collar as dark spikes, and the skin of Bond's
+			// own neck, whose patches showed through the other head's neck in
+			// another colour (F3 20260929-051545). That head's made neck fills
+			// the collar instead (xblamesh.c). The filler's copy stays whole.
+			s32 barecut = 0;
+
+			if (bare && pass == 1) {
+				f32 top = -1e9f;
+
+				for (s32 i = 0; i < 3; i++) {
+					const f32 h = (v3[i].pos[1] - bind[SK_NECK][1]) * rig.scale;
+
+					top = h > top ? h : top;
+				}
+
+				barecut = top > 0.0f || (s32)d->tex == headtex;
+			}
 
 			s32 filler = 0;
 			const s32 ownneck = !ishead && numown > 0 && dominant == SK_NECK && r->kind != GEBEAN_WHOLE;
@@ -12394,12 +12448,19 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 					// The smoothed copy: the neck's own group for it, and the
 					// filler's, which a fitted head's collar draws instead
 					if (asbare) {
-						if (k < 64 && bareof[k] >= 0 && !beanAddTri(&out, bareof[k], (s32)d->tex, idx[0], idx[1], idx[2])) {
+						if (k < 64 && bareof[k] >= 0 && !barecut && !beanAddTri(&out, bareof[k], (s32)d->tex, idx[0], idx[1], idx[2])) {
 							ok = 0;
 							break;
 						}
 
 						if (k < 64 && fillof[k] >= 0 && !beanAddTri(&out, fillof[k], (s32)d->tex, idx[0], idx[1], idx[2])) {
+							ok = 0;
+							break;
+						}
+
+						// and a Bond outfit's own neck skin in its whole neck
+						// too, under a pool head ending at the jaw
+						if (skinsplit && k < 64 && ownof[k] >= 0 && !beanAddTri(&out, ownof[k], (s32)d->tex, idx[0], idx[1], idx[2])) {
 							ok = 0;
 							break;
 						}
@@ -12488,10 +12549,10 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		// on purpose, which the outlier test takes for Natalya's stray lip
 		beanSmoothNeckWeights(&out, rig.mtx[SK_NECK], rig.mtx[SK_BACK], hoodvert, caphoodvert);
 
-		// (not with a hood, whose copies share their points on purpose)
-		if (caphoodvert == 0) {
-			beanWeldSeams(&out);
-		}
+		// Not the hood's copies, whose points are shared on purpose; the rest
+		// of the parka too, whose back seam had been left unwelded with them
+		// and opened a slit from the collar down the back (F3 20260929-051545)
+		beanWeldSeams(&out, hoodvert, caphoodvert);
 
 		for (s32 p = 0; p < numpins; p++) {
 			for (s32 k = 0; k < 3; k++) {
@@ -12506,6 +12567,12 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	if (ishead && neckback) {
 		beanWeldNeckWeights(&out, 0, 1);
 		beanSmoothNeckWeights(&out, 0, 1, NULL, 0);
+
+		// and again: the smoothing reads each copy's own neighbours, and
+		// pulled the two halves of a seam apart once more - a hairline down
+		// the nape and a jagged crack round the throat looking up (F3
+		// 20260929-051617, the Community Edition's Alan on the officer)
+		beanWeldNeckWeights(&out, 0, 1);
 	}
 
 	// A head's underside round the neck (beanSeatTriangle())
@@ -12555,7 +12622,13 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		// neck in front said a face reaching further out than the seat reads
 		// (Valentin's, Ken's in the release) ended at its crown, and a neck
 		// was made standing on top of his head (F3 20260928-042931)
-		if (face >= 0 && nextgroup < 64 && openrim > GEBEAN_OPENRIM_JAW) {
+		// And a head with a neck of its own, a head file's or one cut off a
+		// character: drawn only inside the parka's open collar, which that
+		// neck does not reach (xblaMeshHeadTubeOn()). Not one with a hat in
+		// the hood's group (Ourumov's cap, the Baron's top hat), which a tube
+		// cut from the face alone would leave off
+		if (face >= 0 && nextgroup < 64 && (openrim > GEBEAN_OPENRIM_JAW || neckback
+				|| (fromchar && !original && headtex < 0))) {
 			const s32 src = face;
 
 			if (beanAddNeckTube(&out, src, nextgroup, neckback ? 1 : -1, source)) {
