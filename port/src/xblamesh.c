@@ -407,6 +407,7 @@ struct xblameshbuilt {
 	s8 beanneckof[64]; // a head node's group with a neck made under it (gebeanmats.neck)
 	s8 beanbare[64];   // a neck node's group of the collar the hood covers (gebeanmats.bare)
 	s8 beanownneck[64]; // a neck node's group of the body's whole neck (gebeanmats.ownneck)
+	s8 beannoskin[64]; // a node's group less the body's own neck skin (gebeanmats.noskin)
 	u64 beanspent;     // a first-person launcher's nodes with a group for an empty tube
 	s8 beanspentgroup[64]; // and that group (gebeanmats.spent)
 	s32 beanhead;      // the mesh is a head's (gebeanmats.head)
@@ -6774,6 +6775,7 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 	memcpy(m->beanhood, bmats->hood, sizeof(m->beanhood));
 	memcpy(m->beanneckof, bmats->neck, sizeof(m->beanneckof));
 	memcpy(m->beanownneck, bmats->ownneck, sizeof(m->beanownneck));
+	memcpy(m->beannoskin, bmats->noskin, sizeof(m->beannoskin));
 
 	for (s32 k = 0; k < 64; k++) {
 		if (bmats->hood[k] >= 0 && bmats->hood[k] < 64) {
@@ -8548,6 +8550,42 @@ static s32 xblaMeshBodyDrawsBare(struct model *model)
 static s32 xblaMeshHeadTubeOn(struct model *model, const struct xblameshbuilt *head)
 {
 	return head->beanopenrim > GEBEAN_OPENRIM_JAW || xblaMeshBodyDrawsBare(model);
+}
+
+/**
+ * Whether the head grafted on this body is one of the release's head files
+ * whose neck reaches down into the collar on the back (gebean.c's neckback),
+ * which the body's own neck skin below the cut stands out through
+ * (gebeanmats.noskin).
+ */
+static s32 xblaMeshHeadIsNeckBack(struct model *model)
+{
+	struct modelnode *spot = model && model->definition ? modelGetPart(model->definition, MODELPART_CHR_HEADSPOT) : NULL;
+	union modelrwdata *rw = spot ? modelGetNodeRwData(model, spot) : NULL;
+	struct modeldef *head = rw ? rw->headspot.headmodeldef : NULL;
+	struct modelnode *node = head ? head->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 256; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == head && !e->suppress && e->beanrow >= 0) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+
+			return m && m->beanhead && m->beanneckback;
+		}
+
+		if (node->child) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return 0;
 }
 
 static s32 xblaMeshHeadBringsNeck(struct model *model)
@@ -10777,6 +10815,13 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				&& !(m->groupabsent & (1ull << m->beanbare[part]))) {
 			// And round any other, the collar the hood would have covered
 			part = (u16)m->beanbare[part];
+		} else if (!m->beanhead && part < 64 && m->beannoskin[part] >= 0 && m->beannoskin[part] < m->numgroups
+				&& !(m->groupabsent & (1ull << m->beannoskin[part]))
+				&& part < m->numgroups && !(m->groupabsent & (1ull << part))
+				&& xblaMeshHeadIsNeckBack(model)) {
+			// A guard's body without the skin of its own neck below the cut,
+			// under a head file whose neck goes down into the collar there
+			part = (u16)m->beannoskin[part];
 		} else if (part >= m->numgroups || (m->groupabsent & (1ull << part))) {
 			// A neck node (one with a filler slot) under a head that brings
 			// its own HD neck draws nothing; under an N64 head the stub stays

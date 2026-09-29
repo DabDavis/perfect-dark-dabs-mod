@@ -3225,6 +3225,9 @@ enum {
 #define BEAN_OWNNECK_THROAT -15.0f
 // and in the release's, whose women carry their heads' lips lower
 #define BEAN_OWNNECK_THROAT_HD -22.0f
+// How far under Bean's neck joint a guard's own neck skin is looked for
+// (ownskin), at the rig's scale: the collar reaches 13-64 under it
+#define BEAN_OWNSKIN_BELOW -150.0f
 #define BEAN_OWNNECK_REACH 125.0f
 
 static void beanSeatPoint(const f32 *p, s32 highest, f32 *seat, u32 *hit)
@@ -9534,6 +9537,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	memset(mats->hood, -1, sizeof(mats->hood));
 	memset(mats->bare, -1, sizeof(mats->bare));
 	memset(mats->spent, -1, sizeof(mats->spent));
+	memset(mats->noskin, -1, sizeof(mats->noskin));
 	mats->num = nummatwords;
 	mats->screenfit = screenfit;
 	mats->screenrecess = screenrecess;
@@ -11264,6 +11268,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	memset(mats->hood, -1, sizeof(mats->hood));
 	memset(mats->bare, -1, sizeof(mats->bare));
 	memset(mats->spent, -1, sizeof(mats->spent));
+	memset(mats->noskin, -1, sizeof(mats->noskin));
 	mats->num = nummatwords;
 
 	for (s32 i = 0; i < nummatwords; i++) {
@@ -12204,6 +12209,32 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 	memset(ownof, -1, sizeof(ownof));
 
+	// A guard's body on the remake's own rows keeps the skin of its own neck
+	// below the cut, on its face's picture and weighted to the back: the
+	// jagged ring the face's triangles were cut away from. Under one of the
+	// release's head files (neckback, above), whose neck reaches down into
+	// the collar over it, the ring stood out through that neck in pale teeth,
+	// and with the head thrown back - a guard dead on the floor - round the
+	// throat, with the floor showing between them (F3 20260929-092018, Mark's
+	// head on the Siberian guard, Dam). So each list node holding some of it
+	// has a second group without it (gebeanmats.noskin), which the draw takes
+	// under such a head (xblamesh.c); under any other - a Bond's head cut off
+	// at the collar, GoldenEye's own N64 face - the ring closes the collar as
+	// before. Not a Bond outfit, whose skin goes in its hood group.
+	const s32 dropownskin = !ishead && !original && row >= GEBEAN_CHRROW_BASE
+			&& row < GEBEAN_CHRROW_BASE + (s32)ARRAYCOUNT(chrRows)
+			&& r->kind == GEBEAN_BODY && !gebeanSourceIsHead(r->source);
+	s32 ownskincount[GEBEAN_MAXMATS];
+	s32 ownskincand[GEBEAN_MAXMATS];
+	s32 ownskintex = -1;
+	s32 ownskinleft = 0;
+	s8 noskinof[64];
+	s32 numnoskin = 0;
+
+	memset(ownskincount, 0, sizeof(ownskincount));
+	memset(ownskincand, 0, sizeof(ownskincand));
+	memset(noskinof, -1, sizeof(noskinof));
+
 	// A hood is the coat's, not the head's. The parka's hood, its fur and its
 	// lining are painted on the body's picture and weighted to the neck with
 	// the back still holding the rim (up to all of it at the nape), where the
@@ -12319,6 +12350,22 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 	if (pass == 1 && numseam > 1) {
 		qsort(seam, numseam, 3 * sizeof(f32), beanSeamCompare);
+	}
+
+	// Its face's picture is the one most of the neck's triangles are on; the
+	// back's list nodes get a group without the ring, if it has one
+	if (pass == 1 && dropownskin) {
+		for (s32 i = 0; i < GEBEAN_MAXMATS; i++) {
+			if (ownskincount[i] > 0 && (ownskintex < 0 || ownskincount[i] > ownskincount[ownskintex])) {
+				ownskintex = i;
+			}
+		}
+
+		for (s32 k = 0; ownskintex >= 0 && ownskincand[ownskintex] > 0 && k < numnodes && k < 64; k++) {
+			if (nodeskel[k] == SK_BACK && numnodes + numfill + numhood + numbare + numown + numnoskin < 64) {
+				noskinof[k] = (s8)(numnodes + numfill + numhood + numbare + numown + numnoskin++);
+			}
+		}
 	}
 
 	if (pass == 1 && numseamhead > 1) {
@@ -12542,6 +12589,18 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			}
 
 			if (pass == 0) {
+				for (s32 i = 0; dropownskin && d->tex < GEBEAN_MAXMATS && i < 3; i++) {
+					if (dominant == SK_NECK) {
+						ownskincount[d->tex]++;
+						break;
+					}
+
+					if ((v3[i].pos[1] - bind[SK_NECK][1]) * rig.scale > BEAN_OWNSKIN_BELOW) {
+						ownskincand[d->tex]++;
+						break;
+					}
+				}
+
 				for (s32 i = 0; dominant == SK_NECK && i < 3; i++) {
 					if (numseam >= capseam) {
 						const s32 cap = capseam ? capseam * 2 : 1024;
@@ -12588,6 +12647,14 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			}
 
 			const s32 bare = neckzone;
+
+			// A guard's own neck skin below the cut (dropownskin, above)
+			s32 ownskin = 0;
+
+			for (s32 i = 0; i < 3 && !ownskin && pass == 1 && ownskintex >= 0
+					&& (s32)d->tex == ownskintex && dominant != SK_NECK; i++) {
+				ownskin = (v3[i].pos[1] - bind[SK_NECK][1]) * rig.scale > BEAN_OWNSKIN_BELOW;
+			}
 
 			// Round a head not its own the parka shows its bare collar
 			// (gebeanmats.bare), less what the hood brought up round Bond's
@@ -12983,6 +13050,16 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 						ok = 0;
 						break;
 					}
+
+					// and the node's copy without its own neck's skin
+					if (takes && !asown && !asfill && !ashood && k < 64 && noskinof[k] >= 0) {
+						if (ownskin) {
+							ownskinleft++;
+						} else if (!beanAddTri(&out, noskinof[k], (s32)d->tex, idx[0], idx[1], idx[2])) {
+							ok = 0;
+							break;
+						}
+					}
 				}
 			}
 		}
@@ -13154,6 +13231,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 		mats->neck[k] = neckof[k];
 		mats->bare[k] = bareof[k];
 		mats->ownneck[k] = ownof[k];
+		mats->noskin[k] = noskinof[k];
 	}
 
 	mats->head = ishead;
@@ -13198,7 +13276,12 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 				r->file, source, mats->collarshift, neckshift[0], neckshift[1], neckshift[2], numown);
 	}
 
-	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare + numown + numneck, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
+	if (numnoskin > 0) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d triangles of its own neck's skin under the collar, left out under a head file's neck (%d groups, picture %d)",
+				r->file, source, ownskinleft, numnoskin, ownskintex);
+	}
+
+	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare + numown + numnoskin + numneck, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
 
 	if (seathit) {
 		char line[256];
