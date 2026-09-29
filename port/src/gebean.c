@@ -10751,10 +10751,14 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				// GoldenEye's N64 guns are painted by their vertex colours over
 				// intensity pictures (the sniper rifle's black scope, the
 				// Klobb's grey), and drew white without them. The release's
-				// colours are shading its own pictures already carry, and would
-				// draw its guns near black.
+				// guns take theirs too: its pixel shader is texel times vertex
+				// colour (ambient 1, no light, on every draw it makes), and
+				// its colours are the dark gunmetal shading the release's
+				// footage shows - the AR33 at 0x50-0x90, the PP7 at 0x30.
+				// Left white, every HD gun drew a bright silver (F3
+				// 20260928-231646, "all ge xbla weapons are the wrong shade").
 				mapped[vi] = beanAddVertex(&out, pos, v.nrm, v.uv, bones, weight,
-						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm, fpLight) : original ? v.argb : 0xffffffff);
+						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm, fpLight) : v.argb);
 				mappedmtx[vi] = mtx;
 
 				if (mapped[vi] < 0) {
