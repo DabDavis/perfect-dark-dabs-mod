@@ -12912,3 +12912,47 @@ run dir). Facility's conveyor still lifts +118.9 (walk.py on 0x63). Probes:
   door (randomizer.md), third-person camera ease (third-person.md), the texture
   cache sizing itself (performance.md), F3 [display]/[frames] (recording.md), stage 0
   goes to the Institute (crash-reports.md).
+
+## The later cartridges' setups and portals (JP/PAL, converter 90, 2026-09-29)
+
+"GE Plus: Later Revision (JP/PAL)" (`Mod.GePlusRevisionFixes`, on by default)
+plays GoldenEye's Japanese and PAL cartridges' own data, switchable without
+converting again. The conversion writes each setup they changed a second time
+(`files/Usetupgs<key>_jZ`, `files/Ump_setupgxarch_jZ`), named on the mission line
+as `revsetup` and on the map line as `revmpsetup`, and the PAL portal thicknesses
+as `revportals "portal code ..."` (codes already in world units). `setup.c` asks
+`modloaderGetStageRevisionSetup()` at both setup loads, and `bgReset()` calls
+`geRoomRevisionPortals()` once `g_BgPortals` is set (a bg file is read afresh at
+every load, so off needs nothing undone).
+
+- **The changes, checked against both ROMs**: Silo's opening has five shots to the
+  US one's one (Wreck's report), Frigate's third shot moved, Statue Park gains
+  list 0x1009, Jungle's objective 3 moves from bit 0x8000 (also the guard
+  spawners' "ramp down" bit) to 0x40000 with lists 0x409/0x40b/0x1002 changed,
+  Cradle 0x41d/0x41f, Train 0x1003, and the Archives arena's prop on bound pad
+  10249 gets PROPFLAG2_NOFALL. Cuba's credits follow the region instead
+  (gecredits.c).
+- **How it is built** (`revisionSetup()`, gefiles.py's `revision_setup()`): words
+  changed in place are checked against the US word; what changed length (Silo's
+  intro, each changed AI list whole, the list table when a list is added) is
+  appended after the file's end and pointed at, since GoldenEye's labels are ids
+  and nothing else points in. A US list is only replaced when its length and
+  CRC-32 match; one miss and that setup gets no second file.
+- **Checked by converting the real Japanese ROM's setups**: `writeSoloSetup()` on
+  the US setup made later and on the Japanese ROM's own file came out
+  byte-identical for all six missions, and the arena's raw bytes equal. The JP and
+  PAL setup files are identical to each other; C and Python raw outputs match.
+- **The decompilation's bg `u/j/e` files mislead**: Japan's bg files are the US
+  ones byte for byte, and every portal change is PAL-only (BUGFIX_R2 or `e/`) -
+  Archives 81-83, Control 99-105, Jungle 22, Streets 50, Silo 63, numbered by the
+  portal's place in the table (the decomp's `portal_N` are vertex labels, not
+  indices). Read the ROMs (`007 - GoldenEye (Japan|Europe).zip`; a setup file is a
+  1172 blob, found by its length and its pads' bytes) rather than the decomp's
+  directories.
+- **Left inert**: Statue Park's new list waits on `IFKilledCiviliansGreaterThan`
+  (0xf7), which geaitable.h has no Perfect Dark command for and drops - as it
+  already does on Facility, Silo, Frigate and Caverns - so the list sets the chr
+  flag and loops. GoldenEye chr flags are copied raw (0x00100000 lands on Perfect
+  Dark's CHRCFLAG_KILLCOUNTABLE, Cradle's 0x18000000 on Bond on
+  CONSIDER_DODGE|AVOIDING), as for every other converted SetChrchrflags.
+- `gecinema: N opening shots` in the log says which setup a mission opened on.

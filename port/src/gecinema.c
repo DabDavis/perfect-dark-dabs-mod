@@ -409,6 +409,10 @@ static void gecinemaCollect(void)
 		sw->flags = 1;
 		sw->pad = -1;
 	}
+
+	// five on Silo where the later cartridges are played (geconvert.c's
+	// revisionSetup()), one on the US one
+	sysLogPrintf(LOG_NOTE, "gecinema: %d opening shots, %d swirl points", g_GeCinemaNumShots, g_GeNumSwirl);
 }
 
 /** The player is the camera: no walk, no gun, no HUD and nothing to hit them. */

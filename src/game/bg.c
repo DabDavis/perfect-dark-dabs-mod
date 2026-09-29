@@ -1929,6 +1929,10 @@ void bgReset(s32 stagenum)
 		}
 
 		g_BgPortals = (struct bgportal *)(g_BgPrimaryData2[2] + g_BgPrimaryData - 0x0f000000);
+#ifndef PLATFORM_N64
+		// GE Plus: the PAL cartridge's thicker portals, where it is played
+		geRoomRevisionPortals(stagenum);
+#endif
 
 		if (g_BgPrimaryData2[3] == 0) {
 			g_BgCommands = NULL;

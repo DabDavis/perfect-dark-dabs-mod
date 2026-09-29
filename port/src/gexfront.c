@@ -665,9 +665,17 @@ static s32 g_GePlusLockedProgression = 0;
  * difficulty, the difficulty cursor on Agent and Nintendo's staff in the
  * credits. The assets are the US ROM's either way; only the code differs.
  *
- * Mod.GePlusRevisionFixes: the bug fixes the Japanese and PAL cartridges
- * carry and the US one does not (the decomp's BUGFIX_R1), on unless the US
- * cartridge's behaviour is wanted exactly.
+ * Mod.GePlusRevisionFixes: GoldenEye's later revision, the Japanese and PAL
+ * cartridges' changes the US one does not have, on unless the US cartridge is
+ * wanted exactly. Their code fixes (the decomp's BUGFIX_R1), and the eight
+ * setup files they changed: Silo's opening has five shots where the US one has
+ * one (Wreck's report), Frigate's third shot moved, and Statue Park's, Jungle's,
+ * Cradle's and Train's AI lists and Archives' arena prop mended. The conversion
+ * writes both setups and the stage loader picks one at each load
+ * (geconvert.c's revisionSetup(), modloaderGetStageRevisionSetup()), with the
+ * PAL cartridge's thicker portals on five levels (geRoomRevisionPortals()).
+ * The eighth setup, Cuba's, changed only its credits, which follow the region
+ * (gecredits.c).
  */
 static s32 g_GePlusRegion = GEREGION_US;
 static s32 g_GePlusRevisionFixes = 1;

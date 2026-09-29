@@ -119,4 +119,15 @@ void geRoomDoorSideRooms(struct prop *prop, struct pad *pad);
  */
 f32 geRoomPortalThickness(s32 portalnum);
 
+/**
+ * The thicknesses GoldenEye's PAL cartridge gives the portals it changed -
+ * Archives', Control's, Jungle's, Streets' and Silo's, each a room that dropped
+ * out of view in a doorway - put over the US ones the stage's bg file carries,
+ * when GE Plus plays the later cartridges (Mod.GePlusRevisionFixes). The
+ * conversion writes the codes on the stage's line (geconvert.c's
+ * revisionPortals()); a bg file is read afresh at every load, so turning the
+ * setting off needs nothing undone. From bgReset(), once g_BgPortals is set.
+ */
+void geRoomRevisionPortals(s32 stagenum);
+
 #endif

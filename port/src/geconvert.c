@@ -4267,6 +4267,380 @@ static buf writeMpSetup(const struct setup *setup, const struct setup *mp, const
 }
 
 /* ------------------------------------------------------------------------ */
+/* the later cartridges (gefiles.py's REVISION_*) */
+
+/*
+ * GoldenEye's Japanese and PAL cartridges changed eight of the US one's setup
+ * files, and the PAL one five of its bg files' portals. GE Plus plays either at
+ * the player's choice, "GE Plus: Later Revision (JP/PAL)" (Mod.GePlusRevisionFixes,
+ * gexfront.c), and a change of mind must not mean converting again, so a
+ * conversion writes both: every changed setup a second time as the later
+ * cartridges have it, named on its line as `revsetup` (a mission) or
+ * `revmpsetup` (an arena), and the changed portals' thicknesses as the line's
+ * `revportals`. The stage loader takes them when the setting is on
+ * (modloader.c). The eighth setup is Cuba's, whose only change is its credits,
+ * and those are gecredits.c's at run time.
+ *
+ * The ROM is the US one, so what the later cartridges have is written here, out
+ * of the decompilation's j/ and e/ setups and checked against both ROMs, whose
+ * eight setups are the same bytes as each other. Only the portals differ
+ * between the two - Japan's bg files are the US ones - and the PAL ones are
+ * taken. A change is made only where the US bytes it replaces are the ROM's, and
+ * a setup any one of whose changes does not find its bytes gets no second file.
+ */
+
+// a word the later setup has in place of the US one's, at the same offset
+static const struct { const char *stem; uint32_t at, old, new; } g_RevWords[] = {
+	// Frigate: the third of the opening's five shots, moved - its position
+	// (hundredths), then its yaw and pitch (16.16 radians)
+	{ "UsetupdestZ", 0xbb3c, 0x0000801b, 0x0000a5dc },
+	{ "UsetupdestZ", 0xbb40, 0x00006ea3, 0x000066d3 },
+	{ "UsetupdestZ", 0xbb44, 0xfffa7a99, 0xfffa5a45 },
+	{ "UsetupdestZ", 0xbb48, 0x0005bfa9, 0x0005aaff },
+	{ "UsetupdestZ", 0xbb4c, 0x0005d453, 0x00060101 },
+	// Jungle: objective 3 is complete on a bit of its own, 0x40000 - the US
+	// one's 0x8000 is also the guard spawners' "ramp down" bit, which their
+	// lists set and clear; list 0x1002 sets the new one (g_RevJun1002)
+	{ "UsetupjunZ", 0x6900, 0x00008000, 0x00040000 },
+	// Archives (the arena): the prop on bound pad 10249, the ninth object,
+	// PROPFLAG2_NOFALL
+	{ "Ump_setuparchZ", 0x7f98, 0x00000000, 0x00000100 },
+};
+
+/**
+ * Silo's opening: the later cartridges have five shots where the US one has
+ * one, and one of the five is picked at random as the mission starts
+ * (gecinema.c) - reported by Wreck. They go in after the US shot, the first
+ * intro record. The last word is the pad whose room the camera is in, then the
+ * two lines of text, the US shot's own.
+ */
+static const uint32_t g_RevSiloShot[10] = {
+	0x00000006, 0x0007d0b2, 0xfffe687b, 0x000430b2, 0x000561d5, 0x00060101, 0x00000081, 0x00008844, 0x00008845, 0x00000000,
+};
+
+static const uint32_t g_RevSiloShots[4][10] = {
+	{ 0x00000006, 0x0006ee17, 0xfffe31d9, 0x00019306, 0x0005adca, 0x000097e9, 0x0000000c, 0x00008844, 0x00008845, 0x00000000 },
+	{ 0x00000006, 0x00040d2a, 0x0000115e, 0x0003aad5, 0x0002c9c5, 0x00052a8a, 0x000000dd, 0x00008844, 0x00008845, 0x00000000 },
+	{ 0x00000006, 0x000045aa, 0xfffdd9d6, 0x0003beac, 0x0004240b, 0x00010325, 0x000000d8, 0x00008844, 0x00008845, 0x00000000 },
+	{ 0x00000006, 0xfffcbca9, 0x00003e47, 0x000153ee, 0x000294b6, 0x0005c274, 0x0000005f, 0x00008844, 0x00008845, 0x00000000 },
+};
+
+/*
+ * The AI lists the later cartridges changed, whole, as the decompilation's j/
+ * setups have them. GoldenEye's labels are ids and not offsets, so a list that
+ * grew needs nothing else moved. Each is written in place of the US list whose
+ * length and CRC-32 are given, or added (length 0) where the US setup has none.
+ */
+
+// Statue Park 0x1009, new: chr 1 killed fails the mission (bit 0x200000, every
+// objective's fail condition). The US setup has it as a loop on chr 1's death
+// after the end of list 0x1008, where nothing runs it; the later one counts chr
+// 1 as a civilian (CHRFLAG_COUNT_DEATH_AS_CIVILIAN) and waits on
+// IFKilledCiviliansGreaterThan 0. Perfect Dark has no command for that test,
+// and the conversion leaves it out here as it does on Facility, Silo, Frigate
+// and Caverns, so for now the list only sets the flag.
+static const uint8_t g_RevStatue1009[] = {
+	0xa0, 0x01, 0x00, 0x10, 0x00, 0x00, 0x03, 0x02, 0x33, 0x03, 0xf7, 0x00, 0x23, 0x01, 0x33, 0x02,
+	0x23, 0x9a, 0x00, 0x20, 0x00, 0x00, 0x05, 0xfd, 0x00, 0x01, 0x04,
+};
+
+// Jungle 0x409 and 0x40b: a guard who has fired at his target and waits to
+// stop moving goes on after five seconds (IFLocalTimerGreaterThan 300) rather
+// than waiting for ever
+static const uint8_t g_RevJun409[] = {
+	0xad, 0x6d, 0x64, 0x6b, 0x00, 0xeb, 0x26, 0x02, 0x03, 0x51, 0x00, 0x64, 0x26, 0x03, 0x51, 0x00,
+	0xc8, 0x2c, 0x03, 0x51, 0x01, 0x2c, 0x2c, 0x05, 0xfd, 0x04, 0x0c, 0x02, 0x2c, 0x40, 0xfc, 0x36,
+	0x00, 0x07, 0x02, 0x36, 0x33, 0x35, 0x80, 0x36, 0x14, 0x00, 0x24, 0x00, 0xfc, 0x3d, 0x02, 0x36,
+	0x15, 0x00, 0x24, 0x00, 0xfc, 0x3d, 0x17, 0x00, 0x04, 0x00, 0xfc, 0x2c, 0x02, 0x2c, 0xae, 0x02,
+	0x0d, 0x03, 0xb4, 0x00, 0x00, 0x3c, 0x2c, 0x01, 0x0d, 0x02, 0x2c, 0x40, 0xfc, 0x36, 0x00, 0x07,
+	0x02, 0x36, 0x01, 0x03, 0x02, 0x3d, 0x97, 0xfc, 0x80, 0xae, 0x02, 0x0b, 0x03, 0x30, 0xfc, 0x4b,
+	0xb4, 0x00, 0x00, 0x3c, 0x2c, 0x01, 0x0b, 0x02, 0x2c, 0x16, 0x00, 0x04, 0x00, 0xfc, 0x2c, 0x02,
+	0x2c, 0x02, 0x0c, 0x30, 0xfc, 0x4b, 0x31, 0xfc, 0x4b, 0x03, 0xb4, 0x00, 0x01, 0x2c, 0x2c, 0x2f,
+	0x2c, 0x01, 0x0c, 0x02, 0x2c, 0x33, 0x35, 0x80, 0x2c, 0x01, 0x03, 0x02, 0x2c, 0x02, 0x07, 0x98,
+	0xfc, 0x80, 0x05, 0xfd, 0x04, 0x07, 0x02, 0x4b, 0x05, 0xfd, 0x04, 0x0a, 0x02, 0x26, 0x05, 0xfd,
+	0x04, 0x0b, 0x04,
+};
+
+static const uint8_t g_RevJun40b[] = {
+	0xad, 0x65, 0x76, 0x61, 0x64, 0x00, 0x91, 0x14, 0x97, 0xfc, 0x80, 0x33, 0x35, 0x80, 0x0a, 0x0a,
+	0x00, 0x0b, 0x00, 0x14, 0x00, 0x3c, 0x02, 0x10, 0x02, 0x08, 0x03, 0x2f, 0x2c, 0x01, 0x08, 0x02,
+	0x2c, 0x02, 0x0a, 0x15, 0x00, 0x24, 0x00, 0xfc, 0x3d, 0x02, 0x3d, 0xae, 0x02, 0x0b, 0x03, 0x30,
+	0xfc, 0x4b, 0xb4, 0x00, 0x00, 0x3c, 0x2c, 0x01, 0x0b, 0x02, 0x2c, 0x4f, 0x00, 0x19, 0xfc, 0x09,
+	0x16, 0x00, 0x04, 0x00, 0xfc, 0x2c, 0x02, 0x2c, 0x02, 0x0c, 0x03, 0xb4, 0x00, 0x01, 0x2c, 0x2c,
+	0x2f, 0x2c, 0x01, 0x0c, 0x02, 0x2c, 0x30, 0xfc, 0x4b, 0x33, 0x35, 0x80, 0x2c, 0x01, 0x08, 0x02,
+	0x2c, 0x02, 0x07, 0x98, 0xfc, 0x80, 0x05, 0xfd, 0x04, 0x07, 0x02, 0x4b, 0x05, 0xfd, 0x04, 0x0a,
+	0x02, 0x09, 0x03, 0x2f, 0x2c, 0xe7, 0x2c, 0x01, 0x09, 0x02, 0x2c, 0x16, 0x00, 0x04, 0x00, 0xfc,
+	0x2c, 0x05, 0xfd, 0x04, 0x07, 0x02, 0x2c, 0x03, 0x19, 0xfd, 0xfc, 0x08, 0xad, 0x63, 0x68, 0x65,
+	0x61, 0x70, 0x00, 0x98, 0xfc, 0x80, 0x02, 0x0d, 0x03, 0x2f, 0x2c, 0x01, 0x0d, 0x02, 0x2c, 0x05,
+	0xfd, 0x04, 0x07, 0x04,
+};
+
+// Jungle 0x1002: sets objective bit 0x40000 where the US list set 0x8000
+// (g_RevWords)
+static const uint8_t g_RevJun1002[] = {
+	0x02, 0x03, 0x03, 0xeb, 0x4c, 0x55, 0x01, 0xd4, 0x2c, 0x01, 0x03, 0x02, 0x2c, 0x9a, 0x00, 0x04,
+	0x00, 0x00, 0xec, 0xd7, 0x00, 0xda, 0x02, 0x08, 0x03, 0xdc, 0x2c, 0x01, 0x08, 0x02, 0x2c, 0x31,
+	0x01, 0x4b, 0x30, 0x01, 0x4b, 0xf1, 0x2c, 0x05, 0xfd, 0x00, 0x0f, 0x02, 0x2c, 0xdd, 0xea, 0xdf,
+	0x1f, 0xdf, 0x20, 0x59, 0x04, 0x2c, 0x59, 0x05, 0x2c, 0x59, 0x06, 0x2c, 0x59, 0x07, 0x2c, 0x59,
+	0x08, 0x2c, 0x59, 0x09, 0x2c, 0x59, 0x0a, 0x2c, 0x59, 0x0b, 0x2c, 0x59, 0x0c, 0x2c, 0x59, 0x0d,
+	0x2c, 0x59, 0x0e, 0x2c, 0x59, 0x0f, 0x2c, 0x59, 0x10, 0x2c, 0x59, 0x11, 0x2c, 0x59, 0x12, 0x2c,
+	0x59, 0x13, 0x2c, 0x59, 0x16, 0x2c, 0x59, 0x14, 0x2c, 0x59, 0x15, 0x2c, 0xe4, 0x04, 0x02, 0x2c,
+	0xed, 0x03, 0x03, 0x03, 0xd5, 0x1e, 0x00, 0x02, 0x00, 0x00, 0xa1, 0x01, 0x00, 0x00, 0x04, 0x00,
+	0xa0, 0x01, 0x04, 0x80, 0x00, 0x00, 0xd9, 0x01, 0x02, 0x4f, 0x2c, 0x02, 0x2c, 0x05, 0x01, 0x04,
+	0x1e, 0xa0, 0xf8, 0x04, 0x80, 0x00, 0x00, 0xd9, 0xf8, 0x02, 0x50, 0x2c, 0x02, 0x2c, 0x05, 0xf8,
+	0x04, 0x1f, 0x03, 0x03, 0xdb, 0xf4, 0x01, 0x00, 0xff, 0x05, 0xfd, 0x00, 0x01, 0x02, 0x4b, 0xd2,
+	0x05, 0xfd, 0x00, 0x01, 0x02, 0x4c, 0x05, 0xfd, 0x00, 0x01, 0x04,
+};
+
+// Cradle 0x41d: the ending takes its second camera with Bond in the room of pad
+// 0x94 as it does in that of pad 0x74 (IFBondInRoomWithPad)
+static const uint8_t g_RevCrad41d[] = {
+	0xeb, 0x3d, 0xec, 0xd7, 0x00, 0xda, 0x02, 0x07, 0x03, 0xdc, 0x29, 0x01, 0x07, 0x02, 0x29, 0x31,
+	0x00, 0x30, 0x00, 0x29, 0x02, 0x30, 0xbd, 0x08, 0xff, 0x00, 0x92, 0x04, 0x1e, 0x00, 0x00, 0x00,
+	0x10, 0x29, 0x02, 0x29, 0x03, 0x03, 0x31, 0x00, 0x30, 0x00, 0x29, 0x02, 0x30, 0x05, 0xfd, 0x04,
+	0x1f, 0x02, 0x29, 0xdd, 0xea, 0xed, 0x03, 0x03, 0x03, 0xd5, 0x04, 0x00, 0x02, 0x00, 0x00, 0xa1,
+	0x00, 0x00, 0x00, 0x04, 0x00, 0x05, 0x00, 0x04, 0x1a, 0x55, 0x00, 0x74, 0x0a, 0x55, 0x00, 0x94,
+	0x0a, 0xa0, 0xf8, 0x00, 0x00, 0x04, 0x00, 0x00, 0x29, 0x02, 0x0a, 0x05, 0xf8, 0x04, 0x1b, 0x02,
+	0x29, 0x02, 0x08, 0x03, 0x9c, 0x20, 0x00, 0x00, 0x00, 0x29, 0x01, 0x08, 0x02, 0x29, 0x05, 0xfd,
+	0x04, 0x1f, 0x02, 0x3d, 0x05, 0xfd, 0x00, 0x01, 0x04,
+};
+
+// Cradle 0x41f: Bond's chr flags 0x18000000 set as his ending list is started
+static const uint8_t g_RevCrad41f[] = {
+	0xeb, 0x3d, 0xec, 0xd7, 0x00, 0xe3, 0x00, 0xdd, 0xea, 0xed, 0x03, 0x03, 0x03, 0xd5, 0x01, 0x00,
+	0x01, 0x00, 0x00, 0xa1, 0xf8, 0x00, 0x00, 0x04, 0x00, 0xa0, 0xf8, 0x18, 0x00, 0x00, 0x00, 0x05,
+	0xf8, 0x04, 0x19, 0x05, 0xfd, 0x00, 0x01, 0x02, 0x3d, 0x05, 0xfd, 0x00, 0x01, 0x04,
+};
+
+// Train 0x1003: the timers that wait on chrs 0x46 and 0x48 being gone take
+// their dying as gone, where the US list waited for their bodies to go
+static const uint8_t g_RevTra1003[] = {
+	0x02, 0x06, 0x03, 0x9c, 0x00, 0x00, 0x08, 0x00, 0x01, 0x01, 0x06, 0x02, 0x01, 0xae, 0x02, 0x11,
+	0x03, 0x30, 0x46, 0x02, 0x31, 0x46, 0x02, 0x30, 0x48, 0x35, 0x31, 0x48, 0x35, 0x02, 0x02, 0xb4,
+	0x00, 0x03, 0x84, 0x01, 0x01, 0x11, 0x02, 0x35, 0xb4, 0x00, 0x07, 0x08, 0x01, 0x01, 0x11, 0x02,
+	0x01, 0xae, 0xc3, 0x90, 0x12, 0x02, 0x12, 0xb4, 0x00, 0x01, 0x2c, 0x01, 0x03, 0x01, 0x12, 0x02,
+	0x01, 0xc3, 0x90, 0x13, 0xb7, 0x00, 0x3c, 0xb9, 0xb5, 0x02, 0x13, 0x03, 0x96, 0x04, 0x35, 0xbb,
+	0x00, 0x1e, 0x14, 0x02, 0x35, 0x96, 0x02, 0x35, 0xbb, 0x00, 0x17, 0x02, 0x02, 0x35, 0x96, 0x01,
+	0x35, 0xbb, 0x00, 0x14, 0x01, 0x02, 0x35, 0xbb, 0x00, 0x00, 0x15, 0x01, 0x13, 0x02, 0x01, 0xc4,
+	0x00, 0x3a, 0x00, 0xc7, 0x00, 0x00, 0x00, 0x0e, 0x10, 0x94, 0x01, 0x01, 0x13, 0x02, 0x02, 0xc9,
+	0x01, 0xc4, 0x00, 0xd7, 0x02, 0xc6, 0x02, 0x00, 0x47, 0x00, 0x00, 0x94, 0x02, 0x01, 0x13, 0x02,
+	0x14, 0xc4, 0x00, 0xd6, 0x03, 0xc6, 0x03, 0x00, 0x47, 0x00, 0x00, 0x03, 0xc4, 0x00, 0xd8, 0x01,
+	0xc6, 0x01, 0x00, 0x47, 0x00, 0x00, 0x94, 0x04, 0x01, 0x13, 0x02, 0x15, 0xb6, 0x9a, 0x00, 0x08,
+	0x00, 0x00, 0x02, 0x08, 0x03, 0x01, 0x08, 0x04,
+};
+
+static const struct {
+	const char *stem;
+	uint32_t id;
+	uint32_t uslen, uscrc;
+	const uint8_t *list;
+	size_t len;
+} g_RevLists[] = {
+	{ "UsetupstatueZ", 0x1009,   0, 0x00000000, g_RevStatue1009, sizeof(g_RevStatue1009) },
+	{ "UsetupjunZ",    0x0409, 158, 0xe3ac8041, g_RevJun409,     sizeof(g_RevJun409) },
+	{ "UsetupjunZ",    0x040b, 159, 0x898d9724, g_RevJun40b,     sizeof(g_RevJun40b) },
+	{ "UsetupjunZ",    0x1002, 187, 0x926bb643, g_RevJun1002,    sizeof(g_RevJun1002) },
+	{ "UsetupcradZ",   0x041d, 117, 0x730026ac, g_RevCrad41d,    sizeof(g_RevCrad41d) },
+	{ "UsetupcradZ",   0x041f,  40, 0x62b20580, g_RevCrad41f,    sizeof(g_RevCrad41f) },
+	{ "UsetuptraZ",    0x1003, 178, 0x8dba61fc, g_RevTra1003,    sizeof(g_RevTra1003) },
+};
+
+/**
+ * The PAL cartridge's portal thicknesses (bg.c's controlbytes2, geroom.h), by
+ * the portal's place in the level's table: every one a portal the camera
+ * crossed a frame late or too soon, a room dropping out of view in a doorway.
+ * The decompilation keeps Archives', Control's and Silo's behind BUGFIX_R2 and
+ * has Jungle's and Streets' in its e/ files.
+ */
+static const struct { const char *bg; uint16_t portal; uint8_t old, new; } g_RevPortals[] = {
+	{ "bg_arch", 81, 0x0c, 0x28 }, { "bg_arch", 82, 0x0c, 0x28 }, { "bg_arch", 83, 0x38, 0x4a },
+	{ "bg_arec", 99, 0x00, 0x19 }, { "bg_arec", 100, 0x00, 0x19 }, { "bg_arec", 101, 0x09, 0x19 },
+	{ "bg_arec", 102, 0x00, 0x19 }, { "bg_arec", 103, 0x00, 0x19 }, { "bg_arec", 104, 0x00, 0x19 },
+	{ "bg_arec", 105, 0x09, 0x19 },
+	{ "bg_jun", 22, 0x00, 0x2b },
+	{ "bg_pete", 50, 0x49, 0x5a },
+	{ "bg_silo", 63, 0x00, 0x08 },
+};
+
+struct revrow {
+	uint32_t at, id;
+};
+
+static void note(const char *fmt, ...);
+
+/**
+ * The setup `stem` as the later cartridges have it, made out of the US one
+ * `us` (as romFile() read it) into `out`. Returns 0, and leaves `out` alone,
+ * when the later cartridges have the US one's.
+ *
+ * What changed length is written anew after the end of the file and pointed at
+ * - Silo's intro and every changed AI list, and the list table where one is
+ * added - and the US bytes are left where they were, unread. Nothing else in a
+ * setup points into either.
+ */
+static int revisionSetup(const char *stem, const buf *us, buf *out)
+{
+	buf f = {0};
+	int changes = 0, missed = 0;
+
+	bufPut(&f, us->v, us->n);
+
+	for (size_t i = 0; i < sizeof(g_RevWords) / sizeof(g_RevWords[0]); ++i) {
+		if (strcmp(stem, g_RevWords[i].stem) != 0) {
+			continue;
+		}
+
+		if (g_RevWords[i].at + 4 <= f.n && be32(f.v, g_RevWords[i].at) == g_RevWords[i].old) {
+			set32(f.v, g_RevWords[i].at, g_RevWords[i].new);
+			changes++;
+		} else {
+			missed++;
+		}
+	}
+
+	if (!strcmp(stem, "UsetupsiloZ")) {
+		static const uint8_t words[10] = { 3, 4, 4, 8, 2, 2, 10, 3, 2 };
+		const size_t at = f.n >= 12 ? be32(f.v, 8) : 0;
+		size_t end = at;
+		int ok = at != 0;
+
+		// the US shot first, and the intro's end after it
+		for (int k = 0; ok && k < 10; ++k) {
+			ok = at + 40 <= f.n && be32(f.v, at + 4 * k) == g_RevSiloShot[k];
+		}
+
+		while (ok) {
+			const uint32_t t = end + 4 <= f.n ? be32(f.v, end) & 0xff : 0xff;
+
+			if (t == 9) {
+				end += 4;
+				break;
+			}
+
+			if (t >= 9 || end + 4 * (size_t)words[t] > f.n) {
+				ok = 0;
+				break;
+			}
+
+			end += 4 * (size_t)words[t];
+		}
+
+		if (ok) {
+			const size_t newat = f.n;
+
+			bufPut(&f, us->v + at, 40);
+			for (int s = 0; s < 4; ++s) {
+				for (int k = 0; k < 10; ++k) {
+					bufU32(&f, g_RevSiloShots[s][k]);
+				}
+			}
+			bufPut(&f, us->v + at + 40, end - at - 40);
+			set32(f.v, 8, (uint32_t)newat);
+			changes++;
+		} else {
+			missed++;
+		}
+	}
+
+	{
+		VEC(struct revrow) rows = {0};
+		const size_t tableat = f.n >= 24 ? be32(f.v, 20) : 0;
+		int lists = 0;
+
+		for (size_t o = tableat; tableat && o + 8 <= f.n && (be32(f.v, o) || be32(f.v, o + 4)); o += 8) {
+			struct revrow r = { be32(f.v, o), be32(f.v, o + 4) };
+			VECPUSH(rows, r);
+		}
+
+		for (size_t i = 0; i < sizeof(g_RevLists) / sizeof(g_RevLists[0]); ++i) {
+			size_t row = rows.n;
+
+			if (strcmp(stem, g_RevLists[i].stem) != 0) {
+				continue;
+			}
+
+			for (size_t k = 0; k < rows.n; ++k) {
+				if (rows.v[k].id == g_RevLists[i].id) {
+					row = k;
+					break;
+				}
+			}
+
+			if (g_RevLists[i].uslen) {
+				const uint32_t from = row < rows.n ? rows.v[row].at : 0;
+
+				if (row == rows.n || from + g_RevLists[i].uslen > f.n
+						|| crc32(0L, f.v + from, g_RevLists[i].uslen) != g_RevLists[i].uscrc) {
+					missed++;
+					continue;
+				}
+			} else if (row < rows.n) {
+				missed++;
+				continue;
+			} else {
+				struct revrow r = { 0, g_RevLists[i].id };
+				VECPUSH(rows, r);
+			}
+
+			bufPad(&f, 4);
+			rows.v[row].at = (uint32_t)f.n;
+			bufPut(&f, g_RevLists[i].list, g_RevLists[i].len);
+			lists++;
+		}
+
+		if (lists) {
+			bufPad(&f, 4);
+			set32(f.v, 20, (uint32_t)f.n);
+
+			for (size_t k = 0; k < rows.n; ++k) {
+				bufU32(&f, rows.v[k].at);
+				bufU32(&f, rows.v[k].id);
+			}
+
+			bufZeros(&f, 8);
+			changes += lists;
+		}
+	}
+
+	if (missed) {
+		note("geconvert: %s: %d of the later cartridges' changes did not find the US bytes; only the US setup is written",
+				stem, missed);
+		return 0;
+	}
+
+	if (!changes) {
+		return 0;
+	}
+
+	bufPad(&f, 16);
+	*out = f;
+	return 1;
+}
+
+/**
+ * The later cartridges' portal thicknesses on `lv`, as the `revportals` of its
+ * map and mission lines: each portal's number and its code as writeBg() writes
+ * one, in world units. 0 when the level has none.
+ */
+static int revisionPortals(const struct level *lv, const struct bg *bg, uint32_t *portals, uint8_t *codes)
+{
+	int n = 0;
+
+	for (size_t i = 0; i < sizeof(g_RevPortals) / sizeof(g_RevPortals[0]); ++i) {
+		const uint32_t p = g_RevPortals[i].portal;
+
+		if (strcmp(lv->bg, g_RevPortals[i].bg) == 0 && p < bg->portals.n
+				&& bg->portals.v[p].thickness == g_RevPortals[i].old) {
+			portals[n] = p;
+			codes[n] = portalThickness(g_RevPortals[i].new, 1.0 / lv->levelscale);
+			n++;
+		}
+	}
+
+	return n;
+}
+
+/* ------------------------------------------------------------------------ */
 /* solo missions (gesolo.py) */
 
 /**
@@ -6733,16 +7107,18 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		const struct level *lv = &g_Levels[li];
 		static uint8_t leveltex[SETBITS / 8];
 		struct bg bg;
-		buf bgfile, stanfile, setupfile, gedata, bgdata, tilesdata, padsdata, mpsetup;
+		buf bgfile, stanfile, setupfile, gedata, bgdata, tilesdata, padsdata, mpsetup, revfile;
 		tiles stan;
 		double offset[3], mn[3], mx[3], fog[30];
 		int music[3];
 		struct setup setup, mpsetupsrc;
-		int havemp = lv->mp != NULL, numlights, walls, first = 1;
+		int havemp = lv->mp != NULL, numlights, walls, first = 1, numrevportals;
 		struct roomfinder rf;
 		padrecs boundpads;
 		s32s bikepads;
-		char stem[64], rel[256];
+		char stem[64], rel[256], revportals[256] = "";
+		uint32_t revportal[sizeof(g_RevPortals) / sizeof(g_RevPortals[0])];
+		uint8_t revcode[sizeof(g_RevPortals) / sizeof(g_RevPortals[0])];
 
 		// everything before this level's first allocation is the ROM's, kept
 		const size_t keep = g_NumAllocs;
@@ -6793,6 +7169,25 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		bikepads = bikePads(lv, &setup, &stan, &bg, &gedata);
 		mpsetup = writeMpSetup(&setup, havemp ? &mpsetupsrc : NULL, &stan, &bg, lv->levelscale, &gedata, &bikepads, allmodels);
 
+		// and the later cartridges' (revisionSetup()): an arena setup of its
+		// own where they changed one, and the portals they thickened
+		numrevportals = revisionPortals(lv, &bg, revportal, revcode);
+		for (int i = 0; i < numrevportals; ++i) {
+			const size_t len = strlen(revportals);
+
+			snprintf(revportals + len, sizeof(revportals) - len, "%s%u %u", i ? " " : "",
+				(unsigned)revportal[i], (unsigned)revcode[i]);
+		}
+
+		if (havemp && levelIsArena(lv) && revisionSetup(lv->mp, &gedata, &revfile)) {
+			buf revmp = writeMpSetup(&setup, &mpsetupsrc, &stan, &bg, lv->levelscale, &revfile, &bikepads, allmodels);
+
+			snprintf(rel, sizeof(rel), "files/Ump_setupgx%s_jZ", lv->key);
+			writeFile(outdir, rel, revmp.v, revmp.n);
+		} else {
+			revfile.n = 0;
+		}
+
 		snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s.seg", lv->key);
 		writeFile(outdir, rel, bgdata.v, bgdata.n);
 		snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_tilesZ", lv->key);
@@ -6823,6 +7218,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				textf(&maps, "\"");
 			}
 			textf(&maps, " music \"%d %d %d\"", music[0], music[1], music[2]);
+			if (revfile.n) {
+				textf(&maps, " revmpsetup \"Ump_setupgx%s_jZ\"", lv->key);
+			}
+			if (revportals[0]) {
+				textf(&maps, " revportals \"%s\"", revportals);
+			}
 		}
 
 		note("geconvert: %s: %d rooms, %d portals, %d tiles (+%d walls), %d pads, %d lights",
@@ -6832,10 +7233,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// (a mission's pad list is not the arena's) and its own setup, over the
 		// same rooms and tiles
 		for (size_t mi = 0; mi < NUM_MISSIONS; ++mi) {
-			buf mfile, mpads, mprops;
+			buf mfile, mpads, mprops, mrev;
 			struct setup msetup;
 			padrecs mbound;
 			struct solostats st = {0};
+			int hasrev;
 
 			st.anims = allanims;
 			st.models = allmodels;
@@ -6858,6 +7260,22 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 			snprintf(rel, sizeof(rel), "files/Usetupgs%sZ", lv->key);
 			writeFile(outdir, rel, mprops.v, mprops.n);
+
+			// and the mission as the later cartridges have it, over the same
+			// pads, which they did not change
+			hasrev = revisionSetup(g_Missions[mi].setup, &mfile, &mrev);
+			if (hasrev) {
+				struct solostats rst = {0};
+				buf rprops;
+
+				rst.anims = allanims;
+				rst.models = allmodels;
+				rprops = writeSoloSetup(&mrev, msetup.pads.n, allmodels, &rst, lv->levelscale, offset);
+				snprintf(rel, sizeof(rel), "files/Usetupgs%s_jZ", lv->key);
+				writeFile(outdir, rel, rprops.v, rprops.n);
+				note("geconvert: %s: the later cartridges' mission, %d ai commands (+%d)",
+					g_Missions[mi].name, rst.aikept, rst.aidropped);
+			}
 
 			textf(&missions, "%s  mission %d \"%s\" bg \"bgdata/bg_gx%s.seg\" tiles \"bgdata/bg_gx%s_tilesZ\""
 					" pads \"bgdata/bg_gs%s_padsZ\" setup \"Usetupgs%sZ\"",
@@ -6884,6 +7302,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				textf(&missions, "\"");
 			}
 			textf(&missions, " music \"%d %d %d\"", music[0], music[1], music[2]);
+			if (hasrev) {
+				textf(&missions, " revsetup \"Usetupgs%s_jZ\"", lv->key);
+			}
+			if (revportals[0]) {
+				textf(&missions, " revportals \"%s\"", revportals);
+			}
 
 			note("geconvert: %s: mission %d, %d props (+%d left out), %d ai commands (+%d)",
 				g_Missions[mi].name, (int)mi, st.props, st.dropped, st.aikept, st.aidropped);
