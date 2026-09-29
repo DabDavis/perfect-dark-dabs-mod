@@ -10848,7 +10848,17 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		flash[2] = modelGetPart(modeldef, MODELPART_GUN_MUZZLEFLASH3);
 
 		for (s32 k = 0; k < numnodes; k++) {
-			if (nodeused[k] || nodes[k] == flash[0] || nodes[k] == flash[1] || nodes[k] == flash[2]) {
+			// The parts are the toggles; the lists here hang under them, so
+			// asking for the list itself never matched and every GoldenEye
+			// gun's flash was covered in the HD look (F3 20260929-045235)
+			s32 isflash = 0;
+			const struct modelnode *up = nodes[k];
+
+			for (s32 walked = 0; up && walked < 64 && !isflash; up = up->parent, walked++) {
+				isflash = up == flash[0] || up == flash[1] || up == flash[2];
+			}
+
+			if (nodeused[k] || isflash) {
 				continue;
 			}
 
