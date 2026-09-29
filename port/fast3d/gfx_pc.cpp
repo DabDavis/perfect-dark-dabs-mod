@@ -250,6 +250,7 @@ static struct RDP {
         uint8_t cms, cmt;
         uint8_t shifts, shiftt;
         uint16_t uls, ult, lrs, lrt; // U10.2
+        float ofs_s, ofs_t;          // G_SETTILEOFFSET_EXT: texels past uls and ult, finer than a quarter
         uint16_t width, height;      // in texels
         uint16_t tmem;               // 0-511, in 64-bit word units
         uint32_t line_size_bytes;
@@ -2525,7 +2526,8 @@ static void gfx_derive_batch_state(void) {
 
         const uint32_t tile = rdp.first_tile_index + gfx_lod_tile_offset(t);
         const int shift[2] = { rdp.texture_tile[tile].shifts, rdp.texture_tile[tile].shiftt };
-        const float origin[2] = { rdp.texture_tile[tile].uls / 4.0f, rdp.texture_tile[tile].ult / 4.0f };
+        const float origin[2] = { rdp.texture_tile[tile].uls / 4.0f + rdp.texture_tile[tile].ofs_s,
+                                  rdp.texture_tile[tile].ult / 4.0f + rdp.texture_tile[tile].ofs_t };
         const float inv_size[2] = { 1.0f / tex_width[t], 1.0f / tex_height[t] };
 
         // The half texel a linear filter adds is the N64's: its bilerp puts a
@@ -2597,8 +2599,8 @@ static void gfx_verify_uv(int t, bool is_rect, float raw_u, float raw_v, float g
         }
     }
 
-    u -= rdp.texture_tile[tile].uls / 4.0f;
-    v -= rdp.texture_tile[tile].ult / 4.0f;
+    u -= rdp.texture_tile[tile].uls / 4.0f + rdp.texture_tile[tile].ofs_s;
+    v -= rdp.texture_tile[tile].ult / 4.0f + rdp.texture_tile[tile].ofs_t;
 
     if (!is_rect) {
         if (!(rdp.other_mode_h & G_TP_PERSP)) {
@@ -3588,6 +3590,8 @@ static void gfx_dp_set_tile_size(uint8_t tile, uint16_t uls, uint16_t ult, uint1
     gfx_mark_state_dirty();
     rdp.texture_tile[tile].uls = uls;
     rdp.texture_tile[tile].ult = ult;
+    rdp.texture_tile[tile].ofs_s = 0.0f;
+    rdp.texture_tile[tile].ofs_t = 0.0f;
     rdp.texture_tile[tile].lrs = lrs;
     rdp.texture_tile[tile].lrt = lrt;
     rdp.texture_tile[tile].width = (lrs - uls + 4) / 4;
@@ -4618,6 +4622,14 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case G_SETDEPTHBIAS_EXT:
                 rdp.depth_bias = (int16_t)(int32_t)cmd->words.w1;
+                break;
+            case G_SETTILEOFFSET_EXT:
+                // A fraction of a texel past the tile's corner, until its size
+                // is set again: a picture moved by less than a quarter texel
+                // at a time (gewater.c)
+                gfx_mark_state_dirty();
+                rdp.texture_tile[C0(0, 3)].ofs_s = (uint16_t)(cmd->words.w1 >> 16) / 65536.0f;
+                rdp.texture_tile[C0(0, 3)].ofs_t = (uint16_t)(cmd->words.w1 & 0xffff) / 65536.0f;
                 break;
             case G_OCCLUSIONTEST_EXT: {
                 const int slot = C0(0, 16);
