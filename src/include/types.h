@@ -3644,6 +3644,10 @@ struct handlerdata_list {
 	s32 unk0c;
 };
 
+// The buffer a MENUOP_GETSLIDERLABEL handler writes (menuitem.c); 16 on the N64,
+// more for a translation.
+#define MENU_SLIDERLABEL_LEN 64
+
 struct handlerdata_slider {
 	u32 value;
 	char *label;

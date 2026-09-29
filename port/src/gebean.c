@@ -47,6 +47,7 @@
 #include "mod.h"
 #include "data.h"
 #include "lib/model.h"
+#include "langpack.h"
 #include "lib/main.h"
 #include "lib/rng.h"
 #include "game/playermgr.h"
@@ -328,14 +329,14 @@ struct gebeanextrarow {
 // head. They take faces no other character defaults to - a woman's for the
 // woman - so a GoldenEye body never draws a Perfect Dark face.
 static const struct gebeanextrarow extraRows[] = {
-	{ 26, 0, "Civilian\n",         "head/headmandy" }, // CbluewomanZ
-	{ 30, 0, "Civilian\n",         "head/headpete" },  // CgreymanZ
-	{ 31, 0, "Civilian\n",         "head/headdes" },   // CbluemanZ
-	{ 79, 0, "Natalya (Jungle)\n", NULL },             // CspicebondZ, her own head
-	{ 60, 1, "Balaclava\n",        NULL },             // CheadbalaclavaZ
-	{ 61, 1, "Biker\n",            NULL },             // CheadbikeZ
-	{ 62, 1, "Graham\n",           NULL },             // CheadgrahamZ
-	{ 68, 1, "Joe 2\n",            NULL },             // Cheadjoe2Z
+	{ 26, 0, LANG_N("Civilian\n"),         "head/headmandy" }, // CbluewomanZ
+	{ 30, 0, LANG_N("Civilian\n"),         "head/headpete" },  // CgreymanZ
+	{ 31, 0, LANG_N("Civilian\n"),         "head/headdes" },   // CbluemanZ
+	{ 79, 0, LANG_N("Natalya (Jungle)\n"), NULL },             // CspicebondZ, her own head
+	{ 60, 1, LANG_N("Balaclava\n"),        NULL },             // CheadbalaclavaZ
+	{ 61, 1, LANG_N("Biker\n"),            NULL },             // CheadbikeZ
+	{ 62, 1, LANG_N("Graham\n"),           NULL },             // CheadgrahamZ
+	{ 68, 1, LANG_N("Joe 2\n"),            NULL },             // Cheadjoe2Z
 };
 
 /**
@@ -1098,35 +1099,35 @@ static const char *gebeanSourceName(const char *source)
 		const char *source;
 		const char *name;
 	} faces[] = {
-		{ "head/headkarl",    "Karl\n" },
-		{ "head/headalan",    "Alan\n" },
-		{ "head/headpete",    "Pete\n" },
-		{ "head/headmartin",  "Martin\n" },
-		{ "head/headmark",    "Mark\n" },
-		{ "head/headduncan",  "Duncan\n" },
-		{ "head/headshaun",   "Shaun\n" },
-		{ "head/headdwayne",  "Dwayne\n" },
-		{ "head/headb",       "B\n" },
-		{ "head/headdave",    "Dave\n" },
-		{ "head/headgrant",   "Grant\n" },
-		{ "head/headdes",     "Des\n" },
-		{ "head/headchris",   "Chris\n" },
-		{ "head/headlee",     "Lee\n" },
-		{ "head/headneil",    "Neil\n" },
-		{ "head/headjim",     "Jim\n" },
-		{ "head/headrobin",   "Robin\n" },
-		{ "head/headsteveh",  "Steve H\n" },
-		{ "head/headstevee",  "Steve Ellis\n" },
-		{ "head/headjoel",    "Joel\n" },
-		{ "head/headscott",   "Scott\n" },
-		{ "head/headjoe",     "Joe\n" },
-		{ "head/headken",     "Ken\n" },
-		{ "head/headmishkin", "Mishkin\n" },
-		{ "head/headsally",   "Sally\n" },
-		{ "head/headmarion",  "Marion\n" },
-		{ "head/headmandy",   "Mandy\n" },
-		{ "head/headvivien",  "Vivien\n" },
-		{ "char/mayday",      "May Day\n" },
+		{ "head/headkarl",    LANG_N("Karl\n") },
+		{ "head/headalan",    LANG_N("Alan\n") },
+		{ "head/headpete",    LANG_N("Pete\n") },
+		{ "head/headmartin",  LANG_N("Martin\n") },
+		{ "head/headmark",    LANG_N("Mark\n") },
+		{ "head/headduncan",  LANG_N("Duncan\n") },
+		{ "head/headshaun",   LANG_N("Shaun\n") },
+		{ "head/headdwayne",  LANG_N("Dwayne\n") },
+		{ "head/headb",       LANG_N("B\n") },
+		{ "head/headdave",    LANG_N("Dave\n") },
+		{ "head/headgrant",   LANG_N("Grant\n") },
+		{ "head/headdes",     LANG_N("Des\n") },
+		{ "head/headchris",   LANG_N("Chris\n") },
+		{ "head/headlee",     LANG_N("Lee\n") },
+		{ "head/headneil",    LANG_N("Neil\n") },
+		{ "head/headjim",     LANG_N("Jim\n") },
+		{ "head/headrobin",   LANG_N("Robin\n") },
+		{ "head/headsteveh",  LANG_N("Steve H\n") },
+		{ "head/headstevee",  LANG_N("Steve Ellis\n") },
+		{ "head/headjoel",    LANG_N("Joel\n") },
+		{ "head/headscott",   LANG_N("Scott\n") },
+		{ "head/headjoe",     LANG_N("Joe\n") },
+		{ "head/headken",     LANG_N("Ken\n") },
+		{ "head/headmishkin", LANG_N("Mishkin\n") },
+		{ "head/headsally",   LANG_N("Sally\n") },
+		{ "head/headmarion",  LANG_N("Marion\n") },
+		{ "head/headmandy",   LANG_N("Mandy\n") },
+		{ "head/headvivien",  LANG_N("Vivien\n") },
+		{ "char/mayday",      LANG_N("May Day\n") },
 	};
 	static char made[32];
 	const char *base;

@@ -42,7 +42,65 @@ lang/<code>/ge.json          GE Plus's text, keyed ge.<bank>.<slot> or by Englis
 - Length: menu labels do not wrap. Keep a label within about 1.3x the English
   width; `--lang-audit` reports anything over.
 - `port.json` is `{ "English exactly as in the source": "translation" }`. A key
-  may be `"ctx|English"` where one English string needs two translations.
+  may be `"ctx|English"` where one English string needs two translations. The
+  keys are `lang/_source/port.json`'s (see "Source catalogs").
+
+## Source catalogs (the English a translator works from)
+
+```
+python3 tools/langpack/extract.py              # writes lang/_source/
+python3 tools/langpack/extract.py --leftovers  # drawn-looking literals no hook reaches
+python3 tools/langpack/check.py lang/fr        # checks against lang/_source/ when it is there
+```
+
+`lang/_source/` is **generated and gitignored**, never committed: `ge.json` is
+GoldenEye's English, which is Rare's text (the same "no Rare text in the repo"
+rule as the packs), and `port.json` is kept beside it so the two are made the
+same way. Regenerate after any change to a port string; `check.py` then
+rejects a pack key the game no longer asks for.
+
+- `port.json` - `{ key: English }`, every port string the player can see, keyed
+  exactly as `langTr()` looks it up: the English with its trailing `\n` dropped
+  (one leading `\n` or inner ones stay), `ctx|English` for a `langTrCtx()` call.
+  A translator copies it to `lang/<code>/port.json` and replaces the values.
+  `port.ctx.json` is `{ key: ["file:line", ...] }`, where each one is used.
+- `ge.json` - `{ "ge.<bank>.<slot>": English }` from the GoldenEye decomp's US
+  English text files, `007/assets/obseg/text/L*E.c` (found beside this tree or
+  a parent of it, or `--ge-text DIR`, or `$PD_GE_TEXT`), preprocessed as the US
+  cartridge (`LANG_US`: LlenE's and LtitleE's Japanese-only rows are left out,
+  and the slot numbers are the US ROM's). `u/` and `j/` there are Japanese only.
+  Rows with no letter in them (`"\n"`, `"007"`) are left out.
+- Perfect Dark's own needs no catalog: `src/assets/ntsc-final/lang/<bank>.json`'s
+  `en` is the source (and is the ROM's own text, committed by the decomp).
+
+What extract.py counts as a port string (it reads port/src, src/game and
+src/game/mplayer; a decomp file with no marker is skipped): a menu item with
+`MENUITEMFLAG_LITERAL_TEXT` (label and right-hand text), a dialog with
+`MENUDIALOGFLAG_LITERAL_TEXT` (title), what a `MENUOP_GETOPTIONTEXT` handler
+returns (a literal or any row of a string table it indexes), and the argument
+of `langTr()`, `langTrFind()`, `langTrCtx()`, `langAddPortText()`, `LANG_N()`
+and gebean.c's `POOLBODY()`. **`LANG_N("...")` is a no-op marker** (langpack.h)
+for a string kept in a table, or written by a worker thread, and translated
+where it is used: mark the table, `langTr()` the entry at the draw.
+
+On 2026-09-29: port.json 973 strings, 17,452 English characters; ge.json 1,724
+strings, 69,785 characters - title 278, gun 221, len 124, sevb 94, ark 68,
+stat 68, misc 67, propobj 65, silo 63, arch 60, options 59, sev 45, arec 45,
+tra 44, jun 42, cave 38, mpmenu 36, sevx 36, crad 34, dam 33, azt 33, dest 30,
+sevxb 30, pete 29, depo 28, run 25, cryp 15, mpweapons 14 (the unused levels'
+files - ame, ash, cat ... - are empty).
+
+**Wiring a new port string.** A literal label: `MENUITEMFLAG_LITERAL_TEXT`. A
+string built at run time: `snprintf(buf, n, langTr("Loaded: %s\n"), name)` - the
+*format* is the key, check.py holds a translation's conversions to it, and a
+format with none is `snprintf(buf, n, "%s", langTr("..."))`. Pluralise with a
+whole sentence per case (`mods == 1 ? langTr("... %d mod ...") : langTr("... %d
+mods ...")`), never `"mod%s"`. A text handler (`menutext*()`) returns
+`(char *)langTr("...")` - only LITERAL items are translated by the menu code.
+Never call `langTr()` off the main thread (it builds a value's newline copy on
+first use): a worker writes `LANG_N("...")` and the menu that shows the message
+`langTr()`s it (`ghostnetGetMessage()`, `communityGetStatus()`, the F3 and
+crash dialogs' `g_Err`); a worker's formatted message stays English.
 
 ## Built packs
 
@@ -122,6 +180,36 @@ loops, `textWrapN()`), `port/src/gexfront.c` (GE Plus's I8 glyphs).
   --rng-seed`, `--screenshot-frame`) give frame-exact pairs. The pause briefing
   of Defection is `L_AME_003`, not `_000` (that is the solo menu's).
 
+**`--lang-log-missing`** (log lines, each once):
+- `lang: missing [fr] port "English"` - a port string asked of `langTr()` that
+  the pack lacks (a string a lookup already handed out - a translation passed
+  through `langTr()` again, a ROM string - is not logged);
+- `lang: missing [fr] ge.dam.5` and `lang: missing [fr] pd.5608 "Red\n"` -
+  GoldenEye's and Perfect Dark's by key (`pd.` is the text id in hex:
+  bank = id >> 9 in check.py's `BANKS`, row = id & 0x1ff);
+- `lang: not looked up "text"` - **the leftover finder**: a string Perfect
+  Dark's text loops (`textRender()`, `textRenderProjected()`) or GE Plus's
+  (`frontText()`) drew that no lookup handed out. `langTr()`, `langGet()` and the
+  GE bank readers note what they return, `textWrapN()` carries a note to its
+  wrapped copy; anything else drawn with two letters in a row is logged (up to
+  1000). Text built by `snprintf()` from a translated format is logged too -
+  judge by the source; `extract.py --leftovers` is the static half.
+It works with English (US) selected as well (only the not-looked-up lines).
+
+**Hooked on 2026-09-29 (second pass):** the Player N option pages' titles
+(title handlers, `"Player %d ..."`), slider labels (`MENU_SLIDERLABEL_LEN`, 64
+bytes, was 16), every drawn `snprintf()` in optionsmenu/ghostmenu/tracereport/
+crashreportmenu/updatemenu/communitymenu/randommenu/mpsetups/patchnotes, the
+bind-name tables, HUD notices (Enhancements/HD Assets/Texture Pack - its
+`hudmsgRemoveByPrefix()` takes the translated format's prefix - and the
+GoldenEye key analyser's), the GE Plus front's own rows (EXTRA, Cinema,
+Monitor Programmes and their 52 names, Simulants), the watch's `FIRE MODE`/`PC`,
+GoldenEye's pickup messages (`geHudPropobjString()`, `ge.propobj.<slot>`), the
+Japanese credits tail (`g_CreditsJpText`; the US roll was already `ge.len.N`
+through `LANGBANK_GEMISSION`), GE gun/gadget/function names, GE and PD head and
+body names (`mpGetHeadName()`, `mpGetBodyName()`), the Randomizer's objective
+and score texts.
+
 **Not done yet (the next agent's list):**
 - The XBLA font (`Mod.XblaFont`) and texture packs have no picture for a
   composed glyph (id 0x100+), so accented letters keep the ROM's look beside
@@ -129,16 +217,19 @@ loops, `textWrapN()`), `port/src/gexfront.c` (GE Plus's I8 glyphs).
   letter's release picture with the mark scaled up (`langfontGlyphSlot()` and
   the recipe give base, marks and the cell's row offset).
 - GE Plus with the release's font on draws a string that has a character past
-  ASCII in GoldenEye's N64 font (the release's has none). GE credits' role
-  titles and literals in `ge*.c`, `gehud.c` notices, and `frontWrap()`'s
-  Japanese breaking (it breaks only at spaces) are not hooked.
-- Port strings built with `snprintf()` ("Player %d Game Options", HUD notices,
-  F3 dialog, updater) are not translated; they need `langTr()` on the format
-  and a key per format. No `langTrCtx()` call sites yet.
+  ASCII in GoldenEye's N64 font (the release's has none). `frontWrap()`'s
+  Japanese breaking (it breaks only at spaces) is not done, and
+  `frontMissionName()` upper-cases ASCII only.
+- Messages a network worker formats (update.c's "%s is out. You have %s.",
+  ghostnet.c's "uploaded %d of your ghosts", community.c's "Installing %s")
+  stay English: only their fixed messages are `LANG_N()`-marked and translated
+  at the menu. They would need a code and arguments handed to the main thread.
+- No `langTrCtx()` call sites yet (no English has needed two translations).
 - `challengeLoadConfig()`'s mpstrings (challenge descriptions, simulant names)
   do not go through `langGet()` and are not translated.
-- No whole-string safety net in the draw loops (`--lang-log-missing` only sees
-  strings that reach `langTr()`).
+- The GE gadgets' own names are port strings (`LANG_N` in gegadgets.c), so a
+  translator writes "Door Decoder" in port.json and GoldenEye's same name again
+  as `ge.gun.<slot>`.
 - Japanese: menus that are exactly full at 9-13 px lines will need scrolling at
   14; the checker does not measure widths (only `--lang-audit` does, in the sm
   font, and needs the ROM).

@@ -17,6 +17,7 @@
 #ifndef PLATFORM_N64
 #include <string.h>
 #include "langfont.h"
+#include "langpack.h"
 #endif
 
 #define SPACE_WIDTH 5
@@ -2097,6 +2098,10 @@ Gfx *textRenderProjected(Gfx *gdl, s32 *x, s32 *y, char *text, struct fontchar *
 
 	static u32 sbrd = 0x00000000;
 
+#ifndef PLATFORM_N64
+	langpackCheckDrawn(text); // --lang-log-missing
+#endif
+
 	spb0 = var8007fad0;
 
 	if (g_TextRotated90) {
@@ -2526,6 +2531,10 @@ Gfx *textRender(Gfx *gdl, s32 *x, s32 *y, char *text,
 	u8 prevchar;
 #else
 	s32 prevchar;
+#endif
+
+#ifndef PLATFORM_N64
+	langpackCheckDrawn(text); // --lang-log-missing
 #endif
 
 	*x *= g_ScaleX;
@@ -3714,6 +3723,9 @@ void textWrapN(s32 wrapwidth, char *src, char *dst, u32 dstsize, struct fontchar
 		return;
 	}
 
+	char *const src0 = src;
+	char *const dst0 = dst;
+
 	while (more == true) {
 		char sep;
 
@@ -3831,6 +3843,8 @@ void textWrapN(s32 wrapwidth, char *src, char *dst, u32 dstsize, struct fontchar
 	}
 
 	*dst = '\0';
+
+	langpackNoteDerived(src0, dst0); // --lang-log-missing: wrapped is still looked up
 
 #undef PUT
 }

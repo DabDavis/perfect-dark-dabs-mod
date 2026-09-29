@@ -13,6 +13,7 @@
 #include "system.h"
 #include "ghostnet.h"
 #include "ghostrecovery.h"
+#include "langpack.h"
 
 #ifdef PD_GHOST_WINHTTP
 #include <windows.h>
@@ -553,7 +554,7 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	*status = 0;
 
 	if (!ghostnetWide(req->url, wurl, ARRAYCOUNT(wurl))) {
-		snprintf(err, errsize, "the server address is too long");
+		snprintf(err, errsize, "%s", LANG_N("the server address is too long"));
 		return false;
 	}
 
@@ -631,12 +632,12 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 
 	if (at >= sizeof(headers)) {
 		// Half a PIN is worse than no request.
-		snprintf(err, errsize, "could not build the request");
+		snprintf(err, errsize, "%s", LANG_N("could not build the request"));
 		goto done;
 	}
 
 	if (headers[0] && !ghostnetWide(headers, wheaders, ARRAYCOUNT(wheaders))) {
-		snprintf(err, errsize, "could not build the request");
+		snprintf(err, errsize, "%s", LANG_N("could not build the request"));
 		goto done;
 	}
 
@@ -693,7 +694,7 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 		// The only way this fails is a reply bigger than one may be, which is
 		// a broken or hostile server rather than a network problem.
 		if (!ghostnetBufAppend(buf, chunk, got)) {
-			snprintf(err, errsize, "the server sent more than a reply may be");
+			snprintf(err, errsize, "%s", LANG_N("the server sent more than a reply may be"));
 			goto done;
 		}
 	}
@@ -750,7 +751,7 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	*status = 0;
 
 	if (curl == NULL) {
-		snprintf(err, errsize, "could not start request");
+		snprintf(err, errsize, "%s", LANG_N("could not start request"));
 		return false;
 	}
 
@@ -1327,7 +1328,7 @@ static bool ghostnetDownloadNow(char *msg, u32 msgsize)
 	}
 
 	if (fsFileSize(MODGHOST_DIR) < 0 && fsCreateDir(MODGHOST_DIR) != 0) {
-		snprintf(msg, msgsize, "could not create the ghosts folder");
+		snprintf(msg, msgsize, "%s", LANG_N("could not create the ghosts folder"));
 		free(buf.data);
 		return false;
 	}
@@ -1341,7 +1342,7 @@ static bool ghostnetDownloadNow(char *msg, u32 msgsize)
 	}
 
 	if (fwrite(buf.data, 1, buf.len, f) != buf.len) {
-		snprintf(msg, msgsize, "only part of the ghost was written");
+		snprintf(msg, msgsize, "%s", LANG_N("only part of the ghost was written"));
 		fclose(f);
 		free(buf.data);
 		return false;
@@ -1350,7 +1351,7 @@ static bool ghostnetDownloadNow(char *msg, u32 msgsize)
 	fclose(f);
 	free(buf.data);
 
-	snprintf(msg, msgsize, "downloaded, it is in Choose Ghosts now");
+	snprintf(msg, msgsize, "%s", LANG_N("downloaded, it is in Choose Ghosts now"));
 
 	return true;
 }
@@ -1365,11 +1366,11 @@ static int ghostnetWorker(void *arg)
 		ok = ghostnetPostCredentials("register", true, msg, sizeof(msg));
 
 		if (ok) {
-			snprintf(msg, sizeof(msg), "account created, you are signed in");
+			snprintf(msg, sizeof(msg), "%s", LANG_N("account created, you are signed in"));
 		} else if (strstr(msg, "already taken")) {
 			// The other half of the pair of buttons. A name that is taken may
 			// well be taken by the person reading this.
-			snprintf(msg, sizeof(msg), "that name is taken - Sign In if it is yours");
+			snprintf(msg, sizeof(msg), "%s", LANG_N("that name is taken - Sign In if it is yours"));
 		}
 		break;
 	case JOB_LOGIN:
@@ -1383,7 +1384,7 @@ static int ghostnetWorker(void *arg)
 		ok = ghostnetPostCredentials("setrecovery", true, msg, sizeof(msg));
 
 		if (ok) {
-			snprintf(msg, sizeof(msg), "security question saved");
+			snprintf(msg, sizeof(msg), "%s", LANG_N("security question saved"));
 		}
 		break;
 	case JOB_RESETPIN:
@@ -1393,7 +1394,7 @@ static int ghostnetWorker(void *arg)
 			// The PIN in the box is the account's PIN now, which is what the
 			// page asked for and what ghostnetPostCredentials has already
 			// recorded as the pair the server accepted.
-			snprintf(msg, sizeof(msg), "PIN changed, you are signed in");
+			snprintf(msg, sizeof(msg), "%s", LANG_N("PIN changed, you are signed in"));
 		}
 		break;
 	case JOB_UPLOAD:
@@ -1417,7 +1418,7 @@ static int ghostnetWorker(void *arg)
 	// filled the two boxes in and never pressed Create Account is the one who
 	// most needs telling that the button is there.
 	if (!ok && !ghostnetEverVerified() && strstr(msg, "username or pin")) {
-		snprintf(msg, sizeof(msg), "wrong name or pin - Create Account if it is new");
+		snprintf(msg, sizeof(msg), "%s", LANG_N("wrong name or pin - Create Account if it is new"));
 	}
 
 	ghostnetSetResult(ok ? GHOSTNET_OK : GHOSTNET_ERROR, msg);
@@ -1870,7 +1871,7 @@ s32 ghostnetGetState(void) { return GHOSTNET_IDLE; }
 
 const char *ghostnetGetMessage(void)
 {
-	return "this build has no network support";
+	return LANG_N("this build has no network support");
 }
 
 // There is no job to be part way through, and no lock to take: the state this
@@ -1894,7 +1895,7 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	}
 
 	if (err && errsize) {
-		snprintf(err, errsize, "this build has no network support");
+		snprintf(err, errsize, "%s", LANG_N("this build has no network support"));
 	}
 
 	return false;

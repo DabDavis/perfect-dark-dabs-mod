@@ -27,3 +27,7 @@ tools/mkrom/mkrom
 CppProperties.json
 .idea
 cmake-build-debug
+
+# Generated English source catalogs (tools/langpack/extract.py): GoldenEye's
+# English is Rare's text and is never committed
+lang/_source/

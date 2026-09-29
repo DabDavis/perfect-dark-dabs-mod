@@ -2486,7 +2486,7 @@ Gfx *menuitemSliderRender(Gfx *gdl, struct menurendercontext *context)
 {
 	u32 colour;
 	char *label;
-	char buffer[16];
+	char buffer[MENU_SLIDERLABEL_LEN]; // port: 16 on the N64; a translated label may be longer
 	s32 x;
 	s32 y;
 	s32 extray;

@@ -13,6 +13,7 @@
 #include "update.h"
 #include "patchnotes.h"
 #include "versioninfo.h"
+#include "langpack.h"
 
 /**
  * Check for Updates, on the Perfect Menu next to the doors it might change.
@@ -42,8 +43,8 @@ static char *menutextUpdateStatus(struct menuitem *item)
 {
 	const char *msg = updateGetMessage();
 
-	snprintf(g_UpdateText, sizeof(g_UpdateText), "This build: %s %s (%s)\n%s\n",
-			VERSION_BRANCH, VERSION_HASH, VERSION_CHANNEL, msg[0] ? msg : "Not checked yet.");
+	snprintf(g_UpdateText, sizeof(g_UpdateText), langTr("This build: %s %s (%s)\n%s\n"),
+			VERSION_BRANCH, VERSION_HASH, VERSION_CHANNEL, langTr(msg[0] ? msg : "Not checked yet."));
 
 	return g_UpdateText;
 }
@@ -66,24 +67,24 @@ static char *menutextUpdateAction(struct menuitem *item)
 		// is how much is left, and because the total is worth seeing before
 		// deciding to wait for it.
 		if (total > 0 && done > 0) {
-			snprintf(g_UpdateText, sizeof(g_UpdateText), "Downloading... %u.%u of %u.%u MB\n",
+			snprintf(g_UpdateText, sizeof(g_UpdateText), langTr("Downloading... %u.%u of %u.%u MB\n"),
 					done / 1048576, (done % 1048576) * 10 / 1048576,
 					total / 1048576, (total % 1048576) * 10 / 1048576);
 
 			return g_UpdateText;
 		}
 
-		return "Working...\n";
+		return (char *)langTr("Working...\n");
 	case UPDATE_FOUND:
-		snprintf(g_UpdateText, sizeof(g_UpdateText), "Download and Install %s\n", updateGetVersion());
+		snprintf(g_UpdateText, sizeof(g_UpdateText), langTr("Download and Install %s\n"), updateGetVersion());
 		return g_UpdateText;
 	case UPDATE_STAGED:
-		return "Restart Now\n";
+		return (char *)langTr("Restart Now\n");
 	default:
 		break;
 	}
 
-	return "Check Now\n";
+	return (char *)langTr("Check Now\n");
 }
 
 static MenuItemHandlerResult menuhandlerUpdateAction(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -127,7 +128,7 @@ static MenuItemHandlerResult menuhandlerUpdateAction(s32 operation, struct menui
  */
 static char *menutextUpdateAgain(struct menuitem *item)
 {
-	return updateIsForced() ? "Re-Download Armed\n" : "Re-Download Update\n";
+	return (char *)langTr(updateIsForced() ? "Re-Download Armed\n" : "Re-Download Update\n");
 }
 
 static MenuItemHandlerResult menuhandlerUpdateAgain(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -159,11 +160,11 @@ static char *menutextUpdateNotes(struct menuitem *item)
 	s32 count = patchnotesCountForUpdate();
 
 	if (count > 0) {
-		snprintf(text, sizeof(text), "What's in the Update (%d)\n", count);
+		snprintf(text, sizeof(text), langTr("What's in the Update (%d)\n"), count);
 		return text;
 	}
 
-	return "What's New in This Build\n";
+	return (char *)langTr("What's New in This Build\n");
 }
 
 static MenuItemHandlerResult menuhandlerUpdateNotes(s32 operation, struct menuitem *item, union handlerdata *data)

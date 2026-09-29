@@ -59,6 +59,7 @@
 #include "lib/joy.h"
 #include "game/options.h"
 #include "trace.h"
+#include "langpack.h"
 
 // GoldenEye's frame the roll is laid out on, and its line
 #define CREDITS_W       440
@@ -147,17 +148,17 @@ static const struct creditrow g_CreditsJpTail[] = {
 #define CREDITS_JP_FIRSTSLOT 0x89
 
 static const char *const g_CreditsJpText[] = {
-	"Executive Producer",   // 0x89
-	"Hiroshi Yamauchi",     // 0x8a
-	"Nintendo Producer",    // 0x8b
-	"Kenji Miki",           // 0x8c
-	"NCL Staff",            // 0x8d
-	"Eiji Onozuka",         // 0x8e
-	"Masashi Goto",         // 0x8f
-	"NCL Super Mario Club", // 0x90
-	"Special Thanks to",    // 0x91
-	"NCL",                  // 0x92
-	"JAMES BOND WILL RETURN", // 0x93
+	LANG_N("Executive Producer"),   // 0x89
+	LANG_N("Hiroshi Yamauchi"),     // 0x8a
+	LANG_N("Nintendo Producer"),    // 0x8b
+	LANG_N("Kenji Miki"),           // 0x8c
+	LANG_N("NCL Staff"),            // 0x8d
+	LANG_N("Eiji Onozuka"),         // 0x8e
+	LANG_N("Masashi Goto"),         // 0x8f
+	LANG_N("NCL Super Mario Club"), // 0x90
+	LANG_N("Special Thanks to"),    // 0x91
+	LANG_N("NCL"),                  // 0x92
+	LANG_N("JAMES BOND WILL RETURN"), // 0x93
 };
 
 static struct {
@@ -402,7 +403,7 @@ static const char *creditsText(u16 id, char *buf, size_t len)
 
 	if (g_Credits.jp && slot >= CREDITS_JP_FIRSTSLOT
 			&& slot < CREDITS_JP_FIRSTSLOT + (s32)ARRAYCOUNT(g_CreditsJpText)) {
-		snprintf(buf, len, "%s", g_CreditsJpText[slot - CREDITS_JP_FIRSTSLOT]);
+		snprintf(buf, len, "%s", langTr(g_CreditsJpText[slot - CREDITS_JP_FIRSTSLOT]));
 		return buf;
 	}
 

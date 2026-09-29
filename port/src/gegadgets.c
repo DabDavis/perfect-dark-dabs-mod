@@ -34,6 +34,7 @@
 #include "gewatch.h"
 #include "geguns.h"
 #include "gegadgets.h"
+#include "langpack.h"
 
 #ifndef PLATFORM_N64
 
@@ -75,22 +76,22 @@ struct gegadgetidentity {
 // GoldenEye's own names (its LGUN bank). A mission's own row comes before the
 // default for the same weapon.
 static struct gegadgetidentity g_Identities[] = {
-	{  1, WEAPON_GE_GADGETA,      38, "Door Decoder\n" },
-	{  6, WEAPON_GE_GADGETA,      39, "Bomb Defuser\n" },
-	{  6, WEAPON_GE_COVERTMODEM,  47, "Tracker Bug\n" },
-	{  4, WEAPON_GE_GADGETA,      46, "Key Analyzer\n" },
-	{  4, WEAPON_GE_GADGETB,      55, "Data Thief\n" },
-	{ 18, WEAPON_GE_GADGETA,      50, "Guidance Data\n" },
-	{ 18, WEAPON_GE_GADGETB,      73, "DAT Tape\n" },
-	{ -1, WEAPON_GE_COVERTMODEM,  47, "Covert Modem\n" },
-	{ -1, WEAPON_GE_PLASTIQUE,    34, "Plastique\n" },
-	{ -1, WEAPON_GE_GOLDENEYEKEY, 61, "GoldenEye Key\n" },
-	{ -1, WEAPON_GE_CAMERA,       40, "Camera\n" },
-	{ -1, WEAPON_GE_WATCHMAGNET,  60, "Watch Magnet Attract\n" },
-	{ -1, WEAPON_GE_GADGETA,       0, "Gadget\n" },
-	{ -1, WEAPON_GE_GADGETB,       0, "Gadget\n" },
-	{ -1, WEAPON_GE_TANKSHELLS,   33, "Tank\n" },
-	{ -1, WEAPON_GE_DETONATOR,    30, "Detonator\n" },
+	{  1, WEAPON_GE_GADGETA,      38, LANG_N("Door Decoder\n") },
+	{  6, WEAPON_GE_GADGETA,      39, LANG_N("Bomb Defuser\n") },
+	{  6, WEAPON_GE_COVERTMODEM,  47, LANG_N("Tracker Bug\n") },
+	{  4, WEAPON_GE_GADGETA,      46, LANG_N("Key Analyzer\n") },
+	{  4, WEAPON_GE_GADGETB,      55, LANG_N("Data Thief\n") },
+	{ 18, WEAPON_GE_GADGETA,      50, LANG_N("Guidance Data\n") },
+	{ 18, WEAPON_GE_GADGETB,      73, LANG_N("DAT Tape\n") },
+	{ -1, WEAPON_GE_COVERTMODEM,  47, LANG_N("Covert Modem\n") },
+	{ -1, WEAPON_GE_PLASTIQUE,    34, LANG_N("Plastique\n") },
+	{ -1, WEAPON_GE_GOLDENEYEKEY, 61, LANG_N("GoldenEye Key\n") },
+	{ -1, WEAPON_GE_CAMERA,       40, LANG_N("Camera\n") },
+	{ -1, WEAPON_GE_WATCHMAGNET,  60, LANG_N("Watch Magnet Attract\n") },
+	{ -1, WEAPON_GE_GADGETA,       0, LANG_N("Gadget\n") },
+	{ -1, WEAPON_GE_GADGETB,       0, LANG_N("Gadget\n") },
+	{ -1, WEAPON_GE_TANKSHELLS,   33, LANG_N("Tank\n") },
+	{ -1, WEAPON_GE_DETONATOR,    30, LANG_N("Detonator\n") },
 };
 
 // Bunker, where the key analyser copies the GoldenEye key
@@ -770,13 +771,13 @@ void gegadgetsAfterProps(void)
 static void gegadgetsAnalyseKey(void)
 {
 	if (invHasSingleWeaponIncAllGuns(WEAPON_GE_GOLDENEYEKEY)) {
-		hudmsgCreate("Analyzing the GoldenEye key...\n", HUDMSGTYPE_DEFAULT);
+		hudmsgCreate((char *)langTr("Analyzing the GoldenEye key...\n"), HUDMSGTYPE_DEFAULT);
 		geSfxPlay(GESFX_KEY_ANALYSER, GESFX_VOLUME);
 		chrSetStageFlag(NULL, GEGADGET_COPY_FLAG);
 		bgunEquipWeapon2(HAND_RIGHT, WEAPON_GE_GOLDENEYEKEY);
 		bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
 	} else {
-		hudmsgCreate("You do not have the GoldenEye key.\n", HUDMSGTYPE_DEFAULT);
+		hudmsgCreate((char *)langTr("You do not have the GoldenEye key.\n"), HUDMSGTYPE_DEFAULT);
 	}
 }
 

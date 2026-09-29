@@ -10,6 +10,7 @@
 #include "fs.h"
 #include "system.h"
 #include "mpsetups.h"
+#include "langpack.h"
 
 /*
 MP Setup File Format
@@ -460,7 +461,7 @@ static s32 mpsetupSaveFile(u8 op, struct mpsetupfile *setupfile)
 	if (nwritten < 1) {
 		fsFileFree(f);
 		sysLogPrintf(LOG_ERROR, "Unable to write the MP setup file");
-		snprintf(g_StatusText, sizeof(g_StatusText), "Unable to write the setup file\n");
+		snprintf(g_StatusText, sizeof(g_StatusText), "%s", langTr("Unable to write the setup file\n"));
 		return -1;
 	}
 
@@ -633,7 +634,7 @@ static s32 mpsetupImportFile(u8 op, u8 skipOverlap)
 		s16 importIdx = overlapIdx;
 		if (overlapIdx < 0 || op == MPSETUP_IMPORT_ADD) {
 			if (g_MpSetupFile.numsetups == MPSETUP_MAXSETUPS) {
-				snprintf(g_StatusText, sizeof(g_StatusText), "Number of setups exceeds %d\n", MPSETUP_MAXSETUPS);
+				snprintf(g_StatusText, sizeof(g_StatusText), langTr("Number of setups exceeds %d\n"), MPSETUP_MAXSETUPS);
 				return -1;
 			}
 			importIdx = g_MpSetupFile.numsetups++;
@@ -669,7 +670,7 @@ static s32 mpsetupExportFile(void)
 
 	s32 err = mpsetupSaveFile(MPSETUP_OP_EXPORT, &expMpSetupFile);
 	if (err) {
-		snprintf(g_StatusText, sizeof(g_StatusText), "Unable to write\nsetup file\n");
+		snprintf(g_StatusText, sizeof(g_StatusText), "%s", langTr("Unable to write\nsetup file\n"));
 	}
 
 	return err;
@@ -821,7 +822,7 @@ static MenuItemHandlerResult menuhandlerImportOrExportSettings(s32 operation, st
 							menuPopDialog();
 							menuPushDialog(&g_ManageSettingsDialog);
 						} else {
-							snprintf(g_StatusText, sizeof(g_StatusText), "File %s.bin\nwritten to the folder 'exported'\n", MPSETUP_FILENAME_EXP);
+							snprintf(g_StatusText, sizeof(g_StatusText), langTr("File %s.bin\nwritten to the folder 'exported'\n"), MPSETUP_FILENAME_EXP);
 							menuPushDialog(&g_StatusOkDialog);
 						}
 					} else {
@@ -874,13 +875,13 @@ static MenuItemHandlerResult menuhandlerOpenImportExportDialog(s32 operation, st
 	switch (operation) {
 	case MENUOP_SET:
 		if (item->param == MPSETUP_OP_IMPORT) {
-			strcpy(g_TitleImportExportDialog, "Import Settings\n");
+			strcpy(g_TitleImportExportDialog, LANG_N("Import Settings\n"));
 			if (fsFileSize("$S/" MPSETUP_FILENAME_EXP ".bin") < 0) {
 				snprintf(
 					g_StatusText, sizeof(g_StatusText),
-					"No import file found.\n"
+					langTr("No import file found.\n"
 					"Place the file %s.bin\n"
-					"Next to your %s.bin file\n",
+					"Next to your %s.bin file\n"),
 					MPSETUP_FILENAME_EXP, MPSETUP_FILENAME
 				);
 				menuPushDialog(&g_StatusErrorDialog);
@@ -889,7 +890,7 @@ static MenuItemHandlerResult menuhandlerOpenImportExportDialog(s32 operation, st
 
 			mpsetupLoadFile(&g_ImportMpSetupFile, MPSETUP_OP_IMPORT);
 		} else {
-			strcpy(g_TitleImportExportDialog, "Export Settings\n");
+			strcpy(g_TitleImportExportDialog, LANG_N("Export Settings\n"));
 		}
 		g_Menus[g_MpPlayerNum].mpsetup.unke24 = item->param;
 		g_MpImportExportFilter[0] = g_MpImportExportFilter[1] = -1;
@@ -919,9 +920,9 @@ static MenuItemHandlerResult menuhandlerSelectSetupHandler(s32 operation, struct
 	case MENUOP_SET:
 		g_Menus[g_MpPlayerNum].mpsetup.slotindex = data->list.value;
 		if (data->list.value == g_MpSetupFile.defaultsetup - 1) {
-			strcpy(g_LabelSetDefault, "Clear Default\n");
+			strcpy(g_LabelSetDefault, LANG_N("Clear Default\n"));
 		} else {
-			strcpy(g_LabelSetDefault, "Set Default\n");
+			strcpy(g_LabelSetDefault, LANG_N("Set Default\n"));
 		}
 		menuPushDialog(&g_ManageSetupDialog);
 		break;
@@ -958,10 +959,10 @@ static MenuItemHandlerResult menuhandlerSetupSetDefault(s32 operation, struct me
 		// clicked on "clear default"
 		if (selected == g_MpSetupFile.defaultsetup - 1) {
 			g_MpSetupFile.defaultsetup = 0;
-			strcpy(g_LabelSetDefault, "Set Default\n");
+			strcpy(g_LabelSetDefault, LANG_N("Set Default\n"));
 		} else {
 			g_MpSetupFile.defaultsetup = selected + 1;
-			strcpy(g_LabelSetDefault, "Clear Default\n");
+			strcpy(g_LabelSetDefault, LANG_N("Clear Default\n"));
 		}
 
 		mpsetupSaveCurrentFile();

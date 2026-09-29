@@ -41,6 +41,7 @@
 #include "modborrow.h"
 #include "modloader.h"
 #include "gedeathcam.h"
+#include "langpack.h"
 
 // bss
 struct chrdata *g_MpAllChrPtrs[MAX_MPCHRS];
@@ -3103,7 +3104,7 @@ char *mpGetBodyName(u8 mpbodynum)
 		const char *name = gebeanPoolBodyName(g_MpBodies[mpbodynum].bodynum);
 
 		if (name) {
-			return (char *)name;
+			return (char *)langTr(name);
 		}
 	}
 #endif
@@ -3121,88 +3122,88 @@ char *mpGetBodyName(u8 mpbodynum)
 char *mpGetHeadName(u8 mpheadnum)
 {
 	static const char *names[] = {
-		[HEAD_DARK_COMBAT]  = "Joanna (Combat)\n",
-		[HEAD_ELVIS]        = "Elvis\n",
-		[HEAD_ROSS]         = "Ross\n",
-		[HEAD_CARRINGTON]   = "Carrington\n",
-		[HEAD_MRBLONDE]     = "Mr. Blonde\n",
-		[HEAD_TRENT]        = "Trent\n",
-		[HEAD_DDSHOCK]      = "dataDyne Shock Trooper\n",
-		[HEAD_GRAHAM]       = "Graham\n",
-		[HEAD_DARK_FROCK]   = "Joanna (Frock)\n",
-		[HEAD_SECRETARY]    = "Secretary\n",
-		[HEAD_CASSANDRA]    = "Cassandra\n",
-		[HEAD_THEKING]      = "The King\n",
-		[HEAD_FEM_GUARD]    = "Female Guard\n",
-		[HEAD_JON]          = "Jon\n",
-		[HEAD_MARK2]        = "Mark\n",
-		[HEAD_CHRIST]       = "Chris T\n",
-		[HEAD_RUSS]         = "Russ\n",
-		[HEAD_GREY]         = "Grey\n",
-		[HEAD_DARLING]      = "Darling\n",
-		[HEAD_ROBERT]       = "Robert\n",
-		[HEAD_BEAU1]        = "Beau\n",
-		[HEAD_FEM_GUARD2]   = "Female Guard 2\n",
-		[HEAD_BRIAN]        = "Brian\n",
-		[HEAD_JAMIE]        = "Jamie\n",
-		[HEAD_DUNCAN2]      = "Duncan\n",
-		[HEAD_BIOTECH]      = "Biotech\n",
-		[HEAD_NEIL2]        = "Neil\n",
-		[HEAD_EDMCG]        = "Ed McG\n",
-		[HEAD_ANKA]         = "Anka\n",
-		[HEAD_LESLIE_S]     = "Leslie S\n",
-		[HEAD_MATT_C]       = "Matt C\n",
-		[HEAD_PEER_S]       = "Peer S\n",
-		[HEAD_EILEEN_T]     = "Eileen T\n",
-		[HEAD_ANDY_R]       = "Andy R\n",
-		[HEAD_BEN_R]        = "Ben R\n",
-		[HEAD_STEVE_K]      = "Steve K\n",
-		[HEAD_JONATHAN]     = "Jonathan\n",
-		[HEAD_MAIAN_S]      = "Maian Soldier\n",
-		[HEAD_SHAUN]        = "Shaun\n",
-		[HEAD_BEAU2]        = "Beau\n",
-		[HEAD_EILEEN_H]     = "Eileen H\n",
-		[HEAD_SCOTT_H]      = "Scott H\n",
-		[HEAD_SANCHEZ]      = "Sanchez\n",
-		[HEAD_DARKAQUA]     = "Joanna (Wetsuit)\n",
-		[HEAD_DDSNIPER]     = "dataDyne Sniper\n",
-		[HEAD_BEAU3]        = "Beau\n",
-		[HEAD_BEAU4]        = "Beau\n",
-		[HEAD_BEAU5]        = "Beau\n",
-		[HEAD_BEAU6]        = "Beau\n",
-		[HEAD_GRIFFEY]      = "Griffey\n",
-		[HEAD_MOTO]         = "Moto\n",
-		[HEAD_KEITH]        = "Keith\n",
-		[HEAD_WINNER]       = "Winner\n",
-		[HEAD_A51FACEPLATE] = "Area 51 Faceplate\n",
-		[HEAD_ELVIS_GOGS]   = "Elvis (Goggles)\n",
-		[HEAD_STEVEM]       = "Steve M\n",
-		[HEAD_DARK_SNOW]    = "Joanna (Snow)\n",
-		[HEAD_PRESIDENT]    = "President\n",
-		[HEAD_VD]           = "Velvet Dark\n",
-		[HEAD_KEN]          = "Ken\n",
-		[HEAD_JOEL]         = "Joel\n",
-		[HEAD_TIM]          = "Tim\n",
-		[HEAD_GRANT]        = "Grant\n",
-		[HEAD_PENNY]        = "Penny\n",
-		[HEAD_ROBIN]        = "Robin\n",
-		[HEAD_ALEX]         = "Alex\n",
-		[HEAD_JULIANNE]     = "Julianne\n",
-		[HEAD_LAURA]        = "Laura\n",
-		[HEAD_DAVEC]        = "Dave C\n",
-		[HEAD_COOK]         = "Cook\n",
-		[HEAD_PRYCE]        = "Pryce\n",
-		[HEAD_SILKE]        = "Silke\n",
-		[HEAD_SMITH]        = "Smith\n",
-		[HEAD_GARETH]       = "Gareth\n",
-		[HEAD_MURCHIE]      = "Murchie\n",
-		[HEAD_WONG]         = "Wong\n",
-		[HEAD_CARTER]       = "Carter\n",
-		[HEAD_TINTIN]       = "Tintin\n",
-		[HEAD_MUNTON]       = "Munton\n",
-		[HEAD_STAMPER]      = "Stamper\n",
-		[HEAD_JONES]        = "Jones\n",
-		[HEAD_PHELPS]       = "Phelps\n",
+		[HEAD_DARK_COMBAT]  = LANG_N("Joanna (Combat)\n"),
+		[HEAD_ELVIS]        = LANG_N("Elvis\n"),
+		[HEAD_ROSS]         = LANG_N("Ross\n"),
+		[HEAD_CARRINGTON]   = LANG_N("Carrington\n"),
+		[HEAD_MRBLONDE]     = LANG_N("Mr. Blonde\n"),
+		[HEAD_TRENT]        = LANG_N("Trent\n"),
+		[HEAD_DDSHOCK]      = LANG_N("dataDyne Shock Trooper\n"),
+		[HEAD_GRAHAM]       = LANG_N("Graham\n"),
+		[HEAD_DARK_FROCK]   = LANG_N("Joanna (Frock)\n"),
+		[HEAD_SECRETARY]    = LANG_N("Secretary\n"),
+		[HEAD_CASSANDRA]    = LANG_N("Cassandra\n"),
+		[HEAD_THEKING]      = LANG_N("The King\n"),
+		[HEAD_FEM_GUARD]    = LANG_N("Female Guard\n"),
+		[HEAD_JON]          = LANG_N("Jon\n"),
+		[HEAD_MARK2]        = LANG_N("Mark\n"),
+		[HEAD_CHRIST]       = LANG_N("Chris T\n"),
+		[HEAD_RUSS]         = LANG_N("Russ\n"),
+		[HEAD_GREY]         = LANG_N("Grey\n"),
+		[HEAD_DARLING]      = LANG_N("Darling\n"),
+		[HEAD_ROBERT]       = LANG_N("Robert\n"),
+		[HEAD_BEAU1]        = LANG_N("Beau\n"),
+		[HEAD_FEM_GUARD2]   = LANG_N("Female Guard 2\n"),
+		[HEAD_BRIAN]        = LANG_N("Brian\n"),
+		[HEAD_JAMIE]        = LANG_N("Jamie\n"),
+		[HEAD_DUNCAN2]      = LANG_N("Duncan\n"),
+		[HEAD_BIOTECH]      = LANG_N("Biotech\n"),
+		[HEAD_NEIL2]        = LANG_N("Neil\n"),
+		[HEAD_EDMCG]        = LANG_N("Ed McG\n"),
+		[HEAD_ANKA]         = LANG_N("Anka\n"),
+		[HEAD_LESLIE_S]     = LANG_N("Leslie S\n"),
+		[HEAD_MATT_C]       = LANG_N("Matt C\n"),
+		[HEAD_PEER_S]       = LANG_N("Peer S\n"),
+		[HEAD_EILEEN_T]     = LANG_N("Eileen T\n"),
+		[HEAD_ANDY_R]       = LANG_N("Andy R\n"),
+		[HEAD_BEN_R]        = LANG_N("Ben R\n"),
+		[HEAD_STEVE_K]      = LANG_N("Steve K\n"),
+		[HEAD_JONATHAN]     = LANG_N("Jonathan\n"),
+		[HEAD_MAIAN_S]      = LANG_N("Maian Soldier\n"),
+		[HEAD_SHAUN]        = LANG_N("Shaun\n"),
+		[HEAD_BEAU2]        = LANG_N("Beau\n"),
+		[HEAD_EILEEN_H]     = LANG_N("Eileen H\n"),
+		[HEAD_SCOTT_H]      = LANG_N("Scott H\n"),
+		[HEAD_SANCHEZ]      = LANG_N("Sanchez\n"),
+		[HEAD_DARKAQUA]     = LANG_N("Joanna (Wetsuit)\n"),
+		[HEAD_DDSNIPER]     = LANG_N("dataDyne Sniper\n"),
+		[HEAD_BEAU3]        = LANG_N("Beau\n"),
+		[HEAD_BEAU4]        = LANG_N("Beau\n"),
+		[HEAD_BEAU5]        = LANG_N("Beau\n"),
+		[HEAD_BEAU6]        = LANG_N("Beau\n"),
+		[HEAD_GRIFFEY]      = LANG_N("Griffey\n"),
+		[HEAD_MOTO]         = LANG_N("Moto\n"),
+		[HEAD_KEITH]        = LANG_N("Keith\n"),
+		[HEAD_WINNER]       = LANG_N("Winner\n"),
+		[HEAD_A51FACEPLATE] = LANG_N("Area 51 Faceplate\n"),
+		[HEAD_ELVIS_GOGS]   = LANG_N("Elvis (Goggles)\n"),
+		[HEAD_STEVEM]       = LANG_N("Steve M\n"),
+		[HEAD_DARK_SNOW]    = LANG_N("Joanna (Snow)\n"),
+		[HEAD_PRESIDENT]    = LANG_N("President\n"),
+		[HEAD_VD]           = LANG_N("Velvet Dark\n"),
+		[HEAD_KEN]          = LANG_N("Ken\n"),
+		[HEAD_JOEL]         = LANG_N("Joel\n"),
+		[HEAD_TIM]          = LANG_N("Tim\n"),
+		[HEAD_GRANT]        = LANG_N("Grant\n"),
+		[HEAD_PENNY]        = LANG_N("Penny\n"),
+		[HEAD_ROBIN]        = LANG_N("Robin\n"),
+		[HEAD_ALEX]         = LANG_N("Alex\n"),
+		[HEAD_JULIANNE]     = LANG_N("Julianne\n"),
+		[HEAD_LAURA]        = LANG_N("Laura\n"),
+		[HEAD_DAVEC]        = LANG_N("Dave C\n"),
+		[HEAD_COOK]         = LANG_N("Cook\n"),
+		[HEAD_PRYCE]        = LANG_N("Pryce\n"),
+		[HEAD_SILKE]        = LANG_N("Silke\n"),
+		[HEAD_SMITH]        = LANG_N("Smith\n"),
+		[HEAD_GARETH]       = LANG_N("Gareth\n"),
+		[HEAD_MURCHIE]      = LANG_N("Murchie\n"),
+		[HEAD_WONG]         = LANG_N("Wong\n"),
+		[HEAD_CARTER]       = LANG_N("Carter\n"),
+		[HEAD_TINTIN]       = LANG_N("Tintin\n"),
+		[HEAD_MUNTON]       = LANG_N("Munton\n"),
+		[HEAD_STAMPER]      = LANG_N("Stamper\n"),
+		[HEAD_JONES]        = LANG_N("Jones\n"),
+		[HEAD_PHELPS]       = LANG_N("Phelps\n"),
 	};
 	static char made[48];
 	const char *name;
@@ -3213,7 +3214,7 @@ char *mpGetHeadName(u8 mpheadnum)
 	mpheadnum = mpHeadNumSafe(mpheadnum);
 
 	if (mpheadnum >= mpGetNumHeads2()) {
-		snprintf(made, sizeof(made), "Perfect Head %d\n", mpheadnum - mpGetNumHeads2() + 1);
+		snprintf(made, sizeof(made), langTr("Perfect Head %d\n"), mpheadnum - mpGetNumHeads2() + 1);
 		return made;
 	}
 
@@ -3221,12 +3222,12 @@ char *mpGetHeadName(u8 mpheadnum)
 	name = gebeanHeadName(headnum);
 
 	if (name) {
-		return (char *)name;
+		return (char *)langTr(name);
 	}
 
 	if (headnum >= 0 && headnum < ARRAYCOUNT(names) && names[headnum]
 			&& romdataFileIsStock(g_HeadsAndBodies[headnum].filenum)) {
-		return (char *)names[headnum];
+		return (char *)langTr(names[headnum]);
 	}
 
 	// a mod's head: named for a character who wears it, as the mod names them
@@ -3238,7 +3239,7 @@ char *mpGetHeadName(u8 mpheadnum)
 
 	if (modBorrowIsGoldenEyeHead(headnum)) {
 		// its files carry Perfect Dark's names, which are not its faces
-		snprintf(made, sizeof(made), "Head %d\n", mpheadnum + 1);
+		snprintf(made, sizeof(made), langTr("Head %d\n"), mpheadnum + 1);
 		return made;
 	}
 

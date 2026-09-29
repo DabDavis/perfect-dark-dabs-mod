@@ -132,7 +132,6 @@ static MenuItemHandlerResult menuhandlerSelectPlayer(s32 operation, struct menui
 {
 	if (operation == MENUOP_SET) {
 		g_ExtMenuPlayer = item - g_ExtendedSelectPlayerMenuItems;
-		((char *)g_ExtNextDialog->title)[7] = g_ExtMenuPlayer + '1';
 		menuPushDialog(g_ExtNextDialog);
 	}
 
@@ -741,13 +740,23 @@ struct menuitem g_ExtendedControllerMenuItems[] = {
 	{ MENUITEMTYPE_END },
 };
 
-static char g_ExtendedControllerMenuTitle[] = "Player 1 Controller Options";
+// the player the page is for, in the selected language: a title handler
+// rather than a literal, which one key per player would need
+static char *menutitleExtendedController(void *dialog)
+{
+	static char title[80];
+
+	snprintf(title, sizeof(title), langTr("Player %d Controller Options"), g_ExtMenuPlayer + 1);
+
+	return title;
+}
+
 struct menudialogdef g_ExtendedControllerMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)g_ExtendedControllerMenuTitle,
+	(uintptr_t)menutitleExtendedController,
 	g_ExtendedControllerMenuItems,
 	NULL,
-	MENUDIALOGFLAG_LITERAL_TEXT,
+	0,
 	NULL,
 };
 
@@ -808,7 +817,7 @@ static MenuItemHandlerResult menuhandlerVsync(s32 operation, struct menuitem *it
 		"Off",
 		"On"
 	};
-	static char dynOpt[20];
+	static char dynOpt[64];
 	s32 vblanks;
 
 	switch (operation) {
@@ -819,7 +828,7 @@ static MenuItemHandlerResult menuhandlerVsync(s32 operation, struct menuitem *it
 		if (data->dropdown.value < ARRAYCOUNT(constOpts))
 			return (intptr_t)constOpts[data->dropdown.value];
 		vblanks = (s32)data->dropdown.value - 1;
-		snprintf(dynOpt, sizeof(dynOpt), "On (%d frames)", vblanks);
+		snprintf(dynOpt, sizeof(dynOpt), langTr("On (%d frames)"), vblanks);
 		return (intptr_t)dynOpt;
 	case MENUOP_SET:
 		videoSetVsync(data->dropdown.value - 1);
@@ -840,11 +849,11 @@ static MenuItemHandlerResult menuhandlerFramerateLimit(s32 operation, struct men
 		videoSetFramerateLimit(data->slider.value);
 		break;
 	case MENUOP_GETSLIDERLABEL:
-		// NOTE: data->slider.label length must not exceed 15.
+		// NOTE: data->slider.label holds MENU_SLIDERLABEL_LEN (menuitem.c).
 		if (data->slider.value == 0) {
-			strcpy(data->slider.label, "Off");
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Off"));
 		} else {
-			sprintf(data->slider.label, "%d FPS", data->slider.value);
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("%d FPS"), data->slider.value);
 		}
 	}
 
@@ -1017,7 +1026,7 @@ static MenuItemHandlerResult menuhandlerMSAA(s32 operation, struct menuitem *ite
 static MenuItemHandlerResult menuhandlerRenderer(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *names[] = { "OpenGL", "Vulkan" };
-	static char label[40];
+	static char label[80];
 	s32 count;
 
 	switch (operation) {
@@ -1033,7 +1042,7 @@ static MenuItemHandlerResult menuhandlerRenderer(s32 operation, struct menuitem 
 			return (intptr_t)"";
 		}
 		if ((s32)data->dropdown.value == videoGetRenderer() && videoGetRenderer() != videoGetRendererActive()) {
-			snprintf(label, sizeof(label), "%s (restart)", names[data->dropdown.value]);
+			snprintf(label, sizeof(label), langTr("%s (restart)"), langTr(names[data->dropdown.value]));
 			return (intptr_t)label;
 		}
 		return (intptr_t)names[data->dropdown.value];
@@ -2080,13 +2089,23 @@ struct menuitem g_ExtendedGameMenuItems[] = {
 	{ MENUITEMTYPE_END },
 };
 
-static char g_ExtendedGameMenuTitle[] = "Player 1 Game Options";
+// the player the page is for, in the selected language: a title handler
+// rather than a literal, which one key per player would need
+static char *menutitleExtendedGame(void *dialog)
+{
+	static char title[80];
+
+	snprintf(title, sizeof(title), langTr("Player %d Game Options"), g_ExtMenuPlayer + 1);
+
+	return title;
+}
+
 struct menudialogdef g_ExtendedGameMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)g_ExtendedGameMenuTitle,
+	(uintptr_t)menutitleExtendedGame,
 	g_ExtendedGameMenuItems,
 	NULL,
-	MENUDIALOGFLAG_LITERAL_TEXT,
+	0,
 	NULL,
 };
 
@@ -2144,31 +2163,31 @@ struct menubind {
 };
 
 static const struct menubind menuBinds[] = {
-	{ CK_ZTRIG,  "Fire [ZT]\n",         "N64 Z Trigger\n" },
-	{ CK_LTRIG,  "Fire Mode [LT]\n",    "N64 L Trigger\n"},
-	{ CK_RTRIG,  "Aim Mode [RT]\n",     "N64 R Trigger\n" },
-	{ CK_A,      "Use / Accept [A]\n",  "N64 A Button\n" },
-	{ CK_B,      "Use / Cancel [B]\n",  "N64 B Button\n" },
-	{ CK_START,  "Pause Menu [ST]\n",   "N64 Start\n" },
-	{ CK_DPAD_U, "D-Pad Up [DU]\n",     "N64 D-Pad Up\n" },
-	{ CK_DPAD_R, "D-Pad Right [DR]\n",  "N64 D-Pad Right\n" },
-	{ CK_DPAD_L, "Prev Weapon [DL]\n",  "N64 D-Pad Left\n" },
-	{ CK_DPAD_D, "Radial Menu [DD]\n",  "N64 D-Pad Down\n" },
-	{ CK_C_U,    "Forward [CU]\n",      "N64 C-Up\n" },
-	{ CK_C_D,    "Backward [CD]\n",     "N64 C-Down\n" },
-	{ CK_C_R,    "Strafe Right [CR]\n", "N64 C-Right\n" },
-	{ CK_C_L,    "Strafe Left [CL]\n",  "N64 C-Left\n" },
-	{ CK_X,      "Reload [X]\n",        "N64 Ext X\n" },
-	{ CK_Y,      "Next Weapon [Y]\n",   "N64 Ext Y\n" },
-	{ CK_8000,   "Cycle Crouch [+]\n",  "N64 Ext 8000\n" },
-	{ CK_4000,   "Half Crouch [+]\n",   "N64 Ext 4000\n" },
-	{ CK_2000,   "Full Crouch [+]\n",   "N64 Ext 2000\n" },
-	{ CK_0040,   "Fire Left [+]\n",     "N64 Ext 0040\n" },
-	{ CK_0080,   "Fire Mode Left [+]\n", "N64 Ext 0080\n" },
+	{ CK_ZTRIG,  LANG_N("Fire [ZT]\n"),         LANG_N("N64 Z Trigger\n") },
+	{ CK_LTRIG,  LANG_N("Fire Mode [LT]\n"),    LANG_N("N64 L Trigger\n")},
+	{ CK_RTRIG,  LANG_N("Aim Mode [RT]\n"),     LANG_N("N64 R Trigger\n") },
+	{ CK_A,      LANG_N("Use / Accept [A]\n"),  LANG_N("N64 A Button\n") },
+	{ CK_B,      LANG_N("Use / Cancel [B]\n"),  LANG_N("N64 B Button\n") },
+	{ CK_START,  LANG_N("Pause Menu [ST]\n"),   LANG_N("N64 Start\n") },
+	{ CK_DPAD_U, LANG_N("D-Pad Up [DU]\n"),     LANG_N("N64 D-Pad Up\n") },
+	{ CK_DPAD_R, LANG_N("D-Pad Right [DR]\n"),  LANG_N("N64 D-Pad Right\n") },
+	{ CK_DPAD_L, LANG_N("Prev Weapon [DL]\n"),  LANG_N("N64 D-Pad Left\n") },
+	{ CK_DPAD_D, LANG_N("Radial Menu [DD]\n"),  LANG_N("N64 D-Pad Down\n") },
+	{ CK_C_U,    LANG_N("Forward [CU]\n"),      LANG_N("N64 C-Up\n") },
+	{ CK_C_D,    LANG_N("Backward [CD]\n"),     LANG_N("N64 C-Down\n") },
+	{ CK_C_R,    LANG_N("Strafe Right [CR]\n"), LANG_N("N64 C-Right\n") },
+	{ CK_C_L,    LANG_N("Strafe Left [CL]\n"),  LANG_N("N64 C-Left\n") },
+	{ CK_X,      LANG_N("Reload [X]\n"),        LANG_N("N64 Ext X\n") },
+	{ CK_Y,      LANG_N("Next Weapon [Y]\n"),   LANG_N("N64 Ext Y\n") },
+	{ CK_8000,   LANG_N("Cycle Crouch [+]\n"),  LANG_N("N64 Ext 8000\n") },
+	{ CK_4000,   LANG_N("Half Crouch [+]\n"),   LANG_N("N64 Ext 4000\n") },
+	{ CK_2000,   LANG_N("Full Crouch [+]\n"),   LANG_N("N64 Ext 2000\n") },
+	{ CK_0040,   LANG_N("Fire Left [+]\n"),     LANG_N("N64 Ext 0040\n") },
+	{ CK_0080,   LANG_N("Fire Mode Left [+]\n"), LANG_N("N64 Ext 0080\n") },
 	// Third Person and Combat Roll are not here. They belong to this fork, so
 	// they are bound from Dab's Mod Options with the settings they drive.
-	{ CK_ACCEPT, "UI Accept [+]\n",     "EXT UI Accept\n" },
-	{ CK_CANCEL, "UI Cancel [+]\n",     "EXT UI Cancel\n" },
+	{ CK_ACCEPT, LANG_N("UI Accept [+]\n"),     LANG_N("EXT UI Accept\n") },
+	{ CK_CANCEL, LANG_N("UI Cancel [+]\n"),     LANG_N("EXT UI Cancel\n") },
 };
 
 static const char *menutextBind(struct menuitem *item);
@@ -2314,8 +2333,8 @@ static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *i
 static const char *menutextBind(struct menuitem *item)
 {
 	return g_PlayerExtCfg[g_ExtMenuPlayer].extcontrols ?
-		menuBinds[item - g_ExtendedBindsMenuItems].name :
-		menuBinds[item - g_ExtendedBindsMenuItems].n64name;
+		langTr(menuBinds[item - g_ExtendedBindsMenuItems].name) :
+		langTr(menuBinds[item - g_ExtendedBindsMenuItems].n64name);
 }
 
 static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -2372,13 +2391,23 @@ static MenuItemHandlerResult menuhandlerResetBindsN64(s32 operation, struct menu
 	return 0;
 }
 
-static char g_ExtendedBindsMenuTitle[] = "Player 1 Bindings";
+// the player the page is for, in the selected language: a title handler
+// rather than a literal, which one key per player would need
+static char *menutitleExtendedBinds(void *dialog)
+{
+	static char title[80];
+
+	snprintf(title, sizeof(title), langTr("Player %d Bindings"), g_ExtMenuPlayer + 1);
+
+	return title;
+}
+
 struct menudialogdef g_ExtendedBindsMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)g_ExtendedBindsMenuTitle,
+	(uintptr_t)menutitleExtendedBinds,
 	g_ExtendedBindsMenuItems,
 	NULL,
-	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS | MENUDIALOGFLAG_IGNOREBACK,
+	MENUDIALOGFLAG_STARTSELECTS | MENUDIALOGFLAG_IGNOREBACK,
 	NULL,
 };
 
@@ -2787,7 +2816,7 @@ void modEnhancementsTick(void)
 		if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
 			// Replaces the last press's message rather than queueing behind it
 			hudmsgRemoveByPrefix("Enhancements ");
-			hudmsgCreateWithFlags(on ? "Enhancements On\n" : "Enhancements Off\n", HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
+			hudmsgCreateWithFlags((char *)langTr(on ? "Enhancements On\n" : "Enhancements Off\n"), HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
 		}
 	}
 }
@@ -2908,7 +2937,7 @@ static void modHdAssetsTick(void)
 
 		if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
 			hudmsgRemoveByPrefix("HD Assets ");
-			hudmsgCreateWithFlags(on ? "HD Assets On\n" : "HD Assets Off\n", HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
+			hudmsgCreateWithFlags((char *)langTr(on ? "HD Assets On\n" : "HD Assets Off\n"), HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
 		}
 	}
 }
@@ -3511,7 +3540,7 @@ static MenuItemHandlerResult menuhandlerModGlassSeeThrough(s32 operation, struct
 		break;
 	case MENUOP_GETSLIDERLABEL:
 		if (data->slider.value == 0) {
-			sprintf(data->slider.label, "Off");
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Off"));
 		} else {
 			sprintf(data->slider.label, "%d%%", (s32)data->slider.value * GLASS_SEETHROUGH_STEP);
 		}
@@ -3998,11 +4027,11 @@ static MenuItemHandlerResult menuhandlerModCamSide(s32 operation, struct menuite
 		side = (s32)data->slider.value * MODCAM_SIDESTEP - MODCAM_MAXSIDE;
 
 		if (side < 0) {
-			sprintf(data->slider.label, "Left %d", -side);
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("Left %d"), -side);
 		} else if (side > 0) {
-			sprintf(data->slider.label, "Right %d", side);
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("Right %d"), side);
 		} else {
-			sprintf(data->slider.label, "Centre");
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Centre"));
 		}
 		break;
 	}
@@ -4040,11 +4069,11 @@ static MenuItemHandlerResult menuhandlerModCamFwd(s32 operation, struct menuitem
 		fwd = (s32)data->slider.value * MODCAM_FWDSTEP - MODCAM_MAXFWD;
 
 		if (fwd < 0) {
-			sprintf(data->slider.label, "Forward %d", -fwd);
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("Forward %d"), -fwd);
 		} else if (fwd > 0) {
-			sprintf(data->slider.label, "Back %d", fwd);
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("Back %d"), fwd);
 		} else {
-			sprintf(data->slider.label, "Centre");
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Centre"));
 		}
 		break;
 	}
@@ -4081,11 +4110,11 @@ static MenuItemHandlerResult menuhandlerModCamHeight(s32 operation, struct menui
 		height = (s32)data->slider.value * MODCAM_HEIGHTSTEP - MODCAM_MAXHEIGHT;
 
 		if (height < 0) {
-			sprintf(data->slider.label, "Down %d", -height);
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("Down %d"), -height);
 		} else if (height > 0) {
-			sprintf(data->slider.label, "Up %d", height);
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("Up %d"), height);
 		} else {
-			sprintf(data->slider.label, "Centre");
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Centre"));
 		}
 		break;
 	}
@@ -4193,24 +4222,24 @@ static MenuItemHandlerResult menuhandlerModSpectateSpeed(s32 operation, struct m
  * by editing pd.ini.
  */
 static const struct menubind modMenuBinds[] = {
-	{ CK_0400, "Spectator [+]\n", "N64 Ext 0400\n" },
-	{ CK_1000, "Third Person [+]\n", "N64 Ext 1000\n" },
-	{ CK_0800, "Combat Roll [+]\n",  "N64 Ext 0800\n" },
+	{ CK_0400, LANG_N("Spectator [+]\n"), LANG_N("N64 Ext 0400\n") },
+	{ CK_1000, LANG_N("Third Person [+]\n"), LANG_N("N64 Ext 1000\n") },
+	{ CK_0800, LANG_N("Combat Roll [+]\n"),  LANG_N("N64 Ext 0800\n") },
 	// Akimbo Triggers: what it rebinds, so its layout can be changed here
-	{ CK_0040,   "Fire Left [+]\n",       "N64 Ext 0040\n" },
-	{ CK_ZTRIG,  "Fire Right [ZT]\n",     "N64 Z Trigger\n" },
-	{ CK_0080,   "Fire Mode Left [+]\n",  "N64 Ext 0080\n" },
-	{ CK_DPAD_R, "Fire Mode Right [DR]\n", "N64 D-Pad Right\n" },
-	{ CK_RTRIG,  "Aim Mode [RT]\n",       "N64 R Trigger\n" },
-	{ CK_DPAD_U, "Right Hand Menu [DU]\n", "N64 D-Pad Up\n" },
-	{ CK_DPAD_D, "Left Hand Menu [DD]\n", "N64 D-Pad Down\n" },
+	{ CK_0040,   LANG_N("Fire Left [+]\n"),       LANG_N("N64 Ext 0040\n") },
+	{ CK_ZTRIG,  LANG_N("Fire Right [ZT]\n"),     LANG_N("N64 Z Trigger\n") },
+	{ CK_0080,   LANG_N("Fire Mode Left [+]\n"),  LANG_N("N64 Ext 0080\n") },
+	{ CK_DPAD_R, LANG_N("Fire Mode Right [DR]\n"), LANG_N("N64 D-Pad Right\n") },
+	{ CK_RTRIG,  LANG_N("Aim Mode [RT]\n"),       LANG_N("N64 R Trigger\n") },
+	{ CK_DPAD_U, LANG_N("Right Hand Menu [DU]\n"), LANG_N("N64 D-Pad Up\n") },
+	{ CK_DPAD_D, LANG_N("Left Hand Menu [DD]\n"), LANG_N("N64 D-Pad Down\n") },
 };
 
 static const char *menutextModBind(struct menuitem *item)
 {
 	return g_PlayerExtCfg[g_ExtMenuPlayer].extcontrols ?
-		modMenuBinds[item->param3].name :
-		modMenuBinds[item->param3].n64name;
+		langTr(modMenuBinds[item->param3].name) :
+		langTr(modMenuBinds[item->param3].n64name);
 }
 
 static MenuItemHandlerResult menuhandlerModBind(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -4281,7 +4310,7 @@ static char g_RecordDownloadText[160];
 static const char *menutextRecordDownloadSize(struct menuitem *item)
 {
 	snprintf(g_RecordDownloadText, sizeof(g_RecordDownloadText),
-			"Download ffmpeg? About %dMB.\n", recordEncoderDownloadMb());
+			langTr("Download ffmpeg? About %dMB.\n"), recordEncoderDownloadMb());
 
 	return g_RecordDownloadText;
 }
@@ -4293,7 +4322,7 @@ static const char *menutextRecordDownloadDisk(struct menuitem *item)
 	// Said out loud because the two numbers are not close: a shared build
 	// compresses to well under half of what it occupies.
 	snprintf(g_RecordDownloadDiskText, sizeof(g_RecordDownloadDiskText),
-			"It unpacks to about %dMB in your game directory.\n",
+			langTr("It unpacks to about %dMB in your game directory.\n"),
 			recordEncoderDownloadDiskMb());
 
 	return g_RecordDownloadDiskText;
@@ -4393,18 +4422,18 @@ static MenuItemHandlerResult menuhandlerModRecordEnabled(s32 operation, struct m
 /**
  * What the row says while there is something to say.
  */
-static char g_RecordEnabledText[96];
+static char g_RecordEnabledText[192];
 
 static const char *menutextModRecordEnabled(struct menuitem *item)
 {
 	if (recordEncoderIsFetching()) {
-		snprintf(g_RecordEnabledText, sizeof(g_RecordEnabledText), "Video Recording - %s\n",
+		snprintf(g_RecordEnabledText, sizeof(g_RecordEnabledText), langTr("Video Recording - %s\n"),
 				recordEncoderFetchStatus());
 	} else if (recordIsEnabled() && recordEncoderIsMissing()) {
 		snprintf(g_RecordEnabledText, sizeof(g_RecordEnabledText),
-				"Video Recording (no encoder)\n");
+				"%s", langTr("Video Recording (no encoder)\n"));
 	} else {
-		snprintf(g_RecordEnabledText, sizeof(g_RecordEnabledText), "Video Recording\n");
+		snprintf(g_RecordEnabledText, sizeof(g_RecordEnabledText), "%s", langTr("Video Recording\n"));
 	}
 
 	return g_RecordEnabledText;
@@ -4637,21 +4666,21 @@ static const struct {
 	s32 (*get)(void);
 	void (*set)(s32 vk);
 } modKeyBinds[] = {
-	{ "Screenshot\n",       screenshotGetKey, screenshotSetKey  },
-	{ "Record Video\n",     recordGetKey,     recordSetKey      },
-	{ "Dump Drawn Textures\n", texpackDumpGetKey, texpackDumpSetKey   },
-	{ "Texture Packs On/Off\n", texpackToggleGetKey, texpackToggleSetKey },
-	{ "Reload Packs\n",         texpackReloadGetKey, texpackReloadSetKey },
-	{ "Next Texture Pack\n",    texpackCycleGetKey,  texpackCycleSetKey  },
-	{ "XBLA Assets On/Off\n",   xblaSwitchGetKey,     xblaSwitchSetKey     },
-	{ "Report a Problem\n",     traceGetKey,          traceSetKey          },
-	{ "Enhancements On/Off\n",  modEnhancementsGetKey, modEnhancementsSetKey },
-	{ "HD Assets On/Off\n",     modHdAssetsGetKey,     modHdAssetsSetKey     },
+	{ LANG_N("Screenshot\n"),       screenshotGetKey, screenshotSetKey  },
+	{ LANG_N("Record Video\n"),     recordGetKey,     recordSetKey      },
+	{ LANG_N("Dump Drawn Textures\n"), texpackDumpGetKey, texpackDumpSetKey   },
+	{ LANG_N("Texture Packs On/Off\n"), texpackToggleGetKey, texpackToggleSetKey },
+	{ LANG_N("Reload Packs\n"),         texpackReloadGetKey, texpackReloadSetKey },
+	{ LANG_N("Next Texture Pack\n"),    texpackCycleGetKey,  texpackCycleSetKey  },
+	{ LANG_N("XBLA Assets On/Off\n"),   xblaSwitchGetKey,     xblaSwitchSetKey     },
+	{ LANG_N("Report a Problem\n"),     traceGetKey,          traceSetKey          },
+	{ LANG_N("Enhancements On/Off\n"),  modEnhancementsGetKey, modEnhancementsSetKey },
+	{ LANG_N("HD Assets On/Off\n"),     modHdAssetsGetKey,     modHdAssetsSetKey     },
 };
 
 static const char *menutextModKeyBind(struct menuitem *item)
 {
-	return modKeyBinds[item->param3].name;
+	return (char *)langTr(modKeyBinds[item->param3].name);
 }
 
 static MenuItemHandlerResult menuhandlerModKeyBind(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -5849,7 +5878,7 @@ static MenuItemHandlerResult menuhandlerAssetDump(s32 operation, struct menuitem
 
 static const char *menutextAssetDump(struct menuitem *item)
 {
-	return assetDumpIsRunning() ? "Stop Dumping\n" : "Dump All Assets To Disk\n";
+	return langTr(assetDumpIsRunning() ? "Stop Dumping\n" : "Dump All Assets To Disk\n");
 }
 
 static const char *menutextAssetDumpStatus(struct menuitem *item)
@@ -5884,11 +5913,11 @@ static MenuItemHandlerResult menuhandlerTexturePackReload(s32 operation, struct 
  * Deleting a pack, having asked. A pack is a folder of a few thousand files and
  * there is no undo, so the name goes in the question.
  */
-static char g_TexturePackDeleteText[96];
+static char g_TexturePackDeleteText[192];
 
 static const char *menutextTexturePackDeleteAsk(struct menuitem *item)
 {
-	snprintf(g_TexturePackDeleteText, sizeof(g_TexturePackDeleteText), "Delete %s?\n",
+	snprintf(g_TexturePackDeleteText, sizeof(g_TexturePackDeleteText), langTr("Delete %s?\n"),
 			texpackGetPackName(texpackGetSelectedPack()));
 
 	return g_TexturePackDeleteText;
@@ -5990,7 +6019,7 @@ static const char *menutextTexturePackReload(struct menuitem *item)
 
 	if (!texpackLoadEnabled()) {
 		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
-				"Reload Pack (turned off)\n");
+				"%s", langTr("Reload Pack (turned off)\n"));
 	} else if (count > 0) {
 		const s32 unplaced = texpackGetNumUnplaced();
 
@@ -5999,22 +6028,22 @@ static const char *menutextTexturePackReload(struct menuitem *item)
 			// texture number and are only recognised once something draws
 			// them - so it climbs as you play rather than being known up front.
 			snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
-					"Reload Pack (%d + %d of %d)\n", count,
+					langTr("Reload Pack (%d + %d of %d)\n"), count,
 					texpackGetNumTexelMatched(), unplaced);
 		} else {
 			snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
-					"Reload Pack (%d replaced)\n", count);
+					langTr("Reload Pack (%d replaced)\n"), count);
 		}
 	} else if (texpackGetNumUnplaced()) {
 		// A pack can be nothing but model textures, which have no texture
 		// number - so none are placed up front and "none found" would be
 		// wrong about a pack that works.
 		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
-				"Reload Pack (%d of %d by texels)\n",
+				langTr("Reload Pack (%d of %d by texels)\n"),
 				texpackGetNumTexelMatched(), texpackGetNumUnplaced());
 	} else {
 		snprintf(g_TexturePackCountText, sizeof(g_TexturePackCountText),
-				"Reload Pack (none found)\n");
+				"%s", langTr("Reload Pack (none found)\n"));
 	}
 
 	return g_TexturePackCountText;
@@ -6460,7 +6489,7 @@ static char g_XblaMeshPackText[80];
 static const char *menutextXblaMeshPack(struct menuitem *item)
 {
 	snprintf(g_XblaMeshPackText, sizeof(g_XblaMeshPackText),
-			"%d of them replaced from the texture pack\n", texpackGetNumXblaReplacements());
+			langTr("%d of them replaced from the texture pack\n"), texpackGetNumXblaReplacements());
 
 	return g_XblaMeshPackText;
 }
@@ -6515,7 +6544,7 @@ static char g_XblaMeshLateText[64];
 static const char *menutextXblaMeshLate(struct menuitem *item)
 {
 	snprintf(g_XblaMeshLateText, sizeof(g_XblaMeshLateText),
-			"Unpacked now - models from the next level\n");
+			"%s", langTr("Unpacked now - models from the next level\n"));
 
 	return g_XblaMeshLateText;
 }
@@ -6563,9 +6592,9 @@ static const char *menutextXblaStart(struct menuitem *item)
 
 	if (state == XBLAIMPORT_EXTRACTING || state == XBLAIMPORT_READING ||
 			state == XBLAIMPORT_CONVERTING) {
-		snprintf(g_XblaStartText, sizeof(g_XblaStartText), "Cancel\n");
+		snprintf(g_XblaStartText, sizeof(g_XblaStartText), "%s", langTr("Cancel\n"));
 	} else {
-		snprintf(g_XblaStartText, sizeof(g_XblaStartText), "Make Into Texture Pack\n");
+		snprintf(g_XblaStartText, sizeof(g_XblaStartText), "%s", langTr("Make Into Texture Pack\n"));
 	}
 
 	return g_XblaStartText;
@@ -6579,10 +6608,10 @@ static const char *menutextXblaStatus(struct menuitem *item)
 
 	if (!xblaImportIsAvailable()) {
 		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText),
-				"No package found - put Perfect Dark XBLA.7z in added-content\n");
+				"%s", langTr("No package found - put Perfect Dark XBLA.7z in added-content\n"));
 	} else if (state == XBLAIMPORT_IDLE) {
 		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText),
-				"Ready - this takes about a minute\n");
+				"%s", langTr("Ready - this takes about a minute\n"));
 	} else if (state == XBLAIMPORT_CONVERTING) {
 		snprintf(g_XblaStatusText, sizeof(g_XblaStatusText), "%s  %d%%\n",
 				xblaImportGetStatus(), xblaImportGetPercent());
@@ -6610,10 +6639,10 @@ static const char *menutextXblaPath(struct menuitem *item)
 		const u32 len = strlen(dir);
 
 		if (len > XBLA_PATHCHARS) {
-			snprintf(g_XblaPathText, sizeof(g_XblaPathText), "In ...%s\n",
+			snprintf(g_XblaPathText, sizeof(g_XblaPathText), langTr("In ...%s\n"),
 					dir + len - (XBLA_PATHCHARS - 3));
 		} else {
-			snprintf(g_XblaPathText, sizeof(g_XblaPathText), "In %s\n", dir);
+			snprintf(g_XblaPathText, sizeof(g_XblaPathText), langTr("In %s\n"), dir);
 		}
 
 		return g_XblaPathText;
@@ -6633,10 +6662,10 @@ static const char *menutextXblaPath(struct menuitem *item)
 	// A content id is 42 characters and already fills the row, so a longer
 	// name is cut rather than let run into the panel edge.
 	if (strlen(path) > XBLA_PATHCHARS) {
-		snprintf(g_XblaPathText, sizeof(g_XblaPathText), "From %.*s...\n",
+		snprintf(g_XblaPathText, sizeof(g_XblaPathText), langTr("From %.*s...\n"),
 				XBLA_PATHCHARS - 3, path);
 	} else {
-		snprintf(g_XblaPathText, sizeof(g_XblaPathText), "From %s\n", path);
+		snprintf(g_XblaPathText, sizeof(g_XblaPathText), langTr("From %s\n"), path);
 	}
 
 	return g_XblaPathText;
@@ -7039,21 +7068,21 @@ static const char *menutextModDirStatus(struct menuitem *item)
 
 	if (modListIsFromArgs()) {
 		snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText),
-				"Loaded from the command line: %s\n", loaded ? loaded : "none");
+				langTr("Loaded from the command line: %s\n"), loaded ? loaded : langTr("none"));
 	} else if (menuModDirPending()) {
 		// Only a mod that replaces ROM segments gets this far; anything else
 		// was swapped in when it was chosen.
 		if (selected[0]) {
 			snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText),
-					"%s replaces ROM segments. Restart to load it.\n", selected);
+					langTr("%s replaces ROM segments. Restart to load it.\n"), selected);
 		} else {
 			snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText),
-					"Restart to play without a mod.\n");
+					"%s", langTr("Restart to play without a mod.\n"));
 		}
 	} else if (loaded) {
-		snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText), "Loaded: %s\n", loaded);
+		snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText), langTr("Loaded: %s\n"), loaded);
 	} else {
-		snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText), "No mod is loaded.\n");
+		snprintf(g_ModDirStatusText, sizeof(g_ModDirStatusText), "%s", langTr("No mod is loaded.\n"));
 	}
 
 	return g_ModDirStatusText;
@@ -7246,17 +7275,24 @@ static const char *menutextMapsStatus(struct menuitem *item)
 	modloaderGetStats(&registered, &found, &mods);
 
 	if (modListIsFromArgs()) {
-		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "Mods came from the command line.\n");
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "%s", langTr("Mods came from the command line.\n"));
 	} else if (modMapsPending()) {
-		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "The loaded mod replaces ROM segments. Restart to apply.\n");
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "%s", langTr("The loaded mod replaces ROM segments. Restart to apply.\n"));
 	} else if (registered < found) {
-		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "%d of %d maps from %d mod%s: out of stage numbers.\n",
-				registered, found, mods, mods == 1 ? "" : "s");
+		// a whole sentence for each number, so a translation can decline them
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), mods == 1
+				? langTr("%d of %d maps from %d mod: out of stage numbers.\n")
+				: langTr("%d of %d maps from %d mods: out of stage numbers.\n"),
+				registered, found, mods);
 	} else if (registered) {
-		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "%d map%s from %d mod%s in the Combat Simulator.\n",
-				registered, registered == 1 ? "" : "s", mods, mods == 1 ? "" : "s");
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), registered == 1
+				? (mods == 1 ? langTr("%d map from %d mod in the Combat Simulator.\n")
+					: langTr("%d map from %d mods in the Combat Simulator.\n"))
+				: (mods == 1 ? langTr("%d maps from %d mod in the Combat Simulator.\n")
+					: langTr("%d maps from %d mods in the Combat Simulator.\n")),
+				registered, mods);
 	} else {
-		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "No mod maps loaded.\n");
+		snprintf(g_MapsStatusText, sizeof(g_MapsStatusText), "%s", langTr("No mod maps loaded.\n"));
 	}
 
 	return g_MapsStatusText;
@@ -7391,25 +7427,25 @@ static const struct {
 	s32 (*getactive)(void);
 	void (*set)(s32 value);
 } advancedRestartRows[] = {
-	{ "HiDPI Window",          videoGetAllowHiDpi,         videoGetAllowHiDpiActive,         videoSetAllowHiDpi         },
-	{ "Framebuffer Effects",   videoGetFramebufferEffects, videoGetFramebufferEffectsActive, videoSetFramebufferEffects },
-	{ "HIDAPI Controllers",    inputGetUseHIDAPI,          inputGetUseHIDAPIActive,          inputSetUseHIDAPI          },
-	{ "Raw Input Controllers", inputGetUseRawInput,        inputGetUseRawInputActive,        inputSetUseRawInput        },
+	{ LANG_N("HiDPI Window"),          videoGetAllowHiDpi,         videoGetAllowHiDpiActive,         videoSetAllowHiDpi         },
+	{ LANG_N("Framebuffer Effects"),   videoGetFramebufferEffects, videoGetFramebufferEffectsActive, videoSetFramebufferEffects },
+	{ LANG_N("HIDAPI Controllers"),    inputGetUseHIDAPI,          inputGetUseHIDAPIActive,          inputSetUseHIDAPI          },
+	{ LANG_N("Raw Input Controllers"), inputGetUseRawInput,        inputGetUseRawInputActive,        inputSetUseRawInput        },
 };
 
 #define ADVANCED_ROW_RAWINPUT 3
 
 static const char *menutextAdvancedRestart(struct menuitem *item)
 {
-	static char label[48];
+	static char label[96];
 	const s32 idx = item->param3;
 
 	if (advancedRestartRows[idx].get() != advancedRestartRows[idx].getactive()) {
-		snprintf(label, sizeof(label), "%s (restart)", advancedRestartRows[idx].name);
+		snprintf(label, sizeof(label), langTr("%s (restart)"), langTr(advancedRestartRows[idx].name));
 		return label;
 	}
 
-	return advancedRestartRows[idx].name;
+	return langTr(advancedRestartRows[idx].name);
 }
 
 static MenuItemHandlerResult menuhandlerAdvancedRestart(s32 operation, struct menuitem *item, union handlerdata *data)

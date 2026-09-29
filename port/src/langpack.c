@@ -630,7 +630,12 @@ const char *langpackGe(const char *bank, s32 slot)
 	}
 	e = langpackFind(g_Cur, NS_GE, key, len);
 
-	return e ? e->value : NULL;
+	if (!e) {
+		langpackLogMissingKey(key, NULL);
+		return NULL;
+	}
+
+	return langpackNoted(e->value);
 }
 
 static const char *langpackFindText(u8 ns, const char *en)
@@ -660,37 +665,93 @@ const char *langpackGeText(const char *en)
 	return langpackFindText(NS_GEEN, en);
 }
 
-/**
- * Logs a drawn port string the pack has no translation for, once each, under
- * --lang-log-missing: the list a translator works through.
+/*
+ * --lang-log-missing: the list a translator works through, and the strings
+ * no lookup ever saw (the hooks still to wire).
+ *
+ * - "lang: missing [fr] port "English"" - a port string langTr() was asked
+ *   for that the pack has no translation of (its key in port.json);
+ * - "lang: missing [fr] ge.dam.5" / "pd.0203 "English"" - GoldenEye's and
+ *   Perfect Dark's by their keys;
+ * - "lang: not looked up "text"" - a string drawn by Perfect Dark's text
+ *   loops that no lookup handed out: English in the source that reaches the
+ *   screen without langTr(), or text built by snprintf() from a translated
+ *   format (the format is what is translated; judge by the source).
+ * Each is logged once. Works with English (US) selected too, where every
+ * string is "missing" but the not-looked-up lines are the same.
  */
-static void langpackLogMissing(const char *en)
+#define LANGPACK_NOTED_SIZE  32768 // power of two
+#define LANGPACK_LOGGED_SIZE 16384
+#define LANGPACK_MAX_UNHOOKED 1000
+
+static u32 *g_Noted;   // hashes of strings a lookup handed out
+static u32 *g_Logged;  // hashes of lines logged already
+static u32 g_NumNoted;
+static u32 g_NumLogged;
+static u32 g_NumUnhooked;
+
+static s32 langpackSetAdd(u32 **set, u32 size, u32 *count, u32 h)
 {
-	static u32 seen[4096];
-	static u32 numseen;
-	u32 h;
+	u32 i;
 
-	if (!g_LogMissing || !en || !en[0]) {
-		return;
-	}
+	if (!*set) {
+		*set = calloc(size, sizeof(u32));
 
-	h = langpackHash(NS_PORT, en, strlen(en));
-
-	for (u32 i = 0; i < numseen; i++) {
-		if (seen[i] == h) {
-			return;
+		if (!*set) {
+			return 0;
 		}
 	}
 
-	if (numseen < sizeof(seen) / sizeof(seen[0])) {
-		seen[numseen++] = h;
+	if (*count >= size / 2) {
+		return 0; // full enough: stop recording rather than slow down
 	}
 
-	{
-		// one line, newlines shown as \n, so the log can be pasted as keys
-		char buf[512];
-		u32 w = 0;
+	for (i = h & (size - 1); (*set)[i]; i = (i + 1) & (size - 1)) {
+		if ((*set)[i] == h) {
+			return 0;
+		}
+	}
 
+	(*set)[i] = h;
+	(*count)++;
+
+	return 1;
+}
+
+static s32 langpackSetHas(const u32 *set, u32 size, u32 h)
+{
+	if (!set) {
+		return 0;
+	}
+
+	for (u32 i = h & (size - 1); set[i]; i = (i + 1) & (size - 1)) {
+		if (set[i] == h) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static u32 langpackTextHash(const char *s)
+{
+	u32 len = strlen(s);
+
+	// a string and the same string with its newline are one
+	if (len && s[len - 1] == '\n') {
+		len--;
+	}
+
+	return langpackHash(0, s, len);
+}
+
+/** One line of a log message: newlines shown as \n so it can be pasted as a key. */
+static void langpackLogLine(const char *what, const char *key, const char *en)
+{
+	char buf[400];
+	u32 w = 0;
+
+	if (en) {
 		for (const char *p = en; *p && w < sizeof(buf) - 3; p++) {
 			if (*p == '\n') {
 				buf[w++] = '\\';
@@ -699,9 +760,79 @@ static void langpackLogMissing(const char *en)
 				buf[w++] = *p;
 			}
 		}
+	}
 
-		buf[w] = '\0';
-		sysLogPrintf(LOG_NOTE, "lang: missing [%s] \"%s\"", g_Cur ? g_Cur->code : "", buf);
+	buf[w] = '\0';
+
+	if (key && en) {
+		sysLogPrintf(LOG_NOTE, "lang: %s [%s] %s \"%s\"", what, g_Cur ? g_Cur->code : "en", key, buf);
+	} else if (key) {
+		sysLogPrintf(LOG_NOTE, "lang: %s [%s] %s", what, g_Cur ? g_Cur->code : "en", key);
+	} else {
+		sysLogPrintf(LOG_NOTE, "lang: %s \"%s\"", what, buf);
+	}
+}
+
+static s32 langpackFirstLog(u8 ns, const char *s)
+{
+	return langpackSetAdd(&g_Logged, LANGPACK_LOGGED_SIZE, &g_NumLogged, langpackHash(ns, s, strlen(s)));
+}
+
+const char *langpackNoted(const char *s)
+{
+	if (g_LogMissing && s && s[0]) {
+		langpackSetAdd(&g_Noted, LANGPACK_NOTED_SIZE, &g_NumNoted, langpackTextHash(s));
+	}
+
+	return s;
+}
+
+void langpackNoteDerived(const char *src, const char *dst)
+{
+	if (g_LogMissing && src && dst && src[0]
+			&& langpackSetHas(g_Noted, LANGPACK_NOTED_SIZE, langpackTextHash(src))) {
+		langpackNoted(dst);
+	}
+}
+
+void langpackCheckDrawn(const char *s)
+{
+	s32 letters = 0;
+
+	if (!g_LogMissing || !s || !s[0] || g_NumUnhooked >= LANGPACK_MAX_UNHOOKED) {
+		return;
+	}
+
+	// two letters in a row: a word, not a number or a symbol
+	for (const char *p = s; *p && letters < 2; p++) {
+		letters = ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z')) ? letters + 1 : 0;
+	}
+
+	if (letters < 2 || langpackSetHas(g_Noted, LANGPACK_NOTED_SIZE, langpackTextHash(s))) {
+		return;
+	}
+
+	if (langpackFirstLog(4, s)) {
+		g_NumUnhooked++;
+		langpackLogLine("not looked up", NULL, s);
+	}
+}
+
+void langpackLogMissingKey(const char *key, const char *en)
+{
+	if (g_LogMissing && g_Cur && key && langpackFirstLog(5, key)) {
+		langpackLogLine("missing", key, en);
+	}
+}
+
+static void langpackLogMissing(const char *en)
+{
+	// a string a lookup handed out (a translation passed through langTr()
+	// again, a ROM string) is not a port string
+	if (g_LogMissing && g_Cur && en && en[0]
+			&& !langpackSetHas(g_Noted, LANGPACK_NOTED_SIZE, langpackTextHash(en))
+			&& langpackFirstLog(NS_PORT, en)) {
+		langpackLogLine("missing", "port", en);
 	}
 }
 
@@ -715,18 +846,19 @@ const char *langTr(const char *en)
 	const char *s;
 
 	if (!g_Cur || !en) {
-		return en;
+		return langpackNoted(en);
 	}
 
 	s = langpackFindText(NS_PORT, en);
 
 	if (s) {
-		return s;
+		langpackNoted(en);
+		return langpackNoted(s);
 	}
 
 	langpackLogMissing(en);
 
-	return en;
+	return langpackNoted(en);
 }
 
 const char *langTrCtx(const char *ctx, const char *en)

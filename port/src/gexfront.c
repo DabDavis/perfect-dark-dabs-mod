@@ -560,7 +560,7 @@ static const char *frontString(s32 index)
 
 	at = be32(g_Front.title + index * 4);
 
-	return at && at < g_Front.titlelen ? (const char *)g_Front.title + at : "";
+	return langpackNoted(at && at < g_Front.titlelen ? (const char *)g_Front.title + at : "");
 }
 
 /**
@@ -586,7 +586,7 @@ static const char *frontLangString(s32 id)
 
 	at = be32(g_Front.lang + index * 4);
 
-	return at && at < g_Front.langlen ? (const char *)g_Front.lang + at : "";
+	return langpackNoted(at && at < g_Front.langlen ? (const char *)g_Front.lang + at : "");
 }
 
 /** pull_and_display_text_for_folder_a0(): the folder's row for a mission. */
@@ -4579,6 +4579,8 @@ static Gfx *frontText(Gfx *gdl, const struct gefont *font, s32 *x, s32 *y, const
 	const s32 savedx = *x;
 	s32 prev = 'H';
 	f32 scale, xscale;
+
+	langpackCheckDrawn(text); // --lang-log-missing
 	const struct gefolderfont *hd = frontHdFont(font, &scale, &xscale);
 
 	gDPSetPrimColor(gdl++, 0, 0, colour >> 24, (colour >> 16) & 0xff, (colour >> 8) & 0xff, colour & 0xff);
@@ -5304,7 +5306,7 @@ static Gfx *frontDrawMode(Gfx *gdl)
 	{
 		const u32 cinema = frontMissionsAreOwn() ? COLOUR_ON : COLOUR_OFF;
 
-		text = "EXTRA\n";
+		text = langTr("EXTRA\n");
 		frontMeasure(&g_Front.zurich, text, 0, &w, &h);
 		gdl = frontPrint(gdl, 0x96, 0x11c, "3.\n", cinema);
 
@@ -5323,8 +5325,8 @@ static const char *frontRowLabel(s32 row)
 {
 	switch (row) {
 	case ROW_PLAYERS: return frontString(TITLE_PLAYERS);
-	case ROW_SIMULANTS: return "Simulants:\n";
-	case ROW_SIMDIFF: return "Simulant Skill:\n";
+	case ROW_SIMULANTS: return langTr("Simulants:\n");
+	case ROW_SIMDIFF: return langTr("Simulant Skill:\n");
 	case ROW_SCENARIO: return frontString(TITLE_SCENARIO);
 	case ROW_LEVEL: return frontString(TITLE_LEVEL);
 	case ROW_GAMELENGTH: return frontString(TITLE_GAMELENGTH);
@@ -5557,7 +5559,7 @@ static Gfx *frontDrawPlayerPanels(Gfx *gdl)
 				value = frontString(TITLE_CONTROL_FIRST + style);
 			} else {
 				// Perfect Dark's own, the keyboard and mouse
-				snprintf(valuebuf, sizeof(valuebuf), "Ext\n");
+				snprintf(valuebuf, sizeof(valuebuf), "%s", langTr("Ext\n"));
 				value = valuebuf;
 			}
 		}
@@ -5853,9 +5855,9 @@ static Gfx *frontDrawMission(Gfx *gdl)
 /** EXTRA: the difficulty page's rows again, with no mission over them. */
 static Gfx *frontDrawExtra(Gfx *gdl)
 {
-	static const char *rows[NUM_EXTRA_ROWS] = { "Cinema\n", "Monitor Programmes\n" };
+	static const char *rows[NUM_EXTRA_ROWS] = { LANG_N("Cinema\n"), LANG_N("Monitor Programmes\n") };
 
-	gdl = frontPrint(gdl, 0x37, 0x8f, "EXTRA:\n", COLOUR_ON);
+	gdl = frontPrint(gdl, 0x37, 0x8f, langTr("EXTRA:\n"), COLOUR_ON);
 
 	if (g_Front.highlight >= 0) {
 		gdl = frontFillRect(gdl, 0x7e, g_Front.highlight * 0x1e + 0xb2, 0x140, g_Front.highlight * 0x1e + 0xc3, COLOUR_HIGHLIGHT);
@@ -5867,7 +5869,7 @@ static Gfx *frontDrawExtra(Gfx *gdl)
 
 		snprintf(num, sizeof(num), "%d.\n", i + 1);
 		gdl = frontPrint(gdl, 0x82, i * 0x1e + 0xb4, num, COLOUR_ON);
-		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, rows[i], COLOUR_ON);
+		gdl = frontPrint(gdl, 0x96, i * 0x1e + 0xb4, langTr(rows[i]), COLOUR_ON);
 	}
 
 	return gdl;
@@ -5881,19 +5883,19 @@ static Gfx *frontDrawExtra(Gfx *gdl)
  * again - and each is an entry into it.
  */
 static const char *g_MonitorNames[] = {
-	"Bond logo", "Desktops and satellite", "Ten astrological screens", "Three wave patterns", "Wave pattern",
-	"Green text, scrolling up", "Red text, scrolling down", "Dark green text, scrolling down",
-	"Red bar graph", "Blue bar graph", "Green bar graph", "Radar", "Spinning cube",
-	"Location, weapon armed, target", "Red target", "Satellite targeting", "Global map",
-	"Karl yelling", "Skateboard", "Police guy", "Off",
-	"One of seven at random", "Random screens, or dull ones", "Random screen and effect",
-	"Random: shuttle 1", "Random: shuttle 2", "Random: full Earth 1", "Random: full Earth 2",
-	"Random: blue stars", "Random: galaxy 1", "Random: galaxy 2", "Random: Earth text",
-	"Random: target Earth", "Random: galaxy 3",
-	"Tint: one of four", "Tint: red", "Tint: green", "Tint: blue", "Effect: one of five",
-	"Effect: scroll right", "Effect: scroll up, fast", "Effect: scroll up", "Effect: scroll and zoom 1",
-	"Effect: scroll and zoom 2", "Effect: wait and route", "Effect: flash",
-	"Red, brightening", "Green, brightening", "Solid grey", "Solid red", "Solid green", "Solid black",
+	LANG_N("Bond logo"), LANG_N("Desktops and satellite"), LANG_N("Ten astrological screens"), LANG_N("Three wave patterns"), LANG_N("Wave pattern"),
+	LANG_N("Green text, scrolling up"), LANG_N("Red text, scrolling down"), LANG_N("Dark green text, scrolling down"),
+	LANG_N("Red bar graph"), LANG_N("Blue bar graph"), LANG_N("Green bar graph"), LANG_N("Radar"), LANG_N("Spinning cube"),
+	LANG_N("Location, weapon armed, target"), LANG_N("Red target"), LANG_N("Satellite targeting"), LANG_N("Global map"),
+	LANG_N("Karl yelling"), LANG_N("Skateboard"), LANG_N("Police guy"), LANG_N("Off"),
+	LANG_N("One of seven at random"), LANG_N("Random screens, or dull ones"), LANG_N("Random screen and effect"),
+	LANG_N("Random: shuttle 1"), LANG_N("Random: shuttle 2"), LANG_N("Random: full Earth 1"), LANG_N("Random: full Earth 2"),
+	LANG_N("Random: blue stars"), LANG_N("Random: galaxy 1"), LANG_N("Random: galaxy 2"), LANG_N("Random: Earth text"),
+	LANG_N("Random: target Earth"), LANG_N("Random: galaxy 3"),
+	LANG_N("Tint: one of four"), LANG_N("Tint: red"), LANG_N("Tint: green"), LANG_N("Tint: blue"), LANG_N("Effect: one of five"),
+	LANG_N("Effect: scroll right"), LANG_N("Effect: scroll up, fast"), LANG_N("Effect: scroll up"), LANG_N("Effect: scroll and zoom 1"),
+	LANG_N("Effect: scroll and zoom 2"), LANG_N("Effect: wait and route"), LANG_N("Effect: flash"),
+	LANG_N("Red, brightening"), LANG_N("Green, brightening"), LANG_N("Solid grey"), LANG_N("Solid red"), LANG_N("Solid green"), LANG_N("Solid black"),
 };
 
 #define MONITOR_CX 220.0f
@@ -5967,14 +5969,14 @@ static Gfx *frontDrawMonitorView(Gfx *gdl)
 	struct modelnode *node = g_Front.tvdef ? modelGetPart(g_Front.tvdef, MODELPART_0000) : NULL;
 	char line[96];
 
-	gdl = frontPrint(gdl, 0x37, 0x77, "MONITOR PROGRAMMES\n", COLOUR_ON);
+	gdl = frontPrint(gdl, 0x37, 0x77, langTr("MONITOR PROGRAMMES\n"), COLOUR_ON);
 
 	if (g_Front.nummonitors <= 0) {
-		return frontPrint(gdl, 0x37, 0x8f, "None in this conversion.\n", COLOUR_ON);
+		return frontPrint(gdl, 0x37, 0x8f, langTr("None in this conversion.\n"), COLOUR_ON);
 	}
 
-	snprintf(line, sizeof(line), "%d of %d: %s\n", g_Front.monitor + 1, g_Front.nummonitors,
-			g_Front.monitor < ARRAYCOUNT(g_MonitorNames) ? g_MonitorNames[g_Front.monitor] : "");
+	snprintf(line, sizeof(line), langTr("%d of %d: %s\n"), g_Front.monitor + 1, g_Front.nummonitors,
+			g_Front.monitor < ARRAYCOUNT(g_MonitorNames) ? langTr(g_MonitorNames[g_Front.monitor]) : "");
 	gdl = frontPrint(gdl, 0x37, 0x8f, line, COLOUR_ON);
 
 	// the tube it is shown on
@@ -6186,7 +6188,7 @@ static Gfx *frontDrawMonitors(Gfx *gdl)
 
 	if (g_Front.nummonitors <= 0 || !g_Front.tvdef) {
 		gdl = frontTextSetup(gdl);
-		return frontPrint(gdl, 0x37, 0x57, "No monitor programmes in this conversion.\n", COLOUR_ON);
+		return frontPrint(gdl, 0x37, 0x57, langTr("No monitor programmes in this conversion.\n"), COLOUR_ON);
 	}
 
 	gdl = frontDrawTvs(gdl);
@@ -6230,13 +6232,13 @@ static Gfx *frontDrawCinemaPick(Gfx *gdl)
 {
 	// the user's names, in the case GoldenEye sets its difficulties in, by
 	// the kind of row
-	static const char *names[MAX_CINEMA_ROWS] = { "Intro\n", "Outro\n", NULL, NULL, "Credits\n" };
-	static const char *loops[GECINEMA_NUM_LOOPS] = { "Loop: Off\n", "Loop: Level\n", "Loop: All\n" };
+	static const char *names[MAX_CINEMA_ROWS] = { LANG_N("Intro\n"), LANG_N("Outro\n"), NULL, NULL, LANG_N("Credits\n") };
+	static const char *loops[GECINEMA_NUM_LOOPS] = { LANG_N("Loop: Off\n"), LANG_N("Loop: Level\n"), LANG_N("Loop: All\n") };
 	s32 rows[MAX_CINEMA_ROWS];
 	const s32 n = frontCinemaRows(rows);
 
 	gdl = frontMissionHeader(gdl, false);
-	gdl = frontPrint(gdl, 0x37, 0x8f, "CINEMA:\n", COLOUR_ON);
+	gdl = frontPrint(gdl, 0x37, 0x8f, langTr("CINEMA:\n"), COLOUR_ON);
 
 	if (g_Front.highlight >= 0) {
 		// the Time row's "- ... +" is the one wider than the difficulty page's rows
@@ -6249,11 +6251,11 @@ static Gfx *frontDrawCinemaPick(Gfx *gdl)
 
 	for (s32 i = 0; i < n; i++) {
 		char num[8];
-		char time[24];
-		const char *text = rows[i] == CINEMA_LOOP ? loops[gecinemaGetLoop()] : names[rows[i]];
+		char time[64];
+		const char *text = langTr(rows[i] == CINEMA_LOOP ? loops[gecinemaGetLoop()] : names[rows[i]]);
 
 		if (rows[i] == CINEMA_TIME) {
-			snprintf(time, sizeof(time), "- Time: %d min +\n", gecinemaGetMinutes());
+			snprintf(time, sizeof(time), langTr("- Time: %d min +\n"), gecinemaGetMinutes());
 			text = time;
 		}
 

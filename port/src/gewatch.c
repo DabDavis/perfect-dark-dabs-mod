@@ -519,7 +519,7 @@ static const char *watchBankString(const char *file, const u8 *bank, u32 len, s3
 
 	at = watchBe32(bank + index * 4);
 
-	return at && at < len ? (const char *)bank + at : "";
+	return langpackNoted(at && at < len ? (const char *)bank + at : "");
 }
 
 // LoptionsE, the watch's own screens
@@ -5244,12 +5244,12 @@ static const u8 g_PcControlStyle[NUM_CS] = {
 
 static const char *watchStyleWord(u8 id)
 {
-	return id == STR_PC_FIREMODE ? "FIRE MODE\n" : watchString(id);
+	return id == STR_PC_FIREMODE ? langTr("FIRE MODE\n") : watchString(id);
 }
 
 static const char *watchStyleName(s32 mode)
 {
-	return mode >= 0 && mode < 8 ? watchString(g_ControlStyles[mode][CS_NAME]) : "PC\n";
+	return mode >= 0 && mode < 8 ? watchString(g_ControlStyles[mode][CS_NAME]) : langTr("PC\n");
 }
 
 // OPTLABELS_*: the controller's words either side of it, the NTSC column

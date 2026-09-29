@@ -36,6 +36,7 @@
 #include "ghostnet.h"
 #include "update.h"
 #include "versioninfo.h"
+#include "langpack.h"
 
 /**
  * See update.h for what this is. This file is the how.
@@ -285,7 +286,7 @@ static bool updateParseManifest(const char *text, char *err, u32 errsize)
 	}
 
 	if (version[0] == '\0' || commit[0] == '\0') {
-		snprintf(err, errsize, "the release did not say which version it is");
+		snprintf(err, errsize, "%s", LANG_N("the release did not say which version it is"));
 		return false;
 	}
 
@@ -295,7 +296,7 @@ static bool updateParseManifest(const char *text, char *err, u32 errsize)
 	}
 
 	if (strlen(sha) != 64 || size == 0 || size > UPDATE_MAXBYTES) {
-		snprintf(err, errsize, "the release described a file this cannot be");
+		snprintf(err, errsize, "%s", LANG_N("the release described a file this cannot be"));
 		return false;
 	}
 
@@ -396,14 +397,14 @@ static void updateFetchNotes(void)
 	if (!ghostnetSend(&req, &buf, &status, err, sizeof(err))) {
 		// err normally says why already
 		if (err[0] == '\0') {
-			snprintf(err, sizeof(err), "the request failed");
+			snprintf(err, sizeof(err), "%s", LANG_N("the request failed"));
 		}
 	} else if (status == 404) {
-		snprintf(err, sizeof(err), "the release has none");
+		snprintf(err, sizeof(err), "%s", LANG_N("the release has none"));
 	} else if (status != 200) {
 		snprintf(err, sizeof(err), "the server answered %d", status);
 	} else if (buf.len == 0) {
-		snprintf(err, sizeof(err), "the file was empty");
+		snprintf(err, sizeof(err), "%s", LANG_N("the file was empty"));
 	}
 
 	if (err[0]) {
@@ -550,7 +551,7 @@ static bool updateDownload(char *msg, u32 msgsize)
 	SDL_UnlockMutex(g_Lock);
 
 	if (asset[0] == '\0') {
-		snprintf(msg, msgsize, "check for an update first");
+		snprintf(msg, msgsize, "%s", LANG_N("check for an update first"));
 		return false;
 	}
 
@@ -600,13 +601,13 @@ static bool updateDownload(char *msg, u32 msgsize)
 	}
 
 	if (!sha256File(newpath, sha)) {
-		snprintf(msg, msgsize, "could not read back what was downloaded");
+		snprintf(msg, msgsize, "%s", LANG_N("could not read back what was downloaded"));
 		remove(newpath);
 		return false;
 	}
 
 	if (strcmp(sha, want) != 0) {
-		snprintf(msg, msgsize, "the download is not the file the release describes");
+		snprintf(msg, msgsize, "%s", LANG_N("the download is not the file the release describes"));
 		remove(newpath);
 		return false;
 	}
@@ -616,7 +617,7 @@ static bool updateDownload(char *msg, u32 msgsize)
 	// this wrote itself does not, and a copy of the game nothing can start is
 	// the same as no copy at all.
 	if (chmod(newpath, 0755) != 0) {
-		snprintf(msg, msgsize, "could not make the new build executable");
+		snprintf(msg, msgsize, "%s", LANG_N("could not make the new build executable"));
 		remove(newpath);
 		return false;
 	}
@@ -638,7 +639,7 @@ static bool updateDownload(char *msg, u32 msgsize)
 		// the install worse than it found it, so it is the only one that
 		// tidies up after itself rather than reporting and stopping.
 		rename(oldpath, curpath);
-		snprintf(msg, msgsize, "could not put the new build in place");
+		snprintf(msg, msgsize, "%s", LANG_N("could not put the new build in place"));
 		remove(newpath);
 		return false;
 	}
@@ -738,7 +739,7 @@ static void updateStart(s32 job)
 	g_Job = job;
 	g_State = UPDATE_BUSY;
 	snprintf(g_Message, sizeof(g_Message), "%s",
-			job == UPDATE_JOB_INSTALL ? "Downloading..." : "Asking GitHub...");
+			job == UPDATE_JOB_INSTALL ? LANG_N("Downloading...") : LANG_N("Asking GitHub..."));
 	SDL_UnlockMutex(g_Lock);
 
 	g_Thread = SDL_CreateThread(updateWorker, "pdupdate", NULL);
@@ -796,7 +797,7 @@ const char *updateGetMessage(void)
 	static char copy[sizeof(g_Message)];
 
 	if (!updateIsAvailable()) {
-		return "this build has no network support";
+		return LANG_N("this build has no network support");
 	}
 
 	SDL_LockMutex(g_Lock);

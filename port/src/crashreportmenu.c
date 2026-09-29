@@ -25,6 +25,7 @@
 #include "bss.h"
 #include "system.h"
 #include "crashreport.h"
+#include "langpack.h"
 
 #define STATE_IDLE 0
 #define STATE_BUSY 1
@@ -42,7 +43,7 @@ static int crashReportMenuWorker(void *arg)
 	const char *path = crashReportPending();
 
 	if (path == NULL) {
-		snprintf(g_Err, sizeof(g_Err), "there is no report to send");
+		snprintf(g_Err, sizeof(g_Err), "%s", LANG_N("there is no report to send"));
 		g_State = STATE_FAILED;
 		return 0;
 	}
@@ -60,15 +61,15 @@ static char *menutextCrashReportStatus(struct menuitem *item)
 {
 	switch (g_State) {
 	case STATE_BUSY:
-		snprintf(g_Text, sizeof(g_Text), "Sending...\n");
+		snprintf(g_Text, sizeof(g_Text), "%s", langTr("Sending...\n"));
 		return g_Text;
 	case STATE_SENT:
 		snprintf(g_Text, sizeof(g_Text),
-				"Sent. Thank you - that is the whole of what Dab gets to see of a crash.\n");
+				"%s", langTr("Sent. Thank you - that is the whole of what Dab gets to see of a crash.\n"));
 		return g_Text;
 	case STATE_FAILED:
 		snprintf(g_Text, sizeof(g_Text),
-				"Not sent: %s\nThe report is still saved and this can be tried again.\n", g_Err);
+				langTr("Not sent: %s\nThe report is still saved and this can be tried again.\n"), langTr(g_Err));
 		return g_Text;
 	default:
 		break;
@@ -76,7 +77,7 @@ static char *menutextCrashReportStatus(struct menuitem *item)
 
 	if (crashReportPending() == NULL) {
 		snprintf(g_Text, sizeof(g_Text),
-				"Nothing to send - this game has not crashed.\n");
+				"%s", langTr("Nothing to send - this game has not crashed.\n"));
 		return g_Text;
 	}
 
@@ -85,11 +86,11 @@ static char *menutextCrashReportStatus(struct menuitem *item)
 	// short, because the dialog is only as wide as its widest line and the
 	// menu does not fold one that runs past the edge.
 	snprintf(g_Text, sizeof(g_Text),
-			"A crash from %s is waiting.\n"
+			langTr("A crash from %s is waiting.\n"
 			"It holds the error and its stack, the\n"
 			"build, your game settings and the last\n"
 			"few hundred lines of the log - nothing\n"
-			"else, and nothing unless you press Send.\n",
+			"else, and nothing unless you press Send.\n"),
 			crashReportPendingWhen());
 
 	return g_Text;
@@ -101,9 +102,9 @@ static char *menutextCrashReportStatus(struct menuitem *item)
 static char *menutextCrashReportNoteRow(struct menuitem *item)
 {
 	if (g_Note[0]) {
-		snprintf(g_Text, sizeof(g_Text), "Note: %s\n", g_Note);
+		snprintf(g_Text, sizeof(g_Text), langTr("Note: %s\n"), g_Note);
 	} else {
-		snprintf(g_Text, sizeof(g_Text), "Add a Note (optional)\n");
+		snprintf(g_Text, sizeof(g_Text), "%s", langTr("Add a Note (optional)\n"));
 	}
 
 	return g_Text;
@@ -141,7 +142,7 @@ static MenuItemHandlerResult menuhandlerCrashReportSend(s32 operation, struct me
 		g_Thread = SDL_CreateThread(crashReportMenuWorker, "pdcrashreport", NULL);
 
 		if (g_Thread == NULL) {
-			snprintf(g_Err, sizeof(g_Err), "could not start the send");
+			snprintf(g_Err, sizeof(g_Err), "%s", langTr("could not start the send"));
 			g_State = STATE_FAILED;
 		}
 	}
@@ -173,7 +174,7 @@ static MenuItemHandlerResult menuhandlerCrashReportDelete(s32 operation, struct 
  */
 char *menutextCrashReportRow(struct menuitem *item)
 {
-	return crashReportPending() ? "Send Crash Report" : "Crash Reports";
+	return (char *)langTr(crashReportPending() ? "Send Crash Report" : "Crash Reports");
 }
 
 /**

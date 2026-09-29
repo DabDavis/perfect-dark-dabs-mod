@@ -13,6 +13,7 @@
 #include "lib/vars.h"
 #include "data.h"
 #include "types.h"
+#include "langpack.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -90,14 +91,14 @@ static char *menutextRunBest(struct menuitem *item)
 {
 	if (modRunIsOn()) {
 		snprintf(g_RandomRowText, sizeof(g_RandomRowText),
-				"This run: %d objectives, %d rooms (best %d)\n",
+				langTr("This run: %d objectives, %d rooms (best %d)\n"),
 				modRunGetScore(), modRunGetRooms(), modRunGetBestScore());
 	} else if (modRunGetBestScore() > 0 || modRunGetBestRooms() > 0) {
 		snprintf(g_RandomRowText, sizeof(g_RandomRowText),
-				"Best run: %d objectives, %d rooms\n",
+				langTr("Best run: %d objectives, %d rooms\n"),
 				modRunGetBestScore(), modRunGetBestRooms());
 	} else {
-		snprintf(g_RandomRowText, sizeof(g_RandomRowText), "No run yet\n");
+		snprintf(g_RandomRowText, sizeof(g_RandomRowText), "%s", langTr("No run yet\n"));
 	}
 
 	return g_RandomRowText;
@@ -247,17 +248,17 @@ static MenuItemHandlerResult menuhandlerRandomSeed(s32 operation, struct menuite
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->dropdown.value == 0) {
-			return (intptr_t)"New Each Time";
+			return (intptr_t)langTr("New Each Time");
 		}
 
 		if (g_ModOptions.randomseed) {
 			snprintf(text, sizeof(text), "%u v%d", (u32)g_ModOptions.randomseed, g_ModOptions.randomversion);
 		} else if (modRunIsOn() && modRunGetSeed()) {
-			snprintf(text, sizeof(text), "Keep %u", modRunGetSeed());
+			snprintf(text, sizeof(text), langTr("Keep %u"), modRunGetSeed());
 		} else if (modRandomGetSeed()) {
-			snprintf(text, sizeof(text), "Keep %u v%d", modRandomGetSeed(), modRandomGetVersion());
+			snprintf(text, sizeof(text), langTr("Keep %u v%d"), modRandomGetSeed(), modRandomGetVersion());
 		} else {
-			snprintf(text, sizeof(text), "Keep This Run");
+			snprintf(text, sizeof(text), "%s", langTr("Keep This Run"));
 		}
 
 		return (intptr_t)text;
@@ -311,13 +312,13 @@ static char *menutextEndlessBest(struct menuitem *item)
 {
 	if (modRandomIsEndless() && modRandomGetRooms() > 0) {
 		snprintf(g_RandomEndlessRowText, sizeof(g_RandomEndlessRowText),
-				"This mission: %d rooms, %d objectives (best %d)\n",
+				langTr("This mission: %d rooms, %d objectives (best %d)\n"),
 				modRandomGetRooms(), modRandomGetCleared(), g_ModOptions.endlessbest);
 	} else if (g_ModOptions.endlessbest > 0) {
 		snprintf(g_RandomEndlessRowText, sizeof(g_RandomEndlessRowText),
-				"Best endless mission: %d rooms\n", g_ModOptions.endlessbest);
+				langTr("Best endless mission: %d rooms\n"), g_ModOptions.endlessbest);
 	} else {
-		snprintf(g_RandomEndlessRowText, sizeof(g_RandomEndlessRowText), "No endless mission yet\n");
+		snprintf(g_RandomEndlessRowText, sizeof(g_RandomEndlessRowText), "%s", langTr("No endless mission yet\n"));
 	}
 
 	return g_RandomEndlessRowText;

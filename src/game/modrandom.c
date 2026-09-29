@@ -29,6 +29,7 @@
 #include "platform.h"
 #ifndef PLATFORM_N64
 #include "geguns.h"
+#include "langpack.h"
 #endif
 
 #ifndef PLATFORM_N64
@@ -1470,9 +1471,9 @@ static bool modRandomDealObjective(struct modrandomlists *lists, u8 *reached, s3
 				modRandomTagNumOf(lists, &weapon->base));
 
 		if (name) {
-			snprintf(g_ModRandomObjText[slot], MODRANDOM_TEXTLEN, "Recover the %s", name);
+			snprintf(g_ModRandomObjText[slot], MODRANDOM_TEXTLEN, langTr("Recover the %s"), name);
 		} else {
-			strcpy(g_ModRandomObjText[slot], "Recover the stolen hardware");
+			snprintf(g_ModRandomObjText[slot], MODRANDOM_TEXTLEN, "%s", langTr("Recover the stolen hardware"));
 		}
 
 		return true;
@@ -2002,9 +2003,9 @@ static void modRandomTickEndless(void)
 
 		if (g_ModRandomRooms > g_ModOptions.endlessbest) {
 			g_ModOptions.endlessbest = g_ModRandomRooms;
-			sprintf(text, "%d rooms, %d objectives - best yet\n", g_ModRandomRooms, g_ModRandomCleared);
+			snprintf(text, sizeof(text), langTr("%d rooms, %d objectives - best yet\n"), g_ModRandomRooms, g_ModRandomCleared);
 		} else {
-			sprintf(text, "%d rooms, %d objectives (best %d)\n",
+			snprintf(text, sizeof(text), langTr("%d rooms, %d objectives (best %d)\n"),
 					g_ModRandomRooms, g_ModRandomCleared, g_ModOptions.endlessbest);
 		}
 
@@ -2043,14 +2044,14 @@ static void modRandomTickEndless(void)
 			// The score rides along with the new objective: a run's number is
 			// no use to the player on the death screen, where the fade and
 			// the failure dialog are what they are looking at.
-			sprintf(text, "%s - %d rooms\n", g_ModRandomObjText[0], g_ModRandomRooms);
+			snprintf(text, sizeof(text), langTr("%s - %d rooms\n"), g_ModRandomObjText[0], g_ModRandomRooms);
 			hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 		} else {
 			// Nothing left to ask for on this stage. The run stands on what it
 			// scored rather than looping an objective the player has done -
 			// and says so, because a run that quietly stops dealing looks
 			// like a bug from the inside.
-			sprintf(text, "Nothing left to find - %d rooms, %d objectives\n",
+			snprintf(text, sizeof(text), langTr("Nothing left to find - %d rooms, %d objectives\n"),
 					g_ModRandomRooms, g_ModRandomCleared);
 			hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 

@@ -42,6 +42,7 @@
 #include "system.h"
 #include "video.h"
 #include "gehud.h"
+#include "langpack.h"
 #include "gefolder.h"
 #include "gewatch.h"
 #include "gexfront.h"
@@ -334,7 +335,16 @@ const char *geHudPropobjString(s32 slot)
 		return NULL;
 	}
 
-	return (const char *)bank + at;
+	// the selected language's, keyed ge.propobj.<slot> (langpack.h)
+	if (langpackActive()) {
+		const char *tr = langpackGe("propobj", slot);
+
+		if (tr) {
+			return tr;
+		}
+	}
+
+	return langpackNoted((const char *)bank + at);
 }
 
 s32 geHudOwnsWeapon(void)

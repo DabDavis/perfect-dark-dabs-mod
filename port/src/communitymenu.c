@@ -13,6 +13,7 @@
 #include "texpack.h"
 #include "menuimage.h"
 #include "community.h"
+#include "langpack.h"
 
 /**
  * Community Packs, under Extended Options -> Texture Packs.
@@ -65,8 +66,8 @@ static const char *menutextCommunityPack(struct menuitem *item)
 	static char text[256];
 	const s32 index = communitymenuPack(item);
 
-	snprintf(text, sizeof(text), "%s\nby %s\n%s",
-			communityGetName(index), communityGetAuthor(index), communityGetBlurb(index));
+	snprintf(text, sizeof(text), langTr("%s\nby %s\n%s"),
+			communityGetName(index), communityGetAuthor(index), langTr(communityGetBlurb(index)));
 
 	return text;
 }
@@ -105,12 +106,12 @@ static const char *menutextCommunityAction(struct menuitem *item)
 	u32 size;
 
 	if (!communityIsAvailable()) {
-		return "Not available in this build\n";
+		return langTr("Not available in this build\n");
 	}
 
 	switch (communityGetState(index)) {
 	case COMMUNITY_ASKING:
-		return "Cancel\n";
+		return langTr("Cancel\n");
 	case COMMUNITY_DOWNLOAD:
 		communityGetProgress(&done, &total);
 
@@ -118,32 +119,32 @@ static const char *menutextCommunityAction(struct menuitem *item)
 		// gives: what a player wants when it is slow is how much is left, and
 		// the total is worth seeing before deciding to wait for it.
 		if (total > 0) {
-			snprintf(text, sizeof(text), "Cancel (%u.%u of %u.%u MB)\n",
+			snprintf(text, sizeof(text), langTr("Cancel (%u.%u of %u.%u MB)\n"),
 					done / 1048576, (done % 1048576) * 10 / 1048576,
 					total / 1048576, (total % 1048576) * 10 / 1048576);
 
 			return text;
 		}
 
-		return "Cancel\n";
+		return langTr("Cancel\n");
 	case COMMUNITY_UNPACKING:
-		return "Unpacking...\n";
+		return langTr("Unpacking...\n");
 	case COMMUNITY_FOUND:
 		size = communityGetSize(index);
-		snprintf(text, sizeof(text), "Download and Install (%u MB)\n", (size + 524288) / 1048576);
+		snprintf(text, sizeof(text), langTr("Download and Install (%u MB)\n"), (size + 524288) / 1048576);
 
 		return text;
 	case COMMUNITY_DONE:
-		return "Installed\n";
+		return langTr("Installed\n");
 	case COMMUNITY_ELSEWHERE:
-		return "Another Pack Is Installing\n";
+		return langTr("Another Pack Is Installing\n");
 	default:
 		break;
 	}
 
-	return communityIsInstalled(index)
+	return langTr(communityIsInstalled(index)
 		? "Check for a Newer Version\n"
-		: "Find Latest Release\n";
+		: "Find Latest Release\n");
 }
 
 static MenuItemHandlerResult menuhandlerCommunityAction(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -190,11 +191,11 @@ static const char *menutextCommunityStatus(struct menuitem *item)
 	const char *status = communityGetStatus(index);
 
 	if (status[0]) {
-		snprintf(text, sizeof(text), "%s\n", status);
+		snprintf(text, sizeof(text), "%s\n", langTr(status));
 	} else if (communityIsInstalled(index)) {
-		snprintf(text, sizeof(text), "Installed. Look for a newer one, or use it from the\npage behind this one.\n");
+		snprintf(text, sizeof(text), "%s", langTr("Installed. Look for a newer one, or use it from the\npage behind this one.\n"));
 	} else {
-		snprintf(text, sizeof(text), "Packs install into texture-packs and are switched on\nfor you.\n");
+		snprintf(text, sizeof(text), "%s", langTr("Packs install into texture-packs and are switched on\nfor you.\n"));
 	}
 
 	return text;

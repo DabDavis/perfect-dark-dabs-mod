@@ -479,7 +479,33 @@ u16 langAddPortText(const char *text)
 }
 #endif
 
+#ifndef PLATFORM_N64
+static char *langGetText(s32 textid, s32 *missing);
+
+/**
+ * A text id's string: the selected language's where it has one. Under
+ * --lang-log-missing the answer is noted as looked up and a stock string the
+ * pack lacks is logged by its pd.<id> key (langpack.h).
+ */
 char *langGet(s32 textid)
+{
+	s32 missing = 0;
+	char *text = langGetText(textid, &missing);
+
+	if (missing && text && text[0]) {
+		char key[16];
+
+		snprintf(key, sizeof(key), "pd.%04x", textid);
+		langpackLogMissingKey(key, text);
+	}
+
+	return (char *)langpackNoted(text);
+}
+
+static char *langGetText(s32 textid, s32 *missing)
+#else
+char *langGet(s32 textid)
+#endif
 {
 	s32 bankindex = textid >> 9;
 	s32 textindex = textid & 0x1ff;
@@ -521,6 +547,7 @@ char *langGet(s32 textid)
 			tr = gexPlusMissionLangTr(textindex);
 		} else if (romdataFileIsStock(g_LangFiles[bankindex])) {
 			tr = langpackPd(textid);
+			*missing = tr == NULL;
 		}
 
 		if (tr) {

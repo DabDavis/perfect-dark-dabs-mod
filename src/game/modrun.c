@@ -41,6 +41,7 @@
 #include "modloader.h"
 #endif
 #include "math.h"
+#include "langpack.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -535,7 +536,7 @@ const char *modRunGetStageName(s32 stagenum)
 		}
 	}
 
-	snprintf(text, sizeof(text), "Stage %02x", stagenum);
+	snprintf(text, sizeof(text), langTr("Stage %02x"), stagenum);
 
 	return text;
 }
@@ -998,7 +999,7 @@ static void modRunDealFight(bool survive)
 		g_ModRunObjective.target = seconds;
 		g_ModRunObjective.progress = 0;
 
-		snprintf(g_ModRunObjText, sizeof(g_ModRunObjText), "Hold this room for %d seconds", seconds);
+		snprintf(g_ModRunObjText, sizeof(g_ModRunObjText), langTr("Hold this room for %d seconds"), seconds);
 	} else {
 		const s32 kills = MODRUN_KILL_MIN + modRunBelow(MODRUN_KILL_MAX - MODRUN_KILL_MIN + 1);
 
@@ -1006,7 +1007,7 @@ static void modRunDealFight(bool survive)
 		g_ModRunObjective.target = kills;
 		g_ModRunObjective.progress = 0;
 
-		snprintf(g_ModRunObjText, sizeof(g_ModRunObjText), "Eliminate %d hostiles", kills);
+		snprintf(g_ModRunObjText, sizeof(g_ModRunObjText), langTr("Eliminate %d hostiles"), kills);
 	}
 }
 
@@ -1033,7 +1034,7 @@ static void modRunDealObjective(void)
 			g_ModRunObjective.progress = 0;
 
 			snprintf(g_ModRunObjText, sizeof(g_ModRunObjText),
-					"Recover the %s", name ? name : "hardware");
+					langTr("Recover the %s"), name ? name : langTr("hardware"));
 
 			g_ModRunHasObjective = true;
 			return;
@@ -1531,7 +1532,7 @@ static void modRunTickObjective(void)
 	{
 		static char text[96];
 
-		sprintf(text, "Objective complete - %d in %d rooms\nThe way out is open - take a breath\n",
+		snprintf(text, sizeof(text), langTr("Objective complete - %d in %d rooms\nThe way out is open - take a breath\n"),
 				g_ModRunScore, g_ModRunHop);
 		hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 	}
@@ -2469,7 +2470,7 @@ static void modRunTickStuck(void)
 	{
 		static char text[128];
 
-		sprintf(text, "New objective\n%s\n", g_ModRunObjText);
+		snprintf(text, sizeof(text), langTr("New objective\n%s\n"), g_ModRunObjText);
 		hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 	}
 }
@@ -2494,9 +2495,9 @@ static void modRunEndRun(void)
 	}
 
 	if (best) {
-		sprintf(text, "Run over: %d objectives, %d rooms - best yet\n", g_ModRunScore, g_ModRunHop);
+		snprintf(text, sizeof(text), langTr("Run over: %d objectives, %d rooms - best yet\n"), g_ModRunScore, g_ModRunHop);
 	} else {
-		sprintf(text, "Run over: %d objectives, %d rooms (best %d)\n",
+		snprintf(text, sizeof(text), langTr("Run over: %d objectives, %d rooms (best %d)\n"),
 				g_ModRunScore, g_ModRunHop, g_ModOptions.runbestscore);
 	}
 
@@ -2772,7 +2773,7 @@ void modRunTick(void)
 		{
 			static char text[128];
 
-			sprintf(text, "%s - room %d\n%s\n",
+			snprintf(text, sizeof(text), langTr("%s - room %d\n%s\n"),
 					modRunGetStageName(g_ModRunStage), g_ModRunHop + 1, g_ModRunObjText);
 			hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 		}

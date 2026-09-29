@@ -12,6 +12,7 @@
 #include "xblaimport.h"
 #include "xblamesh.h"
 #include "xblaagent4.h"
+#include "langpack.h"
 
 /**
  * Agent 4: the one character 4J added to the XBLA release, and not an unlock -
@@ -80,7 +81,7 @@ static s32 appliedLook = -1;
 
 const char *xblaAgent4BodyName(s32 bodynum)
 {
-	return listed && bodynum == XBLA_AGENT4_BODYROW ? "Agent 4\n" : NULL;
+	return listed && bodynum == XBLA_AGENT4_BODYROW ? LANG_N("Agent 4\n") : NULL;
 }
 
 void xblaAgent4StageReset(void)

@@ -26,6 +26,7 @@
 #include "game/challenge.h"
 #include "gebean.h"
 #include "modborrow.h"
+#include "langpack.h"
 
 /**
  * Ghost Trials - the ghost feature's own corner of the main menu.
@@ -387,7 +388,7 @@ static char *menutextGhostCharacterName(struct menuitem *item)
 	const s32 head = g_ModGhostHead > MODGHOST_BODY_DEFAULT ? g_ModGhostHead - 1 : 0;
 
 	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s", mpGetCharacterRowName(item,
-			g_ModGhostBody <= MODGHOST_BODY_DEFAULT ? "Joanna\n" : mpGetBodyName(g_ModGhostBody - 1), head));
+			g_ModGhostBody <= MODGHOST_BODY_DEFAULT ? (char *)langTr("Joanna\n") : mpGetBodyName(g_ModGhostBody - 1), head));
 
 	return g_GhostRowText;
 }
@@ -511,7 +512,7 @@ static char *menutextCiCharacterName(struct menuitem *item)
 	const s32 head = modGhostCiHead(0);
 
 	snprintf(g_GhostRowText, sizeof(g_GhostRowText), "%s", mpGetCharacterRowName(item,
-			g_ModCiBody <= MODGHOST_BODY_DEFAULT ? "Joanna\n" : mpGetBodyName(g_ModCiBody - 1), head));
+			g_ModCiBody <= MODGHOST_BODY_DEFAULT ? (char *)langTr("Joanna\n") : mpGetBodyName(g_ModCiBody - 1), head));
 
 	return g_GhostRowText;
 }
@@ -982,7 +983,7 @@ static char *menutextGhostChosenCount(struct menuitem *item)
 	// reads as whichever row was drawn last.
 	static char text[96];
 
-	snprintf(text, sizeof(text), "%d of %d chosen - A to toggle\n",
+	snprintf(text, sizeof(text), langTr("%d of %d chosen - A to toggle\n"),
 			modGhostGetNumChosen(), MODGHOST_MAXRACERS);
 
 	return text;
@@ -1243,9 +1244,9 @@ static char *menutextGhostMineCount(struct menuitem *item)
 	// them. The unarmed one said "from others" and "deletes one" until the
 	// last two characters of it were drawn over the border.
 	if (g_GhostMineArmed >= 0 && g_GhostMineArmed < count) {
-		snprintf(text, sizeof(text), "A again deletes the marked run - B to leave it\n");
+		snprintf(text, sizeof(text), "%s", langTr("A again deletes the marked run - B to leave it\n"));
 	} else {
-		snprintf(text, sizeof(text), "%d here: %d yours, %d unraceable - A twice deletes\n",
+		snprintf(text, sizeof(text), langTr("%d here: %d yours, %d unraceable - A twice deletes\n"),
 				count, mine, unraceable);
 	}
 
@@ -1430,49 +1431,49 @@ static char *menutextGhostAccountStatus(struct menuitem *item)
 
 	if (!ghostnetIsAvailable()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Network support is not built into this copy.\n");
+				"%s", langTr("Network support is not built into this copy.\n"));
 	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
-		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", ghostnetGetMessage());
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", langTr(ghostnetGetMessage()));
 	} else if (item == &g_GhostShareMenuItems[0] && modGhostIsModded()) {
 		// Upload is greyed while a mod is loaded (MODGHOSTHF_MODDED), and a
 		// greyed button needs its reason beside it.
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Uploading is off while a mod is loaded.\n");
+				"%s", langTr("Uploading is off while a mod is loaded.\n"));
 	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING) {
 		// Signed in, and the server has said this account cannot be reset.
 		// Only a reply to a correct PIN knows that, so this line is the only
 		// warning its owner will ever get.
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"No Security Questions - you cannot reset a lost PIN.\n");
+				"%s", langTr("No Security Questions - you cannot reset a lost PIN.\n"));
 	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_PARTIAL) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Signed in as %s - set 3 Security Questions.\n", g_GhostNetUser);
+				langTr("Signed in as %s - set 3 Security Questions.\n"), g_GhostNetUser);
 	} else if (ghostnetIsSignedIn()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Signed in as %s\n", g_GhostNetUser);
+				langTr("Signed in as %s\n"), g_GhostNetUser);
 	} else if (ghostnetAccountIsValid() && !ghostnetRecoveryIsSet()) {
 		// Create Account is refused without one, and a greyed out button with
 		// no reason beside it is the thing this page has already been wrong
 		// about once. Signing in is not gated: somebody who set their question
 		// on another machine has nothing to pick here.
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Set 3 Security Questions, then Create Account.\n");
+				"%s", langTr("Set 3 Security Questions, then Create Account.\n"));
 	} else if (ghostnetAccountIsValid()) {
 		// Well formed, and that is all this end knows. Whether the name is
 		// registered, and whether the PIN is its PIN, are questions only the
 		// server can answer - so the page names the two buttons that ask it
 		// rather than saying the account works.
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Create Account if %s is new, or Sign In.\n", g_GhostNetUser);
+				langTr("Create Account if %s is new, or Sign In.\n"), g_GhostNetUser);
 	} else if (ghostnetHasAccount()) {
 		// Both are filled in and one of them is not something the server will
 		// take. Saying which beats letting the player press a greyed out
 		// button and wonder, or press a live one and be refused by a machine.
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Name needs 3-15 of letters, digits, _ . - and PIN 4-8 digits.\n");
+				"%s", langTr("Name needs 3-15 of letters, digits, _ . - and PIN 4-8 digits.\n"));
 	} else {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Pick a name and a PIN, then Create Account.\n");
+				"%s", langTr("Pick a name and a PIN, then Create Account.\n"));
 	}
 
 	return g_GhostAccountMsg;
@@ -1567,7 +1568,7 @@ static char *menutextGhostName(struct menuitem *item)
 	// a page is resolved in one pass. See menutextGhostMineCount().
 	static char text[64];
 
-	snprintf(text, sizeof(text), "Name: %s\n",
+	snprintf(text, sizeof(text), langTr("Name: %s\n"),
 			g_GhostNetUser[0] ? g_GhostNetUser : "(not set)");
 
 	return text;
@@ -1593,7 +1594,7 @@ static char *menutextGhostPinRow(struct menuitem *item)
 
 	dots[len] = '\0';
 
-	snprintf(text, sizeof(text), "PIN: %s\n", len ? dots : "(not set)");
+	snprintf(text, sizeof(text), langTr("PIN: %s\n"), len ? dots : langTr("(not set)"));
 
 	return text;
 }
@@ -1699,7 +1700,7 @@ static MenuItemHandlerResult menuhandlerGhostQuestion(s32 operation, struct menu
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->dropdown.value <= 0) {
-			return (intptr_t)"(not set)";
+			return (intptr_t)langTr("(not set)");
 		}
 
 		cat = ghostRecoveryGetCategory(data->dropdown.value - 1);
@@ -1742,7 +1743,7 @@ static MenuItemHandlerResult menuhandlerGhostAnswer(s32 operation, struct menuit
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->dropdown.value <= 0) {
-			return (intptr_t)"(not set)";
+			return (intptr_t)langTr("(not set)");
 		}
 
 		return (intptr_t)ghostRecoveryGetAnswerName(g_GhostNetQuestion[i], data->dropdown.value - 1);
@@ -1802,33 +1803,33 @@ static char *menutextGhostQuestionStatus(struct menuitem *item)
 	s32 state = ghostnetGetState();
 
 	if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
-		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg), "%s\n", ghostnetGetMessage());
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg), "%s\n", langTr(ghostnetGetMessage()));
 	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING
 			&& !ghostnetRecoveryIsSet()) {
 		// The state a player is pushed into this page in, having pressed
 		// nothing. The first line has to say why they are looking at it.
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
-				"This account cannot reset a lost PIN yet.\n");
+				"%s", langTr("This account cannot reset a lost PIN yet.\n"));
 	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_PARTIAL
 			&& !ghostnetRecoveryIsSet()) {
 		// The other state they are pushed in with: an account made when one
 		// question was all there was.
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
-				"Your account has fewer than 3 questions - pick 3.\n");
+				"%s", langTr("Your account has fewer than 3 questions - pick 3.\n"));
 	} else if (ghostnetRecoveryIsRepeated()) {
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
-				"Each question must be different.\n");
+				"%s", langTr("Each question must be different.\n"));
 	} else if (!ghostnetRecoveryIsSet()) {
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
-				"Pick 3 pairs you will still know in a year.\n");
+				"%s", langTr("Pick 3 pairs you will still know in a year.\n"));
 	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING
 			|| ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_PARTIAL) {
 		// Picked here, but the account still has nothing, or less, on it.
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
-				"Not on the account yet - Save To Account.\n");
+				"%s", langTr("Not on the account yet - Save To Account.\n"));
 	} else {
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
-				"Save To Account to replace the existing ones.\n");
+				"%s", langTr("Save To Account to replace the existing ones.\n"));
 	}
 
 	return g_GhostQuestionMsg;
@@ -1947,12 +1948,12 @@ static char *menutextGhostResetStatus(struct menuitem *item)
 
 	if (!ghostnetIsAvailable()) {
 		snprintf(g_GhostResetMsg, sizeof(g_GhostResetMsg),
-				"Network support is not built into this copy.\n");
+				"%s", langTr("Network support is not built into this copy.\n"));
 	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
-		snprintf(g_GhostResetMsg, sizeof(g_GhostResetMsg), "%s\n", ghostnetGetMessage());
+		snprintf(g_GhostResetMsg, sizeof(g_GhostResetMsg), "%s\n", langTr(ghostnetGetMessage()));
 	} else {
 		snprintf(g_GhostResetMsg, sizeof(g_GhostResetMsg),
-				"Answer every question your account has.\n");
+				"%s", langTr("Answer every question your account has.\n"));
 	}
 
 	return g_GhostResetMsg;
@@ -1977,7 +1978,7 @@ static char *menutextGhostNewPinRow(struct menuitem *item)
 
 	dots[len] = '\0';
 
-	snprintf(text, sizeof(text), "New PIN: %s\n", len ? dots : "(not set)");
+	snprintf(text, sizeof(text), langTr("New PIN: %s\n"), len ? dots : langTr("(not set)"));
 
 	return text;
 }
@@ -2074,11 +2075,11 @@ static char *menutextGhostQuestionRow(struct menuitem *item)
 	s32 count = ghostnetRecoveryCount();
 
 	if (ghostnetRecoveryIsSet()) {
-		snprintf(text, sizeof(text), "Security Questions: (set)\n");
+		snprintf(text, sizeof(text), "%s", langTr("Security Questions: (set)\n"));
 	} else if (count > 0) {
-		snprintf(text, sizeof(text), "Security Questions: (%d of %d)\n", count, GHOSTNET_NUMQUESTIONS);
+		snprintf(text, sizeof(text), langTr("Security Questions: (%d of %d)\n"), count, GHOSTNET_NUMQUESTIONS);
 	} else {
-		snprintf(text, sizeof(text), "Security Questions: (not set)\n");
+		snprintf(text, sizeof(text), "%s", langTr("Security Questions: (not set)\n"));
 	}
 
 	return text;
@@ -2238,15 +2239,15 @@ static char *menutextGhostAccountsStatus(struct menuitem *item)
 
 	if (!ghostnetIsAvailable()) {
 		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
-				"Network support is not built into this copy.\n");
+				"%s", langTr("Network support is not built into this copy.\n"));
 	} else if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
-		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg), "%s\n", ghostnetGetMessage());
+		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg), "%s\n", langTr(ghostnetGetMessage()));
 	} else if (ghostnetHasAccount()) {
 		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
-				"Racing as %s - A on a name switches.\n", ghostnetGetAccountName());
+				langTr("Racing as %s - A on a name switches.\n"), ghostnetGetAccountName());
 	} else {
 		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
-				"No account - ghosts stay on this machine.\n");
+				"%s", langTr("No account - ghosts stay on this machine.\n"));
 	}
 
 	return g_GhostAccountsMsg;
@@ -2677,15 +2678,15 @@ static char *menutextGhostBoardStatus(struct menuitem *item)
 
 	if (!ghostnetIsAvailable()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"Network support is not built into this copy.\n");
+				"%s", langTr("Network support is not built into this copy.\n"));
 	} else if (state == GHOSTNET_IDLE && ghostnetGetBoardCount() < 1) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"No times on this board yet - Load Times asks again.\n");
+				"%s", langTr("No times on this board yet - Load Times asks again.\n"));
 	} else if (state == GHOSTNET_IDLE) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"A on a time downloads that ghost.\n");
+				"%s", langTr("A on a time downloads that ghost.\n"));
 	} else {
-		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", ghostnetGetMessage());
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s\n", langTr(ghostnetGetMessage()));
 	}
 
 	return g_GhostAccountMsg;
@@ -3174,12 +3175,12 @@ static Gfx *menuGhostAlignRestore(Gfx *gdl, s32 viewleft, s32 viewtop, s32 viewr
  * glance on the way past, not read.
  */
 static char *g_GhostRulesLines[] = {
-	"Recording on.\n",
-	"No Jump, Roll\n",
-	"or Melee Combo\n",
-	"No Flinch.\n",
-	"Cheats are off\n",
-	"automatically.\n",
+	LANG_N("Recording on.\n"),
+	LANG_N("No Jump, Roll\n"),
+	LANG_N("or Melee Combo\n"),
+	LANG_N("No Flinch.\n"),
+	LANG_N("Cheats are off\n"),
+	LANG_N("automatically.\n"),
 };
 
 // How far down the window each line sits, and how far its text is inset.
@@ -3216,7 +3217,7 @@ static Gfx *menuGhostRenderRules(Gfx *gdl)
 	}
 
 	for (i = 0; i < (s32)ARRAYCOUNT(g_GhostRulesLines); i++) {
-		textMeasure(&textheight, &textwidth, g_GhostRulesLines[i],
+		textMeasure(&textheight, &textwidth, (char *)langTr(g_GhostRulesLines[i]),
 				g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 
 		if (textwidth > width) {
@@ -3258,7 +3259,7 @@ static Gfx *menuGhostRenderRules(Gfx *gdl)
 
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 
-	gdl = menuGhostWindow(gdl, x1, y1, x2, y2, "Trial Rules\n");
+	gdl = menuGhostWindow(gdl, x1, y1, x2, y2, (char *)langTr("Trial Rules\n"));
 
 	gdl = text0f153628(gdl);
 
@@ -3266,7 +3267,7 @@ static Gfx *menuGhostRenderRules(Gfx *gdl)
 		x = x1 + MODGHOST_RULESINSET;
 		y = y1 + LINEHEIGHT + 1 + i * MODGHOST_RULESLINE;
 
-		gdl = textRenderProjected(gdl, &x, &y, g_GhostRulesLines[i],
+		gdl = textRenderProjected(gdl, &x, &y, (char *)langTr(g_GhostRulesLines[i]),
 				g_CharsHandelGothicSm, g_FontHandelGothicSm, colours->item_unfocused,
 				x2 - x, viGetHeight(), 0, 0);
 	}
@@ -3375,7 +3376,7 @@ static Gfx *menuGhostRenderPlaque(Gfx *gdl)
 
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 
-	gdl = menuGhostWindow(gdl, x1, y1, x2, y2, "Player\n");
+	gdl = menuGhostWindow(gdl, x1, y1, x2, y2, (char *)langTr("Player\n"));
 
 	gdl = text0f153628(gdl);
 
@@ -3696,10 +3697,10 @@ static MenuItemHandlerResult menuhandlerGhostOnlineMode(s32 operation, struct me
 static char *menutextGhostModeStatus(struct menuitem *item)
 {
 	if (!ghostnetIsAvailable()) {
-		return "Network support is not built into this copy.\n";
+		return (char *)langTr("Network support is not built into this copy.\n");
 	}
 
-	return "Online signs in to share runs and race the boards.\n";
+	return (char *)langTr("Online signs in to share runs and race the boards.\n");
 }
 
 struct menuitem g_GhostModeMenuItems[] = {

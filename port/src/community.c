@@ -28,6 +28,7 @@
 #include "texpack.h"
 #include "menuimage.h"
 #include "community.h"
+#include "langpack.h"
 
 // GitHub's own answer to "which release is current". Asked once per page
 // opening rather than at startup: nobody who never opens the page should be
@@ -131,9 +132,9 @@ static struct communitypack packs[] = {
 	{
 		"PD Ultimate Plus HD",
 		"Parabolee of Retro Foundry",
-		"The recommended pack, for the XBLA models: the\n"
+		LANG_N("The recommended pack, for the XBLA models: the\n"
 		"release's textures upscaled and redrawn closer to\n"
-		"the original art, hundreds by hand. Fonts by Trov.\n",
+		"the original art, hundreds by hand. Fonts by Trov.\n"),
 		COMMUNITY_PLUSHD_REPO,
 		"ULTIMATE",
 		"QUEST",
@@ -146,9 +147,9 @@ static struct communitypack packs[] = {
 	{
 		"XBLA Plus HD",
 		"Parabolee of Retro Foundry",
-		"For the XBLA models: the release's own textures,\n"
+		LANG_N("For the XBLA models: the release's own textures,\n"
 		"upscaled and enhanced and kept faithful to the Xbox\n"
-		"360 look. Fonts by Trov.\n",
+		"360 look. Fonts by Trov.\n"),
 		COMMUNITY_PLUSHD_REPO,
 		"XBLA.PLUS",
 		"QUEST",
@@ -161,9 +162,9 @@ static struct communitypack packs[] = {
 	{
 		"PD Forever Plus HD",
 		"Howard Phillips",
-		"Faithful to the N64 art, for play without the XBLA\n"
+		LANG_N("Faithful to the N64 art, for play without the XBLA\n"
 		"models. Converted and completed by Rafccq, Enigmata,\n"
-		"Atari-Dude and Parabolee. Fonts by Trov.\n",
+		"Atari-Dude and Parabolee. Fonts by Trov.\n"),
 		COMMUNITY_PLUSHD_REPO,
 		"FOREVER",
 		"QUEST",
@@ -545,7 +546,7 @@ static bool communityPickAsset(const struct communitypack *pack, const char *jso
 	const char *at = strstr(json, "\"assets\"");
 
 	if (at == NULL) {
-		snprintf(err, errsize, "the release has no files");
+		snprintf(err, errsize, "%s", LANG_N("the release has no files"));
 		return false;
 	}
 
@@ -606,7 +607,7 @@ static bool communityPickAsset(const struct communitypack *pack, const char *jso
 	}
 
 	if (bestName[0] == '\0') {
-		snprintf(err, errsize, "no file in the latest release is one this can install");
+		snprintf(err, errsize, "%s", LANG_N("no file in the latest release is one this can install"));
 		return false;
 	}
 
@@ -614,7 +615,7 @@ static bool communityPickAsset(const struct communitypack *pack, const char *jso
 		if (communityRepoPackCount(pack->repo) > 1) {
 			sysLogPrintf(LOG_WARNING, "community: nothing in %s matches \"%s\"", pack->repo,
 					pack->match ? pack->match : "");
-			snprintf(err, errsize, "the latest release does not have this pack in it");
+			snprintf(err, errsize, "%s", LANG_N("the latest release does not have this pack in it"));
 			return false;
 		}
 
@@ -738,7 +739,7 @@ static bool communityFetch(const struct communitypack *pack, const struct commun
 	FILE *f;
 
 	if (packsDir[0] == '\0') {
-		snprintf(msg, msgsize, "nowhere to install to that can be written");
+		snprintf(msg, msgsize, "%s", LANG_N("nowhere to install to that can be written"));
 		return false;
 	}
 
@@ -749,7 +750,7 @@ static bool communityFetch(const struct communitypack *pack, const struct commun
 	f = fopen(tmp, "wb");
 
 	if (f == NULL) {
-		snprintf(msg, msgsize, "cannot write to the texture-packs folder");
+		snprintf(msg, msgsize, "%s", LANG_N("cannot write to the texture-packs folder"));
 		return false;
 	}
 
@@ -796,13 +797,13 @@ static bool communityFetch(const struct communitypack *pack, const struct commun
 
 	if (rel->assetSha[0]) {
 		if (!sha256File(tmp, sha)) {
-			snprintf(msg, msgsize, "could not read back what was downloaded");
+			snprintf(msg, msgsize, "%s", LANG_N("could not read back what was downloaded"));
 			remove(tmp);
 			return false;
 		}
 
 		if (strcasecmp(sha, rel->assetSha) != 0) {
-			snprintf(msg, msgsize, "the download is not the file the release describes");
+			snprintf(msg, msgsize, "%s", LANG_N("the download is not the file the release describes"));
 			remove(tmp);
 			return false;
 		}
@@ -816,7 +817,7 @@ static bool communityFetch(const struct communitypack *pack, const struct commun
 	remove(tmp);
 
 	if (count <= 0) {
-		snprintf(msg, msgsize, "nothing came out of the archive");
+		snprintf(msg, msgsize, "%s", LANG_N("nothing came out of the archive"));
 		return false;
 	}
 
@@ -893,14 +894,14 @@ static void communityStart(s32 which, s32 pack)
 
 	state = which == COMMUNITY_JOB_CHECK ? COMMUNITY_ASKING : COMMUNITY_DOWNLOAD;
 	communitySetStatus(which == COMMUNITY_JOB_CHECK
-			? "Asking what the latest release is..."
-			: "Downloading...");
+			? LANG_N("Asking what the latest release is...")
+			: LANG_N("Downloading..."));
 
 	worker = SDL_CreateThread(communityWorker, "pdcommunity", NULL);
 
 	if (worker == NULL) {
 		state = COMMUNITY_ERROR;
-		communitySetStatus("could not start the download");
+		communitySetStatus("%s", LANG_N("could not start the download"));
 	}
 }
 
@@ -925,7 +926,7 @@ void communityCancel(void)
 {
 	if (communityBusy()) {
 		cancelFlag = true;
-		communitySetStatus("Stopping...");
+		communitySetStatus("%s", LANG_N("Stopping..."));
 	}
 }
 
@@ -967,7 +968,7 @@ void communityTick(void)
 		state = cancelFlag ? COMMUNITY_IDLE : COMMUNITY_ERROR;
 
 		if (cancelFlag) {
-			communitySetStatus("Stopped");
+			communitySetStatus("%s", LANG_N("Stopped"));
 		}
 
 		return;
@@ -983,7 +984,7 @@ void communityTick(void)
 	state = COMMUNITY_DONE;
 
 	if (!texpackSelectPackByName(releases[jobPack].installName)) {
-		communitySetStatus("Installed, but it is not in the pack list - see the log");
+		communitySetStatus("%s", LANG_N("Installed, but it is not in the pack list - see the log"));
 		sysLogPrintf(LOG_ERROR, "community: %s installed but did not list", releases[jobPack].installName);
 		return;
 	}

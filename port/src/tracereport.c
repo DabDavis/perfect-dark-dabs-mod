@@ -50,6 +50,7 @@
 #include "ghostnet.h"
 #include "versioninfo.h"
 #include "trace.h"
+#include "langpack.h"
 
 #define STATE_IDLE   0
 #define STATE_BUSY   1
@@ -454,7 +455,7 @@ static bool traceReportSend(char *err, u32 errsize)
 	trace = traceReportLoad(g_TracePath, TRACEREPORT_MAXTEXT, &tracesize);
 
 	if (!trace || tracesize == 0) {
-		snprintf(err, errsize, "the trace could not be read");
+		snprintf(err, errsize, "%s", LANG_N("the trace could not be read"));
 		free(trace);
 		return false;
 	}
@@ -486,7 +487,7 @@ static bool traceReportSend(char *err, u32 errsize)
 	escaped = malloc(textsize * 6 + 8);
 
 	if (!text || !escaped) {
-		snprintf(err, errsize, "not enough memory to send the report");
+		snprintf(err, errsize, "%s", LANG_N("not enough memory to send the report"));
 		free(text);
 		free(escaped);
 		free(trace);
@@ -515,7 +516,7 @@ static bool traceReportSend(char *err, u32 errsize)
 	body = malloc(bodysize);
 
 	if (!body) {
-		snprintf(err, errsize, "not enough memory to send the report");
+		snprintf(err, errsize, "%s", LANG_N("not enough memory to send the report"));
 		free(escaped);
 		free(shot64);
 		return false;
@@ -550,7 +551,7 @@ static bool traceReportSend(char *err, u32 errsize)
 		if (buf.data && ghostnetJsonField(buf.data, NULL, "error", msg, sizeof(msg))) {
 			snprintf(err, errsize, "%s", msg);
 		} else {
-			snprintf(err, errsize, "the server answered %d", status);
+			snprintf(err, errsize, LANG_N("the server answered %d"), status);
 		}
 
 		ok = false;
@@ -572,7 +573,7 @@ static bool traceReportSend(char *err, u32 errsize)
 
 static bool traceReportSend(char *err, u32 errsize)
 {
-	snprintf(err, errsize, "this build has no network support");
+	snprintf(err, errsize, "%s", LANG_N("this build has no network support"));
 	return false;
 }
 
@@ -610,7 +611,7 @@ static void traceReportStartSend(void)
 	g_Thread = SDL_CreateThread(traceReportWorker, "pdtracereport", NULL);
 
 	if (g_Thread == NULL) {
-		snprintf(g_Err, sizeof(g_Err), "could not start the send");
+		snprintf(g_Err, sizeof(g_Err), "%s", langTr("could not start the send"));
 		g_State = STATE_FAILED;
 	}
 }
@@ -665,7 +666,7 @@ static char *menutextTraceReportStatus(struct menuitem *item)
 {
 	switch (g_State) {
 	case STATE_BUSY:
-		snprintf(g_Text, sizeof(g_Text), "Sending...\n");
+		snprintf(g_Text, sizeof(g_Text), "%s", langTr("Sending...\n"));
 		return g_Text;
 	case STATE_SENT: {
 		// Where it can be seen once sent: the server's public board, named
@@ -673,11 +674,11 @@ static char *menutextTraceReportStatus(struct menuitem *item)
 		const char *where = strstr(g_GhostNetUrl, "://");
 
 		where = where ? where + 3 : g_GhostNetUrl;
-		snprintf(g_Text, sizeof(g_Text), "Sent. Thank you!\nSee all reports at\n%s/board\n", where);
+		snprintf(g_Text, sizeof(g_Text), langTr("Sent. Thank you!\nSee all reports at\n%s/board\n"), where);
 		return g_Text;
 	}
 	case STATE_FAILED:
-		snprintf(g_Text, sizeof(g_Text), "Not sent: %s\nThe files are still in traces/.\n", g_Err);
+		snprintf(g_Text, sizeof(g_Text), langTr("Not sent: %s\nThe files are still in traces/.\n"), langTr(g_Err));
 		return g_Text;
 	default:
 		break;
@@ -685,10 +686,10 @@ static char *menutextTraceReportStatus(struct menuitem *item)
 
 	// Said before it is offered: what goes, and that nothing goes on its own.
 	snprintf(g_Text, sizeof(g_Text),
-			"Captured the frame from %s: a screenshot\n"
+			langTr("Captured the frame from %s: a screenshot\n"
 			"and a dump of the game's state, your game\n"
 			"settings and the last lines of the log.\n"
-			"Nothing is sent unless you press Send.\n",
+			"Nothing is sent unless you press Send.\n"),
 			g_When);
 
 	return g_Text;
@@ -708,11 +709,11 @@ static char *menutextTraceReportNote(struct menuitem *item)
 	traceReportFoldNote(folded, sizeof(folded), typing);
 
 	if (typing) {
-		snprintf(g_Text, sizeof(g_Text), "What went wrong? (ENTER sends, ESC stops typing)\n%s\n", folded);
+		snprintf(g_Text, sizeof(g_Text), langTr("What went wrong? (ENTER sends, ESC stops typing)\n%s\n"), folded);
 	} else if (g_Note[0]) {
-		snprintf(g_Text, sizeof(g_Text), "Note:\n%s\n", folded);
+		snprintf(g_Text, sizeof(g_Text), langTr("Note:\n%s\n"), folded);
 	} else {
-		snprintf(g_Text, sizeof(g_Text), "No note.\n");
+		snprintf(g_Text, sizeof(g_Text), "%s", langTr("No note.\n"));
 	}
 
 	return g_Text;
@@ -731,17 +732,17 @@ static char *menutextTraceReportName(struct menuitem *item)
 
 	if (typing && g_Field == TRACEREPORT_FIELD_NAME) {
 		snprintf(g_Text, sizeof(g_Text),
-				"Your name, kept for next time (ENTER: done)\n%s_\n", g_NameEdit);
+				langTr("Your name, kept for next time (ENTER: done)\n%s_\n"), g_NameEdit);
 	} else if (typing && g_Name[0]) {
-		snprintf(g_Text, sizeof(g_Text), "Credit: %s (TAB to change)\n", g_Name);
+		snprintf(g_Text, sizeof(g_Text), langTr("Credit: %s (TAB to change)\n"), g_Name);
 	} else if (typing) {
-		snprintf(g_Text, sizeof(g_Text), "Your name, for the credits: TAB or click Name\n");
+		snprintf(g_Text, sizeof(g_Text), "%s", langTr("Your name, for the credits: TAB or click Name\n"));
 	} else if (g_Name[0]) {
-		snprintf(g_Text, sizeof(g_Text), "Credit: %s\n", g_Name);
+		snprintf(g_Text, sizeof(g_Text), langTr("Credit: %s\n"), g_Name);
 	} else if (g_PadUsed) {
-		snprintf(g_Text, sizeof(g_Text), "Name: optional, typed on a keyboard\n");
+		snprintf(g_Text, sizeof(g_Text), "%s", langTr("Name: optional, typed on a keyboard\n"));
 	} else {
-		snprintf(g_Text, sizeof(g_Text), "Name: optional, for CREDITS.md\n");
+		snprintf(g_Text, sizeof(g_Text), "%s", langTr("Name: optional, for CREDITS.md\n"));
 	}
 
 	return g_Text;

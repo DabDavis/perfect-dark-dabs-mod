@@ -616,6 +616,8 @@ add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 # lang/, or no Python, the table is empty and the game is English only.
 set(LANGPACK_C "${CMAKE_BINARY_DIR}/langpacks.c")
 file(GLOB_RECURSE LANG_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/lang/*.json")
+# lang/_source/ is the generated English catalogs (tools/langpack/extract.py), not a language
+list(FILTER LANG_SOURCES EXCLUDE REGEX "/lang/_source/")
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
   add_custom_command(

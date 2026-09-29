@@ -68,6 +68,22 @@ const char *langTrCtx(const char *ctx, const char *en);
 // Same, but NULL rather than the English when there is no translation.
 const char *langTrFind(const char *en);
 
+// A string of the port's kept in a table and translated where it is used
+// (langTr() on the table's entry): the marker tools/langpack/extract.py
+// finds it by. It does nothing.
+#define LANG_N(s) (s)
+
+// --lang-log-missing (CLAUDE-notes/languages.md): s was handed out by a
+// lookup (translated or the English kept), so drawing it is not a leftover.
+// Answers s. Costs a branch when the option is off.
+const char *langpackNoted(const char *s);
+// dst was made from src (wrapped, copied): noted if src was.
+void langpackNoteDerived(const char *src, const char *dst);
+// A text loop is about to draw s: logs it once if no lookup handed it out.
+void langpackCheckDrawn(const char *s);
+// Logs a keyed string (ge.dam.5, pd.0203) the pack has no translation of.
+void langpackLogMissingKey(const char *key, const char *en);
+
 // For --lang-audit (lang.c): the selected pack's keyed strings in turn.
 const char *langpackEntry(u32 i, const char **key, s32 *ns);
 const char *langpackSelectedCode(void);

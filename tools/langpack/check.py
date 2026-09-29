@@ -5,11 +5,13 @@ translate. build.py runs the same checks and leaves out any string that fails
 one - it falls back to English in the game - while this reports them all and
 exits non-zero, for a translator to run before committing:
 
-    python3 tools/langpack/check.py lang/fr [lang/de ...]
+    python3 tools/langpack/check.py [--source lang/_source] lang/fr [lang/de ...]
 
 What is checked (CLAUDE-notes/languages.md):
-- every key is one the English has (pd ids; port and GE strings are not -
-  the port's English is in its source, so an unknown key is only a warning);
+- every key is one the English has: pd ids against the ntsc-final files, and
+  port and GE keys against the source catalogs in lang/_source/ that
+  tools/langpack/extract.py writes (when they are there - they are generated
+  and not committed; --source names another copy, --no-source skips it);
 - printf conversions (%s, %d, %02d, ...) the same and in the same order as the
   English, because a mismatch crashes the game;
 - a ROM string keeps its trailing newline (one without measures zero high);
@@ -160,11 +162,55 @@ def load_json(path, p):
     return data
 
 
-def read_language(srcdir):
+DEFAULT_SOURCE = os.path.join(ROOT, 'lang', '_source')
+
+
+class Source:
+    """The English source catalogs (lang/_source/, tools/langpack/extract.py)."""
+
+    def __init__(self, path):
+        self.path = path
+        self.name = os.path.relpath(path)
+        with open(os.path.join(path, 'port.json'), encoding='utf-8') as f:
+            self.port = json.load(f)
+        try:
+            with open(os.path.join(path, 'ge.json'), encoding='utf-8') as f:
+                self.ge = json.load(f)
+        except OSError:
+            self.ge = None
+        # GoldenEye's by their English (ge:<English>), as the game looks them up
+        self.ge_english = set(strip_nl(v) for v in (self.ge or {}).values())
+        self.port_english = set(strip_nl(v) for v in self.port.values())
+
+    def port_english_of(self, key):
+        """The English a port.json key stands for, or None if it is not one."""
+        k = strip_nl(key)
+        if k in self.port:
+            return self.port[k]
+        if '|' in k and k.split('|', 1)[1] in self.port:
+            return self.port[k.split('|', 1)[1]]
+        return None
+
+
+def strip_nl(s):
+    return s[:-1] if s.endswith('\n') else s
+
+
+def load_source(path):
+    if path and os.path.exists(os.path.join(path, 'port.json')):
+        return Source(path)
+    return None
+
+
+def read_language(srcdir, source=None):
     """
     The checked strings of one language:
     (meta, { key: text }, Problems), keys as the .lang file has them -
     pd.<hex id>, port:<English>, ge.<bank>.<slot>, ge:<English>.
+
+    With a Source, port and GE keys are checked against the English source
+    catalogs too: a key they do not have is an error (it is never shown), and
+    a GE string's printf conversions and trailing newline are GoldenEye's.
     """
     code = os.path.basename(os.path.normpath(srcdir))
     p = Problems(code)
@@ -229,16 +275,34 @@ def read_language(srcdir):
         for key, text in load_json(path, p).items():
             if not isinstance(text, str) or text == '':
                 continue
-            source = key.split('|', 1)[1] if '|' in key and fname == 'port.json' else key
+            en_text = key.split('|', 1)[1] if '|' in key and fname == 'port.json' else key
             if prefix == 'ge':
                 if re.fullmatch(r'ge\.[a-z0-9]+\.\d+', key):
                     k = key
-                    source = None
+                    en_text = None
+                    if source is not None and source.ge is not None:
+                        if key not in source.ge:
+                            p.error(key, 'is not a GoldenEye string (%s/ge.json)' % source.name)
+                            continue
+                        en_text = source.ge[key]
+                        if en_text.endswith('\n') and not text.endswith('\n'):
+                            p.warn(key, 'had no trailing newline; one was added')
+                            text += '\n'
                 else:
                     k = 'ge:' + key
+                    if source is not None and strip_nl(key) not in source.ge_english \
+                            and strip_nl(key) not in source.port_english:
+                        p.error(key, 'is not the English of a GoldenEye string (%s/ge.json)' % source.name)
+                        continue
             else:
                 k = prefix + key
-            if check_string(p, key, source, text, script):
+                if source is not None:
+                    found = source.port_english_of(key)
+                    if found is None:
+                        p.error(key, 'is not a string of the port (%s/port.json; '
+                                'run tools/langpack/extract.py if the game changed)' % source.name)
+                        continue
+            if check_string(p, key, en_text, text, script):
                 out[k] = text
 
     return meta, out, p
@@ -246,8 +310,25 @@ def read_language(srcdir):
 
 def main(argv):
     status = 0
-    for srcdir in argv:
-        meta, strings, p = read_language(srcdir)
+    source_path = DEFAULT_SOURCE
+    dirs = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == '--source' and i + 1 < len(argv):
+            source_path = argv[i + 1]
+            i += 2
+            continue
+        if argv[i] == '--no-source':
+            source_path = None
+        else:
+            dirs.append(argv[i])
+        i += 1
+    source = load_source(source_path)
+    if source is None and source_path:
+        print('note: no source catalogs at %s - port and GE keys are not checked against the English '
+              '(python3 tools/langpack/extract.py writes them)' % source_path)
+    for srcdir in dirs:
+        meta, strings, p = read_language(srcdir, source)
         for w in p.warnings:
             print('warning: ' + w)
         for e in p.errors:

@@ -39,6 +39,7 @@
 #include "modelpack.h"
 #include "video.h"
 #include "versioninfo.h"
+#include "langpack.h"
 #include <SDL.h>
 
 #define TEXPACK_DUMP_DIR_NAME "texture-dumps"
@@ -4489,11 +4490,22 @@ static void texpackCycleSelected(void)
 	// (F3 20260926-232924). A HUD message needs a player to show it to, so
 	// on the title and in the front menus the log line is all there is.
 	if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
-		char text[128];
+		const char *fmt = langTr("Texture Pack: %s\n");
+		char prefix[64];
+		char text[192];
+		u32 len = 0;
 
-		snprintf(text, sizeof(text), "Texture Pack: %s\n", next < 0 ? "None" : texpackGetPackName(next));
-		// Replaces the last press's message rather than queueing behind it
-		hudmsgRemoveByPrefix("Texture Pack: ");
+		snprintf(text, sizeof(text), fmt, next < 0 ? langTr("None") : texpackGetPackName(next));
+		// Replaces the last press's message rather than queueing behind it:
+		// the format's words before the name, in whichever language
+		while (fmt[len] && fmt[len] != '%' && len < sizeof(prefix) - 1) {
+			prefix[len] = fmt[len];
+			len++;
+		}
+		prefix[len] = '\0';
+		if (len) {
+			hudmsgRemoveByPrefix(prefix);
+		}
 		hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
 	}
 }
