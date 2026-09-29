@@ -312,6 +312,7 @@ struct gebeanlevelvtx {
 	u32 argb;
 	f32 nrm[3]; // the file's own, zero where it has none
 	u8 blend; // its draw is in the release's blended pass (the same on all three)
+	u8 plain; // its draw has no UV and no picture of its own (gebeanLevelTriangles())
 };
 
 struct gebeanlevel *gebeanLevelOpen(const char *name);

@@ -100,6 +100,7 @@ struct stri {
 	u8 fights;  // a face with another face back to back over part of it (markFights())
 	u8 blend;   // drawn in the release's blended pass (triFades())
 	u8 undersea; // the reflection under a sea, faded and culled (markUnderSea())
+	u8 plain;   // of a draw with no UV and no picture of its own (gebeanlevelvtx)
 };
 
 // The level being served, built when its first room is asked for
@@ -2030,6 +2031,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->backed = 0;
 	t->fights = 0;
 	t->undersea = 0;
+	t->plain = v[0].plain;
 }
 
 static f32 triNormal(const struct stri *t, f32 *n)
@@ -4128,7 +4130,7 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0;
+	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0;
 	u32 bytes = 0;
 
 	row = levelRow();
@@ -4293,6 +4295,18 @@ static s32 build(void)
 			struct stri *tri = &c.tris[t];
 			f32 mid[3];
 
+			// A decal of a draw with no UV, no picture of its own and no
+			// colour in its vertices either (white, opaque) is a surface its
+			// shader alone shades, which the port has nothing to draw with,
+			// lying on one that is whole without it (gebeanLevelTriangles():
+			// Bunker's helipad, a grey band of the wrong picture)
+			if (tri->plain && tri->decal && tri->argb[0] == 0xffffffff
+					&& tri->argb[1] == 0xffffffff && tri->argb[2] == 0xffffffff) {
+				tri->room = 0;
+				plainDecals++;
+				continue;
+			}
+
 			for (s32 j = 0; j < 3; j++) {
 				mid[j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f;
 			}
@@ -4360,6 +4374,10 @@ static s32 build(void)
 					farOff++;
 				}
 			}
+		}
+
+		if (plainDecals) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d white decal triangles of draws with no UV or picture left out", row->bean, plainDecals);
 		}
 
 		for (s32 r = 1; r < n; r++) {
