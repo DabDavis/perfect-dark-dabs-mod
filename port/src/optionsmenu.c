@@ -1292,10 +1292,11 @@ static MenuItemHandlerResult menuhandlerFlashLighting(s32 operation, struct menu
 }
 
 /**
- * Muzzle Flash Lights Rooms: stock's light a shot lays on the rooms round the
- * gun. Off by default: it is lit per vertex, so on large polygons whole walls
- * blink with every shot (F3 20260929-045427). Flash Lighting still has the
- * last word. Live.
+ * Muzzle Flash Lights GoldenEye Rooms: stock's light a shot lays on the rooms
+ * round the gun, on GoldenEye's remade levels (Perfect Dark's always keep it).
+ * Off by default: it is lit per vertex, so on GoldenEye's large polygons whole
+ * walls blink with every shot (F3 20260929-045427). Flash Lighting still has
+ * the last word. Live.
  */
 static MenuItemHandlerResult menuhandlerMuzzleFlashLight(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -1554,7 +1555,7 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		MENUITEMTYPE_CHECKBOX,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Muzzle Flash Lights Rooms",
+		(uintptr_t)"Muzzle Flash Lights GoldenEye Rooms",
 		0,
 		menuhandlerMuzzleFlashLight,
 	},

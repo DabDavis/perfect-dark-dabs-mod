@@ -420,7 +420,7 @@ struct modoptions {
 	s32 decalclip;   // Clip Decals at Edges: a wall hit is cut to the surface it lies on, none of it over a drop
 	s32 flashlighting; // MODFLASHLIGHT_*: whether gunfire, explosions and sparks light up the rooms round them
 	s32 sitinchairs; // the use button on a Carrington Institute chair sits the player in it (sitchair.c)
-	s32 muzzleflashlight; // a muzzle flash lights the rooms round it too (Flash Lighting permitting)
+	s32 muzzleflashlight; // on GoldenEye's levels a muzzle flash lights the rooms round it too (always on Perfect Dark's)
 };
 
 extern struct modoptions g_ModOptions;
