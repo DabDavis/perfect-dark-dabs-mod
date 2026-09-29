@@ -42,6 +42,7 @@ extern s32 g_ModRunFirstStage; // --run-stage N: the first room's stage, for tes
 #endif
 
 bool modRunIsOn(void);
+bool modRunStageIsStockArena(s32 stagenum);
 bool modRunIsPlaying(void);
 bool modRunObjectiveIsDone(void);
 bool modRunIsOver(void);

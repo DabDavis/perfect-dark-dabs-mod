@@ -2968,4 +2968,9 @@ void setupCreateProps(s32 stagenum)
 	// objective command still happens.
 	modRandomInsertObjectives();
 	modRunInsertObjectives();
+
+	// A run's guards route over the stage's waypoints, and an arena loaded
+	// solo has its lift shafts linked with no lifts in them - modalarm.c.
+	// Here because the lifts are props, and nothing has routed yet.
+	modAlarmCutLiftlessClimbs();
 }

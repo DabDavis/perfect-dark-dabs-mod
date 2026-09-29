@@ -823,6 +823,15 @@ Behind generator version 4. Force a landing with a breakpoint on
 `--run-stage 0x38`; the log says `room 87 on stage 0x38 has no light; landing
 again on pad ...`.
 
+**The colours the vertices use (F3 20260929-203835).** With the XBLA look's
+rooms (`Mod.XblaStages`), the release's copy of room 87 lists a white colour
+beside the black and no vertex uses it, so the table's brightest passed the
+room as lit and the player landed in the dark again. `modRunRoomIsDark()` now
+reads the colour each vertex points at (`Vtx.colour` is a byte offset, four to
+a colour). Test as above with the XBLA release in `added-content/` and
+`XblaMeshes=1` in the savedir's pd.ini (the release's rooms follow the meshes
+switch).
+
 ## Room Size, Tint Outside the Room, Guards Walk In
 
 Tester request 20260928-042800, built at the user's word: bigger rooms, the
@@ -851,6 +860,31 @@ player. Three rows on the Randomizer Options page, all on by default
   wide. The zone's way out loses its keys at the landing, since a guard cannot
   open a locked door and the seal, not the door, is what holds the player.
   A 79-hop chain dealt 77 guards walking in and 1 into the zone while sealed.
+
+## Doors shut to the AI, and lifts an arena's solo setup does not have
+
+Two more ways a walk-in guard stood outside the seal (pass 23):
+
+- **A map's own waypoints link through doors the AI may not open.** Area 51
+  Escape links room 231 to 223 through one (keyflags 2, `OBJFLAG2_AICANNOTUSE`),
+  and a run sealed in 229 dealt five guards into 231 against it (F3
+  20260929-195347/-195516). `modAlarmGuardOpensAnyDoor()` is now true for a
+  run's guards on any stage, not only on a pad-built graph.
+- **A stock arena loaded solo has no lifts.** Its solo setup is a stub, so the
+  lift props are missing while the waypoints still join each shaft's bottom to
+  its top: Fortress's pad 147 (room 55) to 148 (room 58), 546 straight up (F3
+  20260929-193910). `modAlarmCutLiftlessClimbs()`, at the end of
+  `setupCreateProps()` during a run on a stock arena
+  (`modRunStageIsStockArena()`), cuts every link rising more than 100 and 0.6
+  per unit across that fails the pad graph's walk test with no lift within 400
+  of either end, then rebuilds the waygroups as connected pieces (no group
+  neighbours, as a pad-built graph has). Fortress loses 32 links, Warehouse 8.
+  Missions are left alone: their lifts exist, and the walk test refuses slopes
+  their guards do walk (Crash Site's, Villa's steps - 32 false cuts on Crash
+  Site in a first version that ran everywhere). Log line `alarm: stage 0x44:
+  32 waypoint link(s) climb where no lift stands`; `--chr-trace` lists each cut.
+  A guard that walks into an empty shaft and falls still keeps its old route to
+  the top until its AI routes again - seen once in a probe, not fixed.
 
 ## A room's objective is the map's whole objective list
 

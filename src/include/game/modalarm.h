@@ -22,5 +22,6 @@ s32 modAlarmGetGuardDeaths(s32 mpindex);
 bool modAlarmHasMatchStats(void);
 struct chrdata *modAlarmFindGuardForBot(struct chrdata *botchr, f32 maxdist);
 void modAlarmBuildPadWaypoints(void);
+void modAlarmCutLiftlessClimbs(void);
 
 #endif
