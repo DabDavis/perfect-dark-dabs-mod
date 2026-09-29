@@ -11404,9 +11404,21 @@ parts 8-13/35, decals) take the hand.
   converted level); a miss plays GE's PUNCHING_AIR 105.
 - **Needs the next GECONVERT_VERSION bump** (not made on this branch: the item
   loop now starts at ITEM_FIST, 9a7191272). Without
-  Igx001Z unarmed stays PD's punch. HD look draws the N64 hand; the release's
-  `files/new/gun/fist/default.bin` is not wired (gebean.c's first-person rows
-  are all NUM_GE_GUNS-indexed and skin onto a host, not onto GE's own model).
+  Igx001Z unarmed stays PD's punch.
+- **HD hand (2026-09-29, F3 20260928-234515 "need hd hand for xbla")**: the
+  release's `gun/fist` is GfistZ at 4.7x around the same origin (hand + one
+  cuff, no toggles), so it goes on `Igx001Z` as a `propRows` rigid row like the
+  detonator (`Igx030Z`): plain fit 0.21309, axes as they are (all 722 GE
+  vertices on Bean's N64-look copy), n64centre = fit offset minus GfistZ's
+  root position (-260.56, -143.25, -54.97), since the mesh sits on matrix 0
+  under that node. The swing is the whole model's posrotmtx, so rigid is the
+  whole pose. At rest the hand is below the screen in both looks (GoldenEye's
+  PosY -50). Fit script: `fistfit.py` (propfit.py's fit on original/gun/fist
+  vs the ROM's GfistZ). F6 swaps it live.
+- **Back faces**: the own-model path draws every face (G_NO_CULLING_EXT), and
+  on the fist that showed the inside of the palm as a white sliver between
+  thumb and fingers (the "hand texture glitched" in the same F3). The fist is
+  now drawn with its lists' own culling; the guns keep every face.
 - **Verified**: `~/wt/f3-0926c-slappers-run/slap.py` (FORCETRACK=1) against the
   native GE port (`~/dam-oracle/geslap2.py` on 10.8.0.3, PORT_LOCKSTEP=1): the
   hand's posrotmtx translation matches GoldenEye's field_8EC to the hundredth on

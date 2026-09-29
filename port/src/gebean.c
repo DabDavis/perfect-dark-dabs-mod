@@ -488,6 +488,15 @@ static const struct gebeangunrow propRows[] = {
 	// in the hand, the arm raised with the watch on it
 	PROPROW("Igx060Z", "gun/watchmagnetattract", 0, 1, 2, 1, 1, 1, 2.16710f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f),
 	PROPROW("Igx030Z", "gun/trigger", 0, 1, 2, 1, 1, 1, 0.18886f, 0.00f, 0.00f, 0.00f, 1.33f, 161.70f, 646.46f),
+
+	// And the bare hand the slappers are drawn on (ITEM_FIST, geslappers.c):
+	// the release's gun/fist is GoldenEye's GfistZ at 4.7 times the size
+	// around the same origin - hand and cuff - so the fit is the plain one
+	// (0.2131, the axes as they are; every one of GoldenEye's 722 vertices on
+	// Bean's N64-look copy), less the model's root position (-260.56,
+	// -143.25, -54.97), which the lists hang from. The slap swings the whole
+	// model (its posrotmtx), so rigid on the root is the whole pose.
+	PROPROW("Igx001Z", "gun/fist", 0, 1, 2, 1, 1, 1, 0.21309f, 0.00f, 0.00f, 0.00f, 260.69f, 143.23f, 55.04f),
 };
 
 /**
