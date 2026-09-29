@@ -10011,6 +10011,16 @@ static void xblaMeshApplyNodeMode(struct modelrenderdata *renderdata,
  * a body that is lit. So the first cycle is kept as the game set it and only
  * the second is chosen: `cycle2` is the *2 half of a G_RM pair.
  */
+// A soft-edged cutout: blended by the texel's alpha over what is there,
+// depth tested and written like an opaque surface (see the cutout span in
+// xblaMeshRenderNode()'s opaque pass).
+#define XBLAMESH_RM_SOFT_EDGE(clk) \
+	(AA_EN | Z_CMP | Z_UPD | IM_RD | CVG_DST_CLAMP | ZMODE_OPA | FORCE_BL | \
+	 GBL_c##clk(G_BL_CLR_IN, G_BL_A_IN, G_BL_CLR_MEM, G_BL_1MA))
+
+// 0 draws a skinned mesh's alpha span as a hard cutout again (gdb, to compare)
+s32 g_XblaMeshSoftCutouts = 1;
+
 static void xblaMeshSetSpanMode(struct modelrenderdata *renderdata,
 		const struct modelnode *node, u32 cycle2, u32 onecycle)
 {
@@ -11335,10 +11345,26 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// "SECTOR THREE" sign drew as the door faded - a black box over the
 		// letters from about 300 to 600 units out. The cutout is cut on its
 		// texels alone.
+		//
+		// A character's or a gun's (a skinned mesh's) alpha span is blended
+		// by its texels' alpha instead, still writing depth, with only the
+		// clear texels discarded - the release's own state for its models
+		// (blend on, depth written, no alpha test). Hair is a soft picture:
+		// cut at the edge test's fifth, every strand thinner than that came
+		// out solid, and Joanna's fringe drew as a thick slab over her face
+		// (F3 20260929-172810, "opacity of textures is lost, only
+		// transparency"). A hard-edged cutout comes out the same either way.
 		if (xlupart >= 0 && !xlulist) {
-			xblaMeshSetSpanMode(renderdata, node,
-					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
-					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
+			const s32 soft = g_XblaMeshSoftCutouts && m->nummatrices > 0 && renderdata->zbufferenabled;
+
+			if (soft) {
+				xblaMeshSetSpanMode(renderdata, node, XBLAMESH_RM_SOFT_EDGE(2), XBLAMESH_RM_SOFT_EDGE(1));
+				gDPSetAlphaCompare(renderdata->gdl++, G_AC_THRESHOLD);
+			} else {
+				xblaMeshSetSpanMode(renderdata, node,
+						renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
+						renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
+			}
 
 			if (renderdata->unk30 == 9) {
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, 0);
@@ -11348,6 +11374,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 			if (renderdata->unk30 == 9) {
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
+			}
+
+			if (soft) {
+				gDPSetAlphaCompare(renderdata->gdl++, G_AC_NONE);
 			}
 		}
 
