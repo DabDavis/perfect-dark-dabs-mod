@@ -130,6 +130,11 @@ def check_string(p, key, en, text, script, hud=False):
     elif hud and size > MAX_HUD_BYTES:
         p.warn(key, '%d bytes; a HUD message keeps %d' % (size, MAX_HUD_BYTES))
 
+    # a NUL inside a ROM string (the hangar bios' "name\0|subheading") is
+    # data, written \0 in the .lang
+    if en is not None and '\x00' in en:
+        text = text.replace('\x00', '')
+
     if script == 'cjk':
         glyphs = cjk_glyphs()
         for ch in text:

@@ -39,7 +39,7 @@ import check  # noqa: E402
 
 
 def escape(s):
-    return s.replace('\\', '\\\\').replace('\n', '\\n').replace('\t', '\\t').replace('\r', '')
+    return s.replace('\\', '\\\\').replace('\n', '\\n').replace('\t', '\\t').replace('\r', '').replace('\x00', '\\0')
 
 
 def compile_language(srcdir, quiet=False):
