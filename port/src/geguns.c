@@ -2542,6 +2542,52 @@ struct modelnode *gegunsOwnModelMuzzle(s32 weaponnum, struct modeldef *modeldef,
 	return flash;
 }
 
+/**
+ * The slide on GoldenEye's own model: part 7 (gunfire.c's Switches[7]), which
+ * it moves back along the gun's z by field_A88 after each shot - out by the
+ * gun's BoltRecoilBack over four ticks, home over six, and left back while
+ * the magazine is empty (gun.c's sub_GAME_7F05E83C()). That is Perfect Dark's
+ * own slide to the letter (bgunUpdateSlide(), the shoot function's slidemax
+ * being the same stat), which moves its host's MODELPART_GUN_SLIDE - a part
+ * GoldenEye's model does not have, so the pistols fired with the slide stood
+ * still (F3 20260929-092030, -092506).
+ */
+struct modelnode *gegunsOwnModelSlide(s32 weaponnum, struct modeldef *modeldef)
+{
+	struct modelnode *node;
+
+	if (!modeldef || !gegunsOwnModelInUse(weaponnum)) {
+		return NULL;
+	}
+
+	node = modelGetPart(modeldef, 7);
+
+	return node && (node->type & 0xff) == MODELNODETYPE_POSITION ? node : NULL;
+}
+
+/**
+ * Where GoldenEye's own model throws its spent cases from: part 0
+ * (gunfire.c's Switches[0], the position sub_GAME_7F068508() starts a casing
+ * at, in the gun's own frame). Without it the case left from the hand's
+ * origin, which is the wrist (F3 20260929-092506: "the bullets eject from the
+ * hand").
+ */
+struct modelnode *gegunsOwnModelCasingPort(s32 weaponnum, struct modeldef *modeldef)
+{
+	struct modelnode *node;
+
+	if (!modeldef || !gegunsOwnModelInUse(weaponnum)) {
+		return NULL;
+	}
+
+	// converted as Perfect Dark converts a host's ejection port, a held
+	// position with a matrix of its own
+	node = modelGetPart(modeldef, 0);
+
+	return node && ((node->type & 0xff) == MODELNODETYPE_POSITIONHELD
+			|| (node->type & 0xff) == MODELNODETYPE_POSITION) ? node : NULL;
+}
+
 static f32 gegunsRandFrac(void)
 {
 	return (f32)rand() / (f32)RAND_MAX;

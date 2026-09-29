@@ -2065,7 +2065,16 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 #ifdef PLATFORM_N64
 		hand->flashon = true;
 #else
-		if (g_BgunGeMuzzleFlashes) {
+		if (WEAPON_IS_GE(hand->gset.weaponnum)) {
+			// GoldenEye's own guns flash on the tick a round leaves and not
+			// between (gunfire.c sets field_87D only when field_88C comes round
+			// to the gun's AutomaticFiringRate, and clears it every tick);
+			// lit on every tick the trigger was held, the flash of an automatic
+			// never went out (F3 20260929-092304)
+			if (func->type == INVENTORYFUNCTYPE_SHOOT_SINGLE || hand->shotstotake > 0) {
+				hand->flashon = true;
+			}
+		} else if (g_BgunGeMuzzleFlashes) {
 			if (func->type == INVENTORYFUNCTYPE_SHOOT_SINGLE || (hand->shotstotake & 1)) {
 				hand->flashon = true;
 			}
@@ -6764,6 +6773,26 @@ void bgunSwitchToPrevious(void)
 	}
 }
 
+/**
+ * Whether next/previous weapon, from this weapon, goes back to the pair it was
+ * picked from rather than on through the cycle: Perfect Dark's items (anything
+ * past the Psychosis Gun). GoldenEye's watch detonator stands on the Data
+ * Uplink but is in the cycle, after the remote mine, as GoldenEye has it
+ * (INV_CYCLEABLE): taken as an item, the wheel went "back" to the remote mine
+ * it was drawn from, which with none left drew the detonator again, and the
+ * wheel never got off it (F3 20260929-100000, Surface II).
+ */
+static bool bgunIsCycleItem(s32 weaponnum)
+{
+#ifndef PLATFORM_N64
+	if (weaponnum == WEAPON_GE_DETONATOR) {
+		return false;
+	}
+#endif
+
+	return weaponHost(weaponnum) > WEAPON_PSYCHOSISGUN;
+}
+
 void bgunCycleForward(void)
 {
 	s32 weaponnum1;
@@ -6774,7 +6803,7 @@ void bgunCycleForward(void)
 		weaponnum1 = bgunGetSwitchToWeapon(HAND_RIGHT);
 		weaponnum2 = bgunGetSwitchToWeapon(HAND_LEFT);
 
-		if (weaponHost(weaponnum1) > WEAPON_PSYCHOSISGUN || weaponHost(weaponnum2) > WEAPON_PSYCHOSISGUN) {
+		if (bgunIsCycleItem(weaponnum1) || bgunIsCycleItem(weaponnum2)) {
 #ifndef PLATFORM_N64
 			// off an item and back to the pair it was picked from
 			if (player->gunctrl.prevweaponnum >= 0) {
@@ -6812,7 +6841,7 @@ void bgunCycleBack(void)
 			weaponnum2 = WEAPON_NONE;
 		}
 
-		if (weaponHost(weaponnum1) > WEAPON_PSYCHOSISGUN || weaponHost(weaponnum2) > WEAPON_PSYCHOSISGUN) {
+		if (bgunIsCycleItem(weaponnum1) || bgunIsCycleItem(weaponnum2)) {
 #ifndef PLATFORM_N64
 			// off an item and back to the pair it was picked from
 			if (player->gunctrl.prevweaponnum >= 0) {
@@ -8761,6 +8790,13 @@ void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s3
 
 			node = modelGetPart(modeldef, partnum);
 
+#ifndef PLATFORM_N64
+			// GoldenEye's own model's ejection port is its part 0 (geguns.c)
+			if (!node) {
+				node = gegunsOwnModelCasingPort(weaponnum, modeldef);
+			}
+#endif
+
 			if (node) {
 				Mtxf *mtx = (Mtxf *)allocation;
 				Mtxf sp24;
@@ -9382,6 +9418,13 @@ void bgun0f0a5550(s32 handnum)
 #endif
 
 			node = modelGetPart(modeldef, MODELPART_GUN_SLIDE);
+
+#ifndef PLATFORM_N64
+			// GoldenEye's own model's slide is its part 7 (geguns.c)
+			if (!node) {
+				node = gegunsOwnModelSlide(weaponnum, modeldef);
+			}
+#endif
 
 			if (node) {
 				sp80 = modelFindNodeMtxIndex(node, 0);
