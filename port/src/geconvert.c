@@ -1740,6 +1740,31 @@ static void convertList(const buf *dl, const buf *vtx, outvtxs *outv, u32s *outc
 			VECPUSH(*words, w1);
 			break;
 		} else {
+			if (op == 0xb1 && lighttris && curtex >= 0 && isLightImage((uint32_t)curtex)) {
+				// G_TRI4, which both games spell the same: up to four
+				// triangles, x and y of each in w1's nibbles and z in w0's.
+				// GoldenEye draws most of its fixtures this way - Bunker's
+				// ceiling strips have no G_TRI1 at all - and a fixture with
+				// no light record could not be shot out (F3
+				// 20260929-094517). lightfixture.c walks both commands.
+				for (int q = 0; q < 4; ++q) {
+					const uint32_t k[3] = { (w1 >> (8 * q)) & 0xf, (w1 >> (8 * q + 4)) & 0xf, (w0 >> (4 * q)) & 0xf };
+					struct tri t;
+
+					if (k[0] == k[1] || k[1] == k[2] || k[0] == k[2]
+							|| slots[k[0]] < 0 || slots[k[1]] < 0 || slots[k[2]] < 0) {
+						continue;
+					}
+
+					for (int j = 0; j < 3; ++j) {
+						const struct outvtx *v = &outv->v[slots[k[j]]];
+						t.p[j][0] = v->x;
+						t.p[j][1] = v->y;
+						t.p[j][2] = v->z;
+					}
+					VECPUSH(*lighttris, t);
+				}
+			}
 			if (op == 0xc0) {
 				curtex = w1 & 0xfff;
 				setAdd(textures, w1 & 0xfff);
@@ -3307,8 +3332,16 @@ static padrecs boundPads(const buf *f, double ls, const double *offset)
 		}
 		bufPut(&p.rec, f->v + o + 12, 24);
 		for (int c = 0; c < 6; ++c) {
-			// float(round()) goes through an int, so never -0.0
-			bufF32(&p.rec, rnd(bef32(f->v, o + 0x2c + 4 * c) / ls) + 0.0);
+			// GoldenEye's own box, not rounded to whole units as GE-X writes
+			// them: a door's size and place come from it (setupCreateDoor(),
+			// GoldenEye's setupDoor()), and a unit is a lot on a leaf's edge.
+			// Train's flat doors between carriages have a box 0.0015 thick,
+			// which rounded to none, and Perfect Dark draws a door with a
+			// scale under a millionth at its model's own size - three times
+			// too big (F3 20260929-143525); Bunker's double doors lost up to
+			// half a unit off each leaf's width and stood apart (F3
+			// 20260929-094314). The + 0.0 keeps a -0.0 out, as before.
+			bufF32(&p.rec, bef32(f->v, o + 0x2c + 4 * c) / ls + 0.0);
 		}
 		VECPUSH(out, p);
 	}

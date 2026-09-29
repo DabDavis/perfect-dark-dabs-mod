@@ -47,9 +47,10 @@ def records(d):
 
 def bound_pads(d, ls, offset):
     """GoldenEye's bound pads as Perfect Dark pad records in the arena's frame:
-    a float position, up and look, and the box divided by the level scale and
-    rounded, as GE-X writes them. They follow the pads, so bound pad k is pad
-    numpads + k."""
+    a float position, up and look, and the box divided by the level scale -
+    not rounded, as GE-X writes them: a door's size comes from it, and Train's
+    flat doors are 0.0015 thick (converter 92). They follow the pads, so bound
+    pad k is pad numpads + k."""
     h = struct.unpack_from('>10I', d, 0)
     out = []
     o = h[7]
@@ -57,7 +58,7 @@ def bound_pads(d, ls, offset):
         if struct.unpack_from('>I', d, o + 36)[0] == 0:
             break
         pos = np.array(struct.unpack_from('>3f', d, o)) / ls - offset
-        box = [float(round(v / ls)) for v in struct.unpack_from('>6f', d, o + 0x2c)]
+        box = [v / ls + 0.0 for v in struct.unpack_from('>6f', d, o + 0x2c)]
         rec = (struct.pack('>I', 0x200 << 14) + struct.pack('>3f', *pos) + d[o + 12:o + 36]
                + struct.pack('>6f', *box))
         out.append((0x200, pos, rec))

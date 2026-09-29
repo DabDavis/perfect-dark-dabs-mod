@@ -252,6 +252,14 @@ def convert_list(dl, vtx, out_vtx, out_col, base_vtx, textures, lighttris=None):
             words.append((w0, w1))
             break
         else:
+            if op == 0xb1 and lighttris is not None and curtex in LIGHT_IMAGES:
+                # G_TRI4: x, y of triangle q in w1's nibbles 2q, 2q+1 and z
+                # in w0's nibble q. GoldenEye draws most fixtures this way
+                # (geconvert.c's convertList(), converter 92)
+                for q in range(4):
+                    k = ((w1 >> (8 * q)) & 0xf, (w1 >> (8 * q + 4)) & 0xf, (w0 >> (4 * q)) & 0xf)
+                    if len(set(k)) == 3 and all(i in slots for i in k):
+                        lighttris.append([out_vtx[slots[i]][:3] for i in k])
             if op == 0xc0:
                 curtex = w1 & 0xfff
                 textures.add(w1 & 0xfff)

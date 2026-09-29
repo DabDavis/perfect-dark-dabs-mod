@@ -48,10 +48,11 @@
  * room loads, so geLightsRoomLoaded() darkens the fixtures already broken
  * again, as GoldenEye's redarken_lights_in_room() does.
  *
- * The conversion is left as it is: fixtureLights() sees only G_TRI1, where
- * GoldenEye draws most of a fixture with G_TRI4, but a whole lamp is a
- * closed prism whose normals sum to nothing, which that function drops, and
- * changing its lights changes every converted level's file.
+ * Since converter 92 fixtureLights() takes G_TRI4 as well as G_TRI1, which
+ * is how GoldenEye draws most of its fixtures: Bunker's ceiling strips had no
+ * light at all and could not be shot out (F3 20260929-094517). A whole lamp is
+ * still a closed prism whose normals sum to nothing, which that function
+ * drops, so the caps above stay what Caverns' lamps are.
  */
 
 #define FIXTURE_MARGIN 16
@@ -66,37 +67,101 @@ static struct light *geLight(s32 roomnum, s32 i)
 	return (struct light *)&g_BgLightsFileData[(g_Rooms[roomnum].lightindex + i) * 0x22];
 }
 
-/** The light's box in the room's space, grown by the margin. */
-static void geLightBox(const struct light *light, s32 margin, s32 *lo, s32 *hi)
+/**
+ * The light's box in the room's space, grown by the margin: along the edges of
+ * its rectangle and its normal, which is where the conversion put it
+ * (fixtureLights(): corner 0 to 1 is one edge, 0 to 3 the other). A box square
+ * to the room's axes was right for a panel in a wall or a ceiling and nothing
+ * else: Bunker's ceiling strips run up a sloping ceiling, 190 units high and
+ * 250 long, so the room's box round one took in the wall under it, a shot
+ * anywhere on that wall broke the light, the wall's vertices were the ones
+ * darkened and the glass fell out of the air in front of it (F3
+ * 20260929-094517). A rectangle with no area keeps the room's axes.
+ */
+struct gelightbox {
+	f32 origin[3];
+	f32 axis[3][3];
+	f32 lo[3];
+	f32 hi[3];
+};
+
+static void geLightBox(const struct light *light, s32 margin, struct gelightbox *box)
 {
+	const f32 q0[3] = { light->bbox[0].x, light->bbox[0].y, light->bbox[0].z };
+	f32 e[2][3];
+	f32 len[2];
+	f32 n[3];
+	f32 nlen;
+
 	for (s32 k = 0; k < 3; k++) {
-		lo[k] = 0x7fffffff;
-		hi[k] = -0x7fffffff;
+		e[0][k] = light->bbox[1].s[k] - q0[k];
+		e[1][k] = light->bbox[3].s[k] - q0[k];
+	}
+
+	len[0] = sqrtf(e[0][0] * e[0][0] + e[0][1] * e[0][1] + e[0][2] * e[0][2]);
+	len[1] = sqrtf(e[1][0] * e[1][0] + e[1][1] * e[1][1] + e[1][2] * e[1][2]);
+
+	n[0] = e[0][1] * e[1][2] - e[0][2] * e[1][1];
+	n[1] = e[0][2] * e[1][0] - e[0][0] * e[1][2];
+	n[2] = e[0][0] * e[1][1] - e[0][1] * e[1][0];
+	nlen = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+	if (len[0] > 0.5f && len[1] > 0.5f && nlen > 0.25f * len[0] * len[1]) {
+		for (s32 k = 0; k < 3; k++) {
+			box->origin[k] = q0[k];
+			box->axis[0][k] = e[0][k] / len[0];
+			box->axis[1][k] = e[1][k] / len[1];
+			box->axis[2][k] = n[k] / nlen;
+		}
+
+		box->lo[0] = box->lo[1] = box->lo[2] = -margin;
+		box->hi[0] = len[0] + margin;
+		box->hi[1] = len[1] + margin;
+		box->hi[2] = margin;
+		return;
+	}
+
+	for (s32 k = 0; k < 3; k++) {
+		box->origin[k] = 0;
+		box->axis[k][0] = box->axis[k][1] = box->axis[k][2] = 0;
+		box->axis[k][k] = 1;
+		box->lo[k] = 0x7fffffff;
+		box->hi[k] = -0x7fffffff;
 	}
 
 	for (s32 q = 0; q < 4; q++) {
-		const s16 c[3] = { light->bbox[q].x, light->bbox[q].y, light->bbox[q].z };
-
 		for (s32 k = 0; k < 3; k++) {
-			if (c[k] < lo[k]) {
-				lo[k] = c[k];
+			const f32 c = light->bbox[q].s[k];
+
+			if (c < box->lo[k]) {
+				box->lo[k] = c;
 			}
 
-			if (c[k] > hi[k]) {
-				hi[k] = c[k];
+			if (c > box->hi[k]) {
+				box->hi[k] = c;
 			}
 		}
 	}
 
 	for (s32 k = 0; k < 3; k++) {
-		lo[k] -= margin;
-		hi[k] += margin;
+		box->lo[k] -= margin;
+		box->hi[k] += margin;
 	}
 }
 
-static s32 geLightBoxHas(const s32 *lo, const s32 *hi, f32 x, f32 y, f32 z)
+static s32 geLightBoxHas(const struct gelightbox *box, f32 x, f32 y, f32 z)
 {
-	return x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= hi[1] && z >= lo[2] && z <= hi[2];
+	const f32 d[3] = { x - box->origin[0], y - box->origin[1], z - box->origin[2] };
+
+	for (s32 k = 0; k < 3; k++) {
+		const f32 v = d[0] * box->axis[k][0] + d[1] * box->axis[k][1] + d[2] * box->axis[k][2];
+
+		if (v < box->lo[k] || v > box->hi[k]) {
+			return 0;
+		}
+	}
+
+	return 1;
 }
 
 static void geLightCentre(const struct light *light, f32 *c)
@@ -115,15 +180,15 @@ static s32 geLightsVertexInBroken(s32 roomnum, const Vtx *v, s32 skip)
 {
 	for (s32 i = 0; i < g_Rooms[roomnum].numlights; i++) {
 		const struct light *light = geLight(roomnum, i);
-		s32 lo[3], hi[3];
+		struct gelightbox box;
 
 		if (i == skip || light->healthy) {
 			continue;
 		}
 
-		geLightBox(light, FIXTURE_MARGIN, lo, hi);
+		geLightBox(light, FIXTURE_MARGIN, &box);
 
-		if (geLightBoxHas(lo, hi, v->x, v->y, v->z)) {
+		if (geLightBoxHas(&box, v->x, v->y, v->z)) {
 			return 1;
 		}
 	}
@@ -181,10 +246,10 @@ static s32 geLightsDarken(s32 roomnum, s32 lightnum)
 
 		if (lightnum >= 0) {
 			const struct light *light = geLight(roomnum, lightnum);
-			s32 lo[3], hi[3];
+			struct gelightbox box;
 
-			geLightBox(light, FIXTURE_MARGIN, lo, hi);
-			in = geLightBoxHas(lo, hi, vtx->x, vtx->y, vtx->z) && !geLightsVertexInBroken(roomnum, vtx, lightnum);
+			geLightBox(light, FIXTURE_MARGIN, &box);
+			in = geLightBoxHas(&box, vtx->x, vtx->y, vtx->z) && !geLightsVertexInBroken(roomnum, vtx, lightnum);
 		} else {
 			in = geLightsVertexInBroken(roomnum, vtx, -1);
 		}
@@ -214,19 +279,19 @@ static s32 geLightsDarken(s32 roomnum, s32 lightnum)
 /** GoldenEye's glass off the fixture: a shard every 10 units or so over its box. */
 static void geLightsShards(s32 roomnum, const struct light *light)
 {
-	s32 lo[3], hi[3];
+	struct gelightbox box;
 	s32 n = 0;
 
-	geLightBox(light, FIXTURE_MARGIN / 2, lo, hi);
+	geLightBox(light, FIXTURE_MARGIN / 2, &box);
 
-	for (s32 x = lo[0]; x <= hi[0]; x += 10) {
-		for (s32 y = lo[1]; y <= hi[1]; y += 10) {
-			for (s32 z = lo[2]; z <= hi[2] && n < 24; z += 10) {
+	for (f32 a = box.lo[0]; a <= box.hi[0]; a += 10) {
+		for (f32 b = box.lo[1]; b <= box.hi[1]; b += 10) {
+			for (f32 c = box.lo[2]; c <= box.hi[2] && n < 24; c += 10) {
 				struct coord pos;
 
-				pos.x = x + g_BgRooms[roomnum].pos.x;
-				pos.y = y + g_BgRooms[roomnum].pos.y;
-				pos.z = z + g_BgRooms[roomnum].pos.z;
+				pos.x = box.origin[0] + a * box.axis[0][0] + b * box.axis[1][0] + c * box.axis[2][0] + g_BgRooms[roomnum].pos.x;
+				pos.y = box.origin[1] + a * box.axis[0][1] + b * box.axis[1][1] + c * box.axis[2][1] + g_BgRooms[roomnum].pos.y;
+				pos.z = box.origin[2] + a * box.axis[0][2] + b * box.axis[1][2] + c * box.axis[2][2] + g_BgRooms[roomnum].pos.z;
 
 				shardCreate(roomnum, &pos, RANDOMFRAC() * M_BADTAU, 3.0f + RANDOMFRAC() * 3.0f, SHARDTYPE_GLASS);
 				n++;
@@ -270,15 +335,15 @@ bool geLightsHandleHit(struct coord *gunpos, struct coord *hitpos, s32 roomnum)
 
 	for (s32 i = 0; i < g_Rooms[roomnum].numlights && hit < 0; i++) {
 		struct light *light = geLight(roomnum, i);
-		s32 lo[3], hi[3];
+		struct gelightbox box;
 
 		if (!light->healthy || !light->vulnerable) {
 			continue;
 		}
 
-		geLightBox(light, FIXTURE_MARGIN, lo, hi);
+		geLightBox(light, FIXTURE_MARGIN, &box);
 
-		if (geLightBoxHas(lo, hi, at.x, at.y, at.z)) {
+		if (geLightBoxHas(&box, at.x, at.y, at.z)) {
 			hit = i;
 		}
 	}
