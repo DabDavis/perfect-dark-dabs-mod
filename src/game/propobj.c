@@ -14302,9 +14302,31 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 		if (gegunsObjDrawsBothSides(obj)) {
 			gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_NO_CULLING_EXT);
 		}
+
+		// An object fading with distance (objCalculateFadeDistOpacityFrac())
+		// is drawn twice, as a faded chr is (chrRender()): once for its depth
+		// alone, then blended over the surface that left nearest. Blended in
+		// one pass it wrote no depth, so its faces showed through each other
+		// in list order. Bunker II's fade runs from 1000 to 15000, so its
+		// consoles were a shade under opaque from across the room, and from
+		// behind them the desks and screens on their far side were drawn over
+		// their backs (F3 20260929-182904); up close they were solid.
+		const bool solidfade = renderdata->unk30 == 5 && renderdata->zbufferenabled
+			&& (renderdata->envcolour & 0xff) < 0xff;
+
+		if (solidfade) {
+			gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_DEPTH_PREPASS_EXT);
+			modelRender(renderdata, model);
+			gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_DEPTH_PREPASS_EXT);
+			gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_DEPTH_FRONT_EXT);
+		}
 #endif
 		modelRender(renderdata, model);
 #ifndef PLATFORM_N64
+		if (solidfade) {
+			gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_DEPTH_FRONT_EXT);
+		}
+
 		if (gegunsObjDrawsBothSides(obj)) {
 			gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_NO_CULLING_EXT);
 		}
