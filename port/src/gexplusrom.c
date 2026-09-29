@@ -268,7 +268,7 @@ static void noticeDraw(s32 done, s32 total)
 	char line[64];
 
 	snprintf(line, sizeof(line), "ONCE ONLY - %d/%d", done, total);
-	gexPlusRomNotice("CONVERTING GOLDENEYE 007 FOR GE-X PLUS", line, done, total);
+	gexPlusRomNotice("CONVERTING GOLDENEYE 007 FOR GE PLUS", line, done, total);
 }
 
 /* ------------------------------------------------------------------------ */
