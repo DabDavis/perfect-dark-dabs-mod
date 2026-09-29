@@ -58,4 +58,4 @@ binary. A `.lang` dropped in the executable's `lang/` folder adds a language.
   plus a diacritic drawn per font size (`port/src/langfont.c`).
 - Japanese is **M PLUS Rounded 1c** (SIL OFL 1.1, committed with its licence
   under `tools/langfont/fonts/`), baked by `tools/langfont/bake.py` into Perfect
-  Dark's CI4 glyph format, 12x11 and 16x15 as Rare's own JP font was.
+  Dark's CI4 glyph format: 12x11 at an 11 px em for xs/sm/md and 14x15 at 14 px for lg (a 16 texel row has to hold the outline either side). 3358 characters, 154 KB, body stored at one bit a texel and the outline built on first use; `python3 tools/langfont/bake.py --extra-from lang/ja` after the ja pack gains characters.
