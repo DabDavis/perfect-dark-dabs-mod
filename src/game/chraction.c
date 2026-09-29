@@ -9874,6 +9874,15 @@ void chrTickDead(struct chrdata *chr)
 		// screen and there's lots of other chrs around)
 		if (chr->act_dead.fadenow) {
 			chr->act_dead.fadetimer60 = 0;
+
+#ifndef PLATFORM_N64
+			// GoldenEye's RemoveMe (chrlvActorFadeAway() then chrlvTickDead())
+			// fades a character out and frees whatever it carries with it;
+			// nothing is dropped. Silo's Ourumov runs off at the end and fades,
+			// and Perfect Dark's reap left his briefcase and gun on the floor
+			// behind him (F3 20260929-095307).
+			if (!(modloaderStageIsMission(g_Vars.stagenum) && !g_Vars.normmplayerisrunning))
+#endif
 			chrDropItemsForOwnerReap(chr);
 		}
 
