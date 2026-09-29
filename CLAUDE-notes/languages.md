@@ -14,8 +14,11 @@ Japanese, and `en-GB` English (UK). English (US) is the ROM's and has no pack.
 `en-GB` is a small pack of our own British spellings (armour, colour, metre,
 defence, …) with `"fallback": "en"`: only strings that change are listed. Rare's
 own PAL "gb" text changed just five strings ("Head Colour" and the four
-language names), so there is nothing of theirs to follow there. More are added by dropping a
-pack in `lang/`.
+language names), so there is nothing of theirs to follow there. `tools/langpack/engb.py`
+proposes it from the US English by word list (`--json lang/en-GB` writes the pack;
+`EXCEPT` holds the hits the review kept, e.g. Dr. Caroll's software "program");
+build.py embeds `en*` packs first so English (UK) follows English (US) in the
+dropdown. More are added by dropping a pack in `lang/`.
 
 ## Source files (what a translator edits)
 
