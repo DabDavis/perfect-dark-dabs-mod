@@ -209,6 +209,7 @@
 #define G_TAA_EXT                    0x4a
 #define G_SETFOGLINE_EXT             0x4b
 #define G_OCCLUSIONTEST_EXT          0x4c
+#define G_SETTILEOFFSET_EXT          0x4d
 
 /* G_EXTRAGEOMETRYMODE flags */
 
@@ -394,6 +395,17 @@
  * Push what follows away from the eye by this many of the depth buffer's
  * smallest steps (0 for none), on top of whatever its z mode offsets by.
  */
+// A tile's corner moved on by a fraction of a texel in s and t (0 to 1, in
+// 65536ths), finer than the quarter texel gDPSetTileSize can say. Set its size
+// again and it is gone.
+#define gDPSetTileOffsetEXT(pkt, tile, fs, ft)                                         \
+{                                                                                      \
+    Gfx *_g = (Gfx*)(pkt);                                                             \
+                                                                                       \
+    _g->words.w0 = _SHIFTL(G_SETTILEOFFSET_EXT, 24, 8) | _SHIFTL(tile, 0, 3);          \
+    _g->words.w1 = _SHIFTL(fs, 16, 16) | _SHIFTL(ft, 0, 16);                           \
+}
+
 #define gDPSetDepthBiasEXT(pkt, units)                                                 \
 {                                                                                      \
     Gfx *_g = (Gfx*)(pkt);                                                             \

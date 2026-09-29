@@ -48,7 +48,7 @@
 #ifndef PLATFORM_N64
 
 #define GEWATER_SLOTS 8
-#define GEWATER_CMDS 16
+#define GEWATER_CMDS 18
 
 struct gewaterslot {
 	s32 w;
@@ -99,6 +99,20 @@ static void geWaterBuild(struct gewaterslot *slot)
 	// wraps)
 	gDPSetTileSize(gdl++, 0, s, t, s + ((slot->w - 1) << 2), t + ((slot->h - 1) << 2));
 	gDPSetTileSize(gdl++, 1, s1, t1, s1 + ((slot->w - 1) << 2), t1 + ((slot->h - 1) << 2));
+
+	// Bean's picture is laid over the ground at a quarter of its stand-in's
+	// texel to 15 units (Dam), and moves 0.1-0.2 quarter texels a frame: in
+	// whole quarters, the reservoir stood still and jumped 15 units every
+	// five to nine frames, the two axes out of step with each other ("the
+	// dam water is a bit shaky while moving", F3 20260929-045552). The rest
+	// of the quarter goes on as a fraction.
+	if (slot->hd) {
+		const u32 fs = (u32)((g_GeWaterHdS - floorf(g_GeWaterHdS)) * 0.25f * 65536.0f) & 0xffff;
+		const u32 ft = (u32)((g_GeWaterHdT - floorf(g_GeWaterHdT)) * 0.25f * 65536.0f) & 0xffff;
+
+		gDPSetTileOffsetEXT(gdl++, 0, fs, ft);
+		gDPSetTileOffsetEXT(gdl++, 1, fs, ft);
+	}
 	gDPSetPrimColor(gdl++, 0, lodfrac, 0xff, 0xff, 0xff, 0xff);
 	gDPSetTextureDetail(gdl++, G_TD_CLAMP);
 	gDPSetTextureFilter(gdl++, G_TF_BILERP);

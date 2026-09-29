@@ -8757,6 +8757,127 @@ static s32 beanClampCards(const struct beanout *o, u32 *matwords, s32 nummatword
 	return num;
 }
 
+/**
+ * Dual rear wheels. GoldenEye's military truck has a pair of wheels a side at
+ * the back, one part each pair (parts 3 and 4, 610 units across where a front
+ * wheel is 305); Bean's has one wheel a side there, the outer one, and the
+ * HD truck stood on single rear wheels ("n64 has dualie tires, xbla is only
+ * showing 1 pair", F3 20260929-045016). Where GoldenEye's geometry for a part
+ * spans across x at least half again what Bean's wheel on it does, the wheel
+ * is drawn a second time beside itself, on the side GoldenEye's pair goes, so
+ * the part carries a pair as GoldenEye's does. Returns the triangles added.
+ */
+static s32 beanDoubleWheels(struct beanout *o, struct modeldef *modeldef, s32 nummatrices, s32 mtx)
+{
+	struct modelnode *stack[128];
+	f32 gelo[GEBEAN_MAXMTX], gehi[GEBEAN_MAXMTX];
+	f32 blo[GEBEAN_MAXMTX][3], bhi[GEBEAN_MAXMTX][3];
+	s32 sp = 0;
+	s32 added = 0;
+
+	for (s32 m = 0; m < GEBEAN_MAXMTX; m++) {
+		gelo[m] = 1e30f;
+		gehi[m] = -1e30f;
+
+		for (s32 k = 0; k < 3; k++) {
+			blo[m][k] = 1e30f;
+			bhi[m][k] = -1e30f;
+		}
+	}
+
+	// GoldenEye's geometry on each part, in the part's own space
+	if (modeldef->rootnode) {
+		stack[sp++] = modeldef->rootnode;
+	}
+
+	while (sp > 0) {
+		struct modelnode *node = stack[--sp];
+
+		if ((node->type & 0xff) == MODELNODETYPE_DL && node->rodata->dl.vertices) {
+			const f32 *ppos = NULL;
+			s32 pmtx = -1;
+			const struct modelnode *pn = gebeanListPositionNode(node, &ppos, &pmtx);
+
+			if (pn && (pn->type & 0xff) == MODELNODETYPE_POSITION && pmtx >= 0 && pmtx < nummatrices
+					&& pmtx < GEBEAN_MAXMTX && pmtx != mtx) {
+				for (s32 v = 0; v < node->rodata->dl.numvertices; v++) {
+					const f32 x = node->rodata->dl.vertices[v].x;
+
+					gelo[pmtx] = MIN(gelo[pmtx], x);
+					gehi[pmtx] = MAX(gehi[pmtx], x);
+				}
+			}
+		}
+
+		if (node->next && sp < ARRAYCOUNT(stack)) {
+			stack[sp++] = node->next;
+		}
+
+		if (node->child && sp < ARRAYCOUNT(stack)) {
+			stack[sp++] = node->child;
+		}
+	}
+
+	// Bean's on each, already in the part's space
+	for (s32 v = 0; v < o->numverts; v++) {
+		const s32 m = o->bone[v * 3];
+
+		if (m != mtx && m < GEBEAN_MAXMTX) {
+			for (s32 k = 0; k < 3; k++) {
+				blo[m][k] = MIN(blo[m][k], o->pos[v * 3 + k]);
+				bhi[m][k] = MAX(bhi[m][k], o->pos[v * 3 + k]);
+			}
+		}
+	}
+
+	for (s32 m = 0; m < nummatrices && m < GEBEAN_MAXMTX; m++) {
+		const f32 bw = bhi[m][0] - blo[m][0];
+		const f32 bh = bhi[m][1] - blo[m][1];
+		const f32 bd = bhi[m][2] - blo[m][2];
+		const f32 gw = gehi[m] - gelo[m];
+		const s32 numtris = o->numtris;
+		f32 shift;
+
+		// A wheel: round across y and z, and thin along x
+		if (m == mtx || bw <= 0.0f || gw < bw * 1.5f
+				|| bw > MIN(bh, bd) * 0.6f || fabsf(bh - bd) > MAX(bh, bd) * 0.15f) {
+			continue;
+		}
+
+		// towards the middle of GoldenEye's pair, by Bean's wheel's width
+		shift = (gelo[m] + gehi[m]) * 0.5f >= (blo[m][0] + bhi[m][0]) * 0.5f ? bw : -bw;
+
+		for (s32 t = 0; t < numtris; t++) {
+			const struct beantri tri = o->tris[t];
+			s32 idx[3];
+			s32 ok = 1;
+
+			for (s32 k = 0; k < 3; k++) {
+				ok = ok && o->bone[tri.v[k] * 3] == m;
+			}
+
+			for (s32 k = 0; k < 3 && ok; k++) {
+				// copies: adding a vertex can move the arrays
+				const s32 v = tri.v[k];
+				const f32 pos[3] = { o->pos[v * 3] + shift, o->pos[v * 3 + 1], o->pos[v * 3 + 2] };
+				const f32 nrm[3] = { o->nrm[v * 3], o->nrm[v * 3 + 1], o->nrm[v * 3 + 2] };
+				const f32 uv[2] = { o->uv[v * 2], o->uv[v * 2 + 1] };
+				const u8 bone[3] = { o->bone[v * 3], o->bone[v * 3 + 1], o->bone[v * 3 + 2] };
+				const f32 weight[3] = { o->weight[v * 3], o->weight[v * 3 + 1], o->weight[v * 3 + 2] };
+
+				idx[k] = beanAddVertex(o, pos, nrm, uv, bone, weight, o->argb[v]);
+				ok = idx[k] >= 0;
+			}
+
+			if (ok && beanAddTri(o, tri.group, tri.tex, (u16)idx[0], (u16)idx[1], (u16)idx[2])) {
+				added++;
+			}
+		}
+	}
+
+	return added;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -8774,6 +8895,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	f32 bonepos[BEAN_MAXBONES][3];
 	s32 numparts = 0;
 	s32 numpartverts = 0;
+	s32 numdual = 0;
 	s32 numdecals;
 	s32 numglass = 0;
 	u8 glass[GEBEAN_MAXMATS];
@@ -9305,6 +9427,10 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		free(tris);
 	}
 
+	if (numparts > 0 && g->weaponnum < 0) {
+		numdual = beanDoubleWheels(&out, modeldef, nummatrices, mtx);
+	}
+
 	if (out.numverts > 0) {
 		for (s32 k = 1; k < numnodes; k++) {
 			beanAddTri(&out, k, 0, 0, 0, 0);
@@ -9385,6 +9511,10 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
+
+	if (numdual) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s: %d triangles of wheels drawn again as the inner of a pair", g->row.file, numdual);
+	}
 
 	if (numreflect) {
 		sysLogPrintf(LOG_NOTE, "gebean: %s reflects %d material%s of its own", g->row.file, numreflect,

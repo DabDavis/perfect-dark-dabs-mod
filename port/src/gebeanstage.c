@@ -2277,6 +2277,205 @@ static s32 decalOnOther(const struct stri *tris, const struct tgrid *g, s32 i, c
 }
 
 /**
+ * Unlit faces: triangles whose three corners are opaque black where the
+ * level round them is lit. Rare baked no light into a few faces they did not
+ * expect to be seen - the ends and tops of walls, a filler block - and the
+ * release draws them solid black: in Aztec a block filling a wall's corner
+ * at the top of a shaft and the top of the wall beside it drew a black L
+ * across the corner (F3 20260929-055243, "black nothing texture in corner of
+ * aztec"). GoldenEye has lit wall there. Such a face takes the light of the
+ * nearest lit face - one in its own plane, facing its way, before any other
+ * - and one with no picture laid on it (the same UV at every corner) takes
+ * that face's picture too, carried on across it.
+ *
+ * Only a picture that is lit nearly everywhere else counts: the faces of a
+ * picture black on much of its use are dark on purpose (Aztec's pit, a
+ * recess), and so is a black face with its picture laid on under a cast
+ * shadow (markShadows()).
+ */
+#define UNLIT_SHARE 0.05f   // a picture black on more than this share of its faces is dark on purpose
+#define UNLIT_REACH 400.0f  // how far a lit face is looked for
+
+static const f32 (*unlitMid)[3];
+
+static s32 unlitCmp(const void *a, const void *b)
+{
+	const f32 xa = unlitMid[*(const s32 *)a][0];
+	const f32 xb = unlitMid[*(const s32 *)b][0];
+
+	return xa < xb ? -1 : xa > xb ? 1 : 0;
+}
+
+static s32 triIsBlack(const struct stri *t)
+{
+	return t->argb[0] == 0xff000000 && t->argb[1] == 0xff000000 && t->argb[2] == 0xff000000;
+}
+
+static s32 paintUnlit(struct collect *c)
+{
+	s32 *total = calloc(GEBEAN_MAXMATS + 1, sizeof(s32));
+	s32 *black = calloc(GEBEAN_MAXMATS + 1, sizeof(s32));
+	f32 (*mid)[3] = malloc(sizeof(*mid) * (c->num ? c->num : 1));
+	s32 *byx = malloc(sizeof(s32) * (c->num ? c->num : 1));
+	s32 painted = 0;
+
+	if (!total || !black || !mid || !byx) {
+		free(byx);
+		free(total);
+		free(black);
+		free(mid);
+		return 0;
+	}
+
+	for (s32 t = 0; t < c->num; t++) {
+		const struct stri *tri = &c->tris[t];
+		const s32 slot = tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS ? tri->tex : GEBEAN_MAXMATS;
+
+		for (s32 j = 0; j < 3; j++) {
+			mid[t][j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f;
+		}
+
+		total[slot]++;
+
+		if (triIsBlack(tri)) {
+			black[slot]++;
+		}
+	}
+
+	// Faces in order along x, so that only those within reach are looked at
+	for (s32 t = 0; t < c->num; t++) {
+		byx[t] = t;
+	}
+
+	unlitMid = (const f32 (*)[3])mid;
+	qsort(byx, c->num, sizeof(s32), unlitCmp);
+
+	for (s32 t = 0; t < c->num; t++) {
+		struct stri *tri = &c->tris[t];
+		const s32 slot = tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS ? tri->tex : GEBEAN_MAXMATS;
+		const s32 bare = tri->uv[0][0] == tri->uv[1][0] && tri->uv[0][0] == tri->uv[2][0]
+			&& tri->uv[0][1] == tri->uv[1][1] && tri->uv[0][1] == tri->uv[2][1];
+		f32 n[3];
+		f32 best = UNLIT_REACH * UNLIT_REACH;
+		s32 from = -1;
+
+		if (!triIsBlack(tri) || (!bare && black[slot] > total[slot] * UNLIT_SHARE)
+				|| texHasAlpha(tri->tex) || triNormal(tri, n) <= 0.0f) {
+			continue;
+		}
+
+		// The nearest lit face; one in the same plane, facing the same way,
+		// before any other, whose picture then carries straight on
+		for (s32 pass = 0; pass < 2 && from < 0; pass++) {
+			s32 lo = 0;
+			s32 hi = c->num;
+
+			// the first face within reach along x
+			while (lo < hi) {
+				const s32 m = (lo + hi) / 2;
+
+				if (mid[byx[m]][0] < mid[t][0] - UNLIT_REACH) {
+					lo = m + 1;
+				} else {
+					hi = m;
+				}
+			}
+
+			for (s32 i = lo; i < c->num && mid[byx[i]][0] <= mid[t][0] + UNLIT_REACH; i++) {
+				const s32 u = byx[i];
+				const struct stri *o = &c->tris[u];
+				const f32 d[3] = { mid[u][0] - mid[t][0], mid[u][1] - mid[t][1], mid[u][2] - mid[t][2] };
+				const f32 dist = dot3(d, d);
+				f32 no[3];
+
+				if (u == t || dist >= best || triIsBlack(o) || o->tex < 0 || texHasAlpha(o->tex) || o->blend
+						|| triNormal(o, no) <= 0.0f) {
+					continue;
+				}
+
+				if (pass == 0) {
+					const f32 off[3] = { o->pos[0][0] - tri->pos[0][0], o->pos[0][1] - tri->pos[0][1], o->pos[0][2] - tri->pos[0][2] };
+
+					if (dot3(n, no) < 0.99f || fabsf(dot3(off, n)) > 1.0f) {
+						continue;
+					}
+				}
+
+				best = dist;
+				from = u;
+			}
+		}
+
+		if (from < 0) {
+			continue;
+		}
+
+		{
+			const struct stri *o = &c->tris[from];
+			u32 sum[3] = { 0, 0, 0 };
+			u32 argb;
+
+			for (s32 k = 0; k < 3; k++) {
+				for (s32 j = 0; j < 3; j++) {
+					sum[j] += (o->argb[k] >> (16 - j * 8)) & 0xff;
+				}
+			}
+
+			argb = 0xff000000 | (sum[0] / 3) << 16 | (sum[1] / 3) << 8 | (sum[2] / 3);
+
+			if (bare) {
+				// o's picture laid on as o has it: each corner put in o's
+				// plane and given the UV o's own corners make there
+				f32 no[3], e1[3], e2[3], d00, d01, d11, den;
+
+				triNormal(o, no);
+
+				for (s32 j = 0; j < 3; j++) {
+					e1[j] = o->pos[1][j] - o->pos[0][j];
+					e2[j] = o->pos[2][j] - o->pos[0][j];
+				}
+
+				d00 = dot3(e1, e1);
+				d01 = dot3(e1, e2);
+				d11 = dot3(e2, e2);
+				den = d00 * d11 - d01 * d01;
+
+				if (den == 0.0f) {
+					continue;
+				}
+
+				for (s32 k = 0; k < 3; k++) {
+					const f32 p[3] = { tri->pos[k][0] - o->pos[0][0], tri->pos[k][1] - o->pos[0][1], tri->pos[k][2] - o->pos[0][2] };
+					const f32 d20 = dot3(p, e1);
+					const f32 d21 = dot3(p, e2);
+					const f32 v = (d11 * d20 - d01 * d21) / den;
+					const f32 w = (d00 * d21 - d01 * d20) / den;
+
+					for (s32 j = 0; j < 2; j++) {
+						tri->uv[k][j] = o->uv[0][j] + v * (o->uv[1][j] - o->uv[0][j]) + w * (o->uv[2][j] - o->uv[0][j]);
+					}
+				}
+
+				tri->tex = o->tex;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				tri->argb[k] = argb;
+			}
+
+			painted++;
+		}
+	}
+
+	free(byx);
+	free(total);
+	free(black);
+	free(mid);
+
+	return painted;
+}
+
+/**
  * A cast shadow: a cut-out decal whose corners are all black. Rare's release
  * lays the thing's own picture flat under it in black - Archives' ceiling
  * fan, its blades and its grille, on the floor of the room Natalya is held in
@@ -3985,6 +4184,16 @@ static s32 build(void)
 
 		if (welded) {
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d corners welded to a corner within %.2f of them", row->bean, welded, WELD_DIST);
+		}
+	}
+
+	{
+		const u64 from = sysGetMicroseconds();
+		const s32 unlit = paintUnlit(&c);
+
+		if (unlit) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d black faces given the light of the lit faces beside them (%.1f ms)",
+					row->bean, unlit, (sysGetMicroseconds() - from) / 1000.0f);
 		}
 	}
 
