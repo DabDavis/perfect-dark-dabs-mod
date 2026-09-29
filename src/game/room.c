@@ -186,11 +186,14 @@ s32 roomTouchMtx(s32 roomnum)
 	// The RSP's matrix holds a translation to 32767. An HD level draws every
 	// room, and a room further than that from the camera's wrapped round to
 	// somewhere off the screen: Dam's far mountainside, 35000 out, was
-	// holes onto the sky once the fog there was no longer whole. On an HD
-	// level such a room's matrix is kept as the floats it is; every other
-	// stays as it was, wrapping as the N64's would
-	g_RoomMtxFloats[index] = xblaStageDrawsEveryRoom()
-		&& (fabsf(mtx.m[3][0]) >= 32767.0f
+	// holes onto the sky once the fog there was no longer whole. A GoldenEye
+	// level in the N64 look reaches that far as well: from Dam's opening
+	// still (the offset is Bond's room, 40000 from the far cliffs) mtxF2L()'s
+	// conversion saturated each far room's translation at -32768, moving
+	// every one by its own amount, and the cliffs stood apart with strips of
+	// sky between them (F3 20260928-210657). Such a room's matrix is kept as
+	// the floats it is; Perfect Dark's own levels never reach it
+	g_RoomMtxFloats[index] = (fabsf(mtx.m[3][0]) >= 32767.0f
 			|| fabsf(mtx.m[3][1]) >= 32767.0f
 			|| fabsf(mtx.m[3][2]) >= 32767.0f);
 
