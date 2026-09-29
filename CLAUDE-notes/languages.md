@@ -10,7 +10,11 @@ Rare's (user's decision, 2026-09-29). The same goes for GoldenEye's Japanese in
 the US ROM: we write GE Plus's Japanese ourselves.
 
 Languages at first: `fr` French, `de` German, `es` Spanish, `it` Italian, `ja`
-Japanese. English is the ROM's and has no pack. More are added by dropping a
+Japanese, and `en-GB` English (UK). English (US) is the ROM's and has no pack.
+`en-GB` is a small pack of our own British spellings (armour, colour, metre,
+defence, …) with `"fallback": "en"`: only strings that change are listed. Rare's
+own PAL "gb" text changed just five strings ("Head Colour" and the four
+language names), so there is nothing of theirs to follow there. More are added by dropping a
 pack in `lang/`.
 
 ## Source files (what a translator edits)
