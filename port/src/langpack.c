@@ -132,6 +132,7 @@ static u32 langpackUnescape(char *s, char **next, char *term)
 			switch (*r) {
 			case 'n': *w++ = '\n'; break;
 			case 't': *w++ = '\t'; break;
+			case '0': *w++ = '\0'; break; // a NUL inside a string ("name\0|subheading")
 			default:  *w++ = *r; break;
 			}
 			r++;
