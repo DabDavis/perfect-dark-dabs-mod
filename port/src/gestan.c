@@ -17,6 +17,7 @@
 
 #define GESTAN_CELL      512.0f
 #define GESTAN_MAXFLOOD  512
+#define GESTAN_MAXCLIMB  32      // floors one climb test weighs
 #define GESTAN_NOWALL    (-2)
 #define GESTAN_UNLINKED  (-1)
 #define GESTAN_CLIMBWALL 0x4000
@@ -863,6 +864,34 @@ static bool stanEdgeClimbs(const struct stanpoint *e0, const struct stanpoint *e
 }
 
 /**
+ * Whether a body's circle at x/z is clear of every unlinked edge of the tiles
+ * it reaches from `tile` - stanTestVolume(), which bondviewTryMoveToStan()
+ * asks of every move before it puts Bond on the tile he is moving to. It is
+ * what keeps him out of a window he is wider than: Dam's mini-bunker has
+ * windows 51 across in plan, each linked through tiles on edge to the sill 154
+ * over the floor inside, and a body 60 across touches the jambs on either side
+ * of one before its middle is over the sill.
+ */
+static bool stanCircleClear(s32 tile, f32 x, f32 z, f32 radius)
+{
+	s32 queue[GESTAN_MAXFLOOD];
+	const s32 n = stanFloodList(tile, x, z, x, z, radius, true, false, queue);
+
+	for (s32 q = 0; q < n; q++) {
+		const struct stantile *t = &g_Stan.tiles[queue[q]];
+		const struct stanpoint *p = &g_Stan.points[t->first];
+
+		for (s32 k = 0; k < t->npts; k++) {
+			if (p[k].across < 0 && stanEdgeDistSq(&p[k], &p[(k + 1) % t->npts], x, z) < radius * radius) {
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+/**
  * The floor GoldenEye would lift the player onto as he walks from `pos` to
  * `to`: the highest tile with an area in plan that his circle at `to` touches
  * and that is linked to the one under his foot through edges within his reach
@@ -878,6 +907,8 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 	f32 movelen;
 	s32 tile;
 	s32 cx0, cx1, cz0, cz1;
+	f32 cand[GESTAN_MAXCLIMB][3];
+	s32 ncand = 0;
 
 	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
 		stanBuild();
@@ -926,6 +957,7 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 				const struct stantile *t = &g_Stan.tiles[i];
 				const struct stanpoint *p = &g_Stan.points[t->first];
 				f32 y = GESTAN_NOCLIMBFLOOR;
+				f32 atx = to->x, atz = to->z;
 
 				if (g_Stan.reached[i] != g_Stan.gen) {
 					continue;
@@ -949,6 +981,7 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 					// a ledge's edge never is
 					f32 nearto = 1e30f, nearfrom = 1e30f;
 					f32 ey = GESTAN_NOCLIMBFLOOR;
+					f32 ex0 = to->x, ez0 = to->z;
 
 					for (s32 a = 0; a < t->npts; a++) {
 						const struct stanpoint *e0 = &p[a], *e1 = &p[(a + 1) % t->npts];
@@ -972,7 +1005,12 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 
 							f = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
 							y = e0->y + (e1->y - e0->y) * f;
-							nearto = dto < nearto ? dto : nearto;
+
+							if (dto < nearto) {
+								nearto = dto;
+								ex0 = e0->x + ex * f;
+								ez0 = e0->z + ez * f;
+							}
 
 							if (y > ey) ey = y;
 						}
@@ -980,12 +1018,38 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 
 					if (sqrtf(nearfrom) - sqrtf(nearto) >= 0.5f * movelen && movelen > 0.0f) {
 						y = ey;
+						atx = ex0;
+						atz = ez0;
 					}
 				}
 
-				if (y > best) {
-					best = y;
+				// (only a floor over the step Perfect Dark's feet take)
+				if (y > ground + 30.0f && ncand < GESTAN_MAXCLIMB) {
+					cand[ncand][0] = y;
+					cand[ncand][1] = atx;
+					cand[ncand][2] = atz;
+					ncand++;
 				}
+			}
+		}
+	}
+
+	// and only a floor he fits onto. GoldenEye lifts Bond once his middle is
+	// over the tile, which it has to walk him to first, and it makes no move
+	// whose circle touches an unlinked edge (stanTestVolume() in
+	// bondviewTryMoveToStan()). So the circle must be clear where he is going
+	// and, for a floor touched from outside, with its middle on the edge he
+	// climbs across. Dam's mini-bunker has windows 51 across in plan, linked
+	// through tiles on edge to the sill 154 over the floor inside: a body 60
+	// across meets the jambs before its middle is at the window, and
+	// GoldenEye stops Bond there. Lifted as his circle reached the sill, the
+	// player was put on it with his eye over the roof, the jambs stopped him,
+	// he fell back and was put up again (F3 report 20260929-015652). Asked
+	// once the loop is done: the test floods the graph afresh
+	if (ncand > 0 && stanCircleClear(tile, to->x, to->z, radius)) {
+		for (s32 c = 0; c < ncand; c++) {
+			if (cand[c][0] > best && stanCircleClear(tile, cand[c][1], cand[c][2], radius)) {
+				best = cand[c][0];
 			}
 		}
 	}
