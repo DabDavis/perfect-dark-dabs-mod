@@ -101,6 +101,7 @@ extern uint32_t g_GfxNumDistinctTextures;
 extern uint32_t g_GfxNumTexUploads;
 extern uint32_t g_GfxNumTexEvictions;
 extern uint32_t g_GfxTexCacheSize;
+extern uint32_t g_GfxTexCacheFixed;
 
 // Renderer cost of the last frame, and the batch size that shapes it.
 // See the comments on these in gfx_pc.cpp, and --gfxstats / --gfxbatch.
@@ -134,6 +135,17 @@ struct GfxTraceStats {
     uint32_t bufferfullflushes;
     uint32_t cacheentries;
     uint32_t cachesize;
+    // The cache sizes itself (gfx_pc.cpp, gfx_texture_cache_lookup): the most
+    // entries it has held, how often it grew, how many entries it has thrown
+    // out since the start, what it holds on the GPU and may grow to, and
+    // whether --gfxtexcache fixed its size.
+    uint32_t cachepeak;
+    uint32_t cachegrows;
+    uint32_t cacheevictions;
+    uint32_t cachemb;
+    uint32_t cachebudgetmb;
+    uint32_t cachemax;
+    uint32_t cachefixed;
 };
 void gfx_trace_stats(struct GfxTraceStats *out);
 void gfx_texture_cache_delete(const uint8_t *orig_addr);

@@ -321,9 +321,12 @@ static void traceWrite(FILE *f)
 	fprintf(f, "gfx pools (last frame): master list %u of %u commands, vtx pool %u of %u bytes\n",
 			gfxused, gfxsize, vtxused, vtxsize);
 	gfx_trace_stats(&gs);
-	fprintf(f, "renderer (last frame): %u draws, %u tris, %u verts, %u texture uploads, %u evictions, cache %u of %u, %u buffer-full flushes\n",
+	fprintf(f, "renderer (last frame): %u draws, %u tris, %u verts, %u texture uploads, %u evictions, cache %u of %u, %u buffer-full flushes;"
+			" texture cache peak %u, grew %u times, %u evicted in all, %u MB of %u, up to %u%s\n",
 			gs.drawcalls, gs.tris, gs.verts, gs.texuploads,
-			gs.texevictions, gs.cacheentries, gs.cachesize, gs.bufferfullflushes);
+			gs.texevictions, gs.cacheentries, gs.cachesize, gs.bufferfullflushes,
+			gs.cachepeak, gs.cachegrows, gs.cacheevictions, gs.cachemb, gs.cachebudgetmb, gs.cachemax,
+			gs.cachefixed ? " (fixed by --gfxtexcache)" : "");
 	xblaMeshTrace(f);
 	xblaTexTrace(f);
 	xblaFontTrace(f);

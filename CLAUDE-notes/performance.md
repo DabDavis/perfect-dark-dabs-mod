@@ -339,3 +339,34 @@ between costs only the re-read it always did. Counted with the memo in:
 80 hits, 32 inflates. No cache, no budget, no eviction rule - the repeats are
 consecutive and a cache of one is the whole of the win. Frame-exact against
 HEAD on four seeded replays.
+
+## The renderer's texture cache sizes itself (2026-09-29, F3 pass 21)
+
+`gfx_pc.cpp`, `g_GfxTexCacheSize`. Starts at 1024 entries. When making room
+would evict a texture drawn in the last 120 frames (the working set no longer
+fits) it grows by max(256, half) instead, up to three quarters of what the
+backend can name (Vulkan: the bindless slots) and a byte budget of a quarter
+of video memory, 512 MB..3 GB (GL: `GL_NVX_gpu_memory_info` or
+`GL_ATI_meminfo`; Vulkan: the device-local heap; 1 GB when unknown).
+Entries idle 1800 frames are trimmed 32 a frame back towards 1024, texture
+names nobody holds are handed back to the backend past a spare 256, and
+emptying the cache (stage change) resets the size. `--gfxtexcache N` fixes
+it at N for measuring. The F3 trace's `renderer (last frame)` line carries
+peak, grows, evictions in all, MB held and the ceiling.
+
+Measured on the seeded 0x32 match (8 sims, spectate, PD Plus HD pack, Vulkan,
+1800 frames, game thread): a fixed 64 cost 10.7 M instructions/frame with
+14364 evictions; the self-sizing cache started at 64 grew once to 320 and
+cost 4.26 M with none - the same as an unconstrained cache. At the normal
+starting size nothing changes: base vs new within 0.4% on 0x32 and on the HD
+Bunker 2 (0x64), GL and Vulkan.
+
+Correctness under pressure: frames at `--gfxtexcache 16` (80+ evictions a
+frame) were pixel-identical to a 1024 cache on 0x32 with the pack, and on
+HD Bunker 2 differed only in guards' poses, both renderers. Wrong-texture
+paths closed at the same time, none of them seen to fire: a reused GL texture
+name kept the old picture's smaller mip levels (now `GL_TEXTURE_MAX_LEVEL`
+0 without mips); a zero-sized Vulkan upload kept the name's old image; glyph
+entries hashed away from their address's bucket and survived
+`gfx_texture_cache_delete()`; an evicted entry could be left in
+`rendering_state.textures`.

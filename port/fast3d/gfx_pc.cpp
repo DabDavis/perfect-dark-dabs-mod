@@ -149,7 +149,30 @@ static struct {
     TextureCacheMap map;
     std::list<TextureCacheMapIter> lru;
     std::vector<uint32_t> free_texture_ids;
-} gfx_texture_cache;
+
+    // Self-sizing; see g_GfxTexCacheSize
+    uint32_t frame;           // counts gfx_start_frame()s, for last_frame
+    uint32_t max_entries;     // what the backend can hold, less room for the rest
+    uint64_t budget;          // bytes the cache may hold before it stops growing
+    uint64_t bytes;           // what the entries hold now
+    uint32_t peak, grows, evictions;
+    bool limits_known;
+} gfx_texture_cache = { {}, {}, {}, 0, 8192, 1024ull << 20, 0, 0, 0, 0, false };
+
+// A texture drawn this recently is one the frame still wants: two seconds, so
+// a working set drawn at 30 frames a second or split over two views counts.
+#define GFX_TEXCACHE_HOT_FRAMES 120
+// Past the starting size, a texture nothing has drawn for this long goes.
+#define GFX_TEXCACHE_IDLE_FRAMES 1800
+// At most this many of those a frame, and of the texture names nothing holds.
+#define GFX_TEXCACHE_TRIM_PER_FRAME 32
+// Names kept back for the next misses rather than handed to the backend.
+#define GFX_TEXCACHE_SPARE_IDS 256
+// The cache never sizes itself below this, whatever --gfxtexcache says.
+#define GFX_TEXCACHE_MIN_SIZE 8
+
+// The entry import_texture() is filling, for gfx_upload_texture() to charge.
+static TextureCacheNode* gfx_texture_cache_filling;
 
 struct ColorCombiner {
     uint64_t shader_id0;
@@ -488,10 +511,22 @@ uint32_t g_GfxNumTexUploads = 0;
 uint32_t g_GfxNumTexEvictions = 0;
 
 /**
- * How many textures the cache may hold. Raise it from the command line with
- * --gfxtexcache to buy a bigger working set at the cost of video memory.
+ * How many textures the cache may hold right now.
+ *
+ * It sizes itself. It starts at TEXTURE_CACHE_MAX_SIZE and, when making room
+ * would throw out a texture drawn within the last GFX_TEXCACHE_HOT_FRAMES
+ * frames - the working set no longer fits, which is the cliff described above
+ * - it grows instead of evicting, up to what the backend can hold and a byte
+ * budget taken from the card's video memory. A texture nothing has drawn for
+ * GFX_TEXCACHE_IDLE_FRAMES is let go a few a frame, bringing the size back
+ * down, and emptying the cache (a stage change) puts it back at the start.
+ * A stage in the HD look with a texture pack on was seen pinned at 1024 of
+ * 1024 (F3 20260929-045717), which this makes a size rather than a limit.
+ *
+ * --gfxtexcache N fixes it at N (g_GfxTexCacheFixed), for measuring.
  */
 uint32_t g_GfxTexCacheSize = TEXTURE_CACHE_MAX_SIZE;
+uint32_t g_GfxTexCacheFixed = 0;
 uint32_t g_GfxNumTris = 0;
 
 /*
@@ -824,6 +859,82 @@ static struct ColorCombiner* gfx_lookup_or_create_color_combiner(const ColorComb
     return &prev_combiner->second;
 }
 
+// Takes one entry out of the cache, its texture name kept for the next miss.
+// rendering_state.textures points into the map, so a tile left naming the
+// entry is let go too and imports afresh at its next draw.
+static TextureCacheMap::iterator gfx_texture_cache_forget(TextureCacheMap::iterator it) {
+    for (int t = 0; t < 2; t++) {
+        if (rendering_state.textures[t] == &*it) {
+            rendering_state.textures[t] = nullptr;
+            rdp.textures_changed[t] = true;
+        }
+    }
+    if (gfx_texture_cache_filling == &*it) {
+        gfx_texture_cache_filling = nullptr;
+    }
+    gfx_texture_cache.bytes -= std::min<uint64_t>(gfx_texture_cache.bytes, it->second.bytes);
+    gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
+    gfx_texture_cache.lru.erase(it->second.lru_location);
+    return gfx_texture_cache.map.erase(it);
+}
+
+// What the cache may grow to, asked of the backend once it is up.
+static void gfx_texture_cache_limits(void) {
+    uint32_t max_textures = 16384;
+    uint64_t vram = 0;
+
+    if (gfx_texture_cache.limits_known) {
+        return;
+    }
+    gfx_texture_cache.limits_known = true;
+
+    if (gfx_rapi->get_texture_limits) {
+        gfx_rapi->get_texture_limits(&max_textures, &vram);
+    }
+
+    // Past a texture's own name, a re-upload holds a second image until the
+    // GPU is done with the first, and the framebuffers take names too, so a
+    // quarter is left over.
+    gfx_texture_cache.max_entries = std::max<uint32_t>(TEXTURE_CACHE_MAX_SIZE, std::min<uint32_t>(16384, max_textures / 4 * 3));
+
+    // A quarter of the card, and never less than the old fixed 1024 entries
+    // were seen to use with a pack on, nor more than 3GB. The pack's decoded
+    // images are held in main memory on their own budget (texpack.c).
+    const uint64_t mb = 1ull << 20;
+    gfx_texture_cache.budget = vram ? std::min<uint64_t>(3072 * mb, std::max<uint64_t>(512 * mb, vram / 4)) : 1024 * mb;
+
+    sysLogPrintf(LOG_NOTE, "gfx: texture cache starts at %u, may grow to %u textures or %u MB (video memory %u MB)%s",
+                 g_GfxTexCacheSize, gfx_texture_cache.max_entries, (uint32_t)(gfx_texture_cache.budget / mb),
+                 (uint32_t)(vram / mb), g_GfxTexCacheFixed ? "; fixed by --gfxtexcache" : "");
+}
+
+// Once a frame, before anything is drawn: textures left behind go, a few at a
+// time, and so do texture names nothing holds - never enough in one frame to
+// be seen.
+static void gfx_texture_cache_frame(void) {
+    gfx_texture_cache.frame++;
+
+    if (!g_GfxTexCacheFixed && g_GfxTexCacheSize > TEXTURE_CACHE_MAX_SIZE) {
+        uint32_t trimmed = 0;
+
+        while (trimmed < GFX_TEXCACHE_TRIM_PER_FRAME && gfx_texture_cache.map.size() > TEXTURE_CACHE_MAX_SIZE &&
+               gfx_texture_cache.frame - gfx_texture_cache.lru.front().it->second.last_frame > GFX_TEXCACHE_IDLE_FRAMES) {
+            gfx_texture_cache_forget(gfx_texture_cache.lru.front().it);
+            trimmed++;
+        }
+
+        // Down to what is left, and to the starting size once that holds it
+        if (trimmed || gfx_texture_cache.map.size() <= TEXTURE_CACHE_MAX_SIZE) {
+            g_GfxTexCacheSize = std::max<uint32_t>(TEXTURE_CACHE_MAX_SIZE, (uint32_t)gfx_texture_cache.map.size());
+        }
+    }
+
+    for (uint32_t n = 0; n < GFX_TEXCACHE_TRIM_PER_FRAME && gfx_texture_cache.free_texture_ids.size() > GFX_TEXCACHE_SPARE_IDS; n++) {
+        gfx_rapi->delete_texture(gfx_texture_cache.free_texture_ids.back());
+        gfx_texture_cache.free_texture_ids.pop_back();
+    }
+}
+
 void gfx_texture_cache_clear() {
     gfx_mark_state_dirty();
     gfx_flush_for(GFX_FLUSH_OTHER);
@@ -832,8 +943,16 @@ void gfx_texture_cache_clear() {
     }
     gfx_texture_cache.map.clear();
     gfx_texture_cache.lru.clear();
+    gfx_texture_cache.bytes = 0;
+    gfx_texture_cache_filling = nullptr;
     rdp.textures_changed[0] = rdp.textures_changed[1] = true;
     memset(rendering_state.textures, 0, sizeof(rendering_state.textures));
+
+    // Empty, so back to the starting size: whatever the next stage draws
+    // grows it again without a single texture being thrown out for it.
+    if (!g_GfxTexCacheFixed) {
+        g_GfxTexCacheSize = TEXTURE_CACHE_MAX_SIZE;
+    }
 }
 
 /**
@@ -878,9 +997,7 @@ static void gfx_texture_cache_drop_texnum(int32_t texturenum) {
                 : texpackGetTextureNum(it->first.texture_addr) == texturenum;
 
         if (hit) {
-            gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
-            gfx_texture_cache.lru.erase(it->second.lru_location);
-            it = gfx_texture_cache.map.erase(it);
+            it = gfx_texture_cache_forget(it);
             dropped = true;
         } else {
             ++it;
@@ -902,6 +1019,13 @@ extern "C" void gfx_trace_stats(struct GfxTraceStats *out) {
     *out = g_GfxLastFrame;
     out->cacheentries = (uint32_t)gfx_texture_cache.map.size();
     out->cachesize = g_GfxTexCacheSize;
+    out->cachepeak = gfx_texture_cache.peak;
+    out->cachegrows = gfx_texture_cache.grows;
+    out->cacheevictions = gfx_texture_cache.evictions;
+    out->cachemb = (uint32_t)((gfx_texture_cache.bytes + (1u << 19)) >> 20);
+    out->cachebudgetmb = (uint32_t)(gfx_texture_cache.budget >> 20);
+    out->cachemax = g_GfxTexCacheFixed ? g_GfxTexCacheSize : gfx_texture_cache.max_entries;
+    out->cachefixed = g_GfxTexCacheFixed;
 }
 
 extern "C" void gfx_texpack_poll(void) {
@@ -917,6 +1041,7 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     TextureCacheNode** n = &rendering_state.textures[i];
 
     if (it != gfx_texture_cache.map.end()) {
+        it->second.last_frame = gfx_texture_cache.frame;
         gfx_note_texture_bound(it->second.texture_id);
         gfx_rapi->select_texture(i, it->second.texture_id, it->second.linear_filter);
         *n = &*it;
@@ -926,12 +1051,25 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     }
 
     if (gfx_texture_cache.map.size() >= g_GfxTexCacheSize) {
-        // Remove the texture that was least recently used
-        g_GfxNumTexEvictions++;
-        it = gfx_texture_cache.lru.front().it;
-        gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
-        gfx_texture_cache.map.erase(it);
-        gfx_texture_cache.lru.pop_front();
+        gfx_texture_cache_limits();
+
+        // The least recently used goes - unless it was drawn so recently that
+        // the frame will want it again, in which case the working set has
+        // outgrown the cache and evicting would only trade one upload for
+        // another, every frame. Then the cache grows instead, which costs
+        // nothing now: the new entry takes a fresh texture name.
+        const TextureCacheMap::iterator victim = gfx_texture_cache.lru.front().it;
+        const bool hot = gfx_texture_cache.frame - victim->second.last_frame < GFX_TEXCACHE_HOT_FRAMES;
+
+        if (hot && !g_GfxTexCacheFixed && g_GfxTexCacheSize < gfx_texture_cache.max_entries &&
+            gfx_texture_cache.bytes < gfx_texture_cache.budget) {
+            g_GfxTexCacheSize = std::min(gfx_texture_cache.max_entries, g_GfxTexCacheSize + std::max(256u, g_GfxTexCacheSize / 2));
+            gfx_texture_cache.grows++;
+        } else {
+            g_GfxNumTexEvictions++;
+            gfx_texture_cache.evictions++;
+            gfx_texture_cache_forget(victim);
+        }
     }
 
     uint32_t texture_id;
@@ -946,6 +1084,11 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     TextureCacheNode* node = &*it;
     node->second.texture_id = texture_id;
     node->second.lru_location = gfx_texture_cache.lru.insert(gfx_texture_cache.lru.end(), { it });
+    node->second.last_frame = gfx_texture_cache.frame;
+    gfx_texture_cache_filling = node;
+    if (gfx_texture_cache.map.size() > gfx_texture_cache.peak) {
+        gfx_texture_cache.peak = (uint32_t)gfx_texture_cache.map.size();
+    }
 
     gfx_note_texture_bound(texture_id);
     gfx_rapi->select_texture(i, texture_id, false);
@@ -975,9 +1118,7 @@ void gfx_texture_cache_delete(const uint8_t* orig_addr) {
         bool again = false;
         for (auto it = gfx_texture_cache.map.begin(bucket); it != gfx_texture_cache.map.end(bucket); ++it) {
             if (it->first.texture_addr == orig_addr) {
-                gfx_texture_cache.lru.erase(it->second.lru_location);
-                gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
-                gfx_texture_cache.map.erase(it->first);
+                gfx_texture_cache_forget(gfx_texture_cache.map.find(it->first));
                 again = true;
                 break;
             }
@@ -1003,9 +1144,7 @@ void gfx_texture_cache_delete_range(const uint8_t* start, const uint8_t* end) {
 
     for (auto it = gfx_texture_cache.map.begin(); it != gfx_texture_cache.map.end(); ) {
         if (it->first.texture_addr >= start && it->first.texture_addr < end) {
-            gfx_texture_cache.lru.erase(it->second.lru_location);
-            gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
-            it = gfx_texture_cache.map.erase(it);
+            it = gfx_texture_cache_forget(it);
         } else {
             ++it;
         }
@@ -1033,6 +1172,21 @@ static bool import_decode_only; // decode into tex_upload_buffer and stop short 
 // The texture import_texture() is uploading, for handtint.c's repaint
 static const uint8_t* import_tint_addr;
 static std::vector<uint8_t> import_tint_buf;
+
+// What an upload holds on the GPU, charged to the entry being filled
+static void gfx_texture_cache_charge(uint32_t width, uint32_t height, bool gen_mipmaps) {
+    TextureCacheNode* node = gfx_texture_cache_filling;
+    if (!node) {
+        return;
+    }
+    uint64_t bytes = (uint64_t)width * height * 4;
+    if (gen_mipmaps) {
+        bytes += bytes / 3;
+    }
+    gfx_texture_cache.bytes -= std::min<uint64_t>(gfx_texture_cache.bytes, node->second.bytes);
+    node->second.bytes = (uint32_t)std::min<uint64_t>(bytes, UINT32_MAX);
+    gfx_texture_cache.bytes += node->second.bytes;
+}
 
 static void gfx_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height, bool gen_mipmaps) {
     // The dump and the dimensions the rest of the import works from stay the
@@ -1063,11 +1217,13 @@ static void gfx_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32
                                           import_enhance_tile_w, import_enhance_tile_h);
         if (big) {
             gfx_rapi->upload_texture(big, width * import_enhance_scale, height * import_enhance_scale, gen_mipmaps);
+            gfx_texture_cache_charge(width * import_enhance_scale, height * import_enhance_scale, gen_mipmaps);
             return;
         }
     }
 
     gfx_rapi->upload_texture(rgba32_buf, width, height, gen_mipmaps);
+    gfx_texture_cache_charge(width, height, gen_mipmaps);
 }
 
 static enum TexScaleEdge gfx_texscale_edge(uint8_t cm) {
@@ -4817,6 +4973,7 @@ extern "C" void gfx_init(const GfxInitSettings *settings) {
     gfx_rapi = settings->rapi;
     gfx_wapi->init(&settings->window_settings);
     gfx_rapi->init();
+    gfx_texture_cache_limits();
     gfx_rapi->update_framebuffer_parameters(0, settings->window_settings.width, settings->window_settings.height, 1, false, true, true, true);
     gfx_current_dimensions.internal_mul = 1;
     gfx_current_game_window_viewport.width = gfx_current_dimensions.width = settings->window_settings.width;
@@ -4866,6 +5023,7 @@ extern "C" void gfx_start_frame(void) {
     // Replacements that finished decoding while the last frame was drawn. Done
     // here so a frame never both evicts and re-uploads the same texture.
     gfx_texpack_poll();
+    gfx_texture_cache_frame();
 
     // Report and clear what the frame just finished cost, before anything is
     // added to the totals for the next one.
@@ -4895,11 +5053,15 @@ extern "C" void gfx_start_frame(void) {
                     "gfx:   tris clipped %u, culled %u, drawn %u",
                     g_GfxTrisClipped, g_GfxTrisCulled, g_GfxNumTris);
             sysLogPrintf(LOG_NOTE,
-                    "gfx:   tex uploads %u, evictions %u, cache %u/%u",
+                    "gfx:   tex uploads %u, evictions %u, cache %u/%u (peak %u, grew %u times, %u evicted in all, %u MB)",
                     g_GfxNumTexUploads,
                     g_GfxNumTexEvictions,
                     (uint32_t)gfx_texture_cache.map.size(),
-                    g_GfxTexCacheSize);
+                    g_GfxTexCacheSize,
+                    gfx_texture_cache.peak,
+                    gfx_texture_cache.grows,
+                    gfx_texture_cache.evictions,
+                    (uint32_t)(gfx_texture_cache.bytes >> 20));
         }
     }
 

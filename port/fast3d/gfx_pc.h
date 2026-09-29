@@ -34,8 +34,12 @@ struct TextureCacheKey {
 
     struct Hasher {
         size_t operator()(const TextureCacheKey& key) const noexcept {
+            // The address alone: gfx_texture_cache_delete() finds every entry
+            // for an address by looking in that address's bucket, and a glyph
+            // mixed into the hash put the glyph entries in other buckets, where
+            // a freed address's glyphs outlived it.
             uintptr_t addr = (uintptr_t)key.texture_addr;
-            return (size_t)(addr ^ (addr >> 5) ^ ((size_t)key.glyph << 3));
+            return (size_t)(addr ^ (addr >> 5));
         }
     };
 };
@@ -55,6 +59,11 @@ struct TextureCacheValue {
     // coordinates are exact as written and get none of the half texel the
     // N64's bilinear filter is owed. See gfx_derive_batch_state's uv_ofs.
     bool exact_uv = false;
+    // The frame it was last drawn in, which tells a texture the frame still
+    // wants from one it has left behind (see gfx_texture_cache_lookup), and
+    // what it holds on the GPU, for the cache's byte budget.
+    uint32_t last_frame = 0;
+    uint32_t bytes = 0;
 
     std::list<struct TextureCacheMapIter>::iterator lru_location;
 };
