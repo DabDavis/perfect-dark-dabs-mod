@@ -241,3 +241,15 @@ list it was: read the commands before it.
 no endpoint that reads one back, twelve an hour from an address, 32 KiB of
 report and 200 characters of note, and a cap on the directory. Run
 `test_pdghostd.py` before deploying it - the crash cases are in there.
+
+## Stage 0 and empty files (2026-09-29, 21st F3 pass)
+
+Report 20260929-042718 (stable 8056aa4, Steam Deck): `bgReset()` loaded stage 0.
+Spare rows of g_Stages past the Stage Loader's maps are numbered 0 with bg file 0,
+so the lookup matched one, the header came out of file 0, a stack size asked the
+pool for 313 MB and `rzipIs1173()` read the failed allocation (eeb3f70fb).
+`stageGetIndex()`/`bgGetStageIndex()` never match stage <= 0, the arena list's
+MENUOP_SET no longer takes the empty row past the list's end, and
+`mainChangeToStage()` sends a level with no row or no bg file to the Carrington
+Institute with a log line. ASan on Dump All Assets (checking 043047) also found
+`fileLoad()` reading one past its buffer for an empty file (6e8e9ec97).

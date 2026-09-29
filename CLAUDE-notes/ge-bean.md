@@ -12856,3 +12856,59 @@ run dir). Facility's conveyor still lifts +118.9 (walk.py on 0x63). Probes:
   about its middle in the middle of the face and scales its longest side to a share of
   the camera distance, as GoldenEye's rows do. GoldenEye's own guns pixel-identical.
   Probe: `~/wt/f3-0929b-gewatch/run/cap.gdb` (needs `$pdrow`/`$mw` set first).
+
+## 21st F3 pass (2026-09-29, merge/f3-0929c): guns on GoldenEye's own model, HD water, heads
+
+- **Every GoldenEye gun on GoldenEye's own ROM model in HD** (348968f8e, 3efae65a2,
+  d42610e90, 099a74705; F3 042658/042906, user's call "all HD ge guns use ge rom
+  models"). All 25 guns with a converted model draw in the HD look on GoldenEye's
+  own first-person model with the release's gun laid on (fpOnOwn), and on GoldenEye's
+  own held prop in a hand / on the floor. Only guns with no ROM model or borrowed from
+  GoldenEye X stand on a PD host. The pistols keep the release's hand; the grenade and
+  mines draw nothing in the hand. Knives take no quarter turn (GoldenEye's model is in
+  the release's frame). Casings on the own model come out part way along the barrel
+  (`bgunCreateOwnModelCasing()`). The watch lays its bare copy onto the same model as
+  the hand. COD Style Aiming: `bgunRender()` takes the muzzle's sideways offset from
+  the origin off the pose, so the barrel (not the origin) comes under the crosshair.
+- **Muzzle flash on the own model** (ecbb465d2, 11f7f9aa5; F3 045235). The cover
+  loop compared against the flash lists under the host's toggle parts and covered
+  every one; on GoldenEye's own model the part spared is part 1 (the switch over the
+  flash and its stars), not PD's flash part numbers. Check: Klobb/D5K/KF7 flash, the
+  silenced D5K none. Probes: `~/wt/f3-0929c-fpaim/run/kf7.py` (HIPFIRE=1, W=...),
+  `fp.py` (GUNS="$(cat allguns.txt)" LOOKS=1 AIM=1), `firesweep.sh`, `sheet.py`.
+- **Third-person muzzle + grips** (c96a53e43; F3 042342/050647/042254).
+  `gebeanHeldGunMuzzle()` reads GoldenEye's gun fire node (or part 1 for the
+  Moonraker and RL; the sniper's box front) off the converted PROP_CHR* models, so
+  tracers leave the barrel for Bond and guards. `geHeldNudge`: RL 210 forward 40
+  down (Bean's RPG-7 grip), Moonraker 40 back.
+- **Dam dive empties the hands** (1fca676c0; F3 045753). On a converted mission
+  ChrDrawWeapon is taken as GoldenEye's BondEquipItem (exactly the item), not the
+  Start Armed swap in `aiChrDrawWeapon()`; an unarmed equip also drops the third
+  person body's guns (the body is not animated through the forced fall).
+- **Muzzle flash room light** (3b8cd068a, 58b88a61e; F3 045427): stock light on PD's
+  levels; off on `geRoomActive()` levels unless `Mod.GeMuzzleFlashLight` (menu:
+  Muzzle Flash Lights GoldenEye Rooms). Body armour has no idle shimmer (15da2971a).
+- **HD Dam water** (4d53fdf84; F3 045552). gDPSetTileSize moves a corner by quarter
+  texels only; Bean's reservoir moved 0.11/0.20 quarters a frame and jumped ~15 units
+  every 5-9 frames. New `G_SETTILEOFFSET_EXT` (gbiex.h; 65536ths of a texel, cleared
+  by the next SetTileSize for that tile) carries the remainder from gewater.c; both
+  renderers read it in gfx_pc.cpp. N64 water unchanged.
+- **Unlit HD faces** (0f5313439; F3 055243, Aztec shaft corner). Bean faces with
+  opaque black at every corner take the light (and, with no picture, the picture) of
+  the nearest lit face, own plane first, only on pictures black on under 5% of faces.
+  2-800 faces a level, 0.3-61 ms at load. Probes: `~/wt/f3-0929c-render-run/pos.sh`.
+- **Truck dual rear wheels** (066f6cd0c; F3 045016). Where GoldenEye's part spans
+  half again Bean's wheel across x, the wheel is drawn twice on the same part (parts
+  3 and 4). Only the truck matches. Probe: `~/wt/f3-0929c-render-run/tk.sh`.
+- **Heads on other bodies** (6d3fbe941, a0991794b; F3 051343/051617/051545/051458).
+  `beanOpenRimHeight()` takes only open edges in the face's lower half (the Baron's
+  face is open under his hat, which read as jaw-ending and dropped the hat; also Mark,
+  Marion, biker, Oddjob). Neck seams welded again after `beanSmoothNeckWeights()`;
+  the parka's bare collar leaves out the hood lining and Bond's own neck skin, and a
+  made neck is drawn inside its open collar; Bond's own neck skin goes in the hood
+  group. Probes: `~/wt/f3-0929c-heads-run/pairs.py`, `menushot.py`.
+- Also this pass (notes in their own files): tank shells in the weapon cycle and All
+  Guns while driving (inv.c, afacc3408/c90303233), Randomizer disarm on every mission
+  door (randomizer.md), third-person camera ease (third-person.md), the texture
+  cache sizing itself (performance.md), F3 [display]/[frames] (recording.md), stage 0
+  goes to the Institute (crash-reports.md).
