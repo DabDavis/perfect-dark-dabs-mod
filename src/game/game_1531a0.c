@@ -3794,6 +3794,11 @@ void textWrapN(s32 wrapwidth, char *src, char *dst, u32 dstsize, struct fontchar
 			for (i = 0; i < wordlen; i++) {
 				PUT(curword[i]);
 			}
+		} else if ((u8)sep <= ' ') {
+			// Any other control character (a tab, a CR): the ROM's textWrap()
+			// steps over it and writes nothing, the word before it included.
+			// Taken for a Japanese break it was never stepped over, and the
+			// loop read the same empty word for ever.
 		} else {
 			// A break between two Japanese characters: no separator to copy
 			// and nothing to step over.
