@@ -1447,7 +1447,9 @@ static void gebeanGunsRefresh(void)
 
 			// and the watch's bare copy of a gun holding its own glove
 			if (fpN64Glove[i] && fpWatchRows[i].file) {
-				fpWatchSlot[i] = romdataRegisterAliasFile(fpWatchRows[i].file, gegunsModelFile(i));
+				// - on GoldenEye's own model where the gun in the hand is
+				// (fpOnOwn), which its fit is made for
+				fpWatchSlot[i] = romdataRegisterAliasFile(fpWatchRows[i].file, fpOnOwn[i] ? own : gegunsModelFile(i));
 			}
 		}
 
