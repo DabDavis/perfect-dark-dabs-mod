@@ -1470,6 +1470,35 @@ static const f32 ownpos[NUM_GE_GUNS][3] = {
 	[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST] = { 11.0f, -21.0f, -37.0f },
 };
 
+/**
+ * Whether gun `index` stands on one of Perfect Dark's classic pistols, the
+ * PP9i and the CC13, which are GoldenEye's own PPK and TT33 models (FILE_GWPPK,
+ * FILE_GTT33) in GoldenEye's own frame, with Perfect Dark's hands and
+ * Perfect Dark's placement - and is not borrowed from GoldenEye X. On those
+ * GoldenEye's placement (ownpos) is GoldenEye's gun where GoldenEye holds it,
+ * whichever look draws it.
+ *
+ * Not the classic submachine guns and rifles: measured on screen against
+ * GoldenEye's own models at the same placement, the KL01313 stood 12 units
+ * lower and fell off the bottom of the view, and the DMC and RC-P45 went
+ * further from GoldenEye's than their own placement is, so those models do
+ * not stand in GoldenEye's frame and keep Perfect Dark's placement.
+ */
+static s32 gegunsHostIsOwnModel(s32 index)
+{
+	if (borrowed[index]) {
+		return 0;
+	}
+
+	switch (g_GeWeaponHosts[index]) {
+	case WEAPON_PP9I:
+	case WEAPON_CC13:
+		return 1;
+	}
+
+	return 0;
+}
+
 // The host's own placement and part commands, to go back to when the gun is
 // drawn on the host's model again (the other look, F6)
 static s32 ownInUse[NUM_GE_GUNS];
@@ -1519,6 +1548,19 @@ void gegunsSetOwnModelInUse(s32 index, s32 inuse)
 		// the mission died at its first frame of play ("Unknown GBI opcode
 		// 0x103")
 		def->gunviscmds = NULL;
+	} else if (gegunsHostIsOwnModel(index)) {
+		// The host is GoldenEye's own pistol as Perfect Dark converted it
+		// for its classic guns, and the release's gun is laid onto it, so it
+		// is held where GoldenEye holds it. Perfect Dark held its classic PP9i
+		// 6 units higher and 14.5 nearer the eye than GoldenEye holds the PP7
+		// (10, -14.8, -19 against 11, -20.8, -33.5): the HD look's pistol sat
+		// high and large beside the release's and our N64 look's (F3
+		// 20260929-042658, "compare hand position to ge xbla release
+		// position, some say too far up")
+		def->posx = ownpos[index][0];
+		def->posy = ownpos[index][1];
+		def->posz = ownpos[index][2];
+		def->gunviscmds = hostVis[index];
 	} else {
 		def->posx = hostPos[index][0];
 		def->posy = hostPos[index][1];
