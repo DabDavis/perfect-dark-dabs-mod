@@ -14,9 +14,10 @@ extern "C" {
  * a blood splat, a bullet hole, a scorch mark - is a flat quad laid on the
  * plane of the triangle it hit, as big as it is whatever the surface under it,
  * so near a ledge, a table's edge or a doorway part of it hangs in the air.
- * With the setting on, the quad is cut down to the room triangles lying in its
- * plane (wallhitclip.c), once, a tick or two after it is made; props' marks
- * are left as they are.
+ * With the setting on, the quad is cut down to the room triangles under it
+ * that face its way within half its size of its plane, each piece laid on its
+ * own triangle (wallhitclip.c), once, a tick or two after it is made; props'
+ * marks are left as they are.
  */
 
 // wallhitReset(), once g_Wallhits is allocated
