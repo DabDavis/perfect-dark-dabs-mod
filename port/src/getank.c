@@ -251,6 +251,34 @@ s32 geTankPlayerDriving(struct player *player)
 	return 0;
 }
 
+/**
+ * The tank a projectile's owner is driving, which its flight test passes
+ * through. The shell starts at the barrel's end (tankMuzzle()), and the
+ * turret's and barrel's collision blocks are the model's second and later
+ * ones, which propSetPerimEnabled() leaves standing (objUpdateGeometry()):
+ * every shell hit its own tank on its first tick and went off at the muzzle
+ * (F3 20260928-230650, Runway: "it explodes right away").
+ */
+struct prop *geTankShellTank(struct prop *ownerprop)
+{
+	if (!ownerprop || ownerprop->type != PROPTYPE_PLAYER) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < PLAYERCOUNT(); i++) {
+		struct player *player = g_Vars.players[i];
+
+		if (player && player->prop == ownerprop && g_Tank[i].state != TANK_OUT) {
+			struct prop *tank = player->unk1af0;
+
+			return tank && tank->type == PROPTYPE_OBJ && tank->obj
+				&& tank->obj->type == OBJTYPE_TANK ? tank : NULL;
+		}
+	}
+
+	return NULL;
+}
+
 s32 geTankHidesChr(struct chrdata *chr)
 {
 	// the driver is inside it: the body the third person camera builds for
