@@ -435,6 +435,7 @@ struct xblameshbuilt {
 	u32 packgen;       // modelpackGetGeneration() when it was built
 	u8 beanscreenfit;  // a monitor's screens moved onto Bean's own (gebeanmats.screenfit)
 	f32 beanscreenquad[4][4][3]; // and where to (gebeanmats.screenquad)
+	u8 beanscreenrecess; // screens on Bean's recess, drawn as decals (gebeanmats.screenrecess)
 };
 
 // The pictures a build's materials draw with, when they are not records.
@@ -6801,6 +6802,7 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 	m->beanrow = e->beanrow;
 	m->beanscreenfit = bmats->screenfit;
 	memcpy(m->beanscreenquad, bmats->screenquad, sizeof(m->beanscreenquad));
+	m->beanscreenrecess = bmats->screenrecess;
 
 	// The tinted panes, by their picture
 	for (s32 i = 0; i < mats.num; i++) {
@@ -10000,14 +10002,14 @@ static s32 xblaMeshNodeIsLiveScreen(struct model *model, struct modelnode *node)
  * texture coordinates are the programme's and stay; only x, y and z move.
  * Nothing changes for a model drawn as GoldenEye's own.
  */
-void xblaMeshScreenQuad(struct model *model, struct modelnode *node, Vtx *vertices)
+s32 xblaMeshScreenQuad(struct model *model, struct modelnode *node, Vtx *vertices)
 {
 	struct xblameshentry *e;
 	const struct xblameshbuilt *m;
 	s32 part = -1;
 
 	if (!model || !model->definition || !node || !g_XblaMeshNumNodes || bypass) {
-		return;
+		return 0;
 	}
 
 	for (s32 p = MODELPART_0000; p <= MODELPART_0003; p++) {
@@ -10018,7 +10020,7 @@ void xblaMeshScreenQuad(struct model *model, struct modelnode *node, Vtx *vertic
 	}
 
 	if (part < 0) {
-		return;
+		return 0;
 	}
 
 	// The screen's own node when the mesh has a group for it, else any list
@@ -10057,20 +10059,25 @@ void xblaMeshScreenQuad(struct model *model, struct modelnode *node, Vtx *vertic
 			|| (e->fileid && modelpackFindN64(e->fileid))
 			|| (e->matched && xblaMeshEntryLive(e) && opened > 0)
 			|| !gebeanGetEnabled() || !(optEnabled || gebeanRowIsPool(e->beanrow))) {
-		return;
+		return 0;
 	}
 
 	m = xblaMeshBuildBean(e, !optEnabled);
 
-	if (!m || !(m->beanscreenfit & (1 << part))) {
-		return;
+	if (!m) {
+		return 0;
 	}
 
-	for (s32 c = 0; c < 4; c++) {
-		vertices[c].x = (s16)floorf(m->beanscreenquad[part][c][0] + 0.5f);
-		vertices[c].y = (s16)floorf(m->beanscreenquad[part][c][1] + 0.5f);
-		vertices[c].z = (s16)floorf(m->beanscreenquad[part][c][2] + 0.5f);
+	if (m->beanscreenfit & (1 << part)) {
+		for (s32 c = 0; c < 4; c++) {
+			vertices[c].x = (s16)floorf(m->beanscreenquad[part][c][0] + 0.5f);
+			vertices[c].y = (s16)floorf(m->beanscreenquad[part][c][1] + 0.5f);
+			vertices[c].z = (s16)floorf(m->beanscreenquad[part][c][2] + 0.5f);
+		}
 	}
+
+	// on its recess's back, which lies in the same plane (beanScreenFace())
+	return (m->beanscreenrecess & (1 << part)) != 0;
 }
 
 void xblaMeshSetEnvironment(s32 force)

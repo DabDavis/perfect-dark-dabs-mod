@@ -8080,21 +8080,28 @@ static s32 beanScreenBacking(const struct beanscreen *screens, s32 numscreens, f
 /**
  * A vertex of Bean's own model (not the placeholder) that lies on one of the
  * screens - within 1% of the screen's size of its plane and of its edges - is
- * the back of the recess the screen sits in, and is laid 2% of the size
- * behind the plane as a placeholder is. Dam's modem box (prop/modembox,
+ * the back of the recess the screen sits in. Dam's modem box (prop/modembox,
  * PROP_MODEMBOX) has its recess's back as a quad of the case's metal 0.19
  * units in front of GoldenEye's screen quad on a screen 400 across: the two
  * fought, and half the programme along the quad's diagonal showed the metal
  * (F3 20260926-093826, "visual glitch with terminal and camera"). Anything
  * standing off the plane - the case's front, its bevel's outer edge - or past
  * the screen's edges is left where it is; a bevel's inner edge on the screen's
- * rim goes back with the recess it shares its corners with.
+ * rim goes with the recess it shares its corners with.
+ *
+ * The recess is laid on the plane itself, and tvscreenRender() draws the
+ * programme over it in the decal depth mode (xblaMeshScreenQuad() says so).
+ * It used to be laid 2% of the size behind the plane, as a placeholder is,
+ * and the bevel's inner edge went back with it: the programme then stood half
+ * the bevel's depth in front of the recess it sits in, and seen from the side
+ * it covered the far side's bevel (F3 20260928-223116, the same modem box:
+ * "the top left corner is still overlapping").
  *
  * Only a screen whose node is a quad alone and that Bean's model has a recess
  * on all four corners of (beanScreenRecesses()): parts 0 to 3 are a monitor's
  * screens, but on a prop that is no monitor they are whatever the model
  * numbers so - Jungle's trees have lists of their own there, and their
- * trunks' vertices went back off their places.
+ * trunks' vertices went back off their places. Returns the screen's index + 1.
  */
 static s32 beanScreenFace(const struct beanscreen *screens, s32 numscreens, f32 *pos)
 {
@@ -8109,13 +8116,11 @@ static s32 beanScreenFace(const struct beanscreen *screens, s32 numscreens, f32 
 		if (s->quad && s->corners == 0xf && w >= -margin && w <= margin
 				&& u >= s->lo[0] - margin && u <= s->hi[0] + margin
 				&& v >= s->lo[1] - margin && v <= s->hi[1] + margin) {
-			const f32 back = w + s->size * 0.02f;
-
 			for (s32 k = 0; k < 3; k++) {
-				pos[k] -= s->axis[2][k] * back;
+				pos[k] -= s->axis[2][k] * w;
 			}
 
-			return 1;
+			return i + 1;
 		}
 	}
 
@@ -8707,6 +8712,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	s32 numrecess = 0;
 	s32 numclamped = 0;
 	u8 screenfit = 0;
+	u8 screenrecess = 0;
 	f32 screenquad[4][4][3];
 	u8 *file;
 
@@ -9139,8 +9145,13 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				if (placeholder && beanScreenBacking(screens, numscreens, pos)) {
 					backing = 1;
 					numbacking++;
-				} else if (!placeholder && beanScreenFace(screens, numscreens, pos)) {
-					numrecess++;
+				} else if (!placeholder) {
+					const s32 face = beanScreenFace(screens, numscreens, pos);
+
+					if (face) {
+						numrecess++;
+						screenrecess |= 1 << screens[face - 1].part;
+					}
 				}
 
 				if (part >= 0) {
@@ -9238,6 +9249,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	memset(mats->spent, -1, sizeof(mats->spent));
 	mats->num = nummatwords;
 	mats->screenfit = screenfit;
+	mats->screenrecess = screenrecess;
 	memcpy(mats->screenquad, screenquad, sizeof(mats->screenquad));
 
 	for (s32 i = 0; i < nummatwords; i++) {

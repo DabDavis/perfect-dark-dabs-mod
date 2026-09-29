@@ -515,6 +515,10 @@ struct gebeanmats {
 	// the part's own vertices (xblaMeshScreenQuad())
 	u8 screenfit;
 	f32 screenquad[4][4][3];
+	// and the screens whose recess's back Bean's model has on GoldenEye's
+	// quad, laid on its plane (beanScreenFace()): the programme is drawn over
+	// it as a decal
+	u8 screenrecess;
 };
 
 /**

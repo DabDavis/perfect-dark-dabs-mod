@@ -223,9 +223,10 @@ void xblaMeshSetScreens(struct model *model);
  * tvscreenRender()'s corners for a monitor's screen node, moved onto the
  * screen of Bean's HD model when that is what the model is drawn as and its
  * screen is not GoldenEye's quad (gebean.c's beanScreenFit()); left alone
- * otherwise.
+ * otherwise. True when the programme lies on the back of Bean's own recess
+ * for the screen (beanScreenFace()) and is to be drawn over it as a decal.
  */
-void xblaMeshScreenQuad(struct model *model, struct modelnode *node, Vtx *vertices);
+s32 xblaMeshScreenQuad(struct model *model, struct modelnode *node, Vtx *vertices);
 
 /**
  * Mod.XblaReflections, "Enable Reflections": the release's reflections on its
