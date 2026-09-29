@@ -516,6 +516,11 @@ struct gebeanmats {
 	// A body's neck node's group of its whole neck as Bean skins it, drawn
 	// under one of the pool's heads that ends at its jaw (gebean.c's ownof)
 	s8 ownneck[64];
+	// On a guard's body of the remake's own rows, for a list node, the group
+	// of its triangles less the skin of the body's own neck below the cut,
+	// drawn under one of the release's head files (gebean.c's ownskin); -1
+	// for none
+	s8 noskin[64];
 	// A monitor's screens (parts 0 to 3) whose programme goes on Bean's own
 	// pane rather than GoldenEye's quad (gebean.c's beanScreenFit()): a bit
 	// per part, and the four corners in the model's space, in the order of

@@ -12996,3 +12996,33 @@ on Caverns, Silo and Frigate. C and Python write the same AI bytes: Silo, Frigat
 Caverns and Statue Park's setups are identical, and Facility's differs only in
 four prop records' 400/600 words, which have nothing to do with this row.
 
+
+## A guard's own neck skin through another head's neck (22nd F3 pass, 2026-09-29)
+
+F3 20260929-092018 (Dam, HD look, `Cgx045Z` on `Cgx037Z` greatguard2, a guard
+dead on his back): "Mark Edmond's neck is wrong" - a jagged pale edge round the
+throat with the floor showing between the teeth. a0991794b had already taken the
+flat patch; the teeth were **not the head's**. With the head collapsed at the pose
+(a debug switch in `xblaMeshPose()`), the body alone still drew a ring of pale
+spikes over its collar: greatguard2 keeps the skin of its own neck below the cut
+(88 triangles in its two torso lists, on its face's picture, weighted to the
+back), the zig-zag the neck's triangles were cut away from. A head file's neck
+(neckback) covers it only while the head stands straight; thrown back, or turned
+at a side view, the teeth come through.
+
+- Fix: `gebeanBuild()` gives a guard body of the remake's rows
+  (`dropownskin`: chr rows, `GEBEAN_BODY`, not a Bond outfit) a second group per
+  back list node without that skin (`gebeanmats.noskin`: triangles on the neck's
+  picture, not the neck's, over `BEAN_OWNSKIN_BELOW` under the joint), and
+  `xblaMeshRenderNode()` draws it only when the grafted head is a neckback head
+  (`xblaMeshHeadIsNeckBack()`). Under a Brosnan head cut at the collar the ring is
+  still what closes the collar - left out, the throat opened black - so there
+  nothing changes. Only greatguard2 has such a ring among the 20 guard, civilian
+  and women bodies swept (log line "its own neck's skin under the collar").
+- Tried and dropped: turning the neck's blend into a slerp about the joint (no
+  visible change), and unpinning or pinning the collar's seam to the back (the
+  dead pose improved, standing got worse) - the seam pins were never the fault.
+- Checked: dead pose from above and standing at four sides, eight head files on
+  greatguard2 before/after; Brosnan head unchanged; N64 look pixel-identical.
+  Rig `~/wt/markneck-run` (`heads.sh`, `stand.sh`, `bodies.sh`, `probes/look.py`
+  with `SWAPHEAD`/`SETBODY` and `DUMP=<source>` to dump a built mesh).
