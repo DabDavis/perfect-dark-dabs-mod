@@ -9879,6 +9879,22 @@ void chrTickDead(struct chrdata *chr)
 			chr->act_dead.invistimer60 += g_Vars.lvupdate60;
 		}
 
+#ifndef PLATFORM_N64
+		// A converted GoldenEye mission spawns into chr slots that GoldenEye's
+		// own corpses give back a second and a half after they fall, and its
+		// lists spawn some characters once only: Statue Park's Natalya, whose
+		// one try at the helicopter found no slot after a fight's worth of
+		// bodies and never came (F3 20260928-232843). So once the spares run
+		// low, a body nobody is looking at goes, as stock does under memory
+		// pressure; bodies in view stay.
+		if (aibot == NULL && !chr->act_dead.fadewheninvis
+				&& !g_Vars.normmplayerisrunning && geRoomActive()
+				&& !(modBodyIsKept(chr) && modBodiesGetReserve() > 0)
+				&& chrsGetNumFree() < 10) {
+			chr->act_dead.fadewheninvis = true;
+		}
+#endif
+
 		if (chr->act_dead.fadewheninvis && chr->act_dead.invistimer60 >= TICKS(120)) {
 			// Remove corpse (off-screen)
 #ifndef PLATFORM_N64
