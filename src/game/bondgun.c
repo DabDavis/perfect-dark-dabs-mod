@@ -8936,7 +8936,13 @@ void bgun0f0a5550(s32 handnum)
 			inx = handnum == HAND_RIGHT ? 4.5f : -4.5f;
 		}
 
-		sp274.f[0] += (inx - func0f0b131c(handnum)) * player->codaimfrac;
+		// The barrel, not the model's origin, comes in to the middle: a
+		// model's origin need not be under its barrel, and on Perfect
+		// Dark's classic PP9i - which GoldenEye's PP7 is drawn on in the HD
+		// look - the muzzle stands 1.7 units to the left of it, which held
+		// the gun off to one side and turned its flank to the eye (F3
+		// 20260929-042906, "cod aim. bonds hand looks wrong with the pp7")
+		sp274.f[0] += (inx - func0f0b131c(handnum) - hand->codaimmuzzlex) * player->codaimfrac;
 		sp274.f[1] += 3.5f * player->codaimfrac;
 		sp274.f[2] += 3.0f * player->codaimfrac;
 	}
@@ -9458,6 +9464,12 @@ void bgun0f0a5550(s32 handnum)
 				hand->muzzlemat.m[3][1] += geoffset[1];
 				hand->muzzlemat.m[3][2] += geoffset[2];
 
+#ifndef PLATFORM_N64
+				// Both in the camera's space: where across the view the
+				// muzzle is from the model's origin (COD Style Aiming)
+				hand->codaimmuzzlex = hand->muzzlemat.m[3][0] - hand->cammtx.m[3][0];
+#endif
+
 				mtx4TransformVecInPlace(camGetProjectionMtxF(), &hand->muzzlepos);
 
 				hand->muzzlez = -(((Mtxf *)((uintptr_t)mtxallocation + sp6c * sizeof(Mtxf)))->m[3][2]
@@ -9489,6 +9501,9 @@ void bgun0f0a5550(s32 handnum)
 				mtx4TransformVecInPlace(camGetProjectionMtxF(), &hand->muzzlepos);
 
 				hand->muzzlez = -((Mtxf *)((uintptr_t)mtxallocation + sp6c * sizeof(Mtxf)))->m[3][2];
+#ifndef PLATFORM_N64
+				hand->codaimmuzzlex = 0.0f;
+#endif
 			} else {
 				hand->muzzlepos.x = hand->posmtx.m[3][0];
 				hand->muzzlepos.y = hand->posmtx.m[3][1];
@@ -9497,6 +9512,9 @@ void bgun0f0a5550(s32 handnum)
 				mtx4Copy(&hand->posmtx, &hand->muzzlemat);
 
 				hand->muzzlez = -hand->cammtx.m[3][2];
+#ifndef PLATFORM_N64
+				hand->codaimmuzzlex = 0.0f;
+#endif
 			}
 		}
 	} else {

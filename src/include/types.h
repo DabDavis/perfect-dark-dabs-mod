@@ -2447,6 +2447,13 @@ struct hand {
 	 * word past the end of the small one crashed as the gun was raised.
 	 */
 	u32 biggunsavedata[HAND_BIG_RWDATA];
+
+	/**
+	 * COD Style Aiming: how far across the view the muzzle stood from the
+	 * model's origin when the gun was last drawn, in the camera's units, so
+	 * the barrel rather than the origin comes in under the crosshair.
+	 */
+	f32 codaimmuzzlex;
 #endif
 };
 
