@@ -3359,7 +3359,10 @@ static void bgMarkRoomSeams(s32 roomnum)
 	Gfx *gdl = NULL;
 	s32 i;
 
-	if (gebeanStageDrawsEveryRoom()) {
+	// Asked of the look the room is loading under: once an HD level has been
+	// built it stays built for the level, and a room loaded after a switch to
+	// the N64 look is the file's own and wants its seams marked like any other
+	if (xblaStageDrawsEveryRoom()) {
 		// Never sealed (bgRenderRoomOpaque())
 		return;
 	}
@@ -4216,7 +4219,7 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 	// Not the HD levels' rooms: Bean's meshes are welded (no crack of this
 	// kind in them), and they draw the whole level, 30000 faces a frame on
 	// Surface, where sealing cost a quarter of the game thread
-	if (!gebeanStageDrawsEveryRoom()) {
+	if (!xblaStageDrawsEveryRoom()) {
 		gSPSetExtraGeometryModeEXT(gdl++, G_SEAL_SEAMS_EXT);
 	}
 #endif
