@@ -11392,7 +11392,12 @@ s32 gebeanFirstPersonOwnPlaceShiftX(s32 weaponnum, f32 *dx)
 		return 0;
 	}
 
-	*dx = own[0] - host[0];
+	// less where the model is really put now: GoldenEye's own model (which
+	// the release's gun is laid on since the guns went to the ROM's models)
+	// is put at GoldenEye's position already, and the shift taken off it too
+	// sent the Moonraker 23 units across, into the other hand's gun when
+	// the two were held akimbo (F3 20260929-201104)
+	*dx = own[0] - g_GeWeaponDefs[i].posx;
 
 	return 1;
 }
