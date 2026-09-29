@@ -453,7 +453,11 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 			}
 		}
 
-		g_MpSetup.stagenum = g_MpArenas[i].stagenum;
+		// A row past the list's end (the list got shorter under the menu)
+		// is an empty arena row, stage 0, which has no level to load
+		if (i < mpGetNumStages() && g_MpArenas[i].stagenum > 0) {
+			g_MpSetup.stagenum = g_MpArenas[i].stagenum;
+		}
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		for (i = 0; i < mpGetNumStages(); i++) {

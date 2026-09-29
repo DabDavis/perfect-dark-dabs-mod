@@ -1564,6 +1564,11 @@ s32 bgGetStageIndex(s32 stagenum)
 	s32 index = -1;
 	s32 i;
 
+	// the spare rows are all numbered 0; none of them is a stage
+	if (stagenum <= 0) {
+		return -1;
+	}
+
 	for (i = 0; i != ARRAYCOUNT(g_Stages); i++) {
 		if (g_Stages[i].id == stagenum) {
 			index = i;

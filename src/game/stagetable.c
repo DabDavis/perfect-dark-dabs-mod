@@ -97,6 +97,12 @@ s32 stageGetIndex(s32 stagenum)
 	struct stagetableentry *end = (struct stagetableentry *)(uintptr_t)stage + ARRAYCOUNT(g_Stages);
 	s32 i = 0;
 
+	// No stage is numbered 0, and every spare row past the ones in use is:
+	// matching it handed out an empty row with no files behind it
+	if (stagenum <= 0) {
+		return -1;
+	}
+
 	while (stage < end) {
 		if (stage->id == stagenum) {
 			return i;
