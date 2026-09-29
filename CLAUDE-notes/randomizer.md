@@ -274,3 +274,14 @@ gdb -p PID -batch \
 
 Word 5 is the first requirement's parameter: the objective struct is four words
 and the type word of the requirement is word 4.
+
+## Every other door into a mission disarms it (2026-09-29)
+
+F3 20260929-052625 and 052230 (b361e04): Random Mission on the Randomizer page,
+backed out of, left the roll armed; only Solo Missions disarmed it, so GE Plus's
+folder, Co-Operative, Counter-Operative and Ghost Trials dealt their next
+mission again - GoldenEye's missions with the roll's intro guns in hand, which a
+tester read as guns carried over from the mission before. `modRandomDisarmMission()`
+(and `modGhostDisarmTrial()`) now run on each of those doors (mainmenu.c,
+ghostmenu.c, gexfront.c `frontStartMission()`). A new door into a mission needs
+the same two calls.

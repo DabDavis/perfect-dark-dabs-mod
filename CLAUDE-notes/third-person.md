@@ -803,3 +803,20 @@ level; the chair's front is inside its desk, so stand the probe behind it (the
 tp distance negative); a gdb call stalls the game into one huge tick, so boot
 `--fixed-step` before stepping an animation frame by frame; in third person the
 use test needs the prop on screen *from the camera*.
+
+## The camera eases off walls instead of jumping (2026-09-29)
+
+F3 20260929-043759 (owner, GE Plus Facility, Camera Wall Clearance 80, Tether 3):
+"this spot and many others jerk the third person cam around". The wanted spot
+from the line + `playerClearCamera()` is discontinuous: in a corridor narrower
+than twice the clearance the push lands on one wall's side or the other's
+depending on which edge `cdExamCylMove02()` names (a 150-unit sideways move in
+one frame at the report's spot), and a jamb entering the line pulled the camera
+in 95 units at once. Now `playerPullBackCameraNow()` eases from last frame's
+offset (`g_ThirdPersonLastOffset`) to the wanted one - in, out and sideways -
+whenever the eased spot passes `playerCameraSpotClear()`: nothing on the line
+from the eye and an 8-unit volume clear (`CAMERA_HARD_CLEAR`). Only a spot that
+would be drawn from inside a wall still snaps. The dist-only ease this replaces
+eased outward moves alone. Measured with `camjerk.py` (a full turn at the spot,
+thirdpersondist and campos per frame): worst frame 95 -> 19 units; defaults
+(clearance 30, no tether) 0.8 -> 0.7. Probes: `~/wt/f3-0929c-gameplay-run/probes/camjerk.py`.
