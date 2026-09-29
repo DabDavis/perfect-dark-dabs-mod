@@ -182,10 +182,16 @@ static const char *const g_IconHdPictures[NUM_ICONS] = {
  * picture of its AmmoType, and WEAPONSTATBITFLAG_NO_CLIP_RELOADS, which is a
  * weapon with no magazine to speak of - everything held is one number. A
  * weapon whose AmmoType is AMMO_NONE (the knife in the hand, the laser) or has
- * no picture and is flagged HIDE_AMMO_DISPLAY (the key) shows nothing, and the
- * gadgets' types have no picture and count nothing the player can spend.
+ * no picture and is flagged HIDE_AMMO_DISPLAY (the key) shows nothing. A
+ * weapon with an AmmoType that has no picture shows its count all the same,
+ * with nothing beside it (`bare`, the picture's width taken as GoldenEye's 5):
+ * the covert modem (ITEM_BUG, AMMO_BUG) and the plastique show "1" (F3
+ * 20260929-092325). The watch magnet's AMMO_WATCH_MAGNET is the one more that
+ * would, and no count of it is kept here.
  */
-static const struct { u8 icon, noclip; } g_WeaponRows[NUM_GE_WEAPONS] = {
+#define GE_BARE_WIDTH 5
+
+static const struct { u8 icon, noclip, bare; } g_WeaponRows[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_PP7 - WEAPON_GE_FIRST]             = { ICON_9MM, 0 },
 	[WEAPON_GE_PP7SILENCED - WEAPON_GE_FIRST]     = { ICON_9MM, 0 },
 	[WEAPON_GE_DD44 - WEAPON_GE_FIRST]            = { ICON_9MM, 0 },
@@ -210,7 +216,16 @@ static const struct { u8 icon, noclip; } g_WeaponRows[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST]   = { ICON_PROXMINE, 1 },
 	[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST]      = { ICON_REMOTEMINE, 1 },
 	[WEAPON_GE_TANKSHELLS - WEAPON_GE_FIRST]      = { ICON_TANK, 0 },
+	[WEAPON_GE_COVERTMODEM - WEAPON_GE_FIRST]     = { ICON_NONE, 1, 1 },
+	[WEAPON_GE_PLASTIQUE - WEAPON_GE_FIRST]       = { ICON_NONE, 1, 1 },
 };
+
+/** Whether one of GoldenEye's weapons shows no ammunition at all. */
+static s32 hudWeaponShowsNothing(s32 weaponnum)
+{
+	return g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon == ICON_NONE
+		&& !g_WeaponRows[weaponnum - WEAPON_GE_FIRST].bare;
+}
 
 static struct {
 	s32 stagenum;
@@ -527,7 +542,7 @@ static s32 hudHandAmmo(s32 handnum, s32 *icon, s32 *mag, s32 *reserve, s32 *nocl
 	*icon = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon;
 	*noclip = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].noclip;
 
-	if (*icon == ICON_NONE) {
+	if (hudWeaponShowsNothing(weaponnum)) {
 		return 0;
 	}
 
@@ -670,16 +685,18 @@ Gfx *geHudRenderAmmo(Gfx *gdl)
 		// microcode_generation_ammo_related(): an odd picture sits half a unit
 		// right of its middle and half a unit up, which is what keeps its
 		// edges on whole units
-		tex = release ? hudReleaseIcon(icon, &hd) : NULL;
-		width = g_IconRows[icon].width;
+		tex = release && icon != ICON_NONE ? hudReleaseIcon(icon, &hd) : NULL;
+		width = icon != ICON_NONE ? g_IconRows[icon].width : GE_BARE_WIDTH;
 		x0 = cx - width / 2;
 		y0 = bottom - 20 + g_IconRows[icon].yoffset - (g_IconRows[icon].height + 1) / 2;
 
 		// GoldenEye's own a texel a pixel, the release's filtered down
-		gdl = hudImage(gdl, tex ? tex : &g_Hud.icons[icon], 2, tex == NULL, 1,
-				viGetViewLeft() + x0 * f.sx, viGetViewTop() + y0 * f.sy,
-				viGetViewLeft() + (x0 + width) * f.sx, viGetViewTop() + (y0 + g_IconRows[icon].height) * f.sy,
-				tex ? tex->width : width, tex ? tex->height : g_IconRows[icon].height, 255, 255);
+		if (icon != ICON_NONE) {
+			gdl = hudImage(gdl, tex ? tex : &g_Hud.icons[icon], 2, tex == NULL, 1,
+					viGetViewLeft() + x0 * f.sx, viGetViewTop() + y0 * f.sy,
+					viGetViewLeft() + (x0 + width) * f.sx, viGetViewTop() + (y0 + g_IconRows[icon].height) * f.sy,
+					tex ? tex->width : width, tex ? tex->height : g_IconRows[icon].height, 255, 255);
+		}
 
 		gdl = gexFrontTextSetup(gdl);
 
@@ -739,8 +756,7 @@ s32 geHudWatchAmmo(s32 weaponnum, s32 *mag, s32 *reserve)
 	const struct hand *hand = &player->hands[HAND_RIGHT];
 	s32 icon, noclip, type, clip, total;
 
-	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= NUM_WEAPONS
-			|| g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon == ICON_NONE) {
+	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= NUM_WEAPONS || hudWeaponShowsNothing(weaponnum)) {
 		return 0;
 	}
 
@@ -789,19 +805,21 @@ Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox,
 	icon = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon;
 	noclip = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].noclip;
 
-	if (icon == ICON_NONE) {
+	if (hudWeaponShowsNothing(weaponnum)) {
 		return gdl;
 	}
 
-	width = g_IconRows[icon].width;
+	width = icon != ICON_NONE ? g_IconRows[icon].width : GE_BARE_WIDTH;
 	height = g_IconRows[icon].height;
 	cx = 200.0f + (width * 0.5f - (f32)(width / 2));
 	cy = 180.0f - height * 0.5f;
 
-	gdl = hudImage(gdl, &g_Hud.icons[icon], 2, 1, 1,
-			ox + (cx - width * 0.5f) * sx, oy + (cy - height * 0.5f) * sy,
-			ox + (cx + width * 0.5f) * sx, oy + (cy + height * 0.5f) * sy,
-			width, height, 255, 255);
+	if (icon != ICON_NONE) {
+		gdl = hudImage(gdl, &g_Hud.icons[icon], 2, 1, 1,
+				ox + (cx - width * 0.5f) * sx, oy + (cy - height * 0.5f) * sy,
+				ox + (cx + width * 0.5f) * sx, oy + (cy + height * 0.5f) * sy,
+				width, height, 255, 255);
+	}
 
 	gdl = gexFrontTextSetup(gdl);
 
