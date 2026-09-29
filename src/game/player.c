@@ -7353,6 +7353,18 @@ void playerDieByShooter(u32 shooter, bool force)
 #endif
 		bgunHandlePlayerDead();
 
+#ifndef PLATFORM_N64
+		// GoldenEye's bondviewKillCurrentPlayer() equips nothing in both
+		// hands, so the body it replays the death on holds no gun. Perfect
+		// Dark only takes the body's guns away in multiplayer, where they
+		// are dropped (above); on a converted mission Bond fell and was
+		// replayed with them still in his fists (F3 20260929-092433).
+		if (modloaderStageIsMission(g_Vars.stagenum) && !g_Vars.mplayerisrunning) {
+			playermgrDeleteWeapon(HAND_RIGHT);
+			playermgrDeleteWeapon(HAND_LEFT);
+		}
+#endif
+
 		if (playerGetMissionTime() - g_Vars.currentplayer->lifestarttime60 < g_Vars.currentplayerstats->shortestlife) {
 			g_Vars.currentplayerstats->shortestlife = playerGetMissionTime() - g_Vars.currentplayer->lifestarttime60;
 		}
