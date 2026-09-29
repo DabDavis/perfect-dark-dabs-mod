@@ -8689,6 +8689,47 @@ static void bgunSetGunMatrices(struct modelrenderdata *renderdata, struct hand *
  * Create casing and beam for a fired weapon,
  * and uncloak if the weapon is a throwable or fired projectile.
  */
+#ifndef PLATFORM_N64
+/**
+ * A casing for the release's gun drawn on GoldenEye's own model (the HD look,
+ * gebean.c's fpOnOwnInHd), which carries no ejection port: GoldenEye throws
+ * no casings in first person, and its model has nowhere to throw them from.
+ * On the host's model the release's Klobb, D5K, RC-P90 and the rest threw
+ * them from the host's port, and falling back to the hand's origin put them
+ * behind the eye where they were never seen. The port is taken along the
+ * barrel, from the model's origin to its muzzle, in the muzzle's own frame so
+ * they fly out to the side the way the host's did.
+ */
+static bool bgunCreateOwnModelCasing(s32 handnum, s32 weaponnum, struct modeldef *modeldef, u8 *allocation, f32 ground)
+{
+	f32 offset[3];
+	struct modelnode *muzzle = gegunsOwnModelMuzzle(weaponnum, modeldef, offset);
+	Mtxf *mtxs = (Mtxf *)allocation;
+	Mtxf port;
+	s32 index;
+
+	if (!muzzle || (index = modelFindNodeMtxIndex(muzzle, 0)) < 0) {
+		return false;
+	}
+
+	mtx4Copy(&mtxs[index], &port);
+
+	for (s32 a = 0; a < 3; a++) {
+		const f32 end = mtxs[index].m[3][a] + mtxs[index].m[0][a] * offset[0]
+			+ mtxs[index].m[1][a] * offset[1] + mtxs[index].m[2][a] * offset[2];
+
+		port.m[3][a] = mtxs[0].m[3][a] + (end - mtxs[0].m[3][a]) * 0.55f;
+	}
+
+	mtx00015f04(9.999999f, &port);
+	mtx4MultMtx4InPlace(camGetProjectionMtxF(), &port);
+
+	casingCreateForHand(handnum, ground, &port);
+
+	return true;
+}
+#endif
+
 void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s32 weaponnum, struct modeldef *modeldef, u8 *allocation)
 {
 	f32 ground;
@@ -8720,7 +8761,15 @@ void bgunCreateFx(struct hand *hand, s32 handnum, struct weaponfunc *funcdef, s3
 				mtx4MultMtx4InPlace(camGetProjectionMtxF(), &sp24);
 
 				casingCreateForHand(handnum, ground, &sp24);
-			} else {
+			}
+#ifndef PLATFORM_N64
+			else if (gebeanFirstPersonReleaseFile(weaponnum) && gegunsOwnModelInUse(weaponnum)
+					&& bgunCreateOwnModelCasing(handnum, weaponnum, modeldef, allocation, ground)) {
+				// the HD look's gun on GoldenEye's own model, which has no
+				// ejection port of its own
+			}
+#endif
+			else {
 				casingCreateForHand(handnum, ground, &hand->posmtx);
 			}
 
