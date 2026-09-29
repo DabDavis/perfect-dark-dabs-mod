@@ -11,6 +11,9 @@
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
 #include "game/inv.h"
+#ifndef PLATFORM_N64
+#include "getank.h"
+#endif
 #include "game/training.h"
 #include "game/lang.h"
 #include "bss.h"
@@ -868,7 +871,13 @@ void invChooseCycleForwardWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 	if (g_Vars.currentplayer->equipallguns) {
 		s32 candidate = *ptr1;
 
-		if (weaponHasFlag(*ptr1, WEAPONFLAG_DUALWIELD) && *ptr2 != *ptr1) {
+		if (weaponHasFlag(*ptr1, WEAPONFLAG_DUALWIELD) && *ptr2 != *ptr1
+#ifndef PLATFORM_N64
+				// the tank's driver has no left hand (bgunTickSwitch2()): the
+				// pair is refused and the cycle would ask for it for ever
+				&& !geTankIsDriving()
+#endif
+				) {
 			// Switching to dual from single
 			weapon1 = *ptr1;
 			weapon2 = *ptr1;
