@@ -2240,6 +2240,19 @@ void lvUpdateSoloHandicaps(void)
 				g_EnemyAccuracyScale = 1;
 				g_PlayerDamageRxScale = 1;
 			}
+
+			// The Japanese cartridge widens auto-aim's reach on Secret Agent
+			// (1.1, not 0.75) and 00 Agent (0.75, not 0.2) - the decomp's
+			// lv.c under j_text_trigger. Agent's 1.5 and 007's own value are
+			// the same on both. The US figures are Perfect Dark's already, and
+			// its early JPN build had the same switch (g_Jpn above).
+			if (gexFrontIsJapanese()) {
+				if (g_Difficulty == DIFF_SA) {
+					g_AutoAimScale = 1.1f;
+				} else if (g_Difficulty == DIFF_PA && !g_MissionConfig.pdmode) {
+					g_AutoAimScale = 0.75f;
+				}
+			}
 		}
 #endif
 	}

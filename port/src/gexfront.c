@@ -2873,7 +2873,10 @@ static void frontTickMission(s32 pick, s32 back)
 		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_SELECT);
 		g_Front.mission = g_Front.highlight;
 		g_Front.screen = SCREEN_DIFFICULTY;
-		frontSetCursorForDifficulty(frontHighestDifficulty(g_Front.mission));
+
+		// The Japanese cartridge starts the cursor on Agent rather than on the
+		// highest difficulty open (the decomp's front.c, under j_text_trigger).
+		frontSetCursorForDifficulty(gexFrontIsJapanese() ? DIFF_A : frontHighestDifficulty(g_Front.mission));
 	}
 }
 
