@@ -5131,6 +5131,12 @@ MenuItemHandlerResult menuhandlerMainMenuCooperative(s32 operation, struct menui
 	if (operation == MENUOP_SET) {
 		g_MissionConfig.iscoop = true;
 		g_MissionConfig.isanti = false;
+#ifndef PLATFORM_N64
+		// Backing out of the Randomizer or Ghost Trials page's mission select
+		// leaves its arming on; this door is an ordinary mission too.
+		modGhostDisarmTrial();
+		modRandomDisarmMission();
+#endif
 		menuPushDialog(&g_SelectMissionMenuDialog);
 	}
 
@@ -5148,6 +5154,10 @@ MenuItemHandlerResult menuhandlerMainMenuCounterOperative(s32 operation, struct 
 	if (operation == MENUOP_SET) {
 		g_MissionConfig.iscoop = false;
 		g_MissionConfig.isanti = true;
+#ifndef PLATFORM_N64
+		modGhostDisarmTrial();
+		modRandomDisarmMission();
+#endif
 		menuPushDialog(&g_SelectMissionMenuDialog);
 	}
 

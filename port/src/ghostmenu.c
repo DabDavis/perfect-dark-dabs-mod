@@ -10,6 +10,7 @@
 #include "game/menu.h"
 #include "bss.h"
 #include "game/modghost.h"
+#include "game/modrandom.h"
 #include "config.h"
 #include "lib/vi.h"
 #include "ghostnet.h"
@@ -87,6 +88,9 @@ static MenuItemHandlerResult menuhandlerGhostMission(s32 operation, struct menui
 		g_MissionConfig.iscoop = false;
 		g_MissionConfig.isanti = false;
 
+		// the Randomizer page's arming comes off, as the Randomizer page
+		// takes this page's off: one door, one kind of mission
+		modRandomDisarmMission();
 		modGhostArmTrial();
 		menuPushDialog(&g_SelectMissionMenuDialog);
 	}
