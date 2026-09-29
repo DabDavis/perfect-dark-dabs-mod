@@ -90,6 +90,10 @@ struct GfxRenderingAPI {
     bool (*occlusion_begin)(int slot);
     void (*occlusion_end)(int slot);
     int (*occlusion_result)(int slot);
+    // What the texture cache may grow to: the most textures the backend can
+    // hold at once, and the card's video memory in bytes, 0 when it cannot
+    // tell. May be null.
+    void (*get_texture_limits)(uint32_t* max_textures, uint64_t* vram_bytes);
 };
 
 // Occlusion query slots a backend provides

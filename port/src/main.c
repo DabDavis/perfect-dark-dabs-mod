@@ -291,7 +291,13 @@ int main(int argc, const char **argv)
 	// issuing draw calls apart from one bound by transforming vertices.
 	g_GfxLogStats = sysArgGetInt("--gfxstats", 0);
 	g_GfxMaxBufferedTris = sysArgGetInt("--gfxbatch", g_GfxMaxBufferedTris);
-	g_GfxTexCacheSize = sysArgGetInt("--gfxtexcache", g_GfxTexCacheSize);
+	// The texture cache sizes itself; --gfxtexcache N fixes it at N instead,
+	// for measuring (gfx_pc.cpp, g_GfxTexCacheSize).
+	if (sysArgCheck("--gfxtexcache")) {
+		const s32 n = sysArgGetInt("--gfxtexcache", (s32)g_GfxTexCacheSize);
+		g_GfxTexCacheSize = n < 8 ? 8 : (u32)n;
+		g_GfxTexCacheFixed = 1;
+	}
 
 	// Spectator from the first frame. A button press cannot happen before the
 	// stage loads, and the headless runs that want this cannot press one at all.

@@ -2473,6 +2473,17 @@ static void gfx_vk_delete_texture(uint32_t id) {
     }
 }
 
+static void gfx_vk_get_texture_limits(uint32_t *max_textures, uint64_t *vram_bytes) {
+    // Every image, the framebuffers' too, takes a slot of the bindless table
+    *max_textures = vk_max_texture_slots;
+    *vram_bytes = 0;
+    for (uint32_t i = 0; i < vk_memprops.memoryHeapCount; i++) {
+        if (vk_memprops.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+            *vram_bytes = std::max<uint64_t>(*vram_bytes, vk_memprops.memoryHeaps[i].size);
+        }
+    }
+}
+
 static void gfx_vk_select_texture(int tile, uint32_t texture_id, bool linear_filter) {
     vk_active_tile = tile;
     vk_bound[tile].kind = VK_BIND_TEXTURE;
@@ -2482,7 +2493,14 @@ static void gfx_vk_select_texture(int tile, uint32_t texture_id, bool linear_fil
 
 static void gfx_vk_upload_texture(const uint8_t *rgba32_buf, uint32_t width, uint32_t height, bool gen_mipmaps) {
     const VkBinding b = vk_bound[vk_active_tile];
-    if (b.kind != VK_BIND_TEXTURE || b.id == 0 || b.id >= vk_textures.size() || width == 0 || height == 0) {
+    if (b.kind != VK_BIND_TEXTURE || b.id == 0 || b.id >= vk_textures.size()) {
+        return;
+    }
+    if (width == 0 || height == 0) {
+        // Nothing to show, and not whatever the name held before: the texture
+        // cache hands a name on to the next texture once it has thrown out
+        // the last one, and keeping the old image here drew that one instead.
+        vk_image_destroy(vk_textures[b.id].img);
         return;
     }
 
@@ -4585,6 +4603,7 @@ struct GfxRenderingAPI gfx_vulkan_api = {
     gfx_vk_occlusion_begin,
     gfx_vk_occlusion_end,
     gfx_vk_occlusion_result,
+    gfx_vk_get_texture_limits,
 };
 
 #endif // PD_HAVE_VULKAN

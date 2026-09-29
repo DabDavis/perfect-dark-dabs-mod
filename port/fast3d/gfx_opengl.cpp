@@ -829,10 +829,34 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_f
 }
 
 static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height, bool gen_mipmaps) {
+    const bool mips = gen_mipmaps || current_filter_mode == FILTER_THREE_POINT;
+
+    // A texture name is used again once the cache has thrown out what it held,
+    // and glTexImage2D replaces level 0 alone: the smaller levels of whatever
+    // was there before stay, and a sampler that reads them drew the old
+    // picture at a distance. Only the levels written here may be read.
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, mips ? 1000 : 0);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
-	if (gen_mipmaps || current_filter_mode == FILTER_THREE_POINT) {
+	if (mips) {
 		glGenerateMipmap(GL_TEXTURE_2D);
 	}
+}
+
+static void gfx_opengl_get_texture_limits(uint32_t* max_textures, uint64_t* vram_bytes) {
+    *max_textures = 16384; // names are not a limit in OpenGL
+    *vram_bytes = 0;
+
+    // Whichever of the drivers' own memory queries this one has: NVIDIA's
+    // total, else AMD's (and Mesa's) free texture memory, both in KB
+    GLint kb[4] = { 0, 0, 0, 0 };
+    if (SDL_GL_ExtensionSupported("GL_NVX_gpu_memory_info")) {
+        glGetIntegerv(0x9047 /* GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX */, kb);
+    } else if (SDL_GL_ExtensionSupported("GL_ATI_meminfo")) {
+        glGetIntegerv(0x87FC /* TEXTURE_FREE_MEMORY_ATI */, kb);
+    }
+    if (kb[0] > 0) {
+        *vram_bytes = (uint64_t)kb[0] * 1024;
+    }
 }
 
 static uint32_t gfx_cm_to_opengl(uint32_t val) {
@@ -2721,5 +2745,6 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_capture_stop,
     gfx_opengl_occlusion_begin,
     gfx_opengl_occlusion_end,
-    gfx_opengl_occlusion_result
+    gfx_opengl_occlusion_result,
+    gfx_opengl_get_texture_limits,
 };
