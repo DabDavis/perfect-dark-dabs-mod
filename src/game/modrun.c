@@ -542,6 +542,30 @@ const char *modRunGetStageName(s32 stagenum)
 }
 
 /**
+ * Whether a stage is one of the stock Combat Simulator arenas and not a
+ * mission: a hop onto one loads its solo setup, a stub with none of the
+ * arena's props, lifts included (modalarm.c, modAlarmCutLiftlessClimbs()).
+ */
+bool modRunStageIsStockArena(s32 stagenum)
+{
+	s32 i;
+
+	for (i = 0; i < NUM_SOLOSTAGES; i++) {
+		if ((s32)g_SoloStages[i].stagenum == stagenum) {
+			return false;
+		}
+	}
+
+	for (i = 0; i < MP_NUM_STOCK_ARENAS && i < (s32)ARRAYCOUNT(g_MpArenas); i++) {
+		if (g_MpArenas[i].stagenum == stagenum) {
+			return stagenum != STAGE_MP_RANDOM;
+		}
+	}
+
+	return false;
+}
+
+/**
  * Whether a stage may be landed in.
  *
  * The pool is built from the game's own two lists of maps - the missions in

@@ -17,6 +17,7 @@
 #include "game/mplayer/mplayer.h"
 #include "game/pad.h"
 #include "game/prop.h"
+#include "game/setuputils.h"
 #include "bss.h"
 #include "lib/ailist.h"
 #include "lib/collision.h"
@@ -817,6 +818,276 @@ void modAlarmBuildPadWaypoints(void)
 #endif
 }
 
+/**
+ * A stage's own waypoint links that climb where nothing carries a chr up.
+ *
+ * A Combat Simulator arena loaded solo - every Randomizer hop onto one - takes
+ * its solo setup, which is a stub: no props, so none of the arena's lifts.
+ * The arena's waypoints still link the bottom of each lift shaft to its top,
+ * and the run's reach rule reads the waygroups, which say those levels join.
+ * So Fortress's guards were dealt into the pits under a landing on the
+ * battlements, and routed to the missing lift, stood at the bottom of the
+ * shaft looking up at the player for the rest of the room (F3
+ * 20260929-193910: pad 147, room 55, is linked 546 units straight up to pad
+ * 148 in room 58).
+ *
+ * During a run on a stock arena, once the props are up, a link that rises more
+ * than a stair and steeply - a shaft or the step off a lift's landing, not a
+ * slope - is walked (modAlarmPadsWalkable(), the pad graph's own
+ * test) from the lower end; one that cannot be walked, with no lift standing
+ * near either end, is cut both ways. Only on the arenas: a mission's setup has
+ * its lifts, and the walk test refuses some of the slopes a mission's own
+ * waypoints climb (Crash Site's, Villa's steps), which its guards do walk. The waygroups are then rebuilt as the
+ * graph's connected pieces, as a pad-built graph's are, so a piece the cut
+ * left alone is one the reach rule knows is alone. A stage with nothing to cut
+ * is left exactly as it was.
+ */
+#define MODALARM_CLIMBRISE 100.0f // floors further apart than this are a climb to test
+#define MODALARM_CLIMBSLOPE 0.6f  // and rise more than this for every unit they run
+#define MODALARM_LIFTNEAR  400.0f // a lift this close to either end carries the climb
+#define MODALARM_MAXLIFTS  64
+
+void modAlarmCutLiftlessClimbs(void)
+{
+#ifndef PLATFORM_N64
+	struct waypoint *waypoints = g_StageSetup.waypoints;
+	struct defaultobj *obj;
+	struct coord lifts[MODALARM_MAXLIFTS];
+	s32 numlifts = 0;
+	s32 n = 0;
+	s32 numcut = 0;
+	s32 numlinks = 0;
+	s32 numgroups = 0;
+	s32 largest = 0;
+	struct coord *pos;
+	f32 *floory;
+	RoomNum *rooms;
+	s32 *group;
+	s32 *queue;
+	s32 *grlists;
+	s32 *noneighbours;
+	struct waygroup *groups;
+	s32 grpos;
+	s32 i;
+	s32 j;
+	u64 started;
+
+	if (!modRunIsOn() || g_ModAlarmPadGraph || waypoints == NULL || waypoints[0].padnum < 0
+			|| g_StageSetup.props == NULL || !modRunStageIsStockArena(g_Vars.stagenum)) {
+		return;
+	}
+
+	started = sysGetMicroseconds();
+
+	for (obj = (struct defaultobj *)g_StageSetup.props; obj->type != OBJTYPE_END;
+			obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj))) {
+		if (obj->type == OBJTYPE_LIFT && obj->prop && numlifts < MODALARM_MAXLIFTS) {
+			lifts[numlifts++] = obj->prop->pos;
+		}
+	}
+
+	while (waypoints[n].padnum >= 0) {
+		n++;
+	}
+
+	pos = malloc(n * sizeof(*pos));
+	floory = malloc(n * sizeof(*floory));
+	rooms = malloc(n * sizeof(*rooms));
+
+	if (pos == NULL || floory == NULL || rooms == NULL) {
+		free(pos); free(floory); free(rooms);
+		return;
+	}
+
+	for (i = 0; i < n; i++) {
+		struct pad pad;
+		RoomNum padrooms[2];
+		RoomNum floorroom;
+		f32 ground;
+
+		padUnpack(waypoints[i].padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
+		pos[i] = pad.pos;
+		rooms[i] = pad.room;
+		floory[i] = pad.pos.y;
+
+		padrooms[0] = pad.room;
+		padrooms[1] = -1;
+
+		if (pad.room > 0 && modAlarmWalkGround(&pad.pos, 10.0f, padrooms, &ground, &floorroom)) {
+			floory[i] = ground;
+		}
+	}
+
+	for (i = 0; i < n; i++) {
+		s32 *nb = waypoints[i].neighbours;
+		s32 out = 0;
+
+		if (nb == NULL) {
+			continue;
+		}
+
+		for (j = 0; nb[j] >= 0; j++) {
+			const s32 k = nb[j] & 0x3fffffff;
+			bool cut = false;
+
+			if (k < n && fabsf(floory[k] - floory[i]) > MODALARM_CLIMBRISE
+					&& fabsf(floory[k] - floory[i]) * fabsf(floory[k] - floory[i])
+						> MODALARM_CLIMBSLOPE * MODALARM_CLIMBSLOPE * ((pos[k].x - pos[i].x) * (pos[k].x - pos[i].x) + (pos[k].z - pos[i].z) * (pos[k].z - pos[i].z))) {
+				const s32 lo = floory[k] < floory[i] ? k : i;
+				const s32 hi = lo == i ? k : i;
+				bool lifted = false;
+				s32 l;
+
+				for (l = 0; l < numlifts && !lifted; l++) {
+					f32 ax = lifts[l].x - pos[lo].x;
+					f32 az = lifts[l].z - pos[lo].z;
+					f32 bx = lifts[l].x - pos[hi].x;
+					f32 bz = lifts[l].z - pos[hi].z;
+
+					lifted = ax * ax + az * az < MODALARM_LIFTNEAR * MODALARM_LIFTNEAR
+						|| bx * bx + bz * bz < MODALARM_LIFTNEAR * MODALARM_LIFTNEAR;
+				}
+
+				cut = !lifted && rooms[lo] > 0 && rooms[hi] > 0
+					&& !modAlarmPadsWalkable(&pos[lo], rooms[lo], &pos[hi], rooms[hi]);
+			}
+
+			if (cut) {
+				if (g_ChrSpawnTrace) {
+					sysLogPrintf(LOG_NOTE, "alarm: cut pad %d (room %d, floor %.0f) - pad %d (room %d, floor %.0f), %.0f apart",
+							waypoints[i].padnum, rooms[i], floory[i], waypoints[k].padnum, rooms[k], floory[k],
+							sqrtf((pos[k].x - pos[i].x) * (pos[k].x - pos[i].x) + (pos[k].z - pos[i].z) * (pos[k].z - pos[i].z)));
+				}
+
+				numcut++;
+				continue;
+			}
+
+			nb[out++] = nb[j];
+		}
+
+		nb[out] = -1;
+		numlinks += out;
+	}
+
+	// A link cut one way (its far end's list is walked from the other side)
+	// is cut the other: the climb test is the same pair of pads either way,
+	// so both lists lost it.
+
+	if (numcut == 0) {
+		free(pos); free(floory); free(rooms);
+		return;
+	}
+
+	group = malloc(n * sizeof(*group));
+	queue = malloc(n * sizeof(*queue));
+
+	if (group == NULL || queue == NULL) {
+		free(pos); free(floory); free(rooms); free(group); free(queue);
+		return;
+	}
+
+	for (i = 0; i < n; i++) {
+		group[i] = -1;
+	}
+
+	// Connected pieces, links taken either way
+	for (i = 0; i < n; i++) {
+		s32 head = 0;
+		s32 tail = 0;
+
+		if (group[i] >= 0) {
+			continue;
+		}
+
+		group[i] = numgroups;
+		queue[tail++] = i;
+
+		while (head < tail) {
+			const s32 cur = queue[head++];
+			const s32 *nb = waypoints[cur].neighbours;
+			s32 m;
+
+			for (j = 0; nb && nb[j] >= 0; j++) {
+				const s32 k = nb[j] & 0x3fffffff;
+
+				if (k < n && group[k] < 0) {
+					group[k] = numgroups;
+					queue[tail++] = k;
+				}
+			}
+
+			// And the links into it from waypoints that list it
+			for (m = 0; m < n; m++) {
+				const s32 *mb = waypoints[m].neighbours;
+
+				if (group[m] >= 0 || mb == NULL) {
+					continue;
+				}
+
+				for (j = 0; mb[j] >= 0; j++) {
+					if ((mb[j] & 0x3fffffff) == cur) {
+						group[m] = numgroups;
+						queue[tail++] = m;
+						break;
+					}
+				}
+			}
+		}
+
+		if (tail > largest) {
+			largest = tail;
+		}
+
+		numgroups++;
+	}
+
+	groups = mempAlloc(ALIGN16((numgroups + 1) * sizeof(struct waygroup)), MEMPOOL_STAGE);
+	grlists = mempAlloc(ALIGN16((n + numgroups) * sizeof(s32)), MEMPOOL_STAGE);
+	noneighbours = mempAlloc(ALIGN16(sizeof(s32)), MEMPOOL_STAGE);
+
+	if (groups && grlists && noneighbours) {
+		*noneighbours = -1;
+		grpos = 0;
+
+		for (j = 0; j < numgroups; j++) {
+			groups[j].neighbours = noneighbours;
+			groups[j].waypoints = &grlists[grpos];
+			groups[j].step = -1;
+
+			for (i = 0; i < n; i++) {
+				if (group[i] == j) {
+					grlists[grpos++] = i;
+				}
+			}
+
+			grlists[grpos++] = -1;
+		}
+
+		groups[numgroups].neighbours = NULL;
+		groups[numgroups].waypoints = NULL;
+		groups[numgroups].step = 0;
+
+		for (i = 0; i < n; i++) {
+			waypoints[i].groupnum = group[i];
+			waypoints[i].step = -1;
+		}
+
+		g_StageSetup.waygroups = groups;
+
+		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x: %d waypoint link(s) climb where no lift stands (%d lifts); cut, %d links left, %d groups (largest %d), in %d ms",
+				g_Vars.stagenum, numcut, numlifts, numlinks, numgroups, largest,
+				(s32)((sysGetMicroseconds() - started) / 1000));
+	}
+
+	free(pos);
+	free(floory);
+	free(rooms);
+	free(group);
+	free(queue);
+#endif
+}
+
 void modAlarmReset(void)
 {
 	s32 i;
@@ -1472,12 +1743,19 @@ bool modAlarmIsGuard(struct chrdata *chr)
  * open is a squad pressed against it for the rest of the room. GoldenEye
  * Arenas' Archives keeps its secret wall between rooms 17 and 62 shut to the
  * AI, and a run sealed in room 16 dealt every guard's route through it
- * (F3 20260928-170416). The player can open it, so the run's guards may too,
- * on such a stage only: a map's own waypoints were laid out around its doors.
+ * (F3 20260928-170416). The player can open it, so the run's guards may too.
+ *
+ * A map's own waypoints are no better: Area 51 Escape links room 231 to 223
+ * through a door shut to the AI, and a run sealed in room 229 had five of its
+ * six walk-in guards dealt into 231 pressed against that door for the whole
+ * room (F3 20260929-195347, -195516). The walk-in ring and the zone deal
+ * take a guard's reach from the waygroups, which know nothing of doors, so
+ * during a run a run's guards open any door, whoever laid the waypoints. A
+ * mission's own Alerted Guards keep the stock rule outside a pad-built graph.
  */
 bool modAlarmGuardOpensAnyDoor(struct chrdata *chr)
 {
-	return g_ModAlarmPadGraph && modAlarmIsGuard(chr);
+	return (g_ModAlarmPadGraph || modRunIsPlaying()) && modAlarmIsGuard(chr);
 }
 
 /**
