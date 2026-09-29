@@ -55,6 +55,8 @@
 #include "modloader.h"
 #include "romdata.h"
 #include "system.h"
+#include "langpack.h"
+#include "langfont.h"
 #include "video.h"
 #include "gewatch.h"
 #include "xblamesh.h"
@@ -496,9 +498,20 @@ static u8 *watchLoad(const char *rel, u32 *len)
 }
 
 /** A string of one of GoldenEye's banks: an offset table, then the strings. */
-static const char *watchBankString(const u8 *bank, u32 len, s32 index)
+static char g_WatchLangFile[16];
+
+static const char *watchBankString(const char *file, const u8 *bank, u32 len, s32 index)
 {
 	u32 at;
+
+	// the selected language's, keyed ge.<bank>.<slot> by the file (langpack.h)
+	if (langpackActive()) {
+		const char *tr = langpackGeFile(file, index);
+
+		if (tr) {
+			return tr;
+		}
+	}
 
 	if (!bank || index < 0 || (u32)(index + 1) * 4 > len) {
 		return "";
@@ -512,13 +525,13 @@ static const char *watchBankString(const u8 *bank, u32 len, s32 index)
 // LoptionsE, the watch's own screens
 static const char *watchString(s32 index)
 {
-	return watchBankString(g_Watch.options, g_Watch.optionslen, index);
+	return watchBankString("LoptionsE", g_Watch.options, g_Watch.optionslen, index);
 }
 
 // and the open mission's bank, which its briefing file indexes
 static const char *watchLangString(s32 id)
 {
-	return watchBankString(g_Watch.lang, g_Watch.langlen, id & 0x3ff);
+	return watchBankString(g_WatchLangFile, g_Watch.lang, g_Watch.langlen, id & 0x3ff);
 }
 
 /* ---- the arm ------------------------------------------------------------ */
@@ -1134,6 +1147,7 @@ void geWatchStageStart(s32 stagenum)
 	if (g_Watch.mission >= 0 && gexFrontMissionFiles(g_Watch.mission, &brief, &lang, &nameid)) {
 		g_Watch.brief = watchLoad(brief, &len);
 		g_Watch.lang = watchLoad(lang, &g_Watch.langlen);
+		snprintf(g_WatchLangFile, sizeof(g_WatchLangFile), "%s", lang);
 	}
 
 	g_Watch.loaded = 1;
@@ -5024,7 +5038,7 @@ static const char *watchGunText(s32 item, s32 offset)
 
 	id = (g_WatchGun.items[item * GUN_ITEM_ROW + offset] << 8) | g_WatchGun.items[item * GUN_ITEM_ROW + offset + 1];
 
-	return id ? watchBankString(bank, banklen, id & 0x3ff) : NULL;
+	return id ? watchBankString("LgunE", bank, banklen, id & 0x3ff) : NULL;
 }
 
 /**
@@ -5658,7 +5672,7 @@ Gfx *geWatchRender(Gfx *gdl)
  */
 static const char *watchMpString(s32 index)
 {
-	return watchBankString(g_Watch.mpmenu, g_Watch.mpmenulen, index);
+	return watchBankString("LmpmenuE", g_Watch.mpmenu, g_Watch.mpmenulen, index);
 }
 
 /** Whether this level's pause is the multiplayer overlay rather than the arm. */

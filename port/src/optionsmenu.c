@@ -51,6 +51,7 @@
 #include "modenhance.h"
 #include "optionsmenu.h"
 #include "game/hudmsg.h"
+#include "langpack.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -1692,6 +1693,30 @@ static MenuItemHandlerResult menuhandlerUseKeyReloads(s32 operation, struct menu
 	return 0;
 }
 
+/**
+ * The game's language (langpack.h, CLAUDE-notes/languages.md): English (US)
+ * is the ROM's and every other one a pack of our own. It is the whole game's,
+ * not the player's this page is for, and it applies at once.
+ */
+static MenuItemHandlerResult menuhandlerLanguage(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = langpackGetCount();
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)langpackGetName(data->dropdown.value);
+	case MENUOP_SET:
+		langpackSelect(data->dropdown.value, 1);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = langpackGetSelected();
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerCrouchMode(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = {
@@ -1964,6 +1989,14 @@ struct menudialogdef g_ExtendedGameCrosshairColourMenuDialog = {
 };
 
 struct menuitem g_ExtendedGameMenuItems[] = {
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Language",
+		0,
+		menuhandlerLanguage,
+	},
 	{
 		MENUITEMTYPE_DROPDOWN,
 		0,
@@ -7745,7 +7778,8 @@ void updateMaxAnisotropyLevel()
 {
 	for (int i = 0; i < ARRAYCOUNT(g_ExtendedVideoMenuItems); ++i) {
 		struct menuitem *item = &g_ExtendedVideoMenuItems[i];
-		const char *text = menuResolveParam2Text(item);
+		// the English in the source, not the label as the language shows it
+		const char *text = (item->flags & MENUITEMFLAG_LITERAL_TEXT) ? (const char *)item->param2 : menuResolveParam2Text(item);
 		
 		if (text && strstr(text, "Anisotropic Filtering") != NULL) {
 			item->param3 = videoGetMaxAnisotropyLevel();

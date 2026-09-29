@@ -611,6 +611,29 @@ generate_asset_headers("textures.json" "${CMAKE_SOURCE_DIR}/tools/assetmgr/mktex
 
 add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 
+# Language packs: lang/<code>/ compiled into packs embedded in the binary
+# (tools/langpack/build.py, CLAUDE-notes/languages.md). With no languages in
+# lang/, or no Python, the table is empty and the game is English only.
+set(LANGPACK_C "${CMAKE_BINARY_DIR}/langpacks.c")
+file(GLOB_RECURSE LANG_SOURCES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/lang/*.json")
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_custom_command(
+    OUTPUT ${LANGPACK_C}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/langpack/build.py
+            --src ${CMAKE_SOURCE_DIR}/lang --embed ${LANGPACK_C} --quiet
+    DEPENDS ${CMAKE_SOURCE_DIR}/tools/langpack/build.py
+            ${CMAKE_SOURCE_DIR}/tools/langpack/check.py
+            ${CMAKE_SOURCE_DIR}/tools/langpack/latin.py
+            ${LANG_SOURCES}
+    COMMENT "Building language packs"
+  )
+else()
+  message(WARNING "No Python 3: the build embeds no language packs")
+  file(WRITE ${LANGPACK_C} "#include <stddef.h>\nstruct langpackembedded { const char *code; const char *text; unsigned int len; };\nconst struct langpackembedded g_LangPacksEmbedded[] = { { NULL, NULL, 0 } };\nconst int g_LangNumPacksEmbedded = 0;\n")
+endif()
+list(APPEND SRC ${LANGPACK_C})
+
 # Game target
 
 set(BIN_NAME "${BIN_BASENAME}")

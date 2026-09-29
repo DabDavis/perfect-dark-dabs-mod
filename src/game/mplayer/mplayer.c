@@ -887,14 +887,14 @@ void mpSetDefaultNamesIfEmpty(void)
 	// Team names
 	for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
 		if (g_BossFile.teamnames[i][0] == '\0') {
-			strcpy(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i)); // "Red", "Yellow" etc
+			langCopyBounded(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i), sizeof(g_BossFile.teamnames[i])); // "Red", "Yellow" etc
 		}
 	}
 
 	// Player names
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		if (g_PlayerConfigsArray[i].base.name[0] == '\0') {
-			sprintf(g_PlayerConfigsArray[i].base.name, "%s %d\n", langGet(L_MISC_437), i + 1); // "Player 1" etc
+			snprintf(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), "%s %d\n", langGet(L_MISC_437), i + 1); // "Player 1" etc
 		}
 	}
 }

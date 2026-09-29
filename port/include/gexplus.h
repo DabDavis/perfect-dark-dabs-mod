@@ -84,6 +84,7 @@ s32 gexPlusRomMpFill(s32 num, struct headorbody *hb);
 // messages - loaded out of the mod's menu/ into LANGBANK_GEMISSION. Cleared
 // when the stage is not one of the missions.
 void gexPlusMissionLangLoad(s32 stagenum);
+const char *gexPlusMissionLangTr(s32 slot);
 
 // The animations a converted mission's PlayAnimation commands name, appended
 // after the game's own, and what GoldenEye's own animation id is once they are

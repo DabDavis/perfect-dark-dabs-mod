@@ -2517,6 +2517,13 @@ void lvTick(void)
 			sysLogPrintf(LOG_NOTE, "exit-frame %d reached", g_ExitFrame);
 			exit(0);
 		}
+
+		// --lang-audit: every translated string measured in the fonts
+		// loaded now, and out (lang.c)
+		if (g_Vars.lvframenum == 10 && langAuditRequested()) {
+			langAudit();
+			exit(0);
+		}
 #endif
 	}
 

@@ -29,8 +29,18 @@
 #include "input.h"
 #include "patchnotes.h"
 #define MENU_KEYBOARD_ROWS 6
+#include "langpack.h"
+// A briefing wrapped for a scrollable: the ROM sized it for its English
+// (8000); a translation, UTF-8 and longer, needs more (JP ~9.5 KB).
+#define SCROLLABLE_TEXT_MAX 16384
+// A dropdown's or list's option as a handler names it: the port's are English
+// literals, translated by their English (langpack.h); the ROM's come through
+// langGet() already.
+#define menuOptionText(result) ((char *)langTr((const char *)(uintptr_t)(result)))
 #else
+#define menuOptionText(result) (result)
 #define MENU_KEYBOARD_ROWS 5
+#define SCROLLABLE_TEXT_MAX 8000
 #endif
 
 u8 g_MpSelectedPlayersForStats[MAX_PLAYERS];
@@ -620,7 +630,7 @@ Gfx *menuitemListRender(Gfx *gdl, struct menurendercontext *context)
 					} else {
 						// Default/simple option (label and optional checkbox)
 						sp15c.list.value = optionindex;
-						text2 = (char *) context->item->handler(MENUOP_GETOPTIONTEXT, context->item, &sp15c);
+						text2 = (char *) menuOptionText(context->item->handler(MENUOP_GETOPTIONTEXT, context->item, &sp15c));
 						sp128 = 0;
 						y = context->y + s4 + 1;
 
@@ -959,7 +969,7 @@ Gfx *menuitemDropdownRender(Gfx *gdl, struct menurendercontext *context)
 		context->item->handler(MENUOP_GETSELECTEDINDEX, context->item, &data);
 
 		data.list.unk04 = 0;
-		text = (char *)context->item->handler(MENUOP_GETOPTIONTEXT, context->item, &data);
+		text = (char *)menuOptionText(context->item->handler(MENUOP_GETOPTIONTEXT, context->item, &data));
 
 		textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 
@@ -1069,7 +1079,7 @@ Gfx *menuitemDropdownOverlay(Gfx *gdl, s16 x, s16 y, s16 x2, s16 y2, struct menu
 
 		for (i = 0; i != numoptions; i++) {
 			handlerdata.dropdown.value = i;
-			text = (char *)item->handler(MENUOP_GETOPTIONTEXT, item, &handlerdata);
+			text = (char *)menuOptionText(item->handler(MENUOP_GETOPTIONTEXT, item, &handlerdata));
 			textMeasure(&textheight, &textwidth, text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 			textwidth += 6;
 
@@ -1777,7 +1787,11 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 	s32 x;
 	s32 y;
 	char *sp120;
+#ifndef PLATFORM_N64
+	char buffer[1024]; // a translated objective is longer than the 80 the English needed
+#else
 	char buffer[80];
+#endif
 	char *spcc;
 	u32 spc8;
 	s32 textwidth;
@@ -1847,10 +1861,10 @@ Gfx *menuitemObjectivesRenderOne(Gfx *gdl, struct menudialog *dialog, s32 index,
 	x = objx + 25;
 
 	if (narrow) {
-		textWrap(85, sp120, buffer, g_CharsHandelGothicXs, g_FontHandelGothicXs);
+		textWrapN(85, sp120, buffer, sizeof(buffer), g_CharsHandelGothicXs, g_FontHandelGothicXs);
 		gdl = textRenderProjected(gdl, &x, &y, buffer, g_CharsHandelGothicXs, g_FontHandelGothicXs, sp12c, width, height, 0, 0);
 	} else {
-		sprintf(buffer, "%s", sp120);
+		snprintf(buffer, sizeof(buffer), "%s", sp120);
 		gdl = textRenderProjected(gdl, &x, &y, buffer, g_CharsHandelGothicSm, g_FontHandelGothicSm, sp12c, width, height, 0, 0);
 	}
 
@@ -3082,9 +3096,9 @@ char *menuitemScrollableGetText(u32 type)
  */
 Gfx *menuitemScrollableRender(Gfx *gdl, struct menurendercontext *context)
 {
-	char alltext[8000] = "";
-	char headingtext[8000];
-	char bodytext[8000];
+	char alltext[SCROLLABLE_TEXT_MAX] = "";
+	char headingtext[SCROLLABLE_TEXT_MAX];
+	char bodytext[SCROLLABLE_TEXT_MAX];
 	bool prevwaslinebreak;
 	char *streams[2];
 	char *inptr;
@@ -3103,7 +3117,7 @@ Gfx *menuitemScrollableRender(Gfx *gdl, struct menurendercontext *context)
 	}
 
 	if (rawtext) {
-		textWrap(context->width - paddingright, rawtext, alltext, g_CharsHandelGothicSm, g_FontHandelGothicSm);
+		textWrapN(context->width - paddingright, rawtext, alltext, sizeof(alltext), g_CharsHandelGothicSm, g_FontHandelGothicSm);
 	}
 
 	inptr = alltext;
@@ -3203,10 +3217,15 @@ bool menuitemScrollableTick(struct menuitem *item, struct menudialog *dialog, st
 #endif
 #if VERSION >= VERSION_PAL_BETA
 	if ((s16)dialog->height != data->scrollable.dialogheight || data->scrollable.language != g_LanguageId) {
+#elif !defined(PLATFORM_N64)
+	// measured again when the language changes, as PAL's did (unk02 is
+	// unused, and the NTSC item data has no language field)
+	if ((s16)dialog->height != data->scrollable.dialogheight || data->scrollable.unk02 != (s16)langpackGeneration()) {
+		data->scrollable.unk02 = (s16)langpackGeneration();
 #else
 	if ((s16)dialog->height != data->scrollable.dialogheight) {
 #endif
-		char wrapped[8000] = "";
+		char wrapped[SCROLLABLE_TEXT_MAX] = "";
 		char *rawtext;
 		s32 width;
 		s32 height;
@@ -3233,7 +3252,7 @@ bool menuitemScrollableTick(struct menuitem *item, struct menudialog *dialog, st
 		rawtext = menuitemScrollableGetText(item->param);
 
 		if (rawtext) {
-			textWrap(width, rawtext, wrapped, g_CharsHandelGothicSm, g_FontHandelGothicSm);
+			textWrapN(width, rawtext, wrapped, sizeof(wrapped), g_CharsHandelGothicSm, g_FontHandelGothicSm);
 		}
 
 		textMeasure(&height, &width, wrapped, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
