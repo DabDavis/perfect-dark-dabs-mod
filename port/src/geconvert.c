@@ -4336,9 +4336,9 @@ static const uint32_t g_RevSiloShots[4][10] = {
 // objective's fail condition). The US setup has it as a loop on chr 1's death
 // after the end of list 0x1008, where nothing runs it; the later one counts chr
 // 1 as a civilian (CHRFLAG_COUNT_DEATH_AS_CIVILIAN) and waits on
-// IFKilledCiviliansGreaterThan 0. Perfect Dark has no command for that test,
-// and the conversion leaves it out here as it does on Facility, Silo, Frigate
-// and Caverns, so for now the list only sets the flag.
+// IFKilledCiviliansGreaterThan 0 - Perfect Dark's CHRCFLAG_KILLCOUNTABLE and
+// aiIfKillCountGreaterThan, as on Facility, Silo, Frigate and Caverns
+// (geaitable.h row f7).
 static const uint8_t g_RevStatue1009[] = {
 	0xa0, 0x01, 0x00, 0x10, 0x00, 0x00, 0x03, 0x02, 0x33, 0x03, 0xf7, 0x00, 0x23, 0x01, 0x33, 0x02,
 	0x23, 0x9a, 0x00, 0x20, 0x00, 0x00, 0x05, 0xfd, 0x00, 0x01, 0x04,
