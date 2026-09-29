@@ -7774,7 +7774,8 @@ void updateMaxAnisotropyLevel()
 {
 	for (int i = 0; i < ARRAYCOUNT(g_ExtendedVideoMenuItems); ++i) {
 		struct menuitem *item = &g_ExtendedVideoMenuItems[i];
-		const char *text = menuResolveParam2Text(item);
+		// the English in the source, not the label as the language shows it
+		const char *text = (item->flags & MENUITEMFLAG_LITERAL_TEXT) ? (const char *)item->param2 : menuResolveParam2Text(item);
 		
 		if (text && strstr(text, "Anisotropic Filtering") != NULL) {
 			item->param3 = videoGetMaxAnisotropyLevel();
