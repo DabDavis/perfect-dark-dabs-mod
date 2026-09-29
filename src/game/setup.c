@@ -1590,6 +1590,22 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 	}
 }
 
+/**
+ * Extra chr slots for a converted GoldenEye mission (see setupLoadFiles()): as
+ * many again as the ten every stage has, for the spawns GoldenEye's lists make
+ * while Perfect Dark's corpses still hold theirs.
+ */
+static s32 setupGeMissionChrReserve(s32 stagenum)
+{
+#ifndef PLATFORM_N64
+	if (!g_Vars.normmplayerisrunning && modloaderStageIsRemake(stagenum)) {
+		return 10;
+	}
+#endif
+
+	return 0;
+}
+
 void setupLoadFiles(s32 stagenum)
 {
 	s32 i;
@@ -1812,6 +1828,14 @@ void setupLoadFiles(s32 stagenum)
 			numchrs += PLAYERCOUNT();
 		}
 
+		// A converted GoldenEye mission spawns as GoldenEye does, into ten
+		// spare slots that its own corpses vacate a second and a half after
+		// they fall. Perfect Dark's lie where they fell and hold their slot,
+		// and it asks for two free where GoldenEye asks for three, so the
+		// level's own spares are topped up here (chrTickDead() makes room
+		// too). Mirrored in the chr count below.
+		numchrs += setupGeMissionChrReserve(stagenum);
+
 		numobjs += setupCountCommandType(OBJTYPE_WEAPON);
 		numobjs += setupCountCommandType(OBJTYPE_KEY);
 		numobjs += setupCountCommandType(OBJTYPE_HAT);
@@ -1988,6 +2012,8 @@ void setupCreateProps(s32 stagenum)
 			if (!g_Vars.normmplayerisrunning) {
 				numchrs += PLAYERCOUNT(); // the third person bodies, as above
 			}
+
+			numchrs += setupGeMissionChrReserve(stagenum);
 
 			chrmgrConfigure(numchrs);
 		} else {

@@ -106,6 +106,9 @@ static f32 vehWrapTau(f32 angle)
 
 static void vehEngine(struct prop *prop, s32 running, s32 id, f32 dist2, f32 dist3);
 
+// how long a destroyed aircraft's rotor takes to wind down, in 60ths
+#define HELI_WRECK_SPINDOWN60 150.0f
+
 /**
  * The aircraft: its AI list, its speed and the rotor's.
  *
@@ -175,6 +178,17 @@ static void vehHeliTick(struct prop *prop)
 		propDeregisterRooms(prop);
 		roomsCopy(rooms, prop->rooms);
 		propRegisterRooms(prop);
+	}
+
+	// A destroyed aircraft's rotor winds down and stays still. GoldenEye's
+	// render turns it whatever the aircraft's state (only its engine sound
+	// asks objIsHealthy()), so Statue Park's wreck went on spinning its
+	// blackened blades, which the fog then showed up grey from afar - the
+	// owner's "destroyed but blades still spinning" and "blades gone up
+	// close, back from afar" (F3 20260928-234042, 20260928-234230)
+	if (!objIsHealthy(&heli->base) && heli->rotoryspeedaim != 0.0f) {
+		heli->rotoryspeedaim = 0.0f;
+		heli->rotoryspeedtime = HELI_WRECK_SPINDOWN60;
 	}
 
 	vehRamp(&heli->speed, heli->speedaim, &heli->speedtime60, delta);

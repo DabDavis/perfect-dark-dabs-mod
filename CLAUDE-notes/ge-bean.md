@@ -12750,3 +12750,37 @@ hit boxes; CROUCH=0 squats; ANIM1=x forces the animation scale; CAMS 80:0:180
 puts the camera level at the eye), `menushot.py` (CLEAN=1 hides the filter rows), `bots.py` (a
 simulant on MPB:MPH, armed), `fpmp.py` (player on an arena with a gun),
 `sheets.sh`, `norom-content` + moving mods/GoldenEye Arenas aside for no ROM.
+
+## 19th F3 pass, agent MISSION (2026-09-29, fix/f3-0929-mission)
+
+- **Aztec's DAT (214924)** is a collectable *standard prop* (type 3, flags 0x01240000, model 272 on pad 142, on the
+  desk by the mainframe room) that GoldenEye renames as ITEM_DATTAPE, not a weapon record like Facility's decoder.
+  Picked up it became a prop invitem, never equippable, so `IFBondHasItemEquipped(0x49)` at the mainframe (tag 0xf,
+  bg list ai_14) could not pass. `propPickupByPlayer()`'s plain-object branch now gives the gadget a rename names
+  (`gegadgetsIsGadget()`). Probe `~/wt/f3-0929-mission-run/probes/aztec.py` (TAKE=1): DAT Tape in the inventory,
+  equipped, mainframe activated -> GE flag 0x200000 (PD 0x2000) and the launch countdown.
+- **Aztec's "mainframe door" (210102)** is notabug: the two doors on pads 119/120 (setup records 239/240, room 19)
+  want key flag 2, which nothing in the level carries (the smart card is key 1), and their rename's text is "This
+  mainframe is inoperative." - GoldenEye's dummies. The console beside them drives nothing (ai_22 only changes a
+  screen when door tag 0x15 moves).
+- **Statue Park's Natalya missing (232843)**: chr slots. GoldenEye spawns into count+10 slots that its corpses give
+  back 90 ticks after ACT_DEAD (chraction.c `chrlvTickDead()`), and asks for three free; Perfect Dark's mission
+  corpses keep their slot for good (fadetimer60 -1) and `chrSpawnAtCoord()` wants two free. The tester's trace had
+  16 of 17 slots with a prop, so bg 0x1001's one-shot spawn of Natalya at pad 6 failed and Rescue Natalya failed
+  with her nowhere. Converted missions get 10 more slots (`setupGeMissionChrReserve()`, both counts in setup.c) and
+  `chrTickDead()` marks bodies fade-when-off-screen once fewer than 10 slots are free. Probe `probes/slots.py`.
+- **Statue's helicopter rotor (234042, 234230)**: GoldenEye's render turns an aircraft's rotor whatever its state;
+  the owner asked for it to stop. `vehHeliTick()` winds a destroyed aircraft's rotor down over 150 60ths. The
+  "blades gone up close, back from afar" was the same black rotor: black on black near, fogged grey far.
+- **Autoguns and crates (214251)**: on a remake stage the sight line was the tile walk plus CDTYPE_DOORS; GoldenEye's
+  `stanTestLineUnobstructed()` call uses cdtypes 0x1b (objects, doors, chrs, path blockers) with a sloped height
+  test, so the sight now asks for those and the solo shot stops on objects too. A gun high on a wall still sees
+  over a crate whose top is below the line - GoldenEye's test is the same shape. Probe `probes/turret.py`.
+- **Arena ammo boxes (210156)**: every GoldenEye AmmoBox record is PROP_AMMO_CRATE3 (model 5) at extra scale 153;
+  converter 89 writes that instead of Perfect Dark's 0xc1 purple crate (C and geconvert.py).
+- **Open, HD only**: Aztec's body-armour closet under the exhaust hatch (213437, room 45) has release geometry
+  intruding - a vine-covered outer wall, two poster quads and a yellow grating stand inside the N64 closet's
+  volume, front faces towards the closet (forcing G_CULL_BACK on HD rooms changed nothing). Needs the release
+  itself (Xenia) to say whether the release looks the same there. Statue Park's bulb strings (234109) exist only in
+  the release's mesh; their vertex colours reach the palette white (checked with a palette log), so what "lit"
+  wants is a glow the level mesh does not carry - also a release-capture question.

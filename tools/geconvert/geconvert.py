@@ -65,6 +65,9 @@ LEVELIDS = {'dam': 'DAM', 'run': 'RUNWAY', 'stat': 'STATUE', 'tra': 'TRAIN',
 # GoldenEye's menu folder (PROP_WALLETBOND), its pictures, and its two fonts and its
 # music, raw in the ROM: {name, ROM address, size}
 MENU_FOLDER_MODEL = 278
+# an arena's ammo box: GoldenEye's PROP_AMMO_CRATE3 at its multiplayer extra scale
+MP_AMMO_MODEL = 5
+MP_AMMO_SCALE = 153
 # and the TV set the folder's Monitor Programmes page shows them on (PROP_TV1)
 MENU_TV_MODEL = 75
 # the crosshair cursor (IMAGE_CROSSHAIR1), the film strip's holes (IMAGE_DOT),
@@ -1394,7 +1397,9 @@ def write_mpsetup(setup, mp, stan, bg, ls, objects_for=None):
             props += struct.pack('>23I', (0x0100 << 16) | 0x08, padnum & 0xffff, 1, 0, 0, *([0] * 14), 1000, 0, 0, 0x0fff0000)
             props += struct.pack('>3I', ((0xf0 + loc) << 24), 0x00ffffff, 0)
         else:
-            props += struct.pack('>23I', (0x00cc << 16) | 0x14, (0x00c1 << 16) | (padnum & 0xffff), 1, 0, 0, *([0] * 14), 1000, 0, 0, 0x0fff0000)
+            # GoldenEye's own box, PROP_AMMO_CRATE3 at its extra scale (every
+            # AmmoBox record in its arena setups is model 5 at 153)
+            props += struct.pack('>23I', (MP_AMMO_SCALE << 16) | 0x14, ((geobjects.MODEL_REMAKE_FIRST + MP_AMMO_MODEL) << 16) | (padnum & 0xffff), 1, 0, 0, *([0] * 14), 1000, 0, 0, 0x0fff0000)
             props += struct.pack('>19I', *([0xffff0000] * 19))
     nw = sum(1 for p, loc in items if loc is not None)
     na = len(items) - nw
@@ -1602,6 +1607,7 @@ def main():
     allmodels.add(MENU_FOLDER_MODEL)
     allmodels.add(MENU_TV_MODEL)
     allmodels.add(INTRO_LOGO_MODEL)
+    allmodels.add(MP_AMMO_MODEL)
     allmodels.update(INTRO_GUNS)
     allmodels.update(HELD_GUNS)
     allmodels.update(gesolo.GE_GADGET_MODELS)

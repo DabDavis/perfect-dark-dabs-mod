@@ -9255,7 +9255,13 @@ void autogunTick(struct prop *prop)
 						&& cdTestLos05(&prop->pos, prop->rooms, &target->pos, target->rooms, CDTYPE_ALL, GEOFLAG_BLOCK_SIGHT)) {
 #else
 						&& (gesees >= 0
-							? gesees && cdTestLos05(&eyepos, eyerooms, &target->pos, target->rooms, CDTYPE_DOORS, GEOFLAG_BLOCK_SIGHT)
+							// GoldenEye's walk asks for objects, doors, chrs
+							// and path blockers too (propobj.c: cdtypes 0x1b),
+							// so a crate between them hides Bond from it -
+							// Aztec's gun in the guidance server room fired
+							// through a stack of them (F3 20260928-214251)
+							? gesees && cdTestLos05(&eyepos, eyerooms, &target->pos, target->rooms,
+								CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER, GEOFLAG_BLOCK_SIGHT)
 							: cdTestLos05(&eyepos, eyerooms, &target->pos, target->rooms, CDTYPE_ALL, GEOFLAG_BLOCK_SIGHT))) {
 #endif
 					// Target is in sight
@@ -9697,7 +9703,13 @@ void autogunTickShoot(struct prop *autogunprop)
 				} else {
 					// Enemy autogun in solo
 					if (cdExamLos08(&gunpos, gunrooms, &hitpos,
-								CDTYPE_DOORS | CDTYPE_BG,
+								CDTYPE_DOORS | CDTYPE_BG
+#ifndef PLATFORM_N64
+								// and on a converted level its rounds stop on
+								// what GoldenEye's sight stops on (above)
+								| (modloaderStageIsRemake(g_Vars.stagenum) ? CDTYPE_OBJS | CDTYPE_PATHBLOCKER : 0)
+#endif
+								,
 								GEOFLAG_BLOCK_SHOOT) == CDRESULT_COLLISION) {
 #if VERSION >= VERSION_PAL_FINAL
 						cdGetPos(&hitpos, 11561, "prop/propobj.c");
@@ -18513,6 +18525,22 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 
 			hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_ALLOWDUPES);
 		}
+
+#ifndef PLATFORM_N64
+		// A plain object GoldenEye renames as one of its gadgets: Aztec's DAT
+		// is a prop on a desk (a collectable standard prop, not a weapon
+		// record) whose rename names ITEM_DATTAPE, and the mission asks for it
+		// in the hand at the mainframe. Carried as a prop it could never be
+		// equipped, and the launch could not be started (F3 20260928-214924).
+		if (obj->hidden & OBJHFLAG_HASTEXTOVERRIDE) {
+			struct textoverride *override = invGetTextOverrideForObj(obj);
+
+			if (override && gegadgetsIsGadget(override->weapon)) {
+				invGiveSingleWeapon(override->weapon);
+				given = true;
+			}
+		}
+#endif
 
 		result = TICKOP_GIVETOPLAYER;
 		break;
