@@ -1139,8 +1139,12 @@ static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb)
 
 /**
  * A tile with an area in plan that is a wall all the same: a sliver under half
- * a body across rising more than three times its width. Facility's vent ends
- * in two, a lip leaning 10 across and 257 up from the toilet seat to the duct.
+ * a body across rising more than three times its width, and higher than a
+ * body's own reach (GESTAN_RISE). Facility's vent ends in two, a lip leaning 10
+ * across and 257 up from the toilet seat to the duct. A stair's riser is the
+ * same shape a step high - Control's open metal flights rise 32 over ~10 - and
+ * without the height test every other riser of those flights was a wall the
+ * player stopped at (F3 20260928-210641).
  */
 static bool stanTileSheer(s32 i)
 {
@@ -1165,7 +1169,7 @@ static bool stanTileSheer(s32 i)
 
 	width = fabsf(area) / longest;
 
-	return width < 16.0f && ymax - ymin > 3.0f * width;
+	return width < 16.0f && ymax - ymin > 3.0f * width && ymax - ymin > GESTAN_RISE;
 }
 
 static s32 g_StanPlayerTile[MAX_PLAYERS] = { -1, -1, -1, -1 };
