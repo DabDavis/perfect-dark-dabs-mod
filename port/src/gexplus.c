@@ -617,12 +617,18 @@ static s32 geRomLoadTable(s32 stagenum)
 
 /*
  * GoldenEye's headHat_array_8003E464 (menu/headhats.bin, converter 84): where a
- * hat sits on each of its 28 random heads, Karl (45) to Mishkin (72), a row per
- * hat type - beret, side cap, peaked cap, helmet, fur hat, moon - of an offset
- * and a scale in the hat's own space. chrRender() moves the hat by it as
- * GoldenEye's does, every frame (chr.c).
+ * hat sits on each of its 28 random heads, Karl (42, HEAD_START) to Mishkin
+ * (69), a row per hat type - beret, side cap, peaked cap, helmet, fur hat, moon
+ * - of an offset and a scale in the hat's own space. chrRender() moves the hat
+ * by it as GoldenEye's does, every frame (chr.c). The first head was taken as
+ * 45 until 2026-09-29, which is Martin: Karl, Alan and Pete (42-44, all in the
+ * male pool) wore their hats as the model has them, every other head took the
+ * row of the head three on - a helmet sat at another head's height (F3
+ * 20260929-093133) - and three women's heads took Mishkin's and the two
+ * before his, where GoldenEye fits no woman's (BODY_Female_Sally, 70, ends
+ * its range).
  */
-#define GEHAT_HEAD_FIRST 45
+#define GEHAT_HEAD_FIRST 42
 #define GEHAT_NUM_HEADS  28
 #define GEHAT_NUM_TYPES  6
 #define GEHAT_ROW        24
