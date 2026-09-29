@@ -108,6 +108,8 @@ f32 videoGetAverageFPS(void);
 #define VIDEO_FRAME_HISTORY 600
 // Oldest first; returns how many frames were copied (at most max)
 u32 videoGetFrameHistory(f32 *frameMs, f32 *workMs, u8 *ticks, u32 max);
+// The game's step this frame in 240ths, for the history
+void videoSetFrameStep(s32 diff240);
 s32 videoGetRefreshRate(void);
 const char *videoGetRendererName(void);
 const char *videoGetGpuName(void);

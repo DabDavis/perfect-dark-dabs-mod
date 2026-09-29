@@ -10,8 +10,6 @@
 #include "texpack.h"
 #include "xblafont.h"
 #include "video.h"
-#include "types.h"
-#include "bss.h"
 
 #include "../fast3d/gfx_api.h"
 #include "../fast3d/gfx_sdl.h"
@@ -117,6 +115,9 @@ static u8 vidRingTicks[VIDEO_FRAME_HISTORY];
 static u32 vidRingPos = 0;
 static u32 vidRingCount = 0;
 static f64 vidPreSwapTime = 0.0;
+// g_Vars.diffframe240, handed in by the scheduler: this file has stdbool's
+// bool and types.h would redefine it (see the window settings struct)
+static s32 vidFrameStep240 = 0;
 
 static s32 videoInitDisplayModes(void);
 void optionsMenuInit();
@@ -259,7 +260,7 @@ void videoEndFrame(void)
 	if (endTime > 0.0) {
 		const f64 frameSecs = flipTime - endTime;
 		f64 workSecs = (vidPreSwapTime >= startTime) ? vidPreSwapTime - startTime : frameSecs;
-		const s32 ticks = g_Vars.diffframe240;
+		const s32 ticks = vidFrameStep240;
 
 		if (workSecs > frameSecs) {
 			workSecs = frameSecs;
@@ -297,6 +298,11 @@ void videoEndFrame(void)
 f32 videoGetAverageFPS(void)
 {
 	return vidAvgFPS;
+}
+
+void videoSetFrameStep(s32 diff240)
+{
+	vidFrameStep240 = diff240;
 }
 
 u32 videoGetFrameHistory(f32 *frameMs, f32 *workMs, u8 *ticks, u32 max)
