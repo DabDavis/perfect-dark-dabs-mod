@@ -687,28 +687,21 @@ static const u8 fpReady[ARRAYCOUNT(fpRows)] = {
 };
 
 /**
- * The guns whose release model is drawn in the HD look on GoldenEye's own
- * first-person model, converted from the player's ROM, rather than on its
- * host's: GoldenEye's placement, GoldenEye's animations, and Bean's gun laid
- * onto GoldenEye's vertices at Bean's own scale (the borrowed-gun fit below).
- * These are the guns hosted on Perfect Dark's classic submachine guns and
- * rifles, which GoldenEye draws with no hand, so no hand is lost. On their
- * hosts they stood where Perfect Dark holds its classic guns, not where
- * GoldenEye and the release hold them: the KL01313 is GoldenEye's Klobb in
- * another frame, and put at GoldenEye's placement it fell off the bottom of
- * the view (F3 20260929-042658 and its follow-up). The pistols keep their
- * hosts, which are in GoldenEye's frame, for Perfect Dark's hands.
+ * Every GoldenEye gun's release model is drawn in the HD look on GoldenEye's
+ * own first-person model, converted from the player's ROM, not on a Perfect
+ * Dark host's: GoldenEye's placement, GoldenEye's animations and parts, and
+ * Bean's gun laid onto GoldenEye's vertices at Bean's own scale (the
+ * borrowed-gun fit in gebeanBuildFirstPerson()). In third person and on the
+ * floor the same goes for GoldenEye's own held prop, which the release's
+ * pickup is drawn over (geguns.c's gegunsOwnPropModel()). The user's call,
+ * 2026-09-29: "all HD ge guns use ge rom models ... not PD hosts".
+ *
+ * It began with the classic submachine guns and rifles, which on their hosts
+ * stood where Perfect Dark holds its classic guns rather than where GoldenEye
+ * and the release hold them (F3 20260929-042658 and its follow-up). A gun
+ * with no converted model (no ROM), or one borrowed from GoldenEye X, stays
+ * on its host.
  */
-static const u8 fpOnOwnInHd[ARRAYCOUNT(fpRows)] = {
-	[WEAPON_GE_KLOBB           - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_KF7SOVIET       - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_ZMG             - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_D5K             - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_D5KSILENCED     - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_AR33            - WEAPON_GE_FIRST] = 1,
-	[WEAPON_GE_RCP90           - WEAPON_GE_FIRST] = 1,
-};
-
 // Whether each gun's release model was last laid onto GoldenEye's own model
 // (gebeanGunsRefresh()), which gebeanBuildFirstPerson() fits the borrowed way
 static u8 fpOnOwn[ARRAYCOUNT(fpRows)];
@@ -1432,10 +1425,8 @@ static void gebeanGunsRefresh(void)
 		// must be there - unless there is no release, when the host would be
 		// a Perfect Dark gun and GoldenEye's own is the better answer
 		own = gebeanGunsAreN64() || !bean ? gegunsOwnModel(i) : 0;
-		// - or, for a gun on one of Perfect Dark's classic submachine guns
-		// and rifles, GoldenEye's own under the release's gun (fpOnOwnInHd)
-		fpOnOwn[i] = !own && show && bean && fpReady[i] && fpOnOwnInHd[i]
-			&& !gegunsIsBorrowed(i) && gegunsOwnModel(i);
+		// - or GoldenEye's own under the release's gun in the other (fpOnOwn)
+		fpOnOwn[i] = !own && show && bean && fpReady[i] && !gegunsIsBorrowed(i) && gegunsOwnModel(i);
 
 		if (fpOnOwn[i]) {
 			own = gegunsOwnModel(i);
@@ -10431,7 +10422,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				// The knives keep their quarter turn: GoldenEye X's knife is
 				// modelled along x as Perfect Dark's is, Bean's up y.
 				// Everything else stands the way GoldenEye X's model does.
-				if (!(fpGrip[fp].axis[0] || fpGrip[fp].axis[1] || fpGrip[fp].axis[2])) {
+				// GoldenEye's own model out of the ROM is in Bean's frame, knives
+				// and all (fpOnOwn): turned, the hunting knife lay flat across
+				// the view and the throwing knife stood edge on.
+				if (fpOnOwn[fp] || !(fpGrip[fp].axis[0] || fpGrip[fp].axis[1] || fpGrip[fp].axis[2])) {
 					fpaxis = NULL;
 				}
 
@@ -11121,6 +11115,25 @@ s32 gebeanHeldGunOffset(struct model *model, s32 modelnum, f32 out[3])
 	struct modelnode *root;
 
 	out[0] = out[1] = out[2] = 0.0f;
+
+	// GoldenEye's own held prop (MODEL_REMAKE_FIRST + PROP_CHR*), which the
+	// release's pickup is laid on in the HD look as its host's was
+	// (gegunsOwnPropModel()): its root is GoldenEye's own origin already, so
+	// only the nudge for a release gun not shaped like GoldenEye's is left -
+	// the rocket launcher's RPG-7 held by the tube above the fist again
+	if (modelnum >= MODEL_REMAKE_FIRST && model && xblaMeshModelDrawsBean(model)) {
+		for (s32 g = 0; g < NUM_GE_GUNS; g++) {
+			if (gegunsChrProp(g) > 0 && modelnum == MODEL_REMAKE_FIRST + gegunsChrProp(g)) {
+				out[0] = geHeldNudge[g][0];
+				out[1] = geHeldNudge[g][1];
+				out[2] = geHeldNudge[g][2];
+
+				return out[0] * out[0] + out[1] * out[1] + out[2] * out[2] > 0.01f;
+			}
+		}
+
+		return 0;
+	}
 
 	if (i < 0 || i >= (s32)ARRAYCOUNT(gunRows) || !gunSlot[i] || !model || !model->definition
 			|| model->definition != g_ModelStates[modelnum].modeldef) {
