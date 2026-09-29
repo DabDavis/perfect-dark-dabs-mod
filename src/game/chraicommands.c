@@ -461,11 +461,17 @@ bool aiChrDoAnimation(void)
 		// that began from any other pose lifted her 30 to 95 units and let her
 		// fall back again, the "bouncing" three testers saw (F3 20260926-234944,
 		// 20260927-012507, 20260927-031856). The same animation on the same
-		// side is set again at once, without a merge.
+		// side is set again at once, without a merge - but only when it picks
+		// up about where the pose already is. Cuba's credits play the kiss
+		// (182) to frame 250 and hold, then start it again at 158 with a
+		// merge of 32: GoldenEye's merge carries the pair back from 250 to
+		// 158 over half a second, which reads as the loop playing backwards,
+		// and set without it they snapped (F3 20260929-065557, -065649).
 		if (modloaderStageIsRemake(g_Vars.stagenum) && chr->actiontype == ACT_ANIM
 				&& chr->act_anim.animnum == (s32)anim_id
 				&& modelGetAnimNum(chr->model) == (s32)anim_id
 				&& chr->act_anim.flip == ((cmd[8] & CHRANIMFLAG_FLIP) != 0)
+				&& fabsf(modelGetCurAnimFrame(chr->model) - fstartframe) <= 2.0f
 				&& !g_Vars.in_cutscene) {
 			chr->hidden &= ~CHRHFLAG_NEEDANIM;
 			chrTryStartAnim(chr, anim_id, fstartframe, fendframe, cmd[8], 0, speed);
