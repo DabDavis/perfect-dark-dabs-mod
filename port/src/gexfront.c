@@ -618,7 +618,6 @@ static const char *frontMissionName(s32 mission, char *buf, size_t len)
 {
 	const s32 row = frontMissionRow(mission);
 	const char *name;
-	size_t n;
 
 	if (row < 0) {
 		return "";
@@ -627,11 +626,8 @@ static const char *frontMissionName(s32 mission, char *buf, size_t len)
 	name = frontString(g_Missions[row].icon ? g_Missions[row].icon : g_Missions[row].name);
 	snprintf(buf, len, "%s\n", name);
 
-	for (n = 0; buf[n]; n++) {
-		if (buf[n] >= 'a' && buf[n] <= 'z') {
-			buf[n] -= 0x20;
-		}
-	}
+	// a translation's accented letters too ("AZTÈQUE"); Japanese untouched
+	langfontToUpper(buf);
 
 	return buf;
 }
@@ -5701,19 +5697,29 @@ static void frontAppend(char *buf, size_t len, const char *text)
 	buf[n] = '\0';
 }
 
-/** textWrap(): the text broken into lines no wider than width. */
+/**
+ * textWrap(): the text broken into lines no wider than width. A word is a run
+ * between spaces; in Japanese, which has no spaces, each character is a word
+ * of its own and a line breaks between any two of them, keeping closing
+ * punctuation off a line's start and an opening bracket off its end
+ * (langfontNoBreakBefore(), the same rules as textWrapN()).
+ */
 static void frontWrap(const struct gefont *font, const char *text, char *out, size_t len, s32 width)
 {
 	size_t n = 0;
 	size_t line = 0;
+	s32 spaced = 0;
 
-	while (*text && n + 2 < len) {
+	while (*text && n + 5 < len) {
 		size_t wordat;
+		size_t wordstart;
 		s32 w;
 		s32 h;
+		u32 lastcp = 0;
 
 		while (*text == ' ') {
 			text++;
+			spaced = 1;
 		}
 
 		if (!*text) {
@@ -5722,20 +5728,56 @@ static void frontWrap(const struct gefont *font, const char *text, char *out, si
 
 		wordat = n;
 
-		if (n > line) {
+		if (n > line && spaced) {
 			out[n++] = ' ';
 		}
 
-		while (*text && *text != ' ' && *text != '\n' && n + 2 < len) {
-			out[n++] = *text++;
+		spaced = 0;
+		wordstart = n;
+
+		while (*text && *text != ' ' && *text != '\n' && n + 5 < len) {
+			const char *p = text;
+			const u32 cp = langfontNextCodepoint(&p);
+			const s32 cjk = langfontIsCjkBreakable(cp);
+
+			if (cjk && n > wordstart && !langfontNoBreakBefore(cp) && !langfontNoBreakAfter(lastcp)) {
+				break;
+			}
+
+			if (n + (p - text) + 5 >= len) {
+				text = p;
+				break;
+			}
+
+			while (text < p) {
+				out[n++] = *text++;
+			}
+
+			lastcp = cp;
+
+			if (cjk && *text && *text != ' ' && *text != '\n' && !langfontNoBreakAfter(cp)) {
+				const char *q = text;
+
+				if (!langfontNoBreakBefore(langfontNextCodepoint(&q))) {
+					break;
+				}
+			}
 		}
 
 		out[n] = '\0';
 		frontMeasure(font, out + line, 0, &w, &h);
 
-		// the word did not fit: the space before it becomes the break
+		// the word did not fit: the space before it becomes the break, or a
+		// break goes in where there was none (between two Japanese words)
 		if (w > width && wordat > line) {
-			out[wordat] = '\n';
+			if (out[wordat] == ' ') {
+				out[wordat] = '\n';
+			} else {
+				memmove(&out[wordat + 1], &out[wordat], n - wordat + 1);
+				out[wordat] = '\n';
+				n++;
+			}
+
 			line = wordat + 1;
 		}
 

@@ -64,6 +64,23 @@ u32 langfontNextCodepoint(const char **text);
 s32 langfontMinLineHeight(void);
 
 /**
+ * Line breaking for Japanese, shared by Perfect Dark's textWrapN() and GE
+ * Plus's frontWrap(). A CJK character is a word of its own (Japanese has no
+ * spaces), a line may not start with closing punctuation, a small kana or a
+ * long vowel mark, and may not end with an opening bracket (kinsoku).
+ */
+s32 langfontIsCjkBreakable(u32 cp);
+s32 langfontNoBreakBefore(u32 cp);
+s32 langfontNoBreakAfter(u32 cp);
+
+/**
+ * Upper-cases UTF-8 text in place: ASCII, the Latin-1 letters and oe/ae (the
+ * ones a Latin pack writes), all of which keep their byte length. Anything
+ * else - Japanese, the German sharp s - is left as it is.
+ */
+void langfontToUpper(char *text);
+
+/**
  * The same recipes and marks for a renderer with fonts of its own (GE Plus's
  * front end, whose glyphs are 8-bit intensity with no outline band). kind is
  * latin.py's KIND_*: 0 base + marks, 1 two joined, 2 turned, 3 drawn as
