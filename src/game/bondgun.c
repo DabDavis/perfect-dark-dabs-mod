@@ -13980,13 +13980,31 @@ void bgunTickGameplay(bool triggeron)
 
 	bgunDecreaseNoiseRadius();
 
-	if (player->resetshadecol) {
-		propCalculateShadeColour(g_Vars.currentplayer->prop, player->gunshadecol, player->floorcol);
-		player->resetshadecol = 0;
-	} else {
-		u8 shadecol[4];
-		propCalculateShadeColour(g_Vars.currentplayer->prop, shadecol, player->floorcol);
-		colourTween(player->gunshadecol, shadecol);
+	{
+		u16 floorcol = player->floorcol;
+#ifndef PLATFORM_N64
+		// the gun in hand is not tinted by a converted level's tile colour
+		// (propobj.c, g_PropShadeUntinted): shaded as with a white tile
+		extern s32 g_PropShadeUntinted;
+
+		if (modloaderStageIsRemake(g_Vars.stagenum)) {
+			floorcol = 0x0fff;
+			g_PropShadeUntinted = 1;
+		}
+#endif
+
+		if (player->resetshadecol) {
+			propCalculateShadeColour(g_Vars.currentplayer->prop, player->gunshadecol, floorcol);
+			player->resetshadecol = 0;
+		} else {
+			u8 shadecol[4];
+			propCalculateShadeColour(g_Vars.currentplayer->prop, shadecol, floorcol);
+			colourTween(player->gunshadecol, shadecol);
+		}
+
+#ifndef PLATFORM_N64
+		g_PropShadeUntinted = 0;
+#endif
 	}
 
 	invIncrementHeldTime(bgunGetWeaponNum(HAND_RIGHT), bgunGetWeaponNum(HAND_LEFT));

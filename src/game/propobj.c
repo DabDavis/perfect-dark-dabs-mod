@@ -1674,6 +1674,14 @@ s32 func0f068fc8(struct prop *prop, bool arg1)
 	return 255;
 }
 
+#ifndef PLATFORM_N64
+// Set by bondgun.c round the gun in hand's shade: on a converted level the gun
+// keeps the shade it had while every tile was white, and is not tinted by its
+// tile as a prop or a guard is (user 2026-09-29: Bunker's tile turned the PP7
+// maroon).
+s32 g_PropShadeUntinted = 0;
+#endif
+
 void propCalculateShadeColour(struct prop *prop, u8 *nextcol, u16 floorcol)
 {
 	struct defaultobj *obj;
@@ -1726,7 +1734,7 @@ void propCalculateShadeColour(struct prop *prop, u8 *nextcol, u16 floorcol)
 	// three quarters, and no room brightness goes in (propobj.c's
 	// set_color_shading_from_tile()). The room's shade on top of the tile's
 	// drew a converted level's props half again as dark as GoldenEye's.
-	if (modloaderStageIsRemake(g_Vars.stagenum) && !cheatIsActive(CHEAT_PERFECTDARKNESS)
+	if (modloaderStageIsRemake(g_Vars.stagenum) && !g_PropShadeUntinted && !cheatIsActive(CHEAT_PERFECTDARKNESS)
 			&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)) {
 		tmp = nextcol[0] * 79 + nextcol[1] * 156 + nextcol[2] * 21;
 		tmp >>= 8;
