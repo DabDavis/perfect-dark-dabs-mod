@@ -31,6 +31,35 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 16 2026-09-29
+GE Plus Aztec: the DAT from the desk goes into your inventory as a gadget, so the mainframe can be started and the mission finished (thanks savantique)
+GE Plus Aztec: the autogun in the guidance server room no longer sees or shoots through crates (thanks savantique)
+GE Plus Statue Park: Natalya is at the helicopter again after a long fight
+GE Plus Statue Park: a destroyed helicopter's rotor winds down and stops (thanks dab)
+GoldenEye Arenas: ammo boxes are GoldenEye's own, not Perfect Dark's purple crate (thanks dblaney1)
+GE Plus Dam and Surface: shots through the officer's chest hit him (thanks dblaney1)
+GE Plus Silo: a guard that has lost sight of you stops shooting at the wall you hid behind (thanks Odeyseis)
+GE Plus Control: running up the metal stairs no longer catches on the steps (thanks savantique)
+GE Plus Dam: the opening shot no longer shows strips of sky between the mountains (thanks dab)
+GE Plus Dam, HD look: no line of blue sky along the tunnel ceiling (thanks dab)
+GE Plus Dam, HD look: no darker patches on the far mountainside by the island; outdoor areas are as bright as in the XBLA release
+GE Plus Statue Park, HD look: no thin black line above the tree line (thanks dab)
+GE Plus Archives, HD look: the fan's shadow under Natalya's room is a see-through shadow, not a solid black shape (thanks Odeyseis)
+GE Plus: an opening shot's caption is in GoldenEye's own larger font
+GE Plus: no flash of the Institute when starting a mission from the folder
+GE Plus watch: holding W/S or the arrow keys moves through the list at a pace you can stop on an item
+GE Plus watch, HD look: the view stays still when switching between the watch's pages
+GE Plus Dam, HD look: the modem box's screen sits inside its frame from every angle
+Classic crosshair: the vertical line is as long below as above (thanks dab)
+GE Plus Runway: the tank's shells fly again instead of going off at the barrel
+GoldenEye guns: a pair a guard drops (like Aztec's two Moonraker lasers) can be picked up and held as a pair (thanks savantique)
+GoldenEye guns: shotgun pellets and damage, knife reach, throwing knife damage, grenade launcher rounds and pair accuracy follow GoldenEye's own numbers (thanks dab)
+GE Plus, HD look: GoldenEye guns are dark gunmetal as in the XBLA release, not silver (thanks dab)
+GE Plus, HD look: the KF7's front sight stands straight on the barrel (thanks dab)
+GE Plus, HD look: the bare hand (slappers) is the XBLA release's own hand, and the white sliver in the palm mid-slap is gone (thanks dab)
+The GoldenEye conversion screen now says GE Plus (the mode's name), not GE-X Plus
+GoldenEye maps are converted again from your ROM, once, the first time you start this version
+
 notes 15 2026-09-28
 GE Plus Cuba credits: Natalya now walks into Bond's arms and they embrace closely, as in GoldenEye (thanks dab)
 GoldenEye X maps from the All in One Mod use the mod's own doors, crates, windows and other props at the right size, so doors no longer draw as stretched wedges or lie across corridors (Train) (thanks dab)
