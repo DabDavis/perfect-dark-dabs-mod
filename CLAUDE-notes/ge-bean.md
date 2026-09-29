@@ -12798,3 +12798,35 @@ simulant on MPB:MPH, armed), `fpmp.py` (player on an arena with a gun),
   itself (Xenia) to say whether the release looks the same there. Statue Park's bulb strings (234109) exist only in
   the release's mesh; their vertex colours reach the palette white (checked with a palette log), so what "lit"
   wants is a glow the level mesh does not carry - also a release-capture question.
+
+## Dam's mini-bunker windows: lifted onto the sill, eye over the roof (2026-09-29)
+
+F3 report 20260929-015652 (GE Arenas Dam, b361e04): *"walking into the
+inner-window of Dam's mini-bunker shunts the player through its roof"*. The
+bunker (room 111) is sunk: floor 13026, the yard 13112. Its four windows (tiles
+1431-1438) are 51 across in plan and linked through tiles on edge to a sill 154
+over the floor inside (13180), which slopes down to the yard. Walking into one
+from inside, `geStanClimbFloor()` lifted the player onto the sill as soon as his
+circle touched it past the climb wall; the jambs (walls on the pillars' unlinked
+edges, only 148 high) then stopped him, he fell back and was lifted again - his
+eye 13330, over the roof, which is the report's picture and position.
+
+**GoldenEye (native port, `~/dam-oracle/damcol/` on 10.8.0.3, `gewalk.py` +
+`walk.padscript`, Bond warped into the bunker and walked at each window) stops
+Bond at the window and never lifts him** - from the report's position its
+`stanTestVolume()` and `stanTestLocusEdgeAboveY()` both refuse. A body 60 across
+cannot get its middle over a 51-wide sill without touching the jambs, and
+`bondviewTryMoveToStan()` makes no move whose circle touches an unlinked edge.
+
+**Fix (`gestan.c`, no converter change):** `stanCircleClear()` is that volume
+test (flood from the tile under the body with the circle, any unlinked edge
+within the radius refuses), and `geStanClimbFloor()` takes a floor only where
+the circle is clear both where the move goes and with its middle on the edge
+it climbs across. The candidates are gathered first and tested after the loop
+(the test floods afresh and would clear the marks the loop reads). Walked in
+from inside at five headings and four strafes, and from outside: no lift, the
+player stops at the window as Bond does (the outside stop is within 5 units of
+the oracle's). Same fault and same fix on the GE Plus Dam mission (0x15 in the
+run dir). Facility's conveyor still lifts +118.9 (walk.py on 0x63). Probes:
+`~/wt/f3-0929b-damcol-run/probes/walk.py`, `walkw.py` (watchpoint on
+`vv_manground` naming the line that moved it).
