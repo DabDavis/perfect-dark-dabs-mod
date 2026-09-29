@@ -31,6 +31,18 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 15 2026-09-28
+GE Plus Cuba credits: Natalya now walks into Bond's arms and they embrace closely, as in GoldenEye (thanks dab)
+GoldenEye X maps from the All in One Mod use the mod's own doors, crates, windows and other props at the right size, so doors no longer draw as stretched wedges or lie across corridors (Train) (thanks dab)
+Esc pauses a match again on GoldenEye Arenas maps; simulants there move around instead of standing where they spawn (thanks ElmoBear)
+While sitting in an Institute chair or sofa, the cancel button (B / right mouse) stands you up; turning off Sit In Chairs (or anything else ending sitting) no longer leaves you stuck inside a sofa (thanks ElmoBear)
+GoldenEye Arenas Archives: the stairwell by the upper landing no longer shows a black hole from above or sky from below
+GoldenEye Arenas Runway: the parked tank no longer has a muzzle flash stuck lit on its barrel (thanks Odeyseis)
+Pause-menu inventory: GoldenEye weapons turn about their own middle at a sensible size; knives lie flat like PD's, mines sit like PD's, the N64-look grenade is grenade-sized, and the N64 look no longer shows Bond's hand and a lit muzzle flash there (thanks Odeyseis)
+Randomizer: fixed two crashes moving to a new map (light glares from the previous map, and landing on a multiplayer arena); guards on GoldenEye Arenas maps open secret wall-doors, use stairs, don't walk off ledges; guards get real guns only (no grenades, mines or knives) (thanks Odeyseis)
+GoldenEye Complex HD look: the rusty pit floors no longer creep like water (thanks Odeyseis)
+GoldenEye maps are converted again from your ROM, once, the first time you start this version
+
 notes 14 2026-09-28
 Customize Character: a GoldenEye body worn with a GoldenEye head now stands on GoldenEye's own skeleton and at GoldenEye's own size from your ROM, like the mission guards, so heads sit on a proper neck (thanks dab, thanks dblaney1, thanks Parabolee)
 GE Plus: Surface II's (and Dam's) opening shots use GoldenEye's own opening fog, so the dish is no longer lost in dark red (thanks dab)
