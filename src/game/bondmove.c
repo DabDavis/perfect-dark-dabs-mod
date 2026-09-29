@@ -2175,6 +2175,20 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			zoomfov = PLAYER_DEFAULT_FOV;
 		}
 
+#ifndef PLATFORM_N64
+		// COD Style Aiming: in to the sights and back out as quickly for
+		// every gun. The tween goes by the degree, so a gun with a zoom of
+		// its own - GoldenEye's KF7 to 30 degrees, the AR33 to 20 - took
+		// two and a half times the Moonraker's six ticks to settle, and
+		// read as the gun being slow to come to the middle (F3
+		// 20260929-203351)
+		if (modIsCodAimingOn()
+				&& modIsWeaponAGun(weaponnum)
+				&& !bgunScopeCoversView(weaponnum)
+				&& !canmanualzoom) {
+			playerTweenFovYWithin(zoomfov, 6.0f);
+		} else
+#endif
 		playerTweenFovY(zoomfov);
 		playerUpdateZoom();
 	}

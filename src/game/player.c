@@ -2791,6 +2791,28 @@ void playerTweenFovY(f32 targetfovy)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * playerTweenFovY(), taking no longer than `maxticks` however far it goes:
+ * its rate is by the degree, so a deeper zoom took longer to settle.
+ */
+void playerTweenFovYWithin(f32 targetfovy, f32 maxticks)
+{
+	f32 speed = 15.0f / 30.0f;
+	f32 ticks;
+
+	if (PLAYER_DEFAULT_FOV > 60.0f) {
+		speed /= PLAYER_DEFAULT_FOV / 60.0f;
+	}
+
+	if (playerGetZoomFovY() != targetfovy) {
+		ticks = fabsf(g_Vars.currentplayer->zoominfovy - targetfovy) * speed;
+
+		playerSetZoomFovY(targetfovy, ticks < maxticks ? ticks : maxticks);
+	}
+}
+#endif
+
 f32 playerGetTeleportFovY(void)
 {
 	f32 time;

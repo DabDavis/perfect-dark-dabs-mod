@@ -14,6 +14,7 @@
 #include "game/game_0b0fd0.h"
 #include "game/gfxmemory.h"
 #include "game/hudmsg.h"
+#include "game/player.h"
 #include "game/inv.h"
 #include "game/lang.h"
 #include "game/modeldef.h"
@@ -113,6 +114,7 @@ static struct gegadgetidentity g_Identities[] = {
 #define GEGADGET_COPY_FLAG 0x80000000
 
 #define GESFX_CAMERA_CLICK 244
+#define CAMERA_SHUTTER_TICKS 10.0f // GoldenEye's 8 from black, after a frame of it
 #define GESFX_KEY_ANALYSER 245
 
 // A model GoldenEye holds with no animation, posed as GoldenEye poses it: at
@@ -794,6 +796,12 @@ void gegadgetsFire(s32 weaponnum)
 		// in the hardware's fixed point
 		geSfxPlay(GESFX_CAMERA_CLICK, GESFX_VOLUME);
 		g_Gadgets.photo = 1;
+
+		// GoldenEye's shutter (gunfire.c, ITEM_CAMERA's trigger press): the
+		// view goes black on the press and comes back over 8 ticks from its
+		// next frame, a frame which at its 30 a second is two ticks more
+		playerSetFadeColour(0, 0, 0, 1.0f);
+		playerAdjustFade(CAMERA_SHUTTER_TICKS, 0, 0, 0, 0.0f);
 	} else if (weaponnum == WEAPON_GE_WATCHMAGNET) {
 		gegadgetsMagnet();
 	} else if (weaponnum == WEAPON_GE_GADGETA && g_Gadgets.mission == MISSION_BUNKER) {

@@ -846,6 +846,14 @@ Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox,
 	return gdl;
 }
 
+/** Whether the release's own sight picture is there to draw (the HD look). */
+s32 geHudHasHdSight(void)
+{
+	s32 w, h;
+
+	return geFolderMenuPicture(SIGHT_HD_PICTURE, &w, &h) != NULL;
+}
+
 Gfx *geHudRenderSight(Gfx *gdl, f32 x, f32 y)
 {
 	struct hudframe f;

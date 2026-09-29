@@ -25,6 +25,9 @@ void playerClampGunZoomFovY(s32 playernum);
 void playerSetZoomFovY(f32 fovy, f32 timemax);
 f32 playerGetZoomFovY(void);
 void playerTweenFovY(f32 targetfovy);
+#ifndef PLATFORM_N64
+void playerTweenFovYWithin(f32 targetfovy, f32 maxticks);
+#endif
 f32 playerGetTeleportFovY(void);
 void playerUpdateZoom(void);
 void playerStopAudioForPause(void);

@@ -42,6 +42,7 @@
 #include "gexfront.h"
 #include "modborrow.h"
 #include "geintro.h"
+#include "gebean.h"
 #include "game/mplayer/setup.h"
 #endif
 #include "types.h"
@@ -3961,7 +3962,15 @@ void func0f105948(s32 weaponnum)
 
 		g_Menus[g_MpPlayerNum].menumodel.loaddelay = 8;
 		g_Menus[g_MpPlayerNum].menumodel.curparams = 0;
+#ifndef PLATFORM_N64
+		// A GoldenEye gun that carries its own glove in the HD look (the
+		// pistols and knives) is shown bare, as the watch shows it: the hand
+		// is the first person's, not the gun's (F3 20260929-204219)
+		g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(gebeanFirstPersonWatchFile(weaponnum)
+				? gebeanFirstPersonWatchFile(weaponnum) : weaponGetFileNum(weaponnum));
+#else
 		g_Menus[g_MpPlayerNum].menumodel.newparams = MENUMODELPARAMS_SET_FILENUM(weaponGetFileNum(weaponnum));
+#endif
 
 		g_Menus[g_MpPlayerNum].menumodel.curposx = g_Menus[g_MpPlayerNum].menumodel.newposx = 0;
 		g_Menus[g_MpPlayerNum].menumodel.curposy = g_Menus[g_MpPlayerNum].menumodel.newposy = 0;
