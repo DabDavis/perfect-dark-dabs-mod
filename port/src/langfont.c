@@ -901,6 +901,77 @@ u32 langfontNextCodepoint(const char **text)
 	return cp;
 }
 
+/* ---- line breaking and case ------------------------------------------- */
+
+s32 langfontIsCjkBreakable(u32 cp)
+{
+	return (cp >= 0x2e80 && cp < 0xa000) || (cp >= 0xf900 && cp < 0xfb00) || (cp >= 0xff00 && cp < 0xffa0);
+}
+
+s32 langfontNoBreakBefore(u32 cp)
+{
+	switch (cp) {
+	case 0x3001: case 0x3002: case 0xff0c: case 0xff0e: // 、。，．
+	case 0x300d: case 0x300f: case 0x3011: case 0xff09: // 」』】）
+	case 0x3009: case 0x300b: case 0x3015: case 0xff3d: // 〉》〕］
+	case 0x30fc: case 0x301c: case 0xff5e:              // ー〜～
+	case 0x3041: case 0x3043: case 0x3045: case 0x3047: case 0x3049: // small kana
+	case 0x3063: case 0x3083: case 0x3085: case 0x3087: case 0x308e:
+	case 0x30a1: case 0x30a3: case 0x30a5: case 0x30a7: case 0x30a9:
+	case 0x30c3: case 0x30e3: case 0x30e5: case 0x30e7: case 0x30ee:
+	case 0x30f5: case 0x30f6: case 0x309d: case 0x309e: case 0x30fd: case 0x30fe: case 0x3005:
+	case 0xff01: case 0xff1f: case 0x30fb: case 0xff1a: case 0xff1b: // ！？・：；
+	case 0x2026: case 0x2025:                           // … ‥
+		return 1;
+	}
+
+	return cp == '.' || cp == ',' || cp == '!' || cp == '?' || cp == ')' || cp == ':' || cp == ';' || cp == '%';
+}
+
+s32 langfontNoBreakAfter(u32 cp)
+{
+	switch (cp) {
+	case 0x300c: case 0x300e: case 0x3010: case 0xff08: // 「『【（
+	case 0x3008: case 0x300a: case 0x3014: case 0xff3b: // 〈《〔［
+		return 1;
+	}
+
+	return cp == '(';
+}
+
+void langfontToUpper(char *text)
+{
+	u8 *s = (u8 *)text;
+
+	while (*s) {
+		if (*s < 0x80) {
+			if (*s >= 'a' && *s <= 'z') {
+				*s -= 0x20;
+			}
+
+			s++;
+		} else if (s[0] == 0xc3 && s[1] >= 0xa0 && s[1] <= 0xbe && s[1] != 0xb7) {
+			// U+00E0-U+00FE less the division sign: capital is 0x20 below
+			s[1] -= 0x20;
+			s += 2;
+		} else if (s[0] == 0xc3 && s[1] == 0xbf) {
+			// y with diaeresis: U+0178
+			s[0] = 0xc5;
+			s[1] = 0xb8;
+			s += 2;
+		} else if (s[0] == 0xc5 && s[1] == 0x93) {
+			// oe: U+0152
+			s[1] = 0x92;
+			s += 2;
+		} else {
+			const char *p = (const char *)s;
+
+			langfontNextCodepoint(&p);
+			s = (u8 *)p;
+		}
+	}
+}
+
 /* ---- for another renderer's fonts (GE Plus's, gexfront.c) --------------- */
 
 s32 langfontRecipeOf(u32 cp, s32 *kind, const char **text, s32 *mark1, s32 *mark2)

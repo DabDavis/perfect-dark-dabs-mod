@@ -70,6 +70,7 @@
 #include "system.h"
 #include "game/modrules.h"
 #include "geguns.h"
+#include "langpack.h"
 #define BLUR_OFS 10
 #else
 #define BLUR_OFS 30
@@ -678,6 +679,13 @@ void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struc
 	case MENUITEMTYPE_LIST:
 		if (item->param2 > 0) {
 			*width = item->param2;
+#ifndef PLATFORM_N64
+			// a fixed-width list (the inventory's 110) holds half the
+			// letters in Japanese, whose every character is 12 wide
+			if (langpackScript() == LANGPACK_SCRIPT_CJK) {
+				*width = item->param2 * 6 / 5;
+			}
+#endif
 		} else {
 			*width = 80;
 

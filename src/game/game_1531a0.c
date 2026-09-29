@@ -3671,34 +3671,6 @@ void textWrap(s32 wrapwidth, char *src, char *dst, struct fontchar *chars, struc
 
 #ifndef PLATFORM_N64
 /**
- * Whether a line may break before cp or after it with no space: every CJK
- * character stands as a word of its own, since Japanese has no spaces.
- */
-static s32 textIsCjkBreakable(u32 cp)
-{
-	return (cp >= 0x2e80 && cp < 0xa000) || (cp >= 0xf900 && cp < 0xfb00) || (cp >= 0xff00 && cp < 0xffa0);
-}
-
-/** Japanese punctuation a line must not start with (kinsoku). */
-static s32 textNoBreakBefore(u32 cp)
-{
-	switch (cp) {
-	case 0x3001: case 0x3002: case 0xff0c: case 0xff0e: // 、。，．
-	case 0x300d: case 0x300f: case 0x3011: case 0xff09: // 」』】）
-	case 0x30fc: case 0x301c: case 0xff5e:              // ー〜～
-	case 0x3041: case 0x3043: case 0x3045: case 0x3047: case 0x3049: // small kana
-	case 0x3063: case 0x3083: case 0x3085: case 0x3087:
-	case 0x30a1: case 0x30a3: case 0x30a5: case 0x30a7: case 0x30a9:
-	case 0x30c3: case 0x30e3: case 0x30e5: case 0x30e7:
-	case 0xff01: case 0xff1f: case 0x30fb: case 0xff1a: case 0xff1b: // ！？・：；
-	case 0x2026: case 0x2025:                           // … ‥
-		return 1;
-	}
-
-	return cp == '.' || cp == ',' || cp == '!' || cp == '?' || cp == ')' || cp == ':' || cp == ';';
-}
-
-/**
  * textWrap() with the size of dst, which it never writes past: a translation
  * is longer than the English its buffer was sized for. The same breaks as the
  * ROM's for ASCII text, word for word; a word of any length (the ROM's was cut
@@ -3729,6 +3701,8 @@ void textWrapN(s32 wrapwidth, char *src, char *dst, u32 dstsize, struct fontchar
 	while (more == true) {
 		char sep;
 
+		u32 lastcp = 0;
+
 		// Load the next word
 		wordwidth = 0;
 		wordlen = 0;
@@ -3737,9 +3711,9 @@ void textWrapN(s32 wrapwidth, char *src, char *dst, u32 dstsize, struct fontchar
 			const char *p = src;
 			const u32 cp = langfontNextCodepoint(&p);
 			const s32 n = p - src;
-			const s32 cjk = textIsCjkBreakable(cp);
+			const s32 cjk = langfontIsCjkBreakable(cp);
 
-			if (cjk && wordlen > 0 && !textNoBreakBefore(cp)) {
+			if (cjk && wordlen > 0 && !langfontNoBreakBefore(cp) && !langfontNoBreakAfter(lastcp)) {
 				break;
 			}
 
@@ -3749,11 +3723,12 @@ void textWrapN(s32 wrapwidth, char *src, char *dst, u32 dstsize, struct fontchar
 			}
 
 			src = (char *)p;
+			lastcp = cp;
 
-			if (cjk && (u8)*src > ' ') {
+			if (cjk && (u8)*src > ' ' && !langfontNoBreakAfter(cp)) {
 				const char *q = src;
 
-				if (!textNoBreakBefore(langfontNextCodepoint(&q))) {
+				if (!langfontNoBreakBefore(langfontNextCodepoint(&q))) {
 					break;
 				}
 			}

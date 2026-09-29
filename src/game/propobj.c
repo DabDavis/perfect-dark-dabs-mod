@@ -87,6 +87,18 @@
 #include "system.h"
 #include "game/modrules.h"
 #include "xblamesh.h"
+#include "langpack.h"
+
+/**
+ * A pickup message in Japanese word order - "<name><picked up>", no article,
+ * no plural and no full stop - which is the ROM's own JPN branch, taken for a
+ * CJK language pack as well (CLAUDE-notes/languages.md).
+ */
+#define PICKUP_JPN_ORDER (g_Jpn || langpackScript() == LANGPACK_SCRIPT_CJK)
+#else
+#define PICKUP_JPN_ORDER g_Jpn
+#endif
+#ifndef PLATFORM_N64
 #ifndef PLATFORM_N64
 #include "gexplusveh.h"
 #include "gemonitor.h"
@@ -17822,7 +17834,8 @@ void ammotypeGetPickupName(char *dst, s32 ammotype2, s32 qty)
 		}
 #endif
 
-		if (qty >= 2 && ammotype != AMMOTYPE_REAPER && ammotype != AMMOTYPE_SEDATIVE && ammotype != AMMOTYPE_CLOAK) {
+		if (qty >= 2 && ammotype != AMMOTYPE_REAPER && ammotype != AMMOTYPE_SEDATIVE && ammotype != AMMOTYPE_CLOAK
+				&& !PICKUP_JPN_ORDER) {
 			strcat(dst, langGet(L_PROPOBJ_024)); // "s"
 		}
 	}
@@ -17955,7 +17968,7 @@ void ammotypeGetPickupMessage(char *dst, s32 ammotype, s32 qty)
 		func0f0878c8pf(dst, ammotype, qty > 1, !full, 0, var8006a944pf);
 	}
 #else
-	if (g_Jpn) {
+	if (PICKUP_JPN_ORDER) {
 		ammotypeGetPickupName(dst, ammotype, qty);
 
 		if (full) {
@@ -18221,7 +18234,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 	if (dual) {
 		strcat(buffer, langGet(L_PROPOBJ_001)); // "Double"
 	} else {
-		if (!g_Jpn) {
+		if (!PICKUP_JPN_ORDER) {
 			if (full) {
 				strcat(buffer, langGet(L_PROPOBJ_000)); // "Picked up"
 
@@ -18268,7 +18281,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 	// here. The code below removes them conditionally, then ends up removing
 	// them unconditionally anyway which is a bit wasteful.
 
-	if (plural) {
+	if (plural && !PICKUP_JPN_ORDER) {
 		if (buffer[strlen(buffer) - 1] == '\n') {
 			buffer[strlen(buffer) - 1] = '\0';
 		}
@@ -18277,7 +18290,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 	}
 
 	// For JPN, their translation of "picked up" comes after the weapon name
-	if (g_Jpn && full) {
+	if (PICKUP_JPN_ORDER && full) {
 		if (buffer[strlen(buffer) - 1] == '\n') {
 			buffer[strlen(buffer) - 1] = '\0';
 		}
@@ -18289,6 +18302,13 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 	if (buffer[strlen(buffer) - 1] == '\n') {
 		buffer[strlen(buffer) - 1] = '\0';
 	}
+
+#ifndef PLATFORM_N64
+	if (!g_Jpn && PICKUP_JPN_ORDER) {
+		strcat(buffer, "\n"); // a Japanese pack's message ends in the name or its verb
+		return;
+	}
+#endif
 
 	strcat(buffer, ".\n");
 #endif
