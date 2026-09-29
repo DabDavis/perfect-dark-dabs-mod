@@ -20,12 +20,6 @@
 // how far the conversion can move a floor off GoldenEye's: one rounding to a
 // whole world unit (tools/geconvert/geconvert.py, write_tiles()/write_stan())
 #define GEROOM_FLOOR_ROUNDING 0.5f
-// geRoomDoorSideRooms(): where the floor either side of a door is sampled, past
-// the leaf's face - near, and a body's width out - and how far under the leaf's
-// foot the floor may sit and still be the one it stands on
-#define GEROOM_DOORSIDE_NEAR 20.0f
-#define GEROOM_DOORSIDE_FAR  60.0f
-#define GEROOM_DOORSIDE_SINK 40.0f
 
 s32 geRoomActive(void)
 {
@@ -303,10 +297,13 @@ void geRoomDoorSideRooms(struct prop *prop, struct pad *pad)
 	};
 	const struct coord *axes[3] = { &pad->normal, &pad->up, &pad->look };
 	const RoomNum was = prop->rooms[0];
+	struct coord centre;
+	struct coord pt1;
+	struct coord pt2;
 	bool changed = false;
 	s32 thin = 0;
-	f32 bottom = 1e30f;
-	s32 i, side, step;
+	s32 rooms[2];
+	s32 i;
 
 	for (i = 1; i < 3; i++) {
 		if (ext[i] < ext[thin]) {
@@ -320,34 +317,35 @@ void geRoomDoorSideRooms(struct prop *prop, struct pad *pad)
 		return;
 	}
 
-	// the leaf's lowest corner, where the floor either side of it is
-	for (i = 0; i < 8; i++) {
-		const f32 a = (i & 1) ? pad->bbox.xmax : pad->bbox.xmin;
-		const f32 b = (i & 2) ? pad->bbox.ymax : pad->bbox.ymin;
-		const f32 c = (i & 4) ? pad->bbox.zmax : pad->bbox.zmin;
-		const f32 y = pad->pos.y + a * pad->normal.y + b * pad->up.y + c * pad->look.y;
+	// GoldenEye's own rooms for the door (prop.c's setupDoor() through
+	// sub_GAME_7F00324C()): from the pad's tile to the middle of the box,
+	// then fifty either way along the door's normal over the tile graph,
+	// each walk stopping at an edge with no tile beyond it. Sampling the
+	// floor under points past each face instead found floors the graph never
+	// reaches: Frigate's six doors set in the ends of corridors (pads 70, 71,
+	// 74, 85, 86, 89) have no portal and stand in rooms of their own behind
+	// the corridor wall, which GoldenEye never draws from the corridor - and
+	// the floor sample filed each under the corridor too, so a door stood in
+	// every one of those alcoves (F3 20260929-095345, -095411, -095420,
+	// -095435, "this door doesn't exist in the original game").
+	centre.x = pad->pos.x + ((pad->bbox.xmin + pad->bbox.xmax) * pad->normal.x
+			+ (pad->bbox.ymin + pad->bbox.ymax) * pad->up.x
+			+ (pad->bbox.zmin + pad->bbox.zmax) * pad->look.x) * 0.5f;
+	centre.y = pad->pos.y + ((pad->bbox.xmin + pad->bbox.xmax) * pad->normal.y
+			+ (pad->bbox.ymin + pad->bbox.ymax) * pad->up.y
+			+ (pad->bbox.zmin + pad->bbox.zmax) * pad->look.y) * 0.5f;
+	centre.z = pad->pos.z + ((pad->bbox.xmin + pad->bbox.xmax) * pad->normal.z
+			+ (pad->bbox.ymin + pad->bbox.ymax) * pad->up.z
+			+ (pad->bbox.zmin + pad->bbox.zmax) * pad->look.z) * 0.5f;
 
-		if (y < bottom) {
-			bottom = y;
-		}
+	if (!geStanDoorSideRooms(&pad->pos, &centre, &pad->normal, &rooms[0], &rooms[1], &pt1, &pt2)) {
+		return;
 	}
 
-	for (side = -1; side <= 1; side += 2) {
-		for (step = 0; step < 2; step++) {
-			const f32 dist = ext[thin] * 0.5f + (step ? GEROOM_DOORSIDE_FAR : GEROOM_DOORSIDE_NEAR);
-			struct coord pt;
-			s32 room;
-
-			pt.x = prop->pos.x + axes[thin]->x * dist * side;
-			pt.y = bottom;
-			pt.z = prop->pos.z + axes[thin]->z * dist * side;
-
-			room = geStanRoomUnder(&pt, bottom + GEROOM_DOORSIDE_SINK, -1);
-
-			if (geRoomPropAdd(prop, room, &changed)) {
-				sysLogPrintf(LOG_NOTE, "gexplus: door on pad %d also in room %d, the floor beside it (it was room %d's)",
-						prop->door ? prop->door->base.pad : -1, room, was);
-			}
+	for (i = 0; i < 2; i++) {
+		if (geRoomPropAdd(prop, rooms[i], &changed)) {
+			sysLogPrintf(LOG_NOTE, "gexplus: door on pad %d also in room %d, GoldenEye's room beside it (it was room %d's)",
+					prop->door ? prop->door->base.pad : -1, rooms[i], was);
 		}
 	}
 

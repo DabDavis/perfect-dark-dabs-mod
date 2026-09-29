@@ -89,17 +89,21 @@ s32 geRoomCutsceneCamera(struct coord *campos, struct coord *padpos, s32 padroom
 void geRoomDoorPortalRooms(struct prop *prop, s32 portalnum);
 
 /**
- * Every converted door is also in the rooms of the floor either side of it:
- * the tile under a point a little past each face of the leaf, at the leaf's
- * foot. A door prop's rooms come from its middle, and a converted level's room
- * boxes meet at the door's plane - so with no portal to name the far side (the
- * Cradle has none at all) a door was the near room's alone, and a guard coming
- * from the far room never met it: his line to the next waypoint
- * (chrOpenDoor()) and his moves ask only the rooms he is in for props, so the
- * door was not opened, and he walked into the leaf until he crossed into the
- * room it was filed under and it stopped him, standing inside it (F3 report
- * 20260926-170419, Cradle's door on pad 155, from room 18). A door lying flat
- * is left alone. `pad` is the door's own, as setupCreateDoor() unpacked it.
+ * Every converted door is also in GoldenEye's rooms either side of it: the
+ * rooms its tile graph reaches fifty units past each face of the leaf from the
+ * pad's tile (geStanDoorSideRooms(), GoldenEye's sub_GAME_7F00324C()). A door
+ * prop's rooms come from its middle, and a converted level's room boxes meet
+ * at the door's plane - so with no portal to name the far side (the Cradle has
+ * none at all) a door was the near room's alone, and a guard coming from the
+ * far room never met it: his line to the next waypoint (chrOpenDoor()) and his
+ * moves ask only the rooms he is in for props, so the door was not opened, and
+ * he walked into the leaf until he crossed into the room it was filed under
+ * and it stopped him, standing inside it (F3 report 20260926-170419, Cradle's
+ * door on pad 155, from room 18). The walk, not the floor under a point past
+ * the leaf: Frigate's doors at the corridor ends stand in rooms behind the
+ * wall the graph does not cross to, and GoldenEye never draws them from the
+ * corridor (F3 20260929-095345). A door lying flat is left alone. `pad` is
+ * the door's own, as setupCreateDoor() unpacked it.
  */
 void geRoomDoorSideRooms(struct prop *prop, struct pad *pad);
 
