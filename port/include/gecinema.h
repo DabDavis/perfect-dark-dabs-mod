@@ -57,6 +57,10 @@ s32 gecinemaIntroIsStill(void);
 s32 gecinemaIntroIsSwirl(void);
 // From playerTick()'s TICKMODE_WARP: the swirl's camera. True while it has it.
 s32 gecinemaSwirlTick(void);
+// How opaque an object is drawn while an opening's camera is so close to it
+// that the near plane would cut it open (objRender()): 255 otherwise.
+struct prop;
+s32 gecinemaPropAlpha(struct prop *prop);
 
 // The gun Bond's body holds in a converted mission's ending: GoldenEye's
 // hands[].weaponnum, which BondEquipItemCinema sets and BondHideWeapons leaves

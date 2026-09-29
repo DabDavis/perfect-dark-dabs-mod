@@ -22,6 +22,7 @@
  * them, so their fields are the port's to define.
  */
 #include <string.h>
+#include <math.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "types.h"
@@ -61,6 +62,8 @@
 #include "platform.h"
 #include "geroom.h"
 #include "trace.h"
+#include "video.h"
+#include "lib/vi.h"
 
 #ifndef PLATFORM_N64
 
@@ -212,6 +215,20 @@ static struct geswirl g_GeSwirl[MAX_SWIRL + 4];
 static s32 g_GeNumSwirl;
 
 /**
+ * Props faded out of the opening's camera (gecinemaPropAlpha()): what the
+ * prop was, how opaque it is now, and the frame that was worked out on.
+ */
+#define NEARFADE_MAX 32
+
+static struct {
+	struct prop *prop;
+	f32 alpha;
+	s32 frame;
+} g_GeNearFade[NEARFADE_MAX];
+
+static s32 g_GeNearFadeCount;   // how many of them are in use
+
+/**
  * The folder's Cinema page picked a mission. The stage starts the way a mission
  * does; gecinemaStageStart() picks this up when it has loaded.
  */
@@ -292,6 +309,8 @@ void gecinemaStageStart(void)
 	}
 
 	g_GeBondBodyWeapon = WEAPON_NONE;
+	memset(g_GeNearFade, 0, sizeof(g_GeNearFade));
+	g_GeNearFadeCount = 0;
 
 	// A mission that is not the Cinema page's opens on its own cinema. The
 	// probes that boot straight into a level can ask for it not to.
@@ -575,6 +594,254 @@ void gecinemaCameraTick(void)
 
 	playerSetCamPropertiesWithRoom(&g_GeCinemaCamPos, &pl->bond2.unk28,
 			&pl->bond2.unk1c, g_GeCinemaCamRoom);
+}
+
+/**
+ * Whether an object's box reaches into the near end of the opening camera's
+ * view: the slab from the eye to the near plane and a margin past it, as wide
+ * and as tall as the view is there. Worked out in the camera's own space, from
+ * the matrix the model was drawn with this frame.
+ */
+static s32 gecinemaPropInNear(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
+	struct modelrodata_bbox *bbox;
+	struct zrange zrange;
+	Mtxf *m;
+	f32 box[8][3];
+	f32 view[8][3];
+	f32 axes[40][3];
+	f32 edges[6][3];
+	s32 numaxes = 0;
+	f32 depth, halfh, halfw;
+
+	if (!obj || !obj->model || !obj->model->matrices) {
+		return 0;
+	}
+
+	bbox = objFindBboxRodata(obj);
+
+	if (!bbox) {
+		return 0;
+	}
+
+	m = &obj->model->matrices[0];
+
+	// the camera looks down -z; the margin is a tenth of the near plane
+	viGetZRange(&zrange);
+	depth = zrange.near * 1.1f;
+	halfh = depth * tanf(viGetFovY() * (3.14159265f / 360.0f));
+	halfw = halfh * MAX(viGetAspect(), videoGetAspect());
+
+	for (s32 i = 0; i < 8; i++) {
+		const f32 c[3] = {
+			(i & 1) ? bbox->xmax : bbox->xmin,
+			(i & 2) ? bbox->ymax : bbox->ymin,
+			(i & 4) ? bbox->zmax : bbox->zmin,
+		};
+
+		for (s32 k = 0; k < 3; k++) {
+			box[i][k] = m->m[0][k] * c[0] + m->m[1][k] * c[1] + m->m[2][k] * c[2] + m->m[3][k];
+		}
+
+		// the view's pyramid out to there: its eye (the last four) and the
+		// corners of its end
+		view[i][0] = i < 4 ? ((i & 1) ? halfw : -halfw) : 0.0f;
+		view[i][1] = i < 4 ? ((i & 2) ? halfh : -halfh) : 0.0f;
+		view[i][2] = i < 4 ? -depth : 0.0f;
+	}
+
+	// the pyramid's edges: across its end, and from the eye to each corner
+	for (s32 k = 0; k < 6; k++) {
+		for (s32 j = 0; j < 3; j++) {
+			edges[k][j] = k < 2 ? (f32)(k == j) : view[k - 2][j];
+		}
+	}
+
+	// Separating axes: the view's three and its pyramid's four sides, the
+	// box's three and the crossings of the box's edges with the pyramid's.
+	// The box is turned and pitched against the camera, so its corners' own
+	// extent along the camera's axes says it is near when it is only beside,
+	// and the part of the slab outside the pyramid is not drawn at all.
+	for (s32 k = 0; k < 3; k++) {
+		axes[numaxes][0] = k == 0;
+		axes[numaxes][1] = k == 1;
+		axes[numaxes][2] = k == 2;
+		numaxes++;
+	}
+
+	// the pyramid's four sides
+	for (s32 k = 0; k < 4; k++) {
+		const f32 *a = view[k];
+		const f32 *b = view[k == 0 ? 1 : k == 1 ? 3 : k == 3 ? 2 : 0];
+
+		axes[numaxes][0] = a[1] * b[2] - a[2] * b[1];
+		axes[numaxes][1] = a[2] * b[0] - a[0] * b[2];
+		axes[numaxes][2] = a[0] * b[1] - a[1] * b[0];
+		numaxes++;
+	}
+
+	for (s32 j = 0; j < 3; j++) {
+		const f32 *e = m->m[j];
+
+		axes[numaxes][0] = e[0];
+		axes[numaxes][1] = e[1];
+		axes[numaxes][2] = e[2];
+		numaxes++;
+
+		for (s32 k = 0; k < 6; k++) {
+			const f32 *u = edges[k];
+
+			axes[numaxes][0] = e[1] * u[2] - e[2] * u[1];
+			axes[numaxes][1] = e[2] * u[0] - e[0] * u[2];
+			axes[numaxes][2] = e[0] * u[1] - e[1] * u[0];
+			numaxes++;
+		}
+	}
+
+	for (s32 a = 0; a < numaxes; a++) {
+		const f32 *ax = axes[a];
+		f32 blo = 1e30f, bhi = -1e30f, vlo = 1e30f, vhi = -1e30f;
+
+		if (ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2] < 1e-12f) {
+			continue;
+		}
+
+		for (s32 i = 0; i < 8; i++) {
+			const f32 b = box[i][0] * ax[0] + box[i][1] * ax[1] + box[i][2] * ax[2];
+			const f32 v = view[i][0] * ax[0] + view[i][1] * ax[1] + view[i][2] * ax[2];
+
+			blo = MIN(blo, b);
+			bhi = MAX(bhi, b);
+			vlo = MIN(vlo, v);
+			vhi = MAX(vhi, v);
+		}
+
+		if (bhi < vlo || blo > vhi) {
+			return 0;
+		}
+	}
+
+	// A box is only the room a model takes up - Dam's truck's reaches a
+	// bumper's length past the grille - so what the near plane would really
+	// cut is asked of the model's own vertices: any of them inside the
+	// pyramid. The HD look draws its own mesh over the same parts.
+	{
+		struct modelnode *stack[64];
+		s32 sp = 0;
+		const f32 slopex = halfw / depth;
+		const f32 slopey = halfh / depth;
+
+		if (!obj->model->definition || !obj->model->definition->rootnode) {
+			return 1;
+		}
+
+		stack[sp++] = obj->model->definition->rootnode;
+
+		while (sp > 0) {
+			struct modelnode *node = stack[--sp];
+
+			if ((node->type & 0xff) == MODELNODETYPE_DL && node->rodata->dl.vertices) {
+				Mtxf *nm = modelFindNodeMtx(obj->model, node, 0);
+
+				for (s32 v = 0; nm && v < node->rodata->dl.numvertices; v++) {
+					const Vtx *vtx = &node->rodata->dl.vertices[v];
+					const f32 x = vtx->x, y = vtx->y, z = vtx->z;
+					const f32 cz = -(nm->m[0][2] * x + nm->m[1][2] * y + nm->m[2][2] * z + nm->m[3][2]);
+					f32 cx, cy;
+
+					if (cz < 0.0f || cz > depth) {
+						continue;
+					}
+
+					cx = nm->m[0][0] * x + nm->m[1][0] * y + nm->m[2][0] * z + nm->m[3][0];
+					cy = nm->m[0][1] * x + nm->m[1][1] * y + nm->m[2][1] * z + nm->m[3][1];
+
+					if (fabsf(cx) <= cz * slopex && fabsf(cy) <= cz * slopey) {
+						return 1;
+					}
+				}
+			}
+
+			if (node->next && sp < ARRAYCOUNT(stack)) {
+				stack[sp++] = node->next;
+			}
+
+			if (node->child && sp < ARRAYCOUNT(stack)) {
+				stack[sp++] = node->child;
+			}
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * How opaque an object is drawn, out of 255, from objRender().
+ *
+ * GoldenEye's opening shots stand the camera where things pass right by it -
+ * Dam's truck drives over the lens - and its near plane slices them open, so
+ * the picture looks into the truck's wheels. While an opening shot or the
+ * swirl has the camera, anything whose box comes inside the near plane fades
+ * out over a few frames, and back in once it has gone by (or the opening is
+ * over). Nothing else changes: the object is where it was and does what it
+ * did, and outside an opening every object is 255.
+ */
+s32 gecinemaPropAlpha(struct prop *prop)
+{
+	const s32 camera = gecinemaIntroIsStill() || gecinemaIntroIsSwirl();
+	s32 slot = -1;
+	s32 freeslot = -1;
+
+	// the whole of it outside an opening, once the last has faded back in
+	if (!camera && g_GeNearFadeCount == 0) {
+		return 255;
+	}
+
+	for (s32 i = 0; i < NEARFADE_MAX; i++) {
+		if (g_GeNearFade[i].prop == prop) {
+			slot = i;
+			break;
+		}
+
+		if (!g_GeNearFade[i].prop && freeslot < 0) {
+			freeslot = i;
+		}
+	}
+
+	if (slot < 0) {
+		if (!camera || freeslot < 0 || !gecinemaPropInNear(prop)) {
+			return 255;
+		}
+
+		slot = freeslot;
+		sysLogPrintf(LOG_NOTE, "gecinema: model %d faded, inside the opening camera's near plane at frame %d",
+				prop->obj ? prop->obj->modelnum : -1, g_Vars.lvframenum);
+		g_GeNearFade[slot].prop = prop;
+		g_GeNearFadeCount++;
+		g_GeNearFade[slot].alpha = 255.0f;
+		g_GeNearFade[slot].frame = g_Vars.lvframenum - 1;
+	}
+
+	// once a frame, whichever pass draws it first
+	if (g_GeNearFade[slot].frame != g_Vars.lvframenum) {
+		const s32 in = camera && gecinemaPropInNear(prop);
+		const f32 step = 255.0f / 8.0f * g_Vars.diffframe60f;
+		f32 a = g_GeNearFade[slot].alpha;
+
+		a = in ? a - step : a + step;
+		g_GeNearFade[slot].frame = g_Vars.lvframenum;
+
+		if (a >= 255.0f) {
+			g_GeNearFade[slot].prop = NULL;
+			g_GeNearFadeCount--;
+			return 255;
+		}
+
+		g_GeNearFade[slot].alpha = a < 0.0f ? 0.0f : a;
+	}
+
+	return (s32)g_GeNearFade[slot].alpha;
 }
 
 /** A shot's line of text, as GoldenEye shows it: the bottom of the screen. */

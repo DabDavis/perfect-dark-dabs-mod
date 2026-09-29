@@ -116,6 +116,7 @@
 #include "sitchair.h"
 #include "getank.h"
 #include "gexfront.h"
+#include "gecinema.h"
 #endif
 #endif
 
@@ -14517,6 +14518,23 @@ Gfx *objRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			return gdl;
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// A GE Plus opening's camera standing inside something that passes it -
+	// Dam's truck drives over the lens: faded rather than cut open by the
+	// near plane (gecinema.c)
+	{
+		const s32 nearfade = gecinemaPropAlpha(prop);
+
+		if (nearfade < 255) {
+			alpha = alpha * nearfade / 255;
+
+			if (alpha <= 0) {
+				return gdl;
+			}
+		}
+	}
+#endif
 
 	if (g_Vars.currentplayer->visionmode == VISIONMODE_NORMAL) {
 		// empty
