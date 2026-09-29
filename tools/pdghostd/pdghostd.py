@@ -101,7 +101,8 @@ REPORT_MAX_NOTE = 1000
 REPORT_MAX_NAME = 64
 REPORT_MAX_SHOT = 5 * 1024 * 1024
 REPORT_WINDOW = 3600
-REPORT_MAX = 30
+# 120 an hour from one address: keen testers file a level at a time (user 2026-09-29, was 30)
+REPORT_MAX = 120
 # A report is ~100KB of text and a ~1MB picture, so this is ~10GB in practice
 # (and more at the caps) - but it is a backstop, not the budget. What keeps the
 # directory small is the monthly archive below, which leaves about a month of
