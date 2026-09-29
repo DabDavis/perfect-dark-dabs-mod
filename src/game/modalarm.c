@@ -1078,6 +1078,19 @@ static struct chrdata *modAlarmSpawn(s32 bodynum, struct coord *pos, RoomNum *ro
 	chr->flags2 = 0;
 	chr->hidden2 |= CHRH2FLAG_SPAWNED;
 
+	// The voice the setup file's spawn gives a chr (bodyAllocateChr()):
+	// one of the three men's, or the woman's for a female body. The man's is
+	// taken from the chr number rather than the rng, so a seeded run or a
+	// ghost deals exactly what it dealt before this line was here.
+	// chrInit() leaves every chr on the first man's, so a woman dealt here
+	// shouted his lines ("Why me?", "She got me") over her own pain sounds,
+	// which read the body (F3 20260929-200003).
+	chr->voicebox = (u32)chr->chrnum % 3;
+
+	if (!g_HeadsAndBodies[bodynum].ismale) {
+		chr->voicebox = VOICEBOX_FEMALE;
+	}
+
 	// What the body brings with it besides the model: a robot's fireslots and
 	// the sizes the special bodies stand at. The setup file's spawn does this
 	// and so must this one - the bodies here are the stage's own until a
