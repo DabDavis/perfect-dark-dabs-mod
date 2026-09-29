@@ -169,11 +169,13 @@
 #ifndef PLATFORM_N64
 // Whether next/previous weapon stops at an inventory item: the guns below
 // NUM_CYCLEABLE_WEAPONS, and GoldenEye's guns past the stock table - not its
-// gadgets or the tank's shells after them, which, like Perfect Dark's own
-// gadgets, are chosen from the menus. The detonator is in GoldenEye's cycle
-// (bondinvCycleForward() takes every item below ITEM_BOMBCASE), after the
-// remote mine.
-#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < WEAPON_GE_FIRST + NUM_GE_GUNS) || (weaponnum) == WEAPON_GE_DETONATOR)
+// gadgets, which, like Perfect Dark's own gadgets, are chosen from the menus.
+// The detonator and the tank's shells are in GoldenEye's cycle
+// (bondinvCycleForward() takes every item below ITEM_BOMBCASE, and
+// ITEM_TASER and ITEM_TANKSHELLS come just before it): a driver who switched
+// to a gun in the tank switches back to the shells the same way (F3
+// 20260929-062621). The shells are only in the inventory while he drives.
+#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < WEAPON_GE_FIRST + NUM_GE_GUNS) || (weaponnum) == WEAPON_GE_DETONATOR || (weaponnum) == WEAPON_GE_TANKSHELLS)
 #else
 #define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS)
 #endif

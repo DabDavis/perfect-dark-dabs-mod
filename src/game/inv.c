@@ -481,8 +481,13 @@ bool invAllGunsGives(s32 weaponnum)
  */
 static s32 invAllGunsStep(s32 weaponnum, s32 dir, bool needammo)
 {
-	const s32 count = invAllGunsCount();
-	s32 index = invAllGunsIndexOf(weaponnum);
+	const s32 listed = invAllGunsCount();
+	// the tank's shells, which the list leaves out, while he drives: one
+	// more stop after the list's end, as in GoldenEye's cycle (F3
+	// 20260929-062621)
+	const bool shells = invHasSingleWeaponExcAllGuns(WEAPON_GE_TANKSHELLS);
+	const s32 count = listed + (shells ? 1 : 0);
+	s32 index = weaponnum == WEAPON_GE_TANKSHELLS && shells ? listed : invAllGunsIndexOf(weaponnum);
 
 	if (index < 0) {
 		index = dir > 0 ? -1 : count;
@@ -492,7 +497,7 @@ static s32 invAllGunsStep(s32 weaponnum, s32 dir, bool needammo)
 		s32 candidate;
 
 		index = (index + dir + count) % count;
-		candidate = invAllGunsWeaponAt(index);
+		candidate = index == listed ? WEAPON_GE_TANKSHELLS : invAllGunsWeaponAt(index);
 
 		if (candidate == weaponnum) {
 			break;
