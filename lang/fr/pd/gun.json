@@ -238,7 +238,7 @@
  "L_GUN_236": "Dans cette version de la CamSpy, l'enregistreur a été remplacé par un explosif plastique très puissant.\n",
  "L_GUN_237": "Cette version de la CamSpy utilise une neurotoxine paralysante qui plonge ses cibles dans une catatonie quasi instantanée.\n",
  "L_GUN_238": "Le collier de Cassandra De Vries. Équipé d'une balise de proximité donnant accès aux zones réservées. Le modèle Mk3 ne fonctionne que si sa propriétaire est en vie. Habilitation AA-1 (gamma).",
- "L_GUN_239": "Le collier de remplacement de Cassandra De Vries.  Identifiant : %s  Mot de passe : %s\n",
+ "L_GUN_239": "Collier de rechange de Cassandra De Vries.  Identifiant : %s  Code : %s\n",
  "L_GUN_240": "Bouclier\n",
  "L_GUN_241": "Le bouclier protège son porteur en détectant une attaque et en générant un bref champ de force concentré pour la repousser. Sa réserve d'énergie étant limitée, il ne protège que dans une certaine mesure. Un bouclier s'active normalement dès qu'on le porte, mais celui-ci semble être un prototype presque terminé, non fonctionnel.\n"
 }
