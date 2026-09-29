@@ -31,6 +31,13 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 17 2026-09-29
+Dam, GE Plus and GoldenEye Arenas: walking into a window of the small bunker stops you at the window instead of lifting you up through its roof (thanks Shockwave S08)
+GoldenEye levels: switching from the HD look to the N64 look mid-mission no longer leaves gaps between the N64 cliffs and sky (thanks Shockwave S08)
+GE Plus: the All Guns cheat gives GoldenEye's own guns first, in GoldenEye's order; Perfect Dark's follow only with Include Perfect Dark Guns on (thanks PCGENE789)
+GE Plus watch: Perfect Dark's guns turn in the middle of the watch face and are sized like GoldenEye's (thanks PCGENE789)
+Grid, XBLA look: the pillars are blue marble as in the XBLA release, not the G5 Building's diamond sign
+
 notes 16 2026-09-29
 GE Plus Aztec: the DAT from the desk goes into your inventory as a gadget, so the mainframe can be started and the mission finished (thanks savantique)
 GE Plus Aztec: the autogun in the guidance server room no longer sees or shoots through crates (thanks savantique)
