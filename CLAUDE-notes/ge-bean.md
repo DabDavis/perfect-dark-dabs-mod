@@ -13204,4 +13204,4 @@ each, Control 1, Frigate 1, Caverns 2, Archives 1; nothing on Dam, Runway
 Caves, Complex, Library/Basement/Stack, Cradle, Aztec. Before/after checked at
 the tester's Depot camera (closed, 0.34, 0.90 open) and Temple's big door;
 N64 look unchanged (gebeanstage.c only builds the HD level). **Needs an
-HDCACHE_VERSION bump** (left to the merge).
+HDCACHE_VERSION bump** (left to the merge; done there: 7, with hdbright's rooms).
