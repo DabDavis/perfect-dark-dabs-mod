@@ -12481,6 +12481,7 @@ void bgunRender(Gfx **gdlptr)
 		s32 weaponnum; // ec
 #ifndef PLATFORM_N64
 		s32 geshown = 0;
+		s32 bothsides = 0;
 #endif
 		struct modelnode *node; // e8
 		u32 colour; // e4
@@ -12689,8 +12690,14 @@ void bgunRender(Gfx **gdlptr)
 			// lists, flat on the surface under them (model.c)
 			g_ModelXluDecal = gegunsOwnModelInUse(weaponnum);
 
-			// and with every face, as its props are (gegunsObjDrawsBothSides())
-			if (!geshown && gegunsOwnModelInUse(weaponnum)) {
+			// and with every face, as its props are (gegunsObjDrawsBothSides()).
+			// Not the slappers' bare hand, a closed skin whose lists cull
+			// their own back faces: drawn with every face, the inside of the
+			// palm showed as a white sliver between the thumb and the fingers
+			// (F3 20260928-234515, "hand texture glitched")
+			bothsides = !geshown && gegunsOwnModelInUse(weaponnum) && weaponnum != WEAPON_UNARMED;
+
+			if (bothsides) {
 				gSPSetExtraGeometryModeEXT(renderdata.gdl++, G_NO_CULLING_EXT);
 			}
 
@@ -12701,7 +12708,7 @@ void bgunRender(Gfx **gdlptr)
 #ifndef PLATFORM_N64
 			g_ModelXluDecal = 0;
 
-			if (!geshown && gegunsOwnModelInUse(weaponnum)) {
+			if (bothsides) {
 				gSPClearExtraGeometryModeEXT(renderdata.gdl++, G_NO_CULLING_EXT);
 			}
 #endif
