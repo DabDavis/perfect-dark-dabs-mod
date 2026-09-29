@@ -8592,6 +8592,17 @@ void bgun0f0a4e44(struct hand *hand, struct weapon *weapondef, struct modeldef *
 	spb4 = RANDOMFRAC() * 0.25f + 1.0f;
 	muzzlez = weapondef->muzzlez;
 
+#ifndef PLATFORM_N64
+	// A GoldenEye gun's row carries GoldenEye's flash length, for GoldenEye's
+	// own flash; drawn on its host's model (the HD look) the flash is the
+	// host's, and at twice its length the Klobb's and D5K's stood off in
+	// the air past the barrel (F3 20260929-045235)
+	if (WEAPON_IS_GE(weaponnum) && !gegunsOwnModelInUse(weaponnum)
+			&& weaponHost(weaponnum) != weaponnum && g_Weapons[weaponHost(weaponnum)]) {
+		muzzlez = g_Weapons[weaponHost(weaponnum)]->muzzlez;
+	}
+#endif
+
 	mtx4LoadIdentity(&spd8);
 
 	if (funcdef && (funcdef->flags & FUNCFLAG_00000001)) {
@@ -9495,10 +9506,20 @@ void bgun0f0a5550(s32 handnum)
 							+ mtx->m[2][a] * ownmuzzle[2];
 					}
 				} else if (gebeanFirstPersonMuzzleOffset(weaponnum, &gepart, gemuzzle)) {
+					// gebean.c measured from the node it names, which is not
+					// always this one: the classic hosts carry a muzzle node
+					// with no rest of its own, so it measured from their
+					// flash, on another matrix - hundreds of units off when
+					// laid on the muzzle node's (F3 20260929-045235)
+					struct modelnode *genode = gepart >= 0 ? modelGetPart(modeldef, gepart) : NULL;
+					s32 gemtx = genode && genode != node ? modelFindNodeMtxIndex(genode, 0) : -1;
+					Mtxf *from = gemtx >= 0 ? (Mtxf *)mtxallocation + gemtx : mtx;
+
 					for (s32 a = 0; a < 3; a++) {
-						geoffset[a] = mtx->m[0][a] * gemuzzle[0]
-							+ mtx->m[1][a] * gemuzzle[1]
-							+ mtx->m[2][a] * gemuzzle[2];
+						geoffset[a] = from->m[0][a] * gemuzzle[0]
+							+ from->m[1][a] * gemuzzle[1]
+							+ from->m[2][a] * gemuzzle[2]
+							+ from->m[3][a] - mtx->m[3][a];
 					}
 				}
 #endif
@@ -9531,6 +9552,21 @@ void bgun0f0a5550(s32 handnum)
 #endif
 						) {
 					bgun0f0a4e44(hand, weapondef, modeldef, funcdef, sp1e0, mtxallocation, weaponnum, sp1e4, sp6c, &sp234, &sp1f4);
+
+#ifndef PLATFORM_N64
+					// The host's flash hangs off this node, which is where
+					// the host's barrel ends: moved to where the GoldenEye
+					// gun drawn over it ends, as the shots are (F3
+					// 20260929-045235 - the Klobb's and D5K's burned in
+					// the air beside the gun)
+					if (!gegunsOwnModelInUse(weaponnum) && gebeanFirstPersonMuzzleOffset(weaponnum, &gepart, gemuzzle)) {
+						mtx = (Mtxf *)mtxallocation;
+						mtx += sp6c;
+						mtx->m[3][0] += geoffset[0];
+						mtx->m[3][1] += geoffset[1];
+						mtx->m[3][2] += geoffset[2];
+					}
+#endif
 				}
 			} else if (weaponHasFlag3(weaponnum, WEAPONFLAG3_HELDMUZZLE)
 #ifndef PLATFORM_N64
