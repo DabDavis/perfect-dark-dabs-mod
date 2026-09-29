@@ -6764,6 +6764,26 @@ void bgunSwitchToPrevious(void)
 	}
 }
 
+/**
+ * Whether next/previous weapon, from this weapon, goes back to the pair it was
+ * picked from rather than on through the cycle: Perfect Dark's items (anything
+ * past the Psychosis Gun). GoldenEye's watch detonator stands on the Data
+ * Uplink but is in the cycle, after the remote mine, as GoldenEye has it
+ * (INV_CYCLEABLE): taken as an item, the wheel went "back" to the remote mine
+ * it was drawn from, which with none left drew the detonator again, and the
+ * wheel never got off it (F3 20260929-100000, Surface II).
+ */
+static bool bgunIsCycleItem(s32 weaponnum)
+{
+#ifndef PLATFORM_N64
+	if (weaponnum == WEAPON_GE_DETONATOR) {
+		return false;
+	}
+#endif
+
+	return weaponHost(weaponnum) > WEAPON_PSYCHOSISGUN;
+}
+
 void bgunCycleForward(void)
 {
 	s32 weaponnum1;
@@ -6774,7 +6794,7 @@ void bgunCycleForward(void)
 		weaponnum1 = bgunGetSwitchToWeapon(HAND_RIGHT);
 		weaponnum2 = bgunGetSwitchToWeapon(HAND_LEFT);
 
-		if (weaponHost(weaponnum1) > WEAPON_PSYCHOSISGUN || weaponHost(weaponnum2) > WEAPON_PSYCHOSISGUN) {
+		if (bgunIsCycleItem(weaponnum1) || bgunIsCycleItem(weaponnum2)) {
 #ifndef PLATFORM_N64
 			// off an item and back to the pair it was picked from
 			if (player->gunctrl.prevweaponnum >= 0) {
@@ -6812,7 +6832,7 @@ void bgunCycleBack(void)
 			weaponnum2 = WEAPON_NONE;
 		}
 
-		if (weaponHost(weaponnum1) > WEAPON_PSYCHOSISGUN || weaponHost(weaponnum2) > WEAPON_PSYCHOSISGUN) {
+		if (bgunIsCycleItem(weaponnum1) || bgunIsCycleItem(weaponnum2)) {
 #ifndef PLATFORM_N64
 			// off an item and back to the pair it was picked from
 			if (player->gunctrl.prevweaponnum >= 0) {
