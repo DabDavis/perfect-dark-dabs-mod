@@ -68,6 +68,10 @@ s32 gexPlusRomIsPoolRow(s32 num);
 // the sleeve the player's own character is wearing (gewatch.c).
 s32 gexPlusRomChrForRow(s32 row);
 
+// Whether DK Mode leaves this body and head at their own proportions: the
+// Japanese cartridge's named characters, under GE Plus's Japan region rules
+s32 gexPlusDkModeSpares(s32 bodynum, s32 headnum);
+
 // GoldenEye's own characters for the Combat Simulator's lists when there is no
 // XBLA release to take them from (gebean.c's pool): Begin finds the ROM's
 // conversion and reads its table, answering how many characters it has (0 for

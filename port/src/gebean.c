@@ -1748,6 +1748,47 @@ s32 gebeanIsOwnRigRow(s32 num)
 	return i >= 0 && i < ARRAYCOUNT(poolRows) && ownRigSlot[i] && ownRigSlot[i] == g_HeadsAndBodies[num].filenum;
 }
 
+/**
+ * GoldenEye's own character number (c_item_entries, Cgx%03dZ) behind one of
+ * the pool's rows - the release's, the ROM's standing in for it, its own-rig
+ * copy or one of the extras - or -1. A named character's face, cut off a whole
+ * model's neck, has no head of its own in GoldenEye and answers as its body.
+ */
+s32 gebeanRowGeChr(s32 num)
+{
+	const s32 p = num - GEBEAN_POOL_BASE;
+	const s32 x = num - GEBEAN_EXTRA_BASE;
+	const s32 o = num - GEBEAN_OWNRIG_BASE;
+	s32 i = -1;
+	s32 ge;
+
+	if (num < 0 || num >= NUM_HEADSANDBODIES) {
+		return -1;
+	}
+
+	if (x >= 0 && x < ARRAYCOUNT(extraRows)) {
+		return gebeanIsRomPoolRow(num) ? extraRows[x].num : -1;
+	}
+
+	if (p >= 0 && p < ARRAYCOUNT(poolRows) && (gebeanIsPoolRow(num) || gebeanIsRomPoolRow(num))) {
+		i = p;
+	} else if (o >= 0 && o < ARRAYCOUNT(poolRows) && gebeanIsOwnRigRow(num)) {
+		i = o;
+	}
+
+	if (i < 0) {
+		return -1;
+	}
+
+	ge = gebeanRomChrForSource(poolRows[i].row.source, poolRows[i].row.kind == GEBEAN_HEAD);
+
+	if (ge < 0 && poolRows[i].row.kind == GEBEAN_HEAD) {
+		ge = gebeanRomChrForSource(poolRows[i].row.source, 0);
+	}
+
+	return ge;
+}
+
 /** The own-rig row for a pool row of the given kind, or -1. */
 static s32 gebeanOwnRigFor(s32 num, s32 wanthead)
 {

@@ -27,6 +27,7 @@
 #include "modloader.h"
 #include "gexplus.h"
 #include "gecinema.h"
+#include "gexfront.h"
 #include <string.h>
 #include <stdio.h>
 #include "modborrow.h"
@@ -928,6 +929,53 @@ s32 gexPlusRomIsPoolRow(s32 num)
 	}
 
 	return 0;
+}
+
+/**
+ * GoldenEye's character number behind a row, wherever GE Plus took it from: a
+ * mission's own rows, or the pool's (the release's, the ROM's standing in for
+ * it and the extras - the arenas' and Customize Character's).
+ */
+static s32 gexPlusGeChrForRow(s32 row)
+{
+	const s32 ge = gexPlusRomChrForRow(row);
+
+	return ge >= 0 ? ge : gebeanRowGeChr(row);
+}
+
+/**
+ * Whether DK Mode leaves a chr at its own proportions: the Japanese
+ * cartridge's chrCanUseDKModeScaling() (chr.c, BUGFIX_R1, on j_text_trigger),
+ * which spares GoldenEye's named characters - by body Boris, Ourumov, both
+ * Trevelyans, Valentin, Xenia, Baron Samedi, Jaws, May Day, Oddjob and both
+ * Natalyas, by head Brosnan's five and Mishkin - while every other guard still
+ * gets the big head and arms. Its callers are the three places DK Mode acts:
+ * the build (chr_b.c's 0.8, cheat.c's 1.25 for guards), the joints (the head
+ * at 4, the arms at 2.5) and the distance scale in the render.
+ *
+ * GE Plus with the region's rules on Japan only; the US cartridge, and
+ * Perfect Dark, scale everyone.
+ */
+s32 gexPlusDkModeSpares(s32 bodynum, s32 headnum)
+{
+	s32 body, head;
+
+	if (!gexFrontIsJapanese() || !gexFrontIsInside()) {
+		return 0;
+	}
+
+	body = gexPlusGeChrForRow(bodynum);
+	head = headnum >= 0 ? gexPlusGeChrForRow(headnum) : -1;
+
+	// GoldenEye's BODY_Boris (6) to BODY_Natalya_Skirt (16), and
+	// BODY_Natalya_Jungle_Fatigues (79), the one body after the heads
+	if ((body >= 6 && body <= 16) || body == 79) {
+		return 1;
+	}
+
+	// BODY_Male_Mishkin (69) and BODY_Male_Pierce_Bond_1 to _Tuxedo (74-78),
+	// the enum's head numbers
+	return head == 69 || (head >= 74 && head <= 78);
 }
 
 /* -------------------------------------------------------------------------

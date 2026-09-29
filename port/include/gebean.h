@@ -267,6 +267,12 @@ s32 gebeanOwnRigPair(s32 *bodynum, s32 *headnum);
 s32 gebeanIsOwnRigRow(s32 headorbodynum);
 
 /**
+ * GoldenEye's own character number (Cgx%03dZ) behind a pool, own-rig or extra
+ * row, or -1 for any other row. A named character's face answers as its body.
+ */
+s32 gebeanRowGeChr(s32 headorbodynum);
+
+/**
  * Whether a body row is one of GoldenEye's own characters for GE Plus: the
  * release's pool, or the ROM's (the pool filled from the conversion and the
  * extras the release lacks). Never GoldenEye X's - GE Plus is made of the

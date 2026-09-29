@@ -82,10 +82,89 @@ struct creditrow {
 	s16 align2;
 };
 
+/*
+ * The Japanese cartridge's end of the roll (the j setup's credits_data_0 and
+ * LlenE's LANG_JP block, assets/obseg/setup/j/UsetuplenZ.c and
+ * assets/obseg/text/LlenE.c:145-157): the two tables agree up to row 216, the
+ * US "Keisuke Terasaki" under Translation, and from there Japan lists the NCL
+ * staff, the Super Mario Club, Nintendo's producer and Hiroshi Yamauchi as
+ * executive producer, and ends on "JAMES BOND WILL RETURN" as the US does.
+ * The conversion is of the US ROM, whose LlenE has none of those names and
+ * whose slot 0x89 is the US "JAMES BOND WILL RETURN", so both the rows and
+ * the text of Japan's slots 0x89-0x93 are kept here.
+ */
+#define CREDITS_JP_FROM   216
+#define CREDITS_JP_ANCHOR 0x5079  // "Keisuke Terasaki", the US row there
+
+#define ROW(id) { id, CREDITS_BLANK, 220, ALIGN_CENTER, -1, -1 }
+#define GAP     { CREDITS_BLANK, CREDITS_BLANK, 0, 0, 0, 0 }
+#define END     { 0, 0, 0, 0, 0, 0 }
+
+static const struct creditrow g_CreditsJpTail[] = {
+	GAP, GAP, GAP, GAP, GAP, GAP,
+	ROW(0x508d), // NCL Staff
+	GAP,
+	ROW(0x5079), // Keisuke Terasaki
+	ROW(0x508e), // Eiji Onozuka
+	ROW(0x508f), // Masashi Goto
+	GAP, GAP, GAP, GAP, GAP,
+	ROW(0x507a), // Special Thanks
+	GAP,
+	ROW(0x507b), // Mr. Arakawa
+	ROW(0x507c), // Howard Lincoln
+	ROW(0x507d), // Mr. Fukuda
+	ROW(0x507e), // Joel Hochberg
+	ROW(0x507f), // Tim Stamper
+	ROW(0x5080), // Chris Stamper
+	ROW(0x5090), // NCL Super Mario Club
+	GAP, GAP, GAP, GAP,
+	ROW(0x508b), // Nintendo Producer
+	GAP,
+	ROW(0x508c), // Kenji Miki
+	GAP, GAP,
+	ROW(0x5089), // Executive Producer
+	GAP,
+	ROW(0x508a), // Hiroshi Yamauchi
+	GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP,
+	ROW(0x5085), // Filmed at Twycross Studios, England
+	GAP, GAP,
+	ROW(0x5086), // IN NINTENDOVISION
+	GAP, GAP, GAP,
+	ROW(0x5087), // Produced by Rare
+	GAP, GAP, GAP,
+	ROW(0x5088), // Presented by Nintendo
+	GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP, GAP,
+	ROW(0x5093), // JAMES BOND WILL RETURN
+	END,
+};
+
+#undef ROW
+#undef GAP
+#undef END
+
+// LlenE's slots from 0x89 in the Japanese bank; 0x91 and 0x92 are in the bank
+// but no row of Japan's table names them
+#define CREDITS_JP_FIRSTSLOT 0x89
+
+static const char *const g_CreditsJpText[] = {
+	"Executive Producer",   // 0x89
+	"Hiroshi Yamauchi",     // 0x8a
+	"Nintendo Producer",    // 0x8b
+	"Kenji Miki",           // 0x8c
+	"NCL Staff",            // 0x8d
+	"Eiji Onozuka",         // 0x8e
+	"Masashi Goto",         // 0x8f
+	"NCL Super Mario Club", // 0x90
+	"Special Thanks to",    // 0x91
+	"NCL",                  // 0x92
+	"JAMES BOND WILL RETURN", // 0x93
+};
+
 static struct {
 	s32 on;
 	struct creditrow *rows;
 	s32 numrows;
+	s32 jp;          // the rows from CREDITS_JP_FROM are g_CreditsJpTail's
 
 	s32 orbit;
 	f32 angle;       // radians
@@ -151,6 +230,30 @@ static void creditsLoad(s32 stagenum)
 	sysMemFree(data);
 }
 
+/**
+ * The Japanese cartridge's roll from row CREDITS_JP_FROM on, where the region
+ * rules say Japan. A table that is not the US one at that row is left as it is.
+ */
+static void creditsApplyJapan(void)
+{
+	const s32 n = CREDITS_JP_FROM + (s32)ARRAYCOUNT(g_CreditsJpTail);
+	struct creditrow *rows;
+
+	if (!gexFrontIsJapanese() || g_Credits.numrows <= CREDITS_JP_FROM
+			|| g_Credits.rows[CREDITS_JP_FROM].text1 != CREDITS_JP_ANCHOR) {
+		return;
+	}
+
+	rows = sysMemZeroAlloc(sizeof(*rows) * n);
+	memcpy(rows, g_Credits.rows, sizeof(*rows) * CREDITS_JP_FROM);
+	memcpy(rows + CREDITS_JP_FROM, g_CreditsJpTail, sizeof(g_CreditsJpTail));
+
+	sysMemFree(g_Credits.rows);
+	g_Credits.rows = rows;
+	g_Credits.numrows = n;
+	g_Credits.jp = 1;
+}
+
 void gecreditsStageStart(s32 stagenum)
 {
 	if (g_Credits.rows) {
@@ -165,6 +268,7 @@ void gecreditsStageStart(s32 stagenum)
 
 	g_Credits.on = 1;
 	creditsLoad(stagenum);
+	creditsApplyJapan();
 
 	// Zurich Bold, which the folder's own screens load
 	gexFrontLoadText();
@@ -292,8 +396,17 @@ void gecreditsTick(void)
 
 static const char *creditsText(u16 id, char *buf, size_t len)
 {
-	const char *text = langGet(LANGBANK_GEMISSION << 9 | (id & 0x1ff));
+	const s32 slot = id & 0x1ff;
+	const char *text;
 	char *nl;
+
+	if (g_Credits.jp && slot >= CREDITS_JP_FIRSTSLOT
+			&& slot < CREDITS_JP_FIRSTSLOT + (s32)ARRAYCOUNT(g_CreditsJpText)) {
+		snprintf(buf, len, "%s", g_CreditsJpText[slot - CREDITS_JP_FIRSTSLOT]);
+		return buf;
+	}
+
+	text = langGet(LANGBANK_GEMISSION << 9 | slot);
 
 	snprintf(buf, len, "%s", text ? text : "");
 
