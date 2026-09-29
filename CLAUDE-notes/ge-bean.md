@@ -13171,3 +13171,37 @@ causes, both fixed in the measure (`HDCACHE_VERSION` 6):
   was killed from gdb mid-frame (Streets 22:15:51, Surface 23:43:15, the latter
   in a build carrying RENDER's batch guard daeaa8f58, which logged nothing).
   Neither reproduced in six fresh first-load runs each of the old and new binary.
+
+## A raised door over Bean's wall (23rd F3 pass, 2026-09-29, fix/f3-0929e-hddoorwall)
+
+F3 20260929-192603, Depot's warehouse door, HD look only: opened, its hazard
+stripes and arrow were drawn over the corrugated wall above the doorway. The
+N64 look hides a raised door because the door is drawn through the doorway's
+portal and clipped to it - GoldenEye's own wall over Depot's doors lies on
+the door's middle plane, *behind* its face, so it is not geometry that hides
+it. The HD look draws every room whole (`gebeanStageDrawsEveryRoom()`) and
+Bean's wall is a sheet about 2 units behind the door's face, so nothing hid it.
+
+`fillDoorSlots()` (gebeanstage.c, after `closeDoorGaps()` in `build()`): for
+each door that slides up or down (`doorbox.travel[]`, new, the move at
+`maxfrac`), the band it rises through is sampled in 12-unit cells from each
+face, a line from 40 in front of the face to the far face. A cell where
+GoldenEye's room has a triangle on that line and Bean's has no face turned
+towards it in front of the door's face gets wall: rectangles (a column's run
+carried across) 2 units in front of the face, in the nearest Bean wall
+triangle's picture on that side with its plane mapping carried on
+(`triUvShift()`), lit with its mean colour. A Bean cover cell next to a
+patched one is patched under it too (Depot's beam over the doorway covered
+only down to its middle cell and the door's top edge showed). Bean triangles
+in a different picture lying wholly in the band on that side (Depot's "C5")
+are copied forward 0.25 in front of the patch, and `markDecals()` later takes
+them as decals over it.
+
+Every HD level, `--boot-stage` of the 26 GoldenEye Arenas maps: Depot 12
+doors (122 triangles), Temple (Egyptian) 2, Train 7, Bunker and Bunker 1 2
+each, Control 1, Frigate 1, Caverns 2, Archives 1; nothing on Dam, Runway
+(no door there slides up), Facility, Silo, Surface, Statue, Jungle, Streets,
+Caves, Complex, Library/Basement/Stack, Cradle, Aztec. Before/after checked at
+the tester's Depot camera (closed, 0.34, 0.90 open) and Temple's big door;
+N64 look unchanged (gebeanstage.c only builds the HD level). **Needs an
+HDCACHE_VERSION bump** (left to the merge).
