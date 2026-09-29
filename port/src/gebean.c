@@ -811,6 +811,39 @@ static const f32 gunLight[3] = { 0.0f, 0.5f, 0.87f };
 
 static u32 beanShadeTint(u32 argb, const f32 *nrm, const f32 *light);
 
+/**
+ * Pieces of the release's first-person guns modelled out of line, moved back
+ * where GoldenEye's own model has them (the Bean build is unfinished; the
+ * user's rule is to mend what looks wrong in it rather than copy it). Each is
+ * the release's vertices past `zmin` along the barrel and above `ymin`, in the
+ * file's own units, moved `dx` across.
+ *
+ * - The KF7's front sight ring stands 26 units left of the barrel's middle
+ *   (its ring centred at x -24.1 over a barrel centred at 2.2), so at the
+ *   sights the post leant off the bore: "crooked ironsight" (F3
+ *   20260928-231721). GoldenEye's own KF7 (the conversion's Igx008Z) has its
+ *   post on the bore's line to within half a unit.
+ */
+struct fpmend {
+	s8 fp;
+	f32 zmin;
+	f32 ymin;
+	f32 dx;
+};
+
+static const struct fpmend fpMends[] = {
+	{ WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST, 2950.0f, 150.0f, 26.3f },
+};
+
+static void fpMendVertex(s32 fp, f32 *pos)
+{
+	for (s32 k = 0; k < (s32)ARRAYCOUNT(fpMends); k++) {
+		if (fpMends[k].fp == fp && pos[2] > fpMends[k].zmin && pos[1] > fpMends[k].ymin) {
+			pos[0] += fpMends[k].dx;
+		}
+	}
+}
+
 
 /**
  * Where the gun that was drawn ends, as an offset from the host's muzzle node
@@ -10674,6 +10707,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				if (!beanVertex(&bm, &vb, vi, &v)) {
 					ok = 0;
 					break;
+				}
+
+				if (!original) {
+					fpMendVertex(fp, v.pos);
 				}
 
 				if (v.slot[0] >= 0 && v.slot[0] < d->numpal) {
