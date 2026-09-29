@@ -1032,13 +1032,13 @@ def test_problem_reports():
     clear_reports()
 
     taken = 0
-    for i in range(30):
+    for i in range(120):
         st, _, _ = send_report(report, ip="10.6.1.1")
         taken += st == 200
         clear_reports()
-    check(taken == 30, "thirty reports in an hour from one address are taken")
+    check(taken == 120, "120 reports in an hour from one address are taken")
     st, body, _ = send_report(report, ip="10.6.1.1")
-    check(st == 429, "the thirty-first -> 429")
+    check(st == 429, "the 121st -> 429")
     clear_reports()
 
 
