@@ -4164,6 +4164,14 @@ void fileLoad(u8 *dst, u32 allocationlen, romptr_t *romaddrptr, struct fileinfo 
 	if (!filedata) {
 		return;
 	}
+	// An empty file has nothing to inflate: rzipInflate() would read its
+	// header from one past the end of the allocation (the asset dump's
+	// model pass hit this under ASan)
+	if (romsize == 0 && allocationlen != 0) {
+		info->loadedsize = 0;
+		g_LoadType = LOADTYPE_NONE;
+		return;
+	}
 	romaddrptr = (romptr_t *)&filedata;
 #else
 	u32 romsize = fileGetRomSizeByTableAddress(romaddrptr);
