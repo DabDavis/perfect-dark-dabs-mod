@@ -11625,6 +11625,24 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 			attackflags = chr->act_attack.flags;
 		}
 
+#ifndef PLATFORM_N64
+		// GoldenEye's guard fires at Bond only while it has seen him in the
+		// last two seconds (chrlvFireWeaponRelated(): seen_bond_time against
+		// CHRLV_SEEN_RECENT_CHECK); out of sight it holds its fire, gun up,
+		// and its list decides what next. Perfect Dark has no such check, so a
+		// converted mission's guard told to fire at Bond emptied its gun into
+		// the wall he had ducked behind (F3 20260929-012605, Silo). The time
+		// GoldenEye keeps is Perfect Dark's lastvisibletarget60, which the
+		// same two places set: the list's line-of-sight test and each shot's.
+		if (!isaibot && (attackflags & ATTACKFLAG_AIMATTARGET)
+				&& targetprop && targetprop->type == PROPTYPE_PLAYER
+				&& modloaderStageIsRemake(g_Vars.stagenum)
+				&& g_Vars.lvframe60 - chr->lastvisibletarget60 > TICKS(120)) {
+			chrSetFiring(chr, handnum, false);
+			return;
+		}
+#endif
+
 		shotdue = false;
 		makebeam = false;
 		hitsomething = false;
