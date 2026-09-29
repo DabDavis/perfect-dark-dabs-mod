@@ -277,7 +277,8 @@ means *Received*. One report a line:
     20260925-224248-8a9f8748 duplicate 20260925-224209-e9d359f1 - same robot shots
 
 Status words: `received`, `working` (shown as *In progress*), `fixed`,
-`needinfo`, `notabug`, `wontfix`, `duplicate` (comment starts with the other
+`feature` (shown as *Feature queue*: a feature request, waiting behind bugs and
+crashes to be fitted in or taken up in a feature update), `needinfo`, `notabug`, `wontfix`, `duplicate` (comment starts with the other
 report's id; it shares that report's fix), and `hidden` (off the board
 altogether - for a note that should not be public; the report is kept). A
 stamp without the hex names every report sent that second; a full id's line
