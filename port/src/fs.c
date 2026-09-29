@@ -877,3 +877,18 @@ s32 fsRename(const char *from, const char *to)
 
 	return rename(src, fsFullPath(to));
 }
+
+s32 fsReplaceFile(const char *from, const char *to)
+{
+	char src[FS_MAXPATH + 1];
+
+	strncpy(src, fsFullPath(from), FS_MAXPATH);
+	src[FS_MAXPATH] = '\0';
+
+#ifdef PLATFORM_WIN32
+	// rename() will not replace an existing file on Windows
+	return MoveFileExA(src, fsFullPath(to), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) ? 0 : -1;
+#else
+	return rename(src, fsFullPath(to));
+#endif
+}

@@ -12996,3 +12996,41 @@ on Caverns, Silo and Frigate. C and Python write the same AI bytes: Silo, Frigat
 Caverns and Statue Park's setups are identical, and Facility's differs only in
 four prop records' 400/600 words, which have nothing to do with this row.
 
+
+## The built HD level is kept on disk (22nd F3 pass, 2026-09-29, fix/f3-0929d-hdcache)
+
+F3 20260929-143105, "GE Plus loads much slower than PD": in the HD look
+gebeanstage.c's `build()` dealt the release's level mesh into the converted
+rooms at every load (Dam 1.6 s, Frigate 2.5 s even after the same pass made the
+build itself two to three times faster). Its output is now written to
+`cache/xbla/goldeneye/levels/<level key>_<release file>[_ce].bin` and read back
+(`hdcacheKey()`/`hdcacheSave()`/`hdcacheLoad()`): Dam's HD step 1.55 s -> 0.21 s,
+Frigate's 2.5 s -> 0.25 s, what is left being the level file's open and its
+pictures' binding, which the rooms' texture tiles need anyway. 18 MB for all
+twenty missions.
+
+- **Bump `HDCACHE_VERSION` on any change to what the build produces** -
+  gebeanstage.c's passes *or* gebean.c's `gebeanLevelTriangles()` and level
+  pictures. The key also carries `VERSION_HASH`, so a released binary never
+  reads another build's file; a dev build of the same configure-time hash
+  does, and only the constant stops it.
+- The key hashes the inputs actually read, not file dates: the level file's
+  bytes (so the Community Edition's overlay is covered twice), the pictures'
+  alpha as bound, every converted room's bytes, segment base, position and box,
+  the doors' boxes (`doorBoxes()` reads the props) and the environment's water.
+  No `g_ModOptions` setting reaches the build; a new one that does goes in the
+  key.
+- What the build leaves outside its own statics must be re-applied on a read:
+  `markWaterPictures()` sets gewater.c's HD rates (`setWaterRates()` records
+  them). The camera test's shell (`shellTake()`) is GoldenEye's own rooms and
+  is taken again every load.
+- A room carries the level file's own segment addresses (`g_BgRooms[].unk00`
+  plus offsets), which bg.c relocates like a room read from the file - no host
+  pointer is stored, and the bases are in the key. The backdrop's triangles
+  are written field by field: a whole `struct stri` carries padding the
+  build's copies left, and two builds wrote different bytes.
+- Proven byte-identical by hashing every room's data, the backdrop, the
+  tables and the shell after a build and after a read (a temporary
+  `HDCHECK` log line, removed): all twenty missions, CE on and off. Rig:
+  `scratchpad/hdrig` of that session (`run.sh`, `sweep.sh`, `robust.sh` for
+  truncated/flipped/old/garbage/empty files).

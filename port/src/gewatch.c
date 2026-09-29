@@ -120,6 +120,11 @@
 #define YOFFSET_7              0x31
 #define YOFFSET_8              0x25
 #define YOFFSET_9              0x3b
+
+// the least room between two words a language pack pushes apart on a screen,
+// and the green face's right edge, on GoldenEye's frame
+#define WATCH_VALUE_GAP   6
+#define WATCH_VALUE_RIGHT 300
 /**
  * GoldenEye's zooms with the watch open, which are not a pulse as a screen
  * turns but where each screen stays: the mission status at 5.9 degrees, the
@@ -1557,29 +1562,33 @@ static f32 watchWiden(void)
 	return (WATCHZOOM2 + (WATCHZOOM_WIDE - WATCHZOOM2) * t) / WATCHZOOM2;
 }
 
-/** Where each screen keeps the zoom (options.c's navigation functions). */
-static f32 watchPageZoom(s32 page)
+/** GoldenEye's own zoom for each screen (options.c's navigation functions). */
+static f32 watchGePageZoom(s32 page)
 {
-	f32 zoom = WATCHZOOM2;
-
-	// The HD look holds the watch at one zoom whatever the page (the user,
-	// F3 20260928-223306: "camera should be static"): the inventory's, which
-	// frames Bean's watch best. The N64 look zooms page by page as GoldenEye
-	// does.
-	if (g_Watch.model && xblaMeshModelDrawsBean(g_Watch.model)) {
-		page = PAGE_INVENTORY;
-	}
-
 	switch (page) {
 	case PAGE_INVENTORY:
 	case PAGE_BRIEFING:
-		zoom = WATCHZOOM1;
-		break;
+		return WATCHZOOM1;
 	case PAGE_CONTROL:
 	case PAGE_OPTIONS:
-		zoom = WATCHZOOM3;
-		break;
+		return WATCHZOOM3;
 	}
+
+	return WATCHZOOM2;
+}
+
+// The HD look holds the watch at one zoom whatever the page (the user, F3
+// 20260928-223306: "camera should be static"): the inventory's, which frames
+// Bean's watch best. The N64 look zooms page by page as GoldenEye does.
+static s32 watchHoldsZoom(void)
+{
+	return g_Watch.model && xblaMeshModelDrawsBean(g_Watch.model);
+}
+
+/** Where each screen keeps the zoom. */
+static f32 watchPageZoom(s32 page)
+{
+	const f32 zoom = watchGePageZoom(watchHoldsZoom() ? PAGE_INVENTORY : page);
 
 	return watchWiden() == 1.0f ? zoom : zoom * watchWiden();
 }
@@ -1589,11 +1598,21 @@ static f32 watchPageZoom(s32 page)
  * 4:3, and on a wider window the share of the view the face keeps under the
  * widened zoom. The words and items are laid out on GoldenEye's frame shrunk by
  * this about the middle of the view, which is where the face is.
+ *
+ * GoldenEye lays each screen out for its own zoom, so where the HD look holds
+ * the inventory's the words are sized against the face at the screen's own:
+ * the options and control screens (3.95) sat over a face a seventh smaller
+ * than theirs, MUSIC and FX under their sliders and the values off the face
+ * (F3 20260929-143315), and the mission status (5.9) was a fifth too small.
  */
 static f32 watchFaceShrink(void)
 {
-	const f32 w = watchWiden();
+	f32 w = watchWiden();
 	const f32 fovy = g_Vars.currentplayer->zoominfovy;
+
+	if (watchHoldsZoom()) {
+		w *= WATCHZOOM1 / watchGePageZoom(g_Watch.page);
+	}
 
 	if (w == 1.0f || fovy <= 0.0f) {
 		return 1.0f;
@@ -4650,13 +4669,41 @@ static const f32 g_PadButtonPos[13][3] = {
 	[PADPART_Z]      = { -830.0f, 200.0f, 78.0f },
 };
 
-// the stick's lean, 0.6 of a degree a unit
+/**
+ * The stick's lean, 0.6 of a degree a unit (GoldenEye's, gunfire.c's loose
+ * buttons). GoldenEye's stick is an N64's, whose gate stops it about 80 units
+ * out along an axis and about 68 each way on a diagonal - 48 degrees at most.
+ * A PC pad reads the whole -128..127 square, and at its corners the stick
+ * leaned 76 degrees each way and sank deep into the pad (F3
+ * 20260929-143845), so the reading is held inside the N64's octagonal gate,
+ * its direction kept.
+ */
+#define WATCH_PAD_GATE_AXIS 80.0f
+#define WATCH_PAD_GATE_SUM  136.0f // |x| + |y|: the gate's corners at 68, 68
+
 static void watchPadStickLean(Mtxf *out)
 {
 	Mtxf rx;
+	f32 x = joyGetStickX(0);
+	f32 y = joyGetStickY(0);
+	const f32 ax = fabsf(x);
+	const f32 ay = fabsf(y);
+	const f32 big = ax > ay ? ax : ay;
+	f32 k = 1.0f;
 
-	mtx4LoadZRotation(-(f32)joyGetStickX(0) * M_BADTAU * 0.6f / 360.0f, out);
-	mtx4LoadXRotation(-(f32)joyGetStickY(0) * M_BADTAU * 0.6f / 360.0f, &rx);
+	if (big > WATCH_PAD_GATE_AXIS) {
+		k = WATCH_PAD_GATE_AXIS / big;
+	}
+
+	if ((ax + ay) * k > WATCH_PAD_GATE_SUM) {
+		k = WATCH_PAD_GATE_SUM / (ax + ay);
+	}
+
+	x *= k;
+	y *= k;
+
+	mtx4LoadZRotation(-x * M_BADTAU * 0.6f / 360.0f, out);
+	mtx4LoadXRotation(-y * M_BADTAU * 0.6f / 360.0f, &rx);
 	mtx4MultMtx4InPlace(&rx, out);
 }
 
@@ -5074,21 +5121,40 @@ static Gfx *watchDrawMissionPage(Gfx *gdl)
 
 	// draw_abort_cancel_confirm(): all three dim until the row is held; then
 	// ABORT: light, and the one of CANCEL and CONFIRM the player is on white
-	// in its outline, the other the page's green
-	if (g_Watch.selected) {
-		gdl = watchPrint(gdl, 0x51, 0x4c, watchString(STR_ABORT), COL_HIGHLIGHT);
+	// in its outline, the other the page's green. GoldenEye's columns (0x51,
+	// 0x88, 0xbd) are for its English words; a longer one of a language pack
+	// pushes the words after it right rather than print over them (German
+	// ABBRECHEN: ABBRECHEN BESTATIGEN ran together)
+	{
+		s32 abortw, cancelw, th;
+		s32 cancelx = 0x88, confirmx = 0xbd;
 
-		if (g_Watch.confirm) {
-			gdl = watchPrintOutlined(gdl, 0xbd, 0x4c, watchString(STR_CONFIRM), 0xffffffff);
-			gdl = watchPrint(gdl, 0x88, 0x4c, watchString(STR_CANCEL), COL_GREEN);
-		} else {
-			gdl = watchPrint(gdl, 0xbd, 0x4c, watchString(STR_CONFIRM), COL_GREEN);
-			gdl = watchPrintOutlined(gdl, 0x88, 0x4c, watchString(STR_CANCEL), 0xffffffff);
+		watchMeasure(watchString(STR_ABORT), &abortw, &th);
+		watchMeasure(watchString(STR_CANCEL), &cancelw, &th);
+
+		if (cancelx < 0x51 + abortw + WATCH_VALUE_GAP) {
+			cancelx = 0x51 + abortw + WATCH_VALUE_GAP;
 		}
-	} else {
-		gdl = watchPrint(gdl, 0x51, 0x4c, watchString(STR_ABORT), COL_DIM);
-		gdl = watchPrint(gdl, 0xbd, 0x4c, watchString(STR_CONFIRM), COL_DIM);
-		gdl = watchPrint(gdl, 0x88, 0x4c, watchString(STR_CANCEL), COL_DIM);
+
+		if (confirmx < cancelx + cancelw + WATCH_VALUE_GAP) {
+			confirmx = cancelx + cancelw + WATCH_VALUE_GAP;
+		}
+
+		if (g_Watch.selected) {
+			gdl = watchPrint(gdl, 0x51, 0x4c, watchString(STR_ABORT), COL_HIGHLIGHT);
+
+			if (g_Watch.confirm) {
+				gdl = watchPrintOutlined(gdl, confirmx, 0x4c, watchString(STR_CONFIRM), 0xffffffff);
+				gdl = watchPrint(gdl, cancelx, 0x4c, watchString(STR_CANCEL), COL_GREEN);
+			} else {
+				gdl = watchPrint(gdl, confirmx, 0x4c, watchString(STR_CONFIRM), COL_GREEN);
+				gdl = watchPrintOutlined(gdl, cancelx, 0x4c, watchString(STR_CANCEL), 0xffffffff);
+			}
+		} else {
+			gdl = watchPrint(gdl, 0x51, 0x4c, watchString(STR_ABORT), COL_DIM);
+			gdl = watchPrint(gdl, confirmx, 0x4c, watchString(STR_CONFIRM), COL_DIM);
+			gdl = watchPrint(gdl, cancelx, 0x4c, watchString(STR_CANCEL), COL_DIM);
+		}
 	}
 
 	gdl = watchDrawGun(gdl, weaponnum, 0);
@@ -5401,18 +5467,51 @@ static Gfx *watchDrawControlPage(Gfx *gdl)
  * draw_toggle_option_values(): every value of the row, centred on its own x -
  * two at 0xc8 and 0xfa, three at 0xb4, 0xe1 and 0x10e - the one set in the
  * page's green, the others dim, and the one set light while the row is held.
+ *
+ * GoldenEye's columns are for its English words. A longer word of a language
+ * pack ran into its neighbour (German UMGEKEHRT/NORMAL, HALTEN/UMSCHALTEN), so
+ * where two would come closer than WATCH_VALUE_GAP the later ones move right,
+ * and a row pushed off the green face comes back left as far as its name
+ * allows. Words that fit keep GoldenEye's places, so English is untouched.
  */
 static Gfx *watchDrawOptionValues(Gfx *gdl, s32 y, s32 i, s32 held)
 {
 	static const s32 two[2] = { 0xc8, 0xfa };
 	static const s32 three[3] = { 0xb4, 0xe1, 0x10e };
 	const s32 value = watchOptionValue(i);
-	const s32 *xs = g_Options[i].numvalues == 3 ? three : two;
+	const s32 n = g_Options[i].numvalues;
+	const s32 *xs = n == 3 ? three : two;
+	s32 x[3], w[3], h, labelw;
 
-	for (s32 v = 0; v < g_Options[i].numvalues; v++) {
+	for (s32 v = 0; v < n; v++) {
+		watchMeasure(watchString(g_Options[i].values[v]), &w[v], &h);
+		x[v] = xs[v];
+
+		if (v > 0 && x[v] - x[v - 1] < (w[v - 1] + w[v]) / 2 + WATCH_VALUE_GAP) {
+			x[v] = x[v - 1] + (w[v - 1] + w[v]) / 2 + WATCH_VALUE_GAP;
+		}
+	}
+
+	if (x[n - 1] + w[n - 1] / 2 > WATCH_VALUE_RIGHT) {
+		s32 shift = x[n - 1] + w[n - 1] / 2 - WATCH_VALUE_RIGHT;
+		s32 room;
+
+		watchMeasure(watchString(g_Options[i].label), &labelw, &h);
+		room = x[0] - w[0] / 2 - (XOFFSET_1 + labelw + WATCH_VALUE_GAP);
+
+		if (shift > room) {
+			shift = room > 0 ? room : 0;
+		}
+
+		for (s32 v = 0; v < n; v++) {
+			x[v] -= shift;
+		}
+	}
+
+	for (s32 v = 0; v < n; v++) {
 		const u32 colour = v != value ? COL_DIM : (held ? COL_HIGHLIGHT : COL_GREEN);
 
-		gdl = watchLabel(gdl, xs[v], y, watchString(g_Options[i].values[v]), colour, 0, 1);
+		gdl = watchLabel(gdl, x[v], y, watchString(g_Options[i].values[v]), colour, 0, 1);
 	}
 
 	return gdl;

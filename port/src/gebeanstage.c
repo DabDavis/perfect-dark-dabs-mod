@@ -100,6 +100,7 @@ struct stri {
 	u8 fights;  // a face with another face back to back over part of it (markFights())
 	u8 blend;   // drawn in the release's blended pass (triFades())
 	u8 undersea; // the reflection under a sea, faded and culled (markUnderSea())
+	u8 plain;   // of a draw with no UV and no picture of its own (gebeanlevelvtx)
 };
 
 // The level being served, built when its first room is asked for
@@ -169,6 +170,12 @@ struct tgrid {
 	// The room a file triangle is in, or the index of a Bean one
 	s32 *room;
 	s32 numtri, captri;
+	// tgridNearest()'s: each triangle's box, and the last ask that measured
+	// it (a triangle is filed in every cell it touches, and was measured
+	// again in each of them)
+	f32 *box;
+	u32 *seen;
+	u32 ask;
 };
 
 static s32 tgridInit(struct tgrid *g, f32 cell)
@@ -193,6 +200,8 @@ static void tgridFree(struct tgrid *g)
 	free(g->enttri);
 	free(g->tri);
 	free(g->room);
+	free(g->box);
+	free(g->seen);
 	memset(g, 0, sizeof(*g));
 }
 
@@ -205,10 +214,14 @@ static void tgridAdd(struct tgrid *g, const f32 v[3][3], s32 room)
 		s32 cap = g->captri ? g->captri * 2 : 16384;
 		f32 *t = realloc(g->tri, sizeof(f32) * 9 * cap);
 		s32 *r = realloc(g->room, sizeof(s32) * cap);
+		f32 *b = realloc(g->box, sizeof(f32) * 6 * cap);
+		u32 *sn = realloc(g->seen, sizeof(u32) * cap);
 
 		if (t) g->tri = t;
 		if (r) g->room = r;
-		if (!t || !r) return;
+		if (b) g->box = b;
+		if (sn) g->seen = sn;
+		if (!t || !r || !b || !sn) return;
 
 		g->captri = cap;
 	}
@@ -237,6 +250,19 @@ static void tgridAdd(struct tgrid *g, const f32 v[3][3], s32 room)
 	}
 
 	g->room[g->numtri] = room;
+	g->seen[g->numtri] = 0;
+
+	for (s32 k = 0; k < 3; k++) {
+		f32 mn = v[0][k], mx = v[0][k];
+
+		for (s32 j = 1; j < 3; j++) {
+			if (v[j][k] < mn) mn = v[j][k];
+			if (v[j][k] > mx) mx = v[j][k];
+		}
+
+		g->box[g->numtri * 6 + k] = mn;
+		g->box[g->numtri * 6 + 3 + k] = mx;
+	}
 
 	for (s32 x = lo[0]; x <= hi[0]; x++) {
 		for (s32 y = lo[1]; y <= hi[1]; y++) {
@@ -347,7 +373,30 @@ done:
 	return dot3(d, d);
 }
 
-/** The triangle nearest p within `rings` cells, or -1; its squared distance in *outd. */
+/** The squared distance from p to a box, which no point of what is in it is nearer than. */
+static f32 boxDist(const f32 *p, const f32 *box)
+{
+	f32 d = 0.0f;
+
+	for (s32 k = 0; k < 3; k++) {
+		const f32 out = p[k] < box[k] ? box[k] - p[k] : (p[k] > box[3 + k] ? p[k] - box[3 + k] : 0.0f);
+
+		d += out * out;
+	}
+
+	return d;
+}
+
+/**
+ * The triangle nearest p within `rings` cells, or -1; its squared distance in *outd.
+ *
+ * Two shortcuts, neither of which can change the answer: a triangle already
+ * measured in another cell of this ask is not measured again (the same
+ * distance, and only a nearer one takes the place), and one whose box is
+ * clearly further than the best so far is not measured at all (its triangle
+ * is no nearer than its box; the margin is for the rounding of the exact
+ * measurement). Dealing Dam's 110000 triangles took 1.1 of its 2.9 seconds.
+ */
 static s32 tgridNearest(const struct tgrid *g, const f32 *p, s32 rings, f32 *outd)
 {
 	const s32 cx = (s32)floorf(p[0] / g->cell);
@@ -355,6 +404,16 @@ static s32 tgridNearest(const struct tgrid *g, const f32 *p, s32 rings, f32 *out
 	const s32 cz = (s32)floorf(p[2] / g->cell);
 	s32 best = -1;
 	f32 bestd = 0;
+	u32 ask;
+
+	// a tgrid is the builder's alone; the ask count is not part of what it holds
+	((struct tgrid *)g)->ask++;
+	ask = g->ask;
+
+	if (ask == 0) {
+		memset(g->seen, 0, sizeof(u32) * g->numtri);
+		((struct tgrid *)g)->ask = ask = 1;
+	}
 
 	for (s32 r = 0; r <= rings; r++) {
 		for (s32 x = cx - r; x <= cx + r; x++) {
@@ -366,7 +425,19 @@ static s32 tgridNearest(const struct tgrid *g, const f32 *p, s32 rings, f32 *out
 
 					for (s32 e = g->head[gridKey(x, y, z)]; e >= 0; e = g->entnext[e]) {
 						const s32 t = g->enttri[e];
-						const f32 d = pointTriDist(p, g->tri + t * 9, g->tri + t * 9 + 3, g->tri + t * 9 + 6);
+						f32 d;
+
+						if (g->seen[t] == ask) {
+							continue;
+						}
+
+						g->seen[t] = ask;
+
+						if (best >= 0 && boxDist(p, g->box + t * 6) > bestd * 1.001f + 1.0f) {
+							continue;
+						}
+
+						d = pointTriDist(p, g->tri + t * 9, g->tri + t * 9 + 3, g->tri + t * 9 + 6);
 
 						if (best < 0 || d < bestd) {
 							best = t;
@@ -721,6 +792,33 @@ static s32 normalize3(f32 *v)
 	v[2] /= len;
 
 	return 1;
+}
+
+static void shellForget(void);
+
+/**
+ * GoldenEye's own opaque triangles, room by room, for the camera test
+ * (gebeanStageTickCamera()) and the hit's texture (gebeanStageHitTexture()).
+ */
+static void shellTake(u8 **filerooms, u32 *filelens, s32 n)
+{
+	shellFirst = calloc(n + 1, sizeof(*shellFirst));
+	shellCount = calloc(n + 1, sizeof(*shellCount));
+
+	for (s32 r = 1; r < n && shellFirst && shellCount; r++) {
+		if (filerooms[r]) {
+			shellFirst[r] = shellNum;
+			fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriToShell, NULL);
+			shellCount[r] = shellNum - shellFirst[r];
+		}
+	}
+
+	if (!shellFirst || !shellCount) {
+		shellForget();
+	} else {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %d of GoldenEye's opaque triangles for the camera test, %d of them unculled",
+				shellNum, shellNumTwo);
+	}
 }
 
 static void shellForget(void)
@@ -1149,6 +1247,41 @@ static s32 triFitsRoom(const struct stri *tri, s32 r)
 	return 1;
 }
 
+static u8 paletteIndex(const u32 *palette, s32 num, u32 argb);
+
+/*
+ * paletteIndex() for every corner a leaf writes, remembered for the leaf: a
+ * room's triangles share their colours, and each ask walks the whole palette.
+ * leafPaletteBegin() forgets what the last leaf's palette answered.
+ */
+#define LEAFPAL_BITS 10
+
+static u32 leafPalKey[1 << LEAFPAL_BITS];
+static u32 leafPalGen[1 << LEAFPAL_BITS];
+static u8 leafPalVal[1 << LEAFPAL_BITS];
+static u32 leafPalNow;
+
+static void leafPaletteBegin(void)
+{
+	if (++leafPalNow == 0) {
+		memset(leafPalGen, 0, sizeof(leafPalGen));
+		leafPalNow = 1;
+	}
+}
+
+static u8 leafPaletteIndex(const u32 *palette, s32 num, u32 argb)
+{
+	const u32 h = (argb * 2654435761u) >> (32 - LEAFPAL_BITS);
+
+	if (leafPalGen[h] != leafPalNow || leafPalKey[h] != argb) {
+		leafPalGen[h] = leafPalNow;
+		leafPalKey[h] = argb;
+		leafPalVal[h] = paletteIndex(palette, num, argb);
+	}
+
+	return leafPalVal[h];
+}
+
 static u8 paletteIndex(const u32 *palette, s32 num, u32 argb)
 {
 	s32 best = 0;
@@ -1421,6 +1554,8 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 		return 0;
 	}
 
+	leafPaletteBegin();
+
 	for (s32 i = 0; i < num && !xlu; i++) {
 		numfights += tris[list[i]].fights;
 	}
@@ -1595,7 +1730,7 @@ static s32 writeLeaf(struct leaf *l, const struct stri *tris, s32 *list, s32 num
 					// flipping v and a room has to as well - the Temple's
 					// carvings stood on their heads
 					&& clampS16((b.shiftv - t->uv[k][1]) * XBLATEX_TILE_SCALE, &rv[k].t);
-				rv[k].colour = paletteIndex(palette, numpal, t->argb[k]) << 2;
+				rv[k].colour = leafPaletteIndex(palette, numpal, t->argb[k]) << 2;
 			}
 
 			if (ok || pass == 1) {
@@ -2030,9 +2165,82 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->backed = 0;
 	t->fights = 0;
 	t->undersea = 0;
+	t->plain = v[0].plain;
 }
 
-static f32 triNormal(const struct stri *t, f32 *n)
+/*
+ * The normals and shades of the level's triangles, worked out once while
+ * markBacked(), markFights() and markDecals() ask for them: those ask a
+ * triangle's normal once for every triangle sharing a grid cell with it,
+ * which on Frigate was 5 of the 7 seconds the level took to build (F3
+ * 20260929-143105, "GE Plus levels load much slower"). The cached values are
+ * the ones triNormal() and triShade() work out, to the bit.
+ */
+static const struct stri *triCacheBase;
+static s32 triCacheNum;
+static f32 (*triCacheNormal)[4]; // x, y, z, and the area triNormal() returns
+static f32 *triCacheShade;
+
+static f32 triNormalWork(const struct stri *t, f32 *n);
+static f32 triShadeWork(const struct stri *t);
+
+static void triCacheFill(const struct stri *tris, s32 num)
+{
+	triCacheNormal = malloc(sizeof(*triCacheNormal) * (num > 0 ? num : 1));
+	triCacheShade = malloc(sizeof(*triCacheShade) * (num > 0 ? num : 1));
+
+	if (!triCacheNormal || !triCacheShade) {
+		free(triCacheNormal);
+		free(triCacheShade);
+		triCacheNormal = NULL;
+		triCacheShade = NULL;
+		return;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		triCacheNormal[i][3] = triNormalWork(&tris[i], triCacheNormal[i]);
+		triCacheShade[i] = triShadeWork(&tris[i]);
+	}
+
+	triCacheBase = tris;
+	triCacheNum = num;
+}
+
+static void triCacheForget(void)
+{
+	free(triCacheNormal);
+	free(triCacheShade);
+	triCacheNormal = NULL;
+	triCacheShade = NULL;
+	triCacheBase = NULL;
+	triCacheNum = 0;
+}
+
+static inline __attribute__((always_inline)) s32 triCacheIndex(const struct stri *t)
+{
+	if (triCacheBase && t >= triCacheBase && t < triCacheBase + triCacheNum) {
+		return (s32)(t - triCacheBase);
+	}
+
+	return -1;
+}
+
+static inline __attribute__((always_inline)) f32 triNormal(const struct stri *t, f32 *n)
+{
+	const s32 i = triCacheIndex(t);
+
+	if (i >= 0) {
+		n[0] = triCacheNormal[i][0];
+		n[1] = triCacheNormal[i][1];
+		n[2] = triCacheNormal[i][2];
+
+		return triCacheNormal[i][3];
+	}
+
+	return triNormalWork(t, n);
+}
+
+static f32 triNormalWork(const struct stri *t, f32 *n)
 {
 	f32 e1[3], e2[3], len;
 
@@ -2053,6 +2261,123 @@ static f32 triNormal(const struct stri *t, f32 *n)
 	}
 
 	return len * 0.5f;
+}
+
+/*
+ * The marking passes ask, of each of up to seven points on a triangle,
+ * whether a triangle of the cell the point is in lies under it - one that
+ * passes a test of its own against the triangle (facing, plane, picture) and
+ * comes within DECAL_DIST of the point. The test does not depend on the point
+ * and the points of one triangle mostly share a cell, so a cell is walked
+ * once, the test asked once of each of its triangles, and only the distance
+ * measured per point; the answers are the ones asking point by point gives.
+ */
+enum { MARKFILTER_BACKED, MARKFILTER_FIGHTS, MARKFILTER_DECAL };
+
+static s32 triOther(const struct stri *t, const struct stri *u);
+
+static s32 markCandidate(const struct stri *tris, s32 i, const f32 *ni, s32 o, s32 kind)
+{
+	const struct stri *t = &tris[i];
+	const struct stri *u = &tris[o];
+	f32 nu[3], area, cosang;
+	s32 flat = 1;
+
+	// The facing first, out of the cached normals: nearly every triangle of
+	// a cell fails it, and it is the one test that does not have to read the
+	// triangle itself. The tests only ever reject, so their order is free.
+	if (o == i) {
+		return 0;
+	}
+
+	area = triNormal(u, nu);
+
+	if (area <= 0) {
+		return 0;
+	}
+
+	cosang = dot3(ni, nu);
+
+	if (kind != MARKFILTER_DECAL) {
+		if (cosang > -DECAL_COS || texIsXlu(u->tex)) {
+			return 0;
+		}
+
+		if (kind == MARKFILTER_BACKED) {
+			return texHasAlpha(u->tex) == texHasAlpha(t->tex);
+		}
+	} else {
+		if ((cosang < DECAL_COS && cosang > -DECAL_COS) || !triOther(t, u)
+				|| (cosang < 0 && triCulled(t) && triCulled(u))) {
+			return 0;
+		}
+	}
+
+	for (s32 k = 0; k < 3 && flat; k++) {
+		f32 rel[3] = { t->pos[k][0] - u->pos[0][0], t->pos[k][1] - u->pos[0][1], t->pos[k][2] - u->pos[0][2] };
+
+		flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
+	}
+
+	return flat;
+}
+
+/**
+ * Whether every point (`all`) or any point is on a triangle of its cell that
+ * passes markCandidate().
+ */
+static s32 markPointsOn(const struct stri *tris, const struct tgrid *g, s32 i, const f32 *ni,
+		const f32 (*pts)[3], s32 npts, s32 kind, s32 all)
+{
+	u32 key[7];
+	u8 hit[7] = { 0 };
+	u8 done[7] = { 0 };
+
+	for (s32 k = 0; k < npts; k++) {
+		key[k] = gridKey((s32)floorf(pts[k][0] / g->cell), (s32)floorf(pts[k][1] / g->cell), (s32)floorf(pts[k][2] / g->cell));
+	}
+
+	for (s32 k = 0; k < npts; k++) {
+		s32 left = 0;
+
+		if (done[k]) {
+			continue;
+		}
+
+		for (s32 m = k; m < npts; m++) {
+			if (key[m] == key[k]) {
+				done[m] = 1;
+				left++;
+			}
+		}
+
+		for (s32 e = g->head[key[k]]; e >= 0 && left > 0; e = g->entnext[e]) {
+			const s32 o = g->room[g->enttri[e]];
+			const struct stri *u = &tris[o];
+
+			if (!markCandidate(tris, i, ni, o, kind)) {
+				continue;
+			}
+
+			for (s32 m = k; m < npts; m++) {
+				if (key[m] == key[k] && !hit[m]
+						&& pointTriDist(pts[m], u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST) {
+					hit[m] = 1;
+					left--;
+
+					if (!all) {
+						return 1;
+					}
+				}
+			}
+		}
+
+		if (all && left > 0) {
+			return 0;
+		}
+	}
+
+	return all;
 }
 
 /**
@@ -2094,25 +2419,7 @@ static s32 markBacked(struct stri *tris, s32 num, const struct tgrid *g)
 
 		memcpy(pts[3], mid, sizeof(mid));
 
-		for (s32 k = 0; k < 4 && covered; k++) {
-			const f32 *q = pts[k];
-
-			covered = 0;
-
-			for (s32 e = g->head[gridKey((s32)floorf(q[0] / g->cell), (s32)floorf(q[1] / g->cell), (s32)floorf(q[2] / g->cell))];
-					e >= 0 && !covered; e = g->entnext[e]) {
-				const s32 o = g->room[g->enttri[e]];
-				const struct stri *u = &tris[o];
-				f32 nu[3];
-
-				if (o == i || texIsXlu(u->tex) || texHasAlpha(u->tex) != texHasAlpha(t->tex)
-						|| triNormal(u, nu) <= 0 || dot3(ni, nu) > -DECAL_COS) {
-					continue;
-				}
-
-				covered = pointTriDist(q, u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST;
-			}
-		}
+		covered = markPointsOn(tris, g, i, ni, (const f32 (*)[3])pts, 4, MARKFILTER_BACKED, 1);
 
 		if (covered) {
 			t->backed = 1;
@@ -2161,29 +2468,7 @@ static s32 markFights(struct stri *tris, s32 num, const struct tgrid *g)
 
 		memcpy(pts[3], mid, sizeof(mid));
 
-		for (s32 k = 0; k < 4 && !fights; k++) {
-			const f32 *q = pts[k];
-
-			for (s32 e = g->head[gridKey((s32)floorf(q[0] / g->cell), (s32)floorf(q[1] / g->cell), (s32)floorf(q[2] / g->cell))];
-					e >= 0 && !fights; e = g->entnext[e]) {
-				const s32 o = g->room[g->enttri[e]];
-				const struct stri *u = &tris[o];
-				f32 nu[3];
-				s32 flat = 1;
-
-				if (o == i || texIsXlu(u->tex) || triNormal(u, nu) <= 0 || dot3(ni, nu) > -DECAL_COS) {
-					continue;
-				}
-
-				for (s32 c = 0; c < 3 && flat; c++) {
-					f32 rel[3] = { t->pos[c][0] - u->pos[0][0], t->pos[c][1] - u->pos[0][1], t->pos[c][2] - u->pos[0][2] };
-
-					flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
-				}
-
-				fights = flat && pointTriDist(q, u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST;
-			}
-		}
+		fights = markPointsOn(tris, g, i, ni, (const f32 (*)[3])pts, 4, MARKFILTER_FIGHTS, 0);
 
 		if (fights) {
 			t->fights = 1;
@@ -2195,7 +2480,14 @@ static s32 markFights(struct stri *tris, s32 num, const struct tgrid *g)
 }
 
 /** How bright a triangle's vertex colours are, 0 to 255. */
-static f32 triShade(const struct stri *t)
+static inline __attribute__((always_inline)) f32 triShade(const struct stri *t)
+{
+	const s32 i = triCacheIndex(t);
+
+	return i >= 0 ? triCacheShade[i] : triShadeWork(t);
+}
+
+static f32 triShadeWork(const struct stri *t)
 {
 	f32 sum = 0.0f;
 
@@ -2215,65 +2507,6 @@ static f32 triShade(const struct stri *t)
 static s32 triOther(const struct stri *t, const struct stri *u)
 {
 	return u->tex != t->tex || fabsf(triShade(t) - triShade(u)) > SHADE_APART;
-}
-
-/**
- * Marks the triangles that lie flat on another picture's triangle. Bean's
- * decals share the plane of the surface under them exactly, and drawn with
- * the ordinary depth test the two fought (a tester's F3 on Aztec, every HD
- * level): the decal is drawn in a decal render mode instead, pulled towards
- * the camera. Of a pair, the one lying wholly on other pictures is the decal
- * (decalCovered()); if both or neither do, the one with a cut-out picture
- * over the one without, else (both wholly on the other) the one Bean draws
- * later, else the smaller, else the one Bean draws later.
- *
- * Wholly on first: Bunker's hammer and sickle plaques overlap a wall panel
- * and hang past it onto the panels round it, and the panel's half-quad was
- * the smaller of the pair. It was made the decal, the other half of its quad
- * was not, and the plaque and the panel fought where they overlapped, while
- * the part of the panel off the plaque, drawn as a decal on nothing, was
- * painted over by the rock of a room drawn after it (F3 20260925-231104:
- * "z-fighting texture and inconsistent wall").
- *
- * Where each lies wholly on the other, the one Bean draws later, as the
- * release's depth test (less or equal) shows it: Bunker's other hammer and
- * sickle plaques lie on a wall cut into pieces smaller than the plaque, and
- * by size every piece was the decal and the wall was drawn over the plaque
- * (F3 20260926-210116).
- */
-static s32 decalOnOther(const struct stri *tris, const struct tgrid *g, s32 i, const f32 *ni, const f32 *q)
-{
-	const struct stri *t = &tris[i];
-
-	for (s32 e = g->head[gridKey((s32)floorf(q[0] / g->cell), (s32)floorf(q[1] / g->cell), (s32)floorf(q[2] / g->cell))];
-			e >= 0; e = g->entnext[e]) {
-		const s32 o = g->room[g->enttri[e]];
-		const struct stri *u = &tris[o];
-		f32 nu[3], cosang;
-		s32 flat = 1;
-
-		if (o == i || !triOther(t, u) || triNormal(u, nu) <= 0) {
-			continue;
-		}
-
-		cosang = dot3(ni, nu);
-
-		if ((cosang < DECAL_COS && cosang > -DECAL_COS) || (cosang < 0 && triCulled(t) && triCulled(u))) {
-			continue;
-		}
-
-		for (s32 k = 0; k < 3 && flat; k++) {
-			f32 rel[3] = { t->pos[k][0] - u->pos[0][0], t->pos[k][1] - u->pos[0][1], t->pos[k][2] - u->pos[0][2] };
-
-			flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
-		}
-
-		if (flat && pointTriDist(q, u->pos[0], u->pos[1], u->pos[2]) <= DECAL_DIST * DECAL_DIST) {
-			return 1;
-		}
-	}
-
-	return 0;
 }
 
 /**
@@ -2517,7 +2750,8 @@ static s32 markShadows(struct stri *tris, s32 num)
 static s32 decalCovered(const struct stri *tris, const struct tgrid *g, s32 i)
 {
 	const struct stri *t = &tris[i];
-	f32 ni[3], mid[3], q[3];
+	f32 ni[3], mid[3], pts[7][3];
+	s32 n = 0;
 
 	if (triNormal(t, ni) <= 0) {
 		return 0;
@@ -2527,33 +2761,51 @@ static s32 decalCovered(const struct stri *tris, const struct tgrid *g, s32 i)
 		mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
 	}
 
-	if (!decalOnOther(tris, g, i, ni, mid)) {
-		return 0;
-	}
+	memcpy(pts[n++], mid, sizeof(mid));
 
 	for (s32 k = 0; k < 3; k++) {
 		for (s32 j = 0; j < 3; j++) {
-			q[j] = t->pos[k][j] + (mid[j] - t->pos[k][j]) * 0.1f;
+			pts[n][j] = t->pos[k][j] + (mid[j] - t->pos[k][j]) * 0.1f;
 		}
 
-		if (!decalOnOther(tris, g, i, ni, q)) {
-			return 0;
-		}
+		n++;
 
 		for (s32 j = 0; j < 3; j++) {
 			const f32 edge = (t->pos[k][j] + t->pos[(k + 1) % 3][j]) * 0.5f;
 
-			q[j] = edge + (mid[j] - edge) * 0.1f;
+			pts[n][j] = edge + (mid[j] - edge) * 0.1f;
 		}
 
-		if (!decalOnOther(tris, g, i, ni, q)) {
-			return 0;
-		}
+		n++;
 	}
 
-	return 1;
+	return markPointsOn(tris, g, i, ni, (const f32 (*)[3])pts, n, MARKFILTER_DECAL, 1);
 }
 
+/**
+ * Marks the triangles that lie flat on another picture's triangle. Bean's
+ * decals share the plane of the surface under them exactly, and drawn with
+ * the ordinary depth test the two fought (a tester's F3 on Aztec, every HD
+ * level): the decal is drawn in a decal render mode instead, pulled towards
+ * the camera. Of a pair, the one lying wholly on other pictures is the decal
+ * (decalCovered()); if both or neither do, the one with a cut-out picture
+ * over the one without, else (both wholly on the other) the one Bean draws
+ * later, else the smaller, else the one Bean draws later.
+ *
+ * Wholly on first: Bunker's hammer and sickle plaques overlap a wall panel
+ * and hang past it onto the panels round it, and the panel's half-quad was
+ * the smaller of the pair. It was made the decal, the other half of its quad
+ * was not, and the plaque and the panel fought where they overlapped, while
+ * the part of the panel off the plaque, drawn as a decal on nothing, was
+ * painted over by the rock of a room drawn after it (F3 20260925-231104:
+ * "z-fighting texture and inconsistent wall").
+ *
+ * Where each lies wholly on the other, the one Bean draws later, as the
+ * release's depth test (less or equal) shows it: Bunker's other hammer and
+ * sickle plaques lie on a wall cut into pieces smaller than the plaque, and
+ * by size every piece was the decal and the wall was drawn over the plaque
+ * (F3 20260926-210116).
+ */
 static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 {
 	s32 count = 0;
@@ -2804,7 +3056,8 @@ static s32 markDecalLifts(struct stri *tris, s32 num)
 	return lifted;
 }
 
-static void forget(void)
+// What build() leaves, the level it read left open
+static void forgetBuilt(void)
 {
 	shellForget();
 
@@ -2836,6 +3089,11 @@ static void forget(void)
 	numHidden = 0;
 	numWaterKept = 0;
 	levelHasWater = 0;
+}
+
+static void forget(void)
+{
+	forgetBuilt();
 	gebeanLevelClose(level);
 	level = NULL;
 	row = NULL;
@@ -3999,6 +4257,18 @@ static void fileTriToWater(void *arg, const f32 v[3][3], s32 room)
 	}
 }
 
+// What the build last handed gewater.c, for the cache to hand it again
+static s32 waterMeasured;
+static f32 waterRate[2];
+
+static void setWaterRates(s32 measured, f32 s, f32 t)
+{
+	waterMeasured = measured;
+	waterRate[0] = s;
+	waterRate[1] = t;
+	geWaterSetHdRates(measured, s, t);
+}
+
 static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filelens, s32 n)
 {
 	struct watermeasure ge, hd;
@@ -4009,7 +4279,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
 
 	memset(&ge, 0, sizeof(ge));
 	memset(&hd, 0, sizeof(hd));
-	geWaterSetHdRates(0, 0, 0);
+	setWaterRates(0, 0, 0);
 
 	if (!tgridInit(water, WATER_CELL)) {
 		return 0;
@@ -4103,7 +4373,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
 			rs = b[0][0] * dx + b[0][1] * dz;
 			rt = b[1][0] * dx + b[1][1] * dz;
 
-			geWaterSetHdRates(1, (f32)rs, (f32)rt);
+			setWaterRates(1, (f32)rs, (f32)rt);
 
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: water moves %.3f %.3f units a frame, in Bean's picture %.3f %.3f quarter texels (GoldenEye's s/t %.4f %.4f %.4f %.4f, Bean's %.4f %.4f %.4f %.4f a unit)",
 					row->bean, dx, dz, rs, rt, g[0][0], g[0][1], g[1][0], g[1][1], b[0][0], b[0][1], b[1][0], b[1][1]);
@@ -4117,6 +4387,515 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
 	return marked;
 }
 
+/* -------------------------------------------------------------------------
+ * The built level, kept on disk
+ *
+ * Building the release's mesh into the rooms takes a second or more a load
+ * (Dam 1.6 s, Frigate 2.5 s) and comes out the same every time for the same
+ * inputs, so what it leaves behind is written to
+ * cache/xbla/goldeneye/levels/<key>_<file>[_ce].bin and read back instead.
+ *
+ * The key is a hash of everything the build reads: HDCACHE_VERSION (bump it
+ * on ANY change to what build() or the functions it calls produce, here or
+ * in gebean.c's level walk and pictures), the binary's commit, the struct
+ * layouts, the level's table row, the release's level file byte for
+ * byte (which is also what the Community Edition's overlay changes), whether
+ * that overlay is on, the pictures' alpha as bound, the level file's rooms
+ * (their bytes, bases, positions and boxes), the doors' boxes and the
+ * environment's water. No setting is read by the build. A file whose header,
+ * length, key or checksum is wrong is built over and rewritten.
+ *
+ * Nothing written holds a host address: rooms carry the file's own segment
+ * addresses (g_BgRooms[].unk00 plus offsets, and the bases are in the key),
+ * which bg.c relocates as it does a room read from the file; the backdrop is
+ * plain triangles. The camera test's shell is GoldenEye's own rooms and is
+ * taken again each load.
+ * ------------------------------------------------------------------------- */
+
+#define HDCACHE_VERSION 1
+#define HDCACHE_MAGIC "GEHDLVL"
+
+struct hdcachehead {
+	char magic[8];
+	u32 version;
+	u32 headsize;
+	u64 key;
+	u64 paylen;
+	u64 paysum;
+};
+
+static u64 hashMix(u64 h)
+{
+	h ^= h >> 33;
+	h *= 0xff51afd7ed558ccdull;
+	h ^= h >> 33;
+	h *= 0xc4ceb9fe1a85ec53ull;
+	h ^= h >> 33;
+
+	return h;
+}
+
+static u64 hashBytes(u64 h, const void *data, size_t len)
+{
+	const u8 *p = data;
+	u64 a = h ^ 0x9e3779b97f4a7c15ull, b = h + len;
+
+	// two lanes, so that the multiplies overlap
+	while (len >= 16) {
+		u64 k0, k1;
+
+		memcpy(&k0, p, 8);
+		memcpy(&k1, p + 8, 8);
+		a = (a ^ (k0 * 0x87c37b91114253d5ull)) * 0x4cf5ad432745937full;
+		b = (b ^ (k1 * 0x4cf5ad432745937full)) * 0x87c37b91114253d5ull;
+		a = (a << 29) | (a >> 35);
+		b = (b << 31) | (b >> 33);
+		p += 16;
+		len -= 16;
+	}
+
+	while (len > 0) {
+		a = (a ^ *p++) * 0x100000001b3ull;
+		len--;
+	}
+
+	return hashMix(a ^ hashMix(b));
+}
+
+static u64 hashU32(u64 h, u32 v)
+{
+	return hashBytes(h, &v, sizeof(v));
+}
+
+static u64 hashStr(u64 h, const char *str)
+{
+	return hashBytes(h, str ? str : "", str ? strlen(str) + 1 : 1);
+}
+
+static u64 hdcacheKey(const char *levelname, u8 **filerooms, u32 *filelens, s32 n)
+{
+	const u32 layout[] = {
+		HDCACHE_VERSION, sizeof(struct stri), sizeof(struct hdcachehead), GEBEAN_MAXMATS,
+		sizeof(void *), 0x01020304,
+	};
+	struct environment *env = envGetCurrent();
+	struct doorbox *boxes = NULL;
+	const u8 *file;
+	u32 filelen;
+	s32 numboxes;
+	u64 h = hashBytes(0, layout, sizeof(layout));
+
+#ifdef VERSION_HASH
+	// and the binary's own commit, so that a released build never serves a
+	// level an older one built, whether or not the version above was bumped
+	h = hashStr(h, VERSION_HASH);
+#endif
+	h = hashStr(h, row->key);
+	h = hashStr(h, row->bean);
+	h = hashBytes(h, &row->scale, sizeof(row->scale));
+	h = hashBytes(h, row->offset, sizeof(row->offset));
+	h = hashStr(h, levelname);
+	h = hashU32(h, gebeanCeIsActive());
+
+	file = gebeanLevelFileBytes(level, &filelen);
+	h = hashU32(h, filelen);
+	h = hashBytes(h, file, filelen);
+
+	h = hashU32(h, gebeanLevelNumTextures(level));
+	h = hashBytes(h, texAlpha, sizeof(texAlpha));
+	h = hashBytes(h, texSoft, sizeof(texSoft));
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		h = hashU32(h, texTile[t] != NULL);
+	}
+
+	h = hashU32(h, n);
+
+	for (s32 r = 0; r <= n; r++) {
+		h = hashU32(h, (u32)g_BgRooms[r].unk00);
+	}
+
+	for (s32 r = 1; r < n; r++) {
+		h = hashBytes(h, &g_BgRooms[r].pos, sizeof(g_BgRooms[r].pos));
+		h = hashBytes(h, g_Rooms[r].bbmin, sizeof(g_Rooms[r].bbmin));
+		h = hashBytes(h, g_Rooms[r].bbmax, sizeof(g_Rooms[r].bbmax));
+		h = hashU32(h, filelens[r]);
+
+		if (filerooms[r]) {
+			h = hashBytes(h, filerooms[r], filelens[r]);
+		}
+	}
+
+	numboxes = doorBoxes(&boxes);
+	h = hashU32(h, numboxes);
+
+	for (s32 i = 0; i < numboxes; i++) {
+		// what doorBoxes() fills; the rest is the build's own
+		h = hashBytes(h, &boxes[i], offsetof(struct doorbox, slide) + sizeof(boxes[i].slide));
+	}
+
+	free(boxes);
+
+	h = hashU32(h, env != NULL);
+
+	if (env) {
+		h = hashU32(h, env->water_enabled);
+		h = hashBytes(h, &env->water_scale, sizeof(env->water_scale));
+		h = hashU32(h, (u32)env->water_type);
+		h = hashBytes(h, &env->water_r, sizeof(env->water_r));
+		h = hashBytes(h, &env->water_g, sizeof(env->water_g));
+		h = hashBytes(h, &env->water_b, sizeof(env->water_b));
+	}
+
+	return h;
+}
+
+static s32 hdcachePath(char *dst, u32 dstLen, const char *levelname, s32 temp)
+{
+	char dir[FS_MAXPATH + 1];
+
+	if (!gebeanGetCacheDir(dir, sizeof(dir))) {
+		return 0;
+	}
+
+	snprintf(dst, dstLen, "%s/levels", dir);
+
+	if (fsFileSize(dst) < 0) {
+		fsCreateDir(dst);
+	}
+
+	snprintf(dst, dstLen, "%s/levels/%s_%s%s.bin%s", dir, row->key, levelname,
+			gebeanCeIsActive() ? "_ce" : "", temp ? ".tmp" : "");
+
+	return 1;
+}
+
+struct hdbuf {
+	u8 *d;
+	size_t len, cap;
+	s32 bad;
+};
+
+static void hdPut(struct hdbuf *b, const void *src, size_t len)
+{
+	if (b->bad || len == 0) {
+		return;
+	}
+
+	if (b->len + len > b->cap) {
+		size_t cap = b->cap ? b->cap : 1 << 20;
+		u8 *d;
+
+		while (cap < b->len + len) {
+			cap *= 2;
+		}
+
+		d = realloc(b->d, cap);
+
+		if (!d) {
+			b->bad = 1;
+			return;
+		}
+
+		b->d = d;
+		b->cap = cap;
+	}
+
+	memcpy(b->d + b->len, src, len);
+	b->len += len;
+}
+
+static void hdPut32(struct hdbuf *b, u32 v)
+{
+	hdPut(b, &v, sizeof(v));
+}
+
+// A triangle field by field, so that no padding (whatever the build's copies
+// left in it) reaches the file
+#define HD_TRI_FIELDS(OP, t) \
+	OP(t->pos) OP(t->uv) OP(t->argb) OP(t->tex) OP(t->room) OP(t->decal) OP(t->lift) OP(t->sink) \
+	OP(t->decalbase) OP(t->nofog) OP(t->backed) OP(t->fights) OP(t->blend) OP(t->undersea) OP(t->plain)
+
+static void hdPutTri(struct hdbuf *b, const struct stri *t)
+{
+#define HD_PUT(f) hdPut(b, &(f), sizeof(f));
+	HD_TRI_FIELDS(HD_PUT, t)
+#undef HD_PUT
+}
+
+static void hdcacheSave(u64 key, const char *levelname)
+{
+	char path[FS_MAXPATH + 1];
+	char tmp[FS_MAXPATH + 1];
+	struct hdcachehead head;
+	struct hdbuf b = { 0 };
+	FILE *fp;
+	s32 ok;
+
+	if (!hdcachePath(path, sizeof(path), levelname, 0) || !hdcachePath(tmp, sizeof(tmp), levelname, 1)) {
+		return;
+	}
+
+	hdPut32(&b, numRooms);
+	hdPut32(&b, numServed);
+	hdPut32(&b, numHidden);
+	hdPut32(&b, numWaterKept);
+	hdPut32(&b, levelHasWater);
+	hdPut32(&b, numBackdrop);
+	hdPut32(&b, waterMeasured);
+	hdPut(&b, waterRate, sizeof(waterRate));
+	hdPut(&b, meshMin, sizeof(meshMin));
+	hdPut(&b, meshMax, sizeof(meshMax));
+	hdPut(&b, backdropMid, sizeof(backdropMid));
+	hdPut(&b, texClampV, sizeof(texClampV));
+	hdPut(&b, texClampShift, sizeof(texClampShift));
+	hdPut(&b, texWater, sizeof(texWater));
+	hdPut(&b, roomHidden, numRooms + 1);
+	hdPut(&b, roomWaterKept, numRooms + 1);
+
+	for (s32 r = 0; r <= numRooms; r++) {
+		hdPut32(&b, roomData[r] ? 1 : 0);
+		hdPut32(&b, roomLen[r]);
+	}
+
+	for (s32 r = 0; r <= numRooms; r++) {
+		if (roomData[r]) {
+			hdPut(&b, roomData[r], roomLen[r]);
+		}
+	}
+
+	for (s32 t = 0; t < numBackdrop; t++) {
+		hdPutTri(&b, &backdrop[t]);
+	}
+
+	if (b.bad) {
+		free(b.d);
+		return;
+	}
+
+	memset(&head, 0, sizeof(head));
+	memcpy(head.magic, HDCACHE_MAGIC, sizeof(HDCACHE_MAGIC));
+	head.version = HDCACHE_VERSION;
+	head.headsize = sizeof(head);
+	head.key = key;
+	head.paylen = b.len;
+	head.paysum = hashBytes(key, b.d, b.len);
+
+	fp = fopen(tmp, "wb");
+	ok = fp && fwrite(&head, sizeof(head), 1, fp) == 1 && fwrite(b.d, 1, b.len, fp) == b.len;
+
+	if (fp && fclose(fp) != 0) {
+		ok = 0;
+	}
+
+	free(b.d);
+
+	if (!ok || fsReplaceFile(tmp, path) != 0) {
+		sysLogPrintf(LOG_WARNING, "gebeanstage: could not keep the built level in %s", path);
+		fsRemoveFile(tmp);
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gebeanstage: %s: built level kept in %s (%u bytes)", row->bean, path, (u32)(sizeof(head) + b.len));
+}
+
+struct hdread {
+	const u8 *d;
+	size_t len, at;
+	s32 bad;
+};
+
+static const void *hdTake(struct hdread *r, size_t len)
+{
+	const void *p;
+
+	if (r->bad || len > r->len - r->at) {
+		r->bad = 1;
+		return NULL;
+	}
+
+	p = r->d + r->at;
+	r->at += len;
+
+	return p;
+}
+
+static void hdGet(struct hdread *r, void *dst, size_t len)
+{
+	const void *p = hdTake(r, len);
+
+	if (p) {
+		memcpy(dst, p, len);
+	} else {
+		memset(dst, 0, len);
+	}
+}
+
+static void hdGetTri(struct hdread *r, struct stri *t)
+{
+	memset(t, 0, sizeof(*t));
+#define HD_GET(f) hdGet(r, &(f), sizeof(f));
+	HD_TRI_FIELDS(HD_GET, t)
+#undef HD_GET
+}
+
+static u32 hdGet32(struct hdread *r)
+{
+	u32 v;
+
+	hdGet(r, &v, sizeof(v));
+
+	return v;
+}
+
+/**
+ * The built level from the cache, into the state build() leaves. 0, with
+ * nothing kept, when there is none or it is not this level's as it is now.
+ */
+static s32 hdcacheLoad(u64 key, const char *levelname, s32 n)
+{
+	char path[FS_MAXPATH + 1];
+	struct hdcachehead head;
+	struct hdread rd = { 0 };
+	u8 *data = NULL;
+	u8 *present = NULL;
+	FILE *fp;
+	long size = 0;
+	const char *why = NULL;
+
+	if (!hdcachePath(path, sizeof(path), levelname, 0)) {
+		return 0;
+	}
+
+	fp = fopen(path, "rb");
+
+	if (!fp) {
+		return 0;
+	}
+
+	if (fseek(fp, 0, SEEK_END) != 0 || (size = ftell(fp)) < (long)sizeof(head) || size > 512L * 1024 * 1024) {
+		why = "a size that is not a built level's";
+	} else if (fseek(fp, 0, SEEK_SET) != 0 || fread(&head, sizeof(head), 1, fp) != 1) {
+		why = "an unreadable header";
+	} else if (memcmp(head.magic, HDCACHE_MAGIC, sizeof(HDCACHE_MAGIC)) != 0 || head.headsize != sizeof(head)) {
+		why = "a header that is not a built level's";
+	} else if (head.version != HDCACHE_VERSION) {
+		why = "an older builder's level";
+	} else if (head.key != key) {
+		why = "a level built from other inputs";
+	} else if (head.paylen != (u64)size - sizeof(head)) {
+		why = "a length that is not its header's (cut short?)";
+	} else if ((data = malloc(head.paylen ? head.paylen : 1)) == NULL
+			|| fread(data, 1, head.paylen, fp) != head.paylen) {
+		why = "a body that could not be read";
+	} else if (hashBytes(key, data, head.paylen) != head.paysum) {
+		why = "a checksum that does not match";
+	}
+
+	fclose(fp);
+
+	if (why) {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %s has %s, building it again", row->bean, path, why);
+		free(data);
+		return 0;
+	}
+
+	rd.d = data;
+	rd.len = head.paylen;
+
+	numRooms = hdGet32(&rd);
+	numServed = hdGet32(&rd);
+	numHidden = hdGet32(&rd);
+	numWaterKept = hdGet32(&rd);
+	levelHasWater = hdGet32(&rd);
+	numBackdrop = hdGet32(&rd);
+	waterMeasured = hdGet32(&rd);
+	hdGet(&rd, waterRate, sizeof(waterRate));
+	hdGet(&rd, meshMin, sizeof(meshMin));
+	hdGet(&rd, meshMax, sizeof(meshMax));
+	hdGet(&rd, backdropMid, sizeof(backdropMid));
+	hdGet(&rd, texClampV, sizeof(texClampV));
+	hdGet(&rd, texClampShift, sizeof(texClampShift));
+	hdGet(&rd, texWater, sizeof(texWater));
+
+	if (numRooms != n || numBackdrop < 0 || numBackdrop > 16 * 1024 * 1024) {
+		rd.bad = 1;
+	}
+
+	if (!rd.bad) {
+		roomData = calloc(n + 1, sizeof(*roomData));
+		roomLen = calloc(n + 1, sizeof(*roomLen));
+		roomHidden = calloc(n + 1, sizeof(*roomHidden));
+		roomWaterKept = calloc(n + 1, sizeof(*roomWaterKept));
+		present = calloc(n + 1, 1);
+
+		if (!roomData || !roomLen || !roomHidden || !roomWaterKept || !present) {
+			rd.bad = 1;
+		}
+	}
+
+	if (!rd.bad) {
+		hdGet(&rd, roomHidden, n + 1);
+		hdGet(&rd, roomWaterKept, n + 1);
+
+		for (s32 r = 0; r <= n; r++) {
+			present[r] = hdGet32(&rd) != 0;
+			roomLen[r] = hdGet32(&rd);
+		}
+
+		for (s32 r = 0; r <= n && !rd.bad; r++) {
+			if (present[r]) {
+				const void *src = hdTake(&rd, roomLen[r]);
+
+				roomData[r] = src ? malloc(roomLen[r] ? roomLen[r] : 1) : NULL;
+
+				if (!roomData[r]) {
+					rd.bad = 1;
+					break;
+				}
+
+				memcpy(roomData[r], src, roomLen[r]);
+			}
+		}
+	}
+
+	if (!rd.bad && numBackdrop) {
+		const struct stri *t = backdrop;
+		size_t each = 0;
+
+#define HD_SIZE(f) each += sizeof(f);
+		HD_TRI_FIELDS(HD_SIZE, t)
+#undef HD_SIZE
+
+		backdrop = (size_t)numBackdrop * each == rd.len - rd.at ? malloc(sizeof(*backdrop) * numBackdrop) : NULL;
+
+		for (s32 t = 0; backdrop && t < numBackdrop; t++) {
+			hdGetTri(&rd, &backdrop[t]);
+		}
+
+		if (!backdrop) {
+			rd.bad = 1;
+		}
+	}
+
+	if (!rd.bad && rd.at != rd.len) {
+		rd.bad = 1;
+	}
+
+	free(data);
+	free(present);
+
+	if (rd.bad) {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %s does not read as this level's, building it again", row->bean, path);
+		forgetBuilt();
+		return 0;
+	}
+
+	geWaterSetHdRates(waterMeasured, waterRate[0], waterRate[1]);
+
+	return 1;
+}
+
 static s32 build(void)
 {
 	const u64 start = sysGetMicroseconds();
@@ -4128,8 +4907,12 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0;
+	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0;
 	u32 bytes = 0;
+	const char *levelname;
+	u64 key = 0;
+	s32 keyed = 0;
+	s32 complete = 0;
 
 	row = levelRow();
 	fogTableLoad();
@@ -4139,7 +4922,8 @@ static s32 build(void)
 	}
 
 	// the Community Edition keeps Surface's two halves as files of their own
-	level = gebeanLevelOpen(gebeanCeLevelName(row->key, row->bean));
+	levelname = gebeanCeLevelName(row->key, row->bean);
+	level = gebeanLevelOpen(levelname);
 
 	if (!level) {
 		sysLogPrintf(LOG_WARNING, "gebeanstage: GoldenEye XBLA's %s is not on disk", row->bean);
@@ -4165,6 +4949,40 @@ static s32 build(void)
 
 	for (s32 r = 1; r < n && filerooms; r++) {
 		filerooms[r] = readRoom(r, &filelens[r]);
+	}
+
+	// What an earlier load built from these same inputs, if it was kept
+	if (filerooms && filelens) {
+		key = hdcacheKey(levelname, filerooms, filelens, n);
+		keyed = 1;
+		mark[1] = sysGetMicroseconds();
+
+		if (hdcacheLoad(key, levelname, n)) {
+			shellTake(filerooms, filelens, n);
+
+			for (s32 r = 0; r <= n; r++) {
+				free(filerooms[r]);
+			}
+
+			free(filerooms);
+			free(filelens);
+
+			if (numBackdrop) {
+				backdropOrder = malloc(sizeof(s32) * numBackdrop);
+				backdropDist = malloc(sizeof(f32) * numBackdrop);
+
+				if (!backdropOrder || !backdropDist) {
+					numBackdrop = 0;
+				}
+			}
+
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s (GoldenEye's %s): %d of %d rooms from GoldenEye XBLA as built before (%d kept, %d of them not drawn), %d triangles of backdrop, %.0f ms (pictures %.0f, key %.0f, reading %.0f)",
+					row->bean, row->key, numServed, n - 1, n - 1 - numServed, numHidden, numBackdrop,
+					(sysGetMicroseconds() - start) / 1000.0, (mark[0] - start) / 1000.0,
+					(mark[1] - mark[0]) / 1000.0, (sysGetMicroseconds() - mark[1]) / 1000.0);
+
+			return numServed > 0;
+		}
 	}
 
 	memset(&c, 0, sizeof(c));
@@ -4244,35 +5062,23 @@ static s32 build(void)
 	}
 
 	if (c.num) {
-		shellFirst = calloc(n + 1, sizeof(*shellFirst));
-		shellCount = calloc(n + 1, sizeof(*shellCount));
-
 		for (s32 r = 1; r < n; r++) {
 			if (filerooms[r]) {
 				fileRoomTriangles(&filetris, r, filerooms[r], filelens[r]);
-
-				if (shellFirst && shellCount) {
-					shellFirst[r] = shellNum;
-					fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriToShell, NULL);
-					shellCount[r] = shellNum - shellFirst[r];
-				}
 			}
 		}
 
-		if (!shellFirst || !shellCount) {
-			shellForget();
-		} else {
-			sysLogPrintf(LOG_NOTE, "gebeanstage: %d of GoldenEye's opaque triangles for the camera test, %d of them unculled",
-					shellNum, shellNumTwo);
-		}
+		shellTake(filerooms, filelens, n);
 
 		for (s32 t = 0; t < c.num; t++) {
 			tgridAdd(&beantris, (const f32 (*)[3])c.tris[t].pos, t);
 		}
 
+		triCacheFill(c.tris, c.num);
 		backed = markBacked(c.tris, c.num, &beantris);
 		fights = markFights(c.tris, c.num, &beantris);
 		decals = markDecals(c.tris, c.num, &beantris);
+		triCacheForget();
 		markDecalLifts(c.tris, c.num);
 		{
 			const s32 shadows = markShadows(c.tris, c.num);
@@ -4292,6 +5098,18 @@ static s32 build(void)
 		for (s32 t = 0; t < c.num; t++) {
 			struct stri *tri = &c.tris[t];
 			f32 mid[3];
+
+			// A decal of a draw with no UV, no picture of its own and no
+			// colour in its vertices either (white, opaque) is a surface its
+			// shader alone shades, which the port has nothing to draw with,
+			// lying on one that is whole without it (gebeanLevelTriangles():
+			// Bunker's helipad, a grey band of the wrong picture)
+			if (tri->plain && tri->decal && tri->argb[0] == 0xffffffff
+					&& tri->argb[1] == 0xffffffff && tri->argb[2] == 0xffffffff) {
+				tri->room = 0;
+				plainDecals++;
+				continue;
+			}
 
 			for (s32 j = 0; j < 3; j++) {
 				mid[j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f;
@@ -4362,6 +5180,10 @@ static s32 build(void)
 			}
 		}
 
+		if (plainDecals) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d white decal triangles of draws with no UV or picture left out", row->bean, plainDecals);
+		}
+
 		for (s32 r = 1; r < n; r++) {
 			lists[r] = listlen[r] ? malloc(sizeof(s32) * listlen[r]) : NULL;
 			listlen[r] = 0;
@@ -4422,6 +5244,7 @@ static s32 build(void)
 
 		tgridFree(&filetris);
 		tgridFree(&beantris);
+		complete = 1;
 	}
 
 	for (s32 r = 0; r <= n; r++) {
@@ -4471,6 +5294,10 @@ static s32 build(void)
 			(mark[0] - start) / 1000.0, (mark[1] - mark[0]) / 1000.0, mark[2] ? (mark[2] - mark[1]) / 1000.0 : 0.0,
 			mark[3] ? (mark[3] - mark[2]) / 1000.0 : 0.0,
 			mark[3] ? (sysGetMicroseconds() - mark[3]) / 1000.0 : 0.0);
+
+	if (complete && keyed && numServed > 0) {
+		hdcacheSave(key, levelname);
+	}
 
 	return numServed > 0;
 }
