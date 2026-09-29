@@ -12830,3 +12830,29 @@ the oracle's). Same fault and same fix on the GE Plus Dam mission (0x15 in the
 run dir). Facility's conveyor still lifts +118.9 (walk.py on 0x63). Probes:
 `~/wt/f3-0929b-damcol-run/probes/walk.py`, `walkw.py` (watchpoint on
 `vv_manground` naming the line that moved it).
+
+## 20th F3 pass (2026-09-29, merge/f3-0929b): look switch seams, All Guns, watch
+
+- **N64 seams after an HD session** (85ac11e92, F3 015931/020046, Shockwave S08, Dam
+  look switch). `bgMarkRoomSeams()` and the seal flag in `bgRenderRoomOpaque()` asked
+  `gebeanStageDrawsEveryRoom()`, which stays true for the rest of the level once the HD
+  level has been built; after F6 to the N64 look the file's rooms reloaded unmarked and
+  drew unsealed. Both now ask `xblaStageDrawsEveryRoom()` (the look the room loads and
+  draws under). Dam after a switch: 50 rooms, 490 of 3985 faces sealed, as on an N64
+  boot. The visible faults in those reports (strips between the N64 cliffs, shattered HD
+  mountains) were the stale saturated room matrices fixed by 04dcc3933 in pass 19.
+  Probe: `~/wt/f3-0929b-damsky-run/sw3.gdb` (stage 0x51, save `sdam`, `g_BgSeamVerbose`).
+- **All Guns in GE Plus** (834915c1a, F3 025554, PCGENE789). In a level GE Plus started,
+  the cheat's list is GoldenEye's own `equipallguns` order (fists, knives, guns,
+  explosives, detonator; no tank shells, none of the four items without a port weapon),
+  then Perfect Dark's only with Include Perfect Dark Guns on (`invAllGunsCount()`,
+  `invAllGunsWeaponAt()`, `invAllGunsStep()` in inv.c); cycling walks that list. Probe:
+  `~/wt/f3-0929b-gewatch/run/inv.gdb` on Runway (0x5e): ge count 27, 0x71 0x72 0x5e..0x70
+  0x73..0x76 0x7f; with PD guns 69.
+- **PD guns on the watch** (9d9dec5c6, F3 025625, PCGENE789). A Perfect Dark gun was
+  placed by its inventory displacement + 75 units right, which stood the Rocket Launcher
+  off the face. gewatch.c now measures the gun by its display lists
+  (`watchMeasureGun()`, a first-person gun loads vertices under many matrices), turns it
+  about its middle in the middle of the face and scales its longest side to a share of
+  the camera distance, as GoldenEye's rows do. GoldenEye's own guns pixel-identical.
+  Probe: `~/wt/f3-0929b-gewatch/run/cap.gdb` (needs `$pdrow`/`$mw` set first).

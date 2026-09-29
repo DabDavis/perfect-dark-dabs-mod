@@ -260,6 +260,16 @@ the release branch in `texLoadFromGdl()` binds them through
 `xblaStageWriteTexture()` like the records past `NUM_TEXTURES`, so a release
 room gets 4J's picture whatever pack is on.
 
+**On every subcmd, two-texture surfaces included** (2026-09-29, 131c32b09, F3
+20260929-024210): the branch used to skip subcmd 1 (a word that carries a second
+texture in its high bits), so Grid's release rooms (bg_mp15, eleven rooms), which
+put the pillars on 08bf through subcmd 1, drew the ROM's 08bf - G5 Building's
+diamond sign - instead of the release's blue marble. A reused slot now goes through
+`xblaStageWriteTexture()` on any subcmd; the detail half of the word is always 0 in
+the release, so nothing is lost. Grid is the only level whose release rooms bind a
+reused slot through subcmd 1. Check: `~/wt/f3-0929b-grid-run/shot_r_fix.gdb`, stage
+0x47 with the tester's save `s024210` and `--spectate`.
+
 #### The whole list, off the files (2026-09-11)
 
 A run only visits the rooms it walks through, and only of the level it boots.
