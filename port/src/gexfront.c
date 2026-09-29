@@ -1813,6 +1813,24 @@ static void frontEnterSetup(void)
 	frontApplyScenarioRules();
 }
 
+/**
+ * The folder has been put away for a level it started (a mission, a match, a
+ * cinema or the credits): until that level's stage is loaded, the Institute
+ * under the folder is only a backdrop, and the frames between the folder
+ * closing and the stage change are filled black (lvRender()), as they are on
+ * the way back (F3 20260928-225317).
+ */
+static s32 g_FrontLeaving;
+
+s32 gexFrontLeavingForLevel(void)
+{
+	if (g_FrontLeaving && g_Vars.stagenum != STAGE_CITRAINING) {
+		g_FrontLeaving = 0;
+	}
+
+	return g_FrontLeaving;
+}
+
 static void frontStartMatch(void)
 {
 	if ((g_MpSetup.chrslots & 0xf) == 0) {
@@ -1824,6 +1842,7 @@ static void frontStartMatch(void)
 	mpConfigureQuickTeamPlayers();
 	frontApplyAim();
 
+	g_FrontLeaving = 1;
 	g_Front.active = 0;
 	frontUnload();
 
@@ -1856,6 +1875,7 @@ static void frontStartMission(void)
 		g_MissionConfig.pdmodereactionf = g_Front.slider[SLIDER_REACTION];
 	}
 
+	g_FrontLeaving = 1;
 	g_Front.active = 0;
 	frontUnload();
 
@@ -1894,6 +1914,7 @@ static s32 frontStartCredits(s32 cinema)
 
 	g_FrontCredits = 1;
 	g_FrontCreditsCinema = cinema;
+	g_FrontLeaving = 1;
 	g_Front.active = 0;
 	frontFreeBriefing();
 	frontUnload();
@@ -2119,6 +2140,7 @@ static void frontStartCinema(s32 mission, s32 what)
 
 	frontSetCinemaConfig(mission, what);
 
+	g_FrontLeaving = 1;
 	g_Front.active = 0;
 	frontUnload();
 
@@ -3191,6 +3213,8 @@ s32 gexFrontIsActive(void)
 
 s32 gexFrontOpen(void)
 {
+	g_FrontLeaving = 0;
+
 	// never over GoldenEye X loaded as the mod: every file GE Plus does not
 	// convert itself would be its
 	if (modBorrowLoadedIsGoldenEyeX()) {

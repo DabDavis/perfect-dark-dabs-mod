@@ -2007,8 +2007,11 @@ Gfx *lvRender(Gfx *gdl)
 	// over): the Institute is only the stage the folder opens on, and its
 	// first frames were drawn before menuTick() blacked the screen - the
 	// stage change's own vi reconfigure unblacks it (F3 20260926-223215).
-	if (g_Vars.stagenum == STAGE_CITRAINING && var80087260 > 0 && !gexFrontIsActive()
-			&& (gexFrontWantsMain() || gecinemaWantsFolder())) {
+	// And the other way (F3 20260928-225317): the folder put away for a level
+	// it started, and the Institute under it drawn until the stage changes.
+	if ((g_Vars.stagenum == STAGE_CITRAINING && var80087260 > 0 && !gexFrontIsActive()
+			&& (gexFrontWantsMain() || gecinemaWantsFolder()))
+			|| (!gexFrontIsActive() && gexFrontLeavingForLevel())) {
 		gdl = text0f153628(gdl);
 		gdl = textSetPrimColour(gdl, 0x000000ff);
 		gDPFillRectangle(gdl++, 0, 0, viGetWidth(), viGetHeight());
