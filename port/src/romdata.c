@@ -116,6 +116,11 @@ struct romfile {
 	// 1-based index of the mod dir an unpinned slot was last read from for
 	// its stage, or 0: that mod's textures are the model's
 	s32 stagedir;
+	// Where the ROM's own copy of the file is, kept apart from data and size,
+	// which an external copy takes over. A slot that lets its external copy
+	// go has to find the ROM's again (romdataSlotBackToRom()).
+	u8 *romdata;
+	u32 romsize;
 };
 
 /* patches for individual files; applied on file load, before preprocFuncs, but */
@@ -400,6 +405,8 @@ static inline void romdataInitFiles(void)
 			const u32 ofs = PD_BE32(offsets[i]);
 			fileSlots[i].data = g_RomFile + ofs;
 			fileSlots[i].size = nextofs - ofs;
+			fileSlots[i].romdata = fileSlots[i].data;
+			fileSlots[i].romsize = fileSlots[i].size;
 			fileSlots[i].source = SRC_UNLOADED;
 			fileSlots[i].preprocessed = 0;
 		}
@@ -819,6 +826,28 @@ static u8 *romdataXblaFileLoad(s32 fileNum)
 	return out;
 }
 
+/**
+ * Let a slot's external copy go and point it back at the ROM's own.
+ *
+ * The external copy took over data and size, so freeing it and leaving data
+ * NULL lost the ROM's copy for good: the next load that found no file on disk
+ * called the slot SRC_ROM with nothing behind it, romdataFileLoad() gave
+ * fileLoad() NULL, and the model's buffer kept whatever the stage pool held
+ * before. Crash reports 20260929-074716 and -104448: a map's own window or
+ * ammo crate (GoldenEye X's, in the All in One Mod), then a map whose mod has
+ * none, and modelPromoteOffsetsToPointers() walked last stage's memory.
+ */
+static void romdataSlotBackToRom(struct romfile *slot)
+{
+	if (slot->source == SRC_EXTERNAL && slot->data && slot->data != slot->romdata) {
+		sysMemFree(slot->data);
+	}
+
+	slot->data = slot->romdata;
+	slot->size = slot->romsize;
+	slot->source = SRC_UNLOADED;
+}
+
 u8 *romdataFileGetData(s32 fileNum)
 {
 	return romdataFileLoad(fileNum, NULL);
@@ -877,11 +906,7 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 	// Slots are cached for the life of the process, so a file resolved for one
 	// mod's stage would otherwise be handed to the next stage unchanged.
 	if (fileSlots[fileNum].source != SRC_UNLOADED && fileSlots[fileNum].loadeddir != wantdir) {
-		if (fileSlots[fileNum].source == SRC_EXTERNAL && fileSlots[fileNum].data) {
-			sysMemFree(fileSlots[fileNum].data);
-			fileSlots[fileNum].data = NULL;
-		}
-		fileSlots[fileNum].source = SRC_UNLOADED;
+		romdataSlotBackToRom(&fileSlots[fileNum]);
 	}
 
 	// try to load external file
@@ -978,12 +1003,7 @@ void romdataFileFree(s32 fileNum)
 		return;
 	}
 
-	if (fileSlots[fileNum].source == SRC_EXTERNAL) {
-		sysMemFree(fileSlots[fileNum].data);
-		fileSlots[fileNum].data = NULL;
-	}
-
-	fileSlots[fileNum].source = SRC_UNLOADED;
+	romdataSlotBackToRom(&fileSlots[fileNum]);
 }
 
 /**
