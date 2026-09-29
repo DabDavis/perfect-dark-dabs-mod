@@ -425,6 +425,31 @@ void playerReset(void)
 		playerInitEyespy();
 	}
 
+#ifndef PLATFORM_N64
+	// A stage with no spawn point in its intro - a multiplayer arena a
+	// Randomizer run hops to as a solo stage (Felicity, Grid) - left rooms
+	// unset and unended, and the ground search below read whatever the stack
+	// held as room numbers: now and then a propnum past the stage's props, a
+	// crash at the hop. The run puts the player down itself at its landing;
+	// until then the player stands on the first pad that is in a room.
+	rooms[0] = -1;
+	rooms[1] = -1;
+
+	if (g_NumSpawnPoints <= 0 && g_PadsFile != NULL) {
+		for (i = 0; i < g_PadsFile->numpads; i++) {
+			struct pad pad;
+
+			padUnpack(i, PADFIELD_ROOM | PADFIELD_POS, &pad);
+
+			if (pad.room > 0) {
+				pos = pad.pos;
+				rooms[0] = pad.room;
+				break;
+			}
+		}
+	}
+#endif
+
 	if (g_NumSpawnPoints > 0) {
 		if (g_Vars.coopplayernum >= 0) {
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
