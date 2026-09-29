@@ -519,8 +519,14 @@ static s32 hudHandAmmo(s32 handnum, s32 *icon, s32 *mag, s32 *reserve, s32 *nocl
 		return 0;
 	}
 
-	// GUN_ANIM_STATE_SWITCH_*: nothing while the gun is on its way up or down
-	if (hand->state == HANDSTATE_CHANGEGUN) {
+	// generate_ammo_total_microcode() hides it only for GUN_ANIM_STATE_SWITCH_SWAP
+	// and _HOLD, the moment between the guns: the old gun's rounds stay up
+	// while it goes down and the new one's show as it comes up. Hiding it for
+	// the whole of CHANGEGUN put the new gun's display up only once the gun
+	// had finished rising (F3 20260929-093431, "ammo icons show up with a
+	// delay"). LOAD is the swap: gset may already be the new gun while its
+	// magazine is not.
+	if (hand->state == HANDSTATE_CHANGEGUN && hand->stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD) {
 		return 0;
 	}
 
