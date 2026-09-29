@@ -5070,6 +5070,11 @@ s32 gebeanStageDrawsEveryRoom(void)
 	return built && row && numServed > 0;
 }
 
+s32 gebeanStageRoomServed(s32 roomnum)
+{
+	return xblaStageDrawsEveryRoom() && built && roomnum > 0 && roomnum < numRooms && roomData[roomnum];
+}
+
 s32 gebeanStageRoomHidden(s32 roomnum)
 {
 	return xblaStageDrawsEveryRoom() && roomHidden && roomnum > 0 && roomnum < numRooms && roomHidden[roomnum];
@@ -5235,6 +5240,7 @@ uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len) { return 0; }
 void gebeanStageLevelReset(void) { }
 s32 gebeanStageDrawsEveryRoom(void) { return 0; }
 s32 gebeanStageRoomHidden(s32 roomnum) { return 0; }
+s32 gebeanStageRoomServed(s32 roomnum) { return 0; }
 void gebeanStageTickCamera(s32 authored) { }
 s32 gebeanStageCullsBackFaces(void) { return 0; }
 const char *gebeanStageLevelKey(void) { return NULL; }

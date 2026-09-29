@@ -50,6 +50,12 @@ s32 gebeanStageDrawsEveryRoom(void);
  */
 s32 gebeanStageRoomHidden(s32 roomnum);
 
+/**
+ * Whether the room is drawn from GoldenEye XBLA's mesh just now (the HD look).
+ * Its vertex colours are not capped by the room's brightness (roomHighlight()).
+ */
+s32 gebeanStageRoomServed(s32 roomnum);
+
 /** GoldenEye's own key for the level being served in HD ("dam"), or NULL. */
 const char *gebeanStageLevelKey(void);
 
