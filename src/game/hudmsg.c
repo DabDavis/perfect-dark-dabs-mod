@@ -723,10 +723,21 @@ void hudmsgCreateAsSubtitle(char *srctext, s32 type, u8 colourindex, s32 audioch
 		u16 srclen;
 		s32 sp4a8;
 		s32 wrapwidth;
+#ifndef PLATFORM_N64
+		// A sentence is still cut at 249 bytes (msg), but the accumulator
+		// and the text wrapped from it hold up to three lines of them, which
+		// overran 250 bytes once a translation's lines were longer in bytes
+		// than the English's (UTF-8 accents).
+		char accum[1024];
+		char prewrap[1024];
+		char postwrap[1024];
+		char msg[1024];
+#else
 		char accum[250];
 		char prewrap[250];
 		char postwrap[250];
 		char msg[250];
+#endif
 		s32 msglen;
 		bool split;
 		s32 accumlen;
@@ -844,7 +855,11 @@ void hudmsgCreateAsSubtitle(char *srctext, s32 type, u8 colourindex, s32 audioch
 			prewrap[accumlen + msglen + 1] = '\0';
 
 			// Apply text wrapping to prewrap
+#ifndef PLATFORM_N64
+			textWrapN(wrapwidth, prewrap, postwrap, sizeof(postwrap), g_CharsHandelGothicSm, g_FontHandelGothicSm);
+#else
 			textWrap(wrapwidth, prewrap, postwrap, g_CharsHandelGothicSm, g_FontHandelGothicSm);
+#endif
 
 			// Next, count the number of lines in the wrapped message.
 			// If it's more than two, send the accumulator out as a hudmsg and
@@ -1212,7 +1227,13 @@ void hudmsgCreateFromArgs(char *text, s32 type, s32 conf00, s32 conf01, s32 conf
 				i = 0;
 				writeindex = 0;
 
+#ifndef PLATFORM_N64
+				// room for the two bytes written after the loop, and the wrap
+				// kept inside the message's 400 (a translation reaches both)
+				while (i < 400 && text[i] != '\0' && writeindex < (s32)sizeof(stacktext) - 2) {
+#else
 				while (i < 400 && text[i] != '\0') {
+#endif
 					if (text[i] != '\n') {
 						stacktext[writeindex++] = text[i];
 					}
@@ -1223,7 +1244,11 @@ void hudmsgCreateFromArgs(char *text, s32 type, s32 conf00, s32 conf01, s32 conf
 				stacktext[writeindex++] = '\n';
 				stacktext[writeindex++] = '\0';
 
+#ifndef PLATFORM_N64
+				textWrapN(wrapwidth, stacktext, msg->text, sizeof(msg->text), *conf04, *conf08);
+#else
 				textWrap(wrapwidth, stacktext, msg->text, *conf04, *conf08);
+#endif
 				textMeasure(&textheight, &textwidth, msg->text, *conf04, *conf08, 0);
 			} else {
 				strncpy(msg->text, text, 399);

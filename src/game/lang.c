@@ -14,6 +14,15 @@
 #include <string.h>
 #include "video.h"
 #include "modloader.h"
+#include "romdata.h"
+#include "langpack.h"
+#include "langfont.h"
+#include "gexplus.h"
+#include "game/menu.h"
+#include "game/game_1531a0.h"
+#include "system.h"
+#include "fs.h"
+#include <stdio.h>
 #endif
 
 /**
@@ -479,11 +488,44 @@ char *langGet(s32 textid)
 
 #ifndef PLATFORM_N64
 	if (bankindex == LANGBANK_PORT) {
-		return (char *)(textindex < g_LangNumPortTexts ? g_LangPortTexts[textindex] : "");
+		const char *en = textindex < g_LangNumPortTexts ? g_LangPortTexts[textindex] : "";
+
+		// The port's own and GoldenEye's strings handed out as text ids
+		// (a GoldenEye gun's name): translated by their English.
+		if (langpackActive() && en[0]) {
+			const char *tr = langTrFind(en);
+
+			if (!tr) {
+				tr = langpackGeText(en);
+			}
+
+			if (tr) {
+				return (char *)tr;
+			}
+		}
+
+		return (char *)en;
 	}
 
 	if (bankindex < 0 || bankindex >= ARRAYCOUNT(g_LangBanks)) {
 		return NULL;
+	}
+
+	// The selected language's own translation of the ROM's string, when the
+	// ROM's is what is loaded: a mod's own text is never replaced (its file
+	// is not stock), and GoldenEye's mission bank has GoldenEye's ids.
+	if (langpackActive() && g_LangBanks[bankindex] != NULL) {
+		const char *tr = NULL;
+
+		if (bankindex == LANGBANK_GEMISSION) {
+			tr = gexPlusMissionLangTr(textindex);
+		} else if (romdataFileIsStock(g_LangFiles[bankindex])) {
+			tr = langpackPd(textid);
+		}
+
+		if (tr) {
+			return (char *)tr;
+		}
 	}
 #endif
 
@@ -497,6 +539,209 @@ char *langGet(s32 textid)
 
 	return (char *)addr;
 }
+
+#ifndef PLATFORM_N64
+/**
+ * strcpy() into a fixed field that a translation may overflow: cut at a whole
+ * UTF-8 character, keeping a trailing newline when the source had one.
+ */
+void langCopyBounded(char *dst, const char *src, u32 size)
+{
+	u32 len = strlen(src);
+	s32 nl = len && src[len - 1] == '\n';
+
+	if (len < size) {
+		memcpy(dst, src, len + 1);
+		return;
+	}
+
+	len = size - 1 - (nl ? 1 : 0);
+
+	while (len > 0 && ((u8)src[len] & 0xc0) == 0x80) {
+		len--;
+	}
+
+	memcpy(dst, src, len);
+
+	if (nl) {
+		dst[len++] = '\n';
+	}
+
+	dst[len] = '\0';
+}
+
+/**
+ * --lang-audit: every string the selected pack translates, measured in the
+ * small menu font against the English it stands for, and each line of the
+ * translation that is more than 1.3 times as wide as the English's widest
+ * written to $S/lang-audit-<code>.txt (menu labels do not wrap, so that is
+ * where a translation runs off its dialog). Run headless:
+ *
+ *     pd --lang fr --lang-audit --skip-intro   (exits by itself)
+ */
+s32 langAuditRequested(void)
+{
+	static s32 requested = -1;
+
+	if (requested < 0) {
+		requested = sysArgCheck("--lang-audit") ? 1 : 0;
+	}
+
+	return requested && langpackActive();
+}
+
+static void langAuditMeasure(const char *text, s32 *width, s32 *lines)
+{
+	s32 height;
+
+	textMeasure(&height, width, (char *)text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+	*lines = 0;
+
+	for (const char *p = text; *p; p++) {
+		if (*p == '\n' && p[1]) {
+			(*lines)++;
+		}
+	}
+}
+
+static void langAuditLine(FILE *f, const char *key, const char *en, const char *tr, s32 *count)
+{
+	s32 enw, trw, enlines, trlines;
+
+	if (!en || !tr || !g_CharsHandelGothicSm) {
+		return;
+	}
+
+	langAuditMeasure(en, &enw, &enlines);
+	langAuditMeasure(tr, &trw, &trlines);
+
+	// a paragraph is wrapped to its box whatever its length
+	if (enlines > 0 || enw <= 0 || trw * 10 <= enw * 13) {
+		return;
+	}
+
+	fprintf(f, "%s\t%d%%\t%d -> %d\t", key, trw * 100 / enw, enw, trw);
+
+	for (const char *p = tr; *p; p++) {
+		fputs(*p == '\n' ? "\\n" : (char[]){ *p, 0 }, f);
+	}
+
+	fputc('\n', f);
+	(*count)++;
+}
+
+void langAudit(void)
+{
+	char path[64];
+	FILE *f;
+	s32 count = 0;
+	s32 bank;
+
+	snprintf(path, sizeof(path), "$S/lang-audit-%s.txt", langpackSelectedCode());
+	f = fsFileOpenWrite(path);
+
+	if (!f) {
+		sysLogPrintf(LOG_ERROR, "lang-audit: cannot write %s", path);
+		return;
+	}
+
+	fprintf(f, "# %s: strings wider than 1.3x their English in the small menu font\n", langpackSelectedCode());
+	fprintf(f, "# key\twidth%%\tEnglish -> translation (units)\ttranslation\n");
+
+	// Perfect Dark's own: every bank loaded (the run ends here), the English
+	// read from the file and the translation from the pack
+	for (bank = 1; bank <= LANGBANK_MP20; bank++) {
+		if (g_LangBanks[bank] == NULL) {
+			langLoad(bank);
+		}
+
+		if (g_LangBanks[bank] == NULL || !romdataFileIsStock(g_LangFiles[bank])) {
+			continue;
+		}
+
+		for (s32 row = 0; row < 0x200; row++) {
+			const s32 textid = bank << 9 | row;
+			const char *tr = langpackPd(textid);
+			uintptr_t *b = g_LangBanks[bank];
+			char key[16];
+
+			if (!tr || !b[row]) {
+				continue;
+			}
+
+			snprintf(key, sizeof(key), "pd.%04x", textid);
+			langAuditLine(f, key, (const char *)b + b[row], tr, &count);
+		}
+	}
+
+	// the port's and GoldenEye's keyed by their English
+	for (u32 i = 0; ; i++) {
+		const char *key;
+		s32 ns;
+		const char *tr = langpackEntry(i, &key, &ns);
+
+		if (!tr) {
+			break;
+		}
+
+		if (ns != 2) {
+			langAuditLine(f, ns == 1 ? "port" : "ge", key, tr, &count);
+		}
+	}
+
+	fclose(f);
+
+	sysLogPrintf(LOG_NOTE, "lang-audit: %d strings over 1.3x their English, written to %s", count, path);
+}
+
+static u8 g_LangDefaultTeams;
+
+/**
+ * langpackSelect() calls this before the language changes and
+ * langOnLanguageChanged() after. The text needs nothing - langGet() answers
+ * in the new language from the next call - but what was copied or laid out
+ * from the old one does: team names that are still their language's
+ * defaults are renamed (as PAL's langSetEuropean() did), and the open menus
+ * are sized again.
+ */
+void langOnLanguageChanging(void)
+{
+	s32 i;
+
+	g_LangDefaultTeams = 0;
+
+	if (g_LangBanks[LANGBANK_OPTIONS] == NULL) {
+		return;
+	}
+
+	for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
+		char name[sizeof(g_BossFile.teamnames[i])];
+
+		langCopyBounded(name, langGet(L_OPTIONS_008 + i), sizeof(name));
+
+		if (strcmp(g_BossFile.teamnames[i], name) == 0) {
+			g_LangDefaultTeams |= 1 << i;
+		}
+	}
+}
+
+void langOnLanguageChanged(void)
+{
+	s32 i;
+
+	if (g_LangBanks[LANGBANK_OPTIONS] != NULL) {
+		for (i = 0; i < ARRAYCOUNT(g_BossFile.teamnames); i++) {
+			if (g_LangDefaultTeams & (1 << i)) {
+				langCopyBounded(g_BossFile.teamnames[i], langGet(L_OPTIONS_008 + i), sizeof(g_BossFile.teamnames[i]));
+			}
+		}
+	}
+
+	// the line spacing the accents take, on the fonts loaded now
+	langfontLanguageChanged();
+	menuRelayoutForLanguage();
+}
+#endif
 
 #if VERSION >= VERSION_PAL_BETA
 void langReload(void)

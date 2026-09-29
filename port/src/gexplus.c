@@ -41,6 +41,8 @@
 #include "config.h"
 #include "platform.h"
 #include "system.h"
+#include "langpack.h"
+#include <ctype.h>
 #include "game/lang.h"
 #include "lib/anim.h"
 #include "game/mplayer/mplayer.h"
@@ -1134,6 +1136,16 @@ void gexPlusMissionHeads(void)
  * otherwise leave the bank pointing into a scratch buffer.
  */
 static u8 *g_GeMissionLang;
+static char g_GeMissionLangBank[16];
+
+/**
+ * The selected language's text for a slot of the mission's own bank, keyed
+ * ge.<bank>.<slot> by the bank file's name (langpack.h). NULL for GoldenEye's.
+ */
+const char *gexPlusMissionLangTr(s32 slot)
+{
+	return g_GeMissionLangBank[0] ? langpackGe(g_GeMissionLangBank, slot) : NULL;
+}
 
 void gexPlusMissionLangLoad(s32 stagenum)
 {
@@ -1145,9 +1157,20 @@ void gexPlusMissionLangLoad(s32 stagenum)
 	u8 *data;
 
 	langClearBank(LANGBANK_GEMISSION);
+	g_GeMissionLangBank[0] = '\0';
 
 	if (!name || !dir) {
 		return;
+	}
+
+	// "LdamE" is ge.dam.<slot> to a language pack (langpack.h)
+	if (name[0] == 'L' && strlen(name) > 2 && strlen(name) - 2 < sizeof(g_GeMissionLangBank)) {
+		memcpy(g_GeMissionLangBank, name + 1, strlen(name) - 2);
+		g_GeMissionLangBank[strlen(name) - 2] = '\0';
+
+		for (char *p = g_GeMissionLangBank; *p; p++) {
+			*p = tolower((u8)*p);
+		}
 	}
 
 	snprintf(path, sizeof(path), "%s/menu/%s", dir, name);

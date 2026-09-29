@@ -38,6 +38,7 @@
 #include "xblastage.h"
 #include "xblatex.h"
 #include "config.h"
+#include "langpack.h"
 #include "mod.h"
 #include "gexplusrom.h"
 #include "system.h"
@@ -201,6 +202,8 @@ int main(int argc, const char **argv)
 	sysInit();
 	fsInit();
 	configInit();
+	// the language, before anything is drawn (langpack.h)
+	langpackInit();
 	// Straight after the config and before anything can write it: whether
 	// pd.ini was there when the game started is half of what decides it.
 	patchnotesInit();

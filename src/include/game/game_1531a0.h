@@ -54,6 +54,10 @@ void textMeasure(s32 *textheight, s32 *textwidth, char *text, struct fontchar *f
 Gfx *textRenderScaled(Gfx *gdl, s32 x, s32 y, char *text, struct fontchar *chars, struct font *font, u32 colour, s32 scale);
 #endif
 void textWrap(s32 width, char *in, char *out, struct fontchar *font1, struct font *font2);
+#ifndef PLATFORM_N64
+// textWrap() into a buffer of dstsize bytes, which it never writes past
+void textWrapN(s32 width, char *in, char *out, u32 dstsize, struct fontchar *font1, struct font *font2);
+#endif
 
 Gfx *func0f1574d0jf(Gfx *gdl, s32 *x, s32 *y, char *text, struct fontchar *font1, struct font *font2, s32 colour, u32 colour2, s32 width, s32 height, s32 arg9, u32 arg10);
 

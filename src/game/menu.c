@@ -11,6 +11,7 @@
 #include "geintro.h"
 #include "gewatch.h"
 #include "trace.h"
+#include "langpack.h"
 #endif
 #include "../lib/naudio/n_sndp.h"
 #include "game/camdraw.h"
@@ -564,7 +565,9 @@ char *menuResolveParam2Text(struct menuitem *item)
 {
 #ifndef PLATFORM_N64
 	if (item->flags & MENUITEMFLAG_LITERAL_TEXT) {
-		return (const char *)item->param2;
+		// The port's own labels are English in the source and translated
+		// by their English (langpack.h).
+		return (char *)langTr((const char *)item->param2);
 	}
 #endif
 	return menuResolveText(item->param2, item);
@@ -574,7 +577,7 @@ char *menuResolveDialogTitle(struct menudialogdef *dialogdef)
 {
 #ifndef PLATFORM_N64
 	if (dialogdef->flags & MENUDIALOGFLAG_LITERAL_TEXT) {
-		return (const char *)dialogdef->title;
+		return (char *)langTr((const char *)dialogdef->title);
 	}
 #endif
 	return menuResolveText(dialogdef->title, dialogdef);
@@ -717,6 +720,9 @@ void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struc
 				item->handler(MENUOP_GETSELECTEDINDEX, item, &handlerdata2);
 				handlerdata2.dropdown.unk04 = 0;
 				text2 = (char *)item->handler(MENUOP_GETOPTIONTEXT, item, &handlerdata2);
+#ifndef PLATFORM_N64
+				text2 = (char *)langTr(text2);
+#endif
 				textMeasure(&textheight, &textwidth, text2, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
 
 #if VERSION >= VERSION_PAL_FINAL
@@ -839,7 +845,7 @@ void menuCalculateItemSize(struct menuitem *item, s16 *width, s16 *height, struc
 			if ((item->flags & (MENUITEMFLAG_LABEL_HASRIGHTTEXT | MENUITEMFLAG_BIGFONT)) == 0) {
 #ifndef PLATFORM_N64
 				if (item->flags & MENUITEMFLAG_LITERAL_TEXT) {
-					text = (const char *)item->param3;
+					text = (char *)langTr((const char *)item->param3);
 				} else
 #endif
 				text = menuResolveText(item->param3, item);
@@ -7161,4 +7167,35 @@ struct menudialogdef g_PakDataLostMenuDialog = {
 	MENUDIALOGFLAG_IGNOREBACK,
 	NULL,
 };
+#endif
+
+#ifndef PLATFORM_N64
+/**
+ * The language changed (lang.c, langOnLanguageChanged()): every open dialog
+ * is measured again at once, including the ones that never resize themselves
+ * (MENUDIALOGFLAG_DISABLERESIZE), since their text is a different length now.
+ */
+void menuRelayoutForLanguage(void)
+{
+	s32 prevplayernum = g_MpPlayerNum;
+	s32 i;
+	s32 j;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		struct menu *menu = &g_Menus[i];
+
+		g_MpPlayerNum = i;
+
+		for (j = 0; j < menu->numdialogs && j < ARRAYCOUNT(menu->dialogs); j++) {
+			struct menudialog *dialog = &menu->dialogs[j];
+
+			if (dialog->definition) {
+				dialogCalculateContentSize(dialog->definition, dialog, menu);
+				dialogCalculatePosition(dialog);
+			}
+		}
+	}
+
+	g_MpPlayerNum = prevplayernum;
+}
 #endif

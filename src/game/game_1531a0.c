@@ -14,6 +14,10 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#ifndef PLATFORM_N64
+#include <string.h>
+#include "langfont.h"
+#endif
 
 #define SPACE_WIDTH 5
 
@@ -151,6 +155,71 @@ u32 var8007fbc4 = 0xffffff00;
 s32 g_HudCenter = HUDCENTER_NONE;
 u32 g_HudAlignModeL = G_ASPECT_LEFT_EXT;
 u32 g_HudAlignModeR = G_ASPECT_RIGHT_EXT;
+
+/**
+ * Text past ASCII (CLAUDE-notes/languages.md). The ROM's English is ASCII, so
+ * every loop below takes its own path for a byte under 0x80 exactly as before
+ * and only a byte of 0x80 or more comes here: UTF-8 (or Latin-1, for a mod's
+ * old text) decoded to a code point and drawn from langfont.c's glyphs. The
+ * NTSC build's own reading of such a byte - two bytes of the Japanese font
+ * GoldenEye left in the ROM - is what the port replaces.
+ */
+static s32 textFontId(struct fontchar *chars)
+{
+	if (chars == NULL) {
+		return -1;
+	}
+
+	if (chars == g_CharsHandelGothicSm) return LANGFONT_SM;
+	if (chars == g_CharsHandelGothicMd) return LANGFONT_MD;
+	if (chars == g_CharsHandelGothicXs) return LANGFONT_XS;
+	if (chars == g_CharsHandelGothicLg) return LANGFONT_LG;
+	if (chars == g_CharsNumeric) return LANGFONT_NUMERIC;
+
+	return -1;
+}
+
+/**
+ * The glyph for the character at *text (a byte of 0x80 or more), moving past
+ * it; NULL for one drawn as a space. *prev is the glyph kerned against, and
+ * *prevchar becomes the ASCII character whose kerning class this one takes.
+ */
+static struct fontchar *textPortChar(char **text, struct fontchar *chars, u8 *prevchar, struct fontchar **prev)
+{
+	const char *p = *text;
+	const u32 cp = langfontNextCodepoint(&p);
+	u8 kern = 'H';
+	struct fontchar *glyph = langfontGlyph(chars, textFontId(chars), cp, &kern);
+
+	*text = (char *)p;
+	*prev = &chars[*prevchar - 0x21];
+	*prevchar = glyph ? kern : 'H';
+
+	return glyph;
+}
+
+/**
+ * Turned text (the menus' side marquees) is clipped along the wrong axis by
+ * the ROM's tests, and a glyph they call partly clipped is drawn unturned -
+ * which no ROM glyph ever is, but an accent reaching above the line is. Ours
+ * are drawn turned whole.
+ */
+#define PORT_ROTATED_OURS(c) || (g_TextRotated90 && langfontGlyphSlot(c) >= 0)
+
+/**
+ * And a capital's accent stands over the line's first row, where the ROM's
+ * test clips a glyph at the top of its box - which drew the first line's É as
+ * a bare E. Ours may reach that far above it; the dialog's scissor still
+ * holds it in.
+ */
+#define PORT_ACCENT_ABOVE(c, liney, cliptop) || (langfontGlyphSlot(c) >= 0 && (c)->baseline < 0 && (liney) + (c)->baseline + 5 >= (cliptop))
+
+static s32 textPortLineHeight(s32 lineheight)
+{
+	const s32 min = langfontMinLineHeight();
+
+	return lineheight < min ? min : lineheight;
+}
 #endif
 
 void textInit(void)
@@ -257,6 +326,23 @@ void textLoadFont(u8 *romstart, u8 *romend, struct font **fontptr, struct fontch
 
 	*fontptr = font;
 	*charsptr = chars;
+
+#ifndef PLATFORM_N64
+	{
+		extern u8 EXT_SEG _fonthandelgothiclgSegmentRomStart;
+		extern u8 EXT_SEG _fontnumericSegmentRomStart;
+		s32 id = -1;
+
+		if (romstart == REF_SEG _fonthandelgothicsmSegmentRomStart) id = LANGFONT_SM;
+		else if (romstart == REF_SEG _fonthandelgothicmdSegmentRomStart) id = LANGFONT_MD;
+		else if (romstart == REF_SEG _fonthandelgothicxsSegmentRomStart) id = LANGFONT_XS;
+		else if (romstart == REF_SEG _fonthandelgothiclgSegmentRomStart) id = LANGFONT_LG;
+		else if (romstart == REF_SEG _fontnumericSegmentRomStart) id = LANGFONT_NUMERIC;
+
+		// PAL's extra row of line spacing for accents, while a pack wants it
+		langfontFontLoaded(chars, id);
+	}
+#endif
 
 #if PAL
 	if (romstart == REF_SEG _fonthandelgothicsmSegmentRomStart
@@ -1411,6 +1497,31 @@ static Gfx *textSetFontGlyph(Gfx *gdl, struct font *font, struct fontchar *curch
 		return gdl;
 	}
 
+#ifndef PLATFORM_N64
+	// A glyph langfont.c made is named past the font's own 94, so the
+	// renderer treats it as a glyph (the outline shader, Smooth Text) and a
+	// pack or the release's font can tell it from the letter it was made of.
+	if (langfontGlyphSlot(curchar) >= 0) {
+		if (font == g_FontHandelGothicSm) {
+			id = 0;
+		} else if (font == g_FontHandelGothicMd) {
+			id = 1;
+		} else if (font == g_FontHandelGothicXs) {
+			id = 2;
+		} else if (font == g_FontHandelGothicLg) {
+			id = 3;
+		} else if (font == g_FontNumeric) {
+			id = 4;
+		} else {
+			return gdl;
+		}
+
+		gDPSetFontGlyphEXT(gdl++, id, LANGFONT_GLYPH_EXT_BASE + langfontGlyphSlot(curchar), outline);
+
+		return gdl;
+	}
+#endif
+
 	index = curchar - font->chars;
 
 	if (index < 0 || index >= NUMCHARS()) {
@@ -1563,6 +1674,9 @@ Gfx *text0f1552d4(Gfx *gdl, f32 x, f32 y, f32 widthscale, f32 heightscale,
 #else
 	lineheight = chars['['].height + chars['['].baseline;
 
+#ifndef PLATFORM_N64
+	lineheight = textPortLineHeight(lineheight);
+#endif
 	if (g_Jpn && lineheight < 14) {
 		lineheight = 14;
 	}
@@ -1643,6 +1757,17 @@ Gfx *text0f1552d4(Gfx *gdl, f32 x, f32 y, f32 widthscale, f32 heightscale,
 					totalheight += lineheight;
 					relx = 0;
 				}
+#ifndef PLATFORM_N64
+			} else if ((u8)*text >= 0x80) {
+				struct fontchar *prev;
+				struct fontchar *cur = textPortChar(&text, chars, &prevchar, &prev);
+
+				if (cur) {
+					gdl = text0f154f38(gdl, &relx, cur, prev, font, widthscale, heightscale, fx, fy);
+				} else {
+					relx = relx + var8007fad0 * 5;
+				}
+#endif
 			} else if (*text < 0x80) {
 				gdl = text0f154f38(gdl, &relx, &chars[*text - 0x21], &chars[prevchar - 0x21], font,
 						widthscale, heightscale, fx, fy);
@@ -1854,8 +1979,8 @@ Gfx *text0f15568c(Gfx *gdl, s32 *x, s32 *y, struct fontchar *curchar, struct fon
 			if (1);
 
 			if (*x + xscale * curchar->width <= savedx + width) {
-				if (savedy <= curchar->baseline + sp90) {
-					if (curchar->baseline + sp90 + curchar->height <= savedy + height) {
+				if (savedy <= curchar->baseline + sp90 PORT_ROTATED_OURS(curchar) PORT_ACCENT_ABOVE(curchar, sp90, savedy)) {
+					if (curchar->baseline + sp90 + curchar->height <= savedy + height PORT_ROTATED_OURS(curchar)) {
 						if (g_TextRotated90) {
 							gSPTextureRectangleFlip(gdl++,
 									(sp90 - curchar->baseline - curchar->height * var8007fad0) * 4 + var8007fae0,
@@ -2076,6 +2201,9 @@ Gfx *textRenderProjected(Gfx *gdl, s32 *x, s32 *y, char *text, struct fontchar *
 		lineheight = chars['['].height + chars['['].baseline;
 	}
 
+#ifndef PLATFORM_N64
+	lineheight = textPortLineHeight(lineheight);
+#endif
 	if (g_Jpn && lineheight < 14) {
 		lineheight = 14;
 	}
@@ -2146,6 +2274,17 @@ Gfx *textRenderProjected(Gfx *gdl, s32 *x, s32 *y, char *text, struct fontchar *
 				}
 
 				*x = savedx;
+#ifndef PLATFORM_N64
+			} else if ((u8)*text >= 0x80) {
+				struct fontchar *prev;
+				struct fontchar *cur = textPortChar(&text, chars, &prevchar, &prev);
+
+				if (cur) {
+					gdl = text0f15568c(gdl, x, y, cur, prev, font, savedx, savedy, width, height, arg9);
+				} else {
+					*x += spb0 * 5;
+				}
+#endif
 			} else if (*text < 0x80) {
 				gdl = text0f15568c(gdl, x, y, &chars[*text - 0x21], &chars[prevchar - 0x21], font, savedx, savedy, width, height, arg9);
 				prevchar = *text;
@@ -2319,7 +2458,7 @@ Gfx *textRenderChar(Gfx *gdl, s32 *x, s32 *y, struct fontchar *char1, struct fon
 Gfx *text0f156a24(Gfx *gdl, s32 x, s32 y, struct fontchar *char1, s32 arg4, s32 arg5, s32 arg6, s32 arg7)
 {
 	if (arg4 + arg6 >= char1->width + x + 2) {
-		if (y + char1->baseline >= arg5) {
+		if (y + char1->baseline >= arg5 PORT_ACCENT_ABOVE(char1, y, arg5)) {
 			if (arg5 + arg7 >= y + char1->baseline + char1->height + 2) {
 				if (g_TextRotated90) {
 					gSPTextureRectangleFlip(gdl++,
@@ -2406,6 +2545,9 @@ Gfx *textRender(Gfx *gdl, s32 *x, s32 *y, char *text,
 		lineheight = chars['['].height + chars['['].baseline;
 	}
 
+#ifndef PLATFORM_N64
+	lineheight = textPortLineHeight(lineheight);
+#endif
 	if (g_Jpn && lineheight < 14) {
 		lineheight = 14;
 	}
@@ -2475,6 +2617,20 @@ Gfx *textRender(Gfx *gdl, s32 *x, s32 *y, char *text,
 			*y += lineheight;
 			prevchar = 'H';
 			text++;
+#ifndef PLATFORM_N64
+		} else if ((u8)*text >= 0x80) {
+			struct fontchar *prev;
+			u8 pc = prevchar;
+			struct fontchar *cur = textPortChar(&text, chars, &pc, &prev);
+
+			prevchar = pc;
+
+			if (cur) {
+				gdl = textRenderChar(gdl, x, y, cur, prev, font, savedx, savedy, width * var8007fad0, height, arg10);
+			} else {
+				*x += var8007fad0 * 5;
+			}
+#endif
 		} else if (*text < 0x80) {
 			gdl = textRenderChar(gdl, x, y, &chars[*text - 0x21], &chars[prevchar - 0x21],
 					font, savedx, savedy, width * var8007fad0, height, arg10);
@@ -2708,6 +2864,9 @@ void textMeasure(s32 *textheight, s32 *textwidth, char *text, struct fontchar *f
 		lineheight = font1['['].baseline + font1['['].height;
 	}
 
+#ifndef PLATFORM_N64
+	lineheight = textPortLineHeight(lineheight);
+#endif
 	if (g_Jpn && lineheight < 14) {
 		lineheight = 14;
 	}
@@ -2767,6 +2926,22 @@ void textMeasure(s32 *textheight, s32 *textwidth, char *text, struct fontchar *f
 				tmp = font2->kerning[sp4c->kerningindex * 13 + sp50->kerningindex] + var8007fac4 - 1;
 				*textwidth = *textwidth + sp50->width - tmp;
 #else
+#ifndef PLATFORM_N64
+				if ((u8)*text >= 0x80) {
+					struct fontchar *prev;
+					u8 pc = prevchar;
+					struct fontchar *cur = textPortChar(&text, font1, &pc, &prev);
+
+					prevchar = pc;
+
+					if (cur) {
+						tmp = font2->kerning[prev->kerningindex * 13 + cur->kerningindex] + var8007fac4 - 1;
+						*textwidth = cur->width + *textwidth - tmp;
+					} else if (*text != '\n') {
+						*textwidth += 5;
+					}
+				} else
+#endif
 				if (*text < 0x80) {
 					// Normal single-byte character
 					thischar = *text;
@@ -3151,6 +3326,10 @@ glabel textWrap
 #else
 void textWrap(s32 wrapwidth, char *src, char *dst, struct fontchar *chars, struct font *font)
 {
+#ifndef PLATFORM_N64
+	textWrapN(wrapwidth, src, dst, 0x7fffffff, chars, font);
+	return;
+#endif
 #if VERSION >= VERSION_JPN_FINAL
 	// JPN mismatch: Regalloc for sp94
 	s32 curlinewidth = 0; // b4
@@ -3478,5 +3657,181 @@ void textWrap(s32 wrapwidth, char *src, char *dst, struct fontchar *chars, struc
 		src++;
 	}
 #endif
+}
+#endif
+
+#ifndef PLATFORM_N64
+/**
+ * Whether a line may break before cp or after it with no space: every CJK
+ * character stands as a word of its own, since Japanese has no spaces.
+ */
+static s32 textIsCjkBreakable(u32 cp)
+{
+	return (cp >= 0x2e80 && cp < 0xa000) || (cp >= 0xf900 && cp < 0xfb00) || (cp >= 0xff00 && cp < 0xffa0);
+}
+
+/** Japanese punctuation a line must not start with (kinsoku). */
+static s32 textNoBreakBefore(u32 cp)
+{
+	switch (cp) {
+	case 0x3001: case 0x3002: case 0xff0c: case 0xff0e: // 、。，．
+	case 0x300d: case 0x300f: case 0x3011: case 0xff09: // 」』】）
+	case 0x30fc: case 0x301c: case 0xff5e:              // ー〜～
+	case 0x3041: case 0x3043: case 0x3045: case 0x3047: case 0x3049: // small kana
+	case 0x3063: case 0x3083: case 0x3085: case 0x3087:
+	case 0x30a1: case 0x30a3: case 0x30a5: case 0x30a7: case 0x30a9:
+	case 0x30c3: case 0x30e3: case 0x30e5: case 0x30e7:
+	case 0xff01: case 0xff1f: case 0x30fb: case 0xff1a: case 0xff1b: // ！？・：；
+	case 0x2026: case 0x2025:                           // … ‥
+		return 1;
+	}
+
+	return cp == '.' || cp == ',' || cp == '!' || cp == '?' || cp == ')' || cp == ':' || cp == ';';
+}
+
+/**
+ * textWrap() with the size of dst, which it never writes past: a translation
+ * is longer than the English its buffer was sized for. The same breaks as the
+ * ROM's for ASCII text, word for word; a word of any length (the ROM's was cut
+ * at 32 bytes, which a German compound in UTF-8 reaches); and a Japanese line
+ * may break between any two characters but before its closing punctuation.
+ */
+void textWrapN(s32 wrapwidth, char *src, char *dst, u32 dstsize, struct fontchar *chars, struct font *font)
+{
+	char *dstend = dst + (dstsize > 0 ? dstsize - 1 : 0);
+	s32 curlinewidth = 0;
+	bool itfits;
+	s32 wordlen;
+	s32 wordwidth;
+	s32 wordheight = 0;
+	bool more = true;
+	s32 i;
+	char curword[512];
+
+#define PUT(c) do { if (dst < dstend) { *dst++ = (c); } } while (0)
+
+	if (dstsize == 0) {
+		return;
+	}
+
+	while (more == true) {
+		char sep;
+
+		// Load the next word
+		wordwidth = 0;
+		wordlen = 0;
+
+		while ((u8)*src > ' ') {
+			const char *p = src;
+			const u32 cp = langfontNextCodepoint(&p);
+			const s32 n = p - src;
+			const s32 cjk = textIsCjkBreakable(cp);
+
+			if (cjk && wordlen > 0 && !textNoBreakBefore(cp)) {
+				break;
+			}
+
+			if (wordlen + n < (s32)sizeof(curword)) {
+				memcpy(&curword[wordlen], src, n);
+				wordlen += n;
+			}
+
+			src = (char *)p;
+
+			if (cjk && (u8)*src > ' ') {
+				const char *q = src;
+
+				if (!textNoBreakBefore(langfontNextCodepoint(&q))) {
+					break;
+				}
+			}
+		}
+
+		curword[wordlen] = '\0';
+
+		textMeasure(&wordheight, &wordwidth, curword, chars, font, 0);
+
+		curlinewidth += wordwidth;
+
+		itfits = curlinewidth <= wrapwidth;
+		sep = *src;
+
+		if (sep == '\n') {
+			// Write a new line and indent
+			if (!itfits) {
+				PUT('\n');
+
+				for (i = 0; i < g_WrapIndentCount; i++) {
+					PUT(' ');
+				}
+			}
+
+			curlinewidth = 0;
+
+			for (i = 0; i < wordlen; i++) {
+				PUT(curword[i]);
+			}
+
+			// the original new line that was in src
+			PUT('\n');
+		} else if (sep == ' ') {
+			if (!itfits) {
+				PUT('\n');
+
+				for (i = 0; i < g_WrapIndentCount; i++) {
+					PUT(' ');
+				}
+
+				curlinewidth = g_WrapIndentCount * SPACE_WIDTH + wordwidth;
+			}
+
+			curlinewidth += SPACE_WIDTH;
+
+			for (i = 0; i < wordlen; i++) {
+				PUT(curword[i]);
+			}
+
+			// the trailing space
+			PUT(' ');
+		} else if (sep == '\0') {
+			more = false;
+
+			if (!itfits) {
+				PUT('\n');
+
+				for (i = 0; i < g_WrapIndentCount; i++) {
+					PUT(' ');
+				}
+			}
+
+			for (i = 0; i < wordlen; i++) {
+				PUT(curword[i]);
+			}
+		} else {
+			// A break between two Japanese characters: no separator to copy
+			// and nothing to step over.
+			if (!itfits) {
+				PUT('\n');
+
+				for (i = 0; i < g_WrapIndentCount; i++) {
+					PUT(' ');
+				}
+
+				curlinewidth = g_WrapIndentCount * SPACE_WIDTH + wordwidth;
+			}
+
+			for (i = 0; i < wordlen; i++) {
+				PUT(curword[i]);
+			}
+
+			continue;
+		}
+
+		src++;
+	}
+
+	*dst = '\0';
+
+#undef PUT
 }
 #endif

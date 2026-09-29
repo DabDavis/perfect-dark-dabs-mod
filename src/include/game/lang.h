@@ -19,6 +19,11 @@ void langLoadToAddr(s32 bank, u8 *dst, s32 size);
 void langClearBank(s32 bank);
 char *langGet(s32 textid);
 #ifndef PLATFORM_N64
+void langCopyBounded(char *dst, const char *src, u32 size);
+s32 langAuditRequested(void);
+void langAudit(void);
+#endif
+#ifndef PLATFORM_N64
 u16 langAddPortText(const char *text);
 #endif
 void langReload(void);
