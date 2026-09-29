@@ -5,7 +5,15 @@
  * they go over a surface edge". wallhitCreateWith20Args() lays each mark out
  * as a quad of its own size on the plane of the triangle the shot, splat or
  * explosion hit, and the N64 draws all of it: past the end of a ledge the rest
- * of the splat floats over the drop.
+ * of the splat floats over the drop, and over a creased floor (Skedar Ruins'
+ * sand, F3 20260929-185046) part of it goes under the next triangle.
+ *
+ * **Laid on the surface** (2026-09-29). The triangles taken are those within
+ * a box of half the mark's size either side of its plane that face its way,
+ * and each piece of the mark is drawn on its own triangle's plane, lifted a
+ * little towards the camera (CLIP_LIFT). The rest of this note predates that:
+ * where it says "a couple of units" read "the mark's reach". A mark on one
+ * plane with nothing hanging over is still the stock quad.
  *
  * **What is kept.** The quad is cut down to the room triangles that lie in its
  * plane, found the way bgTestHitInRoom() finds the one that was hit: the
@@ -62,14 +70,19 @@
 #define CLIP_RETRYTICKS  30
 #define CLIP_FACING      0.8f  // cosine: a triangle facing further from the quad than this is another surface
 #define CLIP_MINAREA     1e-6f // of the square's 4
+#define CLIP_ONPLANE     0.25f // units off the quad's plane a piece may stand and still count as on it
+#define CLIP_REACH       1.0f  // of the mark's half size: how far off its plane a surface may be and still take it
+#define CLIP_LIFT        1.25f // units a piece off the quad's plane is lifted towards the camera
 
 struct wallhitclip {
 	u8 state;
 	u8 numpieces;
+	u8 laid; // some piece stands off the quad's plane: every piece is laid on its own triangle and lifted
 	u16 numverts;
 	s32 retryframe;
 	f32 scale;
 	u8 piecesizes[CLIP_MAXPIECES];
+	f32 plane[CLIP_MAXPIECES][3]; // its height off the quad's plane at (a, b): [0] + [1] a + [2] b
 	f32 ab[CLIP_MAXVERTS][2];
 };
 
@@ -82,6 +95,9 @@ struct cliptri {
 	f32 p[3][2]; // counter-clockwise in (a, b)
 	f32 min[2];
 	f32 max[2];
+	f32 plane[3]; // its height off the quad's plane at (a, b): [0] + [1] a + [2] b
+	f32 dist;     // the most it stands off the quad's plane under the quad
+	s8 side;      // which way it faces along the quad's normal
 };
 
 // The quad in its room's coordinates: mid + a * u + b * v, with n its unit
@@ -149,6 +165,7 @@ void wallhitClipBegin(struct wallhit *wallhit)
 		clip->state = CLIP_UNTRIED;
 		clip->numpieces = 0;
 		clip->numverts = 0;
+		clip->laid = false;
 		clip->retryframe = 0;
 		clip->scale = 1.0f;
 	}
@@ -338,7 +355,7 @@ static void wallhitClipBounds(const struct clippoly *poly, f32 *min, f32 *max)
  * Takes a triangle's corners, relative to the quad's middle, and keeps the
  * triangle if it is part of the quad's surface.
  */
-static void wallhitClipConsider(const struct clipframe *f, f32 d[3][3], f32 tol)
+static void wallhitClipConsider(const struct clipframe *f, f32 d[3][3], f32 reach)
 {
 	struct cliptri tri;
 	struct clippoly poly;
@@ -368,7 +385,7 @@ static void wallhitClipConsider(const struct clipframe *f, f32 d[3][3], f32 tol)
 		return;
 	}
 
-	if ((h[0] > tol && h[1] > tol && h[2] > tol) || (h[0] < -tol && h[1] < -tol && h[2] < -tol)) {
+	if ((h[0] > reach && h[1] > reach && h[2] > reach) || (h[0] < -reach && h[1] < -reach && h[2] < -reach)) {
 		return;
 	}
 
@@ -385,6 +402,8 @@ static void wallhitClipConsider(const struct clipframe *f, f32 d[3][3], f32 tol)
 	if (len < 0.0001f || fabsf(tn[0] * f->n[0] + tn[1] * f->n[1] + tn[2] * f->n[2]) < CLIP_FACING * len) {
 		return;
 	}
+
+	tri.side = tn[0] * f->n[0] + tn[1] * f->n[1] + tn[2] * f->n[2] >= 0.0f ? 1 : -1;
 
 	den = (tri.p[1][0] - tri.p[0][0]) * (tri.p[2][1] - tri.p[0][1]) - (tri.p[2][0] - tri.p[0][0]) * (tri.p[1][1] - tri.p[0][1]);
 
@@ -407,7 +426,20 @@ static void wallhitClipConsider(const struct clipframe *f, f32 d[3][3], f32 tol)
 		return;
 	}
 
-	// All of it that lies under the quad must be near the quad's plane
+	// The triangle's own plane as a height over (a, b), from its corners'
+	{
+		const f32 da1 = tri.p[1][0] - tri.p[0][0], db1 = tri.p[1][1] - tri.p[0][1];
+		const f32 da2 = tri.p[2][0] - tri.p[0][0], db2 = tri.p[2][1] - tri.p[0][1];
+		const f32 dh1 = h[1] - h[0], dh2 = h[2] - h[0];
+
+		tri.plane[1] = (dh1 * db2 - dh2 * db1) / den;
+		tri.plane[2] = (da1 * dh2 - da2 * dh1) / den;
+		tri.plane[0] = h[0] - tri.plane[1] * tri.p[0][0] - tri.plane[2] * tri.p[0][1];
+	}
+
+	// All of it that lies under the quad must be within the mark's reach of
+	// the quad's plane: a crease in the floor (sand, rubble, a bevel) is laid
+	// over, a ledge's face or a floor far below is not
 	wallhitClipSquare(&poly, 1.0f);
 	wallhitClipToTri(&poly, &tri);
 
@@ -415,15 +447,17 @@ static void wallhitClipConsider(const struct clipframe *f, f32 d[3][3], f32 tol)
 		return;
 	}
 
-	for (i = 0; i < poly.n; i++) {
-		f32 x = poly.p[i][0] - tri.p[0][0];
-		f32 y = poly.p[i][1] - tri.p[0][1];
-		f32 l1 = (x * (tri.p[2][1] - tri.p[0][1]) - y * (tri.p[2][0] - tri.p[0][0])) / den;
-		f32 l2 = ((tri.p[1][0] - tri.p[0][0]) * y - (tri.p[1][1] - tri.p[0][1]) * x) / den;
-		f32 hh = h[0] + l1 * (h[1] - h[0]) + l2 * (h[2] - h[0]);
+	tri.dist = 0.0f;
 
-		if (hh > tol || hh < -tol) {
+	for (i = 0; i < poly.n; i++) {
+		f32 hh = fabsf(tri.plane[0] + tri.plane[1] * poly.p[i][0] + tri.plane[2] * poly.p[i][1]);
+
+		if (hh > reach) {
 			return;
+		}
+
+		if (hh > tri.dist) {
+			tri.dist = hh;
 		}
 	}
 
@@ -438,7 +472,7 @@ static void wallhitClipConsider(const struct clipframe *f, f32 d[3][3], f32 tol)
 /**
  * Every triangle of one vertex batch, as bgTestHitInVtxBatch() reads them.
  */
-static void wallhitClipGatherBatch(const struct clipframe *f, s32 roomnum, struct vtxbatch *batch, const f32 *offset, f32 tol)
+static void wallhitClipGatherBatch(const struct clipframe *f, s32 roomnum, struct vtxbatch *batch, const f32 *offset, f32 reach)
 {
 	Gfx *gdl = batch->gdl;
 	Gfx *iter;
@@ -501,10 +535,53 @@ static void wallhitClipGatherBatch(const struct clipframe *f, s32 roomnum, struc
 				d[j][2] = pos[points[t][j]][2];
 			}
 
-			wallhitClipConsider(f, d, tol);
+			wallhitClipConsider(f, d, reach);
 		}
 
 		iter++;
+	}
+}
+
+/**
+ * Keeps the triangles that face the way the surface the mark was laid on does
+ * (the nearest one to the quad's plane says which way that is), so that a
+ * floor mark does not wrap onto the underside of something just above it, and
+ * orders them nearest the quad's plane first so that where two overlap under
+ * the quad the piece goes on the nearer. A triangle in the quad's plane is
+ * kept whichever way it faces, as before (a two-sided sheet).
+ */
+static void wallhitClipSortTris(f32 tol)
+{
+	s32 side = 0;
+	f32 best = 0.0f;
+	s32 n = 0;
+	s32 i;
+
+	for (i = 0; i < g_ClipNumTris; i++) {
+		if (side == 0 || g_ClipTris[i].dist < best) {
+			best = g_ClipTris[i].dist;
+			side = g_ClipTris[i].side;
+		}
+	}
+
+	for (i = 0; i < g_ClipNumTris; i++) {
+		if (g_ClipTris[i].side == side || g_ClipTris[i].dist <= tol) {
+			g_ClipTris[n++] = g_ClipTris[i];
+		}
+	}
+
+	g_ClipNumTris = n;
+
+	for (i = 1; i < g_ClipNumTris; i++) {
+		struct cliptri tri = g_ClipTris[i];
+		s32 j = i - 1;
+
+		while (j >= 0 && g_ClipTris[j].dist > tri.dist) {
+			g_ClipTris[j + 1] = g_ClipTris[j];
+			j--;
+		}
+
+		g_ClipTris[j + 1] = tri;
 	}
 }
 
@@ -517,8 +594,10 @@ static s32 wallhitClipUnion(struct wallhitclip *clip)
 	static struct clippoly pieces[CLIP_MAXPIECES];
 	static struct clippoly work[CLIP_MAXWORK];
 	static struct clippoly next[CLIP_MAXWORK];
+	static s32 owner[CLIP_MAXPIECES];
 	s32 numpieces = 0;
 	f32 area = 0.0f;
+	bool anyoff = false;
 	s32 numverts;
 	s32 k;
 	s32 i;
@@ -592,13 +671,33 @@ static s32 wallhitClipUnion(struct wallhitclip *clip)
 			}
 
 			area += wallhitClipArea(&work[i]);
+			owner[numpieces] = k;
 			pieces[numpieces++] = work[i];
 		}
 	}
 
-	// Nothing hangs over, or nothing was found under it at all (which leaves
-	// the mark as it always was rather than making it vanish)
-	if (numpieces == 0 || area >= 4.0f * 0.999f) {
+	if (numpieces == 0) {
+		// Nothing was found under it at all, which leaves the mark as it
+		// always was rather than making it vanish
+		return CLIP_WHOLE;
+	}
+
+	// Whether any piece stands off the quad's plane at any of its corners
+	for (i = 0; i < numpieces && !anyoff; i++) {
+		const f32 *pl = g_ClipTris[owner[i]].plane;
+		s32 j;
+
+		for (j = 0; j < pieces[i].n; j++) {
+			if (fabsf(pl[0] + pl[1] * pieces[i].p[j][0] + pl[2] * pieces[i].p[j][1]) > CLIP_ONPLANE) {
+				anyoff = true;
+				break;
+			}
+		}
+	}
+
+	// Nothing hangs over and the surface under it is the quad's own plane:
+	// the stock quad, as nearly every mark on a flat floor or wall
+	if (area >= 4.0f * 0.999f && !anyoff) {
 		return CLIP_WHOLE;
 	}
 
@@ -618,6 +717,9 @@ static s32 wallhitClipUnion(struct wallhitclip *clip)
 		s32 j;
 
 		clip->piecesizes[i] = pieces[i].n;
+		clip->plane[i][0] = g_ClipTris[owner[i]].plane[0];
+		clip->plane[i][1] = g_ClipTris[owner[i]].plane[1];
+		clip->plane[i][2] = g_ClipTris[owner[i]].plane[2];
 
 		for (j = 0; j < pieces[i].n; j++) {
 			clip->ab[numverts][0] = pieces[i].p[j][0];
@@ -628,6 +730,7 @@ static s32 wallhitClipUnion(struct wallhitclip *clip)
 
 	clip->numpieces = numpieces;
 	clip->numverts = numverts;
+	clip->laid = anyoff;
 
 	return CLIP_CLIPPED;
 }
@@ -642,6 +745,8 @@ static s32 wallhitClipCompute(struct wallhit *wallhit, struct wallhitclip *clip)
 	f32 min[3];
 	f32 max[3];
 	f32 tol;
+	f32 reach;
+	f32 near[2][3];
 	s32 roomnum = wallhit->roomnum;
 	s32 r;
 	s32 i;
@@ -657,17 +762,33 @@ static s32 wallhitClipCompute(struct wallhit *wallhit, struct wallhitclip *clip)
 	tol = 1.5f + 0.03f * sqrtf(f.u[0] * f.u[0] + f.u[1] * f.u[1] + f.u[2] * f.u[2]
 			+ f.v[0] * f.v[0] + f.v[1] * f.v[1] + f.v[2] * f.v[2]);
 
+	// A projected decal's box: half the mark's size either side of its plane
+	{
+		f32 uu = sqrtf(f.u[0] * f.u[0] + f.u[1] * f.u[1] + f.u[2] * f.u[2]);
+		f32 vv = sqrtf(f.v[0] * f.v[0] + f.v[1] * f.v[1] + f.v[2] * f.v[2]);
+
+		reach = tol + (uu > vv ? uu : vv) * CLIP_REACH;
+	}
+
 	for (i = 0; i < 3; i++) {
-		f32 ext = fabsf(f.u[i]) + fabsf(f.v[i]) + tol;
+		f32 ext = fabsf(f.u[i]) + fabsf(f.v[i]) + reach;
 
 		min[i] = roompos->f[i] + f.mid[i] - ext;
 		max[i] = roompos->f[i] + f.mid[i] + ext;
+
+		ext = fabsf(f.u[i]) + fabsf(f.v[i]) + tol;
+
+		near[0][i] = roompos->f[i] + f.mid[i] - ext;
+		near[1][i] = roompos->f[i] + f.mid[i] + ext;
 	}
 
+	// A room that could hold the surface the mark lies on must be loaded;
+	// one only within the mark's reach of its plane is taken if it is
+	// loaded, and not waited for (it may never be)
 	for (r = 1; r < g_Vars.roomcount; r++) {
-		if (g_Rooms[r].bbmin[0] <= max[0] && g_Rooms[r].bbmax[0] >= min[0]
-				&& g_Rooms[r].bbmin[1] <= max[1] && g_Rooms[r].bbmax[1] >= min[1]
-				&& g_Rooms[r].bbmin[2] <= max[2] && g_Rooms[r].bbmax[2] >= min[2]
+		if (g_Rooms[r].bbmin[0] <= near[1][0] && g_Rooms[r].bbmax[0] >= near[0][0]
+				&& g_Rooms[r].bbmin[1] <= near[1][1] && g_Rooms[r].bbmax[1] >= near[0][1]
+				&& g_Rooms[r].bbmin[2] <= near[1][2] && g_Rooms[r].bbmax[2] >= near[0][2]
 				&& g_Rooms[r].loaded240 == 0) {
 			return -1;
 		}
@@ -702,7 +823,7 @@ static s32 wallhitClipCompute(struct wallhit *wallhit, struct wallhitclip *clip)
 			if (batch->bbmin.x <= max[0] && batch->bbmax.x >= min[0]
 					&& batch->bbmin.y <= max[1] && batch->bbmax.y >= min[1]
 					&& batch->bbmin.z <= max[2] && batch->bbmax.z >= min[2]) {
-				wallhitClipGatherBatch(&f, r, batch, offset, tol);
+				wallhitClipGatherBatch(&f, r, batch, offset, reach);
 			}
 		}
 	}
@@ -710,6 +831,8 @@ static s32 wallhitClipCompute(struct wallhit *wallhit, struct wallhitclip *clip)
 	if (g_ClipOverflow) {
 		return CLIP_WHOLE;
 	}
+
+	wallhitClipSortTris(tol);
 
 	return wallhitClipUnion(clip);
 }
@@ -770,11 +893,27 @@ bool wallhitClipRender(Gfx **gdlptr, struct wallhit *wallhit)
 	Gfx *gdl;
 	Vtx *vtx;
 	f32 k;
+	f32 lift;
 	s32 first = 0;
 	s32 p;
 
 	if (clip == NULL || clip->state != CLIP_CLIPPED || !modIsDecalClipOn() || !wallhitClipFrame(wallhit, &f)) {
 		return false;
+	}
+
+	// A piece laid on a triangle off the quad's plane has corners rounded to
+	// whole units on a slope, up to most of a unit into the surface, which the
+	// wall hits' pulled-in projection does not cover at a distance: it is
+	// lifted a little off the surface, on the camera's side (the side a mark
+	// can be seen from, being culled from the back)
+	{
+		struct coord *roompos = &g_BgRooms[wallhit->roomnum].pos;
+		struct coord *cam = &g_Vars.currentplayer->cam_pos;
+		f32 side = (cam->x - roompos->x - f.mid[0]) * f.n[0]
+			+ (cam->y - roompos->y - f.mid[1]) * f.n[1]
+			+ (cam->z - roompos->z - f.mid[2]) * f.n[2];
+
+		lift = side >= 0.0f ? CLIP_LIFT : -CLIP_LIFT;
 	}
 
 	// An expanding splat's corners are its own pulled in towards its middle
@@ -816,6 +955,7 @@ bool wallhitClipRender(Gfx **gdlptr, struct wallhit *wallhit)
 			f32 sa = a / k;
 			f32 sb = b / k;
 			f32 w[4];
+			f32 hh;
 			f32 s = 0.0f;
 			f32 t = 0.0f;
 			s32 corner;
@@ -834,9 +974,20 @@ bool wallhitClipRender(Gfx **gdlptr, struct wallhit *wallhit)
 
 			corner = sa >= 0.0f ? (sb >= 0.0f ? 0 : 1) : (sb >= 0.0f ? 3 : 2);
 
-			vtx[i].x = wallhitClipRound(f.mid[0] + a * f.u[0] + b * f.v[0]);
-			vtx[i].y = wallhitClipRound(f.mid[1] + a * f.u[1] + b * f.v[1]);
-			vtx[i].z = wallhitClipRound(f.mid[2] + a * f.u[2] + b * f.v[2]);
+			// On the triangle it lies over, not on the plane of the one the
+			// mark was laid on: a floor of creased triangles (Skedar Ruins'
+			// sand, F3 20260929-185046) cut a splat in straight lines where
+			// it went under the next triangle. Every piece of such a mark is
+			// lifted alike, so the pieces meet without a step.
+			hh = 0.0f;
+
+			if (clip->laid) {
+				hh = clip->plane[p][0] + clip->plane[p][1] * a + clip->plane[p][2] * b + lift;
+			}
+
+			vtx[i].x = wallhitClipRound(f.mid[0] + a * f.u[0] + b * f.v[0] + hh * f.n[0]);
+			vtx[i].y = wallhitClipRound(f.mid[1] + a * f.u[1] + b * f.v[1] + hh * f.n[1]);
+			vtx[i].z = wallhitClipRound(f.mid[2] + a * f.u[2] + b * f.v[2] + hh * f.n[2]);
 			vtx[i].flags = wallhit->vertices[corner].flags;
 			vtx[i].colour = wallhit->vertices[corner].colour;
 			vtx[i].s = wallhitClipRound(s);
