@@ -2277,6 +2277,40 @@ static s32 decalOnOther(const struct stri *tris, const struct tgrid *g, s32 i, c
 }
 
 /**
+ * A cast shadow: a cut-out decal whose corners are all black. Rare's release
+ * lays the thing's own picture flat under it in black - Archives' ceiling
+ * fan, its blades and its grille, on the floor of the room Natalya is held in
+ * - and draws it solid, a hard black cut-out on the floor ("a strange texture
+ * of the shadow of the fan", F3 20260929-011949). GoldenEye's shadow there is
+ * a see-through darkening of the floor. Such a decal is drawn half through,
+ * in the translucent leaf (triFades()).
+ */
+#define SHADOW_ALPHA 0x80
+
+static s32 markShadows(struct stri *tris, s32 num)
+{
+	s32 marked = 0;
+
+	for (s32 t = 0; t < num; t++) {
+		struct stri *tri = &tris[t];
+
+		if (!tri->decal || !texHasAlpha(tri->tex) || texIsXlu(tri->tex)
+				|| (tri->argb[0] & 0xffffff) || (tri->argb[1] & 0xffffff) || (tri->argb[2] & 0xffffff)
+				|| (tri->argb[0] >> 24) < FADE_ALPHA || (tri->argb[1] >> 24) < FADE_ALPHA || (tri->argb[2] >> 24) < FADE_ALPHA) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			tri->argb[k] = (u32)SHADOW_ALPHA << 24;
+		}
+
+		marked++;
+	}
+
+	return marked;
+}
+
+/**
  * Whether a triangle lies wholly on triangles of other pictures in its plane:
  * its middle and its corners, pulled a tenth of the way in, and the middles
  * of its edges, pulled in the same way, each on one.
@@ -2610,6 +2644,88 @@ static void forget(void)
 }
 
 /**
+ * Bean's level meshes are not quite welded: where two of Rare's pieces meet,
+ * a corner of one can stand a tenth of a unit off the same corner of the
+ * other. Drawn in floats that is no gap, but a room's vertices are whole units
+ * (writeLeaf()), and two corners either side of a half round apart: the
+ * ceiling of Dam's tunnel under the road showed a thin wedge of sky along one
+ * such seam, a unit wide at its end (F3 20260928-231924). Corners this near
+ * each other are made one, the first met standing for the rest, so that they
+ * round alike.
+ */
+#define WELD_DIST 0.25f
+
+static s32 weldVertices(struct collect *c)
+{
+	enum { HASHBITS = 20 };
+	const s32 numvtx = c->num * 3;
+	s32 *head = malloc(sizeof(s32) << HASHBITS);
+	s32 *next = malloc(sizeof(s32) * (numvtx + 1));
+	s32 welded = 0;
+
+	if (!head || !next) {
+		free(head);
+		free(next);
+		return 0;
+	}
+
+	for (s32 i = 0; i < (1 << HASHBITS); i++) {
+		head[i] = -1;
+	}
+
+	for (s32 v = 0; v < numvtx; v++) {
+		f32 *pos = c->tris[v / 3].pos[v % 3];
+		const s32 cx = (s32)floorf(pos[0] / WELD_DIST);
+		const s32 cy = (s32)floorf(pos[1] / WELD_DIST);
+		const s32 cz = (s32)floorf(pos[2] / WELD_DIST);
+		s32 found = -1;
+
+		for (s32 dx = -1; dx <= 1 && found < 0; dx++) {
+			for (s32 dy = -1; dy <= 1 && found < 0; dy++) {
+				for (s32 dz = -1; dz <= 1 && found < 0; dz++) {
+					const u32 h = (((u32)(cx + dx) * 73856093u) ^ ((u32)(cy + dy) * 19349663u)
+							^ ((u32)(cz + dz) * 83492791u)) & ((1 << HASHBITS) - 1);
+
+					for (s32 r = head[h]; r >= 0; r = next[r]) {
+						const f32 *q = c->tris[r / 3].pos[r % 3];
+						const f32 ex = q[0] - pos[0];
+						const f32 ey = q[1] - pos[1];
+						const f32 ez = q[2] - pos[2];
+
+						if (ex * ex + ey * ey + ez * ez <= WELD_DIST * WELD_DIST) {
+							found = r;
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		if (found >= 0) {
+			const f32 *q = c->tris[found / 3].pos[found % 3];
+
+			if (q[0] != pos[0] || q[1] != pos[1] || q[2] != pos[2]) {
+				pos[0] = q[0];
+				pos[1] = q[1];
+				pos[2] = q[2];
+				welded++;
+			}
+		} else {
+			const u32 h = (((u32)cx * 73856093u) ^ ((u32)cy * 19349663u) ^ ((u32)cz * 83492791u))
+					& ((1 << HASHBITS) - 1);
+
+			next[v] = head[h];
+			head[h] = v;
+		}
+	}
+
+	free(head);
+	free(next);
+
+	return welded;
+}
+
+/**
  * The level's backdrop, out of the triangles to be dealt into rooms.
  *
  * 4J ring some levels with a panorama on a band of a few dozen triangles far
@@ -2739,6 +2855,8 @@ static void takeBackdrop(struct collect *c, s32 n)
  * light (v 0 at the lamp to 1.32 at the floor); wrapped, its foot was a band
  * of the lamp end, a solid white skirt round the cone (F3 20260925-235806).
  */
+#define CLAMP_SLACK (1.0f / 32.0f) // of a repeat, past either end of a clamped cut-out
+
 static void clampCutouts(const struct collect *c)
 {
 	f32 vmin[GEBEAN_MAXMATS];
@@ -2767,11 +2885,16 @@ static void clampCutouts(const struct collect *c)
 	}
 
 	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
-		// the UVs are whole 1/256ths, or 1/1024ths, of a repeat
-		const f32 k = floorf(vmin[t] + 1.0f / 2048.0f);
+		// The UVs are whole 1/256ths, or 1/1024ths, of a repeat. A cut-out
+		// may run a few 256ths past its repeat's ends: Statue Park's treeline
+		// card (v 0 to 1.0117) was left wrapped for its foot's 3 rows, and its
+		// top edge, clear, drew the dark foot's texels as a thin black line
+		// across the sky (F3 20260928-233213). Clamped, those rows are the
+		// picture's own edge row.
+		const f32 k = floorf(vmin[t] + CLAMP_SLACK);
 		s32 first, last;
 
-		if (texAlpha[t] && vmin[t] <= vmax[t] && (vmax[t] <= k + 1.0f + 1.0f / 2048.0f
+		if (texAlpha[t] && vmin[t] <= vmax[t] && (vmax[t] <= k + 1.0f + CLAMP_SLACK
 					|| (fades[t] && vmin[t] <= k + 1.0f / 2048.0f && vmax[t] < k + 1.5f
 						&& xblaTexImageEdgeAlpha(texTile[t], &first, &last)
 						&& (first - last >= 0x80 || last - first >= 0x80)))) {
@@ -3857,6 +3980,14 @@ static s32 build(void)
 		levelHasWater |= texWater[t];
 	}
 
+	{
+		const s32 welded = weldVertices(&c);
+
+		if (welded) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d corners welded to a corner within %.2f of them", row->bean, welded, WELD_DIST);
+		}
+	}
+
 	takeBackdrop(&c, n);
 	clampCutouts(&c);
 	closeDoorGaps(&c);
@@ -3934,6 +4065,13 @@ static s32 build(void)
 		fights = markFights(c.tris, c.num, &beantris);
 		decals = markDecals(c.tris, c.num, &beantris);
 		markDecalLifts(c.tris, c.num);
+		{
+			const s32 shadows = markShadows(c.tris, c.num);
+
+			if (shadows) {
+				sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles of cast shadows drawn see-through", row->bean, shadows);
+			}
+		}
 		markWaterPictures(&c, filerooms, filelens, n);
 
 		mark[2] = sysGetMicroseconds();
@@ -4932,6 +5070,11 @@ s32 gebeanStageDrawsEveryRoom(void)
 	return built && row && numServed > 0;
 }
 
+s32 gebeanStageRoomServed(s32 roomnum)
+{
+	return xblaStageDrawsEveryRoom() && built && roomnum > 0 && roomnum < numRooms && roomData[roomnum];
+}
+
 s32 gebeanStageRoomHidden(s32 roomnum)
 {
 	return xblaStageDrawsEveryRoom() && roomHidden && roomnum > 0 && roomnum < numRooms && roomHidden[roomnum];
@@ -5097,6 +5240,7 @@ uintptr_t gebeanStageRoomRead(s32 roomnum, u8 *dst, u32 len) { return 0; }
 void gebeanStageLevelReset(void) { }
 s32 gebeanStageDrawsEveryRoom(void) { return 0; }
 s32 gebeanStageRoomHidden(s32 roomnum) { return 0; }
+s32 gebeanStageRoomServed(s32 roomnum) { return 0; }
 void gebeanStageTickCamera(s32 authored) { }
 s32 gebeanStageCullsBackFaces(void) { return 0; }
 const char *gebeanStageLevelKey(void) { return NULL; }

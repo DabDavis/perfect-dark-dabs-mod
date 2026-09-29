@@ -21,6 +21,7 @@
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "gelights.h"
+#include "gebeanstage.h"
 #include "modloader.h"
 #endif
 #include "bss.h"
@@ -1625,6 +1626,28 @@ void roomHighlight(s32 roomnum)
 		}
 
 		br_settled_regional = roomGetSettledRegionalBrightnessForPlayer(roomnum);
+#ifndef PLATFORM_N64
+		// A room drawn from GoldenEye XBLA's mesh: the release draws texel
+		// times vertex colour and nothing of a room's light, and one surface
+		// crosses many rooms - Dam's far mountainside is dealt to rooms at
+		// 210 (a room with no lights) and at 255 (one lit from next door),
+		// and the rooms at 210 capped Bean's white snow at a grey, a patchwork
+		// of greyed triangles over the face (F3 20260928-223706). The room's
+		// brightness is taken against what it has with every light whole -
+		// its base, or its lights' full brightness when it has lights - so
+		// a room as the level made it draws its colours as they are, and one
+		// whose lights are shot or put out is darker by that share still.
+		if (gebeanStageRoomServed(roomnum)
+				&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)) {
+			s32 full = g_Rooms[roomnum].numlights ? g_Rooms[roomnum].br_light_max : g_Rooms[roomnum].br_base;
+
+			if (full > 0) {
+				s32 scaled = br_settled_regional * 255 / full;
+
+				br_settled_regional = scaled > 255 ? 255 : scaled;
+			}
+		}
+#endif
 		numcolours = g_Rooms[roomnum].gfxdata->numcolours;
 		dst = gfxAllocateColours(numcolours);
 		g_Rooms[roomnum].colours = dst;
