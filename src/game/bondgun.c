@@ -2065,7 +2065,16 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 #ifdef PLATFORM_N64
 		hand->flashon = true;
 #else
-		if (g_BgunGeMuzzleFlashes) {
+		if (WEAPON_IS_GE(hand->gset.weaponnum)) {
+			// GoldenEye's own guns flash on the tick a round leaves and not
+			// between (gunfire.c sets field_87D only when field_88C comes round
+			// to the gun's AutomaticFiringRate, and clears it every tick);
+			// lit on every tick the trigger was held, the flash of an automatic
+			// never went out (F3 20260929-092304)
+			if (func->type == INVENTORYFUNCTYPE_SHOOT_SINGLE || hand->shotstotake > 0) {
+				hand->flashon = true;
+			}
+		} else if (g_BgunGeMuzzleFlashes) {
 			if (func->type == INVENTORYFUNCTYPE_SHOOT_SINGLE || (hand->shotstotake & 1)) {
 				hand->flashon = true;
 			}
