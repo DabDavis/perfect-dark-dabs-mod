@@ -4656,6 +4656,43 @@ static void playerTetherCamera(struct player *player, struct coord *eye, struct 
 	player->thirdpersontethered = true;
 }
 
+/**
+ * The camera's offset from the eye as it was drawn last frame, for the ease
+ * in playerPullBackCameraNow(); good only while the camera stays third person
+ * (a frame out of it zeroes thirdpersondist, and the ease starts afresh).
+ */
+static struct coord g_ThirdPersonLastOffset[MAX_PLAYERS];
+static bool g_ThirdPersonLastOk[MAX_PLAYERS];
+
+/**
+ * Whether the camera may stand at `cam`: nothing between it and the eye, and
+ * a small volume round it clear of the walls, so the near plane is never in
+ * one. Smaller than Camera Wall Clearance on purpose - the clearance is how
+ * far the camera would like to keep off a wall, this is how far it must.
+ */
+#define CAMERA_HARD_CLEAR 8.0f
+
+static bool playerCameraSpotClear(struct player *player, struct coord *eye, struct coord *cam)
+{
+	RoomNum camrooms[8];
+	RoomNum crossed[21];
+	struct coord hit;
+	f32 radius = g_ModOptions.camclearance < CAMERA_HARD_CLEAR ? g_ModOptions.camclearance : CAMERA_HARD_CLEAR;
+
+	if (radius < 1) {
+		radius = 1;
+	}
+
+	if (playerTraceCamera(player, eye, cam, &hit)) {
+		return false;
+	}
+
+	func0f065dfc(eye, player->prop->rooms, cam, camrooms, crossed, 20);
+
+	return cdTestVolume(cam, radius, camrooms, CDTYPE_BG | CDTYPE_CLOSEDDOORS,
+			CHECKVERTICAL_YES, radius, -radius) == CDRESULT_NOCOLLISION;
+}
+
 static void playerPullBackCameraNow(struct coord *campos)
 {
 	struct player *player = g_Vars.currentplayer;
@@ -4753,37 +4790,68 @@ static void playerPullBackCameraNow(struct coord *campos)
 		dist = sqrtf((hit.x - campos->x) * (hit.x - campos->x)
 				+ (hit.y - campos->y) * (hit.y - campos->y)
 				+ (hit.z - campos->z) * (hit.z - campos->z)) - g_ModOptions.camclearance;
+	}
 
+	if (dist <= 0) {
 		// A wall closer than the clearance: the camera comes all the way
 		// in to the eye, and the view stays third person (below). Not
 		// through playerClearCamera(), whose push off the wall behind would
 		// stand the camera in front of the player's face.
-		if (dist <= 0) {
-			player->thirdpersondist = THIRDPERSON_EYE_DIST;
-			player->thirdpersoncampos = *campos;
-			return;
-		}
-	}
-
-	// The fraction of the offset that fits, so both axes come in together.
-	back.x = campos->x + offset.x * (dist / len);
-	back.y = campos->y + offset.y * (dist / len);
-	back.z = campos->z + offset.z * (dist / len);
-
-	// Off the walls, the floor and the ceiling: a volume where the line
-	// above was a line. This may move the camera off the line, so the
-	// distance is read back from wherever it ends up.
-	playerClearCamera(player, campos, &back);
-
-	// The push off a wall can carry a camera that was brought right in past
-	// the eye to the other side of it, in front of the player; the eye it is.
-	if ((back.x - campos->x) * offset.x + (back.y - campos->y) * offset.y + (back.z - campos->z) * offset.z <= 0) {
 		back = *campos;
+	} else {
+		// The fraction of the offset that fits, so both axes come in together.
+		back.x = campos->x + offset.x * (dist / len);
+		back.y = campos->y + offset.y * (dist / len);
+		back.z = campos->z + offset.z * (dist / len);
+
+		// Off the walls, the floor and the ceiling: a volume where the line
+		// above was a line. This may move the camera off the line, so the
+		// distance is read back from wherever it ends up.
+		playerClearCamera(player, campos, &back);
+
+		// The push off a wall can carry a camera that was brought right in past
+		// the eye to the other side of it, in front of the player; the eye it is.
+		if ((back.x - campos->x) * offset.x + (back.y - campos->y) * offset.y + (back.z - campos->z) * offset.z <= 0) {
+			back = *campos;
+		}
 	}
 
 	offset.x = back.x - campos->x;
 	offset.y = back.y - campos->y;
 	offset.z = back.z - campos->z;
+
+	// Where the camera wants to be jumps whenever the wall the clearance is
+	// measured from changes: turning in a corridor narrower than twice the
+	// clearance pushes it off one wall and then the other, and a doorway's
+	// jamb coming into the line pulls it in by half the distance in a frame
+	// (F3 20260929-043759, "this spot and many others jerk the third person
+	// cam around"). So the camera eases from where it was to where it wants
+	// to be - in, out and sideways alike - for as long as the spot it eases
+	// through is itself clear: nothing between it and the eye, and not inside
+	// a wall. Only a wall that would otherwise be drawn from inside still
+	// takes the camera in at once.
+	if (prevdist > 0 && g_ThirdPersonLastOk[g_Vars.currentplayernum]) {
+		struct coord *last = &g_ThirdPersonLastOffset[g_Vars.currentplayernum];
+		struct coord eased;
+		f32 rate = THIRDPERSON_EASE_RATE * g_Vars.lvupdate60freal;
+
+		if (rate > 1) {
+			rate = 1;
+		}
+
+		eased.x = campos->x + last->x + (offset.x - last->x) * rate;
+		eased.y = campos->y + last->y + (offset.y - last->y) * rate;
+		eased.z = campos->z + last->z + (offset.z - last->z) * rate;
+
+		if (playerCameraSpotClear(player, campos, &eased)) {
+			offset.x = eased.x - campos->x;
+			offset.y = eased.y - campos->y;
+			offset.z = eased.z - campos->z;
+		}
+	}
+
+	g_ThirdPersonLastOffset[g_Vars.currentplayernum] = offset;
+	g_ThirdPersonLastOk[g_Vars.currentplayernum] = true;
 
 	len = sqrtf(offset.x * offset.x + offset.y * offset.y + offset.z * offset.z);
 
@@ -4793,32 +4861,18 @@ static void playerPullBackCameraNow(struct coord *campos)
 	// the first person arms and guns never come up in front of the body's own
 	// (F3 20260927-193659). The body fades out by the camera's distance from
 	// it (playerGetOwnBodyAlphaFrac()), so what is left is the level and the
-	// crosshair, and the ease below takes the camera back out from here.
+	// crosshair, and the ease above takes the camera back out from here.
 	if (len < THIRDPERSON_EYE_DIST) {
 		player->thirdpersondist = THIRDPERSON_EYE_DIST;
 		player->thirdpersoncampos = *campos;
 		return;
 	}
 
-	dist = len;
+	player->thirdpersondist = len;
 
-	// Further out than last frame, and last frame was a view of its own rather
-	// than the eye: give the room back over a few frames instead of all at once.
-	if (prevdist > 0 && dist > prevdist) {
-		f32 rate = THIRDPERSON_EASE_RATE * g_Vars.lvupdate60freal;
-
-		if (rate > 1) {
-			rate = 1;
-		}
-
-		dist = prevdist + (dist - prevdist) * rate;
-	}
-
-	player->thirdpersondist = dist;
-
-	campos->x += offset.x * (dist / len);
-	campos->y += offset.y * (dist / len);
-	campos->z += offset.z * (dist / len);
+	campos->x += offset.x;
+	campos->y += offset.y;
+	campos->z += offset.z;
 
 	// Kept for the death camera, which stops here rather than working out
 	// somewhere of its own to stand.

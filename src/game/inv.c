@@ -11,6 +11,9 @@
 #include "game/bondgun.h"
 #include "game/game_0b0fd0.h"
 #include "game/inv.h"
+#ifndef PLATFORM_N64
+#include "getank.h"
+#endif
 #include "game/training.h"
 #include "game/lang.h"
 #include "bss.h"
@@ -481,8 +484,13 @@ bool invAllGunsGives(s32 weaponnum)
  */
 static s32 invAllGunsStep(s32 weaponnum, s32 dir, bool needammo)
 {
-	const s32 count = invAllGunsCount();
-	s32 index = invAllGunsIndexOf(weaponnum);
+	const s32 listed = invAllGunsCount();
+	// the tank's shells, which the list leaves out, while he drives: one
+	// more stop after the list's end, as in GoldenEye's cycle (F3
+	// 20260929-062621)
+	const bool shells = invHasSingleWeaponExcAllGuns(WEAPON_GE_TANKSHELLS);
+	const s32 count = listed + (shells ? 1 : 0);
+	s32 index = weaponnum == WEAPON_GE_TANKSHELLS && shells ? listed : invAllGunsIndexOf(weaponnum);
 
 	if (index < 0) {
 		index = dir > 0 ? -1 : count;
@@ -492,7 +500,7 @@ static s32 invAllGunsStep(s32 weaponnum, s32 dir, bool needammo)
 		s32 candidate;
 
 		index = (index + dir + count) % count;
-		candidate = invAllGunsWeaponAt(index);
+		candidate = index == listed ? WEAPON_GE_TANKSHELLS : invAllGunsWeaponAt(index);
 
 		if (candidate == weaponnum) {
 			break;
@@ -863,7 +871,13 @@ void invChooseCycleForwardWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 	if (g_Vars.currentplayer->equipallguns) {
 		s32 candidate = *ptr1;
 
-		if (weaponHasFlag(*ptr1, WEAPONFLAG_DUALWIELD) && *ptr2 != *ptr1) {
+		if (weaponHasFlag(*ptr1, WEAPONFLAG_DUALWIELD) && *ptr2 != *ptr1
+#ifndef PLATFORM_N64
+				// the tank's driver has no left hand (bgunTickSwitch2()): the
+				// pair is refused and the cycle would ask for it for ever
+				&& !geTankIsDriving()
+#endif
+				) {
 			// Switching to dual from single
 			weapon1 = *ptr1;
 			weapon2 = *ptr1;

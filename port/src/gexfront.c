@@ -79,6 +79,7 @@
 #include "gemusic.h"
 #include "gesfx.h"
 #include "game/modghost.h"
+#include "game/modrandom.h"
 #include "preprocess.h"
 #include "game/challenge.h"
 #include "game/title.h"
@@ -1874,6 +1875,13 @@ static void frontStartMission(void)
 		g_MissionConfig.pdmodeaccuracyf = g_Front.slider[SLIDER_ACCURACY];
 		g_MissionConfig.pdmodereactionf = g_Front.slider[SLIDER_REACTION];
 	}
+
+	// GoldenEye's folder is an ordinary mission's door: a Random Mission or
+	// Ghost Trial armed on the Perfect Menu and backed out of must not deal or
+	// record this one (F3 20260929-052625: GoldenEye's missions all started
+	// randomized, with the roll's guns in hand).
+	modRandomDisarmMission();
+	modGhostDisarmTrial();
 
 	g_FrontLeaving = 1;
 	g_Front.active = 0;
