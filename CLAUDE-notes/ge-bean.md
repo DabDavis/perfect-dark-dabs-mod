@@ -13064,3 +13064,25 @@ at a side view, the teeth come through.
   greatguard2 before/after; Brosnan head unchanged; N64 look pixel-identical.
   Rig `~/wt/markneck-run` (`heads.sh`, `stand.sh`, `bodies.sh`, `probes/look.py`
   with `SWAPHEAD`/`SETBODY` and `DUMP=<source>` to dump a built mesh).
+
+## The opening camera inside Dam's truck (F3 20260929-200232)
+
+"Camera clipping inside wheels." Dam's first opening shot stands the camera on
+the road the truck drives down, and the truck goes right over it. Proven against
+the oracle (claude-007 on 10.8.0.3, a pad script into Dam, gdb forcing
+`ptr_random06cam_entry` onto the shot): same camera, same truck path to 2 units
+and 0.01 rad, the camera within 3 units of the same place in the truck's own
+space, and the same near plane (GoldenEye's cinema row is 30 on a world drawn at
+visibility 0.2, i.e. 150, which is the converted `cinemafog`). GoldenEye slices
+the truck open exactly as we did; the HD look showed more of it (16:9, and Bean
+props are two-sided, so a cut wheel shows its far inner face).
+
+The user chose to fade it: `gecinemaPropAlpha()` (gecinema.c, from `objRender()`)
+fades any object out over 8 ticks while an opening still or the swirl has the
+camera and one of its model's vertices is inside the view pyramid out to 1.1x
+the near plane (a separating-axis box test first, then the N64 model's own
+vertices - the truck's box reaches a bumper's length past the grille), and back
+in once it is clear or the opening is over. Outside an opening it returns 255 at
+once. Dam's truck fades at frame ~233 and is back for the swirl; its route is
+unchanged tick for tick. Logged as "gecinema: model N faded, inside the opening
+camera's near plane".
