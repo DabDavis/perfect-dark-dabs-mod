@@ -7852,7 +7852,17 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 					if (obj->type == OBJTYPE_WEAPON) {
 						struct weaponobj *weapon = (struct weaponobj *) obj;
 
-						if (weaponHost(weapon->weaponnum) == WEAPON_COMBATKNIFE && weapon->gunfunc == FUNC_SECONDARY) {
+						if ((weaponHost(weapon->weaponnum) == WEAPON_COMBATKNIFE && weapon->gunfunc == FUNC_SECONDARY)
+#ifndef PLATFORM_N64
+								// GoldenEye's throwing knife throws with its
+								// first and only function (gegunsOwnTrigger()),
+								// and whooshes as it flies (propobj.c's
+								// objUpdateThrowKnifeSound()): with the
+								// combat knife's test it flew in silence
+								// (F3 20260930-190108)
+								|| weapon->weaponnum == WEAPON_GE_THROWINGKNIFE
+#endif
+								) {
 							knifePlayWooshSound(obj);
 						} else if (weaponHost(weapon->weaponnum) == WEAPON_ROCKET) {
 							if (cdresult == CDRESULT_COLLISION) {
@@ -7913,6 +7923,21 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 						if (cdresult == CDRESULT_COLLISION) {
 							if (projectile->unk0a4 < g_Vars.lvframenum - 2) {
+#ifndef PLATFORM_N64
+								// GoldenEye's own: a knife strikes with
+								// KNIFE_HIT_WALL_SFX, anything else thrown lands
+								// with DROP_GUN_SFX (propobj.c's thrown weapon
+								// tick), on a converted level
+								if (WEAPON_IS_GE(weapon->weaponnum) && geSfxStage()) {
+									const bool knife = weapon->weaponnum == WEAPON_GE_THROWINGKNIFE
+										|| weapon->weaponnum == WEAPON_GE_HUNTINGKNIFE;
+									const s32 num = geSfxNum(knife ? GESFX_KNIFE_HIT_WALL : GESFX_DROP_GUN);
+
+									if (num) {
+										psCreate(0, prop, num, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+									}
+								} else
+#endif
 								if (weaponHost(weapon->weaponnum) == WEAPON_COMBATKNIFE || weaponHost(weapon->weaponnum) == WEAPON_COMBATKNIFE) {
 									psCreate(0, prop, SFX_808B, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
 								} else if (weaponHost(weapon->weaponnum) == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {

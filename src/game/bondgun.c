@@ -5262,6 +5262,21 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 			obj->projectile->unk08c = 0.1f;
 			obj->projectile->pickuptimer240 = TICKS(240);
 
+#ifndef PLATFORM_N64
+			// GoldenEye's throws on a converted level: a grenade, a mine or a
+			// gadget leaves the hand with GRENADE_THROW_SFX (gun.c's
+			// generate_player_thrown_grenade() and _object()), a throwing
+			// knife with nothing - it only whooshes as it flies
+			// (generate_player_thrown_knife(), objUpdateThrowKnifeSound(),
+			// knifePlayWooshSound()); Perfect Dark's SFX_THROW is neither
+			// (F3 20260930-190108, "knives use the wrong throwing sound")
+			if (WEAPON_IS_GE(gset->weaponnum) && geSfxStage()) {
+				if (gset->weaponnum != WEAPON_GE_THROWINGKNIFE) {
+					psCreate(NULL, obj->prop, geSfxOr(GESFX_GRENADE_THROW, SFX_THROW), -1,
+							-1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
+				}
+			} else
+#endif
 			psCreate(NULL, obj->prop, SFX_THROW, -1,
 					-1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
 		}
@@ -13031,6 +13046,13 @@ static void bgunPlayPropHitSoundAs(struct gset *gset, struct prop *prop, s32 tex
  */
 void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 {
+	// GoldenEye's watch laser hits a body or an object in silence
+	// (gunfire.c's recall_joy2_hits_edit_detail_edit_flag() returns first
+	// for ITEM_WATCHLASER); the Moonraker's host sounded its laser hits
+	if (gegadgetsWatchLaserActive(gset->weaponnum)) {
+		return;
+	}
+
 	geSfxGunHitBegin(gset->weaponnum);
 	bgunPlayPropHitSoundAs(gset, prop, texturenum);
 	geSfxGunHitEnd();
@@ -13356,6 +13378,13 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 		soundnum = -1;
 		overridden = false;
 
+#ifndef PLATFORM_N64
+		// a wall only sounds its surface under GoldenEye's watch laser
+		// (recall_joy2_hits_edit_flag(): no ricochet for ITEM_WATCHLASER)
+		if (gegadgetsWatchLaserActive(gset->weaponnum)) {
+			// nothing but the default below
+		} else
+#endif
 		if (weaponHasFlag2(gset->weaponnum, WEAPONFLAG2_LASERHIT)) {
 			playdefault = false;
 

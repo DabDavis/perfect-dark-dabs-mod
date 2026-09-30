@@ -13589,3 +13589,33 @@ Four HD geometry F3s. Rig `~/wt/f3-0930b-hdlevel-run` (`multi.sh <mNN|stage> <ta
 - Open: Bean's room 18 floor is drawn black from inside the room where GoldenEye's is grey, and its walls are
   Bean's mossy stone where GoldenEye has computer racks (Bean's own placeholder art).
 
+
+## The watch laser, All Guns pairs and the thrown knife's sounds (26th F3 pass, 2026-09-30, fix/f3-0930c-gelaser)
+
+- **Watch laser (20260930-191858, Train, N64 look: "ejects shells, makes moonraker pullout sound, has
+  recoil").** `gegunsSetWatchLaser()` built its magazine by `memset`, and a `casingeject` of 0 is the
+  pistol's cartridge: every shot threw a case (10 at once in a 90-frame hold). Now -1, as
+  `watchlaser_stats`' NULL cartridge. Its shot kept the Moonraker host's `recoilsettings`
+  (`invrecoilsettings_default`, a random jitter of the gun's position while firing, bondgun.c's
+  `sp274`): NULL now, GoldenEye's recoil speeds and pull back are all nothing for it. The draw played
+  the host Laser's `SFX_PICKUP_LASER`: GoldenEye's equip sound switch has `ITEM_WATCHLASER` in the
+  silent case, so `gegunsEquipSilent()` answers yes while it is installed. And its hits are
+  GoldenEye's: nothing on a body or an object (`recall_joy2_hits_edit_detail_edit_flag()` returns
+  first for it), only the surface's sound on a wall (`recall_joy2_hits_edit_flag()`, no ricochet).
+- **All Guns pairs (20260930-190327, Archives: "can't dual wield the laser").** In a level GE Plus
+  started the cheat pairs by GoldenEye's `CAN_DUAL_WIELD` (`gegunsAllGunsPairs()`, inv.c's
+  `invAllGunsPairs()`: `invHasDoubleWeaponIncAllGuns()` and both cycles), one player only, as
+  `bondinvItemAvailableForHand()` does: every gun but the grenade and the mines. The host's
+  `WEAPONFLAG_DUALWIELD` had left out the Moonraker, both shotguns, the sniper rifle and both
+  launchers. Never the watch laser or the detonator (`gegunsNeverPairs()`). A pair picked up or
+  under Akimbo is unchanged.
+- **Thrown knife (20260930-190108, "knives use the wrong throwing sound").** GoldenEye's throwing
+  knife leaves the hand silently and whooshes (KNIFE_THROW1-3, 95-97) as it flies
+  (`generate_player_thrown_knife()`, `objUpdateThrowKnifeSound()`). Ours played Perfect Dark's
+  `SFX_THROW` at the release and never whooshed: `knifePlayWooshSound()` ran only for the combat
+  knife's *secondary* function, and the GE knife's throw is its first (`gegunsOwnTrigger()`). Now:
+  no release sound for it, the whoosh by weapon number, and on a converted level a GE weapon's other
+  throws leave with GRENADE_THROW_SFX (4); a knife strikes with KNIFE_HIT_WALL_SFX (3) and anything
+  else thrown lands with DROP_GUN_SFX (45), for `SFX_808B`/`SFX_EYESPYHIT`.
+- Probe: `~/wt/f3-0930c-gelaser-run/probe.py` (MODE=watch/knife/allguns; `run.sh BIN TAG MODE STAGE`,
+  Train 0x60, Archives 0x65; knife mode logs every `psCreate()` and its caller).

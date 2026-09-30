@@ -402,6 +402,23 @@ static bool invAllGunsAreGe(void)
 }
 
 /**
+ * Whether the All Guns cheat holds `weaponnum` as a pair as well as single.
+ * In a level GE Plus started that is GoldenEye's own rule, its gun's
+ * CAN_DUAL_WIELD (bondinv.c's bondinvItemAvailableForHand() and the cycles,
+ * one player only): every gun but the grenade and the mines, the Moonraker
+ * among them, which its Perfect Dark host never pairs (F3 20260930-190327,
+ * "you can't dual wield the laser").
+ */
+static bool invAllGunsPairs(s32 weaponnum)
+{
+	if (invAllGunsAreGe() && WEAPON_IS_GE(weaponnum) && PLAYERCOUNT() == 1 && gegunsAllGunsPairs(weaponnum)) {
+		return true;
+	}
+
+	return weaponHasFlag(weaponnum, WEAPONFLAG_DUALWIELD);
+}
+
+/**
  * GoldenEye's list as the region's cartridge has it. The Japanese one leaves
  * the hunting knife out of everything the cheat hands over (bondinv.c's
  * bondinvItemAvailable(), bondinvItemAvailableForHand(), the cycles and the
@@ -568,7 +585,11 @@ bool invHasDoubleWeaponIncAllGuns(s32 weapon1, s32 weapon2)
 
 	if (g_Vars.currentplayer->equipallguns &&
 			weapon1 == weapon2 &&
+#ifndef PLATFORM_N64
+			invAllGunsPairs(weapon1) &&
+#else
 			weaponHasFlag(weapon1, WEAPONFLAG_DUALWIELD) &&
+#endif
 			invAllGunsGives(weapon1)) {
 		return true;
 	}
@@ -895,7 +916,11 @@ void invChooseCycleForwardWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 	if (g_Vars.currentplayer->equipallguns) {
 		s32 candidate = *ptr1;
 
+#ifndef PLATFORM_N64
+		if (invAllGunsPairs(*ptr1) && *ptr2 != *ptr1
+#else
 		if (weaponHasFlag(*ptr1, WEAPONFLAG_DUALWIELD) && *ptr2 != *ptr1
+#endif
 #ifndef PLATFORM_N64
 				// the tank's driver has no left hand (bgunTickSwitch2()): the
 				// pair is refused and the cycle would ask for it for ever
@@ -974,7 +999,11 @@ void invChooseCycleBackWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 	if (g_Vars.currentplayer->equipallguns) {
 		s32 candidate = *ptr1;
 
+#ifndef PLATFORM_N64
+		if (invAllGunsPairs(weapon1) && weapon1 == weapon2) {
+#else
 		if (weaponHasFlag(weapon1, WEAPONFLAG_DUALWIELD) && weapon1 == weapon2) {
+#endif
 			// Switching from dual to single
 			weapon1 = candidate;
 			weapon2 = WEAPON_NONE;
@@ -982,7 +1011,7 @@ void invChooseCycleBackWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 		} else if (invAllGunsAreGe()) {
 			candidate = invAllGunsStep(weapon1, -1, arg2);
 			weapon1 = candidate;
-			weapon2 = weaponHasFlag(candidate, WEAPONFLAG_DUALWIELD) ? candidate : WEAPON_NONE;
+			weapon2 = invAllGunsPairs(candidate) && !geTankIsDriving() ? candidate : WEAPON_NONE;
 #endif
 		} else {
 			// Find prev weapon
