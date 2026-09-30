@@ -5339,6 +5339,25 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 			continue;
 		}
 
+		if (t == 0x12) {
+			// GoldenEye's GuardAttributeRecord: the header, the chr's s32
+			// number, and its grenade probability in the s8 at 0xb (prop.c's
+			// PROPDEF_GUARD_ATTRIBUTE, applied at the load as Perfect Dark
+			// applies its own OBJTYPE_GRENADEPROB: header, s16 chrnum, u16
+			// probability). Dropped until converter 93, so no converted guard
+			// ever had a grenade probability but the few an AI list sets, and
+			// TRYThrowingGrenade never threw - Aztec's opening guards and
+			// Control's among them (F3 20260929-215622).
+			bufZeros(&out, 8);
+			rec = out.v + out.n - 8;
+			memcpy(rec, raw, 3);
+			rec[3] = 0x12;
+			set16(rec, 4, (uint32_t)(be32(raw, 4) & 0xffff));
+			set16(rec, 6, raw[0xb]);
+			st->props++;
+			continue;
+		}
+
 		if (SOLO_AS_NOTHING(t) || !words) {
 			bufU32(&out, 0x22);
 			st->dropped++;
