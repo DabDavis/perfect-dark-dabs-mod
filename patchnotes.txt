@@ -31,6 +31,21 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 25 2026-09-30
+XBLA look: the file select's New Agent picture stays the original one instead of a red-haired Joanna (thanks Graslu00)
+GE Plus tank: the crosshair stays in the middle of the screen, and in the HD look the shell count shows a tank shell (thanks Graslu00)
+GE Plus Bunker 1 and Surface 2: guards no longer appear right beside a guard you have already seen (thanks Graslu00)
+GE Plus, HD look: destroyed crates and machines crumple and blacken as in the N64 look instead of standing whole and black (thanks Graslu00)
+GE Plus: the All Guns cheat lets you dual wield every gun GoldenEye does, including the Moonraker, shotguns, sniper rifle and launchers (thanks Graslu00)
+GE Plus: the watch laser no longer throws out spent shells, plays a draw sound or kicks when fired (thanks Graslu00)
+GE Plus: the throwing knife makes GoldenEye's sounds, silent from the hand and whooshing as it flies (thanks Graslu00)
+GE Plus: bullet holes and marks on walls fade into the fog with the walls (thanks Graslu00)
+Clip Decals at Edges: bullet holes and blood by the edge of a crate or other object are trimmed instead of hanging in the air (thanks Graslu00)
+GE Plus, HD look: Bond's trigger finger is back on the PP7, silenced PP7, Cougar Magnum and the gold and silver PP7s (thanks Graslu00)
+GE Plus, HD look: both shotguns show all five shells when full (thanks Graslu00)
+GE Plus, HD look: the Golden Gun no longer turns Bond's hand orange, and its gold shines with a reflection instead of flat paint (thanks Graslu00)
+GE Plus, HD look: the rocket launcher has its pistol grip back in first person (thanks dab)
+
 notes 24 2026-09-30
 GE Plus, HD look: GoldenEye's caps and hats sit properly on the HD heads, as on Facility's guards (thanks Odeyseis)
 GE Plus Cuba: in the ending Bond is GoldenEye's size, so he and Natalya line up for the kiss; Bond's body is GoldenEye's own 97% size on every mission (thanks savantique)
