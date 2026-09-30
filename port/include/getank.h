@@ -17,6 +17,9 @@ void geTankReset(void);
 
 s32 geTankIsDriving(void);
 
+// the cannon in hand: its sight held in the middle of the view (bondmove.c)
+s32 geTankHoldsSight(void);
+
 // this player, whoever the current one is
 s32 geTankPlayerDriving(struct player *player);
 

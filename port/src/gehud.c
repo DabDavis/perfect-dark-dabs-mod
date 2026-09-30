@@ -120,8 +120,11 @@ static const struct {
  * same boxes GoldenEye's are - which is what the release does: its 9mm round
  * is 80x180 over GoldenEye's 5x12 units. A name with a '#' is one the release
  * has only at GoldenEye's own size, made from another of its pictures
- * (gefolder.c's menuAmmoPicture()); the tank's shell, which it has only at
- * 7x22 as well, is its magnum round, the one grey cartridge of the set.
+ * (gefolder.c's menuAmmoPicture()). The tank's shell is its own
+ * bg/ammoicontankshell, which it has only at GoldenEye's 7x22 but which reads
+ * whole over the box - GoldenEye's dark shell with its band. It had been the
+ * magnum round, a white cartridge nothing like it (F3 20260930-185749, "wrong
+ * tank shell icon").
  */
 static const char *const g_IconHdPictures[NUM_ICONS] = {
 	[ICON_9MM]          = "bg/ammoicon9mm",
@@ -136,7 +139,7 @@ static const char *const g_IconHdPictures[NUM_ICONS] = {
 	[ICON_REMOTEMINE]   = "bg/ammoiconmine",
 	[ICON_TIMEDMINE]    = "bg/ammoiconmine#yellow",
 	[ICON_PROXMINE]     = "bg/ammoiconmine#green",
-	[ICON_TANK]         = "bg/ammoiconmagnum",
+	[ICON_TANK]         = "bg/ammoicontankshell",
 };
 
 // the radar's disc (image_bank.c's mpradarimages): 32x32 RGBA16 with six
