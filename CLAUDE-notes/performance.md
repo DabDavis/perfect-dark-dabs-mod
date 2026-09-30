@@ -195,6 +195,40 @@ A solo mission (`--boot-stage 0x34`, no `--mpsims`) is a second replay
 worth running for anything that touches chr code; the match alone missed
 the `pad2.flags` read.
 
+## Did it play the same game: the state hash, and the sanitizers (2026-09-30)
+
+`--state-hash N` (`port/src/statehash.c`) logs `statehash: frame F H` every N
+level frames, hashing the state as the frame starts: the RNG, every prop on
+the active and paused lists, every chr in a slot. `tools/ci/replaytest.sh`
+runs the seeded match (0x32, 80 sims) and the solo mission (0x34) and compares
+two binaries (`compare A B`), one with itself (`self A`), or one with golden
+hashes (`record` / `check`), naming the first frame that differs. It replaces
+diffing `--gfxstats` vertex counts for this purpose: the hash sees a
+divergence the frame it reaches the state, not when it reaches the screen.
+Golden hashes depend on the data in `build/` and stay local.
+
+An ASan + UBSan build, configured through the environment because
+`target_architecture()` try-compiles with the flags and fails to link
+without them in `LDFLAGS`:
+
+```sh
+SAN="-fsanitize=address,undefined -fno-omit-frame-pointer"
+CFLAGS="$SAN" CXXFLAGS="$SAN" LDFLAGS="-fsanitize=address,undefined" \
+    cmake -G"Unix Makefiles" -Bbuild-asan . && cmake --build build-asan -j8
+# link data/ and mod_allinone/ from build/, then run the replay cases with
+ASAN_OPTIONS=detect_leaks=0:halt_on_error=0 UBSAN_OPTIONS=print_stacktrace=1
+```
+
+First run (ad4d887ba, 1500 frames of both cases): **ASan found nothing.**
+UBSan reported 28 source lines, 26 of them misaligned access to N64-layout
+data loaded at 4-byte alignment (model rodata/rwdata, waypoints, door and
+lift objs, audio bank structs) - harmless on x86 and ARM64, noise. The two
+others are harmless too: `liftUpdateTiles()` (propobj.c:5464) takes
+`&rodata->type19` of a NULL `rodata` when a bbox was found, address only;
+`animReadSignedShort()` (anim.c:690) shifts by -1 when `readbitlen` is 0, and
+`result` is 0 then, so the test is false either way. Filter with
+`grep "runtime error" | grep -v misaligned`.
+
 ## Run to a level frame, not for a wall-clock span
 
 `--exit-frame N` quits when `lvframenum` reaches N (lv.c), and `tools/perf/perfframes.sh` counts a
