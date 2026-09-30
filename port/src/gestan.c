@@ -1356,6 +1356,55 @@ bool geStanDoorSideRooms(struct coord *padpos, struct coord *centre, struct coor
 
 	tile = stanTileUnderPrefer(padpos->x, padpos->z, padpos->y + 5.0f, GESTAN_RISE, -1);
 
+	// A door pad standing in the wall's thickness has no tile of its own
+	// storey under it, and the tile found is the floor of the deck below.
+	// The conversion filed the pad in that deck's room too (roomsFind() takes
+	// the highest tile under a point), so every walk from it stayed down
+	// there: six of Frigate's upper-deck doors (pads 247-266) were rooms of
+	// the lower deck alone, where no guard's sight, shot or body on their own
+	// deck ever met them - guards saw, shot and walked through them shut, and
+	// they closed no portal (F3 20260930-004609, 20260929-214745). GoldenEye
+	// starts from the tile its pad names, on the door's own floor; take the
+	// floor either side of the leaf at the door's height instead.
+	if (tile >= 0) {
+		s32 side[2] = { -1, -1 };
+		f32 sidey[2];
+		struct coord at[2];
+
+		for (s32 s = 0; s < 2; s++) {
+			const f32 sign = s == 0 ? 1.0f : -1.0f;
+
+			for (f32 d = 10.0f; d <= 60.0f && side[s] < 0; d += 10.0f) {
+				const f32 x = centre->x + nx * d * sign, z = centre->z + nz * d * sign;
+				const s32 t = stanTileUnderPrefer(x, z, padpos->y + 5.0f, GESTAN_RISE, -1);
+
+				if (t >= 0) {
+					side[s] = t;
+					sidey[s] = stanSurface(&g_Stan.tiles[t], x, z);
+					at[s].x = x;
+					at[s].y = centre->y;
+					at[s].z = z;
+				}
+			}
+		}
+
+		if (side[0] >= 0 && side[1] >= 0
+				&& tile >= 0
+				&& sidey[0] - stanSurface(&g_Stan.tiles[tile], padpos->x, padpos->z) > GESTAN_RISE
+				&& sidey[1] - stanSurface(&g_Stan.tiles[tile], padpos->x, padpos->z) > GESTAN_RISE) {
+			*pt1 = at[0];
+			*pt2 = at[1];
+			*room1 = g_Stan.tiles[side[0]].room;
+			*room2 = g_Stan.tiles[side[1]].room;
+
+			if (*room2 == *room1) {
+				*room2 = -1;
+			}
+
+			return true;
+		}
+	}
+
 	if (tile < 0) {
 		return false;
 	}
