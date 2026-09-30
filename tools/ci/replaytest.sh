@@ -34,6 +34,11 @@
 # pass --skip-cutscenes: Attack Ship's opening runs past frame 1400, and a
 # case that hashes only a cutscene tests very little.
 #
+# Goldens recorded before merge/f3-0930b (b937e8f6f) are stale for gesolo: Bond's
+# body is GoldenEye's 0.97 since 59ec20502, which moves the player's prop y
+# and so the hash from frame 600 on Dam. Re-record gesolo (CASES=gesolo record)
+# from a build that has it; every other case is unchanged by it.
+#
 # Exit status: 0 identical, 1 a divergence, 2 a run that failed.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
