@@ -1489,6 +1489,25 @@ static void frontBuildCharacters(void)
 		}
 	}
 
+	// Bond first, as GoldenEye's own list has him (front.c's mp_chr_setup):
+	// the Combat Simulator's bodies put the Bonds after the cast and two
+	// guards (F3 20260930-011623). His outfits follow him, the tuxedo first,
+	// and everyone else keeps their order.
+	{
+		s32 bonds = 0;
+
+		for (s32 k = 0; k < g_Front.numcharacters; k++) {
+			const char *name = frontCharacterName(g_Front.characters[k]);
+
+			if (name && strncmp(name, "Bond", 4) == 0) {
+				const s32 body = g_Front.characters[k];
+
+				memmove(&g_Front.characters[bonds + 1], &g_Front.characters[bonds], (k - bonds) * sizeof(g_Front.characters[0]));
+				g_Front.characters[bonds++] = body;
+			}
+		}
+	}
+
 	if (g_Front.numcharacters == 0) {
 		for (s32 i = 0; i < g_MpListCounts.bodies && g_Front.numcharacters < MAX_CHARACTERS; i++) {
 			if (challengeIsFeatureUnlocked(g_MpBodies[i].requirefeature)) {
@@ -2046,11 +2065,48 @@ static void frontCursorToMouse(s32 mx, s32 my)
 	if (g_Front.cursory < 20) g_Front.cursory = 20;
 }
 
+/**
+ * The stick GoldenEye's screens read, as the port's own menus read it
+ * (menu.c): whichever of the pad's two sticks is pushed further. The port's
+ * default Swap Sticks puts a pad's left stick on the second stick, which
+ * walks in play, so reading the first alone moved GoldenEye's cursor by the
+ * right stick only (F3 20260930-012504).
+ */
+static s32 frontBiggerStick(s32 a, s32 b)
+{
+	return (a < 0 ? -a : a) >= (b < 0 ? -b : b) ? a : b;
+}
+
+s32 gexMenuStickX(s32 player)
+{
+	return frontBiggerStick(joyGetStickX(player), joyGetRStickX(player));
+}
+
+s32 gexMenuStickY(s32 player)
+{
+	return frontBiggerStick(joyGetStickY(player), joyGetRStickY(player));
+}
+
 static void frontMoveCursor(void)
 {
 	// frontUpdateControlStickPosition(): a 5 dead zone, 70 at most
-	s32 stickx = joyGetStickX(0);
-	s32 sticky = -joyGetStickY(0);
+	s32 stickx = gexMenuStickX(0);
+	s32 sticky = -gexMenuStickY(0);
+	// and the D-pad, which the default binds put on the C buttons (the
+	// keyboard's WASD beside it), as the stick pushed all the way
+	const u32 dpad = joyGetButtons(0, U_CBUTTONS | D_CBUTTONS | L_CBUTTONS | R_CBUTTONS);
+
+	if (dpad & L_CBUTTONS) {
+		stickx = -80;
+	} else if (dpad & R_CBUTTONS) {
+		stickx = 80;
+	}
+
+	if (dpad & U_CBUTTONS) {
+		sticky = -80;
+	} else if (dpad & D_CBUTTONS) {
+		sticky = 80;
+	}
 	const f32 frames = g_Vars.diffframe60freal;
 	s32 mx;
 	s32 my;
@@ -2676,7 +2732,7 @@ static void frontTickPlayerPanels(void)
 	s32 ready = 0;
 
 	for (s32 i = 0; i < numplayers; i++) {
-		const s32 stickx = joyGetStickX(i);
+		const s32 stickx = gexMenuStickX(i);
 		const s32 left = joyGetButtonsPressedThisFrame(i, L_JPAD | L_CBUTTONS) || (stickx < -30 && g_Front.stickarmed[i]);
 		const s32 right = joyGetButtonsPressedThisFrame(i, R_JPAD | R_CBUTTONS) || (stickx > 30 && g_Front.stickarmed[i]);
 		const s32 pick = joyGetButtonsPressedThisFrame(i, A_BUTTON | Z_TRIG | START_BUTTON | (i == 0 ? BUTTON_UI_ACCEPT : 0))
@@ -2746,7 +2802,7 @@ static void frontTickCharacters(void)
 	s32 ready = 0;
 
 	for (s32 i = 0; i < numplayers; i++) {
-		const s32 stickx = joyGetStickX(i);
+		const s32 stickx = gexMenuStickX(i);
 		const s32 left = joyGetButtonsPressedThisFrame(i, L_JPAD | L_CBUTTONS) || (stickx < -30 && g_Front.stickarmed[i]);
 		const s32 right = joyGetButtonsPressedThisFrame(i, R_JPAD | R_CBUTTONS) || (stickx > 30 && g_Front.stickarmed[i]);
 		const s32 pick = joyGetButtonsPressedThisFrame(i, A_BUTTON | Z_TRIG | START_BUTTON | (i == 0 ? BUTTON_UI_ACCEPT : 0))
@@ -2961,7 +3017,12 @@ static void frontTick007(s32 pick, s32 back, s32 held)
 {
 	if (!held) {
 		g_Front.sliderheld = -1;
+	}
 
+	// frontTickScreen() clears the highlight every frame, so it is found
+	// again on the press's own frame too, or the press took no slider and
+	// none of them could be dragged (F3 20260930-010020)
+	if (g_Front.sliderheld < 0) {
 		if (!g_Front.tabprev && !g_Front.tabnext && !g_Front.tabstart) {
 			const s32 y = (s32)g_Front.cursory;
 
@@ -4890,6 +4951,14 @@ static Gfx *frontImageOrRelease(Gfx *gdl, const char *name, s32 num, s32 width, 
 		}
 
 		texSelect(&gdl, &tex, 1, 0, 2, 1, NULL);
+
+		// The release's pictures are stored bottom row first, as its
+		// portraits are drawn (frontPortraitDraw()); the Level page's stage
+		// pictures came out upside down (F3 20260930-011519). A strip of
+		// holes is the same both ways up and keeps its rows where they are.
+		if (!wrap) {
+			theight = -theight;
+		}
 
 		return frontImageRect(gdl, cx, cy, hw, hh, twidth * FRONT_PICTURE_TEXELS / width,
 				theight * FRONT_PICTURE_TEXELS / height, colour, translucent, true);

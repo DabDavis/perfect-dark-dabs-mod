@@ -1308,7 +1308,7 @@ static void watchTickStatic(void)
 		// frames after they let go of it eases back to rest
 		{
 			const s32 held = g_Watch.page == PAGE_CONTROL && g_Watch.selected && g_Watch.controlrow == 1;
-			const s32 stickx = joyGetStickX(0);
+			const s32 stickx = gexMenuStickX(0);
 
 			if (held && (stickx >= 10 || stickx < -9)) {
 				g_Watch.padidle = 0;
@@ -1335,7 +1335,7 @@ static void watchTickStatic(void)
 		// while they have hold of it, and back when they let go
 		{
 			const s32 held = g_Watch.page == PAGE_CONTROL && g_Watch.selected && g_Watch.controlrow == 1;
-			const f32 target = held ? (f32)joyGetStickY(0) * M_BADTAU / 360.0f : 0.0f;
+			const f32 target = held ? (f32)gexMenuStickY(0) * M_BADTAU / 360.0f : 0.0f;
 
 			g_Watch.padpitch += (target - g_Watch.padpitch) / 4.0f;
 		}
@@ -1843,8 +1843,8 @@ s32 geWatchPause(void)
  */
 static void watchTickLatches(void)
 {
-	const s32 x = joyGetStickX(0);
-	const s32 y = joyGetStickY(0);
+	const s32 x = gexMenuStickX(0);
+	const s32 y = gexMenuStickY(0);
 
 	if (x >= -0xa && x < 0xb) {
 		g_Watch.lrready = 1;
@@ -1857,22 +1857,22 @@ static void watchTickLatches(void)
 
 static s32 watchStickLeft(void)
 {
-	return joyGetStickX(0) < -0x2d && g_Watch.lrready;
+	return gexMenuStickX(0) < -0x2d && g_Watch.lrready;
 }
 
 static s32 watchStickRight(void)
 {
-	return joyGetStickX(0) >= 0x2e && g_Watch.lrready;
+	return gexMenuStickX(0) >= 0x2e && g_Watch.lrready;
 }
 
 static s32 watchStickUp(void)
 {
-	return joyGetStickY(0) >= 0x2e && g_Watch.yready;
+	return gexMenuStickY(0) >= 0x2e && g_Watch.yready;
 }
 
 static s32 watchStickDown(void)
 {
-	return joyGetStickY(0) < -0x2d && g_Watch.yready;
+	return gexMenuStickY(0) < -0x2d && g_Watch.yready;
 }
 
 static s32 watchPressedUp(void)
@@ -1923,7 +1923,7 @@ static s32 watchPressedStart(void)
 
 static void watchListNav(f32 *cursor, s32 *index, s32 count, s32 *texty, s32 top, s32 line, s32 *settled)
 {
-	const s32 sticky = joyGetStickY(0);
+	const s32 sticky = gexMenuStickY(0);
 	s32 target;
 	s32 ticks = 0;
 
@@ -2094,7 +2094,7 @@ static void watchAdjustVolume(s32 row)
 {
 	s32 v = row == 0 ? (s32)optionsGetMusicVolume() : (s32)VOLUME(g_SfxVolume);
 	const s32 old = v;
-	s32 x = joyGetStickX(0);
+	s32 x = gexMenuStickX(0);
 
 	if (joyGetButtons(0, R_CBUTTONS | R_TRIG | R_JPAD)) {
 		v += (s32)(1024 * VOL_SCALE);
@@ -2244,9 +2244,9 @@ static void watchTickInput(void)
 		if (g_Watch.selected) {
 			// held, not pressed: the stick or a right button to CONFIRM, the
 			// left ones back to CANCEL (draw_abort_cancel_confirm())
-			if (!g_Watch.confirm && (joyGetStickX(0) >= 0x2e || joyGetButtons(0, R_JPAD | R_TRIG | R_CBUTTONS))) {
+			if (!g_Watch.confirm && (gexMenuStickX(0) >= 0x2e || joyGetButtons(0, R_JPAD | R_TRIG | R_CBUTTONS))) {
 				g_Watch.confirm = 1;
-			} else if (g_Watch.confirm && (joyGetStickX(0) < -0x2d || joyGetButtons(0, L_JPAD | L_TRIG | L_CBUTTONS))) {
+			} else if (g_Watch.confirm && (gexMenuStickX(0) < -0x2d || joyGetButtons(0, L_JPAD | L_TRIG | L_CBUTTONS))) {
 				g_Watch.confirm = 0;
 			}
 
@@ -4684,8 +4684,8 @@ static const f32 g_PadButtonPos[13][3] = {
 static void watchPadStickLean(Mtxf *out)
 {
 	Mtxf rx;
-	f32 x = joyGetStickX(0);
-	f32 y = joyGetStickY(0);
+	f32 x = gexMenuStickX(0);
+	f32 y = gexMenuStickY(0);
 	const f32 ax = fabsf(x);
 	const f32 ay = fabsf(y);
 	const f32 big = ax > ay ? ax : ay;
@@ -5813,7 +5813,7 @@ static void watchMpTick(void)
 {
 	const s32 num = g_Vars.currentplayernum;
 	const s32 pad = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
-	const s32 stickx = joyGetStickX(pad);
+	const s32 stickx = gexMenuStickX(pad);
 	const s32 left = joyGetButtonsPressedThisFrame(pad, L_JPAD | L_CBUTTONS | L_TRIG) != 0
 		|| (stickx < -0x2d && !g_MpWatch[num].sticky);
 	const s32 right = joyGetButtonsPressedThisFrame(pad, R_JPAD | R_CBUTTONS | R_TRIG) != 0
