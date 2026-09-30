@@ -1,6 +1,6 @@
 """The GoldenEye -> Perfect Dark AI command map.
 
-Started by .xbla-work/ge-arena/genaitable.py - read that for how each row was
+Started by tools/geconvert/fit/genaitable.py - read that for how each row was
 first found - and **kept by hand since**: the generator there is older than this
 table (it has no PlayAnimation row, no chr flags bank and CHR_BOND as 0x00f8)
 and running it would throw away every row read since. This file and

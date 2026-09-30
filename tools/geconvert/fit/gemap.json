@@ -1,0 +1,5857 @@
+{
+ "armourguard": {
+  "Cofficeworker2Z": {
+   "arrays": 8,
+   "joints": {
+    "14": 1,
+    "15": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 10,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "15": 1,
+    "13": 2,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 9,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 9,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 13,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "9": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 24,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 9,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 16,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 1,
+    "15": 1,
+    "13": 2,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 9,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "12": 1,
+    "13": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  }
+ },
+ "baronsamedi": {
+  "CdarksnowZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CddsniperZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cheaddark_snowZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  },
+  "Cheadduncan2Z": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  },
+  "Cheadmark2Z": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "bluecamguard": {
+  "Cofficeworker2Z": {
+   "arrays": 20,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 2,
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 11,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "14": 1,
+    "12": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 17,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 16,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 9,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "14": 1,
+    "12": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 10,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "14": 1,
+    "12": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 18,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 2,
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 12,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "14": 1,
+    "12": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 16,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 4,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  }
+ },
+ "blueman": {
+  "CjonathonZ": {
+   "arrays": 3,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "2": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 11,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "1": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 11,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "1": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "3": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 11,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "1": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 11,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "1": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 10,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "1": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 4,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "3": 1,
+    "2": 1
+   }
+  },
+  "Cofficeworker2Z": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  }
+ },
+ "bluewoman": {
+  "CstewardessZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CfemlabtechZ": {
+   "arrays": 13,
+   "joints": {
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "1": 1
+   }
+  }
+ },
+ "boilerbond": {
+  "CoverallZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CdjbondZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CpresidentZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "Cdark_negotiatorZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CofficeworkerZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CdaltonZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CcarringtonZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CmooreZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "Cdark_leatherZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CconneryZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  }
+ },
+ "boilertrev": {
+  "CtrentZ": {
+   "arrays": 24,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CmrblondeZ": {
+   "arrays": 12,
+   "joints": {
+    "14": 1,
+    "10": 1,
+    "15": 1,
+    "11": 1,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 1,
+    "8": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CheadmrblondeZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  }
+ },
+ "boris": {
+  "ClabtechZ": {
+   "arrays": 24,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CheadgrahamZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "camguard": {
+  "Cofficeworker2Z": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 20,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 2,
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 9,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 15,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 7,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 8,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 16,
+   "joints": {
+    "15": 1,
+    "11": 2,
+    "14": 1,
+    "10": 2,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 10,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 5,
+   "joints": {
+    "6": 1,
+    "4": 1,
+    "7": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  }
+ },
+ "cardiman": {
+  "CjonathonZ": {
+   "arrays": 2,
+   "joints": {
+    "15": 1,
+    "14": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 12,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 13,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 4,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "3": 1,
+    "2": 1
+   }
+  },
+  "Cofficeworker2Z": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  }
+ },
+ "checkman": {
+  "CjonathonZ": {
+   "arrays": 2,
+   "joints": {
+    "15": 1,
+    "14": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 13,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 13,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 11,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 13,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 13,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 3,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "2": 1
+   }
+  }
+ },
+ "commguard": {
+  "Cofficeworker2Z": {
+   "arrays": 15,
+   "joints": {
+    "15": 1,
+    "11": 2,
+    "14": 1,
+    "10": 2,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 17,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 2,
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 10,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "14": 1,
+    "12": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 16,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "3": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 13,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 8,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "14": 1,
+    "12": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 9,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "14": 1,
+    "12": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "3": 1,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CstripesZ": {
+   "arrays": 11,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "14": 1,
+    "12": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 16,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "3": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 4,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "3": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "3": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "3": 1
+   }
+  }
+ },
+ "djbond": {
+  "CdjbondZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cdark_negotiatorZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CdaltonZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CmooreZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cdark_leatherZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CpresidentZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CofficeworkerZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CcarringtonZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CoverallZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CconneryZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  }
+ },
+ "fattechwoman": {
+  "CstewardessZ": {
+   "arrays": 13,
+   "joints": {
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "1": 1
+   }
+  },
+  "CfemlabtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  }
+ },
+ "greatguard": {
+  "Cdd_guardZ": {
+   "arrays": 18,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cofficeworker2Z": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 6,
+   "joints": {
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "8": 1,
+    "4": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  }
+ },
+ "greatguard2": {
+  "Cdd_guardZ": {
+   "arrays": 23,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 17,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 6,
+   "joints": {
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2
+   }
+  },
+  "Cofficeworker2Z": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "8": 1,
+    "4": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  }
+ },
+ "greyguard": {
+  "CjonathonZ": {
+   "arrays": 23,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 5,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 6,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "3": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 5,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 5,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 5,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 6,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "3": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 2,
+   "joints": {
+    "15": 1,
+    "14": 1
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 7,
+   "joints": {
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2,
+    "2": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 7,
+   "joints": {
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2,
+    "2": 1
+   }
+  },
+  "Cofficeworker2Z": {
+   "arrays": 5,
+   "joints": {
+    "7": 1,
+    "5": 1,
+    "6": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 4,
+   "joints": {
+    "5": 1,
+    "8": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  }
+ },
+ "greyman": {
+  "CciaguyZ": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1,
+    "1": 1
+   }
+  }
+ },
+ "headalan": {
+  "CheaddavecZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  }
+ },
+ "headb": {
+  "Cheadfem_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadbiotechZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadjonesZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  }
+ },
+ "headbalaclava": {
+  "Cheadfem_guardZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadbiotechZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadjonesZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headbike": {
+  "Cnew6-------Z": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headbrosnan": {
+  "CheadcarringtonZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headbrosnanboiler": {
+  "CheadpennyZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadjonZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadtrentZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "Cheadneil2Z": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headbrosnansnow": {},
+ "headbrosnansuit": {
+  "Ca51faceplateZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadmotoZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headbrosnantimber": {},
+ "headchris": {
+  "CheadgrantZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadgarethZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadpryceZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "Cheadben_rZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  }
+ },
+ "headdave": {
+  "Cheadandy_rZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadjoelZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadjulianneZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadtimZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "Cheadscott_hZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headdes": {
+  "CheadwongZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  }
+ },
+ "headduncan": {
+  "Cheadpeer_sZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadcookZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headdwayne": {
+  "Cnew2------Z": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "Cnew4-----Z": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadmuntonZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "Cnew5----Z": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "Cnew3-----Z": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headgraham": {
+  "CheadwinnerZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadtintinZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadkeithZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadgriffeyZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "Cheadandy_rZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadjoelZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadjulianneZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadchristZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadtimZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "Cheadscott_hZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headgrant": {
+  "CheadcarterZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headjim": {
+  "Cheadsteve_kZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadlauraZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  }
+ },
+ "headjoe": {
+  "CheadwinnerZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadtintinZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadkeithZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadgriffeyZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  }
+ },
+ "headjoe2": {
+  "CheadwinnerZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadtintinZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadkeithZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadgriffeyZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "Cheadandy_rZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadjoelZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadjulianneZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadchristZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadtimZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "Cheadscott_hZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headjoel": {
+  "CheadsanchezZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headkarl": {
+  "CheadphelpsZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadddsniperZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headken": {
+  "CheadgarethZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadpryceZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadgrantZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "Cheadben_rZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headlee": {
+  "Cheadandy_rZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadjoelZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadjulianneZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadtimZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "Cheadscott_hZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headmandy": {
+  "CheadankaZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headmarion": {
+  "Cheadleslie_sZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headmark": {
+  "CheadsilkeZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  }
+ },
+ "headmartin": {
+  "CheadstamperZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headmishkin": {
+  "CheadpresidentZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headneil": {
+  "CheadsmithZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  }
+ },
+ "headpete": {
+  "CheadjamieZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadrobinZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headrobin": {
+  "CheadrossZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  }
+ },
+ "headsally": {
+  "Cheadeileen_tZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headscott": {
+  "Cheadandy_rZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadjoelZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadjulianneZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadtimZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "Cheadscott_hZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headshaun": {
+  "Cheadandy_rZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadjoelZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadjulianneZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "CheadtimZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  },
+  "Cheadscott_hZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headstevee": {
+  "CheadgrantZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "CheadgarethZ": {
+   "arrays": 3,
+   "joints": {
+    "None": 3
+   }
+  },
+  "CheadpryceZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  },
+  "Cheadben_rZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "headsteveh": {
+  "CheadmurchieZ": {
+   "arrays": 2,
+   "joints": {
+    "None": 2
+   }
+  }
+ },
+ "headvivien": {
+  "Cheadeileen_hZ": {
+   "arrays": 1,
+   "joints": {
+    "None": 1
+   }
+  }
+ },
+ "jaws": {
+  "CcarreveningsuitZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CheadsecretaryZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "jeanwoman": {
+  "Cfem_guardZ": {
+   "arrays": 13,
+   "joints": {
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "1": 1
+   }
+  },
+  "Cdark_combatZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CdarklabZ": {
+   "arrays": 9,
+   "joints": {
+    "3": 1,
+    "8": 1,
+    "9": 1,
+    "2": 1,
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "1": 1
+   }
+  },
+  "CcifemtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  }
+ },
+ "mayday": {
+  "Cstewardess_coatZ": {
+   "arrays": 23,
+   "joints": {
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "3": 1,
+    "2": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "1": 2
+   }
+  },
+  "CheadalexZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "moonfemale": {
+  "Cfem_guardZ": {
+   "arrays": 10,
+   "joints": {
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "9": 1,
+    "2": 1,
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "1": 1
+   }
+  },
+  "Cdark_combatZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CdarklabZ": {
+   "arrays": 14,
+   "joints": {
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "1": 1
+   }
+  },
+  "CcifemtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  }
+ },
+ "moonguard": {
+  "Cofficeworker2Z": {
+   "arrays": 9,
+   "joints": {
+    "14": 1,
+    "15": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 2
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 11,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 2
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 16,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 12,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 12,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 24,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 13,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "9": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 10,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 2
+   }
+  },
+  "CstripesZ": {
+   "arrays": 18,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "15": 1,
+    "13": 1,
+    "11": 2,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 12,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 2
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 5,
+   "joints": {
+    "12": 1,
+    "13": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  }
+ },
+ "natalya": {
+  "CsecretaryZ": {
+   "arrays": 23,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CnegotiatorZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "2": 2,
+    "1": 1
+   }
+  },
+  "Chead_vdZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "navyguard": {
+  "Cofficeworker2Z": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 16,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 13,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 17,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 2,
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 11,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 9,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "14": 1,
+    "12": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 14,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2
+   }
+  },
+  "CstripesZ": {
+   "arrays": 13,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 16,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 2,
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 4,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 2,
+   "joints": {
+    "4": 1,
+    "5": 1
+   }
+  }
+ },
+ "oddjob": {
+  "Cdark_frockZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 1
+   }
+  },
+  "CstewardZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 1
+   }
+  },
+  "CheadrobertZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "oliveguard": {
+  "Cofficeworker2Z": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "10": 1,
+    "15": 1,
+    "11": 1,
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 15,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "11": 1,
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 10,
+   "joints": {
+    "14": 1,
+    "10": 1,
+    "15": 1,
+    "11": 1,
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 23,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 15,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "15": 1,
+    "11": 2,
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 9,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "11": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "4": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 7,
+   "joints": {
+    "14": 1,
+    "15": 1,
+    "9": 1,
+    "5": 1,
+    "8": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 11,
+   "joints": {
+    "14": 1,
+    "10": 1,
+    "15": 1,
+    "11": 1,
+    "9": 1,
+    "5": 2,
+    "8": 1,
+    "4": 2,
+    "2": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 22,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 5,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 3,
+   "joints": {
+    "3": 1,
+    "5": 1,
+    "4": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 2,
+   "joints": {
+    "5": 1,
+    "4": 1
+   }
+  }
+ },
+ "orumov": {
+  "Cg5_guardZ": {
+   "arrays": 23,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CheadthekingZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  },
+  "CheadstevemZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "pilot": {
+  "Cofficeworker2Z": {
+   "arrays": 11,
+   "joints": {
+    "14": 1,
+    "15": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 13,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 23,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 17,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 1,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "15": 1,
+    "13": 2,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 12,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2
+   }
+  },
+  "CstripesZ": {
+   "arrays": 20,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 1,
+    "15": 1,
+    "13": 2,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 5,
+   "joints": {
+    "12": 1,
+    "13": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cheadfem_guardZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  }
+ },
+ "redman": {
+  "CjonathonZ": {
+   "arrays": 6,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "5": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 23,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "3": 1,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 21,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 2,
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 23,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 23,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "3": 1,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 3,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "2": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 10,
+   "joints": {
+    "13": 1,
+    "11": 1,
+    "12": 1,
+    "10": 1,
+    "7": 1,
+    "5": 1,
+    "6": 1,
+    "4": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "Cofficeworker2Z": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 4,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 4,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 4,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "3": 1,
+    "2": 1
+   }
+  }
+ },
+ "rusguard": {
+  "Cofficeworker2Z": {
+   "arrays": 9,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 9,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 7,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 10,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 8,
+   "joints": {
+    "15": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 5,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "8": 1,
+    "9": 1,
+    "2": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 7,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 11,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 7,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 12,
+   "joints": {
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "10": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  }
+ },
+ "snowbond": {
+  "CcarringtonZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  }
+ },
+ "snowguard": {
+  "Calaskan_guardZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 5,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 5,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 5,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 5,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 5,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 2,
+   "joints": {
+    "13": 1,
+    "12": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 5,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CstripesZ": {
+   "arrays": 5,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 5,
+   "joints": {
+    "13": 1,
+    "12": 1,
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cheadfem_guard2Z": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  },
+  "Cofficeworker2Z": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 4,
+   "joints": {
+    "5": 1,
+    "8": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 4,
+   "joints": {
+    "5": 1,
+    "8": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 4,
+   "joints": {
+    "5": 1,
+    "8": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 3,
+   "joints": {
+    "5": 1,
+    "4": 1,
+    "2": 1
+   }
+  }
+ },
+ "spicebond": {
+  "CnegotiatorZ": {
+   "arrays": 23,
+   "joints": {
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "3": 1,
+    "2": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "1": 2
+   }
+  },
+  "CsecretaryZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "2": 2,
+    "1": 1
+   }
+  },
+  "Chead_vdZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "suit_lf_hand": {},
+ "suitbond": {
+  "CpresidentZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CconneryZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CdjbondZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "Cdark_negotiatorZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CofficeworkerZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CdaltonZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CcarringtonZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CmooreZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "Cdark_leatherZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CoverallZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  }
+ },
+ "techman": {
+  "CjonathonZ": {
+   "arrays": 2,
+   "joints": {
+    "15": 1,
+    "14": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 3,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "2": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 3,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "2": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 3,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "2": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 3,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "2": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 3,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "2": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 3,
+   "joints": {
+    "15": 1,
+    "14": 1,
+    "2": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 22,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 1
+   }
+  }
+ },
+ "techwoman": {
+  "Cfem_guardZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "Cdark_combatZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CdarklabZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CcifemtechZ": {
+   "arrays": 13,
+   "joints": {
+    "3": 1,
+    "8": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "1": 1
+   }
+  }
+ },
+ "timberbond": {
+  "CofficeworkerZ": {
+   "arrays": 25,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CdjbondZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CpresidentZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "Cdark_negotiatorZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CdaltonZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CcarringtonZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CmooreZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "Cdark_leatherZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CoverallZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  },
+  "CconneryZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 1,
+    "2": 1
+   }
+  }
+ },
+ "trevelyan": {
+  "CtrentZ": {
+   "arrays": 11,
+   "joints": {
+    "14": 1,
+    "10": 1,
+    "15": 1,
+    "11": 1,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 1,
+    "8": 1,
+    "4": 1,
+    "2": 1
+   }
+  },
+  "CmrblondeZ": {
+   "arrays": 23,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "3": 1,
+    "9": 1,
+    "7": 2,
+    "5": 2,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "2": 2,
+    "1": 1
+   }
+  },
+  "CheadmrblondeZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "trevguard": {
+  "Cofficeworker2Z": {
+   "arrays": 11,
+   "joints": {
+    "14": 1,
+    "15": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2
+   }
+  },
+  "Cdd_shock_infZ": {
+   "arrays": 13,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2
+   }
+  },
+  "Cpilotaf1Z": {
+   "arrays": 20,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 1,
+    "15": 1,
+    "13": 2,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CbiotechZ": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1
+   }
+  },
+  "Carea51guardZ": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 1
+   }
+  },
+  "Cnsa_lackeyZ": {
+   "arrays": 19,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "15": 1,
+    "13": 1,
+    "11": 2,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "5": 1,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpres_securityZ": {
+   "arrays": 16,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 1,
+    "15": 1,
+    "13": 2,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 1,
+    "9": 1,
+    "5": 1,
+    "2": 1,
+    "1": 1
+   }
+  },
+  "CcilabtechZ": {
+   "arrays": 12,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "15": 1,
+    "13": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2
+   }
+  },
+  "CstripesZ": {
+   "arrays": 24,
+   "joints": {
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "3": 1,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cpelagic_guardZ": {
+   "arrays": 14,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 1,
+    "15": 1,
+    "13": 1,
+    "11": 1,
+    "8": 1,
+    "4": 2,
+    "9": 1,
+    "5": 2,
+    "2": 2
+   }
+  },
+  "Calaskan_guardZ": {
+   "arrays": 5,
+   "joints": {
+    "12": 1,
+    "13": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CtestchrZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_secguardZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Ca51trooperZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Ca51airmanZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cpresident_cloneZ": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cnew1-------Z": {
+   "arrays": 4,
+   "joints": {
+    "3": 1,
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_labtechZ": {
+   "arrays": 1,
+   "joints": {
+    "3": 1
+   }
+  },
+  "CjonathonZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CciaguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "Cdd_guardZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  },
+  "CfbiguyZ": {
+   "arrays": 3,
+   "joints": {
+    "4": 1,
+    "5": 1,
+    "2": 1
+   }
+  }
+ },
+ "valentin": {
+  "Cdark_trenchZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "Cg5_swat_guardZ": {
+   "arrays": 24,
+   "joints": {
+    "15": 1,
+    "13": 2,
+    "11": 2,
+    "14": 1,
+    "12": 2,
+    "10": 2,
+    "3": 1,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "8": 1,
+    "6": 2,
+    "4": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CheadkenZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "xenia": {
+  "CcassandraZ": {
+   "arrays": 21,
+   "joints": {
+    "14": 1,
+    "12": 1,
+    "10": 2,
+    "15": 1,
+    "13": 2,
+    "11": 1,
+    "3": 1,
+    "8": 1,
+    "6": 1,
+    "4": 2,
+    "9": 1,
+    "7": 1,
+    "5": 2,
+    "2": 2,
+    "1": 2
+   }
+  },
+  "CheadcassandraZ": {
+   "arrays": 2,
+   "joints": {
+    "3": 2
+   }
+  }
+ },
+ "_arrays": {
+  "armourguard": 25,
+  "baronsamedi": 27,
+  "bluecamguard": 25,
+  "blueman": 15,
+  "bluewoman": 15,
+  "boilerbond": 25,
+  "boilertrev": 27,
+  "boris": 27,
+  "camguard": 25,
+  "cardiman": 15,
+  "checkman": 15,
+  "commguard": 25,
+  "djbond": 25,
+  "fattechwoman": 15,
+  "greatguard": 25,
+  "greatguard2": 25,
+  "greyguard": 25,
+  "greyman": 15,
+  "headalan": 3,
+  "headb": 3,
+  "headbalaclava": 1,
+  "headbike": 1,
+  "headbrosnan": 1,
+  "headbrosnanboiler": 1,
+  "headbrosnansnow": 1,
+  "headbrosnansuit": 2,
+  "headbrosnantimber": 1,
+  "headchris": 3,
+  "headdave": 3,
+  "headdes": 3,
+  "headduncan": 3,
+  "headdwayne": 3,
+  "headgraham": 3,
+  "headgrant": 3,
+  "headjim": 3,
+  "headjoe": 3,
+  "headjoe2": 2,
+  "headjoel": 3,
+  "headkarl": 3,
+  "headken": 3,
+  "headlee": 3,
+  "headmandy": 1,
+  "headmarion": 1,
+  "headmark": 3,
+  "headmartin": 3,
+  "headmishkin": 1,
+  "headneil": 3,
+  "headpete": 3,
+  "headrobin": 3,
+  "headsally": 1,
+  "headscott": 3,
+  "headshaun": 3,
+  "headstevee": 3,
+  "headsteveh": 3,
+  "headvivien": 1,
+  "jaws": 27,
+  "jeanwoman": 15,
+  "mayday": 27,
+  "moonfemale": 15,
+  "moonguard": 25,
+  "natalya": 27,
+  "navyguard": 25,
+  "oddjob": 27,
+  "oliveguard": 25,
+  "orumov": 27,
+  "pilot": 27,
+  "redman": 25,
+  "rusguard": 15,
+  "snowbond": 27,
+  "snowguard": 28,
+  "spicebond": 27,
+  "suit_lf_hand": 12,
+  "suitbond": 25,
+  "techman": 25,
+  "techwoman": 15,
+  "timberbond": 25,
+  "trevelyan": 27,
+  "trevguard": 25,
+  "valentin": 27,
+  "xenia": 27
+ }
+}

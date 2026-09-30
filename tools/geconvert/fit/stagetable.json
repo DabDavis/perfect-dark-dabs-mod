@@ -1,0 +1,322 @@
+[
+ {
+  "bg": "bg_ame",
+  "rooms": 137,
+  "hash": 3348387058,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_arec",
+  "rooms": 35,
+  "hash": 275652754,
+  "cover": 0.75,
+  "bean": "frigate",
+  "scale": 0.8214346384814911
+ },
+ {
+  "bg": "bg_ark",
+  "rooms": 22,
+  "hash": 16806220,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_ash",
+  "rooms": 95,
+  "hash": 692311157,
+  "cover": 0.4886666666666667,
+  "bean": "aztec",
+  "scale": 1.4753924554809308
+ },
+ {
+  "bg": "bg_azt",
+  "rooms": 57,
+  "hash": 2874541493,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_cave",
+  "rooms": 28,
+  "hash": 203431380,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_crad",
+  "rooms": 26,
+  "hash": 313064235,
+  "cover": 0.4553333333333333,
+  "bean": "aztec",
+  "scale": 1.4753501752669864
+ },
+ {
+  "bg": "bg_dam",
+  "rooms": 91,
+  "hash": 1917698882,
+  "cover": 0.13933333333333334,
+  "bean": "depot",
+  "scale": 0.8058223403184601
+ },
+ {
+  "bg": "bg_depo",
+  "rooms": 87,
+  "hash": 1312957681,
+  "cover": 0.7413333333333333,
+  "bean": "silo",
+  "scale": 0.6151382079338087
+ },
+ {
+  "bg": "bg_dest",
+  "rooms": 45,
+  "hash": 43253371,
+  "cover": 0.18866666666666668,
+  "bean": "temple",
+  "scale": 0.9210264848481017
+ },
+ {
+  "bg": "bg_ear",
+  "rooms": 80,
+  "hash": 250421950,
+  "cover": 0.9646666666666667,
+  "bean": "facility",
+  "scale": 0.5313197864994386
+ },
+ {
+  "bg": "bg_eld",
+  "rooms": 40,
+  "hash": 1516357961,
+  "cover": 0.7166666666666667,
+  "bean": "surface",
+  "scale": 0.497385721565419
+ },
+ {
+  "bg": "bg_imp",
+  "rooms": 45,
+  "hash": 1286882393,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_jun",
+  "rooms": 36,
+  "hash": 174368543,
+  "cover": 0.8913333333333333,
+  "bean": "archives",
+  "scale": 1.0724347252228186
+ },
+ {
+  "bg": "bg_lee",
+  "rooms": 92,
+  "hash": 867105015,
+  "cover": 0.8253333333333334,
+  "bean": "control",
+  "scale": 1.6165821872759778
+ },
+ {
+  "bg": "bg_lue",
+  "rooms": 60,
+  "hash": 2403873324,
+  "cover": 0.692,
+  "bean": "frigate",
+  "scale": 0.8214321282251996
+ },
+ {
+  "bg": "bg_mp1",
+  "rooms": 67,
+  "hash": 1686518303,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_mp10",
+  "rooms": 37,
+  "hash": 2757251303,
+  "cover": 0.9956584659913169,
+  "bean": "library",
+  "scale": 0.5739111016470813
+ },
+ {
+  "bg": "bg_mp11",
+  "rooms": 45,
+  "hash": 4064736710,
+  "cover": 0.19933333333333333,
+  "bean": "temple",
+  "scale": 0.9210276849495879
+ },
+ {
+  "bg": "bg_mp12",
+  "rooms": 53,
+  "hash": 3197363816,
+  "cover": 0.9826666666666667,
+  "bean": "library",
+  "scale": 0.5738959034382757
+ },
+ {
+  "bg": "bg_mp14",
+  "rooms": 26,
+  "hash": 3243396374,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_mp15",
+  "rooms": 33,
+  "hash": 1410417979,
+  "cover": 0.0013333333333333333,
+  "bean": "library",
+  "scale": 0.5711138287911072
+ },
+ {
+  "bg": "bg_mp16",
+  "rooms": 27,
+  "hash": 1356338384,
+  "cover": 0.84,
+  "bean": "archives",
+  "scale": 1.0724236532735623
+ },
+ {
+  "bg": "bg_mp18",
+  "rooms": 22,
+  "hash": 2688288581,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_mp19",
+  "rooms": 27,
+  "hash": 4012324679,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_mp2",
+  "rooms": 24,
+  "hash": 3706218175,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_mp20",
+  "rooms": 47,
+  "hash": 3449338118,
+  "cover": 0.0006666666666666666,
+  "bean": "library",
+  "scale": 0.0
+ },
+ {
+  "bg": "bg_mp3",
+  "rooms": 14,
+  "hash": 275534354,
+  "cover": 0.0006666666666666666,
+  "bean": "caves",
+  "scale": 0.7158308501236642
+ },
+ {
+  "bg": "bg_mp4",
+  "rooms": 93,
+  "hash": 878949925,
+  "cover": 0.9846666666666667,
+  "bean": "library",
+  "scale": 0.5738957840590618
+ },
+ {
+  "bg": "bg_mp5",
+  "rooms": 80,
+  "hash": 250421950,
+  "cover": 0.9706666666666667,
+  "bean": "facility",
+  "scale": 0.5313197352126292
+ },
+ {
+  "bg": "bg_mp8",
+  "rooms": 26,
+  "hash": 3565128609,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_mp9",
+  "rooms": 48,
+  "hash": 3732558086,
+  "cover": 0.454,
+  "bean": "cavern",
+  "scale": 0.5010755546741151
+ },
+ {
+  "bg": "bg_oat",
+  "rooms": 26,
+  "hash": 915020279,
+  "cover": 0.9233333333333333,
+  "bean": "multitemple",
+  "scale": 3.1193335995848397
+ },
+ {
+  "bg": "bg_pete",
+  "rooms": 33,
+  "hash": 1375909684,
+  "cover": 0.7846666666666666,
+  "bean": "bunker",
+  "scale": 0.429208357490064
+ },
+ {
+  "bg": "bg_ref",
+  "rooms": 45,
+  "hash": 4173743941,
+  "cover": 0.984,
+  "bean": "complex",
+  "scale": 0.4017414616749405
+ },
+ {
+  "bg": "bg_rit",
+  "rooms": 67,
+  "hash": 1540925240,
+  "cover": 0.7466666666666667,
+  "bean": "archives",
+  "scale": 1.0724123947784712
+ },
+ {
+  "bg": "bg_run",
+  "rooms": 58,
+  "hash": 2128876416,
+  "cover": 0,
+  "bean": null,
+  "scale": null
+ },
+ {
+  "bg": "bg_sho",
+  "rooms": 68,
+  "hash": 1668108027,
+  "cover": 0.4026666666666667,
+  "bean": "cavern",
+  "scale": 0.5010744875028088
+ },
+ {
+  "bg": "bg_tra",
+  "rooms": 71,
+  "hash": 552663436,
+  "cover": 0.858,
+  "bean": "bunker2",
+  "scale": 0.42920817883601814
+ },
+ {
+  "bg": "bg_wax",
+  "rooms": 39,
+  "hash": 3514232576,
+  "cover": 0.182,
+  "bean": "cradle",
+  "scale": 1.828756732854861
+ }
+]

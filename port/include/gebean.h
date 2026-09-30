@@ -22,7 +22,7 @@ struct modelnode;
  *
  * GoldenEye X keeps GoldenEye's N64 models under Perfect Dark's file names, so
  * a model is paired with Bean's by a table made offline (gebeantable.h, from
- * .xbla-work/ge-bean/gen_beantable.py): the file's name, and what its list
+ * tools/geconvert/fit/gen_beantable.py): the file's name, and what its list
  * nodes and vertices add up to, so a different mod's file of the same name is
  * left alone. What the pairing gives back is a mesh in 4J's own layout, which
  * xblamesh.c draws like one of the Perfect Dark release's: Bean's vertices

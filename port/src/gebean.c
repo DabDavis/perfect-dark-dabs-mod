@@ -8,7 +8,7 @@
  * .gpu section, a command stream in .stream naming a vertex buffer, a
  * material, a bone palette and a draw, and a 16 bone SKEL_* skeleton whose
  * bind is translation only. What this does with one is what
- * .xbla-work/ge-bean/bean2pack.py did offline, with the one step the OBJ
+ * tools/geconvert/fit/bean2pack.py did offline, with the one step the OBJ
  * could not carry kept: the weights. Each Bean bone is turned so its segment
  * lies along the matching joint of the N64 model's rest pose (which is a star:
  * arms out, legs splayed), the whole is scaled to the N64 skeleton, and every
@@ -472,7 +472,7 @@ static s32 gunSlot[ARRAYCOUNT(gunRows)];
  * The GoldenEye remake's props (its `models` block, MODEL_REMAKE_FIRST): each
  * of GoldenEye's own prop models, converted, with Bean's HD prop drawn on it
  * the way a pickup is (gebeanBuildRigid()), fitted offline on Bean's N64-look
- * copy (.xbla-work/ge-arena/propfit.py). In the HD look only: with the meshes
+ * copy (tools/geconvert/fit/propfit.py). In the HD look only: with the meshes
  * off the converted model is GoldenEye's own and draws itself.
  */
 #define PROPROW(file, source, p0, p1, p2, s0, s1, s2, scale, bx, by, bz, nx, ny, nz) \

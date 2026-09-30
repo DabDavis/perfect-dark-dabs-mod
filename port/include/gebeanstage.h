@@ -21,7 +21,7 @@ extern "C" {
  * 4J built the release on the cartridge's levels - and the conversion
  * (geconvert.c) is that same geometry in Perfect Dark's room format, so the
  * two are paired by GoldenEye's own name for the level and nothing else
- * (gebeanstagetable.h, from .xbla-work/ge-bean/gen_stagetable.py).
+ * (gebeanstagetable.h, from tools/geconvert/fit/gen_stagetable.py).
  *
  * When a paired level is running, the XBLA meshes and stages switches are on
  * and the release is here (gebeanGetEnabled()), every Bean triangle is dealt

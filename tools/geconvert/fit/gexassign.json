@@ -1,0 +1,2357 @@
+{
+ "Ca51airmanZ": {
+  "nodes": 25,
+  "best": "redman",
+  "score": 0.724,
+  "tied": [
+   "redman"
+  ],
+  "top": [
+   [
+    "redman",
+    21,
+    0.72
+   ],
+   [
+    "blueman",
+    14,
+    0.54
+   ],
+   [
+    "cardiman",
+    12,
+    0.43
+   ]
+  ]
+ },
+ "Ca51faceplateZ": {
+  "nodes": 2,
+  "best": "headbrosnansuit",
+  "score": 1.0,
+  "tied": [
+   "headbrosnansuit"
+  ],
+  "top": [
+   [
+    "headbrosnansuit",
+    2,
+    1.0
+   ]
+  ]
+ },
+ "Ca51trooperZ": {
+  "nodes": 25,
+  "best": "redman",
+  "score": 0.923,
+  "tied": [
+   "redman"
+  ],
+  "top": [
+   [
+    "redman",
+    24,
+    0.92
+   ],
+   [
+    "cardiman",
+    14,
+    0.54
+   ],
+   [
+    "checkman",
+    13,
+    0.48
+   ]
+  ]
+ },
+ "Calaskan_guardZ": {
+  "nodes": 25,
+  "best": "snowguard",
+  "score": 0.828,
+  "tied": [
+   "snowguard"
+  ],
+  "top": [
+   [
+    "snowguard",
+    24,
+    0.83
+   ],
+   [
+    "trevguard",
+    5,
+    0.11
+   ],
+   [
+    "moonguard",
+    5,
+    0.11
+   ]
+  ]
+ },
+ "Carea51guardZ": {
+  "nodes": 25,
+  "best": "navyguard",
+  "score": 0.923,
+  "tied": [
+   "navyguard"
+  ],
+  "top": [
+   [
+    "navyguard",
+    24,
+    0.92
+   ],
+   [
+    "bluecamguard",
+    16,
+    0.47
+   ],
+   [
+    "oliveguard",
+    15,
+    0.43
+   ]
+  ]
+ },
+ "CbiotechZ": {
+  "nodes": 25,
+  "best": "oliveguard",
+  "score": 0.852,
+  "tied": [
+   "oliveguard"
+  ],
+  "top": [
+   [
+    "oliveguard",
+    23,
+    0.85
+   ],
+   [
+    "navyguard",
+    17,
+    0.52
+   ],
+   [
+    "bluecamguard",
+    17,
+    0.52
+   ]
+  ]
+ },
+ "CcarreveningsuitZ": {
+  "nodes": 25,
+  "best": "jaws",
+  "score": 0.857,
+  "tied": [
+   "jaws"
+  ],
+  "top": [
+   [
+    "jaws",
+    24,
+    0.86
+   ]
+  ]
+ },
+ "CcarringtonZ": {
+  "nodes": 25,
+  "best": "snowbond",
+  "score": 0.926,
+  "tied": [
+   "snowbond"
+  ],
+  "top": [
+   [
+    "snowbond",
+    25,
+    0.93
+   ],
+   [
+    "timberbond",
+    1,
+    0.02
+   ],
+   [
+    "suitbond",
+    1,
+    0.02
+   ]
+  ]
+ },
+ "CcassandraZ": {
+  "nodes": 25,
+  "best": "xenia",
+  "score": 0.677,
+  "tied": [
+   "xenia"
+  ],
+  "top": [
+   [
+    "xenia",
+    21,
+    0.68
+   ]
+  ]
+ },
+ "CciaguyZ": {
+  "nodes": 25,
+  "best": "greyman",
+  "score": 0.538,
+  "tied": [
+   "greyman"
+  ],
+  "top": [
+   [
+    "greyman",
+    14,
+    0.54
+   ],
+   [
+    "redman",
+    10,
+    0.25
+   ],
+   [
+    "trevguard",
+    3,
+    0.06
+   ]
+  ]
+ },
+ "CcifemtechZ": {
+  "nodes": 25,
+  "best": "techwoman",
+  "score": 0.481,
+  "tied": [
+   "techwoman"
+  ],
+  "top": [
+   [
+    "techwoman",
+    13,
+    0.48
+   ],
+   [
+    "moonfemale",
+    1,
+    0.03
+   ],
+   [
+    "jeanwoman",
+    1,
+    0.03
+   ]
+  ]
+ },
+ "CcilabtechZ": {
+  "nodes": 25,
+  "best": "commguard",
+  "score": 0.923,
+  "tied": [
+   "commguard"
+  ],
+  "top": [
+   [
+    "commguard",
+    24,
+    0.92
+   ],
+   [
+    "bluecamguard",
+    18,
+    0.56
+   ],
+   [
+    "camguard",
+    16,
+    0.47
+   ]
+  ]
+ },
+ "CconneryZ": {
+  "nodes": 25,
+  "best": "suitbond",
+  "score": 1.0,
+  "tied": [
+   "suitbond"
+  ],
+  "top": [
+   [
+    "suitbond",
+    25,
+    1.0
+   ],
+   [
+    "timberbond",
+    2,
+    0.04
+   ],
+   [
+    "djbond",
+    2,
+    0.04
+   ]
+  ]
+ },
+ "CdaltonZ": {
+  "nodes": 25,
+  "best": "djbond",
+  "score": 1.0,
+  "tied": [
+   "djbond"
+  ],
+  "top": [
+   [
+    "djbond",
+    25,
+    1.0
+   ],
+   [
+    "timberbond",
+    2,
+    0.04
+   ],
+   [
+    "suitbond",
+    2,
+    0.04
+   ]
+  ]
+ },
+ "Cdark_combatZ": {
+  "nodes": 15,
+  "best": "techwoman",
+  "score": 0.034,
+  "tied": [
+   "techwoman",
+   "moonfemale",
+   "jeanwoman"
+  ],
+  "top": [
+   [
+    "techwoman",
+    1,
+    0.03
+   ],
+   [
+    "moonfemale",
+    1,
+    0.03
+   ],
+   [
+    "jeanwoman",
+    1,
+    0.03
+   ]
+  ]
+ },
+ "Cdark_frockZ": {
+  "nodes": 25,
+  "best": "oddjob",
+  "score": 0.857,
+  "tied": [
+   "oddjob"
+  ],
+  "top": [
+   [
+    "oddjob",
+    24,
+    0.86
+   ]
+  ]
+ },
+ "Cdark_leatherZ": {
+  "nodes": 25,
+  "best": "djbond",
+  "score": 1.0,
+  "tied": [
+   "djbond"
+  ],
+  "top": [
+   [
+    "djbond",
+    25,
+    1.0
+   ],
+   [
+    "timberbond",
+    2,
+    0.04
+   ],
+   [
+    "suitbond",
+    2,
+    0.04
+   ]
+  ]
+ },
+ "Cdark_negotiatorZ": {
+  "nodes": 25,
+  "best": "djbond",
+  "score": 1.0,
+  "tied": [
+   "djbond"
+  ],
+  "top": [
+   [
+    "djbond",
+    25,
+    1.0
+   ],
+   [
+    "timberbond",
+    2,
+    0.04
+   ],
+   [
+    "suitbond",
+    2,
+    0.04
+   ]
+  ]
+ },
+ "Cdark_trenchZ": {
+  "nodes": 25,
+  "best": "valentin",
+  "score": 0.857,
+  "tied": [
+   "valentin"
+  ],
+  "top": [
+   [
+    "valentin",
+    24,
+    0.86
+   ]
+  ]
+ },
+ "CdarklabZ": {
+  "nodes": 25,
+  "best": "moonfemale",
+  "score": 0.538,
+  "tied": [
+   "moonfemale"
+  ],
+  "top": [
+   [
+    "moonfemale",
+    14,
+    0.54
+   ],
+   [
+    "jeanwoman",
+    9,
+    0.29
+   ],
+   [
+    "techwoman",
+    1,
+    0.03
+   ]
+  ]
+ },
+ "CdarksnowZ": {
+  "nodes": 25,
+  "best": "baronsamedi",
+  "score": 0.857,
+  "tied": [
+   "baronsamedi"
+  ],
+  "top": [
+   [
+    "baronsamedi",
+    24,
+    0.86
+   ]
+  ]
+ },
+ "Cdd_guardZ": {
+  "nodes": 25,
+  "best": "greatguard2",
+  "score": 0.852,
+  "tied": [
+   "greatguard2"
+  ],
+  "top": [
+   [
+    "greatguard2",
+    23,
+    0.85
+   ],
+   [
+    "greatguard",
+    18,
+    0.56
+   ],
+   [
+    "greyguard",
+    7,
+    0.16
+   ]
+  ]
+ },
+ "Cdd_labtechZ": {
+  "nodes": 25,
+  "best": "techman",
+  "score": 0.786,
+  "tied": [
+   "techman"
+  ],
+  "top": [
+   [
+    "techman",
+    22,
+    0.79
+   ],
+   [
+    "cardiman",
+    4,
+    0.11
+   ],
+   [
+    "blueman",
+    4,
+    0.11
+   ]
+  ]
+ },
+ "Cdd_secguardZ": {
+  "nodes": 25,
+  "best": "greatguard",
+  "score": 1.0,
+  "tied": [
+   "greatguard"
+  ],
+  "top": [
+   [
+    "greatguard",
+    25,
+    1.0
+   ],
+   [
+    "greatguard2",
+    17,
+    0.52
+   ],
+   [
+    "greyguard",
+    7,
+    0.16
+   ]
+  ]
+ },
+ "Cdd_shock_infZ": {
+  "nodes": 25,
+  "best": "bluecamguard",
+  "score": 0.923,
+  "tied": [
+   "bluecamguard"
+  ],
+  "top": [
+   [
+    "bluecamguard",
+    24,
+    0.92
+   ],
+   [
+    "camguard",
+    20,
+    0.67
+   ],
+   [
+    "commguard",
+    17,
+    0.52
+   ]
+  ]
+ },
+ "CddsniperZ": {
+  "nodes": 25,
+  "best": "baronsamedi",
+  "score": 0.857,
+  "tied": [
+   "baronsamedi"
+  ],
+  "top": [
+   [
+    "baronsamedi",
+    24,
+    0.86
+   ]
+  ]
+ },
+ "CdjbondZ": {
+  "nodes": 25,
+  "best": "djbond",
+  "score": 1.0,
+  "tied": [
+   "djbond"
+  ],
+  "top": [
+   [
+    "djbond",
+    25,
+    1.0
+   ],
+   [
+    "timberbond",
+    2,
+    0.04
+   ],
+   [
+    "suitbond",
+    2,
+    0.04
+   ]
+  ]
+ },
+ "CfbiguyZ": {
+  "nodes": 25,
+  "best": "redman",
+  "score": 0.923,
+  "tied": [
+   "redman"
+  ],
+  "top": [
+   [
+    "redman",
+    24,
+    0.92
+   ],
+   [
+    "checkman",
+    14,
+    0.54
+   ],
+   [
+    "cardiman",
+    13,
+    0.48
+   ]
+  ]
+ },
+ "Cfem_guardZ": {
+  "nodes": 25,
+  "best": "jeanwoman",
+  "score": 0.481,
+  "tied": [
+   "jeanwoman"
+  ],
+  "top": [
+   [
+    "jeanwoman",
+    13,
+    0.48
+   ],
+   [
+    "moonfemale",
+    10,
+    0.33
+   ],
+   [
+    "techwoman",
+    1,
+    0.03
+   ]
+  ]
+ },
+ "CfemlabtechZ": {
+  "nodes": 25,
+  "best": "bluewoman",
+  "score": 0.481,
+  "tied": [
+   "bluewoman"
+  ],
+  "top": [
+   [
+    "bluewoman",
+    13,
+    0.48
+   ],
+   [
+    "fattechwoman",
+    1,
+    0.03
+   ]
+  ]
+ },
+ "Cg5_guardZ": {
+  "nodes": 25,
+  "best": "orumov",
+  "score": 0.793,
+  "tied": [
+   "orumov"
+  ],
+  "top": [
+   [
+    "orumov",
+    23,
+    0.79
+   ]
+  ]
+ },
+ "Cg5_swat_guardZ": {
+  "nodes": 25,
+  "best": "valentin",
+  "score": 0.857,
+  "tied": [
+   "valentin"
+  ],
+  "top": [
+   [
+    "valentin",
+    24,
+    0.86
+   ]
+  ]
+ },
+ "Chead_vdZ": {
+  "nodes": 2,
+  "best": "spicebond",
+  "score": 0.074,
+  "tied": [
+   "spicebond",
+   "natalya"
+  ],
+  "top": [
+   [
+    "spicebond",
+    2,
+    0.07
+   ],
+   [
+    "natalya",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadalexZ": {
+  "nodes": 2,
+  "best": "mayday",
+  "score": 0.074,
+  "tied": [
+   "mayday"
+  ],
+  "top": [
+   [
+    "mayday",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "Cheadandy_rZ": {
+  "nodes": 1,
+  "best": "headdave",
+  "score": 3.0,
+  "tied": [
+   "headdave"
+  ],
+  "top": [
+   [
+    "headdave",
+    3,
+    3.0
+   ],
+   [
+    "headshaun",
+    2,
+    1.0
+   ],
+   [
+    "headscott",
+    2,
+    1.0
+   ]
+  ]
+ },
+ "CheadankaZ": {
+  "nodes": 6,
+  "best": "headmandy",
+  "score": 0.167,
+  "tied": [
+   "headmandy"
+  ],
+  "top": [
+   [
+    "headmandy",
+    1,
+    0.17
+   ]
+  ]
+ },
+ "Cheadben_rZ": {
+  "nodes": 1,
+  "best": "headchris",
+  "score": 3.0,
+  "tied": [
+   "headchris"
+  ],
+  "top": [
+   [
+    "headchris",
+    3,
+    3.0
+   ],
+   [
+    "headstevee",
+    1,
+    0.33
+   ],
+   [
+    "headken",
+    1,
+    0.33
+   ]
+  ]
+ },
+ "CheadbiotechZ": {
+  "nodes": 2,
+  "best": "headb",
+  "score": 0.667,
+  "tied": [
+   "headb"
+  ],
+  "top": [
+   [
+    "headb",
+    2,
+    0.67
+   ],
+   [
+    "headbalaclava",
+    1,
+    0.5
+   ]
+  ]
+ },
+ "CheadcarringtonZ": {
+  "nodes": 1,
+  "best": "headbrosnan",
+  "score": 1.0,
+  "tied": [
+   "headbrosnan"
+  ],
+  "top": [
+   [
+    "headbrosnan",
+    1,
+    1.0
+   ]
+  ]
+ },
+ "CheadcarterZ": {
+  "nodes": 6,
+  "best": "headgrant",
+  "score": 0.286,
+  "tied": [
+   "headgrant"
+  ],
+  "top": [
+   [
+    "headgrant",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "CheadcassandraZ": {
+  "nodes": 2,
+  "best": "xenia",
+  "score": 0.074,
+  "tied": [
+   "xenia"
+  ],
+  "top": [
+   [
+    "xenia",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadchristZ": {
+  "nodes": 3,
+  "best": "headjoe2",
+  "score": 0.25,
+  "tied": [
+   "headjoe2"
+  ],
+  "top": [
+   [
+    "headjoe2",
+    1,
+    0.25
+   ],
+   [
+    "headgraham",
+    1,
+    0.2
+   ]
+  ]
+ },
+ "CheadcookZ": {
+  "nodes": 6,
+  "best": "headduncan",
+  "score": 0.286,
+  "tied": [
+   "headduncan"
+  ],
+  "top": [
+   [
+    "headduncan",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "Cheaddark_snowZ": {
+  "nodes": 2,
+  "best": "baronsamedi",
+  "score": 0.074,
+  "tied": [
+   "baronsamedi"
+  ],
+  "top": [
+   [
+    "baronsamedi",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheaddavecZ": {
+  "nodes": 6,
+  "best": "headalan",
+  "score": 0.5,
+  "tied": [
+   "headalan"
+  ],
+  "top": [
+   [
+    "headalan",
+    3,
+    0.5
+   ]
+  ]
+ },
+ "CheadddsniperZ": {
+  "nodes": 6,
+  "best": "headkarl",
+  "score": 0.286,
+  "tied": [
+   "headkarl"
+  ],
+  "top": [
+   [
+    "headkarl",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "Cheadduncan2Z": {
+  "nodes": 2,
+  "best": "baronsamedi",
+  "score": 0.074,
+  "tied": [
+   "baronsamedi"
+  ],
+  "top": [
+   [
+    "baronsamedi",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "Cheadeileen_hZ": {
+  "nodes": 6,
+  "best": "headvivien",
+  "score": 0.167,
+  "tied": [
+   "headvivien"
+  ],
+  "top": [
+   [
+    "headvivien",
+    1,
+    0.17
+   ]
+  ]
+ },
+ "Cheadeileen_tZ": {
+  "nodes": 6,
+  "best": "headsally",
+  "score": 0.167,
+  "tied": [
+   "headsally"
+  ],
+  "top": [
+   [
+    "headsally",
+    1,
+    0.17
+   ]
+  ]
+ },
+ "Cheadfem_guard2Z": {
+  "nodes": 2,
+  "best": "snowguard",
+  "score": 0.071,
+  "tied": [
+   "snowguard"
+  ],
+  "top": [
+   [
+    "snowguard",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "Cheadfem_guardZ": {
+  "nodes": 2,
+  "best": "headb",
+  "score": 0.667,
+  "tied": [
+   "headb"
+  ],
+  "top": [
+   [
+    "headb",
+    2,
+    0.67
+   ],
+   [
+    "headbalaclava",
+    1,
+    0.5
+   ],
+   [
+    "pilot",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadgarethZ": {
+  "nodes": 6,
+  "best": "headstevee",
+  "score": 0.5,
+  "tied": [
+   "headstevee"
+  ],
+  "top": [
+   [
+    "headstevee",
+    3,
+    0.5
+   ],
+   [
+    "headken",
+    2,
+    0.29
+   ],
+   [
+    "headchris",
+    1,
+    0.12
+   ]
+  ]
+ },
+ "CheadgrahamZ": {
+  "nodes": 2,
+  "best": "boris",
+  "score": 0.074,
+  "tied": [
+   "boris"
+  ],
+  "top": [
+   [
+    "boris",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadgrantZ": {
+  "nodes": 6,
+  "best": "headchris",
+  "score": 0.5,
+  "tied": [
+   "headchris"
+  ],
+  "top": [
+   [
+    "headchris",
+    3,
+    0.5
+   ],
+   [
+    "headstevee",
+    1,
+    0.12
+   ],
+   [
+    "headken",
+    1,
+    0.12
+   ]
+  ]
+ },
+ "CheadgriffeyZ": {
+  "nodes": 1,
+  "best": "headjoe",
+  "score": 3.0,
+  "tied": [
+   "headjoe",
+   "headgraham"
+  ],
+  "top": [
+   [
+    "headjoe",
+    3,
+    3.0
+   ],
+   [
+    "headgraham",
+    3,
+    3.0
+   ],
+   [
+    "headjoe2",
+    2,
+    2.0
+   ]
+  ]
+ },
+ "CheadjamieZ": {
+  "nodes": 3,
+  "best": "headpete",
+  "score": 1.0,
+  "tied": [
+   "headpete"
+  ],
+  "top": [
+   [
+    "headpete",
+    3,
+    1.0
+   ]
+  ]
+ },
+ "CheadjoelZ": {
+  "nodes": 6,
+  "best": "headdave",
+  "score": 0.5,
+  "tied": [
+   "headdave"
+  ],
+  "top": [
+   [
+    "headdave",
+    3,
+    0.5
+   ],
+   [
+    "headshaun",
+    2,
+    0.29
+   ],
+   [
+    "headscott",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "CheadjonZ": {
+  "nodes": 2,
+  "best": "headbrosnanboiler",
+  "score": 0.5,
+  "tied": [
+   "headbrosnanboiler"
+  ],
+  "top": [
+   [
+    "headbrosnanboiler",
+    1,
+    0.5
+   ]
+  ]
+ },
+ "CheadjonesZ": {
+  "nodes": 6,
+  "best": "headb",
+  "score": 0.5,
+  "tied": [
+   "headb"
+  ],
+  "top": [
+   [
+    "headb",
+    3,
+    0.5
+   ],
+   [
+    "headbalaclava",
+    1,
+    0.17
+   ]
+  ]
+ },
+ "CheadjulianneZ": {
+  "nodes": 6,
+  "best": "headshaun",
+  "score": 0.286,
+  "tied": [
+   "headshaun",
+   "headscott",
+   "headlee",
+   "headdave"
+  ],
+  "top": [
+   [
+    "headshaun",
+    2,
+    0.29
+   ],
+   [
+    "headscott",
+    2,
+    0.29
+   ],
+   [
+    "headlee",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "CheadkeithZ": {
+  "nodes": 6,
+  "best": "headjoe",
+  "score": 0.5,
+  "tied": [
+   "headjoe",
+   "headgraham"
+  ],
+  "top": [
+   [
+    "headjoe",
+    3,
+    0.5
+   ],
+   [
+    "headgraham",
+    3,
+    0.5
+   ],
+   [
+    "headjoe2",
+    2,
+    0.33
+   ]
+  ]
+ },
+ "CheadkenZ": {
+  "nodes": 2,
+  "best": "valentin",
+  "score": 0.074,
+  "tied": [
+   "valentin"
+  ],
+  "top": [
+   [
+    "valentin",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadlauraZ": {
+  "nodes": 6,
+  "best": "headjim",
+  "score": 0.5,
+  "tied": [
+   "headjim"
+  ],
+  "top": [
+   [
+    "headjim",
+    3,
+    0.5
+   ]
+  ]
+ },
+ "Cheadleslie_sZ": {
+  "nodes": 6,
+  "best": "headmarion",
+  "score": 0.167,
+  "tied": [
+   "headmarion"
+  ],
+  "top": [
+   [
+    "headmarion",
+    1,
+    0.17
+   ]
+  ]
+ },
+ "Cheadmark2Z": {
+  "nodes": 2,
+  "best": "baronsamedi",
+  "score": 0.074,
+  "tied": [
+   "baronsamedi"
+  ],
+  "top": [
+   [
+    "baronsamedi",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadmotoZ": {
+  "nodes": 1,
+  "best": "headbrosnansuit",
+  "score": 0.5,
+  "tied": [
+   "headbrosnansuit"
+  ],
+  "top": [
+   [
+    "headbrosnansuit",
+    1,
+    0.5
+   ]
+  ]
+ },
+ "CheadmrblondeZ": {
+  "nodes": 2,
+  "best": "trevelyan",
+  "score": 0.074,
+  "tied": [
+   "trevelyan"
+  ],
+  "top": [
+   [
+    "trevelyan",
+    2,
+    0.07
+   ],
+   [
+    "boilertrev",
+    1,
+    0.04
+   ]
+  ]
+ },
+ "CheadmuntonZ": {
+  "nodes": 6,
+  "best": "headdwayne",
+  "score": 0.286,
+  "tied": [
+   "headdwayne"
+  ],
+  "top": [
+   [
+    "headdwayne",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "CheadmurchieZ": {
+  "nodes": 6,
+  "best": "headsteveh",
+  "score": 0.286,
+  "tied": [
+   "headsteveh"
+  ],
+  "top": [
+   [
+    "headsteveh",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "Cheadneil2Z": {
+  "nodes": 2,
+  "best": "headbrosnanboiler",
+  "score": 0.5,
+  "tied": [
+   "headbrosnanboiler"
+  ],
+  "top": [
+   [
+    "headbrosnanboiler",
+    1,
+    0.5
+   ]
+  ]
+ },
+ "Cheadpeer_sZ": {
+  "nodes": 1,
+  "best": "headduncan",
+  "score": 3.0,
+  "tied": [
+   "headduncan"
+  ],
+  "top": [
+   [
+    "headduncan",
+    3,
+    3.0
+   ]
+  ]
+ },
+ "CheadpennyZ": {
+  "nodes": 2,
+  "best": "headbrosnanboiler",
+  "score": 0.5,
+  "tied": [
+   "headbrosnanboiler"
+  ],
+  "top": [
+   [
+    "headbrosnanboiler",
+    1,
+    0.5
+   ]
+  ]
+ },
+ "CheadphelpsZ": {
+  "nodes": 6,
+  "best": "headkarl",
+  "score": 0.5,
+  "tied": [
+   "headkarl"
+  ],
+  "top": [
+   [
+    "headkarl",
+    3,
+    0.5
+   ]
+  ]
+ },
+ "CheadpresidentZ": {
+  "nodes": 6,
+  "best": "headmishkin",
+  "score": 0.167,
+  "tied": [
+   "headmishkin"
+  ],
+  "top": [
+   [
+    "headmishkin",
+    1,
+    0.17
+   ]
+  ]
+ },
+ "CheadpryceZ": {
+  "nodes": 6,
+  "best": "headken",
+  "score": 0.286,
+  "tied": [
+   "headken"
+  ],
+  "top": [
+   [
+    "headken",
+    2,
+    0.29
+   ],
+   [
+    "headstevee",
+    1,
+    0.12
+   ],
+   [
+    "headchris",
+    1,
+    0.12
+   ]
+  ]
+ },
+ "CheadrobertZ": {
+  "nodes": 2,
+  "best": "oddjob",
+  "score": 0.074,
+  "tied": [
+   "oddjob"
+  ],
+  "top": [
+   [
+    "oddjob",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadrobinZ": {
+  "nodes": 6,
+  "best": "headpete",
+  "score": 0.286,
+  "tied": [
+   "headpete"
+  ],
+  "top": [
+   [
+    "headpete",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "CheadrossZ": {
+  "nodes": 6,
+  "best": "headrobin",
+  "score": 0.5,
+  "tied": [
+   "headrobin"
+  ],
+  "top": [
+   [
+    "headrobin",
+    3,
+    0.5
+   ]
+  ]
+ },
+ "CheadsanchezZ": {
+  "nodes": 6,
+  "best": "headjoel",
+  "score": 0.286,
+  "tied": [
+   "headjoel"
+  ],
+  "top": [
+   [
+    "headjoel",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "Cheadscott_hZ": {
+  "nodes": 6,
+  "best": "headshaun",
+  "score": 0.286,
+  "tied": [
+   "headshaun",
+   "headscott",
+   "headlee",
+   "headdave"
+  ],
+  "top": [
+   [
+    "headshaun",
+    2,
+    0.29
+   ],
+   [
+    "headscott",
+    2,
+    0.29
+   ],
+   [
+    "headlee",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "CheadsecretaryZ": {
+  "nodes": 2,
+  "best": "jaws",
+  "score": 0.074,
+  "tied": [
+   "jaws"
+  ],
+  "top": [
+   [
+    "jaws",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadsilkeZ": {
+  "nodes": 6,
+  "best": "headmark",
+  "score": 0.5,
+  "tied": [
+   "headmark"
+  ],
+  "top": [
+   [
+    "headmark",
+    3,
+    0.5
+   ]
+  ]
+ },
+ "CheadsmithZ": {
+  "nodes": 6,
+  "best": "headneil",
+  "score": 0.5,
+  "tied": [
+   "headneil"
+  ],
+  "top": [
+   [
+    "headneil",
+    3,
+    0.5
+   ]
+  ]
+ },
+ "CheadstamperZ": {
+  "nodes": 6,
+  "best": "headmartin",
+  "score": 0.286,
+  "tied": [
+   "headmartin"
+  ],
+  "top": [
+   [
+    "headmartin",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "Cheadsteve_kZ": {
+  "nodes": 1,
+  "best": "headjim",
+  "score": 3.0,
+  "tied": [
+   "headjim"
+  ],
+  "top": [
+   [
+    "headjim",
+    3,
+    3.0
+   ]
+  ]
+ },
+ "CheadstevemZ": {
+  "nodes": 2,
+  "best": "orumov",
+  "score": 0.074,
+  "tied": [
+   "orumov"
+  ],
+  "top": [
+   [
+    "orumov",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadthekingZ": {
+  "nodes": 2,
+  "best": "orumov",
+  "score": 0.074,
+  "tied": [
+   "orumov"
+  ],
+  "top": [
+   [
+    "orumov",
+    2,
+    0.07
+   ]
+  ]
+ },
+ "CheadtimZ": {
+  "nodes": 6,
+  "best": "headshaun",
+  "score": 0.286,
+  "tied": [
+   "headshaun",
+   "headscott",
+   "headlee",
+   "headdave"
+  ],
+  "top": [
+   [
+    "headshaun",
+    2,
+    0.29
+   ],
+   [
+    "headscott",
+    2,
+    0.29
+   ],
+   [
+    "headlee",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "CheadtintinZ": {
+  "nodes": 6,
+  "best": "headjoe2",
+  "score": 0.333,
+  "tied": [
+   "headjoe2"
+  ],
+  "top": [
+   [
+    "headjoe2",
+    2,
+    0.33
+   ],
+   [
+    "headjoe",
+    2,
+    0.29
+   ],
+   [
+    "headgraham",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "CheadtrentZ": {
+  "nodes": 2,
+  "best": "headbrosnanboiler",
+  "score": 0.5,
+  "tied": [
+   "headbrosnanboiler"
+  ],
+  "top": [
+   [
+    "headbrosnanboiler",
+    1,
+    0.5
+   ]
+  ]
+ },
+ "CheadwinnerZ": {
+  "nodes": 6,
+  "best": "headjoe",
+  "score": 0.5,
+  "tied": [
+   "headjoe",
+   "headgraham"
+  ],
+  "top": [
+   [
+    "headjoe",
+    3,
+    0.5
+   ],
+   [
+    "headgraham",
+    3,
+    0.5
+   ],
+   [
+    "headjoe2",
+    2,
+    0.33
+   ]
+  ]
+ },
+ "CheadwongZ": {
+  "nodes": 6,
+  "best": "headdes",
+  "score": 0.5,
+  "tied": [
+   "headdes"
+  ],
+  "top": [
+   [
+    "headdes",
+    3,
+    0.5
+   ]
+  ]
+ },
+ "CjonathonZ": {
+  "nodes": 25,
+  "best": "greyguard",
+  "score": 0.852,
+  "tied": [
+   "greyguard"
+  ],
+  "top": [
+   [
+    "greyguard",
+    23,
+    0.85
+   ],
+   [
+    "redman",
+    6,
+    0.14
+   ],
+   [
+    "greatguard2",
+    6,
+    0.14
+   ]
+  ]
+ },
+ "ClabtechZ": {
+  "nodes": 25,
+  "best": "boris",
+  "score": 0.857,
+  "tied": [
+   "boris"
+  ],
+  "top": [
+   [
+    "boris",
+    24,
+    0.86
+   ]
+  ]
+ },
+ "CmooreZ": {
+  "nodes": 25,
+  "best": "djbond",
+  "score": 1.0,
+  "tied": [
+   "djbond"
+  ],
+  "top": [
+   [
+    "djbond",
+    25,
+    1.0
+   ],
+   [
+    "timberbond",
+    2,
+    0.04
+   ],
+   [
+    "suitbond",
+    2,
+    0.04
+   ]
+  ]
+ },
+ "CmrblondeZ": {
+  "nodes": 25,
+  "best": "trevelyan",
+  "score": 0.793,
+  "tied": [
+   "trevelyan"
+  ],
+  "top": [
+   [
+    "trevelyan",
+    23,
+    0.79
+   ],
+   [
+    "boilertrev",
+    12,
+    0.3
+   ]
+  ]
+ },
+ "CnegotiatorZ": {
+  "nodes": 25,
+  "best": "spicebond",
+  "score": 0.793,
+  "tied": [
+   "spicebond"
+  ],
+  "top": [
+   [
+    "spicebond",
+    23,
+    0.79
+   ],
+   [
+    "natalya",
+    4,
+    0.08
+   ]
+  ]
+ },
+ "Cnew1-------Z": {
+  "nodes": 25,
+  "best": "redman",
+  "score": 0.852,
+  "tied": [
+   "redman"
+  ],
+  "top": [
+   [
+    "redman",
+    23,
+    0.85
+   ],
+   [
+    "cardiman",
+    14,
+    0.54
+   ],
+   [
+    "checkman",
+    13,
+    0.48
+   ]
+  ]
+ },
+ "Cnew2------Z": {
+  "nodes": 6,
+  "best": "headdwayne",
+  "score": 0.286,
+  "tied": [
+   "headdwayne"
+  ],
+  "top": [
+   [
+    "headdwayne",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "Cnew3-----Z": {
+  "nodes": 6,
+  "best": "headdwayne",
+  "score": 0.286,
+  "tied": [
+   "headdwayne"
+  ],
+  "top": [
+   [
+    "headdwayne",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "Cnew4-----Z": {
+  "nodes": 6,
+  "best": "headdwayne",
+  "score": 0.286,
+  "tied": [
+   "headdwayne"
+  ],
+  "top": [
+   [
+    "headdwayne",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "Cnew5----Z": {
+  "nodes": 6,
+  "best": "headdwayne",
+  "score": 0.286,
+  "tied": [
+   "headdwayne"
+  ],
+  "top": [
+   [
+    "headdwayne",
+    2,
+    0.29
+   ]
+  ]
+ },
+ "Cnew6-------Z": {
+  "nodes": 2,
+  "best": "headbike",
+  "score": 0.5,
+  "tied": [
+   "headbike"
+  ],
+  "top": [
+   [
+    "headbike",
+    1,
+    0.5
+   ]
+  ]
+ },
+ "Cnsa_lackeyZ": {
+  "nodes": 25,
+  "best": "moonguard",
+  "score": 0.923,
+  "tied": [
+   "moonguard"
+  ],
+  "top": [
+   [
+    "moonguard",
+    24,
+    0.92
+   ],
+   [
+    "trevguard",
+    19,
+    0.61
+   ],
+   [
+    "pilot",
+    17,
+    0.49
+   ]
+  ]
+ },
+ "Cofficeworker2Z": {
+  "nodes": 25,
+  "best": "camguard",
+  "score": 0.923,
+  "tied": [
+   "camguard"
+  ],
+  "top": [
+   [
+    "camguard",
+    24,
+    0.92
+   ],
+   [
+    "bluecamguard",
+    20,
+    0.67
+   ],
+   [
+    "commguard",
+    15,
+    0.43
+   ]
+  ]
+ },
+ "CofficeworkerZ": {
+  "nodes": 25,
+  "best": "timberbond",
+  "score": 1.0,
+  "tied": [
+   "timberbond"
+  ],
+  "top": [
+   [
+    "timberbond",
+    25,
+    1.0
+   ],
+   [
+    "suitbond",
+    2,
+    0.04
+   ],
+   [
+    "djbond",
+    2,
+    0.04
+   ]
+  ]
+ },
+ "CoverallZ": {
+  "nodes": 25,
+  "best": "boilerbond",
+  "score": 1.0,
+  "tied": [
+   "boilerbond"
+  ],
+  "top": [
+   [
+    "boilerbond",
+    25,
+    1.0
+   ],
+   [
+    "timberbond",
+    2,
+    0.04
+   ],
+   [
+    "suitbond",
+    2,
+    0.04
+   ]
+  ]
+ },
+ "Cpelagic_guardZ": {
+  "nodes": 25,
+  "best": "oliveguard",
+  "score": 0.786,
+  "tied": [
+   "oliveguard"
+  ],
+  "top": [
+   [
+    "oliveguard",
+    22,
+    0.79
+   ],
+   [
+    "navyguard",
+    16,
+    0.47
+   ],
+   [
+    "commguard",
+    16,
+    0.47
+   ]
+  ]
+ },
+ "Cpilotaf1Z": {
+  "nodes": 25,
+  "best": "pilot",
+  "score": 0.793,
+  "tied": [
+   "pilot"
+  ],
+  "top": [
+   [
+    "pilot",
+    23,
+    0.79
+   ],
+   [
+    "trevguard",
+    20,
+    0.67
+   ],
+   [
+    "moonguard",
+    16,
+    0.47
+   ]
+  ]
+ },
+ "Cpres_securityZ": {
+  "nodes": 25,
+  "best": "armourguard",
+  "score": 0.923,
+  "tied": [
+   "armourguard"
+  ],
+  "top": [
+   [
+    "armourguard",
+    24,
+    0.92
+   ],
+   [
+    "trevguard",
+    16,
+    0.47
+   ],
+   [
+    "pilot",
+    14,
+    0.37
+   ]
+  ]
+ },
+ "CpresidentZ": {
+  "nodes": 25,
+  "best": "suitbond",
+  "score": 1.0,
+  "tied": [
+   "suitbond"
+  ],
+  "top": [
+   [
+    "suitbond",
+    25,
+    1.0
+   ],
+   [
+    "timberbond",
+    2,
+    0.04
+   ],
+   [
+    "djbond",
+    2,
+    0.04
+   ]
+  ]
+ },
+ "Cpresident_cloneZ": {
+  "nodes": 25,
+  "best": "redman",
+  "score": 0.852,
+  "tied": [
+   "redman"
+  ],
+  "top": [
+   [
+    "redman",
+    23,
+    0.85
+   ],
+   [
+    "cardiman",
+    14,
+    0.54
+   ],
+   [
+    "checkman",
+    13,
+    0.48
+   ]
+  ]
+ },
+ "CsecretaryZ": {
+  "nodes": 25,
+  "best": "natalya",
+  "score": 0.793,
+  "tied": [
+   "natalya"
+  ],
+  "top": [
+   [
+    "natalya",
+    23,
+    0.79
+   ],
+   [
+    "spicebond",
+    4,
+    0.08
+   ]
+  ]
+ },
+ "CstewardZ": {
+  "nodes": 25,
+  "best": "oddjob",
+  "score": 0.857,
+  "tied": [
+   "oddjob"
+  ],
+  "top": [
+   [
+    "oddjob",
+    24,
+    0.86
+   ]
+  ]
+ },
+ "CstewardessZ": {
+  "nodes": 25,
+  "best": "fattechwoman",
+  "score": 0.481,
+  "tied": [
+   "fattechwoman"
+  ],
+  "top": [
+   [
+    "fattechwoman",
+    13,
+    0.48
+   ],
+   [
+    "bluewoman",
+    1,
+    0.03
+   ]
+  ]
+ },
+ "Cstewardess_coatZ": {
+  "nodes": 25,
+  "best": "mayday",
+  "score": 0.793,
+  "tied": [
+   "mayday"
+  ],
+  "top": [
+   [
+    "mayday",
+    23,
+    0.79
+   ]
+  ]
+ },
+ "CstripesZ": {
+  "nodes": 25,
+  "best": "trevguard",
+  "score": 0.923,
+  "tied": [
+   "trevguard"
+  ],
+  "top": [
+   [
+    "trevguard",
+    24,
+    0.92
+   ],
+   [
+    "pilot",
+    20,
+    0.62
+   ],
+   [
+    "moonguard",
+    18,
+    0.56
+   ]
+  ]
+ },
+ "CtestchrZ": {
+  "nodes": 25,
+  "best": "redman",
+  "score": 0.852,
+  "tied": [
+   "redman"
+  ],
+  "top": [
+   [
+    "redman",
+    23,
+    0.85
+   ],
+   [
+    "cardiman",
+    14,
+    0.54
+   ],
+   [
+    "checkman",
+    13,
+    0.48
+   ]
+  ]
+ },
+ "CtrentZ": {
+  "nodes": 25,
+  "best": "boilertrev",
+  "score": 0.857,
+  "tied": [
+   "boilertrev"
+  ],
+  "top": [
+   [
+    "boilertrev",
+    24,
+    0.86
+   ],
+   [
+    "trevelyan",
+    11,
+    0.27
+   ]
+  ]
+ }
+}

@@ -1,7 +1,7 @@
 /**
  * The GoldenEye -> Perfect Dark AI command map.
  *
- * Started by .xbla-work/ge-arena/genaitable.py and kept by hand since - that
+ * Started by tools/geconvert/fit/genaitable.py and kept by hand since - that
  * generator is older than this table and running it would throw away every row
  * read since. The reference copy is tools/geconvert/geaitable.py; a row is
  * changed in both, and the two must convert to the same bytes.

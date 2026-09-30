@@ -1,0 +1,236 @@
+{
+ "dam": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxdam.seg",
+  "levelscale": 0.23363999,
+  "offset": [
+   3390.0,
+   -13219.0,
+   -8584.0
+  ]
+ },
+ "run": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxrun.seg",
+  "levelscale": 0.089571431,
+  "offset": [
+   11259.0,
+   -441.0,
+   -14441.0
+  ]
+ },
+ "stat": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxstat.seg",
+  "levelscale": 0.107202865,
+  "offset": [
+   -10709.0,
+   126.0,
+   3204.0
+  ]
+ },
+ "tra": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxtra.seg",
+  "levelscale": 0.15019713,
+  "offset": [
+   -16592.0,
+   50.0,
+   50.0
+  ]
+ },
+ "pete": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxpete.seg",
+  "levelscale": 0.34187999,
+  "offset": [
+   2881.0,
+   -32.0,
+   15462.0
+  ]
+ },
+ "jun": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxjun.seg",
+  "levelscale": 0.094662853,
+  "offset": [
+   10590.0,
+   956.0,
+   -5255.0
+  ]
+ },
+ "oat": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxoat.seg",
+  "levelscale": 0.14142857,
+  "offset": [
+   20067.0,
+   1361.0,
+   -6890.0
+  ]
+ },
+ "dish": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxdish.seg",
+  "levelscale": 0.47142857,
+  "offset": [
+   935.0,
+   0.0,
+   -312.0
+  ]
+ },
+ "ref": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxref.seg",
+  "levelscale": 0.94285715,
+  "offset": [
+   241.0,
+   0.0,
+   602.0
+  ]
+ },
+ "lib": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxlib.seg",
+  "levelscale": 0.65999997,
+  "offset": [
+   -804.0,
+   29.0,
+   -1033.0
+  ]
+ },
+ "base": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxbase.seg",
+  "levelscale": 0.65999997,
+  "offset": [
+   -804.0,
+   29.0,
+   -1033.0
+  ]
+ },
+ "stack": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxstack.seg",
+  "levelscale": 0.65999997,
+  "offset": [
+   -804.0,
+   29.0,
+   -1033.0
+  ]
+ },
+ "ark": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxark.seg",
+  "levelscale": 1.20648,
+  "offset": [
+   4509.0,
+   -106.0,
+   -1063.0
+  ]
+ },
+ "sevb": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxsevb.seg",
+  "levelscale": 0.53931433,
+  "offset": [
+   6.0,
+   462.0,
+   -1624.0
+  ]
+ },
+ "arch": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxarch.seg",
+  "levelscale": 0.50678575,
+  "offset": [
+   -1474.0,
+   215.0,
+   -1725.0
+  ]
+ },
+ "cave": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxcave.seg",
+  "levelscale": 0.26824287,
+  "offset": [
+   535.0,
+   -1467.0,
+   -2213.0
+  ]
+ },
+ "cryp": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxcryp.seg",
+  "levelscale": 0.25608,
+  "offset": [
+   -738.0,
+   -322.0,
+   -3224.0
+  ]
+ },
+ "crad": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxcrad.seg",
+  "levelscale": 0.23571429,
+  "offset": [
+   1495.0,
+   -3750.0,
+   1169.0
+  ]
+ },
+ "sevx": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxsevx.seg",
+  "levelscale": 0.45445713,
+  "offset": [
+   -5604.0,
+   -168.0,
+   -10382.0
+  ]
+ },
+ "sevxb": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxsevxb.seg",
+  "levelscale": 0.45445713,
+  "offset": [
+   -5604.0,
+   -168.0,
+   -10382.0
+  ]
+ },
+ "silo": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxsilo.seg",
+  "levelscale": 0.47256002,
+  "offset": [
+   1315.0,
+   -1173.0,
+   1374.0
+  ]
+ },
+ "dest": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxdest.seg",
+  "levelscale": 0.44757429,
+  "offset": [
+   -123.0,
+   508.0,
+   -2334.0
+  ]
+ },
+ "depo": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxdepo.seg",
+  "levelscale": 0.21847887,
+  "offset": [
+   982.0,
+   -25.0,
+   -4916.0
+  ]
+ },
+ "arec": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxarec.seg",
+  "levelscale": 0.49886572,
+  "offset": [
+   -269.0,
+   259.0,
+   -1485.0
+  ]
+ },
+ "sev": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxsev.seg",
+  "levelscale": 0.53931433,
+  "offset": [
+   6.0,
+   467.0,
+   -1864.0
+  ]
+ },
+ "azt": {
+  "bg": "/tmp/claude-1000/-home-sdg-perfect-dark/9c522a2e-f0c2-4ba0-b5eb-4ffbcfe11dac/scratchpad/geout/files/bgdata/bg_gxazt.seg",
+  "levelscale": 0.35300568,
+  "offset": [
+   -129.0,
+   -61.0,
+   1389.0
+  ]
+ }
+}

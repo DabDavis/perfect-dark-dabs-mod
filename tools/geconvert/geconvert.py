@@ -8,7 +8,7 @@ port/src/geconvert.c is this, step for step, and writes the same bytes: the
 game runs that one at startup on the player's ROM. Keep the two in step, and
 compare them (the C built alone with -DGECONVERT_MAIN) after changing either.
 With GE_ARENAS_JSON set, each level's scale and offset are recorded there for
-.xbla-work/ge-bean/gen_stagetable.py.
+tools/geconvert/fit/gen_stagetable.py.
 
 Per level it writes files/bgdata/bg_gxNAME.seg, _tilesZ, _padsZ,
 files/Ump_setupgxNAMEZ, the textures the rooms name (GoldenEye's own texture

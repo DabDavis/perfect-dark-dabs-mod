@@ -1,0 +1,617 @@
+{
+ "Ca51airmanZ": {
+  "ranked": [
+   [
+    "blueman",
+    13.87
+   ],
+   [
+    "cardiman",
+    20.7
+   ],
+   [
+    "greyman",
+    21.18
+   ],
+   [
+    "checkman",
+    21.46
+   ],
+   [
+    "redman",
+    22.61
+   ]
+  ],
+  "vertex_best": "redman",
+  "texture_best": "blueman",
+  "margin": 6.83
+ },
+ "Ca51trooperZ": {
+  "ranked": [
+   [
+    "redman",
+    13.83
+   ],
+   [
+    "checkman",
+    16.41
+   ],
+   [
+    "greyman",
+    16.48
+   ],
+   [
+    "blueman",
+    17.72
+   ],
+   [
+    "cardiman",
+    18.56
+   ]
+  ],
+  "vertex_best": "redman",
+  "texture_best": "redman",
+  "margin": 2.58
+ },
+ "CciaguyZ": {
+  "ranked": [
+   [
+    "greyman",
+    13.96
+   ],
+   [
+    "blueman",
+    17.23
+   ],
+   [
+    "checkman",
+    17.51
+   ],
+   [
+    "redman",
+    20.1
+   ],
+   [
+    "cardiman",
+    21.27
+   ]
+  ],
+  "vertex_best": "greyman",
+  "texture_best": "greyman",
+  "margin": 3.27
+ },
+ "CcifemtechZ": {
+  "ranked": [
+   [
+    "techwoman",
+    14.61
+   ],
+   [
+    "jeanwoman",
+    14.99
+   ],
+   [
+    "bluewoman",
+    23.84
+   ],
+   [
+    "fattechwoman",
+    27.37
+   ],
+   [
+    "moonfemale",
+    29.34
+   ]
+  ],
+  "vertex_best": "techwoman",
+  "texture_best": "techwoman",
+  "margin": 0.38
+ },
+ "Cdark_combatZ": {
+  "ranked": [
+   [
+    "jeanwoman",
+    36.5
+   ],
+   [
+    "techwoman",
+    39.63
+   ],
+   [
+    "bluewoman",
+    46.91
+   ],
+   [
+    "fattechwoman",
+    55.09
+   ],
+   [
+    "moonfemale",
+    57.01
+   ]
+  ],
+  "vertex_best": "techwoman",
+  "texture_best": "jeanwoman",
+  "margin": 3.13
+ },
+ "CdarklabZ": {
+  "ranked": [
+   [
+    "moonfemale",
+    13.48
+   ],
+   [
+    "bluewoman",
+    28.7
+   ],
+   [
+    "fattechwoman",
+    28.7
+   ],
+   [
+    "jeanwoman",
+    29.23
+   ],
+   [
+    "techwoman",
+    33.28
+   ]
+  ],
+  "vertex_best": "moonfemale",
+  "texture_best": "moonfemale",
+  "margin": 15.23
+ },
+ "Cdd_labtechZ": {
+  "ranked": [
+   [
+    "cardiman",
+    25.68
+   ],
+   [
+    "blueman",
+    28.14
+   ],
+   [
+    "redman",
+    33.85
+   ],
+   [
+    "checkman",
+    34.33
+   ],
+   [
+    "greyman",
+    34.37
+   ]
+  ],
+  "vertex_best": "techman",
+  "texture_best": "cardiman",
+  "margin": 2.47
+ },
+ "CfbiguyZ": {
+  "ranked": [
+   [
+    "checkman",
+    13.57
+   ],
+   [
+    "greyman",
+    14.24
+   ],
+   [
+    "blueman",
+    16.32
+   ],
+   [
+    "redman",
+    18.46
+   ],
+   [
+    "cardiman",
+    20.21
+   ]
+  ],
+  "vertex_best": "redman",
+  "texture_best": "checkman",
+  "margin": 0.67
+ },
+ "Cfem_guardZ": {
+  "ranked": [
+   [
+    "jeanwoman",
+    12.77
+   ],
+   [
+    "techwoman",
+    24.6
+   ],
+   [
+    "bluewoman",
+    30.54
+   ],
+   [
+    "moonfemale",
+    40.87
+   ],
+   [
+    "fattechwoman",
+    41.43
+   ]
+  ],
+  "vertex_best": "jeanwoman",
+  "texture_best": "jeanwoman",
+  "margin": 11.83
+ },
+ "CfemlabtechZ": {
+  "ranked": [
+   [
+    "bluewoman",
+    13.08
+   ],
+   [
+    "jeanwoman",
+    28.25
+   ],
+   [
+    "fattechwoman",
+    30.64
+   ],
+   [
+    "techwoman",
+    33.33
+   ],
+   [
+    "moonfemale",
+    42.04
+   ]
+  ],
+  "vertex_best": "bluewoman",
+  "texture_best": "bluewoman",
+  "margin": 15.17
+ },
+ "Cheadandy_rZ": {
+  "ranked": [
+   [
+    "headdave",
+    10.68
+   ],
+   [
+    "headshaun",
+    29.28
+   ],
+   [
+    "headlee",
+    34.63
+   ],
+   [
+    "headscott",
+    39.49
+   ]
+  ],
+  "vertex_best": "headdave",
+  "texture_best": "headdave",
+  "margin": 18.6
+ },
+ "CheadchristZ": {
+  "ranked": [
+   [
+    "headgraham",
+    23.98
+   ],
+   [
+    "headjoe",
+    29.87
+   ],
+   [
+    "headjoe2",
+    50.83
+   ]
+  ],
+  "vertex_best": "headjoe2",
+  "texture_best": "headgraham",
+  "margin": 5.89
+ },
+ "CheadgriffeyZ": {
+  "ranked": [
+   [
+    "headjoe",
+    26.43
+   ],
+   [
+    "headgraham",
+    34.88
+   ],
+   [
+    "headjoe2",
+    37.08
+   ]
+  ],
+  "vertex_best": "headjoe",
+  "texture_best": "headjoe",
+  "margin": 8.45
+ },
+ "CheadjoelZ": {
+  "ranked": [
+   [
+    "headdave",
+    10.68
+   ],
+   [
+    "headshaun",
+    29.28
+   ],
+   [
+    "headlee",
+    34.63
+   ],
+   [
+    "headscott",
+    39.49
+   ]
+  ],
+  "vertex_best": "headdave",
+  "texture_best": "headdave",
+  "margin": 18.6
+ },
+ "CheadjulianneZ": {
+  "ranked": [
+   [
+    "headlee",
+    11.44
+   ],
+   [
+    "headshaun",
+    23.46
+   ],
+   [
+    "headdave",
+    25.25
+   ],
+   [
+    "headscott",
+    32.6
+   ]
+  ],
+  "vertex_best": "headshaun",
+  "texture_best": "headlee",
+  "margin": 12.02
+ },
+ "CheadkeithZ": {
+  "ranked": [
+   [
+    "headjoe",
+    29.36
+   ],
+   [
+    "headgraham",
+    46.28
+   ],
+   [
+    "headjoe2",
+    48.62
+   ]
+  ],
+  "vertex_best": "headjoe",
+  "texture_best": "headjoe",
+  "margin": 16.92
+ },
+ "Cheadscott_hZ": {
+  "ranked": [
+   [
+    "headscott",
+    10.3
+   ],
+   [
+    "headshaun",
+    32.54
+   ],
+   [
+    "headlee",
+    37.62
+   ],
+   [
+    "headdave",
+    42.72
+   ]
+  ],
+  "vertex_best": "headshaun",
+  "texture_best": "headscott",
+  "margin": 22.24
+ },
+ "CheadtimZ": {
+  "ranked": [
+   [
+    "headshaun",
+    13.06
+   ],
+   [
+    "headdave",
+    32.74
+   ],
+   [
+    "headscott",
+    33.21
+   ],
+   [
+    "headlee",
+    33.25
+   ]
+  ],
+  "vertex_best": "headshaun",
+  "texture_best": "headshaun",
+  "margin": 19.67
+ },
+ "CheadtintinZ": {
+  "ranked": [
+   [
+    "headjoe",
+    26.43
+   ],
+   [
+    "headgraham",
+    34.88
+   ],
+   [
+    "headjoe2",
+    37.08
+   ]
+  ],
+  "vertex_best": "headjoe2",
+  "texture_best": "headjoe",
+  "margin": 8.45
+ },
+ "CheadwinnerZ": {
+  "ranked": [
+   [
+    "headjoe",
+    12.98
+   ],
+   [
+    "headgraham",
+    33.49
+   ],
+   [
+    "headjoe2",
+    38.54
+   ]
+  ],
+  "vertex_best": "headjoe",
+  "texture_best": "headjoe",
+  "margin": 20.51
+ },
+ "CjonathonZ": {
+  "ranked": [
+   [
+    "greyman",
+    21.99
+   ],
+   [
+    "cardiman",
+    24.09
+   ],
+   [
+    "blueman",
+    24.25
+   ],
+   [
+    "redman",
+    24.81
+   ],
+   [
+    "checkman",
+    25.21
+   ]
+  ],
+  "vertex_best": "greyguard",
+  "texture_best": "greyman",
+  "margin": 2.09
+ },
+ "Cnew1-------Z": {
+  "ranked": [
+   [
+    "cardiman",
+    13.78
+   ],
+   [
+    "greyman",
+    19.84
+   ],
+   [
+    "blueman",
+    21.64
+   ],
+   [
+    "checkman",
+    22.28
+   ],
+   [
+    "redman",
+    22.55
+   ]
+  ],
+  "vertex_best": "redman",
+  "texture_best": "cardiman",
+  "margin": 6.07
+ },
+ "Cpresident_cloneZ": {
+  "ranked": [
+   [
+    "cardiman",
+    13.78
+   ],
+   [
+    "greyman",
+    19.84
+   ],
+   [
+    "blueman",
+    21.64
+   ],
+   [
+    "checkman",
+    22.28
+   ],
+   [
+    "redman",
+    22.55
+   ]
+  ],
+  "vertex_best": "redman",
+  "texture_best": "cardiman",
+  "margin": 6.07
+ },
+ "CstewardessZ": {
+  "ranked": [
+   [
+    "fattechwoman",
+    13.52
+   ],
+   [
+    "bluewoman",
+    14.93
+   ],
+   [
+    "jeanwoman",
+    21.87
+   ],
+   [
+    "techwoman",
+    22.86
+   ],
+   [
+    "moonfemale",
+    23.89
+   ]
+  ],
+  "vertex_best": "fattechwoman",
+  "texture_best": "fattechwoman",
+  "margin": 1.4
+ },
+ "CtestchrZ": {
+  "ranked": [
+   [
+    "cardiman",
+    13.78
+   ],
+   [
+    "greyman",
+    19.84
+   ],
+   [
+    "blueman",
+    21.64
+   ],
+   [
+    "checkman",
+    22.28
+   ],
+   [
+    "redman",
+    22.55
+   ]
+  ],
+  "vertex_best": "redman",
+  "texture_best": "cardiman",
+  "margin": 6.07
+ }
+}
