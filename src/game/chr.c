@@ -4149,6 +4149,12 @@ void chrGetBloodColour(s16 bodynum, u8 *colour1, u32 *colour2)
 	case BODY_ELVIS1:
 	case BODY_THEKING:
 	case BODY_ELVISWAISTCOAT:
+#ifndef PLATFORM_N64
+	// The Combat Simulator's Maian soldier is a Maian too. Stock never had
+	// one shot outside a simulant match and left it bleeding red; the
+	// Randomizer run deals it as a landing's guard (F3 20260929-212714)
+	case BODY_MAIAN_SOLDIER:
+#endif
 		if (colour1) {
 			colour1[0] = 10;
 			colour1[1] = 0x40;
