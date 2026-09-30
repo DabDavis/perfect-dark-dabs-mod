@@ -102,6 +102,7 @@ struct stri {
 	u8 blend;   // drawn in the release's blended pass (triFades())
 	u8 undersea; // the reflection under a sea, faded and culled (markUnderSea())
 	u8 plain;   // of a draw with no UV and no picture of its own (gebeanlevelvtx)
+	u8 overlap; // a face with another room's space behind it, drawn culled (markOverlaps())
 };
 
 // The level being served, built when its first room is asked for
@@ -1481,7 +1482,7 @@ static s32 texHasAlpha(s32 tex)
  */
 static s32 triCulled(const struct stri *t)
 {
-	return t->backed || t->fights;
+	return t->backed || t->fights || t->overlap;
 }
 
 // Below this a vertex alpha is a fade and not a rounding, as xblamesh.c's
@@ -2186,6 +2187,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->fights = 0;
 	t->undersea = 0;
 	t->plain = v[0].plain;
+	t->overlap = 0;
 }
 
 /*
@@ -3077,6 +3079,216 @@ static s32 markDecalLifts(struct stri *tris, s32 num)
 	free(pinned);
 
 	return lifted;
+}
+
+static f32 cornerNormal(const f32 (*p)[3], f32 *n)
+{
+	const f32 a[3] = { p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2] };
+	const f32 b[3] = { p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2] };
+	f32 len;
+
+	n[0] = a[1] * b[2] - a[2] * b[1];
+	n[1] = a[2] * b[0] - a[0] * b[2];
+	n[2] = a[0] * b[1] - a[1] * b[0];
+	len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+	if (len > 0.0f) {
+		n[0] /= len;
+		n[1] /= len;
+		n[2] /= len;
+	}
+
+	return len;
+}
+
+/** A triangle's corners as writeLeaf() will write them: whole units from its room's position. */
+static void cornersRounded(const struct stri *t, f32 (*out)[3])
+{
+	const s32 r = t->room;
+
+	for (s32 k = 0; k < 3; k++) {
+		for (s32 j = 0; j < 3; j++) {
+			const f32 rp = j == 0 ? g_BgRooms[r].pos.x : j == 1 ? g_BgRooms[r].pos.y : g_BgRooms[r].pos.z;
+
+			out[k][j] = roundf(t->pos[k][j] - rp) + rp;
+		}
+	}
+}
+
+/**
+ * The corners of a decal kept in its mesh (markDecalLifts()) moved out along
+ * the decal's face just far enough that the whole-unit corner writeLeaf()
+ * makes of them is not behind its base as that is written.
+ *
+ * Train's riveted plates are two decal bands on a wall bent along the
+ * middle of the plate, pinned to the mesh by corners they share with the
+ * wall at the bend and with a fin inside the wall. Their other corners,
+ * rounded to whole units, went up to half a unit behind the wall (itself
+ * rounded), so the wall was drawn over most of the plate: a thin strip of
+ * rivets seen head on, the whole plate at a slant (F3 20260930-014411
+ * "clipping at certain distances").
+ *
+ * A corner that rounds onto its base's plane is not moved, so a decal on its
+ * base's own corners (Surface's snow drifts) stays in the mesh. A corner is
+ * moved the same for every decal it belongs to, and one a triangle other
+ * than a decal shares only along that triangle's plane (a crack would open
+ * otherwise: Depot's roof trim went missing from below).
+  */
+static s32 markDecalCorners(struct stri *tris, s32 num)
+{
+	struct liftcorner *corners;
+	s32 numcorners = 0;
+	s32 moved = 0;
+	s32 i;
+	s32 j;
+
+	if (num <= 0) {
+		return 0;
+	}
+
+	corners = malloc(sizeof(*corners) * num * 3);
+
+	if (!corners) {
+		return 0;
+	}
+
+	for (i = 0; i < num; i++) {
+		for (s32 k = 0; k < 3; k++) {
+			for (s32 m = 0; m < 3; m++) {
+				corners[numcorners].key[m] = (s32)roundf(tris[i].pos[k][m]);
+			}
+
+			corners[numcorners].tri = i * 3 + k;
+			numcorners++;
+		}
+	}
+
+	qsort(corners, numcorners, sizeof(*corners), liftCornerCmp);
+
+	for (i = 0; i < numcorners; i = j) {
+		s32 usable = 1;
+		s32 shared = 0;
+		s32 count = 0;
+		f32 dir[3] = { 0.0f, 0.0f, 0.0f };
+		f32 len;
+		f32 by = -1.0f;
+
+		for (j = i; j < numcorners && memcmp(corners[j].key, corners[i].key, sizeof(corners[i].key)) == 0; j++) {
+			const struct stri *t = &tris[corners[j].tri / 3];
+			f32 n[3];
+
+			if (!t->decal) {
+				shared++;
+				continue;
+			}
+
+			if (t->lift || t->decalbase < 0 || t->decalbase >= num || t->room <= 0
+					|| tris[t->decalbase].room <= 0 || cornerNormal((const f32 (*)[3])t->pos, n) <= 0.0f) {
+				usable = 0;
+				continue;
+			}
+
+			dir[0] += n[0];
+			dir[1] += n[1];
+			dir[2] += n[2];
+			count++;
+		}
+
+		if (!usable || count == 0) {
+			continue;
+		}
+
+		len = sqrtf(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+
+		if (len < 0.5f * count) {
+			continue;
+		}
+
+		dir[0] /= len;
+		dir[1] /= len;
+		dir[2] /= len;
+
+		// A corner another triangle shares moves only along that triangle's
+		// own plane, so it stays on it and no crack opens (Train's plates
+		// share corners with a fin inside the wall, square to them); one on
+		// a surface it would leave stays where it is
+		for (s32 q = i; q < j && shared; q++) {
+			const struct stri *t = &tris[corners[q].tri / 3];
+			f32 n[3];
+
+			if (!t->decal && cornerNormal((const f32 (*)[3])t->pos, n) > 0.0f && fabsf(dot3(n, dir)) > 0.05f) {
+				usable = 0;
+				break;
+			}
+		}
+
+		if (!usable) {
+			continue;
+		}
+
+		// Steps of a quarter unit up to DECAL_LIFT; the first that leaves the
+		// corner on or in front of every base it lies on
+		for (s32 step = 0; step <= 8 && by < 0.0f; step++) {
+			const f32 s = step * (DECAL_LIFT / 8.0f);
+			s32 ok = 1;
+
+			for (s32 q = i; q < j && ok; q++) {
+				const struct stri *t = &tris[corners[q].tri / 3];
+
+				if (!t->decal) {
+					continue;
+				}
+
+				const struct stri *b = &tris[t->decalbase];
+				const s32 k = corners[q].tri % 3;
+				f32 bc[3][3], nb[3], nt[3], w[3], rel[3];
+
+				cornersRounded(b, bc);
+
+				if (cornerNormal((const f32 (*)[3])bc, nb) <= 0.0f && cornerNormal((const f32 (*)[3])b->pos, nb) <= 0.0f) {
+					continue;
+				}
+
+				cornerNormal((const f32 (*)[3])t->pos, nt);
+
+				for (s32 m = 0; m < 3; m++) {
+					const f32 rp = m == 0 ? g_BgRooms[t->room].pos.x : m == 1 ? g_BgRooms[t->room].pos.y : g_BgRooms[t->room].pos.z;
+
+					w[m] = roundf(t->pos[k][m] + dir[m] * s - rp) + rp;
+					rel[m] = w[m] - bc[0][m];
+				}
+
+				ok = dot3(rel, nb) * (dot3(nt, nb) >= 0.0f ? 1.0f : -1.0f) >= -0.01f;
+			}
+
+			if (ok) {
+				by = s;
+			}
+		}
+
+		if (by <= 0.0f) {
+			continue;
+		}
+
+		for (s32 q = i; q < j; q++) {
+			struct stri *t = &tris[corners[q].tri / 3];
+			const s32 k = corners[q].tri % 3;
+
+			if (!t->decal) {
+				continue;
+			}
+
+			t->pos[k][0] += dir[0] * by;
+			t->pos[k][1] += dir[1] * by;
+			t->pos[k][2] += dir[2] * by;
+		}
+
+		moved++;
+	}
+
+	free(corners);
+
+	return moved;
 }
 
 // What build() leaves, the level it read left open
@@ -6006,6 +6218,185 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 	return changed;
 }
 
+/** Where a ray from o along d (unit) meets triangle v, or -1. */
+static f32 rayTriT(const f32 *o, const f32 *d, const f32 *v0, const f32 *v1, const f32 *v2)
+{
+	const f32 e1[3] = { v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2] };
+	const f32 e2[3] = { v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2] };
+	const f32 p[3] = { d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0] };
+	const f32 det = dot3(e1, p);
+	f32 s[3], q[3], u, v, inv;
+
+	if (fabsf(det) < 1e-6f) {
+		return -1.0f;
+	}
+
+	inv = 1.0f / det;
+	s[0] = o[0] - v0[0];
+	s[1] = o[1] - v0[1];
+	s[2] = o[2] - v0[2];
+	u = dot3(s, p) * inv;
+
+	if (u < 0.0f || u > 1.0f) {
+		return -1.0f;
+	}
+
+	q[0] = s[1] * e1[2] - s[2] * e1[1];
+	q[1] = s[2] * e1[0] - s[0] * e1[2];
+	q[2] = s[0] * e1[1] - s[1] * e1[0];
+	v = dot3(d, q) * inv;
+
+	if (v < 0.0f || u + v > 1.0f) {
+		return -1.0f;
+	}
+
+	return dot3(e2, q) * inv;
+}
+
+#define OVERLAP_REACH 64.0f
+#define OVERLAP_SPACE 400.0f
+
+/**
+ * The first of GoldenEye's triangles (the grid of them) a ray from o along
+ * unit d meets within reach, leaving out those in the plane n.x = pd (the
+ * face under test): its index, *t its distance and nf its normal, or -1.
+ */
+static s32 rayFirst(const struct tgrid *g, const f32 *o, const f32 *d, f32 reach, const f32 *n, f32 pd, f32 *t, f32 *nf)
+{
+	s32 hit = -1;
+	f32 best = reach;
+
+	for (f32 step = 0.0f; step <= best + g->cell; step += g->cell * 0.5f) {
+		const f32 at[3] = { o[0] + d[0] * step, o[1] + d[1] * step, o[2] + d[2] * step };
+		const s32 cx = (s32)floorf(at[0] / g->cell);
+		const s32 cy = (s32)floorf(at[1] / g->cell);
+		const s32 cz = (s32)floorf(at[2] / g->cell);
+
+		for (s32 e = g->head[gridKey(cx, cy, cz)]; e >= 0; e = g->entnext[e]) {
+			const s32 u = g->enttri[e];
+			const f32 *v = g->tri + u * 9;
+			f32 tt;
+
+			if (fabsf(dot3(n, v) - pd) < 1.0f && fabsf(dot3(n, v + 3) - pd) < 1.0f && fabsf(dot3(n, v + 6) - pd) < 1.0f) {
+				continue;
+			}
+
+			tt = rayTriT(o, d, v, v + 3, v + 6);
+
+			if (tt > 0.0f && tt < best) {
+				best = tt;
+				hit = u;
+			}
+		}
+	}
+
+	if (hit >= 0) {
+		const f32 *v = g->tri + hit * 9;
+		const f32 p[3][3] = { { v[0], v[1], v[2] }, { v[3], v[4], v[5] }, { v[6], v[7], v[8] } };
+
+		if (cornerNormal(p, nf) <= 0.0f) {
+			return -1;
+		}
+
+		*t = best;
+	}
+
+	return hit;
+}
+
+/**
+ * Bean's solid faces drawn culled where GoldenEye's own face under them has
+ * another room's space behind it: the first of GoldenEye's faces a line
+ * back from it meets, within OVERLAP_REACH, faces the same way (a wall of
+ * the space behind), not back at it (the far side of a slab, a deck's
+ * underside, which Bean draws with its one plane from both sides), and that
+ * space is closed on all six sides by GoldenEye's faces turned into it, not
+ * the open air under a roof's edge or behind a gantry's panel (Depot, the
+ * Cradle), which Bean draws with one plane and GoldenEye leaves open.
+ *
+ * GoldenEye's rooms overlap and rely on their faces being culled: Aztec's
+ * computer room by the exhaust vent is a box whose west wall runs through
+ * the vent's last 50 units, and from the vent GoldenEye shows the room
+ * through the back of that wall, the body armour on the floor. Bean's wall,
+ * drawn two-sided like every HD room (writeLeaf()), was a stone face across
+ * the vent (F3 20260929-234633 "disjointed geometry/texture within exhaust
+ * tunnel, where the armor would normally be").
+ */
+static s32 markOverlaps(struct stri *tris, s32 num, const struct tgrid *filetris)
+{
+	static const f32 axes[6][3] = { { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } };
+	s32 count = 0;
+
+	for (s32 i = 0; i < num; i++) {
+		tris[i].overlap = 0;
+	}
+
+	for (s32 i = 0; i < num; i++) {
+		struct stri *t = &tris[i];
+		f32 n[3], mid[3], o[3], back[3], nf[3], d, pd;
+		f32 best = OVERLAP_REACH;
+		s32 closed = 1;
+		s32 g;
+
+		if (t->decal || t->blend || t->backed || t->fights || t->undersea || texHasAlpha(t->tex) || triNormal(t, n) <= 0.0f) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
+			back[j] = -n[j];
+			o[j] = mid[j] - n[j] * 1.0f;
+		}
+
+		pd = dot3(n, mid);
+
+		// GoldenEye has a face here, facing the same way
+		g = tgridNearest(filetris, mid, 0, &d);
+
+		if (g < 0 || d > 4.0f) {
+			continue;
+		}
+
+		{
+			const f32 *v = filetris->tri + g * 9;
+			const f32 p[3][3] = { { v[0], v[1], v[2] }, { v[3], v[4], v[5] }, { v[6], v[7], v[8] } };
+
+			if (cornerNormal(p, nf) <= 0.0f || dot3(nf, n) < 0.9f) {
+				continue;
+			}
+		}
+
+		// The first of GoldenEye's faces behind it faces the same way
+		// (a space: GoldenEye's rooms sharing a wall have their two faces
+		// within a unit of each other, and Depot's warehouse wall's top edge
+		// went missing from below when such a pair was taken for one)
+		if (rayFirst(filetris, o, back, OVERLAP_REACH, n, pd, &best, nf) < 0 || dot3(nf, n) < 0.5f || best < 8.0f) {
+			continue;
+		}
+
+		// and the space between is closed all round
+		{
+			const f32 in[3] = { o[0] + back[0] * best * 0.5f, o[1] + back[1] * best * 0.5f, o[2] + back[2] * best * 0.5f };
+
+			for (s32 a = 0; a < 6 && closed; a++) {
+				f32 far = OVERLAP_SPACE;
+				f32 na[3];
+
+				closed = rayFirst(filetris, in, axes[a], OVERLAP_SPACE, n, pd, &far, na) >= 0 && dot3(na, axes[a]) < 0.0f;
+			}
+		}
+
+		if (!closed) {
+			continue;
+		}
+
+		t->overlap = 1;
+		count++;
+	}
+
+	return count;
+}
+
 static s32 build(void)
 {
 	const u64 start = sysGetMicroseconds();
@@ -6205,6 +6596,11 @@ static s32 build(void)
 				sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles of cast shadows drawn see-through", row->bean, shadows);
 			}
 		}
+		{
+			const s32 overlaps = markOverlaps(c.tris, c.num, &filetris);
+
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d faces drawn culled over another room's space", row->bean, overlaps);
+		}
 		markWaterPictures(&c, filerooms, filelens, n);
 
 		mark[2] = sysGetMicroseconds();
@@ -6310,6 +6706,12 @@ static s32 build(void)
 
 		if (plainDecals) {
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d white decal triangles of draws with no UV or picture left out", row->bean, plainDecals);
+		}
+
+		{
+			const s32 cornersmoved = markDecalCorners(c.tris, c.num);
+
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d corners of decals kept in their mesh moved off their base's rounding", row->bean, cornersmoved);
 		}
 
 		for (s32 r = 1; r < n; r++) {
