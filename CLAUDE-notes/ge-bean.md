@@ -12985,6 +12985,13 @@ run dir). Facility's conveyor still lifts +118.9 (walk.py on 0x63). Probes:
   the parka's bare collar leaves out the hood lining and Bond's own neck skin, and a
   made neck is drawn inside its open collar; Bond's own neck skin goes in the hood
   group. Probes: `~/wt/f3-0929c-heads-run/pairs.py`, `menushot.py`.
+  **"His own face" is any Bond head on any Bond outfit but the parka** (2026-09-30,
+  F3 20260930-031838, a regression of a0991794b): `gebeanRowKeepsHood()` compared
+  the two rows' sources exactly, so the cast reel's jungle fatigues under the suit's
+  head (`introCastStart()` pairs four outfits with `HEAD_BROSNAN_DEFAULT`, cut off
+  `suitbond`) left out the jungle's own neck skin and showed the room through the
+  shirt's open neck. `beanSourceIsBondOutfit()` counts djbond, boilerbond, suitbond
+  and timberbond as one man; not snowbond, whose hood group is the hood itself.
 - Also this pass (notes in their own files): tank shells in the weapon cycle and All
   Guns while driving (inv.c, afacc3408/c90303233), Randomizer disarm on every mission
   door (randomizer.md), third-person camera ease (third-person.md), the texture

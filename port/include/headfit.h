@@ -45,7 +45,7 @@ void headfitSurveyHeads(void);
 
 // Whether a head on a body is fitted by measurement rather than the ROM's type table
 s32 headfitWanted(s32 headnum, s32 bodynum);
-// How far to move the head's vertices up (bodymodeldef unused: bodies are measured from their files)
+// How far to move the head's vertices up (bodies are measured from their files, and bodymodeldef for its release mesh)
 s32 headfitOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struct modeldef *bodymodeldef);
 // The body model the next head is seated on, where the table has none (the
 // menu's own copy); cleared by the next headfitOffset()

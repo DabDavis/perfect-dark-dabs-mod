@@ -249,6 +249,24 @@ head on a body it was not made for** and **height only**.
   aims. Checked: eight mixed pairs in both looks against the previous binary,
   own pairs unchanged (stock pairs pixel-identical), stock heads on stock
   bodies with no GoldenEye X.
+- **A body the HD look draws as the release's mesh is not its N64 neck**
+  (2026-09-30, F3 20260930-041905, the tuxedo Bond's HD head on the Dinner
+  Jacket in Customize Character). `CmooreZ`, `CdaltonZ`, `CconneryZ` and
+  `CdjbondZ` are GoldenEye's bodies kept in the ROM and carry GoldenEye's neck,
+  80 units over the collar; the release's meshes for them have none, and nor
+  do some others (the A51 airman, Elvis's shirt). Seated on the ROM's neck top
+  a head stood clear of the release's collar with the room between. So in the
+  HD look `headfitReleaseNeckTop()` measures the release's mesh itself
+  (`xblaMeshReleaseRestVertices()`: each vertex out of its main bone's inverse
+  bind is in that joint's frame, plus the joint's rest offset is the same space
+  `headfitMeasureBodyAt()` uses); where that top is more than
+  `HEADFIT_NECK_GONE` under the ROM's, the head goes into the mesh's collar,
+  and a Perfect Dark head by its release mesh's base (Joanna's HD neck is 17
+  shorter than her N64 one). Bodies whose release mesh keeps the neck (within
+  40 of the ROM's: Joanna's 26 vs 29, the female guard's 70 vs 73) are fitted
+  as before, and the N64 look is untouched. A GoldenEye head file with a neck
+  is seated by its rim's 75th percentile, not its middle: the throat reaches
+  40-50 lower than the nape and the middle left the nape over the collar.
 
 ## Simulants running on the spot at the head of a ladder (2026-09-21)
 
