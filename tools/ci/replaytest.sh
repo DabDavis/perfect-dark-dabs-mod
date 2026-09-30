@@ -25,7 +25,7 @@
 # (80, fast spawns, random weapons; the alarm raised at frame 200 by
 # --alarm-at, since nobody trips one), akimbo guards and mission respawn; and
 # the Randomizer: randrun lands a run on G5 (0x1e, seed 12345, no hops) and
-# randmission deals the 0x34 mission again. Env: FRAMES (default
+# randmission deals the 0x34 mission again (to frame 1500 at most). Env: FRAMES (default
 # 3000), STEP (100), SEED (12345), CASES (all eight), GOLDEN
 # (build/replay-golden), OUT (build/replay-out), MODDIR (mod_allinone), EXTRA
 # (more arguments for every run, e.g. EXTRA="--simbrain modern" for the
@@ -67,6 +67,10 @@ caseargs() {
 caseframes() {
 	case $1 in
 	randrun) echo $((FRAMES < 750 ? FRAMES : 750)) ;;
+	# the dealt mission's player dies at frame ~1608 (seed 12345) and the
+	# endscreen stops the level's frame count there, so --exit-frame past it
+	# is never reached and the run only ends at the timeout
+	randmission) echo $((FRAMES < 1500 ? FRAMES : 1500)) ;;
 	*) echo "$FRAMES" ;;
 	esac
 }
