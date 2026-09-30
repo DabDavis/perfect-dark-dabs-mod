@@ -14313,29 +14313,44 @@ static const void *beanLevelCutTexture(struct gebeanlevel *level, s32 tex, u8 *a
  * one drawn outside the blended pass or alpha tested, one with alpha of
  * its own, one with colour, or one with no dark part to be a gap (the
  * light shafts' flat grey).
+ *
+ * Dam's window glass is the other kind (F3 20260929-213543, "windows
+ * bugged"): GoldenEye's streaked pane, which GoldenEye draws see-through, is
+ * in Bean a single row of black and light grey bars (an intensity picture,
+ * ".int") that the release draws in its opaque pass - every window of the
+ * guard huts stood as a solid sheet of grey and black stripes, hiding the
+ * room behind. A one-row intensity picture drawn only opaque, and grey,
+ * black and light like the stripes, is drawn as glass: white, faint at its
+ * black bars and half there at its light ones, tinted by the vertices.
  */
 static const void *beanLevelMaskTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft)
 {
 	struct beanmodel *bm = &level->bm;
 	char key[80];
 	s32 used = 0;
+	s32 opaque = 0;
 	s32 w, h;
 	s32 lo = 255, hi = 0, dark = 0, mid = 0;
 	u8 *rgba;
 	const void *tile;
 	s32 a = 0, s = 0;
+	const char *name = beanTextureName(bm, tex);
+	const size_t namelen = name ? strlen(name) : 0;
+	const s32 streak = namelen > 8 && strcmp(name + namelen - 8, ".int.bin") == 0;
 
 	for (s32 d = 0; d < bm->numdraws; d++) {
 		if (bm->draws[d].tex == (u32)tex) {
-			if (!bm->draws[d].blend || bm->draws[d].alphatest) {
+			if (bm->draws[d].alphatest || (!bm->draws[d].blend && !streak)) {
 				return NULL;
 			}
 
-			used = 1;
+			opaque |= !bm->draws[d].blend;
+			used |= bm->draws[d].blend ? 1 : 2;
 		}
 	}
 
-	if (!used) {
+	// the glass: in no blended draw at all
+	if (!used || (opaque && used != 2)) {
 		return NULL;
 	}
 
@@ -14351,7 +14366,7 @@ static const void *beanLevelMaskTexture(struct gebeanlevel *level, s32 tex, u8 *
 
 	rgba = beanDecodeTexture(bm, tex, &w, &h);
 
-	if (!rgba || beanTexIsPlaceholder(rgba, w, h)) {
+	if (!rgba || beanTexIsPlaceholder(rgba, w, h) || (opaque && h != 1)) {
 		free(rgba);
 		return NULL;
 	}
@@ -14390,7 +14405,7 @@ static const void *beanLevelMaskTexture(struct gebeanlevel *level, s32 tex, u8 *
 		u8 *p = &rgba[i * 4];
 		const s32 v = MAX(p[0], MAX(p[1], p[2]));
 
-		p[3] = (u8)MIN(255, v * 255 / hi);
+		p[3] = opaque ? (u8)(40 + MIN(hi, v) * 100 / hi) : (u8)MIN(255, v * 255 / hi);
 		p[0] = p[1] = p[2] = 0xff;
 	}
 
@@ -14404,7 +14419,8 @@ static const void *beanLevelMaskTexture(struct gebeanlevel *level, s32 tex, u8 *
 	*alpha = (u8)a;
 	*soft = (u8)s;
 
-	sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is a grey mask in the blended pass, drawn by its brightness",
+	sysLogPrintf(LOG_NOTE, opaque ? "gebean: %s: texture %d (%s) is streaked glass drawn opaque, drawn see-through by its brightness"
+			: "gebean: %s: texture %d (%s) is a grey mask in the blended pass, drawn by its brightness",
 			level->source, tex, beanTextureName(bm, tex));
 
 	if (numTexCache < GEBEAN_TEXCACHE) {
