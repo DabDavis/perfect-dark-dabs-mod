@@ -69,6 +69,8 @@ void gegunsSetOwnModelInUse(s32 index, s32 inuse);
 s32 gegunsOwnModelInUse(s32 weaponnum);
 s32 gegunsOwnModelHidden(s32 weaponnum);
 s32 gegunsTriggerDelay60(s32 weaponnum);
+// ticks after a single shot a GoldenEye gun is ready once its trigger was let go, -1 not one
+s32 gegunsReleasedReady(s32 weaponnum, s32 speeds, s32 hasanim);
 // Where GoldenEye holds the gun in front of the eye, and where its host is held
 s32 gegunsViewPlacement(s32 index, f32 *own, f32 *host);
 

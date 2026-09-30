@@ -2325,6 +2325,19 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 		}
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye's gun is ready after its two recoil speeds alone once the
+	// trigger has been let go, whatever the fourth speed and whether or not
+	// it is pressed again yet (gegunsReleasedReady())
+	if (hand->triggerreleased && (hand->stateflags & HANDSTATEFLAG_00000040) == 0) {
+		const s32 ready = gegunsReleasedReady(hand->gset.weaponnum, unk24 + unk25, func->base.fire_animation != NULL);
+
+		if (ready >= 0 && frames >= ready) {
+			return true;
+		}
+	}
+#endif
+
 	if (sum <= frames) {
 		if (unk27 >= 0 && hand->triggerreleased && hand->triggeron) {
 			return true;
