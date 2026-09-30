@@ -47,6 +47,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "patchnotes.h"
+#include "update.h"
 #endif
 
 u8 g_InventoryWeapon;
@@ -5179,6 +5180,10 @@ MenuDialogHandlerResult menudialogMainMenu(s32 operation, struct menudialogdef *
 #ifndef PLATFORM_N64
 			// What the update the player just started brought, once.
 			patchnotesMainMenuTick();
+			// Then, once that is out of the way, whether a newer one is out.
+			updatenoticeMainMenuTick(dialogdef, data->dialog2.inputs, true);
+		} else {
+			updatenoticeMainMenuTick(dialogdef, data->dialog2.inputs, false);
 #endif
 		}
 		break;
