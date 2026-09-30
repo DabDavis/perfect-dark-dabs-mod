@@ -79,10 +79,13 @@ struct TileBuild {
 
 enum TileResult { TILE_OK, TILE_EMPTY, TILE_FAILED };
 
-TileResult buildTile(SimNavContext &ctx, const rcConfig &base, const simnavinput *in,
+TileResult buildTile(SimNavContext &ctx, const rcConfig &base, const simnavparams *sp, const simnavinput *in,
 		const float *tribounds, int tx, int ty, const float *meshbmin, const float *meshbmax,
 		int *scratchtris, unsigned char *scratchareas, unsigned char **outdata, int *outsize)
 {
+	const int stepover = (int)floorf(sp->agentstepover / base.ch);
+	const int standing = (int)ceilf(sp->agentheight / base.ch);
+	const int ducked = (int)ceilf(sp->agentduckheight / base.ch);
 	rcConfig cfg = base;
 	const float tcs = cfg.tileSize * cfg.cs;
 	TileBuild b;
@@ -124,11 +127,16 @@ TileResult buildTile(SimNavContext &ctx, const rcConfig &base, const simnavinput
 		return TILE_FAILED;
 	}
 
-	if (!rcRasterizeTriangles(&ctx, in->verts, in->numverts, scratchtris, scratchareas, n, *b.hf, cfg.walkableClimb)) {
+	// A wall and the floor under it are one span in a cell they share, and
+	// the floor's area wins only where the wall tops out within a step over
+	// (chrGetBbox()'s box starts that far over the feet); a taller wall
+	// stands on the floor as solid, however high a step the floors either
+	// side of it are. The walkable climb is for floors only.
+	if (!rcRasterizeTriangles(&ctx, in->verts, in->numverts, scratchtris, scratchareas, n, *b.hf, stepover)) {
 		return TILE_FAILED;
 	}
 
-	rcFilterLowHangingWalkableObstacles(&ctx, cfg.walkableClimb, *b.hf);
+	rcFilterLowHangingWalkableObstacles(&ctx, stepover, *b.hf);
 	rcFilterLedgeSpans(&ctx, cfg.walkableHeight, cfg.walkableClimb, *b.hf);
 	rcFilterWalkableLowHeightSpans(&ctx, cfg.walkableHeight, *b.hf);
 
@@ -143,6 +151,23 @@ TileResult buildTile(SimNavContext &ctx, const rcConfig &base, const simnavinput
 
 	if (b.chf->spanCount == 0) {
 		return TILE_EMPTY;
+	}
+
+	// The mesh is built for a crouching simulant; where there is less room
+	// than a standing one needs, it goes only over the floors that have it
+	// duck or crouch, as far as it gets down
+	for (int i = 0; i < b.chf->spanCount; i++) {
+		const int room = b.chf->spans[i].h;
+
+		if (b.chf->areas[i] == RC_NULL_AREA || room >= standing) {
+			continue;
+		}
+
+		if (b.chf->areas[i] == SIMNAV_AREA_CROUCH || (b.chf->areas[i] == SIMNAV_AREA_DUCK && room >= ducked)) {
+			continue;
+		}
+
+		b.chf->areas[i] = RC_NULL_AREA;
 	}
 
 	if (!rcErodeWalkableArea(&ctx, cfg.walkableRadius, *b.chf)
@@ -284,7 +309,7 @@ extern "C" struct simnavmesh *simnavMeshBuild(const struct simnavinput *in, cons
 	cfg.cs = sp->cellsize;
 	cfg.ch = sp->cellheight;
 	cfg.walkableSlopeAngle = sp->agentslope;
-	cfg.walkableHeight = (int)ceilf(sp->agentheight / cfg.ch);
+	cfg.walkableHeight = (int)ceilf(sp->agentcrouchheight / cfg.ch);
 	cfg.walkableClimb = (int)floorf(sp->agentclimb / cfg.ch);
 	cfg.walkableRadius = (int)ceilf(sp->agentradius / cfg.cs);
 	cfg.maxEdgeLen = (int)(sp->maxedgelen / cfg.cs);
@@ -359,7 +384,7 @@ extern "C" struct simnavmesh *simnavMeshBuild(const struct simnavinput *in, cons
 		for (int tx = 0; tx < tw; tx++) {
 			unsigned char *data = nullptr;
 			int size = 0;
-			TileResult r = buildTile(ctx, cfg, in, tribounds, tx, ty, bmin, bmax,
+			TileResult r = buildTile(ctx, cfg, sp, in, tribounds, tx, ty, bmin, bmax,
 					scratchtris, scratchareas, &data, &size);
 
 			if (r == TILE_EMPTY) {

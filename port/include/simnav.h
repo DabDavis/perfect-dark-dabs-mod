@@ -31,7 +31,12 @@ extern "C" {
 #define SIMNAV_AREA_STEP   3 // GEOFLAG_STEP: ascended whatever its steepness
 #define SIMNAV_AREA_WATER  4 // GEOFLAG_UNDERWATER
 #define SIMNAV_AREA_LADDER 5 // GEOFLAG_LADDER / LADDER_PLAYERONLY on a floor
-#define SIMNAV_NUMAREAS    6
+// (6 to 8 are the off-mesh links', M2)
+// Floors a simulant goes over lowered (GEOFLAG_AIBOTDUCK, AIBOTCROUCH):
+// chrTick() gives it 135 or 90 of height over them
+#define SIMNAV_AREA_DUCK   9
+#define SIMNAV_AREA_CROUCH 10
+#define SIMNAV_NUMAREAS    11
 
 struct simnavparams {
 	float cellsize;       // xz size of a voxel, world units
@@ -39,6 +44,9 @@ struct simnavparams {
 	float agentheight;    // clearance a walker needs
 	float agentradius;    // how far a walker keeps from a wall
 	float agentclimb;     // the highest step walked up without a jump
+	float agentstepover;  // the highest wall walked over
+	float agentduckheight;   // a walker's height where the floor says duck
+	float agentcrouchheight; // and where it says crouch
 	float agentslope;     // degrees (only for Recast's own marking; we mark by flags)
 	int tilesize;         // cells along a tile's side
 	float maxedgelen;     // world units

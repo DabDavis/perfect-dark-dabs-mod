@@ -16,22 +16,30 @@
  * running on over it.
  *
  * **Out of scope for M1**: props (doors, glass, crates, lifts - their geometry
- * moves, and is DetourTileCache's in M6), ladders and drops as links (M2), and
- * the low-clearance hints GEOFLAG_AIBOTCROUCH/DUCK, which mark the geometry
- * over a crouch rather than the floor under it. A GoldenEye level converted
+ * moves, and is DetourTileCache's in M6), and ladders and drops as links
+ * (M2). A GoldenEye level converted
  * into GE Plus has its own collision (gestan.c's 2-D tile graph, whose walls
  * are there for one body and not another) and is skipped with a log line.
  *
  * **Agent size**, from the chr movement code:
  *  - radius 20: chrInit() (chr.c) gives every chr 20; only a few special
  *    bodies (Dr Caroll 30, the ChicRob 42, body.c) change it, none a simulant.
- *  - height 185: chrTick() sets an aibot's height to 185 standing (135 ducked,
- *    90 crouched, chr.c), and chrGetBbox() tops its box at manground + height.
- *  - climb 30: chrGetBbox() starts a walker's box 20 over its manground, so a
- *    wall lower than that is walked over, and the ground a walker follows is
- *    let lag it by up to 30 (chrTickFalling()'s "ground - 30", the bot step's
- *    "rise = ground - 30 - manground"); a floor within 30 is the same floor to
- *    it. 30 is 6 cells of 5.
+ *  - height 185: chrTick() sets an aibot's height to 185 standing, and
+ *    chrGetBbox() tops its box at manground + height. Over a floor flagged
+ *    GEOFLAG_AIBOTDUCK it is 135, over AIBOTCROUCH 90 (chrTick() asks for
+ *    the flags from 10 under the feet up, so the floor under a duct carries
+ *    them): the mesh is built for 90 and a place with less room than 185 is
+ *    kept only on such a floor, as its own area.
+ *  - step over 20: chrGetBbox() starts a walker's box 20 over its manground,
+ *    so a wall lower than that is walked over and a taller one stops it.
+ *  - climb 60: the floor a walker's move ends on is looked for from at least
+ *    69 over its manground (chr0f01f378()), and the ground is let lag the
+ *    floor by 30 on the way up; so a step whose riser is not a wall is walked
+ *    up to that height. Complex's upper walkway has a 39 riser flagged only
+ *    as floor and Villa dozens of 30-39; at the first climb of 30 they cut
+ *    the stage in two. A riser flagged as a wall stops a walker over 20, and
+ *    Recast sees it only where it stands taller than the floor it shares a
+ *    cell with - under 60 it is still climbed (two triangles on Felicity).
  *
  * **Cache.** cache/navmesh/pd/<stage>-<hash>.bin beside the executable (or in
  * the save directory where that cannot be written, fsChooseOutputDir()). The
@@ -61,11 +69,12 @@
 #include "modloader.h"
 #include "simnav.h"
 
-#define SIMNAV_EXTRACT_VERSION 1 // bump when the extraction or the saved form changes
+#define SIMNAV_EXTRACT_VERSION 2 // bump when the extraction or the saved form changes
 #define SIMNAV_CACHE_MAGIC     0x4e44504e // 'NPDN'
 #define SIMNAV_DRAW_LIFT       6.0f   // units the drawn mesh stands over the floor
 #define SIMNAV_DRAW_REACH      4000.0f // tiles further than this from the camera are not drawn
 #define SIMNAV_DRAW_ALPHA      0x78
+#define SIMNAV_STEPOVER        20.0f  // chrGetBbox(): a walker's box starts this far over its feet
 
 static s32 g_SimNavDebugOpt = 0;
 
@@ -86,7 +95,10 @@ static void simnavGetParams(struct simnavparams *p)
 	p->cellheight = 5.0f;
 	p->agentheight = 185.0f;
 	p->agentradius = 20.0f;
-	p->agentclimb = 30.0f;
+	p->agentclimb = 60.0f;
+	p->agentstepover = SIMNAV_STEPOVER;
+	p->agentduckheight = 135.0f;
+	p->agentcrouchheight = 90.0f;
 	p->agentslope = 60.0f;
 	p->tilesize = 64;
 	p->maxedgelen = 240.0f;
@@ -198,6 +210,16 @@ static u8 simnavTileArea(u16 flags)
 	if (flags & (GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2)) {
 		if (flags & (GEOFLAG_LADDER | GEOFLAG_LADDER_PLAYERONLY)) {
 			return SIMNAV_AREA_LADDER;
+		}
+
+		// chrTick() asks for these flags within 10 under a simulant's feet
+		// and a standing height over them: it is the floor that has them
+		if (flags & GEOFLAG_AIBOTCROUCH) {
+			return SIMNAV_AREA_CROUCH;
+		}
+
+		if (flags & GEOFLAG_AIBOTDUCK) {
+			return SIMNAV_AREA_DUCK;
 		}
 
 		if (flags & GEOFLAG_UNDERWATER) {
@@ -631,6 +653,11 @@ static void simnavPolyColour(u8 area, s32 poly, Col *col)
 		{ 0x40, 0xff, 0x60 }, // step
 		{ 0x20, 0x40, 0xff }, // water
 		{ 0xff, 0x40, 0xff }, // ladder floor
+		{ 0x80, 0x80, 0x80 }, // (links only)
+		{ 0x80, 0x80, 0x80 },
+		{ 0x80, 0x80, 0x80 },
+		{ 0xa0, 0x60, 0xff }, // duck
+		{ 0xff, 0x50, 0x50 }, // crouch
 	};
 	const u8 *c = colours[area < SIMNAV_NUMAREAS ? area : 0];
 	// neighbouring polygons a shade apart, so their edges show
