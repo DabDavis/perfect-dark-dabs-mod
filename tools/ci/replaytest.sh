@@ -15,8 +15,10 @@
 # 0x32 and a solo mission on 0x34 (the match alone missed the pad2.flags read,
 # CLAUDE-notes/performance.md). Env: FRAMES (default 3000), STEP (100), SEED
 # (12345), CASES ("match solo"), GOLDEN (build/replay-golden), OUT
-# (build/replay-out), MODDIR (mod_allinone). Needs the ROM in build/data and an
-# offscreen-capable GPU driver (SDL_VIDEODRIVER=offscreen).
+# (build/replay-out), MODDIR (mod_allinone), EXTRA (more arguments for every
+# run, e.g. EXTRA="--simbrain modern" for the simulants' modern movement; none
+# by default). Needs the ROM in build/data and an offscreen-capable GPU driver
+# (SDL_VIDEODRIVER=offscreen).
 #
 # Exit status: 0 identical, 1 a divergence, 2 a run that failed.
 set -u
@@ -26,6 +28,7 @@ FRAMES=${FRAMES:-3000}; STEP=${STEP:-100}; SEED=${SEED:-12345}
 CASES=${CASES:-"match solo"}
 GOLDEN=${GOLDEN:-$BUILD/replay-golden}; OUT=${OUT:-$BUILD/replay-out}
 MODDIR=${MODDIR:-mod_allinone}
+EXTRA=${EXTRA:-}
 export SDL_VIDEODRIVER=offscreen SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0ce6
 
 caseargs() {
@@ -43,7 +46,7 @@ run() {
 	mkdir -p "$OUT/save-$label-$c"
 	( cd "$BUILD" && timeout -k 5 $((FRAMES / 10 + 300)) "$bin" --moddir "$MODDIR" \
 		--savedir "$OUT/save-$label-$c" --skip-intro --no-sound $(caseargs "$c") \
-		--rng-seed "$SEED" --fixed-step --state-hash "$STEP" --exit-frame "$FRAMES" \
+		--rng-seed "$SEED" --fixed-step --state-hash "$STEP" --exit-frame "$FRAMES" $EXTRA \
 		> "$log" 2>&1 )
 	local rc=$?
 	grep -o 'statehash: frame [0-9]* [0-9a-f]*' "$log" > "$OUT/$label.$c.hash"
@@ -100,6 +103,6 @@ check)
 		cmpcase "$GOLDEN/$c.hash" "$OUT/t.$c.hash" "$c" || status=1
 	done ;;
 *)
-	sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+	sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
 exit $status

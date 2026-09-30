@@ -4,6 +4,8 @@
 #
 #   tools/simstall/eval.sh <builddir> <binary> <tag>
 #   python3 tools/simstall/summary.py $OUT/<tag>
+#
+# EXTRA (exported) goes to every game, e.g. EXTRA="--simbrain modern".
 D=$(dirname "$(readlink -f "$0")")
 B=$1; BIN=$2; TAG=$3
 OUT=${OUT:-/tmp/simprobe}

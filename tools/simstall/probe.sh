@@ -13,6 +13,7 @@
 #   FALLLINE=N     chr.c line of the fall death's chrDie(); found in the
 #                  working tree if not given, so give it for another binary
 #   DETAIL=1       print the route state at each new stall
+#   EXTRA=...      more arguments for the game, e.g. "--simbrain modern"
 #
 # Output goes to $OUT/<name>.probe (default /tmp/simprobe); summary.py reads it.
 D=$(dirname "$(readlink -f "$0")")
@@ -23,5 +24,5 @@ FALLLINE=${FALLLINE:-$(grep -n 'chrDie(chr, shooter);' "$D/../../src/game/chr.c"
 cd "$B" || exit 1
 FALLLINE=$FALLLINE SDL_VIDEODRIVER=offscreen timeout -k 5 900 gdb -q -batch -x "$D/probe.gdb" \
 	--args ./${BIN:-pd.x86_64} --savedir "$OUT/save-$NAME" --skip-intro --no-sound \
-	--boot-stage "$ST" --mpsims "${SIMS:-4}" --endless --rng-seed "${SEED:-1}" --fixed-step --exit-frame "$EF" \
+	--boot-stage "$ST" --mpsims "${SIMS:-4}" --endless --rng-seed "${SEED:-1}" --fixed-step --exit-frame "$EF" $EXTRA \
 	> "$OUT/$NAME.probe" 2>&1
