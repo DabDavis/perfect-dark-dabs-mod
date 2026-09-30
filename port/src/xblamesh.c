@@ -10011,14 +10011,8 @@ static void xblaMeshApplyNodeMode(struct modelrenderdata *renderdata,
  * a body that is lit. So the first cycle is kept as the game set it and only
  * the second is chosen: `cycle2` is the *2 half of a G_RM pair.
  */
-// A soft-edged cutout: blended by the texel's alpha over what is there,
-// depth tested and written like an opaque surface (see the cutout span in
-// xblaMeshRenderNode()'s opaque pass).
-#define XBLAMESH_RM_SOFT_EDGE(clk) \
-	(AA_EN | Z_CMP | Z_UPD | IM_RD | CVG_DST_CLAMP | ZMODE_OPA | FORCE_BL | \
-	 GBL_c##clk(G_BL_CLR_IN, G_BL_A_IN, G_BL_CLR_MEM, G_BL_1MA))
-
-// 0 draws a skinned mesh's alpha span as a hard cutout again (gdb, to compare)
+// 0 draws a skinned mesh's alpha span as a hard cutout again (gdb, to compare):
+// see the soft span in xblaMeshRenderNode()
 s32 g_XblaMeshSoftCutouts = 1;
 
 static void xblaMeshSetSpanMode(struct modelrenderdata *renderdata,
@@ -10941,7 +10935,14 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		xlulist = &m->gdl[xlupart];
 	}
 
-	if (!opa && !xlulist && !fadelist) {
+	// A character's or a gun's (a skinned mesh's) cutout span is a soft
+	// picture - hair, a lens - drawn in two: its solid core cut in the opaque
+	// pass, writing depth, and the whole span blended over it in the
+	// translucent pass, depth tested and not written. See the two draws below.
+	const s32 softspan = xlupart >= 0 && !xlulist && g_XblaMeshSoftCutouts
+			&& m->nummatrices > 0 && renderdata->zbufferenabled;
+
+	if (!opa && !xlulist && !fadelist && !softspan) {
 		// Only a node the game actually draws a translucent list for is a
 		// stock draw; every other replaced node reaches here in the
 		// translucent pass and the game draws nothing for it either.
@@ -11372,24 +11373,25 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// letters from about 300 to 600 units out. The cutout is cut on its
 		// texels alone.
 		//
-		// A character's or a gun's (a skinned mesh's) alpha span is blended
-		// by its texels' alpha instead, still writing depth, with only the
-		// clear texels discarded - the release's own state for its models
-		// (blend on, depth written, no alpha test). Hair is a soft picture:
-		// cut at the edge test's fifth, every strand thinner than that came
-		// out solid, and Joanna's fringe drew as a thick slab over her face
-		// (F3 20260929-172810, "opacity of textures is lost, only
-		// transparency"). A hard-edged cutout comes out the same either way.
+		// A character's or a gun's (a skinned mesh's) span is a soft picture,
+		// and only its core is cut here: the texels of three quarters alpha
+		// and more (G_ALPHA_CORE_EXT), solid and writing depth. The rest is
+		// blended over it in the translucent pass (softspan, below). Cut at
+		// the edge test's fifth, every half-clear strand of hair came out
+		// solid and Joanna's fringe drew as a thick slab over her face (F3
+		// 20260929-172810). Blended here instead, writing depth (e06d1298b,
+		// the release's own state, which leans on its own draw order), a
+		// strand was laid over whatever had been drawn by then - the sky, or
+		// the room behind her not yet drawn - and hid what came after it:
+		// the hair went see-through wherever it was half clear (F3
+		// 20260930-044656) and a lens showed the sky (F3 20260930-023254).
 		if (xlupart >= 0 && !xlulist) {
-			const s32 soft = g_XblaMeshSoftCutouts && m->nummatrices > 0 && renderdata->zbufferenabled;
+			xblaMeshSetSpanMode(renderdata, node,
+					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
+					renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
 
-			if (soft) {
-				xblaMeshSetSpanMode(renderdata, node, XBLAMESH_RM_SOFT_EDGE(2), XBLAMESH_RM_SOFT_EDGE(1));
-				gDPSetAlphaCompare(renderdata->gdl++, G_AC_THRESHOLD);
-			} else {
-				xblaMeshSetSpanMode(renderdata, node,
-						renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE2 : G_RM_AA_TEX_EDGE2,
-						renderdata->zbufferenabled ? G_RM_AA_ZB_TEX_EDGE : G_RM_AA_TEX_EDGE);
+			if (softspan) {
+				gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_ALPHA_CORE_EXT);
 			}
 
 			if (renderdata->unk30 == 9) {
@@ -11402,8 +11404,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
 			}
 
-			if (soft) {
-				gDPSetAlphaCompare(renderdata->gdl++, G_AC_NONE);
+			if (softspan) {
+				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ALPHA_CORE_EXT);
 			}
 		}
 
@@ -11635,6 +11637,30 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				renderdata->zbufferenabled ? G_RM_AA_ZB_XLU_SURF2 : G_RM_AA_XLU_SURF2,
 				renderdata->zbufferenabled ? G_RM_AA_ZB_XLU_SURF : G_RM_AA_XLU_SURF);
 		gSPDisplayList(renderdata->gdl++, xlulist);
+	}
+
+	// The soft span's second draw: all of it, blended by its texels' alpha
+	// over the core the opaque pass cut and whatever is behind, which by the
+	// translucent pass is all there. Depth tested (less than, so the core is
+	// not laid over itself) and not written, and lit like the body it is on.
+	// Only the clear texels are thrown away.
+	if (xlu && softspan) {
+		xblaMeshApplyNodeMode(renderdata, node, 1);
+		xblaMeshSetSpanMode(renderdata, node, G_RM_AA_ZB_XLU_SURF2, G_RM_AA_ZB_XLU_SURF);
+		gDPSetAlphaCompare(renderdata->gdl++, G_AC_THRESHOLD);
+
+		if (renderdata->unk30 == 9) {
+			gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, 0);
+		}
+
+		gSPDisplayList(renderdata->gdl++, &m->gdl[xlupart]);
+
+		if (renderdata->unk30 == 9) {
+			gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
+		}
+
+		gDPSetAlphaCompare(renderdata->gdl++, G_AC_NONE);
+		frameDraws++;
 	}
 
 	if (xlu && fadelist) {

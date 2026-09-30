@@ -2085,7 +2085,11 @@ static struct ShaderProgram *gfx_vk_create_and_load_new_shader(uint64_t shader_i
     }
 
     if (cc_features.opt_texture_edge && cc_features.opt_alpha) {
-        fs += "    if (texel.a > 0.19) texel.a = 1.0; else discard;\n";
+        if (cc_features.opt_alpha_core) {
+            fs += "    if (texel.a >= 0.75) texel.a = 1.0; else discard;\n";
+        } else {
+            fs += "    if (texel.a > 0.19) texel.a = 1.0; else discard;\n";
+        }
     }
 
     if (cc_features.opt_alpha && cc_features.opt_noise) {

@@ -55,6 +55,9 @@ enum {
 // GoldenEye XBLA release draws it. Bit 28: 16-27 are cleared for a draw
 // without alpha (gfx_derive_batch_state()).
 #define SHADER_OPT_FOG_LINEAR (1 << 28)
+// G_ALPHA_CORE_EXT: a texture-edge cutout keeps only its texels of at least
+// three quarters alpha, where the plain one keeps everything over 0.19.
+#define SHADER_OPT_ALPHA_CORE (1 << 29)
 
 struct ColorCombinerKey {
     uint64_t combine_mode;
@@ -80,6 +83,7 @@ struct CCFeatures {
     bool opt_envmap;
     bool opt_fog_fade;
     bool opt_fog_linear;
+    bool opt_alpha_core;
     bool used_textures[2];
     bool clamp[2][2];
     int num_inputs;
