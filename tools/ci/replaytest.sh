@@ -18,45 +18,79 @@
 # (--boot-map, --boot-ge-mission) since a converted map's id depends on the
 # mods installed. The GE cases run without --moddir (which mounts no map mods)
 # and with Mod.MapMods seeded to "GoldenEye Arenas"; they are skipped with a
-# note when the GoldenEye ROM has not been converted. Env: FRAMES (default
-# 3000), STEP (100), SEED (12345), CASES ("match solo gematch gesolo"), GOLDEN
+# note when the GoldenEye ROM has not been converted. Then the mod's own
+# options, which are all off in the cases above: optmatch is the 0x32 match
+# with jump, combat roll, random start weapons, akimbo, melee combos and
+# flinch on for everyone; optsolo is the 0x34 mission with Guards Alerted
+# (80, fast spawns, random weapons; the alarm raised at frame 200 by
+# --alarm-at, since nobody trips one), akimbo guards and mission respawn; and
+# the Randomizer: randrun lands a run on G5 (0x1e, seed 12345, no hops) and
+# randmission deals the 0x34 mission again. Env: FRAMES (default
+# 3000), STEP (100), SEED (12345), CASES (all eight), GOLDEN
 # (build/replay-golden), OUT (build/replay-out), MODDIR (mod_allinone), EXTRA
 # (more arguments for every run). Needs the ROM in build/data and an
-# offscreen-capable GPU driver (SDL_VIDEODRIVER=offscreen).
+# offscreen-capable GPU driver (SDL_VIDEODRIVER=offscreen). The mission cases
+# pass --skip-cutscenes: Attack Ship's opening runs past frame 1400, and a
+# case that hashes only a cutscene tests very little.
 #
 # Exit status: 0 identical, 1 a divergence, 2 a run that failed.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=$ROOT/build
 FRAMES=${FRAMES:-3000}; STEP=${STEP:-100}; SEED=${SEED:-12345}
-CASES=${CASES:-"match solo gematch gesolo"}
+CASES=${CASES:-"match solo gematch gesolo optmatch optsolo randrun randmission"}
 GOLDEN=${GOLDEN:-$BUILD/replay-golden}; OUT=${OUT:-$BUILD/replay-out}
 MODDIR=${MODDIR:-mod_allinone}
+mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)  # runs cd into build/, so no relative paths
+case $GOLDEN in /*) ;; *) GOLDEN=$PWD/$GOLDEN ;; esac
 export SDL_VIDEODRIVER=offscreen SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0ce6
 
 caseargs() {
 	case $1 in
 	match) echo "--boot-stage 0x32 --mpsims 80 --spectate --endless" ;;
-	solo)  echo "--boot-stage 0x34" ;;
+	solo)  echo "--boot-stage 0x34 --skip-cutscenes" ;;
 	gematch) echo "--boot-map Complex --mpsims 16 --spectate --endless" ;;
-	gesolo)  echo "--boot-ge-mission 0" ;;
+	gesolo)  echo "--boot-ge-mission 0 --skip-cutscenes" ;;
+	optmatch) echo "--boot-stage 0x32 --mpsims 80 --spectate --endless" ;;
+	optsolo) echo "--boot-stage 0x34 --skip-cutscenes --alarm-at 200" ;;
+	randrun) echo "--boot-stage 0x1e --random-run --run-stage 0x1e" ;;
+	randmission) echo "--boot-stage 0x34 --random-mission --skip-cutscenes" ;;
 	*) echo "unknown case $1" >&2; exit 2 ;;
+	esac
+}
+
+# caseframes CASE: FRAMES, or less for a case that cannot run that long. A
+# Randomizer run with nobody at the controls is over when its player dies
+# (frame ~815 on seed 12345), and the level loads again from frame 0.
+caseframes() {
+	case $1 in
+	randrun) echo $((FRAMES < 750 ? FRAMES : 750)) ;;
+	*) echo "$FRAMES" ;;
+	esac
+}
+
+# caseini CASE: the [Mod] lines a case's pd.ini starts with, if any
+caseini() {
+	case $1 in
+	ge*) printf 'ModDir=\nMapMods=GoldenEye Arenas\n' ;;
+	optmatch) printf 'JumpHeight=3\nJumpFor=0\nCombatRoll=1\nStartArmed=2\nStartArmedFor=0\nAkimbo=2\nMeleeCombos=1\nFlinchWhenShot=1\n' ;;
+	optsolo) printf 'GuardsAlerted=1\nAlertedGuards=80\nGuardSpawnSpeed=10\nGuardWeapons=1\nAkimbo=3\nMissionRespawn=1\nFlinchWhenShot=1\n' ;;
+	rand*) printf 'RandomizerSeed=12345\n' ;;
 	esac
 }
 
 # run BIN CASE LABEL -> $OUT/LABEL.CASE.hash
 run() {
-	local bin=$1 c=$2 label=$3 log=$OUT/$3.$2.log
+	local bin=$1 c=$2 label=$3 log=$OUT/$3.$2.log frames; frames=$(caseframes "$2")
 	case $bin in /*) ;; */*) bin=$(realpath "$bin") ;; *) bin=$BUILD/$bin ;; esac
 	local save=$OUT/save-$label-$c moddir="--moddir $MODDIR"
 	rm -rf "$save"; mkdir -p "$save"
-	case $c in ge*)
-		moddir=
-		printf '[Mod]\nModDir=\nMapMods=GoldenEye Arenas\n' > "$save/pd.ini" ;;
-	esac
-	( cd "$BUILD" && timeout -k 5 $((FRAMES / 10 + 300)) "$bin" $moddir \
+	case $c in ge*) moddir= ;; esac
+	local ini; ini=$(caseini "$c")
+	[ -n "$ini" ] && printf '[Mod]\n%s\n' "$ini" > "$save/pd.ini"
+	( cd "$BUILD" && timeout -k 5 $((frames / 10 + 300)) "$bin" $moddir \
 		--savedir "$save" --skip-intro --no-sound $(caseargs "$c") \
-		--rng-seed "$SEED" --fixed-step --state-hash "$STEP" --exit-frame "$FRAMES" \
+		--rng-seed "$SEED" --fixed-step --state-hash "$STEP" --exit-frame "$frames" \
 		${EXTRA:-} > "$log" 2>&1 )
 	local rc=$?
 	if grep -q "boot map .*no such map\|boot GE mission .*not registered" "$log"; then
@@ -65,11 +99,11 @@ run() {
 		return 3
 	fi
 	grep -o 'statehash: frame [0-9]* [0-9a-f]*' "$log" > "$OUT/$label.$c.hash"
-	if [ $rc -ne 0 ] || ! grep -q "exit-frame $FRAMES reached" "$log"; then
+	if [ $rc -ne 0 ] || ! grep -q "exit-frame $frames reached" "$log"; then
 		echo "FAIL $label $c: exit $rc, no exit-frame line (see $log)"
 		return 2
 	fi
-	echo "ran  $label $c: $(wc -l < "$OUT/$label.$c.hash") hashes to frame $FRAMES"
+	echo "ran  $label $c: $(wc -l < "$OUT/$label.$c.hash") hashes to frame $frames"
 }
 
 # cmp A B CASE: first differing frame, or identical
@@ -96,7 +130,9 @@ case $mode in
 compare)
 	[ $# -eq 2 ] || { echo "compare BIN_A BIN_B"; exit 2; }
 	for c in $CASES; do
-		run "$1" "$c" a & run "$2" "$c" b & wait
+		run "$1" "$c" a > "$OUT/a.$c.status" & run "$2" "$c" b > "$OUT/b.$c.status" & wait
+		cat "$OUT/a.$c.status" "$OUT/b.$c.status"
+		if grep -q '^FAIL' "$OUT/a.$c.status" "$OUT/b.$c.status"; then status=2; continue; fi
 		if { [ -s "$OUT/a.$c.hash" ] && [ ! -s "$OUT/b.$c.hash" ]; } \
 				|| { [ ! -s "$OUT/a.$c.hash" ] && [ -s "$OUT/b.$c.hash" ]; }; then
 			echo "FAIL $c: only one binary produced hashes"; status=2; continue
@@ -106,7 +142,9 @@ compare)
 self)
 	[ $# -eq 1 ] || { echo "self BIN"; exit 2; }
 	for c in $CASES; do
-		run "$1" "$c" a & run "$1" "$c" b & wait
+		run "$1" "$c" a > "$OUT/a.$c.status" & run "$1" "$c" b > "$OUT/b.$c.status" & wait
+		cat "$OUT/a.$c.status" "$OUT/b.$c.status"
+		if grep -q '^FAIL' "$OUT/a.$c.status" "$OUT/b.$c.status"; then status=2; continue; fi
 		cmpcase "$OUT/a.$c.hash" "$OUT/b.$c.hash" "$c" || status=1
 	done ;;
 record)

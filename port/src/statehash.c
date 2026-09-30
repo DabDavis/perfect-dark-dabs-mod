@@ -6,10 +6,12 @@
  * divergence only once it reaches the screen, and a draw count carries a HUD
  * element that differs between identical runs. This reads the state itself,
  * at the top of the level tick before anything of that frame has run: the
- * RNG, every prop on the active and paused lists (type, position, first
- * room) and every chr in a slot (number, action, damage, position, where its
- * AI list has got to). Floats are hashed by their bits, so -0.0 and a last
- * ulp count.
+ * RNG; every prop on the active and paused lists (type, position, first
+ * room), and for a door or a lift where it has got to; every chr in a slot
+ * (number, action, damage, position, where its AI list has got to, and the
+ * AI's own variables: flags, morale, alertness, timer, target, cover); every
+ * player's health, armour, ammo and inventory; and the objectives' statuses.
+ * Floats are hashed by their bits, so -0.0 and a last ulp count.
  *
  * It only reads. A hash that changed the game would prove nothing.
  */
@@ -79,6 +81,24 @@ u64 stateHashCompute(void)
 		h = hashU32(h, prop->type);
 		h = hashCoord(h, &prop->pos);
 		h = hashU32(h, (u32)(s32)prop->rooms[0]);
+
+		if (prop->type == PROPTYPE_OBJ && prop->obj) {
+			struct defaultobj *obj = prop->obj;
+
+			h = hashU32(h, obj->type);
+
+			if (obj->type == OBJTYPE_DOOR) {
+				struct doorobj *door = (struct doorobj *)obj;
+				h = hashF32(h, door->frac);
+				h = hashU32(h, (u32)(s32)door->mode);
+			} else if (obj->type == OBJTYPE_LIFT) {
+				struct liftobj *lift = (struct liftobj *)obj;
+				h = hashF32(h, lift->dist);
+				h = hashF32(h, lift->speed);
+				h = hashU32(h, (u32)(s32)lift->levelcur);
+				h = hashU32(h, (u32)(s32)lift->levelaim);
+			}
+		}
 	}
 
 	h = hashU32(h, count);
@@ -95,11 +115,48 @@ u64 stateHashCompute(void)
 		h = hashF32(h, chr->damage);
 		h = hashF32(h, chr->maxdamage);
 		h = hashU32(h, chr->aioffset);
+		h = hashU32(h, chr->flags);
+		h = hashU32(h, chr->flags2);
+		h = hashU32(h, chr->chrflags);
+		h = hashU32(h, chr->morale);
+		h = hashU32(h, chr->alertness);
+		h = hashU32(h, (u32)chr->timer60);
+		h = hashU32(h, (u32)(s32)chr->target);
+		h = hashU32(h, (u32)(s32)chr->cover);
 
 		if (chr->prop) {
 			h = hashCoord(h, &chr->prop->pos);
 		}
 	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		struct player *player = g_Vars.players[i];
+		struct invitem *item;
+		s32 n = 0;
+
+		if (!player) {
+			continue;
+		}
+
+		h = hashU32(h, i);
+		h = hashF32(h, player->bondhealth);
+		h = hashF32(h, player->armourscale);
+		h = hashBytes(h, player->ammoheldarr, sizeof(player->ammoheldarr));
+
+		// a circular list; count and types, bounded in case it is ever not
+		for (item = player->weapons; item && n < 256; n++) {
+			h = hashU32(h, item->type);
+			item = item->next;
+
+			if (item == player->weapons) {
+				break;
+			}
+		}
+
+		h = hashU32(h, n);
+	}
+
+	h = hashBytes(h, g_ObjectiveStatuses, sizeof(g_ObjectiveStatuses));
 
 	return h;
 }

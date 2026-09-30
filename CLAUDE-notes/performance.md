@@ -207,6 +207,23 @@ diffing `--gfxstats` vertex counts for this purpose: the hash sees a
 divergence the frame it reaches the state, not when it reaches the screen.
 Golden hashes depend on the data in `build/` and stay local.
 
+Eight cases since 2026-09-30, all run by default (under two minutes for a
+`self` of all eight at 1500 frames): the PD match and mission, GE Plus's
+Complex arena and Dam mission (`--boot-map`, `--boot-ge-mission`: converted
+ids depend on the mods installed, and `--moddir` mounts no map mods, so these
+seed `Mod.MapMods` in their save dir's pd.ini instead), the match with the
+mod's movement options on, the mission with Guards Alerted (the alarm raised
+by `--alarm-at 200`, since nobody trips one), a Randomizer run landing on G5
+(capped at 750 frames: the unattended player dies near 815 and the level
+loads again) and a Randomizer-dealt mission. **Every mission case passes
+`--skip-cutscenes`**: Attack Ship's opening is still playing at frame 1400,
+so the solo case had been hashing little but the cutscene. The hash covers,
+besides the RNG, props and chrs: door and lift positions, each chr's AI
+variables (flags, morale, alertness, timer, target, cover), every player's
+health, armour, ammo and inventory, and the objectives. Widening the hash
+changes every value, so golden hashes recorded before it are void, and two
+binaries only compare if both have the same hash code.
+
 An ASan + UBSan build, configured through the environment because
 `target_architecture()` try-compiles with the flags and fails to link
 without them in `LDFLAGS`:

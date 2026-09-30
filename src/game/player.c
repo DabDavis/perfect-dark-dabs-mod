@@ -2707,6 +2707,15 @@ void playerTickCutscene(bool arg0)
 	if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
 		buttons |= START_BUTTON;
 	}
+
+	// --skip-cutscenes: START held for a headless run
+	{
+		extern s32 g_SkipCutscenes;
+
+		if (arg0 && g_SkipCutscenes) {
+			buttons |= START_BUTTON;
+		}
+	}
 #endif
 
 #if VERSION >= VERSION_NTSC_1_0

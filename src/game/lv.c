@@ -136,6 +136,7 @@
 #endif
 
 extern s32 g_ExitFrame;
+extern s32 g_AlarmAtFrame;
 extern s32 g_ShotFrame;
 #endif
 
@@ -2518,6 +2519,13 @@ void lvTick(void)
 		// --state-hash: the state as this frame starts, before anything of
 		// it has run (statehash.c)
 		stateHashTick();
+
+		// --alarm-at: the alarm raised on a level frame, as if a guard had
+		// reached a panel, for a run nobody is playing
+		if (g_AlarmAtFrame > 0 && g_Vars.lvframenum == g_AlarmAtFrame) {
+			sysLogPrintf(LOG_NOTE, "alarm-at %d: raising the alarm", g_AlarmAtFrame);
+			alarmActivate();
+		}
 
 		// --exit-frame: a measured run ends on a level frame, not a clock
 		if (g_ExitFrame > 0 && g_Vars.lvframenum >= g_ExitFrame) {

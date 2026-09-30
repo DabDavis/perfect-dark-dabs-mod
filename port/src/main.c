@@ -74,6 +74,8 @@ u8 g_VmShowStats = 0;
 s32 g_TickRateDiv = 1;
 s32 g_FixedStep = 0; // --fixed-step, see frametimeCalculate()
 s32 g_ExitFrame = 0; // --exit-frame N: quit when the level reaches frame N, so a measured run covers the same frames whatever its speed (lvTick)
+s32 g_SkipCutscenes = 0; // --skip-cutscenes: every cutscene skipped as soon as it lets itself be, so a headless mission run reaches play (playerTickCutscene)
+s32 g_AlarmAtFrame = 0; // --alarm-at N: raise the alarm at that level frame, so a headless run exercises what the alarm sets off (lvTick)
 s32 g_ShotFrame = 0; // --screenshot-frame N: take one at that level frame, so two runs can be compared at the same moment (lvTick)
 s32 g_TickExtraSleep = true;
 
@@ -334,6 +336,8 @@ int main(int argc, const char **argv)
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
 	g_StateHashEvery = sysArgGetInt("--state-hash", 0);
 	g_ShotFrame = sysArgGetInt("--screenshot-frame", 0);
+	g_AlarmAtFrame = sysArgGetInt("--alarm-at", 0);
+	g_SkipCutscenes = sysArgCheck("--skip-cutscenes");
 	xblaMeshSetVerbose(sysArgCheck("--xbla-mesh-verbose"));
 	xblaStageSetVerbose(sysArgCheck("--xbla-stage-verbose"));
 
