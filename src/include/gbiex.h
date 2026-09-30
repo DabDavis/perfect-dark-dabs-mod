@@ -231,6 +231,7 @@
 #define G_DEPTH_PREPASS_EXT      0x00020000 // what follows writes depth and no colour, whatever the render mode says: the first of a faded body's two passes (chrRender())
 #define G_DEPTH_FRONT_EXT        0x00040000 // what follows compares less-or-equal and writes no depth, whatever the render mode says: the second pass, which then draws only the surface the first left nearest
 #define G_SEAL_SEAMS_EXT         0x00080000 // opaque triangles that follow are grown half a pixel on screen, their corners slid along their own plane: a room's cracks between faces that do not quite meet (gfx_seal_seams(), gfx_pc.cpp)
+#define G_ALPHA_CORE_EXT         0x00100000 // with a texture-edge cutout (CVG_X_ALPHA): only texels of at least three quarters alpha are kept, drawn solid - the core of a soft picture, whose fringe is blended over it in a second draw (a character's hair, xblamesh.c)
 
 /* Extra texture filtering mode */
 

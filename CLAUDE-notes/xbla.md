@@ -4431,6 +4431,29 @@ positions, there is no netplay), so no replay can desync; Ghost Trials on
 Area 51 do differ by the platform side-step between players with and without
 the release.
 
+### A character's hair and lenses: cut core, blended fringe (2026-09-30)
+
+A skinned mesh's alpha span (hair, a lens) is drawn in two. The opaque pass
+cuts its core, texels of at least 0.75 alpha (`G_ALPHA_CORE_EXT`, the renderer's
+texture-edge test at 0.75 in place of 0.19), solid and writing depth. The
+translucent pass then draws the whole span blended (XLU_SURF, depth less-than,
+no write), lit like the body, with only near-clear texels thrown away.
+
+Both one-pass answers were wrong. The hard cut at 0.19 made every half-clear
+strand solid, so Joanna's fringe was a slab (F3 20260929-172810). Blending in
+the opaque pass while writing depth (e06d1298b, copying the release's own state)
+laid each strand over whatever had been drawn by then. In the opaque pass the
+rooms behind a chr are often not drawn yet: in CI that is the sky-blue clear.
+The strand's depth then hid the room drawn after it, so half-clear hair showed
+blue (F3 20260930-044656) and a CI tech's far lens showed the sky (F3
+20260930-023254). The release gets away with it through its own draw order,
+which the port does not have.
+
+Checked: CI, `--boot-stage 0x26`, dialog popped at 302. Joanna in third person
+with tether 3 and `thirdpersonbodytheta` turned 180 from gdb, so she faces the
+camera. The glasses tech (body 143, the holo room) from the spectator with
+`thirdperson=0`. GL and Vulkan. G5's first-person frame 1500 is pixel-identical.
+
 ## The whole release from one key (2026-09-12)
 
 F6 was the meshes' own switch and is the release's now: `port/src/xblaswitch.c`

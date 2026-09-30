@@ -2507,6 +2507,10 @@ static void gfx_derive_batch_state(void) {
     }
     if (texture_edge) {
         cc_options |= (uint64_t)SHADER_OPT_TEXTURE_EDGE;
+
+        if (rsp.extra_geometry_mode & G_ALPHA_CORE_EXT) {
+            cc_options |= (uint64_t)SHADER_OPT_ALPHA_CORE;
+        }
     }
     if (use_noise) {
         cc_options |= (uint64_t)SHADER_OPT_NOISE;
