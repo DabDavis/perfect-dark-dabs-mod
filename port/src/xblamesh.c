@@ -10997,6 +10997,20 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		fadelist = &m->gdl[fadepart];
 	}
 
+	// A windowed door's pane once three shots have shattered it
+	// (doorDestroyGlass() hides the toggle over the game's own pane). A
+	// GoldenEye XBLA door carries its window in the one mesh with the door,
+	// as its fading span, and it stood whole behind the shards (F3
+	// 20260929-213924, Bunker's cell doors)
+	if (fadelist && model && model->definition && model->definition->skel == &g_SkelWindowedDoor) {
+		struct modelnode *toggle = modelGetPart(model->definition, MODELPART_WINDOWEDDOOR_0001);
+		union modelrwdata *rw = toggle ? modelGetNodeRwData(model, toggle) : NULL;
+
+		if (rw && !rw->toggle.visible) {
+			fadelist = NULL;
+		}
+	}
+
 	// The release's own translucent geometry, and where it goes.
 	//
 	// A mesh's materials say which of its draws carry alpha, and those are

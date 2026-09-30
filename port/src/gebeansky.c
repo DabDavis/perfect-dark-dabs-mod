@@ -85,9 +85,17 @@ static const struct { const char *key, *sky; } skyNames[] = {
  * wrong and the level keeps GoldenEye's sky; on Surface GoldenEye's is a
  * lavender dusk with orange clouds, which drawn over the release's daylit
  * panorama met it in a hard seam of two skies (F3 20260925-074723).
+ *
+ * Dam likewise: its panorama is a pale daylit haze over the peaks, and
+ * GoldenEye's dark navy cloud plane over it ended in a hard ring some thirty
+ * degrees up, the panorama's own sky below it (F3 20260930-013142, "a mix of
+ * XBLA and N64"). The release draws the placeholder there (its Dam file, with
+ * Dam's horizon ring), which meets the haze with no seam; the Community
+ * Edition's own dam dome replaces it where the CE is on.
  */
 static const struct { const char *key, *sky; } releaseSkyNames[] = {
 	{ "sevx",  "surface" },
+	{ "dam",   "dam" },
 };
 
 /**
