@@ -31,6 +31,10 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 26 2026-09-30
+GE Plus: GoldenEye's guard clones happen again on Dam, Bunker 1 and 2, Silo, Archives and Jungle - an unseen guard who hears gunfire sends a clone out of sight, with GoldenEye's limit on how many (thanks Graslu00)
+GE Plus: the shotgun and automatic shotgun hide their side shells one by one as your reserve drops below five, in both looks (thanks Graslu00)
+
 notes 25 2026-09-30
 XBLA look: the file select's New Agent picture stays the original one instead of a red-haired Joanna (thanks Graslu00)
 GE Plus tank: the crosshair stays in the middle of the screen, and in the HD look the shell count shows a tank shell (thanks Graslu00)
