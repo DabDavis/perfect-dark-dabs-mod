@@ -22,6 +22,8 @@
 #include "geroom.h"
 #include "geimpact.h"
 #include "xblamesh.h"
+#include "modloader.h"
+#include "game/env.h"
 #endif
 
 #define WALLHITTYPE_SOFT   0
@@ -1331,6 +1333,38 @@ s32 wallhit0f140750(struct coord *coord)
 	return 128;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether the wall hits are drawn in the stage's fog.
+ *
+ * F3 20260930-191645 (GE Plus Train, "Bullet decals do not fade with the
+ * fog"): Perfect Dark draws its wall hits after envStopFog() (bg.c) under
+ * texSelect()'s plain translucent modes, and GoldenEye its impacts likewise
+ * (bg.c's fogRenderClearFogMode() before explosionCallRenderBulletImpactOnProp()),
+ * so on a level fogged to black a few metres off - Train's carriages - the
+ * holes on a far wall stay as bright as they are up close while the wall
+ * goes. Perfect Dark's own levels are fogged lightly and far off and keep the
+ * N64's drawing; a converted level's (either look) is fogged the way its
+ * rooms are: the same fog line by depth (envStartFog()), taken in the first
+ * blender cycle as the rooms take it (gfxreplace.c's G_RM_FOG_SHADE_A).
+ */
+static bool wallhitsFogged(void)
+{
+	return g_FogEnabled && modloaderStageIsRemake(g_Vars.stagenum);
+}
+
+static Gfx *wallhitFogMode(Gfx *gdl, s32 lod)
+{
+	if (lod >= 2) {
+		gDPSetRenderMode(gdl++, G_RM_FOG_SHADE_A, G_RM_AA_ZB_XLU_DECAL2);
+	} else {
+		gDPSetRenderMode(gdl++, G_RM_FOG_SHADE_A, G_RM_AA_ZB_XLU_SURF2);
+	}
+
+	return gdl;
+}
+#endif
+
 Gfx *wallhitRenderOpaBgHits(s32 roomnum, Gfx *gdl)
 {
 	struct wallhit *wallhit;
@@ -1349,6 +1383,14 @@ Gfx *wallhitRenderOpaBgHits(s32 roomnum, Gfx *gdl)
 	prevtexturenum = -1;
 	prev6b = -1;
 
+#ifndef PLATFORM_N64
+	const bool fogged = wallhitsFogged();
+
+	if (fogged) {
+		gdl = envStartFog(gdl, true);
+	}
+#endif
+
 	gdl = roomApplyMtx(gdl, roomnum);
 
 	wallhit = g_Rooms[roomnum].opawallhits;
@@ -1363,6 +1405,11 @@ Gfx *wallhitRenderOpaBgHits(s32 roomnum, Gfx *gdl)
 
 			if (wallhit->texturenum != prevtexturenum || wallhit->unk6b != prev6b) {
 				texSelect(&gdl, wallhitTexConfig(wallhit->texturenum), 2, wallhit->unk6b, 2, 1, NULL);
+#ifndef PLATFORM_N64
+				if (fogged) {
+					gdl = wallhitFogMode(gdl, wallhit->unk6b);
+				}
+#endif
 
 				prevtexturenum = wallhit->texturenum;
 				prev6b = wallhit->unk6b;
@@ -1392,6 +1439,12 @@ Gfx *wallhitRenderOpaBgHits(s32 roomnum, Gfx *gdl)
 
 		wallhit = wallhit->localnext;
 	}
+
+#ifndef PLATFORM_N64
+	if (fogged) {
+		gdl = envStopFog(gdl);
+	}
+#endif
 
 	gSPClearGeometryMode(gdl++, G_CULL_BOTH);
 	gDPSetColorDither(gdl++, G_CD_BAYER);
@@ -1416,6 +1469,14 @@ Gfx *wallhitRenderXluBgHits(s32 roomnum, Gfx *gdl)
 	prevtexturenum = -1;
 	prev6b = -1;
 
+#ifndef PLATFORM_N64
+	const bool fogged = wallhitsFogged();
+
+	if (fogged) {
+		gdl = envStartFog(gdl, true);
+	}
+#endif
+
 	gdl = roomApplyMtx(gdl, roomnum);
 
 	wallhit = g_Rooms[roomnum].xluwallhits;
@@ -1426,6 +1487,11 @@ Gfx *wallhitRenderXluBgHits(s32 roomnum, Gfx *gdl)
 
 			if (wallhit->texturenum != prevtexturenum || wallhit->unk6b != prev6b) {
 				texSelect(&gdl, wallhitTexConfig(wallhit->texturenum), 2, wallhit->unk6b, 2, 1, NULL);
+#ifndef PLATFORM_N64
+				if (fogged) {
+					gdl = wallhitFogMode(gdl, wallhit->unk6b);
+				}
+#endif
 
 				prevtexturenum = wallhit->texturenum;
 				prev6b = wallhit->unk6b;
@@ -1455,6 +1521,12 @@ Gfx *wallhitRenderXluBgHits(s32 roomnum, Gfx *gdl)
 
 		wallhit = wallhit->localnext;
 	}
+
+#ifndef PLATFORM_N64
+	if (fogged) {
+		gdl = envStopFog(gdl);
+	}
+#endif
 
 	gSPClearGeometryMode(gdl++, G_CULL_BOTH);
 	gDPSetColorDither(gdl++, G_CD_BAYER);
@@ -1495,6 +1567,14 @@ Gfx *wallhitRenderPropHits(Gfx *gdl, struct prop *prop, bool xlu)
 #endif
 	gDPSetColorDither(gdl++, G_CD_NOISE);
 	gDPSetTextureFilter(gdl++, G_TF_BILERP);
+
+#ifndef PLATFORM_N64
+	const bool fogged = wallhitsFogged();
+
+	if (fogged) {
+		gdl = envStartFog(gdl, true);
+	}
+#endif
 
 	wallhit = xlu ? prop->xluwallhits : prop->opawallhits;
 
@@ -1548,6 +1628,11 @@ Gfx *wallhitRenderPropHits(Gfx *gdl, struct prop *prop, bool xlu)
 
 			if (prevtexturenum != wallhit->texturenum || prev6b != wallhit->unk6b) {
 				texSelect(&gdl, wallhitTexConfig(wallhit->texturenum), 2, wallhit->unk6b, 2, 1, NULL);
+#ifndef PLATFORM_N64
+				if (fogged) {
+					gdl = wallhitFogMode(gdl, wallhit->unk6b);
+				}
+#endif
 
 				prevtexturenum = wallhit->texturenum;
 				prev6b = wallhit->unk6b;
@@ -1561,17 +1646,28 @@ Gfx *wallhitRenderPropHits(Gfx *gdl, struct prop *prop, bool xlu)
 
 			gSPColor(gdl++, osVirtualToPhysical(colours), 4);
 
-			if (wallhit->vertices2 != NULL) {
-				gSPVertex(gdl++, wallhit->vertices2, 4, 0);
-			} else {
-				gSPVertex(gdl++, osVirtualToPhysical(&wallhit->vertices), 4, 0);
-			}
+#ifndef PLATFORM_N64
+			if (!wallhitClipRender(&gdl, wallhit))
+#endif
+			{
+				if (wallhit->vertices2 != NULL) {
+					gSPVertex(gdl++, wallhit->vertices2, 4, 0);
+				} else {
+					gSPVertex(gdl++, osVirtualToPhysical(&wallhit->vertices), 4, 0);
+				}
 
-			gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
+				gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
+			}
 		}
 
 		wallhit = wallhit->localnext;
 	}
+
+#ifndef PLATFORM_N64
+	if (fogged) {
+		gdl = envStopFog(gdl);
+	}
+#endif
 
 	if (!hasany) {
 		obj->hidden2 &= ~(1 << xlu);
