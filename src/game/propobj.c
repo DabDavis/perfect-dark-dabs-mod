@@ -7902,7 +7902,11 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						pos.y = prop->pos.y - 1800.0f;
 						pos.z = prop->pos.z + ((burst & 1) ? -400.0f : 400.0f);
 
+						// GoldenEye's flames go where they are made, however
+						// far over the silo the shuttle has climbed
+						g_ExplosionUnbounded = true;
 						explosionCreate(NULL, &pos, prop->rooms, 20, 0, false, NULL, 0, NULL);
+						g_ExplosionUnbounded = false;
 
 						if (burst % 5 == 0) {
 							smokeCreateSimple(&pos, prop->rooms, 10);
