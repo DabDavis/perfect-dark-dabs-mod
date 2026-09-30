@@ -31,6 +31,48 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 22 2026-09-30
+GE Plus: Report a Problem (F3) can be seen and used over GoldenEye's main menu again (thanks Shockwave S08)
+GE Plus main menu: the cursor moves with either stick and with the D-pad, not just the right stick (thanks Shockwave S08)
+GE Plus: the 007 mode sliders can be dragged again (thanks dblaney1)
+GE Plus main menu: Bond and his outfits come first on the Characters page, and the HD level pictures are the right way up (thanks dick)
+GE Plus: finishing a mission no longer plays a Perfect Dark menu sound
+GE Plus watch: guns on the watch face no longer show their muzzle flash, in either look (thanks dab, thanks savantique, thanks Shockwave S08, thanks dick)
+GE Plus: the watch laser can no longer be held akimbo, and the watch shows GoldenEye's own watch for it (thanks dab)
+GE Plus: mines, gadgets and grenades picked on the watch can be thrown straight away, without a two-second wait
+GE Plus: Silo's telemetry item is named on the watch instead of "Gadget", and the weapon wheel uses GoldenEye's font and capitals (thanks Shockwave S08)
+Akimbo: throwing knives no longer count down below zero (thanks dab)
+GE Plus tank: it fires with GoldenEye's tank sound, and its shells drop in an arc instead of flying straight (thanks dblaney1, thanks savantique)
+GE Plus: the ceiling autoguns' bullets ricochet with GoldenEye's sounds (thanks dblaney1)
+GE Plus Surface: the grate clanks again when it lands on the platform (thanks dblaney1)
+GE Plus Frigate: guards no longer walk or shoot through the closed doors on the upper deck (thanks savantique)
+GE Plus: guards throw grenades where GoldenEye's do, such as at the start of Aztec and by Control's remote mines
+GE Plus Control: Natalya climbs the stairs out of the control room instead of running in circles (thanks savantique)
+GE Plus: the health and armor bars change at once when you are hit, as in GoldenEye (thanks Shockwave S08)
+GE Plus Bunker II: the watch magnet pulls the throwing knives up from the bottom of the drain (thanks savantique, thanks Odeyseis)
+GoldenEye guns: the Cougar Magnum fires as fast as GoldenEye's when you tap the trigger (thanks dblaney1)
+COD Style Aiming: the AR33 is lined up over its carry handle, so its front sight and the target are in view (thanks savantique)
+GE Plus, HD look: the rocket launcher no longer has an extra handle hanging under it (thanks dab)
+GE Plus Aztec: the shuttle's launch flames follow it all the way up instead of fizzling out half way (thanks savantique)
+GE Plus Dam, HD look: the far mountains seen through the gates no longer have holes in them (thanks dab)
+GE Plus Dam, HD look: without the Community Edition the sky is the release's own, with no dark ring over it (thanks dick)
+GE Plus Dam, HD look: the guard huts' windows are see-through streaked glass instead of grey and black stripes (thanks dab)
+HD look: a door window shot out goes with its shards, as on Bunker's cell doors (thanks savantique)
+GE Plus, HD look: doors that slide sideways, like Control's lift doors, go into the wall instead of over it (thanks dab)
+GE Plus Depot, HD look: the wall above the warehouse door is solid instead of showing through a stencil pattern (thanks dab)
+GE Plus Bunker II, HD look: the pillar's shadow in the cell corridor is see-through instead of solid black (thanks Odeyseis)
+GE Plus cast reel: Bond's head sits on his body with no gap at the neck (thanks savantique)
+Customize Character, HD look: heads sit down in the collar of the Dinner Jacket and the other bodies that floated them (thanks savantique)
+XBLA look: half-see-through hair no longer shows the background straight through, the fringe stays thin, and glasses no longer show the sky (thanks Parabolee, thanks dab)
+Glass See-Through: Area 51's lasers fade out and back in again, and switched-off lasers disappear instead of staying lit in the wrong place (thanks savantique)
+Randomizer: in Defection you land in the room the run says instead of always the same one (thanks Odeyseis)
+Randomizer: Maian soldiers bleed green like the other Maians (thanks Odeyseis)
+Menus: English (US) spells color, center and gray the American way; English (UK) keeps the British spellings (thanks Shockwave S08)
+F8 (texture packs on/off) and F6 (XBLA assets on/off) now say so on screen (thanks dick)
+Stage Loader and Load Mods: their descriptions use the small font and fit in the box (thanks Shockwave S08)
+GE Plus watch: the Ratio row is gone, since the PC version keeps the picture's shape by itself (thanks dick)
+GE Plus: GoldenEye's sight shows only while you aim, as in GoldenEye
+
 notes 21 2026-09-30
 Simulants: new "Simulant AI" option on Dab's Mod's Player page. Modern Movement lets simulants find their way with a map of each arena, so they get stuck far less (most on Warehouse, Area 52 and Grid, and with fast simulants), use ladders, lifts and drops, and step aside for each other in doorways. They still choose what to do the way they always have. Stock is the default and plays exactly as before; GE Plus arenas stay on Stock for now
 Simulants, Modern Movement: the first time you play an arena it builds its map, about a second on most arenas; after that it loads at once
