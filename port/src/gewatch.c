@@ -2041,7 +2041,12 @@ static const struct watchoption g_Options[] = {
 	{ STR_LOOKAHEAD,      { STR_OFF, STR_ON, 0 },                2 },
 	{ STR_AMMOONSCREEN,   { STR_OFF, STR_ON, 0 },                2 },
 	{ STR_SCREEN,         { STR_FULL, STR_WIDE, STR_CINEMA },    3 },
+#ifdef PLATFORM_N64
+	// Not on the PC: the picture follows the window, optionsSetScreenRatio()
+	// holds Normal, and Perfect Dark's own Video menu leaves Ratio out too
+	// (F3 20260930-012556-2776a295, a row that never moved)
 	{ STR_RATIO,          { STR_NORMAL, STR_169, 0 },            2 },
+#endif
 };
 
 #define NUM_OPTIONS ((s32)(sizeof(g_Options) / sizeof(g_Options[0])))
@@ -2295,7 +2300,7 @@ static void watchTickInput(void)
 	case PAGE_OPTIONS:
 		if (g_Watch.optionrow < 2) {
 			if (watchPressedUp() || watchPressedDown()) {
-				g_Watch.optionrow = watchPressedUp() ? (g_Watch.optionrow == 0 ? 9 : 0) : (g_Watch.optionrow == 0 ? 1 : 2);
+				g_Watch.optionrow = watchPressedUp() ? (g_Watch.optionrow == 0 ? NUM_OPTIONS + 1 : 0) : (g_Watch.optionrow == 0 ? 1 : 2);
 				g_Watch.yready = 0;
 				g_Watch.selected = 0;
 			} else if (g_Watch.selected) {
@@ -2307,7 +2312,7 @@ static void watchTickInput(void)
 				g_Watch.yready = 0;
 				g_Watch.selected = 0;
 
-				if (g_Watch.optionrow >= 10) {
+				if (g_Watch.optionrow >= NUM_OPTIONS + 2) {
 					g_Watch.optionrow = 0;
 				}
 			} else if (g_Watch.selected) {

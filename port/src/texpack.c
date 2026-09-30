@@ -4606,6 +4606,10 @@ void texpackTick(void)
 	// re-reads the pack anyway, so an edited image still shows up.
 	if (toggleVk > 0 && inputKeyJustPressed(toggleVk)) {
 		texpackSetLoadEnabled(!loadTextures);
+
+		// Said on screen as F10 is (F3 20260930-021516-2bf1061c), replacing
+		// the last press's message rather than queueing behind it
+		hudmsgSayToggle(langTr("Texture Packs On\n"), langTr("Texture Packs Off\n"), loadTextures);
 	}
 
 	// Re-reads the pack where you stand, for looking at an image you have just

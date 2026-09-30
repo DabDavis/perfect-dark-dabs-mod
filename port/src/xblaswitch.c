@@ -24,6 +24,8 @@
 #include "gexfront.h"
 #include "xblatables.h"
 #include "game/title.h"
+#include "game/hudmsg.h"
+#include "langpack.h"
 
 #ifndef PLATFORM_N64
 
@@ -140,6 +142,9 @@ void xblaSwitchTick(void)
 
 		sysLogPrintf(LOG_NOTE, "xblaswitch: release assets %s%s", enabled ? "on" : "off",
 				enabled && !xblaMeshIsAvailable() ? " (no package found)" : "");
+
+		// Said on screen as the other toggle keys are (F3 20260930-021639-f11aab1d)
+		hudmsgSayToggle(langTr("XBLA Assets On\n"), langTr("XBLA Assets Off\n"), enabled);
 	}
 }
 

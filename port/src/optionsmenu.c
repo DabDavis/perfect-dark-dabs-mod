@@ -1991,7 +1991,7 @@ struct menuitem g_ExtendedGameCrosshairColourMenuItems[] = {
 
 struct menudialogdef g_ExtendedGameCrosshairColourMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Crosshair Colour",
+	(uintptr_t)"Crosshair Color",
 	g_ExtendedGameCrosshairColourMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -2051,7 +2051,7 @@ struct menuitem g_ExtendedGameMenuItems[] = {
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
-		(uintptr_t)"Crosshair Colour\n",
+		(uintptr_t)"Crosshair Color\n",
 		0,
 		(void*)&g_ExtendedGameCrosshairColourMenuDialog,
 	},
@@ -2059,7 +2059,7 @@ struct menuitem g_ExtendedGameMenuItems[] = {
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Crosshair Colour by Health",
+		(uintptr_t)"Crosshair Color by Health",
 		0,
 		menuhandlerCrosshairHealth,
 	},
@@ -2814,11 +2814,8 @@ void modEnhancementsTick(void)
 
 		modEnhancementsSetOn(on);
 
-		if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
-			// Replaces the last press's message rather than queueing behind it
-			hudmsgRemoveByPrefix("Enhancements ");
-			hudmsgCreateWithFlags((char *)langTr(on ? "Enhancements On\n" : "Enhancements Off\n"), HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
-		}
+		// Replaces the last press's message rather than queueing behind it
+		hudmsgSayToggle(langTr("Enhancements On\n"), langTr("Enhancements Off\n"), on);
 	}
 }
 
@@ -2936,10 +2933,7 @@ static void modHdAssetsTick(void)
 
 		modHdAssetsSetOn(on);
 
-		if (STAGE_IS_LEVEL(g_Vars.stagenum) && g_Vars.currentplayer && g_Vars.lvframenum > 0) {
-			hudmsgRemoveByPrefix("HD Assets ");
-			hudmsgCreateWithFlags((char *)langTr(on ? "HD Assets On\n" : "HD Assets Off\n"), HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
-		}
+		hudmsgSayToggle(langTr("HD Assets On\n"), langTr("HD Assets Off\n"), on);
 	}
 }
 
@@ -4057,7 +4051,7 @@ static MenuItemHandlerResult menuhandlerModCamSide(s32 operation, struct menuite
 		} else if (side > 0) {
 			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("Right %d"), side);
 		} else {
-			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Centre"));
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Center"));
 		}
 		break;
 	}
@@ -4099,7 +4093,7 @@ static MenuItemHandlerResult menuhandlerModCamFwd(s32 operation, struct menuitem
 		} else if (fwd > 0) {
 			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("Back %d"), fwd);
 		} else {
-			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Centre"));
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Center"));
 		}
 		break;
 	}
@@ -4140,7 +4134,7 @@ static MenuItemHandlerResult menuhandlerModCamHeight(s32 operation, struct menui
 		} else if (height > 0) {
 			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, langTr("Up %d"), height);
 		} else {
-			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Centre"));
+			snprintf(data->slider.label, MENU_SLIDERLABEL_LEN, "%s", langTr("Center"));
 		}
 		break;
 	}
@@ -5217,7 +5211,7 @@ struct menuitem g_ExtendedDabsModDisplayMenuItems[] = {
 		MENUITEMTYPE_DROPDOWN,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Vivid Colours",
+		(uintptr_t)"Vivid Colors",
 		0,
 		menuhandlerModVividColours,
 	},
@@ -7176,7 +7170,7 @@ struct menuitem g_ExtendedModsMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
 		(uintptr_t)"One mod at a time. Mods live in mods/, or beside\n",
 		0,
 		NULL,
@@ -7184,7 +7178,7 @@ struct menuitem g_ExtendedModsMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
 		(uintptr_t)"the game in a folder named mod-something. One that\n",
 		0,
 		NULL,
@@ -7192,7 +7186,7 @@ struct menuitem g_ExtendedModsMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
 		(uintptr_t)"replaces ROM audio or textures needs a restart.\n",
 		0,
 		NULL,
@@ -7398,7 +7392,7 @@ struct menuitem g_ExtendedMapsMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
 		(uintptr_t)"A mod's maps join the Combat Simulator's arena list\n",
 		0,
 		NULL,
@@ -7406,7 +7400,7 @@ struct menuitem g_ExtendedMapsMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
 		(uintptr_t)"beside the game's own, named after the map and the\n",
 		0,
 		NULL,
@@ -7414,7 +7408,7 @@ struct menuitem g_ExtendedMapsMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
+		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
 		(uintptr_t)"mod. Nothing in the game's own maps is replaced.\n",
 		0,
 		NULL,
