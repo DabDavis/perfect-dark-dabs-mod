@@ -362,6 +362,10 @@ s32 xblaMeshEnumListNodes(struct modeldef *modeldef, struct modelnode **out, s32
 // neck: a head's rim (and whether it ends at its jaw) or a body's collar
 s32 xblaMeshBeanSeat(struct modeldef *def, s32 head, f32 *out, s32 *outneckless);
 s32 xblaMeshBeanSeatAt(struct modeldef *def, s32 head, f32 *out, s32 *outneckless, f32 frac);
+// A GoldenEye hat on a head drawn as the release's HD mesh: 1 when both are
+// drawn so, with the offset in the hat's own space that lifts it clear of the
+// hair (`measure`; zero otherwise) - chrRender() uses it in place of the table
+s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, s32 measure, f32 out[3]);
 // Each vertex of the release's mesh for a model at rest: its main matrix and its place in that joint's frame
 s32 xblaMeshReleaseRestVertices(struct modeldef *def, s32 rigid, void (*fn)(s32 mtx, const f32 local[3], void *arg), void *arg);
 void xblaMeshNodeRestOffset(const struct modelnode *node, f32 out[3]);

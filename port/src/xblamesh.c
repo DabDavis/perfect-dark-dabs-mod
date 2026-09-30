@@ -2103,6 +2103,8 @@ static void xblaMeshArenaStats(u32 *kb, s32 *chunks);
  * memory they name. This reset is then what clears the ones whose model is
  * never loaded again.
  */
+static void xblaMeshHatSeatsReset(void);
+
 void xblaMeshResetModels(void)
 {
 	// Read before the table is emptied: this is the level that is ending.
@@ -2132,6 +2134,9 @@ void xblaMeshResetModels(void)
 	// are node-local to models in the pool being handed back.
 	xblaMeshFreePackMeshes();
 	xblaMeshResetBeanMeshes();
+
+	// the hats' seats are the stage's chrs'
+	xblaMeshHatSeatsReset();
 
 	// What the meshes built so far are holding. They are kept for the life of
 	// the process on purpose - a mesh is the same in every level that uses it,
@@ -13031,6 +13036,531 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 	return count;
 }
 
+/*
+ * A GoldenEye hat on a head drawn as the release's HD mesh (F3
+ * 20260930-020448, 022258: "hat needs fixing on this head").
+ *
+ * GoldenEye fits a hat to each of its 28 random heads by a table
+ * (headHat_array_8003E464, gexPlusHeadHat()): an offset and a scale made for
+ * the N64 heads. The release carries the same table byte for byte (its image
+ * at 0x82729b88), but its HD heads are 4J's, other shapes that mostly wear a
+ * hat where the hat's own model puts it: the table's lift of 25 to 40 units
+ * for Karl, Duncan, Dwayne and B (their N64 crowns stand high) floated the
+ * side cap over their HD hair, tipped back. So on an HD head the table is not
+ * applied, and a side cap or a helmet is only lifted where 4J's hair stands
+ * through it - Karl's quiff, Pete's and Dave's crowns, 6 to 21 units:
+ *
+ * the head's surfaces over each 2-unit column, in the frame of the joint the
+ * hat hangs on, against the hat's outside (its HD triangles facing up there);
+ * the third deepest vertex of it under the head's top surface, and above its
+ * underside, is lifted 2 units clear. Deeper than 40 is a brim passing under
+ * an overhang (a quiff over a helmet's peak, the skull over its neck guard),
+ * not hair through a crown. A beret's and a fur hat's up-turned flaps read the
+ * same way and lifted them off their heads, so those are left as modelled
+ * (`measure` 0), as they sit.
+ *
+ * Handed back as an offset in the hat's own space, for chrRender() to apply
+ * the way it applied the table's. Measured once per chr, head and hat (the hat
+ * hangs rigidly on the head joint), from this frame's matrices. 0 when either
+ * is not drawn from the release in this look, and GoldenEye's table applies.
+ */
+#define XBLAMESH_HAT_CELL   2.0f
+#define XBLAMESH_HAT_GRID   160
+// A hat triangle faces up (its outside) past this much of its normal
+#define XBLAMESH_HAT_UP     0.3f
+// How far clear of the hair a hat's outside is lifted
+#define XBLAMESH_HAT_CLEAR  2.0f
+// The most hair is taken to stand through a hat
+#define XBLAMESH_HAT_DEEPEST 40.0f
+#define XBLAMESH_HAT_CACHE  128
+
+static struct {
+	const struct model *chrmodel;
+	const struct modeldef *headdef;
+	const struct modeldef *hatdef;
+	s32 ok;
+	s32 headrow; // the release's rows, plus one, for the log
+	s32 hatrow;
+	f32 offset[3];
+} hatSeats[XBLAMESH_HAT_CACHE];
+static s32 hatSeatNext;
+static f32 *hatSeatHeight;
+
+static void xblaMeshHatSeatsReset(void)
+{
+	memset(hatSeats, 0, sizeof(hatSeats));
+	hatSeatNext = 0;
+}
+
+static const struct xblameshentry *xblaMeshBeanEntry(struct modeldef *def)
+{
+	struct modelnode *node = def ? def->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 512; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == def && !e->suppress
+				&& e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART) {
+			return e;
+		}
+
+		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return NULL;
+}
+
+static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, s32 measure,
+		f32 out[3], s32 *outheadrow, s32 *outhatrow)
+{
+	const struct xblameshentry *he = xblaMeshBeanEntry(headdef);
+	const struct xblameshentry *te = xblaMeshBeanEntry(hatmodel->definition);
+	struct xblameshbuilt *head;
+	struct xblameshbuilt *hat;
+	const s32 nummtx = chrmodel->definition->nummatrices;
+	f32 headshift[3] = { 0.0f, 0.0f, 0.0f };
+	s32 votes[XBLAMESH_MAXMTX];
+	s32 bh = -1;
+	Mtxf lifted[XBLAMESH_MAXMTX];
+	Mtxf hj;
+	Mtxf invhj;
+	f32 *local;
+	f32 lo[2] = { 1e9f, 1e9f };
+	f32 hi[2] = { -1e9f, -1e9f };
+	s32 gw;
+	s32 gh;
+	f32 lift;
+	f32 worst[3] = { -1e9f, -1e9f, -1e9f };
+	s32 touches = 0;
+
+	if (!he || !te) {
+		return 0;
+	}
+
+	head = xblaMeshBuildBean(he, 0);
+	hat = xblaMeshBuildBean(te, 0);
+
+	if (!head || !hat || !head->beanhead || hat->beanhead || !head->bindpos || !head->bones
+			|| !head->weights || !head->invbind || !hat->vertices || hat->numvertices <= 0
+			|| head->nummatrices > XBLAMESH_MAXMTX || !chrmodel->matrices || !hatmodel->matrices) {
+		return 0;
+	}
+
+	out[0] = out[1] = out[2] = 0.0f;
+
+	if (!measure) {
+		return 1;
+	}
+
+	// The head's joint: the matrix most of its vertices hang from
+	memset(votes, 0, sizeof(votes));
+
+	for (s32 i = 0; i < head->numvertices; i++) {
+		const u8 *bone = &head->bones[i * 4];
+
+		if (bone[3] > 0 && bone[0] < XBLAMESH_MAXMTX) {
+			votes[bone[0]]++;
+		}
+	}
+
+	for (s32 i = 0; i < XBLAMESH_MAXMTX; i++) {
+		if (votes[i] > 0 && (bh < 0 || votes[i] > votes[bh])) {
+			bh = i;
+		}
+	}
+
+	if (bh < 0 || bh >= nummtx || bh >= head->nummatrices) {
+		return 0;
+	}
+
+	// Posed as the draw poses it (xblaMeshPose()), the seat it is given on
+	// this body included
+	xblaMeshPoolHeadSeat(head, he, chrmodel, headshift);
+	headshift[1] += (f32)headfitAppliedOffset(he->modeldef);
+
+	for (s32 b = 0; b < head->nummatrices; b++) {
+		const Mtxf *src = &chrmodel->matrices[b < nummtx ? b : bh];
+		Mtxf moved = *src;
+
+		for (s32 j = 0; j < 3; j++) {
+			moved.m[3][j] += src->m[0][j] * headshift[0] + src->m[1][j] * headshift[1] + src->m[2][j] * headshift[2];
+		}
+
+		mtx4MultMtx4(&moved, &head->invbind[b], &lifted[b]);
+
+		if (b == bh) {
+			hj = moved;
+		}
+	}
+
+	// The frame the hat hangs in - the head joint GoldenEye attaches it to -
+	// which is where up is the head's up whatever the pose (the mesh's own
+	// palette entries are the body's matrices)
+	if (hatmodel->attachedtonode) {
+		Mtxf *joint = modelFindNodeMtx(chrmodel, hatmodel->attachedtonode, 0);
+
+		if (joint) {
+			hj = *joint;
+		}
+	}
+
+	xblaMeshInvert(&hj, &invhj);
+
+	// The head in its joint's frame, where up is up
+	local = malloc((size_t)head->numvertices * 3 * sizeof(f32));
+
+	if (!local) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < head->numvertices; i++) {
+		const u8 *bone = &head->bones[i * 4];
+		const f32 *weight = &head->weights[i * 3];
+		const s32 num = bone[3] < 3 ? bone[3] : 3;
+		struct coord in = { head->bindpos[i * 3], head->bindpos[i * 3 + 1], head->bindpos[i * 3 + 2] };
+		struct coord w = { 0.0f, 0.0f, 0.0f };
+		struct coord q;
+
+		for (s32 j = 0; j < num; j++) {
+			struct coord moved;
+
+			mtx4TransformVec(&lifted[bone[j] < head->nummatrices ? bone[j] : bh], &in, &moved);
+			w.x += moved.x * weight[j];
+			w.y += moved.y * weight[j];
+			w.z += moved.z * weight[j];
+		}
+
+		mtx4TransformVec(&invhj, &w, &q);
+		local[i * 3] = q.x;
+		local[i * 3 + 1] = q.y;
+		local[i * 3 + 2] = q.z;
+
+		lo[0] = q.x < lo[0] ? q.x : lo[0];
+		hi[0] = q.x > hi[0] ? q.x : hi[0];
+		lo[1] = q.z < lo[1] ? q.z : lo[1];
+		hi[1] = q.z > hi[1] ? q.z : hi[1];
+	}
+
+	gw = (s32)((hi[0] - lo[0]) / XBLAMESH_HAT_CELL) + 1;
+	gh = (s32)((hi[1] - lo[1]) / XBLAMESH_HAT_CELL) + 1;
+
+	if (gw <= 0 || gh <= 0 || gw > XBLAMESH_HAT_GRID || gh > XBLAMESH_HAT_GRID) {
+		free(local);
+		return 0;
+	}
+
+	if (!hatSeatHeight) {
+		hatSeatHeight = malloc(2 * XBLAMESH_HAT_GRID * XBLAMESH_HAT_GRID * sizeof(f32));
+
+		if (!hatSeatHeight) {
+			free(local);
+			return 0;
+		}
+	}
+
+	for (s32 i = 0; i < gw * gh; i++) {
+		hatSeatHeight[i] = -1e9f;
+		hatSeatHeight[XBLAMESH_HAT_GRID * XBLAMESH_HAT_GRID + i] = 1e9f;
+	}
+
+	// The head's surfaces over each column: its triangles, the hair's cutout
+	// cards with them (not its fading span), read out of the lists as the hit
+	// test reads them
+	for (s32 k = 0; k < head->numgroups * 2 && k < 128; k++) {
+		const s32 group = k >> 1;
+		const s32 start = (k & 1) ? head->groupxlu[group] : head->groupgfx[group];
+		Gfx *gdl;
+		s32 base = 0;
+
+		if (start < 0 || (head->groupabsent & (1ull << group))) {
+			continue;
+		}
+
+		gdl = &head->gdl[start];
+
+		for (s32 c = 0; c < 0x100000; c++, gdl++) {
+			const u8 op = (u8)(gdl->words.w0 >> 24);
+			const uintptr_t w1 = gdl->words.w1;
+			s32 idx[3];
+			const f32 *p[3];
+			f32 tlo[2];
+			f32 thi[2];
+			f32 den;
+
+			if (op == (u8)G_ENDDL) {
+				break;
+			}
+
+			if (op == (u8)G_VTX) {
+				base = (s32)((UNSEGADDR(w1) & 0xffffff) / sizeof(Vtx)) - (s32)((gdl->words.w0 >> 16) & 0xf);
+				continue;
+			}
+
+			if (op != (u8)G_TRI1) {
+				continue;
+			}
+
+			idx[0] = base + (s32)((w1 >> 16) & 0xff) / 10;
+			idx[1] = base + (s32)((w1 >> 8) & 0xff) / 10;
+			idx[2] = base + (s32)(w1 & 0xff) / 10;
+
+			if (idx[0] < 0 || idx[1] < 0 || idx[2] < 0 || idx[0] >= head->numvertices
+					|| idx[1] >= head->numvertices || idx[2] >= head->numvertices) {
+				continue;
+			}
+
+			for (s32 v = 0; v < 3; v++) {
+				p[v] = &local[idx[v] * 3];
+			}
+
+			den = (p[1][2] - p[2][2]) * (p[0][0] - p[2][0]) + (p[2][0] - p[1][0]) * (p[0][2] - p[2][2]);
+
+			if (den > -1e-6f && den < 1e-6f) {
+				continue;
+			}
+
+			tlo[0] = thi[0] = p[0][0];
+			tlo[1] = thi[1] = p[0][2];
+
+			for (s32 v = 1; v < 3; v++) {
+				tlo[0] = p[v][0] < tlo[0] ? p[v][0] : tlo[0];
+				thi[0] = p[v][0] > thi[0] ? p[v][0] : thi[0];
+				tlo[1] = p[v][2] < tlo[1] ? p[v][2] : tlo[1];
+				thi[1] = p[v][2] > thi[1] ? p[v][2] : thi[1];
+			}
+
+			for (s32 gx = (s32)((tlo[0] - lo[0]) / XBLAMESH_HAT_CELL); gx <= (s32)((thi[0] - lo[0]) / XBLAMESH_HAT_CELL) && gx < gw; gx++) {
+				for (s32 gz = (s32)((tlo[1] - lo[1]) / XBLAMESH_HAT_CELL); gz <= (s32)((thi[1] - lo[1]) / XBLAMESH_HAT_CELL) && gz < gh; gz++) {
+					const f32 x = lo[0] + ((f32)gx + 0.5f) * XBLAMESH_HAT_CELL;
+					const f32 z = lo[1] + ((f32)gz + 0.5f) * XBLAMESH_HAT_CELL;
+					const f32 a = ((p[1][2] - p[2][2]) * (x - p[2][0]) + (p[2][0] - p[1][0]) * (z - p[2][2])) / den;
+					const f32 b = ((p[2][2] - p[0][2]) * (x - p[2][0]) + (p[0][0] - p[2][0]) * (z - p[2][2])) / den;
+					const f32 g = 1.0f - a - b;
+
+					if (gx < 0 || gz < 0 || a < -0.001f || b < -0.001f || g < -0.001f) {
+						continue;
+					}
+
+					{
+						const f32 y = a * p[0][1] + b * p[1][1] + g * p[2][1];
+						f32 *cell = &hatSeatHeight[gz * gw + gx];
+						f32 *under = &hatSeatHeight[XBLAMESH_HAT_GRID * XBLAMESH_HAT_GRID + gz * gw + gx];
+
+						if (y > *cell) {
+							*cell = y;
+						}
+
+						if (y < *under) {
+							*under = y;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	free(local);
+
+	// The hat's outside - its triangles facing up in the head's frame, which
+	// a cap's lining under them does not - against the head's surface over
+	// each column: how far the hair stands through it
+	for (s32 k = 0; k < hat->numgroups && k < 64; k++) {
+		for (s32 l = 0; l < 2; l++) {
+			const s32 start = l == 0 ? hat->groupgfx[k] : hat->groupxlu[k];
+			Gfx *gdl;
+			s32 base = 0;
+
+			if (start < 0 || (hat->groupabsent & (1ull << k))) {
+				continue;
+			}
+
+			gdl = &hat->gdl[start];
+
+			for (s32 c = 0; c < 0x100000; c++, gdl++) {
+				const u8 op = (u8)(gdl->words.w0 >> 24);
+				const uintptr_t w1 = gdl->words.w1;
+				s32 idx[3];
+				struct coord q[3];
+				f32 e0[3];
+				f32 e1[3];
+				f32 ny;
+				f32 len;
+
+				if (op == (u8)G_ENDDL) {
+					break;
+				}
+
+				if (op == (u8)G_VTX) {
+					base = (s32)((UNSEGADDR(w1) & 0xffffff) / sizeof(Vtx)) - (s32)((gdl->words.w0 >> 16) & 0xf);
+					continue;
+				}
+
+				if (op != (u8)G_TRI1) {
+					continue;
+				}
+
+				idx[0] = base + (s32)((w1 >> 16) & 0xff) / 10;
+				idx[1] = base + (s32)((w1 >> 8) & 0xff) / 10;
+				idx[2] = base + (s32)(w1 & 0xff) / 10;
+
+				if (idx[0] < 0 || idx[1] < 0 || idx[2] < 0 || idx[0] >= hat->numvertices
+						|| idx[1] >= hat->numvertices || idx[2] >= hat->numvertices) {
+					continue;
+				}
+
+				for (s32 v = 0; v < 3; v++) {
+					struct coord in = { hat->vertices[idx[v]].x, hat->vertices[idx[v]].y, hat->vertices[idx[v]].z };
+					struct coord w;
+
+					mtx4TransformVec(&hatmodel->matrices[0], &in, &w);
+					mtx4TransformVec(&invhj, &w, &q[v]);
+				}
+
+				e0[0] = q[1].x - q[0].x; e0[1] = q[1].y - q[0].y; e0[2] = q[1].z - q[0].z;
+				e1[0] = q[2].x - q[0].x; e1[1] = q[2].y - q[0].y; e1[2] = q[2].z - q[0].z;
+				ny = e0[2] * e1[0] - e0[0] * e1[2];
+				len = sqrtf(ny * ny
+						+ (e0[1] * e1[2] - e0[2] * e1[1]) * (e0[1] * e1[2] - e0[2] * e1[1])
+						+ (e0[0] * e1[1] - e0[1] * e1[0]) * (e0[0] * e1[1] - e0[1] * e1[0]));
+
+				if (len < 1e-6f || ny / len < XBLAMESH_HAT_UP) {
+					continue;
+				}
+
+				for (s32 v = 0; v < 3; v++) {
+					const s32 gx = (s32)floorf((q[v].x - lo[0]) / XBLAMESH_HAT_CELL);
+					const s32 gz = (s32)floorf((q[v].z - lo[1]) / XBLAMESH_HAT_CELL);
+					f32 d;
+
+					// inside the head only between its surfaces over the
+					// column: a helmet's strap under the chin is not
+					if (gx < 0 || gz < 0 || gx >= gw || gz >= gh || hatSeatHeight[gz * gw + gx] < -1e8f
+							|| q[v].y < hatSeatHeight[XBLAMESH_HAT_GRID * XBLAMESH_HAT_GRID + gz * gw + gx]) {
+						continue;
+					}
+
+					d = hatSeatHeight[gz * gw + gx] - q[v].y;
+					touches++;
+
+					// the three worst, so one stray strand of hair is not the answer
+					// deeper than hair stands through a hat is its rim passing
+					// under an overhang - a quiff over a helmet's brim, the
+					// back of the skull over its neck guard - which no lift
+					// that still keeps it on the head clears
+					if (d > XBLAMESH_HAT_DEEPEST) {
+						continue;
+					}
+					for (s32 r = 0; r < 3; r++) {
+						if (d > worst[r]) {
+							for (s32 m2 = 2; m2 > r; m2--) {
+								worst[m2] = worst[m2 - 1];
+							}
+
+							worst[r] = d;
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if (touches < 3) {
+		return 0;
+	}
+
+	// Hair through the outside lifts the hat clear of it; a hat clear of the
+	// hair stays as the model has it, which is where it sits on most of the
+	// HD heads (it is the table's fit that floated them)
+	lift = worst[2] + XBLAMESH_HAT_CLEAR > 0.0f ? worst[2] + XBLAMESH_HAT_CLEAR : 0.0f;
+
+	// Along the joint's up, as an offset in the hat's own space
+	{
+		struct coord up = { hj.m[1][0] * lift, hj.m[1][1] * lift, hj.m[1][2] * lift };
+		struct coord t;
+		Mtxf invmt;
+
+		xblaMeshInvert(&hatmodel->matrices[0], &invmt);
+		invmt.m[3][0] = invmt.m[3][1] = invmt.m[3][2] = 0.0f;
+		mtx4TransformVec(&invmt, &up, &t);
+		out[0] = t.x;
+		out[1] = t.y;
+		out[2] = t.z;
+	}
+
+	// Once a stage for each head and hat
+	{
+		s32 seen = 0;
+
+		for (s32 i = 0; i < XBLAMESH_HAT_CACHE; i++) {
+			if (hatSeats[i].headrow == he->beanrow + 1 && hatSeats[i].hatrow == te->beanrow + 1) {
+				seen = 1;
+				break;
+			}
+		}
+
+		if (!seen) {
+			sysLogPrintf(LOG_NOTE, "xblamesh: hat %s on head %s seated by its HD mesh: hair %.1f through its outside, lifted %.1f",
+					gebeanRowName(te->beanrow), gebeanRowName(he->beanrow), worst[2], lift);
+		}
+
+		*outheadrow = he->beanrow + 1;
+		*outhatrow = te->beanrow + 1;
+	}
+
+	return 1;
+}
+
+s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, s32 measure, f32 out[3])
+{
+	s32 at = -1;
+
+	if (!optEnabled || !chrmodel || !headdef || !hatmodel || !hatmodel->definition || !chrmodel->definition) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < XBLAMESH_HAT_CACHE; i++) {
+		if (hatSeats[i].chrmodel == chrmodel && hatSeats[i].headdef == headdef
+				&& hatSeats[i].hatdef == hatmodel->definition) {
+			at = i;
+			break;
+		}
+	}
+
+	if (at < 0) {
+		at = hatSeatNext;
+		hatSeatNext = (hatSeatNext + 1) % XBLAMESH_HAT_CACHE;
+		hatSeats[at].chrmodel = chrmodel;
+		hatSeats[at].headdef = headdef;
+		hatSeats[at].hatdef = hatmodel->definition;
+		hatSeats[at].headrow = hatSeats[at].hatrow = 0;
+		{
+			s32 headrow = 0;
+			s32 hatrow = 0;
+
+			hatSeats[at].ok = xblaMeshHatSeatMeasure(chrmodel, headdef, hatmodel, measure, hatSeats[at].offset, &headrow, &hatrow);
+			hatSeats[at].headrow = headrow;
+			hatSeats[at].hatrow = hatrow;
+		}
+	}
+
+	if (hatSeats[at].ok) {
+		out[0] = hatSeats[at].offset[0];
+		out[1] = hatSeats[at].offset[1];
+		out[2] = hatSeats[at].offset[2];
+	}
+
+	return hatSeats[at].ok;
+}
+
 #else
 
 void xblaMeshTrace(FILE *f) { }
@@ -13054,6 +13584,7 @@ s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
 void xblaMeshResetModels(void) { }
 void xblaMeshHitBegin(void) { }
+s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, s32 measure, f32 out[3]) { return 0; }
 s32 xblaMeshTakeFineModel(struct model *model) { return 0; }
 s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node) { return 0; }
 s32 xblaMeshModelHasMesh(struct model *model) { return 0; }
