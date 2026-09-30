@@ -86,6 +86,7 @@
 #include "gexplus.h"
 #include "gebean.h"
 #include "gexfront.h"
+#include "simnav.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -267,6 +268,7 @@ void mainInit(void)
 	assetDumpFromCommandLine(); // --dump-assets only; exits when it does anything
 	xblaImportFromCommandLine(); // --xbla-import only; likewise
 	recordFetchFromCommandLine(); // --fetch-ffmpeg only; likewise
+	simnavBuildAllFromCommandLine(); // --simnav-build-all only; likewise
 	langInit();
 	lvInit();
 	cheatsInit();
