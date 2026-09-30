@@ -3355,6 +3355,14 @@ struct beandraw {
 	u16 reflenv;
 	u8 numpal;
 	u8 pal[BEAN_MAXPAL];
+	// The pieces the originals' draws number (record 0x30's fourth word, -1
+	// for a plain draw) and the kind of the 0x17 section a draw is inside (-1
+	// for none); and a plain draw straight after such a piece or section in
+	// the same material, which is all of its alternatives again in one
+	// (beanTriggerCuff())
+	s8 piece;
+	s8 section;
+	u8 afterpieces;
 };
 
 struct beanib {
@@ -4165,6 +4173,9 @@ static void beanWalkStream(struct beanmodel *bm)
 	s32 reflform = 0;
 	u16 reflspot = 0;
 	u16 reflenv = 0;
+	s8 section = -1;
+	u32 sectionend = 0;
+	u8 afterpieces = 0;
 
 	pal[0] = 0;
 
@@ -4214,6 +4225,19 @@ static void beanWalkStream(struct beanmodel *bm)
 		if (type == 0x17 && size >= 12 && gebeanBE32(st + pc + 4) == 2) {
 			pc = gebeanBE32(st + pc + 8);
 			continue;
+		}
+
+		if (sectionend && pc >= sectionend) {
+			section = -1;
+			sectionend = 0;
+		}
+
+		if (type == 0x17 && size >= 12) {
+			section = (s8)MIN(gebeanBE32(st + pc + 4), 127);
+			sectionend = gebeanBE32(st + pc + 8);
+			afterpieces = 1;
+		} else if (type == 0x2d || type == 0x2e) {
+			afterpieces = 0;
 		}
 
 		if (type == 0x12 && size >= 12) {
@@ -4401,6 +4425,13 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->reflenv = reflenv;
 				d->numpal = numpal;
 				memcpy(d->pal, pal, numpal);
+				d->piece = type == 0x30 ? (s8)MIN(part, 127) : -1;
+				d->section = section;
+				d->afterpieces = type == 0x01 && section < 0 && afterpieces;
+			}
+
+			if (type == 0x30) {
+				afterpieces = 1;
 			}
 		}
 
@@ -9061,6 +9092,60 @@ static s32 beanDoubleWheels(struct beanout *o, struct modeldef *modeldef, s32 nu
 	return added;
 }
 
+/**
+ * The detonator and the watch laser in the hand (Igx030Z, GoldenEye's
+ * GtriggerZ, Bean's new/gun/trigger) wear one of six cuffs, switches 29 to 34
+ * of GoldenEye's model in bondviewSelectCuff()'s order: boiler suit, tuxedo,
+ * Connery's suit, the blue suit, jungle, snow (gegadgets.c sets the one the
+ * player wears). Bean's file has the six as well, in the N64 look's low
+ * detail round its HD hands, and numbers them its own way: the three suits'
+ * sleeves are 0x30 pieces 0 (navy, the blue suit), 1 (black, the tuxedo) and
+ * 2 (grey, Connery's), their white shirt cuff one draw for each, and the
+ * others are 0x17 sections, 3 jungle (a rolled sleeve and the forearm under
+ * it), 4 the boiler suit and 5 the snow suit. After each piece or section the
+ * same material draws every alternative again in one plain draw, in a second
+ * copy of the sleeves a little apart from the first, which goes on past the
+ * last section in the same vertex buffer.
+ *
+ * Laid rigid on the first list, as every prop is, all of it drew at once:
+ * six sleeves on one forearm, the tuxedo's black and white in front whatever
+ * Bond wore (F3 20260930-164246, Facility in the boiler suit: "watch weapon
+ * (detonator, laser) sleeve bugged"). Now each cuff's draws go under its own
+ * switch's list, which the model hides with the switch, and the plain draws
+ * that repeat them are left out.
+ *
+ * Returns the cuff (0 to 5, from switch 29) a draw belongs to, -1 for one
+ * drawn under every cuff, or -2 for a repeat to leave out.
+ */
+#define GEBEAN_TRIGGER_CUFF_FIRST 29
+#define GEBEAN_TRIGGER_CUFFS      6
+
+static s32 beanTriggerCuff(const struct beandraw *d, u32 *repeatvb)
+{
+	// and once the repeats have begun, the plain draws after them in the
+	// same vertex buffer are more of the same copy: a navy tube (texture 9)
+	// that stood through every other sleeve and covered the jungle's rolled
+	// one, a sliver of skin and a fleck on the watch's bezel
+	if (d->afterpieces || (*repeatvb != ~0u && d->vb == *repeatvb && d->piece < 0 && d->section < 0)) {
+		*repeatvb = d->vb;
+		return -2;
+	}
+
+	switch (d->piece) {
+	case 0: return 3; // navy: the blue suit
+	case 1: return 1; // black: the tuxedo
+	case 2: return 2; // grey: Connery's
+	}
+
+	switch (d->section) {
+	case 3: return 4; // jungle
+	case 4: return 0; // boiler suit
+	case 5: return 5; // snow suit
+	}
+
+	return -1;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -9091,6 +9176,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	u8 screenfit = 0;
 	u8 screenrecess = 0;
 	f32 screenquad[4][4][3];
+	s32 numcuffrepeats = 0;
+	u32 repeatvb = ~0u;
 	u8 *file;
 
 	memset(glass, 0, sizeof(glass));
@@ -9112,7 +9199,44 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 
 	snprintf(source, sizeof(source), "new/%s", g->row.source);
 
-	if (!gebeanLocate(1) || !beanLoad(&bm, source, 0)) {
+	// the detonator's cuffs: the list under each of GoldenEye's switches
+	// (beanTriggerCuff()), or none found and it is drawn as it was
+	s32 cuffgroup[GEBEAN_TRIGGER_CUFFS];
+	s32 numcuffs = 0;
+
+	for (s32 c = 0; c < GEBEAN_TRIGGER_CUFFS; c++) {
+		cuffgroup[c] = -1;
+	}
+
+	if (strcmp(g->row.source, "gun/trigger") == 0) {
+		for (s32 c = 0; c < GEBEAN_TRIGGER_CUFFS; c++) {
+			const struct modelnode *toggle = modelGetPart(modeldef, GEBEAN_TRIGGER_CUFF_FIRST + c);
+
+			if (!toggle || (toggle->type & 0xff) != MODELNODETYPE_TOGGLE) {
+				continue;
+			}
+
+			for (s32 k = 1; k < numnodes && cuffgroup[c] < 0; k++) {
+				for (const struct modelnode *up = nodes[k]->parent; up; up = up->parent) {
+					if (up == toggle) {
+						cuffgroup[c] = k;
+						break;
+					}
+				}
+			}
+
+			numcuffs += cuffgroup[c] >= 0;
+		}
+
+		if (numcuffs != GEBEAN_TRIGGER_CUFFS) {
+			sysLogPrintf(LOG_WARNING, "gebean: %s: %d of GoldenEye's %d cuff switches have a list, the cuffs drawn together",
+					g->row.file, numcuffs, GEBEAN_TRIGGER_CUFFS);
+			numcuffs = 0;
+		}
+	}
+
+	// the cuffs' third suit is a piece past 1
+	if (!gebeanLocate(1) || !beanLoad(&bm, source, numcuffs > 0)) {
 		return NULL;
 	}
 
@@ -9440,6 +9564,14 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			continue;
 		}
 
+		const s32 cuff = numcuffs > 0 ? beanTriggerCuff(d, &repeatvb) : -1;
+		const s32 group = cuff >= 0 ? cuffgroup[cuff] : 0;
+
+		if (cuff == -2) {
+			numcuffrepeats++;
+			continue;
+		}
+
 		if (!beanReadVb(&bm, d->vb, &vb)) {
 			continue;
 		}
@@ -9601,7 +9733,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				continue;
 			}
 
-			if (!beanAddTri(&out, 0, (s32)d->tex, idx[0], mirror ? idx[2] : idx[1], mirror ? idx[1] : idx[2])) {
+			if (!beanAddTri(&out, group, (s32)d->tex, idx[0], mirror ? idx[2] : idx[1], mirror ? idx[1] : idx[2])) {
 				break;
 			}
 		}
@@ -9695,6 +9827,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			numflash ? ", GoldenEye's muzzle flash dropped" : "",
 			mirror ? ", mirrored" : "", file ? "" : " - did not write",
 			numparts ? gebeanPartsNote(numparts, numpartverts) : "");
+
+	if (numcuffs) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s: each of the %d cuffs under its own switch, %d draws repeating them left out",
+				g->row.file, numcuffs, numcuffrepeats);
+	}
 
 	if (numdual) {
 		sysLogPrintf(LOG_NOTE, "gebean: %s: %d triangles of wheels drawn again as the inner of a pair", g->row.file, numdual);
