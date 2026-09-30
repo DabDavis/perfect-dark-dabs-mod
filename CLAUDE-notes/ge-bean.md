@@ -13283,3 +13283,29 @@ Caves, Complex, Library/Basement/Stack, Cradle, Aztec. Before/after checked at
 the tester's Depot camera (closed, 0.34, 0.90 open) and Temple's big door;
 N64 look unchanged (gebeanstage.c only builds the HD level). **Needs an
 HDCACHE_VERSION bump** (left to the merge; done there: 7, with hdbright's rooms).
+
+## Sideways doors into Bean's wall, a cut-out donor, and a black blended shadow (24th F3 pass, 2026-09-30, fix/f3-0930-hdlevel)
+
+Follows "A raised door over Bean's wall". Three F3s on ad4d887:
+- **Depot (013827), a regression from 121866ef0.** The warehouse door at
+  158 126 -4618 took Depot's "C5" stencil as the donor picture for its wall
+  patch: the patch was a tiled cut-out and the raised door showed through its
+  holes. `slotDonor()` now skips cut-out and translucent pictures, and a cut-out
+  in front of the face no longer counts as Bean covering the cell. The C5 is
+  still brought forward over the patch as paint.
+- **Control's lift (013246, owner: "needs the door fix"; also 20260929-224058
+  on 1823231).** Not a regression: `fillDoorSlots()` took only doors sliding up
+  or down. It takes any slide axis now. Across the 26 arenas that adds about 50
+  sideways doors (Train's compartments 20+, Bunker II 8, Bunker I 4, Depot 2,
+  Silo 2, Dam 2, Egyptian, Cradle, Control 2). All shot from both faces with
+  the door open before and after (rig `~/wt/f3-0930-hdlevel-run`, `doorshots.py
+  <stage>:<x>` off a `sweep.sh` log): the door slides into wall now, no patch
+  over a doorway, nothing else changed. There is a log line per patched door
+  (`door at ... going (...) travel, through (...): N triangles of wall`).
+- **Bunker II's black strip (030521).** A pillar's shadow across the cell
+  corridor: a decal in the release's blended pass (`blend`), black at all three
+  corners, alpha 255, picture with no alpha, so drawn solid black. `markShadows()`
+  takes blended black decals as cast shadows too (alpha 0x80, the translucent
+  leaf); now like the N64 look's darkened floor. Pre-existing.
+- All three change the built level: **HDCACHE_VERSION bump needed** (left to
+  the merge).

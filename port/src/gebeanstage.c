@@ -2735,7 +2735,10 @@ static s32 paintUnlit(struct collect *c)
  * - and draws it solid, a hard black cut-out on the floor ("a strange texture
  * of the shadow of the fan", F3 20260929-011949). GoldenEye's shadow there is
  * a see-through darkening of the floor. Such a decal is drawn half through,
- * in the translucent leaf (triFades()).
+ * in the translucent leaf (triFades()). So is a black decal in the release's
+ * blended pass whose picture has no alpha of its own: Bunker II's pillar
+ * shadow across the cell corridor came out a solid black strip (F3
+ * 20260930-030521), where GoldenEye darkens the floor.
  */
 #define SHADOW_ALPHA 0x80
 
@@ -2746,7 +2749,7 @@ static s32 markShadows(struct stri *tris, s32 num)
 	for (s32 t = 0; t < num; t++) {
 		struct stri *tri = &tris[t];
 
-		if (!tri->decal || !texHasAlpha(tri->tex) || texIsXlu(tri->tex)
+		if (!tri->decal || (!tri->blend && (!texHasAlpha(tri->tex) || texIsXlu(tri->tex)))
 				|| (tri->argb[0] & 0xffffff) || (tri->argb[1] & 0xffffff) || (tri->argb[2] & 0xffffff)
 				|| (tri->argb[0] >> 24) < FADE_ALPHA || (tri->argb[1] >> 24) < FADE_ALPHA || (tri->argb[2] >> 24) < FADE_ALPHA) {
 			continue;
@@ -4215,8 +4218,12 @@ static s32 closeDoorGaps(struct collect *c)
  * behind the door's face, so the raised door was drawn over the wall: a
  * hazard-striped shutter over Depot's corrugated metal (F3 20260929-192603).
  *
- * For each door that slides up or down into the level, the band it travels
- * through past its opening is looked at from each face, cell by cell: a line
+ * A door that slides sideways into the wall beside its doorway is the same:
+ * Control's lift doors went over the corrugated wall either side of the lift
+ * (F3 20260930-013246), and Train's compartment doors, Bunker's, Egyptian's.
+ *
+ * For each door that slides into the level, up, down or sideways, the band it
+ * travels through past its opening is looked at from each face, cell by cell: a line
  * from a little in front of the face to the door's far face. Where GoldenEye's
  * room has a triangle on that line (the wall the door goes into) and Bean's
  * has none in front of the door's face, the cell gets wall a hair in front of
@@ -4391,7 +4398,9 @@ static const struct stri *slotDonor(const struct collect *c, const struct doorbo
 		f32 nrm[3], mid[3], at[3];
 		f32 dw, da, dist;
 
-		if (triNormal(tri, nrm) <= 0.0f || dot3(nrm, d) > -0.9f) {
+		// a cut-out is no wall: Depot's "C5" stencil over a warehouse door
+		// was taken, and the raised door showed through its holes
+		if (texHasAlpha(tri->tex) || texIsXlu(tri->tex) || triNormal(tri, nrm) <= 0.0f || dot3(nrm, d) > -0.9f) {
 			continue;
 		}
 
@@ -4445,7 +4454,7 @@ static s32 fillDoorSlots(struct collect *c, u8 **filerooms, u32 *filelens, s32 n
 		f32 cw, ca, extent;
 
 		for (s32 k = 0; k < 3; k++) {
-			if (k != t && b->slide[k] && fabsf(b->axis[k][1]) > 0.7f && b->travel[k] > 1.0f) {
+			if (k != t && b->slide[k] && b->travel[k] > 1.0f) {
 				a = k;
 			}
 		}
@@ -4535,7 +4544,7 @@ static s32 fillDoorSlots(struct collect *c, u8 **filerooms, u32 *filelens, s32 n
 			for (s32 q = 0; hdfaces && q < numnear; q++) {
 				f32 nrm[3];
 
-				hdfaces[q] = triNormal(&c->tris[near[q]], nrm) > 0.0f && dot3(nrm, d) < 0.0f;
+				hdfaces[q] = !texHasAlpha(c->tris[near[q]].tex) && triNormal(&c->tris[near[q]], nrm) > 0.0f && dot3(nrm, d) < 0.0f;
 			}
 
 			if (!hdfaces) {
@@ -4706,13 +4715,18 @@ static s32 fillDoorSlots(struct collect *c, u8 **filerooms, u32 *filelens, s32 n
 			free(hdfaces);
 
 			if (gecov > hdcov) {
-				sysLogPrintf(LOG_NOTE, "gebeanstage: door at %.0f %.0f %.0f, side %d (%.2f %.2f %.2f): GoldenEye's wall over %d of %d cells of its rise, Bean's in front of it at %d",
+				sysLogPrintf(LOG_NOTE, "gebeanstage: door at %.0f %.0f %.0f, side %d (%.2f %.2f %.2f), going (%.2f %.2f %.2f): GoldenEye's wall over %d of %d cells of its rise, Bean's in front of it at %d",
 						b->mid[0], b->mid[1], b->mid[2], face, face * b->axis[t][0], face * b->axis[t][1], face * b->axis[t][2],
+						b->slide[a] * b->axis[a][0], b->slide[a] * b->axis[a][1], b->slide[a] * b->axis[a][2],
 						gecov, cells, hdcov);
 			}
 		}
 
 		if (patched > before) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: door at %.0f %.0f %.0f going (%.2f %.2f %.2f) %.0f, through (%.2f %.2f %.2f): %d triangles of wall",
+					b->mid[0], b->mid[1], b->mid[2],
+					b->slide[a] * b->axis[a][0], b->slide[a] * b->axis[a][1], b->slide[a] * b->axis[a][2], b->travel[a],
+					b->axis[t][0], b->axis[t][1], b->axis[t][2], patched - before);
 			doors++;
 		}
 
