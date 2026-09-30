@@ -37,6 +37,7 @@
 #include "data.h"
 #include "gbiex.h"
 #include "fs.h"
+#include "config.h"
 #include "mod.h"
 #include "modloader.h"
 #include "system.h"
@@ -360,6 +361,29 @@ const char *geHudPropobjString(s32 slot)
 	}
 
 	return langpackNoted((const char *)bank + at);
+}
+
+/**
+ * "GE Plus: Crosshair When Not Aiming" (Mod.GePlusSightAlways, off by
+ * default): GoldenEye's crosshair stays on screen with the gun lowered too,
+ * as Perfect Dark's Always Show Target did before F3 20260930-025317. Off,
+ * it shows only while aiming, as GoldenEye does (sightDraw()).
+ */
+static s32 g_GeSightAlways = 0;
+
+PD_CONSTRUCTOR static void geHudConfigInit(void)
+{
+	configRegisterInt("Mod.GePlusSightAlways", &g_GeSightAlways, 0, 1);
+}
+
+s32 geHudGetSightAlways(void)
+{
+	return g_GeSightAlways;
+}
+
+void geHudSetSightAlways(s32 on)
+{
+	g_GeSightAlways = on ? 1 : 0;
 }
 
 s32 geHudOwnsWeapon(void)

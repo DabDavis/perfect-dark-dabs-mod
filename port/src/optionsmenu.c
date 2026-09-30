@@ -42,6 +42,7 @@
 #include "xblasky.h"
 #include "gexplus.h"
 #include "gechranims.h"
+#include "gehud.h"
 #include "gexfront.h"
 #include "gebean.h"
 #include "menuimage.h"
@@ -5345,6 +5346,7 @@ static MenuItemHandlerResult menuhandlerGePlusLocked(s32 operation, struct menui
 static MenuItemHandlerResult menuhandlerGePlusRegion(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGePlusRevisionFixes(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGePlusPdDeaths(s32 operation, struct menuitem *item, union handlerdata *data);
+static MenuItemHandlerResult menuhandlerGePlusSightAlways(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGeXblaCe(s32 operation, struct menuitem *item, union handlerdata *data);
 static MenuItemHandlerResult menuhandlerGeXblaCeRestart(s32 operation, struct menuitem *item, union handlerdata *data);
 
@@ -5502,6 +5504,14 @@ struct menuitem g_ExtendedDabsModMissionMenuItems[] = {
 		(uintptr_t)"GE Plus: Perfect Dark Death Animations",
 		0,
 		menuhandlerGePlusPdDeaths,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GE Plus: Crosshair When Not Aiming",
+		0,
+		menuhandlerGePlusSightAlways,
 	},
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -6258,6 +6268,23 @@ static MenuItemHandlerResult menuhandlerGePlusPdDeaths(s32 operation, struct men
 		return geChrAnimsGetPdDeaths();
 	case MENUOP_SET:
 		geChrAnimsSetPdDeaths(!geChrAnimsGetPdDeaths());
+		break;
+	}
+
+	return 0;
+}
+
+/**
+ * "GE Plus: Crosshair When Not Aiming": GoldenEye's crosshair stays up with
+ * the gun lowered (gehud.c, Mod.GePlusSightAlways). Off, only while aiming.
+ */
+static MenuItemHandlerResult menuhandlerGePlusSightAlways(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return geHudGetSightAlways();
+	case MENUOP_SET:
+		geHudSetSightAlways(!geHudGetSightAlways());
 		break;
 	}
 

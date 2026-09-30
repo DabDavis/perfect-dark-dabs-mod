@@ -1707,9 +1707,11 @@ Gfx *sightDraw(Gfx *gdl, bool sighton, s32 sight)
 	// watch's SIGHT ON-SCREEN on, as GoldenEye shows it (bondview2.c's
 	// GUNSIGHTREASON_1). Perfect Dark's Always Show Target is left out: it is
 	// on by default, the watch has no row for it, and with it the sight was
-	// on screen whatever the watch said (F3 20260930-025317-daf43ae7)
+	// on screen whatever the watch said (F3 20260930-025317-daf43ae7).
+	// "GE Plus: Crosshair When Not Aiming" keeps it up with the gun lowered
 	if (sight != SIGHT_NONE && geHudOwnsWeapon()) {
-		if (optionsGetSightOnScreen(g_Vars.currentplayerstats->mpindex) && sighton) {
+		if (optionsGetSightOnScreen(g_Vars.currentplayerstats->mpindex)
+				&& (sighton || geHudGetSightAlways())) {
 			gdl = geHudRenderSight(gdl, crossx, crossy);
 		}
 

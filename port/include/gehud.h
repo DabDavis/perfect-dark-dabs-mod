@@ -47,6 +47,10 @@ Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox,
 s32 geHudHasHdSight(void);
 Gfx *geHudRenderSight(Gfx *gdl, f32 x, f32 y);
 
+// "GE Plus: Crosshair When Not Aiming" (Mod.GePlusSightAlways)
+s32 geHudGetSightAlways(void);
+void geHudSetSightAlways(s32 on);
+
 // bondviewRenderGaugeBars(), for playerRenderHealthBar()
 Gfx *geHudRenderGauges(Gfx *gdl);
 
