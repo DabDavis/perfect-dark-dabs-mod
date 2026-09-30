@@ -1,8 +1,10 @@
 /**
  * A Perfect Dark stage's navmesh: its collision tiles taken apart into
- * Recast's input, the mesh cached on disk, drawn over the level, and built for
- * every arena at once from the command line. port/include/simnav.h has the
- * overview; port/src/simnav.cpp is the Recast side.
+ * Recast's input, the mesh and its off-mesh links cached on disk, drawn over
+ * the level with a few simulants' paths, and built for every arena at once
+ * from the command line. port/include/simnav.h has the overview;
+ * port/src/simnav.cpp is the Recast side and port/src/simnavlinks.cpp finds
+ * the links.
  *
  * **What is walkable.** A chr stands on a tile flagged GEOFLAG_FLOOR1 or
  * FLOOR2 (cdFindGroundInfoAtCyl() asks for exactly those) and is stopped by
@@ -15,11 +17,11 @@
  * solid ground nobody may stand on, so the mesh stops at its edge rather than
  * running on over it.
  *
- * **Out of scope for M1**: props (doors, glass, crates, lifts - their geometry
- * moves, and is DetourTileCache's in M6), and ladders and drops as links
- * (M2). A GoldenEye level converted
- * into GE Plus has its own collision (gestan.c's 2-D tile graph, whose walls
- * are there for one body and not another) and is skipped with a log line.
+ * **Out of scope**: props (doors, glass, crates, lifts' cars - their geometry
+ * moves, or stands on the setup rather than the tiles, and is DetourTileCache's
+ * in M6; a pad on a crate is off the mesh). A GoldenEye level converted into
+ * GE Plus has its own collision (gestan.c's 2-D tile graph, whose walls are
+ * there for one body and not another) and is skipped with a log line.
  *
  * **Agent size**, from the chr movement code:
  *  - radius 20: chrInit() (chr.c) gives every chr 20; only a few special
@@ -43,9 +45,10 @@
  *
  * **Cache.** cache/navmesh/pd/<stage>-<hash>.bin beside the executable (or in
  * the save directory where that cannot be written, fsChooseOutputDir()). The
- * hash is over the triangles, their areas and the build parameters, so a mod
- * or the XBLA release's tiles (xblaStageLoadTiles()) that change a level make
- * a new file rather than reading an old one.
+ * hash is over the triangles, their areas and kinds, the ladders and lifts
+ * found and every build and link parameter, so a mod or the XBLA release's
+ * tiles (xblaStageLoadTiles()) that change a level make a new file rather
+ * than reading an old one. SIMNAV_EXTRACT_VERSION is for the code.
  */
 
 #include <stdio.h>
@@ -66,10 +69,15 @@
 #include "game/stagetable.h"
 #include "game/tex.h"
 #include "lib/mtx.h"
+#include "game/chraction.h"
+#include "game/pad.h"
+#include "game/setuputils.h"
+#include "game/modoptions.h"
+#include "game/modspectate.h"
 #include "modloader.h"
 #include "simnav.h"
 
-#define SIMNAV_EXTRACT_VERSION 2 // bump when the extraction or the saved form changes
+#define SIMNAV_EXTRACT_VERSION 3 // bump when the extraction, the links or the saved form change
 #define SIMNAV_CACHE_MAGIC     0x4e44504e // 'NPDN'
 #define SIMNAV_DRAW_LIFT       6.0f   // units the drawn mesh stands over the floor
 #define SIMNAV_DRAW_REACH      4000.0f // tiles further than this from the camera are not drawn
@@ -113,13 +121,20 @@ static void simnavGetParams(struct simnavparams *p)
  * Extraction
  */
 
+#define SIMNAV_MAXLIFTS 32
+
 struct simnavgeom {
 	f32 *verts;
 	s32 numverts, maxverts;
 	s32 *tris;
 	u8 *areas;
+	u8 *kinds;
 	s32 numtris, maxtris;
-	s32 floors, walls, died, blocks, skipped;
+	s32 floors, walls, died, blocks, skipped, laddertiles;
+	struct simnavladder *ladders;
+	s32 numladders, maxladders;
+	struct simnavlift lifts[SIMNAV_MAXLIFTS];
+	s32 numlifts;
 };
 
 static void simnavGeomFree(struct simnavgeom *g)
@@ -127,6 +142,8 @@ static void simnavGeomFree(struct simnavgeom *g)
 	free(g->verts);
 	free(g->tris);
 	free(g->areas);
+	free(g->kinds);
+	free(g->ladders);
 	memset(g, 0, sizeof(*g));
 }
 
@@ -173,6 +190,13 @@ static s32 simnavGeomReserve(struct simnavgeom *g, s32 verts, s32 tris)
 		}
 
 		g->areas = a;
+		a = realloc(g->kinds, max);
+
+		if (!a) {
+			return 0;
+		}
+
+		g->kinds = a;
 		g->maxtris = max;
 	}
 
@@ -190,7 +214,7 @@ static s32 simnavGeomVert(struct simnavgeom *g, f32 x, f32 y, f32 z)
 	return g->numverts++;
 }
 
-static void simnavGeomTri(struct simnavgeom *g, s32 a, s32 b, s32 c, u8 area)
+static void simnavGeomTri(struct simnavgeom *g, s32 a, s32 b, s32 c, u8 area, u8 kind)
 {
 	s32 *t = &g->tris[g->numtris * 3];
 
@@ -198,7 +222,152 @@ static void simnavGeomTri(struct simnavgeom *g, s32 a, s32 b, s32 c, u8 area)
 	t[1] = b;
 	t[2] = c;
 	g->areas[g->numtris] = area;
+	g->kinds[g->numtris] = kind;
 	g->numtris++;
+}
+
+/** What a tile is to a chr: a floor stood on (and one that kills), a wall that stops it */
+static u8 simnavTileKind(u16 flags)
+{
+	u8 kind = 0;
+
+	if (flags & (GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2)) {
+		kind |= SIMNAV_KIND_FLOOR;
+
+		if (flags & GEOFLAG_DIE) {
+			kind |= SIMNAV_KIND_DEATH;
+		}
+	}
+
+	if (flags & GEOFLAG_WALL) {
+		kind |= SIMNAV_KIND_WALL;
+	}
+
+	return kind;
+}
+
+/**
+ * A GEOFLAG_LADDER face (only that flag: a simulant's cdFindLadder() in
+ * chr0f01f378() asks for no other), as a ladder of its own until
+ * simnavMergeLadders() joins the faces of one.
+ */
+static void simnavAddLadderTile(struct simnavgeom *g, const f32 *xyz, s32 nv)
+{
+	f32 n[3] = { 0, 0, 0 };
+	f32 len, nx, nz, tx, tz, d, smin = 1e30f, smax = -1e30f, ymin = 1e30f, ymax = -1e30f;
+	s32 i;
+
+	// Newell's normal
+	for (i = 0; i < nv; i++) {
+		const f32 *a = &xyz[i * 3];
+		const f32 *b = &xyz[((i + 1) % nv) * 3];
+
+		n[0] += (a[1] - b[1]) * (a[2] + b[2]);
+		n[1] += (a[2] - b[2]) * (a[0] + b[0]);
+		n[2] += (a[0] - b[0]) * (a[1] + b[1]);
+	}
+
+	len = sqrtf(n[0] * n[0] + n[2] * n[2]);
+
+	// a face that stands up, not a floor with the flag
+	if (len < 1e-3f || fabsf(n[1]) > len) {
+		return;
+	}
+
+	nx = n[0] / len;
+	nz = n[2] / len;
+	tx = -nz;
+	tz = nx;
+	d = 0;
+
+	for (i = 0; i < nv; i++) {
+		const f32 s = xyz[i * 3 + 0] * tx + xyz[i * 3 + 2] * tz;
+
+		d += xyz[i * 3 + 0] * nx + xyz[i * 3 + 2] * nz;
+		smin = s < smin ? s : smin;
+		smax = s > smax ? s : smax;
+		ymin = xyz[i * 3 + 1] < ymin ? xyz[i * 3 + 1] : ymin;
+		ymax = xyz[i * 3 + 1] > ymax ? xyz[i * 3 + 1] : ymax;
+	}
+
+	d /= nv;
+	g->laddertiles++;
+
+	if (g->numladders >= g->maxladders) {
+		s32 max = g->maxladders ? g->maxladders * 2 : 32;
+		struct simnavladder *nl = realloc(g->ladders, sizeof(*nl) * max);
+
+		if (!nl) {
+			return;
+		}
+
+		g->ladders = nl;
+		g->maxladders = max;
+	}
+
+	g->ladders[g->numladders].nx = nx;
+	g->ladders[g->numladders].nz = nz;
+	g->ladders[g->numladders].x = nx * d + tx * (smin + smax) * 0.5f;
+	g->ladders[g->numladders].z = nz * d + tz * (smin + smax) * 0.5f;
+	g->ladders[g->numladders].halfwidth = (smax - smin) * 0.5f;
+	g->ladders[g->numladders].ymin = ymin;
+	g->ladders[g->numladders].ymax = ymax;
+	g->numladders++;
+}
+
+/**
+ * o into l, if it continues it: the same plane, overlapping or touching
+ * across and up
+ */
+static s32 simnavLadderMerge(struct simnavladder *l, const struct simnavladder *o)
+{
+	const f32 dot = l->nx * o->nx + l->nz * o->nz;
+	const f32 ltx = -l->nz, ltz = l->nx;
+	const f32 lc = l->x * ltx + l->z * ltz;
+	const f32 oc = o->x * ltx + o->z * ltz; // o's centre along l's tangent
+	const f32 ld = l->x * l->nx + l->z * l->nz;
+	const f32 od = o->x * l->nx + o->z * l->nz;
+	f32 smin, smax;
+
+	if (fabsf(dot) < 0.98f || fabsf(ld - od) > 8.0f) {
+		return 0;
+	}
+
+	if (oc - o->halfwidth > lc + l->halfwidth + 10.0f || oc + o->halfwidth < lc - l->halfwidth - 10.0f
+			|| o->ymin > l->ymax + 20.0f || o->ymax < l->ymin - 20.0f) {
+		return 0;
+	}
+
+	smin = oc - o->halfwidth < lc - l->halfwidth ? oc - o->halfwidth : lc - l->halfwidth;
+	smax = oc + o->halfwidth > lc + l->halfwidth ? oc + o->halfwidth : lc + l->halfwidth;
+	l->x = l->nx * ld + ltx * (smin + smax) * 0.5f;
+	l->z = l->nz * ld + ltz * (smin + smax) * 0.5f;
+	l->halfwidth = (smax - smin) * 0.5f;
+	l->ymin = o->ymin < l->ymin ? o->ymin : l->ymin;
+	l->ymax = o->ymax > l->ymax ? o->ymax : l->ymax;
+
+	return 1;
+}
+
+/** The faces of a stage merged into its ladders, until none continues another */
+static void simnavMergeLadders(struct simnavgeom *g)
+{
+	s32 merged = 1;
+	s32 i, j;
+
+	while (merged) {
+		merged = 0;
+
+		for (i = 0; i < g->numladders; i++) {
+			for (j = i + 1; j < g->numladders; j++) {
+				if (simnavLadderMerge(&g->ladders[i], &g->ladders[j])) {
+					g->ladders[j] = g->ladders[--g->numladders];
+					merged = 1;
+					j--;
+				}
+			}
+		}
+	}
 }
 
 static u8 simnavTileArea(u16 flags)
@@ -281,13 +450,13 @@ static s32 simnavGeomPrism(struct simnavgeom *g, const f32 (*xz)[2], s32 n, f32 
 	for (i = 0; i < n; i++) {
 		s32 j = (i + 1) % n;
 
-		simnavGeomTri(g, base + i * 2, base + j * 2, base + j * 2 + 1, SIMNAV_AREA_NONE);
-		simnavGeomTri(g, base + i * 2, base + j * 2 + 1, base + i * 2 + 1, SIMNAV_AREA_NONE);
+		simnavGeomTri(g, base + i * 2, base + j * 2, base + j * 2 + 1, SIMNAV_AREA_NONE, SIMNAV_KIND_WALL);
+		simnavGeomTri(g, base + i * 2, base + j * 2 + 1, base + i * 2 + 1, SIMNAV_AREA_NONE, SIMNAV_KIND_WALL);
 	}
 
 	for (i = 1; i < n - 1; i++) {
-		simnavGeomTri(g, base + 1, base + i * 2 + 1, base + (i + 1) * 2 + 1, SIMNAV_AREA_NONE);
-		simnavGeomTri(g, base, base + (i + 1) * 2, base + i * 2, SIMNAV_AREA_NONE);
+		simnavGeomTri(g, base + 1, base + i * 2 + 1, base + (i + 1) * 2 + 1, SIMNAV_AREA_NONE, SIMNAV_KIND_WALL);
+		simnavGeomTri(g, base, base + (i + 1) * 2, base + i * 2, SIMNAV_AREA_NONE, SIMNAV_KIND_WALL);
 	}
 
 	g->blocks++;
@@ -324,9 +493,23 @@ static s32 simnavExtract(const u8 *tiledata, struct simnavgeom *g)
 			if (geo->type == GEOTYPE_TILE_I) {
 				const struct geotilei *tile = (const struct geotilei *)geo;
 
+				if (nv >= 3 && nv <= 64 && (geo->flags & GEOFLAG_LADDER)) {
+					f32 xyz[64 * 3];
+					s32 i;
+
+					for (i = 0; i < nv; i++) {
+						xyz[i * 3 + 0] = tile->vertices[i][0];
+						xyz[i * 3 + 1] = tile->vertices[i][1];
+						xyz[i * 3 + 2] = tile->vertices[i][2];
+					}
+
+					simnavAddLadderTile(g, xyz, nv);
+				}
+
 				if (nv >= 3 && simnavTileWanted(g, geo->flags)) {
-					const u8 area = simnavTileArea(geo->flags);
+					const u8 kind = simnavTileKind(geo->flags);
 					s32 base, i;
+					u8 area;
 
 					if (!simnavGeomReserve(g, nv, nv - 2)) {
 						return 0;
@@ -338,9 +521,11 @@ static s32 simnavExtract(const u8 *tiledata, struct simnavgeom *g)
 						simnavGeomVert(g, tile->vertices[i][0], tile->vertices[i][1], tile->vertices[i][2]);
 					}
 
+					area = simnavTileArea(geo->flags);
+
 					// tiles are convex, as cdIs2dPointInIntTile() takes them
 					for (i = 1; i < nv - 1; i++) {
-						simnavGeomTri(g, base, base + i, base + i + 1, area);
+						simnavGeomTri(g, base, base + i, base + i + 1, area, kind);
 					}
 				}
 
@@ -348,9 +533,14 @@ static s32 simnavExtract(const u8 *tiledata, struct simnavgeom *g)
 			} else if (geo->type == GEOTYPE_TILE_F) {
 				const struct geotilef *tile = (const struct geotilef *)geo;
 
+				if (nv >= 3 && nv <= 64 && (geo->flags & GEOFLAG_LADDER)) {
+					simnavAddLadderTile(g, &tile->vertices[0].x, nv);
+				}
+
 				if (nv >= 3 && simnavTileWanted(g, geo->flags)) {
-					const u8 area = simnavTileArea(geo->flags);
+					const u8 kind = simnavTileKind(geo->flags);
 					s32 base, i;
+					u8 area;
 
 					if (!simnavGeomReserve(g, nv, nv - 2)) {
 						return 0;
@@ -362,8 +552,10 @@ static s32 simnavExtract(const u8 *tiledata, struct simnavgeom *g)
 						simnavGeomVert(g, tile->vertices[i].x, tile->vertices[i].y, tile->vertices[i].z);
 					}
 
+					area = simnavTileArea(geo->flags);
+
 					for (i = 1; i < nv - 1; i++) {
-						simnavGeomTri(g, base, base + i, base + i + 1, area);
+						simnavGeomTri(g, base, base + i, base + i + 1, area, kind);
 					}
 				}
 
@@ -399,20 +591,293 @@ static s32 simnavExtract(const u8 *tiledata, struct simnavgeom *g)
 		}
 	}
 
+	simnavMergeLadders(g);
+
 	return 1;
 }
 
+/**
+ * How a simulant moves when it is not walking, from the game's own numbers:
+ *
+ * - gravity 0.27777779 a tick a tick: func0f0965e4() (game_096360.c), which
+ *   chr0f01f378() integrates a falling or jumping chr's fallspeed.y with,
+ *   trapezoidally, once a 60 Hz tick.
+ * - jump impulse JUMP_IMPULSE (5.75) times modGetJumpImpulse()'s root of the
+ *   Jump Height setting, 1 to 5: botTryJump() sets fallspeed.y to it. The
+ *   apex is v * v / (2 * gravity), 59.5 units at 1 to 298 at 5.
+ * - how far a jumper's box reaches down, JUMP_APEX (60) times the setting:
+ *   modGetJumpApex(), which chrGetBbox() takes from the manground, never
+ *   below the ground, then adds the 20 every walker's box starts over it. A
+ *   jump therefore never lifts a simulant's box more than 20 over the floor
+ *   it is over: it clears gaps, not ledges higher than a step.
+ * - run speed 5 units a tick: botCalculateMaxSpeed() for a MeatSim (5 times
+ *   a body-height factor of about 1), the slowest difficulty. At the
+ *   difficulty's speed and full stick bot0f1921f8()'s eased rate settles at
+ *   that many units per 60 Hz tick. A faster simulant jumps further, which
+ *   clears the same gap; the speed sliders are for M3 to weigh.
+ * - no fall damage: nothing in chr0f01f378() hurts a landing chr; it dies
+ *   only landing on a GEOFLAG_DIE floor or below -30000. The limit is the
+ *   route follower's: chrHasFloorBelow() holds a simulant at any edge with no
+ *   floor within BOTDROP_MAX (1000, chr.c) below, so a drop is at most that.
+ * - 20 and 30: a walker's box starts 20 over its feet (chrGetBbox()), and its
+ *   ground may lag the floor by 30 (chrTickFalling(), the bot step).
+ */
+static void simnavGetLinkParams(struct simnavlinkparams *lp)
+{
+	static const f32 roots[SIMNAV_MAXJUMPHEIGHTS] = { 1.0f, 1.4142135f, 1.7320508f, 2.0f, 2.2360680f };
+	s32 i;
+
+	memset(lp, 0, sizeof(*lp));
+	lp->gravity = 0.27777779f;
+	lp->runspeed = 5.0f;
+	lp->numjumpheights = JUMPHEIGHT_MAX < SIMNAV_MAXJUMPHEIGHTS ? JUMPHEIGHT_MAX : SIMNAV_MAXJUMPHEIGHTS;
+
+	for (i = 0; i < lp->numjumpheights; i++) {
+		lp->jumpimpulse[i] = JUMP_IMPULSE * roots[i];
+		lp->jumpapex[i] = JUMP_APEX * (i + 1);
+	}
+
+	lp->maxdrop = 1000.0f;
+	lp->boxfloor = 20.0f;
+	lp->groundlag = 30.0f;
+	lp->samplespacing = 40.0f;
+	lp->clusterdist = 120.0f;
+}
+
+/*
+ * The stage's pads and setup: its spawn and weapon pads, for the batch's
+ * reachability, and its lifts' stops, for their links
+ */
+
+#define SIMNAV_MAXPADPOINTS 512
+
+struct simnavstagepads {
+	f32 points[SIMNAV_MAXPADPOINTS][3];
+	s32 numpoints;
+	s32 numspawn;
+	s32 numweapon;
+	struct simnavlift lifts[SIMNAV_MAXLIFTS];
+	s32 numlifts;
+};
+
+/** A file loaded into memory of our own, as the game's loader loads it */
+static u8 *simnavLoadFile(s32 fileid, u32 loadtype)
+{
+	struct fileinfo saved;
+	u32 size;
+	u8 *buf;
+
+	if (fileid <= 0 || fileid >= NUM_FILE_SLOTS) {
+		return NULL;
+	}
+
+	size = fileGetInflatedSize(fileid, loadtype);
+
+	if (size == 0) {
+		return NULL;
+	}
+
+	size = ((size + 0x20) & ~0xfu) + 0x8000;
+	buf = calloc(1, size);
+
+	if (!buf) {
+		return NULL;
+	}
+
+	// what the game knows of the file stays as it was
+	saved = g_FileInfo[fileid];
+	g_LoadType = loadtype;
+	fileLoadToAddr(fileid, FILELOADMETHOD_EXTRAMEM, buf, size);
+	g_FileInfo[fileid] = saved;
+
+	return buf;
+}
+
+// The intro stream's command lengths: modRandomIntroCmdLen() has why
+static s32 simnavIntroCmdLen(s32 type)
+{
+	switch (type) {
+	case INTROCMD_SPAWN:        return 12;
+	case INTROCMD_WEAPON:       return 16;
+	case INTROCMD_AMMO:         return 16;
+	case INTROCMD_3:            return 32;
+	case INTROCMD_4:            return 8;
+	case INTROCMD_OUTFIT:       return 8;
+	case INTROCMD_6:            return 40;
+	case INTROCMD_WATCHTIME:    return 12;
+	case INTROCMD_CREDITOFFSET: return 8;
+	case INTROCMD_CASE:         return 12;
+	case INTROCMD_CASERESPAWN:  return 12;
+	case INTROCMD_HILL:         return 8;
+	}
+
+	return 0;
+}
+
+static void simnavAddPadPoint(struct simnavstagepads *sp, s32 padnum)
+{
+	struct pad pad;
+
+	if (sp->numpoints >= SIMNAV_MAXPADPOINTS || padnum < 0 || padnum >= g_PadsFile->numpads) {
+		return;
+	}
+
+	padUnpack(padnum, PADFIELD_POS, &pad);
+	sp->points[sp->numpoints][0] = pad.pos.x;
+	sp->points[sp->numpoints][1] = pad.pos.y;
+	sp->points[sp->numpoints][2] = pad.pos.z;
+	sp->numpoints++;
+}
+
+/**
+ * The stage's pads file and setup file (the multiplayer one where it has
+ * one), each loaded into memory of our own and read without being set up: a
+ * level's own copies are not loaded yet when its mesh is built (lvReset()
+ * reaches setupLoadFiles() after the tiles), and the batch has no level. The
+ * pad globals padUnpack() reads are pointed at ours for the while and put
+ * back.
+ */
+static void simnavReadSetup(u8 *setupbuf, struct simnavstagepads *sp)
+{
+	struct stagesetup *setup = (struct stagesetup *)setupbuf;
+
+	if (setup->intro) {
+		const s32 *cmd = (const s32 *)(setupbuf + (uintptr_t)setup->intro);
+
+		while (cmd[0] != INTROCMD_END) {
+			const s32 len = simnavIntroCmdLen(cmd[0]);
+
+			if (len == 0) {
+				break;
+			}
+
+			if (cmd[0] == INTROCMD_SPAWN && cmd[2] == 0) {
+				simnavAddPadPoint(sp, cmd[1]);
+				sp->numspawn++;
+			}
+
+			cmd = (const s32 *)((const u8 *)cmd + len);
+		}
+	}
+
+	if (setup->props) {
+		u32 *cmd = (u32 *)(setupbuf + (uintptr_t)setup->props);
+		s32 guard = 0;
+
+		while (((struct defaultobj *)cmd)->type != OBJTYPE_END && guard++ < 0x10000) {
+			struct defaultobj *obj = (struct defaultobj *)cmd;
+			u32 len;
+
+			switch (obj->type) {
+			case OBJTYPE_WEAPON:
+			case OBJTYPE_AMMOCRATE:
+			case OBJTYPE_MULTIAMMOCRATE:
+				simnavAddPadPoint(sp, obj->pad);
+				sp->numweapon++;
+				break;
+			case OBJTYPE_LIFT:
+				if (sp->numlifts < SIMNAV_MAXLIFTS) {
+					struct liftobj *lift = (struct liftobj *)obj;
+					struct simnavlift *l = &sp->lifts[sp->numlifts];
+					s32 i;
+
+					for (i = 0; i < 4; i++) {
+						struct pad pad;
+
+						if (lift->pads[i] < 0 || lift->pads[i] >= g_PadsFile->numpads) {
+							continue;
+						}
+
+						padUnpack(lift->pads[i], PADFIELD_POS, &pad);
+						l->stops[l->numstops][0] = pad.pos.x;
+						l->stops[l->numstops][1] = pad.pos.y;
+						l->stops[l->numstops][2] = pad.pos.z;
+						l->numstops++;
+					}
+
+					if (l->numstops >= 2) {
+						sp->numlifts++;
+					} else {
+						memset(l, 0, sizeof(*l));
+					}
+				}
+				break;
+			}
+
+			len = setupGetCmdLength(cmd);
+
+			if (len == 0) {
+				break;
+			}
+
+			cmd += len;
+		}
+	}
+
+}
+
+static void simnavLoadStagePads(s32 stagenum, struct simnavstagepads *sp)
+{
+	const s32 index = stageGetIndex(stagenum);
+	struct padsfileheader *savedfile = g_PadsFile;
+	u16 *savedoffsets = g_PadOffsets;
+	s8 *saveddata = g_StageSetup.padfiledata;
+	u8 *pads;
+	s32 i;
+
+	memset(sp, 0, sizeof(*sp));
+
+	if (index < 0 || (pads = simnavLoadFile(g_Stages[index].padsfileid, LOADTYPE_PADS)) == NULL) {
+		return;
+	}
+
+	g_StageSetup.padfiledata = (s8 *)pads;
+	g_PadsFile = (struct padsfileheader *)pads;
+#ifdef PLATFORM_64BIT
+	g_PadOffsets = (u16 *)(pads + 0x20);
+#else
+	g_PadOffsets = (u16 *)(pads + 0x14);
+#endif
+
+	// The multiplayer setup, or the solo one where that has no pads to read
+	// (a solo stage the Stage Loader offers as an arena)
+	for (i = 0; i < 2 && sp->numpoints == 0; i++) {
+		const s32 fileid = i == 0 ? g_Stages[index].mpsetupfileid : g_Stages[index].setupfileid;
+		u8 *setupbuf;
+
+		if (fileid == 0 || (i == 1 && fileid == g_Stages[index].mpsetupfileid)) {
+			continue;
+		}
+
+		if ((setupbuf = simnavLoadFile(fileid, LOADTYPE_SETUP)) != NULL) {
+			memset(sp, 0, sizeof(*sp));
+			simnavReadSetup(setupbuf, sp);
+			free(setupbuf);
+		}
+	}
+
+	g_PadsFile = savedfile;
+	g_PadOffsets = savedoffsets;
+	g_StageSetup.padfiledata = saveddata;
+
+	free(pads);
+}
+
 /** FNV-1a over the input and the parameters it is built with */
-static u64 simnavHash(const struct simnavgeom *g, const struct simnavparams *params)
+static u64 simnavHash(const struct simnavgeom *g, const struct simnavparams *params, const struct simnavlinkparams *lp)
 {
 	u64 h = 0xcbf29ce484222325ull;
 	const u32 version = SIMNAV_EXTRACT_VERSION;
 	const struct { const void *p; size_t len; } parts[] = {
 		{ &version, sizeof(version) },
 		{ params, sizeof(*params) },
+		{ lp, sizeof(*lp) },
 		{ g->verts, sizeof(f32) * 3 * g->numverts },
 		{ g->tris, sizeof(s32) * 3 * g->numtris },
 		{ g->areas, g->numtris },
+		{ g->kinds, g->numtris },
+		{ g->ladders, sizeof(*g->ladders) * g->numladders },
+		{ g->lifts, sizeof(*g->lifts) * g->numlifts },
 	};
 	size_t i, j;
 
@@ -539,9 +1004,11 @@ static void simnavCacheWrite(const char *path, s32 stagenum, u64 hash, const str
  * The stage's mesh from its tiles: from the cache when its hash is there, or
  * built and cached. NULL, logged, when it cannot be had.
  */
-static struct simnavmesh *simnavObtain(s32 stagenum, const u8 *tiledata, struct simnavgeom *g, s32 *fromcache, u64 *hashout)
+static struct simnavmesh *simnavObtain(s32 stagenum, const u8 *tiledata, const struct simnavstagepads *pads,
+		struct simnavgeom *g, s32 *fromcache, u64 *hashout)
 {
 	struct simnavparams params;
+	struct simnavlinkparams linkparams;
 	struct simnavinput input;
 	struct simnavstats stats;
 	struct simnavmesh *mesh;
@@ -552,13 +1019,17 @@ static struct simnavmesh *simnavObtain(s32 stagenum, const u8 *tiledata, struct 
 
 	*fromcache = 0;
 	simnavGetParams(&params);
+	simnavGetLinkParams(&linkparams);
 
 	if (!simnavExtract(tiledata, g)) {
 		sysLogPrintf(LOG_WARNING, "simnav: stage 0x%02x: its tiles could not be read", stagenum);
 		return NULL;
 	}
 
-	hash = simnavHash(g, &params);
+	memcpy(g->lifts, pads->lifts, sizeof(g->lifts));
+	g->numlifts = pads->numlifts;
+
+	hash = simnavHash(g, &params, &linkparams);
 	*hashout = hash;
 	havepath = simnavCachePath(stagenum, hash, path, sizeof(path));
 
@@ -571,9 +1042,14 @@ static struct simnavmesh *simnavObtain(s32 stagenum, const u8 *tiledata, struct 
 	input.numverts = g->numverts;
 	input.tris = g->tris;
 	input.areas = g->areas;
+	input.kinds = g->kinds;
 	input.numtris = g->numtris;
+	input.ladders = g->ladders;
+	input.numladders = g->numladders;
+	input.lifts = g->lifts;
+	input.numlifts = g->numlifts;
 
-	mesh = simnavMeshBuild(&input, &params, &stats, err, sizeof(err));
+	mesh = simnavMeshBuild(&input, &params, &linkparams, &stats, err, sizeof(err));
 
 	if (!mesh) {
 		sysLogPrintf(LOG_WARNING, "simnav: stage 0x%02x: no navmesh: %s", stagenum, err[0] ? err : "unknown");
@@ -591,19 +1067,45 @@ static struct simnavmesh *simnavObtain(s32 stagenum, const u8 *tiledata, struct 
  * The stage being played, and its debug view
  */
 
+#define SIMNAV_DEBUG_PATHS 4  // simulants whose path to the player is drawn, one worked out a frame
+#define SIMNAV_PATH_POINTS 48
+#define SIMNAV_LINK_QUADS  16 // most a link's line takes (a jump's arc: eight pieces, crossed)
+
 struct simnavdrawtile {
 	f32 minx, minz, maxx, maxz;
 	Gfx *dl;
 };
 
+struct simnavdebugpath {
+	struct chrdata *chr;
+	s32 numpoints;
+	s32 complete;
+	f32 points[SIMNAV_PATH_POINTS][3];
+	u8 areas[SIMNAV_PATH_POINTS];
+};
+
+// Lines drawn as two long quads crossed along them, so they show from any side
+struct simnavribbons {
+	Vtx *vtx;
+	Col *col;
+	s32 num; // quads
+	s32 max;
+};
+
 static struct {
 	s32 stagenum;
 	struct simnavmesh *mesh;
+	struct simnavquery *query;
 	struct simnavdrawtile *tiles;
 	s32 numtiles;
 	Vtx *vtx;
 	Col *col;
 	Gfx *gfx;
+	struct simnavribbons links;
+	Gfx *linkgfx;
+	struct simnavdebugpath paths[SIMNAV_DEBUG_PATHS];
+	s32 nextpath;
+	s32 pathframe;
 } g_SimNav = { -1 };
 
 struct simnavtri {
@@ -670,9 +1172,195 @@ static void simnavPolyColour(u8 area, s32 poly, Col *col)
 	col->a = SIMNAV_DRAW_ALPHA;
 }
 
+/** A link's colour by its kind; a path walked is yellow */
+static void simnavLinkColour(u8 area, u8 *rgb)
+{
+	switch (area) {
+	case SIMNAV_AREA_LADDER: rgb[0] = 0xff; rgb[1] = 0x40; rgb[2] = 0xff; break;
+	case SIMNAV_AREA_LIFT:   rgb[0] = 0x40; rgb[1] = 0xff; rgb[2] = 0x60; break;
+	case SIMNAV_AREA_DROP:   rgb[0] = 0xff; rgb[1] = 0x70; rgb[2] = 0x10; break;
+	case SIMNAV_AREA_JUMP:   rgb[0] = 0x10; rgb[1] = 0xff; rgb[2] = 0xff; break;
+	default:                 rgb[0] = 0xff; rgb[1] = 0xff; rgb[2] = 0x30; break;
+	}
+}
+
 static s16 simnavS16(f32 v)
 {
 	return v > 32767.0f ? 32767 : v < -32768.0f ? -32768 : (s16)floorf(v + 0.5f);
+}
+
+/** One line of a ribbon list, from a (in colour ca) to b (in cb) */
+static void simnavRibbon(struct simnavribbons *r, const f32 *a, const f32 *b, const u8 *ca, const u8 *cb, f32 halfwidth)
+{
+	f32 d[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] };
+	f32 len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+	f32 across = sqrtf(d[0] * d[0] + d[2] * d[2]);
+	f32 w[2][3];
+	s32 q, k;
+
+	if (len < 1.0f) {
+		return;
+	}
+
+	// across the line and level, or along x where the line stands up
+	if (across > len * 0.01f) {
+		w[0][0] = -d[2] / across;
+		w[0][1] = 0;
+		w[0][2] = d[0] / across;
+	} else {
+		w[0][0] = 1;
+		w[0][1] = 0;
+		w[0][2] = 0;
+	}
+
+	// and across both
+	w[1][0] = d[1] * w[0][2] - d[2] * w[0][1];
+	w[1][1] = d[2] * w[0][0] - d[0] * w[0][2];
+	w[1][2] = d[0] * w[0][1] - d[1] * w[0][0];
+
+	for (k = 0; k < 3; k++) {
+		w[1][k] /= len;
+	}
+
+	for (q = 0; q < 2; q++) {
+		const f32 *corner[4] = { a, b, b, a };
+		const f32 side[4] = { 1, 1, -1, -1 };
+		Vtx *v;
+		Col *c;
+
+		if (r->num >= r->max) {
+			return;
+		}
+
+		v = &r->vtx[r->num * 4];
+		c = &r->col[r->num * 4];
+
+		for (k = 0; k < 4; k++) {
+			const u8 *rgb = k == 1 || k == 2 ? cb : ca;
+
+			v[k].x = simnavS16(corner[k][0] + w[q][0] * halfwidth * side[k]);
+			v[k].y = simnavS16(corner[k][1] + w[q][1] * halfwidth * side[k]);
+			v[k].z = simnavS16(corner[k][2] + w[q][2] * halfwidth * side[k]);
+			v[k].flags = 0;
+			v[k].colour = ((r->num % 3) * 4 + k) * 4;
+			v[k].s = 0;
+			v[k].t = 0;
+
+			c[k].r = rgb[0];
+			c[k].g = rgb[1];
+			c[k].b = rgb[2];
+			c[k].a = 0xe0;
+		}
+
+		r->num++;
+	}
+}
+
+/** The ribbons' display list: three quads to a load of twelve vertices */
+static Gfx *simnavRibbonGfx(Gfx *gdl, const struct simnavribbons *r)
+{
+	s32 i;
+
+	for (i = 0; i < r->num; i += 3) {
+		const s32 n = r->num - i < 3 ? r->num - i : 3;
+
+		gSPColor(gdl++, &r->col[i * 4], n * 4);
+		gSPVertex(gdl++, &r->vtx[i * 4], n * 4, 0);
+
+		if (n == 1) {
+			gSPTri2(gdl++, 0, 1, 2, 0, 2, 3);
+		} else {
+			gSPTri4(gdl++, 0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7);
+
+			if (n == 3) {
+				gSPTri2(gdl++, 8, 9, 10, 8, 10, 11);
+			}
+		}
+	}
+
+	return gdl;
+}
+
+/** A link's line: up a ladder then over, out then down a drop, a jump's arc, straight up a lift */
+static void simnavLinkRibbons(struct simnavribbons *r, u8 area, const f32 *a, const f32 *b)
+{
+	f32 pts[9][3];
+	u8 dim[3], full[3];
+	s32 n = 0, i, k;
+
+	simnavLinkColour(area, full);
+
+	for (k = 0; k < 3; k++) {
+		dim[k] = full[k] / 3;
+	}
+
+	for (k = 0; k < 3; k++) {
+		pts[0][k] = a[k];
+	}
+
+	if (area == SIMNAV_AREA_JUMP) {
+		const f32 h = 60.0f;
+
+		for (i = 1; i <= 8; i++) {
+			const f32 t = i / 8.0f;
+
+			for (k = 0; k < 3; k++) {
+				pts[i][k] = a[k] + (b[k] - a[k]) * t;
+			}
+
+			pts[i][1] += 4.0f * h * t * (1.0f - t);
+		}
+
+		n = 9;
+	} else if (area == SIMNAV_AREA_LADDER || area == SIMNAV_AREA_DROP) {
+		// the ladder's climb at its foot, the drop's fall at its landing
+		const f32 *vert = area == SIMNAV_AREA_LADDER ? a : b;
+		const f32 *level = area == SIMNAV_AREA_LADDER ? b : a;
+
+		pts[1][0] = vert[0];
+		pts[1][1] = level[1];
+		pts[1][2] = vert[2];
+		pts[2][0] = b[0];
+		pts[2][1] = b[1];
+		pts[2][2] = b[2];
+		n = 3;
+	} else {
+		pts[1][0] = b[0];
+		pts[1][1] = b[1];
+		pts[1][2] = b[2];
+		n = 2;
+	}
+
+	for (i = 0; i < n; i++) {
+		pts[i][1] += SIMNAV_DRAW_LIFT + 6.0f;
+	}
+
+	// dim at the start, bright at the end, so a one-way link shows its way
+	for (i = 0; i + 1 < n; i++) {
+		u8 c0[3], c1[3];
+
+		for (k = 0; k < 3; k++) {
+			c0[k] = dim[k] + (full[k] - dim[k]) * i / (n - 1);
+			c1[k] = dim[k] + (full[k] - dim[k]) * (i + 1) / (n - 1);
+		}
+
+		simnavRibbon(r, pts[i], pts[i + 1], c0, c1, 3.0f);
+	}
+}
+
+struct simnavlinkcount {
+	s32 num;
+	struct simnavribbons *r;
+};
+
+static void simnavCountLink(void *arg, unsigned char area, unsigned short flags, int bidir, const float *a, const float *b)
+{
+	((struct simnavlinkcount *)arg)->num++;
+}
+
+static void simnavDrawLink(void *arg, unsigned char area, unsigned short flags, int bidir, const float *a, const float *b)
+{
+	simnavLinkRibbons(((struct simnavlinkcount *)arg)->r, area, a, b);
 }
 
 static void simnavFreeDraw(void)
@@ -681,11 +1369,44 @@ static void simnavFreeDraw(void)
 	free(g_SimNav.vtx);
 	free(g_SimNav.col);
 	free(g_SimNav.gfx);
+	free(g_SimNav.links.vtx);
+	free(g_SimNav.links.col);
+	free(g_SimNav.linkgfx);
 	g_SimNav.tiles = NULL;
 	g_SimNav.vtx = NULL;
 	g_SimNav.col = NULL;
 	g_SimNav.gfx = NULL;
 	g_SimNav.numtiles = 0;
+	memset(&g_SimNav.links, 0, sizeof(g_SimNav.links));
+	g_SimNav.linkgfx = NULL;
+}
+
+/** Every off-mesh link as a line, in one display list built once */
+static void simnavBuildLinkDraw(void)
+{
+	struct simnavlinkcount count = { 0 };
+	Gfx *gdl;
+
+	simnavMeshForEachLink(g_SimNav.mesh, simnavCountLink, &count);
+
+	if (count.num == 0) {
+		return;
+	}
+
+	g_SimNav.links.max = count.num * SIMNAV_LINK_QUADS;
+	g_SimNav.links.vtx = calloc((size_t)g_SimNav.links.max * 4, sizeof(Vtx));
+	g_SimNav.links.col = calloc((size_t)g_SimNav.links.max * 4, sizeof(Col));
+	g_SimNav.linkgfx = calloc((size_t)g_SimNav.links.max + 1, sizeof(Gfx) * 2);
+
+	if (!g_SimNav.links.vtx || !g_SimNav.links.col || !g_SimNav.linkgfx) {
+		return;
+	}
+
+	count.r = &g_SimNav.links;
+	simnavMeshForEachLink(g_SimNav.mesh, simnavDrawLink, &count);
+
+	gdl = simnavRibbonGfx(g_SimNav.linkgfx, &g_SimNav.links);
+	gSPEndDisplayList(gdl++);
 }
 
 /**
@@ -703,6 +1424,7 @@ static void simnavBuildDraw(void)
 	Col *col;
 	Gfx *gdl;
 
+	simnavBuildLinkDraw();
 	simnavMeshForEachTri(g_SimNav.mesh, simnavCollectTri, &list);
 
 	if (list.num == 0 || numtiles <= 0) {
@@ -808,18 +1530,44 @@ static void simnavLogStats(s32 stagenum, const struct simnavstats *s, const stru
 			stagenum, s->polys, s->verts, s->detailtris, s->tiles, s->emptytiles, s->failedtiles,
 			g->floors, g->walls, g->died, g->blocks, g->skipped,
 			fromcache ? "from the cache, built in" : "built in", s->buildms, (unsigned long long)hash);
+	sysLogPrintf(LOG_NOTE, "simnav: stage 0x%02x: links: %d ladder (%d faces, %d ladders), %d lift (%d lifts), %d drop, "
+			"%d jump (by Jump Height 1-5: %d %d %d %d %d) in %.1f ms",
+			stagenum, s->ladderlinks, g->laddertiles, g->numladders, s->liftlinks, g->numlifts, s->droplinks,
+			s->jumplinks, s->jumpsbyheight[0], s->jumpsbyheight[1], s->jumpsbyheight[2], s->jumpsbyheight[3],
+			s->jumpsbyheight[4], s->linkms);
+}
+
+/** What a simulant may use of the mesh with the options as they are */
+static u16 simnavIncludeFlags(void)
+{
+	u16 flags = SIMNAV_FLAGS_NOJUMP;
+	s32 h;
+
+	if (modCanChrJump()) {
+		for (h = 1; h <= modGetJumpHeight() && h <= SIMNAV_MAXJUMPHEIGHTS; h++) {
+			flags |= SIMNAV_FLAG_JUMP(h);
+		}
+	}
+
+	return flags;
 }
 
 void simnavStageStop(void)
 {
 	simnavFreeDraw();
+	simnavQueryFree(g_SimNav.query);
 	simnavMeshFree(g_SimNav.mesh);
+	g_SimNav.query = NULL;
 	g_SimNav.mesh = NULL;
 	g_SimNav.stagenum = -1;
+	memset(g_SimNav.paths, 0, sizeof(g_SimNav.paths));
+	g_SimNav.nextpath = 0;
+	g_SimNav.pathframe = -1;
 }
 
 void simnavStageStart(s32 stagenum)
 {
+	struct simnavstagepads *pads;
 	struct simnavgeom g;
 	struct simnavstats stats;
 	s32 fromcache;
@@ -842,16 +1590,138 @@ void simnavStageStart(s32 stagenum)
 		return;
 	}
 
-	g_SimNav.mesh = simnavObtain(stagenum, g_TileFileData.u8, &g, &fromcache, &hash);
+	pads = calloc(1, sizeof(*pads));
+
+	if (!pads) {
+		return;
+	}
+
+	simnavLoadStagePads(stagenum, pads);
+	g_SimNav.mesh = simnavObtain(stagenum, g_TileFileData.u8, pads, &g, &fromcache, &hash);
 
 	if (g_SimNav.mesh) {
 		g_SimNav.stagenum = stagenum;
+		g_SimNav.query = simnavQueryCreate(g_SimNav.mesh);
+		g_SimNav.pathframe = -1;
 		simnavMeshGetStats(g_SimNav.mesh, &stats);
 		simnavLogStats(stagenum, &stats, &g, fromcache, hash);
 		simnavBuildDraw();
 	}
 
 	simnavGeomFree(&g);
+	free(pads);
+}
+
+/**
+ * Once a frame, the path of one of the first SIMNAV_DEBUG_PATHS simulants to
+ * the player - or, spectating, to the floor under the camera - in turn.
+ */
+static void simnavUpdatePaths(struct player *player)
+{
+	struct simnavdebugpath *path;
+	struct chrdata *chr = NULL;
+	f32 start[3], end[3];
+	s32 i, n = 0;
+
+	if (!g_SimNav.query || g_SimNav.pathframe == g_Vars.lvframe60) {
+		return;
+	}
+
+	g_SimNav.pathframe = g_Vars.lvframe60;
+	path = &g_SimNav.paths[g_SimNav.nextpath];
+
+	for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+		struct chrdata *c = g_MpAllChrPtrs[i];
+
+		if (c && c->aibot && c->prop && !chrIsDead(c)) {
+			if (n == g_SimNav.nextpath) {
+				chr = c;
+				break;
+			}
+
+			n++;
+		}
+	}
+
+	g_SimNav.nextpath = (g_SimNav.nextpath + 1) % SIMNAV_DEBUG_PATHS;
+	path->chr = chr;
+	path->numpoints = 0;
+
+	if (!chr) {
+		return;
+	}
+
+	if (modSpectateIsOn() || !player->prop) {
+		const f32 cam[3] = { player->cam_pos.x, player->cam_pos.y, player->cam_pos.z };
+
+		if (!simnavQueryFindFloor(g_SimNav.query, cam, 5000.0f, 0.0f, 150.0f, end)) {
+			return;
+		}
+
+		end[1] += 60.0f;
+	} else {
+		end[0] = player->prop->pos.x;
+		end[1] = player->prop->pos.y;
+		end[2] = player->prop->pos.z;
+	}
+
+	start[0] = chr->prop->pos.x;
+	start[1] = chr->prop->pos.y;
+	start[2] = chr->prop->pos.z;
+
+	path->numpoints = simnavQueryPath(g_SimNav.query, start, end, simnavIncludeFlags(),
+			&path->points[0][0], path->areas, SIMNAV_PATH_POINTS, &path->complete);
+}
+
+/** The paths, into this frame's memory */
+static Gfx *simnavRenderPaths(Gfx *gdl)
+{
+	struct simnavribbons r;
+	s32 numsegs = 0;
+	s32 i, j;
+
+	for (i = 0; i < SIMNAV_DEBUG_PATHS; i++) {
+		if (g_SimNav.paths[i].numpoints > 1) {
+			numsegs += g_SimNav.paths[i].numpoints - 1;
+		}
+	}
+
+	if (numsegs == 0) {
+		return gdl;
+	}
+
+	r.max = numsegs * 2;
+	r.num = 0;
+	r.vtx = gfxAllocateVertices(r.max * 4);
+	r.col = gfxAllocateColours(r.max * 4);
+
+	for (i = 0; i < SIMNAV_DEBUG_PATHS; i++) {
+		const struct simnavdebugpath *path = &g_SimNav.paths[i];
+
+		for (j = 0; j + 1 < path->numpoints; j++) {
+			f32 a[3], b[3];
+			u8 rgb[3];
+
+			memcpy(a, path->points[j], sizeof(a));
+			memcpy(b, path->points[j + 1], sizeof(b));
+			a[1] += SIMNAV_DRAW_LIFT + 14.0f;
+			b[1] += SIMNAV_DRAW_LIFT + 14.0f;
+
+			// a link crossed is its own colour, the walking yellow - or
+			// red, where the path stops short
+			simnavLinkColour(path->areas[j], rgb);
+
+			if (!path->complete && path->areas[j] == SIMNAV_AREA_NONE) {
+				rgb[0] = 0xff;
+				rgb[1] = 0x30;
+				rgb[2] = 0x30;
+			}
+
+			simnavRibbon(&r, a, b, rgb, rgb, 5.0f);
+		}
+	}
+
+	return simnavRibbonGfx(gdl, &r);
 }
 
 Gfx *simnavRender(Gfx *gdl)
@@ -863,6 +1733,8 @@ Gfx *simnavRender(Gfx *gdl)
 	if (!g_SimNav.mesh || !g_SimNav.tiles || !player || g_SimNav.stagenum != g_Vars.stagenum) {
 		return gdl;
 	}
+
+	simnavUpdatePaths(player);
 
 	// the mesh's vertices are the world's, so the rooms' translation with no room
 	mtx = gfxAllocateMatrix();
@@ -901,6 +1773,13 @@ Gfx *simnavRender(Gfx *gdl)
 		gSPDisplayList(gdl++, tile->dl);
 	}
 
+	// the links and paths, over the mesh (which writes no depth)
+	if (g_SimNav.linkgfx) {
+		gSPDisplayList(gdl++, g_SimNav.linkgfx);
+	}
+
+	gdl = simnavRenderPaths(gdl);
+
 	gDPPipeSync(gdl++);
 	gSPClearGeometryMode(gdl++, G_CULL_BOTH);
 
@@ -921,19 +1800,64 @@ static const char *simnavArenaName(s32 index)
 	return index < (s32)ARRAYCOUNT(names) ? names[index] : NULL;
 }
 
+static void simnavPrintRowEmpty(s32 stagenum, const char *name, const char *note)
+{
+	printf("0x%02x  %-18s  %5s %5s %4s %7s | %4s %4s %4s %4s %6s | %4s %6s %6s %6s  %s\n", stagenum, name,
+			"-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", note);
+}
+
+
+
+/**
+ * The pads the reachability counted against the mesh: each off it, and each
+ * outside the largest group of pads that all reach one another
+ */
+static void simnavLogStrays(s32 stagenum, const struct simnavstagepads *pads, const s32 *groups)
+{
+	s32 sizes[SIMNAV_MAXPADPOINTS] = { 0 };
+	s32 biggest = -1;
+	s32 i;
+
+	for (i = 0; i < pads->numpoints; i++) {
+		if (groups[i] >= 0 && ++sizes[groups[i]] > (biggest >= 0 ? sizes[biggest] : 0)) {
+			biggest = groups[i];
+		}
+	}
+
+	for (i = 0; i < pads->numpoints; i++) {
+		if (groups[i] == biggest) {
+			continue;
+		}
+
+		sysLogPrintf(LOG_NOTE, "simnav: stage 0x%02x: %s pad %d at (%.0f, %.0f, %.0f) %s",
+				stagenum, i < pads->numspawn ? "spawn" : "weapon", i,
+				pads->points[i][0], pads->points[i][1], pads->points[i][2],
+				groups[i] < 0 ? "is off the mesh" : "is cut off from the most pads");
+	}
+}
+
 void simnavBuildAllFromCommandLine(void)
 {
 	s32 built = 0, failed = 0, skipped = 0;
-	f32 totalms = 0;
+	f32 totalms = 0, totallinkms = 0;
+	struct simnavstagepads *pads;
+	s32 groups[SIMNAV_MAXPADPOINTS];
 	s32 i;
 
 	if (!sysArgCheck("--simnav-build-all")) {
 		return;
 	}
 
+	pads = calloc(1, sizeof(*pads));
+
+	if (!pads) {
+		exit(1);
+	}
+
 	sysLogPrintf(LOG_NOTE, "simnav: building every multiplayer arena's navmesh");
-	printf("\n%-4s  %-22s  %6s  %6s  %7s  %5s  %6s  %9s  %s\n",
-			"id", "arena", "polys", "verts", "dtris", "tiles", "failed", "build ms", "note");
+	printf("\n%-4s  %-18s  %5s %5s %4s %7s | %4s %4s %4s %4s %6s | %4s %6s %6s %6s  %s\n",
+			"id", "arena", "polys", "tiles", "fail", "buildms", "lad", "lift", "drop", "jump", "linkms",
+			"pads", "onmesh", "reach", "+jump", "note");
 
 	for (i = 0; i < MP_NUM_ARENAS_STATIC; i++) {
 		const s32 stagenum = g_MpArenas[i].stagenum;
@@ -944,7 +1868,6 @@ void simnavBuildAllFromCommandLine(void)
 		struct simnavstats stats;
 		struct simnavmesh *mesh;
 		s32 fromcache, fileid;
-		u32 size;
 		u64 hash = 0;
 		u8 *buf;
 
@@ -953,55 +1876,62 @@ void simnavBuildAllFromCommandLine(void)
 		}
 
 		if (!name) {
-			snprintf(namebuf, sizeof(namebuf), "(solo stage 0x%02x)", stagenum);
+			snprintf(namebuf, sizeof(namebuf), "(solo 0x%02x)", stagenum);
 			name = namebuf;
 		}
 
 		if (index < 0 || (fileid = g_Stages[index].tilefileid) == 0) {
-			printf("0x%02x  %-22s  %6s  %6s  %7s  %5s  %6s  %9s  %s\n", stagenum, name, "-", "-", "-", "-", "-", "-", "no stage");
+			simnavPrintRowEmpty(stagenum, name, "no stage");
 			skipped++;
 			continue;
 		}
 
 		if (modloaderStageIsRemake(stagenum)) {
-			printf("0x%02x  %-22s  %6s  %6s  %7s  %5s  %6s  %9s  %s\n", stagenum, name, "-", "-", "-", "-", "-", "-", "GoldenEye conversion, skipped");
+			simnavPrintRowEmpty(stagenum, name, "GoldenEye conversion, skipped");
 			skipped++;
 			continue;
 		}
 
 		// the file as tilesReset() loads it, into memory of our own
-		size = fileGetInflatedSize(fileid, LOADTYPE_TILES);
-
-		if (size == 0) {
-			printf("0x%02x  %-22s  %6s  %6s  %7s  %5s  %6s  %9s  %s\n", stagenum, name, "-", "-", "-", "-", "-", "-", "no tiles file");
-			failed++;
-			continue;
-		}
-
-		size = ((size + 0x20) & ~0xfu) + 0x8000;
-		buf = calloc(1, size);
+		buf = simnavLoadFile(fileid, LOADTYPE_TILES);
 
 		if (!buf) {
+			simnavPrintRowEmpty(stagenum, name, "no tiles file");
 			failed++;
 			continue;
 		}
 
-		g_LoadType = LOADTYPE_TILES;
-		fileLoadToAddr(fileid, FILELOADMETHOD_EXTRAMEM, buf, size);
-
-		mesh = simnavObtain(stagenum, buf, &g, &fromcache, &hash);
+		simnavLoadStagePads(stagenum, pads);
+		mesh = simnavObtain(stagenum, buf, pads, &g, &fromcache, &hash);
 
 		if (mesh) {
+			s32 onmesh = 0, pairs = 0, onmeshj = 0, pairsj = 0;
+			const s32 n = pads->numpoints;
+			const f32 allpairs = n > 1 ? n * (n - 1) / 2.0f : 1.0f;
+
+			// pads stand up to about a chr's height over their floor
+			simnavMeshReachability(mesh, &pads->points[0][0], n, 250.0f, 60.0f, SIMNAV_FLAGS_NOJUMP,
+					&onmesh, &pairs, groups);
+			simnavMeshReachability(mesh, &pads->points[0][0], n, 250.0f, 60.0f,
+					SIMNAV_FLAGS_NOJUMP | SIMNAV_FLAG_JUMP(1), &onmeshj, &pairsj, NULL);
+			simnavLogStrays(stagenum, pads, groups);
+
 			simnavMeshGetStats(mesh, &stats);
 			simnavLogStats(stagenum, &stats, &g, fromcache, hash);
-			printf("0x%02x  %-22s  %6d  %6d  %7d  %5d  %6d  %9.1f  %s\n", stagenum, name,
-					stats.polys, stats.verts, stats.detailtris, stats.tiles, stats.failedtiles, stats.buildms,
+			sysLogPrintf(LOG_NOTE, "simnav: stage 0x%02x: %d pads (%d spawn, %d weapon), %d on the mesh; "
+					"%d of %d pairs reach each other, %d with Jump Height 1",
+					stagenum, n, pads->numspawn, pads->numweapon, onmesh, pairs, (s32)allpairs, pairsj);
+			printf("0x%02x  %-18s  %5d %5d %4d %7.1f | %4d %4d %4d %4d %6.1f | %4d %5.0f%% %5.0f%% %5.0f%%  %s\n",
+					stagenum, name, stats.polys, stats.tiles, stats.failedtiles, stats.buildms,
+					stats.ladderlinks, stats.liftlinks, stats.droplinks, stats.jumplinks, stats.linkms,
+					n, n ? 100.0f * onmesh / n : 0.0f, 100.0f * pairs / allpairs, 100.0f * pairsj / allpairs,
 					fromcache ? "cached" : "");
 			totalms += stats.buildms;
+			totallinkms += stats.linkms;
 			built++;
 			simnavMeshFree(mesh);
 		} else {
-			printf("0x%02x  %-22s  %6s  %6s  %7s  %5s  %6s  %9s  %s\n", stagenum, name, "-", "-", "-", "-", "-", "-", "FAILED (see log)");
+			simnavPrintRowEmpty(stagenum, name, "FAILED (see log)");
 			failed++;
 		}
 
@@ -1009,8 +1939,10 @@ void simnavBuildAllFromCommandLine(void)
 		free(buf);
 	}
 
-	printf("\nsimnav: %d built, %d failed, %d skipped, %.1f ms building\n", built, failed, skipped, totalms);
+	printf("\nsimnav: %d built, %d failed, %d skipped, %.1f ms building (%.1f of it links)\n",
+			built, failed, skipped, totalms, totallinkms);
 	fflush(stdout);
+	free(pads);
 
 	exit(failed ? 1 : 0);
 }
