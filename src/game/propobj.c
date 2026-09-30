@@ -1675,6 +1675,47 @@ s32 func0f068fc8(struct prop *prop, bool arg1)
 	return 255;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * How lit a converted level's prop is against its rooms with every light
+ * whole: 1 as the level made them, less once a light is shot out or put out.
+ *
+ * GoldenEye shades a prop by its floor tile alone, which is what the remake
+ * branch below does, and GoldenEye's rooms never darken as a whole when a
+ * light goes. Perfect Dark's do (roomHighlight()), so a room with its lamp
+ * shot out went dark round barrels, guards and guns still at their tile's
+ * shade (F3 20260929-213203). The room's brightness now - settled, from its
+ * neighbours too, and any flash - is taken against its own brightness with
+ * every light on (its base plus each light's share, as the settled local
+ * brightness is summed in dlights.c), for each of the prop's rooms, and the
+ * share averaged. It is capped at 1, so a room as the level made it gives 1
+ * and the prop is shaded exactly as before.
+ */
+static f32 propRemakeRoomLightFrac(struct prop *prop)
+{
+	f32 sum = 0;
+	s32 i;
+
+	for (i = 0; prop->rooms[i] != -1; i++) {
+		struct room *room = &g_Rooms[prop->rooms[i]];
+		s32 full = room->br_base + room->numlights * room->br_light_each;
+		s32 now = roomGetSettledRegionalBrightnessForPlayer(prop->rooms[i]) + roomGetFlashBrightness(prop->rooms[i]);
+
+		if (full > 255) {
+			full = 255;
+		}
+
+		if (full <= 0 || now >= full) {
+			sum += 1.0f;
+		} else {
+			sum += now / (f32)full;
+		}
+	}
+
+	return i ? sum / i : 1.0f;
+}
+#endif
+
 void propCalculateShadeColour(struct prop *prop, u8 *nextcol, u16 floorcol)
 {
 	struct defaultobj *obj;
@@ -1729,9 +1770,21 @@ void propCalculateShadeColour(struct prop *prop, u8 *nextcol, u16 floorcol)
 	// drew a converted level's props half again as dark as GoldenEye's.
 	if (modloaderStageIsRemake(g_Vars.stagenum) && !cheatIsActive(CHEAT_PERFECTDARKNESS)
 			&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)) {
+		f32 frac = propRemakeRoomLightFrac(prop);
+
 		tmp = nextcol[0] * 79 + nextcol[1] * 156 + nextcol[2] * 21;
 		tmp >>= 8;
 		nextcol[3] = (0xff - tmp) * 0.75f;
+
+		// The room's lights shot out: what light the tile's shade leaves on
+		// the prop (255 less the fog's share, see xblaMeshSetMaterial()) goes
+		// down with the room's, and so does the tint the fog blends towards
+		if (frac < 1.0f) {
+			nextcol[0] *= frac;
+			nextcol[1] *= frac;
+			nextcol[2] *= frac;
+			nextcol[3] = 0xff - (0xff - nextcol[3]) * frac;
+		}
 	} else
 #endif
 #if VERSION >= VERSION_NTSC_1_0
