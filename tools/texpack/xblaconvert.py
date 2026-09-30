@@ -67,9 +67,11 @@ PACKAGE_PATH = 'DataFiles/Textures.raw'
 # draws it wrong. 0x13 is the sky's cloud texture (g_TcSkyWaterConfigs[0]):
 # skyRender() lerps sky colour to cloud colour by the texel, and the release's
 # 64x64 noise never rises above 122 and is uncorrelated with the ROM's fractal,
-# so it flattens the sunset over Crash Site to a plain gradient. The in-game
+# so it flattens the sunset over Crash Site to a plain gradient. 0x63c is the
+# file select's portrait: the release has no file select, and its record is a
+# different Joanna from the ROM's, not 4J's art for the row. The in-game
 # conversion (port/src/xblaimport.c, leftOut[]) keeps the same list.
-LEFT_OUT = frozenset([0x13])
+LEFT_OUT = frozenset([0x13, 0x63c])
 
 # Plus the slots the release reused for other pictures (0222 is a Chicago sign
 # in the ROM and a Villa cliff in the release): a ROM room binding one wants
