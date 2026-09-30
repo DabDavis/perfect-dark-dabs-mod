@@ -119,6 +119,7 @@ s32 gegunsAllGunsPairs(s32 weaponnum);
 // to go off, in sixtieths; 0 for any other weapon, which keeps its function's
 s32 gegunsThrownFuse60(s32 weaponnum);
 void gegunsOwnModelParts(struct hand *hand, struct model *model);
+void gegunsShellsLoaded(struct hand *hand);
 // The same for the gun shown bare in a menu: no hand, cuff or flash
 void gegunsOwnModelMenuParts(s32 weaponnum, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);

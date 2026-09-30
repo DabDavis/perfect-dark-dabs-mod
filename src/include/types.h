@@ -2454,6 +2454,13 @@ struct hand {
 	 * the barrel rather than the origin comes in under the crosshair.
 	 */
 	f32 codaimmuzzlex;
+
+	/**
+	 * GoldenEye's shotguns: how many of the five shells on the side of the
+	 * gun are shown, as gunfire.c's numvisibleshells - the reserve left when
+	 * the gun was last loaded, at most five (gegunsShellsLoaded()).
+	 */
+	s8 geshells;
 #endif
 };
 

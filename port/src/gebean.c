@@ -10729,6 +10729,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	s32 numbladepts = 0;
 	s32 capbladepts = 0;
 	s8 spentof[64];     // each list's group of the gun without its round, or -1
+	s32 numshells = 0;  // a shotgun's shell lists (parts 18 to 27) found in nodes
+	s32 shellnode[10];
+	f32 shellc[10][3];  // and where each is, in the model's space
+	f32 shellrest[10][3];
 	s32 numspent = 0;
 	u64 roundgroups = 0; // the lists the round's triangles went to
 
@@ -11328,6 +11332,78 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		}
 	}
 
+	// GoldenEye's shotguns carry five shells on the side of the gun, and its
+	// own model hangs each under a switch of its own (parts 18 to 22, and 23
+	// to 27 for the other five lists), which the game turns off one by one
+	// as the reserve runs down (geguns.c's gegunsOwnModelParts()). The
+	// release's gun draws its shells in sections of their own (0x17). Each is
+	// put in the group of the ROM shell nearest it - under that list's own
+	// matrix, so it is drawn only while the list is - rather than in the
+	// body's, which drew all five whatever was left.
+	if (fpOnOwn[fp] && (fp == WEAPON_GE_SHOTGUN - WEAPON_GE_FIRST || fp == WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST)) {
+		for (s32 part = 18; part <= 27 && numshells < ARRAYCOUNT(shellnode); part++) {
+			const struct modelnode *sw = modelGetPart(modeldef, part);
+
+			if (!sw) {
+				continue;
+			}
+
+			for (s32 k = 0; k < numnodes; k++) {
+				const u32 type = nodes[k]->type & 0xff;
+				const struct modelnode *up = nodes[k]->parent;
+				const Vtx *v = NULL;
+				s32 n = 0;
+				s32 walked = 0;
+				f32 rest[3];
+				f32 sum[3] = { 0.0f, 0.0f, 0.0f };
+
+				while (up && up != sw && walked++ < 64) {
+					up = up->parent;
+				}
+
+				if (up != sw) {
+					continue;
+				}
+
+				if (type == MODELNODETYPE_DL) {
+					v = nodes[k]->rodata->dl.vertices;
+					n = nodes[k]->rodata->dl.numvertices;
+				} else if (type == MODELNODETYPE_GUNDL) {
+					v = nodes[k]->rodata->gundl.vertices;
+					n = nodes[k]->rodata->gundl.numvertices;
+				}
+
+				if (!v || n <= 0) {
+					continue;
+				}
+
+				// the list's vertices are in the space it is drawn in: its
+				// own rest, or the rest of the matrix it loads
+				if (gebeanListLoadedMatrix(nodes[k]) >= 0 && rig.hasrest[nodemtx[k]]) {
+					memcpy(rest, rig.rest[nodemtx[k]], sizeof(rest));
+				} else {
+					xblaMeshNodeRestOffset(nodes[k], rest);
+				}
+
+				for (s32 j = 0; j < n; j++) {
+					for (s32 a = 0; a < 3; a++) {
+						sum[a] += v[j].v[a] + rest[a];
+					}
+				}
+
+				shellnode[numshells] = k;
+
+				for (s32 a = 0; a < 3; a++) {
+					shellrest[numshells][a] = rest[a];
+					shellc[numshells][a] = sum[a] / n;
+				}
+
+				numshells++;
+				break;
+			}
+		}
+	}
+
 	memset(&out, 0, sizeof(out));
 
 	// A knife's points as they are drawn, for its frame in a menu
@@ -11346,6 +11422,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		s32 *mapped;
 		s32 *mappedmtx;
 		s32 glovedraw;
+		s32 shell;
 
 		if (!drawn[di] || !beanReadVb(&bm, d->vb, &vb)) {
 			continue;
@@ -11373,6 +11450,65 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		}
 
 		glovedraw = beanDrawIsGlove(&bm, original, d);
+
+		// One of a shotgun's shells: the ROM shell nearest the section's
+		// middle, as the gun is laid on the host
+		shell = -1;
+
+		if (numshells && d->section >= 0) {
+			f32 mid[3] = { 0.0f, 0.0f, 0.0f };
+			s32 count = 0;
+			f32 best = 1e30f;
+			f32 next = 1e30f;
+
+			for (s32 t = 0; t < numtris * 3; t++) {
+				struct beanvtx v;
+				f32 rel[3], turned[3];
+
+				if (!beanVertex(&bm, &vb, tris[t], &v)) {
+					continue;
+				}
+
+				if (!original) {
+					fpMendVertex(fp, v.pos);
+				}
+
+				for (s32 a = 0; a < 3; a++) {
+					rel[a] = v.pos[a] - beanc[a];
+				}
+
+				beanAxisMap(fpaxis, rel, turned);
+
+				for (s32 a = 0; a < 3; a++) {
+					mid[a] += turned[a] * scale + hostc[a];
+				}
+
+				count++;
+			}
+
+			for (s32 k = 0; count && k < numshells; k++) {
+				f32 d2 = 0.0f;
+
+				for (s32 a = 0; a < 3; a++) {
+					const f32 e = mid[a] / count - shellc[k][a];
+
+					d2 += e * e;
+				}
+
+				if (d2 < best) {
+					next = best;
+					best = d2;
+					shell = k;
+				} else if (d2 < next) {
+					next = d2;
+				}
+			}
+
+			if (xblaMeshIsVerbose()) {
+				sysLogPrintf(LOG_NOTE, "gebean: %s draw %d section %d -> shell %d (list %d) at %.1f, next %.1f",
+						source, di, d->section, shell, shell >= 0 ? shellnode[shell] : -1, sqrtf(best), sqrtf(next));
+			}
+		}
 
 		for (s32 t = 0; t < numtris; t++) {
 			u16 idx[3];
@@ -11408,6 +11544,11 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				}
 
 				mtx = bone >= 0 && bone < BEAN_MAXBONES ? bonemtx[bone] : nodemtx[bodynode];
+
+				if (shell >= 0) {
+					mtx = nodemtx[shellnode[shell]];
+				}
+
 				bones[0] = bones[1] = bones[2] = (u8)mtx;
 
 				// In the space of the list's matrix, the way the host's own
@@ -11425,7 +11566,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 					for (s32 a = 0; a < 3; a++) {
 						pos[a] = turned[a] * scale + hostc[a]
-							- (rig.hasrest[mtx] ? rig.rest[mtx][a] : 0.0f);
+							- (shell >= 0 ? shellrest[shell][a] : rig.hasrest[mtx] ? rig.rest[mtx][a] : 0.0f);
 					}
 
 					if (bladepts && numbladepts < capbladepts) {
@@ -11466,7 +11607,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				continue;
 			}
 
-			group = mtxnode[mappedmtx[tris[t * 3]]];
+			group = shell >= 0 ? shellnode[shell] : mtxnode[mappedmtx[tris[t * 3]]];
 
 			if (group < 0) {
 				group = bodynode;

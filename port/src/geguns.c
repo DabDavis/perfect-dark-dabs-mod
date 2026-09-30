@@ -2058,6 +2058,11 @@ s32 gegunsThrownFuse60(s32 weaponnum)
 
 static s32 gegunsOwnThrowKnifeGone(const struct hand *hand);
 
+static s32 gegunsIsShotgun(s32 weaponnum)
+{
+	return weaponnum == WEAPON_GE_SHOTGUN || weaponnum == WEAPON_GE_AUTOSHOTGUN;
+}
+
 static void gegunsSetPart(struct model *model, s32 part, s32 visible)
 {
 	struct modelnode *node = modelGetPart(model->definition, part);
@@ -2088,6 +2093,53 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model)
 	gegunsSetPart(model, 14, !gegunsOwnThrowKnifeGone(hand));
 	gegunsSetPart(model, 15, !gegunsOwnThrowKnifeGone(hand));
 	gegunsSetPart(model, 1, hand->flashon ? 1 : 0);
+
+	// The shotguns' shells on the side of the gun, the top one going first:
+	// shell i (parts 18 + i and 23 + i) while five - i or more are shown
+	if (gegunsIsShotgun(hand->gset.weaponnum)) {
+		for (s32 i = 0; i < 5; i++) {
+			gegunsSetPart(model, 18 + i, hand->geshells >= 5 - i);
+			gegunsSetPart(model, 23 + i, hand->geshells >= 5 - i);
+		}
+	}
+}
+
+/**
+ * GoldenEye's shotgun and automatic shotgun carry five shells on the side of
+ * the gun, and show one for each round in reserve, up to five - counted when
+ * the gun is loaded, whether raised or reloaded (gunfire.c's
+ * sub_GAME_7F0649D8() sets hand->numvisibleshells, and the draw hides
+ * Switches[18..22] and [23..27] by it), not as each shot is fired or ammo is
+ * picked up. With a shotgun in each hand the reserve is shared, and a hand
+ * counts only what the other is not already showing
+ * (get_ammo_in_hands_weapon()). Called as a clip is filled from the reserve
+ * (bondgun.c's bgun0f098df8()).
+ */
+void gegunsShellsLoaded(struct hand *hand)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 handnum;
+	s32 shells;
+	const struct hand *other;
+
+	if (!player || !hand || !gegunsIsShotgun(hand->gset.weaponnum)) {
+		return;
+	}
+
+	handnum = hand == &player->hands[HAND_LEFT] ? HAND_LEFT : HAND_RIGHT;
+
+	if (hand != &player->hands[handnum] || hand->ammotypes[0] < 0) {
+		return;
+	}
+
+	other = &player->hands[1 - handnum];
+	shells = player->ammoheldarr[hand->ammotypes[0]];
+
+	if (other->inuse && gegunsIsShotgun(other->gset.weaponnum)) {
+		shells -= other->geshells;
+	}
+
+	hand->geshells = (s8)(shells >= 5 ? 5 : shells < 0 ? 0 : shells);
 }
 
 /**

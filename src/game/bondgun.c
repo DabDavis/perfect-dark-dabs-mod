@@ -1248,6 +1248,11 @@ void bgun0f098df8(s32 weaponfunc, struct handweaponinfo *info, struct hand *hand
 				g_Vars.currentplayer->ammoheldarr[hand->ammotypes[ammoindex]] = 0;
 			}
 
+#ifndef PLATFORM_N64
+			// GoldenEye's shotguns show what is left in reserve (geguns.c)
+			gegunsShellsLoaded(hand);
+#endif
+
 			if (func);
 		}
 	}
