@@ -157,6 +157,7 @@ struct gegunstat {
 #define GESTATFLAG_ONLY_1_HANDED          0x00000100
 #define GESTATFLAG_HIDE_FIRST_PERSON_MENU 0x00004000
 #define GESTATFLAG_USE_HOLD_TIME          0x00020000
+#define GESTATFLAG_CAN_DUAL_WIELD         0x00100000
 
 /**
  * What each gun sounds like: the Sound field of the same gunWeaponStat rows,
@@ -1214,6 +1215,22 @@ s32 gegunsNeverPairs(s32 weaponnum)
 }
 
 /**
+ * Whether GoldenEye's All Guns cheat holds this gun as a pair too: its row's
+ * CAN_DUAL_WIELD, which the cheat alone reads (bondinvItemAvailableForHand(),
+ * bondinvChooseCycleForwardWeapon()); never the watch laser nor the detonator.
+ */
+s32 gegunsAllGunsPairs(s32 weaponnum)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+
+	if (i < 0 || i >= NUM_GE_GUNS || gegunsNeverPairs(weaponnum)) {
+		return 0;
+	}
+
+	return (stats[i].bitflags & GESTATFLAG_CAN_DUAL_WIELD) != 0;
+}
+
+/**
  * GoldenEye's guns as another installed mod made them (modborrow.c): GoldenEye
  * X's definition as the model gegunsBuild() draws on - its model, hands,
  * positions, fire and reload scripts with their animations and sounds already
@@ -2014,7 +2031,11 @@ s32 gegunsSwitchAtOnce(s32 weaponnum)
  */
 s32 gegunsEquipSilent(s32 weaponnum)
 {
-	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum <= WEAPON_GE_DETONATOR;
+	// and the watch laser, which is no gun drawn (ITEM_WATCHLASER is in the
+	// same silent case): it played the Moonraker's PICKUP_LASER_SFX, its
+	// host's (F3 20260930-191858, "makes moonraker pullout sound")
+	return (weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum <= WEAPON_GE_DETONATOR)
+		|| (weaponnum == WEAPON_GE_MOONRAKER && gegunsWatchLaserInstalled());
 }
 
 /**
@@ -3246,11 +3267,21 @@ void gegunsSetWatchLaser(s32 on)
 	// laser's takes its charge
 	g_WatchLaser.func->ammoindex = 0;
 
+	// nor the hands' shake while firing (recoilsettings, a random jitter of
+	// the gun's position the Moonraker's host has): GoldenEye moves a gun
+	// only by its recoil speeds and pull back, all nothing for the watch
+	// laser, which fires from a still wrist (F3 20260930-191858, "has recoil")
+	shoot->recoilsettings = NULL;
+
 	g_WatchLaser.noise = stat->noise;
 	g_WatchLaser.func->noisesettings = &g_WatchLaser.noise;
 
 	memset(&g_WatchLaser.ammo, 0, sizeof(g_WatchLaser.ammo));
 	g_WatchLaser.ammo.type = AMMOTYPE_WATCHLASER;
+	// no casing: watchlaser_stats' ejected cartridge is NULL. A zeroed
+	// casingeject is the pistol's cartridge (index 0), and the watch threw
+	// one out of the hand every shot (F3 20260930-191858)
+	g_WatchLaser.ammo.casingeject = (u32)-1;
 	g_WatchLaser.ammo.clipsize = stat->magsize;
 	def->ammos[0] = &g_WatchLaser.ammo;
 

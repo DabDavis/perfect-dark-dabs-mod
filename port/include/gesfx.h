@@ -13,6 +13,9 @@
  * bank's sound id - 1 (gesfx.c).
  */
 
+#define GESFX_KNIFE_HIT_WALL    3   // a thrown knife striking
+#define GESFX_GRENADE_THROW     4   // anything thrown but the throwing knife
+#define GESFX_DROP_GUN          45  // anything else thrown, landing
 #define GESFX_OPTION_CLICK2     18
 #define GESFX_OPTION_CHOOSE     43  // an option's value changed on the watch
 #define GESFX_PAPER_TURN        77  // a difficulty picked

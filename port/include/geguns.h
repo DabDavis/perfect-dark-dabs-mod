@@ -112,6 +112,8 @@ s32 gegunsSwitchAtOnce(s32 weaponnum);
 // Whether one of GoldenEye's weapons is never a pair, not even under Akimbo:
 // the watch's detonator
 s32 gegunsNeverPairs(s32 weaponnum);
+// Whether GoldenEye's All Guns cheat pairs it (its CAN_DUAL_WIELD; inv.c)
+s32 gegunsAllGunsPairs(s32 weaponnum);
 
 // How long one of GoldenEye's mines takes, thrown, to arm or (the timed mine)
 // to go off, in sixtieths; 0 for any other weapon, which keeps its function's
