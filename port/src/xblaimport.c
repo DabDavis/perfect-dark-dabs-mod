@@ -114,11 +114,18 @@ static char packName[XBLAIMPORT_NAMELEN] = XBLAIMPORT_PACK_NAME;
  * The release's water (0014) and second cloud (0c90) are copies of the ROM's
  * and stay in.
  *
+ * 063c is the file select's portrait ("New Agent..." and a "New Recruit"
+ * file, g_TexGeneralConfigs[12]). The release has no file select - a profile
+ * signs in straight to the Perfect Menu - so nothing there draws it, and its
+ * record is not 4J's art for the row but a different, red-haired Joanna that
+ * a tester knew as the Japanese cartridge's picture (2026-09-30, F3
+ * 20260930-191617). The row keeps the ROM's picture in either look.
+ *
  * The rest are the slots the release reused for other pictures, xblaslots.h:
  * a ROM room binding one wants the ROM's picture, and a release room binding
  * one is given the release's by the level loader, pack or no pack.
  */
-static const u16 leftOut[] = { 0x0013, XBLA_REUSED_SLOTS };
+static const u16 leftOut[] = { 0x0013, 0x063c, XBLA_REUSED_SLOTS };
 
 s32 xblaImportTextureIsLeftOut(s32 texturenum)
 {
