@@ -3776,6 +3776,13 @@ static s32 watchGunItem(s32 weaponnum)
 		return gegadgetsItem(weaponnum) > 0 ? gegadgetsItem(weaponnum) : -1;
 	}
 
+	// and the Moonraker's number on Train is GoldenEye's watch laser, which
+	// the face shows as GoldenEye does (watchDrawGun()): not the Moonraker,
+	// which the face drew in its place (F3 20260929-221051)
+	if (gegadgetsWatchLaserActive(weaponnum)) {
+		return GEITEM_WATCHLASER;
+	}
+
 	return items[weaponnum - WEAPON_GE_FIRST];
 }
 

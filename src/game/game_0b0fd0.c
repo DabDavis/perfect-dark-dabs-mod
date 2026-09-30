@@ -349,8 +349,9 @@ bool weaponHasFlag(s32 itemid, u32 flag)
 
 #ifndef PLATFORM_N64
 	// always dual-wieldable if cheat is enabled
+	// (but never GoldenEye's watch's detonator or watch laser, gegunsNeverPairs())
 	if (cheatIsActive(CHEAT_DUALWIELDALLGUNS) && (flag == WEAPONFLAG_DUALWIELD)) {
-		return true;
+		return !gegunsNeverPairs(itemid);
 	}
 
 	// Akimbo for players and simulants is the cheat without the cheat: any

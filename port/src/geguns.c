@@ -1140,9 +1140,16 @@ static void gegunsOwnThrown(s32 i)
  * grenade and the mines are not on it: Akimbo pairs them (user's call,
  * 2026-09-26), GoldenEye's own rule never does.
  */
+static s32 gegunsWatchLaserInstalled(void);
+
 s32 gegunsNeverPairs(s32 weaponnum)
 {
-	return weaponnum == WEAPON_GE_DETONATOR;
+	// nor the watch laser on the Moonraker's number (Train), which is the
+	// same two hands at the watch: a pair drew the watch in one hand and the
+	// Moonraker in the other (F3 20260929-220750, "with watch laser no akimbo
+	// allowed, looks too funny")
+	return weaponnum == WEAPON_GE_DETONATOR
+		|| (weaponnum == WEAPON_GE_MOONRAKER && gegunsWatchLaserInstalled());
 }
 
 /**
@@ -3176,6 +3183,9 @@ void gegunsSetWatchLaser(s32 on)
 	}
 
 	def->flags &= ~WEAPONFLAG_TRACKTIMEUSED;
+	// GoldenEye never pairs it (no CAN_DUAL_WIELD), and Akimbo does not
+	// either (gegunsNeverPairs())
+	def->flags &= ~WEAPONFLAG_DUALWIELD;
 	// the laser's shots are free (WEAPONFLAG3_FREESHOTS); each of the watch
 	// laser's takes one of its charge
 	def->flags3 &= ~WEAPONFLAG3_FREESHOTS;

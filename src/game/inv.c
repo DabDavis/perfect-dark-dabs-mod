@@ -6,6 +6,7 @@
 #include "gegadgets.h"
 #include "gexfront.h"
 #include "gexplus.h"
+#include "geguns.h"
 #endif
 #include "game/cheats.h"
 #include "game/bondgun.h"
@@ -792,7 +793,7 @@ s32 invGiveWeaponsByProp(struct prop *prop)
 
 #ifndef PLATFORM_N64
 			// always allow picking up a second gun if dual wield cheat is on
-			if (!g_Vars.normmplayerisrunning && cheatIsActive(CHEAT_DUALWIELDALLGUNS)) {
+			if (!g_Vars.normmplayerisrunning && cheatIsActive(CHEAT_DUALWIELDALLGUNS) && !gegunsNeverPairs(weaponnum)) {
 				if (invHasSingleWeaponExcAllGuns(weaponnum) && !invHasDoubleWeaponExcAllGuns(weaponnum, weaponnum)) {
 					if (invGiveDoubleWeapon(weaponnum, weaponnum)) {
 						return 2;
