@@ -136,3 +136,47 @@ wants it on the list. What is known (ge-bean.md, the stride 36 water entry):
   above;
 - the fog question stays separate: GoldenEye's own water list turns fog off,
   and e13528f75 kept the level's fog - the user chose to keep it (2026-09-26).
+
+## GoldenEye's unplaced props, in HD (added 2026-09-30)
+
+The full propfit run (883eb26ef, merged on plans/foundations) fitted 74 HD
+props that nothing draws: GoldenEye's ROM carries these models but no setup
+places them - no solo mission, no multiplayer setup, no JP/PAL revision -
+so `geconvert.c`'s `allmodels` never writes a `Pgx%03dZ` for them and their
+`geproptable.h` rows never match. The release (Bean) remade GoldenEye's
+whole prop table in HD, these with it; nearly all fit at score 1.00, i.e.
+exact remakes. The user (2026-09-30): they may be assets never coded for,
+because the release was incomplete - worth using.
+
+What they are (GoldenEye prop numbers; full list in
+`tools/geconvert/fit/README.md`, "Known state"):
+- vehicles: hind 285, apc 289, speedboat 290, carescort 302, carzil 305,
+  artic 281 + artictrailer 286
+- doors and gates: sev_door 135, sev_door3_wind 137, steel_door2/2b 142/145,
+  door_roller1-3 146-148, door_st_arec2 151, door_dest2 153, gas plant doors
+  154/156/157, train_door3 163, depot gate/steel door 308/309
+- dressing: alarm1 0, ammo crates 4/5 6/7, oil drums 57-61, metal/wood
+  crates, torpedo_rack 74, missile_rack2 56, desk2 39, phone1 64, bin1 8,
+  blotter1 9, letter_tray1 47, satbox 71, bollard 339, flag 333, jungle5_tree
+  318, borg_crate 87, chrextinguisher 128
+- mission items as world objects: bomb case, defuser, safecracker case,
+  camera, key analyser case, weapon case, micro camera, polarized glasses,
+  gas keyring, data thief, plans, audio tape, test tube
+- ammo pickups: AK47/MP5K/Skorpion/Spectre/P90 magazines, magnum shells,
+  box of cartridges, silencer
+- oddities: nintendologo 276, legalpage 319
+
+Two pieces to use them:
+1. The converter writes `Pgx` files for every fitted prop, not only placed
+   ones (small: conversion time and disk). Bump the converter version so
+   existing conversions redo themselves. Check each one draws right in HD
+   while doing it: the check scripts (`survey.py`, `capture.py`, `sheet.py`)
+   are described in the fit README.
+2. Something places them - pick with the user first. Candidates: the
+   Randomizer dressing levels with the unused crates, drums and vehicles;
+   mod setups on the Stage Loader naming them by GoldenEye prop number; a
+   prop gallery on GE Plus's EXTRA page.
+
+Unplaced doors need a door definition (sound, speed, portal) that no setup
+gives them; vehicles need GoldenEye's vehicle handling (getank.c,
+gexplusveh.c) or stay static.
