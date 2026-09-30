@@ -8,7 +8,8 @@ build puts every vertex on, so the origins of the groups over that list are
 taken off the model-space fit. A fit scoring under 0.6 is left out (desk1 and
 chrplastique match nothing of GoldenEye's).
 
-EXCLUDE: fitted, but the rigid build cannot draw them right yet. Empty since
+EXCLUDE: fitted, but drawn wrong or drawn by another table: the guns' props
+(GUN_PROPS, below) and the intro's logo (2026-09-30). Before those it was empty from
 feat/ge-hd-gas-tank (2026-09-26): the gas tank (117) was left out by
 fix/f3-hd-prop-textures because its material is three pictures the shader
 blends (a dark spot map, a landscape reflection, a pale base) - the biggest
@@ -61,7 +62,21 @@ def first_list_origin(name):
     return walk(4 * h['numswitches'] + 12 * h['numtextures'], np.zeros(3))
 
 
-EXCLUDE = set()
+# GoldenEye's guns' own props (PROP_CHR*): each already has a row in
+# gegunstable.h, fitted by gunfit2.py on the release's HD gun, which
+# gebeanPoolRowForFile() finds for a Pgx<prop>Z only when no prop row matches
+# it first. A propfit row (fitted on the release's N64-look copy) would take
+# its place on every guard's gun, floor pickup and the intro's PP7 - the Golden
+# Gun came out silver and half as big again (2026-09-30, Egyptian).
+GUN_PROPS = {184, 185, 186, 187, 189, 190, 191, 192, 193, 194, 195, 196, 199, 200, 201,
+             204, 205, 206, 208, 209, 210}
+
+EXCLUDE = set(GUN_PROPS) | {
+    # goldeneyelogo: only the intro draws Pgx277Z, as GoldenEye's gold under
+    # the Level Metal pass (geintro.c, introLogoMetal()); the release's prop
+    # put a flat orange ramp in its place in the HD look (2026-09-30)
+    277,
+}
 
 
 def main():
