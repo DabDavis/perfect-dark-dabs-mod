@@ -34,7 +34,7 @@
 notes 24 2026-09-30
 GE Plus, HD look: GoldenEye's caps and hats sit properly on the HD heads, as on Facility's guards (thanks Odeyseis)
 GE Plus Cuba: in the ending Bond is GoldenEye's size, so he and Natalya line up for the kiss; Bond's body is GoldenEye's own 97% size on every mission (thanks savantique)
-GE Plus Statue Park: Natalya, knocked out by the helicopter, lies on the ground instead of floating above it (thanks savantique)
+GE Plus Statue Park: knocked-out Natalya by the helicopter lies on the ground instead of floating above it (thanks savantique)
 GE Plus, HD look: the watch detonator shows only the sleeve of the outfit you are wearing, not every outfit's at once (thanks Glazier)
 GE Plus Train, HD look: the riveted plates on the walls are no longer hidden by the wall behind them at some distances (thanks dab)
 GE Plus Aztec, HD look: the exhaust tunnel where the armor lies is no longer blocked by a stray piece of wall (thanks savantique)
