@@ -103,6 +103,7 @@ s32 gegunsEnemyRocketModel(void);
 
 // Whether drawing one of GoldenEye's weapons makes no sound: its gadgets
 s32 gegunsEquipSilent(s32 weaponnum);
+s32 gegunsSwitchAtOnce(s32 weaponnum);
 
 // Whether one of GoldenEye's weapons is never a pair, not even under Akimbo:
 // the watch's detonator

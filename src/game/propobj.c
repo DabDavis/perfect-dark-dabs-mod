@@ -9636,6 +9636,24 @@ void autogunTickShoot(struct prop *autogunprop)
 					shootfrom = &gepos;
 					shootrooms = gerooms;
 				}
+
+				// and what its rounds sound like where they land is
+				// GoldenEye's: a Perfect Dark gun's impacts keep Perfect
+				// Dark's samples on a converted level (geSfxGunHitBegin()),
+				// and this gun's rounds are the RC-P45's. A converted
+				// autogun (one on a pad; a deployed laptop gun has none)
+				// names a GoldenEye gun for its sounds instead (F3
+				// 20260930-005915, "ceiling autocannon bullets make perfect
+				// dark ricochet sounds")
+				struct gset gesoundgset = { WEAPON_RCP45, 0, 0, FUNC_PRIMARY };
+				struct gset *soundgset = &gset;
+
+				if (modloaderStageIsRemake(g_Vars.stagenum) && obj->pad >= 0) {
+					gesoundgset.weaponnum = WEAPON_GE_RCP90;
+					soundgset = &gesoundgset;
+				}
+#else
+				struct gset *soundgset = &gset;
 #endif
 
 				if (g_Vars.normmplayerisrunning) {
@@ -9868,7 +9886,7 @@ void autogunTickShoot(struct prop *autogunprop)
 									hitpos.y -= 2 + (rngRandom() % 10);
 								}
 
-								bgunPlayPropHitSound(&gset, targetprop, -1);
+								bgunPlayPropHitSound(soundgset, targetprop, -1);
 
 								damage = 0.5f * g_AutogunDamageTxScale;
 
@@ -9897,7 +9915,7 @@ void autogunTickShoot(struct prop *autogunprop)
 						sparksCreate(hitrooms[0], NULL, &hitpos, 0, 0, autogun->base.modelnum == MODEL_CETROOFGUN ? SPARKTYPE_BGHIT_GREEN : SPARKTYPE_DEFAULT);
 					}
 
-					bgunPlayBgHitSound(&gset, &hitpos, -1, hitrooms);
+					bgunPlayBgHitSound(soundgset, &hitpos, -1, hitrooms);
 				}
 
 				if (makebeam) {

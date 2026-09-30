@@ -3174,7 +3174,25 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 	// Quick Weapon Swap (modIsQuickWeaponSwapOn()): no put-away, no dip, the
 	// new gun loaded at once, no draw - the same steps in the same order,
 	// each taken the tick it is reached
-	const bool quick = modIsQuickWeaponSwapOn();
+	bool quick = modIsQuickWeaponSwapOn();
+
+	// GoldenEye has no draw nor put-away for what it shows nothing of in the
+	// hand (gunfire.c: SWITCH_RAISE, RELOAD_RAISE and WATCH_RAISE go straight
+	// to idle for an item with WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND or no
+	// model) - the grenade, the mines and the gadgets are thrown the moment
+	// they are chosen. Their hosts' draw (the ECM mine's, 90 ticks), after
+	// the watch's stand-in unarmed went down, kept the first throw back two
+	// seconds (F3 20260930-003456 and 004143, Silo)
+	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_UNEQUIP || hand->stateminor == HANDSTATEMINOR_CHANGEGUN_LOWER) {
+		const s32 next = g_Vars.currentplayer->gunctrl.switchtoweaponnum;
+
+		if (gegunsSwitchAtOnce(info->weaponnum)
+				|| (info->weaponnum <= WEAPON_UNARMED && next > WEAPON_UNARMED && gegunsSwitchAtOnce(next))) {
+			quick = true;
+		}
+	} else if (gegunsSwitchAtOnce(info->weaponnum)) {
+		quick = true;
+	}
 #else
 	const bool quick = false;
 #endif
@@ -14154,7 +14172,19 @@ void bgunSetAmmoQuantity(s32 ammotype, s32 quantity)
 
 	// For throwable items, the capacity applies to reserve + loaded
 	if (funcnum != -1 && weaponHasAmmoFlag(weaponnum, funcnum, AMMOFLAG_EQUIPPEDISRESERVE)) {
+#ifndef PLATFORM_N64
+		// only what a hand holds of this ammunition: with a mixed Akimbo
+		// pair the other hand's gun is loaded with its own, and a D5K's
+		// thirty rounds beside a throwing knife took the knives' ten down to
+		// -21 held, shown as -20 (F3 20260929-212418)
+		for (s32 h = 0; h < 2; h++) {
+			if (player->hands[h].ammotypes[funcnum] == ammotype) {
+				magamount += player->hands[h].loadedammo[funcnum];
+			}
+		}
+#else
 		magamount = player->hands[0].loadedammo[funcnum] + player->hands[1].loadedammo[funcnum];
+#endif
 	}
 
 	if (quantity > bgunGetCapacityByAmmotype(ammotype) - magamount) {

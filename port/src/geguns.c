@@ -1929,6 +1929,23 @@ s32 gegunsEnemyRocketModel(void)
 }
 
 /**
+ * Whether GoldenEye takes this weapon up and puts it away with no movement at
+ * all: what it draws nothing of in the hand (gunfire.c's raise states go
+ * straight to idle for WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND or no model).
+ * The grenade and the mines on GoldenEye's own models (gegunsOwnModelHidden()),
+ * and every gadget but the watch's detonator, which is drawn
+ * (bondgun.c's bgunTickIncChangeGun()).
+ */
+s32 gegunsSwitchAtOnce(s32 weaponnum)
+{
+	if (weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum <= WEAPON_GE_TANKSHELLS) {
+		return 1;
+	}
+
+	return gegunsOwnModelHidden(weaponnum);
+}
+
+/**
  * GoldenEye draws its gadgets in silence (gunfire.c's equip sound leaves out
  * the covert modem, the plastique, the GoldenEye key, the camera, the watch
  * magnet, the tank's shells and the watch's detonator); their hosts, the ECM
