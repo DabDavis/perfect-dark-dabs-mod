@@ -493,8 +493,8 @@ def guard_record(raw, numpads, bodies):
 
     GoldenEye's own setup flags are Perfect Dark's spawn flags for the three it
     uses: sunglasses (0x01), sunglasses half the time (0x02) and invincible
-    (0x08). Its 0x04 is "this is a clone", which Perfect Dark has no spawn flag
-    for.
+    (0x08). Its 0x04 is "clone on heard gunfire" (CHRFLAG_CLONE), which is
+    Perfect Dark's CHRFLAG0_CAN_HEARSPAWN in the chr's flags.
 
     The two fields the GoldenEye decomp calls health and reaction time are its
     **hearing scale and vision range** - chraction.c reads them straight into
@@ -519,6 +519,10 @@ def guard_record(raw, numpads, bodies):
                      pad_num(preset & 0xffff, numpads), chrpreset & 0xffff,
                      hearscale & 0xffff, viewdist & 0xffff)
     struct.pack_into('>h', out, 0x22, -1)      # no chair
+    if flags & 0x0004:
+        # GoldenEye's CHRFLAG_CLONE, Perfect Dark's CHRCFLAG_CLONEABLE, which a
+        # setup chr takes from CHRFLAG0_CAN_HEARSPAWN (body.c)
+        struct.pack_into('>I', out, 0x18, 0x20000000)
     return out
 
 

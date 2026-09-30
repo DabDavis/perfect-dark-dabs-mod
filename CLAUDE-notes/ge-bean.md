@@ -5,6 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
+- **GoldenEye's clones** — ge-bean.md, "GoldenEye's clones" (2026-09-30, converter 94): `TRYCloningChr` (0xc1) is Perfect Dark's `aiDuplicateChr` (0x00ca) with spawn flags 0, and a guard record's 0x04 (CHRFLAG_CLONE) is written as CHRFLAG0_CAN_HEARSPAWN, which body.c turns into CHRCFLAG_CLONEABLE (the same bit, 0x02); both had been dropped, so no converted guard ever cloned. On a converted mission the clone takes guns and hat only (not the chr's flags or pad preset) and waits for one of GoldenEye's slots (setup guards + 7 alive)
 - **A GoldenEye hat on an HD head** — ge-bean.md, "A GoldenEye hat on an HD head" (2026-09-30): GoldenEye's per-head hat table is the N64 heads' (Bean's image has it byte for byte) and floated side caps over 4J's HD hair; on an HD head the hat is worn as modelled, and a side cap or helmet is lifted clear of hair through it (`xblaMeshHatSeat()`), berets and fur hats unmeasured
 - **GE Plus's level music** — ge-bean.md, "The levels' own music": GoldenEye's `music_setup_entries` row on each map/mission line (converter 45), `gemusic.c` appends the ROM's sequences on one shared bank with GoldenEye's own volumes; a converted mission was silent because Perfect Dark starts a mission's music from its intro's AI list; background plays level-wide; watch and death tunes
 - **GoldenEye's death replay** — ge-bean.md, "GoldenEye's death replay": `port/src/gedeathcam.c` replays the fall three times from random cameras once the death has faded to black (bondview2.c's `CAMERAMODE_DEATH_CAM_SP`), on GE Plus's converted solo missions only (no Combat Sim, the user's call); a body's matrices are floats only between `chrTick()` and the drawing, and Jungle's bushes have no collision; the oracle recipe for a death in the native GE port
@@ -2336,8 +2337,9 @@ setup is `Usetupgs<key>Z`.
 **The guard record.** GoldenEye's is seven words and Perfect Dark's chr eleven,
 and they name most of the same things. Its setup flags are Perfect Dark's spawn
 flags for the three it uses - sunglasses 0x01, sunglasses half the time 0x02,
-invincible 0x08; its 0x04 is "this is a clone", which Perfect Dark has no spawn
-flag for. **The two fields the GoldenEye decomp calls `health` and
+invincible 0x08; its 0x04 is CHRFLAG_CLONE, "clone on heard gunfire", which is
+no spawn flag but Perfect Dark's CHRFLAG0_CAN_HEARSPAWN (converter 94, "GoldenEye's
+clones" below). **The two fields the GoldenEye decomp calls `health` and
 `ReactionTime` are the hearing scale and the vision range** - chraction.c reads
 them straight into `hearingscale` (over a thousand) and `visionrange` - which
 are Perfect Dark's own two fields. There is no health field.
@@ -13626,3 +13628,55 @@ Four HD geometry F3s. Rig `~/wt/f3-0930b-hdlevel-run` (`multi.sh <mNN|stage> <ta
   else thrown lands with DROP_GUN_SFX (45), for `SFX_808B`/`SFX_EYESPYHIT`.
 - Probe: `~/wt/f3-0930c-gelaser-run/probe.py` (MODE=watch/knife/allguns; `run.sh BIN TAG MODE STAGE`,
   Train 0x60, Archives 0x65; knife mode logs every `psCreate()` and its caller).
+
+## GoldenEye's clones (26th F3 pass follow-up, 2026-09-30, fix/f3-0930c-geclone, converter 94)
+
+No converted guard was ever cloned. Two halves of GoldenEye's rule were
+dropped by the conversion: `TRYCloningChr` (0xc1) was mapped to nothing, and
+the guard record's setup flag 0x04 was masked off (`flags & 0x000b`).
+
+**What GoldenEye does.** chraction.c: a guard record's 0x04 sets
+`CHRFLAG_CLONE` (0x02, "clone on heard gunfire"). chrai.c's `TRYCloningChr
+<chr> <list> <label>` asks for that bit, spawns the chr's body with a random
+head through `chrSpawnAtChr()` (nothing beside a chr that has ever been on
+screen, since dc227602e the port too) with spawn flags 0 (off screen only),
+gives the clone the chr's guns and hat and nothing else, and numbers it
+`chrnum + 10000`, which is what `CHR_CLONE` resolves to. Its user is the
+global `m_TryCloneSendOrRunToBond`: a standard guard that hears Bond and has
+never been seen sends one clone (only while `IFMyCloneDoesNotExist`) and
+stays put; a guard that cannot clone runs to Bond itself.
+
+**Perfect Dark's twin** is `aiDuplicateChr` (0x00ca), the same code with a
+spawn-flags word and `chrdup` in place of the +10000 number (CHR_CLONE is
+`chrdup` in `chrResolveId()`; the answer to "does my clone exist" is the
+same). The bit is the same one, `CHRCFLAG_CLONEABLE` 0x02, but a setup chr
+gets it from `CHRFLAG0_CAN_HEARSPAWN` (0x20000000) in its packed flags
+(body.c), so that is what the converter writes at packedchr 0x18.
+
+**Where the two differ, the converted mission takes GoldenEye's side**
+(`aiDuplicateChr`, `modloaderStageIsRemake`):
+- Perfect Dark copies the chr's `flags`, `flags2` and `padpreset1` to the
+  clone; GoldenEye does not.
+- **The count.** GoldenEye has its setup's guards plus ten slots and spawns
+  with three free, so at most seven characters beyond the setup's stand at
+  once. A converted mission has many more (`setupGeMissionChrReserve()` and
+  the player's slots, for its scripted spawns), and with those every unseen
+  guard on Jungle that heard a shot sent a clone - 20 in one test. The clone
+  now waits for GoldenEye's room (`aiGeHasCloneSlot()`: living chrs, not the
+  player's and not a kept body, against the setup's chr count + 7). Scripted
+  spawns keep the port's larger reserve.
+
+**Which missions clone** (ROM scan of the setups): Dam 5 guards, Bunker 18,
+Silo 7, Bunker 2 14, Archives 12, Jungle 33 (all on its own list 1037, whose
+heard-gunfire branch is the global clone list; its list 1041 also clones).
+Train's list 1027 calls `TRYCloningMe` but **no Train guard has the flag**,
+so on Train it always fails - in GoldenEye too. Nothing else carries it.
+
+**Testing.** No harness fires a gun; a gdb Python script calls
+`chrsCheckForNoise(r)` from a top-level loop (a call inside a breakpoint's
+`stop()` stalls the game for good) and breaks on `aiDuplicateChr`. With r=3000
+at frame 200-400: Jungle 33 cloneable, 8 clones (cap), each 60 units from a
+never-seen source; Bunker 1 8 clones; Dam 5; Train none. Chrs without the flag
+(Dam's 41-45, and every clone) try every few frames and fail - GoldenEye's own
+loop (fail, run to Bond, cannot reach, return, hear again).
+
