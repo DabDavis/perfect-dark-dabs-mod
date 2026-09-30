@@ -13439,3 +13439,44 @@ at the trace's eye).
   their tile alone (`propCalculateShadeColour()` on remake stages) - GoldenEye
   itself darkens only the fixture's own vertices. The rock bank round the
   reservoir and the big mountain face in the gap are Bean's own modelling.
+
+## Dam's circling tower guard, near misses, Control's glass: all GoldenEye's own (25th F3 pass, 2026-09-30, fix/f3-0930b-geai)
+
+**Dam's tower-top patroller (chr 40, path 1) circling is GoldenEye's.** On the
+leg 159 -> 151 the booth's corner blocks the route: the tile edge
+(14265,13921)-(14321,13977) (tile 862, unlinked) and glass pane 452 (GE prop
+82, the window model's zero-thickness footprint (14282,13938)-(14334,13990)).
+The native GE port's log on 10.8.0.3 (`~/claude-007/007/docs/port-log.md`,
+"The drift is one patrolling guard's cone crossing" onward) records the same
+guard in GoldenEye's own Dam 1 attract demo, replayed bit-exact against the
+N64 recording: chr 40 on patrol step 2 since block 104, "not walking a route
+at all ... stuck hunting a heading it never reaches", walking a ~25-unit
+circle, its probes blocked by that same edge (GE coords
+(17711.010,5392.913)-(17655.369,5337.272) = ours minus (-3390.3, 8584)) and by
+prop 82. Our pane placement matches the port's polygon to the unit, and
+`sub_GAME_7F03081C`'s tile lines (probe `run/geai/cansee.py`, both PD's
+`chrNavCanSeeNextPos()` and GoldenEye's lines through `geStanLinesClear()`)
+agree point for point on where the corner blocks. The guard is not stuck off
+screen: a patrol off screen goes magic and jumps pad to pad in both games.
+
+**Near misses match GoldenEye.** GoldenEye's `chrTestHit()` sets
+CHRFLAG_NEAR_MISS when the shot's ray passes the chr's bounding sphere
+(`BoundingVolumeRadius * scale` + held gun) while it is on screen and nearer
+than where the shot stopped; ours is the same test (`chrGetHitRadius()`, 130
+units on Dam's guards; the modeldef's `scale` is GoldenEye's bounding radius).
+Chr 40's list is the ROM's GAILIST_SIMPLE_GUARD (0x807), whose
+`IFBondMissedMe` is `aiIfNearMiss()`: setting the flag on the circling guard
+sends it running to Bond at once (`run/geai/nearmiss.py`). A shot stopped by a
+pane or a wall first is no near miss in either game.
+
+**Control's guards firing at the bulletproof glass are GoldenEye's script.**
+Control's lists ai_4/ai_7 (0x405/0x408, chrs 28/29) run to a pad preset and
+jump to ai_9 (0x40a), which fires at chr preset 0 - Natalya at her terminal in
+room 45 - with `guard_try_fire_or_aim_at_target(0x2400, 0xfc00)`. That is not
+an aim at Bond, so GoldenEye's `chrlvFireWeaponRelated()` fires with no
+seen-Bond gate (attacktype & 1 == 0), and so does ours (the two-second hold is
+only for ATTACKFLAG_AIMATTARGET at the player). The cage's panes (93-99,
+GoldenEye flags 0x10020b62: pathblocker, invincible, not AI-see-through) block
+a guard's sight of Bond in both games (GoldenEye's `chrCanSeeBond()` object
+test; ours `chrHasLosToChr()`, `run/geai/losgrid.py`), so a guard aiming at
+Bond holds its fire two seconds after losing him, as GoldenEye's does.
