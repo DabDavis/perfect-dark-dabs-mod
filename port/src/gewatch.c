@@ -65,6 +65,7 @@
 #include "gexfront.h"
 #include "gexplus.h"
 #include "gebean.h"
+#include "geguns.h"
 #include "geanimtable.h"
 #include "game/bondmove.h"
 #include "game/body.h"
@@ -3775,6 +3776,13 @@ static s32 watchGunItem(s32 weaponnum)
 		return gegadgetsItem(weaponnum) > 0 ? gegadgetsItem(weaponnum) : -1;
 	}
 
+	// and the Moonraker's number on Train is GoldenEye's watch laser, which
+	// the face shows as GoldenEye does (watchDrawGun()): not the Moonraker,
+	// which the face drew in its place (F3 20260929-221051)
+	if (gegadgetsWatchLaserActive(weaponnum)) {
+		return GEITEM_WATCHLASER;
+	}
+
 	return items[weaponnum - WEAPON_GE_FIRST];
 }
 
@@ -4110,6 +4118,7 @@ static Gfx *watchRenderGun(Gfx *gdl, Mtxf *base, u32 envcolour)
 #define PDGUN_SPAN_STILL   0.46f
 
 static s32 watchPdGunBox(s32 weaponnum, f32 *lo, f32 *hi);
+static void watchGunNoFlash(s32 weaponnum);
 
 static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 {
@@ -4136,6 +4145,9 @@ static Gfx *watchDrawPdGun(Gfx *gdl, s32 weaponnum, s32 turning)
 			}
 		}
 	}
+
+	// a menu's pieces can leave a flash shown, and the face never fires
+	watchGunNoFlash(weaponnum);
 
 	if (!watchPdGunBox(weaponnum, lo, hi)) {
 		return gdl;
@@ -4203,6 +4215,44 @@ static void watchGunParts(s32 item)
 	watchGunSetPart(14, 1);
 	watchGunSetPart(15, 1);
 	watchGunSetPart(1, 0);
+}
+
+/**
+ * Nothing on the face is ever firing, and no hand holds it: GoldenEye's own
+ * watch draws every item with its flash and its hand put away. Whatever model
+ * the slot has, its flash switches are turned off before it is drawn:
+ *
+ * - GoldenEye's own model (the N64 look, and since the release's guns moved
+ *   onto GoldenEye's models the HD look too, gebean.c's fpOnOwn) has one flash
+ *   switch, part 1, over the flash's lists and its stars, and Bond's hand and
+ *   cuff as parts 8-13 and 35 (geguns.c's gegunsOwnModelMenuParts(), the same
+ *   switches Perfect Dark's inventory sets). The HD face only turned off a
+ *   host's three flash parts, which on GoldenEye's model name nothing, so the
+ *   PP7, the ZMG, the D5K, the Uzi-like doubled quads, the grenade launcher
+ *   and the Moonraker's star all showed their flash on the face (F3
+ *   20260929-210248, 215125, 220248, 222718, 223229, 223841, 20260930-012405,
+ *   041614).
+ * - A Perfect Dark host (the release's gun on its host, or one of Perfect
+ *   Dark's own guns) has MODELPART_GUN_MUZZLEFLASH1-3, toggles that start out
+ *   shown (F3 20260927-233302, the AR33).
+ */
+static void watchGunNoFlash(s32 weaponnum)
+{
+	if (weaponnum >= WEAPON_GE_FIRST && gegunsOwnModelInUse(weaponnum)) {
+		gegunsOwnModelMenuParts(weaponnum, &g_WatchGun.model);
+
+		// the DD44's part 11 is the bore at the end of its slide, not a hand
+		// (watchGunParts())
+		if (weaponnum == WEAPON_GE_DD44) {
+			watchGunSetPart(11, 1);
+		}
+
+		return;
+	}
+
+	watchGunSetPart(MODELPART_GUN_MUZZLEFLASH1, 0);
+	watchGunSetPart(MODELPART_GUN_MUZZLEFLASH2, 0);
+	watchGunSetPart(MODELPART_GUN_MUZZLEFLASH3, 0);
 }
 
 struct watchbox {
@@ -4609,13 +4659,7 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	if (hdfile) {
 		mtx4MultMtx4(&base, &toown, &tmp);
 
-		// The release's gun rides its host's model, whose muzzle flashes are
-		// toggles left to flash (gebean.c) and which start out shown: the
-		// face showed the AR33 firing (F3 20260927-233302). GoldenEye's gun
-		// on the face has no flash (watchGunParts(), part 1)
-		watchGunSetPart(MODELPART_GUN_MUZZLEFLASH1, 0);
-		watchGunSetPart(MODELPART_GUN_MUZZLEFLASH2, 0);
-		watchGunSetPart(MODELPART_GUN_MUZZLEFLASH3, 0);
+		watchGunNoFlash(weaponnum);
 
 		g_WatchHdWeapon = weaponnum;
 		gdl = watchRenderGun(gdl, &tmp, turning ? 0xa0ffa03c : 0x64dc6428);
