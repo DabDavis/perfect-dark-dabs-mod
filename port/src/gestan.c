@@ -1517,6 +1517,23 @@ bool geStanReaches(struct coord *from, f32 ground, struct coord *to)
 		&& fabsf(stanSurface(&g_Stan.tiles[tile], to->x, to->z) - stanSurface(&g_Stan.tiles[totile], to->x, to->z)) < 1.0f;
 }
 
+f32 geStanFloorAt(struct coord *pos)
+{
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return -1e30f;
+	}
+
+	tile = stanTileUnder(pos->x, pos->z, pos->y + 5.0f, 0.0f);
+
+	return tile >= 0 ? stanSurface(&g_Stan.tiles[tile], pos->x, pos->z) : -1e30f;
+}
+
 /**
  * An autogun's pad is where GoldenEye stands the object (autogunGeEye()), and
  * its tile is the pad's; the gun sees Bond where stanTestLineUnobstructed()

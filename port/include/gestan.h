@@ -124,6 +124,12 @@ s32 geStanRoomUnder(struct coord *pos, f32 ground, s32 prefer);
  */
 bool geStanReaches(struct coord *from, f32 ground, struct coord *to);
 
+/**
+ * The surface of the tile under `pos` at or under its height (a pad's floor),
+ * or -1e30 where there is no graph or no tile.
+ */
+f32 geStanFloorAt(struct coord *pos);
+
 // GoldenEye's own truck test: whether lines laid end to end in plan (x, z pairs)
 // cross no wall of the tile graph, starting on the tile under the first at y
 bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y);
