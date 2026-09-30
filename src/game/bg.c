@@ -6988,6 +6988,18 @@ static void bgTickPortalsSpectate(struct screenbox *box)
 	// stand outside it - the canopy over Jungle's clearings
 	const bool everyroom = xblaStageDrawsEveryRoom();
 
+	// The level's visibility commands (GoldenEye's own, converted: "from the
+	// camera's room, rooms 60 to 80 cannot be seen") hide rooms by the N64
+	// geometry; the walk before this (bgTickPortalsEveryRoom()) has had them.
+	// Bean's mesh is dealt to rooms by position, not by what can see it: from
+	// Dam's gate yard they left triangles of the far mountain out of the view
+	// down the tunnel, holes in it onto the sky (F3 20260929-212942)
+	if (everyroom) {
+		for (room = 0; room < g_Vars.roomcount; room++) {
+			g_Rooms[room].flags &= ~ROOMFLAG_DISABLEDBYSCRIPT;
+		}
+	}
+
 	bgSetRoomOnscreen(g_CamRoom, 0, box);
 
 	for (room = 1; room < g_Vars.roomcount; room++) {
@@ -7073,18 +7085,10 @@ static void bgTickPortalsEveryRoom(struct screenbox *box)
 
 	bgTickPortalsWalk(box);
 
-	// The level's visibility commands (GoldenEye's own, converted: "from the
-	// camera's room, rooms 60 to 80 cannot be seen") hide rooms by the N64
-	// geometry, and the walk above has had them. Bean's mesh is dealt to rooms
-	// by position, not by what can see it: from Dam's gate yard they left
-	// triangles of the far mountain out of the view down the tunnel, holes
-	// in it onto the sky (F3 20260929-212942). Every room is drawn.
 	for (room = 0; room < g_Vars.roomcount; room++) {
 		if (g_Rooms[room].flags & ROOMFLAG_ONSCREEN) {
 			g_BgPortalSeen[room] = true;
 		}
-
-		g_Rooms[room].flags &= ~ROOMFLAG_DISABLEDBYSCRIPT;
 	}
 
 	bgTickPortalsSpectate(box);
