@@ -989,3 +989,21 @@ this file.
 **Do not `pkill -f` a pattern that matches your own command line** — the shell
 running the test matches it too. `for p in $(pgrep -x pd.x86_64); do kill -9
 $p; done`.
+
+## A stage's opening moved the player off the landing: Defection
+
+F3 20260930-050837 / -054956 / -055246: every Defection landing stood the
+player at the stock rooftop start (room 2) while the log, the seal and the
+HUD had the dealt room (the HUD's "room N" is the hop count, as ever).
+Defection's first new life happens at level frame 3, *before* its intro
+cutscene starts, so the landing was taken; then the run skipped the intro and
+the skip path (`func0422_intro_042d`, setupame.c) plays
+`ANIM_CUT_AME_INTRO_JO_03` at its last frame on CHR_BOND, which poses Jo at
+the end of her rope on the roof and moves the player there. Not a pass 23
+regression: it reproduces without the XBLA rooms and has nothing to do with the
+dark-room test. The landing now remembers where `modRunTakeSpawn()` stood the
+player, and once the cutscene is over a player more than 200 units from it
+lands again (twice at most), logged as `run: stage 0x30 moved the player off
+the landing to room 2; landing again on pad N`. A 106-hop chain
+(`--random-run --run-autohop 200`) re-landed on Defection only, and every hop
+landed in its dealt room.
