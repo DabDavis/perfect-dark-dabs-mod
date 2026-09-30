@@ -13734,6 +13734,38 @@ void func0f044b68(struct coord *arg0, struct coord *arg1, struct coord *arg2)
  * This is similar to chrNavCheckForObstacle. The difference between the two are
  * not yet understood.
  */
+#ifndef PLATFORM_N64
+/**
+ * The bottom of the box a guard's route is swept with, on a level converted
+ * from GoldenEye, where the next position is up a flight the tile graph walks
+ * straight to (geStanReaches(), GoldenEye's own test): the destination's floor
+ * and the body's own step over it, rather than the floor the guard stands on.
+ *
+ * The box is swept flat from where the guard stands, so on a stair it meets
+ * whatever stands under the top step. Control's central room is ringed with
+ * glass up to 58, and the flight out of it climbs from 6 to the balcony at 90
+ * across the pane's top; from the landing Natalya never "saw" the pad at the
+ * head of the stair, lost it, went back down to find it and came up again,
+ * round and round (F3 20260929-225110). Her feet cross the pane's line at 68.
+ */
+static f32 chrNavSweepYMin(struct chrdata *chr, struct coord *chrpos, struct coord *aimpos, f32 ymin, f32 ymax)
+{
+	if (geRoomActive() && chr->aibot == NULL && aimpos->y > chr->ground + 20.0f) {
+		const f32 aimfloor = geStanFloorAt(aimpos);
+
+		if (aimfloor + 20.0f > ymin && geStanReaches(chrpos, chr->ground, aimpos)) {
+			ymin = aimfloor + 20.0f;
+
+			if (ymin > ymax - 30.0f) {
+				ymin = ymax - 30.0f;
+			}
+		}
+	}
+
+	return ymin;
+}
+#endif
+
 bool chrNavCanSeeNextPos(struct chrdata *chr, struct coord *chrpos, RoomNum *chrrooms, struct coord *aimpos, struct coord *leftpos, struct coord *rightpos, f32 negchrradius, f32 chrradius, s32 cdtypes, s32 arg9)
 {
 	struct coord spd4;
@@ -13759,6 +13791,10 @@ bool chrNavCanSeeNextPos(struct chrdata *chr, struct coord *chrpos, RoomNum *chr
 	struct prop *prop = chr->prop;
 
 	chrGetBbox(prop, &radius2, &ymax, &ymin);
+
+#ifndef PLATFORM_N64
+	ymin = chrNavSweepYMin(chr, chrpos, aimpos, ymin, ymax);
+#endif
 
 	spd4.x = aimpos->x - chrpos->x;
 	spd4.y = 0.0f;
@@ -13918,6 +13954,10 @@ bool chrNavCheckForObstacle(struct chrdata *chr, struct coord *chrpos, RoomNum *
 	struct prop *prop = chr->prop;
 
 	chrGetBbox(prop, &radius2, &ymax, &ymin);
+
+#ifndef PLATFORM_N64
+	ymin = chrNavSweepYMin(chr, chrpos, aimpos, ymin, ymax);
+#endif
 
 	spd4.x = aimpos->x - chrpos->x;
 	spd4.y = 0.0f;

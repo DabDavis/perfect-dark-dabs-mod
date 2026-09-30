@@ -13345,3 +13345,51 @@ Follows "A raised door over Bean's wall". Three F3s on ad4d887:
   gives a shared number's "Gadget" the rename, and title-cases GoldenEye's
   lower-case renames for Perfect Dark's fonts. The weapon wheel draws in
   GoldenEye's font on GE HUD levels (geHudText()).
+
+## Guards through Frigate's doors, GoldenEye's grenades, Natalya's stair (24th F3 pass, 2026-09-30, fix/f3-0930-geai)
+
+**A door pad in a wall's thickness is filed on the deck below.** The
+converter's `roomsFind()` takes the highest tile under a point, and six of
+Frigate's upper-deck door pads (247, 248, 251, 262, 263, 266) have no tile of
+their own storey under them - so the pad's room, and every walk
+`geStanDoorSideRooms()` made from it, was the lower deck's. The door stood in
+lower-deck rooms only: nothing on its own deck (sight, shots, bodies) ever
+collected it, and it closed no portal (F3 20260930-004609 "guards walked
+through a closed door", 20260929-214745 "see the player through closed
+doors"). `geStanDoorSideRooms()` now takes the tiles either side of the leaf
+at the door's height when both are more than a stair's rise over the pad's
+tile; only those six doors change over the twenty missions and each closes
+the portal Perfect Dark's line finds. Probe: `run/geai/doorlos.py` in
+`~/wt/f3-0930-geai` - every shut door, a line of sight across it from sides
+found by the room boxes (not by the stan code under test); 6 leaks -> 0.
+
+**GoldenEye's grenade probabilities live in the setup, not the lists.** Its
+`GuardAttributeRecord` (propdef 0x12: header, s32 chr number, s8 probability
+at 0xb) is Perfect Dark's `OBJTYPE_GRENADEPROB`; the converter dropped it as
+`SOLO_AS_NOTHING`, so `TRYThrowingGrenade` never threw (Aztec's six opening
+guards are 127, Control's four by the mines 255). Converter 93.
+
+**A route is swept flat from the floor the guard stands on.**
+`chrNavCanSeeNextPos()`/`chrNavCheckForObstacle()` sweep the body box from
+manground+20; Control's central-room glass tops out at 58 under the head of a
+flight climbing 6 -> 90, so from the landing Natalya never "saw" the top pad
+and ran round the stair (F3 20260929-225110). On a converted level, where the
+next position is higher and `geStanReaches()` walks to it, the sweep starts at
+the destination floor + 20 (`chrNavSweepYMin()`, non-bots only).
+
+**Checked and GoldenEye's own, not changed:** Control's kiosk (ai_1 label
+0x06) resumes Natalya's typing only while `if_guard_is_on_screen`; Aztec's
+exhaust double door (GE pads 119/120) carries lock 2 and the level's one key
+is lock 1, and the desk terminal beside it has no tag (tag 11 is a monitor
+elsewhere) - guards opening it is the design. Control's tinted glass
+xlu/opa 0/10 is GoldenEye's own data. Trevelyan's Caverns list sets 0x800
+(no autoaim, the decomp's reversed macro prints it 0x00080000); he runs at a
+rifle guard's 8.7/frame.
+
+**Open:** Dam's tower-top patroller (chr 40, path 1) circles between the
+tower wall and a window pane (pad 452) on the leg 159 -> 151 - a gopos over
+the same leg gets round, the patrol does not. Control glass in the HD look
+(opaque shade; explosions: in the N64 look `explosionCreateSimple()` does
+destroy pane 103). Train's through-wall firing was not reproduced (the
+reported positions have no line of sight; the 2 s seen-recently rule is in).
+Statue's floating unconscious Natalya not looked into.
