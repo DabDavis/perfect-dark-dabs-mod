@@ -94,25 +94,37 @@ at run time), `pdmodel.py` (PD model file walk), `pdbg.py` (PD bg rooms),
 
 ## Known state
 
-- **`propfit.json` is from partial runs of an older `propfit.py`.** A full
-  run of today's script (2026-09-30, not kept) gives 313 props against the
-  file's 210:
-  - 103 props the file does not have, 97 of them scoring 0.6 or more (so they
-    would become table rows): 0, 6, 7, 8, 9, 37, 39, 47, 52, 54, 56, 57, 58,
-    59, 60, 61, 64, 71, 74, 80, 81, 84, 87, 102, 121, 123, 124, 125, 127, 128,
-    129, 130, 132, 135, 137, 142, 145, 146, 147, 148, 151, 153, 154, 156, 157,
-    163, 184, 185, 186, 187, 189, 190, 191, 192, 193, 194, 195, 196, 199, 200,
-    201, 203, 204, 205, 206, 208, 209, 210, 226, 235, 237, 238, 241, 242, 245,
-    246, 249, 252, 253, 256, 262, 276, 277, 281, 285, 286, 289, 290, 302, 305,
-    308, 309, 318, 319, 333, 338, 339. Below 0.6: 55, 188, 197, 207, 211, 278.
-  - 15 rows it fits differently, all scoring higher: 12 (0.90 -> 0.96),
-    13 (0.91 -> 0.97), 14 (0.85 -> 0.96), 16 (0.85 -> 0.97),
-    17 (0.85 -> 0.96), 83 (0.98 -> 1.00), 92 (0.91 -> 1.00),
-    94 (0.94 -> 1.00), 108 (0.94 -> 0.98), 141 (0.67 -> 0.97),
-    159 (0.91 -> 1.00), 167 (0.96 -> 1.00), 181 (0.65 -> 1.00),
-    291 (0.97 -> 0.98), 296 (0.90 -> 1.00).
+- **`propfit.json` is a full run of today's `propfit.py`** (2026-09-30,
+  feat/ge-hd-propfit-full): 313 props, 282 table rows. Against the partial
+  runs it replaced:
+  - 103 props added, 97 of them scoring 0.6 or more. Of those 97, 21 are
+    GoldenEye's guns' own props (`GUN_PROPS` in `gen_proptable.py`: 184-187,
+    189-196, 199-201, 204-206, 208-210) and are left out: each already has a
+    row in `gegunstable.h`, and `gebeanPoolRowForFile()` would find a prop row
+    first - the Golden Gun came out silver and half as big again on Egyptian's
+    table. The intro's GoldenEye logo (277) is left out too: the release's prop
+    took the place of GoldenEye's gold under the Level Metal pass
+    (`introLogoMetal()`) with a flat orange ramp.
+  - That leaves 75 new rows, and **only one of them is ever drawn today**:
+    the thrown covert modem (245, `chrbug`), checked on Surface. The other 74
+    (0, 6-9, 37, 39, 47, 52, 54, 56-61, 64, 71, 74, 80, 81, 84, 87, 102, 121,
+    123-125, 127-130, 132, 135, 137, 142, 145-148, 151, 153, 154, 156, 157,
+    163, 226, 235, 237, 238, 241, 242, 246, 249, 252, 253, 256, 262, 276,
+    281, 285, 286, 289, 290, 302, 305, 308, 309, 318, 319, 333, 338, 339) are
+    props no setup places, so the conversion writes no `Pgx%03dZ` for them
+    (`geconvert.c`'s `allmodels`) and their rows never match. They have not
+    been seen drawn: look at any of them before the conversion starts
+    writing it.
+  - 15 rows refitted, all scoring higher: 12, 13, 14, 16, 17, 83, 92, 94, 108,
+    141, 159, 167, 181, 291, 296. The changes are under a unit of the model's
+    own space (83's numbers did not change at all); in the HD look each draws
+    within a pixel of the old fit, doors opened and shut.
   - The other 195 rows reproduce exactly. Running `propfit.py` with no
-    arguments rewrites all of them, so pass the ids to change.
+    arguments rewrites all of them.
+  - The check: `build/propfit-check/` in the worktree the branch was made in
+    (`survey.py` lists every object of the twenty missions with its file and
+    row; `capture.py` stands in front of chosen props and shoots them in both
+    looks; `sheet.py` makes new table | old table | N64 look contact sheets).
 - **`gexassign.json` has no generator.** The script that wrote it (each GE-X
   file's best GoldenEye model by vertex overlap) was not in `.xbla-work`.
 - **`gunfit.json` is fitted on the decomp**
