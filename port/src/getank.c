@@ -240,6 +240,21 @@ s32 geTankIsDriving(void)
 	return g_Tank[g_Vars.currentplayernum].state != TANK_OUT && tankDriven() != NULL;
 }
 
+/**
+ * The cannon in hand: its sight stays in the middle of the view. The shell
+ * leaves along the turret, which is the view (tankFire()), wherever the
+ * crosshair is - GoldenEye's gunFireTankShell() takes the turret's direction
+ * whenever the tank is running and never the sight's - and GoldenEye itself
+ * holds the sight across in aim mode with the shells (bondview2.c:
+ * controlStickXRaw = 0, the stick turning the tank). Perfect Dark's sight
+ * swung with the turn and the mouse and pointed where no shell went (F3
+ * 20260930-185749, "the crosshair should be locked in the middle").
+ */
+s32 geTankHoldsSight(void)
+{
+	return geTankIsDriving() && bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS;
+}
+
 s32 geTankPlayerDriving(struct player *player)
 {
 	for (s32 i = 0; i < PLAYERCOUNT(); i++) {
