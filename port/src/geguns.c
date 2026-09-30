@@ -440,6 +440,9 @@ static struct noisesettings *gegunsNoise(s32 i)
  * sniper rifle at 16 for 20 - and the watch laser at every tick for 4. Ticks,
  * not frames, so a faster frame rate does not change it.
  */
+#ifndef GEGUNS_AR33_ADS_LIFT
+#define GEGUNS_AR33_ADS_LIFT -1.0f
+#endif
 #define GEGUNS_GE_FRAME_TICKS    2
 #define GEGUNS_PD_SHOT_OVERHEAD  1
 
@@ -476,6 +479,25 @@ static s32 gegunsGeSingleWait(s32 weaponnum, const struct gegunstat *stat)
 	}
 
 	return frames * GEGUNS_GE_FRAME_TICKS;
+}
+
+/**
+ * How much more (or less) than the 3.5 every gun is raised by a GoldenEye gun
+ * comes up to the eye under COD Style Aiming. The AR33's carry handle stands
+ * over its bore as a solid block with no aperture through it, in GoldenEye's
+ * own model and the release's alike, and raised as far as the rest the eye
+ * sat behind its rear end: the handle filled the middle of the view under the
+ * crosshair and hid the front sight and what it was on (F3 20260930-032244,
+ * "ads doesn't actually look down its iron sights, they're obscured by the
+ * top rail"). Held lower, the sight line passes over the handle.
+ */
+f32 gegunsCodAimLift(s32 weaponnum)
+{
+	if (weaponnum == WEAPON_GE_AR33) {
+		return GEGUNS_AR33_ADS_LIFT;
+	}
+
+	return 0.0f;
 }
 
 /**

@@ -9052,7 +9052,7 @@ void bgun0f0a5550(s32 handnum)
 		// the gun off to one side and turned its flank to the eye (F3
 		// 20260929-042906, "cod aim. bonds hand looks wrong with the pp7")
 		sp274.f[0] += (inx - func0f0b131c(handnum) - hand->codaimmuzzlex) * player->codaimfrac;
-		sp274.f[1] += 3.5f * player->codaimfrac;
+		sp274.f[1] += (3.5f + gegunsCodAimLift(weaponnum)) * player->codaimfrac;
 		sp274.f[2] += 3.0f * player->codaimfrac;
 	}
 #endif
