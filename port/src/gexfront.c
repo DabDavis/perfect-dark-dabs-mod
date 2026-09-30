@@ -5897,7 +5897,7 @@ static Gfx *frontDrawMission(Gfx *gdl)
 /** EXTRA: the difficulty page's rows again, with no mission over them. */
 static Gfx *frontDrawExtra(Gfx *gdl)
 {
-	static const char *rows[NUM_EXTRA_ROWS] = { LANG_N("Cinema\n"), LANG_N("Monitor Programmes\n") };
+	static const char *rows[NUM_EXTRA_ROWS] = { LANG_N("Cinema\n"), LANG_N("Monitor Programs\n") };
 
 	gdl = frontPrint(gdl, 0x37, 0x8f, langTr("EXTRA:\n"), COLOUR_ON);
 
@@ -5937,7 +5937,7 @@ static const char *g_MonitorNames[] = {
 	LANG_N("Tint: one of four"), LANG_N("Tint: red"), LANG_N("Tint: green"), LANG_N("Tint: blue"), LANG_N("Effect: one of five"),
 	LANG_N("Effect: scroll right"), LANG_N("Effect: scroll up, fast"), LANG_N("Effect: scroll up"), LANG_N("Effect: scroll and zoom 1"),
 	LANG_N("Effect: scroll and zoom 2"), LANG_N("Effect: wait and route"), LANG_N("Effect: flash"),
-	LANG_N("Red, brightening"), LANG_N("Green, brightening"), LANG_N("Solid grey"), LANG_N("Solid red"), LANG_N("Solid green"), LANG_N("Solid black"),
+	LANG_N("Red, brightening"), LANG_N("Green, brightening"), LANG_N("Solid gray"), LANG_N("Solid red"), LANG_N("Solid green"), LANG_N("Solid black"),
 };
 
 #define MONITOR_CX 220.0f
@@ -6230,7 +6230,7 @@ static Gfx *frontDrawMonitors(Gfx *gdl)
 
 	if (g_Front.nummonitors <= 0 || !g_Front.tvdef) {
 		gdl = frontTextSetup(gdl);
-		return frontPrint(gdl, 0x37, 0x57, langTr("No monitor programmes in this conversion.\n"), COLOUR_ON);
+		return frontPrint(gdl, 0x37, 0x57, langTr("No monitor programs in this conversion.\n"), COLOUR_ON);
 	}
 
 	gdl = frontDrawTvs(gdl);

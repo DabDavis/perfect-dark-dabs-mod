@@ -1703,11 +1703,13 @@ Gfx *sightDraw(Gfx *gdl, bool sighton, s32 sight)
 
 #ifndef PLATFORM_N64
 	// GoldenEye's own crosshair for anything of GoldenEye's in the hand on GE
-	// Plus's levels (gehud.c): shown while aiming, as GoldenEye shows it, and
-	// for a player who keeps a target on screen all the time, then too
+	// Plus's levels (gehud.c): shown only while aiming, and only with the
+	// watch's SIGHT ON-SCREEN on, as GoldenEye shows it (bondview2.c's
+	// GUNSIGHTREASON_1). Perfect Dark's Always Show Target is left out: it is
+	// on by default, the watch has no row for it, and with it the sight was
+	// on screen whatever the watch said (F3 20260930-025317-daf43ae7)
 	if (sight != SIGHT_NONE && geHudOwnsWeapon()) {
-		if (optionsGetSightOnScreen(g_Vars.currentplayerstats->mpindex)
-				&& (sighton || optionsGetAlwaysShowTarget(g_Vars.currentplayerstats->mpindex))) {
+		if (optionsGetSightOnScreen(g_Vars.currentplayerstats->mpindex) && sighton) {
 			gdl = geHudRenderSight(gdl, crossx, crossy);
 		}
 

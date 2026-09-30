@@ -548,6 +548,40 @@ void hudmsgRemoveByPrefix(const char *prefix)
 		}
 	}
 }
+
+static void hudmsgRemoveByLine(const char *text)
+{
+	char prefix[128];
+	size_t len = 0;
+
+	while (text[len] && text[len] != '\n' && len < sizeof(prefix) - 1) {
+		prefix[len] = text[len];
+		len++;
+	}
+
+	prefix[len] = '\0';
+
+	if (len) {
+		hudmsgRemoveByPrefix(prefix);
+	}
+}
+
+/**
+ * A port toggle key's "<thing> On" / "<thing> Off", already translated. Only
+ * in a level with a player to show it to; takes down either of the two left
+ * from the last press first, by their own (translated) first lines, so it
+ * works in any language.
+ */
+void hudmsgSayToggle(const char *ontext, const char *offtext, s32 on)
+{
+	if (!STAGE_IS_LEVEL(g_Vars.stagenum) || !g_Vars.currentplayer || g_Vars.lvframenum <= 0) {
+		return;
+	}
+
+	hudmsgRemoveByLine(ontext);
+	hudmsgRemoveByLine(offtext);
+	hudmsgCreateWithFlags((char *)(on ? ontext : offtext), HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
+}
 #endif
 
 s32 hudmsgGetNext(s32 refid)
