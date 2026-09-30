@@ -292,6 +292,93 @@ void gegadgetsStageLoad(s32 stagenum)
 	}
 }
 
+/**
+ * A mission's rename of a gadget (its setup's text override), in the words the
+ * game shows the gadget by.
+ *
+ * GoldenEye's rename texts are lower case ("covert modem", "telemetry data
+ * DAT"): its watch prints them in a font whose small letters are small
+ * capitals. Perfect Dark's inventory, weapon wheel and messages print a small
+ * letter as one, so the rename is shown with each word's first letter up, as
+ * the gadgets' own names are (g_Identities; F3 20260930-011230, "gadgets lack
+ * proper capitalization").
+ *
+ * And a gadget on one of the two shared numbers that this mission has no name
+ * for ("Gadget") takes the rename's: Silo's telemetry data is a DAT tape on
+ * WEAPON_GE_GADGETB, whose rename is on the tape's prop and so is not the
+ * weapon's once it is picked up (invGetTextOverrideForWeapon() takes only
+ * a rename of no object) - it showed as "Gadget" in the watch (F3
+ * 20260930-004024).
+ */
+#define GEGADGET_MAX_RENAMES 24
+
+static u16 gegadgetsTitleText(u32 textid)
+{
+	static char renames[GEGADGET_MAX_RENAMES][64];
+	static s32 numrenames;
+	const char *text = textid ? langGet(textid) : NULL;
+	char buf[64];
+	s32 up = 1;
+	s32 i;
+
+	if (!text || !*text) {
+		return textid;
+	}
+
+	for (i = 0; text[i] && i < (s32)sizeof(buf) - 1; i++) {
+		char c = text[i];
+
+		if (up && c >= 'a' && c <= 'z') {
+			c -= 'a' - 'A';
+		}
+
+		up = c == ' ';
+		buf[i] = c;
+	}
+
+	buf[i] = '\0';
+
+	if (strcmp(buf, text) == 0) {
+		return textid;
+	}
+
+	for (i = 0; i < numrenames; i++) {
+		if (strcmp(renames[i], buf) == 0) {
+			return langAddPortText(renames[i]);
+		}
+	}
+
+	if (numrenames >= GEGADGET_MAX_RENAMES) {
+		return textid;
+	}
+
+	strcpy(renames[numrenames], buf);
+
+	return langAddPortText(renames[numrenames++]);
+}
+
+void gegadgetsTextOverride(struct textoverride *override)
+{
+	const struct gegadgetidentity *id;
+	s32 weaponnum;
+
+	if (!override || g_Gadgets.moddir < 0 || !gegadgetsIsGadget(override->weapon)) {
+		return;
+	}
+
+	weaponnum = override->weapon;
+
+	override->inventorytext = gegadgetsTitleText(override->inventorytext);
+	override->inventory2text = gegadgetsTitleText(override->inventory2text);
+
+	id = gegadgetsIdentity(weaponnum);
+
+	if (id && id->item == 0 && override->inventorytext) {
+		g_GeWeaponDefs[weaponnum - WEAPON_GE_FIRST].name = override->inventorytext;
+		g_GeWeaponDefs[weaponnum - WEAPON_GE_FIRST].shortname = override->inventorytext;
+	}
+}
+
 /** GoldenEye's own first person model for an item, the conversion's Igx%03dZ. */
 static s32 gegadgetsLoadModel(s32 item)
 {

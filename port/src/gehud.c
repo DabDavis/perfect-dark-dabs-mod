@@ -514,6 +514,46 @@ static Gfx *hudEnd(Gfx *gdl)
 }
 
 /**
+ * Text of Perfect Dark's own screens drawn in GoldenEye's font on its levels:
+ * the weapon wheel (activemenu.c's amRenderText()), whose labels were Perfect
+ * Dark's Handel Gothic over GoldenEye's HUD (F3 20260930-011230, "text still
+ * uses PD's font"). GoldenEye's Bank Gothic, the watch's, whose small letters
+ * are small capitals as they are on the watch's inventory.
+ *
+ * Positions and sizes are Perfect Dark's: x in columns of g_ScaleX pixels and
+ * y in rows of the frame buffer, as the wheel lays its slots out, turned into
+ * the HUD's own frame (hudFrame()).
+ */
+void geHudTextMeasure(const char *text, s32 *width, s32 *height)
+{
+	struct hudframe f;
+	s32 w, h;
+
+	hudFrame(&f);
+	gexFrontTextFrameDefault();
+	gexFrontTextMeasure(1, text, &w, &h);
+
+	*width = (s32)(w * f.sx / (g_ScaleX > 0 ? g_ScaleX : 1) + 0.5f);
+	*height = (s32)(h * f.sy + 0.5f);
+}
+
+Gfx *geHudText(Gfx *gdl, const char *text, s32 x, s32 y, u32 colour)
+{
+	struct hudframe f;
+	s32 gx, gy;
+
+	hudFrame(&f);
+
+	gx = (s32)((x * (g_ScaleX > 0 ? g_ScaleX : 1) - viGetViewLeft()) / f.sx + 0.5f);
+	gy = (s32)((y - viGetViewTop()) / f.sy + 0.5f);
+
+	gdl = gexFrontTextSetup(gdl);
+	gdl = gexFrontTextPrint(gdl, 1, gx, gy, text, colour);
+
+	return hudEnd(gdl);
+}
+
+/**
  * One hand's numbers: what is in the gun and what is held for it. A weapon
  * with no magazine shows everything as one number where the reserve goes, both
  * hands' together when they hold the same thing.

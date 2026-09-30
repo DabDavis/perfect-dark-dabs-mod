@@ -27,6 +27,11 @@ s32 geHudActive(void);
 // on and the weapon is not one of Perfect Dark's own.
 s32 geHudOwnsWeapon(void);
 
+// Perfect Dark's own text (the weapon wheel's) in GoldenEye's font, measured
+// and placed in Perfect Dark's units; for a level where geHudActive()
+void geHudTextMeasure(const char *text, s32 *width, s32 *height);
+Gfx *geHudText(Gfx *gdl, const char *text, s32 x, s32 y, u32 colour);
+
 // A string of GoldenEye's pickups' bank (LpropobjE) by its slot, or NULL.
 const char *geHudPropobjString(s32 slot);
 

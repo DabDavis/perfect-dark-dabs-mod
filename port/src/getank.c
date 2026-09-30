@@ -1484,18 +1484,28 @@ static void tankFire(struct tankobj *tank)
 	// through: this one goes off at what it hits
 	shell->base.flags2 |= OBJFLAG2_IMMUNETOEXPLOSIONS;
 
+	// GoldenEye's shell is not a rocket: gunFireTankShell() sets only
+	// PROJECTILEFLAG_LAUNCHING, never the rocket's powered flight (flag 0x20,
+	// then POWERED) nor its thrust (unk10), so it flies as a thrown thing does
+	// and falls under the same gravity, 0.2778 a tick squared (propobj.c,
+	// PROP_PROJECTILE_GRAVITY_MODIFIER, Perfect Dark's 1 / 3.6). It had been
+	// launched powered, pushed along its line and never falling, "unnaturally
+	// linear" (F3 20260929-221354). A rocket that hits anything still goes off
+	// there (the rocket's CDRESULT_COLLISION, powered or not).
 	if (shell->base.hidden & OBJHFLAG_PROJECTILE) {
 		shell->timer240 = -1;
-		shell->base.projectile->flags |= PROJECTILEFLAG_POWERED;
-		shell->base.projectile->unk010 = dir.x * 0.27777776f;
-		shell->base.projectile->unk014 = dir.y * 0.27777776f;
-		shell->base.projectile->unk018 = dir.z * 0.27777776f;
+		shell->base.projectile->flags &= ~(PROJECTILEFLAG_POWERED | PROJECTILEFLAG_00000020);
+		shell->base.projectile->unk010 = 0.0f;
+		shell->base.projectile->unk014 = 0.0f;
+		shell->base.projectile->unk018 = 0.0f;
+		shell->base.projectile->unk01c = 0.0f;
 	}
 
-	// GoldenEye's GUN_TANK2BIGBIG_1, the grenade launcher's thump, is the
-	// tank shells' Sound in its weapon table
+	// The tank's row in GoldenEye's weapon table (tank_stats) has Sound 0xB,
+	// GUN_TANK2BIG_1; 12, GUN_TANK2BIGBIG_1, is the grenade launcher's (F3
+	// 20260930-004826, "tank firing uses grenade sound")
 	if (geSfxStage()) {
-		geSfxPlay(12, GESFX_VOLUME);
+		geSfxPlay(11, GESFX_VOLUME);
 	}
 
 	tank->firing = TICKS(8);

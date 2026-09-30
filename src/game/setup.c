@@ -2607,6 +2607,9 @@ void setupCreateProps(s32 stagenum)
 						}
 
 						invInsertTextOverride(override);
+#ifndef PLATFORM_N64
+						gegadgetsTextOverride(override);
+#endif
 					}
 					break;
 				case OBJTYPE_BRIEFING:

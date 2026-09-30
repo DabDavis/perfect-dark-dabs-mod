@@ -29,6 +29,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
+#include "gehud.h"
 #endif
 
 struct activemenu g_AmMenus[MAX_PLAYERS];
@@ -647,6 +648,11 @@ s16 amCalculateSlotWidth(void)
 
 	for (i = 0; i < ARRAYCOUNT(g_AmBotCommands); i++) {
 		amGetSlotDetails(i, &flags, text);
+#ifndef PLATFORM_N64
+		if (geHudActive()) {
+			geHudTextMeasure(text, &textwidth, &textheight);
+		} else
+#endif
 		textMeasure(&textheight, &textwidth, text, g_AmFont1, g_AmFont2, 0);
 
 		if (textwidth > max) {
@@ -1094,6 +1100,20 @@ Gfx *amRenderText(Gfx *gdl, char *text, u32 colour, s16 left, s16 top)
 	s32 y;
 	s32 textwidth;
 	s32 textheight;
+
+#ifndef PLATFORM_N64
+	// on GoldenEye's levels in GoldenEye's font, as its HUD is (gehud.c)
+	if (geHudActive()) {
+		geHudTextMeasure(text, &textwidth, &textheight);
+
+		x = left - (textwidth / 2);
+		y = top - textheight / 2;
+		gdl = geHudText(gdl, text, x, y, colour);
+
+		// and Perfect Dark's text state back for what the wheel draws next
+		return text0f153628(gdl);
+	}
+#endif
 
 	textMeasure(&textheight, &textwidth, text, g_AmFont1, g_AmFont2, 0);
 
@@ -1679,7 +1699,12 @@ Gfx *amRender(Gfx *gdl)
 					u32 flags;
 
 					amGetSlotDetails(4, &flags, text);
-					textMeasure(&textheight, &textwidth, text, g_AmFont1, g_AmFont2, 0);
+
+					if (geHudActive()) {
+						geHudTextMeasure(text, &textwidth, &textheight);
+					} else {
+						textMeasure(&textheight, &textwidth, text, g_AmFont1, g_AmFont2, 0);
+					}
 
 					halfwidth = textwidth / 2 + 2;
 				}

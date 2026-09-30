@@ -5916,7 +5916,8 @@ static int soloListIsVehicle(const records *recs, uint32_t lid)
  * first of a duplicate, while Perfect Dark binary-searches them (lib/ailist.c)
  * and can miss a list altogether - Facility carries 1063 twice and Surface has
  * 1051 before 1049 and 4106 twice. Keeping the first of each id and sorting is
- * GoldenEye's own answer in the order Perfect Dark has to have it in.
+ * GoldenEye's own answer in the order Perfect Dark has to have it in - but for
+ * a background list, which runs by its row and not its id (below).
  */
 #define GE_MAX_AILISTS 256
 
@@ -5978,6 +5979,36 @@ static void writeSoloAilists(const buf *f, size_t at, size_t numpads, buf *head,
 		rows[n].id = soloGlobalAiId(be32(g_Data, o + 4) & 0xffff);
 		rows[n].vehicle = 0;
 		++n;
+	}
+
+	// A background list (0x1000 and up) is never looked up by its id:
+	// GoldenEye makes a chr of every such row of the table, a duplicate too
+	// (deb_loadallmodels.c's background chrs walk the rows, not the ids). So a
+	// second row of one of those ids is a list of its own that runs, and
+	// takes the next id no row has. Surface's 4106 twice was its fan trigger
+	// and the grate's clank 120 ticks after the grate falls (BIG_CLANK, 261):
+	// dropped, the grate landed in silence (F3 20260930-005449)
+	{
+		uint32_t nextbg = 0x1000;
+
+		for (size_t i = 0; i < n; ++i) {
+			if (rows[i].id >= nextbg && rows[i].id < 0xffff) {
+				nextbg = rows[i].id + 1;
+			}
+		}
+
+		for (size_t i = 0; i < n; ++i) {
+			if (rows[i].id < 0x1000) {
+				continue;
+			}
+
+			for (size_t j = 0; j < i; ++j) {
+				if (rows[j].id == rows[i].id && nextbg < 0xffff) {
+					rows[i].id = nextbg++;
+					break;
+				}
+			}
+		}
 	}
 
 	// the first of each id, then sorted: a stable insertion sort, so what is

@@ -17,6 +17,9 @@ s32 gegadgetsIsGadget(s32 weaponnum);
 // GoldenEye's ITEM_IDS for the weapon on the mission loaded, 0 for none
 s32 gegadgetsItem(s32 weaponnum);
 void gegadgetsStageLoad(s32 stagenum);
+// a mission's rename of one of the gadgets, as the setup inserts it
+struct textoverride;
+void gegadgetsTextOverride(struct textoverride *override);
 // the trigger pulled with one in the hand
 void gegadgetsFire(s32 weaponnum);
 // the watch magnet's running time and hum, every tick of the current player's gun

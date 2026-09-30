@@ -13283,3 +13283,32 @@ Caves, Complex, Library/Basement/Stack, Cradle, Aztec. Before/after checked at
 the tester's Depot camera (closed, 0.34, 0.90 open) and Temple's big door;
 N64 look unchanged (gebeanstage.c only builds the HD level). **Needs an
 HDCACHE_VERSION bump** (left to the merge; done there: 7, with hdbright's rooms).
+
+## Gadgets and sounds, seven faults (24th F3 pass, 2026-09-30, fix/f3-0930-gadsnd)
+
+- **A background list runs by its row, not its id.** GoldenEye makes a chr of
+  every AI table row of id 0x1000 and up, duplicates included
+  (deb_loadallmodels.c). The converter kept only the first row of a duplicate
+  id, so Surface's second 4106 - the grate's BIG_CLANK (261) 120 ticks after
+  the grate (door tag 5, DOORTYPE_FALLAWAY) opens - never ran. A duplicate
+  background row now takes the next free id (writeSoloAilists()). Needs a
+  GECONVERT_VERSION bump to reach players.
+- **The tank's shell is not a rocket**: gunFireTankShell() sets only
+  PROJECTILEFLAG_LAUNCHING, so it falls at 0.2778/tick^2 (Perfect Dark's own
+  1/3.6). Its Sound is tank_stats' 0xB (GUN_TANK2BIG_1); 12 is the grenade
+  launcher's.
+- **GoldenEye draws what it hides in the hand at once**: its raise states go
+  straight to idle for WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND. The ECM mine
+  host's 90-tick draw held a gadget's first throw back two seconds;
+  gegunsSwitchAtOnce() makes bgunTickIncChangeGun() quick for them.
+- **A hit sound's gun decides PD vs GE samples** (geSfxGunHitBegin()): the
+  autogun fires as the RC-P45, so a converted autogun (obj->pad >= 0) names
+  WEAPON_GE_RCP90 for its hit sounds.
+- **bgunSetAmmoQuantity() added both hands' magazines** for a throwable in the
+  right hand; a mixed Akimbo D5K's 30 took the knives to -21. Only a hand
+  loaded with that ammo type counts now.
+- A rename on a gadget's *prop* is not the weapon's once picked up
+  (invGetTextOverrideForWeapon() needs objoffset 0): gegadgetsTextOverride()
+  gives a shared number's "Gadget" the rename, and title-cases GoldenEye's
+  lower-case renames for Perfect Dark's fonts. The weapon wheel draws in
+  GoldenEye's font on GE HUD levels (geHudText()).
