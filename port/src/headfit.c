@@ -619,12 +619,114 @@ s32 headfitWanted(s32 headnum, s32 bodynum)
  */
 #define HEADFIT_COLLAR_TUCK 25.0f
 #define HEADFIT_JAW_TUCK    8.0f
+// Where a head file's neck is seated from, up its rim's directions sorted by height
+#define HEADFIT_RIM_HIGH    0.75f
+// A body drawn as the release's mesh whose collar stands this far under the
+// ROM's neck top has none of that neck (the Dinner Jacket's is 86 under it)
+#define HEADFIT_NECK_GONE   40.0f
+// and a head goes into that collar: a neck's shortest side this far under
+// its top, measured on four such bodies; a jaw with the made neck under it
+#define HEADFIT_NAPE_UNDER_COLLAR -20.0f
+#define HEADFIT_JAW_OVER_COLLAR    35.0f
 
 static struct modeldef *headfitNextBody;
 
 void headfitSetBodyModel(struct modeldef *bodymodeldef)
 {
 	headfitNextBody = bodymodeldef;
+}
+
+/*
+ * The top of a body's neck as the release's mesh for it has it, drawn in this
+ * look, above its headspot as headfitMeasureBodyAt() measures the N64 one: the
+ * highest of what the neck's joint moves most or of anything within
+ * HEADFIT_COLLAR_REACH of the neck's middle - where the mesh has no neck, the
+ * top of its collar. The Dinner Jacket and the other three bodies Perfect Dark
+ * kept of GoldenEye's carry GoldenEye's neck in the ROM, 80 units of it over
+ * the collar, and none in the release, whose heads bring their own.
+ */
+#define HEADFIT_COLLAR_REACH 90.0f
+#define HEADFIT_COLLAR_ABOVE 150.0f
+
+struct headfitrelease {
+	f32 rests[HEADFIT_MAXMTX][3];
+	u8 have[HEADFIT_MAXMTX];
+	f32 origin[3];
+	s32 neckmtx;
+	f32 top;
+	s32 num;
+};
+
+static void headfitCollectRelease(s32 mtx, const f32 local[3], void *arg)
+{
+	struct headfitrelease *r = arg;
+
+	if (mtx < 0 || mtx >= HEADFIT_MAXMTX || !r->have[mtx]) {
+		return;
+	}
+
+	const f32 dx = local[0] + r->rests[mtx][0] - r->origin[0];
+	const f32 y = local[1] + r->rests[mtx][1] - r->origin[1];
+	const f32 dz = local[2] + r->rests[mtx][2] - r->origin[2];
+
+	if (mtx == r->neckmtx || (dx * dx + dz * dz < HEADFIT_COLLAR_REACH * HEADFIT_COLLAR_REACH
+				&& y < HEADFIT_COLLAR_ABOVE)) {
+		r->top = r->num++ == 0 || y > r->top ? y : r->top;
+	}
+}
+
+static s32 headfitReleaseNeckTop(struct modeldef *bodymodeldef, f32 *out)
+{
+	const struct modelnode *spot = bodymodeldef ? modelGetPart(bodymodeldef, MODELPART_CHR_HEADSPOT) : NULL;
+	const struct modelnode *joint = headfitJoint(spot);
+	struct headfitrelease *r;
+	s32 ok = 0;
+
+	if (!joint || !(r = calloc(1, sizeof(*r)))) {
+		return 0;
+	}
+
+	headfitMatrixRests(bodymodeldef, r->rests, r->have);
+	headfitRestOffset(spot, r->origin);
+	r->neckmtx = joint->rodata->position.mtxindex0;
+
+	if (xblaMeshReleaseRestVertices(bodymodeldef, 0, headfitCollectRelease, r) && r->num > 0) {
+		*out = r->top;
+		ok = 1;
+	}
+
+	free(r);
+
+	return ok;
+}
+
+static void headfitCollectReleaseHead(s32 mtx, const f32 local[3], void *arg)
+{
+	struct headfitcollect *c = arg;
+
+	if (c->num < HEADFIT_MAXVERTS) {
+		c->y[c->num++] = local[1];
+	}
+}
+
+/** A head's base (headfitMeasureHeadAt()) as the release's mesh for it has it, drawn in this look. */
+static s32 headfitReleaseHeadBase(struct modeldef *headmodeldef, f32 *out)
+{
+	struct headfitcollect c;
+	s32 ok = 0;
+
+	memset(&c, 0, sizeof(c));
+	c.y = malloc(HEADFIT_MAXVERTS * sizeof(f32));
+
+	if (c.y && xblaMeshReleaseRestVertices(headmodeldef, 1, headfitCollectReleaseHead, &c) && c.num > 0) {
+		qsort(c.y, c.num, sizeof(f32), headfitCompareF32);
+		*out = c.y[c.num / 50];
+		ok = 1;
+	}
+
+	free(c.y);
+
+	return ok;
 }
 
 static s32 headfitOffsetAcross(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struct modeldef *bodymodeldef)
@@ -655,6 +757,15 @@ static s32 headfitOffsetAcross(struct modeldef *headmodeldef, s32 headnum, s32 b
 			return 0;
 		}
 
+		// A neck of its own goes into the collar by its shortest side, not
+		// its middle: the release's head files reach down at the throat
+		// further than at the nape, and seated by the middle their napes
+		// stood clear of Perfect Dark's collars, the room showing between
+		// (F3 20260930-041905, the tuxedo Bond's head on the Dinner Jacket)
+		if (!neckless) {
+			xblaMeshBeanSeatAt(headmodeldef, 1, &base, NULL, HEADFIT_RIM_HIGH);
+		}
+
 		if (neckless && headfitCached(g_HeadsAndBodies[bodynum].filenum, 0, NULL, &body)) {
 			target = body.necktop - HEADFIT_JAW_TUCK;
 			how = "the body's neck, a jaw on it";
@@ -666,6 +777,21 @@ static s32 headfitOffsetAcross(struct modeldef *headmodeldef, s32 headnum, s32 b
 			how = "the body's neck";
 		} else {
 			return 0;
+		}
+
+		// The body drawn as the release's mesh, which has none of the neck
+		// the ROM's measure stood the head on: the head goes into the mesh's
+		// collar, as the release's own heads do (F3 20260930-041905, the
+		// tuxedo Bond's head over the Dinner Jacket's collar)
+		f32 collar;
+
+		if (headfitCached(g_HeadsAndBodies[bodynum].filenum, 0, NULL, &body)
+				&& headfitReleaseNeckTop(bodymodeldef, &collar)
+				&& collar < body.necktop - HEADFIT_NECK_GONE) {
+			sysLogPrintf(LOG_NOTE, "headfit: body %d's neck top %.0f in the ROM, collar %.0f in the release's mesh",
+					bodynum, body.necktop, collar);
+			target = collar + (neckless ? HEADFIT_JAW_OVER_COLLAR : HEADFIT_NAPE_UNDER_COLLAR);
+			how = neckless ? "the release body's collar, a jaw over it" : "the release body's collar";
 		}
 	}
 
@@ -690,21 +816,17 @@ s32 headfitOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struc
 	struct headfitbody body;
 	const s32 ownhead = headfitOwnHead(bodynum);
 	f32 target;
-
-	(void)bodymodeldef;
 	f32 offset;
 	const char *how;
+	// the body model, for its release mesh (the Character page names its own)
+	struct modeldef *def = headfitNextBody ? headfitNextBody : bodymodeldef;
+
+	headfitNextBody = NULL;
 
 	// One game's head on the other's body: the release's side by its mesh
 	if (gebeanIsPoolRow(headnum) || gebeanIsPoolRow(bodynum)) {
-		struct modeldef *def = headfitNextBody ? headfitNextBody : bodymodeldef;
-
-		headfitNextBody = NULL;
-
 		return headfitOffsetAcross(headmodeldef, headnum, bodynum, def);
 	}
-
-	headfitNextBody = NULL;
 
 	if (!headfitMeasureHeadAt(headmodeldef, &head)) {
 		return 0;
@@ -721,6 +843,28 @@ s32 headfitOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struc
 		how = "the body's neck";
 	} else {
 		return 0;
+	}
+
+	// The body drawn as the release's mesh with none of the ROM's neck
+	// (headfitOffsetAcross()): into its collar, the neck's foot as a head
+	// file's shortest side
+	f32 collar;
+
+	if (headfitCached(g_HeadsAndBodies[bodynum].filenum, 0, NULL, &body)
+			&& headfitReleaseNeckTop(def, &collar)
+			&& collar < body.necktop - HEADFIT_NECK_GONE) {
+		f32 hdbase;
+
+		target = collar + HEADFIT_NAPE_UNDER_COLLAR;
+		how = "the release body's collar";
+
+		// by the release's head too, where it is drawn so: Joanna's neck is
+		// shorter in the release than in the ROM
+		if (headfitReleaseHeadBase(headmodeldef, &hdbase)) {
+			sysLogPrintf(LOG_NOTE, "headfit: head %d's base %.0f in the ROM, %.0f in the release's mesh",
+					headnum, head.base, hdbase);
+			head.base = hdbase;
+		}
 	}
 
 	offset = target - head.base;

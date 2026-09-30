@@ -2732,14 +2732,43 @@ s32 gebeanRowIsChr(s32 row)
 	return r && r->kind != GEBEAN_RIGID;
 }
 
+/**
+ * Whether a character file is one of Bond's outfits with his head on its own
+ * neck and the skin of that neck in its hood group: one man, one rig, one
+ * face, so any of their heads is his own face on any of them
+ * (gebeanRowKeepsHood()). Not the parka, whose hood group is the hood: round
+ * another outfit's head it shows its bare collar, and its own head brings the
+ * hood with it onto another outfit (F3 20260929-051545).
+ */
+static s32 beanSourceIsBondOutfit(const char *source)
+{
+	static const char *const outfits[] = { "djbond", "boilerbond", "suitbond", "timberbond" };
+	const char *base = source ? strrchr(source, '/') : NULL;
+
+	base = base ? base + 1 : source;
+
+	for (s32 i = 0; base && i < ARRAYCOUNT(outfits); i++) {
+		if (strcmp(base, outfits[i]) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 s32 gebeanRowKeepsHood(s32 bodyrow, s32 headrow)
 {
 	const struct gebeanrow *body = gebeanRowAt(bodyrow);
 	const struct gebeanrow *head = gebeanRowAt(headrow);
 
-	// gebeanBuild()'s hoodsplit, for the body's side
+	// gebeanBuild()'s hoodsplit, for the body's side. Bond's head off one
+	// outfit on another is still his own face: the skin of the body's own
+	// neck below the cut closes his throat into the collar, and the cast
+	// reel's jungle fatigues under the suit's head showed the room through
+	// the shirt's open neck without it (F3 20260930-031838)
 	return body && head && bodyrow >= ARRAYCOUNT(rows) && body->kind == GEBEAN_BODY
-		&& head->kind == GEBEAN_HEAD && strcmp(body->source, head->source) == 0;
+		&& head->kind == GEBEAN_HEAD && (strcmp(body->source, head->source) == 0
+			|| (beanSourceIsBondOutfit(body->source) && beanSourceIsBondOutfit(head->source)));
 }
 
 /** Whether some head row is taken off this character's own neck (a Bond outfit's). */

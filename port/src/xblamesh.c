@@ -8208,6 +8208,17 @@ static s32 xblaMeshHeadBeanRow(struct model *model)
  */
 s32 xblaMeshBeanSeat(struct modeldef *def, s32 head, f32 *out, s32 *outneckless)
 {
+	return xblaMeshBeanSeatAt(def, head, out, outneckless, 0.5f);
+}
+
+/**
+ * The same, at another point of the directions sorted by height: 0.5 is the
+ * middle, 0.75 a head's rim a quarter of the way down from its highest (the
+ * nape of a neck whose throat reaches further, with one stray hit on the chin
+ * above it left out).
+ */
+s32 xblaMeshBeanSeatAt(struct modeldef *def, s32 head, f32 *out, s32 *outneckless, f32 frac)
+{
 	struct modelnode *node = def ? def->rootnode : NULL;
 
 	for (s32 walked = 0; node && walked < 512; walked++) {
@@ -8237,10 +8248,89 @@ s32 xblaMeshBeanSeat(struct modeldef *def, s32 head, f32 *out, s32 *outneckless)
 				}
 			}
 
-			*out = n & 1 ? found[n / 2] : (found[n / 2 - 1] + found[n / 2]) * 0.5f;
+			if (frac == 0.5f) {
+				*out = n & 1 ? found[n / 2] : (found[n / 2 - 1] + found[n / 2]) * 0.5f;
+			} else {
+				s32 at = (s32)(frac * (f32)n);
+
+				*out = found[at < 0 ? 0 : at >= n ? n - 1 : at];
+			}
 
 			if (outneckless) {
 				*outneckless = m->beanopenrim > GEBEAN_OPENRIM_JAW;
+			}
+
+			return 1;
+		}
+
+		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Each vertex of the release's mesh for a model, drawn in this look, at rest:
+ * the matrix that moves it most, and where it is in that joint's own frame
+ * (in the first's, `rigid`, for a head's mesh on its own).
+ * For measuring one of Perfect Dark's bodies as the release has it
+ * (headfit.c), whose N64 geometry says nothing about the mesh: the Dinner
+ * Jacket's release mesh has no neck at all where the ROM's has GoldenEye's.
+ * 0 when the model is not drawn so in this look.
+ */
+s32 xblaMeshReleaseRestVertices(struct modeldef *def, s32 rigid, void (*fn)(s32 mtx, const f32 local[3], void *arg), void *arg)
+{
+	struct modelnode *node = def ? def->rootnode : NULL;
+
+	for (s32 walked = 0; node && walked < 512; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == def && e->matched && !e->suppress
+				&& e->beanrow < 0 && xblaMeshEntryLive(e)
+				&& !(e->fileid && modelpackFindN64(e->fileid))) {
+			const struct xblameshbuilt *m = xblaMeshBuild(e->slot);
+
+			if (!m || !m->invbind || !m->bindpos || !m->bones || !m->weights) {
+				return 0;
+			}
+
+			for (s32 i = 0; i < m->numvertices; i++) {
+				const u8 *bone = &m->bones[i * 4];
+				const f32 *weight = &m->weights[i * 3];
+				const s32 num = bone[3] < 3 ? bone[3] : 3;
+				s32 most = 0;
+				struct coord in;
+				struct coord local;
+				f32 p[3];
+
+				for (s32 j = 1; j < num; j++) {
+					if (weight[j] > weight[most]) {
+						most = j;
+					}
+				}
+
+				if (num <= 0 || bone[most] >= m->nummatrices) {
+					continue;
+				}
+
+				in.x = m->bindpos[i * 3];
+				in.y = m->bindpos[i * 3 + 1];
+				in.z = m->bindpos[i * 3 + 2];
+				// A head's mesh has entries past the one matrix its file has,
+				// which the pose puts under the first (xblaMeshPose())
+				mtx4TransformVec(&m->invbind[rigid ? 0 : bone[most]], &in, &local);
+				p[0] = local.x;
+				p[1] = local.y;
+				p[2] = local.z;
+				fn(bone[most], p, arg);
 			}
 
 			return 1;
