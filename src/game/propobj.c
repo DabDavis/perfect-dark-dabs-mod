@@ -18949,7 +18949,24 @@ s32 objTestForPickup(struct prop *prop)
 			pickup = xdiff * xdiff + zdiff * zdiff <= range && ydiff >= -200 && ydiff <= 200;
 		}
 
+#ifndef PLATFORM_N64
+		// a converted level asks GoldenEye's own question, its tile graph in
+		// plan, and not a line through the level's floors and grates
+		s32 gesees = -1;
+
+		if (pickup && (obj->flags2 & OBJFLAG2_PICKUPWITHOUTLOS) == 0 && !usebigrange) {
+			gesees = geStanPickupReaches(&playerprop->pos, g_Vars.currentplayer->vv_manground, &prop->pos);
+		}
+
+		if (gesees == 0) {
+			pickup = false;
+		}
+#else
+		const s32 gesees = -1;
+#endif
+
 		if (pickup
+				&& gesees < 0
 				&& (obj->flags2 & OBJFLAG2_PICKUPWITHOUTLOS) == 0
 				&& !usebigrange
 				&& cdTestLos05(&playerprop->pos, playerprop->rooms, &prop->pos, prop->rooms,
