@@ -475,6 +475,20 @@ bool aiChrDoAnimation(void)
 				&& !g_Vars.in_cutscene) {
 			chr->hidden &= ~CHRHFLAG_NEEDANIM;
 			chrTryStartAnim(chr, anim_id, fstartframe, fendframe, cmd[8], 0, speed);
+
+			// Set without a merge, the pose is the frame's at once, and so is
+			// the height. modelSetAnimation2() carries the height the chr is
+			// at into the new frame's tween (unk34 from the root's position)
+			// and the tween begins again at every set, so a chr held this way
+			// never left the height it had when it was first set: Statue
+			// Park's Natalya, spawned standing by the helicopter, lay in the
+			// air at her standing hip height (95 units up) for good (F3
+			// 20260929-220547). GoldenEye's merge each tick walks her down.
+			if (chr->model->definition->rootnode
+					&& (chr->model->definition->rootnode->type & 0xff) == MODELNODETYPE_CHRINFO) {
+				union modelrwdata *rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
+				rwdata->chrinfo.unk34.y = rwdata->chrinfo.unk24.y;
+			}
 		} else
 #endif
 		chrTryStartAnim(chr, anim_id, fstartframe, fendframe, cmd[8], cmd[9], speed);
