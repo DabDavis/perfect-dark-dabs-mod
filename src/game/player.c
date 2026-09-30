@@ -3204,8 +3204,81 @@ struct healthdamagetype g_HealthDamageTypes[] = {
  * Make the health bar appear. If called while the health bar is already open,
  * the health displayed will be updated and the show timer will be reset.
  */
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye's gauges (bondview.c's g_HealthDisplayDurations, by eighths of
+ * health alone): the health before the hit until the first frame, then the
+ * health now - at once, no slide between them - until the second, then gone.
+ * record_damage_kills() starts it at 0 on every hit it lets through, with the
+ * health before that hit as the old one.
+ */
+static const u8 g_GeHealthDisplay[8][2] = {
+	{ 40, 100 }, { 30, 80 }, { 20, 60 }, { 20, 60 },
+	{ 20, 60 }, { 20, 50 }, { 20, 50 }, { 20, 50 },
+};
+
+static void playerTickGeHealth(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 type;
+
+	if (player->healthshowmode == HEALTHSHOWMODE_HIDDEN) {
+		return;
+	}
+
+	if (player->isdead) {
+		player->healthshowtime = -1;
+		player->healthshowmode = HEALTHSHOWMODE_HIDDEN;
+		return;
+	}
+
+	if (player->healthshowmode == HEALTHSHOWMODE_OPENING) {
+		type = (s32)(playerGetHealthFrac() * 8.0f);
+		player->healthdamagetype = type > 7 ? 7 : (type < 0 ? 0 : type);
+	}
+
+	type = player->healthdamagetype;
+
+	if (type < 0 || type > 7) {
+		type = 7;
+	}
+
+	player->healthshowtime += g_Vars.diffframe60freal;
+
+	if (player->healthshowmode == HEALTHSHOWMODE_OPENING
+			&& player->healthshowtime <= g_GeHealthDisplay[type][0]
+			&& !currentPlayerIsMenuOpenInSoloOrMp()) {
+		player->apparenthealth = player->oldhealth;
+		player->apparentarmour = player->oldarmour;
+		return;
+	}
+
+	player->healthshowmode = HEALTHSHOWMODE_CURRENT;
+	player->apparenthealth = player->bondhealth;
+	player->apparentarmour = playerGetShieldFrac();
+
+	if (currentPlayerIsMenuOpenInSoloOrMp()) {
+		player->healthshowtime = g_GeHealthDisplay[type][0];
+	} else if (player->healthshowtime > g_GeHealthDisplay[type][1]) {
+		player->healthshowtime = -1;
+		player->healthshowmode = HEALTHSHOWMODE_HIDDEN;
+	}
+}
+#endif
+
 void playerDisplayHealth(void)
 {
+#ifndef PLATFORM_N64
+	// GoldenEye's gauges start again from the health before this hit
+	if (geHudActive()) {
+		g_Vars.currentplayer->oldhealth = g_Vars.currentplayer->bondhealth;
+		g_Vars.currentplayer->oldarmour = playerGetShieldFrac();
+		g_Vars.currentplayer->healthshowtime = 0;
+		g_Vars.currentplayer->healthshowmode = HEALTHSHOWMODE_OPENING;
+		return;
+	}
+#endif
+
 	switch (g_Vars.currentplayer->healthshowmode) {
 	case HEALTHSHOWMODE_HIDDEN:
 		g_Vars.currentplayer->oldhealth = g_Vars.currentplayer->bondhealth;
@@ -3324,6 +3397,13 @@ void playerTickDamageAndHealth(void)
 			}
 		}
 	}
+
+#ifndef PLATFORM_N64
+	if (geHudActive()) {
+		playerTickGeHealth();
+		return;
+	}
+#endif
 
 	/**
 	 * Handle updating the health bar.

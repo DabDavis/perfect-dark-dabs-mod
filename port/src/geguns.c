@@ -440,6 +440,9 @@ static struct noisesettings *gegunsNoise(s32 i)
  * sniper rifle at 16 for 20 - and the watch laser at every tick for 4. Ticks,
  * not frames, so a faster frame rate does not change it.
  */
+#ifndef GEGUNS_AR33_ADS_LIFT
+#define GEGUNS_AR33_ADS_LIFT -1.0f
+#endif
 #define GEGUNS_GE_FRAME_TICKS    2
 #define GEGUNS_PD_SHOT_OVERHEAD  1
 
@@ -476,6 +479,64 @@ static s32 gegunsGeSingleWait(s32 weaponnum, const struct gegunstat *stat)
 	}
 
 	return frames * GEGUNS_GE_FRAME_TICKS;
+}
+
+/**
+ * How much more (or less) than the 3.5 every gun is raised by a GoldenEye gun
+ * comes up to the eye under COD Style Aiming. The AR33's carry handle stands
+ * over its bore as a solid block with no aperture through it, in GoldenEye's
+ * own model and the release's alike, and raised as far as the rest the eye
+ * sat behind its rear end: the handle filled the middle of the view under the
+ * crosshair and hid the front sight and what it was on (F3 20260930-032244,
+ * "ads doesn't actually look down its iron sights, they're obscured by the
+ * top rail"). Held lower, the sight line passes over the handle.
+ */
+f32 gegunsCodAimLift(s32 weaponnum)
+{
+	if (weaponnum == WEAPON_GE_AR33) {
+		return GEGUNS_AR33_ADS_LIFT;
+	}
+
+	return 0.0f;
+}
+
+/**
+ * How long after a single shot GoldenEye's gun is ready again when the trigger
+ * has been let go since, as bgun0f09aba4() counts it (ticks since the shot), or
+ * -1 where Perfect Dark's own rule stands (not a GoldenEye gun, or an automatic).
+ *
+ * gunTickHandState() goes back to IDLE from RECOIL1 once field_890 reaches the
+ * two recoil speeds plus SingleRate - unless the trigger was released since
+ * the shot (field_888), when the two speeds are enough. So a tapped Cougar
+ * fires every 34 ticks and a held one every 54: at GoldenEye's two sixtieths a
+ * frame it is 2 * ceil(speeds / 2) + 4, and the Cougar and the grenade
+ * launcher still wait their 6 in TRIGGER_PRESS, which the next shot here waits
+ * itself (gegunsTriggerDelay60()). Perfect Dark lets a released trigger cut
+ * the recovery short only where the fourth recoil speed is not negative, and
+ * only once the trigger is pressed again: the Cougar's is -1, and a tapped
+ * Cougar fired at its held rate (F3 20260929-212222, "time between shots on
+ * magnum is too slow").
+ */
+s32 gegunsReleasedReady(s32 weaponnum, s32 speeds, s32 hasanim)
+{
+	s32 t;
+
+	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_WEAPONS) {
+		return -1;
+	}
+
+	if (!stats[weaponnum - WEAPON_GE_FIRST].bitflags || stats[weaponnum - WEAPON_GE_FIRST].autorate != 0xff) {
+		return -1;
+	}
+
+	if (speeds < 0) {
+		speeds = 0;
+	}
+
+	t = ((speeds + GEGUNS_GE_FRAME_TICKS - 1) / GEGUNS_GE_FRAME_TICKS + 2) * GEGUNS_GE_FRAME_TICKS
+		- (hasanim && !gegunsTriggerDelay60(weaponnum) ? GEGUNS_PD_SHOT_OVERHEAD : 0);
+
+	return t < speeds ? speeds : t;
 }
 
 static s8 gegunsRecovery(s32 weaponnum, const struct gegunstat *stat, s32 hasanim)

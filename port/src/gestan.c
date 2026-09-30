@@ -1579,6 +1579,57 @@ s32 geStanAutogunSees(struct coord *from, s32 fromroom, struct coord *to, f32 to
 }
 
 /**
+ * Whether a player standing at `from` (feet at `ground`) may pick up the
+ * collectable at `to`: GoldenEye's objTestForPickup() (propobj.c) walks
+ * stanTestLineUnobstructed() in plan from Bond's tile to the object and takes
+ * it only where the walk ends on the object's own tile (`stan == prop->stan`).
+ * No wall, grate or floor in three dimensions comes into it, which is how the
+ * watch magnet lifts Bunker 2's throwing knives out of the cell's drain: they
+ * lie 240 under the drain's tile, and Perfect Dark's line of sight from the
+ * player's eye to them went through its floor (F3 20260929-215647,
+ * 20260930-030654).
+ *
+ * The object's tile is the one under it; one under every floor (the knives in
+ * the drain) is on the tile over it, whichever the walk ends on there. 1 may,
+ * 0 may not, -1 where the level has no graph or the player is over no tile.
+ */
+s32 geStanPickupReaches(struct coord *from, f32 ground, struct coord *to)
+{
+	s32 fromtile;
+	s32 totile;
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return -1;
+	}
+
+	fromtile = stanTileUnder(from->x, from->z, ground + 10.0f, GESTAN_RISE);
+
+	if (fromtile < 0) {
+		return -1;
+	}
+
+	tile = stanWalkLine(fromtile, from->x, from->z, to->x, to->z, false);
+
+	if (!stanHolds(&g_Stan.tiles[tile], to->x, to->z)) {
+		return 0;
+	}
+
+	totile = stanTileUnder(to->x, to->z, to->y + 10.0f, GESTAN_RISE);
+
+	if (totile < 0 || totile == tile) {
+		return 1;
+	}
+
+	// on the seam between two tiles at the same height
+	return fabsf(stanSurface(&g_Stan.tiles[tile], to->x, to->z) - stanSurface(&g_Stan.tiles[totile], to->x, to->z)) < 1.0f;
+}
+
+/**
  * Whether a vehicle can drive `n` lines laid end to end in plan, GoldenEye's
  * walkTilesBetweenPoints_NoCallback() chained through its truck's outline:
  * each line starts on the tile the last one ended on, and a line that meets

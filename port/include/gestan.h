@@ -171,6 +171,13 @@ bool geStanSightClear(struct coord *a, struct coord *b);
  */
 s32 geStanAutogunSees(struct coord *from, s32 fromroom, struct coord *to, f32 toground);
 
+/**
+ * GoldenEye's pickup test (propobj.c's objTestForPickup()): the tile graph
+ * walked in plan from the player's tile to the object, taking it only where the
+ * walk ends on the object's tile. 1 may, 0 may not, -1 no graph here.
+ */
+s32 geStanPickupReaches(struct coord *from, f32 ground, struct coord *to);
+
 extern s32 g_GeStanAsked;
 extern s32 g_GeStanSkipped;
 extern s32 g_GeStanNoTile;

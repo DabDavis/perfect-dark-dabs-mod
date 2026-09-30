@@ -7902,7 +7902,11 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						pos.y = prop->pos.y - 1800.0f;
 						pos.z = prop->pos.z + ((burst & 1) ? -400.0f : 400.0f);
 
+						// GoldenEye's flames go where they are made, however
+						// far over the silo the shuttle has climbed
+						g_ExplosionUnbounded = true;
 						explosionCreate(NULL, &pos, prop->rooms, 20, 0, false, NULL, 0, NULL);
+						g_ExplosionUnbounded = false;
 
 						if (burst % 5 == 0) {
 							smokeCreateSimple(&pos, prop->rooms, 10);
@@ -18971,7 +18975,24 @@ s32 objTestForPickup(struct prop *prop)
 			pickup = xdiff * xdiff + zdiff * zdiff <= range && ydiff >= -200 && ydiff <= 200;
 		}
 
+#ifndef PLATFORM_N64
+		// a converted level asks GoldenEye's own question, its tile graph in
+		// plan, and not a line through the level's floors and grates
+		s32 gesees = -1;
+
+		if (pickup && (obj->flags2 & OBJFLAG2_PICKUPWITHOUTLOS) == 0 && !usebigrange) {
+			gesees = geStanPickupReaches(&playerprop->pos, g_Vars.currentplayer->vv_manground, &prop->pos);
+		}
+
+		if (gesees == 0) {
+			pickup = false;
+		}
+#else
+		const s32 gesees = -1;
+#endif
+
 		if (pickup
+				&& gesees < 0
 				&& (obj->flags2 & OBJFLAG2_PICKUPWITHOUTLOS) == 0
 				&& !usebigrange
 				&& cdTestLos05(&playerprop->pos, playerprop->rooms, &prop->pos, prop->rooms,

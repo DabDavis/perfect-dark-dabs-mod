@@ -3583,6 +3583,68 @@ static s32 beanVertex(const struct beanmodel *bm, const struct beanvb *vb, u32 i
 }
 
 /**
+ * Pieces of the release's first-person guns that GoldenEye's own model carries
+ * on a list it never shows in first person, left out of the HD build: every
+ * triangle whose middle is in the box (the file's own units) - the grip's long
+ * faces run from inside the tube to its foot. The HD
+ * model is laid onto GoldenEye's whole, but GoldenEye's parts are switched and
+ * the release's are not.
+ *
+ * - The rocket launcher's pistol grip. GoldenEye's model has it (the N64
+ *   original's draws 6, 7 and 22, 365 to 905 under the tube's axis between z
+ *   -1444 and -121) on a list that is off in the hand, so the N64 look shows
+ *   the tube alone; the release made it part of the body's two big draws, and
+ *   in the HD look it hung under the tube with nothing holding it: "there is
+ *   an extra handle on the rocket launcher" (F3 20260929-221605, -221650).
+ *   The tube's radius there is 277, its sleeve's 322.
+ */
+struct fpcut {
+	s8 fp;
+	f32 lo[3];
+	f32 hi[3];
+};
+
+static const struct fpcut fpCuts[] = {
+	{ WEAPON_GE_ROCKETLAUNCHER - WEAPON_GE_FIRST, { -1e9f, -1e9f, -1500.0f }, { 1e9f, -300.0f, -60.0f } },
+};
+
+static s32 fpTriCut(s32 fp, const struct beanmodel *bm, const struct beanvb *vb, const u16 *idx)
+{
+	for (s32 k = 0; k < (s32)ARRAYCOUNT(fpCuts); k++) {
+		f32 mid[3] = { 0.0f, 0.0f, 0.0f };
+		s32 inside = 1;
+
+		if (fpCuts[k].fp != fp) {
+			continue;
+		}
+
+		for (s32 i = 0; i < 3; i++) {
+			struct beanvtx v;
+
+			if (!beanVertex(bm, vb, idx[i], &v)) {
+				return 0;
+			}
+
+			for (s32 a = 0; a < 3; a++) {
+				mid[a] += v.pos[a] / 3.0f;
+			}
+		}
+
+		for (s32 a = 0; a < 3; a++) {
+			if (mid[a] < fpCuts[k].lo[a] || mid[a] > fpCuts[k].hi[a]) {
+				inside = 0;
+			}
+		}
+
+		if (inside) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
  * Whether triangle `idx` of a draw lies wholly behind `z` in the file's own
  * space, when `split` asks (fpRound's split draw); 0 otherwise, and for a
  * vertex that cannot be read.
@@ -11124,6 +11186,10 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 			u16 idx[3];
 			s32 group;
 			s32 ok = 1;
+
+			if (!original && fpTriCut(fp, &bm, &vb, &tris[t * 3])) {
+				continue;
+			}
 
 			for (s32 i = 0; i < 3 && ok; i++) {
 				const u16 vi = tris[t * 3 + i];

@@ -52,6 +52,13 @@ struct explosion *g_Explosions;
 // pool, so a change from the menu waits for the next stage.
 s32 g_MaxExplosions = 48;
 s32 g_MaxExplosionsSetting = 48;
+
+// Set around an explosionCreate() whose flames are not to be held inside the
+// rooms it is in: GoldenEye's explosions have no such bound (explosion.c
+// there), and the fire under Aztec's shuttle is made 1800 under it as it
+// climbs out of the level - above the silo's box the flames had nowhere to
+// go and the launch fizzled out half way up (F3 20260929-235205)
+bool g_ExplosionUnbounded = false;
 #else
 s32 g_MaxExplosions = MAX_EXPLOSIONS_DEFAULT;
 #endif
@@ -401,6 +408,10 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 
 			if (exp->type == EXPLOSIONTYPE_HUGE25) {
 				exp->numbb = 0;
+#ifndef PLATFORM_N64
+			} else if (g_ExplosionUnbounded) {
+				exp->numbb = 0;
+#endif
 			} else {
 				exp->bbs[0].bbmin.x = g_Rooms[exproom].bbmin[0];
 				exp->bbs[0].bbmin.y = g_Rooms[exproom].bbmin[1];
