@@ -830,6 +830,33 @@ static const u32 fpTint[ARRAYCOUNT(fpRows)] = {
 	[WEAPON_GE_GOLDENGUN       - WEAPON_GE_FIRST] = 0xfff0c86e,
 };
 
+// How much of its reflection map a tinted gun adds (beanGoldPicture())
+#define FP_GOLD_AMOUNT 255
+
+/**
+ * A tinted gun's colour in first person: in the HD look its gold is mostly
+ * the reflection added over it (beanGoldPicture()), so the tint under it is
+ * taken down a quarter for the two together not to wash out to a pale
+ * yellow. A map of a model's own is drawn whatever Mod.XblaReflections says,
+ * as the props' are, so the gun is never left with the dimmer tint alone.
+ */
+static u32 fpGunTint(s32 fp, s32 original)
+{
+	const u32 tint = fpTint[fp];
+
+	u32 out = tint & 0xff000000;
+
+	if (original) {
+		return tint;
+	}
+
+	for (s32 shift = 16; shift >= 0; shift -= 8) {
+		out |= (((tint >> shift) & 0xff) * 3 / 4) << shift;
+	}
+
+	return out;
+}
+
 // Where a tinted gun is lit from. In first person Bean's axes are the host's:
 // y up, the barrel along z, the eye towards -z - above and in front of the eye.
 static const f32 fpLight[3] = { 0.0f, 0.75f, -0.66f };
@@ -3396,6 +3423,9 @@ struct beanmodel {
 	// hand and its working parts there and wants them; a head keeps
 	// sunglasses there and does not.
 	s32 keepparts;
+	// One of the N64-look originals (files/original/), whose 0x17 kind 2
+	// sections are a head's sunglasses (beanWalkStream())
+	s32 original;
 
 	s32 numremap;
 	u16 remap[BEAN_MAXPAL];      // palette number -> pose bone
@@ -4156,11 +4186,21 @@ static void beanWalkStream(struct beanmodel *bm)
 			break;
 		}
 
-		// A section behind a condition: 0x17 {kind, where it ends}. Kind 2 is
-		// only in the originals, round a head's sunglasses, which GoldenEye's
+		// A section behind a condition: 0x17 {kind, where it ends}. In the
+		// originals kind 2 is round a head's sunglasses, which GoldenEye's
 		// multiplayer heads do not wear. Kind 0 is in both, and its sections
 		// are drawn - the HD characters always had them.
-		if (type == 0x17 && size >= 12 && gebeanBE32(st + pc + 4) == 2) {
+		//
+		// The kind is the model's own and means nothing across files: in the
+		// release's HD guns (and their pickups) it numbers the pieces a gun
+		// switches, and kind 2 is the pistols' trigger finger (the PP7, the
+		// silenced PP7, the Cougar and the gold and silver PP7s: "Bond is
+		// missing his index finger", F3 20260930-185405) and the second of
+		// the shotgun's five shells and the automatic shotgun's first ("both
+		// shotguns are missing a shell at the top despite having max ammo",
+		// F3 20260930-190227). No HD character, head or level file has one,
+		// so only the originals leave it out.
+		if (type == 0x17 && size >= 12 && gebeanBE32(st + pc + 4) == 2 && bm->original) {
 			pc = gebeanBE32(st + pc + 8);
 			continue;
 		}
@@ -4737,6 +4777,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 
 	memset(bm, 0, sizeof(*bm));
 	bm->keepparts = keepparts;
+	bm->original = strncmp(source, "original/", 9) == 0;
 	// the Community Edition's copy first, where this session draws it (gebeance.c)
 	if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
 		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
@@ -8150,6 +8191,62 @@ static u8 *beanReflectPicture(const struct beanmodel *bm, s32 spot, s32 land)
 	return out;
 }
 
+/**
+ * The Golden Gun's gold as one sphere map for the reflection pass, laid out
+ * as beanReflectPicture()'s. Its material holds a 256x256 reflection map
+ * (_0x0903C7A5, a smeared olive and brass studio) in slot 0 and the gun's
+ * white scratch picture in slot 1, and its pixel shader's constants are
+ * c12 = 1.77 and c14 = -0.77 on every channel: the map stretched about its
+ * top, map * 1.77 - 0.77, which darkens its browns towards black and leaves
+ * its pale streaks bright - the dark bands and highlights of GoldenEye's own
+ * model, whose gold is a texgen'd reflection too. The map is near grey, and
+ * the gun's pictures white, so the gold is laid on here (fpGoldHue): the
+ * rest of the shader, and whatever colour it gives, is not decoded.
+ */
+static const f32 fpGoldHue[3] = { 1.25f, 1.05f, 0.45f };
+
+static u8 *beanGoldPicture(const struct beanmodel *bm, s32 map)
+{
+	s32 w = 0, h = 0;
+	u8 *m = beanDecodeTexture(bm, map, &w, &h);
+	u8 *out = m ? malloc((size_t)GEBEAN_ENV_CELL * GEBEAN_ENV_CELL * 4) : NULL;
+
+	if (!out || w <= 0 || h <= 0) {
+		free(m);
+		free(out);
+		return NULL;
+	}
+
+	for (s32 y = 0; y < GEBEAN_ENV_CELL; y++) {
+		for (s32 x = 0; x < GEBEAN_ENV_CELL; x++) {
+			u8 *px = &out[((size_t)y * GEBEAN_ENV_CELL + x) * 4];
+			f32 a = ((x + 0.5f) / GEBEAN_ENV_CELL) * 2.0f - 1.0f;
+			f32 b = ((y + 0.5f) / GEBEAN_ENV_CELL) * 2.0f - 1.0f;
+			const f32 d = a * a + b * b;
+
+			if (d > 0.999f) {
+				const f32 k = sqrtf(0.999f / d);
+
+				a *= k;
+				b *= k;
+			}
+
+			for (s32 c = 0; c < 3; c++) {
+				const f32 t = (beanReflectSample(m, w, h, a * 0.5f + 0.5f, b * 0.5f + 0.5f, c) * 1.77f - 0.77f * 255.0f)
+					* fpGoldHue[c];
+
+				px[c] = (u8)(t < 0.0f ? 0.0f : t > 255.0f ? 255.0f : t + 0.5f);
+			}
+
+			px[3] = 0xff;
+		}
+	}
+
+	free(m);
+
+	return out;
+}
+
 static const char *beanTextureName(const struct beanmodel *bm, s32 t);
 
 /**
@@ -9911,6 +10008,23 @@ static s32 beanTextureIsGlove(const struct beanmodel *bm, s32 t)
 }
 
 /**
+ * Whether a gun's draw is GoldenEye's glove: in the HD files the one 512x511
+ * picture, in the originals the glove's six (beanGunExtent()).
+ */
+static s32 beanDrawIsGlove(const struct beanmodel *bm, s32 original, const struct beandraw *d)
+{
+	s32 w = 0;
+	s32 h = 0;
+
+	if (d->tex >= (u32)bm->numtex) {
+		return 0;
+	}
+
+	return original ? beanTextureIsGlove(bm, (s32)d->tex)
+		: beanTextureSize(bm, (s32)d->tex, &w, &h) && w == 512 && h == 511;
+}
+
+/**
  * Which of a gun's draws are drawn and which of those the placement is
  * measured on, with the box and the points of the second set.
  *
@@ -11231,6 +11345,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		s32 numtris;
 		s32 *mapped;
 		s32 *mappedmtx;
+		s32 glovedraw;
 
 		if (!drawn[di] || !beanReadVb(&bm, d->vb, &vb)) {
 			continue;
@@ -11256,6 +11371,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 		for (u32 i = 0; i < vb.count; i++) {
 			mapped[i] = -1;
 		}
+
+		glovedraw = beanDrawIsGlove(&bm, original, d);
 
 		for (s32 t = 0; t < numtris; t++) {
 			u16 idx[3];
@@ -11329,8 +11446,12 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 				// footage shows - the AR33 at 0x50-0x90, the PP7 at 0x30.
 				// Left white, every HD gun drew a bright silver (F3
 				// 20260928-231646, "all ge xbla weapons are the wrong shade").
+				//
+				// A tinted gun's glove keeps its own colours: the Golden Gun's
+				// tint turned the hand holding it gold (F3 20260930-190258,
+				// "turns Bond's hand orange").
 				mapped[vi] = beanAddVertex(&out, pos, v.nrm, v.uv, bones, weight,
-						fpTint[fp] ? beanShadeTint(fpTint[fp], v.nrm, fpLight) : v.argb);
+						fpTint[fp] && !glovedraw ? beanShadeTint(fpGunTint(fp, original), v.nrm, fpLight) : v.argb);
 				mappedmtx[vi] = mtx;
 
 				if (mapped[vi] < 0) {
@@ -11468,6 +11589,28 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 	}
 
 	numdecals = beanMarkDecals(&out, matwords, &nummatwords, mats);
+
+	// A tinted gun's gold is the reflection map its material holds beside
+	// the picture (beanGoldPicture()), added over the tint by the XBLA
+	// meshes' reflection pass as a GoldenEye prop's own maps are, looked up
+	// by the view-space normal. Only the tint drew the Golden Gun as flat
+	// matte paint (F3 20260930-190258, "Golden Gun shader is completely
+	// broken"). The glove reflects nothing.
+	if (fpTint[fp] && !original) {
+		snprintf(mats->envkey, sizeof(mats->envkey), "gebeanfpenv:%s", r->source);
+
+		for (s32 di = 0; di < bm.numdraws; di++) {
+			const struct beandraw *d = &bm.draws[di];
+
+			if (!drawn[di] || beanDrawIsGlove(&bm, original, d) || d->masktex >= (u32)bm.numtex
+					|| d->tex >= (u32)nummatwords || d->tex >= (u32)bm.numtex || mats->env[d->tex]) {
+				continue;
+			}
+
+			mats->env[d->tex] = beanGoldPicture(&bm, (s32)d->masktex);
+			mats->envamount[d->tex] = mats->env[d->tex] ? FP_GOLD_AMOUNT : 0;
+		}
+	}
 
 	// A list the round did not touch draws the same either way, so only
 	// those it did are given their other group; the rest are never drawn
