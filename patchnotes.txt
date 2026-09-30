@@ -71,7 +71,7 @@ Menus: English (US) spells color, center and gray the American way; English (UK)
 F8 (texture packs on/off) and F6 (XBLA assets on/off) now say so on screen (thanks dick)
 Stage Loader and Load Mods: their descriptions use the small font and fit in the box (thanks Shockwave S08)
 GE Plus watch: the Ratio row is gone, since the PC version keeps the picture's shape by itself (thanks dick)
-GE Plus: GoldenEye's sight shows only while you aim, as in GoldenEye; GE Plus: Crosshair When Not Aiming (Mods page) keeps it up with the gun lowered
+GE Plus: GoldenEye's sight shows only while you aim, as in GoldenEye; GE Plus: Crosshair When Not Aiming (Mods: Missions) keeps it up with the gun lowered
 
 notes 21 2026-09-30
 Simulants: new "Simulant AI" option on Dab's Mod's Player page. Modern Movement lets simulants find their way with a map of each arena, so they get stuck far less (most on Warehouse, Area 52 and Grid, and with fast simulants), use ladders, lifts and drops, and step aside for each other in doorways. They still choose what to do the way they always have. Stock is the default and plays exactly as before; GE Plus arenas stay on Stock for now
