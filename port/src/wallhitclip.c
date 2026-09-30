@@ -39,8 +39,10 @@
  * until then, and forever when the setting is off, the stock quad is drawn. A
  * room that could hold part of the surface must be loaded to be read, so a
  * mark next to an unloaded one waits (CLIP_RETRYTICKS) rather than being cut
- * where that room's floor goes on. Marks on props and doors are left alone:
- * their triangles are a model's, under its matrices.
+ * where that room's floor goes on. Marks on doors are left alone: their
+ * triangles are a model's, under its matrices. Marks on other props are cut
+ * to the prop's bounding box only (wallhitClipComputeProp()), which is what
+ * hangs past a crate's edge.
  */
 
 #include <math.h>
@@ -54,6 +56,8 @@
 #include "game/bg.h"
 #include "game/gfxmemory.h"
 #include "game/modoptions.h"
+#include "game/propobj.h"
+#include "lib/model.h"
 #include "lib/memp.h"
 #include "wallhitclip.h"
 
@@ -837,6 +841,97 @@ static s32 wallhitClipCompute(struct wallhit *wallhit, struct wallhitclip *clip)
 	return wallhitClipUnion(clip);
 }
 
+/**
+ * A mark on a prop: the quad cut down to the prop's bounding box, in the
+ * space of the node the mark hangs from (the box is the model's, so only a
+ * mark on a node under the box's own matrix is cut). What lies outside the
+ * box is in the air whatever the model's shape: a splat on a crate's top by
+ * its edge, a hole by its corner (F3 20260930-191750, GE Plus Train). A mark
+ * inside the box is left whole - the box says nothing about a concave
+ * prop's inside.
+ */
+static s32 wallhitClipComputeProp(struct wallhit *wallhit, struct wallhitclip *clip)
+{
+	struct prop *prop = wallhit->objprop;
+	struct defaultobj *obj = prop->obj;
+	struct modelnode *bboxnode;
+	struct modelrodata_bbox *bbox;
+	struct clipframe f;
+	struct clippoly poly;
+	struct clippoly tmp;
+	f32 lo[3];
+	f32 hi[3];
+	f32 area;
+	s32 i;
+
+	if (obj == NULL || obj->model == NULL || obj->type == OBJTYPE_DOOR || !wallhitClipFrame(wallhit, &f)) {
+		return CLIP_WHOLE;
+	}
+
+	bboxnode = modelFindBboxNode(obj->model);
+
+	if (bboxnode == NULL || bboxnode->rodata == NULL
+			|| modelFindNodeMtxIndex(bboxnode, 0) != wallhit->mtxindex) {
+		return CLIP_WHOLE;
+	}
+
+	bbox = &bboxnode->rodata->bbox;
+	lo[0] = bbox->xmin; hi[0] = bbox->xmax;
+	lo[1] = bbox->ymin; hi[1] = bbox->ymax;
+	lo[2] = bbox->zmin; hi[2] = bbox->zmax;
+
+	// A box that is not a box, or a mark whose middle is not on it: nothing
+	// to go by
+	for (i = 0; i < 3; i++) {
+		// The quad's corners are rounded to whole units, and the drawn
+		// surface may stand a little off the box
+		f32 margin = 1.0f + (hi[i] - lo[i]) * 0.005f;
+
+		if (!(hi[i] > lo[i])) {
+			return CLIP_WHOLE;
+		}
+
+		lo[i] -= margin;
+		hi[i] += margin;
+
+		if (f.mid[i] < lo[i] || f.mid[i] > hi[i]) {
+			return CLIP_WHOLE;
+		}
+	}
+
+	// Each face of the box as a half plane in the quad's (a, b):
+	// mid + a u + b v between lo and hi on each axis
+	wallhitClipSquare(&poly, 1.0f);
+
+	for (i = 0; i < 3 && poly.n >= 3; i++) {
+		wallhitClipHalf(&poly, &tmp, f.u[i], f.v[i], lo[i] - f.mid[i]);
+		wallhitClipHalf(&tmp, &poly, -f.u[i], -f.v[i], f.mid[i] - hi[i]);
+	}
+
+	if (poly.n < 3) {
+		return CLIP_WHOLE;
+	}
+
+	area = wallhitClipArea(&poly);
+
+	if (area < CLIP_MINAREA || area >= 4.0f * 0.999f) {
+		return CLIP_WHOLE;
+	}
+
+	clip->numpieces = 1;
+	clip->numverts = poly.n;
+	clip->laid = false;
+	clip->piecesizes[0] = poly.n;
+	clip->plane[0][0] = clip->plane[0][1] = clip->plane[0][2] = 0.0f;
+
+	for (i = 0; i < poly.n; i++) {
+		clip->ab[i][0] = poly.p[i][0];
+		clip->ab[i][1] = poly.p[i][1];
+	}
+
+	return CLIP_CLIPPED;
+}
+
 void wallhitClipTick(struct wallhit *wallhit)
 {
 	struct wallhitclip *clip;
@@ -853,7 +948,7 @@ void wallhitClipTick(struct wallhit *wallhit)
 	}
 
 	if (wallhit->objprop != NULL) {
-		clip->state = CLIP_WHOLE;
+		clip->state = wallhitClipComputeProp(wallhit, clip);
 		return;
 	}
 
@@ -906,7 +1001,9 @@ bool wallhitClipRender(Gfx **gdlptr, struct wallhit *wallhit)
 	// wall hits' pulled-in projection does not cover at a distance: it is
 	// lifted a little off the surface, on the camera's side (the side a mark
 	// can be seen from, being culled from the back)
-	{
+	lift = 0.0f;
+
+	if (clip->laid && wallhit->objprop == NULL) {
 		struct coord *roompos = &g_BgRooms[wallhit->roomnum].pos;
 		struct coord *cam = &g_Vars.currentplayer->cam_pos;
 		f32 side = (cam->x - roompos->x - f.mid[0]) * f.n[0]

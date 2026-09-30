@@ -16,8 +16,9 @@ extern "C" {
  * so near a ledge, a table's edge or a doorway part of it hangs in the air.
  * With the setting on, the quad is cut down to the room triangles under it
  * that face its way within half its size of its plane, each piece laid on its
- * own triangle (wallhitclip.c), once, a tick or two after it is made; props'
- * marks are left as they are.
+ * own triangle (wallhitclip.c), once, a tick or two after it is made. A
+ * mark on a prop (not a door) is cut to the prop's bounding box, so what
+ * hangs past a crate's edge or corner goes.
  */
 
 // wallhitReset(), once g_Wallhits is allocated
