@@ -31,6 +31,10 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 21 2026-09-30
+Simulants: new "Simulant AI" option on Dab's Mod's Player page. Modern Movement lets simulants find their way with a map of each arena, so they get stuck far less (most on Warehouse, Area 52 and Grid, and with fast simulants), use ladders, lifts and drops, and step aside for each other in doorways. They still choose what to do the way they always have. Stock is the default and plays exactly as before; GE Plus arenas stay on Stock for now
+Simulants, Modern Movement: the first time you play an arena it builds its map, about a second on most arenas; after that it loads at once
+
 notes 20 2026-09-30
 Updates: the game now tells you on the main menu when a newer build of your channel is out, with Update Now, Later, Skip This Version and a way to turn the notices off (also on the Check for Updates page)
 Updates: Check for Updates can now switch between Stable and Dev: it shows both channels' latest build and backs up your settings and saves before switching. Dev gets fixes first; Stable is the safe fallback
