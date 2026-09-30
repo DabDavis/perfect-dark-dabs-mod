@@ -5,6 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
+- **A GoldenEye hat on an HD head** — ge-bean.md, "A GoldenEye hat on an HD head" (2026-09-30): GoldenEye's per-head hat table is the N64 heads' (Bean's image has it byte for byte) and floated side caps over 4J's HD hair; on an HD head the hat is worn as modelled, and a side cap or helmet is lifted clear of hair through it (`xblaMeshHatSeat()`), berets and fur hats unmeasured
 - **GE Plus's level music** — ge-bean.md, "The levels' own music": GoldenEye's `music_setup_entries` row on each map/mission line (converter 45), `gemusic.c` appends the ROM's sequences on one shared bank with GoldenEye's own volumes; a converted mission was silent because Perfect Dark starts a mission's music from its intro's AI list; background plays level-wide; watch and death tunes
 - **GoldenEye's death replay** — ge-bean.md, "GoldenEye's death replay": `port/src/gedeathcam.c` replays the fall three times from random cameras once the death has faded to black (bondview2.c's `CAMERAMODE_DEATH_CAM_SP`), on GE Plus's converted solo missions only (no Combat Sim, the user's call); a body's matrices are floats only between `chrTick()` and the drawing, and Jungle's bushes have no collision; the oracle recipe for a death in the native GE port
 - **Music a mod or a conversion adds** — ge-bean.md, "Borrowed music read its volume past the end of a table": `seqSetVolume()` scales a sequence by `var8005ecf8[tracknum]`, which has 121 rows for the game's 119 sequences, so every sequence `seqAppend()` hands out (GE-X's borrowed music, GoldenEye's folder and intro themes) read past it - one drew `AL_VOL_FULL` and played three times as loud. They take Perfect Dark's own menu scale now. `SDL_AUDIODRIVER=disk` + `SDL_DISKAUDIOFILE` is the quickest way to hear a headless run
@@ -12437,6 +12438,49 @@ Bunker (19 side cap, 2+1 beret, 1 peaked) and Frigate (28 of GoldenEye's 29
 berets, one chr fewer at the frame); Surface has none in either. Probe
 `~/wt/f3-0927b-hats-rig/hats.py` (SHOOTHAT=1 hits the hat through
 `chrDamage(..., HITPART_HAT)`).
+
+### A GoldenEye hat on an HD head (25th F3 pass, 2026-09-30)
+
+F3 20260930-020448 and 022258 (Facility, HD look): "hat needs fixing on this
+head". The side caps of four heads in ten floated over the hair, tipped back
+(Duncan 47, Dwayne 49, B 50, Karl 42; Dave 51 with glasses in the second
+report). Not a regression: the table fit was right for the N64 heads and had
+been applied to the HD ones as they were.
+
+- **GoldenEye's table is the N64 heads'.** `headHat_array_8003E464` lifts the
+  side cap 25-39 units for 42/47/49/50 (their N64 crowns stand high). Bean's
+  image (dumped from Xenia like the PD release's, `.xbla-work` recipe; the
+  table sits at 0x82729b88) carries it **byte for byte**, but 4J's HD heads
+  are other shapes: worn as the hat model has it (no fit at all), the side cap,
+  helmet, beret and fur hat sit right on nearly every HD head, and the table's
+  lift is what floated them. The N64 look keeps the table (pixel-identical).
+- **What the HD heads do need:** hair standing through a side cap or a helmet
+  (Karl's quiff, Pete 44, Dave 51, Martin 45: 6-21 units).
+  `xblaMeshHatSeat()` (xblamesh.c) measures it: the head's mesh posed with
+  this frame's matrices into the frame of the joint the hat hangs on
+  (`hatmodel->attachedtonode` - the mesh's own palette entries are the
+  body's matrices, and "joint 0" is the body's root), rasterised into
+  2-unit columns (top and underside), against the hat's HD triangles facing
+  up; the third deepest vertex under the top and above the underside, at most
+  40 deep, is lifted 2 clear. chrRender() applies it as an offset in the hat's
+  space, where the table's went, cached per chr/head/hat for the stage.
+- **Traps met:** a plain drop test (every hat vertex over the head) caught the
+  cap's front tip on the forehead slope and lifted every cap 12-17; using only
+  the hat's upper half missed the band where the hair comes through; a
+  helmet's neck guard and peak under an overhang read 55-130 deep (hence the
+  40 cap and the underside test). **Berets' and fur hats' up-turned flaps
+  read 15-37** and lifted them off their heads - those two are worn as
+  modelled, unmeasured (`measure` 0). Heads 43 (Alan) and 67 (Ken) are the
+  same HD mesh.
+- **Measuring the N64 heads from a loaded modeldef does not work** here:
+  `headfitMeasureHead()` on a GE Plus head's loaded definition read the same
+  -199..949 for every head (the lists are rewritten), and `headfitLoadFile()`
+  loads none of the converted head files.
+- Probe: `~/wt/f3-0930b-caps-run/hats.py` + `run.sh` (seeded GE Plus mission,
+  `--rng-seed` picks the four heads: 3 = 42/51/52/53, 4 = 42-45, 7 = 47-50;
+  ONLY=chr numbers; the player is set in front of each guard with
+  chrMoveToPos() and the guard's facing). Guards in the toilet stalls show a
+  door - pick other chrs.
 
 ### 13th F3 pass: props with no HD row (fix/f3-0927b-hdprops, 2026-09-27)
 

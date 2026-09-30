@@ -3508,8 +3508,40 @@ s32 chrTick(struct prop *prop)
 					// 20260927-191839)
 					s32 hattype = hatGetType(chr->weapons_held[2]);
 					f32 fit[6];
+					f32 seat[3];
+					struct modeldef *headdef = NULL;
 
+					if (model->definition->skel == &g_SkelChr) {
+						struct modelnode *spot = modelGetPart(model->definition, MODELPART_CHR_HEADSPOT);
+
+						if (spot && spot->type == MODELNODETYPE_HEADSPOT) {
+							headdef = ((union modelrwdata *)modelGetNodeRwData(model, spot))->headspot.headmodeldef;
+						}
+					}
+
+					// On a head drawn as the release's HD mesh the table's fit
+					// is the N64 head's, and floated a side cap over the hair
+					// of four heads in ten: the hat is worn as the model has
+					// it, which is where it sits on 4J's heads, and a side cap
+					// or a helmet is lifted clear of hair standing through it
+					// (xblaMeshHatSeat(), F3 20260930-020448, 022258). A beret
+					// and a fur hat measured so were lifted off their heads by
+					// their own flaps, and need nothing.
 					if (hatmodel && hatmodel->matrices && (chr->weapons_held[2]->flags & PROPFLAG_ONTHISSCREENTHISTICK)
+							&& headdef && xblaMeshHatSeat(model, headdef, hatmodel,
+								hattype == 1 /* side cap */ || hattype == HATTYPE_METAL, seat)) {
+						struct coord hatpos = { seat[0], seat[1], seat[2] };
+						Mtxf seatmtx;
+						Mtxf moved;
+
+						mtx4LoadTranslation(&hatpos, &seatmtx);
+						mtx00015be4(hatmodel->matrices, &seatmtx, &moved);
+						mtx4Copy(&moved, hatmodel->matrices);
+
+						if (hattype == HATTYPE_2) {
+							hatvisible = false;
+						}
+					} else if (hatmodel && hatmodel->matrices && (chr->weapons_held[2]->flags & PROPFLAG_ONTHISSCREENTHISTICK)
 							&& gexPlusHeadHat(chr->headnum, hattype, fit)) {
 						struct coord hatpos;
 						Mtxf fitmtx;
