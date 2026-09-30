@@ -2917,6 +2917,24 @@ void modelTickAnim(struct model *model, s32 lvupdate240, bool arg2)
  * surfaces fought.
  */
 s32 g_ModelXluDecal = 0;
+
+/**
+ * Glass See-Through's combiner (G_CC_CUSTOM_GLASS_LERP) for mode 9's second
+ * cycle, in place of G_CC_CUSTOM_20/23: only while the setting is on and only
+ * for something with an opacity of its own to lay over the texel - a tinted
+ * pane or a door's window past its clear look (prim alpha, envcolour's second
+ * byte). The lerp takes its alpha from the texel alone, where G_CC_CUSTOM_20
+ * multiplies it by the vertex alpha, so everything else drawn in mode 9 lost
+ * its own fade to it: Area 51's laser beams (objRender() writes laserfade
+ * into the beam's vertex alpha) stayed lit after they switched off, drawn
+ * where their door had slid to - out of the racks beside them (F3
+ * 20260930-035626, -035943). At nought opacity the stock combiner is the
+ * same picture for a pane, so nothing is lost by keeping it there.
+ */
+static bool modelUseGlassLerp(struct modelrenderdata *renderdata)
+{
+	return modGetGlassSeeThrough() > 0 && ((renderdata->envcolour >> 8) & 0xff) != 0;
+}
 #endif
 
 void modelApplyRenderModeType1(struct modelrenderdata *renderdata)
@@ -2978,7 +2996,7 @@ void modelApplyRenderModeType3(struct modelrenderdata *renderdata, bool arg1)
 				gDPSetEnvColorViaWord(renderdata->gdl++, 0xffffffff);
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
 #ifndef PLATFORM_N64
-				if (modGetGlassSeeThrough() > 0) {
+				if (modelUseGlassLerp(renderdata)) {
 					gDPSetCombineMode(renderdata->gdl++, G_CC_TRILERP, G_CC_CUSTOM_GLASS_LERP);
 				} else
 #endif
@@ -3012,7 +3030,7 @@ void modelApplyRenderModeType3(struct modelrenderdata *renderdata, bool arg1)
 			} else {
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
 #ifndef PLATFORM_N64
-				if (modGetGlassSeeThrough() > 0) {
+				if (modelUseGlassLerp(renderdata)) {
 					gDPSetCombineMode(renderdata->gdl++, G_CC_CUSTOM_22, G_CC_CUSTOM_GLASS_LERP);
 				} else
 #endif
@@ -3150,7 +3168,7 @@ void modelApplyRenderModeType4(struct modelrenderdata *renderdata, bool arg1)
 
 			if (arg1) {
 #ifndef PLATFORM_N64
-				if (modGetGlassSeeThrough() > 0) {
+				if (modelUseGlassLerp(renderdata)) {
 					gDPSetCombineMode(renderdata->gdl++, G_CC_TRILERP, G_CC_CUSTOM_GLASS_LERP);
 				} else
 #endif
@@ -3163,7 +3181,7 @@ void modelApplyRenderModeType4(struct modelrenderdata *renderdata, bool arg1)
 				}
 			} else {
 #ifndef PLATFORM_N64
-				if (modGetGlassSeeThrough() > 0) {
+				if (modelUseGlassLerp(renderdata)) {
 					gDPSetCombineMode(renderdata->gdl++, G_CC_TRILERP, G_CC_CUSTOM_GLASS_LERP);
 				} else
 #endif
@@ -3192,7 +3210,7 @@ void modelApplyRenderModeType4(struct modelrenderdata *renderdata, bool arg1)
 			} else {
 				gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
 #ifndef PLATFORM_N64
-				if (modGetGlassSeeThrough() > 0) {
+				if (modelUseGlassLerp(renderdata)) {
 					gDPSetCombineMode(renderdata->gdl++, G_CC_CUSTOM_22, G_CC_CUSTOM_GLASS_LERP);
 				} else
 #endif
