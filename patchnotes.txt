@@ -31,6 +31,29 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 20 2026-09-30
+Updates: the game now tells you on the main menu when a newer build of your channel is out, with Update Now, Later, Skip This Version and a way to turn the notices off (also on the Check for Updates page)
+Updates: Check for Updates can now switch between Stable and Dev: it shows both channels' latest build and backs up your settings and saves before switching. Dev gets fixes first; Stable is the safe fallback
+Stage Loader: going from one mod's map to another's no longer crashes when the first map's mod had its own doors, windows or crates (thanks dab, thanks Chloe)
+GE Plus Bunker II: the consoles no longer look see-through from across the room; anything fading with distance is drawn as one solid shape, in both looks (thanks Odeyseis)
+GoldenEye guns: on Perfect Dark's levels they show GoldenEye's own aiming sight, and in the HD look the release's sharp one instead of the blocky one (thanks Odeyseis)
+Inventory: in the HD look GoldenEye's pistols and knives are shown on their own, with no hand and no muzzle flash (thanks Odeyseis)
+GE Plus: taking a photo with the camera closes the shutter, going black and back, as in GoldenEye (thanks Odeyseis)
+GE Plus: the Moonraker laser held akimbo stays in its own hand instead of stacking on the other gun (thanks dab)
+COD Style Aiming: every gun now comes to the centre as quickly as the laser does (thanks dab)
+GE Plus: the gun in your hand is shaded by the floor you stand on again, easing from one floor to the next as in GoldenEye (thanks dab)
+GE Plus Dam: in the opening shot the truck fades out as it drives over the camera instead of being cut open (thanks dab)
+XBLA look: hair and other soft edges are blended again, so Joanna's fringe no longer covers her face like a solid slab (thanks Parabolee)
+XBLA look: male guards are no longer given Penny's head, which the XBLA release made a woman's (thanks Odeyseis)
+HD look: bullet holes show on doors and objects drawn with the release's models, such as Archives' steel doors (thanks dab, thanks Graslu00)
+Clip Decals at Edges: blood and bullet marks on uneven ground, like Skedar Ruins' sand, follow the ground instead of being cut off in straight lines (thanks Parabolee)
+Randomizer: you are no longer dropped into a pitch-dark room in Deep Sea in the XBLA look (thanks Odeyseis)
+Randomizer and Alerted Guards: women guards sent by the alarm shout in a woman's voice (thanks Odeyseis)
+Randomizer: guards sent after you get through doors shut to them, as in Area 51 Escape, and are no longer sent to lifts an arena does not have, as in Fortress (thanks Odeyseis)
+Area 51 and MP Ruins: with the XBLA release installed they use its fixed collision, so you cannot step through the hangar platform's base and simulants can climb MP Ruins' steep passage
+GE Plus, HD look: Train's dark corridors and the other darker levels (Dam, Depot, Caverns, Silo, Library, Complex, Statue Park, Aztec, Frigate, Surface, Streets) are now about as bright as the N64 look; each HD level builds once more the first time you play it
+GE Plus Depot, HD look: a door that slides up goes into the wall above it instead of being drawn over it (thanks Odeyseis)
+
 notes 19 2026-09-29
 Controllers: a settings save no longer cuts your pad's binds down to just A (D-pad, B, Start and the rest stopped working); binds already cut are put back when the game starts (thanks Parabolee)
 GE Plus, HD look: levels build about twice as fast and are then kept on disk, so after the first time a mission loads in about the time a Perfect Dark level does (thanks Shockwave S08)
