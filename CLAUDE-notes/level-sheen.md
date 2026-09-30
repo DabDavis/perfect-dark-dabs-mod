@@ -1,5 +1,13 @@
 # Level Sheen: the K7's sheen on rooms and props (2026-09-14)
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Level Reflections, and the all-surface Level Sheen that was removed** — [level-sheen.md](CLAUDE-notes/level-sheen.md): the all-surface K7 sheen on rooms and props (`Mod.LevelSheen`, 2026-09-14) was judged "too shimmery, not realistic" and **removed the same day** at the user's request - do not bring a sheen back on every surface; what is left in `port/src/roomsheen.c` is the XBLA meshes' K7 movement scroll (`roomSheenTexgenShift()`, which the user likes on the weapons) and Level Reflections; the N64 texgen only sees heading, so a K7 pass sets `G_TEXGEN_EYE_EXT` to bend the lookup by the eye ray; its multiply blend (`G_MULADD_EXT`) went with it, while `SHADER_OPT_FOG_FADE` stays for `G_ADDITIVE_EXT` under fog; the levels already mark their own reflective surfaces (room lists turn on `G_LIGHTING | G_TEXTURE_GEN` over an environment map - Defection's metal, most windows), and **Level Reflections** (`Mod.LevelReflectFollow`) sets the eye flag round both room passes, which moves only those, and since the eye ray alone left them pinned to the screen while strafing, walking now turns their LookAt as turning the camera does (`G_TEXGEN_TURN_EXT`) - and the release's rooms keep every texgen mark the ROM's have, so it covers XBLA on too; **props mark their own too** (Defection's windows and lift are glass and lift objects whose model lists turn texgen on, ~90 prop models in all), so `objRender()` wraps each prop the same way (and `shardsRenderGlass()` a broken window's shards), and an XBLA mesh's K7 sheen inside it clears the turn flag and puts it back after (`roomSheenStockResume()`); `--boot-stage` takes the stage id (Defection 0x30, not its table row 0x1c); the Carrington Institute sits at frame 302 behind a dialog under `--boot-stage`, which is not a hang
+
+
 **Removed the same day.** The user tried it, found it "too shimmery, not
 realistic", said the premise (a sheen on every surface) was wrong, and asked
 for it to be removed. Gone: `Mod.LevelSheen`, `Mod.LevelSheenStyle`, both menu

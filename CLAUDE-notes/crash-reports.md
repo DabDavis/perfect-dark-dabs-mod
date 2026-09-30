@@ -1,5 +1,13 @@
 # Crash reports
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Crash reports** — [crash-reports.md](CLAUDE-notes/crash-reports.md): `sysFatalError()` writes one before the dialog goes up (build, mod, the `[Mod]` settings live rather than from the file, and the last 200 log lines from a **ring** in crashreport.c, because pd.log only exists under `--log`); the dialog's *Send report to Dab* button and *Crash Reports* on the Perfect Menu are the only two things that send one, and the note is typed on the page because a message box cannot take text; `POST /crash` on pdghostd stores it as a file nothing serves back; a setup error the player fixes from the message (no ROM, wrong ROM, no OpenGL 2.1) is `sysFatalSetupError()` and writes none; a report carries `[Game]` and the pools' free space too; and **reading them** - scp from `~/pdghosts/crashes`, symbolise against the release's own binaries, group by first-frame offset - is in the note
+
+
 What a player's crash looks like from this end, and how it gets here.
 
 Before this, a crash reached us as a screenshot of the dialog: an exception

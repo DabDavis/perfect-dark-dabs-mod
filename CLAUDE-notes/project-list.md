@@ -1,5 +1,13 @@
 # Projects we can do
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Projects we can do, not started** — [project-list.md](CLAUDE-notes/project-list.md): work the user has judged worth doing, with what is already known; first entry (2026-09-14) is rendering the scene more than once a frame for real reflections, where `gfx_run` is 59% of the game thread and building the lists ~3%, so the extra passes must be made cheap first (measure the rooms/chrs split, rooms on the GPU, posed models under one more matrix), and a render-only pass must not rerun the visibility flags the AI reads
+
+
 Work the user has judged worth doing but not started. Each entry says what
 is already known, so picking one up does not start by measuring again.
 

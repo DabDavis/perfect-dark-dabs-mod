@@ -1,5 +1,13 @@
 # Performance: measuring a crowded match, and what was found
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Measuring a crowded match, `--rng-seed`/`--fixed-step`/`--exit-frame`, where the frame goes** — [performance.md](CLAUDE-notes/performance.md): compare instructions per frame on a seeded fixed-step match; the renderer is 60% of the main thread and is built at -O2; why the decomp at -O2 played a different game (game-defined sinf/cosf, an uninitialised pad flag) and how a divergence is bisected; run to a level frame rather than a wall-clock span, and check a renderer change with a pixel diff; why every model is full detail (the distance checks, and the GE code that turned them back on)
+
+
 A Combat Simulator match with 80 simulants and 80 alerted guards is the
 fork's heaviest ordinary load. This is how it was measured on 2026-09-06 and
 what the frame was spending its time on; read it before touching the renderer

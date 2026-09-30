@@ -1,5 +1,13 @@
 # Text rendering
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Menu text, `textMeasure()`, reaching the widescreen pillars** — [text-rendering.md](CLAUDE-notes/text-rendering.md)
+
+
 `textMeasure()` adds a line of height only when it sees `\n`. A string without a
 trailing newline measures as zero height and renders clipped. ROM strings have it;
 anything synthesised needs it too.

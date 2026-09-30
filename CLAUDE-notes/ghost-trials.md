@@ -1,5 +1,13 @@
 # Ghost Trials talks over two different transports
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Ghost Trials networking** — [ghost-trials.md](CLAUDE-notes/ghost-trials.md): WinHTTP and libcurl, why not one of them, and what the worker thread may touch; the three security questions' wire format and `rec_count`; the red Streamer Beware door and the Offline/Online page; **the pd.ini key is `Mod.GhostServer`** - point a scratch ini at a local daemon before any headless drive that presses Create Account
+
+
 `port/src/ghostnet.c` has one seam, `ghostnetSend()`, and two implementations
 behind it. Windows uses **WinHTTP**, which is part of the OS: nothing to ship and
 certificates are the system's business. Everywhere else uses **libcurl**, there

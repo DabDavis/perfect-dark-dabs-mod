@@ -1,5 +1,14 @@
 # The third person camera, and everything that measures from the camera
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **The third person camera, and why melee, rockets and beams came out of it** — [third-person.md](CLAUDE-notes/third-person.md): (2026-09-26: a hit's rebuilt position, the body's held gun in "weapon landed", its crouch on converted levels) (2026-09-27: a wall never cuts to first person - the camera goes onto the eye with `thirdpersondist` 0.01 and the player's own body fades by the camera's distance from it, drawn depth-first so it is one surface, `G_DEPTH_PREPASS_EXT`/`G_DEPTH_FRONT_EXT`; Camera Body Fade replaced Minimum Distance) the player's shot is fired from the camera and not the eye, so the crosshair is honest at any offset but everything that measures *from* the origin was two metres out; the two halves of the fix and the melee site that does not go through the shot path; the floor flags the camera trace needs; driving the camera from gdb; **Camera Tether** (`Mod.ThirdPersonTether`), a rod that pivots about `bond2.unk10` and not the shaken copy, and the game's `atan2f()` answering in 0 to tau; light glares are depth-less sprites, drawn before the gun, and whether a glare or the sun is seen is the GPU's occlusion query at each point (`artifactsTestOcclusion()`, `G_OCCLUSIONTEST_EXT`; `shotTestLos()` only as a fallback, it walked the camera's room alone and missed hills and translucent streets), and **Glare Clipping** (`Mod.GlareClip`) depth-tests their halos at draw time (`G_SETRECTDEPTH_EXT`), since the check misses props, is a frame or two stale, and passes a whole halo for a sliver of light; the player's footsteps are `bmoveTick()`'s alone, since the animated body's `footstepCheckDefault()` read the head bob's frame out of `oldframe` and played them in bursts
+- **Sitting in the Institute's chairs** — third-person.md, "Sitting in the Institute's chairs": `port/src/sitchair.c`, `Mod.SitInChairs`, office chairs and two-seater sofas (`g_SeatModels`); sitting down is `ANIM_STAND_UP_FROM_SITTING` backwards; a chair's +z is its front; the nearer of a chair and its desk's terminal wins, and seated the use button is the terminal's; anyone near the third person camera fades (`playerGetNearChrAlphaFrac()`)
+
+
 The fork's playable third person is one function, `playerPullBackCamera()` in
 `src/game/player.c`, called from the normal tick's camera block. It moves the
 copy of the eye that the camera matrix is built from and leaves `bond2`'s own

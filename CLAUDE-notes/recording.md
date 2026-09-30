@@ -1,5 +1,14 @@
 # Screenshots and the recorder
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Screenshots, the recorder, ffmpeg, GL capture** — [recording.md](CLAUDE-notes/recording.md): the frame is presented before `videoEndFrame()`; NV12 on the GPU; encoder detection; why it must never wait for the encoder; running on the real GPU with no window (llvmpipe hides driver limits); **the F3 trace dump** (`Mod.TraceKey`, port/src/trace.c) (walks live props only: a freed prop slot's stale chr crashed F3 on Chicago): a text dump of the pools, the loaders, the renderer's cache, the camera and every chr with what chrRender() did with it, paired with a screenshot - what to ask a tester to press when something is missing from a frame; since 2026-09-17 F3 also opens **Report a Problem** (`port/src/tracereport.c`, `Mod.TraceReport`): a typed note, and Send posts the dump, settings, log ring and a scaled PNG to pdghostd's `/report` (`~/pdghosts/reports`, nginx body limit must be 8m) - opened from `lvTick()`, and typing must stay on through the send or the held ENTER closes the dialog; GE Plus's folder, intro and watch are not Perfect Dark menus and each needed the dialog handed the frame, and F3 on the title crashed walking a level that was not there (recording.md, "Report a Problem", "Everywhere, not only in play"); typing blanks the pads, so the mouse, a controller and the menu's keys did nothing while the note was typed and a clicked-to name went on the end of the note - TAB/arrows/clicks move between the fields now, a press that stops typing is waited out till it is let go, and the name is in pd.ini the moment it is finished ("Nobody could reach the name")
+- **`bool` is two sizes here** — recording.md, "Sending an F3 report ended the game on Windows": the game's is an s32 (types.h) and `<stdbool.h>`'s a byte, and a header that includes stdbool changes it for everything a file includes afterwards - tracereport.c built a 48-byte `struct ghostnetreq` for a sender that read 56, and every F3 report sent from Windows crashed reading the reply; no struct shared between port files carries a `bool`, and `p sizeof(struct X)` per file in gdb is the check; and never walk `g_Vars.props` slot by slot (a freed slot keeps its type and a dead pointer - getank.c's `tankNear()` crashed on activate)
+
+
 ## The frame is presented before videoEndFrame()
 
 `gfx_run()` ends with `swap_buffers_begin()`, which is the `SDL_GL_SwapWindow()`

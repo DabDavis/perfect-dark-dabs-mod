@@ -1,5 +1,13 @@
 # Texture packs
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Texture packs** — [texture-packs.md](CLAUDE-notes/texture-packs.md): where a pack goes (one of four directories is read by nothing); decoding off the render thread and the backlog; the kept store and why a decode must never be handed over (textures flicker to the original otherwise); an emulator pack's image is the tile, the renderer maps the padded row; the *other* stretch is the game's own - a tile sampled past its edge, which no image edit can fix and **Stretched Edges** (`Video.StretchedEdges`: Original/Mirror/Repeat) can; PNG is ours, JPEG is stb_image, and the two row orders; font glyphs (the image is the whole tile, the outline pass wants both images); F7–F10; a folder named **`xbla`** inside a pack replaces the XBLA release's own texture records, by record rather than by number, on its models *and* its rooms (F7 writes them out in the same layout, which is the only way to learn which record a surface is); and **Community Packs**, which installs a pack from its author's release page - what is in the binary is the pack and not the release, the row-order marker is written at install time because v0.09 of the PD Plus pack renamed the `ext_tex` folder that used to say so, and the cover art is drawn through a stand-in tile the way an XBLA mesh's texture is (and is *not* turned over); since 2026-09-15 it is three packs from the one v0.10 release (Ultimate, XBLA and Forever Plus HD) on three swipe pages, one ask answering all three, every row asking about *its* pack (item `param`) because every sibling page is drawn, and **v0.10 is stored the right way up**, so no marker - the opposite of v0.09; and **a texture number belongs to whatever supplied the texels** (2026-09-12) - a mod's map loaded by the Stage Loader draws its own art at stock numbers (GE-X: 2104 of them, all below `NUM_TEXTURES`), so a picture chosen by number is the wrong subject *and*, since a pack replaces pixels and not the tile, stretched over it - `texpackTextureArt()` tells the three sources apart, a maps-only mod's texture takes nothing from the stock index, and that mod gets **an index of its own** built from its `textures/` (one mod at a time, its own job ids and its own half of the kept store, its texel-matched files searched beside ours, and the game's font and the release's records kept out of it)
+
+
 ## Where a texture pack goes
 
 Four directories are involved and only one of them puts a pack in the menu.

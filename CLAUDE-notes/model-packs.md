@@ -1,5 +1,13 @@
 # Model packs and the asset dump (2026-09-11)
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Model packs and the asset dump** — [model-packs.md](CLAUDE-notes/model-packs.md): `model-packs/<pack>/n64/` and `xbla/` hold OBJ replacements named by the ROM's file names, read through `objmesh.c` and drawn by the XBLA mesh loader (an OBJ is written back out in 4J's own layout and goes through the same builder); the one **Dump All Assets To Disk** row (`assetdump.c`, `--dump-assets`) writes `texture-dumps/<romid>/` (+`xbla/`) and `model-dumps/n64/` and `xbla/`, and GoldenEye's into `ge-n64/` (the ROM's conversion, by GoldenEye's own file names) and `ge-xbla/` (the Bean release, by Rare's `new|original/<kind>/<name>`) under both; an N64 model's list pointers are *not* promoted with the rest and stay segment 5 until the texture rewrite; a group of an N64 model is a list node in the node's own space and the dump adds the rest offset the loader takes off; skinning does not survive OBJ and is transferred by nearest vertex; and everything about a pack is **live** since 2026-09-11 - both halves of a node (the release's mesh and the pack's file) are filed as every model loads, whichever draws is decided at the draw and settled by **Mod.ModelPackPrefer** where a model has both, F9 re-reads an edited OBJ, and a material named for one of the ROM's textures binds the *ROM's* picture plus its number so a texture pack repaints it (the dump's `map_Kd` points out of the pack and is a reference, not the author's picture - reading it as one is what stopped that)
+
+
 Files: `port/src/objmesh.c` (the mesh in the middle, OBJ in and out),
 `port/src/modelpack.c` (the pack folder, the list, what a pack has for a file
 id, and binding a picture of the pack's own), `port/src/assetdump.c` (the

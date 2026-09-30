@@ -1,5 +1,13 @@
 # SMAA and FSR 1: the post-process chain
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **SMAA and FSR 1 upscaling** — [post-process.md](CLAUDE-notes/post-process.md): the game draws offscreen at a fraction of the window and `post_process()` in each backend takes it to the window; one shader builder for both from the vendored MIT sources (`tools/postshaders/gen.py`); GLSL 1.30 has no line continuation, SMAA's edge pass discards, Vulkan cannot pass a built sampler to a function, nothing is flipped; `use_back` copies and the screen shake had assumed the game drew to the window unless MSAA was on
+
+
 Added 2026-09-24. Video menu, under Anti-aliasing: **SMAA** (`Video.SMAA`),
 **Upscaling** (`Video.Upscaling`: Off, FSR Ultra Quality / Quality /
 Balanced / Performance = 1/1.3, 1/1.5, 1/1.7, 1/2 of the window) and

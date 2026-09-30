@@ -1,5 +1,13 @@
 # The game replaces itself
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Check for Updates** — [updater.md](CLAUDE-notes/updater.md): `update.txt`, the baked-in channel, the two-rename swap
+
+
 Check for Updates is `port/src/update.c`. It reads one file — `update.txt` on
 the release, written by `dabs-mod.yml` — and downloads one bare executable,
 because the releases are a zip and two tarballs, one of them xz with no

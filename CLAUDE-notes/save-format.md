@@ -1,5 +1,13 @@
 # Save format
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Saves, eeprom, where pd.ini lives, the migration** — [save-format.md](CLAUDE-notes/save-format.md)
+
+
 `mpsetupfileSaveWad()`/`LoadWad()` take a version. The port's file has a version byte
 and per-version block sizes (`MPSETUP_BLOCKSIZE_V1`, `_V2`, and `MPSETUP_BLOCKSIZE`
 for version 3). Files stay in the base format unless a setup actually needs >8

@@ -1,5 +1,13 @@
 # Stage numbers
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Adding stages** — [stage-numbers.md](CLAUDE-notes/stage-numbers.md): `STAGE_IS_LEVEL()` admits 0x5e-0xff as well as the 27 free below the title; four ids are taken outside the table; the MP save format holds 7 bits
+
+
 Adding stages at runtime is constrained from several directions at once:
 
 - `stagenum < STAGE_TITLE` (0x5a) is the engine's "is this a real level" test, in

@@ -1,5 +1,13 @@
 # The Vulkan renderer
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **The Vulkan renderer** — [vulkan.md](CLAUDE-notes/vulkan.md): `Video.Renderer`/`--vulkan`, falls back to OpenGL by itself; every image in GL's row order so nothing flips; bindless textures, a recording worker thread and an on-disk shader cache are why it beats GL; tests run it under `SDL_VIDEODRIVER=offscreen` on the card through a headless surface (Xvfb plus `MESA_VK_WSI_DEBUG=sw` is the fallback); a new `SHADER_OPT_*` goes in both shader generators
+
+
 `port/fast3d/gfx_vulkan.cpp`, beside `gfx_opengl.cpp` behind the same
 `GfxRenderingAPI`. **Video.Renderer** (0 OpenGL, 1 Vulkan; Video menu,
 "Renderer", takes effect at the next start), `--vulkan` / `--opengl` override

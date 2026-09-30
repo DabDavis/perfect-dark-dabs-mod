@@ -1,5 +1,13 @@
 # Windows, from Linux
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **The Windows build, wine, the pd.ini format** — [windows-build.md](CLAUDE-notes/windows-build.md): mingw prefix, WinHTTP, and why `Mod.LoadTextures=1` on its own line does nothing
+
+
 The Windows build is worth doing before pushing anything that touches files,
 paths, subprocesses or the network: those are where the two platforms differ and
 where nothing in the Linux build will tell you.

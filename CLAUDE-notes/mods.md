@@ -1,5 +1,85 @@
 # Mod directories
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30) and writes the `maps` block (31) so a mod's arenas come from its own tables under its own names — a file name is Perfect Dark's slot, not the map (GE-X's `crad` is Aztec)
+- **Mod directories, Load Mods, modconfig, `modcodediff`, the ROM symbol file, the data segment and importing a mod's weapon definitions** — [mods.md](CLAUDE-notes/mods.md): only the first mod dir joins the file search; files swap live, segments cannot; the `datasegment` block, `moddata.c`, and "where this stands" for continuing the import work
+- **A rule or colour a mod's code changes that is not a weapon's** — mods.md, "The tail": `game/modrules.h` holds it with the stock default, a modconfig block sets it through one setter in mod.c, both importers read it; the branch `lua-pipeline` is the Lua experiment of 2026-09-07, kept and not merged. mods.md, "A GE-X tester's seven reports" (2026-09-13, importer 32): a jump table in rodata is *data* to modcodediff (the third person guns, the sights); GE-X's green menus are dialog **type bytes**, not the palette; a boot re-imports every stale mod, so never run two after a version bump; mods.md, "GE-X's guns threw green sparks behind green tracers" (2026-09-26, importer 33): the wall sparks and tracer texture are two more rodata jump tables on the weapon number (`hitsparks`/`beamtexture` keys), and the Klobb's green tracer was the Mauler's charge beam (`WEAPONFLAG3_CHARGEBEAM`); mods.md, "The Mauler's charge is two flags" (importer 34): `chargeable` is the pitch, `chargespent` the reset, GE-X tests them apart
+
+### GE-X import: where to pick up (2026-09-05)
+
+The console mod GE-X 6a is the reference case for the mod loader. Its assets,
+data tables, missions, music, environments, star field, weather, shield
+colours, hit sounds, co-op buddies, the weapon lists behind eighteen flags, two damage rules and the unlocks all import (`build/mods/GE-X_6a_01-19-25/`, importer version 23); what is left is the code
+GE-X *rewrote*, which `modcodediff` lists and nothing follows yet. Read
+[mods.md](CLAUDE-notes/mods.md) from "GE-X's solo missions in the port" to the
+end before touching any of it, then:
+
+1. **Regenerate the list** — the summary is the work queue, largest first:
+   ```sh
+   python3 tools/modcodediff --rom ../pd-upstream/pd.ntsc-final.z64 \
+       --patch build/mods/GE-X_6a_01-19-25/GE-X_6a_01-19-25.xdelta --summary
+   ```
+   `constants` regions are tables to follow (most are done); `rewritten` ones
+   need reading. Every rewritten function of 9 words or more is read, and
+   the tail's unlocks family too; what remains of the tail is listed in
+   mods.md ("The tail, and the unlocks": the menu palette, the run-speed
+   cave, King of the Hill, GE-X's hats ...), and the weapon-number sites
+   the port still tests literally (weapons.md: ~60 in bondgun.c, ~63 in
+   propobj.c), each a `FLAG_SITES` row once converted. GE-X's own
+   weapon-number regions are all read as of importer 27 (mods.md, the
+   four "number sites" sections; the second says why a row also needs a
+   `codeSyms[]` entry in modimport.c), and five of its tail as of 29
+   (mods.md, "The tail": settings in `game/modrules.h`, and what is left).
+   `--prepare-diff DIR` writes both binaries; `mips-linux-gnu-objdump -b binary
+   -m mips:4300 -EB -D --adjust-vma=0x7f000000` reads them.
+2. **Two ways to follow a change.** A renumbered compare is a
+   `follow_immediate(s)` site (the `playerconst`/`bgstage` pattern, one table
+   row in both importers). A rewritten function is run on the toy MIPS
+   (`emulate()` in `tools/importmod`, `emuRunArgs()` in `port/src/modimport.c`,
+   the weather is the worked example, the shield colour the one for a
+   function that tests its caller, the hit sounds the one for a list of
+   weapon numbers: seed the tables, run per number, read what it stored)
+   and written out as the port's own config. A weapon-number test in the
+   port becomes a flag (weapons.md) and the importer writes `weaponflags`;
+   arguments to a call are followed by call and register
+   (`follow_call_args()`, the co-op buddies), since one function can hold
+   four number spaces; a weapon test that became a list is read as a
+   compare chain (`follow_compare_chain()`, `FLAG_SITES`), and a flag is
+   written only when every site of it agrees. Across the archive the most rewritten functions are
+   `player_tick` (38 mods, 27 of them a no-op word - see mods.md), then a
+   block of 23 that every "all solos in multi" patch shares (`tex_init`,
+   `setup_create_props`, `mp_start_match`, the unlock handlers);
+   `modcodediff --summary` over every patch takes four minutes with `xargs
+   -P 8` and is how to know whether a function is one mod's or the
+   archive's. Whatever is added goes in **both importers**, `IMPORT.txt`
+   lines identical, and bumps `MODIMPORT_VERSION` so old imports redo
+   themselves.
+3. **Test headlessly** on Runway (0x22) or later — Dam (0x30) and Facility
+   (0x33) are unfinished in the patch and prove nothing:
+   ```sh
+   cd build && timeout -k 5 60 xvfb-run -a ./pd.x86_64 --moddir mods/GE-X_6a_01-19-25 \
+       --savedir /tmp/pdsave --skip-intro --no-sound --boot-stage 0x22 --log
+   ```
+   Exit 124 is "ran until stopped"; 137 is a crash or hang, read the log.
+   `--moddata-trace`, `--chr-trace`, `--setup-trace` and the
+   `weather:`/`music:` log lines say what applied. `--boot-stage` takes the
+   stage id, not the menu slot: GE-X's `g_SoloStages` remaps six missions.
+4. **Open tester reports**: no guards on Dam (GE-X spawns them by AI as the
+   player advances; a headless run cannot exercise it — a person must). Check
+   the tester's binary commit before debugging a report from
+   `sdg@10.8.0.3:~/pd-test/` (`strings pd.x86_64-linux | grep -m1 -E
+   '^[0-9a-f]{7}$'`).
+5. **Known gaps, deliberate**: stages a mod took weather away from keep the
+   port's stock weather entry (inert without a rain/snow script command); the
+   two importers order the `playerconst`/`bgstage`/`roomstage`/`buddyconst`
+   lines differently (content identical); mod-only stage ids (GE-X's 0x4d–0x50)
+   are skipped by `stage {}` blocks with a warning.
+
+
 Only the **first** mod dir joins the general file search. Later ones are reached
 solely through file slots pinned to them (`romfile.moddir`). Mod suites ship full
 asset sets under stock names — the All in One suite shares 245 filenames across five

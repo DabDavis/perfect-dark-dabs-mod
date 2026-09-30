@@ -1,5 +1,13 @@
 # The Friends of Joanna collab tree
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **The Friends of Joanna collab tree, `../pd-fojo-monorepo-collab/`** — [fojo-collab.md](CLAUDE-notes/fojo-collab.md): what their mod loader does that ours does not, why the trees cannot merge, and what is worth borrowing
+
+
 `../pd-fojo-monorepo-collab/` is Catherine Reprobate's umbrella repo for the
 **Friends of Joanna** campaign mod: four squashed subtrees (`pd-fojo/` port fork,
 `pd-fojo-n64/` decomp branch with their setups, `pd-fojo-basedir/` mod data,

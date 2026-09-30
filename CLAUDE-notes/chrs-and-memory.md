@@ -1,5 +1,17 @@
 # chrs, bodies, heads and memory pools
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **chrs, bodies, heads, simulants, memory pools, mpconfig** — [chrs-and-memory.md](CLAUDE-notes/chrs-and-memory.md): a chr's prop is read before its tick; the ~50KB head copy that empties the stage pool; one head modeldef cannot sit on two bodies; ROM-resident structures never grow; why kept bodies still vanished (the chr vertex store's reaper, sized for an N64, fades every off-screen corpse when the blood copies run out)
+- **Simulants running on the spot at the head of a ladder** — chrs-and-memory.md, the section of that name: the jump's floor-reaching collision box was given to every simulant whose smoothed ground was over its real one, which is every step down and every ladder head (a simulant goes down a ladder by walking off it) - `chrGetBbox()` is the box a chr's *own* moves are tested with, so it stood inside the ledge; `botIsJumping()` now, `tools/simstall/run.sh` is the probe, stock stalls too (2-21% a run), and `--spectate` hides it
+- **A head on a body it was not made for** — chrs-and-memory.md, "Heads fitted to bodies by measurement": `port/src/headfit.c` replaces the ROM's type table for mixed pairs (own heads and stock one-type pairs untouched); a list's vertices are in the space of the G_MTX loaded before them, not the node's; the release's meshes now take a head's offset through `xblaMeshPose()`
+- **A simulant's stat sliders, and what the player count really changes** — chrs-and-memory.md, the section of that name: no code scales a simulant by the player count except a challenge's per-player-count *difficulty* table; `botGetStatScale()` and its five sites; `g_MpAllChrPtrs[i]` is not bot slot `i - 1`
+- **A head past the Combat Simulator's list** — chrs-and-memory.md, "A head past the Combat Simulator's list: Perfect Heads the port never has" (2026-09-22): an `mpheadnum` at or past `mpGetNumHeads2()` means a Perfect Head, whose store `pheadInit()` never allocates on the port, and the list shrinks under a saved number when the release's pool or a mod's borrowed heads come off its tail - `mpHeadNumSafe()` at every reader, `modGhostCiHead()` for the Institute's pick
+
+
 ## A chr's prop and model are read before its tick, not during
 
 `chrTick()` (`src/game/chr.c`) reads `prop` and `model` once, then calls into the

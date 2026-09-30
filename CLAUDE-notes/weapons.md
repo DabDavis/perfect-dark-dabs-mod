@@ -1,5 +1,13 @@
 # Weapon behaviour belongs on the weapon
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **Weapon numbers, `flags2`, converting a `weaponnum` comparison** — [weapons.md](CLAUDE-notes/weapons.md): the four checks, and what is deliberately not converted; a launcher branch keyed on the number must test the function's type, or a mod's table crashes it; and **weapons past the stock table** (2026-09-15, GoldenEye's guns 0x5e-0x76): every switch or `==` on a weapon number asks `weaponHost()`, range tests were decided one by one because some guard arrays indexed by the real number, and the check that stock is unchanged is a seeded match compared pixel for pixel
+
+
 The game decides a lot by comparing the weapon number - `if (weaponnum ==
 WEAPON_SHOTGUN)` - which is a question a mod cannot answer, because a mod that
 brings its own guns numbers them its own way. GE-X patched 28 functions in

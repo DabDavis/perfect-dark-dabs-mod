@@ -1,5 +1,13 @@
 # The Randomizer
 
+## Digest (moved from CLAUDE.md, 2026-09-30)
+
+The entries CLAUDE.md carried for this note, verbatim. The sections below are
+the long form.
+
+- **The Randomizer: a mission dealt again from its own pieces** — [randomizer.md](CLAUDE-notes/randomizer.md): the roll goes between `setupLoadFiles()`'s writable copy and `setupCreateProps()`'s walk; `chrGetPadRoom()` hands a pad number back as a room; the intro stream's commands are 8, 12, 16, 32 and 40 bytes and have no length function; rewriting the spawn pad does not move a mission that opens with a cutscene; a tagged object survives being picked up, which is what makes a generated collect objective finishable; each decision draws from its own stream so a change to one part cannot move the others, and the log's fold is how that is checked; Endless Mode keeps dealing objectives and scores rooms covered; the Carrington Institute is a level and must be excluded from anything that runs on one; Chicago (0x1d) is the test bed and Villa never reaches gameplay under `--boot-stage`; and **a pad is not automatically somewhere a player can stand** - the game's ground search takes the highest floor *strictly below* the position it is handed and answers `-4294967296` for none at all, which the spawn then stands the player on, so 2% to 8% of a stage's pads are an out-of-bounds death (`modRandomPadSpawnPos()`, v3); and a level's **forced walk** (the Duel's, Extraction's) only ends on arrival, so from a dealt start it ran into a wall for ever - `modRandomTickForcedWalk()` ends one that stops closing in
+
+
 `src/game/modrandom.c`. The mode's *run* - a room at a time across every map,
 which is what the Randomizer page's Start Run does - is
 [randomizer-run.md](randomizer-run.md); this note is the roll a single mission
