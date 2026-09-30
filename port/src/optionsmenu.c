@@ -52,6 +52,7 @@
 #include "optionsmenu.h"
 #include "game/hudmsg.h"
 #include "langpack.h"
+#include "simbrain.h"
 
 static s32 g_ExtMenuPlayer = 0;
 static struct menudialogdef *g_ExtNextDialog = NULL;
@@ -3668,6 +3669,31 @@ static MenuItemHandlerResult menuhandlerModRoll(s32 operation, struct menuitem *
 	return 0;
 }
 
+/**
+ * Mod.SimBrain: the simulants' stock AI, or stock's decisions on the navmesh's
+ * legs (simbrain.c). Read as a match starts, so a change during one takes
+ * effect at the next.
+ */
+static MenuItemHandlerResult menuhandlerModSimBrain(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const char *opts[] = { "Stock", "Modern Movement" };
+
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = ARRAYCOUNT(opts);
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)opts[data->dropdown.value];
+	case MENUOP_SET:
+		simbrainSetOption(data->dropdown.value != 0);
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = simbrainGetOption() ? 1 : 0;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerModStartArmed(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	static const char *opts[] = { "Off", "First Weapon", "Random" };
@@ -4786,6 +4812,14 @@ struct menuitem g_ExtendedDabsModPlayerMenuItems[] = {
 		(uintptr_t)"Combat Roll",
 		0,
 		menuhandlerModRoll,
+	},
+	{
+		MENUITEMTYPE_DROPDOWN,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Simulant AI",
+		0,
+		menuhandlerModSimBrain,
 	},
 	{
 		MENUITEMTYPE_DROPDOWN,

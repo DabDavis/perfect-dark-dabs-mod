@@ -77,6 +77,7 @@
 #include "gebean.h"
 #include "geslappers.h"
 #include "modloader.h"
+#include "simbrain.h"
 
 // GoldenEye's frame as geguns.c takes it for its guns' rates: two sixtieths
 #define GE_FRAME60 2
@@ -5931,6 +5932,14 @@ void chrDie(struct chrdata *chr, s32 aplayernum)
 // (chrNavTickMain()'s WAYMODE_LOST1), which is when func0f03645c() walks the
 // tile graph as well
 static bool g_NavGeLegs = false;
+
+// Set while chrNavTickMain() walks a simulant to a point on its navmesh path
+// (Mod.SimBrain, simbrain.c): the mesh has already said the way there is
+// floor with no wall, so only props and chrs are looked for on it. The level's
+// own walls, looked for too, stopped simulants in narrow runs (Pipes' lower
+// tunnel): the mesh keeps a walker's centre 20 from a wall to within its
+// simplification error, and the sight lines are cast 19 either side.
+bool g_NavMeshAim = false;
 #endif
 
 bool func0f03645c(struct chrdata *chr, struct coord *arg1, RoomNum *arg2, struct coord *arg3, struct coord *arg4, s32 arg5)
@@ -7393,7 +7402,82 @@ static bool chrGoPosWatchProgress(struct chrdata *chr)
 
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * Set a simulant out for pos with no waypoints at all, straight on its last
+ * stretch - chrGoToRoomPos()'s setting out, for a simulant stock found no
+ * route for and the navmesh (Mod.SimBrain) has a path for (simbrain.c).
+ */
+void chrGoPosStartBare(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 goposflags)
+{
+	s32 isgopos = chr->actiontype == ACT_GOPOS
+		&& (chr->act_gopos.flags & GOPOSMASK_SPEED) == (goposflags & 0xff & GOPOSMASK_SPEED)
+		&& !chrGoPosIsWaiting(chr);
+	s32 i;
+
+	chrStopFiring(chr);
+
+	chr->actiontype = ACT_GOPOS;
+	chr->act_gopos.endpos = *pos;
+	roomsCopy(room, chr->act_gopos.endrooms);
+	chr->act_gopos.target = NULL;
+	chr->act_gopos.curindex = 0;
+	chr->act_gopos.flags = goposflags | GOPOSFLAG_INIT;
+	chr->act_gopos.turnspeed = 0;
+	chr->unk32c_21 = 0;
+	chr->act_gopos.waydata.age = 0;
+	chr->act_gopos.waydata.gotaimposobj = 0;
+
+	if (!isgopos) {
+		chr->act_gopos.waydata.lastvisible60 = -1;
+	}
+
+	for (i = 0; i < MAX_CHRWAYPOINTS; i++) {
+		chr->act_gopos.waypoints[i] = NULL;
+	}
+
+	chrGoPosInitExpensive(chr);
+	chr->goposforce = -1;
+	chr->sleep = 0;
+	chr->liftaction = 0;
+	chr->act_gopos.flags &= ~(GOPOSFLAG_DUCK | GOPOSFLAG_CROUCH | GOPOSFLAG_WAITING);
+
+	if (!isgopos) {
+		chrGoPosChooseAnimation(chr);
+	}
+
+	chr->hidden &= ~CHRHFLAG_NEEDANIM;
+}
+
+static bool chrGoToRoomPosStock(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 goposflags);
+
+/**
+ * With Mod.SimBrain's modern movement, a simulant's route is the navmesh's
+ * (simbrain.c) as well as stock's: stock routes it as always, so it can take
+ * over at any moment, and the navmesh is asked for the same end. With stock
+ * (the default) this is chrGoToRoomPosStock() and nothing else.
+ */
 bool chrGoToRoomPos(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 goposflags)
+{
+	bool result;
+
+	if (g_SimBrainModern && chr->aibot && simbrainHoldsGoTo(chr, pos, room)) {
+		return true;
+	}
+
+	result = chrGoToRoomPosStock(chr, pos, room, goposflags);
+
+	if (g_SimBrainModern && chr->aibot) {
+		result = simbrainAfterGoTo(chr, pos, room, goposflags, result);
+	}
+
+	return result;
+}
+
+static bool chrGoToRoomPosStock(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 goposflags)
+#else
+bool chrGoToRoomPos(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 goposflags)
+#endif
 {
 	struct prop *prop = chr->prop;
 	struct waypoint *nextwaypoint;
@@ -7410,7 +7494,12 @@ bool chrGoToRoomPos(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 g
 	struct coord prevpos;
 	s32 numwaypoints = 0;
 
-	if (chr->aibot && (chrGoPosIsTakingLift(chr)
+	// (the navmesh's simulants have their own holds: simbrainHoldsGoTo())
+	if (chr->aibot
+#ifndef PLATFORM_N64
+			&& !simbrainOwns(chr)
+#endif
+			&& (chrGoPosIsTakingLift(chr)
 #ifndef PLATFORM_N64
 				|| chrGoPosIsDetouring(chr)
 #endif
@@ -14152,7 +14241,11 @@ void chrNavTickMain(struct chrdata *chr, struct coord *nextpos, struct waydata *
 			// Check to see if the chr can see the next pad. This is almost
 			// always true, but if the chr has tried to avoid an object they
 			// may have gone behind a wall and can't see the pad any more.
-			if (chrNavCanSeeNextPos(chr, &prop->pos, prop->rooms, &sp100, &waydata->obstacleleft, &waydata->obstacleright, -chr->radius, chr->radius, CDTYPE_PATHBLOCKER | CDTYPE_BG, arg3)) {
+			if (chrNavCanSeeNextPos(chr, &prop->pos, prop->rooms, &sp100, &waydata->obstacleleft, &waydata->obstacleright, -chr->radius, chr->radius,
+#ifndef PLATFORM_N64
+						g_NavMeshAim ? CDTYPE_PATHBLOCKER :
+#endif
+						CDTYPE_PATHBLOCKER | CDTYPE_BG, arg3)) {
 				// Can see the next pad
 				waydata->gotaimpos = true;
 				waydata->aimpos.x = sp100.x;
@@ -14264,7 +14357,11 @@ void chrNavTickMain(struct chrdata *chr, struct coord *nextpos, struct waydata *
 				hasobstacle = false;
 			}
 
-			if (chrNavCheckForObstacle(chr, &prop->pos, prop->rooms, &waydata->aimpos, &waydata->obstacleleft, &waydata->obstacleright, -chr->radius, chr->radius, cdtypes, hasobstacle)) {
+			if (chrNavCheckForObstacle(chr, &prop->pos, prop->rooms, &waydata->aimpos, &waydata->obstacleleft, &waydata->obstacleright, -chr->radius, chr->radius,
+#ifndef PLATFORM_N64
+						g_NavMeshAim ? cdtypes & ~CDTYPE_BG :
+#endif
+						cdtypes, hasobstacle)) {
 				// No obstacle ahead
 				waydata->gotaimposobj = true;
 				waydata->mode = WAYMODE_INIT;
@@ -14712,7 +14809,8 @@ void chrTickGoPos(struct chrdata *chr)
 	}
 
 #ifndef PLATFORM_N64
-	if (chr->aibot && chr->act_gopos.waydata.mode != WAYMODE_MAGIC && chrGoPosWatchProgress(chr)) {
+	// (a simulant on the navmesh has simbrain.c's watch instead)
+	if (chr->aibot && chr->act_gopos.waydata.mode != WAYMODE_MAGIC && !simbrainOwns(chr) && chrGoPosWatchProgress(chr)) {
 		return;
 	}
 #endif
@@ -14789,6 +14887,40 @@ void chrTickGoPos(struct chrdata *chr)
 		f32 sp156;
 		struct waypoint *next;
 		struct pad pad2;
+
+#ifndef PLATFORM_N64
+		// Mod.SimBrain's modern movement: the navmesh's path says where to
+		// walk (simbrain.c), stock's navigation walks there - round props,
+		// through doors - and the last stretch is stock's own
+		if (g_SimBrainModern && chr->aibot) {
+			s32 tick = simbrainTickGoPos(chr, &nextpos);
+
+			if (tick == SIMBRAIN_TICK_FINAL) {
+				if (chrGoPosIsArrivingAtPos(chr, &chr->act_gopos.endpos) ||
+						(chr->inlift && posIsArrivingLaterallyAtPos(&chr->prevpos, &prop->pos, &chr->act_gopos.endpos, 30))) {
+					chrStop(chr);
+					return;
+				}
+
+				nextpos = chr->act_gopos.endpos;
+
+				if (chr->myaction == MA_AIBOTGETITEM) {
+					sp240 = false;
+				}
+			}
+
+			if (tick != SIMBRAIN_TICK_STOCK) {
+				chr->act_gopos.flags &= ~GOPOSFLAG_INIT;
+				// ...until the walls do stop it (the mesh is only as exact as its
+				// cells: Skedar's leaning pillars): then stock's way round them
+				g_NavMeshAim = tick == SIMBRAIN_TICK_WALK
+					&& (chr->invalidmove == 0 || chr->lastmoveok60 >= g_Vars.lvframe60 - TICKS(15));
+				chrNavTickMain(chr, &nextpos, &chr->act_gopos.waydata, sp240);
+				g_NavMeshAim = false;
+				return;
+			}
+		}
+#endif
 
 		waypoint = chr->act_gopos.waypoints[chr->act_gopos.curindex];
 

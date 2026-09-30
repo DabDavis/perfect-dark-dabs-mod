@@ -390,7 +390,7 @@ void lvReset(s32 stagenum)
 #ifndef PLATFORM_N64
 		geTankReset();
 		sitChairReset();
-		simnavStageStart(stagenum); // Mod.SimNavDebug only
+		simnavStageStart(stagenum); // Mod.SimNavDebug or Mod.SimBrain=modern only
 #endif
 
 #ifndef PLATFORM_N64

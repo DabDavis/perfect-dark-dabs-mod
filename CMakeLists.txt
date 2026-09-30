@@ -480,8 +480,10 @@ list(APPEND SRC_PORT ${SRC_HDP})
 
 # Recast/Detour (port/src/external/recastnavigation, zlib, v1.6.0 - see its
 # VERSION.txt), for the simulants' navmesh. Only the port's wrapper,
-# port/src/simnav.cpp, and its links, port/src/simnavlinks.cpp, include it. -O2: a build runs at stage load.
-# DT_POLYREF64 must be the same for the library and the wrapper.
+# port/src/simnav.cpp, its links, port/src/simnavlinks.cpp, and the simulants' agents,
+# port/src/simnavagents.cpp, include it. -O2: a build runs at stage load.
+# DT_POLYREF64 and DT_VIRTUAL_QUERYFILTER (simnavagents.cpp's filter prices
+# ways blamed for a stuck simulant) must be the same for the library and the wrapper.
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "/external/recastnavigation/")
 set(RECAST_DIR "${CMAKE_SOURCE_DIR}/port/src/external/recastnavigation")
 file(GLOB SRC_RECAST
@@ -498,12 +500,13 @@ set(RECAST_INCLUDES
 )
 set_source_files_properties(${SRC_RECAST} PROPERTIES
   INCLUDE_DIRECTORIES "${RECAST_INCLUDES}"
-  COMPILE_DEFINITIONS "DT_POLYREF64=1"
+  COMPILE_DEFINITIONS "DT_POLYREF64=1;DT_VIRTUAL_QUERYFILTER=1"
   COMPILE_OPTIONS "-w;-O2"
 )
-set_source_files_properties("${CMAKE_SOURCE_DIR}/port/src/simnav.cpp" "${CMAKE_SOURCE_DIR}/port/src/simnavlinks.cpp" PROPERTIES
+set_source_files_properties("${CMAKE_SOURCE_DIR}/port/src/simnav.cpp" "${CMAKE_SOURCE_DIR}/port/src/simnavlinks.cpp"
+  "${CMAKE_SOURCE_DIR}/port/src/simnavagents.cpp" PROPERTIES
   INCLUDE_DIRECTORIES "${RECAST_INCLUDES}"
-  COMPILE_DEFINITIONS "DT_POLYREF64=1"
+  COMPILE_DEFINITIONS "DT_POLYREF64=1;DT_VIRTUAL_QUERYFILTER=1"
   COMPILE_OPTIONS "-O2"
 )
 list(APPEND SRC_PORT_CXX ${SRC_RECAST})
