@@ -39,6 +39,13 @@
 # and so the hash from frame 600 on Dam. Re-record gesolo (CASES=gesolo record)
 # from a build that has it; every other case is unchanged by it.
 #
+# Goldens recorded before converter 94 (fix/f3-0930c-geclone) are stale for
+# gesolo from frame 100: five of Dam's guards now carry GoldenEye's clone flag
+# (chr->flags CHRFLAG0_CAN_HEARSPAWN, chrflags CHRCFLAG_CLONEABLE), which the
+# hash reads. With those two bits masked out of the hash the run is identical
+# to the old golden for all 3000 frames (nothing clones: nobody fires). Re-record
+# gesolo once; every other case is unchanged.
+#
 # Exit status: 0 identical, 1 a divergence, 2 a run that failed.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)

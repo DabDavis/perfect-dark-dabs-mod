@@ -63,6 +63,8 @@
 #include "geroom.h"
 #include "geguns.h"
 #include "modloader.h"
+#include "game/modbodies.h"
+#include "game/setup.h"
 #endif
 
 /**
@@ -4394,6 +4396,38 @@ bool aiTryEquipHat(void)
 	return false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether GoldenEye would have a chr slot for a clone.
+ *
+ * GoldenEye allocates its guards' records plus ten slots (initguards.c) and
+ * spawns only with three of them free (chrSpawnAtCoord()), so no more than
+ * seven characters beyond the setup's can stand at once - its corpses give
+ * their slots back a second and a half after they fall. A converted mission
+ * has more room than that (setupGeMissionChrReserve(), for its scripted
+ * spawns), and with it every unseen guard that heard a shot on Jungle sent a
+ * clone. The clones keep to GoldenEye's count: the living characters, not the
+ * player's nor a kept body, against the setup's guards plus seven.
+ */
+static bool aiGeHasCloneSlot(void)
+{
+	s32 live = 0;
+	s32 i;
+
+	for (i = 0; i < g_NumChrSlots; i++) {
+		struct chrdata *chr = &g_ChrSlots[i];
+
+		if (chr->model && chr->prop && chr->prop->type == PROPTYPE_CHR
+				&& chr->aibot == NULL && chr->actiontype != ACT_DEAD
+				&& !modBodyIsKept(chr)) {
+			live++;
+		}
+	}
+
+	return setupCountCommandType(OBJTYPE_CHR) + 10 - live >= 3;
+}
+#endif
+
 /**
  * @cmd 00ca
  */
@@ -4416,7 +4450,11 @@ bool aiDuplicateChr(void)
 	struct weaponobj *cloneweapon0 = NULL;
 	struct prop *cloneweapon1prop = NULL;
 
-	if (chr && (chr->chrflags & CHRCFLAG_CLONEABLE)) {
+	if (chr && (chr->chrflags & CHRCFLAG_CLONEABLE)
+#ifndef PLATFORM_N64
+			&& (!modloaderStageIsRemake(g_Vars.stagenum) || aiGeHasCloneSlot())
+#endif
+			) {
 		cloneprop = chrSpawnAtChr(g_Vars.chrdata, chr->bodynum, -1, chr->chrnum, ailist, spawnflags);
 
 		if (cloneprop) {
@@ -4457,9 +4495,19 @@ bool aiDuplicateChr(void)
 				hatCreateForChr(clone, obj->modelnum, 0);
 			}
 
-			clone->flags = chr->flags;
-			clone->flags2 = chr->flags2;
-			clone->padpreset1 = chr->padpreset1;
+#ifndef PLATFORM_N64
+			// GoldenEye's TRYCloningChr (chrai.c) gives its clone the guns and
+			// hat and nothing else: the clone starts with its own flags and
+			// presets and runs the list it was given (GAILIST_STANDARD_CLONE,
+			// the run to Bond). Perfect Dark's copies the chr's flags and pad
+			// preset across; a converted mission's clone is GoldenEye's
+			if (!modloaderStageIsRemake(g_Vars.stagenum))
+#endif
+			{
+				clone->flags = chr->flags;
+				clone->flags2 = chr->flags2;
+				clone->padpreset1 = chr->padpreset1;
+			}
 
 			if (g_Vars.normmplayerisrunning == false
 					&& g_MissionConfig.iscoop

@@ -257,7 +257,7 @@ TABLE = [
     ('TRYSpawningChrNextToChr',             11,   [('BODY_NUM', 1), ('HEAD_NUM', 1), ('CHR_NUM_TARGET', 1), ('AI_LIST_ID', 2), ('BITFIELD', 4), ('GOTOLABEL', 1)], 0x00c7, (0, 1, 2, 3, 4, 5),                          'table'),  # be aiSpawnChrAtChr
     ('TRYGiveMeItem',                       9,    [('PROP_NUM', 2), ('ITEM_NUM', 1), ('PROPFLAG', 4), ('GOTOLABEL', 1)], 0x00c8, (0, 1, 2, 3),                                'both'),  # bf aiTryEquipWeapon
     ('TRYGiveMeHat',                        8,    [('PROP_NUM', 2), ('PROP_BITFIELD', 4), ('GOTOLABEL', 1)], 0x00c9, (0, 1, 2),                                   'hand'),  # c0 aiTryEquipHat
-    ('TRYCloningChr',                       5,    [('CHR_NUM', 1), ('AI_LIST_ID', 2), ('GOTOLABEL', 1)], None,   (),                                          'hand'),  # c1 -
+    ('TRYCloningChr',                       5,    [('CHR_NUM', 1), ('AI_LIST_ID', 2), ('GOTOLABEL', 1)], 0x00ca, (0, 1, ('=', 0, 4), 2),                   'hand'),  # c1 aiDuplicateChr, spawn flags 0 as GoldenEye's
     ('TextPrintBottom',                     3,    [('TEXT_SLOT', 2)],                            0x00cb, (('=', CHR_BOND, 1), 0),                     'hand'),  # c2 aiShowHudmsg
     ('TextPrintTop',                        3,    [('TEXT_SLOT', 2)],                            0x00cc, (('=', CHR_BOND, 1), 0, ('=', 2, 1)),        'hand'),  # c3 aiShowHudmsgTopMiddle, white
     ('SfxPlay',                             4,    [('SOUND_NUM', 2), ('CHANNEL_NUM', 1)],        0x00ce, (0, 1),                                      'both'),  # c4 aiPlaySound

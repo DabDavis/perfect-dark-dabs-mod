@@ -4993,8 +4993,8 @@ static uint32_t soloGlobalAiId(uint32_t id)
  *
  * The two name most of the same things. GoldenEye's own setup flags are Perfect
  * Dark's spawn flags for the three it uses - sunglasses (0x01), sunglasses half
- * the time (0x02) and invincible (0x08); its 0x04 is "this is a clone", which
- * Perfect Dark has no spawn flag for. The two fields the decomp calls health and
+ * the time (0x02) and invincible (0x08); its 0x04 is "clone on heard gunfire",
+ * which is no spawn flag but a flag of the chr's (below). The two fields the decomp calls health and
  * reaction time are its hearing scale and vision range (chraction.c reads them
  * into hearingscale and visionrange), which are Perfect Dark's own two.
  *
@@ -5028,6 +5028,15 @@ static void guardRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 	set16(out, 0x14, hearscale);
 	set16(out, 0x16, viewdist);
 	set16(out, 0x22, 0xffff);   // no chair
+
+	// GoldenEye's 0x04 sets CHRFLAG_CLONE (chraction.c), "clone on heard
+	// gunfire" - the bit its TRYCloningChr asks for. It is Perfect Dark's
+	// CHRCFLAG_CLONEABLE bit for bit, which a setup chr is given from
+	// CHRFLAG0_CAN_HEARSPAWN in its flags (body.c). Dropped until converter
+	// 94, so no converted guard was ever cloned
+	if (flags & 0x0004) {
+		set32(out, 0x18, 0x20000000);
+	}
 }
 
 /**
