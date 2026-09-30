@@ -31,6 +31,15 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 24 2026-09-30
+GE Plus, HD look: GoldenEye's caps and hats sit properly on the HD heads, as on Facility's guards (thanks Odeyseis)
+GE Plus Cuba: in the ending Bond is GoldenEye's size, so he and Natalya line up for the kiss; Bond's body is GoldenEye's own 97% size on every mission (thanks savantique)
+GE Plus Statue Park: Natalya, knocked out by the helicopter, lies on the ground instead of floating above it (thanks savantique)
+GE Plus, HD look: the watch detonator shows only the sleeve of the outfit you are wearing, not every outfit's at once (thanks Glazier)
+GE Plus Train, HD look: the riveted plates on the walls are no longer hidden by the wall behind them at some distances (thanks dab)
+GE Plus Aztec, HD look: the exhaust tunnel where the armor lies is no longer blocked by a stray piece of wall (thanks savantique)
+Report a Problem (F3): the report now says which gun you held and your aiming and crosshair options, to help track down crosshair problems (thanks pigtrough)
+
 notes 23 2026-09-30
 GE Plus: shooting out a room's lights darkens its barrels, crates, guards and your gun along with the room, in both looks (thanks dab)
 
