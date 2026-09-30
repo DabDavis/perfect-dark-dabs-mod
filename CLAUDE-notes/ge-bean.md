@@ -13283,3 +13283,49 @@ Caves, Complex, Library/Basement/Stack, Cradle, Aztec. Before/after checked at
 the tester's Depot camera (closed, 0.34, 0.90 open) and Temple's big door;
 N64 look unchanged (gebeanstage.c only builds the HD level). **Needs an
 HDCACHE_VERSION bump** (left to the merge; done there: 7, with hdbright's rooms).
+
+## 24th F3 pass on HD Dam (2026-09-30, fix/f3-0930-hddam)
+
+Stage 0x15 in these testers' traces is the **GoldenEye Arenas Dam map**; ids
+move with the mods installed (here the Dam *mission* was 0x15 and the arena
+0x51 - check `modloader:` lines, or `--boot-ge-mission N` / `--boot-map`).
+Rig: `~/wt/f3-0930-hddam-run` (`skip.sh` + `roomskip.py`: real player placed
+each 30 frames, `RANGES` skips rooms, `FIRE`/`FIRE0` hold the trigger,
+`EXPLODE=x,y,z`, `DOORGLASS=1` shatters nearby windowed doors, `PROPS=1` and
+`DSTATE=1` print tinted glass and door glass state, `CAMROOM=`; `FWD=197`
+with `--spectate` puts the spectator camera, which sits 197 behind its prop,
+at the trace's eye).
+
+- **Hut windows striped grey and black (20260929-213543).** Level mesh, not
+  the window prop: Bean's Dam pane is `_0x05D42F95.int.bin`, a 64x1 intensity
+  row of black and light bars in the release's *opaque* pass. The rule in
+  `beanLevelMaskTexture()` now also takes a one-row `.int` picture drawn only
+  opaque as see-through glass (alpha 40 at black, 140 at light). Only Dam has
+  such a picture. The HD cache hashes texAlpha/texSoft, so it rebuilds itself.
+- **Navy ring over Dam's sky with the CE off (20260930-013142).** GoldenEye's
+  cloud plane over Bean's daylit panorama; `releaseSkyNames[]` gains `dam`,
+  the release's own (placeholder) dome with Dam's horizon ring, as Surface.
+- **Holes in the far mountain down the gate tunnel (20260929-212942).** The
+  converted level's visibility commands (`BGCMD_DISABLEROOM*`, GoldenEye's
+  own) set `ROOMFLAG_DISABLEDBYSCRIPT` on rooms 51, 52, 60-80 from the gate
+  yard, and `bgSetRoomOnscreen()` refuses those, so every-room drawing lost
+  them; Bean's mountain is dealt into rooms 20-70 by position, interleaved.
+  `bgTickPortalsSpectate()` clears the flag under every-room drawing, after
+  the walk (which still honours it for which rooms' chrs are in view). The
+  spectator never showed it only because its camera sat in another room.
+- **Bunker's door windows stood whole after shattering (20260929-213924).**
+  A Bean door carries its pane in the one mesh as its fading span;
+  `xblaMeshRenderNode()` drops the fading span of a `g_SkelWindowedDoor`
+  model while its `MODELPART_WINDOWEDDOOR_0001` toggle is hidden. (Adding the
+  doors' scratch map `_0x0935E435` to `beanTexIsGlassOverlay()` was tried: the
+  pane then drew as milky white 119-alpha glass, worse than the dark tint.)
+- **Left as they are:** Control's central glass (20260929-224440) is
+  GoldenEye's data - TintDist 0, CullDist 10, opaque past 10 units, the same
+  in the N64 look; explosions do not break it (20260929-230523) because those
+  panes carry `OBJFLAG_INVINCIBLE` (0x20000) in GoldenEye's setup until the
+  mission's script breaks them, both looks. Barrels bright in a black room
+  (20260929-213203) is the lights shot out: `roomSetLightBroken()` darkens
+  the room (PD's brightness, both looks) while GoldenEye's props shade by
+  their tile alone (`propCalculateShadeColour()` on remake stages) - GoldenEye
+  itself darkens only the fixture's own vertices. The rock bank round the
+  reservoir and the big mountain face in the gap are Bean's own modelling.
