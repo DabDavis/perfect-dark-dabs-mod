@@ -19,13 +19,18 @@
 #include <math.h>
 #include <new>
 #include <chrono>
+#include <vector>
+#include <algorithm>
 
 #include "Recast.h"
 #include "DetourNavMesh.h"
 #include "DetourNavMeshBuilder.h"
 #include "DetourAlloc.h"
+#include "DetourNavMeshQuery.h"
+#include "DetourCommon.h"
 
 #include "simnav.h"
+#include "simnavlinks.h"
 
 #ifndef DT_POLYREF64
 #error "simnav.cpp and Detour must be built with DT_POLYREF64 (CMakeLists.txt)"
@@ -79,10 +84,20 @@ struct TileBuild {
 
 enum TileResult { TILE_OK, TILE_EMPTY, TILE_FAILED };
 
-TileResult buildTile(SimNavContext &ctx, const rcConfig &base, const simnavinput *in,
+// A tile's polygons, kept between the build without links and the one with
+struct KeptTile {
+	int tx = 0, ty = 0;
+	rcPolyMesh *pmesh = nullptr;
+	rcPolyMeshDetail *dmesh = nullptr;
+};
+
+TileResult buildTile(SimNavContext &ctx, const rcConfig &base, const simnavparams *sp, const simnavinput *in,
 		const float *tribounds, int tx, int ty, const float *meshbmin, const float *meshbmax,
-		int *scratchtris, unsigned char *scratchareas, unsigned char **outdata, int *outsize)
+		int *scratchtris, unsigned char *scratchareas, KeptTile *out)
 {
+	const int stepover = (int)floorf(sp->agentstepover / base.ch);
+	const int standing = (int)ceilf(sp->agentheight / base.ch);
+	const int ducked = (int)ceilf(sp->agentduckheight / base.ch);
 	rcConfig cfg = base;
 	const float tcs = cfg.tileSize * cfg.cs;
 	TileBuild b;
@@ -124,11 +139,16 @@ TileResult buildTile(SimNavContext &ctx, const rcConfig &base, const simnavinput
 		return TILE_FAILED;
 	}
 
-	if (!rcRasterizeTriangles(&ctx, in->verts, in->numverts, scratchtris, scratchareas, n, *b.hf, cfg.walkableClimb)) {
+	// A wall and the floor under it are one span in a cell they share, and
+	// the floor's area wins only where the wall tops out within a step over
+	// (chrGetBbox()'s box starts that far over the feet); a taller wall
+	// stands on the floor as solid, however high a step the floors either
+	// side of it are. The walkable climb is for floors only.
+	if (!rcRasterizeTriangles(&ctx, in->verts, in->numverts, scratchtris, scratchareas, n, *b.hf, stepover)) {
 		return TILE_FAILED;
 	}
 
-	rcFilterLowHangingWalkableObstacles(&ctx, cfg.walkableClimb, *b.hf);
+	rcFilterLowHangingWalkableObstacles(&ctx, stepover, *b.hf);
 	rcFilterLedgeSpans(&ctx, cfg.walkableHeight, cfg.walkableClimb, *b.hf);
 	rcFilterWalkableLowHeightSpans(&ctx, cfg.walkableHeight, *b.hf);
 
@@ -143,6 +163,23 @@ TileResult buildTile(SimNavContext &ctx, const rcConfig &base, const simnavinput
 
 	if (b.chf->spanCount == 0) {
 		return TILE_EMPTY;
+	}
+
+	// The mesh is built for a crouching simulant; where there is less room
+	// than a standing one needs, it goes only over the floors that have it
+	// duck or crouch, as far as it gets down
+	for (int i = 0; i < b.chf->spanCount; i++) {
+		const int room = b.chf->spans[i].h;
+
+		if (b.chf->areas[i] == RC_NULL_AREA || room >= standing) {
+			continue;
+		}
+
+		if (b.chf->areas[i] == SIMNAV_AREA_CROUCH || (b.chf->areas[i] == SIMNAV_AREA_DUCK && room >= ducked)) {
+			continue;
+		}
+
+		b.chf->areas[i] = RC_NULL_AREA;
 	}
 
 	if (!rcErodeWalkableArea(&ctx, cfg.walkableRadius, *b.chf)
@@ -182,53 +219,93 @@ TileResult buildTile(SimNavContext &ctx, const rcConfig &base, const simnavinput
 		return TILE_FAILED;
 	}
 
-	// every area but none can be walked; M2 gives the others their costs
+	// every area but none can be walked
 	for (int i = 0; i < b.pmesh->npolys; i++) {
-		b.pmesh->flags[i] = b.pmesh->areas[i] != RC_NULL_AREA ? 1 : 0;
+		b.pmesh->flags[i] = b.pmesh->areas[i] != RC_NULL_AREA ? SIMNAV_FLAG_WALK : 0;
+	}
+
+	out->tx = tx;
+	out->ty = ty;
+	out->pmesh = b.pmesh;
+	out->dmesh = b.dmesh;
+	b.pmesh = nullptr;
+	b.dmesh = nullptr;
+
+	return TILE_OK;
+}
+
+/** A kept tile's Detour data, with the links that start in it */
+bool makeTileData(SimNavContext &ctx, const rcConfig &cfg, const KeptTile &t, const std::vector<SimNavLink> &links,
+		unsigned char **outdata, int *outsize)
+{
+	std::vector<float> converts, conrad;
+	std::vector<unsigned short> conflags;
+	std::vector<unsigned char> conareas, condir;
+	std::vector<unsigned int> conids;
+
+	for (size_t i = 0; i < links.size(); i++) {
+		const SimNavLink &l = links[i];
+
+		converts.insert(converts.end(), l.a, l.a + 3);
+		converts.insert(converts.end(), l.b, l.b + 3);
+		conrad.push_back(l.rad);
+		conflags.push_back(l.flags);
+		conareas.push_back(l.area);
+		condir.push_back(l.bidir ? DT_OFFMESH_CON_BIDIR : 0);
+		conids.push_back((unsigned int)i);
 	}
 
 	dtNavMeshCreateParams p;
 	memset(&p, 0, sizeof(p));
-	p.verts = b.pmesh->verts;
-	p.vertCount = b.pmesh->nverts;
-	p.polys = b.pmesh->polys;
-	p.polyAreas = b.pmesh->areas;
-	p.polyFlags = b.pmesh->flags;
-	p.polyCount = b.pmesh->npolys;
-	p.nvp = b.pmesh->nvp;
-	p.detailMeshes = b.dmesh->meshes;
-	p.detailVerts = b.dmesh->verts;
-	p.detailVertsCount = b.dmesh->nverts;
-	p.detailTris = b.dmesh->tris;
-	p.detailTriCount = b.dmesh->ntris;
+	p.verts = t.pmesh->verts;
+	p.vertCount = t.pmesh->nverts;
+	p.polys = t.pmesh->polys;
+	p.polyAreas = t.pmesh->areas;
+	p.polyFlags = t.pmesh->flags;
+	p.polyCount = t.pmesh->npolys;
+	p.nvp = t.pmesh->nvp;
+	p.detailMeshes = t.dmesh->meshes;
+	p.detailVerts = t.dmesh->verts;
+	p.detailVertsCount = t.dmesh->nverts;
+	p.detailTris = t.dmesh->tris;
+	p.detailTriCount = t.dmesh->ntris;
+	p.offMeshConVerts = converts.empty() ? nullptr : converts.data();
+	p.offMeshConRad = conrad.empty() ? nullptr : conrad.data();
+	p.offMeshConFlags = conflags.empty() ? nullptr : conflags.data();
+	p.offMeshConAreas = conareas.empty() ? nullptr : conareas.data();
+	p.offMeshConDir = condir.empty() ? nullptr : condir.data();
+	p.offMeshConUserID = conids.empty() ? nullptr : conids.data();
+	p.offMeshConCount = (int)links.size();
 	p.walkableHeight = cfg.walkableHeight * cfg.ch;
 	p.walkableRadius = cfg.walkableRadius * cfg.cs;
 	p.walkableClimb = cfg.walkableClimb * cfg.ch;
-	p.tileX = tx;
-	p.tileY = ty;
+	p.tileX = t.tx;
+	p.tileY = t.ty;
 	p.tileLayer = 0;
-	rcVcopy(p.bmin, b.pmesh->bmin);
-	rcVcopy(p.bmax, b.pmesh->bmax);
+	rcVcopy(p.bmin, t.pmesh->bmin);
+	rcVcopy(p.bmax, t.pmesh->bmax);
 	p.cs = cfg.cs;
 	p.ch = cfg.ch;
 	p.buildBvTree = true;
 
 	if (!dtCreateNavMeshData(&p, outdata, outsize)) {
-		ctx.log(RC_LOG_ERROR, "tile %d,%d: dtCreateNavMeshData failed", tx, ty);
-		return TILE_FAILED;
+		ctx.log(RC_LOG_ERROR, "tile %d,%d: dtCreateNavMeshData failed", t.tx, t.ty);
+		return false;
 	}
 
-	return TILE_OK;
+	return true;
 }
 
 void countTiles(const dtNavMesh *nav, simnavstats *stats)
 {
 	const float buildms = stats->buildms;
+	const float linkms = stats->linkms;
 	const int emptytiles = stats->emptytiles;
 	const int failedtiles = stats->failedtiles;
 
 	memset(stats, 0, sizeof(*stats));
 	stats->buildms = buildms;
+	stats->linkms = linkms;
 	stats->emptytiles = emptytiles;
 	stats->failedtiles = failedtiles;
 
@@ -240,9 +317,29 @@ void countTiles(const dtNavMesh *nav, simnavstats *stats)
 		}
 
 		stats->tiles++;
-		stats->polys += tile->header->polyCount;
-		stats->verts += tile->header->vertCount;
+		stats->polys += tile->header->polyCount - tile->header->offMeshConCount;
+		stats->verts += tile->header->vertCount - tile->header->offMeshConCount * 2;
 		stats->detailtris += tile->header->detailTriCount;
+
+		for (int j = 0; j < tile->header->offMeshConCount; j++) {
+			const dtOffMeshConnection *con = &tile->offMeshCons[j];
+			const dtPoly *poly = &tile->polys[con->poly];
+
+			switch (poly->getArea()) {
+			case SIMNAV_AREA_LADDER: stats->ladderlinks++; break;
+			case SIMNAV_AREA_LIFT: stats->liftlinks++; break;
+			case SIMNAV_AREA_DROP: stats->droplinks++; break;
+			case SIMNAV_AREA_JUMP:
+				stats->jumplinks++;
+
+				for (int h = 0; h < SIMNAV_MAXJUMPHEIGHTS; h++) {
+					if (poly->flags & SIMNAV_FLAG_JUMP(h + 1)) {
+						stats->jumpsbyheight[h]++;
+					}
+				}
+				break;
+			}
+		}
 	}
 }
 
@@ -260,7 +357,7 @@ int nextPow2(int v)
 } // namespace
 
 extern "C" struct simnavmesh *simnavMeshBuild(const struct simnavinput *in, const struct simnavparams *sp,
-		struct simnavstats *outstats, char *err, size_t errlen)
+		const struct simnavlinkparams *lp, struct simnavstats *outstats, char *err, size_t errlen)
 {
 	const auto start = std::chrono::steady_clock::now();
 	SimNavContext ctx(err, errlen);
@@ -284,7 +381,7 @@ extern "C" struct simnavmesh *simnavMeshBuild(const struct simnavinput *in, cons
 	cfg.cs = sp->cellsize;
 	cfg.ch = sp->cellheight;
 	cfg.walkableSlopeAngle = sp->agentslope;
-	cfg.walkableHeight = (int)ceilf(sp->agentheight / cfg.ch);
+	cfg.walkableHeight = (int)ceilf(sp->agentcrouchheight / cfg.ch);
 	cfg.walkableClimb = (int)floorf(sp->agentclimb / cfg.ch);
 	cfg.walkableRadius = (int)ceilf(sp->agentradius / cfg.cs);
 	cfg.maxEdgeLen = (int)(sp->maxedgelen / cfg.cs);
@@ -355,20 +452,19 @@ extern "C" struct simnavmesh *simnavMeshBuild(const struct simnavinput *in, cons
 		tb[3] = rcMax(a[2], rcMax(b[2], c[2]));
 	}
 
+	std::vector<KeptTile> kept;
+
 	for (int ty = 0; ty < th; ty++) {
 		for (int tx = 0; tx < tw; tx++) {
-			unsigned char *data = nullptr;
-			int size = 0;
-			TileResult r = buildTile(ctx, cfg, in, tribounds, tx, ty, bmin, bmax,
-					scratchtris, scratchareas, &data, &size);
+			KeptTile t;
+			TileResult r = buildTile(ctx, cfg, sp, in, tribounds, tx, ty, bmin, bmax, scratchtris, scratchareas, &t);
 
 			if (r == TILE_EMPTY) {
 				stats.emptytiles++;
 			} else if (r == TILE_FAILED) {
 				stats.failedtiles++;
-			} else if (dtStatusFailed(mesh->nav->addTile(data, size, DT_TILE_FREE_DATA, 0, nullptr))) {
-				dtFree(data);
-				stats.failedtiles++;
+			} else {
+				kept.push_back(t);
 			}
 		}
 	}
@@ -376,6 +472,60 @@ extern "C" struct simnavmesh *simnavMeshBuild(const struct simnavinput *in, cons
 	free(tribounds);
 	free(scratchtris);
 	free(scratchareas);
+
+	// The mesh without links, then the links found on it, then the mesh
+	// again with each link in the tile its start is in
+	std::vector<SimNavLink> links;
+	std::vector<std::vector<SimNavLink>> tilelinks(kept.size());
+
+	if (lp) {
+		dtNavMesh *bare = dtAllocNavMesh();
+
+		if (bare && dtStatusSucceed(bare->init(&np))) {
+			for (const KeptTile &t : kept) {
+				unsigned char *data = nullptr;
+				int size = 0;
+
+				if (makeTileData(ctx, cfg, t, std::vector<SimNavLink>(), &data, &size)
+						&& dtStatusFailed(bare->addTile(data, size, DT_TILE_FREE_DATA, 0, nullptr))) {
+					dtFree(data);
+				}
+			}
+
+			const auto linkstart = std::chrono::steady_clock::now();
+			simnavGenerateLinks(bare, in, sp, lp, links);
+			stats.linkms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - linkstart).count();
+		}
+
+		dtFreeNavMesh(bare);
+
+		for (const SimNavLink &l : links) {
+			const int tx = (int)floorf((l.a[0] - np.orig[0]) / np.tileWidth);
+			const int ty = (int)floorf((l.a[2] - np.orig[2]) / np.tileHeight);
+
+			for (size_t i = 0; i < kept.size(); i++) {
+				if (kept[i].tx == tx && kept[i].ty == ty) {
+					tilelinks[i].push_back(l);
+					break;
+				}
+			}
+		}
+	}
+
+	for (size_t i = 0; i < kept.size(); i++) {
+		unsigned char *data = nullptr;
+		int size = 0;
+
+		if (!makeTileData(ctx, cfg, kept[i], tilelinks[i], &data, &size)) {
+			stats.failedtiles++;
+		} else if (dtStatusFailed(mesh->nav->addTile(data, size, DT_TILE_FREE_DATA, 0, nullptr))) {
+			dtFree(data);
+			stats.failedtiles++;
+		}
+
+		rcFreePolyMesh(kept[i].pmesh);
+		rcFreePolyMeshDetail(kept[i].dmesh);
+	}
 
 	stats.buildms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - start).count();
 	countTiles(mesh->nav, &stats);
@@ -422,7 +572,7 @@ extern "C" int simnavMeshNumTiles(const struct simnavmesh *mesh)
 // (the params, then each tile's size and bytes), host byte order. A cache,
 // not an interchange format.
 #define SIMNAV_SAVE_MAGIC   0x534e4156 // 'SNAV'
-#define SIMNAV_SAVE_VERSION 1
+#define SIMNAV_SAVE_VERSION 2
 
 namespace {
 
@@ -435,7 +585,7 @@ struct SaveHeader {
 	float buildms;
 	int32_t emptytiles;
 	int32_t failedtiles;
-	int32_t pad2;
+	float linkms;
 };
 
 struct SaveTile {
@@ -476,6 +626,7 @@ extern "C" int simnavMeshSave(const struct simnavmesh *mesh, uint8_t **outbuf, s
 	h.buildms = mesh->stats.buildms;
 	h.emptytiles = mesh->stats.emptytiles;
 	h.failedtiles = mesh->stats.failedtiles;
+	h.linkms = mesh->stats.linkms;
 	memcpy(buf, &h, sizeof(h));
 
 	size_t off = sizeof(h);
@@ -568,6 +719,7 @@ extern "C" struct simnavmesh *simnavMeshLoad(const uint8_t *buf, size_t len)
 	mesh->stats.buildms = h.buildms;
 	mesh->stats.emptytiles = h.emptytiles;
 	mesh->stats.failedtiles = h.failedtiles;
+	mesh->stats.linkms = h.linkms;
 	countTiles(mesh->nav, &mesh->stats);
 
 	return mesh;
@@ -616,4 +768,251 @@ extern "C" int simnavMeshForEachTri(const struct simnavmesh *mesh, simnavtrifn f
 	}
 
 	return count;
+}
+
+extern "C" int simnavMeshForEachLink(const struct simnavmesh *mesh, simnavlinkfn fn, void *arg)
+{
+	const dtNavMesh *nav = mesh->nav;
+	int count = 0;
+
+	for (int i = 0; i < nav->getMaxTiles(); i++) {
+		const dtMeshTile *tile = nav->getTile(i);
+
+		if (!tile || !tile->header || !tile->dataSize) {
+			continue;
+		}
+
+		for (int j = 0; j < tile->header->offMeshConCount; j++) {
+			const dtOffMeshConnection *con = &tile->offMeshCons[j];
+			const dtPoly *poly = &tile->polys[con->poly];
+
+			fn(arg, poly->getArea(), poly->flags, (con->flags & DT_OFFMESH_CON_BIDIR) != 0, &con->pos[0], &con->pos[3]);
+			count++;
+		}
+	}
+
+	return count;
+}
+
+/*
+ * Queries
+ */
+
+struct simnavquery {
+	const dtNavMesh *nav;
+	dtNavMeshQuery *q;
+	dtPolyRef path[512];
+};
+
+extern "C" struct simnavquery *simnavQueryCreate(const struct simnavmesh *mesh)
+{
+	simnavquery *query = new (std::nothrow) simnavquery();
+
+	if (!query) {
+		return nullptr;
+	}
+
+	query->nav = mesh->nav;
+	query->q = dtAllocNavMeshQuery();
+
+	if (!query->q || dtStatusFailed(query->q->init(mesh->nav, 4096))) {
+		simnavQueryFree(query);
+		return nullptr;
+	}
+
+	return query;
+}
+
+extern "C" void simnavQueryFree(struct simnavquery *query)
+{
+	if (query) {
+		dtFreeNavMeshQuery(query->q);
+		delete query;
+	}
+}
+
+extern "C" int simnavQueryFindFloor(struct simnavquery *query, const float *pos, float below, float above,
+		float radius, float *out)
+{
+	dtQueryFilter filter;
+	dtPolyRef ref;
+
+	filter.setIncludeFlags(0xffff);
+
+	return simnavFindFloorPoly(query->q, &filter, pos, below, above, radius, &ref, out) ? 1 : 0;
+}
+
+extern "C" int simnavQueryPath(struct simnavquery *query, const float *start, const float *end, unsigned short include,
+		float *points, unsigned char *linkareas, int maxpoints, int *complete)
+{
+	dtQueryFilter filter;
+	dtPolyRef sref, eref;
+	float s[3], e[3];
+	int npath = 0;
+	int n = 0;
+
+	*complete = 0;
+	filter.setIncludeFlags(include);
+
+	// a chr's position stands over its floor, a player's at eye height
+	if (maxpoints <= 0
+			|| !simnavFindFloorPoly(query->q, &filter, start, 250.0f, 60.0f, 60.0f, &sref, s)
+			|| !simnavFindFloorPoly(query->q, &filter, end, 250.0f, 60.0f, 60.0f, &eref, e)) {
+		return 0;
+	}
+
+	if (dtStatusFailed(query->q->findPath(sref, eref, s, e, &filter, query->path, &npath, 512)) || npath == 0) {
+		return 0;
+	}
+
+	*complete = query->path[npath - 1] == eref;
+
+	if (!*complete) {
+		// as near as it gets
+		float near[3];
+		bool over;
+
+		if (dtStatusSucceed(query->q->closestPointOnPoly(query->path[npath - 1], e, near, &over))) {
+			dtVcopy(e, near);
+		}
+	}
+
+	std::vector<unsigned char> flags(maxpoints);
+	std::vector<dtPolyRef> refs(maxpoints);
+
+	if (dtStatusFailed(query->q->findStraightPath(s, e, query->path, npath, points, flags.data(), refs.data(), &n, maxpoints))) {
+		return 0;
+	}
+
+	for (int i = 0; i < n; i++) {
+		linkareas[i] = SIMNAV_AREA_NONE;
+
+		if ((flags[i] & DT_STRAIGHTPATH_OFFMESH_CONNECTION) && refs[i]) {
+			unsigned char area = 0;
+
+			if (dtStatusSucceed(query->nav->getPolyArea(refs[i], &area))) {
+				linkareas[i] = area;
+			}
+		}
+	}
+
+	return n;
+}
+
+extern "C" void simnavMeshReachability(const struct simnavmesh *mesh, const float *points, int n,
+		float below, float radius, unsigned short include, int *onmesh, int *mutualpairs, int *groups)
+{
+	const dtNavMesh *nav = mesh->nav;
+	simnavquery *query = simnavQueryCreate(mesh);
+	dtQueryFilter filter;
+
+	*onmesh = 0;
+	*mutualpairs = 0;
+
+	if (!query || n <= 0) {
+		simnavQueryFree(query);
+		return;
+	}
+
+	filter.setIncludeFlags(include);
+
+	// a dense index for every polygon, links included
+	std::vector<int> tilebase(nav->getMaxTiles() + 1, 0);
+
+	for (int i = 0; i < nav->getMaxTiles(); i++) {
+		const dtMeshTile *tile = nav->getTile(i);
+		tilebase[i + 1] = tilebase[i] + (tile && tile->header ? tile->header->polyCount : 0);
+	}
+
+	const int numpolys = tilebase.back();
+	auto indexOf = [&](dtPolyRef ref) -> int {
+		const dtMeshTile *tile;
+		const dtPoly *poly;
+		nav->getTileAndPolyByRefUnsafe(ref, &tile, &poly);
+		return tilebase[nav->decodePolyIdTile(ref)] + (int)(poly - tile->polys);
+	};
+
+	// the pads a floor search may take: the walkable polygons whatever the
+	// include mask
+	dtQueryFilter floorfilter;
+	floorfilter.setIncludeFlags(SIMNAV_FLAG_WALK);
+
+	std::vector<dtPolyRef> start(n, 0);
+	std::vector<std::vector<unsigned char>> reach(n);
+
+	for (int i = 0; i < n; i++) {
+		float out[3];
+
+		if (simnavFindFloorPoly(query->q, &floorfilter, &points[i * 3], below, 60.0f, radius, &start[i], out)) {
+			(*onmesh)++;
+		} else {
+			start[i] = 0;
+		}
+	}
+
+	// everything each point reaches, by flood
+	for (int i = 0; i < n; i++) {
+		if (!start[i]) {
+			continue;
+		}
+
+		std::vector<unsigned char> &seen = reach[i];
+		std::vector<dtPolyRef> stack;
+
+		seen.assign(numpolys, 0);
+		stack.push_back(start[i]);
+		seen[indexOf(start[i])] = 1;
+
+		while (!stack.empty()) {
+			const dtPolyRef ref = stack.back();
+			const dtMeshTile *tile;
+			const dtPoly *poly;
+
+			stack.pop_back();
+			nav->getTileAndPolyByRefUnsafe(ref, &tile, &poly);
+
+			for (unsigned int k = poly->firstLink; k != DT_NULL_LINK; k = tile->links[k].next) {
+				const dtPolyRef nref = tile->links[k].ref;
+				const dtMeshTile *ntile;
+				const dtPoly *npoly;
+
+				if (!nref) {
+					continue;
+				}
+
+				nav->getTileAndPolyByRefUnsafe(nref, &ntile, &npoly);
+
+				if (!(npoly->flags & include)) {
+					continue;
+				}
+
+				const int idx = indexOf(nref);
+
+				if (!seen[idx]) {
+					seen[idx] = 1;
+					stack.push_back(nref);
+				}
+			}
+		}
+	}
+
+	if (groups) {
+		for (int i = 0; i < n; i++) {
+			groups[i] = start[i] ? i : -1;
+		}
+	}
+
+	for (int i = 0; i < n; i++) {
+		for (int j = i + 1; j < n; j++) {
+			if (start[i] && start[j] && reach[i][indexOf(start[j])] && reach[j][indexOf(start[i])]) {
+				(*mutualpairs)++;
+
+				if (groups && groups[j] == j) {
+					groups[j] = groups[i];
+				}
+			}
+		}
+	}
+
+	simnavQueryFree(query);
 }
