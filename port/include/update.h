@@ -38,6 +38,18 @@
 #define UPDATE_MAXVERSION 32
 #define UPDATE_MAXCOMMIT  16
 
+// One release as its manifest describes it, plus the newest entry in its
+// patch notes (0 when it has none), which is how two channels are put in order.
+struct updaterel {
+	char version[UPDATE_MAXVERSION + 1];
+	char commit[UPDATE_MAXCOMMIT + 1];
+	char asset[64];
+	char sha[65];
+	u32 size;
+	s32 notesnum;
+	char notesdate[16];
+};
+
 // See the note on the definition: empty for the real release URL, set only by
 // somebody testing the updater against a server of their own.
 extern char g_UpdateUrl[256];
@@ -58,6 +70,34 @@ void updateForceRedownload(void);
 bool updateIsForced(void);
 
 void updateCheck(void);
+
+/**
+ * The other channel: stable for a dev build, dev for a stable one.
+ *
+ * A check the player makes also asks for the other channel's latest build, and
+ * updateSwitchChannel() downloads and puts that one in place through the same
+ * path as an update - same size and hash checks, same two renames - except
+ * that the build it replaces is kept as <exe>.prev rather than removed. The
+ * channel is baked into every build, so the build that arrives follows its own
+ * channel from then on: nothing else needs to remember the switch.
+ *
+ * updateBackupSaves() copies pd.ini and the saves into a dated folder first;
+ * the confirm dialog calls it, on the main thread, before the switch.
+ */
+const char *updateOtherChannel(void);
+bool updateGetOther(struct updaterel *out);
+bool updateOtherWasAsked(void);
+void updateGetNotesNewest(s32 *num, char *date, u32 datesize);
+void updateSwitchChannel(void);
+bool updateBackupSaves(char *outdir, u32 outsize);
+
+// The startup check the update notice makes (updatemenu.c). The same request,
+// but a failure goes back to idle without a word, and quitting does not wait
+// for it. Only starts from idle.
+void updateCheckInBackground(void);
+
+// The short commit the last check's release was built from, "" before one.
+const char *updateGetCommit(void);
 void updateInstall(void);
 
 void updateInit(void);
@@ -92,5 +132,14 @@ void updateRelaunchIfStaged(void);
 // takes hold at startup; see sysRequestRestart().
 void updateRelaunchSelf(void);
 void updateCleanUp(void);
+
+// The update notice (updatemenu.c): "a newer build is out" on the Perfect Menu.
+// updatenoticeInit() straight after configInit(), updatenoticeStart() after
+// updateInit(), the tick from the Perfect Menu's dialog handler.
+struct menudialogdef;
+struct menuinputs;
+void updatenoticeInit(void);
+void updatenoticeStart(void);
+void updatenoticeMainMenuTick(struct menudialogdef *menudef, struct menuinputs *inputs, bool ontop);
 
 #endif

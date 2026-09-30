@@ -207,6 +207,7 @@ int main(int argc, const char **argv)
 	// Straight after the config and before anything can write it: whether
 	// pd.ini was there when the game started is half of what decides it.
 	patchnotesInit();
+	updatenoticeInit();
 
 	// A pd.ini keeps the MemorySize it was written with, and 16 was the default
 	// here before v1.0 and still is upstream. That heap cannot hold the XBLA
@@ -252,6 +253,8 @@ int main(int argc, const char **argv)
 	recordInit();
 	ghostnetInit();
 	updateInit();
+	// The update notice's check, on the updater's worker: nothing waits for it.
+	updatenoticeStart();
 	// A report from a run that did not come back, so the menu can offer it.
 	crashReportScan();
 	audioInit();

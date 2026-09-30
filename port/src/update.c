@@ -28,6 +28,8 @@
 #include <mach-o/dyld.h>
 #endif
 
+#include <sys/stat.h>
+#include <time.h>
 #include <SDL2/SDL.h>
 #include "types.h"
 #include "fs.h"
@@ -37,6 +39,7 @@
 #include "update.h"
 #include "versioninfo.h"
 #include "langpack.h"
+#include "config.h"
 
 /**
  * See update.h for what this is. This file is the how.
@@ -87,6 +90,7 @@
 #define UPDATE_JOB_NONE    0
 #define UPDATE_JOB_CHECK   1
 #define UPDATE_JOB_INSTALL 2
+#define UPDATE_JOB_SWITCH  3 // install the other channel's build (updateSwitchChannel())
 
 /**
  * Where to look instead, when somebody is testing this.
@@ -151,11 +155,33 @@ static char g_Asset[64] = { 0 };
 static char g_Sha[65] = { 0 };
 static u32 g_Size = 0;
 
+// The other channel's latest build: stable's for a dev build, dev's for a
+// stable one. Asked for alongside this channel's by a check the player made
+// (never by the startup one), so the page can offer the switch. g_OtherKnown
+// says whether the last check found it.
+static struct updaterel g_Other;
+static bool g_OtherKnown = false;
+static bool g_OtherAsked = false;
+
+// This channel's release's newest patch notes entry and its date, from the
+// notes the check fetched; 0 and "" when it had none.
+static s32 g_NotesNum = 0;
+static char g_NotesDate[16] = { 0 };
+
+// What the download in flight is expected to weigh, for the progress row.
+static u32 g_DownloadTotal = 0;
+
 // The release's patch notes as fetched, or NULL when the last check found none.
 // The generation counts every change to them, so the menu can tell that the
 // text it formatted is stale without comparing the text itself.
 static char *g_Notes = NULL;
 static u32 g_NotesGeneration = 0;
+
+// Set for the check the update notice starts by itself at startup (see
+// updateCheckInBackground()). Nobody asked for it, so a failure - no network,
+// a timeout, a server that is down - is not news: the state goes back to idle
+// and the Check for Updates page says what it said before anything was tried.
+static bool g_Quiet = false;
 
 static void updateSetResult(s32 state, const char *msg)
 {
@@ -243,7 +269,7 @@ static void updatePath(const char *suffix, char *out, u32 outsize)
  * binary and the release job puts in the manifest, so a build only ever
  * matches the file that was built for it.
  */
-static bool updateParseManifest(const char *text, char *err, u32 errsize)
+static bool updateParseManifest(const char *text, struct updaterel *out, char *err, u32 errsize)
 {
 	const char *at = text;
 	char version[UPDATE_MAXVERSION + 1] = { 0 };
@@ -300,13 +326,12 @@ static bool updateParseManifest(const char *text, char *err, u32 errsize)
 		return false;
 	}
 
-	SDL_LockMutex(g_Lock);
-	snprintf(g_Version, sizeof(g_Version), "%s", version);
-	snprintf(g_Commit, sizeof(g_Commit), "%s", commit);
-	snprintf(g_Asset, sizeof(g_Asset), "%s", asset);
-	snprintf(g_Sha, sizeof(g_Sha), "%s", sha);
-	g_Size = (u32)size;
-	SDL_UnlockMutex(g_Lock);
+	memset(out, 0, sizeof(*out));
+	snprintf(out->version, sizeof(out->version), "%s", version);
+	snprintf(out->commit, sizeof(out->commit), "%s", commit);
+	snprintf(out->asset, sizeof(out->asset), "%s", asset);
+	snprintf(out->sha, sizeof(out->sha), "%s", sha);
+	out->size = (u32)size;
 
 	return true;
 }
@@ -323,7 +348,126 @@ static const char *updateBaseUrl(void)
 	return strcmp(VERSION_CHANNEL, "stable") == 0 ? UPDATE_URL_STABLE : UPDATE_URL_DEV;
 }
 
+const char *updateOtherChannel(void)
+{
+	return strcmp(VERSION_CHANNEL, "stable") == 0 ? "dev" : "stable";
+}
+
+/**
+ * Where the other channel's releases are. With Mod.UpdateServer set, a folder
+ * named after the channel under it - "<server>/stable" or "<server>/dev" -
+ * so one test server can play both channels; with it unset, GitHub's.
+ */
+static const char *updateOtherBaseUrl(void)
+{
+	static char url[300];
+
+	if (g_UpdateUrl[0]) {
+		snprintf(url, sizeof(url), "%s/%s", g_UpdateUrl, updateOtherChannel());
+		return url;
+	}
+
+	return strcmp(updateOtherChannel(), "stable") == 0 ? UPDATE_URL_STABLE : UPDATE_URL_DEV;
+}
+
+/**
+ * The newest entry in a copy of patchnotes.txt, and its date.
+ *
+ * Both channels are built from the same branch and number their notes from the
+ * same file, so this is the one measure of "older" and "newer" that works
+ * across them: a dev build's short hash says nothing about whether a stable
+ * tag came before or after it, but notes 200 came before notes 210 whichever
+ * channel carries them.
+ */
+static void updateNewestNotes(const char *text, s32 *num, char *date, u32 datesize)
+{
+	const char *at = text;
+
+	*num = 0;
+	date[0] = '\0';
+
+	while (at && *at) {
+		const char *eol = strchr(at, '\n');
+		char word[16] = { 0 };
+		int value;
+
+		if (strncmp(at, "notes ", 6) == 0 && sscanf(at, "notes %d %15s", &value, word) >= 1 && value > *num) {
+			*num = value;
+			snprintf(date, datesize, "%s", (word[0] >= '0' && word[0] <= '9') ? word : "");
+		}
+
+		at = eol ? eol + 1 : NULL;
+	}
+}
+
+static bool updateFetchManifestFrom(const char *base, struct updaterel *out, char *err, u32 errsize);
+
+/**
+ * The other channel's manifest and the newest number in its notes. Failure is
+ * only a line on the page ("not found"), never the check's result.
+ */
+static void updateFetchOther(void)
+{
+	struct updaterel rel;
+	char err[160] = { 0 };
+	bool ok = updateFetchManifestFrom(updateOtherBaseUrl(), &rel, err, sizeof(err));
+
+	if (ok) {
+		struct ghostnetbuf buf = { NULL, 0, NULL, 0 };
+		struct ghostnetreq req;
+		char url[512];
+		s32 status = 0;
+		char nerr[160] = { 0 };
+
+		snprintf(url, sizeof(url), "%s/%s", updateOtherBaseUrl(), UPDATE_NOTES);
+		memset(&req, 0, sizeof(req));
+		req.url = url;
+		req.redirect = true;
+		req.cancel = &g_Cancel;
+		buf.maxlen = UPDATE_NOTESMAXBYTES;
+
+		if (ghostnetSend(&req, &buf, &status, nerr, sizeof(nerr)) && status == 200 && buf.data) {
+			updateNewestNotes(buf.data, &rel.notesnum, rel.notesdate, sizeof(rel.notesdate));
+		}
+
+		free(buf.data);
+		sysLogPrintf(LOG_NOTE, "update: %s channel has %s (%s), notes %d", updateOtherChannel(),
+				rel.version, rel.commit, rel.notesnum);
+	} else {
+		sysLogPrintf(LOG_NOTE, "update: %s channel not found (%s)", updateOtherChannel(), err);
+	}
+
+	SDL_LockMutex(g_Lock);
+	g_OtherKnown = ok;
+	g_OtherAsked = true;
+
+	if (ok) {
+		g_Other = rel;
+	}
+
+	SDL_UnlockMutex(g_Lock);
+}
+
 static bool updateFetchManifest(char *err, u32 errsize)
+{
+	struct updaterel rel;
+
+	if (!updateFetchManifestFrom(updateBaseUrl(), &rel, err, errsize)) {
+		return false;
+	}
+
+	SDL_LockMutex(g_Lock);
+	snprintf(g_Version, sizeof(g_Version), "%s", rel.version);
+	snprintf(g_Commit, sizeof(g_Commit), "%s", rel.commit);
+	snprintf(g_Asset, sizeof(g_Asset), "%s", rel.asset);
+	snprintf(g_Sha, sizeof(g_Sha), "%s", rel.sha);
+	g_Size = rel.size;
+	SDL_UnlockMutex(g_Lock);
+
+	return true;
+}
+
+static bool updateFetchManifestFrom(const char *base, struct updaterel *out, char *err, u32 errsize)
 {
 	struct ghostnetbuf buf = { NULL, 0, NULL };
 	struct ghostnetreq req;
@@ -331,7 +475,7 @@ static bool updateFetchManifest(char *err, u32 errsize)
 	s32 status = 0;
 	bool ok;
 
-	snprintf(url, sizeof(url), "%s/%s", updateBaseUrl(), UPDATE_MANIFEST);
+	snprintf(url, sizeof(url), "%s/%s", base, UPDATE_MANIFEST);
 
 	memset(&req, 0, sizeof(req));
 	req.url = url;
@@ -354,7 +498,7 @@ static bool updateFetchManifest(char *err, u32 errsize)
 		return false;
 	}
 
-	ok = updateParseManifest(buf.data, err, errsize);
+	ok = updateParseManifest(buf.data, out, err, errsize);
 	free(buf.data);
 
 	return ok;
@@ -362,9 +506,18 @@ static bool updateFetchManifest(char *err, u32 errsize)
 
 static void updateSetNotes(char *notes)
 {
+	s32 num = 0;
+	char date[16] = { 0 };
+
+	if (notes) {
+		updateNewestNotes(notes, &num, date, sizeof(date));
+	}
+
 	SDL_LockMutex(g_Lock);
 	free(g_Notes);
 	g_Notes = notes;
+	g_NotesNum = num;
+	snprintf(g_NotesDate, sizeof(g_NotesDate), "%s", date);
 	g_NotesGeneration++;
 	SDL_UnlockMutex(g_Lock);
 }
@@ -529,7 +682,7 @@ bool updateIsForced(void)
  * neither an old game nor a new one is the one outcome worth going out of the
  * way to avoid.
  */
-static bool updateDownload(char *msg, u32 msgsize)
+static bool updateDownload(bool other, char *msg, u32 msgsize)
 {
 	struct ghostnetbuf *buf = &g_Download;
 	struct ghostnetreq req;
@@ -545,9 +698,18 @@ static bool updateDownload(char *msg, u32 msgsize)
 	FILE *f;
 
 	SDL_LockMutex(g_Lock);
-	snprintf(asset, sizeof(asset), "%s", g_Asset);
-	snprintf(want, sizeof(want), "%s", g_Sha);
-	size = g_Size;
+
+	if (other) {
+		snprintf(asset, sizeof(asset), "%s", g_OtherKnown ? g_Other.asset : "");
+		snprintf(want, sizeof(want), "%s", g_Other.sha);
+		size = g_Other.size;
+	} else {
+		snprintf(asset, sizeof(asset), "%s", g_Asset);
+		snprintf(want, sizeof(want), "%s", g_Sha);
+		size = g_Size;
+	}
+
+	g_DownloadTotal = size;
 	SDL_UnlockMutex(g_Lock);
 
 	if (asset[0] == '\0') {
@@ -556,7 +718,10 @@ static bool updateDownload(char *msg, u32 msgsize)
 	}
 
 	updatePath(".new", newpath, sizeof(newpath));
-	updatePath(".old", oldpath, sizeof(oldpath));
+	// A channel switch keeps the build it replaces as .prev, which nothing
+	// removes: the way back is to put that file where the game is. An
+	// ordinary update's .old goes at the next start, as it always has.
+	updatePath(other ? ".prev" : ".old", oldpath, sizeof(oldpath));
 	updatePath(NULL, curpath, sizeof(curpath));
 
 	f = fopen(newpath, "wb");
@@ -566,7 +731,7 @@ static bool updateDownload(char *msg, u32 msgsize)
 		return false;
 	}
 
-	snprintf(url, sizeof(url), "%s/%s", updateBaseUrl(), asset);
+	snprintf(url, sizeof(url), "%s/%s", other ? updateOtherBaseUrl() : updateBaseUrl(), asset);
 
 	memset(&req, 0, sizeof(req));
 	req.url = url;
@@ -657,7 +822,7 @@ static bool updateDownload(char *msg, u32 msgsize)
 
 		if (m) {
 			SDL_LockMutex(g_Lock);
-			fprintf(m, "%s\n", g_Version);
+			fprintf(m, "%s\n", other ? g_Other.version : g_Version);
 			SDL_UnlockMutex(g_Lock);
 			fclose(m);
 		}
@@ -675,6 +840,7 @@ static bool updateDownload(char *msg, u32 msgsize)
 static int updateWorker(void *arg)
 {
 	char msg[160] = { 0 };
+	bool quiet;
 	s32 job;
 
 	SDL_LockMutex(g_Lock);
@@ -691,8 +857,27 @@ static int updateWorker(void *arg)
 			updateFetchNotes();
 		}
 
+		SDL_LockMutex(g_Lock);
+		quiet = g_Quiet;
+		SDL_UnlockMutex(g_Lock);
+
+		// The other channel only for a player on the page: the startup check
+		// has no use for it and makes as few requests as it can.
+		if (!quiet) {
+			updateFetchOther();
+		}
+
 		if (!fetched) {
-			updateSetResult(UPDATE_ERROR, msg);
+			SDL_LockMutex(g_Lock);
+			quiet = g_Quiet;
+			SDL_UnlockMutex(g_Lock);
+
+			if (quiet) {
+				sysLogPrintf(LOG_NOTE, "update: background check found nothing (%s)", msg);
+				updateSetResult(UPDATE_IDLE, "");
+			} else {
+				updateSetResult(UPDATE_ERROR, msg);
+			}
 		} else if (updateIsNewer()) {
 			SDL_LockMutex(g_Lock);
 
@@ -709,8 +894,19 @@ static int updateWorker(void *arg)
 					? "This is the latest release."
 					: "This is the latest dev build.");
 		}
+	} else if (job == UPDATE_JOB_SWITCH) {
+		if (updateDownload(true, msg, sizeof(msg))) {
+			SDL_LockMutex(g_Lock);
+			snprintf(msg, sizeof(msg), "Switched to %s (%s).\nRestart to start using it.",
+					updateOtherChannel(), g_Other.version);
+			SDL_UnlockMutex(g_Lock);
+			sysLogPrintf(LOG_NOTE, "update: switched to %s", updateOtherChannel());
+			updateSetResult(UPDATE_STAGED, msg);
+		} else {
+			updateSetResult(UPDATE_ERROR, msg);
+		}
 	} else if (job == UPDATE_JOB_INSTALL) {
-		if (updateDownload(msg, sizeof(msg))) {
+		if (updateDownload(false, msg, sizeof(msg))) {
 			updateSetResult(UPDATE_STAGED, "Installed. Restart to start using it.");
 		} else {
 			updateSetResult(UPDATE_ERROR, msg);
@@ -719,6 +915,7 @@ static int updateWorker(void *arg)
 
 	SDL_LockMutex(g_Lock);
 	g_Job = UPDATE_JOB_NONE;
+	g_Quiet = false;
 	SDL_UnlockMutex(g_Lock);
 
 	return 0;
@@ -739,7 +936,7 @@ static void updateStart(s32 job)
 	g_Job = job;
 	g_State = UPDATE_BUSY;
 	snprintf(g_Message, sizeof(g_Message), "%s",
-			job == UPDATE_JOB_INSTALL ? LANG_N("Downloading...") : LANG_N("Asking GitHub..."));
+			job != UPDATE_JOB_CHECK ? LANG_N("Downloading...") : LANG_N("Asking GitHub..."));
 	SDL_UnlockMutex(g_Lock);
 
 	g_Thread = SDL_CreateThread(updateWorker, "pdupdate", NULL);
@@ -755,6 +952,246 @@ static void updateStart(s32 job)
 void updateCheck(void)
 {
 	updateStart(UPDATE_JOB_CHECK);
+}
+
+/**
+ * The same check, started by the update notice rather than by a player.
+ *
+ * Only ever from idle, so it can never take over a check or a download the
+ * player started. The flag is raised before the worker exists, so the worker
+ * sees it from its first line.
+ */
+void updateCheckInBackground(void)
+{
+	if (!updateIsAvailable() || updateGetState() != UPDATE_IDLE) {
+		return;
+	}
+
+	SDL_LockMutex(g_Lock);
+	g_Quiet = true;
+	SDL_UnlockMutex(g_Lock);
+
+	updateStart(UPDATE_JOB_CHECK);
+
+	if (updateGetState() != UPDATE_BUSY) {
+		SDL_LockMutex(g_Lock);
+		g_Quiet = false;
+		SDL_UnlockMutex(g_Lock);
+	}
+}
+
+const char *updateGetCommit(void)
+{
+	static char copy[sizeof(g_Commit)];
+
+	SDL_LockMutex(g_Lock);
+	snprintf(copy, sizeof(copy), "%s", g_Commit);
+	SDL_UnlockMutex(g_Lock);
+
+	return copy;
+}
+
+/**
+ * Put the other channel's latest build in place of this one. The page's
+ * confirm dialog has already backed up the saves (updateBackupSaves()).
+ */
+void updateSwitchChannel(void)
+{
+	s32 state = updateGetState();
+
+	if (state == UPDATE_BUSY || state == UPDATE_STAGED || !updateGetOther(NULL)) {
+		return;
+	}
+
+	updateStart(UPDATE_JOB_SWITCH);
+}
+
+bool updateGetOther(struct updaterel *out)
+{
+	bool known;
+
+	SDL_LockMutex(g_Lock);
+	known = g_OtherKnown;
+
+	if (known && out) {
+		*out = g_Other;
+	}
+
+	SDL_UnlockMutex(g_Lock);
+
+	return known;
+}
+
+bool updateOtherWasAsked(void)
+{
+	bool asked;
+
+	SDL_LockMutex(g_Lock);
+	asked = g_OtherAsked;
+	SDL_UnlockMutex(g_Lock);
+
+	return asked;
+}
+
+void updateGetNotesNewest(s32 *num, char *date, u32 datesize)
+{
+	SDL_LockMutex(g_Lock);
+	*num = g_NotesNum;
+	snprintf(date, datesize, "%s", g_NotesDate);
+	SDL_UnlockMutex(g_Lock);
+}
+
+/**
+ * Whether a file at the top of the save folder is one a switch backs up.
+ *
+ * The settings and the saves, by name: pd.ini, the eeprom, the combat
+ * simulator setups, GE Plus's best times, and any other .ini or .bin the game
+ * keeps there - but not the Vulkan pipeline caches, which are rebuilt, and not
+ * the executables that share the folder.
+ */
+static bool updateIsSaveFile(const char *name)
+{
+	const char *dot = strrchr(name, '.');
+
+	if (strcmp(name, "geplus-times.txt") == 0 || strcmp(name, "modconfig.txt") == 0) {
+		return true;
+	}
+
+	if (dot == NULL || strncmp(name, "vulkan-", 7) == 0) {
+		return false;
+	}
+
+	return strcmp(dot, ".ini") == 0 || strcmp(dot, ".bin") == 0;
+}
+
+struct updatebackup {
+	char from[FS_MAXPATH];
+	char to[FS_MAXPATH];
+	s32 copied;
+	bool failed;
+};
+
+static void updateBackupOne(const char *name, void *arg)
+{
+	struct updatebackup *b = arg;
+	char src[FS_MAXPATH];
+	char dst[FS_MAXPATH];
+	struct stat st;
+	FILE *in;
+	FILE *out;
+	char chunk[16384];
+	size_t got;
+
+	if (!updateIsSaveFile(name)) {
+		return;
+	}
+
+	snprintf(src, sizeof(src), "%s/%s", b->from, name);
+	snprintf(dst, sizeof(dst), "%s/%s", b->to, name);
+
+	// Files only, and nothing the size of something that is not a save.
+	if (stat(src, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size > 16 * 1024 * 1024) {
+		return;
+	}
+
+	in = fopen(src, "rb");
+
+	if (in == NULL) {
+		b->failed = true;
+		return;
+	}
+
+	out = fopen(dst, "wb");
+
+	if (out == NULL) {
+		fclose(in);
+		b->failed = true;
+		return;
+	}
+
+	while ((got = fread(chunk, 1, sizeof(chunk), in)) > 0) {
+		if (fwrite(chunk, 1, got, out) != got) {
+			b->failed = true;
+			break;
+		}
+	}
+
+	fclose(in);
+
+	if (fclose(out) != 0) {
+		b->failed = true;
+	}
+
+	b->copied++;
+}
+
+/**
+ * Copy pd.ini and the saves into backups/<date>-<time>/ in the save folder,
+ * with a FROM.txt naming the build, before a channel switch.
+ *
+ * A switch can go backwards - dev to a stable release cut weeks earlier - and
+ * an older build drops every pd.ini key it does not know when it loads and
+ * writes the file back without them, and may not read a save a newer build
+ * wrote. The copy is how a player who switches back gets their settings back.
+ * pd.ini is written first so the copy is of what the player has now. On the
+ * main thread, before the download starts: nothing else writes these files
+ * while this runs. outdir gets the folder, as a path the page can show.
+ */
+bool updateBackupSaves(char *outdir, u32 outsize)
+{
+	struct updatebackup b;
+	char stamp[64];
+	char base[FS_MAXPATH];
+	time_t now = time(NULL);
+	struct tm *tm = localtime(&now);
+
+	configSave(CONFIG_PATH);
+
+	memset(&b, 0, sizeof(b));
+	snprintf(b.from, sizeof(b.from), "%s", fsFullPath("$S"));
+
+	if (tm) {
+		strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", tm);
+	} else {
+		snprintf(stamp, sizeof(stamp), "%ld", (long)now);
+	}
+
+	snprintf(base, sizeof(base), "%s/backups", b.from);
+	fsCreateDir("$S/backups");
+	snprintf(b.to, sizeof(b.to), "%s/%s", base, stamp);
+
+	{
+		char rel[FS_MAXPATH];
+		FILE *f;
+
+		snprintf(rel, sizeof(rel), "$S/backups/%s", stamp);
+
+		if (fsCreateDir(rel) != 0) {
+			sysLogPrintf(LOG_ERROR, "update: could not make %s", b.to);
+			snprintf(outdir, outsize, "backups/%s", stamp);
+			return false;
+		}
+
+		snprintf(outdir, outsize, "backups/%s", stamp);
+
+		// Which build these came from, for whoever opens the folder later.
+		snprintf(rel, sizeof(rel), "%s/FROM.txt", b.to);
+		f = fopen(rel, "wb");
+
+		if (f) {
+			fprintf(f, "Saved by %s %s (%s channel) before switching to %s.\n"
+					"To go back: copy these files over the ones in the save folder.\n",
+					VERSION_BRANCH, VERSION_HASH, VERSION_CHANNEL, updateOtherChannel());
+			fclose(f);
+		}
+	}
+
+	fsScanDir("$S", updateBackupOne, &b);
+
+	sysLogPrintf(b.failed ? LOG_ERROR : LOG_NOTE, "update: backed up %d files to %s%s",
+			b.copied, b.to, b.failed ? " (some failed)" : "");
+
+	return !b.failed && b.copied > 0;
 }
 
 void updateInstall(void)
@@ -827,7 +1264,7 @@ const char *updateGetVersion(void)
 void updateGetProgress(u32 *done, u32 *total)
 {
 	SDL_LockMutex(g_Lock);
-	*total = g_Size;
+	*total = g_DownloadTotal ? g_DownloadTotal : g_Size;
 	SDL_UnlockMutex(g_Lock);
 
 	*done = (u32)g_Download.len;
@@ -1055,6 +1492,26 @@ void updateShutdown(void)
 	// two renames - is short and runs to the end, which is the part that
 	// must not be interrupted.
 	g_Cancel = true;
+
+	if (g_Thread && g_Lock) {
+		bool quiet;
+
+		SDL_LockMutex(g_Lock);
+		quiet = g_Quiet && g_Job != UPDATE_JOB_NONE;
+		SDL_UnlockMutex(g_Lock);
+
+		if (quiet) {
+			// The startup check is still asking. It has nothing to write and
+			// nothing to leave behind, and a request stuck connecting to a
+			// network that is not there - WinHTTP gives the cancel flag no
+			// look-in until the connect gives up, ten seconds later - is no
+			// reason for quitting to hang. It is left to end with the process,
+			// and so is the lock it holds on to.
+			SDL_DetachThread(g_Thread);
+			g_Thread = NULL;
+			return;
+		}
+	}
 
 	if (g_Thread) {
 		SDL_WaitThread(g_Thread, NULL);
