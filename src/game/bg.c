@@ -67,6 +67,7 @@
 #include "modloader.h"
 #include "geroom.h"
 #include "gelights.h"
+#include "simnav.h"
 #endif
 #endif
 #endif
@@ -1429,6 +1430,10 @@ Gfx *bgRenderScene(Gfx *gdl)
 			gdl = wallhitRenderBgHits(g_BgDrawSlots[roomnum].roomnum, gdl);
 		}
 	}
+
+#ifndef PLATFORM_N64
+	gdl = simnavRender(gdl); // Mod.SimNavDebug only
+#endif
 
 	if (1);
 

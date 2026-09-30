@@ -1,0 +1,8 @@
+recastnavigation v1.6.0
+https://github.com/recastnavigation/recastnavigation
+tag v1.6.0, commit 6dc1667f580357e8a2154c28b7867bea7e8ad3a7
+
+Only Recast, Detour, DetourCrowd and DetourTileCache (Include/ + Source/),
+unmodified, plus License.txt (zlib). Upstream's per-module CMakeLists.txt are
+left out; CMakeLists.txt's SRC_RECAST list builds them. The port's own C
+wrapper is port/src/simnav.cpp.

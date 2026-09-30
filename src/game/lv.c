@@ -128,6 +128,7 @@
 #ifndef PLATFORM_N64
 #include "getank.h"
 #include "sitchair.h"
+#include "simnav.h"
 #include "getexsurface.h"
 #include "geimpact.h"
 #include "game/camera.h"
@@ -389,6 +390,7 @@ void lvReset(s32 stagenum)
 #ifndef PLATFORM_N64
 		geTankReset();
 		sitChairReset();
+		simnavStageStart(stagenum); // Mod.SimNavDebug only
 #endif
 
 #ifndef PLATFORM_N64
@@ -2861,6 +2863,10 @@ void lvStop(void)
 	if (STAGE_IS_LEVEL(g_Vars.stagenum)) {
 		bgStop();
 	}
+
+#ifndef PLATFORM_N64
+	simnavStageStop();
+#endif
 
 	func00033dd8();
 
