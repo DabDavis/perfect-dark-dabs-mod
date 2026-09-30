@@ -76,6 +76,7 @@ the long form.
 - **A GoldenEye gun's definition** — ge-bean.md, "A GoldenEye gun's definition is built, not copied from its host" (2026-09-24): `gegunsBuild()` sets every field from GoldenEye's row, the model it is drawn on, or the engine (the host), and says which; a copy of the host had silently kept its one-handed flag, sideways pistols, target box, "an", inventory description and split 9mm pool; `gegunsDump()` from gdb before `main` writes all 33 definitions, and a change here is checked by diffing two dumps; and ge-bean.md, "Step 2: the weaponHost() sites, audited against GoldenEye": where a host's rule is not GoldenEye's a GE number answers through `WEAPON_IS_GE()` (guards' single shots, sniper taper/zoom, knives, Enemy Rockets, simulants' own `AIBOTPREF()` rows), and what was left as PD's on purpose
 - **GE Plus in third person, and a converted pane's tail** — ge-bean.md, "Third person is broken sometimes" (converter 49): the solo converter carried no tail for tinted glass, so every pane was opaque at any distance and shut **portal 0** of its level every frame (Aztec's start doorway: nothing drawn from a camera beyond it), and the opening swirl's fade-out of Bond's body stays on the chr, so third person after a fully watched opening drew him at alpha 0; third-person.md, "The player's own tracers": the hand beams are drawn by `propsRenderBeams()` in third person and start at the body's gun
 - **HD light shafts, monitor recesses, cut-out rims and magenta placeholders** — ge-bean.md, "HD effects: Archives' shafts, Dam's modem screen, Jungle's vines and magenta fronds" (2026-09-26): a blended Bean level draw faded by its vertices is translucent whatever its picture, as the release draws it (Egyptian's pool included); Bean recess backs coplanar with a GoldenEye screen are pushed behind it only on lone-quad screens of basic-skeleton props with all four corners matched; binary-alpha pictures bleed colour into clear texels and 0..1 prop cut-out cards clamp; flat 16x16 magenta pictures are Rare's missing-art stand-ins, given a neighbouring cut-out's picture (else its colour)
+- **HD decal corners behind their wall, and GoldenEye's overlapping rooms** — ge-bean.md, "Train's plates and Aztec's vent: decal corners and faces over another room's space" (25th F3 pass): a decal kept in its mesh has its corners moved along its face just far enough that their whole-unit rounding is not behind its (rounded) base (`markDecalCorners()`), a shared corner only along the sharer's own plane; Bean faces lying on a GoldenEye face with a closed space of another room within 8-64 units behind are drawn culled (`markOverlaps()`), as GoldenEye relies on culling where its rooms overlap
 
 
 > **2026-09-21:** the checkbox and `Mod.XblaGoldenEye` are gone; everything
@@ -13439,3 +13440,41 @@ at the trace's eye).
   their tile alone (`propCalculateShadeColour()` on remake stages) - GoldenEye
   itself darkens only the fixture's own vertices. The rock bank round the
   reservoir and the big mountain face in the gap are Bean's own modelling.
+
+## Train's plates and Aztec's vent: decal corners and faces over another room's space (25th F3 pass, 2026-09-30, fix/f3-0930b-hdlevel)
+
+Four HD geometry F3s. Rig `~/wt/f3-0930b-hdlevel-run` (`multi.sh <mNN|stage> <tag>` with `CAMS="x,y,z,th,va;..."`,
+`LOOK`, `BIN`, `SPEC=` + `FWD=0` for a first-person eye instead of the spectator 197 behind, `OPEN=r` opens doors,
+`TRACE=1`, `CAMS=spawn`; `sweep.sh <bin> <tag>` the 20 missions' spawn views; `props.sh` props near `AT=`).
+`--boot-ge-mission N` is 0-based (Control 15, Train 13, Aztec 18, Bunker II 8).
+
+- **Train's riveted plate (20260930-014411, "clipping at certain distances").** Two decal bands on a wall bent
+  along the plate's middle (`_0x052B8BF5` under the bend, `_0x0E037725` over it). They share corners with the
+  wall at the bend and with a fin inside the wall (`_0x03575425`, x = const), so `markDecalLifts()` keeps them
+  unlifted; their other corners, rounded to whole units by `writeLeaf()`, went up to half a unit behind the
+  wall's own rounded plane, and the wall covered most of the plate: a thin strip of rivets head on, the whole
+  plate at a slant. `markDecalCorners()` (after the dealing, so each triangle's room position is known) moves
+  such a corner along the decals' mean normal in quarter units up to `DECAL_LIFT` until its rounding is on or in
+  front of every base it lies on; a corner a non-decal shares moves only if the move lies in that triangle's
+  plane (the fin), else Depot's roof trim went missing from below. Moves 0-54 corners a level (Train 46, Frigate
+  54); spawn views identical elsewhere.
+- **Aztec's exhaust vent (20260929-234633).** GoldenEye's computer room (18, the armour's) is a box whose west
+  wall runs through the vent's last 50 units (rooms 44/45); GoldenEye shows the room through the back of that
+  wall. HD rooms are drawn two-sided (4J's single-plane decks, see "GoldenEye's own cameras outside the level"),
+  so Bean's wall (the room is a bare 18-triangle box in Bean too, in a mossy stone picture) was a stone face
+  across the vent. `markOverlaps()`: a solid Bean face lying on a GoldenEye face (same facing) is drawn culled
+  (`stri.overlap`) when the first GoldenEye face a line back from it meets is 8-64 units behind and faces the
+  same way, and the space there is closed on all six axes within 400 by GoldenEye faces turned into it. Without
+  the 8-unit floor (rooms sharing a wall have both faces within a unit) and the closed-space test, Depot's
+  warehouse trim and the Cradle's gantry panel vanished from below. Aztec 3 faces, Train 61, Frigate 109,
+  Bunker 74; spawn views identical. **A new stri field must be set in `collectTri()`** (the add at "t =
+  &c->tris[c->num++]"): left out, realloc garbage culled random faces (Depot's trim again).
+- **Control's kiosk (20260929-224150):** the monitor and tilted keyboard (`Pgx077Z` pad 391, `Pgx045Z` pad 400)
+  sit on the wall exactly as in the N64 look - GoldenEye's own setup, not changed.
+- **Bunker II's crates (20260929-215904):** labels showing through as X and ^ on black crates reproduced on the
+  tester's 1823231 (Vulkan) and gone on 35ead5d39 - 1b376fa56 ("Draw an object fading with distance as one
+  surface").
+- Needs an **HDCACHE_VERSION bump** (the built level changes; `sizeof(struct stri)` changed too).
+- Open: Bean's room 18 floor is drawn black from inside the room where GoldenEye's is grey, and its walls are
+  Bean's mossy stone where GoldenEye has computer racks (Bean's own placeholder art).
+
