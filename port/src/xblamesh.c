@@ -330,6 +330,9 @@ struct xblameshbuilt {
 	const struct model *deformmodel;   // objDeform()'s vertices, mirrored for one model a frame
 	u32 deformframe;
 	Vtx *deformvtx;
+	const struct model *deformoffmodel;   // and the offsets they are made from
+	u32 deformoffframe;
+	f32 *deformoff;
 
 	// The trimmed copy already made this frame, for a door the game is
 	// drawing from trimmed vertices - see xblaMeshNodeTrim(). Keyed the way
@@ -7481,6 +7484,9 @@ static s32 xblaMeshNeckBack(struct xblameshbuilt *m, const struct modeldef *def,
 	return 1;
 }
 
+static f32 *xblaMeshDeformOffsets(struct xblameshbuilt *m, struct model *model,
+		struct xblameshuse *use, s32 slot);
+
 /**
  * Poses one mesh into a copy of its vertices, and hands back the copy.
  *
@@ -7498,9 +7504,10 @@ static s32 xblaMeshNeckBack(struct xblameshbuilt *m, const struct modeldef *def,
  * NULL when there is no room this frame, and the caller draws the bind pose.
  */
 static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *root,
-		Mtxf **outmtx, s32 *outfine, s32 normals, const f32 *headshift)
+		Mtxf **outmtx, s32 *outfine, s32 normals, const f32 *headshift, const f32 *disp)
 {
 	Mtxf pal[XBLAMESH_MAXMTX];
+	Mtxf lin[XBLAMESH_MAXMTX];
 	Mtxf invroot;
 	Vtx *out;
 	Mtxf *fmtx = NULL;
@@ -7554,8 +7561,10 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 		if (i >= posable) {
 			if (posable > 0) {
 				mtx4Copy(&pal[0], &pal[i]);
+				mtx4Copy(&lin[0], &lin[i]);
 			} else {
 				mtx4LoadIdentity(&pal[i]);
+				mtx4LoadIdentity(&lin[i]);
 			}
 
 			continue;
@@ -7593,6 +7602,12 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 		}
 
 		mtx4MultMtx4(&invroot, &step, &pal[i]);
+
+		// Without the bind, for objDeform()'s offsets, which are in the
+		// bone's own space as the game's lists are
+		if (disp) {
+			mtx4MultMtx4(&invroot, &model->matrices[src], &lin[i]);
+		}
 	}
 
 	if (xblaMeshVerbose && !m->posedlog) {
@@ -7755,6 +7770,20 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 			x += moved.x * weight[j];
 			y += moved.y * weight[j];
 			z += moved.z * weight[j];
+		}
+
+		// A destroyed GoldenEye prop: objDeform()'s crumpling, mirrored
+		// (xblaMeshDeformOffsets()), turned with each bone but not moved
+		if (disp) {
+			const f32 *d = &disp[i * 3];
+
+			for (s32 j = 0; j < num; j++) {
+				const Mtxf *l = &lin[bone[j]];
+
+				x += (l->m[0][0] * d[0] + l->m[1][0] * d[1] + l->m[2][0] * d[2]) * weight[j];
+				y += (l->m[0][1] * d[0] + l->m[1][1] * d[1] + l->m[2][1] * d[2]) * weight[j];
+				z += (l->m[0][2] * d[0] + l->m[1][2] * d[1] + l->m[2][2] * d[2]) * weight[j];
+			}
 		}
 
 		out[i] = m->vertices[i];
@@ -8933,10 +8962,10 @@ static void xblaMeshBruiseNodes(struct xblameshbruise *br, const struct xblamesh
 			// A GoldenEye character (xblaMeshBuildBean()): list node p draws
 			// group p, filed on the pack's side (packpart, packuse) rather than
 			// against a release slot. A node with no group keeps its own
-			// geometry, and so its own bruises. A GoldenEye prop takes none
-			// (nor, through this map, objDeform()'s crumpling): see scorched
-			// in xblaMeshRenderNode().
-			if (!gebeanRowIsChr(m->beanrow) || e->beanrow < 0 || e->packuse != useidx || e->packpart == XBLAMESH_NOPART ||
+			// geometry, and so its own bruises. A GoldenEye prop's lists give
+			// it objDeform()'s crumpling and blackening the same way: see
+			// scorched in xblaMeshRenderNode().
+			if (e->beanrow < 0 || e->packuse != useidx || e->packpart == XBLAMESH_NOPART ||
 					e->packpart >= m->numgroups || e->packpart >= 64 ||
 					(m->groupabsent & (1ull << e->packpart))) {
 				continue;
@@ -9314,8 +9343,9 @@ static s32 xblaMeshBruiseMap(struct xblameshbruise *br, const struct xblameshbui
 
 		// A skinned mesh maps only what takes a bruise. A rigid one maps every
 		// vertex, since objDeform() moves the whole object, and remembers which
-		// are solid for the colours.
-		if (!solid[i] && m->bindpos) {
+		// are solid for the colours - and so does a GoldenEye prop, which is
+		// made the way a character is, on one bone.
+		if (!solid[i] && m->bindpos && !(m->frombean && !gebeanRowIsChr(m->beanrow))) {
 			continue;
 		}
 
@@ -9528,21 +9558,21 @@ static const f32 *xblaMeshMapShift(const struct xblameshbuilt *m, struct xblames
  * rest pose, weighted as its colours are (xblaMeshBruiseMap()), and the colours
  * follow through xblaMeshBruiseColours() from the same map.
  */
-static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
+static f32 *xblaMeshDeformOffsets(struct xblameshbuilt *m, struct model *model,
 		struct xblameshuse *use, s32 slot)
 {
 	const Vtx *nowv[XBLAMESH_BRUISENODES];
 	const Vtx *wasv[XBLAMESH_BRUISENODES];
 	struct xblameshbruise *map;
 	s32 moved = 0;
-	Vtx *out;
+	f32 *out;
 
-	if (!model || !model->rwdatas || m->bindpos || !m->vertices) {
+	if (!model || !model->rwdatas || !m->vertices) {
 		return NULL;
 	}
 
-	if (m->deformmodel == model && m->deformframe == frameCount) {
-		return m->deformvtx;
+	if (m->deformoffmodel == model && m->deformoffframe == frameCount) {
+		return m->deformoff;
 	}
 
 	map = xblaMeshBruiseReady(m, use);
@@ -9551,9 +9581,9 @@ static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
 		return NULL;
 	}
 
-	m->deformmodel = model;
-	m->deformframe = frameCount;
-	m->deformvtx = NULL;
+	m->deformoffmodel = model;
+	m->deformoffframe = frameCount;
+	m->deformoff = NULL;
 
 	for (s32 ni = 0; ni < map->numnodes; ni++) {
 		const union modelrwdata *rw = modelGetNodeRwData(model, map->nodes[ni]);
@@ -9570,12 +9600,65 @@ static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
 		return NULL;
 	}
 
+	// A mesh on bones (a GoldenEye prop) is mapped in the rest pose on its
+	// bones, as its colours are (xblaMeshBruiseColours() with samebone)
 	if (map->state == 0) {
-		map->state = xblaMeshBruiseMap(map, m, model, use->modeldef, 0, slot,
+		map->state = xblaMeshBruiseMap(map, m, model, use->modeldef, m->bindpos != NULL, slot,
 				xblaMeshMapShift(m, use, slot)) ? 1 : -1;
 	}
 
 	if (map->state < 0) {
+		return NULL;
+	}
+
+	out = xblaMeshFrameAlloc((u32)m->numvertices * 3 * sizeof(f32));
+
+	if (!out) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < m->numvertices; i++) {
+		const struct xblameshbruiseref *r = &map->refs[i * XBLAMESH_BRUISEREFS];
+		f32 *d = &out[i * 3];
+
+		d[0] = d[1] = d[2] = 0.0f;
+
+		for (s32 k = 0; k < XBLAMESH_BRUISEREFS && r[k].node != XBLAMESH_NOPART; k++) {
+			const Vtx *now = &nowv[r[k].node][r[k].vtx];
+			const Vtx *was = &wasv[r[k].node][r[k].vtx];
+
+			d[0] += r[k].weight * (now->x - was->x);
+			d[1] += r[k].weight * (now->y - was->y);
+			d[2] += r[k].weight * (now->z - was->z);
+		}
+	}
+
+	m->deformoff = out;
+
+	return out;
+}
+
+static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
+		struct xblameshuse *use, s32 slot)
+{
+	const f32 *off;
+	Vtx *out;
+
+	if (!model || m->bindpos || !m->vertices) {
+		return NULL;
+	}
+
+	if (m->deformmodel == model && m->deformframe == frameCount) {
+		return m->deformvtx;
+	}
+
+	m->deformmodel = model;
+	m->deformframe = frameCount;
+	m->deformvtx = NULL;
+
+	off = xblaMeshDeformOffsets(m, model, use, slot);
+
+	if (!off) {
 		return NULL;
 	}
 
@@ -9588,21 +9671,9 @@ static Vtx *xblaMeshDeformVertices(struct xblameshbuilt *m, struct model *model,
 	memcpy(out, m->vertices, (size_t)m->numvertices * sizeof(Vtx));
 
 	for (s32 i = 0; i < m->numvertices; i++) {
-		const struct xblameshbruiseref *r = &map->refs[i * XBLAMESH_BRUISEREFS];
-		f32 d[3] = { 0.0f, 0.0f, 0.0f };
-
-		for (s32 k = 0; k < XBLAMESH_BRUISEREFS && r[k].node != XBLAMESH_NOPART; k++) {
-			const Vtx *now = &nowv[r[k].node][r[k].vtx];
-			const Vtx *was = &wasv[r[k].node][r[k].vtx];
-
-			d[0] += r[k].weight * (now->x - was->x);
-			d[1] += r[k].weight * (now->y - was->y);
-			d[2] += r[k].weight * (now->z - was->z);
-		}
-
-		out[i].x = xblaMeshRound(out[i].x + d[0]);
-		out[i].y = xblaMeshRound(out[i].y + d[1]);
-		out[i].z = xblaMeshRound(out[i].z + d[2]);
+		out[i].x = xblaMeshRound(out[i].x + off[i * 3]);
+		out[i].y = xblaMeshRound(out[i].y + off[i * 3 + 1]);
+		out[i].z = xblaMeshRound(out[i].z + off[i * 3 + 2]);
 	}
 
 	m->deformvtx = out;
@@ -11118,10 +11189,17 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 					headshift[1] += (f32)headfitAppliedOffset(e->modeldef);
 				}
 
+				// A destroyed GoldenEye prop's crumpling goes in with the pose:
+				// objRender()'s destroyed mode, as scorched below, and never a
+				// door's trim, which also moves the game's vertices
+				const f32 *disp = use && m->frombean && !gebeanRowIsChr(m->beanrow)
+						&& renderdata->unk30 == 9 && (renderdata->envcolour & 0xff) != 0
+						? xblaMeshDeformOffsets(m, model, use, e->slot) : NULL;
+
 				pose = xblaMeshPose(m, model, root, &finemtx, &fine,
 						opa && m->envgdl && xblaTexGetEnabled() && XBLAMESH_ENV_WANTED() &&
 						xblaMeshEnvironmentReach(m, root) > 0,
-						headshift);
+						headshift, disp);
 
 				if (pose) {
 					framePoses++;
@@ -11300,9 +11378,18 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// dark. Drawn under that mode a GoldenEye XBLA mesh vanished whole - every
 	// tank shot in Facility's bottling room left only its smoke in the HD look
 	// (2026-09-26) - so it is drawn under the whole object's mode, the
-	// environment alpha taken off round it, and scorched instead: its colours
-	// at a quarter. No reflection (xblaMeshEnvironmentLight(), which still sees
-	// the alpha).
+	// environment alpha taken off round it. No reflection
+	// (xblaMeshEnvironmentLight(), which still sees the alpha).
+	//
+	// The crumpling and the blackening are GoldenEye's own (objDeformGe()),
+	// mirrored from the prop's lists through the bruise map as a Perfect Dark
+	// prop's are: the vertices pressed down and pushed about, black where
+	// GoldenEye wrote black (nine in ten of the upper half's, one in five of
+	// the lower's) and the rest their own colour - with the mesh's own alpha,
+	// not the cleared one. Only where the map cannot be made is the whole mesh
+	// scorched to a quarter, which is what every destroyed prop was until
+	// 2026-09-30: a shot crate stood whole as a black box and Train's brake
+	// unit as two black stems (F3 20260930-191713, 191733).
 	const s32 scorched = m->frombean && !m->local && renderdata->unk30 == 9
 			&& (renderdata->envcolour & 0xff) != 0;
 	const u32 scorchedenv = renderdata->envcolour;
@@ -11314,11 +11401,22 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	const u8 *wound = NULL;
 
 	// A GoldenEye character's too: its map is made from the list nodes it
-	// covers on the pack's side (xblaMeshBruiseNodes()). Not a GoldenEye
-	// prop's: a destroyed one is scorched below, and the mirror would carry
-	// objDeform()'s cleared alpha onto it.
-	if (use && !m->local && (!m->frombean || gebeanRowIsChr(m->beanrow))) {
+	// covers on the pack's side (xblaMeshBruiseNodes()). A GoldenEye prop's
+	// only once destroyed (scorched), and with the mesh's own alpha: the
+	// mirror would carry objDeform()'s cleared alpha onto it.
+	const s32 beanprop = m->frombean && !gebeanRowIsChr(m->beanrow);
+	s32 scorchmirrored = 0;
+
+	if (use && !m->local && (!beanprop || scorched)) {
 		Col *bruised = xblaMeshBruiseColours(m, model, use, !grafted, e->slot);
+
+		if (bruised && beanprop) {
+			for (s32 i = 0; i < m->numvertices; i++) {
+				bruised[i].a = m->colours[i].a;
+			}
+
+			scorchmirrored = 1;
+		}
 
 		if (bruised) {
 			boundcol = bruised;
@@ -11410,8 +11508,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			}
 		}
 
-		// A destroyed GoldenEye prop, scorched: see scorched below
-		if (scorched) {
+		// A destroyed GoldenEye prop with no map to mirror GoldenEye's
+		// blackening through, scorched whole: see scorched above
+		if (scorched && !scorchmirrored) {
 			Col *burnt = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
 
 			if (burnt) {
