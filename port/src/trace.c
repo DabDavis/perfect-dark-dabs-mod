@@ -30,6 +30,7 @@
 #include "game/modoptions.h"
 #include "game/chrai.h"
 #include "game/objectives.h"
+#include "game/game_0b0fd0.h"
 #include "modloader.h"
 #include "trace.h"
 #include "pngwrite.h"
@@ -524,6 +525,20 @@ static void traceWrite(FILE *f)
 			fprintf(f, "player prop pos (%.1f %.1f %.1f) rooms", pl->prop->pos.x, pl->prop->pos.y, pl->prop->pos.z);
 			traceRooms(f, pl->prop->rooms);
 			fprintf(f, "\n");
+		}
+
+		// The agent's sight options live in the save, not pd.ini, so a report
+		// of "no crosshair" says nothing of them without this line (F3
+		// 20260930-152306: Sight on Screen off reads exactly like a bug)
+		if (g_Vars.currentplayerstats) {
+			const u32 options = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].options;
+
+			fprintf(f, "hand: weapon 0x%02x func %d sight %u gunsightoff 0x%x (0 aiming); options %04x: sight on screen %d,"
+					" always show target %d, zoom range %d, ammo on screen %d\n",
+					pl->hands[HAND_RIGHT].gset.weaponnum, pl->hands[HAND_RIGHT].gset.weaponfunc,
+					currentPlayerGetSight(), pl->gunsightoff, options,
+					(options & OPTION_SIGHTONSCREEN) != 0, (options & OPTION_ALWAYSSHOWTARGET) != 0,
+					(options & OPTION_SHOWZOOMRANGE) != 0, (options & OPTION_AMMOONSCREEN) != 0);
 		}
 	} else {
 		fprintf(f, "no current player\n");
