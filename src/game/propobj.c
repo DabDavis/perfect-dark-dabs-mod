@@ -14318,8 +14318,12 @@ void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool x
 		// consoles were a shade under opaque from across the room, and from
 		// behind them the desks and screens on their far side were drawn over
 		// their backs (F3 20260929-182904); up close they were solid.
+		// Not a laser door: its beam is one thin surface with nothing of its
+		// own behind it, and faded out by its laserfade it would still lay
+		// down the depth of a beam nobody can see.
 		const bool solidfade = renderdata->unk30 == 5 && renderdata->zbufferenabled
-			&& (renderdata->envcolour & 0xff) < 0xff;
+			&& (renderdata->envcolour & 0xff) < 0xff
+			&& !(obj->type == OBJTYPE_DOOR && ((struct doorobj *)obj)->doortype == DOORTYPE_LASER);
 
 		if (solidfade) {
 			gSPSetExtraGeometryModeEXT(renderdata->gdl++, G_DEPTH_PREPASS_EXT);
