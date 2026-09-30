@@ -3757,6 +3757,13 @@ turret back; here the turret is the view, and holding the view is another
 matter) - it pokes into a wall the nose has stopped at; **the shell count on
 the HUD**, which goes with the GoldenEye HUD the user has asked for next.
 
+**The sight is held in the middle** with the shells in hand (F3 20260930-185749,
+`geTankHoldsSight()`): the shell leaves along the turret, never the sight, as
+GoldenEye's `gunFireTankShell()` does whenever the tank runs, so the sight takes
+Aim Lock's path in `bmoveProcessInput()` - no swing with the turn, no auto aim,
+and in aim mode the mouse turns the turret. Its HUD picture under the HD look is
+the release's own `bg/ammoicontankshell` (it had been the magnum round).
+
 Probes in `build/gexrom`: `tankfind.py` (which missions have one),
 `tankdrive.py` (in, drive, turn, fire, out, with pictures; `g_TankTestInput`
 and its two floats are the probe's hands on the sticks, since a headless run
