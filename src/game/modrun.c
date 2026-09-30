@@ -281,6 +281,9 @@ static bool g_ModRunPendingLoad; // a hop's stage has been asked for and has not
 static s32 g_ModRunSkips;        // maps in a row that could not be landed in
 static s32 g_ModRunLandTry;      // landings dealt again on this hop for a dark room
 static s32 g_ModRunLandWait;     // ticks waited for the landing room to load
+static struct coord g_ModRunLandPos; // where modRunTakeSpawn() stood the player
+static bool g_ModRunLandPosSet;      // and whether it did, on this hop
+static s32 g_ModRunLandMoved;        // landings taken again for a script moving the player
 static s32 g_ModRunDarkRooms[MODRUN_MAXDARK]; // rooms this hop found dark
 static bool g_ModRunKitDue;    // the carried kit goes back on the next tick
 static s32 g_ModRunOverTicks;  // frames since the run ended
@@ -1144,6 +1147,8 @@ void modRunRoll(void)
 	g_ModRunObjective.done = false;
 	g_ModRunLandTry = 0;
 	g_ModRunLandWait = 0;
+	g_ModRunLandPosSet = false;
+	g_ModRunLandMoved = 0;
 	g_ModRunTinting = false;
 	g_ModRunNumRing = 0;
 	memset(g_ModRunTinted, 0, sizeof(g_ModRunTinted));
@@ -1250,6 +1255,9 @@ bool modRunTakeSpawn(struct coord *pos, RoomNum *rooms, f32 *angle)
 	rooms[1] = -1;
 
 	*angle = atan2f(pad.look.x, pad.look.z);
+
+	g_ModRunLandPos = *pos;
+	g_ModRunLandPosSet = true;
 
 	return true;
 }
@@ -2720,6 +2728,31 @@ void modRunTick(void)
 			g_ModRunSpawnState = 0;
 
 			return;
+		}
+
+		// A stage's own opening can move the player after the landing:
+		// Defection's first new life comes before its intro starts, and the
+		// intro's skip poses Jo at the end of her rope on the rooftop
+		// (chr_do_animation on CHR_BOND, setupame.c 042d), so every landing
+		// there stood the player at the stock start while the log and the seal
+		// had the dealt room (F3 20260930-050837). The cutscene is over by
+		// the time this runs; a player no longer where the landing put them
+		// lands again, as a new life like the landing itself.
+		if (g_ModRunLandPosSet && g_ModRunLandPad >= 0 && g_ModRunLandMoved < 2) {
+			const f32 dx = player->prop->pos.x - g_ModRunLandPos.x;
+			const f32 dz = player->prop->pos.z - g_ModRunLandPos.z;
+
+			if (dx * dx + dz * dz > 200.0f * 200.0f) {
+				g_ModRunLandMoved++;
+
+#ifndef PLATFORM_N64
+				sysLogPrintf(0, "run: stage 0x%02x moved the player off the landing to room %d; landing again on pad %d",
+						g_ModRunStage, player->prop->rooms[0], g_ModRunLandPad);
+#endif
+
+				g_ModRunSpawnState = 1;
+				return;
+			}
 		}
 
 		// A landing in a room with no light is dealt again elsewhere on the
