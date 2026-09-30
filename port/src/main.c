@@ -26,6 +26,7 @@
 #include "audio.h"
 #include "input.h"
 #include "fs.h"
+#include <string.h>
 #include "modloader.h"
 #include "modborrow.h"
 #include "romdata.h"
@@ -337,6 +338,49 @@ int main(int argc, const char **argv)
 	xblaStageSetVerbose(sysArgCheck("--xbla-stage-verbose"));
 
 	g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
+
+	// --boot-map NAME / --boot-ge-mission N: a mod's map or one of GE Plus's
+	// converted missions, found by name or GoldenEye's mission number, since
+	// the ids the mod loader hands out depend on which mods are installed
+	// (tools/ci/replaytest.sh's GE Plus cases)
+	{
+		const char *mapname = sysArgGetString("--boot-map");
+		const s32 gemission = sysArgGetInt("--boot-ge-mission", -1);
+
+		if (mapname) {
+			s32 found = 0;
+
+			for (s32 i = 1; i <= STAGE_MAX_ID && !found; i++) {
+				const char *name = modloaderGetStageMapName(i);
+
+				if (name && strcmp(name, mapname) == 0 && !modloaderStageIsMission(i)) {
+					found = i;
+				}
+			}
+
+			if (found) {
+				g_StageNum = found;
+			} else {
+				sysLogPrintf(LOG_WARNING, "boot map %s: no such map; the maps are:", mapname);
+
+				for (s32 i = 1; i <= STAGE_MAX_ID; i++) {
+					const char *name = modloaderGetStageMapName(i);
+
+					if (name) {
+						sysLogPrintf(LOG_WARNING, "  0x%02x %s%s", i, name, modloaderStageIsMission(i) ? " (mission)" : "");
+					}
+				}
+			}
+		} else if (gemission >= 0) {
+			const s32 stage = modloaderMissionStage(gemission);
+
+			if (stage) {
+				g_StageNum = stage;
+			} else {
+				sysLogPrintf(LOG_WARNING, "boot GE mission %d: not registered (is the GoldenEye ROM converted?)", gemission);
+			}
+		}
+	}
 
 	if (g_StageNum == STAGE_TITLE && (sysArgCheck("--skip-intro") || g_SkipIntro)) {
 		// shorthand for --boot-stage 0x26
