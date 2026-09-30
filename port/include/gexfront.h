@@ -19,6 +19,9 @@
 // are not there, and the caller shows Perfect Dark's GE Plus dialog instead.
 s32 gexFrontOpen(void);
 s32 gexFrontIsActive(void);
+// the stick GoldenEye's screens read: the further pushed of a pad's two
+s32 gexMenuStickX(s32 player);
+s32 gexMenuStickY(s32 player);
 // Opens the folder at Multiplayer Options after a GE Plus match. False when
 // it cannot be drawn, and the caller keeps Perfect Dark's Combat Simulator.
 s32 gexFrontOpenAfterMatch(void);

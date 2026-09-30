@@ -1689,14 +1689,24 @@ void menuPushDialog(struct menudialogdef *dialogdef)
 
 			if (sibling);
 
-			menuPlaySound(MENUSOUND_OPENDIALOG);
+#ifndef PLATFORM_N64
+			// A dialog pushed under GE Plus's intro or folder is Perfect
+			// Dark's, and is not seen: it is not heard either. Back from a
+			// GoldenEye mission the Perfect Menu and the pause under the
+			// folder each played Perfect Dark's dialog sound over GoldenEye's
+			// report page (F3 20260930-002952).
+			if (!geIntroIsActive() && !gexFrontIsActive())
+#endif
+			{
+				menuPlaySound(MENUSOUND_OPENDIALOG);
 
-			if (dialogdef->type == MENUDIALOGTYPE_DANGER) {
-				menuPlaySound(MENUSOUND_ERROR);
-			}
+				if (dialogdef->type == MENUDIALOGTYPE_DANGER) {
+					menuPlaySound(MENUSOUND_ERROR);
+				}
 
-			if (dialogdef->type == MENUDIALOGTYPE_SUCCESS) {
-				menuPlaySound(MENUSOUND_SUCCESS);
+				if (dialogdef->type == MENUDIALOGTYPE_SUCCESS) {
+					menuPlaySound(MENUSOUND_SUCCESS);
+				}
 			}
 		}
 	}
@@ -6017,7 +6027,11 @@ Gfx *menuRender(Gfx *gdl)
 	// A blurred backdrop held back while the folder was up
 	// (schedConsiderScreenshot()) is taken from this frame: the level alone,
 	// not the menus over it
-	if (g_MenuBlurDeferred && g_MenuData.screenshottimer) {
+	// - but never F3's Report a Problem over the folder, which held no blur
+	// and was drawn on none of those frames: while the folder is up the blur
+	// is put off for good, so the dialog was never drawn at all and the
+	// tester typed into it blind (F3 20260930-002736, 012311)
+	if (g_MenuBlurDeferred && g_MenuData.screenshottimer && !overfront) {
 		return gdl;
 	}
 
