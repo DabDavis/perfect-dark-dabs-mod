@@ -13436,7 +13436,7 @@ the same leg gets round, the patrol does not. Control glass in the HD look
 (opaque shade; explosions: in the N64 look `explosionCreateSimple()` does
 destroy pane 103). Train's through-wall firing was not reproduced (the
 reported positions have no line of sight; the 2 s seen-recently rule is in).
-Statue's floating unconscious Natalya not looked into.
+Statue's floating unconscious Natalya: see the 25th pass below.
 
 ## 24th F3 pass on HD Dam (2026-09-30, fix/f3-0930-hddam)
 
@@ -13524,3 +13524,29 @@ GoldenEye flags 0x10020b62: pathblocker, invincible, not AI-see-through) block
 a guard's sight of Bond in both games (GoldenEye's `chrCanSeeBond()` object
 test; ours `chrHasLosToChr()`, `run/geai/losgrid.py`), so a guard aiming at
 Bond holds its fire two seconds after losing him, as GoldenEye's does.
+
+## Bond's 0.97, and a held frame's height (25th F3 pass, 2026-09-30, fix/f3-0930b-gecine)
+
+- **Cuba's kiss, mouths apart (20260929-233818).** Positions and facing already
+  matched the oracle (18th pass; Natalya 24.47 from Bond, GoldenEye 24.46), but
+  GoldenEye's `solo_char_load()` scales the player's body by **0.97** after
+  building it (`modelSetScale(bodyModel, scale * 0.97f)`, model only, not the
+  animation's translation scale). Ours stood at the row's 0.100: Bond's root
+  3.5 units higher than Natalya's against GoldenEye's 6.22 (ours 9.68), his
+  mouth over her forehead. `playerTickChrBody()` scales Bond's own body
+  (the `gexPlusMissionBond()` pick) the same; root gap now 6.22. This is every
+  converted mission's Bond body - openings, endings, third person.
+  Oracle: `~/dam-oracle/gecuba3.py` on 10.8.0.3 run as
+  `PORT_PAD_SCRIPT=~/dam-oracle/dam2.padscript gdb -batch -x gecuba3.py --args ./build/port/ge007 --play`
+  from `~/claude-007/007` (prints `scale` per chr: Bond 0.097, Natalya 0.095).
+- **Statue's Natalya in the air by the helicopter (20260929-220547).** Her
+  list (0x416) sets frames 83-84 of GoldenEye's anim 30 every tick; the
+  same-animation shortcut in `aiChrDoAnimation()` (0fc8d534c) sets it again
+  with no merge, and `modelSetAnimation2()` starts the height tween from the
+  height the chr is at (`unk34.y = pos.y - ground`) with frac 0 - every
+  tick, so she kept her spawn's standing hip height (root 104.9 over the
+  floor; the frame's own is 10.05) forever. The shortcut now puts the tween's
+  start at the frame's height (`unk34.y = unk24.y`), as `isfirstanim` does.
+  Probe: `statue.py` (kick list 0x1001 at converted offset 59, the spawn;
+  `--spectate`, camera written to the tester's position). Off screen the chr
+  is not moved at all (GoldenEye's ACT_ANIM rule too), so look at her.

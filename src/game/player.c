@@ -1792,6 +1792,9 @@ void playerTickChrBody(void)
 
 		s32 weaponmodelnum;
 		s32 spectatorbody;
+#ifndef PLATFORM_N64
+		bool gebond = false;
+#endif
 		s32 weaponnum = bgunGetWeaponNum2(HAND_RIGHT);
 		s32 bodynum = MOD_PLAYER_BODY;
 		s32 headnum = MOD_PLAYER_HEAD;
@@ -1827,6 +1830,7 @@ void playerTickChrBody(void)
 					&& !modGhostGetMenuCharacter(&menubody, &menuhead)
 					&& gexPlusMissionBond(g_Vars.currentplayer->bondtype, &bodynum, &headnum)) {
 				sp60 = false;
+				gebond = true;
 			}
 		}
 
@@ -2062,6 +2066,18 @@ void playerTickChrBody(void)
 		}
 #else
 		g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
+#endif
+
+#ifndef PLATFORM_N64
+		// GoldenEye makes Bond's body 3% smaller than the body's own row
+		// (solo_char_load(): modelSetScale(bodyModel, scale * 0.97f)), and
+		// its cinema is staged for that size: at the full row's size Cuba's
+		// Bond stood 3.5 units taller than GoldenEye's, his head over
+		// Natalya's rather than meeting it (F3 20260929-233818). The model
+		// alone, as GoldenEye does - not the animation's translation scale.
+		if (gebond && spectatorbody < 0) {
+			modelSetScale(g_Vars.currentplayer->model00d4, g_Vars.currentplayer->model00d4->scale * 0.97f);
+		}
 #endif
 
 		chr0f020b14(g_Vars.currentplayer->prop, g_Vars.currentplayer->model00d4, &g_Vars.currentplayer->prop->pos,
