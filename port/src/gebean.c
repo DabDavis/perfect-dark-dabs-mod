@@ -3396,6 +3396,9 @@ struct beanmodel {
 	// hand and its working parts there and wants them; a head keeps
 	// sunglasses there and does not.
 	s32 keepparts;
+	// One of the N64-look originals (files/original/), whose 0x17 kind 2
+	// sections are a head's sunglasses (beanWalkStream())
+	s32 original;
 
 	s32 numremap;
 	u16 remap[BEAN_MAXPAL];      // palette number -> pose bone
@@ -4156,11 +4159,21 @@ static void beanWalkStream(struct beanmodel *bm)
 			break;
 		}
 
-		// A section behind a condition: 0x17 {kind, where it ends}. Kind 2 is
-		// only in the originals, round a head's sunglasses, which GoldenEye's
+		// A section behind a condition: 0x17 {kind, where it ends}. In the
+		// originals kind 2 is round a head's sunglasses, which GoldenEye's
 		// multiplayer heads do not wear. Kind 0 is in both, and its sections
 		// are drawn - the HD characters always had them.
-		if (type == 0x17 && size >= 12 && gebeanBE32(st + pc + 4) == 2) {
+		//
+		// The kind is the model's own and means nothing across files: in the
+		// release's HD guns (and their pickups) it numbers the pieces a gun
+		// switches, and kind 2 is the pistols' trigger finger (the PP7, the
+		// silenced PP7, the Cougar and the gold and silver PP7s: "Bond is
+		// missing his index finger", F3 20260930-185405) and the second of
+		// the shotgun's five shells and the automatic shotgun's first ("both
+		// shotguns are missing a shell at the top despite having max ammo",
+		// F3 20260930-190227). No HD character, head or level file has one,
+		// so only the originals leave it out.
+		if (type == 0x17 && size >= 12 && gebeanBE32(st + pc + 4) == 2 && bm->original) {
 			pc = gebeanBE32(st + pc + 8);
 			continue;
 		}
@@ -4737,6 +4750,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 
 	memset(bm, 0, sizeof(*bm));
 	bm->keepparts = keepparts;
+	bm->original = strncmp(source, "original/", 9) == 0;
 	// the Community Edition's copy first, where this session draws it (gebeance.c)
 	if (!gebeanCeFilePath(path, sizeof(path), source, "default.bin")) {
 		snprintf(path, sizeof(path), "%s/%s/default.bin", rootPath, source);
