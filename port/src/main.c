@@ -42,6 +42,7 @@
 #include "mod.h"
 #include "gexplusrom.h"
 #include "system.h"
+#include "statehash.h"
 #include "utils.h"
 #include "gebean.h"
 #include "modenhance.h"
@@ -330,6 +331,7 @@ int main(int argc, const char **argv)
 	g_ModRunFirstStage = sysArgGetInt("--run-stage", -1);
 	g_FixedStep = sysArgCheck("--fixed-step");
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
+	g_StateHashEvery = sysArgGetInt("--state-hash", 0);
 	g_ShotFrame = sysArgGetInt("--screenshot-frame", 0);
 	xblaMeshSetVerbose(sysArgCheck("--xbla-mesh-verbose"));
 	xblaStageSetVerbose(sysArgCheck("--xbla-stage-verbose"));

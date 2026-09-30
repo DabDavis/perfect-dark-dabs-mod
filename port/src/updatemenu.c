@@ -746,7 +746,7 @@ static bool updatenoticeWanted(void)
 
 	if (g_NoticeFreshInstall || getenv("PD_NO_UPDATE_NOTICE")
 			|| sysArgCheck("--no-update-notice") || sysArgCheck("--boot-stage")
-			|| sysArgCheck("--fixed-step") || sysArgCheck("--exit-frame")
+			|| sysArgCheck("--fixed-step") || sysArgCheck("--exit-frame") || sysArgCheck("--state-hash")
 			|| (driver && strcmp(driver, "offscreen") == 0)) {
 		return false;
 	}

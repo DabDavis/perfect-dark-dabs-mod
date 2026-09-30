@@ -1,6 +1,7 @@
 #ifndef PLATFORM_N64
 #include "headfit.h"
 #include "trace.h"
+#include "statehash.h"
 #endif
 #include <ultra64.h>
 #include "constants.h"
@@ -2511,6 +2512,10 @@ void lvTick(void)
 			sysLogPrintf(LOG_NOTE, "screenshot-frame %d reached", g_ShotFrame);
 			screenshotRequest();
 		}
+
+		// --state-hash: the state as this frame starts, before anything of
+		// it has run (statehash.c)
+		stateHashTick();
 
 		// --exit-frame: a measured run ends on a level frame, not a clock
 		if (g_ExitFrame > 0 && g_Vars.lvframenum >= g_ExitFrame) {
