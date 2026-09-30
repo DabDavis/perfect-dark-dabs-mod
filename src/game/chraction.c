@@ -17491,6 +17491,20 @@ struct prop *chrSpawnAtChr(struct chrdata *basechr, s32 body, s32 head, u32 chrn
 	struct chrdata *chr = chrFindById(basechr, chrnum);
 	f32 fvalue;
 
+#ifndef PLATFORM_N64
+	// GoldenEye's chrSpawnAtChr() (its TRYSpawningChrNextToChr, "next to an
+	// unseen chr") spawns nothing beside a chr the player has ever seen
+	// (CHRFLAG_HAS_BEEN_ON_SCREEN, Perfect Dark's CHRCFLAG_EVERONSCREEN, the
+	// same bit set at the same draw); Perfect Dark dropped the test. A
+	// converted mission's scripts were written against GoldenEye's rule:
+	// Bunker 1's and Surface 2's reinforcements come from beside a guard the player
+	// has not yet looked at, never out of one in plain view
+	if (modloaderStageIsRemake(g_Vars.stagenum)
+			&& (chr == NULL || chr->prop == NULL || (chr->chrflags & CHRCFLAG_EVERONSCREEN))) {
+		return NULL;
+	}
+#endif
+
 	if (1) {
 		fvalue = chrGetInverseTheta(chr);
 	}
