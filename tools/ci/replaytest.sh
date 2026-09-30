@@ -28,7 +28,8 @@
 # randmission deals the 0x34 mission again. Env: FRAMES (default
 # 3000), STEP (100), SEED (12345), CASES (all eight), GOLDEN
 # (build/replay-golden), OUT (build/replay-out), MODDIR (mod_allinone), EXTRA
-# (more arguments for every run). Needs the ROM in build/data and an
+# (more arguments for every run, e.g. EXTRA="--simbrain modern" for the
+# simulants' modern movement; none by default). Needs the ROM in build/data and an
 # offscreen-capable GPU driver (SDL_VIDEODRIVER=offscreen). The mission cases
 # pass --skip-cutscenes: Attack Ship's opening runs past frame 1400, and a
 # case that hashes only a cutscene tests very little.
@@ -43,6 +44,7 @@ GOLDEN=${GOLDEN:-$BUILD/replay-golden}; OUT=${OUT:-$BUILD/replay-out}
 MODDIR=${MODDIR:-mod_allinone}
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)  # runs cd into build/, so no relative paths
 case $GOLDEN in /*) ;; *) GOLDEN=$PWD/$GOLDEN ;; esac
+EXTRA=${EXTRA:-}
 export SDL_VIDEODRIVER=offscreen SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0ce6
 
 caseargs() {
@@ -162,6 +164,6 @@ check)
 		cmpcase "$GOLDEN/$c.hash" "$OUT/t.$c.hash" "$c" || status=1
 	done ;;
 *)
-	sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+	sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
 exit $status

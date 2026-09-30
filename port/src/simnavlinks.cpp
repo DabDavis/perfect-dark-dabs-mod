@@ -14,7 +14,8 @@
  *   mesh, a walker steps out at the slowest simulant's speed and is followed
  *   tick by tick: its box against the walls, gravity as chr0f01f378()
  *   integrates it, until it lands. A landing within maxdrop, on a floor that
- *   does not kill and that the mesh covers, is a one-way link.
+ *   does not kill and that the mesh covers, is a one-way link. None down a
+ *   lift's shaft, which the car fills as often as not.
  * - **Jumps**: from the same samples, the jump at each Jump Height setting in
  *   turn, with the box a jumping simulant is given (chrGetBbox()). The lowest
  *   setting that lands where walking off does not - over a gap into the
@@ -766,6 +767,28 @@ bool simnavFindFloorPoly(const dtNavMeshQuery *q, const dtQueryFilter *f, const 
 	return bestscore < FLT_MAX;
 }
 
+/**
+ * Whether a drop or a jump goes by way of a lift's shaft (within 120 of a stop
+ * across). The mesh stops round the car, so the shaft is a hole the walker
+ * falls down whenever the car is not there - and a simulant that took the
+ * link with the car at the top stood on the car instead (Grid, M3).
+ */
+bool throughLiftShaft(const simnavinput *in, const float *a, const float *b)
+{
+	for (int i = 0; i < in->numlifts; i++) {
+		for (int s = 0; s < in->lifts[i].numstops && s < 4; s++) {
+			float t;
+			const float *c = in->lifts[i].stops[s];
+
+			if (dtDistancePtSegSqr2D(c, a, b, t) < 120.0f * 120.0f) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 void simnavGenerateLinks(const dtNavMesh *nav, const simnavinput *in, const simnavparams *p,
 		const simnavlinkparams *lp, std::vector<SimNavLink> &out)
 {
@@ -847,7 +870,9 @@ void simnavGenerateLinks(const dtNavMesh *nav, const simnavinput *in, const simn
 	std::vector<SimNavLink> clustered;
 
 	for (const SimNavLink &l : cands) {
-		addClustered(clustered, l, lp->clusterdist);
+		if (!throughLiftShaft(in, l.a, l.b)) {
+			addClustered(clustered, l, lp->clusterdist);
+		}
 	}
 
 	for (const SimNavLink &l : clustered) {

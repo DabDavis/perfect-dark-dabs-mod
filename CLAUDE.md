@@ -40,6 +40,7 @@ or a section heading, don't read one whole.
 - [randomizer-run.md](CLAUDE-notes/randomizer-run.md) — The Randomizer's run: a room at a time across every map
 - [project-list.md](CLAUDE-notes/project-list.md) — Projects we can do, not started
 - [languages.md](CLAUDE-notes/languages.md) — the Language setting, translations, CJK fonts
+- [simnav.md](CLAUDE-notes/simnav.md) — The simulants' navmesh and its links; Mod.SimBrain (stock is bit-identical, modern walks stock's decisions along the navmesh); the traps met doing it
 
 Long-range plans (modularity, simulant AI, GE converter decoupling,
 optimisations, head fit) are in `~/perfect-dark/PLANS/`, outside this tree;

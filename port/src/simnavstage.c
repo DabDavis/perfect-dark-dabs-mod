@@ -55,6 +55,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "types.h"
@@ -76,8 +77,9 @@
 #include "game/modspectate.h"
 #include "modloader.h"
 #include "simnav.h"
+#include "simbrain.h"
 
-#define SIMNAV_EXTRACT_VERSION 3 // bump when the extraction, the links or the saved form change
+#define SIMNAV_EXTRACT_VERSION 4 // bump when the extraction, the links or the saved form change
 #define SIMNAV_CACHE_MAGIC     0x4e44504e // 'NPDN'
 #define SIMNAV_DRAW_LIFT       6.0f   // units the drawn mesh stands over the floor
 #define SIMNAV_DRAW_REACH      4000.0f // tiles further than this from the camera are not drawn
@@ -965,7 +967,7 @@ static struct simnavmesh *simnavCacheRead(const char *path, s32 stagenum, u64 ha
 static void simnavCacheWrite(const char *path, s32 stagenum, u64 hash, const struct simnavmesh *mesh)
 {
 	struct simnavcachehdr hdr;
-	char tmp[FS_MAXPATH + 16];
+	char tmp[FS_MAXPATH + 24];
 	uint8_t *buf = NULL;
 	size_t len = 0;
 	FILE *f;
@@ -981,7 +983,9 @@ static void simnavCacheWrite(const char *path, s32 stagenum, u64 hash, const str
 	hdr.hash = hash;
 	hdr.stagenum = stagenum;
 
-	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+	// two games building one stage at once (a replay test runs two) must not
+	// write into one file
+	snprintf(tmp, sizeof(tmp), "%s.%u.tmp", path, (unsigned)getpid());
 	f = fsFileOpenWrite(tmp);
 
 	if (!f) {
@@ -1554,6 +1558,7 @@ static u16 simnavIncludeFlags(void)
 
 void simnavStageStop(void)
 {
+	simbrainStageStop();
 	simnavFreeDraw();
 	simnavQueryFree(g_SimNav.query);
 	simnavMeshFree(g_SimNav.mesh);
@@ -1571,13 +1576,16 @@ void simnavStageStart(s32 stagenum)
 	struct simnavgeom g;
 	struct simnavstats stats;
 	s32 fromcache;
+	s32 debug;
 	u64 hash = 0;
 
-	if (g_SimNav.mesh) {
-		simnavStageStop();
-	}
+	simnavStageStop();
 
-	if (!simnavDebugEnabled()) {
+	// the debug view, or the modern simulant movement (Mod.SimBrain) in a
+	// Combat Simulator match; otherwise nothing is built
+	debug = simnavDebugEnabled();
+
+	if (!debug && !(g_Vars.normmplayerisrunning && simbrainWanted())) {
 		return;
 	}
 
@@ -1605,7 +1613,12 @@ void simnavStageStart(s32 stagenum)
 		g_SimNav.pathframe = -1;
 		simnavMeshGetStats(g_SimNav.mesh, &stats);
 		simnavLogStats(stagenum, &stats, &g, fromcache, hash);
-		simnavBuildDraw();
+
+		if (debug) {
+			simnavBuildDraw();
+		}
+
+		simbrainStageStart(g_SimNav.mesh);
 	}
 
 	simnavGeomFree(&g);
@@ -1663,6 +1676,14 @@ static void simnavUpdatePaths(struct player *player)
 		end[0] = player->prop->pos.x;
 		end[1] = player->prop->pos.y;
 		end[2] = player->prop->pos.z;
+	}
+
+	if (g_SimBrainModern) {
+		// the path the simulant is following, not one to the player
+		path->numpoints = simbrainDebugPath(chr, &path->points[0][0], SIMNAV_PATH_POINTS);
+		path->complete = 1;
+		memset(path->areas, SIMNAV_AREA_NONE, sizeof(path->areas));
+		return;
 	}
 
 	start[0] = chr->prop->pos.x;

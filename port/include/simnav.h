@@ -2,21 +2,25 @@
 #define _IN_SIMNAV_H
 
 /**
- * The simulants' navmesh (PLANS/AI-REWORK.md, milestones M1-M2):
+ * The simulants' navmesh (PLANS/AI-REWORK.md, milestones M1-M3):
  * Recast/Detour (port/src/external/recastnavigation) built from a stage's
  * collision tiles, with off-mesh links for ladders, lifts, drops and jumps,
- * and path queries.
+ * path queries, and agents that follow paths (M3,
+ * port/src/simnavagents.cpp, for port/src/simbrain.c). CLAUDE-notes/simnav.md
+ * has the whole story.
  *
  * Two halves. port/src/simnav.cpp wraps Recast and Detour behind the plain C
  * interface below and knows nothing of the game (port/src/simnavlinks.cpp
  * finds the links, from the chr numbers it is handed); port/src/simnavstage.c
  * takes a Perfect Dark stage's tiles, pads and setup apart into its input,
  * keeps the one mesh of the stage being played, caches it on disk, draws it
- * and a few simulants' paths, and runs the batch build.
+ * and a few simulants' paths (with Mod.SimBrain=modern, the paths they are
+ * following), and runs the batch build.
  *
- * All of it is off unless Mod.SimNavDebug=1 or --simnav-debug is given, or
- * --simnav-build-all is run: with it off nothing is built or allocated and no
- * frame is drawn differently. Nothing here moves a simulant yet.
+ * All of it is off unless Mod.SimNavDebug=1 or --simnav-debug is given,
+ * --simnav-build-all is run, or a Combat Simulator match starts with
+ * Mod.SimBrain=modern (port/include/simbrain.h): otherwise nothing is built
+ * or allocated and no frame is drawn differently.
  */
 
 #include <stddef.h>
@@ -199,6 +203,80 @@ int simnavQueryFindFloor(struct simnavquery *query, const float *pos, float belo
 int simnavQueryPath(struct simnavquery *query, const float *start, const float *end, unsigned short include,
 		float *points, unsigned char *linkareas, int maxpoints, int *complete);
 
+// Simulants following the mesh (M3, port/src/simnavagents.cpp): a path
+// corridor per agent, path queries queued and run a few a frame, and local
+// avoidance. Agents are numbered 0 to numagents - 1 by the caller.
+struct simnavagents;
+
+#define SIMNAV_AGENT_NONE      0 // no path asked for
+#define SIMNAV_AGENT_PENDING   1 // asked for, not run yet
+#define SIMNAV_AGENT_FOLLOWING 2 // has a corridor
+#define SIMNAV_AGENT_FAILED    3 // no floor under an end, or no way there
+
+// Where an agent should walk next, from simnavAgentFollow()
+struct simnavsteer {
+	float pos[3];      // the corridor's position: the agent's feet on the mesh
+	float corner[3];   // the next corner of the path
+	float after[3];    // the one after it (the corner itself if there is none)
+	int numcorners;
+	int final;         // corner is the path's end
+	unsigned char linkarea;  // not SIMNAV_AREA_NONE: corner is the start of a link of this area
+	unsigned char area;      // the polygon the agent is on
+	unsigned char aheadarea; // a duck or crouch area among the next polygons, else area
+};
+
+struct simnavagents *simnavAgentsCreate(const struct simnavmesh *mesh, int numagents);
+void simnavAgentsFree(struct simnavagents *agents);
+// A cost per unit of distance through an area, for every query after it
+void simnavAgentsSetAreaCost(struct simnavagents *agents, int area, float cost);
+// Runs up to maxqueries of the queued requests, oldest first; how many ran
+int simnavAgentsUpdate(struct simnavagents *agents, int maxqueries);
+int simnavAgentsQueriesRun(struct simnavagents *agents);
+
+void simnavAgentClear(struct simnavagents *agents, int idx);
+// Queue a path from start (the agent's feet) to end through polygons and
+// links whose flags are in include. An agent already following keeps its
+// corridor until the query has run.
+void simnavAgentRequest(struct simnavagents *agents, int idx, const float *start, const float *end,
+		unsigned short include);
+int simnavAgentIsPending(struct simnavagents *agents, int idx);
+// Why its last query failed: 1 no floor under the start, 2 under the end, 3 no way between
+int simnavAgentFailReason(struct simnavagents *agents, int idx);
+// Run the agent's queued request now, out of turn; its status after
+int simnavAgentRunNow(struct simnavagents *agents, int idx);
+// SIMNAV_AGENT_*; *complete whether the path reaches the end asked for, goal that end
+int simnavAgentStatus(struct simnavagents *agents, int idx, int *complete, float *goal);
+// The goal has moved a little: keep the corridor and move its end along the
+// mesh. 0 if that does not get there, and a new request is wanted.
+int simnavAgentMoveGoal(struct simnavagents *agents, int idx, const float *end);
+// Move the corridor to where the agent's feet are and, with corners, find the
+// corners ahead. 0 if the agent has no corridor or is too far off it.
+int simnavAgentFollow(struct simnavagents *agents, int idx, const float *feet, int corners,
+		struct simnavsteer *out);
+// The corridor goes on past the link at its head: its two ends and area
+int simnavAgentTakeLink(struct simnavagents *agents, int idx, float *start, float *end, unsigned char *area);
+// The link it crossed last did not get it across; the second time for one
+// link, the link is taken out of the mesh (1)
+int simnavAgentLinkFailed(struct simnavagents *agents, int idx);
+// The agent is stuck: the way from its polygon to the next costs more for
+// every path after (a second time, as good as closed). The times it has been
+// blamed, 0 for none (the corridor is too short, or goes on by a link).
+// walled: the agent's moves were being refused with nobody near it, so it is
+// as good as closed at once.
+int simnavAgentBlockAhead(struct simnavagents *agents, int idx, int walled);
+// The ends of the link at the head of the corridor, without crossing it
+int simnavAgentPeekLink(struct simnavagents *agents, int idx, float *start, float *end);
+// Take the link at the head of the corridor out of the mesh for every agent
+// after it (a link that turned out not to be one). The agent needs a new path.
+int simnavAgentDisableLink(struct simnavagents *agents, int idx);
+// A velocity (units a second, xz; y ignored) near dvel that keeps clear of
+// the neighbours (7 floats each: position, velocity, radius) and the mesh's
+// edges nearby
+int simnavAgentAvoid(struct simnavagents *agents, int idx, const float *feet, float radius, float maxspeed,
+		const float *vel, const float *dvel, const float *neighbours, int numneighbours, float *nvel);
+// The corridor's corners from the agent to the end, for drawing
+int simnavAgentCorners(struct simnavagents *agents, int idx, float *points, int maxpoints);
+
 #ifdef __cplusplus
 }
 #endif
@@ -208,7 +286,8 @@ int simnavQueryPath(struct simnavquery *query, const float *start, const float *
 #include "types.h"
 
 // lvReset(), once the stage's tiles are loaded: builds or loads the stage's
-// mesh when the debug view is on. Nothing when it is off.
+// mesh when the debug view is on or a match wants the modern simulant
+// movement (simbrainStageStart()). Nothing otherwise.
 void simnavStageStart(s32 stagenum);
 
 // lvStop(): the stage's mesh and its drawing are freed

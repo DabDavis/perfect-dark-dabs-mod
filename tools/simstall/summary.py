@@ -3,7 +3,8 @@
 # /tmp/simprobe/new), per mode (-n- NormalSims, -f- fast DarkSims):
 #   stalled  simulant-samples standing still in ACT_GOPOS for 3 s or more
 #   circling samples in runs of 3 s or more near the same waypoint, moving,
-#            never reaching it (the "tornado")
+#            never reaching it (the "tornado"); it reads stock's waypoint,
+#            which --simbrain modern does not follow, so it means nothing there
 #   falls    fall deaths
 #   hunt     mean distance of the nearest simulant to the player, and how many
 #            simulants have the player as target and in sight, per sample

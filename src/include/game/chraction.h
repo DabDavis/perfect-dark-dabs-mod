@@ -82,6 +82,9 @@ void chrNavTickMagic(struct chrdata *chr, struct waydata *waydata, f32 speed, st
 void chrCalculatePosition(struct chrdata *chr, struct coord *pos);
 void chrGoPosChooseAnimation(struct chrdata *chr);
 bool chrGoToRoomPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, u32 goposflags);
+#ifndef PLATFORM_N64
+void chrGoPosStartBare(struct chrdata *chr, struct coord *pos, RoomNum *room, u32 goposflags);
+#endif
 void chrPatrolChooseAnimation(struct chrdata *chr);
 void chrStartPatrol(struct chrdata *chr, struct path *path);
 bool chrHasLosToEntity(struct chrdata *chr, struct coord *chrpos, RoomNum *chrrooms, bool allowextraheight, u32 attackflags, u32 entityid);
