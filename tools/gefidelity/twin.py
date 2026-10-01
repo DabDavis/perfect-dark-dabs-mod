@@ -91,6 +91,10 @@ def run_pd(script, m, diff, out, env, timeout, rundir, binary, extra):
     save = os.path.join(local, 'save')
     os.makedirs(save, exist_ok=True)
     e = dict(os.environ)
+    # no real controller reaches a headless run (the Xenia rig's virtual Xbox pad
+    # was assigned to player 0 mid-run and pressed buttons in it)
+    e.update({'SDL_GAMECONTROLLER_IGNORE_DEVICES': '0x045e/0x028e,0x054c/0x0ce6',
+              'SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT': '0x0000/0x0000', 'SDL_JOYSTICK_HIDAPI': '0'})
     e.update({'SDL_VIDEODRIVER': os.environ.get('SDL_VIDEODRIVER', 'offscreen'),
               'SDL_AUDIODRIVER': 'dummy', 'GF_SIDE': 'pd', 'GF_COMMON': os.path.join(HERE, 'common'),
               'GF_LEVELID': m[3], 'GF_MISSION': str(m[0]), 'GF_DIFF': str(diff), 'GF_OUT': local})

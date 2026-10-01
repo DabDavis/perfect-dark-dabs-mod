@@ -49,7 +49,7 @@
 # Exit status: 0 identical, 1 a divergence, 2 a run that failed.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-BUILD=$ROOT/build
+BUILD=${BUILD:-$ROOT/build}   # a worktree with no build/ of its own can point at one
 FRAMES=${FRAMES:-3000}; STEP=${STEP:-100}; SEED=${SEED:-12345}
 CASES=${CASES:-"match solo gematch gesolo optmatch optsolo randrun randmission"}
 GOLDEN=${GOLDEN:-$BUILD/replay-golden}; OUT=${OUT:-$BUILD/replay-out}
@@ -57,7 +57,11 @@ MODDIR=${MODDIR:-mod_allinone}
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)  # runs cd into build/, so no relative paths
 case $GOLDEN in /*) ;; *) GOLDEN=$PWD/$GOLDEN ;; esac
 EXTRA=${EXTRA:-}
-export SDL_VIDEODRIVER=offscreen SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0ce6
+# no controller may reach a replay: the user's DualSense, and the virtual Xbox
+# 360 pad the Xenia rigs (tools/gefidelity/xenia) make through /dev/uinput -
+# SDL sees every controller on the machine, and one leaked into a headless run
+export SDL_VIDEODRIVER=offscreen SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0ce6,0x045e/0x028e \
+	SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT=0x0000/0x0000 SDL_JOYSTICK_HIDAPI=0
 
 caseargs() {
 	case $1 in

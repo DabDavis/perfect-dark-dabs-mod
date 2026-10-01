@@ -2,10 +2,11 @@
 """Run guns/gunscen.py over GoldenEye's guns on both sides, in groups.
 
     guns/run.py --out ~/wt/gefidelity-run/guns-out/run1 [--guns pp7,kf7] [--mission dam]
-                [--ge-jobs 3] [--pd-jobs 2] [--sides ge,pd] [--hold 480]
+                [--ge-jobs 3] [--pd-jobs 2] [--sides ge,pd] [--hold 480] [--oracle ares|port]
 
 Writes OUT/<side>/gun_<item>.json. The oracle side goes through twin.py's
-run_ge (rendering off). Our side cannot use twin.py's: it passes --no-sound,
+run_ge: the cartridge in ares by default (gunscen_ares.py), or with --oracle
+port the native port under gdb (gunscen.py, rendering off). Our side cannot use twin.py's: it passes --no-sound,
 and with no sound bank GE Plus never starts a GoldenEye sound at all
 (geSfxGet() returns 0), so the sound column would be empty by construction.
 Here every group gets its own run directory of links (its own pd.log and
@@ -24,20 +25,26 @@ import gunlist  # noqa: E402
 import threading
 _LAUNCH = threading.Lock()
 
+# SDL hints that hide every game controller from our headless runs (the
+# Xbox 360 pad's id, and an ignore-all-but-none list for anything else)
+NO_PADS = {'SDL_GAMECONTROLLER_IGNORE_DEVICES': '0x045e/0x028e,0x054c/0x0ce6',
+           'SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT': '0x0000/0x0000',
+           'SDL_JOYSTICK_HIDAPI': '0'}
+
 
 def groups(items, n):
     n = max(1, min(n, len(items)))
     return [items[i::n] for i in range(n)]
 
 
-def run_ge_group(items, m, diff, out, hold, timeout, render=False):
+def run_ge_group(items, m, diff, out, hold, timeout, render=False, oracle='ares'):
     env = {'GF_GUNS': ','.join(map(str, items)), 'GF_GUNSDIR': '$HOME/gefidelity/guns', 'GF_HOLD': str(hold)}
     sub = os.path.join(out, 'ge-%s' % '-'.join(map(str, items)))
-    # twin.run_ge() names the oracle's directory by the second and our pid, so
-    # two launched in one second would share it (guns/shared-lib.patch)
+    # the cartridge (ares, gunscen_ares.py) or the native port under gdb (gunscen.py)
+    scen = 'gunscen_ares.py' if oracle == 'ares' else 'gunscen.py'
     with _LAUNCH:
-        p = twin.run_ge(os.path.join(HERE, 'gunscen.py'), m, diff, sub, env, timeout, render)
-        time.sleep(1.2)
+        p = twin.run_ge(os.path.join(HERE, scen), m, diff, sub, env, timeout, render, oracle)
+        time.sleep(0.2)
     p.wait()
     twin.fetch_ge(p)
     os.makedirs(os.path.join(out, 'ge'), exist_ok=True)
@@ -61,6 +68,9 @@ def run_pd_group(items, m, diff, out, hold, timeout, rundir, binary):
     os.makedirs(os.path.join(rd, 'save'), exist_ok=True)
     os.makedirs(os.path.join(out, 'pd'), exist_ok=True)
     e = dict(os.environ)
+    # no real controller: the Xenia rig's virtual Xbox pad (uinput) was assigned to
+    # player 0 mid-run and its presses turned one PP7 run into 43000 frames
+    e.update(NO_PADS)
     e.update({'SDL_VIDEODRIVER': os.environ.get('SDL_VIDEODRIVER', 'offscreen'), 'SDL_AUDIODRIVER': 'dummy',
               'GF_SIDE': 'pd', 'GF_COMMON': os.path.join(ROOT, 'common'), 'GF_GUNSDIR': HERE,
               'GF_LEVELID': m[3], 'GF_MISSION': str(m[0]), 'GF_DIFF': str(diff),
@@ -75,7 +85,7 @@ def run_pd_group(items, m, diff, out, hold, timeout, rundir, binary):
 
 
 def run(out, guns, mission='dam', diff='agent', sides=('ge', 'pd'), ge_jobs=3, pd_jobs=2, hold=480,
-        timeout=3000, rundir=twin.DEFAULT_RUNDIR, binary='./pd.base', render=False):
+        timeout=3000, rundir=twin.DEFAULT_RUNDIR, binary='./pd.base', render=False, oracle='ares'):
     m = levels.mission(mission)
     d = levels.difficulty(diff)
     items = [g[0] for g in guns]
@@ -85,7 +95,7 @@ def run(out, guns, mission='dam', diff='agent', sides=('ge', 'pd'), ge_jobs=3, p
         twin.sync_tools()
     with cf.ThreadPoolExecutor(ge_jobs + pd_jobs) as ex:
         if 'ge' in sides:
-            jobs += [ex.submit(run_ge_group, g, m, d, out, hold, timeout, render) for g in groups(items, ge_jobs)]
+            jobs += [ex.submit(run_ge_group, g, m, d, out, hold, timeout, render, oracle) for g in groups(items, ge_jobs)]
         if 'pd' in sides:
             jobs += [ex.submit(run_pd_group, g, m, d, out, hold, timeout, rundir, binary) for g in groups(items, pd_jobs)]
         bad = []
@@ -111,11 +121,13 @@ def main():
     ap.add_argument('--timeout', type=int, default=3000)
     ap.add_argument('--rundir', default=twin.DEFAULT_RUNDIR)
     ap.add_argument('--bin', default='./pd.base')
-    ap.add_argument('--render', action='store_true', help='the oracle renders (slower; console-like frame pace)')
+    ap.add_argument('--render', action='store_true', help='the native port renders (slower; console-like frame pace)')
+    ap.add_argument('--oracle', choices=['ares', 'port'], default='ares',
+                    help='GoldenEye side: the cartridge in ares (default) or the native port under gdb')
     a = ap.parse_args()
     guns = gunlist.GUNS if a.guns == 'all' else [gunlist.gun(k) for k in a.guns.split(',')]
     bad = run(a.out, guns, a.mission, a.diff, a.sides.split(','), a.ge_jobs, a.pd_jobs, a.hold, a.timeout,
-              a.rundir, a.bin, a.render)
+              a.rundir, a.bin, a.render, a.oracle)
     for side, its, tail in bad:
         print('---', side, its, *tail, sep='\n')
     return 1 if bad else 0

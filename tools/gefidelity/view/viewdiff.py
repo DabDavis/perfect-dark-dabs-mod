@@ -53,9 +53,19 @@ sys.path.insert(0, os.path.join(ROOT, 'common'))
 import levels  # noqa: E402
 
 RUNROOT = os.path.expanduser(os.environ.get('GF_RUNDIR_ROOT', '~/wt/gefidelity-run'))
-DEFAULT_OUT = os.path.join(RUNROOT, 'view-out')
-W, H = 320, 220                 # GoldenEye's in-level viewport
-PD_W, PD_H = 640, 440           # ours, same aspect
+DEFAULT_OUT = {'ares': os.path.join(RUNROOT, 'view-ares'), 'port': os.path.join(RUNROOT, 'view-out'),
+               'xenia': os.path.join(RUNROOT, 'view-xenia')}
+# --oracle xenia: GoldenEye XBLA ("Bean") is the reference for our HD look, and
+# both sides run the Community Edition (user 2026-10-01: "use Community
+# edition, since that is what we use for ge plus"): Bean's CE build in Xenia,
+# Mod.GeXblaCommunityEdition with the updater in our added-content
+BEAN_CE_XEX = '/home/sdg/perfect-dark/.xbla-work/ge-bean/BeanCE/defaultCE.xex'
+CE_ZIP = '/home/sdg/perfect-dark/perfect_dark/build/gexrom/added-content/CommunityEditionUpdaterV6.zip'
+BEAN_DIR = '/home/sdg/perfect-dark/.xbla-work/ge-bean/Bean'
+HD_KEYS = {'XblaMeshes': 1, 'XblaStages': 1, 'XblaSkies': 1, 'XblaMeshTextures': 1, 'GeXblaCommunityEdition': 1}
+BEAN_FRAME = (1280, 720)        # what Bean presents; the rig photographs it into 1280x695
+W, H = 320, 220                 # the compare size: GoldenEye's in-level viewport (set_geometry() per run)
+PD_SCALE = 2                    # ours renders at twice GoldenEye's viewport
 CAM_XZ = 4.0                    # units across the floor
 CAM_ANG = 1.0                   # degrees between the two look vectors
 CAM_DY = 4.0                    # eye height delta that is flagged (still scored)
@@ -65,35 +75,59 @@ CONTROL_RATIO = 0.85            # matched median must be under this x the one-pa
 CONTROL_WIN = 0.75              # and better than one pad off on this share of pairs
 PLANT_RISE = 0.05               # a planted 64x64 grey block must raise a pair's score this much
 PLANT_SEEN = 0.90               # on this share of pairs
+# the cartridge photographed twice: aresge pins GoldenEye's RNG, but the tick a
+# picture lands on still varies by 1-3 between runs (the gun's sway and the
+# view's bob with it), so the repeat is not zero - measured over 19 missions the
+# median is 0.01-0.035, a tenth of the matched pairs'. The null wants the
+# oracle's own jitter well under the differences it ranks; a pair whose own
+# picture changes more than ORACLE_UNSTEADY between runs (an explosion going
+# off, Aztec pad 34) is not ranked
+ORACLE_REPEAT_RATIO = 0.25      # median jitter must be under this x the matched median
+ORACLE_UNSTEADY = 0.15
 
 
 # ------------------------------------------------------------------ running
 
-def _rundirs():
+def _rundirs(binary='./pd.base', hd=False):
     """Private run directories for our side, one per concurrent run: pd.log and
     screenshots/ are per directory, and the binary is hard-linked so the port's
     "next to the executable" paths land here too."""
     out = []
     for i in range(2):
-        d = os.path.join(RUNROOT, 'view-rundir-%d' % i)
+        d = os.path.join(RUNROOT, ('view-hd-rundir-%d' if hd else 'view-rundir-%d') % i)
         os.makedirs(d, exist_ok=True)
-        for name in ('data', 'added-content', 'mods'):
+        for name in ('data', 'mods') if hd else ('data', 'added-content', 'mods'):
             p = os.path.join(d, name)
             if not os.path.lexists(p):
                 os.symlink(os.path.join('..', name), p)
-        b = os.path.join(d, 'pd.base')
-        src = os.path.join(RUNROOT, 'pd.base')
+        if hd:
+            # the HD look wants the release (and the CE updater) beside the ROM;
+            # the HD level cache is per run directory (next to the binary)
+            ac = os.path.join(d, 'added-content')
+            os.makedirs(ac, exist_ok=True)
+            for name, src in (('GoldenEye 007 (U) [!].n64', os.path.join(RUNROOT, 'added-content', 'GoldenEye 007 (U) [!].n64')),
+                              ('goldeneye', BEAN_DIR), ('CommunityEditionUpdaterV6.zip', CE_ZIP)):
+                q = os.path.join(ac, name)
+                if not os.path.lexists(q):
+                    os.symlink(os.path.realpath(src), q)
+        src = binary if os.path.isabs(binary) else os.path.normpath(os.path.join(RUNROOT, binary))
+        b = os.path.join(d, os.path.basename(src))
         if not os.path.exists(b) or os.stat(b).st_ino != os.stat(src).st_ino:
             if os.path.lexists(b):
                 os.remove(b)
-            os.link(src, b)
+            try:
+                os.link(src, b)
+            except OSError:
+                shutil.copy2(src, b)
         out.append(d)
     return out
 
 
-def _twin(side, mission, out, env, rundir=None, timeout=3600):
+def _twin(side, mission, out, env, rundir=None, timeout=3600, oracle='ares', binary=None):
     cmd = [sys.executable, os.path.join(ROOT, 'twin.py'), side, os.path.join(HERE, 'tour.py'),
-           '--mission', mission, '--out', out, '--timeout', str(timeout), '--no-sync']
+           '--mission', mission, '--out', out, '--timeout', str(timeout), '--no-sync', '--oracle', oracle]
+    if binary:
+        cmd += ['--bin', './' + os.path.basename(binary)]
     # GoldenEye: no --render (twin.py boots the oracle with its rasteriser off,
     # the menu walk's 1300 frames cost nothing, tour.py turns it on for the
     # three frames before each picture), and twin.py's default pad script
@@ -106,11 +140,45 @@ def _twin(side, mission, out, env, rundir=None, timeout=3600):
     return r.returncode, (r.stdout + r.stderr).strip().splitlines()[-1:]
 
 
-def _prepare_pd(out):
+def _prepare_pd(out, viewport=(0, 10, 320, 220), fovy=60.0, hd=False):
+    """Our window at GoldenEye's viewport aspect (twice its size) and its
+    vertical field of view, in a pd.ini in the run's own save directory; the
+    HD look (and the Community Edition) for --oracle xenia, at the frame Bean
+    presents."""
     save = os.path.join(out, 'pd', 'save')
     os.makedirs(save, exist_ok=True)
+    w, h = (BEAN_FRAME if hd else (PD_SCALE * viewport[2], PD_SCALE * viewport[3]))
     with open(os.path.join(save, 'pd.ini'), 'w') as fh:
-        fh.write('[Video]\nDefaultWidth=%d\nDefaultHeight=%d\n' % (PD_W, PD_H))
+        fh.write('[Video]\nDefaultWidth=%d\nDefaultHeight=%d\n\n[Game.Player1]\nFovY=%f\n' % (w, h, fovy or 60.0))
+        if hd:
+            fh.write('\n[Mod]\n' + ''.join('%s=%d\n' % kv for kv in HD_KEYS.items()))
+
+
+def _xenia_ge(mission, out, env, ce=True):
+    """Bean through xenia/run_scenario.py: the locked rig (one Xenia and one
+    virtual pad on this machine), the tour with xeniage as gdbge. Its output
+    lands in OUT/bean and is moved to OUT/ge."""
+    cmd = [sys.executable, os.path.join(ROOT, 'xenia', 'run_scenario.py'), os.path.join(HERE, 'tour.py'),
+           '--mission', mission, '--out', out]
+    for k, v in env.items():
+        cmd += ['--env', '%s=%s' % (k, v)]
+    e = dict(os.environ)
+    # the rig runs the CE-patched release by default (agent Z's rig.sh); say so
+    # only when its default is not the CE, never compare retail against our CE
+    rigsh = open(os.path.join(ROOT, 'xenia', 'rig.sh')).read()
+    if ce and 'CE' not in rigsh.split('PKG=', 1)[-1].split('\n', 1)[0] and os.path.exists(BEAN_CE_XEX):
+        e['GF_XENIA_PKG'] = BEAN_CE_XEX
+    r = subprocess.run(cmd, capture_output=True, text=True, env=e)
+    bean, ge = os.path.join(out, 'bean'), os.path.join(out, 'ge')
+    if os.path.isdir(bean):
+        if os.path.isdir(ge):
+            shutil.rmtree(ge)
+        os.rename(bean, ge)
+        log = os.path.join(ge, 'scenario.log')
+        if os.path.exists(log):
+            shutil.copy(log, os.path.join(ge, 'gdb.log'))
+    ok = r.returncode == 0 and os.path.exists(os.path.join(ge, 'manifest.json'))
+    return (0 if ok else 1), (r.stdout + r.stderr).strip().splitlines()[-1:]
 
 
 def tour_env(a):
@@ -123,26 +191,106 @@ def tour_env(a):
 def run_one(mission, a, ge_sem, pd_slots):
     m = levels.mission(mission)
     out = os.path.join(a.out, m[1])
-    if os.path.isdir(out) and not a.keep:
+    same = bool(getattr(a, 'reuse_oracle', None)) and os.path.abspath(a.reuse_oracle) == os.path.abspath(a.out)
+    if same:
+        # scoring an --oracle-only run in place: keep its oracle side, redo ours
+        for d in ('pd', 'pairs'):
+            shutil.rmtree(os.path.join(out, d), ignore_errors=True)
+    elif os.path.isdir(out) and not a.keep:
         shutil.rmtree(out)
     os.makedirs(out, exist_ok=True)
-    _prepare_pd(out)
     env = tour_env(a)
     res = {}
 
     def ge():
+        if getattr(a, 'reuse_oracle', None):
+            # the oracle's pictures do not depend on our binary: take a base
+            # sweep's instead of shooting them again
+            src = os.path.join(a.reuse_oracle, m[1], 'ge')
+            if same and os.path.exists(os.path.join(src, 'manifest.json')):
+                res['ge'] = (0, ['in place ' + src])
+            elif os.path.exists(os.path.join(src, 'manifest.json')):
+                for d in ('ge', 'ge_repeat'):
+                    if os.path.isdir(os.path.join(out, d)):
+                        shutil.rmtree(os.path.join(out, d))
+                    if os.path.isdir(os.path.join(a.reuse_oracle, m[1], d)):
+                        shutil.copytree(os.path.join(a.reuse_oracle, m[1], d), os.path.join(out, d))
+                res['ge'] = (0, ['reused ' + src])
+            else:
+                res['ge'] = (1, ['no oracle side to reuse in ' + src])
+            return
+        skip = []
         with ge_sem:
-            res['ge'] = _twin('ge', m[1], out, env)
+            # mission-ending pads come in runs of neighbouring waypoints (an
+            # exit area: Statue 227/226/225, Archives 172/171/170), so allow six
+            for attempt in range(7):
+                e2 = dict(env, VIEW_SKIP=','.join(str(p) for p in skip)) if skip else env
+                if a.oracle == 'xenia':
+                    res['ge'] = _xenia_ge(m[1], out, dict(e2, VIEW_BEAN_FOVY=str(a.bean_fovy or 0)), ce=not a.no_ce)
+                else:
+                    res['ge'] = _twin('ge', m[1], out, e2, oracle=a.oracle)
+                # a pad that ends the mission (the level clock went back to 0
+                # there): GoldenEye's own, nothing the tour froze; try without it
+                log = os.path.join(out, 'ge', 'gdb.log')
+                ended = [l.split()[-1] for l in open(log, errors='replace')
+                         if l.startswith('GF level ended at pad')] if os.path.exists(log) else []
+                if res['ge'][0] == 0 or not ended or attempt == 6:
+                    break
+                skip.append(int(ended[-1]))
+                print('%-10s pad %s ends the mission on GoldenEye; again without it' % (m[1], ended[-1]), flush=True)
+            if res['ge'][0] == 0 and a.oracle == 'ares' and not a.no_oracle_repeat:
+                # the null's third leg: the cartridge photographed twice must
+                # give the same pictures (aresge.boot pins GoldenEye's RNG)
+                rep = os.path.join(out, '_oracle_repeat')
+                if os.path.isdir(rep):
+                    shutil.rmtree(rep)
+                gmf = json.load(open(os.path.join(out, 'ge', 'manifest.json')))
+                e3 = dict(env, VIEW_ONLY=','.join(gmf['pads'].keys()))
+                if skip:
+                    e3['VIEW_SKIP'] = ','.join(str(p) for p in skip)
+                r2 = _twin('ge', m[1], rep, e3, oracle=a.oracle)
+                if r2[0] == 0 and os.path.isdir(os.path.join(rep, 'ge')):
+                    if os.path.isdir(os.path.join(out, 'ge_repeat')):
+                        shutil.rmtree(os.path.join(out, 'ge_repeat'))
+                    os.rename(os.path.join(rep, 'ge'), os.path.join(out, 'ge_repeat'))
+                shutil.rmtree(rep, ignore_errors=True)
 
     def pd():
         slot = pd_slots.get()
         try:
-            res['pd'] = _twin('pd', m[1], out, env, rundir=slot)
+            res['pd'] = _twin('pd', m[1], out, env, rundir=slot, binary=getattr(a, 'bin', None))
         finally:
             pd_slots.put(slot)
-    ts = [threading.Thread(target=ge), threading.Thread(target=pd)]
-    [t.start() for t in ts]
-    [t.join() for t in ts]
+    if getattr(a, 'oracle_only', False):
+        ge()
+        print('%-10s oracle %s' % (m[1], 'ok' if res['ge'][0] == 0 else 'FAILED %s' % res['ge'][1]), flush=True)
+        return m[1], None
+    if a.oracle in ('ares', 'xenia') or getattr(a, 'reuse_oracle', None):
+        # the cartridge first: our window and field of view are set from the
+        # viewport and fovy it reports (VideoSettings), not assumed
+        ge()
+        try:
+            gmf = json.load(open(os.path.join(out, 'ge', 'manifest.json')))
+            hd = gmf.get('oracle') == 'xenia'
+            _prepare_pd(out, gmf['view']['viewport'],
+                        (a.bean_fovy or 60.0) if hd else gmf['view'].get('fovy', 60.0), hd=hd)
+            # the same schedule: the cartridge reaches first person later than
+            # our --skip-mission-intro, so ours starts at its first-shot tick
+            env = dict(env, VIEW_T0=str(gmf['t0']), VIEW_DT=str(gmf['dt']),
+                       VIEW_TICKS=','.join(str(sh['tick']) for sh in gmf['shots']),
+                       VIEW_ONLY=','.join(gmf['pads'].keys()), VIEW_HEADS=','.join(
+                           '%g' % h for h in sorted({sh['head'] for sh in gmf['shots']})))
+        except Exception:
+            _prepare_pd(out, hd=a.oracle == 'xenia')
+        if res['ge'][0] == 0:
+            pd()
+        else:
+            res['pd'] = (1, ['not run: the cartridge side failed'])
+    else:
+        _prepare_pd(out)
+        ts = [threading.Thread(target=ge), threading.Thread(target=pd)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
     ok = all(res[s][0] == 0 for s in res)
     print('%-10s ge %s pd %s' % (m[1], 'ok' if res['ge'][0] == 0 else 'FAILED %s' % res['ge'][1],
                                  'ok' if res['pd'][0] == 0 else 'FAILED %s' % res['pd'][1]), flush=True)
@@ -152,6 +300,16 @@ def run_one(mission, a, ge_sem, pd_slots):
 
 
 # ------------------------------------------------------------------ scoring
+
+def set_geometry(viewport):
+    """The compare size from GoldenEye's viewport: 320 wide, its aspect,
+    whole 20x20 blocks."""
+    global W, H, BLOCKS
+    vw, vh = viewport[2], viewport[3]
+    W = 320
+    H = max(20, int(round(W * vh / vw / 20.0)) * 20)
+    BLOCKS = (H // 20, W // 20)
+
 
 def load_ge(path, viewport):
     x, y, w, h = viewport
@@ -261,6 +419,7 @@ def score_dir(out):
     gm = json.load(open(os.path.join(out, 'ge', 'manifest.json')))
     pm = json.load(open(os.path.join(out, 'pd', 'manifest.json')))
     vp = gm['view']['viewport']
+    set_geometry(vp)
     pairs_dir = os.path.join(out, 'pairs')
     os.makedirs(pairs_dir, exist_ok=True)
     # the level's offset from the pads both tours stood on
@@ -323,6 +482,33 @@ def score_dir(out):
                            'offset_median': round(mo, 4), 'matched_better_share': round(share, 3), 'pass': ok}
     else:
         null['control'] = {'pass': False, 'why': 'nothing to join against'}
+    # the oracle against itself: the same cartridge run twice
+    repdir = os.path.join(out, 'ge_repeat')
+    if os.path.exists(os.path.join(repdir, 'manifest.json')):
+        rm = json.load(open(os.path.join(repdir, 'manifest.json')))
+        rshots = {(sh['pad'], sh['head']): sh for sh in rm['shots']}
+        jit = []
+        for r in rows:
+            key = (r['pad'], r['head'])
+            if key in rshots and key in feats_g:
+                fr = features(load_ge(os.path.join(repdir, rshots[key]['file']), rm['view']['viewport']))
+                j = score(feats_g[key], fr)['score']
+                r['oracle_jitter'] = round(j, 4)
+                jit.append(j)
+                if j > ORACLE_UNSTEADY and r.get('score') is not None:
+                    r['score'] = None
+                    r['cam']['status'] = 'mismatch: GoldenEye\'s own picture changes between two runs (%.3f)' % j
+        scored = [r for r in rows if r.get('score') is not None]
+        if jit:
+            med = float(np.median(jit))
+            mm = null['control'].get('matched_median') or 1.0
+            null['oracle_repeat'] = {'pairs': len(jit), 'median': round(med, 4), 'p90': round(float(np.percentile(jit, 90)), 4),
+                                     'max': round(max(jit), 4), 'unsteady': sum(1 for j in jit if j > ORACLE_UNSTEADY),
+                                     'pass': med <= ORACLE_REPEAT_RATIO * mm}
+            if not null['oracle_repeat']['pass']:
+                null['control']['pass'] = False
+                problems.append('oracle repeat: GoldenEye photographed twice differs by a median %.3f, over %.0f%% of '
+                                'the matched pairs\' median %.3f' % (med, 100 * ORACLE_REPEAT_RATIO, mm))
     # sensitivity: the planted block must raise nearly every matched pair's score
     rises = [score(feats_g[(r['pad'], r['head'])], feats_planted[(r['pad'], r['head'])])['score'] - r['score']
              for r in scored]
@@ -347,7 +533,8 @@ def score_dir(out):
                'median_score': round(float(np.median([r['score'] for r in scored])), 4) if scored else None,
                'median_eye_dy': round(float(np.median([r['cam']['dy'] for r in rows])), 2) if rows else None,
                'offset': [round(v, 3) for v in off], 'null': null, 'problems': problems,
-               'ranked': bool(null['control'].get('pass')), 'frozen': [gm.get('frozen'), pm.get('frozen')]}
+               'ranked': bool(null['control'].get('pass')), 'frozen': [gm.get('frozen'), pm.get('frozen')],
+               'oracle': gm.get('oracle', 'port'), 'ge_view': gm['view'], 'skipped': gm.get('skipped', [])}
     json.dump({'summary': summary, 'rows': rows}, open(os.path.join(out, 'scores.json'), 'w'), indent=1)
     write_html(out, summary, rows)
     return summary
@@ -365,20 +552,29 @@ def write_html(out, s, rows):
     ctl = s['null']['control']
     sen = s['null'].get('sensitivity', {})
     banner = ('<p class="ok">Null passed: identity max %.2g; matched median %.4f vs %s %.4f, matched better on %.0f%% '
-              'of %d pairs; a planted block raised %.0f%% of pairs (median +%.3f). Ranked worst first.</p>' % (
+              'of %d pairs; a planted block raised %.0f%% of pairs (median +%.3f)%s. Ranked worst first.</p>' % (
                   s['null']['identity_max'], ctl['matched_median'], ctl['joined_with'], ctl['offset_median'],
                   100 * ctl['matched_better_share'], ctl['pairs'], 100 * sen.get('seen_share', 0),
-                  sen.get('planted_rise_median', 0))
+                  sen.get('planted_rise_median', 0),
+                  ('; GoldenEye photographed twice: median %.4f, max %.4f, %d pairs unsteady (not ranked)' % (
+                      s['null']['oracle_repeat']['median'], s['null']['oracle_repeat']['max'],
+                      s['null']['oracle_repeat']['unsteady'])) if 'oracle_repeat' in s['null'] else '')
               if s['ranked'] else
               '<p class="bad"><b>NULL FAILED - not ranked.</b> %s</p>' % html.escape(json.dumps(ctl)))
     h = ['<!doctype html><meta charset="utf-8"><title>View diff: %s</title><style>%s</style>' % (s['mission'], CSS),
-         '<h1>View diff: %s</h1>' % html.escape(s['mission']), banner,
+         '<h1>View diff: %s</h1>' % html.escape(s['mission']),
+         '<p class="sm">GoldenEye: %s (%s); viewport %s, fovy %s</p>' % (
+             'the cartridge in ares' if s.get('oracle') == 'ares' else 'the decomp\'s native port',
+             s.get('oracle'), s['ge_view'].get('viewport'), s['ge_view'].get('fovy', 60)), banner,
          '<p>%d pairs, %d scored, %d camera mismatches; median score %s; median eye height ours - GoldenEye %s units; '
          'offset %s; chrs frozen (GoldenEye, ours) %s.</p>' % (s['pairs'], s['scored'], s['mismatches'],
                                                                s['median_score'], s['median_eye_dy'], s['offset'],
                                                                s['frozen'])]
     for p in s['problems']:
         h.append('<p class="warn">%s</p>' % html.escape(p))
+    if s.get('skipped'):
+        h.append('<p class="warn">Left out: pad %s - putting Bond there ended the mission on GoldenEye\'s side '
+                 '(nothing the tour froze; an exit the level checks itself).</p>' % ', '.join(map(str, s['skipped'])))
     h.append('<p class="sm">score = mean of struct (1-SSIM at blur %.0f, half resolution), edge (1-correlation '
              'of blurred edge maps) and %.0f x colour (mean difference of 20x20 block colours, 0..1); 0 is the same '
              'picture. control = the same GoldenEye picture against our next pad. Red in the difference map is past the '
@@ -392,9 +588,9 @@ def write_html(out, s, rows):
                 r['score'], r['struct'], r['edge'], r['colour'], r.get('control', '-'),
                 html.escape(r['cam']['status'])))
         diff = ('<img loading="lazy" src="pairs/%s_diff.png">' % r['tag']) if r.get('score') is not None else ''
-        h.append('<tr><td>%d</td><td>pad %d<br>heading %d<br>%s<br><span class="sm">ticks %s</span></td>'
+        h.append('<tr id="%s"><td>%d</td><td>pad %d<br>heading %d<br>%s<br><span class="sm">ticks %s</span></td>'
                  '<td><img loading="lazy" src="pairs/%s_ge.png"></td><td><img loading="lazy" src="pairs/%s_pd.png"></td>'
-                 '<td>%s</td></tr>' % (i + 1, r['pad'], r['head'], sc, r['tick'], r['tag'], r['tag'], diff))
+                 '<td>%s</td></tr>' % (r['tag'], i + 1, r['pad'], r['head'], sc, r['tick'], r['tag'], r['tag'], diff))
     h.append('</table>')
     open(os.path.join(out, 'index.html'), 'w').write('\n'.join(h))
 
@@ -428,18 +624,30 @@ def main():
     sub = ap.add_subparsers(dest='cmd', required=True)
     for name in ('run', 'sweep'):
         p = sub.add_parser(name)
-        p.add_argument('--out', default=DEFAULT_OUT)
+        p.add_argument('--oracle', choices=['ares', 'port', 'xenia'], default='ares',
+                       help='GoldenEye: the cartridge in ares (default), the native port under gdb, or the '
+                            'XBLA release in Xenia against our HD look')
+        p.add_argument('--bean-fovy', type=float, default=None,
+                       help='--oracle xenia: our FovY for Bean (measure it: viewdiff.py fovfit DIR)')
+        p.add_argument('--no-ce', action='store_true', help='--oracle xenia: Bean without the Community Edition')
+        p.add_argument('--oracle-only', action='store_true',
+                       help="GoldenEye's pictures only; score later with --reuse-oracle on the same OUT")
+        p.add_argument('--no-oracle-repeat', action='store_true',
+                       help='ares: do not photograph the cartridge a second time for the null')
+        p.add_argument('--out', default=None, help='default ~/wt/gefidelity-run/view-ares (view-out with --oracle port)')
         p.add_argument('--step', type=int, default=6, help='every Nth waypoint pad')
         p.add_argument('--max', type=int, default=40, help='pads per mission, 0 = all')
         p.add_argument('--heads', default='0,90,180,270')
         p.add_argument('--only', help='comma list of pads (overrides --step)')
         p.add_argument('--keep', action='store_true', help='do not clear the mission directory first')
+        p.add_argument('--bin', default='./pd.base', help='our binary, relative to ~/wt/gefidelity-run')
+        p.add_argument('--reuse-oracle', help="a previous run's OUT: take GoldenEye's pictures from it")
         if name == 'run':
             p.add_argument('--mission', required=True)
         else:
             p.add_argument('--missions', default='all')
             p.add_argument('--ge-jobs', type=int, default=4)
-            p.add_argument('--pd-jobs', type=int, default=2)
+            p.add_argument('--pd-jobs', type=int, default=1, help='ours at once (one GPU, shared)')
     p = sub.add_parser('score')
     p.add_argument('dirs', nargs='+')
     a = ap.parse_args()
@@ -452,15 +660,16 @@ def main():
             bad |= not s['ranked']
         return 2 if bad else 0
 
+    a.out = a.out or DEFAULT_OUT[a.oracle]
     import queue
     subprocess.run([sys.executable, '-c', 'import sys; sys.path.insert(0, %r); import twin; twin.sync_tools()' % ROOT],
                    check=True)
     slots = queue.Queue()
-    rundirs = _rundirs()
+    rundirs = _rundirs(a.bin, hd=a.oracle == 'xenia')
     njobs = 1 if a.cmd == 'run' else a.pd_jobs
     for d in rundirs[:max(1, min(njobs, len(rundirs)))]:
         slots.put(d)
-    ge_sem = threading.Semaphore(1 if a.cmd == 'run' else a.ge_jobs)
+    ge_sem = threading.Semaphore(1 if a.cmd == 'run' or a.oracle == 'xenia' else a.ge_jobs)
     ms = [a.mission] if a.cmd == 'run' else (
         [m[1] for m in levels.MISSIONS] if a.missions == 'all' else a.missions.split(','))
     os.makedirs(a.out, exist_ok=True)

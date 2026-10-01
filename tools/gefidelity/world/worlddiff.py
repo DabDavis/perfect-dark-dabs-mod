@@ -122,6 +122,15 @@ _PD_TREE = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
 GE_BITS = _bitnames(os.path.join(_GE_TREE, 'src/bondconstants.h'), ('CHRHIDDEN_', 'CHRFLAG_'))
 PD_BITS = _bitnames(os.path.join(_PD_TREE, 'src/include/constants.h'), ('CHRHFLAG_', 'CHRCFLAG_'))
 BITFIELDS = {'hidden': ('CHRHIDDEN_', 'CHRHFLAG_'), 'chrflags': ('CHRFLAG_', 'CHRCFLAG_')}
+# the wide dump (dump.py with GF_WIDE=1) is compared by widediff.py; objects' flag words by these names
+import widediff  # noqa: E402
+GE_OBJBITS = _bitnames(os.path.join(_GE_TREE, 'src/bondconstants.h'), ('PROPFLAG_', 'PROPFLAG2_'))
+PD_OBJBITS = _bitnames(os.path.join(_PD_TREE, 'src/include/constants.h'), ('OBJFLAG_', 'OBJFLAG2_'))
+
+
+def bitname_obj(field, m):
+    g, p = ('PROPFLAG_', 'OBJFLAG_') if field == 'flags' else ('PROPFLAG2_', 'OBJFLAG2_')
+    return '%s / %s' % (GE_OBJBITS[g].get(m, '?'), PD_OBJBITS[p].get(m, '?'))
 
 
 def bitname(field, m):
@@ -294,9 +303,6 @@ def compare(ge0, pd0, ge1, pd1, mission):
                         abs(float(a[k]) - float(b[k])))
         if a.get('scale') and b.get('scale') and abs(a['scale'] - b['scale']) > 0.002:
             rep.add('chr.scale', n, 'chr %d model scale GoldenEye %.4f, ours %.4f' % (n, a['scale'], b['scale']))
-        heads.append((n, a['headnum'], b['headnum']))
-        bodies.append((n, a['bodynum'], b['bodynum']))
-        weapons.append((n, tuple(a['weapons']), tuple(b['weapons'])))
         ails.append((n, ge_ailist_to_pd(a['ailist']), b['ailist']))
         for field in ('hidden', 'chrflags'):
             x, y = a.get(field, 0), b.get(field, 0)
@@ -304,6 +310,15 @@ def compare(ge0, pd0, ge1, pd1, mission):
                 m = 1 << bit
                 if (x & m) != (y & m):
                     bitdiff[(field, m, 'GoldenEye only' if x & m else 'ours only')] += 1
+    # what a chr is made of is settled at load: judge it there, before a script
+    # hands a guard a second gun
+    gl = {c['chrnum']: c for c in ge0['chrs']}
+    pl = {c['chrnum']: c for c in pd0['chrs'] if not c.get('player')}
+    for n in sorted(set(gl) & set(pl)):
+        a, b = gl[n], pl[n]
+        heads.append((n, a['headnum'], b['headnum']))
+        bodies.append((n, a['bodynum'], b['bodynum']))
+        weapons.append((n, tuple(a['weapons']), tuple(b['weapons'])))
     mapping_check(rep, 'map.body', bodies, 'body')
     mapping_check(rep, 'map.head', heads, 'head')
     mapping_check(rep, 'map.weapon', weapons, 'weapons held')
@@ -316,16 +331,30 @@ def compare(ge0, pd0, ge1, pd1, mission):
                 'the same bit means different things in the two games unless the names agree' % (
                     field, m, bitname(field, m), side, cnt), cnt)
 
+    # ---- the wide dump: what each record decides beyond its placement, and the tile graph
+    if 'wide' in ge0 and 'wide' in pd0:
+        widediff.compare(rep, ge0, pd0, off, ge_numpads, ge_pad_to_pd, ge_ailist_to_pd, mapping_check, tname, bitname_obj)
+    if 'wide_chrweapons' in ge1 and 'wide_chrweapons' in pd1:
+        widediff.compare_chrweapons(rep, ge1, pd1, mapping_check, bitname_obj)
+
     # ---- the player
     a, b = ge1['player'], pd1['player']
     d = math.dist([a['pos'][0] + off[0], a['pos'][2] + off[2]], [b['pos'][0], b['pos'][2]])
     if d > TOL_CHR:
         rep.add('player.pos', '-', 'Bond is %.1f units out across the floor at tick %d (the native port leaves '
                 'his prop at its spawn values for a while, so judge this one on --oracle ares)' % (d, ge1['tick']), d)
-    dy = (b['eye'][1]) - (a['eye'][1] + off[1])
+    # the eye's height over the floor under Bond, at spawn: later GoldenEye may be
+    # playing an animation (Caverns at tick 300 has his eye 106 over the floor)
+    a0, b0 = ge0['player'], pd0['player']
+    if 'ground' in a0 and 'ground' in b0:
+        dy = (b0['eye'][1] - b0['ground']) - (a0['eye'][1] - a0['ground'])
+        what = 'over the floor'
+    else:
+        dy = (b['eye'][1]) - (a['eye'][1] + off[1])
+        what = '(absolute; no floor height dumped)'
     if abs(dy) > 1.0:
-        rep.add('player.eye', '-', 'Bond\'s eye is %.1f units %s than GoldenEye\'s at tick %d' % (
-            abs(dy), 'higher' if dy > 0 else 'lower', ge1['tick']), abs(dy))
+        rep.add('player.eye', '-', 'Bond\'s eye is %.1f units %s than GoldenEye\'s %s at spawn' % (
+            abs(dy), 'higher' if dy > 0 else 'lower', what), abs(dy))
     dth = (b['theta'] - a['theta'] + 180) % 360 - 180
     if abs(dth) > 1.0:
         rep.add('player.theta', '-', 'Bond faces %.1f degrees off GoldenEye at tick %d' % (dth, ge1['tick']), abs(dth))
@@ -358,6 +387,13 @@ def _as_ours(ge, off):
         c['ailist'] = ge_ailist_to_pd(c['ailist'])
     for k in ('pos', 'eye'):
         pd['player'][k] = [pd['player'][k][j] + off[j] for j in range(3)]
+    if 'ground' in pd['player']:
+        pd['player']['ground'] += off[1]
+    if 'wide' in ge:
+        pd['wide'] = widediff.as_ours(ge['wide'], off, numpads, ge_pad_to_pd, ge_ailist_to_pd)
+        for o in pd['props']:
+            if o.get('type') == 1 and 'flags' in o:
+                o['flags'] = widediff.door_top_byte(o['flags'])
     return pd
 
 
@@ -387,6 +423,13 @@ def selftest(ge0, ge1):
         planted['chr.maxdamage'] = str(pd1['chrs'][-1]['chrnum'])
     pd1['player']['theta'] += 30.0
     planted['player.theta'] = '-'
+    if 'wide' in pd0:
+        planted.update(widediff.plant(pd0['wide']))
+        # and an object's flag word, compared bit by bit only on a wide dump
+        fo = next((o for o in pd0['props'] if 'flags' in o and o.get('type') not in (None, 1)), None)
+        if fo is not None:
+            fo['flags'] ^= 0x00000400
+            planted['obj.flagbits'] = 'flags:0x400:%s' % tname(fo['type'])
     dirty = compare(ge0, pd0, ge1, pd1, 'null')
     got = {(f['kind'], f['key']) for f in dirty.items}
     for kind, key in planted.items():
@@ -435,7 +478,10 @@ def load_pair(outdir):
 # are fixed at load and are the confident ones.
 BEHAVIOUR = ('chr.spawned', 'chr.pos', 'chr.rooms', 'chr.damage', 'chr.accuracyrating', 'chr.speedrating', 'chr.visionrange',
              'chr.hearingscale', 'chr.morale', 'chr.alertness', 'chr.ailist', 'chr.bits', 'player.pos',
-             'player.theta', 'map.head')
+             'player.theta', 'map.head',
+             # the wide dump's held weapons are what the scripts handed out (Cradle's paired
+             # gun goes to chr 4 on the cartridge and chr 5 in ours: a random pick in their list)
+             'chr.held', 'chr.weaponflags', 'map.heldweapon')
 
 
 def markdown(rep, accepted_count):
@@ -507,7 +553,8 @@ def main():
         rep.items = kept
         allf += kept
         md.append(markdown(rep, nacc))
-    print('null: on each of %d missions a clean copy came out clean and five planted faults were found' % len(a.outdirs))
+    print('null: on each of %d missions a clean copy came out clean and every planted fault was found '
+          '(five, and four more on a wide dump)' % len(a.outdirs))
     if a.selftest:
         return 0
     text = '\n'.join(md)

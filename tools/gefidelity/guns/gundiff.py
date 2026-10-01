@@ -12,14 +12,20 @@ controls before it reports anything, and refuses to report when either fails:
 - **planted fault**: a copy of the oracle's metrics with the clip one larger
   must come out as exactly that one mismatch.
 
-**The frame rule.** GoldenEye counts an automatic gun's rate in frames
-(gunfire.c: `field_88C % bondwalkItemGetAutomaticFiringRate()`, one count a
-frame), and the oracle under PORT_LOCKSTEP runs about a tick a frame, far
-faster than the console. The port fixes GoldenEye's frame at two ticks
-(geguns.c's gegunsRpm(), "thirty frames a second"). So a held automatic's
-cadence is compared as GoldenEye's *frames* per shot times FRAME_TICKS
-against our ticks per shot; everything GoldenEye times in ticks (its reload
-and draw animations add g_ClockTimer) is compared in ticks.
+**The frame rule (native port only).** GoldenEye counts an automatic gun's
+rate in frames (gunfire.c: `field_88C % bondwalkItemGetAutomaticFiringRate()`,
+one count a frame), and the native port under PORT_LOCKSTEP runs about a tick a
+frame, far faster than the console. The port fixes GoldenEye's frame at two
+ticks (geguns.c's gegunsRpm(), "thirty frames a second"). So against the native
+port a held automatic's cadence is compared as GoldenEye's *frames* per shot
+times FRAME_TICKS against our ticks per shot.
+
+**On the cartridge (ares, the default) there is no frame rule**: the game runs
+at its own frame rate, so its ticks per shot are what a player gets and are
+compared as they are; its frames per shot and mean ticks per frame are kept in
+the report to show what the cartridge's frame rate was. Everything GoldenEye
+times in ticks (reload and draw animations add g_ClockTimer) is compared in
+ticks on both oracles.
 """
 import argparse, collections, copy, json, os, statistics, sys
 
@@ -119,6 +125,9 @@ def metrics(d):
     target = d['item'] if d['side'] == 'ge' else d['weapon']
     m = {'reserve_max': d.get('reserve_max'), 'dual_allguns': d.get('dual_allguns'),
          'automatic': d['item'] in GE_AUTOMATIC}
+    if d['side'] == 'ge':
+        m['oracle'] = d.get('oracle', 'port')
+        m['ticks_per_frame'] = d.get('ticks_per_frame')
     clipless = d.get('ammotype', 0) <= 0          # the laser, the hunting knife: GoldenEye still counts its magazine down
     thrown = d['item'] in THROWN
     # the oracle's frame step: a tick timing is only as fine as its frames
@@ -197,11 +206,35 @@ def metrics(d):
 
 
 def cadence(ge):
-    """GoldenEye's held cadence in our units: frames x FRAME_TICKS for its
-    automatics, ticks for the rest (their refire is animation, in ticks)."""
+    """GoldenEye's held cadence in our units: on the cartridge its ticks as
+    they are; on the native port frames x FRAME_TICKS for its automatics, ticks
+    for the rest (their refire is animation, in ticks)."""
+    if ge.get('oracle') == 'ares':
+        return ge.get('ticks_per_shot')
     if ge.get('automatic'):
         return ge['frames_per_shot'] * FRAME_TICKS if ge.get('frames_per_shot') is not None else None
     return ge.get('ticks_per_shot')
+
+
+def cadence_tol(ge):
+    """How far apart two cadences may be: a tick, plus the oracle's frame step
+    where its shots fall on frames that are several ticks long (the cartridge,
+    and the native port's non-automatics)."""
+    if ge.get('automatic') and ge.get('oracle') != 'ares':
+        return TOL_CADENCE
+    return TOL_CADENCE + ge.get('frame_step', 1)
+
+
+def tolerance(quantity, ge):
+    """The tolerance compare() allows for a quantity (0: must be equal), so a
+    mismatch's size beyond it can be told (guns/gatesweep.py's magnitude)."""
+    if quantity in ('raise_ticks', 'reload_refill', 'reload_idle', 'fuse', 'release_latency', 'dry_click_interval'):
+        return TOL_TICKS + ge.get('frame_step', 1)
+    if quantity == 'impacts_per_use':
+        return 0.5
+    if quantity == 'cadence':
+        return cadence_tol(ge)
+    return 0
 
 
 def compare(ge, pd):
@@ -227,10 +260,16 @@ def compare(ge, pd):
     for k in ('raise_ticks', 'reload_refill', 'reload_idle', 'fuse', 'release_latency'):
         near(k, slack, 'ticks, %d allowed' % slack)
     a, b = cadence(ge), pd.get('ticks_per_shot')
-    tol = TOL_CADENCE if ge.get('automatic') else TOL_CADENCE + ge.get('frame_step', 1)
+    tol = cadence_tol(ge)
     if (a is None) != (b is None) or (a is not None and abs(a - b) > tol):
-        out.append(('cadence', a, b, ('GoldenEye frames x %d (raw %s ticks)' % (FRAME_TICKS, ge.get('ticks_per_shot')))
-                    if ge.get('automatic') else 'ticks'))
+        if ge.get('oracle') == 'ares':
+            note = 'ticks on the cartridge (%s frames a shot at %s ticks a frame)' % (
+                ge.get('frames_per_shot'), ge.get('ticks_per_frame'))
+        elif ge.get('automatic'):
+            note = 'GoldenEye frames x %d (raw %s ticks)' % (FRAME_TICKS, ge.get('ticks_per_shot'))
+        else:
+            note = 'ticks'
+        out.append(('cadence', a, b, note))
     near('dry_click_interval', slack, 'ticks between dry clicks held empty')
     for ph in ('draw', 'tap', 'hold', 'after'):
         # by family (KNIFE_THROW1-3 are one random pick), the ids shown
@@ -281,7 +320,7 @@ def compare_same(a, b):
     out = []
     step = max(a.get('frame_step', 1), b.get('frame_step', 1))
     for k in a:
-        if k in ('frame_step', 'snd_impact') or k.startswith('snd_') or (k == 'frames_per_shot' and not a.get('automatic')):
+        if k in ('frame_step', 'snd_impact', 'ticks_per_frame', 'oracle') or k.startswith('snd_') or (k == 'frames_per_shot' and not a.get('automatic')):
             continue
         x, y = a[k], b.get(k)
         if isinstance(x, (int, float)) and isinstance(y, (int, float)) and not isinstance(x, bool):
@@ -336,9 +375,12 @@ def main():
     cols = ['clip_drawn', 'reserve_max', 'tap_shots', 'cadence', 'hold_shots', 'empties_in_hold', 'reload_on',
             'reload_refill', 'reload_idle', 'dry_click_interval', 'raise_ticks', 'draw_ticks', 'casings_per_use', 'impacts_per_use',
             'throws', 'launches', 'release_latency', 'explosions', 'fuse', 'dual_allguns']
-    md = ['# Gun diff: GoldenEye (oracle) / ours', '',
-          'Each cell is `GoldenEye / ours`; **bold** cells disagree. Cadence is ticks per shot held, GoldenEye\'s '
-          'frames x %d (see gundiff.py, "the frame rule"). Sound mismatches are listed under the table.' % FRAME_TICKS, '',
+    oracles = sorted({r['ge'].get('oracle', 'port') for r in table if 'ge' in r})
+    md = ['# Gun diff: GoldenEye (%s) / ours' % ', '.join('the cartridge in ares' if o == 'ares' else 'the native port'
+                                                         for o in oracles), '',
+          'Each cell is `GoldenEye / ours`; **bold** cells disagree. Cadence is ticks per shot held: on the cartridge '
+          'its own ticks, on the native port GoldenEye\'s frames x %d (see gundiff.py, "the frame rule"). Sound '
+          'mismatches are listed under the table.' % FRAME_TICKS, '',
           '| gun | ' + ' | '.join(cols) + ' |', '|' + '---|' * (len(cols) + 1)]
     for r in table:
         if 'missing' in r:

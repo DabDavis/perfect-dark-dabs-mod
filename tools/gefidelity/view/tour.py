@@ -2,7 +2,10 @@
 waypoint's pad, one shot per heading, and a manifest of where each camera
 really was when its picture was taken.
 
-    twin.py both view/tour.py --mission dam --out OUT/dam --env VIEW_STEP=6
+    twin.py both view/tour.py --mission dam --out OUT/dam --env VIEW_STEP=6 [--oracle ares|port]
+
+GoldenEye is the cartridge in ares (view/ares_side.py, no function calls) or
+the decomp's native port under gdb (the functions below).
 
 Run it through view/viewdiff.py, which also scores and reports. Pad numbers and
 vv_theta mean the same in both games (a converted level is GoldenEye's world
@@ -29,13 +32,33 @@ import os, sys, json, traceback
 sys.path.insert(0, os.environ['GF_COMMON'])
 SIDE = os.environ['GF_SIDE']
 lib = __import__('gdbge' if SIDE == 'ge' else 'gdbpd')
-ev = lib.ev
+ev = getattr(lib, 'ev', None)
+# GoldenEye on the cartridge (twin.py --oracle ares): no gdb, no function
+# calls; view/ares_side.py does each step in memory
+ARES = SIDE == 'ge' and getattr(lib, 'ORACLE', 'port') == 'ares'
+# GoldenEye XBLA ("Bean") in Xenia: xenia/run_scenario.py hands this scenario
+# common/xeniage.py as gdbge; view/xenia_side.py does each step in memory
+XENIA = SIDE == 'ge' and getattr(lib, 'SIDE', '') == 'xenia'
+if ARES or XENIA:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    if ARES:
+        import ares_side as memside
+    else:
+        import xenia_side as memside
 OUT = os.environ['GF_OUT']
 STEP = int(os.environ.get('VIEW_STEP', '6'))
 HEADS = [float(h) for h in os.environ.get('VIEW_HEADS', '0,90,180,270').split(',')]
 VERTA = float(os.environ.get('VIEW_VERTA', '-5'))
 MAXP = int(os.environ.get('VIEW_MAX', '0'))
 ONLY = os.environ.get('VIEW_ONLY')
+# pads that end the mission when Bond is put down on them (Bunker 1's 101 on
+# the cartridge): viewdiff.py retries the oracle without them
+SKIP = {int(p) for p in os.environ.get('VIEW_SKIP', '').split(',') if p.strip()}
+# the oracle's own tick for each picture, in shot order (viewdiff.py hands them
+# to our side): the release in Xenia runs in real time and falls far behind the
+# T0 + n * DT schedule (Dam's last shots at tick 10987 against our 5844, with
+# its truck somewhere else by then), so ours waits for the tick the oracle had
+TICKS = [int(t) for t in os.environ.get('VIEW_TICKS', '').split(',') if t.strip()]
 SETTLE = int(os.environ.get('VIEW_SETTLE', '1800'))
 CAMERAMODE_SWIRL, CAMERAMODE_FP = 3, 4   # GoldenEye's CAMERAMODE enum
 FREEZE = os.environ.get('VIEW_FREEZE', '1') == '1'
@@ -47,14 +70,17 @@ def freeze_ai():
     """Every chr's AI list taken away on the level's first frame, on both
     sides: the guards stand where the setup put them, nobody raises an alarm or
     shoots Bond, and the vehicles their lists drive stay parked. What is left in
-    a picture is the level as converted, not two runs of its scripts."""
+    a picture is the level as converted, not two runs of its scripts. The
+    background chrs (5000 and up) too: they run the level's own script, and
+    one ended Bunker 1 when Bond was put down in its exit room."""
     n = int(ev('g_NumChrSlots'))
     done = 0
     for k in range(n):
         c = ev('g_ChrSlots[%d]' % k)
-        if int(c['prop']) == 0 or int(c['chrnum']) < 0 or int(c['chrnum']) >= 5000:
+        # background chrs (the level's own scripts) have no prop: freeze them too
+        if int(c['chrnum']) < 0 or int(c['ailist']) == 0:
             continue
-        if SIDE == 'pd' and int(c['prop']) == int(ev('g_Vars.currentplayer->prop')):
+        if SIDE == 'pd' and int(c['prop']) and int(c['prop']) == int(ev('g_Vars.currentplayer->prop')):
             continue
         lib.gdb.execute('set variable g_ChrSlots[%d].ailist = 0' % k)
         done += 1
@@ -274,7 +300,59 @@ def shoot(n):
     return None   # twin.py renames the port's own file to shot_NNN.<ext> in order
 
 
+def main_ares():
+    """GoldenEye on the cartridge (or the release in Xenia): the same tour,
+    each step in memory."""
+    ares_side = memside
+    lib.boot(os.environ['GF_LEVELID'], int(os.environ.get('GF_DIFF', '0')))
+    if XENIA:
+        lib.until_tick(int(os.environ.get('VIEW_BEAN_SETTLE', '120')))
+        ares_side.eyeheight()
+    frozen = ares_side.freeze_ai() if FREEZE else 0
+    if ARES:
+        ares_side.first_person()
+        view = ares_side.view_info()
+    else:
+        # the release's frame as the rig photographs it; its field of view is
+        # measured by view/fovfit.py, not assumed, and handed in
+        view = {'viewport': [0, 0, 1280, 695], 'fovy': float(os.environ.get('VIEW_BEAN_FOVY', '0')) or None,
+                'eyeheight': round(ares_side.eyeheight(), 3), 'levelscale': ares_side.level_scale()}
+    ways = ares_side.waypoint_pads()
+    pads = [int(p) for p in ONLY.split(',')] if ONLY else [p for p in ways if p not in SKIP][::STEP]
+    if MAXP:
+        pads = pads[:MAXP]
+    t0 = max(T0, lib.tick() + DT)
+    lib.say('tour', len(ways), 'waypoints', len(pads), 'pads; frozen', frozen, 'chrs; view', view,
+            '; first shot at tick', t0)
+    manifest = {'side': SIDE, 'oracle': 'ares' if ARES else 'xenia', 'mission': int(os.environ['GF_MISSION']), 'view': view,
+                'pads': {}, 'shots': [], 'frozen': frozen, 't0': t0, 'dt': DT, 'skipped': sorted(SKIP)}
+    n = 0
+    for pad in pads:
+        x, y, z, stan = ares_side.pad_pos(pad)
+        manifest['pads'][str(pad)] = [round(x, 3), round(y, 3), round(z, 3), stan]
+        for h in HEADS:
+            try:
+                ok = ares_side.stand(x, y, z, h, VERTA, stan, t0 + n * DT, lib.tick)
+            except ares_side.LevelEnded:
+                lib.say('level ended at pad', pad)
+                raise
+            cam = ares_side.camera()
+            cam['chr_near'] = ares_side.nearest_chr(cam['eye'])
+            name, size = ares_side.shoot(os.path.join(OUT, 'shot_%03d.%s' % (n, 'ppm' if ARES else 'png')))
+            if 'fb' not in view:
+                view['fb'] = size
+            manifest['shots'].append({'n': n, 'pad': pad, 'head': h, 'file': name, 'tile': ok, 'cam': cam,
+                                      'tick': lib.tick(), 'size': size})
+            n += 1
+        lib.say('pad', pad, 'done', n)
+    with open(os.path.join(OUT, 'manifest.json'), 'w') as fh:
+        json.dump(manifest, fh, indent=1)
+    lib.say('wrote manifest', n, 'shots')
+
+
 def main():
+    if ARES or XENIA:
+        return main_ares()
     lib.boot(os.environ['GF_LEVELID'], int(os.environ.get('GF_DIFF', '0')))
     frozen = freeze_ai() if FREEZE else 0
     if SIDE == 'ge':
@@ -314,7 +392,7 @@ def main():
         x, y, z, room = pad_pos(pad)
         manifest['pads'][str(pad)] = [round(x, 3), round(y, 3), round(z, 3), room]
         for h in HEADS:
-            ok = stand(x, y, z, h, room, t0 + n * DT)
+            ok = stand(x, y, z, h, room, TICKS[n] if n < len(TICKS) else t0 + n * DT)
             cam = camera()
             cam['chr_near'] = nearest_chr(cam['eye'])
             name = shoot(n)

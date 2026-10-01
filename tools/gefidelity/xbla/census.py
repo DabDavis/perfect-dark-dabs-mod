@@ -39,6 +39,7 @@ sys.path.insert(0, HERE)
 import beanref  # noqa: E402
 
 TOL_SHORT = 0.10   # a draw that loses more than a tenth of its triangles
+MIN_FRAMES = 10    # frames a capture must show a release file before a draw it never made counts as never
 
 RE = {
     'load': re.compile(r'census: load (\S+) (\S+) keepparts (\d+) draws (\d+) tex (\d+) path (.+)$'),
@@ -155,9 +156,11 @@ def analyse(files, pics, leftout, accepted):
                 d['band'] = ref.where(d)
         row['leftout_logged'] = sorted(leftout.get(src, ()))
         for d in row['draws']:
-            reason = accepted_reason(src, d, accepted)
-            if reason and d['state'] in ('unwalked', 'unbuilt', 'short'):
-                d['accepted'] = reason
+            a = accepted_entry(src, d, accepted)
+            if a and d['state'] in ('unwalked', 'unbuilt', 'short'):
+                d['accepted'] = a['reason']
+                if a.get('replaced'):
+                    d['replaced'] = a['replaced']
         acc = sum(d['tris'] if d['state'] != 'short' else d['tris'] - d.get('took', 0)
                   for d in row['draws'] if d.get('accepted'))
         row['lost_unaccepted'] = row['lost'] - acc
@@ -168,6 +171,11 @@ def analyse(files, pics, leftout, accepted):
 
 
 def accepted_reason(src, d, accepted):
+    a = accepted_entry(src, d, accepted)
+    return a['reason'] if a else None
+
+
+def accepted_entry(src, d, accepted):
     for a in accepted:
         if not re.fullmatch(a.get('source', '.*'), src):
             continue
@@ -181,8 +189,93 @@ def accepted_reason(src, d, accepted):
             continue
         if 'pc' in a and int(a['pc'], 16) != d['pc']:
             continue
-        return a['reason']
+        return a
     return None
+
+
+# --------------------------------------------------------- the release's side
+
+def release_state(rel, src, pc):
+    """'drawn' when Xenia saw the release make this draw, 'never' when it drew
+    the file but never this draw, '?' when no capture drew the file."""
+    e = rel.get(src) if rel else None
+    if not e or e.get('frames', 0) < MIN_FRAMES:
+        return '?'
+    if ('%x' % pc) in e['draws']:
+        return 'drawn'
+    # a level's draws are its rooms', drawn only where a portal shows them:
+    # one not seen in a capture says nothing
+    if src.startswith(('new/background/', 'new/skydome/', 'original/background/')):
+        return '?'
+    return 'never'
+
+
+def three_way(rows, rel):
+    for r in rows:
+        for d in r.get('draws', []):
+            d['release'] = release_state(rel, r['source'], d['pc'])
+
+
+def findings(rows, rel, plant=None):
+    """The gate's findings (world/compare.py): mission = the release file,
+    key = the draw's place in its stream (or a picture's number), mag =
+    triangles not drawn. Kinds starting 'hd.accepted' never fail the gate."""
+    out = []
+    loaded = set()
+    for r in rows:
+        if r.get('error'):
+            continue
+        src = r['source']
+        loaded.add(src)
+        if not r['built']:
+            continue   # measured only: no build of ours draws it in the HD look
+        for d in r['draws']:
+            key = '%x' % d['pc']
+            st, rs = d['state'], d.get('release', '?')
+            lost = d['tris'] - d.get('took', 0) if st == 'short' else d['tris']
+            if plant and plant == '%s@%x' % (src, d['pc']):
+                continue
+            if st == 'drawn':
+                if rs == 'never':
+                    out.append({'mission': src, 'kind': 'hd.extra', 'key': key, 'mag': d['tris'],
+                                'detail': '%s: draw %s (%d tris, %s) built by ours, never drawn by the release in %s' % (
+                                    src, key, d['tris'], d['texname'], ','.join(rel[src]['captures']))})
+                continue
+            if st not in ('unwalked', 'unbuilt', 'short'):
+                continue
+            what = '%s: draw %s (%d tris, %s%s) %s by ours' % (
+                src, key, d['tris'], d['texname'], (' section %s' % d['sections']) if d['sections'] else '',
+                {'unwalked': 'never walked', 'unbuilt': 'walked, never built',
+                 'short': 'built short (%d of %d)' % (d.get('took', 0), d['tris'])}[st])
+            if rs == 'never':
+                kind = 'hd.accepted.release'
+                what += '; the release never draws it either (%s)' % ','.join(rel[src]['captures'])
+            elif rs == 'drawn' and d.get('replaced'):
+                kind = 'hd.replaced'
+                what += '; the release draws it, ours draws %s instead' % d['replaced']
+            elif rs == 'drawn':
+                kind = 'hd.short' if st == 'short' else 'hd.undrawn'
+                what += '; the release draws it'
+            elif d.get('accepted'):
+                kind = 'hd.accepted.unconfirmed'
+                what += '; by design (accepted.json): %s - no capture shows the file' % d['accepted']
+            else:
+                kind = 'hd.short' if st == 'short' else 'hd.undrawn'
+                what += '; no capture shows the file'
+            out.append({'mission': src, 'kind': kind, 'key': key, 'mag': lost, 'detail': what})
+        for t, (name, how) in sorted(r.get('pictures', {}).items()):
+            kind = 'hd.nodecode' if 'would not decode' in how else 'hd.accepted.placeholder'
+            out.append({'mission': src, 'kind': kind, 'key': 'tex%s' % t, 'mag': 1,
+                        'detail': '%s: picture %s (%s) %s' % (src, t, name, how)})
+    for src, e in sorted((rel or {}).items()):
+        # only what a mission capture shows: the front end and the cast reel
+        # are no census run's to load
+        if src not in loaded and src.startswith('new/') and set(e['captures']) - {'attract'} \
+                and not set(e.get('tied', [])) & loaded:
+            out.append({'mission': src, 'kind': 'hd.unloaded', 'key': '-', 'mag': len(e['draws']),
+                        'detail': '%s: the release draws it (%s) and no census run of ours loads it' % (
+                            src, ','.join(e['captures']))})
+    return out
 
 
 # ------------------------------------------------------------------ the null
@@ -224,7 +317,7 @@ def null_plant(logs, plant):
 
 # ---------------------------------------------------------------- the report
 
-def markdown(rows, plant, strike, coverage, tableless=()):
+def markdown(rows, plant, strike, coverage, tableless=(), rel=None):
     L = ['# HD draw census', '',
          'Each GoldenEye XBLA (Bean) file a census run loaded, against what our builds took from it. '
          '"lost" is the share of the file\'s triangles no build drew; accepted draws (accepted.json) are '
@@ -242,8 +335,9 @@ def markdown(rows, plant, strike, coverage, tableless=()):
             continue
         what = []
         for d in bad[:6]:
-            what.append('%s %x: %d tris%s, %s%s%s%s' % (
+            what.append('%s %x: %d tris%s [release: %s], %s%s%s%s' % (
                 d['state'], d['pc'], d['tris'], (' (took %d)' % d['took']) if d['state'] == 'short' else '',
+                d.get('release', '?'),
                 d['texname'], (' piece %d' % d['piece']) if d['piece'] >= 0 else '',
                 (' section %s' % d['sections']) if d['sections'] else '',
                 (' height %.2f-%.2f' % tuple(d['band'])) if d.get('band') else ''))
@@ -256,6 +350,24 @@ def markdown(rows, plant, strike, coverage, tableless=()):
         L.append('| %s | %.0f%% | %d | %d/%d | %s | %s |' % (
             r['source'], 100 * r['share_unaccepted'], r['tris'], r['loads'], r['built'],
             ','.join(r['runs'][:3]) + ('...' if len(r['runs']) > 3 else ''), '<br>'.join(what) or '-'))
+    if rel:
+        L += ['', '## The by-design drops against the release', '',
+              'Each accepted.json class, its draws by what Xenia saw the release do: "never" confirms the '
+              'class (the release leaves them out too), "drawn" contradicts it, "?" means no capture drew the file.', '',
+              '| class | release never | release drawn | no capture |', '|---|---|---|---|']
+        by = collections.defaultdict(lambda: collections.Counter())
+        examples = collections.defaultdict(list)
+        for r in rows:
+            for d in r.get('draws', []):
+                if d.get('accepted') and r.get('built') and not d['accepted'].startswith("the census's planted"):
+                    by[d['accepted']][d.get('release', '?')] += 1
+                    if d.get('release') == 'drawn' and len(examples[d['accepted']]) < 4:
+                        examples[d['accepted']].append('%s@%x' % (r['source'], d['pc']))
+        for reason, c in sorted(by.items()):
+            L.append('| %s | %d | %d%s | %d |' % (reason, c['never'], c['drawn'],
+                     (' (%s)' % ', '.join(examples[reason])) if examples[reason] else '', c['?']))
+        seen = sorted(rel)
+        L += ['', 'Release files Xenia saw drawn (%d): %s' % (len(seen), ', '.join(seen)), '']
     clean = [r['source'] for r in rows if not r.get('error') and r['built'] and r['share_unaccepted'] == 0
              and not r['pictures']]
     L += ['', '%d files drawn whole: %s' % (len(clean), ', '.join(clean)), '']
@@ -280,7 +392,7 @@ def tableless_frames():
     import struct
     from cafftool import Caff
     out = []
-    root = os.path.join(beanref.BEAN, 'files', 'new')
+    root = os.path.join(beanref.FILES, 'new')
     for kind in sorted(os.listdir(root)) if os.path.isdir(root) else []:
         for name in sorted(os.listdir(os.path.join(root, kind))):
             p = os.path.join(root, kind, name, 'default.bin')
@@ -305,7 +417,7 @@ def tableless_frames():
 def coverage_gaps(files):
     gaps = {}
     for kind in ('new/gun', 'new/prop', 'new/char', 'new/head', 'new/background'):
-        d = os.path.join(beanref.BEAN, 'files', kind)
+        d = os.path.join(beanref.FILES, kind)
         if not os.path.isdir(d):
             continue
         names = sorted(n for n in os.listdir(d) if os.path.exists(os.path.join(d, n, 'default.bin')))
@@ -320,6 +432,9 @@ def main():
     ap.add_argument('--json')
     ap.add_argument('--plant', help='source@pc the runs planted with GEBEAN_CENSUS_SKIP')
     ap.add_argument('--accepted', default=os.path.join(HERE, 'accepted.json'))
+    ap.add_argument('--release', default=os.path.join(HERE, 'release-drawn.json'),
+                    help='what Xenia saw the release draw (xdraws.py merge)')
+    ap.add_argument('--findings', help="the gate's report.json (world/compare.py's finding shape)")
     a = ap.parse_args()
     files, pics, leftout = parse_logs(a.logs)
     if not files:
@@ -345,8 +460,13 @@ def main():
                                            and not d.get('accepted'))
                 r['share_unaccepted'] = r['lost_unaccepted'] / r['tris'] if r['tris'] else 0.0
         rows.sort(key=lambda r: (-r.get('share_unaccepted', r['share']), -r['lost'], r['source']))
+    rel = json.load(open(a.release)) if a.release and os.path.exists(a.release) else {}
+    three_way(rows, rel)
     tl = tableless_frames()
-    md = markdown(rows, a.plant, strike, coverage_gaps(files), tl)
+    md = markdown(rows, a.plant, strike, coverage_gaps(files), tl, rel)
+    if a.findings:
+        fs = findings(rows, rel, a.plant)
+        json.dump(sorted(fs, key=lambda f: (f['mission'], f['kind'], f['key'])), open(a.findings, 'w'), indent=1)
     if a.md:
         open(a.md, 'w').write(md)
     else:

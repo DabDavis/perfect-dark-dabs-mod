@@ -1,0 +1,49 @@
+# n64twin readwatch: the CPU data-read hook in the ares core (null unless armed).
+# Apply from ~/claude-007/ares/ares-nightly with: patch -p1 < ares-readhook.patch
+# The recompiler.cpp hunk makes the JIT take its slow path (through CPU::read) while
+# the hook is armed, as it does for a GDB watchpoint: its fast-path loads bypass CPU::read.
+--- a/ares/n64/cpu/cpu.cpp
++++ b/ares/n64/cpu/cpu.cpp
+@@ -174,6 +174,7 @@
+ }
+ 
+ auto (*cpuTraceHook)(u64 address, u32 instruction) -> void = nullptr;
++auto (*cpuReadHook)(u64 vaddr, u32 paddr, u32 size) -> void = nullptr;
+ 
+ auto CPU::instructionPrologue(u64 address, u32 instruction) -> void {
+   if(unlikely(cpuTraceHook)) cpuTraceHook(address, instruction);
+--- a/ares/n64/cpu/cpu.hpp
++++ b/ares/n64/cpu/cpu.hpp
+@@ -1329,3 +1329,9 @@
+  * Null by default, so a build with no oracle attached pays one predictable
+  * branch and nothing else.  See oracle/oracle.cpp. */
+ extern auto (*cpuTraceHook)(u64 address, u32 instruction) -> void;
++
++/* Oracle hook: called on every CPU data read (loads, LWL/LWR, LWC1/LDC1) with
++ * the virtual and physical address and the access size, before the read.
++ * Null by default - one predictable branch - and armed only by n64twin's
++ * watch commands (tools/gefidelity/census/ares). */
++extern auto (*cpuReadHook)(u64 vaddr, u32 paddr, u32 size) -> void;
+--- a/ares/n64/cpu/memory.cpp
++++ b/ares/n64/cpu/memory.cpp
+@@ -167,6 +167,7 @@
+ auto CPU::read(PhysAccess access) -> maybe<u64> {
+   if(!access) return nothing;
+   GDB::server.reportMemRead(access.vaddr, Size);
++  if(unlikely(cpuReadHook)) cpuReadHook(access.vaddr, access.paddr, Size);
+   u32 paddr = access.paddr;
+   if(context.littleEndian()) paddr = reverseEndianPaddr<Size>(paddr);
+   if(access.cache) return dcache.read<Size>(access.vaddr, paddr);
+--- a/ares/n64/cpu/recompiler.cpp
++++ b/ares/n64/cpu/recompiler.cpp
+@@ -257,7 +257,9 @@
+   stateKey.setGpAligned8((gp & 7) == 0);
+   stateKey.setSpAligned4((sp & 3) == 0);
+   stateKey.setSpAligned8((sp & 7) == 0);
+-  stateKey.setWatchpointsActive(GDB::server.hasWatchpoints());
++  // the read watch (n64twin readwatch-*) needs every load through CPU::read, as a
++  // GDB watchpoint does: no JIT fast path while cpuReadHook is armed
++  stateKey.setWatchpointsActive(GDB::server.hasWatchpoints() || cpuReadHook != nullptr);
+   stateKey.setRdramMapIdentity(rdram.mapIdentity);
+   return stateKey;
+ }

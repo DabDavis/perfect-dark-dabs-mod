@@ -38,13 +38,14 @@ start (six seconds).
 
 | tool | contract |
 |---|---|
-| `world/dump.py` + `world/worlddiff.py` | every setup record, object placement/rotation/scale/rooms/health/door state, chr position/rooms/health/AI list/head/body/weapons, every pad and Bond's spawn, both sides, diffed after measuring the level offset from the pads. Translations the conversion makes on purpose are in `TRANSLATE`, each with its reason; anything else is a finding. Null: GoldenEye's dump moved by an offset gives nothing, five planted faults give exactly five |
+| `world/dump.py` + `world/worlddiff.py` | every setup record, object placement/rotation/scale/rooms/health/door state, chr position/rooms/health/AI list/head/body/weapons, every pad and Bond's spawn, both sides, diffed after measuring the level offset from the pads. Translations the conversion makes on purpose are in `TRANSLATE`, each with its reason; anything else is a finding. Null: GoldenEye's dump moved by an offset gives nothing, five planted faults give exactly five. **With `GF_WIDE=1`** (`--env GF_WIDE=1`; ares and ours, `common/wide_ares.py`, `wide_pd.py`, `ares_layout_wide.json` from `gen_ares_layout_wide.py`) the dump also carries what each record decides beyond its placement - every door's flags, type, key flags, auto-close, fractions, speeds, sound, glass distances, portal and sibling; pickups' weapons and pairs; crates' contents; keys; monitors' owners and pictures; autoguns' target and limits; tinted glass; armour; every guard record (pad, body, head, AI list, presets, hearing, vision, spawn and clone flags) and its grenade odds; every object's flag words bit by bit with both games' names; the chrs' held weapons and their flag words; and GoldenEye's whole tile graph (room, special, points, links as tile indices) - compared by `world/widediff.py`, whose `TRANSLATE` gives the converter line behind each rule; the null plants a door flag, a tile link, a guard field and a flag bit as well. On 20 missions: 18 wide findings, eight of them the CE's fixes |
 | `world/sweep.py` | the world diff over all twenty missions (`--diff` for each difficulty); `report.md` + `report.json`; a mission whose dump failed is listed as not compared |
+| `world/gate.py` + `world/compare.py` | **the fidelity gate**, in legs - `world`, `view`, `guns` and `ai` (N64 look against ares), `hd-census`, `hd-world` and `hd-view` (HD look against the release in Xenia), `census` (the converter's ROM reads) and `convdiff` (which converted files changed - it informs, never fails), both judged on source trees with `--base-tree`/`--test-tree`, and `replay` (`tools/ci/replaytest.sh compare`: which seeded runs diverge and where - it informs, and with `--neutral`, for a change meant to leave gameplay alone, a divergence fails the gate); a leg whose tool is missing is skipped and says so; the oracle's side is swept once and reused. It sweeps a base and a test binary (or reuses a base sweep) and lists placement findings fixed, new, better and worse by mission; exit 1 when a placement finding appears or grows, behaviour findings listed but never failing it. It answers "did this change move GE Plus towards the originals or away", and through its replay leg "did it change gameplay at all". Null: a report against itself is unchanged, and one removed plus one planted finding come out as exactly that |
 | `world/inspect.py` | prints chosen setup records, their props, pads and any expressions in full on both sides, each as its own game's type - where a world-diff finding is looked at |
 | `world/accepted.json` | findings looked at and accepted, each with the reason; counted, not listed |
 
-| `census/census.py` | runs the Python converter with every ROM byte it reads tracked and lists, per record kind and GoldenEye field (named from the port's DWARF), the bytes that are **non-zero and never read** - data the conversion drops. Null: Dam's pad positions hidden from a second read map must all come back dropped. See `census/README.md` |
-| `parity/parity.sh` | the converter twin gate: `tools/geconvert/geconvert.py` against `port/src/geconvert.c` (booted, or `--standalone`), every output file compared; exit 0 only when identical. Null: a flipped byte in a raw and a compressed copy must both be caught. The census instruments the Python twin, so its rows hold for the game only while this says IDENTICAL |
+| `census/census.py` | builds `port/src/geconvert.c` (the only converter; the Python twin was retired 2026-10-01) with every load instrumented (`census/ctrack/`: GCC kernel-address callbacks, geconvert.c untouched, output byte for byte the plain build's) and lists, per record kind and GoldenEye field (named from the port's DWARF), the bytes that are **non-zero and never read** - data the conversion drops - with a **read by the cartridge** column from `census/ares/run.py` (the read watch in n64twin over twenty missions). `census/gatesweep.py --tree SRC --out DIR` is the gate's `census` leg. Null: Dam's pad positions hidden from a second read map must all come back dropped; the cartridge column's: every Dam pad's plink read, its pad-name strings never. See `census/README.md` |
+| `convdiff/` | **the conversion diff**: `convert.sh --tree SRC --out DIR` converts the ROM with that tree's `geconvert.c` built alone (~10 s); `diff.py A B` lists the files a change altered with the first differing offset (inflated where compressed, bg `.seg` part by part). The gate's `convdiff` leg: it informs, never passes or fails. Null: a one-byte flip in a raw and a compressed copy must both be seen |
 
 | `guns/sweep.py` | GoldenEye's 25 guns on both sides through each game's real controller path: clip and reserve, cadence (GoldenEye frames x2), reload and raise timing, every sound (mapped to GoldenEye's ids, random families compared as families), casings, impacts, dry clicks, dual rule, thrown fuse and flight. Null: one gun run twice must agree, a planted clip fault must come out as exactly one mismatch. See `guns/README.md` |
 | `xbla/census.py` | the HD (Bean) draw census: what each release model file draws, read independently of the game (`beanref.py`), against what our builds walked and built under the env-gated hook (`census-hook.patch`, branch `feat/gefidelity-xbla`) - undrawn pieces, pictures that do not decode, files never loaded. Null: a struck draw and a planted skip must both come back. See `xbla/README.md` |
@@ -62,6 +63,16 @@ world/worlddiff.py ~/wt/gefidelity-run/out/dam
 world/sweep.py --out ~/wt/gefidelity-run/out/sweep            # all twenty, ~6 min
 ./twin.py both world/inspect.py --mission dam --out /tmp/x --env GF_RECORDS=292,307
 ```
+
+## Which original judges which look
+
+- **N64 look:** the cartridge in ares, as it is. No Community Edition allowance:
+  where the regular build carries a rebuilt CE fix, that is a finding against
+  the cartridge (FINDINGS.md lists them), never an accepted difference.
+- **HD (XBLA) look:** the release with the Community Edition applied, in Xenia,
+  against ours with `Mod.GeXblaCommunityEdition=1` and
+  `added-content/CommunityEditionUpdaterV6.zip` - GE Plus's XBLA mode runs the
+  CE, so a retail-against-CE comparison judges the wrong thing.
 
 ## Traps (each cost a run)
 
@@ -94,4 +105,38 @@ world/sweep.py --out ~/wt/gefidelity-run/out/sweep            # all twenty, ~6 m
   GE Plus's folder screens has set; `gdbpd.boot()` sets it.
 - Our port writes `pd.log` and `screenshots/` beside its executable, so every
   run gets its own run directory with the binary hard-linked into it.
+- **No controller may reach our own headless runs.** The Xenia rig's virtual
+  Xbox 360 pad (045e:028e) is visible to every SDL program on the machine: it
+  leaked into a gun run (43,366 frames). `twin.run_pd`, `guns/run.py` and
+  `tools/ci/replaytest.sh` set `SDL_GAMECONTROLLER_IGNORE_DEVICES` (DualSense and
+  the virtual pad), `..._EXCEPT=0x0000/0x0000` and `SDL_JOYSTICK_HIDAPI=0`; a new
+  runner must too.
+- **One Xenia rig on the box at a time, and only through `xenia/rig.sh`.** The
+  virtual Xbox pad is a `/dev/uinput` device, machine-wide, and Xenia with
+  `--hid=sdl` takes input from every virtual pad - so a second rig's pad drives
+  the first rig's Xenia even on another display (two agents' Dam captures
+  collided this way). `rig.sh start` holds an exclusive lock on
+  `~/wt/gefidelity-run/xenia.lock` until `rig.sh stop`; a `pgrep xenia_canary`
+  check is a race, not a lock.
+- **`n64twin` has one owner at a time** (`ares/OWNER`): only the owner edits
+  `ares/twin.cpp` (the tree's copy is the source of truth) and builds, and only
+  with `ares/build.sh` (a host build lock, installed atomically as
+  `build/n64twin.installed`). `aresge.py` runs a private snapshot of the
+  installed binary, refusing anything that is not a whole ELF, and takes one of
+  `GF_ARES_SLOTS` (5) host slots per run. Each of these was a collision once:
+  eight missions died with "Permission denied" mid-link, six with "Exec format
+  error" on a 0-byte copy, and four agents ran nine `n64twin` on eight cores.
+- **The cartridge is only repeatable with its randomness pinned.** Two runs of
+  one binary differed in every random head, sleep timer and patrol: GoldenEye's
+  two generators (`g_randomSeed`, `g_chrObjRandomSeed`) are seeded from the
+  boot's timing, and the random-head rotation (`current_random_male_head`,
+  `_female_head`) starts somewhere new each boot. `aresge.boot()` pins all four
+  at `proplvreset2` (`GF_SEED`, default 1; `off` to leave them); since then the
+  same binary gives byte-identical dumps at ticks 1 and 300, so a pinned run is
+  as repeatable as ours with `--rng-seed`.
+- **`ai/aimap.py` still maps AI offsets through the retired Python converter**
+  (`tools/geconvert/gesolo.py`'s `convert_ailist`, kept only for it and for
+  `fit/`). A change to AI conversion in `geconvert.c` that is not mirrored there
+  makes the AI trace diff misplace offsets; the lasting fix is to map by walking
+  each game's converted list with its own command lengths.
 - Kill only PIDs you started; `pkill -f` over ssh kills your own session.

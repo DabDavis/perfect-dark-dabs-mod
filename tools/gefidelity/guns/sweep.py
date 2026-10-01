@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The gun diff end to end: every gun on both sides, the repeat control, the report.
 
-    guns/sweep.py --out ~/wt/gefidelity-run/guns-out/sweep1 [--guns all] [--repeat-gun pp7] [--mission dam]
+    guns/sweep.py --out ~/wt/gefidelity-run/guns-ares/sweep1 [--guns all] [--repeat-gun pp7] [--mission dam]
+                  [--oracle ares|port]
 
 Writes OUT/{ge,pd}/gun_*.json, OUT/repeat/{ge,pd}/gun_*.json, OUT/report.md and
 OUT/report.json. Exit 0 all agree, 1 mismatches, 2 a control failed (no report).
@@ -24,12 +25,14 @@ def main():
     ap.add_argument('--pd-jobs', type=int, default=2)
     ap.add_argument('--bin', default='./pd.base')
     ap.add_argument('--skip-run', action='store_true', help='report on what is already in OUT')
+    ap.add_argument('--oracle', choices=['ares', 'port'], default='ares',
+                    help='GoldenEye side: the cartridge in ares (default) or the native port under gdb')
     a = ap.parse_args()
     guns = gunlist.GUNS if a.guns == 'all' else [gunlist.gun(k) for k in a.guns.split(',')]
     if not a.skip_run:
-        bad = gunrun.run(a.out, guns, a.mission, ge_jobs=a.ge_jobs, pd_jobs=a.pd_jobs, binary=a.bin)
+        bad = gunrun.run(a.out, guns, a.mission, ge_jobs=a.ge_jobs, pd_jobs=a.pd_jobs, binary=a.bin, oracle=a.oracle)
         bad += gunrun.run(os.path.join(a.out, 'repeat'), [gunlist.gun(a.repeat_gun)], a.mission, ge_jobs=1,
-                          pd_jobs=1, binary=a.bin)
+                          pd_jobs=1, binary=a.bin, oracle=a.oracle)
         for side, its, tail in bad:
             print('--- run failed:', side, its, *tail, sep='\n')
     return subprocess.run([sys.executable, os.path.join(HERE, 'gundiff.py'), a.out]).returncode

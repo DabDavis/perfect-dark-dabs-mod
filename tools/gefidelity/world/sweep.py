@@ -48,6 +48,11 @@ def main():
                 if rc:
                     failed.append(m[1])
     good = [os.path.join(a.out, m[1]) for m in ms if m[1] not in failed]
+    # which missions this report speaks for: a mission missing from it is not
+    # compared, never "fixed" (compare.py reads this beside report.json)
+    import json as _json
+    _json.dump({'compared': [m[1] for m in ms if m[1] not in failed], 'failed': failed},
+               open(os.path.join(a.out, 'report-missions.json'), 'w'))
     r = subprocess.run([sys.executable, os.path.join(HERE, 'worlddiff.py'), *good,
                         '--md', os.path.join(a.out, 'report.body.md'), '--json', os.path.join(a.out, 'report.json')])
     if r.returncode == 2:

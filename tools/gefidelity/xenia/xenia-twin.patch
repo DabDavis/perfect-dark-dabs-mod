@@ -1,0 +1,270 @@
+diff -ruN a/src/xenia/gpu/command_processor.cc b/src/xenia/gpu/command_processor.cc
+--- a/src/xenia/gpu/command_processor.cc	2026-10-01 07:25:07.553913765 +0000
++++ b/src/xenia/gpu/command_processor.cc	2026-10-01 07:25:07.553913765 +0000
+@@ -7,6 +7,9 @@
+  ******************************************************************************
+  */
+ 
++#include <fcntl.h>  // the GE fidelity twin channel, pm4_command_processor_implement.h
++#include <poll.h>
++#include <unistd.h>
+ #include "xenia/gpu/command_processor.h"
+ 
+ #include "third_party/fmt/include/fmt/format.h"
+diff -ruN a/src/xenia/gpu/pm4_command_processor_implement.h b/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/src/xenia/gpu/pm4_command_processor_implement.h	2026-10-01 07:25:07.581913636 +0000
++++ b/src/xenia/gpu/pm4_command_processor_implement.h	2026-10-01 07:25:07.541913820 +0000
+@@ -584,6 +584,232 @@
+   }
+ }
+ 
++// GE fidelity twin channel (not upstream; tools/gefidelity/xenia). With
++// XE_TWIN_DIR naming a directory holding two FIFOs, "cmd" and "ans", every
++// swap reads line commands from cmd and answers each with one line on ans:
++//   frame                 -> "ok FRAME"  (swaps counted since boot)
++//   peek ADDR LEN         -> "ok HEX"    guest virtual memory, the guest's byte order
++//   poke ADDR HEX         -> "ok"
++//   pause                 -> "at FRAME"  and the GPU thread waits at this swap
++//                            (answered at once when it is already waiting)
++//   frames N              -> resumes, then "at FRAME" N swaps later, waiting again
++//   run                   -> "ok", free running (the start state)
++//   find ADDR LEN HEX     -> "ok A1 A2 ..." where HEX's bytes start (16 at
++//                            most), searching readable pages of ADDR..ADDR+LEN
++//   dump ADDR LEN PATH    -> "ok" with LEN bytes written to PATH, an unreadable
++//                            page as zeros
++// While waiting nothing new is drawn or presented, so a screenshot of the
++// window is this swap's picture. An address whose page is not mapped readable
++// (writable for poke) answers "err unmapped" instead of faulting the host.
++// (fcntl.h, poll.h, unistd.h are included at the top of the including .cc
++// files: this header is read inside their namespaces)
++struct XeTwinState {
++  int state = 0;  // 0 not asked, 1 on, -1 off
++  int cmd = -1;
++  int ans = -1;
++  uint32_t frame = 0;
++  bool waiting_free = true;  // free running
++  uint32_t run_until = 0;
++  std::string pending;
++};
++static XeTwinState& XeTwin() {
++  static XeTwinState t;
++  return t;
++}
++static void XeTwinSay(const std::string& line) {
++  std::string l = line + "\n";
++  ssize_t off = 0;
++  while (off < ssize_t(l.size())) {
++    ssize_t n = ::write(XeTwin().ans, l.data() + off, l.size() - off);
++    if (n <= 0) break;
++    off += n;
++  }
++}
++static bool XeTwinReadable(Memory* memory, uint32_t addr, uint32_t len,
++                           bool write) {
++  for (uint64_t a = addr & ~0xFFFull; a < uint64_t(addr) + len; a += 0x1000) {
++    BaseHeap* heap = memory->LookupHeap(uint32_t(a));
++    uint32_t protect = 0;
++    if (!heap || !heap->QueryProtect(uint32_t(a), &protect)) return false;
++    if (!(protect & kMemoryProtectRead)) return false;
++    if (write && !(protect & kMemoryProtectWrite)) return false;
++  }
++  return true;
++}
++// One command; returns true when it resumes the game.
++static bool XeTwinCommand(Memory* memory, const std::string& line) {
++  XeTwinState& t = XeTwin();
++  char op[16] = {};
++  unsigned addr = 0, len = 0;
++  if (std::sscanf(line.c_str(), "%15s", op) != 1) return false;
++  std::string o = op;
++  if (o == "frame") {
++    XeTwinSay("ok " + std::to_string(t.frame));
++  } else if (o == "peek" &&
++             std::sscanf(line.c_str(), "%*s %x %u", &addr, &len) == 2) {
++    if (len > (1u << 20) || !XeTwinReadable(memory, addr, len, false)) {
++      XeTwinSay("err unmapped");
++    } else {
++      const uint8_t* p = memory->TranslateVirtual<const uint8_t*>(addr);
++      static const char* hex = "0123456789abcdef";
++      std::string out = "ok ";
++      out.reserve(3 + len * 2);
++      for (uint32_t i = 0; i < len; i++) {
++        out += hex[p[i] >> 4];
++        out += hex[p[i] & 15];
++      }
++      XeTwinSay(out);
++    }
++  } else if (o == "poke" && std::sscanf(line.c_str(), "%*s %x", &addr) == 1) {
++    const char* h = std::strrchr(line.c_str(), ' ');
++    std::string hx = h ? std::string(h + 1) : "";
++    while (!hx.empty() && (hx.back() == '\r' || hx.back() == ' ')) hx.pop_back();
++    len = uint32_t(hx.size() / 2);
++    if (!len || !XeTwinReadable(memory, addr, len, true)) {
++      XeTwinSay("err unmapped");
++    } else {
++      uint8_t* p = memory->TranslateVirtual<uint8_t*>(addr);
++      for (uint32_t i = 0; i < len; i++) {
++        p[i] = uint8_t(std::strtoul(hx.substr(i * 2, 2).c_str(), nullptr, 16));
++      }
++      XeTwinSay("ok");
++    }
++  } else if (o == "find" &&
++             std::sscanf(line.c_str(), "%*s %x %x", &addr, &len) == 2) {
++    const char* h = std::strrchr(line.c_str(), ' ');
++    std::string hx = h ? std::string(h + 1) : "";
++    while (!hx.empty() && (hx.back() == '\r' || hx.back() == ' ')) hx.pop_back();
++    std::string needle;
++    for (size_t i = 0; i + 1 < hx.size(); i += 2) {
++      needle += char(std::strtoul(hx.substr(i, 2).c_str(), nullptr, 16));
++    }
++    std::string out = "ok";
++    int found = 0;
++    const uint64_t end = uint64_t(addr) + len;
++    // page by page, keeping the tail of the last readable page so a match can
++    // cross into the next
++    std::string window;
++    uint64_t window_base = addr;
++    for (uint64_t pg = addr & ~0xFFFull; pg < end && found < 16; pg += 0x1000) {
++      if (!XeTwinReadable(memory, uint32_t(pg), 0x1000, false)) {
++        window.clear();
++        window_base = pg + 0x1000;
++        continue;
++      }
++      const char* p = memory->TranslateVirtual<const char*>(uint32_t(pg));
++      if (window.size() > needle.size()) {
++        window_base += window.size() - needle.size();
++        window.erase(0, window.size() - needle.size());
++      }
++      if (window.empty()) window_base = pg;
++      window.append(p, 0x1000);
++      size_t at = 0;
++      while (!needle.empty() &&
++             (at = window.find(needle, at)) != std::string::npos && found < 16) {
++        uint64_t a = window_base + at;
++        if (a >= addr && a + needle.size() <= end) {
++          char buf[16];
++          std::snprintf(buf, sizeof(buf), " %08x", unsigned(a));
++          out += buf;
++          found++;
++        }
++        at++;
++      }
++    }
++    XeTwinSay(out);
++  } else if (o == "dump" &&
++             std::sscanf(line.c_str(), "%*s %x %x", &addr, &len) == 2) {
++    const char* h = std::strrchr(line.c_str(), ' ');
++    std::string path = h ? std::string(h + 1) : "";
++    while (!path.empty() && (path.back() == '\r' || path.back() == ' ')) path.pop_back();
++    FILE* f = std::fopen(path.c_str(), "wb");
++    if (!f) {
++      XeTwinSay("err open");
++    } else {
++      static const char zeros[0x1000] = {};
++      for (uint64_t a = addr; a < uint64_t(addr) + len;) {
++        uint64_t next = std::min<uint64_t>((a & ~0xFFFull) + 0x1000, uint64_t(addr) + len);
++        uint32_t n = uint32_t(next - a);
++        if (XeTwinReadable(memory, uint32_t(a), n, false)) {
++          std::fwrite(memory->TranslateVirtual<const char*>(uint32_t(a)), 1, n, f);
++        } else {
++          std::fwrite(zeros, 1, n, f);
++        }
++        a = next;
++      }
++      std::fclose(f);
++      XeTwinSay("ok");
++    }
++  } else if (o == "pause") {
++    // already waiting: answer at once (a new driver cannot know it is paused)
++    if (!t.waiting_free && t.frame >= t.run_until) {
++      XeTwinSay("at " + std::to_string(t.frame));
++    }
++    t.waiting_free = false;
++    t.run_until = t.frame;
++  } else if (o == "frames" &&
++             std::sscanf(line.c_str(), "%*s %u", &len) == 1) {
++    t.waiting_free = false;
++    t.run_until = t.frame + (len ? len : 1);
++    return true;
++  } else if (o == "run") {
++    t.waiting_free = true;
++    XeTwinSay("ok");
++    return true;
++  } else {
++    XeTwinSay("err " + line);
++  }
++  return false;
++}
++// Reads what is there; with block set, waits for at least one whole line.
++static bool XeTwinLine(std::string* line, bool block) {
++  XeTwinState& t = XeTwin();
++  for (;;) {
++    size_t nl = t.pending.find('\n');
++    if (nl != std::string::npos) {
++      *line = t.pending.substr(0, nl);
++      t.pending.erase(0, nl + 1);
++      return true;
++    }
++    pollfd pfd = {t.cmd, POLLIN, 0};
++    int r = ::poll(&pfd, 1, block ? 200 : 0);
++    if (r <= 0) {
++      if (!block) return false;
++      continue;
++    }
++    char buf[4096];
++    ssize_t n = ::read(t.cmd, buf, sizeof(buf));
++    if (n > 0) t.pending.append(buf, size_t(n));
++    else if (!block) return false;
++  }
++}
++static void XeTwinSwap(Memory* memory) {
++  XeTwinState& t = XeTwin();
++  if (t.state == 0) {
++    const char* dir = std::getenv("XE_TWIN_DIR");
++    t.state = -1;
++    if (dir) {
++      // O_RDWR on a FIFO never blocks and never sees end of file
++      t.cmd = ::open((std::string(dir) + "/cmd").c_str(), O_RDWR | O_NONBLOCK);
++      t.ans = ::open((std::string(dir) + "/ans").c_str(), O_RDWR);
++      if (t.cmd >= 0 && t.ans >= 0) t.state = 1;
++    }
++  }
++  if (t.state != 1) return;
++  t.frame++;
++  std::string line;
++  // free running: serve whatever has arrived, without waiting
++  while (t.waiting_free && XeTwinLine(&line, false)) {
++    if (XeTwinCommand(memory, line)) break;
++  }
++  if (t.waiting_free || t.frame < t.run_until) return;
++  XeTwinSay("at " + std::to_string(t.frame));
++  for (;;) {
++    if (!XeTwinLine(&line, true)) continue;
++    if (XeTwinCommand(memory, line)) return;
++  }
++}
++
+ bool COMMAND_PROCESSOR::ExecutePacketType3(uint32_t packet) XE_RESTRICT {
+   // Type-3 packet.
+   uint32_t opcode = (packet >> 8) & 0x7F;
+@@ -763,6 +989,7 @@
+     trace_writer_.WritePacketEnd();
+     if (opcode == PM4_XE_SWAP) {
+       PdDrawLogSwap();
++      XeTwinSwap(memory_);
+     }
+ #if XE_ENABLE_TRACE_WRITER_INSTRUMENTATION == 1
+ 
+diff -ruN a/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/src/xenia/gpu/vulkan/vulkan_command_processor.cc	2026-10-01 07:25:07.569913690 +0000
++++ b/src/xenia/gpu/vulkan/vulkan_command_processor.cc	2026-10-01 07:25:07.573913673 +0000
+@@ -7,6 +7,9 @@
+  ******************************************************************************
+  */
+ 
++#include <fcntl.h>  // the GE fidelity twin channel, pm4_command_processor_implement.h
++#include <poll.h>
++#include <unistd.h>
+ #include "xenia/gpu/vulkan/vulkan_command_processor.h"
+ 
+ #include <cstdint>

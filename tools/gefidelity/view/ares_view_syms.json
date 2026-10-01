@@ -1,0 +1,61 @@
+{
+ "_how": "nm build/u/ge007.u.elf on the oracle host (~/claude-007/007; the ELF builds the US ROM byte for byte); struct VideoSettings_s offsets from `ptype /o *g_ViBackData` on build/port/ge007 (-m32, the ROM's layout). The view tour's extra cartridge addresses; common/ares_layout.json has the rest.",
+ "symbols": {
+  "g_ViBackData": 2147627688,
+  "g_CameraMode": 2147706004,
+  "level_scale": 2147749700,
+  "inv_level_scale": 2147749704,
+  "g_IntroSwirl": 2147706028
+ },
+ "VideoSettings_s": {
+  "x": [
+   4,
+   "h"
+  ],
+  "y": [
+   6,
+   "h"
+  ],
+  "fovy": [
+   8,
+   "f"
+  ],
+  "aspect": [
+   12,
+   "f"
+  ],
+  "znear": [
+   16,
+   "f"
+  ],
+  "zfar": [
+   20,
+   "f"
+  ],
+  "bufx": [
+   24,
+   "h"
+  ],
+  "bufy": [
+   26,
+   "h"
+  ],
+  "viewx": [
+   28,
+   "h"
+  ],
+  "viewy": [
+   30,
+   "h"
+  ],
+  "viewleft": [
+   32,
+   "h"
+  ],
+  "viewtop": [
+   34,
+   "h"
+  ],
+  "size": 44
+ }
+}

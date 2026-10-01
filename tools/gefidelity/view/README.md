@@ -8,21 +8,45 @@ colour.
 
 | tool | contract |
 |---|---|
-| `viewdiff.py run --mission M` | one mission: tour both sides, score, `OUT/M/index.html` + `scores.json` + `pairs/` |
-| `viewdiff.py sweep [--missions a,b]` | every mission (oracle runs <= 4 at once, ours <= 2), plus `OUT/index.html` |
+| `viewdiff.py run --mission M [--oracle ares\|port]` | one mission: tour both sides, score, `OUT/M/index.html` + `scores.json` + `pairs/` |
+| `viewdiff.py sweep [--missions a,b]` | every mission (the oracle <= 4 at once, ours 1), plus `OUT/index.html` |
 | `viewdiff.py score DIR...` | (re)score runs already on disk; exit 2 if any null fails |
-| `tour.py` | the gdb scenario both sides run (through `twin.py`); writes `manifest.json` + one shot per pad and heading |
+| `--bin ./pd.fix`, `--reuse-oracle BASE` | our binary (relative to the run root); GoldenEye's pictures taken from a previous run instead of shot again |
+| `gatesweep.py --bin B --out DIR [--oracle ares\|xenia\|port] [--reuse-oracle BASE]` | the fidelity gate's `view` / `hd-view` legs: `DIR/report.json`, one finding a pair (`view.pair`, key `pad:heading`, mag the score; unranked pairs as `view.unranked`); exit 2 when a mission's null failed, a mission did not run, or a second sweep of the first mission on the same oracle pictures moved a score by more than 0.05 |
+| `tour.py` | the scenario both sides run (through `twin.py`); writes `manifest.json` + one shot per pad and heading |
+| `ares_side.py`, `ares_view_syms.json` | the tour's GoldenEye side on the cartridge (twin.py `--oracle ares`, the default): every step in memory, no function calls; the extra ROM addresses (`nm build/u/ge007.u.elf`) |
+| `xenia_side.py` | the tour's GoldenEye side on the XBLA release ("Bean") in Xenia (`--oracle xenia`): through `common/xeniage.py` and `xenia/run_scenario.py`, the rig's lock held (one Xenia, one virtual pad on this machine); Bond on the pad's tile at the height `stanGetPositionYValue` gives with GoldenEye's `levelinfotable` scale, Bean's eye height measured at spawn |
+| `fovfit.py OUT/<mission>` | the release's field of view against ours, measured from matched pairs (the zoom that maps our picture onto Bean's; its null: ours against itself fits 1, against itself zoomed 1.10 fits 1.10); feed `bean_fovy` back as `--bean-fovy` |
+| `--oracle-only`, then `--reuse-oracle OUT` on the same OUT | the oracle's pictures now, ours later (one game of ours at a time on this box) |
 
-OUT defaults to `~/wt/gefidelity-run/view-out`. Ours runs from
-`~/wt/gefidelity-run/view-rundir-{0,1}` (binary hard-linked, so pd.log and
-`screenshots/` are private to the run; data/, added-content/, mods/ are
-symlinks to the run root).
+**--oracle xenia is the HD look against the release, both with the Community
+Edition** (user 2026-10-01: "use Community edition, since that is what we use
+for ge plus"): Bean's CE build (`.xbla-work/ge-bean/BeanCE/defaultCE.xex`,
+unless the rig's own default already is a CE build) and ours with
+`Mod.GeXblaCommunityEdition=1`, the updater in `added-content/`, the HD keys on
+(`view-hd-rundir-{0,1}`). Never retail against CE. Out:
+`~/wt/gefidelity-run/view-xenia`.
+
+**The oracle is the cartridge in ares by default** (user 2026-10-01; out
+`~/wt/gefidelity-run/view-ares`); `--oracle port` is the decomp's native port
+under gdb (out `view-out`). The port's green Frigate sea was the port's: on
+the cartridge the sea is blue like ours. On ares GoldenEye runs first and our
+window and field of view are set from the viewport and fovy it reports
+(`g_ViBackData`: 320x220 at y=10, fovy 60 on every mission measured), and our
+tour starts on the cartridge's first-shot tick with the cartridge's own pad
+list.
+
+Ours runs from `~/wt/gefidelity-run/view-rundir-{0,1}` (binary hard-linked, so
+pd.log and `screenshots/` are private to the run; data/, added-content/, mods/
+are symlinks to the run root).
 
 ## How a pair is made the same picture
 
 - **Same place.** Pad N and heading H mean the same in both games. GoldenEye's
   Bond goes onto the pad's own floor tile (`pad->stan`) the way its spawn
-  does (`change_player_pos_to_target`); ours onto `cdFindGroundAtCyl` under
+  does (`change_player_pos_to_target`; on ares the same writes made by hand,
+  the tile's height computed as `stanGetPositionYValue` does - it agrees with
+  the port's call to the hundredth on Frigate's decks); ours onto `cdFindGroundAtCyl` under
   the pad; each game then puts its own eye over its floor. Look Ahead is off
   and unlatched on both (`automovecentre*`, `docentreupdown`). Every pair's
   cameras are recorded and checked after the level's offset: more than 4 units
@@ -69,6 +93,12 @@ GoldenEye's grey, only past the level the renderers alone reach (0.3).
   0.05. A mid-grey block was invisible on Facility's walls and failed this,
   which is what it is for.
 
+- **oracle twice** (ares): the cartridge's tour is run a second time
+  (`ge_repeat/`) and every picture must score within 0.02 of its first -
+  `aresge.boot()` pins GoldenEye's RNG seeds and random-head rotation, so even
+  pictures with guards in them repeat. `--no-oracle-repeat` skips it. Xenia
+  runs in real time and does not repeat; it has no such leg.
+
 ## Pairs that are not ranked (shown, with the reason)
 
 - cameras more than 4 units apart across the floor or 1 degree apart in where
@@ -79,6 +109,47 @@ GoldenEye's grey, only past the level the renderers alone reach (0.3).
   (GoldenEye's eye sees his hat brim, ours, 8 units lower, his jacket).
 
 ## Traps met building it
+
+- **Our side takes each picture at the oracle's own tick** (`VIEW_TICKS`, from
+  the oracle's manifest), not at `T0 + n * DT`: the release in Xenia runs in real
+  time and fell to twice the schedule (Dam's last pictures at tick 10987 against
+  our 5844), by when the truck its freeze did not park was somewhere else.
+- **Bond in the release (Xenia).** `xeniage.place()` writes GoldenEye's own
+  fields, which Bean keeps, but Bean also keeps x and z of its own at
+  player + 0x4ec/0x4f4, 0x530/0x538 and ten times them at 0x4e0/0x4e8, and slides
+  Bond from them; `xenia_side.py` writes those too (the README's +0x150 is not
+  one - it moves to unrelated numbers with Bond). Out of some places Bean still
+  will not let him be put elsewhere (Dam's pad 329, where he never settles and
+  sinks; every warp from there to 323 was refused, from the spawn or 317 it
+  lands): the camera check leaves such pairs unranked, and Bean draws the rooms
+  of the wrong place there (a blue void under Dam's cliffs) - an oracle fault.
+  Bean's freeze clears every chr's AI list but did not park Dam's truck.
+- **Bean's field of view** (`fovfit.py`, both nulls passing): our picture maps
+  onto Bean's at a zoom of exactly 1.00 across on Dam (118 pairs) and Facility
+  (79); up and down 0.97 and 0.92 with a spread of 0.22-0.26 - the rig's 695
+  rows hold the release's 720 (0.965) and our eye is 8 units low, which moves
+  near things up and down. So the release's view is ours at FovY 60 in 16:9,
+  and both are compared at 320x180 from their whole frames.
+
+- **Pads that end the mission.** On the cartridge, putting Bond down on
+  Bunker 1's waypoint pads 101, 100 and 99 ends the mission within about 40
+  ticks (the screen goes black, `lvlStageLoad` zeroes the level clock) with
+  every chr frozen, background ones included - an exit the level checks
+  outside the chrs' scripts. The tour raises `LevelEnded` when the level clock
+  goes backwards, and `viewdiff.py` runs the oracle again without that pad (up
+  to six times: they come in runs of neighbouring waypoints round an exit -
+  Statue 227/226/225, Archives 172/171/170, Surface 2 289/288, Bunker 2 51);
+  the page lists the pads left out. Our side follows the
+  oracle's pad list.
+- The background chrs that run a level's own script have no prop; the freeze
+  clears every chr slot with an AI list, prop or not.
+
+- The cartridge runs 2-3 ticks a video frame where the port under lockstep
+  runs one: the port's minimum hold of 8 x 3 frames overran a 40-tick slot and
+  the cartridge fell 500 ticks behind ours by the sixth pad. On ares the
+  minimum is 3 x 3 frames.
+- `n64twin` is rebuilt by other agents: a run that starts while it is being
+  relinked gets "Permission denied"; run again.
 
 - `stanFindFloorTileBelowY` is not "the highest tile below a point": on
   Frigate's pad 133 it gave a deck 440 units under the pad's own tile. Use

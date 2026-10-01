@@ -1,0 +1,21 @@
+n64twin owner: none
+
+Final build, 2026-10-01 (agent C, the census read pass), on the user's request
+that every agent use one complete binary:
+  twin.cpp md5               e2a2b7738bafc499e895b8c97c39fc43 (this tree's, the source of truth)
+  installed binary           sdg@10.8.0.3:~/claude-007/ares/ares-nightly/build/n64twin.installed
+                             7404456 bytes, mtime 2026-10-01 02:32:21 -0500 (host time),
+                             md5 18a1c5af3f41e8579a1488703554b434
+  ares core                  ares-readhook.patch applied: cpuReadHook in CPU::read (null unless
+                             readwatch-* arms it) and, while armed, the JIT's slow path for every
+                             load (recompiler.cpp: its fast-path loads bypassed CPU::read - 93% of
+                             the reads, found when GoldenEye's door scale read 0.75 unseen)
+  smoke test                 every command on Dam, 23/23, and world/dump.py through
+                             `twin.py ge ... --oracle ares` (ticks 1 and 300)
+
+Rules that stay: edit twin.cpp here (never the host's copy), build only with
+ares/build.sh (it takes the host build lock, applies ares-readhook.patch if the
+core lacks it, installs build/n64twin.installed atomically). aresge.py keeps
+its snapshot guard (under 1 MB or no ELF magic is refused), _slot() (5 host
+slots, GF_ARES_SLOTS) and the n64twin.installed preference. Need a new n64twin
+command? Ask the main session, which names an owner for it.

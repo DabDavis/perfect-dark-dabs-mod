@@ -36,7 +36,43 @@ ORACLE = 'ares'
 L = json.load(open(os.path.join(HERE, 'ares_layout.json')))
 SYM = L['symbols']
 T = L['types']
-EXE = os.path.expanduser(os.environ.get('GF_ARES_EXE', '~/claude-007/ares/ares-nightly/build/n64twin'))
+# ares/build.sh installs build/n64twin.installed atomically; a build run any other
+# way writes build/n64twin in place, which is the fallback
+_INSTALLED = os.path.expanduser('~/claude-007/ares/ares-nightly/build/n64twin.installed')
+EXE = os.path.expanduser(os.environ.get('GF_ARES_EXE', _INSTALLED if os.path.exists(_INSTALLED)
+                                        else '~/claude-007/ares/ares-nightly/build/n64twin'))
+
+
+def _snapshot(exe):
+    """A private copy of n64twin, named by the binary's own time and size: a
+    rebuild in progress (other work rebuilds it on the oracle host) leaves the
+    build path unreadable or half written for a moment, and a sweep that ran
+    the build path straight died with 'Permission denied' on eight missions."""
+    import shutil, time
+    snapdir = os.path.expanduser('~/gefidelity-bin')
+    os.makedirs(snapdir, exist_ok=True)
+    for attempt in range(60):
+        try:
+            st = os.stat(exe)
+            # a link in progress leaves the file empty or short for longer than five
+            # seconds (a 0-byte snapshot was taken once and ran as 'Exec format error')
+            with open(exe, 'rb') as fh:
+                if st.st_size < (1 << 20) or fh.read(4) != b'\x7fELF':
+                    raise OSError('n64twin is not a whole executable yet (%d bytes); a build is writing it' % st.st_size)
+            snap = os.path.join(snapdir, 'n64twin.%d.%d' % (int(st.st_mtime), st.st_size))
+            if not os.path.exists(snap):
+                if time.time() - st.st_mtime < 5:
+                    raise OSError('n64twin was written %.1f s ago; letting the build finish' % (time.time() - st.st_mtime))
+                tmp = '%s.tmp%d' % (snap, os.getpid())
+                shutil.copy2(exe, tmp)
+                if os.path.getsize(tmp) != st.st_size:
+                    raise OSError('n64twin changed while it was copied')
+                os.chmod(tmp, 0o755)
+                os.replace(tmp, snap)
+            return snap
+        except OSError:
+            time.sleep(2)
+    raise RuntimeError('n64twin at %s stayed unreadable for two minutes' % exe)
 ROM = os.path.expanduser(os.environ.get('GF_ARES_ROM', '~/claude-007/007/build/u/ge007.u.z64'))
 
 # sizepropdef() in words (loadobjectmodel.c:47), checked against the port's walk
@@ -56,9 +92,36 @@ def say(*a):
     print('GF', *a, flush=True)
 
 
+def _slot():
+    """One of GF_ARES_SLOTS (default 5) machine-wide slots on the oracle host,
+    held until this process exits. Every n64twin is started through here: four
+    agents each told "at most 4" once ran nine at a time on eight cores with a
+    gigabyte of memory left, and a run that is starved looks like a hang."""
+    import fcntl, time
+    n = int(os.environ.get('GF_ARES_SLOTS', '5'))
+    d = os.path.expanduser('~/gefidelity-bin')
+    os.makedirs(d, exist_ok=True)
+    waited = 0
+    while True:
+        for i in range(n):
+            fh = open(os.path.join(d, 'slot.%d' % i), 'a+')
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                fh.close()
+                continue
+            fh.seek(0); fh.truncate(); fh.write('%d %s\n' % (os.getpid(), ' '.join(sys.argv)[:200])); fh.flush()
+            return fh
+        if waited % 60 == 0:
+            say('waiting for one of %d n64twin slots (%d s)' % (n, waited))
+        time.sleep(2)
+        waited += 2
+
+
 class _Twin:
     def __init__(self):
-        self.p = subprocess.Popen([EXE, '--rom', ROM], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        self.slot = _slot()
+        self.p = subprocess.Popen([_snapshot(EXE), '--rom', ROM], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, text=True, bufsize=1)
         self.read()
 
@@ -172,6 +235,13 @@ def _addr(field_of, typ, field):
     return field_of + T[typ]['fields'][field]['off']
 
 
+# GoldenEye's two generators, u64 each (nm build/u/ge007.u.elf: the US ROM's
+# addresses; the layout's own symbols win when it has them)
+SEED_SYMS = {'g_randomSeed': 0x80024460, 'g_chrObjRandomSeed': 0x80040160}
+# where the random-head rotation starts (u32 each, chr.c:197): it differs from
+# boot to boot, so with the seeds pinned the heads still came out shifted
+HEAD_SYMS = {'current_random_male_head': 0x8002ce38, 'current_random_female_head': 0x8002ce3c}
+
 # ------------------------------------------------------------- the clock
 
 def boot(levelid, difficulty=0):
@@ -192,13 +262,29 @@ def boot(levelid, difficulty=0):
     else:
         raise RuntimeError('the front end never asked for Dam')
     tw('on-pc 0x%08x poke 0x%08x %08x' % (SYM['proplvreset2'], SYM['g_SelectedDifficulty'], difficulty & 0xffffffff))
-    tw('until-fired 2 20000')
+    # The cartridge's random seeds, pinned at the setup load (before a guard
+    # picks a random head): without this two runs of one binary differed in
+    # every random head, sleep timer and patrol, so the oracle could not be
+    # compared with itself. A pinned seed is still one of the cartridge's own
+    # runs, as --rng-seed is one of ours. GF_SEED=off leaves it alone.
+    nfire = 2
+    seed = os.environ.get('GF_SEED', '1')
+    if seed != 'off':
+        for name in SEED_SYMS:
+            addr = SYM.get(name, SEED_SYMS[name])
+            tw('on-pc 0x%08x poke 0x%08x %016x' % (SYM['proplvreset2'], addr, int(seed, 0) & 0xffffffffffffffff))
+            nfire += 1
+        for name in HEAD_SYMS:
+            addr = SYM.get(name, HEAD_SYMS[name])
+            tw('on-pc 0x%08x poke 0x%08x %08x' % (SYM['proplvreset2'], addr, 0))
+            nfire += 1
+    tw('until-fired %d 20000' % nfire)
     tw('until-pc 0x%08x 1 20000' % SYM['lvlRender'])
     # positive controls: the cartridge took the difficulty and the swap, or nothing here is the level asked for
     if s32(SYM['g_SelectedDifficulty']) != difficulty:
         raise RuntimeError('difficulty %d did not take (cartridge has %d)' % (difficulty, s32(SYM['g_SelectedDifficulty'])))
-    if int(tw('fired').split()[0]) < 2:
-        raise RuntimeError('the level swap or the difficulty write never fired')
+    if int(tw('fired').split()[0]) < nfire:
+        raise RuntimeError('the level swap, the difficulty or the seed writes never fired')
     _st['t0'] = s32(SYM['g_GlobalTimer']) - 1
     f0 = s32(SYM['currentFrameCounter'])
     tw('cue %d 0 Z' % (f0 + DISMISS_STILL_AFTER))
@@ -430,6 +516,8 @@ def player():
     return {'pos': [_f(v) for v in prop.vec('pos')], 'rooms': _rooms(prop),
             'theta': _f(P.f('vv_theta')), 'verta': _f(P.f('vv_verta')),
             'eye': [_f(v) for v in P.vec('field_488.pos')],
+            # the floor under Bond (bondview2.c: collision y = field_70 + eye height)
+            'ground': _f(P.f('field_70')),
             'health': _f(P.f('bondhealth')), 'armour': _f(P.f('bondarmour'))}
 
 

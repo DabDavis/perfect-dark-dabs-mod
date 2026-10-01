@@ -284,6 +284,7 @@ def player():
     return {'pos': [_f(prop['pos'][a]) for a in 'xyz'], 'rooms': _rooms(prop),
             'theta': _f(P['vv_theta']), 'verta': _f(P['vv_verta']),
             'eye': [_f(P['cam_pos'][a]) for a in 'xyz'],
+            'ground': _f(P['vv_ground']),
             'health': _f(P['bondhealth'])}
 
 

@@ -31,6 +31,10 @@ sys.path.insert(0, os.path.join(HERE, '..', '..', 'geconvert', 'fit'))
 from cafftool import Caff  # noqa: E402
 
 BEAN = os.environ.get('GEFIT_BEAN', os.path.expanduser('~/perfect-dark/.xbla-work/ge-bean/Bean'))
+# the release files this reads: the retail ones (BEAN/files), or the Community
+# Edition's applied copy (GF_BEAN_FILES=~/perfect-dark/.xbla-work/ce/filesCE),
+# which is what GE Plus draws with the CE on and what Xenia runs patched
+FILES = os.environ.get('GF_BEAN_FILES', os.path.join(BEAN, 'files'))
 
 
 def u32(b, o):
@@ -42,9 +46,9 @@ def u16(b, o):
 
 
 class BeanFile:
-    def __init__(self, source, root=BEAN, path=None):
+    def __init__(self, source, files=None, path=None):
         self.source = source
-        self.path = path or os.path.join(root, 'files', source, 'default.bin')
+        self.path = path or os.path.join(files or FILES, source, 'default.bin')
         c = self.caff = Caff(self.path)
         get = lambda a, s: [c.blob(f) for f in c.files if f['asset'] == a and c.sections[f['sect'] - 1]['name'] == s]
         self.stream = (get(1, '.stream') or [b''])[0]
