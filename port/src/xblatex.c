@@ -442,6 +442,146 @@ const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height)
 }
 
 /**
+ * The animated pictures (xblaTexBindAnimation()). A handful in the whole
+ * release, kept for the life of the game as the tiles are. The renderer reads
+ * the table without the lock on every texture it binds, so an entry is filled
+ * before the count that publishes it.
+ */
+#define XBLATEX_MAXANIMS 16
+
+struct xblatexanim {
+	const void *addr;
+	u8 **frames;
+	s32 numframes;
+	s32 width;
+	s32 height;
+	f32 secondsPerFrame;
+};
+
+static struct xblatexanim anims[XBLATEX_MAXANIMS];
+static SDL_atomic_t numAnims;
+
+// The level's clock in seconds, which the frames are shown by
+// (xblaTexSetAnimClock())
+static volatile f32 animClock;
+
+const void *xblaTexBindAnimation(const char *key, u8 **frames, s32 numframes, s32 width, s32 height, f32 secondsPerFrame)
+{
+	const size_t bytes = (size_t)width * (size_t)height * 4;
+	const void *addr;
+	u8 *first;
+	s32 n;
+
+	if (!frames || numframes <= 0 || width <= 0 || height <= 0) {
+		for (s32 i = 0; frames && i < numframes; i++) {
+			free(frames[i]);
+		}
+
+		free(frames);
+		return NULL;
+	}
+
+	first = malloc(bytes);
+
+	if (first) {
+		memcpy(first, frames[0], bytes);
+	}
+
+	addr = xblaTexBindPicture(key, first, width, height, -1);
+
+	if (!addr || !lock || numframes < 2 || !(secondsPerFrame > 0.0f)) {
+		for (s32 i = 0; i < numframes; i++) {
+			free(frames[i]);
+		}
+
+		free(frames);
+		return addr;
+	}
+
+	SDL_LockMutex(lock);
+
+	n = SDL_AtomicGet(&numAnims);
+
+	for (s32 i = 0; i < n; i++) {
+		if (anims[i].addr == addr) {
+			n = XBLATEX_MAXANIMS; // bound before: it keeps those frames
+			break;
+		}
+	}
+
+	if (n < XBLATEX_MAXANIMS) {
+		anims[n].addr = addr;
+		anims[n].frames = frames;
+		anims[n].numframes = numframes;
+		anims[n].width = width;
+		anims[n].height = height;
+		anims[n].secondsPerFrame = secondsPerFrame;
+		SDL_AtomicSet(&numAnims, n + 1);
+		frames = NULL;
+	}
+
+	SDL_UnlockMutex(lock);
+
+	if (frames) {
+		for (s32 i = 0; i < numframes; i++) {
+			free(frames[i]);
+		}
+
+		free(frames);
+	}
+
+	return addr;
+}
+
+void xblaTexSetAnimClock(f32 seconds)
+{
+	animClock = seconds;
+}
+
+s32 xblaTexHaveAnimations(void)
+{
+	return SDL_AtomicGet(&numAnims) > 0;
+}
+
+s32 xblaTexAnimFrame(const void *addr)
+{
+	const s32 n = SDL_AtomicGet(&numAnims);
+
+	for (s32 i = 0; i < n; i++) {
+		if (anims[i].addr == addr) {
+			const f32 clock = animClock;
+			const s32 step = clock > 0.0f ? (s32)(clock / anims[i].secondsPerFrame) : 0;
+
+			return step % anims[i].numframes;
+		}
+	}
+
+	return -1;
+}
+
+u8 *xblaTexLoadAnimFrame(const void *addr, s32 frame, s32 *outWidth, s32 *outHeight)
+{
+	const s32 n = SDL_AtomicGet(&numAnims);
+
+	for (s32 i = 0; i < n; i++) {
+		if (anims[i].addr == addr && frame >= 0 && frame < anims[i].numframes) {
+			const size_t bytes = (size_t)anims[i].width * (size_t)anims[i].height * 4;
+			u8 *rgba = malloc(bytes);
+
+			if (rgba) {
+				memcpy(rgba, anims[i].frames[frame], bytes);
+				*outWidth = anims[i].width;
+				*outHeight = anims[i].height;
+			}
+
+			return rgba;
+		}
+	}
+
+	return NULL;
+}
+
+/**
  * A picture for a texture the game is already holding, bound at that texture's
  * own address - see xblaTexBindPictureAt() in xblatex.h.
  *

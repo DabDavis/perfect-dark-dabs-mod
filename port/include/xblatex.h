@@ -90,6 +90,30 @@ const void *xblaTexBindPictureAt(const void *addr, u8 *rgba, s32 width, s32 heig
 void xblaTexForgetPicture(const void *addr);
 
 /**
+ * An animated picture: xblaTexBindImage() of its first frame, which is what
+ * every question about the picture is answered from (its alpha, its colour),
+ * and the frames themselves, shown one after another for secondsPerFrame each
+ * on the level's clock and round again. GoldenEye XBLA's few pictures of more
+ * than one frame (gebean.c, beanTexAnimation()). The frames - numframes
+ * pictures of width x height, RGBA32 in the game's row order - and the array
+ * are taken over. A key bound before keeps what it was bound as.
+ */
+const void *xblaTexBindAnimation(const char *key, u8 **frames, s32 numframes, s32 width, s32 height, f32 secondsPerFrame);
+
+/**
+ * The renderer's side of that: whether any picture is animated (its early
+ * out), the frame an address shows now (-1 for one that is not animated) and
+ * a copy of that frame, malloc'd, for it to upload - one texture cache entry a
+ * frame, so a frame is decoded and uploaded once.
+ */
+s32 xblaTexHaveAnimations(void);
+s32 xblaTexAnimFrame(const void *addr);
+u8 *xblaTexLoadAnimFrame(const void *addr, s32 frame, s32 *outWidth, s32 *outHeight);
+
+/** The clock the frames are shown by: the level's, in seconds, set as each frame is drawn (gebeanstage.c). */
+void xblaTexSetAnimClock(f32 seconds);
+
+/**
  * The same, for a picture that *is* one of the ROM's numbered textures - a
  * model pack's material named `n64_0a9a`.
  *

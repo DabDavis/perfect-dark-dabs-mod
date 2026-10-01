@@ -5184,7 +5184,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 9
+#define HDCACHE_VERSION 10
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
@@ -7451,6 +7451,10 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 	s32 curtex = -2;
 	f32 fm, fo;
 	u8 rgb[3];
+
+	// The clock GoldenEye XBLA's animated pictures are shown by
+	// (xblaTexBindAnimation()): the level's, as the frame is drawn
+	xblaTexSetAnimClock(g_Vars.lvframe60 / 60.0f);
 
 	if (numBackdrop == 0 || !xblaStageDrawsEveryRoom()
 			|| g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
