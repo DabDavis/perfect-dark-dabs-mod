@@ -55,6 +55,11 @@ static s32 g_GeCrouchHoldTicks[MAX_PLAYERS];
 // eased (bwalkUpdateVertical())
 static f32 g_GeClimbEyeLag[MAX_PLAYERS];
 
+// the floor GoldenEye's climb lifted the player onto, held under him while his
+// circle still touches it and his middle is not yet over it
+// (geStanTouchesFloor()); GESTAN_NOCLIMBFLOOR when there is none
+static f32 g_GeClimbHold[MAX_PLAYERS] = { GESTAN_NOCLIMBFLOOR, GESTAN_NOCLIMBFLOOR, GESTAN_NOCLIMBFLOOR, GESTAN_NOCLIMBFLOOR };
+
 /**
  * Something that is not a number was about to go into the player's height.
  * Said once a second at most, with what the player was doing, so a report's
@@ -217,6 +222,7 @@ void bwalkInit(void)
 	g_Vars.currentplayer->camstepphase = 0;
 	g_Vars.currentplayer->camstepamp = 0;
 	g_GeClimbEyeLag[g_Vars.currentplayernum] = 0;
+	g_GeClimbHold[g_Vars.currentplayernum] = GESTAN_NOCLIMBFLOOR;
 #endif
 
 	if (prevmode != MOVEMODE_WALK && prevmode != MOVEMODE_CUTSCENE) {
@@ -1378,6 +1384,25 @@ void bwalkUpdateVertical(void)
 				ground = g_Vars.currentplayer->vv_ground - g_Vars.currentplayer->bondonground;
 			}
 		}
+
+		// The floor GoldenEye's climb lifted the player onto is his ground
+		// until his middle is over it, while his circle still touches it.
+		// He is lifted as the circle meets it (geStanClimbFloor()), so that
+		// it can pass over the climb wall, and the floor under his middle was
+		// still the ground he climbed from: he sank back down the wall as he
+		// walked on, stopped against it, and was lifted again - a hitch and a
+		// dip of a third of a body in every window on Streets (F3 report
+		// 20260930-235737)
+		if (g_GeClimbHold[g_Vars.currentplayernum] > GESTAN_NOCLIMBFLOOR) {
+			const f32 hold = g_GeClimbHold[g_Vars.currentplayernum];
+
+			if (g_Vars.currentplayer->onladder || ground >= hold - 1.0f
+					|| !geStanTouchesFloor(&testpos, g_Vars.currentplayer->bond2.radius, hold)) {
+				g_GeClimbHold[g_Vars.currentplayernum] = GESTAN_NOCLIMBFLOOR;
+			} else {
+				ground = hold;
+			}
+		}
 	}
 #endif
 
@@ -2007,6 +2032,7 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 				g_Vars.currentplayer->vv_manground = floor;
 				g_Vars.currentplayer->vv_ground = floor;
 				g_Vars.currentplayer->sumground = floor / (PAL ? 0.054400026798248f : 0.045499980449677f);
+				g_GeClimbHold[g_Vars.currentplayernum] = floor;
 			}
 		}
 

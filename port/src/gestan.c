@@ -1061,6 +1061,73 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 }
 
 /**
+ * Whether a body's circle at `pos` still touches a floor at height `y` (a tile
+ * with an area in plan reaching to within 3 of it, under the middle or with an
+ * edge within the radius). bwalkUpdateVertical() holds a player lifted by
+ * geStanClimbFloor() on that floor while it does: he is lifted as his circle
+ * meets the floor across, with his middle still over the ground he climbed
+ * from, and Perfect Dark's ground is the floor under the middle - he fell
+ * back down the climb wall while walking on to it, stopped against it, and
+ * was lifted again (Streets' windows, F3 report 20260930-235737).
+ */
+bool geStanTouchesFloor(struct coord *pos, f32 radius, f32 y)
+{
+	s32 cx0, cx1, cz0, cz1;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return false;
+	}
+
+	cx0 = stanCellOf(pos->x - radius, g_Stan.gridx, g_Stan.gridw);
+	cx1 = stanCellOf(pos->x + radius, g_Stan.gridx, g_Stan.gridw);
+	cz0 = stanCellOf(pos->z - radius, g_Stan.gridz, g_Stan.gridh);
+	cz1 = stanCellOf(pos->z + radius, g_Stan.gridz, g_Stan.gridh);
+
+	for (s32 cz = cz0; cz <= cz1; cz++) {
+		for (s32 cx = cx0; cx <= cx1; cx++) {
+			const s32 c = cz * g_Stan.gridw + cx;
+
+			for (s32 k = g_Stan.cellstart[c]; k < g_Stan.cellstart[c + 1]; k++) {
+				const s32 i = g_Stan.celltiles[k];
+				const struct stantile *t = &g_Stan.tiles[i];
+				const struct stanpoint *p = &g_Stan.points[t->first];
+				s32 ymin = 0x7fff, ymax = -0x8000;
+				bool touches;
+
+				if (stanTileUpright(i)) {
+					continue;
+				}
+
+				for (s32 a = 0; a < t->npts; a++) {
+					if (p[a].y < ymin) ymin = p[a].y;
+					if (p[a].y > ymax) ymax = p[a].y;
+				}
+
+				if (y < ymin - 3.0f || y > ymax + 3.0f) {
+					continue;
+				}
+
+				touches = stanHolds(t, pos->x, pos->z);
+
+				for (s32 a = 0; a < t->npts && !touches; a++) {
+					touches = stanEdgeDistSq(&p[a], &p[(a + 1) % t->npts], pos->x, pos->z) <= radius * radius;
+				}
+
+				if (touches) {
+					return true;
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
+/**
  * Whether GoldenEye would hold a body down here: a tile's special value 1 is
  * g_StanTileSpecialFlags[]'s STANTILEFLAG_FORCECROUCH - Facility's vents, the
  * crawl spaces of seven levels more - and bondview's move sets autocrouchpos

@@ -811,6 +811,35 @@ def tile_flat_in_plan(t):
     return sum(pts[k][0] * pts[(k + 1) % n][2] - pts[(k + 1) % n][0] * pts[k][2] for k in range(n)) == 0
 
 
+def stan_climb_part(u, a, b):
+    """How far a floor across lies over an edge it shares only part of: a
+    window narrower than the wall it is in. Streets' are 82 across in a wall
+    whose ground is two tiles, each linked through the window's tiles on edge
+    to the sill 96 over it, and neither ground edge ends where the sill does:
+    measured only at the edge's own two ends, the climb was not found and the
+    outside got no wall - the player stopped at the inside's instead, short
+    of the sill, and never climbed in (F3 report 20260930-235737). The floor's
+    points on the edge's line (in plan, to a raw unit), where they overlap the
+    edge by a length: the lowest of them over the edge's higher end. None
+    where the floor only meets the edge at a point - the ground tile beside
+    it. geconvert.c's stanClimbPart()."""
+    dx, dz = b[0] - a[0], b[2] - a[2]
+    lensq = dx * dx + dz * dz
+    lo = hi = None
+    ymin = None
+    for p in u['points']:
+        cross = dx * (p[2] - a[2]) - dz * (p[0] - a[0])
+        if cross * cross > lensq:
+            continue
+        dot = dx * (p[0] - a[0]) + dz * (p[2] - a[2])
+        lo = dot if lo is None or dot < lo else lo
+        hi = dot if hi is None or dot > hi else hi
+        ymin = p[1] if ymin is None or p[1] < ymin else ymin
+    if lo is None or min(hi, lensq) - max(lo, 0) <= 0:
+        return None
+    return ymin - max(a[1], b[1])
+
+
 def stan_climb(stan, i, k, inv):
     """A link that climbs.
 
@@ -842,9 +871,12 @@ def stan_climb(stan, i, k, inv):
         if not tile_flat_in_plan(u):
             ya = [p[1] for p in u['points'] if p[0] == a[0] and p[2] == a[2]]
             yb = [p[1] for p in u['points'] if p[0] == b[0] and p[2] == b[2]]
-            if not ya or not yb:
-                continue
-            c = min(max(ya) - a[1], max(yb) - b[1])
+            if ya and yb:
+                c = min(max(ya) - a[1], max(yb) - b[1])
+            else:
+                c = stan_climb_part(u, a, b)
+                if c is None:
+                    continue
             if climb is None or c < climb:
                 climb = c
             continue
