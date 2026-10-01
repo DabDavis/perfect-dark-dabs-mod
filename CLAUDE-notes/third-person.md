@@ -724,6 +724,19 @@ palettes back; out at 8/s, back at 3/s once the slider has been still 0.7 s.
 The slider bars and the cable keep their own colours and stay visible, which
 leaves the row being dragged readable.
 
+F3 20260930-212705 ("no longer shows live changes"): 272895ff7 (the camera
+eases off walls) made every change of the camera's offset ease at
+`THIRDPERSON_EASE_RATE * lvupdate60freal`, and over the paused level behind
+Mods: Camera `lvupdate60freal` is 0, so the camera never moved off last
+frame's offset until the menu closed. Under `optionsMenuWantsLiveWorld()` the
+ease rate is 1: the camera goes straight to the new settings. Probe: gdb
+`call playerPause(2)` (the real pause, `lvIsPaused()` true; a bare
+`menuPushRootDialog()` leaves the level running and the ease hides the bug),
+then `menuPushDialog(&g_ExtendedDabsModCameraMenuDialog)`, write
+`g_ModOptions.camdist`/`camside` and read `thirdpersondist`
+(~/wt/f3-1001-tpcam-run/cam.py; gdb Python `stop()` cannot call inferior
+functions - return True and call from the main loop).
+
 Probe: ~/wt/f3-0927-options-run/cam.py (Villa, cutscene skipped at 600,
 `menuPushRootDialog(&g_SoloMissionPauseMenuDialog, 2)` then
 `menuPushDialog(&g_ExtendedDabsModCameraMenuDialog)`, `g_ModOptions.camdist`
