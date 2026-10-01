@@ -8857,6 +8857,47 @@ static s32 xblaMeshNodeIsGrafted(const struct model *model, const struct modelno
 	return 0;
 }
 
+/**
+ * Whether node is a head grafted into model's tree, and the one this entry was
+ * made for: the headspot crossed on the way up names the head attached there
+ * (modelAttachHead()). An entry outlives its model file - it is dropped when a
+ * file next loads at that definition's address (xblaMeshForgetModel()), not
+ * when the file is freed - so once Customize Character has swapped heads a few
+ * times, a new head's node can land on a freed one's address and find that
+ * head's entry. Grafted was enough to draw it, and the bruise map of the
+ * freed head walked parent pointers through what the new file had written
+ * over its nodes (crash report 20260930-024826, modelGetNodeRwData() from
+ * xblaMeshBruiseColours() under menuRenderModel()).
+ */
+static s32 xblaMeshNodeIsGraftedFrom(struct model *model, const struct modelnode *node,
+		const struct modeldef *modeldef)
+{
+	const struct modelnode *root = model->definition->rootnode;
+	struct modelnode *headspot = NULL;
+
+	for (s32 i = 0; node && i < XBLAMESH_PARENTSCAN; i++) {
+		if (node == root) {
+			break;
+		}
+
+		if ((node->type & 0xff) == MODELNODETYPE_HEADSPOT && !headspot) {
+			headspot = (struct modelnode *)node;
+		}
+
+		node = node->parent;
+	}
+
+	if (node != root || !headspot || !model->rwdatas) {
+		return 0;
+	}
+
+	{
+		const struct modelrwdata_headspot *rw = modelGetNodeRwData(model, headspot);
+
+		return rw && rw->headmodeldef == modeldef;
+	}
+}
+
 /* -------------------------------------------------------------------------
  * Bruises: the game's, carried over to the release's mesh
  * ------------------------------------------------------------------------- */
@@ -10853,7 +10894,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// drawn from is what says this entry is about this model - except for a
 	// head, which is a model of its own grafted into the body's tree.
 	if (model && model->definition && model->definition != e->modeldef) {
-		if (!xblaMeshNodeIsGrafted(model, node)) {
+		if (!xblaMeshNodeIsGraftedFrom(model, node, e->modeldef)) {
 			if (xblaMeshVerbose && !e->suppress) {
 				xblaMeshNoteDraw(model, e->slot, 0, 1);
 			}
@@ -12026,7 +12067,7 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node)
 		return 0;
 	}
 
-	if (model->definition && model->definition != e->modeldef && !xblaMeshNodeIsGrafted(model, node)) {
+	if (model->definition && model->definition != e->modeldef && !xblaMeshNodeIsGraftedFrom(model, node, e->modeldef)) {
 		return 0;
 	}
 

@@ -4617,6 +4617,49 @@ struct GfxDlDepth {
     ~GfxDlDepth() { gfx_dl_depth--; }
 };
 
+/**
+ * The way down to the list being run: at each depth, the list (or the branch
+ * target it went on in) and the G_DL that called the next one. Only for the
+ * report below - "Unknown GBI opcode" used to name the command and nothing
+ * else, and twice (20260929-170457, 20260930-124918: the same w0/w1, a float
+ * 376 in w1, both on the Carrington Institute after a Community Packs
+ * install) that was not enough to say whose list it was.
+ */
+#define GFX_DL_TRACK 8
+static const Gfx *gfx_dl_lists[GFX_DL_TRACK];
+static const Gfx *gfx_dl_calls[GFX_DL_TRACK];
+
+static void gfx_unknown_opcode(const Gfx *cmd, const Gfx *list, uint32_t opcode) {
+    char text[2048];
+    int len;
+
+    len = snprintf(text, sizeof(text),
+            "Unknown GBI opcode 0x%02x at %p, %lld into list %p at depth %d%s.\n"
+            "w0 %016llx w1 %016llx\nsegments 4 %p 5 %p 6 %p 14 %p 15 %p\nbefore it:",
+            opcode, (const void *)cmd, (long long)(cmd - list), (const void *)list, gfx_dl_depth,
+            gfx_dl_depth == 1 ? " (the frame's own)" : "",
+            (unsigned long long)cmd->words.w0, (unsigned long long)cmd->words.w1,
+            (void *)segmentPointers[4], (void *)segmentPointers[5], (void *)segmentPointers[6],
+            (void *)segmentPointers[14], (void *)segmentPointers[15]);
+
+    for (int k = 6; k >= 1 && len > 0 && len < (int)sizeof(text); k--) {
+        if (cmd - k >= list) {
+            len += snprintf(text + len, sizeof(text) - len, " %016llx:%016llx",
+                    (unsigned long long)cmd[-k].words.w0, (unsigned long long)cmd[-k].words.w1);
+        }
+    }
+
+    for (int d = 0; d < gfx_dl_depth - 1 && d < GFX_DL_TRACK && len > 0 && len < (int)sizeof(text); d++) {
+        const Gfx *call = gfx_dl_calls[d];
+
+        len += snprintf(text + len, sizeof(text) - len, "\ndepth %d: list %p called it at %p (+%lld)",
+                d + 1, (const void *)gfx_dl_lists[d], (const void *)call,
+                call && gfx_dl_lists[d] ? (long long)(call - gfx_dl_lists[d]) : -1LL);
+    }
+
+    sysFatalError("%s", text);
+}
+
 uintptr_t clearMtx;
 
 static void gfx_run_dl(Gfx* cmd) {
@@ -4628,6 +4671,10 @@ static void gfx_run_dl(Gfx* cmd) {
 
     Gfx* dListStart = cmd;
     uint64_t ourHash = -1;
+
+    if (gfx_dl_depth <= GFX_DL_TRACK) {
+        gfx_dl_lists[gfx_dl_depth - 1] = cmd;
+    }
 
     for (;;) {
         uint32_t opcode = cmd->words.w0 >> 24;
@@ -4672,10 +4719,19 @@ static void gfx_run_dl(Gfx* cmd) {
                     Gfx* subGFX = (Gfx*)seg_addr(cmd->words.w1);
 
                     if (subGFX != nullptr) {
+                        if (gfx_dl_depth <= GFX_DL_TRACK) {
+                            gfx_dl_calls[gfx_dl_depth - 1] = cmd;
+                        }
+
                         gfx_run_dl(subGFX);
                     }
                 } else {
                     cmd = (Gfx*)seg_addr(cmd->words.w1);
+
+                    if (gfx_dl_depth <= GFX_DL_TRACK) {
+                        gfx_dl_lists[gfx_dl_depth - 1] = cmd;
+                    }
+
                     --cmd; // increase after break
                 }
                 break;
@@ -4955,7 +5011,7 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_RDPTILESYNC:
                 break;
             default:
-                sysFatalError("Unknown GBI opcode 0x%02x at %p.\nw0 %08x\nw1 %08x", opcode, cmd, cmd->words.w0, cmd->words.w1);
+                gfx_unknown_opcode(cmd, gfx_dl_depth <= GFX_DL_TRACK ? gfx_dl_lists[gfx_dl_depth - 1] : dListStart, opcode);
                 break;
         }
         ++cmd;

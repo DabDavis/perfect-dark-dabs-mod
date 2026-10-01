@@ -182,6 +182,31 @@ void gfxReset(void)
 	g_GfxVtxOverflowReported = false;
 }
 
+/**
+ * Whether ptr lies in the frames' display list or vertex space - memory that
+ * the next frame but one writes over. A monitor's screen is drawn into it
+ * (tvscreenRender() points the node's rwdata gdl and vertices there), and the
+ * hit tests of a later frame must not walk that list: by then it is another
+ * frame's commands, run to wherever an end command happens to be, and their
+ * vertex loads read relative to a stale four-vertex block (crash reports
+ * 20260930-050213 and -053223, bgTestHitOnObj() from propFindAimingAt() on
+ * the Carrington Institute).
+ */
+bool gfxIsFrameMemory(const void *ptr)
+{
+	const u8 *p = ptr;
+
+	if (g_GfxBuffers[0] && p >= g_GfxBuffers[0] && p < g_GfxBuffers[NUM_GFXTASKS]) {
+		return true;
+	}
+
+	if (g_VtxBuffers[0] && p >= g_VtxBuffers[0] && p < g_VtxBuffers[NUM_GFXTASKS]) {
+		return true;
+	}
+
+	return false;
+}
+
 Gfx *gfxGetMasterDisplayList(void)
 {
 	g_GfxRequestedDisplayList = true;
