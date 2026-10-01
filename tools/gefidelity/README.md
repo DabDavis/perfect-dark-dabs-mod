@@ -1,9 +1,10 @@
 # tools/gefidelity: GE Plus against GoldenEye itself
 
 The instruments that judge the GoldenEye conversion against the originals:
-the **N64 ROM**, through the GoldenEye decomp's native port on the oracle
-host (`sdg@10.8.0.3:~/claude-007/007`, never modified), and the **XBLA
-release** ("Bean"). They exist so a conversion fault is found by a sweep over
+the **N64 ROM**, run in ares on the oracle host (`--oracle ares`), with the
+GoldenEye decomp's native port (`sdg@10.8.0.3:~/claude-007/007`, never
+modified) kept for its debug info and gdb probes - it is incomplete, and where
+the two disagree the cartridge is right - and the **XBLA release** ("Bean"). They exist so a conversion fault is found by a sweep over
 twenty missions instead of by a tester, and so an F3 investigation starts from
 "run the twin driver" instead of two new one-off gdb scripts (there were ~400
 of those in `build/gexrom/` and `~/dam-oracle/` when this was written).
@@ -23,6 +24,8 @@ stops checking looks exactly like a check that passes.
 | `common/gdbpd.py` | ours, the same API name for name |
 | `common/levels.py` | the twenty missions: GoldenEye's number (= our `--boot-ge-mission`), key, title, `LEVELID_*` |
 | `common/solo.padscript` | the oracle's front-end walk into solo Dam (the level is swapped at `bossSetLoadedStage`) |
+| `common/aresge.py` | **the real cartridge**: the same API over `n64twin`, a scriptable headless ares (`ares/twin.cpp`, built on the oracle host beside `n64oracle`; line protocol in `ares/README.md`). Addresses from the decomp's N64 ELF, offsets from the -m32 port's DWARF (`common/gen_ares_layout.py` -> `ares_layout.json`). `--oracle ares` on `twin.py`, the default for `world/sweep.py` |
+| `ares/padshot.py` | pictures from the real cartridge at a pad and heading - what settles a picture the native port disagrees on |
 
 A scenario is a gdb Python file that imports `gdbge` or `gdbpd` by
 `GF_SIDE` and calls the shared API (`world/dump.py` is ten lines). Our side

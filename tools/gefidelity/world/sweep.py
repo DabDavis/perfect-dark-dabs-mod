@@ -34,7 +34,8 @@ def main():
     ap.add_argument('--bin', default='./pd.base')
     ap.add_argument('--timeout', type=int, default=900)
     ap.add_argument('-j', type=int, default=4)
-    ap.add_argument('--oracle', choices=['ares', 'port'], help='GoldenEye side (twin.py\'s default if not given)')
+    ap.add_argument('--oracle', choices=['ares', 'port'], default='ares',
+                    help='GoldenEye side: the cartridge in ares (default) or the native port')
     ap.add_argument('--skip-dump', action='store_true', help='diff what is already in OUT')
     a = ap.parse_args()
     ms = levels.MISSIONS if a.missions == 'all' else [levels.mission(k) for k in a.missions.split(',')]

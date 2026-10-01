@@ -1,0 +1,444 @@
+"""The GoldenEye half of the twin driver on the REAL cartridge: the US ROM in
+ares, through n64twin (~/claude-007/ares/ares-nightly/oracle/twin.cpp on the
+oracle host), with gdbge.py's API name for name - so world/dump.py and any
+scenario that keeps to the API runs unchanged on the console.
+
+    twin.py both world/dump.py --mission dam --out OUT            # ares is the default
+    twin.py both world/dump.py --mission dam --out OUT --oracle port
+
+Why: the native port is a decompilation run natively with its own RDP and is
+not complete; where it and ours disagree it can be the port that is wrong
+(Frigate's sea came out green there). ares runs the cartridge.
+
+What is different from gdbge.py, and why:
+- No function calls: sizepropdef() is the decomp's table below, and Bond is
+  placed on a tile the caller names (a pad's own stan, PadRecord.stan) - there
+  is no stanFindFloorTileBelowY to ask.
+- Memory is read through the CPU's data cache (n64twin does it), big-endian, by
+  whole record; the layouts are ares_layout.json (gen_ares_layout.py: the
+  -m32 port's DWARF, whose record structs are the ROM's, and the N64 ELF's
+  symbols).
+- The front end is walked by pressing START until GoldenEye asks for Dam, not
+  by a fixed pad script: the cartridge reaches each folder screen tens of
+  frames later than the port does (solo-quiet.padscript stalls on the
+  briefing). Dam's load is swapped for the wanted level at bossSetLoadedStage
+  (a0), the difficulty is written at proplvreset2, and the one Z press that
+  dismisses the opening still lands 190 frames after the level's first frame,
+  as solo-quiet.padscript's does on the port.
+- A stop is at the end of a video frame, not at a function entry: a tick can
+  overshoot by the frame's step (GoldenEye advances 2-3 ticks a frame).
+"""
+import json, os, struct, subprocess, sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SIDE = 'ge'
+ORACLE = 'ares'
+L = json.load(open(os.path.join(HERE, 'ares_layout.json')))
+SYM = L['symbols']
+T = L['types']
+EXE = os.path.expanduser(os.environ.get('GF_ARES_EXE', '~/claude-007/ares/ares-nightly/build/n64twin'))
+ROM = os.path.expanduser(os.environ.get('GF_ARES_ROM', '~/claude-007/007/build/u/ge007.u.z64'))
+
+# sizepropdef() in words (loadobjectmodel.c:47), checked against the port's walk
+# of all twenty missions; anything else is the one-word header
+SIZEPROPDEF = {1: 64, 2: 2, 3: 32, 4: 33, 5: 32, 6: 0x3b, 7: 0x21, 8: 0x22, 9: 7, 10: 0x40, 11: 0x95,
+               12: 32, 13: 0x36, 14: 3, 17: 32, 18: 3, 19: 4, 20: 0x2d, 21: 0x22, 22: 4, 23: 4, 24: 1,
+               25: 2, 26: 2, 27: 2, 28: 2, 29: 2, 30: 4, 31: 1, 32: 4, 33: 5, 34: 1, 35: 4, 36: 32,
+               37: 10, 38: 4, 39: 0x2c, 40: 0x2d, 42: 32, 43: 32, 44: 5, 45: 0x38, 46: 7, 47: 37}
+OBJ_TYPES = {1, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 17, 20, 21, 36, 39, 40, 42, 43, 45, 47}
+PROPDEF_END = 0x30
+DISMISS_STILL_AFTER = 190    # frames; solo-quiet.padscript's Z at 1300 against a level start at ~1110
+
+_st = {'t0': 0}
+
+
+def say(*a):
+    print('GF', *a, flush=True)
+
+
+class _Twin:
+    def __init__(self):
+        self.p = subprocess.Popen([EXE, '--rom', ROM], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, text=True, bufsize=1)
+        self.read()
+
+    def read(self):
+        while True:
+            line = self.p.stdout.readline()
+            if not line:
+                raise RuntimeError('n64twin exited')
+            line = line.rstrip('\n')
+            if line.startswith('ok'):
+                return line[2:].strip()
+            if line.startswith('err'):
+                raise RuntimeError('n64twin: ' + line)
+            # ares' own chatter (shader compiles and the like) is not an answer
+
+    def __call__(self, cmd):
+        self.p.stdin.write(cmd + '\n')
+        self.p.stdin.flush()
+        return self.read()
+
+    def close(self):
+        try:
+            self('quit')
+        except Exception:
+            pass
+        try:
+            self.p.wait(10)
+        except Exception:
+            self.p.kill()
+
+
+_tw = None
+
+
+def twin():
+    global _tw
+    if _tw is None:
+        _tw = _Twin()
+    return _tw
+
+
+# ------------------------------------------------------------------ memory
+
+def peek(addr, n):
+    if n <= 0:
+        return b''
+    out = b''
+    while n > 0:
+        k = min(n, 4096)
+        out += bytes.fromhex(twin()('peek 0x%08x %d' % (addr, k)))
+        addr += k
+        n -= k
+    return out
+
+
+def poke(addr, data):
+    twin()('poke 0x%08x %s' % (addr, data.hex()))
+
+
+def u32(addr):
+    return struct.unpack('>I', peek(addr, 4))[0]
+
+
+def s32(addr):
+    return struct.unpack('>i', peek(addr, 4))[0]
+
+
+def _fmt(ent):
+    t = ent['type']
+    if '*' in t:
+        return '>I'
+    sz = ent['size']
+    if t in ('f32', 'float'):
+        return '>f'
+    signed = not (t.startswith('u') or 'unsigned' in t)
+    return {1: '>b' if signed else '>B', 2: '>h' if signed else '>H', 4: '>i' if signed else '>I'}.get(sz)
+
+
+class Rec:
+    """One record read whole; fields by the port's DWARF names."""
+    def __init__(self, typ, addr, data=None):
+        self.t = T[typ]
+        self.addr = addr
+        self.b = data if data is not None else peek(addr, self.t['size'])
+
+    def off(self, f):
+        return self.t['fields'][f]['off']
+
+    def __getitem__(self, f):
+        ent = self.t['fields'][f]
+        fmt = _fmt(ent)
+        v = struct.unpack_from(fmt, self.b, ent['off'])[0]
+        if 'bits' in ent:
+            v = (v >> (ent['size'] * 8 - ent['bitpos'] - ent['bits'])) & ((1 << ent['bits']) - 1)
+        return v
+
+    def f(self, f, i=0):
+        return struct.unpack_from('>f', self.b, self.off(f) + 4 * i)[0]
+
+    def vec(self, f):
+        return [self.f(f, i) for i in range(3)]
+
+    def ptr(self, f):
+        return struct.unpack_from('>I', self.b, self.off(f))[0]
+
+    def byte(self, f, i=0):
+        return self.b[self.off(f) + i]
+
+
+def _addr(field_of, typ, field):
+    return field_of + T[typ]['fields'][field]['off']
+
+
+# ------------------------------------------------------------- the clock
+
+def boot(levelid, difficulty=0):
+    tw = twin()
+    lv = L['levelids']
+    want = lv[levelid] if isinstance(levelid, str) else int(levelid)
+    dam = lv['LEVELID_DAM']
+    tw('on-pc 0x%08x if 4 %d set-gpr 4 %d' % (SYM['bossSetLoadedStage'], dam, want))
+    # walk the front end: START until GoldenEye asks for Dam (title, folder,
+    # mission, difficulty, briefing all take it)
+    for i in range(400):
+        tw('pad 0 START')
+        tw('frames 3')
+        tw('pad 0 -')
+        tw('frames 6')
+        if int(tw('fired').split()[0]) >= 1:
+            break
+    else:
+        raise RuntimeError('the front end never asked for Dam')
+    tw('on-pc 0x%08x poke 0x%08x %08x' % (SYM['proplvreset2'], SYM['g_SelectedDifficulty'], difficulty & 0xffffffff))
+    tw('until-fired 2 20000')
+    tw('until-pc 0x%08x 1 20000' % SYM['lvlRender'])
+    # positive controls: the cartridge took the difficulty and the swap, or nothing here is the level asked for
+    if s32(SYM['g_SelectedDifficulty']) != difficulty:
+        raise RuntimeError('difficulty %d did not take (cartridge has %d)' % (difficulty, s32(SYM['g_SelectedDifficulty'])))
+    if int(tw('fired').split()[0]) < 2:
+        raise RuntimeError('the level swap or the difficulty write never fired')
+    _st['t0'] = s32(SYM['g_GlobalTimer']) - 1
+    f0 = s32(SYM['currentFrameCounter'])
+    tw('cue %d 0 Z' % (f0 + DISMISS_STILL_AFTER))
+    tw('cue %d 0 -' % (f0 + DISMISS_STILL_AFTER + 10))
+    tw('pad 0 script')
+    say('boot', levelid, 'difficulty', s32(SYM['g_SelectedDifficulty']), 'tick', tick(), 'frame', f0,
+        'globaltimer', s32(SYM['g_GlobalTimer']), 'oracle ares')
+
+
+def tick():
+    return s32(SYM['g_GlobalTimer']) - _st['t0']
+
+
+def until_tick(t):
+    if tick() >= t:
+        return
+    twin()('until-word 0x%08x >= %d 200000' % (SYM['g_GlobalTimer'], t + _st['t0']))
+
+
+def frames(n=1):
+    twin()('until-word 0x%08x >= %d 200000' % (SYM['currentFrameCounter'], s32(SYM['currentFrameCounter']) + n))
+
+
+def _player():
+    return u32(SYM['g_CurrentPlayer'])
+
+
+def place(x, y, z, theta=None, verta=None, stan=None):
+    """Bond's feet at x, z on tile `stan` (GoldenEye's world). There is no tile
+    search on the console: pass a pad's own tile (pad_tile()), or none to keep
+    Bond's current tile."""
+    P = _player()
+    prop = u32(P + T['struct player']['fields']['prop']['off'])
+    F = T['struct player']['fields']
+    pk = lambda a, v: poke(a, struct.pack('>f', v))
+    pk(prop + T['PropRecord']['fields']['pos']['off'] + 0, x)
+    pk(prop + T['PropRecord']['fields']['pos']['off'] + 8, z)
+    pk(P + F['field_488.collision_position']['off'] + 0, x)
+    pk(P + F['field_488.collision_position']['off'] + 8, z)
+    if stan:
+        s = struct.pack('>I', stan)
+        poke(prop + T['PropRecord']['fields']['stan']['off'], s)
+        poke(P + F['field_488.current_tile_ptr']['off'], s)
+        poke(P + F['field_488.current_tile_ptr_for_portals']['off'], s)
+    if theta is not None:
+        pk(P + F['vv_theta']['off'], theta)
+    if verta is not None:
+        pk(P + F['vv_verta']['off'], verta)
+    return stan
+
+
+def hold(x, y, z, theta=None, verta=None, n=8, stan=None):
+    for _ in range(n):
+        place(x, y, z, theta, verta, stan)
+        frames(3)
+    place(x, y, z, theta, verta, stan)
+    frames(1)
+    return stan
+
+
+def pad_tile(padnum):
+    """A pad's own floor tile, as GoldenEye's spawn code takes it."""
+    setup = Rec('stagesetup', SYM['g_CurrentSetup'])
+    if padnum >= 10000:
+        a = setup.ptr('boundpads') + (padnum - 10000) * T['BoundPadRecord']['size']
+        return Rec('BoundPadRecord', a).ptr('stan')
+    a = setup.ptr('pads') + padnum * T['PadRecord']['size']
+    return Rec('PadRecord', a).ptr('stan')
+
+
+def shot(path):
+    twin()('shot %s' % path)
+    return path
+
+
+def finish():
+    if _tw is not None:
+        _tw.close()
+    sys.exit(0)
+
+
+# ------------------------------------------------------------- the world
+
+def _f(v):
+    return round(float(v), 3)
+
+
+def _rooms(prop):
+    out = []
+    for r in range(4):
+        b = prop.byte('rooms', r)
+        if b == 0xff:
+            break
+        out.append(b)
+    return out
+
+
+def _tileroom(stan):
+    if not stan:
+        return -1
+    return Rec('StandTile', stan)['room']
+
+
+def pads():
+    out = []
+    setup = Rec('stagesetup', SYM['g_CurrentSetup'])
+    for field, rec, base in (('pads', 'PadRecord', 0), ('boundpads', 'BoundPadRecord', 10000)):
+        a = setup.ptr(field)
+        if not a:
+            continue
+        size = T[rec]['size']
+        blob = peek(a, size * 64)
+        i = 0
+        while i < 4000:
+            if (i + 1) * size > len(blob):
+                blob += peek(a + len(blob), size * 64)
+            p = Rec(rec, a + i * size, blob[i * size:(i + 1) * size])
+            if p.ptr('plink') == 0:
+                break
+            pos = p.vec('pos')
+            out.append([base + i, _f(pos[0]), _f(pos[1]), _f(pos[2]), _tileroom(p.ptr('stan'))])
+            i += 1
+    return out
+
+
+def _ailist_ids():
+    ids = {}
+    setup = Rec('stagesetup', SYM['g_CurrentSetup'])
+    for a in (setup.ptr('ailists'), SYM['g_GlobalAILists']):
+        i = 0
+        while a and i < 2000:
+            r = Rec('AIListRecord', a + 8 * i)
+            if r.ptr('ailist') == 0:
+                break
+            ids[r.ptr('ailist')] = r['ID']
+            i += 1
+    return ids
+
+
+def _weaponnum(propaddr):
+    if not propaddr:
+        return None
+    prop = Rec('PropRecord', propaddr)
+    w = prop.ptr('weapon')
+    if not w:
+        return None
+    return Rec('WeaponObjRecord', w)['weaponnum']
+
+
+def props():
+    out = []
+    setup = Rec('stagesetup', SYM['g_CurrentSetup'])
+    p = setup.ptr('propDefs')
+    i = 0
+    while i < 5000:
+        hdr = Rec('PropDefHeaderRecord', p)
+        t = hdr['type']
+        if t == PROPDEF_END:
+            break
+        words = SIZEPROPDEF.get(t, 1)
+        rec = {'i': i, 'type': t, 'words': words}
+        if t in OBJ_TYPES:
+            o = Rec('ObjectRecord', p)
+            rec.update({'model': o['obj'], 'pad': o['pad'], 'flags': o['flags'] & 0xffffffff,
+                        'flags2': o['flags2'] & 0xffffffff, 'state': hdr['state'], 'extrascale': hdr['extrascale']})
+            pa = o.ptr('prop')
+            if pa:
+                prop = Rec('PropRecord', pa)
+                mo = o.off('mtx')
+                rot = [[_f(struct.unpack_from('>f', o.b, mo + 16 * r + 4 * c)[0]) for c in range(3)] for r in range(3)]
+                rec.update({'exists': 1, 'pos': [_f(v) for v in prop.vec('pos')],
+                            'rtpos': [_f(v) for v in o.vec('runtime_pos')],
+                            'rooms': _rooms(prop), 'rot': rot,
+                            'damage': _f(o.f('damage')), 'maxdamage': _f(o.f('maxdamage')),
+                            'rtflags': o['runtime_bitflags'] & 0xffffffff,
+                            'attached': 1 if prop.ptr('parent') else 0, 'propflags': prop['flags']})
+                if o.ptr('model'):
+                    rec['scale'] = _f(Rec('Model', o.ptr('model')).f('scale'))
+                if t == 1:
+                    d = Rec('DoorRecord', p)
+                    rec['door_slide'] = [_f(d.f('frac')), _f(d.f('unkac')), _f(d.f('unkb0'))]
+                    rec['door_maxFrac'] = _f(d.f('maxFrac'))
+                    rec['door_openPosition'] = _f(d.f('openPosition'))
+                    rec['door_openstate'] = d['openstate']
+            else:
+                rec['exists'] = 0
+        out.append(rec)
+        p += 4 * words
+        i += 1
+    return out
+
+
+def chrs():
+    ids = _ailist_ids()
+    out = []
+    n = s32(SYM['g_NumChrSlots'])
+    base = u32(SYM['g_ChrSlots'])
+    size = T['ChrRecord']['size']
+    blob = peek(base, size * n) if n > 0 else b''
+    for k in range(n):
+        c = Rec('ChrRecord', base + k * size, blob[k * size:(k + 1) * size])
+        pa = c.ptr('prop')
+        if c['chrnum'] < 0 or not pa:
+            continue
+        prop = Rec('PropRecord', pa)
+        if prop.ptr('chr') != base + k * size:    # a free slot can keep a stale prop
+            continue
+        ail = c.ptr('ailist')
+        wo = c.off('weapons_held')
+        rec = {'chrnum': c['chrnum'], 'slot': k, 'headnum': c['headnum'], 'bodynum': c['bodynum'],
+               'actiontype': c['actiontype'], 'sleep': c['sleep'], 'chrflags': c['chrflags'] & 0xffffffff,
+               'hidden': c['hidden'], 'flags2': c['flags2'], 'damage': _f(c.f('damage')),
+               'maxdamage': _f(c.f('maxdamage')), 'morale': c['morale'], 'alertness': c['alertness'],
+               'accuracyrating': c['accuracyrating'], 'speedrating': c['speedrating'],
+               'visionrange': _f(c.f('visionrange')), 'hearingscale': _f(c.f('hearingscale')),
+               'ailist': ids.get(ail, -1 if ail == 0 else 'ptr'), 'aioffset': c['aioffset'],
+               'padpreset1': c['padpreset1'], 'chrpreset1': c['chrpreset1'],
+               'pos': [_f(v) for v in prop.vec('pos')], 'rooms': _rooms(prop),
+               'weapons': [_weaponnum(struct.unpack_from('>I', c.b, wo + 4 * h)[0]) for h in range(2)]}
+        if c.ptr('model'):
+            rec['scale'] = _f(Rec('Model', c.ptr('model')).f('scale'))
+        out.append(rec)
+    return out
+
+
+def player():
+    P = Rec('struct player', _player())
+    prop = Rec('PropRecord', P.ptr('prop'))
+    return {'pos': [_f(v) for v in prop.vec('pos')], 'rooms': _rooms(prop),
+            'theta': _f(P.f('vv_theta')), 'verta': _f(P.f('vv_verta')),
+            'eye': [_f(v) for v in P.vec('field_488.pos')],
+            'health': _f(P.f('bondhealth')), 'armour': _f(P.f('bondarmour'))}
+
+
+def world():
+    return {'side': SIDE, 'oracle': ORACLE, 'tick': tick(), 'pads': pads(), 'props': props(),
+            'chrs': chrs(), 'player': player()}
+
+
+def emit(path, data):
+    with open(path, 'w') as fh:
+        json.dump(data, fh, separators=(',', ':'))
+    say('wrote', path)

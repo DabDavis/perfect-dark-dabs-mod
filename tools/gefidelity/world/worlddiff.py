@@ -320,9 +320,8 @@ def compare(ge0, pd0, ge1, pd1, mission):
     a, b = ge1['player'], pd1['player']
     d = math.dist([a['pos'][0] + off[0], a['pos'][2] + off[2]], [b['pos'][0], b['pos'][2]])
     if d > TOL_CHR:
-        rep.add('player.pos', '-', 'Bond is %.1f units out across the floor at tick %d (both spawn alike; the '
-                'oracle plays the opening, where Bond walks in, and ours runs with --skip-mission-intro)' % (
-                    d, ge1['tick']), d)
+        rep.add('player.pos', '-', 'Bond is %.1f units out across the floor at tick %d (the native port leaves '
+                'his prop at its spawn values for a while, so judge this one on --oracle ares)' % (d, ge1['tick']), d)
     dy = (b['eye'][1]) - (a['eye'][1] + off[1])
     if abs(dy) > 1.0:
         rep.add('player.eye', '-', 'Bond\'s eye is %.1f units %s than GoldenEye\'s at tick %d' % (

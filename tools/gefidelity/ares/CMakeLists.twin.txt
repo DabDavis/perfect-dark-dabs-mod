@@ -1,0 +1,18 @@
+
+# n64twin: the same core, steered line by line over stdin (tools/gefidelity aresge.py)
+add_executable(twin twin.cpp)
+target_compile_definitions(twin PRIVATE MIA_LIBRARY)
+target_include_directories(
+  twin
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/thirdparty
+    ${CMAKE_SOURCE_DIR}/ares
+    ${PRDP}/parallel-rdp
+    ${PRDP}/volk
+    ${PRDP}/vulkan
+    ${PRDP}/vulkan-headers/include
+    ${PRDP}/util
+)
+target_link_libraries(twin PRIVATE ares::ares ares::nall mia)
+set_target_properties(twin PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" OUTPUT_NAME "n64twin")
