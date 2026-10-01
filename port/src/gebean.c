@@ -976,6 +976,37 @@ static u8 fpRoundSet[2][ARRAYCOUNT(fpRows)];
 // their own hand (fpWatchRows)
 #define GEBEAN_FPWATCH_BASE (GEBEAN_CHRROW_BASE + ARRAYCOUNT(chrRows))
 
+/*
+ * The release's spent cartridges (files/new/gun/cartridge*), which it throws
+ * out of a GoldenEye gun on every shot in place of GoldenEye's own N64 ones:
+ * seen drawn on 20 of 23 mission captures (tools/gefidelity xbla census, H2),
+ * never loaded by ours, which threw Perfect Dark's GcartridgeZ (bondgun.c's
+ * g_CartFileNums) - the same four casings GoldenEye has (gun.c's
+ * ejected_cartridge[]), with Perfect Dark's own XBLA art on them in the HD
+ * look. In casing order: g_CartFileNums' cartridge, rifle, blue and shell.
+ *
+ * Each is laid onto Perfect Dark's model of the same casing, its one list in
+ * the list's own space (the position node over it stands 31.9 or 21.3 along
+ * z): fitted on the release's N64-look copy (files/original/gun/), every axis
+ * order and sign, the scale from the extents along the longest axis and the
+ * translation centring the boxes - within half a unit on the cartridge, the
+ * blue and the shell; Perfect Dark's rifle casing is wider than GoldenEye's,
+ * so the release's is GoldenEye's size on it. A GoldenEye gun's casing is
+ * loaded from an alias of the host's casing file (gebeanCasingFile()), so a
+ * Perfect Dark gun's casing is untouched, and in the N64 look the alias is
+ * the same model as before.
+ */
+static const struct gebeangunrow cartRows[] = {
+	PROPROW("GgeCartridgeZ", "gun/cartridge",      0, 1, 2,  1,  1, 1, 0.21667f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, -32.50f),
+	PROPROW("GgeCartrifleZ", "gun/cartridgerifle", 0, 1, 2,  1,  1, 1, 0.21250f, 0.00f, 0.00f, 0.00f, 0.00f, 1.50f, -21.00f),
+	PROPROW("GgeCartblueZ",  "gun/cartridgeblue",  0, 1, 2,  1,  1, 1, 0.21250f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, -21.00f),
+	PROPROW("GgeCartshellZ", "gun/cartridgeshell", 0, 1, 2, -1, -1, 1, 0.21491f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, -21.00f),
+};
+
+static s32 cartSlot[ARRAYCOUNT(cartRows)];
+
+#define GEBEAN_CARTROW_BASE (GEBEAN_FPWATCH_BASE + ARRAYCOUNT(fpWatchRows))
+
 /**
  * A row of any table: GoldenEye X's first, then the pool's, then the guns',
  * then the remake's props, then its characters.
@@ -1010,6 +1041,10 @@ static const struct gebeanrow *gebeanRowAt(s32 row)
 
 	if (row >= GEBEAN_FPWATCH_BASE && row < GEBEAN_FPWATCH_BASE + ARRAYCOUNT(fpWatchRows)) {
 		return &fpWatchRows[row - GEBEAN_FPWATCH_BASE];
+	}
+
+	if (row >= GEBEAN_CARTROW_BASE && row < GEBEAN_CARTROW_BASE + ARRAYCOUNT(cartRows)) {
+		return &cartRows[row - GEBEAN_CARTROW_BASE].row;
 	}
 
 	return NULL;
@@ -1052,6 +1087,12 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 
 		if (fpWatchSlot[i] && fpWatchSlot[i] == fileid && name == fpWatchRows[i].file) {
 			return GEBEAN_FPWATCH_BASE + i;
+		}
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(cartRows); i++) {
+		if (cartSlot[i] && cartSlot[i] == fileid && name == cartRows[i].row.file) {
+			return GEBEAN_CARTROW_BASE + i;
 		}
 	}
 
@@ -1410,6 +1451,18 @@ static void gebeanGunsRefresh(void)
 	}
 
 	show = !modDataMpWeaponsImported() && (bean || anyborrowed || anyown);
+
+	// The release's spent cartridges, on aliases of Perfect Dark's casings
+	// that only a GoldenEye gun's ejection loads (gebeanCasingFile())
+	{
+		static const u16 casings[ARRAYCOUNT(cartRows)] = {
+			FILE_GCARTRIDGE, FILE_GCARTRIFLE, FILE_GCARTBLUE, FILE_GCARTSHELL,
+		};
+
+		for (s32 c = 0; c < ARRAYCOUNT(cartRows); c++) {
+			cartSlot[c] = show && bean ? romdataRegisterAliasFile(cartRows[c].row.file, casings[c]) : 0;
+		}
+	}
 
 	for (s32 i = 0; i < ARRAYCOUNT(gunRows); i++) {
 		const s32 hostmodel = gegunsHostModel(i);
@@ -2753,9 +2806,20 @@ s32 gebeanRowIsFirstPerson(s32 row)
 		|| (row >= GEBEAN_FPWATCH_BASE && row < GEBEAN_FPWATCH_BASE + ARRAYCOUNT(fpWatchRows));
 }
 
+u16 gebeanCasingFile(s32 weaponnum, s32 casing, u16 stock)
+{
+	if (weaponnum >= WEAPON_GE_FIRST && weaponnum < WEAPON_GE_FIRST + NUM_GE_GUNS
+			&& casing >= 0 && casing < (s32)ARRAYCOUNT(cartRows) && cartSlot[casing]) {
+		return (u16)cartSlot[casing];
+	}
+
+	return stock;
+}
+
 s32 gebeanRowIsProp(s32 row)
 {
-	return row >= GEBEAN_PROPROW_BASE && row < GEBEAN_CHRROW_BASE;
+	return (row >= GEBEAN_PROPROW_BASE && row < GEBEAN_CHRROW_BASE)
+		|| (row >= GEBEAN_CARTROW_BASE && row < GEBEAN_CARTROW_BASE + (s32)ARRAYCOUNT(cartRows));
 }
 
 s32 gebeanRowIsChr(s32 row)
@@ -9664,6 +9728,18 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 
 		sphere = beanDrawIsSphereMapped(&bm, d, &vb);
 
+		// A spent cartridge's brass: a skinned vertex with a colour and no
+		// UV (stride 28), on GoldenEye's own banded reflection picture
+		// (_0x087BD385.rgb.bin, the blue's and the rifle's _0x02D7CFA5),
+		// which the release's shader looks up by the normal as GoldenEye's
+		// texgen did. Read at the UV it has not got, the side of the case was
+		// one flat beige texel. Only the cartridges: the helicopter's, the
+		// truck's and the plane's stride 28 draws are not looked at here
+		if (!sphere && g >= cartRows && g < cartRows + ARRAYCOUNT(cartRows)
+				&& vb.stride == 28 && vb.col28 && d->ownmat && d->tex < (u32)bm.numtex) {
+			sphere = 1;
+		}
+
 		if (sphere) {
 			beanSphereFrame(&bm, &vb, tris, numtris, &sp);
 		}
@@ -12464,6 +12540,14 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 		return !original && modeldef && numnodes > 0 && numnodes <= 64
 			? gebeanBuildRigid(&propRows[row - GEBEAN_PROPROW_BASE], modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;
+	}
+
+	if (row >= GEBEAN_CARTROW_BASE && row < GEBEAN_CARTROW_BASE + (s32)ARRAYCOUNT(cartRows)) {
+		*outLen = 0;
+		*outAbsent = 0;
+
+		return !original && modeldef && numnodes > 0 && numnodes <= 64
+			? gebeanBuildRigid(&cartRows[row - GEBEAN_CARTROW_BASE], modeldef, nodes, numnodes, mats, outAbsent, outLen) : NULL;
 	}
 
 	const u16 fileid = mats->fileid;

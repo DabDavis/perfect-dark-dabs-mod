@@ -81,6 +81,13 @@ const char *gebeanRowName(s32 row);
  * GoldenEye X model is GoldenEye's N64 one already and draws itself.
  */
 s32 gebeanRowIsPool(s32 row);
+
+/**
+ * The file the casing a gun ejects is loaded from: for one of GoldenEye's guns,
+ * an alias of the casing (bondgun.c's g_CartFileNums[casing]) the release's
+ * own spent cartridge is drawn on in the HD look; else `stock`.
+ */
+u16 gebeanCasingFile(s32 weaponnum, s32 casing, u16 stock);
 s32 gebeanRowIsFemale(s32 row);
 
 /**
