@@ -5647,6 +5647,10 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 			// Handle chr dizziness and psychosis
 			if (makedizzy && race != RACE_DRCAROLL && race != RACE_ROBOT) {
 				if (gsetHasFunctionFlags(gset, FUNCFLAG_PSYCHOSIS)) {
+#ifndef PLATFORM_N64
+					// a converted GoldenEye guard's list never looks for the flag
+					gexPlusPsychosis(chr);
+#endif
 					chr->hidden |= CHRHFLAG_PSYCHOSISED;
 				} else {
 					chr->blurdrugamount += gsetGetBlurAmount(gset);
@@ -13283,6 +13287,18 @@ void chrTickThrowGrenade(struct chrdata *chr)
 		objSetDropped(weaponprop, DROPTYPE_THROWGRENADE);
 		chr->hidden |= CHRHFLAG_DROPPINGITEM;
 		weapon->timer240 = TICKS(240);
+
+#ifndef PLATFORM_N64
+		// GoldenEye's guards give theirs three seconds. Perfect Dark's second
+		// went off in the air, but three leave it lying on the floor, and a
+		// weapon at rest in a room that is neither on screen nor beside one
+		// is paused (propsTickPlayer()): the fuse stopped until the player
+		// looked that way. GoldenEye ticks every object, so this one ticks.
+		if (gegunsChrGrenadeFuse60(weapon->weaponnum) > 0) {
+			weapon->timer240 = TICKS(gegunsChrGrenadeFuse60(weapon->weaponnum) * 4);
+			weaponprop->forcetick = true;
+		}
+#endif
 	}
 
 	frame2 = modelGetCurAnimFrame(model);

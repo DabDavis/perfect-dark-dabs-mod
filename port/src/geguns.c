@@ -2056,6 +2056,28 @@ s32 gegunsThrownFuse60(s32 weaponnum)
 	return 0;
 }
 
+/**
+ * The fuse on a grenade a guard throws, in sixtieths, or 0 for Perfect Dark's.
+ *
+ * Perfect Dark's guards let go with timer240 at TICKS(240): one second, on the
+ * clock of 240ths. GoldenEye's (chraction.c's chrlvTickThrowGrenade) set the
+ * grenade's timer to CHRLV_DEFAULT_TIMER - NTSC's 180 sixtieths, PAL's 150
+ * fiftieths, three seconds either way - every tick from frame 61 of the throw
+ * until it leaves the hand at 119, and propobj.c counts it down on its
+ * sixtieths. A converted mission's guards threw Perfect Dark's one second
+ * (F3 20260930-211747, Control). GoldenEye's grenade from any guard, and any
+ * grenade on a converted mission.
+ */
+s32 gegunsChrGrenadeFuse60(s32 weaponnum)
+{
+	if (weaponnum == WEAPON_GE_GRENADE
+			|| (modloaderStageIsMission(g_Vars.stagenum) && !g_Vars.normmplayerisrunning)) {
+		return 180;
+	}
+
+	return 0;
+}
+
 static s32 gegunsOwnThrowKnifeGone(const struct hand *hand);
 
 static s32 gegunsIsShotgun(s32 weaponnum)

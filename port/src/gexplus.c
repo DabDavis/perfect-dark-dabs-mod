@@ -62,6 +62,8 @@
 #include "lib/main.h"
 #include "game/lv.h"
 #include "game/options.h"
+#include "game/chr.h"
+#include "lib/ailist.h"
 
 static s32 g_GexPlusScenario = GEXPLUS_NORMAL;
 
@@ -1738,4 +1740,65 @@ u16 gexPlusPropDeformSeed(s32 modelnum, s32 index)
 	}
 
 	return seeds[prop][index];
+}
+
+/**
+ * Perfect Dark's psychosis gun on a converted GoldenEye mission's guard.
+ *
+ * The gun only sets CHRHFLAG_PSYCHOSISED (chraction.c). What turns the guard
+ * is his AI list: Perfect Dark's global lists (unalerted, alerted, the shot
+ * lists) look for the flag and hand over to GAILIST_INIT_PSYCHOSIS, which
+ * puts him on the player's team and follows her. A converted mission's guards
+ * run GoldenEye's own lists, converted, and nothing in GoldenEye knows the
+ * flag, so the guard took the dart and carried on shooting at Bond (F3
+ * 20260930-211331, Silo).
+ *
+ * So the hit hands him over itself, as the global lists would have. And the
+ * teams: the converter leaves every guard on team 0, which is in none of
+ * teamGetChrIds()' lists, so a turned guard's "nearest enemy" found nobody
+ * to fight. The armed chrs that are not civilians go to TEAM_ENEMY, where a
+ * Perfect Dark level's guards are; the unarmed (scientists, Natalya, Boris)
+ * and the civilians stay out of it, as GoldenEye's guards never fought them.
+ *
+ * Returns whether it took the chr over.
+ */
+s32 gexPlusPsychosis(struct chrdata *chr)
+{
+	u8 *ailist;
+	s32 i;
+
+	if (!modloaderStageIsMission(g_Vars.stagenum) || g_Vars.normmplayerisrunning
+			|| chr->aibot || chr->prop == NULL || chrIsDead(chr)
+			|| (chr->hidden & CHRHFLAG_PSYCHOSISED)) {
+		return false;
+	}
+
+	ailist = ailistFindById(GAILIST_INIT_PSYCHOSIS);
+
+	if (ailist == NULL) {
+		return false;
+	}
+
+	for (i = 0; i < chrsGetNumSlots(); i++) {
+		struct chrdata *other = &g_ChrSlots[i];
+
+		if (other->chrnum >= 0 && other->prop && other != chr && other->team == TEAM_00
+				&& other->aibot == NULL
+				&& (other->prop->type == PROPTYPE_CHR)
+				&& (other->chrflags & CHRCFLAG_KILLCOUNTABLE) == 0
+				&& (chrGetHeldProp(other, HAND_RIGHT) || chrGetHeldProp(other, HAND_LEFT))) {
+			other->team = TEAM_ENEMY;
+		}
+	}
+
+	chr->hidden |= CHRHFLAG_PSYCHOSISED;
+	chr->ailist = ailist;
+	chr->aioffset = 0;
+	chr->aireturnlist = GAILIST_PSYCHOSISED;
+	chr->sleep = 0;
+
+	// the hit is about to trigger the shot list, which is GoldenEye's
+	chr->aishotlist = GAILIST_INIT_PSYCHOSIS;
+
+	return true;
 }

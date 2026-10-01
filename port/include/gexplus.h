@@ -101,6 +101,11 @@ s32 gexPlusMissionAnim(s32 geid);
 void gexPlusExitOnButtonPress(void);
 void gexPlusMissionExitTick(void);
 
+// Perfect Dark's psychosis gun on a converted mission's guard, whose GoldenEye
+// AI list never looks for CHRHFLAG_PSYCHOSISED: hands him to
+// GAILIST_INIT_PSYCHOSIS. True if it did; chrDamage() sets the flag otherwise
+s32 gexPlusPsychosis(struct chrdata *chr);
+
 /**
  * GE Plus's guns are GoldenEye's: the weapon sets its arenas list (GoldenEye's
  * own fourteen out of the ROM, else GoldenEye X's borrowed ones; 0 for the
