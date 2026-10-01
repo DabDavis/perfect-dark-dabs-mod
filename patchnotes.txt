@@ -31,6 +31,22 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 27 2026-10-01
+GE Plus tank: the barrel no longer passes through walls - it stops against them as in GoldenEye (thanks Graslu00)
+GE Plus tank: the engine sound fades out once you climb out instead of running on in the distance (thanks Graslu00)
+GE Plus, HD look: the rocket launcher no longer shows a gap in its middle after firing or when empty (thanks Graslu00)
+GE Plus Depot, HD look: the rockets on the desk can be seen again (thanks Graslu00)
+GE Plus: weapons lying around sit at GoldenEye's height instead of slightly sunk (thanks Graslu00)
+GE Plus: the mission timer uses GoldenEye's font and sits higher on the screen
+Third person: the camera shows your changes live again while you adjust it in the menu (thanks Parabolee)
+GE Plus: shot-out lights no longer darken the whole room, as in GoldenEye; turn it back on with Extended Options > Video > Shot-Out Lights Darken GoldenEye Rooms. No extra glass sound either (thanks dblaney1)
+GE Plus: the psychosis gun works on GoldenEye's guards
+GE Plus: guards' grenades have GoldenEye's 3-second fuse instead of going off early
+GE Plus Streets: Bond climbs in through the windows as in GoldenEye; other levels get the same rule for their low sills (thanks Graslu00)
+Carrington Institute, XBLA look: no more crash when aiming at the monitors
+Customize Character, XBLA look: no more crash after swapping heads many times
+Report a Problem (F3): reports now list the textures of the rooms around you, to help track down missing or wrong textures (thanks Odeyseis)
+
 notes 26 2026-09-30
 GE Plus: GoldenEye's guard clones happen again on Dam, Bunker 1 and 2, Silo, Archives and Jungle - an unseen guard who hears gunfire sends a clone out of sight, with GoldenEye's limit on how many (thanks Graslu00)
 GE Plus: the shotgun and automatic shotgun hide their side shells one by one as your reserve drops below five, in both looks (thanks Graslu00)
