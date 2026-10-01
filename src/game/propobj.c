@@ -4551,6 +4551,9 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 {
 	struct defaultobj *obj = prop->obj;
 	struct prop *ownerprop = NULL;
+#ifndef PLATFORM_N64
+	bool geminesilent = false;
+#endif
 
 	if (obj->hidden & OBJHFLAG_PROJECTILE) {
 		ownerprop = obj->projectile->ownerprop;
@@ -4589,10 +4592,32 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 		autogun->yrot = autogun->yzero;
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye's mine sticks with ATTACH_MINE_SFX and nothing of the surface
+	// (propobj.c's thrown weapon tick); Perfect Dark's sounded the surface
+	// it hit, and no mine of GoldenEye's attached audibly (FINDINGS row 10)
+	if (obj->type == OBJTYPE_WEAPON && geSfxStage()) {
+		struct weaponobj *weapon = (struct weaponobj *)obj;
+
+		if (weapon->weaponnum == WEAPON_GE_TIMEDMINE || weapon->weaponnum == WEAPON_GE_PROXIMITYMINE
+				|| weapon->weaponnum == WEAPON_GE_REMOTEMINE) {
+			const s32 num = geSfxNum(GESFX_ATTACH_MINE);
+
+			if (num) {
+				psCreate(0, prop, num, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+				geminesilent = true;
+			}
+		}
+	}
+#endif
+
 	if (g_EmbedProp) {
 		if (obj->type == OBJTYPE_WEAPON) {
 			struct weaponobj *weapon = (struct weaponobj *)obj;
 
+#ifndef PLATFORM_N64
+			if (!geminesilent)
+#endif
 			bgunPlayPropHitSound(&weapon->gset, g_EmbedProp, -1);
 
 			if (weaponHasFlag2(weapon->weaponnum, WEAPONFLAG2_POISONS)
@@ -4618,6 +4643,9 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 	} else if (obj->type == OBJTYPE_WEAPON) {
 		struct weaponobj *weapon = (struct weaponobj *)obj;
 
+#ifndef PLATFORM_N64
+		if (!geminesilent)
+#endif
 		bgunPlayBgHitSound(&weapon->gset, arg1, -1, prop->rooms);
 	}
 }
@@ -7832,6 +7860,26 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 						if (sp350) {
 #ifndef PLATFORM_N64
+							// GoldenEye's mine attaches where it first comes
+							// down (its thrown weapon tick embeds a mine on
+							// contact and frees its projectile, with
+							// ATTACH_MINE_SFX, objLand()); Perfect Dark's
+							// hopped on along the floor and lay there still
+							// a projectile - near an armed proximity mine,
+							// moving enough to set it off (FINDINGS row 10)
+							if (sp354 && obj->type == OBJTYPE_WEAPON
+									&& gegunsMineAttaches(((struct weaponobj *) obj)->weaponnum)) {
+								// coming down on the floor it lands with DROP_GUN_SFX as
+								// well, as anything thrown does; on another mine only
+								// ATTACH_MINE (objLand())
+								const s32 num = geSfxNum(GESFX_DROP_GUN);
+
+								if (num) {
+									psCreate(0, prop, num, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+								}
+
+								objLand(prop, &sp5e8, &sp5f4, embedded);
+							} else
 							// GoldenEye's thrown knife is launched sticky as
 							// every thrown thing is, but it has no reason to
 							// stick (it is not STICKSTOWALL, as GoldenEye's
@@ -7944,7 +7992,12 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							}
 						}
 
-						if (cdresult == CDRESULT_COLLISION) {
+						if (cdresult == CDRESULT_COLLISION
+#ifndef PLATFORM_N64
+								// a mine landed above (objLand()) has no projectile now
+								&& (obj->hidden & OBJHFLAG_PROJECTILE)
+#endif
+								) {
 							if (projectile->unk0a4 < g_Vars.lvframenum - 2) {
 #ifndef PLATFORM_N64
 								// GoldenEye's own: a knife strikes with
@@ -17012,7 +17065,11 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 	// Create wall hit (bullet hole)
 	if (!ismeleefunc
 			&& hit->hitthing.texturenum != 10000
-			&& !weaponHasFlag2(shotdata->gset.weaponnum, WEAPONFLAG2_NOWALLHIT)) {
+			&& (!weaponHasFlag2(shotdata->gset.weaponnum, WEAPONFLAG2_NOWALLHIT)
+#ifndef PLATFORM_N64
+				|| gegunsMoonrakerMarks(shotdata->gset.weaponnum)
+#endif
+				)) {
 		if (!hit->slowsbullet) {
 			struct prop *hitprop = hit->prop;
 			s8 iswindoweddoor = obj->model->definition->skel == &g_SkelWindowedDoor ? true : false;

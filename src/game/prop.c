@@ -53,6 +53,7 @@
 #include "data.h"
 #include "geimpact.h"
 #include "gehitpuff.h"
+#include "geguns.h"
 #include "types.h"
 #include <string.h>
 
@@ -969,7 +970,11 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 			bgunSetHitPos(&sp694.pos);
 
 			if (surfacetype->numwallhittexes > 0 && (!func || (func->type & 0xff) != INVENTORYFUNCTYPE_MELEE)) {
-				if (!weaponHasFlag2(shotdata.gset.weaponnum, WEAPONFLAG2_NOWALLHIT)) {
+				if (!weaponHasFlag2(shotdata.gset.weaponnum, WEAPONFLAG2_NOWALLHIT)
+#ifndef PLATFORM_N64
+						|| gegunsMoonrakerMarks(shotdata.gset.weaponnum)
+#endif
+						) {
 					texnum = rngRandom() % surfacetype->numwallhittexes;
 					texnum = surfacetype->wallhittexes[texnum];
 

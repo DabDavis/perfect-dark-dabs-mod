@@ -154,6 +154,8 @@ struct gegunstat {
 
 // GoldenEye's WEAPONSTATBITFLAG_* bits a definition is built from (bondconstants.h)
 #define GESTATFLAG_HAS_AUTO_AIM           0x00000008
+#define GESTATFLAG_CLICKY                 0x00000010
+#define GESTATFLAG_HIDE_FIRST_PERSON_HAND 0x00002000
 #define GESTATFLAG_ONLY_1_HANDED          0x00000100
 #define GESTATFLAG_HIDE_FIRST_PERSON_MENU 0x00004000
 #define GESTATFLAG_USE_HOLD_TIME          0x00020000
@@ -473,11 +475,71 @@ s32 gegunsTriggerDelay60(s32 weaponnum)
  */
 s32 gegunsDryFireInterval60(s32 weaponnum)
 {
-	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_GUNS) {
+	if (gegunsClicksEmpty(weaponnum) <= 0) {
 		return 0;
 	}
 
 	return 20 + GEGUNS_GE_FRAME_TICKS + gegunsTriggerDelay60(weaponnum);
+}
+
+/**
+ * Whether one of GoldenEye's guns clicks when its trigger is held empty: 1,
+ * or 0 for one that reloads instead - the grenade, the mines, the throwing
+ * knife, whose rows lack WEAPONSTATBITFLAG_CLICKY, go from an empty hand to
+ * RELOAD_START with the trigger still held (gunfire.c), where Perfect Dark
+ * dry-fires them until it lets go. -1 for a weapon that is not GoldenEye's.
+ */
+s32 gegunsClicksEmpty(s32 weaponnum)
+{
+	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_GUNS
+			|| stats[weaponnum - WEAPON_GE_FIRST].bitflags == 0) {
+		return -1;
+	}
+
+	return (stats[weaponnum - WEAPON_GE_FIRST].bitflags & GESTATFLAG_CLICKY) != 0;
+}
+
+/**
+ * GoldenEye's grenade and mines: held and thrown by GoldenEye's rule rather
+ * than their hosts' (bondgun.c's bgunTickIncAttackingGeThrow()).
+ */
+s32 gegunsThrowsAsGoldenEye(s32 weaponnum)
+{
+	switch (weaponnum) {
+	case WEAPON_GE_GRENADE:
+	case WEAPON_GE_TIMEDMINE:
+	case WEAPON_GE_PROXIMITYMINE:
+	case WEAPON_GE_REMOTEMINE:
+		return 1;
+	}
+
+	return 0;
+}
+
+/**
+ * GoldenEye's three mines, which stick where they first land (propobj.c's
+ * thrown weapon tick: embedded on contact, ATTACH_MINE_SFX).
+ */
+s32 gegunsMineAttaches(s32 weaponnum)
+{
+	return weaponnum == WEAPON_GE_TIMEDMINE || weaponnum == WEAPON_GE_PROXIMITYMINE
+		|| weaponnum == WEAPON_GE_REMOTEMINE;
+}
+
+/**
+ * Whether GoldenEye draws nothing of this in the hand
+ * (WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND: the grenade, the mines), so that
+ * its reload neither lowers nor raises anything: RELOAD_LOWER ends at once and
+ * RELOAD_RAISE goes straight to idle (gunfire.c), 17 ticks of RELOAD_SWAP
+ * between the throw's recovery and the next one ready.
+ */
+s32 gegunsHidesHand(s32 weaponnum)
+{
+	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_GUNS) {
+		return 0;
+	}
+
+	return (stats[weaponnum - WEAPON_GE_FIRST].bitflags & GESTATFLAG_HIDE_FIRST_PERSON_HAND) != 0;
 }
 
 static s32 gegunsGeSingleWait(s32 weaponnum, const struct gegunstat *stat)
@@ -1199,6 +1261,21 @@ static void gegunsOwnThrown(s32 i)
 
 	if (weaponnum == WEAPON_GE_REMOTEMINE) {
 		def->functions[1] = NULL;
+	}
+
+	// Thrown straight along the aim, 16.7 a tick and 5 up (gun.c's
+	// generate_player_thrown_grenade() and _object()), not on the host's arc
+	// to the point under the crosshair at 21.7, which brought a mine down 12
+	// ticks after the throw where the cartridge's takes 22 (FINDINGS row 10).
+	// The 5 up is bondgun.c's (gegunsThrowsAsGoldenEye())
+	if (weaponnum != WEAPON_GE_DETONATOR) {
+		for (s32 f = 0; f < 2; f++) {
+			struct weaponfunc *func = def->functions[f];
+
+			if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_THROW) {
+				func->flags &= ~FUNCFLAG_CALCULATETRAJECTORY;
+			}
+		}
 	}
 
 	if (weaponnum == WEAPON_GE_DETONATOR) {
@@ -3404,3 +3481,39 @@ void gegunsSetWatchLaser(s32 on)
 }
 
 #endif
+
+/**
+ * GoldenEye's Moonraker marks what it hits and sounds the surface as well as
+ * its laser ricochet (chrprop.c's shot: an impact for every gun but the
+ * watch laser, ITEM_WATCHLASER; gunfire.c's recall_joy2_hits_edit_flag():
+ * RICO_LASER and the texture's own hit). Its host, the Laser, leaves no hole
+ * (WEAPONFLAG2_NOWALLHIT) and sounds only its own hit (FINDINGS row 14). The
+ * watch laser on the Moonraker's number (Train) stays as it is.
+ */
+s32 gegunsMoonrakerMarks(s32 weaponnum)
+{
+	return weaponnum == WEAPON_GE_MOONRAKER && !gegunsWatchLaserInstalled();
+}
+
+/**
+ * Where GoldenEye's grenade and mines leave the hand, in camera space: where
+ * it holds them, gunWeaponStat's PosX/Y/Z (ownpos), which gunfire.c turns
+ * into the hand's world matrix every frame (throw_item_pos_related) and
+ * gun.c throws from. Nothing of them is drawn, so the host's muzzle - the
+ * mine's down at the hand, 80 units under the eye - was no place of
+ * GoldenEye's: they came down a dozen ticks after the throw where the
+ * cartridge's take 22, so a proximity mine lay within its own 250 of Bond
+ * (FINDINGS row 10). 1 when it is one of those, with the position.
+ */
+s32 gegunsThrowOrigin(s32 weaponnum, struct coord *campos)
+{
+	if (!gegunsThrowsAsGoldenEye(weaponnum)) {
+		return 0;
+	}
+
+	campos->x = ownpos[weaponnum - WEAPON_GE_FIRST][0];
+	campos->y = ownpos[weaponnum - WEAPON_GE_FIRST][1];
+	campos->z = ownpos[weaponnum - WEAPON_GE_FIRST][2];
+
+	return 1;
+}

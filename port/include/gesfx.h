@@ -26,6 +26,7 @@
 #define GESFX_WATCH_STATIC      236
 #define GESFX_WATCH_ON          237
 #define GESFX_WATCH_OFF         238
+#define GESFX_ATTACH_MINE       241 // a thrown mine sticking where it lands
 
 // GoldenEye plays a sound effect at full volume over music at its track's own
 // default (g_musicDefaultTrackVolume[]: M_INTRO 0x7332, the folders, the watch
