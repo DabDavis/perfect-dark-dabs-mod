@@ -421,6 +421,7 @@ struct modoptions {
 	s32 flashlighting; // MODFLASHLIGHT_*: whether gunfire, explosions and sparks light up the rooms round them
 	s32 sitinchairs; // the use button on a Carrington Institute chair sits the player in it (sitchair.c)
 	s32 muzzleflashlight; // on GoldenEye's levels a muzzle flash lights the rooms round it too (always on Perfect Dark's)
+	s32 geroomdim;   // on GoldenEye's levels a room goes dark as its lights are shot out (always on Perfect Dark's)
 };
 
 extern struct modoptions g_ModOptions;
@@ -465,6 +466,7 @@ s32 modGetGlassSeeThrough(void);
 bool modIsDecalClipOn(void);
 bool modIsFlashLightingOn(void);
 bool modIsMuzzleFlashLightOn(void);
+bool modIsShotLightDimmingOn(void);
 s32 modGetSmoothTextScale(void);
 s32 modGetTextureEnhanceScale(void);
 f32 modGetVividSaturation(void);

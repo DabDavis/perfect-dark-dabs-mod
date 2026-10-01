@@ -490,6 +490,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Mod.GlareClip", &g_ModOptions.glareclip, 0, 1);
 	configRegisterInt("Mod.FlashLighting", &g_ModOptions.flashlighting, 0, 2);
 	configRegisterInt("Mod.GeMuzzleFlashLight", &g_ModOptions.muzzleflashlight, 0, 1);
+	configRegisterInt("Mod.GeShotLightsDim", &g_ModOptions.geroomdim, 0, 1);
 	// Enhancements On/Off: the settings put away while off. See optionsmenu.c.
 	configRegisterString("Mod.EnhancementsSaved", g_ModEnhancementsSaved, MODENHANCE_SAVED_LEN);
 	configRegisterString("Mod.EnhancementsKey", g_ModEnhancementsKeyName, sizeof(g_ModEnhancementsKeyName));

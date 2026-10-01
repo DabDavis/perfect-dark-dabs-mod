@@ -999,6 +999,15 @@ bool lightTickBroken(s32 roomnum, s32 lightnum)
 {
 	struct light *light = (struct light *)(g_BgLightsFileData + ((g_Rooms[roomnum].lightindex + lightnum) * 0x22));
 
+#ifndef PLATFORM_N64
+	// GoldenEye's broken fixture only goes dark and sheds its glass once
+	// (lightfixture.c lightFixtureBreak(), gelights.c): it never sparks,
+	// smokes, buzzes or flashes the room afterwards, nor glares while it does
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		return false;
+	}
+#endif
+
 	if (!light->sparkable) {
 		return false;
 	}
@@ -1202,6 +1211,20 @@ void lightsTickPerfectDarkness(void)
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * Whether a light lights its room. A light shot out does not, except on
+ * GoldenEye's remade levels with Mod.GeShotLightsDim off
+ * (modIsShotLightDimmingOn()): there the room keeps the light's share, as
+ * GoldenEye's rooms keep theirs, and only the fixture itself goes dark
+ * (gelights.c). A room whose lights a script puts out still goes dark.
+ */
+#define LIGHTCOUNTSON(roomnum, light) ((light)->on \
+		|| (!(light)->healthy && keeplit && (g_Rooms[roomnum].flags & ROOMFLAG_LIGHTSOFF) == 0))
+#else
+#define LIGHTCOUNTSON(roomnum, light) ((light)->on)
+#endif
+
 void roomsTickLighting(void)
 {
 #if VERSION >= VERSION_NTSC_1_0
@@ -1219,6 +1242,9 @@ void roomsTickLighting(void)
 	f32 angle;
 	f32 average;
 	u32 stack;
+#ifndef PLATFORM_N64
+	const bool keeplit = !modIsShotLightDimmingOn() && !cheatIsActive(CHEAT_PERFECTDARKNESS);
+#endif
 
 #if VERSION >= VERSION_NTSC_1_0
 	if (cheatIsActive(CHEAT_PERFECTDARKNESS)) {
@@ -1243,6 +1269,24 @@ void roomsTickLighting(void)
 	for (i = 1; i < g_Vars.roomcount; i++) {
 		g_Rooms[i].flags &= ~ROOMFLAG_BRIGHTNESS_DIRTY_TEMP;
 	}
+
+#ifndef PLATFORM_N64
+	// Mod.GeShotLightsDim changed (in the menu, or a stage of the other
+	// kind began): every room's lights are summed again
+	{
+		static s32 prevkeeplit = -1;
+
+		if (prevkeeplit != keeplit) {
+			if (prevkeeplit >= 0) {
+				for (i = 1; i < g_Vars.roomcount; i++) {
+					g_Rooms[i].flags |= ROOMFLAG_LIGHTS_DIRTY;
+				}
+			}
+
+			prevkeeplit = keeplit;
+		}
+	}
+#endif
 
 	for (i = 1; i < g_Vars.roomcount; i++) {
 		// Tick any light operations
@@ -1319,7 +1363,7 @@ void roomsTickLighting(void)
 				struct light *light = (struct light *)&g_BgLightsFileData[g_Rooms[i].lightindex * 0x22];
 
 				for (j = 0; j < g_Rooms[i].numlights; j++) {
-					if (light->on) {
+					if (LIGHTCOUNTSON(i, light)) {
 						numlightson++;
 					}
 
@@ -1348,7 +1392,7 @@ void roomsTickLighting(void)
 			light = (struct light *)&g_BgLightsFileData[g_Rooms[i].lightindex * 0x22];
 
 			for (j = 0; j < g_Rooms[i].numlights; j++) {
-				if (light->on) {
+				if (LIGHTCOUNTSON(i, light)) {
 					amount = g_Rooms[i].lightop_cur_frac * light->brightness;
 					g_Rooms[i].br_settled_local += (s32)amount;
 				}

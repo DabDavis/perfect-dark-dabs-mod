@@ -13063,6 +13063,23 @@ run dir). Facility's conveyor still lifts +118.9 (walk.py on 0x63). Probes:
 - **Muzzle flash room light** (3b8cd068a, 58b88a61e; F3 045427): stock light on PD's
   levels; off on `geRoomActive()` levels unless `Mod.GeMuzzleFlashLight` (menu:
   Muzzle Flash Lights GoldenEye Rooms). Body armour has no idle shimmer (15da2971a).
+- **Shot-out lights don't darken GoldenEye rooms** (F3 20260930-225233, Bunker).
+  GoldenEye's lightFixtureBreak() only takes the fixture's own vertices to a
+  quarter and sheds glass; the room stays lit. PD drops a room to br_base/2 once
+  every light is gone (roomsTickLighting()), and propRemakeRoomLightFrac() takes
+  props, guards and the gun down with it. On `geRoomActive()` levels a broken light
+  (healthy 0, room not ROOMFLAG_LIGHTSOFF) still counts as lit there unless
+  `Mod.GeShotLightsDim` (menu: Shot-Out Lights Darken GoldenEye Rooms, Extended
+  Options > Video; default off) - `modIsShotLightDimmingOn()`. gelights.c's fixture
+  darkening and glass are unchanged either way; script lights-off still darkens.
+  Not in any preset (owner: Dab's Settings leaves it off). A broken GoldenEye
+  fixture also makes no sound of its own now (gelights.c dropped PD's
+  SFX_HIT_GLASS; GoldenEye plays only the bullet's surface impact, which prop.c
+  still does) and `lightTickBroken()` returns false on remake stages. PD's
+  light sparks never actually ran there: glares (the only caller,
+  artifactsRenderGlaresForRoom()) are skipped on `geRoomActive()` levels since
+  F3 20260927-005229 and never calculated in MP. Sparks seen near a shot
+  light on a GE level are guards' bullet impacts (chrTickShoot()).
 - **HD Dam water** (4d53fdf84; F3 045552). gDPSetTileSize moves a corner by quarter
   texels only; Bean's reservoir moved 0.11/0.20 quarters a frame and jumped ~15 units
   every 5-9 frames. New `G_SETTILEOFFSET_EXT` (gbiex.h; 65536ths of a texel, cleared
