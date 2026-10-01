@@ -103,6 +103,7 @@ struct stri {
 	u8 undersea; // the reflection under a sea, faded and culled (markUnderSea())
 	u8 plain;   // of a draw with no UV and no picture of its own (gebeanlevelvtx)
 	u8 overlap; // a face with another room's space behind it, drawn culled (markOverlaps())
+	u8 painted; // under a later blended decal that covers it wholly: never seen (markDecals())
 };
 
 // The level being served, built when its first room is asked for
@@ -2188,6 +2189,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->undersea = 0;
 	t->plain = v[0].plain;
 	t->overlap = 0;
+	t->painted = 0;
 }
 
 /*
@@ -2897,11 +2899,28 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 				continue;
 			}
 
-			if (full && full[i] != full[o] ? full[i]
+			// Two blended draws: the release's blended pass writes no depth,
+			// so the later one paints over the earlier wherever they share,
+			// whichever is smaller or lies wholly on the other (Archives'
+			// bulletin board, a blended cork over three blended papers drawn
+			// before it: the release shows the board bare, and ours drew the
+			// papers on it - fighting it, F3 20261001-043410). Of a pair
+			// with an opaque face, or two, the rules below, as before
+			if (t->blend && u->blend && i < o) {
+				// and wholly under one with no alpha anywhere, it is never seen
+				if (full && full[i] && !texHasAlpha(u->tex) && (u->argb[0] >> 24) == 0xff
+						&& (u->argb[1] >> 24) == 0xff && (u->argb[2] >> 24) == 0xff) {
+					t->painted = 1;
+				}
+
+				continue;
+			}
+
+			if ((t->blend && u->blend) || (full && full[i] != full[o] ? full[i]
 					: alphai != alphau ? alphai > alphau
 					: full && full[i] ? i > o
 					: ai < au * 0.999f ? 1
-					: ai <= au * 1.001f && i > o) {
+					: ai <= au * 1.001f && i > o)) {
 				t->decal = 1;
 				t->decalbase = o;
 				count++;
@@ -6525,7 +6544,7 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0;
+	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0, paintedOver = 0;
 	u32 bytes = 0;
 	const char *levelname;
 	u64 key = 0;
@@ -6757,6 +6776,13 @@ static s32 build(void)
 				continue;
 			}
 
+			// A blended face a later blended one covers wholly (markDecals())
+			if (tri->painted) {
+				tri->room = 0;
+				paintedOver++;
+				continue;
+			}
+
 			for (s32 j = 0; j < 3; j++) {
 				mid[j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f;
 			}
@@ -6832,6 +6858,10 @@ static s32 build(void)
 
 		if (plainDecals) {
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d white decal triangles of draws with no UV or picture left out", row->bean, plainDecals);
+		}
+
+		if (paintedOver) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d blended triangles a later blended one paints over left out", row->bean, paintedOver);
 		}
 
 		{
