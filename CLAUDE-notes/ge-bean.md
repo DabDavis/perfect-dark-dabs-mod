@@ -3754,10 +3754,25 @@ wall. On Streets the first parked truck goes as the nose reaches it and the
 tank carries on through at 7.5. A hull in a narrow street often cannot turn
 where it stands - that is GoldenEye's rule too.
 
-Not done: the barrel's own collision (GoldenEye tests its tip and rolls the
-turret back; here the turret is the view, and holding the view is another
-matter) - it pokes into a wall the nose has stopped at; **the shell count on
-the HUD**, which goes with the GoldenEye HUD the user has asked for next.
+**The barrel's collision** (F3 20260930-235538, `tankBarrelBlocked()`): the end
+of `bondviewTankCollisionStatus()` is a flat line from Bond's seat to the
+barrel's tip, and a turret turn that fails it is put back. Here the turret is
+the view, so the view is held: the turn is walked in 5-degree steps (a mouse
+flick would jump a post) and stops at the last clear one; a barrel already in
+something is let out. The same line is part of `tankRectBlocked()`, so the hull
+neither drives nor turns the barrel into a wall, as GoldenEye's does not.
+
+**The engine's sound** (F3 20260930-235603, "still running after jumping out,
+heard from a distance"): GoldenEye's engine is TRUCK_START in
+`g_TankSfxState[0]` - it loops, so the TRUCK_RUN that waits for that slot to
+empty never plays - at 25000 idle to full by 0.9 of speed or turn, and the TANK
+treads 0 to full; out of the tank the treads stop and the engine loses 1000 a
+tick. The port had played TRUCK_START once as PSTYPE_NONE with PSFLAG_0400
+(volume worked out once, never again), so it ran on forever at the volume it
+had in the seat, and had TRUCK_RUN layered on top. Now 66 is the
+PSTYPE_CHOPPERHUM1 channel, volumes are GoldenEye's as a share of the
+channel's own (`tankSoundVolume()`), and `tankFadeEngine()` lets it die after
+`tankExit()`. Probes: `~/wt/f3-1001-tank-run/probe/{snd,turret}.py`.
 
 **The sight is held in the middle** with the shells in hand (F3 20260930-185749,
 `geTankHoldsSight()`): the shell leaves along the turret, never the sight, as
