@@ -999,6 +999,15 @@ bool lightTickBroken(s32 roomnum, s32 lightnum)
 {
 	struct light *light = (struct light *)(g_BgLightsFileData + ((g_Rooms[roomnum].lightindex + lightnum) * 0x22));
 
+#ifndef PLATFORM_N64
+	// GoldenEye's broken fixture only goes dark and sheds its glass once
+	// (lightfixture.c lightFixtureBreak(), gelights.c): it never sparks,
+	// smokes, buzzes or flashes the room afterwards, nor glares while it does
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		return false;
+	}
+#endif
+
 	if (!light->sparkable) {
 		return false;
 	}

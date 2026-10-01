@@ -13029,6 +13029,14 @@ run dir). Facility's conveyor still lifts +118.9 (walk.py on 0x63). Probes:
   `Mod.GeShotLightsDim` (menu: Shot-Out Lights Darken GoldenEye Rooms, Extended
   Options > Video; default off) - `modIsShotLightDimmingOn()`. gelights.c's fixture
   darkening and glass are unchanged either way; script lights-off still darkens.
+  Not in any preset (owner: Dab's Settings leaves it off). A broken GoldenEye
+  fixture also makes no sound of its own now (gelights.c dropped PD's
+  SFX_HIT_GLASS; GoldenEye plays only the bullet's surface impact, which prop.c
+  still does) and `lightTickBroken()` returns false on remake stages. PD's
+  light sparks never actually ran there: glares (the only caller,
+  artifactsRenderGlaresForRoom()) are skipped on `geRoomActive()` levels since
+  F3 20260927-005229 and never calculated in MP. Sparks seen near a shot
+  light on a GE level are guards' bullet impacts (chrTickShoot()).
 - **HD Dam water** (4d53fdf84; F3 045552). gDPSetTileSize moves a corner by quarter
   texels only; Bean's reservoir moved 0.11/0.20 quarters a frame and jumped ~15 units
   every 5-9 frames. New `G_SETTILEOFFSET_EXT` (gbiex.h; 65536ths of a texel, cleared
