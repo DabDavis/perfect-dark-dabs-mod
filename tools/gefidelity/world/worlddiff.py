@@ -166,6 +166,31 @@ class Report:
                            'mag': round(float(mag), 3)})
 
 
+# GoldenEye's random head pools (chr.c's random_male_heads, random_female_heads):
+# a head outside them was named by the guard's record
+GE_POOL_HEADS = {57, 54, 55, 62, 59, 56, 58, 53, 52, 51, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+                 63, 64, 65, 66, 67, 68, 70, 71, 72, 73}
+
+
+def named_heads(ge0):
+    """The chrs whose guard record names a head (GoldenEye's wide dump), or None
+    without a wide dump."""
+    if 'wide' not in ge0:
+        return None
+    return {r['chrnum'] for r in ge0['wide'].get('props', {}).values()
+            if isinstance(r, dict) and 'bitflags' in r and r.get('head', -1) >= 0}
+
+
+def body_key(body, head, named):
+    """A body as the conversion maps it: worn with a head its record names, a
+    GoldenEye body takes a row of its own that carries that head (gexplus.c's
+    geRomBodyRow(): a record's head byte cannot name a head row, which are past
+    255), so Archives' chr 1 - body 19 with head 69 - is row 153 and its other
+    body-19 guards, whose heads are the pool's, row 155. The same body under two
+    keys is that, not a fault."""
+    return '%d+head%d' % (body, head) if named else body
+
+
 def mapping_check(rep, kind, pairs, note):
     """pairs: (key, ge value, pd value). Learns ge -> pd by majority and reports
     each key that disagrees with what its value maps to everywhere else."""
@@ -314,10 +339,12 @@ def compare(ge0, pd0, ge1, pd1, mission):
     # hands a guard a second gun
     gl = {c['chrnum']: c for c in ge0['chrs']}
     pl = {c['chrnum']: c for c in pd0['chrs'] if not c.get('player')}
+    named = named_heads(ge0)
     for n in sorted(set(gl) & set(pl)):
         a, b = gl[n], pl[n]
         heads.append((n, a['headnum'], b['headnum']))
-        bodies.append((n, a['bodynum'], b['bodynum']))
+        bodies.append((n, body_key(a['bodynum'], a['headnum'], n in named if named is not None
+                                   else a['headnum'] not in GE_POOL_HEADS), b['bodynum']))
         weapons.append((n, tuple(a['weapons']), tuple(b['weapons'])))
     mapping_check(rep, 'map.body', bodies, 'body')
     mapping_check(rep, 'map.head', heads, 'head')
