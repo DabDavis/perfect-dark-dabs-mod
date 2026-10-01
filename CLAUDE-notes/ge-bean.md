@@ -10932,6 +10932,21 @@ by model/pad and shoot it; `NOOPEN=1`), `listprops.py` (props by model),
 Open: stool1's 4 UVs; the impact surfaces of Caves/Complex (the CE set its hit
 meshes to all dirt/all metal - does ours spark metal on Caves' rock?); the
 user's calls above; the arena MP walk that stops at a door.
+
+**2026-10-01, converter 97: the data fixes moved to the HD look only** (the
+user: the N64 look is the cartridge as it is, judged against ares). The
+converter writes the cartridge's files and, where a `g_RomPatches` fix changes
+one, a `_ce` copy beside it (`romFileCe()`; Bunker ii's tiles and graph,
+Control's/Egyptian's/Silo's (+ its JP/PAL `_ce_j`) and Surface's setups,
+the Surfaces' pads, the Control and Surface arenas' pads/mpsetup), listed on
+the mission or map line as `ce "file copy ..."`. `geRoomCeData()` (the
+release's meshes on and the CE applied) makes setup.c, tilesreset.c and
+gestan.c load the copy (`modloaderGetStageCeFile()`), at the stage load: a
+look switch mid-mission takes effect at the next load. Every `_ce` file is
+byte for byte what the always-patched converter wrote. Checked: the wide world
+sweep's CE keys are gone in the N64 look, and an HD-look dump with the CE has
+them (Silo 59 model 628, Control 184 / Egyptian 45-48 doorflags 0x4, pads
+288/279 at z -549.7, Bunker ii tiles 794/796 linked).
 ## The Cradle could not be finished: Trevelyan's route, his waits, and his number (2026-09-25)
 
 Tester F3s 20260925-162651/162703/162754/162954 (LINKmendez, Windows 6b17756,

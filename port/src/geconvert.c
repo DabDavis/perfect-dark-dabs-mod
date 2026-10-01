@@ -692,7 +692,8 @@ static const struct romfile *romFind(const char *stem)
  * ROM_PATCHES, which is this). Each is the ROM's bytes and what they become,
  * and a file whose bytes are not the ROM's is left as it is. All are faults
  * the community found in the XBLA release's copy of the same data and mended
- * in its Community Edition; none is a change of design.
+ * in its Community Edition; none is a change of design. Since converter 97
+ * they make the HD look's copies only (g_RomPatchesOn, romFileCe()).
  */
 static const struct {
 	const char *stem;
@@ -729,8 +730,53 @@ static const struct {
 	{ "UsetupcrypZ", 0x4e5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
 };
 
+/*
+ * The Community Edition's fixes go to the HD look only (the user, 2026-10-01:
+ * the N64 look is the cartridge as it is). The conversion writes the
+ * cartridge's files and, where a fix changes one, a copy with it ("_ce" in the
+ * name, listed on the mission's line as `ce`, modloaderGetStageCeFile()) that
+ * the game loads instead while the HD look and the Community Edition are on
+ * (geRoomCeData()). romFile() mends only while this is set.
+ */
+static int g_RomPatchesOn;
+
+/** Whether a fix touches the file. */
+static int romPatched(const char *stem)
+{
+	for (size_t i = 0; i < sizeof(g_RomPatches) / sizeof(g_RomPatches[0]); ++i) {
+		if (!strcmp(stem, g_RomPatches[i].stem)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/** romFile() with the Community Edition's fixes. */
+static buf romFile(const char *stem);
+
+static buf romFileCe(const char *stem)
+{
+	buf out;
+
+	g_RomPatchesOn = 1;
+	out = romFile(stem);
+	g_RomPatchesOn = 0;
+	return out;
+}
+
+/** Whether two converted files differ. */
+static int bufDiffers(const buf *a, const buf *b)
+{
+	return a->n != b->n || memcmp(a->v, b->v, a->n) != 0;
+}
+
 static void romPatch(const char *stem, buf *file)
 {
+	if (!g_RomPatchesOn) {
+		return;
+	}
+
 	for (size_t i = 0; i < sizeof(g_RomPatches) / sizeof(g_RomPatches[0]); ++i) {
 		const size_t at = g_RomPatches[i].at;
 		const size_t n = g_RomPatches[i].n;
@@ -7985,7 +8031,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		static uint8_t leveltex[SETBITS / 8];
 		struct bg bg;
 		buf bgfile, stanfile, setupfile, gedata, bgdata, tilesdata, padsdata, mpsetup, revfile;
-		tiles stan;
+		tiles stan, cestan;
+		char stanstem[64];
+		char cetiles[256] = "";
+		char cearena[512] = "";
 		double offset[3], mn[3], mx[3], fog[30];
 		int music[3];
 		struct setup setup, mpsetupsrc;
@@ -8006,8 +8055,18 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		bgfile = romFile(stem);
 		bgRead(&bgfile, &bg);
 		snprintf(stem, sizeof(stem), "%s_all_p_stanZ", lv->stan);
+		snprintf(stanstem, sizeof(stanstem), "%s", stem);
 		stanfile = romFile(stem);
 		stan = stanRead(&stanfile);
+
+		// the HD look's tiles, where a Community Edition fix mends a link
+		// (Bunker ii's stairs)
+		cestan = stan;
+		if (romPatched(stanstem)) {
+			buf cefile = romFileCe(stanstem);
+
+			cestan = stanRead(&cefile);
+		}
 
 		// the level is moved so the middle of its walkable area is the origin
 		for (size_t i = 0; i < stan.n; ++i) {
@@ -8075,9 +8134,61 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_stan", lv->key);
 			writeFile(outdir, rel, standata.v, standata.n);
 		}
+
+		if (cestan.v != stan.v) {
+			// the tiles and the graph beside them (gestan.c finds the graph
+			// by the tiles file's name: bg_gx<key>_ce_tilesZ, _ce_stan)
+			int cewalls;
+			buf cetilesdata = writeTiles(&cestan, bg.numrooms, lv->levelscale, offset, &cewalls);
+			buf cestandata = writeStan(&cestan, lv->levelscale, offset);
+
+			snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_ce_tilesZ", lv->key);
+			writeFile(outdir, rel, cetilesdata.v, cetilesdata.n);
+			snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_ce_stan", lv->key);
+			writeFile(outdir, rel, cestandata.v, cestandata.n);
+			snprintf(cetiles, sizeof(cetiles), "bgdata/bg_gx%s_tilesZ bgdata/bg_gx%s_ce_tilesZ", lv->key, lv->key);
+		}
 		snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_padsZ", lv->key);
 		writeFile(outdir, rel, padsdata.v, padsdata.n);
 		romMusicRow(lv->levelid, music);
+
+		// an arena's own Community Edition copies, where it is made from a
+		// setup one of the fixes changes (Control's and the Surfaces'
+		// arenas are their missions' setups)
+		if (levelIsArena(lv) && (romPatched(lv->solo ? lv->solo : lv->mp) || (lv->mp && romPatched(lv->mp)))) {
+			buf csfile = romFileCe(lv->solo ? lv->solo : lv->mp);
+			buf cgedata = romFileCe(lv->mp ? lv->mp : lv->solo);
+			struct setup csetup, cmpsrc;
+			padrecs cbound;
+			s32s cbikes;
+			buf cpads, cmp;
+
+			setupRead(&csfile, &csetup);
+			if (havemp) {
+				buf cmpfile = romFileCe(lv->mp);
+
+				setupRead(&cmpfile, &cmpsrc);
+				csetup = cmpsrc;
+			}
+			cbound = boundPads(&cgedata, lv->levelscale, offset);
+			cpads = writePads(&csetup, lv->levelscale, offset, &rf, &cbound, NULL);
+			cbikes = bikePads(lv, &csetup, &cestan, &bg, &cgedata);
+			cmp = writeMpSetup(&csetup, havemp ? &cmpsrc : NULL, &cestan, &bg, lv->levelscale, &cgedata, &cbikes, allmodels);
+
+			if (bufDiffers(&cpads, &padsdata)) {
+				snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_ce_padsZ", lv->key);
+				writeFile(outdir, rel, cpads.v, cpads.n);
+				snprintf(cearena + strlen(cearena), sizeof(cearena) - strlen(cearena),
+					"%sbgdata/bg_gx%s_padsZ bgdata/bg_gx%s_ce_padsZ", cearena[0] ? " " : "", lv->key, lv->key);
+			}
+
+			if (bufDiffers(&cmp, &mpsetup)) {
+				snprintf(rel, sizeof(rel), "files/Ump_setupgx%s_ceZ", lv->key);
+				writeFile(outdir, rel, cmp.v, cmp.n);
+				snprintf(cearena + strlen(cearena), sizeof(cearena) - strlen(cearena),
+					"%sUmp_setupgx%sZ Ump_setupgx%s_ceZ", cearena[0] ? " " : "", lv->key, lv->key);
+			}
+		}
 
 		if (levelIsArena(lv)) {
 			snprintf(rel, sizeof(rel), "files/Ump_setupgx%sZ", lv->key);
@@ -8101,6 +8212,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			if (revportals[0]) {
 				textf(&maps, " revportals \"%s\"", revportals);
 			}
+			if (cetiles[0] || cearena[0]) {
+				textf(&maps, " ce \"%s%s%s\"", cetiles, cetiles[0] && cearena[0] ? " " : "", cearena);
+			}
 		}
 
 		note("geconvert: %s: %d rooms, %d portals, %d tiles (+%d walls), %d pads, %d lights",
@@ -8117,6 +8231,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			int hasrev;
 			int *mpadrooms;
 			int32_t *mportals;
+			buf rprops = {0};
+			char cefiles[512] = "";
 
 			st.anims = allanims;
 			st.models = allmodels;
@@ -8148,7 +8264,6 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			hasrev = revisionSetup(g_Missions[mi].setup, &mfile, &mrev);
 			if (hasrev) {
 				struct solostats rst = {0};
-				buf rprops;
 
 				rst.anims = allanims;
 				rst.models = allmodels;
@@ -8163,6 +8278,73 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				writeFile(outdir, rel, rprops.v, rprops.n);
 				note("geconvert: %s: the later cartridges' mission, %d ai commands (+%d)",
 					g_Missions[mi].name, rst.aikept, rst.aidropped);
+			}
+
+			// The HD look's copies where a Community Edition fix changes one
+			// (g_RomPatchesOn): the mission's pads and setup made again from
+			// the mended setup over the mended tiles, and the later
+			// cartridges' setup from the mended one; each written beside the
+			// cartridge's and listed as `ce` only where its bytes differ
+			if (romPatched(g_Missions[mi].setup) || cestan.v != stan.v) {
+				buf cfile = romFileCe(g_Missions[mi].setup);
+				struct setup csetup;
+				padrecs cbound;
+				int *cpadrooms;
+				int32_t *cportals;
+				struct solostats cst = {0};
+				buf cpads, cprops, crev;
+				char cename[96];
+
+				snprintf(cename, sizeof(cename), "%s (Community Edition)", g_Missions[mi].name);
+				cst.anims = allanims;
+				cst.models = allmodels;
+				setupRead(&cfile, &csetup);
+				cbound = boundPads(&cfile, lv->levelscale, offset);
+				cpadrooms = gcAlloc((csetup.pads.n + cbound.n + 1) * sizeof(*cpadrooms));
+				cportals = geSoloDoors(&cfile, &csetup, &cbound, &cestan, &bg, lv->levelscale, offset, cpadrooms, cename);
+				cpads = writePads(&csetup, lv->levelscale, offset, &rf, &cbound, cpadrooms);
+				cprops = writeSoloSetup(&cfile, csetup.pads.n, allmodels, &cst, lv->levelscale, offset, cportals);
+
+				if (cetiles[0]) {
+					snprintf(cefiles + strlen(cefiles), sizeof(cefiles) - strlen(cefiles), "%s%s",
+						cefiles[0] ? " " : "", cetiles);
+				}
+
+				if (bufDiffers(&cpads, &mpads)) {
+					snprintf(rel, sizeof(rel), "files/bgdata/bg_gs%s_ce_padsZ", lv->key);
+					writeFile(outdir, rel, cpads.v, cpads.n);
+					snprintf(cefiles + strlen(cefiles), sizeof(cefiles) - strlen(cefiles),
+						"%sbgdata/bg_gs%s_padsZ bgdata/bg_gs%s_ce_padsZ", cefiles[0] ? " " : "", lv->key, lv->key);
+				}
+
+				if (bufDiffers(&cprops, &mprops)) {
+					snprintf(rel, sizeof(rel), "files/Usetupgs%s_ceZ", lv->key);
+					writeFile(outdir, rel, cprops.v, cprops.n);
+					snprintf(cefiles + strlen(cefiles), sizeof(cefiles) - strlen(cefiles),
+						"%sUsetupgs%sZ Usetupgs%s_ceZ", cefiles[0] ? " " : "", lv->key, lv->key);
+				}
+
+				if (hasrev && revisionSetup(g_Missions[mi].setup, &cfile, &crev)) {
+					struct solostats crst = {0};
+					padrecs crbound = boundPads(&cfile, lv->levelscale, offset);
+					int32_t *crportals = geSoloDoors(&crev, &csetup, &crbound, &cestan, &bg, lv->levelscale, offset,
+							NULL, cename);
+					buf crprops;
+
+					crst.anims = allanims;
+					crst.models = allmodels;
+					crprops = writeSoloSetup(&crev, csetup.pads.n, allmodels, &crst, lv->levelscale, offset, crportals);
+
+					if (bufDiffers(&crprops, &rprops)) {
+						snprintf(rel, sizeof(rel), "files/Usetupgs%s_ce_jZ", lv->key);
+						writeFile(outdir, rel, crprops.v, crprops.n);
+						snprintf(cefiles + strlen(cefiles), sizeof(cefiles) - strlen(cefiles),
+							"%sUsetupgs%s_jZ Usetupgs%s_ce_jZ", cefiles[0] ? " " : "", lv->key, lv->key);
+					}
+				}
+
+				note("geconvert: %s: the Community Edition's copies: %s", g_Missions[mi].name,
+					cefiles[0] ? cefiles : "none differ");
 			}
 
 			textf(&missions, "%s  mission %d \"%s\" bg \"bgdata/bg_gx%s.seg\" tiles \"bgdata/bg_gx%s_tilesZ\""
@@ -8195,6 +8377,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 			if (revportals[0]) {
 				textf(&missions, " revportals \"%s\"", revportals);
+			}
+			if (cefiles[0]) {
+				textf(&missions, " ce \"%s\"", cefiles);
 			}
 
 			note("geconvert: %s: mission %d, %d props (+%d left out), %d ai commands (+%d)",

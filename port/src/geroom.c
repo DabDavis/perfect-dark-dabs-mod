@@ -12,6 +12,8 @@
 #include "game/prop.h"
 #include "lib/collision.h"
 #include "lib/lib_17ce0.h"
+#include "xblamesh.h"
+#include "gebean.h"
 
 #ifndef PLATFORM_N64
 
@@ -24,6 +26,20 @@
 s32 geRoomActive(void)
 {
 	return modloaderStageIsRemake(g_Vars.stagenum);
+}
+
+/**
+ * Whether a converted stage loads the Community Edition's copies of its files
+ * (modloaderGetStageCeFile()): the release's look on and the Community
+ * Edition applied, as the stage loads. The user, 2026-10-01: the Community
+ * Edition's fixes belong to the HD look only, and the N64 look is the
+ * cartridge as it is. Like everything a stage reads from its setup, pads and
+ * tiles, the choice is made at the load: a switch of look in a mission takes
+ * effect at the next one (or at a restart of it).
+ */
+s32 geRoomCeData(void)
+{
+	return xblaMeshGetEnabled() && gebeanCeIsActive();
 }
 
 struct geroomfloor {

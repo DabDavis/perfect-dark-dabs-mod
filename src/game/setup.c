@@ -1562,6 +1562,11 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 		if (gexFrontGetRevisionFixes()) {
 			setupfilenum = modloaderGetStageRevisionSetup(g_Stages[stageindex].id, setupfilenum);
 		}
+
+		// and in the HD look the Community Edition's copy (geRoomCeData())
+		if (geRoomCeData()) {
+			setupfilenum = modloaderGetStageCeFile(g_Stages[stageindex].id, setupfilenum);
+		}
 #endif
 #ifdef PLATFORM_N64 // bug?
 		g_LoadType = LOADTYPE_LANG;
@@ -1702,6 +1707,13 @@ void setupLoadFiles(s32 stagenum)
 		if (gexFrontGetRevisionFixes()) {
 			filenum = modloaderGetStageRevisionSetup(stagenum, filenum);
 		}
+
+		// and in the HD look the Community Edition's copy, where one of its
+		// fixes changes the setup (geRoomCeData(), geconvert.c's
+		// g_RomPatchesOn); the N64 look keeps the cartridge's
+		if (geRoomCeData()) {
+			filenum = modloaderGetStageCeFile(stagenum, filenum);
+		}
 #endif
 
 		g_LoadType = LOADTYPE_SETUP;
@@ -1725,7 +1737,13 @@ void setupLoadFiles(s32 stagenum)
 
 		g_LoadType = LOADTYPE_PADS;
 
+#ifndef PLATFORM_N64
+		g_StageSetup.padfiledata = fileLoadToNew(geRoomCeData()
+				? modloaderGetStageCeFile(stagenum, g_Stages[g_StageIndex].padsfileid)
+				: g_Stages[g_StageIndex].padsfileid, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
+#else
 		g_StageSetup.padfiledata = fileLoadToNew(g_Stages[g_StageIndex].padsfileid, FILELOADMETHOD_DEFAULT, LOADTYPE_PADS);
+#endif
 
 		g_StageSetup.waypoints = NULL;
 		g_StageSetup.waygroups = NULL;

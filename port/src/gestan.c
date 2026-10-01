@@ -8,6 +8,7 @@
 #include "bss.h"
 #include "data.h"
 #include "modloader.h"
+#include "geroom.h"
 #include "romdata.h"
 #include "fs.h"
 #include "system.h"
@@ -104,7 +105,11 @@ static void stanFree(void)
 static u8 *stanLoadFile(u32 *len)
 {
 	const char *dir = modloaderGetStageModDir(g_Vars.stagenum);
-	const char *tilesname = romdataFileGetName(g_Stages[g_StageIndex].tilefileid);
+	// the graph beside the tiles the stage loaded (tilesReset()): the
+	// Community Edition's in the HD look where it mends one
+	const s32 tilefileid = geRoomCeData()
+		? modloaderGetStageCeFile(g_Vars.stagenum, g_Stages[g_StageIndex].tilefileid) : g_Stages[g_StageIndex].tilefileid;
+	const char *tilesname = romdataFileGetName(tilefileid);
 	char name[128];
 	char path[FS_MAXPATH + 1];
 	char *ending;

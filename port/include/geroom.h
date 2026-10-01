@@ -24,6 +24,9 @@
 /** Whether the stage takes its rooms from the tile underfoot. */
 s32 geRoomActive(void);
 
+/** Whether a converted stage loads the Community Edition's copies of its files (the HD look with the CE on). */
+s32 geRoomCeData(void);
+
 /**
  * A converted mission's door record carries this in its first spare byte
  * (doorobj's unusedmaybe[0]) when its portalnum is the one GoldenEye's

@@ -151,6 +151,22 @@ struct modrevision {
 static struct modrevision g_ModStageRevision[STAGE_MAX_ID + 1];
 
 /**
+ * A converted stage's Community Edition copies (a line's `ce`): files the
+ * stage loads in place of its own while the HD look and the Community Edition
+ * are on (geRoomCeData(), modloaderGetStageCeFile()). The N64 look keeps the
+ * cartridge's (geconvert.c, g_RomPatchesOn).
+ */
+#define MODLOADER_MAX_CEFILES 8
+
+struct modcefiles {
+	s32 num;
+	s32 from[MODLOADER_MAX_CEFILES];
+	s32 to[MODLOADER_MAX_CEFILES];
+};
+
+static struct modcefiles g_ModStageCe[STAGE_MAX_ID + 1];
+
+/**
  * The mod directory a runtime-registered stage belongs to, or NULL for a stock
  * stage.
  *
@@ -883,6 +899,58 @@ s32 modloaderGetStageRevisionSetup(s32 stagenum, s32 filenum)
 	return g_ModStageRevision[stagenum].setup;
 }
 
+static s32 modloaderFileSlot(s32 modIndex, const char *rel);
+
+/** A line's `ce`: pairs of a file the stage loads and the Community Edition's copy of it. */
+static void modloaderSetStageCe(s32 modIndex, s32 stagenum, const char *pairs)
+{
+	struct modcefiles *ce;
+	char from[UTIL_MAX_TOKEN + 1];
+	char to[UTIL_MAX_TOKEN + 1];
+	s32 used = 0;
+
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID) {
+		return;
+	}
+
+	ce = &g_ModStageCe[stagenum];
+
+	while (pairs[0] && ce->num < MODLOADER_MAX_CEFILES
+			&& sscanf(pairs, "%127s %127s%n", from, to, &used) == 2) {
+		pairs += used;
+
+		if (modloaderModHasFile(modIndex, "%s", to)) {
+			const s32 a = modloaderFileSlot(modIndex, from);
+			const s32 b = modloaderFileSlot(modIndex, to);
+
+			if (a > 0 && b > 0) {
+				ce->from[ce->num] = a;
+				ce->to[ce->num] = b;
+				ce->num++;
+			}
+		}
+
+		while (pairs[0] == ' ') {
+			pairs++;
+		}
+	}
+}
+
+s32 modloaderGetStageCeFile(s32 stagenum, s32 filenum)
+{
+	if (stagenum <= 0 || stagenum > STAGE_MAX_ID || !g_ModStageDirs[stagenum]) {
+		return filenum;
+	}
+
+	for (s32 i = 0; i < g_ModStageCe[stagenum].num; i++) {
+		if (g_ModStageCe[stagenum].from[i] == filenum) {
+			return g_ModStageCe[stagenum].to[i];
+		}
+	}
+
+	return filenum;
+}
+
 s32 modloaderGetStageRevisionPortals(s32 stagenum, const u16 **portals, const u8 **codes)
 {
 	if (stagenum <= 0 || stagenum > STAGE_MAX_ID || !g_ModStageDirs[stagenum]) {
@@ -924,6 +992,7 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 			char music[UTIL_MAX_TOKEN + 1] = { 0 };
 			char revsetup[UTIL_MAX_TOKEN + 1] = { 0 };
 			char revportals[UTIL_MAX_TOKEN + 1] = { 0 };
+			char cefiles[UTIL_MAX_TOKEN + 1] = { 0 };
 			s32 mission;
 
 			if (strcmp(token, "mission") != 0) {
@@ -952,9 +1021,12 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 				const bool ismusic = !strcmp(token, "music");
 				const bool isrevsetup = !strcmp(token, "revsetup");
 				const bool isrevportals = !strcmp(token, "revportals");
+				const bool isce = !strcmp(token, "ce");
 				p = strParseToken(p, token, NULL);
 				if (which >= 0) {
 					snprintf(files[which], sizeof(files[which]), "%s", strUnquote(token));
+				} else if (isce) {
+					snprintf(cefiles, sizeof(cefiles), "%s", strUnquote(token));
 				} else if (isrevsetup) {
 					snprintf(revsetup, sizeof(revsetup), "%s", strUnquote(token));
 				} else if (isrevportals) {
@@ -1007,6 +1079,10 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 
 				if (revsetup[0] || revportals[0]) {
 					modloaderSetStageRevision(modIndex, stageId, setupid, revsetup, revportals);
+				}
+
+				if (cefiles[0]) {
+					modloaderSetStageCe(modIndex, stageId, cefiles);
 				}
 
 				++count;
@@ -1266,6 +1342,7 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 			char music[UTIL_MAX_TOKEN + 1] = { 0 };
 			char revsetup[UTIL_MAX_TOKEN + 1] = { 0 };
 			char revportals[UTIL_MAX_TOKEN + 1] = { 0 };
+			char cefiles[UTIL_MAX_TOKEN + 1] = { 0 };
 
 			if (strcmp(token, "map") != 0) {
 				sysLogPrintf(LOG_WARNING, "modloader: %s: unexpected %s in the maps block", dir, token);
@@ -1292,9 +1369,12 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 				const bool ismusic = !strcmp(token, "music");
 				const bool isrevsetup = !strcmp(token, "revmpsetup");
 				const bool isrevportals = !strcmp(token, "revportals");
+				const bool isce = !strcmp(token, "ce");
 				p = strParseToken(p, token, NULL);
 				if (which >= 0) {
 					snprintf(files[which], sizeof(files[which]), "%s", strUnquote(token));
+				} else if (isce) {
+					snprintf(cefiles, sizeof(cefiles), "%s", strUnquote(token));
 				} else if (isfog) {
 					snprintf(fog, sizeof(fog), "%s", strUnquote(token));
 				} else if (isprops) {
@@ -1329,6 +1409,10 @@ static bool modloaderAddFromConfig(s32 modIndex, const char *dir, struct modload
 
 					if (revsetup[0] || revportals[0]) {
 						modloaderSetStageRevision(modIndex, stageId, g_Stages[g_ModStageNextSlot - 1].mpsetupfileid, revsetup, revportals);
+					}
+
+					if (cefiles[0]) {
+						modloaderSetStageCe(modIndex, stageId, cefiles);
 					}
 
 					if (props[0] && propsfrom[0] && modloaderModHasFile(modIndex, "%s", props)) {
@@ -1417,6 +1501,7 @@ void modloaderInit(void)
 	memset(g_ModStageHasMusic, 0, sizeof(g_ModStageHasMusic));
 	memset(g_ModStageProps, 0, sizeof(g_ModStageProps));
 	memset(g_ModStageRevision, 0, sizeof(g_ModStageRevision));
+	memset(g_ModStageCe, 0, sizeof(g_ModStageCe));
 	free(g_ModModels);
 	g_ModModels = NULL;
 	g_NumModModels = 0;
