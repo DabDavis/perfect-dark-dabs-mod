@@ -11049,12 +11049,18 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				&& !(m->groupabsent & (1ull << m->beanbare[part]))) {
 			// And round any other, the collar the hood would have covered
 			part = (u16)m->beanbare[part];
-		} else if (!m->beanhead && part < 64 && m->beannoskin[part] >= 0 && m->beannoskin[part] < m->numgroups
-				&& !(m->groupabsent & (1ull << m->beannoskin[part]))
+		} else if (!m->beanhead && part < 64 && m->beannoskin[part] >= 0
 				&& part < m->numgroups && !(m->groupabsent & (1ull << part))
 				&& xblaMeshHeadIsNeckBack(model)) {
 			// A guard's body without the skin of its own neck below the cut,
-			// under a head file whose neck goes down into the collar there
+			// under a head file whose neck goes down into the collar there -
+			// and without the rest of the body file's head section, which the
+			// release switches off under a head file (gebean.c's
+			// headsecskel). A list holding nothing else draws nothing
+			if (m->beannoskin[part] >= m->numgroups || (m->groupabsent & (1ull << m->beannoskin[part]))) {
+				return 1;
+			}
+
 			part = (u16)m->beannoskin[part];
 		} else if (part >= m->numgroups || (m->groupabsent & (1ull << part))) {
 			// A neck node (one with a filler slot) under a head that brings

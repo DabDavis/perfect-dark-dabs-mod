@@ -12809,6 +12809,16 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	const s32 dropownskin = !ishead && !original && row >= GEBEAN_CHRROW_BASE
 			&& row < GEBEAN_CHRROW_BASE + (s32)ARRAYCOUNT(chrRows)
 			&& r->kind == GEBEAN_BODY && !gebeanSourceIsHead(r->source);
+	// And the rest of the body file's own head section (the 0x17 section of
+	// kind 0 its head and neck are drawn in): the release switches the whole
+	// section off on a body that wears a head file, its neck with it - twelve
+	// guard bodies, 175 to 298 triangles each, never drawn in any capture
+	// (tools/gefidelity xbla census, H1). The ring was a part of it; the
+	// noskin groups leave all of it out, and every list node the section's
+	// triangles go to has one. The skeleton numbers its triangles go to
+	// (bit per SK_*), from the first pass
+	u32 headsecskel = 0;
+	s32 headsecleft = 0;
 	s32 ownskincount[GEBEAN_MAXMATS];
 	s32 ownskincand[GEBEAN_MAXMATS];
 	s32 ownskintex = -1;
@@ -12946,8 +12956,11 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			}
 		}
 
-		for (s32 k = 0; ownskintex >= 0 && ownskincand[ownskintex] > 0 && k < numnodes && k < 64; k++) {
-			if (nodeskel[k] == SK_BACK && numnodes + numfill + numhood + numbare + numown + numnoskin < 64) {
+		for (s32 k = 0; k < numnodes && k < 64; k++) {
+			const s32 ring = ownskintex >= 0 && ownskincand[ownskintex] > 0 && nodeskel[k] == SK_BACK;
+			const s32 headsec = nodeskel[k] >= 0 && (headsecskel & (1u << nodeskel[k]));
+
+			if ((ring || headsec) && numnodes + numfill + numhood + numbare + numown + numnoskin < 64) {
 				noskinof[k] = (s8)(numnodes + numfill + numhood + numbare + numown + numnoskin++);
 			}
 		}
@@ -13174,6 +13187,19 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 			}
 
 			if (pass == 0) {
+				// The node a triangle of the head section goes to (as the
+				// second pass's want, below)
+				if (dropownskin && d->section == 0 && dominant != SK_NECK) {
+					s32 want = dominant == SK_POSITION ? SK_BASE : dominant;
+					s32 any = 0;
+
+					for (s32 j = 0; j < numnodes && !any; j++) {
+						any = nodeskel[j] == want;
+					}
+
+					headsecskel |= 1u << (any ? want : SK_BASE);
+				}
+
 				for (s32 i = 0; dropownskin && d->tex < GEBEAN_MAXMATS && i < 3; i++) {
 					if (dominant == SK_NECK) {
 						ownskincount[d->tex]++;
@@ -13638,7 +13664,9 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 					// and the node's copy without its own neck's skin
 					if (takes && !asown && !asfill && !ashood && k < 64 && noskinof[k] >= 0) {
-						if (ownskin) {
+						if (dropownskin && d->section == 0) {
+							headsecleft++;
+						} else if (ownskin) {
 							ownskinleft++;
 						} else if (!beanAddTri(&out, noskinof[k], (s32)d->tex, idx[0], idx[1], idx[2])) {
 							ok = 0;
@@ -13862,8 +13890,8 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 	}
 
 	if (numnoskin > 0) {
-		sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d triangles of its own neck's skin under the collar, left out under a head file's neck (%d groups, picture %d)",
-				r->file, source, ownskinleft, numnoskin, ownskintex);
+		sysLogPrintf(LOG_NOTE, "gebean: %s <- %s: %d triangles of its own neck's skin under the collar and %d of its head section, left out under a head file's neck (%d groups, picture %d)",
+				r->file, source, ownskinleft, headsecleft, numnoskin, ownskintex);
 	}
 
 	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare + numown + numnoskin + numneck, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
