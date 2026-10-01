@@ -263,3 +263,72 @@ def props():
                     rec['damage'] = _f(_int_bits(o['damage']) / 65536.0)
                     rec['maxdamage'] = _f(_int_bits(o['maxdamage']) / 65536.0)
                     rec['health_raw'] = 1
+                    # a door sits at runtime_pos + slide * openPosition (propobj.c:12506);
+                    # the decomp's "frac", unkac, unkb0 are that slide vector, not a fraction
+                    d = p.cast(gdb.lookup_type('DoorRecord').pointer()).dereference()
+                    rec['door_slide'] = [_f(d['frac']), _f(d['unkac']), _f(d['unkb0'])]
+                    rec['door_maxFrac'] = _f(d['maxFrac'])
+                    rec['door_openPosition'] = _f(d['openPosition'])
+                    rec['door_openstate'] = int(d['openstate'])
+            else:
+                rec['exists'] = 0
+        out.append(rec)
+        p = p + words
+        i += 1
+    return out
+
+
+def chrs():
+    ids = _ailist_ids()
+    out = []
+    n = int(ev('g_NumChrSlots'))
+    for k in range(n):
+        c = ev('g_ChrSlots[%d]' % k)
+        if int(c['chrnum']) < 0 or int(c['prop']) == 0:
+            continue
+        prop = c['prop']
+        # a slot not in use can keep a stale prop; a live chr's prop points back at it
+        try:
+            if int(prop['chr']) != int(c.address):
+                continue
+        except gdb.MemoryError:
+            continue
+        ail = int(c['ailist'])
+        rec = {'chrnum': int(c['chrnum']), 'slot': k,
+               'headnum': int(c['headnum']), 'bodynum': int(c['bodynum']),
+               'actiontype': int(c['actiontype']), 'sleep': int(c['sleep']),
+               'chrflags': int(c['chrflags']) & 0xffffffff, 'hidden': int(c['hidden']),
+               'flags2': int(c['flags2']),
+               'damage': _f(c['damage']), 'maxdamage': _f(c['maxdamage']),
+               'morale': int(c['morale']), 'alertness': int(c['alertness']),
+               'accuracyrating': int(c['accuracyrating']), 'speedrating': int(c['speedrating']),
+               'visionrange': _f(c['visionrange']), 'hearingscale': _f(c['hearingscale']),
+               'ailist': ids.get(ail, -1 if ail == 0 else 'ptr'), 'aioffset': int(c['aioffset']),
+               'padpreset1': int(c['padpreset1']), 'chrpreset1': int(c['chrpreset1']),
+               'pos': [_f(prop['pos'][a]) for a in 'xyz'], 'rooms': _rooms(prop),
+               'weapons': [_weaponnum(c['weapons_held'][h]) for h in range(2)]}
+        if int(c['model']) != 0:
+            rec['scale'] = _f(c['model']['scale'])
+        out.append(rec)
+    return out
+
+
+def player():
+    P = ev('g_CurrentPlayer')
+    prop = P['prop']
+    return {'pos': [_f(prop['pos'][a]) for a in 'xyz'], 'rooms': _rooms(prop),
+            'theta': _f(P['vv_theta']), 'verta': _f(P['vv_verta']),
+            'eye': [_f(P['field_488']['pos'][a]) for a in 'xyz'],
+            'ground': _f(P['field_70']),
+            'health': _f(P['bondhealth']), 'armour': _f(P['bondarmour'])}
+
+
+def world():
+    return {'side': SIDE, 'tick': tick(), 'pads': pads(), 'props': props(), 'chrs': chrs(),
+            'player': player()}
+
+
+def emit(path, data):
+    with open(path, 'w') as fh:
+        json.dump(data, fh, separators=(',', ':'))
+    say('wrote', path)
