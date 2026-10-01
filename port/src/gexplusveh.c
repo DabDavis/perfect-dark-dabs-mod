@@ -378,6 +378,55 @@ static bool vehTruckGround(struct truckobj *truck, struct coord *pos, RoomNum *r
 	return true;
 }
 
+/**
+ * Whether the truck's box where it now stands touches a chr, player, object
+ * or door - the step's test (GoldenEye's sub_GAME_7F0448A8()) - leaving out
+ * a door behind it.
+ *
+ * Dam's first gate shut on the truck's tail: it stood blocked while the tail
+ * was in its path and closed as soon as the tail was out, and the truck's
+ * next step, steering a little, swung a rear corner back onto the shut gate
+ * (it pivots on its middle). Every step after that touched it again, the
+ * truck stood between the gates for good, and the gate could neither open
+ * nor shut through it (board reports 20261001-005418 and -005625, Shockwave
+ * S08: a guard had opened the gate 25 seconds before the truck reached it,
+ * and its auto-close came round as the truck went through). A truck is
+ * never held by a door it is driving away from.
+ */
+#define VEH_TRUCK_MAXBEHIND 4
+
+static s32 vehTruckBlocked(struct truckobj *truck, struct coord *from)
+{
+	struct prop *prop = truck->base.prop;
+	struct prop *behind[VEH_TRUCK_MAXBEHIND];
+	const f32 fx = sinf(truck->roty), fz = cosf(truck->roty);
+	s32 numbehind = 0;
+	s32 cdresult;
+
+	while (true) {
+		struct prop *obstacle;
+
+		cdresult = cdTestBlockOverlapsAnyProp(truck->base.geoblock, prop->rooms,
+				CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PLAYERS | CDTYPE_CHRS);
+		obstacle = cdresult == CDRESULT_COLLISION ? cdGetObstacleProp() : NULL;
+
+		if (!obstacle || obstacle->type != PROPTYPE_DOOR || numbehind >= VEH_TRUCK_MAXBEHIND
+				|| (obstacle->obj->hidden & OBJHFLAG_PERIMDISABLED)
+				|| (obstacle->pos.x - from->x) * fx + (obstacle->pos.z - from->z) * fz >= 0.0f) {
+			break;
+		}
+
+		propSetPerimEnabled(obstacle, false);
+		behind[numbehind++] = obstacle;
+	}
+
+	while (numbehind > 0) {
+		propSetPerimEnabled(behind[--numbehind], true);
+	}
+
+	return cdresult;
+}
+
 static void vehTruckTick(struct prop *prop)
 {
 	struct truckobj *truck = (struct truckobj *)prop->obj;
@@ -525,8 +574,7 @@ static void vehTruckTick(struct prop *prop)
 		s32 cdresult;
 
 		propSetPerimEnabled(prop, false);
-		cdresult = cdTestBlockOverlapsAnyProp(truck->base.geoblock, prop->rooms,
-				CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PLAYERS | CDTYPE_CHRS);
+		cdresult = vehTruckBlocked(truck, &prev);
 		propSetPerimEnabled(prop, true);
 
 		if (cdresult == CDRESULT_COLLISION || !vehTruckWallsClear(truck, &prev, &prop->pos)) {
