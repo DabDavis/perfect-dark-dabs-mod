@@ -1106,6 +1106,44 @@ struct defaultobj *objFindByPos(struct coord *pos, RoomNum *rooms)
 	return NULL;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * objFindByPos() in GoldenEye's order (chrprop.c's sub_GAME_7F03FAB0()), for
+ * setting an object down on a converted GoldenEye level. GoldenEye appends
+ * every object it places to the end of its prop list and asks the list from
+ * the end, so the object a new one may stand on is the one placed last;
+ * Perfect Dark puts an object at the head of its list unless it stood on
+ * another (then at the tail) and asks from the head, so its first answer is
+ * the last object placed on a floor. Where three crates share one place - two
+ * stacked, a third in the bottom one's space - GoldenEye tests the top one,
+ * which the third does not reach, and sets it on the floor; Perfect Dark
+ * tested the bottom one and stood the third on it, 96 units up (Archives
+ * prop 152, Frigate's armour 131; FINDINGS row 16). The setup's objects lie
+ * in it in the order they are placed, so the last placed is the furthest on.
+ */
+static struct defaultobj *objFindByPosGe(struct coord *pos, RoomNum *rooms)
+{
+	struct prop *prop = g_Vars.activeprops;
+	struct defaultobj *found = NULL;
+	u8 *start;
+	u8 *end;
+
+	while (prop) {
+		if (prop->type == PROPTYPE_OBJ
+				&& arrayIntersects(prop->rooms, rooms)
+				&& propUpdateGeometry(prop, &start, &end)
+				&& cd000266a4(pos->x, pos->z, (struct geo *)start)
+				&& (found == NULL || (uintptr_t)prop->obj > (uintptr_t)found)) {
+			found = prop->obj;
+		}
+
+		prop = prop->next;
+	}
+
+	return found;
+}
+#endif
+
 void projectileFree(struct projectile *projectile)
 {
 	if (projectile) {
@@ -2536,7 +2574,11 @@ void func0f06a730(struct defaultobj *obj, struct coord *arg1, Mtxf *mtx, RoomNum
 #ifndef PLATFORM_N64
 			bool stoodon = false;
 #endif
+#ifndef PLATFORM_N64
+			struct defaultobj *obj2 = geRoomActive() ? objFindByPosGe(&pos2, rooms2) : objFindByPos(&pos2, rooms2);
+#else
 			struct defaultobj *obj2 = objFindByPos(&pos2, rooms2);
+#endif
 			u8 *start;
 			u8 *end;
 			struct geoblock *block;
