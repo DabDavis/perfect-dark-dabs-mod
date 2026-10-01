@@ -1239,6 +1239,19 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 
 			brightnessfrac = roomGetFinalBrightnessForPlayer(room2) * (1.0f / 255.0f);
 
+#ifndef PLATFORM_N64
+			// GoldenEye colours an impact by its own type alone, never by the
+			// room (explosionCreateBulletImpact()). Cradle's rooms have no
+			// lights file, so their brightness stays 0 and every hole and
+			// blood splat came out black (F3 20261001-195117); elsewhere the
+			// room's shade made a converted level's marks a fifth darker than
+			// GoldenEye's. Only a light shot out or put out darkens them now.
+			if (modloaderStageIsRemake(g_Vars.stagenum)
+					&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)) {
+				brightnessfrac = roomRemakeLightFrac(room2);
+			}
+#endif
+
 			range = maxalpha - (u32)minalpha;
 
 			if (range) {

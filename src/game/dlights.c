@@ -190,6 +190,37 @@ s32 roomGetFlashBrightness(s32 roomnum)
 	return (g_Rooms[roomnum].flags & ROOMFLAG_BRIGHTNESS_CALCED) ? g_Rooms[roomnum].br_flash : 0;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * How lit a converted level's room is against itself with every light whole:
+ * 1 as the level made it, less once a light is shot out or put out.
+ *
+ * GoldenEye lights nothing by room brightness - a prop by its floor tile, an
+ * impact by its own colours - so on a converted level whatever Perfect Dark
+ * shades by the room takes only this share: the room's brightness now
+ * (settled, from its neighbours too, and any flash) against its base plus each
+ * light's share (as the settled local brightness is summed below), capped at
+ * 1. A room whose brightness was never worked out counts as whole: Cradle's
+ * rooms have no lights file and never are (F3 20261001-195117).
+ */
+f32 roomRemakeLightFrac(s32 roomnum)
+{
+	struct room *room = &g_Rooms[roomnum];
+	s32 full = room->br_base + room->numlights * room->br_light_each;
+	s32 now = roomGetSettledRegionalBrightnessForPlayer(roomnum) + roomGetFlashBrightness(roomnum);
+
+	if (full > 255) {
+		full = 255;
+	}
+
+	if (full <= 0 || now >= full) {
+		return 1.0f;
+	}
+
+	return now / (f32)full;
+}
+#endif
+
 f32 roomGetLightOpCurFrac(s32 roomnum)
 {
 	return g_Rooms[roomnum].lightop_cur_frac;
