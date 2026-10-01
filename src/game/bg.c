@@ -5369,6 +5369,7 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 										if (sqdist < lowestsqdist
 #ifndef PLATFORM_N64
 												&& !bgTriPassesShots(iter, gdl)
+												&& !geRoomTriPassesShots(roomnum, point1, point2, point3)
 #endif
 												) {
 											hit = true;
