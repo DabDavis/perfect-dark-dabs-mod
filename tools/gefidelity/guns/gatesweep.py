@@ -37,7 +37,7 @@ import gundiff  # noqa: E402
 
 KIND = {'raise_ticks': 'raise', 'casings_per_use': 'casings', 'impacts_per_use': 'impacts',
         'release_latency': 'release', 'dry_click_interval': 'dry_click', 'dual_allguns': 'dual',
-        'clip_drawn': 'clip', 'empties_in_hold': 'empties'}
+        'clip_drawn': 'clip', 'empties_in_hold': 'empties', 'unstuck': 'mine_stick'}
 
 
 def kind(q):

@@ -46,6 +46,11 @@ import gunlist  # noqa: E402
 
 
 EMPTY_GUN_FIRE = 89      # GoldenEye's EMPTY_GUN_FIRE_SFX; ours is mapped to its ids
+DROP_GUN = 45            # anything thrown landing
+ATTACH_MINE = 241        # a mine sticking where it lands
+LANDING_SFX = (DROP_GUN, ATTACH_MINE)
+MINES = {27, 28, 29}
+LANDING_TICKS = 24       # a mine thrown at Dam's floor comes down about 22 ticks after the throw
 try:
     SFX_NAMES = {int(k): v for k, v in json.load(open(os.path.join(HERE, 'ge_sfx_names.json'))).items()}
 except OSError:
@@ -67,13 +72,25 @@ def family(i):
     return n.rstrip('0123456789').rstrip('_')
 
 
+# GoldenEye's gun logic, when it is the sound's direct caller (ra, exact on the
+# cartridge): its shot is sndPlaySfx'd twice, the second into a stack whose
+# stale words still name bgTestBulletHitBackground, and the heuristic walk below
+# took that second shot sound for a hit (GUN_B4_BOLTACTION as a KF7 "impact")
+GE_GUN_CALLERS = ('gunTickHandState', 'gunUpdateAndFire', 'gunTickGameplay')
+
+
 def source(callers):
     """Who asked for a sound, from the callers gunscen.py logged with it -
     so that sounds GoldenEye picks at random (a hit's surface, a ricochet) are
-    compared as families and the gun's own as ids."""
+    compared as families and the gun's own as ids. The first caller is the
+    exact one (ra on the cartridge, gdb's frame on ours); the rest of the
+    cartridge's are a heuristic stack walk, so the direct caller decides when
+    it is GoldenEye's gun logic."""
     s = ' '.join(callers)
     if 'casing' in s:
         return 'casing'
+    if callers and callers[0] in GE_GUN_CALLERS:
+        return 'gun'
     if 'Hit' in s or 'hits' in s or 'explosion' in s or 'shotCalculate' in s:
         return 'impact'
     if 'gunTick' in s or 'bgun' in s or 'gunUpdate' in s or 'geguns' in s or 'gunfire' in s:
@@ -101,10 +118,17 @@ def uses(d):
     out = []
     fr = d['frames']
     tap0 = d['schedule']['tap'][0]
+    target = d['item'] if d['side'] == 'ge' else d['weapon']
     for k in range(1, len(fr)):
         if fr[k][0] < tap0:
             continue
         a, b = fr[k - 1], fr[k]
+        # only while the gun is in the hand: the last mine thrown, both games
+        # move on to another weapon, and which one is the inventory's (each
+        # side's runs give different guns before it); its magazine put back
+        # on a later switch is no use of this one
+        if a[1] != target or b[1] != target:
+            continue
         n = 0
         for c in (2, 5):                      # clip right, clip left
             if b[c] < a[c] and b[1 if c == 2 else 4] == a[1 if c == 2 else 4]:
@@ -124,7 +148,7 @@ def metrics(d):
     fr = d['frames']
     target = d['item'] if d['side'] == 'ge' else d['weapon']
     m = {'reserve_max': d.get('reserve_max'), 'dual_allguns': d.get('dual_allguns'),
-         'automatic': d['item'] in GE_AUTOMATIC}
+         'automatic': d['item'] in GE_AUTOMATIC, 'mine': d['item'] in MINES}
     if d['side'] == 'ge':
         m['oracle'] = d.get('oracle', 'port')
         m['ticks_per_frame'] = d.get('ticks_per_frame')
@@ -193,14 +217,39 @@ def metrics(d):
     # from the moment it left the hand: a cooked grenade or a rocket's flight
     m['fuse'] = (expl[0] - first) if (expl and first is not None) else None
     snds = [(e[0], e[2], source(e[3] if len(e) > 3 else [])) for e in ev if e[1] == 'snd' and e[2] not in (0, None)]
-    for name, lo, hi in (('draw', 0, tap0), ('tap', tap0, h0), ('hold', h0, h1), ('after', h1, 10 ** 9)):
-        c = collections.Counter(i for t, i, src in snds if src in ('gun', 'other') and lo <= t < hi)
+    # The release is read a frame late in both games: the frame at or after
+    # the release tick still saw the trigger held (GoldenEye reads its pad as a
+    # frame starts; ours takes the sample a tick behind), so a dry click there
+    # is the hold's last, on whichever side its cadence lands it. That frame
+    # is the hold's, on both sides.
+    relframe = next((f[0] for f in fr if f[0] >= h1), h1)
+    hold_end = max(h1, relframe + 1)
+    # A mine's landing (ATTACH_MINE, or DROP_GUN off a bounce) is not the gun's
+    # own sound: whether the cartridge's first mine sticks or bounces off the
+    # floor changes from run to run. It is its own quantity (unstuck).
+    landing = LANDING_SFX if d['item'] in MINES else ()
+    # and the sounds of the weapon the hand moves on to, which differs with the
+    # inventory each side's runs built (the last mine: PICKUP_GUN on one side,
+    # PICKUP_LASER on the other), are that weapon's
+    target = d['item'] if d['side'] == 'ge' else d['weapon']
+    gone = next((f[0] for f in fr if f[0] >= tap0 and f[1] != target), 10 ** 9)
+    for name, lo, hi in (('draw', 0, tap0), ('tap', tap0, h0), ('hold', h0, hold_end), ('after', hold_end, 10 ** 9)):
+        c = collections.Counter(i for t, i, src in snds if src in ('gun', 'other') and lo <= t < min(hi, gone)
+                                and i not in landing)
         m['snd_' + name] = dict(sorted(((str(k), v) for k, v in c.items())))
         m['fam_' + name] = sorted({family(k) for k in c})
     m['snd_casing'] = sorted({str(i) for t, i, src in snds if src == 'casing'})
     m['snd_impact_families'] = sorted({family(i) for t, i, src in snds if src == 'impact'})
     m['snd_impact'] = dict(collections.Counter(str(i) for t, i, src in snds if src == 'impact'))
-    clicks = [t for t, i, src in snds if src == 'gun' and i == EMPTY_GUN_FIRE and h0 <= t < h1]
+    clicks = [t for t, i, src in snds if src == 'gun' and i == EMPTY_GUN_FIRE and h0 <= t < hold_end]
+    # Mines that came down and did not stick, counted until anything goes off
+    # (an explosion sets off or frees mines before they land): on the cartridge
+    # a mine on the floor either sticks (ATTACH_MINE) or bounces away to lie
+    # alone, the first one either way from run to run
+    bang = expl[0] if expl else 10 ** 9
+    landed = sum(1 for e in ev if e[1] == 'throw' and tap0 <= e[0] and e[0] + LANDING_TICKS < bang)
+    stuck = sum(1 for t, i, src in snds if i == ATTACH_MINE and tap0 <= t < bang)
+    m['unstuck'] = max(0, landed - stuck) if d['item'] in MINES else None
     m['dry_click_interval'] = statistics.median(b - a for a, b in zip(clicks, clicks[1:])) if len(clicks) >= 3 else None
     return m
 
@@ -232,6 +281,10 @@ def tolerance(quantity, ge):
         return TOL_TICKS + ge.get('frame_step', 1)
     if quantity == 'impacts_per_use':
         return 0.5
+    if quantity == 'explosions' and ge.get('mine'):
+        return 1
+    if quantity == 'unstuck':
+        return 1
     if quantity == 'cadence':
         return cadence_tol(ge)
     return 0
@@ -251,8 +304,16 @@ def compare(ge, pd):
             out.append((k, a, b, note))
 
     for k in ('reserve_max', 'dual_allguns', 'clip_drawn', 'per_use', 'empties_in_hold', 'reload_on',
-              'casings_per_use', 'explosions', 'throws', 'launches'):
+              'casings_per_use', 'throws', 'launches'):
         eq(k)
+    if ge.get('mine'):
+        # whether the cartridge's first mine sticks to the floor, and so becomes
+        # the stack the next ones go into, or bounces off to lie alone is a
+        # matter of the run: one explosion either way
+        near('explosions', 1, 'one either way: the first mine sticks or bounces')
+        near('unstuck', 1, 'mines that came down and did not stick, before anything went off')
+    else:
+        eq('explosions')
     if not ge.get('automatic'):
         eq('tap_shots')     # an automatic's tap is frames long on GoldenEye's side
     near('impacts_per_use', 0.5)
@@ -328,6 +389,8 @@ def compare_same(a, b):
                 TOL_TICKS + step if k in ('draw_ticks', 'raise_ticks', 'reload_refill', 'reload_idle', 'fuse', 'dry_click_interval',
                                           'release_latency') else (
                     0.5 if k == 'impacts_per_use' else 0))
+            if k in ('explosions', 'unstuck'):
+                tol = tolerance(k, a)     # the cartridge's first mine, either way
             if abs(x - y) > tol:
                 out.append((k, x, y))
         elif k.startswith('snd_'):
@@ -374,7 +437,7 @@ def main():
                       'mismatches': [{'quantity': q, 'ge': x, 'pd': y, 'note': n} for q, x, y, n in diffs]})
     cols = ['clip_drawn', 'reserve_max', 'tap_shots', 'cadence', 'hold_shots', 'empties_in_hold', 'reload_on',
             'reload_refill', 'reload_idle', 'dry_click_interval', 'raise_ticks', 'draw_ticks', 'casings_per_use', 'impacts_per_use',
-            'throws', 'launches', 'release_latency', 'explosions', 'fuse', 'dual_allguns']
+            'throws', 'launches', 'release_latency', 'explosions', 'unstuck', 'fuse', 'dual_allguns']
     oracles = sorted({r['ge'].get('oracle', 'port') for r in table if 'ge' in r})
     md = ['# Gun diff: GoldenEye (%s) / ours' % ', '.join('the cartridge in ares' if o == 'ares' else 'the native port'
                                                          for o in oracles), '',

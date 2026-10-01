@@ -53,9 +53,9 @@ def trigger_at(t):
 
 
 class Hook(gdb.Breakpoint):
-    def __init__(self, spec, kind, reader, caller=None):
+    def __init__(self, spec, kind, reader, caller=None, notfrom=()):
         super().__init__(spec, internal=True)
-        self.kind, self.reader, self.caller = kind, reader, caller
+        self.kind, self.reader, self.caller, self.notfrom = kind, reader, caller, notfrom
 
     def stop(self):
         if REC['on']:
@@ -65,6 +65,8 @@ class Hook(gdb.Breakpoint):
                         return False
                 except (gdb.error, AttributeError):
                     return False
+            if self.notfrom and set(callers(3)) & set(self.notfrom):
+                return False
             try:
                 v = self.reader()
             except gdb.error:
@@ -124,7 +126,9 @@ def install_hooks():
         Hook('sndStart', 'snd', _pd_sound)
         Hook('casingCreate', 'casing', lambda: 1)
         Hook('explosionCreate', 'expl', lambda: int(ev('type')))
-        Hook('wallhitCreateWith20Args', 'impact', lambda: 1)
+        # an explosion's scorch is a wallhit here; GoldenEye keeps its scorches
+        # apart (explosionScorchTick, not explosionCreateBulletImpact)
+        Hook('wallhitCreateWith20Args', 'impact', lambda: 1, notfrom=('explosionTick',))
         Hook('bgun0f09a6f8', 'shot', lambda: int(ev('hand->shotstotake')))
         Hook('bgunCreateThrownProjectile', 'throw', lambda: 1)
         Hook('bgunCreateFiredProjectile', 'launch', lambda: 1)
