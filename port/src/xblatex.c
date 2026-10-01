@@ -9,6 +9,7 @@
  */
 
 #include <stdlib.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <SDL.h>
@@ -446,8 +447,20 @@ const void *xblaTexBindImage(const char *key, u8 *rgba, s32 width, s32 height)
  * release, kept for the life of the game as the tiles are. The renderer reads
  * the table without the lock on every texture it binds, so an entry is filled
  * before the count that publishes it.
+ *
+ * A picture that only changes frames shows them by number. One the file also
+ * scrolls or turns is drawn as XBLATEX_ANIMSTEPS steps a second over the
+ * period the whole motion repeats in, each step the picture as the release's
+ * texture matrix would sample it at that moment, made when the renderer first
+ * asks for it (xblaTexLoadAnimFrame()). The texture matrix turns and slides
+ * the coordinates a picture is read at; here the picture is turned and slid
+ * under coordinates that stay put, which with the wrap the release draws with
+ * is the same wherever the coordinates lie within one repeat of the picture,
+ * and for a slide everywhere.
  */
-#define XBLATEX_MAXANIMS 16
+#define XBLATEX_MAXANIMS 64
+#define XBLATEX_ANIMSTEPS 30
+#define XBLATEX_ANIMMAXPERIOD 60.0f
 
 struct xblatexanim {
 	const void *addr;
@@ -455,7 +468,9 @@ struct xblatexanim {
 	s32 numframes;
 	s32 width;
 	s32 height;
-	f32 secondsPerFrame;
+	struct xblatexmotion motion;
+	f32 period;  // seconds the whole motion repeats in, 0 for frames alone
+	s32 steps;   // and the steps it is drawn in over that
 };
 
 static struct xblatexanim anims[XBLATEX_MAXANIMS];
@@ -465,14 +480,67 @@ static SDL_atomic_t numAnims;
 // (xblaTexSetAnimClock())
 static volatile f32 animClock;
 
-const void *xblaTexBindAnimation(const char *key, u8 **frames, s32 numframes, s32 width, s32 height, f32 secondsPerFrame)
+static s32 xblaTexMoves(const struct xblatexmotion *m)
+{
+	return m->scroll[0] != 0.0f || m->scroll[1] != 0.0f || m->rotate != 0.0f;
+}
+
+/**
+ * The time the motion repeats in: the shortest whole multiple of its longest
+ * part (the frames' loop, a repeat's slide on each axis, a full turn) that the
+ * others divide, up to a minute; past that the longest part's own, and the
+ * picture jumps a little each time round.
+ */
+static f32 xblaTexAnimPeriod(const struct xblatexanim *a)
+{
+	f32 parts[4];
+	s32 n = 0;
+	f32 longest = 0.0f;
+
+	if (a->numframes > 1 && a->motion.secondsPerFrame > 0.0f) {
+		parts[n++] = a->numframes * a->motion.secondsPerFrame;
+	}
+
+	for (s32 i = 0; i < 2; i++) {
+		if (a->motion.scroll[i] != 0.0f) {
+			parts[n++] = 1.0f / fabsf(a->motion.scroll[i]);
+		}
+	}
+
+	if (a->motion.rotate != 0.0f) {
+		parts[n++] = 360.0f / fabsf(a->motion.rotate);
+	}
+
+	for (s32 i = 0; i < n; i++) {
+		longest = parts[i] > longest ? parts[i] : longest;
+	}
+
+	for (f32 p = longest; p <= XBLATEX_ANIMMAXPERIOD; p += longest) {
+		s32 all = 1;
+
+		for (s32 i = 0; i < n && all; i++) {
+			const f32 r = p / parts[i];
+
+			all = fabsf(r - roundf(r)) < 0.001f * r;
+		}
+
+		if (all) {
+			return p;
+		}
+	}
+
+	return longest;
+}
+
+const void *xblaTexBindAnimation(const char *key, u8 **frames, s32 numframes, s32 width, s32 height,
+		const struct xblatexmotion *motion)
 {
 	const size_t bytes = (size_t)width * (size_t)height * 4;
 	const void *addr;
 	u8 *first;
 	s32 n;
 
-	if (!frames || numframes <= 0 || width <= 0 || height <= 0) {
+	if (!frames || numframes <= 0 || width <= 0 || height <= 0 || !motion) {
 		for (s32 i = 0; frames && i < numframes; i++) {
 			free(frames[i]);
 		}
@@ -489,7 +557,7 @@ const void *xblaTexBindAnimation(const char *key, u8 **frames, s32 numframes, s3
 
 	addr = xblaTexBindPicture(key, first, width, height, -1);
 
-	if (!addr || !lock || numframes < 2 || !(secondsPerFrame > 0.0f)) {
+	if (!addr || !lock || ((numframes < 2 || !(motion->secondsPerFrame > 0.0f)) && !xblaTexMoves(motion))) {
 		for (s32 i = 0; i < numframes; i++) {
 			free(frames[i]);
 		}
@@ -510,12 +578,21 @@ const void *xblaTexBindAnimation(const char *key, u8 **frames, s32 numframes, s3
 	}
 
 	if (n < XBLATEX_MAXANIMS) {
-		anims[n].addr = addr;
-		anims[n].frames = frames;
-		anims[n].numframes = numframes;
-		anims[n].width = width;
-		anims[n].height = height;
-		anims[n].secondsPerFrame = secondsPerFrame;
+		struct xblatexanim *a = &anims[n];
+
+		a->addr = addr;
+		a->frames = frames;
+		a->numframes = numframes;
+		a->width = width;
+		a->height = height;
+		a->motion = *motion;
+		a->period = xblaTexMoves(motion) ? xblaTexAnimPeriod(a) : 0.0f;
+		a->steps = a->period > 0.0f ? (s32)(a->period * XBLATEX_ANIMSTEPS + 0.5f) : 0;
+
+		if (a->period > 0.0f && a->steps < 1) {
+			a->steps = 1;
+		}
+
 		SDL_AtomicSet(&numAnims, n + 1);
 		frames = NULL;
 	}
@@ -550,13 +627,40 @@ s32 xblaTexAnimFrame(const void *addr)
 	for (s32 i = 0; i < n; i++) {
 		if (anims[i].addr == addr) {
 			const f32 clock = animClock;
-			const s32 step = clock > 0.0f ? (s32)(clock / anims[i].secondsPerFrame) : 0;
+			const struct xblatexanim *a = &anims[i];
 
-			return step % anims[i].numframes;
+			if (a->steps > 0) {
+				const f32 into = clock > 0.0f ? fmodf(clock, a->period) : 0.0f;
+				const s32 step = (s32)(into / a->period * a->steps);
+
+				return step < 0 ? 0 : step >= a->steps ? a->steps - 1 : step;
+			}
+
+			return (clock > 0.0f ? (s32)(clock / a->motion.secondsPerFrame) : 0) % a->numframes;
 		}
 	}
 
 	return -1;
+}
+
+/** Texel (x, y) of a picture, bilinear between the four round it, wrapping. */
+static void xblaTexSampleWrap(const u8 *rgba, s32 w, s32 h, f32 x, f32 y, u8 *out)
+{
+	const f32 fx = floorf(x), fy = floorf(y);
+	const f32 ax = x - fx, ay = y - fy;
+	const s32 x0 = ((s32)fx % w + w) % w, y0 = ((s32)fy % h + h) % h;
+	const s32 x1 = (x0 + 1) % w, y1 = (y0 + 1) % h;
+	const u8 *p00 = rgba + ((size_t)y0 * w + x0) * 4;
+	const u8 *p10 = rgba + ((size_t)y0 * w + x1) * 4;
+	const u8 *p01 = rgba + ((size_t)y1 * w + x0) * 4;
+	const u8 *p11 = rgba + ((size_t)y1 * w + x1) * 4;
+
+	for (s32 c = 0; c < 4; c++) {
+		const f32 top = p00[c] + (p10[c] - p00[c]) * ax;
+		const f32 bot = p01[c] + (p11[c] - p01[c]) * ax;
+
+		out[c] = (u8)(top + (bot - top) * ay + 0.5f);
+	}
 }
 
 u8 *xblaTexLoadAnimFrame(const void *addr, s32 frame, s32 *outWidth, s32 *outHeight)
@@ -564,14 +668,60 @@ u8 *xblaTexLoadAnimFrame(const void *addr, s32 frame, s32 *outWidth, s32 *outHei
 	const s32 n = SDL_AtomicGet(&numAnims);
 
 	for (s32 i = 0; i < n; i++) {
-		if (anims[i].addr == addr && frame >= 0 && frame < anims[i].numframes) {
-			const size_t bytes = (size_t)anims[i].width * (size_t)anims[i].height * 4;
-			u8 *rgba = malloc(bytes);
+		const struct xblatexanim *a = &anims[i];
 
-			if (rgba) {
-				memcpy(rgba, anims[i].frames[frame], bytes);
-				*outWidth = anims[i].width;
-				*outHeight = anims[i].height;
+		if (a->addr != addr || frame < 0) {
+			continue;
+		}
+
+		{
+			const s32 w = a->width, h = a->height;
+			const size_t bytes = (size_t)w * (size_t)h * 4;
+			u8 *rgba = malloc(bytes);
+			const u8 *src;
+
+			if (!rgba) {
+				return NULL;
+			}
+
+			*outWidth = w;
+			*outHeight = h;
+
+			if (a->steps <= 0) {
+				if (frame >= a->numframes) {
+					free(rgba);
+					return NULL;
+				}
+
+				memcpy(rgba, a->frames[frame], bytes);
+				return rgba;
+			}
+
+			// The step's moment, its frame and where the motion has it. The
+			// picture's rows run up its v as the file's UVs do (the decode
+			// leaves the bottom row first), so a turn is anticlockwise for a
+			// positive rate as the picture is drawn, as Maya shows it
+			{
+				const f32 t = (f32)frame * a->period / a->steps;
+				const s32 f = a->numframes > 1 && a->motion.secondsPerFrame > 0.0f
+						? (s32)(t / a->motion.secondsPerFrame) % a->numframes : 0;
+				const f32 ang = a->motion.rotate * t * (M_PI / 180.0f);
+				const f32 c = cosf(ang), sn = sinf(ang);
+				const f32 du = a->motion.scroll[0] * t, dv = a->motion.scroll[1] * t;
+
+				src = a->frames[f];
+
+				for (s32 y = 0; y < h; y++) {
+					for (s32 x = 0; x < w; x++) {
+						const f32 pu = (x + 0.5f) / w - 0.5f;
+						const f32 pv = (y + 0.5f) / h - 0.5f;
+						// the picture turned by ang: read where it came from
+						const f32 qu = c * pu + sn * pv + 0.5f + du;
+						const f32 qv = -sn * pu + c * pv + 0.5f + dv;
+
+						xblaTexSampleWrap(src, w, h, qu * w - 0.5f, qv * h - 0.5f, rgba + ((size_t)y * w + x) * 4);
+					}
+				}
 			}
 
 			return rgba;
@@ -580,7 +730,6 @@ u8 *xblaTexLoadAnimFrame(const void *addr, s32 frame, s32 *outWidth, s32 *outHei
 
 	return NULL;
 }
-
 /**
  * A picture for a texture the game is already holding, bound at that texture's
  * own address - see xblaTexBindPictureAt() in xblatex.h.

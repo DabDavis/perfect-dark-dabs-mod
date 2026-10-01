@@ -90,21 +90,36 @@ const void *xblaTexBindPictureAt(const void *addr, u8 *rgba, s32 width, s32 heig
 void xblaTexForgetPicture(const void *addr);
 
 /**
+ * How an animated picture moves (xblaTexBindAnimation()): its frames, shown
+ * for secondsPerFrame each (0 for one that stands at its first), and the
+ * texture matrix's motion the release gives it - its UVs' scroll in repeats a
+ * second, and its turn in degrees a second about the picture's middle,
+ * anticlockwise as the picture is drawn. GoldenEye XBLA's parameter table
+ * (gebean.c, beanTexAnimation()).
+ */
+struct xblatexmotion {
+	f32 secondsPerFrame;
+	f32 scroll[2];
+	f32 rotate;
+};
+
+/**
  * An animated picture: xblaTexBindImage() of its first frame, which is what
  * every question about the picture is answered from (its alpha, its colour),
- * and the frames themselves, shown one after another for secondsPerFrame each
- * on the level's clock and round again. GoldenEye XBLA's few pictures of more
- * than one frame (gebean.c, beanTexAnimation()). The frames - numframes
+ * and its frames and motion on the level's clock. The frames - numframes
  * pictures of width x height, RGBA32 in the game's row order - and the array
- * are taken over. A key bound before keeps what it was bound as.
+ * are taken over. A key bound before keeps what it was bound as. A picture
+ * neither changing nor moving is bound as a still.
  */
-const void *xblaTexBindAnimation(const char *key, u8 **frames, s32 numframes, s32 width, s32 height, f32 secondsPerFrame);
+const void *xblaTexBindAnimation(const char *key, u8 **frames, s32 numframes, s32 width, s32 height,
+		const struct xblatexmotion *motion);
 
 /**
  * The renderer's side of that: whether any picture is animated (its early
- * out), the frame an address shows now (-1 for one that is not animated) and
- * a copy of that frame, malloc'd, for it to upload - one texture cache entry a
- * frame, so a frame is decoded and uploaded once.
+ * out), the frame (or for a moving picture the step of its motion) an address
+ * shows now, -1 for one that is not animated, and a copy of it, malloc'd, for
+ * it to upload - one texture cache entry a frame or step, so each is made and
+ * uploaded once.
  */
 s32 xblaTexHaveAnimations(void);
 s32 xblaTexAnimFrame(const void *addr);

@@ -3450,6 +3450,10 @@ struct beanmodel {
 	// An animated picture's seconds a frame, as the file times it, 0 for one
 	// that stands at its first frame (beanTexAnimation())
 	f32 texspf[GEBEAN_MAXMATS];
+	// and how the file moves it: its UVs' scroll in repeats a second and its
+	// turn in degrees a second about the picture's middle (beanTexAnimation())
+	f32 texscroll[GEBEAN_MAXMATS][2];
+	f32 texrot[GEBEAN_MAXMATS];
 	// The pane of a glass material in the blended pass (beanWalkStream())
 	u8 glasspane[GEBEAN_MAXMATS];
 	// Such a pane under the window's reflection map: a tinted pane
@@ -5078,23 +5082,51 @@ static s32 beanTexFrames(const struct beanmodel *bm, s32 t)
 }
 
 /**
- * How the file times its animated pictures (bm->texspf), from the parameters
- * Rare's exporter wrote for the shaders' Maya place2d and file nodes: the
- * rendergraph header (.data) points at +0xdc to {?, the UV scale, a count,
- * then the entries}, 0x64 bytes each - the material's, the file node's and
- * the attribute's names, the per-instance offsets of the texture matrix the
- * attribute's shader constants are set from (+0x18, a list as long as +0x20),
- * and at +0x4c the frames, at +0x50 the seconds a frame and at +0x58 whether
- * they run: Complex's water bumps 0.25 and 0.15625 s (four and five second
- * loops), its beacon 0.5 s (a blink a second), the rotor disc's frames not
- * run at all. Those four are the release's only entries with more than one
- * frame (every file's table read, 2026-10-01).
+ * How the file moves its pictures (bm->texspf, texscroll, texrot), from the
+ * parameters Rare's exporter wrote for the shaders' Maya place2d and file
+ * nodes. The rendergraph header (.data) points at +0xdc to {?, the UV scale,
+ * a count, then the entries}, 0x64 bytes each:
+ *
+ *   +0x00 +0x04 +0x08  the material's, the file node's and the attribute's names
+ *   +0x18 +0x20        the per-instance offsets of the texture matrix the
+ *                      attribute's shader constants are set from (record 0x05),
+ *                      a list as long as +0x20
+ *   +0x2c +0x30        the UV's scroll, in repeats a second
+ *   +0x38 +0x3c        an offset (0 in every entry)
+ *   +0x40              the rotation, in degrees a second about the picture's middle
+ *   +0x44 +0x48        the repeat (1 in every entry, to a millionth)
+ *   +0x4c +0x50 +0x58  the frames, the seconds a frame, whether they run
+ *
+ * The release has 27 entries in 21 files (every file read, 2026-10-01).
+ * Read as rates, every one is a motion its picture is made for: Frigate's
+ * bridge radar turning -120 a second (a clockwise sweep every three seconds),
+ * the helicopter's rotor disc 50, the M16's and P90's flash cards 999, Dam's
+ * reservoir scrolling 0.5 and 0.5 a second (its transparency map) and 0.25
+ * (its bump map), Complex's water bump -0.1 a second up and its 16 identical
+ * frames. As fixed placements most would mean nothing: an offset of half a
+ * repeat on a tiling picture is no change, and a 999 degree turn of a flash
+ * card is 279. The engine code that reads them was not found in the image
+ * (the frames' bind is, 0x823a57a0); the units are the reading under which
+ * all 27 make sense.
  *
  * An entry is the picture's that a record 0x05 sets the matrix of - the
  * stream's shader constants from one of the entry's offsets - after the
- * material binding it, the picture of that material with the entry's frames.
+ * material binding it: the material's one picture past its extra pairs (the
+ * shared map they start with), or of several, the one with the entry's
+ * frames, or for a transparency attribute the one with alpha. An entry that
+ * none of those places is left alone and logged (Dam's reservoir bump, which
+ * the HD look does not draw).
  */
 static const char *beanTextureName(const struct beanmodel *bm, s32 t);
+
+static s32 beanTexHasAlpha(const struct beanmodel *bm, s32 t)
+{
+	u32 blen;
+	const u8 *b = t >= 0 && t < bm->numtex ? caffBlob(&bm->caff, bm->texfile[t], &blen) : NULL;
+	const u32 format = b && blen >= 0x40 ? b[0x1b] & 0x3f : 0;
+
+	return format == X360_FMT_DXT23 || format == X360_FMT_DXT45 || format == X360_FMT_8888;
+}
 
 static void beanTexAnimation(struct beanmodel *bm, const char *source)
 {
@@ -5104,8 +5136,10 @@ static void beanTexAnimation(struct beanmodel *bm, const char *source)
 	u32 mat[8];
 	s32 nummat = 0;
 	u8 seen[GEBEAN_MAXMATS];
+	u8 placed[256];
 
 	memset(seen, 0, sizeof(seen));
+	memset(placed, 0, sizeof(placed));
 
 	if (!d || bm->datalen < 0xe0 || memcmp(d, "rendergraph", 12) != 0 || !st || bm->streamlen < 0x28) {
 		return;
@@ -5136,9 +5170,13 @@ static void beanTexAnimation(struct beanmodel *bm, const char *source)
 		}
 
 		if (type == 0x2d && size >= 20) {
+			// {texture, sampler} pairs, the extra ones (+10) first: the bind
+			// (0x823a57a0) takes those, then the material's own (+8)
+			const u32 extra = gebeanBE16(st + pc + 10);
+
 			nummat = 0;
 
-			for (u32 k = 0; 12 + 8 * k + 8 <= size && nummat < (s32)ARRAYCOUNT(mat); k++) {
+			for (u32 k = extra; 12 + 8 * k + 8 <= size && nummat < (s32)ARRAYCOUNT(mat); k++) {
 				mat[nummat++] = gebeanBE32(st + pc + 12 + 8 * k);
 			}
 		} else if (type == 0x05 && size >= 12) {
@@ -5146,14 +5184,20 @@ static void beanTexAnimation(struct beanmodel *bm, const char *source)
 
 			for (u32 e = 0; e < n; e++) {
 				const u8 *p = d + entries + e * 0x64;
+				const u32 attr = gebeanBE32(p + 8);
 				const u32 frames = gebeanBE32(p + 0x4c);
 				const u32 list = gebeanBE32(p + 0x18);
 				const u32 count = gebeanBE32(p + 0x20);
 				const f32 spf = gebeanBEF32(p + 0x50);
 				const s32 runs = gebeanBE32(p + 0x58) != 0;
+				const f32 su = gebeanBEF32(p + 0x2c);
+				const f32 sv = gebeanBEF32(p + 0x30);
+				const f32 rot = gebeanBEF32(p + 0x40);
+				const s32 transparency = gebeanFits(attr, 13, bm->datalen) && memcmp(d + attr, "transparency", 13) == 0;
 				s32 listed = 0;
+				s32 t = -1;
 
-				if (frames < 2 || count > 64 || !gebeanFits(list, count * 4, bm->datalen)) {
+				if (count > 64 || !gebeanFits(list, count * 4, bm->datalen)) {
 					continue;
 				}
 
@@ -5161,22 +5205,71 @@ static void beanTexAnimation(struct beanmodel *bm, const char *source)
 					listed = gebeanBE32(d + list + k * 4) == ptr;
 				}
 
-				for (s32 m = 0; listed && m < nummat; m++) {
-					const s32 t = (s32)mat[m];
+				if (!listed) {
+					continue;
+				}
 
-					if (t >= 0 && t < bm->numtex && !seen[t] && beanTexFrames(bm, t) == (s32)frames) {
-						seen[t] = 1;
-						bm->texspf[t] = runs && spf > 0.0f ? spf : 0.0f;
+				if (nummat == 1) {
+					t = (s32)mat[0];
+				} else {
+					for (s32 m = 0; m < nummat; m++) {
+						const s32 c = (s32)mat[m];
 
-						sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is %u frames, %s %.3f s", source, t,
-								beanTextureName(bm, t), frames,
-								bm->texspf[t] > 0.0f ? "each shown for" : "standing at its first; the file's time a frame", spf);
+						if (frames > 1 ? beanTexFrames(bm, c) == (s32)frames
+								: transparency && beanTexHasAlpha(bm, c)) {
+							t = t < 0 ? c : -2;
+						}
 					}
+				}
+
+				if (t < 0 || t >= bm->numtex || (frames > 1 && beanTexFrames(bm, t) != (s32)frames)) {
+					if (e < ARRAYCOUNT(placed) && !placed[e]) {
+						placed[e] = 2;
+					}
+
+					continue;
+				}
+
+				if (e < ARRAYCOUNT(placed)) {
+					placed[e] = 1;
+				}
+
+				if (seen[t]) {
+					continue;
+				}
+
+				seen[t] = 1;
+				bm->texspf[t] = frames > 1 && runs && spf > 0.0f ? spf : 0.0f;
+				bm->texscroll[t][0] = su == su && fabsf(su) < 100.0f ? su : 0.0f;
+				bm->texscroll[t][1] = sv == sv && fabsf(sv) < 100.0f ? sv : 0.0f;
+				bm->texrot[t] = rot == rot && fabsf(rot) < 100000.0f ? rot : 0.0f;
+
+				if (frames > 1) {
+					sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is %u frames, %s %.3f s", source, t,
+							beanTextureName(bm, t), frames,
+							bm->texspf[t] > 0.0f ? "each shown for" : "standing at its first; the file's time a frame", spf);
+				}
+
+				if (bm->texscroll[t][0] != 0.0f || bm->texscroll[t][1] != 0.0f || bm->texrot[t] != 0.0f) {
+					sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) moves %.3f %.3f repeats and turns %.1f degrees a second",
+							source, t, beanTextureName(bm, t), bm->texscroll[t][0], bm->texscroll[t][1], bm->texrot[t]);
 				}
 			}
 		}
 
 		pc += size;
+	}
+
+	for (u32 e = 0; e < n && e < ARRAYCOUNT(placed); e++) {
+		if (placed[e] == 2) {
+			const u8 *p = d + entries + e * 0x64;
+			const u32 node = gebeanBE32(p + 4);
+			const u32 attr = gebeanBE32(p + 8);
+
+			sysLogPrintf(LOG_NOTE, "gebean: %s: the %s of %s is on none of its material's pictures this can place",
+					source, gebeanFits(attr, 1, bm->datalen) ? (const char *)d + attr : "?",
+					gebeanFits(node, 1, bm->datalen) ? (const char *)d + node : "?");
+		}
 	}
 }
 
@@ -5879,34 +5972,63 @@ static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t
 
 	*tile = NULL;
 
-	// A picture of several frames that the file runs (beanTexAnimation()):
-	// every frame, shown by the renderer in turn on the level's clock
-	if (rgba && t < bm->numtex && bm->texspf[t] > 0.0f && beanTexFrames(bm, t) > 1) {
-		const s32 n = beanTexFrames(bm, t);
-		u8 **frames = calloc(n, sizeof(*frames));
-		s32 ok = frames != NULL;
+	// A picture the file animates (beanTexAnimation()): its frames, where it
+	// runs them, and its scroll and turn - a level's scroll excepted, which
+	// its rooms draw by moving the tile (gebeanstage.c), smoothly and with no
+	// picture made a step. Shown by the renderer in turn on the level's clock
+	if (rgba && t < bm->numtex) {
+		const s32 level = strncmp(source, "new/background/", 15) == 0 || strncmp(source, "original/background/", 20) == 0;
+		struct xblatexmotion motion;
+		s32 n = 1;
 
-		for (s32 f = 0; f < n && ok; f++) {
-			s32 fw, fh;
+		memset(&motion, 0, sizeof(motion));
 
-			frames[f] = f == 0 ? rgba : beanDecodeTextureFrame(bm, t, f, &fw, &fh);
-			ok = frames[f] != NULL && (f == 0 || (fw == w && fh == h));
-
-			if (ok && f > 0 && beanTexBlendedOnly(bm, t)) {
-				beanKeyStencil(frames[f], w, h);
-			}
+		if (bm->texspf[t] > 0.0f && beanTexFrames(bm, t) > 1) {
+			n = beanTexFrames(bm, t);
+			motion.secondsPerFrame = bm->texspf[t];
 		}
 
-		if (ok) {
-			*tile = xblaTexBindAnimation(key, frames, n, w, h, bm->texspf[t]);
-			rgba = NULL;
-		} else {
-			for (s32 f = 1; frames && f < n; f++) {
-				free(frames[f]);
+		if (!level) {
+			motion.scroll[0] = bm->texscroll[t][0];
+			motion.scroll[1] = bm->texscroll[t][1];
+		}
+
+		motion.rotate = bm->texrot[t];
+
+		// Bean's screen placeholder turns too (the door console's, 50 a
+		// second), but GoldenEye's monitor programme is drawn on it and it is
+		// the black behind that (beanFindScreens(), beanScreenPlaceholder):
+		// a 512x512 picture made anew 30 times a second for nothing to see
+		if (strncmp(beanTextureName(bm, t), "_0x008C4635", 11) == 0) {
+			motion.scroll[0] = motion.scroll[1] = motion.rotate = 0.0f;
+		}
+
+		if (n > 1 || motion.scroll[0] != 0.0f || motion.scroll[1] != 0.0f || motion.rotate != 0.0f) {
+			u8 **frames = calloc(n, sizeof(*frames));
+			s32 ok = frames != NULL;
+
+			for (s32 f = 0; f < n && ok; f++) {
+				s32 fw, fh;
+
+				frames[f] = f == 0 ? rgba : beanDecodeTextureFrame(bm, t, f, &fw, &fh);
+				ok = frames[f] != NULL && (f == 0 || (fw == w && fh == h));
+
+				if (ok && f > 0 && beanTexBlendedOnly(bm, t)) {
+					beanKeyStencil(frames[f], w, h);
+				}
 			}
 
-			free(frames);
-			sysLogPrintf(LOG_WARNING, "gebean: %s: texture %d's frames would not all decode, its first shown", source, t);
+			if (ok) {
+				*tile = xblaTexBindAnimation(key, frames, n, w, h, &motion);
+				rgba = NULL;
+			} else {
+				for (s32 f = 1; frames && f < n; f++) {
+					free(frames[f]);
+				}
+
+				free(frames);
+				sysLogPrintf(LOG_WARNING, "gebean: %s: texture %d's frames would not all decode, its first shown", source, t);
+			}
 		}
 	}
 
@@ -14613,6 +14735,19 @@ u8 *gebeanLevelDecode(struct gebeanlevel *level, s32 tex, s32 *outWidth, s32 *ou
 const char *gebeanLevelTextureName(struct gebeanlevel *level, s32 tex)
 {
 	return level ? beanTextureName(&level->bm, tex) : "";
+}
+
+/** How the file scrolls a level's picture, in repeats a second (beanTexAnimation()); 0 when it does not. */
+s32 gebeanLevelTextureScroll(struct gebeanlevel *level, s32 tex, f32 *su, f32 *sv)
+{
+	if (!level || tex < 0 || tex >= level->bm.numtex) {
+		return 0;
+	}
+
+	*su = level->bm.texscroll[tex][0];
+	*sv = level->bm.texscroll[tex][1];
+
+	return *su != 0.0f || *sv != 0.0f;
 }
 
 s32 gebeanLevelTextureIsWater(struct gebeanlevel *level, s32 tex)
