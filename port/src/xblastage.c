@@ -687,10 +687,14 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 	// strength of it.
 	texResetTiles();
 
-	// Bean's reservoir picture takes GoldenEye's moving water, on its
-	// leaf's own render mode (gewater.c); the two tiles above are the same
-	// picture at the same place already
-	if (gebeanStageRecordIsWater(record)) {
+	// A picture the release's texture matrix scrolls moves as it does (Dam's
+	// reservoir, 0.5 repeats a second each way); else Bean's reservoir
+	// picture takes GoldenEye's moving water, on its leaf's own render mode
+	// (gewater.c). The two tiles above are the same picture at the same
+	// place already
+	if (gebeanStageScrollSlot(record, tilew, tileh)) {
+		gSPDisplayList(gdl++, gebeanStageScrollSlot(record, tilew, tileh));
+	} else if (gebeanStageRecordIsWater(record)) {
 		gdl = geWaterWriteHd(gdl, tilew, tileh);
 	}
 

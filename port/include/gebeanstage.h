@@ -121,6 +121,13 @@ const void *gebeanStageTile(u32 record);
 /** A served room's record that is the level's water picture (Bean's stride 36 draws; Dam's reservoir). */
 s32 gebeanStageRecordIsWater(u32 record);
 
+/**
+ * A served room's picture that the release's texture matrix scrolls (Dam's
+ * reservoir): a list moving tiles 0 and 1, drawn w x h, to where the level's
+ * clock has them, called after the picture's load. NULL for any other.
+ */
+const Gfx *gebeanStageScrollSlot(u32 record, s32 w, s32 h);
+
 /** A served room's loaded picture that bullets pass through (cut-outs, translucent). */
 s32 gebeanStageTilePassesShots(uintptr_t tile);
 

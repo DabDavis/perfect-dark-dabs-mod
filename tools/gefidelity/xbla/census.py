@@ -373,8 +373,9 @@ def markdown(rows, plant, strike, coverage, tableless=(), rel=None):
     L += ['', '%d files drawn whole: %s' % (len(clean), ', '.join(clean)), '']
     if tableless:
         L += ['## Pictures the decoder refuses (static check, every release file)', '',
-              'Animated pictures with no frame table: beanDecodeTexture() takes the first frame\'s offset '
-              'through a table that is not there and gives up ("would not decode"), so their draws have no picture.', '']
+              'Pictures of several frames whose frames beanDecodeTextureFrame() cannot place: a type (+0x1c) '
+              'other than 4 (a picture a frame) or 5 (an array of frames), or a picture a frame whose mips '
+              'lie past its level 0 - the decoder gives up ("would not decode"), so their draws have no picture.', '']
         for src, t, name, frames in tableless:
             L.append('- %s texture %d (%s), %d frames' % (src, t, name, frames))
         L.append('')
@@ -386,9 +387,14 @@ def markdown(rows, plant, strike, coverage, tableless=(), rel=None):
 
 
 def tableless_frames():
-    """Every release picture with frames (+0x38) and no frame table (+0x3c 0 or
-    past the header): beanDecodeTexture() reads its first frame's offset
-    through the table and refuses the picture, in files no run loaded too."""
+    """Every release picture of several frames (+0x38) that the game's decoder
+    cannot place, in files no run loaded too - beanDecodeTextureFrame()'s rule:
+    an array (type 5 at +0x1c) is its slices back to back, a picture a frame
+    (type 4) its frames at the next 4K past each (the tables at +0x44/+0x48/
+    +0x4c give each frame's width, height and levels; mips past a frame's level
+    0 are not sized). Until 2026-10-01 the decoder read a frame table at +0x3c,
+    which no release picture has, and refused all four the release animates
+    (Complex 20, 21 and 24, the helicopter's rotor disc)."""
     import struct
     from cafftool import Caff
     out = []
@@ -407,8 +413,16 @@ def tableless_frames():
                 b = c.blob(f)
                 if b[:8] != b'texture\0':
                     continue
-                frames, tab = struct.unpack_from('>II', b, 0x38)
-                if frames and (tab == 0 or tab + 4 > len(b)):
+                typ = struct.unpack_from('>I', b, 0x1c)[0]
+                frames = struct.unpack_from('>I', b, 0x38)[0]
+                placed = typ == 5
+                if typ == 4 and len(b) >= 0x50:
+                    wt, ht, lt = struct.unpack_from('>III', b, 0x44)
+                    if max(wt, ht, lt) + 4 * frames <= len(b):
+                        dims = [(struct.unpack_from('>I', b, wt + 4 * i)[0], struct.unpack_from('>I', b, ht + 4 * i)[0],
+                                 struct.unpack_from('>I', b, lt + 4 * i)[0]) for i in range(frames)]
+                        placed = not any(lv > 1 and w > 16 and h > 16 for w, h, lv in dims[:-1])
+                if frames > 1 and not placed:
                     out.append(('new/%s/%s' % (kind, name), t, c.asset_name(f), frames))
                 t += 1
     return out
@@ -467,6 +481,11 @@ def main():
     if a.findings:
         fs = findings(rows, rel, a.plant)
         json.dump(sorted(fs, key=lambda f: (f['mission'], f['kind'], f['key'])), open(a.findings, 'w'), indent=1)
+        # every file the runs judged, beside the findings (world/compare.py): a
+        # file a change leaves with no finding is then "fixed", not "in one
+        # report only"
+        json.dump({'compared': sorted(set(files) | {f['mission'] for f in fs})},
+                  open(os.path.join(os.path.dirname(os.path.abspath(a.findings)), 'report-missions.json'), 'w'), indent=1)
     if a.md:
         open(a.md, 'w').write(md)
     else:

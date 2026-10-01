@@ -3377,6 +3377,8 @@ struct beandraw {
 	s16 inst;     // the instance matrix it is drawn under (bm->insts), or -1
 	u8 blend;     // in the release's blended pass (beanWalkStream())
 	u8 alpha;     // its material colour's alpha, 255 for none
+	u32 colour;   // and that colour, RGB, white for none
+	u32 matpc;    // the material record it takes its pictures from (0 for none)
 	u8 alphatest; // drawn with the alpha test on (render state 0x60)
 	u8 alpharef;  // and the reference it passes texels over (render state 0x64), 0 for none set
 	u8 masktexslot; // the slot masktex fills, which is the UV set it is read with
@@ -3446,6 +3448,13 @@ struct beanmodel {
 
 	s32 numtex;
 	s32 texfile[GEBEAN_MAXMATS]; // a texture's header, by file index
+	// An animated picture's seconds a frame, as the file times it, 0 for one
+	// that stands at its first frame (beanTexAnimation())
+	f32 texspf[GEBEAN_MAXMATS];
+	// and how the file moves it: its UVs' scroll in repeats a second and its
+	// turn in degrees a second about the picture's middle (beanTexAnimation())
+	f32 texscroll[GEBEAN_MAXMATS][2];
+	f32 texrot[GEBEAN_MAXMATS];
 	// The pane of a glass material in the blended pass (beanWalkStream())
 	u8 glasspane[GEBEAN_MAXMATS];
 	// Such a pane under the window's reflection map: a tinted pane
@@ -3510,6 +3519,35 @@ static s32 beanReadVb(const struct beanmodel *bm, u32 desc, struct beanvb *vb)
 			}
 		}
 	}
+
+	return 1;
+}
+
+/**
+ * A buffer of positions alone (stride 12), which beanReadVb() leaves out: no
+ * normal, no UV, no colour. Its draw is shaded by its material's colour (the
+ * pixel shader's constant 12) and nothing else; Dam has the one, four black
+ * triangles the release draws (gebeanLevelTriangles()).
+ */
+static s32 beanReadVbPositions(const struct beanmodel *bm, u32 desc, struct beanvb *vb)
+{
+	u32 size;
+
+	memset(vb, 0, sizeof(*vb));
+
+	if (!gebeanFits(desc, 16, bm->datalen)) {
+		return 0;
+	}
+
+	vb->stride = gebeanBE32(bm->data + desc);
+	vb->off = gebeanBE32(bm->data + desc + 8);
+	size = gebeanBE32(bm->data + desc + 12);
+
+	if (vb->stride != 12 || !gebeanFits(vb->off, size, bm->gpulen)) {
+		return 0;
+	}
+
+	vb->count = size / vb->stride;
 
 	return 1;
 }
@@ -4135,6 +4173,8 @@ static void beanWalkStream(struct beanmodel *bm)
 	u8 passblend = 0;
 	u8 blend = 0;
 	u8 alpha = 0xff;
+	u32 colour = 0xffffff;
+	u32 matpc = 0;
 	u8 alphatest = 0;
 	u8 alpharef = 0;
 	u32 masktex = ~0u;
@@ -4271,8 +4311,10 @@ static void beanWalkStream(struct beanmodel *bm)
 			s32 picslot = -1;
 
 			tex = beanMaterialTexture(bm, st, pc, size, len);
+			matpc = pc;
 			ownmat = 1;
 			alpha = 0xff;
+			colour = 0xffffff;
 			masktex = ~0u;
 			masktexslot = 0;
 			reflamount = 0;
@@ -4337,6 +4379,13 @@ static void beanWalkStream(struct beanmodel *bm)
 			const f32 a = gebeanBEF32(st + pc + 24);
 
 			alpha = a >= 1.0f ? 0xff : a <= 0.0f ? 0 : (u8)(a * 255.0f + 0.5f);
+			colour = 0;
+
+			for (s32 k = 0; k < 3; k++) {
+				const f32 c = gebeanBEF32(st + pc + 12 + k * 4);
+
+				colour = colour << 8 | (c >= 1.0f ? 0xff : c <= 0.0f ? 0 : (u32)(c * 255.0f + 0.5f));
+			}
 
 			// The gas tank's is a grey, 0.56, and it is the reflection's
 			// share: c_constant0 and c_constant1 (white) are its only two
@@ -4398,6 +4447,8 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->inst = inst;
 				d->blend = blend;
 				d->alpha = alpha;
+				d->colour = colour;
+				d->matpc = matpc;
 				d->alphatest = alphatest;
 				d->alpharef = alpharef;
 				d->masktex = masktex;
@@ -4769,6 +4820,81 @@ static void beanFree(struct beanmodel *bm)
  * model (a gun's hand and working parts) or an extra to leave out (a head's
  * sunglasses). See beanWalkStream().
  */
+static void beanTexAnimation(struct beanmodel *bm, const char *source);
+
+/**
+ * The release's reflecting surfaces - water and polished floors - and the
+ * picture of theirs this draws. Their pixel shader reads a bump map (two on
+ * Complex, animated), turns the bumped normal by the vertex's tangent frame
+ * and reads a sphere map of the surroundings with it, and lays that over
+ * the surface's own picture: Complex's water is c12 0.147 of the rippled
+ * reflection and c13 0.853 of its picture lit. The HD look draws one picture
+ * a triangle (beanMaterialTexture(), the biggest), which on Complex's water
+ * was its 512x512 sphere map laid on as if it were the surface. Here such a
+ * draw takes the surface's own picture - the sampler that is neither a bump,
+ * a distortion nor the reflection, read off each shader's microcode
+ * (disassembled with Xenia's compiler, every pixel shader of every level,
+ * prop and sky that a material of three pictures or more draws with, retail
+ * and Community Edition alike: these five, and no others). Only Complex's
+ * changes; the other four already drew their surface's picture as the
+ * biggest. The rippled reflection is not drawn: that needs a shader of the
+ * renderer's own (FIDRESULT.md, fid-hdfix).
+ */
+static const struct {
+	const char *source;
+	u32 ps;      // the draw's pixel shader record (0x02), the walk's first target
+	u8 sampler;  // the surface's picture
+} beanReflectingSurfaces[] = {
+	{ "new/background/complex", 0x7c94, 3 },  // water under the alien ship: 20, 21 bumps, 22 reflection, 23 its picture
+	{ "new/background/dam", 0x11fb4, 3 },     // the reservoir: 68 bump, 70 distortion, 69 reflection, 71 its picture
+	{ "new/background/dam", 0x13d2c, 3 },     // the same, the other draw
+	{ "new/background/silo", 0x5860, 2 },     // 30 bump, 31 reflection, 32 its picture
+	{ "new/background/control", 0x1940, 2 },  // marble floor: 0 bump, 1 reflection (the room), 2 the marble
+};
+
+static const char *beanTextureName(const struct beanmodel *bm, s32 t);
+
+static void beanReflectingSurfacePictures(struct beanmodel *bm, const char *source)
+{
+	u32 logged = ~0u;
+
+	for (s32 i = 0; i < bm->numdraws; i++) {
+		struct beandraw *d = &bm->draws[i];
+		s32 sampler = -1;
+
+		for (u32 k = 0; k < ARRAYCOUNT(beanReflectingSurfaces) && sampler < 0; k++) {
+			if (beanReflectingSurfaces[k].ps == d->vs && strcmp(beanReflectingSurfaces[k].source, source) == 0) {
+				sampler = beanReflectingSurfaces[k].sampler;
+			}
+		}
+
+		if (sampler < 0 || d->matpc == 0 || !gebeanFits(d->matpc, 12, bm->streamlen)) {
+			continue;
+		}
+
+		{
+			const u8 *st = bm->stream + d->matpc;
+			const u32 size = gebeanBE32(st) >> 16;
+			const u32 extra = gebeanBE16(st + 10);
+
+			for (u32 k = extra; 12 + 8 * k + 8 <= size && gebeanFits(d->matpc + 12 + 8 * k, 8, bm->streamlen); k++) {
+				const u32 t = gebeanBE32(st + 12 + 8 * k);
+
+				if ((s32)(gebeanBE32(st + 16 + 8 * k) >> 16) == sampler && t < (u32)bm->numtex) {
+					if (t != d->tex && logged != d->matpc) {
+						sysLogPrintf(LOG_NOTE, "gebean: %s: material %x is a reflecting surface's: drawn with its own picture %u (%s), not %u (%s)",
+								source, d->matpc, t, beanTextureName(bm, (s32)t), d->tex, beanTextureName(bm, (s32)d->tex));
+						logged = d->matpc;
+					}
+
+					d->tex = t;
+					break;
+				}
+			}
+		}
+	}
+}
+
 static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 {
 	const char *names[BEAN_MAXBONES];
@@ -4876,6 +5002,8 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 
 	beanReadPose(bm, names, numnames);
 	beanWalkStream(bm);
+	beanReflectingSurfacePictures(bm, source);
+	beanTexAnimation(bm, source);
 	beanFindIndexBuffers(bm);
 	bm->uv20 = beanShaderUv20(bm);
 	bm->uvscale = beanMeasureUvScale(bm);
@@ -4993,7 +5121,261 @@ static void beanBleedCutout(u8 *rgba, u32 w, u32 h)
 	free(filled);
 }
 
-static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *outH)
+/*
+ * What a texture header's type word (+0x1c) makes of it - the release's loader
+ * hands each to its own XGSet*Header (the asset type "texture", 0x8239a310 in
+ * the image): 0 a picture, 2 a cube, 3 a volume, 4 a picture a frame, 5 an
+ * array of frames. Of the release's 3141 pictures four have frames, all in
+ * those last two: Complex's water bumps (20 and 21, arrays of 16 and 32) and
+ * its satellite dish's beacon (24, two pictures), and the helicopter's rotor
+ * disc (an array of two).
+ */
+#define BEANTEX_FRAMES 4
+#define BEANTEX_ARRAY  5
+
+/** The bytes level 0 of a tiled picture takes, which is a frame of an array. */
+static u32 beanTexSurfaceBytes(u32 format, u32 w, u32 h)
+{
+	if (format == X360_FMT_8888) {
+		return ((w + 31) & ~31u) * ((h + 31) & ~31u) * 4;
+	}
+
+	return ((((w + 3) / 4) + 31) & ~31u) * ((((h + 3) / 4) + 31) & ~31u) * (format == X360_FMT_DXT1 ? 8 : 16);
+}
+
+/** How many frames picture t has, 1 for a still. */
+static s32 beanTexFrames(const struct beanmodel *bm, s32 t)
+{
+	u32 blen, type, n;
+	const u8 *b = t >= 0 && t < bm->numtex ? caffBlob(&bm->caff, bm->texfile[t], &blen) : NULL;
+
+	if (!b || blen < 0x40) {
+		return 1;
+	}
+
+	type = gebeanBE32(b + 0x1c);
+	n = gebeanBE32(b + 0x38);
+
+	return (type == BEANTEX_FRAMES || type == BEANTEX_ARRAY) && n > 1 && n <= 256 ? (s32)n : 1;
+}
+
+/**
+ * How the file moves its pictures (bm->texspf, texscroll, texrot), from the
+ * parameters Rare's exporter wrote for the shaders' Maya place2d and file
+ * nodes. The rendergraph header (.data) points at +0xdc to {?, the UV scale,
+ * a count, then the entries}, 0x64 bytes each:
+ *
+ *   +0x00 +0x04 +0x08  the material's, the file node's and the attribute's names
+ *   +0x18 +0x20        the per-instance offsets of the texture matrix the
+ *                      attribute's shader constants are set from (record 0x05),
+ *                      a list as long as +0x20
+ *   +0x2c +0x30        the UV's scroll, in repeats a second
+ *   +0x38 +0x3c        an offset (0 in every entry)
+ *   +0x40              the rotation about the picture's middle: the release turns
+ *                      it at half this many degrees a second (measured, below)
+ *   +0x44 +0x48        the repeat (1 in every entry, to a millionth)
+ *   +0x4c +0x50 +0x58  the frames, the seconds a frame, whether they run
+ *
+ * The release has 27 entries in 21 files (every file read, 2026-10-01), and
+ * every one is a motion its picture is made for: Frigate's bridge radar
+ * (-120), the helicopter's rotor disc (50), the M16's and P90's flash cards
+ * (999), Dam's reservoir sliding 0.5 and 0.5 (its transparency map) and 0.25
+ * (its bump map), Complex's water bump -0.1 up and its 16 identical frames.
+ * The engine code that reads them was not found in the image (the frames'
+ * bind is, 0x823a57a0); the units are the release's as captured in Xenia
+ * (fid-hd, 2026-10-01): Dam's reservoir vertex constant c28 = (t, 0.5, 1, 4)
+ * with t its clock in seconds, so a slide is repeats a second; Frigate's
+ * radar goes round clockwise once in about 350 ticks (6 s) on game time, so
+ * a turn is half its figure in degrees a second, clockwise for a negative one
+ * as the picture is drawn.
+ *
+ * An entry is the picture's that a record 0x05 sets the matrix of - the
+ * stream's shader constants from one of the entry's offsets - after the
+ * material binding it: the material's one picture past its extra pairs (the
+ * shared map they start with), or of several, the one with the entry's
+ * frames, or for a transparency attribute the one with alpha. An entry that
+ * none of those places is left alone and logged (Dam's reservoir bump, which
+ * the HD look does not draw).
+ */
+static const char *beanTextureName(const struct beanmodel *bm, s32 t);
+
+static s32 beanTexHasAlpha(const struct beanmodel *bm, s32 t)
+{
+	u32 blen;
+	const u8 *b = t >= 0 && t < bm->numtex ? caffBlob(&bm->caff, bm->texfile[t], &blen) : NULL;
+	const u32 format = b && blen >= 0x40 ? b[0x1b] & 0x3f : 0;
+
+	return format == X360_FMT_DXT23 || format == X360_FMT_DXT45 || format == X360_FMT_8888;
+}
+
+static void beanTexAnimation(struct beanmodel *bm, const char *source)
+{
+	const u8 *d = bm->data;
+	const u8 *st = bm->stream;
+	u32 blk, n, entries, end;
+	u32 mat[8];
+	s32 nummat = 0;
+	u8 seen[GEBEAN_MAXMATS];
+	u8 placed[256];
+
+	memset(seen, 0, sizeof(seen));
+	memset(placed, 0, sizeof(placed));
+
+	if (!d || bm->datalen < 0xe0 || memcmp(d, "rendergraph", 12) != 0 || !st || bm->streamlen < 0x28) {
+		return;
+	}
+
+	blk = gebeanBE32(d + 0xdc);
+
+	if (blk == 0 || !gebeanFits(blk, 0x10, bm->datalen)) {
+		return;
+	}
+
+	n = gebeanBE32(d + blk + 8);
+	entries = gebeanBE32(d + blk + 12);
+
+	if (n == 0 || n > 256 || !gebeanFits(entries, n * 0x64, bm->datalen)) {
+		return;
+	}
+
+	end = MIN(gebeanBE32(st + 4), bm->streamlen);
+
+	for (u32 pc = 0x24; pc + 4 <= end; ) {
+		const u32 tag = gebeanBE32(st + pc);
+		const u32 size = tag >> 16;
+		const u32 type = (tag >> 8) & 0xff;
+
+		if (size < 4 || !gebeanFits(pc, size, bm->streamlen)) {
+			break;
+		}
+
+		if (type == 0x2d && size >= 20) {
+			// {texture, sampler} pairs, the extra ones (+10) first: the bind
+			// (0x823a57a0) takes those, then the material's own (+8)
+			const u32 extra = gebeanBE16(st + pc + 10);
+
+			nummat = 0;
+
+			for (u32 k = extra; 12 + 8 * k + 8 <= size && nummat < (s32)ARRAYCOUNT(mat); k++) {
+				mat[nummat++] = gebeanBE32(st + pc + 12 + 8 * k);
+			}
+		} else if (type == 0x05 && size >= 12) {
+			const u32 ptr = gebeanBE32(st + pc + 4);
+
+			for (u32 e = 0; e < n; e++) {
+				const u8 *p = d + entries + e * 0x64;
+				const u32 attr = gebeanBE32(p + 8);
+				const u32 frames = gebeanBE32(p + 0x4c);
+				const u32 list = gebeanBE32(p + 0x18);
+				const u32 count = gebeanBE32(p + 0x20);
+				const f32 spf = gebeanBEF32(p + 0x50);
+				const s32 runs = gebeanBE32(p + 0x58) != 0;
+				const f32 su = gebeanBEF32(p + 0x2c);
+				const f32 sv = gebeanBEF32(p + 0x30);
+				const f32 rot = gebeanBEF32(p + 0x40);
+				const s32 transparency = gebeanFits(attr, 13, bm->datalen) && memcmp(d + attr, "transparency", 13) == 0;
+				s32 listed = 0;
+				s32 t = -1;
+
+				if (count > 64 || !gebeanFits(list, count * 4, bm->datalen)) {
+					continue;
+				}
+
+				for (u32 k = 0; k < count && !listed; k++) {
+					listed = gebeanBE32(d + list + k * 4) == ptr;
+				}
+
+				if (!listed) {
+					continue;
+				}
+
+				if (nummat == 1) {
+					t = (s32)mat[0];
+				} else {
+					for (s32 m = 0; m < nummat; m++) {
+						const s32 c = (s32)mat[m];
+
+						if (frames > 1 ? beanTexFrames(bm, c) == (s32)frames
+								: transparency && beanTexHasAlpha(bm, c)) {
+							t = t < 0 ? c : -2;
+						}
+					}
+				}
+
+				if (t < 0 || t >= bm->numtex || (frames > 1 && beanTexFrames(bm, t) != (s32)frames)) {
+					if (e < ARRAYCOUNT(placed) && !placed[e]) {
+						placed[e] = 2;
+					}
+
+					continue;
+				}
+
+				if (e < ARRAYCOUNT(placed)) {
+					placed[e] = 1;
+				}
+
+				if (seen[t]) {
+					continue;
+				}
+
+				seen[t] = 1;
+				bm->texspf[t] = frames > 1 && runs && spf > 0.0f ? spf : 0.0f;
+				bm->texscroll[t][0] = su == su && fabsf(su) < 100.0f ? su : 0.0f;
+				bm->texscroll[t][1] = sv == sv && fabsf(sv) < 100.0f ? sv : 0.0f;
+				// The release turns at half the table's figure: Frigate's
+				// radars (-120) go round clockwise once in about 350 ticks,
+				// 1 degree a tick, on game time (fid-hd's captures, two
+				// series agreeing). The slide is the table's own: Dam's
+				// reservoir constant is (t, 0.5, ...) with t its clock in
+				// seconds (fid-hd's draw log)
+				bm->texrot[t] = rot == rot && fabsf(rot) < 100000.0f ? rot * 0.5f : 0.0f;
+
+				if (frames > 1) {
+					sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is %u frames, %s %.3f s", source, t,
+							beanTextureName(bm, t), frames,
+							bm->texspf[t] > 0.0f ? "each shown for" : "standing at its first; the file's time a frame", spf);
+				}
+
+				if (bm->texscroll[t][0] != 0.0f || bm->texscroll[t][1] != 0.0f || bm->texrot[t] != 0.0f) {
+					sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) slides %.3f %.3f repeats and turns %.1f degrees a second",
+							source, t, beanTextureName(bm, t), bm->texscroll[t][0], bm->texscroll[t][1], bm->texrot[t]);
+				}
+			}
+		}
+
+		pc += size;
+	}
+
+	for (u32 e = 0; e < n && e < ARRAYCOUNT(placed); e++) {
+		if (placed[e] == 2) {
+			const u8 *p = d + entries + e * 0x64;
+			const u32 node = gebeanBE32(p + 4);
+			const u32 attr = gebeanBE32(p + 8);
+
+			sysLogPrintf(LOG_NOTE, "gebean: %s: the %s of %s is on none of its material's pictures this can place",
+					source, gebeanFits(attr, 1, bm->datalen) ? (const char *)d + attr : "?",
+					gebeanFits(node, 1, bm->datalen) ? (const char *)d + node : "?");
+		}
+	}
+}
+
+/**
+ * Frame `frame` of picture t, as beanDecodeTexture() gives a still.
+ *
+ * An array's frames are its slices, back to back in the picture's .gpu from
+ * offset 0, each the tiled size of one; the release's loader sizes them with
+ * XGSetArrayTextureHeader(width, height, frames at +0x38, levels at +0x30...)
+ * and nothing past the header says where a frame is. Read as a picture with a
+ * table of frame offsets at +0x3c, which none of them has (the word is 0),
+ * every one of them took its first frame's offset from the header's own
+ * 'text' and would not decode: Complex's beacon and water and the rotor disc
+ * drew with no picture at all.
+ *
+ * A picture a frame lists each frame's width, height and levels in three
+ * tables the header points to (+0x44, +0x48, +0x4c), and the loader sets
+ * each up after the last, at the next 4K past its levels.
+ */
+static u8 *beanDecodeTextureFrame(const struct beanmodel *bm, s32 t, s32 frame, s32 *outW, s32 *outH)
 {
 	const struct caff *c = &bm->caff;
 	struct x360fetch fetch;
@@ -5001,7 +5383,7 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 	const u8 *b = caffBlob(c, bm->texfile[t], &blen);
 	const u8 *g;
 	s32 gi;
-	u32 base, first, w, h, bpe, ew, eh;
+	u32 base, first, w, h, bpe, ew, eh, type, levels;
 	u64 need, have;
 	u8 *copy;
 	u8 *rgba;
@@ -5013,10 +5395,43 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 	w = gebeanBE16(b + 0x24);
 	h = gebeanBE16(b + 0x26);
 	base = gebeanBE32(b + 0x28);
+	levels = b[0x30];
+	type = gebeanBE32(b + 0x1c);
 	first = 0;
 
-	if (gebeanBE32(b + 0x38) && gebeanFits(gebeanBE32(b + 0x3c), 4, blen)) {
-		first = gebeanBE32(b + gebeanBE32(b + 0x3c));
+	if (frame < 0 || frame >= beanTexFrames(bm, t)) {
+		return NULL;
+	}
+
+	if (type == BEANTEX_ARRAY) {
+		first = (u32)frame * beanTexSurfaceBytes(b[0x1b] & 0x3f, w, h);
+	} else if (type == BEANTEX_FRAMES && blen >= 0x50) {
+		const u32 wt = gebeanBE32(b + 0x44);
+		const u32 ht = gebeanBE32(b + 0x48);
+		const u32 lt = gebeanBE32(b + 0x4c);
+		const u32 n = (u32)beanTexFrames(bm, t);
+
+		if (!gebeanFits(wt, n * 4, blen) || !gebeanFits(ht, n * 4, blen) || !gebeanFits(lt, n * 4, blen)) {
+			return NULL;
+		}
+
+		for (s32 i = 0; i <= frame; i++) {
+			w = gebeanBE32(b + wt + i * 4);
+			h = gebeanBE32(b + ht + i * 4);
+			levels = gebeanBE32(b + lt + i * 4);
+
+			// A frame whose mips do not all share its level 0's tile has
+			// them after it, which no picture in the release does and this
+			// does not size
+			if (levels > 1 && w > 16 && h > 16 && i < frame) {
+				sysLogPrintf(LOG_WARNING, "gebean: texture %d frame %d: frame %d's mips are past its level 0, not read", t, frame, i);
+				return NULL;
+			}
+
+			if (i < frame) {
+				first += (beanTexSurfaceBytes(b[0x1b] & 0x3f, w, h) + 0xfff) & ~0xfffu;
+			}
+		}
 	}
 
 	gi = caffFind(c, c->files[bm->texfile[t]].asset, ".gpu");
@@ -5047,7 +5462,7 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 	// Byte 0x30 is the level count, and a picture with one level is not
 	// packed: it stands at the tile's origin. Every GoldenEye N64 texture is
 	// small enough for the difference to decide whether it decodes at all.
-	fetch.packed = b[0x30] > 1;
+	fetch.packed = levels > 1;
 
 	if (!x360FetchSupported(&fetch)) {
 		sysLogPrintf(LOG_WARNING, "gebean: texture format %02x is not one this decodes", b[0x1b]);
@@ -5194,6 +5609,12 @@ static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *
 	*outH = (s32)h;
 
 	return rgba;
+}
+
+/** Picture t, its first frame where it has several (beanDecodeTextureFrame()). */
+static u8 *beanDecodeTexture(const struct beanmodel *bm, s32 t, s32 *outW, s32 *outH)
+{
+	return beanDecodeTextureFrame(bm, t, 0, outW, outH);
 }
 
 static const char *beanTextureName(const struct beanmodel *bm, s32 t);
@@ -5635,7 +6056,71 @@ static s32 beanBindTexture(const struct beanmodel *bm, const char *source, s32 t
 				source, t, beanTextureName(bm, t));
 	}
 
-	*tile = rgba ? xblaTexBindImage(key, rgba, w, h) : NULL;
+	*tile = NULL;
+
+	// A picture the file animates (beanTexAnimation()): its frames, where it
+	// runs them, and its scroll and turn - a level's scroll excepted, which
+	// its rooms draw by moving the tile (gebeanstage.c), smoothly and with no
+	// picture made a step. Shown by the renderer in turn on the level's clock
+	if (rgba && t < bm->numtex) {
+		const s32 level = strncmp(source, "new/background/", 15) == 0 || strncmp(source, "original/background/", 20) == 0;
+		struct xblatexmotion motion;
+		s32 n = 1;
+
+		memset(&motion, 0, sizeof(motion));
+
+		if (bm->texspf[t] > 0.0f && beanTexFrames(bm, t) > 1) {
+			n = beanTexFrames(bm, t);
+			motion.secondsPerFrame = bm->texspf[t];
+		}
+
+		if (!level) {
+			motion.scroll[0] = bm->texscroll[t][0];
+			motion.scroll[1] = bm->texscroll[t][1];
+		}
+
+		motion.rotate = bm->texrot[t];
+
+		// Bean's screen placeholder turns too (the door console's, 50 a
+		// second), but GoldenEye's monitor programme is drawn on it and it is
+		// the black behind that (beanFindScreens(), beanScreenPlaceholder):
+		// a 512x512 picture made anew 30 times a second for nothing to see
+		if (strncmp(beanTextureName(bm, t), "_0x008C4635", 11) == 0) {
+			motion.scroll[0] = motion.scroll[1] = motion.rotate = 0.0f;
+		}
+
+		if (n > 1 || motion.scroll[0] != 0.0f || motion.scroll[1] != 0.0f || motion.rotate != 0.0f) {
+			u8 **frames = calloc(n, sizeof(*frames));
+			s32 ok = frames != NULL;
+
+			for (s32 f = 0; f < n && ok; f++) {
+				s32 fw, fh;
+
+				frames[f] = f == 0 ? rgba : beanDecodeTextureFrame(bm, t, f, &fw, &fh);
+				ok = frames[f] != NULL && (f == 0 || (fw == w && fh == h));
+
+				if (ok && f > 0 && beanTexBlendedOnly(bm, t)) {
+					beanKeyStencil(frames[f], w, h);
+				}
+			}
+
+			if (ok) {
+				*tile = xblaTexBindAnimation(key, frames, n, w, h, &motion);
+				rgba = NULL;
+			} else {
+				for (s32 f = 1; frames && f < n; f++) {
+					free(frames[f]);
+				}
+
+				free(frames);
+				sysLogPrintf(LOG_WARNING, "gebean: %s: texture %d's frames would not all decode, its first shown", source, t);
+			}
+		}
+	}
+
+	if (rgba) {
+		*tile = xblaTexBindImage(key, rgba, w, h);
+	}
 
 	if (*tile) {
 		xblaTexImageInfo(*tile, &a, &s);
@@ -14257,7 +14742,16 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		s32 plain;
 
 		if (!beanReadVb(bm, draw->vb, &vb)) {
-			continue;
+			// A draw of positions alone takes no picture: its pixel shader
+			// fetches none and gives its material's colour, which on Dam's
+			// one such draw (four triangles at 4dc0) is black. Read as a
+			// buffer of no known layout, it was never built where the
+			// release draws it (tools/gefidelity FINDINGS.md row 6)
+			if (!beanReadVbPositions(bm, draw->vb, &vb)) {
+				continue;
+			}
+
+			tex = -1;
 		}
 
 		// An alpha-tested draw of two pictures, one solid and one with alpha:
@@ -14300,7 +14794,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		// shader 0x3958, white vertices), which drew as a flat grey band of
 		// the concrete strip's corner (F3 20260926-210317); gebeanstage.c
 		// leaves the white ones lying on another surface out
-		plain = !draw->ownmat && !istree && (vb.stride == 16 || (vb.stride == 20 && !vb.uv20));
+		plain = (!draw->ownmat && !istree && (vb.stride == 16 || (vb.stride == 20 && !vb.uv20))) || vb.stride == 12;
 
 		for (s32 t = 0; t < numtris; t++) {
 			struct gebeanlevelvtx v[3];
@@ -14327,6 +14821,20 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 						bv.uv[0] = (s16)gebeanBE16(p + 20) / bm->uvscale;
 						bv.uv[1] = (s16)gebeanBE16(p + 22) / bm->uvscale;
 						bv.argb = beanColour(gebeanBE32(p + 32));
+					}
+				} else if (vb.stride == 12) {
+					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
+
+					ok = tris[t * 3 + k] < vb.count;
+
+					if (ok) {
+						memset(&bv, 0, sizeof(bv));
+
+						for (s32 j = 0; j < 3; j++) {
+							bv.pos[j] = gebeanBEF32(p + j * 4);
+						}
+
+						bv.argb = (u32)draw->alpha << 24 | (draw->colour & 0xffffff);
 					}
 				} else {
 					ok = beanVertex(bm, &vb, tris[t * 3 + k], &bv);
@@ -14423,6 +14931,19 @@ u8 *gebeanLevelDecode(struct gebeanlevel *level, s32 tex, s32 *outWidth, s32 *ou
 const char *gebeanLevelTextureName(struct gebeanlevel *level, s32 tex)
 {
 	return level ? beanTextureName(&level->bm, tex) : "";
+}
+
+/** How the file scrolls a level's picture, in repeats a second (beanTexAnimation()); 0 when it does not. */
+s32 gebeanLevelTextureScroll(struct gebeanlevel *level, s32 tex, f32 *su, f32 *sv)
+{
+	if (!level || tex < 0 || tex >= level->bm.numtex) {
+		return 0;
+	}
+
+	*su = level->bm.texscroll[tex][0];
+	*sv = level->bm.texscroll[tex][1];
+
+	return *su != 0.0f || *sv != 0.0f;
 }
 
 s32 gebeanLevelTextureIsWater(struct gebeanlevel *level, s32 tex)

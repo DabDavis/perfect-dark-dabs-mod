@@ -1830,10 +1830,16 @@ static void import_texture(int i, int tile, bool importReplacement) {
 
     TextureCacheKey key;
     if (fmt == G_IM_FMT_CI) {
-        key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, fmt, siz, palette_index, glyph };
+        key = { orig_addr, { rdp.palette_addrs[0], rdp.palette_addrs[1] }, fmt, siz, palette_index, glyph, 0 };
     } else {
-        key = { orig_addr, {}, fmt, siz, palette_index, glyph };
+        key = { orig_addr, {}, fmt, siz, palette_index, glyph, 0 };
     }
+
+    // One of GoldenEye XBLA's animated pictures (xblaTexBindAnimation()): the
+    // frame it shows now is its own entry, asked for by number below so the
+    // entry holds the frame it is keyed on
+    const int32_t anim_frame = xblaTexHaveAnimations() ? xblaTexAnimFrame(orig_addr) : -1;
+    key.anim_frame = (uint16_t)(anim_frame + 1);
 
     if (gfx_texture_cache_lookup(i, key)) {
         return;
@@ -1878,7 +1884,8 @@ static void import_texture(int i, int tile, bool importReplacement) {
     if (xblaTexHaveTextures()) {
         int32_t rep_width;
         int32_t rep_height;
-        uint8_t* rep = xblaTexLoadReplacement(orig_addr, &rep_width, &rep_height);
+        uint8_t* rep = anim_frame >= 0 ? xblaTexLoadAnimFrame(orig_addr, anim_frame, &rep_width, &rep_height)
+                                       : xblaTexLoadReplacement(orig_addr, &rep_width, &rep_height);
 
         if (rep) {
             import_enhance_scale = 1; // the release's own art, at the size it drew at

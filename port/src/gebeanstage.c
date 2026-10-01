@@ -132,6 +132,21 @@ static s16 texClampShift[GEBEAN_MAXMATS];
 // The reservoir's picture: Bean's water buffers (stride 36) draw it
 static u8 texWater[GEBEAN_MAXMATS];
 
+// How the file scrolls a picture, in repeats a second (gebeanLevelTextureScroll(),
+// the release's texture matrix): its rooms draw it by moving its tile, which a
+// list of its own does each frame (scrollSlot())
+static f32 texScroll[GEBEAN_MAXMATS][2];
+
+#define SCROLL_SLOTS 8
+
+static struct {
+	s32 tex;
+	s32 w;
+	s32 h;
+	Gfx gdl[6];
+} scrollSlots[SCROLL_SLOTS];
+static s32 numScrollSlots;
+
 // The level's backdrop: a picture whose every triangle stands outside the
 // level (gebeanStageRenderBackdrop())
 static struct stri *backdrop;
@@ -3333,6 +3348,11 @@ static void forget(void)
 	level = NULL;
 	row = NULL;
 	built = 0;
+	numScrollSlots = 0;
+
+	for (s32 t = 0; t < GEBEAN_MAXMATS; t++) {
+		texScroll[t][0] = texScroll[t][1] = 0.0f;
+	}
 }
 
 /**
@@ -5184,7 +5204,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 9
+#define HDCACHE_VERSION 12
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
@@ -6440,7 +6460,11 @@ static s32 build(void)
 
 	for (s32 t = 0; t < gebeanLevelNumTextures(level) && t < GEBEAN_MAXMATS; t++) {
 		texTile[t] = gebeanLevelTexture(level, t, &texAlpha[t], &texSoft[t]);
+		texScroll[t][0] = texScroll[t][1] = 0.0f;
+		gebeanLevelTextureScroll(level, t, &texScroll[t][0], &texScroll[t][1]);
 	}
+
+	numScrollSlots = 0;
 
 	mark[0] = sysGetMicroseconds();
 
@@ -7437,6 +7461,70 @@ static int compareBackdropFar(const void *a, const void *b)
 	return da > db ? -1 : da < db ? 1 : *(const s32 *)a - *(const s32 *)b;
 }
 
+/**
+ * A scrolling picture's tiles, moved to where the release's texture matrix has
+ * them at the level's clock: the picture slides under the room's coordinates
+ * as the matrix slides the coordinates over it. The release reads at v + d
+ * in the file's UVs turned up (Maya's, which the export turned over), which
+ * the room has turned over again (writeLeaf()), so both axes move the tile's
+ * origin back by the slide. Whole quarter texels in the size, the rest as the
+ * tile's fraction, as gewater.c moves the reservoir.
+ */
+static void scrollBuild(s32 i, f32 clock)
+{
+	Gfx *gdl = scrollSlots[i].gdl;
+	const s32 t = scrollSlots[i].tex;
+	const s32 w = scrollSlots[i].w, h = scrollSlots[i].h;
+	f32 q[2];
+	s32 whole[2];
+	u32 frac[2];
+
+	for (s32 a = 0; a < 2; a++) {
+		const f32 size = (a == 0 ? w : h) * 4.0f;
+
+		q[a] = fmodf(-texScroll[t][a] * clock * size, size);
+
+		if (q[a] < 0.0f) {
+			q[a] += size;
+		}
+
+		whole[a] = (s32)floorf(q[a]);
+		frac[a] = (u32)((q[a] - whole[a]) * 0.25f * 65536.0f) & 0xffff;
+	}
+
+	gDPSetTileSize(gdl++, 0, whole[0], whole[1], whole[0] + ((w - 1) << 2), whole[1] + ((h - 1) << 2));
+	gDPSetTileSize(gdl++, 1, whole[0], whole[1], whole[0] + ((w - 1) << 2), whole[1] + ((h - 1) << 2));
+	gDPSetTileOffsetEXT(gdl++, 0, frac[0], frac[1]);
+	gDPSetTileOffsetEXT(gdl++, 1, frac[0], frac[1]);
+	gSPEndDisplayList(gdl++);
+}
+
+const Gfx *gebeanStageScrollSlot(u32 record, s32 w, s32 h)
+{
+	const u32 t = record - GEBEANSTAGE_TEXBASE;
+
+	if (!gebeanStageOwnsRecord(record) || t >= GEBEAN_MAXMATS || (texScroll[t][0] == 0.0f && texScroll[t][1] == 0.0f)) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < numScrollSlots; i++) {
+		if (scrollSlots[i].tex == (s32)t && scrollSlots[i].w == w && scrollSlots[i].h == h) {
+			return scrollSlots[i].gdl;
+		}
+	}
+
+	if (numScrollSlots >= SCROLL_SLOTS) {
+		return NULL;
+	}
+
+	scrollSlots[numScrollSlots].tex = (s32)t;
+	scrollSlots[numScrollSlots].w = w;
+	scrollSlots[numScrollSlots].h = h;
+	scrollBuild(numScrollSlots, g_Vars.lvframe60 / 60.0f);
+
+	return scrollSlots[numScrollSlots++].gdl;
+}
+
 Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 {
 	const s32 numvtx = numBackdrop * 3;
@@ -7451,6 +7539,14 @@ Gfx *gebeanStageRenderBackdrop(Gfx *gdl)
 	s32 curtex = -2;
 	f32 fm, fo;
 	u8 rgb[3];
+
+	// The clock GoldenEye XBLA's animated pictures are shown by
+	// (xblaTexBindAnimation()): the level's, as the frame is drawn
+	xblaTexSetAnimClock(g_Vars.lvframe60 / 60.0f);
+
+	for (s32 i = 0; i < numScrollSlots; i++) {
+		scrollBuild(i, g_Vars.lvframe60 / 60.0f);
+	}
 
 	if (numBackdrop == 0 || !xblaStageDrawsEveryRoom()
 			|| g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
@@ -7823,6 +7919,7 @@ s32 gebeanStageIsTile(uintptr_t tile) { return 0; }
 s32 gebeanStageHitTexture(s32 room, const struct coord *pos) { return -1; }
 void gebeanStageTrace(FILE *f) { }
 Gfx *gebeanStageRenderBackdrop(Gfx *gdl) { return gdl; }
+const Gfx *gebeanStageScrollSlot(u32 record, s32 w, s32 h) { return NULL; }
 void gebeanStageTickFar(void) { }
 s32 gebeanStageFarOwn(f32 *far) { return 0; }
 s32 gebeanStageFogFactor(s32 min, s32 max, f32 *fm, f32 *fo) { return 0; }

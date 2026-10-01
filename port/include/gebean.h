@@ -439,6 +439,8 @@ u8 *gebeanLevelDecode(struct gebeanlevel *level, s32 tex, s32 *outWidth, s32 *ou
 const char *gebeanLevelTextureName(struct gebeanlevel *level, s32 tex);
 /** Whether a level's picture is drawn by its water buffers (stride 36), once gebeanLevelTriangles() has walked it. */
 s32 gebeanLevelTextureIsWater(struct gebeanlevel *level, s32 tex);
+/** How the file scrolls a level's picture, in repeats a second; 0 when it does not. */
+s32 gebeanLevelTextureScroll(struct gebeanlevel *level, s32 tex, f32 *su, f32 *sv);
 const void *gebeanLevelTexture(struct gebeanlevel *level, s32 tex, u8 *alpha, u8 *soft);
 /** The level file's bytes as read from disk, for keying the HD level cache (gebeanstage.c). */
 const u8 *gebeanLevelFileBytes(const struct gebeanlevel *level, u32 *len);
