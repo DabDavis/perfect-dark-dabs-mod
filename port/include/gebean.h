@@ -131,6 +131,7 @@ s32 gebeanRowKeepsHood(s32 bodyrow, s32 headrow);
  * no muzzle node at all.
  */
 s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out);
+s32 gebeanFirstPersonFlashCards(s32 weaponnum, f32 *flash, f32 *star);
 
 /**
  * How far to move a GoldenEye gun a character holds, in the gun's own space,
@@ -494,6 +495,10 @@ struct gebeanmats {
 	// body but the one it was made on; -1 for none
 	s8 neck[64];
 	u8 head;  // the mesh is a head's
+	// Groups drawn both sides though the mesh culls its back faces: a
+	// first-person gun's flash cards (gebean.c's fpBuildCards()), which the
+	// release draws with no culling at all
+	u64 twosided;
 	// A material the release adds a reflection over (gebean.c's
 	// beanReflectPicture()): its sphere map, GEBEAN_ENV_CELL square RGBA,
 	// malloc'd and the caller's to free, and how much of it, out of 255. NULL

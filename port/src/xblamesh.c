@@ -6791,6 +6791,8 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 			twosided |= 1ull << bmats->hood[k];
 		}
 	}
+
+	twosided |= bmats->twosided;
 	memcpy(m->beanbare, bmats->bare, sizeof(m->beanbare));
 	memcpy(m->beanspentgroup, bmats->spent, sizeof(m->beanspentgroup));
 

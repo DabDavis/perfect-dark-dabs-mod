@@ -125,6 +125,7 @@ void gegunsShellsLoaded(struct hand *hand);
 // The same for the gun shown bare in a menu: no hand, cuff or flash
 void gegunsOwnModelMenuParts(s32 weaponnum, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);
+void gegunsCardsLit(s32 handnum, s32 on);
 s32 gegunsOwnModelRevolver(s32 weaponnum);
 void gegunsOwnModelRevolverBegin(struct hand *hand, struct model *model);
 void gegunsOwnModelRevolverEnd(void);

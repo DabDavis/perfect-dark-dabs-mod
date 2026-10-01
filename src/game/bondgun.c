@@ -2066,6 +2066,14 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 	if (func->flags & FUNCFLAG_NOMUZZLEFLASH) {
 		hand->flashon = false;
+#ifndef PLATFORM_N64
+		// the release's own flash cards on a silenced GoldenEye gun, in the
+		// HD look (geguns.c's gegunsCardsLit())
+		if (WEAPON_IS_GE(hand->gset.weaponnum)
+				&& (func->type == INVENTORYFUNCTYPE_SHOOT_SINGLE || hand->shotstotake > 0)) {
+			gegunsCardsLit(handnum, 1);
+		}
+#endif
 	} else {
 #ifdef PLATFORM_N64
 		hand->flashon = true;
@@ -3610,6 +3618,9 @@ s32 bgunTickInc(struct handweaponinfo *info, s32 handnum, s32 lvupdate)
 
 	hand->firing = false;
 	hand->flashon = false;
+#ifndef PLATFORM_N64
+	gegunsCardsLit(handnum, 0);
+#endif
 	hand->stateframes += lvupdate;
 
 	if (g_Vars.lvupdate240 > 0) {
