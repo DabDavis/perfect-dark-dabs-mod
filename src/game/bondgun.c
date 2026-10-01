@@ -6104,6 +6104,15 @@ void bgunCreateFiredProjectile(s32 handnum)
 							weapon->base.projectile->flags |= PROJECTILEFLAG_POWERED;
 						}
 
+#ifndef PLATFORM_N64
+						// the round is its host's (WEAPON_GRENADEROUND,
+						// WEAPON_ROCKET); GoldenEye's own lands and is hurt as
+						// GoldenEye's (propobj.c, explosions.c)
+						if (WEAPON_IS_GE(hand->gset.weaponnum)) {
+							weapon->base.projectile->flags |= PROJECTILEFLAG_GEROUND;
+						}
+#endif
+
 						weapon->base.projectile->targetprop = g_Vars.currentplayer->trackedprops[0].prop;
 
 						if (funcdef->scale != 1.0f) {

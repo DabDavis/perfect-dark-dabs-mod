@@ -8124,8 +8124,11 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								// GoldenEye's own: a knife strikes with
 								// KNIFE_HIT_WALL_SFX, anything else thrown lands
 								// with DROP_GUN_SFX (propobj.c's thrown weapon
-								// tick), on a converted level
-								if (WEAPON_IS_GE(weapon->weaponnum) && geSfxStage()) {
+								// tick), on a converted level - its grenade
+								// launcher's rounds and its rockets too, which
+								// are their hosts' rounds here
+								if ((WEAPON_IS_GE(weapon->weaponnum) || (projectile->flags & PROJECTILEFLAG_GEROUND))
+										&& geSfxStage()) {
 									const bool knife = weapon->weaponnum == WEAPON_GE_THROWINGKNIFE
 										|| weapon->weaponnum == WEAPON_GE_HUNTINGKNIFE;
 									const s32 num = geSfxNum(knife ? GESFX_KNIFE_HIT_WALL : GESFX_DROP_GUN);

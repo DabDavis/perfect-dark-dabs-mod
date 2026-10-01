@@ -925,8 +925,16 @@ void explosionInflictDamage(struct prop *expprop)
 
 #ifndef PLATFORM_N64
 						// GoldenEye's thrown weapons on its own missions are hurt
-						// by GoldenEye's rule only (explosionGeHurtsWeapon())
-						if (weapon && WEAPON_IS_GE(weapon->weaponnum) && geRoomActive()
+						// by GoldenEye's rule only (explosionGeHurtsWeapon()), and
+						// so are its guns' rounds in flight, which are their
+						// hosts' here: Perfect Dark's rule, every tick, set the
+						// grenade launcher's next round off at the muzzle in
+						// the last one's smoke, 109 ticks on, where GoldenEye's
+						// next quarter is 143
+						if (weapon && (WEAPON_IS_GE(weapon->weaponnum)
+									|| ((weapon->base.hidden & OBJHFLAG_PROJECTILE)
+										&& (weapon->base.projectile->flags & PROJECTILEFLAG_GEROUND)))
+								&& geRoomActive()
 								&& !g_Vars.normmplayerisrunning && !explosionGeHurtsWeapon(exp, expprop, prop)) {
 							candamage = false;
 						}
