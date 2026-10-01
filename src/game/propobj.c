@@ -110,6 +110,7 @@
 #include "gexplus.h"
 #include "modloader.h"
 #include "gebean.h"
+#include "gebeanstage.h"
 #include "gbiex.h"
 #include "geguns.h"
 #include "romdata.h"
@@ -14319,6 +14320,14 @@ Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen
 
 void objRenderProp(struct prop *prop, struct modelrenderdata *renderdata, bool xlupass)
 {
+#ifndef PLATFORM_N64
+	// a prop of the HD level kept out of the room the camera is in
+	// (gebeanstage.c's keptOutOf[], Aztec's armour closet)
+	if (gebeanStageHidesProp(prop)) {
+		return;
+	}
+#endif
+
 	if (prop->flags & PROPFLAG_ONTHISSCREENTHISTICK) {
 		struct defaultobj *obj = prop->obj;
 		struct model *model = obj->model;

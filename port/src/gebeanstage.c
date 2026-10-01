@@ -6489,6 +6489,104 @@ static s32 rayFirst(const struct tgrid *g, const f32 *o, const f32 *d, f32 reach
 }
 
 /**
+ * Rooms of GoldenEye's that the release's other rooms are kept out of: what
+ * of Bean's mesh is dealt to another room and stands inside this one's space
+ * is left out, so the room reads as on the cartridge.
+ *
+ * Aztec's room 45 is the closet under the exhaust hatch, a box of metal panels
+ * with the body armour on its floor. The release runs the stone wall of the
+ * room beside it (room 18's, x = -1641, three triangles) down the middle of
+ * the box - the solid wall a Xenia capture of the release shows there - so in
+ * the HD look a mossy slab stood across the closet beside the armour, with
+ * the sky over its top edge (F3 20260928-213437, "weird geometry in area
+ * underneath exhaust hatch where the body armor is"). GoldenEye shows the
+ * whole closet and, from the vent, the closet through that wall's back
+ * (markOverlaps()). The user: the Bean release was unfinished, and what looks
+ * wrong in its data is fixed rather than copied.
+ */
+/*
+ * The props of the rooms beside it are kept out too, while the camera is in
+ * the closet (gebeanStageHidesProp()): the release's monitors on room 18's
+ * wall (pads 261 and 262, 7 units under the closet's ceiling) have bigger
+ * screens than GoldenEye's, which hang into the closet's top - the black and
+ * white shapes under its ceiling - and the release's mesh of the white post at
+ * pad 139 stands through its east wall. From outside the closet its own box
+ * hides those parts of them, as it should.
+ */
+static const struct { const char *key; s16 room; } keptOutOf[] = {
+	{ "azt", 45 },
+};
+
+#define KEPTOUT_MARGIN 4.0f // inside the room's box by this much: its own walls are its neighbours' too
+#define KEPTOUT_STEPS  12   // points across a face, a side
+#define KEPTOUT_PROPREACH 48.0f // a prop of another room this far outside the room's box across is kept out too
+
+struct boxacc {
+	f32 lo[3];
+	f32 hi[3];
+};
+
+static void boxAdd(void *arg, const f32 v[3][3], s32 room)
+{
+	struct boxacc *b = arg;
+
+	for (s32 k = 0; k < 3; k++) {
+		for (s32 j = 0; j < 3; j++) {
+			b->lo[j] = MIN(b->lo[j], v[k][j]);
+			b->hi[j] = MAX(b->hi[j], v[k][j]);
+		}
+	}
+}
+
+/** Leaves out (room 0) what other rooms' triangles stand inside a keptOutOf[] room; the count. */
+static s32 keepOutOfRooms(struct collect *c, u8 **filerooms, u32 *filelens, s32 n)
+{
+	s32 count = 0;
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(keptOutOf); i++) {
+		const s32 r = keptOutOf[i].room;
+		struct boxacc b = { { 1e30f, 1e30f, 1e30f }, { -1e30f, -1e30f, -1e30f } };
+
+		if (strcmp(keptOutOf[i].key, row->key) != 0 || r <= 0 || r >= n || !filerooms[r]) {
+			continue;
+		}
+
+		fileRoomTrianglesEach(r, filerooms[r], filelens[r], 1, boxAdd, &b);
+
+		for (s32 t = 0; t < c->num; t++) {
+			struct stri *tri = &c->tris[t];
+			s32 inside = 0;
+
+			// any of it inside, sampled across the face: the slab over the
+			// closet's top has its middle above the ceiling and its lower edge
+			// well inside
+			for (s32 a = 0; a <= KEPTOUT_STEPS && !inside && tri->room != 0 && tri->room != r; a++) {
+				for (s32 bb = 0; a + bb <= KEPTOUT_STEPS && !inside; bb++) {
+					const f32 wa = (f32)a / KEPTOUT_STEPS;
+					const f32 wb = (f32)bb / KEPTOUT_STEPS;
+					s32 in = 1;
+
+					for (s32 j = 0; j < 3 && in; j++) {
+						const f32 p = tri->pos[0][j] * wa + tri->pos[1][j] * wb + tri->pos[2][j] * (1.0f - wa - wb);
+
+						in = p > b.lo[j] + KEPTOUT_MARGIN && p < b.hi[j] - KEPTOUT_MARGIN;
+					}
+
+					inside = in;
+				}
+			}
+
+			if (inside) {
+				tri->room = 0;
+				count++;
+			}
+		}
+	}
+
+	return count;
+}
+
+/**
  * Bean's solid faces drawn culled where GoldenEye's own face under them has
  * another room's space behind it: the first of GoldenEye's faces a line
  * back from it meets, within OVERLAP_REACH, faces the same way (a wall of
@@ -6940,6 +7038,15 @@ static s32 build(void)
 			const s32 cornersmoved = markDecalCorners(c.tris, c.num);
 
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d corners of decals kept in their mesh moved off their base's rounding", row->bean, cornersmoved);
+		}
+
+		{
+			const s32 keptout = keepOutOfRooms(&c, filerooms, filelens, n);
+
+			if (keptout) {
+				sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles standing inside a room of GoldenEye's they are kept out of, left out",
+						row->bean, keptout);
+			}
 		}
 
 		for (s32 r = 1; r < n; r++) {
@@ -7879,6 +7986,53 @@ s32 gebeanStageRoomHidden(s32 roomnum)
 	return xblaStageDrawsEveryRoom() && roomHidden && roomnum > 0 && roomnum < numRooms && roomHidden[roomnum];
 }
 
+/**
+ * Whether a prop is left out of this frame's draw: one at a keptOutOf[] room
+ * (inside its box, g_Rooms[], or within KEPTOUT_PROPREACH of it across) that
+ * is not in that room itself, while the camera is in it and the HD rooms are
+ * drawn.
+ */
+s32 gebeanStageHidesProp(struct prop *prop)
+{
+	s32 cam;
+
+	if (!prop || !g_Vars.currentplayer || !xblaStageDrawsEveryRoom() || !gebeanStageDrawsEveryRoom()) {
+		return 0;
+	}
+
+	cam = g_Vars.currentplayer->cam_room;
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(keptOutOf); i++) {
+		const s32 r = keptOutOf[i].room;
+		s32 inside = 1;
+
+		if (r != cam || r <= 0 || r >= numRooms || strcmp(keptOutOf[i].key, row->key) != 0) {
+			continue;
+		}
+
+		for (s32 k = 0; k < ARRAYCOUNT(prop->rooms) && prop->rooms[k] >= 0; k++) {
+			if (prop->rooms[k] == r) {
+				return 0;
+			}
+		}
+
+		// across, the room's box and a little more: the white post of the
+		// room beside (model 550, pad 139) stands 34 units off the closet's
+		// east wall, and the release's mesh of it stands through that wall
+		for (s32 j = 0; j < 3 && inside; j++) {
+			const f32 reach = j == 1 ? -KEPTOUT_MARGIN : KEPTOUT_PROPREACH;
+
+			inside = prop->pos.f[j] > g_Rooms[r].bbmin[j] - reach && prop->pos.f[j] < g_Rooms[r].bbmax[j] + reach;
+		}
+
+		if (inside) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 const char *gebeanStageLevelKey(void)
 {
 	return gebeanStageDrawsEveryRoom() ? row->key : NULL;
@@ -8040,6 +8194,7 @@ void gebeanStageLevelReset(void) { }
 s32 gebeanStageDrawsEveryRoom(void) { return 0; }
 s32 gebeanStageRoomHidden(s32 roomnum) { return 0; }
 s32 gebeanStageRoomServed(s32 roomnum) { return 0; }
+s32 gebeanStageHidesProp(struct prop *prop) { return 0; }
 void gebeanStageTickCamera(s32 authored) { }
 s32 gebeanStageCullsBackFaces(void) { return 0; }
 const char *gebeanStageLevelKey(void) { return NULL; }
