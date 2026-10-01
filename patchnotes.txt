@@ -31,6 +31,9 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 28 2026-10-01
+GoldenEye levels: hitting a body, wall or object now shows GoldenEye's own white impact puff at any range (HD art in the XBLA look) instead of Perfect Dark's sparks, and wall-hit flashes no longer vanish beyond 4 m (thanks Graslu00)
+
 notes 27 2026-10-01
 GE Plus tank: the barrel no longer passes through walls - it stops against them as in GoldenEye (thanks Graslu00)
 GE Plus tank: the engine sound fades out once you climb out instead of running on in the distance (thanks Graslu00)
