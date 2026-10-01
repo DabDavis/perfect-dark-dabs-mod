@@ -1793,6 +1793,37 @@ bool geStanReaches(struct coord *from, f32 ground, struct coord *to)
 		&& fabsf(stanSurface(&g_Stan.tiles[tile], to->x, to->z) - stanSurface(&g_Stan.tiles[totile], to->x, to->z)) < 1.0f;
 }
 
+s32 geStanLinks(struct coord *from, f32 fromground, struct coord *to, f32 toground, bool climbs)
+{
+	s32 fromtile;
+	s32 totile;
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return -1;
+	}
+
+	fromtile = stanTileUnder(from->x, from->z, fromground + 10.0f, 0.0f);
+	totile = stanTileUnder(to->x, to->z, toground + 10.0f, 0.0f);
+
+	if (fromtile < 0 || totile < 0) {
+		return -1;
+	}
+
+	tile = stanWalkLine(fromtile, from->x, from->z, to->x, to->z, !climbs);
+
+	if (tile == totile) {
+		return 1;
+	}
+
+	return stanHolds(&g_Stan.tiles[tile], to->x, to->z)
+		&& fabsf(stanSurface(&g_Stan.tiles[tile], to->x, to->z) - stanSurface(&g_Stan.tiles[totile], to->x, to->z)) < 1.0f;
+}
+
 f32 geStanFloorAt(struct coord *pos)
 {
 	s32 tile;

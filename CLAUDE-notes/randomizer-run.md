@@ -530,6 +530,32 @@ the waypoint array at `padnum < 0`, the group array at `neighbours == NULL` -
 so a group with no neighbours needs a pointer to a lone `-1`, not NULL.
 Nothing random goes into the graph, so a seed's landing stays put.
 
+**A match's simulants get the floors too** (F3 20261001-145625, "sims don't
+move away from spawn points", GE Plus Complex): the builder also runs for a
+Combat Simulator match with simulants, and there the spawn points alone made
+Complex 49 waypoints in 24 pieces with 21 of 44 rooms holding none in or
+beside them - `waypointFindClosestToPos()` answered nothing, routes failed,
+and the sims stood (98-100% of one-second samples still on Complex and
+Cradle). In a match only (`wide`; runs are unchanged) the builder now:
+`modAlarmSampleFloors()` searches every room on a 50-unit grid (odd line
+count, so a corridor's middle is on it) top down for its own non-DIE floors
+that are tiles of GoldenEye's graph (`geStanFloorAt()`), keeps places 200
+apart per room (1.4x further, up to 4 tries, when 1500 is not enough -
+Statue Park), clear by 50 then by 20 (narrow corridors; Complex's are ~100
+wide), tested with a body's knee-to-head range (a -200 `ymin` puts
+`geStanLimit()` on the storey under and every raised wall counts);
+`modAlarmAppendPads()` appends them as real pads (copied pads file + own
+`g_PadOffsets`, 16-byte records, offsets must stay < 64K); pads floating more
+than 100 over their floor (Complex's walkway ones, 350 up) are left out as
+waypoints (a sim sent there never arrives); links among the floors are
+1000 at most, cross-room candidates do not count toward the ten and need no
+portal between the rooms (Cradle's platforms have none), and a link is made
+where either the cylinder walk or GoldenEye's tile walk (`geStanLinks()`)
+passes - the cylinder walk alone cut Cradle's platform from its walkways.
+Complex: 286 waypoints, 1 piece of 281, 6% of one-second samples still in a
+stock PD Complex match vs 9-14% here, 98% before; Cradle 100% -> 5%. Build
+times 0.1-0.7 s, Statue Park 1.1 s.
+
 A stage that still has no waypoints is never dealt a kill objective
 (`modRunDealObjective()`); the draw count is unchanged.
 

@@ -138,6 +138,16 @@ s32 geStanLocusRooms(s32 tile, f32 x, f32 z, f32 radius, s32 *rooms, s32 max);
 bool geStanReaches(struct coord *from, f32 ground, struct coord *to);
 
 /**
+ * Whether a body could walk the straight line from `from`, on its floor at
+ * `fromground`, to `to` on its floor at `toground`, by GoldenEye's tile graph:
+ * the walk from the tile under the one ends on the tile under the other (or
+ * one at the same height there), crossing no unlinked edge, and no link the
+ * conversion raised a climb wall on unless `climbs`. 1 yes, 0 no, -1 not
+ * known: no graph, or no tile under either end.
+ */
+s32 geStanLinks(struct coord *from, f32 fromground, struct coord *to, f32 toground, bool climbs);
+
+/**
  * The surface of the tile under `pos` at or under its height (a pad's floor),
  * or -1e30 where there is no graph or no tile.
  */
