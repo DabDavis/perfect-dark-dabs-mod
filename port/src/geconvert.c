@@ -5916,7 +5916,7 @@ static void cameraRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t nu
  * only to have it ready, and a crate is picked up whole. gesolo.py's
  * multi_crate_record().
  */
-static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t numpads)
+static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t numpads, uint8_t *models)
 {
 	baseRecord(out, raw, 0x14, objPadNum(raw, numpads));
 
@@ -5927,6 +5927,7 @@ static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_
 
 	for (size_t k = 0; k < 13 && 0x80 + 4 * k + 4 <= len; ++k) {
 		const uint32_t qty = be16(raw, 0x80 + 4 * k + 2);
+		const uint32_t model = be16(raw, 0x80 + 4 * k);
 
 		for (int which = 0; qty && which < 2; ++which) {
 			const uint32_t pdtype = soloAmmoType((uint32_t)k + 1, which);
@@ -5936,6 +5937,24 @@ static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_
 				const uint32_t sum = be16(out, at + 2) + qty;
 
 				set16(out, at + 2, sum > 0xffff ? 0xffff : sum);
+			}
+		}
+
+		// The box a slot leaves when the crate is shot apart: GoldenEye
+		// loads each stocked slot's model with the crate (proplvreset2) and,
+		// once it is destroyed, sets one of them down as a crate of that
+		// slot's ammunition (objApplyDamage()) - Perfect Dark does the same
+		// from its own slots (objDamage()), and with every model 0xffff a
+		// converted crate left nothing (census: slots[k].modelnum dropped on
+		// seven missions). The model goes on the slot the guns draw on, the
+		// submachine gun's for a 9mm, as a single crate's type does.
+		if (qty && model != 0xffff) {
+			const uint32_t pdtype = soloAmmoType((uint32_t)k + 1, 1) ? soloAmmoType((uint32_t)k + 1, 1)
+				: soloAmmoType((uint32_t)k + 1, 0);
+
+			if (pdtype) {
+				set16(out, 0x5c + 4 * (pdtype - 1), (uint32_t)(MODEL_REMAKE_FIRST + model));
+				setAdd(models, model);
 			}
 		}
 	}
@@ -6121,7 +6140,7 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		} else if (t == 0x2e) {
 			cameraRecord(rec, raw, recs.v[i].len, numpads, offset);
 		} else if (t == 0x14) {
-			multiCrateRecord(rec, raw, recs.v[i].len, numpads);
+			multiCrateRecord(rec, raw, recs.v[i].len, numpads, models);
 		} else if (g_GeSizes[t] >= 32) {
 			baseRecord(rec, raw, t, objPadNum(raw, numpads));
 			for (size_t k = 0; k < sizeof(tails) / sizeof(tails[0]); ++k) {
