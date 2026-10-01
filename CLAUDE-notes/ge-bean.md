@@ -13807,6 +13807,27 @@ if_bond_in_room_with_pad; ours prints it the moment Bond stands on pad 88, and
 the cartridge prints it even with every chr slot's list cleared, so whatever
 runs that chain there escapes `ares_side.freeze_ai()`. Not a game fault.
 
+**GoldenEye's sight follows the player's options** (F3 20261001-065320,
+the user's call). On the cartridge the watch's SIGHT ON-SCREEN shows the sight
+only while aiming: gunsightmode (0 = drawn, gunfire.c gunDrawSight()) reads
+0x2 (GUNSIGHTREASON_NOTAIMING) lowered and 0 with R held when it is on, 0x3 /
+0x1 when it is off. Ours is the same option (Sight on Screen), and Perfect
+Dark's Always Show Target, on by default, keeps the sight up with the gun
+lowered. The "GE Plus: Crosshair When Not Aiming" toggle is gone; a pd.ini
+that still has `Mod.GePlusSightAlways=1` turns Always Show Target on for every
+player at the next GE Plus level. `configRegisterIntRetired()` is how a
+setting that moved keeps its value: pd.ini drops every key nothing
+registers, so a retired key is registered, read, and written back only while
+it is not 0.
+
+**The view tour's camera.** A change that only moved which rooms are on
+screen (the portal walk) moved our camera by up to half a degree with theta
+and pitch unchanged: the head animation's look (Head Roll,
+`bmoveUpdateHead()`) has a phase the whole simulation feeds. Our side of
+`view/tour.py` now runs with Head Roll off, and with Always Show Target off
+(GoldenEye's sight is not up with the gun lowered); bases swept before that
+are not comparable.
+
 **The GE Plus mission timer** (F3 20261001-121337) stands under GoldenEye's
 bottom-message line (BONDVIEW_VIEW_TOP_OFFSET_1), where GoldenEye draws
 nothing, and the messages and opening lines no longer move for it; with a gun
