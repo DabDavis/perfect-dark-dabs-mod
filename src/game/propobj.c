@@ -6747,6 +6747,9 @@ s32 projectileLaunch(struct defaultobj *obj, struct projectile *projectile, stru
 
 s32 projectileTick(struct defaultobj *obj, bool *embedded)
 {
+#ifndef PLATFORM_N64
+	bool gemineland = false;
+#endif
 	struct projectile *projectile = obj->projectile;
 	s32 cdresult;
 	struct coord sp5f4;
@@ -7878,6 +7881,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							if (sp354 && obj->type == OBJTYPE_WEAPON
 									&& gegunsMineAttaches(((struct weaponobj *) obj)->weaponnum)) {
 								objLand(prop, &sp5e8, &sp5f4, embedded);
+								gemineland = true;
 							} else
 							// GoldenEye's thrown knife is launched sticky as
 							// every thrown thing is, but it has no reason to
@@ -7993,8 +7997,9 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 						if (cdresult == CDRESULT_COLLISION
 #ifndef PLATFORM_N64
-								// a mine landed above (objLand()) has no projectile now
-								&& (obj->hidden & OBJHFLAG_PROJECTILE)
+								// a mine landed above (objLand()) has no projectile now,
+								// and objLand() has sounded it
+								&& !gemineland
 #endif
 								) {
 							if (projectile->unk0a4 < g_Vars.lvframenum - 2) {
