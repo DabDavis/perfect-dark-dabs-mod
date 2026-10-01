@@ -104,6 +104,8 @@ struct stri {
 	u8 plain;   // of a draw with no UV and no picture of its own (gebeanlevelvtx)
 	u8 overlap; // a face with another room's space behind it, drawn culled (markOverlaps())
 	u8 painted; // under a later blended decal that covers it wholly: never seen (markDecals())
+	u8 alphatest; // its draw's alpha test, against alpharef (alphaTested())
+	u8 alpharef;
 };
 
 // The level being served, built when its first room is asked for
@@ -2190,6 +2192,8 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->plain = v[0].plain;
 	t->overlap = 0;
 	t->painted = 0;
+	t->alphatest = v[0].alphatest;
+	t->alpharef = v[0].alpharef;
 }
 
 /*
@@ -3365,6 +3369,50 @@ static void forget(void)
  * round alike.
  */
 #define WELD_DIST 0.25f
+
+/*
+ * The release's alpha test on its opaque level draws: greater than the
+ * draw's reference (127 on every level draw that sets one), of the picture's
+ * alpha times the vertex's. Control's hazard markings are cut-outs of one
+ * picture on vertices of alpha 0x80 (the cross on its floor: drawn whole)
+ * and 0x7f (the yellow stripes down its stairs: 127 is never greater than
+ * 127, so never drawn). Ours drew both faded into the translucent leaf by
+ * their vertex alpha (triFades()), half there each ("wrong opacity on the
+ * stripes and stains", F3 20261001-001258). So a triangle whose vertex alpha
+ * never passes is left out, and one that does is a cut-out of its picture
+ * with its vertex alpha whole, as the release draws it. Not a blended draw's,
+ * whose vertex alpha blends as well.
+ */
+static s32 alphaTested(struct collect *c)
+{
+	s32 kept = 0, dropped = 0;
+
+	for (s32 t = 0; t < c->num; t++) {
+		struct stri *tri = &c->tris[t];
+		u32 amax = 0;
+
+		if (tri->alphatest && !tri->blend) {
+			for (s32 k = 0; k < 3; k++) {
+				amax = MAX(amax, tri->argb[k] >> 24);
+			}
+
+			if (amax <= tri->alpharef) {
+				dropped++;
+				continue;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				tri->argb[k] |= 0xff000000u;
+			}
+		}
+
+		c->tris[kept++] = *tri;
+	}
+
+	c->num = kept;
+
+	return dropped;
+}
 
 /*
  * Opaque triangles the release's draws repeat corner for corner in another
@@ -6633,6 +6681,15 @@ static s32 build(void)
 	for (s32 t = 0; t < gebeanLevelNumTextures(level) && t < GEBEAN_MAXMATS; t++) {
 		texWater[t] = gebeanLevelTextureIsWater(level, t);
 		levelHasWater |= texWater[t];
+	}
+
+	{
+		const s32 untested = alphaTested(&c);
+
+		if (untested) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles the release's alpha test never passes left out",
+					row->bean, untested);
+		}
 	}
 
 	{

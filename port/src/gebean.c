@@ -14365,6 +14365,8 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 					v[k].uv[1] = bv.uv[1];
 					v[k].argb = bv.argb;
 					v[k].blend = draw->blend;
+					v[k].alphatest = draw->alphatest;
+					v[k].alpharef = draw->alpharef;
 					v[k].plain = plain;
 					memcpy(v[k].nrm, bv.nrm, sizeof(v[k].nrm));
 				}
