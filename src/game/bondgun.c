@@ -6797,6 +6797,19 @@ void bgunTickSwitch2(void)
 				}
 
 				ctrl->dualwielding = newleftweaponnum != WEAPON_NONE;
+			} else if (ctrl->leftwant > WEAPON_NONE
+					&& ctrl->leftwant != ctrl->switchtoweaponnum
+					&& ctrl->gunmemmixed
+					&& WEAPON_IS_GE(ctrl->switchtoweaponnum) && WEAPON_IS_GE(ctrl->leftwant)
+					&& invHasDoubleWeaponIncAllGuns(ctrl->switchtoweaponnum, ctrl->leftwant)) {
+				// GoldenEye's own pair of two different guns, as its
+				// inventory holds it (a link record: Jungle's RC-P90 and
+				// grenade launcher, taken from Xenia), which GoldenEye
+				// draws in both hands with no house rule. Without Akimbo
+				// it was dropped to the right hand's alone, and the cycle
+				// stuck there for good (F3 20261001-000913)
+				newleftweaponnum = ctrl->leftwant;
+				ctrl->dualwielding = true;
 			}
 
 			if (geTankIsDriving()) {
@@ -7070,6 +7083,51 @@ static bool bgunIsCycleItem(s32 weaponnum)
 	return weaponHost(weaponnum) > WEAPON_PSYCHOSISGUN;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The left hand's gun as the inventory cycle places the hands. Perfect
+ * Dark's pairs are two of one gun, and the cycle takes the left hand to hold
+ * the right's when dual wielding (bgunGetSwitchToWeapon()). GoldenEye's pair
+ * of two different guns (an inventory pair from a link record, Jungle's
+ * RC-P90 and grenade launcher) is placed by its own left gun, or the cycle
+ * came back to that pair for ever (F3 20261001-000913).
+ */
+static s32 bgunCycleLeftWeapon(s32 right, s32 left)
+{
+	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
+	s32 own;
+
+	if (left != right || left <= WEAPON_NONE) {
+		return left;
+	}
+
+	own = ctrl->switchtoweaponnum >= 0 ? ctrl->leftwant : ctrl->leftweaponnum;
+
+	if (own > WEAPON_NONE && own != right && WEAPON_IS_GE(right) && WEAPON_IS_GE(own)
+			&& invHasDoubleWeaponIncAllGuns(right, own)) {
+		return own;
+	}
+
+	return left;
+}
+
+/**
+ * Equips the pair of two different guns the cycle chose (GoldenEye's), in
+ * both hands; false for anything else, which the cycle equips as it did.
+ */
+static bool bgunCycleEquipsPair(s32 right, s32 left)
+{
+	if (left <= WEAPON_NONE || left == right || !WEAPON_IS_GE(right) || !WEAPON_IS_GE(left)
+			|| !invHasDoubleWeaponIncAllGuns(right, left)) {
+		return false;
+	}
+
+	bgunEquipHands(right, left);
+
+	return true;
+}
+#endif
+
 void bgunCycleForward(void)
 {
 	s32 weaponnum1;
@@ -7091,8 +7149,17 @@ void bgunCycleForward(void)
 			weaponnum1 = player->gunctrl.prevweaponnum;
 			weaponnum2 = player->gunctrl.prevweaponnum * player->gunctrl.prevwasdualwielding;
 		} else {
+#ifndef PLATFORM_N64
+			weaponnum2 = bgunCycleLeftWeapon(weaponnum1, weaponnum2);
+#endif
 			invChooseCycleForwardWeapon(&weaponnum1, &weaponnum2, false);
 		}
+
+#ifndef PLATFORM_N64
+		if (bgunCycleEquipsPair(weaponnum1, weaponnum2)) {
+			return;
+		}
+#endif
 
 		if (weaponnum2 != weaponnum1) {
 			player->gunctrl.dualwielding = false;
@@ -7129,8 +7196,17 @@ void bgunCycleBack(void)
 			weaponnum1 = player->gunctrl.prevweaponnum;
 			weaponnum2 = player->gunctrl.prevweaponnum * player->gunctrl.prevwasdualwielding;
 		} else {
+#ifndef PLATFORM_N64
+			weaponnum2 = bgunCycleLeftWeapon(weaponnum1, weaponnum2);
+#endif
 			invChooseCycleBackWeapon(&weaponnum1, &weaponnum2, false);
 		}
+
+#ifndef PLATFORM_N64
+		if (bgunCycleEquipsPair(weaponnum1, weaponnum2)) {
+			return;
+		}
+#endif
 
 		if (weaponnum2 == WEAPON_NONE) {
 			player->gunctrl.dualwielding = false;
