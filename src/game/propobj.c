@@ -4602,10 +4602,18 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 		if (weapon->weaponnum == WEAPON_GE_TIMEDMINE || weapon->weaponnum == WEAPON_GE_PROXIMITYMINE
 				|| weapon->weaponnum == WEAPON_GE_REMOTEMINE) {
 			const s32 num = geSfxNum(GESFX_ATTACH_MINE);
+			// coming down on a floor it lands with DROP_GUN_SFX as well, as
+			// anything thrown does (on the cartridge a first mine on Dam's
+			// floor is heard with it every time, ATTACH_MINE only some)
+			const s32 drop = g_EmbedProp == NULL && arg2->y > 0.7f ? geSfxNum(GESFX_DROP_GUN) : 0;
 
 			if (num) {
 				psCreate(0, prop, num, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
 				geminesilent = true;
+			}
+
+			if (drop) {
+				psCreate(0, prop, drop, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
 			}
 		}
 	}
@@ -7869,15 +7877,6 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							// moving enough to set it off (FINDINGS row 10)
 							if (sp354 && obj->type == OBJTYPE_WEAPON
 									&& gegunsMineAttaches(((struct weaponobj *) obj)->weaponnum)) {
-								// coming down on the floor it lands with DROP_GUN_SFX as
-								// well, as anything thrown does; on another mine only
-								// ATTACH_MINE (objLand())
-								const s32 num = geSfxNum(GESFX_DROP_GUN);
-
-								if (num) {
-									psCreate(0, prop, num, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
-								}
-
 								objLand(prop, &sp5e8, &sp5f4, embedded);
 							} else
 							// GoldenEye's thrown knife is launched sticky as
@@ -9180,6 +9179,31 @@ static s32 autogunGeSees(struct prop *prop, struct prop *target)
 }
 #endif
 
+#ifndef PLATFORM_N64
+/**
+ * Whether the player's thrown Laptop Gun takes this chr for an enemy on a
+ * converted GoldenEye mission. The sentry aims at the teams its owner is not
+ * on (targetteam, a mask), and the converter leaves every one of GoldenEye's
+ * guards on team 0, which no mask names: the sentry never chose anybody (F3
+ * 20260929-215224, Aztec, "laptop gun sentry function doesn't seem to work").
+ * The armed chrs that are no civilian count, as for the psychosis gun
+ * (gexPlusPsychosis()): GoldenEye's guards fought Bond, and its unarmed and
+ * its civilians - Natalya, Boris, the scientists - never did.
+ */
+static bool autogunTargetsGeGuard(struct autogunobj *autogun, struct chrdata *chr)
+{
+	return !g_Vars.normmplayerisrunning
+		&& modloaderStageIsMission(g_Vars.stagenum)
+		&& g_ThrownLaptops != NULL
+		&& autogun >= g_ThrownLaptops && autogun < g_ThrownLaptops + g_MaxThrownLaptops
+		&& chr->team == TEAM_00
+		&& chr->prop && chr->prop->type == PROPTYPE_CHR
+		&& chr->aibot == NULL
+		&& (chr->chrflags & CHRCFLAG_KILLCOUNTABLE) == 0
+		&& (chrGetHeldProp(chr, HAND_RIGHT) || chrGetHeldProp(chr, HAND_LEFT));
+}
+#endif
+
 void autogunTick(struct prop *prop)
 {
 	struct autogunobj *autogun;
@@ -9347,7 +9371,11 @@ void autogunTick(struct prop *prop)
 						continue;
 					}
 
-					if ((chr->team & autogun->targetteam) == 0) {
+					if ((chr->team & autogun->targetteam) == 0
+#ifndef PLATFORM_N64
+							&& !autogunTargetsGeGuard(autogun, chr)
+#endif
+							) {
 						continue;
 					}
 
