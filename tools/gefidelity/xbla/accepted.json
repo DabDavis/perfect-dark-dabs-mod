@@ -1,19 +1,5 @@
 [
  {
-  "source": "new/(gun|prop/chr).*",
-  "state": "unbuilt",
-  "piece": 0,
-  "reason": "the release's muzzle-flash cards (0x30 draws of piece 0, flash rings and glows): the game paints GoldenEye's own flash instead (beanDrawIsFlash, the build's 'N draws left out')",
-  "replaced": "GoldenEye's own painted muzzle flash"
- },
- {
-  "source": "new/gun/rocketlauncher",
-  "state": "unbuilt",
-  "pc": "1d8",
-  "reason": "the launcher's flash ring (_0x0816B625): GoldenEye's own flash is drawn",
-  "replaced": "GoldenEye's own painted muzzle flash"
- },
- {
   "source": "new/char/.*",
   "state": "unbuilt|short",
   "section": 0,
@@ -25,17 +11,5 @@
   "state": "unwalked",
   "section": 2,
   "reason": "the N64-look original's hand (kind-2 sections, the shared fist pictures _0x0317*): the file is only measured, and beanGunExtent() leaves the hand out of the fit anyway"
- },
- {
-  "source": "new/prop/(console2|console3|doorpanel|modembox)",
-  "state": "unbuilt",
-  "reason": "a screen pane (the consoles' spiral picture, the door panel's and the modem's glass): GoldenEye's monitor programme is drawn in its place (beanFindScreens)",
-  "replaced": "GoldenEye's monitor programme"
- },
- {
-  "source": "new/char/suitlfhand",
-  "state": "unbuilt",
-  "reason": "the release arm's own watch (textures 9-11: casing and glass, beanArmDropsTexture()): GE Plus's pause is GoldenEye's watch (gewatch.c), drawn on the arm",
-  "replaced": "GoldenEye's own watch"
  }
 ]
