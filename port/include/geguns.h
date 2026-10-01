@@ -118,6 +118,8 @@ s32 gegunsAllGunsPairs(s32 weaponnum);
 // How long one of GoldenEye's mines takes, thrown, to arm or (the timed mine)
 // to go off, in sixtieths; 0 for any other weapon, which keeps its function's
 s32 gegunsThrownFuse60(s32 weaponnum);
+// GoldenEye's three seconds on a grenade a guard throws, or 0 for Perfect Dark's one
+s32 gegunsChrGrenadeFuse60(s32 weaponnum);
 void gegunsOwnModelParts(struct hand *hand, struct model *model);
 void gegunsShellsLoaded(struct hand *hand);
 // The same for the gun shown bare in a menu: no hand, cuff or flash
