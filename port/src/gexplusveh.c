@@ -427,6 +427,121 @@ static s32 vehTruckBlocked(struct truckobj *truck, struct coord *from)
 	return cdresult;
 }
 
+/**
+ * GoldenEye's truck steering (propobj.c, PROPDEF_VEHICHLE, the US/JP rates):
+ * the heading is a door's position under chrobjCallsApplySpeed() - it turns
+ * at a rate that accelerates by 0.375 degrees a second each tick, slows at
+ * twice that for the target, and is capped at 22.5 degrees a second - and it
+ * holds its heading while the waypoint lies within 10 of the line ahead.
+ */
+#define VEH_TAU              6.2831855f   // GoldenEye's M_TAU_F
+#define VEH_TURN_ACCEL       0.000109083085f
+#define VEH_TURN_DECEL       0.00021816617f
+#define VEH_TURN_MAX         0.006544985f
+
+/** chrobjApplySpeed(): a tick at a time, `ticks` of them. */
+static void vehApplySpeed(f32 *value, f32 target, f32 *speedptr, f32 accel, f32 decel, f32 maxspeed, s32 ticks)
+{
+	f32 speed = *speedptr;
+
+	for (s32 i = 0; i < ticks; i++) {
+		const f32 limit = speed * speed * 0.5f / decel;
+		const f32 remaining = target - *value;
+
+		if (remaining > 0.0f) {
+			if (speed > 0.0f && remaining <= limit) {
+				speed -= decel;
+
+				if (speed < decel) {
+					speed = decel;
+				}
+			} else if (speed < maxspeed) {
+				speed += speed < 0.0f ? decel : accel;
+
+				if (speed > maxspeed) {
+					speed = maxspeed;
+				}
+			}
+
+			if (speed >= remaining) {
+				*value = target;
+				break;
+			}
+		} else {
+			if (speed < 0.0f && -remaining <= limit) {
+				speed += decel;
+
+				if (speed > -decel) {
+					speed = -decel;
+				}
+			} else if (speed > -maxspeed) {
+				speed -= speed > 0.0f ? decel : accel;
+
+				if (speed < -maxspeed) {
+					speed = -maxspeed;
+				}
+			}
+
+			if (speed <= remaining) {
+				*value = target;
+				break;
+			}
+		}
+
+		*value += speed;
+	}
+
+	*speedptr = speed;
+}
+
+/** chrobjCallsApplySpeed(): an angle, the short way round, kept in 0..tau. */
+static void vehApplyTurn(f32 *angle, f32 target, f32 *speed, s32 ticks)
+{
+	if (target - *angle < -M_PI) {
+		target += VEH_TAU;
+	} else if (target - *angle >= M_PI) {
+		target -= VEH_TAU;
+	}
+
+	vehApplySpeed(angle, target, speed, VEH_TURN_ACCEL, VEH_TURN_DECEL, VEH_TURN_MAX, ticks);
+
+	if (*angle < 0.0f) {
+		*angle += VEH_TAU;
+	}
+
+	if (*angle >= VEH_TAU) {
+		*angle -= VEH_TAU;
+	}
+}
+
+/**
+ * chrlvGeometryRelated7F02FC34(): whether `to` lies ahead of `from` along
+ * `dir` (x/z) and within `range` of that line.
+ */
+static bool vehAhead(struct coord *from, f32 dirx, f32 dirz, struct coord *to, f32 range)
+{
+	const f32 dx = to->x - from->x, dz = to->z - from->z;
+	const f32 dot = dirx * dx + dirz * dz;
+
+	if (dirx == 0.0f && dirz == 0.0f) {
+		return dx * dx + dz * dz <= range * range;
+	}
+
+	return dot > 0.0f && (dirx * dirx + dirz * dirz) * (dx * dx + dz * dz - range * range) <= dot * dot;
+}
+
+/**
+ * The rear wheel's position along the truck, at the model's scale: GoldenEye
+ * turns its truck about it (the step's sideways term, sp460, is this times
+ * sin(the turn)). Part 3 is the wheel node GoldenEye reads (Switches[3]).
+ */
+static f32 vehTruckPivot(struct model *model)
+{
+	union modelrodata *wheel = model ? vehPartRodata(model, 3, MODELNODETYPE_POSITION) : NULL;
+
+	return wheel ? wheel->position.pos.z * model->scale : 0.0f;
+}
+
 static void vehTruckTick(struct prop *prop)
 {
 	struct truckobj *truck = (struct truckobj *)prop->obj;
@@ -501,41 +616,48 @@ static void vehTruckTick(struct prop *prop)
 	prevroty = truck->roty;
 	prevturn = truck->turnrot60;
 
-	if (haspath) {
-		// GoldenEye's own: steer towards the pad the path is heading for, at
-		// the turn rate its truck has and no faster
+	// GoldenEye's own steering (vehApplyTurn()): towards the pad the path is
+	// heading for, unless it is already within 10 of the line ahead
+	{
+		f32 target = truck->roty;
+		f32 turn;
+
+		if (haspath) {
+			target = atan2f(pad.pos.x - prop->pos.x, pad.pos.z - prop->pos.z);
+
+			if (vehAhead(&prop->pos, sinf(truck->roty), cosf(truck->roty), &pad.pos, 10.0f)) {
+				target = truck->roty;
+			}
+		}
+
+		vehApplyTurn(&truck->roty, target, &truck->turnrot60, g_Vars.lvupdate60);
+
+		if (target == truck->roty && truck->turnrot60 <= VEH_TURN_DECEL && truck->turnrot60 >= -VEH_TURN_DECEL) {
+			truck->turnrot60 = 0.0f;
+		}
+
+		turn = truck->roty - prevroty;
+		turnedby = turn;
+
+		// ...and it turns about its rear wheels, not its middle: the step
+		// carries the middle sideways by the wheel's distance times the
+		// turn's sine (sp460). Turning on the middle swung the tail through
+		// the corner and the truck drove a wider line than GoldenEye's
 		{
-			f32 diff = aimangle - truck->roty;
+			f32 rate = delta > 0.0f ? turn / delta : 0.0f;
+			f32 side;
 
-			while (diff > M_BADTAU * 0.5f) {
-				diff -= M_BADTAU;
+			if (rate < 0.0f) {
+				rate += VEH_TAU;
 			}
 
-			while (diff < -M_BADTAU * 0.5f) {
-				diff += M_BADTAU;
-			}
+			side = vehTruckPivot(truck->base.model) * sinf(rate) * delta;
 
-			// the turn is capped the way GoldenEye caps it, a twentieth of a
-			// turn a second, so a truck rounds a corner rather than pivoting
-			{
-				const f32 most = 0.05f * M_BADTAU / 60.0f * delta;
-
-				if (diff > most) {
-					diff = most;
-				} else if (diff < -most) {
-					diff = -most;
-				}
-			}
-
-			truck->turnrot60 = diff / (delta > 0.0f ? delta : 1.0f);
-			truck->roty = vehWrapTau(truck->roty + diff);
-			turnedby = diff;
+			next.x = prop->pos.x + sinf(truck->roty) * truck->speed * delta - cosf(truck->roty) * side;
+			next.y = prop->pos.y;
+			next.z = prop->pos.z + cosf(truck->roty) * truck->speed * delta + sinf(truck->roty) * side;
 		}
 	}
-
-	next.x = prop->pos.x + sinf(truck->roty) * truck->speed * delta;
-	next.y = prop->pos.y;
-	next.z = prop->pos.z + cosf(truck->roty) * truck->speed * delta;
 
 	// The ground under the step, the way a chr's move asks for it: a converted
 	// road is not level and the pads are on it, not above it.
