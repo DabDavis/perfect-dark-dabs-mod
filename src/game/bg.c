@@ -37,6 +37,7 @@
 #include "game/file.h"
 #include "game/lv.h"
 #include "game/modspectate.h"
+#include "game/modrun.h"
 #include "game/texdecompress.h"
 #include "game/wallhit.h"
 #include "bss.h"
@@ -1317,7 +1318,11 @@ Gfx *bgRenderScene(Gfx *gdl)
 					|| stagenum == MOD_BGSTAGE(STAGE_TEST_OLD)
 					|| stagenum == MOD_BGSTAGE(STAGE_INFILTRATION)
 					|| stagenum == MOD_BGSTAGE(STAGE_ESCAPE)
-					|| stagenum == MOD_BGSTAGE(STAGE_ATTACKSHIP))) {
+					|| stagenum == MOD_BGSTAGE(STAGE_ATTACKSHIP)
+#ifndef PLATFORM_N64
+					|| modRunWantsStars(stagenum)
+#endif
+					)) {
 			gdl = text0f153628(gdl);
 
 			gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION | CAM_PROJ_MTX_FLAGS);

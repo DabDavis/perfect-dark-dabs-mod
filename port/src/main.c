@@ -332,6 +332,9 @@ int main(int argc, const char **argv)
 	// --run-stage N: the run's first room is on this stage rather than the
 	// seed's, so one map's landing can be tested without finding a seed
 	g_ModRunFirstStage = sysArgGetInt("--run-stage", -1);
+	// --run-room N: and the first landing is in this room when it has a
+	// waypoint there - one room's landing without finding a seed for it
+	g_ModRunFirstRoom = sysArgGetInt("--run-room", -1);
 	g_FixedStep = sysArgCheck("--fixed-step");
 	g_ExitFrame = sysArgGetInt("--exit-frame", 0);
 	g_StateHashEvery = sysArgGetInt("--state-hash", 0);

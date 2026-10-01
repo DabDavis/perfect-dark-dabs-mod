@@ -264,6 +264,7 @@ struct modrunobjective {
 bool g_ModRunAutoStart = false; // --random-run
 s32 g_ModRunAutoHop = 0;        // --run-autohop N
 s32 g_ModRunFirstStage = -1;    // --run-stage N
+s32 g_ModRunFirstRoom = -1;     // --run-room N
 #endif
 
 static s32 g_ModRunState = MODRUN_OFF;
@@ -414,6 +415,21 @@ bool modRunIsOn(void)
  * A run, in a level, with the player in it. What the tick and the objectives
  * ask; modRunIsOn() is what the stage load asks.
  */
+/**
+ * Whether a run on this stage draws Infiltration's star field.
+ *
+ * Area 51's night sky is Infiltration's and Escape's: Rescue and Maian SOS
+ * never take the player outside, so their stages draw the far cliffs over a
+ * black sky with no stars, and a run that lands on their outdoor rooms showed
+ * just that (F3 20261001-051654, Maian SOS: "there is no sky rendered"). A run
+ * only - the missions themselves keep the stock sky and the stock random
+ * stream starsReset() draws from.
+ */
+bool modRunWantsStars(s32 stagenum)
+{
+	return modRunIsOn() && (stagenum == STAGE_RESCUE || stagenum == STAGE_MAIANSOS);
+}
+
 bool modRunIsPlaying(void)
 {
 	return g_ModRunState == MODRUN_PLAYING || g_ModRunState == MODRUN_HOPPING;
@@ -880,6 +896,84 @@ static s32 modRunRoomIsDark(s32 room)
 	return brightest < MODRUN_DARKLUM;
 }
 
+/**
+ * Rooms a stage leaves bare because its own mission never goes there, though
+ * another mission on the same map does.
+ *
+ * Area 51's map is four missions' (Infiltration, Rescue, Escape, Maian SOS),
+ * and only Infiltration's setup furnishes the hangar's two lifts: the lift
+ * cars, their doors at both ends of the shafts, the call buttons and the
+ * hangar floor's monitors and crates. Rescue and Maian SOS never let the
+ * player near them, so their setups have none of it - a run landing in the
+ * hangar (room 2) on either stood the player beside open shafts with nothing
+ * in them, a lift door missing and the sky through the hole (F3
+ * 20261001-050231 Rescue, -050514 Maian SOS: "lift call button is missing").
+ *
+ * The lists are the rooms where Infiltration's setup places objects and this
+ * stage's places none, read off the three setups with the rooms each object's
+ * prop stands in (2026-10-01): Maian SOS keeps the shafts' bottom ends
+ * (65 73 75 77 79 80), Rescue not even those. The room count guards against a
+ * mod that ships its own geometry under the same stage.
+ */
+static const s16 g_ModRunBareRescue[] = { 2, 9, 10, 19, 33, 34, 65, 73, 75, 77, 79, 80, -1 };
+static const s16 g_ModRunBareMaianSos[] = { 2, 9, 10, 19, 33, 34, -1 };
+#define MODRUN_AREA51_ROOMS 271
+
+static bool modRunRoomIsBare(s32 room)
+{
+	const s16 *list = NULL;
+	s32 i;
+
+	if (g_Vars.roomcount != MODRUN_AREA51_ROOMS) {
+		return false;
+	}
+
+	if (g_Vars.stagenum == STAGE_RESCUE) {
+		list = g_ModRunBareRescue;
+	} else if (g_Vars.stagenum == STAGE_MAIANSOS) {
+		list = g_ModRunBareMaianSos;
+	} else {
+		return false;
+	}
+
+	for (i = 0; list[i] >= 0; i++) {
+		if (list[i] == room) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * Whether a room is bare or one door from a bare room: a landing there is
+ * stood looking at the bare part, and the zone around it - which never takes
+ * a bare room in, see modRunBuildZone() - has it for a doorway.
+ */
+static bool modRunRoomNearBare(s32 room)
+{
+	s32 i;
+
+	if (modRunRoomIsBare(room)) {
+		return true;
+	}
+
+	if (room <= 0 || room >= g_Vars.roomcount || g_Rooms == NULL || g_RoomPortals == NULL || g_BgPortals == NULL) {
+		return false;
+	}
+
+	for (i = 0; i < g_Rooms[room].numportals; i++) {
+		const struct bgportal *portal = &g_BgPortals[g_RoomPortals[g_Rooms[room].roomportallistoffset + i]];
+		const s32 other = portal->roomnum1 == room ? portal->roomnum2 : portal->roomnum1;
+
+		if (modRunRoomIsBare(other)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static void modRunChooseLanding(void)
 {
 	const s32 numwaypoints = modRunCountWaypoints();
@@ -923,6 +1017,17 @@ static void modRunChooseLanding(void)
 		if (g_Rooms[room].numportals <= 0) {
 			continue;
 		}
+
+		if (modRunRoomNearBare(room)) {
+			continue;
+		}
+
+#ifndef PLATFORM_N64
+		// --run-room: the first landing in this room, for testing one room
+		if (g_ModRunFirstRoom > 0 && g_ModRunHop == 0 && room != g_ModRunFirstRoom) {
+			continue;
+		}
+#endif
 
 		if (checkpads && !modRandomPadCanSpawn(padnum)) {
 			unusable++;
@@ -1718,25 +1823,6 @@ static s32 modRunZoneExitPortal(const RoomNum *torooms)
 }
 
 /**
- * Whether a portal is a way out of the zone: one end inside it, one end not.
- *
- * The same question modRunZoneExitPortal() asks, put the other way round so
- * that a door can be handed its own portal number and answered about.
- */
-static bool modRunPortalLeavesZone(s32 portalnum)
-{
-	const struct bgportal *portal;
-
-	if (portalnum < 0 || g_BgPortals == NULL || g_ModRunNumZone <= 0) {
-		return false;
-	}
-
-	portal = &g_BgPortals[portalnum];
-
-	return modRunZoneHas(portal->roomnum1) != modRunZoneHas(portal->roomnum2);
-}
-
-/**
  * The hostiles standing in the sealed rooms: whether there is one, and killing
  * them where the caller asks for that.
  *
@@ -1819,9 +1905,58 @@ static s32 modRunSweepZone(bool kill)
 	return found;
 }
 
-static bool modRunEnemyInZone(void)
+/**
+ * Whether a hostile in the sealed rooms is one the player can get at: one on
+ * screen, or one standing in the very room the player is in.
+ *
+ * What feeds a kill objective's starvation clock (modRunTickStuck()). "Any
+ * hostile in the zone" fed it from a guard that could never be reached - the
+ * stage's own guard standing in Villa's room 148 behind the interrogation
+ * room's locked doors (F3 20261001-051509) kept a kill objective alive for as
+ * long as the player cared to wait, and the clock that answers a room nothing
+ * can reach never came. A guard that is coming is seen before forty seconds
+ * are up; one that is not, is not a fight.
+ */
+static bool modRunEnemyEngaged(void)
 {
-	return modRunSweepZone(false) > 0;
+	struct player *player = g_Vars.currentplayer;
+	const s32 numchrs = chrsGetNumSlots();
+	s32 playerteam = TEAM_ALLY;
+	s32 i;
+
+	if (player && player->prop && player->prop->chr) {
+		playerteam = player->prop->chr->team;
+	}
+
+	for (i = 0; i < numchrs; i++) {
+		struct chrdata *chr = &g_ChrSlots[i];
+
+		if (chr->chrnum < 0 || chr->prop == NULL || chr->model == NULL) {
+			continue;
+		}
+
+		if (chr->actiontype == ACT_DEAD || chr->actiontype == ACT_DIE) {
+			continue;
+		}
+
+		if (chr->team == playerteam || (chr->team & TEAM_NONCOMBAT)) {
+			continue;
+		}
+
+		if (!modRunRoomsInZone(chr->prop->rooms)) {
+			continue;
+		}
+
+		if (chr->prop->flags & (PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK | PROPFLAG_ONANYSCREENPREVTICK)) {
+			return true;
+		}
+
+		if (player && player->prop && modRunRoomsHave(chr->prop->rooms, player->prop->rooms[0])) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 /**
@@ -1835,16 +1970,24 @@ static bool modRunEnemyInZone(void)
  * and only from the doors standing in a portal that leaves the zone: a locked
  * door deeper in the map is the map's own business.
  *
+ * `inside` takes them off the doors *within* the zone too - both of the
+ * portal's rooms sealed - which the landing asks for. The zone is the room the
+ * player is given to fight in, and a locked door in the middle of it cuts it in
+ * two: Villa's interrogation room (149) is two doors deep in a five-room zone
+ * and both of its doors want a key, so a landing there was a closed box with
+ * the rest of the zone, and the guards in it, on the far side
+ * (F3 20261001-051509).
+ *
  * The setup stream's doorobj *is* the live door - setupCreateProps() fills in
  * its portalnum and its prop in place - which is why this can be walked at any
  * point in the level.
  */
-static void modRunOpenExits(void)
+static void modRunOpenDoors(bool exits, bool inside)
 {
 	struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
 	s32 opened = 0;
 
-	if (obj == NULL || g_ModRunNumZone <= 0) {
+	if (obj == NULL || g_ModRunNumZone <= 0 || g_BgPortals == NULL) {
 		return;
 	}
 
@@ -1852,11 +1995,15 @@ static void modRunOpenExits(void)
 		if (obj->type == OBJTYPE_DOOR) {
 			struct doorobj *door = (struct doorobj *)obj;
 
-			if (door->keyflags
-					&& (door->base.flags & OBJFLAG_DOOR_HASPORTAL)
-					&& modRunPortalLeavesZone(door->portalnum)) {
-				door->keyflags = 0;
-				opened++;
+			if (door->keyflags && (door->base.flags & OBJFLAG_DOOR_HASPORTAL) && door->portalnum >= 0) {
+				const struct bgportal *portal = &g_BgPortals[door->portalnum];
+				const bool in1 = modRunZoneHas(portal->roomnum1);
+				const bool in2 = modRunZoneHas(portal->roomnum2);
+
+				if ((exits && in1 != in2) || (inside && in1 && in2)) {
+					door->keyflags = 0;
+					opened++;
+				}
 			}
 		}
 
@@ -1865,10 +2012,16 @@ static void modRunOpenExits(void)
 
 #ifndef PLATFORM_N64
 	if (opened) {
-		sysLogPrintf(0, "run: unlocked %d door(s) out of room %d on stage 0x%02x",
-				opened, g_ModRunLandRoom, g_ModRunStage);
+		sysLogPrintf(0, "run: unlocked %d door(s) %s room %d on stage 0x%02x",
+				opened, exits ? (inside ? "in and out of" : "out of") : "inside the zone of",
+				g_ModRunLandRoom, g_ModRunStage);
 	}
 #endif
+}
+
+static void modRunOpenExits(void)
+{
+	modRunOpenDoors(true, false);
 }
 
 /**
@@ -1981,7 +2134,7 @@ static void modRunBuildZone(void)
 		}
 
 		if (cap > 4) {
-			g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, cap, 2, NULL);
+			g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, cap, 2, modRunRoomIsBare);
 
 			if (modRunZoneExitPortal(NULL) < 0) {
 				g_ModRunNumZone = 1;
@@ -1990,7 +2143,7 @@ static void modRunBuildZone(void)
 	}
 
 	if (g_ModRunNumZone == 1) {
-		g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, MODRUN_MAXZONE, 1, NULL);
+		g_ModRunNumZone = modRunWalkRooms(g_ModRunZone, 1, MODRUN_MAXZONE, 1, modRunRoomIsBare);
 
 		if (modRunZoneExitPortal(NULL) < 0) {
 			g_ModRunNumZone = 1;
@@ -2055,7 +2208,7 @@ static void modRunBuildRing(void)
 		rooms[i] = g_ModRunZone[i];
 	}
 
-	num = modRunWalkRooms(rooms, g_ModRunNumZone, g_ModRunNumZone + MODRUN_MAXRING, MODRUN_RINGDEPTH, NULL);
+	num = modRunWalkRooms(rooms, g_ModRunNumZone, g_ModRunNumZone + MODRUN_MAXRING, MODRUN_RINGDEPTH, modRunRoomIsBare);
 
 	for (i = g_ModRunNumZone; i < num; i++) {
 		g_ModRunRing[g_ModRunNumRing++] = rooms[i];
@@ -2482,7 +2635,8 @@ static void modRunTickStuck(void)
 	// not need the full stuck clock to be sure of - nothing hostile having
 	// been in the sealed rooms at all for MODRUN_STARVE_SECS is the answer.
 	if (g_ModRunObjective.kind == MODRUN_OBJ_KILL) {
-		// Something standing in the rooms feeds it, and so does a kill: a
+		// Something in the rooms the player can get at feeds it (see
+		// modRunEnemyEngaged()), and so does a kill: a
 		// player quick enough to drop each guard as it comes through the door
 		// leaves the zone empty between them, and that is the objective
 		// working rather than the objective starving.
@@ -2490,7 +2644,7 @@ static void modRunTickStuck(void)
 			? g_Vars.currentplayerstats->killcount - g_ModRunObjective.progress
 			: 0;
 
-		if (kills > g_ModRunObjKills || modRunEnemyInZone()) {
+		if (kills > g_ModRunObjKills || modRunEnemyEngaged()) {
 			g_ModRunObjKills = kills;
 			g_ModRunObjFed = g_Vars.lvframe60;
 		}
@@ -2822,9 +2976,10 @@ void modRunTick(void)
 		// Guards walking in need the doors in: the zone's way out loses its
 		// keys now rather than when the room is won. The seal is what keeps
 		// the player in, and it does not care whether a door is locked.
-		if (g_ModRunNumRing > 0) {
-			modRunOpenExits();
-		}
+		//
+		// And the doors inside the zone lose theirs whatever: a locked door
+		// between two sealed rooms leaves the player shut in one of them.
+		modRunOpenDoors(g_ModRunNumRing > 0, true);
 
 		modRunTintStart();
 

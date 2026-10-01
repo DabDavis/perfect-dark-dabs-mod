@@ -1007,3 +1007,44 @@ lands again (twice at most), logged as `run: stage 0x30 moved the player off
 the landing to room 2; landing again on pad N`. A 106-hop chain
 (`--random-run --run-autohop 200`) re-landed on Defection only, and every hop
 landed in its dealt room.
+
+## A map four missions share is furnished by one of them: Area 51's hangar
+
+F3 20261001-050231 / -050514 / -051654 (pass 28). Area 51's bg is
+Infiltration's, Rescue's, Escape's and Maian SOS's, but **each mission's setup
+only furnishes the part it plays in**: the hangar's two lifts (rooms 33/34, the
+cars, their rollertrain doors at both ends, the call buttons, the hangar floor's
+crates and monitors in room 2) exist in Infiltration's setup alone. A run on
+Rescue or Maian SOS landed beside open, empty shafts. Reading which rooms each
+setup puts objects in (a dump of every door/basic/lift prop's `rooms[0]` per
+stage) gives the lists in `modRunRoomIsBare()`: rooms where Infiltration has
+objects and the stage none - Rescue 2 9 10 19 33 34 65 73 75 77 79 80, Maian
+SOS 2 9 10 19 33 34 (it keeps the shafts' bottom doors). No landing in or one
+door from a bare room, and `modRunWalkRooms()` is handed it as `skip` for the
+zone and the ring, so a bare room is a way out rather than somewhere sealed in.
+Guarded by the stock room count (271) against a mod's own geometry.
+
+The outside of the same map: Infiltration and Escape draw the star field and
+the sky band (`starsReset()` in lv.c, the `text0f153628()` block in bg.c);
+Rescue and Maian SOS draw the far cliffs (room 15) over plain black, because
+their missions never go out. `modRunWantsStars()` adds them during a run only,
+so the missions and their random stream are untouched.
+
+## The doors inside the zone, and what feeds a kill objective's starvation
+
+F3 20261001-051509, Villa room 149 (Carrington's interrogation room): both its
+doors carry key flags and both lead to rooms *inside* the zone, so
+`modRunOpenExits()` (exits only) never touched them - the player was boxed in
+one fifth of the zone. The landing now calls `modRunOpenDoors(ring > 0, true)`:
+every keyed door whose portal has both rooms in the zone loses its keys, the
+exits as before.
+
+The same report showed why the starvation clock (`MODRUN_STARVE_SECS`) never
+came: it was fed by **any** living hostile in the zone, and Villa's own guard
+stood idle in room 148 behind those doors for good. It is now fed by a kill or
+by `modRunEnemyEngaged()` - a zone hostile on screen (`PROPFLAG_ONTHISSCREEN...`
+/ `ONANYSCREEN...`) or standing in the player's own room.
+
+`--run-room N` (with `--run-stage`) makes the first landing one in room N, when
+a waypoint there passes the landing tests; a room that fails them falls back to
+"the stage starts the player its own way".
