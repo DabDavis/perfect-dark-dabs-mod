@@ -1508,6 +1508,54 @@ static int tileFlatInPlan(const struct tile *t)
 	return area == 0;
 }
 
+/* How far a floor across lies over an edge it shares only part of: a window
+ * narrower than the wall it is in. Streets' are 82 across in a wall whose
+ * ground is two tiles, each linked through the window's tiles on edge to the
+ * sill 96 over it, and neither ground edge ends where the sill does: measured
+ * only at the edge's own two ends, the climb was not found and the outside got
+ * no wall - the player stopped at the inside's instead, short of the sill, and
+ * never climbed in (F3 report 20260930-235737). The floor's points on the
+ * edge's line (in plan, to a raw unit), where they overlap the edge by a
+ * length: the lowest of them over the edge's higher end. None where the floor
+ * only meets the edge at a point - the ground tile beside it. geconvert.py's
+ * stan_climb_part(). */
+static int stanClimbPart(const struct tile *u, const int16_t *a, const int16_t *b, int32_t *climb)
+{
+	const int64_t dx = b[0] - a[0], dz = b[2] - a[2];
+	const int64_t lensq = dx * dx + dz * dz;
+	int64_t lo = 0, hi = 0;
+	int32_t ymin = 0;
+	int any = 0;
+
+	for (int m = 0; m < u->npts; ++m) {
+		const int16_t *p = u->pts[m];
+		const int64_t cross = dx * (p[2] - a[2]) - dz * (p[0] - a[0]);
+		int64_t dot;
+
+		// (lensq is under 2^34, so a cross over 2^17 is off the line, and
+		// under it the square fits)
+		if (cross > 131072 || cross < -131072 || cross * cross > lensq) {
+			continue;
+		}
+
+		dot = dx * (p[0] - a[0]) + dz * (p[2] - a[2]);
+
+		if (!any || dot < lo) lo = dot;
+		if (!any || dot > hi) hi = dot;
+		if (!any || p[1] < ymin) ymin = p[1];
+
+		any = 1;
+	}
+
+	if (!any || (hi < lensq ? hi : lensq) - (lo > 0 ? lo : 0) <= 0) {
+		return 0;
+	}
+
+	*climb = ymin - (a[1] > b[1] ? a[1] : b[1]);
+
+	return 1;
+}
+
 static double stanClimb(const tiles *stan, size_t i, int k, double inv)
 {
 	const struct tile *t = &stan->v[i];
@@ -1537,11 +1585,11 @@ static double stanClimb(const tiles *stan, size_t i, int k, double inv)
 				if (u->pts[m][0] == b[0] && u->pts[m][2] == b[2] && u->pts[m][1] > yb) yb = u->pts[m][1];
 			}
 
-			if (ya == INT32_MIN || yb == INT32_MIN) {
+			if (ya != INT32_MIN && yb != INT32_MIN) {
+				c = ya - a[1] < yb - b[1] ? ya - a[1] : yb - b[1];
+			} else if (!stanClimbPart(u, a, b, &c)) {
 				continue;
 			}
-
-			c = ya - a[1] < yb - b[1] ? ya - a[1] : yb - b[1];
 
 			if (!found || c < climb) {
 				climb = c;

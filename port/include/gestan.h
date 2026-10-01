@@ -145,6 +145,9 @@ bool geStanLinesClear(const f32 (*pts)[2], s32 n, f32 y);
 #define GESTAN_NOCLIMBFLOOR (-1e30f)
 f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius);
 
+/** Whether a body's circle at `pos` touches a floor at height `y` (the climb's hold). */
+bool geStanTouchesFloor(struct coord *pos, f32 radius, f32 y);
+
 /**
  * Whether a body at `pos` is on, or within `reach` of an edge linked to, a tile
  * GoldenEye forces a crouch on (STANTILEFLAG_FORCECROUCH: a vent, a crawl space).
