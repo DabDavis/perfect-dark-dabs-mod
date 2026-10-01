@@ -5093,21 +5093,23 @@ static s32 beanTexFrames(const struct beanmodel *bm, s32 t)
  *                      a list as long as +0x20
  *   +0x2c +0x30        the UV's scroll, in repeats a second
  *   +0x38 +0x3c        an offset (0 in every entry)
- *   +0x40              the rotation, in degrees a second about the picture's middle
+ *   +0x40              the rotation about the picture's middle: the release turns
+ *                      it at half this many degrees a second (measured, below)
  *   +0x44 +0x48        the repeat (1 in every entry, to a millionth)
  *   +0x4c +0x50 +0x58  the frames, the seconds a frame, whether they run
  *
- * The release has 27 entries in 21 files (every file read, 2026-10-01).
- * Read as rates, every one is a motion its picture is made for: Frigate's
- * bridge radar turning -120 a second (a clockwise sweep every three seconds),
- * the helicopter's rotor disc 50, the M16's and P90's flash cards 999, Dam's
- * reservoir scrolling 0.5 and 0.5 a second (its transparency map) and 0.25
- * (its bump map), Complex's water bump -0.1 a second up and its 16 identical
- * frames. As fixed placements most would mean nothing: an offset of half a
- * repeat on a tiling picture is no change, and a 999 degree turn of a flash
- * card is 279. The engine code that reads them was not found in the image
- * (the frames' bind is, 0x823a57a0); the units are the reading under which
- * all 27 make sense.
+ * The release has 27 entries in 21 files (every file read, 2026-10-01), and
+ * every one is a motion its picture is made for: Frigate's bridge radar
+ * (-120), the helicopter's rotor disc (50), the M16's and P90's flash cards
+ * (999), Dam's reservoir sliding 0.5 and 0.5 (its transparency map) and 0.25
+ * (its bump map), Complex's water bump -0.1 up and its 16 identical frames.
+ * The engine code that reads them was not found in the image (the frames'
+ * bind is, 0x823a57a0); the units are the release's as captured in Xenia
+ * (fid-hd, 2026-10-01): Dam's reservoir vertex constant c28 = (t, 0.5, 1, 4)
+ * with t its clock in seconds, so a slide is repeats a second; Frigate's
+ * radar goes round clockwise once in about 350 ticks (6 s) on game time, so
+ * a turn is half its figure in degrees a second, clockwise for a negative one
+ * as the picture is drawn.
  *
  * An entry is the picture's that a record 0x05 sets the matrix of - the
  * stream's shader constants from one of the entry's offsets - after the
@@ -5242,7 +5244,13 @@ static void beanTexAnimation(struct beanmodel *bm, const char *source)
 				bm->texspf[t] = frames > 1 && runs && spf > 0.0f ? spf : 0.0f;
 				bm->texscroll[t][0] = su == su && fabsf(su) < 100.0f ? su : 0.0f;
 				bm->texscroll[t][1] = sv == sv && fabsf(sv) < 100.0f ? sv : 0.0f;
-				bm->texrot[t] = rot == rot && fabsf(rot) < 100000.0f ? rot : 0.0f;
+				// The release turns at half the table's figure: Frigate's
+				// radars (-120) go round clockwise once in about 350 ticks,
+				// 1 degree a tick, on game time (fid-hd's captures, two
+				// series agreeing). The slide is the table's own: Dam's
+				// reservoir constant is (t, 0.5, ...) with t its clock in
+				// seconds (fid-hd's draw log)
+				bm->texrot[t] = rot == rot && fabsf(rot) < 100000.0f ? rot * 0.5f : 0.0f;
 
 				if (frames > 1) {
 					sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) is %u frames, %s %.3f s", source, t,
@@ -5251,7 +5259,7 @@ static void beanTexAnimation(struct beanmodel *bm, const char *source)
 				}
 
 				if (bm->texscroll[t][0] != 0.0f || bm->texscroll[t][1] != 0.0f || bm->texrot[t] != 0.0f) {
-					sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) moves %.3f %.3f repeats and turns %.1f degrees a second",
+					sysLogPrintf(LOG_NOTE, "gebean: %s: texture %d (%s) slides %.3f %.3f repeats and turns %.1f degrees a second",
 							source, t, beanTextureName(bm, t), bm->texscroll[t][0], bm->texscroll[t][1], bm->texrot[t]);
 				}
 			}
