@@ -692,7 +692,8 @@ static const struct romfile *romFind(const char *stem)
  * ROM_PATCHES, which is this). Each is the ROM's bytes and what they become,
  * and a file whose bytes are not the ROM's is left as it is. All are faults
  * the community found in the XBLA release's copy of the same data and mended
- * in its Community Edition; none is a change of design.
+ * in its Community Edition; none is a change of design. Since converter 97
+ * they make the HD look's copies only (g_RomPatchesOn, romFileCe()).
  */
 static const struct {
 	const char *stem;
@@ -729,8 +730,53 @@ static const struct {
 	{ "UsetupcrypZ", 0x4e5c, 2, { 0x00, 0x08 }, { 0x00, 0x0c } },
 };
 
+/*
+ * The Community Edition's fixes go to the HD look only (the user, 2026-10-01:
+ * the N64 look is the cartridge as it is). The conversion writes the
+ * cartridge's files and, where a fix changes one, a copy with it ("_ce" in the
+ * name, listed on the mission's line as `ce`, modloaderGetStageCeFile()) that
+ * the game loads instead while the HD look and the Community Edition are on
+ * (geRoomCeData()). romFile() mends only while this is set.
+ */
+static int g_RomPatchesOn;
+
+/** Whether a fix touches the file. */
+static int romPatched(const char *stem)
+{
+	for (size_t i = 0; i < sizeof(g_RomPatches) / sizeof(g_RomPatches[0]); ++i) {
+		if (!strcmp(stem, g_RomPatches[i].stem)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/** romFile() with the Community Edition's fixes. */
+static buf romFile(const char *stem);
+
+static buf romFileCe(const char *stem)
+{
+	buf out;
+
+	g_RomPatchesOn = 1;
+	out = romFile(stem);
+	g_RomPatchesOn = 0;
+	return out;
+}
+
+/** Whether two converted files differ. */
+static int bufDiffers(const buf *a, const buf *b)
+{
+	return a->n != b->n || memcmp(a->v, b->v, a->n) != 0;
+}
+
 static void romPatch(const char *stem, buf *file)
 {
+	if (!g_RomPatchesOn) {
+		return;
+	}
+
 	for (size_t i = 0; i < sizeof(g_RomPatches) / sizeof(g_RomPatches[0]); ++i) {
 		const size_t at = g_RomPatches[i].at;
 		const size_t n = g_RomPatches[i].n;
@@ -1418,6 +1464,10 @@ struct tile {
 	uint16_t link[15];
 	int32_t neighbour[15];   // the tile across the edge from point k to point k + 1, or -1
 	size_t offset;
+	uint16_t namehi;         // the name a pad's plink gives it (stan.c's stanPackId()),
+	uint8_t namelo;          // the header's first u16 and its third byte
+	uint16_t tail;           // the header's last u16: point count, and the three points
+	                         // of its "triple" (8-11, 4-7, 0-3) stan.c's own tests use
 };
 
 typedef VEC(struct tile) tiles;
@@ -1437,6 +1487,9 @@ static tiles stanRead(const buf *file)
 		}
 
 		t.room = d[o + 3];
+		t.namehi = be16(d, o);
+		t.namelo = d[o + 2];
+		t.tail = be16(d, o + 6);
 		t.special = be16(d, o + 4) >> 12;
 		t.colour = be16(d, o + 4) & 0x0fff;
 		t.npts = be16(d, o + 6) >> 12;
@@ -3425,6 +3478,15 @@ static padrecs boundPads(const buf *f, double ls, const double *offset)
  * times 250. Most are 1000, which is what every converted object was given;
  * the ones that are not are the point: Dam's padlocks are 200, which one PP7
  * round breaks, and wore 1000.
+ *
+ * A door's word is 1000 too, and GoldenEye never divides it out: setupDoor()
+ * does not go through domakedefaultobj(), so on the cartridge a door's health
+ * is the raw 0x03e80000 read as a float (1.4e-36). Nothing harms a door in
+ * either game (objIsMortal() is false for one, and the only bypass, the bare
+ * "unarmed" path, is a projectile landing on itself), and both draw it with
+ * no shots taken (0 * 3 / health), so the converted 1000 is the cartridge's
+ * door; the world dump read the raw word as a float and called it zero until
+ * 2026-10-01 (FINDINGS row 17).
  */
 static uint32_t geObjHealth(const uint8_t *raw)
 {
@@ -3785,7 +3847,8 @@ static void bufS32List(buf *b, const s32s *list)
 	bufU32(b, 0xffffffff);
 }
 
-static buf writePads(const struct setup *setup, double ls, const double *offset, const struct roomfinder *rf, const padrecs *boundpads)
+static buf writePads(const struct setup *setup, double ls, const double *offset, const struct roomfinder *rf, const padrecs *boundpads,
+		const int *padrooms)
 {
 	const double inv = 1.0 / ls;
 	padrecs records = {0};
@@ -3831,7 +3894,9 @@ static buf writePads(const struct setup *setup, double ls, const double *offset,
 
 	for (size_t i = 0; i < records.n; ++i) {
 		const struct padrec *r = &records.v[i];
-		const int room = roomsFind(rf, r->world);
+		// a mission's pad is in its own tile's room, as GoldenEye files it
+		// (geSoloDoors()); an arena's is found by its place
+		const int room = padrooms && padrooms[i] >= 0 ? padrooms[i] : roomsFind(rf, r->world);
 		uint32_t hdr = be32(r->rec.v, 0);
 
 		bufU16(&head, (uint32_t)(start + body.n));
@@ -4901,7 +4966,7 @@ static uint32_t soloItemWeapon(uint32_t item)
  * watch laser's charge, which Train starts Bond with. gesolo.py's
  * GE_AMMO_TYPES.
  */
-static const uint8_t g_GeAmmoTypes[25][2] = {
+static const uint8_t g_GeAmmoTypes[26][2] = {
 	{ 0, 0 },
 	{ 0x01, 0x02 },    // 9MM            pistol and SMG
 	{ 0x01, 0x02 },    // 9MM_2
@@ -4920,6 +4985,9 @@ static const uint8_t g_GeAmmoTypes[25][2] = {
 	[22] = { 0x20, 0 }, // GEKEY         and so do the GoldenEye key
 	[23] = { 0x20, 0 }, // PLASTIQUE     and the plastique
 	[24] = { 0x1b, 0 }, // WATCH_LASER   the watch laser's charge (geguns.c, AMMOTYPE_WATCHLASER): Train's 300
+	[25] = { 0x1c, 0 }, // WATCH_MAGNET  the magnet's charges (gegadgets.c, GEGADGET_MAGNET_AMMO): Archives' and
+	                    //               Bunker ii's five. AMMO_CAMERA (27, Bunker i's and Silo's ten) stays
+	                    //               without: the camera's AmmoType is AMMO_NONE and never spends them (ares)
 };
 
 /** The port's type for one of GoldenEye's, the first or the second; 0 for none. */
@@ -4986,8 +5054,688 @@ static int32_t clampS16(int32_t v)
 	return v < -32768 ? -32768 : v > 32767 ? 32767 : v;
 }
 
+/* ------------------------------------------------------------------------ */
+/* GoldenEye's own tile for each pad, and its doors' portals and door scale */
+
+/*
+ * GoldenEye files every pad on the tile its setup names (the pad's plink, a
+ * string such as "p1234b2"; prop.c's init_pathtable_something() through
+ * stan.c's stanMatchTileName()), and a pad's room is that tile's. A door then
+ * finds its rooms and its portal from that tile (prop.c's setupDoor() and
+ * sub_GAME_7F00324C()) and a level's DOOR_SCALE record moves its pad
+ * (setupDoor()). The conversion did neither: a pad's room was the highest
+ * tile under its position (roomsFind()), which is another room for a pad
+ * standing in a wall's thickness or over a step (FINDINGS row 19: eight pads
+ * on Frigate, Depot, Train, Jungle and Egyptian), Perfect Dark's own door
+ * scale moves a door's box rather than its pad (Frigate's and Archives' bound
+ * pads 1.5-3.7 units from the cartridge's), and the game found a door's portal
+ * from a guess at the pad's tile (setup.c's setupGetPortalByDoorPad() on a
+ * remake stage), which gave six of Frigate's doors portals the cartridge never
+ * gives them (row 23). All of it is done here now, on GoldenEye's own tiles in
+ * its own units and in its own single precision, and handed on: each pad's
+ * room, the moved pads, and each door's portal in its record (doorRecord(),
+ * GE_DOOR_PORTAL_GIVEN), which setup.c takes on a remake stage.
+ */
+
+#define GE_PROPFLAG_CULL_BEHIND_DOOR 0x10000000u
+#define GE_PROPFLAG_NO_PORTAL_CLOSE  0x40000000u
+
+// what doorRecord() writes in a door's first spare byte (doorobj's
+// unusedmaybe[0], file offset 0xcd) when the portal at 0xc4 is GoldenEye's own
+#define GE_DOOR_PORTAL_GIVEN 0x67
+
+/** stan.c's stanPackId(), failures and all (a failed id is 0xffff/0xff). */
+static void geStanPackId(const char *id, uint16_t *hi, uint8_t *lo)
+{
+	char *end;
+	unsigned long number;
+	int letter, file, subtri;
+
+	*hi = 0xffff;
+	*lo = 0xff;
+	letter = id[0] - 'p';
+
+	if (letter < 0 || letter > 1) {
+		return;
+	}
+
+	number = (unsigned long)(uint32_t)strtol(id + 1, &end, 10);
+
+	if (id == end - 1 || number > 32767) {
+		return;
+	}
+
+	if (end[0] - 'a' < 0 || end[0] - 'a' >= 26) {
+		return;
+	}
+
+	file = end[0] - 'a';
+	subtri = end[1];
+
+	if (subtri != 0 && subtri != '0') {
+		subtri -= '0';
+	}
+
+	if (subtri < 0 || subtri >= 8 || (end[1] != 0 && end[2] != 0)) {
+		return;
+	}
+
+	*hi = (uint16_t)(letter << 15 | (int)number);
+	*lo = (uint8_t)(file << 3 | subtri);
+}
+
+/** stan.c's stanMatchTileName(): the first tile whose header carries the id. */
+static int geTileByName(const tiles *stan, const char *id)
+{
+	uint16_t hi;
+	uint8_t lo;
+
+	if (!*id) {
+		return -1;
+	}
+
+	geStanPackId(id, &hi, &lo);
+
+	for (size_t i = 0; i < stan->n; ++i) {
+		if (stan->v[i].namehi == hi && stan->v[i].namelo == lo) {
+			return (int)i;
+		}
+	}
+
+	return -1;
+}
+
+static int geTriPoint(const struct tile *t, int i)
+{
+	return (t->tail >> (8 - 4 * i)) & 0xf;
+}
+
+/** stan.c's getShortest2dDispToInfTripleEdge(), in the tile's own units. */
+static float geTriDisp(const struct tile *t, int i, float px, float pz)
+{
+	const int s = geTriPoint(t, i);
+	const int e = geTriPoint(t, i != 2 ? i + 1 : 0);
+	const float ex = (float)(t->pts[e][0] - t->pts[s][0]);
+	const float ez = (float)(t->pts[e][2] - t->pts[s][2]);
+	const float len = sqrtf(ex * ex + ez * ez);
+
+	if (len == 0.0f) {
+		const float dx = px - t->pts[e][0], dz = pz - t->pts[e][2];
+		return sqrtf(dx * dx + dz * dz);
+	}
+
+	return (ez * (px - t->pts[s][0]) + -ex * (pz - t->pts[s][2])) / len;
+}
+
+/** isPointInsideTriStandTileUnscaled_Maybe(): x/z in the world's units. */
+static int geTriHolds(const struct tile *t, float x, float z, float ls)
+{
+	for (int i = 0; i != 3; ++i) {
+		if (geTriDisp(t, i, x * ls, z * ls) * (1.0f / ls) < 0) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+/** stan.c's getRotationalDirectionBetween(). */
+static int geTurn(float ax, float az, float bx, float bz)
+{
+	if (az * bx < ax * bz) {
+		return 1;
+	}
+
+	if (ax * bz < az * bx) {
+		return -1;
+	}
+
+	if (ax * bx < 0 || az * bz < 0) {
+		return -1;
+	}
+
+	return ax * ax + az * az < bx * bx + bz * bz ? 1 : 0;
+}
+
+/** stan.c's sub_GAME_7F0B07BC(): does the line 0-1 cross the edge a-b. */
+static int geCrosses(float x0, float z0, float x1, float z1, float ax, float az, float bx, float bz, int linked)
+{
+	const int v1 = geTurn(x1 - x0, z1 - z0, -(x0 - ax), -(z0 - az)) * geTurn(x1 - x0, z1 - z0, bx - x0, bz - z0);
+	const int v2 = geTurn(bx - ax, bz - az, x0 - ax, z0 - az) * geTurn(bx - ax, bz - az, x1 - ax, z1 - az);
+
+	return v1 < linked && v2 < linked;
+}
+
+/**
+ * stan.c's walkTilesBetweenPoints_NoCallback() (sub_GAME_7F0B0914()): from
+ * *tile along the line over the tile graph, true when the end is reached;
+ * *tile is the last tile walked onto either way. x/z in the world's units.
+ */
+static int geWalk(const tiles *stan, int *tile, float x0, float z0, float x1, float z1, float ls)
+{
+	int cur = *tile, prev = *tile, prevprev = *tile, next = -1;
+	float negdz, dx;
+
+	x0 *= ls;
+	z0 *= ls;
+	x1 *= ls;
+	z1 *= ls;
+	negdz = -(z1 - z0);
+	dx = x1 - x0;
+
+	for (int iter = 0;; ++iter) {
+		const struct tile *t = &stan->v[cur];
+		const int n = t->npts & 0xf;
+		int crossings = 0;
+
+		for (int k = 0; k < n; ++k) {
+			const int k2 = (k + 1) % n;
+			const int linked = (t->link[k] >> 4) != 0;
+
+			if (negdz * (float)(t->pts[k2][0] - t->pts[k][0]) + dx * (float)(t->pts[k2][2] - t->pts[k][2]) <= 0.0f
+					&& geCrosses(x0, z0, x1, z1, t->pts[k][0], t->pts[k][2], t->pts[k2][0], t->pts[k2][2], linked)) {
+				const int across = linked ? t->neighbour[k] : -1;
+
+				crossings++;
+
+				// a link with no tile found behind it is as good as none
+				if (!linked || (across != prev && across != prevprev)) {
+					next = across;
+				}
+			}
+		}
+
+		prevprev = prev;
+		prev = cur;
+
+		if (cur == next) {
+			crossings = 0;
+		}
+
+		if (crossings == 0) {
+			return 1;
+		}
+
+		if (iter >= 0x1f5 || next < 0) {
+			return 0;
+		}
+
+		cur = next;
+		*tile = next;
+	}
+}
+
+/** The middle of a tile's triple (getTileMidPoint()), in the world's units. */
+static void geTileMid(const struct tile *t, float ls, float *out)
+{
+	const int a = geTriPoint(t, 0), b = geTriPoint(t, 1), c = geTriPoint(t, 2);
+
+	for (int q = 0; q < 3; ++q) {
+		out[q] = (((float)t->pts[a][q] + (float)t->pts[b][q]) + (float)t->pts[c][q]) / 3.0f * (1.0f / ls);
+	}
+}
+
+/**
+ * A pad's tile (init_pathtable_something()): the one its name names, if the
+ * pad is over its triple; or else the tile with a point nearest the pad - its
+ * triple's middle or a point a tenth of the way in from a corner
+ * (sub_GAME_7F0AFB78(), whose clearance test at radius 0 is taken as passed) -
+ * walked from there to the pad. -1 when the walk does not get there.
+ */
+static int gePadTile(const tiles *stan, const buf *f, uint32_t plink, const float *pos, float ls, int *fellback)
+{
+	char name[16] = "";
+	int tile;
+	float best = 4294967296.0f;
+	float at[3];
+
+	*fellback = 0;
+
+	if (plink && plink < f->n) {
+		size_t k = 0;
+
+		while (k + 1 < sizeof(name) && plink + k < f->n && f->v[plink + k]) {
+			name[k] = (char)f->v[plink + k];
+			k++;
+		}
+		name[k] = 0;
+	}
+
+	tile = geTileByName(stan, name);
+
+	if (tile >= 0 && geTriHolds(&stan->v[tile], pos[0], pos[2], ls)) {
+		return tile;
+	}
+
+	*fellback = 1;
+	tile = -1;
+
+	for (size_t i = 0; i < stan->n; ++i) {
+		const struct tile *t = &stan->v[i];
+		const int a = geTriPoint(t, 0), b = geTriPoint(t, 1), c = geTriPoint(t, 2);
+		const float abx = (float)(t->pts[b][0] - t->pts[a][0]), abz = (float)(t->pts[b][2] - t->pts[a][2]);
+		const float acx = (float)(t->pts[c][0] - t->pts[a][0]), acz = (float)(t->pts[c][2] - t->pts[a][2]);
+		float mid[3];
+
+		// the "q" tiles, and those with no area (stanTileHasZeroArea())
+		if ((t->namehi >> 15) & 1 || abz * acx - abx * acz == 0) {
+			continue;
+		}
+
+		geTileMid(t, ls, mid);
+
+		for (int j = 0; j != 4; ++j) {
+			float cand[3], d;
+
+			if (j == 3) {
+				memcpy(cand, mid, sizeof(cand));
+			} else {
+				const int p = geTriPoint(t, j);
+
+				for (int q = 0; q < 3; ++q) {
+					cand[q] = mid[q] * 0.1f + 0.9f * ((float)t->pts[p][q] * (1.0f / ls));
+				}
+			}
+
+			d = (cand[0] - pos[0]) * (cand[0] - pos[0]) + (cand[1] - pos[1]) * (cand[1] - pos[1])
+				+ (cand[2] - pos[2]) * (cand[2] - pos[2]);
+
+			if (d < best) {
+				best = d;
+				tile = (int)i;
+				memcpy(at, cand, sizeof(at));
+			}
+		}
+	}
+
+	if (tile >= 0 && geWalk(stan, &tile, at[0], at[2], pos[0], pos[2], ls)) {
+		return tile;
+	}
+
+	return -1;
+}
+
+/** bg.c's sub_GAME_7F0B96CC(): a portal's plane, normal and extent along it, in the bg's units. */
+static void gePortalMetric(const struct portal *p, float *n, float *min, float *max)
+{
+	float a[3], b[3], len;
+
+	for (int i = 0; i < 3; ++i) {
+		a[i] = (float)p->pts[0][i] - (float)p->pts[1][i];
+		b[i] = (float)p->pts[2][i] - (float)p->pts[1][i];
+	}
+
+	n[0] = a[1] * b[2] - a[2] * b[1];
+	n[1] = a[2] * b[0] - a[0] * b[2];
+	n[2] = a[0] * b[1] - a[1] * b[0];
+	len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+	if (len != 0.0f) {
+		len = 1.0f / len;
+	}
+
+	n[0] *= len;
+	n[1] *= len;
+	n[2] *= len;
+	*min = 3.4028235e38f;
+	*max = -3.4028235e38f;
+
+	for (int i = 0; i < p->npts; ++i) {
+		const float d = (float)p->pts[i][0] * n[0] + (float)p->pts[i][1] * n[1] + (float)p->pts[i][2] * n[2];
+
+		*min = d < *min ? d : *min;
+		*max = d > *max ? d : *max;
+	}
+}
+
+/** bg.c's sub_GAME_7F0B9F14(): does the line from a to b (world units) go through the portal. */
+static int gePortalCrossed(const struct portal *p, const float *a, const float *b, float ls)
+{
+	float n[3], min, max, diff[3], v1, v2;
+	int seena = 0, seenb = 0;
+
+	gePortalMetric(p, n, &min, &max);
+
+	for (int i = 0; i < 3; ++i) {
+		diff[i] = b[i] - a[i];
+	}
+
+	v1 = (a[0] * n[0] + a[1] * n[1] + a[2] * n[2]) * ls;
+	v2 = (b[0] * n[0] + b[1] * n[1] + b[2] * n[2]) * ls;
+
+	// GoldenEye's own: min on both sides (Perfect Dark's second half uses max)
+	if ((v1 < min && v2 < min) || (v1 > min && v2 > min)) {
+		return 0;
+	}
+
+	for (int i = 0; i < p->npts; ++i) {
+		const int nx = (i + 1) % p->npts;
+		float e[3], c[3], plane, side;
+
+		for (int q = 0; q < 3; ++q) {
+			e[q] = (float)p->pts[nx][q] - (float)p->pts[i][q];
+		}
+
+		c[0] = e[1] * diff[2] - e[2] * diff[1];
+		c[1] = e[2] * diff[0] - e[0] * diff[2];
+		c[2] = e[0] * diff[1] - e[1] * diff[0];
+
+		if (c[0] * c[0] + c[1] * c[1] + c[2] * c[2] == 0.0f) {
+			return 0;
+		}
+
+		plane = c[0] * (float)p->pts[i][0] + c[1] * (float)p->pts[i][1] + c[2] * (float)p->pts[i][2];
+		side = (c[0] * a[0] + c[1] * a[1] + c[2] * a[2]) * ls;
+
+		if (side < plane) {
+			if (seenb) {
+				return 0;
+			}
+			seena = 1;
+		} else {
+			if (seena) {
+				return 0;
+			}
+			seenb = 1;
+		}
+	}
+
+	return v1 < min ? 1 : 2;
+}
+
+/** What GoldenEye's setupDoor() decides for a door: its portal and its rooms (0xff for none). */
+struct gedoorinfo {
+	int32_t portal;
+	uint8_t rooms[2];
+};
+
+/** A bound pad as GoldenEye holds it at run time: the world's units, single precision. */
+struct gebound {
+	float pos[3], up[3], look[3], bbox[6];   // bbox: xmin xmax ymin ymax zmin zmax
+	int tile;
+	int moved;
+};
+
+/** prop.c's sub_GAME_7F001BD4(): the middle of a bound pad's box. */
+static void geBoundCentre(const struct gebound *b, float *out)
+{
+	float n[3], len;
+
+	n[0] = b->up[1] * b->look[2] - b->up[2] * b->look[1];
+	n[1] = b->up[2] * b->look[0] - b->up[0] * b->look[2];
+	n[2] = b->up[0] * b->look[1] - b->up[1] * b->look[0];
+	len = 1.0f / sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+	for (int q = 0; q < 3; ++q) {
+		n[q] *= len;
+	}
+
+	// GoldenEye swaps the box's axes into bb and back again: x along the
+	// normal, y along up, z along look
+	for (int q = 0; q < 3; ++q) {
+		out[q] = b->pos[q] + ((b->bbox[0] + b->bbox[1]) * n[q] + (b->bbox[2] + b->bbox[3]) * b->up[q]
+				+ (b->bbox[4] + b->bbox[5]) * b->look[q]) * 0.5f;
+	}
+}
+
+/**
+ * prop.c's sub_GAME_7F00324C(): the rooms either side of a door, from its
+ * pad's tile to its box's middle and then fifty units along its normal each
+ * way, and the two ends.
+ */
+static void geDoorSideRooms(const tiles *stan, const struct gebound *b, float ls, int *room1, int *room2,
+		float *end1, float *end2)
+{
+	float centre[3], n[3], len;
+	int start = b->tile, t;
+
+	geBoundCentre(b, centre);
+
+	if (!geWalk(stan, &start, b->pos[0], b->pos[2], centre[0], centre[2], ls)) {
+		start = b->tile;
+		memcpy(centre, b->pos, sizeof(centre));
+	}
+
+	n[0] = b->up[1] * b->look[2] - b->up[2] * b->look[1];
+	n[1] = b->up[2] * b->look[0] - b->up[0] * b->look[2];
+	n[2] = b->up[0] * b->look[1] - b->up[1] * b->look[0];
+	len = 1.0f / sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+
+	for (int q = 0; q < 3; ++q) {
+		n[q] *= len;
+	}
+
+	end1[0] = centre[0] + n[0] * 50.0f;
+	end1[1] = centre[1];
+	end1[2] = centre[2] + n[2] * 50.0f;
+	t = start;
+	geWalk(stan, &t, centre[0], centre[2], end1[0], end1[2], ls);
+	*room1 = stan->v[t].room;
+
+	end2[0] = centre[0] - n[0] * 50.0f;
+	end2[1] = centre[1];
+	end2[2] = centre[2] - n[2] * 50.0f;
+	t = start;
+	geWalk(stan, &t, centre[0], centre[2], end2[0], end2[2], ls);
+	*room2 = stan->v[t].room;
+
+	if (*room2 == *room1) {
+		*room2 = -1;
+	}
+}
+
+/** bg.c's bgGetPortalBetweenRooms(): the last portal joining the two that the line goes through. */
+static int gePortalBetweenRooms(const struct bg *bg, int room1, int room2, const float *a, const float *b, float ls)
+{
+	int found = -1;
+
+	for (size_t i = 0; i < bg->portals.n; ++i) {
+		const struct portal *p = &bg->portals.v[i];
+
+		if (((p->room1 == room1 && p->room2 == room2) || (p->room1 == room2 && p->room2 == room1))
+				&& gePortalCrossed(p, a, b, ls)) {
+			found = (int)i;
+		}
+	}
+
+	return found;
+}
+
+/**
+ * GoldenEye's door setup over a mission's setup, in its order: each door's
+ * portal by its record's index, returned (-1 for none, and for every record
+ * that is not a door); and given `padrooms`, the pads' rooms by their own
+ * tiles into it (the pads, then the bound pads) and the door scale's moves
+ * made in `bound`. The records are the setup's as GoldenEye loads them; a door that
+ * only some difficulties make moves its pad on all of them.
+ */
+static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound, const tiles *stan, const struct bg *bg,
+		double lsd, const double *offset, int *padrooms, const char *what)
+{
+	const float ls = (float)lsd;
+	const float inv = 1.0f / ls;
+	records recs = setupRecords(f);
+	const uint32_t padsat = be32(f->v, 24), boundat = be32(f->v, 28);
+	struct gebound *bp = gcAlloc((bound->n + 1) * sizeof(*bp));
+	struct gedoorinfo *portals = gcAlloc((recs.n + 1) * sizeof(*portals));
+	float doorscale = 1.0f;
+	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0;
+
+	for (size_t i = 0; i < s->pads.n && padrooms; ++i) {
+		const size_t o = padsat + 0x2c * i;
+		float pos[3];
+		int fb, tile;
+
+		for (int q = 0; q < 3; ++q) {
+			pos[q] = bef32(f->v, o + 4 * q) * inv;
+		}
+
+		tile = gePadTile(stan, f, be32(f->v, o + 36), pos, ls, &fb);
+		padrooms[i] = tile >= 0 ? stan->v[tile].room : -1;
+		fellback += fb;
+		missing += tile < 0;
+	}
+
+	for (size_t k = 0; k < bound->n; ++k) {
+		const size_t o = boundat + 0x44 * k;
+		struct gebound *b = &bp[k];
+		int fb;
+
+		for (int q = 0; q < 3; ++q) {
+			b->pos[q] = bef32(f->v, o + 4 * q) * inv;
+			b->up[q] = bef32(f->v, o + 12 + 4 * q);
+			b->look[q] = bef32(f->v, o + 24 + 4 * q);
+		}
+
+		for (int q = 0; q < 6; ++q) {
+			b->bbox[q] = bef32(f->v, o + 0x2c + 4 * q) * inv;
+		}
+
+		b->tile = gePadTile(stan, f, be32(f->v, o + 36), b->pos, ls, &fb);
+		fellback += fb;
+		missing += b->tile < 0;
+	}
+
+	for (size_t i = 0; i < recs.n; ++i) {
+		const uint8_t *raw = recs.v[i].b;
+		uint32_t flags;
+		size_t k;
+		struct gebound *b;
+		int portal = -1;
+		int room1, room2;
+
+		portals[i].portal = -1;
+		portals[i].rooms[0] = portals[i].rooms[1] = 0xff;
+
+		if (recs.v[i].type == 2) {
+			doorscale = (float)bes32(raw, 4) / 65536.0f;
+			continue;
+		}
+
+		if (recs.v[i].type != 1) {
+			continue;
+		}
+
+		k = be16(raw, 6);
+		flags = be32(raw, 8);
+
+		if (k >= bound->n || bp[k].tile < 0) {
+			continue;
+		}
+
+		b = &bp[k];
+
+		room1 = room2 = -1;
+
+		if (flags & (GE_PROPFLAG_CULL_BEHIND_DOOR | GE_PROPFLAG_NO_PORTAL_CLOSE)) {
+			float end1[3], end2[3];
+
+			geDoorSideRooms(stan, b, ls, &room1, &room2, end1, end2);
+
+			if ((flags & GE_PROPFLAG_CULL_BEHIND_DOOR) && room1 >= 0 && room2 >= 0) {
+				portal = gePortalBetweenRooms(bg, room1, room2, end1, end2, ls);
+			}
+		}
+
+		if (flags & GE_PROPFLAG_CULL_BEHIND_DOOR) {
+			portals[i].portal = portal;
+			withportal += portal >= 0;
+		}
+
+		if (doorscale != 1.0f) {
+			if (portal >= 0) {
+				float n[3], min, max, d, to[3];
+				int tile = b->tile;
+
+				gePortalMetric(&bg->portals.v[portal], n, &min, &max);
+				min *= inv;
+				d = b->pos[0] * n[0] + b->pos[1] * n[1] + b->pos[2] * n[2];
+
+				if (doorscale < 1.0f) {
+					d = (d - min) * (1.0f - doorscale);
+					for (int q = 0; q < 3; ++q) {
+						to[q] = b->pos[q] - n[q] * d;
+					}
+				} else {
+					d = (d - min) * (doorscale - 1.0f);
+					for (int q = 0; q < 3; ++q) {
+						to[q] = b->pos[q] + n[q] * d;
+					}
+				}
+
+				if (geWalk(stan, &tile, b->pos[0], b->pos[2], to[0], to[2], ls)) {
+					movedrooms += stan->v[tile].room != stan->v[b->tile].room;
+					b->tile = tile;
+					memcpy(b->pos, to, sizeof(to));
+					b->bbox[0] *= doorscale;
+					b->bbox[1] *= doorscale;
+					b->moved = 1;
+					scaled++;
+				}
+			} else {
+				b->bbox[0] *= doorscale;
+				b->bbox[1] *= doorscale;
+				b->moved = 1;
+				scaled++;
+			}
+		}
+
+		// and its rooms (setupDoor()): the tile its pad names walked to the
+		// middle of its box - its pad's own where the walk does not get there,
+		// or where the door is placed at its pad (flags2 & 1) - and the side
+		// room sub_GAME_7F00324C() found that is not that one
+		{
+			float centre[3];
+			int t = b->tile, room0;
+
+			geBoundCentre(b, centre);
+
+			if (!(be32(raw, 12) & 1) && geWalk(stan, &t, b->pos[0], b->pos[2], centre[0], centre[2], ls)) {
+				room0 = stan->v[t].room;
+			} else {
+				room0 = stan->v[b->tile].room;
+			}
+
+			portals[i].rooms[0] = (uint8_t)room0;
+
+			if (room1 != room0) {
+				if (room1 >= 0) {
+					portals[i].rooms[1] = (uint8_t)room1;
+				}
+			} else if (room2 >= 0) {
+				portals[i].rooms[1] = (uint8_t)room2;
+			}
+		}
+	}
+
+	if (padrooms) {
+		for (size_t k = 0; k < bound->n; ++k) {
+			struct padrec *r = &bound->v[k];
+			const struct gebound *b = &bp[k];
+
+			padrooms[s->pads.n + k] = b->tile >= 0 ? stan->v[b->tile].room : -1;
+
+			if (b->moved) {
+				// the record boundPads() made: header, position, up, look, box
+				for (int q = 0; q < 3; ++q) {
+					r->world[q] = b->pos[q] - offset[q];
+					setf32(r->rec.v, 4 + 4 * q, r->world[q]);
+				}
+				setf32(r->rec.v, 40, b->bbox[0]);
+				setf32(r->rec.v, 44, b->bbox[1]);
+			}
+		}
+
+		note("geconvert: %s: pads by their own tiles (%d found by place, %d with none), %d doors with a portal, "
+				"%d door pads scaled (%d into another room)", what, fellback, missing, withportal, scaled, movedrooms);
+	}
+
+	return portals;
+}
+
 /** The fields a door moved between the two formats (geobjects.py's rules). */
-static void doorRecord(uint8_t *out, const uint8_t *raw, size_t numpads, const records *recs, size_t index)
+static void doorRecord(uint8_t *out, const uint8_t *raw, size_t numpads, const records *recs, size_t index,
+		const struct gedoorinfo *ge)
 {
 	static const struct { uint32_t ge, pd, mul; } fields[] = {
 		{ 0x84, 0x5c, 1 }, { 0x88, 0x60, 1 }, { 0x8c, 0x64, 1000 }, { 0x90, 0x68, 1000 },
@@ -5006,6 +5754,15 @@ static void doorRecord(uint8_t *out, const uint8_t *raw, size_t numpads, const r
 	set32(out, 0xbc, (uint32_t)(rel && sib >= 0 && (size_t)sib < recs->n && recs->v[sib].type == 1 ? rel : 0));
 	out[0xc6] = raw[0xa7];
 	out[0xcc] = 0xff;
+
+	// The portal GoldenEye's setupDoor() gives the door, -1 for none
+	// (geSoloDoors()), which setup.c takes on a remake stage where it finds
+	// the byte after laserfade set
+	set16(out, 0xc4, (uint32_t)ge->portal & 0xffff);
+	out[0xcd] = GE_DOOR_PORTAL_GIVEN;
+	// and the rooms it gives it (0xff for none), in the two bytes after
+	out[0xce] = ge->rooms[0];
+	out[0xcf] = ge->rooms[1];
 
 	// A windowed door's glass: clear to TintDist (0xc0), opaque from the word
 	// at 0xc4, which GoldenEye reads whole over CullDist, soundType and
@@ -5247,7 +6004,7 @@ static void cameraRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t nu
  * only to have it ready, and a crate is picked up whole. gesolo.py's
  * multi_crate_record().
  */
-static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t numpads)
+static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_t numpads, uint8_t *models)
 {
 	baseRecord(out, raw, 0x14, objPadNum(raw, numpads));
 
@@ -5258,6 +6015,7 @@ static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_
 
 	for (size_t k = 0; k < 13 && 0x80 + 4 * k + 4 <= len; ++k) {
 		const uint32_t qty = be16(raw, 0x80 + 4 * k + 2);
+		const uint32_t model = be16(raw, 0x80 + 4 * k);
 
 		for (int which = 0; qty && which < 2; ++which) {
 			const uint32_t pdtype = soloAmmoType((uint32_t)k + 1, which);
@@ -5267,6 +6025,24 @@ static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_
 				const uint32_t sum = be16(out, at + 2) + qty;
 
 				set16(out, at + 2, sum > 0xffff ? 0xffff : sum);
+			}
+		}
+
+		// The box a slot leaves when the crate is shot apart: GoldenEye
+		// loads each stocked slot's model with the crate (proplvreset2) and,
+		// once it is destroyed, sets one of them down as a crate of that
+		// slot's ammunition (objApplyDamage()) - Perfect Dark does the same
+		// from its own slots (objDamage()), and with every model 0xffff a
+		// converted crate left nothing (census: slots[k].modelnum dropped on
+		// seven missions). The model goes on the slot the guns draw on, the
+		// submachine gun's for a 9mm, as a single crate's type does.
+		if (qty && model != 0xffff) {
+			const uint32_t pdtype = soloAmmoType((uint32_t)k + 1, 1) ? soloAmmoType((uint32_t)k + 1, 1)
+				: soloAmmoType((uint32_t)k + 1, 0);
+
+			if (pdtype) {
+				set16(out, 0x5c + 4 * (pdtype - 1), (uint32_t)(MODEL_REMAKE_FIRST + model));
+				setAdd(models, model);
 			}
 		}
 	}
@@ -5337,7 +6113,7 @@ static void writeWeaponSets(const char *outdir)
 }
 
 static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct solostats *st,
-		const double *offset)
+		const double *offset, const struct gedoorinfo *doorportals)
 {
 	// the tails of the ObjectRecord types Perfect Dark keeps in the same order:
 	// GoldenEye's 0x80 onwards against Perfect Dark's 0x5c
@@ -5442,7 +6218,7 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		rec = out.v + out.n - 4 * words;
 
 		if (t == 1) {
-			doorRecord(rec, raw, numpads, &recs, i);
+			doorRecord(rec, raw, numpads, &recs, i, &doorportals[i]);
 		} else if (t == 9) {
 			guardRecord(rec, raw, numpads);
 		} else if (t == 8) {
@@ -5452,7 +6228,7 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		} else if (t == 0x2e) {
 			cameraRecord(rec, raw, recs.v[i].len, numpads, offset);
 		} else if (t == 0x14) {
-			multiCrateRecord(rec, raw, recs.v[i].len, numpads);
+			multiCrateRecord(rec, raw, recs.v[i].len, numpads, models);
 		} else if (g_GeSizes[t] >= 32) {
 			baseRecord(rec, raw, t, objPadNum(raw, numpads));
 			for (size_t k = 0; k < sizeof(tails) / sizeof(tails[0]); ++k) {
@@ -5532,6 +6308,14 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 			const size_t keep = 4 * (size_t)words < recs.v[i].len ? 4 * (size_t)words : recs.v[i].len;
 			memcpy(rec, raw, keep);
 			rec[3] = (uint8_t)t;
+
+			if (t == 0x02) {
+				// the door scale: GoldenEye's moves of the door pads it
+				// makes are in the pads already (geSoloDoors()), and
+				// Perfect Dark's own (setupCreateDoor() moves the box,
+				// not the pad) must not make them again
+				set32(rec, 4, 0x10000);
+			}
 
 			if (t == 0x20 || t == 0x21) {
 				// the two objectives that name a pad's room, which Perfect
@@ -6193,10 +6977,10 @@ static void writeCredits(const char *outdir, const buf *f)
 }
 
 static buf writeSoloSetup(const buf *f, size_t numpads, uint8_t *models, struct solostats *st,
-		double levelscale, const double *offset)
+		double levelscale, const double *offset, const struct gedoorinfo *doorportals)
 {
 	buf intro = writeSoloIntro(f, numpads, levelscale, offset);
-	buf props = writeSoloProps(f, numpads, models, st, offset);
+	buf props = writeSoloProps(f, numpads, models, st, offset, doorportals);
 	buf paths = {0}, pathpads = {0}, ailists = {0}, aicode = {0}, out = {0};
 	const size_t introat = 0x20;
 	const size_t propsat = introat + intro.n;
@@ -7289,7 +8073,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		static uint8_t leveltex[SETBITS / 8];
 		struct bg bg;
 		buf bgfile, stanfile, setupfile, gedata, bgdata, tilesdata, padsdata, mpsetup, revfile;
-		tiles stan;
+		tiles stan, cestan;
+		char stanstem[64];
+		char cetiles[256] = "";
+		char cearena[512] = "";
 		double offset[3], mn[3], mx[3], fog[30];
 		int music[3];
 		struct setup setup, mpsetupsrc;
@@ -7310,8 +8097,18 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		bgfile = romFile(stem);
 		bgRead(&bgfile, &bg);
 		snprintf(stem, sizeof(stem), "%s_all_p_stanZ", lv->stan);
+		snprintf(stanstem, sizeof(stanstem), "%s", stem);
 		stanfile = romFile(stem);
 		stan = stanRead(&stanfile);
+
+		// the HD look's tiles, where a Community Edition fix mends a link
+		// (Bunker ii's stairs)
+		cestan = stan;
+		if (romPatched(stanstem)) {
+			buf cefile = romFileCe(stanstem);
+
+			cestan = stanRead(&cefile);
+		}
 
 		// the level is moved so the middle of its walkable area is the origin
 		for (size_t i = 0; i < stan.n; ++i) {
@@ -7346,7 +8143,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		roomsInit(&rf, &stan, lv->levelscale, offset, &bg);
 		gedata = romFile(lv->mp ? lv->mp : lv->solo);
 		boundpads = boundPads(&gedata, lv->levelscale, offset);
-		padsdata = writePads(&setup, lv->levelscale, offset, &rf, &boundpads);
+		padsdata = writePads(&setup, lv->levelscale, offset, &rf, &boundpads, NULL);
 		bikepads = bikePads(lv, &setup, &stan, &bg, &gedata);
 		mpsetup = writeMpSetup(&setup, havemp ? &mpsetupsrc : NULL, &stan, &bg, lv->levelscale, &gedata, &bikepads, allmodels);
 
@@ -7379,9 +8176,61 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_stan", lv->key);
 			writeFile(outdir, rel, standata.v, standata.n);
 		}
+
+		if (cestan.v != stan.v) {
+			// the tiles and the graph beside them (gestan.c finds the graph
+			// by the tiles file's name: bg_gx<key>_ce_tilesZ, _ce_stan)
+			int cewalls;
+			buf cetilesdata = writeTiles(&cestan, bg.numrooms, lv->levelscale, offset, &cewalls);
+			buf cestandata = writeStan(&cestan, lv->levelscale, offset);
+
+			snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_ce_tilesZ", lv->key);
+			writeFile(outdir, rel, cetilesdata.v, cetilesdata.n);
+			snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_ce_stan", lv->key);
+			writeFile(outdir, rel, cestandata.v, cestandata.n);
+			snprintf(cetiles, sizeof(cetiles), "bgdata/bg_gx%s_tilesZ bgdata/bg_gx%s_ce_tilesZ", lv->key, lv->key);
+		}
 		snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_padsZ", lv->key);
 		writeFile(outdir, rel, padsdata.v, padsdata.n);
 		romMusicRow(lv->levelid, music);
+
+		// an arena's own Community Edition copies, where it is made from a
+		// setup one of the fixes changes (Control's and the Surfaces'
+		// arenas are their missions' setups)
+		if (levelIsArena(lv) && (romPatched(lv->solo ? lv->solo : lv->mp) || (lv->mp && romPatched(lv->mp)))) {
+			buf csfile = romFileCe(lv->solo ? lv->solo : lv->mp);
+			buf cgedata = romFileCe(lv->mp ? lv->mp : lv->solo);
+			struct setup csetup, cmpsrc;
+			padrecs cbound;
+			s32s cbikes;
+			buf cpads, cmp;
+
+			setupRead(&csfile, &csetup);
+			if (havemp) {
+				buf cmpfile = romFileCe(lv->mp);
+
+				setupRead(&cmpfile, &cmpsrc);
+				csetup = cmpsrc;
+			}
+			cbound = boundPads(&cgedata, lv->levelscale, offset);
+			cpads = writePads(&csetup, lv->levelscale, offset, &rf, &cbound, NULL);
+			cbikes = bikePads(lv, &csetup, &cestan, &bg, &cgedata);
+			cmp = writeMpSetup(&csetup, havemp ? &cmpsrc : NULL, &cestan, &bg, lv->levelscale, &cgedata, &cbikes, allmodels);
+
+			if (bufDiffers(&cpads, &padsdata)) {
+				snprintf(rel, sizeof(rel), "files/bgdata/bg_gx%s_ce_padsZ", lv->key);
+				writeFile(outdir, rel, cpads.v, cpads.n);
+				snprintf(cearena + strlen(cearena), sizeof(cearena) - strlen(cearena),
+					"%sbgdata/bg_gx%s_padsZ bgdata/bg_gx%s_ce_padsZ", cearena[0] ? " " : "", lv->key, lv->key);
+			}
+
+			if (bufDiffers(&cmp, &mpsetup)) {
+				snprintf(rel, sizeof(rel), "files/Ump_setupgx%s_ceZ", lv->key);
+				writeFile(outdir, rel, cmp.v, cmp.n);
+				snprintf(cearena + strlen(cearena), sizeof(cearena) - strlen(cearena),
+					"%sUmp_setupgx%sZ Ump_setupgx%s_ceZ", cearena[0] ? " " : "", lv->key, lv->key);
+			}
+		}
 
 		if (levelIsArena(lv)) {
 			snprintf(rel, sizeof(rel), "files/Ump_setupgx%sZ", lv->key);
@@ -7405,6 +8254,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			if (revportals[0]) {
 				textf(&maps, " revportals \"%s\"", revportals);
 			}
+			if (cetiles[0] || cearena[0]) {
+				textf(&maps, " ce \"%s%s%s\"", cetiles, cetiles[0] && cearena[0] ? " " : "", cearena);
+			}
 		}
 
 		note("geconvert: %s: %d rooms, %d portals, %d tiles (+%d walls), %d pads, %d lights",
@@ -7419,6 +8271,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			padrecs mbound;
 			struct solostats st = {0};
 			int hasrev;
+			int *mpadrooms;
+			struct gedoorinfo *mportals;
+			buf rprops = {0};
+			char cefiles[512] = "";
 
 			st.anims = allanims;
 			st.models = allmodels;
@@ -7430,8 +8286,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			mfile = romFile(g_Missions[mi].setup);
 			setupRead(&mfile, &msetup);
 			mbound = boundPads(&mfile, lv->levelscale, offset);
-			mpads = writePads(&msetup, lv->levelscale, offset, &rf, &mbound);
-			mprops = writeSoloSetup(&mfile, msetup.pads.n, allmodels, &st, lv->levelscale, offset);
+			mpadrooms = gcAlloc((msetup.pads.n + mbound.n + 1) * sizeof(*mpadrooms));
+			mportals = geSoloDoors(&mfile, &msetup, &mbound, &stan, &bg, lv->levelscale, offset, mpadrooms,
+					g_Missions[mi].name);
+			mpads = writePads(&msetup, lv->levelscale, offset, &rf, &mbound, mpadrooms);
+			mprops = writeSoloSetup(&mfile, msetup.pads.n, allmodels, &st, lv->levelscale, offset, mportals);
 
 			snprintf(rel, sizeof(rel), "files/bgdata/bg_gs%s_padsZ", lv->key);
 			writeFile(outdir, rel, mpads.v, mpads.n);
@@ -7447,15 +8306,87 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			hasrev = revisionSetup(g_Missions[mi].setup, &mfile, &mrev);
 			if (hasrev) {
 				struct solostats rst = {0};
-				buf rprops;
 
 				rst.anims = allanims;
 				rst.models = allmodels;
-				rprops = writeSoloSetup(&mrev, msetup.pads.n, allmodels, &rst, lv->levelscale, offset);
+				// its doors' portals over the pads as the setup has them, which
+				// is where GoldenEye looks for them, before any door scale
+				padrecs rbound = boundPads(&mfile, lv->levelscale, offset);
+				struct gedoorinfo *rportals = geSoloDoors(&mrev, &msetup, &rbound, &stan, &bg, lv->levelscale, offset, NULL,
+						g_Missions[mi].name);
+
+				rprops = writeSoloSetup(&mrev, msetup.pads.n, allmodels, &rst, lv->levelscale, offset, rportals);
 				snprintf(rel, sizeof(rel), "files/Usetupgs%s_jZ", lv->key);
 				writeFile(outdir, rel, rprops.v, rprops.n);
 				note("geconvert: %s: the later cartridges' mission, %d ai commands (+%d)",
 					g_Missions[mi].name, rst.aikept, rst.aidropped);
+			}
+
+			// The HD look's copies where a Community Edition fix changes one
+			// (g_RomPatchesOn): the mission's pads and setup made again from
+			// the mended setup over the mended tiles, and the later
+			// cartridges' setup from the mended one; each written beside the
+			// cartridge's and listed as `ce` only where its bytes differ
+			if (romPatched(g_Missions[mi].setup) || cestan.v != stan.v) {
+				buf cfile = romFileCe(g_Missions[mi].setup);
+				struct setup csetup;
+				padrecs cbound;
+				int *cpadrooms;
+				struct gedoorinfo *cportals;
+				struct solostats cst = {0};
+				buf cpads, cprops, crev;
+				char cename[96];
+
+				snprintf(cename, sizeof(cename), "%s (Community Edition)", g_Missions[mi].name);
+				cst.anims = allanims;
+				cst.models = allmodels;
+				setupRead(&cfile, &csetup);
+				cbound = boundPads(&cfile, lv->levelscale, offset);
+				cpadrooms = gcAlloc((csetup.pads.n + cbound.n + 1) * sizeof(*cpadrooms));
+				cportals = geSoloDoors(&cfile, &csetup, &cbound, &cestan, &bg, lv->levelscale, offset, cpadrooms, cename);
+				cpads = writePads(&csetup, lv->levelscale, offset, &rf, &cbound, cpadrooms);
+				cprops = writeSoloSetup(&cfile, csetup.pads.n, allmodels, &cst, lv->levelscale, offset, cportals);
+
+				if (cetiles[0]) {
+					snprintf(cefiles + strlen(cefiles), sizeof(cefiles) - strlen(cefiles), "%s%s",
+						cefiles[0] ? " " : "", cetiles);
+				}
+
+				if (bufDiffers(&cpads, &mpads)) {
+					snprintf(rel, sizeof(rel), "files/bgdata/bg_gs%s_ce_padsZ", lv->key);
+					writeFile(outdir, rel, cpads.v, cpads.n);
+					snprintf(cefiles + strlen(cefiles), sizeof(cefiles) - strlen(cefiles),
+						"%sbgdata/bg_gs%s_padsZ bgdata/bg_gs%s_ce_padsZ", cefiles[0] ? " " : "", lv->key, lv->key);
+				}
+
+				if (bufDiffers(&cprops, &mprops)) {
+					snprintf(rel, sizeof(rel), "files/Usetupgs%s_ceZ", lv->key);
+					writeFile(outdir, rel, cprops.v, cprops.n);
+					snprintf(cefiles + strlen(cefiles), sizeof(cefiles) - strlen(cefiles),
+						"%sUsetupgs%sZ Usetupgs%s_ceZ", cefiles[0] ? " " : "", lv->key, lv->key);
+				}
+
+				if (hasrev && revisionSetup(g_Missions[mi].setup, &cfile, &crev)) {
+					struct solostats crst = {0};
+					padrecs crbound = boundPads(&cfile, lv->levelscale, offset);
+					struct gedoorinfo *crportals = geSoloDoors(&crev, &csetup, &crbound, &cestan, &bg, lv->levelscale, offset,
+							NULL, cename);
+					buf crprops;
+
+					crst.anims = allanims;
+					crst.models = allmodels;
+					crprops = writeSoloSetup(&crev, csetup.pads.n, allmodels, &crst, lv->levelscale, offset, crportals);
+
+					if (bufDiffers(&crprops, &rprops)) {
+						snprintf(rel, sizeof(rel), "files/Usetupgs%s_ce_jZ", lv->key);
+						writeFile(outdir, rel, crprops.v, crprops.n);
+						snprintf(cefiles + strlen(cefiles), sizeof(cefiles) - strlen(cefiles),
+							"%sUsetupgs%s_jZ Usetupgs%s_ce_jZ", cefiles[0] ? " " : "", lv->key, lv->key);
+					}
+				}
+
+				note("geconvert: %s: the Community Edition's copies: %s", g_Missions[mi].name,
+					cefiles[0] ? cefiles : "none differ");
 			}
 
 			textf(&missions, "%s  mission %d \"%s\" bg \"bgdata/bg_gx%s.seg\" tiles \"bgdata/bg_gx%s_tilesZ\""
@@ -7488,6 +8419,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 			if (revportals[0]) {
 				textf(&missions, " revportals \"%s\"", revportals);
+			}
+			if (cefiles[0]) {
+				textf(&missions, " ce \"%s\"", cefiles);
 			}
 
 			note("geconvert: %s: mission %d, %d props (+%d left out), %d ai commands (+%d)",

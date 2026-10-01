@@ -8,6 +8,8 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "xblastage.h"
+#include "geroom.h"
+#include "modloader.h"
 #endif
 
 void stageParseTiles(void);
@@ -22,13 +24,21 @@ void tilesReset(void)
 
 	g_LoadType = LOADTYPE_TILES;
 #ifndef PLATFORM_N64
+	// a converted GoldenEye stage's tiles in the HD look: the Community
+	// Edition's copy where one of its fixes mends a link (Bunker ii's stairs;
+	// geRoomCeData()). gestan.c reads the graph beside whichever this is.
+	const s32 tilefileid = geRoomCeData()
+		? modloaderGetStageCeFile(g_Vars.stagenum, g_Stages[index].tilefileid) : g_Stages[index].tilefileid;
+
 	// Area 51 and MP Ruins take the XBLA release's collision where it is
 	// installed: 4J fixed a few tiles in each
-	g_TileFileData.u8 = xblaStageLoadTiles(g_Stages[index].tilefileid);
+	g_TileFileData.u8 = xblaStageLoadTiles(tilefileid);
 
 	if (!g_TileFileData.u8)
-#endif
+	g_TileFileData.u8 = fileLoadToNew(tilefileid, FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
+#else
 	g_TileFileData.u8 = fileLoadToNew(g_Stages[index].tilefileid, FILELOADMETHOD_DEFAULT, LOADTYPE_TILES);
+#endif
 	g_TileNumRooms = *g_TileFileData.u32;
 	g_TileRooms = g_TileFileData.u32 + 1;
 

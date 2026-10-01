@@ -46,6 +46,10 @@
 # to the old golden for all 3000 frames (nothing clones: nobody fires). Re-record
 # gesolo once; every other case is unchanged.
 #
+# Two binaries that convert GoldenEye differently (a GECONVERT_VERSION bump
+# between them) each run from a folder of their own under OUT, with their own
+# mods/GoldenEye Arenas (stage()); the first GE case then converts twice.
+#
 # Exit status: 0 identical, 1 a divergence, 2 a run that failed.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
@@ -145,12 +149,59 @@ cmpcase() {
 	return 1
 }
 
+# The GoldenEye conversion a binary makes: its stamp line ("geconvert 97",
+# gexplusrom.c's GEXPLUSROM_STAMP_LINE), or nothing for a binary without one.
+convstamp() {
+	strings -n 6 "$1" 2>/dev/null | grep -m1 -x 'geconvert [0-9][0-9]*'
+}
+
+# stage BIN LABEL: the binary in a folder of its own, $OUT/stage-LABEL, that
+# holds everything of the binary's own folder (data/, added-content/, the mod
+# dirs - each a link) but a mods/ of its own, where the binary converts the
+# GoldenEye ROM for itself; the rest of the original mods/ is linked in.
+# Prints the staged binary's path. A binary finds its data from its own path
+# (/proc/self/exe), so two binaries in one folder share mods/GoldenEye Arenas:
+# with a converter bump between them both reconvert it at once, under each
+# other, as the two runs of a case go together (2026-10-01: one logged "the
+# GoldenEye conversion failed" and the GE cases compared the same data).
+stage() {
+	local bin src dir e name
+	bin=$(realpath "$1"); src=$(dirname "$bin"); dir=$OUT/stage-$2
+	rm -rf "$dir"; mkdir -p "$dir/mods"
+	for e in "$src"/* "$src"/.[!.]*; do
+		[ -e "$e" ] || continue
+		name=$(basename "$e")
+		case $name in mods|"$(basename "$bin")") continue ;; esac
+		ln -s "$e" "$dir/$name"
+	done
+	if [ -d "$src/mods" ]; then
+		for e in "$src"/mods/*; do
+			[ -e "$e" ] || continue
+			name=$(basename "$e")
+			case $name in "GoldenEye Arenas"*) continue ;; esac
+			ln -s "$e" "$dir/mods/$name"
+		done
+	fi
+	ln "$bin" "$dir/$(basename "$bin")" 2>/dev/null || cp -p "$bin" "$dir/$(basename "$bin")"
+	echo "$dir/$(basename "$bin")"
+}
+
 mode=${1:-}; shift || true
 mkdir -p "$OUT"
 status=0
 case $mode in
 compare)
 	[ $# -eq 2 ] || { echo "compare BIN_A BIN_B"; exit 2; }
+	A=$1; B=$2
+	case $A in /*) ;; */*) A=$(realpath "$A") ;; *) A=$BUILD/$A ;; esac
+	case $B in /*) ;; */*) B=$(realpath "$B") ;; *) B=$BUILD/$B ;; esac
+	# a converter bump between the two: each runs from a folder of its own
+	# with its own conversion (stage())
+	if [ "$(convstamp "$A")" != "$(convstamp "$B")" ]; then
+		echo "note: the two convert GoldenEye differently ($(convstamp "$A" || echo none) / $(convstamp "$B" || echo none)): each runs from its own folder with its own conversion"
+		A=$(stage "$A" a); B=$(stage "$B" b)
+	fi
+	set -- "$A" "$B"
 	for c in $CASES; do
 		run "$1" "$c" a > "$OUT/a.$c.status" & run "$2" "$c" b > "$OUT/b.$c.status" & wait
 		cat "$OUT/a.$c.status" "$OUT/b.$c.status"

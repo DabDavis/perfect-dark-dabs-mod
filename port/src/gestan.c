@@ -8,6 +8,7 @@
 #include "bss.h"
 #include "data.h"
 #include "modloader.h"
+#include "geroom.h"
 #include "romdata.h"
 #include "fs.h"
 #include "system.h"
@@ -104,7 +105,11 @@ static void stanFree(void)
 static u8 *stanLoadFile(u32 *len)
 {
 	const char *dir = modloaderGetStageModDir(g_Vars.stagenum);
-	const char *tilesname = romdataFileGetName(g_Stages[g_StageIndex].tilefileid);
+	// the graph beside the tiles the stage loaded (tilesReset()): the
+	// Community Edition's in the HD look where it mends one
+	const s32 tilefileid = geRoomCeData()
+		? modloaderGetStageCeFile(g_Vars.stagenum, g_Stages[g_StageIndex].tilefileid) : g_Stages[g_StageIndex].tilefileid;
+	const char *tilesname = romdataFileGetName(tilefileid);
 	char name[128];
 	char path[FS_MAXPATH + 1];
 	char *ending;
@@ -1507,6 +1512,209 @@ bool geStanDoorSideRooms(struct coord *padpos, struct coord *centre, struct coor
 bool geStanWalk(struct coord *from, struct coord *to, s32 *room, f32 *ground)
 {
 	return geStanWalkFromRoom(from, -1, to, room, ground);
+}
+
+/**
+ * stan.c's walkTilesBetweenPoints_NoCallback() (sub_GAME_7F0B0914()) as it
+ * is: from `*tile` along the line, true when the end is reached; `*tile` is the
+ * last tile walked onto either way (stanWalkLine() is the same walk without
+ * the answer).
+ */
+static bool stanWalkTo(s32 *tile, f32 x0, f32 z0, f32 x1, f32 z1)
+{
+	s32 cur = *tile, prev = *tile, prevprev = *tile, next = -1;
+	const f32 negdz = -(z1 - z0);
+	const f32 dx = x1 - x0;
+
+	for (s32 iter = 0;; iter++) {
+		const struct stantile *t = &g_Stan.tiles[cur];
+		const struct stanpoint *p = &g_Stan.points[t->first];
+		s32 crossings = 0;
+
+		for (s32 k = 0; k < t->npts; k++) {
+			const struct stanpoint *a = &p[k], *b = &p[(k + 1) % t->npts];
+			const bool linked = a->across >= 0;
+
+			if (negdz * (b->x - a->x) + dx * (b->z - a->z) <= 0.0f
+					&& stanCrosses(x0, z0, x1, z1, a->x, a->z, b->x, b->z, linked)) {
+				crossings++;
+
+				if (!linked || (a->across != prev && a->across != prevprev)) {
+					next = linked ? a->across : -1;
+				}
+			}
+		}
+
+		prevprev = prev;
+		prev = cur;
+
+		if (cur == next || crossings == 0) {
+			return true;
+		}
+
+		if (iter >= 0x1f5 || next < 0) {
+			return false;
+		}
+
+		cur = next;
+		*tile = next;
+	}
+}
+
+/**
+ * The tile and the place an object's rooms are counted from, as GoldenEye
+ * keeps them in its prop (prop->stan and prop->pos; prop.c's
+ * domakedefaultobj() and propobj.c's sub_GAME_7F04088C()). From the pad's own
+ * tile - the one under the pad in its own room (the conversion files a pad in
+ * the room of the tile GoldenEye names for it) - a bound pad's object first
+ * walks to its box's middle (`centre`, NULL for none) or stays at the pad,
+ * then from there to where the object stands: that is prop->pos where the
+ * walk gets there, and where it does not, prop->pos stays where it started.
+ * False with no tile at all.
+ */
+bool geStanObjectTile(struct coord *padpos, s32 padroom, struct coord *centre, struct coord *objpos,
+		s32 *tile, struct coord *seed)
+{
+	struct coord start = *padpos;
+	s32 t, t0;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return false;
+	}
+
+	t0 = stanTileUnderPrefer(padpos->x, padpos->z, padpos->y + 5.0f, GESTAN_RISE, padroom);
+
+	if (t0 < 0) {
+		t0 = stanTileUnderPrefer(objpos->x, objpos->z, objpos->y + 5.0f, GESTAN_RISE, padroom);
+
+		if (t0 < 0) {
+			return false;
+		}
+
+		*tile = t0;
+		*seed = *objpos;
+		return true;
+	}
+
+	*tile = t0;
+
+	if (centre) {
+		t = t0;
+
+		if (stanWalkTo(&t, padpos->x, padpos->z, centre->x, centre->z)) {
+			*tile = t;
+			start = *centre;
+		}
+	}
+
+	t = *tile;
+
+	if (stanWalkTo(&t, start.x, start.z, objpos->x, objpos->z)) {
+		*tile = t;
+		*seed = *objpos;
+	} else {
+		*seed = start;
+	}
+
+	return true;
+}
+
+/** A tile's room, or -1. */
+s32 geStanTileRoom(s32 tile)
+{
+	return g_Stan.active && tile >= 0 && tile < g_Stan.numtiles ? g_Stan.tiles[tile].room : -1;
+}
+
+/** stan.c's getShortest2dDispToInfTileEdge(): the signed distance from the edge's line. */
+static f32 stanEdgeDisp(const struct stantile *t, s32 k, f32 x, f32 z)
+{
+	const struct stanpoint *p = &g_Stan.points[t->first];
+	const struct stanpoint *a = &p[k], *b = &p[(k + 1) % t->npts];
+	const f32 ex = (f32)(b->x - a->x), ez = (f32)(b->z - a->z);
+	const f32 len = sqrtf(ex * ex + ez * ez);
+
+	if (len == 0.0f) {
+		const f32 vx = x - b->x, vz = z - b->z;
+		return sqrtf(vx * vx + vz * vz);
+	}
+
+	return (ez * (x - a->x) + -ex * (z - a->z)) / len;
+}
+
+/** stan.c's stanPointProjectsOntoTileEdge(). */
+static bool stanProjectsOntoEdge(const struct stantile *t, s32 k, f32 x, f32 z)
+{
+	const struct stanpoint *p = &g_Stan.points[t->first];
+	const struct stanpoint *a = &p[k], *b = &p[(k + 1) % t->npts];
+	const f32 ex = (f32)(b->x - a->x), ez = (f32)(b->z - a->z);
+	const f32 len2 = ex * ex + ez * ez;
+	const f32 dot = (x - a->x) * ex + (z - a->z) * ez;
+
+	return (len2 < dot && dot < 0.0f) || (0.0f < dot && dot < len2);
+}
+
+/**
+ * The rooms of the tiles round a place (stan.c's sub_GAME_7F0B21B0() through
+ * sub_GAME_7F0B1DDC()): from `tile`, every tile across a linked edge that
+ * comes within `radius` of x/z, breadth first, at most 41 tiles; each new
+ * tile's room appended to `rooms` while there is room for it. Returns the
+ * count. GoldenEye's own units are its level's scaled by a constant, which
+ * every comparison here is free of.
+ */
+s32 geStanLocusRooms(s32 tile, f32 x, f32 z, f32 radius, s32 *rooms, s32 max)
+{
+	s32 stack[48];
+	s32 cat = 1;
+	s32 visited = 0;
+	s32 count = 0;
+
+	if (!g_Stan.active || tile < 0 || tile >= g_Stan.numtiles) {
+		return 0;
+	}
+
+	stack[0] = tile;
+
+	do {
+		const s32 cur = stack[visited++];
+		const struct stantile *t = &g_Stan.tiles[cur];
+		const struct stanpoint *p = &g_Stan.points[t->first];
+		s32 i;
+
+		// stanLocusAddTileRoomIfNew()
+		for (i = 0; i < count && rooms[i] != t->room; i++);
+
+		if (i == count && count < max) {
+			rooms[count++] = t->room;
+		}
+
+		for (s32 k = 0; k < t->npts; k++) {
+			const s32 k2 = (k + 1) % t->npts;
+			const f32 edge = stanEdgeDisp(t, k, x, z);
+			const f32 da = sqrtf((x - p[k].x) * (x - p[k].x) + (z - p[k].z) * (z - p[k].z));
+			const f32 db = sqrtf((x - p[k2].x) * (x - p[k2].x) + (z - p[k2].z) * (z - p[k2].z));
+
+			if (edge < radius && (da < radius || db < radius || stanProjectsOntoEdge(t, k, x, z))
+					&& p[k].across >= 0) {
+				s32 j;
+
+				for (j = cat - 1; j >= 0 && stack[j] != p[k].across; j--);
+
+				if (j < 0 && cat < (s32)ARRAYCOUNT(stack)) {
+					stack[cat++] = p[k].across;
+				}
+			}
+		}
+
+		if (cat >= 41) {
+			break;
+		}
+	} while (visited < cat);
+
+	return count;
 }
 
 s32 geStanRoomUnder(struct coord *pos, f32 ground, s32 prefer)

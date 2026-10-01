@@ -263,6 +263,11 @@ def compare(ge0, pd0, ge1, pd1, mission):
         if set(a['rooms']) != set(b['rooms']):
             rep.add('obj.rooms', i, '%s rooms GoldenEye %s, ours %s' % (what, sorted(a['rooms']), sorted(b['rooms'])))
         ha, hb = ge_obj_hp(a), pd_obj_hp(b)
+        # a door's health words are the setup's 16.16 integer on the cartridge
+        # (setupDoor() never divides them out); a dump made before the readers
+        # knew (no 'health_raw') read them as floats, ~0, so says nothing
+        if a['type'] == 1 and not a.get('health_raw'):
+            ha = hb
         if ha != hb:
             rep.add('obj.health', i, '%s health (taken, max) GoldenEye %s, ours %s' % (what, ha, hb),
                     abs((ha[1] or 0) - (hb[1] or 0)))

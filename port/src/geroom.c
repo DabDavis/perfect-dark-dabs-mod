@@ -12,6 +12,11 @@
 #include "game/prop.h"
 #include "lib/collision.h"
 #include "lib/lib_17ce0.h"
+#include "xblamesh.h"
+#include "gebean.h"
+#include "game/pad.h"
+#include "game/setuputils.h"
+#include "game/propobj.h"
 
 #ifndef PLATFORM_N64
 
@@ -24,6 +29,20 @@
 s32 geRoomActive(void)
 {
 	return modloaderStageIsRemake(g_Vars.stagenum);
+}
+
+/**
+ * Whether a converted stage loads the Community Edition's copies of its files
+ * (modloaderGetStageCeFile()): the release's look on and the Community
+ * Edition applied, as the stage loads. The user, 2026-10-01: the Community
+ * Edition's fixes belong to the HD look only, and the N64 look is the
+ * cartridge as it is. Like everything a stage reads from its setup, pads and
+ * tiles, the choice is made at the load: a switch of look in a mission takes
+ * effect at the next one (or at a restart of it).
+ */
+s32 geRoomCeData(void)
+{
+	return xblaMeshGetEnabled() && gebeanCeIsActive();
 }
 
 struct geroomfloor {
@@ -425,3 +444,232 @@ void geRoomRevisionPortals(s32 stagenum)
 
 
 #endif
+
+/**
+ * A converted object's rooms the way GoldenEye counts them at its setup
+ * (loadobjectmodel.c's setupUpdateObjectRoomPosition() into chrprop.c's
+ * chrpropUpdateRoomList()): the rooms of the tiles round its prop->pos -
+ * within the box's widest reach from it, thirty more each way across - walked
+ * from its prop->stan (geStanObjectTile()), then every room a portal that is
+ * not shut opens onto, where the portal's own box meets the object's box
+ * widened thirty across (bg.c's sub_GAME_7F0BA2D4()), at most seven. An
+ * object with GoldenEye's flags2 0x20000 is in its tile's room alone.
+ * Perfect Dark counted the rooms its box entered from its origin's
+ * (bgFindEnteredRooms()), one room more or fewer than GoldenEye's on ~300
+ * objects over the twenty missions (FINDINGS row 18). Placement and collision
+ * stay on the object's position, which is GoldenEye's runtime_pos.
+ */
+void geRoomObjRooms(struct defaultobj *obj)
+{
+	struct prop *prop = obj->prop;
+	struct modelrodata_bbox *bbox;
+	struct coord min, max, seed, centre;
+	bool haveCentre = false;
+	struct pad pad;
+	s32 rooms[8];
+	s32 count, tile;
+	f32 radius = 0.0f;
+	f32 rot[3][3];
+	RoomNum out[8];
+
+	if (!prop || prop->parent || obj->pad < 0) {
+		return;
+	}
+
+	padUnpack(obj->pad, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &pad);
+
+	// a bound pad's object starts from its box's middle, unless it is placed
+	// at its pad (GoldenEye's flags2 & 1)
+	if ((pad.flags & PADFLAG_HASBBOXDATA) && !(obj->flags2 & 1)) {
+		padGetCentre(obj->pad, &centre);
+		haveCentre = true;
+	}
+
+	if (!geStanObjectTile(&pad.pos, pad.room, haveCentre ? &centre : NULL, &prop->pos, &tile, &seed)) {
+		return;
+	}
+
+	if (obj->flags2 & 0x00020000) {
+		rooms[0] = geStanTileRoom(tile);
+		count = rooms[0] > 0 ? 1 : 0;
+	} else {
+		bbox = objFindBboxRodata(obj);
+
+		if (!bbox) {
+			return;
+		}
+
+		// The box over the object's turn as GoldenEye has it: Perfect Dark
+		// turns a converted object a quarter by 1.5705463 rather than pi/2
+		// (the decomp's M_BADPI and its 4.7116389), which leaves 2.5e-4 of
+		// the other axes in a row that should hold none and tips a pane's
+		// box 0.06 under a floor portal it stands on exactly - on the
+		// cartridge it is 0.01 over (Dam's windows, traced on ares), and
+		// the portal's room was taken. Such slivers are taken as nought.
+		{
+			f32 big = 0.0f;
+
+			for (s32 r = 0; r < 3; r++) {
+				for (s32 c = 0; c < 3; c++) {
+					if (fabsf(obj->realrot[r][c]) > big) {
+						big = fabsf(obj->realrot[r][c]);
+					}
+				}
+			}
+
+			for (s32 r = 0; r < 3; r++) {
+				for (s32 c = 0; c < 3; c++) {
+					rot[r][c] = fabsf(obj->realrot[r][c]) < big * 0.002f ? 0.0f : obj->realrot[r][c];
+				}
+			}
+		}
+
+		min.x = prop->pos.x + objGetRotatedLocalXMinByMtx3(bbox, rot);
+		min.y = prop->pos.y + objGetRotatedLocalYMinByMtx3(bbox, rot);
+		min.z = prop->pos.z + objGetRotatedLocalZMinByMtx3(bbox, rot);
+		max.x = prop->pos.x + objGetRotatedLocalXMaxByMtx3(bbox, rot);
+		max.y = prop->pos.y + objGetRotatedLocalYMaxByMtx3(bbox, rot);
+		max.z = prop->pos.z + objGetRotatedLocalZMaxByMtx3(bbox, rot);
+
+		// the box about the object, thirty wider across, and its widest
+		// reach across from the object's own place
+		min.x -= prop->pos.x + 30.0f;
+		min.z -= prop->pos.z + 30.0f;
+		max.x -= prop->pos.x - 30.0f;
+		max.z -= prop->pos.z - 30.0f;
+
+		if (radius < -min.x) radius = -min.x;
+		if (radius < -min.z) radius = -min.z;
+		if (radius < max.x) radius = max.x;
+		if (radius < max.z) radius = max.z;
+
+		min.x += prop->pos.x;
+		min.z += prop->pos.z;
+		max.x += prop->pos.x;
+		max.z += prop->pos.z;
+
+		count = geStanLocusRooms(tile, seed.x, seed.z, radius, rooms, 7);
+		count = geRoomPortalsOverBox(&min, &max, rooms, count, 7);
+	}
+
+	if (count <= 0) {
+		return;
+	}
+
+	for (s32 i = 0; i < count; i++) {
+		out[i] = rooms[i];
+	}
+
+	out[count] = -1;
+
+
+	propDeregisterRooms(prop);
+	roomsCopy(out, prop->rooms);
+	propRegisterRooms(prop);
+}
+
+/**
+ * bg.c's sub_GAME_7F0BA2D4(): to `rooms` every room a portal of one of them
+ * leads to, where the portal is not shut and its box meets [min, max]; again
+ * for the rooms so added, until nothing is added or there are `max`.
+ */
+#define GEROOM_TOUCH 0.02f
+
+s32 geRoomPortalsOverBox(struct coord *min, struct coord *max, s32 *rooms, s32 count, s32 maxcount)
+{
+	s32 i = 0;
+	s32 saved = count;
+
+	while (true) {
+		for (; i < saved; i++) {
+			const s32 room = rooms[i];
+
+			for (s32 p = 0; g_BgPortals[p].verticesoffset != 0; p++) {
+				struct portalvertices *pv;
+				f32 pmin[3] = { 3.4028235e38f, 3.4028235e38f, 3.4028235e38f };
+				f32 pmax[3] = { -3.4028235e38f, -3.4028235e38f, -3.4028235e38f };
+				s32 other, k;
+
+				if ((g_BgPortals[p].flags & PORTALFLAG_CLOSED)
+						|| (room != g_BgPortals[p].roomnum1 && room != g_BgPortals[p].roomnum2)) {
+					continue;
+				}
+
+				pv = (struct portalvertices *)((uintptr_t)g_BgPortals + g_BgPortals[p].verticesoffset);
+
+				for (s32 j = 0; j < pv->count; j++) {
+					for (k = 0; k < 3; k++) {
+						const f32 v = pv->vertices[j].f[k];
+
+						if (v < pmin[k]) pmin[k] = v;
+						if (pmax[k] < v) pmax[k] = v;
+					}
+				}
+
+				// bgIsBboxOverlapping(), less boxes that only touch: a pane
+				// standing on a floor portal is 0.01 over it on the cartridge
+				// (Dam's windows, traced on ares) and level with it here, its
+				// scale rounded the other way
+				if (min->x > pmax[0] - GEROOM_TOUCH || max->x < pmin[0] + GEROOM_TOUCH
+						|| min->y > pmax[1] - GEROOM_TOUCH || max->y < pmin[1] + GEROOM_TOUCH
+						|| min->z > pmax[2] - GEROOM_TOUCH || max->z < pmin[2] + GEROOM_TOUCH) {
+					continue;
+				}
+
+				other = room == g_BgPortals[p].roomnum1 ? g_BgPortals[p].roomnum2 : g_BgPortals[p].roomnum1;
+
+
+				for (k = 0; k < count && rooms[k] != other; k++);
+
+				if (k == count) {
+					if (count < maxcount) {
+						rooms[count++] = other;
+					}
+
+					if (count >= maxcount) {
+						return count;
+					}
+				}
+			}
+		}
+
+		if (count == saved) {
+			break;
+		}
+
+		saved = count;
+	}
+
+	return count;
+}
+
+/** Whether the conversion gave the door GoldenEye's own portal and rooms (converter 97). */
+bool geRoomDoorRoomsGiven(struct doorobj *door)
+{
+	return door->unusedmaybe[0] == GE_DOOR_PORTAL_GIVEN && door->unusedmaybe[1] != 0xff;
+}
+
+/**
+ * The door's rooms as GoldenEye's setupDoor() sets them: its tile's room and
+ * the side room, nothing else (prop->rooms[0], [1]). A door with neither
+ * portal flag is in its tile's room alone, and GoldenEye draws it only from
+ * there - Frigate's six doors at the corridors' ends (FINDINGS rows 18, 23).
+ */
+void geRoomDoorGivenRooms(struct prop *prop, struct doorobj *door)
+{
+	RoomNum rooms[3];
+	s32 n = 0;
+
+	rooms[n++] = door->unusedmaybe[1];
+
+	if (door->unusedmaybe[2] != 0xff && door->unusedmaybe[2] != door->unusedmaybe[1]) {
+		rooms[n++] = door->unusedmaybe[2];
+	}
+
+	rooms[n] = -1;
+
+	propDeregisterRooms(prop);
+	roomsCopy(rooms, prop->rooms);
+	propRegisterRooms(prop);
+}
+

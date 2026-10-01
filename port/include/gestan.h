@@ -118,6 +118,19 @@ bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 
 s32 geStanRoomUnder(struct coord *pos, f32 ground, s32 prefer);
 
 /**
+ * GoldenEye's prop->stan and prop->pos for an object set down from a pad: the
+ * pad's tile walked to the object, or the pad's own where the walk fails.
+ */
+bool geStanObjectTile(struct coord *padpos, s32 padroom, struct coord *centre, struct coord *objpos,
+		s32 *tile, struct coord *seed);
+
+/** A tile's room, or -1. */
+s32 geStanTileRoom(s32 tile);
+
+/** The rooms of the tiles within `radius` of x/z, walking from `tile` (stan.c's sub_GAME_7F0B21B0()). */
+s32 geStanLocusRooms(s32 tile, f32 x, f32 z, f32 radius, s32 *rooms, s32 max);
+
+/**
  * Whether a guard standing at `from` on the floor at `ground` may run straight
  * to `to`, past waypoints: GoldenEye's walk along the tile graph from its tile
  * ends on the tile under `to` (sub_GAME_7F030128). True with no graph.
