@@ -29,6 +29,9 @@ struct TextureCacheKey {
     // the outline of a glyph are uploaded from the same pixeldata, so without
     // this they would share one entry and whichever drew first would win.
     uint32_t glyph;
+    // An animated picture's frame plus one, 0 for anything else: a frame is
+    // an entry of its own, uploaded once (xblaTexAnimFrame()).
+    uint16_t anim_frame;
 
     bool operator==(const TextureCacheKey&) const noexcept = default;
 

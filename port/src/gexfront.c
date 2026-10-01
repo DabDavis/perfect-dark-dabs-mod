@@ -1708,8 +1708,9 @@ static void frontNextWeaponSet(void)
 	const s32 num = gexPlusWeaponSets(&first);
 
 	if (num <= 0) {
-		// Perfect Dark's guns asked for as well (Mod.GePlusPdGuns): the whole list
-		if (gexPlusGetPdGuns() && g_MpNumWeaponSets > 0) {
+		// Perfect Dark's guns asked for as well (Mod.GePlusPdGuns), or a mod's
+		// own weapon list loaded: the whole list
+		if ((gexPlusGetPdGuns() || modDataMpWeaponsImported()) && g_MpNumWeaponSets > 0) {
 			g_MpWeaponSetNum = g_MpWeaponSetNum + 1 < g_MpNumWeaponSets ? g_MpWeaponSetNum + 1 : 0;
 			mpApplyWeaponSet();
 		}

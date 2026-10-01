@@ -118,6 +118,19 @@ bool geStanWalkFromRoom(struct coord *from, s32 fromroom, struct coord *to, s32 
 s32 geStanRoomUnder(struct coord *pos, f32 ground, s32 prefer);
 
 /**
+ * GoldenEye's prop->stan and prop->pos for an object set down from a pad: the
+ * pad's tile walked to the object, or the pad's own where the walk fails.
+ */
+bool geStanObjectTile(struct coord *padpos, s32 padroom, struct coord *centre, struct coord *objpos,
+		s32 *tile, struct coord *seed);
+
+/** A tile's room, or -1. */
+s32 geStanTileRoom(s32 tile);
+
+/** The rooms of the tiles within `radius` of x/z, walking from `tile` (stan.c's sub_GAME_7F0B21B0()). */
+s32 geStanLocusRooms(s32 tile, f32 x, f32 z, f32 radius, s32 *rooms, s32 max);
+
+/**
  * Whether a guard standing at `from` on the floor at `ground` may run straight
  * to `to`, past waypoints: GoldenEye's walk along the tile graph from its tile
  * ends on the tile under `to` (sub_GAME_7F030128). True with no graph.
@@ -180,6 +193,14 @@ s32 geStanAutogunSees(struct coord *from, s32 fromroom, struct coord *to, f32 to
  * walk ends on the object's tile. 1 may, 0 may not, -1 no graph here.
  */
 s32 geStanPickupReaches(struct coord *from, f32 ground, struct coord *to);
+
+/**
+ * GoldenEye's test of a guard's pad as its setup is loaded (expand_09_characters()'s
+ * getposstan(&pad->pos, pad->stan, 20, ...), which is stanTestVolume()): 1 the
+ * guard is made at the pad, 0 it is not made at all, -1 where the level has no
+ * graph or the pad is over no tile.
+ */
+s32 geStanSpawnLegal(struct coord *pos, s32 padroom, f32 radius);
 
 extern s32 g_GeStanAsked;
 extern s32 g_GeStanSkipped;

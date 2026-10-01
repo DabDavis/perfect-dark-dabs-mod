@@ -10,6 +10,9 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "game/player.h"
+#ifndef PLATFORM_N64
+#include "modloader.h"
+#endif
 #endif
 
 extern u32 g_BgunGunMemBaseSize4Mb2P;
@@ -161,7 +164,11 @@ void bgunReset(void)
 	// memory is sized for two while the setting is on. Sized here, at stage
 	// start, and remembered: the loader is told this ceiling rather than the
 	// base calculation, and a pair is only mixed when the room was made.
-	if (modIsAkimboForPlayers()) {
+	// So is a converted GoldenEye level's: GoldenEye pairs two different
+	// guns a guard carried (its link records - Jungle's RC-P90 and grenade
+	// launcher from Xenia) without any house rule (bondgun.c's
+	// bgunTickSwitch2())
+	if (modIsAkimboForPlayers() || modloaderStageIsRemake(g_Vars.stagenum)) {
 		i += ALIGN16(g_BgunGunMemBaseSizeDefault);
 		g_Vars.currentplayer->gunctrl.gunmemmixed = true;
 	}

@@ -51,6 +51,15 @@ s32 gebeanStageDrawsEveryRoom(void);
 s32 gebeanStageRoomHidden(s32 roomnum);
 
 /**
+ * A prop left out of this frame's draw while the HD rooms are served: one of
+ * another room standing inside a room the release's other rooms are kept out
+ * of (gebeanstage.c's keptOutOf[], Aztec's armour closet), while the camera is
+ * in that room.
+ */
+struct prop;
+s32 gebeanStageHidesProp(struct prop *prop);
+
+/**
  * Whether the room is drawn from GoldenEye XBLA's mesh just now (the HD look).
  * Its vertex colours are not capped by the room's brightness (roomHighlight()).
  */
@@ -120,6 +129,13 @@ const void *gebeanStageTile(u32 record);
 
 /** A served room's record that is the level's water picture (Bean's stride 36 draws; Dam's reservoir). */
 s32 gebeanStageRecordIsWater(u32 record);
+
+/**
+ * A served room's picture that the release's texture matrix scrolls (Dam's
+ * reservoir): a list moving tiles 0 and 1, drawn w x h, to where the level's
+ * clock has them, called after the picture's load. NULL for any other.
+ */
+const Gfx *gebeanStageScrollSlot(u32 record, s32 w, s32 h);
 
 /** A served room's loaded picture that bullets pass through (cut-outs, translucent). */
 s32 gebeanStageTilePassesShots(uintptr_t tile);

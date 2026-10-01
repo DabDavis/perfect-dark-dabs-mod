@@ -66,6 +66,13 @@ s32 modloaderGetStageMusic(s32 stagenum, s32 *tracks);
 // did not change it; and their portal thickness codes, the count with each
 // portal's number and code. The caller asks gexFrontGetRevisionFixes() first.
 s32 modloaderGetStageRevisionSetup(s32 stagenum, s32 filenum);
+
+/**
+ * The Community Edition's copy of one of a converted stage's files (its line's
+ * `ce`), or filenum when it has none. The caller asks only while the HD look
+ * and the Community Edition are on (geRoomCeData()).
+ */
+s32 modloaderGetStageCeFile(s32 stagenum, s32 filenum);
 s32 modloaderGetStageRevisionPortals(s32 stagenum, const u16 **portals, const u8 **codes);
 
 #endif

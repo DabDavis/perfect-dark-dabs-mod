@@ -24,6 +24,28 @@
 /** Whether the stage takes its rooms from the tile underfoot. */
 s32 geRoomActive(void);
 
+/** Whether a converted stage loads the Community Edition's copies of its files (the HD look with the CE on). */
+s32 geRoomCeData(void);
+
+/** Whether the conversion gave a door GoldenEye's own portal and rooms. */
+bool geRoomDoorRoomsGiven(struct doorobj *door);
+
+/** A door's rooms as GoldenEye's setupDoor() sets them (the conversion's). */
+void geRoomDoorGivenRooms(struct prop *prop, struct doorobj *door);
+
+/** A converted object's rooms as GoldenEye counts them at its setup (chrpropUpdateRoomList()). */
+void geRoomObjRooms(struct defaultobj *obj);
+
+/** bg.c's sub_GAME_7F0BA2D4(): rooms through open portals whose box meets [min, max]. */
+s32 geRoomPortalsOverBox(struct coord *min, struct coord *max, s32 *rooms, s32 count, s32 maxcount);
+
+/**
+ * A converted mission's door record carries this in its first spare byte
+ * (doorobj's unusedmaybe[0]) when its portalnum is the one GoldenEye's
+ * setupDoor() gives it (geconvert.c's geSoloDoors(), converter 97).
+ */
+#define GE_DOOR_PORTAL_GIVEN 0x67
+
 /**
  * cdFindGroundInfoAtCyl() asked of the rooms handed in **and** of every room
  * whose box holds the position: the highest floor below it, whichever room's

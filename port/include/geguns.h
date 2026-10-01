@@ -69,6 +69,21 @@ void gegunsSetOwnModelInUse(s32 index, s32 inuse);
 s32 gegunsOwnModelInUse(s32 weaponnum);
 s32 gegunsOwnModelHidden(s32 weaponnum);
 s32 gegunsTriggerDelay60(s32 weaponnum);
+// Ticks between the clicks of one of GoldenEye's guns held empty, or 0 for any other
+s32 gegunsDryFireInterval60(s32 weaponnum);
+// 1 if one of GoldenEye's guns clicks held empty, 0 if it reloads, -1 not GoldenEye's
+s32 gegunsClicksEmpty(s32 weaponnum);
+// GoldenEye's grenade and mines, which bondgun.c throws by GoldenEye's rule
+s32 gegunsThrowsAsGoldenEye(s32 weaponnum);
+// GoldenEye's mines, which stick where they first land
+s32 gegunsMineAttaches(s32 weaponnum);
+// GoldenEye draws nothing of it in the hand, so its reload neither lowers nor raises
+s32 gegunsHidesHand(s32 weaponnum);
+// GoldenEye's Moonraker, which marks what it hits and sounds its surface
+s32 gegunsMoonrakerMarks(s32 weaponnum);
+// Where GoldenEye's grenade and mines leave the hand, in camera space; 1 if it is one
+struct coord;
+s32 gegunsThrowOrigin(s32 weaponnum, struct coord *campos);
 // the extra lift a GoldenEye gun is given coming up to the eye under COD Style Aiming
 f32 gegunsCodAimLift(s32 weaponnum);
 // ticks after a single shot a GoldenEye gun is ready once its trigger was let go, -1 not one
@@ -125,6 +140,7 @@ void gegunsShellsLoaded(struct hand *hand);
 // The same for the gun shown bare in a menu: no hand, cuff or flash
 void gegunsOwnModelMenuParts(s32 weaponnum, struct model *model);
 void gegunsOwnModelFlash(struct hand *hand, struct model *model);
+void gegunsCardsLit(s32 handnum, s32 on);
 s32 gegunsOwnModelRevolver(s32 weaponnum);
 void gegunsOwnModelRevolverBegin(struct hand *hand, struct model *model);
 void gegunsOwnModelRevolverEnd(void);

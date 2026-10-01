@@ -1,0 +1,6049 @@
+{
+ "problems": [
+  "type GlassRecord: No type named GlassRecord.",
+  "type GasReleasingRecord: No type named GasReleasingRecord.",
+  "type SafeRecord: No type named SafeRecord.",
+  "type LinkRecord: No type named LinkRecord.",
+  "type RenameObjectRecord: No type named RenameObjectRecord."
+ ],
+ "symbols": {
+  "g_ChrSlots": 2147667044,
+  "g_CurrentSetup": 2147966208,
+  "g_DoorScale": 2147656640,
+  "g_GlobalAILists": 2147710028,
+  "g_NumChrSlots": 2147667048,
+  "room_data_float2": 2147750904,
+  "standTileStart": 2147749720
+ },
+ "types": {
+  "AircraftRecord": {
+   "fields": {
+    "Sound": {
+     "off": 176,
+     "size": 4,
+     "type": "struct ALSoundState *"
+    },
+    "ailist": {
+     "off": 128,
+     "size": 4,
+     "type": "AIRecord *"
+    },
+    "aioffset": {
+     "off": 132,
+     "size": 2,
+     "type": "u16"
+    },
+    "aireturnlist": {
+     "off": 134,
+     "size": 2,
+     "type": "s16"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "nextstep": {
+     "off": 168,
+     "size": 4,
+     "type": "s32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "path": {
+     "off": 172,
+     "size": 4,
+     "type": "PathRecord *"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "rotaryspeed": {
+     "off": 140,
+     "size": 4,
+     "type": "f32"
+    },
+    "rotaryspeedaim": {
+     "off": 144,
+     "size": 4,
+     "type": "f32"
+    },
+    "rotaryspeedtime": {
+     "off": 148,
+     "size": 4,
+     "type": "f32"
+    },
+    "rotoryrot": {
+     "off": 136,
+     "size": 4,
+     "type": "f32"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "speed": {
+     "off": 152,
+     "size": 4,
+     "type": "f32"
+    },
+    "speedaim": {
+     "off": 156,
+     "size": 4,
+     "type": "f32"
+    },
+    "speedtime60": {
+     "off": 160,
+     "size": 4,
+     "type": "f32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "yrot": {
+     "off": 164,
+     "size": 4,
+     "type": "f32"
+    }
+   },
+   "size": 180
+  },
+  "AmmoCrateRecord": {
+   "fields": {
+    "ammoType": {
+     "off": 128,
+     "size": 4,
+     "type": "AMMOTYPE"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 132
+  },
+  "AutogunRecord": {
+   "fields": {
+    "aimdist": {
+     "off": 168,
+     "size": 4,
+     "type": "f32"
+    },
+    "beam": {
+     "off": 204,
+     "size": 4,
+     "type": "struct beam *"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "is_active": {
+     "off": 208,
+     "size": 4,
+     "type": "s32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "padID": {
+     "off": 128,
+     "size": 4,
+     "type": "s32"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "rot_related": {
+     "off": 132,
+     "size": 4,
+     "type": "f32"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "speed": {
+     "off": 164,
+     "size": 4,
+     "type": "f32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "unk88": {
+     "off": 136,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk8C": {
+     "off": 140,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk90": {
+     "off": 144,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk94": {
+     "off": 148,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk98": {
+     "off": 152,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk9C": {
+     "off": 156,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkA0": {
+     "off": 160,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkAC": {
+     "off": 172,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkB0": {
+     "off": 176,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkB4": {
+     "off": 180,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkB8": {
+     "off": 184,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkBC": {
+     "off": 188,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkC0": {
+     "off": 192,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkC4": {
+     "off": 196,
+     "size": 4,
+     "type": "ALSoundState *"
+    },
+    "unkC8": {
+     "off": 200,
+     "size": 4,
+     "type": "ALSoundState *"
+    },
+    "unkD4": {
+     "off": 212,
+     "size": 4,
+     "type": "f32"
+    }
+   },
+   "size": 216
+  },
+  "BodyArmourRecord": {
+   "fields": {
+    "amount": {
+     "off": 132,
+     "size": 4,
+     "type": "f32"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "initialamount": {
+     "off": 128,
+     "size": 4,
+     "type": "f32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 136
+  },
+  "CCTVRecord": {
+   "fields": {
+    "convert_to_f32": {
+     "off": 228,
+     "size": 4,
+     "type": "s32"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "lookpad": {
+     "off": 128,
+     "size": 4,
+     "type": "s32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "timer": {
+     "off": 224,
+     "size": 4,
+     "type": "s32"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "unk84": {
+     "off": 132,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "unk84.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 132,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "unk84.unused": {
+     "off": 132,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkC4": {
+     "off": 196,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkC8": {
+     "off": 200,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkCC": {
+     "off": 204,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkD0": {
+     "off": 208,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkD4": {
+     "off": 212,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkD8": {
+     "off": 216,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkDC": {
+     "off": 220,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkE8": {
+     "off": 232,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkEC": {
+     "off": 236,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkF0": {
+     "off": 240,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkF4": {
+     "off": 244,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkF8": {
+     "off": 248,
+     "size": 4,
+     "type": "s32"
+    }
+   },
+   "size": 252
+  },
+  "ChrRecord": {
+   "fields": {
+    "accuracyrating": {
+     "off": 2,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_anim": {
+     "off": 44,
+     "size": 48,
+     "type": "struct act_anim"
+    },
+    "act_anim.animnum": {
+     "off": 72,
+     "size": 2,
+     "type": "s16"
+    },
+    "act_anim.endframe": {
+     "off": 80,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_anim.flip": {
+     "off": 74,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_anim.holdLastFrame": {
+     "off": 48,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_anim.idleOnEnd": {
+     "off": 56,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_anim.noTranslate": {
+     "off": 60,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_anim.playSfx": {
+     "off": 52,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_anim.startframe": {
+     "off": 76,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_anim.unk02c": {
+     "off": 44,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_anim.unk040": {
+     "off": 64,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_anim.unk041": {
+     "off": 65,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_anim.unk042": {
+     "off": 66,
+     "size": 2,
+     "type": "u16"
+    },
+    "act_anim.unk044": {
+     "off": 68,
+     "size": 2,
+     "type": "u16"
+    },
+    "act_anim.unk046": {
+     "off": 70,
+     "size": 2,
+     "type": "u16"
+    },
+    "act_anim.unk054": {
+     "off": 84,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_anim.unk058": {
+     "off": 88,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_argh": {
+     "off": 44,
+     "size": 8,
+     "type": "struct act_argh"
+    },
+    "act_argh.notifychrindex": {
+     "off": 44,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_argh.unk30": {
+     "off": 48,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attack": {
+     "off": 44,
+     "size": 88,
+     "type": "struct act_attack"
+    },
+    "act_attack.animfloats": {
+     "off": 44,
+     "size": 4,
+     "type": "struct weapon_firing_animation_table *"
+    },
+    "act_attack.attack_item": {
+     "off": 128,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.attack_time": {
+     "off": 72,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attack.attacktype": {
+     "off": 76,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.entityid": {
+     "off": 80,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.type_of_motion": {
+     "off": 88,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attack.unk30": {
+     "off": 48,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk31": {
+     "off": 49,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk32": {
+     "off": 50,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk33": {
+     "off": 51,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk34": {
+     "off": 52,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk35": {
+     "off": 53,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk36": {
+     "off": 54,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk37": {
+     "off": 55,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk38": {
+     "count": 2,
+     "elem": 1,
+     "off": 56,
+     "size": 2,
+     "type": "s8 [2]"
+    },
+    "act_attack.unk3a": {
+     "count": 2,
+     "elem": 1,
+     "off": 58,
+     "size": 2,
+     "type": "s8 [2]"
+    },
+    "act_attack.unk3c": {
+     "count": 2,
+     "elem": 1,
+     "off": 60,
+     "size": 2,
+     "type": "s8 [2]"
+    },
+    "act_attack.unk3e": {
+     "off": 62,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk3f": {
+     "off": 63,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attack.unk40": {
+     "off": 64,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk44": {
+     "off": 68,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attack.unk54": {
+     "off": 84,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk5C": {
+     "off": 92,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk60": {
+     "off": 96,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk64": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk68": {
+     "off": 104,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk6c": {
+     "off": 108,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk70": {
+     "off": 112,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk74": {
+     "off": 116,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk78": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk7c": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attack.unk81": {
+     "off": 129,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_attack.unk82": {
+     "off": 130,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_attack.unk83": {
+     "off": 131,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_attackroll": {
+     "off": 44,
+     "size": 88,
+     "type": "struct act_attackroll"
+    },
+    "act_attackroll.animfloats": {
+     "off": 44,
+     "size": 4,
+     "type": "struct weapon_firing_animation_table *"
+    },
+    "act_attackroll.attack_item": {
+     "off": 128,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.attack_time": {
+     "off": 72,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attackroll.unk30": {
+     "off": 48,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk31": {
+     "off": 49,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk32": {
+     "off": 50,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk33": {
+     "off": 51,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk34": {
+     "off": 52,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk35": {
+     "off": 53,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk36": {
+     "off": 54,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk37": {
+     "off": 55,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk38": {
+     "count": 2,
+     "elem": 1,
+     "off": 56,
+     "size": 2,
+     "type": "s8 [2]"
+    },
+    "act_attackroll.unk3a": {
+     "count": 2,
+     "elem": 1,
+     "off": 58,
+     "size": 2,
+     "type": "s8 [2]"
+    },
+    "act_attackroll.unk3c": {
+     "count": 2,
+     "elem": 1,
+     "off": 60,
+     "size": 2,
+     "type": "s8 [2]"
+    },
+    "act_attackroll.unk3e": {
+     "off": 62,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk3f": {
+     "off": 63,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackroll.unk40": {
+     "off": 64,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk44": {
+     "off": 68,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attackroll.unk4c": {
+     "count": 2,
+     "elem": 4,
+     "off": 76,
+     "size": 8,
+     "type": "s32 [2]"
+    },
+    "act_attackroll.unk54": {
+     "count": 2,
+     "elem": 4,
+     "off": 84,
+     "size": 8,
+     "type": "s32 [2]"
+    },
+    "act_attackroll.unk5C": {
+     "off": 92,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk60": {
+     "off": 96,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk64": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk68": {
+     "off": 104,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk6c": {
+     "off": 108,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk70": {
+     "off": 112,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk74": {
+     "off": 116,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk78": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk7c": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackroll.unk81": {
+     "off": 129,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_attackroll.unk82": {
+     "off": 130,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_attackroll.unk83": {
+     "off": 131,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_attackwalk": {
+     "off": 44,
+     "size": 88,
+     "type": "struct act_attackwalk"
+    },
+    "act_attackwalk.animfloats": {
+     "off": 60,
+     "size": 4,
+     "type": "struct weapon_firing_animation_table *"
+    },
+    "act_attackwalk.attack_item": {
+     "off": 128,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackwalk.clock_timer30": {
+     "off": 48,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attackwalk.clock_timer34": {
+     "off": 52,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attackwalk.flip": {
+     "off": 78,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_attackwalk.speed": {
+     "off": 84,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_attackwalk.timer40": {
+     "off": 64,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attackwalk.unk02c": {
+     "off": 44,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk038": {
+     "off": 56,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk044": {
+     "off": 68,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attackwalk.unk48": {
+     "count": 2,
+     "elem": 1,
+     "off": 72,
+     "size": 2,
+     "type": "s8 [2]"
+    },
+    "act_attackwalk.unk4C": {
+     "count": 2,
+     "elem": 1,
+     "off": 76,
+     "size": 2,
+     "type": "s8 [2]"
+    },
+    "act_attackwalk.unk4a": {
+     "count": 2,
+     "elem": 1,
+     "off": 74,
+     "size": 2,
+     "type": "s8 [2]"
+    },
+    "act_attackwalk.unk4f": {
+     "off": 79,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_attackwalk.unk50": {
+     "off": 80,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_attackwalk.unk58": {
+     "off": 88,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk5C": {
+     "off": 92,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk60": {
+     "off": 96,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk64": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk68": {
+     "off": 104,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk6c": {
+     "off": 108,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk70": {
+     "off": 112,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk74": {
+     "off": 116,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk78": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk7c": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_attackwalk.unk81": {
+     "off": 129,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_attackwalk.unk82": {
+     "off": 130,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_attackwalk.unk83": {
+     "off": 131,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_bonddie": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_bonddie"
+    },
+    "act_bonddie.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_bondintro": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_bondintro"
+    },
+    "act_bondintro.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_bondmulti": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_bondmulti"
+    },
+    "act_bondmulti.padding": {
+     "count": 25,
+     "elem": 4,
+     "off": 64,
+     "size": 100,
+     "type": "int [25]"
+    },
+    "act_bondmulti.unk2c": {
+     "off": 44,
+     "size": 4,
+     "type": "struct weapon_firing_animation_table *"
+    },
+    "act_bondmulti.unk30": {
+     "off": 48,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_bondmulti.unk34": {
+     "off": 52,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_bondmulti.unk38": {
+     "off": 56,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_bondmulti.unk3c": {
+     "off": 60,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_bytes": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_bytes"
+    },
+    "act_bytes.padding": {
+     "count": 120,
+     "elem": 1,
+     "off": 44,
+     "size": 120,
+     "type": "s8 [120]"
+    },
+    "act_dead": {
+     "off": 44,
+     "size": 20,
+     "type": "struct act_dead"
+    },
+    "act_dead.allowfade": {
+     "off": 44,
+     "size": 4,
+     "type": "bool"
+    },
+    "act_dead.allowreap": {
+     "off": 48,
+     "size": 4,
+     "type": "bool"
+    },
+    "act_dead.fadetimer": {
+     "off": 56,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_dead.notifychrindex": {
+     "off": 60,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_dead.reaptimer": {
+     "off": 52,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_die": {
+     "off": 44,
+     "size": 36,
+     "type": "struct act_die"
+    },
+    "act_die.drcarollimagedelay": {
+     "off": 76,
+     "size": 2,
+     "type": "s16"
+    },
+    "act_die.elapseextra": {
+     "off": 60,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_die.extraspeed": {
+     "off": 64,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_die.notifychrindex": {
+     "off": 44,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_die.thudframe1": {
+     "off": 48,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_die.thudframe2": {
+     "off": 52,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_die.timeextra": {
+     "off": 56,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_gopos": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_gopos"
+    },
+    "act_gopos.curindex": {
+     "off": 88,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_gopos.speed": {
+     "off": 160,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_gopos.target": {
+     "off": 56,
+     "size": 4,
+     "type": "StandTile *"
+    },
+    "act_gopos.target_path": {
+     "off": 60,
+     "size": 4,
+     "type": "waypoint *"
+    },
+    "act_gopos.targetpos": {
+     "off": 44,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_gopos.unk59": {
+     "off": 89,
+     "size": 1,
+     "type": "u8"
+    },
+    "act_gopos.unk5a": {
+     "off": 90,
+     "size": 2,
+     "type": "u16"
+    },
+    "act_gopos.unk9c": {
+     "off": 156,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_gopos.waydata": {
+     "off": 92,
+     "size": 64,
+     "type": "struct waydata"
+    },
+    "act_gopos.waydata.age": {
+     "off": 132,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_gopos.waydata.mode": {
+     "off": 92,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_gopos.waydata.pos": {
+     "off": 96,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_gopos.waydata.pos2": {
+     "off": 108,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_gopos.waydata.pos3": {
+     "off": 120,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_gopos.waydata.pos_copy": {
+     "off": 136,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_gopos.waydata.segdistdone": {
+     "off": 148,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_gopos.waydata.segdisttotal": {
+     "off": 152,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_gopos.waydata.unk01": {
+     "off": 93,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_gopos.waydata.unk02": {
+     "off": 94,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_gopos.waydata.unk03": {
+     "off": 95,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_gopos.waypoints": {
+     "count": 6,
+     "elem": 4,
+     "off": 64,
+     "size": 24,
+     "type": "waypoint *[6]"
+    },
+    "act_init": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_init"
+    },
+    "act_init.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_jumpout": {
+     "off": 44,
+     "size": 4,
+     "type": "struct act_jumpout"
+    },
+    "act_jumpout.side": {
+     "off": 44,
+     "size": 4,
+     "type": "bool"
+    },
+    "act_kneel": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_kneel"
+    },
+    "act_kneel.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_lookattarget": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_lookattarget"
+    },
+    "act_lookattarget.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_null": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_null"
+    },
+    "act_null.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_patrol": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_patrol"
+    },
+    "act_patrol.forward": {
+     "off": 52,
+     "size": 4,
+     "type": "bool"
+    },
+    "act_patrol.lastvisible60": {
+     "off": 120,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.nextstep": {
+     "off": 48,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.path": {
+     "off": 44,
+     "size": 4,
+     "type": "struct patrol_path *"
+    },
+    "act_patrol.speed": {
+     "off": 124,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_patrol.unk80": {
+     "off": 128,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.unk84": {
+     "off": 132,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.unk88": {
+     "off": 136,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.unk8c": {
+     "off": 140,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.unk90": {
+     "off": 144,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.unk94": {
+     "off": 148,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.unk98": {
+     "off": 152,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.unk9c": {
+     "off": 156,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.unka0": {
+     "off": 160,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.waydata": {
+     "off": 56,
+     "size": 64,
+     "type": "struct waydata"
+    },
+    "act_patrol.waydata.age": {
+     "off": 96,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_patrol.waydata.mode": {
+     "off": 56,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_patrol.waydata.pos": {
+     "off": 60,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_patrol.waydata.pos2": {
+     "off": 72,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_patrol.waydata.pos3": {
+     "off": 84,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_patrol.waydata.pos_copy": {
+     "off": 100,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_patrol.waydata.segdistdone": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_patrol.waydata.segdisttotal": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_patrol.waydata.unk01": {
+     "off": 57,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_patrol.waydata.unk02": {
+     "off": 58,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_patrol.waydata.unk03": {
+     "off": 59,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_preargh": {
+     "off": 44,
+     "size": 28,
+     "type": "struct act_preargh"
+    },
+    "act_preargh.pos": {
+     "off": 44,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_preargh.unk038": {
+     "off": 56,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_preargh.unk03c": {
+     "off": 60,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_preargh.unk040": {
+     "off": 64,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_preargh.unk044": {
+     "off": 68,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_runpos": {
+     "off": 44,
+     "size": 24,
+     "type": "struct act_runpos"
+    },
+    "act_runpos.eta60": {
+     "off": 60,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_runpos.neardist": {
+     "off": 56,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_runpos.pos": {
+     "off": 44,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "act_runpos.turnspeed": {
+     "off": 64,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_sidestep": {
+     "off": 44,
+     "size": 4,
+     "type": "struct act_sidestep"
+    },
+    "act_sidestep.side": {
+     "off": 44,
+     "size": 4,
+     "type": "bool"
+    },
+    "act_stand": {
+     "off": 44,
+     "size": 36,
+     "type": "struct act_stand"
+    },
+    "act_stand.checkfacingwall": {
+     "off": 64,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_stand.face_entityid": {
+     "off": 52,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_stand.face_entitytype": {
+     "off": 48,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_stand.face_target": {
+     "off": 76,
+     "size": 1,
+     "type": "s8"
+    },
+    "act_stand.mergetime": {
+     "off": 72,
+     "size": 4,
+     "type": "f32"
+    },
+    "act_stand.prestand": {
+     "off": 44,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_stand.reaim": {
+     "off": 56,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_stand.turning": {
+     "off": 60,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_stand.wallcount": {
+     "off": 68,
+     "size": 4,
+     "type": "s32"
+    },
+    "act_startalarm": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_startalarm"
+    },
+    "act_startalarm.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_surprised": {
+     "off": 44,
+     "size": 4,
+     "type": "struct act_surprised"
+    },
+    "act_surprised.type": {
+     "off": 44,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_surrender": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_surrender"
+    },
+    "act_surrender.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_test": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_test"
+    },
+    "act_test.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_throwgrenade": {
+     "off": 44,
+     "size": 16,
+     "type": "struct act_throwgrenade"
+    },
+    "act_throwgrenade.entityid": {
+     "off": 48,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_throwgrenade.entitytype": {
+     "off": 44,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_throwgrenade.hand": {
+     "off": 52,
+     "size": 4,
+     "type": "u32"
+    },
+    "act_throwgrenade.needsequip": {
+     "off": 56,
+     "size": 4,
+     "type": "bool"
+    },
+    "act_turndir": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_turndir"
+    },
+    "act_turndir.padding": {
+     "count": 30,
+     "elem": 4,
+     "off": 44,
+     "size": 120,
+     "type": "int [30]"
+    },
+    "act_ubytes": {
+     "off": 44,
+     "size": 120,
+     "type": "struct act_ubytes"
+    },
+    "act_ubytes.padding": {
+     "count": 120,
+     "elem": 1,
+     "off": 44,
+     "size": 120,
+     "type": "u8 [120]"
+    },
+    "actiontype": {
+     "bitpos": 0,
+     "bits": 8,
+     "off": 7,
+     "size": 4,
+     "type": "ACT_TYPE"
+    },
+    "ailist": {
+     "off": 260,
+     "size": 4,
+     "type": "AIRecord *"
+    },
+    "aimendback": {
+     "off": 344,
+     "size": 4,
+     "type": "f32"
+    },
+    "aimendcount": {
+     "off": 14,
+     "size": 1,
+     "type": "s8"
+    },
+    "aimendlshoulder": {
+     "off": 336,
+     "size": 4,
+     "type": "f32"
+    },
+    "aimendrshoulder": {
+     "off": 340,
+     "size": 4,
+     "type": "f32"
+    },
+    "aimendsideback": {
+     "off": 348,
+     "size": 4,
+     "type": "f32"
+    },
+    "aimsideback": {
+     "off": 332,
+     "size": 4,
+     "type": "f32"
+    },
+    "aimupback": {
+     "off": 328,
+     "size": 4,
+     "type": "f32"
+    },
+    "aimuplshoulder": {
+     "off": 320,
+     "size": 4,
+     "type": "f32"
+    },
+    "aimuprshoulder": {
+     "off": 324,
+     "size": 4,
+     "type": "f32"
+    },
+    "aioffset": {
+     "off": 264,
+     "size": 2,
+     "type": "u16"
+    },
+    "aireturnlist": {
+     "off": 266,
+     "size": 2,
+     "type": "s16"
+    },
+    "alertness": {
+     "off": 269,
+     "size": 1,
+     "type": "u8"
+    },
+    "arghrating": {
+     "off": 13,
+     "size": 1,
+     "type": "s8"
+    },
+    "beams": {
+     "count": 2,
+     "elem": 44,
+     "off": 384,
+     "size": 88,
+     "type": "BeamRecord [2]"
+    },
+    "bodynum": {
+     "off": 15,
+     "size": 1,
+     "type": "s8"
+    },
+    "chrflags": {
+     "off": 20,
+     "size": 4,
+     "type": "CHRFLAG"
+    },
+    "chrheight": {
+     "off": 40,
+     "size": 4,
+     "type": "f32"
+    },
+    "chrnum": {
+     "off": 0,
+     "size": 2,
+     "type": "s16"
+    },
+    "chrpreset1": {
+     "off": 278,
+     "size": 2,
+     "type": "s16"
+    },
+    "chrseedie": {
+     "off": 282,
+     "size": 2,
+     "type": "s16"
+    },
+    "chrseeshot": {
+     "off": 280,
+     "size": 2,
+     "type": "s16"
+    },
+    "chrwidth": {
+     "off": 36,
+     "size": 4,
+     "type": "f32"
+    },
+    "collision_bounds": {
+     "off": 284,
+     "size": 32,
+     "type": "rect4f"
+    },
+    "collision_bounds.f": {
+     "count": 8,
+     "elem": 4,
+     "off": 284,
+     "size": 32,
+     "type": "f32 [8]"
+    },
+    "collision_bounds.points": {
+     "count": 4,
+     "elem": 8,
+     "off": 284,
+     "size": 32,
+     "type": "struct coord2d [4]"
+    },
+    "damage": {
+     "off": 252,
+     "size": 4,
+     "type": "f32"
+    },
+    "fadealpha": {
+     "off": 12,
+     "size": 1,
+     "type": "u8"
+    },
+    "fallspeed": {
+     "off": 176,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "fallspeed.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 176,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "fallspeed.x": {
+     "off": 176,
+     "size": 4,
+     "type": "f32"
+    },
+    "fallspeed.y": {
+     "off": 180,
+     "size": 4,
+     "type": "f32"
+    },
+    "fallspeed.z": {
+     "off": 184,
+     "size": 4,
+     "type": "f32"
+    },
+    "field_160": {
+     "count": 2,
+     "elem": 8,
+     "off": 360,
+     "size": 16,
+     "type": "struct {...} [2]"
+    },
+    "field_178": {
+     "count": 2,
+     "elem": 4,
+     "off": 376,
+     "size": 8,
+     "type": "s32 [2]"
+    },
+    "field_20": {
+     "off": 32,
+     "size": 4,
+     "type": "ModelHitEntry *"
+    },
+    "firecount": {
+     "count": 2,
+     "elem": 1,
+     "off": 4,
+     "size": 2,
+     "type": "u8 [2]"
+    },
+    "flags2": {
+     "off": 270,
+     "size": 1,
+     "type": "u8"
+    },
+    "flinchcnt": {
+     "off": 17,
+     "size": 1,
+     "type": "s8"
+    },
+    "grenadeprob": {
+     "off": 16,
+     "size": 1,
+     "type": "u8"
+    },
+    "ground": {
+     "off": 172,
+     "size": 4,
+     "type": "f32"
+    },
+    "handle_positiondata_hat": {
+     "off": 472,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "headnum": {
+     "off": 6,
+     "size": 1,
+     "type": "s8"
+    },
+    "hearingscale": {
+     "off": 236,
+     "size": 4,
+     "type": "f32"
+    },
+    "hidden": {
+     "off": 18,
+     "size": 2,
+     "type": "u16"
+    },
+    "invalidmove": {
+     "off": 9,
+     "size": 1,
+     "type": "s8"
+    },
+    "lastheartarget60": {
+     "off": 240,
+     "size": 4,
+     "type": "s32"
+    },
+    "lastknowntargetpos": {
+     "off": 216,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "lastknowntargetpos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 216,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "lastknowntargetpos.x": {
+     "off": 216,
+     "size": 4,
+     "type": "f32"
+    },
+    "lastknowntargetpos.y": {
+     "off": 220,
+     "size": 4,
+     "type": "f32"
+    },
+    "lastknowntargetpos.z": {
+     "off": 224,
+     "size": 4,
+     "type": "f32"
+    },
+    "lastmoveok60": {
+     "off": 204,
+     "size": 4,
+     "type": "s32"
+    },
+    "lastseetarget60": {
+     "off": 212,
+     "size": 4,
+     "type": "s32"
+    },
+    "lastshooter": {
+     "off": 232,
+     "size": 2,
+     "type": "s16"
+    },
+    "lastwalk60": {
+     "off": 200,
+     "size": 4,
+     "type": "s32"
+    },
+    "manground": {
+     "off": 168,
+     "size": 4,
+     "type": "f32"
+    },
+    "maxdamage": {
+     "off": 256,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 28,
+     "size": 4,
+     "type": "Model *"
+    },
+    "morale": {
+     "off": 268,
+     "size": 1,
+     "type": "u8"
+    },
+    "nextcol": {
+     "off": 248,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.a": {
+     "off": 251,
+     "size": 1,
+     "type": "u8"
+    },
+    "nextcol.b": {
+     "off": 250,
+     "size": 1,
+     "type": "u8"
+    },
+    "nextcol.g": {
+     "off": 249,
+     "size": 1,
+     "type": "u8"
+    },
+    "nextcol.r": {
+     "off": 248,
+     "size": 1,
+     "type": "u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 248,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 248,
+     "size": 4,
+     "type": "u32"
+    },
+    "numarghs": {
+     "off": 11,
+     "size": 1,
+     "type": "s8"
+    },
+    "numclosearghs": {
+     "off": 10,
+     "size": 1,
+     "type": "s8"
+    },
+    "padpreset1": {
+     "off": 276,
+     "size": 2,
+     "type": "s16"
+    },
+    "prevpos": {
+     "off": 188,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "prevpos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 188,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "prevpos.x": {
+     "off": 188,
+     "size": 4,
+     "type": "f32"
+    },
+    "prevpos.y": {
+     "off": 192,
+     "size": 4,
+     "type": "f32"
+    },
+    "prevpos.z": {
+     "off": 196,
+     "size": 4,
+     "type": "f32"
+    },
+    "prop": {
+     "off": 24,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "random": {
+     "off": 271,
+     "size": 1,
+     "type": "u8"
+    },
+    "seen_bond_time": {
+     "off": 232,
+     "size": 4,
+     "type": "s32"
+    },
+    "shadecol": {
+     "off": 244,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.a": {
+     "off": 247,
+     "size": 1,
+     "type": "u8"
+    },
+    "shadecol.b": {
+     "off": 246,
+     "size": 1,
+     "type": "u8"
+    },
+    "shadecol.g": {
+     "off": 245,
+     "size": 1,
+     "type": "u8"
+    },
+    "shadecol.r": {
+     "off": 244,
+     "size": 1,
+     "type": "u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 244,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 244,
+     "size": 4,
+     "type": "u32"
+    },
+    "shotbondsum": {
+     "off": 316,
+     "size": 4,
+     "type": "f32"
+    },
+    "sleep": {
+     "off": 8,
+     "size": 1,
+     "type": "s8"
+    },
+    "speedrating": {
+     "off": 3,
+     "size": 1,
+     "type": "s8"
+    },
+    "sumground": {
+     "off": 164,
+     "size": 4,
+     "type": "f32"
+    },
+    "targetTile": {
+     "off": 228,
+     "size": 4,
+     "type": "void *"
+    },
+    "timer60": {
+     "off": 272,
+     "size": 4,
+     "type": "s32"
+    },
+    "timeshooter": {
+     "off": 234,
+     "size": 2,
+     "type": "s16"
+    },
+    "visionrange": {
+     "off": 208,
+     "size": 4,
+     "type": "f32"
+    },
+    "weapons_held": {
+     "count": 2,
+     "elem": 4,
+     "off": 352,
+     "size": 8,
+     "type": "PropRecord *[2]"
+    }
+   },
+   "size": 476
+  },
+  "DoorRecord": {
+   "fields": {
+    "CullDist": {
+     "off": 196,
+     "size": 2,
+     "type": "s16"
+    },
+    "TintDist": {
+     "off": 192,
+     "size": 4,
+     "type": "s32"
+    },
+    "accel": {
+     "off": 140,
+     "size": 4,
+     "type": "f32"
+    },
+    "autoCloseFrames": {
+     "off": 160,
+     "size": 4,
+     "type": "u32"
+    },
+    "bbox": {
+     "off": 208,
+     "size": 28,
+     "type": "struct ModelRoData_BoundingBoxRecord"
+    },
+    "bbox.Bounds": {
+     "off": 212,
+     "size": 24,
+     "type": "struct bbox"
+    },
+    "bbox.Bounds.AsArray": {
+     "count": 6,
+     "elem": 4,
+     "off": 212,
+     "size": 24,
+     "type": "f32 [6]"
+    },
+    "bbox.Bounds.f": {
+     "count": 3,
+     "elem": 8,
+     "off": 212,
+     "size": 24,
+     "type": "f32 [3][2]"
+    },
+    "bbox.ModelNumber": {
+     "off": 208,
+     "size": 4,
+     "type": "u32"
+    },
+    "calculatedopacity": {
+     "off": 190,
+     "size": 2,
+     "type": "s16"
+    },
+    "closeSoundState": {
+     "off": 248,
+     "size": 4,
+     "type": "ALSoundState *"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "decel": {
+     "off": 144,
+     "size": 4,
+     "type": "f32"
+    },
+    "doorFlags": {
+     "off": 152,
+     "size": 2,
+     "type": "u16"
+    },
+    "doorOpenSound": {
+     "off": 164,
+     "size": 4,
+     "type": "u32"
+    },
+    "doorType": {
+     "off": 154,
+     "size": 2,
+     "type": "u16"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "fadeTime60": {
+     "off": 199,
+     "size": 1,
+     "type": "s8"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "frac": {
+     "off": 168,
+     "size": 4,
+     "type": "f32"
+    },
+    "keyflags": {
+     "off": 156,
+     "size": 4,
+     "type": "u32"
+    },
+    "lastcalc60f": {
+     "off": 252,
+     "size": 4,
+     "type": "f32"
+    },
+    "lastcalc60i": {
+     "off": 252,
+     "size": 4,
+     "type": "s32"
+    },
+    "linkedDoor": {
+     "off": 200,
+     "size": 4,
+     "type": "struct DoorRecord *"
+    },
+    "linkedDoorOffset": {
+     "off": 128,
+     "size": 4,
+     "type": "s32"
+    },
+    "maxFrac": {
+     "off": 132,
+     "size": 4,
+     "type": "f32"
+    },
+    "maxSpeed": {
+     "off": 148,
+     "size": 4,
+     "type": "f32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "openPosition": {
+     "off": 180,
+     "size": 4,
+     "type": "f32"
+    },
+    "openSoundState": {
+     "off": 244,
+     "size": 4,
+     "type": "ALSoundState *"
+    },
+    "openedTime": {
+     "off": 236,
+     "size": 4,
+     "type": "u32"
+    },
+    "openstate": {
+     "off": 188,
+     "size": 1,
+     "type": "s8"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "perimFrac": {
+     "off": 136,
+     "size": 4,
+     "type": "f32"
+    },
+    "portalNumber": {
+     "off": 240,
+     "size": 4,
+     "type": "s32"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "soundType": {
+     "off": 198,
+     "size": 1,
+     "type": "s8"
+    },
+    "speed": {
+     "off": 184,
+     "size": 4,
+     "type": "f32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "unkac": {
+     "off": 172,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkb0": {
+     "off": 176,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkbd": {
+     "off": 189,
+     "size": 1,
+     "type": "s8"
+    },
+    "unkcc": {
+     "off": 204,
+     "size": 4,
+     "type": "Vertex *"
+    }
+   },
+   "size": 256
+  },
+  "GuardAttributeRecord": {
+   "fields": {
+    "GrenadeProb": {
+     "off": 11,
+     "size": 1,
+     "type": "s8"
+    },
+    "chrnum": {
+     "off": 4,
+     "size": 4,
+     "type": "s32"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "unk8": {
+     "off": 8,
+     "size": 2,
+     "type": "s16"
+    },
+    "unkA": {
+     "off": 10,
+     "size": 1,
+     "type": "s8"
+    }
+   },
+   "size": 12
+  },
+  "GuardRecord": {
+   "fields": {
+    "AIListID": {
+     "off": 10,
+     "size": 2,
+     "type": "u16"
+    },
+    "BodyID": {
+     "off": 8,
+     "size": 2,
+     "type": "u16"
+    },
+    "Data": {
+     "off": 24,
+     "size": 4,
+     "type": "ChrRecord *"
+    },
+    "HeadID": {
+     "off": 22,
+     "size": 2,
+     "type": "s16"
+    },
+    "PadID": {
+     "off": 6,
+     "size": 2,
+     "type": "u16"
+    },
+    "Preset": {
+     "off": 12,
+     "size": 2,
+     "type": "u16"
+    },
+    "ReactionTime": {
+     "off": 18,
+     "size": 2,
+     "type": "u16"
+    },
+    "bitflags": {
+     "off": 20,
+     "size": 2,
+     "type": "u16"
+    },
+    "chrnum": {
+     "off": 4,
+     "size": 2,
+     "type": "u16"
+    },
+    "chrpreset1": {
+     "off": 14,
+     "size": 2,
+     "type": "u16"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "health": {
+     "off": 16,
+     "size": 2,
+     "type": "u16"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 28
+  },
+  "HatRecord": {
+   "fields": {
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 128
+  },
+  "KeyRecord": {
+   "fields": {
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "keyID": {
+     "off": 128,
+     "size": 1,
+     "type": "s8"
+    },
+    "keyflags": {
+     "off": 128,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 132
+  },
+  "LockDoorRecord": {
+   "fields": {
+    "Index1": {
+     "off": 4,
+     "size": 4,
+     "type": "s32"
+    },
+    "Index2": {
+     "off": 8,
+     "size": 4,
+     "type": "s32"
+    },
+    "door": {
+     "off": 4,
+     "size": 4,
+     "type": "struct DoorRecord *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "lock": {
+     "off": 8,
+     "size": 4,
+     "type": "struct ObjectRecord *"
+    },
+    "next": {
+     "off": 12,
+     "size": 4,
+     "type": "struct LockDoorRecord *"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 16
+  },
+  "Model": {
+   "fields": {
+    "anim": {
+     "off": 32,
+     "size": 4,
+     "type": "ModelAnimation *"
+    },
+    "anim2": {
+     "off": 84,
+     "size": 4,
+     "type": "ModelAnimation *"
+    },
+    "anim_translation_scale": {
+     "off": 184,
+     "size": 4,
+     "type": "f32"
+    },
+    "animflipfunc": {
+     "off": 152,
+     "size": 4,
+     "type": "s32"
+    },
+    "animframe1": {
+     "off": 40,
+     "size": 4,
+     "type": "f32"
+    },
+    "animframe2": {
+     "off": 88,
+     "size": 4,
+     "type": "f32"
+    },
+    "animloopframe": {
+     "off": 144,
+     "size": 4,
+     "type": "f32"
+    },
+    "animlooping": {
+     "off": 38,
+     "size": 1,
+     "type": "s8"
+    },
+    "animloopmerge": {
+     "off": 148,
+     "size": 4,
+     "type": "f32"
+    },
+    "animrate": {
+     "off": 168,
+     "size": 4,
+     "type": "f32"
+    },
+    "attachedto": {
+     "off": 24,
+     "size": 4,
+     "type": "struct Model *"
+    },
+    "attachedto_objinst": {
+     "off": 28,
+     "size": 4,
+     "type": "ModelNode *"
+    },
+    "chr": {
+     "off": 4,
+     "size": 4,
+     "type": "struct ChrRecord *"
+    },
+    "datas": {
+     "off": 16,
+     "size": 4,
+     "type": "union ModelRwData **"
+    },
+    "elapsespeed": {
+     "off": 80,
+     "size": 4,
+     "type": "f32"
+    },
+    "endframe": {
+     "off": 60,
+     "size": 4,
+     "type": "f32"
+    },
+    "frame2a": {
+     "off": 96,
+     "size": 2,
+     "type": "s16"
+    },
+    "frame2b": {
+     "off": 98,
+     "size": 2,
+     "type": "s16"
+    },
+    "framea": {
+     "off": 48,
+     "size": 2,
+     "type": "s16"
+    },
+    "frameb": {
+     "off": 50,
+     "size": 2,
+     "type": "s16"
+    },
+    "gunhand": {
+     "off": 36,
+     "size": 1,
+     "type": "s8"
+    },
+    "newspeed": {
+     "off": 68,
+     "size": 4,
+     "type": "f32"
+    },
+    "obj": {
+     "off": 8,
+     "size": 4,
+     "type": "ModelFileHeader *"
+    },
+    "oldspeed": {
+     "off": 72,
+     "size": 4,
+     "type": "f32"
+    },
+    "playspeed": {
+     "off": 164,
+     "size": 4,
+     "type": "f32"
+    },
+    "render_pos": {
+     "off": 12,
+     "size": 4,
+     "type": "RenderPosView *"
+    },
+    "rwdatalen": {
+     "off": 2,
+     "size": 2,
+     "type": "s16"
+    },
+    "scale": {
+     "off": 20,
+     "size": 4,
+     "type": "f32"
+    },
+    "speed": {
+     "off": 64,
+     "size": 4,
+     "type": "f32"
+    },
+    "speed2": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "timespeed": {
+     "off": 76,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk00": {
+     "off": 0,
+     "size": 2,
+     "type": "s16"
+    },
+    "unk25": {
+     "off": 37,
+     "size": 1,
+     "type": "s8"
+    },
+    "unk27": {
+     "off": 39,
+     "size": 1,
+     "type": "s8"
+    },
+    "unk2c": {
+     "off": 44,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk34": {
+     "off": 52,
+     "size": 4,
+     "type": "s32"
+    },
+    "unk38": {
+     "off": 56,
+     "size": 4,
+     "type": "s32"
+    },
+    "unk5c": {
+     "off": 92,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk64": {
+     "off": 100,
+     "size": 4,
+     "type": "s32"
+    },
+    "unk68": {
+     "off": 104,
+     "size": 4,
+     "type": "s32"
+    },
+    "unk6c": {
+     "off": 108,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk74": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk78": {
+     "off": 120,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk7c": {
+     "off": 124,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk80": {
+     "off": 128,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk84": {
+     "off": 132,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk88": {
+     "off": 136,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk8c": {
+     "off": 140,
+     "size": 4,
+     "type": "f32"
+    },
+    "unk9c": {
+     "off": 156,
+     "size": 4,
+     "type": "s32"
+    },
+    "unka0": {
+     "off": 160,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkac": {
+     "off": 172,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkb0": {
+     "off": 176,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkb4": {
+     "off": 180,
+     "size": 4,
+     "type": "f32"
+    }
+   },
+   "size": 188
+  },
+  "MonitorObjRecord": {
+   "fields": {
+    "ImageNum": {
+     "off": 252,
+     "size": 4,
+     "type": "s32"
+    },
+    "Monitor": {
+     "off": 128,
+     "size": 116,
+     "type": "MonitorRecord"
+    },
+    "Monitor.alpha": {
+     "off": 233,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.alphanew": {
+     "off": 235,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.alphaold": {
+     "off": 234,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.blue": {
+     "off": 230,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.bluenew": {
+     "off": 232,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.blueold": {
+     "off": 231,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.cmdlist": {
+     "off": 128,
+     "size": 4,
+     "type": "tvword *"
+    },
+    "Monitor.colfrac": {
+     "off": 236,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.colinc": {
+     "off": 240,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.green": {
+     "off": 227,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.greennew": {
+     "off": 229,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.greenold": {
+     "off": 228,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.offset": {
+     "off": 132,
+     "size": 2,
+     "type": "u16"
+    },
+    "Monitor.pause60": {
+     "off": 134,
+     "size": 2,
+     "type": "s16"
+    },
+    "Monitor.red": {
+     "off": 224,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.rednew": {
+     "off": 226,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.redold": {
+     "off": 225,
+     "size": 1,
+     "type": "u8"
+    },
+    "Monitor.rot": {
+     "off": 140,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.tconfig": {
+     "off": 136,
+     "size": 4,
+     "type": "struct sImageTableEntry *"
+    },
+    "Monitor.xmid": {
+     "off": 184,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.xmidfrac": {
+     "off": 188,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.xmidinc": {
+     "off": 192,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.xmidnew": {
+     "off": 200,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.xmidold": {
+     "off": 196,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.xscale": {
+     "off": 144,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.xscalefrac": {
+     "off": 148,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.xscaleinc": {
+     "off": 152,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.xscalenew": {
+     "off": 160,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.xscaleold": {
+     "off": 156,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.ymid": {
+     "off": 204,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.ymidfrac": {
+     "off": 208,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.ymidinc": {
+     "off": 212,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.ymidnew": {
+     "off": 220,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.ymidold": {
+     "off": 216,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.yscale": {
+     "off": 164,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.yscalefrac": {
+     "off": 168,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.yscaleinc": {
+     "off": 172,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.yscalenew": {
+     "off": 180,
+     "size": 4,
+     "type": "f32"
+    },
+    "Monitor.yscaleold": {
+     "off": 176,
+     "size": 4,
+     "type": "f32"
+    },
+    "OwnerOffset": {
+     "off": 244,
+     "size": 4,
+     "type": "s32"
+    },
+    "OwnerPart": {
+     "off": 248,
+     "size": 4,
+     "type": "s32"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 256
+  },
+  "MonitorRecord": {
+   "fields": {
+    "alpha": {
+     "off": 105,
+     "size": 1,
+     "type": "u8"
+    },
+    "alphanew": {
+     "off": 107,
+     "size": 1,
+     "type": "u8"
+    },
+    "alphaold": {
+     "off": 106,
+     "size": 1,
+     "type": "u8"
+    },
+    "blue": {
+     "off": 102,
+     "size": 1,
+     "type": "u8"
+    },
+    "bluenew": {
+     "off": 104,
+     "size": 1,
+     "type": "u8"
+    },
+    "blueold": {
+     "off": 103,
+     "size": 1,
+     "type": "u8"
+    },
+    "cmdlist": {
+     "off": 0,
+     "size": 4,
+     "type": "tvword *"
+    },
+    "colfrac": {
+     "off": 108,
+     "size": 4,
+     "type": "f32"
+    },
+    "colinc": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "green": {
+     "off": 99,
+     "size": 1,
+     "type": "u8"
+    },
+    "greennew": {
+     "off": 101,
+     "size": 1,
+     "type": "u8"
+    },
+    "greenold": {
+     "off": 100,
+     "size": 1,
+     "type": "u8"
+    },
+    "offset": {
+     "off": 4,
+     "size": 2,
+     "type": "u16"
+    },
+    "pause60": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "red": {
+     "off": 96,
+     "size": 1,
+     "type": "u8"
+    },
+    "rednew": {
+     "off": 98,
+     "size": 1,
+     "type": "u8"
+    },
+    "redold": {
+     "off": 97,
+     "size": 1,
+     "type": "u8"
+    },
+    "rot": {
+     "off": 12,
+     "size": 4,
+     "type": "f32"
+    },
+    "tconfig": {
+     "off": 8,
+     "size": 4,
+     "type": "struct sImageTableEntry *"
+    },
+    "xmid": {
+     "off": 56,
+     "size": 4,
+     "type": "f32"
+    },
+    "xmidfrac": {
+     "off": 60,
+     "size": 4,
+     "type": "f32"
+    },
+    "xmidinc": {
+     "off": 64,
+     "size": 4,
+     "type": "f32"
+    },
+    "xmidnew": {
+     "off": 72,
+     "size": 4,
+     "type": "f32"
+    },
+    "xmidold": {
+     "off": 68,
+     "size": 4,
+     "type": "f32"
+    },
+    "xscale": {
+     "off": 16,
+     "size": 4,
+     "type": "f32"
+    },
+    "xscalefrac": {
+     "off": 20,
+     "size": 4,
+     "type": "f32"
+    },
+    "xscaleinc": {
+     "off": 24,
+     "size": 4,
+     "type": "f32"
+    },
+    "xscalenew": {
+     "off": 32,
+     "size": 4,
+     "type": "f32"
+    },
+    "xscaleold": {
+     "off": 28,
+     "size": 4,
+     "type": "f32"
+    },
+    "ymid": {
+     "off": 76,
+     "size": 4,
+     "type": "f32"
+    },
+    "ymidfrac": {
+     "off": 80,
+     "size": 4,
+     "type": "f32"
+    },
+    "ymidinc": {
+     "off": 84,
+     "size": 4,
+     "type": "f32"
+    },
+    "ymidnew": {
+     "off": 92,
+     "size": 4,
+     "type": "f32"
+    },
+    "ymidold": {
+     "off": 88,
+     "size": 4,
+     "type": "f32"
+    },
+    "yscale": {
+     "off": 36,
+     "size": 4,
+     "type": "f32"
+    },
+    "yscalefrac": {
+     "off": 40,
+     "size": 4,
+     "type": "f32"
+    },
+    "yscaleinc": {
+     "off": 44,
+     "size": 4,
+     "type": "f32"
+    },
+    "yscalenew": {
+     "off": 52,
+     "size": 4,
+     "type": "f32"
+    },
+    "yscaleold": {
+     "off": 48,
+     "size": 4,
+     "type": "f32"
+    }
+   },
+   "size": 116
+  },
+  "MultiAmmoCrateRecord": {
+   "fields": {
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "slots": {
+     "count": 13,
+     "elem": 4,
+     "off": 128,
+     "size": 52,
+     "type": "struct multiammocrateslot [13]"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 180
+  },
+  "MultiMonitorObjRecord": {
+   "fields": {
+    "ImageNums": {
+     "count": 4,
+     "elem": 1,
+     "off": 592,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "Monitor": {
+     "count": 4,
+     "elem": 116,
+     "off": 128,
+     "size": 464,
+     "type": "MonitorRecord [4]"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 596
+  },
+  "ObjectRecord": {
+   "fields": {
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.a": {
+     "off": 127,
+     "size": 1,
+     "type": "u8"
+    },
+    "nextcol.b": {
+     "off": 126,
+     "size": 1,
+     "type": "u8"
+    },
+    "nextcol.g": {
+     "off": 125,
+     "size": 1,
+     "type": "u8"
+    },
+    "nextcol.r": {
+     "off": 124,
+     "size": 1,
+     "type": "u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "runtime_pos.x": {
+     "off": 88,
+     "size": 4,
+     "type": "f32"
+    },
+    "runtime_pos.y": {
+     "off": 92,
+     "size": 4,
+     "type": "f32"
+    },
+    "runtime_pos.z": {
+     "off": 96,
+     "size": 4,
+     "type": "f32"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.a": {
+     "off": 123,
+     "size": 1,
+     "type": "u8"
+    },
+    "shadecol.b": {
+     "off": 122,
+     "size": 1,
+     "type": "u8"
+    },
+    "shadecol.g": {
+     "off": 121,
+     "size": 1,
+     "type": "u8"
+    },
+    "shadecol.r": {
+     "off": 120,
+     "size": 1,
+     "type": "u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 128
+  },
+  "PropDefHeaderRecord": {
+   "fields": {
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 4
+  },
+  "PropRecord": {
+   "fields": {
+    "child": {
+     "off": 32,
+     "size": 4,
+     "type": "struct PropRecord *"
+    },
+    "chr": {
+     "off": 4,
+     "size": 4,
+     "type": "struct ChrRecord *"
+    },
+    "door": {
+     "off": 4,
+     "size": 4,
+     "type": "struct DoorRecord *"
+    },
+    "explosion": {
+     "off": 4,
+     "size": 4,
+     "type": "struct Explosion *"
+    },
+    "flags": {
+     "off": 1,
+     "size": 1,
+     "type": "u8"
+    },
+    "next": {
+     "off": 40,
+     "size": 4,
+     "type": "struct PropRecord *"
+    },
+    "obj": {
+     "off": 4,
+     "size": 4,
+     "type": "struct ObjectRecord *"
+    },
+    "parent": {
+     "off": 28,
+     "size": 4,
+     "type": "struct PropRecord *"
+    },
+    "pos": {
+     "off": 8,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 8,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "pos.x": {
+     "off": 8,
+     "size": 4,
+     "type": "f32"
+    },
+    "pos.y": {
+     "off": 12,
+     "size": 4,
+     "type": "f32"
+    },
+    "pos.z": {
+     "off": 16,
+     "size": 4,
+     "type": "f32"
+    },
+    "prev": {
+     "off": 36,
+     "size": 4,
+     "type": "struct PropRecord *"
+    },
+    "rooms": {
+     "count": 4,
+     "elem": 1,
+     "off": 44,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "scorch": {
+     "off": 4,
+     "size": 4,
+     "type": "struct Scorch *"
+    },
+    "smoke": {
+     "off": 4,
+     "size": 4,
+     "type": "struct Smoke *"
+    },
+    "stan": {
+     "off": 20,
+     "size": 4,
+     "type": "StandTile *"
+    },
+    "timetoregen": {
+     "off": 2,
+     "size": 2,
+     "type": "s16"
+    },
+    "type": {
+     "off": 0,
+     "size": 1,
+     "type": "u8"
+    },
+    "unk30": {
+     "off": 48,
+     "size": 4,
+     "type": "s32"
+    },
+    "voidp": {
+     "off": 4,
+     "size": 4,
+     "type": "void *"
+    },
+    "weapon": {
+     "off": 4,
+     "size": 4,
+     "type": "struct WeaponObjRecord *"
+    },
+    "zDepth": {
+     "off": 24,
+     "size": 4,
+     "type": "f32"
+    }
+   },
+   "size": 52
+  },
+  "StandTile": {
+   "fields": {
+    "id": {
+     "bitpos": 0,
+     "bits": 24,
+     "off": 0,
+     "size": 4,
+     "type": "u32"
+    },
+    "mid": {
+     "off": 4,
+     "size": 2,
+     "type": "union {...}"
+    },
+    "mid.half": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "mid.headerMid": {
+     "off": 4,
+     "size": 2,
+     "type": "StandTileHeaderMid"
+    },
+    "mid.headerMid.b": {
+     "bitpos": 4,
+     "bits": 4,
+     "off": 5,
+     "size": 2,
+     "type": "u16"
+    },
+    "mid.headerMid.g": {
+     "bitpos": 0,
+     "bits": 4,
+     "off": 5,
+     "size": 2,
+     "type": "u16"
+    },
+    "mid.headerMid.r": {
+     "bitpos": 4,
+     "bits": 4,
+     "off": 4,
+     "size": 2,
+     "type": "u16"
+    },
+    "mid.headerMid.special": {
+     "bitpos": 0,
+     "bits": 4,
+     "off": 4,
+     "size": 2,
+     "type": "u16"
+    },
+    "points": {
+     "count": 1,
+     "elem": 8,
+     "off": 8,
+     "size": 0,
+     "type": "StandTilePoint []"
+    },
+    "room": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "tail": {
+     "off": 6,
+     "size": 2,
+     "type": "union {...}"
+    },
+    "tail.half": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "tail.hdrTail": {
+     "off": 6,
+     "size": 2,
+     "type": "StandTileHeaderTail"
+    },
+    "tail.hdrTail.headerC": {
+     "bitpos": 4,
+     "bits": 4,
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "tail.hdrTail.headerD": {
+     "bitpos": 0,
+     "bits": 4,
+     "off": 7,
+     "size": 2,
+     "type": "s16"
+    },
+    "tail.hdrTail.headerE": {
+     "bitpos": 4,
+     "bits": 4,
+     "off": 7,
+     "size": 2,
+     "type": "s16"
+    },
+    "tail.hdrTail.pointCount": {
+     "bitpos": 0,
+     "bits": 4,
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    }
+   },
+   "size": 8
+  },
+  "TagObjectRecord": {
+   "fields": {
+    "ID": {
+     "off": 4,
+     "size": 2,
+     "type": "u16"
+    },
+    "NextTag": {
+     "off": 8,
+     "size": 4,
+     "type": "struct TagObjectRecord *"
+    },
+    "OffsetToObj": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "TaggedObject": {
+     "off": 12,
+     "size": 4,
+     "type": "ObjectRecord *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    }
+   },
+   "size": 16
+  },
+  "TankRecord": {
+   "fields": {
+    "collision": {
+     "off": 128,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "is_firing_tank": {
+     "off": 196,
+     "size": 4,
+     "type": "s32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "rect": {
+     "off": 132,
+     "size": 32,
+     "type": "rect4f"
+    },
+    "rect.f": {
+     "count": 8,
+     "elem": 4,
+     "off": 132,
+     "size": 32,
+     "type": "f32 [8]"
+    },
+    "rect.points": {
+     "count": 4,
+     "elem": 8,
+     "off": 132,
+     "size": 32,
+     "type": "struct coord2d [4]"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "stan_y": {
+     "off": 212,
+     "size": 4,
+     "type": "f32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "tank_orientation_angle": {
+     "off": 220,
+     "size": 4,
+     "type": "f32"
+    },
+    "turret_orientation_angle": {
+     "off": 204,
+     "size": 4,
+     "type": "f32"
+    },
+    "turret_vertical_angle": {
+     "off": 200,
+     "size": 4,
+     "type": "f32"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "unkA4": {
+     "off": 164,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkA8": {
+     "off": 168,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkAC": {
+     "off": 172,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkB0": {
+     "off": 176,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkB4": {
+     "off": 180,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkB8": {
+     "off": 184,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkBC": {
+     "off": 188,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkC0": {
+     "off": 192,
+     "size": 4,
+     "type": "s32"
+    },
+    "unkD0": {
+     "off": 208,
+     "size": 4,
+     "type": "f32"
+    },
+    "unkD8": {
+     "off": 216,
+     "size": 4,
+     "type": "s32"
+    }
+   },
+   "size": 224
+  },
+  "TintedGlassRecord": {
+   "fields": {
+    "CullDist": {
+     "off": 132,
+     "size": 4,
+     "type": "s32"
+    },
+    "TintDist": {
+     "off": 128,
+     "size": 4,
+     "type": "s32"
+    },
+    "calculatedopacity": {
+     "off": 136,
+     "size": 4,
+     "type": "s32"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "portalnum": {
+     "off": 140,
+     "size": 4,
+     "type": "s32"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "unk90": {
+     "off": 144,
+     "size": 4,
+     "type": "f32"
+    }
+   },
+   "size": 148
+  },
+  "VehichleRecord": {
+   "fields": {
+    "Sound": {
+     "off": 172,
+     "size": 4,
+     "type": "struct ALSoundState *"
+    },
+    "ailist": {
+     "off": 128,
+     "size": 4,
+     "type": "AIRecord *"
+    },
+    "aioffset": {
+     "off": 132,
+     "size": 2,
+     "type": "u16"
+    },
+    "aireturnlist": {
+     "off": 134,
+     "size": 2,
+     "type": "s16"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "nextstep": {
+     "off": 168,
+     "size": 4,
+     "type": "s32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "path": {
+     "off": 164,
+     "size": 4,
+     "type": "PathRecord *"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "roty": {
+     "off": 160,
+     "size": 4,
+     "type": "f32"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "speed": {
+     "off": 136,
+     "size": 4,
+     "type": "f32"
+    },
+    "speedaim": {
+     "off": 148,
+     "size": 4,
+     "type": "f32"
+    },
+    "speedtime60": {
+     "off": 152,
+     "size": 4,
+     "type": "f32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "turnrot60": {
+     "off": 156,
+     "size": 4,
+     "type": "f32"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "wheelxrot": {
+     "off": 140,
+     "size": 4,
+     "type": "f32"
+    },
+    "wheelyrot": {
+     "off": 144,
+     "size": 4,
+     "type": "f32"
+    }
+   },
+   "size": 176
+  },
+  "WeaponObjRecord": {
+   "fields": {
+    "LinkedWeaponType": {
+     "off": 129,
+     "size": 1,
+     "type": "s8"
+    },
+    "damage": {
+     "off": 116,
+     "size": 4,
+     "type": "f32"
+    },
+    "dualweapon": {
+     "off": 132,
+     "size": 4,
+     "type": "struct WeaponObjRecord *"
+    },
+    "embedment": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Embedment *"
+    },
+    "extrascale": {
+     "off": 0,
+     "size": 2,
+     "type": "u16"
+    },
+    "flags": {
+     "off": 8,
+     "size": 4,
+     "type": "u32"
+    },
+    "flags2": {
+     "off": 12,
+     "size": 4,
+     "type": "u32"
+    },
+    "maxdamage": {
+     "off": 112,
+     "size": 4,
+     "type": "f32"
+    },
+    "model": {
+     "off": 20,
+     "size": 4,
+     "type": "Model *"
+    },
+    "mtx": {
+     "off": 24,
+     "size": 64,
+     "type": "Mtxf"
+    },
+    "mtx.m": {
+     "count": 4,
+     "elem": 16,
+     "off": 24,
+     "size": 64,
+     "type": "f32 [4][4]"
+    },
+    "mtx.unused": {
+     "off": 24,
+     "size": 4,
+     "type": "s32"
+    },
+    "nextcol": {
+     "off": 124,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "nextcol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 124,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "nextcol.word": {
+     "off": 124,
+     "size": 4,
+     "type": "u32"
+    },
+    "obj": {
+     "off": 4,
+     "size": 2,
+     "type": "s16"
+    },
+    "pad": {
+     "off": 6,
+     "size": 2,
+     "type": "s16"
+    },
+    "projectile": {
+     "off": 108,
+     "size": 4,
+     "type": "struct Projectile *"
+    },
+    "prop": {
+     "off": 16,
+     "size": 4,
+     "type": "PropRecord *"
+    },
+    "ptr_allocated_collisiondata_block": {
+     "off": 104,
+     "size": 4,
+     "type": "collision_data *"
+    },
+    "runtime_bitflags": {
+     "off": 100,
+     "size": 4,
+     "type": "u32"
+    },
+    "runtime_pos": {
+     "off": 88,
+     "size": 12,
+     "type": "coord3d"
+    },
+    "runtime_pos.f": {
+     "count": 3,
+     "elem": 4,
+     "off": 88,
+     "size": 12,
+     "type": "f32 [3]"
+    },
+    "shadecol": {
+     "off": 120,
+     "size": 4,
+     "type": "rgba_u8"
+    },
+    "shadecol.rgba": {
+     "count": 4,
+     "elem": 1,
+     "off": 120,
+     "size": 4,
+     "type": "u8 [4]"
+    },
+    "shadecol.word": {
+     "off": 120,
+     "size": 4,
+     "type": "u32"
+    },
+    "state": {
+     "off": 2,
+     "size": 1,
+     "type": "u8"
+    },
+    "timer": {
+     "off": 130,
+     "size": 2,
+     "type": "s16"
+    },
+    "type": {
+     "off": 3,
+     "size": 1,
+     "type": "u8"
+    },
+    "weaponnum": {
+     "off": 128,
+     "size": 1,
+     "type": "s8"
+    }
+   },
+   "size": 136
+  },
+  "stagesetup": {
+   "fields": {
+    "ailists": {
+     "off": 20,
+     "size": 4,
+     "type": "AIListRecord *"
+    },
+    "boundpadnames": {
+     "off": 36,
+     "size": 4,
+     "type": "pname *"
+    },
+    "boundpads": {
+     "off": 28,
+     "size": 4,
+     "type": "BoundPadRecord *"
+    },
+    "intro": {
+     "off": 8,
+     "size": 4,
+     "type": "s32 *"
+    },
+    "padnames": {
+     "off": 32,
+     "size": 4,
+     "type": "pname *"
+    },
+    "pads": {
+     "off": 24,
+     "size": 4,
+     "type": "PadRecord *"
+    },
+    "pathwaypoints": {
+     "off": 0,
+     "size": 4,
+     "type": "waypoint *"
+    },
+    "patrolpaths": {
+     "off": 16,
+     "size": 4,
+     "type": "PathRecord *"
+    },
+    "propDefs": {
+     "off": 12,
+     "size": 4,
+     "type": "PropDefHeaderRecord *"
+    },
+    "waypointgroups": {
+     "off": 4,
+     "size": 4,
+     "type": "waygroup *"
+    }
+   },
+   "size": 40
+  }
+ }
+}

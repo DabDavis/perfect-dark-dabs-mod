@@ -77,7 +77,7 @@ the fit offset minus GfistZ's root position.
 | Script | Writes | Reads |
 |---|---|---|
 | `beancover.py BEAN:KEY ...` | `beanscales.json` (per GoldenEye level key: Bean background, Bean->GE scale, share of GE vertices the HD mesh covers) | the ROM's level geometry, the release's `background/<name>` (both looks) |
-| `geconvert.py` with `GE_ARENAS_JSON=arenas.json` (in `tools/geconvert`) | `arenas.json` (per level: level scale, offset the conversion takes off; the `bg` paths in it are the scratch files it was made from and are not read) | the ROM |
+| `geconvert.py` with `GE_ARENAS_JSON=arenas.json` (in `tools/geconvert`) | `arenas.json` (per level: level scale, offset the conversion takes off; the `bg` paths in it are the scratch files it was made from and are not read) | the ROM (retired 2026-10-01: geconvert.c is the only converter and `geconvert.py` is gone; `arenas.json` stays as checked in - its scale and offset follow from the ROM alone. `gefiles`, `gerom`, `gemodelconv`, `texremap`, `gesolo` and `geobjects` stay in `tools/geconvert` because these tools and `tools/gefidelity/ai/aimap.py` import them.) |
 | `propfit.py [ID ...]` | `propfit.json` (merges the IDs given, all props when none) | the ROM's prop models, the release's `original/prop` |
 | `gunfit2.py [--report]` | `gunfit.json` (refits the keys already in it) | the decomp's `assets/obseg/prop/<name>/Model.c`, the release's `new/prop` |
 | `fistfit.py` | prints the fist fit | the ROM's GfistZ, the release's `gun/fist` |

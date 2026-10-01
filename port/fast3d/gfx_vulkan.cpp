@@ -2072,8 +2072,13 @@ static struct ShaderProgram *gfx_vk_create_and_load_new_shader(uint64_t shader_i
         if (cc_features.opt_fog_linear) {
             fs += "    float fogFactor = clamp(vFogZW.y * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;\n";
         } else {
-            fs += "    float fogW = (abs(vFogZW.y) < 0.0001) ? 0.0001 : vFogZW.y;\n"
-                  "    float fogFactor = clamp((vFogZW.x / fogW) * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;\n";
+            fs += "    float fogW = (abs(vFogZW.y) < 0.0001) ? 0.0001 : vFogZW.y;\n";
+            if (cc_features.opt_fog_vertex) {
+                // the offset came times each vertex's w (G_FOG_VERTEX_EXT)
+                fs += "    float fogFactor = clamp((vFogZW.x / fogW) * vFog.a + vFogOffset / fogW, 0.0, 255.0) / 255.0;\n";
+            } else {
+                fs += "    float fogFactor = clamp((vFogZW.x / fogW) * vFog.a + vFogOffset, 0.0, 255.0) / 255.0;\n";
+            }
         }
         if (cc_features.opt_fog_fade) {
             fs += "    texel = vec4(texel.rgb * (1.0 - fogFactor), texel.a);\n";

@@ -6,6 +6,8 @@
 #ifndef PLATFORM_N64
 #include "headfit.h"
 #include "gexplus.h"
+#include "gestan.h"
+#include "modloader.h"
 #endif
 #include "system.h"
 #include "game/modghost.h"
@@ -494,6 +496,9 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	s32 headnum;
 	f32 angle;
 	s32 index;
+#ifndef PLATFORM_N64
+	s32 legal;
+#endif
 
 	padUnpack(packed->padnum, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
 
@@ -504,14 +509,29 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	g_BodySpawnStats.entries++;
 #endif
 
+#ifndef PLATFORM_N64
+	// A converted GoldenEye mission's guard is made where GoldenEye makes it:
+	// at its pad where the pad passes GoldenEye's own test of a circle of 20
+	// there (getposstan(), gestan.c's geStanSpawnLegal()), and not at all
+	// where it fails. Perfect Dark's test left out guards GoldenEye makes
+	// (Facility 51, Frigate 26, Caverns 10 and 33, Aztec 9) and made one it
+	// does not (Caverns 41). -1 is no answer: Perfect Dark's own test.
+	legal = modloaderStageIsMission(stagenum) ? geStanSpawnLegal(&pad.pos, pad.room, 20) : -1;
+
+	if (legal == 0 || (legal < 0
+				&& cdTestVolume(&pad.pos, 20, rooms, CDTYPE_ALL, CHECKVERTICAL_YES, 200, -200) == CDRESULT_COLLISION
+				&& packed->chair == -1
+				&& (packed->spawnflags & SPAWNFLAG_IGNORECOLLISION) == 0)) {
+		g_BodySpawnStats.collision++;
+		return;
+	}
+#else
 	if (cdTestVolume(&pad.pos, 20, rooms, CDTYPE_ALL, CHECKVERTICAL_YES, 200, -200) == CDRESULT_COLLISION
 			&& packed->chair == -1
 			&& (packed->spawnflags & SPAWNFLAG_IGNORECOLLISION) == 0) {
-#ifndef PLATFORM_N64
-		g_BodySpawnStats.collision++;
-#endif
 		return;
 	}
+#endif
 
 	if (packed->spawnflags & (SPAWNFLAG_ONLYONA | SPAWNFLAG_ONLYONSA | SPAWNFLAG_ONLYONPA)) {
 		if ((packed->spawnflags & (SPAWNFLAG_ONLYONA | SPAWNFLAG_ONLYONSA | SPAWNFLAG_ONLYONPA)) == 0) {

@@ -3824,6 +3824,7 @@ s32 langpackIsCjk(void);
 #define PROJECTILEFLAG_NOTIMELIMIT 0x00004000
 #define PROJECTILEFLAG_INROOM      0x00008000
 #define PROJECTILEFLAG_00010000    0x00010000
+#define PROJECTILEFLAG_GEROUND     0x00020000 // Port: fired by one of GoldenEye's guns (its grenade launcher's round, its rocket)
 #define PROJECTILEFLAG_LIGHTWEIGHT 0x40000000
 #define PROJECTILEFLAG_FREE        0x80000000
 

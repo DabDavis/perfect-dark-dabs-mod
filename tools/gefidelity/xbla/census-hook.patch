@@ -1,0 +1,345 @@
+diff --git a/port/include/gebean.h b/port/include/gebean.h
+index e48daa504..6118fa3b6 100644
+--- a/port/include/gebean.h
++++ b/port/include/gebean.h
+@@ -62,6 +62,9 @@ struct modelnode;
+ /** Whether there is GoldenEye content to draw on: the release, or GoldenEye X to borrow from. */
+ s32 gebeanGetEnabled(void);
+ 
++// The HD draw census is on (GEBEAN_CENSUS, tools/gefidelity/xbla)
++s32 gebeanCensusOn(void);
++
+ /** Whether a copy was found in xbla/, unpacked or not. Never unpacks. */
+ s32 gebeanIsAvailable(void);
+ 
+diff --git a/port/src/gebean.c b/port/src/gebean.c
+index 28af51898..1ee9180c0 100644
+--- a/port/src/gebean.c
++++ b/port/src/gebean.c
+@@ -307,6 +307,45 @@ static s32 poolFromRelease;
+ // Why the last gebeanBuild() of a character gave up, for the fallback's line
+ static const char *beanWhy;
+ 
++/*
++ * The HD draw census (tools/gefidelity/xbla/census.py): GEBEAN_CENSUS set logs
++ * every draw a model's stream gives the walk and how many triangles each build
++ * took from it, and xblamesh.c builds every registered model at its load.
++ * GEBEAN_CENSUS_SKIP=<source>@<pc in hex> leaves that one draw out of the walk:
++ * the census's planted fault, which its report must find. Off unless set.
++ */
++static s32 beanCensus = -1;
++static const char *beanCensusSkip;
++static struct beandraw *beanCensusCur;
++// and, while gebeanBuild() walks a character's draws, the triangles each draw
++// gave to each group, so a body that keeps groups for heads the release never
++// puts on it can count apart what it draws under its own head file
++static struct beandraw *beanCensusBase;
++static u16 (*beanCensusGroups)[64];
++
++s32 gebeanCensusOn(void)
++{
++	if (beanCensus < 0) {
++		beanCensus = getenv("GEBEAN_CENSUS") != NULL;
++		beanCensusSkip = getenv("GEBEAN_CENSUS_SKIP");
++	}
++
++	return beanCensus;
++}
++
++static s32 beanCensusSkips(const char *source, u32 pc)
++{
++	char want[96];
++
++	if (!gebeanCensusOn() || !beanCensusSkip) {
++		return 0;
++	}
++
++	snprintf(want, sizeof(want), "%s@%x", source, pc);
++
++	return strcmp(want, beanCensusSkip) == 0;
++}
++
+ // Where the release's files/ is (gebeanLocate()), defined with the rest below
+ static char rootPath[FS_MAXPATH + 1];
+ 
+@@ -3459,6 +3498,8 @@ static const s8 skelInherit[SK_COUNT] = {
+ };
+ 
+ struct beandraw {
++	u32 pc;       // its record's place in the stream, and the triangles builds took
++	u32 emitted;  // from it: the HD draw census (gebeanCensusOn())
+ 	u32 vb;
+ 	u32 tex;
+ 	u32 prim;
+@@ -3496,6 +3537,7 @@ struct beanib {
+ };
+ 
+ struct beanmodel {
++	char censussrc[64]; // what beanLoad() was asked for, for the census
+ 	u8 *file;
+ 	struct caff caff;
+ 	const u8 *data;
+@@ -4481,9 +4523,10 @@ static void beanWalkStream(struct beanmodel *bm)
+ 			// as much as the barrel is, so a gun keeps them all (bm->keepparts).
+ 			const s32 part = type == 0x30 && size >= 20 ? (s32)gebeanBE32(st + pc + 16) : -1;
+ 
+-			if (part <= 1 || bm->keepparts) {
++			if ((part <= 1 || bm->keepparts) && !beanCensusSkips(bm->censussrc, pc)) {
+ 				struct beandraw *d = &bm->draws[bm->numdraws++];
+ 
++				d->pc = pc;
+ 				d->vb = vb;
+ 				d->tex = tex;
+ 				d->prim = gebeanBE32(st + pc + 4);
+@@ -4852,8 +4895,33 @@ static s32 beanTriangles32(const struct beanmodel *bm, const struct beandraw *d,
+ 	return n;
+ }
+ 
++static void beanCensusBuilt(const struct beanmodel *bm, const char *how)
++{
++	s32 any = 0;
++
++	if (!gebeanCensusOn() || !bm->draws) {
++		return;
++	}
++
++	for (s32 i = 0; i < bm->numdraws; i++) {
++		any |= bm->draws[i].emitted > 0;
++	}
++
++	sysLogPrintf(LOG_NOTE, "census: %s %p %s", any ? how : "unbuilt", (void *)bm, bm->censussrc);
++
++	for (s32 i = 0; any && i < bm->numdraws; i++) {
++		sysLogPrintf(LOG_NOTE, "census: took %p %x %u", (void *)bm, bm->draws[i].pc, bm->draws[i].emitted);
++	}
++}
++
+ static void beanFree(struct beanmodel *bm)
+ {
++	beanCensusBuilt(bm, "built");
++
++	if (bm->draws && beanCensusCur >= bm->draws && beanCensusCur < bm->draws + BEAN_MAXDRAWS) {
++		beanCensusCur = NULL;
++	}
++
+ 	caffClose(&bm->caff);
+ 	free(bm->draws);
+ 	free(bm->insts);
+@@ -4879,6 +4947,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
+ 	u32 poollen = 0;
+ 
+ 	memset(bm, 0, sizeof(*bm));
++	snprintf(bm->censussrc, sizeof(bm->censussrc), "%s", source);
+ 	bm->keepparts = keepparts;
+ 	bm->original = strncmp(source, "original/", 9) == 0;
+ 	// the Community Edition's copy first, where this session draws it (gebeance.c)
+@@ -4989,6 +5058,18 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
+ 		}
+ 	}
+ 
++	if (gebeanCensusOn()) {
++		sysLogPrintf(LOG_NOTE, "census: load %p %s keepparts %d draws %d tex %d path %s",
++				(void *)bm, source, keepparts, bm->numdraws, bm->numtex, path);
++
++		for (s32 i = 0; i < bm->numdraws; i++) {
++			const struct beandraw *d = &bm->draws[i];
++
++			sysLogPrintf(LOG_NOTE, "census: draw %p %x prim %u count %u piece %d section %d tex %u",
++					(void *)bm, d->pc, d->prim, d->count, d->piece, d->section, d->tex);
++		}
++	}
++
+ 	return 1;
+ }
+ 
+@@ -6543,6 +6624,15 @@ static s32 beanAddTri(struct beanout *o, s32 group, s32 tex, u16 a, u16 b, u16 c
+ 		o->captris = cap;
+ 	}
+ 
++	if (beanCensusCur && (a | b | c) && gebeanCensusOn()) {
++		beanCensusCur->emitted++;
++
++		if (beanCensusBase && beanCensusGroups && group >= 0 && group < 64
++				&& beanCensusCur >= beanCensusBase && beanCensusCur < beanCensusBase + BEAN_MAXDRAWS) {
++			beanCensusGroups[beanCensusCur - beanCensusBase][group]++;
++		}
++	}
++
+ 	t = &o->tris[o->numtris];
+ 	t->group = (u16)group;
+ 	t->tex = (u16)tex;
+@@ -9744,6 +9834,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
+ 
+ 	for (s32 di = 0; di < bm.numdraws; di++) {
+ 		const struct beandraw *d = &bm.draws[di];
++		beanCensusCur = (struct beandraw *)d; // the census counts what this draw gives
++		beanCensusBase = bm.draws;
+ 		struct beanvb vb;
+ 		struct beansphere sp;
+ 		u16 *tris;
+@@ -9956,6 +10048,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
+ 		free(mapped);
+ 		free(tris);
+ 	}
++	beanCensusCur = NULL;
+ 
+ 	if (numparts > 0 && g->weaponnum < 0) {
+ 		numdual = beanDoubleWheels(&out, modeldef, nummatrices, mtx);
+@@ -11091,6 +11184,8 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
+ 			continue;
+ 		}
+ 
++		beanCensusCur = (struct beandraw *)d; // the census counts what this draw gives
++		beanCensusBase = bm->draws;
+ 		n = beanTriangles(bm, d, &tris);
+ 		mapped = n > 0 ? malloc(vb.count * sizeof(s32)) : NULL;
+ 		layer = mapped ? malloc(vb.count) : NULL;
+@@ -11199,6 +11294,8 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
+ 		free(tris);
+ 	}
+ 
++	beanCensusCur = NULL;
++
+ 	if (numtris > 0 && posed) {
+ 		for (s32 a = 0; a < 3; a++) {
+ 			fpCardFlash[fp][a] = rootat[a] - rig->rest[basemtx][a];
+@@ -11967,6 +12064,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
+ 
+ 	for (s32 di = 0; di < bm.numdraws; di++) {
+ 		const struct beandraw *d = &bm.draws[di];
++		beanCensusCur = (struct beandraw *)d; // the census counts what this draw gives
++		beanCensusBase = bm.draws;
+ 		struct beanvb vb;
+ 		u16 *tris;
+ 		s32 numtris;
+@@ -12191,6 +12290,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
+ 		free(mappedmtx);
+ 		free(tris);
+ 	}
++	beanCensusCur = NULL;
+ 
+ 	// The release's flash cards (fpCardSet): into the lists of GoldenEye's
+ 	// flash and star under its flash switch, each layer in its own list's
+@@ -13384,6 +13484,14 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
+ 	f32 seatown[GEBEAN_SEAT_SAMPLES];
+ 	u32 seatownhit = 0;
+ 
++	if (gebeanCensusOn() && !beanCensusGroups) {
++		beanCensusGroups = calloc(BEAN_MAXDRAWS, sizeof(*beanCensusGroups));
++	}
++
++	if (beanCensusGroups) {
++		memset(beanCensusGroups, 0, BEAN_MAXDRAWS * sizeof(*beanCensusGroups));
++	}
++
+ 	for (s32 pass = hoodsplit ? -1 : pinseam ? 0 : 1; pass < 2; pass++) {
+ 	if (pass == 0 && !pinseam) {
+ 		continue;
+@@ -13459,6 +13567,8 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
+ 
+ 	for (s32 di = 0; di < bm.numdraws; di++) {
+ 		const struct beandraw *d = &bm.draws[di];
++		beanCensusCur = (struct beandraw *)d; // the census counts what this draw gives
++		beanCensusBase = bm.draws;
+ 		struct beanvb vb;
+ 		u16 *tris;
+ 		s32 numtris;
+@@ -14189,6 +14299,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
+ 		free(mapped);
+ 		free(tris);
+ 	}
++	beanCensusCur = NULL;
+ 	}
+ 
+ 	// Nodes that must draw nothing rather than keep their N64 geometry: a
+@@ -14403,6 +14514,49 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
+ 				r->file, source, ownskinleft, headsecleft, numnoskin, ownskintex);
+ 	}
+ 
++	// The census: a body that keeps groups for heads the release never puts
++	// on it (a body of the remake's rows, with noskin groups) draws, under
++	// its own head file - the release's pairing - each noskin group in place
++	// of its node's, and neither the collar's filler nor its own neck
++	// (xblamesh.c: no headfit on the remake's own rig). A draw's "took" is
++	// what it gave to the groups drawn so; the rest is logged as "alt"
++	if (gebeanCensusOn() && beanCensusGroups && numnoskin > 0) {
++		u64 alt = 0;
++
++		for (s32 k = 0; k < 64; k++) {
++			if (noskinof[k] >= 0) {
++				alt |= 1ull << k;
++			}
++
++			if (fillof[k] >= 0) {
++				alt |= 1ull << fillof[k];
++			}
++
++			if (ownof[k] >= 0) {
++				alt |= 1ull << ownof[k];
++			}
++		}
++
++		for (s32 i = 0; i < bm.numdraws && i < BEAN_MAXDRAWS; i++) {
++			u32 drawn = 0;
++			u32 other = 0;
++
++			for (s32 g = 0; g < 64; g++) {
++				if (alt & (1ull << g)) {
++					other += beanCensusGroups[i][g];
++				} else {
++					drawn += beanCensusGroups[i][g];
++				}
++			}
++
++			if (other) {
++				sysLogPrintf(LOG_NOTE, "census: alt %p %x %u", (void *)&bm, bm.draws[i].pc, other);
++			}
++
++			bm.draws[i].emitted = drawn;
++		}
++	}
++
+ 	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare + numown + numnoskin + numneck, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
+ 
+ 	if (seathit) {
+@@ -14909,11 +15063,24 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
+ 
+ 			fn(arg, tex, v);
+ 			count++;
++
++			if (gebeanCensusOn()) {
++				((struct beandraw *)draw)->emitted++;
++			}
+ 		}
+ 
+ 		free(tris);
+ 	}
+ 
++	// a level's model stays open for the stage, so the census hears of it here
++	beanCensusBuilt(bm, "level");
++
++	if (gebeanCensusOn()) {
++		for (s32 d = 0; d < bm->numdraws; d++) {
++			bm->draws[d].emitted = 0;
++		}
++	}
++
+ 	return count;
+ }
+ 
+diff --git a/port/src/xblamesh.c b/port/src/xblamesh.c
+index 766be8037..a00f28ed0 100644
+--- a/port/src/xblamesh.c
++++ b/port/src/xblamesh.c
+@@ -2082,6 +2082,11 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
+ 	// matcher's rather than over it: a node can have both, and which of the
+ 	// two draws is decided at the draw, live.
+ 	xblaMeshRegisterPackModel(modeldef, fileid);
++
++	// the HD draw census builds every model at its load, drawn or not
++	if (gebeanCensusOn()) {
++		xblaMeshPrebuildBean(modeldef);
++	}
+ }
+ 
+ // Both sides of the pose arena: kilobytes held and chunks taken.

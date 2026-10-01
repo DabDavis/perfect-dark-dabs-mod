@@ -1,0 +1,15 @@
+[
+ {
+  "source": "new/char/.*",
+  "state": "unbuilt|short",
+  "section": 0,
+  "minband": 0.8,
+  "reason": "a body file's own head (section 0, the top tenth of the model): the guard wears a head file, so the build keeps only the collar"
+ },
+ {
+  "source": "original/gun/.*",
+  "state": "unwalked",
+  "section": 2,
+  "reason": "the N64-look original's hand (kind-2 sections, the shared fist pictures _0x0317*): the file is only measured, and beanGunExtent() leaves the hand out of the fit anyway"
+ }
+]

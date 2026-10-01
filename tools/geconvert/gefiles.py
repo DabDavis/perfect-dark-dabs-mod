@@ -97,7 +97,11 @@ def rom_file(stem):
     elif stem.startswith('bg_'):
         stem += '_all_p'
     d = rom().file(stem)
-    if any(p[0] == stem for p in ROM_PATCHES):
+    # since converter 97 the fixes make only the HD look's "_ce" copies
+    # (geconvert.c's g_RomPatchesOn, romFileCe()); the files the N64 look
+    # loads - and ai/aimap.py maps - are the cartridge's. GE_ROM_PATCHES=1 for
+    # the copies.
+    if os.environ.get('GE_ROM_PATCHES') == '1' and any(p[0] == stem for p in ROM_PATCHES):
         d = bytearray(d)
         for name, at, old, new in ROM_PATCHES:
             old, new = bytes.fromhex(old), bytes.fromhex(new)

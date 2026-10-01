@@ -12116,6 +12116,12 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 							bgun0f09ebcc(&projectileobj->base, &gunpos, gunrooms, &projectilemtx, &sp16c, &identmtx, chrprop, &gunpos);
 
 							if (projectileobj->base.hidden & OBJHFLAG_PROJECTILE) {
+#ifndef PLATFORM_N64
+								// a GoldenEye gun's round lands and is hurt as GoldenEye's (propobj.c)
+								if (WEAPON_IS_GE(gset.weaponnum)) {
+									projectileobj->base.projectile->flags |= PROJECTILEFLAG_GEROUND;
+								}
+#endif
 								if (func->base.base.flags & FUNCFLAG_PROJECTILE_LIGHTWEIGHT) {
 									projectileobj->base.projectile->flags |= PROJECTILEFLAG_LIGHTWEIGHT;
 								} else if (func->base.base.flags & FUNCFLAG_PROJECTILE_POWERED) {

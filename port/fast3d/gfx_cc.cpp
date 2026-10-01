@@ -23,6 +23,7 @@ void gfx_cc_get_features(uint64_t shader_id0, uint32_t shader_id1, struct CCFeat
     cc_features->opt_fog_fade = (shader_id1 & SHADER_OPT_FOG_FADE) != 0;
     cc_features->opt_fog_linear = (shader_id1 & SHADER_OPT_FOG_LINEAR) != 0;
     cc_features->opt_alpha_core = (shader_id1 & SHADER_OPT_ALPHA_CORE) != 0;
+    cc_features->opt_fog_vertex = (shader_id1 & SHADER_OPT_FOG_VERTEX) != 0;
 
     cc_features->clamp[0][0] = (shader_id1 & SHADER_OPT_TEXEL0_CLAMP_S);
     cc_features->clamp[0][1] = (shader_id1 & SHADER_OPT_TEXEL0_CLAMP_T);

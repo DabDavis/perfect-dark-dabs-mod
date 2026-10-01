@@ -1669,11 +1669,21 @@ void gexPlusWeaponSetsAppend(void)
 /**
  * The weapon sets GE Plus lists: how many, and the list index of the first.
  * GoldenEye's own out of the ROM, and never GoldenEye X's (which it fell back
- * to until 2026-09-26); 0 when there are none, or when the player asked for
- * Perfect Dark's guns too and so for the whole list.
+ * to until 2026-09-26); 0 when there are none, when the player asked for
+ * Perfect Dark's guns too, or under a mod with its own weapon list - the
+ * whole list then.
  */
 s32 gexPlusWeaponSets(s32 *first)
 {
+	// A mod that brings its own weapon list (GoldenEye X 6a) keeps it as it
+	// made it: GE Plus stays out, and its menus offer the mod's list whole
+	// (the user's call on board report 20261001-034632). They used to append
+	// GoldenEye's fourteen sets under the mod's own here, whose GoldenEye guns
+	// gebeanGunsRefresh() hides under such a mod.
+	if (modDataMpWeaponsImported()) {
+		return 0;
+	}
+
 	if (g_GePlusPdGuns) {
 		// still put GoldenEye's in the list the whole of which is shown
 		if (!geSetsInList()) {

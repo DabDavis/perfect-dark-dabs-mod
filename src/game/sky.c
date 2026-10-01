@@ -634,7 +634,60 @@ static u8 *skyWaterTwinkleTexture(struct textureconfig *tconfig)
 		return NULL;
 	}
 
-	if (tconfig->format == tex->gbiformat && tconfig->depth == tex->depth) {
+	if (tex->gbiformat == G_IM_FMT_CI && tex->depth == G_IM_SIZ_8b && tex->lutmodeindex == 2
+			&& tconfig->format == G_IM_FMT_RGBA && tconfig->depth == G_IM_SIZ_16b) {
+		// GoldenEye's own picture, as its ROM holds it: indices and an RGBA16
+		// palette. texSelect() loads a picture in the format the texture
+		// says, not the config (othermodemicrocode.c: format = tex->gbiformat
+		// when the texture is in the pool), so TMEM holds the indices and the
+		// TLUT is on, and the RDP looks a 16-bit texel up in the TLUT by its
+		// upper byte. Each tile row of 32 bytes is one row of the 32 byte
+		// wide picture, every other index of it under s 0-15 and the next
+		// row's under s 16-31: the picture at half its width, its rows twice
+		// over, in its own colours. Re-read as an RGBA picture instead, the
+		// sea came out streaked along the world's x, where the cartridge's
+		// waves are squeezed along it (tools/gefidelity, Frigate pad 151).
+		s32 depth;
+		s32 len;
+		const u8 *palette;
+
+		texGetDepthAndSize(tex, &depth, &len);
+		palette = tex->data + len * 2;
+
+		out = malloc(SKY_WATER_TWINKLE_DIM * SKY_WATER_TWINKLE_DIM * 2);
+
+		if (out == NULL) {
+			return NULL;
+		}
+
+		for (t = 0; t < SKY_WATER_TWINKLE_DIM; t++) {
+			for (s = 0; s < SKY_WATER_TWINKLE_DIM; s++) {
+				// the tile's fetch, then the swizzle of the picture row it
+				// lands in; the texel's upper byte is the index
+				s32 a = (t * SKY_WATER_TWINKLE_LINE + s * 2) ^ ((t & 1) ? 4 : 0);
+				s32 b = a ^ (((a / rowbytes) & 1) ? 4 : 0);
+				const u8 index = tex->data[b % size];
+				u8 *texel = out + (t * SKY_WATER_TWINKLE_DIM + s) * 2;
+
+				if (index <= tex->unk0a) {
+					texel[0] = palette[index * 2];
+					texel[1] = palette[index * 2 + 1];
+				} else {
+					texel[0] = 0;
+					texel[1] = 0;
+				}
+			}
+		}
+
+		if (slot == ARRAYCOUNT(g_SkyWaterTwinkles)) {
+			slot = 0;
+		}
+
+		g_SkyWaterTwinkles[slot].texturenum = texturenum;
+		g_SkyWaterTwinkles[slot].data = out;
+
+		return out;
+	} else if (tconfig->format == tex->gbiformat && tconfig->depth == tex->depth) {
 		// the pool holds the picture as the console does
 		tmem = tex->data;
 	} else if (tconfig->format == G_IM_FMT_RGBA && tconfig->depth == G_IM_SIZ_16b) {

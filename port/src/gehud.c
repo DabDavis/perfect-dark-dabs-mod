@@ -46,6 +46,7 @@
 #include "gehud.h"
 #include "langpack.h"
 #include "gefolder.h"
+#include "gegadgets.h"
 #include "gewatch.h"
 #include "gexfront.h"
 #include "gebean.h"
@@ -54,6 +55,7 @@
 #include "game/botact.h"
 #include "game/camera.h"
 #include "game/gfxmemory.h"
+#include "game/options.h"
 #include "game/game_1531a0.h"
 #include "game/savebuffer.h"
 #include "game/tex.h"
@@ -192,8 +194,11 @@ static const char *const g_IconHdPictures[NUM_ICONS] = {
  * weapon with an AmmoType that has no picture shows its count all the same,
  * with nothing beside it (`bare`, the picture's width taken as GoldenEye's 5):
  * the covert modem (ITEM_BUG, AMMO_BUG) and the plastique show "1" (F3
- * 20260929-092325). The watch magnet's AMMO_WATCH_MAGNET is the one more that
- * would, and no count of it is kept here.
+ * 20260929-092325). The watch magnet's AMMO_WATCH_MAGNET is the one more:
+ * its charges are kept since 2026-10-01 (gegadgets.c, GEGADGET_MAGNET_AMMO)
+ * and it shows "5" there on Archives' start, as the cartridge does (ares).
+ * The camera's AmmoType is AMMO_NONE: it shows nothing and never runs out on
+ * the cartridge either.
  */
 #define GE_BARE_WIDTH 5
 
@@ -224,6 +229,7 @@ static const struct { u8 icon, noclip, bare; } g_WeaponRows[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_TANKSHELLS - WEAPON_GE_FIRST]      = { ICON_TANK, 0 },
 	[WEAPON_GE_COVERTMODEM - WEAPON_GE_FIRST]     = { ICON_NONE, 1, 1 },
 	[WEAPON_GE_PLASTIQUE - WEAPON_GE_FIRST]       = { ICON_NONE, 1, 1 },
+	[WEAPON_GE_WATCHMAGNET - WEAPON_GE_FIRST]     = { ICON_NONE, 1, 1 },
 };
 
 /** Whether one of GoldenEye's weapons shows no ammunition at all. */
@@ -254,6 +260,8 @@ struct hudframe {
 	s32 width, height;
 };
 
+static void geHudMigrateSightAlways(void);
+
 void geHudStageStart(s32 stagenum)
 {
 	g_Hud.stagenum = stagenum;
@@ -263,6 +271,8 @@ void geHudStageStart(s32 stagenum)
 	if (!modloaderStageIsMission(stagenum) && !(g_GexPlusMode && modloaderStageIsRemake(stagenum))) {
 		return;
 	}
+
+	geHudMigrateSightAlways();
 
 	if (g_Hud.moddir < 0 || !gexFrontLoadText()) {
 		sysLogPrintf(LOG_WARNING, "gehud: the conversion's fonts are not there; this level keeps Perfect Dark's HUD");
@@ -371,26 +381,35 @@ const char *geHudPropobjString(s32 slot)
 }
 
 /**
- * "GE Plus: Crosshair When Not Aiming" (Mod.GePlusSightAlways, off by
- * default): GoldenEye's crosshair stays on screen with the gun lowered too,
- * as Perfect Dark's Always Show Target did before F3 20260930-025317. Off,
- * it shows only while aiming, as GoldenEye does (sightDraw()).
+ * GoldenEye's sight with the gun lowered is Perfect Dark's Always Show Target
+ * (the user's call, 2026-10-01; F3 20261001-065320): the watch's SIGHT
+ * ON-SCREEN is GoldenEye's own option, which on the cartridge shows the sight
+ * only while aiming (gunsightmode's GUNSIGHTREASON_NOTAIMING, read in ares),
+ * and Always Show Target keeps it up with the gun lowered too (sight.c). The
+ * separate "GE Plus: Crosshair When Not Aiming" toggle (Mod.GePlusSightAlways)
+ * is gone: a pd.ini that still has it on turns Always Show Target on in every
+ * player's options the first time a GE Plus level starts, and the key goes.
  */
-static s32 g_GeSightAlways = 0;
+static s32 g_GeSightAlwaysRetired = 0;
 
 PD_CONSTRUCTOR static void geHudConfigInit(void)
 {
-	configRegisterInt("Mod.GePlusSightAlways", &g_GeSightAlways, 0, 1);
+	configRegisterIntRetired("Mod.GePlusSightAlways", &g_GeSightAlwaysRetired, 0, 1);
 }
 
-s32 geHudGetSightAlways(void)
+static void geHudMigrateSightAlways(void)
 {
-	return g_GeSightAlways;
-}
+	if (!g_GeSightAlwaysRetired) {
+		return;
+	}
 
-void geHudSetSightAlways(s32 on)
-{
-	g_GeSightAlways = on ? 1 : 0;
+	for (s32 i = 0; i < ARRAYCOUNT(g_PlayerConfigsArray); i++) {
+		optionsSetAlwaysShowTarget(i, true);
+	}
+
+	g_GeSightAlwaysRetired = 0;
+	g_Vars.modifiedfiles |= MODFILE_GAME;
+	sysLogPrintf(LOG_NOTE, "gehud: Mod.GePlusSightAlways carried over to Always Show Target");
 }
 
 s32 geHudOwnsWeapon(void)
@@ -628,6 +647,14 @@ static s32 hudHandAmmo(s32 handnum, s32 *icon, s32 *mag, s32 *reserve, s32 *nocl
 
 		*mag = shells > 0 ? 1 : 0;
 		*reserve = shells - *mag;
+
+		return 1;
+	}
+
+	// the watch magnet's charges, one number (NO_CLIP_RELOADS)
+	if (weaponnum == WEAPON_GE_WATCHMAGNET) {
+		*mag = 0;
+		*reserve = player->ammoheldarr[GEGADGET_MAGNET_AMMO];
 
 		return 1;
 	}
@@ -1132,21 +1159,37 @@ Gfx *geHudRadarEnd(Gfx *gdl)
  * Perfect Dark's mission timer on GoldenEye's HUD. GoldenEye has no clock of
  * its own up while playing, so this is set in its countdown's figures: Bank
  * Gothic outlined in grey, a digit to eight units and nine either side of a
- * colon (geHudRenderCountdown()), at the bottom messages' left margin. It
- * stands on BONDVIEW_VIEW_TOP_OFFSET_2's line, the one the bottom messages
- * take over the left hand's ammunition, which is clear of the second gun's
- * rounds - Perfect Dark's own sat over them in its green numbers (F3
- * 20260930-211848, "should be in GE's font, and placed a little higher") -
- * and the messages go up a line over it. Under the release's look the numbers
- * are the release's size, as its ammunition's are, and the line comes up with
- * its ammunition.
+ * colon (geHudRenderCountdown()), at the bottom messages' left margin.
+ *
+ * It stands in the lower left corner, under the bottom messages' own line
+ * (BONDVIEW_VIEW_TOP_OFFSET_1, 0x0c over the bottom), where GoldenEye draws
+ * nothing, so the messages and the opening's lines stay where GoldenEye puts
+ * them (F3 20261001-121337: the timer stood on the raised line, "far above
+ * the lower-left corner", and pushed "weapon pickup text and starting
+ * cutscene subtitles" up over it). With a gun in the left hand that corner is
+ * its ammunition's, which Perfect Dark's green timer sat over (F3
+ * 20260930-211848), so the timer goes up to the raised line the messages
+ * take over the left hand's ammunition (BONDVIEW_VIEW_TOP_OFFSET_2), and only
+ * then do the messages stack over it.
  */
+static s32 hudTimerRaised(void)
+{
+	return g_Vars.currentplayer->hands[HAND_LEFT].inuse;
+}
+
 static s32 hudTimerBottom(const struct hudframe *f)
 {
-	s32 y = f->height - 0x28;
+	s32 y;
 
-	if (hudReleaseLook()) {
-		y -= HUD_RELEASE_RAISE;
+	if (hudTimerRaised()) {
+		y = f->height - 0x28;
+
+		// the release's ammunition stands higher, and the line with it
+		if (hudReleaseLook()) {
+			y -= HUD_RELEASE_RAISE;
+		}
+	} else {
+		y = f->height - 2;
 	}
 
 	if (PLAYERCOUNT() < 3 && g_Vars.currentplayernum == 1) {
@@ -1171,34 +1214,73 @@ void geHudSetMissionTimerShown(s32 shown)
 }
 
 /**
+ * The timer's columns: a digit's pitch and a colon's distance from the digit
+ * either side of it. GoldenEye's own figures keep its countdown's, eight and
+ * nine. The release's font is drawn at its natural widths, which the
+ * countdown's columns are too narrow for - each digit ran into the next
+ * (F3 20261001-121337, "digits are misaligned") - so its columns come from
+ * the widest digit, still the same for every digit, so the figures do not
+ * shift as they change.
+ */
+static void hudTimerPitch(s32 release, s32 *digit, s32 *colon)
+{
+	char glyph[3] = { '0', '\n', '\0' };
+	s32 widest = 0;
+	s32 w, h;
+
+	if (!release) {
+		*digit = 8;
+		*colon = 9;
+		return;
+	}
+
+	for (char c = '0'; c <= '9'; c++) {
+		glyph[0] = c;
+		gexFrontTextMeasure(1, glyph, &w, &h);
+
+		if (w > widest) {
+			widest = w;
+		}
+	}
+
+	glyph[0] = ':';
+	gexFrontTextMeasure(1, glyph, &w, &h);
+
+	// a unit of outline either side of each, and a unit between
+	*digit = widest + 3;
+	*colon = (widest + w + 1) / 2 + 3;
+}
+
+/**
  * One of the timer's strings, a character to a column (left to right from x,
  * on the frame the text is set to), ending at y. Returns the x past it.
  */
-static s32 hudTimerColumns(const char *text, s32 x, s32 *centres, s32 max)
+static s32 hudTimerColumns(const char *text, s32 x, s32 digit, s32 colon, s32 *centres, s32 max)
 {
 	s32 n = 0;
 
 	for (s32 i = 0; text[i] && n < max; i++) {
-		const s32 colon = text[i] == ':';
+		const s32 iscolon = text[i] == ':';
 
 		if (i == 0) {
-			x += colon ? 5 : 4;
+			x += iscolon ? (colon + 1) / 2 : digit / 2;
 		} else {
-			x += colon || text[i - 1] == ':' ? 9 : 8;
+			x += iscolon || text[i - 1] == ':' ? colon : digit;
 		}
 
 		centres[n++] = x;
 	}
 
-	return x + 4;
+	return x + digit / 2;
 }
 
-static Gfx *hudTimerString(Gfx *gdl, const char *text, s32 x, s32 y, u32 outline, u32 colour, s32 *endx)
+static Gfx *hudTimerString(Gfx *gdl, const char *text, s32 x, s32 y, s32 digit, s32 colon, u32 outline, u32 colour,
+		s32 *endx)
 {
 	s32 centres[24];
 	const s32 n = (s32)strlen(text);
 
-	*endx = hudTimerColumns(text, x, centres, 24);
+	*endx = hudTimerColumns(text, x, digit, colon, centres, 24);
 
 	for (s32 i = 0; i < n && i < 24; i++) {
 		char glyph[3] = { text[i], '\n', '\0' };
@@ -1219,6 +1301,8 @@ Gfx *geHudRenderMissionTimer(Gfx *gdl, s32 time60, s32 hassplit, s32 split60)
 	s32 x = 0x1e;
 	s32 y;
 	s32 endx;
+	s32 digit;
+	s32 colon;
 
 	hudFrame(&f);
 
@@ -1236,11 +1320,13 @@ Gfx *geHudRenderMissionTimer(Gfx *gdl, s32 time60, s32 hassplit, s32 split60)
 		gexFrontTextNaturalWidth(1);
 	}
 
+	hudTimerPitch(release, &digit, &colon);
+
 	x = (s32)lroundf(x / k);
 	y = (s32)lroundf(y / k);
 
 	gdl = gexFrontTextSetup(gdl);
-	gdl = hudTimerString(gdl, buffer, x, y, outline, COL_TEXT, &endx);
+	gdl = hudTimerString(gdl, buffer, x, y, digit, colon, outline, COL_TEXT, &endx);
 
 	// the ghost's split beside it, green ahead of the ghost and red behind
 	// (hudmsgRenderMissionTimer()'s colours)
@@ -1248,7 +1334,7 @@ Gfx *geHudRenderMissionTimer(Gfx *gdl, s32 time60, s32 hassplit, s32 split60)
 		buffer[0] = split60 < 0 ? '-' : '+';
 		formatTime(buffer + 1, split60 < 0 ? -split60 : split60, TIMEPRECISION_HUNDREDTHS);
 
-		gdl = hudTimerString(gdl, buffer, endx + 6, y, outline,
+		gdl = hudTimerString(gdl, buffer, endx + 6, y, digit, colon, outline,
 				split60 < 0 ? 0x40ff40ff : 0xff6040ff, &endx);
 	}
 
@@ -1325,8 +1411,9 @@ Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 intro, s32 *row
 			y -= 8;
 		}
 
-		// and over the mission timer when it is up
-		if (g_Hud.timershown) {
+		// and over the mission timer when the left hand's ammunition has put
+		// it on that raised line itself
+		if (g_Hud.timershown && hudTimerRaised()) {
 			const s32 over = hudTimerBottom(&f) - hudTimerHeight() - 2;
 
 			if (y > over) {
