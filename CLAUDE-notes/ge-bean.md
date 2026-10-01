@@ -13849,3 +13849,40 @@ nothing, and the messages and opening lines no longer move for it; with a gun
 in the left hand it goes up to the raised line over that hand's ammunition.
 The release look's figures take their columns from the release font's widest
 digit (the countdown's 8/9 columns let them run together).
+
+## Dam's snow banks and its chasm walls in HD (28th F3 pass, 2026-10-01, fix/f3-1001b-hdlook)
+
+**Snow on the reservoir bank (F3 20261001-211323, the owner: "no snow on bank").**
+The bank is a stride 32 level draw whose material holds two solid pictures:
+slot 0 the snow (`_0x09C3D715`, 256x256, read at the vertex's first UV set,
++16) and slot 1 the mossy rock (`_0x0C2539F5`, 512x512, second UV set, +20).
+The blend word's alpha (+24) runs 0xff along the bank's top edge to 0x00 at
+the water: the release lerps snow over rock by it. `beanMaterialTexture()`
+took the bigger picture alone, and at the first UV set, so the bank was rock
+all the way up. `gebeanLevelTriangles()` now draws such a draw as the slot 1
+picture (second UV set) and lays the slot 0 picture over it as a blended twin
+(alpha = blend word), which `dropTwins()` keeps and `markDecals()` lays on it.
+Only where the blend word spans 0..255 within the draw and both pictures are
+solid: constant words (Silo 179, Aztec/Bunker II 128, Archives 143 - lightmaps
+and detail maps) and 0..63 (the four-way terrain shaders: Dam d380, Runway,
+Silo, Aztec) are other shaders and unchanged. Takes it: Dam 3 draws (banks +
+the rock/snow under the dam), Runway 2, Statue Park 5, Jungle 3, Caves 1,
+Temple 1, Egyptian 1, Surface/Surface 2 4. Biggest visible change outside Dam:
+Temple (multiplayer) and Egyptian floors gain the sand blended over their
+tiles. Probe: survey of every stride 32 two-picture draw (blend word range per
+draw) across the 26 arenas; the Xenia oracle could not run this pass
+(`/dev/uinput` lost sdg's ACL at the 21:15 reboot, pad.py cannot open it).
+
+**Chasm walls in patches (F3 20261001-211516, Dam bungee).** `matchN64Brightness()`
+took one factor per room and picture, and Bean's mountain is dealt into rooms
+by position: chasm rooms 17 (factor 0.56, left alone), 58 (3.1), 59 (2.6), 71
+(1.6) on the same cliff picture gave bright and dark rectangles along the
+rooms' bounds. Now triangles of one picture that meet at a corner (the corner
+cells `brightCorner()` already hashes) are one surface (union-find), and a
+surface takes one factor from all of it, in any room; the room's factor is
+the fallback for a surface under `BRIGHT_MIN_AREA`. Corner ceilings are taken
+from every paired triangle, not only the darker rooms'. Before/after:
+`~/wt/f3-1001b-hdlook-run/out/{base,fix}_chasm_0.png`; the 11-level brightness
+sweep (`bsweep.sh`) checked level ratios and screens.
+
+Both change the built level: **HDCACHE_VERSION bump needed** (left to the merge).
