@@ -263,7 +263,16 @@ static void gfx_sdl_close(void) {
     // from 640x480 left the desktop at 640x480. Leaving fullscreen is what makes
     // SDL restore the desktop's mode. fullscreen_state is left alone on purpose,
     // so that anything asking afterwards still hears what the player had chosen.
-    if (wnd && fullscreen_state && fullscreen_flag == SDL_WINDOW_FULLSCREEN) {
+    //
+    // Not on Wayland: a client cannot change the display's mode there (SDL
+    // scales the window instead), so there is nothing to restore, and leaving
+    // fullscreen brings back libdecor's GTK title bar, whose icons GTK loads
+    // through gdk-pixbuf. From this atexit() handler that load aborted inside
+    // glycin on Fedora (crash 20261001-032848), killing the exit with SIGABRT.
+    const char *drv = SDL_GetCurrentVideoDriver();
+    const bool wayland = drv && strcmp(drv, "wayland") == 0;
+
+    if (wnd && fullscreen_state && fullscreen_flag == SDL_WINDOW_FULLSCREEN && !wayland) {
         SDL_SetWindowFullscreen(wnd, 0);
     }
 }

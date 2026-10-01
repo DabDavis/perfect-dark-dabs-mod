@@ -1681,7 +1681,16 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 	u32 stack;
 	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
 
-	if (g_Vars.currentplayer->isdead) {
+	if (g_Vars.currentplayer->isdead
+#ifndef PLATFORM_N64
+			// A hand emptied in the middle of a reload (a GE Plus cinema's
+			// hide, chraicommands.c) answers WEAPON_NONE, whose definition
+			// has no ammo, while its gset still names the gun's function
+			// (crash 20261001-203800)
+			|| info->definition == NULL
+			|| (func && func->ammoindex >= 0 && info->definition->ammos[func->ammoindex] == NULL)
+#endif
+			) {
 		hand->animmode = HANDANIMMODE_IDLE;
 		hand->animload = -1;
 
