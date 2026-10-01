@@ -1,3 +1,4 @@
+#include <string.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "types.h"
@@ -149,6 +150,46 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
 	}
 
 	return best.ground;
+}
+
+/**
+ * Complex's catwalk wall (geroom.h). The face is GoldenEye room 41's own,
+ * four triangles on the plane x = -2009 of the converted level (offset
+ * 241 0 602 from GoldenEye's world), 0 to 241 high and z 41 to 1246, in two
+ * bands: room 44 lies behind it. Matched by the map, the room and all three corners in that slab, so
+ * no other wall of the room - nor of any other level - is touched.
+ */
+bool geRoomTriPassesShots(s32 roomnum, struct coord *p1, struct coord *p2, struct coord *p3)
+{
+	static s32 stagenum = -1;
+	static bool complex = false;
+	struct coord *pts[3] = { p1, p2, p3 };
+
+	if (roomnum != 41) {
+		return false;
+	}
+
+	if (stagenum != g_Vars.stagenum) {
+		const char *map = modloaderGetStageMapName(g_Vars.stagenum);
+		const char *dir = modloaderGetStageModDir(g_Vars.stagenum);
+
+		stagenum = g_Vars.stagenum;
+		complex = map && dir && strcmp(map, "Complex") == 0 && strstr(dir, "GoldenEye Arenas") != NULL;
+	}
+
+	if (!complex || !geRoomActive()) {
+		return false;
+	}
+
+	for (s32 i = 0; i < 3; i++) {
+		if (pts[i]->x < -2010 || pts[i]->x > -2008
+				|| pts[i]->y < -1 || pts[i]->y > 242
+				|| pts[i]->z < 40 || pts[i]->z > 1247) {
+			return false;
+		}
+	}
+
+	return true;
 }
 
 void geRoomAddNear(struct coord *pos, f32 radius, f32 ymin, f32 ymax, RoomNum *rooms, s32 maxlen)

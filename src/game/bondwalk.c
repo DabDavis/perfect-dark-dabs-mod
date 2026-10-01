@@ -188,7 +188,8 @@ static void bwalkKeepFinite(void)
  * stuck for good, the moment the stair's room was theirs (F3 report
  * 20260926-005903). `rooms` is left alone - it is the room list the player
  * goes on with, which the AI asks "is Bond in the room with pad N" of - and
- * the test's list is written to `out` (`maxlen` rooms at most).
+ * the test's list is written to `out` (`maxlen` rooms at most). The rooms
+ * added are asked for walls alone, never props (GEROOM_PROPS_END).
  */
 static RoomNum *bwalkCdRooms(RoomNum *rooms, struct coord *pos, f32 radius, f32 ymin, f32 ymax, RoomNum *out, s32 maxlen)
 {
@@ -198,10 +199,13 @@ static RoomNum *bwalkCdRooms(RoomNum *rooms, struct coord *pos, f32 radius, f32 
 		return rooms;
 	}
 
-	for (i = 0; i < maxlen && rooms[i] != -1; i++) {
+	for (i = 0; i < maxlen - 1 && rooms[i] != -1; i++) {
 		out[i] = rooms[i];
 	}
 
+	// the rooms added from here on are asked for their walls, not their
+	// props: GoldenEye's props are the tile walk's rooms' (GEROOM_PROPS_END)
+	out[i++] = GEROOM_PROPS_END;
 	out[i] = -1;
 
 	geRoomAddNear(pos, radius, ymin, ymax, out, maxlen);

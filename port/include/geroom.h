@@ -68,6 +68,28 @@ f32 geRoomGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *floorcol, u
 void geRoomAddNear(struct coord *pos, f32 radius, f32 ymin, f32 ymax, RoomNum *rooms, s32 maxlen);
 
 /**
+ * Ends the props' part of a collision room list (bwalkCdRooms()): the rooms
+ * before it are asked for their walls and their props, the rooms after it, the
+ * ones geRoomAddNear() adds, for their walls alone. roomGetProps() stops at
+ * any room below zero and the collision library's wall walks skip one, so the
+ * list reads as before everywhere else. GoldenEye asks for the props of the
+ * rooms its tile walk crosses and of no others (stanTestVolume()), and a door
+ * filed under a room next door stood in a doorway the cartridge walks through
+ * (Frigate, F3 20261001-145924).
+ */
+#define GEROOM_PROPS_END -2
+
+/**
+ * Whether a background triangle of `roomnum` lets a shot through on a
+ * converted level although it is solid: the one wall the owner has asked to
+ * be shot through (Complex, the end of the dead-end catwalk in room 41 - F3
+ * 20261001-145736). The bullet goes on into room 44 behind it. Only that
+ * wall's triangles, matched by room and place; everything else stops a shot
+ * as it did.
+ */
+bool geRoomTriPassesShots(s32 roomnum, struct coord *p1, struct coord *p2, struct coord *p3);
+
+/**
  * The room the picture is drawn from, for an eye standing on `ground` in the
  * tile's room. The tile's room is where GoldenEye starts, and then it follows a
  * plumb line from the floor under the eye up to the eye across every portal

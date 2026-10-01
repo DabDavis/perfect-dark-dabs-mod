@@ -3661,8 +3661,10 @@ void roomGetProps(RoomNum *rooms, s16 *propnums, s32 len)
 	}
 #endif
 
-	// Iterate rooms
-	while (room != -1) {
+	// Iterate rooms. Stops at any room below zero: -1 ends a list, and on a
+	// converted level GEROOM_PROPS_END ends the part whose props are asked
+	// for (geroom.h); the stock lists hold no other negative room.
+	while (room >= 0) {
 		// Find the chunk to start at
 		s32 chunkindex = g_RoomPropListChunkIndexes[room];
 
