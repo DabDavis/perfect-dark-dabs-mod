@@ -2532,6 +2532,9 @@ void func0f06a730(struct defaultobj *obj, struct coord *arg1, Mtxf *mtx, RoomNum
 
 		if (foundfloor) {
 			bool updated;
+#ifndef PLATFORM_N64
+			bool stoodon = false;
+#endif
 			struct defaultobj *obj2 = objFindByPos(&pos2, rooms2);
 			u8 *start;
 			u8 *end;
@@ -2563,12 +2566,27 @@ void func0f06a730(struct defaultobj *obj, struct coord *arg1, Mtxf *mtx, RoomNum
 						&& block->ymin < y + (max - min) * sp70.m[row][1] + slack) {
 					pos2.y = block->ymax - sp70.m[row][1] * min;
 					obj->hidden |= OBJHFLAG_00008000;
+#ifndef PLATFORM_N64
+					stoodon = true;
+#endif
 				} else {
 					pos2.y = y - min * sp70.m[row][1] + func0f06a620(obj);
 				}
 			} else {
 				pos2.y = y - min * sp70.m[row][1] + func0f06a620(obj);
 			}
+
+#ifndef PLATFORM_N64
+			// GoldenEye sets everything it does not stand on another object
+			// four units over its floor, a weapon too (sub_GAME_7F04088C());
+			// Perfect Dark gives a weapon none. Depot's rocket launcher, on
+			// the floor beside the rockets' desk in both games, lay four
+			// units lower than GoldenEye's (oracle, F3 20261001-000059).
+			if (obj->type == OBJTYPE_WEAPON && modloaderStageIsRemake(g_Vars.stagenum)
+					&& !stoodon) {
+				pos2.y += 4;
+			}
+#endif
 		}
 	}
 

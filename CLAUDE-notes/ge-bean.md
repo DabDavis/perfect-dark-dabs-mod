@@ -10183,6 +10183,34 @@ Probes: `~/wt/f3rocket/build/run/rk.sh <save> <single|mixed|mixedr> <tag> [binar
 (`probe/rk.py` beside it: `HIDE=1` zeroes the held rocket's matrix at
 bondgun.c's `objprop->z` line, `TP=1` third person, `FIRE2=1` a second shot).
 
+**Draws 3-6 are not the round (F3 20261001-000127).** They are four strips in
+the slots of the tube's middle (z -1446..-118, about 200 from the axis), the
+gun's outside, only sharing the rocket's picture. Taken with the round, the
+empty launcher showed the world through its middle. The round is now 1, 2
+(split at 1000) and 21-22. Found by dumping every draw's triangles with
+their z and radius and plotting the kept and the taken from the side
+(`~/wt/f3-1001-rl-run/rl.py` for the loaded/empty screenshots).
+
+Depot's rocket launcher on the floor beside the rockets' desk is GoldenEye's
+own placement (oracle `~/dam-oracle/rltable/gedesk.py`: pad 326 on the floor,
+the rockets on desk 304). It was 4 units low: GoldenEye puts every object
+not stood on another 4 over its floor, weapons too; Perfect Dark gives
+weapons 0. On remake stages func0f06a730() adds the 4 now.
+
+**Depot's rockets invisible in the HD look (F3 20261001-000059).** Not the
+placement: GoldenEye's PROP_CHRROCKET (Pgx202Z) has two distance nodes, the
+far list (near 3195) *first* and the near one second. gebeanBuildRigid() laid
+the whole HD mesh on the first list and gave every other list an empty group
+(which hides its N64 geometry); the port always draws the near model
+(modelDistanceIsFullDetail()), so the HD rocket sat on a list never drawn and
+the drawn one was empty - nothing at all, in place or moved into view. Now
+gebeanRigidPrimaryList() takes the first list not under a far distance node on
+the same matrix. A ROM scan of every GoldenEye prop (first list under a
+distance node with near > 0) finds only chrrocket; the other ammo pickups
+(m16mag, uzimag, goldenshells, wppkmag, tt33mag, chrgrenaderound, the crates)
+are laid out plainly. Probe: `~/wt/f3-1001-rl-run/mv.py` moves the three
+rockets in front of the camera, `nodes.py` dumps a model's node tree.
+
 Seen on the way, and fixed in the next commit: in third person the rocket
 launcher fired once. See third-person.md, "A launcher fired once in third
 person".
