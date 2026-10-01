@@ -79,6 +79,7 @@ the long form.
 - **GE Plus in third person, and a converted pane's tail** — ge-bean.md, "Third person is broken sometimes" (converter 49): the solo converter carried no tail for tinted glass, so every pane was opaque at any distance and shut **portal 0** of its level every frame (Aztec's start doorway: nothing drawn from a camera beyond it), and the opening swirl's fade-out of Bond's body stays on the chr, so third person after a fully watched opening drew him at alpha 0; third-person.md, "The player's own tracers": the hand beams are drawn by `propsRenderBeams()` in third person and start at the body's gun
 - **HD light shafts, monitor recesses, cut-out rims and magenta placeholders** — ge-bean.md, "HD effects: Archives' shafts, Dam's modem screen, Jungle's vines and magenta fronds" (2026-09-26): a blended Bean level draw faded by its vertices is translucent whatever its picture, as the release draws it (Egyptian's pool included); Bean recess backs coplanar with a GoldenEye screen are pushed behind it only on lone-quad screens of basic-skeleton props with all four corners matched; binary-alpha pictures bleed colour into clear texels and 0..1 prop cut-out cards clamp; flat 16x16 magenta pictures are Rare's missing-art stand-ins, given a neighbouring cut-out's picture (else its colour)
 - **HD decal corners behind their wall, and GoldenEye's overlapping rooms** — ge-bean.md, "Train's plates and Aztec's vent: decal corners and faces over another room's space" (25th F3 pass): a decal kept in its mesh has its corners moved along its face just far enough that their whole-unit rounding is not behind its (rounded) base (`markDecalCorners()`), a shared corner only along the sharer's own plane; Bean faces lying on a GoldenEye face with a closed space of another room within 8-64 units behind are drawn culled (`markOverlaps()`), as GoldenEye relies on culling where its rooms overlap
+- **The N64 look's fog, Frigate's sea and the portal walk against the cartridge** — ge-bean.md, "Fog per vertex, the sea through the palette, GoldenEye's portal walk and the GE Plus timer" (2026-10-01, fid-look): a converted level in the N64 look is fogged per vertex as the RSP does it (`G_FOG_VERTEX_EXT`, set by `envStartFog()`; `gfx_emit_tri3()` clips at the eye plane and the FRUSTRATIO_2 guard band and works the new corners' fog out - not at the near plane, the cartridge draws nearer things); GoldenEye's `texSelect()` loads a picture in the texture's own format, so Frigate's sea is CI8 indices looked up in the TLUT by each 16-bit texel's upper byte; `bgTickPortalsWalkGe()` is GoldenEye's queue walk, which re-enters rooms and raises their draw order (Surface's fence under the trees); the mission timer sits under the bottom-message line and never moves the messages
 
 
 > **2026-09-21:** the checkbox and `Mod.XblaGoldenEye` are gone; everything
@@ -13757,3 +13758,94 @@ never-seen source; Bunker 1 8 clones; Dam 5; Train none. Chrs without the flag
 (Dam's 41-45, and every clone) try every few frames and fail - GoldenEye's own
 loop (fail, run to Bond, cannot reach, return, hear again).
 
+
+
+## Fog per vertex, the sea through the palette, GoldenEye's portal walk and the GE Plus timer (2026-10-01, fid-look)
+
+Four findings of tools/gefidelity's view diff against the cartridge in ares
+(FINDINGS V2, V3, row 15) and a tester's F3, each settled on the cartridge.
+
+**Fog is per vertex on the N64.** Surface 2's snow was far whiter than the
+cartridge's. The renderers evaluated the fog line per fragment from z/w; the
+RSP evaluates it per vertex, clamps it to 0-255, and the RDP carries it across
+the screen linearly in the shade alpha. GoldenEye's floors are few, big
+triangles and Surface 2's fog starts at 95.7% of the depth range, so a far
+corner deep in the fog greys the ground under Bond. Solving the fog factor
+from the cartridge's picture (pad 245 h180) gave 76, 97, 123, 142 up the
+screen's middle; the model that matches (81, 101, 122, 142) also clips like
+the RSP: at the eye's plane and at gSPClipRatio(FRUSTRATIO_2)'s guard band
+(twice the screen), with the fog worked out at the new corners. Without the
+guard band the corners off the bottom of the screen lend their far fog to the
+whole floor (147-169). **Not the near plane**: the cartridge draws a rock face
+nearer than Dam's near plane (pad 157), as our renderers do with depth clamp -
+clipping there cut the top off it. `G_FOG_VERTEX_EXT` (extra geometry mode)
+turns it on, `envStartFog()` sets it on a converted level in the N64 look
+only, and `gfx_emit_tri3()` does the clipping on the CPU; a corner carries
+`clamp(z/w * mul + off) * w` in the fog slot and the fragment divides by its
+interpolated w, which is linear on the screen (`SHADER_OPT_FOG_VERTEX`, GL and
+Vulkan alike). Surface 2's view median 0.206 -> 0.151.
+
+**A picture is loaded in its texture's format, not its config's.**
+GoldenEye's `texSelect()` (othermodemicrocode.c) takes `tex->gbiformat` when
+the texture is in the pool. Frigate's sea config says RGBA16, but image 1509
+is CI8 with a 24-colour RGBA16 palette in the ROM (and in the conversion,
+which writes images as they are), so TMEM holds indices with the TLUT on, and
+`sub_GAME_7F09343C()`'s RGBA16 tiles (a 32-byte line) look each 16-bit texel
+up by its **upper byte**: every other index of a picture row under s 0-15, the
+next row's under s 16-31. The earlier re-read of an RGBA picture streaked the
+sea along world x where the cartridge's waves are squeezed along it
+(`skyWaterTwinkleTexture()`).
+
+**GoldenEye's portal walk re-enters rooms.** Surface pad 262: the fence
+diamonds are the same size on both sides (texture 261, 64x32 IA8, same UVs);
+on the cartridge room 10's tree billboards cover the fence. The fence is room
+16's translucent list and writes no depth, and GoldenEye blends room 16 first
+because its walk comes back into the camera's own room through room 10 at
+depth 2 (the cartridge's draw list, `dword_CODE_bss_8007FFA0` at 0x8007ffa0,
+`g_BgNumberOfRoomsDrawn` 0x8004483c: (16,2) (10,1)). Perfect Dark's snake never
+walks back into the room it came from. `bgTickPortalsWalkGe()` is GoldenEye's
+queue of single portals, limits included (a room's ninth queued portal, depth
+15, rooms first reached by a special portal or the camera's), a portal whose
+points all lie past nine tenths of the far plane has no box
+(sub_GAME_7F0B5528), and a room's portals are queued in the order of their
+numbers, which is the order rooms of one depth are blended in. Surface 262 and
+Facility 72 now give the cartridge's draw lists room for room and in order
+(the cartridge's `g_BgRoomInfo` at 0x80041414, 0x50 a room: rendered 0x00,
+visits 0x03, disabled 0x34, told which rooms its tests rejected). Left: Dam's
+and Frigate's differences are in the rooms the visibility commands add (draw
+order 0). Not gameplay-neutral: the rooms on screen decide which chrs tick as
+on screen.
+
+**The view tour's AI freeze is not the same on both sides.** Aztec's
+"Exhaust bay opening." (FINDINGS V4) is ai_11's, reached from ai_10's
+if_bond_in_room_with_pad; ours prints it the moment Bond stands on pad 88, and
+the cartridge prints it even with every chr slot's list cleared, so whatever
+runs that chain there escapes `ares_side.freeze_ai()`. Not a game fault.
+
+**GoldenEye's sight follows the player's options** (F3 20261001-065320,
+the user's call). On the cartridge the watch's SIGHT ON-SCREEN shows the sight
+only while aiming: gunsightmode (0 = drawn, gunfire.c gunDrawSight()) reads
+0x2 (GUNSIGHTREASON_NOTAIMING) lowered and 0 with R held when it is on, 0x3 /
+0x1 when it is off. Ours is the same option (Sight on Screen), and Perfect
+Dark's Always Show Target, on by default, keeps the sight up with the gun
+lowered. The "GE Plus: Crosshair When Not Aiming" toggle is gone; a pd.ini
+that still has `Mod.GePlusSightAlways=1` turns Always Show Target on for every
+player at the next GE Plus level. `configRegisterIntRetired()` is how a
+setting that moved keeps its value: pd.ini drops every key nothing
+registers, so a retired key is registered, read, and written back only while
+it is not 0.
+
+**The view tour's camera.** A change that only moved which rooms are on
+screen (the portal walk) moved our camera by up to half a degree with theta
+and pitch unchanged: the head animation's look (Head Roll,
+`bmoveUpdateHead()`) has a phase the whole simulation feeds. Our side of
+`view/tour.py` now runs with Head Roll off, and with Always Show Target off
+(GoldenEye's sight is not up with the gun lowered); bases swept before that
+are not comparable.
+
+**The GE Plus mission timer** (F3 20261001-121337) stands under GoldenEye's
+bottom-message line (BONDVIEW_VIEW_TOP_OFFSET_1), where GoldenEye draws
+nothing, and the messages and opening lines no longer move for it; with a gun
+in the left hand it goes up to the raised line over that hand's ammunition.
+The release look's figures take their columns from the release font's widest
+digit (the countdown's 8/9 columns let them run together).

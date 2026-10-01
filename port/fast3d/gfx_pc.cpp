@@ -359,6 +359,7 @@ static struct BatchState {
     uint32_t tex_size[2][2]; // [texture][0 = width, 1 = height], kept for GFX_VERIFY_BATCH_STATE
 
     bool use_alpha, use_fog, use_grayscale, use_modulate, use_additive, use_envmap;
+    bool fog_vertex; // SHADER_OPT_FOG_VERTEX: the fog slot carries per-vertex factors
 } batch;
 
 /**
@@ -2591,6 +2592,12 @@ static void gfx_derive_batch_state(void) {
     if (use_fog && rsp.fog_linear && (rsp.geometry_mode & G_FOG)) {
         cc_options |= (uint64_t)SHADER_OPT_FOG_LINEAR;
     }
+    // G_FOG_VERTEX_EXT: the N64's fog, worked out per vertex (gfx_emit_vertex())
+    const bool fog_vertex = use_fog && (rsp.extra_geometry_mode & G_FOG_VERTEX_EXT) != 0 &&
+                            !(rsp.fog_linear && (rsp.geometry_mode & G_FOG));
+    if (fog_vertex) {
+        cc_options |= (uint64_t)SHADER_OPT_FOG_VERTEX;
+    }
 
     // If we are not using alpha, clear the alpha components of the combiner as they have no effect
     if (!use_alpha) {
@@ -2701,6 +2708,7 @@ static void gfx_derive_batch_state(void) {
     batch.tm = tm;
     batch.use_alpha = use_alpha;
     batch.use_fog = use_fog;
+    batch.fog_vertex = fog_vertex;
     batch.use_grayscale = use_grayscale;
     batch.use_modulate = use_alpha && (rsp.extra_geometry_mode & G_MODULATE_EXT) != 0;
     batch.use_additive = use_alpha && !batch.use_modulate && (rsp.extra_geometry_mode & G_ADDITIVE_EXT) != 0;    batch.use_envmap = use_envmap;
@@ -3211,6 +3219,12 @@ static inline __attribute__((always_inline)) void gfx_emit_prepare(void) {
 }
 
 /*
+ * Under G_FOG_VERTEX_EXT, the triangle being emitted carries its corners' own
+ * fog factors (gfx_emit_tri3()).
+ */
+static bool emit_fog_tri;
+
+/*
  * One vertex into buf_vbo in the batch's layout.
  */
 static inline __attribute__((always_inline)) void gfx_emit_vertex(const struct LoadedVertex* v, bool is_rect) {
@@ -3254,8 +3268,26 @@ static inline __attribute__((always_inline)) void gfx_emit_vertex(const struct L
                 break;
             }
             case EMIT_SLOT_FOG_LINE:
-                o[0] = (float)v->fog_mul;
-                o[1] = (float)v->fog_offset;
+                if (batch.fog_vertex) {
+                    // The offset times w, which the fragment divides by its
+                    // own interpolated w: a value carried that way is linear
+                    // on the screen, as the N64's shade alpha is. A triangle
+                    // carries each corner's own factor, clamped there as the
+                    // RSP clamps it (gfx_emit_tri3() has cut it where the RSP
+                    // would first); a rectangle keeps the line.
+                    if (emit_fog_tri) {
+                        float f = (v->z / w) * (float)v->fog_mul + (float)v->fog_offset;
+                        f = f < 0.0f ? 0.0f : f > 255.0f ? 255.0f : f;
+                        o[0] = 0.0f;
+                        o[1] = f * w;
+                    } else {
+                        o[0] = (float)v->fog_mul;
+                        o[1] = (float)v->fog_offset * w;
+                    }
+                } else {
+                    o[0] = (float)v->fog_mul;
+                    o[1] = (float)v->fog_offset;
+                }
                 break;
             case EMIT_SLOT_SHADE_RGB:
                 o[0] = byte_unit.f[v->color.r];
@@ -3290,6 +3322,147 @@ static inline __attribute__((always_inline)) void gfx_emit_tri_done(void) {
     if (++buf_vbo_num_tris >= g_GfxMaxBufferedTris) {
         g_GfxNumBufferFullFlushes++;
         gfx_flush_for(GFX_FLUSH_BUFFERFULL);
+    }
+}
+
+/*
+ * A point on the edge from p to q, t of the way along it in clip space, as a
+ * clipper makes one: every attribute carried linearly.
+ */
+static void gfx_lerp_vertex(struct LoadedVertex* o, const struct LoadedVertex* p, const struct LoadedVertex* q, float t) {
+    *o = *p;
+#define LERP_F(f) o->f = p->f + (q->f - p->f) * t
+    LERP_F(x);
+    LERP_F(y);
+    LERP_F(z);
+    LERP_F(w);
+    LERP_F(u);
+    LERP_F(v);
+    for (int e = 0; e < 6; e++) {
+        LERP_F(env[e]);
+    }
+#undef LERP_F
+    const uint8_t* pc = &p->color.r;
+    const uint8_t* qc = &q->color.r;
+    uint8_t* oc = &o->color.r;
+    for (int e = 0; e < 4; e++) {
+        const float f = pc[e] + (qc[e] - pc[e]) * t + 0.5f;
+        oc[e] = f <= 0 ? 0 : f >= 255 ? 255 : (uint8_t)f;
+    }
+    o->clip_rej = 0;
+}
+
+/*
+ * The clip volume of the N64's RSP under gSPClipRatio(FRUSTRATIO_2), which
+ * both games set (lv.c): a guard band twice the screen's size, and the eye's
+ * own plane - not the near plane: the cartridge draws what stands nearer than
+ * it (Dam's pad 157, a rock face a step away), as the renderers here do with
+ * depth clamping on. Distance inside plane k (0 the eye's, 1-4 left, right,
+ * bottom, top).
+ */
+#define GFX_RSP_CLIP_W 0.01f
+
+static inline float gfx_rsp_clip_dist(const struct LoadedVertex* v, int k) {
+    switch (k) {
+        case 0:
+            return v->w - GFX_RSP_CLIP_W;
+        case 1:
+            return 2.0f * v->w + v->x;
+        case 2:
+            return 2.0f * v->w - v->x;
+        case 3:
+            return 2.0f * v->w + v->y;
+        default:
+            return 2.0f * v->w - v->y;
+    }
+}
+
+/*
+ * One triangle into the batch. Under G_FOG_VERTEX_EXT each corner carries its
+ * own fog factor, worked out from its own depth (gfx_emit_vertex()), and the
+ * triangle is cut first where the RSP would cut it - behind the eye and at
+ * the guard band - so that its new corners work theirs out where they stand,
+ * as the RSP's clipper does. A floor triangle reaching behind the camera then
+ * has corners just under the screen with the fog of their own depth, not the
+ * far corner's fog carried down to Bond's feet: measured on the cartridge at
+ * Surface 2's pad 245 (fog 76, 97, 123, 142 up the middle of the screen;
+ * this model 81, 101, 122, 142; without the guard band, 147-169).
+ */
+static void gfx_emit_tri3(const struct LoadedVertex* a, const struct LoadedVertex* b, const struct LoadedVertex* c,
+                          bool is_rect) {
+    emit_fog_tri = batch.fog_vertex && !is_rect;
+
+    if (!emit_fog_tri) {
+        gfx_emit_vertex(a, is_rect);
+        gfx_emit_vertex(b, is_rect);
+        gfx_emit_vertex(c, is_rect);
+        gfx_emit_tri_done();
+        return;
+    }
+
+    const struct LoadedVertex* in3[3] = { a, b, c };
+    int outside = 0;
+
+    for (int k = 0; k < 5; k++) {
+        for (int i = 0; i < 3; i++) {
+            if (gfx_rsp_clip_dist(in3[i], k) < 0.0f) {
+                outside |= 1 << k;
+            }
+        }
+    }
+
+    if (outside == 0) {
+        gfx_emit_vertex(a, is_rect);
+        gfx_emit_vertex(b, is_rect);
+        gfx_emit_vertex(c, is_rect);
+        gfx_emit_tri_done();
+        return;
+    }
+
+    // Sutherland-Hodgman, a plane at a time: three corners and five planes
+    // make at most eight
+    struct LoadedVertex buf[2][8];
+    int n = 3;
+
+    buf[0][0] = *a;
+    buf[0][1] = *b;
+    buf[0][2] = *c;
+
+    int cur = 0;
+
+    for (int k = 0; k < 5 && n >= 3; k++) {
+        if (!(outside & (1 << k))) {
+            continue;
+        }
+
+        const struct LoadedVertex* poly = buf[cur];
+        struct LoadedVertex* out = buf[cur ^ 1];
+        int m = 0;
+
+        for (int i = 0; i < n; i++) {
+            const struct LoadedVertex* p = &poly[i];
+            const struct LoadedVertex* q = &poly[(i + 1) % n];
+            const float dp = gfx_rsp_clip_dist(p, k);
+            const float dq = gfx_rsp_clip_dist(q, k);
+
+            if (dp >= 0.0f && m < 8) {
+                out[m++] = *p;
+            }
+
+            if ((dp >= 0.0f) != (dq >= 0.0f) && m < 8) {
+                gfx_lerp_vertex(&out[m++], p, q, dp / (dp - dq));
+            }
+        }
+
+        n = m;
+        cur ^= 1;
+    }
+
+    for (int i = 1; i + 1 < n; i++) {
+        gfx_emit_vertex(&buf[cur][0], is_rect);
+        gfx_emit_vertex(&buf[cur][i], is_rect);
+        gfx_emit_vertex(&buf[cur][i + 1], is_rect);
+        gfx_emit_tri_done();
     }
 }
 
@@ -3539,20 +3712,12 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
         }
 
         gfx_emit_prepare();
-
-        gfx_emit_vertex(&f[0], is_rect);
-        gfx_emit_vertex(&f[1], is_rect);
-        gfx_emit_vertex(&f[2], is_rect);
-        gfx_emit_tri_done();
+        gfx_emit_tri3(&f[0], &f[1], &f[2], is_rect);
         return;
     }
 
     gfx_emit_prepare();
-
-    gfx_emit_vertex(v1, is_rect);
-    gfx_emit_vertex(v2, is_rect);
-    gfx_emit_vertex(v3, is_rect);
-    gfx_emit_tri_done();
+    gfx_emit_tri3(v1, v2, v3, is_rect);
 }
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {

@@ -119,6 +119,13 @@ GoldenEye's grey, only past the level the renderers alone reach (0.3).
 
 ## Traps met building it
 
+- **Our look is theta and pitch alone.** Ours runs with Head Roll off: the head
+  animation's look tilts the view by tenths of a degree in a phase the whole
+  simulation feeds, and a change that only moved which rooms are on screen (the
+  portal walk) moved Streets 89's camera 0.45 degree and its score 0.05 with
+  nothing drawn differently. Always Show Target is off too: on GE Plus it keeps
+  GoldenEye's sight up with the gun lowered, which the cartridge shows only while
+  aiming. A base swept before this (base1001) is not comparable: sweep it again.
 - **Our side takes each picture at the oracle's own tick** (`VIEW_TICKS`, from
   the oracle's manifest), not at `T0 + n * DT`: the release in Xenia runs in real
   time and fell to twice the schedule (Dam's last pictures at tick 10987 against

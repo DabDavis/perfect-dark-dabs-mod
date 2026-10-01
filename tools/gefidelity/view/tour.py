@@ -172,7 +172,9 @@ def camera():
     P = ev('g_Vars.currentplayer')
     return {'eye': _vec(P['cam_pos']), 'look': _vec(P['cam_look'], 4), 'feet': _vec(P['prop']['pos']),
             'theta': round(float(P['vv_theta']), 2), 'verta': round(float(P['vv_verta']), 2),
-            'eyeheight': round(float(P['vv_eyeheight']), 2), 'ground': round(float(P['vv_ground']), 2)}
+            'eyeheight': round(float(P['vv_eyeheight']), 2), 'ground': round(float(P['vv_ground']), 2),
+            'headlook': _vec(P['headlook'], 4), 'headup': _vec(P['headup'], 4),
+            'health': round(float(P['bondhealth']), 3)}
 
 
 def pd_place_xz(x, z, theta, verta, room=None):
@@ -376,6 +378,20 @@ def main():
     else:
         lib.frames(30)
         lib.gdb.execute('set variable g_Vars.currentplayer->invincible = 1')
+        # Head Roll off: the look is vv_theta and vv_verta and nothing else.
+        # With it on the head animation's look (bmoveUpdateHead()) tilts the
+        # view by a few tenths of a degree in a phase the whole simulation
+        # feeds, so a change that only moves which rooms are on screen moved
+        # Streets 89's camera 0.45 degree (headlook x 0.0052 -> -0.0031) and
+        # its picture 0.05 - the base and the test no longer differed by what
+        # they draw. GoldenEye's own head look stays in its pictures; the
+        # same on base and test, as the oracle's pictures are reused.
+        # And Always Show Target off (0x200): on a GE Plus level it keeps
+        # GoldenEye's sight up with the gun lowered, which GoldenEye shows
+        # only while aiming (its SIGHT ON-SCREEN, measured on the cartridge).
+        mp = int(ev('g_Vars.currentplayerstats->mpindex'))
+        lib.gdb.execute('set variable g_PlayerConfigsArray[%d].options = g_PlayerConfigsArray[%d].options & ~0x280'
+                        % (mp, mp))
         w, h = int(ev('videoGetWindowWidth()')), int(ev('videoGetWindowHeight()'))
         view = {'fb': [w, h], 'viewport': [0, 0, w, h]}
     ways = waypoint_pads()

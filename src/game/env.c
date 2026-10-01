@@ -564,6 +564,19 @@ Gfx *envStartFog(Gfx *gdl, bool xlupass)
 	gSPSetGeometryMode(gdl++, G_FOG);
 	gDPSetAlphaDither(gdl++, G_AD_NOISE);
 
+#ifndef PLATFORM_N64
+	// A level converted from GoldenEye's ROM, in the N64 look: its fog as the
+	// cartridge's RSP works it out, at each vertex and clamped there, then
+	// carried linearly across the triangle. GoldenEye's floors are a few big
+	// triangles, and a far corner deep in the fog greys the snow at Bond's
+	// feet on Surface 2 (fog from 95.7% of the depth range) where a fog
+	// worked out at each pixel leaves it white (tools/gefidelity view diff,
+	// Surface 2 pad 245). Perfect Dark's own levels keep the fog per pixel.
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		gSPSetExtraGeometryModeEXT(gdl++, G_FOG_VERTEX_EXT);
+	}
+#endif
+
 	return gdl;
 }
 
@@ -574,6 +587,12 @@ Gfx *envStopFog(Gfx *gdl)
 	}
 
 	gSPClearGeometryMode(gdl++, G_FOG);
+
+#ifndef PLATFORM_N64
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		gSPClearExtraGeometryModeEXT(gdl++, G_FOG_VERTEX_EXT);
+	}
+#endif
 
 	return gdl;
 }

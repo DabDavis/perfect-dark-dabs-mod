@@ -58,6 +58,11 @@ enum {
 // G_ALPHA_CORE_EXT: a texture-edge cutout keeps only its texels of at least
 // three quarters alpha, where the plain one keeps everything over 0.19.
 #define SHADER_OPT_ALPHA_CORE (1 << 29)
+// G_FOG_VERTEX_EXT: the fog line's offset slot carries each vertex's own
+// clamped factor times its w, and the multiplier is 0 - divided by the
+// interpolated w per fragment that is the factor carried linearly across the
+// screen, as the N64 carries its per-vertex fog in the shade alpha.
+#define SHADER_OPT_FOG_VERTEX (1u << 30)
 
 struct ColorCombinerKey {
     uint64_t combine_mode;
@@ -84,6 +89,7 @@ struct CCFeatures {
     bool opt_fog_fade;
     bool opt_fog_linear;
     bool opt_alpha_core;
+    bool opt_fog_vertex;
     bool used_textures[2];
     bool clamp[2][2];
     int num_inputs;
