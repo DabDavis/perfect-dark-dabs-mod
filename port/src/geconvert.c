@@ -3425,6 +3425,15 @@ static padrecs boundPads(const buf *f, double ls, const double *offset)
  * times 250. Most are 1000, which is what every converted object was given;
  * the ones that are not are the point: Dam's padlocks are 200, which one PP7
  * round breaks, and wore 1000.
+ *
+ * A door's word is 1000 too, and GoldenEye never divides it out: setupDoor()
+ * does not go through domakedefaultobj(), so on the cartridge a door's health
+ * is the raw 0x03e80000 read as a float (1.4e-36). Nothing harms a door in
+ * either game (objIsMortal() is false for one, and the only bypass, the bare
+ * "unarmed" path, is a projectile landing on itself), and both draw it with
+ * no shots taken (0 * 3 / health), so the converted 1000 is the cartridge's
+ * door; the world dump read the raw word as a float and called it zero until
+ * 2026-10-01 (FINDINGS row 17).
  */
 static uint32_t geObjHealth(const uint8_t *raw)
 {

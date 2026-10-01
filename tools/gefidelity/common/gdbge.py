@@ -20,7 +20,12 @@ PORT_BOOT_FRAMES=1000000 PORT_LOCKSTEP=1 PORT_VI_LOCKSTEP=1 gdb -batch -x S
 - Bond is placed by writing the prop, the collision position and all three
   tile pointers, and must be held there for a few frames.
 """
-import gdb, os, json, math
+import gdb, os, json, math, struct
+
+
+def _int_bits(v):
+    """A float's bits as the s32 they were written as."""
+    return struct.unpack('<i', struct.pack('<f', float(v)))[0]
 
 gdb.execute('set pagination off')
 gdb.execute('set confirm off')
@@ -253,6 +258,10 @@ def props():
                 if int(o['model']) != 0:
                     rec['scale'] = _f(o['model']['scale'])
                 if t == 1:
+                    # setupDoor() never runs domakedefaultobj()'s `damage = word / 65536`
+                    # (prop.c:158): a door's float health words hold the setup's 16.16 integer
+                    rec['damage'] = _f(_int_bits(o['damage']) / 65536.0)
+                    rec['maxdamage'] = _f(_int_bits(o['maxdamage']) / 65536.0)
                     # a door sits at runtime_pos + slide * openPosition (propobj.c:12506);
                     # the decomp's "frac", unkac, unkb0 are that slide vector, not a fraction
                     d = p.cast(gdb.lookup_type('DoorRecord').pointer()).dereference()
