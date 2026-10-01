@@ -115,13 +115,35 @@ def canon(m, pid, off):
     return (pid, off)
 
 
+def _ares_spawn_names(path):
+    """chrN streams that first appear after the first sample are spawned chrs:
+    'spawn@<their first list>', as ours names them. The sampler names a new
+    occupant by the number it first sees, and a sample can fall inside a
+    spawned chr's first run, after its SetMyChrNum and before its Yield (a
+    video frame ends mid-pass), or on a slot whose earlier occupant left its
+    number behind - Surface 2's re-spawned chr7, Depot's chr1/chr3 - while
+    ours sees every run and names it by the list it was spawned on."""
+    first, t0 = {}, None
+    for line in open(path, errors='replace'):
+        mm = GE_AS.match(line)
+        if not mm:
+            continue
+        tick, key, pid = int(mm.group(1)), mm.group(2), int(mm.group(3))
+        t0 = tick if t0 is None else min(t0, tick)
+        first.setdefault(key, (tick, pid))
+    return {k: 'spawn@%d' % pid for k, (tick, pid) in first.items()
+            if k.startswith('chr') and t0 is not None and tick > t0}
+
+
 def parse_ares(path, m):
     tr = Trace('ge')
+    spawned = _ares_spawn_names(path)
     for line in open(path, errors='replace'):
         mm = GE_AS.match(line)
         if not mm:
             continue
         tick, key, pid, off = int(mm.group(1)), mm.group(2), int(mm.group(3)), int(mm.group(4))
+        key = spawned.get(key, key)
         tr.lines += 1
         L = m.lists.get(pid)
         if L is None:
