@@ -9,13 +9,16 @@
  * files/PgxNNNZ, GoldenEye's textures in textures/, GE Plus's menu fonts
  * and strings in menu/, and a modconfig.txt with the `maps` and `models` blocks.
  *
- * This is tools/geconvert/geconvert.py step for step, and that script's
- * comments are the long form of everything here. The two write the same bytes:
- * the offsets the HD tables are generated from (gebeanstagetable.h,
- * geproptable.h) depend on it, so the arithmetic is done in the order numpy
- * does it (a 1-D mean is numpy's pairwise sum, a mean down a column is not,
- * rounding is half to even) and never contracted into fused multiply-adds.
- * Keep the two in step.
+ * This began as tools/geconvert/geconvert.py step for step. The Python twin
+ * was retired on 2026-10-01 (it had fallen behind: 55 files differed): this
+ * file is the only converter, and a change is made here alone. The references
+ * to geconvert.py below name where a rule came from (git history has it). The
+ * arithmetic is still done in the order numpy does it (a 1-D mean is numpy's
+ * pairwise sum, a mean down a column is not, rounding is half to even) and
+ * never contracted into fused multiply-adds, because the offsets the HD tables
+ * were generated from (gebeanstagetable.h, geproptable.h) depend on it.
+ * tools/gefidelity/convdiff shows what a change does to the conversion, and
+ * tools/gefidelity/census which ROM bytes it never reads.
  *
  * Built alone with -DGECONVERT_MAIN it is a command line converter
  * (`geconvert ROM OUTDIR`), which is how it is compared against the script.

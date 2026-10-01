@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
 """Which of GoldenEye's ROM bytes does the converter never read?
 
-    census.py [--rom GE.z64] [--out DIR] [--reuse] [--levels dam,ark,...] [--top N]
+    census.py [--tree SRC] [--rom GE.z64] [--out DIR] [--reuse] [--top N] [--cart CART.json]
 
-Runs the Python converter (tools/geconvert/geconvert.py, the twin of
-port/src/geconvert.c - tools/gefidelity/parity proves they agree) in this
-process with every byte it reads from the ROM tracked (tracker.py; the
-converter's source is not touched), then walks every file it read the way
-GoldenEye's own loaders walk them - setup sections and propdefs by type, pads,
-waypoints, intro records, AI commands, stan tiles and points, bg rooms,
-portals and vis commands, the rooms' vertices and display lists, model nodes
-and their rodata, the data segment's tables, animation headers - and reports,
-per record kind and per GoldenEye field (named from the decomp's own DWARF,
-fields.json), the bytes that are NON-ZERO in the ROM and that the converter
-never read. Sorted by how many such bytes each field drops.
+Builds port/src/geconvert.c - the only converter (the Python twin was retired
+on 2026-10-01) - from SRC (default: this tree) with every load it makes
+instrumented (ctrack/: GCC's kernel-address instrumentation calling shim.c,
+geconvert.c itself untouched; its output is byte for byte the plain build's),
+converts the ROM, and walks every file it read the way GoldenEye's own loaders
+walk them - setup sections and propdefs by type, pads, waypoints, intro
+records, AI commands, stan tiles and points, bg rooms, portals and vis
+commands, the rooms' vertices and display lists, model nodes and their rodata,
+the data segment's tables, animation headers - and reports, per record kind
+and per GoldenEye field (named from the decomp's own DWARF, fields.json), the
+bytes that are NON-ZERO in the ROM and that the converter never read. Sorted by
+how many such bytes each field drops.
 
 A field read only in part (a byte of a word) is reported as partial: that is
 the shape of "a one-byte render mode read as a word".
 
-Outputs: report.md and report.json beside this script, and the converter's
-own output and the read maps under --out (default ~/wt/gefidelity-run/census-out).
+With --cart (ares/run.py join's cart.json) each row also says whether
+GoldenEye on the cartridge reads the field, and who.
+
+Outputs: report.md and report.json beside this script (or --report-dir), and
+the conversion, the instrumented build and the read maps under --out (default
+~/wt/gefidelity-run/census-out).
 
 **The null, every run.** Dam's mission setup gets a second read map in which
 every pad's position (PadRecord.pos, the first 12 bytes of each pad - a field
@@ -28,14 +33,14 @@ find (1) in the real map, every pad's position read, and (2) in the hidden
 map, every non-zero pad position reported dropped. If either fails the
 instrument cannot tell read from unread and the run exits 4 with no report.
 """
-import collections, json, os, pickle, struct, sys, time
+import collections, json, os, struct, subprocess, sys, time
 sys.dont_write_bytecode = True      # no __pycache__ here or in tools/geconvert
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TREE = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
 CONV = os.path.join(TREE, 'tools', 'geconvert')
 sys.path.insert(0, HERE)
-import tracker
+import romlayout
 
 FIELDS = json.load(open(os.path.join(HERE, 'fields.json')))
 
@@ -105,6 +110,18 @@ MSEG = 0x05000000
 DLNODES = {4: ((0, 4), (12, 16), '>H'), 22: ((8,), (4, 0), '>i'), 24: ((0, 4), (8, 12), '>H')}
 
 
+class Root:
+    """One buffer the converter read: its bytes and a read map (0/1), how each
+    byte was read (1 parsed, 2 copied whole) and the null's second map."""
+    __slots__ = ('key', 'data', 'map', 'how', 'shadow', 'mask')
+
+    def __init__(self, key, data):
+        self.key, self.data = key, bytes(data)
+        self.map = bytearray(len(self.data))
+        self.how = bytearray(len(self.data))
+        self.shadow = self.mask = None
+
+
 # --------------------------------------------------------------- field layouts
 
 def clean(path):
@@ -161,11 +178,16 @@ def byte_layout(length, first='opcode'):
 # --------------------------------------------------------------- aggregation
 
 class Census:
-    def __init__(self):
+    def __init__(self, pcs=None, recids=None, cartrecs=None):
+        self.pcs = pcs          # root key -> (first, last) reader PCs per byte (the cartridge's maps)
+        self.recids = recids    # set of 'kind|field' whose read records to list (the join)
+        self.cartrecs = cartrecs  # 'kind|field' -> set of 'stem@offset' the cartridge read (the census)
         # kind -> field name -> stats
         self.k = collections.defaultdict(lambda: collections.defaultdict(lambda: dict(
             n=0, nonzero=0, dropped=0, partial=0, dropped_bytes=0, files=set(), values=[], where=[], off=None,
-            size=None, blind=0, blind_files=set(), blind_values=[])))
+            size=None, blind=0, blind_files=set(), blind_values=[], rd_any=0, rd_nz=0, rd_files=set(), pcs=[],
+            byfile=collections.Counter(), partfile=collections.Counter(), bytesfile=collections.Counter(),
+            rd_recs=set(), drop_cart=0, drop_cartfile=collections.Counter())))
         self.records = collections.Counter()
         self.claimed = {}       # root key -> bytearray of claimed bytes
 
@@ -194,10 +216,23 @@ class Census:
             st['n'] += 1
             if st['off'] is None:
                 st['off'], st['size'] = off, size
+            rd = rmap[a:a + size]
+            anyrd = any(rd)
+            if anyrd:
+                st['rd_any'] += 1
+                st['rd_files'].add(r.key.split('#')[1] if '#' in r.key else label)
+                if self.recids is not None and '%s|%s' % (kind, name) in self.recids:
+                    st['rd_recs'].add('%s@%x' % (label, at))
+                if self.pcs and r.key in self.pcs and len(st['pcs']) < 400:
+                    first, last = self.pcs[r.key]
+                    for i in range(size):
+                        if rd[i]:
+                            st['pcs'] += [first[a + i], last[a + i]]
             if not any(vals):
                 continue
             st['nonzero'] += 1
-            rd = rmap[a:a + size]
+            if anyrd:
+                st['rd_nz'] += 1
             drop = sum(1 for i in range(size) if vals[i] and not rd[i])
             hw = how[a:a + size] if how is not None else None
             if hw is not None and not drop and not any(x & 1 for x in hw):
@@ -210,8 +245,14 @@ class Census:
             if drop:
                 st['dropped'] += 1
                 st['dropped_bytes'] += drop
+                if self.cartrecs and '%s@%x' % (label, at) in self.cartrecs.get('%s|%s' % (kind, name), ()):
+                    st['drop_cart'] += 1
+                    st['drop_cartfile'][label] += 1
+                st['byfile'][label] += 1
+                st['bytesfile'][label] += drop
                 if any(rd):
                     st['partial'] += 1
+                    st['partfile'][label] += 1
                 st['files'].add(label)
                 h = vals.hex()
                 if h not in st['values'] and len(st['values']) < 6:
@@ -489,88 +530,107 @@ def seg_model(c, r, rmap, label, numswitches, numtextures):
 
 # --------------------------------------------------------------- running it
 
-def run_tracked(romfile, outdir, levels, nullkey):
-    sys.path.insert(0, CONV)
-    os.environ['GE_ROM'] = romfile
-    tracker.install()
-    import gefiles, gerom, geconvert
-    rom = gefiles.rom()
-    rom.rom = tracker.root('rom', rom.rom)
-    rom.data = tracker.root('data', rom.data)
-    files_read = {}
-    anims = set()
-    orig_rom_file = gefiles.rom_file
-
-    def rom_file(stem):
-        d = orig_rom_file(stem)
-        if isinstance(d, tracker.Tracked):
-            d = d._bytes()      # a bg file's stored bytes, sliced from the ROM
-        full = stem
-        if stem.startswith('Tbg_'):
-            full += '_all_p_stanZ'
-        elif stem.startswith('bg_'):
-            full += '_all_p'
-        t = tracker.root('file:' + full, d)
-        files_read[t._r.key] = full
-        if full == nullkey and t._r.shadow is None:
-            arm_null(t._r)
-        return t
-    gefiles.rom_file = rom_file
-
-    orig_inflate = gefiles.inflate1172
-
-    def inflate1172(b):
-        out = orig_inflate(b)
-        if isinstance(b, tracker.Tracked):
-            return tracker.root('inflated:%s@%#x' % (b._r.key, b._base), out)
-        return out
-    gefiles.inflate1172 = inflate1172
-
-    orig_rev = gefiles.revision_setup
-
-    def revision_setup(stem, d):
-        # the later cartridges' copy of a setup is built from the US bytes and
-        # read again in its own right: hand it plain bytes, so copying the
-        # setup to patch it is not taken for reading every field of it
-        return orig_rev(stem, d._bytes() if isinstance(d, tracker.Tracked) else d)
-    gefiles.revision_setup = revision_setup
-
-    orig_anim = gerom.Rom.anim
-
-    def anim(self, at):
-        anims.add(at)
-        return orig_anim(self, at)
-    gerom.Rom.anim = anim
-
-    sys.argv = ['geconvert.py', outdir] + list(levels)
-    t0 = time.time()
-    geconvert.main()
-    print('census: converter ran in %.0f s, %d roots tracked' % (time.time() - t0, len(tracker.ROOTS)))
-    tracker.uninstall()
-    props = [(name, h['numswitches'], h['numtextures']) for name, _, h in rom.props()]
-    chrs = [(name, h['numswitches'], h['numtextures']) for name, _, h in rom.chrs()]
-    import gesolo
-    return dict(files_read=files_read, anims=sorted(anims), props=props, chrs=chrs,
-                global_ai_at=gesolo.GLOBAL_AI_AT - gerom.DATA_VRAM, gerom=gerom)
+ROM_DEFAULT = os.path.expanduser('~/wt/gefidelity-run/added-content/GoldenEye 007 (U) [!].n64')
+NONZERO = bytes(1 if x else 0 for x in range(256))
+NULL_STEM = 'UsetupdamZ'
 
 
-def arm_null(r):
-    """Hide every pad position of this setup from the null's own read map."""
-    d = r.data
-    r.mask = bytearray(len(d))
-    r.shadow = bytearray(r.map)     # reads so far (none, the file was just read)
-    padsat = u32(d, 24)
-    o = padsat
-    while padsat and o + 0x2c <= len(d) and u32(d, o + 36):
-        r.mask[o:o + 12] = b'\x01' * 12
+def null_spec(rom):
+    """GECENSUS_NULL for the shim: Dam's setup stream and every pad's position."""
+    addr, _ = rom.files[NULL_STEM]
+    d = rom.file(NULL_STEM)
+    o = struct.unpack_from('>I', d, 24)[0]
+    ranges = []
+    while o + 0x2c <= len(d) and struct.unpack_from('>I', d, o + 36)[0]:
+        ranges.append('%d-%d' % (o, o + 12))
         o += 0x2c
+    return '%d:%s' % (addr + 2, ','.join(ranges))
 
 
-def analyse(info, roots, maps=None, only=None):
-    """Census over the roots; `maps` overrides a root's read map (the null)."""
+def run_c(tree, romfile, out):
+    """Build the instrumented converter from `tree`, convert, dump the maps."""
+    rom = romlayout.Rom(romfile)
+    binp = os.path.join(out, 'bin', 'gecensus')
+    subprocess.run([os.path.join(HERE, 'ctrack', 'build.sh'), tree, binp], check=True,
+                   stdout=subprocess.DEVNULL)
+    dump = os.path.join(out, 'dump')
+    conv = os.path.join(out, 'conv')
+    for d in (dump, conv):
+        subprocess.run(['rm', '-rf', d], check=True)
+        os.makedirs(d)
+    t0 = time.time()
+    env = dict(os.environ, GECENSUS_NULL=null_spec(rom))
+    p = subprocess.run([binp, os.path.abspath(romfile), conv, dump], env=env, capture_output=True, text=True)
+    if p.returncode:
+        raise SystemExit('census: the instrumented converter failed:\n' + p.stderr[-2000:])
+    print('census: geconvert.c (instrumented) ran in %.0f s' % (time.time() - t0))
+    return rom
+
+
+def load_c_dump(dumpdir, rom):
+    """The shim's streams as the census's roots: the ROM, the data segment,
+    each file by its stem, each bg room blob as inflated:file:<bg>@offset."""
+    streams = json.load(open(os.path.join(dumpdir, 'streams.json')))
+    byaddr = {addr + 2: stem for stem, (addr, size) in rom.files.items() if not stem.startswith('bg_')}
+    bgs = sorted((addr, addr + size, stem) for stem, (addr, size) in rom.files.items() if stem.startswith('bg_'))
+    roots, skipped = {}, 0
+
+    def mk(key, data, m, shadow=None):
+        r = Root(key, data)
+        r.map = bytearray(m.translate(NONZERO))
+        r.how = bytearray(m)
+        if shadow is not None:
+            r.shadow = bytearray(shadow.translate(NONZERO))
+            r.mask = bytearray(len(data))
+        roots[key] = r
+        return r
+
+    rommap = None
+    for s in streams:
+        rd = lambda ext: open(os.path.join(dumpdir, 's%04d.%s' % (s['id'], ext)), 'rb').read()
+        if s['key'] == -1:
+            rommap = rd('map')
+            mk('rom', rom.rom, rommap)
+            continue
+        if s['src'] != 0:
+            skipped += 1
+            continue
+        k = s['key']
+        shadow = rd('shadow') if s['null'] else None
+        if k == romlayout.DATA_ROM + 2:
+            mk('data', rd('data'), rd('map'))
+        elif k in byaddr:
+            mk('file:' + byaddr[k], rd('data'), rd('map'), shadow)
+        else:
+            bg = next((b for b in bgs if b[0] <= k - 2 < b[1]), None)
+            if bg:
+                mk('inflated:file:%s@%#x' % (bg[2], k - 2 - bg[0]), rd('data'), rd('map'))
+            else:
+                skipped += 1
+    # the bg files are stored, not compressed: the ROM's own bytes and map
+    for addr, end, stem in bgs:
+        if rommap is not None and any(rommap[addr:end]):
+            mk('file:' + stem, rom.rom[addr:end], rommap[addr:end])
+    anims = []
+    sys.path.insert(0, CONV)
+    import geanimtable
+    for _, at in list(geanimtable.TABLE) + list(geanimtable.VEHICLES):
+        a = geanimtable.BASE + at
+        if at > 1 and rommap is not None and any(rommap[a:a + 20]):
+            anims.append(a)
+    info = dict(props=rom.models(), chrs=[], anims=sorted(set(anims)),
+                global_ai_at=romlayout.GLOBAL_AI_AT - romlayout.DATA_VRAM, gerom=romlayout)
+    print('census: %d streams, %d roots, %d not placed' % (len(streams), len(roots), skipped))
+    return roots, info
+
+
+def analyse(info, roots, maps=None, only=None, files_only=False, pcs=None, recids=None, cartrecs=None):
+    """Census over the roots; `maps` overrides a root's read map (the null).
+    `files_only` walks the files alone (no data segment, ROM or unplaced
+    bytes) and `pcs` collects each field's reader PCs - the cartridge's join."""
     sys.path.insert(0, CONV)
     import geaitable
-    c = Census()
+    c = Census(pcs, recids, cartrecs)
     gerom = info['gerom']
     inflated = {k: r for k, r in roots.items() if k.startswith('inflated:')}
     models = {name: (ns, nt) for name, ns, nt in info['props'] + info['chrs']}
@@ -589,7 +649,7 @@ def analyse(info, roots, maps=None, only=None):
             seg_bg(c, r, rmap, name, inflated)
         elif name in models:
             seg_model(c, r, rmap, name, *models[name])
-    if only:
+    if only or files_only:
         return c
     # the data segment: the tables the converter reads
     data = roots.get('data')
@@ -680,7 +740,40 @@ def null_check(info, roots, nullkey):
                     nullkey, len(pads), seen, dropped, nonzero, realdrop))
 
 
-def report(c, info, nullmsg, outmd, outjson, top):
+def cart_records(cart):
+    """'kind|field' -> the 'stem@offset' records the cartridge read (cart.json's recs)."""
+    if not cart:
+        return None
+    return {k: set(v.get('recs', ())) for k, v in cart['fields'].items()}
+
+
+# GoldenEye code that reads a field only to turn a file offset into a pointer
+RELOCATORS = {'modelPromoteNodeOffsetsToPointers'}
+# ... and where a reader does both, the kinds it only relocates (the setup's
+# debug pad-name table: proplvreset2 rebases the pointers, nothing reads a name)
+RELOCATORS_BY_KIND = {'setup padname ptr': {'proplvreset2'}}
+
+
+def cart_says(cart, kind, field, row=None):
+    """What the cartridge did with this field: read (in which of GoldenEye's
+    functions), never read, or not observed - with a short text for the table."""
+    if not cart:
+        return dict(state='unchecked', text='-')
+    f = cart['fields'].get('%s|%s' % (kind, field))
+    if not f or not f['records']:
+        return dict(state='unobserved', text='not observed')
+    if f['read'] and f['readers'] and all(n in RELOCATORS | RELOCATORS_BY_KIND.get(kind, set())
+                                          for n, _ in f['readers']):
+        return dict(state='relocated', text='relocated only %d/%d (%s)' % (f['read'], f['records'],
+                                                                         f['readers'][0][0]), **f)
+    if f['read']:
+        who = ', '.join(n for n, _ in f['readers'][:2])
+        same = '' if row is None else ('; %d of the dropped records' % row.get('drop_cart', 0))
+        return dict(state='read', text='**read** %d/%d (%s)%s' % (f['read'], f['records'], who, same), **f)
+    return dict(state='never', text='never (0/%d)' % f['records'], **f)
+
+
+def report(c, info, nullmsg, outmd, outjson, top, cart=None):
     rows = []
     for kind, fields in c.k.items():
         for name, st in fields.items():
@@ -688,17 +781,23 @@ def report(c, info, nullmsg, outmd, outjson, top):
                 rows.append(dict(kind=kind, field=name, offset=st['off'], size=st['size'], records=st['n'],
                                  nonzero=st['nonzero'], dropped=st['dropped'], partial=st['partial'],
                                  dropped_bytes=st['dropped_bytes'], files=sorted(st['files']),
-                                 values=st['values'], where=st['where']))
+                                 values=st['values'], where=st['where'], byfile=dict(st['byfile']),
+                                 partfile=dict(st['partfile']), bytesfile=dict(st['bytesfile']),
+                                 drop_cart=st['drop_cart'], drop_cartfile=dict(st['drop_cartfile'])))
     rows.sort(key=lambda x: (-x['dropped_bytes'], x['kind'], x['offset']))
-    js = dict(null=nullmsg, records=dict(c.records), unclaimed=c.unclaimed, dropped=rows,
-              unknown_ops=dict(tracker.UNKNOWN_OPS))
+    for x in rows:
+        x['cart'] = cart_says(cart, x['kind'], x['field'], x)
+    js = dict(null=nullmsg, records=dict(c.records), unclaimed=c.unclaimed, dropped=rows)
     json.dump(js, open(outjson, 'w'), indent=1)
     L = ['# Converter read census', '',
          'Bytes of GoldenEye\'s ROM that are **non-zero and never read** by the converter '
-         '(tools/geconvert, the twin of port/src/geconvert.c), by record kind and GoldenEye field '
-         '(names from the decomp\'s DWARF). Generated by `tools/gefidelity/census/census.py`; '
+         '(port/src/geconvert.c, every load instrumented: census/ctrack), by record kind and GoldenEye '
+         'field (names from the decomp\'s DWARF). Generated by `tools/gefidelity/census/census.py`; '
          'do not edit by hand.', '',
          '- %s' % nullmsg,
+         '- %s' % (('cartridge column: ares/run.py join, ' + cart['null'] + '; observed: ' +
+                    ', '.join('%d %s' % (v, k) for k, v in sorted(cart['observed'].items())))
+                   if cart else 'cartridge column: not run (census/ares/run.py sweep, then join)'),
          '- records walked: %d in %d kinds; fields with dropped data: %d' % (
              sum(c.records.values()), len(c.records), len(rows)),
          '- "partial" = the field was read in part (a byte of a word) and a non-zero byte of it was not',
@@ -714,13 +813,13 @@ def report(c, info, nullmsg, outmd, outjson, top):
     for kind, (b, n) in sorted(bykind.items(), key=lambda kv: -kv[1][0]):
         L.append('| %s | %d | %d | %d |' % (kind, c.records[kind], n, b))
     L += ['', '## Top %d fields' % top, '',
-          '| # | kind | field (+offset) | records | non-zero | dropped (partial) | bytes | files | example values | where |',
-          '|---:|---|---|---:|---:|---|---:|---|---|---|']
+          '| # | kind | field (+offset) | records | non-zero | dropped (partial) | bytes | read by the cartridge | files | example values | where |',
+          '|---:|---|---|---:|---:|---|---:|---|---|---|---|']
     for i, x in enumerate(rows[:top], 1):
         files = ', '.join(x['files'][:4]) + (' +%d' % (len(x['files']) - 4) if len(x['files']) > 4 else '')
-        L.append('| %d | %s | `%s` +%#x | %d | %d | %d (%d) | %d | %s | %s | %s |' % (
-            i, x['kind'], x['field'], x['offset'], x['records'], x['nonzero'], x['dropped'], x['partial'],
-            x['dropped_bytes'], files, ' '.join(x['values'][:4]), x['where'][0] if x['where'] else ''))
+        L.append('| %d | %s | `%s` +%#x | %d | %d | %d (%d) | %d | %s | %s | %s | %s |' % (
+            i, x['kind'], x['field'].replace('|', ' / '), x['offset'], x['records'], x['nonzero'], x['dropped'], x['partial'],
+            x['dropped_bytes'], x['cart']['text'], files, ' '.join(x['values'][:4]), x['where'][0] if x['where'] else ''))
     blind = []
     for kind, fields in c.k.items():
         if not kind.startswith(('propdef', 'setup', 'ai ', 'global ai', 'stan', 'bg ')):
@@ -728,7 +827,8 @@ def report(c, info, nullmsg, outmd, outjson, top):
         for name, st in fields.items():
             if st['blind']:
                 blind.append(dict(kind=kind, field=name, offset=st['off'], records=st['n'], nonzero=st['nonzero'],
-                                  blind=st['blind'], files=sorted(st['blind_files']), values=st['blind_values']))
+                                  blind=st['blind'], files=sorted(st['blind_files']), values=st['blind_values'],
+                                  cart=cart_says(cart, kind, name)))
     blind.sort(key=lambda x: (-x['blind'], x['kind'], x['offset']))
     js['carried_blind'] = blind
     json.dump(js, open(outjson, 'w'), indent=1)
@@ -738,13 +838,13 @@ def report(c, info, nullmsg, outmd, outjson, top):
           'with its own struct: each one is a place where GoldenEye\'s and Perfect Dark\'s meaning of the '
           'same bytes must agree (GoldenEye\'s object flag 0x200 was Perfect Dark\'s OBJFLAG_ORTHOGONAL). '
           'A field copied into a bytearray and then parsed from the copy also lands here. %d fields; top 50:' % len(blind),
-          '', '| kind | field (+offset) | records | non-zero | copied unread | files | example values |',
-          '|---|---|---:|---:|---:|---|---|']
+          '', '| kind | field (+offset) | records | non-zero | copied unread | read by the cartridge | files | example values |',
+          '|---|---|---:|---:|---:|---|---|---|']
     for x in blind[:50]:
         files = ', '.join(x['files'][:3]) + (' +%d' % (len(x['files']) - 3) if len(x['files']) > 3 else '')
-        L.append('| %s | `%s` +%#x | %d | %d | %d | %s | %s |' % (x['kind'], x['field'], x['offset'], x['records'],
-                                                              x['nonzero'], x['blind'], files,
-                                                              ' '.join(x['values'][:4])))
+        L.append('| %s | `%s` +%#x | %d | %d | %d | %s | %s | %s |' % (x['kind'], x['field'].replace('|', ' / '), x['offset'], x['records'],
+                                                                   x['nonzero'], x['blind'], x['cart']['text'], files,
+                                                                   ' '.join(x['values'][:4])))
     if c.unclaimed:
         L += ['', '## Bytes no walk placed', '',
               'Non-zero bytes of a file the converter read that no segmenter here assigns to a record '
@@ -753,9 +853,20 @@ def report(c, info, nullmsg, outmd, outjson, top):
               '| file | non-zero unplaced | of those unread |', '|---|---:|---:|']
         for f, v in sorted(c.unclaimed.items(), key=lambda kv: -kv[1]['nonzero_unplaced_unread'])[:40]:
             L.append('| %s | %d | %d |' % (f, v['nonzero_unplaced'], v['nonzero_unplaced_unread']))
-    if tracker.UNKNOWN_OPS:
-        L += ['', 'Buffer methods taken as whole reads: %s' % dict(tracker.UNKNOWN_OPS)]
     open(outmd, 'w').write('\n'.join(L) + '\n')
+
+
+def census(tree=TREE, romfile=ROM_DEFAULT, out=None, reuse=False):
+    """Run (or with reuse, reload) the C census -> (roots, info, null ok, null message)."""
+    out = out or os.path.expanduser('~/wt/gefidelity-run/census-out')
+    os.makedirs(out, exist_ok=True)
+    if reuse and os.path.exists(os.path.join(out, 'dump', 'streams.json')):
+        rom = romlayout.Rom(romfile)
+    else:
+        rom = run_c(tree, romfile, out)
+    roots, info = load_c_dump(os.path.join(out, 'dump'), rom)
+    ok, msg = null_check(info, roots, NULL_STEM)
+    return roots, info, ok, msg
 
 
 def main():
@@ -768,47 +879,24 @@ def main():
             del a[i:i + 2]
             return v
         return default
-    romfile = os.path.abspath(opt('--rom', os.path.expanduser(
-        '~/wt/gefidelity-run/added-content/GoldenEye 007 (U) [!].n64')))
+    tree = os.path.abspath(opt('--tree', TREE))
+    romfile = os.path.abspath(opt('--rom', ROM_DEFAULT))
     out = os.path.abspath(opt('--out', os.path.expanduser('~/wt/gefidelity-run/census-out')))
-    levels = [x for x in opt('--levels', '').split(',') if x]
+    rdir = os.path.abspath(opt('--report-dir', HERE))
+    cart = opt('--cart', os.path.expanduser('~/wt/gefidelity-run/census-ares/cart.json'))
     top = int(opt('--top', '60'))
-    reuse = '--reuse' in a
-    nullkey = 'UsetupdamZ'
-    os.makedirs(out, exist_ok=True)
-    pk = os.path.join(out, 'maps.pkl')
-    if reuse and os.path.exists(pk):
-        saved = pickle.load(open(pk, 'rb'))
-        sys.path.insert(0, CONV)
-        import gerom
-        saved['info']['gerom'] = gerom
-        info = saved['info']
-        roots = {}
-        for k, (data, m, how, shadow, mask) in saved['roots'].items():
-            r = tracker.Root(k, data)
-            r.map, r.how = bytearray(m), bytearray(how)
-            r.shadow, r.mask = shadow and bytearray(shadow), mask and bytearray(mask)
-            roots[k] = r
-        tracker.UNKNOWN_OPS.update(saved.get('unknown_ops', {}))
-    else:
-        info = run_tracked(romfile, os.path.join(out, 'py-tracked'), levels, nullkey)
-        roots = dict(tracker.ROOTS)
-        g = info.pop('gerom')
-        pickle.dump(dict(info=info, unknown_ops=dict(tracker.UNKNOWN_OPS),
-                         roots={k: (r.data, bytes(r.map), bytes(r.how), r.shadow and bytes(r.shadow),
-                                    r.mask and bytes(r.mask))
-                                for k, r in roots.items()}), open(pk, 'wb'))
-        info['gerom'] = g
-    ok, msg = null_check(info, roots, nullkey)
+    roots, info, ok, msg = census(tree, romfile, out, '--reuse' in a)
     print(msg)
     if not ok:
         print('CENSUS NULL FAILED: the census cannot tell a read field from an unread one; no report')
         return 4
-    c = analyse(info, roots)
-    md, js = os.path.join(HERE, 'report.md'), os.path.join(HERE, 'report.json')
-    report(c, info, msg, md, js, top)
-    for f in (md, js):
-        open(os.path.join(out, os.path.basename(f)), 'w').write(open(f).read())
+    cartj = json.load(open(cart)) if cart and os.path.exists(cart) else None
+    c = analyse(info, roots, cartrecs=cart_records(cartj))
+    md, js = os.path.join(rdir, 'report.md'), os.path.join(rdir, 'report.json')
+    report(c, info, msg, md, js, top, cartj)
+    if rdir != out:
+        for f in (md, js):
+            open(os.path.join(out, os.path.basename(f)), 'w').write(open(f).read())
     n = sum(1 for kind in c.k.values() for st in kind.values() if st['dropped'])
     print('census: %d records, %d fields drop non-zero data; report in %s' % (sum(c.records.values()), n, md))
     return 0

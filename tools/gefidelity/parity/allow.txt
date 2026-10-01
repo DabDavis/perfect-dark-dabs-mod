@@ -1,3 +1,0 @@
-# One-sided files that are not drift: <side> <path relative to the conversion>.
-# A = the Python converter only, B = the C converter only. Each needs a reason.
-B CONVERT.txt   # the game's stamp of which converter wrote the folder (gexplusrom.c), not converter output
