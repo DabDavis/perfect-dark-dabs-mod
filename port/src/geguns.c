@@ -154,6 +154,7 @@ struct gegunstat {
 		{ speed0, speed1, speed2, speed3 }, back, up, bolt, sway, zoom, muzzle, ammotype, bitflags }
 
 // GoldenEye's WEAPONSTATBITFLAG_* bits a definition is built from (bondconstants.h)
+#define GESTATFLAG_ROLL_FLASH             0x00000001 // WEAPONSTATBITFLAG_00000001 (gunfire.c)
 #define GESTATFLAG_HAS_AUTO_AIM           0x00000008
 #define GESTATFLAG_CLICKY                 0x00000010
 #define GESTATFLAG_HIDE_FIRST_PERSON_HAND 0x00002000
@@ -3008,7 +3009,8 @@ static void gegunsOwnModelFlashUnposed(struct model *model, struct modelnode *st
 /**
  * GoldenEye's own muzzle flash, posed as gunfire.c poses it: GoldenEye never
  * lets the model pose it. The flash (part 3's matrix) is the gun's matrix
- * with a random roll, 1 to 1.25 times the size, and stretched along the barrel
+ * with a random roll (only on the guns whose row asks for one), 1 to 1.25
+ * times the size, and stretched along the barrel
  * by the gun's MuzzleFlashExtension; the star (part 2's, and part 4's on the
  * KF7 alone) faces the eye at its place in the flash, a tenth the size. Posed as a
  * plain model both sat at their rest offsets unturned: a streak lying along
@@ -3023,6 +3025,7 @@ void gegunsOwnModelFlash(struct hand *hand, struct model *model)
 	f32 scale;
 	f32 ext;
 	f32 unit;
+	f32 roll;
 	Mtxf *parent;
 	Mtxf *flashmtx;
 	f32 cardflash[3];
@@ -3057,7 +3060,14 @@ void gegunsOwnModelFlash(struct hand *hand, struct model *model)
 	ext = g_Weapons[hand->gset.weaponnum]->muzzlez;
 	unit = sqrtf(parent->m[0][0] * parent->m[0][0] + parent->m[0][1] * parent->m[0][1] + parent->m[0][2] * parent->m[0][2]);
 
-	gegunsFlashMatrix(flashmtx, parent, gegunsRandFrac() * M_BADTAU, scale, ext, off, 0);
+	// GoldenEye rolls the flash at random only on a gun whose row has bit
+	// 0x1 (gunfire.c); the KF7, AR33, RC-P90 and sniper rifle lack it, and
+	// their flash keeps the model's own turn, lined up with the vents
+	// (F3 20261001-165454)
+	roll = (stats[hand->gset.weaponnum - WEAPON_GE_FIRST].bitflags & GESTATFLAG_ROLL_FLASH)
+		? gegunsRandFrac() * M_BADTAU : 0.0f;
+
+	gegunsFlashMatrix(flashmtx, parent, roll, scale, ext, off, 0);
 
 	for (s32 part = 2; part <= 4; part += 2) {
 		struct modelnode *star = modelGetPart(def, part);
