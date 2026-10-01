@@ -6592,7 +6592,7 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0, paintedOver = 0;
+	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0, paintedOver = 0, plainUntextured = 0;
 	u32 bytes = 0;
 	const char *levelname;
 	u64 key = 0;
@@ -6840,6 +6840,17 @@ static s32 build(void)
 				continue;
 			}
 
+			// Any other face of such a draw is its vertices' colour alone,
+			// with no picture: Statue Park's strings of bulbs (stride 20,
+			// white bulbs and sockets on black wire) are lit white in the
+			// release, and ours read them through one texel of whatever
+			// picture the draw before had bound - a dull grey (F3
+			// 20260928-234109, "these lights are supposed to be lit")
+			if (tri->plain && tri->tex >= 0) {
+				tri->tex = -1;
+				plainUntextured++;
+			}
+
 			for (s32 j = 0; j < 3; j++) {
 				mid[j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f;
 			}
@@ -6915,6 +6926,10 @@ static s32 build(void)
 
 		if (plainDecals) {
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d white decal triangles of draws with no UV or picture left out", row->bean, plainDecals);
+		}
+
+		if (plainUntextured) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles of draws with no UV or picture drawn in their vertices' colour", row->bean, plainUntextured);
 		}
 
 		if (paintedOver) {
