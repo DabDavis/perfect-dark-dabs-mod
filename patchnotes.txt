@@ -31,6 +31,20 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 30 2026-10-01
+GE Plus: the KF7, AR33, RC-P90 and sniper rifle muzzle flashes keep a fixed turn lined up with the vents, as in GoldenEye (thanks dblaney1)
+GE Plus: a cutscene that puts your gun away while you are reloading no longer crashes the game
+Linux: leaving the game from fullscreen on Wayland no longer crashes on the way out
+GE Plus Cradle: bullet holes and blood are no longer black, in missions and multiplayer
+GE Plus Frigate: the doorway out to the deck and the doorway down to the pipe room no longer block you, as in GoldenEye
+GE Plus Complex: bullets go through the wall at the end of the dead-end catwalk, so you can hit players on the other side
+Simulants on the GoldenEye arenas (Complex, Cradle and the rest) find their way around instead of standing at their spawn points
+Randomizer: a run no longer lands you in Area 51's hangar on Rescue or Maian SOS, where its lifts and doors only exist in Infiltration (thanks Parabolee)
+Randomizer: Rescue and Maian SOS show Area 51's night sky during a run (thanks Parabolee)
+Randomizer: landing in a room with locked doors (Villa's interrogation room) unlocks the doors inside the area you are sealed in (thanks Parabolee)
+Institute: glass behind the metal-grating floors and ramps no longer shows through the solid metal (thanks Shockwave S08)
+Guards Alerted: the guards it calls in join the level's own guards on Chicago and Carrington Villa instead of attacking them (thanks chickensalad)
+
 notes 29 2026-10-01
 GE Plus: guards that GoldenEye places at the start of a mission are no longer missing on Facility, Frigate, Caverns and Aztec, and they carry their guns and hats
 GE Plus: Bond's view sits at GoldenEye's eye height, standing and crouching (about 8 units higher than before)
