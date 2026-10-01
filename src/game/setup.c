@@ -1324,6 +1324,16 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 		padRotateForDoor(door->base.pad);
 	}
 
+#ifndef PLATFORM_N64
+	// A converted GoldenEye mission's door carries the portal GoldenEye's own
+	// setupDoor() gives it, worked out by the conversion on GoldenEye's tiles
+	// from the tile the door's pad names (geconvert.c's geSoloDoors(); -1 for
+	// none, the byte after laserfade marking it given). Read before
+	// doorInit() writes -1 over it.
+	if (geRoomActive() && door->unusedmaybe[0] == GE_DOOR_PORTAL_GIVEN) {
+		portalnum = door->portalnum;
+	} else
+#endif
 	if (door->base.flags & OBJFLAG_DOOR_HASPORTAL) {
 		portalnum = setupGetPortalByDoorPad(door->base.pad);
 	}

@@ -25,6 +25,13 @@
 s32 geRoomActive(void);
 
 /**
+ * A converted mission's door record carries this in its first spare byte
+ * (doorobj's unusedmaybe[0]) when its portalnum is the one GoldenEye's
+ * setupDoor() gives it (geconvert.c's geSoloDoors(), converter 97).
+ */
+#define GE_DOOR_PORTAL_GIVEN 0x67
+
+/**
  * cdFindGroundInfoAtCyl() asked of the rooms handed in **and** of every room
  * whose box holds the position: the highest floor below it, whichever room's
  * tile it is. Any of the out pointers may be NULL, as cdFindGroundInfoAtCyl()'s
