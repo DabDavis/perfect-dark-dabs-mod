@@ -66,6 +66,16 @@ Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 intro, s32 *row
 Gfx *geHudRenderCountdown(Gfx *gdl, s32 mins, s32 secs, s32 ms);
 
 /**
+ * Perfect Dark's mission timer (hudmsgRenderMissionTimer()) on GoldenEye's
+ * HUD, which has none: its numbers in Bank Gothic at the bottom left, on the
+ * bottom messages' raised line over the left hand's ammunition, and the bottom
+ * messages stacked over it. Say whether it is up this frame before the
+ * messages are drawn; `split` is the ghost's, drawn when `hassplit`.
+ */
+void geHudSetMissionTimerShown(s32 shown);
+Gfx *geHudRenderMissionTimer(Gfx *gdl, s32 time60, s32 hassplit, s32 split60);
+
+/**
  * display_red_blue_on_radar(): the disc, then each blip Perfect Dark's radar
  * decides on at `dx`, `dy` from its middle in GoldenEye's units (`plain` for
  * Perfect Dark's ordinary radar colour, which becomes GoldenEye's yellow and,

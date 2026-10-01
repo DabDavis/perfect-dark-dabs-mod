@@ -15,7 +15,8 @@
  * - the messages (hudmsgBottomRender() and sub_GAME_7F08AAE8()): Bank Gothic
  *   outlined in grey at the bottom left, Zurich Bold over a dark band across
  *   the top;
- * - the countdown (propobj.c's countdownTimerRender()).
+ * - the countdown (propobj.c's countdownTimerRender()), and Perfect Dark's
+ *   mission timer, which GoldenEye has none of, set in the countdown's figures.
  *
  * All of it is laid out on GoldenEye's in-game 320x240 frame. A window wider
  * than 4:3 has more than 320 of those units across it, and since every one of
@@ -54,6 +55,7 @@
 #include "game/camera.h"
 #include "game/gfxmemory.h"
 #include "game/game_1531a0.h"
+#include "game/savebuffer.h"
 #include "game/tex.h"
 #include "lib/mtx.h"
 #include "lib/vi.h"
@@ -242,6 +244,8 @@ static struct {
 	// the radar's middle on the view's frame, set by geHudRadarBegin()
 	s32 radarx, radary;
 	f32 radarsx, radarsy;
+	// the mission timer is up this frame (geHudSetMissionTimerShown())
+	s32 timershown;
 } g_Hud = { -1, -1, 0 };
 
 /** The view in GoldenEye's units, and what one of them is worth on the frame buffer. */
@@ -453,7 +457,7 @@ static Gfx *hudImage(Gfx *gdl, struct textureconfig *tex, s32 mode, s32 point, s
  * outline's colour, a unit out every way, and then itself over them.
  */
 static Gfx *hudStringOutlined(Gfx *gdl, s32 gothic, const char *text, s32 x, s32 halign, s32 y, s32 valign,
-		s32 outline, u32 outlinecolour)
+		s32 outline, u32 outlinecolour, u32 textcolour)
 {
 	s32 w, h;
 
@@ -481,12 +485,12 @@ static Gfx *hudStringOutlined(Gfx *gdl, s32 gothic, const char *text, s32 x, s32
 		}
 	}
 
-	return gexFrontTextPrint(gdl, gothic, x, y, text, COL_TEXT);
+	return gexFrontTextPrint(gdl, gothic, x, y, text, textcolour);
 }
 
 static Gfx *hudString(Gfx *gdl, s32 gothic, const char *text, s32 x, s32 halign, s32 y, s32 valign, s32 outline)
 {
-	return hudStringOutlined(gdl, gothic, text, x, halign, y, valign, outline, COL_OUTLINE);
+	return hudStringOutlined(gdl, gothic, text, x, halign, y, valign, outline, COL_OUTLINE, COL_TEXT);
 }
 
 static Gfx *hudInteger(Gfx *gdl, s32 value, s32 x, s32 halign, s32 y, s32 valign)
@@ -517,7 +521,7 @@ static Gfx *hudReleaseInteger(Gfx *gdl, const struct hudframe *f, s32 value, s32
 			viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
 	gexFrontTextNaturalWidth(1);
 
-	gdl = hudStringOutlined(gdl, 1, buffer, (s32)lroundf(x / k), halign, (s32)lroundf(y / k), 2, 1, COL_RELEASE_OUTLINE);
+	gdl = hudStringOutlined(gdl, 1, buffer, (s32)lroundf(x / k), halign, (s32)lroundf(y / k), 2, 1, COL_RELEASE_OUTLINE, COL_TEXT);
 
 	gexFrontTextNaturalWidth(0);
 	gexFrontTextFrame(viGetViewWidth() / f->sx, viGetViewHeight() / f->sy,
@@ -1124,6 +1128,137 @@ Gfx *geHudRadarEnd(Gfx *gdl)
 	return hudEnd(gdl);
 }
 
+/**
+ * Perfect Dark's mission timer on GoldenEye's HUD. GoldenEye has no clock of
+ * its own up while playing, so this is set in its countdown's figures: Bank
+ * Gothic outlined in grey, a digit to eight units and nine either side of a
+ * colon (geHudRenderCountdown()), at the bottom messages' left margin. It
+ * stands on BONDVIEW_VIEW_TOP_OFFSET_2's line, the one the bottom messages
+ * take over the left hand's ammunition, which is clear of the second gun's
+ * rounds - Perfect Dark's own sat over them in its green numbers (F3
+ * 20260930-211848, "should be in GE's font, and placed a little higher") -
+ * and the messages go up a line over it. Under the release's look the numbers
+ * are the release's size, as its ammunition's are, and the line comes up with
+ * its ammunition.
+ */
+static s32 hudTimerBottom(const struct hudframe *f)
+{
+	s32 y = f->height - 0x28;
+
+	if (hudReleaseLook()) {
+		y -= HUD_RELEASE_RAISE;
+	}
+
+	if (PLAYERCOUNT() < 3 && g_Vars.currentplayernum == 1) {
+		y -= 8;
+	}
+
+	return y;
+}
+
+static s32 hudTimerHeight(void)
+{
+	s32 w, h;
+
+	gexFrontTextMeasure(1, "0\n", &w, &h);
+
+	return hudReleaseLook() ? (s32)lroundf(h * HUD_RELEASE_TEXT) : h;
+}
+
+void geHudSetMissionTimerShown(s32 shown)
+{
+	g_Hud.timershown = shown;
+}
+
+/**
+ * One of the timer's strings, a character to a column (left to right from x,
+ * on the frame the text is set to), ending at y. Returns the x past it.
+ */
+static s32 hudTimerColumns(const char *text, s32 x, s32 *centres, s32 max)
+{
+	s32 n = 0;
+
+	for (s32 i = 0; text[i] && n < max; i++) {
+		const s32 colon = text[i] == ':';
+
+		if (i == 0) {
+			x += colon ? 5 : 4;
+		} else {
+			x += colon || text[i - 1] == ':' ? 9 : 8;
+		}
+
+		centres[n++] = x;
+	}
+
+	return x + 4;
+}
+
+static Gfx *hudTimerString(Gfx *gdl, const char *text, s32 x, s32 y, u32 outline, u32 colour, s32 *endx)
+{
+	s32 centres[24];
+	const s32 n = (s32)strlen(text);
+
+	*endx = hudTimerColumns(text, x, centres, 24);
+
+	for (s32 i = 0; i < n && i < 24; i++) {
+		char glyph[3] = { text[i], '\n', '\0' };
+
+		gdl = hudStringOutlined(gdl, 1, glyph, centres[i], 2, y, 0, 1, outline, colour);
+	}
+
+	return gdl;
+}
+
+Gfx *geHudRenderMissionTimer(Gfx *gdl, s32 time60, s32 hassplit, s32 split60)
+{
+	struct hudframe f;
+	const s32 release = hudReleaseLook();
+	const f32 k = release ? HUD_RELEASE_TEXT : 1.0f;
+	const u32 outline = release ? COL_RELEASE_OUTLINE : COL_OUTLINE;
+	char buffer[24];
+	s32 x = 0x1e;
+	s32 y;
+	s32 endx;
+
+	hudFrame(&f);
+
+	if (PLAYERCOUNT() >= 3 && (g_Vars.currentplayernum & 1)) {
+		x = 0xa;
+	}
+
+	y = hudTimerBottom(&f);
+
+	formatTime(buffer, time60, TIMEPRECISION_HUNDREDTHS);
+
+	if (release) {
+		gexFrontTextFrame(viGetViewWidth() / f.sx / k, viGetViewHeight() / f.sy / k,
+				viGetViewLeft(), viGetViewTop(), viGetViewWidth(), viGetViewHeight());
+		gexFrontTextNaturalWidth(1);
+	}
+
+	x = (s32)lroundf(x / k);
+	y = (s32)lroundf(y / k);
+
+	gdl = gexFrontTextSetup(gdl);
+	gdl = hudTimerString(gdl, buffer, x, y, outline, COL_TEXT, &endx);
+
+	// the ghost's split beside it, green ahead of the ghost and red behind
+	// (hudmsgRenderMissionTimer()'s colours)
+	if (hassplit) {
+		buffer[0] = split60 < 0 ? '-' : '+';
+		formatTime(buffer + 1, split60 < 0 ? -split60 : split60, TIMEPRECISION_HUNDREDTHS);
+
+		gdl = hudTimerString(gdl, buffer, endx + 6, y, outline,
+				split60 < 0 ? 0x40ff40ff : 0xff6040ff, &endx);
+	}
+
+	if (release) {
+		gexFrontTextNaturalWidth(0);
+	}
+
+	return hudEnd(gdl);
+}
+
 s32 geHudMessageDuration(s32 top)
 {
 	// BONDVIEW_UPPER_TEXT_TIMER_C and BONDVIEW_INTRO_CAMERA_BONDMESSCNT_C
@@ -1188,6 +1323,15 @@ Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 intro, s32 *row
 
 		if (g_Vars.currentplayernum == 1) {
 			y -= 8;
+		}
+
+		// and over the mission timer when it is up
+		if (g_Hud.timershown) {
+			const s32 over = hudTimerBottom(&f) - hudTimerHeight() - 2;
+
+			if (y > over) {
+				y = over;
+			}
 		}
 	} else {
 		y = 0x10 + h;
