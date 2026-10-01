@@ -18,6 +18,77 @@ probable until ares agrees; *code* = traced in both games' source. On
 2026-10-01 the 20-mission world diff on ares matched the port's placement
 findings key for key, so every world-diff row below is *ares*.
 
+## Where each row stands after the fix session (2026-10-01, merge/fid-1001)
+
+The branches fix/fid-conv, -chr, -guns, -look and -hdfix were merged (fix/fid-hd
+to follow, its rows in the HD section) and gated together against `pd.base` (the unmodified build, converter 96) with
+the merged toolkit; converter 97. Gate on the merge
+(`~/wt/gefidelity-run/gate/fid-merge`, bases in `gate/fid-merge-base`):
+world (20 missions, wide) 923 findings -> 550, placement 378 fixed, 3 new (the
+three panes on floor portals, row 18); census 10 dropped + 85 unread fixed,
+none new; the other legs' lines are in "Gate on the merge" below. *instrument*
+= the tool was wrong, not the game; its fix is named.
+
+| # | status | commit(s) | what is left |
+|---|---|---|---|
+| 1 | **fixed** | 95c68591b | Not "a clear spot near the pad": GoldenEye's getposstan() never moves a guard - stanTestVolume() at the pad (the tile walk through linked edges within 20, then the edges only of props' collision outlines, in plan) makes it there or not at all. `geStanSpawnLegal()` (gestan.c) is that test on converted missions; pd.log names each refusal's cause. Facility 51, Frigate 26, Caverns 10/33, Aztec 9 made, Caverns 41 refused as on the cartridge. Still refused on both, rightly: Facility 58, Aztec 12/13, Silo 58, Streets 20. The graph's whole-unit rounding is allowed for (0.75) |
+| 2 | **fixed** | d7ebb9930 | Converted missions: eye = head y + 7, crouch -100/-60 absolute (bondwalk.c); standing 167.28 on both. player.eye fixed on all 20 |
+| 3 | done | - | - |
+| 4 | **partly** | 76fac26e1, 24fc3e30c | Multi-ammo crate slots keep their GoldenEye models; the watch magnet's 5 charges are converted (AMMOTYPE_1C) and spent a press, the fist after the last, the count on GoldenEye's HUD. The camera's AMMO_CAMERA x10 is never spent on the cartridge (its AmmoType is AMMO_NONE) - ours already does that. Left, each a converter feature: the 13 arena setups' collectables and ammo crates, Archives arena DOOR_SCALE 0.75 (geSoloDoors() over the arena setup), Bunker II arena monitors' owner/image, characters' SHADOW nodes (GoldenEye's blob shadow); DLCOLLISION / GROUP radius read only on a hit |
+| 5 | see H3 | - | - |
+| 6 | see H5 | - | - |
+| 7 | **fixed** | 7b514bfeb | Refill at RELOAD_RAISE's start, the reload two GoldenEye frames after an empty trigger lets go: refill 37 / ready 60 (cartridge 36-40 / 60-67) |
+| 8 | **fixed** | 7b514bfeb | The next gun loaded whole after three frames and raised: raise 31 (cartridge 30-36) |
+| 9 | **fixed** | 61c40c190 | Press to throw 15/15, fuse 234/235, throws 3/3, GRENADE_THROW |
+| 10 | **mostly fixed** | 61c40c190, 27a90ab1b, e66a97baf, 35fb7d8f4 | Ten placed in the hold every 54 ticks, from GoldenEye's hand position at its speed, ATTACH_MINE, proximity fuse 331 (cartridge 337); mines stack (objEmbed: a mine landing on one is its child, freed unexploded with the chain) and explosions hurt GE thrown weapons only on GoldenEye's quarters inside its box (`explosionGeHurtsWeapon()`). Left: the cartridge's first timed mine sometimes bounces apart without sticking (why not traced; the guns leg allows one `unstuck`) |
+| 11 | **fixed** | 7b514bfeb | No casing, no CART_SPENT |
+| 12 | **fixed** | 7b514bfeb | GoldenEye's DRY_FIRE rule for every magazine gun: Cougar 28/30, Golden Gun 22/22 |
+| 13 | **fixed** (mostly *instrument*) | 62eb45710, 2b769ce16, c0da9f76c, 663b5d76b | The cartridge's shots went out level: its look-ahead wound the poked -30 pitch back to -4 in 46 ticks; held, the flights agree. Then GE rounds and rockets land with DROP_GUN and are hurt by GoldenEye's explosion rule, the rocket gains 1.111 a tick, the launcher's round leaves at 33.3 a tick |
+| 14 | **fixed** | 61c40c190; *instrument* 62eb45710, 8166d0655 | Stone/dirt was the pitch (held, the cartridge hits dirt as ours). Moonraker marks + surface sound and the knife's whoosh fixed. GoldenEye's second shot sound is no longer read as an impact |
+| 15 | **partly** | 1f608b07a | The pattern: GoldenEye's texSelect() loads image 1509 as CI8 indices with the TLUT on, so the RGBA16 tiles are read by each texel's upper byte - now read the same way, the waves lie the cartridge's way. Left: wave contrast a little lower (ours drawn at 2x, downsampled); the "lighter teal" is not in the pictures (row means within ~5/255) |
+| 16 | **fixed** | 97db331bd | GoldenEye stands a new object on the one placed last (searches its prop list from the end), ours searched from the head: `objFindByPosGe()` |
+| 17 | not a fault (*instrument*) | bb3c9da20, 5f8b5ead7, be20d4639 | setupDoor() never divides the 16.16 setup word, so a GoldenEye door's float health holds the integer 0x03e80000, which the dump printed as 0.0; doors are mortal in neither game |
+| 18 | **mostly fixed** | a91f1c830 | Placement was right: the cartridge draws and collides at runtime_pos (obj.refpos, 301, is not a fault - a TRANSLATE/accepted candidate). Rooms: GoldenEye's own rule ported for converted objects (tile locus round prop->pos + portal expansion over the box widened 30), doors' rooms computed at the conversion; aresge.py reads 8 room bytes as the cartridge does. obj.rooms 282 -> 19. Left: panes standing exactly on a floor portal (Control tinted glass 133/156 and Dam glass 118 now new, Dam 108/117 as before) - the cartridge's box sits 0.003-0.01 off the portal by its own float rounding, a coin toss; Train's six model-119 props and six panes, whose walk the cartridge stops where ours (whole-unit stan points) goes on |
+| 19 | **fixed** | c8448e524, 6a9e6c0ca | Pads filed on the tile their setup names; door scale moves door pads along the portal normal as setupDoor() does (DOOR_SCALE written 1.0). Surface 288 / Surface 2 279 were the CE's (now HD only). Left: ten regular pads 1.0 unit up - writePads()'s deliberate lift off a floor level with the pad (an accepted.json candidate) |
+| 20 | not a fault (*instrument*) | 5be68f853 | Aztec's chair doors start open; the dump compared our turned matrix with GoldenEye's closed one |
+| 21 | **reload fixed**, dry click left | 7b514bfeb | Ready 60 vs 66/67, in tolerance. Left (rcp90 dry_click): the cartridge fires 9 ticks a shot to our 6 (gegunsRpm()'s 30 fps), empties later and clicks once before the release - the cadence, not traced |
+| 22 | not faults (*instrument*) | 8166d0655, 62eb45710 | (a) the release-tick click is the hold's on both sides; (b) pellets 5/5 with the pitch held; (c) the cartridge's first gun of a group is already in hand (raise 0) - pp7silenced raise/draw stays listed |
+| 23 | **fixed** | c8448e524, a91f1c830 | The converter works out setupDoor()'s own portal (only with CULL_BEHIND_DOOR) and the door's rooms and writes them in the door record |
+| 24 | not a fault (*instrument*) | dd402626b | A body worn with the head its record names gets a row of its own carrying that head (geRomBodyRow()); the diff keys such a body as body+head |
+
+### Gate on the merge
+
+Bases swept fresh with the merged toolkit (`pd.base`, own run dir and
+conversion; the ai base with `GE_ROM_PATCHES=1`, see README traps):
+
+- **world** (20, wide): placement 378 fixed, 0 better, **3 new** (control
+  tintedglass 133 / 156, dam glass 118 - row 18's coin toss), 0 worse; 923 ->
+  550 findings. Behaviour 3 fixed, 5 new, 3 worse: Statue chrs 6/7 and their
+  bits from the portal walk (A4); Aztec chrs 33/34 further from the
+  cartridge's (fid-chr's rows 1/2, in its own gate too); Train player.pos 13.3
+  and Frigate/Aztec hidden 0x100 also appear in pd.base's own sweeps
+  (run-to-run flips).
+- **view** (20, 1815 pairs): 1210 better, 0 new, **1 worse** - Jungle pad 437
+  h090 0.08 -> 0.32: a drone gun's tracer in our picture. pd.base repeats 0.08,
+  the merge 0.32; the portal walk alone (pd.fid-look) gives 0.23, the other
+  branches 0.06-0.08 - which rooms are on screen decides when the autogun
+  fires in the frozen tour (fid-look's notes: Jungle 371, Surface 190), not a
+  drawing fault.
+- **guns** (25 on Dam): 63 -> 4 findings, 59 fixed, 2 better, 0 new, 0 worse.
+  Left: pp7silenced raise/draw (instrument), rcp90 dry_click (row 21), timed
+  mine explosions (the first mine's stick-or-bounce, row 10).
+- **ai** (20): 7 fixed, 1 better, 0 new, 0 worse. Left: Runway bg 4096,
+  Statue bg 4098, Statue chrs 7/8 (A4), Surface 2 spawn@1059 (cartridge only,
+  in the base too), Egyptian/Jungle timing.
+- **census**: 10 census.dropped + 85 unread fixed, 0 new. **convdiff**: 40
+  files changed, 13 new (the `_ce` copies, Pgx203Z).
+- **replay**: match, solo, gematch, optsolo, randrun, randmission the same -
+  Perfect Dark's own game unchanged; gesolo diverges from frame 100 (Dam:
+  rooms, eye, truck, guns) and optmatch from frame 400 (GoldenEye's guns rolled
+  into that match) - on purpose.
+
+## The rows as found
+
 | # | finding | instrument that shows it | cause (where traced) | basis |
 |---|---|---|---|---|
 | 1 | Guards GoldenEye makes at load are missing in ours: Facility 51, Frigate 26, Caverns 10 and 33, Aztec 9 (and the guns/hats they carry); our log says `N refused for something in the way at the pad` on six missions (10 refusals) | `world/sweep.py`: chr.missing, obj.exists, "Our log while loading" | GoldenEye's `expand_09_characters()` (chraction.c:351) places a guard with `getposstan(&pad->pos, pad->stan, 20.0f, ...)`, which finds a clear spot near the pad; ours (`src/game/body.c` ~508) refuses the guard when `cdTestVolume()` at the pad itself collides. A converted guard should take a nearby spot the way GoldenEye does (or `SPAWNFLAG_IGNORECOLLISION` as the crude form) | code + ares |
@@ -51,6 +122,15 @@ which are faults; Cradle's guards' accuracy/speed are assigned by a random pick
 in their list (50/60/80), not a conversion fault as far as the world diff can tell.
 
 ## CE fixes visible in N64 mode
+
+**Settled 2026-10-01 (6a9e6c0ca, 53b462e97, converter 97): the CE's data fixes
+are the HD look's only.** The converter writes the cartridge's files and, where
+a fix changes one, a `_ce` copy beside it (`ce "file copy ..."` on the
+mission/map line); setup.c, tilesreset.c and gestan.c take the copy only while
+the release's meshes are on with the CE applied (`geRoomCeData()`, decided at
+the stage load). Every key below is gone from the N64 world sweep; the HD look
+with the CE shows each fix. The Python twin applies the patches only with
+`GE_ROM_PATCHES=1`. What follows is the record as found.
 
 The regular build applies the Community Edition's data fixes in both looks
 (`g_RomPatches` in port/src/geconvert.c, converters 60 and 68; ge-bean.md "The
@@ -107,6 +187,15 @@ the pinned oracle before acting on A2/A3.
 | A3 | Chr streams on one side only, not yet checked with spawnrefused.py: Surface 2 chr 7, Streets 39 and 40, Depot chr 2 (cartridge only); Depot's spawn at list 1027 (ours only) | **open** | ares |
 | A4 | Movement splits: Statue chrs 6/8/9 at IFImOnPatrolOrStopped (list 1034+56), Jungle chr 1 | likely patrol timing; re-check pinned | ares |
 
+After the fix session (2026-10-01):
+
+| # | status | commit(s) | what is left |
+|---|---|---|---|
+| A1 | **fixed** | 95c68591b | row 1 |
+| A2 | *instrument* | 58828402b | The cartridge was sampled once a game frame, so two AI passes between samples hid a Yield and the skipped stop read as the other branch; it is now sampled every video frame (and a residual skipped sample is classed as timing). Left: Runway bg 4096 at tick 439 (Bond's room as GoldenEye's opening ends - ours skips the opening) and Statue bg 4098 at tick 244 (two stops unseen, unexplained) |
+| A3 | *instrument* | 759b3fa60 | A chr the cartridge first shows mid-run (already renamed by SetMyChrNum) is named spawn@<list>, as ours is. No stream is one-sided now |
+| A4 | open | - | Statue's runners sent to a Bond nobody can see (the harness's) stop at different times; in ordinary play both fight Bond within ~300 ticks of each other. Jungle chr 1: a guard's distance + an rng split, not traced. GoldenEye's portal walk (91460e70e, 2fff513f2) moved Statue chrs 6/7 at tick 300 in the world leg (chr 6 415 -> 102 units, chr 7 482 -> 1217, CHRCFLAG_FORCETOGROUND on 2) - which rooms are on screen decides which chrs tick as on screen; behaviour, same family |
+
 Port-era AI findings the cartridge did not confirm (gone on ares): Facility chr
 67's TRYUnknown6e split, Streets 4106's objective bit, Surface 2's
 IFBondHasItemEquipped, Cradle's sight splits, the idle-loop RNG splits.
@@ -120,6 +209,25 @@ IFBondHasItemEquipped, Cradle's sight splits, the idle-loop RNG splits.
 | V3 | Surface 2 pad 245: the snow is far whiter in ours | not traced | ares, likely real |
 | V4 | Aztec pad 88: "Exhaust bay opening." shows only on the cartridge - script behaviour at that tick, not placement | not traced | ares |
 | V5 | HD look, Facility pad 72: ours draws yellow/black hazard stripes where the release (CE) shows bare concrete | not traced | Xenia (CE) |
+
+After the fix session (2026-10-01):
+
+| # | status | commit(s) | what is left |
+|---|---|---|---|
+| V1 | **fixed** | d7ebb9930 | row 2: eye dy -8.1..-8.6 -> -0.45..+0.28 on every mission |
+| V2 | **fixed** | 91460e70e, 2fff513f2 | Not the texture: room 10's tree billboards cover the fence on the cartridge because its portal walk comes back into the camera's room at depth 2, so the fence's room is blended first. GoldenEye's own walk (`bgTickPortalsWalkGe()`: queue, 9 visits, depth 15, the far-portal rule, the portal table's order) on converted levels; draw lists equal the cartridge's at Surface 262 and Facility 72 |
+| V3 | **fixed** | 163df9c91 | Fog: the cartridge's RSP fogs each vertex (with its clipping and guard band) and the RDP carries it across the screen; `G_FOG_VERTEX_EXT` does the same on converted levels in the N64 look (GL and Vulkan). Surface 2 pad 245 h180 0.603 -> 0.166 |
+| V4 | not a fault (*instrument*) | - | The tour's AI freeze is not symmetric: on the cartridge Aztec's ai_11 chain (objective 0x40000, text 0x614) runs even with every chr slot's list cleared, ours is stopped. Left as an instrument note |
+| V5 | see the HD section | - | - |
+
+Also: the tour runs our side with Head Roll and Always Show Target off and records
+headlook (cf4d16635: the head animation's look moved our camera up to 0.45 degree
+through a simulation the portal walk had changed); the oracle-repeat null holds the
+cartridge's jitter against the one-pad-off median (f3af72744: against the matched
+median it failed as soon as ours came close - Bond's eye fixed). Left: Surface pad
+190 h090, whose only changed pixels are the gun's idle pose (another channel the
+simulation feeds; the scorer would have to mask the gun or the tour pin its
+animation).
 
 Not findings: Frigate's sea (the port's fault, row 15); Bunker 99-101, Statue
 223-227 and Archives 170-172 end the mission on the cartridge when Bond is put
@@ -142,3 +250,13 @@ either). Leads, not verdicts: Frigate's guards hold the silenced D5K
 headbrosnan on Aztec and Egyptian (our runs skip the openings where it could
 appear). The CE switch changed no finding on either side. Not covered yet:
 destroyed/alternate states, pool-only characters, most gadgets.
+
+After the fix session (2026-10-01):
+
+| # | status | commit(s) | what is left |
+|---|---|---|---|
+| H3 / row 5 | **fixed** | 1bf010817, 0ee87a9e2, c440979fc, 70e08a465 | The release's loader dispatches on header +0x1c: 4 = one texture a frame (per-frame tables, each frame at the next 4K), 5 = an array texture (slices back to back from 0); `beanDecodeTextureFrame()` decodes both and the renderer keys its cache on the frame shown (`TextureCacheKey.anim_frame`). Timing and UV motion from the rendergraph's place2d table (+0xdc, 0x64-byte entries): frames and seconds a frame; slides in repeats a second; turns at **half** the table's figure in degrees a second (settled by fid-hd's Xenia captures of the Frigate radar and Dam's water). The Complex beacon blinks, the radars sweep, Dam's reservoir slides. Left: the bump/reflection compositions (Complex water, Dam reservoir, Silo, Control marble) need a material path our one-picture draw does not have - the renderer redesign, not started; df3c951ae draws each such surface's own picture (Complex 23, not its sphere map 22) |
+| H5 / row 6 | **fixed** | d556050f8 | Dam stream 0x4dc0 is a stride-12, position-only buffer (the only stride under 16 in any level); built as untextured triangles in its material colour (c12: black, a sheet at the cliff's foot) |
+| H1, H2, H4, V5 | on fix/fid-hd | - | not merged yet |
+
+HD cache (`HDCACHE_VERSION`) 12 after the session.

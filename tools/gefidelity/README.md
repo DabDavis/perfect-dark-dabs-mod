@@ -143,4 +143,38 @@ world/sweep.py --out ~/wt/gefidelity-run/out/sweep            # all twenty, ~6 m
   (`~/gefidelity/trees/<tree>-<hash>`, `twin.GE_TOOLS`; `GF_GE_TOOLS` overrides). It was
   one shared `~/gefidelity` until 2026-10-01, when three worktrees' syncs (`rsync
   --delete`) reverted each other's oracle code and scenarios mid-run for an hour.
+- **Sweeps from before the evening of 2026-10-01 are not comparable with
+  today's toolkit**; re-sweep the base with the test's toolkit. That day
+  `aresge.py` began reading 8 room bytes (PropRecord.rooms is u8[4], but
+  `chrpropUpdateRoomList()` writes up to seven and the terminator on into
+  unk30 and the cartridge reads them all), and a door's health as the 16.16
+  setup word `setupDoor()` never divides (the float printed 0.0 for 1000); the
+  guns' scenarios hold the pitch with the cartridge's look-ahead cleared (it
+  wound a poked -30 back to -4 in 46 ticks: every earlier gun sweep fired
+  GoldenEye's guns nearly level); the AI sampler reads the cartridge every
+  video frame (once a game frame let two AI passes hide a Yield) and names a
+  chr first seen mid-run spawn@<list>; the view tour runs ours with Head Roll
+  and Always Show Target off, and its oracle-repeat null holds the cartridge's
+  jitter against the one-pad-off median.
+- **A converter bump needs a run directory per side.** `gate.py` sweeps base
+  and test under one `GF_RUNDIR` (the view leg: `GF_RUNDIR_ROOT`), whose
+  `mods/GoldenEye Arenas` the first binary to start converts. Sweep the base by
+  hand with each leg's own tool (`world/sweep.py`, `view/gatesweep.py`,
+  `guns/gatesweep.py`, `ai/gatesweep.py` - the arguments gate.py's `LEGS`
+  gives them) in a run directory of its own, then `gate.py --base-report DIR`
+  with the test's. Boot each run directory once alone before a sweep: a `-j`
+  sweep's first starts race the conversion. `--base-report` looks for
+  `DIR/<leg>/report.json` (base1001 keeps some legs in `<leg>/base`, which it
+  does not find). The census and convdiff legs build each tree's converter
+  themselves; `tools/ci/replaytest.sh` stages two converters on its own.
+- **The world leg's behaviour keys flip between runs of one binary** (Train's
+  player.pos 13.3, Frigate/Aztec hidden 0x100 on one chr, Statue chr 7's
+  rooms came and went across pd.base's own sweeps): before blaming a change for
+  a "new" behaviour line, sweep the mission again and sweep the base on it.
+- **The Python twin applies the CE's patches only with `GE_ROM_PATCHES=1`**
+  (converter 97 made them the HD look's); `ai/aimap.py`'s null failed on Surface
+  while it still applied them. The other way round too: the ai leg's sweep of a
+  binary from before converter 97 (whose N64 conversion carries the patches)
+  needs `GE_ROM_PATCHES=1`, or aimap's null fails on Surface's list 1057 (0x421,
+  the paired Klobbs) and the sweep stops after its traces.
 - Kill only PIDs you started; `pkill -f` over ssh kills your own session.
