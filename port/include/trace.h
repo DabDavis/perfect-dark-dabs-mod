@@ -41,6 +41,11 @@ s32 traceGetKey(void);
 void traceSetKey(s32 vk);
 // Called from chrRender() to record what happened to a chr this frame.
 void traceChrNote(struct chrdata *chr, u8 bit);
+// One line in the dump's [recent switches]: a pack chosen or reloaded, a part
+// of the release's art switched, a stage loaded, a model loaded into a menu's
+// preview. Kept in a short ring with the stage and lvframenum it happened at,
+// whatever the log ring has lost by the time F3 is pressed.
+void traceNoteEvent(const char *fmt, ...);
 
 // Report a Problem (port/src/tracereport.c).
 #define TRACEREPORT_MAXNOTE 300

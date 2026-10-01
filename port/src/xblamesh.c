@@ -58,6 +58,7 @@
 #include "game/playermgr.h"
 #include "lib/lib_2f490.h"
 #include "data.h"
+#include "trace.h"
 
 #ifndef PLATFORM_N64
 
@@ -13006,6 +13007,7 @@ void xblaMeshSetEnabled(s32 enabled)
 	}
 
 	optEnabled = enabled;
+	traceNoteEvent("release meshes %s", enabled ? "on" : "off");
 
 	if (enabled) {
 		const s32 wasopen = opened > 0;

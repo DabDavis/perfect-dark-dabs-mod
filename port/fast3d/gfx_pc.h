@@ -64,6 +64,14 @@ struct TextureCacheValue {
     // what it holds on the GPU, for the cache's byte budget.
     uint32_t last_frame = 0;
     uint32_t bytes = 0;
+    // For the F3 trace (gfx_trace_texture_entries()): the frame it was
+    // uploaded in, the size that went up, and where the texels came from -
+    // 'g' the game's own, 'p' a texture pack, 'X' the release's picture for
+    // the number, 'x' a stand-in or a picture bound at the address
+    // (xblatex.c), 'f' a font glyph's, 'm' a menu image.
+    uint32_t upload_frame = 0;
+    uint16_t width = 0, height = 0;
+    char source = 'g';
 
     std::list<struct TextureCacheMapIter>::iterator lru_location;
 };

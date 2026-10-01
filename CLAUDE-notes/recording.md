@@ -5,7 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
-- **Screenshots, the recorder, ffmpeg, GL capture** — [recording.md](CLAUDE-notes/recording.md): the frame is presented before `videoEndFrame()`; NV12 on the GPU; encoder detection; why it must never wait for the encoder; running on the real GPU with no window (llvmpipe hides driver limits); **the F3 trace dump** (`Mod.TraceKey`, port/src/trace.c) (walks live props only: a freed prop slot's stale chr crashed F3 on Chicago): a text dump of the pools, the loaders, the renderer's cache, the camera and every chr with what chrRender() did with it, paired with a screenshot - what to ask a tester to press when something is missing from a frame; since 2026-09-17 F3 also opens **Report a Problem** (`port/src/tracereport.c`, `Mod.TraceReport`): a typed note, and Send posts the dump, settings, log ring and a scaled PNG to pdghostd's `/report` (`~/pdghosts/reports`, nginx body limit must be 8m) - opened from `lvTick()`, and typing must stay on through the send or the held ENTER closes the dialog; GE Plus's folder, intro and watch are not Perfect Dark menus and each needed the dialog handed the frame, and F3 on the title crashed walking a level that was not there (recording.md, "Report a Problem", "Everywhere, not only in play"); typing blanks the pads, so the mouse, a controller and the menu's keys did nothing while the note was typed and a clicked-to name went on the end of the note - TAB/arrows/clicks move between the fields now, a press that stops typing is waited out till it is let go, and the name is in pd.ini the moment it is finished ("Nobody could reach the name")
+- **Screenshots, the recorder, ffmpeg, GL capture** — [recording.md](CLAUDE-notes/recording.md): the frame is presented before `videoEndFrame()`; NV12 on the GPU; encoder detection; why it must never wait for the encoder; running on the real GPU with no window (llvmpipe hides driver limits); **the F3 trace dump** (`Mod.TraceKey`, port/src/trace.c) (walks live props only: a freed prop slot's stale chr crashed F3 on Chicago): a text dump of the pools, the loaders, the renderer's cache, the camera and every chr with what chrRender() did with it, paired with a screenshot - what to ask a tester to press when something is missing from a frame; since 2026-10-01 also `[recent switches]` (packs, the release's art, stage loads, menu previews with what their textures left of the allocation) and `[room textures]` (each on-screen room's textures: number, pool entry and mod, art, texel/TLUT checksums, bound pictures, every renderer cache entry with its source and upload frame) for a picture wrong for a whole session (recording.md, "[recent switches] and [room textures]"); since 2026-09-17 F3 also opens **Report a Problem** (`port/src/tracereport.c`, `Mod.TraceReport`): a typed note, and Send posts the dump, settings, log ring and a scaled PNG to pdghostd's `/report` (`~/pdghosts/reports`, nginx body limit must be 8m) - opened from `lvTick()`, and typing must stay on through the send or the held ENTER closes the dialog; GE Plus's folder, intro and watch are not Perfect Dark menus and each needed the dialog handed the frame, and F3 on the title crashed walking a level that was not there (recording.md, "Report a Problem", "Everywhere, not only in play"); typing blanks the pads, so the mouse, a controller and the menu's keys did nothing while the note was typed and a clicked-to name went on the end of the note - TAB/arrows/clicks move between the fields now, a press that stops typing is waited out till it is let go, and the name is in pd.ini the moment it is finished ("Nobody could reach the name")
 - **`bool` is two sizes here** — recording.md, "Sending an F3 report ended the game on Windows": the game's is an s32 (types.h) and `<stdbool.h>`'s a byte, and a header that includes stdbool changes it for everything a file includes afterwards - tracereport.c built a 48-byte `struct ghostnetreq` for a sender that read 56, and every F3 report sent from Windows crashed reading the reply; no struct shared between port files carries a `bool`, and `p sizeof(struct X)` per file in gdb is the check; and never walk `g_Vars.props` slot by slot (a freed slot keeps its type and a dead pointer - getank.c's `tankNear()` crashed on activate)
 
 
@@ -197,6 +197,52 @@ the work versus waiting at the present, and a histogram of the game step in
 240ths - a steady 4 at 60 Hz; a mix (3/5, 4/8) means the game advanced
 unevenly even when presentation was even. Frames before a stage load show as
 one long frame; the span printed says how far back the ring reaches.
+
+**[recent switches] and [room textures] (2026-10-01).** For pictures drawn
+wrong for a whole session and right after a restart (the Institute's
+paintings, F3 20260930-213440/-213623, "fixed" by 20260930-215710 - never
+reproduced, so these were added to catch the next one). `[recent switches]`
+(after [frames]) is a 24-entry ring kept outside the log ring by
+`traceNoteEvent()`, each line with the stage and lvframenum: a pack reloaded or
+chosen (`texpackReload()`), each part of the release's art switched
+(`xblaMeshSetEnabled`/`xblaTexSetEnabled`/`xblaStageSetEnabled` when the value
+changes, and the F6 key itself), every stage load (`lvReset()`), and each model
+loaded into a menu preview (menu.c's `menuRenderModel()`: body/head or file,
+the files' bytes of the preview allocation and **what the textures left of it**
+- negative means the textures ran past the allocation into whatever the stage
+pool holds next, which nothing else checks). Walking into the Institute from
+the Perfect Menu is **not** a stage load (no second "stage 0x26 loading"): the
+menu's stage carries on, so anything a Customize Character preview did to the
+stage pool is still there when the player walks round.
+`[room textures]` (after [rooms on screen]) walks each on-screen room's opa
+and xlu block lists (`g_Rooms[i].gfxdata`, G_DL followed, bounded by command
+and depth counts) for its texture loads - at most 10 rooms, 12 textures each,
+160 lines (~14 KB on the Institute; a whole report there is ~85 KB against
+tracereport.c's 480 KB text cap). Per texture: the pack registry's number for
+the address, the shared pool's entry at it (number, `srcmod` = mod+1, size),
+`texpackTextureArt()`, the load's format and byte count, FNV-1a of the texels
+and of the TLUT as the room's own load reads it (the palette is loaded out of
+the texture's image past its texels: `timg + (width * ult + uls) * 2`, as
+`gfx_dp_load_tlut()` reads it), the release record or a picture bound at the
+address (`xblaTexRecordOf()`, `xblaTexImageInfo()`), whether the pack has one;
+then every renderer cache entry for the address (`gfx_trace_texture_entries()`):
+the key's format, TLUT offset and palette index, its second TLUT half, the
+glyph, and new `TextureCacheValue` fields - `source` (g the game's texels, p a
+pack, X the release's picture for the number, x a stand-in or picture bound at
+the address, f a glyph, m a menu image), the size uploaded, and frames since
+upload and last draw (`gfx_trace_frame()`). On the Institute the four painting
+textures (0255 0267 0269 026b) are printed whatever the camera sees. Only
+computed when F3 fires. A painting drawn wrong shows as a checksum differing
+from a good report's line for the same number, a `mod` or `art` that is not
+0/rom, a bound picture, or a cache entry whose source or size is not the
+texture's.
+
+Found while adding it: `TextureCacheKey::palette_addrs[1]` is whatever the
+last load into TMEM 384 left (gfx_dp_load_tlut() only sets it for a 256-entry
+TLUT or a load at 384), so one CI4 texture is uploaded again under every value
+it happens to meet - three entries for each Institute wall texture after one
+HD switch. Misses only, never a wrong hit; left alone (a key change is a
+behaviour change for every CI texture).
 
 ### Report a Problem: F3 sends it (2026-09-17)
 

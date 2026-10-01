@@ -22,6 +22,7 @@
 #include "xblaimport.h"
 #include "texpack.h"
 #include "xblatex.h"
+#include "trace.h"
 
 // Inside the package. The only file this reads.
 #define XBLATEX_TEXTURES "DataFiles/Textures.raw"
@@ -806,6 +807,7 @@ void xblaTexSetEnabled(s32 enabled)
 	}
 
 	optEnabled = enabled;
+	traceNoteEvent("release textures %s", enabled ? "on" : "off");
 
 	// Somebody has just asked for the release's art, so this is where the
 	// unpack of their archive belongs - the same trade the meshes' switch

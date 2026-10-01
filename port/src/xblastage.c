@@ -45,6 +45,7 @@
 #include "wallhitclip.h"
 #include "preprocess.h"
 #include "lib/memp.h"
+#include "trace.h"
 #include <zlib.h>
 
 // The bg file's header: primary inflated size, section 1 size, primary stored
@@ -129,6 +130,10 @@ s32 xblaStageGetEnabled(void)
 
 void xblaStageSetEnabled(s32 enabled)
 {
+	if (optEnabled != (enabled ? 1 : 0)) {
+		traceNoteEvent("release rooms %s", enabled ? "on" : "off");
+	}
+
 	optEnabled = enabled ? 1 : 0;
 	xblaStageSwitched();
 }

@@ -2306,6 +2306,12 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 
 					modelInit(&menumodel->bodymodel, menumodel->bodymodeldef, menumodel->rwdata, true);
 					animInit(&menumodel->bodyanim);
+#ifndef PLATFORM_N64
+					// A preview's files and textures share one allocation;
+					// what the textures left of it, negative if they ran over
+					traceNoteEvent("menu preview: body %d head %d, files %d of %u bytes, %d left for textures",
+							bodynum, headnum, totalfilelen, menumodel->alloclen, texGetPoolFreeBytes(&texpool));
+#endif
 
 #ifdef PLATFORM_64BIT
 					menumodel->bodymodel.rwdatalen = 256 + 128;
@@ -2361,6 +2367,11 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 					menumodel->bodymodeldef = modeldefLoad(menumodel->newparams, menumodel->allocstart, totalfilelen, &texpool);
 
 					fileGetLoadedSize(menumodel->newparams);
+#ifndef PLATFORM_N64
+					traceNoteEvent("menu preview: model file 0x%x, file %d of %u bytes, %d left for textures",
+							MENUMODELPARAMS_GET_FILENUM(menumodel->newparams), totalfilelen, menumodel->alloclen,
+							texGetPoolFreeBytes(&texpool));
+#endif
 					modelAllocateRwData(menumodel->bodymodeldef);
 					modelInit(&menumodel->bodymodel, menumodel->bodymodeldef, menumodel->rwdata, true);
 					animInit(&menumodel->bodyanim);

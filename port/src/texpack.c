@@ -40,6 +40,7 @@
 #include "video.h"
 #include "versioninfo.h"
 #include "langpack.h"
+#include "trace.h"
 #include <SDL.h>
 
 #define TEXPACK_DUMP_DIR_NAME "texture-dumps"
@@ -4239,6 +4240,7 @@ void texpackReload(void)
 
 	sysLogPrintf(LOG_NOTE, "texpack: reloaded %s",
 			packName[0] ? packName : "textures (no pack selected)");
+	traceNoteEvent("texture pack reloaded: %s", packName[0] ? packName : "none");
 }
 
 /**

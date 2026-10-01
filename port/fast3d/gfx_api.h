@@ -148,6 +148,23 @@ struct GfxTraceStats {
     uint32_t cachefixed;
 };
 void gfx_trace_stats(struct GfxTraceStats *out);
+// Every renderer cache entry uploaded from the texels at addr, for the F3
+// trace's [room textures]: up to max of them in out, the count in all returned.
+struct GfxTraceTexEntry {
+    const void *palette;     // the TLUT the entry was keyed on, NULL if none
+    const void *palette1;    // the key's second TLUT half (what tmem 384 last loaded)
+    uint32_t glyph;
+    uint8_t fmt, siz, palindex;
+    char source;             // see TextureCacheValue::source
+    uint16_t width, height;  // as uploaded
+    uint32_t upload_frame;
+    uint32_t last_frame;
+};
+int gfx_trace_texture_entries(const void *addr, struct GfxTraceTexEntry *out, int max);
+// The renderer's own frame counter, which upload_frame and last_frame count in.
+uint32_t gfx_trace_frame(void);
+// A display list word's address as the renderer resolves it (segments).
+const void *gfx_trace_seg_addr(uintptr_t w1);
 void gfx_texture_cache_delete(const uint8_t *orig_addr);
 void gfx_texture_cache_delete_range(const uint8_t *start, const uint8_t *end);
 int gfx_create_framebuffer(uint32_t width, uint32_t height, int upscale, int autoresize);
