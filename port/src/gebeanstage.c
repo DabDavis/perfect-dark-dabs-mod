@@ -3347,6 +3347,123 @@ static void forget(void)
  */
 #define WELD_DIST 0.25f
 
+/*
+ * Opaque triangles the release's draws repeat corner for corner in another
+ * picture, of which it shows only the first it draws. Its level draws in its
+ * stream's order, the opaque pass before the blended one, the opaque pass
+ * with the depth test LESS (RB_DEPTHCONTROL 0x00700716 on every opaque level
+ * draw in a Xenia draw log of Facility, Bunker and Archives): a second
+ * triangle at exactly the first one's depth fails it everywhere and is never
+ * seen. Facility's walls carry GoldenEye's yellow and black hazard stripes
+ * this way, under the concrete the release shows (pad 72's low wall,
+ * tools/gefidelity view diff V5), and Dam's, Runway's and Frigate's have
+ * more: 445 twin triangles over the levels, most of them opaque and drawn
+ * after their twin. markDecals() took both as lying wholly on each other and
+ * drew the later one on top. A blended twin is not dropped: the blended pass
+ * wins its ties with what is behind it (Archives' cork board, blended, at the
+ * wall's depth to the bit, is drawn whole), so markDecals() decides it.
+ * Read before weldVertices(), which moves corners onto their neighbours': a
+ * twin is the same three corners to the bit, as the release's buffers have
+ * them.
+ */
+struct twinkey {
+	f32 c[9];
+	s32 tri;
+};
+
+static int twinCmp(const void *a, const void *b)
+{
+	const struct twinkey *x = a, *y = b;
+	const s32 r = memcmp(x->c, y->c, sizeof(x->c));
+
+	return r ? r : (x->tri > y->tri) - (x->tri < y->tri);
+}
+
+static int cornerCmp(const void *a, const void *b)
+{
+	return memcmp(a, b, 3 * sizeof(f32));
+}
+
+/** Drops the twins the release never shows; the count dropped. */
+static s32 dropTwins(struct collect *c)
+{
+	struct twinkey *keys = malloc((c->num > 0 ? c->num : 1) * sizeof(*keys));
+	u8 *drop = calloc(c->num > 0 ? c->num : 1, 1);
+	s32 dropped = 0;
+	s32 kept = 0;
+
+	if (!keys || !drop) {
+		free(keys);
+		free(drop);
+		return 0;
+	}
+
+	for (s32 t = 0; t < c->num; t++) {
+		f32 corner[3][3];
+
+		memcpy(corner, c->tris[t].pos, sizeof(corner));
+		qsort(corner, 3, sizeof(corner[0]), cornerCmp);
+		memcpy(keys[t].c, corner, sizeof(keys[t].c));
+		keys[t].tri = t;
+	}
+
+	qsort(keys, c->num, sizeof(*keys), twinCmp);
+
+	for (s32 a = 0; a < c->num; ) {
+		s32 b = a + 1;
+		s32 first;
+
+		while (b < c->num && memcmp(keys[b].c, keys[a].c, sizeof(keys[a].c)) == 0) {
+			b++;
+		}
+
+		// Of the opaque ones, the one the release draws first (LESS); a
+		// blended twin is drawn over them all and kept (its pass writes no
+		// depth and wins its ties: Archives' cork board over its wall), and
+		// left to markDecals()
+		first = -1;
+
+		for (s32 k = a; k < b; k++) {
+			const s32 t = keys[k].tri;
+
+			if (!c->tris[t].blend && (first < 0 || t < first)) {
+				first = t;
+			}
+		}
+
+		for (s32 k = a; k < b && first >= 0; k++) {
+			const s32 t = keys[k].tri;
+
+			// a twin in the same picture and colour is drawn the same anyway.
+			// Of another vertex shader too: Control's floor stains, twins of
+			// their floor drawn by another shader, are not in the release
+			if (t != first && !c->tris[t].blend
+					&& (c->tris[t].tex != c->tris[first].tex
+						|| memcmp(c->tris[t].argb, c->tris[first].argb, sizeof(c->tris[t].argb)) != 0)) {
+				drop[t] = 1;
+				dropped++;
+			}
+		}
+
+		a = b;
+	}
+
+	for (s32 t = 0; t < c->num && dropped; t++) {
+		if (!drop[t]) {
+			c->tris[kept++] = c->tris[t];
+		}
+	}
+
+	if (dropped) {
+		c->num = kept;
+	}
+
+	free(keys);
+	free(drop);
+
+	return dropped;
+}
+
 static s32 weldVertices(struct collect *c)
 {
 	enum { HASHBITS = 20 };
@@ -6497,6 +6614,15 @@ static s32 build(void)
 	for (s32 t = 0; t < gebeanLevelNumTextures(level) && t < GEBEAN_MAXMATS; t++) {
 		texWater[t] = gebeanLevelTextureIsWater(level, t);
 		levelHasWater |= texWater[t];
+	}
+
+	{
+		const s32 twins = dropTwins(&c);
+
+		if (twins) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles the release draws over a twin it shows instead, left out",
+					row->bean, twins);
+		}
 	}
 
 	{
