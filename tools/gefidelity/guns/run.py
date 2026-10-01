@@ -38,7 +38,7 @@ def groups(items, n):
 
 
 def run_ge_group(items, m, diff, out, hold, timeout, render=False, oracle='ares'):
-    env = {'GF_GUNS': ','.join(map(str, items)), 'GF_GUNSDIR': '$HOME/gefidelity/guns', 'GF_HOLD': str(hold)}
+    env = {'GF_GUNS': ','.join(map(str, items)), 'GF_GUNSDIR': '$HOME/%s/guns' % twin.GE_TOOLS, 'GF_HOLD': str(hold)}
     sub = os.path.join(out, 'ge-%s' % '-'.join(map(str, items)))
     # the cartridge (ares, gunscen_ares.py) or the native port under gdb (gunscen.py)
     scen = 'gunscen_ares.py' if oracle == 'ares' else 'gunscen.py'
