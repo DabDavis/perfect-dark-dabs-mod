@@ -42,6 +42,13 @@ or a section heading, don't read one whole.
 - [languages.md](CLAUDE-notes/languages.md) — the Language setting, translations, CJK fonts
 - [simnav.md](CLAUDE-notes/simnav.md) — The simulants' navmesh and its links; Mod.SimBrain (stock is bit-identical, modern walks stock's decisions along the navmesh); the traps met doing it
 
+**Judging GE Plus against GoldenEye itself: `tools/gefidelity/`** (start at its README). `twin.py` runs one gdb
+scenario on the GoldenEye decomp's native port (the oracle on 10.8.0.3, never modified) and on ours, same mission
+and difficulty; `world/sweep.py` diffs every setup record, object, chr, pad and Bond's spawn over all twenty
+missions; the other instruments (view, guns, AI trace, converter read census and parity, the HD draw census) are
+listed in its contract table. Every instrument runs its own null and refuses to report when it fails. Reach for it
+before writing a one-off probe for a GE Plus F3.
+
 Long-range plans (modularity, simulant AI, GE converter decoupling,
 optimisations, head fit) are in `~/perfect-dark/PLANS/`, outside this tree;
 start at its `README.md`.
