@@ -10885,15 +10885,35 @@ static void fpLayPoint(const s8 *axis, const f32 *beanc, f32 scale, const f32 *h
 }
 
 /**
+ * Whether a draw of a gun file is one of the release's flash cards: the
+ * draws of piece 0 (record 0x30's fourth word), which the release draws only
+ * for the frame of a shot - the ZMG's streaks on SKEL_TOP for the same 32
+ * frames of the Caverns capture as its cards on the muzzle - and anything
+ * hanging off the muzzle's bones (beanDrawIsFlash()).
+ */
+static s32 fpDrawIsCard(const struct beanmodel *bm, const struct beandraw *d)
+{
+	return d->piece == 0 || beanDrawIsFlash(bm, d);
+}
+
+/**
  * The release's muzzle-flash cards (fpCardSet) for GoldenEye's own model in
- * the hand: the draws beanDrawIsFlash() finds (every bone of theirs at or
- * below the muzzle, which beanGunExtent() leaves out of the fit), the cards
- * on SKEL_MUZZLE into the list of GoldenEye's flash (part 3's matrix, under
- * the flash switch, part 1) and the rest into its star's (part 2's), each
- * in its list's space less the point the release turns it about - Bean's
+ * the hand (fpDrawIsCard(); beanGunExtent() leaves them out of the gun), in
+ * the lists under GoldenEye's flash switch (part 1), so they draw only while
+ * it is on.
+ *
+ * Where GoldenEye poses its flash (part 3 on a matrix of its own, and its star,
+ * part 2, on another): the cards on SKEL_MUZZLE - and those on the gun's own
+ * bones, which the release keeps still with the gun and which turn with the
+ * flash here - into the flash's list, the rest into the star's, each in its
+ * list's space less the point the release turns it about - Bean's
  * SKEL_MUZZLE, and the star's bone nearest it - laid on the host as the gun
- * is. With no star list of its own the star goes with the flash. Returns the
- * triangles drawn (0 leaves GoldenEye's flash as it was) and the switch.
+ * is. With no star list of its own the star goes with the flash.
+ *
+ * Where it does not (the AR33's, the RC-P90's and the Shotgun's models carry
+ * the flash on the gun's own matrix): all of them into the first list under
+ * the switch, where the gun lays them, still. Returns the triangles drawn (0
+ * leaves GoldenEye's flash as it was) and the switch.
  */
 static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef, struct modelnode **nodes,
 		s32 numnodes, const s32 *nodemtx, const struct beanrig *rig, const s8 *axis, const f32 *beanc,
@@ -10908,6 +10928,10 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 		? modelFindNodeMtxIndex(flashpos, 0) : -1;
 	s32 starmtx = starpos && (starpos->type & 0xff) == MODELNODETYPE_POSITION
 		? modelFindNodeMtxIndex(starpos, 0) : -1;
+	s32 posed = sw && flashmtx >= 0 && basemtx >= 0 && flashmtx != basemtx
+		&& flashmtx < GEBEAN_MAXMTX && basemtx < GEBEAN_MAXMTX && rig->hasrest[basemtx];
+	s32 anylist = -1;
+	s32 billboard = 0;   // every card on the star (no list of the flash's own)
 	s32 flashlist = -1;
 	s32 starlist = -1;
 	s32 root = -1;
@@ -10917,12 +10941,11 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 	f32 best = 1e30f;
 	s32 numtris = 0;
 
-	if (!sw || flashmtx < 0 || basemtx < 0 || flashmtx == basemtx
-			|| flashmtx >= GEBEAN_MAXMTX || basemtx >= GEBEAN_MAXMTX || !rig->hasrest[basemtx]) {
+	if (!sw) {
 		return 0;
 	}
 
-	if (starmtx == flashmtx || starmtx == basemtx || starmtx >= GEBEAN_MAXMTX) {
+	if (!posed || starmtx == flashmtx || starmtx == basemtx || starmtx >= GEBEAN_MAXMTX) {
 		starmtx = -1;
 	}
 
@@ -10938,7 +10961,11 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 			continue;
 		}
 
-		if (flashlist < 0 && nodemtx[k] == flashmtx) {
+		if (anylist < 0) {
+			anylist = k;
+		}
+
+		if (flashlist < 0 && posed && nodemtx[k] == flashmtx) {
 			flashlist = k;
 		}
 
@@ -10947,7 +10974,20 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 		}
 	}
 
-	if (flashlist < 0) {
+	// A flash whose only list is its star's (the RC-P90's and the AR33's: the
+	// star, and a gunfire sprite) has every card on the star, facing the eye at
+	// the muzzle. A flash matrix no list under the switch draws with at all is
+	// not posed either.
+	if (flashlist < 0 && posed && starlist >= 0) {
+		billboard = 1;
+		flashlist = starlist;
+	} else if (flashlist < 0) {
+		posed = 0;
+		starlist = -1;
+		flashlist = anylist;
+	}
+
+	if (flashlist < 0 || nodemtx[flashlist] < 0 || nodemtx[flashlist] >= GEBEAN_MAXMTX) {
 		return 0;
 	}
 
@@ -10956,7 +10996,7 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 		for (s32 di = 0; di < bm->numdraws; di++) {
 			const struct beandraw *d = &bm->draws[di];
 
-			if (!beanDrawIsFlash(bm, d)) {
+			if (!fpDrawIsCard(bm, d)) {
 				continue;
 			}
 
@@ -10965,13 +11005,13 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 
 				bone = bm->numremap && bone < bm->numremap ? bm->remap[bone] : bone;
 
-				if (bone < 0 || bone >= bm->numbones) {
+				if (bone < 0 || bone >= bm->numbones || !bm->muzzlebone[bone]) {
 					continue;
 				}
 
 				if (pass == 0 && (root < 0 || (bm->muzzleroot[bone] && !bm->muzzleroot[root]))) {
 					root = bone;
-				} else if (pass == 1 && bone != root && !bm->muzzleroot[bone]) {
+				} else if (pass == 1 && root >= 0 && bone != root && !bm->muzzleroot[bone]) {
 					f32 d2 = 0.0f;
 
 					for (s32 a = 0; a < 3; a++) {
@@ -10987,17 +11027,55 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 		}
 	}
 
-	if (root < 0) {
-		return 0;
-	}
-
-	if (star < 0) {
+	if (star < 0 && !billboard) {
 		starlist = -1;
 	}
 
-	fpLayPoint(axis, beanc, scale, hostc, bm->bind[root], rootat);
+	// what the cards' places are measured from: where the release turns the
+	// flash (its muzzle, else where GoldenEye's own stands), or for a flash
+	// GoldenEye does not pose, its list's own rest
+	if (posed && root >= 0) {
+		fpLayPoint(axis, beanc, scale, hostc, bm->bind[root], rootat);
+	} else if (posed) {
+		// no card on the muzzle's bones (the grenade launcher's are all on
+		// SKEL_TOP): they turn about their own middle, as a flash does
+		f32 sum[3] = { 0.0f, 0.0f, 0.0f };
+		s32 count = 0;
 
-	if (starlist >= 0) {
+		for (s32 di = 0; di < bm->numdraws; di++) {
+			const struct beandraw *d = &bm->draws[di];
+			struct beanvb vb;
+
+			if (!fpDrawIsCard(bm, d) || !beanReadVb(bm, d->vb, &vb)) {
+				continue;
+			}
+
+			for (u32 vi = 0; vi < vb.count; vi++) {
+				struct beanvtx v;
+				f32 at[3];
+
+				if (beanVertex(bm, &vb, vi, &v)) {
+					fpLayPoint(axis, beanc, scale, hostc, v.pos, at);
+
+					for (s32 a = 0; a < 3; a++) {
+						sum[a] += at[a];
+					}
+
+					count++;
+				}
+			}
+		}
+
+		for (s32 a = 0; a < 3; a++) {
+			rootat[a] = count ? sum[a] / count : rig->rest[basemtx][a];
+		}
+	} else {
+		memcpy(rootat, rig->rest[nodemtx[flashlist]], sizeof(rootat));
+	}
+
+	if (billboard) {
+		memcpy(starat, rootat, sizeof(starat));
+	} else if (starlist >= 0) {
 		fpLayPoint(axis, beanc, scale, hostc, bm->bind[star], starat);
 	}
 
@@ -11009,7 +11087,7 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 		s32 *mapped;
 		s8 *layer;
 
-		if (!beanDrawIsFlash(bm, d) || !beanReadVb(bm, d->vb, &vb)) {
+		if (!fpDrawIsCard(bm, d) || !beanReadVb(bm, d->vb, &vb)) {
 			continue;
 		}
 
@@ -11053,7 +11131,8 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 						bone = bm->numremap && bone < bm->numremap ? bm->remap[bone] : bone;
 					}
 
-					star_ = starlist >= 0 && bone != root && !(bone >= 0 && bone < bm->numbones && bm->muzzleroot[bone]);
+					star_ = billboard || (starlist >= 0 && bone != root && bone >= 0 && bone < bm->numbones
+						&& bm->muzzlebone[bone] && !bm->muzzleroot[bone]);
 					fpLayPoint(axis, beanc, scale, hostc, v.pos, at);
 					beanAxisMap(axis, v.nrm, nrm);
 
@@ -11061,7 +11140,7 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 						at[a] -= star_ ? starat[a] : rootat[a];
 					}
 
-					bones[0] = bones[1] = bones[2] = (u8)(star_ ? starmtx : flashmtx);
+					bones[0] = bones[1] = bones[2] = (u8)nodemtx[star_ ? starlist : flashlist];
 					mapped[vi] = beanAddVertex(out, at, nrm, v.uv, bones, weight, v.argb);
 					layer[vi] = (s8)star_;
 
@@ -11120,20 +11199,30 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
 		free(tris);
 	}
 
-	if (numtris > 0) {
+	if (numtris > 0 && posed) {
 		for (s32 a = 0; a < 3; a++) {
 			fpCardFlash[fp][a] = rootat[a] - rig->rest[basemtx][a];
 			fpCardStar[fp][a] = starlist >= 0 ? starat[a] - rootat[a] : 0.0f;
 		}
 
 		fpCardSet[fp] = starlist >= 0 ? 2 : 1;
+	}
+
+
+	if (numtris > 0) {
 		*outswitch = sw;
 
-		sysLogPrintf(LOG_NOTE, "gebean: %s: the release's muzzle flash, %d triangles on GoldenEye's flash (list %d)%s; "
-				"turned about (%.1f %.1f %.1f) from the switch's matrix, star at (%.1f %.1f %.1f)",
-				fpRows[fp].file, numtris, flashlist, starlist >= 0 ? " and star" : "",
-				fpCardFlash[fp][0], fpCardFlash[fp][1], fpCardFlash[fp][2],
-				fpCardStar[fp][0], fpCardStar[fp][1], fpCardStar[fp][2]);
+		if (posed) {
+			sysLogPrintf(LOG_NOTE, "gebean: %s: the release's muzzle flash, %d triangles on GoldenEye's flash (list %d)%s; "
+					"turned about (%.1f %.1f %.1f) from the switch's matrix, star at (%.1f %.1f %.1f)",
+					fpRows[fp].file, numtris, flashlist, starlist >= 0 ? (billboard ? " star only" : " and star") : "",
+					fpCardFlash[fp][0], fpCardFlash[fp][1], fpCardFlash[fp][2],
+					fpCardStar[fp][0], fpCardStar[fp][1], fpCardStar[fp][2]);
+		} else {
+			sysLogPrintf(LOG_NOTE, "gebean: %s: the release's muzzle flash, %d triangles in list %d (matrix %d) under "
+					"GoldenEye's flash switch (matrix %d, flash %d), still (GoldenEye does not pose this one)",
+					fpRows[fp].file, numtris, flashlist, nodemtx[flashlist], basemtx, flashmtx);
+		}
 	}
 
 	return numtris;
