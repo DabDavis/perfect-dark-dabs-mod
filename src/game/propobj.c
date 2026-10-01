@@ -81,6 +81,7 @@
 #include "data.h"
 #include "textures.h"
 #include "geimpact.h"
+#include "gehitpuff.h"
 #include "types.h"
 #include "string.h"
 #ifndef PLATFORM_N64
@@ -10015,6 +10016,11 @@ void autogunTickShoot(struct prop *autogunprop)
 
 					if (chrIsUsingPaintball(ownerchr)) {
 						sparksCreate(hitrooms[0], NULL, &hitpos, 0, 0, SPARKTYPE_PAINT);
+#ifndef PLATFORM_N64
+					} else if (geHitPuffActive() && autogun->base.modelnum != MODEL_CETROOFGUN) {
+						// GoldenEye's autoguns leave its puff (propobj.c)
+						geHitPuffBg(&hitpos, NULL, 0);
+#endif
 					} else {
 						sparksCreate(hitrooms[0], NULL, &hitpos, 0, 0, autogun->base.modelnum == MODEL_CETROOFGUN ? SPARKTYPE_BGHIT_GREEN : SPARKTYPE_DEFAULT);
 					}
@@ -16972,6 +16978,11 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 	if (!ismeleefunc) {
 		if (chrIsUsingPaintball(g_Vars.currentplayer->prop->chr)) {
 			sparksCreate(prop->rooms[0], prop, &sp110, 0, 0, SPARKTYPE_PAINT);
+#ifndef PLATFORM_N64
+		} else if (geHitPuffActive()) {
+			// GoldenEye's puff, 26 back towards the shooter (propobj.c)
+			geHitPuffBg(&sp110, &shotdata->gundir3d, 26.0f);
+#endif
 		} else {
 			sparksCreate(prop->rooms[0], prop, &sp110, 0, 0, SPARKTYPE_DEFAULT);
 		}

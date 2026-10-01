@@ -988,6 +988,15 @@ static const uint16_t g_GeImpactImages[] = {
 	206, 1475, 1476, 1478, 1479, 2168, 2169, 2170, 2171, 2172, 2173, 2174, 2175,
 };
 
+// GoldenEye's bullet puffs (oddtextures.c's s_explosion_smokeimages, six
+// frames, and s_scattered_explosions, five), which glass2.c's bullet sparks
+// draw at a shot's hit on a body, a wall or an object: they go out with every
+// conversion too, for gehitpuff.c
+static const uint16_t g_GePuffImages[] = {
+	2176, 2177, 2178, 2179, 2180, 2181,
+	2182, 2183, 2184, 2185, 2186,
+};
+
 // a level's row of GoldenEye's *fogless* table (bgfog.c's fog_tables2, which
 // follows the fog table's end row: Frigate and Cuba, drawn with no fog and a
 // fixed z range) - the 18 values after the id, as bgfog.c lists them
@@ -7973,6 +7982,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 		for (size_t i = 0; i < sizeof(g_GeImpactImages) / sizeof(g_GeImpactImages[0]); ++i) {
 			setAdd(alltex, g_GeImpactImages[i]);
+		}
+
+		for (size_t i = 0; i < sizeof(g_GePuffImages) / sizeof(g_GePuffImages[0]); ++i) {
+			setAdd(alltex, g_GePuffImages[i]);
 		}
 
 		for (uint32_t num = 0; num < SETBITS; ++num) {

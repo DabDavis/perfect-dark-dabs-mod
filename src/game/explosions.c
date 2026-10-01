@@ -33,6 +33,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
+#include "gehitpuff.h"
 
 #define GE_EXPLOSION_HARMLESS_TICKS 8
 #endif
@@ -275,8 +276,14 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 		return false;
 	}
 
-	// Bullet holes: only crate the flame (explosion) if within 4 metres
+	// Bullet holes: only crate the flame (explosion) if within 4 metres.
+	// GoldenEye has no such limit (explosion.c), so its levels flash at any
+	// range (gehitpuff.c).
+#ifndef PLATFORM_N64
+	if (type == EXPLOSIONTYPE_BULLETHOLE && !geHitPuffActive()) {
+#else
 	if (type == EXPLOSIONTYPE_BULLETHOLE) {
+#endif
 		f32 lodscale = camGetLodScaleZ();
 		struct coord *campos = &g_Vars.currentplayer->cam_pos;
 		f32 xdist = exppos->x - campos->x;

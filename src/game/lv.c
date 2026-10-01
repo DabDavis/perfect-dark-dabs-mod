@@ -131,6 +131,7 @@
 #include "simnav.h"
 #include "getexsurface.h"
 #include "geimpact.h"
+#include "gehitpuff.h"
 #include "game/camera.h"
 #include "gbiex.h"
 #endif
@@ -362,6 +363,7 @@ void lvReset(s32 stagenum)
 	// what a shot does to a converted GoldenEye level's images is GoldenEye's
 	geTexSurfaceReset(stagenum);
 	geImpactStageStart(stagenum);
+	geHitPuffStageStart(stagenum);
 	traceNoteEvent("stage 0x%02x loading", stagenum);
 #endif
 
@@ -1584,6 +1586,9 @@ Gfx *lvRender(Gfx *gdl)
 				gdl = bgRender(gdl);
 				chr0f028498(var80075d68 == 15 || g_AnimHostEnabled);
 				gdl = propsRenderBeams(gdl);
+#ifndef PLATFORM_N64
+				gdl = geHitPuffRender(gdl);
+#endif
 				gdl = shardsRender(gdl);
 				gdl = sparksRender(gdl);
 				gdl = weatherRender(gdl);
@@ -2754,6 +2759,9 @@ void lvTick(void)
 		casingsTick();
 		shardsTick();
 		sparksTick();
+#ifndef PLATFORM_N64
+		geHitPuffTick();
+#endif
 		wallhitsTick();
 		splatsTick();
 
