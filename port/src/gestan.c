@@ -12,6 +12,7 @@
 #include "fs.h"
 #include "system.h"
 #include "gestan.h"
+#include "game/prop.h"
 
 #ifndef PLATFORM_N64
 
@@ -1857,6 +1858,183 @@ bool geStanSightClear(struct coord *a, struct coord *b)
 	}
 
 	return true;
+}
+
+/**
+ * GoldenEye's own test of a guard's pad as the setup is loaded: expand_09_
+ * characters() (chraction.c) makes a guard only where getposstan(&pad->pos,
+ * pad->stan, 20, ...) holds, and getposstan() (loadobjectmodel.c) neither moves
+ * the guard nor looks for a clear spot - it asks stanTestVolume() whether a
+ * circle of 20 at the pad itself is legal, and the guard stands at the pad or
+ * is not made at all. stanTestVolume() (stan.c) is two tests, both in plan:
+ *
+ * - the tile walk (sub_GAME_7F0B21B0): out from the pad's tile through every
+ *   linked edge the circle touches; an unlinked edge it touches is a wall and
+ *   refuses the guard, and so does a walk of 41 tiles or more;
+ * - the props in the rooms of the tiles walked, of the types objects, doors,
+ *   players, chrs and path blockers: refused where the circle comes within 20
+ *   of an *edge* of a prop's collision outline. Only the edges: a pad inside a
+ *   big object's outline with every edge further than 20 is legal, and nothing
+ *   is asked about height at all (its y range is off: arg5 0, arg6 1).
+ *
+ * Perfect Dark's bodyAllocateChr() asks cdTestVolume() instead - the
+ * converted level's raised walls in the pad's room within 200 up or down,
+ * and any prop whose block the circle overlaps or is inside - which refused
+ * guards GoldenEye makes (Facility 51 and Caverns 33 at a raised wall,
+ * Frigate 26 and Caverns 10 standing on an object) and made one it refuses
+ * (Caverns 41).
+ *
+ * 1 legal, 0 refused, -1 where the level has no graph or the pad is over no
+ * tile (the caller keeps Perfect Dark's own test).
+ */
+#define GESTAN_SPAWN_MAXTILES 41
+#define GESTAN_SPAWN_MAXROOMS 20
+// The graph's points are GoldenEye's tile units rounded to whole units of the
+// converted level (geconvert.c's writeStan()), up to half a unit out on each
+// axis: an edge GoldenEye measures 20.4 from Aztec's pad 92 is 19.99 here, and
+// its guard 9 was refused. The tile walk is taken that much short of the
+// radius. GoldenEye's nearest wall to a pad it refuses is 17.6 (Streets 170).
+#define GESTAN_SPAWN_ROUNDING 0.75f
+
+static bool stanSpawnEdgeNear(f32 ax, f32 az, f32 bx, f32 bz, f32 x, f32 z, f32 radius)
+{
+	const f32 ex = bx - ax, ez = bz - az;
+	const f32 len = ex * ex + ez * ez;
+	f32 f = len > 0.0f ? ((x - ax) * ex + (z - az) * ez) / len : 0.0f;
+	f32 dx, dz;
+
+	f = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+	dx = x - (ax + ex * f);
+	dz = z - (az + ez * f);
+
+	return dx * dx + dz * dz < radius * radius;
+}
+
+/** Whether the circle at x/z touches an edge of the prop's collision outline (chraiGetCollisionBounds()). */
+static bool stanSpawnPropNear(struct prop *prop, f32 x, f32 z, f32 radius)
+{
+	u8 *start;
+	u8 *end;
+	struct geo *geo;
+
+	if (!propUpdateGeometry(prop, &start, &end)) {
+		return false;
+	}
+
+	geo = (struct geo *)start;
+
+	while (geo < (struct geo *)end) {
+		if (geo->type == GEOTYPE_BLOCK) {
+			struct geoblock *block = (struct geoblock *)geo;
+			const s32 n = block->header.numvertices;
+
+			for (s32 i = 0; i < n; i++) {
+				const s32 j = (i + 1) % n;
+
+				if (stanSpawnEdgeNear(block->vertices[i][0], block->vertices[i][1],
+							block->vertices[j][0], block->vertices[j][1], x, z, radius)) {
+					return true;
+				}
+			}
+
+			geo = (struct geo *)((uintptr_t)geo + 0x4c);
+		} else if (geo->type == GEOTYPE_CYL) {
+			// GoldenEye's chr is a diamond chrwidth from its middle to each
+			// corner (chrUpdateCollisionBounds()), its player the same
+			struct geocyl *cyl = (struct geocyl *)geo;
+			const f32 c[4][2] = {
+				{ cyl->x + cyl->radius, cyl->z }, { cyl->x, cyl->z + cyl->radius },
+				{ cyl->x - cyl->radius, cyl->z }, { cyl->x, cyl->z - cyl->radius },
+			};
+
+			for (s32 i = 0; i < 4; i++) {
+				if (stanSpawnEdgeNear(c[i][0], c[i][1], c[(i + 1) % 4][0], c[(i + 1) % 4][1], x, z, radius)) {
+					return true;
+				}
+			}
+
+			geo = (struct geo *)((uintptr_t)geo + 0x18);
+		} else {
+			// a lift's tiles: GoldenEye has no such outline
+			break;
+		}
+	}
+
+	return false;
+}
+
+s32 geStanSpawnLegal(struct coord *pos, s32 padroom, f32 radius)
+{
+	s32 queue[GESTAN_MAXFLOOD];
+	RoomNum rooms[GESTAN_SPAWN_MAXROOMS + 1];
+	s16 propnums[MAX_ROOMPROPS];
+	const f32 reach = radius - GESTAN_SPAWN_ROUNDING;
+	s32 numrooms = 0;
+	s32 tile;
+	s32 n;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return -1;
+	}
+
+	// the pad's own tile (pad->stan): the one of the pad's room at or under it,
+	// as an autogun's pad finds its tile
+	tile = stanTileUnderPrefer(pos->x, pos->z, pos->y + 5.0f, GESTAN_RISE, padroom);
+
+	if (tile < 0) {
+		return -1;
+	}
+
+	n = stanFloodList(tile, pos->x, pos->z, pos->x, pos->z, reach, true, false, queue);
+
+	if (n >= GESTAN_SPAWN_MAXTILES) {
+		sysLogPrintf(LOG_NOTE, "gestan: pad (%.0f %.0f %.0f) refused: its circle walks %d tiles", pos->x, pos->y, pos->z, n);
+		return 0;
+	}
+
+	for (s32 q = 0; q < n; q++) {
+		const struct stantile *t = &g_Stan.tiles[queue[q]];
+		const struct stanpoint *p = &g_Stan.points[t->first];
+		s32 r;
+
+		for (s32 k = 0; k < t->npts; k++) {
+			if (p[k].across < 0 && stanEdgeDistSq(&p[k], &p[(k + 1) % t->npts], pos->x, pos->z) < reach * reach) {
+				sysLogPrintf(LOG_NOTE, "gestan: pad (%.0f %.0f %.0f) refused: tile %d's edge %d is a wall",
+						pos->x, pos->y, pos->z, queue[q], k);
+				return 0;
+			}
+		}
+
+		for (r = 0; r < numrooms; r++) {
+			if (rooms[r] == t->room) {
+				break;
+			}
+		}
+
+		if (r == numrooms && numrooms < GESTAN_SPAWN_MAXROOMS) {
+			rooms[numrooms++] = t->room;
+		}
+	}
+
+	rooms[numrooms] = -1;
+	roomGetProps(rooms, propnums, MAX_ROOMPROPS);
+
+	for (s16 *pn = propnums; *pn >= 0; pn++) {
+		struct prop *prop = &g_Vars.props[*pn];
+
+		if (propIsOfCdType(prop, CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PLAYERS | CDTYPE_CHRS | CDTYPE_PATHBLOCKER)
+				&& stanSpawnPropNear(prop, pos->x, pos->z, radius)) {
+			sysLogPrintf(LOG_NOTE, "gestan: pad (%.0f %.0f %.0f) refused: prop type %d at (%.0f %.0f %.0f)",
+					pos->x, pos->y, pos->z, prop->type, prop->pos.x, prop->pos.y, prop->pos.z);
+			return 0;
+		}
+	}
+
+	return 1;
 }
 
 #endif
