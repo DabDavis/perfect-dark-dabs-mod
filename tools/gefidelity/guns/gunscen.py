@@ -216,6 +216,10 @@ def give(item, weapon):
         gdb.execute('set variable g_CurrentPlayer->equipallguns = 0')
         lib.call('(void)gunRequestHandWeaponChange(0, %d, 1)' % item)
         gdb.execute('set variable g_CurrentPlayer->vv_verta = %f' % VERTA)
+        # GoldenEye's look-ahead winds the pitch back to -4 (gunscen_ares.py)
+        gdb.execute('set variable g_CurrentPlayer->automovecentre = 0')
+        gdb.execute('set variable g_CurrentPlayer->docentreupdown = 0')
+        gdb.execute('set variable g_CurrentPlayer->speedverta = 0')
     else:
         lib.call('(int)invGiveSingleWeapon(%d)' % weapon)
         a = ev('weaponGetAmmoByFunction(%d, 0)' % weapon)

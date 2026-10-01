@@ -14,6 +14,9 @@ What replaces the port's gdb, and why:
   A shot is joyRumblePakStart called from gunTickHandState (ra in its range).
 - **Per-frame state** is an n64twin `watch` at lvlRender: both hands' first 48
   bytes and the ammo array, read in the frame, no stop.
+- **The pitch** is held: the opening's walk leaves GoldenEye's look-ahead armed
+  (automovecentre), which winds a poked -30 back to -4 in 46 ticks unless it
+  and docentreupdown are cleared with it.
 - **Input** is n64twin `pad-when`: Z pressed and released when g_GlobalTimer
   reaches the schedule's ticks, read by the game's own controller poll.
 - **The give** cannot call a function on the console, so it is GoldenEye's own
@@ -236,6 +239,14 @@ def give(item):
     out['dual_allguns'] = int(item < EN['ITEM_BOMBCASE'] and bool(bitflags(item) & EN['WEAPONSTATBITFLAG_CAN_DUAL_WIELD']))
     request(0, item, 1)
     lib.poke(P['p'] + fo('struct player', 'vv_verta'), struct.pack('>f', VERTA))
+    # and keep it there: the opening's walk leaves automovecentre set, so a pitch
+    # 10 below the target starts GoldenEye's look-ahead (bondview2.c,
+    # docentreupdown), which wound -30 back to -4 within 46 ticks - every shot
+    # of the first sweep went out nearly level, two thousand units down the
+    # valley, while ours hit the floor 270 ahead
+    for f in ('automovecentre', 'docentreupdown'):
+        wr(P['p'] + fo('struct player', f), 4, 0)
+    lib.poke(P['p'] + fo('struct player', 'speedverta'), struct.pack('>f', 0.0))
     out['ammotype'] = t
     return out
 
