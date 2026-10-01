@@ -461,6 +461,14 @@ def props():
                             'damage': _f(o.f('damage')), 'maxdamage': _f(o.f('maxdamage')),
                             'rtflags': o['runtime_bitflags'] & 0xffffffff,
                             'attached': 1 if prop.ptr('parent') else 0, 'propflags': prop['flags']})
+                if t == 1:
+                    # setupDoor() never runs domakedefaultobj()'s `damage = word / 65536`
+                    # (prop.c:158), so a door keeps the setup's 16.16 integer in its
+                    # float health words (Dam's: 0x03e80000, 1.4e-36 as a float, read
+                    # as 0.0 here until 2026-10-01 - every door "had no health")
+                    rec['damage'] = _f(struct.unpack_from('>i', o.b, o.off('damage'))[0] / 65536.0)
+                    rec['maxdamage'] = _f(struct.unpack_from('>i', o.b, o.off('maxdamage'))[0] / 65536.0)
+                    rec['health_raw'] = 1
                 if o.ptr('model'):
                     rec['scale'] = _f(Rec('Model', o.ptr('model')).f('scale'))
                 if t == 1:
