@@ -13,7 +13,7 @@ index e48daa504..6118fa3b6 100644
  s32 gebeanIsAvailable(void);
  
 diff --git a/port/src/gebean.c b/port/src/gebean.c
-index 69544e4f0..0c54da89d 100644
+index 28af51898..1ee9180c0 100644
 --- a/port/src/gebean.c
 +++ b/port/src/gebean.c
 @@ -307,6 +307,45 @@ static s32 poolFromRelease;
@@ -185,7 +185,7 @@ index 69544e4f0..0c54da89d 100644
  
  	if (numparts > 0 && g->weaponnum < 0) {
  		numdual = beanDoubleWheels(&out, modeldef, nummatrices, mtx);
-@@ -11013,6 +11106,8 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
+@@ -11091,6 +11184,8 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
  			continue;
  		}
  
@@ -194,16 +194,16 @@ index 69544e4f0..0c54da89d 100644
  		n = beanTriangles(bm, d, &tris);
  		mapped = n > 0 ? malloc(vb.count * sizeof(s32)) : NULL;
  		layer = mapped ? malloc(vb.count) : NULL;
-@@ -11120,6 +11215,8 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
+@@ -11199,6 +11294,8 @@ static s32 fpBuildCards(s32 fp, struct beanmodel *bm, struct modeldef *modeldef,
  		free(tris);
  	}
  
 +	beanCensusCur = NULL;
 +
- 	if (numtris > 0) {
+ 	if (numtris > 0 && posed) {
  		for (s32 a = 0; a < 3; a++) {
  			fpCardFlash[fp][a] = rootat[a] - rig->rest[basemtx][a];
-@@ -11878,6 +11975,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
+@@ -11967,6 +12064,8 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
  
  	for (s32 di = 0; di < bm.numdraws; di++) {
  		const struct beandraw *d = &bm.draws[di];
@@ -212,7 +212,7 @@ index 69544e4f0..0c54da89d 100644
  		struct beanvb vb;
  		u16 *tris;
  		s32 numtris;
-@@ -12102,6 +12201,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
+@@ -12191,6 +12290,7 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
  		free(mappedmtx);
  		free(tris);
  	}
@@ -220,7 +220,7 @@ index 69544e4f0..0c54da89d 100644
  
  	// The release's flash cards (fpCardSet): into the lists of GoldenEye's
  	// flash and star under its flash switch, each layer in its own list's
-@@ -13295,6 +13395,14 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
+@@ -13384,6 +13484,14 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
  	f32 seatown[GEBEAN_SEAT_SAMPLES];
  	u32 seatownhit = 0;
  
@@ -235,7 +235,7 @@ index 69544e4f0..0c54da89d 100644
  	for (s32 pass = hoodsplit ? -1 : pinseam ? 0 : 1; pass < 2; pass++) {
  	if (pass == 0 && !pinseam) {
  		continue;
-@@ -13370,6 +13478,8 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
+@@ -13459,6 +13567,8 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
  
  	for (s32 di = 0; di < bm.numdraws; di++) {
  		const struct beandraw *d = &bm.draws[di];
@@ -244,7 +244,7 @@ index 69544e4f0..0c54da89d 100644
  		struct beanvb vb;
  		u16 *tris;
  		s32 numtris;
-@@ -14100,6 +14210,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
+@@ -14189,6 +14299,7 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
  		free(mapped);
  		free(tris);
  	}
@@ -252,7 +252,7 @@ index 69544e4f0..0c54da89d 100644
  	}
  
  	// Nodes that must draw nothing rather than keep their N64 geometry: a
-@@ -14314,6 +14425,49 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
+@@ -14403,6 +14514,49 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
  				r->file, source, ownskinleft, headsecleft, numnoskin, ownskintex);
  	}
  
@@ -302,7 +302,7 @@ index 69544e4f0..0c54da89d 100644
  	file = beanWriteMesh(&out, numnodes + numfill + numhood + numbare + numown + numnoskin + numneck, nummatrices, ishead ? NULL : &rig, matwords, nummatwords, outAbsent, outLen);
  
  	if (seathit) {
-@@ -14820,11 +14974,24 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
+@@ -14909,11 +15063,24 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
  
  			fn(arg, tex, v);
  			count++;
