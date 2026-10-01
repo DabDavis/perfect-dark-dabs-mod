@@ -10248,8 +10248,8 @@ static f32 fpCloudMedian(const struct fpcloud *cloud, s32 axis, f32 fallback)
  * square of the closest `FP_ICP_KEEP`, measured after the last move), or a
  * negative number when there was nothing to measure.
  */
-static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host,
-		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, s32 points)
+static f32 fpRefineRoundsN(const struct fpcloud *bean, const struct fpcloud *host,
+		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, s32 points, s32 rounds)
 {
 	const f32 zero[3] = { 0.0f, 0.0f, 0.0f };
 	f32 *base;
@@ -10295,7 +10295,7 @@ static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host
 	}
 
 	// the last pass only measures
-	for (s32 round = 0; round <= FP_ICP_ROUNDS; round++) {
+	for (s32 round = 0; round <= rounds; round++) {
 		f32 cut;
 		f32 move[3] = { 0.0f, 0.0f, 0.0f };
 		f32 sum = 0.0f;
@@ -10343,7 +10343,7 @@ static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host
 			break;
 		}
 
-		if (round == FP_ICP_ROUNDS) {
+		if (round == rounds) {
 			residual = sum / taken;
 			break;
 		}
@@ -10359,6 +10359,12 @@ static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host
 	free(sorted);
 
 	return residual;
+}
+
+static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host,
+		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, s32 points)
+{
+	return fpRefineRoundsN(bean, host, axis, beanc, scale, hostc, points, FP_ICP_ROUNDS);
 }
 
 static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *host,
@@ -10433,9 +10439,40 @@ static void fpRefinePlacementSearch(s32 fp, const struct fpcloud *bean, const st
 		sysLogPrintf(LOG_NOTE, "fpfit: row %d placement searched: %.1f %.1f %.1f from %.1f %.1f %.1f (residual %.2f from %.2f)",
 				fp, best[0], best[1], best[2], hostc[0], hostc[1], hostc[2], bestres, firstres);
 		memcpy(hostc, best, sizeof(best));
+	} else {
+		// and the first start's answer is where its walk ended, not where it
+		// began. Settling from the beginning again at the full count, the
+		// plain D5K's walk stopped half way: the first start (Bean's origin 57
+		// along the barrel from GoldenEye's) had ended on GoldenEye's gun,
+		// 0.3 from its origin, and the settling from 57 out stopped at 29 out
+		// and 4 down, with nothing at the muzzle to pull it (the silenced
+		// one's silencer does), where every other gun's ends within half a
+		// unit
+		memcpy(hostc, first, sizeof(first));
 	}
 
-	fpRefinePlacement(bean, host, axis, beanc, scale, hostc);
+	// Settled at the full count, unless that walks off: measured on the
+	// same points, the place the search ended is kept when it is closer.
+	{
+		f32 searched[3];
+		f32 settled[3];
+		f32 ressearched;
+		f32 ressettled;
+
+		memcpy(searched, hostc, sizeof(searched));
+		memcpy(settled, hostc, sizeof(settled));
+		fpRefinePlacement(bean, host, axis, beanc, scale, settled);
+
+		ressearched = fpRefineRoundsN(bean, host, axis, beanc, scale, searched, FP_ICP_POINTS, 0);
+		ressettled = fpRefineRoundsN(bean, host, axis, beanc, scale, settled, FP_ICP_POINTS, 0);
+
+		if (ressearched >= 0.0f && ressettled >= 0.0f && ressearched < ressettled) {
+			sysLogPrintf(LOG_NOTE, "fpfit: row %d kept where the search ended: %.1f %.1f %.1f (residual %.3f; settled %.1f %.1f %.1f, %.3f)",
+					fp, hostc[0], hostc[1], hostc[2], ressearched, settled[0], settled[1], settled[2], ressettled);
+		} else {
+			memcpy(hostc, settled, sizeof(settled));
+		}
+	}
 }
 
 /**
