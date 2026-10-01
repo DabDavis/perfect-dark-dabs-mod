@@ -61,12 +61,13 @@ none new; the other legs' lines are in "Gate on the merge" below. *instrument*
 Bases swept fresh with the merged toolkit (`pd.base`, own run dir and
 conversion; the ai base with `GE_ROM_PATCHES=1`, see README traps):
 
-- **world** (20, wide): placement 378 fixed, 0 better, **3 new** (control
-  tintedglass 133 / 156, dam glass 118 - row 18's coin toss), 0 worse; 923 ->
-  550 findings. Behaviour 3 fixed, 5 new, 3 worse: Statue chrs 6/7 and their
+- **world** (20, wide; on the four-branch merge, then again on the final one
+  with the same placement result): placement 378 fixed, 0 better, **3 new**
+  (control tintedglass 133 / 156, dam glass 118 - row 18's coin toss), 0 worse;
+  923 -> 550 findings. Behaviour 4 fixed, 6 new, 3 worse: Statue chrs 6/7 and their
   bits from the portal walk (A4); Aztec chrs 33/34 further from the
   cartridge's (fid-chr's rows 1/2, in its own gate too); Train player.pos 13.3
-  and Frigate/Aztec hidden 0x100 also appear in pd.base's own sweeps
+  and Frigate/Aztec/Jungle hidden 0x100 also appear in pd.base's own sweeps
   (run-to-run flips).
 - **view** (20, 1815 pairs): 1210 better, 0 new, **1 worse** - Jungle pad 437
   h090 0.08 -> 0.32: a drone gun's tracer in our picture. pd.base repeats 0.08,
@@ -82,10 +83,22 @@ conversion; the ai base with `GE_ROM_PATCHES=1`, see README traps):
   in the base too), Egyptian/Jungle timing.
 - **census**: 10 census.dropped + 85 unread fixed, 0 new. **convdiff**: 40
   files changed, 13 new (the `_ce` copies, Pgx203Z).
+- **hd-census**, **hd-world**: in the HD section (111 fixed, 0 new; Dam's
+  eye against the release's).
+- **hd-view** (Dam, Facility; the release's pictures reused): 143 better, 0
+  worse, **1 new** - Facility pad 0 h000 at 0.81, a pair the base could not rank
+  (our eye 46 below the release's camera: "a different floor") that row 2's
+  +8.3 brings to 37.7, inside the tour's 40-unit rule; our picture is the
+  base's. The release side's camera stands ~38 units higher there - the tour's
+  Xenia placement, not a picture fault. Medians Dam 0.474 -> 0.343, Facility
+  0.459 -> 0.332.
 - **replay**: match, solo, gematch, optsolo, randrun, randmission the same -
   Perfect Dark's own game unchanged; gesolo diverges from frame 100 (Dam:
   rooms, eye, truck, guns) and optmatch from frame 400 (GoldenEye's guns rolled
-  into that match) - on purpose.
+  into that match) - on purpose. fix/fid-hd alone (the merge before it against
+  the final): all 8 the same.
+- **Windows**: the mingw build of the final merge boots GE Plus's Dam under wine
+  (GL and Vulkan), 600 frames, a clean exit, no errors beyond the usual.
 
 ## The rows as found
 
