@@ -1378,9 +1378,57 @@ static struct chrdata *modAlarmSpawn(s32 bodynum, struct coord *pos, RoomNum *ro
 }
 
 /**
+ * The team the stage's own guards are on, for a responder in a mission.
+ *
+ * Not every stage keeps its guards on TEAM_ENEMY: Chicago's and the Villa's
+ * are on TEAM_20, and their own responders (func041f_alarm_responder) join
+ * TEAM_20 too. Teams are bits and two chrs are enemies when they share none,
+ * so a responder put on TEAM_ENEMY there was every guard's enemy, and with
+ * CHRFLAG0_AIVSAI it went for them (F3 20261001-021542). The answer is the
+ * team most of the stage's hostile chrs are on - those sharing no bit with
+ * the player and not TEAM_NONCOMBAT - or TEAM_ENEMY when there are none.
+ */
+static u8 modAlarmMissionTeam(void)
+{
+	u16 counts[256];
+	u8 playerteam = 0;
+	s32 best = TEAM_ENEMY;
+	s32 i;
+
+	memset(counts, 0, sizeof(counts));
+
+	if (g_Vars.bond && g_Vars.bond->prop && g_Vars.bond->prop->chr) {
+		playerteam = g_Vars.bond->prop->chr->team;
+	}
+
+	for (i = 0; i < chrsGetNumSlots(); i++) {
+		struct chrdata *chr = &g_ChrSlots[i];
+
+		if (chr->chrnum < 0 || chr->team == 0 || chr->team == TEAM_NONCOMBAT
+				|| (chr->team & playerteam) != 0
+				|| (chr->hidden2 & CHRH2FLAG_SPAWNED)
+				|| (chr->prop && chr->prop->type == PROPTYPE_PLAYER)) {
+			continue;
+		}
+
+		if (counts[chr->team] < 0xffff) {
+			counts[chr->team]++;
+		}
+	}
+
+	for (i = 1; i < 256; i++) {
+		if (counts[i] > counts[best]) {
+			best = i;
+		}
+	}
+
+	return best;
+}
+
+/**
  * What the Villa's func0408_alarm_responder does to a responder, in C.
  *
- * The team is TEAM_ENEMY in a mission, which is what every guard is. In a
+ * The team is the stage's guards' own in a mission (modAlarmMissionTeam()). In a
  * match the players' teams are bits, one per Combat Simulator team, and
  * TEAM_ENEMY is team two's bit - a guard on it would be a teammate of that
  * team's players for friendly fire, and rebuildTeams() would list it with
@@ -1400,7 +1448,7 @@ static s32 modAlarmArm(struct chrdata *chr, s32 playernum)
 		chr->team = TEAM_00;
 		chr->accuracyrating = 15;
 	} else {
-		chr->team = TEAM_ENEMY;
+		chr->team = modAlarmMissionTeam();
 		chr->accuracyrating = lvGetDifficulty() < DIFF_SA ? 20 : 10;
 	}
 
@@ -1416,7 +1464,7 @@ static s32 modAlarmArm(struct chrdata *chr, s32 playernum)
 	// scanning the team lists for the nearest chr on another team with a
 	// line of sight. In a match the guard has no team bit and every
 	// simulant has one, so every simulant is an enemy; in a mission the
-	// guard is TEAM_ENEMY and the stage's own guards are its friends,
+	// guard is on the stage's guards' team and they are its friends,
 	// while the Institute's staff and soldiers are not.
 	chr->flags |= CHRFLAG0_CAN_HEAR_ALARMS | CHRFLAG0_SKIPSAFETYCHECKS | CHRFLAG0_AIVSAI;
 	chr->flags2 |= CHRFLAG1_NOIDLEANIMS;
