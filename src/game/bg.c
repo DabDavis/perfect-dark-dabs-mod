@@ -7068,7 +7068,8 @@ static void bgTickPortalsSpectate(struct screenbox *box)
  * A room the level's visibility commands disable is not drawn but is walked
  * through, as GoldenEye's room_loaded_mask is. The tests are the ones the
  * snake makes for a converted level: the camera's side of a portal's slab,
- * the special portal's whole screen, and the portal's box.
+ * the special portal's whole screen, and the portal's box - and GoldenEye's
+ * own, a portal past nine tenths of the far plane has none.
  */
 #define BG_GEWALK_QUEUE 500
 
@@ -7110,6 +7111,40 @@ static void bgGeWalkQueue(s32 *head, RoomNum room, s32 portal, s32 depth, struct
 }
 
 /**
+ * Every portal of a room but the one the walk came in by, in the order of
+ * their numbers, as GoldenEye goes through its portal table: rooms reached at
+ * the same depth are added, and their translucent faces blended, in that
+ * order.
+ */
+static void bgGeWalkQueueRoom(s32 *head, RoomNum room, s32 except, s32 depth, struct screenbox *box)
+{
+	const s16 *list = &g_RoomPortals[g_Rooms[room].roomportallistoffset];
+	const s32 n = g_Rooms[room].numportals;
+	s32 last = -1;
+
+	while (true) {
+		s32 best = -1;
+		s32 i;
+
+		for (i = 0; i < n; i++) {
+			if (list[i] > last && (best < 0 || list[i] < best)) {
+				best = list[i];
+			}
+		}
+
+		if (best < 0) {
+			break;
+		}
+
+		if (best != except) {
+			bgGeWalkQueue(head, room, best, depth, box);
+		}
+
+		last = best;
+	}
+}
+
+/**
  * sub_GAME_7F0B39BC(): the room on screen at this depth (raised to it if it
  * is there already), and whether the walk stops at it - only where it was
  * reached through a special portal before, or is the camera's.
@@ -7134,6 +7169,34 @@ static bool bgGeWalkReach(s32 room, s32 depth, struct screenbox *box, bool speci
 	return stop;
 }
 
+/**
+ * sub_GAME_7F0B5528(): a portal all of whose points (moved its thickness
+ * along its normal both ways) lie past nine tenths of the far plane has no
+ * box, and the walk does not go through it.
+ */
+static bool bgGeWalkPortalTooFar(s32 portal, f32 thick)
+{
+	Mtxf *mtx = g_Vars.currentplayer->worldtoscreenmtx;
+	struct portalvertices *pvertices = (struct portalvertices *)((uintptr_t)g_BgPortals + g_BgPortals[portal].verticesoffset);
+	const struct coord *normal = &g_PortalMetrics[portal].normal;
+	const f32 limit = g_BgSnake.zrange.far * 0.9f;
+	s32 i;
+
+	for (i = 0; i < pvertices->count * 2; i++) {
+		const f32 by = (i & 1) ? -thick : thick;
+		const f32 x = pvertices->vertices[i / 2].x + normal->x * by;
+		const f32 y = pvertices->vertices[i / 2].y + normal->y * by;
+		const f32 z = pvertices->vertices[i / 2].z + normal->z * by;
+		const f32 depth = -(mtx->m[0][2] * x + mtx->m[1][2] * y + mtx->m[2][2] * z + mtx->m[3][2]);
+
+		if (depth < limit) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
 static void bgTickPortalsWalkGe(struct screenbox *box)
 {
 	const struct coord *campos = &g_Vars.currentplayer->cam_pos;
@@ -7152,9 +7215,7 @@ static void bgTickPortalsWalkGe(struct screenbox *box)
 	bgSetRoomOnscreen(g_CamRoom, 0, box);
 	g_BgGeWalkRooms[g_CamRoom * 2 + 1] = 1;
 
-	for (i = 0; i < g_Rooms[g_CamRoom].numportals; i++) {
-		bgGeWalkQueue(&head, g_CamRoom, g_RoomPortals[g_Rooms[g_CamRoom].roomportallistoffset + i], 1, &screen);
-	}
+	bgGeWalkQueueRoom(&head, g_CamRoom, -1, 1, &screen);
 
 	while (tail < head) {
 		struct bggewalkitem *item = &g_BgGeWalkQueue[tail++];
@@ -7190,13 +7251,14 @@ static void bgTickPortalsWalkGe(struct screenbox *box)
 			// inside the portal's slab: the whole screen
 			newbox = screen;
 		} else if (special) {
-			if (!bgGetPortalScreenBbox(portal, &newbox) || !bgRoomIntersectsScreenBox(other, &newbox)) {
+			if (bgGeWalkPortalTooFar(portal, thick)
+					|| !bgGetPortalScreenBbox(portal, &newbox) || !bgRoomIntersectsScreenBox(other, &newbox)) {
 				continue;
 			}
 
 			newbox = screen;
 		} else {
-			if (!bgGetPortalScreenBbox(portal, &newbox)) {
+			if (bgGeWalkPortalTooFar(portal, thick) || !bgGetPortalScreenBbox(portal, &newbox)) {
 				continue;
 			}
 
@@ -7216,13 +7278,7 @@ static void bgTickPortalsWalkGe(struct screenbox *box)
 			continue;
 		}
 
-		for (i = 0; i < g_Rooms[other].numportals; i++) {
-			const s32 next = g_RoomPortals[g_Rooms[other].roomportallistoffset + i];
-
-			if (next != portal) {
-				bgGeWalkQueue(&head, other, next, depth + 1, &newbox);
-			}
-		}
+		bgGeWalkQueueRoom(&head, other, portal, depth + 1, &newbox);
 	}
 }
 #endif
