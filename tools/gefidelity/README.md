@@ -139,4 +139,8 @@ world/sweep.py --out ~/wt/gefidelity-run/out/sweep            # all twenty, ~6 m
   `fit/`). A change to AI conversion in `geconvert.c` that is not mirrored there
   makes the AI trace diff misplace offsets; the lasting fix is to map by walking
   each game's converted list with its own command lengths.
+- **Each source tree has its own toolkit copy on the oracle host**
+  (`~/gefidelity/trees/<tree>-<hash>`, `twin.GE_TOOLS`; `GF_GE_TOOLS` overrides). It was
+  one shared `~/gefidelity` until 2026-10-01, when three worktrees' syncs (`rsync
+  --delete`) reverted each other's oracle code and scenarios mid-run for an hour.
 - Kill only PIDs you started; `pkill -f` over ssh kills your own session.

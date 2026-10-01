@@ -12,12 +12,13 @@ GF_OUT, plus anything passed with --env. Results land in OUT/ge and OUT/pd; the
 gdb transcript is OUT/<side>/gdb.log, and for our side pd.log and any
 screenshots are copied in too.
 
-The oracle is never modified: the toolkit is rsynced to ~/gefidelity on the
-host and run from ~/claude-007/007. Our side runs from a run directory
+The oracle is never modified: the toolkit is rsynced to the host, one copy per
+source tree (~/gefidelity/trees/<tree>-<hash>, GE_TOOLS), and run from
+~/claude-007/007. Our side runs from a run directory
 (--rundir, default ~/wt/gefidelity-run) holding the binary, data/,
 added-content/ and mods/ - never a player's install.
 """
-import argparse, os, shlex, subprocess, sys, time, shutil
+import argparse, hashlib, os, re, shlex, subprocess, sys, time, shutil
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'common'))
@@ -25,7 +26,13 @@ import levels  # noqa: E402
 
 GE_HOST = os.environ.get('GF_GE_HOST', 'sdg@10.8.0.3')
 GE_TREE = os.environ.get('GF_GE_TREE', '~/claude-007/007')
-GE_TOOLS = '~/gefidelity'
+# One copy of the toolkit on the host per source tree. With a single shared
+# ~/gefidelity, every worktree's sync (rsync --delete) put its own scenarios and
+# oracle code over the others' mid-run: on 2026-10-01 three agents' branches
+# reverted each other's aresge.py/gdbge.py and gunscen_ares.py for an hour.
+_TREE = os.path.dirname(os.path.dirname(HERE))
+GE_TOOLS = os.environ.get('GF_GE_TOOLS', 'gefidelity/trees/%s-%s' % (
+    re.sub(r'[^A-Za-z0-9_.-]', '_', os.path.basename(_TREE)), hashlib.sha1(_TREE.encode()).hexdigest()[:8]))
 DEFAULT_RUNDIR = os.path.expanduser(os.environ.get('GF_RUNDIR', '~/wt/gefidelity-run'))
 _SEQ = __import__('itertools').count()  # several run_ge() calls in one second, one process
 
@@ -36,8 +43,8 @@ def ssh(cmd, check=True, **kw):
 
 
 def sync_tools():
-    subprocess.run(['rsync', '-a', '--delete', '--exclude', 'out/', '--exclude', '__pycache__/',
-                    HERE + '/', '%s:gefidelity/' % GE_HOST], check=True)
+    subprocess.run(['rsync', '-a', '--delete', '--mkpath', '--exclude', 'out/', '--exclude', '__pycache__/',
+                    HERE + '/', '%s:%s/' % (GE_HOST, GE_TOOLS)], check=True)
 
 
 # Which GoldenEye: 'ares' is the cartridge in ares through n64twin (common/aresge.py);
@@ -52,26 +59,27 @@ def run_ge(script, m, diff, out, env, timeout, render, oracle=None):
     stamp = '%s-%s-%d-%d' % (time.strftime('%Y%m%d-%H%M%S'), m[1], os.getpid(), next(_SEQ))
     rout = '~/gefidelity-out/%s' % stamp
     rel = os.path.relpath(os.path.abspath(script), HERE)
-    e = {'PORT_PAD_SCRIPT': '$HOME/gefidelity/common/%s' % env.pop('GF_PADSCRIPT', 'solo-quiet.padscript'),
+    e = {'PORT_PAD_SCRIPT': '$HOME/%s/common/%s' % (GE_TOOLS, env.pop('GF_PADSCRIPT', 'solo-quiet.padscript')),
          'PORT_BOOT_FRAMES': '1000000', 'PORT_LOCKSTEP': '1', 'PORT_VI_LOCKSTEP': '1',
-         'GF_SIDE': 'ge', 'GF_COMMON': '$HOME/gefidelity/common', 'GF_LEVELID': m[3],
+         'GF_SIDE': 'ge', 'GF_COMMON': '$HOME/%s/common' % GE_TOOLS, 'GF_LEVELID': m[3],
          'GF_MISSION': str(m[0]), 'GF_DIFF': str(diff), 'GF_OUT': rout.replace('~', '$HOME')}
     if not render:
         e['PORT_RENDER_FROM'] = '999999'
     e.update(env)
     envs = ' '.join('%s=%s' % (k, v if v.startswith('$HOME') else shlex.quote(v)) for k, v in e.items())
-    cmd = ('mkdir -p {r} && cd {tree} && env {envs} timeout -k 5 {t} gdb -batch -x $HOME/gefidelity/{rel} '
+    cmd = ('mkdir -p {r} && cd {tree} && env {envs} timeout -k 5 {t} gdb -batch -x $HOME/{tools}/{rel} '
            '--args ./build/port/ge007 --boot > {r}/gdb.log 2>&1; echo "GF ge rc=$?" >> {r}/gdb.log').format(
-        r=rout, tree=GE_TREE, envs=envs, t=timeout, rel=rel)
+        r=rout, tree=GE_TREE, envs=envs, t=timeout, rel=rel, tools=GE_TOOLS)
     if oracle == 'ares':
-        e = {'GF_SIDE': 'ge', 'GF_ORACLE': 'ares', 'GF_COMMON': '$HOME/gefidelity/common/ares',
+        e = {'GF_SIDE': 'ge', 'GF_ORACLE': 'ares', 'GF_COMMON': '$HOME/%s/common/ares' % GE_TOOLS,
              'GF_LEVELID': m[3], 'GF_MISSION': str(m[0]), 'GF_DIFF': str(diff),
              'GF_OUT': rout.replace('~', '$HOME')}
         env.pop('GF_PADSCRIPT', None)
         e.update(env)
         envs = ' '.join('%s=%s' % (k, v if v.startswith('$HOME') else shlex.quote(v)) for k, v in e.items())
-        cmd = ('mkdir -p {r} && cd $HOME/gefidelity && env {envs} timeout -k 5 {t} python3 $HOME/gefidelity/{rel} '
-               '> {r}/gdb.log 2>&1; echo "GF ge rc=$?" >> {r}/gdb.log').format(r=rout, envs=envs, t=timeout, rel=rel)
+        cmd = ('mkdir -p {r} && cd $HOME/{tools} && env {envs} timeout -k 5 {t} python3 $HOME/{tools}/{rel} '
+               '> {r}/gdb.log 2>&1; echo "GF ge rc=$?" >> {r}/gdb.log').format(r=rout, envs=envs, t=timeout, rel=rel,
+                                                                           tools=GE_TOOLS)
     p = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', GE_HOST, cmd])
     p.gf_remote = rout
     p.gf_local = os.path.join(out, 'ge')
