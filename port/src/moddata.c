@@ -65,9 +65,14 @@
 #define N64_MPHEAD_SIZE            0x04
 #define N64_MPBODY_SIZE            0x08
 
-// g_MpFeaturesUnlocked has 80 entries and the game defines features up to
-// MPFEATURE_STAGE_GRID (0x29); the last slot is never set by an unlock
-#define MODDATA_FEATURE_NEVER      79
+// A row the mod's list leaves empty is switched off with the port's
+// MPFEATURE_NEVER, which challengeIsFeatureUnlocked() never grants. It was
+// 79, g_MpFeaturesUnlocked's last slot, taken to be one no unlock sets - but
+// 79 is MPFEATURE_WEAPON_LASER, unlocked for any player who has the Laser,
+// so under GoldenEye X's list (36 weapons) the eleven rows up to the shield
+// were offered in every weapon slot as "Nothing" (F3 20261001-034632,
+// "broken GoldenEye weapons and weapon sets")
+#define MODDATA_FEATURE_NEVER      MPFEATURE_NEVER
 
 struct modseg {
 	const u8 *data;

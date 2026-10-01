@@ -10248,8 +10248,8 @@ static f32 fpCloudMedian(const struct fpcloud *cloud, s32 axis, f32 fallback)
  * square of the closest `FP_ICP_KEEP`, measured after the last move), or a
  * negative number when there was nothing to measure.
  */
-static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host,
-		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, s32 points)
+static f32 fpRefineRoundsN(const struct fpcloud *bean, const struct fpcloud *host,
+		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, s32 points, s32 rounds)
 {
 	const f32 zero[3] = { 0.0f, 0.0f, 0.0f };
 	f32 *base;
@@ -10295,7 +10295,7 @@ static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host
 	}
 
 	// the last pass only measures
-	for (s32 round = 0; round <= FP_ICP_ROUNDS; round++) {
+	for (s32 round = 0; round <= rounds; round++) {
 		f32 cut;
 		f32 move[3] = { 0.0f, 0.0f, 0.0f };
 		f32 sum = 0.0f;
@@ -10343,7 +10343,7 @@ static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host
 			break;
 		}
 
-		if (round == FP_ICP_ROUNDS) {
+		if (round == rounds) {
 			residual = sum / taken;
 			break;
 		}
@@ -10359,6 +10359,12 @@ static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host
 	free(sorted);
 
 	return residual;
+}
+
+static f32 fpRefineRounds(const struct fpcloud *bean, const struct fpcloud *host,
+		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, s32 points)
+{
+	return fpRefineRoundsN(bean, host, axis, beanc, scale, hostc, points, FP_ICP_ROUNDS);
 }
 
 static void fpRefinePlacement(const struct fpcloud *bean, const struct fpcloud *host,
@@ -10433,9 +10439,40 @@ static void fpRefinePlacementSearch(s32 fp, const struct fpcloud *bean, const st
 		sysLogPrintf(LOG_NOTE, "fpfit: row %d placement searched: %.1f %.1f %.1f from %.1f %.1f %.1f (residual %.2f from %.2f)",
 				fp, best[0], best[1], best[2], hostc[0], hostc[1], hostc[2], bestres, firstres);
 		memcpy(hostc, best, sizeof(best));
+	} else {
+		// and the first start's answer is where its walk ended, not where it
+		// began. Settling from the beginning again at the full count, the
+		// plain D5K's walk stopped half way: the first start (Bean's origin 57
+		// along the barrel from GoldenEye's) had ended on GoldenEye's gun,
+		// 0.3 from its origin, and the settling from 57 out stopped at 29 out
+		// and 4 down, with nothing at the muzzle to pull it (the silenced
+		// one's silencer does), where every other gun's ends within half a
+		// unit
+		memcpy(hostc, first, sizeof(first));
 	}
 
-	fpRefinePlacement(bean, host, axis, beanc, scale, hostc);
+	// Settled at the full count, unless that walks off: measured on the
+	// same points, the place the search ended is kept when it is closer.
+	{
+		f32 searched[3];
+		f32 settled[3];
+		f32 ressearched;
+		f32 ressettled;
+
+		memcpy(searched, hostc, sizeof(searched));
+		memcpy(settled, hostc, sizeof(settled));
+		fpRefinePlacement(bean, host, axis, beanc, scale, settled);
+
+		ressearched = fpRefineRoundsN(bean, host, axis, beanc, scale, searched, FP_ICP_POINTS, 0);
+		ressettled = fpRefineRoundsN(bean, host, axis, beanc, scale, settled, FP_ICP_POINTS, 0);
+
+		if (ressearched >= 0.0f && ressettled >= 0.0f && ressearched < ressettled) {
+			sysLogPrintf(LOG_NOTE, "fpfit: row %d kept where the search ended: %.1f %.1f %.1f (residual %.3f; settled %.1f %.1f %.1f, %.3f)",
+					fp, hostc[0], hostc[1], hostc[2], ressearched, settled[0], settled[1], settled[2], ressettled);
+		} else {
+			memcpy(hostc, settled, sizeof(settled));
+		}
+	}
 }
 
 /**
@@ -10728,6 +10765,61 @@ static void beanFixLettering(struct beanmodel *bm, const char *source, s32 fp, s
 
 		sysLogPrintf(LOG_NOTE, "gebean: %s: %d triangles of the mirrored side's lettering on picture %d turned round",
 				source, count, tex);
+	}
+}
+
+/**
+ * The toggled lists of a host's model into its cloud and box, in the model's
+ * space - each vertex by the rest of the matrix it is drawn under, as the
+ * visible lists' are gathered in gebeanBuildFirstPerson().
+ */
+static void fpCloudAddToggled(struct fpcloud *cloud, struct modelnode **nodes, s32 numnodes, const s32 *nodemtx,
+		s32 nummatrices, const struct beanrig *rig, f32 lo[3], f32 hi[3])
+{
+	for (s32 k = 0; k < numnodes && k < 64; k++) {
+		const u32 type = nodes[k]->type & 0xff;
+		const Vtx *v = NULL;
+		s32 n = 0;
+		s16 *vtxmtx;
+
+		if (!beanNodeIsToggled(nodes[k])) {
+			continue;
+		}
+
+		if (type == MODELNODETYPE_DL) {
+			v = nodes[k]->rodata->dl.vertices;
+			n = nodes[k]->rodata->dl.numvertices;
+		} else if (type == MODELNODETYPE_GUNDL) {
+			v = nodes[k]->rodata->gundl.vertices;
+			n = nodes[k]->rodata->gundl.numvertices;
+		}
+
+		if (!v || n <= 0) {
+			continue;
+		}
+
+		vtxmtx = malloc((size_t)n * sizeof(*vtxmtx));
+
+		if (vtxmtx) {
+			beanListMatrices(nodes[k], vtxmtx, n);
+		}
+
+		for (s32 j = 0; j < n; j++) {
+			const s32 mtx = vtxmtx && vtxmtx[j] >= 0 && vtxmtx[j] < nummatrices && rig->hasrest[vtxmtx[j]]
+				? vtxmtx[j] : nodemtx[k];
+			f32 p[3];
+
+			for (s32 a = 0; a < 3; a++) {
+				p[a] = v[j].v[a] + rig->rest[mtx][a];
+
+				if (p[a] < lo[a]) lo[a] = p[a];
+				if (p[a] > hi[a]) hi[a] = p[a];
+			}
+
+			fpCloudAdd(cloud, p);
+		}
+
+		free(vtxmtx);
 	}
 }
 
@@ -11068,6 +11160,24 @@ static u8 *gebeanBuildFirstPerson(s32 fp, s32 original, struct modeldef *modelde
 
 				usegrip = 0;
 				scale = 1.0f / 4.7f;
+
+				// GoldenEye's own model is the gun the original is, all of it,
+				// so it is measured whole when its untoggled lists are not the
+				// gun: the rocket launcher's tube is under two toggles, and the
+				// sight and front grip left over measured 305 of the 968 the
+				// gun is long. The middles of those against the whole original
+				// stood the release's launcher 35 units further out along the
+				// barrel and 1 up (Bean's origin on GoldenEye's model at
+				// (-17, 12, 347) where every other gun's lands within half a
+				// unit of the origin): the tube from the middle of the view up
+				// to the right with its grip below, where the release holds it
+				// from the middle down to the bottom right corner, sight on top
+				// (board report 20261001-041452, the release captured on
+				// Depot by fid-hd).
+				if (fpOnOwn[fp] && hostcloud.num > 0
+						&& (hosthi[2] - hostlo[2]) < 0.5f * (ohi[2] - olo[2]) * scale) {
+					fpCloudAddToggled(&hostcloud, nodes, numnodes, nodemtx, nummatrices, &rig, hostlo, hosthi);
+				}
 
 				// The knives keep their quarter turn: GoldenEye X's knife is
 				// modelled along x as Perfect Dark's is, Bean's up y.
