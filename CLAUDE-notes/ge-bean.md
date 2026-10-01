@@ -13790,11 +13790,16 @@ depth 2 (the cartridge's draw list, `dword_CODE_bss_8007FFA0` at 0x8007ffa0,
 `g_BgNumberOfRoomsDrawn` 0x8004483c: (16,2) (10,1)). Perfect Dark's snake never
 walks back into the room it came from. `bgTickPortalsWalkGe()` is GoldenEye's
 queue of single portals, limits included (a room's ninth queued portal, depth
-15, rooms first reached by a special portal or the camera's). Still open: from
-pad 262 h090/h000 we reach far rooms (5, 6 behind 7) the cartridge's tests
-reject (its `g_BgRoomInfo` at 0x80041414, 0x50 a room: rendered 0x00,
-visits 0x03, disabled 0x34). Not gameplay-neutral: the rooms on screen decide
-which chrs tick as on screen.
+15, rooms first reached by a special portal or the camera's), a portal whose
+points all lie past nine tenths of the far plane has no box
+(sub_GAME_7F0B5528), and a room's portals are queued in the order of their
+numbers, which is the order rooms of one depth are blended in. Surface 262 and
+Facility 72 now give the cartridge's draw lists room for room and in order
+(the cartridge's `g_BgRoomInfo` at 0x80041414, 0x50 a room: rendered 0x00,
+visits 0x03, disabled 0x34, told which rooms its tests rejected). Left: Dam's
+and Frigate's differences are in the rooms the visibility commands add (draw
+order 0). Not gameplay-neutral: the rooms on screen decide which chrs tick as
+on screen.
 
 **The view tour's AI freeze is not the same on both sides.** Aztec's
 "Exhaust bay opening." (FINDINGS V4) is ai_11's, reached from ai_10's
