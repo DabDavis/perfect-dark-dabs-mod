@@ -214,6 +214,13 @@ def compare(ge, pd, runs, m, pdnames, mission, ticks):
             if tag != 'equal':
                 regions.append(_region(flow, m, pdnames, a, i1, b, j1, tag, prs, groups, ticks, margin))
         lead = _region(flow, m, pdnames, a, i, b, i, 'walk', prs, groups, ticks, margin)
+        if _skipped(a, b, i):
+            # GoldenEye's next stop is our next-but-one and the two go on alike:
+            # the cartridge's samples missed one of its stops (a sample is the
+            # end of a video frame, and now and then two AI passes still fall
+            # between two), not a branch taken the other way
+            lead['class'] = 'timing'
+            lead['branch'] = '(the cartridge was not sampled at this stop)'
         later = [r for r in regions if (r['ge_step'], r['pd_step']) != (i, i)]
         det = next((r for r in [lead] + later if r['class'] in ('logic', 'world', 'unexplained')), None)
         f.update(lead)
@@ -225,6 +232,19 @@ def compare(ge, pd, runs, m, pdnames, mission, ticks):
             key, i, f['ge_tick'], f['pd_tick'], f['from'], f['ge_next'][0], f['pd_next'][0])
         findings.append(f)
     return findings
+
+
+def _skipped(a, b, i, agree=2):
+    """Whether GoldenEye's folded steps from i are ours from i + 1 - ours has
+    one stop more and then both go on alike for `agree` steps (or to the end)."""
+    if i + 1 >= len(b) or i >= len(a) or a[i][1] != b[i + 1][1]:
+        return False
+    for k in range(1, agree + 1):
+        if i + k >= len(a) or i + 1 + k >= len(b):
+            return True
+        if a[i + k][1] != b[i + 1 + k][1]:
+            return False
+    return True
 
 
 def _region(flow, m, pdnames, a, i, b, j, tag, prs, groups, ticks, margin):

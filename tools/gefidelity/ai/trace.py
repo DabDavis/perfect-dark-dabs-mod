@@ -256,7 +256,18 @@ def ge_ares():
                 emit('obj@%d' % ids.get(lst, -1), lst, off, tick)
         if tick >= TICKS:
             break
-        A.frames(1)
+        # One sample a video frame, not one a game frame. Waiting for the frame
+        # counter to move (A.frames(1)) stops at the end of whichever video
+        # frame that happens in, which falls before this game frame's AI pass
+        # (propsTick(), inside lvlRender()) or after it as it comes - so now and
+        # then two passes fell between two samples, a list's Yield was never
+        # seen and aidiff read the skipped stop as the other branch (FINDINGS
+        # A2: Runway 4096, Train 4106, ... at ticks 18-40). Stopping at a fixed
+        # function does not help: n64twin stops at the end of the video frame
+        # the function ran in, and propsTickPlayer() is not called while the
+        # opening runs. A game frame is at least a video frame, so a sample
+        # every video frame sees every pass; emit() drops the repeats.
+        A.twin()('frames 1')
     A.say('ge done tick', A.tick())
     A.finish()
 
