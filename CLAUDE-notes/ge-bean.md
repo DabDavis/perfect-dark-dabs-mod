@@ -10168,6 +10168,20 @@ Probes: `~/wt/f3rocket/build/run/rk.sh <save> <single|mixed|mixedr> <tag> [binar
 (`probe/rk.py` beside it: `HIDE=1` zeroes the held rocket's matrix at
 bondgun.c's `objprop->z` line, `TP=1` third person, `FIRE2=1` a second shot).
 
+**Draws 3-6 are not the round (F3 20261001-000127).** They are four strips in
+the slots of the tube's middle (z -1446..-118, about 200 from the axis), the
+gun's outside, only sharing the rocket's picture. Taken with the round, the
+empty launcher showed the world through its middle. The round is now 1, 2
+(split at 1000) and 21-22. Found by dumping every draw's triangles with
+their z and radius and plotting the kept and the taken from the side
+(`~/wt/f3-1001-rl-run/rl.py` for the loaded/empty screenshots).
+
+Depot's rocket launcher on the floor beside the rockets' desk is GoldenEye's
+own placement (oracle `~/dam-oracle/rltable/gedesk.py`: pad 326 on the floor,
+the rockets on desk 304). It was 4 units low: GoldenEye puts every object
+not stood on another 4 over its floor, weapons too; Perfect Dark gives
+weapons 0. On remake stages func0f06a730() adds the 4 now.
+
 Seen on the way, and fixed in the next commit: in third person the rocket
 launcher fired once. See third-person.md, "A launcher fired once in third
 person".
