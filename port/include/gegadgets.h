@@ -13,6 +13,13 @@
 struct model;
 struct modelrenderdata;
 
+/**
+ * Where the watch magnet's charges are kept: Perfect Dark's AMMOTYPE_1C, held
+ * by nothing of its own (bondgun.c gives it ten at most, the magnet's
+ * magazine). The conversion writes GoldenEye's AMMO_WATCH_MAGNET as it.
+ */
+#define GEGADGET_MAGNET_AMMO 0x1c
+
 s32 gegadgetsIsGadget(s32 weaponnum);
 // GoldenEye's ITEM_IDS for the weapon on the mission loaded, 0 for none
 s32 gegadgetsItem(s32 weaponnum);

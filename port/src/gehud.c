@@ -46,6 +46,7 @@
 #include "gehud.h"
 #include "langpack.h"
 #include "gefolder.h"
+#include "gegadgets.h"
 #include "gewatch.h"
 #include "gexfront.h"
 #include "gebean.h"
@@ -192,8 +193,11 @@ static const char *const g_IconHdPictures[NUM_ICONS] = {
  * weapon with an AmmoType that has no picture shows its count all the same,
  * with nothing beside it (`bare`, the picture's width taken as GoldenEye's 5):
  * the covert modem (ITEM_BUG, AMMO_BUG) and the plastique show "1" (F3
- * 20260929-092325). The watch magnet's AMMO_WATCH_MAGNET is the one more that
- * would, and no count of it is kept here.
+ * 20260929-092325). The watch magnet's AMMO_WATCH_MAGNET is the one more:
+ * its charges are kept since 2026-10-01 (gegadgets.c, GEGADGET_MAGNET_AMMO)
+ * and it shows "5" there on Archives' start, as the cartridge does (ares).
+ * The camera's AmmoType is AMMO_NONE: it shows nothing and never runs out on
+ * the cartridge either.
  */
 #define GE_BARE_WIDTH 5
 
@@ -224,6 +228,7 @@ static const struct { u8 icon, noclip, bare; } g_WeaponRows[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_TANKSHELLS - WEAPON_GE_FIRST]      = { ICON_TANK, 0 },
 	[WEAPON_GE_COVERTMODEM - WEAPON_GE_FIRST]     = { ICON_NONE, 1, 1 },
 	[WEAPON_GE_PLASTIQUE - WEAPON_GE_FIRST]       = { ICON_NONE, 1, 1 },
+	[WEAPON_GE_WATCHMAGNET - WEAPON_GE_FIRST]     = { ICON_NONE, 1, 1 },
 };
 
 /** Whether one of GoldenEye's weapons shows no ammunition at all. */
@@ -628,6 +633,14 @@ static s32 hudHandAmmo(s32 handnum, s32 *icon, s32 *mag, s32 *reserve, s32 *nocl
 
 		*mag = shells > 0 ? 1 : 0;
 		*reserve = shells - *mag;
+
+		return 1;
+	}
+
+	// the watch magnet's charges, one number (NO_CLIP_RELOADS)
+	if (weaponnum == WEAPON_GE_WATCHMAGNET) {
+		*mag = 0;
+		*reserve = player->ammoheldarr[GEGADGET_MAGNET_AMMO];
 
 		return 1;
 	}

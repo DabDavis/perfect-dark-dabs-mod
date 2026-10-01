@@ -766,9 +766,29 @@ void gegadgetsTick(void)
 	}
 }
 
+/**
+ * The watch magnet's trigger. GoldenEye fires it only with a charge in its
+ * magazine (gunfire.c: AMMO_WATCH_MAGNET, NO_CLIP_RELOADS) and spends one a
+ * press; the mission's opening hands Bond the charges (Archives and Bunker ii:
+ * five) and with the last one spent the hand goes back to the fist - all
+ * measured on the cartridge in ares (5 4 3 2 1, then ITEM_FIST). The charges
+ * are the port's AMMOTYPE_1C, which nothing else holds (the conversion's
+ * g_GeAmmoTypes; ten at most, the magnet's magazine).
+ */
 static void gegadgetsMagnet(void)
 {
-	g_Vars.currentplayer->magnetattracttime = 0;
+	struct player *player = g_Vars.currentplayer;
+
+	if (player->ammoheldarr[GEGADGET_MAGNET_AMMO] <= 0) {
+		return;
+	}
+
+	player->ammoheldarr[GEGADGET_MAGNET_AMMO]--;
+	player->magnetattracttime = 0;
+
+	if (player->ammoheldarr[GEGADGET_MAGNET_AMMO] <= 0) {
+		bgunEquipWeapon(WEAPON_UNARMED);
+	}
 }
 
 /**

@@ -4966,7 +4966,7 @@ static uint32_t soloItemWeapon(uint32_t item)
  * watch laser's charge, which Train starts Bond with. gesolo.py's
  * GE_AMMO_TYPES.
  */
-static const uint8_t g_GeAmmoTypes[25][2] = {
+static const uint8_t g_GeAmmoTypes[26][2] = {
 	{ 0, 0 },
 	{ 0x01, 0x02 },    // 9MM            pistol and SMG
 	{ 0x01, 0x02 },    // 9MM_2
@@ -4985,6 +4985,9 @@ static const uint8_t g_GeAmmoTypes[25][2] = {
 	[22] = { 0x20, 0 }, // GEKEY         and so do the GoldenEye key
 	[23] = { 0x20, 0 }, // PLASTIQUE     and the plastique
 	[24] = { 0x1b, 0 }, // WATCH_LASER   the watch laser's charge (geguns.c, AMMOTYPE_WATCHLASER): Train's 300
+	[25] = { 0x1c, 0 }, // WATCH_MAGNET  the magnet's charges (gegadgets.c, GEGADGET_MAGNET_AMMO): Archives' and
+	                    //               Bunker ii's five. AMMO_CAMERA (27, Bunker i's and Silo's ten) stays
+	                    //               without: the camera's AmmoType is AMMO_NONE and never spends them (ares)
 };
 
 /** The port's type for one of GoldenEye's, the first or the second; 0 for none. */
