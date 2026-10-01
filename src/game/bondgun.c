@@ -1787,7 +1787,23 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 	}
 
 	if (hand->stateminor == HANDSTATEMINOR_RELOAD_LOWER) {
-		if (hand->count60 > TICKS(15) || !hand->visible
+		s32 lowered60 = hand->count60;
+
+#ifndef PLATFORM_N64
+		// GoldenEye's gun lets go of an empty trigger in two of its frames
+		// before it starts down: DRY_FIRE ends the frame after the release,
+		// IDLE takes the next and only then RELOAD_START (gunfire.c) - four
+		// ticks at the two a frame gegunsRpm() takes. On the cartridge the
+		// clip is full 38 ticks after the release and the gun ready at 62
+		// (its frames run long on the Phantom and the RC-P90: 42 and 66),
+		// ours 33 and 56 (FINDINGS rows 7 and 21). The thrown knife's wait
+		// is in its recovery already (gegunsOwnTrigger())
+		if (WEAPON_IS_GE(info->weaponnum) && !gegunsReloadSkipsLower(info->weaponnum)) {
+			lowered60 = hand->count60 > TICKS(4) ? hand->count60 - TICKS(4) : 0;
+		}
+#endif
+
+		if (lowered60 > TICKS(15) || !hand->visible
 #ifndef PLATFORM_N64
 				|| gegunsReloadSkipsLower(info->weaponnum)
 #endif
@@ -1798,7 +1814,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 			hand->count60 = 0;
 			hand->count = 0;
 		} else {
-			bgunSetArmPitch(hand, hand->count60 * MAX_PITCH / TICKS(16));
+			bgunSetArmPitch(hand, lowered60 * MAX_PITCH / TICKS(16));
 		}
 	}
 
@@ -1811,7 +1827,11 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 				hand->unk0cc8_02 = true;
 			}
 
-			if ((hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
+			if ((hand->stateflags & HANDSTATEFLAG_00000010) == 0
+#ifndef PLATFORM_N64
+					&& !WEAPON_IS_GE(info->weaponnum)
+#endif
+					) {
 				bgun0f098df8(hand->gset.weaponfunc, info, hand, 0, 0);
 			}
 
@@ -1847,6 +1867,16 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 
 		if (hand->count == 0) {
 			g_Vars.currentplayer->doautoselect = false;
+
+#ifndef PLATFORM_N64
+			// GoldenEye fills the clip as the gun starts back up, at the
+			// start of RELOAD_RAISE (gunfire.c), not as it reaches the
+			// bottom: on the cartridge the clip is full 37-43 ticks after
+			// the release, ours was at 16 (FINDINGS row 7)
+			if (WEAPON_IS_GE(info->weaponnum) && (hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
+				bgun0f098df8(hand->gset.weaponfunc, info, hand, 0, 0);
+			}
+#endif
 		}
 
 		if (hand->count60 >= TICKS(23)
@@ -2762,8 +2792,45 @@ s32 bgunTickIncAttackEmpty(struct handweaponinfo *info, s32 handnum, struct hand
 {
 	u32 stack;
 	bool playsound = false;
+	s32 clickhost = weaponHost(info->weaponnum);
 
-	switch (weaponHost(info->weaponnum)) {
+#ifndef PLATFORM_N64
+	const s32 geinterval60 = gegunsDryFireInterval60(info->weaponnum);
+
+	// GoldenEye's dry fire (gunfire.c): a trigger on an empty gun clicks at
+	// once and holds GUN_ANIM_STATE_DRY_FIRE for 20 ticks, IDLE takes a
+	// frame and TRIGGER_PRESS starts it over - 22 ticks a click on the
+	// cartridge, 30 on the Cougar, whose press waits 6 first. The cases
+	// below click 25 ticks in and every 25, or, the magnums' and pistols'
+	// case, from the gun's trigger animation - which the Cougar and the
+	// Golden Gun have none of (gegunsOwnTrigger()), so held empty they never
+	// clicked at all (FINDINGS row 12)
+	if (geinterval60 > 0) {
+		// and only while the trigger is held: TRIGGER_PRESS is what clicks
+		if (hand->triggeron && (hand->statecycles == 0 || hand->stateframes >= TICKS(geinterval60))) {
+			struct weaponfunc *func = info->definition ? gsetGetWeaponFunction(&hand->gset) : NULL;
+
+			hand->stateframes = hand->statecycles == 0 ? 0 : hand->stateframes - TICKS(geinterval60);
+			hand->stateflags = 0;
+
+			bgunResetAnim(hand);
+
+			if (func && func->fire_animation) {
+				bgunStartAnimation(func->fire_animation, handnum, hand);
+			}
+
+			playsound = true;
+		}
+
+		clickhost = -1;
+	}
+#endif
+
+	switch (clickhost) {
+#ifndef PLATFORM_N64
+	case -1:
+		break;
+#endif
 	case WEAPON_FALCON2:
 	case WEAPON_FALCON2_SILENCER:
 	case WEAPON_FALCON2_SCOPE:
@@ -3330,12 +3397,18 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 		hand->animmode = HANDANIMMODE_IDLE;
 
 		if (hand->pausechange == 0 || hand->pausetime60 <= hand->count60) {
+#ifndef PLATFORM_N64
+			// GoldenEye's own gun, once bgunTickSwitch2() has handed it over
+			const bool gehold = !quick && g_Vars.currentplayer->gunctrl.switchtoweaponnum < 0
+				&& WEAPON_IS_GE(hand->gset.weaponnum);
+#endif
+
 			raisenow = hand->mode != HANDMODE_6;
 
 			if (hand->mode == HANDMODE_6) {
 #ifndef PLATFORM_N64
 				// once bgunTickSwitch2() has handed over the new weapon
-				if (quick && g_Vars.currentplayer->gunctrl.switchtoweaponnum < 0) {
+				if ((quick || gehold) && g_Vars.currentplayer->gunctrl.switchtoweaponnum < 0) {
 					bgunQuickSwapLoad();
 				}
 #endif
@@ -3351,6 +3424,22 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 					raisenow = quick;
 				}
 			}
+
+#ifndef PLATFORM_N64
+			// GoldenEye takes the new gun up a fixed few frames after the
+			// swap: gun.c's hand_invisible counts -1, -2, -3 a frame each,
+			// loads the model whole on the third and SWITCH_HOLD raises on
+			// the next - four of its frames, eight ticks at the two a frame
+			// gegunsRpm() takes. Perfect Dark loads a gun a piece a tick
+			// (bgunTickGunLoad()), 13-20 ticks, so the new gun came up 39-44
+			// ticks after the hand took it where the cartridge's takes 30-33
+			// (FINDINGS row 8). So it is loaded at once, as Quick Weapon Swap
+			// loads it, and raised GoldenEye's four frames after the handover
+			// (bgunCanFreeWeapon(): the third tick of this state)
+			if (gehold && raisenow && hand->count < 3 + 8) {
+				raisenow = false;
+			}
+#endif
 
 			if (raisenow) {
 				if (bgunIsLoaded()) {

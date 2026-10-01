@@ -464,6 +464,22 @@ s32 gegunsTriggerDelay60(s32 weaponnum)
 	return 0;
 }
 
+/**
+ * How often one of GoldenEye's guns clicks held empty, in sixtieths: its
+ * DRY_FIRE state runs 20 (gunfire.c's WHEN_D_FLD890) from the click, IDLE
+ * takes a frame and TRIGGER_PRESS, after the Cougar's and the grenade
+ * launcher's wait, clicks again. The cartridge: 22 on most, 30 on the Cougar.
+ * 0 for a gun that is not GoldenEye's or has no magazine to run dry.
+ */
+s32 gegunsDryFireInterval60(s32 weaponnum)
+{
+	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= WEAPON_GE_FIRST + NUM_GE_GUNS) {
+		return 0;
+	}
+
+	return 20 + GEGUNS_GE_FRAME_TICKS + gegunsTriggerDelay60(weaponnum);
+}
+
 static s32 gegunsGeSingleWait(s32 weaponnum, const struct gegunstat *stat)
 {
 	s32 speeds = stat->recoilspeed[0] + stat->recoilspeed[1];
@@ -1105,6 +1121,18 @@ static void gegunsOwnTrigger(s32 i)
 
 		def->flags2 &= ~WEAPONFLAG2_UNEQUIPPEDRELOAD;
 		def->flags3 &= ~WEAPONFLAG3_REVOLVER;
+	}
+
+	// GoldenEye's automatic shotgun throws no shell: autoshot_stats has no
+	// ejected cartridge (NULL where the Shotgun's row names cartshell), and
+	// on the cartridge no casing lands after its shots. The host's shell
+	// did, with CART_SPENT (FINDINGS row 11)
+	if (weaponnum == WEAPON_GE_AUTOSHOTGUN) {
+		const struct weapon *host = g_Weapons[g_GeWeaponHosts[i]];
+
+		if (def->ammos[0] && def->ammos[0] != host->ammos[0]) {
+			def->ammos[0]->casingeject = (u32)CASING_NONE;
+		}
 	}
 }
 

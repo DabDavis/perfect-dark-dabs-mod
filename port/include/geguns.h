@@ -69,6 +69,8 @@ void gegunsSetOwnModelInUse(s32 index, s32 inuse);
 s32 gegunsOwnModelInUse(s32 weaponnum);
 s32 gegunsOwnModelHidden(s32 weaponnum);
 s32 gegunsTriggerDelay60(s32 weaponnum);
+// Ticks between the clicks of one of GoldenEye's guns held empty, or 0 for any other
+s32 gegunsDryFireInterval60(s32 weaponnum);
 // the extra lift a GoldenEye gun is given coming up to the eye under COD Style Aiming
 f32 gegunsCodAimLift(s32 weaponnum);
 // ticks after a single shot a GoldenEye gun is ready once its trigger was let go, -1 not one
