@@ -9772,8 +9772,14 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				s32 part = -1;
 				s32 backing = 0;
 				u32 argb;
+				// A pane the release draws untextured over a screen it shows a
+				// programme on (the modem's, the door panel's: no texture fetch
+				// in its pixel shader, the programme drawn over it): the screen's
+				// backing, as the consoles' placeholder is, so the release's draw
+				// is there and the programme in front of it, not a grey card
+				const s32 pane = beanVertexDropped(source, vb.off, vi);
 
-				if (beanVertexDropped(source, vb.off, vi)) {
+				if (pane && numscreens == 0) {
 					ok = 0;
 					break;
 				}
@@ -9806,9 +9812,12 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 					nrm[k] = g->sign[k] * v.nrm[g->perm[k]];
 				}
 
-				if (placeholder && beanScreenBacking(screens, numscreens, pos)) {
+				if ((placeholder || pane) && beanScreenBacking(screens, numscreens, pos)) {
 					backing = 1;
 					numbacking++;
+				} else if (pane) {
+					ok = 0;
+					break;
 				} else if (!placeholder) {
 					const s32 face = beanScreenFace(screens, numscreens, pos);
 
