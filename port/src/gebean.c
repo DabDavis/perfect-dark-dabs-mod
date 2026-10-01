@@ -928,9 +928,8 @@ static u8 fpMuzzleSet[2][ARRAYCOUNT(fpRows)];
  * The round a launcher's HD model is made loaded with, by Bean's draw number.
  * The release's rocket launcher carries its rocket in the tube as part of the
  * gun, on SKEL_TOP with the rest and under no switch: the rocket itself (draw
- * 2, from the back of the tube out past the mouth to the warhead), four
- * strips along it inside the tube and a disc in the mouth (3-6 and 1, all on
- * the rocket's own picture) and the cap on its nose (21 and 22, on a picture
+ * 2, from the neck in the mouth out to the warhead), a disc in the mouth
+ * (1, on the rocket's own picture) and the cap on its nose (21 and 22, on a picture
  * it shares with the sight). GoldenEye's gun has no rocket in it and hangs one
  * of its own in the mouth, which is what bondgun.c's held rocket is - so the
  * two were drawn together, Perfect Dark's rocket poking out of the warhead
@@ -957,8 +956,15 @@ struct fpround {
 // starts at the neck in the mouth (1275) and ends at the warhead (4006). All
 // of draw 2 was taken as the round, so the back of the gun went with the
 // rocket on every shot (F3 20260926-071801).
+//
+// And 3-6 are not the round at all, though they are on its picture: four
+// strips lying in the slots of the tube's middle (z -1446..-118, about 200
+// from the tube's axis - on its outside, where the round never is, which
+// starts at 1275). Taken with the round, the empty launcher showed the
+// world through the slots: "a gap in the middle of the launcher" after a
+// shot and when depleted (F3 20261001-000127).
 static const struct fpround fpRound[ARRAYCOUNT(fpRows)] = {
-	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { 8, { 1, 2, 3, 4, 5, 6, 21, 22 }, 2, 1000.0f },
+	[WEAPON_GE_ROCKETLAUNCHER  - WEAPON_GE_FIRST] = { 4, { 1, 2, 21, 22 }, 2, 1000.0f },
 };
 
 // Whether the gun built for each look carries its round, as fpMuzzleSet
