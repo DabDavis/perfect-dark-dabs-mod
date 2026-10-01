@@ -4298,6 +4298,22 @@ Gfx *bgRenderRoomXlu(Gfx *gdl, s32 roomnum)
 #endif
 		gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->xlublocks, true);
 #ifndef PLATFORM_N64
+		// The translucent layer writes no depth, and a room's translucent
+		// props are drawn after it (bgRender()'s last loop), so a pane of
+		// glass behind the Institute's metal-grating floors and ramps was
+		// blended over the grating's metal as if in front of it (F3
+		// 20261001-005918). The N64 draws it the same way. The layer is drawn
+		// again for its depth alone, where its texels are solid
+		// (G_DEPTH_PREPASS_EXT with G_ALPHA_CORE_EXT, gfx_pc.cpp): the metal
+		// then hides what is behind it and the holes and real glass do not.
+		// Not on a converted GoldenEye level, which is judged against the
+		// cartridge.
+		if (!g_BgGePortals) {
+			gSPSetExtraGeometryModeEXT(gdl++, G_DEPTH_PREPASS_EXT | G_ALPHA_CORE_EXT);
+			gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->xlublocks, true);
+			gSPClearExtraGeometryModeEXT(gdl++, G_DEPTH_PREPASS_EXT | G_ALPHA_CORE_EXT);
+		}
+
 		gdl = bgSpectateDepthBiasEnd(gdl, roomnum);
 		gdl = roomSheenStockEnd(gdl);
 #endif

@@ -2538,7 +2538,7 @@ static void gfx_derive_batch_state(void) {
     bool use_alpha =
         (rdp.other_mode_l & (3 << 20)) == (G_BL_CLR_MEM << 20) && (rdp.other_mode_l & (3 << 16)) == (G_BL_1MA << 16);
     const bool use_fog = ((rdp.other_mode_l >> 30) == G_BL_CLR_FOG) || ((rdp.other_mode_l >> 26) == G_BL_A_FOG);
-    const bool texture_edge = (rdp.other_mode_l & CVG_X_ALPHA) == CVG_X_ALPHA;
+    bool texture_edge = (rdp.other_mode_l & CVG_X_ALPHA) == CVG_X_ALPHA;
     const bool use_noise = (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_DITHER;
     const bool use_2cyc = (rdp.other_mode_h & (3U << G_MDSFT_CYCLETYPE)) == G_CYC_2CYCLE;
     const bool alpha_threshold = (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_THRESHOLD;
@@ -2557,6 +2557,15 @@ static void gfx_derive_batch_state(void) {
     if (rsp.extra_geometry_mode & G_DEPTH_PREPASS_EXT) {
         use_alpha = true;
         invisible = true;
+
+        // With G_ALPHA_CORE_EXT as well, only the solid texels (three
+        // quarters alpha and more) write their depth, whatever the render
+        // mode: a room's translucent layer laid into the depth buffer after
+        // it has been blended (bgRenderRoomXlu()), so a grating's metal hides
+        // the props drawn after it and its holes do not.
+        if (rsp.extra_geometry_mode & G_ALPHA_CORE_EXT) {
+            texture_edge = true;
+        }
     }
 
     if (use_alpha) {
