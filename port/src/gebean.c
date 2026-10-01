@@ -3378,6 +3378,7 @@ struct beandraw {
 	u8 blend;     // in the release's blended pass (beanWalkStream())
 	u8 alpha;     // its material colour's alpha, 255 for none
 	u32 colour;   // and that colour, RGB, white for none
+	u32 matpc;    // the material record it takes its pictures from (0 for none)
 	u8 alphatest; // drawn with the alpha test on (render state 0x60)
 	u8 alpharef;  // and the reference it passes texels over (render state 0x64), 0 for none set
 	u8 masktexslot; // the slot masktex fills, which is the UV set it is read with
@@ -4173,6 +4174,7 @@ static void beanWalkStream(struct beanmodel *bm)
 	u8 blend = 0;
 	u8 alpha = 0xff;
 	u32 colour = 0xffffff;
+	u32 matpc = 0;
 	u8 alphatest = 0;
 	u8 alpharef = 0;
 	u32 masktex = ~0u;
@@ -4309,6 +4311,7 @@ static void beanWalkStream(struct beanmodel *bm)
 			s32 picslot = -1;
 
 			tex = beanMaterialTexture(bm, st, pc, size, len);
+			matpc = pc;
 			ownmat = 1;
 			alpha = 0xff;
 			colour = 0xffffff;
@@ -4445,6 +4448,7 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->blend = blend;
 				d->alpha = alpha;
 				d->colour = colour;
+				d->matpc = matpc;
 				d->alphatest = alphatest;
 				d->alpharef = alpharef;
 				d->masktex = masktex;
@@ -4818,6 +4822,79 @@ static void beanFree(struct beanmodel *bm)
  */
 static void beanTexAnimation(struct beanmodel *bm, const char *source);
 
+/**
+ * The release's reflecting surfaces - water and polished floors - and the
+ * picture of theirs this draws. Their pixel shader reads a bump map (two on
+ * Complex, animated), turns the bumped normal by the vertex's tangent frame
+ * and reads a sphere map of the surroundings with it, and lays that over
+ * the surface's own picture: Complex's water is c12 0.147 of the rippled
+ * reflection and c13 0.853 of its picture lit. The HD look draws one picture
+ * a triangle (beanMaterialTexture(), the biggest), which on Complex's water
+ * was its 512x512 sphere map laid on as if it were the surface. Here such a
+ * draw takes the surface's own picture - the sampler that is neither a bump,
+ * a distortion nor the reflection, read off each shader's microcode
+ * (disassembled with Xenia's compiler, every pixel shader of every level,
+ * prop and sky that a material of three pictures or more draws with, retail
+ * and Community Edition alike: these five, and no others). Only Complex's
+ * changes; the other four already drew their surface's picture as the
+ * biggest. The rippled reflection is not drawn: that needs a shader of the
+ * renderer's own (FIDRESULT.md, fid-hdfix).
+ */
+static const struct {
+	const char *source;
+	u32 ps;      // the draw's pixel shader record (0x02), the walk's first target
+	u8 sampler;  // the surface's picture
+} beanReflectingSurfaces[] = {
+	{ "new/background/complex", 0x7c94, 3 },  // water under the alien ship: 20, 21 bumps, 22 reflection, 23 its picture
+	{ "new/background/dam", 0x11fb4, 3 },     // the reservoir: 68 bump, 70 distortion, 69 reflection, 71 its picture
+	{ "new/background/dam", 0x13d2c, 3 },     // the same, the other draw
+	{ "new/background/silo", 0x5860, 2 },     // 30 bump, 31 reflection, 32 its picture
+	{ "new/background/control", 0x1940, 2 },  // marble floor: 0 bump, 1 reflection (the room), 2 the marble
+};
+
+static const char *beanTextureName(const struct beanmodel *bm, s32 t);
+
+static void beanReflectingSurfacePictures(struct beanmodel *bm, const char *source)
+{
+	u32 logged = ~0u;
+
+	for (s32 i = 0; i < bm->numdraws; i++) {
+		struct beandraw *d = &bm->draws[i];
+		s32 sampler = -1;
+
+		for (u32 k = 0; k < ARRAYCOUNT(beanReflectingSurfaces) && sampler < 0; k++) {
+			if (beanReflectingSurfaces[k].ps == d->vs && strcmp(beanReflectingSurfaces[k].source, source) == 0) {
+				sampler = beanReflectingSurfaces[k].sampler;
+			}
+		}
+
+		if (sampler < 0 || d->matpc == 0 || !gebeanFits(d->matpc, 12, bm->streamlen)) {
+			continue;
+		}
+
+		{
+			const u8 *st = bm->stream + d->matpc;
+			const u32 size = gebeanBE32(st) >> 16;
+			const u32 extra = gebeanBE16(st + 10);
+
+			for (u32 k = extra; 12 + 8 * k + 8 <= size && gebeanFits(d->matpc + 12 + 8 * k, 8, bm->streamlen); k++) {
+				const u32 t = gebeanBE32(st + 12 + 8 * k);
+
+				if ((s32)(gebeanBE32(st + 16 + 8 * k) >> 16) == sampler && t < (u32)bm->numtex) {
+					if (t != d->tex && logged != d->matpc) {
+						sysLogPrintf(LOG_NOTE, "gebean: %s: material %x is a reflecting surface's: drawn with its own picture %u (%s), not %u (%s)",
+								source, d->matpc, t, beanTextureName(bm, (s32)t), d->tex, beanTextureName(bm, (s32)d->tex));
+						logged = d->matpc;
+					}
+
+					d->tex = t;
+					break;
+				}
+			}
+		}
+	}
+}
+
 static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 {
 	const char *names[BEAN_MAXBONES];
@@ -4925,6 +5002,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 
 	beanReadPose(bm, names, numnames);
 	beanWalkStream(bm);
+	beanReflectingSurfacePictures(bm, source);
 	beanTexAnimation(bm, source);
 	beanFindIndexBuffers(bm);
 	bm->uv20 = beanShaderUv20(bm);
