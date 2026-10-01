@@ -481,6 +481,11 @@ def main():
     if a.findings:
         fs = findings(rows, rel, a.plant)
         json.dump(sorted(fs, key=lambda f: (f['mission'], f['kind'], f['key'])), open(a.findings, 'w'), indent=1)
+        # every file the runs judged, beside the findings (world/compare.py): a
+        # file a change leaves with no finding is then "fixed", not "in one
+        # report only"
+        json.dump({'compared': sorted(set(files) | {f['mission'] for f in fs})},
+                  open(os.path.join(os.path.dirname(os.path.abspath(a.findings)), 'report-missions.json'), 'w'), indent=1)
     if a.md:
         open(a.md, 'w').write(md)
     else:
