@@ -9187,6 +9187,39 @@ static s32 beanTriggerCuff(const struct beandraw *d, u32 *repeatvb)
 	return -1;
 }
 
+/**
+ * The list a rigid prop's mesh is laid on: the model's first list, unless that
+ * one is a far level of detail - under a distance node that starts away from
+ * the camera - and a list on the same matrix is drawn near. The port always
+ * draws the near model (modelDistanceIsFullDetail()), and every list but the
+ * one the mesh is on is given an empty group, which hides the N64 geometry
+ * under it. GoldenEye's rocket (PROP_CHRROCKET, Pgx202Z) has its far list
+ * first: the whole HD rocket went on a list never drawn and the near one
+ * drew nothing, so the rockets on Depot's desk were not there at all in the
+ * HD look (F3 20261001-000059). The matrix is the same, so the offline fit
+ * (in the first list's matrix space) stands.
+ */
+static s32 gebeanRigidPrimaryList(struct modelnode **nodes, s32 numnodes)
+{
+	const s32 mtx0 = gebeanListNodeMatrix(nodes[0]);
+
+	for (s32 k = 0; k < numnodes; k++) {
+		s32 far = 0;
+
+		for (const struct modelnode *up = nodes[k]->parent; up && !far; up = up->parent) {
+			if ((up->type & 0xff) == MODELNODETYPE_DISTANCE && up->rodata->distance.near > 0.0f) {
+				far = 1;
+			}
+		}
+
+		if (!far && gebeanListNodeMatrix(nodes[k]) == mtx0) {
+			return k;
+		}
+	}
+
+	return 0;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -9196,7 +9229,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	u32 matwords[GEBEAN_MAXMATS];
 	s32 nummatwords;
 	s32 nummatrices = modeldef->nummatrices;
-	s32 mtx = gebeanListNodeMatrix(nodes[0]);
+	const s32 primary = gebeanRigidPrimaryList(nodes, numnodes);
+	s32 mtx = gebeanListNodeMatrix(nodes[primary]);
 	s32 mirror;
 	u64 flash = 0;
 	s32 numflash = 0;
@@ -9257,7 +9291,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				continue;
 			}
 
-			for (s32 k = 1; k < numnodes && cuffgroup[c] < 0; k++) {
+			for (s32 k = 0; k < numnodes && cuffgroup[c] < 0; k++) {
+				if (k == primary) {
+					continue;
+				}
+
 				for (const struct modelnode *up = nodes[k]->parent; up; up = up->parent) {
 					if (up == toggle) {
 						cuffgroup[c] = k;
@@ -9606,7 +9644,7 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 
 		const s32 cuff = numcuffs > 0 ? beanTriggerCuff(d, &repeatvb) : -1;
-		const s32 group = cuff >= 0 ? cuffgroup[cuff] : 0;
+		const s32 group = cuff >= 0 ? cuffgroup[cuff] : primary;
 
 		if (cuff == -2) {
 			numcuffrepeats++;
@@ -9788,8 +9826,10 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	}
 
 	if (out.numverts > 0) {
-		for (s32 k = 1; k < numnodes; k++) {
-			beanAddTri(&out, k, 0, 0, 0, 0);
+		for (s32 k = 0; k < numnodes; k++) {
+			if (k != primary) {
+				beanAddTri(&out, k, 0, 0, 0, 0);
+			}
 		}
 	}
 

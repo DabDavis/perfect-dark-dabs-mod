@@ -10182,6 +10182,20 @@ the rockets on desk 304). It was 4 units low: GoldenEye puts every object
 not stood on another 4 over its floor, weapons too; Perfect Dark gives
 weapons 0. On remake stages func0f06a730() adds the 4 now.
 
+**Depot's rockets invisible in the HD look (F3 20261001-000059).** Not the
+placement: GoldenEye's PROP_CHRROCKET (Pgx202Z) has two distance nodes, the
+far list (near 3195) *first* and the near one second. gebeanBuildRigid() laid
+the whole HD mesh on the first list and gave every other list an empty group
+(which hides its N64 geometry); the port always draws the near model
+(modelDistanceIsFullDetail()), so the HD rocket sat on a list never drawn and
+the drawn one was empty - nothing at all, in place or moved into view. Now
+gebeanRigidPrimaryList() takes the first list not under a far distance node on
+the same matrix. A ROM scan of every GoldenEye prop (first list under a
+distance node with near > 0) finds only chrrocket; the other ammo pickups
+(m16mag, uzimag, goldenshells, wppkmag, tt33mag, chrgrenaderound, the crates)
+are laid out plainly. Probe: `~/wt/f3-1001-rl-run/mv.py` moves the three
+rockets in front of the camera, `nodes.py` dumps a model's node tree.
+
 Seen on the way, and fixed in the next commit: in third person the rocket
 launcher fired once. See third-person.md, "A launcher fired once in third
 person".
