@@ -362,6 +362,7 @@ void lvReset(s32 stagenum)
 	// what a shot does to a converted GoldenEye level's images is GoldenEye's
 	geTexSurfaceReset(stagenum);
 	geImpactStageStart(stagenum);
+	traceNoteEvent("stage 0x%02x loading", stagenum);
 #endif
 
 	textReset();

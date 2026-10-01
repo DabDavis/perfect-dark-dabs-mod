@@ -1015,6 +1015,52 @@ static void gfx_texture_cache_drop_texnum(int32_t texturenum) {
 
 static struct GfxTraceStats g_GfxLastFrame;
 
+static inline void *seg_addr(uintptr_t w1);
+
+extern "C" int gfx_trace_texture_entries(const void *addr, struct GfxTraceTexEntry *out, int max) {
+    TextureCacheKey probe = { (const uint8_t *)addr, { 0 }, 0, 0 }; // the bucket is the address's alone
+    int count = 0;
+
+    if (gfx_texture_cache.map.bucket_count() == 0) {
+        return 0;
+    }
+
+    const size_t bucket = gfx_texture_cache.map.bucket(probe);
+
+    for (auto it = gfx_texture_cache.map.begin(bucket); it != gfx_texture_cache.map.end(bucket); ++it) {
+        if (it->first.texture_addr != (const uint8_t *)addr) {
+            continue;
+        }
+
+        if (count < max) {
+            struct GfxTraceTexEntry *e = &out[count];
+            e->palette = it->first.palette_addrs[0];
+            e->palette1 = it->first.palette_addrs[1];
+            e->glyph = it->first.glyph;
+            e->fmt = it->first.fmt;
+            e->siz = it->first.siz;
+            e->palindex = it->first.palette_index;
+            e->source = it->second.source;
+            e->width = it->second.width;
+            e->height = it->second.height;
+            e->upload_frame = it->second.upload_frame;
+            e->last_frame = it->second.last_frame;
+        }
+
+        count++;
+    }
+
+    return count;
+}
+
+extern "C" uint32_t gfx_trace_frame(void) {
+    return gfx_texture_cache.frame;
+}
+
+extern "C" const void *gfx_trace_seg_addr(uintptr_t w1) {
+    return seg_addr(w1);
+}
+
 extern "C" void gfx_trace_stats(struct GfxTraceStats *out) {
     *out = g_GfxLastFrame;
     out->cacheentries = (uint32_t)gfx_texture_cache.map.size();
@@ -1085,6 +1131,7 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     node->second.texture_id = texture_id;
     node->second.lru_location = gfx_texture_cache.lru.insert(gfx_texture_cache.lru.end(), { it });
     node->second.last_frame = gfx_texture_cache.frame;
+    node->second.upload_frame = gfx_texture_cache.frame;
     gfx_texture_cache_filling = node;
     if (gfx_texture_cache.map.size() > gfx_texture_cache.peak) {
         gfx_texture_cache.peak = (uint32_t)gfx_texture_cache.map.size();
@@ -1185,6 +1232,8 @@ static void gfx_texture_cache_charge(uint32_t width, uint32_t height, bool gen_m
     }
     gfx_texture_cache.bytes -= std::min<uint64_t>(gfx_texture_cache.bytes, node->second.bytes);
     node->second.bytes = (uint32_t)std::min<uint64_t>(bytes, UINT32_MAX);
+    node->second.width = (uint16_t)std::min<uint32_t>(width, 0xffff);
+    node->second.height = (uint16_t)std::min<uint32_t>(height, 0xffff);
     gfx_texture_cache.bytes += node->second.bytes;
 }
 
@@ -1812,6 +1861,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
             gfx_upload_texture(rep, rep_width, rep_height, rdp.tex_lod);
             menuImageFreeReplacement(rep);
             rendering_state.textures[i]->second.replaced = true;
+            rendering_state.textures[i]->second.source = 'm';
             return;
         }
     }
@@ -1835,6 +1885,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
             xblaTexFreeReplacement(rep);
             rendering_state.textures[i]->second.replaced = true;
             rendering_state.textures[i]->second.exact_uv = true;
+            rendering_state.textures[i]->second.source = 'x';
             return;
         }
     }
@@ -1959,6 +2010,7 @@ static void import_texture(int i, int tile, bool importReplacement) {
             }
 
             rendering_state.textures[i]->second.replaced = true;
+            rendering_state.textures[i]->second.source = xbla_rep ? 'X' : xbla_font_rep ? 'f' : 'p';
             return;
         }
     }

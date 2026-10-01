@@ -26,6 +26,7 @@
 #include "game/title.h"
 #include "game/hudmsg.h"
 #include "langpack.h"
+#include "trace.h"
 
 #ifndef PLATFORM_N64
 
@@ -140,6 +141,7 @@ void xblaSwitchTick(void)
 
 		xblaSwitchSetEnabled(enabled);
 
+		traceNoteEvent("release assets key: %s", enabled ? "on" : "off");
 		sysLogPrintf(LOG_NOTE, "xblaswitch: release assets %s%s", enabled ? "on" : "off",
 				enabled && !xblaMeshIsAvailable() ? " (no package found)" : "");
 

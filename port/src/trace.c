@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <stdarg.h>
 #include <time.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
@@ -427,6 +428,419 @@ static void traceFrames(FILE *f)
 	fprintf(f, "\n");
 }
 
+
+/* -------------------------------------------------------------------------
+ * [recent switches]
+ * ------------------------------------------------------------------------- */
+
+#define TRACE_EVENTS 24
+#define TRACE_EVENT_LEN 112
+
+struct traceevent {
+	s32 stagenum;
+	s32 lvframenum;
+	char text[TRACE_EVENT_LEN];
+};
+
+static struct traceevent g_TraceEvents[TRACE_EVENTS];
+static u32 g_TraceEventCount;
+
+void traceNoteEvent(const char *fmt, ...)
+{
+	struct traceevent *e = &g_TraceEvents[g_TraceEventCount % TRACE_EVENTS];
+	va_list ap;
+
+	e->stagenum = g_Vars.stagenum;
+	e->lvframenum = g_Vars.lvframenum;
+	va_start(ap, fmt);
+	vsnprintf(e->text, sizeof(e->text), fmt, ap);
+	va_end(ap);
+	g_TraceEventCount++;
+}
+
+static void traceEvents(FILE *f)
+{
+	const u32 first = g_TraceEventCount > TRACE_EVENTS ? g_TraceEventCount - TRACE_EVENTS : 0;
+
+	fprintf(f, "\n[recent switches] the last %u of %u: packs, the release's art, stage loads, menu previews\n",
+			g_TraceEventCount - first, g_TraceEventCount);
+
+	for (u32 i = first; i < g_TraceEventCount; i++) {
+		const struct traceevent *e = &g_TraceEvents[i % TRACE_EVENTS];
+
+		fprintf(f, "stage 0x%02x frame %d: %s\n", e->stagenum, e->lvframenum, e->text);
+	}
+}
+
+/* -------------------------------------------------------------------------
+ * [room textures]
+ *
+ * What each on-screen room's display lists bind, followed to everything that
+ * decides the picture drawn for it: the texture number the pack registry has
+ * for the address and the shared pool's entry at it (number, which mod), where
+ * the texels came from (texpackTextureArt()), checksums of the texels and of
+ * the TLUT as the list loads them, the release's record or a picture bound at
+ * the address (xblatex.c), and every renderer cache entry for the address -
+ * what it was keyed on, what went up and where from, and when. A picture
+ * drawn wrong for a whole session (the Institute's paintings, F3
+ * 20260930-213440) is one of these disagreeing with the others.
+ * ------------------------------------------------------------------------- */
+
+#define TRACE_TEX_PER_ROOM 12
+#define TRACE_TEX_ROOMS 10
+#define TRACE_TEX_LINES 160
+#define TRACE_TEX_GDL_CMDS 20000
+#define TRACE_TEX_GDL_DEPTH 6
+
+struct tracetexuse {
+	const u8 *addr;
+	const u8 *tlut;
+	u32 bytes;    // as the load names them
+	u32 tlutn;    // colours in the TLUT load
+	u8 fmt, siz;
+};
+
+struct tracetexlist {
+	struct tracetexuse uses[TRACE_TEX_PER_ROOM];
+	s32 count;
+	s32 skipped;
+	const u8 *timg;
+	u32 timgwidth;
+	u8 timgfmt, timgsiz;
+	const u8 *pendingtlut;
+	u32 pendingtlutn;
+	s32 cmds;
+};
+
+static u32 traceFnv(const u8 *p, u32 len)
+{
+	u32 h = 0x811c9dc5u;
+
+	for (u32 i = 0; i < len; i++) {
+		h = (h ^ p[i]) * 0x01000193u;
+	}
+
+	return h;
+}
+
+static struct tracetexuse *traceTexAdd(struct tracetexlist *l, const u8 *addr)
+{
+	for (s32 i = 0; i < l->count; i++) {
+		if (l->uses[i].addr == addr) {
+			return &l->uses[i];
+		}
+	}
+
+	if (l->count >= TRACE_TEX_PER_ROOM) {
+		l->skipped++;
+		return NULL;
+	}
+
+	memset(&l->uses[l->count], 0, sizeof(l->uses[0]));
+	l->uses[l->count].addr = addr;
+
+	return &l->uses[l->count++];
+}
+
+static void traceTexWalkGdl(struct tracetexlist *l, Gfx *gdl, s32 depth)
+{
+	static struct tracetexuse *last;
+
+	if (!gdl || depth > TRACE_TEX_GDL_DEPTH) {
+		return;
+	}
+
+	if (depth == 0) {
+		last = NULL;
+	}
+
+	for (; l->cmds < TRACE_TEX_GDL_CMDS; gdl++) {
+		const u32 op = (u32)(gdl->words.w0 >> 24) & 0xff;
+		const uintptr_t w0 = gdl->words.w0;
+		const uintptr_t w1 = gdl->words.w1;
+
+		l->cmds++;
+
+		if (op == (u8)G_ENDDL) {
+			return;
+		}
+
+		if (op == G_DL) {
+			traceTexWalkGdl(l, (Gfx *)gfx_trace_seg_addr(w1), depth + 1);
+
+			if ((w0 >> 16) & 1) {
+				return; // a branch, not a call
+			}
+
+			continue;
+		}
+
+		if (op == G_SETTIMG) {
+			l->timg = (const u8 *)gfx_trace_seg_addr(w1);
+			l->timgfmt = (w0 >> 21) & 7;
+			l->timgsiz = (w0 >> 19) & 3;
+			l->timgwidth = (w0 & 0x3ff) + 1;
+			continue;
+		}
+
+		if (op == G_LOADTLUT && l->timg) {
+			const u32 uls = (w0 >> 14) & 0x3ff, ult = (w0 >> 2) & 0x3ff;
+			const u32 lrs = (w1 >> 14) & 0x3ff, lrt = (w1 >> 2) & 0x3ff;
+			const u32 n = (lrs >= uls && lrt >= ult) ? (lrs - uls + 1) * (lrt - ult + 1) : 0;
+			// Where the renderer reads it from (gfx_dp_load_tlut()): the
+			// palette is loaded out of the texture's own image, past its texels
+			const u8 *tlut = l->timg + ((size_t)l->timgwidth * ult + uls) * 2;
+
+			// Onto the texture just loaded if it has none yet, else the next
+			if (last && !last->tlut) {
+				last->tlut = tlut;
+				last->tlutn = n;
+			} else {
+				l->pendingtlut = tlut;
+				l->pendingtlutn = n;
+			}
+
+			continue;
+		}
+
+		if ((op == G_LOADBLOCK || op == G_LOADTILE) && l->timg) {
+			struct tracetexuse *u = traceTexAdd(l, l->timg);
+
+			last = u;
+
+			if (u && !u->bytes) {
+				const u32 lrs = (w1 >> 12) & 0xfff;
+
+				u->fmt = l->timgfmt;
+				u->siz = l->timgsiz;
+				u->bytes = op == G_LOADBLOCK ? ((lrs + 1) << l->timgsiz) >> 1 : 0;
+
+				if (l->pendingtlut && !u->tlut) {
+					u->tlut = l->pendingtlut;
+					u->tlutn = l->pendingtlutn;
+					l->pendingtlut = NULL;
+				}
+			}
+		}
+	}
+}
+
+static void traceTexWalkBlocks(struct tracetexlist *l, struct roomblock *block, s32 depth)
+{
+	s32 guard = 0;
+
+	while (block && depth < 32 && guard++ < 4096 && l->cmds < TRACE_TEX_GDL_CMDS) {
+		if (block->type == 0) {
+			traceTexWalkGdl(l, block->gdl, 0);
+		} else if (block->type == 1) {
+			traceTexWalkBlocks(l, block->child, depth + 1);
+		}
+
+		block = block->next;
+	}
+}
+
+static struct tex *traceTexPoolAt(const u8 *addr)
+{
+	struct tex *cur = g_TexSharedPool.head;
+	s32 guard = 0;
+
+	while (cur && guard++ < 8192) {
+		if (cur->data == addr) {
+			return cur;
+		}
+
+		if (!cur->next) {
+			break;
+		}
+
+		cur = (struct tex *)PHYS_TO_K0(cur->next);
+	}
+
+	return NULL;
+}
+
+static struct tex *traceTexPoolNum(s32 num)
+{
+	struct tex *cur = g_TexSharedPool.head;
+	s32 guard = 0;
+
+	while (cur && guard++ < 8192) {
+		if (cur->texturenum == num) {
+			return cur;
+		}
+
+		if (!cur->next) {
+			break;
+		}
+
+		cur = (struct tex *)PHYS_TO_K0(cur->next);
+	}
+
+	return NULL;
+}
+
+static const char *traceTexFmtName(u32 fmt, u32 siz, char *buf, u32 size)
+{
+	static const char *const fmts[] = { "rgba", "yuv", "ci", "ia", "i", "?5", "?6", "?7" };
+	static const char *const sizes[] = { "4", "8", "16", "32" };
+
+	snprintf(buf, size, "%s%s", fmts[fmt & 7], sizes[siz & 3]);
+
+	return buf;
+}
+
+static void traceTexLine(FILE *f, const struct tracetexuse *u, const char *indent)
+{
+	static const char *const arts[] = { "rom", "mod", "modstage" };
+	struct GfxTraceTexEntry entries[4];
+	const u32 now = gfx_trace_frame();
+	const s32 regnum = texpackGetTextureNum(u->addr);
+	const s32 art = texpackTextureArt(u->addr);
+	struct tex *pool = traceTexPoolAt(u->addr);
+	s32 alpha = 0, soft = 0;
+	const s32 picture = xblaTexImageInfo(u->addr, &alpha, &soft);
+	const s32 record = xblaTexRecordOf(u->addr);
+	s32 n;
+	char fmtbuf[16];
+
+	fprintf(f, "%stex %04x", indent, regnum >= 0 ? regnum : 0xffff);
+
+	if (pool) {
+		fprintf(f, " pool %04x mod %u %ux%u", pool->texturenum, (u32)pool->srcmod, pool->width, pool->height);
+	} else {
+		fprintf(f, " pool -");
+	}
+
+	fprintf(f, " art %s load %s %u bytes data %08x",
+			art >= 0 && art <= 2 ? arts[art] : "-",
+			traceTexFmtName(u->fmt, u->siz, fmtbuf, sizeof(fmtbuf)),
+			u->bytes, u->bytes && u->bytes <= 0x10000 ? traceFnv(u->addr, u->bytes) : 0);
+
+	if (u->tlut) {
+		fprintf(f, " tlut %u at %+ld pal %08x", u->tlutn, (long)(u->tlut - u->addr),
+				u->tlutn <= 256 ? traceFnv(u->tlut, u->tlutn * 2) : 0);
+	}
+
+	if (record >= 0) {
+		fprintf(f, " xbla record %04x", record);
+	}
+
+	if (picture) {
+		fprintf(f, " BOUND PICTURE alpha %d soft %d", alpha, soft);
+	}
+
+	if (regnum >= 0 && texpackHaveReplacements()) {
+		fprintf(f, " pack %d", texpackHaveReplacementFor(regnum));
+	}
+
+	n = gfx_trace_texture_entries(u->addr, entries, ARRAYCOUNT(entries));
+	fprintf(f, "; cache %d", n);
+
+	for (s32 i = 0; i < n && i < (s32)ARRAYCOUNT(entries); i++) {
+		const struct GfxTraceTexEntry *e = &entries[i];
+
+		fprintf(f, " [%s pal %s%+ld/%u",
+				traceTexFmtName(e->fmt, e->siz, fmtbuf, sizeof(fmtbuf)),
+				e->palette ? "" : "none", e->palette ? (long)((const u8 *)e->palette - u->addr) : 0L,
+				e->palindex);
+
+		// The key's other half, which nothing resets between loads: two
+		// entries for one address differ here if anywhere
+		if (e->palette1) {
+			fprintf(f, " pal1 %+ld", (long)((const u8 *)e->palette1 - u->addr));
+		}
+
+		if (e->glyph) {
+			fprintf(f, " glyph %08x", e->glyph);
+		}
+
+		fprintf(f, " src %c %ux%u up %u ago drawn %u ago]", e->source, e->width, e->height,
+				now - e->upload_frame, now - e->last_frame);
+	}
+
+	fprintf(f, "\n");
+}
+
+static void traceRoomTextures(FILE *f)
+{
+	struct tracetexlist *l = malloc(sizeof(*l));
+	s32 rooms = 0;
+	s32 lines = 0;
+
+	fprintf(f, "\n[room textures] per on-screen room (at most %d rooms, %d each): registry number, pool entry"
+			" (number, mod+1, size), art, load format, checksums of texels and TLUT, release record or bound"
+			" picture, pack has one; then each renderer cache entry: key format, TLUT offset/palette, source"
+			" (g game p pack X release x bound f font m menu), uploaded size, frames since upload and last draw\n",
+			TRACE_TEX_ROOMS, TRACE_TEX_PER_ROOM);
+
+	if (!l) {
+		return;
+	}
+
+	for (s32 i = 1; i < g_Vars.roomcount && rooms < TRACE_TEX_ROOMS && lines < TRACE_TEX_LINES; i++) {
+		struct roomgfxdata *gfx;
+
+		if (!(g_Rooms[i].flags & ROOMFLAG_ONSCREEN) || !(gfx = g_Rooms[i].gfxdata)) {
+			continue;
+		}
+
+		memset(l, 0, sizeof(*l));
+		traceTexWalkBlocks(l, gfx->opablocks, 0);
+		traceTexWalkBlocks(l, gfx->xlublocks, 0);
+		rooms++;
+
+		fprintf(f, "room %d: %d textures%s\n", i, l->count + l->skipped,
+				l->skipped ? " (the first listed)" : "");
+
+		for (s32 t = 0; t < l->count && lines < TRACE_TEX_LINES; t++, lines++) {
+			traceTexLine(f, &l->uses[t], "  ");
+		}
+	}
+
+	// The Institute's paintings, wherever the camera is: the pictures one
+	// tester saw drawn wrong in every look and pack for a whole session
+	if (g_Vars.stagenum == STAGE_CITRAINING) {
+		static const s32 watched[] = { 0x0255, 0x0267, 0x0269, 0x026b };
+
+		fprintf(f, "the Institute's paintings:\n");
+
+		for (s32 i = 0; i < (s32)ARRAYCOUNT(watched); i++) {
+			struct tex *tex = traceTexPoolNum(watched[i]);
+			struct tracetexuse u;
+
+			if (!tex) {
+				fprintf(f, "  %04x not in the pool\n", watched[i]);
+				continue;
+			}
+
+			memset(&u, 0, sizeof(u));
+			u.addr = tex->data;
+			u.fmt = tex->gbiformat;
+			u.siz = tex->depth;
+			// the pixels with their mipmaps, then the palette straight after
+			// them (texInflate*()): with an upload to say where the palette
+			// is, the same span and TLUT the room's own load names
+			{
+				struct GfxTraceTexEntry e;
+
+				if (gfx_trace_texture_entries(tex->data, &e, 1) > 0 && e.palette > (const void *)tex->data) {
+					u.tlut = (const u8 *)e.palette;
+					u.tlutn = tex->unk0a + 1;
+					u.bytes = (u32)(u.tlut - u.addr);
+					u.siz = G_IM_SIZ_16b;
+				} else {
+					u.bytes = (((u32)tex->width * tex->height) << tex->depth) >> 1;
+				}
+			}
+
+			traceTexLine(f, &u, "  ");
+		}
+	}
+
+	free(l);
+}
+
 static void traceWrite(FILE *f)
 {
 	const struct player *pl = g_Vars.currentplayer;
@@ -477,6 +891,7 @@ static void traceWrite(FILE *f)
 
 	traceDisplay(f);
 	traceFrames(f);
+	traceEvents(f);
 
 	fprintf(f, "\n[memory]\n");
 	fprintf(f, "memp: stage pool free onboard %u expansion %u (total %u); permanent free onboard %u expansion %u\n",
@@ -556,6 +971,8 @@ static void traceWrite(FILE *f)
 					slot ? slot->box.xmax : -1, slot ? slot->box.ymax : -1);
 		}
 	}
+
+	traceRoomTextures(f);
 
 	for (ptr = g_Vars.onscreenprops; ptr && ptr < g_Vars.endonscreenprops; ptr++) {
 		if (*ptr && (*ptr)->type < 8) {
