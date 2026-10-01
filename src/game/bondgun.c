@@ -5970,6 +5970,17 @@ void bgunCreateFiredProjectile(s32 handnum)
 			sp260 = funcdef->speed * 1.6666666f / 60.0f;
 			sp25c = funcdef->traveldist * 1.6666666f;
 
+#ifndef PLATFORM_N64
+			// GoldenEye's rocket starts at and gains 1.111 a tick along the
+			// aim (gun.c's gunFireTankShell, D_80053DDC); the host's speed 60
+			// is 1.667 a tick, and its rocket reached Dam's floor in 12 ticks
+			// to the cartridge's 16
+			if (hand->gset.weaponnum == WEAPON_GE_ROCKETLAUNCHER) {
+				sp260 = 1.111111f;
+				sp25c = 0.0f;
+			}
+#endif
+
 			if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_CALCULATETRAJECTORY)) {
 				propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
 
