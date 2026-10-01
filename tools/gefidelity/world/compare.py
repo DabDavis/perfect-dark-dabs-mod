@@ -48,8 +48,32 @@ def load(path):
     side = os.path.join(d, 'report-missions.json')
     if os.path.exists(side):
         return findings, set(json.load(open(side))['compared'])
-    print('note: %s has no report-missions.json; taking its missions from its findings' % d)
-    return findings, {f['mission'] for f in findings}
+    # an older sweep: its findings' missions, and every mission directory
+    # that holds that mission's own result (ai: report.json, view:
+    # scores.json) - a mission swept clean has no findings but is there
+    swept = set()
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'common'))
+        import levels
+        for m in levels.MISSIONS:
+            md = os.path.join(d, m[1])
+            try:
+                if os.path.exists(os.path.join(md, 'scores.json')):        # view: ranked = its null passed
+                    ok = json.load(open(os.path.join(md, 'scores.json')))['summary'].get('ranked')
+                elif os.path.exists(os.path.join(md, 'report.json')):      # ai: no problems = its nulls passed
+                    r = json.load(open(os.path.join(md, 'report.json')))
+                    ok = isinstance(r, dict) and not r.get('problems')
+                else:
+                    ok = False
+            except (ValueError, KeyError, OSError):
+                ok = False
+            if ok:
+                swept.add(m[1])
+    except ImportError:
+        pass
+    print('note: %s has no report-missions.json; taking its missions from its findings%s' % (
+        d, ' and its %d mission directories' % len(swept) if swept else ''))
+    return findings, {f['mission'] for f in findings} | swept
 
 
 def keyed(findings):
