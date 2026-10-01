@@ -52,6 +52,7 @@
 #include "data.h"
 #include "gbiex.h"
 #include "geimpact.h"
+#include "gehitpuff.h"
 #include "types.h"
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
@@ -4680,6 +4681,15 @@ void chrEmitSparks(struct chrdata *chr, struct prop *prop, s32 hitpart, struct c
 		sparksCreate(chrprop->rooms[0], chrprop, coord, coord2, 0, SPARKTYPE_DEFAULT);
 		return;
 	}
+
+#ifndef PLATFORM_N64
+	// a converted GoldenEye level: GoldenEye's puffs, and no sparks
+	// (port/src/gehitpuff.c)
+	if (geHitPuffActive()) {
+		geHitPuffChr(chrprop, hitpart, coord, coord2);
+		return;
+	}
+#endif
 
 	if (prop->type == PROPTYPE_OBJ
 			|| prop->type == PROPTYPE_WEAPON

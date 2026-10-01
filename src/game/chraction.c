@@ -76,6 +76,7 @@
 #include "geguns.h"
 #include "gebean.h"
 #include "geslappers.h"
+#include "gehitpuff.h"
 #include "modloader.h"
 #include "simbrain.h"
 
@@ -12316,6 +12317,11 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 
 								if (chrIsUsingPaintball(chr)) {
 									sparksCreate(hitrooms[0], hitprop, &hitpos, NULL, NULL, SPARKTYPE_PAINT);
+#ifndef PLATFORM_N64
+								} else if (geHitPuffActive()) {
+									// GoldenEye's puff where a guard's shot ends
+									geHitPuffBg(&hitpos, NULL, 0);
+#endif
 								} else {
 									sparksCreate(hitrooms[0], hitprop, &hitpos, NULL, NULL, SPARKTYPE_DEFAULT);
 								}
@@ -12335,6 +12341,11 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 
 							if (chrIsUsingPaintball(chr)) {
 								sparksCreate(hitrooms[0], 0, &hitpos, NULL, NULL, SPARKTYPE_PAINT);
+#ifndef PLATFORM_N64
+							} else if (geHitPuffActive()) {
+								// GoldenEye's puff where a guard's shot ends
+								geHitPuffBg(&hitpos, NULL, 0);
+#endif
 							} else {
 								sparksCreate(hitrooms[0], 0, &hitpos, NULL, NULL, SPARKTYPE_DEFAULT);
 							}

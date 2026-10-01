@@ -52,6 +52,7 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "geimpact.h"
+#include "gehitpuff.h"
 #include "types.h"
 #include <string.h>
 
@@ -997,6 +998,18 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 					explosionCreateSimple(NULL, &sp694.pos, rooms2, EXPLOSIONTYPE_PHOENIX, g_Vars.currentplayernum);
 				} else {
 					if (!chrIsUsingPaintball(g_Vars.currentplayer->prop->chr)) {
+#ifndef PLATFORM_N64
+						// GoldenEye's wall hit (chrprop.c): its flash on
+						// every screen count, and its puff 26 back along the
+						// shot (gehitpuff.c)
+						if (geHitPuffActive()) {
+							if (texnum) {
+								explosionCreateSimple(NULL, &sp694.pos, rooms2, EXPLOSIONTYPE_BULLETHOLE, g_Vars.currentplayernum);
+							}
+
+							geHitPuffBg(&sp694.pos, &shotdata.gundir3d, 26.0f);
+						} else
+#endif
 						if (PLAYERCOUNT() >= 2) {
 							if ((rngRandom() % 8) == 0) {
 								smokeCreateSimple(&sp694.pos, rooms2, SMOKETYPE_BULLETIMPACT);
@@ -1054,6 +1067,14 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 								}
 							}
 
+#ifndef PLATFORM_N64
+							// GoldenEye's bullets leave its puff, not sparks
+							if (sparktype == SPARKTYPE_DEFAULT && geHitPuffActive()) {
+								sparktype = -1;
+							}
+
+							if (sparktype >= 0)
+#endif
 							sparksCreate(room, NULL, &sp694.pos, &shotdata.gundir3d, &sp694.unk0c, sparktype);
 						}
 					}
