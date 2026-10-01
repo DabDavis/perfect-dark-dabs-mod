@@ -373,9 +373,14 @@ def _f(v):
 
 
 def _rooms(prop):
+    # PropRecord's rooms[] is four bytes, but chrpropUpdateRoomList() writes
+    # up to seven and the terminator, on into unk30, and chrpropRegisterRooms()
+    # reads them until the 0xff: an object in five to seven rooms is in all of
+    # them on the cartridge. Read as GoldenEye reads them (8 bytes at most).
     out = []
-    for r in range(4):
-        b = prop.byte('rooms', r)
+    off = prop.off('rooms')
+    for r in range(8):
+        b = prop.b[off + r] if off + r < len(prop.b) else 0xff
         if b == 0xff:
             break
         out.append(b)

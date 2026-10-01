@@ -5443,6 +5443,12 @@ static int gePortalCrossed(const struct portal *p, const float *a, const float *
 	return v1 < min ? 1 : 2;
 }
 
+/** What GoldenEye's setupDoor() decides for a door: its portal and its rooms (0xff for none). */
+struct gedoorinfo {
+	int32_t portal;
+	uint8_t rooms[2];
+};
+
 /** A bound pad as GoldenEye holds it at run time: the world's units, single precision. */
 struct gebound {
 	float pos[3], up[3], look[3], bbox[6];   // bbox: xmin xmax ymin ymax zmin zmax
@@ -5543,7 +5549,7 @@ static int gePortalBetweenRooms(const struct bg *bg, int room1, int room2, const
  * made in `bound`. The records are the setup's as GoldenEye loads them; a door that
  * only some difficulties make moves its pad on all of them.
  */
-static int32_t *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound, const tiles *stan, const struct bg *bg,
+static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound, const tiles *stan, const struct bg *bg,
 		double lsd, const double *offset, int *padrooms, const char *what)
 {
 	const float ls = (float)lsd;
@@ -5551,7 +5557,7 @@ static int32_t *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound,
 	records recs = setupRecords(f);
 	const uint32_t padsat = be32(f->v, 24), boundat = be32(f->v, 28);
 	struct gebound *bp = gcAlloc((bound->n + 1) * sizeof(*bp));
-	int32_t *portals = gcAlloc((recs.n + 1) * sizeof(*portals));
+	struct gedoorinfo *portals = gcAlloc((recs.n + 1) * sizeof(*portals));
 	float doorscale = 1.0f;
 	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0;
 
@@ -5596,8 +5602,10 @@ static int32_t *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound,
 		size_t k;
 		struct gebound *b;
 		int portal = -1;
+		int room1, room2;
 
-		portals[i] = -1;
+		portals[i].portal = -1;
+		portals[i].rooms[0] = portals[i].rooms[1] = 0xff;
 
 		if (recs.v[i].type == 2) {
 			doorscale = (float)bes32(raw, 4) / 65536.0f;
@@ -5617,8 +5625,9 @@ static int32_t *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound,
 
 		b = &bp[k];
 
+		room1 = room2 = -1;
+
 		if (flags & (GE_PROPFLAG_CULL_BEHIND_DOOR | GE_PROPFLAG_NO_PORTAL_CLOSE)) {
-			int room1, room2;
 			float end1[3], end2[3];
 
 			geDoorSideRooms(stan, b, ls, &room1, &room2, end1, end2);
@@ -5629,7 +5638,7 @@ static int32_t *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound,
 		}
 
 		if (flags & GE_PROPFLAG_CULL_BEHIND_DOOR) {
-			portals[i] = portal;
+			portals[i].portal = portal;
 			withportal += portal >= 0;
 		}
 
@@ -5670,6 +5679,33 @@ static int32_t *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound,
 				scaled++;
 			}
 		}
+
+		// and its rooms (setupDoor()): the tile its pad names walked to the
+		// middle of its box - its pad's own where the walk does not get there,
+		// or where the door is placed at its pad (flags2 & 1) - and the side
+		// room sub_GAME_7F00324C() found that is not that one
+		{
+			float centre[3];
+			int t = b->tile, room0;
+
+			geBoundCentre(b, centre);
+
+			if (!(be32(raw, 12) & 1) && geWalk(stan, &t, b->pos[0], b->pos[2], centre[0], centre[2], ls)) {
+				room0 = stan->v[t].room;
+			} else {
+				room0 = stan->v[b->tile].room;
+			}
+
+			portals[i].rooms[0] = (uint8_t)room0;
+
+			if (room1 != room0) {
+				if (room1 >= 0) {
+					portals[i].rooms[1] = (uint8_t)room1;
+				}
+			} else if (room2 >= 0) {
+				portals[i].rooms[1] = (uint8_t)room2;
+			}
+		}
 	}
 
 	if (padrooms) {
@@ -5699,7 +5735,7 @@ static int32_t *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound,
 
 /** The fields a door moved between the two formats (geobjects.py's rules). */
 static void doorRecord(uint8_t *out, const uint8_t *raw, size_t numpads, const records *recs, size_t index,
-		int32_t portal)
+		const struct gedoorinfo *ge)
 {
 	static const struct { uint32_t ge, pd, mul; } fields[] = {
 		{ 0x84, 0x5c, 1 }, { 0x88, 0x60, 1 }, { 0x8c, 0x64, 1000 }, { 0x90, 0x68, 1000 },
@@ -5722,8 +5758,11 @@ static void doorRecord(uint8_t *out, const uint8_t *raw, size_t numpads, const r
 	// The portal GoldenEye's setupDoor() gives the door, -1 for none
 	// (geSoloDoors()), which setup.c takes on a remake stage where it finds
 	// the byte after laserfade set
-	set16(out, 0xc4, (uint32_t)portal & 0xffff);
+	set16(out, 0xc4, (uint32_t)ge->portal & 0xffff);
 	out[0xcd] = GE_DOOR_PORTAL_GIVEN;
+	// and the rooms it gives it (0xff for none), in the two bytes after
+	out[0xce] = ge->rooms[0];
+	out[0xcf] = ge->rooms[1];
 
 	// A windowed door's glass: clear to TintDist (0xc0), opaque from the word
 	// at 0xc4, which GoldenEye reads whole over CullDist, soundType and
@@ -6074,7 +6113,7 @@ static void writeWeaponSets(const char *outdir)
 }
 
 static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct solostats *st,
-		const double *offset, const int32_t *doorportals)
+		const double *offset, const struct gedoorinfo *doorportals)
 {
 	// the tails of the ObjectRecord types Perfect Dark keeps in the same order:
 	// GoldenEye's 0x80 onwards against Perfect Dark's 0x5c
@@ -6179,7 +6218,7 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 		rec = out.v + out.n - 4 * words;
 
 		if (t == 1) {
-			doorRecord(rec, raw, numpads, &recs, i, doorportals[i]);
+			doorRecord(rec, raw, numpads, &recs, i, &doorportals[i]);
 		} else if (t == 9) {
 			guardRecord(rec, raw, numpads);
 		} else if (t == 8) {
@@ -6938,7 +6977,7 @@ static void writeCredits(const char *outdir, const buf *f)
 }
 
 static buf writeSoloSetup(const buf *f, size_t numpads, uint8_t *models, struct solostats *st,
-		double levelscale, const double *offset, const int32_t *doorportals)
+		double levelscale, const double *offset, const struct gedoorinfo *doorportals)
 {
 	buf intro = writeSoloIntro(f, numpads, levelscale, offset);
 	buf props = writeSoloProps(f, numpads, models, st, offset, doorportals);
@@ -8233,7 +8272,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			struct solostats st = {0};
 			int hasrev;
 			int *mpadrooms;
-			int32_t *mportals;
+			struct gedoorinfo *mportals;
 			buf rprops = {0};
 			char cefiles[512] = "";
 
@@ -8273,7 +8312,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				// its doors' portals over the pads as the setup has them, which
 				// is where GoldenEye looks for them, before any door scale
 				padrecs rbound = boundPads(&mfile, lv->levelscale, offset);
-				int32_t *rportals = geSoloDoors(&mrev, &msetup, &rbound, &stan, &bg, lv->levelscale, offset, NULL,
+				struct gedoorinfo *rportals = geSoloDoors(&mrev, &msetup, &rbound, &stan, &bg, lv->levelscale, offset, NULL,
 						g_Missions[mi].name);
 
 				rprops = writeSoloSetup(&mrev, msetup.pads.n, allmodels, &rst, lv->levelscale, offset, rportals);
@@ -8293,7 +8332,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				struct setup csetup;
 				padrecs cbound;
 				int *cpadrooms;
-				int32_t *cportals;
+				struct gedoorinfo *cportals;
 				struct solostats cst = {0};
 				buf cpads, cprops, crev;
 				char cename[96];
@@ -8330,7 +8369,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				if (hasrev && revisionSetup(g_Missions[mi].setup, &cfile, &crev)) {
 					struct solostats crst = {0};
 					padrecs crbound = boundPads(&cfile, lv->levelscale, offset);
-					int32_t *crportals = geSoloDoors(&crev, &csetup, &crbound, &cestan, &bg, lv->levelscale, offset,
+					struct gedoorinfo *crportals = geSoloDoors(&crev, &csetup, &crbound, &cestan, &bg, lv->levelscale, offset,
 							NULL, cename);
 					buf crprops;
 

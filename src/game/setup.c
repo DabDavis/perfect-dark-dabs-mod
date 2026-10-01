@@ -657,6 +657,9 @@ void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
 				if (cdFindFloorRoomYColourFlagsAtPos(&prop2->pos, prop2->rooms, &y, &floorcol, NULL) > 0) {
 					obj->floorcol = floorcol;
 				}
+
+				// and its rooms GoldenEye's way (chrpropUpdateRoomList())
+				geRoomObjRooms(obj);
 			}
 #endif
 
@@ -1483,17 +1486,25 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 
 #ifndef PLATFORM_N64
 			// A converted level's door is drawn in both of its portal's rooms,
-			// or a shut door is missing from one side of itself (geroom.h)
-			if (prop && door->portalnum >= 0 && geRoomActive()) {
+			// or a shut door is missing from one side of itself (geroom.h) -
+			// where the conversion has not given it GoldenEye's own rooms
+			if (prop && door->portalnum >= 0 && geRoomActive() && !geRoomDoorRoomsGiven(door)) {
 				geRoomDoorPortalRooms(prop, door->portalnum);
 			}
 #endif
 		}
 
 #ifndef PLATFORM_N64
-		// and in the rooms of the floor either side of it, portal or none
+		// A converted mission's door is in the rooms GoldenEye's setupDoor()
+		// gives it - its tile's, and the side room - which the conversion
+		// worked out on GoldenEye's tiles (geconvert.c's geSoloDoors());
+		// otherwise in the rooms of the floor either side of it, portal or none
 		if (prop && geRoomActive()) {
-			geRoomDoorSideRooms(prop, &pad);
+			if (geRoomDoorRoomsGiven(door)) {
+				geRoomDoorGivenRooms(prop, door);
+			} else {
+				geRoomDoorSideRooms(prop, &pad);
+			}
 		}
 #endif
 
