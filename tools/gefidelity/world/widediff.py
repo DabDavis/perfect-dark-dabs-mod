@@ -225,7 +225,9 @@ def compare(rep, ge0, pd0, off, numpads, ge_pad_to_pd, ge_ailist_to_pd, mapping_
         elif 'bitflags' in a:
             # body and head: our port writes its own body/head rows into the record
             # at the load (gexplus.c gexPlusMissionChr()), so they are mappings
-            gbodies.append((k, a['body'], b['body']))
+            # a body worn with a head its record names takes a row of its own
+            # (worlddiff.body_key(), gexplus.c's geRomBodyRow())
+            gbodies.append((k, '%d+head%d' % (a['body'], a['head']) if a['head'] >= 0 else a['body'], b['body']))
             gheads.append((k, a['head'], b['head']))
             want = {'chrnum': a['chrnum'], 'pad': ge_pad_to_pd(a['pad'], numpads), 'ailist': ge_ailist_to_pd(a['ailist']),
                     'preset': ge_pad_to_pd(a['preset'], numpads) if a['preset'] != 0xffff else 0xffff,

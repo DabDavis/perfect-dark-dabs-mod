@@ -78,11 +78,18 @@ PLANT_SEEN = 0.90               # on this share of pairs
 # the cartridge photographed twice: aresge pins GoldenEye's RNG, but the tick a
 # picture lands on still varies by 1-3 between runs (the gun's sway and the
 # view's bob with it), so the repeat is not zero - measured over 19 missions the
-# median is 0.01-0.035, a tenth of the matched pairs'. The null wants the
-# oracle's own jitter well under the differences it ranks; a pair whose own
-# picture changes more than ORACLE_UNSTEADY between runs (an explosion going
-# off, Aztec pad 34) is not ranked
-ORACLE_REPEAT_RATIO = 0.25      # median jitter must be under this x the matched median
+# median is 0.01-0.035. The null wants the oracle's own jitter well under what
+# the diff tells apart: a picture against the wrong one (the control, one pad
+# off). It was judged against the matched pairs' median until 2026-10-01, which
+# failed the null as soon as ours came close to the cartridge (Bond's eye fixed:
+# Bunker, Silo, Cradle and Runway matched at 0.07-0.11 against a jitter of
+# 0.02-0.04) - it punished getting closer. A matched median down near the
+# jitter is reported (oracle_repeat.vs_matched), not failed: from there on the
+# pairs' order is the cartridge's own noise. A pair whose own picture changes
+# more than ORACLE_UNSTEADY between runs (an explosion going off, Aztec pad 34)
+# is not ranked
+ORACLE_REPEAT_RATIO = 0.25      # median jitter must be under this x the one-pad-off median
+ORACLE_REPEAT_MAX = 0.06        # and under this outright: pinned runs measure 0.01-0.04
 ORACLE_UNSTEADY = 0.15
 
 
@@ -501,14 +508,17 @@ def score_dir(out):
         scored = [r for r in rows if r.get('score') is not None]
         if jit:
             med = float(np.median(jit))
-            mm = null['control'].get('matched_median') or 1.0
+            mo = null['control'].get('offset_median') or 0.0
+            mm = null['control'].get('matched_median') or 0.0
             null['oracle_repeat'] = {'pairs': len(jit), 'median': round(med, 4), 'p90': round(float(np.percentile(jit, 90)), 4),
                                      'max': round(max(jit), 4), 'unsteady': sum(1 for j in jit if j > ORACLE_UNSTEADY),
-                                     'pass': med <= ORACLE_REPEAT_RATIO * mm}
+                                     'vs_offset': round(med / mo, 3) if mo else None,
+                                     'vs_matched': round(med / mm, 3) if mm else None,
+                                     'pass': bool(mo) and med <= ORACLE_REPEAT_RATIO * mo and med <= ORACLE_REPEAT_MAX}
             if not null['oracle_repeat']['pass']:
                 null['control']['pass'] = False
-                problems.append('oracle repeat: GoldenEye photographed twice differs by a median %.3f, over %.0f%% of '
-                                'the matched pairs\' median %.3f' % (med, 100 * ORACLE_REPEAT_RATIO, mm))
+                problems.append('oracle repeat: GoldenEye photographed twice differs by a median %.3f (allowed: %.0f%% of '
+                                'the one-pad-off median %.3f, and %.2f)' % (med, 100 * ORACLE_REPEAT_RATIO, mo, ORACLE_REPEAT_MAX))
     # sensitivity: the planted block must raise nearly every matched pair's score
     rises = [score(feats_g[(r['pad'], r['head'])], feats_planted[(r['pad'], r['head'])])['score'] - r['score']
              for r in scored]

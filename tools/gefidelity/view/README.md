@@ -94,10 +94,19 @@ GoldenEye's grey, only past the level the renderers alone reach (0.3).
   which is what it is for.
 
 - **oracle twice** (ares): the cartridge's tour is run a second time
-  (`ge_repeat/`) and every picture must score within 0.02 of its first -
-  `aresge.boot()` pins GoldenEye's RNG seeds and random-head rotation, so even
-  pictures with guards in them repeat. `--no-oracle-repeat` skips it. Xenia
-  runs in real time and does not repeat; it has no such leg.
+  (`ge_repeat/`); its median difference from the first (the jitter: the tick a
+  picture lands on varies by 1-3, and the gun sways) must be under 0.25 x the
+  one-pad-off median - the cartridge repeats itself far more closely than a
+  wrong picture scores - and under 0.06 outright (pinned runs measure
+  0.01-0.04; an unpinned oracle is what this is here to catch). A pair whose own picture moves more than 0.15 is not
+  ranked. `aresge.boot()` pins GoldenEye's RNG seeds and random-head rotation,
+  so even pictures with guards in them repeat. `--no-oracle-repeat` skips it.
+  Xenia runs in real time and does not repeat; it has no such leg. Until
+  2026-10-01 the jitter was held against the *matched* median, which failed
+  the null as soon as ours came within 4x of the cartridge's own noise (Bond's
+  eye fixed: Bunker, Silo, Cradle, Runway) - it punished getting closer. How
+  near the matched pairs are to the jitter is reported (`oracle_repeat.vs_matched`);
+  near 1, the order of the best pairs is the cartridge's own noise.
 
 ## Pairs that are not ranked (shown, with the reason)
 

@@ -194,6 +194,14 @@ s32 geStanAutogunSees(struct coord *from, s32 fromroom, struct coord *to, f32 to
  */
 s32 geStanPickupReaches(struct coord *from, f32 ground, struct coord *to);
 
+/**
+ * GoldenEye's test of a guard's pad as its setup is loaded (expand_09_characters()'s
+ * getposstan(&pad->pos, pad->stan, 20, ...), which is stanTestVolume()): 1 the
+ * guard is made at the pad, 0 it is not made at all, -1 where the level has no
+ * graph or the pad is over no tile.
+ */
+s32 geStanSpawnLegal(struct coord *pos, s32 padroom, f32 radius);
+
 extern s32 g_GeStanAsked;
 extern s32 g_GeStanSkipped;
 extern s32 g_GeStanNoTile;

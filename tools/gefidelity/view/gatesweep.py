@@ -108,6 +108,10 @@ def main():
         problems.append('repeat: no mission ran')
 
     json.dump(rows, open(os.path.join(out, 'report.json'), 'w'), indent=1)
+    # the missions this report speaks for (compare.py), a clean one included
+    notrun = {p.split(':')[0] for p in problems}
+    json.dump({'compared': [m for m in ms if m not in notrun], 'failed': sorted(notrun & set(ms))},
+              open(os.path.join(out, 'report-missions.json'), 'w'))
     if problems:
         print('NULL FAILED - the view leg cannot be trusted:', *problems, sep='\n  ')
         return 2

@@ -179,6 +179,12 @@ def main():
             else:
                 print('null: ours traced twice on %s gives the same %d ai.diverge keys' % (m[1], len(k1)))
     json.dump(report, open(os.path.join(a.out, 'report.json'), 'w'), indent=1)
+    # the missions this report speaks for, findings or none (compare.py): a
+    # mission whose traces ran and whose nulls passed counts as compared even
+    # when it came out clean
+    failed_ms = bad | {p.split(':')[0] for p in problems}
+    json.dump({'compared': [m[1] for m in ms if m[1] not in failed_ms], 'failed': sorted(failed_ms & {m[1] for m in ms})},
+              open(os.path.join(a.out, 'report-missions.json'), 'w'))
     lines = ['# AI trace diff (gate leg): %s against %s, %d missions, %d ticks' % (a.bin, a.oracle, len(ms), a.ticks), '']
     if problems:
         lines += ['**NULL FAILED / not compared:**'] + ['- ' + p for p in problems] + ['']

@@ -40,6 +40,35 @@
 #include "getank.h"
 #include "sitchair.h"
 #endif
+
+#ifndef PLATFORM_N64
+/**
+ * Bond's eye on a converted GoldenEye mission is GoldenEye's own
+ * (bondview2.c, bondviewUpdatePlayerCollisionPositionFields()): the animated
+ * head's height plus 7 - eyeheight = headpos.y * player_perspective_height + 7,
+ * the perspective height 1 in solo - and a crouch that lowers it by
+ * FULL_CROUCH_OFFSET (100) squatting and 60 half crouched, at the same rate
+ * Perfect Dark's does. Perfect Dark's eye is the body row's height (159) scaled
+ * by the head's bob, its crouch 90 and 45 scaled by that height over Joanna's:
+ * Bond's eye stood 8.3 lower than GoldenEye's on every mission, 32 squatting
+ * and 15 half crouched (tools/gefidelity world/eyeprobe.py, on ares).
+ */
+static bool bwalkGeEye(void)
+{
+	return modloaderStageIsMission(g_Vars.stagenum);
+}
+
+#define BWALK_GE_SQUAT -100.0f
+#define BWALK_GE_DUCK  -60.0f
+#define BWALK_GE_EYE   7.0f
+
+/** The crouch offset of a full squat: 90 for Perfect Dark, GoldenEye's 100 on a converted mission. */
+static f32 bwalkSquatOffset(void)
+{
+	return bwalkGeEye() ? BWALK_GE_SQUAT : -90.0f;
+}
+#endif
+
 #endif
 #ifndef PLATFORM_N64
 extern f32 fabsf(f32);
@@ -1776,6 +1805,16 @@ void bwalkUpdateVertical(void)
 			g_Vars.currentplayer->crouchheight *
 			g_Vars.currentplayer->vv_eyeheight * 0.0062893079593778f;
 
+#ifndef PLATFORM_N64
+		if (bwalkGeEye()) {
+			g_Vars.currentplayer->vv_height = g_Vars.currentplayer->headpos.y + BWALK_GE_EYE;
+
+			eyeheight = g_Vars.currentplayer->vv_height +
+				g_Vars.currentplayer->crouchoffsetrealsmall +
+				g_Vars.currentplayer->crouchheight;
+		}
+#endif
+
 		if (eyeheight < 30) {
 			eyeheight = 30;
 		}
@@ -1832,6 +1871,13 @@ void bwalkApplyCrouchSpeed(void)
 
 void bwalkUpdateCrouchOffsetReal(void)
 {
+#ifndef PLATFORM_N64
+	if (bwalkGeEye()) {
+		// GoldenEye's ducking_height_offset is the eye's own drop (times the
+		// perspective height, 1 in solo)
+		g_Vars.currentplayer->crouchoffsetreal = g_Vars.currentplayer->crouchoffset;
+	} else
+#endif
 	if (g_Vars.currentplayer->vv_eyeheight + -90.0f * g_Vars.currentplayer->vv_eyeheight * (1.0f / 159.0f) < 69.0f) {
 		g_Vars.currentplayer->crouchoffsetreal = g_Vars.currentplayer->crouchoffset * ((69.0f - g_Vars.currentplayer->vv_eyeheight) / -90.0f);
 	} else {
@@ -1856,6 +1902,12 @@ bool bwalkCanUncrouch(void)
 	} else if (g_Vars.currentplayer->crouchpos == CROUCHPOS_DUCK) {
 		targetoffset = -45;
 	}
+
+#ifndef PLATFORM_N64
+	if (bwalkGeEye() && targetoffset != 0) {
+		targetoffset = g_Vars.currentplayer->crouchpos == CROUCHPOS_SQUAT ? BWALK_GE_SQUAT : BWALK_GE_DUCK;
+	}
+#endif
 
 	if (targetoffset != g_Vars.currentplayer->crouchoffset) {
 		f32 prevcrouchoffset = g_Vars.currentplayer->crouchoffset;
@@ -1894,6 +1946,12 @@ void bwalkUpdateCrouchOffset(void)
 		// empty
 	}
 
+#ifndef PLATFORM_N64
+	if (bwalkGeEye() && targetoffset != 0) {
+		targetoffset = bmoveGetCrouchPos() == CROUCHPOS_SQUAT ? BWALK_GE_SQUAT : BWALK_GE_DUCK;
+	}
+#endif
+
 	if (targetoffset != g_Vars.currentplayer->crouchoffset) {
 		f32 prevcrouchoffset = g_Vars.currentplayer->crouchoffset;
 		f32 prevcrouchoffsetreal = g_Vars.currentplayer->crouchoffsetreal;
@@ -1921,7 +1979,12 @@ void bwalkUpdateCrouchOffset(void)
 		g_Vars.currentplayer->crouchspeed = 0;
 	}
 
+#ifndef PLATFORM_N64
+	// the gun's share of the squat, 0 standing and 1 all the way down
+	g_Vars.currentplayer->guncloseroffset = g_Vars.currentplayer->crouchoffset / bwalkSquatOffset();
+#else
 	g_Vars.currentplayer->guncloseroffset = g_Vars.currentplayer->crouchoffset / -90;
+#endif
 }
 
 void bwalkUpdateTheta(void)
@@ -1991,13 +2054,13 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 		// looking along the outside of the duct (F3 report 20260926-171016).
 		// The hold gives way after a second and a half whatever happens, so
 		// a squat that cannot finish never leaves the player rooted
-		if (hold && g_Vars.currentplayer->crouchoffset > -89.5f
+		if (hold && g_Vars.currentplayer->crouchoffset > bwalkSquatOffset() + 0.5f
 				&& g_GeCrouchHoldTicks[g_Vars.currentplayernum] < TICKS(90)) {
 			g_GeCrouchHoldTicks[g_Vars.currentplayernum] += g_Vars.lvupdate60;
 			return;
 		}
 
-		if (!hold || g_Vars.currentplayer->crouchoffset <= -89.5f) {
+		if (!hold || g_Vars.currentplayer->crouchoffset <= bwalkSquatOffset() + 0.5f) {
 			g_GeCrouchHoldTicks[g_Vars.currentplayernum] = 0;
 		}
 
