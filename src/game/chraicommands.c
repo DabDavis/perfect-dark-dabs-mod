@@ -5813,6 +5813,13 @@ bool aiChrDrawWeaponInCutscene(void)
 		if ((s8)cmd[3] <= WEAPON_NONE && modloaderStageIsRemake(g_Vars.stagenum)) {
 			g_Vars.currentplayer->hands[HAND_RIGHT].inuse = false;
 			g_Vars.currentplayer->hands[HAND_LEFT].inuse = false;
+			// and out of whatever the gun was doing: a reload carried on
+			// with the gun's function against WEAPON_NONE's definition,
+			// whose ammo is NULL (crash 20261001-203800, Jungle)
+			g_Vars.currentplayer->hands[HAND_RIGHT].animmode = HANDANIMMODE_IDLE;
+			g_Vars.currentplayer->hands[HAND_LEFT].animmode = HANDANIMMODE_IDLE;
+			bgunSetState(HAND_RIGHT, HANDSTATE_IDLE);
+			bgunSetState(HAND_LEFT, HANDSTATE_IDLE);
 			playermgrDeleteWeapon(HAND_RIGHT);
 			playermgrDeleteWeapon(HAND_LEFT);
 		}
