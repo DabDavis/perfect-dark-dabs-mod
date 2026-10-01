@@ -177,4 +177,13 @@ world/sweep.py --out ~/wt/gefidelity-run/out/sweep            # all twenty, ~6 m
   binary from before converter 97 (whose N64 conversion carries the patches)
   needs `GE_ROM_PATCHES=1`, or aimap's null fails on Surface's list 1057 (0x421,
   the paired Klobbs) and the sweep stops after its traces.
+- **The HD legs' run directories are their tools' own, not gate.py's**:
+  `xbla/sweep.py` and `xenia/hdsweep.py` take `--rundir` (default the shared
+  `xbla-run` / `xenia-out/hd-run`, whose `mods/` the first binary converts),
+  which gate.py does not pass; with a converter bump run them by hand in run
+  directories of their own and judge with `world/compare.py BASE TEST`. The
+  hd-census base can be an earlier sweep's `runs/*.log` re-analysed with this
+  tree's census.py; the hd-world and hd-view bases reuse the release's dumps and
+  pictures (`--reuse-oracle`). `view/gatesweep.py` syncs the toolkit to the
+  oracle host even with `--oracle xenia`, so it fails while 10.8.0.3 is down.
 - Kill only PIDs you started; `pkill -f` over ssh kills your own session.

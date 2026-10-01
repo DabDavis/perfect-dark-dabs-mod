@@ -20,9 +20,9 @@ findings key for key, so every world-diff row below is *ares*.
 
 ## Where each row stands after the fix session (2026-10-01, merge/fid-1001)
 
-The branches fix/fid-conv, -chr, -guns, -look and -hdfix were merged (fix/fid-hd
-to follow, its rows in the HD section) and gated together against `pd.base` (the unmodified build, converter 96) with
-the merged toolkit; converter 97. Gate on the merge
+Six branches (fix/fid-conv, -chr, -guns, -look, -hdfix, -hd) were merged and
+gated together against `pd.base` (the unmodified build, converter 96) with
+the merged toolkit; converter 97, HD cache 13. Gate on the merge
 (`~/wt/gefidelity-run/gate/fid-merge`, bases in `gate/fid-merge-base`):
 world (20 missions, wide) 923 findings -> 550, placement 378 fixed, 3 new (the
 three panes on floor portals, row 18); census 10 dropped + 85 unread fixed,
@@ -218,7 +218,7 @@ After the fix session (2026-10-01):
 | V2 | **fixed** | 91460e70e, 2fff513f2 | Not the texture: room 10's tree billboards cover the fence on the cartridge because its portal walk comes back into the camera's room at depth 2, so the fence's room is blended first. GoldenEye's own walk (`bgTickPortalsWalkGe()`: queue, 9 visits, depth 15, the far-portal rule, the portal table's order) on converted levels; draw lists equal the cartridge's at Surface 262 and Facility 72 |
 | V3 | **fixed** | 163df9c91 | Fog: the cartridge's RSP fogs each vertex (with its clipping and guard band) and the RDP carries it across the screen; `G_FOG_VERTEX_EXT` does the same on converted levels in the N64 look (GL and Vulkan). Surface 2 pad 245 h180 0.603 -> 0.166 |
 | V4 | not a fault (*instrument*) | - | The tour's AI freeze is not symmetric: on the cartridge Aztec's ai_11 chain (objective 0x40000, text 0x614) runs even with every chr slot's list cleared, ours is stopped. Left as an instrument note |
-| V5 | see the HD section | - | - |
+| V5 | **fixed** | fdba3194f | see the HD section |
 
 Also: the tour runs our side with Head Roll and Always Show Target off and records
 headlook (cf4d16635: the head animation's look moved our camera up to 0.45 degree
@@ -257,6 +257,21 @@ After the fix session (2026-10-01):
 |---|---|---|---|
 | H3 / row 5 | **fixed** | 1bf010817, 0ee87a9e2, c440979fc, 70e08a465 | The release's loader dispatches on header +0x1c: 4 = one texture a frame (per-frame tables, each frame at the next 4K), 5 = an array texture (slices back to back from 0); `beanDecodeTextureFrame()` decodes both and the renderer keys its cache on the frame shown (`TextureCacheKey.anim_frame`). Timing and UV motion from the rendergraph's place2d table (+0xdc, 0x64-byte entries): frames and seconds a frame; slides in repeats a second; turns at **half** the table's figure in degrees a second (settled by fid-hd's Xenia captures of the Frigate radar and Dam's water). The Complex beacon blinks, the radars sweep, Dam's reservoir slides. Left: the bump/reflection compositions (Complex water, Dam reservoir, Silo, Control marble) need a material path our one-picture draw does not have - the renderer redesign, not started; df3c951ae draws each such surface's own picture (Complex 23, not its sphere map 22) |
 | H5 / row 6 | **fixed** | d556050f8 | Dam stream 0x4dc0 is a stride-12, position-only buffer (the only stride under 16 in any level); built as untextured triangles in its material colour (c12: black, a sheet at the cliff's foot) |
-| H1, H2, H4, V5 | on fix/fid-hd | - | not merged yet |
+| H1 | **fixed** | 714178be7 | The release turns off a body file's whole head section (0x17 kind 0) on a body that wears a head file; ours now leaves the section out, not only its skin ring. The 23 extras the pool pass still builds (Perfect Dark's Combat Simulator rows) are `hd.accepted.pool` |
+| H2 | **fixed** | 655163b89 | Each release casing laid on PD's model of the same casing; a GoldenEye gun's casing loads its alias (`gebeanCasingFile()`), brass sphere-mapped as the release has it. PD guns and the N64 look keep the old casing |
+| H4 | **fixed in first person**; third person left | 0d0bf4a1d, 7d39c78db, 6cba264da, 5d2a17703, dccde0d27 | (the user's decision: draw them as the release does; accepted.json no longer excuses them.) Screens: the release's 50 monitor pictures bound at GoldenEye's picture addresses, GoldenEye's programmes run unchanged, the untextured pane drawn as the backing. Watch: the arm's lamp and glass (one coat, blended). Flash: the release's cards (any draw of piece 0, or on the muzzle's bones) in GoldenEye's flash and star lists, blended, clamped, two-sided; where GoldenEye's model has no flash matrix of its own (AR33, RC-P90) on the star. fid-hdfix's turn (half the table's 999: 499.5 degrees a second) runs on the AR33's and RC-P90's cards: one frame a shot, a different roll each shot (checked firing on Dam, merged build; no release capture of those two guns - no mission starts Bond with them in the release). Left (hd.undrawn): third-person flash cards (chrm16, chrfnp90 0x1fc; chrautoshot's four, which the CE moved to the origin) - PD's chrgunfire sprite would need an HD path; the rocket launcher's ring (no flash switch on GoldenEye's model, never captured); console2/console3's pane (no capture shows them) |
+| V5 | **fixed** | fdba3194f | The concrete and GoldenEye's stripes lie on the same six triangles; the release draws opaque level geometry in stream order with depth LESS, so the later twin never shows. `dropTwins()` keeps the first opaque twin (22 on Facility, 445 over the levels) |
+| HD board | **fixed** | d08b7da49, 89fc4ebe1, 4299cce66, dc28dd303, a63e56f60 | Statue's bulbs (a draw with no UV or picture in its vertex colours; the release's bluish glow along the wire left), Control's stripes (the release's alpha test multiplies the vertex alpha), Archives' papers (of two blended faces the later shows) and bullet holes (lifted off the decal they hit), Aztec's armour closet (room 18's wall, its bigger monitors and the post at pad 139 kept out of the N64 closet, the user's direction to fix what looks wrong in the HD data); Control's elevator door was already fixed |
 
-HD cache (`HDCACHE_VERSION`) 12 after the session.
+Gate (HD legs on the merge; the release's side reused, ours against `pd.base`
+re-swept with the merged toolkit in run directories of their own): hd-census
+(every mission; the base is the morning's census re-analysed with the merged
+census.py) 171 -> 83 findings, 111 fixed (84 undrawn, 23 extra, 3 nodecode, 1
+unloaded), 0 new, 0 worse, 23 behaviour lines new (row H1's pool builds, now
+`hd.accepted.pool`); hd-world Dam 4 fixed (door rooms, row 18), **1 worse**:
+player.eye at spawn, 3.6 below the release's before, 4.8 above it now - row
+2's eye is the cartridge's (167.28), and the release's own eye sits ~4.8 below
+the cartridge's at Dam's spawn; whether the HD look should take the release's
+eye is open. hd-view: see "Gate on the merge".
+
+HD cache (`HDCACHE_VERSION`) 13 after the session (fid-hdfix's 12, then fid-hd's level changes).
