@@ -3250,9 +3250,13 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 				rwdata = modelGetNodeRwData(model, node);
 
 				if (rwdata->gdl != NULL) {
-					if (rwdata->gdl == rodata->dl.opagdl) {
+					// A monitor's screen drawn into a past frame's list:
+					// test the model's own quad (see gfxIsFrameMemory())
+					const bool framegdl = rwdata->gdl != rodata->dl.opagdl && rodata->dl.opagdl != NULL && gfxIsFrameMemory(rwdata->gdl);
+
+					if (rwdata->gdl == rodata->dl.opagdl || framegdl) {
 						s4 = (Gfx *)((uintptr_t)rodata->dl.colours + ((uintptr_t)UNSEGADDR(rodata->dl.opagdl) & 0xffffff));
-					} else {
+					} else if (!gfxIsFrameMemory(rwdata->gdl)) {
 						s4 = rwdata->gdl;
 					}
 
@@ -3260,7 +3264,7 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 						s6 = (Gfx *)((uintptr_t)rodata->dl.colours + ((uintptr_t)UNSEGADDR(rodata->dl.xlugdl) & 0xffffff));
 					}
 
-					vertices = rwdata->vertices;
+					vertices = framegdl ? rodata->dl.vertices : rwdata->vertices;
 				}
 			}
 			break;
@@ -16198,9 +16202,13 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 				struct modelrwdata_dl *rwdata = modelGetNodeRwData(model, node);
 
 				if (rwdata->gdl != NULL) {
-					if (rwdata->gdl == rodata->opagdl) {
+					// A monitor's screen drawn into a past frame's list:
+					// test the model's own quad (see gfxIsFrameMemory())
+					const bool framegdl = rwdata->gdl != rodata->opagdl && rodata->opagdl != NULL && gfxIsFrameMemory(rwdata->gdl);
+
+					if (rwdata->gdl == rodata->opagdl || framegdl) {
 						s3 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
-					} else {
+					} else if (!gfxIsFrameMemory(rwdata->gdl)) {
 						s3 = rwdata->gdl;
 					}
 
@@ -16208,7 +16216,7 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 						s5 = (void *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
 					}
 
-					vertices = rwdata->vertices;
+					vertices = framegdl ? rodata->vertices : rwdata->vertices;
 				}
 			}
 			break;

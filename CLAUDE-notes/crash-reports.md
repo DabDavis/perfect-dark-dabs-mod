@@ -291,3 +291,55 @@ w0 0x00a28000_00000100, w1 float 376.2): Carrington Institute (10 chrs of 21
 slots), right after F8 texture packs back on, after F6 and a Community Packs
 install. 48 F8/F6/model-pack reload toggles on CI with a pack under gdb did
 not reproduce it. Open.
+
+## The 27th pass (2026-10-01, reports 20260930-021214 .. 20260930-234841)
+
+Seven reports, base dc900a44c. Binaries: v3.11.0 (= ad4d887) from the release,
+v3.8.0 (= 8056aa4) in ~/pd-crashbins/v3.8.0, dc900a4 Linux from CI run
+36792262844 in ~/pd-crashbins/cidc900a4-linux. 195435's upload header says
+ad4d887 but its body (the binary's own stamp) says 8056aa4, and only v3.8.0
+resolves it coherently: trust the body.
+
+- **053223 (Linux ad4d887) + 050213 (Windows 8056aa4), `bgTestHitOnObj()` <-
+  `func0f0849dc()` <- `objTestHit()` <- `propFindAimingAt()`**, both on the
+  Carrington Institute with XblaStages=1 - the same frame and the same fault
+  address (`0x140003a`) as the open v3.5.0 report of the first pass. Cause:
+  `tvscreenRender()` points a monitor screen node's rwdata `gdl` and
+  `vertices` into the frame's display list and vertex space, and the aim test
+  of a later frame walks that list when the screen's bbox is in the aim line.
+  The gfx/vtx space is double buffered, so a list two frames old is the
+  current frame's commands, run on to whatever end command comes up, their
+  G_VTX loads read against a stale four-vertex block. Fixed: the two hit
+  walkers (`func0f0849dc()`, `func0f06bea0()`) test the node's own model list
+  and `rodata` vertices when the rwdata list lies in frame memory
+  (`gfxIsFrameMemory()`, gfxmemory.c); the screen quad has the same
+  positions, so hits are unchanged. Headless check: `--boot-stage 0x26`, gdb
+  `tv.py` in ~/wt/f3-1001-crash-run (spin the player at propFindAimingAt,
+  count gfxIsFrameMemory hits by buffer).
+- **024826 (Linux ad4d887), `modelGetNodeRwData()` <- `xblaMeshBruiseColours()`
+  <- `xblaMeshRenderNode()` <- `menuRenderModel()`**, Customize Character after
+  many head/body swaps. The menu loads the head at `allocstart + body length`,
+  so heads land at a new address each swap; an xblamesh entry is dropped only
+  when a file next loads at its definition's address, so a new head's node
+  could find a freed head's entry, and "grafted" was enough to draw it - the
+  freed head's bruise map then walked parent pointers through the new file.
+  Fixed: a grafted node's entry must be for the head the headspot names
+  (`xblaMeshNodeIsGraftedFrom()`, rwdata `headmodeldef`).
+- **195435 (Windows 8056aa4), `func0f06cd00()` <- `projectileTick()`**: the
+  sticky projectile's room-hit texturenum, fixed d1250ec97 (v3.9.0). Stable
+  channel player still on v3.8.0.
+- **124918 (Linux ad4d887), "Unknown GBI opcode 0xa2800000", w0 low 0x100, w1
+  0x43bc4851 (376.6)**: the same signature as 20260929-170457 - the Carrington
+  Institute after a Community Packs install and texture/model pack reloads.
+  Not found. `gfx_unknown_opcode()` (gfx_pc.cpp) now reports the full 64-bit
+  words, the list, depth, offset, segments, the six commands before it and
+  the chain of calling G_DLs per depth; the next one will say whose list.
+- **021214 (Linux 18232319d, Randomizer, GE Plus HD)**: not a crash, the
+  dropped-vertex-load report. A 4-vertex load after a 4-colour G_COL and
+  three tile loads in the frame's own list (the wallhit shape) with an odd
+  linear pointer (`0x7f35b4b34201`), which seg_addr() read as segment 4.
+  Open; only one.
+- **234841 (Linux dc900a4, Steam Deck, Renderer=1)**: SIGBUS inside the Steam
+  overlay (`gameoverlayrenderer.so`, `VulkanSteamOverlayPresent`) under our
+  first `vkQueuePresentKHR` (gfx_vulkan.cpp vk_run_job) at startup. External:
+  turn the Steam overlay off for the game, or use the OpenGL renderer.
