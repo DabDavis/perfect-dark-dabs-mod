@@ -1323,6 +1323,27 @@ static MenuItemHandlerResult menuhandlerMuzzleFlashLight(s32 operation, struct m
 	return 0;
 }
 
+/**
+ * Shot-Out Lights Darken GoldenEye Rooms: on GoldenEye's remade levels a light
+ * shot out takes its share of the room's brightness away, as Perfect Dark's
+ * own levels always do (and the props, guards and gun in the room go dark
+ * with it, propobj.c). Off by default, as GoldenEye: only the fixture goes
+ * dark and sheds its glass, and the room stays lit (F3 20260930-225233).
+ * Live: roomsTickLighting() sums every room's lighting again on a change.
+ */
+static MenuItemHandlerResult menuhandlerGeShotLightsDim(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return g_ModOptions.geroomdim;
+	case MENUOP_SET:
+		g_ModOptions.geroomdim = data->checkbox.value;
+		break;
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult menuhandlerOverexposureScale(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -1570,6 +1591,14 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"Muzzle Flash Lights GoldenEye Rooms",
 		0,
 		menuhandlerMuzzleFlashLight,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Shot-Out Lights Darken GoldenEye Rooms",
+		0,
+		menuhandlerGeShotLightsDim,
 	},
 	{
 		MENUITEMTYPE_SLIDER,

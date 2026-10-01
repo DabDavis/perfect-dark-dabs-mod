@@ -91,6 +91,7 @@ struct modoptions g_ModOptions = {
 	MODFLASHLIGHT_ON,         // flashlighting: stock's flashes everywhere
 	false,                    // sitinchairs: stock's chairs are furniture
 	false,                    // muzzleflashlight: on GoldenEye's levels, off until it is lit per pixel (user, F3 20260929-045427)
+	false,                    // geroomdim: GoldenEye darkens only the fixture shot, never the room (F3 20260930-225233)
 };
 
 /**
@@ -617,6 +618,26 @@ bool modIsMuzzleFlashLightOn(void)
 {
 #ifndef PLATFORM_N64
 	return !geRoomActive() || g_ModOptions.muzzleflashlight;
+#else
+	return true;
+#endif
+}
+
+/**
+ * Whether a light shot out takes its share of the room's brightness away.
+ * Perfect Dark's rooms always do. GoldenEye's never did: a fixture shot out
+ * goes to a quarter of its own colour and sheds glass, and the room round it
+ * stays as lit as it was (lightfixture.c lightFixtureBreak()); the remade
+ * levels did both, so a room whose lamps were shot went black round its
+ * fixtures (F3 20260930-225233, Bunker). So on GoldenEye's remade levels
+ * (geRoomActive()) only Mod.GeShotLightsDim turns it on. The fixture's own
+ * darkening and its glass (gelights.c) happen either way, and so does a room
+ * a script puts its lights out in.
+ */
+bool modIsShotLightDimmingOn(void)
+{
+#ifndef PLATFORM_N64
+	return !geRoomActive() || g_ModOptions.geroomdim;
 #else
 	return true;
 #endif
