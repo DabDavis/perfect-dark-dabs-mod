@@ -12,6 +12,9 @@ u8 roomGetSettledRegionalBrightnessForPlayer(s32 roomnum);
 u8 roomGetSettledLocalBrightness(s32 room);
 s32 roomGetFlashBrightness(s32 roomnum);
 f32 roomGetLightOpCurFrac(s32 roomnum);
+#ifndef PLATFORM_N64
+f32 roomRemakeLightFrac(s32 roomnum);
+#endif
 f32 roomGetSettledLocalBrightnessFrac(s32 roomnum);
 bool lightGetBboxCentre(s32 roomnum, u32 lightnum, struct coord *pos);
 bool lightIsHealthy(s32 roomnum, s32 lightnum);

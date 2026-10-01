@@ -1737,19 +1737,7 @@ static f32 propRemakeRoomLightFrac(struct prop *prop)
 	s32 i;
 
 	for (i = 0; prop->rooms[i] != -1; i++) {
-		struct room *room = &g_Rooms[prop->rooms[i]];
-		s32 full = room->br_base + room->numlights * room->br_light_each;
-		s32 now = roomGetSettledRegionalBrightnessForPlayer(prop->rooms[i]) + roomGetFlashBrightness(prop->rooms[i]);
-
-		if (full > 255) {
-			full = 255;
-		}
-
-		if (full <= 0 || now >= full) {
-			sum += 1.0f;
-		} else {
-			sum += now / (f32)full;
-		}
+		sum += roomRemakeLightFrac(prop->rooms[i]);
 	}
 
 	return i ? sum / i : 1.0f;
