@@ -123,6 +123,7 @@
 #include "gebeanstage.h"
 #include "gewater.h"
 #include "game/modrules.h"
+#include "game/modrun.h"
 #include <stdlib.h>
 #include "system.h"
 #ifndef PLATFORM_N64
@@ -473,7 +474,8 @@ void lvReset(s32 stagenum)
 			|| g_Vars.stagenum == modDataBgStage(STAGE_INFILTRATION)
 			|| g_Vars.stagenum == modDataBgStage(STAGE_DEFECTION)
 			|| g_Vars.stagenum == modDataBgStage(STAGE_ATTACKSHIP)
-			|| g_Vars.stagenum == modDataBgStage(STAGE_TEST_OLD)) {
+			|| g_Vars.stagenum == modDataBgStage(STAGE_TEST_OLD)
+			|| modRunWantsStars(g_Vars.stagenum)) {
 		starsReset();
 	}
 #else

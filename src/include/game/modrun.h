@@ -39,9 +39,11 @@
 extern bool g_ModRunAutoStart; // --random-run: begin one without a menu press
 extern s32 g_ModRunAutoHop;    // --run-autohop N: hop after N frames, for a headless chain
 extern s32 g_ModRunFirstStage; // --run-stage N: the first room's stage, for testing one map
+extern s32 g_ModRunFirstRoom;  // --run-room N: and the first landing's room, with --run-stage
 #endif
 
 bool modRunIsOn(void);
+bool modRunWantsStars(s32 stagenum);
 bool modRunStageIsStockArena(s32 stagenum);
 bool modRunIsPlaying(void);
 bool modRunObjectiveIsDone(void);
