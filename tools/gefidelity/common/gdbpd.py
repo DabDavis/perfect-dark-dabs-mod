@@ -232,6 +232,15 @@ def props():
                     rec['door_mode'] = int(d['mode'])
                     rec['door_startpos'] = [_f(d['startpos'][a]) for a in 'xyz']
                     rec['door_slide'] = [_f(d['unk98'][a]) for a in 'xyz']
+                    # A door that turns (swinging, Aztec's chairs) keeps its closed
+                    # matrix in mtx98 and turns realrot by its frac each tick
+                    # (doorUpdatePosition()); GoldenEye's door->mtx is the closed
+                    # one and the turn goes only into the model's matrices
+                    # (propobj.c:12225), so compare the closed ones. Aztec's eight
+                    # chairs start open, 90 degrees round (FINDINGS row 20).
+                    # DOORFLAG_0080 (a sliding door) uses the union for its slide.
+                    if not int(d['doorflags']) & 0x0080:
+                        rec['rot'] = [[float(d['mtx98'][r][c]) for c in range(3)] for r in range(3)]
             else:
                 rec['exists'] = 0
         out.append(rec)
