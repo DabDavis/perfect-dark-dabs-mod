@@ -3377,6 +3377,7 @@ struct beandraw {
 	s16 inst;     // the instance matrix it is drawn under (bm->insts), or -1
 	u8 blend;     // in the release's blended pass (beanWalkStream())
 	u8 alpha;     // its material colour's alpha, 255 for none
+	u32 colour;   // and that colour, RGB, white for none
 	u8 alphatest; // drawn with the alpha test on (render state 0x60)
 	u8 alpharef;  // and the reference it passes texels over (render state 0x64), 0 for none set
 	u8 masktexslot; // the slot masktex fills, which is the UV set it is read with
@@ -3513,6 +3514,35 @@ static s32 beanReadVb(const struct beanmodel *bm, u32 desc, struct beanvb *vb)
 			}
 		}
 	}
+
+	return 1;
+}
+
+/**
+ * A buffer of positions alone (stride 12), which beanReadVb() leaves out: no
+ * normal, no UV, no colour. Its draw is shaded by its material's colour (the
+ * pixel shader's constant 12) and nothing else; Dam has the one, four black
+ * triangles the release draws (gebeanLevelTriangles()).
+ */
+static s32 beanReadVbPositions(const struct beanmodel *bm, u32 desc, struct beanvb *vb)
+{
+	u32 size;
+
+	memset(vb, 0, sizeof(*vb));
+
+	if (!gebeanFits(desc, 16, bm->datalen)) {
+		return 0;
+	}
+
+	vb->stride = gebeanBE32(bm->data + desc);
+	vb->off = gebeanBE32(bm->data + desc + 8);
+	size = gebeanBE32(bm->data + desc + 12);
+
+	if (vb->stride != 12 || !gebeanFits(vb->off, size, bm->gpulen)) {
+		return 0;
+	}
+
+	vb->count = size / vb->stride;
 
 	return 1;
 }
@@ -4138,6 +4168,7 @@ static void beanWalkStream(struct beanmodel *bm)
 	u8 passblend = 0;
 	u8 blend = 0;
 	u8 alpha = 0xff;
+	u32 colour = 0xffffff;
 	u8 alphatest = 0;
 	u8 alpharef = 0;
 	u32 masktex = ~0u;
@@ -4276,6 +4307,7 @@ static void beanWalkStream(struct beanmodel *bm)
 			tex = beanMaterialTexture(bm, st, pc, size, len);
 			ownmat = 1;
 			alpha = 0xff;
+			colour = 0xffffff;
 			masktex = ~0u;
 			masktexslot = 0;
 			reflamount = 0;
@@ -4340,6 +4372,13 @@ static void beanWalkStream(struct beanmodel *bm)
 			const f32 a = gebeanBEF32(st + pc + 24);
 
 			alpha = a >= 1.0f ? 0xff : a <= 0.0f ? 0 : (u8)(a * 255.0f + 0.5f);
+			colour = 0;
+
+			for (s32 k = 0; k < 3; k++) {
+				const f32 c = gebeanBEF32(st + pc + 12 + k * 4);
+
+				colour = colour << 8 | (c >= 1.0f ? 0xff : c <= 0.0f ? 0 : (u32)(c * 255.0f + 0.5f));
+			}
 
 			// The gas tank's is a grey, 0.56, and it is the reflection's
 			// share: c_constant0 and c_constant1 (white) are its only two
@@ -4401,6 +4440,7 @@ static void beanWalkStream(struct beanmodel *bm)
 				d->inst = inst;
 				d->blend = blend;
 				d->alpha = alpha;
+				d->colour = colour;
 				d->alphatest = alphatest;
 				d->alpharef = alpharef;
 				d->masktex = masktex;
@@ -14384,7 +14424,16 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		s32 plain;
 
 		if (!beanReadVb(bm, draw->vb, &vb)) {
-			continue;
+			// A draw of positions alone takes no picture: its pixel shader
+			// fetches none and gives its material's colour, which on Dam's
+			// one such draw (four triangles at 4dc0) is black. Read as a
+			// buffer of no known layout, it was never built where the
+			// release draws it (tools/gefidelity FINDINGS.md row 6)
+			if (!beanReadVbPositions(bm, draw->vb, &vb)) {
+				continue;
+			}
+
+			tex = -1;
 		}
 
 		// An alpha-tested draw of two pictures, one solid and one with alpha:
@@ -14427,7 +14476,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		// shader 0x3958, white vertices), which drew as a flat grey band of
 		// the concrete strip's corner (F3 20260926-210317); gebeanstage.c
 		// leaves the white ones lying on another surface out
-		plain = !draw->ownmat && !istree && (vb.stride == 16 || (vb.stride == 20 && !vb.uv20));
+		plain = (!draw->ownmat && !istree && (vb.stride == 16 || (vb.stride == 20 && !vb.uv20))) || vb.stride == 12;
 
 		for (s32 t = 0; t < numtris; t++) {
 			struct gebeanlevelvtx v[3];
@@ -14454,6 +14503,20 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 						bv.uv[0] = (s16)gebeanBE16(p + 20) / bm->uvscale;
 						bv.uv[1] = (s16)gebeanBE16(p + 22) / bm->uvscale;
 						bv.argb = beanColour(gebeanBE32(p + 32));
+					}
+				} else if (vb.stride == 12) {
+					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
+
+					ok = tris[t * 3 + k] < vb.count;
+
+					if (ok) {
+						memset(&bv, 0, sizeof(bv));
+
+						for (s32 j = 0; j < 3; j++) {
+							bv.pos[j] = gebeanBEF32(p + j * 4);
+						}
+
+						bv.argb = (u32)draw->alpha << 24 | (draw->colour & 0xffffff);
 					}
 				} else {
 					ok = beanVertex(bm, &vb, tris[t * 3 + k], &bv);
