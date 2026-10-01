@@ -4962,7 +4962,11 @@ static void playerPullBackCameraNow(struct coord *campos)
 		struct coord eased;
 		f32 rate = THIRDPERSON_EASE_RATE * g_Vars.lvupdate60freal;
 
-		if (rate > 1) {
+		// Mods: Camera's live preview runs over a paused level, where no
+		// time passes and the ease never moved: a slider changed nothing
+		// on screen until the menu closed (F3 20260930-212705). There the
+		// camera goes straight to the new settings.
+		if (rate > 1 || optionsMenuWantsLiveWorld()) {
 			rate = 1;
 		}
 
