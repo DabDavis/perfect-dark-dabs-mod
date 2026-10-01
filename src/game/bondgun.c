@@ -5979,6 +5979,16 @@ void bgunCreateFiredProjectile(s32 handnum)
 				sp260 = 1.111111f;
 				sp25c = 0.0f;
 			}
+
+			// and its grenade launcher's round leaves at 33.3 a tick along the
+			// aim (gun.c's gunSpawnGLGrenade) to fall as every projectile does
+			// (0.278 a tick, the same in both, as its bounce and spin are);
+			// the host's traveldist 40 is 66.7 a tick, and its round reached
+			// Dam's floor 3 ticks out to the cartridge's 6 to 9
+			if (hand->gset.weaponnum == WEAPON_GE_GRENADELAUNCHER) {
+				sp260 = 0.0f;
+				sp25c = 33.333332f;
+			}
 #endif
 
 			if (gsetHasFunctionFlags(&hand->gset, FUNCFLAG_CALCULATETRAJECTORY)) {
