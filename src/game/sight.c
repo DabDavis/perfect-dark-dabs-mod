@@ -1703,15 +1703,15 @@ Gfx *sightDraw(Gfx *gdl, bool sighton, s32 sight)
 
 #ifndef PLATFORM_N64
 	// GoldenEye's own crosshair for anything of GoldenEye's in the hand on GE
-	// Plus's levels (gehud.c): shown only while aiming, and only with the
-	// watch's SIGHT ON-SCREEN on, as GoldenEye shows it (bondview2.c's
-	// GUNSIGHTREASON_1). Perfect Dark's Always Show Target is left out: it is
-	// on by default, the watch has no row for it, and with it the sight was
-	// on screen whatever the watch said (F3 20260930-025317-daf43ae7).
-	// "GE Plus: Crosshair When Not Aiming" keeps it up with the gun lowered
+	// Plus's levels (gehud.c). The watch's SIGHT ON-SCREEN is Sight on Screen,
+	// and on the cartridge it shows the sight only while aiming (bondview2.c's
+	// GUNSIGHTREASON_1 with GUNSIGHTREASON_NOTAIMING, read in ares), never
+	// with it off; Perfect Dark's Always Show Target keeps it up with the gun
+	// lowered as well (the user's call, F3 20261001-065320 - it had been left
+	// out for a GE Plus toggle of its own, F3 20260930-025317)
 	if (sight != SIGHT_NONE && geHudOwnsWeapon()) {
 		if (optionsGetSightOnScreen(g_Vars.currentplayerstats->mpindex)
-				&& (sighton || geHudGetSightAlways())) {
+				&& (sighton || optionsGetAlwaysShowTarget(g_Vars.currentplayerstats->mpindex))) {
 			gdl = geHudRenderSight(gdl, crossx, crossy);
 		}
 

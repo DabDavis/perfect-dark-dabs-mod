@@ -54,6 +54,7 @@
 #include "game/botact.h"
 #include "game/camera.h"
 #include "game/gfxmemory.h"
+#include "game/options.h"
 #include "game/game_1531a0.h"
 #include "game/savebuffer.h"
 #include "game/tex.h"
@@ -254,6 +255,8 @@ struct hudframe {
 	s32 width, height;
 };
 
+static void geHudMigrateSightAlways(void);
+
 void geHudStageStart(s32 stagenum)
 {
 	g_Hud.stagenum = stagenum;
@@ -263,6 +266,8 @@ void geHudStageStart(s32 stagenum)
 	if (!modloaderStageIsMission(stagenum) && !(g_GexPlusMode && modloaderStageIsRemake(stagenum))) {
 		return;
 	}
+
+	geHudMigrateSightAlways();
 
 	if (g_Hud.moddir < 0 || !gexFrontLoadText()) {
 		sysLogPrintf(LOG_WARNING, "gehud: the conversion's fonts are not there; this level keeps Perfect Dark's HUD");
@@ -371,26 +376,35 @@ const char *geHudPropobjString(s32 slot)
 }
 
 /**
- * "GE Plus: Crosshair When Not Aiming" (Mod.GePlusSightAlways, off by
- * default): GoldenEye's crosshair stays on screen with the gun lowered too,
- * as Perfect Dark's Always Show Target did before F3 20260930-025317. Off,
- * it shows only while aiming, as GoldenEye does (sightDraw()).
+ * GoldenEye's sight with the gun lowered is Perfect Dark's Always Show Target
+ * (the user's call, 2026-10-01; F3 20261001-065320): the watch's SIGHT
+ * ON-SCREEN is GoldenEye's own option, which on the cartridge shows the sight
+ * only while aiming (gunsightmode's GUNSIGHTREASON_NOTAIMING, read in ares),
+ * and Always Show Target keeps it up with the gun lowered too (sight.c). The
+ * separate "GE Plus: Crosshair When Not Aiming" toggle (Mod.GePlusSightAlways)
+ * is gone: a pd.ini that still has it on turns Always Show Target on in every
+ * player's options the first time a GE Plus level starts, and the key goes.
  */
-static s32 g_GeSightAlways = 0;
+static s32 g_GeSightAlwaysRetired = 0;
 
 PD_CONSTRUCTOR static void geHudConfigInit(void)
 {
-	configRegisterInt("Mod.GePlusSightAlways", &g_GeSightAlways, 0, 1);
+	configRegisterIntRetired("Mod.GePlusSightAlways", &g_GeSightAlwaysRetired, 0, 1);
 }
 
-s32 geHudGetSightAlways(void)
+static void geHudMigrateSightAlways(void)
 {
-	return g_GeSightAlways;
-}
+	if (!g_GeSightAlwaysRetired) {
+		return;
+	}
 
-void geHudSetSightAlways(s32 on)
-{
-	g_GeSightAlways = on ? 1 : 0;
+	for (s32 i = 0; i < ARRAYCOUNT(g_PlayerConfigsArray); i++) {
+		optionsSetAlwaysShowTarget(i, true);
+	}
+
+	g_GeSightAlwaysRetired = 0;
+	g_Vars.modifiedfiles |= MODFILE_GAME;
+	sysLogPrintf(LOG_NOTE, "gehud: Mod.GePlusSightAlways carried over to Always Show Target");
 }
 
 s32 geHudOwnsWeapon(void)

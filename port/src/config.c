@@ -37,6 +37,9 @@ struct configentry {
 	char key[CONFIG_MAX_KEYNAME + 1];
 	s32 seclen;
 	configtype type;
+	// read from pd.ini but written back only while it still says something
+	// (configRegisterIntRetired())
+	u8 retired;
 	void *ptr;
 	union {
 		struct { f32 min_f32, max_f32; };
@@ -122,6 +125,22 @@ void configRegisterInt(const char *key, s32 *var, s32 min, s32 max)
 		cfg->ptr = var;
 		cfg->min_s32 = min;
 		cfg->max_s32 = max;
+	}
+}
+
+/**
+ * A key a setting no longer has, read so that its value can be carried over
+ * to where the setting lives now: pd.ini keeps it only while it is not 0, so
+ * once the caller has moved the value and cleared it the key is gone (a key
+ * nothing registers is dropped on load and its value lost).
+ */
+void configRegisterIntRetired(const char *key, s32 *var, s32 min, s32 max)
+{
+	configRegisterInt(key, var, min, max);
+
+	struct configentry *cfg = configFindEntry(key);
+	if (cfg) {
+		cfg->retired = 1;
 	}
 }
 
@@ -301,6 +320,9 @@ s32 configSave(const char *fname)
 
 	for (s32 i = 0; i < numSettings; ++i) {
 		struct configentry *cfg = &settings[i];
+		if (cfg->retired && cfg->type == CFG_S32 && *(s32 *)cfg->ptr == 0) {
+			continue;
+		}
 		configGetSection(tmpSec, cfg);
 		if (strncmp(curSec, tmpSec, CONFIG_MAX_SECNAME) != 0) {
 			fprintf(f, "\n[%s]\n", tmpSec);
