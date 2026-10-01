@@ -6047,6 +6047,24 @@ static s32 beanArmDropsTexture(const struct beanmodel *bm, u32 tex)
 	return bm->numtex == GEBEAN_ARM_TEXTURES && tex >= 9;
 }
 
+/*
+ * The release's own watch on the arm, all of it: GE Plus drew GoldenEye's
+ * watch on Bean's arm and left out the arm's pictures 9 to 11 - a small
+ * light quad (9, a 1x1 picture under light green and white vertices) and
+ * the glass over the dial (10 and 11) - which the release draws: the HD
+ * draw census found draws 0x11f8, 0x1450 and 0x1460 in every capture, and a
+ * Xenia draw log of the release's pause has the glass blended (source alpha,
+ * no depth write) through the 32x32 picture with alpha. The user, 2026-10-01:
+ * the HD look draws the arm's casing as the release does (fidelity H4).
+ */
+#define GEBEAN_ARM_GLASS 11
+
+static s32 beanArmGlass(const struct beanmodel *bm, const struct beandraw *d)
+{
+	return bm->numtex == GEBEAN_ARM_TEXTURES && (d->tex == 10 || d->tex == 11)
+		&& (d->masktex == 10 || d->masktex == 11 || d->tex == GEBEAN_ARM_GLASS);
+}
+
 /**
  * The rest of the figure round GoldenEye's floating arm (Csuit_lf_handZ),
  * which has a left arm and nothing else: Bean's own joints, turned and sized
@@ -12990,8 +13008,22 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 		const s32 armsleeve = arm ? beanArmSleeve(&bm, d->tex) : -1;
 
-		if (arm && beanArmDropsTexture(&bm, d->tex)) {
+		// (the N64 look's, not the HD look's: beanArmGlass())
+		if (arm && original && beanArmDropsTexture(&bm, d->tex)) {
 			continue;
+		}
+
+		// The watch's glass, as the release draws it: its picture is the
+		// material's one with alpha (texture 11, black at three eighths),
+		// drawn blended over the dial; read through the other one (10, a
+		// grey patch) it was the opaque grey plate beanArmDropsTexture() is
+		// about
+		struct beandraw glassdraw;
+
+		if (arm && !original && beanArmGlass(&bm, d)) {
+			glassdraw = *d;
+			glassdraw.tex = GEBEAN_ARM_GLASS;
+			d = &glassdraw;
 		}
 
 		if (!beanReadVb(&bm, d->vb, &vb)) {
@@ -13668,6 +13700,14 @@ u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelno
 
 					if (takes && !beanAddTri(&out, asown ? ownof[k] : asfill ? fillof[k] : ashood ? hoodof[k] : k, (s32)d->tex, idx[0], idx[1], idx[2])) {
 						ok = 0;
+						break;
+					}
+
+					// The watch's glass is blended: in each of the wrist's six
+					// lists it was laid six deep over the dial, near black
+					// where the release darkens it by a third. Once is all
+					// the release draws.
+					if (takes && d == &glassdraw) {
 						break;
 					}
 
