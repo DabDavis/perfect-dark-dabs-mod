@@ -81,6 +81,13 @@ const char *gebeanRowName(s32 row);
  * GoldenEye X model is GoldenEye's N64 one already and draws itself.
  */
 s32 gebeanRowIsPool(s32 row);
+
+/**
+ * The file the casing a gun ejects is loaded from: for one of GoldenEye's guns,
+ * an alias of the casing (bondgun.c's g_CartFileNums[casing]) the release's
+ * own spent cartridge is drawn on in the HD look; else `stock`.
+ */
+u16 gebeanCasingFile(s32 weaponnum, s32 casing, u16 stock);
 s32 gebeanRowIsFemale(s32 row);
 
 /**
@@ -124,6 +131,7 @@ s32 gebeanRowKeepsHood(s32 bodyrow, s32 headrow);
  * no muzzle node at all.
  */
 s32 gebeanFirstPersonMuzzleOffset(s32 weaponnum, s32 *outpart, f32 *out);
+s32 gebeanFirstPersonFlashCards(s32 weaponnum, f32 *flash, f32 *star);
 
 /**
  * How far to move a GoldenEye gun a character holds, in the gun's own space,
@@ -313,6 +321,8 @@ struct gebeanlevelvtx {
 	f32 nrm[3]; // the file's own, zero where it has none
 	u8 blend; // its draw is in the release's blended pass (the same on all three)
 	u8 plain; // its draw has no UV and no picture of its own (gebeanLevelTriangles())
+	u8 alphatest; // its draw's alpha test is on (greater than alpharef, of picture times vertex alpha)
+	u8 alpharef;
 };
 
 struct gebeanlevel *gebeanLevelOpen(const char *name);
@@ -487,6 +497,10 @@ struct gebeanmats {
 	// body but the one it was made on; -1 for none
 	s8 neck[64];
 	u8 head;  // the mesh is a head's
+	// Groups drawn both sides though the mesh culls its back faces: a
+	// first-person gun's flash cards (gebean.c's fpBuildCards()), which the
+	// release draws with no culling at all
+	u64 twosided;
 	// A material the release adds a reflection over (gebean.c's
 	// beanReflectPicture()): its sphere map, GEBEAN_ENV_CELL square RGBA,
 	// malloc'd and the caller's to free, and how much of it, out of 255. NULL

@@ -2116,6 +2116,14 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 	if (func->flags & FUNCFLAG_NOMUZZLEFLASH) {
 		hand->flashon = false;
+#ifndef PLATFORM_N64
+		// the release's own flash cards on a silenced GoldenEye gun, in the
+		// HD look (geguns.c's gegunsCardsLit())
+		if (WEAPON_IS_GE(hand->gset.weaponnum)
+				&& (func->type == INVENTORYFUNCTYPE_SHOOT_SINGLE || hand->shotstotake > 0)) {
+			gegunsCardsLit(handnum, 1);
+		}
+#endif
 	} else {
 #ifdef PLATFORM_N64
 		hand->flashon = true;
@@ -3815,6 +3823,9 @@ s32 bgunTickInc(struct handweaponinfo *info, s32 handnum, s32 lvupdate)
 
 	hand->firing = false;
 	hand->flashon = false;
+#ifndef PLATFORM_N64
+	gegunsCardsLit(handnum, 0);
+#endif
 	hand->stateframes += lvupdate;
 
 	if (g_Vars.lvupdate240 > 0) {
@@ -5035,7 +5046,13 @@ void bgunTickMasterLoad(void)
 
 									if (casingindex >= 0) {
 										if (player->gunctrl.cartmodeldef == NULL) {
+#ifndef PLATFORM_N64
+											// a GoldenEye gun's from an alias the release's
+											// own cartridge is drawn on in the HD look
+											filenum = gebeanCasingFile(player->gunctrl.weaponnum, casingindex, g_CartFileNums[casingindex]);
+#else
 											filenum = g_CartFileNums[casingindex];
+#endif
 											player->gunctrl.loadfilenum = filenum;
 											player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
 											player->gunctrl.loadtomodeldef = &player->gunctrl.cartmodeldef;
@@ -5068,8 +5085,13 @@ void bgunTickMasterLoad(void)
 								s32 leftcasing = bgunGetCasingIndexForHand(HAND_LEFT);
 								s32 rightcasing = bgunGetCasingIndexForHand(HAND_RIGHT);
 
-								if (leftcasing >= 0 && leftcasing != rightcasing) {
-									player->gunctrl.loadfilenum = g_CartFileNums[leftcasing];
+								const u16 leftfile = leftcasing >= 0
+									? gebeanCasingFile(player->gunctrl.leftweaponnum, leftcasing, g_CartFileNums[leftcasing]) : 0;
+								const u16 rightfile = rightcasing >= 0
+									? gebeanCasingFile(player->gunctrl.weaponnum, rightcasing, g_CartFileNums[rightcasing]) : 0;
+
+								if (leftcasing >= 0 && leftfile != rightfile) {
+									player->gunctrl.loadfilenum = leftfile;
 									player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
 									player->gunctrl.loadtomodeldef = &player->gunctrl.leftcartmodeldef;
 									player->gunctrl.loadmemptr = (uintptr_t *) &player->gunctrl.memloadptr;

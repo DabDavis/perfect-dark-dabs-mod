@@ -18,6 +18,7 @@
 #include "lib/mtx.h"
 #include "lib/rng.h"
 #include "geguns.h"
+#include "gebean.h"
 #include "geslappers.h"
 #include "modloader.h"
 #include "langpack.h"
@@ -2206,6 +2207,50 @@ static void gegunsSetPart(struct model *model, s32 part, s32 visible)
  * thrown item's own pieces 14 and 15 are on while it is in the hand, and part
  * 1 is the muzzle flash, on while the hand's flash is.
  */
+/**
+ * The release's flash on a gun GoldenEye shows none for (the silenced PP7 and
+ * D5K, FUNCFLAG_NOMUZZLEFLASH): its file has flash cards like every other gun
+ * (gebean.c's fpCardSet), and the release lights them for the shot - eight
+ * shots of the silenced PP7 on Dam, each with its flash for a frame. The HD
+ * look lights the cards alone for that tick, without hand->flashon and so
+ * without the flash's light on the room or the firing flash of the player's
+ * own body (bondgun.c sets it, bgunTickInc() clears it).
+ */
+static u8 gegunsCards[MAX_PLAYERS][2];
+
+void gegunsCardsLit(s32 handnum, s32 on)
+{
+	const s32 p = g_Vars.currentplayernum;
+
+	if (p >= 0 && p < MAX_PLAYERS && handnum >= 0 && handnum < 2) {
+		gegunsCards[p][handnum] = on ? 1 : 0;
+	}
+}
+
+/** Whether the hand's flash is drawn this tick: its own, or the release's cards on a silenced gun. */
+static s32 gegunsFlashLit(struct hand *hand)
+{
+	const s32 p = g_Vars.currentplayernum;
+	f32 flash[3];
+	f32 star[3];
+
+	if (hand->flashon) {
+		return 1;
+	}
+
+	if (p < 0 || p >= MAX_PLAYERS || !g_Vars.currentplayer) {
+		return 0;
+	}
+
+	for (s32 h = 0; h < 2; h++) {
+		if (hand == &g_Vars.currentplayer->hands[h]) {
+			return gegunsCards[p][h] && gebeanFirstPersonFlashCards(hand->gset.weaponnum, flash, star);
+		}
+	}
+
+	return 0;
+}
+
 void gegunsOwnModelParts(struct hand *hand, struct model *model)
 {
 	if (!gegunsOwnModelInUse(hand->gset.weaponnum)) {
@@ -2219,7 +2264,7 @@ void gegunsOwnModelParts(struct hand *hand, struct model *model)
 	gegunsSetPart(model, 35, 1);
 	gegunsSetPart(model, 14, !gegunsOwnThrowKnifeGone(hand));
 	gegunsSetPart(model, 15, !gegunsOwnThrowKnifeGone(hand));
-	gegunsSetPart(model, 1, hand->flashon ? 1 : 0);
+	gegunsSetPart(model, 1, gegunsFlashLit(hand));
 
 	// The shotguns' shells on the side of the gun, the top one going first:
 	// shell i (parts 18 + i and 23 + i) while five - i or more are shown
@@ -2980,8 +3025,11 @@ void gegunsOwnModelFlash(struct hand *hand, struct model *model)
 	f32 unit;
 	Mtxf *parent;
 	Mtxf *flashmtx;
+	f32 cardflash[3];
+	f32 cardstar[3];
+	s32 cards;
 
-	if (!hand->flashon || !gegunsOwnModelInUse(hand->gset.weaponnum) || !model->matrices) {
+	if (!gegunsFlashLit(hand) || !gegunsOwnModelInUse(hand->gset.weaponnum) || !model->matrices) {
 		return;
 	}
 
@@ -2990,6 +3038,17 @@ void gegunsOwnModelFlash(struct hand *hand, struct model *model)
 
 	if (!base || !flash || modelFindNodeMtxIndex(flash, 0) == modelFindNodeMtxIndex(base, 0)) {
 		return;
+	}
+
+	// The HD look draws the release's own flash cards in these lists
+	// (gebean.c's fpCardSet), turned about the release's muzzle and its
+	// star's place rather than GoldenEye's
+	cards = gebeanFirstPersonFlashCards(hand->gset.weaponnum, cardflash, cardstar);
+
+	if (cards) {
+		off[0] = cardflash[0];
+		off[1] = cardflash[1];
+		off[2] = cardflash[2];
 	}
 
 	parent = &model->matrices[modelFindNodeMtxIndex(base, 0)];
@@ -3019,11 +3078,15 @@ void gegunsOwnModelFlash(struct hand *hand, struct model *model)
 		}
 
 		// its place in the flash's own space, into the eye's
-		for (s32 col = 0; col < 3; col++) {
-			at[col] = star->rodata->position.pos.x * flashmtx->m[0][col]
-				+ star->rodata->position.pos.y * flashmtx->m[1][col]
-				+ star->rodata->position.pos.z * flashmtx->m[2][col]
-				+ flashmtx->m[3][col];
+		{
+			const f32 sx = cards == 2 && part == 2 ? cardstar[0] : star->rodata->position.pos.x;
+			const f32 sy = cards == 2 && part == 2 ? cardstar[1] : star->rodata->position.pos.y;
+			const f32 sz = cards == 2 && part == 2 ? cardstar[2] : star->rodata->position.pos.z;
+
+			for (s32 col = 0; col < 3; col++) {
+				at[col] = sx * flashmtx->m[0][col] + sy * flashmtx->m[1][col] + sz * flashmtx->m[2][col]
+					+ flashmtx->m[3][col];
+			}
 		}
 
 		gegunsFlashMatrix(&model->matrices[modelFindNodeMtxIndex(star, 0)], NULL,

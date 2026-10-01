@@ -27,9 +27,11 @@ Every draw a release model file holds, classed three ways:
 
 - `hd.undrawn` / `hd.short` - a draw ours never draws (or draws short) that the release draws, or that
   no capture shows and nothing explains
-- `hd.replaced` - a draw the release makes that ours deliberately replaces (accepted.json's `replaced`:
-  the muzzle-flash cards by GoldenEye's painted flash, screen panes by its monitor programmes, the watch
-  arm's casing by GoldenEye's watch) - listed and gated like a gap, since it is a choice to revisit
+- `hd.replaced` - a draw the release makes that ours deliberately replaces (an accepted.json entry
+  with `replaced`) - listed and gated like a gap, since it is a choice to revisit. None is left: the
+  muzzle-flash cards, the screen panes and the watch arm's glass were taken out of accepted.json on
+  2026-10-01 (the user's H4 decision: the HD look draws them as the release does), so any of them ours
+  does not build is an `hd.undrawn` like any other gap
 - `hd.extra` - a draw ours builds that the release, drawing the same file, never makes (not for level
   files: a capture sees only the rooms in view)
 - `hd.nodecode` - a picture our decoder refuses

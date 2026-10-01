@@ -24,6 +24,7 @@
 #include "xblamesh.h"
 #include "modloader.h"
 #include "game/env.h"
+#include "gebeanstage.h"
 #endif
 
 #define WALLHITTYPE_SOFT   0
@@ -816,6 +817,27 @@ void wallhitCreateWith20Args(struct coord *relpos, struct coord *arg1, struct co
 	func0f177164(&sp1b8, &sp1b8, 956, "wallhit.c");
 #else
 	func0f177164(&sp1b8, &sp1b8, 955, "wallhit.c");
+#endif
+
+#ifndef PLATFORM_N64
+	// A hole in one of GE Plus's HD rooms stands half a unit off what it hit,
+	// towards the gun. The HD rooms' decals - a portrait, a sign, a poster -
+	// are drawn in the decal mode and lifted off their walls (gebeanstage.c's
+	// DECAL_LIFT), and a shot that hit one put its hole in the decal's own
+	// plane, in the same decal mode: the two fought, and the hole came and
+	// went in dots on Archives' portraits (F3 20261001-043911). A bare wall's
+	// hole is as it was, but for half a unit no one sees.
+	struct coord hdpos;
+
+	if (objprop == NULL && chrprop == NULL && arg2 && gebeanStageRoomServed(room)) {
+		f32 side = (arg2->x - relpos->x) * sp1b8.x + (arg2->y - relpos->y) * sp1b8.y + (arg2->z - relpos->z) * sp1b8.z;
+		f32 lift = side < 0.0f ? -0.5f : 0.5f;
+
+		hdpos.x = relpos->x + sp1b8.x * lift;
+		hdpos.y = relpos->y + sp1b8.y * lift;
+		hdpos.z = relpos->z + sp1b8.z * lift;
+		relpos = &hdpos;
+	}
 #endif
 
 #if VERSION >= VERSION_NTSC_1_0

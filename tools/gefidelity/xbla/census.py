@@ -66,7 +66,7 @@ def parse_logs(paths):
             if m:
                 bm, src = m.group(1), m.group(2)
                 live[bm] = src
-                f = files.setdefault(src, {'path': m.group(6), 'walked': {}, 'took': {}, 'loads': 0,
+                f = files.setdefault(src, {'path': m.group(6), 'walked': {}, 'took': {}, 'took_np': {}, 'loads': 0,
                                            'kinds': collections.Counter(), 'runs': set()})
                 f['loads'] += 1
                 f['runs'].add(run)
@@ -90,6 +90,11 @@ def parse_logs(paths):
                 f = files[live[m.group(1)]]
                 pc = int(m.group(2), 16)
                 f['took'][pc] = max(f['took'].get(pc, 0), int(m.group(3)))
+                # and outside the pool pass, whose builds are the Combat
+                # Simulator's on Perfect Dark's host rig, under heads the
+                # release never puts on a body: what an extra is judged on
+                if not run.endswith('-pool'):
+                    f['took_np'][pc] = max(f['took_np'].get(pc, 0), int(m.group(3)))
                 continue
             m = RE['placeholder'].search(line)
             if m:
@@ -124,6 +129,7 @@ def classify(src, f, ref):
             state = 'measured only'
         else:
             took = f['took'].get(pc, 0)
+            d = dict(d, took_np=f.get('took_np', {}).get(pc, 0))
             if took == 0:
                 state = 'unbuilt'
             elif d['tris'] and took < d['tris'] * (1 - TOL_SHORT) and took < d['tris'] - 2:
@@ -236,7 +242,15 @@ def findings(rows, rel, plant=None):
             if plant and plant == '%s@%x' % (src, d['pc']):
                 continue
             if st == 'drawn':
-                if rs == 'never':
+                if rs == 'never' and d.get('took_np', d.get('took', 0)) == 0:
+                    # built only in the pool pass: the Combat Simulator's
+                    # body on Perfect Dark's host rig, for heads the release
+                    # never pairs with it - not the release's pairing
+                    out.append({'mission': src, 'kind': 'hd.accepted.pool', 'key': key, 'mag': d['tris'],
+                                'detail': '%s: draw %s (%d tris, %s) built only by the pool pass (Perfect Dark\'s '
+                                          'Combat Simulator rows), never drawn by the release in %s' % (
+                                    src, key, d['tris'], d['texname'], ','.join(rel[src]['captures']))})
+                elif rs == 'never':
                     out.append({'mission': src, 'kind': 'hd.extra', 'key': key, 'mag': d['tris'],
                                 'detail': '%s: draw %s (%d tris, %s) built by ours, never drawn by the release in %s' % (
                                     src, key, d['tris'], d['texname'], ','.join(rel[src]['captures']))})
@@ -481,10 +495,22 @@ def main():
     if a.findings:
         fs = findings(rows, rel, a.plant)
         json.dump(sorted(fs, key=lambda f: (f['mission'], f['kind'], f['key'])), open(a.findings, 'w'), indent=1)
-        # every file the runs judged, beside the findings (world/compare.py): a
-        # file a change leaves with no finding is then "fixed", not "in one
-        # report only"
-        json.dump({'compared': sorted(set(files) | {f['mission'] for f in fs})},
+        # what the report could have findings on, so the gate compares a file
+        # one side has none for (a file the change made whole, or one it
+        # loads now) instead of calling it inconclusive (world/compare.py)
+        # (every release model file: a file one side never loads simply has
+        # no findings there, rather than leaving the gate inconclusive)
+        # (fix/fid-hdfix's rule as well: every file the runs judged, and every
+        # file with a finding)
+        compared = set(files) | {f['mission'] for f in fs} | {r['source'] for r in rows} | {src for src, e in rel.items()
+                                                    if src.startswith('new/') and set(e['captures']) - {'attract'}}
+        for look in ('new', 'original'):
+            for kind in ('background', 'char', 'gun', 'head', 'prop', 'skydome'):
+                d = os.path.join(beanref.FILES, look, kind)
+                if os.path.isdir(d):
+                    compared |= {'%s/%s/%s' % (look, kind, n) for n in os.listdir(d)
+                                 if os.path.exists(os.path.join(d, n, 'default.bin'))}
+        json.dump({'compared': sorted(compared)},
                   open(os.path.join(os.path.dirname(os.path.abspath(a.findings)), 'report-missions.json'), 'w'), indent=1)
     if a.md:
         open(a.md, 'w').write(md)

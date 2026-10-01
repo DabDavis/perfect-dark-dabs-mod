@@ -51,6 +51,15 @@ s32 gebeanStageDrawsEveryRoom(void);
 s32 gebeanStageRoomHidden(s32 roomnum);
 
 /**
+ * A prop left out of this frame's draw while the HD rooms are served: one of
+ * another room standing inside a room the release's other rooms are kept out
+ * of (gebeanstage.c's keptOutOf[], Aztec's armour closet), while the camera is
+ * in that room.
+ */
+struct prop;
+s32 gebeanStageHidesProp(struct prop *prop);
+
+/**
  * Whether the room is drawn from GoldenEye XBLA's mesh just now (the HD look).
  * Its vertex colours are not capped by the room's brightness (roomHighlight()).
  */
