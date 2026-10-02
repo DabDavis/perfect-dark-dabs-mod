@@ -1195,27 +1195,26 @@ static void fogRowValues(const uint8_t *d, double *r)
 	for (int i = 0; i < 4; ++i) r[26 + i] = bef32(d, 72 + 4 * i);
 }
 
-// a level's one-player fog row (the 30 values after the id, as bgfog.c lists them)
+// a level's one-player fog row (the 30 values after the id, as bgfog.c lists them):
+// fogLoadLevelEnvironment() takes the first row with the id before the id-0 end
+// row, passing over any other - Goldfinger 64 blanked GE's Runway +100 row to
+// 0xffffffff, and the readers stopping there lost ten of its missions' skies
 static int romFogRow(uint32_t levelid, double *r)
 {
-	int found = 0;
-
 	for (size_t o = FOG_AT; o + FOG_ROW <= g_DataLen; o += FOG_ROW) {
 		const uint32_t lid = be32(g_Data, o);
 
-		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
+		if (lid == 0 && o > FOG_AT) {
 			break;
 		}
 
-		if (lid != levelid) {
-			continue;
+		if (lid == levelid) {
+			fogRowValues(g_Data + o + 4, r);
+			return 1;
 		}
-
-		fogRowValues(g_Data + o + 4, r);
-		found = 1;
 	}
 
-	return found;
+	return 0;
 }
 
 // A level's second sky (ENVIRONMENTDATA_ALT, id + 100): bgfog.c's
@@ -1229,7 +1228,7 @@ static int romFogAltRow(uint32_t levelid, double *r)
 	for (size_t o = FOG_AT; o + 2 * FOG_ROW <= g_DataLen; o += FOG_ROW) {
 		const uint32_t lid = be32(g_Data, o);
 
-		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
+		if (lid == 0 && o > FOG_AT) {
 			break;
 		}
 
@@ -1253,7 +1252,7 @@ static int romFogCinemaRow(uint32_t levelid, double *r)
 	for (size_t o = FOG_AT; o + FOG_ROW <= g_DataLen; o += FOG_ROW) {
 		const uint32_t lid = be32(g_Data, o);
 
-		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
+		if (lid == 0 && o > FOG_AT) {
 			break;
 		}
 
@@ -1311,10 +1310,6 @@ static int romFoglessRow(uint32_t levelid, double *r)
 
 		if (lid == 0 && o > FOG_AT + FOG_ROW) {
 			break;
-		}
-
-		if (lid >= 0x10000) {
-			return 0;
 		}
 	}
 
