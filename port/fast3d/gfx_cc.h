@@ -101,4 +101,10 @@ struct CCFeatures {
 
 void gfx_cc_get_features(uint64_t shader_id0, uint32_t shader_id1, struct CCFeatures* cc_features);
 
+#ifdef __cplusplus
+#include <string>
+// The mesh vertex shader's functions and main(), for both backends (gfx_pc.cpp)
+std::string gfx_mesh_vs_main(const struct CCFeatures& cc, bool depth_clamp_hack, bool vulkan_depth);
+#endif
+
 #endif

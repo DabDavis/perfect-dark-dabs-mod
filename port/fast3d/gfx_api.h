@@ -37,6 +37,8 @@ extern struct XYWidthHeight gfx_current_native_viewport; // The internal/native 
 extern float gfx_current_native_aspect; // The aspect ratio of the above mode
 extern bool gfx_framebuffers_enabled;
 extern bool gfx_detail_textures_enabled;
+// Video.GpuVertices: meshes under G_MESH_EXT posed and transformed on the GPU (gfxmesh.h)
+extern bool gfx_gpu_vertices;
 extern bool gfx_clean_text_outlines;
 // Enhance Textures and Smooth Text: how many times over the game's own
 // textures, and its font glyphs, are scaled up on their way to the GPU (1 for

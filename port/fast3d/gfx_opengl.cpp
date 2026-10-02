@@ -36,6 +36,22 @@ struct ShaderProgram {
     GLint frame_count_location;
     GLint noise_scale_location;
     GLint three_point_filter_locations[2];
+
+    // The mesh variant (G_MESH_EXT, gfx_opengl_mesh_program()): the same
+    // fragment shader behind a vertex shader that does the RSP's work
+    uint64_t shader_id0;
+    uint32_t shader_id1;
+    GLuint fragment_shader;
+    GLuint mesh_program;
+    bool mesh_failed;
+    GLint mesh_params_location;
+    GLint mesh_palette_location;
+    GLint mesh_frame_count_location;
+    GLint mesh_noise_scale_location;
+    GLint mesh_three_point_filter_locations[2];
+    // the palette last handed to it, and in which frame
+    const float* mesh_palette;
+    uint32_t mesh_palette_frame;
 };
 
 struct Framebuffer {
@@ -111,7 +127,10 @@ static void gfx_opengl_set_uniforms(struct ShaderProgram* prg) {
     }
 }
 
+static void gl_mesh_leave(void);
+
 static void gfx_opengl_unload_shader(struct ShaderProgram* old_prg) {
+    gl_mesh_leave();
     if (old_prg != NULL) {
         for (int i = 0; i < old_prg->num_attribs; i++) {
             if (old_prg->attrib_locations[i] >= 0) {
@@ -126,6 +145,7 @@ static struct ShaderProgram* gl_cur_prg = NULL;
 
 static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
     // if (!new_prg) return;
+    gl_mesh_leave();
     gl_cur_prg = new_prg;
     glUseProgram(new_prg->opengl_program_id);
     gfx_opengl_vertex_array_set_attribs(new_prg);
@@ -717,11 +737,17 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     glDetachShader(shader_program, vertex_shader);
     glDetachShader(shader_program, fragment_shader);
     glDeleteShader(vertex_shader);
-    glDeleteShader(fragment_shader);
 
     size_t cnt = 0;
 
     struct ShaderProgram* prg = &shader_program_pool[make_pair(shader_id0, shader_id1)];
+    // kept, for the mesh variant to be linked against when it is first wanted
+    prg->shader_id0 = shader_id0;
+    prg->shader_id1 = shader_id1;
+    prg->fragment_shader = fragment_shader;
+    prg->mesh_program = 0;
+    prg->mesh_failed = false;
+    prg->mesh_palette = NULL;
     prg->attrib_locations[cnt] = glGetAttribLocation(shader_program, "aVtxPos");
     prg->attrib_sizes[cnt] = 4;
     ++cnt;
@@ -817,11 +843,19 @@ static void gfx_opengl_shader_get_info(struct ShaderProgram* prg, uint8_t* num_i
 }
 
 static void gfx_opengl_clear_shaders(void) {
+    gl_mesh_leave();
     glUseProgram(0);
     for (auto& pair : shader_program_pool) {
         glDeleteProgram(pair.second.opengl_program_id);
+        if (pair.second.mesh_program) {
+            glDeleteProgram(pair.second.mesh_program);
+        }
+        if (pair.second.fragment_shader) {
+            glDeleteShader(pair.second.fragment_shader);
+        }
     }
     shader_program_pool.clear();
+    gl_cur_prg = NULL;
 }
 
 static GLuint gfx_opengl_new_texture(void) {
@@ -1000,6 +1034,7 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate, bool additiv
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     // printf("flushing %d tris\n", buf_vbo_num_tris);
+    gl_mesh_leave();
 
     // Never ask for more vertices than were uploaded: a draw that reads past
     // its buffer is read by the GPU from whatever the address lands on, and on
@@ -1030,6 +1065,513 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
 
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
+}
+
+/*
+ * Meshes kept on the GPU (G_MESH_EXT, gfxmesh.h and gfx_pc.cpp).
+ *
+ * A mesh's vertices go up once (gfx_opengl_mesh_create()) and each draw names
+ * triangles of it by index, with the colours it reads - the mesh's own, or a
+ * frame's bruised or dimmed copy - streamed once a frame per array. The
+ * program is the bound one's mesh variant: its fragment shader behind a vertex
+ * shader that poses and transforms the vertex and works out every input the
+ * fragment shader reads from the draw's parameters, as gfx_sp_load_vertex()
+ * and gfx_emit_vertex() would have on the CPU (gfx_opengl_mesh_program()).
+ *
+ * A mesh draw leaves its own program, vertex array, culling and clip distance
+ * bound, so a run of them costs a draw call each; gl_mesh_leave() puts the
+ * CPU path's back before anything else draws.
+ */
+struct GlMesh {
+    GLuint vbo, vao;
+    uint32_t count;
+    GLuint ibo;                  // its kept triangles (gfx_opengl_mesh_add_indices()), 0 until it has any
+    std::vector<uint32_t> kept;  // the same on the CPU, to make a bigger buffer from
+    size_t ibo_cap;              // indices the buffer has room for
+};
+
+static std::unordered_map<uint32_t, GlMesh> gl_meshes;
+static uint32_t gl_mesh_next = 1;
+static bool gl_mesh_ok;      // the context can (gfx_opengl_mesh_supported())
+static bool gl_mesh_checked;
+static GLuint gl_mesh_col_vbo, gl_mesh_ibo;
+static size_t gl_mesh_col_cap, gl_mesh_col_used, gl_mesh_idx_cap, gl_mesh_idx_used;
+static std::unordered_map<const uint8_t*, GLintptr> gl_mesh_col_seen; // this frame's colour arrays, where they went
+static bool gl_mesh_bound;    // a mesh draw's state is bound
+static GLuint gl_mesh_prog;   // and its program
+static int8_t gl_mesh_cull_state;
+
+static void gl_mesh_leave(void) {
+    if (!gl_mesh_bound) {
+        return;
+    }
+
+    gl_mesh_bound = false;
+    glDisable(GL_CLIP_DISTANCE0);
+
+    if (gl_mesh_cull_state) {
+        glDisable(GL_CULL_FACE);
+        gl_mesh_cull_state = 0;
+    }
+
+    // opengl_vao is 0 in a compatibility context, which never made one
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+
+    if (gl_cur_prg) {
+        glUseProgram(gl_cur_prg->opengl_program_id);
+    }
+
+    gl_mesh_prog = 0;
+}
+
+static bool gfx_opengl_mesh_supported(void) {
+    if (!gl_mesh_checked) {
+        GLint comps = 0;
+
+        gl_mesh_checked = true;
+
+        if (!gl_es && GLVersion.major >= 3 && gl_glsl_version >= 130 && glad_glGenVertexArrays &&
+            glad_glVertexAttribIPointer && glad_glDrawElements && glad_glUniform4fv) {
+            glGetIntegerv(GL_MAX_VERTEX_UNIFORM_COMPONENTS, &comps);
+            gl_mesh_ok = comps >= 4 * (GFX_MESH_PARAMS + 3 * GFX_MESH_PALETTE_MAX);
+        }
+
+        sysLogPrintf(LOG_NOTE, "GL: meshes on the GPU: %s", gl_mesh_ok ? "yes" : "no");
+    }
+
+    return gl_mesh_ok;
+}
+
+// The streams the frame's colours and indices go into, made at the first mesh
+static void gl_mesh_streams(void) {
+    if (gl_mesh_col_vbo) {
+        return;
+    }
+
+    glGenBuffers(1, &gl_mesh_col_vbo);
+    glGenBuffers(1, &gl_mesh_ibo);
+    gl_mesh_col_cap = 4u << 20;
+    gl_mesh_idx_cap = 4u << 20;
+    glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_col_vbo);
+    glBufferData(GL_ARRAY_BUFFER, gl_mesh_col_cap, NULL, GL_STREAM_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_ibo);
+    glBufferData(GL_ARRAY_BUFFER, gl_mesh_idx_cap, NULL, GL_STREAM_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+}
+
+// A new frame: the streams start again on fresh storage, so nothing waits on
+// the GPU still reading last frame's
+static void gl_mesh_start_frame(void) {
+    if (!gl_mesh_col_vbo) {
+        return;
+    }
+
+    gl_mesh_leave();
+    gl_mesh_col_used = 0;
+    gl_mesh_idx_used = 0;
+    gl_mesh_col_seen.clear();
+    glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_col_vbo);
+    glBufferData(GL_ARRAY_BUFFER, gl_mesh_col_cap, NULL, GL_STREAM_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_ibo);
+    glBufferData(GL_ARRAY_BUFFER, gl_mesh_idx_cap, NULL, GL_STREAM_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+}
+
+static uint32_t gfx_opengl_mesh_create(const struct GfxMeshVertex* verts, uint32_t count) {
+    if (!gfx_opengl_mesh_supported() || count == 0) {
+        return 0;
+    }
+
+    gl_mesh_leave();
+    gl_mesh_streams();
+
+    GlMesh m;
+    m.count = count;
+    m.ibo = 0;
+    m.ibo_cap = 0;
+    glGenBuffers(1, &m.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)count * sizeof(GfxMeshVertex), verts, GL_STATIC_DRAW);
+
+    glGenVertexArrays(1, &m.vao);
+    glBindVertexArray(m.vao);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(GfxMeshVertex), (const void*)offsetof(GfxMeshVertex, pos));
+    glEnableVertexAttribArray(1);
+    glVertexAttribIPointer(1, 2, GL_SHORT, sizeof(GfxMeshVertex), (const void*)offsetof(GfxMeshVertex, st));
+    glEnableVertexAttribArray(2);
+    glVertexAttribIPointer(2, 4, GL_UNSIGNED_BYTE, sizeof(GfxMeshVertex), (const void*)offsetof(GfxMeshVertex, bones));
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(GfxMeshVertex), (const void*)offsetof(GfxMeshVertex, weights));
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, sizeof(GfxMeshVertex), (const void*)offsetof(GfxMeshVertex, normal));
+    // the colours: pointed at the frame's stream by each draw
+    glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_col_vbo);
+    glEnableVertexAttribArray(4);
+    glVertexAttribIPointer(4, 4, GL_UNSIGNED_BYTE, 4, NULL);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl_mesh_ibo);
+
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+
+    if (gl_mesh_next == 0) {
+        gl_mesh_next = 1;
+    }
+
+    const uint32_t id = gl_mesh_next++;
+    gl_meshes[id] = m;
+
+    return id;
+}
+
+static void gfx_opengl_mesh_delete(uint32_t mesh) {
+    auto it = gl_meshes.find(mesh);
+
+    if (it == gl_meshes.end()) {
+        return;
+    }
+
+    gl_mesh_leave();
+    glDeleteVertexArrays(1, &it->second.vao);
+    glDeleteBuffers(1, &it->second.vbo);
+    if (it->second.ibo) {
+        glDeleteBuffers(1, &it->second.ibo);
+    }
+    gl_meshes.erase(it);
+}
+
+/*
+ * Triangles kept with a mesh for good: a run of its lists, read once
+ * (gfx_mesh_read_run()), drawn every frame from here with nothing uploaded.
+ * The buffer is made again, bigger, from the CPU's copy when it fills - runs
+ * are only added the first time each is drawn.
+ */
+static uint32_t gfx_opengl_mesh_add_indices(uint32_t mesh, const uint32_t* indices, uint32_t count) {
+    auto it = gl_meshes.find(mesh);
+
+    if (it == gl_meshes.end() || count == 0) {
+        return UINT32_MAX;
+    }
+
+    GlMesh& m = it->second;
+    const uint32_t first = (uint32_t)m.kept.size();
+
+    m.kept.insert(m.kept.end(), indices, indices + count);
+
+    gl_mesh_leave();
+    // the element binding is the vertex array's; the default one is left alone
+    glBindVertexArray(m.vao);
+
+    if (!m.ibo) {
+        glGenBuffers(1, &m.ibo);
+    }
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.ibo);
+
+    if (m.kept.size() > m.ibo_cap) {
+        m.ibo_cap = m.kept.size() * 2 < 1024 ? 1024 : m.kept.size() * 2;
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, m.ibo_cap * sizeof(uint32_t), NULL, GL_STATIC_DRAW);
+        glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, m.kept.size() * sizeof(uint32_t), m.kept.data());
+    } else {
+        glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, first * sizeof(uint32_t), count * sizeof(uint32_t), indices);
+    }
+
+    glBindVertexArray(opengl_vao);
+
+    return first;
+}
+
+static bool gfx_opengl_mesh_compile_failed(GLuint shader, const char* what, const char* src) {
+    GLint success = 0;
+
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+
+    if (!success) {
+        char log[1024];
+        GLsizei len = 0;
+
+        glGetShaderInfoLog(shader, sizeof(log), &len, log);
+        sysLogPrintf(LOG_ERROR, "GL: the mesh %s did not compile, meshes under it go to the CPU:\n%s\n%s", what, log, src);
+        return true;
+    }
+
+    return false;
+}
+
+/*
+ * The mesh variant's vertex shader: the vertex posed by the palette, put
+ * through the RSP's transform, and every output the CPU path's vertex shader
+ * passes on worked out here from the draw's parameters (GFX_MESH_PARAMS), in
+ * the order gfx_sp_load_vertex() and gfx_emit_vertex() work them out.
+ */
+static size_t gfx_opengl_mesh_vs(const struct CCFeatures& cc, char* buf) {
+    size_t len = 0;
+
+    len += sprintf(buf + len, "#version %s\n", gl_glsl_version_str);
+    append_line(buf, &len, "in vec3 aPos;");
+    append_line(buf, &len, "in ivec2 aST;");
+    append_line(buf, &len, "in uvec4 aBones;");
+    append_line(buf, &len, "in vec3 aWeights;");
+    append_line(buf, &len, "in uvec4 aCol;");
+    append_line(buf, &len, "in vec3 aNormal;");
+    len += sprintf(buf + len, "uniform vec4 uP[%d];\n", GFX_MESH_PARAMS);
+    len += sprintf(buf + len, "uniform vec4 uPal[%d];\n", 3 * GFX_MESH_PALETTE_MAX);
+
+    for (int i = 0; i < 2; i++) {
+        if (cc.used_textures[i]) {
+            len += sprintf(buf + len, "out vec2 vTexCoord%d;\n", i);
+            for (int j = 0; j < 2; j++) {
+                if (cc.clamp[i][j]) {
+                    len += sprintf(buf + len, "out float vTexClamp%s%d;\n", j == 0 ? "S" : "T", i);
+                }
+            }
+        }
+    }
+    if (cc.opt_fog) {
+        append_line(buf, &len, "out vec4 vFog;");
+        append_line(buf, &len, "out float vFogOffset;");
+        append_line(buf, &len, "out vec2 vFogZW;");
+    }
+    if (cc.opt_grayscale) {
+        append_line(buf, &len, "out vec4 vGrayscaleColor;");
+    }
+    if (cc.opt_envmap) {
+        append_line(buf, &len, "out vec3 vEnvNormal;");
+        append_line(buf, &len, "out vec3 vEnvPos;");
+    }
+    for (int i = 0; i < cc.num_inputs; i++) {
+        len += sprintf(buf + len, "out vec%d vInput%d;\n", cc.opt_alpha ? 4 : 3, i + 1);
+    }
+
+    const std::string main = gfx_mesh_vs_main(cc, !GLAD_GL_ARB_depth_clamp, false);
+
+    memcpy(buf + len, main.c_str(), main.size());
+    len += main.size();
+    buf[len] = '\0';
+
+    return len;
+}
+
+static bool gfx_opengl_mesh_program(struct ShaderProgram* prg) {
+    if (prg->mesh_program) {
+        return true;
+    }
+    if (prg->mesh_failed || !prg->fragment_shader) {
+        return false;
+    }
+
+    struct CCFeatures cc = { 0 };
+    gfx_cc_get_features(prg->shader_id0, prg->shader_id1, &cc);
+
+    static char vs_buf[16384];
+    const size_t vs_len = gfx_opengl_mesh_vs(cc, vs_buf);
+    const GLchar* src = vs_buf;
+    const GLint srclen = (GLint)vs_len;
+
+    prg->mesh_failed = true;
+
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &src, &srclen);
+    glCompileShader(vs);
+
+    if (gfx_opengl_mesh_compile_failed(vs, "vertex shader", vs_buf)) {
+        glDeleteShader(vs);
+        return false;
+    }
+
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vs);
+    glAttachShader(program, prg->fragment_shader);
+    glBindAttribLocation(program, 0, "aPos");
+    glBindAttribLocation(program, 1, "aST");
+    glBindAttribLocation(program, 2, "aBones");
+    glBindAttribLocation(program, 3, "aWeights");
+    glBindAttribLocation(program, 4, "aCol");
+    glBindAttribLocation(program, 5, "aNormal");
+    glLinkProgram(program);
+    glDetachShader(program, vs);
+    glDetachShader(program, prg->fragment_shader);
+    glDeleteShader(vs);
+
+    GLint linked = 0;
+    glGetProgramiv(program, GL_LINK_STATUS, &linked);
+
+    if (!linked) {
+        char log[1024];
+        GLsizei loglen = 0;
+
+        glGetProgramInfoLog(program, sizeof(log), &loglen, log);
+        sysLogPrintf(LOG_ERROR, "GL: the mesh program (ID %llx, %x) did not link, meshes under it go to the CPU:\n%s",
+                     (unsigned long long)prg->shader_id0, prg->shader_id1, log);
+        glDeleteProgram(program);
+        return false;
+    }
+
+    prg->mesh_program = program;
+    prg->mesh_failed = false;
+    prg->mesh_params_location = glGetUniformLocation(program, "uP");
+    prg->mesh_palette_location = glGetUniformLocation(program, "uPal");
+    prg->mesh_frame_count_location = glGetUniformLocation(program, "frame_count");
+    prg->mesh_noise_scale_location = glGetUniformLocation(program, "noise_scale");
+    prg->mesh_three_point_filter_locations[0] = glGetUniformLocation(program, "three_point_filter0");
+    prg->mesh_three_point_filter_locations[1] = glGetUniformLocation(program, "three_point_filter1");
+    prg->mesh_palette = NULL;
+
+    glUseProgram(program);
+
+    if (cc.used_textures[0]) {
+        glUniform1i(glGetUniformLocation(program, "uTex0"), 0);
+    }
+    if (cc.used_textures[1]) {
+        glUniform1i(glGetUniformLocation(program, "uTex1"), 1);
+    }
+
+    // the program the next mesh draw binds is this one, or the CPU's when it leaves
+    gl_mesh_prog = program;
+
+    if (!gl_mesh_bound && gl_cur_prg) {
+        glUseProgram(gl_cur_prg->opengl_program_id);
+        gl_mesh_prog = 0;
+    }
+
+    return true;
+}
+
+// The colours the draw reads, in this frame's stream: where they start
+static bool gl_mesh_colours(const uint8_t* colours, uint32_t count, GLintptr* out) {
+    auto it = gl_mesh_col_seen.find(colours);
+
+    if (it != gl_mesh_col_seen.end()) {
+        *out = it->second;
+        return true;
+    }
+
+    const size_t bytes = (size_t)count * 4;
+
+    glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_col_vbo);
+
+    if (gl_mesh_col_used + bytes > gl_mesh_col_cap) {
+        // fresh storage, bigger; what earlier draws read stays theirs
+        while (gl_mesh_col_cap < bytes * 2 || gl_mesh_col_cap < gl_mesh_col_used + bytes) {
+            gl_mesh_col_cap *= 2;
+        }
+        glBufferData(GL_ARRAY_BUFFER, gl_mesh_col_cap, NULL, GL_STREAM_DRAW);
+        gl_mesh_col_used = 0;
+        gl_mesh_col_seen.clear();
+    }
+
+    glBufferSubData(GL_ARRAY_BUFFER, gl_mesh_col_used, bytes, colours);
+    *out = (GLintptr)gl_mesh_col_used;
+    gl_mesh_col_seen[colours] = *out;
+    gl_mesh_col_used += (bytes + 15) & ~(size_t)15;
+
+    return true;
+}
+
+// The draw's indices, into the stream the bound vertex array names
+static GLintptr gl_mesh_indices(const uint32_t* indices, uint32_t count) {
+    const size_t bytes = (size_t)count * 4;
+
+    if (gl_mesh_idx_used + bytes > gl_mesh_idx_cap) {
+        while (gl_mesh_idx_cap < bytes * 2 || gl_mesh_idx_cap < gl_mesh_idx_used + bytes) {
+            gl_mesh_idx_cap *= 2;
+        }
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, gl_mesh_idx_cap, NULL, GL_STREAM_DRAW);
+        gl_mesh_idx_used = 0;
+    }
+
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, gl_mesh_idx_used, bytes, indices);
+
+    const GLintptr at = (GLintptr)gl_mesh_idx_used;
+    gl_mesh_idx_used += (bytes + 15) & ~(size_t)15;
+
+    return at;
+}
+
+static bool gfx_opengl_mesh_draw(const struct GfxMeshDraw* d) {
+    auto it = gl_meshes.find(d->mesh);
+
+    if (it == gl_meshes.end() || !d->prg || !d->colours || d->numindices == 0 ||
+        (!d->indices && (!it->second.ibo || d->first_index + d->numindices > it->second.kept.size())) ||
+        !gfx_opengl_mesh_program(d->prg)) {
+        return false;
+    }
+
+    struct ShaderProgram* prg = d->prg;
+    GLintptr coloff;
+
+    if (!gl_mesh_colours(d->colours, d->numcolours, &coloff)) {
+        return false;
+    }
+
+    if (!gl_mesh_bound) {
+        gl_mesh_bound = true;
+        gl_mesh_prog = 0;
+        gl_mesh_cull_state = 0;
+        glEnable(GL_CLIP_DISTANCE0);
+        glFrontFace(GL_CCW);
+    }
+
+    if (gl_mesh_prog != prg->mesh_program) {
+        glUseProgram(prg->mesh_program);
+        gl_mesh_prog = prg->mesh_program;
+    }
+
+    if (prg->mesh_frame_count_location >= 0) {
+        glUniform1i(prg->mesh_frame_count_location, frame_count);
+    }
+    if (prg->mesh_noise_scale_location >= 0) {
+        glUniform1f(prg->mesh_noise_scale_location, current_noise_scale);
+    }
+    for (int i = 0; i < 2; i++) {
+        if (prg->mesh_three_point_filter_locations[i] >= 0) {
+            glUniform1i(prg->mesh_three_point_filter_locations[i], current_textures_linear_filter[i]);
+        }
+    }
+
+    glUniform4fv(prg->mesh_params_location, GFX_MESH_PARAMS, d->params);
+
+    if (d->palette && d->numpalette) {
+        if (prg->mesh_palette != d->palette || prg->mesh_palette_frame != frame_count) {
+            const uint32_t n = d->numpalette < GFX_MESH_PALETTE_MAX ? d->numpalette : GFX_MESH_PALETTE_MAX;
+
+            glUniform4fv(prg->mesh_palette_location, 3 * n, d->palette);
+            prg->mesh_palette = d->palette;
+            prg->mesh_palette_frame = frame_count;
+        }
+    }
+
+    glBindVertexArray(it->second.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_col_vbo);
+    glVertexAttribIPointer(4, 4, GL_UNSIGNED_BYTE, 4, (const void*)coloff);
+
+    GLintptr idxoff;
+
+    if (d->indices) {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl_mesh_ibo);
+        idxoff = gl_mesh_indices(d->indices, d->numindices);
+    } else {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, it->second.ibo);
+        idxoff = (GLintptr)d->first_index * sizeof(uint32_t);
+    }
+
+    if (d->cull != gl_mesh_cull_state) {
+        if (d->cull == 0) {
+            glDisable(GL_CULL_FACE);
+        } else {
+            if (gl_mesh_cull_state == 0) {
+                glEnable(GL_CULL_FACE);
+            }
+            // anticlockwise is the front: the back is the clockwise
+            glCullFace(d->cull > 0 ? GL_BACK : GL_FRONT);
+        }
+        gl_mesh_cull_state = d->cull;
+    }
+
+    glDrawElements(GL_TRIANGLES, d->numindices, GL_UNSIGNED_INT, (const void*)idxoff);
+
+    return true;
 }
 
 typedef void (APIENTRY *DEBUGPROC)(GLenum source,
@@ -1272,6 +1814,7 @@ static void gfx_opengl_on_resize(void) {
 
 static void gfx_opengl_start_frame(void) {
     frame_count++;
+    gl_mesh_start_frame();
 }
 
 /**
@@ -1423,6 +1966,7 @@ static bool gfx_opengl_grade_target(int width, int height) {
 }
 
 static void gfx_opengl_grade_frame(void) {
+    gl_mesh_leave();
     if (grade_failed || framebuffers.empty()) {
         return;
     }
@@ -1636,6 +2180,7 @@ static bool gfx_opengl_post_draw(GfxPostPass pass, GLuint fbo, int width, int he
 }
 
 static bool gfx_opengl_post_process(int fb_src, bool smaa, bool fsr, float sharpness) {
+    gl_mesh_leave();
     if (post_failed || !gfx_framebuffers_enabled || fb_src <= 0 || (size_t)fb_src >= framebuffers.size()) {
         return false;
     }
@@ -1763,6 +2308,7 @@ static bool gfx_opengl_taa_depth(int width, int height) {
 }
 
 static bool gfx_opengl_taa_resolve(int fb_id, const float *params, int out, int x, int y, int width, int height) {
+    gl_mesh_leave();
     if (post_failed || !gfx_framebuffers_enabled || fb_id <= 0 || (size_t)fb_id >= framebuffers.size()) {
         return false;
     }
@@ -1854,6 +2400,7 @@ static bool gfx_opengl_taa_resolve(int fb_id, const float *params, int out, int 
 }
 
 static void gfx_opengl_end_frame(void) {
+    gl_mesh_leave();
     gfx_opengl_grade_frame();
     glFlush();
 }
@@ -1969,6 +2516,7 @@ static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, 
 }
 
 bool gfx_opengl_start_draw_to_framebuffer(int fb_id, float noise_scale) {
+    gl_mesh_leave();
     if (fb_id < 0 || (size_t)fb_id >= framebuffers.size()) {
         return false;
     }
@@ -1987,6 +2535,7 @@ bool gfx_opengl_start_draw_to_framebuffer(int fb_id, float noise_scale) {
 }
 
 void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
+    gl_mesh_leave();
     glDisable(GL_SCISSOR_TEST);
     
     GLbitfield mask = 0;
@@ -2007,6 +2556,7 @@ void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
 }
 
 void gfx_opengl_resolve_msaa_color_buffer(int fb_id_target, int fb_id_source) {
+    gl_mesh_leave();
     if (!gfx_framebuffers_enabled) {
         return;
     }
@@ -2044,6 +2594,7 @@ void gfx_opengl_select_texture_fb(int fb_id) {
 }
 
 void gfx_opengl_copy_framebuffer(int fb_dst, int fb_src, int left, int top, bool flip_y, bool use_back) {
+    gl_mesh_leave();
     if (fb_dst < 0 || (size_t)fb_dst >= framebuffers.size()
             || fb_src < 0 || (size_t)fb_src >= framebuffers.size()) {
         return;
@@ -2123,6 +2674,7 @@ void gfx_opengl_set_mipmap_filter(MipmapFilteringMode mode) {
 // glReadPixels gives rows bottom-up. Rather than flip them here the caller is
 // told about it, because the one caller writing a PNG walks the rows anyway.
 static bool gfx_opengl_read_screen_pixels(int x, int y, int width, int height, void *rgb) {
+    gl_mesh_leave();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glReadBuffer(GL_BACK);
 
@@ -2373,6 +2925,7 @@ static bool gfx_opengl_nv12_init(int width, int height) {
  * which is a bug that looks like anything but the recorder.
  */
 static void gfx_opengl_nv12_convert(int width, int height) {
+    gl_mesh_leave();
     GLint prev_prog = 0, prev_vao = 0, prev_tex = 0, prev_active = GL_TEXTURE0;
     GLint prev_viewport[4] = { 0, 0, 0, 0 };
     const GLboolean was_blend = glIsEnabled(GL_BLEND);
@@ -2725,6 +3278,7 @@ static GLenum gfx_opengl_occlusion_target(void) {
 }
 
 static bool gfx_opengl_occlusion_begin(int slot) {
+    gl_mesh_leave();
     if (!gl_occlusion_made) {
         if (!glad_glGenQueries || !glad_glBeginQuery || !glad_glEndQuery || !glad_glGetQueryObjectuiv) {
             return false;
@@ -2802,4 +3356,9 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_occlusion_end,
     gfx_opengl_occlusion_result,
     gfx_opengl_get_texture_limits,
+    gfx_opengl_mesh_supported,
+    gfx_opengl_mesh_create,
+    gfx_opengl_mesh_delete,
+    gfx_opengl_mesh_draw,
+    gfx_opengl_mesh_add_indices,
 };

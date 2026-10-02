@@ -210,6 +210,7 @@
 #define G_SETFOGLINE_EXT             0x4b
 #define G_OCCLUSIONTEST_EXT          0x4c
 #define G_SETTILEOFFSET_EXT          0x4d
+#define G_MESH_EXT                   0x4e
 
 /* G_EXTRAGEOMETRYMODE flags */
 
@@ -455,6 +456,22 @@
     _g->words.w0 = _SHIFTL(G_TAA_EXT, 24, 8) | _SHIFTL((begin), 8, 1) \
         | _SHIFTL((slot), 0, 8);                                       \
     _g->words.w1 = (uintptr_t)(mtx);                                   \
+}
+
+/*
+ * G_MESH_EXT: the lists that follow draw one of the meshes in gfxmesh.h - the
+ * XBLA release's and GoldenEye XBLA's (xblamesh.c) - until a gSPMeshEXT() of
+ * NULL. The renderer draws them from a copy of the mesh it keeps on the GPU,
+ * posed by the draw's palette in the vertex shader, instead of transforming
+ * every vertex the lists load. draw is a struct gfxmeshdraw in memory that
+ * lives until the frame is drawn.
+ */
+#define gSPMeshEXT(pkt, draw)                                          \
+{                                                                      \
+    Gfx *_g = (Gfx *)(pkt);                                            \
+                                                                       \
+    _g->words.w0 = _SHIFTL(G_MESH_EXT, 24, 8);                         \
+    _g->words.w1 = (uintptr_t)(draw);                                  \
 }
 
 #define gSPSetExtraGeometryModeEXT(pkt, word) gSPExtraGeometryModeEXT((pkt), 0, word)

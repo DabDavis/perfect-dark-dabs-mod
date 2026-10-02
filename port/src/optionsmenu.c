@@ -863,6 +863,25 @@ static MenuItemHandlerResult menuhandlerFramerateLimit(s32 operation, struct men
 }
 
 /**
+ * GPU Vertex Shading: the XBLA release's and GoldenEye XBLA's meshes posed,
+ * lit and transformed by the GPU from a copy it keeps, instead of a vertex at
+ * a time on the CPU (Video.GpuVertices, gfxmesh.h). The same picture either
+ * way to within a pixel's edge; off is the old way, for comparing. Live.
+ */
+static MenuItemHandlerResult menuhandlerGpuVertices(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GET:
+		return videoGetGpuVertices();
+	case MENUOP_SET:
+		videoSetGpuVertices(data->checkbox.value);
+		break;
+	}
+
+	return 0;
+}
+
+/**
  * SMAA: edge anti-aliasing on the finished frame, which reaches what MSAA
  * cannot (alpha cut-outs, the edges inside a texture) and costs a fraction of
  * it. The two stack. Live.
@@ -1463,6 +1482,14 @@ struct menuitem g_ExtendedVideoMenuItems[] = {
 		(uintptr_t)"Renderer",
 		0,
 		menuhandlerRenderer,
+	},
+	{
+		MENUITEMTYPE_CHECKBOX,
+		0,
+		MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"GPU Vertex Shading",
+		0,
+		menuhandlerGpuVertices,
 	},
 	{
 		MENUITEMTYPE_SEPARATOR,

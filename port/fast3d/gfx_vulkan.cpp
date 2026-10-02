@@ -71,6 +71,7 @@
 #include "gfx_api.h"
 #include "gfx_vulkan.h"
 #include "gfx_post.h"
+#include "gfxmesh.h"
 
 extern "C" {
 #include "fs.h"
@@ -174,6 +175,8 @@ namespace {
     X(vkCmdBindDescriptorSets) \
     X(vkCmdBindVertexBuffers) \
     X(vkCmdDraw) \
+    X(vkCmdDrawIndexed) \
+    X(vkCmdBindIndexBuffer) \
     X(vkCmdSetViewport) \
     X(vkCmdSetScissor) \
     X(vkCmdSetDepthBias) \
@@ -230,12 +233,17 @@ static VkQueue vk_queue;
 static VkFormat vk_depth_format;
 static bool vk_depth_has_stencil;
 static bool vk_have_depth_clamp;
+static bool vk_have_clip_distance;
 static bool vk_have_mirror_clamp;
 static bool vk_have_anisotropy;
 static uint32_t vk_max_msaa = 1;
 static VkSampleCountFlags vk_sample_counts = VK_SAMPLE_COUNT_1_BIT;
 
 static VkDescriptorSetLayout vk_set_layout;
+// Set 1: a mesh draw's parameters and palette (G_MESH_EXT), in the frame's
+// mesh stream at dynamic offsets
+static VkDescriptorSetLayout vk_mesh_set_layout;
+static VkDescriptorPool vk_mesh_pool;
 static VkPipelineLayout vk_pipeline_layout;
 static VkPipelineCache vk_pipeline_cache;
 static shaderc_compiler_t vk_shaderc;
@@ -633,6 +641,8 @@ enum : uint8_t {
     VKP_BIND_SET,
     VKP_BEGIN_QUERY,
     VKP_END_QUERY,
+    VKP_BIND_MESH,
+    VKP_DRAW_INDEXED,
 };
 
 struct VkStream {
@@ -663,6 +673,8 @@ struct VkpPush { uint32_t size; uint8_t data[32]; };
 struct VkpPushBig { uint32_t size; uint8_t data[112]; };
 struct VkpBindVb { VkBuffer buffer; VkDeviceSize offset; };
 struct VkpDraw { uint32_t count, first; };
+// a mesh draw's vertices, colours, indices and set 1 at its two dynamic offsets
+struct VkpBindMesh { VkBuffer vb, cb, ib; VkDeviceSize vboff, cboff, iboff; VkDescriptorSet set; uint32_t dyn[2]; };
 struct VkpClearAtt { uint32_t n; VkClearAttachment att[2]; VkClearRect rect; };
 struct VkpBlit { VkImage src; VkImageLayout src_layout; VkImage dst; VkImageLayout dst_layout; VkImageBlit region; VkFilter filter; };
 struct VkpResolve { VkImage src; VkImageLayout src_layout; VkImage dst; VkImageLayout dst_layout; VkImageResolve region; };
@@ -751,6 +763,14 @@ static void rcCmdBindVertexBuffers(VkCommandBuffer cb, uint32_t first, uint32_t 
 
 static inline void rcCmdDraw(VkCommandBuffer cb, uint32_t count, uint32_t instances, uint32_t first, uint32_t fi) {
     vk_put(VKP_DRAW, VkpDraw{ count, first });
+}
+
+static inline void rcCmdBindMesh(const VkpBindMesh &m) {
+    vk_put(VKP_BIND_MESH, m);
+}
+
+static inline void rcCmdDrawIndexed(uint32_t count, uint32_t first) {
+    vk_put(VKP_DRAW_INDEXED, VkpDraw{ count, first });
 }
 
 static void rcCmdClearAttachments(VkCommandBuffer cb, uint32_t n, const VkClearAttachment *a, uint32_t nr,
@@ -933,6 +953,20 @@ static void vk_replay(VkCommandBuffer cb, const VkStream &st) {
                 vkCmdEndQuery(cb, vk_query_pool, q);
                 break;
             }
+            case VKP_BIND_MESH: {
+                VKP_TAKE(VkpBindMesh, m);
+                const VkBuffer bufs[2] = { m.vb, m.cb };
+                const VkDeviceSize offs[2] = { m.vboff, m.cboff };
+                vkCmdBindVertexBuffers(cb, 0, 2, bufs, offs);
+                vkCmdBindIndexBuffer(cb, m.ib, m.iboff, VK_INDEX_TYPE_UINT32);
+                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &m.set, 2, m.dyn);
+                break;
+            }
+            case VKP_DRAW_INDEXED: {
+                VKP_TAKE(VkpDraw, d);
+                vkCmdDrawIndexed(cb, d.count, 1, d.first, 0, 0);
+                break;
+            }
             default:
                 sysFatalError("Vulkan: bad command packet %u", type);
         }
@@ -979,6 +1013,16 @@ struct VkSlot {
     VkChunkRing vertex;
     VkChunkRing staging;
     VkStream stream;
+    // The frame's mesh stream (G_MESH_EXT): draw parameters, palettes,
+    // colours and indices, one buffer read through mesh_set at dynamic
+    // offsets. Made bigger when the slot comes round if it ran out.
+    VkBuf mesh;
+    VkDescriptorSet mesh_set = VK_NULL_HANDLE;
+    VkDeviceSize mesh_used = 0;
+    bool mesh_grow = false;
+    std::unordered_map<const uint8_t *, VkDeviceSize> mesh_cols;
+    const float *mesh_pal = nullptr;
+    VkDeviceSize mesh_pal_off = 0;
 };
 
 static VkSlot vk_slots[VK_FRAMES];
@@ -1123,6 +1167,14 @@ struct VkProgram {
     uint8_t num_attribs = 0;
     // by pipeline state key; a combiner is drawn under a handful at most
     std::vector<std::pair<uint32_t, VkPipeline>> pipelines;
+    // The mesh variant (G_MESH_EXT): the same fragment shader behind
+    // gfx_mesh_vs_main(), compiled when first wanted, and its pipelines, by
+    // the same key and the culling
+    uint64_t id0 = 0;
+    uint32_t id1 = 0;
+    VkShaderModule mesh_vs = VK_NULL_HANDLE;
+    bool mesh_failed = false;
+    std::vector<std::pair<uint32_t, VkPipeline>> mesh_pipelines;
 };
 
 static std::map<std::pair<uint64_t, uint32_t>, VkProgram> vk_programs;
@@ -1252,6 +1304,8 @@ static void vk_begin_command_buffers(VkSlot &sl) {
                             NULL);
 }
 
+static void vk_mesh_slot_begin(VkSlot &sl);
+
 static void vk_begin_recording(void) {
     VkSlot &sl = vk_slots[vk_slot];
 
@@ -1260,6 +1314,7 @@ static void vk_begin_recording(void) {
 
     vk_ring_reset(sl.vertex);
     vk_ring_reset(sl.staging);
+    vk_mesh_slot_begin(sl);
 
     vk_begin_command_buffers(sl);
 }
@@ -2141,6 +2196,8 @@ static struct ShaderProgram *gfx_vk_create_and_load_new_shader(uint64_t shader_i
     VkProgram *prg = &vk_programs[make_pair(shader_id0, shader_id1)];
     prg->vs = vsm;
     prg->fs = fsm;
+    prg->id0 = shader_id0;
+    prg->id1 = shader_id1;
     prg->num_inputs = cc_features.num_inputs;
     prg->used_textures[0] = cc_features.used_textures[0];
     prg->used_textures[1] = cc_features.used_textures[1];
@@ -2180,6 +2237,14 @@ static void gfx_vk_clear_shaders(void) {
             const VkPipeline pipe = pl.second;
             vk_defer([=]() { vkDestroyPipeline(vk_dev, pipe, NULL); });
         }
+        for (auto &pl : p.second.mesh_pipelines) {
+            const VkPipeline pipe = pl.second;
+            vk_defer([=]() { vkDestroyPipeline(vk_dev, pipe, NULL); });
+        }
+        if (p.second.mesh_vs) {
+            const VkShaderModule mvs = p.second.mesh_vs;
+            vk_defer([=]() { vkDestroyShaderModule(vk_dev, mvs, NULL); });
+        }
         const VkShaderModule vs = p.second.vs, fs = p.second.fs;
         vk_defer([=]() {
             vkDestroyShaderModule(vk_dev, vs, NULL);
@@ -2203,9 +2268,11 @@ static uint32_t vk_samples_log2(uint32_t samples) {
     return l;
 }
 
+// mesh_cull: -1 for the CPU's vertices; else a mesh's (G_MESH_EXT), dropping
+// triangles wound 1 clockwise, 2 anticlockwise as emitted, 0 neither
 static VkPipeline vk_create_pipeline(VkShaderModule vsm, VkShaderModule fsm, const VkProgram *prg, int blend,
                                      bool depth_test, bool depth_write, VkCompareOp op, uint32_t samples,
-                                     bool has_depth) {
+                                     bool has_depth, int mesh_cull = -1) {
     VkPipelineShaderStageCreateInfo stages[2] = {};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -2239,6 +2306,27 @@ static VkPipeline vk_create_pipeline(VkShaderModule vsm, VkShaderModule fsm, con
         vi.pVertexAttributeDescriptions = attrs;
     }
 
+    // A mesh's: its own vertices (GfxMeshVertex) and the frame's colours
+    VkVertexInputBindingDescription mbind[2] = {};
+    if (prg && mesh_cull >= 0) {
+        mbind[0].binding = 0;
+        mbind[0].stride = sizeof(GfxMeshVertex);
+        mbind[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        mbind[1].binding = 1;
+        mbind[1].stride = 4;
+        mbind[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        attrs[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)offsetof(GfxMeshVertex, pos) };
+        attrs[1] = { 1, 0, VK_FORMAT_R16G16_SINT, (uint32_t)offsetof(GfxMeshVertex, st) };
+        attrs[2] = { 2, 0, VK_FORMAT_R8G8B8A8_UINT, (uint32_t)offsetof(GfxMeshVertex, bones) };
+        attrs[3] = { 3, 0, VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)offsetof(GfxMeshVertex, weights) };
+        attrs[4] = { 4, 1, VK_FORMAT_R8G8B8A8_UINT, 0 };
+        attrs[5] = { 5, 0, VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)offsetof(GfxMeshVertex, normal) };
+        vi.vertexBindingDescriptionCount = 2;
+        vi.pVertexBindingDescriptions = mbind;
+        vi.vertexAttributeDescriptionCount = 6;
+        vi.pVertexAttributeDescriptions = attrs;
+    }
+
     VkPipelineInputAssemblyStateCreateInfo ia = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
     ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
@@ -2249,9 +2337,16 @@ static VkPipeline vk_create_pipeline(VkShaderModule vsm, VkShaderModule fsm, con
     VkPipelineRasterizationStateCreateInfo rs = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
     rs.depthClampEnable = (prg && vk_have_depth_clamp) ? VK_TRUE : VK_FALSE;
     rs.polygonMode = VK_POLYGON_MODE_FILL;
-    // gfx_pc.cpp culls on the CPU, as the RSP did
+    // gfx_pc.cpp culls on the CPU, as the RSP did, except a mesh's. Images
+    // are in OpenGL's row order, and Vulkan's winding is reckoned with the
+    // rows the other way up, so what OpenGL calls anticlockwise is clockwise
+    // here: the front is the clockwise, and the back the anticlockwise.
     rs.cullMode = VK_CULL_MODE_NONE;
     rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    if (mesh_cull > 0) {
+        rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rs.cullMode = mesh_cull == 1 ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_FRONT_BIT;
+    }
     rs.depthBiasEnable = prg ? VK_TRUE : VK_FALSE;
     rs.lineWidth = 1.f;
 
@@ -2731,6 +2826,419 @@ static void vk_resolve_textures(VkPush &push) {
             }
         }
     }
+}
+
+/*
+ * Meshes kept on the GPU (G_MESH_EXT, gfxmesh.h and gfx_pc.cpp): a mesh's
+ * vertices and its kept triangles in buffers of their own, and each draw's
+ * parameters, palette, colours and any triangles not kept in the frame's mesh
+ * stream (VkSlot::mesh), which set 1 reads at two dynamic offsets. The vertex
+ * shader is gfx_mesh_vs_main() behind Vulkan's declarations, the fragment
+ * shader the program's own; the pipeline bakes in the culling.
+ */
+struct VkMesh {
+    VkBuf vbo;
+    VkBuf ibo;                    // its kept triangles, made bigger by copying when it fills
+    std::vector<uint32_t> kept;
+    uint32_t count = 0;
+};
+
+static std::unordered_map<uint32_t, VkMesh> vk_meshes;
+static uint32_t vk_mesh_next = 1;
+
+#define VK_MESH_STREAM ((VkDeviceSize)8 << 20)
+
+static VkDeviceSize vk_mesh_align(VkDeviceSize v, VkDeviceSize a) {
+    return (v + a - 1) / a * a;
+}
+
+static VkDeviceSize vk_mesh_offset_align(void) {
+    return std::max<VkDeviceSize>(16, vk_props.limits.minStorageBufferOffsetAlignment);
+}
+
+// The slot's mesh stream and the set that reads it, size bytes
+static bool vk_mesh_slot_init(VkSlot &sl, VkDeviceSize size) {
+    if (sl.mesh.buf) {
+        VkBuf old = sl.mesh;
+        vk_defer([=]() mutable { vk_buffer_destroy_now(old); });
+        sl.mesh = VkBuf();
+    }
+
+    if (!vk_buffer_create(sl.mesh, size,
+                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)) {
+        return false;
+    }
+
+    if (!sl.mesh_set) {
+        VkDescriptorSetAllocateInfo dai = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO };
+        dai.descriptorPool = vk_mesh_pool;
+        dai.descriptorSetCount = 1;
+        dai.pSetLayouts = &vk_mesh_set_layout;
+        if (vkAllocateDescriptorSets(vk_dev, &dai, &sl.mesh_set) != VK_SUCCESS) {
+            sl.mesh_set = VK_NULL_HANDLE;
+            return false;
+        }
+    }
+
+    VkDescriptorBufferInfo bi[2] = {};
+    bi[0].buffer = sl.mesh.buf;
+    bi[0].range = (VkDeviceSize)GFX_MESH_PARAMS * 16;
+    bi[1].buffer = sl.mesh.buf;
+    bi[1].range = (VkDeviceSize)GFX_MESH_PALETTE_MAX * GFXMESH_PALETTE_FLOATS * 4;
+    VkWriteDescriptorSet w[2] = {};
+    for (int k = 0; k < 2; k++) {
+        w[k].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w[k].dstSet = sl.mesh_set;
+        w[k].dstBinding = k;
+        w[k].descriptorCount = 1;
+        w[k].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+        w[k].pBufferInfo = &bi[k];
+    }
+    vkUpdateDescriptorSets(vk_dev, 2, w, 0, NULL);
+
+    return true;
+}
+
+// A frame starts on the slot: its stream is empty again, and bigger if the
+// last frame on it ran out
+static void vk_mesh_slot_begin(VkSlot &sl) {
+    sl.mesh_used = 0;
+    sl.mesh_cols.clear();
+    sl.mesh_pal = nullptr;
+
+    if (sl.mesh_grow && sl.mesh.buf) {
+        sl.mesh_grow = false;
+        vk_mesh_slot_init(sl, sl.mesh.size * 2);
+    }
+}
+
+// Room in the frame's mesh stream, aligned: NULL when it has none this frame
+static uint8_t *vk_mesh_stream(VkSlot &sl, VkDeviceSize size, VkDeviceSize align, VkDeviceSize *off) {
+    const VkDeviceSize at = vk_mesh_align(sl.mesh_used, align);
+
+    if (!sl.mesh.buf || at + size > sl.mesh.size) {
+        sl.mesh_grow = true;
+        return NULL;
+    }
+
+    sl.mesh_used = at + size;
+    *off = at;
+    return sl.mesh.mem.mapped + at;
+}
+
+static bool gfx_vk_mesh_supported(void) {
+    return vk_dev && !vk_failed && vk_have_clip_distance && vk_mesh_set_layout && vk_slots[0].mesh_set &&
+           vk_props.limits.maxStorageBufferRange >= GFX_MESH_PALETTE_MAX * GFXMESH_PALETTE_FLOATS * 4;
+}
+
+static uint32_t gfx_vk_mesh_create(const struct GfxMeshVertex *verts, uint32_t count) {
+    if (!gfx_vk_mesh_supported() || !count) {
+        return 0;
+    }
+
+    VkMesh m;
+    m.count = count;
+
+    if (!vk_buffer_create(m.vbo, (VkDeviceSize)count * sizeof(GfxMeshVertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)) {
+        return 0;
+    }
+
+    memcpy(m.vbo.mem.mapped, verts, (size_t)count * sizeof(GfxMeshVertex));
+
+    if (vk_mesh_next == 0) {
+        vk_mesh_next = 1;
+    }
+
+    const uint32_t id = vk_mesh_next++;
+    vk_meshes[id] = std::move(m);
+
+    return id;
+}
+
+static void gfx_vk_mesh_delete(uint32_t mesh) {
+    auto it = vk_meshes.find(mesh);
+
+    if (it == vk_meshes.end()) {
+        return;
+    }
+
+    // a frame in flight may still be drawing it
+    VkBuf vbo = it->second.vbo, ibo = it->second.ibo;
+    vk_defer([=]() mutable {
+        vk_buffer_destroy_now(vbo);
+        if (ibo.buf) {
+            vk_buffer_destroy_now(ibo);
+        }
+    });
+    vk_meshes.erase(it);
+}
+
+static uint32_t gfx_vk_mesh_add_indices(uint32_t mesh, const uint32_t *indices, uint32_t count) {
+    auto it = vk_meshes.find(mesh);
+
+    if (it == vk_meshes.end() || !count) {
+        return UINT32_MAX;
+    }
+
+    VkMesh &m = it->second;
+    const uint32_t first = (uint32_t)m.kept.size();
+    m.kept.insert(m.kept.end(), indices, indices + count);
+
+    const VkDeviceSize need = (VkDeviceSize)m.kept.size() * sizeof(uint32_t);
+
+    if (need > m.ibo.size) {
+        // A new buffer for everything kept; the old one is let go once the
+        // frames drawing from it are done. What frames in flight read of a
+        // buffer is never written again: a run's triangles only go on the end.
+        VkBuf grown;
+        const VkDeviceSize cap = std::max<VkDeviceSize>(need * 2, 4096);
+
+        if (!vk_buffer_create(grown, cap, VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
+            m.kept.resize(first);
+            return UINT32_MAX;
+        }
+
+        memcpy(grown.mem.mapped, m.kept.data(), need);
+
+        if (m.ibo.buf) {
+            VkBuf old = m.ibo;
+            vk_defer([=]() mutable { vk_buffer_destroy_now(old); });
+        }
+
+        m.ibo = grown;
+    } else {
+        memcpy(m.ibo.mem.mapped + (VkDeviceSize)first * sizeof(uint32_t), indices, (size_t)count * sizeof(uint32_t));
+    }
+
+    return first;
+}
+
+// The program's mesh vertex shader: Vulkan's declarations in front of the
+// shared body, its outputs at the locations the fragment shader reads them
+static bool vk_mesh_program(VkProgram *prg) {
+    if (prg->mesh_vs) {
+        return true;
+    }
+    if (prg->mesh_failed) {
+        return false;
+    }
+
+    struct CCFeatures cc = { 0 };
+    gfx_cc_get_features(prg->id0, prg->id1, &cc);
+
+    std::vector<std::pair<std::string, int>> vars;
+    for (int i = 0; i < 2; i++) {
+        if (cc.used_textures[i]) {
+            vars.push_back({ strf("vTexCoord%d", i), 2 });
+            for (int j = 0; j < 2; j++) {
+                if (cc.clamp[i][j]) {
+                    vars.push_back({ strf("vTexClamp%s%d", j == 0 ? "S" : "T", i), 1 });
+                }
+            }
+        }
+    }
+    if (cc.opt_fog) {
+        vars.push_back({ "vFog", 4 });
+        vars.push_back({ "vFogOffset", 1 });
+    }
+    if (cc.opt_grayscale) {
+        vars.push_back({ "vGrayscaleColor", 4 });
+    }
+    if (cc.opt_envmap) {
+        vars.push_back({ "vEnvNormal", 3 });
+        vars.push_back({ "vEnvPos", 3 });
+    }
+    for (int i = 0; i < cc.num_inputs; i++) {
+        vars.push_back({ strf("vInput%d", i + 1), cc.opt_alpha ? 4 : 3 });
+    }
+    if (cc.opt_fog) {
+        vars.push_back({ "vFogZW", 2 });
+    }
+
+    std::string vs = "#version 450\n";
+    vs += "layout(location = 0) in vec3 aPos;\n"
+          "layout(location = 1) in ivec2 aST;\n"
+          "layout(location = 2) in uvec4 aBones;\n"
+          "layout(location = 3) in vec3 aWeights;\n"
+          "layout(location = 4) in uvec4 aCol;\n"
+          "layout(location = 5) in vec3 aNormal;\n";
+    vs += strf("layout(set = 1, binding = 0, std430) readonly buffer MeshParams { vec4 uP[%d]; };\n", GFX_MESH_PARAMS);
+    vs += strf("layout(set = 1, binding = 1, std430) readonly buffer MeshPalette { vec4 uPal[%d]; };\n",
+               3 * GFX_MESH_PALETTE_MAX);
+    for (size_t k = 0; k < vars.size(); k++) {
+        vs += strf("layout(location = %d) out %s %s;\n", (int)k, vk_vec_type(vars[k].second), vars[k].first.c_str());
+    }
+    vs += gfx_mesh_vs_main(cc, !vk_have_depth_clamp, true);
+
+    char name[64];
+    std::string err;
+    snprintf(name, sizeof(name), "mesh_%016llx_%08x", (unsigned long long)prg->id0, prg->id1);
+    prg->mesh_vs = vk_compile(vs, false, name, &err);
+
+    if (!prg->mesh_vs) {
+        prg->mesh_failed = true;
+        sysLogPrintf(LOG_ERROR, "vulkan: the mesh vertex shader did not compile, meshes under it go to the CPU:\n%s\n%s",
+                     err.c_str(), vs.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+static VkPipeline vk_get_mesh_pipeline(VkProgram *prg, int cull) {
+    const VkFb &fb = vk_fbs[vk_rendering_fb];
+    const uint32_t samples = fb.msaa > 1 ? fb.msaa : 1;
+    const bool test = vk_depth_test && fb.has_depth;
+    const uint32_t key = (uint32_t)vk_blend | (test ? 4 : 0) | ((test && vk_depth_write) ? 8 : 0) |
+                         (test ? ((uint32_t)vk_depth_op << 4) : 0) | (vk_samples_log2(samples) << 8) |
+                         (fb.has_depth ? 0x1000 : 0) | ((uint32_t)cull << 13);
+
+    for (const auto &e : prg->mesh_pipelines) {
+        if (e.first == key) {
+            return e.second;
+        }
+    }
+
+    const double t0 = vk_now_ms();
+    VkPipeline p = vk_create_pipeline(prg->mesh_vs, prg->fs, prg, vk_blend, test, vk_depth_write, vk_depth_op, samples,
+                                      fb.has_depth, cull);
+    vk_stat_pipelines++;
+    vk_stat_pipeline_ms += vk_now_ms() - t0;
+    vk_cache_dirty = true;
+    vk_cache_idle_frames = 0;
+    if (p) {
+        prg->mesh_pipelines.push_back({ key, p });
+    }
+    return p;
+}
+
+static bool gfx_vk_mesh_draw(const struct GfxMeshDraw *d) {
+    auto it = vk_meshes.find(d->mesh);
+
+    if (it == vk_meshes.end() || !d->prg || !d->colours || !d->numindices || vk_cur_fb < 0 ||
+        (size_t)vk_cur_fb >= vk_fbs.size()) {
+        return false;
+    }
+
+    VkMesh &m = it->second;
+    VkProgram *prg = (VkProgram *)d->prg;
+
+    if (!d->indices && (!m.ibo.buf || (size_t)d->first_index + d->numindices > m.kept.size())) {
+        return false;
+    }
+    if (!vk_mesh_program(prg)) {
+        return false;
+    }
+
+    vk_ensure_recording();
+
+    VkSlot &sl = vk_slots[vk_slot];
+    const VkDeviceSize align = vk_mesh_offset_align();
+
+    // The parameters, the palette (once a frame for a model's every draw),
+    // the colours (once a frame an array) and the triangles not kept
+    VkDeviceSize paroff, paloff = 0, coloff, idxoff = 0;
+    uint8_t *ptr = vk_mesh_stream(sl, (VkDeviceSize)GFX_MESH_PARAMS * 16, align, &paroff);
+    if (!ptr) {
+        return false;
+    }
+    memcpy(ptr, d->params, (size_t)GFX_MESH_PARAMS * 16);
+
+    if (d->palette && d->numpalette) {
+        if (sl.mesh_pal == d->palette) {
+            paloff = sl.mesh_pal_off;
+        } else {
+            const uint32_t n = std::min<uint32_t>(d->numpalette, GFX_MESH_PALETTE_MAX);
+            // the window set 1 reads is a whole palette's, whatever this one holds
+            ptr = vk_mesh_stream(sl, (VkDeviceSize)GFX_MESH_PALETTE_MAX * GFXMESH_PALETTE_FLOATS * 4, align, &paloff);
+            if (!ptr) {
+                return false;
+            }
+            memcpy(ptr, d->palette, (size_t)n * GFXMESH_PALETTE_FLOATS * 4);
+            sl.mesh_pal = d->palette;
+            sl.mesh_pal_off = paloff;
+        }
+    } else if (sl.mesh.size < (VkDeviceSize)GFX_MESH_PALETTE_MAX * GFXMESH_PALETTE_FLOATS * 4) {
+        return false;
+    }
+
+    auto ci = sl.mesh_cols.find(d->colours);
+    if (ci != sl.mesh_cols.end()) {
+        coloff = ci->second;
+    } else {
+        ptr = vk_mesh_stream(sl, (VkDeviceSize)d->numcolours * 4, 16, &coloff);
+        if (!ptr) {
+            return false;
+        }
+        memcpy(ptr, d->colours, (size_t)d->numcolours * 4);
+        sl.mesh_cols[d->colours] = coloff;
+    }
+
+    if (d->indices) {
+        ptr = vk_mesh_stream(sl, (VkDeviceSize)d->numindices * 4, 16, &idxoff);
+        if (!ptr) {
+            return false;
+        }
+        memcpy(ptr, d->indices, (size_t)d->numindices * 4);
+    }
+
+    VkPush push;
+    push.frame_count = (int32_t)vk_frame_count;
+    push.noise_scale = vk_noise_scale;
+    push.three_point_filter0 = vk_textures_linear[0];
+    push.three_point_filter1 = vk_textures_linear[1];
+    VkProgram *const saved = vk_cur_prg;
+    vk_cur_prg = prg;
+    vk_resolve_textures(push);
+
+    if (!vk_rendering) {
+        vk_begin_fb_rendering();
+    }
+
+    vk_cur_prg = saved;
+
+    if (!vk_rendering) {
+        return false;
+    }
+
+    const int cull = d->cull > 0 ? 1 : d->cull < 0 ? 2 : 0;
+    VkPipeline p = vk_get_mesh_pipeline(prg, cull);
+    if (!p) {
+        prg->mesh_failed = true;
+        return false;
+    }
+
+    VkCommandBuffer cb = VK_MAIN_CB;
+
+    if (p != vk_bound_pipeline) {
+        rcCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
+        vk_bound_pipeline = p;
+    }
+
+    if (!vk_push_valid || memcmp(&push, &vk_pushed, sizeof(push)) != 0) {
+        rcCmdPushConstants(cb, vk_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        vk_pushed = push;
+        vk_push_valid = true;
+    }
+
+    VkpBindMesh bm;
+    bm.vb = m.vbo.buf;
+    bm.vboff = 0;
+    bm.cb = sl.mesh.buf;
+    bm.cboff = coloff;
+    bm.ib = d->indices ? sl.mesh.buf : m.ibo.buf;
+    bm.iboff = d->indices ? idxoff : 0;
+    bm.set = sl.mesh_set;
+    bm.dyn[0] = (uint32_t)paroff;
+    bm.dyn[1] = (uint32_t)paloff;
+    rcCmdBindMesh(bm);
+    rcCmdDrawIndexed(d->numindices, d->indices ? 0 : d->first_index);
+
+    // binding 0 is the mesh's now: the next batch of the CPU's binds its own
+    vk_bound_vbuf = VK_NULL_HANDLE;
+
+    return true;
 }
 
 static void gfx_vk_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
@@ -4180,6 +4688,7 @@ static bool vk_init_device(void) {
     }
 
     vk_have_depth_clamp = f2.features.depthClamp;
+    vk_have_clip_distance = f2.features.shaderClipDistance;
     vk_have_anisotropy = f2.features.samplerAnisotropy;
     vk_have_mirror_clamp = v12.samplerMirrorClampToEdge;
 
@@ -4195,6 +4704,7 @@ static bool vk_init_device(void) {
     f2_on.features.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
     f2_on.pNext = &v12_on;
     f2_on.features.depthClamp = vk_have_depth_clamp;
+    f2_on.features.shaderClipDistance = vk_have_clip_distance;
     f2_on.features.samplerAnisotropy = vk_have_anisotropy;
 
     std::vector<const char *> exts;
@@ -4375,12 +4885,39 @@ static bool vk_init_objects(void) {
         return false;
     }
 
+    // Set 1: a mesh draw's parameters and palette, each a window of the
+    // frame's mesh stream at a dynamic offset (vk_mesh_slot_init())
+    VkDescriptorSetLayoutBinding mb[2] = {};
+    for (int k = 0; k < 2; k++) {
+        mb[k].binding = k;
+        mb[k].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+        mb[k].descriptorCount = 1;
+        mb[k].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    }
+    VkDescriptorSetLayoutCreateInfo mli = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+    mli.bindingCount = 2;
+    mli.pBindings = mb;
+    if (vkCreateDescriptorSetLayout(vk_dev, &mli, NULL, &vk_mesh_set_layout) != VK_SUCCESS) {
+        vk_fail("could not create the mesh descriptor set layout");
+        return false;
+    }
+    VkDescriptorPoolSize mps = { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 2 * VK_FRAMES };
+    VkDescriptorPoolCreateInfo mdpi = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
+    mdpi.maxSets = VK_FRAMES;
+    mdpi.poolSizeCount = 1;
+    mdpi.pPoolSizes = &mps;
+    if (vkCreateDescriptorPool(vk_dev, &mdpi, NULL, &vk_mesh_pool) != VK_SUCCESS) {
+        vk_fail("could not create the mesh descriptor pool");
+        return false;
+    }
+
     // The largest block any shader pushes: the post passes' with TAA's
     // parameters (gfx_post.h), 112 bytes, inside the 128 every device has
     VkPushConstantRange pc = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, (uint32_t)std::max<size_t>(sizeof(VkPush), 112) };
+    const VkDescriptorSetLayout set_layouts[2] = { vk_set_layout, vk_mesh_set_layout };
     VkPipelineLayoutCreateInfo pli = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-    pli.setLayoutCount = 1;
-    pli.pSetLayouts = &vk_set_layout;
+    pli.setLayoutCount = 2;
+    pli.pSetLayouts = set_layouts;
     pli.pushConstantRangeCount = 1;
     pli.pPushConstantRanges = &pc;
     if (vkCreatePipelineLayout(vk_dev, &pli, NULL, &vk_pipeline_layout) != VK_SUCCESS) {
@@ -4427,6 +4964,11 @@ static bool vk_init_objects(void) {
         VkFenceCreateInfo fi = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
         fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         vkCreateFence(vk_dev, &fi, NULL, &sl.fence);
+
+        // without it meshes are drawn from the CPU's vertices, as before
+        if (!vk_mesh_slot_init(sl, VK_MESH_STREAM)) {
+            sl.mesh_set = VK_NULL_HANDLE;
+        }
         VkSemaphoreCreateInfo si = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         vkCreateSemaphore(vk_dev, &si, NULL, &sl.acquired);
     }
@@ -4636,6 +5178,11 @@ struct GfxRenderingAPI gfx_vulkan_api = {
     gfx_vk_occlusion_end,
     gfx_vk_occlusion_result,
     gfx_vk_get_texture_limits,
+    gfx_vk_mesh_supported,
+    gfx_vk_mesh_create,
+    gfx_vk_mesh_delete,
+    gfx_vk_mesh_draw,
+    gfx_vk_mesh_add_indices,
 };
 
 #endif // PD_HAVE_VULKAN

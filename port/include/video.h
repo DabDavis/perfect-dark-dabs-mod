@@ -62,6 +62,8 @@ s32 videoGetMaxMSAA(void);
 #define VIDEO_UPSCALING_BALANCED 3
 #define VIDEO_UPSCALING_PERFORMANCE 4
 #define VIDEO_UPSCALING_COUNT 5
+s32 videoGetGpuVertices(void);
+void videoSetGpuVertices(s32 on);
 s32 videoGetSmaa(void);
 void videoSetSmaa(s32 on);
 s32 videoGetUpscaling(void);

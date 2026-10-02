@@ -12,6 +12,65 @@ struct GfxClipParameters {
     bool invert_y;
 };
 
+/*
+ * A mesh kept on the GPU (G_MESH_EXT, gfxmesh.h): one vertex of its static
+ * copy. pos is the bind pose (or the vertex as the lists hold it, for a rigid
+ * mesh), st the Vtx's raw s and t, bones three palette entries and how many of
+ * them count, weights theirs, normal the bind pose's normal (unit length, or
+ * zero for a mesh without them), posed with the vertex where a skinned mesh
+ * is lit or reflects.
+ */
+struct GfxMeshVertex {
+    float pos[3];
+    int16_t st[2];
+    uint8_t bones[4];
+    float weights[3];
+    float normal[3];
+};
+
+/*
+ * The vec4s of a mesh draw's parameters (gfx_mesh_params() in gfx_pc.cpp
+ * fills them; each backend's mesh vertex shader reads them):
+ *  0-3   the RSP's modelview-projection, rows (clip = x*r0 + y*r1 + z*r2 + r3)
+ *  4     aspect: offset, scale, window ratio, 1 to apply (x = (ofs*w + x) * scale / ratio)
+ *  5     TAA jitter x and y (times w), y sign, 1 when z is to be taken to 0..1
+ *  6     fog line multiplier and offset, 1 for per-vertex fog, 0
+ *  7     fog colour
+ *  8, 9  textures 0 and 1: s scale, t scale, s offset, t offset
+ *  10    the clamps: texture 0 s and t, texture 1 s and t
+ *  11    grayscale colour
+ *  12    the G_TEXTURE scale s and t, 1 when skinned, 0
+ *  13-20 combiner inputs 1-8: constant colour and alpha
+ *  21-22 their colour kinds, 23-24 their alpha kinds (GFX_MESH_IN_*)
+ *  25    directional lights, 1 for G_LIGHTING, 1 for G_TEXTURE_GEN, 1 for G_TEXTURE_GEN_LINEAR
+ *  26    1 for G_TEXGEN_EYE_EXT, G_TEXGEN_TURN_EXT, a LookAt, G_ENVMAP_EXT
+ *  27    1 to force a lit vertex's alpha to 255, 1 when the normal is the mesh's own posed, 0, 0
+ *  28    the ambient light's colour (0..255)
+ *  29-32 the lights' directions in model space (gfx_light_vertex()'s coefficients)
+ *  33-36 their colours (0..255)
+ *  37-38 the LookAt's x and y coefficients
+ *  39    G_SETTEXGENSHIFT_EXT's shift, 0, 0
+ *  40    its turn: cos and sin of the yaw, of the pitch
+ *  41-44 the modelview, rows
+ */
+#define GFX_MESH_PARAMS 45
+#define GFX_MESH_PALETTE_MAX 64
+enum { GFX_MESH_IN_CONST, GFX_MESH_IN_SHADE, GFX_MESH_IN_SHADE_ALPHA, GFX_MESH_IN_LOD };
+
+struct GfxMeshDraw {
+    struct ShaderProgram* prg;   // the program the renderer has bound; drawn under its mesh variant
+    uint32_t mesh;               // from mesh_create()
+    const uint8_t* colours;      // four bytes per vertex of the mesh
+    uint32_t numcolours;
+    const uint32_t* indices;     // into the mesh's vertices, three a triangle; NULL for the mesh's own (first_index)
+    uint32_t numindices;
+    uint32_t first_index;        // where they start among those mesh_add_indices() kept
+    const float* params;         // GFX_MESH_PARAMS vec4s
+    const float* palette;        // numpalette entries of 12 floats, or NULL
+    uint32_t numpalette;
+    int8_t cull;                 // drop triangles wound 1 clockwise, -1 anticlockwise, 0 neither, as emitted
+};
+
 enum FilteringMode { FILTER_NONE, FILTER_LINEAR, FILTER_THREE_POINT };
 enum MipmapFilteringMode { MIPMAP_DISABLED, MIPMAP_NEAREST, MIPMAP_LINEAR };
 
@@ -94,6 +153,19 @@ struct GfxRenderingAPI {
     // hold at once, and the card's video memory in bytes, 0 when it cannot
     // tell. May be null.
     void (*get_texture_limits)(uint32_t* max_textures, uint64_t* vram_bytes);
+    // Meshes kept on the GPU (G_MESH_EXT). mesh_supported() says whether the
+    // backend can draw them at all; mesh_create() copies a mesh's vertices
+    // and gives a name for them (0 when it could not), mesh_delete() lets one
+    // go, and mesh_draw() draws triangles of one under draw->prg's mesh
+    // variant and the state the renderer last set - false when it could not,
+    // and then it has drawn nothing. Any may be null.
+    // mesh_add_indices() keeps triangles of a mesh with it for good, for a
+    // draw to name by where they start (UINT32_MAX when it could not).
+    bool (*mesh_supported)(void);
+    uint32_t (*mesh_create)(const struct GfxMeshVertex* verts, uint32_t count);
+    void (*mesh_delete)(uint32_t mesh);
+    bool (*mesh_draw)(const struct GfxMeshDraw* draw);
+    uint32_t (*mesh_add_indices)(uint32_t mesh, const uint32_t* indices, uint32_t count);
 };
 
 // Occlusion query slots a backend provides

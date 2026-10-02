@@ -31,6 +31,9 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 31 2026-10-02
+XBLA and GoldenEye HD looks: characters, guns and props are posed and drawn by the graphics card, several times faster in big matches (Video > GPU Vertex Shading)
+
 notes 30 2026-10-01
 GE Plus: the KF7, AR33, RC-P90 and sniper rifle muzzle flashes keep a fixed turn lined up with the vents, as in GoldenEye (thanks dblaney1)
 GE Plus: a cutscene that puts your gun away while you are reloading no longer crashes the game

@@ -59,6 +59,7 @@
 #include "lib/lib_2f490.h"
 #include "data.h"
 #include "trace.h"
+#include "gfxmesh.h"
 
 #ifndef PLATFORM_N64
 
@@ -322,6 +323,17 @@ struct xblameshbuilt {
 	Mtxf *posedmtx;    // the matrix that copy is drawn under, when it is not the bone's own
 	s32 posedfine;     // and how many steps of that copy make one of the game's units
 
+	// The renderer's copy of the mesh on the GPU (G_MESH_EXT, gfxmesh.h), and
+	// the palette that poses it there instead, made once a frame per model the
+	// way the posed copy is: see xblaMeshGpuPalette()
+	struct gfxmesh gpu;
+	struct gfxmesh envgpu;   // the same over envst, for the reflection passes
+	Vtx *envst;              // the vertices with each reflecting one's atlas cell in s and t: see xblaMeshEnvStatic()
+	const struct model *gpumodel;
+	u32 gpuframe;
+	f32 *gpupal;
+	Mtxf *gpumtx;
+
 	// The bruised colours made this frame, and who for; NULL for a model with
 	// no bruise on it, which draws the mesh's own. See xblaMeshBruiseColours().
 	const struct model *bruisemodel;
@@ -554,6 +566,11 @@ static void xblaMeshResetBeanMeshes(void);
 
 static void xblaMeshCloseUp(void)
 {
+	for (s32 i = 0; built && i < numRecords; i++) {
+		gfxMeshForget(&built[i].gpu);
+		gfxMeshForget(&built[i].envgpu);
+	}
+
 	x360StfsStreamClose(&packed);
 	x360StfsClose(&stfs);
 	free(recOffset);
@@ -6111,6 +6128,8 @@ static void xblaMeshDropStale(struct xblameshbuilt *m, s32 fileid)
 	if (m->state > 0 && m->packgen != modelpackGetGeneration() &&
 			(m->frompack || (fileid > 0 && modelpackFindXbla(fileid)))) {
 		sysLogPrintf(LOG_NOTE, "xblamesh: the model pack changed; a mesh is built again (the old one is kept, not freed)");
+		gfxMeshForget(&m->gpu);
+		gfxMeshForget(&m->envgpu);
 		memset(m, 0, sizeof(*m));
 	}
 }
@@ -6486,6 +6505,8 @@ static struct xblameshbuilt *xblaMeshBuildPack(const struct xblameshentry *e)
 		// build holds nothing, and is dropped so that the next pack's file for
 		// the same model is not refused for the last pack's file's sake.
 		if (m->state > 0) {
+			gfxMeshForget(&m->gpu);
+			gfxMeshForget(&m->envgpu);
 			packBuilt[fileid] = NULL;
 			m = NULL;
 		} else {
@@ -6646,6 +6667,9 @@ static void xblaMeshFreePackMeshes(void)
 			n++;
 		}
 
+		gfxMeshForget(&m->gpu);
+		gfxMeshForget(&m->envgpu);
+		free(m->envst);
 		free(m->gdl);
 		free(m->vertices);
 		free(m->colours);
@@ -7100,6 +7124,7 @@ static u32 frameCount;
 // trace dump: opaque lists emitted, poses written, poses the arena refused.
 static u32 frameDraws, frameDrawsLast;
 static u32 framePoses, framePosesLast;
+static u32 frameGpuPoses, frameGpuPosesLast; // models posed on the GPU (xblaMeshGpuPalette())
 static u32 framePoseFails, framePoseFailsLast;
 
 static void xblaMeshReportOverlaps(void);
@@ -7130,7 +7155,8 @@ void xblaMeshFrameReset(void)
 	frameDrawsLast = frameDraws;
 	framePosesLast = framePoses;
 	framePoseFailsLast = framePoseFails;
-	frameDraws = framePoses = framePoseFails = 0;
+	frameGpuPosesLast = frameGpuPoses;
+	frameDraws = framePoses = framePoseFails = frameGpuPoses = 0;
 }
 
 /**
@@ -7491,6 +7517,152 @@ static f32 *xblaMeshDeformOffsets(struct xblameshbuilt *m, struct model *model,
 		struct xblameshuse *use, s32 slot);
 
 /**
+ * The palette a pose is made with: for entry i, out of the bind pose
+ * (invbind), into the game's pose for the bone (its matrix, lifted by
+ * headshift), and back out of the matrix the list is drawn under (invroot) -
+ * see xblaMeshPose(). lin, when asked for, is the same without the bind, for
+ * objDeform()'s offsets. Hands back how many entries the model has matrices
+ * for; the rest follow the first.
+ */
+static s32 xblaMeshPoseMatrices(struct xblameshbuilt *m, struct model *model, Mtxf *invroot,
+		const f32 *headshift, Mtxf *pal, Mtxf *lin)
+{
+	s32 posable;
+	const s32 disp = lin != NULL;
+
+	posable = m->nummatrices;
+
+	if (posable > model->definition->nummatrices) {
+		posable = model->definition->nummatrices;
+	}
+
+	for (s32 i = 0; i < m->nummatrices; i++) {
+		Mtxf step;
+
+		// An entry the model has no matrix for follows the first entry, so the
+		// part of the mesh weighted to it stays rigidly attached to the bone
+		// that does have one rather than being left behind in the mesh's own
+		// space. Every head mesh has three entries against the one matrix a
+		// head model file carries, and its neck is weighted to the second: a
+		// head drawn on its own - not grafted onto a body, which is where the
+		// other eighteen matrices come from - would otherwise trail its neck
+		// back to where the body would have been.
+		if (i >= posable) {
+			if (posable > 0) {
+				mtx4Copy(&pal[0], &pal[i]);
+			} else {
+				mtx4LoadIdentity(&pal[i]);
+			}
+
+			if (lin && posable > 0) {
+				mtx4Copy(&lin[0], &lin[i]);
+			} else if (lin) {
+				mtx4LoadIdentity(&lin[i]);
+			}
+
+			continue;
+		}
+
+		// A head's second entry is the body's back, not a matrix of its own
+		s32 src = i;
+		Mtxf backbind;
+		Mtxf *bind = &m->invbind[i];
+
+		if (i == 1 && xblaMeshNeckBack(m, model->definition, &src, &backbind)) {
+			bind = &backbind;
+		}
+
+		// Out of the bind pose, into the game's, and then out of the matrix
+		// this list is drawn under - which is what keeps the result small
+		// enough to be the s16 a Perfect Dark vertex holds.
+		if (headshift && (headshift[0] != 0.0f || headshift[1] != 0.0f || headshift[2] != 0.0f)) {
+			// A head seated higher or lower on this body than on its own
+			// (bodyCalculateHeadOffset(), headfit.c) moved its N64 vertices
+			// along its own up; the mesh moves the same way, in the matrix's
+			// frame before it is turned. (And a pool head onto its body's own
+			// neck joint, xblaMeshPoolHeadSeat(), in all three.)
+			Mtxf lifted = model->matrices[src];
+
+			for (s32 j = 0; j < 3; j++) {
+				lifted.m[3][j] += model->matrices[src].m[0][j] * headshift[0]
+					+ model->matrices[src].m[1][j] * headshift[1]
+					+ model->matrices[src].m[2][j] * headshift[2];
+			}
+
+			mtx4MultMtx4(&lifted, bind, &step);
+		} else {
+			mtx4MultMtx4(&model->matrices[src], bind, &step);
+		}
+
+		mtx4MultMtx4(invroot, &step, &pal[i]);
+
+		// Without the bind, for objDeform()'s offsets, which are in the
+		// bone's own space as the game's lists are
+		if (disp) {
+			mtx4MultMtx4(invroot, &model->matrices[src], &lin[i]);
+		}
+	}
+
+	return posable;
+}
+
+/**
+ * The palette for the GPU to pose the mesh with (G_MESH_EXT): xblaMeshPose()'s
+ * matrices as the renderer takes them, GFXMESH_PALETTE_FLOATS an entry, and the
+ * matrix the lists go under - the bone's own as floats, stage scale and all,
+ * which is what xblaMeshPose() hands over when it divides by one. Not under
+ * the orthogonal projection, for the reason it gives. NULL when the frame
+ * arena has no room, and the mesh is posed on the CPU.
+ */
+static f32 *xblaMeshGpuPalette(struct xblameshbuilt *m, struct model *model, Mtxf *root,
+		const f32 *headshift, Mtxf **outmtx)
+{
+	Mtxf pal[XBLAMESH_MAXMTX];
+	Mtxf invroot;
+	Mtxf *fmtx = NULL;
+	f32 *out;
+
+	*outmtx = NULL;
+
+	if (m->nummatrices > XBLAMESH_MAXMTX || m->nummatrices > GFXMESH_PALETTE_MAX || !model->definition) {
+		return NULL;
+	}
+
+	out = xblaMeshFrameAlloc((u32)m->nummatrices * GFXMESH_PALETTE_FLOATS * sizeof(f32));
+
+	if (!orthogonal) {
+		fmtx = xblaMeshFrameAlloc(sizeof(Mtxf));
+	}
+
+	if (!out || (!orthogonal && !fmtx)) {
+		return NULL;
+	}
+
+	xblaMeshInvert(root, &invroot);
+	xblaMeshPoseMatrices(m, model, &invroot, headshift, pal, NULL);
+
+	for (s32 i = 0; i < m->nummatrices; i++) {
+		f32 *row = &out[i * GFXMESH_PALETTE_FLOATS];
+
+		for (s32 j = 0; j < 3; j++) {
+			row[j * 4 + 0] = pal[i].m[0][j];
+			row[j * 4 + 1] = pal[i].m[1][j];
+			row[j * 4 + 2] = pal[i].m[2][j];
+			row[j * 4 + 3] = pal[i].m[3][j];
+		}
+	}
+
+	if (fmtx) {
+		*fmtx = *root;
+		mtxApplyGfxScale(fmtx);
+	}
+
+	*outmtx = fmtx;
+
+	return out;
+}
+
+/**
  * Poses one mesh into a copy of its vertices, and hands back the copy.
  *
  * Palette entry i is posed by whatever the game has done to the node carrying
@@ -7544,74 +7716,7 @@ static Vtx *xblaMeshPose(struct xblameshbuilt *m, struct model *model, Mtxf *roo
 	// they agree; under the palette read one, two or three entries along they
 	// do not, and the identity wins for 166 of the 170 models with a palette.
 	// It is the same argument as the mesh id's, on the same kind of evidence.
-	posable = m->nummatrices;
-
-	if (posable > model->definition->nummatrices) {
-		posable = model->definition->nummatrices;
-	}
-
-	for (s32 i = 0; i < m->nummatrices; i++) {
-		Mtxf step;
-
-		// An entry the model has no matrix for follows the first entry, so the
-		// part of the mesh weighted to it stays rigidly attached to the bone
-		// that does have one rather than being left behind in the mesh's own
-		// space. Every head mesh has three entries against the one matrix a
-		// head model file carries, and its neck is weighted to the second: a
-		// head drawn on its own - not grafted onto a body, which is where the
-		// other eighteen matrices come from - would otherwise trail its neck
-		// back to where the body would have been.
-		if (i >= posable) {
-			if (posable > 0) {
-				mtx4Copy(&pal[0], &pal[i]);
-				mtx4Copy(&lin[0], &lin[i]);
-			} else {
-				mtx4LoadIdentity(&pal[i]);
-				mtx4LoadIdentity(&lin[i]);
-			}
-
-			continue;
-		}
-
-		// A head's second entry is the body's back, not a matrix of its own
-		s32 src = i;
-		Mtxf backbind;
-		Mtxf *bind = &m->invbind[i];
-
-		if (i == 1 && xblaMeshNeckBack(m, model->definition, &src, &backbind)) {
-			bind = &backbind;
-		}
-
-		// Out of the bind pose, into the game's, and then out of the matrix
-		// this list is drawn under - which is what keeps the result small
-		// enough to be the s16 a Perfect Dark vertex holds.
-		if (headshift && (headshift[0] != 0.0f || headshift[1] != 0.0f || headshift[2] != 0.0f)) {
-			// A head seated higher or lower on this body than on its own
-			// (bodyCalculateHeadOffset(), headfit.c) moved its N64 vertices
-			// along its own up; the mesh moves the same way, in the matrix's
-			// frame before it is turned. (And a pool head onto its body's own
-			// neck joint, xblaMeshPoolHeadSeat(), in all three.)
-			Mtxf lifted = model->matrices[src];
-
-			for (s32 j = 0; j < 3; j++) {
-				lifted.m[3][j] += model->matrices[src].m[0][j] * headshift[0]
-					+ model->matrices[src].m[1][j] * headshift[1]
-					+ model->matrices[src].m[2][j] * headshift[2];
-			}
-
-			mtx4MultMtx4(&lifted, bind, &step);
-		} else {
-			mtx4MultMtx4(&model->matrices[src], bind, &step);
-		}
-
-		mtx4MultMtx4(&invroot, &step, &pal[i]);
-
-		// Without the bind, for objDeform()'s offsets, which are in the
-		// bone's own space as the game's lists are
-		if (disp) {
-			mtx4MultMtx4(&invroot, &model->matrices[src], &lin[i]);
-		}
-	}
+	posable = xblaMeshPoseMatrices(m, model, &invroot, headshift, pal, disp ? lin : NULL);
 
 	if (xblaMeshVerbose && !m->posedlog) {
 		m->posedlog = 1;
@@ -10549,6 +10654,105 @@ static s32 xblaMeshEnvironmentReach(const struct xblameshbuilt *m, const Mtxf *r
 }
 
 /**
+ * The mesh's vertices with each reflecting vertex's atlas cell in its s and t,
+ * as xblaMeshEnvironmentVertices() writes them into its copy - made once, for
+ * the GPU's reflection pass (G_MESH_EXT), which poses the bind pose there. The
+ * cell does not move with the pose; only a GoldenEye prop's own map's lookup
+ * does (envown), and that is never drawn this way.
+ */
+static Vtx *xblaMeshEnvStatic(struct xblameshbuilt *m)
+{
+	Vtx *vtx;
+
+	if (m->envst || m->numenvcells <= 0 || !m->envidx) {
+		return m->envst;
+	}
+
+	vtx = malloc((size_t)m->numvertices * sizeof(Vtx));
+
+	if (!vtx) {
+		return NULL;
+	}
+
+	memcpy(vtx, m->vertices, (size_t)m->numvertices * sizeof(Vtx));
+
+	for (s32 k = 0; k < m->numenvidx; k++) {
+		const u32 i = m->envidx[k];
+
+		vtx[i].s = xblaMeshRound((m->venv[i * 2] + 0.5f) / m->numenvcells * XBLATEX_TILE_SCALE);
+		vtx[i].t = xblaMeshRound(1.0f / m->numenvcells * XBLATEX_TILE_SCALE);
+	}
+
+	m->envst = vtx;
+
+	return vtx;
+}
+
+/**
+ * xblaMeshEnvironmentVertices() for a draw posed on the GPU: the vertices are
+ * xblaMeshEnvStatic()'s, and the colours carry the amount in their alpha as
+ * that function makes it. A rigid mesh's normal goes in the colour's three
+ * bytes as it always did; a skinned mesh's is the renderer's to pose from the
+ * mesh's own (gfxmesh's normals), so its bytes are left at nothing.
+ */
+static s32 xblaMeshEnvironmentGpu(struct xblameshbuilt *m, const struct model *model, s32 light, s32 sheen,
+		const u8 *wound, Vtx **outVtx, Col **outCol)
+{
+	Vtx *vtx = xblaMeshEnvStatic(m);
+	Col *col;
+
+	if (!vtx) {
+		return 0;
+	}
+
+	if (m->envvtx == vtx && m->envposed == NULL && m->envnormals == NULL && m->envmodel == model &&
+			m->envframe == frameCount && m->envlight == light && m->envsheen == sheen && m->envwound == wound) {
+		*outVtx = m->envvtx;
+		*outCol = m->envcol;
+		return 1;
+	}
+
+	col = xblaMeshFrameAlloc((u32)m->numvertices * sizeof(Col));
+
+	if (!col) {
+		return 0;
+	}
+
+	for (s32 k = 0; k < m->numenvidx; k++) {
+		const u32 i = m->envidx[k];
+		const u32 share = XBLAMESH_SHEEN_SHARE(m->venv[i * 2 + 1]);
+		const u32 amount = !sheen ? m->venv[i * 2 + 1] : m->vink ? share * m->vink[i] / 255 : share;
+
+		if (m->bindpos) {
+			col[i].r = col[i].g = col[i].b = 0;
+		} else {
+			const f32 *n = &m->normals[i * 3];
+
+			col[i].r = (u8)(s8)xblaMeshRound(n[0] * 127.0f);
+			col[i].g = (u8)(s8)xblaMeshRound(n[1] * 127.0f);
+			col[i].b = (u8)(s8)xblaMeshRound(n[2] * 127.0f);
+		}
+
+		col[i].a = (u8)((amount * light * (wound ? 255u - wound[i] : 255u) / 255 + 127) / 255);
+	}
+
+	m->envmodel = model;
+	m->envframe = frameCount;
+	m->envposed = NULL;
+	m->envnormals = NULL;
+	m->envlight = light;
+	m->envsheen = sheen;
+	m->envwound = wound;
+	m->envvtx = vtx;
+	m->envcol = col;
+
+	*outVtx = vtx;
+	*outCol = col;
+
+	return 1;
+}
+
+/**
  * This frame's copy of the mesh's vertices for the reflection pass, whose
  * reflection the renderer works out per pixel (G_ENVMAP_EXT, gfx_pc.cpp and
  * gfx_opengl.cpp): each reflecting vertex carries its normal in its colour's
@@ -10822,6 +11026,9 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	s32 envlight = 0;
 	s32 envreach = 0;
 	s32 envfading = 0;
+	f32 *gpupal = NULL;
+	struct gfxmeshdraw *meshdraw = NULL;
+	struct gfxmeshdraw *envdraw = NULL;
 	const s32 opa = (renderdata->flags & MODELRENDERFLAG_OPA) != 0;
 	const s32 xlu = (renderdata->flags & MODELRENDERFLAG_XLU) != 0;
 
@@ -11223,15 +11430,21 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		root = xblaMeshSkinRoot(m, model, node, xblaMeshPartMtx(model, use, 0));
 
 		if (optPose && m->nummatrices && root) {
-			Vtx *pose;
+			Vtx *pose = NULL;
+
+			// Normals only for a draw that will reflect: the opaque pass,
+			// within the cutoff.
+			const s32 normals = opa && m->envgdl && xblaTexGetEnabled() && XBLAMESH_ENV_WANTED() &&
+					xblaMeshEnvironmentReach(m, root) > 0;
 
 			if (m->posedmodel == model && m->posedframe == frameCount &&
 					m->posedvtx) {
 				pose = m->posedvtx;
 				finemtx = m->posedmtx;
+			} else if (m->gpumodel == model && m->gpuframe == frameCount && m->gpupal) {
+				gpupal = m->gpupal;
+				finemtx = m->gpumtx;
 			} else {
-				// Normals only for a draw that will reflect: the opaque pass,
-				// within the cutoff.
 				f32 headshift[3] = { 0.0f, 0.0f, 0.0f };
 
 				if (e->modeldef != model->definition) {
@@ -11246,29 +11459,52 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 						&& renderdata->unk30 == 9 && (renderdata->envcolour & 0xff) != 0
 						? xblaMeshDeformOffsets(m, model, use, e->slot) : NULL;
 
-				pose = xblaMeshPose(m, model, root, &finemtx, &fine,
-						opa && m->envgdl && xblaTexGetEnabled() && XBLAMESH_ENV_WANTED() &&
-						xblaMeshEnvironmentReach(m, root) > 0,
-						headshift, disp);
+				// Posed on the GPU (G_MESH_EXT) unless something drawn here reads
+				// the posed vertices themselves: the logo passes are lit from
+				// them, and a destroyed prop's crumpling goes in with them. The
+				// reflections are posed there too, from a copy of the vertices
+				// made once (xblaMeshEnvStatic()), which a mesh that reflects
+				// has to have.
+				if (!disp && envforce != XBLAMESH_ENV_LOGO && m->bindpos && m->weights && m->bones
+						&& (!normals || (!m->envown && m->normals && xblaMeshEnvStatic(m)))
+						&& gfxMeshGpuAvailable()) {
+					gpupal = xblaMeshGpuPalette(m, model, root, headshift, &finemtx);
 
-				if (pose) {
-					framePoses++;
-				} else {
-					framePoseFails++;
+					if (gpupal) {
+						frameGpuPoses++;
+						m->gpumodel = model;
+						m->gpuframe = frameCount;
+						m->gpupal = gpupal;
+						m->gpumtx = finemtx;
+					}
 				}
 
-				// Not remembered when there was no room this frame, so that
-				// the next part tries again rather than inheriting a miss.
-				if (pose) {
-					m->posedmodel = model;
-					m->posedframe = frameCount;
-					m->posedvtx = pose;
-					m->posedmtx = finemtx;
-					m->posedfine = fine;
+				if (!gpupal) {
+					pose = xblaMeshPose(m, model, root, &finemtx, &fine, normals, headshift, disp);
+
+					if (pose) {
+						framePoses++;
+					} else {
+						framePoseFails++;
+					}
+
+					// Not remembered when there was no room this frame, so that
+					// the next part tries again rather than inheriting a miss.
+					if (pose) {
+						m->posedmodel = model;
+						m->posedframe = frameCount;
+						m->posedvtx = pose;
+						m->posedmtx = finemtx;
+						m->posedfine = fine;
+					}
 				}
 			}
 
-			if (pose) {
+			if (gpupal) {
+				// The bind pose goes under the bone's own matrix as floats,
+				// and the GPU poses it into that matrix's space (below)
+				drawmtx = finemtx;
+			} else if (pose) {
 				posed = pose;
 
 				// The pose was written finer than the game's units, so it goes
@@ -11401,6 +11637,30 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 	gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 
+	// The lists below drawn from the renderer's copy of the mesh on the GPU,
+	// posed by gpupal there (G_MESH_EXT, gfxmesh.h): what they load from the
+	// mesh's own vertices costs nothing per vertex here or in the renderer. A
+	// trimmed or crumpled copy is drawn as it always was, and so is whatever
+	// the renderer cannot do on the GPU (it loads those lists on the CPU,
+	// posing them by the same palette).
+	if (posed == m->vertices && (gpupal || !m->bindpos || !m->nummatrices || !optPose || !root)
+			&& gfxMeshGpuAvailable()) {
+		meshdraw = xblaMeshFrameAlloc(sizeof(*meshdraw));
+
+		if (meshdraw) {
+			m->gpu.vertices = m->vertices;
+			m->gpu.numvertices = m->numvertices;
+			m->gpu.bindpos = m->bindpos;
+			m->gpu.weights = m->weights;
+			m->gpu.bones = m->bones;
+			m->gpu.nummatrices = m->nummatrices;
+			m->gpu.normals = m->normals;
+			meshdraw->mesh = &m->gpu;
+			meshdraw->palette = gpupal;
+			gSPMeshEXT(renderdata->gdl++, meshdraw);
+		}
+	}
+
 	// The N64 sheen (Mod.XblaReflectStyle) in place of the release's cube: the
 	// same pass from the copy that lights and sphere-maps 0x3eb the way the stock
 	// guns do (xblaMeshBuildSheen()), at the sheen's larger share. Never on a
@@ -11485,7 +11745,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		const s32 isposed = posed == m->posedvtx && m->posedmodel == model &&
 				m->posedframe == frameCount;
 
+		// Posed on the GPU, a skinned mesh's normals are the renderer's to
+		// pose (G_MESH_EXT): its bind normals stand in here, where nothing
+		// reads their direction
 		const f32 *normals = isposed ? m->posednrm : m->normals;
+		const s32 envgpu = meshdraw && !m->envown && m->normals && xblaMeshEnvStatic(m);
 
 		// The distance fade is kept apart from the room's light: it takes the
 		// reflection away from the material altogether, so the colours below
@@ -11497,7 +11761,23 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 		// Made here rather than at the pass, so that a frame arena with no room
 		// for them leaves the colours unscaled as well.
-		if (envlight > 0 && !xblaMeshEnvironmentVertices(m, model, posed, normals, root,
+		if (envlight > 0 && envgpu) {
+			envdraw = xblaMeshFrameAlloc(sizeof(*envdraw));
+
+			if (!envdraw || !xblaMeshEnvironmentGpu(m, model, envlight, sheen, wound, &envvtx, &envcol)) {
+				envdraw = NULL;
+				envlight = 0;
+			} else {
+				// the same mesh over the copy, under a name of the renderer's own
+				const u32 envid = m->envgpu.id;
+
+				m->envgpu = m->gpu;
+				m->envgpu.id = envid;
+				m->envgpu.vertices = envvtx;
+				envdraw->mesh = &m->envgpu;
+				envdraw->palette = gpupal;
+			}
+		} else if (envlight > 0 && !xblaMeshEnvironmentVertices(m, model, posed, normals, root,
 					envlight, sheen, wound, &envvtx, &envcol)) {
 			envlight = 0;
 		}
@@ -11686,6 +11966,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(envvtx));
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(envcol));
+
+				if (envdraw) {
+					gSPMeshEXT(renderdata->gdl++, envdraw);
+				}
+
 				gDPPipeSync(renderdata->gdl++);
 				gDPSetCycleType(renderdata->gdl++, G_CYC_2CYCLE);
 				gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_INTER, G_RM_AA_ZB_XLU_INTER2);
@@ -11727,12 +12012,22 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				renderdata->gdl = roomSheenStockResume(renderdata->gdl);
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));
+
+				if (envdraw) {
+					gSPMeshEXT(renderdata->gdl++, meshdraw);
+				}
+
 				frameDraws++;
 			} else {
 				const s32 fading = envfading;
 
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(envvtx));
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(envcol));
+
+				if (envdraw) {
+					gSPMeshEXT(renderdata->gdl++, envdraw);
+				}
+
 				gDPPipeSync(renderdata->gdl++);
 				gDPSetCycleType(renderdata->gdl++, G_CYC_2CYCLE);
 				gDPSetRenderMode(renderdata->gdl++, G_RM_AA_ZB_XLU_INTER, G_RM_AA_ZB_XLU_INTER2);
@@ -11752,6 +12047,11 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				gSPClearExtraGeometryModeEXT(renderdata->gdl++, G_ADDITIVE_EXT | G_ENVMAP_EXT);
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(posed));
 				gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(boundcol));
+
+				if (envdraw) {
+					gSPMeshEXT(renderdata->gdl++, meshdraw);
+				}
+
 				frameDraws++;
 			}
 		}
@@ -11962,6 +12262,10 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 			gSPDisplayList(renderdata->gdl++, m->tintgdl + (fadelist - m->gdl));
 			gDPSetPrimColor(renderdata->gdl++, 0, 0, 0, 0, 0, (renderdata->envcolour >> 8) & 0xff);
 		}
+	}
+
+	if (meshdraw) {
+		gSPMeshEXT(renderdata->gdl++, NULL);
 	}
 
 	// Put segment 5 back to what the game's own draw of this node leaves in it:
@@ -13107,8 +13411,8 @@ void xblaMeshTrace(FILE *f)
 			(g_XblaMeshBytes + 1023) / 1024, arenakb, chunks,
 			XBLAMESH_ARENA_MAX / (1024 * 1024), nodes, slots, XBLAMESH_HASHSIZE,
 			frameCount);
-	fprintf(f, "xblamesh last frame: %u opaque lists drawn, %u poses written, %u poses refused by the arena (%u bytes wanted)\n",
-			frameDrawsLast, framePosesLast, framePoseFailsLast, frameWanted);
+	fprintf(f, "xblamesh last frame: %u opaque lists drawn, %u poses written, %u posed on the GPU, %u poses refused by the arena (%u bytes wanted)\n",
+			frameDrawsLast, framePosesLast, frameGpuPosesLast, framePoseFailsLast, frameWanted);
 }
 
 s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)

@@ -78,6 +78,10 @@ static s32 vidFramerateLimit = 0;
 // OpenGL whenever Vulkan was asked for and could not start.
 static s32 vidRenderer = VIDEO_RENDERER_OPENGL;
 static s32 vidRendererActive = VIDEO_RENDERER_OPENGL;
+// Video.GpuVertices: the release's meshes posed and transformed on the GPU
+// (gfxmesh.h) rather than a vertex at a time on the CPU. --cpu-vertices turns
+// it off for the run, to compare the two.
+static s32 vidGpuVertices = 1;
 
 static s32 vidDisplayFPS = 0;
 static f32 vidDisplayFPSInterval = 1.f;
@@ -154,6 +158,7 @@ s32 videoInit(void)
 	vidFramebuffersActive = vidFramebuffers;
 	vidAllowHiDpiActive = vidAllowHiDpi;
 	gfx_detail_textures_enabled = (bool)texDetail;
+	gfx_gpu_vertices = vidGpuVertices && !sysArgCheck("--cpu-vertices");
 	gfx_clamped_edge_mode = texClampedEdge;
 	if (vidTaa) {
 		vidMSAA = 1;
@@ -972,6 +977,22 @@ void videoSetMSAA(const s32 msaa)
 	gfx_msaa_level = (u32)vidMSAA;
 }
 
+s32 videoGetGpuVertices(void)
+{
+	return vidGpuVertices;
+}
+
+/**
+ * Video.GpuVertices: the release's and GoldenEye XBLA's meshes posed and
+ * transformed on the GPU (gfxmesh.h). Live: the next frame's meshes are drawn
+ * the other way.
+ */
+void videoSetGpuVertices(s32 on)
+{
+	vidGpuVertices = !!on;
+	gfx_gpu_vertices = vidGpuVertices;
+}
+
 s32 videoGetSmaa(void)
 {
 	return vidSmaa;
@@ -1224,6 +1245,7 @@ PD_CONSTRUCTOR static void videoConfigInit(void)
 	configRegisterInt("Video.TAA", &vidTaa, 0, 1);
 	configRegisterFloat("Video.FsrSharpness", &vidFsrSharpness, 0.f, 2.f);
 	configRegisterInt("Video.Renderer", &vidRenderer, VIDEO_RENDERER_OPENGL, VIDEO_RENDERER_VULKAN);
+	configRegisterInt("Video.GpuVertices", &vidGpuVertices, 0, 1);
 	configRegisterInt("Video.TextureFilter", &texFilter, 0, 2);
 	configRegisterInt("Video.TextureFilter2D", &texFilter2D, 0, 1);
 	configRegisterInt("Video.DetailTextures", &texDetail, 0, 1);
