@@ -234,6 +234,7 @@
 #define G_SEAL_SEAMS_EXT         0x00080000 // opaque triangles that follow are grown half a pixel on screen, their corners slid along their own plane: a room's cracks between faces that do not quite meet (gfx_seal_seams(), gfx_pc.cpp)
 #define G_ALPHA_CORE_EXT         0x00100000 // with a texture-edge cutout (CVG_X_ALPHA): only texels of at least three quarters alpha are kept, drawn solid - the core of a soft picture, whose fringe is blended over it in a second draw (a character's hair, xblamesh.c)
 #define G_FOG_VERTEX_EXT         0x00200000 // fog is worked out at each vertex and clamped there, then carried across the triangle linearly on the screen, as the N64's RSP and its shade alpha do - not at each pixel from its own depth. A GoldenEye level's big floor triangles take the fog of their far corners well inside the fog's start (envStartFog() on a converted level)
+#define G_COVERAGE_ALPHA_EXT     0x00400000 // under a render mode that takes coverage for alpha (ALPHA_CVG_SEL) without FORCE_BL, CVG_X_ALPHA or an alpha compare, a covered pixel is drawn solid whatever alpha the combiner hands on, as the RDP draws it: a level converted from GoldenEye's ROM in the N64 look (bgRenderScene()), where GE Editor's grey I4 walls handed on their texels' intensity for alpha and were blended by it to half their brightness
 
 /* Extra texture filtering mode */
 

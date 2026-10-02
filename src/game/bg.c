@@ -1276,6 +1276,16 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 	gdl = bgScissorToViewport(gdl);
 
+#ifndef PLATFORM_N64
+	// A converted GoldenEye level in the N64 look is drawn as the RDP draws
+	// it where a render mode takes coverage for alpha (G_COVERAGE_ALPHA_EXT)
+	const bool cvgalpha = g_BgGePortals && !xblaStageDrawsEveryRoom();
+
+	if (cvgalpha) {
+		gSPSetExtraGeometryModeEXT(gdl++, G_COVERAGE_ALPHA_EXT);
+	}
+#endif
+
 	// Render special "always on" rooms, such as the Defection moon,
 	// Attack Ship planet, and other sky tricks that are implemented as rooms
 	if (!USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
@@ -1529,6 +1539,12 @@ Gfx *bgRenderScene(Gfx *gdl)
 #ifdef DEBUG
 	debug0f119a80nb();
 #endif
+#endif
+
+#ifndef PLATFORM_N64
+	if (cvgalpha) {
+		gSPClearExtraGeometryModeEXT(gdl++, G_COVERAGE_ALPHA_EXT);
+	}
 #endif
 
 	return gdl;
@@ -4223,9 +4239,19 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 
 	gdl = roomApplyMtx(gdl, roomnum);
 
+#ifdef PLATFORM_N64
 	gdl = lightsSetForRoom(gdl, roomnum);
-#ifndef PLATFORM_N64
-	gdl = roomSheenStockBegin(gdl);
+#else
+	// A converted GoldenEye level is lit as GoldenEye lights it, and its
+	// reflective surfaces stay where the cartridge has them: the level
+	// reflections' walk (Mod.LevelReflectFollow) is Perfect Dark's
+	if (g_BgGePortals) {
+		gdl = lightsSetForGeRoom(gdl);
+	} else {
+		gdl = lightsSetForRoom(gdl, roomnum);
+		gdl = roomSheenStockBegin(gdl);
+	}
+
 	gdl = bgSpectateDepthBiasBegin(gdl, roomnum);
 
 	// An HD room's opaque leaf leaves its culling to this (gebeanstage.c
@@ -4301,7 +4327,12 @@ Gfx *bgRenderRoomXlu(Gfx *gdl, s32 roomnum)
 
 		gdl = roomApplyMtx(gdl, roomnum);
 #ifndef PLATFORM_N64
-		gdl = roomSheenStockBegin(gdl);
+		if (g_BgGePortals) {
+			gdl = lightsSetForGeRoom(gdl);
+		} else {
+			gdl = roomSheenStockBegin(gdl);
+		}
+
 		gdl = bgSpectateDepthBiasBegin(gdl, roomnum);
 		gdl = roomMeshBegin(gdl, roomnum);
 #endif
@@ -4326,6 +4357,10 @@ Gfx *bgRenderRoomXlu(Gfx *gdl, s32 roomnum)
 		gdl = roomMeshEnd(gdl);
 		gdl = bgSpectateDepthBiasEnd(gdl, roomnum);
 		gdl = roomSheenStockEnd(gdl);
+
+		if (g_BgGePortals) {
+			gdl = lightsSetDefault(gdl);
+		}
 #endif
 
 		g_Rooms[roomnum].loaded240 = 1;

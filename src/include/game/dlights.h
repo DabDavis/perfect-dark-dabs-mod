@@ -24,6 +24,9 @@ void roomSetFlashBrightness(s32 roomnum, s32 value);
 void roomSetDefaults(struct room *room);
 Gfx *lightsSetForRoom(Gfx *gdl, RoomNum roomnum);
 Gfx *lightsSetDefault(Gfx *gdl);
+#ifndef PLATFORM_N64
+Gfx *lightsSetForGeRoom(Gfx *gdl);
+#endif
 void roomInitLights(s32 roomnum);
 bool lightsHandleHit(struct coord *gunpos, struct coord *hitpos, s32 roomnum);
 void roomSetLightsFaulty(s32 roomnum, s32 chance);

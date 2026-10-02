@@ -2603,10 +2603,12 @@ static void gfx_derive_batch_state(void) {
     // blends as before - a span of Defection's release rooms needs its
     // texture's, and a lit corner's byte is mended in gfx_sp_load_vertex().
     // Not under CVG_X_ALPHA or an alpha compare, where the RDP does read the
-    // combined alpha.
+    // combined alpha. Under G_COVERAGE_ALPHA_EXT (a converted GoldenEye level
+    // in the N64 look) any combined alpha is passed over this way, as the RDP
+    // does: GE Editor's I4 walls hand on their texels' intensity.
     if (use_alpha && (rdp.other_mode_l & (ALPHA_CVG_SEL | FORCE_BL | CVG_X_ALPHA)) == ALPHA_CVG_SEL &&
         (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_NONE &&
-        gfx_cc_alpha_zero(rdp.combine_mode, use_2cyc ? 1 : 0)) {
+        ((rsp.extra_geometry_mode & G_COVERAGE_ALPHA_EXT) || gfx_cc_alpha_zero(rdp.combine_mode, use_2cyc ? 1 : 0))) {
         use_alpha = false;
     }
 
