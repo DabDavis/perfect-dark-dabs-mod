@@ -18,6 +18,7 @@
 #include <iostream>
 #include <memory>
 #include <limits>
+#include <algorithm>
 
 #ifndef _LANGUAGE_C
 #define _LANGUAGE_C
@@ -3747,6 +3748,7 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
 static bool gfx_vertices_lost;   // the last vertex load was refused, and so are its triangles
 // G_MESH_EXT, below: whether the triangle was the GPU's to draw
 static const struct gfxmeshdraw* mesh_cur;
+static bool mesh_room; // mesh_cur is a room's (gfxmesh.room): kept runs or the CPU, below
 static bool gfx_mesh_tri(uint8_t a, uint8_t b, uint8_t c);
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
@@ -3807,6 +3809,9 @@ bool gfx_gpu_vertices = true;
 // The last frame's meshes drawn by the GPU, their triangles, and the
 // triangles a backend would not draw, which went to the CPU instead
 uint32_t g_GfxMeshDraws = 0, g_GfxMeshTris = 0, g_GfxMeshRefused = 0;
+// The same for rooms, and a room's triangles drawn on the CPU after all: those
+// of runs the GPU cannot draw, and those sealed (G_SEAL_SEAMS_EXT)
+uint32_t g_GfxRoomDraws = 0, g_GfxRoomTris = 0, g_GfxRoomRefused = 0, g_GfxRoomCpuTris = 0, g_GfxRoomSealedTris = 0;
 }
 
 /*
@@ -3828,8 +3833,11 @@ struct GfxMeshRun {
     bool ok;                      // drawable this way at all
 };
 
+struct GfxRoomData;
+
 struct GfxMeshEntry {
     std::unordered_map<const Gfx*, GfxMeshRun> runs;
+    std::unique_ptr<GfxRoomData> room; // a room's (gfxmesh.room), made with the entry
     uint32_t backend;    // the backend's name for its copy, 0 when it could not make one
     const Vtx* vertices; // what the copy was made from: a mesh rebuilt in place is made again
     int32_t numvertices;
@@ -3884,6 +3892,9 @@ extern "C" void gfxMeshForget(struct gfxmesh* mesh) {
  * positions are its Vtx's; a skinned one's are the bind pose as it was read,
  * before it was rounded to the s16 a Vtx holds.
  */
+static void gfx_room_init(GfxMeshEntry* e, const struct gfxmesh* mesh);
+static void gfx_room_start(void);
+
 static GfxMeshEntry* gfx_mesh_entry(struct gfxmesh* mesh) {
     if (mesh->id) {
         auto it = gfx_meshes.find(mesh->id);
@@ -3950,15 +3961,23 @@ static GfxMeshEntry* gfx_mesh_entry(struct gfxmesh* mesh) {
 
     mesh->id = id;
 
-    GfxMeshEntry* ins = &gfx_meshes.emplace(id, e).first->second;
+    if (mesh->room) {
+        gfx_room_init(&e, mesh);
+    }
+
+    GfxMeshEntry* ins = &gfx_meshes.emplace(id, std::move(e)).first->second;
 
     return ins->backend ? ins : NULL;
 }
 
 // A new frame: nothing carries over, and copies nothing has drawn for a while go
+static void gfx_room_start_frame(void);
+
 static void gfx_mesh_start_frame(void) {
     gfx_mesh_frame++;
+    gfx_room_start_frame();
     mesh_cur = NULL;
+    mesh_room = false;
     mesh_entry = NULL;
     mesh_run.clear();
     mesh_skip_until = NULL;
@@ -3983,13 +4002,28 @@ static void gfx_mesh_begin(const struct gfxmeshdraw* draw) {
     mesh_cur = draw && draw->mesh && draw->mesh->vertices && draw->mesh->numvertices > 0 ? draw : NULL;
     mesh_entry = NULL;
     mesh_skip_until = NULL;
+    // A room needs its colour table: without one its lists are drawn as any are
+    mesh_room = mesh_cur && mesh_cur->mesh->room;
+
+    if (mesh_room && (!draw->colours || draw->numcolours <= 0)) {
+        mesh_cur = NULL;
+        mesh_room = false;
+    }
 
     if (mesh_cur && gfx_mesh_backend() && (!draw->palette || draw->mesh->nummatrices <= GFX_MESH_PALETTE_MAX)) {
         mesh_entry = gfx_mesh_entry(draw->mesh);
+
+        if (mesh_entry && mesh_room != (mesh_entry->room != nullptr)) {
+            mesh_entry = NULL;
+        }
     }
 
     for (size_t i = 0; i < sizeof(mesh_slot) / sizeof(mesh_slot[0]); i++) {
         mesh_slot[i] = -1;
+    }
+
+    if (mesh_room && mesh_entry) {
+        gfx_room_start();
     }
 }
 
@@ -4088,6 +4122,11 @@ static void gfx_mesh_flush(void);
 static bool gfx_mesh_load(const Vtx* src, size_t count, size_t dest) {
     const struct gfxmesh* m = mesh_cur->mesh;
 
+    // A room's run that was not kept is loaded as any list's is
+    if (mesh_room) {
+        return false;
+    }
+
     if (src < m->vertices || src + count > m->vertices + m->numvertices || dest + count > MAX_VERTICES) {
         return false;
     }
@@ -4130,7 +4169,24 @@ static void gfx_mesh_cpu_slots(size_t dest, size_t count) {
     }
 }
 
+static void gfx_room_materialise(uint8_t slot);
+
 static bool gfx_mesh_tri(uint8_t a, uint8_t b, uint8_t c) {
+    // A room's triangle on the CPU: a corner an earlier run left on the GPU
+    // alone is loaded here first
+    if (mesh_room) {
+        const uint8_t corners[3] = { a, b, c };
+
+        for (int i = 0; i < 3; i++) {
+            if (corners[i] < MAX_VERTICES && mesh_slot[corners[i]] >= 0) {
+                gfx_room_materialise(corners[i]);
+            }
+        }
+
+        g_GfxRoomCpuTris++;
+        return false;
+    }
+
     const int32_t ia = mesh_slot[a];
     const int32_t ib = mesh_slot[b];
     const int32_t ic = mesh_slot[c];
@@ -4550,6 +4606,815 @@ static const Gfx* gfx_mesh_kept_run(const Gfx* cmd) {
 }
 
 /*
+ * G_MESH_EXT for a room (gfxmesh.room, roommesh.c): the level's rooms drawn
+ * from the GPU's copy of their vertices.
+ *
+ * A room's lists are the level's, not built for this the way a mesh's are, so
+ * none of the mesh's layout holds and its runs are read differently
+ * (gfx_room_read_run()). A load may name any of the room's vertices into any
+ * slot; a vertex's colour is the entry its colour byte names past the G_COL
+ * before the load, anywhere in the room's colour table, which roomHighlight()
+ * makes afresh every frame; and a triangle may name a slot an earlier run of
+ * the list loaded - a fifth of the ROM's rooms' triangles do, across a change
+ * of texture. What a run is read for:
+ *
+ *  - each vertex's place in the colour table, learnt the first time a run
+ *    loads it (a vertex two runs load with two different colours keeps the
+ *    second run on the CPU; no level seen does it). A table of up to
+ *    GFXMESH_ROOM_PALETTE entries - every Perfect Dark room and every HD
+ *    one - goes to the vertex shader whole with each draw, and the vertex
+ *    carries its place in it (in its bone bytes, which a room does not use).
+ *    A bigger one - a GoldenEye room converted from the ROM gives every
+ *    vertex its own - is gathered into a colour per vertex once a frame, or
+ *    named as it stands when each vertex's entry is its own index plus one
+ *    offset (gfx_room_colours()).
+ *  - its triangles, kept with the room's copy, as for a mesh: the list's
+ *    order, and when some are marked for sealing (bgMarkRoomSeams()), those
+ *    that are not apart.
+ *  - the slots it leaves loaded, and the slots it reads that an earlier run
+ *    loaded: those must hold the same vertices when the run is drawn, loaded
+ *    under the same state (gfx_room_vstate() - the GPU works a vertex out
+ *    under the state of the draw, the RSP under the state of its load).
+ *
+ * Drawn on the CPU as any list is: a run the GPU cannot draw at all or under
+ * the state of the moment - per-vertex fog (whose RSP clipping the shader
+ * does not do, on a converted GoldenEye level in the N64 look), a face's own
+ * texgen, the sky's unclipped lists - and a run over a vertex dyntex moves
+ * (gfx_room_start()). A triangle such a run draws over a slot a kept run left
+ * on the GPU alone has that corner loaded first (gfx_room_materialise()), and
+ * the kept run is drawn on the CPU from then on, so its loads happen where
+ * the list has them. A run's sealed triangles are drawn on the CPU while
+ * sealing is on (gfx_seal_seams() works on the whole triangle on the screen),
+ * after the rest of the run.
+ */
+struct GfxRoomRun {
+    const Gfx* end;               // the first command past it
+    bool ok;                      // drawable on the GPU at all, from what its commands hold
+    bool forced_cpu;              // a run after it needed its loads on the CPU
+    uint8_t vtxsegno;             // the segment its loads name, 0 when it loads nothing
+    uintptr_t vtxseg;             // and what that held: the room's block's vertices
+    uint8_t colseg;               // the segment its G_COLs name, 0 when it has none
+    intptr_t coldelta;            // where that segment stood in the colour table, bytes
+    uint32_t outcolofs;           // its last G_COL's offset in the segment, which the RSP is left at
+    bool incol;                   // it loads under the colours a G_COL before it named
+    intptr_t incoldelta;          // and where those stood in the table, bytes
+    uint32_t loaded;              // the slots its loads leave filled
+    uint32_t incoming;            // the slots it reads that it does not load
+    int32_t slotout[16];          // the vertex each slot it loads is left holding
+    int32_t slotin[16];           // the vertex each incoming slot must hold
+    uint32_t numverts;            // vertices it loads, for the stats
+    uint32_t numsealed;           // triangles marked for sealing
+    uint32_t first_all;           // where all its triangles are kept with the room's copy; UINT32_MAX when not
+    uint32_t first_plain;         // and those not marked
+    uint32_t animgen;             // the room's animgen it was last checked against
+    float bmin[3], bmax[3];       // the box round its triangles' corners, in the room's space
+    std::vector<uint32_t> all;    // its triangles in the list's order, three vertices each
+    std::vector<uint32_t> plain;  // those not marked for sealing (only when some are)
+    std::vector<uint32_t> sealed; // those that are
+};
+
+struct GfxRoomData {
+    std::unordered_map<const Gfx*, GfxRoomRun> runs;
+    std::vector<int32_t> colidx; // each vertex's entry in the colour table, -1 until a run loads it
+    bool palette;                // the table goes to the vertex shader whole
+    int64_t direct;              // every colidx known is its vertex's index plus this; INT64_MIN when not, or none known
+    bool anyknown;
+    std::vector<uint32_t> st;    // a dynamic room's s and t as last seen
+    std::vector<uint8_t> animated;
+    uint32_t animgen;            // bumped when a vertex is first seen to move
+    uint32_t stframe;
+    // This frame's colours as the draws read them (gfx_room_colours())
+    uint32_t frame;
+    const void* table;
+    const uint8_t* colours;
+    const float* pal;
+    uint32_t numpal;
+};
+
+// What gfx_sp_load_vertex() reads of the state, unlit: a slot an earlier run
+// loaded is good for a GPU draw only when its load was made under the same
+struct GfxRoomVState {
+    float mp[4][4];
+    float aspect[3];
+    float jitter[2];
+    float fog[2];
+    uint32_t flags;
+    uint16_t tex[2];
+};
+
+static int32_t mesh_slot_sig[MAX_VERTICES + 4];        // a GPU slot's load state in room_sigs, -1 when unknown
+static GfxRoomRun* mesh_slot_run[MAX_VERTICES + 4];    // the kept run that loaded it
+static std::vector<GfxRoomVState> room_sigs;          // the room draw's load states so far
+// Colours and palettes made for this frame's draws: a buffer each, reused
+// next frame, so a draw's pointer names what it was made with for the frame
+static std::vector<std::vector<uint8_t>> room_bufs;
+static size_t room_bufs_used;
+
+static void* gfx_room_alloc(size_t bytes) {
+    if (room_bufs_used == room_bufs.size()) {
+        room_bufs.emplace_back();
+    }
+
+    std::vector<uint8_t>& b = room_bufs[room_bufs_used++];
+    b.resize(bytes);
+
+    return b.data();
+}
+
+static void gfx_room_start_frame(void) {
+    room_bufs_used = 0;
+    room_sigs.clear();
+}
+
+static void gfx_room_init(GfxMeshEntry* e, const struct gfxmesh* mesh) {
+    GfxRoomData* rd = new GfxRoomData();
+    const int32_t n = mesh->numvertices;
+
+    rd->colidx.assign(n, -1);
+    rd->palette = mesh_cur && mesh_cur->numcolours <= GFXMESH_ROOM_PALETTE;
+    rd->direct = INT64_MIN;
+    rd->anyknown = false;
+    rd->animgen = 0;
+    rd->stframe = 0;
+    rd->frame = 0;
+    rd->table = NULL;
+    rd->colours = NULL;
+    rd->pal = NULL;
+    rd->numpal = 0;
+    rd->st.resize(n);
+    rd->animated.assign(n, 0);
+
+    for (int32_t k = 0; k < n; k++) {
+        rd->st[k] = (uint16_t)mesh->vertices[k].s | ((uint32_t)(uint16_t)mesh->vertices[k].t << 16);
+    }
+
+    e->room.reset(rd);
+}
+
+static void gfx_room_vstate(GfxRoomVState* s) {
+    const bool jitter = taa_active && !fbActive;
+
+    memset(s, 0, sizeof(*s));
+    memcpy(s->mp, rsp.MP_matrix, sizeof(s->mp));
+    s->aspect[0] = rsp.aspect_ofs;
+    s->aspect[1] = rsp.aspect_scale;
+    s->aspect[2] = gfx_current_dimensions.aspect_ratio;
+    s->jitter[0] = jitter ? taa_jx : 0.0f;
+    s->jitter[1] = jitter ? taa_jy : 0.0f;
+    s->flags = (rsp.geometry_mode & (G_LIGHTING | G_FOG)) | (fbActive ? 1u << 31 : 0) |
+               ((rsp.extra_geometry_mode & (G_TEXGEN_FACE_EXT | G_ENVMAP_EXT)) ? 1u << 30 : 0);
+    s->tex[0] = rsp.texture_scaling_factor.s;
+    s->tex[1] = rsp.texture_scaling_factor.t;
+
+    if (rsp.geometry_mode & G_FOG) {
+        s->fog[0] = rsp.fog_mul;
+        s->fog[1] = rsp.fog_offset;
+    } else {
+        s->fog[0] = rdp.fog_color.a;
+    }
+}
+
+/*
+ * A room's draw begins: the slots know nothing of its runs yet, and a room
+ * dyntex animates has its s and t looked over once a frame - a vertex seen
+ * to move is the CPU's from then on, and so is any run that loads or draws it.
+ */
+static void gfx_room_start(void) {
+    GfxRoomData* rd = mesh_entry->room.get();
+    const struct gfxmesh* m = mesh_cur->mesh;
+
+    room_sigs.clear();
+
+    for (size_t i = 0; i < sizeof(mesh_slot_sig) / sizeof(mesh_slot_sig[0]); i++) {
+        mesh_slot_sig[i] = -1;
+        mesh_slot_run[i] = NULL;
+    }
+
+    if (m->dynamic && rd->stframe != gfx_mesh_frame) {
+        rd->stframe = gfx_mesh_frame;
+
+        for (int32_t k = 0; k < m->numvertices; k++) {
+            const uint32_t st = (uint16_t)m->vertices[k].s | ((uint32_t)(uint16_t)m->vertices[k].t << 16);
+
+            if (st != rd->st[k]) {
+                rd->st[k] = st;
+
+                if (!rd->animated[k]) {
+                    rd->animated[k] = 1;
+                    rd->animgen++;
+                }
+            }
+        }
+    }
+}
+
+// One of the room's vertices through gfx_sp_load_vertex(), its colour the
+// entry a run learnt for it
+static inline void gfx_room_load_one(struct LoadedVertex* d, int32_t k) {
+    const Vtx* v = &mesh_cur->mesh->vertices[k];
+    const int32_t c = mesh_entry ? mesh_entry->room->colidx[k] : -1;
+    static const struct NormalColor none = {};
+    const struct NormalColor* vcn = c >= 0 && c < mesh_cur->numcolours ? &((const struct NormalColor*)mesh_cur->colours)[c] : &none;
+    const short U = v->s * rsp.texture_scaling_factor.s >> 16;
+    const short V = v->t * rsp.texture_scaling_factor.t >> 16;
+
+    gfx_sp_load_vertex(d, v->v[0], v->v[1], v->v[2], vcn, U, V);
+}
+
+/*
+ * A CPU triangle names a slot that a kept run filled on the GPU alone: the
+ * vertex is loaded into it now, and the run that filled it is drawn on the
+ * CPU from the next frame on, so the load happens where the list has it and
+ * under the state it had there.
+ */
+static void gfx_room_materialise(uint8_t slot) {
+    const int32_t k = mesh_slot[slot];
+
+    if (mesh_slot_run[slot]) {
+        mesh_slot_run[slot]->forced_cpu = true;
+    }
+
+    mesh_slot[slot] = -1;
+
+    if (k >= 0 && k < mesh_cur->mesh->numvertices) {
+        gfx_room_load_one(&rsp.loaded_vertices[slot], k);
+    }
+}
+
+/*
+ * Under G_FOG_VERTEX_EXT a triangle crossing the RSP's clip volume - behind
+ * the eye, or past the guard band - is cut on the CPU, and its new corners
+ * fogged where they stand (gfx_emit_tri3()). The shader fogs each corner as
+ * it is and cuts nothing, which is the same thing for a triangle wholly
+ * inside: so is every triangle of a run whose box has all eight corners
+ * inside every plane of it, the volume being convex.
+ */
+static bool gfx_room_inside_rsp_clip(const struct GfxRoomRun& r) {
+    const bool jitter = taa_active && !fbActive;
+
+    for (int c = 0; c < 8; c++) {
+        const float px = (c & 1) ? r.bmax[0] : r.bmin[0];
+        const float py = (c & 2) ? r.bmax[1] : r.bmin[1];
+        const float pz = (c & 4) ? r.bmax[2] : r.bmin[2];
+        const v4f pos = v4f_splat(px) * v4f_load(rsp.MP_matrix[0]) + v4f_splat(py) * v4f_load(rsp.MP_matrix[1]) +
+                        v4f_splat(pz) * v4f_load(rsp.MP_matrix[2]) + v4f_load(rsp.MP_matrix[3]);
+        struct LoadedVertex v;
+
+        v.w = pos[3];
+        v.x = gfx_adjust_x_for_aspect_ratio(pos[0], v.w);
+        v.y = pos[1];
+
+        if (jitter) {
+            v.x += taa_jx * v.w;
+            v.y += taa_jy * v.w;
+        }
+
+        for (int k = 0; k < 5; k++) {
+            // a hair inside, against the CPU's arithmetic and the shader's
+            // disagreeing at the edge
+            if (!(gfx_rsp_clip_dist(&v, k) > 1e-3f * fabsf(v.w) + 1e-4f)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+// The run's draw can be the GPU's under the state of the moment
+static inline bool gfx_room_gpu_state(const struct GfxRoomRun& r) {
+    if (rsp.extra_geometry_mode & (G_TEXGEN_FACE_EXT | G_NO_CLIPPING_EXT)) {
+        return false;
+    }
+
+    return !(rsp.extra_geometry_mode & G_FOG_VERTEX_EXT) || gfx_room_inside_rsp_clip(r);
+}
+
+// gfx_sp_tri_emit() would grow a marked triangle
+static inline bool gfx_room_sealing(void) {
+    return (rsp.extra_geometry_mode & G_SEAL_SEAMS_EXT) && g_GfxSealSeams > 0 && (rdp.other_mode_l & Z_UPD) &&
+           !(rdp.other_mode_l & FORCE_BL) && (rdp.other_mode_l & ZMODE_DEC) != ZMODE_DEC &&
+           !(rsp.extra_geometry_mode & G_DECAL_EXT);
+}
+
+/*
+ * The vertices a run has just taught their colours: the GPU's copy carries
+ * each one's entry where the table goes to the shader whole. Only vertices no
+ * draw has read yet - a vertex is only drawn by a kept run, and every run that
+ * draws one has been read by then.
+ */
+static void gfx_room_teach(const std::vector<int32_t>& taught) {
+    GfxRoomData* rd = mesh_entry->room.get();
+    const struct gfxmesh* m = mesh_cur->mesh;
+
+    if (taught.empty()) {
+        return;
+    }
+
+    // the frame's colours are made again for the next draw
+    rd->frame = 0;
+
+    if (!rd->palette || !gfx_rapi->mesh_update) {
+        return;
+    }
+
+    std::vector<int32_t> ks(taught);
+    std::sort(ks.begin(), ks.end());
+
+    std::vector<GfxMeshVertex> verts;
+
+    for (size_t i = 0; i < ks.size();) {
+        size_t j = i + 1;
+
+        while (j < ks.size() && ks[j] == ks[j - 1] + 1) {
+            j++;
+        }
+
+        verts.resize(j - i);
+
+        for (size_t n = 0; n < j - i; n++) {
+            const int32_t k = ks[i + n];
+            const Vtx* v = &m->vertices[k];
+            GfxMeshVertex* o = &verts[n];
+            const uint32_t c = (uint32_t)rd->colidx[k];
+
+            memset(o, 0, sizeof(*o));
+            o->pos[0] = v->v[0];
+            o->pos[1] = v->v[1];
+            o->pos[2] = v->v[2];
+            o->st[0] = v->s;
+            o->st[1] = v->t;
+            o->bones[0] = c & 0xff;
+            o->bones[1] = (c >> 8) & 0xff;
+            o->bones[2] = (c >> 16) & 0xff;
+            o->bones[3] = 1;
+            o->weights[0] = 1.0f;
+        }
+
+        gfx_rapi->mesh_update(mesh_entry->backend, (uint32_t)ks[i], verts.data(), (uint32_t)verts.size());
+        i = j;
+    }
+}
+
+/*
+ * Reads the room's run that starts at cmd, under the segments and slots as
+ * they stand.
+ */
+static GfxRoomRun gfx_room_read_run(const Gfx* cmd) {
+    const struct gfxmesh* m = mesh_cur->mesh;
+    GfxRoomData* rd = mesh_entry->room.get();
+    const uintptr_t table = (uintptr_t)mesh_cur->colours;
+    const int64_t numcolours = mesh_cur->numcolours;
+    GfxRoomRun r;
+    int32_t slots[16];
+    bool own[16];
+    int64_t colbase = 0; // entries from the table's start
+    bool havecol = false;
+    std::vector<int32_t> taught;
+
+    r.end = cmd;
+    r.ok = true;
+    r.forced_cpu = false;
+    r.vtxsegno = 0;
+    r.vtxseg = 0;
+    r.colseg = 0;
+    r.coldelta = 0;
+    r.outcolofs = 0;
+    r.incol = false;
+    r.incoldelta = 0;
+    r.loaded = 0;
+    r.incoming = 0;
+    r.numverts = 0;
+    r.numsealed = 0;
+    r.first_all = UINT32_MAX;
+    r.first_plain = UINT32_MAX;
+    r.animgen = rd->animgen;
+
+    for (int i = 0; i < 16; i++) {
+        slots[i] = mesh_slot[i] >= 0 ? mesh_slot[i] : -1;
+        own[i] = false;
+        r.slotout[i] = -1;
+        r.slotin[i] = -1;
+    }
+
+    auto tri = [&](uint32_t a, uint32_t b, uint32_t c, bool seal) {
+        const uint32_t s[3] = { a, b, c };
+
+        for (int i = 0; i < 3; i++) {
+            if (s[i] >= 16 || slots[s[i]] < 0) {
+                r.ok = false;
+                return;
+            }
+        }
+        for (int i = 0; i < 3; i++) {
+            if (!own[s[i]]) {
+                r.incoming |= 1u << s[i];
+                r.slotin[s[i]] = slots[s[i]];
+            }
+            r.all.push_back((uint32_t)slots[s[i]]);
+        }
+
+        std::vector<uint32_t>& to = seal ? r.sealed : r.plain;
+
+        to.push_back((uint32_t)slots[a]);
+        to.push_back((uint32_t)slots[b]);
+        to.push_back((uint32_t)slots[c]);
+
+        if (seal) {
+            r.numsealed++;
+        }
+    };
+
+    for (const Gfx* c = cmd;; ++c) {
+        const uint32_t op = c->words.w0 >> 24;
+        const uintptr_t w1 = c->words.w1;
+
+        if (op == G_NOOP) {
+            continue;
+        }
+
+        if (op == G_COL) {
+            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+
+            if (!seg || !segmentPointers[seg] || (r.colseg && seg != r.colseg)) {
+                r.ok = false;
+                continue;
+            }
+
+            r.colseg = seg;
+            r.coldelta = (intptr_t)(segmentPointers[seg] - table);
+            r.outcolofs = (uint32_t)(w1 & 0x00fffffe);
+
+            const intptr_t bytes = r.coldelta + (intptr_t)r.outcolofs;
+
+            if (bytes % (intptr_t)sizeof(struct NormalColor)) {
+                r.ok = false;
+            }
+
+            colbase = bytes / (intptr_t)sizeof(struct NormalColor);
+            havecol = true;
+            continue;
+        }
+
+        if (op == G_VTX) {
+            const Vtx* src = (const Vtx*)seg_addr(w1);
+            const size_t count = (c->words.w0 & 0xffff) / sizeof(Vtx);
+            const size_t dest = (c->words.w0 >> 16) & 0xf;
+            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+
+            if (!seg || (r.vtxsegno && seg != r.vtxsegno) || count == 0 || dest + count > 16 ||
+                src < m->vertices || src + count > m->vertices + m->numvertices) {
+                r.ok = false;
+
+                for (size_t i = dest; i < dest + count && i < 16; i++) {
+                    slots[i] = -1;
+                    own[i] = true;
+                }
+                continue;
+            }
+
+            if (!havecol) {
+                // the colours a G_COL before the run named
+                const intptr_t bytes = (intptr_t)((uintptr_t)rsp.vertex_colors - table);
+
+                if (!rsp.vertex_colors || bytes % (intptr_t)sizeof(struct NormalColor)) {
+                    r.ok = false;
+                }
+
+                r.incol = true;
+                r.incoldelta = bytes;
+                colbase = bytes / (intptr_t)sizeof(struct NormalColor);
+                havecol = true;
+            }
+
+            r.vtxsegno = seg;
+            r.vtxseg = segmentPointers[seg];
+
+            const int32_t base = (int32_t)(src - m->vertices);
+
+            for (size_t i = 0; i < count; i++) {
+                const int32_t k = base + (int32_t)i;
+                const int64_t ci = colbase + (src[i].colour >> 2);
+
+                if (ci < 0 || ci >= numcolours || (rd->palette && ci >= GFXMESH_ROOM_PALETTE)) {
+                    r.ok = false;
+                } else if (rd->colidx[k] < 0) {
+                    rd->colidx[k] = (int32_t)ci;
+                    taught.push_back(k);
+
+                    const int64_t d = ci - k;
+
+                    if (!rd->anyknown) {
+                        rd->direct = d;
+                        rd->anyknown = true;
+                    } else if (rd->direct != d) {
+                        rd->direct = INT64_MIN;
+                    }
+                } else if (rd->colidx[k] != ci) {
+                    // loaded with another colour by another run
+                    r.ok = false;
+                }
+
+                slots[dest + i] = k;
+                own[dest + i] = true;
+                r.loaded |= 1u << (dest + i);
+            }
+
+            r.numverts += (uint32_t)count;
+            continue;
+        }
+
+        if (op == (uint8_t)G_TRI1) {
+            tri(((w1 >> 16) & 0xff) / 10, ((w1 >> 8) & 0xff) / 10, (w1 & 0xff) / 10, (w1 >> 24) & 1);
+            continue;
+        }
+
+        if (op == (uint8_t)G_TRI4) {
+            for (int k = 0; k < 4; k++) {
+                const uint32_t x = (w1 >> (k * 8)) & 0xf;
+                const uint32_t y = (w1 >> (k * 8 + 4)) & 0xf;
+                const uint32_t z = (c->words.w0 >> (k * 4)) & 0xf;
+
+                if (x || y || z) {
+                    tri(x, y, z, (c->words.w0 >> (16 + k)) & 1);
+                }
+            }
+            continue;
+        }
+
+        r.end = c;
+        break;
+    }
+
+    for (int i = 0; i < 16; i++) {
+        if (r.loaded & (1u << i)) {
+            r.slotout[i] = slots[i];
+        }
+    }
+
+    if (r.numsealed == 0) {
+        r.plain.clear();
+    }
+
+    for (int k = 0; k < 3; k++) {
+        r.bmin[k] = 1e30f;
+        r.bmax[k] = -1e30f;
+    }
+    for (uint32_t i : r.all) {
+        const Vtx* v = &m->vertices[i];
+
+        for (int k = 0; k < 3; k++) {
+            r.bmin[k] = std::min(r.bmin[k], (float)v->v[k]);
+            r.bmax[k] = std::max(r.bmax[k], (float)v->v[k]);
+        }
+    }
+
+    if (r.loaded == 0 && r.all.empty()) {
+        r.ok = false;
+    }
+
+    gfx_room_teach(taught);
+
+    return r;
+}
+
+/*
+ * This frame's colours for the room's draws: the table as floats for the
+ * shader, or a colour per vertex - the table itself where it lines up with
+ * the vertices, else gathered from it.
+ */
+static void gfx_room_colours(void) {
+    GfxRoomData* rd = mesh_entry->room.get();
+    const void* table = mesh_cur->colours;
+
+    if (rd->frame == gfx_mesh_frame && rd->table == table) {
+        return;
+    }
+
+    rd->frame = gfx_mesh_frame;
+    rd->table = table;
+
+    const struct NormalColor* t = (const struct NormalColor*)table;
+    const int32_t numcolours = mesh_cur->numcolours;
+    const int32_t n = mesh_cur->mesh->numvertices;
+
+    if (rd->palette) {
+        const int32_t num = numcolours < GFXMESH_ROOM_PALETTE ? numcolours : GFXMESH_ROOM_PALETTE;
+        float* p = (float*)gfx_room_alloc(sizeof(float) * 4 * GFXMESH_ROOM_PALETTE);
+
+        for (int32_t i = 0; i < num; i++) {
+            p[i * 4 + 0] = t[i].r;
+            p[i * 4 + 1] = t[i].g;
+            p[i * 4 + 2] = t[i].b;
+            p[i * 4 + 3] = t[i].a;
+        }
+
+        rd->pal = p;
+        rd->numpal = (uint32_t)(num + 2) / 3;
+        rd->colours = NULL;
+        return;
+    }
+
+    if (rd->anyknown && rd->direct != INT64_MIN && rd->direct >= 0 && rd->direct + n <= numcolours) {
+        rd->colours = (const uint8_t*)(t + rd->direct);
+        return;
+    }
+
+    struct NormalColor* g = (struct NormalColor*)gfx_room_alloc(sizeof(struct NormalColor) * n);
+
+    for (int32_t k = 0; k < n; k++) {
+        const int32_t c = rd->colidx[k];
+
+        if (c >= 0 && c < numcolours) {
+            g[k] = t[c];
+        } else {
+            memset(&g[k], 0, sizeof(g[k]));
+        }
+    }
+
+    rd->colours = (const uint8_t*)g;
+}
+
+// A run's triangles on the CPU, each corner loaded on its own
+static void gfx_room_draw_cpu(const std::vector<uint32_t>& idx, bool seal) {
+    for (size_t t = 0; t + 2 < idx.size(); t += 3) {
+        struct LoadedVertex v[3];
+
+        for (int k = 0; k < 3; k++) {
+            gfx_room_load_one(&v[k], (int32_t)idx[t + k]);
+        }
+
+        gfx_seal_this = seal;
+        gfx_sp_tri_emit(&v[0], &v[1], &v[2], false);
+    }
+
+    gfx_seal_this = false;
+}
+
+// Triangles of the room's kept ones, from first, as one draw
+static void gfx_room_draw(const std::vector<uint32_t>& idx, uint32_t first) {
+    const uint32_t numtris = (uint32_t)idx.size() / 3;
+    GfxRoomData* rd = mesh_entry->room.get();
+
+    if (numtris == 0) {
+        return;
+    }
+
+    if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH && gfx_mesh_cull() != 0) {
+        g_GfxTrisCulled += numtris;
+        return;
+    }
+
+    gfx_emit_prepare();
+    gfx_flush();
+    gfx_room_colours();
+
+    float params[4 * GFX_MESH_PARAMS];
+    gfx_mesh_params(params, false);
+    params[51] = rd->palette ? 1.0f : 0.0f;
+
+    struct GfxMeshDraw d;
+    d.prg = rendering_state.shader_program;
+    d.mesh = mesh_entry->backend;
+    d.colours = rd->palette ? NULL : rd->colours;
+    d.numcolours = (uint32_t)mesh_cur->mesh->numvertices;
+    d.indices = first == UINT32_MAX ? idx.data() : NULL;
+    d.numindices = (uint32_t)idx.size();
+    d.first_index = first == UINT32_MAX ? 0 : first;
+    d.params = params;
+    d.palette = rd->palette ? rd->pal : NULL;
+    d.numpalette = rd->palette ? rd->numpal : 0;
+    d.cull = gfx_mesh_cull();
+
+    if (d.mesh && d.prg && (d.colours || d.palette) && gfx_rapi->mesh_draw(&d)) {
+        g_GfxNumDrawCalls++;
+        g_GfxNumTris += numtris;
+        g_GfxRoomDraws++;
+        g_GfxRoomTris += numtris;
+    } else {
+        g_GfxRoomRefused += numtris;
+        gfx_room_draw_cpu(idx, false);
+    }
+}
+
+/*
+ * The room's run that starts at cmd, drawn whole from what was kept of it, or
+ * NULL when it is to be read as any list is this time (see above).
+ */
+static const Gfx* gfx_room_kept_run(const Gfx* cmd) {
+    GfxRoomData* rd = mesh_entry->room.get();
+    auto it = rd->runs.find(cmd);
+
+    if (it == rd->runs.end()) {
+        GfxRoomRun r = gfx_room_read_run(cmd);
+
+        if (r.ok && gfx_rapi->mesh_add_indices) {
+            if (!r.all.empty()) {
+                r.first_all = gfx_rapi->mesh_add_indices(mesh_entry->backend, r.all.data(), (uint32_t)r.all.size());
+            }
+            if (!r.plain.empty()) {
+                r.first_plain = gfx_rapi->mesh_add_indices(mesh_entry->backend, r.plain.data(), (uint32_t)r.plain.size());
+            }
+        }
+
+        it = rd->runs.emplace(cmd, std::move(r)).first;
+    }
+
+    GfxRoomRun& r = it->second;
+    const uintptr_t table = (uintptr_t)mesh_cur->colours;
+    bool go = r.ok && !r.forced_cpu && gfx_room_gpu_state(r);
+
+    if (go && r.vtxsegno && segmentPointers[r.vtxsegno] != r.vtxseg) {
+        go = false;
+    }
+    if (go && r.colseg && (intptr_t)(segmentPointers[r.colseg] - table) != r.coldelta) {
+        go = false;
+    }
+    if (go && r.incol && (intptr_t)((uintptr_t)rsp.vertex_colors - table) != r.incoldelta) {
+        go = false;
+    }
+
+    // A dyntex vertex first seen to move since the run was looked at
+    if (go && r.animgen != rd->animgen) {
+        r.animgen = rd->animgen;
+
+        for (uint32_t k : r.all) {
+            if (rd->animated[k]) {
+                r.ok = go = false;
+                break;
+            }
+        }
+        for (int i = 0; go && i < 16; i++) {
+            if ((r.loaded & (1u << i)) && rd->animated[r.slotout[i]]) {
+                r.ok = go = false;
+            }
+        }
+    }
+
+    int32_t sig = -1;
+
+    if (go && (r.loaded || r.incoming)) {
+        GfxRoomVState cur;
+        gfx_room_vstate(&cur);
+
+        if (!room_sigs.empty() && memcmp(&room_sigs.back(), &cur, sizeof(cur)) == 0) {
+            sig = (int32_t)room_sigs.size() - 1;
+        } else {
+            room_sigs.push_back(cur);
+            sig = (int32_t)room_sigs.size() - 1;
+        }
+
+        // Slots an earlier run loaded: the same vertices, loaded under this
+        // state; a lit one's lights are not part of it
+        if (r.incoming && (rsp.geometry_mode & G_LIGHTING)) {
+            go = false;
+        }
+
+        for (int i = 0; go && i < 16; i++) {
+            if (r.incoming & (1u << i)) {
+                const int32_t s = mesh_slot_sig[i];
+
+                if (mesh_slot[i] != r.slotin[i] || s < 0 ||
+                    (s != sig && memcmp(&room_sigs[s], &cur, sizeof(cur)) != 0)) {
+                    go = false;
+                }
+            }
+        }
+    }
+
+    if (!go) {
+        mesh_skip_until = r.end;
+        return NULL;
+    }
+
+    // What the run leaves behind it, as reading it would have
+    if (r.colseg) {
+        rsp.vertex_colors = (const struct NormalColor*)(segmentPointers[r.colseg] + r.outcolofs);
+    }
+
+    for (int i = 0; i < 16; i++) {
+        if (r.loaded & (1u << i)) {
+            mesh_slot[i] = r.slotout[i];
+            mesh_slot_sig[i] = sig;
+            mesh_slot_run[i] = &r;
+        }
+    }
+
+    g_GfxNumVerts += r.numverts;
+    gfx_vertices_lost = false;
+
+    if (r.numsealed && gfx_room_sealing()) {
+        gfx_room_draw(r.plain, r.first_plain);
+        g_GfxRoomSealedTris += r.numsealed;
+        gfx_room_draw_cpu(r.sealed, true);
+    } else {
+        gfx_room_draw(r.all, r.first_all);
+    }
+
+    return r.end - 1;
+}
+
+/*
  * The mesh vertex shader's functions and main() (G_MESH_EXT), shared by both
  * backends, which put their own declarations in front: the inputs aPos, aST,
  * aBones, aWeights, aCol and aNormal (GfxMeshVertex and the colour stream),
@@ -4656,13 +5521,17 @@ std::string gfx_mesh_vs_main(const struct CCFeatures& cc, bool depth_clamp_hack,
     // before it far inside, so only a triangle with all three past it loses
     // more than a sliver at the corner.
     s += "    gl_ClipDistance[0] = pos.z > pos.w ? -1.0 : 1.0e6;\n";
-    s += "    vec4 shade = vec4(aCol) / 255.0;\n";
+    // A room's colour is its entry in the table the draw hands over whole,
+    // where it fits (GFXMESH_ROOM_PALETTE), and the vertex says which
+    s += "    uvec4 col = aCol;\n";
+    s += "    if (uP[12].w != 0.0) col = uvec4(uPal[int(aBones.x) | (int(aBones.y) << 8) | (int(aBones.z) << 16)]);\n";
+    s += "    vec4 shade = vec4(col) / 255.0;\n";
     s += "    float lodf = floor((0.7 + clamp(pos.w / 1024.0, 0.0, 1.0) * 0.3) * 255.0) / 255.0;\n";
     s += "    vec4 outPos = vec4(pos.x, pos.y * uP[5].z, uP[5].w != 0.0 ? (pos.z + pos.w) / 2.0 : pos.z, pos.w);\n";
     s += "    vec2 uv = vec2(toShort((aST.x * int(uP[12].x)) >> 16), toShort((aST.y * int(uP[12].y)) >> 16));\n";
     // The normal an RSP light reads: the colour's bytes as signed, or a
     // skinned mesh's own normal posed, 127 long and rounded as a byte is
-    s += "    vec3 nrm = vec3(aCol.rgb);\n";
+    s += "    vec3 nrm = vec3(col.rgb);\n";
     s += "    nrm = mix(nrm, nrm - 256.0, step(128.0, nrm));\n";
     s += "    if (uP[27].y != 0.0) {\n";
     s += "        vec3 n = vec3(dot(uPal[int(aBones.x) * 3].xyz, aNormal), dot(uPal[int(aBones.x) * 3 + 1].xyz, aNormal), dot(uPal[int(aBones.x) * 3 + 2].xyz, aNormal)) * aWeights.x;\n";
@@ -5908,7 +6777,7 @@ static void gfx_run_dl(Gfx* cmd) {
 
             if (!mesh_skip_until && mesh_run.empty() &&
                 (opcode == G_COL || opcode == G_VTX || opcode == (uint8_t)G_TRI1 || opcode == (uint8_t)G_TRI4)) {
-                const Gfx* last = gfx_mesh_kept_run(cmd);
+                const Gfx* last = mesh_room ? gfx_room_kept_run(cmd) : gfx_mesh_kept_run(cmd);
 
                 if (last) {
                     cmd = (Gfx*)last + 1;
@@ -6363,6 +7232,10 @@ extern "C" void gfx_start_frame(void) {
             sysLogPrintf(LOG_NOTE,
                     "gfx:   tris clipped %u, culled %u, drawn %u",
                     g_GfxTrisClipped, g_GfxTrisCulled, g_GfxNumTris);
+            if (g_GfxRoomDraws || g_GfxRoomRefused || g_GfxRoomCpuTris || g_GfxRoomSealedTris) {
+                sysLogPrintf(LOG_NOTE, "gfx:   gpu rooms: %u draws, %u tris (%u tris refused to the cpu); cpu %u tris, %u sealed",
+                        g_GfxRoomDraws, g_GfxRoomTris, g_GfxRoomRefused, g_GfxRoomCpuTris, g_GfxRoomSealedTris);
+            }
             if (g_GfxMeshDraws || g_GfxMeshRefused) {
                 sysLogPrintf(LOG_NOTE, "gfx:   gpu meshes: %u draws, %u tris (%u tris refused to the cpu)",
                         g_GfxMeshDraws, g_GfxMeshTris, g_GfxMeshRefused);
@@ -6401,6 +7274,7 @@ extern "C" void gfx_start_frame(void) {
     g_GfxNumVerts = 0;
     g_GfxTrisClipped = g_GfxTrisCulled = 0;
     g_GfxMeshDraws = g_GfxMeshTris = g_GfxMeshRefused = 0;
+    g_GfxRoomDraws = g_GfxRoomTris = g_GfxRoomRefused = g_GfxRoomCpuTris = g_GfxRoomSealedTris = 0;
     memset(g_GfxFlushReasons, 0, sizeof(g_GfxFlushReasons));
     gfx_frame_textures.clear();
     g_GfxNumDistinctTextures = 0;

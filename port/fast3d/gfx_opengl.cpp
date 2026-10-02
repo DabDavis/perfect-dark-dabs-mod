@@ -1282,6 +1282,21 @@ static uint32_t gfx_opengl_mesh_add_indices(uint32_t mesh, const uint32_t* indic
     return first;
 }
 
+// Vertices of a mesh rewritten from first (gfx_rendering_api.h)
+static void gfx_opengl_mesh_update(uint32_t mesh, uint32_t first, const struct GfxMeshVertex* verts, uint32_t count) {
+    auto it = gl_meshes.find(mesh);
+
+    if (it == gl_meshes.end() || count == 0 || first + count > it->second.count) {
+        return;
+    }
+
+    gl_mesh_leave();
+    glBindBuffer(GL_ARRAY_BUFFER, it->second.vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, (GLintptr)first * sizeof(GfxMeshVertex), (GLsizeiptr)count * sizeof(GfxMeshVertex),
+                    verts);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+}
+
 static bool gfx_opengl_mesh_compile_failed(GLuint shader, const char* what, const char* src) {
     GLint success = 0;
 
@@ -1492,16 +1507,18 @@ static GLintptr gl_mesh_indices(const uint32_t* indices, uint32_t count) {
 static bool gfx_opengl_mesh_draw(const struct GfxMeshDraw* d) {
     auto it = gl_meshes.find(d->mesh);
 
-    if (it == gl_meshes.end() || !d->prg || !d->colours || d->numindices == 0 ||
+    if (it == gl_meshes.end() || !d->prg || (!d->colours && !d->palette) || d->numindices == 0 ||
         (!d->indices && (!it->second.ibo || d->first_index + d->numindices > it->second.kept.size())) ||
         !gfx_opengl_mesh_program(d->prg)) {
         return false;
     }
 
     struct ShaderProgram* prg = d->prg;
-    GLintptr coloff;
+    GLintptr coloff = 0;
 
-    if (!gl_mesh_colours(d->colours, d->numcolours, &coloff)) {
+    // A room whose colours are the palette's reads none per vertex: the
+    // attribute points at the mesh's own buffer, which is big enough
+    if (d->colours && !gl_mesh_colours(d->colours, d->numcolours, &coloff)) {
         return false;
     }
 
@@ -1543,7 +1560,7 @@ static bool gfx_opengl_mesh_draw(const struct GfxMeshDraw* d) {
     }
 
     glBindVertexArray(it->second.vao);
-    glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_col_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, d->colours ? gl_mesh_col_vbo : it->second.vbo);
     glVertexAttribIPointer(4, 4, GL_UNSIGNED_BYTE, 4, (const void*)coloff);
 
     GLintptr idxoff;
@@ -3361,4 +3378,5 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_mesh_delete,
     gfx_opengl_mesh_draw,
     gfx_opengl_mesh_add_indices,
+    gfx_opengl_mesh_update,
 };

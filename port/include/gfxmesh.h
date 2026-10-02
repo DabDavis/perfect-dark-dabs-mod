@@ -39,7 +39,24 @@ struct gfxmesh {
 	s32 nummatrices;
 	const f32 *normals;    // three per vertex, unit length, or NULL: where a skinned mesh is lit
 	                       // or reflects, its normal is this posed, not its colour's three bytes
+	u8 room;               // a room's vertices (roommesh.c): see below
+	u8 dynamic;            // a room whose s and t dyntex rewrites from frame to frame
 };
+
+/*
+ * A room (gfxmesh.room) is drawn from the same copy on the GPU, but its lists
+ * are the level's and hold to none of the layout above. Its loads name its
+ * vertices in any order, at any slot, and a triangle may name a vertex an
+ * earlier run of the list loaded; a vertex's colour byte indexes what the
+ * G_COL before its load named, somewhere in the room's colour table (the
+ * draw's `colours`, made afresh every frame by roomHighlight()). The renderer
+ * reads each run once, learns each vertex's place in the table and keeps the
+ * run's triangles, and every frame draws them with the table as it is then:
+ * a table of up to GFXMESH_ROOM_PALETTE entries goes to the vertex shader
+ * whole (a vertex carries its place in it), a bigger one is gathered into a
+ * colour per vertex. Anything it cannot do is drawn the way any list is.
+ */
+#define GFXMESH_ROOM_PALETTE 192
 
 /**
  * A palette entry: the matrix that takes a bind-pose position to the space
@@ -56,6 +73,8 @@ struct gfxmesh {
 struct gfxmeshdraw {
 	struct gfxmesh *mesh;
 	const f32 *palette;    // mesh->nummatrices entries, or NULL for the bind pose as it stands
+	const void *colours;   // a room's: its colour table this frame, four bytes an entry
+	s32 numcolours;
 };
 
 /**

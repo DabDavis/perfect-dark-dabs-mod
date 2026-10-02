@@ -31,6 +31,9 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 32 2026-10-02
+Every level's rooms are drawn by the graphics card too: GoldenEye's HD levels run about three times lighter on the processor (Video > GPU Vertex Shading)
+
 notes 31 2026-10-02
 XBLA and GoldenEye HD looks: characters, guns and props are posed and drawn by the graphics card, several times faster in big matches (Video > GPU Vertex Shading)
 

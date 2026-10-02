@@ -39,7 +39,8 @@ struct GfxMeshVertex {
  *  8, 9  textures 0 and 1: s scale, t scale, s offset, t offset
  *  10    the clamps: texture 0 s and t, texture 1 s and t
  *  11    grayscale colour
- *  12    the G_TEXTURE scale s and t, 1 when skinned, 0
+ *  12    the G_TEXTURE scale s and t, 1 when skinned, 1 when a room's colours are the
+ *        palette's entries (as 0..255) and each vertex's bones x, y and z its index there
  *  13-20 combiner inputs 1-8: constant colour and alpha
  *  21-22 their colour kinds, 23-24 their alpha kinds (GFX_MESH_IN_*)
  *  25    directional lights, 1 for G_LIGHTING, 1 for G_TEXTURE_GEN, 1 for G_TEXTURE_GEN_LINEAR
@@ -60,7 +61,7 @@ enum { GFX_MESH_IN_CONST, GFX_MESH_IN_SHADE, GFX_MESH_IN_SHADE_ALPHA, GFX_MESH_I
 struct GfxMeshDraw {
     struct ShaderProgram* prg;   // the program the renderer has bound; drawn under its mesh variant
     uint32_t mesh;               // from mesh_create()
-    const uint8_t* colours;      // four bytes per vertex of the mesh
+    const uint8_t* colours;      // four bytes per vertex of the mesh; NULL for a room whose colours are the palette's
     uint32_t numcolours;
     const uint32_t* indices;     // into the mesh's vertices, three a triangle; NULL for the mesh's own (first_index)
     uint32_t numindices;
@@ -166,6 +167,10 @@ struct GfxRenderingAPI {
     void (*mesh_delete)(uint32_t mesh);
     bool (*mesh_draw)(const struct GfxMeshDraw* draw);
     uint32_t (*mesh_add_indices)(uint32_t mesh, const uint32_t* indices, uint32_t count);
+    // mesh_update() rewrites vertices of a mesh from first: only ever ones no
+    // draw has read yet (a room's, as its runs teach their colours), so a
+    // frame still in flight never sees the change.
+    void (*mesh_update)(uint32_t mesh, uint32_t first, const struct GfxMeshVertex* verts, uint32_t count);
 };
 
 // Occlusion query slots a backend provides

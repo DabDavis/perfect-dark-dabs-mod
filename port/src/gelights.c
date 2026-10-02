@@ -7,6 +7,7 @@
 #include "modloader.h"
 #include "xblastage.h"
 #include "gelights.h"
+#include "roommesh.h"
 #include "system.h"
 #include "game/dlights.h"
 #include "game/propsnd.h"
@@ -271,6 +272,12 @@ static s32 geLightsDarken(s32 roomnum, s32 lightnum)
 		}
 
 		num++;
+	}
+
+	// A vertex's colour byte is part of what the GPU's copy of the room
+	// learnt from its lists (roommesh.c)
+	if (num && palette) {
+		roomMeshForget(roomnum);
 	}
 
 	return num;

@@ -1021,6 +1021,7 @@ struct VkSlot {
     VkDeviceSize mesh_used = 0;
     bool mesh_grow = false;
     std::unordered_map<const uint8_t *, VkDeviceSize> mesh_cols;
+    std::unordered_map<const float *, VkDeviceSize> mesh_pals; // the frame's palettes, where they went
     const float *mesh_pal = nullptr;
     VkDeviceSize mesh_pal_off = 0;
 };
@@ -2905,6 +2906,7 @@ static bool vk_mesh_slot_init(VkSlot &sl, VkDeviceSize size) {
 static void vk_mesh_slot_begin(VkSlot &sl) {
     sl.mesh_used = 0;
     sl.mesh_cols.clear();
+    sl.mesh_pals.clear();
     sl.mesh_pal = nullptr;
 
     if (sl.mesh_grow && sl.mesh.buf) {
@@ -3014,6 +3016,18 @@ static uint32_t gfx_vk_mesh_add_indices(uint32_t mesh, const uint32_t *indices, 
     return first;
 }
 
+// Vertices of a mesh rewritten from first (gfx_rendering_api.h): only ones no
+// frame in flight has drawn, so the mapped copy is written as it stands
+static void gfx_vk_mesh_update(uint32_t mesh, uint32_t first, const struct GfxMeshVertex *verts, uint32_t count) {
+    auto it = vk_meshes.find(mesh);
+
+    if (it == vk_meshes.end() || !count || first + count > it->second.count) {
+        return;
+    }
+
+    memcpy(it->second.vbo.mem.mapped + (size_t)first * sizeof(GfxMeshVertex), verts, (size_t)count * sizeof(GfxMeshVertex));
+}
+
 // The program's mesh vertex shader: Vulkan's declarations in front of the
 // shared body, its outputs at the locations the fragment shader reads them
 static bool vk_mesh_program(VkProgram *prg) {
@@ -3116,7 +3130,7 @@ static VkPipeline vk_get_mesh_pipeline(VkProgram *prg, int cull) {
 static bool gfx_vk_mesh_draw(const struct GfxMeshDraw *d) {
     auto it = vk_meshes.find(d->mesh);
 
-    if (it == vk_meshes.end() || !d->prg || !d->colours || !d->numindices || vk_cur_fb < 0 ||
+    if (it == vk_meshes.end() || !d->prg || (!d->colours && !d->palette) || !d->numindices || vk_cur_fb < 0 ||
         (size_t)vk_cur_fb >= vk_fbs.size()) {
         return false;
     }
@@ -3146,8 +3160,15 @@ static bool gfx_vk_mesh_draw(const struct GfxMeshDraw *d) {
     memcpy(ptr, d->params, (size_t)GFX_MESH_PARAMS * 16);
 
     if (d->palette && d->numpalette) {
+        auto pi = sl.mesh_pal == d->palette ? sl.mesh_pals.end() : sl.mesh_pals.find(d->palette);
+
         if (sl.mesh_pal == d->palette) {
             paloff = sl.mesh_pal_off;
+        } else if (pi != sl.mesh_pals.end()) {
+            // a room's, drawn again after another's
+            paloff = pi->second;
+            sl.mesh_pal = d->palette;
+            sl.mesh_pal_off = paloff;
         } else {
             const uint32_t n = std::min<uint32_t>(d->numpalette, GFX_MESH_PALETTE_MAX);
             // the window set 1 reads is a whole palette's, whatever this one holds
@@ -3158,13 +3179,18 @@ static bool gfx_vk_mesh_draw(const struct GfxMeshDraw *d) {
             memcpy(ptr, d->palette, (size_t)n * GFXMESH_PALETTE_FLOATS * 4);
             sl.mesh_pal = d->palette;
             sl.mesh_pal_off = paloff;
+            sl.mesh_pals[d->palette] = paloff;
         }
     } else if (sl.mesh.size < (VkDeviceSize)GFX_MESH_PALETTE_MAX * GFXMESH_PALETTE_FLOATS * 4) {
         return false;
     }
 
-    auto ci = sl.mesh_cols.find(d->colours);
-    if (ci != sl.mesh_cols.end()) {
+    // A room whose colours are the palette's reads none per vertex: binding 1
+    // is the mesh's own buffer, which is big enough
+    auto ci = d->colours ? sl.mesh_cols.find(d->colours) : sl.mesh_cols.end();
+    if (!d->colours) {
+        coloff = 0;
+    } else if (ci != sl.mesh_cols.end()) {
         coloff = ci->second;
     } else {
         ptr = vk_mesh_stream(sl, (VkDeviceSize)d->numcolours * 4, 16, &coloff);
@@ -3225,7 +3251,7 @@ static bool gfx_vk_mesh_draw(const struct GfxMeshDraw *d) {
     VkpBindMesh bm;
     bm.vb = m.vbo.buf;
     bm.vboff = 0;
-    bm.cb = sl.mesh.buf;
+    bm.cb = d->colours ? sl.mesh.buf : m.vbo.buf;
     bm.cboff = coloff;
     bm.ib = d->indices ? sl.mesh.buf : m.ibo.buf;
     bm.iboff = d->indices ? idxoff : 0;
@@ -5183,6 +5209,7 @@ struct GfxRenderingAPI gfx_vulkan_api = {
     gfx_vk_mesh_delete,
     gfx_vk_mesh_draw,
     gfx_vk_mesh_add_indices,
+    gfx_vk_mesh_update,
 };
 
 #endif // PD_HAVE_VULKAN

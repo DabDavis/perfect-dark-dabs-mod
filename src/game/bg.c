@@ -69,6 +69,7 @@
 #include "geroom.h"
 #include "gelights.h"
 #include "simnav.h"
+#include "roommesh.h"
 #endif
 #endif
 #endif
@@ -3998,6 +3999,7 @@ void bgUnloadRoom(s32 roomnum)
 		size = g_Rooms[roomnum].gfxdatalen;
 		memaFree(g_Rooms[roomnum].gfxdata, size);
 #else
+		roomMeshForget(roomnum);
 		sysMemFree(g_Rooms[roomnum].gfxdata);
 #endif
 		g_Rooms[roomnum].gfxdata = NULL;
@@ -4250,8 +4252,14 @@ Gfx *bgRenderRoomOpaque(Gfx *gdl, s32 roomnum)
 		gSPSetExtraGeometryModeEXT(gdl++, G_SEAL_SEAMS_EXT);
 	}
 #endif
+#ifndef PLATFORM_N64
+	if (g_Rooms[roomnum].gfxdata->opablocks) {
+		gdl = roomMeshBegin(gdl, roomnum);
+	}
+#endif
 	gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->opablocks, true);
 #ifndef PLATFORM_N64
+	gdl = roomMeshEnd(gdl);
 	gSPClearExtraGeometryModeEXT(gdl++, G_SEAL_SEAMS_EXT);
 	gdl = bgRenderChicagoPane(gdl, roomnum);
 	gdl = bgSpectateDepthBiasEnd(gdl, roomnum);
@@ -4295,6 +4303,7 @@ Gfx *bgRenderRoomXlu(Gfx *gdl, s32 roomnum)
 #ifndef PLATFORM_N64
 		gdl = roomSheenStockBegin(gdl);
 		gdl = bgSpectateDepthBiasBegin(gdl, roomnum);
+		gdl = roomMeshBegin(gdl, roomnum);
 #endif
 		gdl = bgRenderRoomPass(gdl, roomnum, g_Rooms[roomnum].gfxdata->xlublocks, true);
 #ifndef PLATFORM_N64
@@ -4314,6 +4323,7 @@ Gfx *bgRenderRoomXlu(Gfx *gdl, s32 roomnum)
 			gSPClearExtraGeometryModeEXT(gdl++, G_DEPTH_PREPASS_EXT | G_ALPHA_CORE_EXT);
 		}
 
+		gdl = roomMeshEnd(gdl);
 		gdl = bgSpectateDepthBiasEnd(gdl, roomnum);
 		gdl = roomSheenStockEnd(gdl);
 #endif
