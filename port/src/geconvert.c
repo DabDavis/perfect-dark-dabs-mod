@@ -115,6 +115,12 @@ struct romlayout {
 	// in a mission by the outfit its setup names, CUFF_BLUE to CUFF_FOLDER -
 	// immediates in the code, which a variant changes in place
 	uint8_t bond[9][2];
+	// getPropForHeldItem() (player.c): the prop a hand item is held and
+	// dropped as, by item number, -1 for none - a switch compiled to a jump
+	// table, whose cases are immediates in the code, so read off the code
+	// rather than out of the ROM. A hack renumbers its items and the table
+	// with them (itemWeaponsBuild())
+	int16_t heldprops[32];
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -138,6 +144,10 @@ static const struct romlayout g_Layouts[] = {
 		// head, the jungle fatigues, the boiler suit, the parka; the other
 		// Bonds' cuffs and the folder's Brosnan wear his tuxedo
 		{ { 23, 75 }, { 5, 78 }, { 24, 76 }, { 22, 74 }, { 25, 77 }, { 5, 78 }, { 5, 78 }, { 5, 78 }, { 5, 78 } },
+		{
+			-1, -1, 186, 209, 191, 204, 205, 193, 184, 195, 189, 206, 194, 188, 197, 192,
+			207, 210, 190, 208, 191, 191, 187, -1, 185, 211, 196, 201, 200, 199, -1, -1,
+		},
 	},
 	{
 		// version 1.0 (2017)
@@ -169,6 +179,13 @@ static const struct romlayout g_Layouts[] = {
 		// tuxedo, alpine, sneaking suit, ranch, Fort Knox and the folder's
 		// CsoloZ (solo_char_load() at 7F079D94 against GoldenEye's)
 		{ { 9, 74 }, { 8, 74 }, { 20, 74 }, { 22, 74 }, { 25, 74 }, { 37, 74 }, { 37, 74 }, { 37, 74 }, { 5, 74 } },
+		// its golf club (237) and two Smith & Wessons (231, 230) its own
+		// props, its Luger (7) and P38 (8) held as its PPK; the jump table at
+		// 0x8005762c reordered with the items (7F09B244)
+		{
+			-1, -1, 237, 209, 191, 204, 205, 191, 191, 184, 195, 193, 189, 206, 188, 192,
+			207, 194, 197, 208, 210, 231, 230, 190, 187, 185, 211, 196, 201, 200, 199, -1,
+		},
 	},
 };
 
@@ -732,6 +749,8 @@ struct prop {
 static struct prop g_Props[MAX_PROPS];
 static struct prop g_Chrs[MAX_CHRS];
 static struct prop g_Items[NUM_ITEMS];
+// whether g_ItemWeapon is this ROM's yet (soloItemWeapon())
+static int g_ItemWeaponsBuilt;
 
 static const char *dataString(uint32_t ptr)
 {
@@ -1129,6 +1148,8 @@ static int romOpen(void)
 		p->radius = bef32(g_Data, h + 16);
 		p->numtextures = bes16(g_Data, h + 22);
 	}
+
+	g_ItemWeaponsBuilt = 0;
 
 	// (the watch is GE Plus's pause: a variant's arenas do not take it)
 	if (!g_Layout->variant && (!g_Items[ITEM_WATCH].file || strcmp(g_Items[ITEM_WATCH].file, ITEM_WATCH_FILE))) {
@@ -5305,14 +5326,121 @@ static uint32_t soloGadgetWeapon(uint32_t item)
 	return 0;
 }
 
-/** A GoldenEye item id as the weapon Perfect Dark equips for it. */
-static uint32_t soloItemWeapon(uint32_t item)
+/** A GoldenEye item id as the weapon Perfect Dark equips for it, by GoldenEye's own numbering. */
+static uint32_t usItemWeapon(uint32_t item)
 {
 	if (soloGadgetWeapon(item)) {
 		return soloGadgetWeapon(item);
 	}
 
 	return item < sizeof(g_GeItemWeapon) ? g_GeItemWeapon[item] : 0;
+}
+
+/**
+ * GoldenEye's hand items' files by item number (gitem_structs), ITEM_FIST to
+ * ITEM_TASER: what a hack's table is matched against (itemWeaponsBuild()).
+ */
+static const char *const g_GeItemFiles[32] = {
+	NULL, "GfistZ", "GknifeZ", "GthrowknifeZ", "GwppkZ", "GwppksilZ", "Gtt33Z", "GskorpionZ",
+	"Gak47Z", "GuziZ", "Gmp5kZ", "Gmp5ksilZ", "GspectreZ", "Gm16Z", "Gfnp90Z", "GshotgunZ",
+	"GautoshotZ", "GsniperrifleZ", "GrugerZ", "GgoldengunZ", "GsilverwppkZ", "GgoldwppkZ", "GlaserZ", "GwatchlaserZ",
+	"GgrenadelaunchZ", "GrocketlaunchZ", "GgrenadeZ", "GtimedmineZ", "GproximitymineZ", "GremotemineZ", "GtriggerZ", "GtaserZ",
+};
+
+// the port's weapons past the detonator for a hack's guns GoldenEye has no
+// weapon of its own for (WEAPON_GE_EXTRA1 to 4, geguns.c)
+#define WEAPON_GE_EXTRA_FIRST 0x80
+#define NUM_WEAPON_GE_EXTRA   4
+#define WEAPON_GE_GUN_FIRST   0x5e // WEAPON_GE_PP7
+#define WEAPON_GE_GUN_LAST    0x76 // WEAPON_GE_REMOTEMINE
+#define WEAPON_GE_DETONATOR_  0x7f
+
+static uint8_t g_ItemWeapon[NUM_ITEMS];
+
+/** Whether a weapon of the port's is one of GoldenEye's guns or a hack's extra one. */
+static int itemWeaponIsGun(uint32_t w)
+{
+	return (w >= WEAPON_GE_GUN_FIRST && w <= WEAPON_GE_GUN_LAST)
+		|| (w >= WEAPON_GE_EXTRA_FIRST && w < WEAPON_GE_EXTRA_FIRST + NUM_WEAPON_GE_EXTRA);
+}
+
+/**
+ * This ROM's items as the port's weapons.
+ *
+ * GoldenEye's own are g_GeItemWeapon's. A hack made with GE Editor may
+ * renumber its hand items and patch the code that tests an item by number to
+ * follow: Goldfinger 64 put a Luger and a P38 at 7 and 8 and moved every gun
+ * after them on - its AK47 is 9, where GoldenEye's ZMG was - and its laser's
+ * beam (CapBeamLengthAndDecideIfRendered()) tests 24 and not 22, its mines'
+ * ammunition (add_ammo_to_inventory()) 28 to 30 and not 27 to 29, and
+ * getPropForHeldItem()'s jump table moved with them. So a hack's item is the
+ * GoldenEye gun whose file it took - Goldfinger's GsniperrifleZ at 20 is
+ * GoldenEye's sniper rifle with a model, numbers and name of its own (the
+ * Armalite AR7) - and takes that gun's weapon here, and the file is what
+ * says which. A gun on a file GoldenEye has no weapon of its own for - the
+ * silver and gold PP7s, which the port gives the PP7's number, the watch
+ * laser, which it gives the Moonraker's, the taser, which it gives none -
+ * takes one of four weapons past the detonator, pistols on the PP7's host:
+ * Goldfinger's Luger P08, Walther P38 and two Smith & Wessons. A gun is an
+ * item a hand holds as a prop (heldprops).
+ */
+static void itemWeaponsBuild(void)
+{
+	int extras = 0;
+
+	memset(g_ItemWeapon, 0, sizeof(g_ItemWeapon));
+
+	for (uint32_t item = 0; item < NUM_ITEMS; ++item) {
+		int32_t ge = (int32_t)item;
+
+		if (!g_Layout->variant) {
+			g_ItemWeapon[item] = (uint8_t)usItemWeapon(item);
+			continue;
+		}
+
+		if (item >= 1 && item < 32) {
+			ge = -1;
+
+			for (int32_t j = 1; j < 32 && g_Items[item].file; ++j) {
+				if (!strcmp(g_GeItemFiles[j], g_Items[item].file)) {
+					ge = j;
+					break;
+				}
+			}
+		}
+
+		if (ge == 20 || ge == 21 || ge == 23 || ge == 31) {
+			if (g_Layout->heldprops[item] < 0) {
+				continue;
+			}
+
+			if (extras == NUM_WEAPON_GE_EXTRA) {
+				note("geconvert: item %u (%s) is a gun of the hack's own past the %d there are weapons for: left out",
+						(unsigned)item, g_Items[item].file, NUM_WEAPON_GE_EXTRA);
+				continue;
+			}
+
+			g_ItemWeapon[item] = (uint8_t)(WEAPON_GE_EXTRA_FIRST + extras++);
+		} else if (ge >= 0) {
+			g_ItemWeapon[item] = (uint8_t)usItemWeapon((uint32_t)ge);
+		}
+
+		if (item != (uint32_t)ge && g_ItemWeapon[item]) {
+			note("geconvert: item %u (%s) is weapon 0x%02x", (unsigned)item, g_Items[item].file, g_ItemWeapon[item]);
+		}
+	}
+
+	g_ItemWeaponsBuilt = 1;
+}
+
+/** One of this ROM's item ids as the weapon Perfect Dark equips for it. */
+static uint32_t soloItemWeapon(uint32_t item)
+{
+	if (!g_ItemWeaponsBuilt) {
+		itemWeaponsBuild();
+	}
+
+	return item < NUM_ITEMS ? g_ItemWeapon[item] : 0;
 }
 
 /**
@@ -6424,6 +6552,75 @@ static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_
 #define MPSET_NAME  32
 
 static void writeFile(const char *outdir, const char *rel, const uint8_t *data, size_t len);
+
+/**
+ * menu/geguns.bin: a hack's own guns (geguns.c), which GoldenEye's tables
+ * there - generated from the decomp's rows - are not. "GGN1", a count, and a
+ * row a gun: its weapon less WEAPON_GE_PP7, its item number (the Igx%03dZ its
+ * first-person model is), the prop a hand holds it as (heldprops), its name
+ * (the row's weapon-of-choice text out of its own LgunE: "Walther PPK/s"),
+ * and its gunWeaponStat row as the ROM has it, big-endian, the cartridge's
+ * pointer cleared.
+ */
+#define GUNS_NAME     40
+#define GUNSTAT_ROW   0x70
+#define GUNSTAT_CART  40 // ptr_cartridge_struct
+
+static void writeGuns(const char *outdir)
+{
+	buf lang = romFile("LgunE");
+	buf out = {0};
+	uint32_t count = 0;
+
+	bufPut(&out, (const uint8_t *)"GGN1", 4);
+	bufU32(&out, 0);
+
+	for (uint32_t item = 1; item < 32; ++item) {
+		const uint32_t w = soloItemWeapon(item);
+		const size_t row = ITEMS_AT + ITEM_ROW * item;
+		const uint32_t stats = be32(g_Data, row + 12);
+		const size_t index = be16(g_Data, row + 40) & 0x3ff;
+		char name[GUNS_NAME] = {0};
+		uint8_t stat[GUNSTAT_ROW];
+
+		if (!itemWeaponIsGun(w) && !(g_Items[item].file && !strcmp(g_Items[item].file, "GtriggerZ"))) {
+			continue;
+		}
+
+		if (!stats || stats < DATA_VRAM || stats - DATA_VRAM + GUNSTAT_ROW > g_DataLen) {
+			note("geconvert: item %u (%s) has no gun row", (unsigned)item, g_Items[item].file ? g_Items[item].file : "?");
+			continue;
+		}
+
+		if ((index + 1) * 4 <= lang.n) {
+			const uint32_t at = be32(lang.v, index * 4);
+
+			if (at && at < lang.n) {
+				size_t k = 0;
+
+				while (k + 1 < sizeof(name) && at + k < lang.n && lang.v[at + k] && lang.v[at + k] != '\n') {
+					name[k] = (char)lang.v[at + k];
+					++k;
+				}
+			}
+		}
+
+		memcpy(stat, g_Data + (stats - DATA_VRAM), GUNSTAT_ROW);
+		memset(stat + GUNSTAT_CART, 0, 4);
+
+		bufU8(&out, (itemWeaponIsGun(w) ? w : WEAPON_GE_DETONATOR_) - WEAPON_GE_GUN_FIRST);
+		bufU8(&out, item);
+		bufU16(&out, (uint16_t)g_Layout->heldprops[item]);
+		bufPut(&out, (const uint8_t *)name, sizeof(name));
+		bufPut(&out, stat, sizeof(stat));
+		++count;
+
+		note("geconvert: gun %u is %s, weapon 0x%02x", (unsigned)item, name, itemWeaponIsGun(w) ? w : WEAPON_GE_DETONATOR_);
+	}
+
+	set32(out.v, 4, count);
+	writeFile(outdir, "menu/geguns.bin", out.v, out.n);
+}
 
 static void writeWeaponSets(const char *outdir)
 {
@@ -7964,7 +8161,13 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 			// and it hung at the muzzle of every rifle a guard held
 			// (converter 62, which wrote nought for props and so drew no
 			// flash at all; converter 64)
-			bufU32(&rec, be32(d.v, ro));
+			// - but no more quads than its list loads, which are all the
+			// vertices written for it: Goldfinger 64's M14 (Gm16Z) keeps a
+			// count of 6 over a list that loads none, its gun's 525 vertices
+			// under it, so the six quads the flash turns each frame were the
+			// gun's own first 24, written over (and past what the file holds:
+			// the heap went with them)
+			bufU32(&rec, be32(d.v, ro) < nv / 4 ? be32(d.v, ro) : (uint32_t)(nv / 4));
 			bufU32(&rec, SEG_MODEL + (uint32_t)vat);
 			bufU32(&rec, 0);
 			bufU32(&rec, SEG_MODEL + (uint32_t)cat);
@@ -9330,6 +9533,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 		writeFile(outdir, "menu/geitems.bin", g_Data + ITEMS_AT, ITEM_ROW * NUM_ITEMS);
 
+		// a hack's own guns, which GoldenEye's tables in geguns.c are not
+		if (g_Layout->variant) {
+			writeGuns(outdir);
+		}
+
 		// and the solo missions' briefings, with the text bank each one indexes
 		for (size_t i = 0; i < sizeof(g_MenuText) / sizeof(g_MenuText[0]); ++i) {
 			const char *names[2] = { g_MenuText[i].brief, g_MenuText[i].lang };
@@ -9624,8 +9832,20 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				// WEAPON_GE_DETONATOR) and the gadgets. The watch laser
 				// (23) rides WEAPON_GE_MOONRAKER but is drawn with its own
 				// model, GwatchlaserZ, the detonator's twin (gegadgets.c)
-				if (!g_Items[item].file || item == 20 || item == 21
-						|| (item > 30 && !soloGadgetItem(item))) {
+				if (!g_Items[item].file) {
+					continue;
+				}
+
+				// a hack's guns are wherever it renumbered them to
+				// (itemWeaponsBuild()): its hand, every item that is a
+				// gun, the detonator and the gadgets, which keep their
+				// numbers
+				if (g_Layout->variant) {
+					if (item != 1 && !itemWeaponIsGun(soloItemWeapon(item))
+							&& strcmp(g_Items[item].file, "GtriggerZ") && !soloGadgetItem(item)) {
+						continue;
+					}
+				} else if (item == 20 || item == 21 || (item > 30 && !soloGadgetItem(item))) {
 					continue;
 				}
 
