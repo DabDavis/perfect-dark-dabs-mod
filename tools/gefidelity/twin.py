@@ -189,7 +189,8 @@ def main():
         import importlib
         importlib.reload(levels)
     if a.game == 'gf':
-        if (a.oracle or DEFAULT_ORACLE) != 'ares' and a.side != 'pd':
+        a.oracle = a.oracle or 'ares'
+        if a.oracle != 'ares' and a.side != 'pd':
             ap.error('Goldfinger 64 runs on the cartridge only (--oracle ares)')
         a.env.append('GF_GAME=gf')
         a.pd_arg = ['--boot-ge-variant', levels.GF_VARIANT] + a.pd_arg
