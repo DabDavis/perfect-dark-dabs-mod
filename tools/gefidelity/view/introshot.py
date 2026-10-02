@@ -1,7 +1,8 @@
-"""Pictures of a mission's opening (the intro cinema) at chosen level ticks,
-on either side, the opening left to play (GF_MISSION_INTRO=1, which twin.py
-and aresge.boot() honour). The question it answers: is what ours shows in an
-opening shot what the cartridge shows at that tick?
+"""Pictures at chosen level ticks on either side - of a mission's opening (the
+intro cinema) with GF_MISSION_INTRO=1, which twin.py and aresge.boot() honour
+by leaving the opening to play, or of the first seconds in first person
+without it. The question it answers: is what ours shows at that tick what the
+cartridge shows?
 
     twin.py both view/introshot.py --mission miami --game gf --out OUT \
         --env GF_MISSION_INTRO=1 --env GF_SHOT_TICKS=300,600,900
@@ -15,9 +16,6 @@ import os, sys, json, traceback
 sys.path.insert(0, os.environ['GF_COMMON'])
 lib = __import__('gdbge' if os.environ['GF_SIDE'] == 'ge' else 'gdbpd')
 OUT = os.environ['GF_OUT']
-if os.environ.get('GF_MISSION_INTRO') != '1':
-    lib.say('FAILED: set GF_MISSION_INTRO=1, or the opening is skipped')
-    lib.finish()
 ticks = [int(t) for t in os.environ.get('GF_SHOT_TICKS', '300,600,900').split(',')]
 seen = {}
 try:
