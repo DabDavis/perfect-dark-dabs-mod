@@ -5777,6 +5777,36 @@ static void geTileMid(const struct tile *t, float ls, float *out)
 }
 
 /**
+ * stan.c's stanGetPositionYValue(): the height of a tile's plane (its triple's)
+ * under x/z, in the world's units, in GoldenEye's own arithmetic.
+ */
+static float geTileY(const struct tile *t, float px, float pz, float ls)
+{
+	const int d = geTriPoint(t, 0), c = geTriPoint(t, 1), e = geTriPoint(t, 2);
+	float a[3], b[3];
+	int64_t cp[3], rsum;
+
+	px *= ls;
+	pz *= ls;
+
+	for (int q = 0; q < 3; ++q) {
+		a[q] = (float)(t->pts[c][q] - t->pts[d][q]);
+		b[q] = (float)(t->pts[e][q] - t->pts[d][q]);
+	}
+
+	cp[0] = (int64_t)(a[1] * b[2] - a[2] * b[1]);
+	cp[1] = (int64_t)(a[2] * b[0] - a[0] * b[2]);
+	cp[2] = (int64_t)(a[0] * b[1] - a[1] * b[0]);
+	rsum = cp[0] * t->pts[d][0] + cp[1] * t->pts[d][1] + cp[2] * t->pts[d][2];
+
+	if (cp[1] == 0) {
+		return (float)t->pts[d][1] * (1.0f / ls);
+	}
+
+	return (float)((((double)rsum - (double)px * (double)cp[0]) - (double)pz * (double)cp[2]) / (double)cp[1]) * (1.0f / ls);
+}
+
+/**
  * A pad's tile (init_pathtable_something()): the one its name names, if the
  * pad is over its triple; or else the tile with a point nearest the pad - its
  * triple's middle or a point a tenth of the way in from a corner
@@ -6050,7 +6080,7 @@ static int gePortalBetweenRooms(const struct bg *bg, int room1, int room2, const
  * made in `bound`. The records are the setup's as GoldenEye loads them; a door that
  * only some difficulties make moves its pad on all of them.
  */
-static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound, const tiles *stan, const struct bg *bg,
+static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bound, const tiles *stan, const struct bg *bg,
 		double lsd, const double *offset, int *padrooms, const char *what)
 {
 	const float ls = (float)lsd;
@@ -6060,7 +6090,37 @@ static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padre
 	struct gebound *bp = gcAlloc((bound->n + 1) * sizeof(*bp));
 	struct gedoorinfo *portals = gcAlloc((recs.n + 1) * sizeof(*portals));
 	float doorscale = 1.0f;
-	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0;
+	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0, lifted = 0;
+	uint8_t *keepy = gcAlloc(s->pads.n + 1);
+
+	// the pads whose height is used as it is: one an object hangs in the air
+	// from (its flags 2, 4 or 8, which sub_GAME_7F04088C() and
+	// sub_GAME_7F040BA0() never stand on a floor - 72 of Cartel's wall objects
+	// are four units under their pads' tiles), and one a camera or an autogun
+	// looks at
+	for (size_t i = 0; i < recs.n && padrooms; ++i) {
+		const uint8_t *raw = recs.v[i].b;
+		const uint32_t t = recs.v[i].type;
+		uint32_t pad;
+
+		if (g_GeSizes[t] < 32 || (be32(raw, 8) & 0x8000)) {
+			continue;
+		}
+
+		pad = be16(raw, 6);
+
+		if ((be32(raw, 8) & 0xe) && pad < s->pads.n) {
+			keepy[pad] = 1;
+		}
+
+		if ((t == 0x06 || t == 0x0d) && recs.v[i].len >= 0x84) {
+			const int32_t look = bes32(raw, 0x80);
+
+			if (look >= 0 && (size_t)look < s->pads.n) {
+				keepy[look] = 1;
+			}
+		}
+	}
 
 	for (size_t i = 0; i < s->pads.n && padrooms; ++i) {
 		const size_t o = padsat + 0x2c * i;
@@ -6073,6 +6133,24 @@ static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padre
 
 		tile = gePadTile(stan, f, be32(f->v, o + 36), pos, ls, &fb);
 		padrooms[i] = tile >= 0 ? stan->v[tile].room : -1;
+
+		// A pad under its own tile is lifted onto it. GoldenEye stands
+		// whatever a pad holds on the pad's tile whatever height the pad is
+		// at - a chr (chraction.c), Bond, an object on the floor (propobj.c's
+		// sub_GAME_7F04088C()) - and Perfect Dark searches down from the pad,
+		// which found the floor below, or none: Goldfinger 64 put 170 pads
+		// under their floors, Forest's start 290 under it, and Bond fell
+		// 29,000 units; Foundry's and China's guards fell out of the level,
+		// Cartel's cabinets stood a storey down. writePads() then lifts it
+		// the unit off the floor any pad needs
+		if (tile >= 0 && !keepy[i]) {
+			const float ty = geTileY(&stan->v[tile], pos[0], pos[2], ls);
+
+			if (pos[1] < ty - 1.0f) {
+				s->pads.v[i].pos[1] = (double)ty * lsd;
+				lifted++;
+			}
+		}
 		fellback += fb;
 		missing += tile < 0;
 	}
@@ -6227,8 +6305,9 @@ static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padre
 			}
 		}
 
-		note("geconvert: %s: pads by their own tiles (%d found by place, %d with none), %d doors with a portal, "
-				"%d door pads scaled (%d into another room)", what, fellback, missing, withportal, scaled, movedrooms);
+		note("geconvert: %s: pads by their own tiles (%d found by place, %d with none, %d lifted onto them), "
+				"%d doors with a portal, %d door pads scaled (%d into another room)", what, fellback, missing, lifted,
+				withportal, scaled, movedrooms);
 	}
 
 	return portals;
