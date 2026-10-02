@@ -61,6 +61,14 @@ def boot(levelid=None, difficulty=0):
     gdb.execute('break videoEndFrame if g_Vars.lvframenum >= 1')
     _go()
     gdb.execute('delete')
+    if os.environ.get('GF_GAME') == 'gf':
+        # the stage is the ROM hack's own mission, in its mode (--boot-ge-variant);
+        # without it --boot-ge-mission falls back to the Carrington Institute and
+        # every record "differs"
+        if int(ev('(long)g_GexPlusVariant')) == 0 or \
+                int(ev('modloaderStageInGexPlusList(g_Vars.stagenum)')) == 0:
+            raise RuntimeError('ours is not on the hack\'s mission (stage 0x%x): is it converted and mounted?'
+                               % int(ev('g_Vars.stagenum')))
     say('boot stage', hex(int(ev('g_Vars.stagenum'))), 'difficulty', int(ev('g_Difficulty')),
         'tick', tick())
 
@@ -249,8 +257,25 @@ def props():
     return out
 
 
+def _gerom_rows():
+    """The GoldenEye ROM characters a converted mission holds in its body/head
+    rows (gexplus.c's g_GeRomRows): {row: (character, ownhead)}, the character
+    being the conversion's file number (Cgx%03dZ), which is the c_item_entries
+    number the cartridge's chrs carry. Empty outside a converted mission."""
+    try:
+        n = int(ev("'gexplus.c'::g_GeRomNumRows"))
+        rows = {}
+        for i in range(n):
+            r = ev("'gexplus.c'::g_GeRomRows[%d]" % i)
+            rows[int(r['row'])] = (int(r['chr']), int(r['ownhead']))
+        return rows
+    except gdb.error:
+        return {}
+
+
 def chrs():
     ids = _ailist_ids()
+    gerows = _gerom_rows()
     out = []
     n = int(ev('g_NumChrSlots'))
     for k in range(n):
@@ -281,6 +306,10 @@ def chrs():
                'weapons': [_weaponnum(c['weapons_held'][h]) for h in range(2)]}
         if int(c['model']) != 0:
             rec['scale'] = _f(c['model']['scale'])
+        if rec['bodynum'] in gerows:
+            rec['bodychr'] = gerows[rec['bodynum']][0]
+        if rec['headnum'] in gerows:
+            rec['headchr'] = gerows[rec['headnum']][0]
         if int(prop) == int(ev('g_Vars.currentplayer->prop')):
             rec['player'] = 1
         out.append(rec)
