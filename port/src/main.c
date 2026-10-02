@@ -27,6 +27,7 @@
 #include "input.h"
 #include "fs.h"
 #include <string.h>
+#include <strings.h>
 #include "modloader.h"
 #include "modborrow.h"
 #include "romdata.h"
@@ -379,6 +380,20 @@ int main(int argc, const char **argv)
 				}
 			}
 		} else if (gemission >= 0) {
+			// --boot-ge-variant NAME: the mission is the ROM hack's (Goldfinger
+			// 64's), in its mode, as its Perfect Menu row would have chosen it
+			const char *variant = sysArgGetString("--boot-ge-variant");
+
+			for (s32 i = 0; variant && gexPlusRomGetVariant(i); i++) {
+				if (strcasecmp(gexPlusRomGetVariant(i), variant) == 0) {
+					g_GexPlusVariant = gexPlusRomGetVariant(i);
+				}
+			}
+
+			if (variant && !g_GexPlusVariant) {
+				sysLogPrintf(LOG_WARNING, "boot GE variant %s: not converted", variant);
+			}
+
 			const s32 stage = modloaderMissionStage(gemission);
 
 			if (stage) {
