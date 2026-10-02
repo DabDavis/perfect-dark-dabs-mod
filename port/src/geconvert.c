@@ -91,6 +91,8 @@ struct rompiece {
 // the raw extents g_MenuRaw names, in its order: ROM address and length
 #define NUM_MENU_RAW 8
 
+#define GE_HEAD_POOLS 2
+
 struct romlayout {
 	const char *name;   // in the log and in errors
 	const char *title;  // the header's name, its first characters
@@ -121,6 +123,13 @@ struct romlayout {
 	// rather than out of the ROM. A hack renumbers its items and the table
 	// with them (itemWeaponsBuild())
 	int16_t heldprops[32];
+	// bodyChooseHead()'s pools (chraction.c): a guard whose record or spawn
+	// names head -1 - k draws from pool k, men then women, each list ended by
+	// 0 (no head is character 0). GoldenEye has the one pool, random_male_heads
+	// and random_female_heads in the data segment (RANDOM_HEADS_AT), and an
+	// empty row here reads them there; a hack that rewrote the function keeps
+	// its own in its code
+	uint8_t headpools[GE_HEAD_POOLS][2][16];
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -185,6 +194,15 @@ static const struct romlayout g_Layouts[] = {
 		{
 			-1, -1, 237, 209, 191, 204, 205, 191, 191, 184, 195, 193, 189, 206, 188, 192,
 			207, 194, 197, 208, 210, 231, 230, 190, 187, 185, 211, 196, 201, 200, 199, -1,
+		},
+		// its bodyChooseHead() (7F0235AC) takes the record's head: -1 draws
+		// from eleven men (7F023698) or six women (7F023690), -2 from six
+		// Korean men (7F0236B0), each from a start its level init draws
+		// (7F000F88, the bytes at 0x8002ce38); the data segment's
+		// random_male_heads it left behind, sixteen of them head 67
+		{
+			{ { 64, 105, 95, 96, 99, 100, 103, 104, 115, 106, 111 }, { 85, 86, 87, 88, 89, 90 } },
+			{ { 65, 66, 67, 94, 112, 113 }, { 0 } },
 		},
 	},
 };
@@ -6321,7 +6339,10 @@ static void guardRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 	set16(out, 0x08, (uint32_t)chrnum);
 	set16(out, 0x0a, padNum(padid, numpads, 0));
 	out[0x0c] = (uint8_t)body;
-	out[0x0d] = head >= 0 ? (uint8_t)head : 0xff;
+	// a negative head is the pool the head is drawn from, -1 - k for pool k
+	// (romlayout.headpools): a byte of its own each, so a hack's second pool
+	// reaches the game
+	out[0x0d] = head >= -GE_HEAD_POOLS ? (uint8_t)head : 0xff;
 	set16(out, 0x0e, soloGlobalAiId(ailist));
 	set16(out, 0x10, padNum(preset, numpads, 0));
 	set16(out, 0x12, chrpreset);
@@ -9689,19 +9710,32 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 		// menu/gecast.bin: who a mission's people are where the code says
 		// rather than a setup - "GEK1", u8 men, u8 women, u8 cuffs, u8 0, the
-		// random_male_heads and random_female_heads pools a guard with no
-		// head of its own draws from (chr.c), then solo_char_load()'s Bond,
-		// body and head an outfit (romlayout.bond)
+		// pool a guard with no head of its own draws from (chr.c's
+		// random_male_heads and random_female_heads, or the layout's first),
+		// then solo_char_load()'s Bond, body and head an outfit
+		// (romlayout.bond). Where the layout has more pools, u8 how many more
+		// and for each u8 men, u8 women and the heads: a record's head -2 is
+		// the first of them
 		{
 			buf cast = {0};
 			uint8_t men[64], women[64];
 			size_t nmen = 0, nwomen = 0, o = RANDOM_HEADS_AT - DATA_VRAM;
+			int extra = 0;
 
-			for (; o + 4 <= g_DataLen && (int32_t)be32(g_Data, o) >= 0 && nmen < sizeof(men); o += 4) {
-				men[nmen++] = (uint8_t)be32(g_Data, o);
-			}
-			for (o += 4; o + 4 <= g_DataLen && (int32_t)be32(g_Data, o) >= 0 && nwomen < sizeof(women); o += 4) {
-				women[nwomen++] = (uint8_t)be32(g_Data, o);
+			if (g_Layout->headpools[0][0][0]) {
+				for (; nmen < 16 && g_Layout->headpools[0][0][nmen]; ++nmen) {
+					men[nmen] = g_Layout->headpools[0][0][nmen];
+				}
+				for (; nwomen < 16 && g_Layout->headpools[0][1][nwomen]; ++nwomen) {
+					women[nwomen] = g_Layout->headpools[0][1][nwomen];
+				}
+			} else {
+				for (; o + 4 <= g_DataLen && (int32_t)be32(g_Data, o) >= 0 && nmen < sizeof(men); o += 4) {
+					men[nmen++] = (uint8_t)be32(g_Data, o);
+				}
+				for (o += 4; o + 4 <= g_DataLen && (int32_t)be32(g_Data, o) >= 0 && nwomen < sizeof(women); o += 4) {
+					women[nwomen++] = (uint8_t)be32(g_Data, o);
+				}
 			}
 
 			bufPut(&cast, (const uint8_t *)"GEK1", 4);
@@ -9712,6 +9746,30 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			bufPut(&cast, men, nmen);
 			bufPut(&cast, women, nwomen);
 			bufPut(&cast, &g_Layout->bond[0][0], sizeof(g_Layout->bond));
+
+			while (extra + 1 < GE_HEAD_POOLS && g_Layout->headpools[extra + 1][0][0]) {
+				extra++;
+			}
+
+			if (extra) {
+				bufU8(&cast, (uint32_t)extra);
+
+				for (int k = 1; k <= extra; ++k) {
+					size_t n[2] = { 0, 0 };
+
+					for (int sex = 0; sex < 2; ++sex) {
+						while (n[sex] < 16 && g_Layout->headpools[k][sex][n[sex]]) {
+							n[sex]++;
+						}
+					}
+
+					bufU8(&cast, (uint32_t)n[0]);
+					bufU8(&cast, (uint32_t)n[1]);
+					bufPut(&cast, g_Layout->headpools[k][0], n[0]);
+					bufPut(&cast, g_Layout->headpools[k][1], n[1]);
+				}
+			}
+
 			writeFile(outdir, "menu/gecast.bin", cast.v, cast.n);
 		}
 

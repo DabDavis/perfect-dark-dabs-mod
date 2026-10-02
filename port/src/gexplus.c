@@ -577,6 +577,27 @@ static s32 g_GeRomNumMen;
 static s32 g_GeRomNumWomen;
 static u8 g_GeRomBond[GEROM_NUM_CUFFS][2];
 static s32 g_GeRomHasBond;
+
+/**
+ * A ROM hack's further pools, after the file's Bond (converter 102): a guard
+ * whose record or spawn names head -2 draws from the first of them rather than
+ * the pool above - Goldfinger's six Korean henchmen, in nine of its missions.
+ * Each takes up to four heads for a level from a start of its own, as the
+ * hack's init does (one female head), and they are handed out in turn as
+ * bodyChooseHead() hands out the game's own.
+ */
+#define GEROM_EXTRA_POOLS 3
+
+struct geromextrapool {
+	u8 heads[2][GEROM_MAX_POOL];     // men, women
+	s32 num[2];
+	s16 active[2][GEROM_MALE_HEADS_PER_LEVEL];
+	s32 numactive[2];
+	s32 next[2];
+};
+
+static struct geromextrapool g_GeRomExtraPools[GEROM_EXTRA_POOLS];
+static s32 g_GeRomNumExtraPools;
 static s32 g_GeRomTableModDir = -2;   // the mod its table was read from
 static struct geromrow g_GeRomRows[GEROM_MAX_ROWS];
 static s32 g_GeRomNumRows;
@@ -648,6 +669,7 @@ static void geRomReadCast(const char *dir)
 	g_GeRomNumWomen = ARRAYCOUNT(g_GeRomFemaleHeads);
 	memcpy(g_GeRomWomen, g_GeRomFemaleHeads, sizeof(g_GeRomFemaleHeads));
 	g_GeRomHasBond = 0;
+	g_GeRomNumExtraPools = 0;
 
 	snprintf(path, sizeof(path), "%s/menu/gecast.bin", dir);
 
@@ -674,6 +696,32 @@ static void geRomReadCast(const char *dir)
 
 			memcpy(g_GeRomBond, d + 8 + men + women, sizeof(g_GeRomBond));
 			g_GeRomHasBond = 1;
+
+			// and any further pools: u8 how many, then u8 men, u8 women and
+			// the heads each
+			u32 at = 8 + men + women + 2 * cuffs;
+
+			if (at < len) {
+				const s32 extra = d[at++];
+
+				for (s32 k = 0; k < extra && k < GEROM_EXTRA_POOLS && at + 2 <= len; k++) {
+					struct geromextrapool *pool = &g_GeRomExtraPools[k];
+					const s32 nm = d[at];
+					const s32 nw = d[at + 1];
+
+					if (nm > GEROM_MAX_POOL || nw > GEROM_MAX_POOL || at + 2 + nm + nw > len) {
+						break;
+					}
+
+					memset(pool, 0, sizeof(*pool));
+					pool->num[0] = nm;
+					pool->num[1] = nw;
+					memcpy(pool->heads[0], d + at + 2, nm);
+					memcpy(pool->heads[1], d + at + 2 + nm, nw);
+					at += 2 + nm + nw;
+					g_GeRomNumExtraPools = k + 1;
+				}
+			}
 		}
 	}
 
@@ -955,6 +1003,10 @@ static s32 geRomBodyRow(s32 body, s32 head)
 
 	if (GEROM_IS_HEAD(head)) {
 		ownhead = geRomTake(head, -1);
+	} else if (head <= -2 && head >= -1 - g_GeRomNumExtraPools) {
+		// a further pool's (gexPlusRomOwnHead()): a row of its own, as a body
+		// wanted with a head of its own takes one
+		ownhead = head;
 	}
 
 	return geRomTake(body, ownhead);
@@ -1021,12 +1073,30 @@ s32 gexPlusMissionBond(s32 outfit, s32 *bodynum, s32 *headnum)
  * bodyChooseHead() asks, which is where both a setup's chr and aiSpawnChrAtPad
  * arrive once the head they carry is -1 - and it has to be -1, since neither
  * field is wide enough for a row past 127.
+ *
+ * A body whose record named a further pool (head -2 on) takes that pool's next
+ * head for its sex; one with none for its sex takes the game's own pool, -1.
  */
 s32 gexPlusRomOwnHead(s32 bodynum)
 {
 	for (s32 i = 0; i < g_GeRomNumRows; i++) {
 		if (g_GeRomRows[i].row == bodynum) {
-			return g_GeRomRows[i].ownhead;
+			const s32 ownhead = g_GeRomRows[i].ownhead;
+
+			if (ownhead <= -2 && -2 - ownhead < g_GeRomNumExtraPools) {
+				struct geromextrapool *pool = &g_GeRomExtraPools[-2 - ownhead];
+				const s32 sex = g_HeadsAndBodies[bodynum].ismale ? 0 : 1;
+
+				if (pool->numactive[sex] <= 0) {
+					return -1;
+				}
+
+				pool->next[sex] = (pool->next[sex] + 1) % pool->numactive[sex];
+
+				return pool->active[sex][pool->next[sex]];
+			}
+
+			return ownhead;
 		}
 	}
 
@@ -1242,6 +1312,33 @@ void gexPlusMissionHeads(void)
 
 	g_ActiveMaleHeadsIndex = 0;
 	g_ActiveFemaleHeadsIndex = 0;
+
+	// a hack's further pools, the same way: four men from a start of the
+	// level's, one woman
+	for (s32 k = 0; k < g_GeRomNumExtraPools; k++) {
+		struct geromextrapool *pool = &g_GeRomExtraPools[k];
+
+		for (s32 sex = 0; sex < 2; sex++) {
+			const s32 want = sex == 0 ? GEROM_MALE_HEADS_PER_LEVEL : 1;
+
+			pool->numactive[sex] = 0;
+			pool->next[sex] = -1;
+
+			if (pool->num[sex] <= 0) {
+				continue;
+			}
+
+			start = (s32)(rngRandom() % (u32)pool->num[sex]);
+
+			for (s32 i = 0; i < want && i < pool->num[sex]; i++) {
+				const s32 row = geRomTake(pool->heads[sex][(start + i) % pool->num[sex]], -1);
+
+				if (row >= 0) {
+					pool->active[sex][pool->numactive[sex]++] = (s16)row;
+				}
+			}
+		}
+	}
 }
 
 /* -------------------------------------------------------------------------
