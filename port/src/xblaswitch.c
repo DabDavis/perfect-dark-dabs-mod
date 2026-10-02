@@ -27,8 +27,33 @@
 #include "game/hudmsg.h"
 #include "langpack.h"
 #include "trace.h"
+#include "modloader.h"
+#include "lib/main.h"
 
 #ifndef PLATFORM_N64
+
+/**
+ * A GoldenEye ROM hack's arenas (Goldfinger 64's: a remake stage that is not
+ * GE Plus's own) are the cartridge's look only. The release has nothing of a
+ * hack's own art, and its GoldenEye meshes go by GoldenEye's file names, which
+ * a hack gives its own props - so every part reads as off while one is the
+ * stage (user, 2026-10-02: "disable xbla mode for Goldfinger 64, since it would
+ * have incomplete textures"). The parts' own switches, and the player's pd.ini,
+ * are left as they are; the next stage has them back.
+ */
+s32 xblaSwitchStageHeld(void)
+{
+	static s32 stage = -1;
+	static s32 held;
+	const s32 now = mainGetStageNum();
+
+	if (now != stage) {
+		stage = now;
+		held = modloaderStageIsRemake(now) && !modloaderStageIsGexPlus(now);
+	}
+
+	return held;
+}
 
 s32 xblaSwitchGetEnabled(void)
 {
@@ -128,6 +153,12 @@ void xblaSwitchTick(void)
 	// inputKeyJustPressed() consumes the edge, so ask once a frame and only
 	// when the key is actually bound.
 	if (vk > 0 && inputKeyJustPressed(vk)) {
+		if (xblaSwitchStageHeld()) {
+			sysLogPrintf(LOG_NOTE, "xblaswitch: ignored on a ROM hack's arena, which is the cartridge's look only");
+			hudmsgSayToggle(langTr("XBLA Assets are off on this map\n"), langTr("XBLA Assets are off on this map\n"), 0);
+			return;
+		}
+
 		// Not while the boot logos play: with the release on they are 4J's
 		// meshes, decided as each logo starts, and a model switched out from
 		// under an intro that has already chosen how to draw it is not worth
@@ -160,6 +191,7 @@ PD_CONSTRUCTOR static void xblaSwitchConfigInit(void)
 
 #else
 
+s32 xblaSwitchStageHeld(void) { return 0; }
 s32 xblaSwitchGetEnabled(void) { return 0; }
 void xblaSwitchSetEnabled(s32 enabled) { }
 u32 xblaSwitchGetParts(void) { return 0; }

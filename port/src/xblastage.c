@@ -23,6 +23,7 @@
 #include <ultra64.h>
 #include <PR/ultratypes.h>
 #include <PR/gbi.h>
+#include "xblaswitch.h"
 #include "constants.h"
 #include "types.h"
 #include "data.h"
@@ -120,12 +121,13 @@ static s32 xblaStageWant(void)
 	// The stage geometry is the models feature applied to the rooms, so it
 	// follows that switch: a player with the meshes off sees the game's own
 	// levels whatever this is set to.
-	return optEnabled && xblaMeshGetEnabled();
+	return xblaStageGetEnabled() && xblaMeshGetEnabled();
 }
 
 s32 xblaStageGetEnabled(void)
 {
-	return optEnabled;
+	// (off on a ROM hack's arena: xblaSwitchStageHeld())
+	return optEnabled && !xblaSwitchStageHeld();
 }
 
 void xblaStageSetEnabled(s32 enabled)
@@ -814,7 +816,7 @@ PD_CONSTRUCTOR static void xblaStageConfigInit(void)
 void xblaStageTrace(FILE *f)
 {
 	fprintf(f, "xblastage: enabled %d want %d, rooms loaded from %s, release file %d: %d rooms, %u bytes, tried %d, current room from release %d\n",
-			optEnabled, xblaStageWant(), roomsWant ? "release" : "ROM",
+			xblaStageGetEnabled(), xblaStageWant(), roomsWant ? "release" : "ROM",
 			relFileNum, relNumRooms, relLen, relTried, curRoomRelease);
 }
 

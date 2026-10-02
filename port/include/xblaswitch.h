@@ -26,6 +26,14 @@ extern "C" {
  * between two pictures, which is all this is for.
  */
 
+/**
+ * Whether the stage being played holds every part off whatever its switch
+ * says: a GoldenEye ROM hack's arena (Goldfinger 64), the cartridge's look
+ * only. Each part's GetEnabled() answers 0 while it does; pd.ini keeps the
+ * player's own.
+ */
+s32 xblaSwitchStageHeld(void);
+
 /** Whether every part of the release is switched on. */
 s32 xblaSwitchGetEnabled(void);
 

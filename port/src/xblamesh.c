@@ -25,6 +25,7 @@
 #include <math.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
+#include "xblaswitch.h"
 #include "constants.h"
 #include "types.h"
 #include "config.h"
@@ -909,7 +910,7 @@ static s16 xblaMeshNodeMtx(const u8 *file, u32 len, u32 nodeoff)
  */
 static s32 xblaMeshEntryLive(const struct xblameshentry *e)
 {
-	return optEnabled || e->releaseonly;
+	return xblaMeshGetEnabled() || e->releaseonly;
 }
 
 static struct xblameshentry *xblaMeshSlotFor(const struct modelnode *node)
@@ -1950,7 +1951,7 @@ static void xblaMeshMatchModel(struct modeldef *modeldef, u16 fileid)
 	// drew no mesh at all and said nothing: nothing unpacked, so nothing was
 	// ever matched, and the checkbox that would have unpacked it was already
 	// on. Off, this is still the speculative pass that keeps the switch live.
-	if (!xblaMeshOpen(optEnabled)) {
+	if (!xblaMeshOpen(xblaMeshGetEnabled())) {
 		return;
 	}
 
@@ -6920,11 +6921,11 @@ s32 xblaMeshPrebuildBean(struct modeldef *modeldef)
 			|| e->packpart == XBLAMESH_NOPART || !e->fileid
 			|| modelpackFindN64(e->fileid) != NULL
 			|| (e->matched && xblaMeshEntryLive(e) && opened > 0)
-			|| !(optEnabled || gebeanRowIsPool(e->beanrow) || gebeanRowIsFirstPerson(e->beanrow))) {
+			|| !(xblaMeshGetEnabled() || gebeanRowIsPool(e->beanrow) || gebeanRowIsFirstPerson(e->beanrow))) {
 		return -1;
 	}
 
-	return xblaMeshBuildBean(e, !optEnabled) ? 1 : 0;
+	return xblaMeshBuildBean(e, !xblaMeshGetEnabled()) ? 1 : 0;
 }
 
 static void xblaMeshResetBeanMeshes(void)
@@ -8318,8 +8319,8 @@ static s32 xblaMeshHeadBeanRow(struct model *model)
 		if (e && e->node == node && e->modeldef == head && !e->suppress
 				&& e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART
 				&& !(e->fileid && modelpackFindN64(e->fileid))
-				&& (optEnabled || gebeanRowIsPool(e->beanrow))) {
-			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+				&& (xblaMeshGetEnabled() || gebeanRowIsPool(e->beanrow))) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 
 			return m && e->packpart < m->numgroups && !(m->groupabsent & (1ull << e->packpart))
 				? e->beanrow : -1;
@@ -8368,8 +8369,8 @@ s32 xblaMeshBeanSeatAt(struct modeldef *def, s32 head, f32 *out, s32 *outneckles
 
 		if (e && e->node == node && e->modeldef == def && !e->suppress
 				&& e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART
-				&& (optEnabled || gebeanRowIsPool(e->beanrow))) {
-			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+				&& (xblaMeshGetEnabled() || gebeanRowIsPool(e->beanrow))) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 			f32 found[GEBEAN_SEAT_SAMPLES];
 			s32 n = 0;
 
@@ -8610,7 +8611,7 @@ static void xblaMeshPoolHeadSeat(const struct xblameshbuilt *head, const struct 
 				return;
 			}
 
-			body = xblaMeshBuildBean(e, !optEnabled);
+			body = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 
 			if (!body || !body->beanhasneckshift) {
 				return;
@@ -8689,7 +8690,7 @@ static s32 xblaMeshPoolNeckOwn(struct model *model)
 		const struct xblameshentry *e = xblaMeshSlotFor(node);
 
 		if (e && e->node == node && e->modeldef == model->definition && !e->suppress && e->beanrow >= 0) {
-			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 
 			for (s32 k = 0; m && k < 64; k++) {
 				if (m->beanownneck[k] >= 0 && m->beanownneck[k] < m->numgroups
@@ -8747,7 +8748,7 @@ static s32 xblaMeshBodyDrawsBare(struct model *model)
 		const struct xblameshentry *e = xblaMeshSlotFor(node);
 
 		if (e && e->node == node && e->modeldef == model->definition && !e->suppress && e->beanrow >= 0) {
-			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 
 			for (s32 k = 0; m && !m->beanhead && k < 64; k++) {
 				if (m->beanbare[k] >= 0 && m->beanbare[k] < m->numgroups
@@ -8801,7 +8802,7 @@ static s32 xblaMeshHeadIsNeckBack(struct model *model)
 		const struct xblameshentry *e = xblaMeshSlotFor(node);
 
 		if (e && e->node == node && e->modeldef == head && !e->suppress && e->beanrow >= 0) {
-			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 
 			return m && m->beanhead && m->beanneckback;
 		}
@@ -8835,7 +8836,7 @@ static s32 xblaMeshHeadBringsNeck(struct model *model)
 		const struct xblameshentry *e = xblaMeshSlotFor(node);
 
 		if (e && e->node == node && e->modeldef == head && !e->suppress && e->beanrow >= 0) {
-			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !optEnabled);
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 
 			if (m && m->beanhead && e->packpart < 64 && m->beanneckof[e->packpart] >= 0
 					&& xblaMeshHeadTubeOn(model, m)) {
@@ -8867,7 +8868,7 @@ static const struct xblameshbuilt *xblaMeshBodyBuilt(struct model *model)
 		const struct xblameshentry *e = xblaMeshSlotFor(node);
 
 		if (e && e->node == node && e->modeldef == model->definition && !e->suppress && e->beanrow >= 0) {
-			return gebeanRowIsPool(e->beanrow) ? xblaMeshBuildBean(e, !optEnabled) : NULL;
+			return gebeanRowIsPool(e->beanrow) ? xblaMeshBuildBean(e, !xblaMeshGetEnabled()) : NULL;
 		}
 
 		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
@@ -8906,7 +8907,7 @@ static s32 xblaMeshPoolHeadIsSeated(struct model *model)
 		const struct xblameshentry *e = xblaMeshSlotFor(node);
 
 		if (e && e->node == node && e->modeldef == head && !e->suppress && e->beanrow >= 0) {
-			const struct xblameshbuilt *m = gebeanRowIsPool(e->beanrow) ? xblaMeshBuildBean(e, !optEnabled) : NULL;
+			const struct xblameshbuilt *m = gebeanRowIsPool(e->beanrow) ? xblaMeshBuildBean(e, !xblaMeshGetEnabled()) : NULL;
 
 			const struct xblameshbuilt *body = xblaMeshBodyBuilt(model);
 			f32 shift[3];
@@ -10490,11 +10491,11 @@ s32 xblaMeshScreenQuad(struct model *model, struct modelnode *node, Vtx *vertice
 			|| e->beanrow < 0 || e->packpart == XBLAMESH_NOPART
 			|| (e->fileid && modelpackFindN64(e->fileid))
 			|| (e->matched && xblaMeshEntryLive(e) && opened > 0)
-			|| !gebeanGetEnabled() || !(optEnabled || gebeanRowIsPool(e->beanrow))) {
+			|| !gebeanGetEnabled() || !(xblaMeshGetEnabled() || gebeanRowIsPool(e->beanrow))) {
 		return 0;
 	}
 
-	m = xblaMeshBuildBean(e, !optEnabled);
+	m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 
 	if (!m) {
 		return 0;
@@ -11062,7 +11063,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// mesh for hands the whole of itself back, including the lists the matcher
 	// left alone, since those would otherwise draw the pack's geometry inside
 	// the mesh.
-	if (frompack && e->packhasmesh && optEnabled && opened > 0
+	if (frompack && e->packhasmesh && xblaMeshGetEnabled() && opened > 0
 			&& modelpackGetPrefer() == MODELPACK_PREFER_XBLA) {
 		frompack = 0;
 	}
@@ -11080,7 +11081,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// so with the meshes off there is no GoldenEye model underneath to fall
 	// back to - only the PP9i the PP7 is held beside.
 	frombean = !frompack && !havemesh && e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART
-			&& gebeanGetEnabled() && (optEnabled || gebeanRowIsPool(e->beanrow)
+			&& gebeanGetEnabled() && (xblaMeshGetEnabled() || gebeanRowIsPool(e->beanrow)
 				|| gebeanRowIsFirstPerson(e->beanrow));
 
 	if (!frompack && !havemesh && !frombean) {
@@ -11175,7 +11176,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	// The mesh is built before the part is looked at, so that a mesh that will
 	// not build leaves every part of the model drawing its own geometry rather
 	// than only the first one.
-	m = frompack ? xblaMeshBuildPack(e) : frombean ? xblaMeshBuildBean(e, !optEnabled) : xblaMeshBuild(e->slot);
+	m = frompack ? xblaMeshBuildPack(e) : frombean ? xblaMeshBuildBean(e, !xblaMeshGetEnabled()) : xblaMeshBuild(e->slot);
 
 	if (!m) {
 		if (xblaMeshVerbose) {
@@ -12357,7 +12358,7 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node)
 	s32 frompack;
 	const u32 type = node ? node->type & 0xff : 0;
 
-	if (!model || !g_XblaMeshNumNodes || (!optEnabled && !releaseOnlyLoaded) || opened <= 0 || !built ||
+	if (!model || !g_XblaMeshNumNodes || (!xblaMeshGetEnabled() && !releaseOnlyLoaded) || opened <= 0 || !built ||
 			(type != MODELNODETYPE_DL && type != MODELNODETYPE_GUNDL)) {
 		return 0;
 	}
@@ -12418,7 +12419,7 @@ s32 xblaMeshModelHasMesh(struct model *model)
 	struct modelnode *nodes[128];
 	s32 n;
 
-	if (!model || !model->definition || !g_XblaMeshNumNodes || (!optEnabled && !releaseOnlyLoaded) || opened <= 0 || !built) {
+	if (!model || !model->definition || !g_XblaMeshNumNodes || (!xblaMeshGetEnabled() && !releaseOnlyLoaded) || opened <= 0 || !built) {
 		return 0;
 	}
 
@@ -12488,7 +12489,7 @@ s32 xblaMeshHeldOffset(struct model *model, struct modelnode *handnode, f32 out[
 
 	out[0] = out[1] = out[2] = 0.0f;
 
-	if (!model || !model->definition || !handnode || !optEnabled || opened <= 0 || !beanBuilt[0]
+	if (!model || !model->definition || !handnode || !xblaMeshGetEnabled() || opened <= 0 || !beanBuilt[0]
 			|| !gebeanGetEnabled()) {
 		return 0;
 	}
@@ -12617,7 +12618,7 @@ s32 xblaMeshHeldOffset(struct model *model, struct modelnode *handnode, f32 out[
 s32 xblaMeshModelDrawsBean(struct model *model)
 {
 	struct modelnode *nodes[128];
-	const s32 look = !optEnabled;
+	const s32 look = !xblaMeshGetEnabled();
 	s32 n;
 
 	if (!model || !model->definition || !g_XblaMeshNumNodes || !gebeanGetEnabled() || !beanBuilt[look]) {
@@ -12633,7 +12634,7 @@ s32 xblaMeshModelDrawsBean(struct model *model)
 				&& e->packpart != XBLAMESH_NOPART && e->fileid
 				&& !(e->matched && xblaMeshEntryLive(e) && opened > 0)
 				&& !modelpackFindN64(e->fileid)
-				&& (optEnabled || gebeanRowIsPool(e->beanrow) || gebeanRowIsFirstPerson(e->beanrow))
+				&& (xblaMeshGetEnabled() || gebeanRowIsPool(e->beanrow) || gebeanRowIsFirstPerson(e->beanrow))
 				&& beanBuilt[look][e->fileid] && beanBuilt[look][e->fileid]->state > 0) {
 			return 1;
 		}
@@ -12644,7 +12645,7 @@ s32 xblaMeshModelDrawsBean(struct model *model)
 
 s32 xblaMeshModeldefDrawsMesh(const struct modeldef *modeldef)
 {
-	if (!modeldef || !g_XblaMeshNumNodes || (!optEnabled && !releaseOnlyLoaded) || opened <= 0 || !built) {
+	if (!modeldef || !g_XblaMeshNumNodes || (!xblaMeshGetEnabled() && !releaseOnlyLoaded) || opened <= 0 || !built) {
 		return 0;
 	}
 
@@ -13132,7 +13133,7 @@ s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const st
 	s32 hitpart = 0;
 	Mtxf *camtoworld = camGetProjectionMtxF();
 	Mtxf worldtocam;
-	const s32 look = !optEnabled;
+	const s32 look = !xblaMeshGetEnabled();
 	f32 len;
 	f32 sqdist;
 
@@ -13159,7 +13160,7 @@ s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const st
 						&& e->packpart != XBLAMESH_NOPART && e->fileid && !e->suppress
 						&& !(e->matched && xblaMeshEntryLive(e) && opened > 0)
 						&& !modelpackFindN64(e->fileid)
-						&& (optEnabled || gebeanRowIsPool(e->beanrow) || gebeanRowIsFirstPerson(e->beanrow))
+						&& (xblaMeshGetEnabled() || gebeanRowIsPool(e->beanrow) || gebeanRowIsFirstPerson(e->beanrow))
 						&& beanBuilt[look][e->fileid] && beanBuilt[look][e->fileid]->state > 0) {
 					hitLists[numHitLists].node = node;
 					hitLists[numHitLists].e = e;
@@ -13261,8 +13262,8 @@ struct xblameshbuilt *xblaMeshAnalysedForModel(const struct modeldef *def)
 			} else if (!e->matched && e->beanrow >= 0 && e->packpart != XBLAMESH_NOPART) {
 				mine = 1;
 
-				if (gebeanGetEnabled() && (optEnabled || gebeanRowIsPool(e->beanrow))) {
-					m = xblaMeshBuildBean(e, !optEnabled);
+				if (gebeanGetEnabled() && (xblaMeshGetEnabled() || gebeanRowIsPool(e->beanrow))) {
+					m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
 				}
 			}
 
@@ -13291,7 +13292,8 @@ struct xblameshbuilt *xblaMeshAnalysedForModel(const struct modeldef *def)
 
 s32 xblaMeshGetEnabled(void)
 {
-	return optEnabled;
+	// (off on a ROM hack's arena: xblaSwitchStageHeld())
+	return optEnabled && !xblaSwitchStageHeld();
 }
 
 /**
@@ -13407,7 +13409,7 @@ void xblaMeshTrace(FILE *f)
 	}
 
 	fprintf(f, "xblamesh: enabled %d opened %d pose %d; %u meshes built, %u KB; pose arena %u KB in %d chunks, cap %d MB; %u nodes in %u of %d table slots; frame %u\n",
-			optEnabled, opened, optPose, g_XblaMeshNumMeshes,
+			xblaMeshGetEnabled(), opened, optPose, g_XblaMeshNumMeshes,
 			(g_XblaMeshBytes + 1023) / 1024, arenakb, chunks,
 			XBLAMESH_ARENA_MAX / (1024 * 1024), nodes, slots, XBLAMESH_HASHSIZE,
 			frameCount);
@@ -13453,7 +13455,7 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
 				: (built && e->matched && e->slot < numRecords ? &built[e->slot] : NULL);
 
 		if (!frompack && !e->matched && e->beanrow >= 0) {
-			const s32 look = !optEnabled;
+			const s32 look = !xblaMeshGetEnabled();
 
 			m = beanBuilt[look] ? beanBuilt[look][e->fileid] : NULL;
 			fprintf(f, "%sGoldenEye XBLA character for %s (release %s, %s look, list %d): ",
@@ -13977,7 +13979,7 @@ s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct mod
 {
 	s32 at = -1;
 
-	if (!optEnabled || !chrmodel || !headdef || !hatmodel || !hatmodel->definition || !chrmodel->definition) {
+	if (!xblaMeshGetEnabled() || !chrmodel || !headdef || !hatmodel || !hatmodel->definition || !chrmodel->definition) {
 		return 0;
 	}
 

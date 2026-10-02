@@ -14,6 +14,7 @@
 #include <string.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include "xblaswitch.h"
 #include "constants.h"
 #include "platform.h"
 #include "config.h"
@@ -1084,7 +1085,8 @@ u8 *xblaTexDecodeCube(u32 record, s32 *outSize)
 
 s32 xblaTexGetEnabled(void)
 {
-	return optEnabled;
+	// (off on a ROM hack's arena: xblaSwitchStageHeld())
+	return optEnabled && !xblaSwitchStageHeld();
 }
 
 void xblaTexSetEnabled(s32 enabled)
@@ -1531,7 +1533,7 @@ u8 *xblaTexLoadReplacement(const void *addr, s32 *outWidth, s32 *outHeight)
 
 	SDL_UnlockMutex(lock);
 
-	if (record < 0 || (!optEnabled && !kept)) {
+	if (record < 0 || (!xblaTexGetEnabled() && !kept)) {
 		return NULL;
 	}
 
@@ -1587,14 +1589,14 @@ s32 xblaTexHaveNumbered(void)
 	// opened is 0 untried and -1 no package: once a package has failed to
 	// open there is nothing to ask for, and asking again per texture would
 	// re-scan for one. Availability is a flag read after the startup scan.
-	return optEnabled && opened >= 0 && xblaImportIsAvailable();
+	return xblaTexGetEnabled() && opened >= 0 && xblaImportIsAvailable();
 }
 
 u8 *xblaTexLoadNumbered(s32 texturenum, s32 *outWidth, s32 *outHeight)
 {
 	u8 *rgba;
 
-	if (!lock || !optEnabled || texturenum < 0 || texturenum >= NUM_TEXTURES ||
+	if (!lock || !xblaTexGetEnabled() || texturenum < 0 || texturenum >= NUM_TEXTURES ||
 			texturenum >= XBLAIMPORT_NUM_REPLACED ||
 			xblaImportTextureIsLeftOut(texturenum)) {
 		return NULL;
@@ -1650,6 +1652,6 @@ void xblaTexShutdown(void)
 void xblaTexTrace(FILE *f)
 {
 	fprintf(f, "xblatex: enabled %d opened %d (0 untried, 1 open, -1 no package), %u records, %d bound, %d decodes, %d replaced by the pack\n",
-			optEnabled, opened, numRecords, numBound, numDecoded,
+			xblaTexGetEnabled(), opened, numRecords, numBound, numDecoded,
 			texpackGetNumXblaReplacements());
 }

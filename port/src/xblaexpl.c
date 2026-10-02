@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
+#include "xblaswitch.h"
 #include "config.h"
 #include "system.h"
 #include "video.h"
@@ -43,7 +44,8 @@ PD_CONSTRUCTOR static void xblaExplInit(void)
 
 s32 xblaExplGetEnabled(void)
 {
-	return optEnabled;
+	// (off on a ROM hack's arena: xblaSwitchStageHeld())
+	return optEnabled && !xblaSwitchStageHeld();
 }
 
 void xblaExplSetEnabled(s32 enabled)
@@ -71,7 +73,7 @@ void xblaExplSetEnabled(s32 enabled)
 
 s32 xblaExplHaveFrames(void)
 {
-	return optEnabled && xblaImportIsAvailable();
+	return xblaExplGetEnabled() && xblaImportIsAvailable();
 }
 
 /**

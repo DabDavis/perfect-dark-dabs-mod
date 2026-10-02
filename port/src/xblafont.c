@@ -102,6 +102,7 @@
 #include <math.h>
 #include <PR/ultratypes.h>
 #include <ultra64.h>
+#include "xblaswitch.h"
 #include "constants.h"
 #include "types.h"
 #include "platform.h"
@@ -1818,7 +1819,8 @@ static s32 xblaFontBuildOutline(struct xblafontglyph *out, s32 id, s32 index, s3
 
 s32 xblaFontGetEnabled(void)
 {
-	return optEnabled;
+	// (off on a ROM hack's arena: xblaSwitchStageHeld())
+	return optEnabled && !xblaSwitchStageHeld();
 }
 
 void xblaFontSetEnabled(s32 enabled)
@@ -1849,7 +1851,7 @@ s32 xblaFontHaveGlyphs(void)
 	// one a machine with no package would ask for a glyph, be told no, and
 	// remember that per glyph - which works, and puts the renderer through a
 	// branch it can never come out of.
-	return optEnabled && xblaImportIsAvailable();
+	return xblaFontGetEnabled() && xblaImportIsAvailable();
 }
 
 /** Throws away every atlas, line and glyph, to be built again on the next ask. */
@@ -1881,7 +1883,7 @@ u8 *xblaFontLoadGlyph(u32 glyph, s32 *outWidth, s32 *outHeight)
 	s32 index;
 	u8 *copy;
 
-	if (!optEnabled || !(glyph & TEXPACK_GLYPH_SET)) {
+	if (!xblaFontGetEnabled() || !(glyph & TEXPACK_GLYPH_SET)) {
 		return NULL;
 	}
 
@@ -1989,7 +1991,7 @@ void xblaFontTrace(FILE *f)
 	s32 i;
 
 	fprintf(f, "xblafont: %s, %d glyphs built, %d without one, %d off the font's line\n",
-			optEnabled ? "on" : "off", numBuilt, numMissing, numOffLine);
+			xblaFontGetEnabled() ? "on" : "off", numBuilt, numMissing, numOffLine);
 
 	for (i = 0; i < XBLAFONT_NUM_FONTS; i++) {
 		if (lines[i].tried > 0) {
