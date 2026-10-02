@@ -17,6 +17,8 @@ colour.
 | `ares_side.py`, `ares_view_syms.json` | the tour's GoldenEye side on the cartridge (twin.py `--oracle ares`, the default): every step in memory, no function calls; the extra ROM addresses (`nm build/u/ge007.u.elf`) |
 | `xenia_side.py` | the tour's GoldenEye side on the XBLA release ("Bean") in Xenia (`--oracle xenia`): through `common/xeniage.py` and `xenia/run_scenario.py`, the rig's lock held (one Xenia, one virtual pad on this machine); Bond on the pad's tile at the height `stanGetPositionYValue` gives with GoldenEye's `levelinfotable` scale, Bean's eye height measured at spawn |
 | `fovfit.py OUT/<mission>` | the release's field of view against ours, measured from matched pairs (the zoom that maps our picture onto Bean's; its null: ours against itself fits 1, against itself zoomed 1.10 fits 1.10); feed `bean_fovy` back as `--bean-fovy` |
+| `texsample_ares.py` | where the cartridge samples an image: finds it in RDRAM by its first bytes (`GF_TEXHEX`, as our renderer loaded it), pictures it as is, under a ramp along its rows and one along its columns (a surface's brightness is then its texel row and column), or filled with one byte (`GF_FILL=ff`: the shade alone); I4 only |
+| `ramfind_ares.py`, `ramdump_ares.py` | at the tour's camera on the cartridge: count byte patterns in RDRAM (`GF_PATS`), or dump a range (`GF_FROM`..`GF_TO`) to `ram.bin` |
 | `--oracle-only`, then `--reuse-oracle OUT` on the same OUT | the oracle's pictures now, ours later (one game of ours at a time on this box) |
 
 **--oracle xenia is the HD look against the release, both with the Community
