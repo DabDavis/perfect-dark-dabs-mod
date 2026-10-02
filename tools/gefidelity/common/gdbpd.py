@@ -85,6 +85,16 @@ def until_tick(t):
     gdb.execute('delete')
 
 
+def until_play(maxframes=2000):
+    """Run until the player's normal play (TICKMODE_NORMAL, 1): aresge's twin
+    waits out the cartridge's opening. Returns the tick."""
+    for _ in range(maxframes // 5):
+        if int(ev('g_Vars.tickmode')) == 1:
+            return tick()
+        frames(5)
+    raise RuntimeError('never reached normal play (tickmode %d)' % int(ev('g_Vars.tickmode')))
+
+
 def frames(n=1):
     target = int(ev('g_Vars.lvframenum')) + n
     gdb.execute('break videoEndFrame if g_Vars.lvframenum >= %d' % target)
@@ -324,6 +334,58 @@ def player():
             'eye': [_f(P['cam_pos'][a]) for a in 'xyz'],
             'ground': _f(P['vv_ground']),
             'health': _f(P['bondhealth'])}
+
+
+def objectives():
+    """Each objective's status (0 incomplete, 1 complete, 2 failed: GoldenEye's
+    OBJECTIVESTATUS_* number for number)."""
+    return [int(ev('objectiveCheck(%d)' % i)) for i in range(int(ev('objectiveGetCount()')))]
+
+
+def inventory():
+    """The player's inventory as weapon numbers, in the order the game cycles it."""
+    return [int(ev('invGetWeaponNumByIndex(%d)' % k)) for k in range(int(ev('invGetCount()')))]
+
+
+def record_words(i):
+    """Setup record i as ours holds it (converted): [type, [words...]], or None past the end."""
+    p = ev('(unsigned int *)g_StageSetup.props')
+    for k in range(i + 1):
+        t = int(p.cast(gdb.lookup_type('struct defaultobj').pointer()).dereference()['type'])
+        if t == OBJTYPE_END:
+            return None
+        n = int(ev('setupGetCmdLength((u32 *)%d)' % int(p)))
+        if k == i:
+            return [t, [int(p[w]) & 0xffffffff for w in range(n)]]
+        p = p + n
+
+
+def carries(i):
+    """The player carries setup record i's own prop (invHasProp())."""
+    o = ev('setupGetObjByCmdIndex(%d)' % i)
+    if int(o) == 0 or int(o['prop']) == 0:
+        return False
+    return bool(int(ev('invHasProp((struct prop *)%d)' % int(o['prop']))))
+
+
+def bond_where():
+    """The player's first room, what place() takes (aresge's twin returns his tile)."""
+    return int(ev('g_Vars.currentplayer->prop->rooms[0]'))
+
+
+def prop_tile(i):
+    """Setup record i's prop: where Bond stands to reach it - its x and z on the
+    floor under it (cdFindGroundAtCyl(), so not on a table or shelf it rests on,
+    as aresge's twin stands Bond on the prop's tile) - and its first room (for
+    place())."""
+    o = ev('setupGetObjByCmdIndex(%d)' % i)
+    if int(o) == 0 or int(o['prop']) == 0:
+        return None
+    prop = o['prop']
+    pos = [_f(prop['pos'][a]) for a in 'xyz']
+    pos[1] = _f(ev('cdFindGroundAtCyl(&((struct prop *)%d)->pos, 30, ((struct prop *)%d)->rooms, 0, 0)'
+                   % (int(prop), int(prop))))
+    return pos, int(prop['rooms'][0])
 
 
 def world():

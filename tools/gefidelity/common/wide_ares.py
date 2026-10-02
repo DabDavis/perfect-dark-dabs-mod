@@ -129,6 +129,22 @@ def tiles():
     A link names its tile by address: standTileStart + (link << 3), standTileStart
     being the first tile less 0x80, and a link under 16 names nothing (stan.c;
     geconvert.c stanRead())."""
+    walk = _tile_records()
+    if walk is None:
+        return None
+    start, scale, raw = walk
+    index_of = {addr: i for i, (addr, _, _, _) in enumerate(raw)}
+    out = []
+    for addr, room, special, pts in raw:
+        out.append([room, special, [[_r(x * scale), _r(y * scale), _r(z * scale),
+                                     index_of.get(start + (link << 3), -1) if link >> 4 else -1]
+                                    for x, y, z, link in pts]])
+    return {'scale': _r(scale), 'tiles': out}
+
+
+def _tile_records():
+    """The loaded tile graph raw: (standTileStart, level scale, [(address, room,
+    special, [(x, y, z, link), ...]), ...]) in the stan file's units."""
     start = A.u32(WSYM['standTileStart'])
     if not start:
         return None
@@ -152,13 +168,35 @@ def tiles():
         o += 8 + 8 * npts
         if len(raw) > 20000:
             raise RuntimeError('no end to the tile graph')
-    index_of = {addr: i for i, (addr, _, _, _) in enumerate(raw)}
-    out = []
+    return start, scale, raw
+
+
+def tile_under(x, y, z, above=60.0):
+    """The address of the highest tile whose outline holds x, z and whose floor
+    is under y (within `above`) - where a man stands to reach something at x,
+    y, z. A pad's own tile need not be it: Goldfinger has pads hundreds of
+    units under theirs (Plane's pad 0x56: the upper deck's tile, the pad on
+    the hold's floor), and that floor's height: (address, y). None if no
+    floor is under it."""
+    walk = _tile_records()
+    if walk is None:
+        return None
+    start, scale, raw = walk
+    best = None
     for addr, room, special, pts in raw:
-        out.append([room, special, [[_r(x * scale), _r(y * scale), _r(z * scale),
-                                     index_of.get(start + (link << 3), -1) if link >> 4 else -1]
-                                    for x, y, z, link in pts]])
-    return {'scale': _r(scale), 'tiles': out}
+        xs = [p[0] * scale for p in pts]
+        zs = [p[2] * scale for p in pts]
+        inside = False
+        for i in range(len(pts)):
+            xi, zi, xj, zj = xs[i], zs[i], xs[i - 1], zs[i - 1]
+            if (zi > z) != (zj > z) and x < (xj - xi) * (z - zi) / (zj - zi) + xi:
+                inside = not inside
+        if not inside:
+            continue
+        fy = sum(p[1] for p in pts) * scale / len(pts)
+        if fy <= y + above and (best is None or fy > best[0]):
+            best = (fy, addr)
+    return (best[1], best[0]) if best else None
 
 
 def wide():

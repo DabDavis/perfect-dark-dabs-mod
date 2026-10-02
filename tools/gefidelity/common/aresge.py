@@ -334,6 +334,19 @@ def until_tick(t):
     twin()('until-word 0x%08x >= %d 200000' % (SYM['g_GlobalTimer'], t + _st['t0']))
 
 
+def until_play(maxframes=2000):
+    """Run until Bond's first-person play: player->cameramode is 1 through the
+    opening and 0 after (not the CAMERAMODE_* enum, which is another word's),
+    and maybe_mp_interface() returns early while it is 1 - the objective
+    statuses, the HUD messages and the watch wait for it. Returns the tick."""
+    off = T['struct player']['fields']['cameramode']['off']
+    for _ in range(maxframes // 5):
+        if s32(_player() + off) == 0:
+            return tick()
+        frames(5)
+    raise RuntimeError('Bond never reached first-person play (cameramode %d)' % s32(_player() + off))
+
+
 def frames(n=1):
     twin()('until-word 0x%08x >= %d 200000' % (SYM['currentFrameCounter'], s32(SYM['currentFrameCounter']) + n))
 
@@ -342,14 +355,30 @@ def _player():
     return u32(SYM['g_CurrentPlayer'])
 
 
-def place(x, y, z, theta=None, verta=None, stan=None):
+# Bond's height words, each moved by the same amount when place() is given a
+# floor: his prop, his collision position (and the last frame's), the floor
+# under him (field_70, stanHeight) and his eye
+_HEIGHT_WORDS = [('player', 'field_488.collision_position', 4), ('player', 'previous_collision_info.collision_position', 4),
+                 ('player', 'field_70', 0), ('player', 'stanHeight', 0), ('player', 'field_488.pos', 4),
+                 ('prop', 'pos', 4)]
+
+
+def place(x, y, z, theta=None, verta=None, stan=None, floor=None):
     """Bond's feet at x, z on tile `stan` (GoldenEye's world). There is no tile
-    search on the console: pass a pad's own tile (pad_tile()), or none to keep
-    Bond's current tile."""
+    search on the console: pass a pad's own tile (pad_tile()) or one
+    wide_ares.tile_under() found, or none to keep Bond's current tile. His
+    height is the walk's, from where he was - so a tile on another floor than
+    his (a lower deck) wants `floor`, its height, which moves every height word
+    he has by the difference first (else the walk puts him back on his own)."""
     P = _player()
     prop = u32(P + T['struct player']['fields']['prop']['off'])
     F = T['struct player']['fields']
     pk = lambda a, v: poke(a, struct.pack('>f', v))
+    if floor is not None:
+        dy = floor - struct.unpack('>f', peek(P + F['stanHeight']['off'], 4))[0]
+        for base, field, k in _HEIGHT_WORDS:
+            a = (P + F[field]['off']) if base == 'player' else (prop + T['PropRecord']['fields'][field]['off'])
+            pk(a + k, struct.unpack('>f', peek(a + k, 4))[0] + dy)
     pk(prop + T['PropRecord']['fields']['pos']['off'] + 0, x)
     pk(prop + T['PropRecord']['fields']['pos']['off'] + 8, z)
     pk(P + F['field_488.collision_position']['off'] + 0, x)
@@ -366,11 +395,11 @@ def place(x, y, z, theta=None, verta=None, stan=None):
     return stan
 
 
-def hold(x, y, z, theta=None, verta=None, n=8, stan=None):
+def hold(x, y, z, theta=None, verta=None, n=8, stan=None, floor=None):
     for _ in range(n):
-        place(x, y, z, theta, verta, stan)
+        place(x, y, z, theta, verta, stan, floor)
         frames(3)
-    place(x, y, z, theta, verta, stan)
+    place(x, y, z, theta, verta, stan, floor)
     frames(1)
     return stan
 
@@ -590,6 +619,91 @@ def player():
             # the floor under Bond (bondview2.c: collision y = field_70 + eye height)
             'ground': _f(P.f('field_70')),
             'health': _f(P.f('bondhealth')), 'armour': _f(P.f('bondarmour'))}
+
+
+# objective_status.c (nm build/u/ge007.u.elf): objective_count holds the count
+# less one (-1 for none); objectiveStatuses[10] is each objective's status as
+# display_objective_status_text_on_status_change() last saw it, every frame
+# (0 incomplete, 1 complete, 2 failed - Perfect Dark's OBJECTIVE_* too)
+OBJECTIVE_SYMS = {'objective_count': 0x800322f0, 'objectiveStatuses': 0x80075d58}
+
+
+def objectives():
+    n = s32(SYM.get('objective_count', OBJECTIVE_SYMS['objective_count'])) + 1
+    if not 0 <= n <= 10:
+        raise RuntimeError('objective_count reads %d: not GoldenEye\'s objective table on this cartridge' % (n - 1))
+    a = SYM.get('objectiveStatuses', OBJECTIVE_SYMS['objectiveStatuses'])
+    return list(struct.unpack('>%di' % n, peek(a, 4 * n))) if n else []
+
+
+def inventory():
+    """Bond's inventory in cycle order from ptr_inventory_first_in_cycle
+    (bondinv.c): InvItem {s32 type; union {weaponnum | prop | right, left};
+    next; prev}, 0x14 bytes. A weapon gives its number, a dual pair
+    [right, left], a prop item ['prop']."""
+    first = u32(_player() + T['struct player']['fields']['ptr_inventory_first_in_cycle']['off'])
+    out = []
+    a = first
+    while a and len(out) < 100:
+        t, w1, w2, nxt = struct.unpack('>iiiI', peek(a, 16))
+        out.append(w1 if t == 1 else [w1, w2] if t == 3 else ['prop', '%#x' % w1] if t == 2 else ['type', t])
+        a = nxt
+        if a == first:
+            break
+    return out
+
+
+def record_words(i):
+    """Setup record i as the cartridge holds it: [type, [words...]], or None past the end."""
+    setup = Rec('stagesetup', SYM['g_CurrentSetup'])
+    p = setup.ptr('propDefs')
+    for k in range(i + 1):
+        t = Rec('PropDefHeaderRecord', p)['type']
+        if t == PROPDEF_END:
+            return None
+        n = SIZEPROPDEF.get(t, 1)
+        if k == i:
+            return [t, list(struct.unpack('>%dI' % n, peek(p, 4 * n)))]
+        p += 4 * n
+
+
+def carries(i):
+    """Bond carries setup record i's own prop (bondinvHasPropInInv(): a prop
+    entry naming it), which is what a collect objective asks."""
+    pt = prop_tile(i)
+    if pt is None:
+        return False
+    want = int(pt[2], 16)
+    for w in inventory():
+        if isinstance(w, list) and w[0] == 'prop' and int(w[1], 16) & 0xffffffff == want:
+            return True
+    return False
+
+
+def bond_where():
+    """Bond's tile, what place() takes (gdbpd's twin returns his room)."""
+    return Rec('PropRecord', u32(_player() + T['struct player']['fields']['prop']['off'])).ptr('stan')
+
+
+def prop_tile(i):
+    """Setup record i's prop: its position and its tile (for place())."""
+    setup = Rec('stagesetup', SYM['g_CurrentSetup'])
+    p = setup.ptr('propDefs')
+    for k in range(i):
+        t = Rec('PropDefHeaderRecord', p)['type']
+        if t == PROPDEF_END:
+            return None
+        p += 4 * SIZEPROPDEF.get(t, 1)
+    pa = Rec('ObjectRecord', p).ptr('prop')
+    if not pa:
+        return None
+    prop = Rec('PropRecord', pa)
+    if not _rooms(prop) and not prop.ptr('parent'):
+        # made but in no room and on no chr: a weapon chrEquipWeapon() turned
+        # away from a hand already full is never reparented (propobj.c) and
+        # lies at the origin out of the world (Plane's record 105)
+        return None
+    return [_f(v) for v in prop.vec('pos')], prop.ptr('stan'), '%#x' % pa
 
 
 def world():

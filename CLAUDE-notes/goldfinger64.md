@@ -295,10 +295,15 @@ conversion checked against the one before:
   watch neither draws nor equips one. GoldenEye's own Silo has one: the
   briefcase character 0 carries, now dropped as a pickup when it dies, as the
   cartridge's record says.
-  Checked on our side (probe `~/wt/gf-fix-run/probe/collect.py`): Miami,
-  Club (the safe's spool), Shipyard and Airport make every one, name them,
-  and complete their objectives on pickup. Not yet against the cartridge (the
-  oracle host was down).
+  Against the cartridge (`world/collect.py` + `collectdiff.py`, Bond walked
+  onto each on both sides): all twelve missions with collectables (Cartel,
+  Miami, Shipyard, Club (its safe's spool), Airport, Alps, Capture, Ranch,
+  Hideout, Knox, Plane and Crab Key) make, carry and complete the same objectives at
+  each pickup. Two that look different and are not: Airport's ticket (record
+  97) is on a guard on both sides; Plane's record 105 is assigned to chr 4,
+  whose gun takes his hand first, so the cartridge's `chrEquipWeapon()` turns
+  it away unparented - a prop at the origin in no room, which nobody reaches
+  and nothing drops - and ours never makes it.
 
 The replay test was the same on all eight cases after each.
 
@@ -316,5 +321,5 @@ The replay test was the same on all eight cases after each.
   fast3d, affects every game); cars seated at the wrong height (gexplusveh.c);
   Vaults' Oddjob, whose own list runs after a background list reads his
   health.
-- Collectables against the cartridge (converter 104 was checked on our side
-  only); the watch draws nothing for one where GoldenEye draws its model.
+- The watch draws nothing for a collectable where GoldenEye draws its model
+  (converter 104's are checked against the cartridge otherwise).
