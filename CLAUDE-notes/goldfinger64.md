@@ -350,6 +350,27 @@ conversion checked against the one before:
 
 The replay test was the same on all eight cases after each.
 
+**Walls drawn under coverage for alpha (fast3d).** GE Editor writes its rooms'
+lists under G_RM_AA_ZB_OPA_TERR2 (`0xc8102078` with fog, `0x0c182078` with
+G_RM_PASS): ALPHA_CVG_SEL, no FORCE_BL, and the blend formula's "memory times
+one minus alpha" - with a combiner whose alpha is nought outright. The RDP
+blends a covered pixel only under FORCE_BL, and takes coverage for the alpha,
+so the console draws them solid; `gfx_derive_batch_state()` saw the blend
+formula and blended by the combiner's 0, so Cartel, Bodega, China and Crab Key
+drew no walls or floors. Such a draw is now opaque (`gfx_cc_alpha_zero()`):
+only a combiner alpha that is constant 0, never a texture's or a vertex's, so
+nothing else moves (Defection's release rooms need their texture's alpha under
+that mode; Extraction's lit spans were mended at the vertex, 5cb512e2e).
+Scanned in both ROMs: GoldenEye has no room list and no model it applies to;
+Goldfinger has ten level files (Cartel's 10,851 triangles) and parts of nine
+models (707, JetStar, lockers, cooling tanks). A runtime census of Perfect
+Dark's ten solo stages in both looks found none. Against the cartridge (view
+diff medians, before -> after): Cartel 0.49 -> 0.18, Bodega 0.95 -> 0.15,
+China 0.30 -> 0.13, Crab Key 1.15 -> 0.16, Grounds 0.49 -> 0.15, Alps 0.10
+unchanged - 519 of 741 views closer, none further. The ares run's crude patch
+(every room's combiner alpha rewritten) darkened Grounds' and Alps' terrain;
+this leaves Alps alone and brings Grounds closer.
+
 **Miami's banner is there.** The ares run's "Miami's blimp has no banner
 trail" was the opening's random shot: Miami has two (`gecinema.c` picks one
 by `rngRandom()`), the cartridge showed the sky over the hotel and ours the
@@ -370,10 +391,17 @@ anything missing.
 - Its gadgets' names by mission (gegadgets.c's identities are GoldenEye's).
 - Its monitor programmes (its block is edited in place, 16% of GoldenEye's
   words the same; gemonitortable.h is GoldenEye's).
-- From the ares run, still to do: room lists drawn with combiner alpha 0
-  under an opaque AA mode (Cartel, Bodega, China, Crab Key draw no walls -
-  fast3d, affects every game); cars seated at the wrong height (gexplusveh.c);
-  Vaults' Oddjob, whose own list runs after a background list reads his
-  health.
+- From the ares run, still to do: cars seated at the wrong height
+  (gexplusveh.c); Vaults' Oddjob, whose own list runs after a background list
+  reads his health.
+- GE Editor's reflective room surfaces (lit and texgenned, now drawn since the
+  coverage fix below - Cartel's club ceiling drape over GoldenEye's image
+  0x28c) come out dark with bright streaks where the cartridge's are a light
+  grey sheet. Not the image (byte-identical to GE Plus's 0x28c, an I4 that is
+  mostly dark), not the level-reflection follow (the same with
+  Mod.LevelReflectFollow=0), and only partly the light (the room is 210 bright;
+  GoldenEye lights every level with GlobalLight, PD's lightsSetDefault(), where
+  lightsSetForRoom() scales by the room). Where the texgen lands is the next
+  thing to compare.
 - The watch draws nothing for a collectable where GoldenEye draws its model
   (converter 104's are checked against the cartridge otherwise).
