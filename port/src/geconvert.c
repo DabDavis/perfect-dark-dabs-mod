@@ -7658,7 +7658,7 @@ struct texmove {
 };
 
 static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int nlists, buf *w, int fours,
-		const struct texmove *moved, int nmoved,
+		const struct texmove *moved, int nmoved, uint8_t *images,
 		size_t *vat, size_t *nv, size_t *cat, size_t *nc, u32s *wordsof, int *haswords)
 {
 	outvtxs newv = {0};
@@ -7718,8 +7718,14 @@ static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int
 				VECPUSH(wordsof[li], 0x04000000u | (start * 12));
 			} else {
 				if (op == 0xc0) {
+					// a list may load an image its texture table does not
+					// list (Goldfinger 64's Dink loads three for her face):
+					// the game loads it by number all the same, so it goes
+					// out with the model's own
+					setAdd(images, w1 & 0xfff);
 					w1 = (w1 & ~0xfffu) | texRemap(w1 & 0xfff);
 					if ((w0 & 7) == 1) {
+						setAdd(images, (w1 >> 12) & 0xfff);
 						w1 = (w1 & ~0xfff000u) | (texRemap((w1 >> 12) & 0xfff) << 12);
 					}
 				} else if (op == 0xfd && (w1 & 0xff000000u) == SEG_MODEL) {
@@ -8111,7 +8117,7 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 				vtx = be32(d.v, ro + 8);
 				mode = bes16(d.v, ro + 0x18);
 			}
-			modelLists(&d, vtx, lists, 2, &w, 0, moved, nmoved, &vat, &nv, &cat, &nc, words, has);
+			modelLists(&d, vtx, lists, 2, &w, 0, moved, nmoved, images, &vat, &nv, &cat, &nc, words, has);
 			if (nv > 32767 || mode < -32768 || mode > 32767) {
 				fail("%s: a list with too many vertices", p->file);
 			}
@@ -8145,7 +8151,7 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 			if (!lists[0]) {
 				fail("%s: a muzzle flash with no list", p->file);
 			}
-			modelLists(&d, vtx, lists, 1, &w, 1, moved, nmoved, &vat, &nv, &cat, &nc, words, has);
+			modelLists(&d, vtx, lists, 1, &w, 1, moved, nmoved, images, &vat, &nv, &cat, &nc, words, has);
 			// GoldenEye's own count of quads, dorottex() copying that many:
 			// with nought its list still ran, on vertices never written - a
 			// yellow wedge across the screen, or a crash (converter 61). A
