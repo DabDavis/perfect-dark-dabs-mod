@@ -15330,6 +15330,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 	s32 count = 0;
 	u32 treevbs[32];
 	s32 numtreevbs = 0;
+	s32 numblendpic = 0;
 
 	// The buffers any instancing record draws - its first copy is drawn
 	// without one, where the tree was modelled
@@ -15360,6 +15361,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		s32 istree = 0;
 		s32 tex = draw->tex < (u32)bm->numtex ? (s32)draw->tex : -1;
 		s32 ismask = 0;
+		s32 blendpic;
 		s32 plain;
 
 		if (!beanReadVb(bm, draw->vb, &vb)) {
@@ -15407,6 +15409,45 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		}
 
 		numtris = beanTriangles32(bm, draw, &tris);
+
+		// A draw of two solid pictures that its vertices blend between: the
+		// material's slot 0 picture (read at the first UV set) over its slot
+		// 1 picture (the second set), by the blend word's alpha. Dam's
+		// reservoir banks are snow at the top running down into mossy rock
+		// at the water (F3 20261001-211323, "no snow on bank"); the other
+		// levels' are ground into rock or grass. Taken for the bigger picture
+		// alone at the first UV set, the bank was rock all the way up. Drawn
+		// as the slot 1 picture, with the slot 0 one blended over it: a
+		// twin in the blended pass, which markDecals() lays on it. Only where
+		// the blend runs the whole way across the draw - a blend word that
+		// stays at one value (Silo's 179, Aztec's 128, lightmaps and detail
+		// maps) or within 0-63 (the four-way terrain shaders) is another
+		// shader.
+		blendpic = 0;
+
+		if (vb.stride == 32 && !ismask && !draw->alphatest && !draw->blend && tex >= 0
+				&& draw->masktex < (u32)bm->numtex && draw->masktexslot == 0 && numtris > 0) {
+			const void *tile;
+			u8 basea, overa, soft;
+			s32 amin = 255, amax = 0;
+
+			for (s32 i = 0; i < numtris * 3; i++) {
+				if (tris[i] < vb.count) {
+					const s32 a = bm->gpu[vb.off + tris[i] * vb.stride + 24];
+
+					amin = MIN(amin, a);
+					amax = MAX(amax, a);
+				}
+			}
+
+			if (amin == 0 && amax == 255
+					&& beanBindTexture(bm, level->source, tex, &tile, &basea, &soft)
+					&& beanBindTexture(bm, level->source, (s32)draw->masktex, &tile, &overa, &soft)
+					&& !basea && !overa) {
+				blendpic = 1;
+				numblendpic++;
+			}
+		}
 
 		// A draw with no UV (stride 16, or 20 with a colour) and no picture
 		// since its vertex shader was set: the picture it is read with here is
@@ -15468,7 +15509,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 				// (0xffff) and Runway's road drew as streaks
 				if (ok && vb.stride == 32) {
 					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
-					const u32 uvat = ismask ? 20 : 16;
+					const u32 uvat = ismask || blendpic ? 20 : 16;
 
 					bv.uv[0] = (s16)gebeanBE16(p + uvat) / bm->uvscale;
 					bv.uv[1] = (s16)gebeanBE16(p + uvat + 2) / bm->uvscale;
@@ -15527,9 +15568,36 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 
 			fn(arg, tex, v);
 			count++;
+
+			if (blendpic) {
+				struct gebeanlevelvtx over[3];
+				s32 seen = 0;
+
+				memcpy(over, v, sizeof(over));
+
+				for (s32 k = 0; k < 3; k++) {
+					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
+
+					over[k].uv[0] = (s16)gebeanBE16(p + 16) / bm->uvscale;
+					over[k].uv[1] = (s16)gebeanBE16(p + 18) / bm->uvscale;
+					over[k].argb = (v[k].argb & 0x00ffffff) | (u32)p[24] << 24;
+					over[k].blend = 1;
+					seen |= p[24] != 0;
+				}
+
+				if (seen) {
+					fn(arg, (s32)draw->masktex, over);
+					count++;
+				}
+			}
 		}
 
 		free(tris);
+	}
+
+	if (numblendpic) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws of two pictures blended by their vertices, the second laid over the first",
+				level->source, numblendpic);
 	}
 
 	return count;

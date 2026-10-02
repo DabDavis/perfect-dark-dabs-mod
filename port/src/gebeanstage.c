@@ -6189,6 +6189,21 @@ static struct brightcell *brightCorner(const f32 *p, s32 tex, s32 add)
 	return NULL;
 }
 
+// One surface's sums (matchN64Brightness()): its area, the HD side's brightness and GoldenEye's under it
+struct brightcomp {
+	f64 area, sum, go;
+};
+
+static s32 compFind(s32 *parent, s32 i)
+{
+	while (parent[i] != i) {
+		parent[i] = parent[parent[i]];
+		i = parent[i];
+	}
+
+	return i;
+}
+
 static void brightForget(void)
 {
 	free(brightFileTex);
@@ -6222,6 +6237,9 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 	u8 *under1 = calloc(n + 1, 1);
 	f64 hdall = 0.0, hdallarea = 0.0, fileall = 0.0, fileallarea = 0.0;
 	s32 on = 0, changed = 0, under = 0, measured = 0, clamped = 0, paired = 0;
+	s32 allpaired = 0;
+	s32 *compParent = NULL;
+	struct brightcomp *comp = NULL;
 	char list[1536];
 	s32 at = 0;
 
@@ -6294,8 +6312,17 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 			}
 		}
 
-		// the corners: three a triangle at most, at most a third full
-		for (brightCellMask = 1024; brightCellMask < (u32)paired * 9; brightCellMask <<= 1);
+		// the corners, of every paired triangle in any room (a surface's
+		// component reaches past the darker rooms): three a triangle at most,
+		// at most a third full
+		for (s32 t = 0; t < c->num; t++) {
+			const struct stri *tri = &c->tris[t];
+
+			allpaired += hdTriMeasured(tri) && tri->room < n && target[t] >= 0.0f
+				&& tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS;
+		}
+
+		for (brightCellMask = 1024; brightCellMask < (u32)allpaired * 9; brightCellMask <<= 1);
 		brightCells = malloc(sizeof(*brightCells) * brightCellMask);
 		brightCellMask--;
 
@@ -6307,7 +6334,7 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 		for (s32 t = 0; brightCells && t < c->num; t++) {
 			const struct stri *tri = &c->tris[t];
 
-			if (hdTriMeasured(tri) && tri->room < n && under1[tri->room] && target[t] >= 0.0f
+			if (hdTriMeasured(tri) && tri->room < n && target[t] >= 0.0f
 					&& tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS) {
 				const f32 area = triArea3(tri->pos);
 				const f32 mine = hdTriBright(tri);
@@ -6324,28 +6351,113 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 			}
 		}
 
+		// The surfaces: triangles of one picture meeting at a corner are one
+		// piece, whatever rooms they were dealt to, and a piece takes one
+		// factor from all of it. Dealt by position, Dam's chasm walls fell in
+		// rooms of factors from 1 to 3, and the cliff came out in bright and
+		// dark rectangles along the rooms' bounds (F3 20261001-211516)
+		if (brightCells) {
+			compParent = malloc(sizeof(s32) * (brightCellMask + 1));
+			comp = calloc(brightCellMask + 1, sizeof(*comp));
+		}
+
+		if (compParent && comp) {
+			for (u32 i = 0; i <= brightCellMask; i++) {
+				compParent[i] = (s32)i;
+			}
+
+			for (s32 t = 0; t < c->num; t++) {
+				const struct stri *tri = &c->tris[t];
+				s32 at[3];
+				s32 ok = 1;
+
+				if (!hdTriMeasured(tri) || tri->room >= n || target[t] < 0.0f
+						|| tri->tex < 0 || tri->tex >= GEBEAN_MAXMATS) {
+					continue;
+				}
+
+				for (s32 k = 0; k < 3 && ok; k++) {
+					const struct brightcell *e = brightCorner(tri->pos[k], tri->tex, 0);
+
+					ok = e != NULL;
+					at[k] = ok ? (s32)(e - brightCells) : -1;
+				}
+
+				if (!ok) {
+					continue;
+				}
+
+				for (s32 k = 1; k < 3; k++) {
+					const s32 a = compFind(compParent, at[0]);
+					const s32 b = compFind(compParent, at[k]);
+
+					if (a != b) {
+						compParent[b] = a;
+					}
+				}
+			}
+
+			for (s32 t = 0; t < c->num; t++) {
+				const struct stri *tri = &c->tris[t];
+				const struct brightcell *e;
+				f32 area;
+
+				if (!hdTriMeasured(tri) || tri->room >= n || target[t] < 0.0f
+						|| tri->tex < 0 || tri->tex >= GEBEAN_MAXMATS
+						|| !(e = brightCorner(tri->pos[0], tri->tex, 0))) {
+					continue;
+				}
+
+				area = triArea3(tri->pos);
+				comp[compFind(compParent, (s32)(e - brightCells))].area += area;
+				comp[compFind(compParent, (s32)(e - brightCells))].sum += area * hdTriBright(tri);
+				comp[compFind(compParent, (s32)(e - brightCells))].go += area * target[t];
+			}
+		}
+
 		for (s32 t = 0; t < c->num; t++) {
 			struct stri *tri = &c->tris[t];
 			const s32 r = tri->room;
 			f32 gain = 1.0f;
 			f32 vgain[3];
 			s32 any;
+			s32 have = 0;
 
 			// Blended triangles keep their colours: glows, lamp flares, glass
 			// and water are the release's own, not light it baked too dark
 			if (r <= 0 || r >= n || tri->plain || tri->blend || tri->undersea
-					|| (tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS && texWater[tri->tex])
-					|| rhd[r].area < BRIGHT_MIN_AREA || rhd[r].sum <= 0.0) {
+					|| (tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS && texWater[tri->tex])) {
 				continue;
 			}
 
-			gain = rgo[r].sum / rhd[r].sum;
+			// the surface it is a piece of, where that is big enough to measure
+			if (compParent && comp && tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS) {
+				const struct brightcell *e = brightCorner(tri->pos[0], tri->tex, 0);
 
-			if (tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS) {
-				const s32 k = r * GEBEAN_MAXMATS + tri->tex;
+				if (e) {
+					const struct brightcomp *p = &comp[compFind(compParent, (s32)(e - brightCells))];
 
-				if (phd[k].area >= BRIGHT_MIN_AREA && phd[k].sum > 0.0) {
-					gain = pgo[k].sum / phd[k].sum;
+					if (p->area >= BRIGHT_MIN_AREA && p->sum > 0.0) {
+						gain = (f32)(p->go / p->sum);
+						have = 1;
+					}
+				}
+			}
+
+			// else its room's, in a room darker than GoldenEye's
+			if (!have) {
+				if (rhd[r].area < BRIGHT_MIN_AREA || rhd[r].sum <= 0.0) {
+					continue;
+				}
+
+				gain = rgo[r].sum / rhd[r].sum;
+
+				if (tri->tex >= 0 && tri->tex < GEBEAN_MAXMATS) {
+					const s32 k = r * GEBEAN_MAXMATS + tri->tex;
+
+					if (phd[k].area >= BRIGHT_MIN_AREA && phd[k].sum > 0.0) {
+						gain = pgo[k].sum / phd[k].sum;
+					}
 				}
 			}
 
@@ -6388,6 +6500,8 @@ static s32 matchN64Brightness(struct collect *c, u8 **filerooms, u32 *filelens, 
 
 		free(brightCells);
 		brightCells = NULL;
+		free(compParent);
+		free(comp);
 
 		{
 			struct brightsum *post = calloc(n + 1, sizeof(*post));
