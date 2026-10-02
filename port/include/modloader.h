@@ -21,6 +21,8 @@ s32 modloaderGetStageModelScale(s32 stagenum, s32 modelnum, s32 fileid, s32 scal
 const char *modloaderGetStageAllocation(s32 stagenum);
 // A Stage Loader map's own name, as its mod calls it, or NULL for a stock stage.
 const char *modloaderGetStageMapName(s32 stagenum);
+// the GoldenEye image an arena's map line names as its picture (`picture`), or 0
+s32 modloaderGetStagePicture(s32 stagenum);
 struct fogenvironment;
 
 // Before a stage's setup loads: the remake's model states, from the stage's
@@ -42,6 +44,9 @@ s32 modloaderStageIsGexPlus(s32 stagenum);
  */
 extern const char *g_GexPlusVariant;
 s32 modloaderStageInGexPlusList(s32 stagenum);
+// the GoldenEye conversion's mounted dir (GEXPLUSROM_DIR), and whether a dir index is it
+s32 modloaderGexPlusDirIndex(void);
+s32 modloaderDirIndexIsGexPlus(s32 moddir);
 // One of the remake's models (MODEL_REMAKE_FIRST + slot) on a stage of
 // Perfect Dark's, from the mod that brings it, until the next stage; -1 where
 // no mod has it or the stage is one of the remake's own

@@ -101,6 +101,9 @@ s32 gexFrontLoadText(void);
 
 // The mounted mod the conversion's files come from, or -1
 s32 gexFrontModDir(void);
+// the conversion whose fonts and names the folder holds (GoldenEye's, a ROM
+// hack's), or -1 while it holds none
+s32 gexFrontTextModDir(void);
 
 /**
  * A mission's briefing file, the text bank that file indexes and LtitleE's

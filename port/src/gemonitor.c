@@ -172,10 +172,13 @@ static s32 geMonitorLoadFrom(s32 moddir, const char *dir)
 	g_GeMonNumWords = 0;
 
 	snprintf(path, sizeof(path), "%s/menu/gemonitors.bin", dir);
-	d = fsFileLoad(path, &len);
+	// asked first: a GoldenEye ROM hack's conversion writes none (its
+	// programmes are not GoldenEye's), and its screens show nothing
+	d = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
 
 	if (!d || len < 12 || memcmp(d, "GEM1", 4)) {
-		sysLogPrintf(LOG_WARNING, "gemonitor: the conversion has no monitor programmes at %s", path);
+		sysLogPrintf(modloaderDirIndexIsGexPlus(moddir) ? LOG_WARNING : LOG_NOTE,
+			"gemonitor: the conversion has no monitor programmes at %s", path);
 		sysMemFree(d);
 		return 0;
 	}

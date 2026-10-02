@@ -5130,9 +5130,14 @@ struct menudialogdef g_GexPlusMenuDialog = {
 static MenuItemHandlerResult menuhandlerMainMenuGexPlus(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	// GoldenEye's own intro first (port/src/geintro.c), which opens the folder
-	// screens itself when it ends
-	if (operation == MENUOP_SET && (gexPlusFirstArena() < 0 || (!geIntroOpen() && !gexFrontOpen()))) {
-		menuPushDialog(&g_GexPlusMenuDialog);
+	// screens itself when it ends - GoldenEye's, not a ROM hack's left chosen
+	// by its own row
+	if (operation == MENUOP_SET) {
+		g_GexPlusVariant = NULL;
+
+		if (gexPlusFirstArena() < 0 || (!geIntroOpen() && !gexFrontOpen())) {
+			menuPushDialog(&g_GexPlusMenuDialog);
+		}
 	}
 
 	return 0;
@@ -5141,9 +5146,11 @@ static MenuItemHandlerResult menuhandlerMainMenuGexPlus(s32 operation, struct me
 /**
  * The Perfect Menu's row for a GoldenEye ROM hack found in added-content/
  * (gexplusrom.c: Goldfinger 64), under the hack's own name and there only
- * while it is: its arenas in GE Plus's Combat Simulator, GoldenEye's
- * scenarios and weapon sets with them, and nothing of GoldenEye's own arenas
- * (g_GexPlusVariant). The hack's missions are not converted yet.
+ * while it is: GE Plus's folder screens over the hack's own conversion - its
+ * missions under its own chapters, its multiplayer with its arenas only, and
+ * GoldenEye's scenarios and weapon sets with them (g_GexPlusVariant). A
+ * conversion from before its missions were converted opens GE Plus's
+ * Combat Simulator over its arenas, as the row used to.
  */
 static char *mainMenuVariantLabel(struct menuitem *item)
 {
@@ -5189,6 +5196,11 @@ static MenuItemHandlerResult menuhandlerMainMenuVariant(s32 operation, struct me
 		}
 
 		g_GexPlusVariant = name;
+
+		if (gexFrontOpen()) {
+			return 0;
+		}
+
 		mpSetGexPlusMode(true);
 
 		if (!modloaderStageInGexPlusList(g_MpSetup.stagenum)) {

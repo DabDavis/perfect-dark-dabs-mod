@@ -1552,12 +1552,14 @@ static void gegunsFindConverted(void)
 	// the mount's index may have moved too: searched again from nothing
 	memset(convertedModel, 0, sizeof(convertedModel));
 
-	// the PP7 is the conversion's marker: every GoldenEye gun is written with it
+	// the PP7 is the conversion's marker: every GoldenEye gun is written with
+	// it. GoldenEye's own conversion's, never a ROM hack's (Goldfinger 64's
+	// guns are models of its own), wherever the two are mounted
 	for (s32 i = 0; i < numdirs && dir < 0; i++) {
 		char path[FS_MAXPATH + 1];
 		const char *at = fsGetModDirAt(i);
 
-		if (!at) {
+		if (!at || (modloaderGexPlusDirIndex() >= 0 && !modloaderDirIndexIsGexPlus(i))) {
 			continue;
 		}
 

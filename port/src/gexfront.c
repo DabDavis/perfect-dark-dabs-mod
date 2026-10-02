@@ -280,7 +280,7 @@ struct missionrow {
 	const char *lang;
 };
 
-static const struct missionrow g_Missions[] = {
+static const struct missionrow g_GeMissionRows[] = {
 	{ "1",   120,   0, -1, NULL,               NULL },
 	{ "i",   121,   0,  0, "UbriefdamZ",       "LdamE" },
 	{ "ii",  122,   0,  1, "UbriefarkZ",       "LarkE" },
@@ -312,7 +312,26 @@ static const struct missionrow g_Missions[] = {
 	{ "i",   152, 153, 19, "UbriefcrypZ",      "LcrypE" },
 };
 
-#define NUM_MISSION_ROWS (sizeof(g_Missions) / sizeof(g_Missions[0]))
+/**
+ * The rows the folder shows: GoldenEye's, or a GoldenEye ROM hack's own folder
+ * out of its conversion (menu/missionfolder.bin, geconvert.c's
+ * writeMissionFolder()) - Goldfinger 64 keeps GoldenEye's twenty mission
+ * numbers, briefings and text banks and renames and regroups them under nine
+ * chapters of its own.
+ */
+#define MAX_MISSION_ROWS 40
+static struct missionrow g_HackMissionRows[MAX_MISSION_ROWS];
+static char g_HackMissionText[MAX_MISSION_ROWS][3][24];
+static const struct missionrow *g_Missions = g_GeMissionRows;
+static s32 g_NumMissionRows = ARRAYCOUNT(g_GeMissionRows);
+#define NUM_MISSION_ROWS g_NumMissionRows
+
+// whether the folder is a ROM hack's (the Perfect Menu's row for it set
+// g_GexPlusVariant), not GoldenEye's own
+static s32 frontIsHack(void)
+{
+	return g_GexPlusVariant != NULL;
+}
 
 // cursor_xpos_table_mission_select and cursor_ypos_table_mission_select
 static const s32 g_MissionX[MISSION_COLS] = { 73, 142, 212, 282, 352 };
@@ -545,8 +564,9 @@ static const char *frontString(s32 index)
 {
 	u32 at;
 
-	// the selected language's, keyed ge.title.<slot> (langpack.h)
-	if (langpackActive()) {
+	// the selected language's, keyed ge.title.<slot> (langpack.h) - a
+	// translation of GoldenEye's own strings, which a ROM hack's are not
+	if (langpackActive() && g_Missions == g_GeMissionRows) {
 		const char *tr = langpackGeFile("LtitleE", index);
 
 		if (tr) {
@@ -572,7 +592,7 @@ static const char *frontLangString(s32 id)
 	const u32 index = (u32)id & 0x3ff;
 	u32 at;
 
-	if (langpackActive() && g_Front.lang) {
+	if (langpackActive() && g_Front.lang && g_Missions == g_GeMissionRows) {
 		const char *tr = langpackGeFile(g_FrontLangFile, index);
 
 		if (tr) {
@@ -646,7 +666,9 @@ static const char *frontMissionName(s32 mission, char *buf, size_t len)
  */
 static s32 frontMissionsAreOwn(void)
 {
-	return modloaderNumMissions() >= NUM_MISSIONS;
+	// a ROM hack's level its conversion could not make is left out (its
+	// mission grey on the grid), and the rest still play
+	return modloaderNumMissions() >= (frontIsHack() ? 1 : NUM_MISSIONS);
 }
 
 static s32 frontMissionsAvailable(void)
@@ -899,11 +921,14 @@ static s32 frontHighestDifficulty(s32 mission)
 	return -1;
 }
 
-/** The first of the remake's arenas, or -1 when the conversion has not run. */
+/**
+ * The first of the remake's arenas - GoldenEye's, or the ROM hack's whose
+ * mode is chosen (g_GexPlusVariant) - or -1 when the conversion has not run.
+ */
 static s32 frontFirstArena(void)
 {
 	for (s32 i = 0; i < mpGetNumStages(); i++) {
-		if (modloaderStageIsGexPlus(g_MpArenas[i].stagenum)) {
+		if (modloaderStageInGexPlusList(g_MpArenas[i].stagenum)) {
 			return i;
 		}
 	}
@@ -1131,20 +1156,52 @@ static const s16 g_TargetTimes[NUM_MISSIONS][3] = {
 #define BESTTIMES_FILE "$S/geplus-times.txt"
 #define BESTTIME_MAX 0x3ff
 
-static s32 g_BestTimesLoaded;
+// the set the table holds: "" for none yet, else its file
+static char g_BestTimesLoaded[FS_MAXPATH + 1];
+
+/**
+ * GoldenEye's in BESTTIMES_FILE, a ROM hack's beside it under its own name
+ * ("$S/goldfinger64-times.txt"): the hack's missions keep GoldenEye's numbers,
+ * and in one file each would be filed over GoldenEye's own.
+ */
+static const char *frontBestTimesFile(void)
+{
+	static char path[FS_MAXPATH + 1];
+	char slug[64];
+	s32 n = 0;
+
+	if (!frontIsHack()) {
+		return BESTTIMES_FILE;
+	}
+
+	for (const char *c = g_GexPlusVariant; *c && n < (s32)sizeof(slug) - 1; c++) {
+		if ((*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9')) {
+			slug[n++] = *c;
+		} else if (*c >= 'A' && *c <= 'Z') {
+			slug[n++] = *c - 'A' + 'a';
+		}
+	}
+
+	slug[n] = '\0';
+	snprintf(path, sizeof(path), "$S/%s-times.txt", n ? slug : "romhack");
+
+	return path;
+}
 
 static void frontLoadBestTimes(void)
 {
+	const char *file = frontBestTimesFile();
 	FILE *f;
 	s32 mission, difficulty, secs;
 
-	if (g_BestTimesLoaded) {
+	if (strcmp(g_BestTimesLoaded, file) == 0) {
 		return;
 	}
 
-	g_BestTimesLoaded = 1;
+	snprintf(g_BestTimesLoaded, sizeof(g_BestTimesLoaded), "%s", file);
+	memset(g_BestTimes, 0, sizeof(g_BestTimes));
 
-	if (fsFileSize(BESTTIMES_FILE) <= 0 || !(f = fsFileOpenRead(BESTTIMES_FILE))) {
+	if (fsFileSize(file) <= 0 || !(f = fsFileOpenRead(file))) {
 		return;
 	}
 
@@ -1160,10 +1217,18 @@ static void frontLoadBestTimes(void)
 
 static void frontSaveBestTimes(void)
 {
-	FILE *f = fsFileOpenWrite(BESTTIMES_FILE);
+	const char *file = frontBestTimesFile();
+	FILE *f;
+
+	// the table is the set's it was read for
+	if (strcmp(g_BestTimesLoaded, file) != 0) {
+		return;
+	}
+
+	f = fsFileOpenWrite(file);
 
 	if (!f) {
-		sysLogPrintf(LOG_WARNING, "gexfront: could not write %s", fsFullPath(BESTTIMES_FILE));
+		sysLogPrintf(LOG_WARNING, "gexfront: could not write %s", fsFullPath(file));
 		return;
 	}
 
@@ -1191,6 +1256,8 @@ static void frontUnload(void)
 	g_Front.gothic.hd = NULL;
 	g_Front.title = NULL;
 	g_Front.loaded = 0;
+	g_Missions = g_GeMissionRows;
+	g_NumMissionRows = ARRAYCOUNT(g_GeMissionRows);
 }
 
 /**
@@ -1199,26 +1266,126 @@ static void frontUnload(void)
  * this in a level, where the folder itself is closed and its model would be
  * half a megabyte of nothing.
  */
+/**
+ * The conversion the folder's text is read out of: in a level the stage's own
+ * (a ROM hack's mission draws the hack's names in its watch and its HUD),
+ * elsewhere that of the mode chosen - GoldenEye's, or the ROM hack's.
+ */
+static s32 frontWantDir(void)
+{
+	s32 first;
+
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		return modloaderGetStageModDirIndex(g_Vars.stagenum);
+	}
+
+	first = frontFirstArena();
+
+	return first >= 0 ? modloaderGetStageModDirIndex(g_MpArenas[first].stagenum) : -1;
+}
+
+/**
+ * A ROM hack's own folder, where its conversion wrote one: "GEF1", u16 rows,
+ * u16 0, then 48 bytes a row - its numeral (8), the LtitleE slots of its name
+ * and its shorter name (u16 each), the mission (s16, -1 for a chapter heading),
+ * u16 0, its briefing file (20) and the text bank that file indexes (12).
+ * GoldenEye's own conversion writes none, and its rows are g_GeMissionRows.
+ */
+static void frontLoadMissionRows(void)
+{
+	u32 len = 0;
+	u8 *d;
+	s32 n;
+
+	g_Missions = g_GeMissionRows;
+	g_NumMissionRows = ARRAYCOUNT(g_GeMissionRows);
+
+	{
+		char path[FS_MAXPATH + 1];
+		const char *dir = fsGetModDirAt(g_Front.moddir);
+
+		if (!dir) {
+			return;
+		}
+
+		snprintf(path, sizeof(path), "%s/menu/missionfolder.bin", dir);
+
+		if (fsFileSize(path) <= 0) {
+			return;
+		}
+	}
+
+	d = frontLoad("missionfolder.bin", &len);
+
+	if (!d || len < 8 || memcmp(d, "GEF1", 4) != 0) {
+		sysMemFree(d);
+		return;
+	}
+
+	n = (d[4] << 8) | d[5];
+
+	if (n > MAX_MISSION_ROWS) {
+		n = MAX_MISSION_ROWS;
+	}
+
+	if (len < 8 + 48 * (u32)n) {
+		n = (len - 8) / 48;
+	}
+
+	for (s32 i = 0; i < n; i++) {
+		const u8 *row = d + 8 + 48 * i;
+		struct missionrow *r = &g_HackMissionRows[i];
+		const s16 mission = (s16)((row[12] << 8) | row[13]);
+
+		memcpy(g_HackMissionText[i][0], row, 8);
+		g_HackMissionText[i][0][8] = '\0';
+		memcpy(g_HackMissionText[i][1], row + 16, 20);
+		g_HackMissionText[i][1][20] = '\0';
+		memcpy(g_HackMissionText[i][2], row + 36, 12);
+		g_HackMissionText[i][2][12] = '\0';
+
+		r->numeral = g_HackMissionText[i][0];
+		r->name = (row[8] << 8) | row[9];
+		r->icon = (row[10] << 8) | row[11];
+		r->mission = mission >= 0 && mission < NUM_MISSIONS ? mission : -1;
+		r->brief = r->mission >= 0 && g_HackMissionText[i][1][0] ? g_HackMissionText[i][1] : NULL;
+		r->lang = r->mission >= 0 && g_HackMissionText[i][2][0] ? g_HackMissionText[i][2] : NULL;
+	}
+
+	sysMemFree(d);
+
+	if (n > 0) {
+		g_Missions = g_HackMissionRows;
+		g_NumMissionRows = n;
+	}
+}
+
 static s32 frontLoadText(void)
 {
-	const s32 first = frontFirstArena();
+	const s32 want = frontWantDir();
 
-	if (g_Front.zurich.data && g_Front.gothic.data && g_Front.title) {
+	if (g_Front.zurich.data && g_Front.gothic.data && g_Front.title && g_Front.moddir == want) {
 		return 1;
 	}
 
-	if (first < 0) {
+	if (want < 0) {
 		return 0;
 	}
 
-	g_Front.moddir = modloaderGetStageModDirIndex(g_MpArenas[first].stagenum);
+	// another conversion's: its own fonts, names and folder
+	if (g_Front.zurich.data || g_Front.gothic.data || g_Front.title) {
+		frontUnload();
+	}
 
-	if (g_Front.moddir < 0
-			|| !frontLoadFont(&g_Front.zurich, "fontzurichbold.bin")
+	g_Front.moddir = want;
+
+	if (!frontLoadFont(&g_Front.zurich, "fontzurichbold.bin")
 			|| !frontLoadFont(&g_Front.gothic, "fontbankgothic.bin")
 			|| !(g_Front.title = frontLoad("LtitleE", &g_Front.titlelen))) {
 		return 0;
 	}
+
+	frontLoadMissionRows();
 
 	return 1;
 }
@@ -1298,6 +1465,11 @@ static s32 frontStageImage(s32 stagenum)
 {
 	const char *name = stagenum == STAGE_MP_RANDOM ? NULL : modloaderGetStageMapName(stagenum);
 
+	// the one its line names: a ROM hack's own (Goldfinger's arena table)
+	if (stagenum != STAGE_MP_RANDOM && modloaderGetStagePicture(stagenum) > 0) {
+		return modloaderGetStagePicture(stagenum);
+	}
+
 	for (s32 i = 0; name && i < ARRAYCOUNT(g_FrontStages); i++) {
 		if (strcmp(g_FrontStages[i].name, name) == 0) {
 			return g_FrontStages[i].image;
@@ -1350,7 +1522,7 @@ static void frontBuildLevels(void)
 		for (s32 i = 0; i < num && g_Front.numlevels < MAX_LEVELS; i++) {
 			const char *name = modloaderGetStageMapName(g_MpArenas[i].stagenum);
 
-			if (used[i] || !modloaderStageIsGexPlus(g_MpArenas[i].stagenum)) {
+			if (used[i] || !modloaderStageInGexPlusList(g_MpArenas[i].stagenum)) {
 				continue;
 			}
 
@@ -1866,10 +2038,10 @@ static void frontEnterSetup(void)
 
 	frontApplyMenuCharacter();
 
-	g_GexPlusVariant = NULL;
+	// GE Plus's arenas, or the ROM hack's whose folder this is
 	mpSetGexPlusMode(true);
 
-	if (first >= 0 && !modloaderStageIsGexPlus(g_MpSetup.stagenum)) {
+	if (first >= 0 && !modloaderStageInGexPlusList(g_MpSetup.stagenum)) {
 		g_MpSetup.stagenum = g_MpArenas[first].stagenum;
 	}
 
@@ -3365,6 +3537,11 @@ s32 gexFrontOpen(void)
 		return 0;
 	}
 
+	// another conversion's folder loaded (GoldenEye's, a ROM hack's): this one's
+	if (g_Front.loaded && g_Front.moddir != frontWantDir()) {
+		frontUnload();
+	}
+
 	if (!g_Front.loaded && !frontLoadAll()) {
 		return 0;
 	}
@@ -3798,12 +3975,17 @@ s32 gexFrontLoadShared(void)
 
 s32 gexFrontLoadText(void)
 {
-	return g_Front.loaded || frontLoadText();
+	return (g_Front.loaded && g_Front.moddir == frontWantDir()) || frontLoadText();
 }
 
 s32 gexFrontModDir(void)
 {
 	return g_Front.moddir;
+}
+
+s32 gexFrontTextModDir(void)
+{
+	return g_Front.title ? g_Front.moddir : -1;
 }
 
 s32 gexFrontMissionFiles(s32 mission, const char **brief, const char **lang, s32 *nameid)
