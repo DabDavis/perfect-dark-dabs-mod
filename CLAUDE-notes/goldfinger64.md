@@ -334,7 +334,32 @@ conversion checked against the one before:
   it away unparented - a prop at the origin in no room, which nobody reaches
   and nothing drops - and ours never makes it.
 
+- **106, objects on a pad with no tile.** GoldenEye makes every object but a
+  door through `domakedefaultobj()`, whose `getposstan()` makes nothing when
+  the object's pad (or bound pad) has no tile - the named tile does not hold
+  the pad and none walks to it (`init_pathtable_something()`, the
+  converter's `gePadTile()` -1). An object inside another (0x8000) or a
+  chr's (0x4000) is not placed by its pad and is made regardless. Perfect Dark
+  stood such an object on the first floor below its pad: two cups on each of
+  Cartel (records 1155, 1160) and Bodega (705, 706) the cartridge never makes,
+  a storey down under their table. `geSoloDoors()` marks them and
+  `writeSoloProps()` sets flags2 0xf0 (excluded on all four difficulties);
+  the converter logs each ("GoldenEye never makes it"). These four are all of
+  them; GoldenEye's own missions have none, and its conversion is
+  byte-identical.
+
 The replay test was the same on all eight cases after each.
+
+**Miami's banner is there.** The ares run's "Miami's blimp has no banner
+trail" was the opening's random shot: Miami has two (`gecinema.c` picks one
+by `rngRandom()`), the cartridge showed the sky over the hotel and ours the
+corridor. Held on the same shot (`g_GeIntroShot = g_GeCinemaShots[0]` under
+gdb), ours shows the small plane (`PplanewelcomeZ`, record 614) towing "WELCOME
+TO MIAMI BEACH" past the airship at the same ticks. The banner is the plane's
+second list (mode 4, the XLU pass), loading matrix 0 itself as the body does.
+Still different: the cartridge's banner reads as a pale, fogged streak and
+ours as thinner, darker letters - fog on a translucent prop list, not
+anything missing.
 
 ## Open
 
