@@ -155,9 +155,10 @@ in the session, lui/lo at the same PCs in both ROMs), ares its pieces.
   plays GoldenEye's. Perfect Dark's stages keep GoldenEye's for a GoldenEye
   gun.
 - Characters: `GEROM_NUM_CHRS` 128; heads by the table's flag; pools and Bond
-  from `gecast.bin`. The Combat Simulator's ROM characters and the guns are
-  GoldenEye's conversion's only, wherever the two are mounted
-  (`modloaderGexPlusDirIndex()`: mount order is readdir order).
+  from `gecast.bin`. The Combat Simulator's ROM characters are GoldenEye's
+  conversion's only, wherever the two are mounted
+  (`modloaderGexPlusDirIndex()`: mount order is readdir order). The guns
+  are the stage's gun set (Its guns, below).
 - The model lend (`modloaderLendRemakeModel()`) takes GoldenEye's own only.
 - **No XBLA on a hack's stage** (user, 2026-10-02: incomplete textures).
   `xblaSwitchStageHeld()` makes every part's getter answer 0 there; pd.ini and
@@ -167,6 +168,56 @@ in the session, lui/lo at the same PCs in both ROMs), ares its pieces.
   both looks (`gebeanFindRow()`, and `gebeanPoolRowForFile()`'s remake-file
   branch, which is where Goldfinger's `Pgx030Z` became GoldenEye's console):
   `gebeanFileIsRomHack()` keeps them off a hack's files.
+
+## Its guns (converter 99)
+
+GE Editor's hacks renumber the hand items and patch the code that tests an
+item by number to follow. Goldfinger 64 put a Luger and a P38 at 7 and 8 and
+moved every gun after them on (its AK47 is item 9, where GoldenEye's ZMG was);
+its laser beam (CapBeamLengthAndDecideIfRendered()) tests 24 for 22, its mines'
+ammunition 28-30 for 27-29, the weapon case's sniper rifle 20 for 17, and
+getPropForHeldItem()'s jump table (0x8005762c) was reordered with them. 138 of
+GoldenEye's functions differ, most of them item constants. So a hack's gun is
+**the GoldenEye gun whose file it took** - its GsniperrifleZ at 20 is the
+sniper rifle as the Armalite AR7, its GknifeZ the golf club, GthrowknifeZ
+Oddjob's hat - and stands on that gun's weapon (`itemWeaponsBuild()`,
+geconvert.c, by `g_GeItemFiles`). Four are on files GoldenEye has no weapon of
+its own for (GtaserZ, GwatchlaserZ, GgoldwppkZ, GsilverwppkZ: the Luger P08,
+Walther P38, S&W Model 36 and Model 22) and take `WEAPON_GE_EXTRA1-4`
+(0x80-0x83), pistols on the PP9i. Weapon numbers ran out at 0x7f (s8):
+gunctrl's are s16 now, a beam's s16, a weapon prop's `dualweaponnum` u8 with
+0xff for none; `GE_GUN_INDEX()` is "a gun, GoldenEye's or a hack's".
+
+The conversion writes `menu/geguns.bin` for a hack (`writeGuns()`): a row a
+gun of its weapon, item, held prop (`heldprops`, the layout's copy of the jump
+table's case immediates), name (its LgunE weapon-of-choice text) and its raw
+gunWeaponStat row. Its setups, AI and weapon sets name its guns through the
+same map, and its Igx files are written under its own item numbers.
+
+At run time `gegunsStageSet()` (setup.c, before the props are made) swaps the
+gun set: on a hack's stage geguns.c's tables (stats, sounds, item numbers,
+held props, placement, names, determiners) point at the hack's, its
+definitions are built once from them and swapped in whole; anywhere else
+GoldenEye's come back as they were (the watch laser's swap is the precedent).
+GoldenEye's rows read from the ROM give gegunstats.h to the last field (all
+25 checked), so a hack's rows parse the same way. A gun that fires otherwise
+than its host (Goldfinger's Karabiner 98k and M1 Carbine are single shot on
+the Phantom's and RC-P90's automatic hosts) gets a function of the row's kind.
+The HUD's icon follows the row's AmmoType; the watch draws the set's item.
+gegadgets.c gave the Moonraker back the name it had on the first stage
+loaded; it asks the set now (`gegunsNameId()`), or a session that began on a
+Goldfinger stage named GoldenEye's Moonraker the Portable Laser. Probe for
+the swap both ways: `probe/swap.py` (STAGES=0x7d,0x15,0x7d).
+
+Trap found: Goldfinger's M14 and M1 Carbine have a muzzle flash node whose list
+loads no vertices but whose count says 6 and 3 quads, the gun's whole mesh
+under it, so the flash's per-frame turn wrote over the gun's own vertices and
+the heap (a SIGBUS in the GPU vertex cache). The converter writes no more quads
+than the list loads (GoldenEye's own models all match: output unchanged).
+
+Probe: `~/wt/gf-guns-run/probe/gfguns.py` (gdb; GUNS, AT, EVERY): every gun on
+a stage equipped, photographed and fired. On Cartel all 29 draw their own
+model with their own name and clip and fire.
 
 ## Bugs found on the way (2026-10-02)
 
@@ -191,10 +242,11 @@ in the session, lui/lo at the same PCs in both ROMs), ares its pieces.
 
 ## Open
 
-- Goldfinger's own guns: its first-person models differ from GoldenEye's (35
-  of 41 `Igx` files) and are converted into its folder, but GE Plus's guns
-  are GoldenEye's conversion's (`gegunsFindConverted()`), so its missions
-  hold GoldenEye's.
+- Its arenas' weapon sets: `menu/gesets.bin` is written right for it, but GE
+  Plus's Combat Simulator appends GoldenEye's only; on its arenas the GE rows
+  draw and fire as its guns (the stage's gun set) under GoldenEye's names in
+  the menu. Its four extra pistols have no Combat Simulator row.
+- Its gadgets' names by mission (gegadgets.c's identities are GoldenEye's).
 - Its monitor programmes (its block is edited in place, 16% of GoldenEye's
   words the same; gemonitortable.h is GoldenEye's).
 - Judged against ares: not yet. The missions run (20, with openings, 1700

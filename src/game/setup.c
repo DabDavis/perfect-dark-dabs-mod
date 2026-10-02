@@ -1696,6 +1696,8 @@ void setupLoadFiles(s32 stagenum)
 	modBorrowStageModels(stagenum);
 	// and a Stage Loader map's own models (the GoldenEye remake's props)
 	modloaderApplyStageModels(stagenum);
+	// and whose guns: a GoldenEye ROM hack's own on its stages (geguns.c)
+	gegunsStageSet(stagenum);
 	// and whose unarmed it is: GoldenEye's slappers on its own levels
 	geslappersStageLoad(stagenum);
 #endif

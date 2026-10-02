@@ -178,6 +178,18 @@ struct geknifekey {
 // mirrored for the left hand; 0 once the track has ended
 s32 gegunsSampleTrack(const struct geknifekey *keys, f32 time, void *mtx, s32 left);
 
+/**
+ * The guns of the stage about to load: a converted ROM hack's own on a stage
+ * of its own (menu/geguns.bin), GoldenEye's everywhere else.
+ */
+void gegunsStageSet(s32 stagenum);
+
+/** Weapon `index`'s own name (its text id), the gun set's. */
+u16 gegunsNameId(s32 index);
+
+/** A gun's GoldenEye AmmoType (its AMMOTYPES index), the gun set's; -1 where it has no row. */
+s32 gegunsGeAmmoType(s32 weaponnum);
+
 #ifdef __cplusplus
 }
 #endif

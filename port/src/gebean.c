@@ -1613,6 +1613,11 @@ static void gebeanGunsRefresh(void)
 	}
 }
 
+void gebeanGunsStageRefresh(void)
+{
+	gebeanGunsRefresh();
+}
+
 /** Whether a gun in a hand has to be loaded again when the look changes. */
 static s32 gebeanSwitchReloads(s32 weaponnum)
 {

@@ -19208,7 +19208,7 @@ s32 objTestForPickup(struct prop *prop)
 			}
 
 			if (maybe) {
-				if (weapon->dualweapon || weapon->dualweaponnum >= 0) {
+				if (weapon->dualweapon || weapon->dualweaponnum != 0xff) {
 					if (weapon->dualweapon) {
 						leftweaponnum = rightweaponnum = weapon->dualweapon->weaponnum;
 					} else {
@@ -20390,7 +20390,7 @@ struct weaponobj *weaponCreateProjectileFromGset(s32 modelnum, struct gset *gset
 			0,                      // unk5e
 			0,                      // gunfunc
 			0,                      // fadeouttimer60
-			-1,                     // dualweaponnum
+			0xff,                   // dualweaponnum
 			-1,                     // timer240
 			NULL,                   // dualweapon
 		};
@@ -20523,7 +20523,7 @@ struct prop *weaponCreateForChr(struct chrdata *chr, s32 modelnum, s32 weaponnum
 			0,                      // unk5e
 			0,                      // gunfunc
 			0,                      // fadeouttimer60
-			-1,                     // dualweaponnum
+			0xff,                   // dualweaponnum
 			-1,                     // timer240
 			NULL,                   // dualweapon
 		};

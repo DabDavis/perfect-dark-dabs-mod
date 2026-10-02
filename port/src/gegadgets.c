@@ -172,8 +172,6 @@ static struct {
 	f32 press;         // the detonator's hand, 0 off the watch to DETONATOR_PRESS on it
 	f32 flash[3];      // the watch laser's muzzle in the camera's space, last drawn
 	s32 flashframe;    // the frame it was drawn on, -1 for none
-	u16 laserhostname; // the Moonraker's own name, while Train wears the watch laser's
-	u16 laserhostshort;
 	u16 lasertext;
 	struct model model;
 	u32 rwdata[GADGET_RWDATA_MAX];
@@ -186,7 +184,7 @@ static struct sndstate *g_MagnetHum[MAX_PLAYERS];
 
 s32 gegadgetsIsGadget(s32 weaponnum)
 {
-	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum < NUM_WEAPONS;
+	return weaponnum >= WEAPON_GE_COVERTMODEM && weaponnum <= WEAPON_GE_DETONATOR;
 }
 
 /**
@@ -202,7 +200,10 @@ s32 gegadgetsIsGadget(s32 weaponnum)
  */
 static s32 gegadgetsIsWatchLaser(s32 weaponnum)
 {
-	return weaponnum == WEAPON_GE_MOONRAKER && g_Gadgets.moddir >= 0 && g_Gadgets.mission == MISSION_TRAIN;
+	// GoldenEye's own Train: a ROM hack's mission of that number is another,
+	// and Goldfinger 64 took the watch laser out (its code tests item 0)
+	return weaponnum == WEAPON_GE_MOONRAKER && g_Gadgets.moddir >= 0 && g_Gadgets.mission == MISSION_TRAIN
+		&& modloaderDirIndexIsGexPlus(g_Gadgets.moddir);
 }
 
 static const struct gegadgetidentity *gegadgetsIdentity(s32 weaponnum)
@@ -254,7 +255,7 @@ void gegadgetsStageLoad(s32 stagenum)
 	g_Gadgets.mission = modloaderStageMission(stagenum);
 	g_Gadgets.moddir = modloaderStageIsRemake(stagenum) ? modloaderGetStageModDirIndex(stagenum) : -1;
 
-	for (s32 w = WEAPON_GE_COVERTMODEM; w < NUM_WEAPONS; w++) {
+	for (s32 w = WEAPON_GE_COVERTMODEM; w <= WEAPON_GE_DETONATOR; w++) {
 		struct gegadgetidentity *id = (struct gegadgetidentity *)gegadgetsIdentity(w);
 
 		if (id) {
@@ -269,22 +270,23 @@ void gegadgetsStageLoad(s32 stagenum)
 
 	// The watch laser on the Moonraker's number wears GoldenEye's name for
 	// it (LGUN's GUN_STR_7B) in the inventory, the watch and the messages;
-	// every other stage gives the Moonraker its own name back
+	// every other stage gives the Moonraker its own name back - the gun
+	// set's, which on a ROM hack's stage is the hack's gun's (geguns.c):
+	// kept from the first stage loaded, a session that began on Goldfinger
+	// 64 called GoldenEye's Moonraker its Portable Laser ever after
 	{
 		struct weapon *laser = &g_GeWeaponDefs[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST];
 
 		if (!g_Gadgets.lasertext) {
 			g_Gadgets.lasertext = langAddPortText("Watch Laser\n");
-			g_Gadgets.laserhostname = laser->name;
-			g_Gadgets.laserhostshort = laser->shortname;
 		}
 
 		if (gegadgetsIsWatchLaser(WEAPON_GE_MOONRAKER)) {
 			laser->name = g_Gadgets.lasertext;
 			laser->shortname = g_Gadgets.lasertext;
 		} else {
-			laser->name = g_Gadgets.laserhostname;
-			laser->shortname = g_Gadgets.laserhostshort;
+			laser->name = gegunsNameId(WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST);
+			laser->shortname = laser->name;
 		}
 
 		// and its own numbers, ammunition and sound (geguns.c)

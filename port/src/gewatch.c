@@ -3739,37 +3739,14 @@ static s32 g_WatchHdWeapon;
 static struct watchitem g_WatchGun = { .item = -1, .failed = -1 };
 static struct watchitem g_WatchPad = { .item = -1, .failed = -1 };
 
-/** GoldenEye's ITEM_IDS for one of the remake's guns, -1 for anything else. */
+/**
+ * GoldenEye's ITEM_IDS for one of the remake's guns, -1 for anything else:
+ * the gun set's (geguns.c), which on a ROM hack's stage are the hack's own
+ * item numbers - Goldfinger 64's AK47 is its item 9, Igx009Z beside its
+ * geitems.bin row 9.
+ */
 static s32 watchGunItem(s32 weaponnum)
 {
-	static const s8 items[NUM_GE_WEAPONS] = {
-		[WEAPON_GE_PP7 - WEAPON_GE_FIRST] = 4,
-		[WEAPON_GE_PP7SILENCED - WEAPON_GE_FIRST] = 5,
-		[WEAPON_GE_DD44 - WEAPON_GE_FIRST] = 6,
-		[WEAPON_GE_KLOBB - WEAPON_GE_FIRST] = 7,
-		[WEAPON_GE_KF7SOVIET - WEAPON_GE_FIRST] = 8,
-		[WEAPON_GE_ZMG - WEAPON_GE_FIRST] = 9,
-		[WEAPON_GE_D5K - WEAPON_GE_FIRST] = 10,
-		[WEAPON_GE_D5KSILENCED - WEAPON_GE_FIRST] = 11,
-		[WEAPON_GE_PHANTOM - WEAPON_GE_FIRST] = 12,
-		[WEAPON_GE_AR33 - WEAPON_GE_FIRST] = 13,
-		[WEAPON_GE_RCP90 - WEAPON_GE_FIRST] = 14,
-		[WEAPON_GE_SHOTGUN - WEAPON_GE_FIRST] = 15,
-		[WEAPON_GE_AUTOSHOTGUN - WEAPON_GE_FIRST] = 16,
-		[WEAPON_GE_SNIPERRIFLE - WEAPON_GE_FIRST] = 17,
-		[WEAPON_GE_COUGARMAGNUM - WEAPON_GE_FIRST] = 18,
-		[WEAPON_GE_GOLDENGUN - WEAPON_GE_FIRST] = 19,
-		[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST] = 22,
-		[WEAPON_GE_GRENADELAUNCHER - WEAPON_GE_FIRST] = 24,
-		[WEAPON_GE_ROCKETLAUNCHER - WEAPON_GE_FIRST] = 25,
-		[WEAPON_GE_HUNTINGKNIFE - WEAPON_GE_FIRST] = 2,
-		[WEAPON_GE_THROWINGKNIFE - WEAPON_GE_FIRST] = 3,
-		[WEAPON_GE_GRENADE - WEAPON_GE_FIRST] = 26,
-		[WEAPON_GE_TIMEDMINE - WEAPON_GE_FIRST] = 27,
-		[WEAPON_GE_PROXIMITYMINE - WEAPON_GE_FIRST] = 28,
-		[WEAPON_GE_REMOTEMINE - WEAPON_GE_FIRST] = 29,
-	};
-
 	if (weaponnum < WEAPON_GE_FIRST || weaponnum >= NUM_WEAPONS) {
 		return -1;
 	}
@@ -3788,7 +3765,7 @@ static s32 watchGunItem(s32 weaponnum)
 		return GEITEM_WATCHLASER;
 	}
 
-	return items[weaponnum - WEAPON_GE_FIRST];
+	return gegunsItemNumber(weaponnum - WEAPON_GE_FIRST);
 }
 
 static f32 watchGunFloat(s32 item, s32 offset)
