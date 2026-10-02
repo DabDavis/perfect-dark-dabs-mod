@@ -1496,9 +1496,16 @@ s32 texReadUncompressed(u8 *dst, s32 width, s32 height, s32 format)
 		return ((width + 3) & 0xffc) * height * 4;
 	case TEXFORMAT_RGBA16:
 	case TEXFORMAT_IA16:
+		// A 16-bit texel goes out big-endian, as the lookup readers and the
+		// channel reader's RGBA16 write it and the renderer's import reads
+		// it (high byte first). Stored as a host u16 it read back reversed
+		// on a little-endian machine. No GoldenEye image is stored
+		// uncompressed, but GE Editor writes a ROM hack's own art so:
+		// Goldfinger 64's IA16 gun metal 0ec7/0ec8 (0x00 intensity, 0xff
+		// alpha) drew white
 		for (y = 0; y < height; y++) {
 			for (x = 0; x < width; x++) {
-				dst16[x] = texReadBits(16);
+				dst16[x] = PD_BE16(texReadBits(16));
 			}
 
 			dst16 += (width + 3) & 0xffc;
@@ -1508,7 +1515,7 @@ s32 texReadUncompressed(u8 *dst, s32 width, s32 height, s32 format)
 	case TEXFORMAT_RGB15:
 		for (y = 0; y < height; y++) {
 			for (x = 0; x < width; x++) {
-				dst16[x] = texReadBits(15) << 1 | 1;
+				dst16[x] = PD_BE16(texReadBits(15) << 1 | 1);
 			}
 
 			dst16 += (width + 3) & 0xffc;
