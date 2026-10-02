@@ -474,6 +474,24 @@
     _g->words.w1 = (uintptr_t)(draw);                                  \
 }
 
+/*
+ * G_MESH_EXT for one node of a model (modelmesh.c): the lists that follow
+ * load the node's `count` vertices from `vertices`, each under one of the
+ * model's matrices in segment 3, until a gSPMeshEXT() of NULL. The renderer
+ * keeps a copy of the vertices on the GPU and draws the lists' runs from it,
+ * every vertex transformed by the matrix it was loaded under.
+ */
+#define G_MESH_MODEL_EXT 0x00800000
+
+#define gSPModelMeshEXT(pkt, vertices, count)                          \
+{                                                                      \
+    Gfx *_g = (Gfx *)(pkt);                                            \
+                                                                       \
+    _g->words.w0 = _SHIFTL(G_MESH_EXT, 24, 8) | G_MESH_MODEL_EXT       \
+        | _SHIFTL((count), 0, 16);                                     \
+    _g->words.w1 = (uintptr_t)(vertices);                              \
+}
+
 #define gSPSetExtraGeometryModeEXT(pkt, word) gSPExtraGeometryModeEXT((pkt), 0, word)
 #define gSPClearExtraGeometryModeEXT(pkt, word) gSPExtraGeometryModeEXT((pkt), word, 0)
 

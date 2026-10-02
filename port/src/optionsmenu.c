@@ -865,10 +865,11 @@ static MenuItemHandlerResult menuhandlerFramerateLimit(s32 operation, struct men
 /**
  * GPU Vertex Shading: the XBLA release's and GoldenEye XBLA's meshes posed,
  * lit and transformed by the GPU from a copy it keeps, and the level's rooms
- * (the ROM's, the release's and the HD levels') transformed the same way,
- * instead of a vertex at a time on the CPU (Video.GpuVertices, gfxmesh.h,
- * roommesh.c). The same picture either way to within a pixel's edge; off is
- * the old way, for comparing. Live.
+ * (the ROM's, the release's and the HD levels') and the models' nodes (every
+ * character, gun and prop in the N64 look) transformed the same way, instead
+ * of a vertex at a time on the CPU (Video.GpuVertices, gfxmesh.h,
+ * roommesh.c, modelmesh.c). The same picture either way to within a pixel's
+ * edge; off is the old way, for comparing. Live.
  */
 static MenuItemHandlerResult menuhandlerGpuVertices(s32 operation, struct menuitem *item, union handlerdata *data)
 {

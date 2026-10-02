@@ -20,6 +20,7 @@
 #ifndef PLATFORM_N64
 #include "game/modoptions.h"
 #include "xblamesh.h"
+#include "modelmesh.h"
 #endif
 
 /**
@@ -3360,6 +3361,10 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 			break;
 		}
 
+#ifndef PLATFORM_N64
+		renderdata->gdl = modelMeshBegin(renderdata->gdl, rodata->vertices, rodata->numvertices);
+#endif
+
 		gSPDisplayList(renderdata->gdl++, rodata->opagdl);
 
 		if (rodata->unk12 == 3 && rodata->xlugdl) {
@@ -3367,6 +3372,10 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 
 			gSPDisplayList(renderdata->gdl++, rodata->xlugdl);
 		}
+
+#ifndef PLATFORM_N64
+		renderdata->gdl = modelMeshEnd(renderdata->gdl);
+#endif
 	}
 
 	if ((renderdata->flags & MODELRENDERFLAG_XLU) && rodata->opagdl && rodata->unk12 == 4 && rodata->xlugdl) {
@@ -3378,7 +3387,15 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 
 		modelApplyRenderModeType4(renderdata, false);
 
+#ifndef PLATFORM_N64
+		renderdata->gdl = modelMeshBegin(renderdata->gdl, rodata->vertices, rodata->numvertices);
+#endif
+
 		gSPDisplayList(renderdata->gdl++, rodata->xlugdl);
+
+#ifndef PLATFORM_N64
+		renderdata->gdl = modelMeshEnd(renderdata->gdl);
+#endif
 	}
 }
 
@@ -3425,6 +3442,10 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->dl.vertices));
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL2, osVirtualToPhysical(rwdata->dl.colours));
 
+#ifndef PLATFORM_N64
+			renderdata->gdl = modelMeshBegin(renderdata->gdl, rwdata->dl.vertices, rodata->dl.numvertices);
+#endif
+
 			gSPDisplayList(renderdata->gdl++, rwdata->dl.gdl);
 
 			if (rodata->dl.mcount == 3 && rodata->dl.xlugdl) {
@@ -3432,6 +3453,10 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 
 				gSPDisplayList(renderdata->gdl++, rodata->dl.xlugdl);
 			}
+
+#ifndef PLATFORM_N64
+			renderdata->gdl = modelMeshEnd(renderdata->gdl);
+#endif
 		}
 	}
 
@@ -3450,7 +3475,15 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 
 			modelApplyRenderModeType4(renderdata, false);
 
+#ifndef PLATFORM_N64
+			renderdata->gdl = modelMeshBegin(renderdata->gdl, rwdata->dl.vertices, rodata->dl.numvertices);
+#endif
+
 			gSPDisplayList(renderdata->gdl++, rodata->dl.xlugdl);
+
+#ifndef PLATFORM_N64
+			renderdata->gdl = modelMeshEnd(renderdata->gdl);
+#endif
 		}
 	}
 }

@@ -10,6 +10,15 @@
   lights, texgens and fogs as `gfx_sp_load_vertex()` / `gfx_light_vertex()` /
   `gfx_emit_vertex()` would have. `Video.GpuVertices` (Video page, "GPU Vertex
   Shading", default on, live), `--cpu-vertices` turns it off for a run.
+- **Models on the GPU too** — "How a model is drawn": every model node in
+  the N64 look (`modelRenderNodeGundl()`/`Dl()`) is bracketed by
+  `gSPModelMeshEXT()` (`port/src/modelmesh.c`); the renderer keeps a copy of
+  the node's vertices keyed by their address, learns from the lists the
+  matrix (the segment 3 G_MTX before its load) and colour of each vertex, and
+  draws each run, G_MTXs and all, as one draw with the model's matrices of the
+  frame as the palette and the projection after it. Runs' commands are
+  compared and the array is summed once a frame, since the game rewrites some
+  in place. Lit runs (a gun's chrome) stay on the CPU.
 - **Rooms on the GPU too** — "How a room is drawn": every room bg.c loads
   (the ROM's, the release's from xblastage.c, an HD level's from
   gebeanstage.c) is bracketed by `roomMeshBegin()`/`roomMeshEnd()`
@@ -27,7 +36,7 @@
   59M to 18M with the rooms (GL and Vulkan alike). In the N64 and XBLA looks
   rooms were never much of the frame.
 - **What still goes through the CPU and why** — the section of that name:
-  the N64 look's models, rectangles, the sky, a room's sealed triangles while
+  models' lit runs, rectangles, the sky, a room's sealed triangles while
   sealing is on, a converted GoldenEye room's per-vertex-fog runs near the
   eye, a mesh's per-vertex-fog
   clipping, a door's trimmed copy, a crumpled prop, the title's logo
@@ -200,11 +209,93 @@ batch of the run before when nothing changed between them), so Dam in HD goes
 from ~475 to ~1080 draw calls; merging kept runs is the next step if the
 driver's share ever shows.
 
+## How a model is drawn
+
+**Game side (`port/src/modelmesh.c`, 2026-10-02).** `modelRenderNodeGundl()`
+and `modelRenderNodeDl()` put `modelMeshBegin()` before their
+`gSPDisplayList()`s - the opaque list with the type 3 translucent one behind
+it, and the type 4 translucent pass - and `modelMeshEnd()` after. The bracket
+is one command, `gSPModelMeshEXT(vertices, count)` (`G_MESH_EXT` with
+`G_MESH_MODEL_EXT` set, the count in w0, the array in w1), so nothing is
+allocated a frame: a DL node names `rwdata->dl.vertices` (the file's own
+array, or a crumpled prop's copy), a GUNDL node `rodata->gundl.vertices`.
+The XBLA look's meshes return before it (`xblaMeshRenderNode()`). Nothing is
+registered or forgotten on the game side: see "The copy and its checks".
+
+**What a model's list holds.** Segment 3 is the model's matrices
+(`model->matrices`, turned to s15.16 in place by `mtxF2LBulk()` at the end of
+the model's render, so when the frame is drawn every G_MTX reads a fixed-point
+matrix), segment 4 its vertices (DL) or 5 its file (GUNDL), 5 or 6 its
+colours. A node's list is a G_MTX loading `0x03000000 + bone * 64`, a G_COL,
+a G_VTX, often a second G_MTX and G_VTX into other slots and triangles across
+both (a joint), then a texture change and more triangles from slots loaded
+before it. On the 80-simulant match: 150-440 runs a frame of ~16 commands,
+about half of them drawing a slot an earlier run of the node loaded; every
+vertex is loaded under the same matrix and colour wherever it is loaded.
+
+**Renderer (`gfx_pc.cpp`, "G_MESH_EXT for one node of a model").** The copy
+is keyed by the array's address (`gfx_model_ids` into `gfx_meshes`). A run is
+read with its G_MTXs in it (`gfx_model_read_run()`), and the first time a run
+loads a vertex its bone (the G_MTX before the load) and its colour (the
+segment and the entry the G_COL before it named) are learnt; a vertex loaded
+two ways keeps the second run on the CPU. The copy carries the bone in
+`bones.x` with weight 1 (`gfx_model_teach()`, `mesh_update`), and each draw
+hands the shader the model's matrices as the palette (`gfx_model_palette()`:
+read from segment 3 by the RSP's own s15.16 read, `gfx_mtx_read()`, once a
+frame for each model as far as the node's highest bone; a later node with a
+higher bone gets a longer palette in a fresh array, since Vulkan copies a
+palette once per pointer) with the projection alone in `uP[0-3]` and the
+modelview the identity: each vertex goes through its own matrix and then the
+projection, where `gfx_sp_load_vertex()` went through their product. The
+colours are gathered into one per vertex once a frame for each set of colour
+segments (`gfx_model_colours()`): a body a bullet has bruised has a colour
+copy of its own (`chr.c`), so a gather of its own. Slots one run leaves for
+another are handled as a room's are, the load state recorded per slot with
+the projection in place of the transform and a count of segments set since
+the node began (`gfx_model_vstate()`); a run that loads before its own first
+G_MTX or G_COL records the bone or colours it needs from before
+(`model_bone`, `model_col*`, kept up to date by every G_MTX, G_COL and
+segment the interpreter runs). After a kept run the RSP is left as
+interpreting it would have left it: the last G_COL's colours, the last G_MTX
+replayed through `gfx_sp_matrix()`, the slots.
+
+**The copy and its checks.** A model's lists and vertices are not the port's
+own, and several things rewrite them in place, so:
+
+- a run keeps its commands and they are compared every time it is drawn
+  (`gfx_model_same_words()`); a list rewritten in place is read again.
+- the array is summed once a frame it is drawn (`gfx_model_sum()`, every
+  byte, ~0.6% of the match's game thread); a change drops the copy, its runs
+  and all that was learnt. Three changes each within 60 frames of the last
+  make the array unsteady: the CPU's until it holds still for 300 frames.
+- a copy is made only once the array has been seen unchanged across a frame,
+  so an array made afresh every frame never gets one.
+
+What that catches, found in the code: a model file loaded where another was
+(the first-person gun's buffer), `bodyCalculateHeadOffset()` moving a head's
+vertices, the laser's liquid sliding its t every frame (`bondgun.c`), GE
+Plus's folder backdrop (`gexfront.c`), a crumpled prop's copy
+(`objDeform()`).
+
+**Not the GPU's:** a run under `G_LIGHTING` (the first-person gun's chrome,
+texgenned from its lights: 84 of ~600 model triangles a frame in the solo
+mission), `G_ENVMAP_EXT` or per-vertex fog, or under what
+`gfx_mesh_gpu_state()` refuses; a G_MTX that is not a load of a bone from
+segment 3 (a projection ends the run before it); a model with more than 64
+bones (`GFX_MESH_PALETTE_MAX`); a triangle over a slot an earlier node loaded
+(the run is unreadable). `--gfxstats` prints `gpu models: D draws, T tris
+(R tris refused to the cpu); cpu C tris; runs to the cpu: ...` by reason, and
+`S stale`: triangles the CPU drew over a slot a kept run had filled on the
+GPU alone, after its room or node was done. Never seen; one there is drawn
+from vertices the CPU never loaded.
+
 ## What still goes through the CPU and why
 
 - **Rooms, in part** - see "How a room is drawn": sealed triangles,
   per-vertex fog near the eye.
-- **The N64 look's models**, rectangles (text, HUD), the sky
+- **Models, in part** - see "How a model is drawn": lit runs (a gun's
+  chrome), per-vertex fog, an array that keeps changing.
+- Rectangles (text, HUD), the sky
   (`G_NO_CLIPPING_EXT`), per-vertex fog's RSP clipping (`G_FOG_VERTEX_EXT`
   triangles in a run are fogged per vertex by the shader without the
   clipping, which differs only for triangles crossing the eye plane or the
@@ -236,6 +327,24 @@ Rooms, the same way, the build before them against the build with them:
 Dyntex's s and t streamed (Villa's opening, `--boot-stage 0x2c`, 900 frames,
 GL, two runs each): N64 look 5.24M -> 4.91-5.01M, the release's rooms 4.73M
 -> 4.69M. Only the water's runs moved, so it is small.
+
+Models (2026-10-02), the build before them against the build with them,
+1500 frames (1200 for the missions):
+
+| scene | before | after |
+|---|---|---|
+| 80-sim match 0x32, N64 look, GL | 6.86M instr, 4.84M cyc | 4.27M, 3.94M |
+| same, Vulkan | 6.87M, 4.46M | 3.96M, 3.13M |
+| solo 0x34 (`--skip-cutscenes`), N64 look, GL | 0.86M, 0.87M | 0.71M, 0.81M |
+| GE Plus Dam, N64 look, GL | 3.83M, 3.02M | 3.47M, 3.04M |
+
+On the match every model triangle is the GPU's (none refused, none on the
+CPU); draws went from ~242 to ~318 a frame. What the renderer still spends
+there (~20% of the thread): the interpreter's state commands between runs
+(`gfx_run_dl`, 7%), `gfx_model_kept_run()` (5%: its lookups, the commands
+compared, slot records, the colour gather), `gfx_derive_batch_state()` (3%),
+`gfx_mesh_params()` (2%), the array sums (0.6%). The rest of the thread is
+the game: collision, AI, animation.
 
 On Dam in HD the room triangles drawn went from ~43000 after the CPU's
 trivial reject to ~134000 all sent (the GPU clips); the game thread's top is
@@ -275,6 +384,17 @@ fixed-step cap. Draw calls fell from ~620 to ~414 a frame (a run is one draw).
   (`xblastage: bgdata/bg_eld.seg from the release`) load only without
   `--moddir mod_allinone`, whose own `bg_eld.seg` stands in for the ROM's and
   keeps the release's out.
+- Models (2026-10-02): the 80-sim match at frames 600 and 1500 (174 and 90
+  pixels differ, by 2 at most), the solo with the first-person gun (0x34,
+  frames 300 and 900; its chrome is lit, so the CPU's), GE Plus Dam in the
+  N64 look (converted guards), Villa's opening (the helicopter; 2 pixels on
+  a beam's edge by more than 24), TAA on, GL and Vulkan, wine GL and wine
+  Vulkan (Villa: 39 and 179 pixels, at most 8 levels): edges and +-1-3 noise.
+  The XBLA look against the build before, both on the GPU: only the FPS
+  counter's box differs (its digits are wall time); GE Plus in HD
+  pixel-identical. Vulkan validation with sync validation clean on the match
+  and the solo (`--vk-no-thread`). Replay test identical. `stale` in
+  `--gfxstats` must stay 0.
 - The XBLA look in a headless run: a save dir whose pd.ini has `[Mod]`
   `XblaMeshes=1` `XblaMeshPose=1` `XblaStages=1` `XblaMeshTextures=1`, and an
   **absolute** `--savedir` - a relative one is resolved against the base and
@@ -284,6 +404,18 @@ fixed-step cap. Draw calls fell from ~620 to ~414 a frame (a run is one draw).
 
 ## Traps met
 
+- **A model's matrices are fixed point when its list is drawn.** The game
+  fills `model->matrices` with floats and `mtxF2LBulk()` turns them to
+  s15.16 in place at the end of the model's render, before the frame's list
+  is run: the palette must read them the way G_MTX does (`gfx_mtx_read()`),
+  never as `Mtxf`.
+- **The rectangles' corners are slots 128-131** (`gfx_draw_rectangle()`): a
+  test on `1 << slot` wraps them onto 0-3. The first `stale` count, 26 a
+  frame in the solo, was the HUD's rectangles.
+- **A model's lists and vertices are rewritten in place** (see "The copy and
+  its checks"): kept runs keyed by list address and a copy keyed by the
+  array's address are only safe with the commands compared and the array
+  summed; nothing on the game side says when a file has replaced another.
 - **A room's run is not a mesh's.** Triangles name slots earlier runs loaded,
   under a different state (see "How a room is drawn"); reading rooms with the
   mesh reader would have refused a fifth of the ROM's rooms, and treating the

@@ -79,9 +79,9 @@ static s32 vidFramerateLimit = 0;
 static s32 vidRenderer = VIDEO_RENDERER_OPENGL;
 static s32 vidRendererActive = VIDEO_RENDERER_OPENGL;
 // Video.GpuVertices: the release's meshes posed and transformed on the GPU,
-// and the level's rooms transformed there (gfxmesh.h, roommesh.c), rather than
-// a vertex at a time on the CPU. --cpu-vertices turns it off for the run, to
-// compare the two.
+// and the level's rooms and the models' nodes transformed there (gfxmesh.h,
+// roommesh.c, modelmesh.c), rather than a vertex at a time on the CPU.
+// --cpu-vertices turns it off for the run, to compare the two.
 static s32 vidGpuVertices = 1;
 
 static s32 vidDisplayFPS = 0;
@@ -985,9 +985,9 @@ s32 videoGetGpuVertices(void)
 
 /**
  * Video.GpuVertices: the release's and GoldenEye XBLA's meshes posed and
- * transformed on the GPU, and the level's rooms of every kind transformed
- * there (gfxmesh.h, roommesh.c). Live: the next frame's are drawn the other
- * way.
+ * transformed on the GPU, and the level's rooms of every kind and the models'
+ * nodes transformed there (gfxmesh.h, roommesh.c, modelmesh.c). Live: the
+ * next frame's are drawn the other way.
  */
 void videoSetGpuVertices(s32 on)
 {

@@ -2125,15 +2125,8 @@ static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4
     memcpy(res, tmp, sizeof(tmp));
 }
 
-static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
-    float matrix[4][4];
-
-    if (parameters & G_MTX_FLOATS) {
-        // The port's own flag: a matrix a port file built as floats and never
-        // converted (xblamesh.c's divided draw matrix). Read as it is written,
-        // for the precision s15.16 does not have for rows well under one.
-        memcpy(matrix, addr, sizeof(matrix));
-    } else {
+// A G_MTX's matrix as the RSP reads it, from addr
+static inline void gfx_mtx_read(const int32_t* addr, float matrix[4][4]) {
 #ifndef GBI_FLOATS
     // Original GBI where fixed point matrices are used
     for (int i = 0; i < 4; i++) {
@@ -2146,8 +2139,20 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     }
 #else
     // For a modified GBI where fixed point values are replaced with floats
-    memcpy(matrix, addr, sizeof(matrix));
+    memcpy(matrix, addr, sizeof(float) * 16);
 #endif
+}
+
+static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
+    float matrix[4][4];
+
+    if (parameters & G_MTX_FLOATS) {
+        // The port's own flag: a matrix a port file built as floats and never
+        // converted (xblamesh.c's divided draw matrix). Read as it is written,
+        // for the precision s15.16 does not have for rows well under one.
+        memcpy(matrix, addr, sizeof(matrix));
+    } else {
+        gfx_mtx_read(addr, matrix);
     }
 
     if (parameters & G_MTX_PROJECTION) {
@@ -2503,10 +2508,19 @@ static inline __attribute__((always_inline)) void gfx_sp_load_vertex(struct Load
     }
 }
 
+// Slots a room's or a model's kept run filled on the GPU alone: the CPU's
+// copy of them is stale until a load puts something there (for the stats:
+// a triangle the CPU draws over one is drawn wrong)
+static uint32_t gfx_gpu_only_slots;
+
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
 
     g_GfxNumVerts += n_vertices;
+
+    if (gfx_gpu_only_slots && dest_index < 32) {
+        gfx_gpu_only_slots &= ~((n_vertices >= 32 ? 0xffffffffu : (1u << n_vertices) - 1) << dest_index);
+    }
 
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         const Vtx* v = &vertices[i];
@@ -3745,15 +3759,24 @@ static void gfx_sp_tri_emit(struct LoadedVertex* v1, struct LoadedVertex* v2, st
     gfx_emit_tri3(v1, v2, v3, is_rect);
 }
 
+extern "C" uint32_t g_GfxStaleSlotTris;
 static bool gfx_vertices_lost;   // the last vertex load was refused, and so are its triangles
 // G_MESH_EXT, below: whether the triangle was the GPU's to draw
 static const struct gfxmeshdraw* mesh_cur;
 static bool mesh_room; // mesh_cur is a room's (gfxmesh.room): kept runs or the CPU, below
+static bool mesh_model; // mesh_cur is a model node's (gSPModelMeshEXT()): the same, below
 static bool gfx_mesh_tri(uint8_t a, uint8_t b, uint8_t c);
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
     if (mesh_cur && gfx_mesh_tri(vtx1_idx, vtx2_idx, vtx3_idx)) {
         return;
+    }
+
+    // (the rectangles' corners are slots past MAX_VERTICES, never a list's)
+    if (gfx_gpu_only_slots && ((vtx1_idx < 32 && (gfx_gpu_only_slots >> vtx1_idx & 1)) ||
+                               (vtx2_idx < 32 && (gfx_gpu_only_slots >> vtx2_idx & 1)) ||
+                               (vtx3_idx < 32 && (gfx_gpu_only_slots >> vtx3_idx & 1)))) {
+        g_GfxStaleSlotTris++;
     }
 
     struct LoadedVertex* v1 = &rsp.loaded_vertices[vtx1_idx];
@@ -3814,6 +3837,13 @@ uint32_t g_GfxMeshDraws = 0, g_GfxMeshTris = 0, g_GfxMeshRefused = 0;
 // the GPU cannot draw, and those sealed (G_SEAL_SEAMS_EXT)
 uint32_t g_GfxRoomDraws = 0, g_GfxRoomTris = 0, g_GfxRoomDyntexTris = 0, g_GfxRoomRefused = 0, g_GfxRoomCpuTris = 0,
          g_GfxRoomSealedTris = 0;
+// The same for models' nodes, and their triangles drawn on the CPU after all,
+// with the runs that went there and why (GFX_MODEL_WHY_*)
+uint32_t g_GfxModelDraws = 0, g_GfxModelTris = 0, g_GfxModelRefused = 0, g_GfxModelCpuTris = 0;
+uint32_t g_GfxModelWhy[8] = {};
+// Triangles the CPU drew over a slot a kept run had filled on the GPU alone,
+// after the room or node was done: never seen, and drawn wrong if ever
+uint32_t g_GfxStaleSlotTris = 0;
 }
 
 /*
@@ -3836,10 +3866,12 @@ struct GfxMeshRun {
 };
 
 struct GfxRoomData;
+struct GfxModelData;
 
 struct GfxMeshEntry {
     std::unordered_map<const Gfx*, GfxMeshRun> runs;
     std::unique_ptr<GfxRoomData> room; // a room's (gfxmesh.room), made with the entry
+    std::unique_ptr<GfxModelData> model; // a model node's (gSPModelMeshEXT()), made with the entry
     uint32_t backend;    // the backend's name for its copy, 0 when it could not make one
     const Vtx* vertices; // what the copy was made from: a mesh rebuilt in place is made again
     int32_t numvertices;
@@ -3855,6 +3887,7 @@ static uint32_t gfx_mesh_next_id = 1;
 static uint32_t gfx_mesh_frame;
 static GfxMeshEntry* mesh_entry;            // mesh_cur's copy on the GPU, NULL when it has none
 static int32_t mesh_slot[MAX_VERTICES + 4]; // a loaded slot's vertex in the mesh, -1 when the CPU loaded it
+static size_t mesh_slot_top = MAX_VERTICES + 4; // slots past this are all -1 (all of them to begin with)
 static std::vector<uint32_t> mesh_run;      // the triangles gathered for one draw, three indices each
 static const uint8_t* mesh_run_colours;     // the colour array they read, by vertex index
 static uint32_t mesh_mixed;                 // triangles over slots of both kinds, dropped (never seen)
@@ -3974,12 +4007,16 @@ static GfxMeshEntry* gfx_mesh_entry(struct gfxmesh* mesh) {
 
 // A new frame: nothing carries over, and copies nothing has drawn for a while go
 static void gfx_room_start_frame(void);
+static void gfx_model_start_frame(void);
+static void gfx_model_forget_key(const Vtx* vertices, uint32_t id);
 
 static void gfx_mesh_start_frame(void) {
     gfx_mesh_frame++;
     gfx_room_start_frame();
+    gfx_model_start_frame();
     mesh_cur = NULL;
     mesh_room = false;
+    mesh_model = false;
     mesh_entry = NULL;
     mesh_run.clear();
     mesh_skip_until = NULL;
@@ -3989,6 +4026,9 @@ static void gfx_mesh_start_frame(void) {
             if (gfx_mesh_frame - it->second.last_frame > GFX_MESH_IDLE_FRAMES) {
                 if (it->second.backend && gfx_rapi->mesh_delete) {
                     gfx_rapi->mesh_delete(it->second.backend);
+                }
+                if (it->second.model) {
+                    gfx_model_forget_key(it->second.vertices, it->first);
                 }
                 // the mesh still holds the id, and finds nothing under it
                 // the next time it is drawn, so it is made again then
@@ -4004,6 +4044,7 @@ static void gfx_mesh_begin(const struct gfxmeshdraw* draw) {
     mesh_cur = draw && draw->mesh && draw->mesh->vertices && draw->mesh->numvertices > 0 ? draw : NULL;
     mesh_entry = NULL;
     mesh_skip_until = NULL;
+    mesh_model = false;
     // A room needs its colour table: without one its lists are drawn as any are
     mesh_room = mesh_cur && mesh_cur->mesh->room;
 
@@ -4020,9 +4061,11 @@ static void gfx_mesh_begin(const struct gfxmeshdraw* draw) {
         }
     }
 
-    for (size_t i = 0; i < sizeof(mesh_slot) / sizeof(mesh_slot[0]); i++) {
+    for (size_t i = 0; i < mesh_slot_top; i++) {
         mesh_slot[i] = -1;
     }
+
+    mesh_slot_top = 0;
 
     if (mesh_room && mesh_entry) {
         gfx_room_start();
@@ -4124,8 +4167,8 @@ static void gfx_mesh_flush(void);
 static bool gfx_mesh_load(const Vtx* src, size_t count, size_t dest) {
     const struct gfxmesh* m = mesh_cur->mesh;
 
-    // A room's run that was not kept is loaded as any list's is
-    if (mesh_room) {
+    // A room's or a model's run that was not kept is loaded as any list's is
+    if (mesh_room || mesh_model) {
         return false;
     }
 
@@ -4148,6 +4191,7 @@ static bool gfx_mesh_load(const Vtx* src, size_t count, size_t dest) {
         }
 
         mesh_run_colours = colours;
+        mesh_slot_top = std::max(mesh_slot_top, dest + count);
 
         for (size_t i = 0; i < count; i++) {
             mesh_slot[dest + i] = base + (int32_t)i;
@@ -4172,20 +4216,29 @@ static void gfx_mesh_cpu_slots(size_t dest, size_t count) {
 }
 
 static void gfx_room_materialise(uint8_t slot);
+static void gfx_model_materialise(uint8_t slot);
 
 static bool gfx_mesh_tri(uint8_t a, uint8_t b, uint8_t c) {
-    // A room's triangle on the CPU: a corner an earlier run left on the GPU
-    // alone is loaded here first
-    if (mesh_room) {
+    // A room's or a model's triangle on the CPU: a corner an earlier run left
+    // on the GPU alone is loaded here first
+    if (mesh_room || mesh_model) {
         const uint8_t corners[3] = { a, b, c };
 
         for (int i = 0; i < 3; i++) {
             if (corners[i] < MAX_VERTICES && mesh_slot[corners[i]] >= 0) {
-                gfx_room_materialise(corners[i]);
+                if (mesh_model) {
+                    gfx_model_materialise(corners[i]);
+                } else {
+                    gfx_room_materialise(corners[i]);
+                }
             }
         }
 
-        g_GfxRoomCpuTris++;
+        if (mesh_model) {
+            g_GfxModelCpuTris++;
+        } else {
+            g_GfxRoomCpuTris++;
+        }
         return false;
     }
 
@@ -4595,6 +4648,8 @@ static const Gfx* gfx_mesh_kept_run(const Gfx* cmd) {
     const uint8_t* colours = (const uint8_t*)segmentPointers[r.colseg];
     rsp.vertex_colors = (const struct NormalColor*)colours + r.lastcol;
 
+    mesh_slot_top = std::max(mesh_slot_top, (size_t)r.lastcount);
+
     for (int32_t i = 0; i < r.lastcount; i++) {
         mesh_slot[i] = r.lastbase + i;
     }
@@ -4699,11 +4754,12 @@ struct GfxRoomData {
 // What gfx_sp_load_vertex() reads of the state, unlit: a slot an earlier run
 // loaded is good for a GPU draw only when its load was made under the same
 struct GfxRoomVState {
-    float mp[4][4];
+    float mp[4][4];       // a model's: the projection alone, its vertices carrying their own matrices
     float aspect[3];
     float jitter[2];
     float fog[2];
     uint32_t flags;
+    uint32_t segs;        // a model's: segments set since its draw began (gfx_seg_epoch)
     uint16_t tex[2];
 };
 
@@ -4777,7 +4833,7 @@ static void gfx_room_vstate(GfxRoomVState* s) {
 static void gfx_room_start(void) {
     room_sigs.clear();
 
-    for (size_t i = 0; i < sizeof(mesh_slot_sig) / sizeof(mesh_slot_sig[0]); i++) {
+    for (size_t i = 0; i < 16; i++) {
         mesh_slot_sig[i] = -1;
         mesh_slot_run[i] = NULL;
     }
@@ -4836,6 +4892,7 @@ static void gfx_room_materialise(uint8_t slot) {
     }
 
     mesh_slot[slot] = -1;
+    gfx_gpu_only_slots &= ~(1u << (slot & 31));
 
     if (k >= 0 && k < mesh_cur->mesh->numvertices) {
         gfx_room_load_one(&rsp.loaded_vertices[slot], k);
@@ -5380,6 +5437,10 @@ static const Gfx* gfx_room_kept_run(const Gfx* cmd) {
         rsp.vertex_colors = (const struct NormalColor*)(segmentPointers[r.colseg] + r.outcolofs);
     }
 
+    if (r.loaded) {
+        mesh_slot_top = std::max(mesh_slot_top, (size_t)16);
+    }
+
     for (int i = 0; i < 16; i++) {
         if (r.loaded & (1u << i)) {
             mesh_slot[i] = r.slotout[i];
@@ -5388,6 +5449,7 @@ static const Gfx* gfx_room_kept_run(const Gfx* cmd) {
         }
     }
 
+    gfx_gpu_only_slots |= r.loaded;
     g_GfxNumVerts += r.numverts;
     gfx_vertices_lost = false;
 
@@ -5398,6 +5460,1059 @@ static const Gfx* gfx_room_kept_run(const Gfx* cmd) {
     } else {
         gfx_room_draw(r.all, r.first_all);
     }
+
+    return r.end - 1;
+}
+
+/*
+ * G_MESH_EXT for one node of a model (gSPModelMeshEXT(), modelmesh.c): a
+ * model's lists drawn from the GPU's copy of the node's vertices.
+ *
+ * A model's matrices are in segment 3, s15.16 like any G_MTX's by the time
+ * the frame is drawn (mtxF2LBulk()), and its lists load each batch of
+ * vertices under one of them: a G_MTX, a G_COL, a G_VTX, often another G_MTX
+ * and G_VTX into other slots, and then triangles across both, a joint
+ * stitched from the vertices of two bones. So a model's run is read with its
+ * G_MTXs in it (gfx_model_read_run()), and what is learnt of each vertex the
+ * first time a run loads it is its matrix - the bone, by where in segment 3
+ * the G_MTX before its load points - and its colour, as the segment the
+ * G_COL before it named and the entry in it. The GPU's copy carries the bone
+ * (bones.x, weight 1) and the draw hands the shader the model's matrices as
+ * a palette (gfx_model_palette(), read from segment 3 as it stands, as the
+ * RSP would read them) with the projection alone as the transform after it:
+ * every vertex is taken through its own matrix and then the projection, as
+ * gfx_sp_load_vertex() takes it through the product of the two. Colours are
+ * gathered from the segments into one per vertex once a frame for each set
+ * of colour tables (gfx_model_colours()): a body a bullet has bruised has
+ * its own.
+ *
+ * A model's run is like a room's otherwise (gfx_room_kept_run() above): it may
+ * draw slots an earlier run of the node loaded, across a texture change, and
+ * those must hold the same vertices loaded under the same state, the
+ * projection standing in for the transform (gfx_model_vstate()); it may load
+ * vertices before its own first G_MTX or G_COL, under ones an earlier
+ * command named (model_bone, model_col*), which must be the same each time.
+ * What the run leaves the RSP holding - the last matrix it loads, the last
+ * colours it names, its slots - is set as interpreting it would have.
+ *
+ * The node's lists are the model file's, which nothing promises are left be:
+ * a run's commands are kept with it and compared each time it is drawn, and
+ * the node's vertices are summed once a frame they are drawn
+ * (gfx_model_entry()): a change drops the copy and everything learnt, and an
+ * array that keeps changing (the laser's sliding liquid) is drawn on the CPU.
+ * A copy is only made once an array has been seen the same for a frame, so a
+ * list's vertices made afresh every frame never get one.
+ *
+ * Drawn on the CPU as any list is: a run under G_LIGHTING (a gun's chrome,
+ * texgenned from its lights), G_ENVMAP_EXT or per-vertex fog, and anything
+ * gfx_mesh_gpu_state() refuses; a run whose loads are not of the node's
+ * vertices or whose G_MTX is not a load from segment 3; a model with more
+ * matrices than the palette holds (GFX_MESH_PALETTE_MAX).
+ */
+enum {
+    GFX_MODEL_WHY_NEW,        // the node has no copy on the GPU this frame
+    GFX_MODEL_WHY_UNREADABLE, // its run loads something else, or names a slot nothing loaded
+    GFX_MODEL_WHY_LIT,        // G_LIGHTING
+    GFX_MODEL_WHY_STATE,      // other state gfx_model_gpu_state() refuses
+    GFX_MODEL_WHY_MATRIX,     // a matrix it cannot follow, or not the one it was read under
+    GFX_MODEL_WHY_COLOURS,    // colours it cannot follow, or not the ones it was read under
+    GFX_MODEL_WHY_SLOTS,      // slots an earlier run left, not as it was read; or a vertex two ways
+};
+
+// The bytes of a model's matrix in segment 3 (Mtxf, s15.16 once converted)
+#define GFX_MODEL_MTX_BYTES 64
+// A copy dropped this many times, each within this many frames of the last,
+// is the CPU's until its vertices hold still for the second count
+#define GFX_MODEL_UNSTEADY_CHANGES 3
+#define GFX_MODEL_UNSTEADY_FRAMES 60
+#define GFX_MODEL_STEADY_FRAMES 300
+
+struct GfxModelRun {
+    const Gfx* end;               // the first command past it
+    std::vector<uintptr_t> words; // its commands as they were read, w0 and w1 each
+    bool ok;                      // drawable on the GPU at all, from what its commands hold
+    uint8_t why;                  // and when not, why (GFX_MODEL_WHY_*)
+    bool forced_cpu;              // a run after it needed its loads on the CPU
+    uint8_t vtxsegno;             // the segment its loads name, 0 when it loads nothing
+    uintptr_t vtxseg;             // and what that held
+    int16_t inbone;               // the matrix its loads before its own first G_MTX are made under; -1 when none are
+    int16_t outbone;              // the matrix its last G_MTX loads, -1 when it has none
+    uintptr_t outmtx[2];          // and that G_MTX
+    bool incol;                   // its loads before its own first G_COL read the colours an earlier one named
+    uint8_t incolseg;
+    uint32_t incolofs;
+    bool outcol;                  // its last G_COL, which the RSP is left at
+    uint8_t outcolseg;
+    uint32_t outcolofs;
+    uint32_t loaded;              // the slots its loads leave filled
+    uint32_t incoming;            // the slots it reads that it does not load
+    int32_t slotout[16];          // the vertex each slot it loads is left holding
+    int32_t slotin[16];           // the vertex each incoming slot must hold
+    uint32_t numverts;            // vertices it loads, for the stats
+    uint32_t first;               // where its triangles are kept with the copy; UINT32_MAX when not
+    std::vector<uint32_t> idx;    // its triangles in the list's order, three vertices each
+};
+
+struct GfxModelColours {
+    uintptr_t bases[4];           // the colour segments' bases they were gathered from
+    const uint8_t* colours;       // four bytes a vertex
+};
+
+struct GfxModelData {
+    std::unordered_map<const Gfx*, GfxModelRun> runs;
+    std::vector<int16_t> bone;    // each vertex's matrix, -1 until a run loads it
+    std::vector<uint32_t> colref; // each vertex's colour, segment << 24 | entry, UINT32_MAX until a run loads it
+    int32_t maxbone;              // the highest matrix a run loads under
+    uint8_t colsegs[4];           // the segments the colours are in
+    int numcolsegs;
+    // The vertices' contents, summed once a frame they are drawn
+    uint64_t sum;
+    uint32_t sumframe;
+    uint32_t seenframe;           // when the sum last changed, or was first taken
+    uint32_t changes;             // changes in a row, each within GFX_MODEL_UNSTEADY_FRAMES of the last
+    bool unsteady;                // the CPU's for now
+    bool refused;                 // the backend would not make a copy: the CPU's until the entry idles out
+    // This frame's colours (gfx_model_colours())
+    uint32_t colframe;
+    std::vector<GfxModelColours> cols;
+};
+
+static struct gfxmesh model_mesh;      // the node being drawn, for mesh_cur
+static struct gfxmeshdraw model_draw;
+static std::unordered_map<const Vtx*, uint32_t> gfx_model_ids; // a node's vertices' copy in gfx_meshes
+static GfxModelRun* mesh_slot_mrun[MAX_VERTICES + 4];         // the kept run that loaded a GPU slot
+// The RSP's state as a model's runs read it: the matrix the modelview was
+// loaded from (a bone, -1 when it is not a model's), the colours the last
+// G_COL named, and segments set since a model's draw began
+static int32_t model_bone = -1;
+static bool model_col_ok;
+static uint8_t model_colseg;
+static uint32_t model_colofs;
+static uint32_t gfx_seg_epoch;
+// This frame's palettes, by segment 3's base: entries converted so far
+struct GfxModelPalette {
+    const float* pal;
+    uint32_t count;
+};
+static std::unordered_map<uintptr_t, GfxModelPalette> model_palettes;
+static uintptr_t model_palette_base; // the last asked for, a model's draws coming together
+static GfxModelPalette* model_palette_last;
+
+// The bone a G_MTX loads the modelview from: a load of one of segment 3's
+// matrices, -1 for any other
+static inline int32_t gfx_model_mtx_bone(const Gfx* cmd) {
+    const uintptr_t w1 = cmd->words.w1;
+    const uint32_t params = (cmd->words.w0 >> 16) & 0xff;
+    const uint32_t ofs = (uint32_t)(w1 & 0x00fffffe);
+
+    if (!(w1 & 1) || ((w1 >> 24) & 0x0f) != 3 || !segmentPointers[3] ||
+        (params & (G_MTX_PROJECTION | G_MTX_PUSH | G_MTX_FLOATS)) || !(params & G_MTX_LOAD) ||
+        ofs % GFX_MODEL_MTX_BYTES) {
+        return -1;
+    }
+
+    return (int32_t)(ofs / GFX_MODEL_MTX_BYTES);
+}
+
+// A G_MTX interpreted: the projection leaves the modelview as it was
+static inline void gfx_model_note_mtx(const Gfx* cmd) {
+    if (!(((cmd->words.w0 >> 16) & 0xff) & G_MTX_PROJECTION)) {
+        model_bone = gfx_model_mtx_bone(cmd);
+    }
+}
+
+// A G_COL interpreted: a segment's colours at a whole entry, or none a model follows
+static inline void gfx_model_note_col(uintptr_t w1) {
+    model_colseg = (uint8_t)((w1 >> 24) & 0x0f);
+    model_colofs = (uint32_t)(w1 & 0x00fffffe);
+    model_col_ok = (w1 & 1) && model_colseg && segmentPointers[model_colseg] && (model_colofs & 3) == 0;
+}
+
+static inline void gfx_model_note_segment(uint32_t seg) {
+    if (seg == 3) {
+        model_bone = -1;
+    }
+    if (model_col_ok && seg == model_colseg) {
+        // rsp.vertex_colors still names the old table
+        model_col_ok = false;
+    }
+    gfx_seg_epoch++;
+}
+
+static void gfx_model_start_frame(void) {
+    model_palettes.clear();
+    model_palette_base = 0;
+    model_palette_last = NULL;
+    model_bone = -1;
+    model_col_ok = false;
+}
+
+static void gfx_model_forget_key(const Vtx* vertices, uint32_t id) {
+    auto it = gfx_model_ids.find(vertices);
+
+    if (it != gfx_model_ids.end() && it->second == id) {
+        gfx_model_ids.erase(it);
+    }
+}
+
+// The node's vertices summed, every byte: s and t slid, a vertex moved or
+// recoloured, or another file's in their place all change it
+static uint64_t gfx_model_sum(const Vtx* v, int32_t n) {
+    const uint8_t* p = (const uint8_t*)v;
+    const size_t bytes = (size_t)n * sizeof(Vtx);
+    // the second sum adds up the first as it goes, so a word moved is a change too
+    uint64_t a = 0, b = 0;
+    size_t i = 0;
+
+    for (; i + 8 <= bytes; i += 8) {
+        uint64_t w;
+        memcpy(&w, p + i, 8);
+        a += w;
+        b += a;
+    }
+    for (; i < bytes; i++) {
+        a += (uint64_t)p[i] << (i & 7) * 8;
+        b += a;
+    }
+
+    return a ^ (b * 0xff51afd7ed558ccdull) ^ (uint64_t)n;
+}
+
+/*
+ * The GPU's copy of a node's vertices, keyed by their address: NULL when the
+ * node is the CPU's this frame (seen for the first time, changed, or changing
+ * too often, see above).
+ */
+static GfxMeshEntry* gfx_model_entry(const Vtx* vertices, int32_t n) {
+    GfxMeshEntry* e = NULL;
+    auto key = gfx_model_ids.find(vertices);
+
+    if (key != gfx_model_ids.end()) {
+        auto it = gfx_meshes.find(key->second);
+
+        if (it != gfx_meshes.end() && it->second.model && it->second.numvertices == n) {
+            e = &it->second;
+        } else {
+            if (it != gfx_meshes.end()) {
+                if (it->second.backend && gfx_rapi->mesh_delete) {
+                    gfx_rapi->mesh_delete(it->second.backend);
+                }
+                gfx_meshes.erase(it);
+            }
+            gfx_model_ids.erase(key);
+        }
+    }
+
+    if (!e) {
+        GfxMeshEntry ne;
+        GfxModelData* md = new GfxModelData();
+
+        md->maxbone = -1;
+        md->numcolsegs = 0;
+        md->sum = gfx_model_sum(vertices, n);
+        md->sumframe = gfx_mesh_frame;
+        md->seenframe = gfx_mesh_frame;
+        md->changes = 0;
+        md->unsteady = false;
+        md->refused = false;
+        md->colframe = 0;
+
+        ne.model.reset(md);
+        ne.backend = 0;
+        ne.vertices = vertices;
+        ne.numvertices = n;
+        ne.bindpos = NULL;
+        ne.normals = NULL;
+        ne.last_frame = gfx_mesh_frame;
+
+        if (gfx_mesh_next_id == 0) {
+            gfx_mesh_next_id = 1;
+        }
+
+        const uint32_t id = gfx_mesh_next_id++;
+        gfx_meshes.emplace(id, std::move(ne));
+        gfx_model_ids[vertices] = id;
+        return NULL;
+    }
+
+    GfxModelData* md = e->model.get();
+    e->last_frame = gfx_mesh_frame;
+
+    if (md->refused) {
+        return NULL;
+    }
+
+    if (md->sumframe != gfx_mesh_frame) {
+        const uint64_t sum = gfx_model_sum(vertices, n);
+
+        md->sumframe = gfx_mesh_frame;
+
+        if (sum != md->sum) {
+            md->changes = gfx_mesh_frame - md->seenframe <= GFX_MODEL_UNSTEADY_FRAMES ? md->changes + 1 : 1;
+            md->sum = sum;
+            md->seenframe = gfx_mesh_frame;
+
+            if (md->changes >= GFX_MODEL_UNSTEADY_CHANGES) {
+                md->unsteady = true;
+            }
+
+            if (e->backend) {
+                if (gfx_rapi->mesh_delete) {
+                    gfx_rapi->mesh_delete(e->backend);
+                }
+                e->backend = 0;
+            }
+
+            md->runs.clear();
+            md->bone.clear();
+            md->colref.clear();
+            md->maxbone = -1;
+            md->numcolsegs = 0;
+            md->colframe = 0;
+            return NULL;
+        }
+
+        if (md->unsteady && gfx_mesh_frame - md->seenframe > GFX_MODEL_STEADY_FRAMES) {
+            md->unsteady = false;
+            md->changes = 0;
+        }
+    }
+
+    if (md->unsteady) {
+        return NULL;
+    }
+
+    if (!e->backend) {
+        // seen as it stands for a frame first
+        if (md->seenframe == gfx_mesh_frame) {
+            return NULL;
+        }
+
+        std::vector<GfxMeshVertex> verts(n);
+
+        for (int32_t k = 0; k < n; k++) {
+            GfxMeshVertex* o = &verts[k];
+            const Vtx* v = &vertices[k];
+
+            memset(o, 0, sizeof(*o));
+            o->pos[0] = v->v[0];
+            o->pos[1] = v->v[1];
+            o->pos[2] = v->v[2];
+            o->st[0] = v->s;
+            o->st[1] = v->t;
+            o->bones[3] = 1;
+            o->weights[0] = 1.0f;
+        }
+
+        e->backend = gfx_rapi->mesh_create(verts.data(), (uint32_t)n);
+
+        if (!e->backend) {
+            md->refused = true;
+            return NULL;
+        }
+
+        md->bone.assign(n, -1);
+        md->colref.assign(n, UINT32_MAX);
+    }
+
+    return e;
+}
+
+// A model's node begins: its copy, or the CPU's this time
+static void gfx_model_begin(const Vtx* vertices, uint32_t count) {
+    gfx_mesh_begin(NULL);
+
+    if (!vertices || count == 0 || !gfx_mesh_backend()) {
+        return;
+    }
+
+    memset(&model_mesh, 0, sizeof(model_mesh));
+    model_mesh.vertices = vertices;
+    model_mesh.numvertices = (s32)count;
+    memset(&model_draw, 0, sizeof(model_draw));
+    model_draw.mesh = &model_mesh;
+
+    mesh_cur = &model_draw;
+    mesh_model = true;
+    mesh_entry = gfx_model_entry(vertices, (int32_t)count);
+
+    if (!mesh_entry) {
+        g_GfxModelWhy[GFX_MODEL_WHY_NEW]++;
+        return;
+    }
+
+    room_sigs.clear();
+
+    for (size_t i = 0; i < 16; i++) {
+        mesh_slot_sig[i] = -1;
+        mesh_slot_mrun[i] = NULL;
+    }
+}
+
+// What gfx_sp_load_vertex() reads of the state, with the projection in place
+// of the transform: a model's vertices bring their own matrices
+static void gfx_model_vstate(GfxRoomVState* s) {
+    gfx_room_vstate(s);
+    memcpy(s->mp, rsp.P_matrix, sizeof(s->mp));
+    s->segs = gfx_seg_epoch;
+}
+
+static inline bool gfx_model_gpu_state(void) {
+    return gfx_mesh_gpu_state() && !(rsp.geometry_mode & G_LIGHTING) &&
+           !(rsp.extra_geometry_mode & (G_ENVMAP_EXT | G_FOG_VERTEX_EXT));
+}
+
+// Vertex k's colour as the segments stand
+static inline struct NormalColor gfx_model_colour(const GfxModelData* md, int32_t k) {
+    const uint32_t cref = md->colref.empty() ? UINT32_MAX : md->colref[k];
+    struct NormalColor c;
+
+    memset(&c, 0, sizeof(c));
+
+    if (cref != UINT32_MAX && segmentPointers[cref >> 24]) {
+        c = ((const struct NormalColor*)segmentPointers[cref >> 24])[cref & 0xffffff];
+    }
+
+    return c;
+}
+
+// One of the node's vertices through gfx_sp_load_vertex(), under its own
+// matrix as the RSP had it when the list loaded it
+static void gfx_model_load_one(struct LoadedVertex* d, int32_t k) {
+    const GfxModelData* md = mesh_entry->model.get();
+    const Vtx* v = &model_mesh.vertices[k];
+    const int32_t b = md->bone.empty() ? -1 : md->bone[k];
+    const struct NormalColor c = gfx_model_colour(md, k);
+    const short U = v->s * rsp.texture_scaling_factor.s >> 16;
+    const short V = v->t * rsp.texture_scaling_factor.t >> 16;
+    float saved[4][4];
+
+    memcpy(saved, rsp.MP_matrix, sizeof(saved));
+
+    if (b >= 0 && segmentPointers[3]) {
+        float m[4][4];
+
+        gfx_mtx_read((const int32_t*)(segmentPointers[3] + (uintptr_t)b * GFX_MODEL_MTX_BYTES), m);
+        gfx_matrix_mul(rsp.MP_matrix, m, rsp.P_matrix);
+    }
+
+    gfx_sp_load_vertex(d, v->v[0], v->v[1], v->v[2], &c, U, V);
+    memcpy(rsp.MP_matrix, saved, sizeof(saved));
+}
+
+// A slot a kept run filled on the GPU alone, for a triangle on the CPU (see
+// gfx_room_materialise())
+static void gfx_model_materialise(uint8_t slot) {
+    const int32_t k = mesh_slot[slot];
+
+    if (mesh_slot_mrun[slot]) {
+        mesh_slot_mrun[slot]->forced_cpu = true;
+    }
+
+    mesh_slot[slot] = -1;
+    gfx_gpu_only_slots &= ~(1u << (slot & 31));
+
+    if (mesh_entry && k >= 0 && k < model_mesh.numvertices) {
+        gfx_model_load_one(&rsp.loaded_vertices[slot], k);
+    }
+}
+
+/*
+ * The vertices a run has just taught their matrices: the GPU's copy carries
+ * each one's bone. Only vertices no draw has read yet (gfx_room_teach()).
+ */
+static void gfx_model_teach(const std::vector<int32_t>& taught) {
+    GfxModelData* md = mesh_entry->model.get();
+
+    if (taught.empty()) {
+        return;
+    }
+
+    // the frame's colours are gathered again for the next draw
+    md->colframe = 0;
+
+    if (!gfx_rapi->mesh_update) {
+        return;
+    }
+
+    std::vector<int32_t> ks(taught);
+    std::sort(ks.begin(), ks.end());
+
+    std::vector<GfxMeshVertex> verts;
+
+    for (size_t i = 0; i < ks.size();) {
+        size_t j = i + 1;
+
+        while (j < ks.size() && ks[j] == ks[j - 1] + 1) {
+            j++;
+        }
+
+        verts.resize(j - i);
+
+        for (size_t q = 0; q < j - i; q++) {
+            const int32_t k = ks[i + q];
+            const Vtx* v = &model_mesh.vertices[k];
+            GfxMeshVertex* o = &verts[q];
+
+            memset(o, 0, sizeof(*o));
+            o->pos[0] = v->v[0];
+            o->pos[1] = v->v[1];
+            o->pos[2] = v->v[2];
+            o->st[0] = v->s;
+            o->st[1] = v->t;
+            o->bones[0] = (uint8_t)md->bone[k];
+            o->bones[3] = 1;
+            o->weights[0] = 1.0f;
+        }
+
+        gfx_rapi->mesh_update(mesh_entry->backend, (uint32_t)ks[i], verts.data(), (uint32_t)verts.size());
+        i = j;
+    }
+}
+
+/*
+ * Reads the node's run that starts at cmd, under the segments, the slots and
+ * the matrix and colours named before it, as they stand.
+ */
+static GfxModelRun gfx_model_read_run(const Gfx* cmd) {
+    GfxModelData* md = mesh_entry->model.get();
+    const Vtx* verts = model_mesh.vertices;
+    const int32_t n = model_mesh.numvertices;
+    GfxModelRun r;
+    int32_t slots[16];
+    bool own[16];
+    int32_t bone = model_bone;
+    bool ownmtx = false;
+    bool havecol = false;
+    bool colbad = false; // a G_COL it cannot follow: its loads' colours are unknown
+    uint8_t colseg = 0;
+    uint32_t colofs = 0;
+    std::vector<int32_t> taught;
+
+    r.end = cmd;
+    r.ok = true;
+    r.why = 0;
+    r.forced_cpu = false;
+    r.vtxsegno = 0;
+    r.vtxseg = 0;
+    r.inbone = -1;
+    r.outbone = -1;
+    r.outmtx[0] = r.outmtx[1] = 0;
+    r.incol = false;
+    r.incolseg = 0;
+    r.incolofs = 0;
+    r.outcol = false;
+    r.outcolseg = 0;
+    r.outcolofs = 0;
+    r.loaded = 0;
+    r.incoming = 0;
+    r.numverts = 0;
+    r.first = UINT32_MAX;
+
+    auto refuse = [&](uint8_t why) {
+        if (r.ok) {
+            r.ok = false;
+            r.why = why;
+        }
+    };
+
+    for (int i = 0; i < 16; i++) {
+        slots[i] = mesh_slot[i] >= 0 ? mesh_slot[i] : -1;
+        own[i] = false;
+        r.slotout[i] = -1;
+        r.slotin[i] = -1;
+    }
+
+    auto tri = [&](uint32_t a, uint32_t b, uint32_t c) {
+        const uint32_t s3[3] = { a, b, c };
+
+        for (int i = 0; i < 3; i++) {
+            if (s3[i] >= 16 || slots[s3[i]] < 0) {
+                refuse(GFX_MODEL_WHY_UNREADABLE);
+                return;
+            }
+        }
+        for (int i = 0; i < 3; i++) {
+            if (!own[s3[i]]) {
+                r.incoming |= 1u << s3[i];
+                r.slotin[s3[i]] = slots[s3[i]];
+            }
+            r.idx.push_back((uint32_t)slots[s3[i]]);
+        }
+    };
+
+    const Gfx* c = cmd;
+
+    for (;; ++c) {
+        const uint32_t op = c->words.w0 >> 24;
+        const uintptr_t w1 = c->words.w1;
+
+        if (op == G_NOOP) {
+            continue;
+        }
+
+        if (op == G_MTX) {
+            const int32_t b = gfx_model_mtx_bone(c);
+
+            // the projection, or a matrix of no bone: the run ends before it
+            if ((((c->words.w0 >> 16) & 0xff) & G_MTX_PROJECTION) || b < 0) {
+                break;
+            }
+            if (b >= GFX_MESH_PALETTE_MAX) {
+                refuse(GFX_MODEL_WHY_MATRIX);
+            }
+
+            bone = b;
+            ownmtx = true;
+            r.outbone = (int16_t)b;
+            r.outmtx[0] = c->words.w0;
+            r.outmtx[1] = w1;
+            continue;
+        }
+
+        if (op == G_COL) {
+            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+            const uint32_t ofs = (uint32_t)(w1 & 0x00fffffe);
+
+            if (!seg || !segmentPointers[seg] || (ofs & 3)) {
+                refuse(GFX_MODEL_WHY_COLOURS);
+                havecol = false;
+                colbad = true;
+                continue;
+            }
+
+            colbad = false;
+            colseg = seg;
+            colofs = ofs;
+            havecol = true;
+            r.outcol = true;
+            r.outcolseg = seg;
+            r.outcolofs = ofs;
+            continue;
+        }
+
+        if (op == G_VTX) {
+            const Vtx* src = (const Vtx*)seg_addr(w1);
+            const size_t count = (c->words.w0 & 0xffff) / sizeof(Vtx);
+            const size_t dest = (c->words.w0 >> 16) & 0xf;
+            const uint8_t seg = (w1 & 1) ? (uint8_t)((w1 >> 24) & 0x0f) : 0;
+
+            if (!seg || (r.vtxsegno && seg != r.vtxsegno) || count == 0 || dest + count > 16 || src < verts ||
+                src + count > verts + n) {
+                refuse(GFX_MODEL_WHY_UNREADABLE);
+
+                for (size_t i = dest; i < dest + count && i < 16; i++) {
+                    slots[i] = -1;
+                    own[i] = true;
+                }
+                continue;
+            }
+
+            r.vtxsegno = seg;
+            r.vtxseg = segmentPointers[seg];
+
+            if (!havecol && !colbad) {
+                if (model_col_ok && !r.incol) {
+                    r.incol = true;
+                    r.incolseg = model_colseg;
+                    r.incolofs = model_colofs;
+                    colseg = model_colseg;
+                    colofs = model_colofs;
+                    havecol = true;
+                } else {
+                    refuse(GFX_MODEL_WHY_COLOURS);
+                }
+            }
+
+            if (bone < 0) {
+                refuse(GFX_MODEL_WHY_MATRIX);
+            } else if (!ownmtx) {
+                r.inbone = (int16_t)bone;
+            }
+
+            const int32_t base = (int32_t)(src - verts);
+
+            for (size_t i = 0; i < count; i++) {
+                const int32_t k = base + (int32_t)i;
+
+                if (havecol && bone >= 0 && bone < GFX_MESH_PALETTE_MAX) {
+                    const uint32_t entry = colofs / 4 + (src[i].colour >> 2);
+                    int si = 0;
+
+                    while (si < md->numcolsegs && md->colsegs[si] != colseg) {
+                        si++;
+                    }
+
+                    if (entry >= (1u << 24) || (si == md->numcolsegs && si == 4)) {
+                        refuse(GFX_MODEL_WHY_COLOURS);
+                    } else if (md->bone[k] < 0) {
+                        if (si == md->numcolsegs) {
+                            md->colsegs[md->numcolsegs++] = colseg;
+                        }
+                        md->bone[k] = (int16_t)bone;
+                        md->colref[k] = (uint32_t)colseg << 24 | entry;
+                        md->maxbone = std::max(md->maxbone, bone);
+                        taught.push_back(k);
+                    } else if (md->bone[k] != bone || md->colref[k] != ((uint32_t)colseg << 24 | entry)) {
+                        // loaded another way by another run
+                        refuse(GFX_MODEL_WHY_SLOTS);
+                    }
+                }
+
+                slots[dest + i] = k;
+                own[dest + i] = true;
+                r.loaded |= 1u << (dest + i);
+            }
+
+            r.numverts += (uint32_t)count;
+            continue;
+        }
+
+        if (op == (uint8_t)G_TRI1) {
+            tri(((w1 >> 16) & 0xff) / 10, ((w1 >> 8) & 0xff) / 10, (w1 & 0xff) / 10);
+            continue;
+        }
+
+        if (op == (uint8_t)G_TRI4) {
+            for (int k = 0; k < 4; k++) {
+                const uint32_t x = (w1 >> (k * 8)) & 0xf;
+                const uint32_t y = (w1 >> (k * 8 + 4)) & 0xf;
+                const uint32_t z = (c->words.w0 >> (k * 4)) & 0xf;
+
+                if (x || y || z) {
+                    tri(x, y, z);
+                }
+            }
+            continue;
+        }
+
+        break;
+    }
+
+    r.end = c;
+
+    for (const Gfx* w = cmd; w < r.end; w++) {
+        r.words.push_back(w->words.w0);
+        r.words.push_back(w->words.w1);
+    }
+
+    for (int i = 0; i < 16; i++) {
+        if (r.loaded & (1u << i)) {
+            r.slotout[i] = slots[i];
+        }
+    }
+
+    if (r.end == cmd) {
+        refuse(GFX_MODEL_WHY_UNREADABLE);
+    }
+
+    gfx_model_teach(taught);
+
+    return r;
+}
+
+// The run's commands are still the ones it was read from
+static inline bool gfx_model_same_words(const GfxModelRun& r, const Gfx* cmd) {
+    const size_t num = r.words.size() / 2;
+
+    for (size_t i = 0; i < num; i++) {
+        if (cmd[i].words.w0 != r.words[i * 2] || cmd[i].words.w1 != r.words[i * 2 + 1]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/*
+ * The model's matrices as a palette (GFXMESH_PALETTE_FLOATS an entry), read
+ * from segment 3 as it stands: once a frame for each model, as far as the
+ * node's highest bone, and read again further for a node with a higher one.
+ * False when one is not affine, which the palette cannot hold.
+ */
+static bool gfx_model_palette(const float** pal, uint32_t* count) {
+    const GfxModelData* md = mesh_entry->model.get();
+    const uintptr_t base = segmentPointers[3];
+    const uint32_t need = (uint32_t)(md->maxbone + 1);
+
+    if (!base || md->maxbone < 0 || need > GFX_MESH_PALETTE_MAX) {
+        return false;
+    }
+
+    if (base != model_palette_base || !model_palette_last) {
+        model_palette_last = &model_palettes[base];
+        model_palette_base = base;
+    }
+
+    GfxModelPalette& p = *model_palette_last;
+
+    if (p.pal && p.count >= need) {
+        *pal = p.pal;
+        *count = p.count;
+        return true;
+    }
+
+    // a fresh array: draws already handed the shorter one keep it
+    float* out = (float*)gfx_room_alloc(sizeof(float) * GFXMESH_PALETTE_FLOATS * need);
+
+    for (uint32_t b = 0; b < need; b++) {
+        float m[4][4];
+        float* e = &out[b * GFXMESH_PALETTE_FLOATS];
+
+        gfx_mtx_read((const int32_t*)(base + (uintptr_t)b * GFX_MODEL_MTX_BYTES), m);
+
+        if (m[0][3] != 0.0f || m[1][3] != 0.0f || m[2][3] != 0.0f || m[3][3] != 1.0f) {
+            p.pal = NULL;
+            p.count = 0;
+            return false;
+        }
+
+        for (int j = 0; j < 3; j++) {
+            e[j * 4 + 0] = m[0][j];
+            e[j * 4 + 1] = m[1][j];
+            e[j * 4 + 2] = m[2][j];
+            e[j * 4 + 3] = m[3][j];
+        }
+    }
+
+    p.pal = out;
+    p.count = need;
+    *pal = out;
+    *count = need;
+    return true;
+}
+
+// This frame's colours for the node's draws, one per vertex, gathered from
+// the segments as they stand
+static const uint8_t* gfx_model_colours(void) {
+    GfxModelData* md = mesh_entry->model.get();
+    GfxModelColours key;
+
+    if (md->colframe != gfx_mesh_frame) {
+        md->colframe = gfx_mesh_frame;
+        md->cols.clear();
+    }
+
+    memset(&key, 0, sizeof(key));
+
+    for (int i = 0; i < md->numcolsegs; i++) {
+        key.bases[i] = segmentPointers[md->colsegs[i]];
+    }
+
+    for (const GfxModelColours& c : md->cols) {
+        if (memcmp(c.bases, key.bases, sizeof(key.bases)) == 0) {
+            return c.colours;
+        }
+    }
+
+    const int32_t n = model_mesh.numvertices;
+    struct NormalColor* g = (struct NormalColor*)gfx_room_alloc(sizeof(struct NormalColor) * n);
+    const struct NormalColor* bases[16] = {};
+
+    for (int i = 0; i < md->numcolsegs; i++) {
+        bases[md->colsegs[i]] = (const struct NormalColor*)key.bases[i];
+    }
+
+    for (int32_t k = 0; k < n; k++) {
+        const uint32_t cref = md->colref[k];
+        const struct NormalColor* t = cref != UINT32_MAX ? bases[cref >> 24] : NULL;
+
+        if (t) {
+            g[k] = t[cref & 0xffffff];
+        } else {
+            memset(&g[k], 0, sizeof(g[k]));
+        }
+    }
+
+    key.colours = (const uint8_t*)g;
+    md->cols.push_back(key);
+
+    return key.colours;
+}
+
+// A run's triangles on the CPU, each corner loaded on its own
+static void gfx_model_draw_cpu(const std::vector<uint32_t>& idx) {
+    for (size_t t = 0; t + 2 < idx.size(); t += 3) {
+        struct LoadedVertex v[3];
+
+        for (int k = 0; k < 3; k++) {
+            gfx_model_load_one(&v[k], (int32_t)idx[t + k]);
+        }
+
+        gfx_sp_tri_emit(&v[0], &v[1], &v[2], false);
+    }
+}
+
+// The run's triangles as one draw
+static void gfx_model_draw(const GfxModelRun& r) {
+    const uint32_t numtris = (uint32_t)r.idx.size() / 3;
+    const float* pal = NULL;
+    uint32_t numpal = 0;
+
+    if (numtris == 0) {
+        return;
+    }
+
+    if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH && gfx_mesh_cull() != 0) {
+        g_GfxTrisCulled += numtris;
+        return;
+    }
+
+    if (!gfx_model_palette(&pal, &numpal)) {
+        g_GfxModelRefused += numtris;
+        gfx_model_draw_cpu(r.idx);
+        return;
+    }
+
+    gfx_emit_prepare();
+    gfx_flush();
+
+    float params[4 * GFX_MESH_PARAMS];
+    gfx_mesh_params(params, true);
+
+    // The palette takes each vertex to the eye, so the transform after it is
+    // the projection alone, and the modelview the eye's own
+    memcpy(params, rsp.P_matrix, sizeof(float) * 16);
+    memset(&params[164], 0, sizeof(float) * 16);
+    params[164] = params[169] = params[174] = params[179] = 1.0f;
+
+    struct GfxMeshDraw d;
+    d.prg = rendering_state.shader_program;
+    d.mesh = mesh_entry->backend;
+    d.colours = gfx_model_colours();
+    d.numcolours = (uint32_t)model_mesh.numvertices;
+    d.indices = r.first == UINT32_MAX ? r.idx.data() : NULL;
+    d.numindices = (uint32_t)r.idx.size();
+    d.first_index = r.first == UINT32_MAX ? 0 : r.first;
+    d.params = params;
+    d.palette = pal;
+    d.numpalette = numpal;
+    d.st = NULL;
+    d.cull = gfx_mesh_cull();
+
+    if (d.mesh && d.prg && gfx_rapi->mesh_draw(&d)) {
+        g_GfxNumDrawCalls++;
+        g_GfxNumTris += numtris;
+        g_GfxModelDraws++;
+        g_GfxModelTris += numtris;
+    } else {
+        g_GfxModelRefused += numtris;
+        gfx_model_draw_cpu(r.idx);
+    }
+}
+
+/*
+ * The node's run that starts at cmd, drawn whole from what was kept of it, or
+ * NULL when it is to be read as any list is this time (see above).
+ */
+static const Gfx* gfx_model_kept_run(const Gfx* cmd) {
+    GfxModelData* md = mesh_entry->model.get();
+    auto it = md->runs.find(cmd);
+
+    // rewritten in place: read again (what it kept stays in the copy, unused)
+    if (it != md->runs.end() && !gfx_model_same_words(it->second, cmd)) {
+        for (int i = 0; i < 16; i++) {
+            if (mesh_slot_mrun[i] == &it->second) {
+                mesh_slot_mrun[i] = NULL;
+            }
+        }
+        md->runs.erase(it);
+        it = md->runs.end();
+    }
+
+    if (it == md->runs.end()) {
+        GfxModelRun r = gfx_model_read_run(cmd);
+
+        if (r.ok && !r.idx.empty() && gfx_rapi->mesh_add_indices) {
+            r.first = gfx_rapi->mesh_add_indices(mesh_entry->backend, r.idx.data(), (uint32_t)r.idx.size());
+        }
+
+        it = md->runs.emplace(cmd, std::move(r)).first;
+    }
+
+    GfxModelRun& r = it->second;
+    int why = -1;
+
+    // a command that only ends a run (a G_MTX no model follows)
+    if (r.end == cmd) {
+        return NULL;
+    }
+
+    if (!r.ok) {
+        why = r.why;
+    } else if (r.forced_cpu) {
+        why = GFX_MODEL_WHY_SLOTS;
+    } else if (!gfx_model_gpu_state()) {
+        why = (rsp.geometry_mode & G_LIGHTING) ? GFX_MODEL_WHY_LIT : GFX_MODEL_WHY_STATE;
+    } else if (r.vtxsegno && segmentPointers[r.vtxsegno] != r.vtxseg) {
+        why = GFX_MODEL_WHY_UNREADABLE;
+    } else if (r.inbone >= 0 && model_bone != r.inbone) {
+        why = GFX_MODEL_WHY_MATRIX;
+    } else if (r.incol && (!model_col_ok || model_colseg != r.incolseg || model_colofs != r.incolofs)) {
+        why = GFX_MODEL_WHY_COLOURS;
+    }
+
+    int32_t sig = -1;
+
+    if (why < 0 && (r.loaded || r.incoming)) {
+        GfxRoomVState cur;
+        gfx_model_vstate(&cur);
+
+        if (!room_sigs.empty() && memcmp(&room_sigs.back(), &cur, sizeof(cur)) == 0) {
+            sig = (int32_t)room_sigs.size() - 1;
+        } else {
+            room_sigs.push_back(cur);
+            sig = (int32_t)room_sigs.size() - 1;
+        }
+
+        for (int i = 0; why < 0 && i < 16; i++) {
+            if (r.incoming & (1u << i)) {
+                const int32_t s = mesh_slot_sig[i];
+
+                if (mesh_slot[i] != r.slotin[i] || s < 0 ||
+                    (s != sig && memcmp(&room_sigs[s], &cur, sizeof(cur)) != 0)) {
+                    why = GFX_MODEL_WHY_SLOTS;
+                }
+            }
+        }
+    }
+
+    if (why >= 0) {
+        g_GfxModelWhy[why]++;
+        mesh_skip_until = r.end;
+        return NULL;
+    }
+
+    // What the run leaves behind it, as reading it would have
+    if (r.outcol) {
+        rsp.vertex_colors = (const struct NormalColor*)(segmentPointers[r.outcolseg] + r.outcolofs);
+        model_col_ok = true;
+        model_colseg = r.outcolseg;
+        model_colofs = r.outcolofs;
+    }
+
+    if (r.outbone >= 0) {
+        gfx_sp_matrix((uint8_t)((r.outmtx[0] >> 16) & 0xff), (const int32_t*)seg_addr(r.outmtx[1]));
+        model_bone = r.outbone;
+    }
+
+    if (r.loaded) {
+        mesh_slot_top = std::max(mesh_slot_top, (size_t)16);
+    }
+
+    for (int i = 0; i < 16; i++) {
+        if (r.loaded & (1u << i)) {
+            mesh_slot[i] = r.slotout[i];
+            mesh_slot_sig[i] = sig;
+            mesh_slot_mrun[i] = &r;
+        }
+    }
+
+    gfx_gpu_only_slots |= r.loaded;
+    g_GfxNumVerts += r.numverts;
+    gfx_vertices_lost = false;
+
+    gfx_model_draw(r);
 
     return r.end - 1;
 }
@@ -5726,6 +6841,7 @@ static void gfx_sp_moveword(uint8_t index, uint16_t offset, uintptr_t data) {
             break;
         case G_MW_SEGMENT:
             segmentPointers[(offset >> 2) & 0xff] = data;
+            gfx_model_note_segment((offset >> 2) & 0xff);
             break;
     }
 }
@@ -6767,8 +7883,11 @@ static void gfx_run_dl(Gfx* cmd) {
             }
 
             if (!mesh_skip_until && mesh_run.empty() &&
-                (opcode == G_COL || opcode == G_VTX || opcode == (uint8_t)G_TRI1 || opcode == (uint8_t)G_TRI4)) {
-                const Gfx* last = mesh_room ? gfx_room_kept_run(cmd) : gfx_mesh_kept_run(cmd);
+                (opcode == G_COL || opcode == G_VTX || opcode == (uint8_t)G_TRI1 || opcode == (uint8_t)G_TRI4 ||
+                 (mesh_model && opcode == G_MTX))) {
+                const Gfx* last = mesh_model ? gfx_model_kept_run(cmd)
+                                  : mesh_room ? gfx_room_kept_run(cmd)
+                                              : gfx_mesh_kept_run(cmd);
 
                 if (last) {
                     cmd = (Gfx*)last + 1;
@@ -6783,10 +7902,12 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case G_MTX: {
                 gfx_sp_matrix(C0(16, 8), (const int32_t*)seg_addr(cmd->words.w1));
+                gfx_model_note_mtx(cmd);
                 break;
             }
             case (uint8_t)G_POPMTX:
                 gfx_sp_pop_matrix(1);
+                model_bone = -1;
                 break;
             case G_MOVEMEM:
                 gfx_sp_movemem(C0(16, 8), 0, seg_addr(cmd->words.w1));
@@ -6874,6 +7995,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case G_COL:
                 gfx_sp_set_vertex_colors(C0(0, 16) / 4, (NormalColor *)seg_addr(cmd->words.w1));
+                gfx_model_note_col(cmd->words.w1);
                 break;
 
             // RDP Commands:
@@ -7114,7 +8236,11 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_rapi->clear_framebuffer(false, true);
                 break;
             case G_MESH_EXT:
-                gfx_mesh_begin((const struct gfxmeshdraw*)cmd->words.w1);
+                if (cmd->words.w0 & G_MESH_MODEL_EXT) {
+                    gfx_model_begin((const Vtx*)cmd->words.w1, C0(0, 16));
+                } else {
+                    gfx_mesh_begin((const struct gfxmeshdraw*)cmd->words.w1);
+                }
                 break;
             case G_RDPPIPESYNC:
             case G_RDPFULLSYNC:
@@ -7232,6 +8358,14 @@ extern "C" void gfx_start_frame(void) {
                 sysLogPrintf(LOG_NOTE, "gfx:   gpu meshes: %u draws, %u tris (%u tris refused to the cpu)",
                         g_GfxMeshDraws, g_GfxMeshTris, g_GfxMeshRefused);
             }
+            if (g_GfxModelDraws || g_GfxModelRefused || g_GfxModelCpuTris) {
+                sysLogPrintf(LOG_NOTE, "gfx:   gpu models: %u draws, %u tris (%u tris refused to the cpu); cpu %u tris; "
+                        "runs to the cpu: %u new, %u unreadable, %u lit, %u state, %u matrix, %u colours, %u slots; "
+                        "%u stale",
+                        g_GfxModelDraws, g_GfxModelTris, g_GfxModelRefused, g_GfxModelCpuTris, g_GfxModelWhy[0],
+                        g_GfxModelWhy[1], g_GfxModelWhy[2], g_GfxModelWhy[3], g_GfxModelWhy[4], g_GfxModelWhy[5],
+                        g_GfxModelWhy[6], g_GfxStaleSlotTris);
+            }
             sysLogPrintf(LOG_NOTE,
                     "gfx:   tex uploads %u, evictions %u, cache %u/%u (peak %u, grew %u times, %u evicted in all, %u MB)",
                     g_GfxNumTexUploads,
@@ -7266,6 +8400,9 @@ extern "C" void gfx_start_frame(void) {
     g_GfxNumVerts = 0;
     g_GfxTrisClipped = g_GfxTrisCulled = 0;
     g_GfxMeshDraws = g_GfxMeshTris = g_GfxMeshRefused = 0;
+    g_GfxModelDraws = g_GfxModelTris = g_GfxModelRefused = g_GfxModelCpuTris = 0;
+    memset(g_GfxModelWhy, 0, sizeof(g_GfxModelWhy));
+    g_GfxStaleSlotTris = 0;
     g_GfxRoomDraws = g_GfxRoomTris = g_GfxRoomDyntexTris = g_GfxRoomRefused = g_GfxRoomCpuTris = g_GfxRoomSealedTris = 0;
     memset(g_GfxFlushReasons, 0, sizeof(g_GfxFlushReasons));
     gfx_frame_textures.clear();
