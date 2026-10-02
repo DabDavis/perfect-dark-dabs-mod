@@ -73,7 +73,28 @@ def _snapshot(exe):
         except OSError:
             time.sleep(2)
     raise RuntimeError('n64twin at %s stayed unreadable for two minutes' % exe)
-ROM = os.path.expanduser(os.environ.get('GF_ARES_ROM', '~/claude-007/007/build/u/ge007.u.z64'))
+# GF_GAME=gf: Goldfinger 64, a GoldenEye ROM hack (CLAUDE-notes/goldfinger64.md),
+# on its own cartridge. Its code is GoldenEye's patched in place: every function
+# entry and data/bss address used here (ares_layout.json's symbols, the seeds,
+# the head rotation, ares_view_syms.json) holds the same code or variable in
+# both ROMs - checked word for word against the decompressed code and data
+# segments when this was written (proplvreset2, lvlRender, sizepropdef,
+# bossSetLoadedStage, osViSwapBuffer: identical prologues). What moved is
+# GF_LAYOUT's: the model tables, into the top megabyte of the Expansion Pak's
+# 8 MB, which its boot takes off osMemSize (boot() checks it did).
+GAME = os.environ.get('GF_GAME', 'ge')
+LAYOUTS = {
+    # ROM, Expansion Pak, osMemSize after the boot, and the model tables:
+    # props (PitemZ_entries, 12-byte rows) and characters (c_item_entries,
+    # 20-byte rows), each row {ModelFileHeader *, char *name, f32 scale, ...}
+    'ge': {'rom': '~/claude-007/007/build/u/ge007.u.z64', 'pak': False, 'memsize': 0x400000,
+           'props': (0x8003a228, 340), 'chrs': (0x8003de10, 80)},
+    'gf': {'rom': '~/gefidelity-roms/gf.z64', 'pak': True, 'memsize': 0x700000,
+           'props': (0x8070b400, 416), 'chrs': (0x80700fc0, 126)},
+}
+LAYOUT = LAYOUTS[GAME]
+ROM = os.path.expanduser(os.environ.get('GF_ARES_ROM', LAYOUT['rom']))
+OS_MEMSIZE = 0x80000318
 
 # sizepropdef() in words (loadobjectmodel.c:47), checked against the port's walk
 # of all twenty missions; anything else is the one-word header
@@ -121,7 +142,8 @@ def _slot():
 class _Twin:
     def __init__(self):
         self.slot = _slot()
-        self.p = subprocess.Popen([_snapshot(EXE), '--rom', ROM], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        self.p = subprocess.Popen([_snapshot(EXE), '--rom', ROM] + (['--expansion-pak'] if LAYOUT['pak'] else []),
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, text=True, bufsize=1)
         self.read()
 
@@ -285,13 +307,19 @@ def boot(levelid, difficulty=0):
         raise RuntimeError('difficulty %d did not take (cartridge has %d)' % (difficulty, s32(SYM['g_SelectedDifficulty'])))
     if int(tw('fired').split()[0]) < nfire:
         raise RuntimeError('the level swap, the difficulty or the seed writes never fired')
+    # the cartridge asked for is the one running: Goldfinger's boot takes the
+    # top megabyte of the Expansion Pak's 8 for its tables (0x700000);
+    # GoldenEye's 4 MB are left whole
+    if u32(OS_MEMSIZE) != LAYOUT['memsize']:
+        raise RuntimeError('osMemSize reads 0x%x, not %s\'s 0x%x: the wrong ROM, or no Expansion Pak' % (
+            u32(OS_MEMSIZE), GAME, LAYOUT['memsize']))
     _st['t0'] = s32(SYM['g_GlobalTimer']) - 1
     f0 = s32(SYM['currentFrameCounter'])
     tw('cue %d 0 Z' % (f0 + DISMISS_STILL_AFTER))
     tw('cue %d 0 -' % (f0 + DISMISS_STILL_AFTER + 10))
     tw('pad 0 script')
     say('boot', levelid, 'difficulty', s32(SYM['g_SelectedDifficulty']), 'tick', tick(), 'frame', f0,
-        'globaltimer', s32(SYM['g_GlobalTimer']), 'oracle ares')
+        'globaltimer', s32(SYM['g_GlobalTimer']), 'oracle ares', 'game', GAME)
 
 
 def tick():
@@ -490,6 +518,32 @@ def props():
     return out
 
 
+_names = {}
+
+
+def _cstr(addr, n=48):
+    b = peek(addr, n)
+    return b.split(b'\0', 1)[0].decode('latin-1')
+
+
+def model_file(table, num):
+    """The file a prop model (table 'props') or a character body/head ('chrs')
+    number names on this cartridge: its row of GF_LAYOUT's table. Goldfinger
+    renamed 318 of GoldenEye's 340 prop rows and has 126 characters, so a
+    number alone says nothing across the two games."""
+    base, rows = LAYOUT[table]
+    size = 12 if table == 'props' else 20
+    if not isinstance(num, int) or not 0 <= num < rows:
+        return None
+    if table not in _names:
+        blob = peek(base, rows * size)
+        _names[table] = [struct.unpack_from('>I', blob, k * size + 4)[0] for k in range(rows)]
+    a = _names[table][num]
+    if isinstance(a, int):
+        a = _names[table][num] = _cstr(a) if a else ''
+    return a
+
+
 def chrs():
     ids = _ailist_ids()
     out = []
@@ -519,6 +573,8 @@ def chrs():
                'weapons': [_weaponnum(struct.unpack_from('>I', c.b, wo + 4 * h)[0]) for h in range(2)]}
         if c.ptr('model'):
             rec['scale'] = _f(Rec('Model', c.ptr('model')).f('scale'))
+        rec['bodyfile'] = model_file('chrs', rec['bodynum'])
+        rec['headfile'] = model_file('chrs', rec['headnum'])
         out.append(rec)
     return out
 
