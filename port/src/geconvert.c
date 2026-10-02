@@ -2132,6 +2132,7 @@ static int isLightImage(uint32_t image)
 
 struct outvtx {
 	int16_t x, y, z;
+	uint8_t f;
 	uint8_t c;
 	int16_t s, t;
 };
@@ -2147,6 +2148,7 @@ static void convertList(const buf *dl, const buf *vtx, outvtxs *outv, u32s *outc
 {
 	int32_t slots[32];
 	int64_t curtex = -1;
+	int lit = 0;
 
 	for (int i = 0; i < 32; ++i) {
 		slots[i] = -1;
@@ -2155,6 +2157,14 @@ static void convertList(const buf *dl, const buf *vtx, outvtxs *outv, u32s *outc
 	for (size_t o = 0; o + 8 <= dl->n; o += 8) {
 		uint32_t w0 = be32(dl->v, o), w1 = be32(dl->v, o + 4);
 		const uint32_t op = w0 >> 24;
+
+		// G_SETGEOMETRYMODE / G_CLEARGEOMETRYMODE: whether the vertices
+		// loaded next are lit (G_LIGHTING), the RSP lighting them as they load
+		if (op == 0xb7 && (w1 & 0x20000)) {
+			lit = 1;
+		} else if (op == 0xb6 && (w1 & 0x20000)) {
+			lit = 0;
+		}
 
 		if (op == 0x04) {
 			const uint32_t n = ((w0 >> 20) & 0xf) + 1;
@@ -2173,6 +2183,9 @@ static void convertList(const buf *dl, const buf *vtx, outvtxs *outv, u32s *outc
 				v.x = bes16(vtx->v, at);
 				v.y = bes16(vtx->v, at + 2);
 				v.z = bes16(vtx->v, at + 4);
+				// A lit vertex's colour is its normal: flagged, so the room's
+				// light leaves it as it is (roomHighlight())
+				v.f = lit ? 0x01 : 0;
 				v.c = (uint8_t)(i << 2);
 				v.s = bes16(vtx->v, at + 8);
 				v.t = bes16(vtx->v, at + 10);
@@ -2562,6 +2575,7 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 	vpad = outv.n & 1;
 	if (vpad) {
 		struct outvtx last = outv.v[outv.n - 1];
+		last.f = 0;
 		last.c = 0;
 		last.s = 0;
 		last.t = 0;
@@ -2605,7 +2619,7 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 		set16(body.v, o, (uint16_t)v->x);
 		set16(body.v, o + 2, (uint16_t)v->y);
 		set16(body.v, o + 4, (uint16_t)v->z);
-		body.v[o + 6] = 0;
+		body.v[o + 6] = v->f;
 		body.v[o + 7] = v->c;
 		set16(body.v, o + 8, (uint16_t)v->s);
 		set16(body.v, o + 10, (uint16_t)v->t);
@@ -7975,6 +7989,7 @@ static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int
 					v.x = bes16(d->v, at);
 					v.y = bes16(d->v, at + 2);
 					v.z = bes16(d->v, at + 4);
+					v.f = 0;
 					v.c = (uint8_t)(i << 2);
 					v.s = bes16(d->v, at + 8);
 					v.t = bes16(d->v, at + 10);
