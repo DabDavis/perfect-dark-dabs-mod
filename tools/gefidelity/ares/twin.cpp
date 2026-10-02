@@ -377,7 +377,10 @@ auto say(const char* fmt, ...) -> void {
 
 auto nall::main(Arguments arguments) -> void {
   string romPath, padScript;
-  if(!arguments.take("--rom", romPath)) { say("err usage: n64twin --rom ROM [--pad-script F] [--pads N]"); return; }
+  if(!arguments.take("--rom", romPath)) { say("err usage: n64twin --rom ROM [--pad-script F] [--pads N] [--expansion-pak]"); return; }
+  /* GoldenEye runs in 4 MB; a ROM built for the Expansion Pak (Goldfinger 64)
+   * does not boot without it */
+  const bool expansionPak = arguments.take("--expansion-pak");
   int pads = 1;
   { string t; if(arguments.take("--pads", t)) pads = (int)t.natural(); }
   if(arguments.take("--pad-script", padScript)) {
@@ -397,7 +400,7 @@ auto nall::main(Arguments arguments) -> void {
   ares::Nintendo64::option("Quality", "SD");
   ares::Nintendo64::option("Enable GPU acceleration", "true");
   ares::Nintendo64::option("Recompiler", "true");
-  ares::Nintendo64::option("Expansion Pak", "false");
+  ares::Nintendo64::option("Expansion Pak", expansionPak ? "true" : "false");
   ares::Node::System root;
   if(!ares::Nintendo64::load(root, "[Nintendo] Nintendo 64 (NTSC)")) { say("err core load failed"); return; }
   if(auto port = root->find<ares::Node::Port>("Cartridge Slot")) { port->allocate(); port->connect(); }
