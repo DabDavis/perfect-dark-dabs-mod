@@ -6067,10 +6067,15 @@ static int gePortalCrossed(const struct portal *p, const float *a, const float *
 	return v1 < min ? 1 : 2;
 }
 
-/** What GoldenEye's setupDoor() decides for a door: its portal and its rooms (0xff for none). */
+/**
+ * What GoldenEye's setupDoor() decides for a door: its portal and its rooms
+ * (0xff for none); and for any record, whether it is an object GoldenEye never
+ * makes for want of a tile under its pad (geSoloDoors()).
+ */
 struct gedoorinfo {
 	int32_t portal;
 	uint8_t rooms[2];
+	uint8_t untiled;
 };
 
 /** A bound pad as GoldenEye holds it at run time: the world's units, single precision. */
@@ -6183,8 +6188,9 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 	struct gebound *bp = gcAlloc((bound->n + 1) * sizeof(*bp));
 	struct gedoorinfo *portals = gcAlloc((recs.n + 1) * sizeof(*portals));
 	float doorscale = 1.0f;
-	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0, lifted = 0;
+	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0, lifted = 0, untiled = 0;
 	uint8_t *keepy = gcAlloc(s->pads.n + 1);
+	int *padtile = gcAlloc((s->pads.n + 1) * sizeof(*padtile));
 
 	// the pads whose height is used as it is: one an object hangs in the air
 	// from (its flags 2, 4 or 8, which sub_GAME_7F04088C() and
@@ -6215,7 +6221,7 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 		}
 	}
 
-	for (size_t i = 0; i < s->pads.n && padrooms; ++i) {
+	for (size_t i = 0; i < s->pads.n; ++i) {
 		const size_t o = padsat + 0x2c * i;
 		float pos[3];
 		int fb, tile;
@@ -6225,6 +6231,12 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 		}
 
 		tile = gePadTile(stan, f, be32(f->v, o + 36), pos, ls, &fb);
+		padtile[i] = tile;
+
+		if (!padrooms) {
+			continue;
+		}
+
 		padrooms[i] = tile >= 0 ? stan->v[tile].room : -1;
 
 		// A pad under its own tile is lifted onto it. GoldenEye stands
@@ -6266,6 +6278,43 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 		b->tile = gePadTile(stan, f, be32(f->v, o + 36), b->pos, ls, &fb);
 		fellback += fb;
 		missing += b->tile < 0;
+	}
+
+	// An object on a pad with no tile is never made. Every object but a door
+	// is made by prop.c's domakedefaultobj(), which stands one that is not
+	// inside another (0x8000) or a chr's (0x4000) on its pad's tile, or its
+	// bound pad's, through getposstan() - and that fails, making nothing, on a
+	// pad with none. Perfect Dark searched down from the pad and stood it on
+	// whatever floor it found: two cups on each of Goldfinger 64's Cartel and
+	// Bodega that the cartridge leaves out stood a storey down under the
+	// table. Such a record is left out at every difficulty (writeSoloProps())
+	for (size_t i = 0; i < recs.n; ++i) {
+		const uint8_t *raw = recs.v[i].b;
+		const uint32_t t = recs.v[i].type;
+		uint32_t pad;
+		int tile;
+
+		if (g_GeSizes[t] < 32 || t == 1 || (be32(raw, 8) & 0xc000)) {
+			continue;
+		}
+
+		pad = be16(raw, 6);
+
+		if (pad < 10000) {
+			tile = pad < s->pads.n ? padtile[pad] : 0;
+		} else {
+			tile = pad - 10000 < bound->n ? bp[pad - 10000].tile : 0;
+		}
+
+		if (tile < 0) {
+			portals[i].untiled = 1;
+			untiled++;
+
+			if (padrooms) {
+				note("geconvert: %s: record %zu (type 0x%02x, model %d) is on pad %u, which has no tile: "
+						"GoldenEye never makes it", what, i, t, bes16(raw, 4), pad);
+			}
+		}
 	}
 
 	for (size_t i = 0; i < recs.n; ++i) {
@@ -6399,8 +6448,8 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 		}
 
 		note("geconvert: %s: pads by their own tiles (%d found by place, %d with none, %d lifted onto them), "
-				"%d doors with a portal, %d door pads scaled (%d into another room)", what, fellback, missing, lifted,
-				withportal, scaled, movedrooms);
+				"%d doors with a portal, %d door pads scaled (%d into another room), %d objects never made",
+				what, fellback, missing, lifted, withportal, scaled, movedrooms, untiled);
 	}
 
 	return portals;
@@ -7111,6 +7160,13 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 					set32(rec, 12 + 4 * k, soloTextId(be32(raw, 12 + 4 * k) & 0xffff));
 				}
 			}
+		}
+
+		if (doorportals[i].untiled) {
+			// an object GoldenEye never makes, its pad having no tile
+			// (geSoloDoors()): left out on all four difficulties, the
+			// OBJFLAG2_EXCLUDE_* bits both games keep in flags2
+			set32(rec, 12, be32(rec, 12) | 0xf0);
 		}
 
 		st->props++;
