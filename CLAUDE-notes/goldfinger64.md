@@ -240,6 +240,45 @@ model with their own name and clip and fire.
   remake stage with none (a hack's arena) turned GoldenEye's animations off
   for the session.
 
+## Against the cartridge (converters 100-103)
+
+The ares run (feat/gf-ares, merged; `twin.py --game gf`, report in
+`~/wt/gf-ares-run/REPORT.md`) compared all twenty missions on Agent. The
+converter's share of it, fixed one at a time, each with GoldenEye's own
+conversion checked against the one before:
+
+- **100, fog.** Goldfinger blanked GE's 12th fog row (Runway +100) to
+  0xffffffff, and the fog readers stopped at any id past 0xffff. GoldenEye's
+  `fogLoadLevelEnvironment()` walks to the id-0 row and takes the first match,
+  and so do they now: ten missions and five arenas had no fog, sky, water or
+  draw distance. GoldenEye byte-identical.
+- **101, textures a list loads.** A model's lists may load (0xc0) an image its
+  texture table does not name; it was remapped and never written, and drew
+  with the last texture bound - 57 models, Dink's head the Miami guest's
+  white box among them. `modelLists()` adds them; 110 more images. GoldenEye
+  byte-identical; `convdiff/missingtex.py` finds none missing.
+- **102, head pools.** Goldfinger rewrote `bodyChooseHead()` (7F0235AC): head
+  -1 draws from eleven men or six women in its code, -2 from six Korean men,
+  each pool from a start its level init draws (7F000F88). The data segment's
+  `random_male_heads` it left is sixteen 67s, which every pool guard wore. The
+  pools are `romlayout.headpools`, read off the code; `gecast.bin` carries any
+  after the first behind the Bond, a guard record keeps -2 as 0xfe, and
+  `gexPlusRomOwnHead()` hands a body that asked for a further pool that pool's
+  four heads for the level in turn. GoldenEye byte-identical.
+- **103, pads under their tiles.** GoldenEye stands a chr, Bond and a floor
+  object on the pad's own tile whatever the pad's height
+  (`sub_GAME_7F04088C()`); Perfect Dark searches down from the pad.
+  Goldfinger has 170 pads more than 5 under their tiles (Forest's start 290:
+  Bond fell 29,000 units). `geSoloDoors()` measures each pad on its tile
+  (`geTileY()`, stan.c's `stanGetPositionYValue()`) and lifts one more than a
+  unit under onto it, but never a pad an object hangs in the air from (flags
+  2/4/8: 72 of Cartel's wall objects sit four under, and lifting them moved
+  them) or a camera's or autogun's aim. GoldenEye moves nine pads (Surface 5,
+  Surface 2 2, Frigate 2); its sweep shows those pads and no object or chr
+  moved.
+
+The replay test was the same on all eight cases after the four.
+
 ## Open
 
 - Its arenas' weapon sets: `menu/gesets.bin` is written right for it, but GE
@@ -249,6 +288,10 @@ model with their own name and clip and fire.
 - Its gadgets' names by mission (gegadgets.c's identities are GoldenEye's).
 - Its monitor programmes (its block is edited in place, 16% of GoldenEye's
   words the same; gemonitortable.h is GoldenEye's).
-- Judged against ares: not yet. The missions run (20, with openings, 1700
-  frames, sound on) and the folder draws; nothing has been compared with the
-  cartridge.
+- From the ares run, still to do: room lists drawn with combiner alpha 0
+  under an opaque AA mode (Cartel, Bodega, China, Crab Key draw no walls -
+  fast3d, affects every game); cars seated at the wrong height (gexplusveh.c);
+  Vaults' Oddjob, whose own list runs after a background list reads his
+  health; and pickups of items that are no gun and no gadget (documents,
+  gold bars, the black box - Miami's orders, Knox, the safes of Club, Capture
+  and Ranch), which have no weapon number and are never made.
