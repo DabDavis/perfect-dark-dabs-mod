@@ -1733,6 +1733,12 @@ static const char *vk_vec_type(int size) {
     return types[size];
 }
 
+// SHADER_OPT_SHADE_LINEAR: the combiner's inputs carried linearly on the
+// screen, as the RDP carries its shade, in every stage that declares them
+static const char *vk_var_interp(const struct CCFeatures &cc, const std::string &name) {
+    return cc.opt_shade_linear && name.compare(0, 6, "vInput") == 0 ? "noperspective " : "";
+}
+
 /*
  * The shader cache. A combiner's shaders are compiled from GLSL the first time
  * it is drawn, and a pipeline is built for each state it is drawn under, and
@@ -1932,7 +1938,8 @@ static struct ShaderProgram *gfx_vk_create_and_load_new_shader(uint64_t shader_i
         vs += strf("layout(location = %d) in %s %s;\n", (int)k, vk_vec_type(attrs[k].second), attrs[k].first.c_str());
     }
     for (size_t k = 0; k < vars.size(); k++) {
-        vs += strf("layout(location = %d) out %s %s;\n", (int)k, vk_vec_type(vars[k].second), vars[k].first.c_str());
+        vs += strf("layout(location = %d) %sout %s %s;\n", (int)k, vk_var_interp(cc_features, vars[k].first),
+                   vk_vec_type(vars[k].second), vars[k].first.c_str());
     }
     vs += "void main() {\n";
     for (size_t k = 1; k < attrs.size(); k++) {
@@ -1955,7 +1962,8 @@ static struct ShaderProgram *gfx_vk_create_and_load_new_shader(uint64_t shader_i
     fs += "#define WRAP(x, low, high) mod((x)-(low), (high)-(low)) + (low)\n";
     fs += "#define TEX_OFFSET(t, s, uv, texSize, off) SAMPLE_TEX(t, s, uv - (off)/texSize)\n";
     for (size_t k = 0; k < vars.size(); k++) {
-        fs += strf("layout(location = %d) in %s %s;\n", (int)k, vk_vec_type(vars[k].second), vars[k].first.c_str());
+        fs += strf("layout(location = %d) %sin %s %s;\n", (int)k, vk_var_interp(cc_features, vars[k].first),
+                   vk_vec_type(vars[k].second), vars[k].first.c_str());
     }
     fs += strf("layout(set = 0, binding = 0) uniform texture2D uTextures[%u];\n", vk_max_texture_slots);
     fs += strf("layout(set = 0, binding = 1) uniform sampler uSamplers[%d];\n", VK_MAX_SAMPLER_SLOTS);
@@ -3087,7 +3095,8 @@ static bool vk_mesh_program(VkProgram *prg) {
     vs += strf("layout(set = 1, binding = 1, std430) readonly buffer MeshPalette { vec4 uPal[%d]; };\n",
                3 * GFX_MESH_PALETTE_MAX);
     for (size_t k = 0; k < vars.size(); k++) {
-        vs += strf("layout(location = %d) out %s %s;\n", (int)k, vk_vec_type(vars[k].second), vars[k].first.c_str());
+        vs += strf("layout(location = %d) %sout %s %s;\n", (int)k, vk_var_interp(cc, vars[k].first),
+                   vk_vec_type(vars[k].second), vars[k].first.c_str());
     }
     vs += gfx_mesh_vs_main(cc, !vk_have_depth_clamp, true);
 

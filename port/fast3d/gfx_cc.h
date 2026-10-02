@@ -63,6 +63,9 @@ enum {
 // interpolated w per fragment that is the factor carried linearly across the
 // screen, as the N64 carries its per-vertex fog in the shade alpha.
 #define SHADER_OPT_FOG_VERTEX (1u << 30)
+// G_SHADE_LINEAR_EXT: the combiner's inputs are carried across the triangle
+// linearly on the screen (noperspective), as the RDP carries its shade.
+#define SHADER_OPT_SHADE_LINEAR (1u << 31)
 
 struct ColorCombinerKey {
     uint64_t combine_mode;
@@ -90,6 +93,7 @@ struct CCFeatures {
     bool opt_fog_linear;
     bool opt_alpha_core;
     bool opt_fog_vertex;
+    bool opt_shade_linear;
     bool used_textures[2];
     bool clamp[2][2];
     int num_inputs;

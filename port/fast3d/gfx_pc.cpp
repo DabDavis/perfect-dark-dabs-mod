@@ -363,6 +363,7 @@ static struct BatchState {
 
     bool use_alpha, use_fog, use_grayscale, use_modulate, use_additive, use_envmap;
     bool fog_vertex; // SHADER_OPT_FOG_VERTEX: the fog slot carries per-vertex factors
+    bool shade_linear; // SHADER_OPT_SHADE_LINEAR: the inputs are carried linearly on the screen
 } batch;
 
 /**
@@ -2675,6 +2676,11 @@ static void gfx_derive_batch_state(void) {
     if (fog_vertex) {
         cc_options |= (uint64_t)SHADER_OPT_FOG_VERTEX;
     }
+    // G_SHADE_LINEAR_EXT: the shade as the RDP carries it (gfx_emit_tri3())
+    const bool shade_linear = (rsp.extra_geometry_mode & G_SHADE_LINEAR_EXT) != 0;
+    if (shade_linear) {
+        cc_options |= (uint64_t)SHADER_OPT_SHADE_LINEAR;
+    }
 
     // If we are not using alpha, clear the alpha components of the combiner as they have no effect
     if (!use_alpha) {
@@ -2786,6 +2792,7 @@ static void gfx_derive_batch_state(void) {
     batch.use_alpha = use_alpha;
     batch.use_fog = use_fog;
     batch.fog_vertex = fog_vertex;
+    batch.shade_linear = shade_linear;
     batch.use_grayscale = use_grayscale;
     batch.use_modulate = use_alpha && (rsp.extra_geometry_mode & G_MODULATE_EXT) != 0;
     batch.use_additive = use_alpha && !batch.use_modulate && (rsp.extra_geometry_mode & G_ADDITIVE_EXT) != 0;    batch.use_envmap = use_envmap;
@@ -3464,12 +3471,15 @@ static inline float gfx_rsp_clip_dist(const struct LoadedVertex* v, int k) {
  * far corner's fog carried down to Bond's feet: measured on the cartridge at
  * Surface 2's pad 245 (fog 76, 97, 123, 142 up the middle of the screen;
  * this model 81, 101, 122, 142; without the guard band, 147-169).
+ * G_SHADE_LINEAR_EXT cuts it the same way: the RDP carries the shade
+ * linearly across each piece the RSP hands it, so a cut corner's colour,
+ * taken along the edge in clip space, is where its gradient starts.
  */
 static void gfx_emit_tri3(const struct LoadedVertex* a, const struct LoadedVertex* b, const struct LoadedVertex* c,
                           bool is_rect) {
     emit_fog_tri = batch.fog_vertex && !is_rect;
 
-    if (!emit_fog_tri) {
+    if (!emit_fog_tri && (!batch.shade_linear || is_rect)) {
         gfx_emit_vertex(a, is_rect);
         gfx_emit_vertex(b, is_rect);
         gfx_emit_vertex(c, is_rect);
@@ -4938,12 +4948,13 @@ static void gfx_room_materialise(uint8_t slot) {
 }
 
 /*
- * Under G_FOG_VERTEX_EXT a triangle crossing the RSP's clip volume - behind
- * the eye, or past the guard band - is cut on the CPU, and its new corners
- * fogged where they stand (gfx_emit_tri3()). The shader fogs each corner as
- * it is and cuts nothing, which is the same thing for a triangle wholly
- * inside: so is every triangle of a run whose box has all eight corners
- * inside every plane of it, the volume being convex.
+ * Under G_FOG_VERTEX_EXT (and G_SHADE_LINEAR_EXT) a triangle crossing the
+ * RSP's clip volume - behind the eye, or past the guard band - is cut on the
+ * CPU, and its new corners fogged and shaded where they stand
+ * (gfx_emit_tri3()). The shader fogs each corner as it is and cuts nothing,
+ * which is the same thing for a triangle wholly inside: so is every triangle
+ * of a run whose box has all eight corners inside every plane of it, the
+ * volume being convex.
  */
 static bool gfx_room_inside_rsp_clip(const struct GfxRoomRun& r) {
     const bool jitter = taa_active && !fbActive;
@@ -4983,7 +4994,7 @@ static inline bool gfx_room_gpu_state(const struct GfxRoomRun& r) {
         return false;
     }
 
-    return !(rsp.extra_geometry_mode & G_FOG_VERTEX_EXT) || gfx_room_inside_rsp_clip(r);
+    return !(rsp.extra_geometry_mode & (G_FOG_VERTEX_EXT | G_SHADE_LINEAR_EXT)) || gfx_room_inside_rsp_clip(r);
 }
 
 // gfx_sp_tri_emit() would grow a marked triangle
@@ -5897,7 +5908,7 @@ static void gfx_model_vstate(GfxRoomVState* s) {
 
 static inline bool gfx_model_gpu_state(void) {
     return gfx_mesh_gpu_state() && !(rsp.geometry_mode & G_LIGHTING) &&
-           !(rsp.extra_geometry_mode & (G_ENVMAP_EXT | G_FOG_VERTEX_EXT));
+           !(rsp.extra_geometry_mode & (G_ENVMAP_EXT | G_FOG_VERTEX_EXT | G_SHADE_LINEAR_EXT));
 }
 
 // Vertex k's colour as the segments stand
