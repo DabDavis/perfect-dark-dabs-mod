@@ -1265,7 +1265,19 @@ void cdCollectGeoForCylFromList(struct coord *pos, f32 radius, u8 *start, u8 *en
 					&& pos->z >= *(f32 *)((uintptr_t)tile + tile->zmin * 0xc + 0x18) - radius
 					&& pos->z <= *(f32 *)((uintptr_t)tile + tile->zmax * 0xc + 0x18) + radius
 					&& (!checkvertical || (pos->y + arg6 >= *(f32*)((uintptr_t)tile + tile->ymin * 0xc + 0x14)
-							&& pos->y + arg7 <= *(f32 *)((uintptr_t)tile + tile->ymax * 0xc + 0x14)))) {
+							&& pos->y + arg7 <= *(f32 *)((uintptr_t)tile + tile->ymax * 0xc + 0x14))
+#ifndef PLATFORM_N64
+						// a converted level's tiles where it is too wide for
+						// 16-bit vertices (a GoldenEye ROM hack's): the same
+						// rules as the int tiles' above
+						|| cdGeWallOverhead(geo, pos, radius, geoflags, checkvertical, arg7, tile->vertices[tile->ymax].y)
+#endif
+						)
+#ifndef PLATFORM_N64
+					&& !((geoflags & GEOFLAG_WALL)
+						&& geStanWallSkipped(geo, pos, NULL, geStanLimit(pos, checkvertical, arg7), geStanRise(checkvertical), radius + GESTAN_MARGIN))
+#endif
+					) {
 				result = cd000272f8FltTile(tile, pos->x, pos->z, radius, prop, &collisions[*numcollisions]);
 
 				if (result != 0) {
@@ -1653,7 +1665,16 @@ void cdCollectGeoForCylMoveFromList(u8 *start, u8 *end, struct coord *pos, f32 r
 					&& pos->z >= tile->vertices[tile->zmin].z - radius
 					&& pos->z <= tile->vertices[tile->zmax].z + radius
 					&& (!checkvertical || (pos->y + arg6 >= tile->vertices[tile->ymin].y
-							&& pos->y + arg7 <= tile->vertices[tile->ymax].y))) {
+							&& pos->y + arg7 <= tile->vertices[tile->ymax].y)
+#ifndef PLATFORM_N64
+						|| cdGeWallOverhead(geo, pos, radius, geoflags, checkvertical, arg7, tile->vertices[tile->ymax].y)
+#endif
+						)
+#ifndef PLATFORM_N64
+					&& !((geoflags & GEOFLAG_WALL)
+						&& geStanWallSkipped(geo, pos, NULL, geStanLimit(pos, checkvertical, arg7), geStanRise(checkvertical), radius + GESTAN_MARGIN))
+#endif
+					) {
 				cd0002840c(tile, pos->x, pos->z, radius, prop, collisions, maxcollisions, numcollisions);
 			}
 
@@ -3065,7 +3086,12 @@ bool cdTestAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 			struct coord sp90;
 			struct coord sp84;
 
-			if (tile->header.flags & geoflags) {
+			if ((tile->header.flags & geoflags)
+#ifndef PLATFORM_N64
+					&& !((geoflags & GEOFLAG_WALL)
+						&& geStanWallSkipped(geo, arg2, arg3, geStanLimit(arg2, checkvertical, arg9), geStanRise(checkvertical), GESTAN_LINEREACH))
+#endif
+					) {
 				min.x = tile->vertices[tile->xmin].x;
 				max.x = tile->vertices[tile->xmax].x;
 				min.z = tile->vertices[tile->zmin].z;
@@ -3345,7 +3371,12 @@ bool cdExamAToBGeolist(u8 *start, u8 *end, struct coord *arg2, struct coord *arg
 			struct coord spc8;
 			struct coord spbc;
 
-			if (geo->flags & geoflags) {
+			if ((geo->flags & geoflags)
+#ifndef PLATFORM_N64
+					&& !((geoflags & GEOFLAG_WALL)
+						&& geStanWallSkipped(geo, arg2, arg3, geStanLimit(arg2, checkvertical, ymin), geStanRise(checkvertical), GESTAN_LINEREACH))
+#endif
+					) {
 				min.x = tile->vertices[tile->xmin].x;
 				max.x = tile->vertices[tile->xmax].x;
 				min.z = tile->vertices[tile->zmin].z;
