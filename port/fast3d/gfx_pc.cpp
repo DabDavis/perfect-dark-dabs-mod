@@ -2550,6 +2550,23 @@ static inline int gfx_lod_tile_offset(const int i) {
 }
 
 /**
+ * Whether the combiner's last cycle hands the blender an alpha that is nought
+ * whatever it is fed: (A - B) * C + D with nothing left of the product (A the
+ * same as B, or C nought) and D nought, cycle 1's COMBINED read through.
+ */
+static bool gfx_cc_alpha_zero(uint64_t cm, int cycle) {
+    const uint32_t a = (cm >> (cycle * 28 + 16)) & 7;
+    const uint32_t b = (cm >> (cycle * 28 + 19)) & 7;
+    const uint32_t c = (cm >> (cycle * 28 + 22)) & 7;
+    const uint32_t d = (cm >> (cycle * 28 + 25)) & 7;
+    auto zero = [&](uint32_t in) {
+        return in == G_ACMUX_0 || (cycle == 1 && in == G_ACMUX_COMBINED && gfx_cc_alpha_zero(cm, 0));
+    };
+
+    return (a == b || c == G_ACMUX_0 || (zero(a) && zero(b))) && zero(d);
+}
+
+/**
  * Work out everything about the current RDP/RSP state that gfx_sp_tri1 needs
  * but that no longer changes from one triangle to the next, and park it in
  * `batch`. Called only when gfx_mark_state_dirty() has fired or a texture is
@@ -2572,6 +2589,25 @@ static void gfx_derive_batch_state(void) {
 
     if (texture_edge) {
         use_alpha = true;
+    }
+
+    // Under a mode that selects coverage for alpha without FORCE_BL, the RDP
+    // blends only partly covered edge pixels, by their coverage: a covered
+    // pixel is the combiner's colour whatever alpha the combiner hands on. A
+    // combiner whose alpha is nought outright, blended by it here, drew nothing
+    // at all - GE Editor writes its levels' lists that way, under
+    // G_RM_AA_ZB_OPA_TERR2 (ten of Goldfinger 64's twenty missions; Cartel,
+    // Bodega, China and Crab Key drew no walls or floors). Such a draw is
+    // opaque, as on the console. Only
+    // that alpha: one that can be anything else (a texture's, a vertex's) still
+    // blends as before - a span of Defection's release rooms needs its
+    // texture's, and a lit corner's byte is mended in gfx_sp_load_vertex().
+    // Not under CVG_X_ALPHA or an alpha compare, where the RDP does read the
+    // combined alpha.
+    if (use_alpha && (rdp.other_mode_l & (ALPHA_CVG_SEL | FORCE_BL | CVG_X_ALPHA)) == ALPHA_CVG_SEL &&
+        (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_NONE &&
+        gfx_cc_alpha_zero(rdp.combine_mode, use_2cyc ? 1 : 0)) {
+        use_alpha = false;
     }
 
     // A faded body's depth pass (chrRender()): blended to nothing, so only the
