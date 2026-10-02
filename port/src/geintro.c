@@ -655,7 +655,7 @@ static s32 introLoadAll(void)
 	g_Intro.moddir = -1;
 
 	for (s32 i = 0; i < mpGetNumStages(); i++) {
-		if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+		if (modloaderStageIsGexPlus(g_MpArenas[i].stagenum)) {
 			g_Intro.moddir = modloaderGetStageModDirIndex(g_MpArenas[i].stagenum);
 			break;
 		}

@@ -2460,9 +2460,11 @@ s32 langpackIsCjk(void);
 #define MODEL_GE_FIRST              (VERSION == VERSION_JPN_FINAL ? 0x1bb : 0x1b9)
 // And from a fixed number whatever the version, so a setup file can name
 // them: the GoldenEye remake's prop models, GoldenEye's model number plus
-// this, filled for a stage by its mod's `models` block (modloader.c)
+// this, filled for a stage by its mod's `models` block (modloader.c). Room for
+// more than GoldenEye's 340: a ROM hack converted beside it has its own
+// (Goldfinger 64's 416), and each stage fills the slots from its own mod
 #define MODEL_REMAKE_FIRST          0x200
-#define NUM_REMAKE_MODELS           340
+#define NUM_REMAKE_MODELS           1024
 #define NUM_MODELS                  (MODEL_REMAKE_FIRST + NUM_REMAKE_MODELS)
 #else
 #define NUM_MODELS                  (VERSION == VERSION_JPN_FINAL ? 0x1bb : 0x1b9)

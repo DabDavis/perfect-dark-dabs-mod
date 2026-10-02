@@ -23,6 +23,7 @@
 #include "system.h"
 #include "utils.h"
 #include "mod.h"
+#include "gexplusrom.h"
 #include "modloader.h"
 #include "modborrow.h"
 
@@ -1218,6 +1219,51 @@ s32 modloaderStageIsRemake(s32 stagenum)
 	return 0;
 }
 
+/**
+ * Whether a stage is one of GE Plus's own: a remake arena of the GoldenEye ROM's
+ * conversion (GEXPLUSROM_DIR). A GoldenEye ROM hack's (Goldfinger 64's) are
+ * remake arenas as well - GoldenEye's rooms, lights and props - but never GE
+ * Plus's, which is GoldenEye's ROM alone.
+ */
+// whether a mod dir's last part is name
+static s32 modloaderDirIs(const char *dir, const char *name)
+{
+	const char *base = dir;
+
+	if (!dir) {
+		return 0;
+	}
+
+	for (; *dir; ++dir) {
+		if (*dir == '/' || *dir == '\\') {
+			base = dir + 1;
+		}
+	}
+
+	return strcasecmp(base, name) == 0;
+}
+
+static s32 modloaderDirIsGexPlus(const char *dir)
+{
+	return modloaderDirIs(dir, GEXPLUSROM_DIR);
+}
+
+s32 modloaderStageIsGexPlus(s32 stagenum)
+{
+	return modloaderStageIsRemake(stagenum) && modloaderDirIsGexPlus(modloaderGetStageModDir(stagenum));
+}
+
+const char *g_GexPlusVariant;
+
+s32 modloaderStageInGexPlusList(s32 stagenum)
+{
+	if (g_GexPlusVariant) {
+		return modloaderStageIsRemake(stagenum) && modloaderDirIs(modloaderGetStageModDir(stagenum), g_GexPlusVariant);
+	}
+
+	return modloaderStageIsGexPlus(stagenum);
+}
+
 void modloaderApplyStageModels(s32 stagenum)
 {
 	const s32 modindex = modloaderGetStageModDirIndex(stagenum);
@@ -1277,7 +1323,8 @@ s32 modloaderLendRemakeModel(s32 slot)
 	for (s32 i = 0; i < g_NumModModels; i++) {
 		const struct modmodel *m = &g_ModModels[i];
 
-		if (m->slot == slot) {
+		// GoldenEye's own, never a ROM hack's under the same number
+		if (m->slot == slot && modloaderDirIsGexPlus(fsGetModDirAt(m->modindex))) {
 			const s32 fileid = modloaderRegister(m->modindex, "%s", m->name);
 
 			if (fileid > 0) {

@@ -1580,7 +1580,7 @@ static void geSetsAppend(void)
 	s32 num;
 
 	for (s32 i = 0; i < mpGetNumStages() && !dir; i++) {
-		if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+		if (modloaderStageIsGexPlus(g_MpArenas[i].stagenum)) {
 			dir = modloaderGetStageModDir(g_MpArenas[i].stagenum);
 		}
 	}

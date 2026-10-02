@@ -31,6 +31,17 @@ void modloaderApplyStageModels(s32 stagenum);
 // is the remake's arenas only.
 extern s32 g_GexPlusMode;
 s32 modloaderStageIsRemake(s32 stagenum);
+// a remake arena of the GoldenEye ROM's conversion itself (not a ROM hack's)
+s32 modloaderStageIsGexPlus(s32 stagenum);
+
+/**
+ * GE Plus's Combat Simulator (g_GexPlusMode) for a GoldenEye ROM hack's arenas
+ * in place of GoldenEye's: the hack's name (gexPlusRomGetVariant(), the folder
+ * its conversion is in), or NULL for GoldenEye's own. The arena list and the
+ * random arena take the stages modloaderStageInGexPlusList() answers for.
+ */
+extern const char *g_GexPlusVariant;
+s32 modloaderStageInGexPlusList(s32 stagenum);
 // One of the remake's models (MODEL_REMAKE_FIRST + slot) on a stage of
 // Perfect Dark's, from the mod that brings it, until the next stage; -1 where
 // no mod has it or the stage is one of the remake's own

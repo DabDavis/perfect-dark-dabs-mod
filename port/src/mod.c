@@ -3277,6 +3277,68 @@ static s32 modListImportPatch(const char *container, bool loose, const char *pat
 }
 
 /**
+ * A GoldenEye ROM hack's patch (gexPlusRomPatchIsHack()) moved to
+ * added-content/ - or, when it came out of an archive in container, that
+ * archive, which carries it - and the folder modListImportPatch() made for it
+ * (an IMPORT.txt saying it applies to no Perfect Dark ROM) and the one the
+ * archive was unpacked into let go.
+ */
+static void modListAdoptHackPatch(const char *container, const char *dir, const char *path, const char *name, bool loose)
+{
+	s32 fromarchive = 0;
+
+	char stem[MOD_NAME_LEN];
+	char dest[FS_MAXPATH + 1];
+	const size_t clen = strlen(container);
+
+	modStemName(name, stem, sizeof(stem));
+
+	if (loose && strncasecmp(stem, "mod", 3)) {
+		snprintf(dest, sizeof(dest), "%s/mod_%.*s", container, MOD_NAME_LEN - 5, stem);
+	} else {
+		snprintf(dest, sizeof(dest), "%s/%s", container, stem);
+	}
+
+	if (modPathIsDir(dest) && !modListLooksLikeMod(dest)) {
+		modRemoveTree(dest);
+	}
+
+	if (strncmp(dir, container, clen) == 0 && dir[clen] == '/') {
+		struct modnamelist list = { NULL, 0, 0 };
+		char top[MOD_ENTRY_LEN];
+		char unpacked[FS_MAXPATH + 1];
+		const char *slash = strchr(dir + clen + 1, '/');
+
+		snprintf(top, sizeof(top), "%.*s", (int)(slash ? slash - (dir + clen + 1) : (s32)strlen(dir + clen + 1)), dir + clen + 1);
+
+		if (modNameListCollect(container, &list) >= 0) {
+			for (s32 i = 0; i < list.count; ++i) {
+				char archstem[MOD_NAME_LEN];
+				char archive[FS_MAXPATH + 1];
+
+				modStemName(list.names[i], archstem, sizeof(archstem));
+				snprintf(archive, sizeof(archive), "%s/%s", container, list.names[i]);
+
+				if (archiveIsSupported(list.names[i]) && !strcmp(archstem, top) && !modPathIsDir(archive)) {
+					fromarchive = gexPlusRomAdoptFile(archive);
+				}
+			}
+		}
+
+		free(list.names);
+		snprintf(unpacked, sizeof(unpacked), "%s/%s", container, top);
+
+		if (fromarchive && modPathIsDir(unpacked) && !modListLooksLikeMod(unpacked)) {
+			modRemoveTree(unpacked);
+		}
+	}
+
+	if (!fromarchive) {
+		gexPlusRomAdoptFile(path);
+	}
+}
+
+/**
  * Archives in dir become directories, patches in it become mod directories
  * in container, and directories that are not mods are looked into for more
  * of both, to MOD_UNPACK_DEPTH. Beside the executable only names starting
@@ -3355,7 +3417,12 @@ static void modListPrepareDir(const char *container, const char *dir, s32 depth,
 			results[i] = modListImportPatch(container, loose, path, list.names[i], basePath);
 		}
 
-		if (results[i] == MODIMPORT_NEEDS_BASE) {
+		if (results[i] == MODIMPORT_NEEDS_BASE && gexPlusRomPatchIsHack(path)) {
+			// A GoldenEye ROM hack's patch (Goldfinger 64's): it, or the
+			// archive it came in, goes to added-content/, and what the import
+			// wrote for it and the folder it was unpacked into go
+			modListAdoptHackPatch(container, dir, path, list.names[i], loose);
+		} else if (results[i] == MODIMPORT_NEEDS_BASE) {
 			sysLogPrintf(LOG_WARNING, "mod: %s does not apply to the stock ROM or on top of any patch beside it; its IMPORT.txt says so", list.names[i]);
 		}
 	}
@@ -3486,11 +3553,12 @@ s32 modListGetSelected(void)
  * mount its maps and GE Plus can read its files, and nothing else: its
  * textures/ are GoldenEye's own pictures under Perfect Dark's texture numbers,
  * so loaded as *the* mod it repainted the Institute with GoldenEye's art (F3
- * report 20260922-202854, where Mod.ModDir had been set to it).
+ * report 20260922-202854, where Mod.ModDir had been set to it). A GoldenEye ROM
+ * hack's conversion (Goldfinger 64's) is the same kind of folder.
  */
 s32 modListIsMapsOnly(s32 index)
 {
-	return index >= 0 && index < numModsListed && !strcasecmp(modList[index].name, GEXPLUSROM_DIR);
+	return index >= 0 && index < numModsListed && gexPlusRomIsConversionDir(modList[index].name);
 }
 
 // Load Mods' own view of the list: every mod but the maps-only ones

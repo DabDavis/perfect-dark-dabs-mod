@@ -264,10 +264,17 @@ static void xblaScanForPackage(const char *name, void *arg)
 	// with both files without Perfect Dark's XBLA art and Agent 4: the scan
 	// went in directory order, and Windows lists "CommunityEdition..." before
 	// "Perfect Dark XBLA.7z" where ext4 happened not to.
+	//
+	// Nor a GoldenEye ROM hack passed around as a zip of its patch
+	// (gexplusrom.c's ROM hacks: goldfinger64.zip), which goes there too and
+	// was unpacked as the release where the release was not there - and
+	// named with a capital, before it where it was.
 	if (xblaLooksLikePackage(path) ||
 			(scan->archives && archiveIsSupported(path) && fsFileSize(path) >= 0 &&
 			 !archiveFindEntry(path, "files/new/char/") &&
-			 !archiveFindEntry(path, GEBEANCE_DIFF_ENTRY))) {
+			 !archiveFindEntry(path, GEBEANCE_DIFF_ENTRY) &&
+			 !archiveFindEntry(path, ".xdelta") && !archiveFindEntry(path, ".vcdiff") &&
+			 !archiveFindEntry(path, ".bps") && !archiveFindEntry(path, ".ips"))) {
 		strncpy(scan->found, path, sizeof(scan->found) - 1);
 		return;
 	}

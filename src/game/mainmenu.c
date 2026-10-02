@@ -4918,6 +4918,7 @@ MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct m
 {
 	if (operation == MENUOP_SET) {
 #ifndef PLATFORM_N64
+		g_GexPlusVariant = NULL;
 		mpSetGexPlusMode(false);
 #endif
 		g_Vars.bondplayernum = 0;
@@ -4937,7 +4938,7 @@ MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct m
 static s32 gexPlusFirstArena(void)
 {
 	for (s32 i = 0; i < mpGetNumStages(); i++) {
-		if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+		if (modloaderStageIsGexPlus(g_MpArenas[i].stagenum)) {
 			return i;
 		}
 	}
@@ -4961,9 +4962,10 @@ static MenuItemHandlerResult menuhandlerGexPlusCombatSimulator(s32 operation, st
 	}
 
 	if (operation == MENUOP_SET && first >= 0) {
+		g_GexPlusVariant = NULL;
 		mpSetGexPlusMode(true);
 
-		if (!modloaderStageIsRemake(g_MpSetup.stagenum)) {
+		if (!modloaderStageIsGexPlus(g_MpSetup.stagenum)) {
 			g_MpSetup.stagenum = g_MpArenas[first].stagenum;
 		}
 
@@ -5135,6 +5137,75 @@ static MenuItemHandlerResult menuhandlerMainMenuGexPlus(s32 operation, struct me
 
 	return 0;
 }
+
+/**
+ * The Perfect Menu's row for a GoldenEye ROM hack found in added-content/
+ * (gexplusrom.c: Goldfinger 64), under the hack's own name and there only
+ * while it is: its arenas in GE Plus's Combat Simulator, GoldenEye's
+ * scenarios and weapon sets with them, and nothing of GoldenEye's own arenas
+ * (g_GexPlusVariant). The hack's missions are not converted yet.
+ */
+static char *mainMenuVariantLabel(struct menuitem *item)
+{
+	const char *name = gexPlusRomGetVariant(0);
+
+	return (char *)(name ? name : "");
+}
+
+static s32 gexPlusVariantFirstArena(const char *name)
+{
+	const char *was = g_GexPlusVariant;
+	s32 first = -1;
+
+	g_GexPlusVariant = name;
+
+	for (s32 i = 0; name && i < mpGetNumStages() && first < 0; i++) {
+		if (modloaderStageInGexPlusList(g_MpArenas[i].stagenum)) {
+			first = i;
+		}
+	}
+
+	g_GexPlusVariant = was;
+	return first;
+}
+
+static MenuItemHandlerResult menuhandlerMainMenuVariant(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	const char *name = gexPlusRomGetVariant(0);
+
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return name == NULL;
+	}
+
+	if (operation == MENUOP_CHECKDISABLED) {
+		return gexPlusVariantFirstArena(name) < 0;
+	}
+
+	if (operation == MENUOP_SET && name) {
+		const s32 first = gexPlusVariantFirstArena(name);
+
+		if (first < 0) {
+			return 0;
+		}
+
+		g_GexPlusVariant = name;
+		mpSetGexPlusMode(true);
+
+		if (!modloaderStageInGexPlusList(g_MpSetup.stagenum)) {
+			g_MpSetup.stagenum = g_MpArenas[first].stagenum;
+		}
+
+		g_Vars.bondplayernum = 0;
+		g_Vars.coopplayernum = -1;
+		g_Vars.antiplayernum = -1;
+		challengeDetermineUnlockedFeatures();
+		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
+		func0f0f820c(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+		func0f0f8300();
+	}
+
+	return 0;
+}
 #endif
 
 MenuItemHandlerResult menuhandlerMainMenuCooperative(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -5275,6 +5346,14 @@ struct menuitem g_MainMenuMenuItems[] = {
 		(uintptr_t)"GE Plus",
 		0x0000000d,
 		menuhandlerMainMenuGexPlus,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_BIGFONT,
+		(uintptr_t)&mainMenuVariantLabel,
+		0x0000000e,
+		menuhandlerMainMenuVariant,
 	},
 #endif
 	{

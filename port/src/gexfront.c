@@ -903,7 +903,7 @@ static s32 frontHighestDifficulty(s32 mission)
 static s32 frontFirstArena(void)
 {
 	for (s32 i = 0; i < mpGetNumStages(); i++) {
-		if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+		if (modloaderStageIsGexPlus(g_MpArenas[i].stagenum)) {
 			return i;
 		}
 	}
@@ -1350,7 +1350,7 @@ static void frontBuildLevels(void)
 		for (s32 i = 0; i < num && g_Front.numlevels < MAX_LEVELS; i++) {
 			const char *name = modloaderGetStageMapName(g_MpArenas[i].stagenum);
 
-			if (used[i] || !modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+			if (used[i] || !modloaderStageIsGexPlus(g_MpArenas[i].stagenum)) {
 				continue;
 			}
 
@@ -1866,9 +1866,10 @@ static void frontEnterSetup(void)
 
 	frontApplyMenuCharacter();
 
+	g_GexPlusVariant = NULL;
 	mpSetGexPlusMode(true);
 
-	if (first >= 0 && !modloaderStageIsRemake(g_MpSetup.stagenum)) {
+	if (first >= 0 && !modloaderStageIsGexPlus(g_MpSetup.stagenum)) {
 		g_MpSetup.stagenum = g_MpArenas[first].stagenum;
 	}
 

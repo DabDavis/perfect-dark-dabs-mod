@@ -351,7 +351,7 @@ s16 mpChooseRandomStage(void)
 		s32 count = 0;
 
 		for (i = 0; i < mpGetNumStages(); i++) {
-			if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+			if (modloaderStageInGexPlusList(g_MpArenas[i].stagenum)) {
 				count++;
 			}
 		}
@@ -359,7 +359,7 @@ s16 mpChooseRandomStage(void)
 		index = count > 0 ? rngRandom() % count : 0;
 
 		for (i = 0; i < mpGetNumStages(); i++) {
-			if (modloaderStageIsRemake(g_MpArenas[i].stagenum) && index-- == 0) {
+			if (modloaderStageInGexPlusList(g_MpArenas[i].stagenum) && index-- == 0) {
 				return g_MpArenas[i].stagenum;
 			}
 		}
@@ -394,7 +394,7 @@ s16 mpChooseRandomStage(void)
 static bool mpArenaListed(s32 i)
 {
 #ifndef PLATFORM_N64
-	if (g_GexPlusMode && !modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
+	if (g_GexPlusMode && !modloaderStageInGexPlusList(g_MpArenas[i].stagenum)) {
 		return false;
 	}
 #endif
@@ -490,7 +490,7 @@ MenuItemHandlerResult mpArenaMenuHandler(s32 operation, struct menuitem *item, u
 	case MENUOP_GETOPTGROUPTEXT:
 #ifndef PLATFORM_N64
 		if (g_GexPlusMode) {
-			return (uintptr_t)"GoldenEye";
+			return (uintptr_t)(g_GexPlusVariant ? g_GexPlusVariant : "GoldenEye");
 		}
 #endif
 
@@ -7235,7 +7235,8 @@ void mpSetGexPlusMode(bool on)
 		// the setup's scenario and options as GoldenEye's scenario has them
 		gexPlusSetScenario(gexPlusGetScenario());
 
-		g_CombatSimulatorMenuDialog.title = (uintptr_t)"GE Plus";
+		// (or the GoldenEye ROM hack's whose arenas it is: g_GexPlusVariant)
+		g_CombatSimulatorMenuDialog.title = (uintptr_t)(g_GexPlusVariant ? g_GexPlusVariant : "GE Plus");
 		g_CombatSimulatorMenuDialog.flags |= MENUDIALOGFLAG_LITERAL_TEXT;
 		g_CombatSimulatorMenuItems[0].flags |= MENUITEMFLAG_ALWAYSDISABLED;
 	} else {
