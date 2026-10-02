@@ -13895,4 +13895,4 @@ two pads). The brightness pairs (Aztec 91, Train 150, Statue 112) did not line
 up - Bean's frame and ours were different views (null 0.35-0.72) - so they
 say nothing about the release; base-to-fix moved little at our own views.
 
-Both change the built level: **HDCACHE_VERSION bump needed** (left to the merge).
+Both change the built level: **HDCACHE_VERSION bump needed** (left to the merge; done there: 14).

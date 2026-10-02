@@ -44,6 +44,8 @@ Randomizer: Rescue and Maian SOS show Area 51's night sky during a run (thanks P
 Randomizer: landing in a room with locked doors (Villa's interrogation room) unlocks the doors inside the area you are sealed in (thanks Parabolee)
 Institute: glass behind the metal-grating floors and ramps no longer shows through the solid metal (thanks Shockwave S08)
 Guards Alerted: the guards it calls in join the level's own guards on Chicago and Carrington Villa instead of attacking them (thanks chickensalad)
+GE Plus Dam, XBLA look: the reservoir banks are snow-covered, fading to rock at the water (thanks dab)
+GE Plus Dam, XBLA look: the chasm cliffs are evenly lit instead of patchy squares (thanks Shockwave S08)
 
 notes 29 2026-10-01
 GE Plus: guards that GoldenEye places at the start of a mission are no longer missing on Facility, Frigate, Caverns and Aztec, and they carry their guns and hats
