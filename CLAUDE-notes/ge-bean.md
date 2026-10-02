@@ -13885,4 +13885,14 @@ from every paired triangle, not only the darker rooms'. Before/after:
 `~/wt/f3-1001b-hdlook-run/out/{base,fix}_chasm_0.png`; the 11-level brightness
 sweep (`bsweep.sh`) checked level ratios and screens.
 
+Checked against the release in Xenia (CE, `tools/gefidelity/xenia/pair.py`,
+triptychs Bean/base/fix in `~/wt/f3-1001b-hdlook-run/xp/<tag>/tri.png`): Dam pad
+271 h199 - Bean's bank is snow to the water, as the fix; Egyptian pad 110 h180
+v-30 - Bean's floor is sand over nearly all the tiles, base showed bare tiles,
+the fix sand over most (closer; the release is sandier still). Multiplayer
+Temple (same sand picture `_0x0612CF55`) could not be booted (local match needs
+two pads). The brightness pairs (Aztec 91, Train 150, Statue 112) did not line
+up - Bean's frame and ours were different views (null 0.35-0.72) - so they
+say nothing about the release; base-to-fix moved little at our own views.
+
 Both change the built level: **HDCACHE_VERSION bump needed** (left to the merge).
