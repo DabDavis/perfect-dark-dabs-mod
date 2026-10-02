@@ -16,6 +16,8 @@
 #include "system.h"
 #include "lib/model.h"
 #include "lib/mtx.h"
+#include "game/camera.h"
+#include "game/gfxmemory.h"
 #include "lib/rng.h"
 #include "geguns.h"
 #include "gebean.h"
@@ -1519,6 +1521,18 @@ static const u8 geItems[NUM_GE_WEAPONS] = {
 
 static const u8 *items = geItems;
 
+/*
+ * gunRenderFirstPersonGunModels() (gunfire.c) draws six hand items under its
+ * weapon envmap light and the camera's LookAt - the golden gun (19), the
+ * magnum (18), the knife (2), the throwing knife (3) and the silver and gold
+ * PP7s (20, 21) - and every other gun under what the level loaded last,
+ * bgLevelRender()'s GlobalLight and the same LookAt. A bit an item; a hack's
+ * own six come with its guns (geguns.bin, envmapitems in geconvert.c).
+ */
+#define GEGUNS_ENVMAP_ITEMS ((1u << 19) | (1u << 18) | (1u << 2) | (1u << 3) | (1u << 20) | (1u << 21))
+
+static u32 envitems = GEGUNS_ENVMAP_ITEMS;
+
 s32 gegunsItemNumber(s32 index)
 {
 	return index >= 0 && index < NUM_GE_WEAPONS ? items[index] : 0;
@@ -1537,6 +1551,37 @@ s32 gegunsItemWeapon(s32 item)
 	}
 
 	return WEAPON_NONE;
+}
+
+/**
+ * The lights and LookAt one of GoldenEye's guns is drawn under in first
+ * person, as gunRenderFirstPersonGunModels() gives them: the weapon envmap
+ * light for an item on its list (envitems), the level's GlobalLight (bg.c,
+ * what every other gun inherits from bgLevelRender()) otherwise, and the
+ * camera's LookAt either way (camGetLookAt() is GoldenEye's own
+ * guLookAtReflect()). Both in world terms against a modelview that ends at
+ * the camera, as on the cartridge (gun.c builds a model's matrices on
+ * camGetWorldToScreenMtxf()), so a sphere-mapped gun's highlight sweeps as
+ * Bond turns. Perfect Dark set these only for its own WEAPONFLAG_00008000
+ * guns; a GoldenEye gun took whatever the world drew last.
+ */
+Gfx *gegunsLightsAndLookAt(Gfx *gdl, s32 weaponnum)
+{
+	const s32 item = gegunsItemNumber(weaponnum - WEAPON_GE_FIRST);
+	Lights1 *lights = gfxAllocate(sizeof(Lights1));
+
+	// g_WeaponEnvmapLight (gun.c) or GlobalLight (bg.c): grey ambient and a
+	// white light, the two alike but for the light's direction
+	if (item > 0 && item < 32 && (envitems & (1u << item))) {
+		*lights = (Lights1)gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0xb2, 0x4d, 0x2e);
+	} else {
+		*lights = (Lights1)gdSPDefLights1(150, 150, 150, 255, 255, 255, 77, 77, 46);
+	}
+
+	gSPSetLights1(gdl++, (*lights));
+	gSPLookAt(gdl++, camGetLookAt());
+
+	return gdl;
 }
 
 /** Weapon `index`'s own name (its text id), the gun set's. */
@@ -3650,6 +3695,7 @@ struct gegunset {
 	u32 determiners[NUM_GE_WEAPONS];
 	u16 nameids[NUM_GE_WEAPONS];
 	char names[NUM_GE_WEAPONS][GEGUNS_NAMELEN + 2];
+	u32 envitems;
 	s32 built;
 	struct weapon defs[NUM_GE_WEAPONS];
 	struct aibotweaponpreference prefs[NUM_GE_WEAPONS];
@@ -3738,6 +3784,7 @@ static struct gegunset *gegunsSetAt(s32 moddir)
 	u32 len = 0;
 	u8 *d;
 	u32 count;
+	u32 hdr;
 	s32 slot = -1;
 
 	if (moddir < 0 || !fsGetModDirAt(moddir)) {
@@ -3775,7 +3822,10 @@ static struct gegunset *gegunsSetAt(s32 moddir)
 	snprintf(path, sizeof(path), "%s/menu/geguns.bin", fsGetModDirAt(moddir));
 	d = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
 
-	if (!d || len < 8 || memcmp(d, "GGN1", 4) || len < 8 + (count = gegunsBe32(d + 4)) * GEGUNS_ROW) {
+	// GGN2 carries the items drawn under the envmap light after the count
+	hdr = d && len >= 12 && !memcmp(d, "GGN2", 4) ? 12 : 8;
+
+	if (!d || len < 8 || (memcmp(d, "GGN1", 4) && hdr != 12) || len < hdr + (count = gegunsBe32(d + 4)) * GEGUNS_ROW) {
 		if (d) {
 			sysLogPrintf(LOG_WARNING, "geguns: %s is not a gun set", path);
 		}
@@ -3803,6 +3853,7 @@ static struct gegunset *gegunsSetAt(s32 moddir)
 	}
 
 	set->moddir = moddir;
+	set->envitems = hdr == 12 ? gegunsBe32(d + 8) : GEGUNS_ENVMAP_ITEMS;
 
 	// GoldenEye's, where the hack has no gun on a weapon: its gadgets, and
 	// whatever of GoldenEye's it has no row for
@@ -3816,7 +3867,7 @@ static struct gegunset *gegunsSetAt(s32 moddir)
 	memcpy(set->nameids, geNameIds, sizeof(set->nameids));
 
 	for (u32 k = 0; k < count; k++) {
-		const u8 *row = d + 8 + GEGUNS_ROW * k;
+		const u8 *row = d + hdr + GEGUNS_ROW * k;
 		const u8 *stat = row + 4 + GEGUNS_NAMELEN;
 		const s32 i = row[0];
 
@@ -3866,6 +3917,7 @@ static void gegunsUseTables(struct gegunset *set)
 	ownpos = set ? (const f32 (*)[3])set->pos : geOwnPos;
 	determiners = set ? set->determiners : geDeterminers;
 	nameids = set ? set->nameids : geNameIds;
+	envitems = set ? set->envitems : GEGUNS_ENVMAP_ITEMS;
 }
 
 /**

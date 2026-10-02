@@ -123,6 +123,12 @@ struct romlayout {
 	// rather than out of the ROM. A hack renumbers its items and the table
 	// with them (itemWeaponsBuild())
 	int16_t heldprops[32];
+	// gunRenderFirstPersonGunModels() (gunfire.c, 7F062CA8-7F062CD4): the
+	// six hand items drawn under its weapon envmap light and the camera's
+	// LookAt - immediates in the code a hack renumbers with its items. Any
+	// other gun keeps what the level loaded, the same LookAt and the level's
+	// GlobalLight, which is how a hack's reflecting gun off the list reads
+	uint8_t envmapitems[6];
 	// bodyChooseHead()'s pools (chraction.c): a guard whose record or spawn
 	// names head -1 - k draws from pool k, men then women, each list ended by
 	// 0 (no head is character 0). GoldenEye has the one pool, random_male_heads
@@ -157,6 +163,9 @@ static const struct romlayout g_Layouts[] = {
 			-1, -1, 186, 209, 191, 204, 205, 193, 184, 195, 189, 206, 194, 188, 197, 192,
 			207, 210, 190, 208, 191, 191, 187, -1, 185, 211, 196, 201, 200, 199, -1, -1,
 		},
+		// the golden gun, the magnum, the knife, the throwing knife and the
+		// silver and gold PP7s
+		{ 19, 18, 2, 3, 20, 21 },
 	},
 	{
 		// version 1.0 (2017)
@@ -195,6 +204,10 @@ static const struct romlayout g_Layouts[] = {
 			-1, -1, 237, 209, 191, 204, 205, 191, 191, 184, 195, 193, 189, 206, 188, 192,
 			207, 194, 197, 208, 210, 231, 230, 190, 187, 185, 211, 196, 201, 200, 199, -1,
 		},
+		// its M1 Garand, Golden Magnum, golf club, Oddjob's hat and two Smith
+		// & Wessons; its PPKs, Colt, Luger and P38 reflect off the level's
+		// LookAt, dark metal with one highlight
+		{ 19, 23, 2, 3, 22, 21 },
 		// its bodyChooseHead() (7F0235AC) takes the record's head: -1 draws
 		// from eleven men (7F023698) or six women (7F023690), -2 from six
 		// Korean men (7F0236B0), each from a start its level init draws
@@ -6730,8 +6743,9 @@ static void writeFile(const char *outdir, const char *rel, const uint8_t *data, 
 
 /**
  * menu/geguns.bin: a hack's own guns (geguns.c), which GoldenEye's tables
- * there - generated from the decomp's rows - are not. "GGN1", a count, and a
- * row a gun: its weapon less WEAPON_GE_PP7, its item number (the Igx%03dZ its
+ * there - generated from the decomp's rows - are not. "GGN2", a count, the
+ * items its first-person guns are drawn under the envmap light (a bit an
+ * item, envmapitems), and a row a gun: its weapon less WEAPON_GE_PP7, its item number (the Igx%03dZ its
  * first-person model is), the prop a hand holds it as (heldprops), its name
  * (the row's weapon-of-choice text out of its own LgunE: "Walther PPK/s"),
  * and its gunWeaponStat row as the ROM has it, big-endian, the cartridge's
@@ -6747,8 +6761,17 @@ static void writeGuns(const char *outdir)
 	buf out = {0};
 	uint32_t count = 0;
 
-	bufPut(&out, (const uint8_t *)"GGN1", 4);
+	uint32_t envmask = 0;
+
+	for (size_t k = 0; k < sizeof(g_Layout->envmapitems); ++k) {
+		if (g_Layout->envmapitems[k] && g_Layout->envmapitems[k] < 32) {
+			envmask |= 1u << g_Layout->envmapitems[k];
+		}
+	}
+
+	bufPut(&out, (const uint8_t *)"GGN2", 4);
 	bufU32(&out, 0);
+	bufU32(&out, envmask);
 
 	for (uint32_t item = 1; item < 32; ++item) {
 		const uint32_t w = soloItemWeapon(item);

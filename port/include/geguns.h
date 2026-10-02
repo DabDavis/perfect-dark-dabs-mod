@@ -67,6 +67,8 @@ u16 gegunsOwnModel(s32 index);
 // muzzle (bondgun.c asks)
 void gegunsSetOwnModelInUse(s32 index, s32 inuse);
 s32 gegunsOwnModelInUse(s32 weaponnum);
+// The lights and LookAt GoldenEye draws one of its guns under in first person
+Gfx *gegunsLightsAndLookAt(Gfx *gdl, s32 weaponnum);
 s32 gegunsOwnModelHidden(s32 weaponnum);
 s32 gegunsTriggerDelay60(s32 weaponnum);
 // Ticks between the clicks of one of GoldenEye's guns held empty, or 0 for any other
