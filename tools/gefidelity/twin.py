@@ -117,6 +117,9 @@ def run_pd(script, m, diff, out, env, timeout, rundir, binary, extra):
     args = ['timeout', '-k', '5', str(timeout), 'gdb', '-batch', '-x', os.path.abspath(script), '--args',
             binary, '--savedir', save, '--skip-intro', '--no-sound', '--boot-ge-mission', str(m[0]),
             '--skip-mission-intro', '--fixed-step', '--rng-seed', '1', '--log'] + extra
+    if env.get('GF_MISSION_INTRO') == '1':
+        # the opening plays on both sides (aresge.boot() leaves out its Z press)
+        args.remove('--skip-mission-intro')
     # each run gets its own directory: the port writes pd.log and screenshots/
     # beside its executable, and concurrent runs in one directory overwrite
     # each other's. The binary is hard-linked (the port finds its folder from

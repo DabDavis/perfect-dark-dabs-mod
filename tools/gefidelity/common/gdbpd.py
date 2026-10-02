@@ -257,8 +257,25 @@ def props():
     return out
 
 
+def _gerom_rows():
+    """The GoldenEye ROM characters a converted mission holds in its body/head
+    rows (gexplus.c's g_GeRomRows): {row: (character, ownhead)}, the character
+    being the conversion's file number (Cgx%03dZ), which is the c_item_entries
+    number the cartridge's chrs carry. Empty outside a converted mission."""
+    try:
+        n = int(ev("'gexplus.c'::g_GeRomNumRows"))
+        rows = {}
+        for i in range(n):
+            r = ev("'gexplus.c'::g_GeRomRows[%d]" % i)
+            rows[int(r['row'])] = (int(r['chr']), int(r['ownhead']))
+        return rows
+    except gdb.error:
+        return {}
+
+
 def chrs():
     ids = _ailist_ids()
+    gerows = _gerom_rows()
     out = []
     n = int(ev('g_NumChrSlots'))
     for k in range(n):
@@ -289,6 +306,10 @@ def chrs():
                'weapons': [_weaponnum(c['weapons_held'][h]) for h in range(2)]}
         if int(c['model']) != 0:
             rec['scale'] = _f(c['model']['scale'])
+        if rec['bodynum'] in gerows:
+            rec['bodychr'] = gerows[rec['bodynum']][0]
+        if rec['headnum'] in gerows:
+            rec['headchr'] = gerows[rec['headnum']][0]
         if int(prop) == int(ev('g_Vars.currentplayer->prop')):
             rec['player'] = 1
         out.append(rec)

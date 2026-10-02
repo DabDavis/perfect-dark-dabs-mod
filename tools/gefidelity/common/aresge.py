@@ -315,9 +315,11 @@ def boot(levelid, difficulty=0):
             u32(OS_MEMSIZE), GAME, LAYOUT['memsize']))
     _st['t0'] = s32(SYM['g_GlobalTimer']) - 1
     f0 = s32(SYM['currentFrameCounter'])
-    tw('cue %d 0 Z' % (f0 + DISMISS_STILL_AFTER))
-    tw('cue %d 0 -' % (f0 + DISMISS_STILL_AFTER + 10))
-    tw('pad 0 script')
+    if os.environ.get('GF_MISSION_INTRO') != '1':
+        # GF_MISSION_INTRO=1 leaves the opening to play (ours: no --skip-mission-intro)
+        tw('cue %d 0 Z' % (f0 + DISMISS_STILL_AFTER))
+        tw('cue %d 0 -' % (f0 + DISMISS_STILL_AFTER + 10))
+        tw('pad 0 script')
     say('boot', levelid, 'difficulty', s32(SYM['g_SelectedDifficulty']), 'tick', tick(), 'frame', f0,
         'globaltimer', s32(SYM['g_GlobalTimer']), 'oracle ares', 'game', GAME)
 
