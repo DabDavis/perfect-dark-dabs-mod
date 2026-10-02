@@ -219,6 +219,35 @@ Probe: `~/wt/gf-guns-run/probe/gfguns.py` (gdb; GUNS, AT, EVERY): every gun on
 a stage equipped, photographed and fired. On Cartel all 29 draw their own
 model with their own name and clip and fire.
 
+**Flat-white pistols (converter 105).** Its PPKs, Colt, Luger and P38 drew flat
+white where the cartridge draws dark metal (`guns/gunpics.py` photographs a hand
+item on the cartridge). Two things, the first the cause:
+
+- Their bodies are sphere-mapped (G_LIGHTING | G_TEXTURE_GEN) on 0ec7/0ec8,
+  IA16 images GE Editor stored *uncompressed* (method 0). `texReadUncompressed()`
+  stored a 16-bit texel as a host u16, little-endian, where the renderer's
+  import reads big-endian, so every texel `00 ff` (black, opaque) read as
+  intensity 255. No GoldenEye image is uncompressed and none of either game's
+  is IA16 on the channel path; these two are the only ones it reached.
+  `PD_BE16()` there now (RGBA16, IA16, RGB15).
+- Perfect Dark set the gun's lights and LookAt only for its own
+  WEAPONFLAG_00008000 guns, so a GoldenEye gun took whatever the world drew
+  last. `gegunsLightsAndLookAt()` gives GoldenEye's own: the weapon envmap light
+  for the six items `gunRenderFirstPersonGunModels()` lists (7F062CA8, an
+  immediate each, which a hack renumbers: GoldenEye 19 18 2 3 20 21,
+  Goldfinger 19 23 2 3 22 21 - its pistols are not on it), the level's
+  GlobalLight otherwise, and `camGetLookAt()` either way, in world terms
+  against a modelview that ends at the camera as on the cartridge (gun.c builds
+  a model's matrices on camGetWorldToScreenMtxf()). The list is
+  `romlayout.envmapitems`, written as `geguns.bin`'s mask (GGN2). An eye-space
+  LookAt was tried first and put the Colt's highlight on its rear sight.
+
+GoldenEye's own conversion byte-identical; Goldfinger's differs in
+`menu/geguns.bin` alone. GE Plus's PP7, Magnum, Golden Gun and knife look as
+before (and as the cartridge). Not done: the watch inventory draws the guns
+without GoldenEye's watch lights (`set_enviro_fog_for_items_in_solo_watch_menu()`,
+whose list Goldfinger left at GoldenEye's numbers).
+
 ## Bugs found on the way (2026-10-02)
 
 - `rzipInflate1172()` started every 8 KB step at the buffer's start again and
