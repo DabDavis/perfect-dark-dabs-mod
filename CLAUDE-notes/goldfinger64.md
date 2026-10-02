@@ -371,6 +371,77 @@ unchanged - 519 of 741 views closer, none further. The ares run's crude patch
 (every room's combiner alpha rewritten) darkened Grounds' and Alps' terrain;
 this leaves Alps alone and brings Grounds closer.
 
+**Cartel's club as bright as the cartridge (converter 107).** After the
+coverage fix the club still read dark: the ceiling drape (lit and texgenned)
+dark with bright streaks where the cartridge has a light-grey sheet, and the
+walls round the door at under half the cartridge's brightness. Four causes,
+each measured on the cartridge (tools/gefidelity/view/texsample_ares.py
+overwrites an image in RDRAM with a ramp, or fills it white, so a surface's
+brightness reads off its texel or its shade; ramfind_ares.py and
+ramdump_ares.py look in RDRAM):
+
+- The drape's image is not 0x28c (that guess was wrong): the draw state's own
+  texture is a 64x64 I4 sky map, bright in its top and bottom rows, the same
+  bytes in the cartridge's RDRAM (mip levels too). Under the row ramp the
+  cartridge's whole drape is one grey: every corner on the same row.
+- `roomHighlight()` scales each room colour so its largest byte is at most the
+  room's brightness (210 there). A lit vertex's colour is its normal, and a
+  component past 210 (a small negative, 0xd3-0xff) was scaled down to it -
+  the logged normals full of -46 (0xd2). The conversion now flags every vertex
+  its list loads under G_LIGHTING (vertex flags 0x01, the bit roomHighlight()
+  already reads; a converted room keeps one colour a vertex, so the colour
+  index it uses is right), and on a converted level such a colour is copied as
+  it is. GoldenEye's own conversion changes only those flags: Surface 118
+  vertices, Bunker 118, Egyptian 39 (its few lit, texgenned room spans).
+- GoldenEye lights a level with GlobalLight (ambient 150, white from 77,77,46)
+  and the camera's LookAt, under the camera's own matrix, so the RSP takes
+  both in eye space. Perfect Dark draws a room under a translation alone and
+  lit it by the room's brightness. `lightsSetForGeRoom()` (dlights.c) hands a
+  converted level's rooms GlobalLight and the LookAt turned out of eye space by
+  the camera's axes: the same dot products as the cartridge.
+- Mod.LevelReflectFollow (on by default) bent each texgen lookup by the eye
+  ray; a converted level's rooms no longer take it. (The earlier note that it
+  made no difference was wrong: twin.py runs on a fresh save dir, so the ini
+  setting never reached the run - the two pictures were identical. Under gdb,
+  `roomSheenSetStockFollow(0)`.)
+
+The door wall was the fourth: its I4 texture hands its intensity on as the
+combined alpha, and under the same coverage-for-alpha mode we blended by it
+(the cartridge, filled white, shows the shade alone at 0.93, ours drew texel x
+shade x texel). `G_COVERAGE_ALPHA_EXT` (gbiex.h), set over the whole scene of
+a converted level in the N64 look (`bgRenderScene()`), makes any combined
+alpha pass over as the RDP does there; Perfect Dark's own stages and the HD
+looks keep the narrow rule above. And a converted room's vertex colours are no
+longer capped at its brightness in the N64 look (the HD look's rule in
+`roomHighlight()`, taken against the room's full brightness, so a shot light
+still dims): Cartel's floor tiles were capped at 210.
+
+The club view (pad 134, heading 270), cartridge / before / after, picture
+medians: drape 131 / 32 / 120, door wall 111 / 42 / 110, left wall 51 / 23 /
+49, pillars 46 / 21 / 45, floor 46 / 37 / 43.
+Against the cartridge (view diff, the cartridge's pictures reused, a pair
+"closer" or "further" by more than 0.02): Goldfinger 64's six missions from
+the coverage fix, Cartel 0.181 -> 0.147, Bodega 0.148 -> 0.141, China 0.127 ->
+0.092, Crab Key 0.164 -> 0.165, Grounds 0.151 -> 0.112, Alps 0.103 -> 0.103;
+198 of 741 views closer, 3 further (Crab Key at heading 90, +0.02-0.03).
+GoldenEye's own (the same tree before and after, eight missions): Surface,
+Surface 2, Bunker, Bunker 2, Facility the same or a hair better, Egyptian
+0.102 -> 0.086, Caverns 0.063 -> 0.059, Dam 0.103 -> 0.105; 34 of 809 views
+closer, 5 further. Split with both changes switchable, the colours uncapped
+make Caverns' gains and Dam pad 163's loss; the coverage rule barely moves
+GoldenEye except Caverns' lake. The views further each had a second
+difference the old blending happened to hide:
+
+- Caverns' lake (pads 289-307, heading 90): one huge triangle, a corner black
+  4000 out, the rest teal. The RDP carries shade linearly across the screen,
+  which darkens most of it; our renderer carries it with perspective, so it
+  stays teal. Blended by its texels before, it read dark by accident. The
+  port already carries fog linearly on a converted level (G_FOG_VERTEX_EXT);
+  the colour is not.
+- Crab Key's orange pillar is a prop: opaque now, as on the cartridge, it
+  shows our prop shading at 60 where the cartridge draws 109.
+- Dam pad 163's walls, colours uncapped, at 59 where the cartridge has 47.
+
 **Miami's banner is there.** The ares run's "Miami's blimp has no banner
 trail" was the opening's random shot: Miami has two (`gecinema.c` picks one
 by `rngRandom()`), the cartridge showed the sky over the hotel and ours the
@@ -394,14 +465,8 @@ anything missing.
 - From the ares run, still to do: cars seated at the wrong height
   (gexplusveh.c); Vaults' Oddjob, whose own list runs after a background list
   reads his health.
-- GE Editor's reflective room surfaces (lit and texgenned, now drawn since the
-  coverage fix below - Cartel's club ceiling drape over GoldenEye's image
-  0x28c) come out dark with bright streaks where the cartridge's are a light
-  grey sheet. Not the image (byte-identical to GE Plus's 0x28c, an I4 that is
-  mostly dark), not the level-reflection follow (the same with
-  Mod.LevelReflectFollow=0), and only partly the light (the room is 210 bright;
-  GoldenEye lights every level with GlobalLight, PD's lightsSetDefault(), where
-  lightsSetForRoom() scales by the room). Where the texgen lands is the next
-  thing to compare.
+- Shade carried linearly across the screen on a converted level, as the RDP
+  does (Caverns' lake; see "Cartel's club" above), and props' shading against
+  GoldenEye's (Crab Key's pillar).
 - The watch draws nothing for a collectable where GoldenEye draws its model
   (converter 104's are checked against the cartridge otherwise).
