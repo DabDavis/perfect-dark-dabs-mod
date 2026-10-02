@@ -277,7 +277,30 @@ conversion checked against the one before:
   Surface 2 2, Frigate 2); its sweep shows those pads and no object or chr
   moved.
 
-The replay test was the same on all eight cases after the four.
+- **104, collectables.** A pickup whose item is no gun and no gadget
+  (documents, tapes, glasses, a weapon case, Shipyard's eight gold bars) had
+  no weapon number and was never made: Miami's orders, so objective A failed
+  at once, and the contents of Club's, Capture's and Ranch's safes.
+  `soloCollectablesBegin()` gives each mission's such items Perfect Dark's
+  key cards 0x45-0x4c in the order its pickups name them (two at most in a
+  mission), so the pickup, a rename, an objective and an AI command all take
+  the same number; a rename naming only its object takes its collectable's.
+  `menu/geslots.bin` ("GES1", u16 rows, {mission, weapon, item, 0}) says which
+  item each stands for. The key cards share one definition, so gegadgets.c
+  names each by a text override of its number (inserted as
+  `setupCreateProps()` empties the list, so the setup's own renames go
+  before): the hack's gun table's short and long names out of its LgunE
+  (Goldfinger's orders are its "Folder"), title-cased, and GoldenEye's own
+  pickup words for an item it has none for, "Picked up a new weapon." The
+  watch neither draws nor equips one. GoldenEye's own Silo has one: the
+  briefcase character 0 carries, now dropped as a pickup when it dies, as the
+  cartridge's record says.
+  Checked on our side (probe `~/wt/gf-fix-run/probe/collect.py`): Miami,
+  Club (the safe's spool), Shipyard and Airport make every one, name them,
+  and complete their objectives on pickup. Not yet against the cartridge (the
+  oracle host was down).
+
+The replay test was the same on all eight cases after each.
 
 ## Open
 
@@ -292,6 +315,6 @@ The replay test was the same on all eight cases after the four.
   under an opaque AA mode (Cartel, Bodega, China, Crab Key draw no walls -
   fast3d, affects every game); cars seated at the wrong height (gexplusveh.c);
   Vaults' Oddjob, whose own list runs after a background list reads his
-  health; and pickups of items that are no gun and no gadget (documents,
-  gold bars, the black box - Miami's orders, Knox, the safes of Club, Capture
-  and Ranch), which have no weapon number and are never made.
+  health.
+- Collectables against the cartridge (converter 104 was checked on our side
+  only); the watch draws nothing for one where GoldenEye draws its model.

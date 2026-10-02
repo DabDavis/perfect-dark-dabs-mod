@@ -30,11 +30,13 @@
 #include "system.h"
 #include "video.h"
 #include "romdata.h"
+#include "fs.h"
 #include "modloader.h"
 #include "gesfx.h"
 #include "gewatch.h"
 #include "geguns.h"
 #include "gegadgets.h"
+#include "gehud.h"
 #include "langpack.h"
 
 #ifndef PLATFORM_N64
@@ -239,6 +241,216 @@ static void gegadgetsUnloadModel(void)
 	g_Gadgets.item = -1;
 }
 
+/* ---- a mission's collectables ------------------------------------------ */
+
+/**
+ * The items a mission's pickups carry that are no gun and no gadget -
+ * documents, tapes, a weapon case, Goldfinger 64's gold bars - which the
+ * conversion puts on Perfect Dark's eight key cards, one a different item, by
+ * the mission (geconvert.c's soloCollectablesBegin(), menu/geslots.bin). The
+ * key cards' one definition names them all "Key Card", so each wears a text
+ * override for its number, as a Perfect Dark level names its own: GoldenEye's
+ * names out of the conversion's gun table (gitem_structs' watch_equipment_text
+ * and weapon_of_choice_text in LgunE, the hack's own - Goldfinger's orders are
+ * its "Folder"), and GoldenEye's own pickup message for an item it has no
+ * words for, "Picked up a new weapon." (generate_language_specific_text_for_
+ * weapon()). A mission's rename of the pickup, which most have, is the
+ * object's and goes before these, and it is what makes the pickup the object
+ * itself in the inventory, which a collect objective asks for, rather than a
+ * weapon (propPickupByPlayer()): GoldenEye's rule and Perfect Dark's alike.
+ */
+#define GECOLLECT_FIRST WEAPON_KEYCARD45
+#define GECOLLECT_NUM   8
+#define GECOLLECT_ITEM_ROW 56
+#define GECOLLECT_MAX_TEXTS 32
+
+static s32 g_CollectItem[GECOLLECT_NUM];
+static struct textoverride g_CollectOverrides[GECOLLECT_NUM];
+static char g_CollectTexts[GECOLLECT_MAX_TEXTS][64];
+static s32 g_NumCollectTexts;
+
+s32 gegadgetsIsCollectable(s32 weaponnum)
+{
+	return weaponnum >= GECOLLECT_FIRST && weaponnum < GECOLLECT_FIRST + GECOLLECT_NUM
+		&& g_CollectItem[weaponnum - GECOLLECT_FIRST] > 0;
+}
+
+s32 gegadgetsCollectableItem(s32 weaponnum)
+{
+	return gegadgetsIsCollectable(weaponnum) ? g_CollectItem[weaponnum - GECOLLECT_FIRST] : 0;
+}
+
+/**
+ * A text id for `text`, kept: langAddPortText() keeps the pointer. Each word's
+ * first letter up where `title` (GoldenEye's watch prints its small letters as
+ * small capitals; see gegadgetsTitleText()), and ending in a newline as the
+ * game's own do. 0 for nothing, or when the store is full.
+ */
+static u16 gegadgetsKeepText(const char *text, s32 title)
+{
+	char buf[64];
+	s32 up = 1;
+	s32 n = 0;
+
+	if (!text) {
+		return 0;
+	}
+
+	for (; text[n] && text[n] != '\n' && n < (s32)sizeof(buf) - 2; n++) {
+		char c = text[n];
+
+		if (title && up && c >= 'a' && c <= 'z') {
+			c -= 'a' - 'A';
+		}
+
+		up = c == ' ';
+		buf[n] = c;
+	}
+
+	if (n == 0) {
+		return 0;
+	}
+
+	buf[n++] = '\n';
+	buf[n] = '\0';
+
+	for (s32 i = 0; i < g_NumCollectTexts; i++) {
+		if (strcmp(g_CollectTexts[i], buf) == 0) {
+			return langAddPortText(g_CollectTexts[i]);
+		}
+	}
+
+	if (g_NumCollectTexts >= GECOLLECT_MAX_TEXTS) {
+		return 0;
+	}
+
+	strcpy(g_CollectTexts[g_NumCollectTexts], buf);
+
+	return langAddPortText(g_CollectTexts[g_NumCollectTexts++]);
+}
+
+/** A string of one of the conversion's text banks (an offset table, then the strings). */
+static const char *gegadgetsBankString(const char *file, const u8 *bank, u32 len, u32 id)
+{
+	const s32 slot = id & 0x3ff;
+	u32 at;
+
+	if (!id) {
+		return NULL;
+	}
+
+	// the selected language's, keyed ge.<bank>.<slot> by the file (langpack.h)
+	if (langpackActive()) {
+		const char *tr = langpackGeFile(file, slot);
+
+		if (tr) {
+			return tr;
+		}
+	}
+
+	if (!bank || (u32)(slot + 1) * 4 > len) {
+		return NULL;
+	}
+
+	at = ((u32)bank[slot * 4] << 24) | ((u32)bank[slot * 4 + 1] << 16) | ((u32)bank[slot * 4 + 2] << 8) | bank[slot * 4 + 3];
+
+	if (at == 0 || at >= len || !memchr(bank + at, 0, len - at)) {
+		return NULL;
+	}
+
+	return (const char *)bank + at;
+}
+
+/** The stage's collectables out of its conversion's menu/geslots.bin, and their names. */
+static void gegadgetsCollectLoad(void)
+{
+	const char *dir = g_Gadgets.moddir >= 0 ? fsGetModDirAt(g_Gadgets.moddir) : NULL;
+	char path[FS_MAXPATH + 1];
+	u8 *slots, *items = NULL, *gun = NULL;
+	u32 len = 0, itemslen = 0, gunlen = 0;
+	s32 any = 0;
+	char pickup[96];
+	u16 pickuptext;
+
+	memset(g_CollectItem, 0, sizeof(g_CollectItem));
+
+	if (!dir || g_Gadgets.mission < 0) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/menu/geslots.bin", dir);
+	slots = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
+
+	if (slots && len >= 6 && memcmp(slots, "GES1", 4) == 0) {
+		const u32 rows = (slots[4] << 8) | slots[5];
+
+		for (u32 r = 0; r < rows && 6 + 4 * (r + 1) <= len; r++) {
+			const u8 *row = slots + 6 + 4 * r;
+
+			if (row[0] == g_Gadgets.mission && row[1] >= GECOLLECT_FIRST && row[1] < GECOLLECT_FIRST + GECOLLECT_NUM) {
+				g_CollectItem[row[1] - GECOLLECT_FIRST] = row[2];
+				any = 1;
+			}
+		}
+	}
+
+	sysMemFree(slots);
+
+	if (!any) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/menu/geitems.bin", dir);
+	items = fsFileLoad(path, &itemslen);
+	snprintf(path, sizeof(path), "%s/menu/LgunE", dir);
+	gun = fsFileLoad(path, &gunlen);
+
+	// "Picked up " "a new weapon."
+	snprintf(pickup, sizeof(pickup), "%s%s",
+			geHudPropobjString(0) ? geHudPropobjString(0) : "Picked up ",
+			geHudPropobjString(0x3b) ? geHudPropobjString(0x3b) : "a new weapon.\n");
+	pickuptext = gegadgetsKeepText(pickup, 0);
+
+	for (s32 k = 0; k < GECOLLECT_NUM; k++) {
+		const s32 item = g_CollectItem[k];
+		struct textoverride *override = &g_CollectOverrides[k];
+		const char *shortname = NULL, *longname = NULL;
+
+		memset(override, 0, sizeof(*override));
+
+		if (!item) {
+			continue;
+		}
+
+		if (items && (u32)(item + 1) * GECOLLECT_ITEM_ROW <= itemslen) {
+			const u8 *row = items + item * GECOLLECT_ITEM_ROW;
+
+			shortname = gegadgetsBankString("LgunE", gun, gunlen, (row[42] << 8) | row[43]);
+			longname = gegadgetsBankString("LgunE", gun, gunlen, (row[40] << 8) | row[41]);
+		}
+
+		override->weapon = GECOLLECT_FIRST + k;
+		override->inventorytext = gegadgetsKeepText(shortname ? shortname : longname, 1);
+		override->inventory2text = gegadgetsKeepText(longname ? longname : shortname, 1);
+		override->pickuptext = pickuptext;
+
+		sysLogPrintf(LOG_NOTE, "gegadgets: key card %d is item %d (%s)", GECOLLECT_FIRST + k, item,
+				override->inventorytext ? langGet(override->inventorytext) : "no name\n");
+	}
+
+	sysMemFree(items);
+	sysMemFree(gun);
+}
+
+void gegadgetsCreateProps(void)
+{
+	for (s32 k = 0; k < GECOLLECT_NUM; k++) {
+		if (g_CollectItem[k]) {
+			invInsertTextOverride(&g_CollectOverrides[k]);
+		}
+	}
+}
+
 /**
  * A stage is loading: whose names the shared numbers wear, and nothing of the
  * last stage's in the hand.
@@ -292,6 +504,8 @@ void gegadgetsStageLoad(s32 stagenum)
 		// and its own numbers, ammunition and sound (geguns.c)
 		gegunsSetWatchLaser(gegadgetsIsWatchLaser(WEAPON_GE_MOONRAKER));
 	}
+
+	gegadgetsCollectLoad();
 }
 
 /**
@@ -364,7 +578,8 @@ void gegadgetsTextOverride(struct textoverride *override)
 	const struct gegadgetidentity *id;
 	s32 weaponnum;
 
-	if (!override || g_Gadgets.moddir < 0 || !gegadgetsIsGadget(override->weapon)) {
+	if (!override || g_Gadgets.moddir < 0
+			|| (!gegadgetsIsGadget(override->weapon) && !gegadgetsIsCollectable(override->weapon))) {
 		return;
 	}
 

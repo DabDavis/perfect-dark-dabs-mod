@@ -2050,6 +2050,12 @@ void setupCreateProps(s32 stagenum)
 	escstepy = 0;
 	g_Vars.textoverrides = NULL;
 
+#ifndef PLATFORM_N64
+	// a converted mission's collectables, on Perfect Dark's key cards, by
+	// GoldenEye's names; a rename the setup makes below goes before them
+	gegadgetsCreateProps();
+#endif
+
 	for (j = 0; j != ARRAYCOUNT(g_Briefing.objectivenames); j++) {
 		g_Briefing.objectivenames[j] = 0;
 		g_Briefing.objectivedifficulties[j] = 0;

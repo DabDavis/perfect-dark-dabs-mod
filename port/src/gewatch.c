@@ -2198,7 +2198,9 @@ static void watchInventoryTake(s32 start)
 {
 	const s32 weaponnum = invGetWeaponNumByIndex(g_Watch.invrow);
 
-	if (weaponnum <= 0) {
+	// a mission's collectable is carried and never held (gegadgets.c): its
+	// key card's model is no GoldenEye item's
+	if (weaponnum <= 0 || gegadgetsIsCollectable(weaponnum)) {
 		return;
 	}
 
@@ -4515,6 +4517,11 @@ static Gfx *watchDrawGun(Gfx *gdl, s32 weaponnum, s32 turning)
 	f32 hdlo[3], hdhi[3];
 	s32 ownitem;
 	u16 hdfile;
+
+	// nor drawn as Perfect Dark's key card
+	if (gegadgetsIsCollectable(weaponnum)) {
+		return gdl;
+	}
 
 	if (item < 0) {
 		return watchDrawPdGun(gdl, weaponnum, turning);

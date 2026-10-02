@@ -5446,6 +5446,29 @@ static void itemWeaponsBuild(void)
 	g_ItemWeaponsBuilt = 1;
 }
 
+/**
+ * A mission's collectables: the items a pickup carries that are no gun and no
+ * gadget - documents, tapes, Goldfinger 64's gold bars - which had no weapon
+ * of the port's and were never made (Miami's orders, so its first objective
+ * failed at once; the contents of Club's, Capture's and Ranch's safes). Each
+ * takes one of Perfect Dark's eight key cards for the mission (WEAPON_KEYCARD45
+ * on), in the order its setup's pickups name them; no mission has more than
+ * two. Everything that names the item in that mission - the pickup, a rename,
+ * an objective, an AI command - takes the same number, and menu/geslots.bin
+ * tells the game which item each stands for, whose name it shows
+ * (gegadgets.c). A GoldenEye collectable likewise: Silo's two briefcases.
+ */
+#define WEAPON_KEYCARD_FIRST 0x45
+#define NUM_COLLECT_SLOTS    8
+
+static uint8_t g_CollectSlot[NUM_ITEMS];
+static int g_CollectMission = -1;
+static int g_NumCollectSlots;
+// menu/geslots.bin's rows, u8 mission, u8 weapon, u8 item, u8 0 - out of the
+// collector's reach (a buf's memory is freed with each level's)
+static uint8_t g_CollectRows[40 * NUM_COLLECT_SLOTS][4];
+static int g_NumCollectRows;
+
 /** One of this ROM's item ids as the weapon Perfect Dark equips for it. */
 static uint32_t soloItemWeapon(uint32_t item)
 {
@@ -5453,7 +5476,64 @@ static uint32_t soloItemWeapon(uint32_t item)
 		itemWeaponsBuild();
 	}
 
-	return item < NUM_ITEMS ? g_ItemWeapon[item] : 0;
+	if (item >= NUM_ITEMS) {
+		return 0;
+	}
+
+	if (!g_ItemWeapon[item] && g_CollectMission >= 0) {
+		return g_CollectSlot[item];
+	}
+
+	return g_ItemWeapon[item];
+}
+
+static int soloIsCollectSlot(uint32_t w)
+{
+	return w >= WEAPON_KEYCARD_FIRST && w < WEAPON_KEYCARD_FIRST + NUM_COLLECT_SLOTS;
+}
+
+/** A mission's conversion begins: its collectables, from its setup's pickups (`f`). */
+static void soloCollectablesBegin(const buf *f, int mission)
+{
+	records recs = setupRecords(f);
+
+	memset(g_CollectSlot, 0, sizeof(g_CollectSlot));
+	g_NumCollectSlots = 0;
+	g_CollectMission = -1;
+
+	for (size_t i = 0; i < recs.n; ++i) {
+		const uint32_t item = recs.v[i].b[0x80];
+
+		if (recs.v[i].type != 8 || recs.v[i].len < 0x84 || item < 2 || item >= NUM_ITEMS
+				|| soloItemWeapon(item) || g_CollectSlot[item]) {
+			continue;
+		}
+
+		if (g_NumCollectSlots == NUM_COLLECT_SLOTS) {
+			note("geconvert: mission %d: item %u is a collectable past the %d there are weapons for: left out",
+					mission, (unsigned)item, NUM_COLLECT_SLOTS);
+			continue;
+		}
+
+		g_CollectSlot[item] = (uint8_t)(WEAPON_KEYCARD_FIRST + g_NumCollectSlots++);
+
+		if (g_NumCollectRows < (int)(sizeof(g_CollectRows) / sizeof(g_CollectRows[0]))) {
+			g_CollectRows[g_NumCollectRows][0] = (uint8_t)mission;
+			g_CollectRows[g_NumCollectRows][1] = g_CollectSlot[item];
+			g_CollectRows[g_NumCollectRows][2] = (uint8_t)item;
+			g_CollectRows[g_NumCollectRows][3] = 0;
+			g_NumCollectRows++;
+		}
+		note("geconvert: mission %d: item %u (%s) is collectable 0x%02x", mission, (unsigned)item,
+				g_Items[item].file ? g_Items[item].file : "no file", g_CollectSlot[item]);
+	}
+
+	g_CollectMission = mission;
+}
+
+static void soloCollectablesEnd(void)
+{
+	g_CollectMission = -1;
 }
 
 /**
@@ -6988,8 +7068,21 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 				// a rename: the item as the port's weapon and the five texts
 				// out of the mission's own bank (gesolo.py's rename_record())
 				const int32_t item = bes32(raw, 8);
+				const int64_t target = (int64_t)i + bes32(raw, 4);
 
 				set32(rec, 8, item > 0 ? soloItemWeapon((uint32_t)item) : 0);
+
+				// one that names its object and no item, on a collectable,
+				// is that collectable's: the game shows the slot's item by
+				// it (gegadgets.c), as it does a rename that names it
+				if (item <= 0 && target >= 0 && (size_t)target < recs.n && recs.v[target].type == 8
+						&& recs.v[target].len >= 0x84) {
+					const uint32_t w = soloItemWeapon(recs.v[target].b[0x80]);
+
+					if (soloIsCollectSlot(w)) {
+						set32(rec, 8, w);
+					}
+				}
 
 				for (size_t k = 0; k < 5; ++k) {
 					set32(rec, 12 + 4 * k, soloTextId(be32(raw, 12 + 4 * k) & 0xffff));
@@ -9075,6 +9168,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	g_NumRunMissions = NUM_MISSIONS;
 	memset(g_VariantTex, 0, sizeof(g_VariantTex));
 	g_VariantTexNext = 0;
+	g_NumCollectRows = 0;
+	g_CollectMission = -1;
 
 	if (!romToZ64(rom, romlen) || !(g_Layout = layoutOf(rom, romlen))) {
 		g_Layout = &g_Layouts[0];
@@ -9349,6 +9444,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 			mfile = romFile(ms->setup);
 			setupRead(&mfile, &msetup);
+			soloCollectablesBegin(&mfile, ms->num);
 			mbound = boundPads(&mfile, lv->levelscale, offset);
 			mpadrooms = gcAlloc((msetup.pads.n + mbound.n + 1) * sizeof(*mpadrooms));
 			mportals = geSoloDoors(&mfile, &msetup, &mbound, &stan, &bg, lv->levelscale, offset, mpadrooms,
@@ -9490,7 +9586,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 			note("geconvert: %s: mission %d, %d props (+%d left out), %d ai commands (+%d)",
 				ms->name, ms->num, st.props, st.dropped, st.aikept, st.aidropped);
+			soloCollectablesEnd();
 		}
+
+		soloCollectablesEnd();
 
 		for (size_t i = 0; i < sizeof(leveltex); ++i) {
 			alltex[i] |= leveltex[i];
@@ -9850,6 +9949,18 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 
 			writeFile(outdir, "menu/gecast.bin", cast.v, cast.n);
+		}
+
+		// menu/geslots.bin: which item each mission's collectable weapons
+		// stand for (soloCollectablesBegin()) - "GES1", u16 rows, then u8
+		// mission, u8 weapon, u8 item, u8 0 a row
+		if (g_NumCollectRows) {
+			buf slots = {0};
+
+			bufPut(&slots, (const uint8_t *)"GES1", 4);
+			bufU16(&slots, (uint32_t)g_NumCollectRows);
+			bufPut(&slots, &g_CollectRows[0][0], 4 * (size_t)g_NumCollectRows);
+			writeFile(outdir, "menu/geslots.bin", slots.v, slots.n);
 		}
 
 		// menu/geexplosions.bin: object_explosion_details as it stands, a
