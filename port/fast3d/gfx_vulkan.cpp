@@ -674,7 +674,7 @@ struct VkpPushBig { uint32_t size; uint8_t data[112]; };
 struct VkpBindVb { VkBuffer buffer; VkDeviceSize offset; };
 struct VkpDraw { uint32_t count, first; };
 // a mesh draw's vertices, colours, indices and set 1 at its two dynamic offsets
-struct VkpBindMesh { VkBuffer vb, cb, ib; VkDeviceSize vboff, cboff, iboff; VkDescriptorSet set; uint32_t dyn[2]; };
+struct VkpBindMesh { VkBuffer vb, cb, sb, ib; VkDeviceSize vboff, cboff, sboff, iboff; VkDescriptorSet set; uint32_t dyn[2]; };
 struct VkpClearAtt { uint32_t n; VkClearAttachment att[2]; VkClearRect rect; };
 struct VkpBlit { VkImage src; VkImageLayout src_layout; VkImage dst; VkImageLayout dst_layout; VkImageBlit region; VkFilter filter; };
 struct VkpResolve { VkImage src; VkImageLayout src_layout; VkImage dst; VkImageLayout dst_layout; VkImageResolve region; };
@@ -955,9 +955,9 @@ static void vk_replay(VkCommandBuffer cb, const VkStream &st) {
             }
             case VKP_BIND_MESH: {
                 VKP_TAKE(VkpBindMesh, m);
-                const VkBuffer bufs[2] = { m.vb, m.cb };
-                const VkDeviceSize offs[2] = { m.vboff, m.cboff };
-                vkCmdBindVertexBuffers(cb, 0, 2, bufs, offs);
+                const VkBuffer bufs[3] = { m.vb, m.cb, m.sb };
+                const VkDeviceSize offs[3] = { m.vboff, m.cboff, m.sboff };
+                vkCmdBindVertexBuffers(cb, 0, 3, bufs, offs);
                 vkCmdBindIndexBuffer(cb, m.ib, m.iboff, VK_INDEX_TYPE_UINT32);
                 vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 1, 1, &m.set, 2, m.dyn);
                 break;
@@ -2307,8 +2307,9 @@ static VkPipeline vk_create_pipeline(VkShaderModule vsm, VkShaderModule fsm, con
         vi.pVertexAttributeDescriptions = attrs;
     }
 
-    // A mesh's: its own vertices (GfxMeshVertex) and the frame's colours
-    VkVertexInputBindingDescription mbind[2] = {};
+    // A mesh's: its own vertices (GfxMeshVertex), the frame's colours, and
+    // the frame's s and t for a room dyntex animates
+    VkVertexInputBindingDescription mbind[3] = {};
     if (prg && mesh_cull >= 0) {
         mbind[0].binding = 0;
         mbind[0].stride = sizeof(GfxMeshVertex);
@@ -2316,15 +2317,19 @@ static VkPipeline vk_create_pipeline(VkShaderModule vsm, VkShaderModule fsm, con
         mbind[1].binding = 1;
         mbind[1].stride = 4;
         mbind[1].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        mbind[2].binding = 2;
+        mbind[2].stride = 4;
+        mbind[2].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
         attrs[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)offsetof(GfxMeshVertex, pos) };
         attrs[1] = { 1, 0, VK_FORMAT_R16G16_SINT, (uint32_t)offsetof(GfxMeshVertex, st) };
         attrs[2] = { 2, 0, VK_FORMAT_R8G8B8A8_UINT, (uint32_t)offsetof(GfxMeshVertex, bones) };
         attrs[3] = { 3, 0, VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)offsetof(GfxMeshVertex, weights) };
         attrs[4] = { 4, 1, VK_FORMAT_R8G8B8A8_UINT, 0 };
         attrs[5] = { 5, 0, VK_FORMAT_R32G32B32_SFLOAT, (uint32_t)offsetof(GfxMeshVertex, normal) };
-        vi.vertexBindingDescriptionCount = 2;
+        attrs[6] = { 6, 2, VK_FORMAT_R16G16_SINT, 0 };
+        vi.vertexBindingDescriptionCount = 3;
         vi.pVertexBindingDescriptions = mbind;
-        vi.vertexAttributeDescriptionCount = 6;
+        vi.vertexAttributeDescriptionCount = 7;
         vi.pVertexAttributeDescriptions = attrs;
     }
 
@@ -3076,7 +3081,8 @@ static bool vk_mesh_program(VkProgram *prg) {
           "layout(location = 2) in uvec4 aBones;\n"
           "layout(location = 3) in vec3 aWeights;\n"
           "layout(location = 4) in uvec4 aCol;\n"
-          "layout(location = 5) in vec3 aNormal;\n";
+          "layout(location = 5) in vec3 aNormal;\n"
+          "layout(location = 6) in ivec2 aSTd;\n";
     vs += strf("layout(set = 1, binding = 0, std430) readonly buffer MeshParams { vec4 uP[%d]; };\n", GFX_MESH_PARAMS);
     vs += strf("layout(set = 1, binding = 1, std430) readonly buffer MeshPalette { vec4 uPal[%d]; };\n",
                3 * GFX_MESH_PALETTE_MAX);
@@ -3151,8 +3157,9 @@ static bool gfx_vk_mesh_draw(const struct GfxMeshDraw *d) {
     const VkDeviceSize align = vk_mesh_offset_align();
 
     // The parameters, the palette (once a frame for a model's every draw),
-    // the colours (once a frame an array) and the triangles not kept
-    VkDeviceSize paroff, paloff = 0, coloff, idxoff = 0;
+    // the colours and the s and t (once a frame an array) and the triangles
+    // not kept
+    VkDeviceSize paroff, paloff = 0, coloff, stoff = 0, idxoff = 0;
     uint8_t *ptr = vk_mesh_stream(sl, (VkDeviceSize)GFX_MESH_PARAMS * 16, align, &paroff);
     if (!ptr) {
         return false;
@@ -3199,6 +3206,23 @@ static bool gfx_vk_mesh_draw(const struct GfxMeshDraw *d) {
         }
         memcpy(ptr, d->colours, (size_t)d->numcolours * 4);
         sl.mesh_cols[d->colours] = coloff;
+    }
+
+    // A room dyntex animates: s and t as the frame has them. Binding 2 is
+    // the mesh's own buffer otherwise, big enough and read for nothing.
+    if (d->st) {
+        auto si = sl.mesh_cols.find((const uint8_t *)d->st);
+
+        if (si != sl.mesh_cols.end()) {
+            stoff = si->second;
+        } else {
+            ptr = vk_mesh_stream(sl, (VkDeviceSize)m.count * 4, 16, &stoff);
+            if (!ptr) {
+                return false;
+            }
+            memcpy(ptr, d->st, (size_t)m.count * 4);
+            sl.mesh_cols[(const uint8_t *)d->st] = stoff;
+        }
     }
 
     if (d->indices) {
@@ -3253,6 +3277,8 @@ static bool gfx_vk_mesh_draw(const struct GfxMeshDraw *d) {
     bm.vboff = 0;
     bm.cb = d->colours ? sl.mesh.buf : m.vbo.buf;
     bm.cboff = coloff;
+    bm.sb = d->st ? sl.mesh.buf : m.vbo.buf;
+    bm.sboff = stoff;
     bm.ib = d->indices ? sl.mesh.buf : m.ibo.buf;
     bm.iboff = d->indices ? idxoff : 0;
     bm.set = sl.mesh_set;

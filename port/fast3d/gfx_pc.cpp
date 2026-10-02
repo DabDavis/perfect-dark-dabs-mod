@@ -3809,9 +3809,11 @@ bool gfx_gpu_vertices = true;
 // The last frame's meshes drawn by the GPU, their triangles, and the
 // triangles a backend would not draw, which went to the CPU instead
 uint32_t g_GfxMeshDraws = 0, g_GfxMeshTris = 0, g_GfxMeshRefused = 0;
-// The same for rooms, and a room's triangles drawn on the CPU after all: those
-// of runs the GPU cannot draw, and those sealed (G_SEAL_SEAMS_EXT)
-uint32_t g_GfxRoomDraws = 0, g_GfxRoomTris = 0, g_GfxRoomRefused = 0, g_GfxRoomCpuTris = 0, g_GfxRoomSealedTris = 0;
+// The same for rooms (and of those triangles, the ones of rooms dyntex
+// animates), and a room's triangles drawn on the CPU after all: those of runs
+// the GPU cannot draw, and those sealed (G_SEAL_SEAMS_EXT)
+uint32_t g_GfxRoomDraws = 0, g_GfxRoomTris = 0, g_GfxRoomDyntexTris = 0, g_GfxRoomRefused = 0, g_GfxRoomCpuTris = 0,
+         g_GfxRoomSealedTris = 0;
 }
 
 /*
@@ -4421,6 +4423,7 @@ static void gfx_mesh_draw(const uint32_t* indices, uint32_t numindices, uint32_t
     d.params = params;
     d.palette = skinned ? mesh_cur->palette : NULL;
     d.numpalette = skinned ? (uint32_t)mesh_cur->mesh->nummatrices : 0;
+    d.st = NULL;
     d.cull = gfx_mesh_cull();
 
     if (d.mesh && d.prg && gfx_rapi->mesh_draw(&d)) {
@@ -4636,16 +4639,20 @@ static const Gfx* gfx_mesh_kept_run(const Gfx* cmd) {
  *    under the same state (gfx_room_vstate() - the GPU works a vertex out
  *    under the state of the draw, the RSP under the state of its load).
  *
+ * A room dyntex animates has its s and t rewritten in its own vertices every
+ * frame. Its draws hand the shader the frame's s and t beside the colours
+ * (gfx_room_st()), read in place of the copy's, so its runs are kept and
+ * drawn on the GPU like any other room's.
+ *
  * Drawn on the CPU as any list is: a run the GPU cannot draw at all or under
  * the state of the moment - per-vertex fog (whose RSP clipping the shader
  * does not do, on a converted GoldenEye level in the N64 look), a face's own
- * texgen, the sky's unclipped lists - and a run over a vertex dyntex moves
- * (gfx_room_start()). A triangle such a run draws over a slot a kept run left
- * on the GPU alone has that corner loaded first (gfx_room_materialise()), and
- * the kept run is drawn on the CPU from then on, so its loads happen where
- * the list has them. A run's sealed triangles are drawn on the CPU while
- * sealing is on (gfx_seal_seams() works on the whole triangle on the screen),
- * after the rest of the run.
+ * texgen, the sky's unclipped lists. A triangle such a run draws over a slot
+ * a kept run left on the GPU alone has that corner loaded first
+ * (gfx_room_materialise()), and the kept run is drawn on the CPU from then
+ * on, so its loads happen where the list has them. A run's sealed triangles
+ * are drawn on the CPU while sealing is on (gfx_seal_seams() works on the
+ * whole triangle on the screen), after the rest of the run.
  */
 struct GfxRoomRun {
     const Gfx* end;               // the first command past it
@@ -4666,7 +4673,6 @@ struct GfxRoomRun {
     uint32_t numsealed;           // triangles marked for sealing
     uint32_t first_all;           // where all its triangles are kept with the room's copy; UINT32_MAX when not
     uint32_t first_plain;         // and those not marked
-    uint32_t animgen;             // the room's animgen it was last checked against
     float bmin[3], bmax[3];       // the box round its triangles' corners, in the room's space
     std::vector<uint32_t> all;    // its triangles in the list's order, three vertices each
     std::vector<uint32_t> plain;  // those not marked for sealing (only when some are)
@@ -4679,10 +4685,9 @@ struct GfxRoomData {
     bool palette;                // the table goes to the vertex shader whole
     int64_t direct;              // every colidx known is its vertex's index plus this; INT64_MIN when not, or none known
     bool anyknown;
-    std::vector<uint32_t> st;    // a dynamic room's s and t as last seen
-    std::vector<uint8_t> animated;
-    uint32_t animgen;            // bumped when a vertex is first seen to move
+    // A dynamic room's s and t as dyntex left them this frame (gfx_room_st())
     uint32_t stframe;
+    const int16_t* st;
     // This frame's colours as the draws read them (gfx_room_colours())
     uint32_t frame;
     const void* table;
@@ -4734,19 +4739,13 @@ static void gfx_room_init(GfxMeshEntry* e, const struct gfxmesh* mesh) {
     rd->palette = mesh_cur && mesh_cur->numcolours <= GFXMESH_ROOM_PALETTE;
     rd->direct = INT64_MIN;
     rd->anyknown = false;
-    rd->animgen = 0;
     rd->stframe = 0;
+    rd->st = NULL;
     rd->frame = 0;
     rd->table = NULL;
     rd->colours = NULL;
     rd->pal = NULL;
     rd->numpal = 0;
-    rd->st.resize(n);
-    rd->animated.assign(n, 0);
-
-    for (int32_t k = 0; k < n; k++) {
-        rd->st[k] = (uint16_t)mesh->vertices[k].s | ((uint32_t)(uint16_t)mesh->vertices[k].t << 16);
-    }
 
     e->room.reset(rd);
 }
@@ -4774,38 +4773,40 @@ static void gfx_room_vstate(GfxRoomVState* s) {
     }
 }
 
-/*
- * A room's draw begins: the slots know nothing of its runs yet, and a room
- * dyntex animates has its s and t looked over once a frame - a vertex seen
- * to move is the CPU's from then on, and so is any run that loads or draws it.
- */
+// A room's draw begins: the slots know nothing of its runs yet
 static void gfx_room_start(void) {
-    GfxRoomData* rd = mesh_entry->room.get();
-    const struct gfxmesh* m = mesh_cur->mesh;
-
     room_sigs.clear();
 
     for (size_t i = 0; i < sizeof(mesh_slot_sig) / sizeof(mesh_slot_sig[0]); i++) {
         mesh_slot_sig[i] = -1;
         mesh_slot_run[i] = NULL;
     }
+}
 
-    if (m->dynamic && rd->stframe != gfx_mesh_frame) {
-        rd->stframe = gfx_mesh_frame;
+/*
+ * A dynamic room's s and t this frame, two a vertex, which its draws hand the
+ * shader in place of the copy's. dyntex rewrites them in the room's own
+ * vertices as the frame's lists are made (dyntexTickRoom(), once a frame), so
+ * they hold still while the lists are drawn: read once, at the room's first
+ * GPU draw of the frame.
+ */
+static const int16_t* gfx_room_st(void) {
+    GfxRoomData* rd = mesh_entry->room.get();
+
+    if (rd->stframe != gfx_mesh_frame || !rd->st) {
+        const struct gfxmesh* m = mesh_cur->mesh;
+        int16_t* st = (int16_t*)gfx_room_alloc(sizeof(int16_t) * 2 * m->numvertices);
 
         for (int32_t k = 0; k < m->numvertices; k++) {
-            const uint32_t st = (uint16_t)m->vertices[k].s | ((uint32_t)(uint16_t)m->vertices[k].t << 16);
-
-            if (st != rd->st[k]) {
-                rd->st[k] = st;
-
-                if (!rd->animated[k]) {
-                    rd->animated[k] = 1;
-                    rd->animgen++;
-                }
-            }
+            st[k * 2 + 0] = m->vertices[k].s;
+            st[k * 2 + 1] = m->vertices[k].t;
         }
+
+        rd->st = st;
+        rd->stframe = gfx_mesh_frame;
     }
+
+    return rd->st;
 }
 
 // One of the room's vertices through gfx_sp_load_vertex(), its colour the
@@ -4988,7 +4989,6 @@ static GfxRoomRun gfx_room_read_run(const Gfx* cmd) {
     r.numsealed = 0;
     r.first_all = UINT32_MAX;
     r.first_plain = UINT32_MAX;
-    r.animgen = rd->animgen;
 
     for (int i = 0; i < 16; i++) {
         slots[i] = mesh_slot[i] >= 0 ? mesh_slot[i] : -1;
@@ -5272,6 +5272,7 @@ static void gfx_room_draw(const std::vector<uint32_t>& idx, uint32_t first) {
     float params[4 * GFX_MESH_PARAMS];
     gfx_mesh_params(params, false);
     params[51] = rd->palette ? 1.0f : 0.0f;
+    params[110] = mesh_cur->mesh->dynamic ? 1.0f : 0.0f;
 
     struct GfxMeshDraw d;
     d.prg = rendering_state.shader_program;
@@ -5284,6 +5285,7 @@ static void gfx_room_draw(const std::vector<uint32_t>& idx, uint32_t first) {
     d.params = params;
     d.palette = rd->palette ? rd->pal : NULL;
     d.numpalette = rd->palette ? rd->numpal : 0;
+    d.st = mesh_cur->mesh->dynamic ? gfx_room_st() : NULL;
     d.cull = gfx_mesh_cull();
 
     if (d.mesh && d.prg && (d.colours || d.palette) && gfx_rapi->mesh_draw(&d)) {
@@ -5291,6 +5293,9 @@ static void gfx_room_draw(const std::vector<uint32_t>& idx, uint32_t first) {
         g_GfxNumTris += numtris;
         g_GfxRoomDraws++;
         g_GfxRoomTris += numtris;
+        if (d.st) {
+            g_GfxRoomDyntexTris += numtris;
+        }
     } else {
         g_GfxRoomRefused += numtris;
         gfx_room_draw_cpu(idx, false);
@@ -5332,23 +5337,6 @@ static const Gfx* gfx_room_kept_run(const Gfx* cmd) {
     }
     if (go && r.incol && (intptr_t)((uintptr_t)rsp.vertex_colors - table) != r.incoldelta) {
         go = false;
-    }
-
-    // A dyntex vertex first seen to move since the run was looked at
-    if (go && r.animgen != rd->animgen) {
-        r.animgen = rd->animgen;
-
-        for (uint32_t k : r.all) {
-            if (rd->animated[k]) {
-                r.ok = go = false;
-                break;
-            }
-        }
-        for (int i = 0; go && i < 16; i++) {
-            if ((r.loaded & (1u << i)) && rd->animated[r.slotout[i]]) {
-                r.ok = go = false;
-            }
-        }
     }
 
     int32_t sig = -1;
@@ -5417,14 +5405,15 @@ static const Gfx* gfx_room_kept_run(const Gfx* cmd) {
 /*
  * The mesh vertex shader's functions and main() (G_MESH_EXT), shared by both
  * backends, which put their own declarations in front: the inputs aPos, aST,
- * aBones, aWeights, aCol and aNormal (GfxMeshVertex and the colour stream),
- * the parameters uP[GFX_MESH_PARAMS] and the palette uPal[3 *
- * GFX_MESH_PALETTE_MAX], and the outputs the program's fragment shader
- * reads. The vertex is posed by the palette, put through the RSP's transform,
- * and every output is worked out from the draw's parameters in the order
- * gfx_sp_load_vertex(), gfx_light_vertex() and gfx_emit_vertex() work them out
- * on the CPU. depth_clamp_hack squeezes z as a renderer without depth clamping
- * does; vulkan_depth takes OpenGL's -1..1 depth into Vulkan's 0..1 last.
+ * aBones, aWeights, aCol, aNormal and aSTd (GfxMeshVertex, the colour stream
+ * and the s and t stream of a room dyntex animates), the parameters
+ * uP[GFX_MESH_PARAMS] and the palette uPal[3 * GFX_MESH_PALETTE_MAX], and the
+ * outputs the program's fragment shader reads. The vertex is posed by the
+ * palette, put through the RSP's transform, and every output is worked out
+ * from the draw's parameters in the order gfx_sp_load_vertex(),
+ * gfx_light_vertex() and gfx_emit_vertex() work them out on the CPU.
+ * depth_clamp_hack squeezes z as a renderer without depth clamping does;
+ * vulkan_depth takes OpenGL's -1..1 depth into Vulkan's 0..1 last.
  */
 static std::string gfx_mesh_strf(const char* fmt, ...) {
     char buf[512];
@@ -5528,7 +5517,9 @@ std::string gfx_mesh_vs_main(const struct CCFeatures& cc, bool depth_clamp_hack,
     s += "    vec4 shade = vec4(col) / 255.0;\n";
     s += "    float lodf = floor((0.7 + clamp(pos.w / 1024.0, 0.0, 1.0) * 0.3) * 255.0) / 255.0;\n";
     s += "    vec4 outPos = vec4(pos.x, pos.y * uP[5].z, uP[5].w != 0.0 ? (pos.z + pos.w) / 2.0 : pos.z, pos.w);\n";
-    s += "    vec2 uv = vec2(toShort((aST.x * int(uP[12].x)) >> 16), toShort((aST.y * int(uP[12].y)) >> 16));\n";
+    // A room dyntex animates: s and t as this frame has them, from the draw
+    s += "    ivec2 st = uP[27].z != 0.0 ? aSTd : aST;\n";
+    s += "    vec2 uv = vec2(toShort((st.x * int(uP[12].x)) >> 16), toShort((st.y * int(uP[12].y)) >> 16));\n";
     // The normal an RSP light reads: the colour's bytes as signed, or a
     // skinned mesh's own normal posed, 127 long and rounded as a byte is
     s += "    vec3 nrm = vec3(col.rgb);\n";
@@ -7233,8 +7224,9 @@ extern "C" void gfx_start_frame(void) {
                     "gfx:   tris clipped %u, culled %u, drawn %u",
                     g_GfxTrisClipped, g_GfxTrisCulled, g_GfxNumTris);
             if (g_GfxRoomDraws || g_GfxRoomRefused || g_GfxRoomCpuTris || g_GfxRoomSealedTris) {
-                sysLogPrintf(LOG_NOTE, "gfx:   gpu rooms: %u draws, %u tris (%u tris refused to the cpu); cpu %u tris, %u sealed",
-                        g_GfxRoomDraws, g_GfxRoomTris, g_GfxRoomRefused, g_GfxRoomCpuTris, g_GfxRoomSealedTris);
+                sysLogPrintf(LOG_NOTE, "gfx:   gpu rooms: %u draws, %u tris (%u dyntex, %u tris refused to the cpu); cpu %u tris, %u sealed",
+                        g_GfxRoomDraws, g_GfxRoomTris, g_GfxRoomDyntexTris, g_GfxRoomRefused, g_GfxRoomCpuTris,
+                        g_GfxRoomSealedTris);
             }
             if (g_GfxMeshDraws || g_GfxMeshRefused) {
                 sysLogPrintf(LOG_NOTE, "gfx:   gpu meshes: %u draws, %u tris (%u tris refused to the cpu)",
@@ -7274,7 +7266,7 @@ extern "C" void gfx_start_frame(void) {
     g_GfxNumVerts = 0;
     g_GfxTrisClipped = g_GfxTrisCulled = 0;
     g_GfxMeshDraws = g_GfxMeshTris = g_GfxMeshRefused = 0;
-    g_GfxRoomDraws = g_GfxRoomTris = g_GfxRoomRefused = g_GfxRoomCpuTris = g_GfxRoomSealedTris = 0;
+    g_GfxRoomDraws = g_GfxRoomTris = g_GfxRoomDyntexTris = g_GfxRoomRefused = g_GfxRoomCpuTris = g_GfxRoomSealedTris = 0;
     memset(g_GfxFlushReasons, 0, sizeof(g_GfxFlushReasons));
     gfx_frame_textures.clear();
     g_GfxNumDistinctTextures = 0;

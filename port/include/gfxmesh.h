@@ -40,7 +40,8 @@ struct gfxmesh {
 	const f32 *normals;    // three per vertex, unit length, or NULL: where a skinned mesh is lit
 	                       // or reflects, its normal is this posed, not its colour's three bytes
 	u8 room;               // a room's vertices (roommesh.c): see below
-	u8 dynamic;            // a room whose s and t dyntex rewrites from frame to frame
+	u8 dynamic;            // a room whose s and t dyntex rewrites from frame to frame: each
+	                       // draw hands the shader the frame's s and t beside the colours
 };
 
 /*

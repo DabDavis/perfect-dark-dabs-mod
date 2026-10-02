@@ -1088,6 +1088,7 @@ struct GlMesh {
     GLuint ibo;                  // its kept triangles (gfx_opengl_mesh_add_indices()), 0 until it has any
     std::vector<uint32_t> kept;  // the same on the CPU, to make a bigger buffer from
     size_t ibo_cap;              // indices the buffer has room for
+    GLintptr st_at;              // where aSTd reads in the frame's stream, -1 for the mesh's own buffer
 };
 
 static std::unordered_map<uint32_t, GlMesh> gl_meshes;
@@ -1190,6 +1191,7 @@ static uint32_t gfx_opengl_mesh_create(const struct GfxMeshVertex* verts, uint32
     m.count = count;
     m.ibo = 0;
     m.ibo_cap = 0;
+    m.st_at = -1;
     glGenBuffers(1, &m.vbo);
     glBindBuffer(GL_ARRAY_BUFFER, m.vbo);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)count * sizeof(GfxMeshVertex), verts, GL_STATIC_DRAW);
@@ -1206,6 +1208,11 @@ static uint32_t gfx_opengl_mesh_create(const struct GfxMeshVertex* verts, uint32
     glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(GfxMeshVertex), (const void*)offsetof(GfxMeshVertex, weights));
     glEnableVertexAttribArray(5);
     glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, sizeof(GfxMeshVertex), (const void*)offsetof(GfxMeshVertex, normal));
+    // s and t in place of the copy's (a room dyntex animates): the mesh's own
+    // buffer, which is big enough and read for nothing, until a draw hands
+    // them over in the frame's stream
+    glEnableVertexAttribArray(6);
+    glVertexAttribIPointer(6, 2, GL_SHORT, 4, NULL);
     // the colours: pointed at the frame's stream by each draw
     glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_col_vbo);
     glEnableVertexAttribArray(4);
@@ -1330,6 +1337,7 @@ static size_t gfx_opengl_mesh_vs(const struct CCFeatures& cc, char* buf) {
     append_line(buf, &len, "in vec3 aWeights;");
     append_line(buf, &len, "in uvec4 aCol;");
     append_line(buf, &len, "in vec3 aNormal;");
+    append_line(buf, &len, "in ivec2 aSTd;");
     len += sprintf(buf + len, "uniform vec4 uP[%d];\n", GFX_MESH_PARAMS);
     len += sprintf(buf + len, "uniform vec4 uPal[%d];\n", 3 * GFX_MESH_PALETTE_MAX);
 
@@ -1404,6 +1412,7 @@ static bool gfx_opengl_mesh_program(struct ShaderProgram* prg) {
     glBindAttribLocation(program, 3, "aWeights");
     glBindAttribLocation(program, 4, "aCol");
     glBindAttribLocation(program, 5, "aNormal");
+    glBindAttribLocation(program, 6, "aSTd");
     glLinkProgram(program);
     glDetachShader(program, vs);
     glDetachShader(program, prg->fragment_shader);
@@ -1453,7 +1462,26 @@ static bool gfx_opengl_mesh_program(struct ShaderProgram* prg) {
     return true;
 }
 
-// The colours the draw reads, in this frame's stream: where they start
+/*
+ * Room for bytes more in this frame's stream, made before any of a draw's
+ * arrays goes in: fresh storage drops what is already there for the draws
+ * still to come, and a draw's second array must not drop its first.
+ */
+static void gl_mesh_col_reserve(size_t bytes) {
+    if (gl_mesh_col_used + bytes > gl_mesh_col_cap) {
+        // fresh storage, bigger; what earlier draws read stays theirs
+        while (gl_mesh_col_cap < bytes * 2 || gl_mesh_col_cap < gl_mesh_col_used + bytes) {
+            gl_mesh_col_cap *= 2;
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_col_vbo);
+        glBufferData(GL_ARRAY_BUFFER, gl_mesh_col_cap, NULL, GL_STREAM_DRAW);
+        gl_mesh_col_used = 0;
+        gl_mesh_col_seen.clear();
+    }
+}
+
+// Four bytes a vertex the draw reads (colours, or s and t), in this frame's
+// stream: where they start
 static bool gl_mesh_colours(const uint8_t* colours, uint32_t count, GLintptr* out) {
     auto it = gl_mesh_col_seen.find(colours);
 
@@ -1464,18 +1492,8 @@ static bool gl_mesh_colours(const uint8_t* colours, uint32_t count, GLintptr* ou
 
     const size_t bytes = (size_t)count * 4;
 
+    gl_mesh_col_reserve(bytes);
     glBindBuffer(GL_ARRAY_BUFFER, gl_mesh_col_vbo);
-
-    if (gl_mesh_col_used + bytes > gl_mesh_col_cap) {
-        // fresh storage, bigger; what earlier draws read stays theirs
-        while (gl_mesh_col_cap < bytes * 2 || gl_mesh_col_cap < gl_mesh_col_used + bytes) {
-            gl_mesh_col_cap *= 2;
-        }
-        glBufferData(GL_ARRAY_BUFFER, gl_mesh_col_cap, NULL, GL_STREAM_DRAW);
-        gl_mesh_col_used = 0;
-        gl_mesh_col_seen.clear();
-    }
-
     glBufferSubData(GL_ARRAY_BUFFER, gl_mesh_col_used, bytes, colours);
     *out = (GLintptr)gl_mesh_col_used;
     gl_mesh_col_seen[colours] = *out;
@@ -1514,11 +1532,20 @@ static bool gfx_opengl_mesh_draw(const struct GfxMeshDraw* d) {
     }
 
     struct ShaderProgram* prg = d->prg;
+    GlMesh& m = it->second;
     GLintptr coloff = 0;
+    GLintptr stoff = -1;
+
+    if (d->colours && d->st) {
+        gl_mesh_col_reserve(((size_t)d->numcolours * 4 + 15) / 16 * 16 + ((size_t)m.count * 4 + 15) / 16 * 16);
+    }
 
     // A room whose colours are the palette's reads none per vertex: the
     // attribute points at the mesh's own buffer, which is big enough
     if (d->colours && !gl_mesh_colours(d->colours, d->numcolours, &coloff)) {
+        return false;
+    }
+    if (d->st && !gl_mesh_colours((const uint8_t*)d->st, m.count, &stoff)) {
         return false;
     }
 
@@ -1559,9 +1586,15 @@ static bool gfx_opengl_mesh_draw(const struct GfxMeshDraw* d) {
         }
     }
 
-    glBindVertexArray(it->second.vao);
-    glBindBuffer(GL_ARRAY_BUFFER, d->colours ? gl_mesh_col_vbo : it->second.vbo);
+    glBindVertexArray(m.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, d->colours ? gl_mesh_col_vbo : m.vbo);
     glVertexAttribIPointer(4, 4, GL_UNSIGNED_BYTE, 4, (const void*)coloff);
+
+    if (stoff != m.st_at) {
+        glBindBuffer(GL_ARRAY_BUFFER, stoff >= 0 ? gl_mesh_col_vbo : m.vbo);
+        glVertexAttribIPointer(6, 2, GL_SHORT, 4, (const void*)(stoff >= 0 ? stoff : 0));
+        m.st_at = stoff;
+    }
 
     GLintptr idxoff;
 

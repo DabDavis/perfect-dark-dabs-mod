@@ -31,6 +31,9 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 33 2026-10-02
+Villa's ocean and the other levels' animated water are drawn by the graphics card too (Video > GPU Vertex Shading)
+
 notes 32 2026-10-02
 Every level's rooms are drawn by the graphics card too: GoldenEye's HD levels run about three times lighter on the processor (Video > GPU Vertex Shading)
 

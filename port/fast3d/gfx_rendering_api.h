@@ -45,7 +45,8 @@ struct GfxMeshVertex {
  *  21-22 their colour kinds, 23-24 their alpha kinds (GFX_MESH_IN_*)
  *  25    directional lights, 1 for G_LIGHTING, 1 for G_TEXTURE_GEN, 1 for G_TEXTURE_GEN_LINEAR
  *  26    1 for G_TEXGEN_EYE_EXT, G_TEXGEN_TURN_EXT, a LookAt, G_ENVMAP_EXT
- *  27    1 to force a lit vertex's alpha to 255, 1 when the normal is the mesh's own posed, 0, 0
+ *  27    1 to force a lit vertex's alpha to 255, 1 when the normal is the mesh's own posed,
+ *        1 when s and t are the draw's (GfxMeshDraw::st) rather than the copy's, 0
  *  28    the ambient light's colour (0..255)
  *  29-32 the lights' directions in model space (gfx_light_vertex()'s coefficients)
  *  33-36 their colours (0..255)
@@ -69,6 +70,8 @@ struct GfxMeshDraw {
     const float* params;         // GFX_MESH_PARAMS vec4s
     const float* palette;        // numpalette entries of 12 floats, or NULL
     uint32_t numpalette;
+    const int16_t* st;           // s and t for each vertex of the mesh this frame, in place of the copy's
+                                 // (a room dyntex animates), or NULL
     int8_t cull;                 // drop triangles wound 1 clockwise, -1 anticlockwise, 0 neither, as emitted
 };
 

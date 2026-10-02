@@ -17,9 +17,10 @@
   the renderer reads each run of a room's lists once (`gfx_room_read_run()`),
   learns each vertex's place in the room's colour table and keeps the run's
   triangles. A table of up to 192 entries goes to the shader whole
-  (`GFXMESH_ROOM_PALETTE`), a bigger one is gathered a frame at a time.
-  Sealed triangles, dyntex vertices, and per-vertex-fog runs that cross the
-  RSP's clip volume stay on the CPU.
+  (`GFXMESH_ROOM_PALETTE`), a bigger one is gathered a frame at a time. A
+  room dyntex animates hands the shader its s and t a frame at a time
+  beside the colours (`gfx_room_st()`, "Dyntex" below). Sealed triangles
+  and per-vertex-fog runs that cross the RSP's clip volume stay on the CPU.
 - **What it bought** — "Measured": the 80-simulant XBLA-look match went from
   210M to 11M game-thread instructions a frame (cycles 164M to 8.7M) on GL and
   206M to 10.5M on Vulkan; GE Plus Dam in HD 82M to 62M with the meshes, then
@@ -27,8 +28,8 @@
   rooms were never much of the frame.
 - **What still goes through the CPU and why** — the section of that name:
   the N64 look's models, rectangles, the sky, a room's sealed triangles while
-  sealing is on, a room's runs over vertices dyntex moves, a converted
-  GoldenEye room's per-vertex-fog runs near the eye, a mesh's per-vertex-fog
+  sealing is on, a converted GoldenEye room's per-vertex-fog runs near the
+  eye, a mesh's per-vertex-fog
   clipping, a door's trimmed copy, a crumpled prop, the title's logo
   passes.
 - **Checking a change to it** — the section of that name: `--cpu-vertices` on
@@ -87,7 +88,9 @@ generators.
 
 **GL (`gfx_opengl.cpp`)**: a mesh is a VBO and a VAO; the parameters and the
 palette are uniform arrays (`uP[45]`, `uPal[192]`, within GL 3.0's 1024
-components); colours and non-kept indices stream through per-frame buffers.
+components); colours, a dyntex room's s and t (attribute 6, `aSTd`, pointed
+at the mesh's own buffer when a draw has none) and non-kept indices stream
+through per-frame buffers.
 A mesh draw leaves its program, VAO, culling and `GL_CLIP_DISTANCE0` bound,
 and `gl_mesh_leave()` restores the CPU path's state at every entry point that
 draws. Needs desktop GL 3.0+; ES and GL 2.1 draw on the CPU.
@@ -95,7 +98,9 @@ draws. Needs desktop GL 3.0+; ES and GL 2.1 draw on the CPU.
 **Vulkan (`gfx_vulkan.cpp`)**: a mesh is a vertex buffer and a kept index
 buffer; set 1 (`vk_mesh_set_layout`, two dynamic storage buffers) reads the
 parameters and palette out of the frame slot's mesh stream, which also holds
-the colours and non-kept indices; mesh pipelines bake the cull mode in. Needs
+the colours (vertex binding 1), a dyntex room's s and t (binding 2, the
+mesh's own buffer when a draw has none) and non-kept indices; mesh pipelines
+bake the cull mode in. Needs
 `shaderClipDistance`. Two new packets, `VKP_BIND_MESH` and
 `VKP_DRAW_INDEXED`.
 
@@ -115,6 +120,19 @@ part way through: draws already listed point into it). `bgUnloadRoom()` calls
 `roomMeshForget()`, and so does `geLightsDarken()` when it rewrites an HD
 room's colour bytes - anything else that rewrites a loaded room's `Vtx`
 (other than dyntex's s and t, below) has to as well.
+
+**Dyntex (2026-10-02).** `dyntexTickRoom()` rewrites the s and t of a
+`dynamic` room's animated vertices in the room's own array once a frame, as
+the frame's lists are made, so they hold still while the renderer runs them.
+Each GPU draw of such a room hands the shader the frame's s and t of every
+vertex of the room, two shorts a vertex (`GfxMeshDraw::st`, gathered once a
+frame at the room's first GPU draw, `gfx_room_st()`), and `uP[27].z` tells
+the shader to read them (`aSTd`) in place of the copy's (`aST`). The kept
+runs, colours and slot records are the same as any room's: only s and t
+move, and the CPU reads them where the RSP would, at the load, which within a
+frame is the same thing. Before this a vertex seen to move was the CPU's for
+good, and so was every run that loaded or drew it (Villa's ocean, ~140
+triangles a frame in its opening).
 
 **Renderer (`gfx_pc.cpp`, "G_MESH_EXT for a room").** The room's copy on the
 GPU is its vertices as they stand, rigid. A room's lists hold to none of the
@@ -163,9 +181,6 @@ one offset, else gathered once a frame (`gfx_room_colours()`).
   room triangles on screen; sealing on the GPU would need the whole triangle
   in the vertex shader (each corner with its two neighbours as attributes) -
   not done.
-- *Dyntex*: a `dynamic` room's s and t are compared with last frame's at each
-  draw's start (`gfx_room_start()`); a vertex seen to move is marked for good,
-  and every run that loads or draws one is the CPU's from then on.
 - *Per-vertex fog* (`G_FOG_VERTEX_EXT`, a converted GoldenEye level in the
   N64 look): the CPU cuts a triangle crossing the RSP's clip volume and fogs
   the new corners where they stand. A run goes to the GPU only when the eight
@@ -178,15 +193,16 @@ one offset, else gathered once a frame (`gfx_room_colours()`).
   drawn on the CPU from the next frame on, so its loads happen where the list
   has them.
 
-`--gfxstats` prints `gpu rooms: D draws, T tris (R refused to the cpu); cpu C
-tris, S sealed`. Draws are one a run (the CPU path merges a run into the
+`--gfxstats` prints `gpu rooms: D draws, T tris (Y dyntex, R refused to the
+cpu); cpu C tris, S sealed`, Y being the GPU's triangles of rooms dyntex
+animates. Draws are one a run (the CPU path merges a run into the
 batch of the run before when nothing changed between them), so Dam in HD goes
 from ~475 to ~1080 draw calls; merging kept runs is the next step if the
 driver's share ever shows.
 
 ## What still goes through the CPU and why
 
-- **Rooms, in part** - see "How a room is drawn": sealed triangles, dyntex,
+- **Rooms, in part** - see "How a room is drawn": sealed triangles,
   per-vertex fog near the eye.
 - **The N64 look's models**, rectangles (text, HUD), the sky
   (`G_NO_CLIPPING_EXT`), per-vertex fog's RSP clipping (`G_FOG_VERTEX_EXT`
@@ -217,6 +233,10 @@ Rooms, the same way, the build before them against the build with them:
 | 80-sim match 0x32, XBLA look | 10.05M | 9.70M |
 | 80-sim match 0x32, N64 look | 6.93M | 6.90M |
 
+Dyntex's s and t streamed (Villa's opening, `--boot-stage 0x2c`, 900 frames,
+GL, two runs each): N64 look 5.24M -> 4.91-5.01M, the release's rooms 4.73M
+-> 4.69M. Only the water's runs moved, so it is small.
+
 On Dam in HD the room triangles drawn went from ~43000 after the CPU's
 trivial reject to ~134000 all sent (the GPU clips); the game thread's top is
 now `shellRay`, then the interpreter's remaining state commands.
@@ -243,6 +263,18 @@ fixed-step cap. Draw calls fell from ~620 to ~414 a frame (a run is one draw).
   at silhouettes and in +-1-3 noise. Vulkan validation with sync validation
   clean (`--vk-no-thread`). The Institute (0x26) never reaches gameplay under
   `--boot-stage` headless (it sits on a menu): test its glass floor by hand.
+- Dyntex (2026-10-02): Villa's opening (`--boot-stage 0x2c`, frames 300, 500,
+  850: the ocean fills the frame at 300) in the N64 look and the release's
+  rooms, GL and Vulkan, wine GL and wine Vulkan: 0-437 pixels differ, none on
+  the water, at most 14 levels (Vulkan's +-1 on the pier's static underside).
+  Vulkan validation with sync validation clean. Replay test identical. The
+  other dyntex levels (Chicago 0x1d, Attack Ship 0x34, Deep Sea 0x38,
+  Pelagic 0x21, Crash Site 0x1c, Escape 0x19, Infiltration 0x2f, Rescue 0x35,
+  Investigation 0x33) show no dyntex room in their first 900 frames, opening
+  or `--skip-cutscenes`: Villa is the one to test. The release's Villa rooms
+  (`xblastage: bgdata/bg_eld.seg from the release`) load only without
+  `--moddir mod_allinone`, whose own `bg_eld.seg` stands in for the ROM's and
+  keeps the release's out.
 - The XBLA look in a headless run: a save dir whose pd.ini has `[Mod]`
   `XblaMeshes=1` `XblaMeshPose=1` `XblaStages=1` `XblaMeshTextures=1`, and an
   **absolute** `--savedir` - a relative one is resolved against the base and
