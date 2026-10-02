@@ -403,78 +403,32 @@ Gfx *lightsSetDefault(Gfx *gdl)
  * and the camera's LookAt once for the whole level. Only a room surface drawn
  * lit sees either: reflective ones, lit and texgenned - a few on Surface,
  * Bunker and Egyptian, and GE Editor's all over Goldfinger 64 (the drape and
- * pillars of Cartel's club).
+ * pillars of Cartel's club, Crab Key's copper pillar).
  *
- * GoldenEye draws its rooms under the camera's own matrix, so the RSP takes
- * the light and the LookAt in eye space: a surface is lit from over the
- * camera's shoulder, and its texgen dots the normal as the camera sees it
- * with the camera's axes as the world has them. Perfect Dark draws a room
- * under a translation alone (roomApplyMtx(), the camera's turn is in the
- * projection), so each direction is handed over already turned out of eye
- * space by the camera: the same dot products, the same texels.
+ * The cartridge takes both in world space: bgLevelRender() hands them over
+ * before it loads the camera's matrix, and the RSP turns them by the matrix
+ * it has when they arrive, not by the camera's. Measured in ares on Crab Key's
+ * pillar (normal 0.70, 0.17, 0.69), its palette made white and GlobalLight
+ * rewritten in RDRAM to ambient 0 and one light of 200: from +x it reads 132
+ * and from -x 0, from +z 142 and from -z 0; the camera turned 35 degrees, +z
+ * still reads 143 and +x at half strength 66 - the light stays put as the
+ * camera turns. Read in eye space
+ * (the light over the camera's shoulder, as this was first written) the
+ * pillar stood in the ambient alone, 86 where the cartridge draws 154. The
+ * club's black pillars reflect the same streaks as the cartridge's under the
+ * LookAt as it is. Perfect Dark draws a room under a translation alone
+ * (roomApplyMtx()), so both go over as they are.
  */
 Gfx *lightsSetForGeRoom(Gfx *gdl)
 {
 	static Lights1 globallight = gdSPDefLights1(0x96, 0x96, 0x96, 0xff, 0xff, 0xff, 0x4d, 0x4d, 0x2e);
-	LookAt *cam = camGetLookAt();
-	Lights1 *lights;
-	LookAt *lookat;
-	f32 axes[3][3];
-	f32 in[3][3];
-	s32 i;
-	s32 j;
+	LookAt *lookat = camGetLookAt();
 
-	if (cam == NULL) {
+	if (lookat == NULL) {
 		return lightsSetDefault(gdl);
 	}
 
-	lights = gfxAllocate(sizeof(Lights1));
-	lookat = gfxAllocate(sizeof(LookAt));
-	*lights = globallight;
-	*lookat = *cam;
-
-	// The camera's right, up and back in the world: guLookAtReflect()'s
-	// right and up, and right x up
-	for (i = 0; i < 3; i++) {
-		axes[0][i] = cam->l[0].l.dir[i] * (1.0f / 127.0f);
-		axes[1][i] = cam->l[1].l.dir[i] * (1.0f / 127.0f);
-	}
-
-	axes[2][0] = axes[0][1] * axes[1][2] - axes[0][2] * axes[1][1];
-	axes[2][1] = axes[0][2] * axes[1][0] - axes[0][0] * axes[1][2];
-	axes[2][2] = axes[0][0] * axes[1][1] - axes[0][1] * axes[1][0];
-
-	// Each direction as GoldenEye hands it over, read in eye space
-	for (i = 0; i < 3; i++) {
-		in[0][i] = globallight.l[0].l.dir[i];
-		in[1][i] = cam->l[0].l.dir[i];
-		in[2][i] = cam->l[1].l.dir[i];
-	}
-
-	for (j = 0; j < 3; j++) {
-		f32 out[3];
-		f32 len;
-
-		for (i = 0; i < 3; i++) {
-			out[i] = in[j][0] * axes[0][i] + in[j][1] * axes[1][i] + in[j][2] * axes[2][i];
-		}
-
-		len = sqrtf(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
-
-		if (len > 0.0f) {
-			for (i = 0; i < 3; i++) {
-				s8 v = (s8)(out[i] * 127.0f / len);
-
-				if (j == 0) {
-					lights->l[0].l.dir[i] = v;
-				} else {
-					lookat->l[j - 1].l.dir[i] = v;
-				}
-			}
-		}
-	}
-
-	gSPSetLights1(gdl++, (*lights));
+	gSPSetLights1(gdl++, globallight);
 	gSPLookAtX(gdl++, &lookat->l[0]);
 	gSPLookAtY(gdl++, &lookat->l[1]);
 

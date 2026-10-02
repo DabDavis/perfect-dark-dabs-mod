@@ -394,11 +394,12 @@ ramdump_ares.py look in RDRAM):
   it is. GoldenEye's own conversion changes only those flags: Surface 118
   vertices, Bunker 118, Egyptian 39 (its few lit, texgenned room spans).
 - GoldenEye lights a level with GlobalLight (ambient 150, white from 77,77,46)
-  and the camera's LookAt, under the camera's own matrix, so the RSP takes
-  both in eye space. Perfect Dark draws a room under a translation alone and
-  lit it by the room's brightness. `lightsSetForGeRoom()` (dlights.c) hands a
-  converted level's rooms GlobalLight and the LookAt turned out of eye space by
-  the camera's axes: the same dot products as the cartridge.
+  and the camera's LookAt. Perfect Dark lit a converted room by the room's
+  brightness; `lightsSetForGeRoom()` (dlights.c) hands it GlobalLight and the
+  LookAt. (First written turning both out of eye space by the camera's axes:
+  WRONG, the cartridge takes both in world space - see "Shade across the
+  screen, and the room light's space" below. The drape cannot tell the two
+  apart; its gain here was GlobalLight's ambient.)
 - Mod.LevelReflectFollow (on by default) bent each texgen lookup by the eye
   ray; a converted level's rooms no longer take it. (The earlier note that it
   made no difference was wrong: twin.py runs on a fresh save dir, so the ini
@@ -438,8 +439,9 @@ difference the old blending happened to hide:
   stays teal. Blended by its texels before, it read dark by accident. The
   port already carries fog linearly on a converted level (G_FOG_VERTEX_EXT);
   the colour is not.
-- Crab Key's orange pillar is a prop: opaque now, as on the cartridge, it
-  shows our prop shading at 60 where the cartridge draws 109.
+- Crab Key's orange pillar (pad 85, heading 90) is NOT a prop (every setup
+  object moved away, it stays): a lit, texgenned room surface, dark under the
+  eye-space light. Fixed below.
 - Dam pad 163's walls, colours uncapped, at 59 where the cartridge has 47.
 
 **Miami's banner is there.** The ares run's "Miami's blimp has no banner
@@ -453,6 +455,45 @@ Still different: the cartridge's banner reads as a pale, fogged streak and
 ours as thinner, darker letters - fog on a translucent prop list, not
 anything missing.
 
+## Shade across the screen, and the room light's space (2026-10-02, later)
+
+**Caverns' lake:** `G_SHADE_LINEAR_EXT` (gbiex.h), set with
+`G_COVERAGE_ALPHA_EXT` over a converted level's scene in the N64 look
+(`bgRenderScene()`), makes the combiner's inputs `noperspective` in both
+renderers (SHADER_OPT_SHADE_LINEAR, bit 31 of the options; GLSL ES keeps
+perspective) and cuts a triangle crossing the RSP's clip volume on the CPU
+first, as `G_FOG_VERTEX_EXT` does (`gfx_emit_tri3()`; rooms inside the volume
+keep the GPU path, models under it go to the CPU). The lake now as dark as the
+cartridge's. Views from converter 107: Goldfinger 69 of 741 closer, 1 further;
+GoldenEye 116 of 809 closer, 1 further (Caverns 0.059 -> 0.052, Egyptian
+0.086 -> 0.068, Dam 0.105 -> 0.089). GL and Vulkan alike. c70068cc1.
+
+**Room light in world space.** Crab Key's copper pillar read 86 (red) where
+the cartridge draws 154. Its triangles (a pixel-pick log in a debug build:
+every triangle over one screen point with its state, textures and vertex
+normals - not committed) are lit and texgenned, normals about
+(0.70, 0.17, 0.69), a 32x32 CI8 sphere map; ours lit them by ambient alone.
+On the cartridge, the palette filled white (`texsample_ares.py`, GF_FILLLEN)
+shows the shade at 255. `lightpoke_ares.py` rewrote GlobalLight (0x80044840;
+a second copy of the bytes at 0x8002a970 does nothing to rooms) to ambient 0
+and one light of 200: +x 132, -x 0, +z 142, -z 0, the camera turned 35 degrees
++z 143 and +x at half strength 66 - world space. bgLevelRender() sets lights
+and LookAt before it loads the camera's matrix. The LookAt goes the same way:
+A/B over nine missions (VIEW_SET='g_DbgGeLightSpace=n', a debug switch),
+light in world 4 views closer on Crab Key and nothing else moved; LookAt in
+world too, 4 more closer (Cartel's club 134/270 -0.038: its black pillars
+reflect the cartridge's streaks), none further. `lightsSetForGeRoom()` now
+hands GlobalLight and `camGetLookAt()` over as they are - which also agrees
+with the guns (converter 105: an eye-space LookAt was wrong there too).
+Pillar now 147 against 154. Final sweep against the shade change alone:
+Goldfinger 7 of 741 closer, GoldenEye 2 of 809 (Egyptian), none further. Both
+changes from converter 107: Goldfinger 75 closer, 1 further (Cartel 236/90,
++0.03, a wall's gradient); GoldenEye 118 closer, 1 further (Dam 269/180,
++0.03). Crab Key's median 0.165 -> 0.151. Replay test 8 of 8 the same.
+
+Trap: lightpoke's first picture after `orig` was once a frame stale (read the
+same as orig); put a throwaway setting first.
+
 ## Open
 
 - Its arenas' weapon sets: `menu/gesets.bin` is written right for it, but GE
@@ -465,8 +506,9 @@ anything missing.
 - From the ares run, still to do: cars seated at the wrong height
   (gexplusveh.c); Vaults' Oddjob, whose own list runs after a background list
   reads his health.
-- Shade carried linearly across the screen on a converted level, as the RDP
-  does (Caverns' lake; see "Cartel's club" above), and props' shading against
-  GoldenEye's (Crab Key's pillar).
+- Props' shading against GoldenEye's: no measured case now (Crab Key's
+  pillar was a room).
+- Crab Key pad 85 heading 0: the grille on the wall reads white mesh on the
+  cartridge, dark in ours (score 0.24, the mission's worst).
 - The watch draws nothing for a collectable where GoldenEye draws its model
   (converter 104's are checked against the cartridge otherwise).
