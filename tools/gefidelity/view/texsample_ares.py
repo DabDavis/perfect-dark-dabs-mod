@@ -11,7 +11,9 @@ The ramp is 4-bit, 16 steps of 4 texels on a 64-wide image, offset half an
 image so the step it jumps at is in the middle, away from the wrap.
 Pictures are OUT/ge/{orig,rows,cols}.ppm; with GF_FILL=<byte hex> the image is
 filled with that byte instead, one picture OUT/ge/fill.ppm (the shade alone,
-with ff).
+with ff). GF_FILLLEN=<bytes> fills that many bytes from each hit instead of the
+I4 image and its mips: any format, or a CI image's palette (GF_TEXHEX its
+first bytes, GF_FILL=ff: every entry white, the shade alone again).
 """
 import os, sys, traceback
 sys.path.insert(0, os.environ['GF_COMMON'])
@@ -28,6 +30,7 @@ W = int(os.environ.get('GF_TEXW', '64'))
 H = int(os.environ.get('GF_TEXH', '64'))
 OUT = os.environ['GF_OUT']
 RAM = int(os.environ.get('GF_RAMSIZE', str(8 << 20)))
+FILLLEN = int(os.environ.get('GF_FILLLEN', '0'))
 
 
 def ramp(w, h, k, cols):
@@ -70,14 +73,15 @@ try:
             i = blob.find(SIG, i + 1)
     lib.say('hits', ['0x%08x' % h for h in hits])
     if hits:
-        orig = {h: lib.peek(h, len(image(False))) for h in hits}
+        size = FILLLEN or len(image(False))
+        orig = {h: lib.peek(h, size) for h in hits}
         for h in hits:
             lib.say('ram', '0x%08x' % h, orig[h][:48].hex(), 'mip1', orig[h][W * H // 2:W * H // 2 + 16].hex())
         fill = os.environ.get('GF_FILL')
         passes = [('fill', None)] if fill else [('rows', False), ('cols', True)]
         for name, cols in passes:
             for h in hits:
-                lib.poke(h, bytes([int(fill, 16)]) * len(image(False)) if fill else image(cols))
+                lib.poke(h, bytes([int(fill, 16)]) * size if fill else image(cols))
             lib.place(x, y, z, HEAD, VERTA, stan)
             side.no_lookahead()
             lib.frames(3)

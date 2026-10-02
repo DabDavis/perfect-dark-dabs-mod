@@ -192,6 +192,8 @@ def tour_env(a):
     env = {'VIEW_STEP': str(a.step), 'VIEW_MAX': str(a.max), 'VIEW_HEADS': a.heads}
     if a.only:
         env['VIEW_ONLY'] = a.only
+    if os.environ.get('VIEW_SET'):
+        env['VIEW_SET'] = os.environ['VIEW_SET']  # tour.py: gdb assignments in ours
     return env
 
 
