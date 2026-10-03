@@ -2613,6 +2613,7 @@ static s32 triOther(const struct stri *t, const struct stri *u)
 #define UNLIT_REACH 400.0f  // how far a lit face is looked for
 
 static const f32 (*unlitMid)[3];
+static s32 unlitPlain; // black faces of plain draws left black (paintUnlit())
 
 static s32 unlitCmp(const void *a, const void *b)
 {
@@ -2677,6 +2678,17 @@ static s32 paintUnlit(struct collect *c)
 
 		if (!triIsBlack(tri) || (!bare && black[slot] > total[slot] * UNLIT_SHARE)
 				|| texHasAlpha(tri->tex) || triNormal(tri, n) <= 0.0f) {
+			continue;
+		}
+
+		// A face of a draw with no UV and no picture of its own is its
+		// vertices' colour and nothing else (build(): plainUntextured), so
+		// its black is paint, not light Rare left out: Bunker's monitor wall
+		// is a black panel the screens sit on, and given the grey of the wall
+		// beside it, it drew as a light grey card round them (F3
+		// 20261002-063602, 20261002-155304)
+		if (tri->plain) {
+			unlitPlain++;
 			continue;
 		}
 
@@ -7135,11 +7147,14 @@ static s32 build(void)
 
 	{
 		const u64 from = sysGetMicroseconds();
-		const s32 unlit = paintUnlit(&c);
+		s32 unlit;
 
-		if (unlit) {
-			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d black faces given the light of the lit faces beside them (%.1f ms)",
-					row->bean, unlit, (sysGetMicroseconds() - from) / 1000.0f);
+		unlitPlain = 0;
+		unlit = paintUnlit(&c);
+
+		if (unlit || unlitPlain) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d black faces given the light of the lit faces beside them, %d of plain draws kept black (%.1f ms)",
+					row->bean, unlit, unlitPlain, (sysGetMicroseconds() - from) / 1000.0f);
 		}
 	}
 

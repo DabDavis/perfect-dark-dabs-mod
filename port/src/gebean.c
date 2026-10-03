@@ -5719,6 +5719,36 @@ static u8 *beanDecodeTextureFrame(const struct beanmodel *bm, s32 t, s32 frame, 
 		}
 	}
 
+	// Silo's steel door (prop/steeldoor1): the hazard stripes down its edge
+	// are black and yellow on GoldenEye's door and black and white in the
+	// release's picture (F3 20261002-040258); the Community Edition repainted
+	// them yellow ("Fixed steeldoor1 not retaining the original yellow
+	// stripe"). The stripe columns, above and below the lock plate, take the
+	// Community Edition's colour: each grey texel its brightness times
+	// (0.664, 0.675, 0.231), the fit of its picture to the release's. A texel
+	// already coloured (the Community Edition's own copy) is left alone.
+	if (w == 256 && h == 512 && t < bm->numtex
+			&& strcmp(caffAssetName(c, c->files[bm->texfile[t]].asset), "_0x04031685.tga.bin") == 0) {
+		for (u32 y = 0; y < h; y++) {
+			if (y >= 202 && y <= 307) {
+				continue;
+			}
+
+			for (u32 x = 220; x < w; x++) {
+				u8 *px = rgba + ((size_t)y * w + x) * 4;
+				const s32 lo = MIN(px[0], MIN(px[1], px[2]));
+				const s32 hi = MAX(px[0], MAX(px[1], px[2]));
+				const f32 l = (px[0] + px[1] + px[2]) / 3.0f;
+
+				if (hi - lo <= 24) {
+					px[0] = (u8)(l * 0.664f + 0.5f);
+					px[1] = (u8)(l * 0.675f + 0.5f);
+					px[2] = (u8)(l * 0.231f + 0.5f);
+				}
+			}
+		}
+	}
+
 	beanBleedCutout(rgba, w, h);
 
 	// Decoded top row first, as a PNG of it would be; the renderer wants the
