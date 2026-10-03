@@ -113,8 +113,8 @@ in the session, lui/lo at the same PCs in both ROMs), ares its pieces.
   `headhats.bin` with a GEH1 header (its hats cover all 126), and
   `geexplosions.bin` (`object_explosion_details`, moved to 0x8070f028 with a
   row for each of its 416 props - it renamed 318 of GoldenEye's 340). Not its
-  own: the intro reel (GE Plus's is GoldenEye's) and the monitor programmes
-  (gemonitortable.h is GoldenEye's; its screens show nothing).
+  own: the intro reel (GE Plus's is GoldenEye's). Its monitor programmes are
+  its own since converter 109 (below).
 - A variant's level or character that does not convert is left out with a
   note rather than failing the whole conversion (nested `g_Fail`).
   Goldfinger's characters 108 and 109 (CheadwreckZ, Chead00actionZ) carry a
@@ -684,12 +684,59 @@ hand, then as item 30). A rig converts again only when its CONVERT.txt's
 version is older: set it back to force one, and let the game run without gdb
 until it says the new version - a probe's breakpoint lands mid-conversion.
 
+## Its monitor programmes (converter 109, 2026-10-03)
+
+Until 109 a variant's conversion wrote no `menu/gemonitors.bin` (its programmes
+are not GoldenEye's), so every screen in its missions showed nothing - Club's ten
+fireplaces among them: Goldfinger burns their fire as monitor programme 7.
+
+- **The block is where GoldenEye's is**, 0x80030b74, 1334 words, and decodes
+  end to end; Goldfinger rewrote its programmes in it (15% of their words
+  GoldenEye's), ending at word 969, and filled the rest with yields (0x0c).
+  Jumps stay inside it.
+- **Where each starts** is `monitorSetImageByNum()` (7F049C98): 52 cases
+  through the jump table at 0x80052b98, each `lui a2,0x8003` / `addiu a2` (the
+  last one falls through, no branch). The code is GoldenEye's shape; every
+  address but programme 0's moved. `romlayout.monprograms` holds them as word
+  offsets, read off the code (`~/wt/gf-work/monscan_gf.py` decodes both ROMs);
+  an empty row is gemonitortable.h's.
+- **Its pictures**: `s_monitorimages` sits in the ROM's global image table
+  (`_GlobalimagetableSegment`, copied raw by `texReset()`), at ROM 0x29debc in
+  both games (`romlayout.monimages`). Goldfinger changed nine of the fifty rows:
+  25 and 26 are new images (2948, 2949), seven another size or format (picture 6
+  is a 3x11 RGBA32, picture 29 says RGBA at 8 bits - harmless, `texSelect()`
+  takes format and depth from the loaded image, as GoldenEye does). Its
+  programmes use pictures 10 and 11, which GoldenEye's never do, and not 48.
+- GoldenEye's own conversion is byte-identical; Goldfinger's gains
+  `gemonitors.bin` and 48 pictures, nothing else moves (no reserved number).
+- **At run time** nothing new was needed (gemonitor.c reads any counts) but
+  two things: the HD look's release pictures (`g_GeMonBean`, by GoldenEye's
+  image number) never bind over a hack's (`g_GeMonHack`), and the folder's
+  Monitor Programmes page captions a hack's programmes "N of 52" without
+  GoldenEye's names, which would misname them.
+- **Against the cartridge** (ares, `viewdiff.py run --only/--heads` from the
+  pads nearest each screen): Club's fireplaces (pads 205, 264, 390; scores
+  0.03-0.13, fire in both, the flames' frame differs with the tick). Crab Key's
+  eleven `PtvflatZ` on programme 26 (the new pictures) face an area no pad
+  frames - from pad 90 at heading 50 both show their black backs. Miami's
+  screens are a floor above every pad near them. Per-mission screens on the
+  cartridge (`wide.props` imagenum in the ares sweep's world dumps): capture 9,
+  cartel 3, china 10, club 10, crabkey 13, foundry 5, knox 2, miami 11, prison 3,
+  vaults 3.
+- Seen on the way, not from this (there without `gemonitors.bin` too): from
+  Crab Key pad 247 (outside, heading 8-20) ours draws a thin pink strip in the
+  sky that the cartridge does not.
+
+Rig `~/wt/gf-mon-run` (`monpages.py`: the folder's page, `GF_VARIANT=0` for
+GoldenEye's, `GF_TAG`; `view-mon*` the view runs), `~/wt/gf-mon-nomon` (the
+same without the file).
+
 ## Open
 
-- Its monitor programmes (its block is edited in place, 16% of GoldenEye's
-  words the same; gemonitortable.h is GoldenEye's).
 - Props' shading against GoldenEye's: no measured case now (Crab Key's
-  pillar was a room).
+  pillar was a room). Club's fireplace surrounds read darker in ours than on
+  the cartridge (pad 264 heading 268) - a candidate.
+- Crab Key pad 247's pink strip in the sky (above).
 - The watch draws nothing for a collectable where GoldenEye draws its model
   (converter 104's are checked against the cartridge otherwise).
 - Crab Key's copper doors: the rivet overlay, a decal the cartridge's RDP
