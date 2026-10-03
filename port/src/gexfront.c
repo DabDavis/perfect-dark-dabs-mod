@@ -2548,10 +2548,6 @@ static volatile f32 g_TvYaw = 0.0f;
 static volatile f32 g_TvPitch = 0.0f;
 static volatile f32 g_TvZ = 0.0f;
 static volatile f32 g_TvLift = 0.0f;
-// a menu pixel across the folder's plane, measured off the page: the frame the
-// 2-D layer is held in is not the window's own shape (frontX())
-static volatile f32 g_TvSpreadX = 0.9327f;   // 0.855 * 12 / 11: measured inside the 2-D frame on 4:3, drawn outside it
-static volatile f32 g_TvSpreadY = 0.96f;
 
 static void frontUnloadTvs(void)
 {
@@ -6405,8 +6401,9 @@ static Gfx *frontDrawMonitorView(Gfx *gdl)
 static Gfx *frontDrawTvs(Gfx *gdl)
 {
 	const s32 first = g_Front.monitorpage * TVS_PER_PAGE;
-	const f32 perpixel = FOLDER_PERPIXEL;
 	Mtxf camera;
+	Mtxf persp;
+	u16 perspnorm;
 	s32 lvupdate60;
 	f32 lvupdate60f;
 	s32 prevsrc;
@@ -6418,6 +6415,14 @@ static Gfx *frontDrawTvs(Gfx *gdl)
 	gdl = frontTvCamera(gdl, &camera);
 	gdl = zbufClear(gdl);
 	gSPSetGeometryMode(gdl++, G_ZBUFFER);
+
+	// Every set is drawn on the camera's own axis, square to it, and its
+	// picture moved across the screen to its place on the strip after the
+	// projection - so each looks as the next does. Placed in the scene under
+	// the one camera, the sets at the strip's ends and rows were seen from the
+	// side, above or below and stood off their cells by as much, and the
+	// numbers beside them read as scattered (F3 20261002-082638, 082808).
+	guPerspectiveF(persp.m, &perspnorm, FOLDER_FOVY, videoGetAspect(), 100.0f, 10000.0f, 1.0f);
 
 	frontMonitorClock(1, &lvupdate60, &lvupdate60f);
 	prevsrc = modSetTextureSourceMod(g_Front.moddir);
@@ -6435,10 +6440,31 @@ static Gfx *frontDrawTvs(Gfx *gdl)
 		mtx4LoadXRotation(g_TvPitch, &turn);
 		mtx4MultMtx4InPlace(&turn, &world);
 		mtx00015f04(g_TvScale * (n == g_Front.highlight ? 1.12f : 1.0f), &world);
-		world.m[3][0] = -900.0f + (px - 220.0f) * perpixel * g_TvSpreadX;
-		world.m[3][1] = 990.0f - (py - 165.0f) * perpixel * g_TvSpreadY + g_TvLift;
+		world.m[3][0] = -900.0f;
+		world.m[3][1] = 990.0f + g_TvLift;
 		world.m[3][2] = g_TvZ;
 		mtx4MultMtx4InPlace(&camera, &world);
+
+		{
+			// the menu's point (px, py) as the 2-D layer puts it on the
+			// screen, where G_ASPECT_CENTER_EXT narrows it to the native frame's shape
+			const f32 halfw = viGetWidth() * 0.5f;
+			const f32 halfh = viGetHeight() * 0.5f;
+			const f32 dx = (frontX(px) - halfw) / halfw * ((f32)videoGetNativeWidth() / (f32)videoGetNativeHeight()) / videoGetAspect();
+			const f32 dy = -(frontY(py) - halfh) / halfh;
+			Mtx *projection = gfxAllocateMatrix();
+			Mtxf moved;
+
+			mtx4Copy(&persp, &moved);
+
+			for (s32 i = 0; i < 4; i++) {
+				moved.m[i][0] += dx * moved.m[i][3];
+				moved.m[i][1] += dy * moved.m[i][3];
+			}
+
+			guMtxF2L(moved.m, projection);
+			gSPMatrix(gdl++, projection, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		}
 
 		renderdata.unk00 = &world;
 		renderdata.unk10 = gfxAllocate(g_Front.tvdef->nummatrices * sizeof(Mtxf));
