@@ -629,13 +629,6 @@ s32 headfitWanted(s32 headnum, s32 bodynum)
 #define HEADFIT_NAPE_UNDER_COLLAR -20.0f
 #define HEADFIT_JAW_OVER_COLLAR    35.0f
 
-static struct modeldef *headfitNextBody;
-
-void headfitSetBodyModel(struct modeldef *bodymodeldef)
-{
-	headfitNextBody = bodymodeldef;
-}
-
 /*
  * The top of a body's neck as the release's mesh for it has it, drawn in this
  * look, above its headspot as headfitMeasureBodyAt() measures the N64 one: the
@@ -818,10 +811,8 @@ s32 headfitOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struc
 	f32 target;
 	f32 offset;
 	const char *how;
-	// the body model, for its release mesh (the Character page names its own)
-	struct modeldef *def = headfitNextBody ? headfitNextBody : bodymodeldef;
-
-	headfitNextBody = NULL;
+	// the body model, for its release mesh (the Character page passes its own)
+	struct modeldef *def = bodymodeldef;
 
 	// One game's head on the other's body: the release's side by its mesh
 	if (gebeanIsPoolRow(headnum) || gebeanIsPoolRow(bodynum)) {

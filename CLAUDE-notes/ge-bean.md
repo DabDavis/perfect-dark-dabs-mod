@@ -14126,3 +14126,45 @@ the row's source `prop/helicopter` (`gebeanRigidKeepsUncovered()`):
 
 The N64 look is unchanged (frame 520 pixel-identical to the base).
 
+
+## Dam's chasm slivers were a tunnel lamp's light; the watch arm on closing (30th F3 pass, 2026-10-03, fix/f3-1003b-gehd)
+
+**Dark slivers on the chasm cliff (F3 20261003-054133, "still more empty
+polygons in the bungee-jump chasm").** Not a build fault in the release's mesh
+and not the GPU: the same view on 613ea8f and d87d2def3 is clean until a room's
+light changes. The tester plays with `Mod.GeShotLightsDim=1`; the slivers are
+Bean cliff triangles dealt to room 101, a lamp-lit tunnel room on the dam's top
+10000 units away, so shooting that lamp darkened them (the HD colour pass in
+dlights.c keeps a shot lamp's share by design). Why 101: `tgridNearest()`'s
+cells are hashed (`gridKey()`), and with nothing of GoldenEye's within the
+rings searched (2 x 64 units) a triangle from a far cell sharing the bucket
+answered. `build()` now marks such deals (`farHit`, d past the rings' reach)
+and, after the dealing, moves those that landed in a room with lamps to the
+nearest-by-box room without lamps among those that already hold Bean
+triangles, and only out of a room that keeps triangles of its own - so the
+served/kept rooms, the backdrop and the fog bits are as they were (Dam: 816
+moved, 97 of 136 served, 246 backdrop, both before and after). The
+out-of-range move loop prefers a room without lamps too. Repro:
+`~/wt/f3-1003b-gehd-run/shot3.sh` with `DARK=<rooms>` (calls
+`roomSetLightsOn(r, 0)`) at the report's camera (spectate, prop at
+cam - (29.4, 14.9, -196), `FOV=75`). With every dam-top lamp out the base drew
+dozens of black slivers over the cliff and the dam's face; the fix none. Without
+lamps out, two views differ by under 0.2% of pixels (a few triangles' brightness
+factor, max 38/255). HDCACHE_VERSION 18.
+
+A first try re-dealt every far hit to `nearestRoomBox()`: 68222 triangles, 107
+rooms served, 29 kept - GoldenEye's kept backdrop rooms turned into Bean's.
+Do not do that without looking at every level.
+
+**Watch arm standing up after the pause (F3 20261003-055428, "put the watch
+hand at the original position").** The screenshot is the end of closing the
+watch with the view back at the floor (-72.7) and the arm still up, fist and
+watch in the middle. `WS_LOWERARM` tilted back at the tilt's own pace (33
+frames from -40) while the arm takes 40. GoldenEye's WATCH_ANIMATION_0x7 makes
+the unpause transition at least the arm's time + 20 (bondview2.c: `sp24 =
+max(setup, sp28 + 20)`), and 0x2 makes the opening one at least 30; gewatch.c
+now does both.
+
+**Crash 20261003-073032 (v3.13.0)** was 20261003-040138 again (stale
+`headfitNextBody` after the menu preview; fixed by 892ed66f7). The static is
+gone: the preview calls `bodyCalculateHeadOffsetForBody()` with its own body.

@@ -801,7 +801,28 @@ void body0f02ddbf(void)
  * any tweaking. This function is used in multiplayer where players can put any
  * heads on any bodies.
  */
+#ifndef PLATFORM_N64
+static void bodyCalculateHeadOffsetOn(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struct modeldef *bodymodeldef);
+
 void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum)
+{
+	bodyCalculateHeadOffsetOn(headmodeldef, headnum, bodynum, g_HeadsAndBodies[bodynum].modeldef);
+}
+
+/*
+ * A body loaded somewhere of its own (the menu's preview), named in the call:
+ * a pointer kept between calls outlived the preview and the next spawn read
+ * its freed model (crashes 20261003-040138, 20261003-073032)
+ */
+void bodyCalculateHeadOffsetForBody(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struct modeldef *bodymodeldef)
+{
+	bodyCalculateHeadOffsetOn(headmodeldef, headnum, bodynum, bodymodeldef);
+}
+
+static void bodyCalculateHeadOffsetOn(struct modeldef *headmodeldef, s32 headnum, s32 bodynum, struct modeldef *bodymodeldef)
+#else
+void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bodynum)
+#endif
 {
 	struct modelnode *node;
 	struct modelnode *prev;
@@ -849,7 +870,7 @@ void bodyCalculateHeadOffset(struct modeldef *headmodeldef, s32 headnum, s32 bod
 		// A head on a body it was not made for is seated by measuring the two
 		// rather than by the table of the game's own types (port/src/headfit.c)
 		if (headfitWanted(headnum, bodynum)) {
-			offset = headfitOffset(headmodeldef, headnum, bodynum, g_HeadsAndBodies[bodynum].modeldef);
+			offset = headfitOffset(headmodeldef, headnum, bodynum, bodymodeldef);
 			headfitNoteApplied(headmodeldef, 0, 1);
 			goto apply;
 		}
