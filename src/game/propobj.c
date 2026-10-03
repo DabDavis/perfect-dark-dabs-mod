@@ -2416,7 +2416,13 @@ void func0f06a650(struct defaultobj *obj, struct coord *pos, Mtxf *arg2, RoomNum
 	struct coord newpos;
 	RoomNum newrooms[2];
 
+#ifdef PLATFORM_N64
 	bbox = modelFindBboxRodata(obj->model);
+#else
+	// GoldenEye's vehicles stand on the box GoldenEye takes for them
+	// (objFindBboxRodata(), gexPlusVehicleBboxNode()), not a wheel's
+	bbox = objFindBboxRodata(obj);
+#endif
 
 #if VERSION >= VERSION_NTSC_1_0
 	room = cdFindFloorRoomYColourFlagsAtPos(pos, rooms, &sp3c, &obj->floorcol, NULL);
@@ -2440,7 +2446,21 @@ void func0f06a650(struct defaultobj *obj, struct coord *pos, Mtxf *arg2, RoomNum
 
 void func0f06a730(struct defaultobj *obj, struct coord *arg1, Mtxf *mtx, RoomNum *rooms, struct coord *centre)
 {
+#ifdef PLATFORM_N64
 	struct modelrodata_bbox *bbox = modelFindBboxRodata(obj->model);
+#else
+	// A GoldenEye vehicle is set on the floor by the box GoldenEye's
+	// sub_GAME_7F04088C() takes (chrobjGetBboxFromObjFile(): the root's
+	// children, then its first child's), as objFindBboxRodata() finds it. The
+	// first box anywhere in Goldfinger 64's cars is a wheel's, under the
+	// wheel's position node (Pgx309Z's at y -500, Pgx297Z's at +1300), the
+	// body's being the root's last child: its 26 Mercedes stood 53.7 into the
+	// road and its covered cars 136 over it, where the cartridge stands them on
+	// their wheels from the first frame. Nothing re-seats a parked one:
+	// GoldenEye's first-tick height (gexplusveh.c) is only for a vehicle whose
+	// record says it moves.
+	struct modelrodata_bbox *bbox = objFindBboxRodata(obj);
+#endif
 	f32 min = objGetLocalYMin(bbox);
 	f32 max = objGetLocalYMax(bbox);
 	struct coord pos2;
