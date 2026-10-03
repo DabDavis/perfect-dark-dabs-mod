@@ -13896,3 +13896,23 @@ up - Bean's frame and ours were different views (null 0.35-0.72) - so they
 say nothing about the release; base-to-fix moved little at our own views.
 
 Both change the built level: **HDCACHE_VERSION bump needed** (left to the merge; done there: 14).
+
+## Egyptian never ended: Mission Respawn freed the carried Golden Gun (29th F3 pass, 2026-10-03, fix/f3-1003-aiscript)
+
+**F3 20261002-100746/100932** ("objective A failed after the Golden Gun was taken"). Egyptian's A collects
+tags 4 (the Golden Gun) and 5 (its ammo box); a collected tagged object is carried as a child of the player's
+prop, and `objectiveCheck()` fails a collect objective once its object has no prop. The tester had
+`Mod.MissionRespawn=1`: `playerStartNewLife()` marks every child of a solo player's prop `OBJHFLAG_DELETING`
+for the first life, and Mission Respawn's new life went through the same branch. The mark is latent until
+the player's body ticks its children (`chr0f022214()`: third person, the death replay), then the objects are
+freed and A fails for good. Respawning now skips the mark. Probe `~/wt/f3-1003-aiscript-run/scen/egyptdie.py`
+(pick up, `playerDie(1)`, respawn, third person): base A 1 -> 2, fixed stays 1. With A and B complete the
+ending (bg 0x1009) runs as GoldenEye's.
+
+**Looked at, not changed:** Control's Trevelyan lift door (tag 0x1e) closes on base whether Bond walks up or
+shoots him, early or with the late stage flags 0x16dc00 (`scen/control2.py`); the testers' stuck door is
+unexplained. Cradle's Trevelyan skips "I was always better" when Bond is already in the rooms of pads
+0x73/0x74/0x94/0x6d as he stops at pad 0x96 - GoldenEye's own branch in ai_15 (0x410 -> 0x415 -> 0x417).
+Aztec 20261003-003005 is the same two doors (records 239/240, pads 297/298) and console as pass 28's notabug.
+Natalya at Control's kiosk stops on pad 225 (walk, typing and the off-screen teleport, `scen/natalya.py`); the
+tester's trace had her 58 units further on, at the console, not reproduced.
