@@ -13896,3 +13896,54 @@ up - Bean's frame and ours were different views (null 0.35-0.72) - so they
 say nothing about the release; base-to-fix moved little at our own views.
 
 Both change the built level: **HDCACHE_VERSION bump needed** (left to the merge; done there: 14).
+
+## Stairs, a hatch, a tunnel and a scientist's head (29th F3 pass, 2026-10-03, fix/f3-1003-move)
+
+Probes in `~/wt/f3-1003-move-run`: `realwalk.py` (build/gexrom's, plus `BLOCKWHY=1`,
+`WALLQ=1` - a conversion wall of tile `WTILE` asked of geStanWallSkipped() where the
+walk ended - and `MARGIN=`, which set a debug copy of the margin), `walk.sh <bin>
+<stage> <tag>`, `tilesnear.py` (fixed for the six-argument geStanWallSkipped()),
+`place.py` (a camera at a trace's position), `chrstand.py` (the player put over the
+nearest standing chr's head), `fuzz.py` (random stick in a box, flags a ground drop).
+
+- **The flood's margin is gone** (`GESTAN_MARGIN` 8 -> 0 in collision.c;
+  `GESTAN_LINEREACH` stays 8). F3 20261002-153526 (Dam's outside tower stair, "stuck
+  at the end on the right, only the left lets you off", and the same on Frigate,
+  Caverns, Surface): the ground at the stair's foot (tile 366) has a wall on its
+  unlinked edge that runs under the flight on a diagonal from the bottom tread's
+  outer corner (13675, 28555). From the bottom tread the flood reached 366 round that
+  corner - tread -> riser uprights -> ground 364 -> 363 -> 367 -> 366, every link
+  only at the shared corner point, 38.6 from a body there - because the reach was the
+  radius plus 8, a leftover from when a tile was reached by its box. The 366 wall,
+  28 away, then stopped any move that came nearer the corner: realwalk down the
+  flight with SIDE 0.6 / 1 stood on the bottom tread for good, and up with SIDE -1
+  stood on the 13407 tread mid-flight. GoldenEye cannot be within 30 of that corner
+  (the tread's own unlinked edge ends there), so with the reach the bare radius the
+  flood never gets round it. Same fault on Cradle's hatch (F3 20261003-002353, "not
+  easy to get down this ladder to finish off Trevelyan"): the hatch rim (x -1618 to
+  -1448, z -1093 to -927) is unlinked except the ladder's 81 at x -1580..-1499, and
+  GoldenEye's radius 30 leaves a window x -1550..-1529 to walk into it; with the
+  margin walks at x -1550 and -1530 stopped 20 short of the edge and only -1540 went
+  in (tester stood at -1530.6, -1114.1). After: -1530 and -1550 drop into the shaft,
+  -1520 stops at the wall's end as GoldenEye's would.
+- **A ramp's height is asked where it is touched** (`geStanTouchesFloor()`). F3
+  20261002-211321 (Egyptian, "enter the sloped tunnels from the top and you end up
+  above them"): each tunnel is one ramp (tiles 62/63, 1150 at x 2257 down to 416 at
+  1246) whose top is a lip 90 over the floor (1060). The climb lifts the player onto
+  it and `g_GeClimbHold` keeps 1150 as his ground while his circle touches a floor
+  "at 1150" - and the test took a tile's whole span, so the ramp touched 1150
+  everywhere and he walked out level over the tunnel's roof. The height is now the
+  tile's surface under the middle, or the edge's height at its nearest point. Walk
+  from room 37 down the ramp: before ground 1150 to x 1375, after it follows the
+  ramp (916 at x 1920). Facility's conveyor lift identical (+118.9).
+- **Nobody stands on a body's head** (`bwalkGeSlipOffBody()`, converted levels). F3
+  20261003-000823 (Caverns stair, "stuck... going down quickly as a scientist was
+  coming up"): the trace has the player's eye 340 over the bottom tread with the
+  scientist (act GOPOS) 28 from him in plan. Perfect Dark's fall stops on any
+  cylinder, chrs included ("landed on top of a chr"), so he stood on the head;
+  GoldenEye's height is the tile alone. Held up 30 or more over the ground by a chr
+  or player, he now slides off away from its middle 4 a tick (a wall behind: either
+  way round), and falls. `chrstand.py` on Dam's chr 6: before stood on it for good
+  (ground 13267 over 13112), after off in 15 frames, on the floor, walks away.
+  Simply ignoring bodies in the fall was tried: he sank into the guard's cylinder
+  and then could not move at all.
