@@ -8093,10 +8093,15 @@ static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int
 					VECPUSH(cols, be32(d->v, at + 12));
 				}
 
-				if (!fours) {
-					VECPUSH(wordsof[li], (0x07u << 24) | ((((n - 1) << 2) & 0xff) << 16) | (n * 4));
-					VECPUSH(wordsof[li], 0x06000000u | (start * 4));
-				}
+				// The muzzle flash's star (fours) names its colours too: the
+				// node points SPSEGMENT_MODEL_COL2 at the table after its
+				// vertices (modelRenderNodeStarGunfire()), and without a G_COL
+				// its quads were shaded by whatever table the last list drew
+				// with - a guard's AR33 star purple on some frames in the HD
+				// look, whose meshes leave other colours loaded (F3
+				// 20261001-000737). GoldenEye's own are white
+				VECPUSH(wordsof[li], (0x07u << 24) | ((((n - 1) << 2) & 0xff) << 16) | (n * 4));
+				VECPUSH(wordsof[li], 0x06000000u | (start * 4));
 				VECPUSH(wordsof[li], (0x04u << 24) | ((n - 1) << 20) | (v0 << 16) | (n * 12));
 				VECPUSH(wordsof[li], 0x04000000u | (start * 12));
 			} else {
