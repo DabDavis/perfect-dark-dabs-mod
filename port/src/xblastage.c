@@ -689,15 +689,19 @@ Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 	// strength of it.
 	texResetTiles();
 
-	// A picture the release's texture matrix scrolls moves as it does (Dam's
-	// reservoir, 0.5 repeats a second each way); else Bean's reservoir
-	// picture takes GoldenEye's moving water, on its leaf's own render mode
-	// (gewater.c). The two tiles above are the same picture at the same
-	// place already
-	if (gebeanStageScrollSlot(record, tilew, tileh)) {
-		gSPDisplayList(gdl++, gebeanStageScrollSlot(record, tilew, tileh));
-	} else if (gebeanStageRecordIsWater(record)) {
+	// Bean's water pictures take GoldenEye's moving water, on their leaf's
+	// own render mode (gewater.c), as the N64 look moves them. Dam's
+	// reservoir is one the release's table also scrolls (0.5 repeats a
+	// second each way, its transparency map): slid at that, it raced across
+	// the reservoir at about 1,000 units a second, four times GoldenEye's
+	// water ("water scrolls way too fast after switching from N64 graphics",
+	// F3 20261002-012520, 033705, 20261003-010208), so the water's own motion
+	// wins. Any other picture the release scrolls moves as it does. The two
+	// tiles above are the same picture at the same place already
+	if (gebeanStageRecordIsWater(record)) {
 		gdl = geWaterWriteHd(gdl, tilew, tileh);
+	} else if (gebeanStageScrollSlot(record, tilew, tileh)) {
+		gSPDisplayList(gdl++, gebeanStageScrollSlot(record, tilew, tileh));
 	}
 
 	if (xblaStageVerbose) {
