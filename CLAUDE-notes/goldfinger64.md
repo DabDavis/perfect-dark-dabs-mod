@@ -559,6 +559,50 @@ Trap: twin.py passes `--rng-seed 1` first and the port takes a repeated
 argument's first value, so `--pd-arg=--rng-seed --pd-arg=N` does nothing - a
 "same under every seed" check needs twin.py's own argument changed.
 
+## Crab Key's copper doors (2026-10-03, later)
+
+The "copper walls" of Crab Key's worst views (pads 43, 31, 25) are doors:
+prop 69 at pad 310 (model 672, scaled 0.45 x 0.27 x 0.16) and its kind, two
+faces 4.7 units apart, culling off. Each face is two passes: a lit, texgenned
+32x32 CI8 sphere map whose palette is the copper (G_CC_TRILERP x shade), then
+a 64x64 I4 overlay of rivets and seams in copper, a translucent decal (texel =
+its own alpha, transparent but for the rivets and seams).
+
+**Measured on the cartridge** (texsample_ares.py, the door's images found by
+their first bytes): every texel white gives the shade alone - 153/177/194 down
+the screen against ours 151/177/192, so lighting and normals agree. The new
+GF_CI ramps (texel = its row, then its column, over a grey palette) give where
+each pixel reads the sphere map: the cartridge s 0.7-1.6, t 13.3-10.8; ours s
+10.5-13.8, t 19.7-12.7. A pixel-pick log (probe build; the command ring before
+the door's triangles) showed the door drawn under G_TEXGEN_EYE_EXT |
+G_TEXGEN_TURN_EXT: objRender() wrapped every prop in roomSheenStockBegin(),
+Perfect Dark's Level Reflections walk, which bgRenderRoomOpaque() already
+leaves off a converted level's rooms. Off for props on a converted level (and
+for a broken pane's shards, which follow their pane), the plain texgen under
+the LookAt as it is reads s 0.7-1.7, t 13.4-11.1: within 0.2 of a texel at ten
+of eleven points (the eleventh is under the gun). The door's colour down the
+screen 80/75/65/54 red against the cartridge's 80/76/65/56 (ours was
+94/94/90/79), and the streak is gone. Views against HEAD: Goldfinger 16 of
+741 closer, none further (the doors 0.353 -> 0.157, 0.339 -> 0.176, 0.354 ->
+0.202; Grounds pad 57, heading 270, 0.952 -> 0.202, washed pale before);
+GoldenEye 28 of 809 closer, none further (Dam's median 0.087 -> 0.079,
+Facility 0.064 -> 0.059, Bunker 0.093 -> 0.086) - GE Plus's reflective props
+had the walk too. Replay test 8 of 8 the same.
+
+Still different: the rivet overlay. Filled solid on the cartridge it draws on
+one of the near face's two triangles and not the other, the edge between them
+exactly the line where it stops; ours draws it on both. The overlay's corners
+are the base's to five decimals in our log, and where it fails changes from
+view to view in the cartridge's pictures (pad 25 shows most of it, pad 31 a
+band at the left) - the RDP's decal test (|z - z_mem| within the larger dz,
+z_mem stored at 14 bits) against a face 70 units away whose dz is about the
+stored z's step. Matching it means the RDP's depth arithmetic, not done.
+
+Trap: the cartridge keeps the sphere map's palette 1400 bytes past the image,
+ours 1392 (its levels hold 8 bytes more, perhaps a 1x1 level; not checked).
+texsample_ares.py's GF_CIPAL says where; ramfind_ares.py finds a palette by its
+first entries. texsample_pd.py is the same instrument on our side.
+
 ## Open
 
 - Its arenas' weapon sets: `menu/gesets.bin` is written right for it, but GE
@@ -572,8 +616,7 @@ argument's first value, so `--pd-arg=--rng-seed --pd-arg=N` does nothing - a
   pillar was a room).
 - The watch draws nothing for a collectable where GoldenEye draws its model
   (converter 104's are checked against the cartridge otherwise).
-- Crab Key's worst views now (0.30-0.35): its copper walls close up (pads 43,
-  31, 25) - ours shows the seams, rivets and a dark diagonal streak, the
-  cartridge a flatter copper; unmeasured. Close-up flat walls also score high
-  on edges from the cartridge's 16-bit dither, which our pictures lack, and
-  pad 97's from the gun caught at another point of its sway.
+- Crab Key's copper doors: the rivet overlay, a decal the cartridge's RDP
+  drops on some triangles by its depth precision (above). Close-up flat walls
+  also score high on edges from the cartridge's 16-bit dither, which our
+  pictures lack, and pad 97's from the gun caught at another point of its sway.
