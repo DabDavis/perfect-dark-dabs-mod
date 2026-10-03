@@ -3965,11 +3965,37 @@ static s32 watchGunLoad(s32 item)
 	return watchGunLoadKey(item);
 }
 
-static s32 watchGunLoadKey(s32 key)
+static void watchOwnBoxesForget(void);
+
+/** The conversion's gitem_struct rows, for the stage's own conversion. */
+static void watchGunItemsEnsure(void)
 {
+	static s32 itemsmoddir = -1;
+
+	// The rows are the conversion's, and a ROM hack's are its own: Goldfinger
+	// 64's M1 Garand (its item 19) is 1950 from the camera where GoldenEye's
+	// item 19 is 629. Kept from the first stage of a session, a hack's guns
+	// were placed by GoldenEye's rows after any GE Plus stage - the Garand
+	// across the whole face and off its side (F3 20261003-103819) - and
+	// GoldenEye's by the hack's after one of its stages
+	if (g_WatchGun.items && itemsmoddir != g_Watch.moddir) {
+		sysMemFree(g_WatchGun.items);
+		g_WatchGun.items = NULL;
+		g_WatchGun.itemslen = 0;
+		watchItemUnload(&g_WatchGun);
+		watchItemUnload(&g_WatchPad);
+		watchOwnBoxesForget();
+	}
+
 	if (!g_WatchGun.items) {
 		g_WatchGun.items = watchLoad("geitems.bin", &g_WatchGun.itemslen);
+		itemsmoddir = g_Watch.moddir;
 	}
+}
+
+static s32 watchGunLoadKey(s32 key)
+{
+	watchGunItemsEnsure();
 
 	if (!g_WatchGun.items || g_WatchGun.itemslen < GUN_ITEM_ROW * GUN_NUM_ITEMS) {
 		return 0;
@@ -4315,6 +4341,12 @@ struct watchbox {
 
 // GoldenEye's own model's box for each item, as the face shows it
 static struct watchbox g_WatchOwnBox[GUN_NUM_ITEMS];
+
+// measured on one conversion's models, by its item numbers
+static void watchOwnBoxesForget(void)
+{
+	memset(g_WatchOwnBox, 0, sizeof(g_WatchOwnBox));
+}
 
 static void watchBoxWalk(struct modelnode *node, Mtxf *matrices, s32 nummatrices, struct watchbox *box)
 {
@@ -5169,6 +5201,10 @@ static const char *watchGunText(s32 item, s32 offset)
 	static u32 banklen;
 	static s32 moddir = -2;
 	u32 id;
+
+	if (item >= 0) {
+		watchGunItemsEnsure();
+	}
 
 	if (item < 0 || !g_WatchGun.items || g_WatchGun.itemslen < GUN_ITEM_ROW * GUN_NUM_ITEMS) {
 		return NULL;
