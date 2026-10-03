@@ -801,8 +801,14 @@ static void variantConvert(u8 *rom, u32 romlen, const char *name, const char *fr
 	}
 }
 
-/** A patch at path (from names the file the player put in added-content/). */
-static void variantFromPatch(const char *path, const char *from)
+/**
+ * A patch at path (from names the file the player put in added-content/).
+ * Whether it applies to GoldenEye 007 (US) and makes a hack this converts; one
+ * out of an archive (`inarchive`) that makes another says nothing, since a
+ * hack's zip holds its older releases beside the one this knows (TND64's
+ * eight: its Original V1-V4 and Expanded's earlier three).
+ */
+static s32 variantFromPatch(const char *path, const char *from, s32 inarchive)
 {
 	char err[256];
 	u8 *patch, *out = NULL;
@@ -812,19 +818,19 @@ static void variantFromPatch(const char *path, const char *from)
 	if (!variantUsRom()) {
 		sysLogPrintf(LOG_NOTE, "gexplus: %s may be a GoldenEye ROM hack; it needs the GoldenEye 007 (US) ROM in "
 				FS_ADDED_CONTENT_DIR "/ to be applied to", from);
-		return;
+		return 0;
 	}
 
 	patch = fsFileLoad(path, &patchlen);
 
 	if (!patch) {
-		return;
+		return 0;
 	}
 
 	if (rompatchApply(g_UsRom, g_UsRomLen, patch, patchlen, &out, &outlen, err, sizeof(err)) < 0) {
 		// a patch for something else: added-content/ holds the releases' too
 		sysMemFree(patch);
-		return;
+		return 0;
 	}
 
 	sysMemFree(patch);
@@ -832,11 +838,12 @@ static void variantFromPatch(const char *path, const char *from)
 
 	if (name) {
 		variantConvert(out, outlen, name, from);
-	} else {
+	} else if (!inarchive) {
 		sysLogPrintf(LOG_NOTE, "gexplus: %s applies to GoldenEye 007 (US) but makes no ROM hack this can convert", from);
 	}
 
 	free(out);
+	return name != NULL;
 }
 
 static s32 variantIsDir(const char *path)
@@ -867,10 +874,12 @@ static void variantListAdd(const char *name, void *arg)
 	snprintf(list->names[list->count++], 256, "%s", name);
 }
 
-// the patches in an unpacked zip, a few folders down
-static void variantPatchesIn(const char *dir, const char *from, s32 depth)
+// the patches in an unpacked zip, a few folders down, each tried: how many
+// make a hack this converts, and how many were tried
+static s32 variantPatchesIn(const char *dir, const char *from, s32 depth, s32 *tried)
 {
 	struct variantlist list = { NULL, 0, 0 };
+	s32 made = 0;
 
 	if (fsScanDir(dir, variantListAdd, &list) >= 0) {
 		for (s32 i = 0; i < list.count; ++i) {
@@ -879,14 +888,16 @@ static void variantPatchesIn(const char *dir, const char *from, s32 depth)
 			snprintf(path, sizeof(path), "%s/%s", dir, list.names[i]);
 
 			if (rompatchIsPatchName(list.names[i])) {
-				variantFromPatch(path, from);
+				made += variantFromPatch(path, from, 1);
+				++*tried;
 			} else if (depth < 3 && variantIsDir(path)) {
-				variantPatchesIn(path, from, depth + 1);
+				made += variantPatchesIn(path, from, depth + 1, tried);
 			}
 		}
 	}
 
 	free(list.names);
+	return made;
 }
 
 // whether an archive holds a ROM patch (archiveFindEntry() wants the path expanded)
@@ -938,7 +949,15 @@ static void variantFromArchive(const char *path, const char *name, const char *f
 		}
 	}
 
-	variantPatchesIn(dir, from, 0);
+	{
+		s32 tried = 0;
+		const s32 made = variantPatchesIn(dir, from, 0, &tried);
+
+		if (!made && tried && g_UsRom) {
+			sysLogPrintf(LOG_NOTE, "gexplus: %s holds %d patch%s, and none makes a GoldenEye ROM hack this can convert",
+					from, tried, tried == 1 ? "" : "es");
+		}
+	}
 }
 
 struct variantsearch {
@@ -1019,7 +1038,7 @@ static void gexPlusRomConvertVariants(void)
 			}
 
 			if (rompatchIsPatchName(name)) {
-				variantFromPatch(path, from);
+				variantFromPatch(path, from, 0);
 			} else if (archiveIsSupported(name) && size <= VARIANT_ARCHIVE_MAX) {
 				variantFromArchive(path, name, from);
 			} else if ((u32)size > GECONVERT_ROM_SIZE) {
