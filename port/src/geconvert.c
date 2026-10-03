@@ -136,6 +136,15 @@ struct romlayout {
 	// empty row here reads them there; a hack that rewrote the function keeps
 	// its own in its code
 	uint8_t headpools[GE_HEAD_POOLS][2][16];
+	// monitorSetImageByNum() (propobj.c, 7F049C98): the word of the monitor
+	// programmes' block (GEMON_BLOCK_AT) each of the 52 starts at - a switch's
+	// cases through the jump table at 0x80052b98, each address an immediate in
+	// the code - and s_monitorimages, the pictures they index, where the ROM's
+	// global image table holds it. An empty row is GoldenEye's own
+	// (gemonitortable.h); a hack that rewrote its programmes in the block kept
+	// the block's place and length and moved where each one starts
+	uint16_t monprograms[GEMON_NUM_PROGRAMS];
+	uint32_t monimages;
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -217,6 +226,18 @@ static const struct romlayout g_Layouts[] = {
 			{ { 64, 105, 95, 96, 99, 100, 103, 104, 115, 106, 111 }, { 85, 86, 87, 88, 89, 90 } },
 			{ { 65, 66, 67, 94, 112, 113 }, { 0 } },
 		},
+		// its programmes rewritten in GoldenEye's block (15% of their words
+		// GoldenEye's), ending at word 969 and the rest of the block yields
+		// (0x0c); nine of its pictures changed (two new images, 2948 and
+		// 2949, and seven another size or format), the table where
+		// GoldenEye's is
+		{
+			  0,  35,  69, 113, 118, 141, 150, 171, 180, 185, 194, 199, 204, 300, 326,  82,
+			224, 355, 376, 535, 555, 563, 588, 601, 634, 639, 648, 653, 658, 665, 672, 679,
+			686, 693, 700, 714, 719, 724, 729, 750, 757, 764, 771, 801, 845, 855, 875, 894,
+			913, 927, 941, 955,
+		},
+		0x29debc,
 	},
 };
 
@@ -10156,16 +10177,20 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// - with the image's number as the conversion writes its texture - and
 		// the programmes' block out of the data segment as it stands, but for a
 		// jump's target, an address inside the block, which becomes the word it
-		// is at. geconvert.py writes the same bytes.
-		// (GoldenEye's programmes, gemonitortable.h: a variant's own are not
-		// mapped yet, and its screens show GoldenEye's)
-		if (!g_Layout->variant) {
+		// is at. A hack's starts and pictures are its own (romlayout.monprograms,
+		// monimages); its block is where GoldenEye's is.
+		{
 			static const uint8_t lens[16] = { 1, 3, 3, 3, 3, 3, 3, 2, 2, 2, 3, 1, 1, 3, 2, 2 };
 			const size_t at = GEMON_BLOCK_AT - DATA_VRAM;
+			const int own = g_Layout->monimages != 0;
 			buf mon = {0};
 
 			if (at + 4 * (size_t)GEMON_BLOCK_WORDS > g_DataLen) {
 				fail("the monitor programmes are not where they should be");
+			}
+
+			if (own && (size_t)g_Layout->monimages + 12 * GEMON_NUM_IMAGES > g_RomLen) {
+				fail("%s's monitor pictures run off the ROM", g_Layout->name);
 			}
 
 			bufPut(&mon, (const uint8_t *)"GEM1", 4);
@@ -10174,19 +10199,38 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			bufU32(&mon, GEMON_BLOCK_WORDS);
 
 			for (int i = 0; i < GEMON_NUM_PROGRAMS; ++i) {
-				bufU32(&mon, g_GeMonPrograms[i]);
+				const uint32_t w = own ? g_Layout->monprograms[i] : g_GeMonPrograms[i];
+
+				if (w >= GEMON_BLOCK_WORDS) {
+					fail("%s's monitor programme %d starts past its block", g_Layout->name, i);
+				}
+
+				bufU32(&mon, w);
 			}
 
 			for (int i = 0; i < GEMON_NUM_IMAGES; ++i) {
-				setAdd(alltex, g_GeMonImages[i].image);
-				bufU32(&mon, texRemap(g_GeMonImages[i].image));
-				bufU8(&mon, g_GeMonImages[i].w);
-				bufU8(&mon, g_GeMonImages[i].h);
-				bufU8(&mon, g_GeMonImages[i].level);
-				bufU8(&mon, g_GeMonImages[i].format);
-				bufU8(&mon, g_GeMonImages[i].depth);
-				bufU8(&mon, g_GeMonImages[i].s);
-				bufU8(&mon, g_GeMonImages[i].t);
+				// s_monitorimages' row: the image, then width, height, level,
+				// format, depth and the two wrap modes
+				uint32_t image = g_GeMonImages[i].image;
+				uint8_t row[7] = {
+					g_GeMonImages[i].w, g_GeMonImages[i].h, g_GeMonImages[i].level, g_GeMonImages[i].format,
+					g_GeMonImages[i].depth, g_GeMonImages[i].s, g_GeMonImages[i].t,
+				};
+
+				if (own) {
+					const size_t r = g_Layout->monimages + 12 * (size_t)i;
+
+					image = be32(g_Rom, r);
+					memcpy(row, g_Rom + r + 4, sizeof(row));
+
+					if (image >= (uint32_t)NUM_IMAGES) {
+						fail("%s's monitor picture %d is image %u, past its last", g_Layout->name, i, (unsigned)image);
+					}
+				}
+
+				setAdd(alltex, image);
+				bufU32(&mon, texRemap(image));
+				bufPut(&mon, row, sizeof(row));
 				bufU8(&mon, 0);
 			}
 
