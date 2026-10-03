@@ -929,6 +929,21 @@ static Gfx *introBackdrop(Gfx *gdl, s32 xoffset)
 	tile = geFolderMenuPicture("attract/barrel", &rw, &rh);
 	release = tile != NULL;
 
+	// Scrolled left (xoffset < 0, the sight's sway at the end) GoldenEye still
+	// draws the rows the screen's width and the texels past the picture's
+	// right edge are its last column, clamped - black in GoldenEye's own
+	// picture, so nothing shows. The release's last column is the scan's
+	// noisy edge, and smeared across the screen's right side it drew as
+	// streaks (F3 20261002-075339): its rows stop where the picture does,
+	// over the black already there.
+	if (release && x0 + (BG_W - s0) * scale < x1) {
+		x1 = x0 + (BG_W - s0) * scale;
+
+		if (x1 <= x0) {
+			return gdl;
+		}
+	}
+
 	gDPPipeSync(gdl++);
 
 	// texSelect() sets modes of its own, so it goes ahead of this frame's
