@@ -3738,8 +3738,15 @@ void gegunsSetWatchLaser(s32 on)
  * the hack's own the guns' definitions are built from it once and swapped in
  * whole, and on any other stage GoldenEye's are swapped back, as they were -
  * as the watch laser is on Train.
+ *
+ * GGN3 adds a word of flags after GGN2's envmap items. GEGUNS_NOLASER: the
+ * hack's code tests for the laser by a number no item has (TND64 Expanded's
+ * fourteen, 0x99), so its gun on the Moonraker's number (its FAMAS, on
+ * GlaserZ) is a rifle like any other - it stands on the AR33's host while the
+ * set is in, no beam and a rifle's muzzle, and on the laser again after.
  */
 #define GEGUNS_SETS     4
+#define GEGUNS_NOLASER  0x1
 #define GEGUNS_NAMELEN  40
 #define GEGUNS_STATROW  0x70
 #define GEGUNS_ROW      (4 + GEGUNS_NAMELEN + GEGUNS_STATROW)
@@ -3756,6 +3763,7 @@ struct gegunset {
 	u16 nameids[NUM_GE_WEAPONS];
 	char names[NUM_GE_WEAPONS][GEGUNS_NAMELEN + 2];
 	u32 envitems;
+	u32 flags; // GEGUNS_NOLASER
 	s32 built;
 	struct weapon defs[NUM_GE_WEAPONS];
 	struct aibotweaponpreference prefs[NUM_GE_WEAPONS];
@@ -3882,10 +3890,12 @@ static struct gegunset *gegunsSetAt(s32 moddir)
 	snprintf(path, sizeof(path), "%s/menu/geguns.bin", fsGetModDirAt(moddir));
 	d = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
 
-	// GGN2 carries the items drawn under the envmap light after the count
+	// GGN2 carries the items drawn under the envmap light after the count,
+	// GGN3 its flags after them
 	hdr = d && len >= 12 && !memcmp(d, "GGN2", 4) ? 12 : 8;
+	hdr = d && len >= 16 && !memcmp(d, "GGN3", 4) ? 16 : hdr;
 
-	if (!d || len < 8 || (memcmp(d, "GGN1", 4) && hdr != 12) || len < hdr + (count = gegunsBe32(d + 4)) * GEGUNS_ROW) {
+	if (!d || len < 8 || (memcmp(d, "GGN1", 4) && hdr == 8) || len < hdr + (count = gegunsBe32(d + 4)) * GEGUNS_ROW) {
 		if (d) {
 			sysLogPrintf(LOG_WARNING, "geguns: %s is not a gun set", path);
 		}
@@ -3913,7 +3923,8 @@ static struct gegunset *gegunsSetAt(s32 moddir)
 	}
 
 	set->moddir = moddir;
-	set->envitems = hdr == 12 ? gegunsBe32(d + 8) : GEGUNS_ENVMAP_ITEMS;
+	set->envitems = hdr >= 12 ? gegunsBe32(d + 8) : GEGUNS_ENVMAP_ITEMS;
+	set->flags = hdr >= 16 ? gegunsBe32(d + 12) : 0;
 
 	// GoldenEye's, where the hack has no gun on a weapon: its gadgets, and
 	// whatever of GoldenEye's it has no row for
@@ -4009,6 +4020,10 @@ void gegunsStageSet(s32 stagenum)
 	}
 
 	gegunsUseTables(set);
+
+	// the Moonraker's number a rifle where the hack has no laser (GEGUNS_NOLASER)
+	g_GeWeaponHosts[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST] = set && (set->flags & GEGUNS_NOLASER)
+		? g_GeWeaponHosts[WEAPON_GE_AR33 - WEAPON_GE_FIRST] : WEAPON_LASER;
 
 	if (!set) {
 		memcpy(g_GeWeaponDefs, g_GunSetGeDefs, sizeof(g_GunSetGeDefs));

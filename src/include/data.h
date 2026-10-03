@@ -243,7 +243,7 @@ extern u16 var8006af8c[];
 extern struct weapon *g_Weapons[];
 
 #ifndef PLATFORM_N64
-extern const u8 g_GeWeaponHosts[NUM_GE_WEAPONS];
+extern u8 g_GeWeaponHosts[NUM_GE_WEAPONS];
 extern struct weapon g_GeWeaponDefs[NUM_GE_WEAPONS];
 
 /**

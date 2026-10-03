@@ -176,6 +176,10 @@ struct romlayout {
 	// the string of the PRINT (0xad) after it - its Girl Power Mode, clocks
 	// and bonuses (writeSoloAilist())
 	uint8_t aihooks;
+	// 1 where the hack's code no longer tests for the laser by its item
+	// (TND64 Expanded's fourteen tests are of 0x99): its gun on the laser's
+	// file is a rifle, which geguns.bin's flags say (writeGuns())
+	uint8_t nolaser;
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -356,6 +360,9 @@ static const struct romlayout g_Layouts[] = {
 		// past The End (13)
 		14,
 		// its setups' memory pokes ("2b fe" then "ad 8007A0B0+P0000041C+...")
+		1,
+		// "FAMAS ray tracer now like every other gun" (its changelog): 7F025378
+		// and thirteen more test 0x99 for 0x16
 		1,
 	},
 };
@@ -7621,7 +7628,8 @@ static void writeFile(const char *outdir, const char *rel, const uint8_t *data, 
  * menu/geguns.bin: a hack's own guns (geguns.c), which GoldenEye's tables
  * there - generated from the decomp's rows - are not. "GGN2", a count, the
  * items its first-person guns are drawn under the envmap light (a bit an
- * item, envmapitems), and a row a gun: its weapon less WEAPON_GE_PP7, its item number (the Igx%03dZ its
+ * item, envmapitems) - "GGN3" and a word of flags after it where there are
+ * any (romlayout.nolaser) - and a row a gun: its weapon less WEAPON_GE_PP7, its item number (the Igx%03dZ its
  * first-person model is), the prop a hand holds it as (heldprops), its name
  * (the row's weapon-of-choice text out of its own LgunE: "Walther PPK/s"),
  * and its gunWeaponStat row as the ROM has it, big-endian, the cartridge's
@@ -7645,9 +7653,13 @@ static void writeGuns(const char *outdir)
 		}
 	}
 
-	bufPut(&out, (const uint8_t *)"GGN2", 4);
+	// GGN3 where there are flags: GEGUNS_NOLASER (geguns.c), 1
+	bufPut(&out, (const uint8_t *)(g_Layout->nolaser ? "GGN3" : "GGN2"), 4);
 	bufU32(&out, 0);
 	bufU32(&out, envmask);
+	if (g_Layout->nolaser) {
+		bufU32(&out, 1);
+	}
 
 	for (uint32_t item = 1; item < 32; ++item) {
 		const uint32_t w = soloItemWeapon(item);
