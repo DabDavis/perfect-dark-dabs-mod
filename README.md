@@ -258,9 +258,9 @@ runs, with a `WHAT GOES HERE.txt` inside saying the same as this:
 
 | Put this in `added-content/` | What it gives you |
 | --- | --- |
-| A **GoldenEye 007 (US)** N64 ROM - any file name, `.z64`, `.n64` or `.v64` | **GE Plus**: GoldenEye's arenas, missions, menus and music, converted once at the next start into `mods/GoldenEye Arenas/` |
+| A **GoldenEye 007 (US)** N64 ROM - any file name, `.z64`, `.n64` or `.v64` | **GoldenEye**: GoldenEye's arenas, missions, menus and music, converted once at the next start into `mods/GoldenEye Arenas/` |
 | **`Perfect Dark XBLA.7z`** - the archive as it is, or its package unpacked | The Xbox 360 (XBLA) page: the release's textures, models, rooms, font and skies. Unpacked once into `cache/xbla/` |
-| **`GoldenEye_007_XBLA.7z`** - the archive as it is, or its folder unpacked | GoldenEye XBLA's HD characters, guns and levels on GE Plus and GoldenEye X |
+| **`GoldenEye_007_XBLA.7z`** - the archive as it is, or its folder unpacked | GoldenEye XBLA's HD characters, guns and levels on GoldenEye and GoldenEye X |
 
 Each is found by its contents, so a file keeps whatever name it came with.
 Restart the game after adding one. Nothing else goes there: the Perfect Dark

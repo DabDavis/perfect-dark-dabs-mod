@@ -1169,7 +1169,7 @@ void geWatchStageStart(s32 stagenum)
 	g_Watch.mpmenu = watchLoad("LmpmenuE", &g_Watch.mpmenulen);
 
 	if (!g_Watch.options) {
-		sysLogPrintf(LOG_WARNING, "gewatch: the conversion has no LoptionsE; GE Plus pauses Perfect Dark's way");
+		sysLogPrintf(LOG_WARNING, "gewatch: the conversion has no LoptionsE; GoldenEye pauses Perfect Dark's way");
 		watchUnload();
 		return;
 	}
@@ -1791,7 +1791,7 @@ static s32 watchEnsureModel(void)
 	}
 
 	watchFreeModel();
-	sysLogPrintf(LOG_WARNING, "gewatch: the conversion has no %s; GE Plus pauses Perfect Dark's way", "Cgx041Z");
+	sysLogPrintf(LOG_WARNING, "gewatch: the conversion has no %s; GoldenEye pauses Perfect Dark's way", "Cgx041Z");
 
 	return 0;
 }

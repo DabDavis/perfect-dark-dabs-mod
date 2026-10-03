@@ -3,7 +3,7 @@
 Our own translation, made from the English alone. No existing German text of
 Perfect Dark or GoldenEye 007 (Rare's PAL German included) was opened or
 consulted. Keep these terms when translating the port's strings (`port.json`)
-and GE Plus (`ge.json`), and when editing any bank.
+and GoldenEye (`ge.json`), and when editing any bank.
 
 ## Register (Sie / du)
 

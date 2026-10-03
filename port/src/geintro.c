@@ -664,7 +664,7 @@ static s32 introLoadAll(void)
 	}
 
 	if (g_Intro.moddir < 0 || !gexFrontLoadShared() || !introLoadAnims()) {
-		sysLogPrintf(LOG_WARNING, "geintro: the conversion's intro files are missing; GE Plus opens on the folder");
+		sysLogPrintf(LOG_WARNING, "geintro: the conversion's intro files are missing; GoldenEye opens on the folder");
 		introUnload();
 		return 0;
 	}

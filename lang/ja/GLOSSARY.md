@@ -272,12 +272,12 @@ Japanese. Spaced-out titles ("D A M") are written normally.
 | Stage Loader / stage | ステージローダー / ステージ |
 | Randomizer / seed | ランダマイザー / シード |
 | Renderer / Upscaling / Supersampling | レンダラー / アップスケール / スーパーサンプリング |
-| GE Plus | GE Plus |
+| GoldenEye | GoldenEye |
 | Language | 言語 (the language names stay in their own languages) |
 
 ## Lengths, as measured in the game
 
-- The mission grid of GE Plus holds five characters under a photo; the
+- The mission grid of GoldenEye holds five characters under a photo; the
   inventory list about nine (the port widens a fixed-width list by a fifth
   in a CJK pack, menu.c); the watch's abort row holds 取消 / 決定, not
   キャンセル; the briefing folder's "Mission 1:" is "任務 1:" so the level's
