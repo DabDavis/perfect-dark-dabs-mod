@@ -17090,6 +17090,18 @@ void func0f0859a0(struct prop *prop, struct shotdata *shotdata)
 			hitpart = modelTestForHit(model, &shotdata->gunpos2d, &shotdata->gundir2d, &node1);
 		}
 	} else {
+#ifndef PLATFORM_N64
+		// The HD look's GoldenEye props are shot where they are drawn: the
+		// release's mesh, not the ROM model's triangles (xblaMeshObjShotTest())
+		s32 meshhit = xblaMeshObjShotTest(model, &shotdata->gunpos2d, &shotdata->gundir2d, shotdata->distance,
+				&hitthing1, &spe4, &node1, &hitpart, &node2);
+
+		if (meshhit >= 0) {
+			if (meshhit == 0) {
+				hitpart = 0;
+			}
+		} else
+#endif
 		do {
 			hitpart = modelTestForHit(model, &shotdata->gunpos2d, &shotdata->gundir2d, &node1);
 

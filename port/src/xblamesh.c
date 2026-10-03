@@ -13113,33 +13113,15 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 }
 
 /**
- * The first surface of the release's mesh drawn for `model` on the segment
- * `from` to `to` (world space), for something that sticks where the ROM's
- * collision surface is: the release's props are not the N64 ones' shape, and
- * a mine stuck to a Facility tank sat inside the HD tank's fatter walls. The
- * model's matrices are the last frame's, in the camera's space, as the shot
- * tests them (and objEmbed() reads them); 0 where nothing of the release's is
- * drawn on the model - the N64 look - or the segment meets none of it.
+ * Notes every list of `model` whose release mesh is drawn in the current look
+ * for xblaMeshHitTest(): the release's own (xblaMeshHitSkipsNode()) and
+ * GoldenEye's release's (beanBuilt), by xblaMeshRenderNode()'s `frombean`
+ * rule. Returns how many were noted.
  */
-s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const struct coord *to, struct coord *hit)
+static s32 xblaMeshHitNoteModel(struct model *model)
 {
 	struct modelnode *node;
-	struct coord pos;
-	struct coord far;
-	struct coord dir;
-	struct hitthing hitthing;
-	struct modelnode *bbox = NULL;
-	struct modelnode *dlnode = NULL;
-	s32 hitpart = 0;
-	Mtxf *camtoworld = camGetProjectionMtxF();
-	Mtxf worldtocam;
 	const s32 look = !xblaMeshGetEnabled();
-	f32 len;
-	f32 sqdist;
-
-	if (!model || !model->matrices || !model->definition || !camtoworld || !g_XblaMeshNumNodes) {
-		return 0;
-	}
 
 	numHitLists = 0;
 
@@ -13150,9 +13132,8 @@ s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const st
 			// the release's own mesh for the list, as a shot finds it
 			xblaMeshHitSkipsNode(model, node);
 
-			// or GoldenEye's release's, which a shot does not test yet, by
-			// xblaMeshRenderNode()'s `frombean` rule: its HD props are drawn
-			// only with the meshes on (F6), as they are asked here
+			// or GoldenEye's release's, by xblaMeshRenderNode()'s `frombean`
+			// rule: its HD props are drawn only with the meshes on (F6)
 			if (numHitLists < XBLAMESH_HITLISTS && gebeanGetEnabled() && beanBuilt[look]) {
 				struct xblameshentry *e = xblaMeshSlotFor(node);
 
@@ -13181,7 +13162,37 @@ s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const st
 		}
 	}
 
-	if (!numHitLists) {
+	return numHitLists;
+}
+
+/**
+ * The first surface of the release's mesh drawn for `model` on the segment
+ * `from` to `to` (world space), for something that sticks where the ROM's
+ * collision surface is: the release's props are not the N64 ones' shape, and
+ * a mine stuck to a Facility tank sat inside the HD tank's fatter walls. The
+ * model's matrices are the last frame's, in the camera's space, as the shot
+ * tests them (and objEmbed() reads them); 0 where nothing of the release's is
+ * drawn on the model - the N64 look - or the segment meets none of it.
+ */
+s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const struct coord *to, struct coord *hit)
+{
+	struct coord pos;
+	struct coord far;
+	struct coord dir;
+	struct hitthing hitthing;
+	struct modelnode *bbox = NULL;
+	struct modelnode *dlnode = NULL;
+	s32 hitpart = 0;
+	Mtxf *camtoworld = camGetProjectionMtxF();
+	Mtxf worldtocam;
+	f32 len;
+	f32 sqdist;
+
+	if (!model || !model->matrices || !model->definition || !camtoworld || !g_XblaMeshNumNodes) {
+		return 0;
+	}
+
+	if (!xblaMeshHitNoteModel(model)) {
 		return 0;
 	}
 
@@ -13209,6 +13220,71 @@ s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const st
 	}
 
 	mtx4TransformVec(camtoworld, &hitthing.pos, hit);
+
+	return 1;
+}
+
+/**
+ * A shot at an object that draws GoldenEye's release mesh (the HD look's
+ * props: Jungle's trees, crates, doors), against the triangles drawn rather
+ * than the ROM model's: the release's thin jungle trees stand inside the N64
+ * trunks' width, and a shot past the drawn trunk stopped on the invisible N64
+ * one (F3 20261002-234900). `pos`/`dir` are the shot's, in the camera's space
+ * as the model's matrices are, and `range` how far it reaches.
+ *
+ * -1: the model draws no GoldenEye release mesh - test the ROM's triangles.
+ * 0: the ray misses what is drawn. 1: a hit, its position and normal in the
+ * space of the model matrix `*mtxindex` (as func0f0849dc() gives them), with
+ * the bbox it counts against and the list it was drawn for.
+ */
+s32 xblaMeshObjShotTest(struct model *model, struct coord *pos, struct coord *dir, f32 range,
+		struct hitthing *hitthing, s32 *mtxindex, struct modelnode **bboxnode, s32 *hitpart,
+		struct modelnode **dlnode)
+{
+	struct coord far;
+	struct coord local;
+	struct coord normal;
+	f32 sqdist;
+	s32 mtx;
+	Mtxf inv;
+
+	if (!model || !model->matrices || !model->definition || !g_XblaMeshNumNodes
+			|| !xblaMeshModelDrawsBean(model)) {
+		return -1;
+	}
+
+	if (!xblaMeshHitNoteModel(model)) {
+		return -1;
+	}
+
+	if (range <= 0.0f || range > 65536.0f) {
+		range = 65536.0f;
+	}
+
+	far.x = pos->x + dir->x * range;
+	far.y = pos->y + dir->y * range;
+	far.z = pos->z + dir->z * range;
+	sqdist = range * range;
+
+	if (!xblaMeshHitTest(model, pos, &far, dir, &sqdist, hitthing, bboxnode, hitpart, dlnode)) {
+		return 0;
+	}
+
+	mtx = modelFindNodeMtxIndex(*bboxnode, 0);
+
+	if (mtx < 0 || mtx >= model->definition->nummatrices) {
+		mtx = 0;
+	}
+
+	// into the matrix's own space, where the stock hit puts it (hitCreate()
+	// and the bullet hole read it through model->matrices[mtxindex])
+	mtx000172f0(model->matrices[mtx].m, inv.m);
+	mtx4TransformVec(&inv, &hitthing->pos, &local);
+	mtx4RotateVec(&inv, &hitthing->unk0c, &normal);
+	guNormalize(&normal.x, &normal.y, &normal.z);
+	hitthing->pos = local;
+	hitthing->unk0c = normal;
+	*mtxindex = mtx;
 
 	return 1;
 }
@@ -14051,6 +14127,9 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 		f32 *sqdist, struct hitthing *hitthing, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode) { return 0; }
 s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const struct coord *to, struct coord *hit) { return 0; }
+s32 xblaMeshObjShotTest(struct model *model, struct coord *pos, struct coord *dir, f32 range,
+		struct hitthing *hitthing, s32 *mtxindex, struct modelnode **bboxnode, s32 *hitpart,
+		struct modelnode **dlnode) { return -1; }
 s32 xblaMeshModelsAreLate(void) { return 0; }
 u8 *xblaMeshReadFile(u16 fileid, u32 *outLen) { return NULL; }
 
