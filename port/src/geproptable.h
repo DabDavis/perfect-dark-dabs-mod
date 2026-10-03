@@ -225,6 +225,7 @@
 	PROPROW("Pgx279Z", "prop/miltruck", 0, 1, 2, 1, 1, 1, 3.04989f, 0.00f, 0.00f, 0.00f, -0.07f, -415.50f, 3121.91f), // miltruck, 100%
 	PROPROW("Pgx280Z", "prop/jeep", 0, 1, 2, 1, 1, 1, 3.05019f, 0.00f, 0.00f, 0.00f, -486.74f, 945.39f, 3458.47f), // jeep, 100%
 	PROPROW("Pgx281Z", "prop/artic", 0, 1, 2, 1, 1, 1, 3.04998f, 0.00f, 0.00f, 0.00f, 813.33f, 355.85f, -2490.82f), // artic, 100%
+	PROPROW("Pgx282Z", "prop/helicopter", 0, 1, 2, 1, 1, 1, 0.64998f, 0.00f, 0.00f, 0.00f, 17.00f, 131.82f, 6829.30f), // helicopter, 40%
 	PROPROW("Pgx283Z", "prop/tiger", 0, 1, 2, 1, 1, 1, 3.04998f, 0.00f, 0.00f, 0.00f, -0.05f, -1481.99f, -200.80f), // tiger, 100%
 	PROPROW("Pgx284Z", "prop/milcopter", 0, 1, 2, 1, 1, 1, 3.05015f, 0.00f, 0.00f, 0.00f, -0.04f, -0.03f, 0.09f), // milcopter, 99%
 	PROPROW("Pgx285Z", "prop/hind", 0, 1, 2, 1, 1, 1, 3.04998f, 0.00f, 0.00f, 0.00f, 0.00f, 274.40f, 289.07f), // hind, 100%

@@ -133,6 +133,13 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node);
 
 /**
+ * After xblaMeshRenderNode() has drawn a node: the node's own lists cut down to
+ * the triangles its mesh leaves out (the Cradle helicopter's pilot), for
+ * model.c to draw as the node's own, or 0 for none.
+ */
+s32 xblaMeshKeptLists(struct model *model, struct modelnode *node, Gfx **opa, Gfx **xlu);
+
+/**
  * A frame is starting: the vertices posed for the last one are two frames old
  * and their arena can be reused.
  */
