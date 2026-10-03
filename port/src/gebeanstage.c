@@ -5560,7 +5560,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 17
+#define HDCACHE_VERSION 18
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
@@ -7068,7 +7068,8 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0, paintedOver = 0, plainUntextured = 0, plainBlack = 0;
+	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0, paintedOver = 0, plainUntextured = 0, plainBlack = 0, unlampLit = 0;
+	u8 *farHit = NULL;
 	u32 bytes = 0;
 	const char *levelname;
 	u64 key = 0;
@@ -7296,6 +7297,8 @@ static s32 build(void)
 			hdTarget[t] = -1.0f;
 		}
 
+		farHit = calloc(c.num > 0 ? c.num : 1, 1);
+
 		// Deal each triangle to the room whose own triangle its middle lies
 		// on. Rooms share the vertices along their borders, so the nearest
 		// vertex named the room next door for a big floor triangle about as
@@ -7345,6 +7348,13 @@ static s32 build(void)
 				const s32 file = near >= 0 ? filetris.room[near] : nearestRoomBox(mid, n);
 
 				tri->room = file & 0xffff;
+
+				// The grid's cells are hashed: with none of GoldenEye's
+				// triangles within the rings searched, one from a far cell
+				// sharing a bucket can answer (lampLit() below)
+				if (farHit) {
+					farHit[t] = near >= 0 && d > ASSIGN_RINGS * ASSIGN_CELL * ASSIGN_RINGS * ASSIGN_CELL;
+				}
 				tri->nofog = (file >> 16) & 1;
 
 				if (hdTarget) {
@@ -7378,15 +7388,89 @@ static s32 build(void)
 			}
 		}
 
+		// A triangle dealt by a far GoldenEye triangle of a hashed cell's
+		// bucket (farHit) to a room with lamps of its own wears that room's
+		// light: Dam's chasm walls went to room 101, a lamp-lit tunnel on the
+		// dam's top 10000 units away, and darkened in slivers across the
+		// cliff once that lamp was shot out with Mod.GeShotLightsDim on (F3
+		// 20261003-054133). It goes to the room without lamps nearest by box
+		// among those its other triangles already hold, and only from a room
+		// that keeps triangles of its own, so which rooms are Bean's and
+		// which are kept is as it was
+		if (farHit) {
+			s32 *own = calloc(n + 1, sizeof(s32));
+
+			for (s32 t = 0; own && t < c.num; t++) {
+				if (c.tris[t].room > 0 && !farHit[t]) {
+					own[c.tris[t].room]++;
+				}
+			}
+
+			for (s32 t = 0; own && t < c.num; t++) {
+				struct stri *tri = &c.tris[t];
+				f32 mid[3];
+				s32 best = -1;
+				f32 bestd = 0.0f;
+
+				if (!farHit[t] || tri->room <= 0 || g_Rooms[tri->room].numlights == 0 || own[tri->room] == 0) {
+					continue;
+				}
+
+				for (s32 j = 0; j < 3; j++) {
+					mid[j] = (tri->pos[0][j] + tri->pos[1][j] + tri->pos[2][j]) / 3.0f;
+				}
+
+				for (s32 r = 1; r < n; r++) {
+					f32 d = 0.0f;
+
+					if (listlen[r] == 0 || g_Rooms[r].numlights > 0 || !triFitsRoom(tri, r)) {
+						continue;
+					}
+
+					for (s32 k = 0; k < 3; k++) {
+						const f32 e = mid[k] < g_Rooms[r].bbmin[k] ? g_Rooms[r].bbmin[k] - mid[k]
+							: mid[k] > g_Rooms[r].bbmax[k] ? mid[k] - g_Rooms[r].bbmax[k] : 0.0f;
+
+						d += e * e;
+					}
+
+					if (best < 0 || d < bestd) {
+						best = r;
+						bestd = d;
+					}
+				}
+
+				if (best > 0) {
+					listlen[tri->room]--;
+					listlen[best]++;
+					tri->room = best;
+					unlampLit++;
+				}
+			}
+
+			free(own);
+			free(farHit);
+			farHit = NULL;
+
+			if (unlampLit) {
+				sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles dealt by a far cell's triangle to a room with lamps moved to one without", row->bean, unlampLit);
+			}
+		}
+
 		// A triangle too far from its room's position for a Vtx to hold
 		// (Dam's far mountains, dealt to the rooms of GoldenEye's backdrop
 		// 35000 nearer) goes to the nearest room of Bean's it fits. Every room
 		// is drawn, so where it is dealt changes nothing on the screen; left
 		// out, it was a hole onto the sky in the mountainside, hidden only
-		// while the fog there was whole
+		// while the fog there was whole.
+		//
+		// A room with lamps of its own is taken only where no room without
+		// any fits: the triangle wears its room's light, and a lamp shot out
+		// there would darken it far from the lamp (as with farHit above)
 		for (s32 t = 0; t < c.num; t++) {
 			struct stri *tri = &c.tris[t];
 			s32 best = -1;
+			s32 bestlit = 0;
 			f32 bestd = 0.0f;
 
 			if (tri->room <= 0 || triFitsRoom(tri, tri->room)) {
@@ -7399,9 +7483,11 @@ static s32 build(void)
 					const f32 dy = tri->pos[0][1] - g_BgRooms[r].pos.y;
 					const f32 dz = tri->pos[0][2] - g_BgRooms[r].pos.z;
 					const f32 d = dx * dx + dy * dy + dz * dz;
+					const s32 lit = g_Rooms[r].numlights > 0;
 
-					if (best < 0 || d < bestd) {
+					if (best < 0 || (lit == bestlit && d < bestd) || (!lit && bestlit)) {
 						best = r;
+						bestlit = lit;
 						bestd = d;
 					}
 				}
@@ -7543,6 +7629,7 @@ static s32 build(void)
 	free(lists);
 	free(listlen);
 	free(c.tris);
+	free(farHit);
 
 	// The backdrop's draw order, once it has everything it takes: its
 	// pictures (takeBackdrop()) and what no room can reach
