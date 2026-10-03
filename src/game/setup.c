@@ -55,6 +55,7 @@
 #include "romdata.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
+#include "game/portal.h"
 #include "gestan.h"
 #include "system.h"
 #include "lib/lib_17ce0.h"
@@ -1175,6 +1176,30 @@ s32 setupGetPortalByPad(s32 padnum)
 	return bgFindPortalBetweenPositions(&centre, &coord);
 }
 
+#ifndef PLATFORM_N64
+/**
+ * A pane's portal as the port keeps it: -1 for none. A pane without
+ * OBJFLAG_GLASS_HASPORTAL keeps the number its record carried, and the
+ * GoldenEye converter left a plain glass record's (0x2a) at nought - portal 0
+ * on every converted level, which the pane shut while whole and opened when it
+ * broke. On Tomorrow Never Dies 64's The End, one room and no portals, that
+ * broke through a NULL table and ended the game when the pane was shot (crash
+ * 20261003-231820). On a converted level a pane without the flag has no
+ * portal, as in GoldenEye; anywhere, a number that is not one of the level's
+ * portals is none.
+ */
+static void setupNormaliseGlassPortal(struct defaultobj *obj, s16 *portalnum)
+{
+	if ((obj->flags & OBJFLAG_GLASS_HASPORTAL) == 0 && geRoomActive()) {
+		*portalnum = -1;
+	}
+
+	if (*portalnum >= 0 && !portalIsValid(*portalnum)) {
+		*portalnum = -1;
+	}
+}
+#endif
+
 s32 setupGetPortalByDoorPad(s32 padnum)
 {
 	f32 mult;
@@ -2278,6 +2303,9 @@ void setupCreateProps(s32 stagenum)
 							glass->portalnum = setupGetPortalByPad(obj->pad);
 							glass->unk64 = *(s32 *)&glass->unk64 / 65536.0f;
 						}
+#ifndef PLATFORM_N64
+						setupNormaliseGlassPortal(obj, &((struct tintedglassobj *)obj)->portalnum);
+#endif
 
 						setupCreateObject(obj, index);
 					}
@@ -2389,6 +2417,9 @@ void setupCreateProps(s32 stagenum)
 							struct glassobj *glass = (struct glassobj *)obj;
 							glass->portalnum = setupGetPortalByPad(obj->pad);
 						}
+#ifndef PLATFORM_N64
+						setupNormaliseGlassPortal(obj, &((struct glassobj *)obj)->portalnum);
+#endif
 
 						setupCreateObject(obj, index);
 					}
