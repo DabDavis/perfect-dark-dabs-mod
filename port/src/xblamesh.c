@@ -454,6 +454,20 @@ struct xblameshbuilt {
 	u8 beanscreenfit;  // a monitor's screens moved onto Bean's own (gebeanmats.screenfit)
 	f32 beanscreenquad[4][4][3]; // and where to (gebeanmats.screenquad)
 	u8 beanscreenrecess; // screens on Bean's recess, drawn as decals (gebeanmats.screenrecess)
+	// A rigid prop's list whose own triangles the mesh leaves out, drawn in
+	// GoldenEye's look inside it (gebeanmats.keepvtx, xblaMeshKeptLists()):
+	// the vertices kept, the list node, and the lists made from the node's
+	// for this stage, with what they were made from
+	u8 *beankeepvtx;
+	s32 beannumkeepvtx;
+	s32 beankeeplist;
+	Gfx *beankeptgdl[2];
+	const Gfx *beankeptsrc[2];
+	// Parts turned about hubs of their own (gebeanmats.hubmtx, xblaMeshHubShift())
+	s32 beannumhubs;
+	s8 beanhubmtx[GEBEAN_MAXHUBS];
+	s8 beanhubparent[GEBEAN_MAXHUBS];
+	f32 beanhubshift[GEBEAN_MAXHUBS][3];
 };
 
 // The pictures a build's materials draw with, when they are not records.
@@ -6703,6 +6717,9 @@ static void xblaMeshFreePackMeshes(void)
 // again at the next stage, in case the copy was missing then.
 static struct xblameshbuilt **beanBuilt[2];
 
+// How many of them keep some of their model's own triangles (xblaMeshKeptLists())
+static s32 beanNumKeeping;
+
 /**
  * Builds the character for a GoldenEye X model: a mesh in 4J's layout from
  * gebeanBuild(), skinned to the model's own matrices, a group per list node.
@@ -6781,6 +6798,7 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 			free(bmats->env[i]);
 		}
 
+		free(bmats->keepvtx);
 		free(bmats);
 		return NULL;
 	}
@@ -6841,6 +6859,16 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 	m->beanscreenfit = bmats->screenfit;
 	memcpy(m->beanscreenquad, bmats->screenquad, sizeof(m->beanscreenquad));
 	m->beanscreenrecess = bmats->screenrecess;
+	beanNumKeeping += bmats->keepvtx && !m->beankeepvtx;
+	beanNumKeeping -= !bmats->keepvtx && m->beankeepvtx;
+	free(m->beankeepvtx);
+	m->beankeepvtx = bmats->keepvtx;
+	m->beannumkeepvtx = bmats->keepvtx ? bmats->numkeepvtx : 0;
+	m->beankeeplist = bmats->keepvtx ? bmats->keeplist : -1;
+	m->beannumhubs = bmats->numhubs;
+	memcpy(m->beanhubmtx, bmats->hubmtx, sizeof(m->beanhubmtx));
+	memcpy(m->beanhubparent, bmats->hubparent, sizeof(m->beanhubparent));
+	memcpy(m->beanhubshift, bmats->hubshift, sizeof(m->beanhubshift));
 
 	// The tinted panes, by their picture
 	for (s32 i = 0; i < mats.num; i++) {
@@ -6943,6 +6971,10 @@ static void xblaMeshResetBeanMeshes(void)
 			}
 
 			if (m->state < 0) {
+				beanNumKeeping -= m->beankeepvtx != NULL;
+				free(m->beankeepvtx);
+				free(m->beankeptgdl[0]);
+				free(m->beankeptgdl[1]);
 				memset(m, 0, sizeof(*m));
 				continue;
 			}
@@ -6952,6 +6984,13 @@ static void xblaMeshResetBeanMeshes(void)
 			m->envmodel = NULL;
 			m->keptmodel = NULL;
 			m->neckbackdef = NULL;
+
+			// made from the stage's own copy of the model's lists
+			for (s32 k = 0; k < ARRAYCOUNT(m->beankeptgdl); k++) {
+				free(m->beankeptgdl[k]);
+				m->beankeptgdl[k] = NULL;
+				m->beankeptsrc[k] = NULL;
+			}
 		}
 	}
 }
@@ -7525,6 +7564,32 @@ static f32 *xblaMeshDeformOffsets(struct xblameshbuilt *m, struct model *model,
  * objDeform()'s offsets. Hands back how many entries the model has matrices
  * for; the rest follow the first.
  */
+/**
+ * A part the mesh turns about a hub of its own (gebeanmats.hubmtx: the Cradle
+ * helicopter's rotors, which the release put elsewhere than GoldenEye's): its
+ * vertices are about that hub and its matrix turns them about GoldenEye's
+ * node, so the matrix is moved on by the hub's offset from the node, as the
+ * matrix over it turns that - which puts the hub back where the release has
+ * it and leaves the turn about it.
+ */
+static void xblaMeshHubShift(const struct xblameshbuilt *m, const struct model *model, s32 i, s32 posable, Mtxf *mtx)
+{
+	for (s32 h = 0; h < m->beannumhubs; h++) {
+		const s32 parent = m->beanhubparent[h];
+		const f32 *d = m->beanhubshift[h];
+
+		if (m->beanhubmtx[h] != i || parent < 0 || parent >= posable) {
+			continue;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			mtx->m[3][j] += model->matrices[parent].m[0][j] * d[0]
+				+ model->matrices[parent].m[1][j] * d[1]
+				+ model->matrices[parent].m[2][j] * d[2];
+		}
+	}
+}
+
 static s32 xblaMeshPoseMatrices(struct xblameshbuilt *m, struct model *model, Mtxf *invroot,
 		const f32 *headshift, Mtxf *pal, Mtxf *lin)
 {
@@ -7593,6 +7658,10 @@ static s32 xblaMeshPoseMatrices(struct xblameshbuilt *m, struct model *model, Mt
 			mtx4MultMtx4(&lifted, bind, &step);
 		} else {
 			mtx4MultMtx4(&model->matrices[src], bind, &step);
+		}
+
+		if (m->beannumhubs) {
+			xblaMeshHubShift(m, model, i, posable, &step);
 		}
 
 		mtx4MultMtx4(invroot, &step, &pal[i]);
@@ -12831,6 +12900,10 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 					mtx4MultMtx4(&model->matrices[back], &backbind, &pal[i]);
 				} else if (i < posable) {
 					mtx4MultMtx4(&model->matrices[i], &m->invbind[i], &pal[i]);
+
+					if (m->beannumhubs) {
+						xblaMeshHubShift(m, model, i, posable, &pal[i]);
+					}
 				} else if (posable > 0) {
 					mtx4Copy(&pal[0], &pal[i]);
 				} else {
@@ -14017,12 +14090,230 @@ s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct mod
 	return hatSeats[at].ok;
 }
 
+/**
+ * A list address as a loaded model node holds it: a segment 5 address into
+ * the file (the segment its colours are drawn under, with the low bit set once
+ * its textures are rewritten) or a pointer already - gebean.c's
+ * beanResolveGdl().
+ */
+static const Gfx *xblaMeshResolveNodeGdl(const struct modelnode *node, const Gfx *gdl)
+{
+	const uintptr_t addr = (uintptr_t)gdl;
+	const u8 *base = (const u8 *)node->rodata->dl.colours;
+
+	if (gdl && addr <= 0xffffffff && ((addr & 1) || ((UNSEGADDR(addr) >> 24) & 0xff) == SPSEGMENT_MODEL_COL1)) {
+		return base ? (const Gfx *)(base + (UNSEGADDR(addr) & 0xffffff)) : NULL;
+	}
+
+	return gdl;
+}
+
+/**
+ * A list node's own list with only the triangles whose three corners are kept
+ * (keep, a byte per vertex of the node): the others' slots in each G_TRI4 are
+ * zeroed, which the renderer skips, and a G_TRI1 becomes an empty G_TRI4.
+ * Everything else is copied as it is, so the copy draws under the same
+ * segments, render mode and pictures as the node's own. NULL for a list that
+ * jumps elsewhere (a G_DL that does not come back), which this does not follow.
+ */
+static Gfx *xblaMeshKeepFilter(const Gfx *src, const Vtx *vertices, const u8 *keep, s32 numkeep, s32 *outtris)
+{
+	s32 len = 0;
+	s32 slot[16];
+	Gfx *out;
+
+	*outtris = 0;
+
+	if (!src) {
+		return NULL;
+	}
+
+	while (len < 0x10000 && (u8)(src[len].words.w0 >> 24) != (u8)G_ENDDL) {
+		if ((u8)(src[len].words.w0 >> 24) == G_DL && ((src[len].words.w0 >> 16) & 1)) {
+			return NULL;
+		}
+
+		len++;
+	}
+
+	if (len >= 0x10000) {
+		return NULL;
+	}
+
+	out = malloc((len + 1) * sizeof(Gfx));
+
+	if (!out) {
+		return NULL;
+	}
+
+	memcpy(out, src, (len + 1) * sizeof(Gfx));
+
+	for (s32 i = 0; i < 16; i++) {
+		slot[i] = -1;
+	}
+
+	for (s32 c = 0; c < len; c++) {
+		Gfx *cmd = &out[c];
+		const u32 op = (u8)(cmd->words.w0 >> 24);
+
+		if (op == G_VTX) {
+			const uintptr_t w1 = cmd->words.w1;
+			const s32 first = (s32)((cmd->words.w0 >> 16) & 0xf);
+			const s32 count = (s32)((cmd->words.w0 & 0xffff) / sizeof(Vtx));
+			intptr_t vi0 = -1;
+
+			if (w1 <= 0xffffffff && ((w1 >> 24) & 0xf) == SPSEGMENT_MODEL_VTX) {
+				vi0 = (intptr_t)((UNSEGADDR(w1) & 0xffffff) / sizeof(Vtx));
+			} else if (vertices && w1 >= (uintptr_t)vertices) {
+				vi0 = (intptr_t)((w1 - (uintptr_t)vertices) / sizeof(Vtx));
+			}
+
+			for (s32 i = 0; i < count && first + i < 16; i++) {
+				slot[first + i] = vi0 >= 0 && vi0 + i < numkeep ? (s32)(vi0 + i) : -1;
+			}
+		} else if (op == (u8)G_TRI1 || op == (u8)G_TRI4) {
+			u32 w0 = (u32)cmd->words.w0;
+			u32 w1 = (u32)cmd->words.w1;
+			s32 v[4][3];
+			s32 n = 0;
+
+			if (op == (u8)G_TRI1) {
+				v[0][0] = ((w1 >> 16) & 0xff) / 10;
+				v[0][1] = ((w1 >> 8) & 0xff) / 10;
+				v[0][2] = (w1 & 0xff) / 10;
+				n = 1;
+			} else {
+				for (s32 t = 0; t < 4; t++) {
+					v[t][0] = (w1 >> (t * 8)) & 0xf;
+					v[t][1] = (w1 >> (t * 8 + 4)) & 0xf;
+					v[t][2] = (w0 >> (t * 4)) & 0xf;
+				}
+
+				n = 4;
+			}
+
+			s32 numkept = 0;
+
+			for (s32 t = 0; t < n; t++) {
+				s32 kept = 1;
+
+				if (op == (u8)G_TRI4 && !v[t][0] && !v[t][1] && !v[t][2]) {
+					continue;
+				}
+
+				for (s32 k = 0; k < 3 && kept; k++) {
+					const s32 vi = v[t][k] < 16 ? slot[v[t][k]] : -1;
+
+					kept = vi >= 0 && keep[vi];
+				}
+
+				if (kept) {
+					numkept++;
+				} else {
+					w1 &= ~(0xffu << (t * 8));
+					w0 &= ~(0xfu << (t * 4));
+				}
+			}
+
+			*outtris += numkept;
+
+			if (op == (u8)G_TRI1) {
+				if (numkept == 0) {
+					cmd->words.w0 = (uintptr_t)((u32)(u8)G_TRI4 << 24);
+					cmd->words.w1 = 0;
+				}
+			} else {
+				cmd->words.w0 = w0;
+				cmd->words.w1 = w1;
+			}
+		}
+	}
+
+	return out;
+}
+
+/**
+ * Whether a node the mesh has just drawn (xblaMeshRenderNode()) also draws
+ * some of its own triangles inside it, and which: the Cradle helicopter's
+ * pilot, which the release's helicopter has not got (gebean.c's
+ * beanUncoveredVertices()), drawn as GoldenEye draws her on the list the HD
+ * aircraft is on. *opa and *xlu stand for the node's own two lists - the same
+ * render mode, segments and matrix (model.c's modelRenderNodeDl()). Made from
+ * the stage's copy of the model the first time it is drawn, and again at the
+ * next stage (xblaMeshResetBeanMeshes()).
+ */
+s32 xblaMeshKeptLists(struct model *model, struct modelnode *node, Gfx **opa, Gfx **xlu)
+{
+	const struct xblameshentry *e;
+	struct xblameshbuilt *m;
+	union modelrwdata *rwdata;
+	const Gfx *src[2];
+
+	*opa = NULL;
+	*xlu = NULL;
+
+	if (beanNumKeeping <= 0 || !model || !node || (node->type & 0xff) != MODELNODETYPE_DL || !beanBuilt[0]
+			|| !gebeanGetEnabled() || !xblaMeshGetEnabled()) {
+		return 0;
+	}
+
+	e = xblaMeshSlotFor(node);
+
+	if (!e || e->node != node || e->beanrow < 0 || !e->modeldef || model->definition != e->modeldef
+			|| e->packpart == XBLAMESH_NOPART) {
+		return 0;
+	}
+
+	// a model pack's file for it draws instead of the mesh, and whole
+	if (e->fileid && modelpackFindN64(e->fileid) != NULL) {
+		return 0;
+	}
+
+	m = beanBuilt[0][e->fileid];
+
+	if (!m || m->state <= 0 || !m->beankeepvtx || e->packpart != m->beankeeplist
+			|| node->rodata->dl.numvertices > m->beannumkeepvtx) {
+		return 0;
+	}
+
+	rwdata = modelGetNodeRwData(model, node);
+	src[0] = xblaMeshResolveNodeGdl(node, rwdata->dl.gdl);
+	src[1] = xblaMeshResolveNodeGdl(node, node->rodata->dl.xlugdl);
+
+	if (!src[0]) {
+		return 0;
+	}
+
+	for (s32 k = 0; k < 2; k++) {
+		s32 numtris = 0;
+
+		if (m->beankeptsrc[k] == src[k] && (m->beankeptgdl[k] || !src[k])) {
+			continue;
+		}
+
+		free(m->beankeptgdl[k]);
+		m->beankeptgdl[k] = xblaMeshKeepFilter(src[k], node->rodata->dl.vertices, m->beankeepvtx,
+				m->beannumkeepvtx, &numtris);
+		m->beankeptsrc[k] = src[k];
+
+		sysLogPrintf(LOG_NOTE, "xblamesh: model file %d list %d's %s list: %d of its own triangles drawn inside the mesh%s",
+				e->fileid, m->beankeeplist, k ? "translucent" : "opaque", numtris,
+				src[k] && !m->beankeptgdl[k] ? " - it jumps away, not drawn" : "");
+	}
+
+	*opa = m->beankeptgdl[0];
+	*xlu = m->beankeptgdl[1];
+
+	return *opa != NULL;
+}
+
 #else
 
 void xblaMeshTrace(FILE *f) { }
 s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent) { return 0; }
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid) { }
 s32 xblaMeshPrebuildBean(struct modeldef *modeldef) { return -1; }
+s32 xblaMeshKeptLists(struct model *model, struct modelnode *node, Gfx **opa, Gfx **xlu) { *opa = *xlu = NULL; return 0; }
 void xblaMeshSetBypass(s32 on) { }
 void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle) { }
 void xblaMeshSetEnvironment(s32 force) { }

@@ -13896,3 +13896,36 @@ up - Bean's frame and ours were different views (null 0.35-0.72) - so they
 say nothing about the release; base-to-fix moved little at our own views.
 
 Both change the built level: **HDCACHE_VERSION bump needed** (left to the merge; done there: 14).
+
+### The Cradle helicopter (F3 20261003-002429, 2026-10-03)
+
+The ending's helicopter (`PROP_HELICOPTER`, `Pgx282Z`; only Cradle's setup
+places model 282) had no HD row: propfit's fit is exact, but it scored 0.40
+because GoldenEye's body list carries the pilot, Natalya, and the release's
+helicopter is the aircraft alone. `gen_proptable.py` exempts it from the 0.6
+cut (`SCORE_EXEMPT`). Three things make it right in the HD look, all keyed on
+the row's source `prop/helicopter` (`gebeanRigidKeepsUncovered()`):
+
+- **The pilot stays GoldenEye's.** `beanUncoveredVertices()` lays the
+  release's N64-look copy by the row's fit and marks the body list's vertices
+  no Bean vertex lands on (within 2 units; the fit puts every Bean vertex
+  within 0.89): 1003 of 1624, exactly the pilot plus her visor in the
+  translucent list. `xblaMeshKeptLists()` makes a copy of the node's two lists
+  with every triangle that has a covered corner zeroed (577 opaque, 2
+  translucent), per stage, and model.c's `modelRenderNodeDl()` draws it as
+  the node's own (`modelRenderNodeDlLists()`) right after the mesh.
+- **The rotors turn about their own hubs.** The release remade the aircraft:
+  cabin, skids and nose lie on GoldenEye's (Bond hangs from the same skid),
+  but its mast is 816 units forward and its tail rotor 1711 from GoldenEye's
+  held positions, so neither bone was bound and both stood still. Each
+  non-body bone with vertices takes the nearest held position on the body's
+  matrix; its vertices are about its own bone, and `xblaMeshHubShift()` moves
+  that matrix by the hub's offset as the body's matrix turns it, so the
+  spin is GoldenEye's (`rotoryrot`) about the release's hub. The tail is
+  shorter than GoldenEye's: that is the release's model.
+- **The windows are glass.** They are stride-28 draws (colour, no UV) over
+  the aircraft's own landscape map, drawn as flat opaque slate; now looked up
+  by the normal and blended at the window prop's 0.56, so the pilot shows.
+
+The N64 look is unchanged (frame 520 pixel-identical to the base).
+

@@ -9852,6 +9852,189 @@ static s32 gebeanRigidPrimaryList(struct modelnode **nodes, s32 numnodes)
 	return 0;
 }
 
+// the window prop's pane, its material colour's alpha 0.56 (beanWalkStream())
+#define GEBEAN_HELI_PANE_ALPHA 143
+
+/**
+ * A rigid prop whose GoldenEye model holds more than the release's: the Cradle
+ * ending's helicopter (PROP_HELICOPTER, Pgx282Z) carries its pilot, Natalya,
+ * in the body's own list - 1003 of that list's 1624 vertices, seated in the
+ * cockpit - and the release's helicopter is the aircraft alone, in both looks.
+ * Laid on as every other prop is, the HD helicopter flew the ending empty (and
+ * without the row the whole of it stayed N64, F3 20261003-002429). The pilot
+ * is kept in GoldenEye's own look inside the HD aircraft
+ * (beanUncoveredVertices(), xblamesh.c's xblaMeshKeptLists()).
+ */
+static s32 gebeanRigidKeepsUncovered(const struct gebeangunrow *g)
+{
+	return g->weaponnum < 0 && strcmp(g->row.source, "prop/helicopter") == 0;
+}
+
+/**
+ * And whose moving parts the release put elsewhere than GoldenEye's, to be
+ * turned about its own hubs (the same helicopter's rotors: see the binding
+ * in gebeanBuildRigid()).
+ */
+static s32 gebeanRigidOwnHubs(const struct gebeangunrow *g)
+{
+	return gebeanRigidKeepsUncovered(g);
+}
+
+/**
+ * How many of a model's vertices each of its bones carries, as its draws' own
+ * palettes give them (a vertex shared by two draws counted twice).
+ */
+static void beanBoneVertexCounts(const struct beanmodel *bm, s32 *counts)
+{
+	for (s32 b = 0; b < BEAN_MAXBONES; b++) {
+		counts[b] = 0;
+	}
+
+	for (s32 di = 0; di < bm->numdraws; di++) {
+		const struct beandraw *d = &bm->draws[di];
+		struct beanvb vb;
+
+		if (!beanReadVb(bm, d->vb, &vb)) {
+			continue;
+		}
+
+		for (u32 i = 0; i < vb.count; i++) {
+			struct beanvtx v;
+			s32 b;
+
+			if (!beanVertex(bm, &vb, i, &v) || v.slot[0] < 0 || v.slot[0] >= d->numpal) {
+				continue;
+			}
+
+			b = d->pal[(s32)v.slot[0]];
+			b = bm->numremap && b < bm->numremap ? bm->remap[b] : b;
+
+			if (b >= 0 && b < BEAN_MAXBONES) {
+				counts[b]++;
+			}
+		}
+	}
+}
+
+/**
+ * Which of a list's vertices the release's N64-look copy of the prop does not
+ * have: a byte per vertex, 1 for one no vertex of Bean's files/original/ copy
+ * lands on once laid by the row's own fit - which puts every one of Bean's
+ * within a unit of GoldenEye's (0.89 at most on the helicopter), so two units
+ * is a match and anything Bean left out stands far off. NULL for none, or a
+ * list that is not a plain one.
+ */
+static u8 *beanUncoveredVertices(const struct gebeangunrow *g, const struct modelnode *node, s32 *outNumVerts,
+		s32 *outNumKept)
+{
+	char source[64];
+	struct beanmodel orig;
+	u32 seenvb[64];
+	s32 numseen = 0;
+	f32 *placed = NULL;
+	s32 numplaced = 0;
+	s32 maxplaced = 0;
+	const Vtx *vertices;
+	s32 numvertices;
+	u8 *keep;
+	s32 numkept = 0;
+
+	*outNumVerts = 0;
+	*outNumKept = 0;
+
+	if (!node || (node->type & 0xff) != MODELNODETYPE_DL || !node->rodata->dl.vertices
+			|| node->rodata->dl.numvertices <= 0) {
+		return NULL;
+	}
+
+	vertices = node->rodata->dl.vertices;
+	numvertices = node->rodata->dl.numvertices;
+
+	snprintf(source, sizeof(source), "original/%s", g->row.source);
+
+	if (!beanLoad(&orig, source, 0)) {
+		return NULL;
+	}
+
+	for (s32 di = 0; di < orig.numdraws; di++) {
+		struct beanvb vb;
+		s32 seen = 0;
+
+		for (s32 i = 0; i < numseen && !seen; i++) {
+			seen = seenvb[i] == orig.draws[di].vb;
+		}
+
+		if (seen || numseen >= ARRAYCOUNT(seenvb) || !beanReadVb(&orig, orig.draws[di].vb, &vb)) {
+			continue;
+		}
+
+		seenvb[numseen++] = orig.draws[di].vb;
+
+		if (numplaced + (s32)vb.count > maxplaced) {
+			f32 *grown;
+
+			maxplaced = (numplaced + (s32)vb.count) * 2;
+			grown = realloc(placed, maxplaced * 3 * sizeof(f32));
+
+			if (!grown) {
+				break;
+			}
+
+			placed = grown;
+		}
+
+		for (u32 i = 0; i < vb.count; i++) {
+			struct beanvtx v;
+
+			if (!beanVertex(&orig, &vb, i, &v)) {
+				continue;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				placed[numplaced * 3 + k] = (g->sign[k] * v.pos[g->perm[k]] - g->beancentre[k]) * g->scale + g->n64centre[k];
+			}
+
+			numplaced++;
+		}
+	}
+
+	beanFree(&orig);
+
+	keep = numplaced > 0 ? calloc(numvertices, 1) : NULL;
+
+	for (s32 i = 0; keep && i < numvertices; i++) {
+		const f32 x = vertices[i].x;
+		const f32 y = vertices[i].y;
+		const f32 z = vertices[i].z;
+		s32 covered = 0;
+
+		for (s32 j = 0; j < numplaced && !covered; j++) {
+			const f32 dx = placed[j * 3] - x;
+			const f32 dy = placed[j * 3 + 1] - y;
+			const f32 dz = placed[j * 3 + 2] - z;
+
+			covered = dx * dx + dy * dy + dz * dz < 2.0f * 2.0f;
+		}
+
+		if (!covered) {
+			keep[i] = 1;
+			numkept++;
+		}
+	}
+
+	free(placed);
+
+	if (keep && numkept == 0) {
+		free(keep);
+		keep = NULL;
+	}
+
+	*outNumVerts = numvertices;
+	*outNumKept = numkept;
+
+	return keep;
+}
+
 static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen)
 {
@@ -10118,6 +10301,91 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 		}
 	}
 
+	// The Cradle helicopter's rotors. The release remade the aircraft: its
+	// cabin, skids and nose lie on GoldenEye's (the fit is on its N64-look
+	// copy, which is GoldenEye's own), but its mast stands 816 units further
+	// forward than GoldenEye's rotor and its tail rotor 1711 units from
+	// GoldenEye's, so neither bone is near the held position its rotor turns
+	// on and both rode the body standing still while the aircraft flew. Each
+	// bone with vertices of its own, other than the body's (the one with
+	// most), takes the nearest held position on the first list's matrix, and
+	// is turned about its own hub - the bone - rather than moved onto
+	// GoldenEye's: the matrix it is drawn under is moved by the hub's offset
+	// from the node as the body's matrix turns it (hubs below, xblamesh.c's
+	// xblaMeshPoseMatrices()), so it spins where the release built it.
+	s32 numhubs = 0;
+	s8 hubmtx[GEBEAN_MAXHUBS];
+	f32 hubshift[GEBEAN_MAXHUBS][3];
+
+	if (gebeanRigidOwnHubs(g)) {
+		s32 counts[BEAN_MAXBONES];
+		s32 body = -1;
+		u64 taken = 0;
+
+		beanBoneVertexCounts(&bm, counts);
+
+		for (s32 b = 0; b < bm.numbones && b < BEAN_MAXBONES; b++) {
+			if (body < 0 || counts[b] > counts[body]) {
+				body = b;
+			}
+		}
+
+		for (s32 b = 0; b < bm.numbones && b < BEAN_MAXBONES && numhubs < GEBEAN_MAXHUBS; b++) {
+			f32 at[3];
+			f32 bestdist = 0.0f;
+			s32 best = -1;
+			const f32 *bestpos = NULL;
+
+			if (b == body || counts[b] == 0 || bonemtx[b] >= 0) {
+				continue;
+			}
+
+			for (s32 k = 0; k < 3; k++) {
+				at[k] = (g->sign[k] * bm.bind[b][g->perm[k]] - g->beancentre[k]) * g->scale + g->n64centre[k];
+			}
+
+			for (s32 k = 0; k < numnodes; k++) {
+				const f32 *ppos = NULL;
+				s32 pmtx = -1;
+				const struct modelnode *pn = gebeanListPositionNode(nodes[k], &ppos, &pmtx);
+				f32 dist;
+
+				if (!pn || (pn->type & 0xff) != MODELNODETYPE_POSITIONHELD || pmtx == mtx || pmtx < 0
+						|| pmtx >= nummatrices || pmtx >= 64 || (taken & (1ull << pmtx))
+						|| gebeanListNodeMatrix(pn) != mtx) {
+					continue;
+				}
+
+				dist = (at[0] - ppos[0]) * (at[0] - ppos[0]) + (at[1] - ppos[1]) * (at[1] - ppos[1])
+					+ (at[2] - ppos[2]) * (at[2] - ppos[2]);
+
+				if (best < 0 || dist < bestdist) {
+					best = pmtx;
+					bestdist = dist;
+					bestpos = ppos;
+				}
+			}
+
+			if (best < 0) {
+				continue;
+			}
+
+			taken |= 1ull << best;
+			bonemtx[b] = best;
+
+			for (s32 k = 0; k < 3; k++) {
+				bonepos[b][k] = at[k];
+				hubshift[numhubs][k] = at[k] - bestpos[k];
+			}
+
+			hubmtx[numhubs++] = (s8)best;
+			numparts++;
+
+			sysLogPrintf(LOG_NOTE, "gebean: %s: bone %d turns on matrix %d about its own hub, %.0f %.0f %.0f from GoldenEye's",
+					g->row.file, b, best, hubshift[numhubs - 1][0], hubshift[numhubs - 1][1], hubshift[numhubs - 1][2]);
+		}
+	}
+
 	// Caverns' eye and iris doors: every leaf is a part of its own, and the
 	// first list is a leaf's (the iris's part 2 - an inner leaf, under the
 	// outer one - and the eyelid's part 1, the top lid). The HD mesh was
@@ -10308,6 +10576,21 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 			sphere = 1;
 		}
 
+		// The Cradle helicopter's windows are the same kind of draw: a
+		// coloured vertex with no UV over the aircraft's own landscape map
+		// (_0x075981A5, 256x128), the release's reflecting glass. Read at the
+		// UV they have not got they were flat slate panes, opaque, and the
+		// pilot GoldenEye seats behind them (gebeanRigidKeepsUncovered()) was
+		// not there to see: GoldenEye's own windscreen is its translucent
+		// list. Looked up by the normal, and see-through at the release's own
+		// window pane's 0.56 (the window prop's c_constant0)
+		const s32 heliglass = gebeanRigidKeepsUncovered(g) && vb.stride == 28 && vb.col28 && d->ownmat
+			&& d->tex < (u32)bm.numtex;
+
+		if (heliglass) {
+			sphere = 1;
+		}
+
 		if (sphere) {
 			beanSphereFrame(&bm, &vb, tris, numtris, &sp);
 		}
@@ -10436,8 +10719,8 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				// vertex's. The material colour, and not the vertex alpha, says
 				// what is glass: the N64 vertex alpha Bean kept is often the
 				// fog's (the crypt doors' blended draws are 0 on every vertex).
-				if (d->blend && d->alpha < 0xff) {
-					const u32 a = ((argb >> 24) * d->alpha + 127) / 255;
+				if ((d->blend && d->alpha < 0xff) || heliglass) {
+					const u32 a = ((argb >> 24) * (heliglass ? GEBEAN_HELI_PANE_ALPHA : d->alpha) + 127) / 255;
 
 					argb = (argb & 0x00ffffff) | (a << 24);
 
@@ -10497,6 +10780,28 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 	memset(mats->noskin, -1, sizeof(mats->noskin));
 	mats->num = nummatwords;
 	mats->screenfit = screenfit;
+
+	// the helicopter's pilot, in GoldenEye's own look on the list the HD
+	// aircraft is on (gebeanRigidKeepsUncovered())
+	if (gebeanRigidKeepsUncovered(g)) {
+		s32 numkeepverts = 0;
+		s32 numkept = 0;
+
+		mats->keepvtx = beanUncoveredVertices(g, nodes[primary], &numkeepverts, &numkept);
+		mats->numkeepvtx = mats->keepvtx ? numkeepverts : 0;
+		mats->keeplist = (s8)primary;
+
+		sysLogPrintf(LOG_NOTE, "gebean: %s: %d of list %d's %d vertices are not on the release's N64-look copy, kept in GoldenEye's look",
+				g->row.file, numkept, primary, numkeepverts);
+	}
+
+	mats->numhubs = numhubs;
+
+	for (s32 h = 0; h < numhubs; h++) {
+		mats->hubmtx[h] = hubmtx[h];
+		mats->hubparent[h] = (s8)mtx;
+		memcpy(mats->hubshift[h], hubshift[h], sizeof(hubshift[h]));
+	}
 	mats->screenrecess = screenrecess;
 	memcpy(mats->screenquad, screenquad, sizeof(mats->screenquad));
 

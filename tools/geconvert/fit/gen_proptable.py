@@ -78,6 +78,15 @@ EXCLUDE = set(GUN_PROPS) | {
     277,
 }
 
+# Fitted exactly, but scored low only because GoldenEye's model holds more than
+# the release's: the Cradle ending's helicopter (282) carries its pilot,
+# Natalya, in its body's own list (about 1000 of its 1624 vertices), and the
+# release's helicopter is the aircraft alone. Every one of Bean's vertices lands
+# on GoldenEye's (2026-10-03). gebeanBuildRigid() keeps the triangles the
+# release's N64-look copy does not cover - the pilot - in GoldenEye's own look
+# inside the HD helicopter (gebeanRigidKeepsUncovered()).
+SCORE_EXEMPT = {282}
+
 
 def main():
     fit = json.load(open(paths.data('propfit.json')))
@@ -86,7 +95,7 @@ def main():
            '// file, source, perm[3], sign[3], scale, beancentre[3], n64centre[3] (first list matrix space)']
     for k in sorted(fit, key=int):
         f = fit[k]
-        if f['score'] < 0.6 or int(k) in EXCLUDE:
+        if (f['score'] < 0.6 and int(k) not in SCORE_EXEMPT) or int(k) in EXCLUDE:
             continue
         origin = first_list_origin(names[int(k)])
         centre = np.array(f['n64centre']) - (origin if origin is not None else 0)

@@ -464,6 +464,8 @@ s32 gebeanGetCacheDir(char *dst, u32 dstLen);
 #define GEBEAN_OPENRIM_JAW -30.0f
 
 /** The pictures a built mesh's material words index (XBLAMESH_MAT_TABLE). */
+#define GEBEAN_MAXHUBS 4
+
 struct gebeanmats {
 	u16 fileid;  // in: the model file the mesh is built for
 	s32 num;
@@ -552,6 +554,23 @@ struct gebeanmats {
 	// quad, laid on its plane (beanScreenFace()): the programme is drawn over
 	// it as a decal
 	u8 screenrecess;
+	// A rigid prop's list whose own triangles the release's mesh leaves out -
+	// the Cradle helicopter's pilot (gebean.c's beanUncoveredVertices()) -
+	// drawn in GoldenEye's look inside the HD prop (xblaMeshKeptLists()): a
+	// byte per vertex of list node keeplist, 1 for one the release has not
+	// got. malloc'd and the caller's; NULL for none
+	u8 *keepvtx;
+	s32 numkeepvtx;
+	s8 keeplist;
+	// A rigid prop's part the release turns about a hub of its own rather
+	// than GoldenEye's node point (the same helicopter's rotors): the matrix
+	// it is drawn under, the matrix over it, and the hub less the node's
+	// point in that one's space. xblamesh.c moves the part's matrix by it as
+	// the one over it turns it (xblaMeshPoseMatrices())
+	s32 numhubs;
+	s8 hubmtx[GEBEAN_MAXHUBS];
+	s8 hubparent[GEBEAN_MAXHUBS];
+	f32 hubshift[GEBEAN_MAXHUBS][3];
 };
 
 /**

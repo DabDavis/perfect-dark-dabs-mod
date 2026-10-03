@@ -3399,6 +3399,9 @@ void modelRenderNodeGundl(struct modelrenderdata *renderdata, struct model *mode
 	}
 }
 
+static void modelRenderNodeDlLists(struct modelrenderdata *renderdata, struct model *model, struct modelnode *node,
+		Gfx *opagdl, Gfx *xlugdl);
+
 void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, struct modelnode *node)
 {
 	union modelrodata *rodata = node->rodata;
@@ -3408,16 +3411,37 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 	}
 
 #ifndef PLATFORM_N64
-	// The XBLA release has its own geometry for some of these
+	// The XBLA release has its own geometry for some of these - and where it
+	// leaves some of the node's out (the Cradle helicopter's pilot), those
+	// are drawn inside it as the node's own
 	if (xblaMeshRenderNode(renderdata, model, node)) {
+		Gfx *keptopa;
+		Gfx *keptxlu;
+
+		if (xblaMeshKeptLists(model, node, &keptopa, &keptxlu)) {
+			modelRenderNodeDlLists(renderdata, model, node, keptopa, keptxlu);
+		}
+
 		return;
 	}
 #endif
 
+	{
+		union modelrwdata *rwdata = modelGetNodeRwData(model, node);
+
+		modelRenderNodeDlLists(renderdata, model, node, rwdata->dl.gdl, rodata->dl.xlugdl);
+	}
+}
+
+static void modelRenderNodeDlLists(struct modelrenderdata *renderdata, struct model *model, struct modelnode *node,
+		Gfx *opagdl, Gfx *xlugdl)
+{
+	union modelrodata *rodata = node->rodata;
+
 	if (renderdata->flags & MODELRENDERFLAG_OPA) {
 		union modelrwdata *rwdata = modelGetNodeRwData(model, node);
 
-		if (rwdata->dl.gdl) {
+		if (opagdl) {
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->dl.colours));
 
 			if (renderdata->cullmode) {
@@ -3446,12 +3470,12 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 			renderdata->gdl = modelMeshBegin(renderdata->gdl, rwdata->dl.vertices, rodata->dl.numvertices);
 #endif
 
-			gSPDisplayList(renderdata->gdl++, rwdata->dl.gdl);
+			gSPDisplayList(renderdata->gdl++, opagdl);
 
-			if (rodata->dl.mcount == 3 && rodata->dl.xlugdl) {
+			if (rodata->dl.mcount == 3 && xlugdl) {
 				modelApplyRenderModeType3(renderdata, false);
 
-				gSPDisplayList(renderdata->gdl++, rodata->dl.xlugdl);
+				gSPDisplayList(renderdata->gdl++, xlugdl);
 			}
 
 #ifndef PLATFORM_N64
@@ -3463,7 +3487,7 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 	if (renderdata->flags & MODELRENDERFLAG_XLU) {
 		union modelrwdata *rwdata = modelGetNodeRwData(model, node);
 
-		if (rwdata->dl.gdl && rodata->dl.mcount == 4 && rodata->dl.xlugdl) {
+		if (opagdl && rodata->dl.mcount == 4 && xlugdl) {
 			gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->dl.colours));
 
 			if (renderdata->cullmode) {
@@ -3479,7 +3503,7 @@ void modelRenderNodeDl(struct modelrenderdata *renderdata, struct model *model, 
 			renderdata->gdl = modelMeshBegin(renderdata->gdl, rwdata->dl.vertices, rodata->dl.numvertices);
 #endif
 
-			gSPDisplayList(renderdata->gdl++, rodata->dl.xlugdl);
+			gSPDisplayList(renderdata->gdl++, xlugdl);
 
 #ifndef PLATFORM_N64
 			renderdata->gdl = modelMeshEnd(renderdata->gdl);

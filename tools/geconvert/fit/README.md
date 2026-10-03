@@ -94,6 +94,14 @@ at run time), `pdmodel.py` (PD model file walk), `pdbg.py` (PD bg rooms),
 
 ## Known state
 
+- **The Cradle ending's helicopter (282) has a row despite its 0.40 score**
+  (`SCORE_EXEMPT` in `gen_proptable.py`, 2026-10-03): every one of Bean's
+  vertices lands on GoldenEye's, and the score is low only because
+  GoldenEye's body list also holds the pilot, Natalya (1003 of its 1624
+  vertices). `gebeanBuildRigid()` keeps those triangles in GoldenEye's look
+  inside the HD aircraft and turns the release's rotors about their own hubs;
+  see `CLAUDE-notes/ge-bean.md`, "The Cradle helicopter".
+
 - **`propfit.json` is a full run of today's `propfit.py`** (2026-09-30,
   feat/ge-hd-propfit-full): 313 props, 282 table rows. Against the partial
   runs it replaced:
