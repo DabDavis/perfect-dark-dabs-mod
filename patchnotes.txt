@@ -31,6 +31,12 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 38 2026-10-03
+Tomorrow Never Dies 64: put tnd64.zip in added-content and its 14 missions and 11 arenas are converted at the next start, with its own row on the Perfect Menu
+GE Plus is now just called GoldenEye in the menus and options
+GoldenEye: picking up a gun prints the level's own words for it ("Picked up a silenced PP7.")
+Goldfinger 64: its missions show its own target times
+
 notes 37 2026-10-03
 Goldfinger 64: gunshots are heard; most were cut off the moment they started, leaving only the ricochets
 GE Plus: the pause watch's arm swings in and out at the lower left as in GoldenEye, instead of shrinking into the middle of the screen (thanks Glazier)
