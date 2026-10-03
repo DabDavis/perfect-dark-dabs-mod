@@ -3621,6 +3621,11 @@ static s32 gegunsWatchLaserInstalled(void)
 	return g_WatchLaser.func && g_GeWeaponDefs[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST].functions[0] == g_WatchLaser.func;
 }
 
+s32 gegunsWatchLaserShot(s32 weaponnum)
+{
+	return weaponnum == WEAPON_GE_MOONRAKER && gegunsWatchLaserInstalled();
+}
+
 void gegunsSetWatchLaser(s32 on)
 {
 	struct weapon *def = &g_GeWeaponDefs[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST];

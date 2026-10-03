@@ -1321,6 +1321,30 @@ s32 modloaderStageIsGexPlus(s32 stagenum)
 	return modloaderStageIsRemake(stagenum) && modloaderDirIsGexPlus(modloaderGetStageModDir(stagenum));
 }
 
+s32 modloaderStageIsGeLevel(s32 stagenum, const char *key)
+{
+	const s32 index = stageGetIndex(stagenum);
+	const char *name;
+	const char *slash;
+	size_t len;
+
+	if (index < 0 || !modloaderStageIsGexPlus(stagenum)) {
+		return 0;
+	}
+
+	name = romdataFileGetName(g_Stages[index].bgfileid);
+
+	if (!name) {
+		return 0;
+	}
+
+	slash = strrchr(name, '/');
+	name = slash ? slash + 1 : name;
+	len = strlen(key);
+
+	return strncmp(name, "bg_gx", 5) == 0 && strncmp(name + 5, key, len) == 0 && strcmp(name + 5 + len, ".seg") == 0;
+}
+
 const char *g_GexPlusVariant;
 
 /** The mounted mod dir of the GoldenEye ROM hack whose mode is chosen (g_GexPlusVariant), or -1. */

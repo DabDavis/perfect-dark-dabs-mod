@@ -35,6 +35,11 @@ s32 gegunsShootSound(s32 weaponnum);
 // its ammunition and sound) or as the Moonraker (0); gegadgets.c on stage load
 void gegunsSetWatchLaser(s32 on);
 
+// Whether this is the watch laser's shot (the Moonraker's number while the
+// watch laser is in): GoldenEye starts its sound with each shot and lets the
+// last one ring (gunfire.c, sndPlaySfx() with no handle), never cut off.
+s32 gegunsWatchLaserShot(s32 weaponnum);
+
 // GoldenEye's SoundTriggerRate for one of its guns: the sixtieths between one
 // start of its shot sound and the next while the trigger is held, 0 for a
 // sound with every shot. -1 for any other weapon.

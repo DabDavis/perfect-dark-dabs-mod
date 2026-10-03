@@ -268,7 +268,18 @@ void psTickChannel(s32 channelnum)
 
 				if (channel->flags & PSFLAG_IGNOREROOMS) {
 					tmprooms = NULL;
-				} else {
+				}
+#ifndef PLATFORM_N64
+				// GoldenEye hears a sound by the straight line to Bond
+				// (sub_GAME_7F053894()), through any wall; Perfect Dark's
+				// path through the portals made a converted level's sounds a
+				// room or two away a fraction of GoldenEye's, an explosion
+				// round a corner next to nothing (F3 20261002-232546, Depot)
+				else if (geSfxStage()) {
+					tmprooms = NULL;
+				}
+#endif
+				else {
 					tmprooms = rooms;
 				}
 
@@ -276,6 +287,15 @@ void psTickChannel(s32 channelnum)
 
 				channel->targetvol = psCalculateVol(pos, channel->dist1, channel->dist2, channel->dist3,
 						tmprooms, channel->soundnum26, channel->vol10, &channel->distance);
+
+#ifndef PLATFORM_N64
+				// and down its own curve where it is GoldenEye's sound
+				// (psCreate()'s 200/5000/6000): sub_GAME_7F0537B8() is
+				// 10000/32767 of full at 5000 where Perfect Dark's is 1000
+				if (geSfxStage() && channel->dist1 == 200 && channel->dist2 == 5000 && channel->dist3 == 6000) {
+					channel->targetvol = geSfxCurveVolume(channel->distance, channel->vol10);
+				}
+#endif
 			}
 
 			if ((channel->flags & PSFLAG_HASCONFIGPAN) == 0) {

@@ -5029,6 +5029,20 @@ void weaponTick(struct prop *prop)
 			if (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) {
 				exptype = EXPLOSIONTYPE_HUGE17;
 			}
+#ifndef PLATFORM_N64
+			// GoldenEye's remote mine goes off bigger on Facility
+			// (propobj.c: EXPLOSION_DEF_FACILITY_REMOTE when the stage is
+			// LEVELID_FACILITY, mission and arena alike), the row Perfect
+			// Dark kept as 19: 250 out and hurting to 600 where the
+			// standard is 200 and 400 - the one mine that takes the three
+			// guards in the room with the console there (F3
+			// 20261002-154524). GoldenEye's own Facility only, by its file
+			// (bg_gxark.seg), not a ROM hack's mission in the same place
+			else if (weapon->weaponnum == WEAPON_GE_REMOTEMINE
+					&& modloaderStageIsGeLevel(g_Vars.stagenum, "ark")) {
+				exptype = EXPLOSIONTYPE_GEFACILITYREMOTE;
+			}
+#endif
 
 			if (propExplode(prop, exptype)) {
 				weapon->timer240 = -1;
@@ -7689,7 +7703,29 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										func0f0341dc(hitchr, gsetGetDamage(&weapon->gset), &var8009ce78, &weapon->gset, ownerprop,
 												g_EmbedHitPart, g_EmbedProp, g_EmbedNode, g_EmbedModel, g_EmbedSide, var8006993c);
 
+#ifndef PLATFORM_N64
+										// GoldenEye's thrown knife in a body: HIT_BULLET_FLESH
+										// (recall_joy2_hits_edit_detail_edit_flag()), no puff
+										// (only a shot makes chrCreateHitPuffs()'s) and, the
+										// knife stopped, not KNIFE_HIT_WALL, which is for a
+										// wall or the floor (F3 20261002-225649)
+										const bool geknife = WEAPON_IS_GE(weapon->weaponnum) && geSfxStage();
+
+										if (geknife) {
+											const s32 num = geSfxNum(GESFX_HIT_BULLET_FLESH);
+
+											if (num) {
+												psCreate(0, hitprop, num, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+											}
+
+											obj->projectile->unk0a4 = g_Vars.lvframenum;
+										}
+#endif
+
 										if (ownershield <= 0.0f) {
+#ifndef PLATFORM_N64
+											if (!geknife)
+#endif
 											chrEmitSparks(hitchr, g_EmbedProp, g_EmbedHitPart, &sp5e8, &sp5f4, ownerprop ? ownerprop->chr : NULL);
 
 											if (g_EmbedProp->flags & PROPFLAG_ONTHISSCREENTHISTICK) {
@@ -9299,6 +9335,19 @@ void fanUpdateModel(struct prop *prop)
 
 #ifndef PLATFORM_N64
 /**
+ * Whether the autogun stands on one of the setup's pads: a converted
+ * level's autogun does. A deployed Laptop Gun is OBJTYPE_AUTOGUN with pad 1
+ * written by laptopDeploy() - no pad of its own - and asking pad 1 for its
+ * sight walked GoldenEye's tile graph from wherever pad 1 is, so on a
+ * converted level the thrown sentry never saw anybody (F3 20261002-040631,
+ * 20261002-041856).
+ */
+static bool autogunOnPad(struct defaultobj *obj)
+{
+	return obj->pad >= 0 && (obj->flags & OBJFLAG_THROWNLAPTOP) == 0;
+}
+
+/**
  * Where an autogun on a converted GoldenEye level sees and shoots from.
  *
  * GoldenEye stands an object whose second flags carry 0x1 - its "activate"
@@ -9318,7 +9367,7 @@ static bool autogunGeEye(struct prop *prop, struct coord *pos, RoomNum *rooms)
 	struct defaultobj *obj = prop->obj;
 	struct pad pad;
 
-	if (!modloaderStageIsRemake(g_Vars.stagenum) || (obj->flags2 & 0x00000001) == 0 || obj->pad < 0) {
+	if (!modloaderStageIsRemake(g_Vars.stagenum) || (obj->flags2 & 0x00000001) == 0 || !autogunOnPad(obj)) {
 		return false;
 	}
 
@@ -9347,7 +9396,7 @@ static s32 autogunGeSees(struct prop *prop, struct prop *target)
 	struct pad pad;
 	f32 ground;
 
-	if (!modloaderStageIsRemake(g_Vars.stagenum) || obj->pad < 0 || target->chr == NULL) {
+	if (!modloaderStageIsRemake(g_Vars.stagenum) || !autogunOnPad(obj) || target->chr == NULL) {
 		return -1;
 	}
 
@@ -10009,14 +10058,14 @@ void autogunTickShoot(struct prop *autogunprop)
 				// GoldenEye's: a Perfect Dark gun's impacts keep Perfect
 				// Dark's samples on a converted level (geSfxGunHitBegin()),
 				// and this gun's rounds are the RC-P45's. A converted
-				// autogun (one on a pad; a deployed laptop gun has none)
+				// autogun (one on a pad; a deployed laptop gun has none, autogunOnPad())
 				// names a GoldenEye gun for its sounds instead (F3
 				// 20260930-005915, "ceiling autocannon bullets make perfect
 				// dark ricochet sounds")
 				struct gset gesoundgset = { WEAPON_RCP45, 0, 0, FUNC_PRIMARY };
 				struct gset *soundgset = &gset;
 
-				if (modloaderStageIsRemake(g_Vars.stagenum) && obj->pad >= 0) {
+				if (modloaderStageIsRemake(g_Vars.stagenum) && autogunOnPad(obj)) {
 					gesoundgset.weaponnum = WEAPON_GE_RCP90;
 					soundgset = &gesoundgset;
 				}
