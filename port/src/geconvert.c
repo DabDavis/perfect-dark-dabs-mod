@@ -171,6 +171,11 @@ struct romlayout {
 	// hack that cut its campaign short leaves the rest of the folder's rows
 	// in place, their names blank and their files gone (TND64's 14 to 19)
 	uint8_t nummissions;
+	// 1 where the hack's code takes TRYFindCover (AI command 0x2b) with a
+	// label of 0xfb-0xfe for a hook of its own: TND64's memory pokes, each
+	// the string of the PRINT (0xad) after it - its Girl Power Mode, clocks
+	// and bonuses (writeSoloAilist())
+	uint8_t aihooks;
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -350,6 +355,8 @@ static const struct romlayout g_Layouts[] = {
 		// missions 0-13: 7F01F4C8 counts 14 for 007, 7F0168D4 advances none
 		// past The End (13)
 		14,
+		// its setups' memory pokes ("2b fe" then "ad 8007A0B0+P0000041C+...")
+		1,
 	},
 };
 
@@ -8217,6 +8224,22 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 		}
 
 		cmd = &g_GeAiCommands[op];
+
+		// A hack's own hook (romlayout.aihooks) is no cover search: TND64's
+		// code pokes memory as the next PRINT's string says - its Girl Power
+		// Mode's Bond, its clock and its bonuses, not converted. A guard's
+		// TRYFindCover in a background list, which has no prop, crashed in
+		// chrGoToCoverProp() at the first tick of every TND mission
+		if (g_Layout->aihooks && op == 0x2b && f->v[at + 1] >= 0xfb && f->v[at + 1] <= 0xfe) {
+			st->aidropped++;
+			at += len;
+
+			if (at < f->n && f->v[at] == 0xad && aiLength(f, at) && at + aiLength(f, at) <= f->n) {
+				st->aidropped++;
+				at += aiLength(f, at);
+			}
+			continue;
+		}
 
 		if (op == 0x0a) {   // PlayAnimation
 			const uint32_t anim = ((uint32_t)f->v[at + 1] << 8) | f->v[at + 2];
