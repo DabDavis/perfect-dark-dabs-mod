@@ -10583,6 +10583,14 @@ void chrUpdateFireslot(struct chrdata *chr, s32 handnum, bool withsound, bool wi
 		duration = gsetGetFireslotDuration(&weapon->gset);
 		soundnum = gsetGetSingleShootSound(&weapon->gset);
 
+#ifndef PLATFORM_N64
+		// GoldenEye's rocket launcher has no shot of its own: the rocket's
+		// launch is its sound (chrFireProjectile's site)
+		if (geChrRocketLaunchSilent(weaponnum)) {
+			withsound = false;
+		}
+#endif
+
 		if (chr->fireslots[handnum] < 0) {
 			chr->fireslots[handnum] = bgunAllocateFireslot();
 		}
@@ -12150,6 +12158,16 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 								projectileobj->base.projectile->targetprop = chrGetTargetProp(chr);
 
 								// Play sound
+#ifndef PLATFORM_N64
+								// GoldenEye's guard launches a rocket with ROCKET_LAUNCH_SFX
+								// (1) and no position (chraction.c: sndPlaySfx() with no
+								// post event), heard at full wherever he is; at the rocket
+								// down GoldenEye's distance curve it was faint even near him
+								// (F3 20261002-232007, Streets)
+								if (geChrRocketLaunchSilent(gset.weaponnum)) {
+									geSfxPlay(GESFX_ROCKET_LAUNCH, GESFX_VOLUME);
+								} else
+#endif
 								if (func->soundnum > 0) {
 									psCreate(NULL, projectileobj->base.prop, func->soundnum, -1,
 											-1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);

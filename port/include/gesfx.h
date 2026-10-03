@@ -13,9 +13,11 @@
  * bank's sound id - 1 (gesfx.c).
  */
 
+#define GESFX_ROCKET_LAUNCH     1   // a rocket leaving the launcher
 #define GESFX_KNIFE_HIT_WALL    3   // a thrown knife striking
 #define GESFX_GRENADE_THROW     4   // anything thrown but the throwing knife
 #define GESFX_DROP_GUN          45  // anything else thrown, landing
+#define GESFX_HIT_BULLET_FLESH  69  // a shot, or a thrown knife, in a body
 #define GESFX_OPTION_CLICK2     18
 #define GESFX_OPTION_CHOOSE     43  // an option's value changed on the watch
 #define GESFX_PAPER_TURN        77  // a difficulty picked
@@ -127,5 +129,14 @@ s32 geSfxDoor(s32 moment, s32 soundtype, struct prop *prop);
 // converted level: the body armour, a key, a gun, ammunition. From `prop`, or
 // as the player's own with none. 1 when it was played, 0 for Perfect Dark's.
 s32 geSfxPickup(s32 pdsound, struct prop *prop);
+
+// Whether a chr's shot of this gun is GoldenEye's rocket launch on a converted
+// level: no shot sound of its own, and the launch heard at full wherever he
+// is (geSfxPlay(GESFX_ROCKET_LAUNCH)), as GoldenEye's guard plays it.
+s32 geChrRocketLaunchSilent(s32 weaponnum);
+
+// GoldenEye's volume for a sound `dist` from Bond (sub_GAME_7F0537B8(): full to
+// 200, a root curve to a tenth at 5000, out by 6000), as a share of `full`.
+s32 geSfxCurveVolume(f32 dist, s32 full);
 
 #endif

@@ -32,6 +32,7 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include <ultra64.h>
 #include <PR/libaudio.h>
 #include "constants.h"
@@ -332,6 +333,29 @@ s32 geSfxChain(s32 ours)
 	struct sfxbank *b = id > 0 ? &g_SfxBanks[g_SfxGeBank[ours] - 1] : NULL;
 
 	return b && b->next[id] != id ? sfxGetIn(b, b->next[id]) : 0;
+}
+
+s32 geSfxCurveVolume(f32 dist, s32 full)
+{
+	s32 vol;
+
+	// sub_GAME_7F0537B8(dist, 5000, 6000), out of SHRT_MAX
+	if (dist <= 200.0f) {
+		vol = 0x7fff;
+	} else if (dist >= 6000.0f) {
+		vol = 0;
+	} else if (dist >= 5000.0f) {
+		vol = (6000.0f - dist) * 10000.0f / 1000.0f;
+	} else {
+		vol = 0x7fff - (s32)(sqrtf(dist - 200.0f) * 22767.0f / sqrtf(4800.0f));
+	}
+
+	return (s32)((s64)vol * full / 0x7fff);
+}
+
+s32 geChrRocketLaunchSilent(s32 weaponnum)
+{
+	return weaponnum == WEAPON_GE_ROCKETLAUNCHER && geSfxStage() && geSfxGet(GESFX_ROCKET_LAUNCH) > 0;
 }
 
 s32 geSfxPlay(s32 id, s32 volume)
