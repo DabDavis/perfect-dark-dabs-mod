@@ -2209,6 +2209,22 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 			osSetThreadPri(0, osGetThreadPri(&g_AudioManager.thread) + 1);
 #endif
 
+#ifndef PLATFORM_N64
+			// GoldenEye's watch laser plays RICO_LASER2/3 with every shot
+			// and keeps none of them (gunfire.c: sndPlaySfx(.., NULL)), so
+			// they ring over each other; through the two handles below each
+			// shot cut the last off and, both handles still held while the
+			// cut sounds wound down, most shots started nothing - heard for
+			// a moment, then silent (F3 20261002-233053, Train)
+			if (gegunsWatchLaserShot(hand->gset.weaponnum)) {
+				if (gsetGetSingleShootSound(&hand->gset)) {
+					sndStart(var80095200, gsetGetSingleShootSound(&hand->gset), NULL, -1, -1, -1, -1, -1);
+				}
+
+				hand->lastshootframe60 = g_Vars.lvframe60;
+			} else
+#endif
+			{
 			if (hand->audiohandle2 && sndGetState(hand->audiohandle2) != AL_STOPPED) {
 				audioStop(hand->audiohandle2);
 			}
@@ -2242,6 +2258,7 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 					audioPostEvent(handle, AL_SNDP_PITCH_EVT, *(s32 *) &tmp);
 				}
 
+			}
 			}
 
 #if VERSION >= VERSION_NTSC_1_0
