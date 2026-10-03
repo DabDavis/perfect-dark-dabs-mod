@@ -494,6 +494,71 @@ changes from converter 107: Goldfinger 75 closer, 1 further (Cartel 236/90,
 Trap: lightpoke's first picture after `orig` was once a frame stale (read the
 same as orig); put a throwaway setting first.
 
+## Levels of detail, parked cars and Oddjob (2026-10-03)
+
+**Crab Key's grille (pad 85, heading 0).** A room surface, not a prop: an 8x8
+CI8 cell (a white frame round transparent black, mipmapped, G_CC_TRILERP under
+the TERR render mode) repeated 64 times, in front of the wall. Up close both
+sides draw a dark mesh; from a few steps back the cartridge's is white and
+ours stayed dark. Two causes, both measured on the cartridge:
+
+- The levels' bytes. GoldenEye makes a texture's missing levels with its own
+  shrink, whose palette search is a binary search over brightness that assumes
+  the palette sorted, then four entries either side; this palette is not
+  sorted, and each half-transparent 2x2 lands on entry 32 (0xffff). The
+  cartridge's RDRAM (view/ramfind_ares.py, ramdump_ares.py; the image's odd
+  rows are word-swapped there, search for row 0 then row 1 swapped) holds
+  white levels from 4x4 down, Perfect Dark's shrink made dark ones; ours
+  written into the cartridge's RDRAM (texsample_ares.py GF_PASSES) turned its
+  grille from 88 to 15. getexshrink.c is GoldenEye's code (decomp image.c),
+  used for a texture read out of a ROM conversion's folder
+  (modloaderDirIndexIsConversion()). Perfect Dark's own non-paletted shrink
+  reads big-endian texels as host words - garbage levels on PC, unseen while
+  nothing drew them; GoldenEye's port here loads and stores big-endian.
+- Nothing drew the levels. fast3d uploaded level 0 and let the GPU make the
+  rest. G_TEX_OWN_LODS_EXT (bit 0x2: an extra geometry mode command clears
+  bits 24 and up), set with the other two RDP modes over a converted level's
+  N64 scene, uploads a converted texture with its tiles' levels
+  (gfx_import_own_lods(), upload_texture_levels() in OpenGL and Vulkan,
+  LoadedTexture.block_bytes, the texture cache key's own_lods). Perfect Dark's
+  models in the same scene keep the made levels (texpackTextureIsConverted()).
+
+Painted level by level, the cartridge samples level 2 for 82% here and level 1
+for the rest; at 640x480 ours samples one level finer (the GPU picks the level
+at the screen's resolution), so the grille reads 46 against the cartridge's
+88, up from 25; view score 0.234 -> 0.171. A level-of-detail bias of
+log2(height / 240) on converted levels would match it at any resolution, at the
+price of the N64's blur at a distance - not done. Views from the light-space
+commit: Goldfinger 4 of 741 closer, none further; GoldenEye none either way,
+medians a hair better. 226c37b77, e2046f61d, c30c60d9a.
+
+**Parked cars (#6).** GoldenEye stands every object, a parked vehicle too, on
+the ground under its pad by the box chrobjGetBboxFromObjFile() takes (the
+root's children, then its first child's). Perfect Dark's floor placement took
+the first box anywhere, which on Goldfinger's cars is a wheel's under its
+position node: Mercedes (Pgx309Z, 26 of them) 53.7 into the road, covered cars
+(Pgx297Z) 136 over it, Rancheros (302) 17 in. A parked one is never re-seated
+(gexplusveh.c's first-tick height is for a record flagged as moving).
+func0f06a650()/func0f06a730() now take objFindBboxRodata(), which already
+answered GoldenEye's box for a truck or aircraft on a mission. World diff: every
+car and Miami's airship agree; Miami's plane differs at tick 1 by the flight
+step GoldenEye took before its first dump. GoldenEye's seven vehicle missions
+unchanged. 77cc8ddf1.
+
+**Vaults' Oddjob (#7).** lvRender() ticks no prop for a level's first five
+frames (lockscreen), while chraTickBg() ran the background lists from the
+first; GoldenEye runs both from frame 1, background lists first. Vaults'
+background list sent Oddjob to his last list before his own first ran (frame
+6), so his health/armour/accuracy were never set (4/0/0, cartridge 50/200/100).
+On a converted mission the background lists now wait while lvHoldsLevelStart()
+holds the props. World diff over all 40 converted missions: Vaults 23 -> 18;
+tick 300 otherwise unmoved but for Miami's two guards whose lists list 4098
+deals at random (command 0x37); five missions' tick-1 dumps now lack flags the
+cartridge's background lists set on its frame 1 (agree by tick 300). 65688853f.
+Trap: twin.py passes `--rng-seed 1` first and the port takes a repeated
+argument's first value, so `--pd-arg=--rng-seed --pd-arg=N` does nothing - a
+"same under every seed" check needs twin.py's own argument changed.
+
 ## Open
 
 - Its arenas' weapon sets: `menu/gesets.bin` is written right for it, but GE
@@ -503,12 +568,12 @@ same as orig); put a throwaway setting first.
 - Its gadgets' names by mission (gegadgets.c's identities are GoldenEye's).
 - Its monitor programmes (its block is edited in place, 16% of GoldenEye's
   words the same; gemonitortable.h is GoldenEye's).
-- From the ares run, still to do: cars seated at the wrong height
-  (gexplusveh.c); Vaults' Oddjob, whose own list runs after a background list
-  reads his health.
 - Props' shading against GoldenEye's: no measured case now (Crab Key's
   pillar was a room).
-- Crab Key pad 85 heading 0: the grille on the wall reads white mesh on the
-  cartridge, dark in ours (score 0.24, the mission's worst).
 - The watch draws nothing for a collectable where GoldenEye draws its model
   (converter 104's are checked against the cartridge otherwise).
+- Crab Key's worst views now (0.30-0.35): its copper walls close up (pads 43,
+  31, 25) - ours shows the seams, rivets and a dark diagonal streak, the
+  cartridge a flatter copper; unmeasured. Close-up flat walls also score high
+  on edges from the cartridge's 16-bit dither, which our pictures lack, and
+  pad 97's from the gun caught at another point of its sway.
