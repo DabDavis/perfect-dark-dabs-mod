@@ -60,7 +60,8 @@
 #define FOG_AT 0x24080
 #define FOG_ROW 92
 // gun.c's ammo_related[] (30 rows of 12 bytes) and the global image table
-// (segment 2) its rows point into; both where they are in every ROM so far
+// (segment 2) its rows point into, the table where GoldenEye has it but in
+// TND64, which moved it (romlayout.globalimages)
 #define GE_AMMO_TABLE_AT 0x80035ef0u
 #define GE_AMMO_TYPES 30
 #define GE_GLOBAL_IMAGES_ROM 0x29d160u
@@ -152,8 +153,24 @@ struct romlayout {
 	uint32_t monimages;
 	// the watch's colours (menu/gewatch.bin, gewatch.c): 1 where the hack
 	// patched every green of its watch, mpmenu.c's pause and the watch's
-	// ammunition to the same with its red raised to its green - yellow
+	// ammunition to the same with its red raised to its green - yellow; 2
+	// where it made them blue (TND64)
 	uint8_t watchtint;
+	// the animation_data segment's ROM address (the lui/addiu at 7F000B20),
+	// 0 for GoldenEye's ANIM_DATA_ROM. An animation's record is where
+	// animation_table_ptrs1[]/ptrs2[] in the data segment say in it, which a
+	// hack that rebuilt the segment moved (animRecord())
+	uint32_t animdata;
+	// the global image table (segment 2, texReset()'s lui/addiu at 7F0CC000/
+	// 7F0CC008), 0 for GoldenEye's GE_GLOBAL_IMAGES_ROM
+	uint32_t globalimages;
+	// how many of random_male_heads a level draws its men from
+	// (bodyChooseHead()'s `random & 3` at 7F0235E4), 0 for GoldenEye's four
+	uint8_t maleheads;
+	// how many of its missions are real, 0 for all GoldenEye's twenty: a
+	// hack that cut its campaign short leaves the rest of the folder's rows
+	// in place, their names blank and their files gone (TND64's 14 to 19)
+	uint8_t nummissions;
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -258,6 +275,82 @@ static const struct romlayout g_Layouts[] = {
 		// for its red, the pulses stepped 0x10100000
 		1,
 	},
+	{
+		// Expanded 06-22 (2022), "TND64_Expanded_06-22.z64": the header keeps
+		// GoldenEye's title and code, only the CRCs and the size differ. Its
+		// Original V4 (20 MB, its tables where GoldenEye's are) has no row
+		"Tomorrow Never Dies 64", "GOLDENEYE", "NGEE",
+		{ 0xd2, 0x24, 0x26, 0x04, 0xf7, 0xa5, 0x07, 0x84 },
+		0x1000000, 1,
+		// image_entries_load() (7F000BD0): four-byte rows and a 23-bit size
+		// as Goldfinger's, the bank at 7F0CBCBC/CC0 (ob_end.seg + 0x10), 3045
+		// rows to the 0xffff end
+		0x80049300, 0x89e60a, 3045, 4, 0x7fffff,
+		// props unmoved (all 22 sites)
+		0x8003a228, 340,
+		// characters in the Expansion Pak (13 sites, 7F000F54...), 112 rows;
+		// 80-111 (C50Z-C6FZ) one placeholder file
+		0x80702e00, 112,
+		{
+			// osMemSize 0x700000; ares's RDRAM at the Rare logo against the
+			// ROM: 112 model headers, the character table at 0x80702e00 and
+			// its names, zero either side where the ROM is 0xff fill
+			{ 0x80702000, 0xffd000, 0x1c00 },
+		},
+		// each where its boot code loads it (GoldenEye's sites); the ctl
+		// sizes its immediates, the tbl and sequence lengths their extents;
+		// the backdrop's whole RLE stream, which its code DMAs 178 bytes
+		// short of
+		{
+			{ 0x2df7c0, 0x24b0 }, { 0x2e1c70, 0x3540 },
+			{ 0x474068, 0x43a0 }, { 0x478408, 0x1e5058 }, { 0x65d460, 0x20810 },
+			{ 0x2e51b0, 0x5bc0 }, { 0x2ead70, 0x1892f8 },
+			{ 0x29e120, 107890 },
+		},
+		// headHat_array and object_explosion_details unmoved
+		0x8003e464, 42, 28,
+		0x8003b224,
+		// solo_char_load() (7F079D94, the jump tables at 0x80054fe4 and
+		// 0x80055008): suit, boiler suit, timber, DJ and snow Bonds on head
+		// 74; cuffs 5-8 Wai Lin's, which the setups' Girl Power AI pokes
+		// pick at run time (not converted)
+		{ { 23, 74 }, { 22, 74 }, { 24, 74 }, { 5, 74 }, { 25, 74 }, { 16, 76 }, { 79, 76 }, { 28, 76 }, { 40, 49 } },
+		// GoldenEye's items and jump table (0x8005762c): the Katana (2) held
+		// as PchrthrowknifeZ and the Star Knife (3) as PchrknifeZ, its H&K P7
+		// (20) and Desert Eagle (21) on GoldenEye's unused silver and gold
+		// PPK props
+		{
+			-1, -1, 209, 186, 191, 204, 205, 193, 184, 195, 189, 206, 194, 188, 197, 192,
+			207, 210, 190, 208, 230, 231, 187, -1, 185, 211, 196, 201, 200, 199, -1, -1,
+		},
+		// GoldenEye's six (7F062CA8): its Golden Gyrojet, Webley, Katana,
+		// Star Knife, H&K P7 and Desert Eagle
+		{ 19, 18, 2, 3, 20, 21 },
+		// GoldenEye's pools in the data segment, eight men a level (maleheads)
+		{ { { 0 } } },
+		// GoldenEye's programmes in GoldenEye's block, 2 and one near word
+		// 1157 rewritten shorter and the rest moved up; its pictures
+		// GoldenEye's fifty rows in its moved global image table
+		{
+			   0,   35,  172,  198,  251,  274,  305,  344,  380,  391,  402,  434,  441,  537,  563,  181,
+			 461,  592,  616,  775,  795,  803,  828,  841,  874,  881,  888,  895,  902,  909,  916,  923,
+			 930,  937,  944,  958,  963,  968,  973,  994, 1001, 1008, 1015, 1045, 1089, 1099, 1119, 1138,
+			1157, 1162, 1176, 1190,
+		},
+		0x2971cc,
+		// its watch is blue (gewatch.c's tint 2)
+		2,
+		// its animation_data segment rebuilt (7F000B20), GoldenEye's entry
+		// segment as it was
+		0x2881b0,
+		// the global image table (7F0CC000/7F0CC008), 0x14c0 bytes
+		0x296470,
+		// bodyChooseHead()'s `andi 7` (7F0235E4)
+		8,
+		// missions 0-13: 7F01F4C8 counts 14 for 007, 7F0168D4 advances none
+		// past The End (13)
+		14,
+	},
 };
 
 static const struct romlayout *g_Layout = &g_Layouts[0];
@@ -296,7 +389,11 @@ static const struct romlayout *g_Layout = &g_Layouts[0];
 // segment, bitsperframe/8 bytes a frame of joint rotations, `width` bits a
 // channel, in joint order.
 #define ANIM_ENTRY_ROM 0x124ac0
-#define ANIM_DATA_ROM 0x28e980
+#define ANIM_DATA_ROM (g_Layout->animdata ? g_Layout->animdata : GEANIM_BASE)
+// animation_table_ptrs1[] and ptrs2[] (initanitable.c): an id's record as its
+// offset in the data segment, a guard's then an aircraft's (geanimtable.h)
+#define ANIM_TABLE1_AT 0x80029d6cu
+#define ANIM_TABLE2_AT 0x8002a04cu
 // GoldenEye's guard skeleton, which every character in the ROM has: the header
 // node the animation plays on and fifteen parts, which is Perfect Dark's
 // g_SkelChrJoints joint for joint
@@ -394,23 +491,25 @@ static const uint32_t g_HeldGuns[] = {
 	204, 205, 206, 207, 208, 210, 211,
 };
 
-static const struct { const char *name; size_t at; } g_IntroAnims[] = {
+// each by its id in animation_table_ptrs1[] (geanimtable.h), which says where
+// its record is (animRecord())
+static const struct { const char *name; int id; } g_IntroAnims[] = {
 	// the gun barrel: Bond walks in, turns and fires
-	{ "bond_eye_walk", 0x292ac4 }, { "bond_eye_fire", 0x292c18 },
+	{ "bond_eye_walk", 43 }, { "bond_eye_fire", 44 },
 	// the cast reel: front.c's intro_animation_table, and idle for a character
 	// whose animation is still loading
-	{ "idle", 0x28e99c }, { "spotting_bond", 0x294690 },
-	{ "fire_standing_draw_fast", 0x294bd4 }, { "fire_standing_draw_slow", 0x294cfc },
-	{ "fire_step_right", 0x295188 }, { "fire_kneel_forward_fast", 0x2956d0 },
-	{ "running_one_handed", 0x2960fc }, { "draw_and_stand_up", 0x296428 },
-	{ "aim_left_right", 0x2965cc }, { "cock_and_turn_around", 0x296684 },
-	{ "cock_turn_stand_up", 0x29688c }, { "draw_and_turn_around", 0x296934 },
-	{ "drop_weapon_fight", 0x299af4 }, { "laughing", 0x29ad90 },
-	{ "fire_hip_forward", 0x294fc4 }, { "fire_standing_left_fast", 0x295398 },
-	{ "fire_kneel_left_fast", 0x295c84 }, { "draw_and_look_around", 0x296248 },
-	{ "aim_left", 0x2992cc }, { "aim_right", 0x29935c },
-	{ "conversation", 0x29962c }, { "conversation_listener", 0x29a900 },
-	{ "conversation_cleaned", 0x29a5c0 },
+	{ "idle", 0 }, { "spotting_bond", 63 },
+	{ "fire_standing_draw_fast", 66 }, { "fire_standing_draw_slow", 67 },
+	{ "fire_step_right", 72 }, { "fire_kneel_forward_fast", 76 },
+	{ "running_one_handed", 89 }, { "draw_and_stand_up", 98 },
+	{ "aim_left_right", 99 }, { "cock_and_turn_around", 100 },
+	{ "cock_turn_stand_up", 102 }, { "draw_and_turn_around", 103 },
+	{ "drop_weapon_fight", 153 }, { "laughing", 163 },
+	{ "fire_hip_forward", 70 }, { "fire_standing_left_fast", 74 },
+	{ "fire_kneel_left_fast", 80 }, { "draw_and_look_around", 97 },
+	{ "aim_left", 150 }, { "aim_right", 151 },
+	{ "conversation", 152 }, { "conversation_listener", 161 },
+	{ "conversation_cleaned", 160 },
 };
 
 static const struct { const char *brief, *lang; } g_MenuText[] = {
@@ -8731,6 +8830,29 @@ static void bitsCopy(struct bits *w, const uint8_t *src, size_t len, size_t bito
  * GoldenEye's root-motion bits for that frame followed by its frame's rotation
  * bits unchanged. geanim.py is this, and says why.
  */
+/**
+ * Where animation `id` of animation_table_ptrs1[] (or, `vehicle`, of ptrs2[])
+ * starts in the ROM, by the table in the data segment. GoldenEye's and
+ * Goldfinger's are geanimtable.h's to the byte; TND64 rebuilt the segment and
+ * every record but the first moved (by -4 to -0x528).
+ */
+static size_t animRecord(int id, int vehicle)
+{
+	const size_t at = (vehicle ? ANIM_TABLE2_AT : ANIM_TABLE1_AT) - DATA_VRAM + 4 * (size_t)id;
+
+	if (at + 4 > g_DataLen) {
+		fail("animation %d is past its table", id);
+	}
+
+	return ANIM_DATA_ROM + be32(g_Data, at);
+}
+
+/** Whether guard animation `id` has a record: the decompilation's nullNN rows are one byte into the segment. */
+static int animHasRecord(int id)
+{
+	return animRecord(id, 0) > ANIM_DATA_ROM + 1;
+}
+
 static buf animConvert(size_t at, struct animout *out, uint32_t parts)
 {
 	uint32_t entry, numframes, width, loop, bitsperframe, rootbits = 0, framebytes, rotbits;
@@ -9070,12 +9192,14 @@ void geconvertSetLog(void (*fn)(const char *msg))
  * converted from it.
  */
 #define MISSIONFOLDER_AT  0x8002abe4u
+// solo_target_time_array (front.c, read at 7F01D404): s16 seconds [20][3]
+#define SOLO_TARGET_TIMES_AT 0x8002b564u
 #define MISSIONFOLDER_ROW 28
 #define MAX_FOLDER_ROWS   40
 
 struct folderrow {
 	char label[8];
-	uint32_t name, icon;    // LtitleE slots
+	uint32_t name, icon;    // text ids, any bank (textString())
 	int32_t mission;        // -1 for a chapter heading
 	const char *brief;
 };
@@ -9086,18 +9210,58 @@ static size_t g_NumFolderRows;
 // a variant's missions (g_Missions is GoldenEye's)
 static struct mission g_VariantMissions[MAX_FOLDER_ROWS];
 
-// LtitleE's string for a text id, trimmed
-static const char *titleString(const buf *title, uint32_t text, const char *what)
-{
-	const uint32_t toff = (text & 0x3ff) * 4;
-	char *s;
+/**
+ * LnameX_lookuptable (lang.c): a text bank's file by its number, an English
+ * and a Japanese name a bank. A text id is bank * 0x400 + slot; GoldenEye's
+ * folder and arena names are all LtitleE's (39), TND64 Expanded's new ones
+ * LmiscE's (44).
+ */
+#define LANGNAMES_AT   0x800484d4u
+#define LANG_TITLE     39
+#define MAX_LANG_BANKS 96
 
-	if (toff + 4 > title->n || be32(title->v, 0) <= toff || be32(title->v, toff) >= title->n
-			|| !memchr(title->v + be32(title->v, toff), 0, title->n - be32(title->v, toff))) {
+static buf g_LangBanks[MAX_LANG_BANKS];
+
+// the bank file text id `text` indexes, read once a run (variantLevels())
+static const buf *langBank(uint32_t text, const char *what)
+{
+	const uint32_t bank = text >> 10;
+	const size_t at = LANGNAMES_AT - DATA_VRAM + 8 * (size_t)bank;
+	const uint32_t ptr = bank < MAX_LANG_BANKS && at + 4 <= g_DataLen ? be32(g_Data, at) : 0;
+	const char *name = ptr >= DATA_VRAM && ptr - DATA_VRAM < g_DataLen ? dataString(ptr) : NULL;
+
+	if (!name || !romHas(name)) {
+		fail("%s's %s names text %#x, in no bank it has", g_Layout->name, what, (unsigned)text);
+	}
+
+	if (!g_LangBanks[bank].n) {
+		g_LangBanks[bank] = romFile(name);
+	}
+
+	return &g_LangBanks[bank];
+}
+
+// the raw string of text id `text`, ended by its NUL
+static const char *textRaw(uint32_t text, const char *what)
+{
+	const buf *b = langBank(text, what);
+	const uint32_t toff = (text & 0x3ff) * 4;
+
+	if (toff + 4 > b->n || be32(b->v, 0) <= toff || be32(b->v, toff) >= b->n
+			|| !memchr(b->v + be32(b->v, toff), 0, b->n - be32(b->v, toff))) {
 		fail("%s's %s has no name", g_Layout->name, what);
 	}
-	s = gcAlloc(title->n - be32(title->v, toff) + 1);
-	strcpy(s, (const char *)title->v + be32(title->v, toff));
+
+	return (const char *)b->v + be32(b->v, toff);
+}
+
+// the string of text id `text`, by its bank, trimmed
+static const char *textString(uint32_t text, const char *what)
+{
+	const char *raw = textRaw(text, what);
+	char *s = gcAlloc(strlen(raw) + 1);
+
+	strcpy(s, raw);
 	while (s[0] && (s[strlen(s) - 1] == '\n' || s[strlen(s) - 1] == ' ')) {
 		s[strlen(s) - 1] = '\0';
 	}
@@ -9182,12 +9346,12 @@ static const char *variantSetupName(uint32_t levelid)
 static void variantLevels(void)
 {
 	static struct level levels[MAX_VARIANT_LEVELS];
-	buf title = romFile("LtitleE");
+	const int32_t nummissions = g_Layout->nummissions ? g_Layout->nummissions : 20;
 	size_t n = 0, narenas = 0, nmissions = 0;
-	uint32_t bank = 0;
 
 	memset(levels, 0, sizeof(levels));
 	memset(g_FolderRows, 0, sizeof(g_FolderRows));
+	memset(g_LangBanks, 0, sizeof(g_LangBanks));
 	g_NumFolderRows = 0;
 
 	for (size_t row = 0; ; ++row) {
@@ -9202,12 +9366,11 @@ static void variantLevels(void)
 
 		text = be16(g_Data, o);
 
-		// the table has no end row: the game counts its rows. Every row's
-		// strings are LtitleE's, Random's (the first) among them, so the
-		// table ends where a row's text is another bank's
-		if (row == 0) {
-			bank = text >> 10;
-		} else if ((text >> 10) != bank) {
+		// the table has no end row: the game counts its rows. The row after
+		// the last has no text in GoldenEye's, Goldfinger's and TND64's.
+		// (It ended at a text of another bank than Random's: TND64
+		// Expanded names three of its arenas in LmiscE.)
+		if (!text) {
 			break;
 		}
 
@@ -9243,7 +9406,7 @@ static void variantLevels(void)
 			lv->picture = photo < sizeof(pictures) / sizeof(pictures[0]) ? pictures[photo] : 0;
 		}
 		// the folder's name
-		lv->name = titleString(&title, text, "arena");
+		lv->name = textString(text, "arena");
 
 		note("geconvert: %s: arena %s on level %u (%s, %s, %s), scale %g", g_Layout->name, lv->name,
 			(unsigned)levelid, lv->bg, lv->stan, lv->mp, lv->levelscale);
@@ -9279,10 +9442,25 @@ static void variantLevels(void)
 		mission = (int32_t)be32(g_Data, o + 20);
 		brief = be32(g_Data, o + 24) ? dataString(be32(g_Data, o + 24)) : NULL;
 
+		// a mission past the hack's last: TND64 left GoldenEye's rows for
+		// 14 to 19 in its folder, named blank, their setups and briefings
+		// gone, and its code never reaches them
+		if (type == 0 && mission >= nummissions) {
+			note("geconvert: %s's mission folder row %u, mission %d, is past its last", g_Layout->name,
+				(unsigned)row, (int)mission);
+			continue;
+		}
+
+		// and a chapter heading with no mission under it before the next,
+		// which those leave behind
+		if (type != 0 && g_NumFolderRows && g_FolderRows[g_NumFolderRows - 1].mission < 0) {
+			g_NumFolderRows--;
+		}
+
 		f = &g_FolderRows[g_NumFolderRows++];
 		snprintf(f->label, sizeof(f->label), "%s", label ? label : "");
-		f->name = be16(g_Data, o + 4) & 0x3ff;
-		f->icon = be16(g_Data, o + 6) & 0x3ff;
+		f->name = be16(g_Data, o + 4);
+		f->icon = be16(g_Data, o + 6);
 		f->mission = type == 0 ? mission : -1;
 		f->brief = type == 0 ? brief : NULL;
 
@@ -9310,17 +9488,31 @@ static void variantLevels(void)
 				fail("%s's mission on level %d has no %s", g_Layout->name, (int)levelid, lv->solo);
 			}
 			if (!lv->name) {
-				lv->name = titleString(&title, f->name, "mission");
+				lv->name = textString(f->name, "mission");
 			}
 
 			m->key = lv->key;
 			m->setup = lv->solo;
 			// the shorter of its two names, as GoldenEye's grid shows it
-			m->name = titleString(&title, f->icon ? f->icon : f->name, "mission");
+			m->name = textString(f->icon ? f->icon : f->name, "mission");
 			m->num = mission;
 
 			note("geconvert: %s: mission %d %s on level %d (%s, %s, %s), scale %g", g_Layout->name, (int)mission,
 				m->name, (int)levelid, lv->bg, lv->stan, lv->solo, lv->levelscale);
+		}
+	}
+
+	// the last chapter heading too, where nothing follows it
+	if (g_NumFolderRows && g_FolderRows[g_NumFolderRows - 1].mission < 0) {
+		g_NumFolderRows--;
+	}
+
+	// every name the folder shows, in whichever bank (and read now, before
+	// the levels' allocations come and go: writeMissionFolder())
+	for (size_t i = 0; i < g_NumFolderRows; ++i) {
+		textRaw(g_FolderRows[i].name, "mission folder row");
+		if (g_FolderRows[i].icon) {
+			textRaw(g_FolderRows[i].icon, "mission folder row");
 		}
 	}
 
@@ -9336,10 +9528,69 @@ static void variantLevels(void)
  * numeral (8), LtitleE slots of its two names (u16, u16), the mission (s16, -1
  * for a chapter heading), u16 0, its briefing file (20) and the text bank that
  * file indexes (12).
+ *
+ * A name in another bank than LtitleE (TND64 Expanded's in LmiscE: "Arms
+ * Bazaar", "Atlantic Hotel") is appended to the menu's LtitleE as a slot of
+ * its own past the ROM's, and the row names that slot, so the folder reads
+ * every name the one way. `title` is the menu's LtitleE, the ROM's own where
+ * nothing is appended (GoldenEye's and Goldfinger's).
  */
-static void writeMissionFolder(const char *outdir)
+static void writeMissionFolder(const char *outdir, buf *title)
 {
+	const buf *rom = langBank(LANG_TITLE << 10, "title bank");
+	const uint32_t count = be32(rom->v, 0) / 4;
+	uint32_t extra[2 * MAX_FOLDER_ROWS], slot[2 * MAX_FOLDER_ROWS];
+	size_t nextra = 0;
 	buf out = {0};
+
+	// each other bank's name once, in the folder's order
+	for (size_t i = 0; i < 2 * g_NumFolderRows; ++i) {
+		const uint32_t text = i & 1 ? g_FolderRows[i / 2].icon : g_FolderRows[i / 2].name;
+		size_t k = 0;
+
+		if (!text || text >> 10 == LANG_TITLE) {
+			continue;
+		}
+
+		while (k < nextra && extra[k] != text) {
+			++k;
+		}
+
+		if (k == nextra) {
+			slot[nextra] = count + (uint32_t)nextra;
+			extra[nextra++] = text;
+		}
+	}
+
+	*title = *rom;
+
+	if (nextra) {
+		// the ROM's table moved up by the new slots, its strings after it as
+		// they were, then the new strings
+		const uint32_t grow = 4 * (uint32_t)nextra;
+		buf t = {0};
+
+		for (uint32_t i = 0; i < count; ++i) {
+			const uint32_t at = be32(rom->v, 4 * i);
+
+			bufU32(&t, at ? at + grow : 0);
+		}
+
+		bufZeros(&t, grow);
+		bufPut(&t, rom->v + 4 * count, rom->n - 4 * count);
+
+		for (size_t k = 0; k < nextra; ++k) {
+			const char *s = textRaw(extra[k], "mission folder row");
+
+			set32(t.v, 4 * (count + k), (uint32_t)t.n);
+			bufPut(&t, (const uint8_t *)s, strlen(s) + 1);
+		}
+
+		bufPad(&t, 4);
+		*title = t;
+		note("geconvert: %s: %d of its folder's names out of other banks, LtitleE's slots %u on",
+			g_Layout->name, (int)nextra, (unsigned)count);
+	}
 
 	bufPut(&out, (const uint8_t *)"GEF1", 4);
 	bufU16(&out, (uint32_t)g_NumFolderRows);
@@ -9348,11 +9599,26 @@ static void writeMissionFolder(const char *outdir)
 	for (size_t i = 0; i < g_NumFolderRows; ++i) {
 		const struct folderrow *f = &g_FolderRows[i];
 		uint8_t label[8] = {0}, brief[20] = {0}, lang[12] = {0};
+		uint32_t names[2] = { f->name, f->icon };
+
+		for (int j = 0; j < 2; ++j) {
+			if (names[j] >> 10 == LANG_TITLE || !names[j]) {
+				names[j] &= 0x3ff;
+				continue;
+			}
+
+			for (size_t k = 0; k < nextra; ++k) {
+				if (extra[k] == names[j]) {
+					names[j] = slot[k];
+					break;
+				}
+			}
+		}
 
 		memcpy(label, f->label, strlen(f->label));
 		bufPut(&out, label, sizeof(label));
-		bufU16(&out, f->name);
-		bufU16(&out, f->icon);
+		bufU16(&out, names[0]);
+		bufU16(&out, names[1]);
 		bufU16(&out, (uint32_t)(f->mission & 0xffff));
 		bufU16(&out, 0);
 		if (f->mission >= 0) {
@@ -9379,15 +9645,6 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	memset(alltex, 0, sizeof(alltex));
 	memset(allmodels, 0, sizeof(allmodels));
 	memset(allanims, 0, sizeof(allanims));
-
-	// Every one of GoldenEye's guard animations, and not only those the
-	// missions' lists, the watch and the openings name: a GE Plus character
-	// walks, fires, flinches and dies in GoldenEye's own (gechranims.c). The
-	// rows the decompilation names nullNN are one byte into the segment and
-	// hold nothing.
-	for (int i = 0; i < GEANIM_NUM_ANIMS; ++i) {
-		allanims[i] = g_GeAnims[i].at > 1;
-	}
 	g_FailMsg[0] = '\0';
 
 	if (setjmp(g_Fail)) {
@@ -9412,6 +9669,15 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	g_Rom = rom;
 	g_RomLen = romlen;
 	romOpen();
+
+	// Every one of GoldenEye's guard animations, and not only those the
+	// missions' lists, the watch and the openings name: a GE Plus character
+	// walks, fires, flinches and dies in GoldenEye's own (gechranims.c). The
+	// rows the decompilation names nullNN are one byte into the segment and
+	// hold nothing.
+	for (int i = 0; i < GEANIM_NUM_ANIMS; ++i) {
+		allanims[i] = animHasRecord(i);
+	}
 
 	if (g_Layout->variant) {
 		variantLevels();
@@ -9878,10 +10144,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	// music are its own), and its mission folder with them
 	{
 		const size_t keep = g_NumAllocs;
-		buf title;
+		buf title = {0};
 
 		if (g_Layout->variant) {
-			writeMissionFolder(outdir);
+			writeMissionFolder(outdir, &title);
+		} else {
+			title = romFile("LtitleE");
 		}
 
 		for (size_t i = 0; i < sizeof(g_MenuImages) / sizeof(g_MenuImages[0]); ++i) {
@@ -9903,7 +10171,6 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			writeFile(outdir, rel, g_Rom + at, size);
 		}
 
-		title = romFile("LtitleE");
 		writeFile(outdir, "menu/LtitleE", title.v, title.n);
 
 		// and the banks the watch reads (gewatch.c): its own screens' strings,
@@ -9971,9 +10238,20 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			writeGuns(outdir);
 		}
 
-		// and the solo missions' briefings, with the text bank each one indexes
+		// and the solo missions' briefings, with the text bank each one
+		// indexes: a variant's those of the missions it has (TND64 has no
+		// UbriefcontrolZ, nor any of 14 to 19's), and Cuba's where it kept it
 		for (size_t i = 0; i < sizeof(g_MenuText) / sizeof(g_MenuText[0]); ++i) {
 			const char *names[2] = { g_MenuText[i].brief, g_MenuText[i].lang };
+			int named = !g_Layout->variant || !names[0];
+
+			for (size_t k = 0; k < g_NumRunMissions && !named; ++k) {
+				named = g_RunMissions[k].num == (int)i;
+			}
+
+			if (!named || (g_Layout->variant && !names[0] && !romHas(names[1]))) {
+				continue;
+			}
 
 			for (int j = 0; j < 2; ++j) {
 				char rel[64];
@@ -10070,7 +10348,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 			for (size_t i = 0; i < numanims; ++i) {
 				struct animout e;
-				buf data = animConvert(g_IntroAnims[i].at, &e, ANIM_PARTS);
+				buf data = animConvert(animRecord(g_IntroAnims[i].id, 0), &e, ANIM_PARTS);
 				uint8_t name[32] = {0};
 
 				snprintf((char *)name, sizeof(name), "%s", g_IntroAnims[i].name);
@@ -10120,7 +10398,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 
 		// menu/gecast.bin: who a mission's people are where the code says
-		// rather than a setup - "GEK1", u8 men, u8 women, u8 cuffs, u8 0, the
+		// rather than a setup - "GEK1", u8 men, u8 women, u8 cuffs, u8 how
+		// many of the men a level draws from (romlayout.maleheads: 0 for
+		// GoldenEye's four, TND64's 8), the
 		// pool a guard with no head of its own draws from (chr.c's
 		// random_male_heads and random_female_heads, or the layout's first),
 		// then solo_char_load()'s Bond, body and head an outfit
@@ -10153,7 +10433,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			bufU8(&cast, (uint32_t)nmen);
 			bufU8(&cast, (uint32_t)nwomen);
 			bufU8(&cast, 9);
-			bufU8(&cast, 0);
+			bufU8(&cast, g_Layout->maleheads);
 			bufPut(&cast, men, nmen);
 			bufPut(&cast, women, nwomen);
 			bufPut(&cast, &g_Layout->bond[0][0], sizeof(g_Layout->bond));
@@ -10301,8 +10581,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// ammunition pictures (gehud.c), gun.c's ammo_related[] read where
 		// the hack's code reads it (0x80035ef0, 30 rows of max, image row,
 		// IconYOffset) with each picture's row out of the ROM's global image
-		// table (segment 2, ROM 0x29d160 in both). Goldfinger 64 redrew most
-		// of them at other sizes (its 9mm round 4x13 where GoldenEye's is
+		// table (segment 2, ROM 0x29d160 in GoldenEye's and Goldfinger's,
+		// romlayout.globalimages). Goldfinger 64 redrew most of them at other sizes (its 9mm round 4x13 where GoldenEye's is
 		// 5x12) and gave two more types one (2237, 2193), so gehud.c's
 		// GoldenEye table drew its rounds out of shape (F3 20261003-050551).
 		// "GEA1", the count, then a 16-byte row a type: the image as the
@@ -10311,6 +10591,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// GoldenEye's own conversion writes none: gehud.c's table is its rows.
 		if (g_Layout->variant) {
 			const size_t at = GE_AMMO_TABLE_AT - DATA_VRAM;
+			const size_t globals = g_Layout->globalimages ? g_Layout->globalimages : GE_GLOBAL_IMAGES_ROM;
 			buf ammo = {0};
 
 			if (at + 12 * (size_t)GE_AMMO_TYPES > g_DataLen) {
@@ -10326,8 +10607,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				uint32_t image = 0;
 				uint8_t row[8] = {0};
 
-				if (seg >> 24 == 2 && GE_GLOBAL_IMAGES_ROM + (seg & 0xffffff) + 12 <= g_RomLen) {
-					const size_t r = GE_GLOBAL_IMAGES_ROM + (seg & 0xffffff);
+				if (seg >> 24 == 2 && globals + (seg & 0xffffff) + 12 <= g_RomLen) {
+					const size_t r = globals + (seg & 0xffffff);
 
 					image = be32(g_Rom, r);
 					memcpy(row, g_Rom + r + 4, 7);
@@ -10347,6 +10628,27 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 
 			writeFile(outdir, "menu/geammo.bin", ammo.v, ammo.n);
+		}
+
+		// menu/getimes.bin, a variant's only: solo_target_time_array
+		// (front.c), the seconds to beat on Agent, Secret Agent and 00 Agent
+		// for each mission's cheat - "GET1", u16 missions, u16 0, then three
+		// s16 a mission. A hack sets its own (TND64's readme's); gexfront.c
+		// has GoldenEye's
+		if (g_Layout->variant) {
+			const size_t at = SOLO_TARGET_TIMES_AT - DATA_VRAM;
+			const uint32_t num = g_Layout->nummissions ? g_Layout->nummissions : 20;
+			buf times = {0};
+
+			if (at + 6 * 20 > g_DataLen) {
+				fail("the target times run off the data segment");
+			}
+
+			bufPut(&times, (const uint8_t *)"GET1", 4);
+			bufU16(&times, num);
+			bufU16(&times, 0);
+			bufPut(&times, g_Data + at, 6 * (size_t)num);
+			writeFile(outdir, "menu/getimes.bin", times.v, times.n);
 		}
 
 		// menu/gewatch.bin, a variant's only: "GEW1" and the watch's tint
@@ -10479,7 +10781,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 					continue;
 				}
 
-				data = animConvert(GEANIM_BASE + g_GeAnims[i].at, &e, ANIM_PARTS);
+				data = animConvert(animRecord(i, 0), &e, ANIM_PARTS);
 				bufU16(&aindex, (uint32_t)i);
 				bufU16(&aindex, e.numframes);
 				bufU16(&aindex, e.bytesperframe);
@@ -10500,7 +10802,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			// one: they are one part and four root channels apiece.
 			for (int i = 0; i < GEVEH_NUM_ANIMS; ++i) {
 				struct animout e;
-				buf data = animConvert(GEANIM_BASE + g_GeVehicleAnims[i].at, &e, 1);
+				buf data = animConvert(animRecord(i, 1), &e, 1);
 
 				bufU16(&aindex, (uint32_t)(GEVEH_ANIM_FIRST + i));
 				bufU16(&aindex, e.numframes);
