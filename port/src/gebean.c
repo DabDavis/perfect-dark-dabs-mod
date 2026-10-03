@@ -15346,6 +15346,18 @@ static void beanTreeUvs(const struct beanmodel *bm, const struct beanvb *vb, con
 	}
 }
 
+/** PD_BEANDRAWLOG=1: each level draw logged as it is read (a probe for F3 work). Read once. */
+static s32 beanDrawLogOn(void)
+{
+	static s32 on = -1;
+
+	if (on < 0) {
+		on = getenv("PD_BEANDRAWLOG") != NULL;
+	}
+
+	return on;
+}
+
 /**
  * Every triangle of the level, in the file's own units, with the texture its
  * material draws (-1 for none). Returns how many were handed over.
@@ -15490,6 +15502,14 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 		}
 
 		numtris = beanTriangles32(bm, draw, &tris);
+
+		if (beanDrawLogOn()) {
+			sysLogPrintf(LOG_NOTE, "beandraw %d tex %d %s mask %d %s slot %d stride %d at %d/%d blend %d alpha %d colour %08x ownmat %d ismask %d tris %d vs %x mat %x",
+					d, draw->tex, beanTextureName(bm, tex), (s32)draw->masktex,
+					draw->masktex < (u32)bm->numtex ? beanTextureName(bm, (s32)draw->masktex) : "-",
+					draw->masktexslot, vb.stride, draw->alphatest, draw->alpharef, draw->blend, draw->alpha, draw->colour,
+					draw->ownmat, ismask, numtris, draw->vs, draw->matpc);
+		}
 
 		// A draw of two solid pictures that its vertices blend between: the
 		// material's slot 0 picture (read at the first UV set) over its slot

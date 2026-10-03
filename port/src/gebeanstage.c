@@ -6958,6 +6958,48 @@ static s32 markOverlaps(struct stri *tris, s32 num, const struct tgrid *filetris
 	return count;
 }
 
+/**
+ * PD_HDPICK="x,y,z,r" (a probe for finding which of Bean's faces a report
+ * shows): every collected triangle lying within r of the point is logged,
+ * once as collected (tag hdpick0) and once dealt (hdpick), and the level is
+ * built afresh rather than read from the disk cache. Read once.
+ */
+static const f32 *hdPickPoint(void)
+{
+	static s32 read = 0;
+	static s32 have = 0;
+	static f32 pk[4] = { 0, 0, 0, 100 };
+
+	if (!read) {
+		const char *e = getenv("PD_HDPICK");
+
+		read = 1;
+		have = e && sscanf(e, "%f,%f,%f,%f", &pk[0], &pk[1], &pk[2], &pk[3]) >= 3;
+	}
+
+	return have ? pk : NULL;
+}
+
+static void hdPick(const struct collect *c, const char *tag)
+{
+	const f32 *pk = hdPickPoint();
+
+	for (s32 t = 0; pk && t < c->num; t++) {
+		const struct stri *tri = &c->tris[t];
+
+		if (pointTriDist(pk, tri->pos[0], tri->pos[1], tri->pos[2]) < pk[3] * pk[3]) {
+			sysLogPrintf(LOG_NOTE, "%s %d tex %d %s alpha %d soft %d room %d decal %d blend %d backed %d overlap %d plain %d at %d/%d argb %08x %08x %08x pos (%.0f %.0f %.0f) (%.0f %.0f %.0f) (%.0f %.0f %.0f) uv %.3f,%.3f %.3f,%.3f %.3f,%.3f",
+					tag, t, tri->tex, tri->tex >= 0 ? gebeanLevelTextureName(level, tri->tex) : "-",
+					tri->tex >= 0 ? texAlpha[tri->tex] : -1, tri->tex >= 0 ? texSoft[tri->tex] : -1,
+					tri->room, tri->decal, tri->blend, tri->backed, tri->overlap, tri->plain, tri->alphatest, tri->alpharef,
+					tri->argb[0], tri->argb[1], tri->argb[2],
+					tri->pos[0][0], tri->pos[0][1], tri->pos[0][2], tri->pos[1][0], tri->pos[1][1], tri->pos[1][2],
+					tri->pos[2][0], tri->pos[2][1], tri->pos[2][2],
+					tri->uv[0][0], tri->uv[0][1], tri->uv[1][0], tri->uv[1][1], tri->uv[2][0], tri->uv[2][1]);
+		}
+	}
+}
+
 static s32 build(void)
 {
 	const u64 start = sysGetMicroseconds();
@@ -7024,7 +7066,7 @@ static s32 build(void)
 		keyed = 1;
 		mark[1] = sysGetMicroseconds();
 
-		if (hdcacheLoad(key, levelname, n)) {
+		if (!hdPickPoint() && hdcacheLoad(key, levelname, n)) {
 			shellTake(filerooms, filelens, n);
 
 			for (s32 r = 0; r <= n; r++) {
@@ -7056,6 +7098,7 @@ static s32 build(void)
 	c.scale = row->scale;
 	c.offset = row->offset;
 	gebeanLevelTriangles(level, collectTri, &c);
+	hdPick(&c, "hdpick0");
 
 	levelHasWater = 0;
 
@@ -7331,6 +7374,8 @@ static s32 build(void)
 						row->bean, keptout);
 			}
 		}
+
+		hdPick(&c, "hdpick");
 
 		for (s32 r = 1; r < n; r++) {
 			lists[r] = listlen[r] ? malloc(sizeof(s32) * listlen[r]) : NULL;
