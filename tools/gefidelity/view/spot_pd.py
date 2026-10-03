@@ -17,5 +17,9 @@ for i, s in enumerate(spots):
     room = int(s[5]) if len(s) > 5 else None
     lib.hold(x, y, z, th, va, n=int(os.environ.get('GF_HOLD', '20')), room=room)
     lib.say('spot', i, 'cam', lib.ev('g_Vars.currentplayer->cam_pos'), 'theta', lib.ev('g_Vars.currentplayer->vv_theta'))
+    if os.environ.get('GF_ROOMLIST'):
+        n = int(lib.ev('g_Vars.roomcount'))
+        on = [r for r in range(1, n) if int(lib.ev('g_Rooms[%d].flags' % r)) & 4]
+        lib.say('spot', i, 'rooms', lib.ev('g_Vars.currentplayer->prop->rooms'), 'onscreen', on)
     lib.shot()
 lib.finish()
