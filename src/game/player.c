@@ -611,7 +611,17 @@ void playerStartNewLife(void)
 
 	g_Vars.currentplayer->dostartnewlife = false;
 
+#ifndef PLATFORM_N64
+	// Mission Respawn keeps what the player carries, and a collected
+	// objective item (Egyptian's Golden Gun and its ammo box, a key) is a
+	// prop carried as the player prop's child: marked for deletion here it
+	// was freed, and its collect objective failed at the first death (F3
+	// 20261002-100746/100932). Only the first life of a solo stage clears
+	// them.
+	if (g_Vars.coopplayernum < 0 && !modRespawnIsRespawning()) {
+#else
 	if (g_Vars.coopplayernum < 0) {
+#endif
 		struct prop *prop = g_Vars.currentplayer->prop->child;
 
 		while (prop) {
