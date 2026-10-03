@@ -14195,7 +14195,17 @@ cartridge 1b wears the wall's sandstone (`original/prop/cryptdoor1b`: two 32x32
 sand pictures) and hides in the wall. Bean's `new/prop/cryptdoor1b` (retail and
 CE alike) puts a 512x512 photograph of an Akhenaten relief on its front and
 back at UV 0..1 - the whole square squashed into the 2:1 face - and a 512x512
-block-stone picture on its sides. The HD look draws exactly that.
+block-stone picture on its sides. **Fixed (owner's call):** `beanRepaints[]`
+in gebean.c swaps the front/back draws' relief (`_0x01460E75`) for the sides'
+block stone (`_0x08A255B5`) at load (`beanRepaintDraws()`, after the
+reflecting-surface pass, so everything after sees the new picture) and lays
+their UVs again from the file position (`beanRepaintUv()`): x across, y up,
+75 units a repeat from (2750, 400) - the sides' own vertical rate, so the rows
+meet theirs at the corners, square texels, 2.67 x 1.33 repeats on the face.
+Matched by picture name, not raw UV, so retail and CE (whose copy differs in
+six vertex colours only) both take it. Runtime prop mesh only: no HDCACHE
+bump. Shots: `~/wt/f3-1003c-hdlook-run/out/crypt_cmp.png` (report camera),
+`cryptc_cmp.png` (CE close), `cryptr_cmp.png` (retail close).
 
 **Caverns' lights (20261003-102652)** are level geometry (Bean's caged lantern
 on a chain), drawn as the release draws them; matched pads (Caverns pad 81)
