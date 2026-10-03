@@ -14246,3 +14246,41 @@ Two Depot pictures are the release's magenta placeholders
 on the mirrored left gun's inner side - in the N64 look too. Repro rig:
 `~/wt/f3-1003c-hdlook-run/gun2.sh` (KF7 right, auto shotgun left, ammo given,
 reload).
+
+## Shots through Cradle's catwalks; Caverns' iris; Aztec's mainframe doors (31st F3 pass, 2026-10-03, fix/f3-1003c-geshots)
+
+**Bond's shots went through a catwalk over his head (F3 20261003-154834).**
+`shotCalculateHits()` tests the rooms of the portal walk along the line
+(`portal00018148()`) plus the forced ones. A converted level's rooms overlap and
+Cradle's catwalk is a room of its own (27) that the walk from the deck (12)
+never enters: the shot tested room 12 alone and the catwalk's opaque underside
+(texture 630, 556 units up) was never met. GoldenEye's shot (chrprop.c) tests
+Bond's room, then the rooms connected to it one after another until one is hit
+(`chrpropFindFirstBgHitInConnectedRooms()`), then every room drawn this frame
+for a closer hit (`chrpropFindCloserBgHitInVisibleRooms()`); its triangle test
+(`intersectRayTriangle()`) is two-sided and its batches are the solid list
+only. `shotGeRooms()` (prop.c) adds every other room whose box the line enters,
+converted levels only; the nearest hit is kept as before. Probe:
+`~/wt/f3-1003c-geshots-run/cat.py` (logs the rooms tested and sweeps every room
+with `bgTestHitInRoom()`, xlu batches off and on): base `[12]`, no hit; fixed
+`[12, 27, 31]`, hole on the underside.
+
+Guards: GoldenEye's attack target test (chraction.c, the TARGET_BOND case)
+needs the tile walk from the gun to end on Bond's tile, as its sight does.
+`chrHasLosToEntity()` now asks `chrGeStanReachesPlayer()` (the same
+`geStanLinks()` test b07aa503a put in `chrHasLosToChr()`) before a non-bot
+fires at a player on a converted level. At the report spot Perfect Dark's own
+`cdTestLos05()` already stopped a guard on or under catwalk 27 (`glos.py`,
+`glos2.py`), so this closes the path where the 3-D line misses a floor's
+tiles, not one reproduced there.
+
+**Caverns' iris "yellow part" (F3 20261003-153948, on 83e7f24)**: fixed by
+b876a022e/0790a6ed7; a ZMG shot at the yellow centre from the tester's spot
+lands on Pdoor_eyelidZ at 269 (`shot.py`, HOLDSHUT=1, TH=109 VA=-13).
+
+**Aztec's "mainframe door" (F3 20261003-155527)** is GoldenEye's: setup records
+239/240 (our pads 297/298, Pgx332 mainframe cabinets made as doors) have
+keyflags 2, which no key in the level carries (the one key, record 142, is the
+smart card's 1), no one-way lock bits, and renames 237/238 give both the locked
+text 0x1426, "This mainframe is inoperative.". Locked from both sides on the
+cartridge and on ours (`azuse.py`).

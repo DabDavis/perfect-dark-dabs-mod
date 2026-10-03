@@ -7837,6 +7837,27 @@ void chrRecordLastVisibleTargetTime(struct chrdata *chr)
 	chr->lastvisibletarget60 = g_Vars.lvframe60;
 }
 
+/**
+ * GoldenEye's guard fires at Bond only where its line walk along the tile
+ * graph, from its gun, ends on Bond's tile (chraction.c, the attack's target
+ * test: stanTestLineUnobstructed() && stan == the target's), as its sight does
+ * (chrHasLosToChr()). Perfect Dark's line through a converted level's geometry
+ * passes through a floor, which has no wall under it, so a guard on Cradle's
+ * catwalk shot Bond on the deck under it (F3 20261003-154834). True off
+ * converted levels, for a bot and for any target but a player.
+ */
+static bool chrGeStanReachesPlayer(struct chrdata *chr, struct prop *targetprop)
+{
+#ifndef PLATFORM_N64
+	if (!chr->aibot && targetprop->type == PROPTYPE_PLAYER && targetprop->chr && geRoomActive()
+			&& geStanLinks(&chr->prop->pos, chr->ground, &targetprop->pos, targetprop->chr->ground, true) == 0) {
+		return false;
+	}
+#endif
+
+	return true;
+}
+
 bool chrHasLosToEntity(struct chrdata *chr, struct coord *chrpos, RoomNum *chrrooms, bool allowextraheight, u32 attackflags, u32 entityid)
 {
 	bool result = false;
@@ -7888,12 +7909,14 @@ bool chrHasLosToEntity(struct chrdata *chr, struct coord *chrpos, RoomNum *chrro
 
 					func0f065dd8(chrpos, chrrooms, &frompos, fromrooms);
 
-					if (cdTestLos05(&frompos, fromrooms, &targetpos, targetrooms, types, GEOFLAG_BLOCK_SHOOT)) {
+					if (cdTestLos05(&frompos, fromrooms, &targetpos, targetrooms, types, GEOFLAG_BLOCK_SHOOT)
+							&& chrGeStanReachesPlayer(chr, targetprop)) {
 						chrRecordLastVisibleTargetTime(chr);
 						result = true;
 					}
 				} else {
-					if (cdTestLos05(chrpos, chrrooms, &targetpos, targetrooms, types, GEOFLAG_BLOCK_SHOOT)) {
+					if (cdTestLos05(chrpos, chrrooms, &targetpos, targetrooms, types, GEOFLAG_BLOCK_SHOOT)
+							&& chrGeStanReachesPlayer(chr, targetprop)) {
 						chrRecordLastVisibleTargetTime(chr);
 						result = true;
 					}
