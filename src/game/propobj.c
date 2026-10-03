@@ -7689,7 +7689,29 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										func0f0341dc(hitchr, gsetGetDamage(&weapon->gset), &var8009ce78, &weapon->gset, ownerprop,
 												g_EmbedHitPart, g_EmbedProp, g_EmbedNode, g_EmbedModel, g_EmbedSide, var8006993c);
 
+#ifndef PLATFORM_N64
+										// GoldenEye's thrown knife in a body: HIT_BULLET_FLESH
+										// (recall_joy2_hits_edit_detail_edit_flag()), no puff
+										// (only a shot makes chrCreateHitPuffs()'s) and, the
+										// knife stopped, not KNIFE_HIT_WALL, which is for a
+										// wall or the floor (F3 20261002-225649)
+										const bool geknife = WEAPON_IS_GE(weapon->weaponnum) && geSfxStage();
+
+										if (geknife) {
+											const s32 num = geSfxNum(GESFX_HIT_BULLET_FLESH);
+
+											if (num) {
+												psCreate(0, hitprop, num, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
+											}
+
+											obj->projectile->unk0a4 = g_Vars.lvframenum;
+										}
+#endif
+
 										if (ownershield <= 0.0f) {
+#ifndef PLATFORM_N64
+											if (!geknife)
+#endif
 											chrEmitSparks(hitchr, g_EmbedProp, g_EmbedHitPart, &sp5e8, &sp5f4, ownerprop ? ownerprop->chr : NULL);
 
 											if (g_EmbedProp->flags & PROPFLAG_ONTHISSCREENTHISTICK) {
