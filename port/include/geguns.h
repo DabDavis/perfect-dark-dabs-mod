@@ -54,6 +54,11 @@ u16 gegunsModelFile(s32 index);
 // is at. 0 for a gun GoldenEye has no item for.
 s32 gegunsItemNumber(s32 index);
 
+// GoldenEye's own words for picking up gun weaponnum, "a PP7.\n" (its
+// level's LpropobjE, by the gun's item), where they name the gun `name`; NULL
+// where they do not or there are none
+const char *gegunsPickupWords(s32 weaponnum, const char *name);
+
 // The other way: the Perfect Dark weapon number of GoldenEye's hand item, and
 // one shot's damage from it (its gunWeaponStat Destruction, unscaled).
 // WEAPON_NONE and 0 for an item that is no gun of ours (GoldenEye's

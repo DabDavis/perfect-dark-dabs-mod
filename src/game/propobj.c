@@ -18866,6 +18866,21 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 	s32 textid;
 	bool plural = false;
 
+#ifndef PLATFORM_N64
+	// GoldenEye's guns in GoldenEye's own words, "Picked up " and the item's
+	// "a PP7." whole (gegunsPickupWords()), where its level's mod has them
+	if (full && !dual && !PICKUP_JPN_ORDER) {
+		const char *words = gegunsPickupWords(weaponnum, bgunGetName(weaponnum));
+		const char *picked = words ? geHudPropobjString(0) : NULL;
+
+		if (picked && strlen(buffer) + strlen(picked) + strlen(words) < 100) {
+			strcat(buffer, picked);
+			strcat(buffer, words);
+			return;
+		}
+	}
+#endif
+
 	if (dual) {
 		strcat(buffer, langGet(L_PROPOBJ_001)); // "Double"
 	} else {

@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <math.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
@@ -22,6 +23,7 @@
 #include "geguns.h"
 #include "gebean.h"
 #include "geslappers.h"
+#include "gehud.h"
 #include "modloader.h"
 #include "mod.h"
 #include "langpack.h"
@@ -1559,6 +1561,102 @@ static u32 envitems = GEGUNS_ENVMAP_ITEMS;
 s32 gegunsItemNumber(s32 index)
 {
 	return index >= 0 && index < NUM_GE_WEAPONS ? items[index] : 0;
+}
+
+/**
+ * The LpropobjE slot generate_language_specific_text_for_weapon() (propobj.c)
+ * words each hand item's pickup with: whole, article and all, as the hack
+ * wrote them - TND64's "a H&K P7.", "an Uzi (9mm).", "the Golden Gyrojet.",
+ * which a guess from the name got wrong. The thrown and placed ones are
+ * worded as ammunition there and are not here.
+ */
+static s32 gegunsPickupSlot(s32 weaponnum)
+{
+	static const u8 slots[] = {
+		[2] = 0x20, [4] = 0x21, [5] = 0x22, [6] = 0x23, [7] = 0x24, [8] = 0x25,
+		[9] = 0x26, [10] = 0x27, [11] = 0x28, [12] = 0x29, [13] = 0x2a, [14] = 0x2b,
+		[15] = 0x2c, [16] = 0x2d, [17] = 0x2e, [24] = 0x2f, [25] = 0x30, [18] = 0x31,
+		[19] = 0x32, [22] = 0x33, [35] = 0x34, [36] = 0x35, [20] = 0x36, [21] = 0x37,
+	};
+	const s32 index = weaponnum - WEAPON_GE_FIRST;
+	s32 item;
+
+	if (!GE_GUN_INDEX(index)) {
+		return -1;
+	}
+
+	item = gegunsItemNumber(index);
+
+	return item > 0 && item < (s32)ARRAYCOUNT(slots) && slots[item] ? slots[item] : -1;
+}
+
+// a word of `words` (up to `end`), brackets and case aside, among name's
+static s32 gegunsWordIn(const char *word, s32 len, const char *name)
+{
+	const char *p = name;
+
+	while (*p) {
+		s32 n;
+
+		while (*p == ' ' || *p == '(' || *p == ')' || *p == '\n') {
+			p++;
+		}
+
+		n = strcspn(p, " ()\n");
+
+		if (n && n == len && strncasecmp(p, word, len) == 0) {
+			return 1;
+		}
+
+		p += n;
+	}
+
+	return 0;
+}
+
+const char *gegunsPickupWords(s32 weaponnum, const char *name)
+{
+	const s32 slot = gegunsPickupSlot(weaponnum);
+	const char *words = slot >= 0 ? geHudPropobjString(slot) : NULL;
+	const char *p;
+	s32 any = 0;
+
+	if (!words || !name) {
+		return NULL;
+	}
+
+	// Only where every word after the article is one of the gun's own name's:
+	// Goldfinger 64 hands its guns other items than the slots it reworded
+	// ("a Thompson (Drum)." is its MP40's item's), and there the guess from
+	// the name stays
+	p = strchr(words, ' ');
+
+	if (!p) {
+		return NULL;
+	}
+
+	while (*p) {
+		s32 n;
+
+		while (*p == ' ' || *p == '(' || *p == ')' || *p == '.' || *p == '\n') {
+			p++;
+		}
+
+		n = strcspn(p, " ().\n");
+
+		if (n == 0) {
+			continue;
+		}
+
+		if (!gegunsWordIn(p, n, name)) {
+			return NULL;
+		}
+
+		any = 1;
+		p += n;
+	}
+
+	return any ? words : NULL;
 }
 
 s32 gegunsItemWeapon(s32 item)
