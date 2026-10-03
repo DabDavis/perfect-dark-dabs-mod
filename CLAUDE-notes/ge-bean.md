@@ -14065,3 +14065,31 @@ Round 2 (same branch):
   one of the room's GoldenEye water triangles (surface 5/14) now takes its
   texture (1511, no hole, water sound). The shell also keeps translucent
   triangles (shellXlu[]) for the hit texture only.
+
+## Pass 29 merge: review fix-ups (2026-10-03, merge/f3-1003)
+
+- **geconvert 110, the muzzle-flash star's G_COL.** 2c1691a03 gave the star list
+  (modelLists() with `fours`) a G_COL on segment 6, which
+  modelRenderNodeStarGunfire() places 8-aligned after `unk00 * 4` vertices (12
+  bytes each). The record's count is clamped to the quads the list loads, so a
+  star with a smaller count would read colours out of the vertex table; case 0x16
+  now moves each G_COL on by `cat - ALIGN8(vat + quads * 48)` (0 on every GE gun).
+  **Trap:** segment 5 looks like the clean answer (COL1 = baseaddr = the colour
+  table at draw time) but the model preprocessor (port/src/preprocess/gbi.c)
+  rewrites every segment 5 address as a *file offset* and fails fatally on one
+  below the vertices: "Tried to load data from offset 0x0 but segment starts at
+  0x670" on Aztec's first model.
+- **HDCACHE 17** for the plain-black restore (3df5e2993) and the strip-pair decal
+  pick. The new black faces were looked at: Aztec's pit floor (-4800,-824,1120)
+  was a flat olive card in base and is black now, as the N64 look draws it;
+  Aztec's doorway pair (z -3159) and Train's pair (x 4250, y 80, under the floor)
+  showed no pixel change from any camera tried. Rule kept.
+- **markDecals strip pairs**: the strip test runs only when neither face's middle
+  lies on the other; a pair with one middle on the other is the middle rules'
+  from that face's pass. Otherwise both faces could become decals of each other.
+- **gebeanStageHitTexture**: translucent shell triangles count only when water;
+  a decal or pane over a wall no longer gives a wall hit its surface.
+- **xblaMeshObjShotTest**: with XBLAMESH_HITLISTS (32) notes full, a miss is a
+  miss (no ROM walk on lists past the cap). The cap stays 32 for PD's XBLA meshes.
+- **Ending list body**: the "last frame a list had him" is `player->gelistbodyframe`
+  (-10 from playermgr each level), not a function static.
