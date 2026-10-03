@@ -8493,6 +8493,61 @@ static s32 beanOutPointInTri(const struct beanout *o, const struct beantri *t, c
 }
 
 /**
+ * Whether triangle u (j) makes triangle t (i), whose middle is mid, a decal:
+ * beanMarkDecals()'s test of one pair.
+ */
+static s32 beanDecalPair(const struct beanout *o, const f32 *nrm, const struct gebeanmats *mats,
+		s32 i, s32 j, const f32 *mid)
+{
+	const struct beantri *t = &o->tris[i];
+	const struct beantri *u = &o->tris[j];
+	const f32 *nu = &nrm[j * 4];
+	const f32 ai = nrm[i * 4 + 3];
+	const f32 au = nrm[j * 4 + 3];
+	const s32 alphai = t->tex < mats->num && mats->alpha[t->tex];
+	const s32 alphau = u->tex < mats->num && mats->alpha[u->tex];
+	const f32 *ni = &nrm[i * 4];
+	const f32 *pu = &o->pos[u->v[0] * 3];
+	// A thousandth of the surface's size: Bean's are exactly in its plane
+	const f32 tol = 0.001f * sqrtf(au);
+	f32 cosang;
+	s32 flat = 1;
+
+	// The same group and bone, or the two are not in one space. The
+	// same picture is no reason to pass a pair over: the roller
+	// doors' hazard stripe is a strip of the door's own picture drawn
+	// again over it in a white vertex colour (the door's own is a
+	// grey ramp), so the two fought as bright and dim bands
+	if (j == i || u->group != t->group || au <= 0.0f
+			|| o->bone[t->v[0] * 3] != o->bone[u->v[0] * 3]) {
+		return 0;
+	}
+
+	// Facing the same way: a pair back to back is a sheet with a face
+	// either side (the truck's), and a decal of either would show its
+	// back from behind
+	cosang = ni[0] * nu[0] + ni[1] * nu[1] + ni[2] * nu[2];
+
+	if (cosang < 0.999f) {
+		return 0;
+	}
+
+	for (s32 v = 0; v < 3 && flat; v++) {
+		const f32 *q = &o->pos[t->v[v] * 3];
+
+		flat = fabsf((q[0] - pu[0]) * nu[0] + (q[1] - pu[1]) * nu[1] + (q[2] - pu[2]) * nu[2]) <= tol;
+	}
+
+	if (!flat || !beanOutPointInTri(o, u, nu, mid)) {
+		return 0;
+	}
+
+	return alphai != alphau ? alphai > alphau
+			: ai < au * 0.999f ? 1
+			: ai <= au * 1.001f && t->order > u->order;
+}
+
+/**
  * Gives the triangles of a mesh that lie flat on another triangle of the
  * same mesh a decal copy of their material (XBLAMESH_MAT_DECAL), so
  * they are drawn in the decal z mode. Bean puts a model's labels and stencils
@@ -8504,17 +8559,44 @@ static s32 beanOutPointInTri(const struct beanout *o, const struct beantri *t, c
  * (F3 20260925-025836). Of a pair, the one with a cut-out picture over one
  * without is the decal, else the smaller, else the one drawn later: the rule
  * gebeanstage.c's markDecals() uses for the levels. Returns the count.
+ *
+ * Every triangle was tried against every other, which on a gun of a few
+ * thousand triangles was most of the first-person build: 0.55 s for the
+ * 8000-triangle one, a freeze on the frame a new gun was first drawn (F3
+ * 20261003-123556). A pair can only pass where i's middle is inside u's
+ * prism and within u's tolerance of its plane, so inside u's box grown by
+ * that tolerance: u is filed in a grid by that box, and i asks only the
+ * triangles filed in its middle's cell. The test of a pair is unchanged and
+ * its outcome does not depend on the order the pairs are tried in, so the
+ * marks are the same.
  */
+#define DECAL_GRID 32
+#define DECAL_BIGCELLS 512
+
 static s32 beanMarkDecals(struct beanout *o, u32 *matwords, s32 *nummatwords, struct gebeanmats *mats)
 {
 	f32 *nrm = malloc(o->numtris * 4 * sizeof(f32));
 	u8 *decal = calloc(o->numtris, 1);
+	f32 *box = malloc(o->numtris * 6 * sizeof(f32));
+	s32 *cellof = malloc(o->numtris * 6 * sizeof(s32));
+	s32 *start = NULL;
+	s32 *filed = NULL;
+	s32 *big = NULL;
+	s32 numbig = 0;
+	s32 dims[3] = { 1, 1, 1 };
+	f32 lo[3] = { 1e30f, 1e30f, 1e30f };
+	f32 hi[3] = { -1e30f, -1e30f, -1e30f };
+	f32 cellsize[3] = { 1.0f, 1.0f, 1.0f };
+	s32 numcells;
+	s32 numfiled = 0;
 	s32 copy[GEBEAN_MAXMATS];
 	s32 count = 0;
 
-	if (!nrm || !decal) {
+	if (!nrm || !decal || !box || !cellof) {
 		free(nrm);
 		free(decal);
+		free(box);
+		free(cellof);
 		return 0;
 	}
 
@@ -8524,14 +8606,167 @@ static s32 beanMarkDecals(struct beanout *o, u32 *matwords, s32 *nummatwords, st
 		nrm[i * 4 + 3] = beanOutNormal(o, &o->tris[i], &nrm[i * 4], p0);
 	}
 
+	// Each triangle's box, grown by its plane tolerance and a margin for
+	// the rounding of the inside test, and the box round them all
+	for (s32 j = 0; j < o->numtris; j++) {
+		const struct beantri *u = &o->tris[j];
+		f32 *b = &box[j * 6];
+		f32 extent = 0.0f;
+		f32 grow;
+
+		if (nrm[j * 4 + 3] <= 0.0f) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			b[k] = 1e30f;
+			b[3 + k] = -1e30f;
+
+			for (s32 v = 0; v < 3; v++) {
+				const f32 c = o->pos[u->v[v] * 3 + k];
+
+				b[k] = c < b[k] ? c : b[k];
+				b[3 + k] = c > b[3 + k] ? c : b[3 + k];
+			}
+
+			extent = b[3 + k] - b[k] > extent ? b[3 + k] - b[k] : extent;
+		}
+
+		grow = 0.001f * sqrtf(nrm[j * 4 + 3]) + 0.01f * extent + 0.001f;
+
+		for (s32 k = 0; k < 3; k++) {
+			b[k] -= grow;
+			b[3 + k] += grow;
+			lo[k] = b[k] < lo[k] ? b[k] : lo[k];
+			hi[k] = b[3 + k] > hi[k] ? b[3 + k] : hi[k];
+		}
+	}
+
+	{
+		f32 longest = 0.0f;
+
+		for (s32 k = 0; k < 3; k++) {
+			longest = hi[k] - lo[k] > longest ? hi[k] - lo[k] : longest;
+		}
+
+		for (s32 k = 0; k < 3 && longest > 0.0f; k++) {
+			const f32 ext = hi[k] - lo[k];
+
+			dims[k] = (s32)(DECAL_GRID * ext / longest);
+			dims[k] = dims[k] < 1 ? 1 : dims[k] > DECAL_GRID ? DECAL_GRID : dims[k];
+			cellsize[k] = ext > 0.0f ? ext / dims[k] : 1.0f;
+		}
+	}
+
+	numcells = dims[0] * dims[1] * dims[2];
+	start = calloc(numcells + 1, sizeof(s32));
+	big = malloc(o->numtris * sizeof(s32));
+
+	if (!start || !big) {
+		free(nrm);
+		free(decal);
+		free(box);
+		free(cellof);
+		free(start);
+		free(big);
+		return 0;
+	}
+
+	// The cells each one's box covers, counted then filed
+	for (s32 j = 0; j < o->numtris; j++) {
+		const f32 *b = &box[j * 6];
+		s32 *c = &cellof[j * 6];
+		s32 n = 1;
+
+		c[0] = -1;
+
+		if (nrm[j * 4 + 3] <= 0.0f) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3; k++) {
+			s32 a = (s32)((b[k] - lo[k]) / cellsize[k]);
+			s32 z = (s32)((b[3 + k] - lo[k]) / cellsize[k]);
+
+			c[k] = a < 0 ? 0 : a >= dims[k] ? dims[k] - 1 : a;
+			c[3 + k] = z < 0 ? 0 : z >= dims[k] ? dims[k] - 1 : z;
+			n *= c[3 + k] - c[k] + 1;
+		}
+
+		if (n > DECAL_BIGCELLS) {
+			big[numbig++] = j;
+			c[0] = -1;
+			continue;
+		}
+
+		for (s32 x = c[0]; x <= c[3]; x++) {
+			for (s32 y = c[1]; y <= c[4]; y++) {
+				for (s32 z = c[2]; z <= c[5]; z++) {
+					start[(x * dims[1] + y) * dims[2] + z + 1]++;
+					numfiled++;
+				}
+			}
+		}
+	}
+
+	for (s32 cell = 0; cell < numcells; cell++) {
+		start[cell + 1] += start[cell];
+	}
+
+	filed = malloc((numfiled ? numfiled : 1) * sizeof(s32));
+
+	if (!filed) {
+		free(nrm);
+		free(decal);
+		free(box);
+		free(cellof);
+		free(start);
+		free(big);
+		return 0;
+	}
+
+	{
+		s32 *fill = malloc(numcells * sizeof(s32));
+
+		if (!fill) {
+			free(nrm);
+			free(decal);
+			free(box);
+			free(cellof);
+			free(start);
+			free(big);
+			free(filed);
+			return 0;
+		}
+
+		memcpy(fill, start, numcells * sizeof(s32));
+
+		for (s32 j = 0; j < o->numtris; j++) {
+			const s32 *c = &cellof[j * 6];
+
+			if (nrm[j * 4 + 3] <= 0.0f || c[0] < 0) {
+				continue;
+			}
+
+			for (s32 x = c[0]; x <= c[3]; x++) {
+				for (s32 y = c[1]; y <= c[4]; y++) {
+					for (s32 z = c[2]; z <= c[5]; z++) {
+						filed[fill[(x * dims[1] + y) * dims[2] + z]++] = j;
+					}
+				}
+			}
+		}
+
+		free(fill);
+	}
+
 	for (s32 i = 0; i < o->numtris; i++) {
 		const struct beantri *t = &o->tris[i];
-		const f32 *ni = &nrm[i * 4];
-		const f32 ai = nrm[i * 4 + 3];
-		const s32 alphai = t->tex < mats->num && mats->alpha[t->tex];
 		f32 mid[3];
+		s32 cell = -1;
+		s32 inside = 1;
 
-		if (ai <= 0.0f) {
+		if (nrm[i * 4 + 3] <= 0.0f) {
 			continue;
 		}
 
@@ -8539,53 +8774,37 @@ static s32 beanMarkDecals(struct beanout *o, u32 *matwords, s32 *nummatwords, st
 			mid[k] = (o->pos[t->v[0] * 3 + k] + o->pos[t->v[1] * 3 + k] + o->pos[t->v[2] * 3 + k]) / 3.0f;
 		}
 
-		for (s32 j = 0; j < o->numtris && !decal[i]; j++) {
-			const struct beantri *u = &o->tris[j];
-			const f32 *nu = &nrm[j * 4];
-			const f32 au = nrm[j * 4 + 3];
-			const s32 alphau = u->tex < mats->num && mats->alpha[u->tex];
-			const f32 *pu = &o->pos[u->v[0] * 3];
-			// A thousandth of the surface's size: Bean's are exactly in its plane
-			const f32 tol = 0.001f * sqrtf(au);
-			f32 cosang;
-			s32 flat = 1;
-
-			// The same group and bone, or the two are not in one space. The
-			// same picture is no reason to pass a pair over: the roller
-			// doors' hazard stripe is a strip of the door's own picture drawn
-			// again over it in a white vertex colour (the door's own is a
-			// grey ramp), so the two fought as bright and dim bands
-			if (j == i || u->group != t->group || au <= 0.0f
-					|| o->bone[t->v[0] * 3] != o->bone[u->v[0] * 3]) {
-				continue;
-			}
-
-			// Facing the same way: a pair back to back is a sheet with a face
-			// either side (the truck's), and a decal of either would show its
-			// back from behind
-			cosang = ni[0] * nu[0] + ni[1] * nu[1] + ni[2] * nu[2];
-
-			if (cosang < 0.999f) {
-				continue;
-			}
-
-			for (s32 v = 0; v < 3 && flat; v++) {
-				const f32 *q = &o->pos[t->v[v] * 3];
-
-				flat = fabsf((q[0] - pu[0]) * nu[0] + (q[1] - pu[1]) * nu[1] + (q[2] - pu[2]) * nu[2]) <= tol;
-			}
-
-			if (!flat || !beanOutPointInTri(o, u, nu, mid)) {
-				continue;
-			}
-
-			if (alphai != alphau ? alphai > alphau
-					: ai < au * 0.999f ? 1
-					: ai <= au * 1.001f && t->order > u->order) {
-				decal[i] = 1;
+		for (s32 k = 0; k < 3; k++) {
+			if (!(mid[k] >= lo[k] && mid[k] <= hi[k])) {
+				inside = 0;
 			}
 		}
+
+		if (inside) {
+			s32 c[3];
+
+			for (s32 k = 0; k < 3; k++) {
+				c[k] = (s32)((mid[k] - lo[k]) / cellsize[k]);
+				c[k] = c[k] < 0 ? 0 : c[k] >= dims[k] ? dims[k] - 1 : c[k];
+			}
+
+			cell = (c[0] * dims[1] + c[1]) * dims[2] + c[2];
+		}
+
+		for (s32 n = 0; n < numbig && !decal[i]; n++) {
+			decal[i] = (u8)beanDecalPair(o, nrm, mats, i, big[n], mid);
+		}
+
+		for (s32 n = cell >= 0 ? start[cell] : 0; cell >= 0 && n < start[cell + 1] && !decal[i]; n++) {
+			decal[i] = (u8)beanDecalPair(o, nrm, mats, i, filed[n], mid);
+		}
 	}
+
+	free(box);
+	free(cellof);
+	free(start);
+	free(filed);
+	free(big);
 
 	for (s32 m = 0; m < GEBEAN_MAXMATS; m++) {
 		copy[m] = -1;
@@ -11379,13 +11598,8 @@ static f32 fpCloudMedian(const struct fpcloud *cloud, s32 axis, f32 fallback)
 	return median;
 }
 
-/**
- * The rounds themselves, from `hostc`, over at most `points` of Bean's; the
- * answer is how far the kept host vertices still are from Bean's (the mean
- * square of the closest `FP_ICP_KEEP`, measured after the last move), or a
- * negative number when there was nothing to measure.
- */
-static f32 fpRefineRoundsN(const struct fpcloud *bean, const struct fpcloud *host,
+/** fpRefineRoundsN() measuring every point: for a cloud with no order to it. */
+static f32 fpRefineRoundsBrute(const struct fpcloud *bean, const struct fpcloud *host,
 		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, s32 points, s32 rounds)
 {
 	const f32 zero[3] = { 0.0f, 0.0f, 0.0f };
@@ -11490,6 +11704,215 @@ static f32 fpRefineRoundsN(const struct fpcloud *bean, const struct fpcloud *hos
 		}
 	}
 
+	free(base);
+	free(dist);
+	free(delta);
+	free(sorted);
+
+	return residual;
+}
+
+static const f32 *fpSortKeys;
+
+static int fpCompareByKey(const void *a, const void *b)
+{
+	const f32 x = fpSortKeys[*(const s32 *)a];
+	const f32 y = fpSortKeys[*(const s32 *)b];
+
+	return x < y ? -1 : x > y ? 1 : *(const s32 *)a - *(const s32 *)b;
+}
+
+/**
+ * The rounds themselves, from `hostc`, over at most `points` of Bean's; the
+ * answer is how far the kept host vertices still are from Bean's (the mean
+ * square of the closest `FP_ICP_KEEP`, measured after the last move), or a
+ * negative number when there was nothing to measure.
+ *
+ * Each host vertex's nearest is found among Bean's points sorted along the
+ * gun's longest axis, walking out both ways from the host vertex's place on
+ * it and stopping each way at the first point whose distance along that axis
+ * alone is already past the best. Measured against every point, as it was,
+ * this was 20-230 ms of every first-person gun's build (F3 20261003-123556,
+ * a freeze the first time each gun was drawn). The distance is worked out as
+ * it always was, a point is taken over an equal one only when it comes
+ * earlier in Bean's order, and the square of one axis's part can never be
+ * more than the whole sum it is added into, so the point chosen - and the
+ * placement - are the same.
+ */
+static f32 fpRefineRoundsN(const struct fpcloud *bean, const struct fpcloud *host,
+		const s8 *axis, const f32 *beanc, f32 scale, f32 *hostc, s32 points, s32 rounds)
+{
+	const f32 zero[3] = { 0.0f, 0.0f, 0.0f };
+	f32 *base;
+	f32 *dist;
+	f32 *delta;
+	f32 *sorted;
+	f32 *keys;
+	s32 *order;
+	f32 residual = -1.0f;
+	f32 lo[3] = { 1e30f, 1e30f, 1e30f };
+	f32 hi[3] = { -1e30f, -1e30f, -1e30f };
+	s32 stride;
+	s32 num = 0;
+	s32 keep;
+	s32 ax = 0;
+
+	if (bean->num < 8 || host->num < 8) {
+		return -1.0f;
+	}
+
+	// Only the translation moves between rounds, so each of Bean's points is
+	// placed once with none of it and the rounds are arithmetic. A gun can
+	// carry a few thousand and every one of them would otherwise be measured
+	// against every one of the host's, eight times over, at a model load.
+	stride = bean->num / points + 1;
+	base = malloc((size_t)(bean->num / stride + 1) * 3 * sizeof(f32));
+	keys = malloc((size_t)(bean->num / stride + 1) * sizeof(f32));
+	order = malloc((size_t)(bean->num / stride + 1) * sizeof(s32));
+	dist = malloc((size_t)host->num * sizeof(f32));
+	delta = malloc((size_t)host->num * 3 * sizeof(f32));
+	sorted = malloc((size_t)host->num * sizeof(f32));
+
+	if (!base || !keys || !order || !dist || !delta || !sorted) {
+		free(base);
+		free(keys);
+		free(order);
+		free(dist);
+		free(delta);
+		free(sorted);
+		return -1.0f;
+	}
+
+	for (s32 b = 0; b < bean->num; b += stride) {
+		fpPlace(&bean->pos[b * 3], axis, beanc, scale, zero, &base[num * 3]);
+		num++;
+	}
+
+	for (s32 b = 0; b < num; b++) {
+		for (s32 a = 0; a < 3; a++) {
+			const f32 v = base[b * 3 + a];
+
+			if (!(v == v) || v > 1e29f || v < -1e29f) {
+				// nothing to sort by: measured against every point
+				free(keys);
+				free(order);
+				free(base);
+				free(dist);
+				free(delta);
+				free(sorted);
+				return fpRefineRoundsBrute(bean, host, axis, beanc, scale, hostc, points, rounds);
+			}
+
+			lo[a] = v < lo[a] ? v : lo[a];
+			hi[a] = v > hi[a] ? v : hi[a];
+		}
+	}
+
+	for (s32 a = 1; a < 3; a++) {
+		if (hi[a] - lo[a] > hi[ax] - lo[ax]) {
+			ax = a;
+		}
+	}
+
+	for (s32 b = 0; b < num; b++) {
+		order[b] = b;
+		keys[b] = base[b * 3 + ax];
+	}
+
+	fpSortKeys = keys;
+	qsort(order, num, sizeof(s32), fpCompareByKey);
+	fpSortKeys = NULL;
+
+	keep = (s32)(host->num * FP_ICP_KEEP);
+
+	if (keep < 8) {
+		keep = 8;
+	}
+
+	// the last pass only measures
+	for (s32 round = 0; round <= rounds; round++) {
+		f32 cut;
+		f32 move[3] = { 0.0f, 0.0f, 0.0f };
+		f32 sum = 0.0f;
+		s32 taken = 0;
+
+		for (s32 h = 0; h < host->num; h++) {
+			const f32 *q = &host->pos[h * 3];
+			f32 best = 1e30f;
+			s32 bestb = -1;
+			s32 at = 0;
+			s32 top = num;
+
+			// the first point at or past q along the axis, as the
+			// distance below places it
+			while (at < top) {
+				const s32 m = (at + top) / 2;
+
+				if (base[order[m] * 3 + ax] + hostc[ax] < q[ax]) {
+					at = m + 1;
+				} else {
+					top = m;
+				}
+			}
+
+			for (s32 dir = 0; dir < 2; dir++) {
+				for (s32 k = dir ? at - 1 : at; k >= 0 && k < num; k += dir ? -1 : 1) {
+					const s32 b = order[k];
+					f32 d[3];
+					f32 d2;
+
+					for (s32 a = 0; a < 3; a++) {
+						d[a] = q[a] - (base[b * 3 + a] + hostc[a]);
+					}
+
+					if (d[ax] * d[ax] > best) {
+						break;
+					}
+
+					d2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+
+					if (d2 < best || (d2 == best && b < bestb)) {
+						best = d2;
+						bestb = b;
+						memcpy(&delta[h * 3], d, sizeof(d));
+					}
+				}
+			}
+
+			dist[h] = best;
+		}
+
+		memcpy(sorted, dist, (size_t)host->num * sizeof(f32));
+		qsort(sorted, host->num, sizeof(f32), fpCompareF32);
+		cut = sorted[keep - 1];
+
+		for (s32 h = 0; h < host->num; h++) {
+			if (dist[h] <= cut) {
+				for (s32 a = 0; a < 3; a++) {
+					move[a] += delta[h * 3 + a];
+				}
+
+				sum += dist[h];
+				taken++;
+			}
+		}
+
+		if (!taken) {
+			break;
+		}
+
+		if (round == rounds) {
+			residual = sum / taken;
+			break;
+		}
+
+		for (s32 a = 0; a < 3; a++) {
+			hostc[a] += move[a] / taken;
+		}
+	}
+
+	free(keys);
+	free(order);
 	free(base);
 	free(dist);
 	free(delta);

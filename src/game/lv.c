@@ -135,6 +135,7 @@
 #include "gehitpuff.h"
 #include "game/camera.h"
 #include "gbiex.h"
+#include "hdpreload.h"
 #endif
 
 extern s32 g_ExitFrame;
@@ -449,6 +450,11 @@ void lvReset(s32 stagenum)
 	vtxstoreReset();
 	modelmgrReset();
 	psReset();
+#ifndef PLATFORM_N64
+	// A GoldenEye stage's HD meshes are built as its models load, not on
+	// their first frame on screen (hdpreload.c)
+	hdPreloadBegin(stagenum);
+#endif
 	setupLoadFiles(stagenum);
 	scenarioReset();
 	varsReset();
@@ -557,6 +563,11 @@ void lvReset(s32 stagenum)
 	if (IS8MB()) {
 		pheadReset();
 	}
+
+#ifndef PLATFORM_N64
+	// and the first-person guns the stage has handed out
+	hdPreloadEnd();
+#endif
 
 	modelmgrSetLvResetting(false);
 	var80084018 = 1;
@@ -2371,6 +2382,8 @@ s32 lvGetSlowMotionType(void)
 void lvTick(void)
 {
 #ifndef PLATFORM_N64
+	hdPreloadTick();
+
 	// A census a few seconds in, for the log: the chrs a stage has once its
 	// intro AI has run, which is where a mod's guards come from when its
 	// setup lists none (GE-X spawns them).

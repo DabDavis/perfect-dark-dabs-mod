@@ -57,6 +57,10 @@
 #include "game/dlights.h"
 #include "game/game_0b0fd0.h"
 #include "game/playermgr.h"
+#include "game/file.h"
+#include "bss.h"
+#include "game/modeldef.h"
+#include "modloader.h"
 #include "lib/lib_2f490.h"
 #include "data.h"
 #include "trace.h"
@@ -442,6 +446,7 @@ struct xblameshbuilt {
 	s32 neckbackmtx;   // its matrix there (-1 for none)
 	f32 neckbackofs[3]; // and the head's joint from it at rest
 	s32 beanrow;       // the row it was built from, for the hood's test (gebeanRowKeepsHood())
+	s32 beangen;       // romdataFilesGeneration() it was built under: see xblaMeshResetBeanMeshes()
 	// What handtint.c asks of a skinned mesh (xblaMeshAnalyse()): the
 	// textures its materials bind, with how many triangles of each hang off
 	// each bone, and - for a character - the colour each bone is painted,
@@ -572,6 +577,7 @@ static f32 xblaMeshBEF32(const u8 *p)
 }
 
 static void xblaMeshRegisterPackModel(struct modeldef *modeldef, u16 fileid);
+static void xblaMeshPreloadModel(struct modeldef *modeldef);
 static void xblaMeshFreePackMeshes(void);
 static void xblaMeshDropKeptSlot(void);
 static void xblaMeshResetBeanMeshes(void);
@@ -2115,6 +2121,10 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid)
 	// matcher's rather than over it: a node can have both, and which of the
 	// two draws is decided at the draw, live.
 	xblaMeshRegisterPackModel(modeldef, fileid);
+
+	// While a GoldenEye stage loads in the HD look, its GoldenEye meshes are
+	// built now rather than on their first frame on screen
+	xblaMeshPreloadModel(modeldef);
 }
 
 // Both sides of the pose arena: kilobytes held and chunks taken.
@@ -6867,6 +6877,7 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 	m->beanfromchar = bmats->fromchar;
 	m->beanopenrim = bmats->openrim;
 	m->beanrow = e->beanrow;
+	m->beangen = romdataFilesGeneration();
 	m->beanscreenfit = bmats->screenfit;
 	memcpy(m->beanscreenquad, bmats->screenquad, sizeof(m->beanscreenquad));
 	m->beanscreenrecess = bmats->screenrecess;
@@ -6967,8 +6978,117 @@ s32 xblaMeshPrebuildBean(struct modeldef *modeldef)
 	return xblaMeshBuildBean(e, !xblaMeshGetEnabled()) ? 1 : 0;
 }
 
+/* -------------------------------------------------------------------------
+ * A GoldenEye stage's HD meshes, built while it loads
+ *
+ * A GoldenEye model's HD mesh was built on the game thread the first frame it
+ * was drawn: 20-100 ms for a first-person gun, 4-15 ms for a character, a
+ * freeze each time something new came into view or into the hand (F3
+ * 20261003-123556). While a GE Plus or converted stage loads in the HD look,
+ * every model it loads has its mesh built as it registers - its characters,
+ * heads, props and the guns its guards and pickups carry - and hdpreload.c
+ * loads the first-person models of the guns the stage hands out, here, into
+ * memory of their own, long enough to build them. The meshes are the cache
+ * the draw reads (beanBuilt), so the draw then finds them made.
+ * ------------------------------------------------------------------------- */
+
+static s32 preloadOn;
+static s32 preloadBuilt;
+static u64 preloadUs;
+
+void xblaMeshPreloadSet(s32 on)
+{
+	preloadOn = on;
+
+	if (on) {
+		preloadBuilt = 0;
+		preloadUs = 0;
+	}
+}
+
+s32 xblaMeshPreloading(void)
+{
+	return preloadOn;
+}
+
+void xblaMeshPreloadStats(s32 *built, u64 *us)
+{
+	*built = preloadBuilt;
+	*us = preloadUs;
+}
+
+static void xblaMeshPreloadModel(struct modeldef *modeldef)
+{
+	u32 before;
+	u64 t0;
+
+	if (!preloadOn || !modeldef) {
+		return;
+	}
+
+	before = g_XblaMeshNumMeshes;
+	t0 = sysGetMicroseconds();
+	xblaMeshPrebuildBean(modeldef);
+	preloadUs += sysGetMicroseconds() - t0;
+	preloadBuilt += g_XblaMeshNumMeshes != before;
+}
+
+s32 xblaMeshPreloadModelFile(u16 fileid)
+{
+	struct fileinfo saved;
+	struct modeldef *modeldef;
+	const u8 prevloadtype = g_LoadType;
+	const u32 before = g_XblaMeshNumMeshes;
+	u32 size;
+	u8 *mem;
+	u8 *at;
+
+	if (!preloadOn || !fileid || fileid >= NUM_FILE_SLOTS) {
+		return 0;
+	}
+
+	// built or tried already, this stage or one before it
+	if (beanBuilt[0] && beanBuilt[0][fileid] && beanBuilt[0][fileid]->state) {
+		return 0;
+	}
+
+	// Loaded the way bgunTickGunLoad() loads a gun, into memory of its own,
+	// and the file's record put back after: the gun's own load is untouched
+	size = ALIGN64(fileGetInflatedSize(fileid, LOADTYPE_MODEL)) + 0x8000;
+	mem = malloc(size + 64);
+
+	if (!mem) {
+		return 0;
+	}
+
+	at = (u8 *)ALIGN64((uintptr_t)mem);
+	saved = g_FileInfo[fileid];
+	g_FileInfo[fileid].loadedsize = 0;
+	g_LoadType = LOADTYPE_GUN;
+	modeldef = fileLoadToAddr(fileid, FILELOADMETHOD_EXTRAMEM, at, size);
+	g_LoadType = prevloadtype;
+
+	if (fileGetLoadedSize(fileid) != 0 && modeldef) {
+		modelPromoteTypeToPointer(modeldef);
+		modelPromoteOffsetsToPointers(modeldef, 0x05000000, (uintptr_t)modeldef);
+
+		// builds it (preloadOn), then everything filed against this memory
+		// goes before the memory does: the mesh is kept by file, not by model
+		xblaMeshRegisterModel(modeldef, fileid);
+		xblaMeshForgetModel(modeldef);
+	}
+
+	g_FileInfo[fileid] = saved;
+	free(mem);
+
+	return g_XblaMeshNumMeshes != before;
+}
+
 static void xblaMeshResetBeanMeshes(void)
 {
+	const s32 generation = romdataFilesGeneration();
+	s32 dropped = 0;
+
 	for (s32 look = 0; look < ARRAYCOUNT(beanBuilt); look++) {
 		if (!beanBuilt[look]) {
 			continue;
@@ -6978,6 +7098,27 @@ static void xblaMeshResetBeanMeshes(void)
 			struct xblameshbuilt *m = beanBuilt[look][i];
 
 			if (!m) {
+				continue;
+			}
+
+			// Built from whatever file had this slot before romdataResetFiles()
+			// (a mod swap): the slot can name another model now, and every
+			// draw path reads the mesh by slot. Let go of here, at the stage's
+			// end, where nothing of the next stage has looked it up yet. Leaked
+			// rather than freed, as xblaMeshDropStale() does for the same
+			// reason: the render thread may still be in its lists. The next
+			// load builds again (xblaMeshPreloadBegin()).
+			if (m->state > 0 && m->beangen != generation) {
+				beanNumKeeping -= m->beankeepvtx != NULL;
+				free(m->beankeepvtx);
+				free(m->beankeptgdl[0]);
+				free(m->beankeptgdl[1]);
+				m->beankeepvtx = NULL;
+				m->beankeptgdl[0] = m->beankeptgdl[1] = NULL;
+				gfxMeshForget(&m->gpu);
+				gfxMeshForget(&m->envgpu);
+				beanBuilt[look][i] = NULL;
+				dropped++;
 				continue;
 			}
 
@@ -7003,6 +7144,10 @@ static void xblaMeshResetBeanMeshes(void)
 				m->beankeptsrc[k] = NULL;
 			}
 		}
+	}
+
+	if (dropped) {
+		sysLogPrintf(LOG_NOTE, "xblamesh: %d GoldenEye meshes let go: their file slots were emptied (a mod swap)", dropped);
 	}
 }
 
@@ -14568,6 +14713,10 @@ void xblaMeshTrace(FILE *f) { }
 s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent) { return 0; }
 void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid) { }
 s32 xblaMeshPrebuildBean(struct modeldef *modeldef) { return -1; }
+void xblaMeshPreloadSet(s32 on) { }
+s32 xblaMeshPreloading(void) { return 0; }
+void xblaMeshPreloadStats(s32 *built, u64 *us) { *built = 0; *us = 0; }
+s32 xblaMeshPreloadModelFile(u16 fileid) { return 0; }
 s32 xblaMeshKeptLists(struct model *model, struct modelnode *node, Gfx **opa, Gfx **xlu) { *opa = *xlu = NULL; return 0; }
 void xblaMeshSetBypass(s32 on) { }
 void xblaMeshSetOpaqueMode(u32 cycle2, u32 onecycle) { }
