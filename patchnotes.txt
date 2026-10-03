@@ -31,6 +31,21 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 36 2026-10-03
+Goldfinger 64: guards' Luger and pistol shots play Goldfinger's own shots, not Perfect Dark's shield-damage sound (thanks Shockwave S08)
+Goldfinger 64: no more constant electric buzz; the MP40 and Luger, yours and guards' (the granny's on Foundry too), play their own shots
+Goldfinger 64: every gun has its firing sound (the M1 Carbine was silent, the MP40 buzzed)
+Goldfinger 64: barrels, crates and vehicles explode, with sound, when destroyed
+Goldfinger 64 Cartel: you can get into the first silo again; a strip of wall-top no longer boxes you in at the doorway (thanks Shockwave S08)
+GE Plus and Goldfinger 64 openings: Bond stands and looks around as in GoldenEye instead of side-stepping backwards
+Goldfinger 64: missions with many characters (Ranch) show Bond in third person, not Joanna
+Goldfinger 64: ammo icons are the hack's own, at its sizes (pistol, rifle, magnum, hat, mines), dual-wielded too (thanks Shockwave S08)
+Goldfinger 64: the watch is yellow like the cartridge's; GE Plus keeps GoldenEye's green (thanks Shockwave S08)
+Goldfinger 64: folder screens no longer use GoldenEye XBLA art when the release is installed (thanks Shockwave S08)
+GE Plus Dam, XBLA look: no dark triangles on the chasm cliffs after a light is shot out (thanks Shockwave S08)
+GE Plus: closing the watch lowers Bond's arm before the view returns, as in GoldenEye (thanks Glazier)
+Fixed a crash in the menu's character preview at level start
+
 notes 35 2026-10-03
 GE Plus: no invisible wall at one end of some outdoor stairs (Dam's tower) (thanks eCHOREMASTERED)
 GE Plus Cradle: the hatch down to Trevelyan is as easy to drop into as GoldenEye's (thanks eCHOREMASTERED)
