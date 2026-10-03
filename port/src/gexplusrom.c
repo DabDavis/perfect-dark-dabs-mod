@@ -840,8 +840,12 @@ static s32 variantFromPatch(const char *path, const char *from, s32 inarchive)
 	const char *name;
 
 	if (!variantUsRom()) {
-		sysLogPrintf(LOG_NOTE, "gexplus: %s may be a GoldenEye ROM hack; it needs the GoldenEye 007 (US) ROM in "
-				FS_ADDED_CONTENT_DIR "/ to be applied to", from);
+		// an archive's patches are told of once, by variantFromArchive()
+		if (!inarchive) {
+			sysLogPrintf(LOG_NOTE, "gexplus: %s may be a GoldenEye ROM hack; it needs the GoldenEye 007 (US) ROM in "
+					FS_ADDED_CONTENT_DIR "/ to be applied to", from);
+		}
+
 		return 0;
 	}
 
@@ -977,7 +981,10 @@ static void variantFromArchive(const char *path, const char *name, const char *f
 		s32 tried = 0;
 		const s32 made = variantPatchesIn(dir, from, 0, &tried);
 
-		if (!made && tried && g_UsRom) {
+		if (tried && !g_UsRom) {
+			sysLogPrintf(LOG_NOTE, "gexplus: %s may hold a GoldenEye ROM hack; it needs the GoldenEye 007 (US) ROM in "
+					FS_ADDED_CONTENT_DIR "/ to be applied to", from);
+		} else if (!made && tried) {
 			sysLogPrintf(LOG_NOTE, "gexplus: %s holds %d patch%s, and none makes a GoldenEye ROM hack this can convert",
 					from, tried, tried == 1 ? "" : "es");
 		}
