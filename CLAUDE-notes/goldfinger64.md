@@ -731,6 +731,30 @@ Rig `~/wt/gf-mon-run` (`monpages.py`: the folder's page, `GF_VARIANT=0` for
 GoldenEye's, `GF_TAG`; `view-mon*` the view runs), `~/wt/gf-mon-nomon` (the
 same without the file).
 
+## F3 pass 30 gameplay (2026-10-03)
+
+- **Cartel's first silo** (F3 20261003-051322, "hitbox too thick"): a sliver
+  tile (399/400, y 150, linked to nothing) lies along the top of the silo wall
+  across the doorway in plan. gestan's stanTileUnder() picks the tile whose
+  height is nearest the foot's limit, so in the doorway the sliver was the
+  player's floor and all its walls stood round him. GoldenEye walks Bond's tile
+  through the links (bondviewTryMoveToStan()). Fix: the player's own cylinder
+  tests (bwalkCalculateNewPosition, bwalkTryMoveUpwards, bwalkCanMoveUpwards)
+  set geStanSetMover(); stanWallFind() then takes geStanFloorAhead()'s walked
+  tile (or the one the move started on) when it holds the point at a footable
+  height. The doorway's open door turns about its middle on the cartridge too
+  (same picture) and Bond slides along it. Probe: tools/gefidelity/probe-gfplay
+  door2.py (untracked); walkcmp.py showed GE Dam/Facility/... walks unchanged.
+- **Cartel opening** (F3 20261003-061541): stage_intro_anim_table ids went
+  untagged to gexPlusMissionAnim(), so rows 97-105/176 played Perfect Dark's
+  dodges/flinches. gecinema now asks geChrAnim(). Affects GE Plus openings that
+  pick rows 2-8 too.
+- **Joanna in third person on Ranch** (F3 20261003-071337): g_GeRomRows shared
+  one cap of 24 between bodies and heads; Ranch's 12 bodies + 12 own heads used
+  it up and gexPlusMissionBond() got no row. Now 24 bodies + 128 heads.
+- **Oddjob's hat** (F3 20261003-071520): the big black hat lower right is the
+  hack's item 3 (GthrowknifeZ) in the hand; the cartridge draws it the same.
+
 ## Open
 
 - Props' shading against GoldenEye's: no measured case now (Crab Key's
