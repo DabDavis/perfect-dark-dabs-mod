@@ -462,6 +462,7 @@ static void gexPlusRomConvertGoldenEye(void)
 	char dest[FS_MAXPATH + 1] = "";
 	char temp[FS_MAXPATH + 1];
 	char job_err[256] = "";
+	char from[FS_MAXPATH + 1];
 	u32 romlen = 0;
 	u8 *rom;
 
@@ -576,7 +577,10 @@ static void gexPlusRomConvertGoldenEye(void)
 
 	sysLogPrintf(LOG_NOTE, "gexplus: converting %s into %s, this happens once", fsFullPath(search.path), dest);
 
-	switch (gexPlusRomConvertInto(rom, romlen, dest, fsFullPath(search.path), job_err, sizeof(job_err))) {
+	// a copy: fsFullPath()'s buffer is the next path's, and the stamp is written after many
+	snprintf(from, sizeof(from), "%s", fsFullPath(search.path));
+
+	switch (gexPlusRomConvertInto(rom, romlen, dest, from, job_err, sizeof(job_err))) {
 	case 1:
 		sysLogPrintf(LOG_NOTE, "gexplus: the GoldenEye arenas are in %s", dest);
 		gexPlusRomSetReady();
