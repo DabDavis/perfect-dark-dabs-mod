@@ -16282,6 +16282,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 	u32 treevbs[32];
 	s32 numtreevbs = 0;
 	s32 numblendpic = 0;
+	s32 numdecalpic = 0;
 	u32 blendshaders[32][2];
 	s32 numblendshaders = 0;
 
@@ -16463,6 +16464,30 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 			}
 		}
 
+		// A draw of a solid picture with a cut-out painted over it, neither
+		// alpha-tested nor blended: the slot 0 picture (the cut-out, first
+		// UV set) laid on the slot 1 one (solid, second set) by the
+		// cut-out's own alpha. Silo's hazard arrows on the launch pit's
+		// sloping wall are the concrete with the white arrow tile over it;
+		// taken for the arrow alone, with nothing to cut it, each drew as an
+		// opaque square (F3 20261003-184819). Drawn as the solid picture,
+		// with the cut-out a twin in the blended pass that markDecals() lays
+		// on it, as blendpic below does.
+		s32 decalpic = 0;
+
+		if (vb.stride == 32 && !ismask && !blendpic && !draw->alphatest && !draw->blend && tex >= 0
+				&& draw->masktex < (u32)bm->numtex && draw->masktexslot == 1) {
+			const void *tile;
+			u8 cuta, basea, soft;
+
+			if (beanBindTexture(bm, level->source, tex, &tile, &cuta, &soft)
+					&& beanBindTexture(bm, level->source, (s32)draw->masktex, &tile, &basea, &soft)
+					&& cuta && !basea) {
+				decalpic = 1;
+				numdecalpic++;
+			}
+		}
+
 		// A draw with no UV (stride 16, or 20 with a colour) and no picture
 		// since its vertex shader was set: the picture it is read with here is
 		// only the one the draw before it left bound, sampled at one texel.
@@ -16523,7 +16548,7 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 				// (0xffff) and Runway's road drew as streaks
 				if (ok && vb.stride == 32) {
 					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
-					const u32 uvat = ismask || blendpic ? 20 : 16;
+					const u32 uvat = ismask || blendpic || decalpic ? 20 : 16;
 
 					bv.uv[0] = (s16)gebeanBE16(p + uvat) / bm->uvscale;
 					bv.uv[1] = (s16)gebeanBE16(p + uvat + 2) / bm->uvscale;
@@ -16580,8 +16605,32 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 				}
 			}
 
-			fn(arg, tex, v);
+			fn(arg, decalpic ? (s32)draw->masktex : tex, v);
 			count++;
+
+			if (decalpic) {
+				struct gebeanlevelvtx over[3];
+
+				memcpy(over, v, sizeof(over));
+
+				for (s32 k = 0; k < 3; k++) {
+					const u8 *p = bm->gpu + vb.off + tris[t * 3 + k] * vb.stride;
+
+					over[k].uv[0] = (s16)gebeanBE16(p + 16) / bm->uvscale;
+					over[k].uv[1] = (s16)gebeanBE16(p + 18) / bm->uvscale;
+					over[k].argb = v[k].argb | 0xff000000u;
+					over[k].blend = 1;
+				}
+
+				fn(arg, tex, over);
+				count++;
+
+				if (t == 0 && beanDrawLogOn()) {
+					sysLogPrintf(LOG_NOTE, "beandraw %d: cut-out %s over %s from (%.0f %.0f %.0f)", d,
+							beanTextureName(bm, tex), beanTextureName(bm, (s32)draw->masktex),
+							v[0].pos[0], v[0].pos[1], v[0].pos[2]);
+				}
+			}
 
 			if (blendpic) {
 				struct gebeanlevelvtx over[3];
@@ -16612,6 +16661,11 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 	if (numblendpic) {
 		sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws of two pictures blended by their vertices, the second laid over the first",
 				level->source, numblendpic);
+	}
+
+	if (numdecalpic) {
+		sysLogPrintf(LOG_NOTE, "gebean: %s: %d draws of a cut-out painted on a solid picture, laid over it",
+				level->source, numdecalpic);
 	}
 
 	return count;
