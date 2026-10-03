@@ -21904,8 +21904,13 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 	while (roomnum != -1) {
 #ifndef PLATFORM_N64
 		// On an HD level every room is drawn, but a chr counts as on screen
-		// only in a room the portal walk reached - see bgTickPortalsEveryRoom()
-		if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER)
+		// only in a room the portal walk reached - see bgTickPortalsEveryRoom().
+		// So does a door: GoldenEye files six of Frigate's upper-deck doors in
+		// the lower deck's rooms, where the cartridge never draws them from
+		// their own deck and nothing there meets them (guards see and shoot
+		// across, Bond walks through); drawn in the HD look they stood shut in
+		// doorways that are open on the cartridge (F3 20261002-155916)
+		if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER || prop->type == PROPTYPE_DOOR)
 				? bgRoomIsPortalVisible(roomnum)
 				: (g_Rooms[roomnum].flags & ROOMFLAG_ONSCREEN) != 0) {
 #else
