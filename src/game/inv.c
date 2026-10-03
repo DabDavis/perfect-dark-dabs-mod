@@ -6,6 +6,7 @@
 #include "gegadgets.h"
 #include "gexfront.h"
 #include "gexplus.h"
+#include "modloader.h"
 #include "geguns.h"
 #endif
 #include "game/cheats.h"
@@ -35,6 +36,32 @@ void invClear(void)
 }
 
 /**
+ * Where a weapon stands in the inventory's order: its number, except that
+ * GoldenEye's own inventory sorts by its item numbers (bondinv.c), which put
+ * the hunting and throwing knives straight after the fist and the watch's
+ * detonator and the tank's shells straight after the remote mine, where ours
+ * number them after the guns and the gadgets (F3 20261002-225441: "the
+ * throwing knife comes after the KF7"). Perfect Dark's own order is its
+ * numbers, unchanged, and so is a GoldenEye gun's on Perfect Dark's stages:
+ * the reorder is GoldenEye's, for its converted stages only.
+ */
+static s32 invOrderKey(s32 weaponnum)
+{
+#ifndef PLATFORM_N64
+	if (weaponnum >= WEAPON_GE_FIRST && modloaderStageIsRemake(g_Vars.stagenum)) {
+		switch (weaponnum) {
+		case WEAPON_GE_HUNTINGKNIFE:  return WEAPON_UNARMED * 4 + 1;
+		case WEAPON_GE_THROWINGKNIFE: return WEAPON_UNARMED * 4 + 2;
+		case WEAPON_GE_DETONATOR:     return WEAPON_GE_REMOTEMINE * 4 + 1;
+		case WEAPON_GE_TANKSHELLS:    return WEAPON_GE_REMOTEMINE * 4 + 2;
+		}
+	}
+#endif
+
+	return weaponnum * 4;
+}
+
+/**
  * Sorts subject into its correct position in the inventory list.
  *
  * Subject is expected to initially be at the head of the list. It works by
@@ -50,12 +77,12 @@ void invSortItem(struct invitem *subject)
 
 	// Prepare subject's properties for comparisons
 	if (subject->type == INVITEMTYPE_WEAP) {
-		subjweapon1 = subject->type_weap.weapon1;
+		subjweapon1 = invOrderKey(subject->type_weap.weapon1);
 	} else if (subject->type == INVITEMTYPE_DUAL) {
-		subjweapon1 = subject->type_dual.weapon1;
-		subjweapon2 = subject->type_dual.weapon2;
+		subjweapon1 = invOrderKey(subject->type_dual.weapon1);
+		subjweapon2 = invOrderKey(subject->type_dual.weapon2);
 	} else if (subject->type == INVITEMTYPE_PROP) {
-		subjweapon1 = 2000;
+		subjweapon1 = 2000 * 4;
 	}
 
 	candidate = subject->next;
@@ -66,12 +93,12 @@ void invSortItem(struct invitem *subject)
 		candweapon2 = -1;
 
 		if (subject->next->type == INVITEMTYPE_WEAP) {
-			candweapon1 = subject->next->type_weap.weapon1;
+			candweapon1 = invOrderKey(subject->next->type_weap.weapon1);
 		} else if (subject->next->type == INVITEMTYPE_DUAL) {
-			candweapon1 = subject->next->type_dual.weapon1;
-			candweapon2 = subject->next->type_dual.weapon2;
+			candweapon1 = invOrderKey(subject->next->type_dual.weapon1);
+			candweapon2 = invOrderKey(subject->next->type_dual.weapon2);
 		} else if (subject->next->type == INVITEMTYPE_PROP) {
-			candweapon1 = 1000;
+			candweapon1 = 1000 * 4;
 		}
 
 		// If the candidate should sort ahead of subject
@@ -956,7 +983,7 @@ void invChooseCycleForwardWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 
 		while (item) {
 			if (item->type == INVITEMTYPE_WEAP) {
-				if (INV_CYCLEABLE(item->type_weap.weapon1) && item->type_weap.weapon1 > weapon1) {
+				if (INV_CYCLEABLE(item->type_weap.weapon1) && invOrderKey(item->type_weap.weapon1) > invOrderKey(weapon1)) {
 					if (!arg2 || bgun0f0a1a10(item->type_weap.weapon1)) {
 						weapon1 = item->type_weap.weapon1;
 						weapon2 = WEAPON_NONE;
@@ -964,8 +991,8 @@ void invChooseCycleForwardWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 					}
 				}
 			} else if (item->type == INVITEMTYPE_DUAL) {
-				if (item->type_dual.weapon1 > weapon1
-						|| (weapon1 == item->type_dual.weapon1 && item->type_dual.weapon2 > weapon2)) {
+				if (invOrderKey(item->type_dual.weapon1) > invOrderKey(weapon1)
+						|| (weapon1 == item->type_dual.weapon1 && invOrderKey(item->type_dual.weapon2) > invOrderKey(weapon2))) {
 					if (!arg2 || bgun0f0a1a10(item->type_dual.weapon1) || bgun0f0a1a10(item->type_dual.weapon2)) {
 						weapon1 = item->type_dual.weapon1;
 						weapon2 = item->type_dual.weapon2;
@@ -1037,7 +1064,7 @@ void invChooseCycleBackWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 		while (true) {
 			if (item->type == INVITEMTYPE_WEAP) {
 				if (INV_CYCLEABLE(item->type_weap.weapon1)
-						&& (item->type_weap.weapon1 < weapon1 || (weapon1 == item->type_weap.weapon1 && weapon2 > 0))) {
+						&& (invOrderKey(item->type_weap.weapon1) < invOrderKey(weapon1) || (weapon1 == item->type_weap.weapon1 && weapon2 > 0))) {
 					if (!arg2 || bgun0f0a1a10(item->type_weap.weapon1)) {
 						weapon1 = item->type_weap.weapon1;
 						weapon2 = WEAPON_NONE;
@@ -1045,8 +1072,8 @@ void invChooseCycleBackWeapon(s32 *ptr1, s32 *ptr2, bool arg2)
 					}
 				}
 			} else if (item->type == INVITEMTYPE_DUAL) {
-				if (item->type_dual.weapon1 < weapon1
-						|| (weapon1 == item->type_dual.weapon1 && item->type_dual.weapon2 < weapon2)) {
+				if (invOrderKey(item->type_dual.weapon1) < invOrderKey(weapon1)
+						|| (weapon1 == item->type_dual.weapon1 && invOrderKey(item->type_dual.weapon2) < invOrderKey(weapon2))) {
 					if (!arg2 || bgun0f0a1a10(item->type_dual.weapon1) || bgun0f0a1a10(item->type_dual.weapon2)) {
 						weapon1 = item->type_dual.weapon1;
 						weapon2 = item->type_dual.weapon2;

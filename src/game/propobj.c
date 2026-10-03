@@ -18271,6 +18271,16 @@ void ammotypeGetPickupName(char *dst, s32 ammotype2, s32 qty)
 	if (ammotype == AMMOTYPE_PISTOL || ammotype == AMMOTYPE_SMG || ammotype == AMMOTYPE_RIFLE) {
 		strcat(dst, langGet(L_PROPOBJ_010)); // "ammo"
 	} else if (ammotype == AMMOTYPE_KNIFE) {
+#ifndef PLATFORM_N64
+		// GoldenEye's knives are its throwing knives (propobj.c's
+		// apped_text_ammotype(): "throwing" before "knife"/"knives"); on its
+		// levels they hand over WEAPON_GE_THROWINGKNIFE (ammotypeGeWeapon()),
+		// unless Perfect Dark's combat knife is already held (F3
+		// 20261002-225759: "picked up combat knife")
+		if (ammotypeGetWeapon(AMMOTYPE_KNIFE) == WEAPON_GE_THROWINGKNIFE) {
+			strcat(dst, langTr("throwing "));
+		} else
+#endif
 		strcat(dst, langGet(L_PROPOBJ_021)); // "combat"
 
 		if (qty == 1) {
