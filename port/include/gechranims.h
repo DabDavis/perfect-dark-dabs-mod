@@ -49,4 +49,11 @@ void geChrAnimsSetPdDeaths(s32 on);
 /** A number that plays Perfect Dark's own animation animnum on a remake stage. */
 s32 geChrAnimsPd(s32 animnum);
 
+/**
+ * Whether the animation number playing is Perfect Dark's own animnum served
+ * beside GoldenEye's under geChrAnimsPd()'s number - code that asks "is this
+ * chr playing animnum" asks this as well, or Perfect Dark's frames go unseen.
+ */
+s32 geChrAnimsPlayingPd(s32 playing, s32 animnum);
+
 #endif
