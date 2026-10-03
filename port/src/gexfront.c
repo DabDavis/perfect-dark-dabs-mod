@@ -333,6 +333,27 @@ static s32 frontIsHack(void)
 	return g_GexPlusVariant != NULL;
 }
 
+/**
+ * How many of the missions are real and the folder's way on after each: a
+ * ROM hack may cut the campaign short (Tomorrow Never Dies 64's fourteen, its
+ * code's 007 loop counting 14 at 7F01F4C8), play the credits after another
+ * mission (its Stealth Boat, 7F0168BC) and stop moving on at another (none
+ * past The End, 13: 7F0168D4). Its conversion's menu/getimes.bin says, with
+ * its target times (frontLoadMissionRows()); GoldenEye's are its twenty, the
+ * Cradle's credits, and none on from Aztec. The bonus missions' locks
+ * (frontMissionStatus()) stay GoldenEye's numbers: the hack's code kept them.
+ */
+static s32 g_NumMissions = NUM_MISSIONS;
+static s32 g_CreditsAfter = GEMISSION_CRADLE;
+static s32 g_AdvanceBelow = MISSION_AZTEC;
+static s16 g_HackTargetTimes[NUM_MISSIONS][3];
+static s32 g_HasHackTargetTimes;
+
+static s32 frontNumMissions(void)
+{
+	return g_NumMissions;
+}
+
 // cursor_xpos_table_mission_select and cursor_ypos_table_mission_select
 static const s32 g_MissionX[MISSION_COLS] = { 73, 142, 212, 282, 352 };
 static const s32 g_MissionY[MISSION_ROWS] = { 62, 131, 201, 270 };
@@ -679,7 +700,7 @@ static s32 frontMissionsAvailable(void)
 /** The stage a mission runs, the remake's own where there is one. */
 static s32 frontMissionStage(s32 mission)
 {
-	if (mission < 0 || mission >= NUM_MISSIONS) {
+	if (mission < 0 || mission >= frontNumMissions()) {
 		return 0;
 	}
 
@@ -773,7 +794,7 @@ void gexFrontSetLockedProgression(s32 on)
  */
 static s32 frontMissionCompleted(s32 mission, s32 difficulty)
 {
-	if (mission < 0 || mission >= NUM_MISSIONS || difficulty < 0 || difficulty >= DIFFICULTY_007) {
+	if (mission < 0 || mission >= frontNumMissions() || difficulty < 0 || difficulty >= DIFFICULTY_007) {
 		return 0;
 	}
 
@@ -810,7 +831,7 @@ static s32 front007Unlocked(void)
 		return 0;
 	}
 
-	for (mission = 0; mission < NUM_MISSIONS; mission++) {
+	for (mission = 0; mission < frontNumMissions(); mission++) {
 		if (!frontMissionCompleted(mission, DIFF_PA)) {
 			return 0;
 		}
@@ -840,7 +861,7 @@ static s32 frontMissionStatus(s32 mission, s32 difficulty)
 	s32 i;
 	s32 m;
 
-	if (mission < 0 || mission >= NUM_MISSIONS || difficulty < 0 || difficulty >= NUM_DIFFICULTIES) {
+	if (mission < 0 || mission >= frontNumMissions() || difficulty < 0 || difficulty >= NUM_DIFFICULTIES) {
 		return STAGESTATUS_LOCKED;
 	}
 
@@ -904,7 +925,7 @@ static s32 frontMissionStatus(s32 mission, s32 difficulty)
  */
 static s32 frontHighestDifficulty(s32 mission)
 {
-	if (!frontMissionsAvailable() || mission < 0 || mission >= NUM_MISSIONS) {
+	if (!frontMissionsAvailable() || mission < 0 || mission >= frontNumMissions()) {
 		return -1;
 	}
 
@@ -1258,6 +1279,10 @@ static void frontUnload(void)
 	g_Front.loaded = 0;
 	g_Missions = g_GeMissionRows;
 	g_NumMissionRows = ARRAYCOUNT(g_GeMissionRows);
+	g_NumMissions = NUM_MISSIONS;
+	g_CreditsAfter = GEMISSION_CRADLE;
+	g_AdvanceBelow = MISSION_AZTEC;
+	g_HasHackTargetTimes = 0;
 }
 
 /**
@@ -1291,6 +1316,54 @@ static s32 frontWantDir(void)
  * u16 0, its briefing file (20) and the text bank that file indexes (12).
  * GoldenEye's own conversion writes none, and its rows are g_GeMissionRows.
  */
+/**
+ * A ROM hack's menu/getimes.bin (converter 113, 118): "GET1", u16 missions,
+ * u8 the mission after which the credits play and u8 the first that moves on
+ * to no other (0 for GoldenEye's), then its target times, three s16 seconds a
+ * mission.
+ */
+static void frontLoadMissionCount(void)
+{
+	u32 len = 0;
+	u8 *d;
+	char path[FS_MAXPATH + 1];
+	const char *dir = fsGetModDirAt(g_Front.moddir);
+
+	if (!dir) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/menu/getimes.bin", dir);
+
+	if (fsFileSize(path) <= 0) {
+		return;
+	}
+
+	d = frontLoad("getimes.bin", &len);
+
+	if (d && len >= 8 && memcmp(d, "GET1", 4) == 0) {
+		const s32 num = (d[4] << 8) | d[5];
+
+		if (num > 0 && num <= NUM_MISSIONS && len >= 8 + 6 * (u32)num) {
+			g_NumMissions = num;
+			g_CreditsAfter = d[6] ? d[6] : GEMISSION_CRADLE;
+			g_AdvanceBelow = d[7] ? d[7] : MISSION_AZTEC;
+
+			for (s32 m = 0; m < num; m++) {
+				for (s32 k = 0; k < 3; k++) {
+					const u8 *t = d + 8 + 6 * m + 2 * k;
+
+					g_HackTargetTimes[m][k] = (s16)((t[0] << 8) | t[1]);
+				}
+			}
+
+			g_HasHackTargetTimes = 1;
+		}
+	}
+
+	sysMemFree(d);
+}
+
 static void frontLoadMissionRows(void)
 {
 	u32 len = 0;
@@ -1299,6 +1372,11 @@ static void frontLoadMissionRows(void)
 
 	g_Missions = g_GeMissionRows;
 	g_NumMissionRows = ARRAYCOUNT(g_GeMissionRows);
+	g_NumMissions = NUM_MISSIONS;
+	g_CreditsAfter = GEMISSION_CRADLE;
+	g_AdvanceBelow = MISSION_AZTEC;
+	g_HasHackTargetTimes = 0;
+	frontLoadMissionCount();
 
 	{
 		char path[FS_MAXPATH + 1];
@@ -2387,7 +2465,7 @@ static s32 frontCinemaRows(s32 *rows)
 	rows[n++] = GECINEMA_OPENING;
 	rows[n++] = GECINEMA_ENDING;
 
-	if (g_Front.mission == GEMISSION_CRADLE && modloaderMissionStage(GEMISSION_CUBA)) {
+	if (g_Front.mission == g_CreditsAfter && modloaderMissionStage(GEMISSION_CUBA)) {
 		rows[n++] = CINEMA_CREDITS;
 	}
 
@@ -3357,12 +3435,15 @@ static void frontTickReport(s32 pick, s32 back)
 	}
 
 	if (g_FrontReport.completed) {
-		if (g_Front.mission == GEMISSION_CRADLE && frontStartCredits(0)) {
+		if (g_Front.mission == g_CreditsAfter && frontStartCredits(0)) {
 			return;
 		}
 
-		// SP_LEVEL_AZTEC and on
-		if (g_Front.mission >= NUM_MISSIONS - 2) {
+		// SP_LEVEL_AZTEC and on (a hack's own: none past TND64's The End),
+		// and the credits' mission where there are no credits to play (a
+		// hack's conversion has no Cuba): back to the grid, as after them
+		if (g_Front.mission >= g_AdvanceBelow || (frontIsHack() && g_Front.mission == g_CreditsAfter)
+				|| g_Front.mission + 1 >= frontNumMissions()) {
 			frontFreeBriefing();
 			g_Front.screen = SCREEN_MISSION;
 			frontSetCursorForMission(g_Front.mission);
@@ -3610,7 +3691,7 @@ s32 gexFrontOpen(void)
 	g_Front.slider[SLIDER_ACCURACY] = 1.0f;
 	g_Front.slider[SLIDER_REACTION] = 0.0f;
 
-	if (g_Front.mission < 0 || g_Front.mission >= NUM_MISSIONS) {
+	if (g_Front.mission < 0 || g_Front.mission >= frontNumMissions()) {
 		g_Front.mission = 0;
 	}
 
@@ -3880,7 +3961,7 @@ s32 gexFrontOpenAtMission(s32 mission)
 
 	g_Front.inputdelay = 10;
 
-	if (mission >= 0 && mission < NUM_MISSIONS && frontMissionsAvailable()) {
+	if (mission >= 0 && mission < frontNumMissions() && frontMissionsAvailable()) {
 		g_Front.mission = mission;
 		g_Front.screen = SCREEN_MISSION;
 		frontSetCursorForMission(mission);
@@ -3899,10 +3980,10 @@ s32 gexFrontOpenAfterCredits(void)
 	if (g_FrontCreditsCinema) {
 		g_FrontCreditsCinema = 0;
 		g_Front.cinemawhat = CINEMA_CREDITS;
-		return gexFrontOpenAfterCinema(GEMISSION_CRADLE);
+		return gexFrontOpenAfterCinema(g_CreditsAfter);
 	}
 
-	return gexFrontOpenAtMission(GEMISSION_CRADLE);
+	return gexFrontOpenAtMission(g_CreditsAfter);
 }
 
 s32 gexFrontCreditsAreCinema(void)
@@ -3939,7 +4020,7 @@ s32 gexFrontOpenAfterCinema(s32 mission)
 		return 0;
 	}
 
-	if (mission >= 0 && mission < NUM_MISSIONS) {
+	if (mission >= 0 && mission < frontNumMissions()) {
 		g_Front.mission = mission;
 	}
 
@@ -3960,8 +4041,8 @@ s32 gexFrontOpenAfterCinema(s32 mission)
  */
 s32 gexFrontCinemaNext(s32 mission)
 {
-	for (s32 i = 1; i < NUM_MISSIONS; i++) {
-		const s32 next = (mission + i) % NUM_MISSIONS;
+	for (s32 i = 1; i < frontNumMissions(); i++) {
+		const s32 next = (mission + i) % frontNumMissions();
 
 		if (frontMissionStage(next) <= 0) {
 			continue;
@@ -6895,7 +6976,8 @@ static Gfx *frontDrawStats(Gfx *gdl)
 	const s32 allhits = onpeople > 0 ? onpeople : 1;
 	const s32 secs = g_FrontReport.time60 / 60;
 	const s32 difficulty = g_Front.difficulty >= DIFFICULTY_007 ? DIFF_PA : g_Front.difficulty;
-	const s32 target = g_TargetTimes[g_Front.mission][difficulty];
+	const s32 target = g_HasHackTargetTimes ? g_HackTargetTimes[g_Front.mission][difficulty]
+		: g_TargetTimes[g_Front.mission][difficulty];
 	const s32 line = frontLineHeight(&g_Front.zurich);
 	const s32 parts[4] = { shots[SHOTREGION_HEAD], shots[SHOTREGION_BODY], shots[SHOTREGION_LIMB], others };
 	s32 best;

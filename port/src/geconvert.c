@@ -180,6 +180,12 @@ struct romlayout {
 	// (TND64 Expanded's fourteen tests are of 0x99): its gun on the laser's
 	// file is a rifle, which geguns.bin's flags say (writeGuns())
 	uint8_t nolaser;
+	// the folder's way on after a mission (front.c, 7F0168BC and 7F0168D4):
+	// the mission whose end plays the credits (`li 0x11`, the Cradle), and
+	// the first that no longer moves on to the next (`slti 0x12`, Aztec),
+	// 0 for GoldenEye's 17 and 18 (menu/getimes.bin, gexfront.c)
+	uint8_t creditsafter;
+	uint8_t advancebelow;
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -364,6 +370,9 @@ static const struct romlayout g_Layouts[] = {
 		// "FAMAS ray tracer now like every other gun" (its changelog): 7F025378
 		// and thirteen more test 0x99 for 0x16
 		1,
+		// the credits after the Stealth Boat (9, 7F0168BC), and nothing
+		// moves on past The End (`slti 0x0d`, 7F0168D4)
+		9, 13,
 	},
 };
 
@@ -11259,9 +11268,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 		// menu/getimes.bin, a variant's only: solo_target_time_array
 		// (front.c), the seconds to beat on Agent, Secret Agent and 00 Agent
-		// for each mission's cheat - "GET1", u16 missions, u16 0, then three
-		// s16 a mission. A hack sets its own (TND64's readme's); gexfront.c
-		// has GoldenEye's
+		// for each mission's cheat - "GET1", u16 missions, u8 the mission
+		// after which the credits play and u8 the first that moves on to no
+		// other (romlayout.creditsafter/advancebelow, 0 for GoldenEye's),
+		// then three s16 a mission. A hack sets its own (TND64's readme's);
+		// gexfront.c has GoldenEye's
 		if (g_Layout->variant) {
 			const size_t at = SOLO_TARGET_TIMES_AT - DATA_VRAM;
 			const uint32_t num = g_Layout->nummissions ? g_Layout->nummissions : 20;
@@ -11273,7 +11284,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 			bufPut(&times, (const uint8_t *)"GET1", 4);
 			bufU16(&times, num);
-			bufU16(&times, 0);
+			bufU8(&times, g_Layout->creditsafter);
+			bufU8(&times, g_Layout->advancebelow);
 			bufPut(&times, g_Data + at, 6 * (size_t)num);
 			writeFile(outdir, "menu/getimes.bin", times.v, times.n);
 		}
