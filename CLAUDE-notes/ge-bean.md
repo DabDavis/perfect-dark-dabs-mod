@@ -14168,3 +14168,45 @@ now does both.
 **Crash 20261003-073032 (v3.13.0)** was 20261003-040138 again (stale
 `headfitNextBody` after the menu preview; fixed by 892ed66f7). The static is
 gone: the preview calls `bodyCalculateHeadOffsetForBody()` with its own body.
+
+
+## Control's windows a black wall in HD; three "is it right?" answers (31st F3 pass, 2026-10-03, fix/f3-1003c-hdlook)
+
+**Control's big panes drew as a flat black wall (F3 20261003-102904).** They are
+the window prop (`Pgx104Z`, tinted glass) with GoldenEye's `xludist 0, opadist 10`
+- opaque from any distance on the cartridge (ares, Control pad 106 heading 180:
+dark glass with the room's lights streaked over it, GoldenEye's flag 0x200
+environment mapping), the same two numbers in Bean's setup (`world/glassrec.py`,
+both sides). The HD look drew a tinted pane going opaque as a flat grey
+(`XBLAMESH_TINT_*` 22,21,20, measured on Facility's lab windows, which reflect
+little), so these were opaque in a colour with no reflection at all. Now a mesh
+that is nothing but tinted panes (`m->tintonly`, set by `xblaMeshTintCopy()`)
+hands its node back for GoldenEye's own pane at the same opacity
+(`tintStockNode`, drawn through `xblaMeshKeptLists()`): Control's panes are the
+cartridge's reflective glass, Facility's far lab windows the N64 pane they were
+measured from, partly-opaque ones the N64's blend. Meshes with more than panes
+(gas plant clear door, truck, jeep) keep the flat grey. N64 look unchanged
+(pixel-identical). Bean itself draws Control's panes see-through (its level is
+one mesh, no portal shuts behind them) - offered to the owner, not done.
+
+**Egyptian's door "is that door correct?" (20261003-102624).** `cryptdoor1a`
+(the grey hieroglyph slab) over `cryptdoor1b`, a 200x100 block. On the
+cartridge 1b wears the wall's sandstone (`original/prop/cryptdoor1b`: two 32x32
+sand pictures) and hides in the wall. Bean's `new/prop/cryptdoor1b` (retail and
+CE alike) puts a 512x512 photograph of an Akhenaten relief on its front and
+back at UV 0..1 - the whole square squashed into the 2:1 face - and a 512x512
+block-stone picture on its sides. The HD look draws exactly that.
+
+**Caverns' lights (20261003-102652)** are level geometry (Bean's caged lantern
+on a chain), drawn as the release draws them; matched pads (Caverns pad 81)
+show ours brighter than Bean overall. **Depot's decals (20261003-103017):** the
+report's view has the cartridge's five tags one for one (PSYCHO, the kid, the
+pink tag, the face, the small red ring); the build keeps 800 decal triangles.
+Two Depot pictures are the release's magenta placeholders
+(`_0x02B70D55/_0x02B70D65 .inta_*_cut`), painted grey.
+
+**The red block on the left gun** is GoldenEye's shotgun shell carrier (parts
+18-27, `gegunsOwnModelParts()`), five shells while five or more are in reserve,
+on the mirrored left gun's inner side - in the N64 look too. Repro rig:
+`~/wt/f3-1003c-hdlook-run/gun2.sh` (KF7 right, auto shotgun left, ammo given,
+reload).
