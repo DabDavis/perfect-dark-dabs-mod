@@ -93,12 +93,12 @@ static struct gegadgetidentity g_Identities[] = {
 	{ -1, WEAPON_GE_WATCHMAGNET,  60, LANG_N("Watch Magnet Attract\n") },
 	{ -1, WEAPON_GE_GADGETA,       0, LANG_N("Gadget\n") },
 	{ -1, WEAPON_GE_GADGETB,       0, LANG_N("Gadget\n") },
-	{ -1, WEAPON_GE_TANKSHELLS,   33, LANG_N("Tank\n") },
+	{ -1, WEAPON_GE_TANKSHELLS,   32, LANG_N("Tank\n") },
 	{ -1, WEAPON_GE_DETONATOR,    30, LANG_N("Detonator\n") },
 };
 
-// Bunker, where the key analyser copies the GoldenEye key
-#define MISSION_BUNKER 4
+// The key analyser, which copies the GoldenEye key (Bunker's)
+#define ITEM_KEYANALYSERCASE 46
 
 // Train, where Bond's watch laser (ITEM_WATCHLASER, 23) stands on the
 // Moonraker's weapon number (the conversion's g_GeItemWeapon: the same beam)
@@ -208,6 +208,22 @@ static s32 gegadgetsIsWatchLaser(s32 weaponnum)
 		&& modloaderDirIndexIsGexPlus(g_Gadgets.moddir);
 }
 
+/**
+ * A GoldenEye ROM hack's gadgets on its stage: which of its items each gadget
+ * weapon is on the mission, and its name in the hack's own words, out of its
+ * conversion (menu/geslots.bin, gegadgetsSlotsLoad()). g_Identities is
+ * GoldenEye's, by GoldenEye's missions' numbers, and a hack's missions are
+ * others in the same slots: Goldfinger 64's item 47 is its Homer, its 34 an
+ * Explosive, its detonator item 31.
+ */
+#define GEGADGET_NUM (WEAPON_GE_DETONATOR + 1 - WEAPON_GE_COVERTMODEM)
+
+static struct {
+	s32 on;               // the stage is a hack's
+	u8 item[GEGADGET_NUM];
+	u16 text[GEGADGET_NUM];
+} g_HackGadgets;
+
 static const struct gegadgetidentity *gegadgetsIdentity(s32 weaponnum)
 {
 	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_Identities); i++) {
@@ -221,10 +237,38 @@ static const struct gegadgetidentity *gegadgetsIdentity(s32 weaponnum)
 	return NULL;
 }
 
-/** GoldenEye's item number for what this weapon is on this mission, 0 for nothing. */
+/** GoldenEye's name for a gadget weapon on no mission in particular (g_Identities' last row for it). */
+static u16 gegadgetsDefaultText(s32 weaponnum)
+{
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_Identities); i++) {
+		struct gegadgetidentity *id = &g_Identities[i];
+
+		if (id->weaponnum == weaponnum && id->mission < 0) {
+			if (!id->text) {
+				id->text = langAddPortText(id->name);
+			}
+
+			return id->text;
+		}
+	}
+
+	return 0;
+}
+
+/** GoldenEye's item number for what this weapon is on this mission (a hack's, on its stage), 0 for nothing. */
 s32 gegadgetsItem(s32 weaponnum)
 {
-	const struct gegadgetidentity *id = gegadgetsIsGadget(weaponnum) ? gegadgetsIdentity(weaponnum) : NULL;
+	const struct gegadgetidentity *id;
+
+	if (!gegadgetsIsGadget(weaponnum)) {
+		return 0;
+	}
+
+	if (g_HackGadgets.on) {
+		return g_HackGadgets.item[weaponnum - WEAPON_GE_COVERTMODEM];
+	}
+
+	id = gegadgetsIdentity(weaponnum);
 
 	return id ? id->item : 0;
 }
@@ -262,7 +306,7 @@ static void gegadgetsUnloadModel(void)
 #define GECOLLECT_FIRST WEAPON_KEYCARD45
 #define GECOLLECT_NUM   8
 #define GECOLLECT_ITEM_ROW 56
-#define GECOLLECT_MAX_TEXTS 32
+#define GECOLLECT_MAX_TEXTS 96 // a session's every distinct name, collectables' and a hack's gadgets'
 
 static s32 g_CollectItem[GECOLLECT_NUM];
 static struct textoverride g_CollectOverrides[GECOLLECT_NUM];
@@ -361,20 +405,52 @@ static const char *gegadgetsBankString(const char *file, const u8 *bank, u32 len
 	return (const char *)bank + at;
 }
 
-/** The stage's collectables out of its conversion's menu/geslots.bin, and their names. */
-static void gegadgetsCollectLoad(void)
+/** An item's names out of the conversion's gun table: its watch text and its long one. */
+static void gegadgetsItemNames(const u8 *items, u32 itemslen, const u8 *gun, u32 gunlen, s32 item,
+		const char **shortname, const char **longname)
+{
+	*shortname = NULL;
+	*longname = NULL;
+
+	if (items && item > 0 && (u32)(item + 1) * GECOLLECT_ITEM_ROW <= itemslen) {
+		const u8 *row = items + item * GECOLLECT_ITEM_ROW;
+
+		*shortname = gegadgetsBankString("LgunE", gun, gunlen, (row[42] << 8) | row[43]);
+		*longname = gegadgetsBankString("LgunE", gun, gunlen, (row[40] << 8) | row[41]);
+	}
+}
+
+// menu/geslots.bin's mission for a row of every mission (geconvert.c)
+#define GESLOTS_EVERY_MISSION 0xff
+
+/**
+ * The stage's collectables out of its conversion's menu/geslots.bin, and on a
+ * ROM hack's stage its gadgets (g_HackGadgets): the mission's own row for a
+ * gadget weapon before one of every mission. And their names.
+ */
+static void gegadgetsSlotsLoad(void)
 {
 	const char *dir = g_Gadgets.moddir >= 0 ? fsGetModDirAt(g_Gadgets.moddir) : NULL;
 	char path[FS_MAXPATH + 1];
 	u8 *slots, *items = NULL, *gun = NULL;
 	u32 len = 0, itemslen = 0, gunlen = 0;
 	s32 any = 0;
+	u8 mine[GEGADGET_NUM] = {0};
 	char pickup[96];
 	u16 pickuptext;
 
 	memset(g_CollectItem, 0, sizeof(g_CollectItem));
+	memset(&g_HackGadgets, 0, sizeof(g_HackGadgets));
 
-	if (!dir || g_Gadgets.mission < 0) {
+	// a hack's arena too, which has no mission but its rows of every
+	// mission: its Claymores set's detonator is its item 31 there as well
+	if (!dir) {
+		return;
+	}
+
+	g_HackGadgets.on = !modloaderDirIndexIsGexPlus(g_Gadgets.moddir);
+
+	if (g_Gadgets.mission < 0 && !g_HackGadgets.on) {
 		return;
 	}
 
@@ -387,16 +463,27 @@ static void gegadgetsCollectLoad(void)
 		for (u32 r = 0; r < rows && 6 + 4 * (r + 1) <= len; r++) {
 			const u8 *row = slots + 6 + 4 * r;
 
-			if (row[0] == g_Gadgets.mission && row[1] >= GECOLLECT_FIRST && row[1] < GECOLLECT_FIRST + GECOLLECT_NUM) {
+			if (g_Gadgets.mission >= 0 && row[0] == g_Gadgets.mission
+					&& row[1] >= GECOLLECT_FIRST && row[1] < GECOLLECT_FIRST + GECOLLECT_NUM) {
 				g_CollectItem[row[1] - GECOLLECT_FIRST] = row[2];
 				any = 1;
+			}
+
+			if (g_HackGadgets.on && gegadgetsIsGadget(row[1])
+					&& (row[0] == g_Gadgets.mission || row[0] == GESLOTS_EVERY_MISSION)) {
+				const s32 k = row[1] - WEAPON_GE_COVERTMODEM;
+
+				if (!mine[k]) {
+					g_HackGadgets.item[k] = row[2];
+					mine[k] = g_Gadgets.mission >= 0 && row[0] == g_Gadgets.mission;
+				}
 			}
 		}
 	}
 
 	sysMemFree(slots);
 
-	if (!any) {
+	if (!any && !g_HackGadgets.on) {
 		return;
 	}
 
@@ -404,6 +491,27 @@ static void gegadgetsCollectLoad(void)
 	items = fsFileLoad(path, &itemslen);
 	snprintf(path, sizeof(path), "%s/menu/LgunE", dir);
 	gun = fsFileLoad(path, &gunlen);
+
+	// a hack's gadgets by its own names, each word's first letter up as
+	// GoldenEye's are given (g_Identities): its watch text, as GoldenEye's
+	// watch lists them
+	for (s32 k = 0; g_HackGadgets.on && k < GEGADGET_NUM; k++) {
+		const char *shortname, *longname;
+
+		gegadgetsItemNames(items, itemslen, gun, gunlen, g_HackGadgets.item[k], &shortname, &longname);
+		g_HackGadgets.text[k] = gegadgetsKeepText(shortname ? shortname : longname, 1);
+
+		if (g_HackGadgets.item[k]) {
+			sysLogPrintf(LOG_NOTE, "gegadgets: weapon 0x%02x is item %d (%s)", WEAPON_GE_COVERTMODEM + k,
+					g_HackGadgets.item[k], g_HackGadgets.text[k] ? langGet(g_HackGadgets.text[k]) : "no name\n");
+		}
+	}
+
+	if (!any) {
+		sysMemFree(items);
+		sysMemFree(gun);
+		return;
+	}
 
 	// "Picked up " "a new weapon."
 	snprintf(pickup, sizeof(pickup), "%s%s",
@@ -422,12 +530,7 @@ static void gegadgetsCollectLoad(void)
 			continue;
 		}
 
-		if (items && (u32)(item + 1) * GECOLLECT_ITEM_ROW <= itemslen) {
-			const u8 *row = items + item * GECOLLECT_ITEM_ROW;
-
-			shortname = gegadgetsBankString("LgunE", gun, gunlen, (row[42] << 8) | row[43]);
-			longname = gegadgetsBankString("LgunE", gun, gunlen, (row[40] << 8) | row[41]);
-		}
+		gegadgetsItemNames(items, itemslen, gun, gunlen, item, &shortname, &longname);
 
 		override->weapon = GECOLLECT_FIRST + k;
 		override->inventorytext = gegadgetsKeepText(shortname ? shortname : longname, 1);
@@ -467,17 +570,28 @@ void gegadgetsStageLoad(s32 stagenum)
 	g_Gadgets.mission = modloaderStageMission(stagenum);
 	g_Gadgets.moddir = modloaderStageIsRemake(stagenum) ? modloaderGetStageModDirIndex(stagenum) : -1;
 
+	gegadgetsSlotsLoad();
+
 	for (s32 w = WEAPON_GE_COVERTMODEM; w <= WEAPON_GE_DETONATOR; w++) {
 		struct gegadgetidentity *id = (struct gegadgetidentity *)gegadgetsIdentity(w);
+		u16 text;
 
-		if (id) {
-			if (!id->text) {
-				id->text = langAddPortText(id->name);
-			}
-
-			g_GeWeaponDefs[w - WEAPON_GE_FIRST].name = id->text;
-			g_GeWeaponDefs[w - WEAPON_GE_FIRST].shortname = id->text;
+		if (!id) {
+			continue;
 		}
+
+		if (!id->text) {
+			id->text = langAddPortText(id->name);
+		}
+
+		// a hack's own name for the item it is on its mission; GoldenEye's
+		// default ("Gadget") for one it has none for, which its rename gives
+		text = g_HackGadgets.on && g_HackGadgets.text[w - WEAPON_GE_COVERTMODEM]
+			? g_HackGadgets.text[w - WEAPON_GE_COVERTMODEM]
+			: g_HackGadgets.on ? gegadgetsDefaultText(w) : id->text;
+
+		g_GeWeaponDefs[w - WEAPON_GE_FIRST].name = text;
+		g_GeWeaponDefs[w - WEAPON_GE_FIRST].shortname = text;
 	}
 
 	// The watch laser on the Moonraker's number wears GoldenEye's name for
@@ -504,8 +618,6 @@ void gegadgetsStageLoad(s32 stagenum)
 		// and its own numbers, ammunition and sound (geguns.c)
 		gegunsSetWatchLaser(gegadgetsIsWatchLaser(WEAPON_GE_MOONRAKER));
 	}
-
-	gegadgetsCollectLoad();
 }
 
 /**
@@ -575,7 +687,6 @@ static u16 gegadgetsTitleText(u32 textid)
 
 void gegadgetsTextOverride(struct textoverride *override)
 {
-	const struct gegadgetidentity *id;
 	s32 weaponnum;
 
 	if (!override || g_Gadgets.moddir < 0
@@ -588,9 +699,7 @@ void gegadgetsTextOverride(struct textoverride *override)
 	override->inventorytext = gegadgetsTitleText(override->inventorytext);
 	override->inventory2text = gegadgetsTitleText(override->inventory2text);
 
-	id = gegadgetsIdentity(weaponnum);
-
-	if (id && id->item == 0 && override->inventorytext) {
+	if (gegadgetsIsGadget(weaponnum) && gegadgetsItem(weaponnum) == 0 && override->inventorytext) {
 		g_GeWeaponDefs[weaponnum - WEAPON_GE_FIRST].name = override->inventorytext;
 		g_GeWeaponDefs[weaponnum - WEAPON_GE_FIRST].shortname = override->inventorytext;
 	}
@@ -1128,7 +1237,8 @@ void gegadgetsFire(s32 weaponnum)
 		playerAdjustFade(CAMERA_SHUTTER_TICKS, 0, 0, 0, 0.0f);
 	} else if (weaponnum == WEAPON_GE_WATCHMAGNET) {
 		gegadgetsMagnet();
-	} else if (weaponnum == WEAPON_GE_GADGETA && g_Gadgets.mission == MISSION_BUNKER) {
+	} else if (gegadgetsItem(weaponnum) == ITEM_KEYANALYSERCASE) {
+		// GoldenEye's Bunker, or a hack's mission that hands it out
 		gegadgetsAnalyseKey();
 	}
 }
