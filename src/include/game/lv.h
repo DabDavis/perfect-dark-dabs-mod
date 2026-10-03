@@ -28,6 +28,9 @@ void lvFindThreatsForProp(struct prop *prop, bool inchild, struct coord *playerp
 void func0f168f24(struct prop *prop, bool inchild, struct coord *playerpos, s32 *activeslots, f32 *distances);
 void lvFindThreats(void);
 Gfx *lvRender(Gfx *gdl);
+#ifndef PLATFORM_N64
+bool lvHoldsLevelStart(void);
+#endif
 void lvUpdateSoloHandicaps(void);
 s32 sub54321(s32 value);
 void lvUpdateCutsceneTime(void);

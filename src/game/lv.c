@@ -1207,6 +1207,23 @@ Gfx *lvRenderRecording(Gfx *gdl)
  * - random static in the Infiltration intro cutscene
  * - combat boost activation and reverting
  */
+#ifndef PLATFORM_N64
+/**
+ * Whether lvRender() holds the picture this frame and ticks no prop: the
+ * level's first five frames, while it settles (lockscreen below). Asked
+ * earlier in the frame, from lvTick(), which runs the background lists
+ * (chraTickBg()) whatever this says.
+ */
+bool lvHoldsLevelStart(void)
+{
+	return (g_Vars.stagenum != STAGE_CITRAINING || (var80087260 <= 0 && g_MenuData.root != MENUROOT_MPSETUP))
+		&& g_Vars.lvframenum <= 5
+		&& !g_Vars.normmplayerisrunning
+		&& g_Vars.tickmode != TICKMODE_CUTSCENE
+		&& var80084050 < 6;
+}
+#endif
+
 Gfx *lvRender(Gfx *gdl)
 {
 	gSPSegment(gdl++, SPSEGMENT_PHYSICAL, 0x00000000);
