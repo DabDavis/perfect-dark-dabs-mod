@@ -280,7 +280,8 @@ static struct {
 	s32 counter;
 	s32 gunbarreltimer;
 	s32 shotplayed;
-	f32 tickacc; // 60ths of a second owed to introTickBarrel()
+	f32 tickacc; // 60ths of a second owed to the barrel's, logo's or cast's tick
+	s32 camsteps; // cast ticks the camera has yet to follow (introRenderCast())
 	struct geblood blood; // the wash down the lens (geblood.c)
 	s32 blooddone;
 
@@ -1968,6 +1969,7 @@ static void introCastStart(s32 first)
 	g_Intro.camroot.x = g_Intro.camroot.y = g_Intro.camroot.z = 0.0f;
 	g_Intro.camtarget.x = g_Intro.camtarget.y = g_Intro.camtarget.z = 0.0f;
 	g_Intro.camreset = 1;
+	g_Intro.camsteps = 0;
 }
 
 /**
@@ -2106,8 +2108,16 @@ static Gfx *introRenderCast(Gfx *gdl)
 	gdl = introClearBlack(gdl);
 
 	// GoldenEye runs the camera from its own constructor rather than from its
-	// tick, and the pose it reads the root matrix out of wants a frame's memory
-	introCastCamera();
+	// tick, and the pose it reads the root matrix out of wants a frame's memory.
+	// A step of it per tick, not per frame drawn: its damping is a frame's,
+	// and above 60 fps it ran ahead of the character (F3 20261002-201100)
+	if (g_Intro.camreset && g_Intro.camsteps < 1) {
+		g_Intro.camsteps = 1;
+	}
+
+	for (; g_Intro.camsteps > 0; g_Intro.camsteps--) {
+		introCastCamera();
+	}
 
 	if (g_Intro.casttimer < 0 || g_Intro.casttimer >= CAST_LEN) {
 		fade = 0.0f;
@@ -2232,6 +2242,7 @@ static void introTickCast(void)
 	}
 
 	g_Intro.casttimer++;
+	g_Intro.camsteps++;
 
 	if (g_Intro.casttimer >= CAST_LEN) {
 		g_Intro.castindex++;
@@ -2377,35 +2388,48 @@ void geIntroTick(void)
 		g_Intro.inputdelay = 2;
 	}
 
-	switch (g_Intro.stage) {
-	case STAGE_BARREL:
-		// by the clock and not by the frame, so the barrel keeps GoldenEye's
-		// time and its place in the music at any frame rate; a hitch is not
-		// made up, as it never was on the console
-		g_Intro.tickacc += g_Vars.diffframe60freal;
+	// All three by the clock and not by the frame, so they keep GoldenEye's
+	// time and their place in the music at any frame rate; a hitch is not
+	// made up, as it never was on the console. The logo and the cast reel
+	// were ticked once a frame drawn, and ran at 165 fps nearly three times
+	// GoldenEye's speed (F3 20261002-201100).
+	g_Intro.tickacc += g_Vars.diffframe60freal;
 
-		if (g_Intro.tickacc > 4.0f) {
-			g_Intro.tickacc = 4.0f;
+	if (g_Intro.tickacc > 4.0f) {
+		g_Intro.tickacc = 4.0f;
+	}
+
+	while (g_Intro.tickacc >= 1.0f && g_Intro.stage != STAGE_DONE) {
+		const s32 stage = g_Intro.stage;
+
+		g_Intro.tickacc -= 1.0f;
+
+		switch (stage) {
+		case STAGE_BARREL:
+			if (g_Intro.mode < 9) {
+				introTickBarrel();
+			}
+
+			if (g_Intro.mode >= 9) {
+				introNextStage();
+			}
+			break;
+		case STAGE_LOGO:
+			// GOLDENEYELOGO_TIMER_1: three seconds of it
+			if (++g_Intro.counter >= 60 * 3) {
+				introNextStage();
+			}
+			break;
+		case STAGE_CAST:
+			introTickCast();
+			break;
 		}
 
-		while (g_Intro.tickacc >= 1.0f && g_Intro.mode < 9) {
-			g_Intro.tickacc -= 1.0f;
-			introTickBarrel();
+		if (g_Intro.stage != stage) {
+			// a new stage starts on the next frame, as it did
+			g_Intro.tickacc = 0.0f;
+			break;
 		}
-
-		if (g_Intro.mode >= 9) {
-			introNextStage();
-		}
-		break;
-	case STAGE_LOGO:
-		// GOLDENEYELOGO_TIMER_1: three seconds of it
-		if (++g_Intro.counter >= 60 * 3) {
-			introNextStage();
-		}
-		break;
-	case STAGE_CAST:
-		introTickCast();
-		break;
 	}
 
 	if (g_Intro.stage == STAGE_DONE) {
