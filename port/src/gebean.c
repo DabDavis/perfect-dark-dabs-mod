@@ -70,8 +70,9 @@
 // before the remake's HD props were, so a cache holding any of them is unpacked
 // again. The tenth (".extracted10") is the menus' two fonts, the eleventh the
 // skydomes, the twelfth the HUD's crosshair, the thirteenth the HUD's
-// ammunition pictures.
-#define GEBEAN_DONE_FILE ".extracted13"
+// ammunition pictures, the fourteenth the monitors' pictures, the bullet holes
+// and the hit puffs.
+#define GEBEAN_DONE_FILE ".extracted14"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -111,6 +112,16 @@
 #define GEBEAN_WANT_HUD_AMMO "files/texture/bg/ammo"
 // and their two fonts, which are files/misc/alps3 and doc0 (gebeanFontOpen())
 #define GEBEAN_WANT_MENU_FONTS "files/misc/"
+// and the screens' pictures, new/texture/monitors (gemonitor.c), the bullet
+// holes, texture/bulletholes (geimpact.c), and the hit puffs, texture/sfx
+// (gehitpuff.c): none was taken until 2026-10-03, so from the archive every
+// screen showed GoldenEye's own pictures in the HD look - Depot's big world
+// map blurred up from the ROM's, its console GoldenEye's dashes for the
+// release's staff names (F3 20261002-232149) - and the holes and puffs fell
+// back to the ROM's too; only a folder of the whole release had them
+#define GEBEAN_WANT_MONITORS "files/new/texture/monitors/"
+#define GEBEAN_WANT_BULLETHOLES "files/texture/bulletholes/"
+#define GEBEAN_WANT_HITPUFFS "files/texture/sfx/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -2623,7 +2634,9 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 		|| strstr(lower, GEBEAN_WANT_MENU_CHARS) != NULL || strstr(lower, GEBEAN_WANT_MENU_LEVELS) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_SIGHT) != NULL || strstr(lower, GEBEAN_WANT_MENU_ATTRACT) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL || strstr(lower, GEBEAN_WANT_HUD_SIGHT) != NULL
-		|| strstr(lower, GEBEAN_WANT_HUD_AMMO) != NULL;
+		|| strstr(lower, GEBEAN_WANT_HUD_AMMO) != NULL
+		|| strstr(lower, GEBEAN_WANT_MONITORS) != NULL || strstr(lower, GEBEAN_WANT_BULLETHOLES) != NULL
+		|| strstr(lower, GEBEAN_WANT_HITPUFFS) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
