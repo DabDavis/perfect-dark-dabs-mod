@@ -1277,6 +1277,29 @@ s32 modloaderDirIndexIsGexPlus(s32 moddir)
 }
 
 /**
+ * Whether mounted mod dir `moddir` is a conversion of a GoldenEye ROM's - GE
+ * Plus's or a ROM hack's (gexPlusRomIsConversionDir()) - whose files are the
+ * cartridge's own in Perfect Dark's formats.
+ */
+s32 modloaderDirIndexIsConversion(s32 moddir)
+{
+	const char *dir = moddir >= 0 ? fsGetModDirAt(moddir) : NULL;
+	const char *base = dir;
+
+	if (!dir) {
+		return 0;
+	}
+
+	for (; *dir; ++dir) {
+		if (*dir == '/' || *dir == '\\') {
+			base = dir + 1;
+		}
+	}
+
+	return gexPlusRomIsConversionDir(base);
+}
+
+/**
  * The mounted mod dir that is the GoldenEye conversion's, or -1. What reads a
  * converted file of GoldenEye's own outside a level asks for this rather than
  * for the first dir holding the file, which a GoldenEye ROM hack's conversion

@@ -12,8 +12,14 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "mod.h"
+#include "modloader.h"
+#include "getexshrink.h"
 #include "platform.h"
 #include "texpack.h"
+
+// The texture loading now came out of a GoldenEye ROM's conversion, and makes
+// any levels of detail its data leaves out as GoldenEye does (getexshrink.c)
+static bool g_TexShrinkGe;
 #endif
 
 struct texture *g_Textures;
@@ -272,6 +278,11 @@ s32 texInflateZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct texpoo
 			loddst = &dst[totalbytesout];
 
 			for (lod = 1; lod < numlods; lod++) {
+				#ifndef PLATFORM_N64
+				if (g_TexShrinkGe) {
+					imagebytesout = geTexShrinkPaletted(lodsrc, loddst, tmpwidth, tmpheight, format, palette, numcolours);
+				} else
+#endif
 				imagebytesout = texShrinkPaletted(lodsrc, loddst, tmpwidth, tmpheight, format, palette, numcolours);
 
 				if (IS4MB() && lod == 2) {
@@ -857,6 +868,11 @@ s32 texInflateNonZlib(u8 *src, u8 *dst, bool hasloddata, s32 numlods, struct tex
 			loddst = &dst[totalbytesout];
 
 			for (i = 1; i < numlods; i++) {
+				#ifndef PLATFORM_N64
+				if (g_TexShrinkGe) {
+					imagebytesout = geTexShrinkNonPaletted(lodsrc, loddst, tmpwidth, tmpheight, format);
+				} else
+#endif
 				imagebytesout = texShrinkNonPaletted(lodsrc, loddst, tmpwidth, tmpheight, format);
 
 				texSwizzle(lodsrc, tmpwidth, tmpheight, format);
@@ -2293,9 +2309,12 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			// textures and 650 of them are numbered at or above NUM_TEXTURES,
 			// so testing the table first rejected every one of those before the
 			// mod was ever asked, and its maps drew them as stock art.
+			g_TexShrinkGe = false;
+
 			if (modTextureLoad(g_TexNumToLoad, alignedcompbuffer, 4096, &stagemod) > 0) {
 				compptr = alignedcompbuffer;
 				modart = stagemod >= 0 ? TEXPACK_ART_MODSTAGE : TEXPACK_ART_MOD;
+				g_TexShrinkGe = stagemod >= 0 && modloaderDirIndexIsConversion(stagemod);
 			} else
 #endif
 			{

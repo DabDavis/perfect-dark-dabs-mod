@@ -47,6 +47,7 @@ s32 modloaderStageInGexPlusList(s32 stagenum);
 // the GoldenEye conversion's mounted dir (GEXPLUSROM_DIR), and whether a dir index is it
 s32 modloaderGexPlusDirIndex(void);
 s32 modloaderDirIndexIsGexPlus(s32 moddir);
+s32 modloaderDirIndexIsConversion(s32 moddir);
 // One of the remake's models (MODEL_REMAKE_FIRST + slot) on a stage of
 // Perfect Dark's, from the mod that brings it, until the next stage; -1 where
 // no mod has it or the stage is one of the remake's own
