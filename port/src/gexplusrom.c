@@ -645,6 +645,20 @@ s32 gexPlusRomIsConversionDir(const char *name)
 	return 0;
 }
 
+// a hack's place in the converter's table (geconvertVariantNameAt())
+static s32 variantOrder(const char *name)
+{
+	s32 i;
+
+	for (i = 0; geconvertVariantNameAt(i); ++i) {
+		if (!strcmp(geconvertVariantNameAt(i), name)) {
+			break;
+		}
+	}
+
+	return i;
+}
+
 static void variantReady(const char *name)
 {
 	for (s32 i = 0; i < g_NumVariants; ++i) {
@@ -655,6 +669,16 @@ static void variantReady(const char *name)
 
 	if (g_NumVariants < VARIANTS_MAX) {
 		snprintf(g_Variants[g_NumVariants++], sizeof(g_Variants[0]), "%s", name);
+	}
+
+	// in the converter's order, not the order added-content/ lists them in:
+	// the Perfect Menu's rows (mainmenu.c) keep their places start to start
+	for (s32 i = g_NumVariants - 1; i > 0 && variantOrder(g_Variants[i]) < variantOrder(g_Variants[i - 1]); --i) {
+		char swap[sizeof(g_Variants[0])];
+
+		memcpy(swap, g_Variants[i], sizeof(swap));
+		memcpy(g_Variants[i], g_Variants[i - 1], sizeof(swap));
+		memcpy(g_Variants[i - 1], swap, sizeof(swap));
 	}
 }
 
