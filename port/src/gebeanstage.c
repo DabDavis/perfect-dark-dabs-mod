@@ -773,6 +773,7 @@ static s32 shellNum;
 static s32 shellCap;
 static s32 *shellFirst;
 static s32 *shellCount;
+static s32 *shellXlu;  // each room's translucent ones after its opaque ones, for gebeanStageHitTexture() alone
 static s32 cullOutside;
 static s32 shellHits;  // the last test's rays that met the level, and of those its back
 static s32 shellBacks;
@@ -843,16 +844,28 @@ static void shellTake(u8 **filerooms, u32 *filelens, s32 n)
 {
 	shellFirst = calloc(n + 1, sizeof(*shellFirst));
 	shellCount = calloc(n + 1, sizeof(*shellCount));
+	shellXlu = calloc(n + 1, sizeof(*shellXlu));
 
-	for (s32 r = 1; r < n && shellFirst && shellCount; r++) {
+	for (s32 r = 1; r < n && shellFirst && shellCount && shellXlu; r++) {
 		if (filerooms[r]) {
+			s32 two;
+
 			shellFirst[r] = shellNum;
 			fileRoomTrianglesEach(r, filerooms[r], filelens[r], 0, fileTriToShell, NULL);
 			shellCount[r] = shellNum - shellFirst[r];
+
+			// and the translucent ones, for a shot's texture only: Dam's and
+			// Frigate's water is translucent, and a shot that met it found no
+			// texture, so took the default surface and left a hole on it
+			// where GoldenEye's HIT_WATER leaves none (F3 20260929-213318)
+			two = shellNumTwo;
+			fileRoomTrianglesEach(r, filerooms[r], filelens[r], EACH_XLU_ONLY, fileTriToShell, NULL);
+			shellXlu[r] = shellNum - shellFirst[r] - shellCount[r];
+			shellNumTwo = two;
 		}
 	}
 
-	if (!shellFirst || !shellCount) {
+	if (!shellFirst || !shellCount || !shellXlu) {
 		shellForget();
 	} else {
 		sysLogPrintf(LOG_NOTE, "gebeanstage: %d of GoldenEye's opaque triangles for the camera test, %d of them unculled",
@@ -868,6 +881,8 @@ static void shellForget(void)
 	shellTex = NULL;
 	free(shellFirst);
 	free(shellCount);
+	free(shellXlu);
+	shellXlu = NULL;
 	shellTri = NULL;
 	shellTwo = NULL;
 	shellNumTwo = 0;
@@ -8323,11 +8338,11 @@ s32 gebeanStageHitTexture(s32 room, const struct coord *pos)
 	f32 best = 8.0f * 8.0f;
 	s32 tex = -1;
 
-	if (!built || !shellTri || !shellTex || !shellFirst || !shellCount || room <= 0 || room >= numRooms) {
+	if (!built || !shellTri || !shellTex || !shellFirst || !shellCount || !shellXlu || room <= 0 || room >= numRooms) {
 		return -1;
 	}
 
-	for (s32 i = shellFirst[room]; i < shellFirst[room] + shellCount[room]; i++) {
+	for (s32 i = shellFirst[room]; i < shellFirst[room] + shellCount[room] + shellXlu[room]; i++) {
 		const f32 *v = shellTri + i * 9;
 		f32 e1[3], e2[3], n[3], d[3], q[3];
 		f32 len, dist, u, w, d00, d01, d11, d20, d21, den;
@@ -8380,7 +8395,58 @@ s32 gebeanStageHitTexture(s32 room, const struct coord *pos)
 		tex = shellTex[i];
 	}
 
-	return tex;
+	if (tex >= 0) {
+		return tex;
+	}
+
+	// Bean's reservoir is drawn on its own (the stride 36 water) and is no
+	// triangle a shot meets, so a shot went through it to the rock bed under
+	// it and left its hole there, seen through the water (F3
+	// 20260929-213318). GoldenEye's shot stops on its water (HIT_WATER: no
+	// hole). A hit under one of GoldenEye's water triangles of the room
+	// (opaque, as Dam's is, or translucent) was a shot through the water: it
+	// is the water's.
+	for (s32 i = shellFirst[room]; i < shellFirst[room] + shellCount[room] + shellXlu[room]; i++) {
+		const f32 *v = shellTri + i * 9;
+		f32 d1, d2, d3, ny, y;
+		s32 t = shellTex[i];
+
+		if (t < 0 || t >= NUM_TEXTURES
+				|| (g_Textures[t].surfacetype != SURFACETYPE_SHALLOWWATER && g_Textures[t].surfacetype != SURFACETYPE_DEEPWATER)) {
+			continue;
+		}
+
+		// inside it seen from above
+		d1 = (p[0] - v[3]) * (v[2] - v[5]) - (v[0] - v[3]) * (p[2] - v[5]);
+		d2 = (p[0] - v[6]) * (v[5] - v[8]) - (v[3] - v[6]) * (p[2] - v[8]);
+		d3 = (p[0] - v[0]) * (v[8] - v[2]) - (v[6] - v[0]) * (p[2] - v[2]);
+
+		if ((d1 < 0.0f || d2 < 0.0f || d3 < 0.0f) && (d1 > 0.0f || d2 > 0.0f || d3 > 0.0f)) {
+			continue;
+		}
+
+		// the water's height there, over the hit
+		{
+			const f32 e1[3] = { v[3] - v[0], v[4] - v[1], v[5] - v[2] };
+			const f32 e2[3] = { v[6] - v[0], v[7] - v[1], v[8] - v[2] };
+			const f32 nx = e1[1] * e2[2] - e1[2] * e2[1];
+			const f32 nz = e1[0] * e2[1] - e1[1] * e2[0];
+
+			ny = e1[2] * e2[0] - e1[0] * e2[2];
+
+			if (fabsf(ny) < 1e-6f) {
+				continue;
+			}
+
+			y = v[1] - (nx * (p[0] - v[0]) + nz * (p[2] - v[2])) / ny;
+		}
+
+		if (y > p[1] && y - p[1] < 2000.0f) {
+			return t;
+		}
+	}
+
+	return -1;
 }
 
 void gebeanStageTrace(FILE *f)

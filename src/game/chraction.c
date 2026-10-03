@@ -7966,6 +7966,20 @@ bool chrHasLosToChr(struct chrdata *chr, struct chrdata *target, RoomNum *room)
 			cansee = true;
 		}
 
+#ifndef PLATFORM_N64
+		// GoldenEye's guard sees Bond only where its line walk along the tile
+		// graph, from its own tile, ends on Bond's tile (chraction.c's
+		// chrCanSeeBond(): stanTestLineUnobstructed() && mystan ==
+		// bondprop->stan). A converted level has no ceilings and its walls
+		// stop under the floor above, so Perfect Dark's line alone let a guard
+		// see Bond on a balcony, a stair or the deck above and open fire over
+		// the railing (F3 20261002-231043, 20261002-155539).
+		if (cansee && !chr->aibot && target->prop->type == PROPTYPE_PLAYER && geRoomActive()
+				&& geStanLinks(&prop->pos, chr->ground, &target->prop->pos, target->ground, true) == 0) {
+			cansee = false;
+		}
+#endif
+
 		chrSetPerimEnabled(chr, true);
 		chrSetPerimEnabled(target, true);
 	}

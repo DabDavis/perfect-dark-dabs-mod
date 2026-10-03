@@ -304,6 +304,10 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
  */
 s32 xblaMeshTakeFineModel(struct model *model);
 s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const struct coord *to, struct coord *hit);
+s32 xblaMeshObjShotTest(struct model *model, struct coord *pos, struct coord *dir, f32 range,
+		struct hitthing *hitthing, s32 *mtxindex, struct modelnode **bboxnode, s32 *hitpart,
+		struct modelnode **dlnode);
+void xblaMeshObjShotTestEnd(void);
 
 /** --xbla-mesh-verbose: log each replaced node's box against its mesh's. */
 void xblaMeshSetVerbose(s32 verbose);

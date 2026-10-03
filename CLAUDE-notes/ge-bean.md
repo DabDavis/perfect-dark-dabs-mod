@@ -13988,3 +13988,80 @@ GF_BOND=-1663,43,-139): base stuck at (-1317,-1408), the tester's position; fixe
 tester's chr, no part under the floor in our shots. Boris at Bunker's doors (155647): the tester's shot has Bond
 standing in the doorway Boris is walking through. gdb trap: `$gs` is a register - name convenience variables
 otherwise ("Couldn't write registers").
+
+## Shots, mines and sight through GE Plus's doors, trees and railings (29th F3 pass, 2026-10-03, fix/f3-1003-los)
+
+**Caverns' eye and iris doors let every shot and thrown mine through.** Their
+models (Pdoor_eyelidZ, Pdoor_irisZ) carry the hit box *beside* the leaves, a
+childless bbox node, so the stock walk (`modelTestForHit()` finds a bbox, then
+`func0f0849dc()` tests only the lists under it) never met a triangle. GoldenEye
+has a door case for exactly this: `sub_GAME_7F04E720()` (a shot) and
+`projectileLineTestModel()` (a thrown object) test an eye or iris door (or a
+CLIP_TO_BBOX one) against the door's own box and then every list from the root.
+Perfect Dark dropped it with the door types. `doorGeTestWholeModel()`
+(propobj.c) is that case, for DOORTYPE_EYE/IRIS only (GE-only types), in
+`func0f0859a0()` and `func0f06b610()`. A survey of Caverns' props: only these
+two models have a childless bbox. Probe: `shot.py` with HOLDSHUT=1 (a doorTick
+breakpoint holds near doors shut) and `mine.py` (throws from inside
+handTickAttack and tracks the projectile) in `~/wt/f3-1003-los-run`.
+
+**Bullets at GoldenEye props in the HD look test the release mesh.** Jungle's
+thin trees: the release trunk is narrower than the ROM one and a shot past
+the drawn trunk stopped on the invisible N64 triangles (an AR33 went through,
+as through any object, which is how the tester knew it was a prop).
+`xblaMeshObjShotTest()` (xblamesh.c) notes the model's Bean lists the way
+`xblaMeshSurfaceAlong()` does (now `xblaMeshHitNoteModel()`), runs
+`xblaMeshHitTest()` and hands back the hit in the bbox matrix's own space;
+`func0f0859a0()` uses it whenever the model draws a GoldenEye release mesh.
+-1 (no release mesh) falls back to the ROM triangles, so the N64 look and
+Perfect Dark's props are unchanged.
+
+**Frigate's "doors that aren't in GoldenEye".** They are GoldenEye's (the
+cartridge's world dump has records 104 etc., `exists` 1) but the cartridge
+files six upper-deck doors (our pads 247-266) in the lower deck's rooms
+(record 104: rooms 14,15; a91f1c830 matched that). From their own deck the
+cartridge never draws them, and nothing there meets them: its guards' sight
+and shots (stanTestLineUnobstructed() collects props from the rooms of the
+tiles walked) and Bond walk through. The N64 look matched; the HD look draws
+every room, so the doors stood shut in open doorways. Doors now take
+`bgRoomIsPortalVisible()` in `func0f08e8ac()` like chrs (GoldenEye HD levels
+only). Cartridge picture at pad 62: `ares/padshot.py` GF_PAD=62.
+
+**GoldenEye's guard sees Bond only where its tile walk ends on Bond's tile.**
+`chrCanSeeBond()`: `stanTestLineUnobstructed(... CDTYPE_DOORS ...) && mystan ==
+bondprop->stan`. A converted level has no ceilings and its walls stop under
+the floor above, so Perfect Dark's 3-D line let Archives' guards see Bond on
+the stair below them and shoot over the railing. `chrHasLosToChr()` now also
+needs `geStanLinks(..., climbs true) != 0` for a non-bot guard looking at a
+player on a converted level.
+
+**Checked and GoldenEye's own:** auto-aim at a guard on the deck above or
+behind the bridge's walls (GoldenEye's auto-aim, chrprop.c, scores every armed
+chr on screen with no line test at all); auto-aim width on Agent (GoldenEye's
+`difficulty` 1.5 = our `g_AutoAimScale`, same box; GoldenEye's swivel is the
+faster of the two, 0.86 against Perfect Dark's 0.963-0.979). The Dam tunnel
+gates block a guard's sight and shots from the tester's spot with the real
+rooms (`los.py`); `doorlos.py`'s Dam "leaks" are its room-box sides (Dam's
+outdoor boxes overlap), not leaks.
+
+Round 2 (same branch):
+- **Auto-aim sight is GoldenEye's tile walk** (F3 20261002-160509, 155820).
+  chrpropScoreAutoAimTarget() scores a target only where
+  stanTestLineUnobstructed() from Bond ends on the target's tile; prop.c's
+  func0f06438c() now drops a candidate on a converted level when
+  `geStanLinks(player, vv_ground, target, chr->ground, true) == 0`. Probe
+  `~/wt/f3-1003-los-run/aim.py` at the report spots: base locked onto Frigate's
+  deck-above / bridge-interior guards, now none; a same-room guard still locks.
+- **Door case completed**: GoldenEye's shot case also takes DOORFLAG_CLIP_TO_BBOX
+  (PD DOORFLAG_0004) doors, and its projectile case every door; the box is the
+  DoorRecord bbox = doorGetBbox(). Converted levels only.
+- **xblaMeshObjShotTest()**: on a miss, a model with lists still drawn from the
+  ROM returns -1 and the stock walk tests those lists alone
+  (xblaMeshObjShotTestEnd()). No such model was found on Dam or Frigate.
+- **Dam's reservoir in HD** (F3 20260929-213318): Bean's stride-36 water is no
+  shot triangle, so shots hit the HD rock bed ~100 under GoldenEye's water
+  (which is in the room's *opaque* list) and gebeanStageHitTexture() found no
+  triangle within 8: default surface, a hole seen through the water. A hit under
+  one of the room's GoldenEye water triangles (surface 5/14) now takes its
+  texture (1511, no hole, water sound). The shell also keeps translucent
+  triangles (shellXlu[]) for the hit texture only.

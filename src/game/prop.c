@@ -2847,6 +2847,22 @@ f32 func0f06438c(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3, f3
 						GEOFLAG_BLOCK_SHOOT);
 			}
 
+#ifndef PLATFORM_N64
+			// GoldenEye's auto-aim scores a target only where its line walk
+			// along the tile graph, from Bond's tile, ends on the target's
+			// tile (chrprop.c's chrpropScoreAutoAimTarget():
+			// stanTestLineUnobstructed() && line_stan == targetprop->stan). A
+			// converted level has no ceilings and its walls stop under the
+			// floor above, so Perfect Dark's line alone locked onto a guard on
+			// Frigate's deck above or behind the bridge walls (F3
+			// 20261002-160509, 20261002-155820).
+			if (ok && geRoomActive() && prop->chr
+					&& geStanLinks(&playerprop->pos, g_Vars.currentplayer->vv_ground,
+						&prop->pos, prop->chr->ground, true) == 0) {
+				ok = false;
+			}
+#endif
+
 			if (ok) {
 				f32 value = spa0[1];
 

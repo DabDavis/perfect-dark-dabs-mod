@@ -3012,6 +3012,68 @@ bool func0f06b488(struct prop *prop, struct coord *arg1, struct coord *arg2, str
 	return false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye's own case for Caverns' eye and iris doors (propobj.c,
+ * sub_GAME_7F04E720() for a shot and projectileLineTestModel() for a thrown
+ * object): their models carry the hit box beside the leaves rather than over
+ * them, so the stock walk - a bbox, then the lists under it - found no
+ * triangle and shots and mines went straight through a shut door (F3
+ * 20261002-151329, 20261003-001221). GoldenEye tests the door's own box (its
+ * DoorRecord bbox: the model's, clipped to the open fraction with
+ * DOORFLAG_CLIP_TO_BBOX, as doorGetBbox() does) and then every list of the
+ * model. Perfect Dark has no door of either type.
+ * Returns the box's hitpart, or 0.
+ */
+static s32 doorGeTestWholeModel(struct defaultobj *obj, struct coord *pos, struct coord *dir,
+		struct hitthing *hitthing, s32 *mtxindex, struct modelnode **bboxnode, struct modelnode **dlnode)
+{
+	struct doorobj *door = (struct doorobj *)obj;
+	struct model *model = obj->model;
+	struct modelnode *node;
+	struct modelrodata_bbox bbox;
+
+	node = modelFindBboxNode(model);
+
+	if (!node) {
+		return 0;
+	}
+
+	doorGetBbox(door, &bbox);
+
+	if (!modelTestBboxNodeForHit(&bbox, &model->matrices[0], pos, dir)) {
+		return 0;
+	}
+
+	if (!func0f0849dc(model, model->definition->rootnode, pos, dir, hitthing, mtxindex, dlnode)) {
+		return 0;
+	}
+
+	*bboxnode = node;
+
+	return bbox.hitpart > 0 ? bbox.hitpart : 1;
+}
+
+static bool doorIsGeWholeModel(struct defaultobj *obj, bool thrown)
+{
+	struct doorobj *door = (struct doorobj *)obj;
+
+	if (obj->type != OBJTYPE_DOOR) {
+		return false;
+	}
+
+	if (door->doortype == DOORTYPE_EYE || door->doortype == DOORTYPE_IRIS) {
+		return true;
+	}
+
+	// A shot's case (sub_GAME_7F04E720()) also takes a door clipped to its
+	// box as it slides (DOORFLAG_CLIP_TO_BBOX, Perfect Dark's DOORFLAG_0004);
+	// a thrown object's (projectileLineTestModel()) takes every door. Only on
+	// a converted level: Perfect Dark's own doors keep its walk.
+	return geRoomActive() && (thrown || (door->doorflags & DOORFLAG_0004));
+}
+#endif
+
 bool func0f06b610(struct defaultobj *obj, struct coord *arg1, struct coord *arg2, struct coord *arg3, f32 arg4, struct coord *arg5, struct coord *arg6, struct coord *arg7, struct coord *arg8, f32 *arg9)
 {
 	struct model *model = obj->model;
@@ -3089,6 +3151,11 @@ bool func0f06b610(struct defaultobj *obj, struct coord *arg1, struct coord *arg2
 					hitpart = modelTestForHit(model, arg5, arg6, &spe4);
 				}
 			} else {
+#ifndef PLATFORM_N64
+				if (doorIsGeWholeModel(obj, true)) {
+					hitpart = doorGeTestWholeModel(obj, arg5, arg6, &thing1, &mtxindex1, &spe4, &node1);
+				} else
+#endif
 				do {
 					hitpart = modelTestForHit(model, arg5, arg6, &spe4);
 
@@ -17139,6 +17206,20 @@ void func0f0859a0(struct prop *prop, struct shotdata *shotdata)
 			hitpart = modelTestForHit(model, &shotdata->gunpos2d, &shotdata->gundir2d, &node1);
 		}
 	} else {
+#ifndef PLATFORM_N64
+		// The HD look's GoldenEye props are shot where they are drawn: the
+		// release's mesh, not the ROM model's triangles (xblaMeshObjShotTest())
+		s32 meshhit = xblaMeshObjShotTest(model, &shotdata->gunpos2d, &shotdata->gundir2d, shotdata->distance,
+				&hitthing1, &spe4, &node1, &hitpart, &node2);
+
+		if (meshhit >= 0) {
+			if (meshhit == 0) {
+				hitpart = 0;
+			}
+		} else if (doorIsGeWholeModel(obj, false)) {
+			hitpart = doorGeTestWholeModel(obj, &shotdata->gunpos2d, &shotdata->gundir2d, &hitthing1, &spe4, &node1, &node2);
+		} else
+#endif
 		do {
 			hitpart = modelTestForHit(model, &shotdata->gunpos2d, &shotdata->gundir2d, &node1);
 
@@ -17146,6 +17227,10 @@ void func0f0859a0(struct prop *prop, struct shotdata *shotdata)
 				break;
 			}
 		} while (hitpart > 0);
+
+#ifndef PLATFORM_N64
+		xblaMeshObjShotTestEnd();
+#endif
 	}
 
 	if (obj->flags3 & OBJFLAG3_HOVERBEDSHIELD) {
@@ -21907,8 +21992,13 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 	while (roomnum != -1) {
 #ifndef PLATFORM_N64
 		// On an HD level every room is drawn, but a chr counts as on screen
-		// only in a room the portal walk reached - see bgTickPortalsEveryRoom()
-		if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER)
+		// only in a room the portal walk reached - see bgTickPortalsEveryRoom().
+		// So does a door: GoldenEye files six of Frigate's upper-deck doors in
+		// the lower deck's rooms, where the cartridge never draws them from
+		// their own deck and nothing there meets them (guards see and shoot
+		// across, Bond walks through); drawn in the HD look they stood shut in
+		// doorways that are open on the cartridge (F3 20261002-155916)
+		if ((prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER || prop->type == PROPTYPE_DOOR)
 				? bgRoomIsPortalVisible(roomnum)
 				: (g_Rooms[roomnum].flags & ROOMFLAG_ONSCREEN) != 0) {
 #else
