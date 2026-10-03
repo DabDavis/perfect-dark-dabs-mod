@@ -2916,13 +2916,41 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 			mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
 		}
 
-		for (s32 e = g->head[gridKey((s32)floorf(mid[0] / g->cell), (s32)floorf(mid[1] / g->cell), (s32)floorf(mid[2] / g->cell))];
-				e >= 0 && !t->decal; e = g->entnext[e]) {
+		// The cells of its middle and of the points the strip test below
+		// takes: a face overlapping it along a strip need not touch the
+		// middle's cell
+		u32 keys[7];
+		s32 numkeys = 0;
+
+		for (s32 k = 0; k < 7; k++) {
+			f32 p[3];
+			u32 key;
+			s32 seen = 0;
+
+			for (s32 j = 0; j < 3; j++) {
+				const f32 from = k == 0 ? mid[j] : k < 4 ? t->pos[k - 1][j] : (t->pos[k - 4][j] + t->pos[(k - 3) % 3][j]) * 0.5f;
+
+				p[j] = from + (mid[j] - from) * 0.1f;
+			}
+
+			key = gridKey((s32)floorf(p[0] / g->cell), (s32)floorf(p[1] / g->cell), (s32)floorf(p[2] / g->cell));
+
+			for (s32 q = 0; q < numkeys; q++) {
+				seen |= keys[q] == key;
+			}
+
+			if (!seen) {
+				keys[numkeys++] = key;
+			}
+		}
+
+		for (s32 c = 0; c < numkeys && !t->decal; c++)
+		for (s32 e = g->head[keys[c]]; e >= 0 && !t->decal; e = g->entnext[e]) {
 			const s32 o = g->room[g->enttri[e]];
 			const struct stri *u = &tris[o];
 			const s32 alphai = texHasAlpha(t->tex), alphau = texHasAlpha(u->tex);
 			f32 nu[3], au, cosang, d;
-			s32 flat = 1;
+			s32 flat = 1, strip = 0;
 
 			if (o == i || !triOther(t, u)) {
 				continue;
@@ -2954,8 +2982,40 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 
 			d = pointTriDist(mid, u->pos[0], u->pos[1], u->pos[2]);
 
+			// Two faces in one plane that overlap along a strip, neither's
+			// middle on the other: Frigate's pipe wall is bands of two
+			// pictures, and one band runs 9 units into the next along half
+			// the wall, where the two fought (F3 20261002-035958). A point a
+			// quarter of the way in from one of its corners lying inside the
+			// other counts (in the plane: a face beside it, sharing an edge,
+			// never does)
 			if (d > DECAL_DIST * DECAL_DIST) {
-				continue;
+				s32 inside = 0;
+
+				for (s32 k = 0; k < 6 && !inside; k++) {
+					f32 p[3], rel[3], off;
+
+					for (s32 j = 0; j < 3; j++) {
+						const f32 from = k < 3 ? t->pos[k][j] : (t->pos[k - 3][j] + t->pos[(k - 2) % 3][j]) * 0.5f;
+
+						p[j] = from + (mid[j] - from) * 0.1f;
+						rel[j] = p[j] - u->pos[0][j];
+					}
+
+					off = dot3(rel, nu);
+
+					for (s32 j = 0; j < 3; j++) {
+						p[j] -= nu[j] * off;
+					}
+
+					inside = pointTriDist(p, u->pos[0], u->pos[1], u->pos[2]) <= 0.0001f;
+				}
+
+				if (!inside) {
+					continue;
+				}
+
+				strip = 1;
 			}
 
 			// Two blended draws: the release's blended pass writes no depth,
@@ -2975,7 +3035,10 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 				continue;
 			}
 
-			if ((t->blend && u->blend) || (full && full[i] != full[o] ? full[i]
+			// Along a strip, the one Bean draws later shows, as the release's
+			// depth test (less or equal) has it
+			if ((t->blend && u->blend) || (strip ? (alphai != alphau ? alphai > alphau : i > o)
+					: full && full[i] != full[o] ? full[i]
 					: alphai != alphau ? alphai > alphau
 					: full && full[i] ? i > o
 					: ai < au * 0.999f ? 1
