@@ -5136,14 +5136,10 @@ static Gfx *frontImageOrRelease(Gfx *gdl, const char *name, s32 num, s32 width, 
 
 		texSelect(&gdl, &tex, 1, 0, 2, 1, NULL);
 
-		// The release's pictures are stored bottom row first, as its
-		// portraits are drawn (frontPortraitDraw()); the Level page's stage
-		// pictures came out upside down (F3 20260930-011519). A strip of
-		// holes is the same both ways up and keeps its rows where they are.
-		if (!wrap) {
-			theight = -theight;
-		}
-
+		// A negative theight turns the picture over, as GoldenEye's flipY
+		// does (display_image_at_position()): the caller says so for both
+		// pictures, the ROM's and the release's, which are stored the same
+		// way up.
 		return frontImageRect(gdl, cx, cy, hw, hh, twidth * FRONT_PICTURE_TEXELS / width,
 				theight * FRONT_PICTURE_TEXELS / height, colour, translucent, true);
 	}
@@ -5676,8 +5672,12 @@ static Gfx *frontDrawLevel(Gfx *gdl)
 
 		const s32 image = frontStageImage(g_Front.levels[first + n]);
 
+		// flipY, as GoldenEye draws them (constructor_menu12_mpstage()): the
+		// ROM's pictures are stored bottom row first like the release's, and
+		// only the release's were turned over (F3 20260930-011519), so in the
+		// N64 look every one stood on its head (F3 20261002-140415)
 		gdl = frontImageOrRelease(gdl, frontStageRelease(image), image, STAGE_IMAGE_W, STAGE_IMAGE_H, G_IM_FMT_I, false,
-				86 + 85 * col, 134 + 70 * row, 34, 22, STAGE_IMAGE_W, STAGE_IMAGE_H, colour, false);
+				86 + 85 * col, 134 + 70 * row, 34, 22, STAGE_IMAGE_W, -STAGE_IMAGE_H, colour, false);
 	}
 
 	gdl = frontTextSetup(gdl);
