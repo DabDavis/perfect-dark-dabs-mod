@@ -95,6 +95,14 @@ s32 texpackGetTextureNum(const void *data);
 s32 texpackTextureArt(const void *data);
 
 /**
+ * Whether the texels at data were read out of a GoldenEye ROM's conversion
+ * (modloaderDirIndexIsConversion()): their levels of detail are the ones
+ * GoldenEye's own shrink makes (getexshrink.c), which the renderer draws as
+ * they are under G_TEX_OWN_LODS_EXT.
+ */
+s32 texpackTextureIsConverted(const void *data);
+
+/**
  * A mod mounted for its maps alone keeps its pack to its maps.
  *
  * texpackScan() indexes the overlay's textures/ and the selected pack, both of

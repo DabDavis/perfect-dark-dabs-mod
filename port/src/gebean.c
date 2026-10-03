@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <math.h>
 #include <sys/stat.h>
 #include <ultra64.h>
@@ -1086,6 +1087,27 @@ static s32 gebeanRowIsWatchArm(const struct gebeanrow *r)
  * The row number of a pool or gun file - an alias this registered - or -1.
  * The alias keeps the table's own string, so a pointer compare names it.
  */
+/**
+ * Whether a file is from a GoldenEye ROM hack's conversion (Goldfinger 64's,
+ * gexPlusRomIsConversionDir()). It names its files as GoldenEye's are named,
+ * but its Pgx027Z is not GoldenEye's console: the release's models are
+ * GoldenEye's own and never stand in for a hack's, in either look.
+ */
+static s32 gebeanFileIsRomHack(u16 fileid)
+{
+	const s32 index = romdataFileGetModDir(fileid);
+	const char *dir = index >= 0 ? fsGetModDirAt(index) : NULL;
+	const char *base = dir;
+
+	for (const char *c = dir; c && *c; ++c) {
+		if (*c == '/' || *c == '\\') {
+			base = c + 1;
+		}
+	}
+
+	return base && gexPlusRomIsConversionDir(base) && strcasecmp(base, GEXPLUSROM_DIR) != 0;
+}
+
 static s32 gebeanPoolRowForFile(u16 fileid)
 {
 	const char *name = fileid ? romdataFileGetName(fileid) : NULL;
@@ -1123,7 +1145,7 @@ static s32 gebeanPoolRowForFile(u16 fileid)
 	}
 
 	// the remake's own files, props and characters, found by their name
-	if (name[1] == 'g' && name[2] == 'x' && romdataFileGetModDir(fileid) >= 0) {
+	if (name[1] == 'g' && name[2] == 'x' && romdataFileGetModDir(fileid) >= 0 && !gebeanFileIsRomHack(fileid)) {
 		if (name[0] == 'P' || name[0] == 'I') {
 			for (s32 i = 0; i < ARRAYCOUNT(propRows); i++) {
 				if (strcmp(name, propRows[i].row.file) == 0) {
@@ -1589,6 +1611,11 @@ static void gebeanGunsRefresh(void)
 		sysLogPrintf(LOG_NOTE, "gebean: %d GoldenEye guns in the Combat Simulator's weapons, %d with the release's pickup",
 				ARRAYCOUNT(gunRows), shown);
 	}
+}
+
+void gebeanGunsStageRefresh(void)
+{
+	gebeanGunsRefresh();
 }
 
 /** Whether a gun in a hand has to be loaded again when the look changes. */
@@ -2952,6 +2979,11 @@ s32 gebeanFindRow(u16 fileid, struct modeldef *modeldef)
 	}
 
 	if (romdataFileIsStock(fileid)) {
+		return -1;
+	}
+
+	// (a ROM hack's, gebeanFileIsRomHack())
+	if (gebeanFileIsRomHack(fileid)) {
 		return -1;
 	}
 

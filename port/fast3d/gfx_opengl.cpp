@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <map>
 #include <unordered_map>
 #include <vector>
@@ -262,6 +263,13 @@ static void append_formula(char* buf, size_t* len, uint8_t c[2][4], bool do_sing
     }
 }
 
+// SHADER_OPT_SHADE_LINEAR: the combiner's inputs carried linearly on the
+// screen, as the RDP carries its shade, in every stage that declares them.
+// GLSL ES has no noperspective; there they keep perspective.
+static const char* gl_input_interp(const struct CCFeatures& cc) {
+    return cc.opt_shade_linear && !gl_es && gl_glsl_version >= 130 ? "noperspective " : "";
+}
+
 static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shader_id0, uint32_t shader_id1) {
     struct CCFeatures cc_features = { 0 };
     gfx_cc_get_features(shader_id0, shader_id1, &cc_features);
@@ -335,7 +343,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
     for (int i = 0; i < cc_features.num_inputs; i++) {
         vs_len += sprintf(vs_buf + vs_len, "INPUT vec%d aInput%d;\n", cc_features.opt_alpha ? 4 : 3, i + 1);
-        vs_len += sprintf(vs_buf + vs_len, "OUTPUT vec%d vInput%d;\n", cc_features.opt_alpha ? 4 : 3, i + 1);
+        vs_len += sprintf(vs_buf + vs_len, "%sOUTPUT vec%d vInput%d;\n", gl_input_interp(cc_features),
+                          cc_features.opt_alpha ? 4 : 3, i + 1);
         num_floats += cc_features.opt_alpha ? 4 : 3;
     }
 
@@ -422,7 +431,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(fs_buf, &fs_len, "INPUT vec3 vEnvPos;");
     }
     for (int i = 0; i < cc_features.num_inputs; i++) {
-        fs_len += sprintf(fs_buf + fs_len, "INPUT vec%d vInput%d;\n", cc_features.opt_alpha ? 4 : 3, i + 1);
+        fs_len += sprintf(fs_buf + fs_len, "%sINPUT vec%d vInput%d;\n", gl_input_interp(cc_features),
+                          cc_features.opt_alpha ? 4 : 3, i + 1);
     }
 
     if (cc_features.used_textures[0]) {
@@ -887,6 +897,15 @@ static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width,
 	if (mips) {
 		glGenerateMipmap(GL_TEXTURE_2D);
 	}
+}
+
+static void gfx_opengl_upload_texture_levels(const uint8_t* const* levels, uint32_t width, uint32_t height, uint32_t count) {
+    // Every level written, and no more read (see above)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLint)count - 1);
+    for (uint32_t k = 0; k < count; k++) {
+        glTexImage2D(GL_TEXTURE_2D, (GLint)k, GL_RGBA8, std::max(1u, width >> k), std::max(1u, height >> k), 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, levels[k]);
+    }
 }
 
 static void gfx_opengl_get_texture_limits(uint32_t* max_textures, uint64_t* vram_bytes) {
@@ -1364,7 +1383,7 @@ static size_t gfx_opengl_mesh_vs(const struct CCFeatures& cc, char* buf) {
         append_line(buf, &len, "out vec3 vEnvPos;");
     }
     for (int i = 0; i < cc.num_inputs; i++) {
-        len += sprintf(buf + len, "out vec%d vInput%d;\n", cc.opt_alpha ? 4 : 3, i + 1);
+        len += sprintf(buf + len, "%sout vec%d vInput%d;\n", gl_input_interp(cc), cc.opt_alpha ? 4 : 3, i + 1);
     }
 
     const std::string main = gfx_mesh_vs_main(cc, !GLAD_GL_ARB_depth_clamp, false);
@@ -3368,6 +3387,7 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_new_texture,
     gfx_opengl_select_texture,
     gfx_opengl_upload_texture,
+    gfx_opengl_upload_texture_levels,
     gfx_opengl_set_sampler_parameters,
     gfx_opengl_set_depth_mode,
     gfx_opengl_set_depth_range,

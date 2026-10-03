@@ -33,6 +33,9 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "geguns.h"
+#endif
 #include "fs.h"
 #include "system.h"
 #include "mpsetups.h"
@@ -308,6 +311,11 @@ struct mpweapon g_MpWeapons[NUM_MPWEAPONS] = {
 	/*0x47*/ { WEAPON_GE_TIMEDMINE,       AMMOTYPE_TIMED_MINE,  5,   0, 0, 0, MPFEATURE_NEVER, MODEL_GE_FIRST + 22, 384 },
 	/*0x48*/ { WEAPON_GE_PROXIMITYMINE,   AMMOTYPE_PROXY_MINE,  5,   0, 0, 0, MPFEATURE_NEVER, MODEL_GE_FIRST + 23, 384 },
 	/*0x49*/ { WEAPON_GE_REMOTEMINE,      AMMOTYPE_REMOTE_MINE, 5,   0, 0, 0, MPFEATURE_NEVER, MODEL_GE_FIRST + 24, 384 },
+	// a GoldenEye ROM hack's own pistols, on the PP9i, shown by its gun set
+	/*0x4a*/ { WEAPON_GE_EXTRA1,          AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_EXTRA1 - WEAPON_GE_FIRST, 256 },
+	/*0x4b*/ { WEAPON_GE_EXTRA2,          AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_EXTRA2 - WEAPON_GE_FIRST, 256 },
+	/*0x4c*/ { WEAPON_GE_EXTRA3,          AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_EXTRA3 - WEAPON_GE_FIRST, 256 },
+	/*0x4d*/ { WEAPON_GE_EXTRA4,          AMMOTYPE_PISTOL,      80,  0, 0, 1, MPFEATURE_NEVER, MODEL_GE_FIRST + WEAPON_GE_EXTRA4 - WEAPON_GE_FIRST, 256 },
 #endif
 };
 
@@ -1235,6 +1243,13 @@ bool mpWeaponRowSuitsStage(const struct mpweapon *mpweapon)
 #ifndef PLATFORM_N64
 	s32 i;
 
+	// a ROM hack's own pistols are its stage's alone: in a mission begun
+	// with its mode still chosen they are nobody's
+	if (mpweapon->weaponnum >= WEAPON_GE_EXTRA1 && mpweapon->weaponnum <= WEAPON_GE_EXTRA4
+			&& !gegunsHackSetIn()) {
+		return false;
+	}
+
 	if (mpweapon->weaponnum >= WEAPON_GE_FIRST
 			|| gexPlusGetPdGuns()
 			|| !modloaderStageIsRemake(g_Vars.stagenum)) {
@@ -1396,6 +1411,14 @@ char *mpGetWeaponLabel(s32 weaponnum)
 				if (weaponHost(g_MpWeapons[i].weaponnum) == WEAPON_DISABLED) {
 					return langGet(L_MPWEAPONS_060); // "Disabled"
 				}
+
+#ifndef PLATFORM_N64
+				// a GoldenEye ROM hack's own name for the GoldenEye gun it
+				// made its own, in its mode's menus (geguns.c)
+				if (gegunsMenuNameId(g_MpWeapons[i].weaponnum)) {
+					return langGet(gegunsMenuNameId(g_MpWeapons[i].weaponnum));
+				}
+#endif
 
 				return bgunGetName(g_MpWeapons[i].weaponnum);
 			}

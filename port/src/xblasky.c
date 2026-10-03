@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ultra64.h>
+#include "xblaswitch.h"
 #include "constants.h"
 #include "types.h"
 #include "bss.h"
@@ -121,7 +122,8 @@ PD_CONSTRUCTOR static void xblaSkyInit(void)
 
 s32 xblaSkyGetEnabled(void)
 {
-	return optEnabled;
+	// (off on a ROM hack's arena: xblaSwitchStageHeld())
+	return optEnabled && !xblaSwitchStageHeld();
 }
 
 void xblaSkySetEnabled(s32 enabled)
@@ -321,7 +323,7 @@ Gfx *xblaSkyRender(Gfx *gdl)
 
 	// The record stand-ins are the release's art only while Enable Textures
 	// is on; off, every face would be the tile's own white.
-	if (!optEnabled || !xblaTexGetEnabled() || !xblaImportGetReadyStfsPath()) {
+	if (!xblaSkyGetEnabled() || !xblaTexGetEnabled() || !xblaImportGetReadyStfsPath()) {
 		return NULL;
 	}
 

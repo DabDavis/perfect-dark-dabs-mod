@@ -260,6 +260,11 @@ def compare(rep, ge0, pd0, off, numpads, ge_pad_to_pd, ge_ailist_to_pd, mapping_
         for field in ('flags', 'flags2'):
             ga = a[field] if field == 'flags2' or a['type'] != 1 else door_top_byte(a[field])
             pb = b[field]
+            if field == 'flags2' and a.get('exists') == 0 and b.get('exists') == 0:
+                # an object the cartridge never made, its pad having no tile, which
+                # the converter leaves out on all four difficulties (geconvert.c's
+                # geSoloDoors()): those four bits are how, not a difference
+                pb = (pb & ~0xf0) | (ga & 0xf0)
             for bit in range(32):
                 m = 1 << bit
                 if (ga & m) != (pb & m):

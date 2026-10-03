@@ -13069,6 +13069,14 @@ void bgunRender(Gfx **gdlptr)
 		if (hand->visible) {
 			gdl = beamRender(gdl, &hand->beam, 0, 0);
 
+#ifndef PLATFORM_N64
+			// One of GoldenEye's guns on its own model, under the lights and
+			// LookAt GoldenEye gives it (geguns.c), not what Perfect Dark's
+			// world happened to load last
+			if (gegunsOwnModelInUse(hand->gset.weaponnum) && hand->gset.weaponnum != WEAPON_UNARMED) {
+				gdl = gegunsLightsAndLookAt(gdl, hand->gset.weaponnum);
+			} else
+#endif
 			if (weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00008000)) {
 				gSPSetLights1(gdl++, var80070090);
 				gSPLookAt(gdl++, camGetLookAt());

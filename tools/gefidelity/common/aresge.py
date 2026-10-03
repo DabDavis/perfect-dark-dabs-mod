@@ -73,7 +73,28 @@ def _snapshot(exe):
         except OSError:
             time.sleep(2)
     raise RuntimeError('n64twin at %s stayed unreadable for two minutes' % exe)
-ROM = os.path.expanduser(os.environ.get('GF_ARES_ROM', '~/claude-007/007/build/u/ge007.u.z64'))
+# GF_GAME=gf: Goldfinger 64, a GoldenEye ROM hack (CLAUDE-notes/goldfinger64.md),
+# on its own cartridge. Its code is GoldenEye's patched in place: every function
+# entry and data/bss address used here (ares_layout.json's symbols, the seeds,
+# the head rotation, ares_view_syms.json) holds the same code or variable in
+# both ROMs - checked word for word against the decompressed code and data
+# segments when this was written (proplvreset2, lvlRender, sizepropdef,
+# bossSetLoadedStage, osViSwapBuffer: identical prologues). What moved is
+# GF_LAYOUT's: the model tables, into the top megabyte of the Expansion Pak's
+# 8 MB, which its boot takes off osMemSize (boot() checks it did).
+GAME = os.environ.get('GF_GAME', 'ge')
+LAYOUTS = {
+    # ROM, Expansion Pak, osMemSize after the boot, and the model tables:
+    # props (PitemZ_entries, 12-byte rows) and characters (c_item_entries,
+    # 20-byte rows), each row {ModelFileHeader *, char *name, f32 scale, ...}
+    'ge': {'rom': '~/claude-007/007/build/u/ge007.u.z64', 'pak': False, 'memsize': 0x400000,
+           'props': (0x8003a228, 340), 'chrs': (0x8003de10, 80)},
+    'gf': {'rom': '~/gefidelity-roms/gf.z64', 'pak': True, 'memsize': 0x700000,
+           'props': (0x8070b400, 416), 'chrs': (0x80700fc0, 126)},
+}
+LAYOUT = LAYOUTS[GAME]
+ROM = os.path.expanduser(os.environ.get('GF_ARES_ROM', LAYOUT['rom']))
+OS_MEMSIZE = 0x80000318
 
 # sizepropdef() in words (loadobjectmodel.c:47), checked against the port's walk
 # of all twenty missions; anything else is the one-word header
@@ -121,7 +142,8 @@ def _slot():
 class _Twin:
     def __init__(self):
         self.slot = _slot()
-        self.p = subprocess.Popen([_snapshot(EXE), '--rom', ROM], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        self.p = subprocess.Popen([_snapshot(EXE), '--rom', ROM] + (['--expansion-pak'] if LAYOUT['pak'] else []),
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, text=True, bufsize=1)
         self.read()
 
@@ -285,13 +307,21 @@ def boot(levelid, difficulty=0):
         raise RuntimeError('difficulty %d did not take (cartridge has %d)' % (difficulty, s32(SYM['g_SelectedDifficulty'])))
     if int(tw('fired').split()[0]) < nfire:
         raise RuntimeError('the level swap, the difficulty or the seed writes never fired')
+    # the cartridge asked for is the one running: Goldfinger's boot takes the
+    # top megabyte of the Expansion Pak's 8 for its tables (0x700000);
+    # GoldenEye's 4 MB are left whole
+    if u32(OS_MEMSIZE) != LAYOUT['memsize']:
+        raise RuntimeError('osMemSize reads 0x%x, not %s\'s 0x%x: the wrong ROM, or no Expansion Pak' % (
+            u32(OS_MEMSIZE), GAME, LAYOUT['memsize']))
     _st['t0'] = s32(SYM['g_GlobalTimer']) - 1
     f0 = s32(SYM['currentFrameCounter'])
-    tw('cue %d 0 Z' % (f0 + DISMISS_STILL_AFTER))
-    tw('cue %d 0 -' % (f0 + DISMISS_STILL_AFTER + 10))
-    tw('pad 0 script')
+    if os.environ.get('GF_MISSION_INTRO') != '1':
+        # GF_MISSION_INTRO=1 leaves the opening to play (ours: no --skip-mission-intro)
+        tw('cue %d 0 Z' % (f0 + DISMISS_STILL_AFTER))
+        tw('cue %d 0 -' % (f0 + DISMISS_STILL_AFTER + 10))
+        tw('pad 0 script')
     say('boot', levelid, 'difficulty', s32(SYM['g_SelectedDifficulty']), 'tick', tick(), 'frame', f0,
-        'globaltimer', s32(SYM['g_GlobalTimer']), 'oracle ares')
+        'globaltimer', s32(SYM['g_GlobalTimer']), 'oracle ares', 'game', GAME)
 
 
 def tick():
@@ -304,6 +334,19 @@ def until_tick(t):
     twin()('until-word 0x%08x >= %d 200000' % (SYM['g_GlobalTimer'], t + _st['t0']))
 
 
+def until_play(maxframes=2000):
+    """Run until Bond's first-person play: player->cameramode is 1 through the
+    opening and 0 after (not the CAMERAMODE_* enum, which is another word's),
+    and maybe_mp_interface() returns early while it is 1 - the objective
+    statuses, the HUD messages and the watch wait for it. Returns the tick."""
+    off = T['struct player']['fields']['cameramode']['off']
+    for _ in range(maxframes // 5):
+        if s32(_player() + off) == 0:
+            return tick()
+        frames(5)
+    raise RuntimeError('Bond never reached first-person play (cameramode %d)' % s32(_player() + off))
+
+
 def frames(n=1):
     twin()('until-word 0x%08x >= %d 200000' % (SYM['currentFrameCounter'], s32(SYM['currentFrameCounter']) + n))
 
@@ -312,14 +355,30 @@ def _player():
     return u32(SYM['g_CurrentPlayer'])
 
 
-def place(x, y, z, theta=None, verta=None, stan=None):
+# Bond's height words, each moved by the same amount when place() is given a
+# floor: his prop, his collision position (and the last frame's), the floor
+# under him (field_70, stanHeight) and his eye
+_HEIGHT_WORDS = [('player', 'field_488.collision_position', 4), ('player', 'previous_collision_info.collision_position', 4),
+                 ('player', 'field_70', 0), ('player', 'stanHeight', 0), ('player', 'field_488.pos', 4),
+                 ('prop', 'pos', 4)]
+
+
+def place(x, y, z, theta=None, verta=None, stan=None, floor=None):
     """Bond's feet at x, z on tile `stan` (GoldenEye's world). There is no tile
-    search on the console: pass a pad's own tile (pad_tile()), or none to keep
-    Bond's current tile."""
+    search on the console: pass a pad's own tile (pad_tile()) or one
+    wide_ares.tile_under() found, or none to keep Bond's current tile. His
+    height is the walk's, from where he was - so a tile on another floor than
+    his (a lower deck) wants `floor`, its height, which moves every height word
+    he has by the difference first (else the walk puts him back on his own)."""
     P = _player()
     prop = u32(P + T['struct player']['fields']['prop']['off'])
     F = T['struct player']['fields']
     pk = lambda a, v: poke(a, struct.pack('>f', v))
+    if floor is not None:
+        dy = floor - struct.unpack('>f', peek(P + F['stanHeight']['off'], 4))[0]
+        for base, field, k in _HEIGHT_WORDS:
+            a = (P + F[field]['off']) if base == 'player' else (prop + T['PropRecord']['fields'][field]['off'])
+            pk(a + k, struct.unpack('>f', peek(a + k, 4))[0] + dy)
     pk(prop + T['PropRecord']['fields']['pos']['off'] + 0, x)
     pk(prop + T['PropRecord']['fields']['pos']['off'] + 8, z)
     pk(P + F['field_488.collision_position']['off'] + 0, x)
@@ -336,11 +395,11 @@ def place(x, y, z, theta=None, verta=None, stan=None):
     return stan
 
 
-def hold(x, y, z, theta=None, verta=None, n=8, stan=None):
+def hold(x, y, z, theta=None, verta=None, n=8, stan=None, floor=None):
     for _ in range(n):
-        place(x, y, z, theta, verta, stan)
+        place(x, y, z, theta, verta, stan, floor)
         frames(3)
-    place(x, y, z, theta, verta, stan)
+    place(x, y, z, theta, verta, stan, floor)
     frames(1)
     return stan
 
@@ -490,6 +549,32 @@ def props():
     return out
 
 
+_names = {}
+
+
+def _cstr(addr, n=48):
+    b = peek(addr, n)
+    return b.split(b'\0', 1)[0].decode('latin-1')
+
+
+def model_file(table, num):
+    """The file a prop model (table 'props') or a character body/head ('chrs')
+    number names on this cartridge: its row of GF_LAYOUT's table. Goldfinger
+    renamed 318 of GoldenEye's 340 prop rows and has 126 characters, so a
+    number alone says nothing across the two games."""
+    base, rows = LAYOUT[table]
+    size = 12 if table == 'props' else 20
+    if not isinstance(num, int) or not 0 <= num < rows:
+        return None
+    if table not in _names:
+        blob = peek(base, rows * size)
+        _names[table] = [struct.unpack_from('>I', blob, k * size + 4)[0] for k in range(rows)]
+    a = _names[table][num]
+    if isinstance(a, int):
+        a = _names[table][num] = _cstr(a) if a else ''
+    return a
+
+
 def chrs():
     ids = _ailist_ids()
     out = []
@@ -519,6 +604,8 @@ def chrs():
                'weapons': [_weaponnum(struct.unpack_from('>I', c.b, wo + 4 * h)[0]) for h in range(2)]}
         if c.ptr('model'):
             rec['scale'] = _f(Rec('Model', c.ptr('model')).f('scale'))
+        rec['bodyfile'] = model_file('chrs', rec['bodynum'])
+        rec['headfile'] = model_file('chrs', rec['headnum'])
         out.append(rec)
     return out
 
@@ -532,6 +619,91 @@ def player():
             # the floor under Bond (bondview2.c: collision y = field_70 + eye height)
             'ground': _f(P.f('field_70')),
             'health': _f(P.f('bondhealth')), 'armour': _f(P.f('bondarmour'))}
+
+
+# objective_status.c (nm build/u/ge007.u.elf): objective_count holds the count
+# less one (-1 for none); objectiveStatuses[10] is each objective's status as
+# display_objective_status_text_on_status_change() last saw it, every frame
+# (0 incomplete, 1 complete, 2 failed - Perfect Dark's OBJECTIVE_* too)
+OBJECTIVE_SYMS = {'objective_count': 0x800322f0, 'objectiveStatuses': 0x80075d58}
+
+
+def objectives():
+    n = s32(SYM.get('objective_count', OBJECTIVE_SYMS['objective_count'])) + 1
+    if not 0 <= n <= 10:
+        raise RuntimeError('objective_count reads %d: not GoldenEye\'s objective table on this cartridge' % (n - 1))
+    a = SYM.get('objectiveStatuses', OBJECTIVE_SYMS['objectiveStatuses'])
+    return list(struct.unpack('>%di' % n, peek(a, 4 * n))) if n else []
+
+
+def inventory():
+    """Bond's inventory in cycle order from ptr_inventory_first_in_cycle
+    (bondinv.c): InvItem {s32 type; union {weaponnum | prop | right, left};
+    next; prev}, 0x14 bytes. A weapon gives its number, a dual pair
+    [right, left], a prop item ['prop']."""
+    first = u32(_player() + T['struct player']['fields']['ptr_inventory_first_in_cycle']['off'])
+    out = []
+    a = first
+    while a and len(out) < 100:
+        t, w1, w2, nxt = struct.unpack('>iiiI', peek(a, 16))
+        out.append(w1 if t == 1 else [w1, w2] if t == 3 else ['prop', '%#x' % w1] if t == 2 else ['type', t])
+        a = nxt
+        if a == first:
+            break
+    return out
+
+
+def record_words(i):
+    """Setup record i as the cartridge holds it: [type, [words...]], or None past the end."""
+    setup = Rec('stagesetup', SYM['g_CurrentSetup'])
+    p = setup.ptr('propDefs')
+    for k in range(i + 1):
+        t = Rec('PropDefHeaderRecord', p)['type']
+        if t == PROPDEF_END:
+            return None
+        n = SIZEPROPDEF.get(t, 1)
+        if k == i:
+            return [t, list(struct.unpack('>%dI' % n, peek(p, 4 * n)))]
+        p += 4 * n
+
+
+def carries(i):
+    """Bond carries setup record i's own prop (bondinvHasPropInInv(): a prop
+    entry naming it), which is what a collect objective asks."""
+    pt = prop_tile(i)
+    if pt is None:
+        return False
+    want = int(pt[2], 16)
+    for w in inventory():
+        if isinstance(w, list) and w[0] == 'prop' and int(w[1], 16) & 0xffffffff == want:
+            return True
+    return False
+
+
+def bond_where():
+    """Bond's tile, what place() takes (gdbpd's twin returns his room)."""
+    return Rec('PropRecord', u32(_player() + T['struct player']['fields']['prop']['off'])).ptr('stan')
+
+
+def prop_tile(i):
+    """Setup record i's prop: its position and its tile (for place())."""
+    setup = Rec('stagesetup', SYM['g_CurrentSetup'])
+    p = setup.ptr('propDefs')
+    for k in range(i):
+        t = Rec('PropDefHeaderRecord', p)['type']
+        if t == PROPDEF_END:
+            return None
+        p += 4 * SIZEPROPDEF.get(t, 1)
+    pa = Rec('ObjectRecord', p).ptr('prop')
+    if not pa:
+        return None
+    prop = Rec('PropRecord', pa)
+    if not _rooms(prop) and not prop.ptr('parent'):
+        # made but in no room and on no chr: a weapon chrEquipWeapon() turned
+        # away from a hand already full is never reparented (propobj.c) and
+        # lies at the origin out of the world (Plane's record 105)
+        return None
+    return [_f(v) for v in prop.vec('pos')], prop.ptr('stan'), '%#x' % pa
 
 
 def world():

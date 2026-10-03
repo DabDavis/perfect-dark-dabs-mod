@@ -9,6 +9,7 @@
  "%d of %d chosen - A to toggle": "%d von %d gewählt - A zum Umschalten\n",
  "%d of %d maps from %d mod: out of stage numbers.": "%d von %d Karten aus %d Mod: keine Stage-Nummern mehr frei.\n",
  "%d of %d maps from %d mods: out of stage numbers.": "%d von %d Karten aus %d Mods: keine Stage-Nummern mehr frei.\n",
+ "%d of %d": "%d von %d\n",
  "%d of %d: %s": "%d von %d: %s\n",
  "%d of them replaced from the texture pack": "davon %d aus dem Texturpaket ersetzt\n",
  "%d rooms, %d objectives (best %d)": "%d Räume, %d Ziele (Rekord %d)\n",

@@ -249,6 +249,7 @@ struct LoadedTexture {
     uint32_t size_bytes; // line_size_bytes * height
     uint32_t full_image_line_size_bytes;
     uint32_t line_size_bytes;
+    uint32_t block_bytes; // what the load put in TMEM from addr, every mip level of a mipmapped texture; 0 unknown
     uint32_t tex_flags;
     uint32_t glyph;      // gDPSetFontGlyphEXT, 0 when this is not a font glyph
     struct RawTexMetadata raw_tex_metadata;
@@ -363,6 +364,7 @@ static struct BatchState {
 
     bool use_alpha, use_fog, use_grayscale, use_modulate, use_additive, use_envmap;
     bool fog_vertex; // SHADER_OPT_FOG_VERTEX: the fog slot carries per-vertex factors
+    bool shade_linear; // SHADER_OPT_SHADE_LINEAR: the inputs are carried linearly on the screen
 } batch;
 
 /**
@@ -1670,6 +1672,97 @@ static void gfx_decode_original(int tile, const LoadedTexture& loaded_texture, u
 }
 
 /**
+ * G_TEX_OWN_LODS_EXT: a mipmapped texture uploaded with the levels of detail
+ * its data holds, as the RDP samples them - tile k after the first is level k,
+ * half the size of the one before, at its own place in the block the load put
+ * in TMEM - rather than levels the GPU makes from the first. The cartridge's
+ * levels are not always a picture of the first at a distance: GoldenEye's
+ * shrink finds each averaged colour in an unsorted palette by a search that
+ * assumes it sorted (getexshrink.c), and Crab Key's wall grille, a dark mesh
+ * up close, is a white one from a few steps back.
+ *
+ * Only a texture read out of a ROM conversion's folder, whose levels
+ * GoldenEye's shrink made: Perfect Dark's own models drawn in the same scene
+ * keep the levels the GPU makes.
+ *
+ * True when it went up so, with level 0 left in tex_upload_buffer as the other
+ * imports leave it. False when the levels are no chain a GPU texture can hold
+ * - a row padded past the tile, a level not half the one before, a tile in
+ * another format, a level past the end of what was loaded - and nothing went
+ * up.
+ */
+static bool gfx_import_own_lods(int tile, const LoadedTexture& loaded_texture, uint8_t fmt, uint8_t siz) {
+    static std::vector<uint8_t> levels;
+    const auto& t0 = rdp.texture_tile[tile];
+    const uint32_t count = std::min<uint32_t>(rdp.tex_max_lod + 1u, 8u - tile);
+
+    if (count < 2 || !loaded_texture.addr || !loaded_texture.block_bytes || siz == G_IM_SIZ_32b ||
+        loaded_texture.raw_tex_metadata.h_byte_scale != 1 || loaded_texture.raw_tex_metadata.v_pixel_scale != 1) {
+        return false;
+    }
+
+    gfx_decode_original(tile, loaded_texture, fmt, siz);
+
+    const uint32_t w0 = last_upload_width;
+    const uint32_t h0 = last_upload_height;
+
+    if (w0 == 0 || w0 != t0.width || h0 != t0.height) {
+        return false;
+    }
+
+    size_t total = 0;
+    for (uint32_t k = 0; k < count; k++) {
+        total += (size_t)std::max(1u, w0 >> k) * std::max(1u, h0 >> k) * 4;
+    }
+    levels.resize(total);
+    memcpy(levels.data(), tex_upload_buffer, (size_t)w0 * h0 * 4);
+
+    const uint8_t* ptrs[8] = { levels.data() };
+    size_t at = (size_t)w0 * h0 * 4;
+
+    for (uint32_t k = 1; k < count; k++) {
+        const auto& tk = rdp.texture_tile[tile + k];
+        const uint32_t wk = std::max(1u, w0 >> k);
+        const uint32_t hk = std::max(1u, h0 >> k);
+        const uint32_t off = (tk.tmem - t0.tmem) * 8u;
+
+        if (tk.fmt != fmt || tk.siz != siz || tk.palette != t0.palette || tk.width != wk || tk.height != hk ||
+            tk.tmem < t0.tmem || !tk.line_size_bytes || off + tk.line_size_bytes * hk > loaded_texture.block_bytes) {
+            return false;
+        }
+
+        LoadedTexture lk = loaded_texture;
+        lk.addr = loaded_texture.addr + off;
+        lk.line_size_bytes = lk.full_image_line_size_bytes = tk.line_size_bytes;
+        lk.size_bytes = lk.orig_size_bytes = lk.full_size_bytes = tk.line_size_bytes * hk;
+
+        gfx_decode_original(tile + k, lk, fmt, siz);
+
+        // a level's row is whole 8-byte lines: the level is its left wk texels
+        if (last_upload_width < wk || last_upload_height != hk) {
+            return false;
+        }
+
+        for (uint32_t y = 0; y < hk; y++) {
+            memcpy(levels.data() + at + (size_t)y * wk * 4, tex_upload_buffer + (size_t)y * last_upload_width * 4,
+                   (size_t)wk * 4);
+        }
+
+        ptrs[k] = levels.data() + at;
+        at += (size_t)wk * hk * 4;
+    }
+
+    gfx_rapi->upload_texture_levels(ptrs, w0, h0, count);
+    gfx_texture_cache_charge(w0, h0, true);
+
+    memcpy(tex_upload_buffer, levels.data(), (size_t)w0 * h0 * 4);
+    last_upload_width = w0;
+    last_upload_height = h0;
+
+    return true;
+}
+
+/**
  * A pack's opaque picture standing in for a texture the game draws with alpha.
  *
  * The XBLA release's art carries no alpha for most of the textures whose N64
@@ -1789,6 +1882,9 @@ static void import_texture(int i, int tile, bool importReplacement) {
 
     if ((rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail) || self_detail || !loaded_texture.addr) {
         // set up miplevel 0; also acts as a catch-all for when .addr is NULL because my texture loader sucks
+        if (loaded_texture.addr != rdp.texture_to_load.addr) {
+            loaded_texture.block_bytes = 0;
+        }
         loaded_texture.addr = rdp.texture_to_load.addr;
         loaded_texture.glyph = rdp.texture_to_load.glyph;
         loaded_texture.line_size_bytes = rdp.texture_tile[tile].line_size_bytes;
@@ -1843,6 +1939,8 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // entry holds the frame it is keyed on
     const int32_t anim_frame = xblaTexHaveAnimations() ? xblaTexAnimFrame(orig_addr) : -1;
     key.anim_frame = (uint16_t)(anim_frame + 1);
+    key.own_lods = rdp.tex_lod && !rdp.tex_detail && tile == rdp.first_tile_index && !glyph &&
+                   (rsp.extra_geometry_mode & G_TEX_OWN_LODS_EXT) && gfx_texture_enhance_scale <= 1;
 
     if (gfx_texture_cache_lookup(i, key)) {
         return;
@@ -2033,7 +2131,9 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // over its far edge is padding and not the other side of the picture.
     gfx_set_import_enhance(tile, loaded_texture, tex_row_bytes, siz);
 
-    if (fmt == G_IM_FMT_RGBA) {
+    if (key.own_lods && texpackTextureIsConverted(orig_addr) && gfx_import_own_lods(tile, loaded_texture, fmt, siz)) {
+        // with its own levels of detail
+    } else if (fmt == G_IM_FMT_RGBA) {
         if (siz == G_IM_SIZ_16b) {
             import_texture_rgba16(tile, loaded_texture, rdp.tex_lod);
         } else if (siz == G_IM_SIZ_32b) {
@@ -2550,6 +2650,23 @@ static inline int gfx_lod_tile_offset(const int i) {
 }
 
 /**
+ * Whether the combiner's last cycle hands the blender an alpha that is nought
+ * whatever it is fed: (A - B) * C + D with nothing left of the product (A the
+ * same as B, or C nought) and D nought, cycle 1's COMBINED read through.
+ */
+static bool gfx_cc_alpha_zero(uint64_t cm, int cycle) {
+    const uint32_t a = (cm >> (cycle * 28 + 16)) & 7;
+    const uint32_t b = (cm >> (cycle * 28 + 19)) & 7;
+    const uint32_t c = (cm >> (cycle * 28 + 22)) & 7;
+    const uint32_t d = (cm >> (cycle * 28 + 25)) & 7;
+    auto zero = [&](uint32_t in) {
+        return in == G_ACMUX_0 || (cycle == 1 && in == G_ACMUX_COMBINED && gfx_cc_alpha_zero(cm, 0));
+    };
+
+    return (a == b || c == G_ACMUX_0 || (zero(a) && zero(b))) && zero(d);
+}
+
+/**
  * Work out everything about the current RDP/RSP state that gfx_sp_tri1 needs
  * but that no longer changes from one triangle to the next, and park it in
  * `batch`. Called only when gfx_mark_state_dirty() has fired or a texture is
@@ -2572,6 +2689,27 @@ static void gfx_derive_batch_state(void) {
 
     if (texture_edge) {
         use_alpha = true;
+    }
+
+    // Under a mode that selects coverage for alpha without FORCE_BL, the RDP
+    // blends only partly covered edge pixels, by their coverage: a covered
+    // pixel is the combiner's colour whatever alpha the combiner hands on. A
+    // combiner whose alpha is nought outright, blended by it here, drew nothing
+    // at all - GE Editor writes its levels' lists that way, under
+    // G_RM_AA_ZB_OPA_TERR2 (ten of Goldfinger 64's twenty missions; Cartel,
+    // Bodega, China and Crab Key drew no walls or floors). Such a draw is
+    // opaque, as on the console. Only
+    // that alpha: one that can be anything else (a texture's, a vertex's) still
+    // blends as before - a span of Defection's release rooms needs its
+    // texture's, and a lit corner's byte is mended in gfx_sp_load_vertex().
+    // Not under CVG_X_ALPHA or an alpha compare, where the RDP does read the
+    // combined alpha. Under G_COVERAGE_ALPHA_EXT (a converted GoldenEye level
+    // in the N64 look) any combined alpha is passed over this way, as the RDP
+    // does: GE Editor's I4 walls hand on their texels' intensity.
+    if (use_alpha && (rdp.other_mode_l & (ALPHA_CVG_SEL | FORCE_BL | CVG_X_ALPHA)) == ALPHA_CVG_SEL &&
+        (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_NONE &&
+        ((rsp.extra_geometry_mode & G_COVERAGE_ALPHA_EXT) || gfx_cc_alpha_zero(rdp.combine_mode, use_2cyc ? 1 : 0))) {
+        use_alpha = false;
     }
 
     // A faded body's depth pass (chrRender()): blended to nothing, so only the
@@ -2636,6 +2774,11 @@ static void gfx_derive_batch_state(void) {
                             !(rsp.fog_linear && (rsp.geometry_mode & G_FOG));
     if (fog_vertex) {
         cc_options |= (uint64_t)SHADER_OPT_FOG_VERTEX;
+    }
+    // G_SHADE_LINEAR_EXT: the shade as the RDP carries it (gfx_emit_tri3())
+    const bool shade_linear = (rsp.extra_geometry_mode & G_SHADE_LINEAR_EXT) != 0;
+    if (shade_linear) {
+        cc_options |= (uint64_t)SHADER_OPT_SHADE_LINEAR;
     }
 
     // If we are not using alpha, clear the alpha components of the combiner as they have no effect
@@ -2748,6 +2891,7 @@ static void gfx_derive_batch_state(void) {
     batch.use_alpha = use_alpha;
     batch.use_fog = use_fog;
     batch.fog_vertex = fog_vertex;
+    batch.shade_linear = shade_linear;
     batch.use_grayscale = use_grayscale;
     batch.use_modulate = use_alpha && (rsp.extra_geometry_mode & G_MODULATE_EXT) != 0;
     batch.use_additive = use_alpha && !batch.use_modulate && (rsp.extra_geometry_mode & G_ADDITIVE_EXT) != 0;    batch.use_envmap = use_envmap;
@@ -3426,12 +3570,15 @@ static inline float gfx_rsp_clip_dist(const struct LoadedVertex* v, int k) {
  * far corner's fog carried down to Bond's feet: measured on the cartridge at
  * Surface 2's pad 245 (fog 76, 97, 123, 142 up the middle of the screen;
  * this model 81, 101, 122, 142; without the guard band, 147-169).
+ * G_SHADE_LINEAR_EXT cuts it the same way: the RDP carries the shade
+ * linearly across each piece the RSP hands it, so a cut corner's colour,
+ * taken along the edge in clip space, is where its gradient starts.
  */
 static void gfx_emit_tri3(const struct LoadedVertex* a, const struct LoadedVertex* b, const struct LoadedVertex* c,
                           bool is_rect) {
     emit_fog_tri = batch.fog_vertex && !is_rect;
 
-    if (!emit_fog_tri) {
+    if (!emit_fog_tri && (!batch.shade_linear || is_rect)) {
         gfx_emit_vertex(a, is_rect);
         gfx_emit_vertex(b, is_rect);
         gfx_emit_vertex(c, is_rect);
@@ -4900,12 +5047,13 @@ static void gfx_room_materialise(uint8_t slot) {
 }
 
 /*
- * Under G_FOG_VERTEX_EXT a triangle crossing the RSP's clip volume - behind
- * the eye, or past the guard band - is cut on the CPU, and its new corners
- * fogged where they stand (gfx_emit_tri3()). The shader fogs each corner as
- * it is and cuts nothing, which is the same thing for a triangle wholly
- * inside: so is every triangle of a run whose box has all eight corners
- * inside every plane of it, the volume being convex.
+ * Under G_FOG_VERTEX_EXT (and G_SHADE_LINEAR_EXT) a triangle crossing the
+ * RSP's clip volume - behind the eye, or past the guard band - is cut on the
+ * CPU, and its new corners fogged and shaded where they stand
+ * (gfx_emit_tri3()). The shader fogs each corner as it is and cuts nothing,
+ * which is the same thing for a triangle wholly inside: so is every triangle
+ * of a run whose box has all eight corners inside every plane of it, the
+ * volume being convex.
  */
 static bool gfx_room_inside_rsp_clip(const struct GfxRoomRun& r) {
     const bool jitter = taa_active && !fbActive;
@@ -4945,7 +5093,7 @@ static inline bool gfx_room_gpu_state(const struct GfxRoomRun& r) {
         return false;
     }
 
-    return !(rsp.extra_geometry_mode & G_FOG_VERTEX_EXT) || gfx_room_inside_rsp_clip(r);
+    return !(rsp.extra_geometry_mode & (G_FOG_VERTEX_EXT | G_SHADE_LINEAR_EXT)) || gfx_room_inside_rsp_clip(r);
 }
 
 // gfx_sp_tri_emit() would grow a marked triangle
@@ -5859,7 +6007,7 @@ static void gfx_model_vstate(GfxRoomVState* s) {
 
 static inline bool gfx_model_gpu_state(void) {
     return gfx_mesh_gpu_state() && !(rsp.geometry_mode & G_LIGHTING) &&
-           !(rsp.extra_geometry_mode & (G_ENVMAP_EXT | G_FOG_VERTEX_EXT));
+           !(rsp.extra_geometry_mode & (G_ENVMAP_EXT | G_FOG_VERTEX_EXT | G_SHADE_LINEAR_EXT));
 }
 
 // Vertex k's colour as the segments stand
@@ -6747,8 +6895,13 @@ static inline void gfx_update_aspect_mode(void) {
 
 static void gfx_sp_extra_geometry_mode(uint32_t clear, uint32_t set) {
     gfx_mark_state_dirty();
+    const uint32_t was = rsp.extra_geometry_mode;
     rsp.extra_geometry_mode &= ~clear;
     rsp.extra_geometry_mode |= set;
+    if ((was ^ rsp.extra_geometry_mode) & G_TEX_OWN_LODS_EXT) {
+        // a texture bound already went up with the other kind of levels
+        rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+    }
     rsp.aspect_mode = (rsp.extra_geometry_mode & G_ASPECT_MODE_EXT);
     gfx_update_aspect_mode();
 }
@@ -7013,6 +7166,7 @@ static void gfx_dp_load_block(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t
     loaded_texture.raw_tex_metadata = rdp.texture_to_load.raw_tex_metadata;
     loaded_texture.addr = rdp.texture_to_load.addr;
     loaded_texture.glyph = rdp.texture_to_load.glyph;
+    loaded_texture.block_bytes = size_bytes;
 
     rdp.textures_changed[0] = rdp.textures_changed[1] = true;
 }
@@ -7055,6 +7209,7 @@ static void gfx_dp_load_tile(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t 
     loaded_texture.raw_tex_metadata = rdp.texture_to_load.raw_tex_metadata;
     loaded_texture.addr = rdp.texture_to_load.addr + start_offset_bytes;
     loaded_texture.glyph = rdp.texture_to_load.glyph;
+    loaded_texture.block_bytes = 0; // rows out of a wider image: no levels lie after it in memory
 
     rdp.texture_tile[tile].uls = uls;
     rdp.texture_tile[tile].ult = ult;

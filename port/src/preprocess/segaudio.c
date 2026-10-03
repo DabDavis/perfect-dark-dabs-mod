@@ -317,7 +317,11 @@ u8 *preprocessALBankFile(u8 *src, u32 size, u32 *outSize)
 {
 	ptrReset();
 
-	const u32 dstlen = size * 3; // this should overshoot any possible bank size, but * 2 also works for vanilla banks
+	// This should overshoot any possible bank size: * 2 also works for vanilla
+	// banks, and a GoldenEye ROM hack's sound bank (Goldfinger 64's) took more
+	// than * 3 and was written past the end of it - the check below comes
+	// after the writes. The room left over is given back below.
+	const u32 dstlen = size * 8 + 0x1000;
 	u8 *dst = sysMemZeroAlloc(dstlen);
 
 	u32 reallen = convertAudioBankFile(dst, src);
@@ -329,6 +333,10 @@ u8 *preprocessALBankFile(u8 *src, u32 size, u32 *outSize)
 
 	if (reallen < dstlen) {
 		dst = sysMemRealloc(dst, reallen);
+	}
+
+	if (reallen > size * 3) {
+		sysLogPrintf(LOG_NOTE, "preprocess: a %u-byte ALBankFile took %u bytes", size, reallen);
 	}
 
 	*outSize = reallen;

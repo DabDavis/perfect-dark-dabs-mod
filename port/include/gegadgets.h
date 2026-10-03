@@ -55,4 +55,13 @@ void gegadgetsIntroWeapon(s32 weaponnum);
 // Whether this weapon number is GoldenEye's watch laser on this stage
 s32 gegadgetsWatchLaserActive(s32 weaponnum);
 
+// A mission's collectables (menu/geslots.bin): the items a pickup carries that
+// are no gun and no gadget, each on one of Perfect Dark's key cards for the
+// mission. Whether the weapon is one on this stage, and GoldenEye's item it
+// stands for (0 for none)
+s32 gegadgetsIsCollectable(s32 weaponnum);
+s32 gegadgetsCollectableItem(s32 weaponnum);
+// setupCreateProps(), as it empties the text overrides: the collectables' names
+void gegadgetsCreateProps(void);
+
 #endif

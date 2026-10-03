@@ -28,7 +28,9 @@
 #define GESTAN_RISE      60.0f   // how far over a body's foot its own floor may be: two of a stair's steps
 
 struct stanpoint {
-	s16 x, y, z;
+	// 32 bits: a GoldenEye ROM hack's level can be wider than 16 hold
+	// (Goldfinger's Alpine Highway runs 233,000 units across, GST2)
+	s32 x, y, z;
 	s16 across;      // the tile across the edge to the next point, -1 a wall, -2 nothing
 	u8 climbwall;    // linked, and a wall raised on it all the same: the link climbs more than a step
 };
@@ -38,7 +40,7 @@ struct stantile {
 	u8 special;
 	u8 npts;
 	s32 first;       // its first point in `points`
-	s16 xmin, xmax, zmin, zmax;
+	s32 xmin, xmax, zmin, zmax;
 };
 
 struct stanwall {
@@ -80,6 +82,11 @@ s32 g_GeStanNoTile;
 static s32 stanBe16(const u8 *p)
 {
 	return (s16)((p[0] << 8) | p[1]);
+}
+
+static u32 stanBe32(const u8 *p)
+{
+	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
 }
 
 static void stanFree(void)
@@ -141,7 +148,7 @@ static s32 stanCellOf(f32 v, f32 origin, s32 count)
 
 static void stanBuildGrid(void)
 {
-	s32 xmin = 32767, xmax = -32768, zmin = 32767, zmax = -32768;
+	s32 xmin = 0x7fffffff, xmax = -0x7fffffff, zmin = 0x7fffffff, zmax = -0x7fffffff;
 	s32 *fill;
 	s32 total = 0;
 
@@ -225,6 +232,42 @@ static void stanBuildGrid(void)
  * shape means the two files are not one conversion's, and the graph is not
  * used.
  */
+/**
+ * A tile of the converted file: 16-bit vertices (GEOTYPE_TILE_I), or floats
+ * (GEOTYPE_TILE_F) where the level is too wide for 16 (a ROM hack's, GST2).
+ * Whether it has `npts` vertices (-1: any) and its first is the point's x
+ * and z, and the one after it.
+ */
+static bool stanGeoStartsAt(const struct geo *geo, s32 npts, const struct stanpoint *p)
+{
+	if (npts >= 0 && geo->numvertices != npts) {
+		return false;
+	}
+
+	if (geo->type == GEOTYPE_TILE_I) {
+		const struct geotilei *tile = (const struct geotilei *)geo;
+
+		return tile->vertices[0][0] == p->x && tile->vertices[0][2] == p->z;
+	}
+
+	if (geo->type == GEOTYPE_TILE_F) {
+		const struct geotilef *tile = (const struct geotilef *)geo;
+
+		return (s32)floorf(tile->vertices[0].x + 0.5f) == p->x && (s32)floorf(tile->vertices[0].z + 0.5f) == p->z;
+	}
+
+	return false;
+}
+
+static const struct geo *stanGeoNext(const struct geo *geo)
+{
+	if (geo->type == GEOTYPE_TILE_F) {
+		return (const struct geo *)((uintptr_t)geo + geo->numvertices * 12 + 0x10);
+	}
+
+	return (const struct geo *)((uintptr_t)geo + geo->numvertices * 6 + 0xe);
+}
+
 static bool stanMatchWalls(void)
 {
 	s32 numwalls = 0;
@@ -250,31 +293,24 @@ static bool stanMatchWalls(void)
 
 		for (s32 i = 0; i < g_Stan.numtiles; i++) {
 			const struct stantile *t = &g_Stan.tiles[i];
-			const struct geotilei *floor = (const struct geotilei *)geo;
 
 			if (t->room != room) {
 				continue;
 			}
 
-			if (geo >= end || geo->type != GEOTYPE_TILE_I || floor->header.numvertices != t->npts
-					|| floor->vertices[0][0] != g_Stan.points[t->first].x
-					|| floor->vertices[0][2] != g_Stan.points[t->first].z) {
+			if (geo >= end || !stanGeoStartsAt(geo, t->npts, &g_Stan.points[t->first])) {
 				sysLogPrintf(LOG_WARNING, "gestan: room %d's geometry is not tile %d's: the graph is not this conversion's", room, i);
 				return false;
 			}
 
-			geo = (const struct geo *)((uintptr_t)geo + floor->header.numvertices * 6 + 0xe);
+			geo = stanGeoNext(geo);
 
 			for (s32 k = 0; k < t->npts; k++) {
-				const struct geotilei *wall = (const struct geotilei *)geo;
-
 				if (g_Stan.points[t->first + k].across != GESTAN_UNLINKED && !g_Stan.points[t->first + k].climbwall) {
 					continue;
 				}
 
-				if (geo >= end || geo->type != GEOTYPE_TILE_I || at >= numwalls
-						|| wall->vertices[0][0] != g_Stan.points[t->first + k].x
-						|| wall->vertices[0][2] != g_Stan.points[t->first + k].z) {
+				if (geo >= end || at >= numwalls || !stanGeoStartsAt(geo, -1, &g_Stan.points[t->first + k])) {
 					sysLogPrintf(LOG_WARNING, "gestan: room %d has no wall for tile %d's edge %d: the graph is not this conversion's", room, i, k);
 					return false;
 				}
@@ -283,7 +319,7 @@ static bool stanMatchWalls(void)
 				g_Stan.walls[at].tile = i;
 				g_Stan.walls[at].point = t->first + k;
 				at++;
-				geo = (const struct geo *)((uintptr_t)geo + wall->header.numvertices * 6 + 0xe);
+				geo = stanGeoNext(geo);
 			}
 		}
 	}
@@ -309,6 +345,8 @@ static void stanBuild(void)
 	s32 numtiles;
 	s32 numpoints = 0;
 	u32 o;
+	bool wide;
+	u32 ptlen;
 
 	stanFree();
 	g_Stan.stagenum = g_Vars.stagenum;
@@ -320,19 +358,23 @@ static void stanBuild(void)
 
 	d = stanLoadFile(&len);
 
-	if (!d || len < 8 || memcmp(d, "GST1", 4)) {
+	if (!d || len < 8 || (memcmp(d, "GST1", 4) && memcmp(d, "GST2", 4))) {
 		sysLogPrintf(LOG_NOTE, "gestan: stage 0x%02x has no tile graph; its walls are all there for everybody", g_Vars.stagenum);
 		sysMemFree(d);
 		return;
 	}
 
 	numtiles = (s32)(((u32)d[4] << 24) | ((u32)d[5] << 16) | ((u32)d[6] << 8) | d[7]);
+	// GST2's points are 32 bits a coordinate (a level too wide for 16) and a
+	// 16-bit link, padded to 16 bytes; GST1's 16 bits a coordinate
+	wide = memcmp(d, "GST2", 4) == 0;
+	ptlen = wide ? 16 : 8;
 
 	for (o = 8; numtiles > 0 && o + 4 <= len; ) {
 		const s32 n = d[o + 3];
 
 		numpoints += n;
-		o += 4 + 8 * (u32)n;
+		o += 4 + ptlen * (u32)n;
 	}
 
 	if (numtiles <= 0 || o > len) {
@@ -361,17 +403,24 @@ static void stanBuild(void)
 		t->special = d[o + 2];
 		t->npts = d[o + 3];
 		t->first = numpoints;
-		t->xmin = t->zmin = 32767;
-		t->xmax = t->zmax = -32768;
+		t->xmin = t->zmin = 0x7fffffff;
+		t->xmax = t->zmax = -0x7fffffff;
 		o += 4;
 
-		for (s32 k = 0; k < t->npts; k++, o += 8) {
+		for (s32 k = 0; k < t->npts; k++, o += ptlen) {
 			struct stanpoint *p = &g_Stan.points[numpoints++];
 
-			p->x = (s16)stanBe16(d + o);
-			p->y = (s16)stanBe16(d + o + 2);
-			p->z = (s16)stanBe16(d + o + 4);
-			p->across = (s16)stanBe16(d + o + 6);
+			if (wide) {
+				p->x = (s32)stanBe32(d + o);
+				p->y = (s32)stanBe32(d + o + 4);
+				p->z = (s32)stanBe32(d + o + 8);
+				p->across = (s16)stanBe16(d + o + 12);
+			} else {
+				p->x = (s16)stanBe16(d + o);
+				p->y = (s16)stanBe16(d + o + 2);
+				p->z = (s16)stanBe16(d + o + 4);
+				p->across = (s16)stanBe16(d + o + 6);
+			}
 			p->climbwall = false;
 
 			// a link that climbs (GESTAN_CLIMBWALL): the conversion raised a

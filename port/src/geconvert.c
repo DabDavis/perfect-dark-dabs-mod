@@ -57,15 +57,201 @@
 #define DATA_ROM 0x21990
 #define DATA_VRAM 0x80020d90u
 #define FILES_AT 0x252c4
-#define IMAGES_AT 0x28570
-#define IMAGES_ROM 0x8f7df0
-#define NUM_IMAGES 2698
 #define FOG_AT 0x24080
 #define FOG_ROW 92
-#define PROPS_AT 0x19498
-#define NUM_PROPS 340
-#define CHRS_AT 0x1d080
-#define NUM_CHRS 80
+
+/**
+ * Where a ROM keeps the tables that are not where GoldenEye 007 (US) has them.
+ *
+ * GE Plus is built from GoldenEye 007 (US). The others are ROM hacks made on it
+ * with SubDrag's GoldenEye Setup Editor - "variants" here - whose code is
+ * GoldenEye's own patched in place: the data segment, the file table, the fog,
+ * level and special portal tables stay where they were, and what grew was
+ * moved, its loads repointed. Goldfinger 64 moved the prop and character
+ * tables into the top megabyte of an Expansion Pak (its boot takes 1 MB off
+ * osMemSize and copies three pieces of the ROM's tail there, `pieces`), gave
+ * the image table four-byte rows and a 23-bit size for its 3915 images, and
+ * moved the image bank past its files.
+ *
+ * Each table's address is the one the variant's code loads (the lui/addiu pair
+ * at the same code address as the US code's load of it - image_entries_load()
+ * at 7F000BD0 for the images, which also shows the rows' new width), and the
+ * pieces are what ares's RAM shows at the title against the ROM, page for page
+ * - measured 2026-10-02 (CLAUDE-notes/goldfinger64.md). romOpen() reads every
+ * row's header and name through them, so a row that does not fit fails there
+ * by name rather than converting rubbish.
+ *
+ * A variant converts to arenas only (variantLevels()), into a folder of its
+ * own beside GE Plus's: GE Plus is GoldenEye's ROM alone.
+ */
+struct rompiece {
+	uint32_t vram, rom, len;
+};
+
+// the raw extents g_MenuRaw names, in its order: ROM address and length
+#define NUM_MENU_RAW 8
+
+#define GE_HEAD_POOLS 2
+
+struct romlayout {
+	const char *name;   // in the log and in errors
+	const char *title;  // the header's name, its first characters
+	const char *code;   // the header's game code
+	uint8_t crc[8];     // the header's CRCs, which cover the code
+	uint32_t romsize;
+	int variant;
+	uint32_t images, imagesrom, numimages, imagestride, imagemask;
+	uint32_t props, numprops;
+	uint32_t chrs, numchrs;
+	struct rompiece pieces[3];
+	// what g_MenuRaw copies (the fonts, the sound and music banks, the
+	// folders' backdrop), each where the ROM's boot code loads it from
+	uint32_t raw[NUM_MENU_RAW][2];
+	// headHat_array: where a hat sits on each head chrRender() fits one to,
+	// the first such character and how many
+	uint32_t hats, hatfirst, hatcount;
+	// object_explosion_details: a prop's explosion and crumple seeds, a
+	// 14-byte row a prop
+	uint32_t explosions;
+	// solo_char_load()'s Bond (bondview2.c): the body and the head he wears
+	// in a mission by the outfit its setup names, CUFF_BLUE to CUFF_FOLDER -
+	// immediates in the code, which a variant changes in place
+	uint8_t bond[9][2];
+	// getPropForHeldItem() (player.c): the prop a hand item is held and
+	// dropped as, by item number, -1 for none - a switch compiled to a jump
+	// table, whose cases are immediates in the code, so read off the code
+	// rather than out of the ROM. A hack renumbers its items and the table
+	// with them (itemWeaponsBuild())
+	int16_t heldprops[32];
+	// gunRenderFirstPersonGunModels() (gunfire.c, 7F062CA8-7F062CD4): the
+	// six hand items drawn under its weapon envmap light and the camera's
+	// LookAt - immediates in the code a hack renumbers with its items. Any
+	// other gun keeps what the level loaded, the same LookAt and the level's
+	// GlobalLight, which is how a hack's reflecting gun off the list reads
+	uint8_t envmapitems[6];
+	// bodyChooseHead()'s pools (chraction.c): a guard whose record or spawn
+	// names head -1 - k draws from pool k, men then women, each list ended by
+	// 0 (no head is character 0). GoldenEye has the one pool, random_male_heads
+	// and random_female_heads in the data segment (RANDOM_HEADS_AT), and an
+	// empty row here reads them there; a hack that rewrote the function keeps
+	// its own in its code
+	uint8_t headpools[GE_HEAD_POOLS][2][16];
+	// monitorSetImageByNum() (propobj.c, 7F049C98): the word of the monitor
+	// programmes' block (GEMON_BLOCK_AT) each of the 52 starts at - a switch's
+	// cases through the jump table at 0x80052b98, each address an immediate in
+	// the code - and s_monitorimages, the pictures they index, where the ROM's
+	// global image table holds it. An empty row is GoldenEye's own
+	// (gemonitortable.h); a hack that rewrote its programmes in the block kept
+	// the block's place and length and moved where each one starts
+	uint16_t monprograms[GEMON_NUM_PROGRAMS];
+	uint32_t monimages;
+};
+
+static const struct romlayout g_Layouts[] = {
+	{
+		"GoldenEye 007 (US)", "GOLDENEYE", "NGEE",
+		{ 0xdc, 0xbc, 0x50, 0xd1, 0x09, 0xfd, 0x1a, 0xa3 },
+		US_ROM_SIZE, 0,
+		0x80049300, 0x8f7df0, 2698, 8, 0xffffff,
+		0x8003a228, 340,
+		0x8003de10, 80,
+		{ { 0 } },
+		{
+			{ 0x2e63f0, 0x24b0 }, { 0x2e88a0, 0x3540 },
+			{ 0x3b4450, 0x43a0 }, { 0x3b87f0, 0x60fa0 }, { 0x419790, 0x1eed0 },
+			{ 0x2ebde0, 0x5bc0 }, { 0x2f19a0, 0xc2ab0 },
+			{ 0x2a4d50, 107890 },
+		},
+		0x8003e464, 42, 28,
+		0x8003b224,
+		// BODY_Formal_Wear and Brosnan's default head, his tuxedo and its
+		// head, the jungle fatigues, the boiler suit, the parka; the other
+		// Bonds' cuffs and the folder's Brosnan wear his tuxedo
+		{ { 23, 75 }, { 5, 78 }, { 24, 76 }, { 22, 74 }, { 25, 77 }, { 5, 78 }, { 5, 78 }, { 5, 78 }, { 5, 78 } },
+		{
+			-1, -1, 186, 209, 191, 204, 205, 193, 184, 195, 189, 206, 194, 188, 197, 192,
+			207, 210, 190, 208, 191, 191, 187, -1, 185, 211, 196, 201, 200, 199, -1, -1,
+		},
+		// the golden gun, the magnum, the knife, the throwing knife and the
+		// silver and gold PP7s
+		{ 19, 18, 2, 3, 20, 21 },
+	},
+	{
+		// version 1.0 (2017)
+		"Goldfinger 64", "GOLDFINGER", "NGFE",
+		{ 0xb2, 0x24, 0x27, 0x48, 0xff, 0xbd, 0x61, 0xda },
+		0x1800000, 1,
+		0x80049300, 0xeae714, 3915, 4, 0x7fffff,
+		0x8070b400, 416,
+		0x80700fc0, 126,
+		{
+			{ 0x80700000, 0x17fd000, 0x3000 }, // characters
+			{ 0x80703000, 0x17f8800, 0x4800 }, // head hats on
+			{ 0x80708000, 0x17f0000, 0x8800 }, // props
+		},
+		// its own sound effects (the wave table a quarter again GoldenEye's),
+		// instruments, sequences and folders' backdrop; the fonts are
+		// GoldenEye's, moved
+		{
+			{ 0x3115e0, 0x24b0 }, { 0x313a90, 0x3540 },
+			{ 0x40fd70, 0x43a0 }, { 0x414110, 0x60fa0 }, { 0x4750b0, 0x259c0 },
+			{ 0x316fd0, 0x5bc0 }, { 0x31cb90, 0xf31e0 },
+			{ 0x2a4d50, 174006 },
+		},
+		// every character may wear a hat (chrRender()'s range is 0-125)
+		0x80703000, 0, 126,
+		// a row for each of its 416 props
+		0x8070f028,
+		// its Bond is one head (74, CheadbondZ) on a body a mission: golf,
+		// tuxedo, alpine, sneaking suit, ranch, Fort Knox and the folder's
+		// CsoloZ (solo_char_load() at 7F079D94 against GoldenEye's)
+		{ { 9, 74 }, { 8, 74 }, { 20, 74 }, { 22, 74 }, { 25, 74 }, { 37, 74 }, { 37, 74 }, { 37, 74 }, { 5, 74 } },
+		// its golf club (237) and two Smith & Wessons (231, 230) its own
+		// props, its Luger (7) and P38 (8) held as its PPK; the jump table at
+		// 0x8005762c reordered with the items (7F09B244)
+		{
+			-1, -1, 237, 209, 191, 204, 205, 191, 191, 184, 195, 193, 189, 206, 188, 192,
+			207, 194, 197, 208, 210, 231, 230, 190, 187, 185, 211, 196, 201, 200, 199, -1,
+		},
+		// its M1 Garand, Golden Magnum, golf club, Oddjob's hat and two Smith
+		// & Wessons; its PPKs, Colt, Luger and P38 reflect off the level's
+		// LookAt, dark metal with one highlight
+		{ 19, 23, 2, 3, 22, 21 },
+		// its bodyChooseHead() (7F0235AC) takes the record's head: -1 draws
+		// from eleven men (7F023698) or six women (7F023690), -2 from six
+		// Korean men (7F0236B0), each from a start its level init draws
+		// (7F000F88, the bytes at 0x8002ce38); the data segment's
+		// random_male_heads it left behind, sixteen of them head 67
+		{
+			{ { 64, 105, 95, 96, 99, 100, 103, 104, 115, 106, 111 }, { 85, 86, 87, 88, 89, 90 } },
+			{ { 65, 66, 67, 94, 112, 113 }, { 0 } },
+		},
+		// its programmes rewritten in GoldenEye's block (15% of their words
+		// GoldenEye's), ending at word 969 and the rest of the block yields
+		// (0x0c); nine of its pictures changed (two new images, 2948 and
+		// 2949, and seven another size or format), the table where
+		// GoldenEye's is
+		{
+			  0,  35,  69, 113, 118, 141, 150, 171, 180, 185, 194, 199, 204, 300, 326,  82,
+			224, 355, 376, 535, 555, 563, 588, 601, 634, 639, 648, 653, 658, 665, 672, 679,
+			686, 693, 700, 714, 719, 724, 729, 750, 757, 764, 771, 801, 845, 855, 875, 894,
+			913, 927, 941, 955,
+		},
+		0x29debc,
+	},
+};
+
+static const struct romlayout *g_Layout = &g_Layouts[0];
+
+#define IMAGES_AT (g_Layout->images - DATA_VRAM)
+#define IMAGES_ROM (g_Layout->imagesrom)
+#define NUM_IMAGES ((int32_t)g_Layout->numimages)
+#define PROPS_AT (g_Layout->props - DATA_VRAM)
+#define NUM_PROPS ((size_t)g_Layout->numprops)
+#define MAX_PROPS 1024 // NUM_REMAKE_MODELS, the slots a stage's models block fills
+#define CHRS_AT (g_Layout->chrs - DATA_VRAM)
+#define NUM_CHRS ((size_t)g_Layout->numchrs)
+#define MAX_CHRS 160
 
 /**
  * `gitem_structs`, the models a hand holds: 56-byte rows from 0x12b94, the
@@ -124,22 +310,23 @@ static const struct { uint32_t first, count; } g_MenuImages[] = {
 	{ 4, 1 },
 };
 
-static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
-	{ "fontbankgothic.bin", 0x2e63f0, 0x24b0 },
-	{ "fontzurichbold.bin", 0x2e88a0, 0x3540 },
+// each where the ROM's layout says (romlayout.raw, in this order)
+static const char *const g_MenuRaw[NUM_MENU_RAW] = {
+	"fontbankgothic.bin",
+	"fontzurichbold.bin",
 	// its music: the instrument bank, and the sequence table ({u16 count, pad,
 	// then u32 offset, u16 inflated, u16 zipped} a sequence) with the sequences
-	{ "instrumentsctl", 0x3b4450, 0x43a0 },
-	{ "instrumentstbl", 0x3b87f0, 0x60fa0 },
-	{ "sequences", 0x419790, 0x1eed0 },
+	"instrumentsctl",
+	"instrumentstbl",
+	"sequences",
 	// its sound effects: the sfx bank and its wave table, which a sound is
 	// appended out of when something of GoldenEye's plays one (gesfx.c)
-	{ "sfxctl", 0x2ebde0, 0x5bc0 },
-	{ "sfxtbl", 0x2f19a0, 0xc2ab0 },
+	"sfxctl",
+	"sfxtbl",
 	// and the gun barrel's sniper-sight backdrop, the folder screens' 440x299
 	// 8-bit background run-length encoded ({u16 w, u16 h, six bytes, then
 	// count/value pairs}, rle.c's rle_expand_8bit)
-	{ "introbg.bin", 0x2a4d50, 107890 },
+	"introbg.bin",
 };
 
 // the gun barrel's blood, in the data segment rather than the ROM: the frames
@@ -150,9 +337,14 @@ static const struct { const char *name; size_t at, size; } g_MenuRaw[] = {
 // headHat_array_8003E464: where a hat sits on each of GoldenEye's 28 random
 // heads, a row per hat type (beret, side cap, peaked, helmet, fur, moon) of
 // an offset and a scale in the hat's own space (chr.c's chrRender()), which
-// the port applies as GoldenEye does (gexPlusHeadHat())
-#define HEAD_HATS_AT 0x1d6d4
-#define HEAD_HATS_SIZE (28 * 6 * 24)
+// the port applies as GoldenEye does (gexPlusHeadHat()). Where it is and
+// which characters it covers is the layout's (romlayout.hats): a variant's
+// covers every character. menu/headhats.bin is "GEH1", the first character
+// and how many as u16s, then the rows.
+#define HEAD_HAT_ROW (6 * 24)
+
+// random_male_heads, then random_female_heads, each ended by -1 (chr.c)
+#define RANDOM_HEADS_AT 0x8002cdb8u
 
 /**
  * The missions' text, in GoldenEye's mission order: each mission's briefing file
@@ -606,9 +798,11 @@ struct prop {
 	uint32_t skeleton, flags;
 };
 
-static struct prop g_Props[NUM_PROPS];
-static struct prop g_Chrs[NUM_CHRS];
+static struct prop g_Props[MAX_PROPS];
+static struct prop g_Chrs[MAX_CHRS];
 static struct prop g_Items[NUM_ITEMS];
+// whether g_ItemWeapon is this ROM's yet (soloItemWeapon())
+static int g_ItemWeaponsBuilt;
 
 static const char *dataString(uint32_t ptr)
 {
@@ -648,14 +842,29 @@ static int romToZ64(uint8_t *rom, size_t len)
 	return 0;
 }
 
+// the header's name and game code, then its CRCs, which cover the code
+static int headerIs(const uint8_t *h, const struct romlayout *l)
+{
+	return !memcmp(h + 0x20, l->title, strlen(l->title))
+		&& !memcmp(h + 0x3b, l->code, 4)
+		&& !memcmp(h + 0x10, l->crc, sizeof(l->crc));
+}
+
 static int headerIsUs(const uint8_t *h)
 {
-	// the header's name and game code, then its CRCs, which cover the code
-	static const uint8_t crc[8] = { 0xdc, 0xbc, 0x50, 0xd1, 0x09, 0xfd, 0x1a, 0xa3 };
+	return headerIs(h, &g_Layouts[0]);
+}
 
-	return !memcmp(h + 0x20, "GOLDENEYE", 9)
-		&& !memcmp(h + 0x3b, "NGEE", 4)
-		&& !memcmp(h + 0x10, crc, sizeof(crc));
+// the layout of a ROM in .z64 order, or NULL for one this does not know
+static const struct romlayout *layoutOf(const uint8_t *rom, size_t len)
+{
+	for (size_t i = 0; i < sizeof(g_Layouts) / sizeof(g_Layouts[0]); ++i) {
+		if (len == g_Layouts[i].romsize && headerIs(rom, &g_Layouts[i])) {
+			return &g_Layouts[i];
+		}
+	}
+
+	return NULL;
 }
 
 int geconvertHeaderIsGoldenEyeUs(const uint8_t *head, size_t len)
@@ -675,6 +884,52 @@ int geconvertIsGoldenEyeUs(uint8_t *rom, size_t len)
 	return len == US_ROM_SIZE && romToZ64(rom, len) && headerIsUs(rom);
 }
 
+const char *geconvertHeaderVariantName(const uint8_t *head, size_t len)
+{
+	uint8_t h[0x40];
+
+	if (len < sizeof(h)) {
+		return NULL;
+	}
+
+	memcpy(h, head, sizeof(h));
+
+	if (!romToZ64(h, sizeof(h))) {
+		return NULL;
+	}
+
+	for (size_t i = 0; i < sizeof(g_Layouts) / sizeof(g_Layouts[0]); ++i) {
+		if (g_Layouts[i].variant && headerIs(h, &g_Layouts[i])) {
+			return g_Layouts[i].name;
+		}
+	}
+
+	return NULL;
+}
+
+const char *geconvertVariantNameAt(int i)
+{
+	for (size_t k = 0; k < sizeof(g_Layouts) / sizeof(g_Layouts[0]); ++k) {
+		if (g_Layouts[k].variant && i-- == 0) {
+			return g_Layouts[k].name;
+		}
+	}
+
+	return NULL;
+}
+
+const char *geconvertVariantName(uint8_t *rom, size_t len)
+{
+	const struct romlayout *l;
+
+	if (!romToZ64(rom, len)) {
+		return NULL;
+	}
+
+	l = layoutOf(rom, len);
+	return l && l->variant ? l->name : NULL;
+}
+
 static const struct romfile *romFind(const char *stem)
 {
 	for (size_t i = 0; i < g_NumFiles; ++i) {
@@ -684,6 +939,16 @@ static const struct romfile *romFind(const char *stem)
 	}
 	fail("%s is not in the ROM", stem);
 	return NULL;
+}
+
+static int romHas(const char *stem)
+{
+	for (size_t i = 0; i < g_NumFiles; ++i) {
+		if (!strcmp(g_Files[i].stem, stem)) {
+			return 1;
+		}
+	}
+	return 0;
 }
 
 // a file by name: stored bytes for a bg file, inflated for the rest
@@ -743,6 +1008,11 @@ static int g_RomPatchesOn;
 /** Whether a fix touches the file. */
 static int romPatched(const char *stem)
 {
+	// the Community Edition mends GoldenEye's own data
+	if (g_Layout->variant) {
+		return 0;
+	}
+
 	for (size_t i = 0; i < sizeof(g_RomPatches) / sizeof(g_RomPatches[0]); ++i) {
 		if (!strcmp(stem, g_RomPatches[i].stem)) {
 			return 1;
@@ -816,6 +1086,30 @@ static int romOpen(void)
 
 	g_Data = data.v;
 	g_DataLen = data.n;
+
+	// A variant's tables in the Expansion Pak's top megabyte: the data segment
+	// is grown to reach them, so a pointer into them reads as one into the
+	// data segment does (ptr - DATA_VRAM)
+	for (size_t i = 0; i < sizeof(g_Layout->pieces) / sizeof(g_Layout->pieces[0]); ++i) {
+		const struct rompiece *p = &g_Layout->pieces[i];
+		const size_t end = p->vram - DATA_VRAM + p->len;
+
+		if (!p->len) {
+			continue;
+		}
+
+		if (p->vram < DATA_VRAM + data.n || (size_t)p->rom + p->len > g_RomLen) {
+			fail("%s's piece at %08x does not fit", g_Layout->name, (unsigned)p->vram);
+		}
+
+		if (end > g_DataLen) {
+			g_Data = gcRealloc(g_Data, end);
+			memset(g_Data + g_DataLen, 0, end - g_DataLen);
+			g_DataLen = end;
+		}
+
+		memcpy(g_Data + (p->vram - DATA_VRAM), g_Rom + p->rom, p->len);
+	}
 
 	while (FILES_AT + 12 * (rows + 1) <= g_DataLen && be32(g_Data, FILES_AT + 12 * rows) == rows) {
 		++rows;
@@ -907,7 +1201,10 @@ static int romOpen(void)
 		p->numtextures = bes16(g_Data, h + 22);
 	}
 
-	if (!g_Items[ITEM_WATCH].file || strcmp(g_Items[ITEM_WATCH].file, ITEM_WATCH_FILE)) {
+	g_ItemWeaponsBuilt = 0;
+
+	// (the watch is GE Plus's pause: a variant's arenas do not take it)
+	if (!g_Layout->variant && (!g_Items[ITEM_WATCH].file || strcmp(g_Items[ITEM_WATCH].file, ITEM_WATCH_FILE))) {
 		fail("item %d is %s and not %s", (int)ITEM_WATCH,
 			g_Items[ITEM_WATCH].file ? g_Items[ITEM_WATCH].file : "nothing", ITEM_WATCH_FILE);
 	}
@@ -923,11 +1220,12 @@ static const uint8_t *romImage(int32_t num, size_t *len)
 		return NULL;
 	}
 
+	// a row's top bits are the surface (getexsurface.c), the rest its size
 	for (int32_t k = 0; k < num; ++k) {
-		at += be32(g_Data, IMAGES_AT + 8 * k) & 0xffffff;
+		at += be32(g_Data, IMAGES_AT + g_Layout->imagestride * k) & g_Layout->imagemask;
 	}
 
-	*len = be32(g_Data, IMAGES_AT + 8 * num) & 0xffffff;
+	*len = be32(g_Data, IMAGES_AT + g_Layout->imagestride * num) & g_Layout->imagemask;
 	return at + *len <= g_RomLen ? g_Rom + at : NULL;
 }
 
@@ -949,27 +1247,26 @@ static void fogRowValues(const uint8_t *d, double *r)
 	for (int i = 0; i < 4; ++i) r[26 + i] = bef32(d, 72 + 4 * i);
 }
 
-// a level's one-player fog row (the 30 values after the id, as bgfog.c lists them)
+// a level's one-player fog row (the 30 values after the id, as bgfog.c lists them):
+// fogLoadLevelEnvironment() takes the first row with the id before the id-0 end
+// row, passing over any other - Goldfinger 64 blanked GE's Runway +100 row to
+// 0xffffffff, and the readers stopping there lost ten of its missions' skies
 static int romFogRow(uint32_t levelid, double *r)
 {
-	int found = 0;
-
 	for (size_t o = FOG_AT; o + FOG_ROW <= g_DataLen; o += FOG_ROW) {
 		const uint32_t lid = be32(g_Data, o);
 
-		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
+		if (lid == 0 && o > FOG_AT) {
 			break;
 		}
 
-		if (lid != levelid) {
-			continue;
+		if (lid == levelid) {
+			fogRowValues(g_Data + o + 4, r);
+			return 1;
 		}
-
-		fogRowValues(g_Data + o + 4, r);
-		found = 1;
 	}
 
-	return found;
+	return 0;
 }
 
 // A level's second sky (ENVIRONMENTDATA_ALT, id + 100): bgfog.c's
@@ -983,7 +1280,7 @@ static int romFogAltRow(uint32_t levelid, double *r)
 	for (size_t o = FOG_AT; o + 2 * FOG_ROW <= g_DataLen; o += FOG_ROW) {
 		const uint32_t lid = be32(g_Data, o);
 
-		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
+		if (lid == 0 && o > FOG_AT) {
 			break;
 		}
 
@@ -1007,7 +1304,7 @@ static int romFogCinemaRow(uint32_t levelid, double *r)
 	for (size_t o = FOG_AT; o + FOG_ROW <= g_DataLen; o += FOG_ROW) {
 		const uint32_t lid = be32(g_Data, o);
 
-		if ((lid == 0 && o > FOG_AT) || lid >= 0x10000) {
+		if (lid == 0 && o > FOG_AT) {
 			break;
 		}
 
@@ -1065,10 +1362,6 @@ static int romFoglessRow(uint32_t levelid, double *r)
 
 		if (lid == 0 && o > FOG_AT + FOG_ROW) {
 			break;
-		}
-
-		if (lid >= 0x10000) {
-			return 0;
 		}
 	}
 
@@ -1136,7 +1429,57 @@ static const uint16_t g_TexRemap[][2] = {
 	{3492, 2928}, {3493, 2929},
 };
 
-static uint32_t texRemap(uint32_t image)
+/*
+ * A variant's images run on past GoldenEye's last (Goldfinger's to 3914), over
+ * the numbers g_TexRemap moves GoldenEye's to, so a variant moves its own:
+ * an image on a number Perfect Dark's config tables load (a g_TexRemap source)
+ * takes the next free number past its own last image, at its first use. Only
+ * the images its arenas use are moved, and the room there is the 12 bits a
+ * texture command holds. No image the game's own code fetches by number
+ * (geimpact.c, gehitpuff.c, the sky and water) is one of those, so the runtime's
+ * geconvertTexRemap() is right for a variant's levels as well.
+ */
+static uint16_t g_VariantTex[4096];
+static uint32_t g_VariantTexNext;
+
+static int texReserved(uint32_t num)
+{
+	for (size_t i = 0; i < sizeof(g_TexRemap) / sizeof(g_TexRemap[0]); ++i) {
+		if (g_TexRemap[i][0] == num) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static uint32_t variantTexRemap(uint32_t image)
+{
+	uint32_t num;
+
+	if (image >= 4096 || !texReserved(image)) {
+		return image;
+	}
+
+	if (g_VariantTex[image]) {
+		return g_VariantTex[image];
+	}
+
+	num = g_VariantTexNext > (uint32_t)NUM_IMAGES ? g_VariantTexNext : (uint32_t)NUM_IMAGES;
+
+	while (num < 4096 && texReserved(num)) {
+		num++;
+	}
+
+	if (num >= 4096) {
+		fail("%s uses more images on reserved texture numbers than there are numbers to move them to", g_Layout->name);
+	}
+
+	g_VariantTex[image] = (uint16_t)num;
+	g_VariantTexNext = num + 1;
+	return num;
+}
+
+static uint32_t usTexRemap(uint32_t image)
 {
 	for (size_t i = 0; i < sizeof(g_TexRemap) / sizeof(g_TexRemap[0]); ++i) {
 		if (g_TexRemap[i][0] == image) {
@@ -1146,9 +1489,14 @@ static uint32_t texRemap(uint32_t image)
 	return image;
 }
 
+static uint32_t texRemap(uint32_t image)
+{
+	return g_Layout->variant ? variantTexRemap(image) : usTexRemap(image);
+}
+
 uint32_t geconvertTexRemap(uint32_t image)
 {
-	return texRemap(image);
+	return usTexRemap(image);
 }
 
 uint32_t geconvertTexUnremap(uint32_t num)
@@ -1227,6 +1575,12 @@ struct level {
 	uint32_t levelid;
 	const char *name;
 	int bikes;
+	// the fog's visibility (levelVisibility()): 0 for GoldenEye's own rule
+	double visibility;
+	// a variant's: whether its arena table names the level (levelIsArena()),
+	// and the picture it shows the arena by (0 for none)
+	int arena;
+	uint32_t picture;
 };
 
 static const struct level g_Levels[] = {
@@ -1268,6 +1622,12 @@ static const struct level g_Levels[] = {
 // which is only GoldenEye's credits
 static int levelIsArena(const struct level *lv)
 {
+	// a variant's levels are its arenas' and its missions', and only the
+	// first are arenas (variantLevels())
+	if (g_Layout->variant) {
+		return lv->arena;
+	}
+
 	return strcmp(lv->key, "len") != 0;
 }
 
@@ -1717,6 +2077,8 @@ static double stanClimb(const tiles *stan, size_t i, int k, double inv)
  * which is how the port tells which tile a wall belongs to. geconvert.py's
  * write_stan().
  */
+static int tilesAreWide(const tiles *stan, double ls, const double *offset);
+
 static buf writeStan(const tiles *stan, double levelscale, const double *offset)
 {
 	const double inv = 1.0 / levelscale;
@@ -1726,7 +2088,11 @@ static buf writeStan(const tiles *stan, double levelscale, const double *offset)
 		fail("%d tiles, and a link has fourteen bits", (int)stan->n);
 	}
 
-	bufPut(&out, (const uint8_t *)"GST1", 4);
+	// GST2 where the level is too wide for 16-bit points (tilesAreWide()):
+	// 32 bits a coordinate, the link and two bytes of padding
+	const int wide = tilesAreWide(stan, levelscale, offset);
+
+	bufPut(&out, (const uint8_t *)(wide ? "GST2" : "GST1"), 4);
 	bufU32(&out, (uint32_t)stan->n);
 
 	for (size_t i = 0; i < stan->n; ++i) {
@@ -1752,10 +2118,18 @@ static buf writeStan(const tiles *stan, double levelscale, const double *offset)
 				nb |= STAN_CLIMBWALL;
 			}
 
-			for (int c = 0; c < 3; ++c) {
-				bufU16(&out, (uint16_t)s16(a[c]));
+			if (wide) {
+				for (int c = 0; c < 3; ++c) {
+					bufU32(&out, (uint32_t)(int32_t)rnd(a[c]));
+				}
+				bufU16(&out, (uint16_t)(int16_t)nb);
+				bufU16(&out, 0);
+			} else {
+				for (int c = 0; c < 3; ++c) {
+					bufU16(&out, (uint16_t)s16(a[c]));
+				}
+				bufU16(&out, (uint16_t)(int16_t)nb);
 			}
-			bufU16(&out, (uint16_t)(int16_t)nb);
 		}
 	}
 
@@ -1779,6 +2153,7 @@ static int isLightImage(uint32_t image)
 
 struct outvtx {
 	int16_t x, y, z;
+	uint8_t f;
 	uint8_t c;
 	int16_t s, t;
 };
@@ -1794,6 +2169,7 @@ static void convertList(const buf *dl, const buf *vtx, outvtxs *outv, u32s *outc
 {
 	int32_t slots[32];
 	int64_t curtex = -1;
+	int lit = 0;
 
 	for (int i = 0; i < 32; ++i) {
 		slots[i] = -1;
@@ -1802,6 +2178,14 @@ static void convertList(const buf *dl, const buf *vtx, outvtxs *outv, u32s *outc
 	for (size_t o = 0; o + 8 <= dl->n; o += 8) {
 		uint32_t w0 = be32(dl->v, o), w1 = be32(dl->v, o + 4);
 		const uint32_t op = w0 >> 24;
+
+		// G_SETGEOMETRYMODE / G_CLEARGEOMETRYMODE: whether the vertices
+		// loaded next are lit (G_LIGHTING), the RSP lighting them as they load
+		if (op == 0xb7 && (w1 & 0x20000)) {
+			lit = 1;
+		} else if (op == 0xb6 && (w1 & 0x20000)) {
+			lit = 0;
+		}
 
 		if (op == 0x04) {
 			const uint32_t n = ((w0 >> 20) & 0xf) + 1;
@@ -1820,6 +2204,9 @@ static void convertList(const buf *dl, const buf *vtx, outvtxs *outv, u32s *outc
 				v.x = bes16(vtx->v, at);
 				v.y = bes16(vtx->v, at + 2);
 				v.z = bes16(vtx->v, at + 4);
+				// A lit vertex's colour is its normal: flagged, so the room's
+				// light leaves it as it is (roomHighlight())
+				v.f = lit ? 0x01 : 0;
 				v.c = (uint8_t)(i << 2);
 				v.s = bes16(vtx->v, at + 8);
 				v.t = bes16(vtx->v, at + 10);
@@ -2209,6 +2596,7 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 	vpad = outv.n & 1;
 	if (vpad) {
 		struct outvtx last = outv.v[outv.n - 1];
+		last.f = 0;
 		last.c = 0;
 		last.s = 0;
 		last.t = 0;
@@ -2252,7 +2640,7 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 		set16(body.v, o, (uint16_t)v->x);
 		set16(body.v, o + 2, (uint16_t)v->y);
 		set16(body.v, o + 4, (uint16_t)v->z);
-		body.v[o + 6] = 0;
+		body.v[o + 6] = v->f;
 		body.v[o + 7] = v->c;
 		set16(body.v, o + 8, (uint16_t)v->s);
 		set16(body.v, o + 10, (uint16_t)v->t);
@@ -2915,8 +3303,10 @@ static int32_t (*roomTileBounds(const tiles *stan, int numrooms, double ls, cons
 		for (int k = 0; k < t->npts; ++k) {
 			int32_t p[3];
 
+			// 32 bits: a variant's level can be wider than 16 hold, and the
+			// box is stored relative to its room (writeBg())
 			for (int c = 0; c < 3; ++c) {
-				p[c] = s16(t->pts[k][c] * inv - offset[c]);
+				p[c] = (int32_t)rnd(t->pts[k][c] * inv - offset[c]);
 			}
 
 			for (int c = 0; c < 3; ++c) {
@@ -3067,8 +3457,36 @@ static void wallSpan(const double (*world)[3], const struct tilegeo *geo, size_t
 	*belowout = below;
 }
 
+/**
+ * Whether a level's tiles, and the walls writeTiles() raises over and under
+ * them, fit Perfect Dark's 16-bit tile vertices. GoldenEye's all do; a
+ * variant's need not - Goldfinger's Alpine Highway is drawn at a scale of 0.2
+ * and runs 233,000 units across. A level that does not fit is written with
+ * float vertices (GEOTYPE_TILE_F, which Perfect Dark's collision reads beside
+ * the 16-bit kind) and a graph of 32-bit points (writeStan()'s GST2).
+ */
+static int tilesAreWide(const tiles *stan, double ls, const double *offset)
+{
+	const double inv = 1.0 / ls;
+
+	for (size_t i = 0; i < stan->n; ++i) {
+		for (int k = 0; k < stan->v[i].npts; ++k) {
+			for (int c = 0; c < 3; ++c) {
+				const double v = stan->v[i].pts[k][c] * inv - offset[c];
+				// with room for the walls over and under a floor
+				if (v < -30000.0 || v > 30000.0) {
+					return 1;
+				}
+			}
+		}
+	}
+
+	return 0;
+}
+
 static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *offset, int *numwalls)
 {
+	const int wide = tilesAreWide(stan, ls, offset);
 	const double inv = 1.0 / ls;
 	buf *bodies = gcAlloc((numrooms + 1) * sizeof(*bodies));
 	buf out = {0};
@@ -3128,7 +3546,7 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 	buf *b = &bodies[t->room]; \
 	int32_t ints[15][3]; \
 	int mn[3], mx[3]; \
-	for (int k = 0; k < (N); ++k) for (int c = 0; c < 3; ++c) ints[k][c] = s16((P)[k][c]); \
+	for (int k = 0; k < (N); ++k) for (int c = 0; c < 3; ++c) ints[k][c] = wide ? (int32_t)rnd((P)[k][c]) : s16((P)[k][c]); \
 	for (int c = 0; c < 3; ++c) { \
 		mn[c] = mx[c] = 0; \
 		for (int k = 1; k < (N); ++k) { \
@@ -3136,11 +3554,17 @@ static buf writeTiles(const tiles *stan, int numrooms, double ls, const double *
 			if (ints[k][c] > ints[mx[c]][c]) mx[c] = k; \
 		} \
 	} \
-	bufU8(b, 0); bufU8(b, (N)); bufU16(b, (FLAGS)); bufU16(b, 0); \
+	bufU8(b, wide ? 1 : 0); bufU8(b, (N)); bufU16(b, (FLAGS)); bufU16(b, 0); \
 	for (int c = 0; c < 3; ++c) bufU8(b, mn[c]); \
 	for (int c = 0; c < 3; ++c) bufU8(b, mx[c]); \
 	bufU16(b, (COL)); \
-	for (int k = 0; k < (N); ++k) for (int c = 0; c < 3; ++c) bufU16(b, (uint16_t)ints[k][c]); \
+	if (wide) { \
+		/* GEOTYPE_TILE_F: two bytes to the floats' alignment, then a coord a vertex */ \
+		bufU16(b, 0); \
+		for (int k = 0; k < (N); ++k) for (int c = 0; c < 3; ++c) bufF32(b, (double)ints[k][c]); \
+	} else { \
+		for (int k = 0; k < (N); ++k) for (int c = 0; c < 3; ++c) bufU16(b, (uint16_t)ints[k][c]); \
+	} \
 } while (0)
 
 		// The tile's own colour, which GoldenEye shades an object, a door, a
@@ -4650,6 +5074,11 @@ static int revisionSetup(const char *stem, const buf *us, buf *out)
 	buf f = {0};
 	int changes = 0, missed = 0;
 
+	// (GoldenEye's own, as revisionPortals())
+	if (g_Layout->variant) {
+		return 0;
+	}
+
 	bufPut(&f, us->v, us->n);
 
 	for (size_t i = 0; i < sizeof(g_RevWords) / sizeof(g_RevWords[0]); ++i) {
@@ -4793,6 +5222,12 @@ static int revisionPortals(const struct level *lv, const struct bg *bg, uint32_t
 {
 	int n = 0;
 
+	// GoldenEye's own cartridges: a variant reuses GoldenEye's file names for
+	// its own levels
+	if (g_Layout->variant) {
+		return 0;
+	}
+
 	for (size_t i = 0; i < sizeof(g_RevPortals) / sizeof(g_RevPortals[0]); ++i) {
 		const uint32_t p = g_RevPortals[i].portal;
 
@@ -4815,30 +5250,37 @@ static int revisionPortals(const struct level *lv, const struct bg *bg, uint32_t
  * level they stand on and the setup file that is the mission. Surface and
  * Bunker are two missions each on one level.
  */
-static const struct { const char *key, *setup, *name; } g_Missions[] = {
-	{ "dam",   "UsetupdamZ",       "Dam" },
-	{ "ark",   "UsetuparkZ",       "Facility" },
-	{ "run",   "UsetuprunZ",       "Runway" },
-	{ "sevx",  "UsetupsevxZ",      "Surface" },
-	{ "sev",   "UsetupsevbunkerZ", "Bunker" },
-	{ "silo",  "UsetupsiloZ",      "Silo" },
-	{ "dest",  "UsetupdestZ",      "Frigate" },
-	{ "sevxb", "UsetupsevxbZ",     "Surface 2" },
-	{ "sevb",  "UsetupsevbZ",      "Bunker 2" },
-	{ "stat",  "UsetupstatueZ",    "Statue Park" },
-	{ "arch",  "UsetuparchZ",      "Archives" },
-	{ "pete",  "UsetuppeteZ",      "Streets" },
-	{ "depo",  "UsetupdepoZ",      "Depot" },
-	{ "tra",   "UsetuptraZ",       "Train" },
-	{ "jun",   "UsetupjunZ",       "Jungle" },
-	{ "arec",  "UsetupcontrolZ",   "Control" },
-	{ "cave",  "UsetupcaveZ",      "Caverns" },
-	{ "crad",  "UsetupcradZ",      "Cradle" },
-	{ "azt",   "UsetupaztZ",       "Aztec" },
-	{ "cryp",  "UsetupcrypZ",      "Egyptian" },
+// a mission: its level's key, its setup, its name and its number in
+// GoldenEye's mission order (what the missions block and the game call it)
+struct mission {
+	const char *key, *setup, *name;
+	int num;
+};
+
+static const struct mission g_Missions[] = {
+	{ "dam",   "UsetupdamZ",       "Dam", 0 },
+	{ "ark",   "UsetuparkZ",       "Facility", 1 },
+	{ "run",   "UsetuprunZ",       "Runway", 2 },
+	{ "sevx",  "UsetupsevxZ",      "Surface", 3 },
+	{ "sev",   "UsetupsevbunkerZ", "Bunker", 4 },
+	{ "silo",  "UsetupsiloZ",      "Silo", 5 },
+	{ "dest",  "UsetupdestZ",      "Frigate", 6 },
+	{ "sevxb", "UsetupsevxbZ",     "Surface 2", 7 },
+	{ "sevb",  "UsetupsevbZ",      "Bunker 2", 8 },
+	{ "stat",  "UsetupstatueZ",    "Statue Park", 9 },
+	{ "arch",  "UsetuparchZ",      "Archives", 10 },
+	{ "pete",  "UsetuppeteZ",      "Streets", 11 },
+	{ "depo",  "UsetupdepoZ",      "Depot", 12 },
+	{ "tra",   "UsetuptraZ",       "Train", 13 },
+	{ "jun",   "UsetupjunZ",       "Jungle", 14 },
+	{ "arec",  "UsetupcontrolZ",   "Control", 15 },
+	{ "cave",  "UsetupcaveZ",      "Caverns", 16 },
+	{ "crad",  "UsetupcradZ",      "Cradle", 17 },
+	{ "azt",   "UsetupaztZ",       "Aztec", 18 },
+	{ "cryp",  "UsetupcrypZ",      "Egyptian", 19 },
 	// not in the folder: the credits GoldenEye plays when the Cradle is
 	// finished (gexfront.c, gecredits.c)
-	{ "len",   "UsetuplenZ",       "Cuba" },
+	{ "len",   "UsetuplenZ",       "Cuba", 20 },
 };
 
 #define NUM_MISSIONS (sizeof(g_Missions) / sizeof(g_Missions[0]))
@@ -4945,14 +5387,276 @@ static uint32_t soloGadgetWeapon(uint32_t item)
 	return 0;
 }
 
-/** A GoldenEye item id as the weapon Perfect Dark equips for it. */
-static uint32_t soloItemWeapon(uint32_t item)
+/** A GoldenEye item id as the weapon Perfect Dark equips for it, by GoldenEye's own numbering. */
+static uint32_t usItemWeapon(uint32_t item)
 {
 	if (soloGadgetWeapon(item)) {
 		return soloGadgetWeapon(item);
 	}
 
 	return item < sizeof(g_GeItemWeapon) ? g_GeItemWeapon[item] : 0;
+}
+
+/**
+ * GoldenEye's hand items' files by item number (gitem_structs), ITEM_FIST to
+ * ITEM_TASER: what a hack's table is matched against (itemWeaponsBuild()).
+ */
+static const char *const g_GeItemFiles[32] = {
+	NULL, "GfistZ", "GknifeZ", "GthrowknifeZ", "GwppkZ", "GwppksilZ", "Gtt33Z", "GskorpionZ",
+	"Gak47Z", "GuziZ", "Gmp5kZ", "Gmp5ksilZ", "GspectreZ", "Gm16Z", "Gfnp90Z", "GshotgunZ",
+	"GautoshotZ", "GsniperrifleZ", "GrugerZ", "GgoldengunZ", "GsilverwppkZ", "GgoldwppkZ", "GlaserZ", "GwatchlaserZ",
+	"GgrenadelaunchZ", "GrocketlaunchZ", "GgrenadeZ", "GtimedmineZ", "GproximitymineZ", "GremotemineZ", "GtriggerZ", "GtaserZ",
+};
+
+// the port's weapons past the detonator for a hack's guns GoldenEye has no
+// weapon of its own for (WEAPON_GE_EXTRA1 to 4, geguns.c)
+#define WEAPON_GE_EXTRA_FIRST 0x80
+#define NUM_WEAPON_GE_EXTRA   4
+#define WEAPON_GE_GUN_FIRST   0x5e // WEAPON_GE_PP7
+#define WEAPON_GE_GUN_LAST    0x76 // WEAPON_GE_REMOTEMINE
+#define WEAPON_GE_DETONATOR_  0x7f
+
+static uint8_t g_ItemWeapon[NUM_ITEMS];
+
+/** Whether a weapon of the port's is one of GoldenEye's guns or a hack's extra one. */
+static int itemWeaponIsGun(uint32_t w)
+{
+	return (w >= WEAPON_GE_GUN_FIRST && w <= WEAPON_GE_GUN_LAST)
+		|| (w >= WEAPON_GE_EXTRA_FIRST && w < WEAPON_GE_EXTRA_FIRST + NUM_WEAPON_GE_EXTRA);
+}
+
+/**
+ * This ROM's items as the port's weapons.
+ *
+ * GoldenEye's own are g_GeItemWeapon's. A hack made with GE Editor may
+ * renumber its hand items and patch the code that tests an item by number to
+ * follow: Goldfinger 64 put a Luger and a P38 at 7 and 8 and moved every gun
+ * after them on - its AK47 is 9, where GoldenEye's ZMG was - and its laser's
+ * beam (CapBeamLengthAndDecideIfRendered()) tests 24 and not 22, its mines'
+ * ammunition (add_ammo_to_inventory()) 28 to 30 and not 27 to 29, and
+ * getPropForHeldItem()'s jump table moved with them. So a hack's item is the
+ * GoldenEye gun whose file it took - Goldfinger's GsniperrifleZ at 20 is
+ * GoldenEye's sniper rifle with a model, numbers and name of its own (the
+ * Armalite AR7) - and takes that gun's weapon here, and the file is what
+ * says which. A gun on a file GoldenEye has no weapon of its own for - the
+ * silver and gold PP7s, which the port gives the PP7's number, the watch
+ * laser, which it gives the Moonraker's, the taser, which it gives none -
+ * takes one of four weapons past the detonator, pistols on the PP7's host:
+ * Goldfinger's Luger P08, Walther P38 and two Smith & Wessons. A gun is an
+ * item a hand holds as a prop (heldprops).
+ */
+static void itemWeaponsBuild(void)
+{
+	int extras = 0;
+
+	memset(g_ItemWeapon, 0, sizeof(g_ItemWeapon));
+
+	for (uint32_t item = 0; item < NUM_ITEMS; ++item) {
+		int32_t ge = (int32_t)item;
+
+		if (!g_Layout->variant) {
+			g_ItemWeapon[item] = (uint8_t)usItemWeapon(item);
+			continue;
+		}
+
+		if (item >= 1 && item < 32) {
+			ge = -1;
+
+			for (int32_t j = 1; j < 32 && g_Items[item].file; ++j) {
+				if (!strcmp(g_GeItemFiles[j], g_Items[item].file)) {
+					ge = j;
+					break;
+				}
+			}
+		}
+
+		if (ge == 20 || ge == 21 || ge == 23 || ge == 31) {
+			if (g_Layout->heldprops[item] < 0) {
+				continue;
+			}
+
+			if (extras == NUM_WEAPON_GE_EXTRA) {
+				note("geconvert: item %u (%s) is a gun of the hack's own past the %d there are weapons for: left out",
+						(unsigned)item, g_Items[item].file, NUM_WEAPON_GE_EXTRA);
+				continue;
+			}
+
+			g_ItemWeapon[item] = (uint8_t)(WEAPON_GE_EXTRA_FIRST + extras++);
+		} else if (ge >= 0) {
+			g_ItemWeapon[item] = (uint8_t)usItemWeapon((uint32_t)ge);
+		}
+
+		if (item != (uint32_t)ge && g_ItemWeapon[item]) {
+			note("geconvert: item %u (%s) is weapon 0x%02x", (unsigned)item, g_Items[item].file, g_ItemWeapon[item]);
+		}
+	}
+
+	g_ItemWeaponsBuilt = 1;
+}
+
+/**
+ * A mission's collectables: the items a pickup carries that are no gun and no
+ * gadget - documents, tapes, Goldfinger 64's gold bars - which had no weapon
+ * of the port's and were never made (Miami's orders, so its first objective
+ * failed at once; the contents of Club's, Capture's and Ranch's safes). Each
+ * takes one of Perfect Dark's eight key cards for the mission (WEAPON_KEYCARD45
+ * on), in the order its setup's pickups name them; no mission has more than
+ * two. Everything that names the item in that mission - the pickup, a rename,
+ * an objective, an AI command - takes the same number, and menu/geslots.bin
+ * tells the game which item each stands for, whose name it shows
+ * (gegadgets.c). A GoldenEye collectable likewise: Silo's two briefcases.
+ */
+#define WEAPON_KEYCARD_FIRST 0x45
+#define NUM_COLLECT_SLOTS    8
+
+static uint8_t g_CollectSlot[NUM_ITEMS];
+static int g_CollectMission = -1;
+static int g_NumCollectSlots;
+// menu/geslots.bin's rows, u8 mission, u8 weapon, u8 item, u8 0 - out of the
+// collector's reach (a buf's memory is freed with each level's)
+static uint8_t g_CollectRows[40 * NUM_COLLECT_SLOTS][4];
+static int g_NumCollectRows;
+
+// the port's weapons for GoldenEye's gadgets, the covert modem to the
+// detonator (gegadgets.c)
+#define WEAPON_GE_GADGET_FIRST 0x77
+#define WEAPON_GE_GADGET_LAST  WEAPON_GE_DETONATOR_
+#define GESLOTS_EVERY_MISSION  0xff
+
+static void soloAddCollectRow(uint32_t mission, uint32_t w, uint32_t item)
+{
+	if (g_NumCollectRows < (int)(sizeof(g_CollectRows) / sizeof(g_CollectRows[0]))) {
+		g_CollectRows[g_NumCollectRows][0] = (uint8_t)mission;
+		g_CollectRows[g_NumCollectRows][1] = (uint8_t)w;
+		g_CollectRows[g_NumCollectRows][2] = (uint8_t)item;
+		g_CollectRows[g_NumCollectRows][3] = 0;
+		g_NumCollectRows++;
+	}
+}
+
+/**
+ * A ROM hack's gadget that the mission being converted names: menu/geslots.bin
+ * says which item each gadget weapon is on it, as it says a collectable's, and
+ * the game names it from the hack's own text (gegadgets.c). GoldenEye's own
+ * are known by its missions' numbers, which a hack's are not: Goldfinger 64's
+ * mission 4 is not Bunker, and its item 47 is its Homer. A second item of one
+ * mission on one shared weapon is noted and keeps the first's name.
+ */
+static void soloGadgetUse(uint32_t item, uint32_t w)
+{
+	for (int i = 0; i < g_NumCollectRows; ++i) {
+		if (g_CollectRows[i][0] == (uint8_t)g_CollectMission && g_CollectRows[i][1] == w) {
+			if (g_CollectRows[i][2] != item) {
+				note("geconvert: mission %d: items %u and %u are both gadget 0x%02x: named as %u",
+						g_CollectMission, (unsigned)g_CollectRows[i][2], (unsigned)item, (unsigned)w,
+						(unsigned)g_CollectRows[i][2]);
+			}
+
+			return;
+		}
+	}
+
+	soloAddCollectRow((uint32_t)g_CollectMission, w, item);
+	note("geconvert: mission %d: item %u is gadget 0x%02x", g_CollectMission, (unsigned)item, (unsigned)w);
+}
+
+/** One of this ROM's item ids as the weapon Perfect Dark equips for it. */
+static uint32_t soloItemWeapon(uint32_t item)
+{
+	if (!g_ItemWeaponsBuilt) {
+		itemWeaponsBuild();
+	}
+
+	if (item >= NUM_ITEMS) {
+		return 0;
+	}
+
+	if (!g_ItemWeapon[item] && g_CollectMission >= 0) {
+		return g_CollectSlot[item];
+	}
+
+	if (g_Layout->variant && g_CollectMission >= 0
+			&& g_ItemWeapon[item] >= WEAPON_GE_GADGET_FIRST && g_ItemWeapon[item] <= WEAPON_GE_GADGET_LAST) {
+		soloGadgetUse(item, g_ItemWeapon[item]);
+	}
+
+	return g_ItemWeapon[item];
+}
+
+#define WEAPON_GE_TANKSHELLS_ 0x7e
+#define ITEM_TANKSHELLS       32
+
+/**
+ * A ROM hack's gadgets that are one item on every mission, as rows for every
+ * mission (GESLOTS_EVERY_MISSION) after the missions' own: each weapon that one
+ * item alone stands on, and two its code hands out that no item table names -
+ * the detonator, with the remote mines, which is the item GtriggerZ is
+ * (Goldfinger 64's 31, GoldenEye's 30), and the tank's shells, item 32, which a
+ * hack keeps at GoldenEye's number as it keeps every item past the hand's
+ * (itemWeaponsBuild()).
+ */
+static void soloGadgetsEveryMission(void)
+{
+	for (uint32_t w = WEAPON_GE_GADGET_FIRST; w <= WEAPON_GE_GADGET_LAST; ++w) {
+		uint32_t found = 0, n = 0;
+
+		for (uint32_t item = 1; item < NUM_ITEMS; ++item) {
+			const int trigger = g_Items[item].file && !strcmp(g_Items[item].file, "GtriggerZ");
+
+			if (w == WEAPON_GE_DETONATOR_ ? trigger
+					: w == WEAPON_GE_TANKSHELLS_ ? item == ITEM_TANKSHELLS
+					: soloItemWeapon(item) == w) {
+				found = item;
+				n++;
+			}
+		}
+
+		if (n == 1) {
+			soloAddCollectRow(GESLOTS_EVERY_MISSION, w, found);
+		}
+	}
+}
+
+static int soloIsCollectSlot(uint32_t w)
+{
+	return w >= WEAPON_KEYCARD_FIRST && w < WEAPON_KEYCARD_FIRST + NUM_COLLECT_SLOTS;
+}
+
+/** A mission's conversion begins: its collectables, from its setup's pickups (`f`). */
+static void soloCollectablesBegin(const buf *f, int mission)
+{
+	records recs = setupRecords(f);
+
+	memset(g_CollectSlot, 0, sizeof(g_CollectSlot));
+	g_NumCollectSlots = 0;
+	g_CollectMission = -1;
+
+	for (size_t i = 0; i < recs.n; ++i) {
+		const uint32_t item = recs.v[i].b[0x80];
+
+		if (recs.v[i].type != 8 || recs.v[i].len < 0x84 || item < 2 || item >= NUM_ITEMS
+				|| soloItemWeapon(item) || g_CollectSlot[item]) {
+			continue;
+		}
+
+		if (g_NumCollectSlots == NUM_COLLECT_SLOTS) {
+			note("geconvert: mission %d: item %u is a collectable past the %d there are weapons for: left out",
+					mission, (unsigned)item, NUM_COLLECT_SLOTS);
+			continue;
+		}
+
+		g_CollectSlot[item] = (uint8_t)(WEAPON_KEYCARD_FIRST + g_NumCollectSlots++);
+		soloAddCollectRow((uint32_t)mission, g_CollectSlot[item], item);
+		note("geconvert: mission %d: item %u (%s) is collectable 0x%02x", mission, (unsigned)item,
+				g_Items[item].file ? g_Items[item].file : "no file", g_CollectSlot[item]);
+	}
+
+	g_CollectMission = mission;
+}
+
+static void soloCollectablesEnd(void)
+{
+	g_CollectMission = -1;
 }
 
 /**
@@ -5276,6 +5980,36 @@ static void geTileMid(const struct tile *t, float ls, float *out)
 }
 
 /**
+ * stan.c's stanGetPositionYValue(): the height of a tile's plane (its triple's)
+ * under x/z, in the world's units, in GoldenEye's own arithmetic.
+ */
+static float geTileY(const struct tile *t, float px, float pz, float ls)
+{
+	const int d = geTriPoint(t, 0), c = geTriPoint(t, 1), e = geTriPoint(t, 2);
+	float a[3], b[3];
+	int64_t cp[3], rsum;
+
+	px *= ls;
+	pz *= ls;
+
+	for (int q = 0; q < 3; ++q) {
+		a[q] = (float)(t->pts[c][q] - t->pts[d][q]);
+		b[q] = (float)(t->pts[e][q] - t->pts[d][q]);
+	}
+
+	cp[0] = (int64_t)(a[1] * b[2] - a[2] * b[1]);
+	cp[1] = (int64_t)(a[2] * b[0] - a[0] * b[2]);
+	cp[2] = (int64_t)(a[0] * b[1] - a[1] * b[0]);
+	rsum = cp[0] * t->pts[d][0] + cp[1] * t->pts[d][1] + cp[2] * t->pts[d][2];
+
+	if (cp[1] == 0) {
+		return (float)t->pts[d][1] * (1.0f / ls);
+	}
+
+	return (float)((((double)rsum - (double)px * (double)cp[0]) - (double)pz * (double)cp[2]) / (double)cp[1]) * (1.0f / ls);
+}
+
+/**
  * A pad's tile (init_pathtable_something()): the one its name names, if the
  * pad is over its triple; or else the tile with a point nearest the pad - its
  * triple's middle or a point a tenth of the way in from a corner
@@ -5443,10 +6177,15 @@ static int gePortalCrossed(const struct portal *p, const float *a, const float *
 	return v1 < min ? 1 : 2;
 }
 
-/** What GoldenEye's setupDoor() decides for a door: its portal and its rooms (0xff for none). */
+/**
+ * What GoldenEye's setupDoor() decides for a door: its portal and its rooms
+ * (0xff for none); and for any record, whether it is an object GoldenEye never
+ * makes for want of a tile under its pad (geSoloDoors()).
+ */
 struct gedoorinfo {
 	int32_t portal;
 	uint8_t rooms[2];
+	uint8_t untiled;
 };
 
 /** A bound pad as GoldenEye holds it at run time: the world's units, single precision. */
@@ -5549,7 +6288,7 @@ static int gePortalBetweenRooms(const struct bg *bg, int room1, int room2, const
  * made in `bound`. The records are the setup's as GoldenEye loads them; a door that
  * only some difficulties make moves its pad on all of them.
  */
-static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padrecs *bound, const tiles *stan, const struct bg *bg,
+static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bound, const tiles *stan, const struct bg *bg,
 		double lsd, const double *offset, int *padrooms, const char *what)
 {
 	const float ls = (float)lsd;
@@ -5559,9 +6298,40 @@ static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padre
 	struct gebound *bp = gcAlloc((bound->n + 1) * sizeof(*bp));
 	struct gedoorinfo *portals = gcAlloc((recs.n + 1) * sizeof(*portals));
 	float doorscale = 1.0f;
-	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0;
+	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0, lifted = 0, untiled = 0;
+	uint8_t *keepy = gcAlloc(s->pads.n + 1);
+	int *padtile = gcAlloc((s->pads.n + 1) * sizeof(*padtile));
 
-	for (size_t i = 0; i < s->pads.n && padrooms; ++i) {
+	// the pads whose height is used as it is: one an object hangs in the air
+	// from (its flags 2, 4 or 8, which sub_GAME_7F04088C() and
+	// sub_GAME_7F040BA0() never stand on a floor - 72 of Cartel's wall objects
+	// are four units under their pads' tiles), and one a camera or an autogun
+	// looks at
+	for (size_t i = 0; i < recs.n && padrooms; ++i) {
+		const uint8_t *raw = recs.v[i].b;
+		const uint32_t t = recs.v[i].type;
+		uint32_t pad;
+
+		if (g_GeSizes[t] < 32 || (be32(raw, 8) & 0x8000)) {
+			continue;
+		}
+
+		pad = be16(raw, 6);
+
+		if ((be32(raw, 8) & 0xe) && pad < s->pads.n) {
+			keepy[pad] = 1;
+		}
+
+		if ((t == 0x06 || t == 0x0d) && recs.v[i].len >= 0x84) {
+			const int32_t look = bes32(raw, 0x80);
+
+			if (look >= 0 && (size_t)look < s->pads.n) {
+				keepy[look] = 1;
+			}
+		}
+	}
+
+	for (size_t i = 0; i < s->pads.n; ++i) {
 		const size_t o = padsat + 0x2c * i;
 		float pos[3];
 		int fb, tile;
@@ -5571,7 +6341,31 @@ static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padre
 		}
 
 		tile = gePadTile(stan, f, be32(f->v, o + 36), pos, ls, &fb);
+		padtile[i] = tile;
+
+		if (!padrooms) {
+			continue;
+		}
+
 		padrooms[i] = tile >= 0 ? stan->v[tile].room : -1;
+
+		// A pad under its own tile is lifted onto it. GoldenEye stands
+		// whatever a pad holds on the pad's tile whatever height the pad is
+		// at - a chr (chraction.c), Bond, an object on the floor (propobj.c's
+		// sub_GAME_7F04088C()) - and Perfect Dark searches down from the pad,
+		// which found the floor below, or none: Goldfinger 64 put 170 pads
+		// under their floors, Forest's start 290 under it, and Bond fell
+		// 29,000 units; Foundry's and China's guards fell out of the level,
+		// Cartel's cabinets stood a storey down. writePads() then lifts it
+		// the unit off the floor any pad needs
+		if (tile >= 0 && !keepy[i]) {
+			const float ty = geTileY(&stan->v[tile], pos[0], pos[2], ls);
+
+			if (pos[1] < ty - 1.0f) {
+				s->pads.v[i].pos[1] = (double)ty * lsd;
+				lifted++;
+			}
+		}
 		fellback += fb;
 		missing += tile < 0;
 	}
@@ -5594,6 +6388,43 @@ static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padre
 		b->tile = gePadTile(stan, f, be32(f->v, o + 36), b->pos, ls, &fb);
 		fellback += fb;
 		missing += b->tile < 0;
+	}
+
+	// An object on a pad with no tile is never made. Every object but a door
+	// is made by prop.c's domakedefaultobj(), which stands one that is not
+	// inside another (0x8000) or a chr's (0x4000) on its pad's tile, or its
+	// bound pad's, through getposstan() - and that fails, making nothing, on a
+	// pad with none. Perfect Dark searched down from the pad and stood it on
+	// whatever floor it found: two cups on each of Goldfinger 64's Cartel and
+	// Bodega that the cartridge leaves out stood a storey down under the
+	// table. Such a record is left out at every difficulty (writeSoloProps())
+	for (size_t i = 0; i < recs.n; ++i) {
+		const uint8_t *raw = recs.v[i].b;
+		const uint32_t t = recs.v[i].type;
+		uint32_t pad;
+		int tile;
+
+		if (g_GeSizes[t] < 32 || t == 1 || (be32(raw, 8) & 0xc000)) {
+			continue;
+		}
+
+		pad = be16(raw, 6);
+
+		if (pad < 10000) {
+			tile = pad < s->pads.n ? padtile[pad] : 0;
+		} else {
+			tile = pad - 10000 < bound->n ? bp[pad - 10000].tile : 0;
+		}
+
+		if (tile < 0) {
+			portals[i].untiled = 1;
+			untiled++;
+
+			if (padrooms) {
+				note("geconvert: %s: record %zu (type 0x%02x, model %d) is on pad %u, which has no tile: "
+						"GoldenEye never makes it", what, i, t, bes16(raw, 4), pad);
+			}
+		}
 	}
 
 	for (size_t i = 0; i < recs.n; ++i) {
@@ -5726,8 +6557,9 @@ static struct gedoorinfo *geSoloDoors(const buf *f, const struct setup *s, padre
 			}
 		}
 
-		note("geconvert: %s: pads by their own tiles (%d found by place, %d with none), %d doors with a portal, "
-				"%d door pads scaled (%d into another room)", what, fellback, missing, withportal, scaled, movedrooms);
+		note("geconvert: %s: pads by their own tiles (%d found by place, %d with none, %d lifted onto them), "
+				"%d doors with a portal, %d door pads scaled (%d into another room), %d objects never made",
+				what, fellback, missing, lifted, withportal, scaled, movedrooms, untiled);
 	}
 
 	return portals;
@@ -5838,7 +6670,10 @@ static void guardRecord(uint8_t *out, const uint8_t *raw, size_t numpads)
 	set16(out, 0x08, (uint32_t)chrnum);
 	set16(out, 0x0a, padNum(padid, numpads, 0));
 	out[0x0c] = (uint8_t)body;
-	out[0x0d] = head >= 0 ? (uint8_t)head : 0xff;
+	// a negative head is the pool the head is drawn from, -1 - k for pool k
+	// (romlayout.headpools): a byte of its own each, so a hack's second pool
+	// reaches the game
+	out[0x0d] = head >= -GE_HEAD_POOLS ? (uint8_t)head : 0xff;
 	set16(out, 0x0e, soloGlobalAiId(ailist));
 	set16(out, 0x10, padNum(preset, numpads, 0));
 	set16(out, 0x12, chrpreset);
@@ -6064,6 +6899,85 @@ static void multiCrateRecord(uint8_t *out, const uint8_t *raw, size_t len, size_
 #define MPSET_NAME  32
 
 static void writeFile(const char *outdir, const char *rel, const uint8_t *data, size_t len);
+
+/**
+ * menu/geguns.bin: a hack's own guns (geguns.c), which GoldenEye's tables
+ * there - generated from the decomp's rows - are not. "GGN2", a count, the
+ * items its first-person guns are drawn under the envmap light (a bit an
+ * item, envmapitems), and a row a gun: its weapon less WEAPON_GE_PP7, its item number (the Igx%03dZ its
+ * first-person model is), the prop a hand holds it as (heldprops), its name
+ * (the row's weapon-of-choice text out of its own LgunE: "Walther PPK/s"),
+ * and its gunWeaponStat row as the ROM has it, big-endian, the cartridge's
+ * pointer cleared.
+ */
+#define GUNS_NAME     40
+#define GUNSTAT_ROW   0x70
+#define GUNSTAT_CART  40 // ptr_cartridge_struct
+
+static void writeGuns(const char *outdir)
+{
+	buf lang = romFile("LgunE");
+	buf out = {0};
+	uint32_t count = 0;
+
+	uint32_t envmask = 0;
+
+	for (size_t k = 0; k < sizeof(g_Layout->envmapitems); ++k) {
+		if (g_Layout->envmapitems[k] && g_Layout->envmapitems[k] < 32) {
+			envmask |= 1u << g_Layout->envmapitems[k];
+		}
+	}
+
+	bufPut(&out, (const uint8_t *)"GGN2", 4);
+	bufU32(&out, 0);
+	bufU32(&out, envmask);
+
+	for (uint32_t item = 1; item < 32; ++item) {
+		const uint32_t w = soloItemWeapon(item);
+		const size_t row = ITEMS_AT + ITEM_ROW * item;
+		const uint32_t stats = be32(g_Data, row + 12);
+		const size_t index = be16(g_Data, row + 40) & 0x3ff;
+		char name[GUNS_NAME] = {0};
+		uint8_t stat[GUNSTAT_ROW];
+
+		if (!itemWeaponIsGun(w) && !(g_Items[item].file && !strcmp(g_Items[item].file, "GtriggerZ"))) {
+			continue;
+		}
+
+		if (!stats || stats < DATA_VRAM || stats - DATA_VRAM + GUNSTAT_ROW > g_DataLen) {
+			note("geconvert: item %u (%s) has no gun row", (unsigned)item, g_Items[item].file ? g_Items[item].file : "?");
+			continue;
+		}
+
+		if ((index + 1) * 4 <= lang.n) {
+			const uint32_t at = be32(lang.v, index * 4);
+
+			if (at && at < lang.n) {
+				size_t k = 0;
+
+				while (k + 1 < sizeof(name) && at + k < lang.n && lang.v[at + k] && lang.v[at + k] != '\n') {
+					name[k] = (char)lang.v[at + k];
+					++k;
+				}
+			}
+		}
+
+		memcpy(stat, g_Data + (stats - DATA_VRAM), GUNSTAT_ROW);
+		memset(stat + GUNSTAT_CART, 0, 4);
+
+		bufU8(&out, (itemWeaponIsGun(w) ? w : WEAPON_GE_DETONATOR_) - WEAPON_GE_GUN_FIRST);
+		bufU8(&out, item);
+		bufU16(&out, (uint16_t)g_Layout->heldprops[item]);
+		bufPut(&out, (const uint8_t *)name, sizeof(name));
+		bufPut(&out, stat, sizeof(stat));
+		++count;
+
+		note("geconvert: gun %u is %s, weapon 0x%02x", (unsigned)item, name, itemWeaponIsGun(w) ? w : WEAPON_GE_DETONATOR_);
+	}
+
+	set32(out.v, 4, count);
+	writeFile(outdir, "menu/geguns.bin", out.v, out.n);
+}
 
 static void writeWeaponSets(const char *outdir)
 {
@@ -6336,13 +7250,33 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 				// a rename: the item as the port's weapon and the five texts
 				// out of the mission's own bank (gesolo.py's rename_record())
 				const int32_t item = bes32(raw, 8);
+				const int64_t target = (int64_t)i + bes32(raw, 4);
 
 				set32(rec, 8, item > 0 ? soloItemWeapon((uint32_t)item) : 0);
+
+				// one that names its object and no item, on a collectable,
+				// is that collectable's: the game shows the slot's item by
+				// it (gegadgets.c), as it does a rename that names it
+				if (item <= 0 && target >= 0 && (size_t)target < recs.n && recs.v[target].type == 8
+						&& recs.v[target].len >= 0x84) {
+					const uint32_t w = soloItemWeapon(recs.v[target].b[0x80]);
+
+					if (soloIsCollectSlot(w)) {
+						set32(rec, 8, w);
+					}
+				}
 
 				for (size_t k = 0; k < 5; ++k) {
 					set32(rec, 12 + 4 * k, soloTextId(be32(raw, 12 + 4 * k) & 0xffff));
 				}
 			}
+		}
+
+		if (doorportals[i].untiled) {
+			// an object GoldenEye never makes, its pad having no tile
+			// (geSoloDoors()): left out on all four difficulties, the
+			// OBJFLAG2_EXCLUDE_* bits both games keep in flags2
+			set32(rec, 12, be32(rec, 12) | 0xf0);
 		}
 
 		st->props++;
@@ -6654,6 +7588,14 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 					v = GEAI_ANIM_TAG | v;
 				} else if (cmd->gelist & (1u << i)) {
 					v = soloGlobalAiId(v);
+				} else if (op >= 0x14 && op <= 0x17 && i == 1 && (be16(f->v, at + 1) & 0x0008)) {
+					// the aim and face commands' target where their bitfield
+					// says it is a pad (TARGET_PAD, Perfect Dark's
+					// ATTACKFLAG_AIMATPAD): a pad, which moves as any pad
+					// argument does. GoldenEye's own missions aim only at
+					// pads of their own, whose numbers stay; Goldfinger's
+					// aim at bound pads (Prison 10039, SPECTRE Island 10009)
+					v = padNum(v, numpads, 0);
 				} else if ((op == 0xe3 || op == 0xe4) && i == 0) {
 					// the two commands that put an item in Bond's hands
 					// (geaitable.h rows e3 and e4); everything else
@@ -7098,7 +8040,7 @@ struct texmove {
 };
 
 static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int nlists, buf *w, int fours,
-		const struct texmove *moved, int nmoved,
+		const struct texmove *moved, int nmoved, uint8_t *images,
 		size_t *vat, size_t *nv, size_t *cat, size_t *nc, u32s *wordsof, int *haswords)
 {
 	outvtxs newv = {0};
@@ -7143,6 +8085,7 @@ static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int
 					v.x = bes16(d->v, at);
 					v.y = bes16(d->v, at + 2);
 					v.z = bes16(d->v, at + 4);
+					v.f = 0;
 					v.c = (uint8_t)(i << 2);
 					v.s = bes16(d->v, at + 8);
 					v.t = bes16(d->v, at + 10);
@@ -7158,8 +8101,14 @@ static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int
 				VECPUSH(wordsof[li], 0x04000000u | (start * 12));
 			} else {
 				if (op == 0xc0) {
+					// a list may load an image its texture table does not
+					// list (Goldfinger 64's Dink loads three for her face):
+					// the game loads it by number all the same, so it goes
+					// out with the model's own
+					setAdd(images, w1 & 0xfff);
 					w1 = (w1 & ~0xfffu) | texRemap(w1 & 0xfff);
 					if ((w0 & 7) == 1) {
+						setAdd(images, (w1 >> 12) & 0xfff);
 						w1 = (w1 & ~0xfff000u) | (texRemap((w1 >> 12) & 0xfff) << 12);
 					}
 				} else if (op == 0xfd && (w1 & 0xff000000u) == SEG_MODEL) {
@@ -7551,7 +8500,7 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 				vtx = be32(d.v, ro + 8);
 				mode = bes16(d.v, ro + 0x18);
 			}
-			modelLists(&d, vtx, lists, 2, &w, 0, moved, nmoved, &vat, &nv, &cat, &nc, words, has);
+			modelLists(&d, vtx, lists, 2, &w, 0, moved, nmoved, images, &vat, &nv, &cat, &nc, words, has);
 			if (nv > 32767 || mode < -32768 || mode > 32767) {
 				fail("%s: a list with too many vertices", p->file);
 			}
@@ -7585,7 +8534,7 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 			if (!lists[0]) {
 				fail("%s: a muzzle flash with no list", p->file);
 			}
-			modelLists(&d, vtx, lists, 1, &w, 1, moved, nmoved, &vat, &nv, &cat, &nc, words, has);
+			modelLists(&d, vtx, lists, 1, &w, 1, moved, nmoved, images, &vat, &nv, &cat, &nc, words, has);
 			// GoldenEye's own count of quads, dorottex() copying that many:
 			// with nought its list still ran, on vertices never written - a
 			// yellow wedge across the screen, or a crash (converter 61). A
@@ -7596,7 +8545,13 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 			// and it hung at the muzzle of every rifle a guard held
 			// (converter 62, which wrote nought for props and so drew no
 			// flash at all; converter 64)
-			bufU32(&rec, be32(d.v, ro));
+			// - but no more quads than its list loads, which are all the
+			// vertices written for it: Goldfinger 64's M14 (Gm16Z) keeps a
+			// count of 6 over a list that loads none, its gun's 525 vertices
+			// under it, so the six quads the flash turns each frame were the
+			// gun's own first 24, written over (and past what the file holds:
+			// the heap went with them)
+			bufU32(&rec, be32(d.v, ro) < nv / 4 ? be32(d.v, ro) : (uint32_t)(nv / 4));
 			bufU32(&rec, SEG_MODEL + (uint32_t)vat);
 			bufU32(&rec, 0);
 			bufU32(&rec, SEG_MODEL + (uint32_t)cat);
@@ -7934,8 +8889,14 @@ static void textf(struct textbuf *t, const char *fmt, ...)
  * `visibility` column): Dam and the two Surfaces are drawn at a fifth of their
  * size and every other level at its own.
  */
-static double levelVisibility(const char *key)
+static double levelVisibility(const struct level *lv)
 {
+	const char *key = lv->key;
+
+	if (lv->visibility > 0.0) {
+		return lv->visibility;
+	}
+
 	return !strcmp(key, "dam") || !strcmp(key, "sevx") || !strcmp(key, "sevxb") ? 0.2 : 1.0;
 }
 
@@ -7997,9 +8958,16 @@ int geconvertProgress(void)
 	return g_Progress;
 }
 
+// what a run converts: GoldenEye's levels, or a variant's arenas (variantLevels())
+static const struct level *g_RunLevels = g_Levels;
+static size_t g_NumRunLevels = NUM_LEVELS;
+// and its missions: GoldenEye's, or a variant's (variantLevels())
+static const struct mission *g_RunMissions = g_Missions;
+static size_t g_NumRunMissions = NUM_MISSIONS;
+
 int geconvertTotal(void)
 {
-	return (int)NUM_LEVELS + 3;
+	return (int)g_NumRunLevels + 3;
 }
 
 static void noteDefault(const char *msg)
@@ -8022,6 +8990,337 @@ static void note(const char *fmt, ...)
 void geconvertSetLog(void (*fn)(const char *msg))
 {
 	g_Note = fn ? fn : noteDefault;
+}
+
+/**
+ * A variant's levels, read out of its ROM the way its game reads them: its
+ * arenas and the levels its missions are on, each once.
+ *
+ * Each row of `multi_stage_setups` (front.c: u16 folder text, u16 select text,
+ * photo, level id, unlock, fewest and most players - 24 bytes, Random first)
+ * names an arena's level, and each MISSION_PART row of
+ * `mission_folder_setup_entries` a mission's (variantMissions()). A level's bg
+ * and tiles files, its scale and its fog's visibility are bg.c's
+ * levelinfotable row for it; an arena's setup is `Ump_` and the level's
+ * `setup_text_pointers` name without its U, a mission's that name itself.
+ * Nothing of g_Levels is assumed: a variant put its arenas on levels
+ * GoldenEye kept for missions (Goldfinger's Offices is Dam's level, 33, and its
+ * China is Bunker 1's with tiles of its own). The key is the bg's own name and
+ * the level id, which no GoldenEye key is, so nothing keyed on GoldenEye's
+ * levels - a mission, the bikes - reaches a variant's.
+ */
+#define MPSTAGES_AT   0x8002b074u
+#define MPSTAGE_ROW   24
+#define SETUPNAMES_AT 0x800374e4u
+#define NUM_SETUPNAMES 59
+#define MAX_VARIANT_LEVELS 64
+
+/**
+ * `mission_folder_setup_entries` (front.c): GoldenEye's mission folder, a row
+ * a chapter heading (MISSION_HEADER) or a mission (MISSION_PART) - {its
+ * numeral's string, u16 folder text, u16 icon text, s32 level id, s32 page,
+ * s32 type, s32 mission number, its briefing file's name}, ended by a row with
+ * no string. A variant keeps GoldenEye's twenty missions on GoldenEye's
+ * levels, briefings and text banks and renames and regroups them here
+ * (Goldfinger's nine chapters are Mexico to Bonus), so the folder is written
+ * out for GE Plus's to show (menu/missionfolder.bin) and its missions are
+ * converted from it.
+ */
+#define MISSIONFOLDER_AT  0x8002abe4u
+#define MISSIONFOLDER_ROW 28
+#define MAX_FOLDER_ROWS   40
+
+struct folderrow {
+	char label[8];
+	uint32_t name, icon;    // LtitleE slots
+	int32_t mission;        // -1 for a chapter heading
+	const char *brief;
+};
+
+static struct folderrow g_FolderRows[MAX_FOLDER_ROWS];
+static size_t g_NumFolderRows;
+
+// a variant's missions (g_Missions is GoldenEye's)
+static struct mission g_VariantMissions[MAX_FOLDER_ROWS];
+
+// LtitleE's string for a text id, trimmed
+static const char *titleString(const buf *title, uint32_t text, const char *what)
+{
+	const uint32_t toff = (text & 0x3ff) * 4;
+	char *s;
+
+	if (toff + 4 > title->n || be32(title->v, 0) <= toff || be32(title->v, toff) >= title->n
+			|| !memchr(title->v + be32(title->v, toff), 0, title->n - be32(title->v, toff))) {
+		fail("%s's %s has no name", g_Layout->name, what);
+	}
+	s = gcAlloc(title->n - be32(title->v, toff) + 1);
+	strcpy(s, (const char *)title->v + be32(title->v, toff));
+	while (s[0] && (s[strlen(s) - 1] == '\n' || s[strlen(s) - 1] == ' ')) {
+		s[strlen(s) - 1] = '\0';
+	}
+
+	return s;
+}
+
+// the level `levelid` in levels[], made from the ROM's tables the first time
+static struct level *variantLevel(struct level *levels, size_t *n, uint32_t levelid)
+{
+	const char *bgpath, *stanpath;
+	struct level *lv;
+	size_t li = 0;
+	int found = 0;
+	char *s;
+
+	for (size_t k = 0; k < *n; ++k) {
+		if (levels[k].levelid == levelid) {
+			return &levels[k];
+		}
+	}
+
+	if (*n == MAX_VARIANT_LEVELS) {
+		fail("%s has more than %d levels", g_Layout->name, MAX_VARIANT_LEVELS);
+	}
+
+	for (li = 0; li < LEVELINFO_ROWS; ++li) {
+		if (be32(g_Data, LEVELINFO_AT - DATA_VRAM + 24 * li) == levelid) {
+			found = 1;
+			break;
+		}
+	}
+
+	if (!found || levelid >= NUM_SETUPNAMES) {
+		fail("%s's level %u has no levelinfotable row", g_Layout->name, (unsigned)levelid);
+	}
+
+	lv = &levels[(*n)++];
+	bgpath = dataString(be32(g_Data, LEVELINFO_AT - DATA_VRAM + 24 * li + 4));
+	stanpath = dataString(be32(g_Data, LEVELINFO_AT - DATA_VRAM + 24 * li + 8));
+	lv->levelscale = bef32(g_Data, LEVELINFO_AT - DATA_VRAM + 24 * li + 12);
+	lv->visibility = bef32(g_Data, LEVELINFO_AT - DATA_VRAM + 24 * li + 16);
+	lv->levelid = levelid;
+
+	// "bg/bg_dish_all_p.seg" -> bg_dish, "Tbg_dish_all_p_stanZ" -> Tbg_dish
+	s = gcAlloc(strlen(bgpath) + 1);
+	strcpy(s, strrchr(bgpath, '/') ? strrchr(bgpath, '/') + 1 : bgpath);
+	if (strlen(s) < 10 || strcmp(s + strlen(s) - 10, "_all_p.seg")) {
+		fail("%s's level %u has a bg called %s", g_Layout->name, (unsigned)levelid, bgpath);
+	}
+	s[strlen(s) - 10] = '\0';
+	lv->bg = s;
+
+	s = gcAlloc(strlen(stanpath) + 1);
+	strcpy(s, stanpath);
+	if (strlen(s) < 12 || strcmp(s + strlen(s) - 12, "_all_p_stanZ")) {
+		fail("%s's level %u has tiles called %s", g_Layout->name, (unsigned)levelid, stanpath);
+	}
+	s[strlen(s) - 12] = '\0';
+	lv->stan = s;
+
+	s = gcAlloc(32);
+	snprintf(s, 32, "%s%u", lv->bg + 3, (unsigned)levelid);
+	lv->key = s;
+
+	return lv;
+}
+
+// the level's setup_text_pointers name, "UsetupdamZ"
+static const char *variantSetupName(uint32_t levelid)
+{
+	const uint32_t setupptr = be32(g_Data, SETUPNAMES_AT - DATA_VRAM + 4 * levelid);
+	const char *setupname = setupptr ? dataString(setupptr) : NULL;
+
+	if (!setupname || setupname[0] != 'U') {
+		fail("%s's level %u has no setup name", g_Layout->name, (unsigned)levelid);
+	}
+
+	return setupname;
+}
+
+static void variantLevels(void)
+{
+	static struct level levels[MAX_VARIANT_LEVELS];
+	buf title = romFile("LtitleE");
+	size_t n = 0, narenas = 0, nmissions = 0;
+	uint32_t bank = 0;
+
+	memset(levels, 0, sizeof(levels));
+	memset(g_FolderRows, 0, sizeof(g_FolderRows));
+	g_NumFolderRows = 0;
+
+	for (size_t row = 0; ; ++row) {
+		const size_t o = MPSTAGES_AT - DATA_VRAM + MPSTAGE_ROW * row;
+		uint32_t text, levelid;
+		struct level *lv;
+		char *s;
+
+		if (o + MPSTAGE_ROW > g_DataLen) {
+			fail("%s's arena table runs off the data segment", g_Layout->name);
+		}
+
+		text = be16(g_Data, o);
+
+		// the table has no end row: the game counts its rows. Every row's
+		// strings are LtitleE's, Random's (the first) among them, so the
+		// table ends where a row's text is another bank's
+		if (row == 0) {
+			bank = text >> 10;
+		} else if ((text >> 10) != bank) {
+			break;
+		}
+
+		levelid = be32(g_Data, o + 8);
+
+		if ((int32_t)levelid < 0) {
+			continue; // Random
+		}
+
+		lv = variantLevel(levels, &n, levelid);
+
+		if (lv->arena) {
+			fail("%s has two arenas on level %u", g_Layout->name, (unsigned)levelid);
+		}
+
+		s = gcAlloc(strlen(variantSetupName(levelid)) + 4);
+		snprintf(s, strlen(variantSetupName(levelid)) + 4, "Ump_%s", variantSetupName(levelid) + 1);
+		if (!romHas(s)) {
+			fail("%s's arena on level %u has no %s", g_Layout->name, (unsigned)levelid, s);
+		}
+		lv->mp = s;
+		lv->arena = 1;
+		// the photo is a row of mpstageselimages (oddtextures.c), GoldenEye's
+		// own sixteen arena pictures and Random: a variant keeps the rows and
+		// puts its own pictures in their images
+		{
+			static const uint16_t pictures[] = {
+				2592, 2582, 2578, 2585, 2580, 2590, 2587, 2596, 2583, 2581, 2584, 2586,
+				2686, 2687, 2688, 2689, 2695,
+			};
+			const uint32_t photo = be32(g_Data, o + 4);
+
+			lv->picture = photo < sizeof(pictures) / sizeof(pictures[0]) ? pictures[photo] : 0;
+		}
+		// the folder's name
+		lv->name = titleString(&title, text, "arena");
+
+		note("geconvert: %s: arena %s on level %u (%s, %s, %s), scale %g", g_Layout->name, lv->name,
+			(unsigned)levelid, lv->bg, lv->stan, lv->mp, lv->levelscale);
+		narenas++;
+	}
+
+	if (!narenas) {
+		fail("%s has no arenas", g_Layout->name);
+	}
+
+	// and its missions, from its folder
+	for (size_t row = 0; ; ++row) {
+		const size_t o = MISSIONFOLDER_AT - DATA_VRAM + MISSIONFOLDER_ROW * row;
+		struct folderrow *f;
+		const char *label, *brief;
+		int32_t levelid, type, mission;
+
+		if (o + MISSIONFOLDER_ROW > g_DataLen) {
+			fail("%s's mission folder runs off the data segment", g_Layout->name);
+		}
+
+		if (!be32(g_Data, o)) {
+			break;
+		}
+
+		if (g_NumFolderRows == MAX_FOLDER_ROWS) {
+			fail("%s's mission folder has more than %d rows", g_Layout->name, MAX_FOLDER_ROWS);
+		}
+
+		label = dataString(be32(g_Data, o));
+		levelid = (int32_t)be32(g_Data, o + 8);
+		type = (int32_t)be32(g_Data, o + 16);
+		mission = (int32_t)be32(g_Data, o + 20);
+		brief = be32(g_Data, o + 24) ? dataString(be32(g_Data, o + 24)) : NULL;
+
+		f = &g_FolderRows[g_NumFolderRows++];
+		snprintf(f->label, sizeof(f->label), "%s", label ? label : "");
+		f->name = be16(g_Data, o + 4) & 0x3ff;
+		f->icon = be16(g_Data, o + 6) & 0x3ff;
+		f->mission = type == 0 ? mission : -1;
+		f->brief = type == 0 ? brief : NULL;
+
+		if (type != 0) {
+			continue;
+		}
+
+		// a mission: GoldenEye's own numbering, briefing and text bank
+		if (mission < 0 || mission >= MAX_FOLDER_ROWS || levelid < 0 || !brief
+				|| mission >= (int32_t)(sizeof(g_MenuText) / sizeof(g_MenuText[0])) - 1
+				|| strcmp(brief, g_MenuText[mission].brief) != 0) {
+			fail("%s's mission folder row %u is not a mission GoldenEye has", g_Layout->name, (unsigned)row);
+		}
+
+		{
+			struct level *lv = variantLevel(levels, &n, (uint32_t)levelid);
+			struct mission *m = &g_VariantMissions[nmissions++];
+
+			if (lv->solo) {
+				fail("%s has two missions on level %d", g_Layout->name, (int)levelid);
+			}
+
+			lv->solo = variantSetupName((uint32_t)levelid);
+			if (!romHas(lv->solo)) {
+				fail("%s's mission on level %d has no %s", g_Layout->name, (int)levelid, lv->solo);
+			}
+			if (!lv->name) {
+				lv->name = titleString(&title, f->name, "mission");
+			}
+
+			m->key = lv->key;
+			m->setup = lv->solo;
+			// the shorter of its two names, as GoldenEye's grid shows it
+			m->name = titleString(&title, f->icon ? f->icon : f->name, "mission");
+			m->num = mission;
+
+			note("geconvert: %s: mission %d %s on level %d (%s, %s, %s), scale %g", g_Layout->name, (int)mission,
+				m->name, (int)levelid, lv->bg, lv->stan, lv->solo, lv->levelscale);
+		}
+	}
+
+	g_RunLevels = levels;
+	g_NumRunLevels = n;
+	g_RunMissions = g_VariantMissions;
+	g_NumRunMissions = nmissions;
+}
+
+/**
+ * menu/missionfolder.bin, a variant's mission folder for GE Plus's
+ * (gexfront.c): "GEF1", u16 rows, u16 0, then a row of 48 bytes - its
+ * numeral (8), LtitleE slots of its two names (u16, u16), the mission (s16, -1
+ * for a chapter heading), u16 0, its briefing file (20) and the text bank that
+ * file indexes (12).
+ */
+static void writeMissionFolder(const char *outdir)
+{
+	buf out = {0};
+
+	bufPut(&out, (const uint8_t *)"GEF1", 4);
+	bufU16(&out, (uint32_t)g_NumFolderRows);
+	bufU16(&out, 0);
+
+	for (size_t i = 0; i < g_NumFolderRows; ++i) {
+		const struct folderrow *f = &g_FolderRows[i];
+		uint8_t label[8] = {0}, brief[20] = {0}, lang[12] = {0};
+
+		memcpy(label, f->label, strlen(f->label));
+		bufPut(&out, label, sizeof(label));
+		bufU16(&out, f->name);
+		bufU16(&out, f->icon);
+		bufU16(&out, (uint32_t)(f->mission & 0xffff));
+		bufU16(&out, 0);
+		if (f->mission >= 0) {
+			snprintf((char *)brief, sizeof(brief), "%s", f->brief);
+			snprintf((char *)lang, sizeof(lang), "%s", g_MenuText[f->mission].lang);
+		}
+		bufPut(&out, brief, sizeof(brief));
+		bufPut(&out, lang, sizeof(lang));
+	}
+
+	writeFile(outdir, "menu/missionfolder.bin", out.v, out.n);
 }
 
 int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, size_t errlen)
@@ -8052,13 +9351,28 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		goto done;
 	}
 
-	if (!geconvertIsGoldenEyeUs(rom, romlen)) {
-		fail("not GoldenEye 007 (US)");
+	g_Layout = &g_Layouts[0];
+	g_RunLevels = g_Levels;
+	g_NumRunLevels = NUM_LEVELS;
+	g_RunMissions = g_Missions;
+	g_NumRunMissions = NUM_MISSIONS;
+	memset(g_VariantTex, 0, sizeof(g_VariantTex));
+	g_VariantTexNext = 0;
+	g_NumCollectRows = 0;
+	g_CollectMission = -1;
+
+	if (!romToZ64(rom, romlen) || !(g_Layout = layoutOf(rom, romlen))) {
+		g_Layout = &g_Layouts[0];
+		fail("not GoldenEye 007 (US) or a ROM hack of it this knows");
 	}
 
 	g_Rom = rom;
 	g_RomLen = romlen;
 	romOpen();
+
+	if (g_Layout->variant) {
+		variantLevels();
+	}
 
 	snprintf(sub, sizeof(sub), "%s/files/bgdata", outdir);
 	makeDirs(sub);
@@ -8068,8 +9382,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	snprintf(sub, sizeof(sub), "%s/menu", outdir);
 	makeDirs(sub);
 
-	for (size_t li = 0; li < NUM_LEVELS; ++li) {
-		const struct level *lv = &g_Levels[li];
+	for (size_t li = 0; li < g_NumRunLevels; ++li) {
+		const struct level *lv = &g_RunLevels[li];
 		static uint8_t leveltex[SETBITS / 8];
 		struct bg bg;
 		buf bgfile, stanfile, setupfile, gedata, bgdata, tilesdata, padsdata, mpsetup, revfile;
@@ -8090,6 +9404,37 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 		// everything before this level's first allocation is the ROM's, kept
 		const size_t keep = g_NumAllocs;
+		const size_t mapslen = maps.n, missionslen = missions.n;
+		jmp_buf outer;
+
+		// A variant's level that does not convert is left out, its arena
+		// and its mission with it, rather than the whole variant: the rest
+		// still play
+		if (g_Layout->variant) {
+			memcpy(outer, g_Fail, sizeof(outer));
+
+			if (setjmp(g_Fail)) {
+				memcpy(g_Fail, outer, sizeof(outer));
+				note("geconvert: %s's level %u (%s) is left out: %s", g_Layout->name, (unsigned)lv->levelid,
+					lv->name ? lv->name : lv->key, g_FailMsg);
+				g_FailMsg[0] = '\0';
+				maps.n = mapslen;
+				missions.n = missionslen;
+				if (maps.s) {
+					maps.s[mapslen] = '\0';
+				}
+				if (missions.s) {
+					missions.s[missionslen] = '\0';
+				}
+
+				for (size_t i = keep; i < g_NumAllocs; ++i) {
+					free(g_Allocs[i]);
+				}
+				g_NumAllocs = keep;
+				++g_Progress;
+				continue;
+			}
+		}
 
 		memset(leveltex, 0, sizeof(leveltex));
 
@@ -8240,11 +9585,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				maps.n ? "\n" : "", lv->name, lv->key, lv->key, lv->key, lv->key);
 			if (romFogRow(lv->levelid, fog)) {
 				textf(&maps, " fog \"");
-				fogValue(&maps, fog, offset, levelVisibility(lv->key));
+				fogValue(&maps, fog, offset, levelVisibility(lv));
 				textf(&maps, "\"");
 			} else if (romFoglessRow(lv->levelid, fog)) {
 				textf(&maps, " fog \"");
-				foglessValue(&maps, fog, offset, levelVisibility(lv->key));
+				foglessValue(&maps, fog, offset, levelVisibility(lv));
 				textf(&maps, "\"");
 			}
 			textf(&maps, " music \"%d %d %d\"", music[0], music[1], music[2]);
@@ -8257,6 +9602,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			if (cetiles[0] || cearena[0]) {
 				textf(&maps, " ce \"%s%s%s\"", cetiles, cetiles[0] && cearena[0] ? " " : "", cearena);
 			}
+			if (lv->picture) {
+				textf(&maps, " picture \"%u\"", (unsigned)lv->picture);
+			}
 		}
 
 		note("geconvert: %s: %d rooms, %d portals, %d tiles (+%d walls), %d pads, %d lights",
@@ -8265,7 +9613,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// and the solo mission on this level, where there is one: its own pads
 		// (a mission's pad list is not the arena's) and its own setup, over the
 		// same rooms and tiles
-		for (size_t mi = 0; mi < NUM_MISSIONS; ++mi) {
+		for (size_t mi = 0; mi < g_NumRunMissions; ++mi) {
+			const struct mission *ms = &g_RunMissions[mi];
 			buf mfile, mpads, mprops, mrev;
 			struct setup msetup;
 			padrecs mbound;
@@ -8279,16 +9628,17 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			st.anims = allanims;
 			st.models = allmodels;
 
-			if (strcmp(g_Missions[mi].key, lv->key) != 0) {
+			if (strcmp(ms->key, lv->key) != 0) {
 				continue;
 			}
 
-			mfile = romFile(g_Missions[mi].setup);
+			mfile = romFile(ms->setup);
 			setupRead(&mfile, &msetup);
+			soloCollectablesBegin(&mfile, ms->num);
 			mbound = boundPads(&mfile, lv->levelscale, offset);
 			mpadrooms = gcAlloc((msetup.pads.n + mbound.n + 1) * sizeof(*mpadrooms));
 			mportals = geSoloDoors(&mfile, &msetup, &mbound, &stan, &bg, lv->levelscale, offset, mpadrooms,
-					g_Missions[mi].name);
+					ms->name);
 			mpads = writePads(&msetup, lv->levelscale, offset, &rf, &mbound, mpadrooms);
 			mprops = writeSoloSetup(&mfile, msetup.pads.n, allmodels, &st, lv->levelscale, offset, mportals);
 
@@ -8303,7 +9653,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 			// and the mission as the later cartridges have it, over the same
 			// pads, which they did not change
-			hasrev = revisionSetup(g_Missions[mi].setup, &mfile, &mrev);
+			hasrev = revisionSetup(ms->setup, &mfile, &mrev);
 			if (hasrev) {
 				struct solostats rst = {0};
 
@@ -8313,13 +9663,13 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				// is where GoldenEye looks for them, before any door scale
 				padrecs rbound = boundPads(&mfile, lv->levelscale, offset);
 				struct gedoorinfo *rportals = geSoloDoors(&mrev, &msetup, &rbound, &stan, &bg, lv->levelscale, offset, NULL,
-						g_Missions[mi].name);
+						ms->name);
 
 				rprops = writeSoloSetup(&mrev, msetup.pads.n, allmodels, &rst, lv->levelscale, offset, rportals);
 				snprintf(rel, sizeof(rel), "files/Usetupgs%s_jZ", lv->key);
 				writeFile(outdir, rel, rprops.v, rprops.n);
 				note("geconvert: %s: the later cartridges' mission, %d ai commands (+%d)",
-					g_Missions[mi].name, rst.aikept, rst.aidropped);
+					ms->name, rst.aikept, rst.aidropped);
 			}
 
 			// The HD look's copies where a Community Edition fix changes one
@@ -8327,8 +9677,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			// the mended setup over the mended tiles, and the later
 			// cartridges' setup from the mended one; each written beside the
 			// cartridge's and listed as `ce` only where its bytes differ
-			if (romPatched(g_Missions[mi].setup) || cestan.v != stan.v) {
-				buf cfile = romFileCe(g_Missions[mi].setup);
+			if (romPatched(ms->setup) || cestan.v != stan.v) {
+				buf cfile = romFileCe(ms->setup);
 				struct setup csetup;
 				padrecs cbound;
 				int *cpadrooms;
@@ -8337,7 +9687,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				buf cpads, cprops, crev;
 				char cename[96];
 
-				snprintf(cename, sizeof(cename), "%s (Community Edition)", g_Missions[mi].name);
+				snprintf(cename, sizeof(cename), "%s (Community Edition)", ms->name);
 				cst.anims = allanims;
 				cst.models = allmodels;
 				setupRead(&cfile, &csetup);
@@ -8366,7 +9716,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 						"%sUsetupgs%sZ Usetupgs%s_ceZ", cefiles[0] ? " " : "", lv->key, lv->key);
 				}
 
-				if (hasrev && revisionSetup(g_Missions[mi].setup, &cfile, &crev)) {
+				if (hasrev && revisionSetup(ms->setup, &cfile, &crev)) {
 					struct solostats crst = {0};
 					padrecs crbound = boundPads(&cfile, lv->levelscale, offset);
 					struct gedoorinfo *crportals = geSoloDoors(&crev, &csetup, &crbound, &cestan, &bg, lv->levelscale, offset,
@@ -8385,32 +9735,32 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 					}
 				}
 
-				note("geconvert: %s: the Community Edition's copies: %s", g_Missions[mi].name,
+				note("geconvert: %s: the Community Edition's copies: %s", ms->name,
 					cefiles[0] ? cefiles : "none differ");
 			}
 
 			textf(&missions, "%s  mission %d \"%s\" bg \"bgdata/bg_gx%s.seg\" tiles \"bgdata/bg_gx%s_tilesZ\""
 					" pads \"bgdata/bg_gs%s_padsZ\" setup \"Usetupgs%sZ\"",
-				missions.n ? "\n" : "", (int)mi, g_Missions[mi].name, lv->key, lv->key, lv->key, lv->key);
+				missions.n ? "\n" : "", ms->num, ms->name, lv->key, lv->key, lv->key, lv->key);
 			if (romFogRow(lv->levelid, fog)) {
 				textf(&missions, " fog \"");
-				fogValue(&missions, fog, offset, levelVisibility(lv->key));
+				fogValue(&missions, fog, offset, levelVisibility(lv));
 				textf(&missions, "\"");
 
 				if (romFogAltRow(lv->levelid, fog)) {
 					textf(&missions, " altfog \"");
-					fogValue(&missions, fog, offset, levelVisibility(lv->key));
+					fogValue(&missions, fog, offset, levelVisibility(lv));
 					textf(&missions, "\"");
 				}
 
 				if (romFogCinemaRow(lv->levelid, fog)) {
 					textf(&missions, " cinemafog \"");
-					fogValue(&missions, fog, offset, levelVisibility(lv->key));
+					fogValue(&missions, fog, offset, levelVisibility(lv));
 					textf(&missions, "\"");
 				}
 			} else if (romFoglessRow(lv->levelid, fog)) {
 				textf(&missions, " fog \"");
-				foglessValue(&missions, fog, offset, levelVisibility(lv->key));
+				foglessValue(&missions, fog, offset, levelVisibility(lv));
 				textf(&missions, "\"");
 			}
 			textf(&missions, " music \"%d %d %d\"", music[0], music[1], music[2]);
@@ -8425,11 +9775,18 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 
 			note("geconvert: %s: mission %d, %d props (+%d left out), %d ai commands (+%d)",
-				g_Missions[mi].name, (int)mi, st.props, st.dropped, st.aikept, st.aidropped);
+				ms->name, ms->num, st.props, st.dropped, st.aikept, st.aidropped);
+			soloCollectablesEnd();
 		}
+
+		soloCollectablesEnd();
 
 		for (size_t i = 0; i < sizeof(leveltex); ++i) {
 			alltex[i] |= leveltex[i];
+		}
+
+		if (g_Layout->variant) {
+			memcpy(g_Fail, outer, sizeof(outer));
 		}
 
 		// let go of the level's allocations
@@ -8441,40 +9798,49 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		++g_Progress;
 	}
 
+	// the props GE Plus shows that no setup names (and an arena's ammo box),
+	// a variant's arenas as well
+	setAdd(allmodels, MENU_FOLDER_MODEL);
+	// and the TV set the folder's Monitor Programmes page shows them on
+	// (PROP_TV1, gexfront.c)
+	setAdd(allmodels, MENU_TV_MODEL);
+	setAdd(allmodels, INTRO_LOGO_MODEL);
+	setAdd(allmodels, MP_AMMO_MODEL);
+	// the thrown gadgets' props (gesolo.py's GE_GADGET_MODELS): PROP_CHRBUG,
+	// PROP_CHRGOLDENEYEKEY and PROP_CHRPLASTIQUE
+	setAdd(allmodels, 245);
+	setAdd(allmodels, 248);
+	setAdd(allmodels, 273);
+	// and the thrown mines' (gun.c's throw): PROP_CHRREMOTEMINE,
+	// PROP_CHRPROXIMITYMINE and PROP_CHRTIMEDMINE, which a setup names only
+	// where a level lays one on its floor (gegunsThrownModel())
+	setAdd(allmodels, 199);
+	setAdd(allmodels, 200);
+	setAdd(allmodels, 201);
+	for (size_t i = 0; i < sizeof(g_IntroGuns) / sizeof(g_IntroGuns[0]); ++i) {
+		setAdd(allmodels, g_IntroGuns[i]);
+	}
+	// and every gun Bond can hold, in his hand in third person and through a
+	// mission's opening swirl (gegunsOwnPropModel()) - the three no setup
+	// puts in a guard's hand as well: PROP_CHRKNIFE, PROP_CHRSHOTGUN and
+	// PROP_CHRMP5KSIL, the silenced D5K Frigate starts him with
+	for (size_t i = 0; i < sizeof(g_HeldGuns) / sizeof(g_HeldGuns[0]); ++i) {
+		setAdd(allmodels, g_HeldGuns[i]);
+	}
+
 	// GE Plus's menus are GoldenEye's own folder screens: the folder is a prop
 	// model, the cursor and the stage pictures global images, and the fonts, the
-	// music and the title screen's strings are copied as GoldenEye stores them
+	// music and the title screen's strings are copied as GoldenEye stores them.
+	// A variant's are its own, from where its layout says (its sound and its
+	// music are its own), and its mission folder with them
 	{
 		const size_t keep = g_NumAllocs;
 		buf title;
 
-		setAdd(allmodels, MENU_FOLDER_MODEL);
-		// and the TV set the folder's Monitor Programmes page shows them on
-		// (PROP_TV1, gexfront.c)
-		setAdd(allmodels, MENU_TV_MODEL);
-		setAdd(allmodels, INTRO_LOGO_MODEL);
-		setAdd(allmodels, MP_AMMO_MODEL);
-		// the thrown gadgets' props (gesolo.py's GE_GADGET_MODELS): PROP_CHRBUG,
-		// PROP_CHRGOLDENEYEKEY and PROP_CHRPLASTIQUE
-		setAdd(allmodels, 245);
-		setAdd(allmodels, 248);
-		setAdd(allmodels, 273);
-		// and the thrown mines' (gun.c's throw): PROP_CHRREMOTEMINE,
-		// PROP_CHRPROXIMITYMINE and PROP_CHRTIMEDMINE, which a setup names only
-		// where a level lays one on its floor (gegunsThrownModel())
-		setAdd(allmodels, 199);
-		setAdd(allmodels, 200);
-		setAdd(allmodels, 201);
-		for (size_t i = 0; i < sizeof(g_IntroGuns) / sizeof(g_IntroGuns[0]); ++i) {
-			setAdd(allmodels, g_IntroGuns[i]);
+		if (g_Layout->variant) {
+			writeMissionFolder(outdir);
 		}
-		// and every gun Bond can hold, in his hand in third person and through a
-		// mission's opening swirl (gegunsOwnPropModel()) - the three no setup
-		// puts in a guard's hand as well: PROP_CHRKNIFE, PROP_CHRSHOTGUN and
-		// PROP_CHRMP5KSIL, the silenced D5K Frigate starts him with
-		for (size_t i = 0; i < sizeof(g_HeldGuns) / sizeof(g_HeldGuns[0]); ++i) {
-			setAdd(allmodels, g_HeldGuns[i]);
-		}
+
 		for (size_t i = 0; i < sizeof(g_MenuImages) / sizeof(g_MenuImages[0]); ++i) {
 			for (uint32_t n = 0; n < g_MenuImages[i].count; ++n) {
 				setAdd(alltex, g_MenuImages[i].first + n);
@@ -8483,14 +9849,15 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		snprintf(sub, sizeof(sub), "%s/menu", outdir);
 		makeDirs(sub);
 
-		for (size_t i = 0; i < sizeof(g_MenuRaw) / sizeof(g_MenuRaw[0]); ++i) {
+		for (size_t i = 0; i < NUM_MENU_RAW; ++i) {
+			const uint32_t at = g_Layout->raw[i][0], size = g_Layout->raw[i][1];
 			char rel[64];
 
-			if (g_MenuRaw[i].at + g_MenuRaw[i].size > g_RomLen) {
-				fail("%s runs off the ROM", g_MenuRaw[i].name);
+			if (!size || at + size > g_RomLen) {
+				fail("%s runs off the ROM", g_MenuRaw[i]);
 			}
-			snprintf(rel, sizeof(rel), "menu/%s", g_MenuRaw[i].name);
-			writeFile(outdir, rel, g_Rom + g_MenuRaw[i].at, g_MenuRaw[i].size);
+			snprintf(rel, sizeof(rel), "menu/%s", g_MenuRaw[i]);
+			writeFile(outdir, rel, g_Rom + at, size);
 		}
 
 		title = romFile("LtitleE");
@@ -8534,10 +9901,19 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 		writeFile(outdir, "menu/introblood.bin", g_Data + INTRO_BLOOD_AT, INTRO_BLOOD_SIZE);
 
-		if (HEAD_HATS_AT + HEAD_HATS_SIZE > g_DataLen) {
-			fail("the heads' hat table runs off the data segment");
+		{
+			const size_t at = g_Layout->hats - DATA_VRAM, size = HEAD_HAT_ROW * (size_t)g_Layout->hatcount;
+			buf hats = {0};
+
+			if (at + size > g_DataLen) {
+				fail("the heads' hat table runs off the data segment");
+			}
+			bufPut(&hats, (const uint8_t *)"GEH1", 4);
+			bufU16(&hats, g_Layout->hatfirst);
+			bufU16(&hats, g_Layout->hatcount);
+			bufPut(&hats, g_Data + at, size);
+			writeFile(outdir, "menu/headhats.bin", hats.v, hats.n);
 		}
-		writeFile(outdir, "menu/headhats.bin", g_Data + HEAD_HATS_AT, HEAD_HATS_SIZE);
 
 		// gitem_structs as it stands, for where the watch holds each item up on
 		// its face (gewatch.c): a row's two pointers mean nothing out of the
@@ -8546,6 +9922,11 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			fail("the hand items run off the data segment");
 		}
 		writeFile(outdir, "menu/geitems.bin", g_Data + ITEMS_AT, ITEM_ROW * NUM_ITEMS);
+
+		// a hack's own guns, which GoldenEye's tables in geguns.c are not
+		if (g_Layout->variant) {
+			writeGuns(outdir);
+		}
 
 		// and the solo missions' briefings, with the text bank each one indexes
 		for (size_t i = 0; i < sizeof(g_MenuText) / sizeof(g_MenuText[0]); ++i) {
@@ -8573,7 +9954,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	}
 
 	// the intro's characters: every one in the ROM, converted (gechr.py), and
-	// its animations in one file with a table naming each (geanim.py)
+	// its animations in one file with a table naming each (geanim.py). A
+	// variant's characters are its missions' (it has no intro: GE Plus's is
+	// GoldenEye's), and so are its hand items and animations
 	{
 		const size_t numanims = sizeof(g_IntroAnims) / sizeof(g_IntroAnims[0]);
 		const size_t keepall = g_NumAllocs;
@@ -8585,11 +9968,38 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			double scale;
 			buf data, z;
 			char rel[64];
+			jmp_buf outer;
+
+			// A variant's list carries rows its own game never loads -
+			// Goldfinger's 108 and 109 are a body's header over a 3 KB
+			// file - so a character that does not convert is left out
+			// there (a mission naming it wears a stand-in, gexplus.c)
+			// rather than the whole conversion stopping
+			if (g_Layout->variant) {
+				memcpy(outer, g_Fail, sizeof(outer));
+
+				if (setjmp(g_Fail)) {
+					memcpy(g_Fail, outer, sizeof(outer));
+					note("geconvert: %s's character %u (%s) is left out: %s", g_Layout->name, num,
+						g_Chrs[num].file ? g_Chrs[num].file : "no file", g_FailMsg);
+					g_FailMsg[0] = '\0';
+
+					for (size_t i = keep; i < g_NumAllocs; ++i) {
+						free(g_Allocs[i]);
+					}
+					g_NumAllocs = keep;
+					continue;
+				}
+			}
 
 			data = chrConvert((int32_t)num, alltex, &scale);
 			z = rzip1173(data.v, data.n);
 			snprintf(rel, sizeof(rel), "files/Cgx%03uZ", num);
 			writeFile(outdir, rel, z.v, z.n);
+
+			if (g_Layout->variant) {
+				memcpy(g_Fail, outer, sizeof(outer));
+			}
 
 			for (size_t i = keep; i < g_NumAllocs; ++i) {
 				free(g_Allocs[i]);
@@ -8603,39 +10013,41 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// by, and a 20-byte field truncated ten of the twenty-five - two of
 		// them to the same 19 characters - so it has to be wide enough for the
 		// longest of them
-		bufPut(&head, (const uint8_t *)"GEI2", 4);
-		bufU16(&head, NUM_CHRS);
-		bufU16(&head, (uint32_t)numanims);
-		for (uint32_t num = 0; num < NUM_CHRS; ++num) {
-			bufU16(&head, num);
-			bufU16(&head, g_Chrs[num].flags);
-			bufF32(&head, g_Chrs[num].scale);
+		if (!g_Layout->variant) {
+			bufPut(&head, (const uint8_t *)"GEI2", 4);
+			bufU16(&head, NUM_CHRS);
+			bufU16(&head, (uint32_t)numanims);
+			for (uint32_t num = 0; num < NUM_CHRS; ++num) {
+				bufU16(&head, num);
+				bufU16(&head, g_Chrs[num].flags);
+				bufF32(&head, g_Chrs[num].scale);
+			}
+
+			base = head.n + 48 * numanims;
+
+			for (size_t i = 0; i < numanims; ++i) {
+				struct animout e;
+				buf data = animConvert(g_IntroAnims[i].at, &e, ANIM_PARTS);
+				uint8_t name[32] = {0};
+
+				snprintf((char *)name, sizeof(name), "%s", g_IntroAnims[i].name);
+				bufPut(&index, name, sizeof(name));
+				bufU16(&index, e.numframes);
+				bufU16(&index, e.bytesperframe);
+				bufU16(&index, e.headerlen);
+				bufU8(&index, e.framelen);
+				bufU8(&index, e.looping);
+				bufU32(&index, (uint32_t)(base + blob.n));
+				bufU32(&index, (uint32_t)data.n);
+				bufPut(&blob, data.v, data.n);
+			}
+
+			bufPut(&head, index.v, index.n);
+			bufPut(&head, blob.v, blob.n);
+			writeFile(outdir, "menu/intro.bin", head.v, head.n);
+			note("geconvert: %d characters, %d animations in %d bytes",
+				(int)NUM_CHRS, (int)numanims, (int)blob.n);
 		}
-
-		base = head.n + 48 * numanims;
-
-		for (size_t i = 0; i < numanims; ++i) {
-			struct animout e;
-			buf data = animConvert(g_IntroAnims[i].at, &e, ANIM_PARTS);
-			uint8_t name[32] = {0};
-
-			snprintf((char *)name, sizeof(name), "%s", g_IntroAnims[i].name);
-			bufPut(&index, name, sizeof(name));
-			bufU16(&index, e.numframes);
-			bufU16(&index, e.bytesperframe);
-			bufU16(&index, e.headerlen);
-			bufU8(&index, e.framelen);
-			bufU8(&index, e.looping);
-			bufU32(&index, (uint32_t)(base + blob.n));
-			bufU32(&index, (uint32_t)data.n);
-			bufPut(&blob, data.v, data.n);
-		}
-
-		bufPut(&head, index.v, index.n);
-		bufPut(&head, blob.v, blob.n);
-		writeFile(outdir, "menu/intro.bin", head.v, head.n);
-		note("geconvert: %d characters, %d animations in %d bytes",
-			(int)NUM_CHRS, (int)numanims, (int)blob.n);
 
 		// menu/gechrs.bin: "GEC1" and a row a character - the two
 		// c_item_entries flags, its scale and its pov, which are what
@@ -8651,14 +10063,112 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			bufU16(&chrs, NUM_CHRS);
 			bufU16(&chrs, 0);
 
+			// and 4 for a head: a model with no skeleton, which GoldenEye's
+			// forty-two bodies all have and its heads none of (a variant
+			// mixes the two in one list: Goldfinger's 126)
 			for (uint32_t num = 0; num < NUM_CHRS; ++num) {
 				bufU16(&chrs, num);
-				bufU16(&chrs, g_Chrs[num].flags);
+				bufU16(&chrs, g_Chrs[num].flags | (g_Chrs[num].skeleton ? 0 : 4));
 				bufF32(&chrs, g_Chrs[num].scale);
 				bufF32(&chrs, g_Chrs[num].pov);
 			}
 
 			writeFile(outdir, "menu/gechrs.bin", chrs.v, chrs.n);
+		}
+
+		// menu/gecast.bin: who a mission's people are where the code says
+		// rather than a setup - "GEK1", u8 men, u8 women, u8 cuffs, u8 0, the
+		// pool a guard with no head of its own draws from (chr.c's
+		// random_male_heads and random_female_heads, or the layout's first),
+		// then solo_char_load()'s Bond, body and head an outfit
+		// (romlayout.bond). Where the layout has more pools, u8 how many more
+		// and for each u8 men, u8 women and the heads: a record's head -2 is
+		// the first of them
+		{
+			buf cast = {0};
+			uint8_t men[64], women[64];
+			size_t nmen = 0, nwomen = 0, o = RANDOM_HEADS_AT - DATA_VRAM;
+			int extra = 0;
+
+			if (g_Layout->headpools[0][0][0]) {
+				for (; nmen < 16 && g_Layout->headpools[0][0][nmen]; ++nmen) {
+					men[nmen] = g_Layout->headpools[0][0][nmen];
+				}
+				for (; nwomen < 16 && g_Layout->headpools[0][1][nwomen]; ++nwomen) {
+					women[nwomen] = g_Layout->headpools[0][1][nwomen];
+				}
+			} else {
+				for (; o + 4 <= g_DataLen && (int32_t)be32(g_Data, o) >= 0 && nmen < sizeof(men); o += 4) {
+					men[nmen++] = (uint8_t)be32(g_Data, o);
+				}
+				for (o += 4; o + 4 <= g_DataLen && (int32_t)be32(g_Data, o) >= 0 && nwomen < sizeof(women); o += 4) {
+					women[nwomen++] = (uint8_t)be32(g_Data, o);
+				}
+			}
+
+			bufPut(&cast, (const uint8_t *)"GEK1", 4);
+			bufU8(&cast, (uint32_t)nmen);
+			bufU8(&cast, (uint32_t)nwomen);
+			bufU8(&cast, 9);
+			bufU8(&cast, 0);
+			bufPut(&cast, men, nmen);
+			bufPut(&cast, women, nwomen);
+			bufPut(&cast, &g_Layout->bond[0][0], sizeof(g_Layout->bond));
+
+			while (extra + 1 < GE_HEAD_POOLS && g_Layout->headpools[extra + 1][0][0]) {
+				extra++;
+			}
+
+			if (extra) {
+				bufU8(&cast, (uint32_t)extra);
+
+				for (int k = 1; k <= extra; ++k) {
+					size_t n[2] = { 0, 0 };
+
+					for (int sex = 0; sex < 2; ++sex) {
+						while (n[sex] < 16 && g_Layout->headpools[k][sex][n[sex]]) {
+							n[sex]++;
+						}
+					}
+
+					bufU8(&cast, (uint32_t)n[0]);
+					bufU8(&cast, (uint32_t)n[1]);
+					bufPut(&cast, g_Layout->headpools[k][0], n[0]);
+					bufPut(&cast, g_Layout->headpools[k][1], n[1]);
+				}
+			}
+
+			writeFile(outdir, "menu/gecast.bin", cast.v, cast.n);
+		}
+
+		// menu/geslots.bin: which item each mission's collectable weapons
+		// stand for (soloCollectablesBegin()), and a ROM hack's gadgets
+		// (soloGadgetUse()) - "GES1", u16 rows, then u8 mission (0xff for
+		// every mission), u8 weapon, u8 item, u8 0 a row
+		if (g_Layout->variant) {
+			soloGadgetsEveryMission();
+		}
+
+		if (g_NumCollectRows) {
+			buf slots = {0};
+
+			bufPut(&slots, (const uint8_t *)"GES1", 4);
+			bufU16(&slots, (uint32_t)g_NumCollectRows);
+			bufPut(&slots, &g_CollectRows[0][0], 4 * (size_t)g_NumCollectRows);
+			writeFile(outdir, "menu/geslots.bin", slots.v, slots.n);
+		}
+
+		// menu/geexplosions.bin: object_explosion_details as it stands, a
+		// row a prop - {s16 type, s16 seeds[6]} - for a variant's props,
+		// which are not GoldenEye's numbers (gexplus.c keeps GoldenEye's own
+		// table built in)
+		if (g_Layout->variant) {
+			const size_t at = g_Layout->explosions - DATA_VRAM;
+
+			if (at + 14 * NUM_PROPS > g_DataLen) {
+				fail("the props' explosions run off the data segment");
+			}
+			writeFile(outdir, "menu/geexplosions.bin", g_Data + at, 14 * NUM_PROPS);
 		}
 
 		// menu/gemonitors.bin: what GoldenEye's TVs and its big projection
@@ -8667,14 +10177,20 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// - with the image's number as the conversion writes its texture - and
 		// the programmes' block out of the data segment as it stands, but for a
 		// jump's target, an address inside the block, which becomes the word it
-		// is at. geconvert.py writes the same bytes.
+		// is at. A hack's starts and pictures are its own (romlayout.monprograms,
+		// monimages); its block is where GoldenEye's is.
 		{
 			static const uint8_t lens[16] = { 1, 3, 3, 3, 3, 3, 3, 2, 2, 2, 3, 1, 1, 3, 2, 2 };
 			const size_t at = GEMON_BLOCK_AT - DATA_VRAM;
+			const int own = g_Layout->monimages != 0;
 			buf mon = {0};
 
 			if (at + 4 * (size_t)GEMON_BLOCK_WORDS > g_DataLen) {
 				fail("the monitor programmes are not where they should be");
+			}
+
+			if (own && (size_t)g_Layout->monimages + 12 * GEMON_NUM_IMAGES > g_RomLen) {
+				fail("%s's monitor pictures run off the ROM", g_Layout->name);
 			}
 
 			bufPut(&mon, (const uint8_t *)"GEM1", 4);
@@ -8683,19 +10199,38 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			bufU32(&mon, GEMON_BLOCK_WORDS);
 
 			for (int i = 0; i < GEMON_NUM_PROGRAMS; ++i) {
-				bufU32(&mon, g_GeMonPrograms[i]);
+				const uint32_t w = own ? g_Layout->monprograms[i] : g_GeMonPrograms[i];
+
+				if (w >= GEMON_BLOCK_WORDS) {
+					fail("%s's monitor programme %d starts past its block", g_Layout->name, i);
+				}
+
+				bufU32(&mon, w);
 			}
 
 			for (int i = 0; i < GEMON_NUM_IMAGES; ++i) {
-				setAdd(alltex, g_GeMonImages[i].image);
-				bufU32(&mon, texRemap(g_GeMonImages[i].image));
-				bufU8(&mon, g_GeMonImages[i].w);
-				bufU8(&mon, g_GeMonImages[i].h);
-				bufU8(&mon, g_GeMonImages[i].level);
-				bufU8(&mon, g_GeMonImages[i].format);
-				bufU8(&mon, g_GeMonImages[i].depth);
-				bufU8(&mon, g_GeMonImages[i].s);
-				bufU8(&mon, g_GeMonImages[i].t);
+				// s_monitorimages' row: the image, then width, height, level,
+				// format, depth and the two wrap modes
+				uint32_t image = g_GeMonImages[i].image;
+				uint8_t row[7] = {
+					g_GeMonImages[i].w, g_GeMonImages[i].h, g_GeMonImages[i].level, g_GeMonImages[i].format,
+					g_GeMonImages[i].depth, g_GeMonImages[i].s, g_GeMonImages[i].t,
+				};
+
+				if (own) {
+					const size_t r = g_Layout->monimages + 12 * (size_t)i;
+
+					image = be32(g_Rom, r);
+					memcpy(row, g_Rom + r + 4, sizeof(row));
+
+					if (image >= (uint32_t)NUM_IMAGES) {
+						fail("%s's monitor picture %d is image %u, past its last", g_Layout->name, i, (unsigned)image);
+					}
+				}
+
+				setAdd(alltex, image);
+				bufU32(&mon, texRemap(image));
+				bufPut(&mon, row, sizeof(row));
 				bufU8(&mon, 0);
 			}
 
@@ -8722,8 +10257,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// the watch the remake's pause wears (gewatch.c): GoldenEye's own
 		// hand item, converted the way a prop is and written under its item
 		// number, since the player's own character wears it now and their
-		// body model has no watch of its own
-		{
+		// body model has no watch of its own (a variant's where its row is
+		// the watch still)
+		if (g_Items[ITEM_WATCH].file && !strcmp(g_Items[ITEM_WATCH].file, ITEM_WATCH_FILE)) {
 			const size_t keep = g_NumAllocs;
 			double scale;
 			buf data = itemConvert(ITEM_WATCH, alltex, &scale);
@@ -8763,8 +10299,20 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				// WEAPON_GE_DETONATOR) and the gadgets. The watch laser
 				// (23) rides WEAPON_GE_MOONRAKER but is drawn with its own
 				// model, GwatchlaserZ, the detonator's twin (gegadgets.c)
-				if (!g_Items[item].file || item == 20 || item == 21
-						|| (item > 30 && !soloGadgetItem(item))) {
+				if (!g_Items[item].file) {
+					continue;
+				}
+
+				// a hack's guns are wherever it renumbered them to
+				// (itemWeaponsBuild()): its hand, every item that is a
+				// gun, the detonator and the gadgets, which keep their
+				// numbers
+				if (g_Layout->variant) {
+					if (item != 1 && !itemWeaponIsGun(soloItemWeapon(item))
+							&& strcmp(g_Items[item].file, "GtriggerZ") && !soloGadgetItem(item)) {
+						continue;
+					}
+				} else if (item == 20 || item == 21 || (item > 30 && !soloGadgetItem(item))) {
 					continue;
 				}
 
@@ -8947,12 +10495,22 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		note("geconvert: %d textures, %d missing", count, missing);
 	}
 
-	textf(&config, "# GoldenEye levels converted from the GoldenEye ROM (port/src/geconvert.c, tools/geconvert)\nmaps {\n%s\n}\n",
-		maps.s ? maps.s : "");
+	if (g_Layout->variant) {
+		textf(&config, "# %s's arenas converted from its ROM (port/src/geconvert.c)\nmaps {\n%s\n}\n",
+			g_Layout->name, maps.s ? maps.s : "");
+	} else {
+		textf(&config, "# GoldenEye levels converted from the GoldenEye ROM (port/src/geconvert.c, tools/geconvert)\nmaps {\n%s\n}\n",
+			maps.s ? maps.s : "");
+	}
 	textf(&config, "# GoldenEye's prop models: slot (GoldenEye model number), file, scale (4096 = 1.0)\nmodels {\n%s\n}\n",
 		modellines.s ? modellines.s : "");
-	textf(&config, "# GoldenEye's solo missions, in its own mission order (port/src/gexfront.c)\nmissions {\n%s\n}\n",
-		missions.s ? missions.s : "");
+	if (g_Layout->variant) {
+		textf(&config, "# %s's solo missions, in GoldenEye's mission order (port/src/gexfront.c)\nmissions {\n%s\n}\n",
+			g_Layout->name, missions.s ? missions.s : "");
+	} else {
+		textf(&config, "# GoldenEye's solo missions, in its own mission order (port/src/gexfront.c)\nmissions {\n%s\n}\n",
+			missions.s ? missions.s : "");
+	}
 	writeFile(outdir, "modconfig.txt", (const uint8_t *)config.s, config.n);
 	++g_Progress;
 	ok = 1;
@@ -8961,6 +10519,12 @@ done:
 	if (!ok && err && errlen) {
 		snprintf(err, errlen, "%s", g_FailMsg[0] ? g_FailMsg : "failed");
 	}
+
+	g_Layout = &g_Layouts[0];
+	g_RunLevels = g_Levels;
+	g_NumRunLevels = NUM_LEVELS;
+	g_RunMissions = g_Missions;
+	g_NumRunMissions = NUM_MISSIONS;
 
 	free(maps.s);
 	free(modellines.s);
@@ -8991,6 +10555,8 @@ int geconvertReadNames(uint8_t *rom, size_t romlen, void (*fn)(void *arg, int ki
 		goto done;
 	}
 
+	g_Layout = &g_Layouts[0];
+
 	if (!geconvertIsGoldenEyeUs(rom, romlen)) {
 		fail("not GoldenEye 007 (US)");
 	}
@@ -8999,13 +10565,13 @@ int geconvertReadNames(uint8_t *rom, size_t romlen, void (*fn)(void *arg, int ki
 	g_RomLen = romlen;
 	romOpen();
 
-	for (int k = 0; k < NUM_PROPS; ++k) {
+	for (int k = 0; k < (int)NUM_PROPS; ++k) {
 		if (g_Props[k].file) {
 			fn(arg, 0, k, g_Props[k].file);
 		}
 	}
 
-	for (int k = 0; k < NUM_CHRS; ++k) {
+	for (int k = 0; k < (int)NUM_CHRS; ++k) {
 		if (g_Chrs[k].file) {
 			fn(arg, 1, k, g_Chrs[k].file);
 		}

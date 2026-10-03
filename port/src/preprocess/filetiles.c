@@ -70,6 +70,24 @@ static u32 convertTiles(u8 *dst, u8 *src, size_t srclen)
 		cur_dst_offset += sizeof(struct tile);
 		cur_src_offset += sizeof(struct tile);
 
+		// GEOTYPE_TILE_F (struct geotilef): two bytes to the floats'
+		// alignment, then a coord a vertex. Perfect Dark's own tiles files
+		// hold none; a GoldenEye ROM hack's level too wide for 16-bit
+		// vertices is written with them (geconvert.c's tilesAreWide())
+		if (hosttile.type == 1) {
+			*(u16 *) &dst[cur_dst_offset] = 0;
+			cur_dst_offset += 2;
+			cur_src_offset += 2;
+
+			for (int i = 0; i < hosttile.numvertices * 3; i++) {
+				*(u32 *) &dst[cur_dst_offset] = PD_BE32(*(u32 *) &src[cur_src_offset]);
+				cur_dst_offset += 4;
+				cur_src_offset += 4;
+			}
+
+			continue;
+		}
+
 		// Write tile vertices
 		for (int i = 0; i < hosttile.numvertices; i++) {
 			*(s16 *) &dst[cur_dst_offset + 0] = PD_BE16(*(s16 *) &src[cur_src_offset + 0]);

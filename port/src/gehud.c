@@ -44,6 +44,7 @@
 #include "system.h"
 #include "video.h"
 #include "gehud.h"
+#include "geguns.h"
 #include "langpack.h"
 #include "gefolder.h"
 #include "gegadgets.h"
@@ -232,10 +233,32 @@ static const struct { u8 icon, noclip, bare; } g_WeaponRows[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_WATCHMAGNET - WEAPON_GE_FIRST]     = { ICON_NONE, 1, 1 },
 };
 
+/**
+ * A gun's icon is its ammunition's, as GoldenEye's is (ammo_related's), by
+ * its row's AmmoType - the gun set's, so a ROM hack's own guns show what they
+ * load (Goldfinger 64's four pistols past GoldenEye's have no row above). The
+ * table above where the row has no type: the gadgets, the tank.
+ */
+static s32 hudWeaponIcon(s32 weaponnum)
+{
+	static const u8 icons[] = {
+		ICON_NONE, ICON_9MM, ICON_9MM, ICON_RIFLE, ICON_SHOTGUN, ICON_GRENADE, ICON_ROCKET,
+		ICON_REMOTEMINE, ICON_PROXMINE, ICON_TIMEDMINE, ICON_KNIFE, ICON_GRENADEROUND, ICON_MAGNUM,
+		ICON_GOLDENGUN,
+	};
+	const s32 ammotype = gegunsGeAmmoType(weaponnum);
+
+	if (ammotype > 0 && ammotype < (s32)ARRAYCOUNT(icons)) {
+		return icons[ammotype];
+	}
+
+	return g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon;
+}
+
 /** Whether one of GoldenEye's weapons shows no ammunition at all. */
 static s32 hudWeaponShowsNothing(s32 weaponnum)
 {
-	return g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon == ICON_NONE
+	return hudWeaponIcon(weaponnum) == ICON_NONE
 		&& !g_WeaponRows[weaponnum - WEAPON_GE_FIRST].bare;
 }
 
@@ -635,7 +658,7 @@ static s32 hudHandAmmo(s32 handnum, s32 *icon, s32 *mag, s32 *reserve, s32 *nocl
 		return 0;
 	}
 
-	*icon = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon;
+	*icon = hudWeaponIcon(weaponnum);
 	*noclip = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].noclip;
 
 	if (hudWeaponShowsNothing(weaponnum)) {
@@ -906,7 +929,7 @@ Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox,
 		return gdl;
 	}
 
-	icon = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon;
+	icon = hudWeaponIcon(weaponnum);
 	noclip = g_WeaponRows[weaponnum - WEAPON_GE_FIRST].noclip;
 
 	if (hudWeaponShowsNothing(weaponnum)) {

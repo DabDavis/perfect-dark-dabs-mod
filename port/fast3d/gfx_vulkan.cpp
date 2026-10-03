@@ -1733,6 +1733,12 @@ static const char *vk_vec_type(int size) {
     return types[size];
 }
 
+// SHADER_OPT_SHADE_LINEAR: the combiner's inputs carried linearly on the
+// screen, as the RDP carries its shade, in every stage that declares them
+static const char *vk_var_interp(const struct CCFeatures &cc, const std::string &name) {
+    return cc.opt_shade_linear && name.compare(0, 6, "vInput") == 0 ? "noperspective " : "";
+}
+
 /*
  * The shader cache. A combiner's shaders are compiled from GLSL the first time
  * it is drawn, and a pipeline is built for each state it is drawn under, and
@@ -1932,7 +1938,8 @@ static struct ShaderProgram *gfx_vk_create_and_load_new_shader(uint64_t shader_i
         vs += strf("layout(location = %d) in %s %s;\n", (int)k, vk_vec_type(attrs[k].second), attrs[k].first.c_str());
     }
     for (size_t k = 0; k < vars.size(); k++) {
-        vs += strf("layout(location = %d) out %s %s;\n", (int)k, vk_vec_type(vars[k].second), vars[k].first.c_str());
+        vs += strf("layout(location = %d) %sout %s %s;\n", (int)k, vk_var_interp(cc_features, vars[k].first),
+                   vk_vec_type(vars[k].second), vars[k].first.c_str());
     }
     vs += "void main() {\n";
     for (size_t k = 1; k < attrs.size(); k++) {
@@ -1955,7 +1962,8 @@ static struct ShaderProgram *gfx_vk_create_and_load_new_shader(uint64_t shader_i
     fs += "#define WRAP(x, low, high) mod((x)-(low), (high)-(low)) + (low)\n";
     fs += "#define TEX_OFFSET(t, s, uv, texSize, off) SAMPLE_TEX(t, s, uv - (off)/texSize)\n";
     for (size_t k = 0; k < vars.size(); k++) {
-        fs += strf("layout(location = %d) in %s %s;\n", (int)k, vk_vec_type(vars[k].second), vars[k].first.c_str());
+        fs += strf("layout(location = %d) %sin %s %s;\n", (int)k, vk_var_interp(cc_features, vars[k].first),
+                   vk_vec_type(vars[k].second), vars[k].first.c_str());
     }
     fs += strf("layout(set = 0, binding = 0) uniform texture2D uTextures[%u];\n", vk_max_texture_slots);
     fs += strf("layout(set = 0, binding = 1) uniform sampler uSamplers[%d];\n", VK_MAX_SAMPLER_SLOTS);
@@ -2682,6 +2690,69 @@ static void gfx_vk_upload_texture(const uint8_t *rgba32_buf, uint32_t width, uin
     img.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
+// A texture whose levels are given (see gfx_rendering_api.h): each copied in as
+// it is, none made by blitting
+static void gfx_vk_upload_texture_levels(const uint8_t *const *levels, uint32_t width, uint32_t height, uint32_t count) {
+    const VkBinding b = vk_bound[vk_active_tile];
+    if (b.kind != VK_BIND_TEXTURE || b.id == 0 || b.id >= vk_textures.size() || count == 0) {
+        return;
+    }
+    if (width == 0 || height == 0) {
+        vk_image_destroy(vk_textures[b.id].img);
+        return;
+    }
+
+    vk_ensure_recording();
+    VkSlot &sl = vk_slots[vk_slot];
+
+    VkTex &tex = vk_textures[b.id];
+    vk_image_destroy(tex.img);
+    if (!vk_image_create(tex.img, width, height, VK_TEXTURE_FORMAT,
+                         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                         VK_SAMPLE_COUNT_1_BIT, count, false)) {
+        sysLogPrintf(LOG_WARNING, "Vulkan: could not create a %ux%u texture", width, height);
+        return;
+    }
+
+    VkDeviceSize bytes = 0;
+    for (uint32_t k = 0; k < count; k++) {
+        bytes += (VkDeviceSize)std::max(1u, width >> k) * std::max(1u, height >> k) * 4;
+    }
+
+    VkBuffer sbuf;
+    VkDeviceSize soff;
+    uint8_t *sptr;
+    if (!vk_ring_alloc(sl.staging, bytes, VK_STAGING_CHUNK, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, &sbuf, &soff, &sptr)) {
+        sysLogPrintf(LOG_WARNING, "Vulkan: out of staging memory for a %ux%u texture", width, height);
+        vk_image_destroy(tex.img);
+        return;
+    }
+
+    VkCommandBuffer cb = sl.upload;
+    sl.upload_used = true;
+    VkImg &img = tex.img;
+
+    vk_barrier(cb, img.image, img.aspect, 0, count, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkDeviceSize at = 0;
+    for (uint32_t k = 0; k < count; k++) {
+        const uint32_t w = std::max(1u, width >> k);
+        const uint32_t h = std::max(1u, height >> k);
+        memcpy(sptr + at, levels[k], (size_t)w * h * 4);
+
+        VkBufferImageCopy copy = {};
+        copy.bufferOffset = soff + at;
+        copy.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, k, 0, 1 };
+        copy.imageExtent = { w, h, 1 };
+        rcCmdCopyBufferToImage(cb, sbuf, img.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        at += (VkDeviceSize)w * h * 4;
+    }
+
+    vk_barrier(cb, img.image, img.aspect, 0, count, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    img.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+}
+
 static int vk_wrap_from_cm(uint32_t val) {
     switch (val) {
         case G_TX_NOMIRROR | G_TX_CLAMP:
@@ -3087,7 +3158,8 @@ static bool vk_mesh_program(VkProgram *prg) {
     vs += strf("layout(set = 1, binding = 1, std430) readonly buffer MeshPalette { vec4 uPal[%d]; };\n",
                3 * GFX_MESH_PALETTE_MAX);
     for (size_t k = 0; k < vars.size(); k++) {
-        vs += strf("layout(location = %d) out %s %s;\n", (int)k, vk_vec_type(vars[k].second), vars[k].first.c_str());
+        vs += strf("layout(location = %d) %sout %s %s;\n", (int)k, vk_var_interp(cc, vars[k].first),
+                   vk_vec_type(vars[k].second), vars[k].first.c_str());
     }
     vs += gfx_mesh_vs_main(cc, !vk_have_depth_clamp, true);
 
@@ -5192,6 +5264,7 @@ struct GfxRenderingAPI gfx_vulkan_api = {
     gfx_vk_new_texture,
     gfx_vk_select_texture,
     gfx_vk_upload_texture,
+    gfx_vk_upload_texture_levels,
     gfx_vk_set_sampler_parameters,
     gfx_vk_set_depth_mode,
     gfx_vk_set_depth_range,

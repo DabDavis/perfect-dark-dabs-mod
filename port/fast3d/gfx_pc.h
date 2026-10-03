@@ -32,6 +32,9 @@ struct TextureCacheKey {
     // An animated picture's frame plus one, 0 for anything else: a frame is
     // an entry of its own, uploaded once (xblaTexAnimFrame()).
     uint16_t anim_frame;
+    // Uploaded with the levels of detail its data holds (G_TEX_OWN_LODS_EXT),
+    // not ones made from the first
+    uint8_t own_lods;
 
     bool operator==(const TextureCacheKey&) const noexcept = default;
 

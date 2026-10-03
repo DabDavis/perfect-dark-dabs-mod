@@ -184,7 +184,7 @@ s32 langpackIsCjk(void);
 // ITEM_TASER and ITEM_TANKSHELLS come just before it): a driver who switched
 // to a gun in the tank switches back to the shells the same way (F3
 // 20260929-062621). The shells are only in the inventory while he drives.
-#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < WEAPON_GE_FIRST + NUM_GE_GUNS) || (weaponnum) == WEAPON_GE_DETONATOR || (weaponnum) == WEAPON_GE_TANKSHELLS)
+#define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS || ((weaponnum) >= WEAPON_GE_FIRST && (weaponnum) < WEAPON_GE_FIRST + NUM_GE_GUNS) || (weaponnum) == WEAPON_GE_DETONATOR || (weaponnum) == WEAPON_GE_TANKSHELLS || ((weaponnum) >= WEAPON_GE_EXTRA1 && (weaponnum) <= WEAPON_GE_EXTRA4))
 #else
 #define INV_CYCLEABLE(weaponnum) ((weaponnum) < NUM_CYCLEABLE_WEAPONS)
 #endif
@@ -2460,9 +2460,11 @@ s32 langpackIsCjk(void);
 #define MODEL_GE_FIRST              (VERSION == VERSION_JPN_FINAL ? 0x1bb : 0x1b9)
 // And from a fixed number whatever the version, so a setup file can name
 // them: the GoldenEye remake's prop models, GoldenEye's model number plus
-// this, filled for a stage by its mod's `models` block (modloader.c)
+// this, filled for a stage by its mod's `models` block (modloader.c). Room for
+// more than GoldenEye's 340: a ROM hack converted beside it has its own
+// (Goldfinger 64's 416), and each stage fills the slots from its own mod
 #define MODEL_REMAKE_FIRST          0x200
-#define NUM_REMAKE_MODELS           340
+#define NUM_REMAKE_MODELS           1024
 #define NUM_MODELS                  (MODEL_REMAKE_FIRST + NUM_REMAKE_MODELS)
 #else
 #define NUM_MODELS                  (VERSION == VERSION_JPN_FINAL ? 0x1bb : 0x1b9)
@@ -3348,7 +3350,11 @@ s32 langpackIsCjk(void);
 // GoldenEye's guns, one row each after Disabled so no saved index moves;
 // shown only while geguns.c says so (MPFEATURE_NEVER otherwise)
 #define MPWEAPON_GE_FIRST         0x31
-#define NUM_MPWEAPONS             (MPWEAPON_GE_FIRST + 25)
+// and a GoldenEye ROM hack's own pistols (WEAPON_GE_EXTRA1-4), shown only
+// while its gun set is (geguns.c), after them; the randomizer rolls the rows
+// before them, as it did before they were added
+#define MPWEAPON_GE_EXTRA1        (MPWEAPON_GE_FIRST + 25)
+#define NUM_MPWEAPONS             (MPWEAPON_GE_EXTRA1 + 4)
 #endif
 
 #ifndef PLATFORM_N64
@@ -4825,7 +4831,8 @@ enum weaponnum {
 	// (g_GeWeaponHosts), which every test of a weapon by number asks about
 	// instead (weaponHost()), and wears GoldenEye's name and, where the
 	// GoldenEye XBLA release is in xbla/, its pickup (port/src/geguns.c).
-	// Numbers stay below 0x80: gunctrl.weaponnum and its siblings are s8.
+	// Numbers stay below WEAPON_MPLOCATION00 (240); gunctrl's weapon numbers
+	// were s8 and are s16, for the four past 0x7f.
 	/*0x5e*/ WEAPON_GE_PP7,              // PP9i
 	/*0x5f*/ WEAPON_GE_PP7SILENCED,      // PP9i
 	/*0x60*/ WEAPON_GE_DD44,             // CC13
@@ -4874,6 +4881,16 @@ enum weaponnum {
 	// mines, drawn to after the last is thrown, and its trigger sets off every
 	// one of them. The last number an s8 has.
 	/*0x7f*/ WEAPON_GE_DETONATOR,        // Data Uplink
+	// A GoldenEye ROM hack's own guns that GoldenEye has no weapon for
+	// (geconvert.c's itemWeaponsBuild()): Goldfinger 64's Luger P08, Walther
+	// P38 and two Smith & Wessons, on the files of GoldenEye's taser, watch
+	// laser and gold and silver PP7s. Each a pistol on the PP7's host, named,
+	// modelled and numbered by the hack's own rows (geguns.c's gun sets); on
+	// GoldenEye's own stages nothing hands them out.
+	/*0x80*/ WEAPON_GE_EXTRA1,           // PP9i
+	/*0x81*/ WEAPON_GE_EXTRA2,           // PP9i
+	/*0x82*/ WEAPON_GE_EXTRA3,           // PP9i
+	/*0x83*/ WEAPON_GE_EXTRA4,           // PP9i
 #endif
 	NUM_WEAPONS
 };
@@ -4882,6 +4899,9 @@ enum weaponnum {
 #define WEAPON_GE_FIRST WEAPON_GE_PP7
 #define NUM_GE_WEAPONS  (NUM_WEAPONS - WEAPON_GE_FIRST)
 #define NUM_GE_GUNS     (WEAPON_GE_COVERTMODEM - WEAPON_GE_FIRST)
+#define NUM_GE_EXTRA    (WEAPON_GE_EXTRA4 + 1 - WEAPON_GE_EXTRA1)
+// a gun of GoldenEye's or a hack's own (index = weaponnum - WEAPON_GE_FIRST)
+#define GE_GUN_INDEX(i) (((i) >= 0 && (i) < NUM_GE_GUNS) || ((i) >= WEAPON_GE_EXTRA1 - WEAPON_GE_FIRST && (i) < NUM_GE_WEAPONS))
 #endif
 
 #define WEAPON_MPLOCATION00 240

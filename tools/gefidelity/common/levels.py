@@ -29,6 +29,21 @@ MISSIONS = [
     (19, 'egyptian',  'Egyptian',   'LEVELID_EGYPT'),
 ]
 
+# Goldfinger 64 (a GoldenEye ROM hack, CLAUDE-notes/goldfinger64.md) keeps
+# GoldenEye's twenty mission numbers and levels, under its own names (its
+# mission folder, menu/missionfolder.bin); its setups are its own. With
+# GF_GAME=gf every tool here names, finds and boots Goldfinger's missions:
+# the cartridge is the Goldfinger ROM with the Expansion Pak (aresge.py) and
+# ours boots with --boot-ge-variant (twin.py).
+GAME = __import__('os').environ.get('GF_GAME', 'ge')
+GF_VARIANT = 'Goldfinger 64'
+GF_TITLES = ['Cartel', 'Bodega', 'Miami', 'Shipyard', 'China', 'Club', 'Grounds', 'Airport', 'Alps', 'Foundry',
+             'Forest', 'Capture', 'Prison', 'Ranch', 'Hideout', 'Knox', 'Vaults', 'Plane', 'Crab Key', 'Island']
+GE_MISSIONS = MISSIONS
+GF_MISSIONS = [(m[0], t.lower().replace(' ', ''), t, m[3]) for m, t in zip(GE_MISSIONS, GF_TITLES)]
+if GAME == 'gf':
+    MISSIONS = GF_MISSIONS
+
 # GoldenEye's DIFFICULTY_* and Perfect Dark's DIFF_* agree number for number.
 DIFFICULTIES = {'agent': 0, 'secret': 1, '00': 2, '007': 3}
 

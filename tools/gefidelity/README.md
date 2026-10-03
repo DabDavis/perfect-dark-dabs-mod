@@ -42,11 +42,14 @@ start (six seconds).
 | `world/sweep.py` | the world diff over all twenty missions (`--diff` for each difficulty); `report.md` + `report.json`; a mission whose dump failed is listed as not compared |
 | `world/gate.py` + `world/compare.py` | **the fidelity gate**, in legs - `world`, `view`, `guns` and `ai` (N64 look against ares), `hd-census`, `hd-world` and `hd-view` (HD look against the release in Xenia), `census` (the converter's ROM reads) and `convdiff` (which converted files changed - it informs, never fails), both judged on source trees with `--base-tree`/`--test-tree`, and `replay` (`tools/ci/replaytest.sh compare`: which seeded runs diverge and where - it informs, and with `--neutral`, for a change meant to leave gameplay alone, a divergence fails the gate); a leg whose tool is missing is skipped and says so; the oracle's side is swept once and reused. It sweeps a base and a test binary (or reuses a base sweep) and lists placement findings fixed, new, better and worse by mission; exit 1 when a placement finding appears or grows, behaviour findings listed but never failing it. It answers "did this change move GE Plus towards the originals or away", and through its replay leg "did it change gameplay at all". Null: a report against itself is unchanged, and one removed plus one planted finding come out as exactly that |
 | `world/inspect.py` | prints chosen setup records, their props, pads and any expressions in full on both sides, each as its own game's type - where a world-diff finding is looked at |
+| `world/records.py` | chosen setup records' raw words on both sides, the cartridge's included (`GF_RECORDS=5-19,548`); inspect.py's gdb types exist on the native port only |
+| `world/collect.py` + `world/collectdiff.py` | **pickups as each game picks them up**: Bond stood on the floor under each chosen record's prop (`GF_RECORDS`; ours alone finds a ROM hack's collectables on key cards 0x45-0x4c), then whether he carries its prop and each objective's status, compared record by record; what the inventory gained is shown, never judged (GoldenEye lists a second gold bar as a prop entry of its own). Control: a hold on Bond's own spot gains nothing; null: `GF_PLANT_SKIP=<record>` on one side must come out as that record. A record Bond could not be stood beside is UNREACHED, never a finding. Goldfinger's 12 missions with collectables agree (converter 104, 2026-10-02) |
 | `world/accepted.json` | findings looked at and accepted, each with the reason; counted, not listed |
 
 | `census/census.py` | builds `port/src/geconvert.c` (the only converter; the Python twin was retired 2026-10-01) with every load instrumented (`census/ctrack/`: GCC kernel-address callbacks, geconvert.c untouched, output byte for byte the plain build's) and lists, per record kind and GoldenEye field (named from the port's DWARF), the bytes that are **non-zero and never read** - data the conversion drops - with a **read by the cartridge** column from `census/ares/run.py` (the read watch in n64twin over twenty missions). `census/gatesweep.py --tree SRC --out DIR` is the gate's `census` leg. Null: Dam's pad positions hidden from a second read map must all come back dropped; the cartridge column's: every Dam pad's plink read, its pad-name strings never. See `census/README.md` |
 | `convdiff/` | **the conversion diff**: `convert.sh --tree SRC --out DIR` converts the ROM with that tree's `geconvert.c` built alone (~10 s); `diff.py A B` lists the files a change altered with the first differing offset (inflated where compressed, bg `.seg` part by part). The gate's `convdiff` leg: it informs, never passes or fails. Null: a one-byte flip in a raw and a compressed copy must both be seen |
 
+| `guns/gunpics.py` | a hand item in Bond's hand on the cartridge, photographed (`GF_ITEMS`, the cartridge's own item numbers; `--render`): gunscen_ares.py's give, no ammunition. What settled Goldfinger 64's flat-white pistols (its own art, lost to a byte order) |
 | `guns/sweep.py` | GoldenEye's 25 guns on both sides through each game's real controller path: clip and reserve, cadence (GoldenEye frames x2), reload and raise timing, every sound (mapped to GoldenEye's ids, random families compared as families), casings, impacts, dry clicks, dual rule, thrown fuse and flight. Null: one gun run twice must agree, a planted clip fault must come out as exactly one mismatch. See `guns/README.md` |
 | `xbla/census.py` | the HD (Bean) draw census: what each release model file draws, read independently of the game (`beanref.py`), against what our builds walked and built under the env-gated hook (`census-hook.patch`, branch `feat/gefidelity-xbla`) - undrawn pieces, pictures that do not decode, files never loaded. Null: a struck draw and a planted skip must both come back. See `xbla/README.md` |
 
@@ -186,4 +189,16 @@ world/sweep.py --out ~/wt/gefidelity-run/out/sweep            # all twenty, ~6 m
   tree's census.py; the hd-world and hd-view bases reuse the release's dumps and
   pictures (`--reuse-oracle`). `view/gatesweep.py` syncs the toolkit to the
   oracle host even with `--oracle xenia`, so it fails while 10.8.0.3 is down.
+- **The cartridge's objective statuses stand still through the opening.**
+  `objectiveStatuses[]` is set by `display_objective_status_text_on_status_change()`
+  from `maybe_mp_interface()`, which returns early while `player->cameramode`
+  is 1 (the opening; 0 in play - not the CAMERAMODE_* enum, another word's).
+  A pickup at tick 60 completed nothing on the cartridge and everything on
+  ours (which skips the opening). `until_play()` on both sides waits for play.
+- **A pad's tile need not be its floor**: Goldfinger's Plane pad 0x56 lies on
+  the hold's floor (room 10, -238.6) under the upper deck's tile (47.1), and
+  some props keep the pad's tile. `aresge.place()` sets no height, so Bond put
+  on a lower tile walked back up to his own; pass `floor=` (moves every height
+  word) and find the tile with `wide_ares.tile_under()`. Ours stands on
+  `cdFindGroundAtCyl()` under the prop, never on the prop's own height.
 - Kill only PIDs you started; `pkill -f` over ssh kills your own session.

@@ -40,6 +40,7 @@
 #include "data.h"
 #include "fs.h"
 #include "gesfx.h"
+#include "gexfront.h"
 #include "modloader.h"
 #include "preprocess.h"
 #include "system.h"
@@ -48,158 +49,227 @@
 #include "game/propsnd.h"
 
 #define GESFX_MAX 512
+// the converted mods a bank is held for: GoldenEye's, and a ROM hack's or two
+#define GESFX_MAX_BANKS 4
 
-static u8 *g_SfxCtl;
-static u8 *g_SfxTbl;
-static ALInstrument *g_SfxInst;
-static s32 g_SfxSearchedDirs = -1;
+/**
+ * A conversion's sound effects: GoldenEye's, or a GoldenEye ROM hack's own
+ * (Goldfinger 64's wave table is a quarter again GoldenEye's, on GoldenEye's
+ * numbering). A level plays its own mod's, the folder screens theirs
+ * (sfxBank()), and a mod with none GoldenEye's.
+ */
+struct sfxbank {
+	s32 moddir;
+	u8 *ctl;
+	u8 *tbl;
+	ALInstrument *inst;
+	// GoldenEye's id -> ours; 0 not looked at yet, -1 none
+	s16 map[GESFX_MAX];
+	// the sound a sound's key map chains to, 0 for none, read before anything
+	// in the bank is touched since sounds share key maps
+	s16 next[GESFX_MAX];
+	// GoldenEye's id -> the config mapping's row + 1 (sfxPropNum())
+	s16 proprow[GESFX_MAX];
+	uintptr_t *rebased;
+	s32 numrebased;
+	s32 maxrebased;
+};
 
-// GoldenEye's id -> ours; 0 not looked at yet, -1 none
-static s16 g_SfxMap[GESFX_MAX];
+static struct sfxbank g_SfxBanks[GESFX_MAX_BANKS];
+static s32 g_SfxNumBanks;
+// the dirs looked in and found without a bank, a bit a dir, and how many
+// dirs were mounted then
+static u32 g_SfxNoBank;
+static s32 g_SfxNumDirs = -1;
 
-// ours -> GoldenEye's id, for the chain (geSfxChain())
+// ours -> GoldenEye's id and its bank + 1, for the chain (geSfxChain())
 static s16 g_SfxGeId[SND_MAX_SOUNDS];
+static u8 g_SfxGeBank[SND_MAX_SOUNDS];
 
-// the sound a sound's key map chains to, 0 for none, read before anything in
-// the bank is touched since sounds share key maps
-static s16 g_SfxNext[GESFX_MAX];
-
-static uintptr_t *g_SfxRebased;
-static s32 g_SfxNumRebased;
-static s32 g_SfxMaxRebased;
-
-static s32 sfxLoad(void)
+// mod dir `moddir`'s bank, read the first time it is asked for; NULL where it has none
+static struct sfxbank *sfxBankAt(s32 moddir)
 {
 	char path[FS_MAXPATH + 1];
+	const char *dir = moddir >= 0 ? fsGetModDirAt(moddir) : NULL;
+	struct sfxbank *b;
+	u32 len = 0;
+	u32 ctllen = 0;
+	u8 *raw;
+	u8 *ctl;
+	u8 *tbl;
 
-	if (g_SfxInst) {
-		return 1;
+	if (!dir) {
+		return NULL;
 	}
 
-	// nothing found, and nothing new to look in
-	if (g_SfxSearchedDirs == fsGetNumModDirs()) {
-		return 0;
+	for (s32 i = 0; i < g_SfxNumBanks; i++) {
+		if (g_SfxBanks[i].moddir == moddir) {
+			return &g_SfxBanks[i];
+		}
 	}
 
-	g_SfxSearchedDirs = fsGetNumModDirs();
-
-	for (s32 i = 0; i < g_SfxSearchedDirs; i++) {
-		const char *dir = fsGetModDirAt(i);
-		u32 len = 0;
-		u32 ctllen = 0;
-		u8 *raw;
-
-		if (!dir) {
-			continue;
-		}
-
-		// asked for first: a load of a file that is not there is an error
-		// line of its own, and every mod dir but one has no menu/
-		snprintf(path, sizeof(path), "%s/menu/sfxctl", dir);
-
-		if (fsFileSize(path) <= 0 || !(raw = fsFileLoad(path, &len))) {
-			continue;
-		}
-
-		g_SfxCtl = preprocessALBankFile(raw, len, &ctllen);
-		sysMemFree(raw);
-
-		snprintf(path, sizeof(path), "%s/menu/sfxtbl", dir);
-		// padded: the sound DMA reads a whole item from where a sample starts
-		g_SfxTbl = fsFileSize(path) > 0 ? fsFileLoadPadded(path, &len, ADMA_ITEM_SIZE) : NULL;
-
-		if (g_SfxCtl && g_SfxTbl) {
-			ALBankFile *file = (ALBankFile *)g_SfxCtl;
-			ALBank *bank = (ALBank *)(g_SfxCtl + (uintptr_t)file->bankArray[0]);
-
-			g_SfxInst = (ALInstrument *)(g_SfxCtl + (uintptr_t)bank->instArray[0]);
-
-			for (s32 id = 1; id <= g_SfxInst->soundCount && id < GESFX_MAX; id++) {
-				const ALSound *sound = (ALSound *)(g_SfxCtl + (uintptr_t)g_SfxInst->soundArray[id - 1]);
-				const ALKeyMap *keymap = sound->keyMap ? (ALKeyMap *)(g_SfxCtl + (uintptr_t)sound->keyMap) : NULL;
-
-				g_SfxNext[id] = keymap ? keymap->velocityMin + (keymap->keyMin & 0xc0) * 4 : 0;
-			}
-
-			return 1;
-		}
-
-		sysMemFree(g_SfxCtl);
-		sysMemFree(g_SfxTbl);
-		g_SfxCtl = NULL;
-		g_SfxTbl = NULL;
+	// mods mounted since: look again
+	if (g_SfxNumDirs != fsGetNumModDirs()) {
+		g_SfxNumDirs = fsGetNumModDirs();
+		g_SfxNoBank = 0;
 	}
 
-	return 0;
+	if (moddir < 32 && (g_SfxNoBank & (1u << moddir))) {
+		return NULL;
+	}
+
+	// asked for first: a load of a file that is not there is an error
+	// line of its own, and every mod dir but one has no menu/
+	snprintf(path, sizeof(path), "%s/menu/sfxctl", dir);
+
+	if (g_SfxNumBanks >= GESFX_MAX_BANKS || fsFileSize(path) <= 0 || !(raw = fsFileLoad(path, &len))) {
+		if (moddir < 32) {
+			g_SfxNoBank |= 1u << moddir;
+		}
+
+		return NULL;
+	}
+
+	ctl = preprocessALBankFile(raw, len, &ctllen);
+	sysMemFree(raw);
+
+	snprintf(path, sizeof(path), "%s/menu/sfxtbl", dir);
+	// padded: the sound DMA reads a whole item from where a sample starts
+	tbl = fsFileSize(path) > 0 ? fsFileLoadPadded(path, &len, ADMA_ITEM_SIZE) : NULL;
+
+	if (!ctl || !tbl) {
+		sysMemFree(ctl);
+		sysMemFree(tbl);
+
+		if (moddir < 32) {
+			g_SfxNoBank |= 1u << moddir;
+		}
+
+		return NULL;
+	}
+
+	b = &g_SfxBanks[g_SfxNumBanks++];
+	memset(b, 0, sizeof(*b));
+	b->moddir = moddir;
+	b->ctl = ctl;
+	b->tbl = tbl;
+
+	{
+		ALBankFile *file = (ALBankFile *)b->ctl;
+		ALBank *bank = (ALBank *)(b->ctl + (uintptr_t)file->bankArray[0]);
+
+		b->inst = (ALInstrument *)(b->ctl + (uintptr_t)bank->instArray[0]);
+	}
+
+	for (s32 id = 1; id <= b->inst->soundCount && id < GESFX_MAX; id++) {
+		const ALSound *sound = (ALSound *)(b->ctl + (uintptr_t)b->inst->soundArray[id - 1]);
+		const ALKeyMap *keymap = sound->keyMap ? (ALKeyMap *)(b->ctl + (uintptr_t)sound->keyMap) : NULL;
+
+		b->next[id] = keymap ? keymap->velocityMin + (keymap->keyMin & 0xc0) * 4 : 0;
+	}
+
+	sysLogPrintf(LOG_NOTE, "gesfx: %d sounds from %s", b->inst->soundCount, dir);
+
+	return b;
 }
 
-static s32 sfxRebaseOnce(uintptr_t off)
+/** GoldenEye's own: the conversion's dir (GEXPLUSROM_DIR), else the first mounted dir that has one. */
+static struct sfxbank *sfxBankGoldenEye(void)
 {
-	for (s32 i = 0; i < g_SfxNumRebased; i++) {
-		if (g_SfxRebased[i] == off) {
+	struct sfxbank *b = sfxBankAt(modloaderGexPlusDirIndex());
+
+	for (s32 i = 0; !b && i < fsGetNumModDirs(); i++) {
+		b = sfxBankAt(i);
+	}
+
+	return b;
+}
+
+/**
+ * The bank playing now: a remake level's own mod's in a level, the folder's
+ * (GoldenEye's, or a ROM hack's) in its menus, GoldenEye's where that has
+ * none.
+ */
+static struct sfxbank *sfxBank(void)
+{
+	s32 moddir;
+	struct sfxbank *b = NULL;
+
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		moddir = modloaderGetStageModDirIndex(g_Vars.stagenum);
+	} else {
+		moddir = gexFrontTextModDir();
+	}
+
+	if (moddir >= 0) {
+		b = sfxBankAt(moddir);
+	}
+
+	return b ? b : sfxBankGoldenEye();
+}
+
+static s32 sfxRebaseOnce(struct sfxbank *b, uintptr_t off)
+{
+	for (s32 i = 0; i < b->numrebased; i++) {
+		if (b->rebased[i] == off) {
 			return 0;
 		}
 	}
 
-	if (g_SfxNumRebased == g_SfxMaxRebased) {
-		const s32 max = g_SfxMaxRebased ? g_SfxMaxRebased * 2 : 64;
-		uintptr_t *grown = sysMemRealloc(g_SfxRebased, max * sizeof(uintptr_t));
+	if (b->numrebased == b->maxrebased) {
+		const s32 max = b->maxrebased ? b->maxrebased * 2 : 64;
+		uintptr_t *grown = sysMemRealloc(b->rebased, max * sizeof(uintptr_t));
 
 		if (!grown) {
 			return 0;
 		}
 
-		g_SfxRebased = grown;
-		g_SfxMaxRebased = max;
+		b->rebased = grown;
+		b->maxrebased = max;
 	}
 
-	g_SfxRebased[g_SfxNumRebased++] = off;
+	b->rebased[b->numrebased++] = off;
 
 	return 1;
 }
 
-#define GESFX_CTL_DELTA() ((uintptr_t)g_SfxCtl - sndGetCtlStart())
+#define GESFX_CTL_DELTA(b) ((uintptr_t)(b)->ctl - sndGetCtlStart())
 
-s32 geSfxGet(s32 id)
+static s32 sfxGetIn(struct sfxbank *b, s32 id)
 {
 	ALSound *sound;
 	uintptr_t off;
 	s32 ours;
 
-	if (id <= 0 || id >= GESFX_MAX) {
+	if (!b || id <= 0 || id >= GESFX_MAX) {
 		return 0;
 	}
 
-	if (g_SfxMap[id]) {
-		return g_SfxMap[id] > 0 ? g_SfxMap[id] : 0;
+	if (b->map[id]) {
+		return b->map[id] > 0 ? b->map[id] : 0;
 	}
 
-	if (!sfxLoad()) {
-		// not remembered: the conversion may not have been mounted yet
+	if (id > b->inst->soundCount) {
+		b->map[id] = -1;
 		return 0;
 	}
 
-	if (id > g_SfxInst->soundCount) {
-		g_SfxMap[id] = -1;
-		return 0;
-	}
+	off = (uintptr_t)b->inst->soundArray[id - 1];
+	sound = (ALSound *)(b->ctl + off);
 
-	off = (uintptr_t)g_SfxInst->soundArray[id - 1];
-	sound = (ALSound *)(g_SfxCtl + off);
-
-	if (sfxRebaseOnce(off)) {
+	if (sfxRebaseOnce(b, off)) {
 		if (sound->envelope) {
-			sound->envelope = (ALEnvelope *)((uintptr_t)sound->envelope + GESFX_CTL_DELTA());
+			sound->envelope = (ALEnvelope *)((uintptr_t)sound->envelope + GESFX_CTL_DELTA(b));
 		}
 
 		if (sound->keyMap) {
 			const uintptr_t koff = (uintptr_t)sound->keyMap;
-			ALKeyMap *keymap = (ALKeyMap *)(g_SfxCtl + koff);
+			ALKeyMap *keymap = (ALKeyMap *)(b->ctl + koff);
 
-			sound->keyMap = (ALKeyMap *)(koff + GESFX_CTL_DELTA());
+			sound->keyMap = (ALKeyMap *)(koff + GESFX_CTL_DELTA(b));
 
-			if (sfxRebaseOnce(koff)) {
-				// the link, which geSfxPlay() follows from g_SfxNext[]
+			if (sfxRebaseOnce(b, koff)) {
+				// the link, which geSfxPlay() follows from the bank's next[]
 				keymap->velocityMin = 0;
 				keymap->keyMin &= ~0xc0;
 			}
@@ -207,48 +277,61 @@ s32 geSfxGet(s32 id)
 
 		if (sound->wavetable) {
 			const uintptr_t woff = (uintptr_t)sound->wavetable;
-			ALWaveTable *wave = (ALWaveTable *)(g_SfxCtl + woff);
+			ALWaveTable *wave = (ALWaveTable *)(b->ctl + woff);
 
-			sound->wavetable = (ALWaveTable *)(woff + GESFX_CTL_DELTA());
+			sound->wavetable = (ALWaveTable *)(woff + GESFX_CTL_DELTA(b));
 
-			if (sfxRebaseOnce(woff)) {
-				wave->base = (u8 *)((uintptr_t)wave->base + (uintptr_t)g_SfxTbl - sndGetTblStart());
+			if (sfxRebaseOnce(b, woff)) {
+				wave->base = (u8 *)((uintptr_t)wave->base + (uintptr_t)b->tbl - sndGetTblStart());
 
 				if (wave->type == AL_ADPCM_WAVE) {
 					if (wave->waveInfo.adpcmWave.book) {
-						wave->waveInfo.adpcmWave.book = (ALADPCMBook *)((uintptr_t)wave->waveInfo.adpcmWave.book + GESFX_CTL_DELTA());
+						wave->waveInfo.adpcmWave.book = (ALADPCMBook *)((uintptr_t)wave->waveInfo.adpcmWave.book + GESFX_CTL_DELTA(b));
 					}
 
 					if (wave->waveInfo.adpcmWave.loop) {
-						wave->waveInfo.adpcmWave.loop = (ALADPCMloop *)((uintptr_t)wave->waveInfo.adpcmWave.loop + GESFX_CTL_DELTA());
+						wave->waveInfo.adpcmWave.loop = (ALADPCMloop *)((uintptr_t)wave->waveInfo.adpcmWave.loop + GESFX_CTL_DELTA(b));
 					}
 				} else if (wave->waveInfo.rawWave.loop) {
-					wave->waveInfo.rawWave.loop = (ALRawLoop *)((uintptr_t)wave->waveInfo.rawWave.loop + GESFX_CTL_DELTA());
+					wave->waveInfo.rawWave.loop = (ALRawLoop *)((uintptr_t)wave->waveInfo.rawWave.loop + GESFX_CTL_DELTA(b));
 				}
 			}
 		}
 	}
 
-	ours = sndAppendSound(off + GESFX_CTL_DELTA());
+	ours = sndAppendSound(off + GESFX_CTL_DELTA(b));
 
 	if (ours <= 0) {
 		// no bank loaded (--no-sound) or no ids left
-		g_SfxMap[id] = -1;
+		b->map[id] = -1;
 		return 0;
 	}
 
 	if (ours < SND_MAX_SOUNDS) {
 		g_SfxGeId[ours] = id;
+		g_SfxGeBank[ours] = (u8)(b - g_SfxBanks + 1);
 	}
 
-	return g_SfxMap[id] = ours;
+	return b->map[id] = ours;
+}
+
+s32 geSfxGet(s32 id)
+{
+	if (id <= 0 || id >= GESFX_MAX) {
+		return 0;
+	}
+
+	// not remembered when there is no bank: the conversion may not have been
+	// mounted yet
+	return sfxGetIn(sfxBank(), id);
 }
 
 s32 geSfxChain(s32 ours)
 {
 	const s32 id = ours > 0 && ours < SND_MAX_SOUNDS ? g_SfxGeId[ours] : 0;
+	struct sfxbank *b = id > 0 ? &g_SfxBanks[g_SfxGeBank[ours] - 1] : NULL;
 
-	return id > 0 && g_SfxNext[id] != id ? geSfxGet(g_SfxNext[id]) : 0;
+	return b && b->next[id] != id ? sfxGetIn(b, b->next[id]) : 0;
 }
 
 s32 geSfxPlay(s32 id, s32 volume)
@@ -269,24 +352,21 @@ s32 geSfxPlay(s32 id, s32 volume)
 // GESFX_VOLUME's
 static s32 g_SfxPropConfig = -1;
 
-// GoldenEye's id -> the config mapping's row + 1
-static s16 g_SfxPropRow[GESFX_MAX];
-
 /** GoldenEye's sound as a number psCreate() takes, heard as GoldenEye hears an object; 0 for none. */
-static s32 sfxPropNum(s32 id)
+static s32 sfxPropNumIn(struct sfxbank *b, s32 id)
 {
 	s32 ours;
 	s32 row;
 
-	if (id <= 0 || id >= GESFX_MAX) {
+	if (!b || id <= 0 || id >= GESFX_MAX) {
 		return 0;
 	}
 
-	if (g_SfxPropRow[id]) {
-		return 0x8000 | (g_SfxPropRow[id] - 1);
+	if (b->proprow[id]) {
+		return 0x8000 | (b->proprow[id] - 1);
 	}
 
-	ours = geSfxGet(id);
+	ours = sfxGetIn(b, id);
 
 	if (ours <= 0) {
 		return 0;
@@ -305,14 +385,19 @@ static s32 sfxPropNum(s32 id)
 		return ours;
 	}
 
-	g_SfxPropRow[id] = row + 1;
+	b->proprow[id] = row + 1;
 
 	return 0x8000 | row;
 }
 
+static s32 sfxPropNum(s32 id)
+{
+	return sfxPropNumIn(sfxBank(), id);
+}
+
 s32 geSfxStage(void)
 {
-	return modloaderStageIsRemake(g_Vars.stagenum) && sfxLoad();
+	return modloaderStageIsRemake(g_Vars.stagenum) && sfxBank();
 }
 
 s32 geSfxNum(s32 id)
@@ -447,7 +532,7 @@ static const struct {
 
 s32 geSfxDoor(s32 moment, s32 soundtype, struct prop *prop)
 {
-	if (!modloaderStageIsRemake(g_Vars.stagenum) || !sfxLoad()) {
+	if (!modloaderStageIsRemake(g_Vars.stagenum) || !sfxBank()) {
 		return 0;
 	}
 
@@ -570,9 +655,10 @@ s32 geSfxOurs(s32 id, s32 pdsound)
 
 s32 geSfxNumRange(s32 id, f32 dist2, f32 dist3)
 {
-	static struct { s16 id; s16 row; f32 dist2; f32 dist3; } made[16];
+	static struct { s16 id; s16 row; f32 dist2; f32 dist3; struct sfxbank *bank; } made[16];
 	static s32 nummade;
-	const s32 ours = geSfxStage() ? geSfxGet(id) : 0;
+	struct sfxbank *b = geSfxStage() ? sfxBank() : NULL;
+	const s32 ours = b ? sfxGetIn(b, id) : 0;
 	struct audioconfig config = { 200, dist2, dist3, -1, GESFX_VOLUME * 100 / AL_VOL_FULL, -1, 0, 0 };
 	s32 confignum;
 	s32 row;
@@ -582,7 +668,7 @@ s32 geSfxNumRange(s32 id, f32 dist2, f32 dist3)
 	}
 
 	for (s32 i = 0; i < nummade; i++) {
-		if (made[i].id == id && made[i].dist2 == dist2 && made[i].dist3 == dist3) {
+		if (made[i].id == id && made[i].bank == b && made[i].dist2 == dist2 && made[i].dist3 == dist3) {
 			return 0x8000 | made[i].row;
 		}
 	}
@@ -602,6 +688,7 @@ s32 geSfxNumRange(s32 id, f32 dist2, f32 dist3)
 	made[nummade].row = row;
 	made[nummade].dist2 = dist2;
 	made[nummade].dist3 = dist3;
+	made[nummade].bank = b;
 	nummade++;
 
 	return 0x8000 | row;
@@ -626,7 +713,7 @@ s32 geSfxNumRange(s32 id, f32 dist2, f32 dist3)
  */
 s32 geSfxGuns(void)
 {
-	return sfxLoad();
+	return sfxBank() != NULL;
 }
 
 s32 geSfxGunShot(s32 id)
@@ -635,7 +722,8 @@ s32 geSfxGunShot(s32 id)
 		return geSfxStage() ? id : 0;
 	}
 
-	return sfxLoad() ? sfxPropNum(id) : 0;
+	// a stage of Perfect Dark's: GoldenEye's own gun's sample
+	return sfxPropNumIn(sfxBankGoldenEye(), id);
 }
 
 /**
@@ -699,7 +787,7 @@ static s32 sfxGunSound(s32 weaponnum, s32 soundnum, s32 pdonly)
 	raw.packed = num.hasconfig ? g_AudioRussMappings[num.confignum].soundnum : num.packed;
 	raw.hasconfig = false;
 
-	if (sndIsMp3(raw.packed) || !sfxRemappable(raw.id) || !sfxLoad()) {
+	if (sndIsMp3(raw.packed) || !sfxRemappable(raw.id) || !sfxBank()) {
 		return soundnum;
 	}
 
@@ -711,7 +799,8 @@ static s32 sfxGunSound(s32 weaponnum, s32 soundnum, s32 pdonly)
 			return 0;
 		}
 
-		ours = geSfxGet(raw.id);
+		// a stage of Perfect Dark's: GoldenEye's own gun's sample
+		ours = sfxGetIn(sfxBankGoldenEye(), raw.id);
 		rows = g_SfxGunRow;
 	}
 

@@ -473,7 +473,8 @@ static s32 gexPlusBodyForGe(s32 gebody)
  * pick, exactly as Perfect Dark's own do - so heads take rows past 255, where
  * there is always room.
  */
-#define GEROM_NUM_CHRS    80
+// GoldenEye's 80, and a ROM hack's more (Goldfinger 64's 126)
+#define GEROM_NUM_CHRS    128
 #define GEROM_FIRST_HEAD  42    // GoldenEye's HEAD_START
 // and its last, Bond's tuxedo head. **79 is a body again** - Natalya in her
 // jungle fatigues, the one body the enum lists after the heads, and who she is
@@ -482,7 +483,7 @@ static s32 gexPlusBodyForGe(s32 gebody)
 // and once heads were taken from the far end 510 became 254, an empty row and
 // a model with no definition under chrSetLookAngle().
 #define GEROM_LAST_HEAD   78
-#define GEROM_IS_HEAD(num) ((num) >= GEROM_FIRST_HEAD && (num) <= GEROM_LAST_HEAD)
+#define GEROM_IS_HEAD(num) geRomIsHead(g_GeRomChrs, g_GeRomHeadFlagged, (num))
 #define GEROM_ROWLEN      12
 // GEROM_BODY_FIRST..GEROM_BODY_LAST are gebean.h's: rows kept for a mission's
 // bodies, under the pool, where a packedchr's u8 bodynum reaches
@@ -491,9 +492,11 @@ static s32 gexPlusBodyForGe(s32 gebody)
 
 _Static_assert(GEROM_BODY_LAST < 256, "a mission's body row has to fit a byte");
 
-// c_item_entries' two flags, as the conversion writes them
+// c_item_entries' two flags, as the conversion writes them, and whether the
+// model is a head (no skeleton), which a conversion since converter 98 marks
 #define GEROM_MALE        0x1
 #define GEROM_HASHEAD     0x2
+#define GEROM_ISHEAD      0x4
 
 // GoldenEye's own head pools: chr.c's random_male_heads and random_female_heads
 // as c_item_entries numbers. Its Terrorist, Biker and Mishkin heads are in
@@ -526,6 +529,75 @@ struct geromrow {
 
 static struct geromchr g_GeRomChrs[GEROM_NUM_CHRS];
 static s32 g_GeRomNumChrs;            // 0 until a conversion's table has been read
+static s32 g_GeRomHeadFlagged;        // and whether it marks its heads (GEROM_ISHEAD)
+
+/**
+ * Whether character `num` of a table is a head. A ROM hack's list mixes heads
+ * and bodies (Goldfinger's heads are 42-50, 63-67, 73-75 and on), so a
+ * conversion marks each; an older one's is GoldenEye's own, whose bodies are
+ * 0-41 and 79 and heads 42-78.
+ */
+static s32 geRomIsHead(const struct geromchr *table, s32 flagged, s32 num)
+{
+	if (num < 0 || num >= GEROM_NUM_CHRS) {
+		return 0;
+	}
+
+	if (flagged) {
+		return (table[num].flags & GEROM_ISHEAD) != 0;
+	}
+
+	return num >= GEROM_FIRST_HEAD && num <= GEROM_LAST_HEAD;
+}
+
+static s32 geRomTableFlagged(const struct geromchr *table, s32 numchrs)
+{
+	for (s32 i = 0; i < numchrs; i++) {
+		if (table[i].flags & GEROM_ISHEAD) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * menu/gecast.bin (converter 98): what the code rather than a setup says a
+ * mission's people are - random_male_heads and random_female_heads, the pools
+ * a guard with no head of its own draws from, and solo_char_load()'s Bond, a
+ * body and a head an outfit. A ROM hack changes all three (Goldfinger's Bond
+ * is one head on a body a mission). Without the file, GoldenEye's own.
+ */
+#define GEROM_MAX_POOL 64
+#define GEROM_NUM_CUFFS 9
+
+static u8 g_GeRomMen[GEROM_MAX_POOL];
+static u8 g_GeRomWomen[GEROM_MAX_POOL];
+static s32 g_GeRomNumMen;
+static s32 g_GeRomNumWomen;
+static u8 g_GeRomBond[GEROM_NUM_CUFFS][2];
+static s32 g_GeRomHasBond;
+
+/**
+ * A ROM hack's further pools, after the file's Bond (converter 102): a guard
+ * whose record or spawn names head -2 draws from the first of them rather than
+ * the pool above - Goldfinger's six Korean henchmen, in nine of its missions.
+ * Each takes up to four heads for a level from a start of its own, as the
+ * hack's init does (one female head), and they are handed out in turn as
+ * bodyChooseHead() hands out the game's own.
+ */
+#define GEROM_EXTRA_POOLS 3
+
+struct geromextrapool {
+	u8 heads[2][GEROM_MAX_POOL];     // men, women
+	s32 num[2];
+	s16 active[2][GEROM_MALE_HEADS_PER_LEVEL];
+	s32 numactive[2];
+	s32 next[2];
+};
+
+static struct geromextrapool g_GeRomExtraPools[GEROM_EXTRA_POOLS];
+static s32 g_GeRomNumExtraPools;
 static s32 g_GeRomTableModDir = -2;   // the mod its table was read from
 static struct geromrow g_GeRomRows[GEROM_MAX_ROWS];
 static s32 g_GeRomNumRows;
@@ -586,6 +658,76 @@ static s32 geRomReadTable(const char *dir, struct geromchr *out, s32 warn)
 	return numchrs;
 }
 
+static void geRomReadCast(const char *dir)
+{
+	char path[FS_MAXPATH + 1];
+	u32 len = 0;
+	u8 *d = NULL;
+
+	g_GeRomNumMen = ARRAYCOUNT(g_GeRomMaleHeads);
+	memcpy(g_GeRomMen, g_GeRomMaleHeads, sizeof(g_GeRomMaleHeads));
+	g_GeRomNumWomen = ARRAYCOUNT(g_GeRomFemaleHeads);
+	memcpy(g_GeRomWomen, g_GeRomFemaleHeads, sizeof(g_GeRomFemaleHeads));
+	g_GeRomHasBond = 0;
+	g_GeRomNumExtraPools = 0;
+
+	snprintf(path, sizeof(path), "%s/menu/gecast.bin", dir);
+
+	if (fsFileSize(path) > 0) {
+		d = fsFileLoad(path, &len);
+	}
+
+	if (d && len >= 8 && memcmp(d, "GEK1", 4) == 0) {
+		const s32 men = d[4];
+		const s32 women = d[5];
+		const s32 cuffs = d[6];
+
+		if (men <= GEROM_MAX_POOL && women <= GEROM_MAX_POOL && cuffs == GEROM_NUM_CUFFS
+				&& len >= 8 + (u32)(men + women + 2 * cuffs)) {
+			if (men > 0) {
+				g_GeRomNumMen = men;
+				memcpy(g_GeRomMen, d + 8, men);
+			}
+
+			if (women > 0) {
+				g_GeRomNumWomen = women;
+				memcpy(g_GeRomWomen, d + 8 + men, women);
+			}
+
+			memcpy(g_GeRomBond, d + 8 + men + women, sizeof(g_GeRomBond));
+			g_GeRomHasBond = 1;
+
+			// and any further pools: u8 how many, then u8 men, u8 women and
+			// the heads each
+			u32 at = 8 + men + women + 2 * cuffs;
+
+			if (at < len) {
+				const s32 extra = d[at++];
+
+				for (s32 k = 0; k < extra && k < GEROM_EXTRA_POOLS && at + 2 <= len; k++) {
+					struct geromextrapool *pool = &g_GeRomExtraPools[k];
+					const s32 nm = d[at];
+					const s32 nw = d[at + 1];
+
+					if (nm > GEROM_MAX_POOL || nw > GEROM_MAX_POOL || at + 2 + nm + nw > len) {
+						break;
+					}
+
+					memset(pool, 0, sizeof(*pool));
+					pool->num[0] = nm;
+					pool->num[1] = nw;
+					memcpy(pool->heads[0], d + at + 2, nm);
+					memcpy(pool->heads[1], d + at + 2 + nm, nw);
+					at += 2 + nm + nw;
+					g_GeRomNumExtraPools = k + 1;
+				}
+			}
+		}
+	}
+
+	sysMemFree(d);
+}
+
 /**
  * menu/gechrs.bin for the mod a stage belongs to, once.
  */
@@ -613,6 +755,8 @@ static s32 geRomLoadTable(s32 stagenum)
 	}
 
 	g_GeRomNumChrs = numchrs;
+	g_GeRomHeadFlagged = geRomTableFlagged(g_GeRomChrs, numchrs);
+	geRomReadCast(dir);
 
 	return 1;
 }
@@ -638,6 +782,11 @@ static s32 geRomLoadTable(s32 stagenum)
 static u8 *g_GeHeadHats;
 static u32 g_GeHeadHatsLen;
 static s32 g_GeHeadHatsModDir = -2;
+// the rows' first character and how many there are: GoldenEye's 42 and 28,
+// a ROM hack's own where the file says ("GEH1", converter 98)
+static s32 g_GeHeadHatsFirst = GEHAT_HEAD_FIRST;
+static s32 g_GeHeadHatsCount = GEHAT_NUM_HEADS;
+static u32 g_GeHeadHatsAt;
 
 static f32 geHatFloat(const u8 *p)
 {
@@ -672,10 +821,6 @@ s32 gexPlusHeadHat(s32 headnum, s32 hattype, f32 *out)
 		}
 	}
 
-	if (gehead < GEHAT_HEAD_FIRST || gehead >= GEHAT_HEAD_FIRST + GEHAT_NUM_HEADS) {
-		return 0;
-	}
-
 	if (g_GeHeadHatsModDir != moddir) {
 		const char *dir = modloaderGetStageModDir(g_Vars.stagenum);
 		char path[FS_MAXPATH + 1];
@@ -692,10 +837,24 @@ s32 gexPlusHeadHat(s32 headnum, s32 hattype, f32 *out)
 				g_GeHeadHats = fsFileLoad(path, &g_GeHeadHatsLen);
 			}
 		}
+
+		g_GeHeadHatsFirst = GEHAT_HEAD_FIRST;
+		g_GeHeadHatsCount = GEHAT_NUM_HEADS;
+		g_GeHeadHatsAt = 0;
+
+		if (g_GeHeadHats && g_GeHeadHatsLen >= 8 && memcmp(g_GeHeadHats, "GEH1", 4) == 0) {
+			g_GeHeadHatsFirst = (g_GeHeadHats[4] << 8) | g_GeHeadHats[5];
+			g_GeHeadHatsCount = (g_GeHeadHats[6] << 8) | g_GeHeadHats[7];
+			g_GeHeadHatsAt = 8;
+		}
+	}
+
+	if (gehead < g_GeHeadHatsFirst || gehead >= g_GeHeadHatsFirst + g_GeHeadHatsCount) {
+		return 0;
 	}
 
 	{
-		const u32 at = ((u32)(gehead - GEHAT_HEAD_FIRST) * GEHAT_NUM_TYPES + (u32)hattype) * GEHAT_ROW;
+		const u32 at = g_GeHeadHatsAt + ((u32)(gehead - g_GeHeadHatsFirst) * GEHAT_NUM_TYPES + (u32)hattype) * GEHAT_ROW;
 
 		if (!g_GeHeadHats || at + GEHAT_ROW > g_GeHeadHatsLen) {
 			return 0;
@@ -844,6 +1003,10 @@ static s32 geRomBodyRow(s32 body, s32 head)
 
 	if (GEROM_IS_HEAD(head)) {
 		ownhead = geRomTake(head, -1);
+	} else if (head <= -2 && head >= -1 - g_GeRomNumExtraPools) {
+		// a further pool's (gexPlusRomOwnHead()): a row of its own, as a body
+		// wanted with a head of its own takes one
+		ownhead = head;
 	}
 
 	return geRomTake(body, ownhead);
@@ -881,6 +1044,14 @@ s32 gexPlusMissionBond(s32 outfit, s32 *bodynum, s32 *headnum)
 	case 4: gebody = 25; gehead = 77; break;  // CUFF_SNOW
 	}
 
+	// the conversion's own table, which is a ROM hack's own Bond
+	if (g_GeRomHasBond) {
+		const s32 cuff = outfit >= 0 && outfit < GEROM_NUM_CUFFS ? outfit : 0;
+
+		gebody = g_GeRomBond[cuff][0];
+		gehead = g_GeRomBond[cuff][1];
+	}
+
 	head = geRomTake(gehead, -1);
 	body = geRomTake(gebody, head);
 
@@ -902,12 +1073,30 @@ s32 gexPlusMissionBond(s32 outfit, s32 *bodynum, s32 *headnum)
  * bodyChooseHead() asks, which is where both a setup's chr and aiSpawnChrAtPad
  * arrive once the head they carry is -1 - and it has to be -1, since neither
  * field is wide enough for a row past 127.
+ *
+ * A body whose record named a further pool (head -2 on) takes that pool's next
+ * head for its sex; one with none for its sex takes the game's own pool, -1.
  */
 s32 gexPlusRomOwnHead(s32 bodynum)
 {
 	for (s32 i = 0; i < g_GeRomNumRows; i++) {
 		if (g_GeRomRows[i].row == bodynum) {
-			return g_GeRomRows[i].ownhead;
+			const s32 ownhead = g_GeRomRows[i].ownhead;
+
+			if (ownhead <= -2 && -2 - ownhead < g_GeRomNumExtraPools) {
+				struct geromextrapool *pool = &g_GeRomExtraPools[-2 - ownhead];
+				const s32 sex = g_HeadsAndBodies[bodynum].ismale ? 0 : 1;
+
+				if (pool->numactive[sex] <= 0) {
+					return -1;
+				}
+
+				pool->next[sex] = (pool->next[sex] + 1) % pool->numactive[sex];
+
+				return pool->active[sex][pool->next[sex]];
+			}
+
+			return ownhead;
 		}
 	}
 
@@ -970,7 +1159,9 @@ s32 gexPlusDkModeSpares(s32 bodynum, s32 headnum)
 {
 	s32 body, head;
 
-	if (!gexFrontIsJapanese() || !gexFrontIsInside()) {
+	// GoldenEye's own numbers, which a ROM hack's characters are not
+	if (!gexFrontIsJapanese() || !gexFrontIsInside() || (modloaderStageIsRemake(g_Vars.stagenum)
+			&& !modloaderStageIsGexPlus(g_Vars.stagenum))) {
 		return 0;
 	}
 
@@ -1016,7 +1207,9 @@ s32 gexPlusRomMpBegin(void)
 		char path[FS_MAXPATH + 1];
 		s32 n;
 
-		if (!at) {
+		// GoldenEye's own conversion's, never a ROM hack's (Goldfinger 64's
+		// numbers its characters its own way), wherever the two are mounted
+		if (!at || (modloaderGexPlusDirIndex() >= 0 && !modloaderDirIndexIsGexPlus(i))) {
 			continue;
 		}
 
@@ -1064,7 +1257,7 @@ s32 gexPlusRomMpFill(s32 num, struct headorbody *hb)
 		return 0;
 	}
 
-	geRomFillRow(hb, &g_GeRomMpChrs[num], GEROM_IS_HEAD(num), fileid);
+	geRomFillRow(hb, &g_GeRomMpChrs[num], geRomIsHead(g_GeRomMpChrs, geRomTableFlagged(g_GeRomMpChrs, g_GeRomMpNumChrs), num), fileid);
 
 	// GoldenEye seats any of its heads on any of its bodies as they are: one
 	// type for them all, so the ROM's type table moves none of them
@@ -1104,13 +1297,14 @@ void gexPlusMissionHeads(void)
 		return;
 	}
 
-	start = (s32)(rngRandom() % ARRAYCOUNT(g_GeRomMaleHeads));
-	female = geRomTake(g_GeRomFemaleHeads[rngRandom() % ARRAYCOUNT(g_GeRomFemaleHeads)], -1);
+	// the conversion's pools (geRomReadCast()): GoldenEye's, or a ROM hack's
+	start = (s32)(rngRandom() % (u32)g_GeRomNumMen);
+	female = geRomTake(g_GeRomWomen[rngRandom() % (u32)g_GeRomNumWomen], -1);
 
 	g_NumActiveHeadsPerGender = GEROM_MALE_HEADS_PER_LEVEL;
 
 	for (s32 i = 0; i < GEROM_MALE_HEADS_PER_LEVEL; i++) {
-		const s32 row = geRomTake(g_GeRomMaleHeads[(start + i) % ARRAYCOUNT(g_GeRomMaleHeads)], -1);
+		const s32 row = geRomTake(g_GeRomMen[(start + i) % g_GeRomNumMen], -1);
 
 		g_ActiveMaleHeads[i] = row >= 0 ? row : HEAD_JAMIE;
 		g_ActiveFemaleHeads[i] = female >= 0 ? female : HEAD_ANKA;
@@ -1118,6 +1312,33 @@ void gexPlusMissionHeads(void)
 
 	g_ActiveMaleHeadsIndex = 0;
 	g_ActiveFemaleHeadsIndex = 0;
+
+	// a hack's further pools, the same way: four men from a start of the
+	// level's, one woman
+	for (s32 k = 0; k < g_GeRomNumExtraPools; k++) {
+		struct geromextrapool *pool = &g_GeRomExtraPools[k];
+
+		for (s32 sex = 0; sex < 2; sex++) {
+			const s32 want = sex == 0 ? GEROM_MALE_HEADS_PER_LEVEL : 1;
+
+			pool->numactive[sex] = 0;
+			pool->next[sex] = -1;
+
+			if (pool->num[sex] <= 0) {
+				continue;
+			}
+
+			start = (s32)(rngRandom() % (u32)pool->num[sex]);
+
+			for (s32 i = 0; i < want && i < pool->num[sex]; i++) {
+				const s32 row = geRomTake(pool->heads[sex][(start + i) % pool->num[sex]], -1);
+
+				if (row >= 0) {
+					pool->active[sex][pool->numactive[sex]++] = (s16)row;
+				}
+			}
+		}
+	}
 }
 
 /* -------------------------------------------------------------------------
@@ -1171,8 +1392,10 @@ void gexPlusMissionLangLoad(s32 stagenum)
 		return;
 	}
 
-	// "LdamE" is ge.dam.<slot> to a language pack (langpack.h)
-	if (name[0] == 'L' && strlen(name) > 2 && strlen(name) - 2 < sizeof(g_GeMissionLangBank)) {
+	// "LdamE" is ge.dam.<slot> to a language pack (langpack.h) - GoldenEye's
+	// own text, which a ROM hack's bank of the same name is not
+	if (modloaderStageIsGexPlus(stagenum)
+			&& name[0] == 'L' && strlen(name) > 2 && strlen(name) - 2 < sizeof(g_GeMissionLangBank)) {
 		memcpy(g_GeMissionLangBank, name + 1, strlen(name) - 2);
 		g_GeMissionLangBank[strlen(name) - 2] = '\0';
 
@@ -1251,7 +1474,11 @@ static s32 g_GeMissionAnimsLoaded;
  *
  * Read once a session: an appended animation is permanent - it counts as one
  * of the ROM's and animsReset() keeps it - so loading the file again on the
- * next mission would only spend the thousand rows there are.
+ * next mission would only spend the thousand rows there are. A GoldenEye ROM
+ * hack's conversion carries the same animations (Goldfinger 64 kept
+ * GoldenEye's segment byte for byte), so whichever is loaded first serves
+ * both; a stage whose mod has none (an arena of a conversion older than its
+ * missions) leaves the load to the next.
  */
 void gexPlusMissionAnimLoad(s32 stagenum)
 {
@@ -1265,20 +1492,20 @@ void gexPlusMissionAnimLoad(s32 stagenum)
 		return;
 	}
 
-	g_GeMissionAnimsLoaded = 1;
-
 	for (s32 i = 0; i < GEANIM_MAX; i++) {
 		g_GeMissionAnims[i] = -1;
 	}
 
 	snprintf(path, sizeof(path), "%s/menu/geanims.bin", dir);
-	d = fsFileLoad(path, &len);
+	d = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
 
 	if (!d || len < 8 || memcmp(d, "GEA1", 4)) {
 		sysLogPrintf(LOG_WARNING, "gexplus: the conversion has no mission animations at %s", path);
 		sysMemFree(d);
 		return;
 	}
+
+	g_GeMissionAnimsLoaded = 1;
 
 	numanims = (s32)((d[4] << 8) | d[5]);
 
@@ -1535,17 +1762,35 @@ void gexPlusMissionExitTick(void)
  * the sets borrowed from GoldenEye X; Perfect Dark's sets are Perfect Dark's
  * guns, and are listed beside them only when Mod.GePlusPdGuns asks for them
  * ("Include Perfect Dark Guns", off unless the player turns it on).
+ *
+ * A GoldenEye ROM hack's mode (g_GexPlusVariant: Goldfinger 64) lists the
+ * hack's own sets, out of its own conversion: Goldfinger's are not
+ * GoldenEye's ("Hats 'n' Clubs", "Gangster"), and four of them hand out its
+ * own pistols. They take GoldenEye's rows of the list while its mode is
+ * chosen rather than rows of their own after them, which Perfect Dark's
+ * Combat Simulator, listing the whole list, would offer as well: a block of
+ * the list is the mode's, GoldenEye's whenever no hack's is chosen.
  */
-#define GESETS_NUM   14
-#define GESETS_SLOTS 8
-#define GESETS_NAME  32
-#define GESETS_ROW   (GESETS_NAME + GESETS_SLOTS)
+#define GESETS_NUM    14
+#define GESETS_SLOTS  8
+#define GESETS_NAME   32
+#define GESETS_ROW    (GESETS_NAME + GESETS_SLOTS)
+#define GESETS_GROUPS 4
+
+extern s32 g_MpWeaponSetNum;
+
+struct gesetsgroup {
+	char dir[FS_MAXPATH + 1]; // the conversion's mod dir; "" a free group
+	s32 num;
+	struct mpweaponset sets[GESETS_NUM];
+	char text[GESETS_NUM][GESETS_NAME + 2];
+};
 
 static s32 g_GePlusPdGuns = 0;
-static s32 g_GeSetsFirst = -1;
+static struct gesetsgroup g_GeSetsGroups[GESETS_GROUPS];
+static s32 g_GeSetsFirst = -1; // the block of the list
 static s32 g_GeSetsNum = 0;
-static u16 g_GeSetsNames[GESETS_NUM];
-static char g_GeSetsText[GESETS_NUM][GESETS_NAME + 2];
+static s32 g_GeSetsIn = -1; // whose group the block holds
 
 PD_CONSTRUCTOR static void gexPlusGunsConfigInit(void)
 {
@@ -1562,31 +1807,61 @@ void gexPlusSetPdGuns(s32 on)
 	g_GePlusPdGuns = on ? 1 : 0;
 }
 
-/** Whether the ROM's sets are still where they were put: a mod swap puts the list back. */
+/** Whether the block is still where it was put: a mod swap puts the list back. */
 static s32 geSetsInList(void)
 {
-	return g_GeSetsFirst >= 0 && g_GeSetsNum > 0
+	const struct gesetsgroup *in = g_GeSetsIn >= 0 ? &g_GeSetsGroups[g_GeSetsIn] : NULL;
+
+	return in && g_GeSetsFirst >= 0 && g_GeSetsNum == in->num
 		&& g_GeSetsFirst + g_GeSetsNum <= g_MpNumWeaponSets
-		&& g_MpWeaponSets[g_GeSetsFirst].name == g_GeSetsNames[0]
-		&& g_MpWeaponSets[g_GeSetsFirst + g_GeSetsNum - 1].name == g_GeSetsNames[g_GeSetsNum - 1];
+		&& g_MpWeaponSets[g_GeSetsFirst].name == in->sets[0].name
+		&& g_MpWeaponSets[g_GeSetsFirst + g_GeSetsNum - 1].name == in->sets[g_GeSetsNum - 1].name;
 }
 
-static void geSetsAppend(void)
+/**
+ * The mod dir whose sets are listed: the first arena's of GE Plus's list
+ * (modloaderStageInGexPlusList(): GoldenEye's, or the chosen hack's), or of
+ * GoldenEye's own for `own`; NULL when there is none.
+ */
+static const char *geSetsDir(s32 own)
+{
+	for (s32 i = 0; i < mpGetNumStages(); i++) {
+		const s32 stagenum = g_MpArenas[i].stagenum;
+
+		if (own ? modloaderStageIsGexPlus(stagenum) : modloaderStageInGexPlusList(stagenum)) {
+			return modloaderGetStageModDir(stagenum);
+		}
+	}
+
+	return NULL;
+}
+
+/** Mod dir `dir`'s sets, read the first time they are asked for; -1 where it has none. */
+static s32 geSetsGroup(const char *dir)
 {
 	char path[FS_MAXPATH + 1];
-	const char *dir = NULL;
+	struct gesetsgroup *group = NULL;
+	s32 index = -1;
 	u32 len = 0;
 	u8 *d;
 	s32 num;
 
-	for (s32 i = 0; i < mpGetNumStages() && !dir; i++) {
-		if (modloaderStageIsRemake(g_MpArenas[i].stagenum)) {
-			dir = modloaderGetStageModDir(g_MpArenas[i].stagenum);
+	if (!dir) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < GESETS_GROUPS; i++) {
+		if (g_GeSetsGroups[i].dir[0] && !strcmp(g_GeSetsGroups[i].dir, dir)) {
+			return i;
+		}
+
+		if (index < 0 && !g_GeSetsGroups[i].dir[0]) {
+			index = i;
 		}
 	}
 
-	if (!dir) {
-		return;
+	if (index < 0) {
+		return -1;
 	}
 
 	snprintf(path, sizeof(path), "%s/menu/gesets.bin", dir);
@@ -1594,7 +1869,7 @@ static void geSetsAppend(void)
 
 	if (!d || len < 8 || memcmp(d, "GES1", 4)) {
 		sysMemFree(d);
-		return;
+		return -1;
 	}
 
 	num = (s32)((d[4] << 24) | (d[5] << 16) | (d[6] << 8) | d[7]);
@@ -1603,20 +1878,18 @@ static void geSetsAppend(void)
 		num = GESETS_NUM;
 	}
 
-	if (num <= 0 || len < 8 + (u32)GESETS_ROW * num || g_MpNumWeaponSets + num > MP_MAX_WEAPONSETS) {
-		sysLogPrintf(LOG_WARNING, "gexplus: GoldenEye's weapon sets do not fit the list (%d, %d in it)", num, g_MpNumWeaponSets);
+	if (num <= 0 || len < 8 + (u32)GESETS_ROW * num) {
 		sysMemFree(d);
-		return;
+		return -1;
 	}
 
-	g_GeSetsFirst = g_MpNumWeaponSets;
-	g_GeSetsNum = 0;
+	group = &g_GeSetsGroups[index];
+	memset(group, 0, sizeof(*group));
+	snprintf(group->dir, sizeof(group->dir), "%s", dir);
 
 	for (s32 i = 0; i < num; i++) {
 		const u8 *row = d + 8 + GESETS_ROW * i;
-		struct mpweaponset *set = &g_MpWeaponSets[g_MpNumWeaponSets];
-
-		memset(set, 0, sizeof(*set));
+		struct mpweaponset *set = &group->sets[i];
 
 		// GoldenEye's eight slots run from its lightest gun to its heaviest
 		// with most of them said twice; Perfect Dark's six take them evenly
@@ -1634,20 +1907,70 @@ static void geSetsAppend(void)
 		set->unk10 = set->slots[4];
 		set->unk11 = set->slots[5];
 
-		if (!g_GeSetsNames[i]) {
-			memcpy(g_GeSetsText[i], row, GESETS_NAME);
-			g_GeSetsText[i][GESETS_NAME - 1] = '\0';
-			strcat(g_GeSetsText[i], "\n"); // as the game's own set names end
-			g_GeSetsNames[i] = langAddPortText(g_GeSetsText[i]);
-		}
-
-		set->name = g_GeSetsNames[i];
-		g_MpNumWeaponSets++;
-		g_GeSetsNum++;
+		memcpy(group->text[i], row, GESETS_NAME);
+		group->text[i][GESETS_NAME - 1] = '\0';
+		strcat(group->text[i], "\n"); // as the game's own set names end
+		set->name = langAddPortText(group->text[i]);
 	}
 
+	group->num = num;
 	sysMemFree(d);
-	sysLogPrintf(LOG_NOTE, "gexplus: %d of GoldenEye's own weapon sets in the list, from %s", g_GeSetsNum, path);
+
+	return index;
+}
+
+/**
+ * Group `index`'s sets into the block: over the one there when it is the
+ * same size or the list's last, after the list otherwise. A set chosen out of
+ * the block is chosen again as the row it was, whose guns are the group's.
+ */
+static void geSetsPut(s32 index)
+{
+	const struct gesetsgroup *group = &g_GeSetsGroups[index];
+	const s32 inlist = geSetsInList();
+	const s32 last = inlist && g_GeSetsFirst + g_GeSetsNum == g_MpNumWeaponSets;
+	s32 first = g_MpNumWeaponSets;
+
+	if (inlist && g_GeSetsIn == index) {
+		return;
+	}
+
+	if (inlist && (group->num == g_GeSetsNum || last)) {
+		first = g_GeSetsFirst;
+	}
+
+	if (first + group->num > MP_MAX_WEAPONSETS) {
+		sysLogPrintf(LOG_WARNING, "gexplus: the weapon sets of %s do not fit the list (%d, %d in it)", group->dir, group->num, first);
+		return;
+	}
+
+	memcpy(&g_MpWeaponSets[first], group->sets, sizeof(group->sets[0]) * group->num);
+
+	if (first + group->num > g_MpNumWeaponSets || (last && first == g_GeSetsFirst)) {
+		g_MpNumWeaponSets = first + group->num;
+	}
+
+	g_GeSetsFirst = first;
+	g_GeSetsNum = group->num;
+	g_GeSetsIn = index;
+
+	if (inlist && g_MpWeaponSetNum >= first && g_MpWeaponSetNum < first + g_GeSetsNum) {
+		mpApplyWeaponSet();
+	}
+
+	sysLogPrintf(LOG_NOTE, "gexplus: %d weapon sets of %s in the list at %d", g_GeSetsNum, group->dir, first);
+}
+
+/** The mode's sets in the block (GoldenEye's own for `own`): whether they are. */
+static s32 geSetsUse(s32 own)
+{
+	const s32 index = geSetsGroup(geSetsDir(own));
+
+	if (index >= 0) {
+		geSetsPut(index);
+	}
+
+	return index >= 0 && g_GeSetsIn == index && geSetsInList();
 }
 
 /**
@@ -1655,14 +1978,15 @@ static void geSetsAppend(void)
  * GE Plus's: its guns are offered on any arena beside Perfect Dark's, and
  * until GE Plus had been opened once in a session the sets that hand them out
  * were nowhere. Those used to be GoldenEye X's, borrowed at boot; with it
- * dormant (modborrow.c) these are the ROM's. At boot and after a mod swap, which
- * puts the list back; not under a mod with its own weapon list, which hides
+ * dormant (modborrow.c) these are the ROM's. At boot, after a mod swap, which
+ * puts the list back, and on leaving GE Plus's Combat Simulator, whose block
+ * a hack's mode had; not under a mod with its own weapon list, which hides
  * GoldenEye's guns (gebeanGunsRefresh()).
  */
 void gexPlusWeaponSetsAppend(void)
 {
-	if (!modDataMpWeaponsImported() && !geSetsInList()) {
-		geSetsAppend();
+	if (!modDataMpWeaponsImported()) {
+		geSetsUse(1);
 	}
 }
 
@@ -1685,19 +2009,12 @@ s32 gexPlusWeaponSets(s32 *first)
 	}
 
 	if (g_GePlusPdGuns) {
-		// still put GoldenEye's in the list the whole of which is shown
-		if (!geSetsInList()) {
-			geSetsAppend();
-		}
-
+		// still put the mode's in the list the whole of which is shown
+		geSetsUse(0);
 		return 0;
 	}
 
-	if (!geSetsInList()) {
-		geSetsAppend();
-	}
-
-	if (geSetsInList()) {
+	if (geSetsUse(0)) {
 		*first = g_GeSetsFirst;
 		return g_GeSetsNum;
 	}
@@ -1717,12 +2034,58 @@ s32 gexPlusWeaponSets(s32 *first)
  * hurt. The two games' explosion types are the same rows 0 to 20, so GoldenEye's
  * number is used as it stands. -1 is a model that is not one of GoldenEye's.
  */
+/**
+ * A GoldenEye ROM hack's own object_explosion_details (menu/geexplosions.bin,
+ * converter 98) - its props are not GoldenEye's numbers (Goldfinger 64 renamed
+ * 318 of the 340 and added 76) - for the stage's own mod, or NULL on
+ * GoldenEye's, whose table is built in.
+ */
+static const u8 *gexPlusHackExplosions(u32 *numprops)
+{
+	static u8 *table;
+	static u32 len;
+	static s32 tablemoddir = -2;
+	const s32 moddir = modloaderGetStageModDirIndex(g_Vars.stagenum);
+
+	if (moddir < 0 || modloaderStageIsGexPlus(g_Vars.stagenum) || !modloaderStageIsRemake(g_Vars.stagenum)) {
+		return NULL;
+	}
+
+	if (tablemoddir != moddir) {
+		char path[FS_MAXPATH + 1];
+		const char *dir = fsGetModDirAt(moddir);
+
+		sysMemFree(table);
+		table = NULL;
+		len = 0;
+		tablemoddir = moddir;
+
+		if (dir) {
+			snprintf(path, sizeof(path), "%s/menu/geexplosions.bin", dir);
+
+			if (fsFileSize(path) > 0) {
+				table = fsFileLoad(path, &len);
+			}
+		}
+	}
+
+	*numprops = len / 14;
+
+	return table;
+}
+
 s32 gexPlusPropExplosionType(s32 modelnum)
 {
 	static const u8 types[] = {
 #include "geexplosiontypes.h"
 	};
 	const s32 prop = modelnum - MODEL_REMAKE_FIRST;
+	u32 numprops = 0;
+	const u8 *hack = gexPlusHackExplosions(&numprops);
+
+	if (hack) {
+		return prop >= 0 && (u32)prop < numprops ? (s16)((hack[14 * prop] << 8) | hack[14 * prop + 1]) : -1;
+	}
 
 	if (prop < 0 || prop >= (s32)ARRAYCOUNT(types)) {
 		return -1;
@@ -1744,6 +2107,13 @@ u16 gexPlusPropDeformSeed(s32 modelnum, s32 index)
 #include "geexplosionseeds.h"
 	};
 	const s32 prop = modelnum - MODEL_REMAKE_FIRST;
+	u32 numprops = 0;
+	const u8 *hack = gexPlusHackExplosions(&numprops);
+
+	if (hack) {
+		return prop >= 0 && (u32)prop < numprops && index >= 0 && index < 6
+			? (u16)((hack[14 * prop + 2 + 2 * index] << 8) | hack[14 * prop + 3 + 2 * index]) : 0;
+	}
 
 	if (prop < 0 || prop >= (s32)ARRAYCOUNT(seeds) || index < 0 || index >= 6) {
 		return 0;

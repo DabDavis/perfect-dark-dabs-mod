@@ -339,61 +339,66 @@ def collect(g):
     return events, frames
 
 
-try:
-    lib.boot(os.environ['GF_LEVELID'], int(os.environ.get('GF_DIFF', '0')))
-    f0 = rd(SYM['currentFrameCounter'], 4)
-    lib.until_tick(START)
-    # the boot's one Z (the opening still) is 190 frames after the level's first
-    while rd(SYM['currentFrameCounter'], 4) < f0 + 230:
-        frames(10)
-    tw = lib.twin()
-    tw('pad 0 -')
-    # On the cartridge the opening runs later against the level clock than on the
-    # native port, and when it ends GoldenEye equips Bond's starting gun - over a
-    # gun given before it (Dam: the silenced PP7 came back at tick ~850 and the
-    # tap went unfired). So wait for play proper: the first-person camera
-    # (CAMERAMODE_FP) and the starting gun drawn and idle.
-    tw('until-word 0x%08x == %d 40000' % (GL['symbols'].get('g_CameraMode', 0x80036494), CAMERAMODE_FP))
-    for _ in range(200):
-        player_addrs()
-        if rd(hand(0, 'weaponnum'), 4) != 0 and rd(hand(0, 'weapon_action_state'), 4) == 0:
-            break
-        frames(3)
-    else:
-        raise RuntimeError('Bond never stood idle with his gun drawn')
-    frames(30)
-    player_addrs()
-    wr(P['p'] + fo('struct player', 'cheatBondInvincible'), 1, 1)
-    lib.say('removed', remove_chrs(), 'chrs', 'at tick', lib.tick(), 'oracle ares')
-    frames(4)
-    install_hooks()
-    cmd_lines('trace-dump')     # what the frames above logged
-    for item in [int(x) for x in os.environ['GF_GUNS'].split(',')]:
-        gdef = [x for x in gunlist.GUNS if x[0] == item][0]
-        tw('pad-when-clear')
+def main():
+    try:
+        lib.boot(os.environ['GF_LEVELID'], int(os.environ.get('GF_DIFF', '0')))
+        f0 = rd(SYM['currentFrameCounter'], 4)
+        lib.until_tick(START)
+        # the boot's one Z (the opening still) is 190 frames after the level's first
+        while rd(SYM['currentFrameCounter'], 4) < f0 + 230:
+            frames(10)
+        tw = lib.twin()
         tw('pad 0 -')
-        cmd_lines('trace-dump')
-        g = rd(SYM['g_GlobalTimer'], 4)
-        info = give(item)
-        # the trigger on the game's own clock (the port's poller pressed for the
-        # next tick: trigger_at(t + 1), so one tick early here too)
-        for at, btn in ((TAP[0] - 1, 'Z'), (TAP[1] - 1, '-'), (HOLD_AT - 1, 'Z'), (HOLD_AT + HOLD - 1, '-')):
-            tw('pad-when 0x%08x >= %d 0 %s' % (SYM['g_GlobalTimer'], g + at, btn))
-        # GoldenEye runs 2-4 ticks a frame and ares has several video frames to one
-        # of the game's; a budget of 3 video frames a tick is ample and fails fast
-        until_timer(g + END, 3 * END + 600)
-        events, fr = collect(g)
-        ts = [f[0] for f in fr]
-        steps = [b - a for a, b in zip(ts, ts[1:]) if b > a]
-        info.update({'side': 'ge', 'oracle': 'ares', 'item': item, 'gun': gdef[1], 'weapon': gdef[2], 'hold': HOLD,
-                     'schedule': {'draw': DRAW, 'tap': TAP, 'hold_at': HOLD_AT, 'end': END},
-                     'ticks_per_frame': round(sum(steps) / len(steps), 3) if steps else None,
-                     'events': events, 'frames': fr})
-        lib.emit(os.path.join(os.environ['GF_OUT'], 'gun_%d.json' % item), info)
-        tw('pad-when-clear')
-        tw('pad 0 -')
+        # On the cartridge the opening runs later against the level clock than on the
+        # native port, and when it ends GoldenEye equips Bond's starting gun - over a
+        # gun given before it (Dam: the silenced PP7 came back at tick ~850 and the
+        # tap went unfired). So wait for play proper: the first-person camera
+        # (CAMERAMODE_FP) and the starting gun drawn and idle.
+        tw('until-word 0x%08x == %d 40000' % (GL['symbols'].get('g_CameraMode', 0x80036494), CAMERAMODE_FP))
+        for _ in range(200):
+            player_addrs()
+            if rd(hand(0, 'weaponnum'), 4) != 0 and rd(hand(0, 'weapon_action_state'), 4) == 0:
+                break
+            frames(3)
+        else:
+            raise RuntimeError('Bond never stood idle with his gun drawn')
         frames(30)
-except Exception:
-    traceback.print_exc()
-    lib.say('FAILED')
-lib.finish()
+        player_addrs()
+        wr(P['p'] + fo('struct player', 'cheatBondInvincible'), 1, 1)
+        lib.say('removed', remove_chrs(), 'chrs', 'at tick', lib.tick(), 'oracle ares')
+        frames(4)
+        install_hooks()
+        cmd_lines('trace-dump')     # what the frames above logged
+        for item in [int(x) for x in os.environ['GF_GUNS'].split(',')]:
+            gdef = [x for x in gunlist.GUNS if x[0] == item][0]
+            tw('pad-when-clear')
+            tw('pad 0 -')
+            cmd_lines('trace-dump')
+            g = rd(SYM['g_GlobalTimer'], 4)
+            info = give(item)
+            # the trigger on the game's own clock (the port's poller pressed for the
+            # next tick: trigger_at(t + 1), so one tick early here too)
+            for at, btn in ((TAP[0] - 1, 'Z'), (TAP[1] - 1, '-'), (HOLD_AT - 1, 'Z'), (HOLD_AT + HOLD - 1, '-')):
+                tw('pad-when 0x%08x >= %d 0 %s' % (SYM['g_GlobalTimer'], g + at, btn))
+            # GoldenEye runs 2-4 ticks a frame and ares has several video frames to one
+            # of the game's; a budget of 3 video frames a tick is ample and fails fast
+            until_timer(g + END, 3 * END + 600)
+            events, fr = collect(g)
+            ts = [f[0] for f in fr]
+            steps = [b - a for a, b in zip(ts, ts[1:]) if b > a]
+            info.update({'side': 'ge', 'oracle': 'ares', 'item': item, 'gun': gdef[1], 'weapon': gdef[2], 'hold': HOLD,
+                         'schedule': {'draw': DRAW, 'tap': TAP, 'hold_at': HOLD_AT, 'end': END},
+                         'ticks_per_frame': round(sum(steps) / len(steps), 3) if steps else None,
+                         'events': events, 'frames': fr})
+            lib.emit(os.path.join(os.environ['GF_OUT'], 'gun_%d.json' % item), info)
+            tw('pad-when-clear')
+            tw('pad 0 -')
+            frames(30)
+    except Exception:
+        traceback.print_exc()
+        lib.say('FAILED')
+    lib.finish()
+
+
+if __name__ == '__main__':
+    main()

@@ -15703,6 +15703,21 @@ void chraTickBg(void)
 	}
 
 	// Run BG scripts
+#ifndef PLATFORM_N64
+	// ...but on a mission converted from GoldenEye's ROM not before the
+	// chrs run theirs. lvRender() ticks no prop for a level's first five
+	// frames (lvHoldsLevelStart()) while these lists ran from the first, and
+	// GoldenEye runs both from its first frame, the background lists first
+	// (chrlvAllChrTick(), then each chr's in its prop tick). Goldfinger 64's
+	// Vaults: its background list read Oddjob's health on frames 2-3 and sent
+	// him to his last list before his own first ran, on frame 6, so it never
+	// set his health, armour and accuracy - 4 health, no armour, accuracy 0,
+	// where the cartridge's has 50, 200 and 100. A converted
+	// mission's lists now start with the chrs', five frames into the level;
+	// Perfect Dark's own and a Perfect Dark mod's (GE-X's) keep the stock
+	// order, written for it.
+	if (!lvHoldsLevelStart() || !modloaderDirIndexIsConversion(modloaderGetStageModDirIndex(g_Vars.stagenum)))
+#endif
 	for (i = 0; i < g_NumBgChrs; i++) {
 		if (!g_Vars.autocutplaying || (g_BgChrs[i].hidden2 & CHRH2FLAG_TICKDURINGAUTOCUT)) {
 			chraTick(&g_BgChrs[i]);

@@ -356,6 +356,12 @@ def main():
     if ARES or XENIA:
         return main_ares()
     lib.boot(os.environ['GF_LEVELID'], int(os.environ.get('GF_DIFF', '0')))
+    # VIEW_SET='var=value;...': gdb assignments in our game after the boot, an
+    # A/B of a setting the run's own pd.ini cannot reach (twin.py's fresh save dir)
+    if SIDE == 'pd':
+        for a in [a for a in os.environ.get('VIEW_SET', '').split(';') if a.strip()]:
+            lib.gdb.execute("set variable %s" % a)
+            lib.say('set', a)
     frozen = freeze_ai() if FREEZE else 0
     if SIDE == 'ge':
         # GoldenEye's opening waits for fire; common/solo-quiet.padscript

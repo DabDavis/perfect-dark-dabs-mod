@@ -1685,7 +1685,7 @@ struct weaponobj { // objtype 0x08
 	};
 
 	/*0x60*/ s8 fadeouttimer60;
-	/*0x61*/ s8 dualweaponnum;
+	/*0x61*/ u8 dualweaponnum; // 0xff for none: weapon numbers run past an s8's (WEAPON_GE_EXTRA1)
 
 	union {
 		/**
@@ -2198,7 +2198,7 @@ struct trackedprop {
 
 struct beam {
 	/*0x00*/ s8 age;
-	/*0x01*/ s8 weaponnum;
+	/*0x02*/ s16 weaponnum;
 	/*0x04*/ struct coord from;
 	/*0x10*/ struct coord dir;
 	/*0x1c*/ f32 maxdist;
@@ -2480,9 +2480,11 @@ struct fileinfo {
 };
 
 struct gunctrl {
-	/*0x1580*/ s8 weaponnum;
-	/*0x1581*/ s8 prevweaponnum; // previously drawn weapon, switched to when throwing Dragon/Laptop or when ammo depleted
-	/*0x1582*/ s8 switchtoweaponnum; // weaponnum to change to
+	// s16, where the stock game's were s8: the port's weapon numbers run past
+	// 0x7f (WEAPON_GE_EXTRA1)
+	/*0x1580*/ s16 weaponnum;
+	/*0x1581*/ s16 prevweaponnum; // previously drawn weapon, switched to when throwing Dragon/Laptop or when ammo depleted
+	/*0x1582*/ s16 switchtoweaponnum; // weaponnum to change to
 	/*0x1583*/ u8 dualwielding : 1;
 	/*0x1583*/ u8 prevwasdualwielding : 1;
 	/*0x1583*/ u8 invertgunfunc : 1;
@@ -2503,15 +2505,15 @@ struct gunctrl {
 	struct modeldef *leftgunmodeldef;
 	s32 gunmemtypeleft;
 	s32 gunmemcapacity; // what was allocated, the ceiling the loader is given
-	s8 leftweaponnum;
-	s8 leftwant;
+	s16 leftweaponnum;
+	s16 leftwant;
 	// the left hand's weapon when prevweaponnum was recorded, so that a
 	// switch back restores the pair (bgunEquipHands())
-	s8 prevleftweaponnum;
+	s16 prevleftweaponnum;
 	// the last pair whose right hand held a gun (not a grenade, a mine or an
 	// item), for a switch back to it after one or more of those
-	s8 pairrightweaponnum;
-	s8 pairleftweaponnum;
+	s16 pairrightweaponnum;
+	s16 pairleftweaponnum;
 	u8 gunmemmixed; // allocated with room for a second gun model
 	u8 leftcartdone; // the left hand's casing model has been considered this load
 	u8 curleftgunstr; // the left gun named on the HUD, for the fade

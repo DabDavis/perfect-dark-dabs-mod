@@ -109,6 +109,10 @@ def tiles():
     tb = bytes(inf.read_memory(int(S['tiles']), n * tt.sizeof))
     toff = {f.name: f.bitpos // 8 for f in tt.fields()}
     poff = {f.name: f.bitpos // 8 for f in pt.fields()}
+    # x, y, z are 32 bits since a ROM hack's level outgrew 16 (Goldfinger's
+    # Alpine Highway); read each at its own size, or a wide level's points
+    # come back as their low halves
+    pfmt = {f.name: {1: '<b', 2: '<h', 4: '<i'}[f.type.sizeof] for f in pt.fields()}
     tiles = []
     npoints = 0
     for i in range(n):
@@ -125,7 +129,7 @@ def tiles():
         pts = []
         for k in range(npts):
             o = (first + k) * pt.sizeof
-            x, y, z, across = (struct.unpack_from('<h', pb, o + poff[f])[0] for f in ('x', 'y', 'z', 'across'))
+            x, y, z, across = (struct.unpack_from(pfmt[f], pb, o + poff[f])[0] for f in ('x', 'y', 'z', 'across'))
             climb = pb[o + poff['climbwall']]
             pts.append([x, y, z, across + (0x4000 if climb and across >= 0 else 0)])
         out.append([room, special, pts])

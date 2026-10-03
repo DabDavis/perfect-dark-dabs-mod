@@ -10,7 +10,7 @@ extern "C" {
 
 // Raise when a change alters what a conversion writes: arenas converted by an
 // older one are converted again at the next start (gexplusrom.c)
-#define GECONVERT_VERSION_STR "97"
+#define GECONVERT_VERSION_STR "109"
 
 #define GECONVERT_ROM_SIZE 0xc00000
 
@@ -25,6 +25,21 @@ int geconvertHeaderIsGoldenEyeUs(const uint8_t *head, size_t len);
  * 007 (US). The ROM is put into .z64 order in place either way.
  */
 int geconvertIsGoldenEyeUs(uint8_t *rom, size_t romlen);
+
+/**
+ * The name of the GoldenEye ROM hack rom is (any of the three dump byte
+ * orders, put into .z64 order in place), when it is one the conversion knows
+ * the layout of ("Goldfinger 64"), else NULL. geconvertRun() converts one
+ * to its arenas only.
+ */
+const char *geconvertVariantName(uint8_t *rom, size_t romlen);
+
+// the same from a file's first 0x40 bytes, its header, in any byte order
+const char *geconvertHeaderVariantName(const uint8_t *head, size_t len);
+
+// the i'th ROM hack the conversion knows, NULL past the last: its name is its
+// folder's under mods/ and its entry in the menus
+const char *geconvertVariantNameAt(int i);
 
 /**
  * Converts GoldenEye's levels and props out of the ROM into the maps-only mod

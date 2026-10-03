@@ -1696,6 +1696,8 @@ void setupLoadFiles(s32 stagenum)
 	modBorrowStageModels(stagenum);
 	// and a Stage Loader map's own models (the GoldenEye remake's props)
 	modloaderApplyStageModels(stagenum);
+	// and whose guns: a GoldenEye ROM hack's own on its stages (geguns.c)
+	gegunsStageSet(stagenum);
 	// and whose unarmed it is: GoldenEye's slappers on its own levels
 	geslappersStageLoad(stagenum);
 #endif
@@ -2047,6 +2049,12 @@ void setupCreateProps(s32 stagenum)
 	escstepx = 0;
 	escstepy = 0;
 	g_Vars.textoverrides = NULL;
+
+#ifndef PLATFORM_N64
+	// a converted mission's collectables, on Perfect Dark's key cards, by
+	// GoldenEye's names; a rename the setup makes below goes before them
+	gegadgetsCreateProps();
+#endif
 
 	for (j = 0; j != ARRAYCOUNT(g_Briefing.objectivenames); j++) {
 		g_Briefing.objectivenames[j] = 0;

@@ -6461,6 +6461,10 @@ struct weapon *g_Weapons[] = {
 	[WEAPON_GE_GADGETB         ] = &g_GeWeaponDefs[WEAPON_GE_GADGETB - WEAPON_GE_FIRST],
 	[WEAPON_GE_TANKSHELLS      ] = &g_GeWeaponDefs[WEAPON_GE_TANKSHELLS - WEAPON_GE_FIRST],
 	[WEAPON_GE_DETONATOR       ] = &g_GeWeaponDefs[WEAPON_GE_DETONATOR - WEAPON_GE_FIRST],
+	[WEAPON_GE_EXTRA1          ] = &g_GeWeaponDefs[WEAPON_GE_EXTRA1 - WEAPON_GE_FIRST],
+	[WEAPON_GE_EXTRA2          ] = &g_GeWeaponDefs[WEAPON_GE_EXTRA2 - WEAPON_GE_FIRST],
+	[WEAPON_GE_EXTRA3          ] = &g_GeWeaponDefs[WEAPON_GE_EXTRA3 - WEAPON_GE_FIRST],
+	[WEAPON_GE_EXTRA4          ] = &g_GeWeaponDefs[WEAPON_GE_EXTRA4 - WEAPON_GE_FIRST],
 #endif
 };
 
@@ -6511,5 +6515,11 @@ const u8 g_GeWeaponHosts[NUM_GE_WEAPONS] = {
 	// the watch's detonator has nothing of its own in the hand but a trigger,
 	// which is the remote mine's detonate (geguns.c)
 	[WEAPON_GE_DETONATOR       - WEAPON_GE_FIRST] = WEAPON_DATAUPLINK,
+	// a ROM hack's own pistols (Goldfinger 64's Luger, P38 and Smith &
+	// Wessons), where GoldenEye has the PP7
+	[WEAPON_GE_EXTRA1          - WEAPON_GE_FIRST] = WEAPON_PP9I,
+	[WEAPON_GE_EXTRA2          - WEAPON_GE_FIRST] = WEAPON_PP9I,
+	[WEAPON_GE_EXTRA3          - WEAPON_GE_FIRST] = WEAPON_PP9I,
+	[WEAPON_GE_EXTRA4          - WEAPON_GE_FIRST] = WEAPON_PP9I,
 };
 #endif

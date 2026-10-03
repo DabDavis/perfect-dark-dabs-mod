@@ -565,6 +565,9 @@ struct gebeanmats {
 u8 *gebeanBuild(s32 row, s32 original, struct modeldef *modeldef, struct modelnode **nodes, s32 numnodes,
 		struct gebeanmats *mats, u64 *outAbsent, u32 *outLen);
 
+/** The guns' models in the hand again, after geguns.c swapped their definitions (gegunsStageSet()). */
+void gebeanGunsStageRefresh(void);
+
 #ifdef __cplusplus
 }
 #endif

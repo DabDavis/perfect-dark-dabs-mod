@@ -868,7 +868,7 @@ s32 invGiveWeaponsByProp(struct prop *prop)
 				weapon->dualweapon->dualweaponnum = weaponnum;
 				weapon->dualweapon->dualweapon = NULL;
 				weapon->dualweapon = NULL;
-			} else if (weapon->dualweaponnum >= 0) {
+			} else if (weapon->dualweaponnum != 0xff) {
 #ifndef PLATFORM_N64
 				if (weapon->base.flags & OBJFLAG_WEAPON_LEFTHANDED) {
 					if (invGiveDoubleWeaponLinked(weapon->dualweaponnum, weaponnum)) {

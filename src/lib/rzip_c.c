@@ -21,12 +21,20 @@ bool rzipIs1173(void *buffer)
 
 static inline s32 rzipInflate1172(z_stream *strm, u8 *src, void *dst)
 {
-	strm->avail_in = 0x2000;
+	// Neither length is known. The stream ends itself, so the input is
+	// unbounded (as 1173's is), and the output runs on in steps of 8 KB from
+	// where the last step stopped. It used to start every step at dst again
+	// and give the input 8 KB at most: a stream that inflated past 8192 bytes
+	// wrote its tail over its own start. Nothing of GoldenEye's own is that
+	// long; a GoldenEye ROM hack's music is (Goldfinger 64's Airport theme
+	// is 8368 bytes, and its track table was overwritten by its last 176 -
+	// a crash in n_alCSeqNew() the moment it played).
+	strm->avail_in = -1;
 	strm->next_in = src;
+	strm->next_out = dst;
 
 	do {
 		strm->avail_out = 0x2000;
-		strm->next_out = dst;
 		if (inflate(strm, Z_FINISH) == Z_STREAM_ERROR) {
 			rmonPrintf("rzipInflate1172: Z_STREAM_ERROR\n");
 			return 0;

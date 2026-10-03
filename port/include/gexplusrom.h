@@ -33,6 +33,31 @@ void gexPlusRomConvert(void);
 s32 gexPlusRomGetState(void);
 
 /**
+ * The GoldenEye ROM hacks found in added-content/ (as the ROM or as its patch)
+ * and converted to arenas beside GE Plus's, each in mods/<its name>/
+ * (geconvertVariantName(): "Goldfinger 64"). Never part of GE Plus.
+ */
+s32 gexPlusRomGetNumVariants(void);
+const char *gexPlusRomGetVariant(s32 index);
+
+/**
+ * Whether a folder under mods/ is a conversion - GE Plus's GoldenEye Arenas or
+ * a ROM hack's - which is mounted for its maps and never loaded as the mod
+ * (modListIsMapsOnly()).
+ */
+s32 gexPlusRomIsConversionDir(const char *name);
+
+/**
+ * Whether a patch the Mod list found applies to no Perfect Dark ROM (mod.c)
+ * makes a GoldenEye ROM hack this converts; gexPlusRomAdoptFile() then moves
+ * it - or the archive it came out of - to added-content/, where the next start
+ * converts it. A new drop in mods/ is caught before the Mod list sees it, at
+ * startup (gexPlusRomConvert()).
+ */
+s32 gexPlusRomPatchIsHack(const char *path);
+s32 gexPlusRomAdoptFile(const char *path);
+
+/**
  * GoldenEye's own file names for the models the conversion writes by number
  * (geconvertReadNames()), read from the ROM the startup scan found; 0 when
  * there is none. For the asset dump.

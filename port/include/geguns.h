@@ -67,6 +67,8 @@ u16 gegunsOwnModel(s32 index);
 // muzzle (bondgun.c asks)
 void gegunsSetOwnModelInUse(s32 index, s32 inuse);
 s32 gegunsOwnModelInUse(s32 weaponnum);
+// The lights and LookAt GoldenEye draws one of its guns under in first person
+Gfx *gegunsLightsAndLookAt(Gfx *gdl, s32 weaponnum);
 s32 gegunsOwnModelHidden(s32 weaponnum);
 s32 gegunsTriggerDelay60(s32 weaponnum);
 // Ticks between the clicks of one of GoldenEye's guns held empty, or 0 for any other
@@ -177,6 +179,21 @@ struct geknifekey {
 // gunSample1PTransform(): a track `time` sixtieths in, into `mtx` (an Mtxf),
 // mirrored for the left hand; 0 once the track has ended
 s32 gegunsSampleTrack(const struct geknifekey *keys, f32 time, void *mtx, s32 left);
+
+/**
+ * The guns of the stage about to load: a converted ROM hack's own on a stage
+ * of its own (menu/geguns.bin), GoldenEye's everywhere else.
+ */
+void gegunsStageSet(s32 stagenum);
+s32 gegunsHackSetIn(void); // a ROM hack's own gun set is in: its stage is loaded
+u16 gegunsMenuNameId(s32 weaponnum); // the menus' name of a GoldenEye gun: a hack's mode's, or 0
+void gegunsExtraRowsRefresh(void); // a hack's own pistols' Combat Simulator rows shown or hidden
+
+/** Weapon `index`'s own name (its text id), the gun set's. */
+u16 gegunsNameId(s32 index);
+
+/** A gun's GoldenEye AmmoType (its AMMOTYPES index), the gun set's; -1 where it has no row. */
+s32 gegunsGeAmmoType(s32 weaponnum);
 
 #ifdef __cplusplus
 }

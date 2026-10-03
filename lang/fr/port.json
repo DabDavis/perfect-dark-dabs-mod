@@ -9,6 +9,7 @@
  "%d of %d chosen - A to toggle": "%d sur %d choisis - A pour cocher\n",
  "%d of %d maps from %d mod: out of stage numbers.": "%d cartes sur %d de %d mod : plus de numéros de niveau.\n",
  "%d of %d maps from %d mods: out of stage numbers.": "%d cartes sur %d de %d mods : plus de numéros de niveau.\n",
+ "%d of %d": "%d sur %d\n",
  "%d of %d: %s": "%d sur %d : %s\n",
  "%d of them replaced from the texture pack": "dont %d remplacées par le pack de textures\n",
  "%d rooms, %d objectives (best %d)": "%d salles, %d objectifs (record %d)\n",

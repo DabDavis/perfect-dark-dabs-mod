@@ -4254,7 +4254,15 @@ void fileLoadPartToAddr(u16 filenum, void *memaddr, s32 offset, u32 len)
 		dmaExec(memaddr, (romptr_t) g_FileTable[filenum] + offset, len);
 #else
 		const u8 *src = romdataFileGetData(filenum);
+		const u32 size = romdataFileGetSize(filenum);
 		if (src) {
+			// The bg loader asks for a section rounded up to 16 bytes, which
+			// for the last runs past the end of the file - the cartridge
+			// has bytes there, a buffer of the file's own size does not, and
+			// the rest of the asked-for room is left as it was
+			if ((u32)offset < size && len > size - (u32)offset) {
+				len = size - (u32)offset;
+			}
 			dmaExec(memaddr, (uintptr_t) src + offset, len);
 		}
 		// this intentionally does not execute romdataFilePreprocess,

@@ -98,6 +98,13 @@ def run_pd(script, m, diff, out, env, timeout, rundir, binary, extra):
     os.makedirs(local, exist_ok=True)
     save = os.path.join(local, 'save')
     os.makedirs(save, exist_ok=True)
+    if env.get('GF_GAME') == 'gf':
+        # A ROM hack's maps are put in Mod.MapMods once, when it is first
+        # converted (gexplusrom.c); a fresh save directory has GoldenEye's
+        # arenas alone and the hack's missions are not mounted. Appended to
+        # whatever pd.ini a tool wrote here (view's window and field of view).
+        with open(os.path.join(save, 'pd.ini'), 'a') as fh:
+            fh.write('\n[Mod]\nMapMods=GoldenEye Arenas;%s\nGexPlusMapsOffered=1\n' % levels.GF_VARIANT)
     e = dict(os.environ)
     # no real controller reaches a headless run (the Xenia rig's virtual Xbox pad
     # was assigned to player 0 mid-run and pressed buttons in it)
@@ -110,6 +117,9 @@ def run_pd(script, m, diff, out, env, timeout, rundir, binary, extra):
     args = ['timeout', '-k', '5', str(timeout), 'gdb', '-batch', '-x', os.path.abspath(script), '--args',
             binary, '--savedir', save, '--skip-intro', '--no-sound', '--boot-ge-mission', str(m[0]),
             '--skip-mission-intro', '--fixed-step', '--rng-seed', '1', '--log'] + extra
+    if env.get('GF_MISSION_INTRO') == '1':
+        # the opening plays on both sides (aresge.boot() leaves out its Z press)
+        args.remove('--skip-mission-intro')
     # each run gets its own directory: the port writes pd.log and screenshots/
     # beside its executable, and concurrent runs in one directory overwrite
     # each other's. The binary is hard-linked (the port finds its folder from
@@ -172,7 +182,21 @@ def main():
     ap.add_argument('--no-sync', action='store_true', help='the toolkit is already on the oracle host')
     ap.add_argument('--oracle', choices=['ares', 'port'], default=None,
                     help='GoldenEye side: the cartridge in ares, or the native port (default %s)' % DEFAULT_ORACLE)
+    ap.add_argument('--game', choices=['ge', 'gf'], default=levels.GAME,
+                    help='ge: GoldenEye and GE Plus; gf: Goldfinger 64 - its cartridge (ares only, Expansion Pak) '
+                         'against ours booted in its mode (--boot-ge-variant). Default GF_GAME, else ge')
     a = ap.parse_args()
+    if a.game != levels.GAME:
+        # mission names are the game's own: levels.py reads GF_GAME at import
+        os.environ['GF_GAME'] = a.game
+        import importlib
+        importlib.reload(levels)
+    if a.game == 'gf':
+        a.oracle = a.oracle or 'ares'
+        if a.oracle != 'ares' and a.side != 'pd':
+            ap.error('Goldfinger 64 runs on the cartridge only (--oracle ares)')
+        a.env.append('GF_GAME=gf')
+        a.pd_arg = ['--boot-ge-variant', levels.GF_VARIANT] + a.pd_arg
     m = levels.mission(a.mission)
     diff = levels.difficulty(a.diff)
     env = dict(kv.split('=', 1) for kv in a.env)

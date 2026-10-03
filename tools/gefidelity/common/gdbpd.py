@@ -61,6 +61,14 @@ def boot(levelid=None, difficulty=0):
     gdb.execute('break videoEndFrame if g_Vars.lvframenum >= 1')
     _go()
     gdb.execute('delete')
+    if os.environ.get('GF_GAME') == 'gf':
+        # the stage is the ROM hack's own mission, in its mode (--boot-ge-variant);
+        # without it --boot-ge-mission falls back to the Carrington Institute and
+        # every record "differs"
+        if int(ev('(long)g_GexPlusVariant')) == 0 or \
+                int(ev('modloaderStageInGexPlusList(g_Vars.stagenum)')) == 0:
+            raise RuntimeError('ours is not on the hack\'s mission (stage 0x%x): is it converted and mounted?'
+                               % int(ev('g_Vars.stagenum')))
     say('boot stage', hex(int(ev('g_Vars.stagenum'))), 'difficulty', int(ev('g_Difficulty')),
         'tick', tick())
 
@@ -75,6 +83,16 @@ def until_tick(t):
     gdb.execute('break videoEndFrame if g_Vars.lvframe60 >= %d' % t)
     _go()
     gdb.execute('delete')
+
+
+def until_play(maxframes=2000):
+    """Run until the player's normal play (TICKMODE_NORMAL, 1): aresge's twin
+    waits out the cartridge's opening. Returns the tick."""
+    for _ in range(maxframes // 5):
+        if int(ev('g_Vars.tickmode')) == 1:
+            return tick()
+        frames(5)
+    raise RuntimeError('never reached normal play (tickmode %d)' % int(ev('g_Vars.tickmode')))
 
 
 def frames(n=1):
@@ -249,8 +267,25 @@ def props():
     return out
 
 
+def _gerom_rows():
+    """The GoldenEye ROM characters a converted mission holds in its body/head
+    rows (gexplus.c's g_GeRomRows): {row: (character, ownhead)}, the character
+    being the conversion's file number (Cgx%03dZ), which is the c_item_entries
+    number the cartridge's chrs carry. Empty outside a converted mission."""
+    try:
+        n = int(ev("'gexplus.c'::g_GeRomNumRows"))
+        rows = {}
+        for i in range(n):
+            r = ev("'gexplus.c'::g_GeRomRows[%d]" % i)
+            rows[int(r['row'])] = (int(r['chr']), int(r['ownhead']))
+        return rows
+    except gdb.error:
+        return {}
+
+
 def chrs():
     ids = _ailist_ids()
+    gerows = _gerom_rows()
     out = []
     n = int(ev('g_NumChrSlots'))
     for k in range(n):
@@ -281,6 +316,10 @@ def chrs():
                'weapons': [_weaponnum(c['weapons_held'][h]) for h in range(2)]}
         if int(c['model']) != 0:
             rec['scale'] = _f(c['model']['scale'])
+        if rec['bodynum'] in gerows:
+            rec['bodychr'] = gerows[rec['bodynum']][0]
+        if rec['headnum'] in gerows:
+            rec['headchr'] = gerows[rec['headnum']][0]
         if int(prop) == int(ev('g_Vars.currentplayer->prop')):
             rec['player'] = 1
         out.append(rec)
@@ -295,6 +334,58 @@ def player():
             'eye': [_f(P['cam_pos'][a]) for a in 'xyz'],
             'ground': _f(P['vv_ground']),
             'health': _f(P['bondhealth'])}
+
+
+def objectives():
+    """Each objective's status (0 incomplete, 1 complete, 2 failed: GoldenEye's
+    OBJECTIVESTATUS_* number for number)."""
+    return [int(ev('objectiveCheck(%d)' % i)) for i in range(int(ev('objectiveGetCount()')))]
+
+
+def inventory():
+    """The player's inventory as weapon numbers, in the order the game cycles it."""
+    return [int(ev('invGetWeaponNumByIndex(%d)' % k)) for k in range(int(ev('invGetCount()')))]
+
+
+def record_words(i):
+    """Setup record i as ours holds it (converted): [type, [words...]], or None past the end."""
+    p = ev('(unsigned int *)g_StageSetup.props')
+    for k in range(i + 1):
+        t = int(p.cast(gdb.lookup_type('struct defaultobj').pointer()).dereference()['type'])
+        if t == OBJTYPE_END:
+            return None
+        n = int(ev('setupGetCmdLength((u32 *)%d)' % int(p)))
+        if k == i:
+            return [t, [int(p[w]) & 0xffffffff for w in range(n)]]
+        p = p + n
+
+
+def carries(i):
+    """The player carries setup record i's own prop (invHasProp())."""
+    o = ev('setupGetObjByCmdIndex(%d)' % i)
+    if int(o) == 0 or int(o['prop']) == 0:
+        return False
+    return bool(int(ev('invHasProp((struct prop *)%d)' % int(o['prop']))))
+
+
+def bond_where():
+    """The player's first room, what place() takes (aresge's twin returns his tile)."""
+    return int(ev('g_Vars.currentplayer->prop->rooms[0]'))
+
+
+def prop_tile(i):
+    """Setup record i's prop: where Bond stands to reach it - its x and z on the
+    floor under it (cdFindGroundAtCyl(), so not on a table or shelf it rests on,
+    as aresge's twin stands Bond on the prop's tile) - and its first room (for
+    place())."""
+    o = ev('setupGetObjByCmdIndex(%d)' % i)
+    if int(o) == 0 or int(o['prop']) == 0:
+        return None
+    prop = o['prop']
+    pos = [_f(prop['pos'][a]) for a in 'xyz']
+    pos[1] = _f(ev('cdFindGroundAtCyl(&((struct prop *)%d)->pos, 30, ((struct prop *)%d)->rooms, 0, 0)'
+                   % (int(prop), int(prop))))
+    return pos, int(prop['rooms'][0])
 
 
 def world():
