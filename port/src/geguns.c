@@ -1036,6 +1036,27 @@ static void gegunsBuild(s32 i, const struct weapon *model, const struct weapon *
 			}
 		}
 	}
+
+	// The gun's Combat Simulator row hands out its ammunition - Start Armed
+	// fills it, a match's crate beside the gun carries it - and the rows
+	// still named the hosts' types: the PP7s' and the DD44's pistol rounds,
+	// where the gun loads GoldenEye's one 9mm pool (geammotypes, the
+	// submachine gun's), so Start Armed gave them nothing to fire (F3
+	// 20261003-003052). The row follows what the gun loads.
+	{
+		s32 row = -1;
+
+		if (i < NUM_GE_GUNS) {
+			row = MPWEAPON_GE_FIRST + i;
+		} else if (i >= WEAPON_GE_EXTRA1 - WEAPON_GE_FIRST && i < NUM_GE_WEAPONS) {
+			row = MPWEAPON_GE_EXTRA1 + i - (WEAPON_GE_EXTRA1 - WEAPON_GE_FIRST);
+		}
+
+		if (row >= 0 && g_MpWeapons[row].weaponnum == WEAPON_GE_FIRST + i
+				&& g_MpWeapons[row].priammotype > 0 && def->ammos[0] && def->ammos[0]->type > 0) {
+			g_MpWeapons[row].priammotype = def->ammos[0]->type;
+		}
+	}
 }
 
 /**
@@ -1821,6 +1842,9 @@ static s32 ownInUse[NUM_GE_WEAPONS];
 static s32 hostSaved[NUM_GE_WEAPONS];
 static f32 hostPos[NUM_GE_WEAPONS][3];
 static struct gunviscmd *hostVis[NUM_GE_WEAPONS];
+static struct guncmd *hostEquip[NUM_GE_WEAPONS];
+static struct guncmd *hostUnequip[NUM_GE_WEAPONS];
+static s32 animsTaken[NUM_GE_WEAPONS];
 
 
 /**
@@ -1847,6 +1871,35 @@ void gegunsSetOwnModelInUse(s32 index, s32 inuse)
 	}
 
 	ownInUse[index] = inuse;
+
+	// A host's draw and put-away animate the host's joints, which on
+	// GoldenEye's model are other parts or none: the Moonraker on the Laser's
+	// stood still through the Laser's put-away and popped up through its
+	// draw ("Moonraker Laser lacks a put away and pull out animation", F3
+	// 20261002-174244). GoldenEye lowers and raises every gun whole
+	// (gunfire.c's SWITCH_LOWER and SWITCH_RAISE), which is what Perfect
+	// Dark does for a gun with no such animation. A classic gun's
+	// equip_animation is its held pose (WEAPONFLAG_00004000), and a thrown
+	// one is drawn at once (gegunsSwitchAtOnce()); both keep theirs.
+	if (inuse && !(def->flags & (WEAPONFLAG_00004000 | WEAPONFLAG_THROWABLE))) {
+		if (def->equip_animation || def->unequip_animation) {
+			hostEquip[index] = def->equip_animation;
+			hostUnequip[index] = def->unequip_animation;
+			animsTaken[index] = 1;
+		}
+
+		def->equip_animation = NULL;
+		def->unequip_animation = NULL;
+	} else if (animsTaken[index]) {
+		// the host's model again (the other look, or a rebuilt definition
+		// left as it was built)
+		if (!def->equip_animation && !def->unequip_animation) {
+			def->equip_animation = hostEquip[index];
+			def->unequip_animation = hostUnequip[index];
+		}
+
+		animsTaken[index] = 0;
+	}
 
 	if (inuse) {
 		def->posx = ownpos[index][0];
