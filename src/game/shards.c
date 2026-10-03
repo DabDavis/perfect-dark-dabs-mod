@@ -14,6 +14,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "roomsheen.h"
+#include "geroom.h"
 #endif
 
 s32 g_MaxShards;
@@ -349,8 +350,11 @@ Gfx *shardsRenderGlass(Gfx *gdl)
 			gSPSetGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN);
 #ifndef PLATFORM_N64
 			// A broken window's shards turn with the player's walk as the
-			// pane did (Level Reflections)
-			gdl = roomSheenStockBegin(gdl);
+			// pane did (Level Reflections), and on a converted GoldenEye
+			// level stay put as its pane did (objRender())
+			if (!geRoomActive()) {
+				gdl = roomSheenStockBegin(gdl);
+			}
 #endif
 		}
 

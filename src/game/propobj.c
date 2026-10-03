@@ -15124,8 +15124,14 @@ Gfx *objRender(struct prop *prop, Gfx *gdl, bool xlupass)
 	renderdata.fogcolour = colour[0] << 24 | colour[1] << 16 | colour[2] << 8 | colour[3];
 #ifndef PLATFORM_N64
 	// A prop's own reflective spans (Defection's lift and windows) turn with
-	// the player's walk as the rooms' do
-	renderdata.gdl = roomSheenStockBegin(renderdata.gdl);
+	// the player's walk as the rooms' do. Not on a converted GoldenEye level,
+	// whose props reflect where the cartridge has them, as its rooms do
+	// (bgRenderRoomOpaque()): the walk's eye-ray lookup streaked Goldfinger
+	// 64's copper doors on Crab Key, where the cartridge reads the plain
+	// texgen's flat sweep (texsample_ares.py GF_CI)
+	if (!geRoomActive()) {
+		renderdata.gdl = roomSheenStockBegin(renderdata.gdl);
+	}
 #endif
 	objRenderProp(prop, &renderdata, xlupass);
 #ifndef PLATFORM_N64
