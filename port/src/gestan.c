@@ -1117,8 +1117,8 @@ f32 geStanClimbFloor(struct coord *pos, struct coord *to, f32 ground, f32 radius
 
 /**
  * Whether a body's circle at `pos` still touches a floor at height `y` (a tile
- * with an area in plan reaching to within 3 of it, under the middle or with an
- * edge within the radius). bwalkUpdateVertical() holds a player lifted by
+ * with an area in plan within 3 of it under the middle, or at the nearest
+ * point of an edge within the radius). bwalkUpdateVertical() holds a player lifted by
  * geStanClimbFloor() on that floor while it does: he is lifted as his circle
  * meets the floor across, with his middle still over the ground he climbed
  * from, and Perfect Dark's ground is the floor under the middle - he fell
@@ -1166,10 +1166,33 @@ bool geStanTouchesFloor(struct coord *pos, f32 radius, f32 y)
 					continue;
 				}
 
-				touches = stanHolds(t, pos->x, pos->z);
+				// and at that height where it is touched: a tile that slopes
+				// spans every height between its ends, and Egyptian's tunnels
+				// are each one ramp from a lip 90 over the floor down 734.
+				// Asked by the tile's span, the lip's height held the player
+				// up the whole way down, walking out over the tunnel's roof
+				// (F3 report 20261002-211321)
+				if (stanHolds(t, pos->x, pos->z)) {
+					const f32 h = stanSurface(t, pos->x, pos->z);
+
+					touches = h >= y - 3.0f && h <= y + 3.0f;
+				} else {
+					touches = false;
+				}
 
 				for (s32 a = 0; a < t->npts && !touches; a++) {
-					touches = stanEdgeDistSq(&p[a], &p[(a + 1) % t->npts], pos->x, pos->z) <= radius * radius;
+					const struct stanpoint *e0 = &p[a], *e1 = &p[(a + 1) % t->npts];
+
+					if (stanEdgeDistSq(e0, e1, pos->x, pos->z) <= radius * radius) {
+						const f32 ex = (f32)(e1->x - e0->x), ez = (f32)(e1->z - e0->z);
+						const f32 len = ex * ex + ez * ez;
+						f32 f = len > 0.0f ? ((pos->x - e0->x) * ex + (pos->z - e0->z) * ez) / len : 0.0f;
+						f32 h;
+
+						f = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+						h = e0->y + (e1->y - e0->y) * f;
+						touches = h >= y - 3.0f && h <= y + 3.0f;
+					}
 				}
 
 				if (touches) {
