@@ -51,7 +51,7 @@ struct modelnode;
  * g_MpBodies[].bodynum, an s16 - so it is the one that moves up.
  */
 #define GEROM_BODY_FIRST  152
-#define GEROM_BODY_ROWS   24    // GEROM_MAX_ROWS: every row a mission may take
+#define GEROM_BODY_ROWS   24    // every body row a mission may take (gexplus.c GEROM_MAX_ROWS adds the heads)
 #define GEROM_BODY_LAST   (GEROM_BODY_FIRST + GEROM_BODY_ROWS - 1)
 // 4J's Agent 4, whom the release adds and the ROM never had (xblaagent4.c):
 // its head's row and its body's, between the mission's rows and the pool

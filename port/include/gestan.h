@@ -84,6 +84,13 @@ bool geStanFloorAhead(s32 playernum, struct coord *pos, struct coord *to, f32 gr
 /** The player's tile is to be found afresh: they fell, climbed a ladder or rode. */
 void geStanForgetPlayerTile(s32 playernum);
 
+/**
+ * The player whose own move the walls are asked about next, or -1 when done:
+ * the tile their cylinder stands on is the one GoldenEye's walk from their
+ * tile reaches (geStanFloorAhead() kept it), not the one nearest by height.
+ */
+void geStanSetMover(s32 playernum);
+
 /** The `rise` for a body's cylinder: a couple of steps where the limit is its foot, else none. */
 f32 geStanRise(bool checkvertical);
 
