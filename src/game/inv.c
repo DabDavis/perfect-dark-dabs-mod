@@ -656,8 +656,12 @@ bool invGiveSingleWeapon(s32 weaponnum)
 		// and ITEM_TRIGGER together) - but not with a mission's own start
 		// (bondview2.c's intro: bondinvAddInvItem() alone). Surface 2's one
 		// mine is Q's ten-second fuse, and its list sets it off; with the
-		// detonator Bond set it off himself (F3 20261002-160906)
-		if (weaponnum == WEAPON_GE_REMOTEMINE && !g_InvIntroGive) {
+		// detonator Bond set it off himself (F3 20261002-160906). On a
+		// converted stage only: anywhere else a mine in the starting kit
+		// (the Randomizer's, on Perfect Dark's own stages) still brings the
+		// detonator, without which it could never go off
+		if (weaponnum == WEAPON_GE_REMOTEMINE
+				&& (!g_InvIntroGive || !modloaderStageIsRemake(g_Vars.stagenum))) {
 			invGiveSingleWeapon(WEAPON_GE_DETONATOR);
 		}
 #endif
