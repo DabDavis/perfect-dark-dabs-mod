@@ -8099,7 +8099,8 @@ static void modelLists(const buf *d, uint32_t vtxptr, const uint32_t *lists, int
 				// its quads were shaded by whatever table the last list drew
 				// with - a guard's AR33 star purple on some frames in the HD
 				// look, whose meshes leave other colours loaded (F3
-				// 20261001-000737). GoldenEye's own are white
+				// 20261001-000737). GoldenEye's own are white (the star's
+				// segment 6 offset is set right by its caller, case 0x16)
 				VECPUSH(wordsof[li], (0x07u << 24) | ((((n - 1) << 2) & 0xff) << 16) | (n * 4));
 				VECPUSH(wordsof[li], 0x06000000u | (start * 4));
 				VECPUSH(wordsof[li], (0x04u << 24) | ((n - 1) << 20) | (v0 << 16) | (n * 12));
@@ -8556,7 +8557,25 @@ static buf modelConvertOne(int32_t num, uint8_t *images, double *scale, int isch
 			// under it, so the six quads the flash turns each frame were the
 			// gun's own first 24, written over (and past what the file holds:
 			// the heap went with them)
-			bufU32(&rec, be32(d.v, ro) < nv / 4 ? be32(d.v, ro) : (uint32_t)(nv / 4));
+			{
+				const uint32_t quads = be32(d.v, ro) < nv / 4 ? be32(d.v, ro) : (uint32_t)(nv / 4);
+				// The star's G_COLs name segment 6, which
+				// modelRenderNodeStarGunfire() points 8-aligned past the
+				// node's count of quads' vertices (12 bytes each), not at the
+				// colour table after all the vertices the list loads: with
+				// fewer quads than that, the colours would be read from
+				// vertex bytes. Each G_COL is moved on by the difference
+				// (nothing when the two agree, as on every GoldenEye gun)
+				const uint32_t col2 = (uint32_t)((vat + (size_t)quads * 4 * 12 + 7) & ~(size_t)7);
+
+				for (size_t k = 0; k + 1 < words[0].n && cat > col2; k += 2) {
+					if ((words[0].v[k] >> 24) == 0x07 && (words[0].v[k + 1] >> 24) == 0x06) {
+						words[0].v[k + 1] += (uint32_t)(cat - col2);
+					}
+				}
+
+				bufU32(&rec, quads);
+			}
 			bufU32(&rec, SEG_MODEL + (uint32_t)vat);
 			bufU32(&rec, 0);
 			bufU32(&rec, SEG_MODEL + (uint32_t)cat);
