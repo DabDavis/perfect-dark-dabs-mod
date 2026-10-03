@@ -873,8 +873,15 @@ static void shellTake(u8 **filerooms, u32 *filelens, s32 n)
 	if (!shellFirst || !shellCount || !shellXlu) {
 		shellForget();
 	} else {
-		sysLogPrintf(LOG_NOTE, "gebeanstage: %d of GoldenEye's opaque triangles for the camera test, %d of them unculled",
-				shellNum, shellNumTwo);
+		s32 opaque = 0;
+
+		for (s32 r = 1; r < n; r++) {
+			opaque += shellCount[r];
+		}
+
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %d of GoldenEye's opaque triangles for the camera test, %d of them unculled;"
+				" %d translucent ones for shot textures",
+				opaque, shellNumTwo, shellNum - opaque);
 	}
 }
 
@@ -8567,6 +8574,12 @@ s32 gebeanStageIsTile(uintptr_t tile)
 	return 0;
 }
 
+static bool shellTexIsWater(s32 t)
+{
+	return t >= 0 && t < NUM_TEXTURES
+		&& (g_Textures[t].surfacetype == SURFACETYPE_SHALLOWWATER || g_Textures[t].surfacetype == SURFACETYPE_DEEPWATER);
+}
+
 /**
  * The texture number of GoldenEye's own triangle a shot at pos in room hit.
  *
@@ -8575,7 +8588,8 @@ s32 gebeanStageIsTile(uintptr_t tile)
  * whatever bytes precede the tile - different from one build to the next
  * (F3 12th pass, W vs L). GoldenEye's room is still here (the shell), so the
  * hit takes the texture of its opaque triangle nearest the point, the one the
- * N64 look's hit reads: -1 (default) when none is within a few units.
+ * N64 look's hit reads (or of a translucent water triangle): -1 (default)
+ * when none is within a few units and no water is over the point.
  */
 s32 gebeanStageHitTexture(s32 room, const struct coord *pos)
 {
@@ -8591,6 +8605,14 @@ s32 gebeanStageHitTexture(s32 room, const struct coord *pos)
 		const f32 *v = shellTri + i * 9;
 		f32 e1[3], e2[3], n[3], d[3], q[3];
 		f32 len, dist, u, w, d00, d01, d11, d20, d21, den;
+
+		// A translucent triangle is a decal, a pane or a sign laid over a wall
+		// as often as water, and one in the wall's plane must not give a hit
+		// on the wall its texture (and so its surface and sound): only water
+		// is taken from the translucent ones
+		if (i >= shellFirst[room] + shellCount[room] && !shellTexIsWater(shellTex[i])) {
+			continue;
+		}
 
 		for (s32 k = 0; k < 3; k++) {
 			e1[k] = v[3 + k] - v[k];
@@ -8656,8 +8678,7 @@ s32 gebeanStageHitTexture(s32 room, const struct coord *pos)
 		f32 d1, d2, d3, ny, y;
 		s32 t = shellTex[i];
 
-		if (t < 0 || t >= NUM_TEXTURES
-				|| (g_Textures[t].surfacetype != SURFACETYPE_SHALLOWWATER && g_Textures[t].surfacetype != SURFACETYPE_DEEPWATER)) {
+		if (!shellTexIsWater(t)) {
 			continue;
 		}
 
