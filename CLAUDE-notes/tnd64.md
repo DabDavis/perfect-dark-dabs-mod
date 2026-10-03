@@ -148,9 +148,28 @@ at frame 1300 (16 rounds in 60 frames, casings, no beam; before frame ~1200
 Alaska's opening swirl still hands Bond his PSG-1 back), the folder's
 NEXT from each mission in all three modes (`folder.py`).
 
+## After the verifiers (converter 119)
+
+- Volcano's five crates on bound pads 88 under their floor (records 93,
+  101-104) stood a storey down: a bound pad whose box is wholly under its
+  tile is lifted onto it now, as plain pads were since converter 103. Agrees
+  with the cartridge's world dump to 0.001; GE and GF output unchanged.
+- A gun's pickup message is the level's LpropobjE string for its item where
+  that names the gun ("a H&K P7.", "the Golden Gyrojet."); Goldfinger 64's
+  items mostly do not match its strings, and keep the guess from the name.
+- A split room's pieces go dark with it when a script disables it.
+- Without the GoldenEye ROM, tnd64.zip logs one note, not one a patch.
+
 ## Not done
 
 - Girl Power Mode (the pokes above), and its clocks and bonuses.
+- The "randomizing guard height and injury sound pitch" ASM mod (changelog
+  line 33): on the cartridge about half the chrs, in pairs by chr slot, are
+  0.098 where ours are 0.100 (Boat 0.089 vs 0.091) - worlddiff chr.scale on
+  Bazaar 6/14, Hotel 18/39, Boat 10/21, Volcano 14/35, the same under every
+  GF_SEED. Code touched: makeonebody (7F0233C8) and
+  chrlvModelScaleAnimationRelated, not confirmed; the injury pitch half not
+  checked.
 - Its credits: Cuba is not converted for a hack, so nothing plays after the
   Boat.
 - The Stage Loader's "NAME (mod)" is cut at 30 characters
