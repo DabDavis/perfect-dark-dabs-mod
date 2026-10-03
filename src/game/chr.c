@@ -4677,19 +4677,22 @@ void chrEmitSparks(struct chrdata *chr, struct prop *prop, s32 hitpart, struct c
 		return;
 	}
 
-	if (chrGetShield(chr) > 0.0f) {
-		sparksCreate(chrprop->rooms[0], chrprop, coord, coord2, 0, SPARKTYPE_DEFAULT);
-		return;
-	}
-
 #ifndef PLATFORM_N64
 	// a converted GoldenEye level: GoldenEye's puffs, and no sparks
-	// (port/src/gehitpuff.c)
+	// (port/src/gehitpuff.c). Body armour too: GoldenEye's
+	// chrCreateHitPuffs() makes the same puffs whatever the armour, which
+	// has no look of its own (F3 20261002-040055, Perfect Dark's shield
+	// sparks on an armoured sim)
 	if (geHitPuffActive()) {
 		geHitPuffChr(chrprop, hitpart, coord, coord2);
 		return;
 	}
 #endif
+
+	if (chrGetShield(chr) > 0.0f) {
+		sparksCreate(chrprop->rooms[0], chrprop, coord, coord2, 0, SPARKTYPE_DEFAULT);
+		return;
+	}
 
 	if (prop->type == PROPTYPE_OBJ
 			|| prop->type == PROPTYPE_WEAPON
