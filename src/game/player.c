@@ -8173,20 +8173,18 @@ s32 playerTickThirdPerson(struct prop *prop)
 			// seen bobbing down the stairs into Surface 2's bunker (F3
 			// 20261002-160950). Forced on the first tick the list has him, as
 			// before, and whenever the list itself asks (a teleport's INIT).
-			// (the frame it last had him: a gap is a new list, or a new level)
-			static s32 s_GeListBodyFrame[MAX_PLAYERS];
-
+			// (player->gelistbodyframe, the frame it last had him: a gap is a
+			// new list; the player is made afresh, -10, each level)
 			if (!chrIsGeListBody(chr)) {
 				chr->chrflags |= CHRCFLAG_FORCETOGROUND;
-			} else if (g_Vars.lvframenum < s_GeListBodyFrame[playernum]
-					|| g_Vars.lvframenum > s_GeListBodyFrame[playernum] + 2) {
-				chr->chrflags |= CHRCFLAG_FORCETOGROUND;
-			}
-
-			if (chrIsGeListBody(chr)) {
-				s_GeListBodyFrame[playernum] = g_Vars.lvframenum;
+				player->gelistbodyframe = -10;
 			} else {
-				s_GeListBodyFrame[playernum] = -10;
+				if (g_Vars.lvframenum < player->gelistbodyframe
+						|| g_Vars.lvframenum > player->gelistbodyframe + 2) {
+					chr->chrflags |= CHRCFLAG_FORCETOGROUND;
+				}
+
+				player->gelistbodyframe = g_Vars.lvframenum;
 			}
 #else
 			chr->chrflags |= CHRCFLAG_FORCETOGROUND;

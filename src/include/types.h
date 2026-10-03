@@ -3064,6 +3064,9 @@ struct player {
 	// and how high it is bobbing, chasing the ground speed.
 	f32 camstepphase;
 	f32 camstepamp;
+	// The level frame a converted mission's list last had this player's body
+	// (playerTickThirdPerson()); -10 when none did. A gap is a new list.
+	s32 gelistbodyframe;
 #endif
 };
 
