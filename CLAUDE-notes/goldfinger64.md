@@ -643,9 +643,49 @@ floor, one picked up). The rig needs `Mod.MapMods=GoldenEye Arenas;Goldfinger
 64` in its pd.ini, or the hack's arenas are not mounted and its mode lists
 nothing.
 
+## Its gadgets (converter 108, 2026-10-03)
+
+gegadgets.c knew GoldenEye's gadgets by GoldenEye's missions' numbers
+(`g_Identities`: mission 1's gadget A the door decoder, 6's the bomb defuser,
+the tracker bug on 6), and a hack's missions are others in the same slots. Its
+items past the hand's keep GoldenEye's numbers, many renamed: 34 is its
+"Explosive" (watch text "timed explosive"), 47 its Homer, 50 a Canister Filter,
+73's long name Shipping Records. So its mission 0 handed Bond "Plastique", 3 and
+6 a "Covert Modem"/"Tracker Bug", 14 a "Gadget".
+
+- **Converter 108** writes, for a variant only, rows in `menu/geslots.bin`
+  beside the collectables': the item each gadget weapon (0x77-0x7f) is on a
+  mission, recorded as the mission's conversion names it (`soloGadgetUse()`,
+  from `soloItemWeapon()`), and after them rows of mission 0xff for a weapon one
+  item alone is (`soloGadgetsEveryMission()`) - and two its code hands out that
+  no item table names: the detonator, the item whose file is GtriggerZ
+  (Goldfinger's 31, GoldenEye's 30), and the tank's shells, 32. GoldenEye's own
+  output is byte-identical; Goldfinger's differs in `geslots.bin` alone. Its
+  uses: 0 Explosive, 3 Homer and DAT tape, 5 and 9 the camera, 6 Homer, 14
+  Canister Filter.
+- **At run time** a hack's stage (`g_HackGadgets`, `gegadgetsSlotsLoad()`)
+  takes each gadget weapon's item from those rows, the mission's before 0xff
+  (an arena, which has no mission, the 0xff rows: its Claymores set's
+  detonator),
+  and names it by the item's watch text, each word's first letter up, out of
+  its own `geitems.bin` and `LgunE` (the long name where there is none).
+  `gegadgetsItem()` answers by it, so the watch and the hand use the hack's
+  item: its detonator in the hand was GoldenEye's item 30, which is its
+  Claymore's model, and drew an empty hand; now Bond's hands at his watch.
+  GoldenEye's own stages are as they were.
+- The key analyser runs on its item (46), not on gadget A of mission 4 -
+  Goldfinger's mission 4 is not Bunker.
+- `g_Identities` had GoldenEye's tank shells as item 33, which is the bomb case
+  (ITEM_TANKSHELLS is 32, bondconstants.h); 32 now.
+
+Probes: `~/wt/gf-sets-run/probe/gadgets.py` (each gadget weapon's item and
+name and the inventory, GF_AT frames in) and `det.py` (the detonator in the
+hand, then as item 30). A rig converts again only when its CONVERT.txt's
+version is older: set it back to force one, and let the game run without gdb
+until it says the new version - a probe's breakpoint lands mid-conversion.
+
 ## Open
 
-- Its gadgets' names by mission (gegadgets.c's identities are GoldenEye's).
 - Its monitor programmes (its block is edited in place, 16% of GoldenEye's
   words the same; gemonitortable.h is GoldenEye's).
 - Props' shading against GoldenEye's: no measured case now (Crab Key's
