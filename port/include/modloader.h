@@ -35,6 +35,10 @@ extern s32 g_GexPlusMode;
 s32 modloaderStageIsRemake(s32 stagenum);
 // a remake arena of the GoldenEye ROM's conversion itself (not a ROM hack's)
 s32 modloaderStageIsGexPlus(s32 stagenum);
+// whether that arena or mission is the GoldenEye level GoldenEye keys `key`
+// ("ark" = Facility): its file is bg_gx<key>.seg (geconvert.c), arena and
+// mission alike; never a ROM hack's level, which gets keys of its own
+s32 modloaderStageIsGeLevel(s32 stagenum, const char *key);
 
 /**
  * GE Plus's Combat Simulator (g_GexPlusMode) for a GoldenEye ROM hack's arenas

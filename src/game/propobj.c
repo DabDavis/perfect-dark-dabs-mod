@@ -5030,17 +5030,16 @@ void weaponTick(struct prop *prop)
 				exptype = EXPLOSIONTYPE_HUGE17;
 			}
 #ifndef PLATFORM_N64
-			// GoldenEye's mission 1 (modloaderStageMission(); Cradle 17, Cuba 20)
-#define GEMISSION_FACILITY 1
 			// GoldenEye's remote mine goes off bigger on Facility
 			// (propobj.c: EXPLOSION_DEF_FACILITY_REMOTE when the stage is
-			// LEVELID_FACILITY), the row Perfect Dark kept as 19: 250 out
-			// and hurting to 600 where the standard is 200 and 400 - the
-			// one mine that takes the three guards in the room with the
-			// console there (F3 20261002-154524)
+			// LEVELID_FACILITY, mission and arena alike), the row Perfect
+			// Dark kept as 19: 250 out and hurting to 600 where the
+			// standard is 200 and 400 - the one mine that takes the three
+			// guards in the room with the console there (F3
+			// 20261002-154524). GoldenEye's own Facility only, by its file
+			// (bg_gxark.seg), not a ROM hack's mission in the same place
 			else if (weapon->weaponnum == WEAPON_GE_REMOTEMINE
-					&& modloaderStageIsMission(g_Vars.stagenum)
-					&& modloaderStageMission(g_Vars.stagenum) == GEMISSION_FACILITY) {
+					&& modloaderStageIsGeLevel(g_Vars.stagenum, "ark")) {
 				exptype = EXPLOSIONTYPE_GEFACILITYREMOTE;
 			}
 #endif

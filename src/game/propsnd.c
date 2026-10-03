@@ -290,8 +290,8 @@ void psTickChannel(s32 channelnum)
 
 #ifndef PLATFORM_N64
 				// and down its own curve where it is GoldenEye's sound
-				// (psCreate()'s 200/5000/6000): sub_GAME_7F0537B8() is a
-				// tenth of full at 5000 where Perfect Dark's is 1000
+				// (psCreate()'s 200/5000/6000): sub_GAME_7F0537B8() is
+				// 10000/32767 of full at 5000 where Perfect Dark's is 1000
 				if (geSfxStage() && channel->dist1 == 200 && channel->dist2 == 5000 && channel->dist3 == 6000) {
 					channel->targetvol = geSfxCurveVolume(channel->distance, channel->vol10);
 				}

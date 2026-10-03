@@ -136,7 +136,7 @@ s32 geSfxPickup(s32 pdsound, struct prop *prop);
 s32 geChrRocketLaunchSilent(s32 weaponnum);
 
 // GoldenEye's volume for a sound `dist` from Bond (sub_GAME_7F0537B8(): full to
-// 200, a root curve to a tenth at 5000, out by 6000), as a share of `full`.
+// 200, a root curve to 10000/32767 at 5000, out by 6000), as a share of `full`.
 s32 geSfxCurveVolume(f32 dist, s32 full);
 
 #endif
