@@ -5785,6 +5785,29 @@ static u8 *beanDecodeTextureFrame(const struct beanmodel *bm, s32 t, s32 frame, 
 		}
 	}
 
+	// Egyptian's Golden Gun case (prop/doorwin, its four panes): the
+	// release's one picture is a near-black blur (RGB 23 on average) at alpha
+	// 85-102, laid at fixed UVs, which is the release's dark tint and not the
+	// glass. Through the front pane and the back one the case's inside came
+	// out at about 37% and streaked - murky where GoldenEye's case is light,
+	// clear glass (F3 20261002-042109, "glass isnt right yet"). Drawn as
+	// GoldenEye's is: a light pane at a faint alpha, the release's streaks
+	// kept as a little shading in it.
+	if (w == 54 && h == 54 && t < bm->numtex
+			&& strcmp(caffAssetName(c, c->files[bm->texfile[t]].asset), "_0x0DC40C15.tga.bin") == 0) {
+		for (u32 i = 0; i < w * h; i++) {
+			u8 *px = rgba + i * 4;
+
+			for (s32 k = 0; k < 3; k++) {
+				const s32 v = 96 + px[k];
+
+				px[k] = (u8)MIN(v, 255);
+			}
+
+			px[3] = (u8)(px[3] * 3 / 10);
+		}
+	}
+
 	beanBleedCutout(rgba, w, h);
 
 	// Decoded top row first, as a PNG of it would be; the renderer wants the
