@@ -1323,6 +1323,18 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 
 	setupLoadModeldef(modelnum);
 
+#ifndef PLATFORM_N64
+	// GoldenEye's airlock pairs - Dam's two gates, one shut before the other
+	// opens - are the mission's, for its truck. In a Combat Simulator match
+	// a simulant walking up to one gate held it open and the other shut for
+	// as long as it stood there, and whoever was on the wrong side was shut
+	// in (F3 20261002-234813, 20260930-012121). An arena's doors open on
+	// their own.
+	if (g_Vars.normmplayerisrunning && geRoomActive()) {
+		door->base.flags2 &= ~OBJFLAG2_AIRLOCKDOOR;
+	}
+#endif
+
 	if (door->doorflags & DOORFLAG_ROTATEDPAD) {
 		padRotateForDoor(door->base.pad);
 	}
