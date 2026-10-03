@@ -490,6 +490,12 @@ static const struct gebeangunrow propRows[] = {
 	// in the hand, the arm raised with the watch on it
 	PROPROW("Igx060Z", "gun/watchmagnetattract", 0, 1, 2, 1, 1, 1, 2.16710f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f, 0.00f),
 	PROPROW("Igx030Z", "gun/trigger", 0, 1, 2, 1, 1, 1, 0.18886f, 0.00f, 0.00f, 0.00f, 1.33f, 161.70f, 646.46f),
+	// and the watch laser's own GwatchlaserZ (Igx023Z), the detonator's twin
+	// in GoldenEye's ROM - same nodes, matrices, bounds and textures
+	// (gegadgets.c) - which the conversion now writes, so Train's watch laser
+	// drew GoldenEye's N64 hands in the HD look (F3 20261002-233019); the
+	// same HD hands and cuffs as the detonator
+	PROPROW("Igx023Z", "gun/trigger", 0, 1, 2, 1, 1, 1, 0.18886f, 0.00f, 0.00f, 0.00f, 1.33f, 161.70f, 646.46f),
 
 	// And the bare hand the slappers are drawn on (ITEM_FIST, geslappers.c):
 	// the release's gun/fist is GoldenEye's GfistZ at 4.7 times the size
