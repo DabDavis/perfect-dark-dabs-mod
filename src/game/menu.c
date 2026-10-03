@@ -2301,6 +2301,12 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 						headfitSetBodyModel(menumodel->bodymodeldef);
 #endif
 						bodyCalculateHeadOffset(menumodel->headmodeldef, headnum, bodynum);
+#ifndef PLATFORM_N64
+						// headfitOffset() takes it only for a pair it seats;
+						// left behind, the next player spawned measured this
+						// preview's freed body (crash 20261003-040138)
+						headfitSetBodyModel(NULL);
+#endif
 						modelAllocateRwData(menumodel->headmodeldef);
 					}
 

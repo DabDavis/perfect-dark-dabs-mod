@@ -20114,6 +20114,15 @@ bool chrEquipWeapon(struct weaponobj *weapon, struct chrdata *chr)
 				}
 			}
 
+#ifndef PLATFORM_N64
+			// A chr whose model has gone (a body taken away) has no hand to
+			// put it in: a mod's cutscene gave a gun to one (crash
+			// 20261002-161001, GE-X); the caller frees the weapon
+			if (!chr->model || !chr->model->definition) {
+				return false;
+			}
+#endif
+
 			if (!chr->weapons_held[handnum]) {
 				if (chr->model->definition->skel == &g_SkelChr) {
 					weapon->base.model->attachedtomodel = chr->model;
