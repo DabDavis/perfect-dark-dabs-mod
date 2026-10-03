@@ -51,6 +51,7 @@
 #include "lib/model.h"
 #include "lib/ailist.h"
 #include "lib/rng.h"
+#include "gechranims.h"
 #include "lib/snd.h"
 #include "system.h"
 #include "gexplus.h"
@@ -1382,7 +1383,16 @@ s32 gecinemaSwirlTick(void)
 		// GoldenEye's bondviewSetCameraMode() does
 		const s32 row = g_GeIntroAnimIndex >= 0 && g_GeIntroAnimIndex < ARRAYCOUNT(g_GeIntroAnimTable)
 			? g_GeIntroAnimIndex : 0;
-		const s32 animnum = gexPlusMissionAnim(g_GeIntroAnimTable[row].geanim);
+		// GoldenEye's own animation, as its id names it (gechranims.c):
+		// Perfect Dark's rows of the same number are not all GoldenEye's -
+		// 97 to 105 are Perfect Dark's dodges, and Goldfinger 64's Cartel
+		// (row 2, 97) had Bond side-stepping backwards across the jetty where
+		// GoldenEye's stands and looks round (F3 20261003-061541)
+		s32 animnum = geChrAnim(g_GeIntroAnimTable[row].geanim);
+
+		if (animnum <= 0) {
+			animnum = gexPlusMissionAnim(g_GeIntroAnimTable[row].geanim);
+		}
 
 		g_GeIntroPosed = 1;
 		playerStartChrFade(0, 1);
