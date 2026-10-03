@@ -12388,6 +12388,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
  * Not reached when the game tests boxes only - two or more human players
  * (shotCalculateHits()'s `cheap`), or a chr's shield.
  */
+// (with the notes full, xblaMeshObjShotTest() counts the model as wholly
+// drawn from the release rather than shooting lists past the cap on the ROM)
 #define XBLAMESH_HITLISTS 32
 
 struct xblameshhitlist {
@@ -13373,8 +13375,11 @@ s32 xblaMeshObjShotTest(struct model *model, struct coord *pos, struct coord *di
 
 		// A model only partly drawn from the release (some lists still the
 		// ROM's) is shot on those lists as the stock walk shoots them, with
-		// the mesh's lists left out of it; -1 sends the caller to that walk
-		for (node = model->definition->rootnode; node; ) {
+		// the mesh's lists left out of it; -1 sends the caller to that walk.
+		// With the notes full, lists past the cap may be the release's too
+		// and their ROM triangles invisible: the model counts as wholly the
+		// release's rather than shooting what is not drawn
+		for (node = numHitLists >= XBLAMESH_HITLISTS ? NULL : model->definition->rootnode; node; ) {
 			const u32 type = node->type & 0xff;
 
 			if ((type == MODELNODETYPE_DL || type == MODELNODETYPE_GUNDL) && !xblaMeshHitIsNoted(node)) {
