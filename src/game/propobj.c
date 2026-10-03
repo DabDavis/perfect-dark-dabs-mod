@@ -3012,6 +3012,53 @@ bool func0f06b488(struct prop *prop, struct coord *arg1, struct coord *arg2, str
 	return false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye's own case for Caverns' eye and iris doors (propobj.c,
+ * sub_GAME_7F04E720() for a shot and projectileLineTestModel() for a thrown
+ * object): their models carry the hit box beside the leaves rather than over
+ * them, so the stock walk - a bbox, then the lists under it - found no
+ * triangle and shots and mines went straight through a shut door (F3
+ * 20261002-151329, 20261003-001221). GoldenEye tests the door's own box and
+ * then every list of the model. Perfect Dark has no door of either type.
+ * Returns the box's hitpart, or 0.
+ */
+static s32 doorGeTestWholeModel(struct defaultobj *obj, struct coord *pos, struct coord *dir,
+		struct hitthing *hitthing, s32 *mtxindex, struct modelnode **bboxnode, struct modelnode **dlnode)
+{
+	struct doorobj *door = (struct doorobj *)obj;
+	struct model *model = obj->model;
+	struct modelnode *node;
+	struct modelrodata_bbox bbox;
+
+	node = modelFindBboxNode(model);
+
+	if (!node) {
+		return 0;
+	}
+
+	doorGetBbox(door, &bbox);
+
+	if (!modelTestBboxNodeForHit(&bbox, &model->matrices[0], pos, dir)) {
+		return 0;
+	}
+
+	if (!func0f0849dc(model, model->definition->rootnode, pos, dir, hitthing, mtxindex, dlnode)) {
+		return 0;
+	}
+
+	*bboxnode = node;
+
+	return bbox.hitpart > 0 ? bbox.hitpart : 1;
+}
+
+static bool doorIsGeWholeModel(struct defaultobj *obj)
+{
+	return obj->type == OBJTYPE_DOOR
+		&& (((struct doorobj *)obj)->doortype == DOORTYPE_EYE || ((struct doorobj *)obj)->doortype == DOORTYPE_IRIS);
+}
+#endif
+
 bool func0f06b610(struct defaultobj *obj, struct coord *arg1, struct coord *arg2, struct coord *arg3, f32 arg4, struct coord *arg5, struct coord *arg6, struct coord *arg7, struct coord *arg8, f32 *arg9)
 {
 	struct model *model = obj->model;
@@ -3089,6 +3136,11 @@ bool func0f06b610(struct defaultobj *obj, struct coord *arg1, struct coord *arg2
 					hitpart = modelTestForHit(model, arg5, arg6, &spe4);
 				}
 			} else {
+#ifndef PLATFORM_N64
+				if (doorIsGeWholeModel(obj)) {
+					hitpart = doorGeTestWholeModel(obj, arg5, arg6, &thing1, &mtxindex1, &spe4, &node1);
+				} else
+#endif
 				do {
 					hitpart = modelTestForHit(model, arg5, arg6, &spe4);
 
@@ -17100,6 +17152,8 @@ void func0f0859a0(struct prop *prop, struct shotdata *shotdata)
 			if (meshhit == 0) {
 				hitpart = 0;
 			}
+		} else if (doorIsGeWholeModel(obj)) {
+			hitpart = doorGeTestWholeModel(obj, &shotdata->gunpos2d, &shotdata->gundir2d, &hitthing1, &spe4, &node1, &node2);
 		} else
 #endif
 		do {
