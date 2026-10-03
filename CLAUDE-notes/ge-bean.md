@@ -13951,3 +13951,25 @@ faster of the two, 0.86 against Perfect Dark's 0.963-0.979). The Dam tunnel
 gates block a guard's sight and shots from the tester's spot with the real
 rooms (`los.py`); `doorlos.py`'s Dam "leaks" are its room-box sides (Dam's
 outdoor boxes overlap), not leaks.
+
+Round 2 (same branch):
+- **Auto-aim sight is GoldenEye's tile walk** (F3 20261002-160509, 155820).
+  chrpropScoreAutoAimTarget() scores a target only where
+  stanTestLineUnobstructed() from Bond ends on the target's tile; prop.c's
+  func0f06438c() now drops a candidate on a converted level when
+  `geStanLinks(player, vv_ground, target, chr->ground, true) == 0`. Probe
+  `~/wt/f3-1003-los-run/aim.py` at the report spots: base locked onto Frigate's
+  deck-above / bridge-interior guards, now none; a same-room guard still locks.
+- **Door case completed**: GoldenEye's shot case also takes DOORFLAG_CLIP_TO_BBOX
+  (PD DOORFLAG_0004) doors, and its projectile case every door; the box is the
+  DoorRecord bbox = doorGetBbox(). Converted levels only.
+- **xblaMeshObjShotTest()**: on a miss, a model with lists still drawn from the
+  ROM returns -1 and the stock walk tests those lists alone
+  (xblaMeshObjShotTestEnd()). No such model was found on Dam or Frigate.
+- **Dam's reservoir in HD** (F3 20260929-213318): Bean's stride-36 water is no
+  shot triangle, so shots hit the HD rock bed ~100 under GoldenEye's water
+  (which is in the room's *opaque* list) and gebeanStageHitTexture() found no
+  triangle within 8: default surface, a hole seen through the water. A hit under
+  one of the room's GoldenEye water triangles (surface 5/14) now takes its
+  texture (1511, no hole, water sound). The shell also keeps translucent
+  triangles (shellXlu[]) for the hit texture only.
