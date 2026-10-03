@@ -36,6 +36,7 @@
 #include "modborrow.h"
 #include "gexplus.h"
 #include "gexplusrom.h"
+#include "geguns.h"
 
 #define MOD_TEXTURES_DIR "textures"
 #define MOD_ANIMATIONS_DIR "animations"
@@ -3882,8 +3883,10 @@ s32 modListSwap(s32 index)
 		modConfigLoad(MOD_CONFIG_FNAME);
 	}
 
-	// The list was put back: GoldenEye's own weapon sets again (gexplus.c)
+	// The list was put back: GoldenEye's own weapon sets again (gexplus.c),
+	// and a ROM hack's own pistols' rows as its mode has them (geguns.c)
 	gexPlusWeaponSetsAppend();
+	gegunsExtraRowsRefresh();
 
 	// The files were emptied, pinned ones with them: the borrowed guns are read
 	// again (their animations and sounds are appended once and kept)

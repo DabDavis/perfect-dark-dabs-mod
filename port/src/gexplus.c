@@ -1762,17 +1762,35 @@ void gexPlusMissionExitTick(void)
  * the sets borrowed from GoldenEye X; Perfect Dark's sets are Perfect Dark's
  * guns, and are listed beside them only when Mod.GePlusPdGuns asks for them
  * ("Include Perfect Dark Guns", off unless the player turns it on).
+ *
+ * A GoldenEye ROM hack's mode (g_GexPlusVariant: Goldfinger 64) lists the
+ * hack's own sets, out of its own conversion: Goldfinger's are not
+ * GoldenEye's ("Hats 'n' Clubs", "Gangster"), and four of them hand out its
+ * own pistols. They take GoldenEye's rows of the list while its mode is
+ * chosen rather than rows of their own after them, which Perfect Dark's
+ * Combat Simulator, listing the whole list, would offer as well: a block of
+ * the list is the mode's, GoldenEye's whenever no hack's is chosen.
  */
-#define GESETS_NUM   14
-#define GESETS_SLOTS 8
-#define GESETS_NAME  32
-#define GESETS_ROW   (GESETS_NAME + GESETS_SLOTS)
+#define GESETS_NUM    14
+#define GESETS_SLOTS  8
+#define GESETS_NAME   32
+#define GESETS_ROW    (GESETS_NAME + GESETS_SLOTS)
+#define GESETS_GROUPS 4
+
+extern s32 g_MpWeaponSetNum;
+
+struct gesetsgroup {
+	char dir[FS_MAXPATH + 1]; // the conversion's mod dir; "" a free group
+	s32 num;
+	struct mpweaponset sets[GESETS_NUM];
+	char text[GESETS_NUM][GESETS_NAME + 2];
+};
 
 static s32 g_GePlusPdGuns = 0;
-static s32 g_GeSetsFirst = -1;
+static struct gesetsgroup g_GeSetsGroups[GESETS_GROUPS];
+static s32 g_GeSetsFirst = -1; // the block of the list
 static s32 g_GeSetsNum = 0;
-static u16 g_GeSetsNames[GESETS_NUM];
-static char g_GeSetsText[GESETS_NUM][GESETS_NAME + 2];
+static s32 g_GeSetsIn = -1; // whose group the block holds
 
 PD_CONSTRUCTOR static void gexPlusGunsConfigInit(void)
 {
@@ -1789,31 +1807,61 @@ void gexPlusSetPdGuns(s32 on)
 	g_GePlusPdGuns = on ? 1 : 0;
 }
 
-/** Whether the ROM's sets are still where they were put: a mod swap puts the list back. */
+/** Whether the block is still where it was put: a mod swap puts the list back. */
 static s32 geSetsInList(void)
 {
-	return g_GeSetsFirst >= 0 && g_GeSetsNum > 0
+	const struct gesetsgroup *in = g_GeSetsIn >= 0 ? &g_GeSetsGroups[g_GeSetsIn] : NULL;
+
+	return in && g_GeSetsFirst >= 0 && g_GeSetsNum == in->num
 		&& g_GeSetsFirst + g_GeSetsNum <= g_MpNumWeaponSets
-		&& g_MpWeaponSets[g_GeSetsFirst].name == g_GeSetsNames[0]
-		&& g_MpWeaponSets[g_GeSetsFirst + g_GeSetsNum - 1].name == g_GeSetsNames[g_GeSetsNum - 1];
+		&& g_MpWeaponSets[g_GeSetsFirst].name == in->sets[0].name
+		&& g_MpWeaponSets[g_GeSetsFirst + g_GeSetsNum - 1].name == in->sets[g_GeSetsNum - 1].name;
 }
 
-static void geSetsAppend(void)
+/**
+ * The mod dir whose sets are listed: the first arena's of GE Plus's list
+ * (modloaderStageInGexPlusList(): GoldenEye's, or the chosen hack's), or of
+ * GoldenEye's own for `own`; NULL when there is none.
+ */
+static const char *geSetsDir(s32 own)
+{
+	for (s32 i = 0; i < mpGetNumStages(); i++) {
+		const s32 stagenum = g_MpArenas[i].stagenum;
+
+		if (own ? modloaderStageIsGexPlus(stagenum) : modloaderStageInGexPlusList(stagenum)) {
+			return modloaderGetStageModDir(stagenum);
+		}
+	}
+
+	return NULL;
+}
+
+/** Mod dir `dir`'s sets, read the first time they are asked for; -1 where it has none. */
+static s32 geSetsGroup(const char *dir)
 {
 	char path[FS_MAXPATH + 1];
-	const char *dir = NULL;
+	struct gesetsgroup *group = NULL;
+	s32 index = -1;
 	u32 len = 0;
 	u8 *d;
 	s32 num;
 
-	for (s32 i = 0; i < mpGetNumStages() && !dir; i++) {
-		if (modloaderStageIsGexPlus(g_MpArenas[i].stagenum)) {
-			dir = modloaderGetStageModDir(g_MpArenas[i].stagenum);
+	if (!dir) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < GESETS_GROUPS; i++) {
+		if (g_GeSetsGroups[i].dir[0] && !strcmp(g_GeSetsGroups[i].dir, dir)) {
+			return i;
+		}
+
+		if (index < 0 && !g_GeSetsGroups[i].dir[0]) {
+			index = i;
 		}
 	}
 
-	if (!dir) {
-		return;
+	if (index < 0) {
+		return -1;
 	}
 
 	snprintf(path, sizeof(path), "%s/menu/gesets.bin", dir);
@@ -1821,7 +1869,7 @@ static void geSetsAppend(void)
 
 	if (!d || len < 8 || memcmp(d, "GES1", 4)) {
 		sysMemFree(d);
-		return;
+		return -1;
 	}
 
 	num = (s32)((d[4] << 24) | (d[5] << 16) | (d[6] << 8) | d[7]);
@@ -1830,20 +1878,18 @@ static void geSetsAppend(void)
 		num = GESETS_NUM;
 	}
 
-	if (num <= 0 || len < 8 + (u32)GESETS_ROW * num || g_MpNumWeaponSets + num > MP_MAX_WEAPONSETS) {
-		sysLogPrintf(LOG_WARNING, "gexplus: GoldenEye's weapon sets do not fit the list (%d, %d in it)", num, g_MpNumWeaponSets);
+	if (num <= 0 || len < 8 + (u32)GESETS_ROW * num) {
 		sysMemFree(d);
-		return;
+		return -1;
 	}
 
-	g_GeSetsFirst = g_MpNumWeaponSets;
-	g_GeSetsNum = 0;
+	group = &g_GeSetsGroups[index];
+	memset(group, 0, sizeof(*group));
+	snprintf(group->dir, sizeof(group->dir), "%s", dir);
 
 	for (s32 i = 0; i < num; i++) {
 		const u8 *row = d + 8 + GESETS_ROW * i;
-		struct mpweaponset *set = &g_MpWeaponSets[g_MpNumWeaponSets];
-
-		memset(set, 0, sizeof(*set));
+		struct mpweaponset *set = &group->sets[i];
 
 		// GoldenEye's eight slots run from its lightest gun to its heaviest
 		// with most of them said twice; Perfect Dark's six take them evenly
@@ -1861,20 +1907,70 @@ static void geSetsAppend(void)
 		set->unk10 = set->slots[4];
 		set->unk11 = set->slots[5];
 
-		if (!g_GeSetsNames[i]) {
-			memcpy(g_GeSetsText[i], row, GESETS_NAME);
-			g_GeSetsText[i][GESETS_NAME - 1] = '\0';
-			strcat(g_GeSetsText[i], "\n"); // as the game's own set names end
-			g_GeSetsNames[i] = langAddPortText(g_GeSetsText[i]);
-		}
-
-		set->name = g_GeSetsNames[i];
-		g_MpNumWeaponSets++;
-		g_GeSetsNum++;
+		memcpy(group->text[i], row, GESETS_NAME);
+		group->text[i][GESETS_NAME - 1] = '\0';
+		strcat(group->text[i], "\n"); // as the game's own set names end
+		set->name = langAddPortText(group->text[i]);
 	}
 
+	group->num = num;
 	sysMemFree(d);
-	sysLogPrintf(LOG_NOTE, "gexplus: %d of GoldenEye's own weapon sets in the list, from %s", g_GeSetsNum, path);
+
+	return index;
+}
+
+/**
+ * Group `index`'s sets into the block: over the one there when it is the
+ * same size or the list's last, after the list otherwise. A set chosen out of
+ * the block is chosen again as the row it was, whose guns are the group's.
+ */
+static void geSetsPut(s32 index)
+{
+	const struct gesetsgroup *group = &g_GeSetsGroups[index];
+	const s32 inlist = geSetsInList();
+	const s32 last = inlist && g_GeSetsFirst + g_GeSetsNum == g_MpNumWeaponSets;
+	s32 first = g_MpNumWeaponSets;
+
+	if (inlist && g_GeSetsIn == index) {
+		return;
+	}
+
+	if (inlist && (group->num == g_GeSetsNum || last)) {
+		first = g_GeSetsFirst;
+	}
+
+	if (first + group->num > MP_MAX_WEAPONSETS) {
+		sysLogPrintf(LOG_WARNING, "gexplus: the weapon sets of %s do not fit the list (%d, %d in it)", group->dir, group->num, first);
+		return;
+	}
+
+	memcpy(&g_MpWeaponSets[first], group->sets, sizeof(group->sets[0]) * group->num);
+
+	if (first + group->num > g_MpNumWeaponSets || (last && first == g_GeSetsFirst)) {
+		g_MpNumWeaponSets = first + group->num;
+	}
+
+	g_GeSetsFirst = first;
+	g_GeSetsNum = group->num;
+	g_GeSetsIn = index;
+
+	if (inlist && g_MpWeaponSetNum >= first && g_MpWeaponSetNum < first + g_GeSetsNum) {
+		mpApplyWeaponSet();
+	}
+
+	sysLogPrintf(LOG_NOTE, "gexplus: %d weapon sets of %s in the list at %d", g_GeSetsNum, group->dir, first);
+}
+
+/** The mode's sets in the block (GoldenEye's own for `own`): whether they are. */
+static s32 geSetsUse(s32 own)
+{
+	const s32 index = geSetsGroup(geSetsDir(own));
+
+	if (index >= 0) {
+		geSetsPut(index);
+	}
+
+	return index >= 0 && g_GeSetsIn == index && geSetsInList();
 }
 
 /**
@@ -1882,14 +1978,15 @@ static void geSetsAppend(void)
  * GE Plus's: its guns are offered on any arena beside Perfect Dark's, and
  * until GE Plus had been opened once in a session the sets that hand them out
  * were nowhere. Those used to be GoldenEye X's, borrowed at boot; with it
- * dormant (modborrow.c) these are the ROM's. At boot and after a mod swap, which
- * puts the list back; not under a mod with its own weapon list, which hides
+ * dormant (modborrow.c) these are the ROM's. At boot, after a mod swap, which
+ * puts the list back, and on leaving GE Plus's Combat Simulator, whose block
+ * a hack's mode had; not under a mod with its own weapon list, which hides
  * GoldenEye's guns (gebeanGunsRefresh()).
  */
 void gexPlusWeaponSetsAppend(void)
 {
-	if (!modDataMpWeaponsImported() && !geSetsInList()) {
-		geSetsAppend();
+	if (!modDataMpWeaponsImported()) {
+		geSetsUse(1);
 	}
 }
 
@@ -1912,19 +2009,12 @@ s32 gexPlusWeaponSets(s32 *first)
 	}
 
 	if (g_GePlusPdGuns) {
-		// still put GoldenEye's in the list the whole of which is shown
-		if (!geSetsInList()) {
-			geSetsAppend();
-		}
-
+		// still put the mode's in the list the whole of which is shown
+		geSetsUse(0);
 		return 0;
 	}
 
-	if (!geSetsInList()) {
-		geSetsAppend();
-	}
-
-	if (geSetsInList()) {
+	if (geSetsUse(0)) {
 		*first = g_GeSetsFirst;
 		return g_GeSetsNum;
 	}

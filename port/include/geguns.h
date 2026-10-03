@@ -185,6 +185,9 @@ s32 gegunsSampleTrack(const struct geknifekey *keys, f32 time, void *mtx, s32 le
  * of its own (menu/geguns.bin), GoldenEye's everywhere else.
  */
 void gegunsStageSet(s32 stagenum);
+s32 gegunsHackSetIn(void); // a ROM hack's own gun set is in: its stage is loaded
+u16 gegunsMenuNameId(s32 weaponnum); // the menus' name of a GoldenEye gun: a hack's mode's, or 0
+void gegunsExtraRowsRefresh(void); // a hack's own pistols' Combat Simulator rows shown or hidden
 
 /** Weapon `index`'s own name (its text id), the gun set's. */
 u16 gegunsNameId(s32 index);

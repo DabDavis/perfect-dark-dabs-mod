@@ -1323,6 +1323,18 @@ s32 modloaderStageIsGexPlus(s32 stagenum)
 
 const char *g_GexPlusVariant;
 
+/** The mounted mod dir of the GoldenEye ROM hack whose mode is chosen (g_GexPlusVariant), or -1. */
+s32 modloaderGexPlusVariantDirIndex(void)
+{
+	for (s32 i = 0; g_GexPlusVariant && i < fsGetNumModDirs(); i++) {
+		if (modloaderDirIs(fsGetModDirAt(i), g_GexPlusVariant)) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
 s32 modloaderStageInGexPlusList(s32 stagenum)
 {
 	if (g_GexPlusVariant) {

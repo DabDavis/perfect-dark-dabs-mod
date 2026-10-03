@@ -28,6 +28,7 @@
 #include "modloader.h"
 #include "modborrow.h"
 #include "gexplus.h"
+#include "geguns.h"
 #endif
 #include "gbiex.h"
 #include "types.h"
@@ -7243,7 +7244,13 @@ void mpSetGexPlusMode(bool on)
 		g_CombatSimulatorMenuDialog.title = L_MISC_445;
 		g_CombatSimulatorMenuDialog.flags &= ~MENUDIALOGFLAG_LITERAL_TEXT;
 		g_CombatSimulatorMenuItems[0].flags &= ~MENUITEMFLAG_ALWAYSDISABLED;
+
+		// GoldenEye's own sets back in the rows a ROM hack's mode had
+		gexPlusWeaponSetsAppend();
 	}
+
+	// and its own pistols' rows, which its mode's sets hand out
+	gegunsExtraRowsRefresh();
 }
 #endif
 

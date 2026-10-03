@@ -46,6 +46,7 @@ extern const char *g_GexPlusVariant;
 s32 modloaderStageInGexPlusList(s32 stagenum);
 // the GoldenEye conversion's mounted dir (GEXPLUSROM_DIR), and whether a dir index is it
 s32 modloaderGexPlusDirIndex(void);
+s32 modloaderGexPlusVariantDirIndex(void); // the chosen ROM hack's (g_GexPlusVariant), or -1
 s32 modloaderDirIndexIsGexPlus(s32 moddir);
 s32 modloaderDirIndexIsConversion(s32 moddir);
 // One of the remake's models (MODEL_REMAKE_FIRST + slot) on a stage of

@@ -3350,7 +3350,11 @@ s32 langpackIsCjk(void);
 // GoldenEye's guns, one row each after Disabled so no saved index moves;
 // shown only while geguns.c says so (MPFEATURE_NEVER otherwise)
 #define MPWEAPON_GE_FIRST         0x31
-#define NUM_MPWEAPONS             (MPWEAPON_GE_FIRST + 25)
+// and a GoldenEye ROM hack's own pistols (WEAPON_GE_EXTRA1-4), shown only
+// while its gun set is (geguns.c), after them; the randomizer rolls the rows
+// before them, as it did before they were added
+#define MPWEAPON_GE_EXTRA1        (MPWEAPON_GE_FIRST + 25)
+#define NUM_MPWEAPONS             (MPWEAPON_GE_EXTRA1 + 4)
 #endif
 
 #ifndef PLATFORM_N64

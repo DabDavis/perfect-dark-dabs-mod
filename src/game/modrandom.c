@@ -36,6 +36,14 @@
 extern void sysLogPrintf(s32 level, const char *fmt, ...);
 #endif
 
+// The weapon rows a roll draws from: not a ROM hack's own pistols, added
+// after GoldenEye's guns, so a seed deals what it dealt before them
+#ifdef MPWEAPON_GE_EXTRA1
+#define MODRANDOM_MPWEAPONS MPWEAPON_GE_EXTRA1
+#else
+#define MODRANDOM_MPWEAPONS NUM_MPWEAPONS
+#endif
+
 /**
  * Randomizer: a mission dealt again from its own pieces.
  *
@@ -818,7 +826,7 @@ static void modRandomRollWeapons(struct modrandomlists *lists)
 		modRandomOpen(&rng, MODRANDOM_STREAM_WEAPON, i);
 
 		for (tries = 0; tries < 16; tries++) {
-			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, NUM_MPWEAPONS - 1)];
+			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, MODRANDOM_MPWEAPONS - 1)];
 
 			// MPFEATURE_NEVER is a row switched off rather than a locked one:
 			// GoldenEye's 25 guns sit in the table whether or not they are
@@ -873,7 +881,7 @@ static void modRandomRollCrates(struct modrandomlists *lists)
 		modRandomOpen(&rng, MODRANDOM_STREAM_CRATE, i);
 
 		for (tries = 0; tries < 8; tries++) {
-			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, NUM_MPWEAPONS - 1)];
+			struct mpweapon *mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, MODRANDOM_MPWEAPONS - 1)];
 
 			if (mpweapon->priammotype > 0) {
 				crate->ammotype = mpweapon->priammotype;
@@ -1353,7 +1361,7 @@ static void modRandomRollIntroWeapons(void)
 			struct mpweapon *mpweapon;
 
 			modRandomOpen(&rng, MODRANDOM_STREAM_INTROGUN, index++);
-			mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, NUM_MPWEAPONS - 1)];
+			mpweapon = &g_MpWeapons[1 + modRandomBelow(&rng, MODRANDOM_MPWEAPONS - 1)];
 
 			// A switched-off row is not a gun this game has (see above)
 			if (mpweapon->weaponnum != WEAPON_NONE && mpweapon->unlockfeature != MPFEATURE_NEVER

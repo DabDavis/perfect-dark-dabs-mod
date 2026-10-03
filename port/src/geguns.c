@@ -23,6 +23,7 @@
 #include "gebean.h"
 #include "geslappers.h"
 #include "modloader.h"
+#include "mod.h"
 #include "langpack.h"
 
 #ifndef PLATFORM_N64
@@ -53,8 +54,9 @@
 
 _Static_assert(MODEL_GE_FIRST + NUM_GE_WEAPONS <= MODEL_REMAKE_FIRST,
 		"a model state per GoldenEye gun, before the remake's models");
-_Static_assert(NUM_MPWEAPONS - MPWEAPON_GE_FIRST == NUM_GE_GUNS,
-		"a Combat Simulator row per GoldenEye gun");
+_Static_assert(MPWEAPON_GE_EXTRA1 - MPWEAPON_GE_FIRST == NUM_GE_GUNS
+		&& NUM_MPWEAPONS - MPWEAPON_GE_EXTRA1 == NUM_GE_EXTRA,
+		"a Combat Simulator row per GoldenEye gun, and per hack's own pistol");
 _Static_assert(NUM_WEAPONS <= WEAPON_MPLOCATION00, "a weapon number below the pads' (gunctrl's are s16)");
 
 static const char *const names[NUM_GE_WEAPONS] = {
@@ -3936,6 +3938,7 @@ void gegunsStageSet(s32 stagenum)
 	}
 
 	if (dir == g_GunSetDir) {
+		gegunsExtraRowsRefresh();
 		return;
 	}
 
@@ -4000,7 +4003,67 @@ void gegunsStageSet(s32 stagenum)
 		}
 	}
 
+	gegunsExtraRowsRefresh();
+
 	sysLogPrintf(LOG_NOTE, "geguns: %s guns", set ? "a ROM hack's own" : "GoldenEye's own");
+}
+
+/** Whether a ROM hack's own gun set is in (gegunsStageSet()): its stage is loaded. */
+s32 gegunsHackSetIn(void)
+{
+	return g_GunSetDir >= 0;
+}
+
+/**
+ * The gun set the menus name GoldenEye's guns by: a ROM hack's own while its
+ * mode is chosen (g_GexPlusVariant: GE Plus's Combat Simulator and folder in
+ * its mode), over whatever stage the menus are on - between its matches that
+ * is Perfect Dark's, in GoldenEye's set (gegunsStageSet()); the stage's
+ * otherwise. NULL for GoldenEye's own.
+ */
+static struct gegunset *gegunsMenuSet(void)
+{
+	if (g_GexPlusMode && g_GexPlusVariant) {
+		return gegunsSetAt(modloaderGexPlusVariantDirIndex());
+	}
+
+	return g_GunSetDir >= 0 ? gegunsSetAt(g_GunSetDir) : NULL;
+}
+
+/**
+ * A gun's name in the Combat Simulator's menus (mpGetWeaponLabel()): its
+ * menus' gun set's (gegunsMenuSet()), so a ROM hack's weapon sets and slots
+ * list its AK47 where GoldenEye's set has the KF7 Soviet; 0 where that is
+ * GoldenEye's, whose names are the weapons' own.
+ */
+u16 gegunsMenuNameId(s32 weaponnum)
+{
+	const s32 i = weaponnum - WEAPON_GE_FIRST;
+	const struct gegunset *set;
+
+	if (!GE_GUN_INDEX(i) || !(set = gegunsMenuSet())) {
+		return 0;
+	}
+
+	return set->nameids[i];
+}
+
+/**
+ * The Combat Simulator's rows of a ROM hack's own pistols
+ * (MPWEAPON_GE_EXTRA1): shown where a hack's gun set names them - its stage,
+ * or its mode's menus (gegunsMenuSet()) - under the game's own weapon list,
+ * hidden everywhere else, where each is a "Pistol" of nobody's. Goldfinger
+ * 64's own weapon sets hand out its Luger, P38 and two Smith & Wessons.
+ */
+void gegunsExtraRowsRefresh(void)
+{
+	const struct gegunset *set = modDataMpWeaponsImported() ? NULL : gegunsMenuSet();
+
+	for (s32 k = 0; k < NUM_GE_EXTRA; k++) {
+		const s32 i = WEAPON_GE_EXTRA1 + k - WEAPON_GE_FIRST;
+
+		g_MpWeapons[MPWEAPON_GE_EXTRA1 + k].unlockfeature = set && set->names[i][0] ? 0 : MPFEATURE_NEVER;
+	}
 }
 
 #endif
