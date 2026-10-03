@@ -24,6 +24,10 @@ void geslappersStageLoad(s32 stagenum);
 // Whether unarmed is GoldenEye's slappers on this stage
 s32 geslappersActive(void);
 
+// Perfect Dark's own punch damage, which a chr's punch (chrPunchInflictDamage())
+// is a multiple of, whatever unarmed is on the stage
+f32 geslappersPdPunchDamage(void);
+
 // Whether this hand holds them
 s32 geslappersInHand(const struct hand *hand);
 

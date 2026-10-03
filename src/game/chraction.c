@@ -9187,7 +9187,20 @@ void chrPunchInflictDamage(struct chrdata *chr, s32 damage, s32 range, u8 revers
 		bgunPlayPropHitSound(&gset, targetprop, -1);
 
 		if (targetprop->type == PROPTYPE_PLAYER || targetprop->type == PROPTYPE_CHR) {
-			chrDamageByImpact(targetprop->chr, gsetGetDamage(&gset) * damage, &vector, &gset, chr->prop, 200);
+			f32 base = gsetGetDamage(&gset);
+
+#ifndef PLATFORM_N64
+			// A guard's punch is five of Perfect Dark's (0.5), its animation's
+			// own count. Where unarmed is GoldenEye's slappers (2, a slap
+			// Bond deals) it was five of those, which killed Bond outright:
+			// Guards Alerted!'s Perfect Dark guards on a GE Plus mission (F3
+			// 20261003-032815). GoldenEye's own guards never punch.
+			if (!chr->aibot && geslappersActive()) {
+				base = geslappersPdPunchDamage();
+			}
+#endif
+
+			chrDamageByImpact(targetprop->chr, base * damage, &vector, &gset, chr->prop, 200);
 		}
 	}
 
