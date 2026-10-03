@@ -7,6 +7,7 @@
 #ifndef PLATFORM_N64
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <ultra64.h>
@@ -67,6 +68,9 @@
 #define FIGHT_DEPTH_BIAS 8
 
 #define MAXPALETTE 64
+// seeds kept for colours far from the heaviest ones (buildPalette()), and how far
+#define PALETTE_FAR 8
+#define PALETTE_FAR_DIST 64
 #define BATCHVERTS 16
 
 struct stagerow {
@@ -1421,6 +1425,42 @@ static s32 buildPalette(const struct stri *tris, const s32 *list, s32 num, u32 *
 		for (s32 j = i + 1; j < numcols; j++) {
 			if (counts[order[j]] > counts[order[best]]) {
 				best = j;
+			}
+		}
+
+		// The last few seeds go to the colours furthest from every seed so
+		// far, when one is far: a handful of yellow vertices among a room's
+		// hundreds of greys (Frigate's yellow and black deck checker, a
+		// decal over the plate, F3 20261002-030343; Depot's yellow door
+		// arrows) were merged into the nearest grey and drew white
+		if (numcols > MAXPALETTE && i >= MAXPALETTE - PALETTE_FAR) {
+			s32 far = -1;
+			s32 fard = PALETTE_FAR_DIST * PALETTE_FAR_DIST;
+
+			for (s32 j = i; j < numcols; j++) {
+				const u32 c = cols[order[j]];
+				s32 nd = 0x7fffffff;
+
+				for (s32 q = 0; q < i; q++) {
+					s32 d = 0;
+
+					for (s32 k = 0; k < 24; k += 8) {
+						const s32 a = (palette[q] >> k) & 0xff;
+						const s32 b = (c >> k) & 0xff;
+						d += (a - b) * (a - b);
+					}
+
+					nd = MIN(nd, d);
+				}
+
+				if (nd > fard || (nd == fard && far >= 0 && counts[order[j]] > counts[order[far]])) {
+					far = j;
+					fard = nd;
+				}
+			}
+
+			if (far >= 0) {
+				best = far;
 			}
 		}
 
@@ -3498,7 +3538,7 @@ static s32 dropTwins(struct collect *c)
 
 	for (s32 a = 0; a < c->num; ) {
 		s32 b = a + 1;
-		s32 first;
+		s32 first, second;
 
 		while (b < c->num && memcmp(keys[b].c, keys[a].c, sizeof(keys[a].c)) == 0) {
 			b++;
@@ -3518,8 +3558,32 @@ static s32 dropTwins(struct collect *c)
 			}
 		}
 
+		// A first twin that is a cut-out under the alpha test writes no depth
+		// where its picture is clear, and the next twin drawn shows there:
+		// the Cradle's walkway floors are a diamond plate drawn after a
+		// cut-out of the crossbraces under it, corner for corner, and with
+		// the plate dropped the walkways were black braces over the drop
+		// (F3 20261002-171636, 20261003-002151). That one is kept as well;
+		// markDecals() lays the cut-out on it
+		second = -1;
+
+		if (first >= 0 && c->tris[first].alphatest && texHasAlpha(c->tris[first].tex)) {
+			for (s32 k = a; k < b; k++) {
+				const s32 t = keys[k].tri;
+
+				if (t != first && !c->tris[t].blend && c->tris[t].tex != c->tris[first].tex
+						&& (second < 0 || t < second)) {
+					second = t;
+				}
+			}
+		}
+
 		for (s32 k = a; k < b && first >= 0; k++) {
 			const s32 t = keys[k].tri;
+
+			if (t == second) {
+				continue;
+			}
 
 			// a twin in the same picture and colour is drawn the same anyway.
 			// Of another vertex shader too: Control's floor stains, twins of
@@ -5388,7 +5452,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 14
+#define HDCACHE_VERSION 15
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
