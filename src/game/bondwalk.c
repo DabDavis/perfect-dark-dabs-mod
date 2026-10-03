@@ -489,12 +489,18 @@ s32 bwalkTryMoveUpwards(f32 amount)
 	ymin -= 0.1f;
 
 #ifndef PLATFORM_N64
+	if (geRoomActive()) {
+		geStanSetMover(g_Vars.currentplayernum);
+	}
+
 	result = cdTestVolume(&newpos, radius,
 			bwalkCdRooms(rooms, &newpos, radius, ymin - g_Vars.currentplayer->prop->pos.y,
 				ymax - g_Vars.currentplayer->prop->pos.y, cdrooms, ARRAYCOUNT(cdrooms) - 1),
 			types, CHECKVERTICAL_YES,
 			ymax - g_Vars.currentplayer->prop->pos.y,
 			ymin - g_Vars.currentplayer->prop->pos.y);
+
+	geStanSetMover(-1);
 #else
 	result = cdTestVolume(&newpos, radius, rooms, types, CHECKVERTICAL_YES,
 			ymax - g_Vars.currentplayer->prop->pos.y,
@@ -569,12 +575,18 @@ bool bwalkCanMoveUpwards(f32 amount)
 	ymin -= 0.1f;
 
 #ifndef PLATFORM_N64
+	if (geRoomActive()) {
+		geStanSetMover(g_Vars.currentplayernum);
+	}
+
 	result = cdTestVolume(&newpos, radius,
 			bwalkCdRooms(rooms, &newpos, radius, ymin - g_Vars.currentplayer->prop->pos.y,
 				ymax - g_Vars.currentplayer->prop->pos.y, cdrooms, ARRAYCOUNT(cdrooms) - 1),
 			types, CHECKVERTICAL_YES,
 			ymax - g_Vars.currentplayer->prop->pos.y,
 			ymin - g_Vars.currentplayer->prop->pos.y);
+
+	geStanSetMover(-1);
 #else
 	result = cdTestVolume(&newpos, radius, rooms, types, CHECKVERTICAL_YES,
 			ymax - g_Vars.currentplayer->prop->pos.y,
@@ -755,6 +767,14 @@ bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, 
 
 		propSetPerimEnabled(g_Vars.currentplayer->prop, false);
 
+#ifndef PLATFORM_N64
+		// a converted level's walls stand for the player as GoldenEye's walk
+		// from Bond's tile has them, not by the floor nearest his foot (gestan.h)
+		if (geRoomActive()) {
+			geStanSetMover(g_Vars.currentplayernum);
+		}
+#endif
+
 		dstpos.x += vel->x;
 		dstpos.y += vel->y;
 		dstpos.z += vel->z;
@@ -837,6 +857,10 @@ bool bwalkCalculateNewPosition(struct coord *vel, f32 rotateamount, bool apply, 
 		}
 
 		propSetPerimEnabled(g_Vars.currentplayer->prop, true);
+
+#ifndef PLATFORM_N64
+		geStanSetMover(-1);
+#endif
 
 		if (g_Vars.currentplayer->tank) {
 			propSetPerimEnabled(g_Vars.currentplayer->tank, true);

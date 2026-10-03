@@ -764,6 +764,12 @@ f32 geStanLimit(struct coord *pos, bool checkvertical, f32 ymin)
 	return checkvertical ? pos->y + ymin + 10.0f : pos->y - 60.0f;
 }
 
+static s32 stanMoverTile(f32 x, f32 z, f32 limit, f32 rise);
+
+// The player whose own move the walls are being asked about (geStanSetMover()),
+// or -1: a cylinder test for anyone else finds its tile by height alone
+static s32 g_StanMover = -1;
+
 /**
  * Which of the conversion's walls `geo` is, with the tiles a body at `pos`
  * reaches worked out (stanFlood()), or -1 for a wall that is not one of them.
@@ -807,7 +813,11 @@ static s32 stanWallFind(struct geo *geo, struct coord *pos, struct coord *to, f3
 
 	if (pos->x != g_Stan.lastx || pos->z != g_Stan.lastz || to->x != g_Stan.lastx2 || to->z != g_Stan.lastz2
 			|| limit != g_Stan.lastlimit || rise != g_Stan.lastrise || reach != g_Stan.lastreach) {
-		const s32 tile = stanTileUnder(pos->x, pos->z, limit, rise);
+		s32 tile = g_StanMover >= 0 ? stanMoverTile(pos->x, pos->z, limit, rise) : -1;
+
+		if (tile < 0) {
+			tile = stanTileUnder(pos->x, pos->z, limit, rise);
+		}
 
 		g_Stan.lastx = pos->x;
 		g_Stan.lastz = pos->z;
@@ -1382,12 +1392,90 @@ static bool stanTileSheer(s32 i)
 }
 
 static s32 g_StanPlayerTile[MAX_PLAYERS] = { -1, -1, -1, -1 };
+// and the tile the move it walked started on, under the player as they stand
+static s32 g_StanPlayerFromTile[MAX_PLAYERS] = { -1, -1, -1, -1 };
 static s32 g_StanPlayerTileStage = -1;
 
 void geStanForgetPlayerTile(s32 playernum)
 {
 	if (playernum >= 0 && playernum < MAX_PLAYERS) {
 		g_StanPlayerTile[playernum] = -1;
+		g_StanPlayerFromTile[playernum] = -1;
+	}
+}
+
+/**
+ * The tile a player's own move is tested on, as GoldenEye has it: the one its
+ * walk from Bond's tile through the links reaches (bondviewTryMoveToStan():
+ * stanTestLineUnobstructed() from current_tile_ptr, then stanTestVolume() from
+ * where that ended), not the one whose height is nearest the foot. Cartel's
+ * first silo (Goldfinger 64) has a sliver of floor along the top of its wall,
+ * thirty over the ground and linked to nothing, lying across the doorway in
+ * plan; found by height it was the floor under the player in the doorway,
+ * every wall of its own stood round him, and the mission could not be finished
+ * (F3 20261003-051322). geStanFloorAhead() leaves the walk's tile here for the
+ * move it is about to make. -1 where the player has none that holds x/z, at a
+ * height a foot could stand on, and the caller finds one by height.
+ */
+static s32 stanMoverTileFrom(s32 tile, f32 x, f32 z, f32 limit, f32 rise)
+{
+	const struct coord *from = &g_Vars.players[g_StanMover]->prop->pos;
+	f32 y;
+
+	if (tile < 0 || tile >= g_Stan.numtiles || stanTileUpright(tile)) {
+		return -1;
+	}
+
+	if (!stanHolds(&g_Stan.tiles[tile], x, z)) {
+		// a test between where the player stands and where they go: walked
+		// on from their tile, as GoldenEye's line test goes
+		if (!stanHolds(&g_Stan.tiles[tile], from->x, from->z)) {
+			return -1;
+		}
+
+		tile = stanWalkLine(tile, from->x, from->z, x, z, false);
+
+		if (!stanHolds(&g_Stan.tiles[tile], x, z) || stanTileUpright(tile)) {
+			return -1;
+		}
+	}
+
+	// a floor the body's foot is on: not one over its reach, nor a storey
+	// under it (a player who walked off a ledge where no wall was raised)
+	y = stanSurface(&g_Stan.tiles[tile], x, z);
+
+	if (y > limit + rise || y < limit - 160.0f) {
+		return -1;
+	}
+
+	return tile;
+}
+
+static s32 stanMoverTile(f32 x, f32 z, f32 limit, f32 rise)
+{
+	const s32 m = g_StanMover;
+	s32 tile;
+
+	if (m < 0 || m >= MAX_PLAYERS || g_StanPlayerTileStage != g_Stan.stagenum || !g_Vars.players[m]) {
+		return -1;
+	}
+
+	// where the move about to be made ends, then where it began (a test of
+	// the player standing where they are: getting up, a step up)
+	tile = stanMoverTileFrom(g_StanPlayerTile[m], x, z, limit, rise);
+
+	if (tile < 0) {
+		tile = stanMoverTileFrom(g_StanPlayerFromTile[m], x, z, limit, rise);
+	}
+
+	return tile;
+}
+
+void geStanSetMover(s32 playernum)
+{
+	if (g_StanMover != playernum) {
+		g_StanMover = playernum;
+		g_Stan.lastreach = -1.0f;
 	}
 }
 
@@ -1406,6 +1494,7 @@ bool geStanFloorAhead(s32 playernum, struct coord *pos, struct coord *to, f32 gr
 	if (g_StanPlayerTileStage != g_Stan.stagenum) {
 		for (s32 i = 0; i < MAX_PLAYERS; i++) {
 			g_StanPlayerTile[i] = -1;
+			g_StanPlayerFromTile[i] = -1;
 		}
 
 		g_StanPlayerTileStage = g_Stan.stagenum;
@@ -1425,6 +1514,7 @@ bool geStanFloorAhead(s32 playernum, struct coord *pos, struct coord *to, f32 gr
 	}
 
 	g_StanPlayerTile[playernum] = tile;
+	g_StanPlayerFromTile[playernum] = tile;
 
 	if (tile < 0) {
 		return false;
