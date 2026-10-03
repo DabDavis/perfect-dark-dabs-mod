@@ -6774,8 +6774,18 @@ static s32 rayFirst(const struct tgrid *g, const f32 *o, const f32 *d, f32 reach
  * pad 139 stands through its east wall. From outside the closet its own box
  * hides those parts of them, as it should.
  */
-static const struct { const char *key; s16 room; } keptOutOf[] = {
-	{ "azt", 45 },
+/*
+ * The wall is room 18's (to) and is dealt there and drawn, but only where
+ * GoldenEye's portal walk reaches room 18 - not from the closet - and the
+ * closet's own mesh only where the walk reaches the closet - not from room
+ * 18, inside whose box half the closet stands (gebeanStageRoomByPortals()).
+ * Left out, room 18 had no back wall: from the guidance room's glass the
+ * closet's metal box stood in it and the rooms past it showed through (F3
+ * 20261003-002919, "missing wall textures in the guidance DAT room"); the
+ * release draws the stone wall there, and no box.
+ */
+static const struct { const char *key; s16 room; s16 to; } keptOutOf[] = {
+	{ "azt", 45, 18 },
 };
 
 #define KEPTOUT_MARGIN 4.0f // inside the room's box by this much: its own walls are its neighbours' too
@@ -6800,7 +6810,7 @@ static void boxAdd(void *arg, const f32 v[3][3], s32 room)
 }
 
 /** Leaves out (room 0) what other rooms' triangles stand inside a keptOutOf[] room; the count. */
-static s32 keepOutOfRooms(struct collect *c, u8 **filerooms, u32 *filelens, s32 n)
+static s32 keepOutOfRooms(struct collect *c, u8 **filerooms, u32 *filelens, s32 n, s32 *listlen)
 {
 	s32 count = 0;
 
@@ -6821,7 +6831,7 @@ static s32 keepOutOfRooms(struct collect *c, u8 **filerooms, u32 *filelens, s32 
 			// any of it inside, sampled across the face: the slab over the
 			// closet's top has its middle above the ceiling and its lower edge
 			// well inside
-			for (s32 a = 0; a <= KEPTOUT_STEPS && !inside && tri->room != 0 && tri->room != r; a++) {
+			for (s32 a = 0; a <= KEPTOUT_STEPS && !inside && tri->room != 0 && tri->room != r && tri->room != keptOutOf[i].to; a++) {
 				for (s32 bb = 0; a + bb <= KEPTOUT_STEPS && !inside; bb++) {
 					const f32 wa = (f32)a / KEPTOUT_STEPS;
 					const f32 wb = (f32)bb / KEPTOUT_STEPS;
@@ -6838,7 +6848,15 @@ static s32 keepOutOfRooms(struct collect *c, u8 **filerooms, u32 *filelens, s32 
 			}
 
 			if (inside) {
-				tri->room = 0;
+				const s32 to = keptOutOf[i].to > 0 && keptOutOf[i].to < n ? keptOutOf[i].to : 0;
+
+				listlen[tri->room]--;
+				tri->room = to;
+
+				if (to) {
+					listlen[to]++;
+				}
+
 				count++;
 			}
 		}
@@ -7306,7 +7324,7 @@ static s32 build(void)
 		}
 
 		{
-			const s32 keptout = keepOutOfRooms(&c, filerooms, filelens, n);
+			const s32 keptout = keepOutOfRooms(&c, filerooms, filelens, n, listlen);
 
 			if (keptout) {
 				sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles standing inside a room of GoldenEye's they are kept out of, left out",
@@ -8329,6 +8347,26 @@ s32 gebeanStageRoomHidden(s32 roomnum)
  * is not in that room itself, while the camera is in it and the HD rooms are
  * drawn.
  */
+/**
+ * Whether a room of the HD level is drawn only when GoldenEye's portal walk
+ * reaches it, rather than with every room: a keptOutOf[] room and the room
+ * whose wall runs through it, which overlap.
+ */
+s32 gebeanStageRoomByPortals(s32 room)
+{
+	if (!row || room <= 0 || room >= numRooms) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(keptOutOf); i++) {
+		if ((keptOutOf[i].room == room || keptOutOf[i].to == room) && strcmp(keptOutOf[i].key, row->key) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 s32 gebeanStageHidesProp(struct prop *prop)
 {
 	s32 cam;
@@ -8532,6 +8570,7 @@ s32 gebeanStageDrawsEveryRoom(void) { return 0; }
 s32 gebeanStageRoomHidden(s32 roomnum) { return 0; }
 s32 gebeanStageRoomServed(s32 roomnum) { return 0; }
 s32 gebeanStageHidesProp(struct prop *prop) { return 0; }
+s32 gebeanStageRoomByPortals(s32 room) { return 0; }
 void gebeanStageTickCamera(s32 authored) { }
 s32 gebeanStageCullsBackFaces(void) { return 0; }
 const char *gebeanStageLevelKey(void) { return NULL; }
