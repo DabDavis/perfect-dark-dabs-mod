@@ -7033,6 +7033,7 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 	float doorscale = 1.0f;
 	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0, lifted = 0, untiled = 0;
 	uint8_t *keepy = gcAlloc(s->pads.n + 1);
+	uint8_t *boundstand = gcAlloc(bound->n + 1);
 	int *padtile = gcAlloc((s->pads.n + 1) * sizeof(*padtile));
 
 	// the pads whose height is used as it is: one an object hangs in the air
@@ -7053,6 +7054,16 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 
 		if ((be32(raw, 8) & 0xe) && pad < s->pads.n) {
 			keepy[pad] = 1;
+		}
+
+		// a bound pad is lifted only for an object stood on the floor; a
+		// door's, a chr's and a hanging one's height is kept
+		if (pad >= 10000 && pad - 10000 < bound->n) {
+			if (t == 1 || (be32(raw, 8) & 0x400e)) {
+				boundstand[pad - 10000] = 2;
+			} else if (boundstand[pad - 10000] == 0) {
+				boundstand[pad - 10000] = 1;
+			}
 		}
 
 		if ((t == 0x06 || t == 0x0d) && recs.v[i].len >= 0x84) {
@@ -7121,6 +7132,29 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 		b->tile = gePadTile(stan, f, be32(f->v, o + 36), b->pos, ls, &fb);
 		fellback += fb;
 		missing += b->tile < 0;
+
+		// And a bound pad whose box is wholly under its tile is lifted onto
+		// it, as a pad is above: sub_GAME_7F04088C() stands the object on the
+		// tile at its pad, four units up, whatever height the box is at, and
+		// Perfect Dark searches down from inside the box, finding the floor
+		// below or none. TND64's Volcano has five crates on pads 88 under
+		// their floor that stood a storey down. A box only partly under is
+		// left: the search starts over the tile or finds none and falls back
+		// to it, and so does a flat one's, from the model's own height
+		if (b->tile >= 0 && boundstand[k] == 1 && b->bbox[3] > b->bbox[2]) {
+			const float ty = geTileY(&stan->v[b->tile], b->pos[0], b->pos[2], ls);
+			float centre[3], bottom, top;
+
+			geBoundCentre(b, centre);
+			bottom = centre[1] + (b->bbox[2] - b->bbox[3]) * 0.5f * b->up[1];
+			top = centre[1] + (b->bbox[3] - b->bbox[2]) * 0.5f * b->up[1];
+
+			if (top < ty && bottom < top) {
+				b->pos[1] += ty - bottom;
+				b->moved = 1;
+				lifted++;
+			}
+		}
 	}
 
 	// An object on a pad with no tile is never made. Every object but a door
