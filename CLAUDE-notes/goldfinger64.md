@@ -603,12 +603,48 @@ ours 1392 (its levels hold 8 bytes more, perhaps a 1x1 level; not checked).
 texsample_ares.py's GF_CIPAL says where; ramfind_ares.py finds a palette by its
 first entries. texsample_pd.py is the same instrument on our side.
 
+## Its weapon sets (2026-10-03)
+
+Its mode's Combat Simulator (and the folder's multiplayer) lists its own
+fourteen sets out of its `menu/gesets.bin` - "Hats 'n' Clubs", "Gangster",
+"Limpet Mines" - where it listed GoldenEye's. `gexplus.c` keeps a group of sets
+a conversion (`geSetsGroup()`, read once a mod dir) and one block of the list
+that holds the mode's: GoldenEye's at boot and whenever no hack is chosen, the
+hack's while `g_GexPlusVariant` is (`geSetsPut()`, over the block in place).
+They are not rows of their own after GoldenEye's, which Perfect Dark's
+Combat Simulator, listing the whole list, would offer too.
+`mpSetGexPlusMode(false)` puts GoldenEye's back. A set chosen in the block is
+applied again when the block changes hands, so GE Plus's "Pistols" becomes
+Goldfinger's "Pistols", not GoldenEye's slots under its name.
+
+- **Names.** The menus name a GoldenEye gun by the mode's gun set
+  (`gegunsMenuNameId()`, asked by `mpGetWeaponLabel()`): its AK47 where
+  GoldenEye has the KF7 Soviet, its Golf Club on the Hunting Knife's row.
+  Between matches the menus are over the Carrington Institute, whose gun set
+  is GoldenEye's (`gegunsStageSet()`), so it follows the mode, not the stage.
+- **Its four pistols** have Combat Simulator rows now (`MPWEAPON_GE_EXTRA1`,
+  0x4a-0x4d, after GoldenEye's 25, so no saved index moves; 7 bits in a setup
+  file). `gegunsExtraRowsRefresh()` shows them where a hack's set names them
+  (its stage, its mode's menus) and hides them everywhere else, at a stage's
+  gun set, at `mpSetGexPlusMode()` and after a mod swap. A mission's Start
+  Armed roll skips them unless a hack's set is in (`gegunsHackSetIn()`). The
+  randomizer still rolls only the rows before them (`MODRANDOM_MPWEAPONS`), so
+  a seed deals what it dealt. On Junkyard its "Gangster" set lays its two Smith
+  & Wessons on their own props (Pgx230Z/Pgx231Z), picked up and fired.
+- **Bug found:** 5049fc076 made a weapon prop's `dualweaponnum` a u8 with 0xff
+  for none, but `invGiveWeaponsByProp()` still tested `>= 0`, always true: every
+  pickup in a match tried to give a pair with weapon 0xff ("Double Colt
+  M1911", Perfect Dark's own guns too). It tests `!= 0xff` now. `dabs-mod` never
+  had it.
+
+Probes: `~/wt/gf-sets-run/probe/sets.py` (every mode's sets, options and
+slots) and `match.py` (GF_SET, GF_PICK: a set on Junkyard, what lies on the
+floor, one picked up). The rig needs `Mod.MapMods=GoldenEye Arenas;Goldfinger
+64` in its pd.ini, or the hack's arenas are not mounted and its mode lists
+nothing.
+
 ## Open
 
-- Its arenas' weapon sets: `menu/gesets.bin` is written right for it, but GE
-  Plus's Combat Simulator appends GoldenEye's only; on its arenas the GE rows
-  draw and fire as its guns (the stage's gun set) under GoldenEye's names in
-  the menu. Its four extra pistols have no Combat Simulator row.
 - Its gadgets' names by mission (gegadgets.c's identities are GoldenEye's).
 - Its monitor programmes (its block is edited in place, 16% of GoldenEye's
   words the same; gemonitortable.h is GoldenEye's).
