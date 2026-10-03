@@ -31,6 +31,68 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 35 2026-10-03
+GE Plus: no more invisible wall at one end of outdoor stairs (Dam's tower stair and others) (thanks eCHOREMASTERED)
+GE Plus Cradle: the hatch down to Trevelyan is as easy to drop into as in GoldenEye (thanks eCHOREMASTERED)
+GE Plus: Bond slides off a guard's head instead of standing on it (thanks eCHOREMASTERED)
+GE Plus Egyptian: the sloped tunnels take you down the slope, not out over the roof (thanks dblaney1)
+Mission Respawn: coming back keeps the objective items you carried (Egyptian's Golden Gun)
+GE Plus Caverns: the round doors stop bullets and thrown mines when shut (thanks FireFlame and eCHOREMASTERED)
+GE Plus, XBLA look: bullets hit props where they are drawn (no invisible wall beside Jungle's trees) (thanks eCHOREMASTERED)
+GE Plus Frigate, XBLA look: open upper-deck doorways no longer show shut doors (thanks eCHOREMASTERED)
+GE Plus: guards no longer see and shoot you over railings or down stairwells where GoldenEye's can't (thanks eCHOREMASTERED)
+GE Plus: auto-aim no longer locks onto guards through ceilings or walls (thanks eCHOREMASTERED)
+GE Plus: guards no longer get stuck on wide-open swing doors (Archives) (thanks eCHOREMASTERED)
+GE Plus endings: Bond walks smoothly down stairs, not a step at a time (Surface 2) (thanks eCHOREMASTERED)
+GE Plus tank: dying in it blows the tank up, and the replay shows it, as in GoldenEye (thanks Odeyseis)
+GE Plus tank: shells land where the sight points again (thanks eCHOREMASTERED)
+GE Plus: a guard killed after pulling the pin drops a live grenade (thanks Odeyseis)
+GE Plus: guards' punches no longer kill Bond in one hit (thanks Odeyseis)
+GoldenEye Arenas, Dam: the gates no longer lock you in when a simulant opens the other one (thanks dick)
+GE Plus: the knives come straight after the fist when you cycle weapons, as in GoldenEye (thanks eCHOREMASTERED)
+GE Plus: picking up throwing knives says throwing knives, not combat knives (thanks eCHOREMASTERED)
+GE Plus: the Moonraker Laser is lowered and raised when you switch weapons (thanks raffine52)
+Start Armed: GoldenEye's PP7s and DD44 start with full ammo (thanks raffine52)
+GE Plus Train, XBLA look: the watch laser shows the release's hands (thanks eCHOREMASTERED)
+GE Plus: the Laptop Gun's sentry shoots GoldenEye's guards from where it lies (thanks Casey and dick)
+GE Plus: shooting an armoured enemy makes GoldenEye's puff, not Perfect Dark's sparks (thanks dblaney1)
+GE Plus: guards no longer die with Perfect Dark's gurgle or cough (thanks eCHOREMASTERED)
+GE Plus: sounds carry as in GoldenEye (far explosions, guards' rocket launches at full) (thanks eCHOREMASTERED)
+GE Plus: the watch laser's sound plays for as long as it fires (thanks eCHOREMASTERED)
+GE Plus: a throwing knife in a body sounds as in GoldenEye, with no puff (thanks eCHOREMASTERED)
+GE Plus Facility: remote mines have GoldenEye's bigger blast (thanks eCHOREMASTERED)
+GE Plus Surface 2: the starting mine has no detonator and goes off on its own fuse, as in GoldenEye (thanks eCHOREMASTERED)
+GE Plus: guards' muzzle flashes no longer pick up stray colours (purple or faint) (thanks Graslu00)
+Report a Problem opens properly over the GE Plus folder after a mission (thanks Shockwave S08)
+GE Plus Monitor Programmes: every monitor is drawn the same way, square in its slot (thanks Shockwave S08)
+GE Plus: the multiplayer map pictures are the right way up in the N64 look (thanks Mike D)
+GE Plus intro: the logo and the cast of characters play at the right speed above 60 fps (thanks Casey)
+GE Plus intro, XBLA look: no more streaks down the right edge of the gun barrel (thanks Shockwave S08)
+With jump on, using GoldenEye's camera or another fire-to-use gadget no longer makes you jump (thanks eCHOREMASTERED)
+Emulator texture packs made for GoldenEye now apply to GE Plus's own levels (thanks dick)
+Randomizer: a run no longer lands you on the Duel map beside doorways open to the sky (thanks Parabolee)
+Randomizer: landing between laser grids switches them off, so you can get out (thanks Parabolee)
+Randomizer: missions no longer ask you to fetch a gun the level keeps out of reach
+GE Plus: raising a gun with the other hand empty no longer crashes the game
+Mods: a cutscene giving a gun to a character with no body no longer crashes the game
+Mods: a very short voice line no longer crashes the game
+Starting a level after a character preview in the menus no longer crashes the game
+GE Plus Frigate, XBLA look: the deck checker and hull numbers are yellow again, not white
+GE Plus Cradle, XBLA look: the catwalks, stairs and lower floors are drawn again (thanks dblaney1 and eCHOREMASTERED)
+GE Plus intro, XBLA look: Bond in the parka wears his hood in the cast reel (thanks Odeyseis)
+GE Plus Dam, XBLA look: the reservoir water moves at GoldenEye's own speed again (thanks Shockwave S08 and Odeyseis)
+GE Plus Dam, XBLA look: the odd snow patches by the alarms and the manhole are gone (thanks Shockwave S08 and eCHOREMASTERED)
+GE Plus Dam, XBLA look: shooting the reservoir no longer leaves dark marks under the water (thanks dab)
+GE Plus Frigate, XBLA look: no more flicker on the pipe room walls (thanks dab)
+GE Plus Aztec, XBLA look: the guidance computer room has its back wall again (thanks eCHOREMASTERED)
+GE Plus Silo, XBLA look: the steel door's hazard stripes are yellow again (thanks dick)
+GE Plus Bunker, XBLA look: the big monitor wall is black behind its screens (thanks dick and eCHOREMASTERED)
+GE Plus, XBLA look: screens show the release's own pictures when it is installed as an archive (thanks eCHOREMASTERED)
+GE Plus Depot, XBLA look: the warehouse doors' arrow is yellow, as in GoldenEye (thanks eCHOREMASTERED)
+GE Plus Egyptian, XBLA look: the Golden Gun's case is clear glass (thanks dab)
+XBLA look: no see-through throat when Bond's head is on a uniform with a lower collar (thanks dab)
+PLACEHOLDER Cradle helicopter (final agent fills this line) (thanks eCHOREMASTERED)
+
 notes 34 2026-10-02
 Every character, gun and prop in the N64 look is drawn by the graphics card too: a crowded Combat Simulator match takes a fifth to a third less processor time (Video > GPU Vertex Shading)
 
