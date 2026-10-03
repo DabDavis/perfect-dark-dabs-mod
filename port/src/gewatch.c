@@ -2432,6 +2432,11 @@ void geWatchTick(void)
 	case WS_TILT:
 		if (g_Watch.statetime == 1) {
 			watchStartTilt(1);
+
+			// bondview2.c's WATCH_ANIMATION_0x2: never under 30
+			if (g_Watch.tiltduration < 30.0f) {
+				g_Watch.tiltduration = 30.0f;
+			}
 		}
 
 		if (g_Watch.tiltduration - g_Watch.tilttime < 30.0f) {
@@ -2488,6 +2493,16 @@ void geWatchTick(void)
 		if (g_Watch.statetime == 1) {
 			watchStartArm(0, ARM_DURATION);
 			watchStartTilt(0);
+
+			// bondview2.c's WATCH_ANIMATION_0x7: the view goes back over
+			// the arm's time and 20 frames more, so the arm is down before
+			// the view is where the player was looking. Taken at the tilt's
+			// own pace, a pause opened looking at the floor (-72.7 back
+			// from -40, 33 frames) had the view there with the arm still
+			// standing up in the middle of it (F3 20261003-055428)
+			if (g_Watch.tiltduration < ARM_DURATION + 20.0f) {
+				g_Watch.tiltduration = ARM_DURATION + 20.0f;
+			}
 		}
 
 		if (g_Watch.armstep == 0) {
