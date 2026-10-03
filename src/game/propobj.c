@@ -9299,6 +9299,19 @@ void fanUpdateModel(struct prop *prop)
 
 #ifndef PLATFORM_N64
 /**
+ * Whether the autogun stands on one of the setup's pads: a converted
+ * level's autogun does. A deployed Laptop Gun is OBJTYPE_AUTOGUN with pad 1
+ * written by laptopDeploy() - no pad of its own - and asking pad 1 for its
+ * sight walked GoldenEye's tile graph from wherever pad 1 is, so on a
+ * converted level the thrown sentry never saw anybody (F3 20261002-040631,
+ * 20261002-041856).
+ */
+static bool autogunOnPad(struct defaultobj *obj)
+{
+	return obj->pad >= 0 && (obj->flags & OBJFLAG_THROWNLAPTOP) == 0;
+}
+
+/**
  * Where an autogun on a converted GoldenEye level sees and shoots from.
  *
  * GoldenEye stands an object whose second flags carry 0x1 - its "activate"
@@ -9318,7 +9331,7 @@ static bool autogunGeEye(struct prop *prop, struct coord *pos, RoomNum *rooms)
 	struct defaultobj *obj = prop->obj;
 	struct pad pad;
 
-	if (!modloaderStageIsRemake(g_Vars.stagenum) || (obj->flags2 & 0x00000001) == 0 || obj->pad < 0) {
+	if (!modloaderStageIsRemake(g_Vars.stagenum) || (obj->flags2 & 0x00000001) == 0 || !autogunOnPad(obj)) {
 		return false;
 	}
 
@@ -9347,7 +9360,7 @@ static s32 autogunGeSees(struct prop *prop, struct prop *target)
 	struct pad pad;
 	f32 ground;
 
-	if (!modloaderStageIsRemake(g_Vars.stagenum) || obj->pad < 0 || target->chr == NULL) {
+	if (!modloaderStageIsRemake(g_Vars.stagenum) || !autogunOnPad(obj) || target->chr == NULL) {
 		return -1;
 	}
 
@@ -10009,14 +10022,14 @@ void autogunTickShoot(struct prop *autogunprop)
 				// GoldenEye's: a Perfect Dark gun's impacts keep Perfect
 				// Dark's samples on a converted level (geSfxGunHitBegin()),
 				// and this gun's rounds are the RC-P45's. A converted
-				// autogun (one on a pad; a deployed laptop gun has none)
+				// autogun (one on a pad; a deployed laptop gun has none, autogunOnPad())
 				// names a GoldenEye gun for its sounds instead (F3
 				// 20260930-005915, "ceiling autocannon bullets make perfect
 				// dark ricochet sounds")
 				struct gset gesoundgset = { WEAPON_RCP45, 0, 0, FUNC_PRIMARY };
 				struct gset *soundgset = &gset;
 
-				if (modloaderStageIsRemake(g_Vars.stagenum) && obj->pad >= 0) {
+				if (modloaderStageIsRemake(g_Vars.stagenum) && autogunOnPad(obj)) {
 					gesoundgset.weaponnum = WEAPON_GE_RCP90;
 					soundgset = &gesoundgset;
 				}
