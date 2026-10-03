@@ -4616,6 +4616,17 @@ void chrChoke(struct chrdata *chr, s32 choketype)
 		allowoverride = true;
 	}
 
+#ifndef PLATFORM_N64
+	// GoldenEye's play_sound_for_shot_actor() has only the yelps above: no
+	// gurgle for a head shot and no cough. Those are Perfect Dark's own
+	// voices (SFX_M1_CHOKING, 0x5b1/0x5b2, 0x4af/0x4b0 - past the numbers a
+	// converted level remaps), so one head shot in eight died in Perfect
+	// Dark's voice there (F3 20261003-003943, Egyptian)
+	if (geSfxStage()) {
+		allowoverride = false;
+	}
+#endif
+
 	if (allowoverride) {
 		if (choketype == CHOKETYPE_GURGLE) {
 			s32 sounds[] = {
