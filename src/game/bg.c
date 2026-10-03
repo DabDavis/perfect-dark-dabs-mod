@@ -1279,12 +1279,13 @@ Gfx *bgRenderScene(Gfx *gdl)
 #ifndef PLATFORM_N64
 	// A converted GoldenEye level in the N64 look is drawn as the RDP draws
 	// it where a render mode takes coverage for alpha (G_COVERAGE_ALPHA_EXT),
-	// and its shade is carried across each triangle as the RDP carries it,
-	// linearly on the screen (G_SHADE_LINEAR_EXT)
+	// its shade is carried across each triangle as the RDP carries it,
+	// linearly on the screen (G_SHADE_LINEAR_EXT), and a mipmapped texture
+	// draws the levels its data holds (G_TEX_OWN_LODS_EXT)
 	const bool rdpmodes = g_BgGePortals && !xblaStageDrawsEveryRoom();
 
 	if (rdpmodes) {
-		gSPSetExtraGeometryModeEXT(gdl++, G_COVERAGE_ALPHA_EXT | G_SHADE_LINEAR_EXT);
+		gSPSetExtraGeometryModeEXT(gdl++, G_COVERAGE_ALPHA_EXT | G_SHADE_LINEAR_EXT | G_TEX_OWN_LODS_EXT);
 	}
 #endif
 
@@ -1545,7 +1546,7 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 #ifndef PLATFORM_N64
 	if (rdpmodes) {
-		gSPClearExtraGeometryModeEXT(gdl++, G_COVERAGE_ALPHA_EXT | G_SHADE_LINEAR_EXT);
+		gSPClearExtraGeometryModeEXT(gdl++, G_COVERAGE_ALPHA_EXT | G_SHADE_LINEAR_EXT | G_TEX_OWN_LODS_EXT);
 	}
 #endif
 

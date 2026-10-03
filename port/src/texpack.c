@@ -37,6 +37,7 @@
 #include "dxt.h"
 #include "texpack.h"
 #include "modelpack.h"
+#include "modloader.h"
 #include "video.h"
 #include "versioninfo.h"
 #include "langpack.h"
@@ -766,6 +767,13 @@ s32 texpackTextureArt(const void *data)
 	const struct texpackslot *slot = texpackFindSlot(data);
 
 	return slot ? slot->modart : TEXPACK_ART_ROM;
+}
+
+s32 texpackTextureIsConverted(const void *data)
+{
+	const struct texpackslot *slot = texpackFindSlot(data);
+
+	return slot && slot->modart == TEXPACK_ART_MODSTAGE && modloaderDirIndexIsConversion(slot->moddir);
 }
 
 void texpackForgetTexture(const void *data)

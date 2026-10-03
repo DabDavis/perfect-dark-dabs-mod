@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <map>
 #include <unordered_map>
 #include <vector>
@@ -896,6 +897,15 @@ static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width,
 	if (mips) {
 		glGenerateMipmap(GL_TEXTURE_2D);
 	}
+}
+
+static void gfx_opengl_upload_texture_levels(const uint8_t* const* levels, uint32_t width, uint32_t height, uint32_t count) {
+    // Every level written, and no more read (see above)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLint)count - 1);
+    for (uint32_t k = 0; k < count; k++) {
+        glTexImage2D(GL_TEXTURE_2D, (GLint)k, GL_RGBA8, std::max(1u, width >> k), std::max(1u, height >> k), 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, levels[k]);
+    }
 }
 
 static void gfx_opengl_get_texture_limits(uint32_t* max_textures, uint64_t* vram_bytes) {
@@ -3377,6 +3387,7 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_new_texture,
     gfx_opengl_select_texture,
     gfx_opengl_upload_texture,
+    gfx_opengl_upload_texture_levels,
     gfx_opengl_set_sampler_parameters,
     gfx_opengl_set_depth_mode,
     gfx_opengl_set_depth_range,

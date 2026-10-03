@@ -249,6 +249,7 @@ struct LoadedTexture {
     uint32_t size_bytes; // line_size_bytes * height
     uint32_t full_image_line_size_bytes;
     uint32_t line_size_bytes;
+    uint32_t block_bytes; // what the load put in TMEM from addr, every mip level of a mipmapped texture; 0 unknown
     uint32_t tex_flags;
     uint32_t glyph;      // gDPSetFontGlyphEXT, 0 when this is not a font glyph
     struct RawTexMetadata raw_tex_metadata;
@@ -1671,6 +1672,97 @@ static void gfx_decode_original(int tile, const LoadedTexture& loaded_texture, u
 }
 
 /**
+ * G_TEX_OWN_LODS_EXT: a mipmapped texture uploaded with the levels of detail
+ * its data holds, as the RDP samples them - tile k after the first is level k,
+ * half the size of the one before, at its own place in the block the load put
+ * in TMEM - rather than levels the GPU makes from the first. The cartridge's
+ * levels are not always a picture of the first at a distance: GoldenEye's
+ * shrink finds each averaged colour in an unsorted palette by a search that
+ * assumes it sorted (getexshrink.c), and Crab Key's wall grille, a dark mesh
+ * up close, is a white one from a few steps back.
+ *
+ * Only a texture read out of a ROM conversion's folder, whose levels
+ * GoldenEye's shrink made: Perfect Dark's own models drawn in the same scene
+ * keep the levels the GPU makes.
+ *
+ * True when it went up so, with level 0 left in tex_upload_buffer as the other
+ * imports leave it. False when the levels are no chain a GPU texture can hold
+ * - a row padded past the tile, a level not half the one before, a tile in
+ * another format, a level past the end of what was loaded - and nothing went
+ * up.
+ */
+static bool gfx_import_own_lods(int tile, const LoadedTexture& loaded_texture, uint8_t fmt, uint8_t siz) {
+    static std::vector<uint8_t> levels;
+    const auto& t0 = rdp.texture_tile[tile];
+    const uint32_t count = std::min<uint32_t>(rdp.tex_max_lod + 1u, 8u - tile);
+
+    if (count < 2 || !loaded_texture.addr || !loaded_texture.block_bytes || siz == G_IM_SIZ_32b ||
+        loaded_texture.raw_tex_metadata.h_byte_scale != 1 || loaded_texture.raw_tex_metadata.v_pixel_scale != 1) {
+        return false;
+    }
+
+    gfx_decode_original(tile, loaded_texture, fmt, siz);
+
+    const uint32_t w0 = last_upload_width;
+    const uint32_t h0 = last_upload_height;
+
+    if (w0 == 0 || w0 != t0.width || h0 != t0.height) {
+        return false;
+    }
+
+    size_t total = 0;
+    for (uint32_t k = 0; k < count; k++) {
+        total += (size_t)std::max(1u, w0 >> k) * std::max(1u, h0 >> k) * 4;
+    }
+    levels.resize(total);
+    memcpy(levels.data(), tex_upload_buffer, (size_t)w0 * h0 * 4);
+
+    const uint8_t* ptrs[8] = { levels.data() };
+    size_t at = (size_t)w0 * h0 * 4;
+
+    for (uint32_t k = 1; k < count; k++) {
+        const auto& tk = rdp.texture_tile[tile + k];
+        const uint32_t wk = std::max(1u, w0 >> k);
+        const uint32_t hk = std::max(1u, h0 >> k);
+        const uint32_t off = (tk.tmem - t0.tmem) * 8u;
+
+        if (tk.fmt != fmt || tk.siz != siz || tk.palette != t0.palette || tk.width != wk || tk.height != hk ||
+            tk.tmem < t0.tmem || !tk.line_size_bytes || off + tk.line_size_bytes * hk > loaded_texture.block_bytes) {
+            return false;
+        }
+
+        LoadedTexture lk = loaded_texture;
+        lk.addr = loaded_texture.addr + off;
+        lk.line_size_bytes = lk.full_image_line_size_bytes = tk.line_size_bytes;
+        lk.size_bytes = lk.orig_size_bytes = lk.full_size_bytes = tk.line_size_bytes * hk;
+
+        gfx_decode_original(tile + k, lk, fmt, siz);
+
+        // a level's row is whole 8-byte lines: the level is its left wk texels
+        if (last_upload_width < wk || last_upload_height != hk) {
+            return false;
+        }
+
+        for (uint32_t y = 0; y < hk; y++) {
+            memcpy(levels.data() + at + (size_t)y * wk * 4, tex_upload_buffer + (size_t)y * last_upload_width * 4,
+                   (size_t)wk * 4);
+        }
+
+        ptrs[k] = levels.data() + at;
+        at += (size_t)wk * hk * 4;
+    }
+
+    gfx_rapi->upload_texture_levels(ptrs, w0, h0, count);
+    gfx_texture_cache_charge(w0, h0, true);
+
+    memcpy(tex_upload_buffer, levels.data(), (size_t)w0 * h0 * 4);
+    last_upload_width = w0;
+    last_upload_height = h0;
+
+    return true;
+}
+
+/**
  * A pack's opaque picture standing in for a texture the game draws with alpha.
  *
  * The XBLA release's art carries no alpha for most of the textures whose N64
@@ -1790,6 +1882,9 @@ static void import_texture(int i, int tile, bool importReplacement) {
 
     if ((rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail) || self_detail || !loaded_texture.addr) {
         // set up miplevel 0; also acts as a catch-all for when .addr is NULL because my texture loader sucks
+        if (loaded_texture.addr != rdp.texture_to_load.addr) {
+            loaded_texture.block_bytes = 0;
+        }
         loaded_texture.addr = rdp.texture_to_load.addr;
         loaded_texture.glyph = rdp.texture_to_load.glyph;
         loaded_texture.line_size_bytes = rdp.texture_tile[tile].line_size_bytes;
@@ -1844,6 +1939,8 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // entry holds the frame it is keyed on
     const int32_t anim_frame = xblaTexHaveAnimations() ? xblaTexAnimFrame(orig_addr) : -1;
     key.anim_frame = (uint16_t)(anim_frame + 1);
+    key.own_lods = rdp.tex_lod && !rdp.tex_detail && tile == rdp.first_tile_index && !glyph &&
+                   (rsp.extra_geometry_mode & G_TEX_OWN_LODS_EXT) && gfx_texture_enhance_scale <= 1;
 
     if (gfx_texture_cache_lookup(i, key)) {
         return;
@@ -2034,7 +2131,9 @@ static void import_texture(int i, int tile, bool importReplacement) {
     // over its far edge is padding and not the other side of the picture.
     gfx_set_import_enhance(tile, loaded_texture, tex_row_bytes, siz);
 
-    if (fmt == G_IM_FMT_RGBA) {
+    if (key.own_lods && texpackTextureIsConverted(orig_addr) && gfx_import_own_lods(tile, loaded_texture, fmt, siz)) {
+        // with its own levels of detail
+    } else if (fmt == G_IM_FMT_RGBA) {
         if (siz == G_IM_SIZ_16b) {
             import_texture_rgba16(tile, loaded_texture, rdp.tex_lod);
         } else if (siz == G_IM_SIZ_32b) {
@@ -6796,8 +6895,13 @@ static inline void gfx_update_aspect_mode(void) {
 
 static void gfx_sp_extra_geometry_mode(uint32_t clear, uint32_t set) {
     gfx_mark_state_dirty();
+    const uint32_t was = rsp.extra_geometry_mode;
     rsp.extra_geometry_mode &= ~clear;
     rsp.extra_geometry_mode |= set;
+    if ((was ^ rsp.extra_geometry_mode) & G_TEX_OWN_LODS_EXT) {
+        // a texture bound already went up with the other kind of levels
+        rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+    }
     rsp.aspect_mode = (rsp.extra_geometry_mode & G_ASPECT_MODE_EXT);
     gfx_update_aspect_mode();
 }
@@ -7062,6 +7166,7 @@ static void gfx_dp_load_block(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t
     loaded_texture.raw_tex_metadata = rdp.texture_to_load.raw_tex_metadata;
     loaded_texture.addr = rdp.texture_to_load.addr;
     loaded_texture.glyph = rdp.texture_to_load.glyph;
+    loaded_texture.block_bytes = size_bytes;
 
     rdp.textures_changed[0] = rdp.textures_changed[1] = true;
 }
@@ -7104,6 +7209,7 @@ static void gfx_dp_load_tile(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t 
     loaded_texture.raw_tex_metadata = rdp.texture_to_load.raw_tex_metadata;
     loaded_texture.addr = rdp.texture_to_load.addr + start_offset_bytes;
     loaded_texture.glyph = rdp.texture_to_load.glyph;
+    loaded_texture.block_bytes = 0; // rows out of a wider image: no levels lie after it in memory
 
     rdp.texture_tile[tile].uls = uls;
     rdp.texture_tile[tile].ult = ult;

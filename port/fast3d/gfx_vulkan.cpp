@@ -2690,6 +2690,69 @@ static void gfx_vk_upload_texture(const uint8_t *rgba32_buf, uint32_t width, uin
     img.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
+// A texture whose levels are given (see gfx_rendering_api.h): each copied in as
+// it is, none made by blitting
+static void gfx_vk_upload_texture_levels(const uint8_t *const *levels, uint32_t width, uint32_t height, uint32_t count) {
+    const VkBinding b = vk_bound[vk_active_tile];
+    if (b.kind != VK_BIND_TEXTURE || b.id == 0 || b.id >= vk_textures.size() || count == 0) {
+        return;
+    }
+    if (width == 0 || height == 0) {
+        vk_image_destroy(vk_textures[b.id].img);
+        return;
+    }
+
+    vk_ensure_recording();
+    VkSlot &sl = vk_slots[vk_slot];
+
+    VkTex &tex = vk_textures[b.id];
+    vk_image_destroy(tex.img);
+    if (!vk_image_create(tex.img, width, height, VK_TEXTURE_FORMAT,
+                         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                         VK_SAMPLE_COUNT_1_BIT, count, false)) {
+        sysLogPrintf(LOG_WARNING, "Vulkan: could not create a %ux%u texture", width, height);
+        return;
+    }
+
+    VkDeviceSize bytes = 0;
+    for (uint32_t k = 0; k < count; k++) {
+        bytes += (VkDeviceSize)std::max(1u, width >> k) * std::max(1u, height >> k) * 4;
+    }
+
+    VkBuffer sbuf;
+    VkDeviceSize soff;
+    uint8_t *sptr;
+    if (!vk_ring_alloc(sl.staging, bytes, VK_STAGING_CHUNK, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, &sbuf, &soff, &sptr)) {
+        sysLogPrintf(LOG_WARNING, "Vulkan: out of staging memory for a %ux%u texture", width, height);
+        vk_image_destroy(tex.img);
+        return;
+    }
+
+    VkCommandBuffer cb = sl.upload;
+    sl.upload_used = true;
+    VkImg &img = tex.img;
+
+    vk_barrier(cb, img.image, img.aspect, 0, count, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkDeviceSize at = 0;
+    for (uint32_t k = 0; k < count; k++) {
+        const uint32_t w = std::max(1u, width >> k);
+        const uint32_t h = std::max(1u, height >> k);
+        memcpy(sptr + at, levels[k], (size_t)w * h * 4);
+
+        VkBufferImageCopy copy = {};
+        copy.bufferOffset = soff + at;
+        copy.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, k, 0, 1 };
+        copy.imageExtent = { w, h, 1 };
+        rcCmdCopyBufferToImage(cb, sbuf, img.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        at += (VkDeviceSize)w * h * 4;
+    }
+
+    vk_barrier(cb, img.image, img.aspect, 0, count, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    img.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+}
+
 static int vk_wrap_from_cm(uint32_t val) {
     switch (val) {
         case G_TX_NOMIRROR | G_TX_CLAMP:
@@ -5201,6 +5264,7 @@ struct GfxRenderingAPI gfx_vulkan_api = {
     gfx_vk_new_texture,
     gfx_vk_select_texture,
     gfx_vk_upload_texture,
+    gfx_vk_upload_texture_levels,
     gfx_vk_set_sampler_parameters,
     gfx_vk_set_depth_mode,
     gfx_vk_set_depth_range,

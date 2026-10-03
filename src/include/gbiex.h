@@ -215,6 +215,7 @@
 /* G_EXTRAGEOMETRYMODE flags */
 
 #define G_INVERT_CULLING_EXT     0x00000001
+#define G_TEX_OWN_LODS_EXT       0x00000002 // a mipmapped texture (G_TL_LOD) draws its own levels of detail, the tiles' images under the first as the RDP samples them, not levels the renderer makes from the first: a level converted from GoldenEye's ROM in the N64 look (bgRenderScene()), whose CI textures' levels GoldenEye's shrink made (getexshrink.c) - Crab Key's wall grille is a white mesh at a distance on the cartridge because of what they hold
 #define G_ASPECT_LEFT_EXT        0x00000010
 #define G_ASPECT_RIGHT_EXT       0x00000020
 #define G_ASPECT_WIDE_EXT        0x00000040
