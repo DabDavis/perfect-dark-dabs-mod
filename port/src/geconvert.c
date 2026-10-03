@@ -5496,6 +5496,49 @@ static int g_NumCollectSlots;
 static uint8_t g_CollectRows[40 * NUM_COLLECT_SLOTS][4];
 static int g_NumCollectRows;
 
+// the port's weapons for GoldenEye's gadgets, the covert modem to the
+// detonator (gegadgets.c)
+#define WEAPON_GE_GADGET_FIRST 0x77
+#define WEAPON_GE_GADGET_LAST  WEAPON_GE_DETONATOR_
+#define GESLOTS_EVERY_MISSION  0xff
+
+static void soloAddCollectRow(uint32_t mission, uint32_t w, uint32_t item)
+{
+	if (g_NumCollectRows < (int)(sizeof(g_CollectRows) / sizeof(g_CollectRows[0]))) {
+		g_CollectRows[g_NumCollectRows][0] = (uint8_t)mission;
+		g_CollectRows[g_NumCollectRows][1] = (uint8_t)w;
+		g_CollectRows[g_NumCollectRows][2] = (uint8_t)item;
+		g_CollectRows[g_NumCollectRows][3] = 0;
+		g_NumCollectRows++;
+	}
+}
+
+/**
+ * A ROM hack's gadget that the mission being converted names: menu/geslots.bin
+ * says which item each gadget weapon is on it, as it says a collectable's, and
+ * the game names it from the hack's own text (gegadgets.c). GoldenEye's own
+ * are known by its missions' numbers, which a hack's are not: Goldfinger 64's
+ * mission 4 is not Bunker, and its item 47 is its Homer. A second item of one
+ * mission on one shared weapon is noted and keeps the first's name.
+ */
+static void soloGadgetUse(uint32_t item, uint32_t w)
+{
+	for (int i = 0; i < g_NumCollectRows; ++i) {
+		if (g_CollectRows[i][0] == (uint8_t)g_CollectMission && g_CollectRows[i][1] == w) {
+			if (g_CollectRows[i][2] != item) {
+				note("geconvert: mission %d: items %u and %u are both gadget 0x%02x: named as %u",
+						g_CollectMission, (unsigned)g_CollectRows[i][2], (unsigned)item, (unsigned)w,
+						(unsigned)g_CollectRows[i][2]);
+			}
+
+			return;
+		}
+	}
+
+	soloAddCollectRow((uint32_t)g_CollectMission, w, item);
+	note("geconvert: mission %d: item %u is gadget 0x%02x", g_CollectMission, (unsigned)item, (unsigned)w);
+}
+
 /** One of this ROM's item ids as the weapon Perfect Dark equips for it. */
 static uint32_t soloItemWeapon(uint32_t item)
 {
@@ -5511,7 +5554,46 @@ static uint32_t soloItemWeapon(uint32_t item)
 		return g_CollectSlot[item];
 	}
 
+	if (g_Layout->variant && g_CollectMission >= 0
+			&& g_ItemWeapon[item] >= WEAPON_GE_GADGET_FIRST && g_ItemWeapon[item] <= WEAPON_GE_GADGET_LAST) {
+		soloGadgetUse(item, g_ItemWeapon[item]);
+	}
+
 	return g_ItemWeapon[item];
+}
+
+#define WEAPON_GE_TANKSHELLS_ 0x7e
+#define ITEM_TANKSHELLS       32
+
+/**
+ * A ROM hack's gadgets that are one item on every mission, as rows for every
+ * mission (GESLOTS_EVERY_MISSION) after the missions' own: each weapon that one
+ * item alone stands on, and two its code hands out that no item table names -
+ * the detonator, with the remote mines, which is the item GtriggerZ is
+ * (Goldfinger 64's 31, GoldenEye's 30), and the tank's shells, item 32, which a
+ * hack keeps at GoldenEye's number as it keeps every item past the hand's
+ * (itemWeaponsBuild()).
+ */
+static void soloGadgetsEveryMission(void)
+{
+	for (uint32_t w = WEAPON_GE_GADGET_FIRST; w <= WEAPON_GE_GADGET_LAST; ++w) {
+		uint32_t found = 0, n = 0;
+
+		for (uint32_t item = 1; item < NUM_ITEMS; ++item) {
+			const int trigger = g_Items[item].file && !strcmp(g_Items[item].file, "GtriggerZ");
+
+			if (w == WEAPON_GE_DETONATOR_ ? trigger
+					: w == WEAPON_GE_TANKSHELLS_ ? item == ITEM_TANKSHELLS
+					: soloItemWeapon(item) == w) {
+				found = item;
+				n++;
+			}
+		}
+
+		if (n == 1) {
+			soloAddCollectRow(GESLOTS_EVERY_MISSION, w, found);
+		}
+	}
 }
 
 static int soloIsCollectSlot(uint32_t w)
@@ -5543,14 +5625,7 @@ static void soloCollectablesBegin(const buf *f, int mission)
 		}
 
 		g_CollectSlot[item] = (uint8_t)(WEAPON_KEYCARD_FIRST + g_NumCollectSlots++);
-
-		if (g_NumCollectRows < (int)(sizeof(g_CollectRows) / sizeof(g_CollectRows[0]))) {
-			g_CollectRows[g_NumCollectRows][0] = (uint8_t)mission;
-			g_CollectRows[g_NumCollectRows][1] = g_CollectSlot[item];
-			g_CollectRows[g_NumCollectRows][2] = (uint8_t)item;
-			g_CollectRows[g_NumCollectRows][3] = 0;
-			g_NumCollectRows++;
-		}
+		soloAddCollectRow((uint32_t)mission, g_CollectSlot[item], item);
 		note("geconvert: mission %d: item %u (%s) is collectable 0x%02x", mission, (unsigned)item,
 				g_Items[item].file ? g_Items[item].file : "no file", g_CollectSlot[item]);
 	}
@@ -10046,8 +10121,13 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 
 		// menu/geslots.bin: which item each mission's collectable weapons
-		// stand for (soloCollectablesBegin()) - "GES1", u16 rows, then u8
-		// mission, u8 weapon, u8 item, u8 0 a row
+		// stand for (soloCollectablesBegin()), and a ROM hack's gadgets
+		// (soloGadgetUse()) - "GES1", u16 rows, then u8 mission (0xff for
+		// every mission), u8 weapon, u8 item, u8 0 a row
+		if (g_Layout->variant) {
+			soloGadgetsEveryMission();
+		}
+
 		if (g_NumCollectRows) {
 			buf slots = {0};
 
