@@ -93,16 +93,80 @@ placeholder file, a copy of CheaddwayneZ, and convert.
   what is mounted (rig: arenas 0x72-0x7c, missions 0x7d-0x8a, Bridge 0x88),
   read them under gdb from `'modloader.c'::g_ModStageMission`.
 
+## At run time (converter 118)
+
+- **Its row on the Perfect Menu.** The hack rows are two now (mainmenu.c,
+  `item->param` the variant's index): "Goldfinger 64" and "Tomorrow Never Dies
+  64", each hidden unless its source is in added-content/ (gexplusrom.c's
+  `variantReady()`, which keeps them in g_Layouts' order whatever order the
+  folder lists them in). Each opens GE Plus's folder in its mode
+  (`g_GexPlusVariant`); its music and sounds are its own bank (gemusic.c,
+  gesfx.c, by the stage's mod or the folder's), its best times
+  `$S/tomorrowneverdies64-times.txt`, no XBLA on its stages
+  (`xblaSwitchStageHeld()` answers 1 there; it was already any hack's).
+  A fresh save dir gets `Mod.MapMods=GoldenEye Arenas;Goldfinger 64;Tomorrow
+  Never Dies 64` from the first conversion (`modMapsEnableByName()`).
+- **Fourteen missions and the folder's way on** (gexfront.c). Converter 118
+  writes the two code immediates in `menu/getimes.bin`'s spare u16:
+  `romlayout.creditsafter` (7F0168BC, `li 0x11` the Cradle; TND 9, the
+  Stealth Boat) and `advancebelow` (7F0168D4, `slti 0x12`; TND 13), 0 for
+  GoldenEye's, so Goldfinger's file is unchanged. `frontLoadMissionCount()`
+  reads the count, the two and the target times with the folder's rows;
+  without the file (GoldenEye's own conversion) it is 20, 17, 18 and
+  `g_TargetTimes`. So NEXT after The End and after the Boat goes back to the
+  grid (a hack's conversion has no Cuba, so no credits to play; the credits'
+  mission does not move on either - the cartridge plays the credits and comes
+  back to the grid), 007 under Mod.GePlusLockedProgression needs fourteen on
+  00 Agent (7F01F4C8), and the statistics page's target time is the hack's
+  own. The bonus missions' locks (`frontMissionStatus()`) keep GoldenEye's
+  18 and 19: TND left fileIsStageUnlockedAtDifficulty() alone.
+  Goldfinger now also gets its own target times (it read GoldenEye's), and
+  NEXT after its Cradle-slot mission goes back to the grid where it went on
+  to mission 18's briefing (it has no Cuba either).
+- **The watch is blue** (gewatch.c, tint 2): each of GoldenEye's seven watch
+  colours replaced by TND's (`g_WatchTintBlue`, the table in
+  `~/wt/tnd-work/measure/menuraw/REPORT.md`), any other colour and the
+  vertex colours with green and blue swapped, the mission status's INCOMPLETE
+  a steady 0xffff00b0 and the objectives' a steady 0xbfbf40ff. The HUD's
+  ammunition counter follows (`geWatchTint()`). Its text says "Q WATCH v2.02
+  BETA" (its own LoptionsE).
+- **Eight men a level** (gexplus.c): gecast.bin's fourth byte
+  (`g_GeRomMenPerLevel`, 0 for GoldenEye's four, at most the game's eight).
+  Hotel draws heads 509-502, eight rows.
+
+Checked (rig `~/wt/tnd-run/rig2`, fresh save dir, the three sources in
+added-content/; `boot.sh`/`bootall.sh`): all three convert at the first start
+(16 s), MapMods is set, 11 arenas (0x72-0x7c) and 14 missions mount; every
+mission (`--boot-ge-mission N --boot-ge-variant "Tomorrow Never Dies 64"`) and
+every arena (`--boot-stage`, two sims) runs to frame 1700 with sound (its own
+bank, audio RMS 2000-9000), as do GE Plus's Facility and Goldfinger's Junkyard;
+pictures in `~/wt/tnd-run/shots/`. Probes (`~/wt/tnd-run/probe2/`): the
+Perfect Menu's variants in order, Hotel's inventory (Unarmed, PPK (silenced),
+Phone Taser), the watch blue (`watch.py`, 220 frames after
+geWatchPause() - a picture sooner shows no watch), the FAMAS fired on Alaska
+at frame 1300 (16 rounds in 60 frames, casings, no beam; before frame ~1200
+Alaska's opening swirl still hands Bond his PSG-1 back), the folder's
+NEXT from each mission in all three modes (`folder.py`).
+
 ## Not done
 
-- Girl Power Mode (the pokes above), and the runtime's side of the new files:
-  gexplus.c reading gecast.bin's fourth byte (8 heads), gexfront.c reading
-  getimes.bin and taking the mission count from the folder (credits after
-  Boat, no advance past The End, 007 after 14), gewatch.c's tint 2 (the
-  colours are in critic/RESULT.md section D), the Perfect Menu row.
-- The Stage Loader's "NAME (mod)" is cut at 31 characters
-  ("Atlantic Hotel (Tomorrow Neve)").
-- Nothing checked against the cartridge yet (no ares twin run for TND).
+- Girl Power Mode (the pokes above), and its clocks and bonuses.
+- Its credits: Cuba is not converted for a hack, so nothing plays after the
+  Boat.
+- The Stage Loader's "NAME (mod)" is cut at 30 characters
+  ("Atlantic Hotel (Tomorrow Neve)", "Complex (Tomorrow Never Dies )"):
+  the Combat Simulator's arena row.
+- Nothing checked against the cartridge yet (no ares twin run for TND). Hotel,
+  Party, Tower and The End start with Bond unarmed (his PPK in the inventory
+  on Hotel): not checked against the cartridge.
+- ASan (`~/wt/tnd-run/asan.sh`, build `~/wt/tnd-run/build-asan`): all 14
+  missions and 11 arenas to frame 1700, nothing new. Seven missions report a
+  read past `var800a6470` in bgTestHitOnChr() (bg.c 5103-5111, a chr hit test
+  while aiming): Perfect Dark's own bug, kept from the decomp - the bounds
+  loop starts at `var800a6470[spdc]` where the vertices are at `spdc * 3`, so
+  a 16-vertex load reads 12 bytes past the array. GE Plus's Facility did not
+  reach it in 1700 frames; not fixed (a read, and the fix moves hit tests).
+- The Windows cross-build builds; not run under wine.
 
 Rigs: `~/wt/tnd-run/rig` (the game, all three sources in added-content/),
 `~/wt/tnd-run/rt` (replay test), `~/wt/tnd-run/run.sh` (standalone GE/GF/TND).
