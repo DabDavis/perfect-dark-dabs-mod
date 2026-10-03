@@ -6193,6 +6193,20 @@ static const char *g_MonitorNames[] = {
 	LANG_N("Red, brightening"), LANG_N("Green, brightening"), LANG_N("Solid gray"), LANG_N("Solid red"), LANG_N("Solid green"), LANG_N("Solid black"),
 };
 
+/**
+ * A programme's line on the page: its number and, on GoldenEye's own, what it
+ * is. A ROM hack's programmes are its own under GoldenEye's numbers (converter
+ * 109), and GoldenEye's names would misname them.
+ */
+static void frontMonitorLine(char *line, size_t len, s32 n)
+{
+	if (frontIsHack() || n >= ARRAYCOUNT(g_MonitorNames)) {
+		snprintf(line, len, langTr("%d of %d\n"), n + 1, g_Front.nummonitors);
+	} else {
+		snprintf(line, len, langTr("%d of %d: %s\n"), n + 1, g_Front.nummonitors, langTr(g_MonitorNames[n]));
+	}
+}
+
 #define MONITOR_CX 220.0f
 #define MONITOR_CY 226.0f
 #define MONITOR_HW 84.0f
@@ -6270,8 +6284,7 @@ static Gfx *frontDrawMonitorView(Gfx *gdl)
 		return frontPrint(gdl, 0x37, 0x8f, langTr("None in this conversion.\n"), COLOUR_ON);
 	}
 
-	snprintf(line, sizeof(line), langTr("%d of %d: %s\n"), g_Front.monitor + 1, g_Front.nummonitors,
-			g_Front.monitor < ARRAYCOUNT(g_MonitorNames) ? langTr(g_MonitorNames[g_Front.monitor]) : "");
+	frontMonitorLine(line, sizeof(line), g_Front.monitor);
 	gdl = frontPrint(gdl, 0x37, 0x8f, line, COLOUR_ON);
 
 	// the tube it is shown on
@@ -6508,8 +6521,7 @@ static Gfx *frontDrawMonitors(Gfx *gdl)
 	if (g_Front.highlight >= 0 && first + g_Front.highlight < g_Front.nummonitors) {
 		const s32 n = first + g_Front.highlight;
 
-		snprintf(line, sizeof(line), "%d of %d: %s\n", n + 1, g_Front.nummonitors,
-				n < ARRAYCOUNT(g_MonitorNames) ? g_MonitorNames[n] : "");
+		frontMonitorLine(line, sizeof(line), n);
 		gdl = frontPrint(gdl, 0x37, 0x57, line, COLOUR_ON);
 	}
 

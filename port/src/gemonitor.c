@@ -53,6 +53,7 @@ static struct textureconfig g_GeMonImages[GEMON_MAX_IMAGES];
 static u32 g_GeMonImageNums[GEMON_MAX_IMAGES];  // as the file has them
 static s32 g_GeMonNumImages;
 static s32 g_GeMonModDir = -2;                  // the mod the tables were read from
+static s32 g_GeMonHack;                         // and that mod is a ROM hack's conversion
 static s32 g_GeMonOn;                           // this stage plays them
 static s32 g_GeMonFolder;                       // or the folder's page is showing them
 
@@ -167,13 +168,15 @@ static s32 geMonitorLoadFrom(s32 moddir, const char *dir)
 	}
 
 	g_GeMonModDir = moddir;
+	g_GeMonHack = !modloaderDirIndexIsGexPlus(moddir);
 	sysMemFree(g_GeMonWords);
 	g_GeMonWords = NULL;
 	g_GeMonNumWords = 0;
 
 	snprintf(path, sizeof(path), "%s/menu/gemonitors.bin", dir);
-	// asked first: a GoldenEye ROM hack's conversion writes none (its
-	// programmes are not GoldenEye's), and its screens show nothing
+	// asked first: a GoldenEye ROM hack's conversion before converter 109
+	// wrote none (its programmes are not GoldenEye's), and its screens show
+	// nothing until the next start converts it again
 	d = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
 
 	if (!d || len < 12 || memcmp(d, "GEM1", 4)) {
@@ -235,7 +238,7 @@ static s32 geMonitorLoadFrom(s32 moddir, const char *dir)
 	g_GeMonNumWords = numwords;
 	sysMemFree(d);
 
-	sysLogPrintf(LOG_NOTE, "gemonitor: %d of GoldenEye's monitor programmes over %d pictures", (s32)numprogs, (s32)numimages);
+	sysLogPrintf(LOG_NOTE, "gemonitor: %d monitor programmes over %d pictures from %s", (s32)numprogs, (s32)numimages, dir);
 
 	return 1;
 }
@@ -335,7 +338,9 @@ u32 *geMonitorJump(u32 *cmdlist, u32 arg)
 static void geMonitorBindPicture(s32 i)
 {
 	struct textureconfig *tc = &g_GeMonImages[i];
-	const s32 hd = gebeanGetEnabled() && xblaMeshGetEnabled();
+	// a hack's pictures keep GoldenEye's numbers and are not its pictures:
+	// the release's never stand in for them (as gebeanFileIsRomHack())
+	const s32 hd = gebeanGetEnabled() && xblaMeshGetEnabled() && !g_GeMonHack;
 	const char *bean = NULL;
 
 	if ((u32)tc->texturenum < NUM_TEXTURES) {
