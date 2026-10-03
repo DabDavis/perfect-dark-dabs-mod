@@ -694,6 +694,71 @@ void func0f060bac(s32 weaponnum, struct prop *prop)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The rooms a shot's line is tested against on a converted GoldenEye level:
+ * `rooms` (the portal walk's and the forced ones, -1 ended) and then every
+ * other room whose box the line enters, into `dst` (len entries, -1 ended).
+ *
+ * GoldenEye does not follow the line through the portals. Its shot
+ * (chrprop.c, the bullet's background test) tries Bond's own room, then the
+ * rooms connected to it one after another until one is hit, then every room
+ * drawn this frame for a closer hit. A converted level's rooms overlap and a
+ * catwalk is a room of its own that the portal walk from the floor under it
+ * never enters, so Perfect Dark's walk let Bond's shots through Cradle's
+ * catwalks over his head (F3 20261003-154834). Every room the line meets,
+ * nearest hit kept by the caller, is what GoldenEye's three passes come to.
+ */
+static void shotGeRooms(struct coord *from, struct coord *to, RoomNum *rooms, RoomNum *dst, s32 len)
+{
+	struct coord dist;
+	struct coord inv;
+	struct coord pos;
+	s32 n = 0;
+	s32 i;
+	s32 r;
+
+	for (i = 0; rooms[i] != -1 && n < len - 1; i++) {
+		dst[n++] = rooms[i];
+	}
+
+	dist.x = to->x - from->x;
+	dist.y = to->y - from->y;
+	dist.z = to->z - from->z;
+	inv.x = 1.0f / dist.x;
+	inv.y = 1.0f / dist.y;
+	inv.z = 1.0f / dist.z;
+
+	for (r = 1; r < g_Vars.roomcount && n < len - 1; r++) {
+		struct coord bbmin;
+		struct coord bbmax;
+
+		for (i = 0; rooms[i] != -1; i++) {
+			if (rooms[i] == r) {
+				break;
+			}
+		}
+
+		if (rooms[i] != -1 || g_Rooms[r].vtxbatches == NULL) {
+			continue;
+		}
+
+		bbmin.x = g_Rooms[r].bbmin[0];
+		bbmin.y = g_Rooms[r].bbmin[1];
+		bbmin.z = g_Rooms[r].bbmin[2];
+		bbmax.x = g_Rooms[r].bbmax[0];
+		bbmax.y = g_Rooms[r].bbmax[1];
+		bbmax.z = g_Rooms[r].bbmax[2];
+
+		if (bg0f1612e4(&bbmin, &bbmax, from, &dist, &inv, &pos) != 0) {
+			dst[n++] = r;
+		}
+	}
+
+	dst[n] = -1;
+}
+#endif
+
 /**
  * Calculate what was hit from a single shot.
  *
@@ -830,8 +895,19 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 		// Note this is being appended to rooms
 		bgGetForceOnscreenRooms(roomsptr, 100);
 
-		for (i = 0; rooms[i] != -1; i++) {
-			if (bgTestHitInRoom(&shotdata.gunpos3d, &hitpos, rooms[i], &sp664)) {
+		RoomNum *testrooms = rooms;
+
+#ifndef PLATFORM_N64
+		static RoomNum gerooms[512];
+
+		if (geRoomActive()) {
+			shotGeRooms(&shotdata.gunpos3d, &hitpos, rooms, gerooms, ARRAYCOUNT(gerooms));
+			testrooms = gerooms;
+		}
+#endif
+
+		for (i = 0; testrooms[i] != -1; i++) {
+			if (bgTestHitInRoom(&shotdata.gunpos3d, &hitpos, testrooms[i], &sp664)) {
 				sp664.pos.x *= 1;
 				sp664.pos.y *= 1;
 				sp664.pos.z *= 1;
@@ -844,7 +920,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 							|| (hitpos.z <= shotdata.gunpos3d.z && hitpos.z <= sp664.pos.z && sp664.pos.z <= shotdata.gunpos3d.z))
 						&& (shotdata.gunpos3d.x != sp664.pos.x || shotdata.gunpos3d.y != sp664.pos.y || shotdata.gunpos3d.z != sp664.pos.z)) {
 					hitbg = true;
-					room = rooms[i];
+					room = testrooms[i];
 
 					sp694 = sp664;
 
