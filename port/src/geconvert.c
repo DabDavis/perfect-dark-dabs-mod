@@ -2961,6 +2961,8 @@ static int roomCentre(const struct bgroom *room, double inv, const double *offse
 		centre[c] = rnd((mn[c] + mx[c]) / 2);
 	}
 
+	// every vertex, loaded or not: scaledRoom() writes them all and fails on
+	// one that does not fit, where roomSplit() keeps only the lists' own
 	for (size_t k = 0; k < n; ++k) {
 		for (int c = 0; c < 3; ++c) {
 			const double v = ((double)bes16(room->vtx.v, 16 * k + 2 * c) + room->pos[c]) * inv - offset[c];
