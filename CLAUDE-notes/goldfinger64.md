@@ -786,6 +786,46 @@ Probe: `snd.py` (gdb, the session's run dir): fires GUNS, forces a reload,
 logs every sound the player starts (n_sndplayer.c:714/730), then damages
 explosive props and counts explosion props.
 
+## Its HUD, watch and folder look (F3 pass 30, 2026-10-03)
+
+- **Ammunition pictures.** gehud.c drew GoldenEye's `ammo_related[]` rows
+  (image, size, format) from a table of its own. Goldfinger 64 redrew most of
+  them at other sizes in the global image table (segment 2, ROM 0x29d160 in
+  both ROMs, 12-byte rows): its 9mm round is 4x13 where GoldenEye's is 5x12,
+  the magnum's 4x14, the knife's (Oddjob's hat) and the mines' 16x16 - and
+  gave AmmoType 2 (its M1 Carbine and S&W Model 22) image 2237 and type 14
+  image 2193. Drawn through GoldenEye's boxes the 9mm came out a smear with
+  the next row's colours over its tip (F3 20261003-050551, 20261003-061317).
+  The conversion now writes `menu/geammo.bin` for a variant ("GEA1", a row a
+  type: image as written, the row's seven bytes, IconYOffset's float), read
+  at the data segment's 0x80035ef0 through the image table, and adds the
+  images it names; gehud.c draws a gun's type from it (`ICON_OWN + type`,
+  `hudIconBox()`), HUD and watch alike. GoldenEye's conversion writes none
+  and keeps its table.
+- **The watch is yellow.** Its code (7F0A3420-7F0AD000, mpmenu.c's pause
+  and `gunDrawWatchAmmoDisplay()`'s 7F069C3C) has every green of
+  GoldenEye's watch patched to red = green: 0x00ff00b0 -> 0xffff00b0,
+  0xa0ffa0f0 -> 0xffffa0f0, the face's ramp (`sub_GAME_7F0A33F8` gives its
+  red the green's value), the page rectangles, the slider bars, the pulses
+  stepped 0x10100000. Left green: the static scanline, the ring's prim colour
+  and the objectives' INCOMPLETE pulse, whose red is 0 (0x000040ff | pulse <<
+  16). It left one of the two 0x00800050 bars (7F0A8BE0) green; both are
+  tinted here. `romlayout.watchtint` -> `menu/gewatch.bin` ("GEW1", the tint);
+  gewatch.c's colours go through `watchTint()` (F3 20261003-050712).
+- **The folder in the cartridge's look.** The hack's folder came up on the
+  release's paper, Brosnan photo and fonts where the release was installed:
+  gefolder.c's gates (repaint, menu pictures, fonts, backdrop, Bean folder)
+  are `folderHdLook()`, off while `g_GexPlusVariant` is chosen unless the
+  stage is GE Plus's own (F3 20261003-051445). Its folder is now its own
+  Connery folder in both looks (the HD look's
+  picture pixel-identical to the N64 look's).
+- Checked against the cartridge, nothing to change: Bodega's corridor sconce
+  has no animation (four ticks apart, the same picture); its candle is a
+  translucent quad on image 0x28c, white head-on in both, but from a steep
+  side ours shows a grey streak above the candle where the cartridge does
+  not. Grounds' black car's windows are the same blocky checker on the
+  cartridge.
+
 ## Open
 
 - Props' shading against GoldenEye's: no measured case now (Crab Key's

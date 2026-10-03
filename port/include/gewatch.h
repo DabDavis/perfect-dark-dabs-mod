@@ -64,6 +64,9 @@ Gfx *geWatchRender(Gfx *gdl);
  * right) or -1 (health, red, the left) lit as far as `value`, and the list that
  * joins them into a bar under whatever matrices are loaded.
  */
+/** A colour of GoldenEye's watch as the stage's conversion draws it (a hack's may be yellow). */
+u32 geWatchTint(u32 colour);
+
 void geWatchGaugeVertices(Vtx *v, Col *c, s32 side, f32 value);
 Gfx *geWatchDrawGauge(Gfx *gdl, Vtx *v, Col *c);
 

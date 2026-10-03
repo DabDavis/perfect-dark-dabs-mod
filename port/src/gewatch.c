@@ -172,9 +172,9 @@ enum {
 };
 
 // the colours GoldenEye's own screens are drawn in, RGBA
-#define COL_GREEN     0x00ff00b0
-#define COL_HIGHLIGHT 0xa0ffa0f0
-#define COL_DIM       0x00800080
+#define COL_GREEN     watchTint(0x00ff00b0)
+#define COL_HIGHLIGHT watchTint(0xa0ffa0f0)
+#define COL_DIM       watchTint(0x00800080)
 #define COL_WHITE     0xffffffff
 
 // the watch face: 30 vertices round a disc of radius 520, the green fill just
@@ -389,6 +389,7 @@ struct gewatch {
 
 	// the interference (g_WatchBackgroundGreen, g_WatchStaticScanlineY)
 	s32 bggreen;     // 0xe0 when the face is clear, 0x80 as static strikes
+	s32 tint;        // the conversion's menu/gewatch.bin: 1 yellow (watchTint())
 	s32 scany;       // the scanline's place up the face, -0x156 to 0x156
 	f32 staticacc;   // 60ths owed to watchTickStatic()
 	f32 gunangle;    // D_80040B14, the inventory's gun's turn
@@ -487,6 +488,35 @@ static s32 watchIsMp(void);
 static u32 watchBe32(const u8 *p)
 {
 	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
+}
+
+/**
+ * A ROM hack's watch colours. Goldfinger 64's is yellow: its code has every
+ * green GoldenEye's watch draws (the face's ramp, the page rectangles, the
+ * text, the pulses, the multiplayer pause and the watch's ammunition) patched
+ * to the same with its red raised to its green - 0x00ff00b0 to 0xffff00b0,
+ * 0xa0ffa0f0 to 0xffffa0f0 (F3 20261003-050712). The conversion says which
+ * (menu/gewatch.bin, romlayout.watchtint); GoldenEye's own writes none.
+ */
+static u32 watchTint(u32 colour)
+{
+	if (g_Watch.tint == 1) {
+		colour = (colour & 0x00ffffff) | (colour & 0x00ff0000) << 8;
+	}
+
+	return colour;
+}
+
+static void watchTintCols(Col *c, s32 n)
+{
+	for (s32 i = 0; g_Watch.tint == 1 && i < n; i++) {
+		c[i].r = c[i].g;
+	}
+}
+
+u32 geWatchTint(u32 colour)
+{
+	return g_Watch.loaded ? watchTint(colour) : colour;
 }
 
 static u8 *watchLoad(const char *rel, u32 *len)
@@ -1145,6 +1175,14 @@ void geWatchStageStart(s32 stagenum)
 	}
 
 	g_Watch.animnum = watchLoadAnim();
+
+	{
+		u8 *tint = watchLoad("gewatch.bin", &len);
+
+		g_Watch.tint = tint && len >= 5 && memcmp(tint, "GEW1", 4) == 0 ? tint[4] : 0;
+		sysMemFree(tint);
+		len = 0;
+	}
 
 	// a converted mission's briefing, for the screen that shows it. An arena
 	// has none, and its briefing screen is its objectives alone.
@@ -2699,6 +2737,7 @@ static s32 watchFaceVertices(Vtx *v, Col *c, s32 numverts, f32 scale, s32 centre
 /** draw_watch_background(): the ring as strips, or the fill as a fan. */
 static Gfx *watchDrawFace(Gfx *gdl, Vtx *v, Col *c, s32 n, s32 fan)
 {
+	watchTintCols(c, n);
 	gDma1p(gdl++, G_COL, c, n * 4, (n - 1) << 2);
 
 	if (fan) {
@@ -2766,6 +2805,7 @@ static Gfx *watchDrawSelect(Gfx *gdl)
 		}
 	}
 
+	watchTintCols(c, n);
 	gDma1p(gdl++, G_COL, c, n * 4, (n - 1) << 2);
 
 	for (s32 r = 0; r < SELECT_RECTS; r++) {
@@ -2891,6 +2931,7 @@ static Gfx *watchDrawSlider(Gfx *gdl, s32 top, f32 fill)
 	}
 
 	gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+	watchTintCols(c, 12);
 	gDma1p(gdl++, G_COL, c, 12 * 4, 11 << 2);
 
 	for (s32 q = 0; q < 3; q++) {
@@ -5004,12 +5045,12 @@ static Gfx *watchDrawController(Gfx *gdl)
 #define INV_X         0x4e   // the list's left
 #define INV_BASE_Y    0x8c   // the top of its five-line window
 #define INV_ROWS      5
-#define INV_ROWCOLOUR 0x00aa00b0
-#define INV_BARCOLOUR 0x00800050
+#define INV_ROWCOLOUR watchTint(0x00aa00b0)
+#define INV_BARCOLOUR watchTint(0x00800050)
 
 // the rest of GoldenEye's colours for the screens
-#define COL_OUTLINE   0x007000a0 // textRenderOutlined()'s, round white
-#define COL_LIST      0x00aa00b0 // a list and the controller's words
+#define COL_OUTLINE   watchTint(0x007000a0) // textRenderOutlined()'s, round white
+#define COL_LIST      watchTint(0x00aa00b0) // a list and the controller's words
 
 /**
  * GoldenEye's 320x240 frame over the player's view (GE_VIEW_TOP): the screens'
@@ -5158,7 +5199,7 @@ static Gfx *watchDrawMissionPage(Gfx *gdl)
 		colour = COL_GREEN;
 	} else {
 		status = watchString(STR_INCOMPLETE);
-		colour = g_Watch.statuspulse;
+		colour = watchTint(g_Watch.statuspulse);
 	}
 
 	// GoldenEye moves on by the width of the first string and back up by its
@@ -5703,7 +5744,9 @@ static Gfx *watchDrawBriefingPage(Gfx *gdl)
 				break;
 			default:
 				state = watchString(STR_INCOMPLETE);
-				colour = (g_Watch.objpulse << 16) | 0x400040ff;
+				// Goldfinger 64's red here is 0, not its green (7F0AC79C):
+				// the one colour of its watch it did not turn yellow
+				colour = (g_Watch.objpulse << 16) | (g_Watch.tint == 1 ? 0x000040ff : 0x400040ff);
 				break;
 			}
 

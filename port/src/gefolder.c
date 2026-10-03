@@ -54,6 +54,8 @@
 #include "constants.h"
 #include "game/tex.h"
 #include "lib/model.h"
+#include "lib/main.h"
+#include "modloader.h"
 
 #ifndef PLATFORM_N64
 
@@ -650,6 +652,24 @@ static void geFolderPrintOnPaper(u8 *rgba, s32 w, s32 h)
 }
 
 /**
+ * Whether the folder screens and their pictures wear the release's look: the
+ * release there and its meshes on - but never over a ROM hack's mode
+ * (g_GexPlusVariant: Goldfinger 64's folder, its HUD and watch), which is the
+ * cartridge's look only, as its stages are (xblaSwitchStageHeld(); user,
+ * 2026-10-02). Its folder came up as the release's paper, Brosnan's photo and
+ * the release's fonts (F3 20261003-051445). A GE Plus stage reached while the
+ * hack's mode is still chosen keeps the release's.
+ */
+static s32 folderHdLook(void)
+{
+	if (!gebeanGetEnabled() || !xblaMeshGetEnabled()) {
+		return 0;
+	}
+
+	return g_GexPlusVariant == NULL || modloaderStageIsGexPlus(mainGetStageNum());
+}
+
+/**
  * A row's picture as it is to be bound, malloc'd and the caller's, or NULL
  * where the model's texture is not the one the row expects.
  */
@@ -750,7 +770,7 @@ s32 geFolderRepaint(struct modeldef *modeldef)
 	geFolderForget();
 	warned = 0;
 
-	if (!modeldef || !modeldef->texconfigs || !gebeanGetEnabled() || !xblaMeshGetEnabled()) {
+	if (!modeldef || !modeldef->texconfigs || !folderHdLook()) {
 		return 0;
 	}
 
@@ -935,7 +955,7 @@ const void *geFolderMenuPicture(const char *name, s32 *width, s32 *height)
 	s32 w = 0, h = 0;
 	s32 i;
 
-	if (!name || !gebeanGetEnabled() || !xblaMeshGetEnabled()) {
+	if (!name || !folderHdLook()) {
 		return NULL;
 	}
 
@@ -1107,7 +1127,7 @@ const struct gefolderfont *geFolderFont(s32 gothic)
 {
 	gothic = gothic ? 1 : 0;
 
-	if (!gebeanGetEnabled() || !xblaMeshGetEnabled()) {
+	if (!folderHdLook()) {
 		return NULL;
 	}
 
@@ -1144,7 +1164,7 @@ const void *geFolderBackdrop(void)
 	static s32 tried;
 	u8 *rgba;
 
-	if (!gebeanGetEnabled() || !xblaMeshGetEnabled()) {
+	if (!folderHdLook()) {
 		return NULL;
 	}
 
@@ -2127,7 +2147,7 @@ static s32 geFolderBeanBuild(struct gebeanpictures *pics, struct modeldef *model
 
 s32 geFolderBeanActive(void)
 {
-	return beanFolder.built > 0 && gebeanGetEnabled() && xblaMeshGetEnabled();
+	return beanFolder.built > 0 && folderHdLook();
 }
 
 void geFolderBeanSwap(struct model *model, s32 on)

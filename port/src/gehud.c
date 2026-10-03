@@ -99,6 +99,16 @@ enum {
 	NUM_ICONS
 };
 
+/**
+ * A ROM hack's own pictures (its conversion's menu/geammo.bin, a row an
+ * AmmoType), numbered from ICON_OWN up by type. GE Editor's hacks redraw them
+ * at other sizes: Goldfinger 64's 9mm round is 4x13 where GoldenEye's is 5x12,
+ * drawn through GoldenEye's box it came out a smear with a stripe of the next
+ * row's colours over it (F3 20261003-050551, 20261003-061317).
+ */
+#define HUD_OWN_TYPES 30
+#define ICON_OWN NUM_ICONS
+
 static const struct {
 	s32 image;
 	u8 width, height, format, depth, wraps;
@@ -186,6 +196,25 @@ static const char *const g_IconHdPictures[NUM_ICONS] = {
 #define SIGHT_HD_SHADE 0xad
 #define SIGHT_HD_ALPHA 0x99
 
+static struct {
+	s32 stagenum;
+	s32 moddir;
+	s32 on;
+	// texSelect() turns a config's number into a pointer that lasts the stage
+	struct textureconfig icons[NUM_ICONS];
+	struct textureconfig sight;
+	struct textureconfig radar;
+	// a hack's own pictures by AmmoType (hudOwnIconsLoad()); numown 0 is none
+	s32 numown;
+	struct textureconfig own[HUD_OWN_TYPES];
+	s8 ownyoffset[HUD_OWN_TYPES];
+	// the radar's middle on the view's frame, set by geHudRadarBegin()
+	s32 radarx, radary;
+	f32 radarsx, radarsy;
+	// the mission timer is up this frame (geHudSetMissionTimerShown())
+	s32 timershown;
+} g_Hud = { -1, -1, 0 };
+
 /**
  * What each of GoldenEye's weapons shows, from its gunWeaponStat row: the
  * picture of its AmmoType, and WEAPONSTATBITFLAG_NO_CLIP_RELOADS, which is a
@@ -248,11 +277,35 @@ static s32 hudWeaponIcon(s32 weaponnum)
 	};
 	const s32 ammotype = gegunsGeAmmoType(weaponnum);
 
+	if (ammotype > 0 && ammotype < g_Hud.numown && g_Hud.own[ammotype].texturenum) {
+		return ICON_OWN + ammotype;
+	}
+
 	if (ammotype > 0 && ammotype < (s32)ARRAYCOUNT(icons)) {
 		return icons[ammotype];
 	}
 
 	return g_WeaponRows[weaponnum - WEAPON_GE_FIRST].icon;
+}
+
+/** A picture's texture config and its box in GoldenEye's units: its size and its row's IconYOffset. */
+static struct textureconfig *hudIconBox(s32 icon, s32 *width, s32 *height, s32 *yoffset)
+{
+	if (icon >= ICON_OWN) {
+		struct textureconfig *tex = &g_Hud.own[icon - ICON_OWN];
+
+		*width = tex->width;
+		*height = tex->height;
+		*yoffset = g_Hud.ownyoffset[icon - ICON_OWN];
+
+		return tex;
+	}
+
+	*width = icon != ICON_NONE ? g_IconRows[icon].width : GE_BARE_WIDTH;
+	*height = g_IconRows[icon].height;
+	*yoffset = g_IconRows[icon].yoffset;
+
+	return &g_Hud.icons[icon];
 }
 
 /** Whether one of GoldenEye's weapons shows no ammunition at all. */
@@ -262,21 +315,6 @@ static s32 hudWeaponShowsNothing(s32 weaponnum)
 		&& !g_WeaponRows[weaponnum - WEAPON_GE_FIRST].bare;
 }
 
-static struct {
-	s32 stagenum;
-	s32 moddir;
-	s32 on;
-	// texSelect() turns a config's number into a pointer that lasts the stage
-	struct textureconfig icons[NUM_ICONS];
-	struct textureconfig sight;
-	struct textureconfig radar;
-	// the radar's middle on the view's frame, set by geHudRadarBegin()
-	s32 radarx, radary;
-	f32 radarsx, radarsy;
-	// the mission timer is up this frame (geHudSetMissionTimerShown())
-	s32 timershown;
-} g_Hud = { -1, -1, 0 };
-
 /** The view in GoldenEye's units, and what one of them is worth on the frame buffer. */
 struct hudframe {
 	f32 sx, sy;
@@ -285,10 +323,77 @@ struct hudframe {
 
 static void geHudMigrateSightAlways(void);
 
+/**
+ * A ROM hack's own ammunition pictures, out of its conversion's
+ * menu/geammo.bin (geconvert.c): gun.c's ammo_related[] with each picture's
+ * row of the global image table. GoldenEye's conversion has none, and its
+ * pictures are g_IconRows; so has a hack's converted before the file was.
+ */
+static void hudOwnIconsLoad(void)
+{
+	char path[1024];
+	u32 len = 0;
+	u8 *file;
+	s32 rows;
+
+	g_Hud.numown = 0;
+	memset(g_Hud.own, 0, sizeof(g_Hud.own));
+	memset(g_Hud.ownyoffset, 0, sizeof(g_Hud.ownyoffset));
+
+	if (g_Hud.moddir < 0 || modloaderDirIndexIsGexPlus(g_Hud.moddir)) {
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/menu/geammo.bin", fsGetModDirAt(g_Hud.moddir));
+	file = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
+
+	if (!file || len < 8 || memcmp(file, "GEA1", 4) != 0) {
+		sysMemFree(file);
+		return;
+	}
+
+	rows = (file[4] << 8) | file[5];
+
+	if (rows > HUD_OWN_TYPES) {
+		rows = HUD_OWN_TYPES;
+	}
+
+	for (s32 i = 0; i < rows && 8 + 16 * (u32)(i + 1) <= len; i++) {
+		const u8 *row = file + 8 + 16 * i;
+		struct textureconfig *tex = &g_Hud.own[i];
+		const u32 image = (u32)row[0] << 24 | (u32)row[1] << 16 | (u32)row[2] << 8 | row[3];
+		const u32 bits = (u32)row[12] << 24 | (u32)row[13] << 16 | (u32)row[14] << 8 | row[15];
+		f32 yoffset;
+
+		memcpy(&yoffset, &bits, sizeof(yoffset));
+		memset(tex, 0, sizeof(*tex));
+		g_Hud.ownyoffset[i] = (s8)yoffset;
+
+		// width, height, level, format, depth, s, t; a picture with no size
+		// is none
+		if (image == 0 || row[4] == 0 || row[5] == 0) {
+			continue;
+		}
+
+		tex->texturenum = image;
+		tex->width = row[4];
+		tex->height = row[5];
+		tex->level = row[6];
+		tex->format = row[7];
+		tex->depth = row[8];
+		tex->s = row[9];
+		tex->t = row[10];
+	}
+
+	g_Hud.numown = rows;
+	sysMemFree(file);
+}
+
 void geHudStageStart(s32 stagenum)
 {
 	g_Hud.stagenum = stagenum;
 	g_Hud.on = 0;
+	g_Hud.numown = 0;
 	g_Hud.moddir = modloaderGetStageModDirIndex(stagenum);
 
 	if (!modloaderStageIsMission(stagenum) && !(g_GexPlusMode && modloaderStageIsRemake(stagenum))) {
@@ -314,6 +419,8 @@ void geHudStageStart(s32 stagenum)
 		tex->s = g_IconRows[i].wraps ? G_TX_WRAP : G_TX_CLAMP;
 		tex->t = G_TX_CLAMP;
 	}
+
+	hudOwnIconsLoad();
 
 	memset(&g_Hud.sight, 0, sizeof(g_Hud.sight));
 	g_Hud.sight.texturenum = SIGHT_IMAGE;
@@ -800,7 +907,7 @@ Gfx *geHudRenderAmmo(Gfx *gdl)
 		// the picture's middle, and each number from its own side of it
 		const s32 cx = left ? leftx : f.width - rightx;
 		s32 icon, mag, reserve, noclip;
-		s32 width;
+		s32 width, height, yoffset;
 		s32 x0, y0;
 		struct textureconfig *tex;
 		struct textureconfig hd;
@@ -812,17 +919,18 @@ Gfx *geHudRenderAmmo(Gfx *gdl)
 		// microcode_generation_ammo_related(): an odd picture sits half a unit
 		// right of its middle and half a unit up, which is what keeps its
 		// edges on whole units
-		tex = release && icon != ICON_NONE ? hudReleaseIcon(icon, &hd) : NULL;
-		width = icon != ICON_NONE ? g_IconRows[icon].width : GE_BARE_WIDTH;
+		struct textureconfig *own = hudIconBox(icon, &width, &height, &yoffset);
+
+		tex = release && icon != ICON_NONE && icon < ICON_OWN ? hudReleaseIcon(icon, &hd) : NULL;
 		x0 = cx - width / 2;
-		y0 = bottom - 20 + g_IconRows[icon].yoffset - (g_IconRows[icon].height + 1) / 2;
+		y0 = bottom - 20 + yoffset - (height + 1) / 2;
 
 		// GoldenEye's own a texel a pixel, the release's filtered down
 		if (icon != ICON_NONE) {
-			gdl = hudImage(gdl, tex ? tex : &g_Hud.icons[icon], 2, tex == NULL, 1,
+			gdl = hudImage(gdl, tex ? tex : own, 2, tex == NULL, 1,
 					viGetViewLeft() + x0 * f.sx, viGetViewTop() + y0 * f.sy,
-					viGetViewLeft() + (x0 + width) * f.sx, viGetViewTop() + (y0 + g_IconRows[icon].height) * f.sy,
-					tex ? tex->width : width, tex ? tex->height : g_IconRows[icon].height, 255, 255);
+					viGetViewLeft() + (x0 + width) * f.sx, viGetViewTop() + (y0 + height) * f.sy,
+					tex ? tex->width : width, tex ? tex->height : height, 255, 255);
 		}
 
 		gdl = gexFrontTextSetup(gdl);
@@ -920,7 +1028,8 @@ s32 geHudWatchAmmo(s32 weaponnum, s32 *mag, s32 *reserve)
  */
 Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox, f32 oy, f32 sx, f32 sy)
 {
-	s32 icon, noclip, width, height;
+	s32 icon, noclip, width, height, yoffset;
+	struct textureconfig *own;
 	f32 cx, cy;
 	char buffer[12];
 	s32 w, h;
@@ -936,13 +1045,12 @@ Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox,
 		return gdl;
 	}
 
-	width = icon != ICON_NONE ? g_IconRows[icon].width : GE_BARE_WIDTH;
-	height = g_IconRows[icon].height;
+	own = hudIconBox(icon, &width, &height, &yoffset);
 	cx = 200.0f + (width * 0.5f - (f32)(width / 2));
 	cy = 180.0f - height * 0.5f;
 
 	if (icon != ICON_NONE) {
-		gdl = hudImage(gdl, &g_Hud.icons[icon], 2, 1, 1,
+		gdl = hudImage(gdl, own, 2, 1, 1,
 				ox + (cx - width * 0.5f) * sx, oy + (cy - height * 0.5f) * sy,
 				ox + (cx + width * 0.5f) * sx, oy + (cy + height * 0.5f) * sy,
 				width, height, 255, 255);
@@ -953,7 +1061,7 @@ Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox,
 	if (!noclip) {
 		snprintf(buffer, sizeof(buffer), "%d\n", mag);
 		gexFrontTextMeasure(1, buffer, &w, &h);
-		gdl = gexFrontTextPrint(gdl, 1, 196 - width / 2 - w, 177 + h / 2 - h, buffer, 0x00ff00b0);
+		gdl = gexFrontTextPrint(gdl, 1, 196 - width / 2 - w, 177 + h / 2 - h, buffer, geWatchTint(0x00ff00b0));
 	} else {
 		reserve += mag;
 	}
@@ -961,7 +1069,7 @@ Gfx *geHudRenderWatchAmmo(Gfx *gdl, s32 weaponnum, s32 mag, s32 reserve, f32 ox,
 	if (reserve > 0 || noclip) {
 		snprintf(buffer, sizeof(buffer), "%d\n", reserve);
 		gexFrontTextMeasure(1, buffer, &w, &h);
-		gdl = gexFrontTextPrint(gdl, 1, 203 + (width + 1) / 2, 177 + h / 2 - h, buffer, 0x00ff00b0);
+		gdl = gexFrontTextPrint(gdl, 1, 203 + (width + 1) / 2, 177 + h / 2 - h, buffer, geWatchTint(0x00ff00b0));
 	}
 
 	return gdl;
