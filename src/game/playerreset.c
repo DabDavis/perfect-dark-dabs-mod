@@ -197,12 +197,20 @@ void playerReset(void)
 				if (cmd->param3 == 0 && g_Vars.currentplayer != g_Vars.anti) {
 					modelmgrLoadProjectileModeldefs(cmd->param1);
 
+#ifndef PLATFORM_N64
+					g_InvIntroGive = true;
+#endif
+
 					if (cmd->param2 >= 0) {
 						modelmgrLoadProjectileModeldefs(cmd->param2);
 						invGiveDoubleWeapon(cmd->param1, cmd->param2);
 					} else {
 						invGiveSingleWeapon(cmd->param1);
 					}
+
+#ifndef PLATFORM_N64
+					g_InvIntroGive = false;
+#endif
 
 #ifndef PLATFORM_N64
 					// GoldenEye's watch laser brings its own charge (gegadgets.c)

@@ -27,6 +27,9 @@ s32 currentStageForbidsSlayer(void);
 bool invCanHaveAllGunsWeapon(s32 weaponnum);
 bool invHasSingleWeaponIncAllGuns(s32 weaponnum);
 bool invHasDoubleWeaponIncAllGuns(s32 weapon1, s32 weapon2);
+#ifndef PLATFORM_N64
+extern bool g_InvIntroGive;
+#endif
 bool invGiveSingleWeapon(s32 weaponnum);
 bool invGiveDoubleWeapon(s32 weapon1, s32 weapon2);
 void invRemoveItemByNum(s32 weaponnum);

@@ -765,11 +765,17 @@ void playerStartNewLife(void)
 					break;
 				case INTROCMD_WEAPON:
 					if (cmd[3] == 0 && !MODRUN_SKIPS_MAP_KIT()) {
+#ifndef PLATFORM_N64
+						g_InvIntroGive = true;
+#endif
 						if (cmd[2] >= 0) {
 							invGiveDoubleWeapon(cmd[1], cmd[2]);
 						} else {
 							invGiveSingleWeapon(cmd[1]);
 						}
+#ifndef PLATFORM_N64
+						g_InvIntroGive = false;
+#endif
 					}
 					cmd += 4;
 					break;

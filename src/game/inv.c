@@ -597,6 +597,11 @@ bool invHasDoubleWeaponIncAllGuns(s32 weapon1, s32 weapon2)
 	return invHasDoubleWeaponExcAllGuns(weapon1, weapon2);
 }
 
+#ifndef PLATFORM_N64
+// set while a stage's intro hands the player its starting weapons
+bool g_InvIntroGive = false;
+#endif
+
 bool invGiveSingleWeapon(s32 weaponnum)
 {
 	frSetWeaponFound(weaponnum);
@@ -618,10 +623,14 @@ bool invGiveSingleWeapon(s32 weaponnum)
 		}
 
 #ifndef PLATFORM_N64
-		// GoldenEye gives the watch's detonator with the remote mines,
-		// however they come (propobj.c's add_ammo_to_inventory() and
-		// propPickupByPlayer(): ITEM_REMOTEMINE and ITEM_TRIGGER together)
-		if (weaponnum == WEAPON_GE_REMOTEMINE) {
+		// GoldenEye gives the watch's detonator with the remote mines
+		// picked up, as a gun or as ammunition (propobj.c's
+		// add_ammo_to_inventory() and propPickupByPlayer(): ITEM_REMOTEMINE
+		// and ITEM_TRIGGER together) - but not with a mission's own start
+		// (bondview2.c's intro: bondinvAddInvItem() alone). Surface 2's one
+		// mine is Q's ten-second fuse, and its list sets it off; with the
+		// detonator Bond set it off himself (F3 20261002-160906)
+		if (weaponnum == WEAPON_GE_REMOTEMINE && !g_InvIntroGive) {
 			invGiveSingleWeapon(WEAPON_GE_DETONATOR);
 		}
 #endif
