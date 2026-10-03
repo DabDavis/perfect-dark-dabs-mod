@@ -20105,6 +20105,16 @@ bool chrEquipWeapon(struct weaponobj *weapon, struct chrdata *chr)
 		}
 
 		if ((weapon->base.flags & OBJFLAG_WEAPON_AICANNOTUSE) == 0) {
+#ifndef PLATFORM_N64
+			// A chr whose model has gone (a body taken away) has no hand to
+			// put it in: a mod's cutscene gave a gun to one (crash
+			// 20261002-161001, GE-X); the caller frees the weapon.
+			// Asked before an aibot's old gun is dropped, which it keeps
+			if (!chr->model || !chr->model->definition) {
+				return false;
+			}
+#endif
+
 			if (chr->weapons_held[handnum]) {
 				if (chr->aibot) {
 					chr->weapons_held[handnum]->weapon->base.hidden |= OBJHFLAG_DELETING;

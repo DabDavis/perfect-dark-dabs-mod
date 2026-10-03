@@ -1244,7 +1244,16 @@ void bgun0f098df8(s32 weaponfunc, struct handweaponinfo *info, struct hand *hand
 			hand->loadedammo[ammoindex] += amount;
 			g_Vars.currentplayer->ammoheldarr[hand->ammotypes[ammoindex]] -= amount;
 
+#ifndef PLATFORM_N64
+			// The hand's function is the gset's gun, the definition is the
+			// hand's weapon number's: a hand out of use answers WEAPON_NONE,
+			// whose definition has no ammo (crashes 20261002-062819 and
+			// 20261002-142059, a gun raised on GoldenEye's levels)
+			if (info->definition && info->definition->ammos[ammoindex]
+					&& (info->definition->ammos[ammoindex]->flags & AMMOFLAG_NORESERVE)) {
+#else
 			if (info->definition->ammos[ammoindex]->flags & AMMOFLAG_NORESERVE) {
+#endif
 				g_Vars.currentplayer->ammoheldarr[hand->ammotypes[ammoindex]] = 0;
 			}
 

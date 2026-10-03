@@ -420,6 +420,14 @@ void mp3Dma(void)
 	uintptr_t state;
 	ALDMAproc proc;
 
+#ifndef PLATFORM_N64
+	// Nothing reads what this fetches here: the mixer is handed the whole
+	// file (aPlayMP3()). The 1 KB read ran off the end of a file shorter
+	// than that, which a mod's external file is malloc'd to the byte of
+	// (Total Darkness has 240-byte lines; crash 20261003-014929)
+	return;
+#endif
+
 	proc = n_syn->dma(&state);
 
 	proc(g_Mp3Vars.romaddr + g_Mp3Vars.var8009c3c4, 0x400, 0);
