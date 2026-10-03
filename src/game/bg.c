@@ -395,9 +395,30 @@ void bgUnpausePropsInRoom(u32 roomnum, bool tintedglassonly)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * A converted level's pieces of its rooms too wide for 16-bit vertices
+ * (geconvert.c's roomSplit()): rooms of their own after the level's, with
+ * no portal, each drawn whenever the room it was cut from is. {room, piece}.
+ */
+#define MAX_ROOM_PIECES 256
+static RoomNum g_BgRoomPieces[MAX_ROOM_PIECES][2];
+static s32 g_BgNumRoomPieces;
+#endif
+
 void bgSetRoomOnscreen(s32 roomnum, s32 draworder, struct screenbox *box)
 {
 	s32 index;
+
+#ifndef PLATFORM_N64
+	for (s32 i = 0; i < g_BgNumRoomPieces; i++) {
+		if (g_BgRoomPieces[i][0] == roomnum) {
+			struct screenbox piecebox = *box;
+
+			bgSetRoomOnscreen(g_BgRoomPieces[i][1], draworder, &piecebox);
+		}
+	}
+#endif
 
 #if VERSION < VERSION_NTSC_1_0
 	g_Rooms[roomnum].flags |= ROOMFLAG_ONSCREEN;
@@ -1964,6 +1985,20 @@ void bgReset(s32 stagenum)
 		for (j = 1; g_BgRooms[j].unk00 != 0; j++) {
 			g_Vars.roomcount++;
 		}
+
+#ifndef PLATFORM_N64
+		g_BgNumRoomPieces = 0;
+
+		if (modloaderStageIsRemake(stagenum)) {
+			for (j = 1; j <= g_Vars.roomcount; j++) {
+				if (g_BgRooms[j].drawnwith > 0 && g_BgRooms[j].drawnwith < j && g_BgNumRoomPieces < MAX_ROOM_PIECES) {
+					g_BgRoomPieces[g_BgNumRoomPieces][0] = g_BgRooms[j].drawnwith;
+					g_BgRoomPieces[g_BgNumRoomPieces][1] = j;
+					g_BgNumRoomPieces++;
+				}
+			}
+		}
+#endif
 
 		g_BgPortals = (struct bgportal *)(g_BgPrimaryData2[2] + g_BgPrimaryData - 0x0f000000);
 #ifndef PLATFORM_N64

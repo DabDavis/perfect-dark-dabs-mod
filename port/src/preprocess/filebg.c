@@ -75,6 +75,7 @@ struct n64_bgroom {
 	struct coord pos;
 	u8 br_light_min;
 	u8 br_light_max;
+	u16 drawnwith; // padding but on a converted level's piece of a room
 };
 
 struct n64_roomblock {
@@ -121,6 +122,7 @@ static void convertPrimaryRooms(u8 *dst, u32 *dstpos, u8 *src, u32 *srcpos)
 		host_rooms[i].pos = PD_SWAPPED_VAL(n64_rooms[i].pos);
 		host_rooms[i].br_light_min = n64_rooms[i].br_light_min;
 		host_rooms[i].br_light_max = n64_rooms[i].br_light_max;
+		host_rooms[i].drawnwith = PD_BE16(n64_rooms[i].drawnwith);
 	}
 
 	*srcpos += sizeof(*n64_rooms) * (numRooms + 2);

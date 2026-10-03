@@ -2679,35 +2679,22 @@ struct roomout {
 	lights lights;
 };
 
-static struct roomout writeRoom(const struct bgroom *room, double inv, const double *offset, uint32_t baseptr,
-		uint8_t *textures, int32_t lightsindex, const int32_t *tilebox)
+/**
+ * A room's file data out of its converted lists: its vertices (outv, each
+ * relative to r->centre), their colours, and each leaf's words (an opaque
+ * and a translucent, where hasleaf says), at file address baseptr; r->lights
+ * already set. Its box is its vertices', grown to its own tiles (tilebox).
+ */
+static void roomPack(struct roomout *r, outvtxs outv, u32s outc, u32s *leafwords, const size_t *leafbase,
+		const int *hasleaf, uint32_t baseptr, int32_t lightsindex, const int32_t *tilebox)
 {
-	struct roomout r;
-	buf vtx = scaledRoom(room, inv, offset, r.centre, tilebox);
-	outvtxs outv = {0};
-	u32s outc = {0};
-	tris lighttris = {0};
-	u32s leafwords[2] = { {0}, {0} };
-	size_t leafbase[2] = { 0, 0 };
-	int hasleaf[2] = { room->haspri, room->hassec };
-	const buf *dls[2] = { &room->pri, &room->sec };
 	int nleaves = 0, vpad;
 	size_t vtxat, colat, gdlat, at;
 	uint32_t ptrs[2] = { 0, 0 };
 	buf body = {0}, gdls = {0};
 
 	for (int i = 0; i < 2; ++i) {
-		if (!hasleaf[i]) {
-			continue;
-		}
-		leafbase[i] = outv.n;
-		convertList(dls[i], &vtx, &outv, &outc, leafbase[i], textures, &lighttris, &leafwords[i]);
-		++nleaves;
-	}
-
-	r.lights = fixtureLights(&lighttris);
-	if (r.lights.n > 255) {
-		r.lights.n = 255;
+		nleaves += hasleaf[i] ? 1 : 0;
 	}
 
 	vtxat = (0x18 + 20 * nleaves + 7) & ~7u;
@@ -2747,8 +2734,8 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 
 	set32(body.v, 8, ptrs[0]);
 	set32(body.v, 12, ptrs[1]);
-	set16(body.v, 0x10, (uint32_t)(r.lights.n ? lightsindex : -1));
-	set16(body.v, 0x12, (uint32_t)r.lights.n);
+	set16(body.v, 0x10, (uint32_t)(r->lights.n ? lightsindex : -1));
+	set16(body.v, 0x12, (uint32_t)r->lights.n);
 	set16(body.v, 0x14, (uint32_t)(outv.n < 32767 ? outv.n : 32767));
 	set16(body.v, 0x16, (uint32_t)(outc.n < 32767 ? outc.n : 32767));
 
@@ -2768,8 +2755,8 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 		set32(body.v, colat + 4 * k, outc.v[k]);
 	}
 
-	r.data = body;
-	bufPut(&r.data, gdls.v, gdls.n);
+	r->data = body;
+	bufPut(&r->data, gdls.v, gdls.n);
 
 	{
 		size_t used = outv.n - ((outv.n && outc.v[outc.n - 1] == 0 && vpad) ? 1 : 0);
@@ -2786,11 +2773,11 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 				}
 			}
 			for (int c = 0; c < 3; ++c) {
-				r.bbox[c] = mn[c];
-				r.bbox[3 + c] = mx[c];
+				r->bbox[c] = mn[c];
+				r->bbox[3 + c] = mx[c];
 			}
 		} else {
-			memset(r.bbox, 0, sizeof(r.bbox));
+			memset(r->bbox, 0, sizeof(r->bbox));
 		}
 
 		// The room holds the tiles GoldenEye files under it, which need not be
@@ -2801,18 +2788,541 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 		// runway"), so a room whose box misses its own floor cannot be found.
 		if (tilebox) {
 			for (int c = 0; c < 3; ++c) {
-				const int32_t lo = (int32_t)floor(tilebox[c] - r.centre[c]);
-				const int32_t hi = (int32_t)ceil(tilebox[3 + c] - r.centre[c]);
+				const int32_t lo = (int32_t)floor(tilebox[c] - r->centre[c]);
+				const int32_t hi = (int32_t)ceil(tilebox[3 + c] - r->centre[c]);
 
-				if (lo < r.bbox[c]) {
-					r.bbox[c] = lo < -32768 ? -32768 : lo;
+				if (lo < r->bbox[c]) {
+					r->bbox[c] = lo < -32768 ? -32768 : lo;
 				}
-				if (hi > r.bbox[3 + c]) {
-					r.bbox[3 + c] = hi > 32767 ? 32767 : hi;
+				if (hi > r->bbox[3 + c]) {
+					r->bbox[3 + c] = hi > 32767 ? 32767 : hi;
 				}
 			}
 		}
 	}
+
+}
+
+static struct roomout writeRoom(const struct bgroom *room, double inv, const double *offset, uint32_t baseptr,
+		uint8_t *textures, int32_t lightsindex, const int32_t *tilebox)
+{
+	struct roomout r;
+	buf vtx = scaledRoom(room, inv, offset, r.centre, tilebox);
+	outvtxs outv = {0};
+	u32s outc = {0};
+	tris lighttris = {0};
+	u32s leafwords[2] = { {0}, {0} };
+	size_t leafbase[2] = { 0, 0 };
+	int hasleaf[2] = { room->haspri, room->hassec };
+	const buf *dls[2] = { &room->pri, &room->sec };
+
+	for (int i = 0; i < 2; ++i) {
+		if (!hasleaf[i]) {
+			continue;
+		}
+		leafbase[i] = outv.n;
+		convertList(dls[i], &vtx, &outv, &outc, leafbase[i], textures, &lighttris, &leafwords[i]);
+	}
+
+	r.lights = fixtureLights(&lighttris);
+	if (r.lights.n > 255) {
+		r.lights.n = 255;
+	}
+
+	roomPack(&r, outv, outc, leafwords, leafbase, hasleaf, baseptr, lightsindex, tilebox);
+
+	return r;
+}
+
+/**
+ * A room wider than 16 bits. A converted room's vertices are s16s about its
+ * centre, as every reader of a room's lists takes them, and GoldenEye's are
+ * too about its own - but scaled to the world by a level scale under 1/2 a
+ * room can outgrow them: TND64's Golden Gate Bridge (scale 0.1) has four
+ * rooms whose water and hills run 100,000 to either side of the deck, with
+ * single triangles 66,670 long. Such a room keeps what fits about its centre,
+ * and the rest is cut into triangles no longer than SPLIT_EDGE (each cut
+ * carrying its texture coordinates and colour across) and dealt by where it
+ * lies into pieces SPLIT_CELL wide: rooms of their own after the level's,
+ * each about its own centre, with every state command of the room's lists in
+ * the same order and no portal, drawn whenever their room is (the room table
+ * row's last two bytes name it; bgSetRoomOnscreen()). What is cut out lies
+ * far beyond the level's floor, so no question of where a point is finds a
+ * piece. A piece has no lights of its own.
+ */
+#define SPLIT_EDGE 12000.0
+#define SPLIT_CELL 40000.0
+
+static void note(const char *fmt, ...);
+#define SPLIT_FIT 32767.0
+#define MAX_SPLIT_PARTS 64
+
+struct splitvtx {
+	double p[3];
+	int32_t s, t;
+	uint32_t col;
+	uint8_t lit;
+};
+
+struct splittri {
+	struct splitvtx v[3];
+};
+
+typedef VEC(struct splittri) splittris;
+
+struct splitpart {
+	double centre[3];
+	int64_t cell[3];
+	outvtxs outv;
+	u32s outc;
+	u32s words[2];
+	size_t base[2];
+	splittris pend;
+	tris lighttris;
+};
+
+struct splitroom {
+	int nparts;
+	struct splitpart parts[MAX_SPLIT_PARTS];
+	int collect; // the first walk only finds the parts
+};
+
+static int splitFits(const struct splitvtx *v, const double *centre)
+{
+	for (int c = 0; c < 3; ++c) {
+		if (fabs(v->p[c] - centre[c]) > SPLIT_FIT) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+// the room's centre as scaledRoom() takes it, and whether every vertex fits
+static int roomCentre(const struct bgroom *room, double inv, const double *offset, double *centre)
+{
+	const size_t n = room->hasvtx ? room->vtx.n / 16 : 0;
+	uint8_t *seen;
+	double mn[3] = { 0 }, mx[3] = { 0 };
+	int any = 0, first = 1, fits = 1;
+
+	if (!n) {
+		return 1;
+	}
+
+	seen = gcAlloc(n);
+	if (room->haspri) {
+		loadedVertices(&room->pri, seen, n, &any);
+	}
+	if (room->hassec) {
+		loadedVertices(&room->sec, seen, n, &any);
+	}
+
+	for (size_t k = 0; k < n; ++k) {
+		if (any && !seen[k]) {
+			continue;
+		}
+		for (int c = 0; c < 3; ++c) {
+			const double v = ((double)bes16(room->vtx.v, 16 * k + 2 * c) + room->pos[c]) * inv - offset[c];
+			if (first || v < mn[c]) mn[c] = v;
+			if (first || v > mx[c]) mx[c] = v;
+		}
+		first = 0;
+	}
+
+	if (first) {
+		return 1;
+	}
+
+	for (int c = 0; c < 3; ++c) {
+		centre[c] = rnd((mn[c] + mx[c]) / 2);
+	}
+
+	for (size_t k = 0; k < n; ++k) {
+		for (int c = 0; c < 3; ++c) {
+			const double v = ((double)bes16(room->vtx.v, 16 * k + 2 * c) + room->pos[c]) * inv - offset[c];
+			if (fabs(v - centre[c]) > SPLIT_FIT) {
+				fits = 0;
+			}
+		}
+	}
+
+	return fits;
+}
+
+static struct splitpart *splitPartFor(struct splitroom *sr, const struct splittri *t)
+{
+	int64_t cell[3];
+
+	if (splitFits(&t->v[0], sr->parts[0].centre) && splitFits(&t->v[1], sr->parts[0].centre)
+			&& splitFits(&t->v[2], sr->parts[0].centre)) {
+		return &sr->parts[0];
+	}
+
+	for (int c = 0; c < 3; ++c) {
+		cell[c] = (int64_t)floor((t->v[0].p[c] + t->v[1].p[c] + t->v[2].p[c]) / 3.0 / SPLIT_CELL);
+	}
+
+	for (int i = 1; i < sr->nparts; ++i) {
+		if (!memcmp(sr->parts[i].cell, cell, sizeof(cell))) {
+			return &sr->parts[i];
+		}
+	}
+
+	if (!sr->collect) {
+		fail("a room's piece was not found again");
+	}
+
+	if (sr->nparts == MAX_SPLIT_PARTS) {
+		fail("a room needs more than %d pieces", MAX_SPLIT_PARTS);
+	}
+
+	{
+		struct splitpart *p = &sr->parts[sr->nparts++];
+
+		memset(p, 0, sizeof(*p));
+		memcpy(p->cell, cell, sizeof(cell));
+		for (int c = 0; c < 3; ++c) {
+			p->centre[c] = rnd(((double)cell[c] + 0.5) * SPLIT_CELL);
+		}
+
+		return p;
+	}
+}
+
+static struct splitvtx splitMid(const struct splitvtx *a, const struct splitvtx *b)
+{
+	struct splitvtx m;
+
+	memset(&m, 0, sizeof(m));
+	for (int c = 0; c < 3; ++c) {
+		m.p[c] = (a->p[c] + b->p[c]) / 2;
+	}
+	m.s = (int32_t)floor((a->s + b->s) / 2.0 + 0.5);
+	m.t = (int32_t)floor((a->t + b->t) / 2.0 + 0.5);
+	m.col = 0;
+	for (int k = 0; k < 32; k += 8) {
+		m.col |= (uint32_t)((((a->col >> k) & 0xff) + ((b->col >> k) & 0xff) + 1) / 2) << k;
+	}
+	m.lit = a->lit;
+
+	return m;
+}
+
+// a triangle into the part it lies in, cut in two along its longest side
+// until it fits one
+static void splitTri(struct splitroom *sr, const struct splittri *t, int lighttex)
+{
+	double extent = 0;
+	int edge = 0;
+	double longest = -1;
+
+	for (int c = 0; c < 3; ++c) {
+		double lo = t->v[0].p[c], hi = lo;
+
+		for (int k = 1; k < 3; ++k) {
+			lo = t->v[k].p[c] < lo ? t->v[k].p[c] : lo;
+			hi = t->v[k].p[c] > hi ? t->v[k].p[c] : hi;
+		}
+		extent = hi - lo > extent ? hi - lo : extent;
+	}
+
+	if (extent <= SPLIT_EDGE || (splitFits(&t->v[0], sr->parts[0].centre) && splitFits(&t->v[1], sr->parts[0].centre)
+				&& splitFits(&t->v[2], sr->parts[0].centre))) {
+		struct splitpart *p = splitPartFor(sr, t);
+
+		if (!sr->collect) {
+			VECPUSH(p->pend, *t);
+
+			if (lighttex && p == &sr->parts[0]) {
+				struct tri lt;
+
+				for (int k = 0; k < 3; ++k) {
+					for (int c = 0; c < 3; ++c) {
+						lt.p[k][c] = s16(t->v[k].p[c] - p->centre[c]);
+					}
+				}
+				VECPUSH(p->lighttris, lt);
+			}
+		}
+		return;
+	}
+
+	for (int k = 0; k < 3; ++k) {
+		const struct splitvtx *a = &t->v[k], *b = &t->v[(k + 1) % 3];
+		const double ab[3] = { a->p[0] - b->p[0], a->p[1] - b->p[1], a->p[2] - b->p[2] };
+		const double d = norm3(ab);
+
+		if (d > longest) {
+			longest = d;
+			edge = k;
+		}
+	}
+
+	{
+		const struct splitvtx m = splitMid(&t->v[edge], &t->v[(edge + 1) % 3]);
+		struct splittri u = *t, w = *t;
+
+		u.v[(edge + 1) % 3] = m;
+		w.v[edge] = m;
+		splitTri(sr, &u, lighttex);
+		splitTri(sr, &w, lighttex);
+	}
+}
+
+// a part's pending triangles as batches of sixteen vertices and G_TRI4s
+static void splitFlush(struct splitpart *p, int leaf)
+{
+	size_t i = 0;
+
+	while (i < p->pend.n) {
+		struct splitvtx batch[16];
+		uint8_t idx[64][3];
+		size_t nb = 0, nt = 0;
+		const uint32_t start = (uint32_t)(p->outv.n - p->base[leaf]);
+
+		for (; i < p->pend.n && nt < 64; ++i) {
+			uint8_t got[3];
+			size_t added = nb;
+			int ok = 1;
+
+			// the triangle's vertices found in the batch or added to it; one
+			// the batch has no room for leaves it to the next
+			for (int k = 0; k < 3 && ok; ++k) {
+				size_t j = 0;
+
+				while (j < added && memcmp(&batch[j], &p->pend.v[i].v[k], sizeof(batch[j]))) {
+					++j;
+				}
+
+				if (j == added) {
+					if (added == 16) {
+						ok = 0;
+						break;
+					}
+					batch[added++] = p->pend.v[i].v[k];
+				}
+
+				got[k] = (uint8_t)j;
+			}
+
+			if (!ok) {
+				break;
+			}
+
+			nb = added;
+			memcpy(idx[nt++], got, 3);
+		}
+
+		if (!nt) {
+			fail("a triangle does not fit a batch");
+		}
+
+		for (size_t k = 0; k < nb; ++k) {
+			struct outvtx v;
+
+			v.x = (int16_t)s16(batch[k].p[0] - p->centre[0]);
+			v.y = (int16_t)s16(batch[k].p[1] - p->centre[1]);
+			v.z = (int16_t)s16(batch[k].p[2] - p->centre[2]);
+			v.f = batch[k].lit ? 0x01 : 0;
+			v.c = (uint8_t)(k << 2);
+			v.s = (int16_t)batch[k].s;
+			v.t = (int16_t)batch[k].t;
+			VECPUSH(p->outv, v);
+			VECPUSH(p->outc, batch[k].col);
+		}
+
+		VECPUSH(p->words[leaf], (0x07u << 24) | ((((nb - 1) << 2) & 0xff) << 16) | (uint32_t)(nb * 4));
+		VECPUSH(p->words[leaf], 0x0d000000u | (start * 4));
+		VECPUSH(p->words[leaf], (0x04u << 24) | ((uint32_t)(nb - 1) << 20) | (uint32_t)(nb * 12));
+		VECPUSH(p->words[leaf], 0x0e000000u | (start * 12));
+
+		for (size_t k = 0; k < nt; k += 4) {
+			uint32_t w0 = 0xb1u << 24, w1 = 0;
+
+			for (size_t q = 0; q < 4 && k + q < nt; ++q) {
+				w1 |= (uint32_t)idx[k + q][0] << (8 * q);
+				w1 |= (uint32_t)idx[k + q][1] << (8 * q + 4);
+				w0 |= (uint32_t)idx[k + q][2] << (4 * q);
+			}
+
+			VECPUSH(p->words[leaf], w0);
+			VECPUSH(p->words[leaf], w1);
+		}
+	}
+
+	p->pend.n = 0;
+}
+
+static void splitEmit(struct splitroom *sr, int leaf, uint32_t w0, uint32_t w1)
+{
+	if (sr->collect) {
+		return;
+	}
+
+	for (int i = 0; i < sr->nparts; ++i) {
+		splitFlush(&sr->parts[i], leaf);
+		VECPUSH(sr->parts[i].words[leaf], w0);
+		VECPUSH(sr->parts[i].words[leaf], w1);
+	}
+}
+
+// one walk of a leaf's list, convertList()'s, dealing its triangles to the parts
+static void splitList(struct splitroom *sr, int leaf, const buf *dl, const struct bgroom *room, double inv,
+		const double *offset, uint8_t *textures)
+{
+	int32_t slots[32];
+	uint8_t slotlit[32];
+	int64_t curtex = -1;
+	int lit = 0;
+	const size_t nvtx = room->hasvtx ? room->vtx.n / 16 : 0;
+
+	for (int i = 0; i < 32; ++i) {
+		slots[i] = -1;
+		slotlit[i] = 0;
+	}
+
+	if (!sr->collect) {
+		for (int i = 0; i < sr->nparts; ++i) {
+			sr->parts[i].base[leaf] = sr->parts[i].outv.n;
+		}
+	}
+
+	for (size_t o = 0; o + 8 <= dl->n; o += 8) {
+		uint32_t w0 = be32(dl->v, o), w1 = be32(dl->v, o + 4);
+		const uint32_t op = w0 >> 24;
+
+		if (op == 0xb7 && (w1 & 0x20000)) {
+			lit = 1;
+		} else if (op == 0xb6 && (w1 & 0x20000)) {
+			lit = 0;
+		}
+
+		if (op == 0x04) {
+			const uint32_t n = ((w0 >> 20) & 0xf) + 1;
+			const uint32_t v0 = (w0 >> 16) & 0xf;
+			const uint32_t src = (w1 & 0xffffff) / 16;
+
+			for (uint32_t i = 0; i < n; ++i) {
+				if (src + i >= nvtx) {
+					fail("a list loads a vertex the room does not have");
+				}
+				slots[v0 + i] = (int32_t)(src + i);
+				slotlit[v0 + i] = (uint8_t)lit;
+			}
+		} else if (op == 0xbf || op == 0xb1) {
+			const int ntri = op == 0xbf ? 1 : 4;
+
+			for (int q = 0; q < ntri; ++q) {
+				uint32_t k[3];
+				struct splittri t;
+
+				if (op == 0xbf) {
+					k[0] = ((w1 >> 16) & 0xff) / 10;
+					k[1] = ((w1 >> 8) & 0xff) / 10;
+					k[2] = (w1 & 0xff) / 10;
+				} else {
+					k[0] = (w1 >> (8 * q)) & 0xf;
+					k[1] = (w1 >> (8 * q + 4)) & 0xf;
+					k[2] = (w0 >> (4 * q)) & 0xf;
+
+					if (k[0] == k[1] || k[1] == k[2] || k[0] == k[2]) {
+						continue;
+					}
+				}
+
+				if (k[0] >= 32 || k[1] >= 32 || k[2] >= 32 || slots[k[0]] < 0 || slots[k[1]] < 0 || slots[k[2]] < 0) {
+					fail("a triangle names a vertex no command loaded");
+				}
+
+				for (int j = 0; j < 3; ++j) {
+					const size_t at = 16 * (size_t)slots[k[j]];
+					struct splitvtx *v = &t.v[j];
+
+					memset(v, 0, sizeof(*v));
+					for (int c = 0; c < 3; ++c) {
+						v->p[c] = ((double)bes16(room->vtx.v, at + 2 * c) + room->pos[c]) * inv - offset[c];
+					}
+					v->s = bes16(room->vtx.v, at + 8);
+					v->t = bes16(room->vtx.v, at + 10);
+					v->col = be32(room->vtx.v, at + 12);
+					v->lit = slotlit[k[j]];
+				}
+
+				splitTri(sr, &t, curtex >= 0 && isLightImage((uint32_t)curtex));
+			}
+		} else if (op == 0xb8) {
+			splitEmit(sr, leaf, w0, w1);
+			break;
+		} else {
+			if (op == 0xc0) {
+				curtex = w1 & 0xfff;
+				if (!sr->collect) {
+					setAdd(textures, w1 & 0xfff);
+					w1 = (w1 & ~0xfffu) | texRemap(w1 & 0xfff);
+					if ((w0 & 7) == 1) {
+						setAdd(textures, (w1 >> 12) & 0xfff);
+						w1 = (w1 & ~0xfff000u) | (texRemap((w1 >> 12) & 0xfff) << 12);
+					}
+				}
+			}
+			splitEmit(sr, leaf, w0, w1);
+		}
+	}
+
+	// a list with no end of its own
+	if (!sr->collect) {
+		for (int i = 0; i < sr->nparts; ++i) {
+			splitFlush(&sr->parts[i], leaf);
+		}
+	}
+}
+
+/**
+ * How many rooms `room` is written as: 1, or where it is wider than 16 bits
+ * (roomSplit()) itself and its pieces. *sr is filled for roomSplitOut().
+ */
+static int roomSplit(const struct bgroom *room, double inv, const double *offset, uint8_t *textures,
+		struct splitroom *sr)
+{
+	const buf *dls[2] = { &room->pri, &room->sec };
+	const int has[2] = { room->haspri, room->hassec };
+
+	memset(sr, 0, sizeof(*sr));
+	sr->nparts = 1;
+
+	if (roomCentre(room, inv, offset, sr->parts[0].centre)) {
+		return 1;
+	}
+
+	for (int pass = 0; pass < 2; ++pass) {
+		sr->collect = pass == 0;
+
+		for (int i = 0; i < 2; ++i) {
+			if (has[i]) {
+				splitList(sr, i, dls[i], room, inv, offset, textures);
+			}
+		}
+	}
+
+	return sr->nparts;
+}
+
+// part `part` of a room roomSplit() cut, as writeRoom() writes a room
+static struct roomout roomSplitOut(const struct bgroom *room, struct splitroom *sr, int part, uint32_t baseptr,
+		int32_t lightsindex, const int32_t *tilebox)
+{
+	struct splitpart *p = &sr->parts[part];
+	struct roomout r;
+	int hasleaf[2] = { room->haspri, room->hassec };
+
+	memcpy(r.centre, p->centre, sizeof(r.centre));
+	r.lights = fixtureLights(&p->lighttris);
+	if (r.lights.n > 255) {
+		r.lights.n = 255;
+	}
+
+	roomPack(&r, p->outv, p->outc, p->words, p->base, hasleaf, baseptr, lightsindex, part ? NULL : tilebox);
 
 	return r;
 }
@@ -3230,23 +3740,55 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	VEC(struct { int room; struct light l; }) alllights = {0};
 	buf lightsblob = {0}, portals = {0}, groups = {0}, primary = {0}, primz, out = {0}, rooms = {0};
 	VEC(int32_t) lens = {0};
-	uint8_t *lightcounts = gcAlloc(n + 1);
-	int32_t (*bboxes)[6] = gcAlloc((n + 1) * sizeof(*bboxes));
+	uint8_t *lightcounts;
+	int32_t (*bboxes)[6];
 	uint32_t ptr;
 	int32_t sumlights = 0;
 	int (*order)[2];
+	// a room wider than 16 bits and its pieces, rooms of their own after the
+	// level's (roomSplit())
+	struct splitroom *split = NULL;
+	int *splitparts = gcAlloc((n + 1) * sizeof(*splitparts));
+	int total = n;
+
+	for (int r = 1; r <= n; ++r) {
+		if (!split) {
+			split = gcAlloc(sizeof(*split));
+		}
+		splitparts[r] = roomSplit(&bg->rooms[r - 1], inv, offset, leveltex, split);
+		total += splitparts[r] - 1;
+	}
+
+	lightcounts = gcAlloc(total + 1);
+	bboxes = gcAlloc((total + 1) * sizeof(*bboxes));
 
 	// the rooms are converted first, since their lights go in the primary data
 	for (int r = 1; r <= n; ++r) {
-		struct roomout ro = writeRoom(&bg->rooms[r - 1], inv, offset, 0, leveltex, (int32_t)alllights.n,
-				tilebounds[r][6] ? tilebounds[r] : NULL);
+		struct roomout ro;
+
+		if (splitparts[r] > 1) {
+			roomSplit(&bg->rooms[r - 1], inv, offset, leveltex, split);
+			ro = roomSplitOut(&bg->rooms[r - 1], split, 0, 0, (int32_t)alllights.n, tilebounds[r][6] ? tilebounds[r] : NULL);
+		} else {
+			ro = writeRoom(&bg->rooms[r - 1], inv, offset, 0, leveltex, (int32_t)alllights.n,
+					tilebounds[r][6] ? tilebounds[r] : NULL);
+		}
 		for (size_t k = 0; k < ro.lights.n; ++k) {
 			__typeof__(*alllights.v) e = { r, ro.lights.v[k] };
 			VECPUSH(alllights, e);
 		}
 	}
 
-	lightsat = tableat + 20 * (n + 3);
+	if (total > n) {
+		int wide = 0;
+
+		for (int r = 1; r <= n; ++r) {
+			wide += splitparts[r] > 1;
+		}
+		note("geconvert: %d rooms wider than 16 bits, cut into %d more", wide, total - n);
+	}
+
+	lightsat = tableat + 20 * (total + 3);
 
 	for (size_t k = 0; k < alllights.n; ++k) {
 		bufU16(&lightsblob, alllights.v[k].room);
@@ -3328,12 +3870,22 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	// rooms, at pointers after the inflated primary
 	ptr = SEG_BG + (uint32_t)inf;
 
+	// the level's rooms, then the pieces of any cut, each after the last: a
+	// room's bytes run to the next one's
 	for (int r = 1; r <= n; ++r) {
-		struct roomout ro = writeRoom(&bg->rooms[r - 1], inv, offset, ptr, leveltex, sumlights,
-				tilebounds[r][6] ? tilebounds[r] : NULL);
-		buf z = rzip1173(ro.data.v, ro.data.n);
+		struct roomout ro;
+		buf z;
 		const size_t e = tableat + 20 * r;
 
+		if (splitparts[r] > 1) {
+			roomSplit(&bg->rooms[r - 1], inv, offset, leveltex, split);
+			ro = roomSplitOut(&bg->rooms[r - 1], split, 0, ptr, sumlights, tilebounds[r][6] ? tilebounds[r] : NULL);
+		} else {
+			ro = writeRoom(&bg->rooms[r - 1], inv, offset, ptr, leveltex, sumlights,
+					tilebounds[r][6] ? tilebounds[r] : NULL);
+		}
+
+		z = rzip1173(ro.data.v, ro.data.n);
 		lightcounts[r - 1] = (uint8_t)ro.lights.n;
 		sumlights += (int32_t)ro.lights.n;
 		set32(primary.v, e, ptr);
@@ -3348,7 +3900,33 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 		ptr += (uint32_t)z.n;
 	}
 
-	set32(primary.v, tableat + 20 * (n + 1), ptr);
+	for (int r = 1, piece = n + 1; r <= n; ++r) {
+		if (splitparts[r] > 1) {
+			roomSplit(&bg->rooms[r - 1], inv, offset, leveltex, split);
+		}
+
+		for (int part = 1; part < splitparts[r]; ++part, ++piece) {
+			struct roomout ro = roomSplitOut(&bg->rooms[r - 1], split, part, ptr, sumlights, NULL);
+			buf z = rzip1173(ro.data.v, ro.data.n);
+			const size_t e = tableat + 20 * piece;
+
+			lightcounts[piece - 1] = 0;
+			set32(primary.v, e, ptr);
+			for (int c = 0; c < 3; ++c) {
+				setf32(primary.v, e + 4 + 4 * c, ro.centre[c]);
+			}
+			primary.v[e + 16] = 128;
+			primary.v[e + 17] = 255;
+			// the room it is drawn with (the row's two bytes of padding)
+			set16(primary.v, e + 18, (uint32_t)r);
+			bufPut(&rooms, z.v, z.n);
+			memcpy(bboxes[piece - 1], ro.bbox, sizeof(ro.bbox));
+			VECPUSH(lens, (int32_t)ro.data.n);
+			ptr += (uint32_t)z.n;
+		}
+	}
+
+	set32(primary.v, tableat + 20 * (total + 1), ptr);
 
 	primz = rzip1173(primary.v, primary.n);
 	bufU32(&out, (uint32_t)inf);
@@ -3377,16 +3955,16 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	// section 3: bounding boxes, gfxdatalen, light counts
 	{
 		buf s3 = {0}, s3z;
-		for (int r = 0; r < n; ++r) {
+		for (int r = 0; r < total; ++r) {
 			for (int c = 0; c < 6; ++c) {
 				bufU16(&s3, (uint16_t)s16(bboxes[r][c]));
 			}
 		}
-		for (int r = 0; r < n; ++r) {
+		for (int r = 0; r < total; ++r) {
 			const int32_t v = lens.v[r] / 16 + 1;
 			bufU16(&s3, (uint32_t)(v < 0xffff ? v : 0xffff));
 		}
-		bufPut(&s3, lightcounts, n);
+		bufPut(&s3, lightcounts, total);
 		s3z = rzip1173(s3.v, s3.n);
 		bufU16(&out, 0x8000 | (uint32_t)s3.n);
 		bufU16(&out, (uint32_t)s3z.n);
