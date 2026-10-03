@@ -6499,6 +6499,14 @@ static Gfx *frontDrawTvs(Gfx *gdl)
 	modSetTextureSourceMod(prevsrc);
 	frontMonitorClock(0, &lvupdate60, &lvupdate60f);
 
+	{
+		// the camera's own projection back, unshifted, for whatever follows
+		Mtx *projection = gfxAllocateMatrix();
+
+		guMtxF2L(persp.m, projection);
+		gSPMatrix(gdl++, projection, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+	}
+
 	gSPClearGeometryMode(gdl++, G_ZBUFFER);
 	gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 
