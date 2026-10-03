@@ -782,6 +782,22 @@ table at 0x80054294). Two faults, both its own:
   output is byte-identical (only Goldfinger's `menu/geexplosions.bin`
   changes).
 
+- **Most of its shots were still silent (F3 pass 31, 20261003-163557).**
+  34 of its re-recorded samples carry an 11.1 s envelope decay (11148977
+  us; 3-6, 12, 16-17, 43, 50, 54-56, 74, 79, 87, 89, 95-97, 100-101,
+  109-113, 115-116, 121, 160, 205-207, 233): the shots of the Colt, Luger,
+  P38, AK47, MP40, both Thompsons, M14, Remington, Over/Under, Kar98k,
+  Carbine, AR7, both S&Ws, the Golden Magnum and the M79, and the reload's
+  50. Perfect Dark's n_sndplayer.c stops a sound whose attack, decay or
+  release is past 5.5 s (`delta > 5500000` -> func00033090) the moment it
+  starts; GoldenEye's snd.c has no such ceiling. "STARTED ok" at
+  func00033820 says nothing: the voice is cut in the PLAY event. Now
+  `sndpEnvTooLong()` clamps the phase to 5.5 s for a sound out of a
+  converted bank (`geSfxIsBankSound()`, numbers sndAppendSound() gave
+  gesfx.c) and keeps the stop for Perfect Dark's own. GoldenEye's own bank
+  has no phase that long, so GE Plus is unchanged. Test: SDL_AUDIODRIVER=disk,
+  gdb `sndStart(0, geSfxGet(id), ...)` 1.5 s apart, RMS per 0.1 s.
+
 Probe: `snd.py` (gdb, the session's run dir): fires GUNS, forces a reload,
 logs every sound the player starts (n_sndplayer.c:714/730), then damages
 explosive props and counts explosion props.

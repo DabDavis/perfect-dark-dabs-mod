@@ -83,6 +83,11 @@ s32 geSfxOurs(s32 id, s32 pdsound);
 // as it starts a sound: the link was taken off the key map (gesfx.c).
 s32 geSfxChain(s32 ours);
 
+// Whether `ours` is a sound appended out of a converted mod's bank (GoldenEye's
+// or a ROM hack's), so played by GoldenEye's rules where they differ from
+// Perfect Dark's player (n_sndplayer.c's sndpEnvTooLong())
+s32 geSfxIsBankSound(s32 ours);
+
 // GoldenEye's guns on a stage of Perfect Dark's (gesfx.c): whether the
 // conversion has the bank for their sounds, loading it the first time
 s32 geSfxGuns(void);
