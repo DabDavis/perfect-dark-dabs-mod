@@ -488,7 +488,13 @@ static s32 gexPlusBodyForGe(s32 gebody)
 // GEROM_BODY_FIRST..GEROM_BODY_LAST are gebean.h's: rows kept for a mission's
 // bodies, under the pool, where a packedchr's u8 bodynum reaches
 #define GEROM_HEAD_FIRST  256
-#define GEROM_MAX_ROWS    GEROM_BODY_ROWS
+// the rows a mission holds, bodies and heads together: the bodies are capped
+// by their own 24 (the row search), the heads by the free rows from the far
+// end. Both shared one cap of 24 once, and Goldfinger 64's Ranch, with twelve
+// bodies each wearing a head of its own, had none left for Bond when third
+// person built his body: the player was Joanna (F3 20261003-071337)
+#define GEROM_HEAD_ROWS   128
+#define GEROM_MAX_ROWS    (GEROM_BODY_ROWS + GEROM_HEAD_ROWS)
 
 _Static_assert(GEROM_BODY_LAST < 256, "a mission's body row has to fit a byte");
 
