@@ -18278,7 +18278,7 @@ void ammotypeGetPickupName(char *dst, s32 ammotype2, s32 qty)
 		// unless Perfect Dark's combat knife is already held (F3
 		// 20261002-225759: "picked up combat knife")
 		if (ammotypeGetWeapon(AMMOTYPE_KNIFE) == WEAPON_GE_THROWINGKNIFE) {
-			strcat(dst, "throwing ");
+			strcat(dst, langTr("throwing "));
 		} else
 #endif
 		strcat(dst, langGet(L_PROPOBJ_021)); // "combat"

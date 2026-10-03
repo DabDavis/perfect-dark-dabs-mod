@@ -6,6 +6,7 @@
 #include "gegadgets.h"
 #include "gexfront.h"
 #include "gexplus.h"
+#include "modloader.h"
 #include "geguns.h"
 #endif
 #include "game/cheats.h"
@@ -41,16 +42,19 @@ void invClear(void)
  * detonator and the tank's shells straight after the remote mine, where ours
  * number them after the guns and the gadgets (F3 20261002-225441: "the
  * throwing knife comes after the KF7"). Perfect Dark's own order is its
- * numbers, unchanged.
+ * numbers, unchanged, and so is a GoldenEye gun's on Perfect Dark's stages:
+ * the reorder is GoldenEye's, for its converted stages only.
  */
 static s32 invOrderKey(s32 weaponnum)
 {
 #ifndef PLATFORM_N64
-	switch (weaponnum) {
-	case WEAPON_GE_HUNTINGKNIFE:  return WEAPON_UNARMED * 4 + 1;
-	case WEAPON_GE_THROWINGKNIFE: return WEAPON_UNARMED * 4 + 2;
-	case WEAPON_GE_DETONATOR:     return WEAPON_GE_REMOTEMINE * 4 + 1;
-	case WEAPON_GE_TANKSHELLS:    return WEAPON_GE_REMOTEMINE * 4 + 2;
+	if (weaponnum >= WEAPON_GE_FIRST && modloaderStageIsRemake(g_Vars.stagenum)) {
+		switch (weaponnum) {
+		case WEAPON_GE_HUNTINGKNIFE:  return WEAPON_UNARMED * 4 + 1;
+		case WEAPON_GE_THROWINGKNIFE: return WEAPON_UNARMED * 4 + 2;
+		case WEAPON_GE_DETONATOR:     return WEAPON_GE_REMOTEMINE * 4 + 1;
+		case WEAPON_GE_TANKSHELLS:    return WEAPON_GE_REMOTEMINE * 4 + 2;
+		}
 	}
 #endif
 
