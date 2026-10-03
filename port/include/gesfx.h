@@ -92,6 +92,12 @@ s32 geSfxGuns(void);
 // sample heard as geSfxNum() describes on any other; 0 without the bank
 s32 geSfxGunShot(s32 id);
 
+// Whether `num` is one geSfxGunShot() gave on a converted level for a slot the
+// remap leaves Perfect Dark's (a ROM hack's gun firing with 55, 100 or 101): it
+// is heard at the remap's share of full and with GoldenEye's falloff, as a
+// remapped number is.
+s32 geSfxHeardAsRemapped(s32 num);
+
 // A sound one of GoldenEye's guns makes in the hand (a reload's clicks from
 // its host's animation, an empty click), as a converted level would play it:
 // on a stage of Perfect Dark's, GoldenEye's own sample for a number that is

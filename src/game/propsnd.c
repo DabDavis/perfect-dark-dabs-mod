@@ -866,7 +866,7 @@ s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 pad
 #ifndef PLATFORM_N64
 	// one of GoldenEye's sounds on a converted level (gesfx.c) is heard as far
 	// as GoldenEye hears it: chrobjSndCreatePostEventDefault()'s curve
-	if (dist1 <= 0 && dist2 <= 0 && dist3 <= 0 && !sndIsMp3(soundnum) && geSfxRemaps(spac.id)) {
+	if (dist1 <= 0 && dist2 <= 0 && dist3 <= 0 && !sndIsMp3(soundnum) && (geSfxRemaps(spac.id) || geSfxHeardAsRemapped(spac.id))) {
 		channel->dist1 = 200;
 		channel->dist2 = 5000;
 		channel->dist3 = 6000;
