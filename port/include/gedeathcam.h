@@ -25,6 +25,14 @@ s32 geDeathCamTakeRespawn(void);
 // The replay wants the player's chr body built and ticked, as third person does.
 s32 geDeathCamWantsBody(struct player *player);
 
+// The replay is running or fading out, the body watched or not: no HUD.
+s32 geDeathCamRunning(struct player *player);
+
+// The current player died in GoldenEye's tank (getank.c): the replay watches
+// the tank blow up instead of the body falling. False when there will be no
+// replay, and the tank is blown up there and then.
+s32 geDeathCamTankDeath(struct prop *tankprop);
+
 // The body's head as its tick has just posed it, from playerTickThirdPerson().
 void geDeathCamSeeHead(void);
 

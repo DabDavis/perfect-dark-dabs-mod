@@ -7344,7 +7344,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 		// and GoldenEye's death replay is a camera watching the body fall
 		// (gedeathcam.c)
 		const bool cinema = gecinemaIsOn() || gecinemaIntroIsOn() || geWatchIsOpen()
-			|| geDeathCamWantsBody(g_Vars.currentplayer);
+			|| geDeathCamRunning(g_Vars.currentplayer);
 		// and a death on a GE Plus mission takes the gun out of Bond's hands
 		// as he falls, with its sight and its ammo (bondview2.c)
 		const bool nogun = cinema || geDeathCamIsGoldenEye();
@@ -7483,6 +7483,11 @@ void playerDieByShooter(u32 shooter, bool force)
 		} else if (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {
 			g_Vars.currentplayer->bondtankexplode = true;
 		}
+
+#ifndef PLATFORM_N64
+		// GE Plus's tank: blown up with him in it (getank.c)
+		geTankPlayerDied();
+#endif
 
 		bmoveSetMode(MOVEMODE_WALK);
 #ifndef PLATFORM_N64

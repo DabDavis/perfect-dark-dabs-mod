@@ -9198,7 +9198,20 @@ void chrPunchInflictDamage(struct chrdata *chr, s32 damage, s32 range, u8 revers
 		bgunPlayPropHitSound(&gset, targetprop, -1);
 
 		if (targetprop->type == PROPTYPE_PLAYER || targetprop->type == PROPTYPE_CHR) {
-			chrDamageByImpact(targetprop->chr, gsetGetDamage(&gset) * damage, &vector, &gset, chr->prop, 200);
+			f32 base = gsetGetDamage(&gset);
+
+#ifndef PLATFORM_N64
+			// A guard's punch is five of Perfect Dark's (0.5), its animation's
+			// own count. Where unarmed is GoldenEye's slappers (2, a slap
+			// Bond deals) it was five of those, which killed Bond outright:
+			// Guards Alerted!'s Perfect Dark guards on a GE Plus mission (F3
+			// 20261003-032815). GoldenEye's own guards never punch.
+			if (!chr->aibot && geslappersActive()) {
+				base = geslappersPdPunchDamage();
+			}
+#endif
+
+			chrDamageByImpact(targetprop->chr, base * damage, &vector, &gset, chr->prop, 200);
 		}
 	}
 
@@ -13324,6 +13337,19 @@ void chrTickThrowGrenade(struct chrdata *chr)
 		obj = weaponprop->obj;
 		obj->hidden &= ~OBJHFLAG_GONE;
 	}
+
+#ifndef PLATFORM_N64
+	// GoldenEye's guard pulls the pin at frame 61 of the throw
+	// (chrlvTickThrowGrenade(): the held grenade's timer set every tick from
+	// there), so one killed before he lets go drops a live grenade - the
+	// fuse runs from his death, where Perfect Dark's ran only from the throw
+	// and a guard shot mid-throw dropped a dud (F3 20261002-232842)
+	if (frame >= 61 && weaponprop && modelGetAnimNum(model) == ANIM_THROWGRENADE_STANDING
+			&& gegunsChrGrenadeFuse60(weaponprop->weapon->weaponnum) > 0) {
+		weaponprop->weapon->timer240 = TICKS(gegunsChrGrenadeFuse60(weaponprop->weapon->weaponnum) * 4);
+		weaponprop->forcetick = true;
+	}
+#endif
 
 	// Decide at which frame the grenade leaves the chr's hand
 	if ((frame >= 119 && weaponprop && modelGetAnimNum(model) == ANIM_THROWGRENADE_STANDING)

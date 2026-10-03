@@ -75,6 +75,7 @@
 #include "game/propsnd.h"
 #include "gesfx.h"
 #include "getank.h"
+#include "gedeathcam.h"
 #include "gexplusveh.h"
 #include "modloader.h"
 #include "romdata.h"
@@ -954,7 +955,7 @@ static s32 tankExit(s32 force)
 		return 0;
 	}
 
-	if (found) {
+	if (found && !g_Vars.currentplayer->isdead) {
 		playerprop->pos.x = pos.x;
 		playerprop->pos.z = pos.z;
 		propDeregisterRooms(playerprop);
@@ -987,6 +988,39 @@ static s32 tankExit(s32 force)
 	g_Vars.currentplayer->speedsideways = 0;
 
 	return 1;
+}
+
+/**
+ * The player died, from playerDieByShooter() - the walk that ticks the tank
+ * (geTankTick()) is not run for a dead player, so a death in the tank left him
+ * in it and blew nothing up (F3 20261002-233320, "the tank should be
+ * exploding"). bondview2.c: a tank explodes with Bond in it - on a mission
+ * played alone as each death replay starts, watched instead of his body
+ * (gedeathcam.c), and anywhere else there and then. He is let out of it where
+ * he is (tankExit() leaves a dead player where he fell), so a respawn does not
+ * carry the tank with him.
+ */
+void geTankPlayerDied(void)
+{
+	const s32 p = g_Vars.currentplayernum;
+	struct tankobj *tank;
+	struct prop *prop;
+
+	if (g_Tank[p].state == TANK_OUT) {
+		return;
+	}
+
+	tank = tankDriven();
+
+	if (tank && objIsHealthy(&tank->base)) {
+		prop = tank->base.prop;
+
+		if (!geDeathCamTankDeath(prop)) {
+			explosionCreateSimple(prop, &prop->pos, prop->rooms, EXPLOSIONTYPE_ROCKET, p);
+		}
+	}
+
+	tankExit(1);
 }
 
 /**
@@ -1834,9 +1868,7 @@ void geTankTick(void)
 	prop = tank->base.prop;
 
 	if (g_Vars.currentplayer->isdead) {
-		// bondview2.c: a tank explodes with Bond in it
-		explosionCreateSimple(prop, &prop->pos, prop->rooms, EXPLOSIONTYPE_ROCKET, g_Vars.currentplayernum);
-		tankExit(1);
+		geTankPlayerDied();
 		return;
 	}
 
@@ -1905,7 +1937,15 @@ void geTankTick(void)
 
 		tank->turretyaw = gotyaw;
 	}
+	// bondview2.c: the barrel is lifted 10 degrees over the view while the
+	// shells are in hand, so a shell from the muzzle, which is under the eye,
+	// comes down on what the sight is on. Without it every shell landed short
+	// of the sight (F3 20261002-155025, "the tank shells shoot a little low")
 	tank->turretpitch = g_Vars.currentplayer->vv_verta * M_BADTAU / 360.0f;
+
+	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS) {
+		tank->turretpitch += 0.17453294f;
+	}
 
 	if (tank->turretpitch < -0.087266468f) {
 		tank->turretpitch = -0.087266468f;

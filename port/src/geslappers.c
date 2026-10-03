@@ -275,6 +275,17 @@ s32 geslappersActive(void)
 	return active && g_Weapons[WEAPON_UNARMED] == &slappers;
 }
 
+f32 geslappersPdPunchDamage(void)
+{
+	const struct weaponfunc *func = invitem_unarmed.functions[0];
+
+	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
+		return ((const struct weaponfunc_melee *)func)->damage;
+	}
+
+	return 0.5f;
+}
+
 s32 geslappersInHand(const struct hand *hand)
 {
 	return hand && hand->gset.weaponnum == WEAPON_UNARMED && geslappersActive();

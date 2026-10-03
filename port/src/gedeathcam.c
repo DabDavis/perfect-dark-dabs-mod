@@ -40,8 +40,13 @@
  * in the Combat Simulator anyway), and the Randomizer and Mission Respawn
  * their own ends. The multiplayer half (Press START held back, a press as the
  * respawn) is still here, unreached, should the arenas ever be let in. A death in
- * GoldenEye's tank is not replayed (GoldenEye blows the tank up and watches
- * that instead).
+ * GoldenEye's tank replays no body: GoldenEye blows the tank up at the start
+ * of each replay (explosionCreate(tank, ..., 0xd)) and watches that from at
+ * least 500 units off, the tank's own position the look (bondview2.c,
+ * g_ExplodeTankOnDeathFlag). The tank left the replay to Bond's body until F3
+ * 20261002-233320 ("the tank should be exploding"): getank.c takes him out of
+ * the tank as he dies, so by the time the fall had faded the death was no
+ * longer one in a tank.
  *
  * The camera search is pickDeathCameraAngles(): along each of sixteen
  * headings from a random start, how far the tile graph lets a line from where
@@ -72,6 +77,7 @@
 #include "lib/rng.h"
 #include "game/camera.h"
 #include "game/chr.h"
+#include "game/explosions.h"
 #include "game/lv.h"
 #include "game/modoptions.h"
 #include "game/modrespawn.h"
@@ -99,6 +105,7 @@
 #define DEATHCAM_NOBODY60     180.0f  // how long a replay with no body lasts
 #define DEATHCAM_LONGEST60    900.0f  // a body whose animation never ends
 #define DEATHCAM_DIST         200.0f  // the nearest the camera may be
+#define DEATHCAM_TANKDIST     500.0f  // and from a tank blowing up
 #define DEATHCAM_REACH        1500.0f // and the furthest, past the clearance
 #define DEATHCAM_HEIGHT       185.0f  // over the floor, clearance included
 #define DEATHCAM_DROP         1000.0f // nor more than this above or below the head
@@ -131,9 +138,14 @@ struct deathcam {
 	struct coord look;     // field_3C4
 	struct coord head;     // the body's head as its last tick posed it
 	s32 headframe;         // the frame that was, 0 for none
+	struct prop *tankprop; // the tank he died in, blown up each replay
+	struct coord tankpos;
+	RoomNum tankrooms[8];
 };
 
 static struct deathcam g_DeathCam[MAX_PLAYERS];
+// a death in the tank, told before the death has its own state (geDeathCamTankDeath())
+static struct deathcam g_DeathCamTank[MAX_PLAYERS];
 
 static struct deathcam *deathcamGet(void)
 {
@@ -149,6 +161,15 @@ static struct deathcam *deathcamGet(void)
 		dc->stagenum = g_Vars.stagenum;
 		dc->lifestarttime60 = pl->lifestarttime60;
 		dc->startframe = g_Vars.lvframenum;
+
+		if (g_DeathCamTank[g_Vars.currentplayernum].tankprop
+				&& g_DeathCamTank[g_Vars.currentplayernum].stagenum == g_Vars.stagenum) {
+			dc->tankprop = g_DeathCamTank[g_Vars.currentplayernum].tankprop;
+			dc->tankpos = g_DeathCamTank[g_Vars.currentplayernum].tankpos;
+			memcpy(dc->tankrooms, g_DeathCamTank[g_Vars.currentplayernum].tankrooms, sizeof(dc->tankrooms));
+		}
+
+		g_DeathCamTank[g_Vars.currentplayernum].tankprop = NULL;
 	}
 
 	return dc;
@@ -302,7 +323,7 @@ static s32 deathcamStand(struct coord *from, RoomNum *fromrooms, struct coord *c
  * leaves. Each object in the rooms along the line is taken as a ball round
  * the middle of its bounding box, a little smaller than the box.
  */
-static s32 deathcamPropsBlock(struct coord *cam, RoomNum *camrooms, struct coord *target)
+static s32 deathcamPropsBlock(struct coord *cam, RoomNum *camrooms, struct coord *target, struct prop *ignore)
 {
 	struct player *pl = g_Vars.currentplayer;
 	RoomNum rooms[32];
@@ -343,7 +364,7 @@ static s32 deathcamPropsBlock(struct coord *cam, RoomNum *camrooms, struct coord
 		struct coord mid;
 		f32 scale, radius, t, ex, ey, ez;
 
-		if (prop->type != PROPTYPE_OBJ || !prop->obj || !prop->obj->model) {
+		if (prop == ignore || prop->type != PROPTYPE_OBJ || !prop->obj || !prop->obj->model) {
 			continue;
 		}
 
@@ -403,10 +424,12 @@ static s32 deathcamPropsBlock(struct coord *cam, RoomNum *camrooms, struct coord
  * from `from` (where Bond died, at his eye). Headings are tried sixteen at a
  * time, a sixteenth of a turn apart from a random start, 129 times over.
  */
-static s32 deathcamPick(struct deathcam *dc, const struct coord *centre, struct coord *from, RoomNum *fromrooms)
+static s32 deathcamPick(struct deathcam *dc, const struct coord *centre, struct coord *from, RoomNum *fromrooms, f32 mindist)
 {
 	struct player *pl = g_Vars.currentplayer;
 	f32 clearance = pl->bond2.radius;
+	// the tank is in the line to its own middle
+	const s32 lostypes = dc->tankprop ? CDTYPE_BG | CDTYPE_CLOSEDDOORS : CDTYPE_BG | CDTYPE_CLOSEDDOORS | CDTYPE_OBJS;
 	const s32 stan = geRoomActive();
 	s32 outer;
 
@@ -440,7 +463,7 @@ static s32 deathcamPick(struct deathcam *dc, const struct coord *centre, struct 
 
 			reach = deathcamReach(from, fromrooms, &end, stan) - clearance;
 
-			if (reach < DEATHCAM_DIST) {
+			if (reach < mindist) {
 				continue;
 			}
 
@@ -448,7 +471,7 @@ static s32 deathcamPick(struct deathcam *dc, const struct coord *centre, struct 
 				struct coord cam;
 				RoomNum camrooms[8];
 				RoomNum crossed[21];
-				f32 dist = DEATHCAM_DIST + RANDOMFRAC() * (reach - DEATHCAM_DIST) * frac;
+				f32 dist = mindist + RANDOMFRAC() * (reach - mindist) * frac;
 				f32 ground;
 
 				cam.x = centre->x + dir.x * dist;
@@ -476,7 +499,7 @@ static s32 deathcamPick(struct deathcam *dc, const struct coord *centre, struct 
 					}
 				}
 
-				if (cdExamLos08(&cam, camrooms, (struct coord *)centre, CDTYPE_BG | CDTYPE_CLOSEDDOORS | CDTYPE_OBJS,
+				if (cdExamLos08(&cam, camrooms, (struct coord *)centre, lostypes,
 							DEATHCAM_LOS_FLAGS) == CDRESULT_COLLISION) {
 					continue;
 				}
@@ -493,7 +516,8 @@ static s32 deathcamPick(struct deathcam *dc, const struct coord *centre, struct 
 					}
 				}
 
-				if (deathcamPropsBlock(&cam, camrooms, from) || deathcamPropsBlock(&cam, camrooms, (struct coord *)centre)) {
+				if (deathcamPropsBlock(&cam, camrooms, from, dc->tankprop)
+						|| deathcamPropsBlock(&cam, camrooms, (struct coord *)centre, dc->tankprop)) {
 					continue;
 				}
 
@@ -566,21 +590,38 @@ static s32 deathcamBegin(struct deathcam *dc)
 	fromrooms[0] = pl->prop->rooms[0];
 	fromrooms[1] = -1;
 
-	if (dc->replays == 0) {
+	if (dc->tankprop) {
+		// the tank is looked at where he died in it, on the turret, and the
+		// camera reached from there too (the model's origin, low in the hull,
+		// was out of every camera's sight on Streets' starting street)
+		dc->look = from;
+		dc->anim = 0;
+	} else if (dc->replays == 0) {
 		// the fall's own animation, which the body plays again
 		dc->anim = modelGetAnimNum(&pl->model);
 		dc->flip = pl->model.anim ? pl->model.anim->flip : 0;
 		dc->look = pl->bond2.unk10;
 	}
 
-	if (fromrooms[0] < 0 || !deathcamPick(dc, &dc->look, &from, fromrooms)) {
-		sysLogPrintf(LOG_NOTE, "gedeathcam: nowhere to watch replay %d from", dc->replays);
+	// GoldenEye watches a tank blow up from 500 units off at the least, and
+	// gives up the replay when there is no such place; a street too narrow
+	// for it is watched from as near as a body would be
+	if (fromrooms[0] < 0 || (!(dc->tankprop && deathcamPick(dc, &dc->look, &from, fromrooms, DEATHCAM_TANKDIST))
+				&& !deathcamPick(dc, &dc->look, &from, fromrooms, DEATHCAM_DIST))) {
+		sysLogPrintf(LOG_NOTE, "gedeathcam: nowhere to watch replay %d from (%.0f %.0f %.0f) room %d%s", dc->replays,
+				from.x, from.y, from.z, fromrooms[0], dc->tankprop ? ", the tank" : "");
 		return 0;
 	}
 
 	dc->state = DEATHCAM_REPLAY;
 	dc->timer60 = 0;
 	dc->posed = 0;
+
+	if (dc->tankprop) {
+		// GoldenEye's explosion type 0xd, Perfect Dark's rocket
+		explosionCreateSimple(dc->tankprop->type == PROPTYPE_OBJ && dc->tankprop->obj ? dc->tankprop : NULL,
+				&dc->tankpos, dc->tankrooms, EXPLOSIONTYPE_ROCKET, g_Vars.currentplayernum);
+	}
 
 	playerSetFadeColour(0, 0, 0, 1);
 	playerSetFadeFrac(DEATHCAM_FADE60, 0);
@@ -609,7 +650,7 @@ static void deathcamPose(struct deathcam *dc)
 	struct player *pl = g_Vars.currentplayer;
 	struct chrdata *chr = pl->prop->chr;
 
-	if (dc->posed || !pl->haschrbody || !pl->model00d4 || !chr || !pl->model00d4->anim) {
+	if (dc->posed || dc->tankprop || !pl->haschrbody || !pl->model00d4 || !chr || !pl->model00d4->anim) {
 		return;
 	}
 
@@ -667,7 +708,7 @@ static void deathcamTick(struct deathcam *dc)
 			return;
 		}
 
-		if (!deathcamEligible() || geTankPlayerDriving(pl) || !deathcamBegin(dc)) {
+		if (!deathcamEligible() || !deathcamBegin(dc)) {
 			deathcamFinish(dc);
 			return;
 		}
@@ -774,7 +815,7 @@ s32 geDeathCamTakeRespawn(void)
 	return 0;
 }
 
-s32 geDeathCamWantsBody(struct player *player)
+s32 geDeathCamRunning(struct player *player)
 {
 	s32 playernum;
 	struct deathcam *dc;
@@ -794,6 +835,29 @@ s32 geDeathCamWantsBody(struct player *player)
 	return dc->stagenum == g_Vars.stagenum
 		&& dc->lifestarttime60 == player->lifestarttime60
 		&& (dc->state == DEATHCAM_REPLAY || dc->state == DEATHCAM_FADEOUT);
+}
+
+s32 geDeathCamWantsBody(struct player *player)
+{
+	return geDeathCamRunning(player) && !g_DeathCam[playermgrGetPlayerNumByProp(player->prop)].tankprop;
+}
+
+s32 geDeathCamTankDeath(struct prop *tankprop)
+{
+	struct deathcam *pending = &g_DeathCamTank[g_Vars.currentplayernum];
+
+	if (!tankprop || !deathcamEligible()) {
+		return 0;
+	}
+
+	// taken up by the death's own state once playerDieByShooter() has
+	// moved its life on (deathcamGet())
+	pending->stagenum = g_Vars.stagenum;
+	pending->tankprop = tankprop;
+	pending->tankpos = tankprop->pos;
+	memcpy(pending->tankrooms, tankprop->rooms, sizeof(pending->tankrooms));
+
+	return 1;
 }
 
 s32 geDeathCamCamera(struct coord *pos, struct coord *up, struct coord *look,
