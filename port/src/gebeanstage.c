@@ -7,6 +7,7 @@
 #ifndef PLATFORM_N64
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <ultra64.h>
@@ -67,6 +68,9 @@
 #define FIGHT_DEPTH_BIAS 8
 
 #define MAXPALETTE 64
+// seeds kept for colours far from the heaviest ones (buildPalette()), and how far
+#define PALETTE_FAR 8
+#define PALETTE_FAR_DIST 64
 #define BATCHVERTS 16
 
 struct stagerow {
@@ -1436,6 +1440,42 @@ static s32 buildPalette(const struct stri *tris, const s32 *list, s32 num, u32 *
 		for (s32 j = i + 1; j < numcols; j++) {
 			if (counts[order[j]] > counts[order[best]]) {
 				best = j;
+			}
+		}
+
+		// The last few seeds go to the colours furthest from every seed so
+		// far, when one is far: a handful of yellow vertices among a room's
+		// hundreds of greys (Frigate's yellow and black deck checker, a
+		// decal over the plate, F3 20261002-030343; Depot's yellow door
+		// arrows) were merged into the nearest grey and drew white
+		if (numcols > MAXPALETTE && i >= MAXPALETTE - PALETTE_FAR) {
+			s32 far = -1;
+			s32 fard = PALETTE_FAR_DIST * PALETTE_FAR_DIST;
+
+			for (s32 j = i; j < numcols; j++) {
+				const u32 c = cols[order[j]];
+				s32 nd = 0x7fffffff;
+
+				for (s32 q = 0; q < i; q++) {
+					s32 d = 0;
+
+					for (s32 k = 0; k < 24; k += 8) {
+						const s32 a = (palette[q] >> k) & 0xff;
+						const s32 b = (c >> k) & 0xff;
+						d += (a - b) * (a - b);
+					}
+
+					nd = MIN(nd, d);
+				}
+
+				if (nd > fard || (nd == fard && far >= 0 && counts[order[j]] > counts[order[far]])) {
+					far = j;
+					fard = nd;
+				}
+			}
+
+			if (far >= 0) {
+				best = far;
 			}
 		}
 
@@ -2891,13 +2931,41 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 			mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
 		}
 
-		for (s32 e = g->head[gridKey((s32)floorf(mid[0] / g->cell), (s32)floorf(mid[1] / g->cell), (s32)floorf(mid[2] / g->cell))];
-				e >= 0 && !t->decal; e = g->entnext[e]) {
+		// The cells of its middle and of the points the strip test below
+		// takes: a face overlapping it along a strip need not touch the
+		// middle's cell
+		u32 keys[7];
+		s32 numkeys = 0;
+
+		for (s32 k = 0; k < 7; k++) {
+			f32 p[3];
+			u32 key;
+			s32 seen = 0;
+
+			for (s32 j = 0; j < 3; j++) {
+				const f32 from = k == 0 ? mid[j] : k < 4 ? t->pos[k - 1][j] : (t->pos[k - 4][j] + t->pos[(k - 3) % 3][j]) * 0.5f;
+
+				p[j] = from + (mid[j] - from) * 0.1f;
+			}
+
+			key = gridKey((s32)floorf(p[0] / g->cell), (s32)floorf(p[1] / g->cell), (s32)floorf(p[2] / g->cell));
+
+			for (s32 q = 0; q < numkeys; q++) {
+				seen |= keys[q] == key;
+			}
+
+			if (!seen) {
+				keys[numkeys++] = key;
+			}
+		}
+
+		for (s32 c = 0; c < numkeys && !t->decal; c++)
+		for (s32 e = g->head[keys[c]]; e >= 0 && !t->decal; e = g->entnext[e]) {
 			const s32 o = g->room[g->enttri[e]];
 			const struct stri *u = &tris[o];
 			const s32 alphai = texHasAlpha(t->tex), alphau = texHasAlpha(u->tex);
 			f32 nu[3], au, cosang, d;
-			s32 flat = 1;
+			s32 flat = 1, strip = 0;
 
 			if (o == i || !triOther(t, u)) {
 				continue;
@@ -2929,8 +2997,40 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 
 			d = pointTriDist(mid, u->pos[0], u->pos[1], u->pos[2]);
 
+			// Two faces in one plane that overlap along a strip, neither's
+			// middle on the other: Frigate's pipe wall is bands of two
+			// pictures, and one band runs 9 units into the next along half
+			// the wall, where the two fought (F3 20261002-035958). A point a
+			// quarter of the way in from one of its corners lying inside the
+			// other counts (in the plane: a face beside it, sharing an edge,
+			// never does)
 			if (d > DECAL_DIST * DECAL_DIST) {
-				continue;
+				s32 inside = 0;
+
+				for (s32 k = 0; k < 6 && !inside; k++) {
+					f32 p[3], rel[3], off;
+
+					for (s32 j = 0; j < 3; j++) {
+						const f32 from = k < 3 ? t->pos[k][j] : (t->pos[k - 3][j] + t->pos[(k - 2) % 3][j]) * 0.5f;
+
+						p[j] = from + (mid[j] - from) * 0.1f;
+						rel[j] = p[j] - u->pos[0][j];
+					}
+
+					off = dot3(rel, nu);
+
+					for (s32 j = 0; j < 3; j++) {
+						p[j] -= nu[j] * off;
+					}
+
+					inside = pointTriDist(p, u->pos[0], u->pos[1], u->pos[2]) <= 0.0001f;
+				}
+
+				if (!inside) {
+					continue;
+				}
+
+				strip = 1;
 			}
 
 			// Two blended draws: the release's blended pass writes no depth,
@@ -2950,7 +3050,10 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 				continue;
 			}
 
-			if ((t->blend && u->blend) || (full && full[i] != full[o] ? full[i]
+			// Along a strip, the one Bean draws later shows, as the release's
+			// depth test (less or equal) has it
+			if ((t->blend && u->blend) || (strip ? (alphai != alphau ? alphai > alphau : i > o)
+					: full && full[i] != full[o] ? full[i]
 					: alphai != alphau ? alphai > alphau
 					: full && full[i] ? i > o
 					: ai < au * 0.999f ? 1
@@ -3513,7 +3616,7 @@ static s32 dropTwins(struct collect *c)
 
 	for (s32 a = 0; a < c->num; ) {
 		s32 b = a + 1;
-		s32 first;
+		s32 first, second;
 
 		while (b < c->num && memcmp(keys[b].c, keys[a].c, sizeof(keys[a].c)) == 0) {
 			b++;
@@ -3533,8 +3636,32 @@ static s32 dropTwins(struct collect *c)
 			}
 		}
 
+		// A first twin that is a cut-out under the alpha test writes no depth
+		// where its picture is clear, and the next twin drawn shows there:
+		// the Cradle's walkway floors are a diamond plate drawn after a
+		// cut-out of the crossbraces under it, corner for corner, and with
+		// the plate dropped the walkways were black braces over the drop
+		// (F3 20261002-171636, 20261003-002151). That one is kept as well;
+		// markDecals() lays the cut-out on it
+		second = -1;
+
+		if (first >= 0 && c->tris[first].alphatest && texHasAlpha(c->tris[first].tex)) {
+			for (s32 k = a; k < b; k++) {
+				const s32 t = keys[k].tri;
+
+				if (t != first && !c->tris[t].blend && c->tris[t].tex != c->tris[first].tex
+						&& (second < 0 || t < second)) {
+					second = t;
+				}
+			}
+		}
+
 		for (s32 k = a; k < b && first >= 0; k++) {
 			const s32 t = keys[k].tri;
+
+			if (t == second) {
+				continue;
+			}
 
 			// a twin in the same picture and colour is drawn the same anyway.
 			// Of another vertex shader too: Control's floor stains, twins of
@@ -5403,7 +5530,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 14
+#define HDCACHE_VERSION 16
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
@@ -6662,8 +6789,18 @@ static s32 rayFirst(const struct tgrid *g, const f32 *o, const f32 *d, f32 reach
  * pad 139 stands through its east wall. From outside the closet its own box
  * hides those parts of them, as it should.
  */
-static const struct { const char *key; s16 room; } keptOutOf[] = {
-	{ "azt", 45 },
+/*
+ * The wall is room 18's (to) and is dealt there and drawn, but only where
+ * GoldenEye's portal walk reaches room 18 - not from the closet - and the
+ * closet's own mesh only where the walk reaches the closet - not from room
+ * 18, inside whose box half the closet stands (gebeanStageRoomByPortals()).
+ * Left out, room 18 had no back wall: from the guidance room's glass the
+ * closet's metal box stood in it and the rooms past it showed through (F3
+ * 20261003-002919, "missing wall textures in the guidance DAT room"); the
+ * release draws the stone wall there, and no box.
+ */
+static const struct { const char *key; s16 room; s16 to; } keptOutOf[] = {
+	{ "azt", 45, 18 },
 };
 
 #define KEPTOUT_MARGIN 4.0f // inside the room's box by this much: its own walls are its neighbours' too
@@ -6688,7 +6825,7 @@ static void boxAdd(void *arg, const f32 v[3][3], s32 room)
 }
 
 /** Leaves out (room 0) what other rooms' triangles stand inside a keptOutOf[] room; the count. */
-static s32 keepOutOfRooms(struct collect *c, u8 **filerooms, u32 *filelens, s32 n)
+static s32 keepOutOfRooms(struct collect *c, u8 **filerooms, u32 *filelens, s32 n, s32 *listlen)
 {
 	s32 count = 0;
 
@@ -6709,7 +6846,7 @@ static s32 keepOutOfRooms(struct collect *c, u8 **filerooms, u32 *filelens, s32 
 			// any of it inside, sampled across the face: the slab over the
 			// closet's top has its middle above the ceiling and its lower edge
 			// well inside
-			for (s32 a = 0; a <= KEPTOUT_STEPS && !inside && tri->room != 0 && tri->room != r; a++) {
+			for (s32 a = 0; a <= KEPTOUT_STEPS && !inside && tri->room != 0 && tri->room != r && tri->room != keptOutOf[i].to; a++) {
 				for (s32 bb = 0; a + bb <= KEPTOUT_STEPS && !inside; bb++) {
 					const f32 wa = (f32)a / KEPTOUT_STEPS;
 					const f32 wb = (f32)bb / KEPTOUT_STEPS;
@@ -6726,7 +6863,15 @@ static s32 keepOutOfRooms(struct collect *c, u8 **filerooms, u32 *filelens, s32 
 			}
 
 			if (inside) {
-				tri->room = 0;
+				const s32 to = keptOutOf[i].to > 0 && keptOutOf[i].to < n ? keptOutOf[i].to : 0;
+
+				listlen[tri->room]--;
+				tri->room = to;
+
+				if (to) {
+					listlen[to]++;
+				}
+
 				count++;
 			}
 		}
@@ -6828,6 +6973,48 @@ static s32 markOverlaps(struct stri *tris, s32 num, const struct tgrid *filetris
 	return count;
 }
 
+/**
+ * PD_HDPICK="x,y,z,r" (a probe for finding which of Bean's faces a report
+ * shows): every collected triangle lying within r of the point is logged,
+ * once as collected (tag hdpick0) and once dealt (hdpick), and the level is
+ * built afresh rather than read from the disk cache. Read once.
+ */
+static const f32 *hdPickPoint(void)
+{
+	static s32 read = 0;
+	static s32 have = 0;
+	static f32 pk[4] = { 0, 0, 0, 100 };
+
+	if (!read) {
+		const char *e = getenv("PD_HDPICK");
+
+		read = 1;
+		have = e && sscanf(e, "%f,%f,%f,%f", &pk[0], &pk[1], &pk[2], &pk[3]) >= 3;
+	}
+
+	return have ? pk : NULL;
+}
+
+static void hdPick(const struct collect *c, const char *tag)
+{
+	const f32 *pk = hdPickPoint();
+
+	for (s32 t = 0; pk && t < c->num; t++) {
+		const struct stri *tri = &c->tris[t];
+
+		if (pointTriDist(pk, tri->pos[0], tri->pos[1], tri->pos[2]) < pk[3] * pk[3]) {
+			sysLogPrintf(LOG_NOTE, "%s %d tex %d %s alpha %d soft %d room %d decal %d blend %d backed %d overlap %d plain %d at %d/%d argb %08x %08x %08x pos (%.0f %.0f %.0f) (%.0f %.0f %.0f) (%.0f %.0f %.0f) uv %.3f,%.3f %.3f,%.3f %.3f,%.3f",
+					tag, t, tri->tex, tri->tex >= 0 ? gebeanLevelTextureName(level, tri->tex) : "-",
+					tri->tex >= 0 ? texAlpha[tri->tex] : -1, tri->tex >= 0 ? texSoft[tri->tex] : -1,
+					tri->room, tri->decal, tri->blend, tri->backed, tri->overlap, tri->plain, tri->alphatest, tri->alpharef,
+					tri->argb[0], tri->argb[1], tri->argb[2],
+					tri->pos[0][0], tri->pos[0][1], tri->pos[0][2], tri->pos[1][0], tri->pos[1][1], tri->pos[1][2],
+					tri->pos[2][0], tri->pos[2][1], tri->pos[2][2],
+					tri->uv[0][0], tri->uv[0][1], tri->uv[1][0], tri->uv[1][1], tri->uv[2][0], tri->uv[2][1]);
+		}
+	}
+}
+
 static s32 build(void)
 {
 	const u64 start = sysGetMicroseconds();
@@ -6894,7 +7081,7 @@ static s32 build(void)
 		keyed = 1;
 		mark[1] = sysGetMicroseconds();
 
-		if (hdcacheLoad(key, levelname, n)) {
+		if (!hdPickPoint() && hdcacheLoad(key, levelname, n)) {
 			shellTake(filerooms, filelens, n);
 
 			for (s32 r = 0; r <= n; r++) {
@@ -6926,6 +7113,7 @@ static s32 build(void)
 	c.scale = row->scale;
 	c.offset = row->offset;
 	gebeanLevelTriangles(level, collectTri, &c);
+	hdPick(&c, "hdpick0");
 
 	levelHasWater = 0;
 
@@ -7194,13 +7382,15 @@ static s32 build(void)
 		}
 
 		{
-			const s32 keptout = keepOutOfRooms(&c, filerooms, filelens, n);
+			const s32 keptout = keepOutOfRooms(&c, filerooms, filelens, n, listlen);
 
 			if (keptout) {
 				sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles standing inside a room of GoldenEye's they are kept out of, left out",
 						row->bean, keptout);
 			}
 		}
+
+		hdPick(&c, "hdpick");
 
 		for (s32 r = 1; r < n; r++) {
 			lists[r] = listlen[r] ? malloc(sizeof(s32) * listlen[r]) : NULL;
@@ -8217,6 +8407,26 @@ s32 gebeanStageRoomHidden(s32 roomnum)
  * is not in that room itself, while the camera is in it and the HD rooms are
  * drawn.
  */
+/**
+ * Whether a room of the HD level is drawn only when GoldenEye's portal walk
+ * reaches it, rather than with every room: a keptOutOf[] room and the room
+ * whose wall runs through it, which overlap.
+ */
+s32 gebeanStageRoomByPortals(s32 room)
+{
+	if (!row || room <= 0 || room >= numRooms) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(keptOutOf); i++) {
+		if ((keptOutOf[i].room == room || keptOutOf[i].to == room) && strcmp(keptOutOf[i].key, row->key) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 s32 gebeanStageHidesProp(struct prop *prop)
 {
 	s32 cam;
@@ -8471,6 +8681,7 @@ s32 gebeanStageDrawsEveryRoom(void) { return 0; }
 s32 gebeanStageRoomHidden(s32 roomnum) { return 0; }
 s32 gebeanStageRoomServed(s32 roomnum) { return 0; }
 s32 gebeanStageHidesProp(struct prop *prop) { return 0; }
+s32 gebeanStageRoomByPortals(s32 room) { return 0; }
 void gebeanStageTickCamera(s32 authored) { }
 s32 gebeanStageCullsBackFaces(void) { return 0; }
 const char *gebeanStageLevelKey(void) { return NULL; }

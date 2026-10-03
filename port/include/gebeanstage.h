@@ -58,6 +58,7 @@ s32 gebeanStageRoomHidden(s32 roomnum);
  */
 struct prop;
 s32 gebeanStageHidesProp(struct prop *prop);
+s32 gebeanStageRoomByPortals(s32 room);
 
 /**
  * Whether the room is drawn from GoldenEye XBLA's mesh just now (the HD look).

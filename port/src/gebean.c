@@ -15352,6 +15352,18 @@ static void beanTreeUvs(const struct beanmodel *bm, const struct beanvb *vb, con
 	}
 }
 
+/** PD_BEANDRAWLOG=1: each level draw logged as it is read (a probe for F3 work). Read once. */
+static s32 beanDrawLogOn(void)
+{
+	static s32 on = -1;
+
+	if (on < 0) {
+		on = getenv("PD_BEANDRAWLOG") != NULL;
+	}
+
+	return on;
+}
+
 /**
  * Every triangle of the level, in the file's own units, with the texture its
  * material draws (-1 for none). Returns how many were handed over.
@@ -15369,6 +15381,55 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 	u32 treevbs[32];
 	s32 numtreevbs = 0;
 	s32 numblendpic = 0;
+	u32 blendshaders[32][2];
+	s32 numblendshaders = 0;
+
+	// The shaders of the draws whose vertices blend one solid picture into
+	// another all the way across (see blendpic below). A draw of the same
+	// shader whose blend words stay inside the range - a few triangles all
+	// part-way snow - is the same blend: read alone as the first picture at
+	// its first UV set, Dam's six such triangles by the manhole drew as a
+	// sliver of snow at the overlay's scale beside the bank (F3s
+	// 20261002-012037, -012323, -154038)
+	for (s32 d = 0; d < bm->numdraws; d++) {
+		const struct beandraw *draw = &bm->draws[d];
+		struct beanvb vb;
+		u32 *tris = NULL;
+		s32 numtris, amin = 255, amax = 0, known = 0;
+
+		if (draw->alphatest || draw->blend || draw->tex >= (u32)bm->numtex
+				|| draw->masktex >= (u32)bm->numtex || draw->masktexslot != 0
+				|| !beanReadVb(bm, draw->vb, &vb) || vb.stride != 32) {
+			continue;
+		}
+
+		for (s32 i = 0; i < numblendshaders; i++) {
+			known |= blendshaders[i][0] == draw->vs && blendshaders[i][1] == draw->matpc;
+		}
+
+		if (known || numblendshaders >= ARRAYCOUNT(blendshaders)) {
+			continue;
+		}
+
+		numtris = beanTriangles32(bm, draw, &tris);
+
+		for (s32 i = 0; i < numtris * 3; i++) {
+			if (tris[i] < vb.count) {
+				const s32 a = bm->gpu[vb.off + tris[i] * vb.stride + 24];
+
+				amin = MIN(amin, a);
+				amax = MAX(amax, a);
+			}
+		}
+
+		free(tris);
+
+		if (amin == 0 && amax == 255) {
+			blendshaders[numblendshaders][0] = draw->vs;
+			blendshaders[numblendshaders][1] = draw->matpc;
+			numblendshaders++;
+		}
+	}
 
 	// The buffers any instancing record draws - its first copy is drawn
 	// without one, where the tree was modelled
@@ -15448,6 +15509,14 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 
 		numtris = beanTriangles32(bm, draw, &tris);
 
+		if (beanDrawLogOn()) {
+			sysLogPrintf(LOG_NOTE, "beandraw %d tex %d %s mask %d %s slot %d stride %d at %d/%d blend %d alpha %d colour %08x ownmat %d ismask %d tris %d vs %x mat %x",
+					d, draw->tex, beanTextureName(bm, tex), (s32)draw->masktex,
+					draw->masktex < (u32)bm->numtex ? beanTextureName(bm, (s32)draw->masktex) : "-",
+					draw->masktexslot, vb.stride, draw->alphatest, draw->alpharef, draw->blend, draw->alpha, draw->colour,
+					draw->ownmat, ismask, numtris, draw->vs, draw->matpc);
+		}
+
 		// A draw of two solid pictures that its vertices blend between: the
 		// material's slot 0 picture (read at the first UV set) over its slot
 		// 1 picture (the second set), by the blend word's alpha. Dam's
@@ -15478,7 +15547,13 @@ s32 gebeanLevelTriangles(struct gebeanlevel *level,
 				}
 			}
 
-			if (amin == 0 && amax == 255
+			s32 sameshader = 0;
+
+			for (s32 i = 0; i < numblendshaders; i++) {
+				sameshader |= blendshaders[i][0] == draw->vs && blendshaders[i][1] == draw->matpc;
+			}
+
+			if (((amin == 0 && amax == 255) || sameshader)
 					&& beanBindTexture(bm, level->source, tex, &tile, &basea, &soft)
 					&& beanBindTexture(bm, level->source, (s32)draw->masktex, &tile, &overa, &soft)
 					&& !basea && !overa) {

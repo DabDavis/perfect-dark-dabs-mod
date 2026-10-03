@@ -7098,6 +7098,14 @@ static void bgTickPortalsSpectate(struct screenbox *box)
 			continue;
 		}
 
+		// Two of the HD level's rooms that overlap are drawn only where the
+		// portal walk reaches them (Aztec's closet and the room whose wall
+		// runs through it)
+		if (everyroom && !modSpectateIsOn() && g_BgPortalSeen && !g_BgPortalSeen[room]
+				&& gebeanStageRoomByPortals(room)) {
+			continue;
+		}
+
 		x = (g_Rooms[room].bbmin[0] + g_Rooms[room].bbmax[0]) * 0.5f - campos->x;
 		y = (g_Rooms[room].bbmin[1] + g_Rooms[room].bbmax[1]) * 0.5f - campos->y;
 		z = (g_Rooms[room].bbmin[2] + g_Rooms[room].bbmax[2]) * 0.5f - campos->z;

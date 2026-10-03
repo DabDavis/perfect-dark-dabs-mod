@@ -158,6 +158,7 @@ static const struct { s16 weapon; f32 startframe, speed; } g_CastAnims[] = {
 #define HEAD_BROSNAN_DEFAULT  75
 #define HEAD_BROSNAN_BOILER   74
 #define HEAD_BROSNAN_TUXEDO   78
+#define HEAD_BROSNAN_PARKA    77
 #define HEAD_MISHKIN          69
 // the pool a HEAD_RANDOM character draws from: GoldenEye's male heads, then its
 // female ones
@@ -1895,7 +1896,20 @@ static void introCastStart(s32 first)
 		switch (introRandom(5)) {
 		case 1: body = BODY_FORMAL_WEAR;     head = HEAD_BROSNAN_DEFAULT; break;
 		case 2: body = BODY_JUNGLE_FATIGUES; head = HEAD_BROSNAN_DEFAULT; break;
-		case 3: body = BODY_PARKA;           head = HEAD_BROSNAN_DEFAULT; break;
+		case 3:
+			body = BODY_PARKA;
+			head = HEAD_BROSNAN_DEFAULT;
+
+			// GoldenEye's parka has its hood on the coat, round any head.
+			// The release's has it on the parka's own head (snowbond), and
+			// the HD coat shows its hood only round that head: round the
+			// default one the cast reel's Bond stood bare-necked with a hole
+			// at the throat (F3 20261003-034434). In the HD look he wears the
+			// parka's head, which is Brosnan's face in the hood
+			if (gebeanGetEnabled() && xblaMeshGetEnabled()) {
+				head = HEAD_BROSNAN_PARKA;
+			}
+			break;
 		case 4: body = BODY_BROSNAN_TUXEDO;  head = HEAD_BROSNAN_TUXEDO;  break;
 		}
 	} else if (body == BODY_NATALYA_SKIRT && (rngRandom() & 1)) {
