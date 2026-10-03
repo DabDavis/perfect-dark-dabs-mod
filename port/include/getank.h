@@ -77,4 +77,7 @@ struct prop *geTankShellTank(struct prop *ownerprop);
 // GoldenEye's tank model placed as a plain object: its cannon's flash off
 void geTankUpdateParkedModel(struct prop *prop);
 
+// The current player died, in the tank or not (playerDieByShooter()).
+void geTankPlayerDied(void);
+
 #endif
