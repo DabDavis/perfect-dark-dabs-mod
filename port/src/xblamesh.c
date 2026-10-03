@@ -12352,11 +12352,48 @@ void xblaMeshHitBegin(void)
 	numHitLists = 0;
 }
 
+// xblaMeshObjShotTest()'s noted lists, kept for the ROM walk it sends its
+// caller to (the walk starts its own notes with xblaMeshHitBegin())
+static struct modelnode *hitSkipNodes[XBLAMESH_HITLISTS];
+static s32 hitSkipNoted;
+
+static s32 xblaMeshHitIsNoted(struct modelnode *node)
+{
+	s32 i;
+
+	for (i = 0; i < numHitLists; i++) {
+		if (hitLists[i].node == node) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static s32 xblaMeshHitIsSkipped(struct modelnode *node)
+{
+	s32 i;
+
+	for (i = 0; i < hitSkipNoted; i++) {
+		if (hitSkipNodes[i] == node) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node)
 {
 	struct xblameshentry *e;
 	s32 frompack;
 	const u32 type = node ? node->type & 0xff : 0;
+
+	// xblaMeshObjShotTest()'s ROM walk: a list noted as drawn from a mesh is
+	// tested on the mesh, not here
+	if (hitSkipNoted && (type == MODELNODETYPE_DL || type == MODELNODETYPE_GUNDL) && xblaMeshHitIsSkipped(node)) {
+		return 1;
+	}
 
 	if (!model || !g_XblaMeshNumNodes || (!xblaMeshGetEnabled() && !releaseOnlyLoaded) || opened <= 0 || !built ||
 			(type != MODELNODETYPE_DL && type != MODELNODETYPE_GUNDL)) {
@@ -12409,6 +12446,15 @@ s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node)
 	}
 
 	return optBoth ? 0 : 1;
+}
+
+/**
+ * Ends the ROM walk xblaMeshObjShotTest() sent its caller to with -1 for a
+ * model partly drawn from the release.
+ */
+void xblaMeshObjShotTestEnd(void)
+{
+	hitSkipNoted = 0;
 }
 
 s32 xblaMeshModelHasMesh(struct model *model)
@@ -13232,7 +13278,9 @@ s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const st
  * one (F3 20261002-234900). `pos`/`dir` are the shot's, in the camera's space
  * as the model's matrices are, and `range` how far it reaches.
  *
- * -1: the model draws no GoldenEye release mesh - test the ROM's triangles.
+ * -1: the model draws no GoldenEye release mesh, or the ray misses the mesh
+ * and some lists are still the ROM's - test the ROM's triangles (the mesh's
+ * lists left out until xblaMeshObjShotTestEnd()).
  * 0: the ray misses what is drawn. 1: a hit, its position and normal in the
  * space of the model matrix `*mtxindex` (as func0f0849dc() gives them), with
  * the bbox it counts against and the list it was drawn for.
@@ -13267,6 +13315,36 @@ s32 xblaMeshObjShotTest(struct model *model, struct coord *pos, struct coord *di
 	sqdist = range * range;
 
 	if (!xblaMeshHitTest(model, pos, &far, dir, &sqdist, hitthing, bboxnode, hitpart, dlnode)) {
+		struct modelnode *node;
+
+		// A model only partly drawn from the release (some lists still the
+		// ROM's) is shot on those lists as the stock walk shoots them, with
+		// the mesh's lists left out of it; -1 sends the caller to that walk
+		for (node = model->definition->rootnode; node; ) {
+			const u32 type = node->type & 0xff;
+
+			if ((type == MODELNODETYPE_DL || type == MODELNODETYPE_GUNDL) && !xblaMeshHitIsNoted(node)) {
+				s32 i;
+
+				for (i = 0; i < numHitLists; i++) {
+					hitSkipNodes[i] = hitLists[i].node;
+				}
+
+				hitSkipNoted = numHitLists;
+				return -1;
+			}
+
+			if (node->child) {
+				node = node->child;
+			} else {
+				while (node && !node->next) {
+					node = node->parent;
+				}
+
+				node = node ? node->next : NULL;
+			}
+		}
+
 		return 0;
 	}
 
@@ -14130,6 +14208,7 @@ s32 xblaMeshSurfaceAlong(struct model *model, const struct coord *from, const st
 s32 xblaMeshObjShotTest(struct model *model, struct coord *pos, struct coord *dir, f32 range,
 		struct hitthing *hitthing, s32 *mtxindex, struct modelnode **bboxnode, s32 *hitpart,
 		struct modelnode **dlnode) { return -1; }
+void xblaMeshObjShotTestEnd(void) { }
 s32 xblaMeshModelsAreLate(void) { return 0; }
 u8 *xblaMeshReadFile(u16 fileid, u32 *outLen) { return NULL; }
 
