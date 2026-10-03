@@ -56,6 +56,7 @@
 #include "geguns.h"
 #include "types.h"
 #include <string.h>
+#include "gebeanstage.h"
 
 s16 *g_RoomPropListChunkIndexes;
 struct roomproplistchunk *g_RoomPropListChunks;
@@ -739,7 +740,9 @@ static void shotGeRooms(struct coord *from, struct coord *to, RoomNum *rooms, Ro
 			}
 		}
 
-		if (rooms[i] != -1 || g_Rooms[r].vtxbatches == NULL) {
+		// Rooms the HD look keeps loaded but hides (Cradle's GoldenEye duct
+		// round the release's, Dam's far cliffs) must not stop a shot either
+		if (rooms[i] != -1 || g_Rooms[r].vtxbatches == NULL || gebeanStageRoomHidden(r)) {
 			continue;
 		}
 
