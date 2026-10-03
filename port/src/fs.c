@@ -798,7 +798,7 @@ s32 fsAddedContentDir(char *dst, u32 dstSize)
 		"Everything you add to the game that is not a mod goes in this folder.\n"
 		"\n"
 		"  GoldenEye 007 (US) N64 ROM     any file name, .z64 .n64 or .v64\n"
-		"                                 (GE Plus is converted from it at startup)\n"
+		"                                 (GoldenEye is converted from it at startup)\n"
 		"  Perfect Dark XBLA.7z           the Xbox 360 release: the archive as it is,\n"
 		"                                 or its package unpacked\n"
 		"  GoldenEye_007_XBLA.7z          the GoldenEye XBLA build: the archive as it\n"

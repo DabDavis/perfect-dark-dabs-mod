@@ -7237,7 +7237,7 @@ void mpSetGexPlusMode(bool on)
 		gexPlusSetScenario(gexPlusGetScenario());
 
 		// (or the GoldenEye ROM hack's whose arenas it is: g_GexPlusVariant)
-		g_CombatSimulatorMenuDialog.title = (uintptr_t)(g_GexPlusVariant ? g_GexPlusVariant : "GE Plus");
+		g_CombatSimulatorMenuDialog.title = (uintptr_t)(g_GexPlusVariant ? g_GexPlusVariant : "GoldenEye");
 		g_CombatSimulatorMenuDialog.flags |= MENUDIALOGFLAG_LITERAL_TEXT;
 		g_CombatSimulatorMenuItems[0].flags |= MENUITEMFLAG_ALWAYSDISABLED;
 	} else {

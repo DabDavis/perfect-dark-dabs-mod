@@ -1393,7 +1393,7 @@ static s32 frontLoadText(void)
 static s32 frontLoadAll(void)
 {
 	if (!frontLoadText() || !frontLoadModel()) {
-		sysLogPrintf(LOG_WARNING, "gexfront: the conversion's menu files are missing; GE Plus opens Perfect Dark's menu");
+		sysLogPrintf(LOG_WARNING, "gexfront: the conversion's menu files are missing; GoldenEye opens Perfect Dark's menu");
 		frontUnload();
 		return 0;
 	}

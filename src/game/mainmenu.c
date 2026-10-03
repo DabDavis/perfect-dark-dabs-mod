@@ -5098,7 +5098,7 @@ static struct menuitem g_GexPlusMenuItems[] = {
 		MENUITEMTYPE_LABEL,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
-		(uintptr_t)"GE Plus is built from the GoldenEye\nROM alone. Unload GoldenEye X in\nLoad Mods to play it.\n",
+		(uintptr_t)"GoldenEye is built from its ROM\nalone. Unload GoldenEye X in\nLoad Mods to play it.\n",
 		0,
 		menuhandlerGexPlusGoldenEyeXLoaded,
 	},
@@ -5115,7 +5115,7 @@ static struct menuitem g_GexPlusMenuItems[] = {
 
 struct menudialogdef g_GexPlusMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"GE Plus",
+	(uintptr_t)"GoldenEye",
 	g_GexPlusMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT | MENUDIALOGFLAG_STARTSELECTS,
@@ -5355,7 +5355,7 @@ struct menuitem g_MainMenuMenuItems[] = {
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"GE Plus",
+		(uintptr_t)"GoldenEye",
 		0x0000000d,
 		menuhandlerMainMenuGexPlus,
 	},

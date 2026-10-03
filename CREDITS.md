@@ -73,7 +73,7 @@ history is the authoritative list; this is a snapshot of it.
 vendored libraries below; 810 files touched), measured against merge-base
 `c55f9c805`. What is original here, rather than borrowed:
 
-- **GE Plus, and the converter under it.** A mod loader normally mounts files
+- **GoldenEye (converted from its ROM), and the converter under it.** A mod loader normally mounts files
   somebody else built. This one takes the player's own GoldenEye 007 cartridge
   ROM and, at startup, inside the running game, converts it into a Perfect Dark
   mod — **386 model and level files, 2244 textures, 62 tables, 19 MB** written
@@ -134,7 +134,7 @@ The player supplies the release; nothing from either is redistributed here.
 
 ## 6. The GoldenEye X team
 
-GE Plus no longer *comes from* GoldenEye X. It converts GoldenEye out of the
+The GoldenEye mode no longer *comes from* GoldenEye X. It converts GoldenEye out of the
 player's own ROM at startup - the twenty missions, the arenas, all eighty
 characters and their animations, the music, the sound bank, the HUD and radar,
 the watch, the gadgets and the monitor programmes - and a converted mission is
@@ -156,7 +156,7 @@ What GoldenEye X still is, which is a great deal:
 - **the oracle the whole conversion was checked against.** GoldenEye X keeps
   GoldenEye's N64 vertices byte for byte under Perfect Dark's file names, which
   is what made it possible to tell a conversion bug from a guess, and it is
-  still the mission list GE Plus falls back to when it is the loaded mod.
+  still the mission list the GoldenEye mode falls back to when it is the loaded mod.
 
 Credits as the mod's own `ge-x_6a_credits.txt` gives them:
 
@@ -208,7 +208,7 @@ to see the question and answer it, which means the list is certainly still
 short of people who earned a place on it. **If you
 have sent a report and are not on it, ask and you go on.** The same offer
 stands for anyone who has reported a crash, tested a build on Windows, or run
-the GE-X and GE Plus missions and written up what was wrong — and for anyone
+the GE-X and GoldenEye-mode missions and written up what was wrong — and for anyone
 here who wants their name spelled differently or taken off.
 
 ## 8. The GoldenEye 007 decompilation
@@ -216,7 +216,7 @@ here who wants their name spelled differently or taken off.
 [n64decomp/007](https://github.com/n64decomp/007), and
 [kholdfuzion/goldeneye_src](https://github.com/kholdfuzion/goldeneye_src) and
 the goldeneye_docs notes behind it. **kholdfuzion** and the GE decomp
-contributors are the reference GE Plus is checked against: names, tables and
+contributors are the reference the GoldenEye mode is checked against: names, tables and
 struct layouts, cited in the source where they are used —
 `port/src/geexplosiontypes.h` is generated from the decomp's
 `propExplosionDetailsRecords.inc.c`, and `gexfront.c`, `gewatch.c`,
@@ -226,7 +226,7 @@ struct layouts, cited in the source where they are used —
 port of that decomp, which is derived work kept in a separate tree and used
 only as an oracle.
 
-**GE Plus: Region Rules** and **Later Revision Fixes** were **Wreck**'s idea:
+**GoldenEye: Region Rules** and **Later Revision Fixes** were **Wreck**'s idea:
 playing GoldenEye by its Japanese cartridge's rules, and with the bug fixes
 the Japanese and PAL cartridges carry over the US one. Both are read from the
 decomp's own `LANG_JP` and `BUGFIX_R1` builds, which match those cartridges
@@ -237,7 +237,7 @@ To be exact about a claim that has gone around: **no GoldenEye XBLA / "Bean" HD
 texture or model code from any third party is in this repository.** That path
 (`gebean.c`, `xblamesh.c`, `xblatex.c`, `x360.c`) was written here against the
 release binaries. The debt to the GE decomp is real and is the one above:
-names, tables and structs for GE Plus. Both statements can be checked with
+names, tables and structs for the GoldenEye mode. Both statements can be checked with
 `grep -ri kholdfuzion` and `git log` on those files.
 
 ## 9. The texture pack makers

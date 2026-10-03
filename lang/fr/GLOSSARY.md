@@ -3,7 +3,7 @@
 Our own translation, made from the English. Rare's PAL French was consulted
 only for proper-noun conventions (level names, a few established names); no
 sentence of theirs is used. Keep these terms when translating the port's
-strings (`port.json`) and GE Plus (`ge.json`).
+strings (`port.json`) and GoldenEye (`ge.json`).
 
 ## Register
 
@@ -204,9 +204,9 @@ built "couteau" + " de combat" / "x de combat".
   HUD messages and objectives (which wrap) or short words against shorter
   English ("Back" -> "Retour"), which fit their boxes.
 
-# GoldenEye (GE Plus, lang/fr/ge.json)
+# GoldenEye (GoldenEye, lang/fr/ge.json)
 
-Translated from GoldenEye 007's US English as GE Plus shows it. No other
+Translated from GoldenEye 007's US English as GoldenEye shows it. No other
 translation of GoldenEye was consulted. Official French titles of the Bond
 films are used where the game names a film.
 

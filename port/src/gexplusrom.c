@@ -521,13 +521,13 @@ static void gexPlusRomConvertGoldenEye(void)
 					g_GexPlusRomState = GEXPLUSROM_OLD;
 					sysLogPrintf(LOG_WARNING, "gexplus: the arenas in %s were converted by an older build"
 							" and there is no GoldenEye 007 (US) ROM in " FS_ADDED_CONTENT_DIR "/ to convert again from;"
-							" GE Plus's intro and folder screens need what the newer one writes", dir);
+							" GoldenEye's intro and folder screens need what the newer one writes", dir);
 				}
 
 				return;
 			}
 		}
-		sysLogPrintf(LOG_NOTE, "gexplus: no GoldenEye 007 (US) ROM in " FS_ADDED_CONTENT_DIR "/; GE Plus has no arenas");
+		sysLogPrintf(LOG_NOTE, "gexplus: no GoldenEye 007 (US) ROM in " FS_ADDED_CONTENT_DIR "/; GoldenEye has no arenas");
 		return;
 	}
 

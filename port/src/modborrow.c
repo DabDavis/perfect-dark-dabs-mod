@@ -251,7 +251,7 @@ static void borrowFind(void)
 	}
 
 	if (borrowDormant()) {
-		sysLogPrintf(LOG_NOTE, "modborrow: GE Plus is converted from the GoldenEye ROM, so nothing is borrowed "
+		sysLogPrintf(LOG_NOTE, "modborrow: GoldenEye is converted from the GoldenEye ROM, so nothing is borrowed "
 				"from an installed GoldenEye X (Mod.BorrowGoldenEyeGuns=%s is not followed while it is)", borrowSetting);
 		return;
 	}
@@ -344,7 +344,7 @@ s32 modBorrowLoadedIsGoldenEyeX(void)
 		answer = borrowScoreGoldenEye(loaded, &spec) >= GE_MIN_MATCHES;
 
 		if (answer) {
-			sysLogPrintf(LOG_NOTE, "modborrow: the loaded mod `%s` is GoldenEye X, so GE Plus stays shut until it is unloaded",
+			sysLogPrintf(LOG_NOTE, "modborrow: the loaded mod `%s` is GoldenEye X, so GoldenEye stays shut until it is unloaded",
 					borrowBaseName(loaded));
 		}
 	}
