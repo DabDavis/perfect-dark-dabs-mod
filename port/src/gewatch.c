@@ -3213,13 +3213,26 @@ static void watchSetCuff(void)
  * those fields (`bond2.unk00` is GoldenEye's `theta_transform`, its look
  * vector, and `headbodyoffset` is the same field under the same name), so this
  * is GoldenEye's own three lines.
+ *
+ * GoldenEye's position is `collision_position`, the body's, which is the
+ * player's prop position here - not `bond2.unk10`, the eye, which drops below
+ * it as the view pitches down (11 units at -75 on Train, the same on both).
+ *
+ * No scale goes on here: the arm's own scale (modelSetScale(), GoldenEye's
+ * 0.01) is put on its root by the pose, as GoldenEye's subcalcmatrices() does.
+ * This matrix once carried the scale as well, so the arm was posed at a
+ * hundredth of its size: invisible at the wrist, and only grown to its size by
+ * the move to the eye - it came up out of nothing below the middle of the
+ * screen and shrank away there again, where GoldenEye's swings in and out at
+ * the lower left (F3 20261003-133024, "the watch shrinks down instead of being
+ * to the left of the screen").
  */
 static void watchWristMatrix(Mtxf *out)
 {
 	struct player *player = g_Vars.currentplayer;
 	const struct coord *look = &player->bond2.unk00;
 	const struct coord *hbo = &player->headbodyoffset;
-	const struct coord *pos = &player->bond2.unk10;
+	const struct coord *pos = player->prop ? &player->prop->pos : &player->bond2.unk10;
 	struct coord wrist;
 
 	wrist.x = look->x * (hbo->z - 12.0f) + pos->x + hbo->x * -look->z;
@@ -3228,7 +3241,6 @@ static void watchWristMatrix(Mtxf *out)
 
 	mtx4LoadYRotationWithTranslation(&wrist, (360.0f - player->vv_theta) * (M_PI / 180.0f), out);
 	mtx4MultMtx4InPlace(camGetWorldToScreenMtxf(), out);
-	mtx00015f04(g_Watch.chrscale, out);
 }
 
 /**
@@ -3953,11 +3965,37 @@ static s32 watchGunLoad(s32 item)
 	return watchGunLoadKey(item);
 }
 
-static s32 watchGunLoadKey(s32 key)
+static void watchOwnBoxesForget(void);
+
+/** The conversion's gitem_struct rows, for the stage's own conversion. */
+static void watchGunItemsEnsure(void)
 {
+	static s32 itemsmoddir = -1;
+
+	// The rows are the conversion's, and a ROM hack's are its own: Goldfinger
+	// 64's M1 Garand (its item 19) is 1950 from the camera where GoldenEye's
+	// item 19 is 629. Kept from the first stage of a session, a hack's guns
+	// were placed by GoldenEye's rows after any GE Plus stage - the Garand
+	// across the whole face and off its side (F3 20261003-103819) - and
+	// GoldenEye's by the hack's after one of its stages
+	if (g_WatchGun.items && itemsmoddir != g_Watch.moddir) {
+		sysMemFree(g_WatchGun.items);
+		g_WatchGun.items = NULL;
+		g_WatchGun.itemslen = 0;
+		watchItemUnload(&g_WatchGun);
+		watchItemUnload(&g_WatchPad);
+		watchOwnBoxesForget();
+	}
+
 	if (!g_WatchGun.items) {
 		g_WatchGun.items = watchLoad("geitems.bin", &g_WatchGun.itemslen);
+		itemsmoddir = g_Watch.moddir;
 	}
+}
+
+static s32 watchGunLoadKey(s32 key)
+{
+	watchGunItemsEnsure();
 
 	if (!g_WatchGun.items || g_WatchGun.itemslen < GUN_ITEM_ROW * GUN_NUM_ITEMS) {
 		return 0;
@@ -4303,6 +4341,12 @@ struct watchbox {
 
 // GoldenEye's own model's box for each item, as the face shows it
 static struct watchbox g_WatchOwnBox[GUN_NUM_ITEMS];
+
+// measured on one conversion's models, by its item numbers
+static void watchOwnBoxesForget(void)
+{
+	memset(g_WatchOwnBox, 0, sizeof(g_WatchOwnBox));
+}
 
 static void watchBoxWalk(struct modelnode *node, Mtxf *matrices, s32 nummatrices, struct watchbox *box)
 {
@@ -5158,6 +5202,10 @@ static const char *watchGunText(s32 item, s32 offset)
 	static s32 moddir = -2;
 	u32 id;
 
+	if (item >= 0) {
+		watchGunItemsEnsure();
+	}
+
 	if (item < 0 || !g_WatchGun.items || g_WatchGun.itemslen < GUN_ITEM_ROW * GUN_NUM_ITEMS) {
 		return NULL;
 	}
@@ -5806,8 +5854,10 @@ Gfx *geWatchRender(Gfx *gdl)
 		return gdl;
 	}
 
-	// the arm is not in the view until it starts coming up
-	if (g_Watch.state < WS_RAISE) {
+	// the arm is not in the view until it starts coming up, and is gone once
+	// it is down: GoldenEye's WATCH_ANIMATION_0x8 clears pausing_flag, and
+	// bondviewRenderWatch() draws nothing while the view tilts back
+	if (g_Watch.state < WS_RAISE || g_Watch.state == WS_RESTORE) {
 		return gdl;
 	}
 

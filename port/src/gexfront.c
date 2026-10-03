@@ -2549,6 +2549,18 @@ static volatile f32 g_TvPitch = 0.0f;
 static volatile f32 g_TvZ = 0.0f;
 static volatile f32 g_TvLift = 0.0f;
 
+// GoldenEye's own set's box (Pgx075Z, PROP_TV1: 408 across, 386 high), which
+// g_TvScale was fitted to; another conversion's set is sized to the same
+// (frontLoadTvs())
+#define TV_FIT_W 408.0f
+#define TV_FIT_H 386.0f
+
+// the set's own size against GoldenEye's, and the middle of its front taken
+// to the origin, so that any conversion's set fills its cell as GoldenEye's
+static f32 g_TvFit = 1.0f;
+static f32 g_TvMidX = 0.0f;
+static f32 g_TvMidY = 0.0f;
+
 static void frontUnloadTvs(void)
 {
 	for (s32 i = 0; i < TVS_PER_PAGE; i++) {
@@ -2611,6 +2623,28 @@ static s32 frontLoadTvs(void)
 		}
 
 		modelSetScale(g_Front.tvmodels[i], 1);
+	}
+
+	// Goldfinger 64's set is a model of its own, 1250 across and 1000 high,
+	// three times GoldenEye's: at GoldenEye's scale it stood over its
+	// neighbours and out of its cell (F3 20261003-123824). Sized by the box
+	// to fit where GoldenEye's does - GoldenEye's own comes out at 1 - and
+	// centred on its middle across and up
+	{
+		struct modelrodata_bbox *bbox = modelFindBboxRodata(g_Front.tvmodels[0]);
+
+		g_TvFit = 1.0f;
+		g_TvMidX = 0.0f;
+		g_TvMidY = 0.0f;
+
+		if (bbox && bbox->xmax - bbox->xmin > 1.0f && bbox->ymax - bbox->ymin > 1.0f) {
+			const f32 kw = TV_FIT_W / (bbox->xmax - bbox->xmin);
+			const f32 kh = TV_FIT_H / (bbox->ymax - bbox->ymin);
+
+			g_TvFit = kw < kh ? kw : kh;
+			g_TvMidX = (bbox->xmin + bbox->xmax) * 0.5f;
+			g_TvMidY = (bbox->ymin + bbox->ymax) * 0.5f;
+		}
 	}
 
 	return 1;
@@ -6439,10 +6473,13 @@ static Gfx *frontDrawTvs(Gfx *gdl)
 		mtx4LoadYRotation(g_TvYaw, &world);
 		mtx4LoadXRotation(g_TvPitch, &turn);
 		mtx4MultMtx4InPlace(&turn, &world);
-		mtx00015f04(g_TvScale * (n == g_Front.highlight ? 1.12f : 1.0f), &world);
-		world.m[3][0] = -900.0f;
-		world.m[3][1] = 990.0f + g_TvLift;
-		world.m[3][2] = g_TvZ;
+		mtx00015f04(g_TvScale * g_TvFit * (n == g_Front.highlight ? 1.12f : 1.0f), &world);
+
+		// the set's middle onto the axis: its offset through the turn and
+		// the scale (the rows of `world` now carry both)
+		world.m[3][0] = -900.0f - (g_TvMidX * world.m[0][0] + g_TvMidY * world.m[1][0]);
+		world.m[3][1] = 990.0f + g_TvLift - (g_TvMidX * world.m[0][1] + g_TvMidY * world.m[1][1]);
+		world.m[3][2] = g_TvZ - (g_TvMidX * world.m[0][2] + g_TvMidY * world.m[1][2]);
 		mtx4MultMtx4InPlace(&camera, &world);
 
 		{

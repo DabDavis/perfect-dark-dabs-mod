@@ -854,3 +854,18 @@ explosive props and counts explosion props.
   drops on some triangles by its depth precision (above). Close-up flat walls
   also score high on edges from the cartridge's 16-bit dither, which our
   pictures lack, and pad 97's from the gun caught at another point of its sway.
+
+## Watch gun rows and Monitor Programmes sets (F3 pass 31, 2026-10-03, fix/f3-1003c-watch)
+
+- **Watch gun too large (F3 20261003-103819).** gewatch.c kept
+  `menu/geitems.bin` from the session's first stage: after any GE Plus stage a
+  Goldfinger gun was placed by GoldenEye's row of its item number (the M1
+  Garand, its item 19: 1950 from the camera, GoldenEye's 19 is 629), and after
+  a Goldfinger stage GoldenEye's PP7 was named by the hack's rows.
+  `watchGunItemsEnsure()` reloads by `g_Watch.moddir` (and drops the loaded
+  models and the own-model boxes). Probe: `~/wt/f3-1003c-watch-run/gfwatch2.py`
+  (`STAGES=0x60,0x7d`, `GUN=`; Cartel is 0x7d there).
+- **Monitor Programmes sets three times their cells (F3 20261003-123824).**
+  Its Pgx075Z is its own set, box 1250 x 1000 against GoldenEye's 408 x 386.
+  `frontLoadTvs()` fits the box to GoldenEye's (`g_TvFit`, 1 for GoldenEye's)
+  and centres it. Probe: `~/wt/f3-1003c-watch-run/mon.py` (`GF=1`, `LOOK`).

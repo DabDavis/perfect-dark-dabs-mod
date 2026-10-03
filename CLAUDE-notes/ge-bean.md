@@ -14168,3 +14168,29 @@ now does both.
 **Crash 20261003-073032 (v3.13.0)** was 20261003-040138 again (stale
 `headfitNextBody` after the menu preview; fixed by 892ed66f7). The static is
 gone: the preview calls `bodyCalculateHeadOffsetForBody()` with its own body.
+
+## The pause watch's arm was a hundredth of its size (31st F3 pass, 2026-10-03, fix/f3-1003c-watch)
+
+**F3 20261003-133024 (Train, "the watch shrinks down instead of being to the
+left of the screen").** Not 61c37811f's: 613ea8f does the same. The floating
+arm's (Cgx041Z) scale 0.01 went on twice - `watchWristMatrix()` scaled the
+wrist matrix and `modelSetScale()` put it on the root again - so the posed arm
+was 100x too small and only `watchRelToPose()`'s move to the eye grew it: it
+rose out of a point below the middle of the screen and shrank back into it.
+GoldenEye swings it in and out at the lower left. The wrist matrix has no
+scale now, and its position is the prop's (GoldenEye's `collision_position`,
+11 units over the eye at -75), not `bond2.unk10` (the eye). Every bone then
+matches the cartridge's at -40 (shoulder (0,-42.5,-24.8), elbow
+(-20.2,-18.0,-4.2), the hand frame by frame). The arm is not drawn in
+`WS_RESTORE` (GoldenEye's 0x8 clears `pausing_flag`). GoldenEye moves only
+the root (the watch) to the eye and leaves the arm; ours still carries the
+whole pose (`watchApplyRel()`), the 16:9 choice, unchanged.
+
+Probes: `tools/gefidelity/view/watchpause_ares.py` (cartridge pictures through
+the pause, `WP_VERTA`), `watchprobe_ares.py` (the player's watch fields and the
+arm's nine matrices, decoded from the RSP's s15.16 `Mtx`; GoldenEye's
+`pause_watch_related_adjust` follows `pause_animation_counter`). Ours:
+`~/wt/f3-1003c-watch-run/{watch.sh,watch.py}` (`VA`, `LOOK`).
+
+Report 20261003-094539 (watch laser in N64 hands, 613ea8f) was 5c6920b6a's;
+the watch laser exists on Train only (`gegadgetsIsWatchLaser()`).
