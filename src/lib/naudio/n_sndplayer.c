@@ -110,7 +110,7 @@ ALMicroTime _n_sndpVoiceHandler(void *node)
 /**
  * Whether an envelope phase of `*delta` is past the player's 5.5 s ceiling,
  * which stops the sound before it is heard. GoldenEye's player (snd.c) has no
- * such ceiling, and Goldfinger 64 gave 33 of its re-recorded samples - most of
+ * such ceiling, and Goldfinger 64 gave 34 of its re-recorded samples - most of
  * its guns' shots - an 11.1 s decay: on Perfect Dark's player they were cut
  * at the first frame, and only the ricochets were heard (F3 20261003-163557).
  * A sound out of a converted bank (gesfx.c) plays its phase for at most the
