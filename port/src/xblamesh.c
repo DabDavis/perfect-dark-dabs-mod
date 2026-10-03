@@ -372,6 +372,7 @@ struct xblameshbuilt {
 	Gfx *logoglint;    // gdl with the materials that glint, on the glint's picture
 	Gfx *logometal;    // gdl with the materials the levels' metal is added over
 	Gfx *tintgdl;      // gdl with only the tinted panes, in a flat colour: see xblaMeshTintCopy()
+	s32 tintonly;      // and the mesh is nothing but those panes (the window prop)
 	Col *logocol;      // the bind normals as colours, for the logo passes' lighting
 	s32 logotried;
 	s32 numenvcells;
@@ -5110,6 +5111,10 @@ static Gfx *xblaMeshLogoCopy(const struct xblameshbuilt *m, s32 which,
 #define XBLAMESH_TINT_G 21
 #define XBLAMESH_TINT_B 20
 
+// The tinted pane xblaMeshRenderNode() has just drawn whose own GoldenEye pane
+// the game draws after it (xblaMeshKeptLists()), NULL for none
+static const struct modelnode *tintStockNode;
+
 /**
  * A GoldenEye tinted pane's far colour, as a copy of gdl: the tinted panes
  * (gebeanmats.tinted) under a combiner that is the primitive colour and alpha
@@ -5122,13 +5127,16 @@ static Gfx *xblaMeshLogoCopy(const struct xblameshbuilt *m, s32 which,
  * and Glass See-Through's cap on the opacity holds it back the same way.
  * NULL for a mesh with no tinted pane.
  */
-static Gfx *xblaMeshTintCopy(const struct xblameshbuilt *m, const void *const *panes, s32 num)
+static Gfx *xblaMeshTintCopy(const struct xblameshbuilt *m, const void *const *panes, s32 num, s32 *only)
 {
 	Gfx *copy;
 	Gfx combine;
 	Gfx *cc = &combine;
 	s32 keep = 0;
 	s32 any = 0;
+	s32 other = 0;
+
+	*only = 0;
 
 	if (num == 0) {
 		return NULL;
@@ -5170,6 +5178,7 @@ static Gfx *xblaMeshTintCopy(const struct xblameshbuilt *m, const void *const *p
 			if (!keep) {
 				copy[i].words.w0 = (uintptr_t)G_NOOP << 24;
 				copy[i].words.w1 = 0;
+				other |= op == (u8)G_TRI1 || op == (u8)G_TRI4;
 			} else {
 				any = 1;
 			}
@@ -5180,6 +5189,8 @@ static Gfx *xblaMeshTintCopy(const struct xblameshbuilt *m, const void *const *p
 		free(copy);
 		return NULL;
 	}
+
+	*only = !other;
 
 	return copy;
 }
@@ -6899,7 +6910,7 @@ static struct xblameshbuilt *xblaMeshBuildBeanOnce(const struct xblameshentry *e
 	}
 
 	if (ok) {
-		m->tintgdl = xblaMeshTintCopy(m, tintpanes, numtint);
+		m->tintgdl = xblaMeshTintCopy(m, tintpanes, numtint, &m->tintonly);
 	}
 
 	return ok ? m : NULL;
@@ -11157,6 +11168,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 	const s32 opa = (renderdata->flags & MODELRENDERFLAG_OPA) != 0;
 	const s32 xlu = (renderdata->flags & MODELRENDERFLAG_XLU) != 0;
 
+	tintStockNode = NULL;
+
 	if (!node || !g_XblaMeshNumNodes || bypass) {
 		return 0;
 	}
@@ -11308,6 +11321,15 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		}
 
 		return 0;
+	}
+
+	// A GoldenEye tinted pane on its way to opaque: GoldenEye's own pane is
+	// drawn as well, at the same opacity (xblaMeshKeptLists()). Only for a
+	// mesh that is nothing but panes (the window prop): a door's or a
+	// vehicle's node would bring its whole N64 body with the pane.
+	if (m->tintgdl && m->tintonly && renderdata->unk30 == 9 && ((renderdata->envcolour >> 8) & 0xff) != 0
+			&& (node->type & 0xff) == MODELNODETYPE_DL) {
+		tintStockNode = node;
 	}
 
 	// Which of the mesh's lists this node draws. A group is one part of the
@@ -12379,9 +12401,17 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				renderdata->unk30 == 9 ? (renderdata->envcolour >> 8) & 0xff : 0);
 		gSPDisplayList(renderdata->gdl++, fadelist);
 
-		// A tinted pane's far grey over it by the same opacity, so the pane
-		// goes to the N64 look's colour as it goes opaque: see xblaMeshTintCopy()
-		if (m->tintgdl && renderdata->unk30 == 9 && ((renderdata->envcolour >> 8) & 0xff) != 0) {
+		// A tinted pane's far look: GoldenEye's own pane, drawn by the game
+		// after the mesh at the same opacity (xblaMeshKeptLists()), so the
+		// pane goes to the N64 look's glass as it goes opaque. That glass is
+		// environment-mapped (GoldenEye's flag 0x200, our ORTHOGONAL): a flat
+		// grey in its place (XBLAMESH_TINT_*, measured where Facility's lab
+		// windows reflect little) left Control's panes, opaque from 10 units
+		// (opadist), a black wall where GoldenEye's show the room's lights
+		// (F3 20261003-102904). The flat grey stays for a pane in a mesh with
+		// more than panes in it (the gas plant's clear door).
+		if (m->tintgdl && renderdata->unk30 == 9 && ((renderdata->envcolour >> 8) & 0xff) != 0
+				&& tintStockNode != node) {
 			gDPSetPrimColor(renderdata->gdl++, 0, 0, XBLAMESH_TINT_R, XBLAMESH_TINT_G, XBLAMESH_TINT_B,
 					(renderdata->envcolour >> 8) & 0xff);
 			gSPDisplayList(renderdata->gdl++, m->tintgdl + (fadelist - m->gdl));
@@ -14465,6 +14495,17 @@ s32 xblaMeshKeptLists(struct model *model, struct modelnode *node, Gfx **opa, Gf
 
 	*opa = NULL;
 	*xlu = NULL;
+
+	// A tinted pane going opaque draws GoldenEye's own pane whole over the
+	// release's (xblaMeshRenderNode())
+	if (node && node == tintStockNode && model) {
+		tintStockNode = NULL;
+		rwdata = modelGetNodeRwData(model, node);
+		*opa = rwdata->dl.gdl;
+		*xlu = node->rodata->dl.xlugdl;
+
+		return *opa != NULL;
+	}
 
 	if (beanNumKeeping <= 0 || !model || !node || (node->type & 0xff) != MODELNODETYPE_DL || !beanBuilt[0]
 			|| !gebeanGetEnabled() || !xblaMeshGetEnabled()) {

@@ -3539,6 +3539,9 @@ struct beandraw {
 	s8 piece;
 	s8 section;
 	u8 afterpieces;
+	// repainted with another of the file's pictures and its UVs laid again
+	// from the position (beanRepaintDraws()): the row of beanRepaints + 1
+	u8 repaint;
 };
 
 struct beanib {
@@ -5043,6 +5046,81 @@ static void beanReflectingSurfacePictures(struct beanmodel *bm, const char *sour
 	}
 }
 
+/**
+ * Pictures the release's HD props wear that do not fit them, swapped for
+ * another of the same file's and laid again from the vertex position, a
+ * repeat every `unit` of the file's own units from `origin` (x or z across,
+ * y up, by the face's normal; UVs in repeats).
+ *
+ * - cryptdoor1b, the 200x100 block under Egyptian's hieroglyph slab
+ *   (cryptdoor1a): its front and back carry a 512x512 photograph of an
+ *   Akhenaten relief at UV 0..1, the whole square squashed into the 2:1 face,
+ *   which read as a strip of carved wood under the door (F3 20261003-102624).
+ *   On the cartridge the block wears the wall's sandstone and hides in the
+ *   wall. The owner's call: the block-stone picture its sides already wear,
+ *   at the sides' own 75 units a repeat up the face and square texels across
+ *   it, the rows meeting the sides' at the corners. Retail and Community
+ *   Edition alike (the CE's copy differs only in six vertex colours).
+ */
+static const struct {
+	const char *source;
+	const char *oldpic;
+	const char *newpic;
+	f32 unit;
+	f32 origin[2];
+} beanRepaints[] = {
+	{ "new/prop/cryptdoor1b", "_0x01460E75", "_0x08A255B5", 75.0f, { 2750.0f, 400.0f } },
+};
+
+static void beanRepaintDraws(struct beanmodel *bm, const char *source)
+{
+	for (u32 k = 0; k < ARRAYCOUNT(beanRepaints); k++) {
+		s32 from = -1;
+		s32 to = -1;
+
+		if (strcmp(beanRepaints[k].source, source) != 0) {
+			continue;
+		}
+
+		for (s32 t = 0; t < bm->numtex; t++) {
+			const char *name = beanTextureName(bm, t);
+
+			if (strncmp(name, beanRepaints[k].oldpic, strlen(beanRepaints[k].oldpic)) == 0) {
+				from = t;
+			} else if (strncmp(name, beanRepaints[k].newpic, strlen(beanRepaints[k].newpic)) == 0) {
+				to = t;
+			}
+		}
+
+		if (from < 0 || to < 0) {
+			sysLogPrintf(LOG_WARNING, "gebean: %s: repaint %s -> %s: picture not in the file", source,
+					beanRepaints[k].oldpic, beanRepaints[k].newpic);
+			continue;
+		}
+
+		for (s32 i = 0; i < bm->numdraws; i++) {
+			if (bm->draws[i].tex == (u32)from) {
+				bm->draws[i].tex = (u32)to;
+				bm->draws[i].repaint = (u8)(k + 1);
+			}
+		}
+	}
+}
+
+/**
+ * A repainted draw's UV (beanRepaints), from the vertex's position in the
+ * file: across by the face's normal (x on a face looking along z, z on one
+ * looking along x), y up.
+ */
+static void beanRepaintUv(const struct beandraw *d, const struct beanvtx *v, f32 *uv)
+{
+	const u32 k = (u32)d->repaint - 1;
+	const f32 across = fabsf(v->nrm[0]) > fabsf(v->nrm[2]) ? v->pos[2] : v->pos[0];
+
+	uv[0] = (across - beanRepaints[k].origin[0]) / beanRepaints[k].unit;
+	uv[1] = (v->pos[1] - beanRepaints[k].origin[1]) / beanRepaints[k].unit;
+}
+
 static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 {
 	const char *names[BEAN_MAXBONES];
@@ -5151,6 +5229,7 @@ static s32 beanLoad(struct beanmodel *bm, const char *source, s32 keepparts)
 	beanReadPose(bm, names, numnames);
 	beanWalkStream(bm);
 	beanReflectingSurfacePictures(bm, source);
+	beanRepaintDraws(bm, source);
 	beanTexAnimation(bm, source);
 	beanFindIndexBuffers(bm);
 	bm->uv20 = beanShaderUv20(bm);
@@ -10796,6 +10875,11 @@ static u8 *gebeanBuildRigid(const struct gebeangunrow *g, struct modeldef *model
 				// and drawn black the bike's bars came out as flat black shapes.
 				v.argb = beanFixVertexColour(source, vb.off, vi, v.argb);
 				beanFixVertexUv(source, &bm, vb.off, vi, v.uv);
+
+				if (d->repaint) {
+					beanRepaintUv(d, &v, v.uv);
+				}
+
 				argb = v.argb == 0xff000000 ? 0xffffffff : v.argb;
 
 				// The Golden Gun's pickup is the first-person gun's near-white
