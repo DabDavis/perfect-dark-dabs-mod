@@ -108,6 +108,7 @@ struct stri {
 	u8 plain;   // of a draw with no UV and no picture of its own (gebeanlevelvtx)
 	u8 overlap; // a face with another room's space behind it, drawn culled (markOverlaps())
 	u8 painted; // under a later blended decal that covers it wholly: never seen (markDecals())
+	u8 unlitplain; // a black face of a plain draw paintUnlit() lit (build() may put its black back)
 	u8 alphatest; // its draw's alpha test, against alpharef (alphaTested())
 	u8 alpharef;
 };
@@ -2262,6 +2263,7 @@ static void collectTri(void *arg, s32 tex, const struct gebeanlevelvtx *v)
 	t->plain = v[0].plain;
 	t->overlap = 0;
 	t->painted = 0;
+	t->unlitplain = 0;
 	t->alphatest = v[0].alphatest;
 	t->alpharef = v[0].alpharef;
 }
@@ -2626,6 +2628,8 @@ static s32 triOther(const struct stri *t, const struct stri *u)
  */
 #define UNLIT_SHARE 0.05f   // a picture black on more than this share of its faces is dark on purpose
 #define UNLIT_REACH 400.0f  // how far a lit face is looked for
+#define UNLIT_GE_DARK 4.0f  // GoldenEye's brightness under which a plain draw's black stays (build())
+#define UNLIT_GE_NEAR 32.0f // and how near its surface must be to be the one asked
 
 static const f32 (*unlitMid)[3];
 
@@ -2794,6 +2798,7 @@ static s32 paintUnlit(struct collect *c)
 				tri->argb[k] = argb;
 			}
 
+			tri->unlitplain = tri->plain;
 			painted++;
 		}
 	}
@@ -4886,6 +4891,8 @@ static s32 slotPatch(struct collect *c, const struct doorbox *b, s32 t, s32 w, s
 	u32 argb = donor->argb[0] & 0xff000000;
 	s32 added = 0;
 
+	patch.unlitplain = 0;
+
 	for (s32 k = 0; k < 4; k++) {
 		const f32 cu = k == 1 || k == 2 ? u1 : u0;
 		const f32 ca = k >= 2 ? a1 : a0;
@@ -5231,6 +5238,8 @@ static s32 fillDoorSlots(struct collect *c, u8 **filerooms, u32 *filelens, s32 n
 					f32 nrm[3];
 					f32 lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
 					f32 by;
+
+					copy.unlitplain = 0;
 
 					if (copy.tex == donor.tex || triNormal(&c->tris[near[q]], nrm) <= 0.0f || dot3(nrm, d) > -0.9f) {
 						continue;
@@ -7026,7 +7035,7 @@ static s32 build(void)
 	struct collect c;
 	s32 **lists;
 	s32 *listlen;
-	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0, paintedOver = 0, plainUntextured = 0;
+	s32 kept = 0, dropped = 0, moved = 0, farOff = 0, decals = 0, backed = 0, fights = 0, nofogs = 0, plainDecals = 0, paintedOver = 0, plainUntextured = 0, plainBlack = 0;
 	u32 bytes = 0;
 	const char *levelname;
 	u64 key = 0;
@@ -7150,7 +7159,9 @@ static s32 build(void)
 
 	{
 		const u64 from = sysGetMicroseconds();
-		const s32 unlit = paintUnlit(&c);
+		s32 unlit;
+
+		unlit = paintUnlit(&c);
 
 		if (unlit) {
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d black faces given the light of the lit faces beside them (%.1f ms)",
@@ -7307,6 +7318,26 @@ static s32 build(void)
 					hdTarget[t] = near >= 0 && gridBright && near < gridBrightCap ? gridBright[near] : -1.0f;
 				}
 				nofogs += tri->nofog;
+
+				// A black face of a plain draw (no UV, no picture of its own:
+				// its vertices' colour is all there is) that paintUnlit() lit:
+				// black again where GoldenEye's own surface under it is dark
+				// too, so the black was paint and not light Rare left out.
+				// Bunker's monitor wall is such a panel, and lit with the
+				// grey of the wall beside it, it drew as a light grey card
+				// round the screens (F3 20261002-063602, 20261002-155304);
+				// Aztec's filler block at the top of a shaft is lit on
+				// GoldenEye's side and keeps its light (F3 20260929-055243)
+				if (tri->unlitplain && near >= 0 && d < UNLIT_GE_NEAR && gridBright && near < gridBrightCap) {
+					if (getenv("PD_UNLITLOG")) {
+						sysLogPrintf(LOG_NOTE, "unlitplain ge %.1f d %.1f (%.0f %.0f %.0f)", gridBright[near], d, mid[0], mid[1], mid[2]);
+					}
+
+					if (gridBright[near] < UNLIT_GE_DARK) {
+						tri->argb[0] = tri->argb[1] = tri->argb[2] = 0xff000000;
+						plainBlack++;
+					}
+				}
 			}
 
 			if (tri->room > 0) {
@@ -7369,6 +7400,10 @@ static s32 build(void)
 
 		if (plainUntextured) {
 			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d triangles of draws with no UV or picture drawn in their vertices' colour", row->bean, plainUntextured);
+		}
+
+		if (plainBlack) {
+			sysLogPrintf(LOG_NOTE, "gebeanstage: %s: %d black faces of draws with no UV or picture kept black over GoldenEye's dark surface", row->bean, plainBlack);
 		}
 
 		if (paintedOver) {

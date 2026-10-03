@@ -8780,9 +8780,63 @@ static s32 xblaMeshBodyDrawsBare(struct model *model)
  * inside the parka's open collar, which that neck does not reach (on a suit's
  * collar the tube stood out round it).
  */
+// How far a body's collar must dip under a head's neck before the made neck
+// fills the gap (xblaMeshHeadTubeOn())
+#define XBLAMESH_COLLAR_GAP 2.0f
+
+/**
+ * Whether this body's collar dips under the foot of the head's own neck
+ * anywhere round it: a head cut off one character's collar, grafted on a
+ * body whose collar is cut lower - Bond's tuxedo head (char/djbond, its neck
+ * ending 62 under the joint in front) on the Russian guard (char/rusguard,
+ * the tunic's open front at 67) - left the throat open onto whatever was
+ * behind, the body's own neck skin being left out under a head file's neck
+ * (F3 20261002-061330, "bond has missing throat textures"). Both rings are
+ * gebeanmats.seat, measured from the neck joint round the same sixteen
+ * directions.
+ */
+static s32 xblaMeshCollarUnderHead(struct model *model, const struct xblameshbuilt *head)
+{
+	struct modelnode *node = model && model->definition ? model->definition->rootnode : NULL;
+
+	if (!head->beanseathit) {
+		return 0;
+	}
+
+	for (s32 walked = 0; node && walked < 512; walked++) {
+		const struct xblameshentry *e = xblaMeshSlotFor(node);
+
+		if (e && e->node == node && e->modeldef == model->definition && !e->suppress && e->beanrow >= 0) {
+			const struct xblameshbuilt *m = xblaMeshBuildBean(e, !xblaMeshGetEnabled());
+
+			for (s32 i = 0; m && !m->beanhead && i < GEBEAN_SEAT_SAMPLES; i++) {
+				if ((m->beanseathit & head->beanseathit & (1u << i))
+						&& m->beanseat[i] < head->beanseat[i] - XBLAMESH_COLLAR_GAP) {
+					return 1;
+				}
+			}
+
+			return 0;
+		}
+
+		if (node->child && (node->type & 0xff) != MODELNODETYPE_HEADSPOT) {
+			node = node->child;
+		} else {
+			while (node && !node->next) {
+				node = node->parent;
+			}
+
+			node = node ? node->next : NULL;
+		}
+	}
+
+	return 0;
+}
+
 static s32 xblaMeshHeadTubeOn(struct model *model, const struct xblameshbuilt *head)
 {
-	return head->beanopenrim > GEBEAN_OPENRIM_JAW || xblaMeshBodyDrawsBare(model);
+	return head->beanopenrim > GEBEAN_OPENRIM_JAW || xblaMeshBodyDrawsBare(model)
+		|| xblaMeshCollarUnderHead(model, head);
 }
 
 /**

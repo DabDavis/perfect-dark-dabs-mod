@@ -70,8 +70,9 @@
 // before the remake's HD props were, so a cache holding any of them is unpacked
 // again. The tenth (".extracted10") is the menus' two fonts, the eleventh the
 // skydomes, the twelfth the HUD's crosshair, the thirteenth the HUD's
-// ammunition pictures.
-#define GEBEAN_DONE_FILE ".extracted13"
+// ammunition pictures, the fourteenth the monitors' pictures, the bullet holes
+// and the hit puffs.
+#define GEBEAN_DONE_FILE ".extracted14"
 #define GEBEAN_SCAN_DEPTH 2
 
 // What says a folder is Bean's, and which of an archive's entries are wanted:
@@ -111,6 +112,16 @@
 #define GEBEAN_WANT_HUD_AMMO "files/texture/bg/ammo"
 // and their two fonts, which are files/misc/alps3 and doc0 (gebeanFontOpen())
 #define GEBEAN_WANT_MENU_FONTS "files/misc/"
+// and the screens' pictures, new/texture/monitors (gemonitor.c), the bullet
+// holes, texture/bulletholes (geimpact.c), and the hit puffs, texture/sfx
+// (gehitpuff.c): none was taken until 2026-10-03, so from the archive every
+// screen showed GoldenEye's own pictures in the HD look - Depot's big world
+// map blurred up from the ROM's, its console GoldenEye's dashes for the
+// release's staff names (F3 20261002-232149) - and the holes and puffs fell
+// back to the ROM's too; only a folder of the whole release had them
+#define GEBEAN_WANT_MONITORS "files/new/texture/monitors/"
+#define GEBEAN_WANT_BULLETHOLES "files/texture/bulletholes/"
+#define GEBEAN_WANT_HITPUFFS "files/texture/sfx/"
 
 #define GEBEAN_BODY           0
 #define GEBEAN_BODY_WITH_HEAD 1
@@ -2629,7 +2640,9 @@ static s32 gebeanWantEntry(const char *name, void *arg)
 		|| strstr(lower, GEBEAN_WANT_MENU_CHARS) != NULL || strstr(lower, GEBEAN_WANT_MENU_LEVELS) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_SIGHT) != NULL || strstr(lower, GEBEAN_WANT_MENU_ATTRACT) != NULL
 		|| strstr(lower, GEBEAN_WANT_MENU_FONTS) != NULL || strstr(lower, GEBEAN_WANT_HUD_SIGHT) != NULL
-		|| strstr(lower, GEBEAN_WANT_HUD_AMMO) != NULL;
+		|| strstr(lower, GEBEAN_WANT_HUD_AMMO) != NULL
+		|| strstr(lower, GEBEAN_WANT_MONITORS) != NULL || strstr(lower, GEBEAN_WANT_BULLETHOLES) != NULL
+		|| strstr(lower, GEBEAN_WANT_HITPUFFS) != NULL;
 }
 
 static void gebeanSetRoot(const char *tree)
@@ -5722,6 +5735,82 @@ static u8 *beanDecodeTextureFrame(const struct beanmodel *bm, s32 t, s32 frame, 
 					memcpy(px, from, 4);
 				}
 			}
+		}
+	}
+
+	// Silo's steel door (prop/steeldoor1): the hazard stripes down its edge
+	// are black and yellow on GoldenEye's door and black and white in the
+	// release's picture (F3 20261002-040258); the Community Edition repainted
+	// them yellow ("Fixed steeldoor1 not retaining the original yellow
+	// stripe"). The stripe columns, above and below the lock plate, take the
+	// Community Edition's colour: each grey texel its brightness times
+	// (0.664, 0.675, 0.231), the fit of its picture to the release's. A texel
+	// already coloured (the Community Edition's own copy) is left alone.
+	if (w == 256 && h == 512 && t < bm->numtex
+			&& strcmp(caffAssetName(c, c->files[bm->texfile[t]].asset), "_0x04031685.tga.bin") == 0) {
+		for (u32 y = 0; y < h; y++) {
+			if (y >= 202 && y <= 307) {
+				continue;
+			}
+
+			for (u32 x = 220; x < w; x++) {
+				u8 *px = rgba + ((size_t)y * w + x) * 4;
+				const s32 lo = MIN(px[0], MIN(px[1], px[2]));
+				const s32 hi = MAX(px[0], MAX(px[1], px[2]));
+				const f32 l = (px[0] + px[1] + px[2]) / 3.0f;
+
+				if (hi - lo <= 24) {
+					px[0] = (u8)(l * 0.664f + 0.5f);
+					px[1] = (u8)(l * 0.675f + 0.5f);
+					px[2] = (u8)(l * 0.231f + 0.5f);
+				}
+			}
+		}
+	}
+
+	// Depot's roller doors (prop/doorroller4): the arrow painted on the
+	// shutter is white in the release's picture and yellow in GoldenEye's and
+	// the Community Edition's ("doorroller4", its blue taken down to 0.4 of
+	// the arrow's brightness; F3 20261002-232341). The arrow's box, grey
+	// texels only, by brightness: the shutter's dark slats are left as they
+	// are, the arrow's bright paint loses most of its blue.
+	if (w == 512 && h == 512 && t < bm->numtex
+			&& strcmp(caffAssetName(c, c->files[bm->texfile[t]].asset), "_0x07E50215.tga.bin") == 0) {
+		for (u32 y = 160; y <= 269; y++) {
+			for (u32 x = 200; x <= 291; x++) {
+				u8 *px = rgba + ((size_t)y * w + x) * 4;
+				const s32 lo = MIN(px[0], MIN(px[1], px[2]));
+				const s32 hi = MAX(px[0], MAX(px[1], px[2]));
+				const f32 l = (px[0] + px[1] + px[2]) / 3.0f;
+				const f32 k = l <= 120.0f ? 0.0f : l >= 200.0f ? 1.0f : (l - 120.0f) / 80.0f;
+
+				if (hi - lo <= 24) {
+					px[2] = (u8)(px[2] * (1.0f - 0.6f * k) + 0.5f);
+				}
+			}
+		}
+	}
+
+	// Egyptian's Golden Gun case (prop/doorwin, its four panes): the
+	// release's one picture is a near-black blur (RGB 23 on average) at alpha
+	// 85-102, laid at fixed UVs, which is the release's dark tint and not the
+	// glass. Through the front pane and the back one the case's inside came
+	// out at about 37% and streaked - murky where GoldenEye's case is light,
+	// clear glass (F3 20261002-042109, "glass isnt right yet"). Drawn as
+	// GoldenEye's is: a light pane at a faint alpha, the release's streaks
+	// kept as a little shading in it.
+	if (w == 54 && h == 54 && t < bm->numtex
+			&& strcmp(caffAssetName(c, c->files[bm->texfile[t]].asset), "_0x0DC40C15.tga.bin") == 0) {
+		for (u32 i = 0; i < w * h; i++) {
+			u8 *px = rgba + i * 4;
+
+			for (s32 k = 0; k < 3; k++) {
+				const s32 v = 96 + px[k];
+
+				px[k] = (u8)MIN(v, 255);
+			}
+
+			px[3] = (u8)(px[3] * 3 / 10);
 		}
 	}
 
