@@ -6472,7 +6472,9 @@ _Static_assert(ARRAYCOUNT(g_Weapons) == NUM_WEAPONS,
 		"g_Weapons must have an entry per weapon number");
 
 #ifndef PLATFORM_N64
-const u8 g_GeWeaponHosts[NUM_GE_WEAPONS] = {
+// not const: a ROM hack's gun set may stand a gun on another host (geguns.c's
+// gegunsStageSet(), TND64's FAMAS on the Moonraker's number)
+u8 g_GeWeaponHosts[NUM_GE_WEAPONS] = {
 	[WEAPON_GE_PP7             - WEAPON_GE_FIRST] = WEAPON_PP9I,
 	[WEAPON_GE_PP7SILENCED     - WEAPON_GE_FIRST] = WEAPON_PP9I,
 	[WEAPON_GE_DD44            - WEAPON_GE_FIRST] = WEAPON_CC13,

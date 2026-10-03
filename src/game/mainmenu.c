@@ -5144,17 +5144,18 @@ static MenuItemHandlerResult menuhandlerMainMenuGexPlus(s32 operation, struct me
 }
 
 /**
- * The Perfect Menu's row for a GoldenEye ROM hack found in added-content/
- * (gexplusrom.c: Goldfinger 64), under the hack's own name and there only
- * while it is: GE Plus's folder screens over the hack's own conversion - its
- * missions under its own chapters, its multiplayer with its arenas only, and
- * GoldenEye's scenarios and weapon sets with them (g_GexPlusVariant). A
- * conversion from before its missions were converted opens GE Plus's
- * Combat Simulator over its arenas, as the row used to.
+ * The Perfect Menu's rows for the GoldenEye ROM hacks found in added-content/
+ * (gexplusrom.c: Goldfinger 64, Tomorrow Never Dies 64), each under the hack's
+ * own name and there only while it is - the row's param is which of them, in
+ * the converter's order: GE Plus's folder screens over the hack's own
+ * conversion - its missions under its own chapters, its multiplayer with its
+ * arenas only, and GoldenEye's scenarios and weapon sets with them
+ * (g_GexPlusVariant). A conversion from before its missions were converted
+ * opens GE Plus's Combat Simulator over its arenas, as the row used to.
  */
 static char *mainMenuVariantLabel(struct menuitem *item)
 {
-	const char *name = gexPlusRomGetVariant(0);
+	const char *name = gexPlusRomGetVariant(item->param);
 
 	return (char *)(name ? name : "");
 }
@@ -5178,7 +5179,7 @@ static s32 gexPlusVariantFirstArena(const char *name)
 
 static MenuItemHandlerResult menuhandlerMainMenuVariant(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	const char *name = gexPlusRomGetVariant(0);
+	const char *name = gexPlusRomGetVariant(item->param);
 
 	if (operation == MENUOP_CHECKHIDDEN) {
 		return name == NULL;
@@ -5365,6 +5366,14 @@ struct menuitem g_MainMenuMenuItems[] = {
 		MENUITEMFLAG_BIGFONT,
 		(uintptr_t)&mainMenuVariantLabel,
 		0x0000000e,
+		menuhandlerMainMenuVariant,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		1,
+		MENUITEMFLAG_BIGFONT,
+		(uintptr_t)&mainMenuVariantLabel,
+		0x0000000f,
 		menuhandlerMainMenuVariant,
 	},
 #endif

@@ -389,7 +389,7 @@ struct gewatch {
 
 	// the interference (g_WatchBackgroundGreen, g_WatchStaticScanlineY)
 	s32 bggreen;     // 0xe0 when the face is clear, 0x80 as static strikes
-	s32 tint;        // the conversion's menu/gewatch.bin: 1 yellow (watchTint())
+	s32 tint;        // the conversion's menu/gewatch.bin: 1 yellow, 2 blue (watchTint())
 	s32 scany;       // the scanline's place up the face, -0x156 to 0x156
 	f32 staticacc;   // 60ths owed to watchTickStatic()
 	f32 gunangle;    // D_80040B14, the inventory's gun's turn
@@ -497,11 +497,35 @@ static u32 watchBe32(const u8 *p)
  * to the same with its red raised to its green - 0x00ff00b0 to 0xffff00b0,
  * 0xa0ffa0f0 to 0xffffa0f0 (F3 20261003-050712). The conversion says which
  * (menu/gewatch.bin, romlayout.watchtint); GoldenEye's own writes none.
+ *
+ * Tomorrow Never Dies 64's (tint 2) is blue, each of GoldenEye's colours
+ * replaced by one of its own (its code's immediates at the same sites,
+ * 7F0A3420-7F0AD000 and 7F069C40), and its vertex colours with their green
+ * and blue swapped (the face's ramp, the page rectangles). Its INCOMPLETE
+ * pulses are steady (watchStatusPulse(), watchObjectivePulse()).
  */
+static const u32 g_WatchTintBlue[][2] = {
+	{ 0x00ff00b0, 0xa0a0ffb0 },
+	{ 0xa0ffa0f0, 0xb8b8fff0 },
+	{ 0x00800080, 0x30309080 },
+	{ 0x007000a0, 0x6060b0a0 },
+	{ 0x00aa00b0, 0x5050ccb0 },
+	{ 0x003000b0, 0x000030b0 },
+	{ 0x00800050, 0x10108050 },
+};
+
 static u32 watchTint(u32 colour)
 {
 	if (g_Watch.tint == 1) {
 		colour = (colour & 0x00ffffff) | (colour & 0x00ff0000) << 8;
+	} else if (g_Watch.tint == 2) {
+		for (u32 i = 0; i < ARRAYCOUNT(g_WatchTintBlue); i++) {
+			if (colour == g_WatchTintBlue[i][0]) {
+				return g_WatchTintBlue[i][1];
+			}
+		}
+
+		colour = (colour & 0xff0000ff) | (colour & 0x00ff0000) >> 8 | (colour & 0x0000ff00) << 8;
 	}
 
 	return colour;
@@ -511,6 +535,13 @@ static void watchTintCols(Col *c, s32 n)
 {
 	for (s32 i = 0; g_Watch.tint == 1 && i < n; i++) {
 		c[i].r = c[i].g;
+	}
+
+	for (s32 i = 0; g_Watch.tint == 2 && i < n; i++) {
+		const u8 g = c[i].g;
+
+		c[i].g = c[i].b;
+		c[i].b = g;
 	}
 }
 
@@ -5247,7 +5278,8 @@ static Gfx *watchDrawMissionPage(Gfx *gdl)
 		colour = COL_GREEN;
 	} else {
 		status = watchString(STR_INCOMPLETE);
-		colour = watchTint(g_Watch.statuspulse);
+		// Tomorrow Never Dies 64's is a steady yellow (7F0A6C14-44)
+		colour = g_Watch.tint == 2 ? 0xffff00b0 : watchTint(g_Watch.statuspulse);
 	}
 
 	// GoldenEye moves on by the width of the first string and back up by its
@@ -5794,7 +5826,9 @@ static Gfx *watchDrawBriefingPage(Gfx *gdl)
 				state = watchString(STR_INCOMPLETE);
 				// Goldfinger 64's red here is 0, not its green (7F0AC79C):
 				// the one colour of its watch it did not turn yellow
-				colour = (g_Watch.objpulse << 16) | (g_Watch.tint == 1 ? 0x000040ff : 0x400040ff);
+				// Tomorrow Never Dies 64's is a steady 0xbfbf40ff (7F0A6C74-98)
+				colour = g_Watch.tint == 2 ? 0xbfbf40ff
+					: (g_Watch.objpulse << 16) | (g_Watch.tint == 1 ? 0x000040ff : 0x400040ff);
 				break;
 			}
 

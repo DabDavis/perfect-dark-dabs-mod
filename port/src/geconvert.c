@@ -60,7 +60,8 @@
 #define FOG_AT 0x24080
 #define FOG_ROW 92
 // gun.c's ammo_related[] (30 rows of 12 bytes) and the global image table
-// (segment 2) its rows point into; both where they are in every ROM so far
+// (segment 2) its rows point into, the table where GoldenEye has it but in
+// TND64, which moved it (romlayout.globalimages)
 #define GE_AMMO_TABLE_AT 0x80035ef0u
 #define GE_AMMO_TYPES 30
 #define GE_GLOBAL_IMAGES_ROM 0x29d160u
@@ -152,8 +153,39 @@ struct romlayout {
 	uint32_t monimages;
 	// the watch's colours (menu/gewatch.bin, gewatch.c): 1 where the hack
 	// patched every green of its watch, mpmenu.c's pause and the watch's
-	// ammunition to the same with its red raised to its green - yellow
+	// ammunition to the same with its red raised to its green - yellow; 2
+	// where it made them blue (TND64)
 	uint8_t watchtint;
+	// the animation_data segment's ROM address (the lui/addiu at 7F000B20),
+	// 0 for GoldenEye's ANIM_DATA_ROM. An animation's record is where
+	// animation_table_ptrs1[]/ptrs2[] in the data segment say in it, which a
+	// hack that rebuilt the segment moved (animRecord())
+	uint32_t animdata;
+	// the global image table (segment 2, texReset()'s lui/addiu at 7F0CC000/
+	// 7F0CC008), 0 for GoldenEye's GE_GLOBAL_IMAGES_ROM
+	uint32_t globalimages;
+	// how many of random_male_heads a level draws its men from
+	// (bodyChooseHead()'s `random & 3` at 7F0235E4), 0 for GoldenEye's four
+	uint8_t maleheads;
+	// how many of its missions are real, 0 for all GoldenEye's twenty: a
+	// hack that cut its campaign short leaves the rest of the folder's rows
+	// in place, their names blank and their files gone (TND64's 14 to 19)
+	uint8_t nummissions;
+	// 1 where the hack's code takes TRYFindCover (AI command 0x2b) with a
+	// label of 0xfb-0xfe for a hook of its own: TND64's memory pokes, each
+	// the string of the PRINT (0xad) after it - its Girl Power Mode, clocks
+	// and bonuses (writeSoloAilist())
+	uint8_t aihooks;
+	// 1 where the hack's code no longer tests for the laser by its item
+	// (TND64 Expanded's fourteen tests are of 0x99): its gun on the laser's
+	// file is a rifle, which geguns.bin's flags say (writeGuns())
+	uint8_t nolaser;
+	// the folder's way on after a mission (front.c, 7F0168BC and 7F0168D4):
+	// the mission whose end plays the credits (`li 0x11`, the Cradle), and
+	// the first that no longer moves on to the next (`slti 0x12`, Aztec),
+	// 0 for GoldenEye's 17 and 18 (menu/getimes.bin, gexfront.c)
+	uint8_t creditsafter;
+	uint8_t advancebelow;
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -258,6 +290,90 @@ static const struct romlayout g_Layouts[] = {
 		// for its red, the pulses stepped 0x10100000
 		1,
 	},
+	{
+		// Expanded 06-22 (2022), "TND64_Expanded_06-22.z64": the header keeps
+		// GoldenEye's title and code, only the CRCs and the size differ. Its
+		// Original V4 (20 MB, its tables where GoldenEye's are) has no row
+		"Tomorrow Never Dies 64", "GOLDENEYE", "NGEE",
+		{ 0xd2, 0x24, 0x26, 0x04, 0xf7, 0xa5, 0x07, 0x84 },
+		0x1000000, 1,
+		// image_entries_load() (7F000BD0): four-byte rows and a 23-bit size
+		// as Goldfinger's, the bank at 7F0CBCBC/CC0 (ob_end.seg + 0x10), 3045
+		// rows to the 0xffff end
+		0x80049300, 0x89e60a, 3045, 4, 0x7fffff,
+		// props unmoved (all 22 sites)
+		0x8003a228, 340,
+		// characters in the Expansion Pak (13 sites, 7F000F54...), 112 rows;
+		// 80-111 (C50Z-C6FZ) one placeholder file
+		0x80702e00, 112,
+		{
+			// osMemSize 0x700000; ares's RDRAM at the Rare logo against the
+			// ROM: 112 model headers, the character table at 0x80702e00 and
+			// its names, zero either side where the ROM is 0xff fill
+			{ 0x80702000, 0xffd000, 0x1c00 },
+		},
+		// each where its boot code loads it (GoldenEye's sites); the ctl
+		// sizes its immediates, the tbl and sequence lengths their extents;
+		// the backdrop's whole RLE stream, which its code DMAs 178 bytes
+		// short of
+		{
+			{ 0x2df7c0, 0x24b0 }, { 0x2e1c70, 0x3540 },
+			{ 0x474068, 0x43a0 }, { 0x478408, 0x1e5058 }, { 0x65d460, 0x20810 },
+			{ 0x2e51b0, 0x5bc0 }, { 0x2ead70, 0x1892f8 },
+			{ 0x29e120, 107890 },
+		},
+		// headHat_array and object_explosion_details unmoved
+		0x8003e464, 42, 28,
+		0x8003b224,
+		// solo_char_load() (7F079D94, the jump tables at 0x80054fe4 and
+		// 0x80055008): suit, boiler suit, timber, DJ and snow Bonds on head
+		// 74; cuffs 5-8 Wai Lin's, which the setups' Girl Power AI pokes
+		// pick at run time (not converted)
+		{ { 23, 74 }, { 22, 74 }, { 24, 74 }, { 5, 74 }, { 25, 74 }, { 16, 76 }, { 79, 76 }, { 28, 76 }, { 40, 49 } },
+		// GoldenEye's items and jump table (0x8005762c): the Katana (2) held
+		// as PchrthrowknifeZ and the Star Knife (3) as PchrknifeZ, its H&K P7
+		// (20) and Desert Eagle (21) on GoldenEye's unused silver and gold
+		// PPK props
+		{
+			-1, -1, 209, 186, 191, 204, 205, 193, 184, 195, 189, 206, 194, 188, 197, 192,
+			207, 210, 190, 208, 230, 231, 187, -1, 185, 211, 196, 201, 200, 199, -1, -1,
+		},
+		// GoldenEye's six (7F062CA8): its Golden Gyrojet, Webley, Katana,
+		// Star Knife, H&K P7 and Desert Eagle
+		{ 19, 18, 2, 3, 20, 21 },
+		// GoldenEye's pools in the data segment, eight men a level (maleheads)
+		{ { { 0 } } },
+		// GoldenEye's programmes in GoldenEye's block, 2 and one near word
+		// 1157 rewritten shorter and the rest moved up; its pictures
+		// GoldenEye's fifty rows in its moved global image table
+		{
+			   0,   35,  172,  198,  251,  274,  305,  344,  380,  391,  402,  434,  441,  537,  563,  181,
+			 461,  592,  616,  775,  795,  803,  828,  841,  874,  881,  888,  895,  902,  909,  916,  923,
+			 930,  937,  944,  958,  963,  968,  973,  994, 1001, 1008, 1015, 1045, 1089, 1099, 1119, 1138,
+			1157, 1162, 1176, 1190,
+		},
+		0x2971cc,
+		// its watch is blue (gewatch.c's tint 2)
+		2,
+		// its animation_data segment rebuilt (7F000B20), GoldenEye's entry
+		// segment as it was
+		0x2881b0,
+		// the global image table (7F0CC000/7F0CC008), 0x14c0 bytes
+		0x296470,
+		// bodyChooseHead()'s `andi 7` (7F0235E4)
+		8,
+		// missions 0-13: 7F01F4C8 counts 14 for 007, 7F0168D4 advances none
+		// past The End (13)
+		14,
+		// its setups' memory pokes ("2b fe" then "ad 8007A0B0+P0000041C+...")
+		1,
+		// "FAMAS ray tracer now like every other gun" (its changelog): 7F025378
+		// and thirteen more test 0x99 for 0x16
+		1,
+		// the credits after the Stealth Boat (9, 7F0168BC), and nothing
+		// moves on past The End (`slti 0x0d`, 7F0168D4)
+		9, 13,
+	},
 };
 
 static const struct romlayout *g_Layout = &g_Layouts[0];
@@ -296,7 +412,11 @@ static const struct romlayout *g_Layout = &g_Layouts[0];
 // segment, bitsperframe/8 bytes a frame of joint rotations, `width` bits a
 // channel, in joint order.
 #define ANIM_ENTRY_ROM 0x124ac0
-#define ANIM_DATA_ROM 0x28e980
+#define ANIM_DATA_ROM (g_Layout->animdata ? g_Layout->animdata : GEANIM_BASE)
+// animation_table_ptrs1[] and ptrs2[] (initanitable.c): an id's record as its
+// offset in the data segment, a guard's then an aircraft's (geanimtable.h)
+#define ANIM_TABLE1_AT 0x80029d6cu
+#define ANIM_TABLE2_AT 0x8002a04cu
 // GoldenEye's guard skeleton, which every character in the ROM has: the header
 // node the animation plays on and fifteen parts, which is Perfect Dark's
 // g_SkelChrJoints joint for joint
@@ -394,23 +514,25 @@ static const uint32_t g_HeldGuns[] = {
 	204, 205, 206, 207, 208, 210, 211,
 };
 
-static const struct { const char *name; size_t at; } g_IntroAnims[] = {
+// each by its id in animation_table_ptrs1[] (geanimtable.h), which says where
+// its record is (animRecord())
+static const struct { const char *name; int id; } g_IntroAnims[] = {
 	// the gun barrel: Bond walks in, turns and fires
-	{ "bond_eye_walk", 0x292ac4 }, { "bond_eye_fire", 0x292c18 },
+	{ "bond_eye_walk", 43 }, { "bond_eye_fire", 44 },
 	// the cast reel: front.c's intro_animation_table, and idle for a character
 	// whose animation is still loading
-	{ "idle", 0x28e99c }, { "spotting_bond", 0x294690 },
-	{ "fire_standing_draw_fast", 0x294bd4 }, { "fire_standing_draw_slow", 0x294cfc },
-	{ "fire_step_right", 0x295188 }, { "fire_kneel_forward_fast", 0x2956d0 },
-	{ "running_one_handed", 0x2960fc }, { "draw_and_stand_up", 0x296428 },
-	{ "aim_left_right", 0x2965cc }, { "cock_and_turn_around", 0x296684 },
-	{ "cock_turn_stand_up", 0x29688c }, { "draw_and_turn_around", 0x296934 },
-	{ "drop_weapon_fight", 0x299af4 }, { "laughing", 0x29ad90 },
-	{ "fire_hip_forward", 0x294fc4 }, { "fire_standing_left_fast", 0x295398 },
-	{ "fire_kneel_left_fast", 0x295c84 }, { "draw_and_look_around", 0x296248 },
-	{ "aim_left", 0x2992cc }, { "aim_right", 0x29935c },
-	{ "conversation", 0x29962c }, { "conversation_listener", 0x29a900 },
-	{ "conversation_cleaned", 0x29a5c0 },
+	{ "idle", 0 }, { "spotting_bond", 63 },
+	{ "fire_standing_draw_fast", 66 }, { "fire_standing_draw_slow", 67 },
+	{ "fire_step_right", 72 }, { "fire_kneel_forward_fast", 76 },
+	{ "running_one_handed", 89 }, { "draw_and_stand_up", 98 },
+	{ "aim_left_right", 99 }, { "cock_and_turn_around", 100 },
+	{ "cock_turn_stand_up", 102 }, { "draw_and_turn_around", 103 },
+	{ "drop_weapon_fight", 153 }, { "laughing", 163 },
+	{ "fire_hip_forward", 70 }, { "fire_standing_left_fast", 74 },
+	{ "fire_kneel_left_fast", 80 }, { "draw_and_look_around", 97 },
+	{ "aim_left", 150 }, { "aim_right", 151 },
+	{ "conversation", 152 }, { "conversation_listener", 161 },
+	{ "conversation_cleaned", 160 },
 };
 
 static const struct { const char *brief, *lang; } g_MenuText[] = {
@@ -2580,35 +2702,22 @@ struct roomout {
 	lights lights;
 };
 
-static struct roomout writeRoom(const struct bgroom *room, double inv, const double *offset, uint32_t baseptr,
-		uint8_t *textures, int32_t lightsindex, const int32_t *tilebox)
+/**
+ * A room's file data out of its converted lists: its vertices (outv, each
+ * relative to r->centre), their colours, and each leaf's words (an opaque
+ * and a translucent, where hasleaf says), at file address baseptr; r->lights
+ * already set. Its box is its vertices', grown to its own tiles (tilebox).
+ */
+static void roomPack(struct roomout *r, outvtxs outv, u32s outc, u32s *leafwords, const size_t *leafbase,
+		const int *hasleaf, uint32_t baseptr, int32_t lightsindex, const int32_t *tilebox)
 {
-	struct roomout r;
-	buf vtx = scaledRoom(room, inv, offset, r.centre, tilebox);
-	outvtxs outv = {0};
-	u32s outc = {0};
-	tris lighttris = {0};
-	u32s leafwords[2] = { {0}, {0} };
-	size_t leafbase[2] = { 0, 0 };
-	int hasleaf[2] = { room->haspri, room->hassec };
-	const buf *dls[2] = { &room->pri, &room->sec };
 	int nleaves = 0, vpad;
 	size_t vtxat, colat, gdlat, at;
 	uint32_t ptrs[2] = { 0, 0 };
 	buf body = {0}, gdls = {0};
 
 	for (int i = 0; i < 2; ++i) {
-		if (!hasleaf[i]) {
-			continue;
-		}
-		leafbase[i] = outv.n;
-		convertList(dls[i], &vtx, &outv, &outc, leafbase[i], textures, &lighttris, &leafwords[i]);
-		++nleaves;
-	}
-
-	r.lights = fixtureLights(&lighttris);
-	if (r.lights.n > 255) {
-		r.lights.n = 255;
+		nleaves += hasleaf[i] ? 1 : 0;
 	}
 
 	vtxat = (0x18 + 20 * nleaves + 7) & ~7u;
@@ -2648,8 +2757,8 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 
 	set32(body.v, 8, ptrs[0]);
 	set32(body.v, 12, ptrs[1]);
-	set16(body.v, 0x10, (uint32_t)(r.lights.n ? lightsindex : -1));
-	set16(body.v, 0x12, (uint32_t)r.lights.n);
+	set16(body.v, 0x10, (uint32_t)(r->lights.n ? lightsindex : -1));
+	set16(body.v, 0x12, (uint32_t)r->lights.n);
 	set16(body.v, 0x14, (uint32_t)(outv.n < 32767 ? outv.n : 32767));
 	set16(body.v, 0x16, (uint32_t)(outc.n < 32767 ? outc.n : 32767));
 
@@ -2669,8 +2778,8 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 		set32(body.v, colat + 4 * k, outc.v[k]);
 	}
 
-	r.data = body;
-	bufPut(&r.data, gdls.v, gdls.n);
+	r->data = body;
+	bufPut(&r->data, gdls.v, gdls.n);
 
 	{
 		size_t used = outv.n - ((outv.n && outc.v[outc.n - 1] == 0 && vpad) ? 1 : 0);
@@ -2687,11 +2796,11 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 				}
 			}
 			for (int c = 0; c < 3; ++c) {
-				r.bbox[c] = mn[c];
-				r.bbox[3 + c] = mx[c];
+				r->bbox[c] = mn[c];
+				r->bbox[3 + c] = mx[c];
 			}
 		} else {
-			memset(r.bbox, 0, sizeof(r.bbox));
+			memset(r->bbox, 0, sizeof(r->bbox));
 		}
 
 		// The room holds the tiles GoldenEye files under it, which need not be
@@ -2702,18 +2811,543 @@ static struct roomout writeRoom(const struct bgroom *room, double inv, const dou
 		// runway"), so a room whose box misses its own floor cannot be found.
 		if (tilebox) {
 			for (int c = 0; c < 3; ++c) {
-				const int32_t lo = (int32_t)floor(tilebox[c] - r.centre[c]);
-				const int32_t hi = (int32_t)ceil(tilebox[3 + c] - r.centre[c]);
+				const int32_t lo = (int32_t)floor(tilebox[c] - r->centre[c]);
+				const int32_t hi = (int32_t)ceil(tilebox[3 + c] - r->centre[c]);
 
-				if (lo < r.bbox[c]) {
-					r.bbox[c] = lo < -32768 ? -32768 : lo;
+				if (lo < r->bbox[c]) {
+					r->bbox[c] = lo < -32768 ? -32768 : lo;
 				}
-				if (hi > r.bbox[3 + c]) {
-					r.bbox[3 + c] = hi > 32767 ? 32767 : hi;
+				if (hi > r->bbox[3 + c]) {
+					r->bbox[3 + c] = hi > 32767 ? 32767 : hi;
 				}
 			}
 		}
 	}
+
+}
+
+static struct roomout writeRoom(const struct bgroom *room, double inv, const double *offset, uint32_t baseptr,
+		uint8_t *textures, int32_t lightsindex, const int32_t *tilebox)
+{
+	struct roomout r;
+	buf vtx = scaledRoom(room, inv, offset, r.centre, tilebox);
+	outvtxs outv = {0};
+	u32s outc = {0};
+	tris lighttris = {0};
+	u32s leafwords[2] = { {0}, {0} };
+	size_t leafbase[2] = { 0, 0 };
+	int hasleaf[2] = { room->haspri, room->hassec };
+	const buf *dls[2] = { &room->pri, &room->sec };
+
+	for (int i = 0; i < 2; ++i) {
+		if (!hasleaf[i]) {
+			continue;
+		}
+		leafbase[i] = outv.n;
+		convertList(dls[i], &vtx, &outv, &outc, leafbase[i], textures, &lighttris, &leafwords[i]);
+	}
+
+	r.lights = fixtureLights(&lighttris);
+	if (r.lights.n > 255) {
+		r.lights.n = 255;
+	}
+
+	roomPack(&r, outv, outc, leafwords, leafbase, hasleaf, baseptr, lightsindex, tilebox);
+
+	return r;
+}
+
+/**
+ * A room wider than 16 bits. A converted room's vertices are s16s about its
+ * centre, as every reader of a room's lists takes them, and GoldenEye's are
+ * too about its own - but scaled to the world by a level scale under 1/2 a
+ * room can outgrow them: TND64's Golden Gate Bridge (scale 0.1) has four
+ * rooms whose water and hills run 100,000 to either side of the deck, with
+ * single triangles 66,670 long. Such a room keeps what fits about its centre,
+ * and the rest is cut into triangles no longer than SPLIT_EDGE (each cut
+ * carrying its texture coordinates and colour across) and dealt by where it
+ * lies into pieces SPLIT_CELL wide: rooms of their own after the level's,
+ * each about its own centre, with every state command of the room's lists in
+ * the same order and no portal, drawn whenever their room is (the room table
+ * row's last two bytes name it; bgSetRoomOnscreen()). What is cut out lies
+ * far beyond the level's floor, so no question of where a point is finds a
+ * piece. A piece has no lights of its own.
+ */
+#define SPLIT_EDGE 12000.0
+#define SPLIT_CELL 40000.0
+
+static void note(const char *fmt, ...);
+#define SPLIT_FIT 32767.0
+#define MAX_SPLIT_PARTS 64
+
+struct splitvtx {
+	double p[3];
+	int32_t s, t;
+	uint32_t col;
+	uint8_t lit;
+};
+
+struct splittri {
+	struct splitvtx v[3];
+};
+
+typedef VEC(struct splittri) splittris;
+
+struct splitpart {
+	double centre[3];
+	int64_t cell[3];
+	outvtxs outv;
+	u32s outc;
+	u32s words[2];
+	size_t base[2];
+	splittris pend;
+	tris lighttris;
+};
+
+struct splitroom {
+	int nparts;
+	struct splitpart parts[MAX_SPLIT_PARTS];
+	int collect; // the first walk only finds the parts
+};
+
+static int splitFits(const struct splitvtx *v, const double *centre)
+{
+	for (int c = 0; c < 3; ++c) {
+		if (fabs(v->p[c] - centre[c]) > SPLIT_FIT) {
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+// the room's centre as scaledRoom() takes it, and whether every vertex fits
+static int roomCentre(const struct bgroom *room, double inv, const double *offset, double *centre)
+{
+	const size_t n = room->hasvtx ? room->vtx.n / 16 : 0;
+	uint8_t *seen;
+	double mn[3] = { 0 }, mx[3] = { 0 };
+	int any = 0, first = 1, fits = 1;
+
+	if (!n) {
+		return 1;
+	}
+
+	seen = gcAlloc(n);
+	if (room->haspri) {
+		loadedVertices(&room->pri, seen, n, &any);
+	}
+	if (room->hassec) {
+		loadedVertices(&room->sec, seen, n, &any);
+	}
+
+	for (size_t k = 0; k < n; ++k) {
+		if (any && !seen[k]) {
+			continue;
+		}
+		for (int c = 0; c < 3; ++c) {
+			const double v = ((double)bes16(room->vtx.v, 16 * k + 2 * c) + room->pos[c]) * inv - offset[c];
+			if (first || v < mn[c]) mn[c] = v;
+			if (first || v > mx[c]) mx[c] = v;
+		}
+		first = 0;
+	}
+
+	if (first) {
+		return 1;
+	}
+
+	for (int c = 0; c < 3; ++c) {
+		centre[c] = rnd((mn[c] + mx[c]) / 2);
+	}
+
+	// every vertex, loaded or not: scaledRoom() writes them all and fails on
+	// one that does not fit, where roomSplit() keeps only the lists' own
+	for (size_t k = 0; k < n; ++k) {
+		for (int c = 0; c < 3; ++c) {
+			const double v = ((double)bes16(room->vtx.v, 16 * k + 2 * c) + room->pos[c]) * inv - offset[c];
+			if (fabs(v - centre[c]) > SPLIT_FIT) {
+				fits = 0;
+			}
+		}
+	}
+
+	return fits;
+}
+
+static struct splitpart *splitPartFor(struct splitroom *sr, const struct splittri *t)
+{
+	int64_t cell[3];
+
+	if (splitFits(&t->v[0], sr->parts[0].centre) && splitFits(&t->v[1], sr->parts[0].centre)
+			&& splitFits(&t->v[2], sr->parts[0].centre)) {
+		return &sr->parts[0];
+	}
+
+	for (int c = 0; c < 3; ++c) {
+		cell[c] = (int64_t)floor((t->v[0].p[c] + t->v[1].p[c] + t->v[2].p[c]) / 3.0 / SPLIT_CELL);
+	}
+
+	for (int i = 1; i < sr->nparts; ++i) {
+		if (!memcmp(sr->parts[i].cell, cell, sizeof(cell))) {
+			return &sr->parts[i];
+		}
+	}
+
+	if (!sr->collect) {
+		fail("a room's piece was not found again");
+	}
+
+	if (sr->nparts == MAX_SPLIT_PARTS) {
+		fail("a room needs more than %d pieces", MAX_SPLIT_PARTS);
+	}
+
+	{
+		struct splitpart *p = &sr->parts[sr->nparts++];
+
+		memset(p, 0, sizeof(*p));
+		memcpy(p->cell, cell, sizeof(cell));
+		for (int c = 0; c < 3; ++c) {
+			p->centre[c] = rnd(((double)cell[c] + 0.5) * SPLIT_CELL);
+		}
+
+		return p;
+	}
+}
+
+static struct splitvtx splitMid(const struct splitvtx *a, const struct splitvtx *b)
+{
+	struct splitvtx m;
+
+	memset(&m, 0, sizeof(m));
+	for (int c = 0; c < 3; ++c) {
+		m.p[c] = (a->p[c] + b->p[c]) / 2;
+	}
+	m.s = (int32_t)floor((a->s + b->s) / 2.0 + 0.5);
+	m.t = (int32_t)floor((a->t + b->t) / 2.0 + 0.5);
+	m.col = 0;
+	for (int k = 0; k < 32; k += 8) {
+		m.col |= (uint32_t)((((a->col >> k) & 0xff) + ((b->col >> k) & 0xff) + 1) / 2) << k;
+	}
+	m.lit = a->lit;
+
+	return m;
+}
+
+// a triangle into the part it lies in, cut in two along its longest side
+// until it fits one
+static void splitTri(struct splitroom *sr, const struct splittri *t, int lighttex)
+{
+	double extent = 0;
+	int edge = 0;
+	double longest = -1;
+
+	for (int c = 0; c < 3; ++c) {
+		double lo = t->v[0].p[c], hi = lo;
+
+		for (int k = 1; k < 3; ++k) {
+			lo = t->v[k].p[c] < lo ? t->v[k].p[c] : lo;
+			hi = t->v[k].p[c] > hi ? t->v[k].p[c] : hi;
+		}
+		extent = hi - lo > extent ? hi - lo : extent;
+	}
+
+	if (extent <= SPLIT_EDGE || (splitFits(&t->v[0], sr->parts[0].centre) && splitFits(&t->v[1], sr->parts[0].centre)
+				&& splitFits(&t->v[2], sr->parts[0].centre))) {
+		struct splitpart *p = splitPartFor(sr, t);
+
+		if (!sr->collect) {
+			VECPUSH(p->pend, *t);
+
+			if (lighttex && p == &sr->parts[0]) {
+				struct tri lt;
+
+				for (int k = 0; k < 3; ++k) {
+					for (int c = 0; c < 3; ++c) {
+						lt.p[k][c] = s16(t->v[k].p[c] - p->centre[c]);
+					}
+				}
+				VECPUSH(p->lighttris, lt);
+			}
+		}
+		return;
+	}
+
+	for (int k = 0; k < 3; ++k) {
+		const struct splitvtx *a = &t->v[k], *b = &t->v[(k + 1) % 3];
+		const double ab[3] = { a->p[0] - b->p[0], a->p[1] - b->p[1], a->p[2] - b->p[2] };
+		const double d = norm3(ab);
+
+		if (d > longest) {
+			longest = d;
+			edge = k;
+		}
+	}
+
+	{
+		const struct splitvtx m = splitMid(&t->v[edge], &t->v[(edge + 1) % 3]);
+		struct splittri u = *t, w = *t;
+
+		u.v[(edge + 1) % 3] = m;
+		w.v[edge] = m;
+		splitTri(sr, &u, lighttex);
+		splitTri(sr, &w, lighttex);
+	}
+}
+
+// a part's pending triangles as batches of sixteen vertices and G_TRI4s
+static void splitFlush(struct splitpart *p, int leaf)
+{
+	size_t i = 0;
+
+	while (i < p->pend.n) {
+		struct splitvtx batch[16];
+		uint8_t idx[64][3];
+		size_t nb = 0, nt = 0;
+		const uint32_t start = (uint32_t)(p->outv.n - p->base[leaf]);
+
+		for (; i < p->pend.n && nt < 64; ++i) {
+			uint8_t got[3];
+			size_t added = nb;
+			int ok = 1;
+
+			// the triangle's vertices found in the batch or added to it; one
+			// the batch has no room for leaves it to the next
+			for (int k = 0; k < 3 && ok; ++k) {
+				size_t j = 0;
+
+				while (j < added && memcmp(&batch[j], &p->pend.v[i].v[k], sizeof(batch[j]))) {
+					++j;
+				}
+
+				if (j == added) {
+					if (added == 16) {
+						ok = 0;
+						break;
+					}
+					batch[added++] = p->pend.v[i].v[k];
+				}
+
+				got[k] = (uint8_t)j;
+			}
+
+			if (!ok) {
+				break;
+			}
+
+			nb = added;
+			memcpy(idx[nt++], got, 3);
+		}
+
+		if (!nt) {
+			fail("a triangle does not fit a batch");
+		}
+
+		for (size_t k = 0; k < nb; ++k) {
+			struct outvtx v;
+
+			v.x = (int16_t)s16(batch[k].p[0] - p->centre[0]);
+			v.y = (int16_t)s16(batch[k].p[1] - p->centre[1]);
+			v.z = (int16_t)s16(batch[k].p[2] - p->centre[2]);
+			v.f = batch[k].lit ? 0x01 : 0;
+			v.c = (uint8_t)(k << 2);
+			v.s = (int16_t)batch[k].s;
+			v.t = (int16_t)batch[k].t;
+			VECPUSH(p->outv, v);
+			VECPUSH(p->outc, batch[k].col);
+		}
+
+		VECPUSH(p->words[leaf], (0x07u << 24) | ((((nb - 1) << 2) & 0xff) << 16) | (uint32_t)(nb * 4));
+		VECPUSH(p->words[leaf], 0x0d000000u | (start * 4));
+		VECPUSH(p->words[leaf], (0x04u << 24) | ((uint32_t)(nb - 1) << 20) | (uint32_t)(nb * 12));
+		VECPUSH(p->words[leaf], 0x0e000000u | (start * 12));
+
+		for (size_t k = 0; k < nt; k += 4) {
+			uint32_t w0 = 0xb1u << 24, w1 = 0;
+
+			for (size_t q = 0; q < 4 && k + q < nt; ++q) {
+				w1 |= (uint32_t)idx[k + q][0] << (8 * q);
+				w1 |= (uint32_t)idx[k + q][1] << (8 * q + 4);
+				w0 |= (uint32_t)idx[k + q][2] << (4 * q);
+			}
+
+			VECPUSH(p->words[leaf], w0);
+			VECPUSH(p->words[leaf], w1);
+		}
+	}
+
+	p->pend.n = 0;
+}
+
+static void splitEmit(struct splitroom *sr, int leaf, uint32_t w0, uint32_t w1)
+{
+	if (sr->collect) {
+		return;
+	}
+
+	for (int i = 0; i < sr->nparts; ++i) {
+		splitFlush(&sr->parts[i], leaf);
+		VECPUSH(sr->parts[i].words[leaf], w0);
+		VECPUSH(sr->parts[i].words[leaf], w1);
+	}
+}
+
+// one walk of a leaf's list, convertList()'s, dealing its triangles to the parts
+static void splitList(struct splitroom *sr, int leaf, const buf *dl, const struct bgroom *room, double inv,
+		const double *offset, uint8_t *textures)
+{
+	int32_t slots[32];
+	uint8_t slotlit[32];
+	int64_t curtex = -1;
+	int lit = 0;
+	const size_t nvtx = room->hasvtx ? room->vtx.n / 16 : 0;
+
+	for (int i = 0; i < 32; ++i) {
+		slots[i] = -1;
+		slotlit[i] = 0;
+	}
+
+	if (!sr->collect) {
+		for (int i = 0; i < sr->nparts; ++i) {
+			sr->parts[i].base[leaf] = sr->parts[i].outv.n;
+		}
+	}
+
+	for (size_t o = 0; o + 8 <= dl->n; o += 8) {
+		uint32_t w0 = be32(dl->v, o), w1 = be32(dl->v, o + 4);
+		const uint32_t op = w0 >> 24;
+
+		if (op == 0xb7 && (w1 & 0x20000)) {
+			lit = 1;
+		} else if (op == 0xb6 && (w1 & 0x20000)) {
+			lit = 0;
+		}
+
+		if (op == 0x04) {
+			const uint32_t n = ((w0 >> 20) & 0xf) + 1;
+			const uint32_t v0 = (w0 >> 16) & 0xf;
+			const uint32_t src = (w1 & 0xffffff) / 16;
+
+			for (uint32_t i = 0; i < n; ++i) {
+				if (src + i >= nvtx) {
+					fail("a list loads a vertex the room does not have");
+				}
+				slots[v0 + i] = (int32_t)(src + i);
+				slotlit[v0 + i] = (uint8_t)lit;
+			}
+		} else if (op == 0xbf || op == 0xb1) {
+			const int ntri = op == 0xbf ? 1 : 4;
+
+			for (int q = 0; q < ntri; ++q) {
+				uint32_t k[3];
+				struct splittri t;
+
+				if (op == 0xbf) {
+					k[0] = ((w1 >> 16) & 0xff) / 10;
+					k[1] = ((w1 >> 8) & 0xff) / 10;
+					k[2] = (w1 & 0xff) / 10;
+				} else {
+					k[0] = (w1 >> (8 * q)) & 0xf;
+					k[1] = (w1 >> (8 * q + 4)) & 0xf;
+					k[2] = (w0 >> (4 * q)) & 0xf;
+
+					if (k[0] == k[1] || k[1] == k[2] || k[0] == k[2]) {
+						continue;
+					}
+				}
+
+				if (k[0] >= 32 || k[1] >= 32 || k[2] >= 32 || slots[k[0]] < 0 || slots[k[1]] < 0 || slots[k[2]] < 0) {
+					fail("a triangle names a vertex no command loaded");
+				}
+
+				for (int j = 0; j < 3; ++j) {
+					const size_t at = 16 * (size_t)slots[k[j]];
+					struct splitvtx *v = &t.v[j];
+
+					memset(v, 0, sizeof(*v));
+					for (int c = 0; c < 3; ++c) {
+						v->p[c] = ((double)bes16(room->vtx.v, at + 2 * c) + room->pos[c]) * inv - offset[c];
+					}
+					v->s = bes16(room->vtx.v, at + 8);
+					v->t = bes16(room->vtx.v, at + 10);
+					v->col = be32(room->vtx.v, at + 12);
+					v->lit = slotlit[k[j]];
+				}
+
+				splitTri(sr, &t, curtex >= 0 && isLightImage((uint32_t)curtex));
+			}
+		} else if (op == 0xb8) {
+			splitEmit(sr, leaf, w0, w1);
+			break;
+		} else {
+			if (op == 0xc0) {
+				curtex = w1 & 0xfff;
+				if (!sr->collect) {
+					setAdd(textures, w1 & 0xfff);
+					w1 = (w1 & ~0xfffu) | texRemap(w1 & 0xfff);
+					if ((w0 & 7) == 1) {
+						setAdd(textures, (w1 >> 12) & 0xfff);
+						w1 = (w1 & ~0xfff000u) | (texRemap((w1 >> 12) & 0xfff) << 12);
+					}
+				}
+			}
+			splitEmit(sr, leaf, w0, w1);
+		}
+	}
+
+	// a list with no end of its own
+	if (!sr->collect) {
+		for (int i = 0; i < sr->nparts; ++i) {
+			splitFlush(&sr->parts[i], leaf);
+		}
+	}
+}
+
+/**
+ * How many rooms `room` is written as: 1, or where it is wider than 16 bits
+ * (roomSplit()) itself and its pieces. *sr is filled for roomSplitOut().
+ */
+static int roomSplit(const struct bgroom *room, double inv, const double *offset, uint8_t *textures,
+		struct splitroom *sr)
+{
+	const buf *dls[2] = { &room->pri, &room->sec };
+	const int has[2] = { room->haspri, room->hassec };
+
+	memset(sr, 0, sizeof(*sr));
+	sr->nparts = 1;
+
+	if (roomCentre(room, inv, offset, sr->parts[0].centre)) {
+		return 1;
+	}
+
+	for (int pass = 0; pass < 2; ++pass) {
+		sr->collect = pass == 0;
+
+		for (int i = 0; i < 2; ++i) {
+			if (has[i]) {
+				splitList(sr, i, dls[i], room, inv, offset, textures);
+			}
+		}
+	}
+
+	return sr->nparts;
+}
+
+// part `part` of a room roomSplit() cut, as writeRoom() writes a room
+static struct roomout roomSplitOut(const struct bgroom *room, struct splitroom *sr, int part, uint32_t baseptr,
+		int32_t lightsindex, const int32_t *tilebox)
+{
+	struct splitpart *p = &sr->parts[part];
+	struct roomout r;
+	int hasleaf[2] = { room->haspri, room->hassec };
+
+	memcpy(r.centre, p->centre, sizeof(r.centre));
+	r.lights = fixtureLights(&p->lighttris);
+	if (r.lights.n > 255) {
+		r.lights.n = 255;
+	}
+
+	roomPack(&r, p->outv, p->outc, p->words, p->base, hasleaf, baseptr, lightsindex, part ? NULL : tilebox);
 
 	return r;
 }
@@ -3131,23 +3765,55 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	VEC(struct { int room; struct light l; }) alllights = {0};
 	buf lightsblob = {0}, portals = {0}, groups = {0}, primary = {0}, primz, out = {0}, rooms = {0};
 	VEC(int32_t) lens = {0};
-	uint8_t *lightcounts = gcAlloc(n + 1);
-	int32_t (*bboxes)[6] = gcAlloc((n + 1) * sizeof(*bboxes));
+	uint8_t *lightcounts;
+	int32_t (*bboxes)[6];
 	uint32_t ptr;
 	int32_t sumlights = 0;
 	int (*order)[2];
+	// a room wider than 16 bits and its pieces, rooms of their own after the
+	// level's (roomSplit())
+	struct splitroom *split = NULL;
+	int *splitparts = gcAlloc((n + 1) * sizeof(*splitparts));
+	int total = n;
+
+	for (int r = 1; r <= n; ++r) {
+		if (!split) {
+			split = gcAlloc(sizeof(*split));
+		}
+		splitparts[r] = roomSplit(&bg->rooms[r - 1], inv, offset, leveltex, split);
+		total += splitparts[r] - 1;
+	}
+
+	lightcounts = gcAlloc(total + 1);
+	bboxes = gcAlloc((total + 1) * sizeof(*bboxes));
 
 	// the rooms are converted first, since their lights go in the primary data
 	for (int r = 1; r <= n; ++r) {
-		struct roomout ro = writeRoom(&bg->rooms[r - 1], inv, offset, 0, leveltex, (int32_t)alllights.n,
-				tilebounds[r][6] ? tilebounds[r] : NULL);
+		struct roomout ro;
+
+		if (splitparts[r] > 1) {
+			roomSplit(&bg->rooms[r - 1], inv, offset, leveltex, split);
+			ro = roomSplitOut(&bg->rooms[r - 1], split, 0, 0, (int32_t)alllights.n, tilebounds[r][6] ? tilebounds[r] : NULL);
+		} else {
+			ro = writeRoom(&bg->rooms[r - 1], inv, offset, 0, leveltex, (int32_t)alllights.n,
+					tilebounds[r][6] ? tilebounds[r] : NULL);
+		}
 		for (size_t k = 0; k < ro.lights.n; ++k) {
 			__typeof__(*alllights.v) e = { r, ro.lights.v[k] };
 			VECPUSH(alllights, e);
 		}
 	}
 
-	lightsat = tableat + 20 * (n + 3);
+	if (total > n) {
+		int wide = 0;
+
+		for (int r = 1; r <= n; ++r) {
+			wide += splitparts[r] > 1;
+		}
+		note("geconvert: %d rooms wider than 16 bits, cut into %d more", wide, total - n);
+	}
+
+	lightsat = tableat + 20 * (total + 3);
 
 	for (size_t k = 0; k < alllights.n; ++k) {
 		bufU16(&lightsblob, alllights.v[k].room);
@@ -3229,12 +3895,22 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	// rooms, at pointers after the inflated primary
 	ptr = SEG_BG + (uint32_t)inf;
 
+	// the level's rooms, then the pieces of any cut, each after the last: a
+	// room's bytes run to the next one's
 	for (int r = 1; r <= n; ++r) {
-		struct roomout ro = writeRoom(&bg->rooms[r - 1], inv, offset, ptr, leveltex, sumlights,
-				tilebounds[r][6] ? tilebounds[r] : NULL);
-		buf z = rzip1173(ro.data.v, ro.data.n);
+		struct roomout ro;
+		buf z;
 		const size_t e = tableat + 20 * r;
 
+		if (splitparts[r] > 1) {
+			roomSplit(&bg->rooms[r - 1], inv, offset, leveltex, split);
+			ro = roomSplitOut(&bg->rooms[r - 1], split, 0, ptr, sumlights, tilebounds[r][6] ? tilebounds[r] : NULL);
+		} else {
+			ro = writeRoom(&bg->rooms[r - 1], inv, offset, ptr, leveltex, sumlights,
+					tilebounds[r][6] ? tilebounds[r] : NULL);
+		}
+
+		z = rzip1173(ro.data.v, ro.data.n);
 		lightcounts[r - 1] = (uint8_t)ro.lights.n;
 		sumlights += (int32_t)ro.lights.n;
 		set32(primary.v, e, ptr);
@@ -3249,7 +3925,33 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 		ptr += (uint32_t)z.n;
 	}
 
-	set32(primary.v, tableat + 20 * (n + 1), ptr);
+	for (int r = 1, piece = n + 1; r <= n; ++r) {
+		if (splitparts[r] > 1) {
+			roomSplit(&bg->rooms[r - 1], inv, offset, leveltex, split);
+		}
+
+		for (int part = 1; part < splitparts[r]; ++part, ++piece) {
+			struct roomout ro = roomSplitOut(&bg->rooms[r - 1], split, part, ptr, sumlights, NULL);
+			buf z = rzip1173(ro.data.v, ro.data.n);
+			const size_t e = tableat + 20 * piece;
+
+			lightcounts[piece - 1] = 0;
+			set32(primary.v, e, ptr);
+			for (int c = 0; c < 3; ++c) {
+				setf32(primary.v, e + 4 + 4 * c, ro.centre[c]);
+			}
+			primary.v[e + 16] = 128;
+			primary.v[e + 17] = 255;
+			// the room it is drawn with (the row's two bytes of padding)
+			set16(primary.v, e + 18, (uint32_t)r);
+			bufPut(&rooms, z.v, z.n);
+			memcpy(bboxes[piece - 1], ro.bbox, sizeof(ro.bbox));
+			VECPUSH(lens, (int32_t)ro.data.n);
+			ptr += (uint32_t)z.n;
+		}
+	}
+
+	set32(primary.v, tableat + 20 * (total + 1), ptr);
 
 	primz = rzip1173(primary.v, primary.n);
 	bufU32(&out, (uint32_t)inf);
@@ -3278,16 +3980,16 @@ static buf writeBg(const struct bg *bg, double ls, const double *offset, uint8_t
 	// section 3: bounding boxes, gfxdatalen, light counts
 	{
 		buf s3 = {0}, s3z;
-		for (int r = 0; r < n; ++r) {
+		for (int r = 0; r < total; ++r) {
 			for (int c = 0; c < 6; ++c) {
 				bufU16(&s3, (uint16_t)s16(bboxes[r][c]));
 			}
 		}
-		for (int r = 0; r < n; ++r) {
+		for (int r = 0; r < total; ++r) {
 			const int32_t v = lens.v[r] / 16 + 1;
 			bufU16(&s3, (uint32_t)(v < 0xffff ? v : 0xffff));
 		}
-		bufPut(&s3, lightcounts, n);
+		bufPut(&s3, lightcounts, total);
 		s3z = rzip1173(s3.v, s3.n);
 		bufU16(&out, 0x8000 | (uint32_t)s3.n);
 		bufU16(&out, (uint32_t)s3z.n);
@@ -5467,6 +6169,8 @@ static int itemWeaponIsGun(uint32_t w)
 static void itemWeaponsBuild(void)
 {
 	int extras = 0;
+	uint32_t later[NUM_WEAPON_GE_EXTRA * 2];
+	int nlater = 0;
 
 	memset(g_ItemWeapon, 0, sizeof(g_ItemWeapon));
 
@@ -5490,7 +6194,13 @@ static void itemWeaponsBuild(void)
 		}
 
 		if (ge == 20 || ge == 21 || ge == 23 || ge == 31) {
+			// one no hand holds as a prop takes what the held ones leave,
+			// after them: TND64's Phone Taser (31), which Hotel's opening
+			// gives Bond, and its watch laser (23)
 			if (g_Layout->heldprops[item] < 0) {
+				if (nlater < (int)(sizeof(later) / sizeof(later[0]))) {
+					later[nlater++] = item;
+				}
 				continue;
 			}
 
@@ -5508,6 +6218,12 @@ static void itemWeaponsBuild(void)
 		if (item != (uint32_t)ge && g_ItemWeapon[item]) {
 			note("geconvert: item %u (%s) is weapon 0x%02x", (unsigned)item, g_Items[item].file, g_ItemWeapon[item]);
 		}
+	}
+
+	for (int k = 0; k < nlater && extras < NUM_WEAPON_GE_EXTRA; ++k) {
+		g_ItemWeapon[later[k]] = (uint8_t)(WEAPON_GE_EXTRA_FIRST + extras++);
+		note("geconvert: item %u (%s), held as no prop, is weapon 0x%02x", (unsigned)later[k], g_Items[later[k]].file,
+			g_ItemWeapon[later[k]]);
 	}
 
 	g_ItemWeaponsBuilt = 1;
@@ -6319,6 +7035,7 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 	float doorscale = 1.0f;
 	int fellback = 0, missing = 0, withportal = 0, scaled = 0, movedrooms = 0, lifted = 0, untiled = 0;
 	uint8_t *keepy = gcAlloc(s->pads.n + 1);
+	uint8_t *boundstand = gcAlloc(bound->n + 1);
 	int *padtile = gcAlloc((s->pads.n + 1) * sizeof(*padtile));
 
 	// the pads whose height is used as it is: one an object hangs in the air
@@ -6339,6 +7056,16 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 
 		if ((be32(raw, 8) & 0xe) && pad < s->pads.n) {
 			keepy[pad] = 1;
+		}
+
+		// a bound pad is lifted only for an object stood on the floor; a
+		// door's, a chr's and a hanging one's height is kept
+		if (pad >= 10000 && pad - 10000 < bound->n) {
+			if (t == 1 || (be32(raw, 8) & 0x400e)) {
+				boundstand[pad - 10000] = 2;
+			} else if (boundstand[pad - 10000] == 0) {
+				boundstand[pad - 10000] = 1;
+			}
 		}
 
 		if ((t == 0x06 || t == 0x0d) && recs.v[i].len >= 0x84) {
@@ -6407,6 +7134,29 @@ static struct gedoorinfo *geSoloDoors(const buf *f, struct setup *s, padrecs *bo
 		b->tile = gePadTile(stan, f, be32(f->v, o + 36), b->pos, ls, &fb);
 		fellback += fb;
 		missing += b->tile < 0;
+
+		// And a bound pad whose box is wholly under its tile is lifted onto
+		// it, as a pad is above: sub_GAME_7F04088C() stands the object on the
+		// tile at its pad, four units up, whatever height the box is at, and
+		// Perfect Dark searches down from inside the box, finding the floor
+		// below or none. TND64's Volcano has five crates on pads 88 under
+		// their floor that stood a storey down. A box only partly under is
+		// left: the search starts over the tile or finds none and falls back
+		// to it, and so does a flat one's, from the model's own height
+		if (b->tile >= 0 && boundstand[k] == 1 && b->bbox[3] > b->bbox[2]) {
+			const float ty = geTileY(&stan->v[b->tile], b->pos[0], b->pos[2], ls);
+			float centre[3], bottom, top;
+
+			geBoundCentre(b, centre);
+			bottom = centre[1] + (b->bbox[2] - b->bbox[3]) * 0.5f * b->up[1];
+			top = centre[1] + (b->bbox[3] - b->bbox[2]) * 0.5f * b->up[1];
+
+			if (top < ty && bottom < top) {
+				b->pos[1] += ty - bottom;
+				b->moved = 1;
+				lifted++;
+			}
+		}
 	}
 
 	// An object on a pad with no tile is never made. Every object but a door
@@ -6923,7 +7673,8 @@ static void writeFile(const char *outdir, const char *rel, const uint8_t *data, 
  * menu/geguns.bin: a hack's own guns (geguns.c), which GoldenEye's tables
  * there - generated from the decomp's rows - are not. "GGN2", a count, the
  * items its first-person guns are drawn under the envmap light (a bit an
- * item, envmapitems), and a row a gun: its weapon less WEAPON_GE_PP7, its item number (the Igx%03dZ its
+ * item, envmapitems) - "GGN3" and a word of flags after it where there are
+ * any (romlayout.nolaser) - and a row a gun: its weapon less WEAPON_GE_PP7, its item number (the Igx%03dZ its
  * first-person model is), the prop a hand holds it as (heldprops), its name
  * (the row's weapon-of-choice text out of its own LgunE: "Walther PPK/s"),
  * and its gunWeaponStat row as the ROM has it, big-endian, the cartridge's
@@ -6947,9 +7698,13 @@ static void writeGuns(const char *outdir)
 		}
 	}
 
-	bufPut(&out, (const uint8_t *)"GGN2", 4);
+	// GGN3 where there are flags: GEGUNS_NOLASER (geguns.c), 1
+	bufPut(&out, (const uint8_t *)(g_Layout->nolaser ? "GGN3" : "GGN2"), 4);
 	bufU32(&out, 0);
 	bufU32(&out, envmask);
+	if (g_Layout->nolaser) {
+		bufU32(&out, 1);
+	}
 
 	for (uint32_t item = 1; item < 32; ++item) {
 		const uint32_t w = soloItemWeapon(item);
@@ -7526,6 +8281,22 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 		}
 
 		cmd = &g_GeAiCommands[op];
+
+		// A hack's own hook (romlayout.aihooks) is no cover search: TND64's
+		// code pokes memory as the next PRINT's string says - its Girl Power
+		// Mode's Bond, its clock and its bonuses, not converted. A guard's
+		// TRYFindCover in a background list, which has no prop, crashed in
+		// chrGoToCoverProp() at the first tick of every TND mission
+		if (g_Layout->aihooks && op == 0x2b && f->v[at + 1] >= 0xfb && f->v[at + 1] <= 0xfe) {
+			st->aidropped++;
+			at += len;
+
+			if (at < f->n && f->v[at] == 0xad && aiLength(f, at) && at + aiLength(f, at) <= f->n) {
+				st->aidropped++;
+				at += aiLength(f, at);
+			}
+			continue;
+		}
 
 		if (op == 0x0a) {   // PlayAnimation
 			const uint32_t anim = ((uint32_t)f->v[at + 1] << 8) | f->v[at + 2];
@@ -8731,6 +9502,29 @@ static void bitsCopy(struct bits *w, const uint8_t *src, size_t len, size_t bito
  * GoldenEye's root-motion bits for that frame followed by its frame's rotation
  * bits unchanged. geanim.py is this, and says why.
  */
+/**
+ * Where animation `id` of animation_table_ptrs1[] (or, `vehicle`, of ptrs2[])
+ * starts in the ROM, by the table in the data segment. GoldenEye's and
+ * Goldfinger's are geanimtable.h's to the byte; TND64 rebuilt the segment and
+ * every record but the first moved (by -4 to -0x528).
+ */
+static size_t animRecord(int id, int vehicle)
+{
+	const size_t at = (vehicle ? ANIM_TABLE2_AT : ANIM_TABLE1_AT) - DATA_VRAM + 4 * (size_t)id;
+
+	if (at + 4 > g_DataLen) {
+		fail("animation %d is past its table", id);
+	}
+
+	return ANIM_DATA_ROM + be32(g_Data, at);
+}
+
+/** Whether guard animation `id` has a record: the decompilation's nullNN rows are one byte into the segment. */
+static int animHasRecord(int id)
+{
+	return animRecord(id, 0) > ANIM_DATA_ROM + 1;
+}
+
 static buf animConvert(size_t at, struct animout *out, uint32_t parts)
 {
 	uint32_t entry, numframes, width, loop, bitsperframe, rootbits = 0, framebytes, rotbits;
@@ -9070,12 +9864,14 @@ void geconvertSetLog(void (*fn)(const char *msg))
  * converted from it.
  */
 #define MISSIONFOLDER_AT  0x8002abe4u
+// solo_target_time_array (front.c, read at 7F01D404): s16 seconds [20][3]
+#define SOLO_TARGET_TIMES_AT 0x8002b564u
 #define MISSIONFOLDER_ROW 28
 #define MAX_FOLDER_ROWS   40
 
 struct folderrow {
 	char label[8];
-	uint32_t name, icon;    // LtitleE slots
+	uint32_t name, icon;    // text ids, any bank (textString())
 	int32_t mission;        // -1 for a chapter heading
 	const char *brief;
 };
@@ -9086,18 +9882,58 @@ static size_t g_NumFolderRows;
 // a variant's missions (g_Missions is GoldenEye's)
 static struct mission g_VariantMissions[MAX_FOLDER_ROWS];
 
-// LtitleE's string for a text id, trimmed
-static const char *titleString(const buf *title, uint32_t text, const char *what)
-{
-	const uint32_t toff = (text & 0x3ff) * 4;
-	char *s;
+/**
+ * LnameX_lookuptable (lang.c): a text bank's file by its number, an English
+ * and a Japanese name a bank. A text id is bank * 0x400 + slot; GoldenEye's
+ * folder and arena names are all LtitleE's (39), TND64 Expanded's new ones
+ * LmiscE's (44).
+ */
+#define LANGNAMES_AT   0x800484d4u
+#define LANG_TITLE     39
+#define MAX_LANG_BANKS 96
 
-	if (toff + 4 > title->n || be32(title->v, 0) <= toff || be32(title->v, toff) >= title->n
-			|| !memchr(title->v + be32(title->v, toff), 0, title->n - be32(title->v, toff))) {
+static buf g_LangBanks[MAX_LANG_BANKS];
+
+// the bank file text id `text` indexes, read once a run (variantLevels())
+static const buf *langBank(uint32_t text, const char *what)
+{
+	const uint32_t bank = text >> 10;
+	const size_t at = LANGNAMES_AT - DATA_VRAM + 8 * (size_t)bank;
+	const uint32_t ptr = bank < MAX_LANG_BANKS && at + 4 <= g_DataLen ? be32(g_Data, at) : 0;
+	const char *name = ptr >= DATA_VRAM && ptr - DATA_VRAM < g_DataLen ? dataString(ptr) : NULL;
+
+	if (!name || !romHas(name)) {
+		fail("%s's %s names text %#x, in no bank it has", g_Layout->name, what, (unsigned)text);
+	}
+
+	if (!g_LangBanks[bank].n) {
+		g_LangBanks[bank] = romFile(name);
+	}
+
+	return &g_LangBanks[bank];
+}
+
+// the raw string of text id `text`, ended by its NUL
+static const char *textRaw(uint32_t text, const char *what)
+{
+	const buf *b = langBank(text, what);
+	const uint32_t toff = (text & 0x3ff) * 4;
+
+	if (toff + 4 > b->n || be32(b->v, 0) <= toff || be32(b->v, toff) >= b->n
+			|| !memchr(b->v + be32(b->v, toff), 0, b->n - be32(b->v, toff))) {
 		fail("%s's %s has no name", g_Layout->name, what);
 	}
-	s = gcAlloc(title->n - be32(title->v, toff) + 1);
-	strcpy(s, (const char *)title->v + be32(title->v, toff));
+
+	return (const char *)b->v + be32(b->v, toff);
+}
+
+// the string of text id `text`, by its bank, trimmed
+static const char *textString(uint32_t text, const char *what)
+{
+	const char *raw = textRaw(text, what);
+	char *s = gcAlloc(strlen(raw) + 1);
+
+	strcpy(s, raw);
 	while (s[0] && (s[strlen(s) - 1] == '\n' || s[strlen(s) - 1] == ' ')) {
 		s[strlen(s) - 1] = '\0';
 	}
@@ -9182,12 +10018,12 @@ static const char *variantSetupName(uint32_t levelid)
 static void variantLevels(void)
 {
 	static struct level levels[MAX_VARIANT_LEVELS];
-	buf title = romFile("LtitleE");
+	const int32_t nummissions = g_Layout->nummissions ? g_Layout->nummissions : 20;
 	size_t n = 0, narenas = 0, nmissions = 0;
-	uint32_t bank = 0;
 
 	memset(levels, 0, sizeof(levels));
 	memset(g_FolderRows, 0, sizeof(g_FolderRows));
+	memset(g_LangBanks, 0, sizeof(g_LangBanks));
 	g_NumFolderRows = 0;
 
 	for (size_t row = 0; ; ++row) {
@@ -9202,12 +10038,11 @@ static void variantLevels(void)
 
 		text = be16(g_Data, o);
 
-		// the table has no end row: the game counts its rows. Every row's
-		// strings are LtitleE's, Random's (the first) among them, so the
-		// table ends where a row's text is another bank's
-		if (row == 0) {
-			bank = text >> 10;
-		} else if ((text >> 10) != bank) {
+		// the table has no end row: the game counts its rows. The row after
+		// the last has no text in GoldenEye's, Goldfinger's and TND64's.
+		// (It ended at a text of another bank than Random's: TND64
+		// Expanded names three of its arenas in LmiscE.)
+		if (!text) {
 			break;
 		}
 
@@ -9243,7 +10078,7 @@ static void variantLevels(void)
 			lv->picture = photo < sizeof(pictures) / sizeof(pictures[0]) ? pictures[photo] : 0;
 		}
 		// the folder's name
-		lv->name = titleString(&title, text, "arena");
+		lv->name = textString(text, "arena");
 
 		note("geconvert: %s: arena %s on level %u (%s, %s, %s), scale %g", g_Layout->name, lv->name,
 			(unsigned)levelid, lv->bg, lv->stan, lv->mp, lv->levelscale);
@@ -9279,10 +10114,25 @@ static void variantLevels(void)
 		mission = (int32_t)be32(g_Data, o + 20);
 		brief = be32(g_Data, o + 24) ? dataString(be32(g_Data, o + 24)) : NULL;
 
+		// a mission past the hack's last: TND64 left GoldenEye's rows for
+		// 14 to 19 in its folder, named blank, their setups and briefings
+		// gone, and its code never reaches them
+		if (type == 0 && mission >= nummissions) {
+			note("geconvert: %s's mission folder row %u, mission %d, is past its last", g_Layout->name,
+				(unsigned)row, (int)mission);
+			continue;
+		}
+
+		// and a chapter heading with no mission under it before the next,
+		// which those leave behind
+		if (type != 0 && g_NumFolderRows && g_FolderRows[g_NumFolderRows - 1].mission < 0) {
+			g_NumFolderRows--;
+		}
+
 		f = &g_FolderRows[g_NumFolderRows++];
 		snprintf(f->label, sizeof(f->label), "%s", label ? label : "");
-		f->name = be16(g_Data, o + 4) & 0x3ff;
-		f->icon = be16(g_Data, o + 6) & 0x3ff;
+		f->name = be16(g_Data, o + 4);
+		f->icon = be16(g_Data, o + 6);
 		f->mission = type == 0 ? mission : -1;
 		f->brief = type == 0 ? brief : NULL;
 
@@ -9310,17 +10160,31 @@ static void variantLevels(void)
 				fail("%s's mission on level %d has no %s", g_Layout->name, (int)levelid, lv->solo);
 			}
 			if (!lv->name) {
-				lv->name = titleString(&title, f->name, "mission");
+				lv->name = textString(f->name, "mission");
 			}
 
 			m->key = lv->key;
 			m->setup = lv->solo;
 			// the shorter of its two names, as GoldenEye's grid shows it
-			m->name = titleString(&title, f->icon ? f->icon : f->name, "mission");
+			m->name = textString(f->icon ? f->icon : f->name, "mission");
 			m->num = mission;
 
 			note("geconvert: %s: mission %d %s on level %d (%s, %s, %s), scale %g", g_Layout->name, (int)mission,
 				m->name, (int)levelid, lv->bg, lv->stan, lv->solo, lv->levelscale);
+		}
+	}
+
+	// the last chapter heading too, where nothing follows it
+	if (g_NumFolderRows && g_FolderRows[g_NumFolderRows - 1].mission < 0) {
+		g_NumFolderRows--;
+	}
+
+	// every name the folder shows, in whichever bank (and read now, before
+	// the levels' allocations come and go: writeMissionFolder())
+	for (size_t i = 0; i < g_NumFolderRows; ++i) {
+		textRaw(g_FolderRows[i].name, "mission folder row");
+		if (g_FolderRows[i].icon) {
+			textRaw(g_FolderRows[i].icon, "mission folder row");
 		}
 	}
 
@@ -9336,10 +10200,69 @@ static void variantLevels(void)
  * numeral (8), LtitleE slots of its two names (u16, u16), the mission (s16, -1
  * for a chapter heading), u16 0, its briefing file (20) and the text bank that
  * file indexes (12).
+ *
+ * A name in another bank than LtitleE (TND64 Expanded's in LmiscE: "Arms
+ * Bazaar", "Atlantic Hotel") is appended to the menu's LtitleE as a slot of
+ * its own past the ROM's, and the row names that slot, so the folder reads
+ * every name the one way. `title` is the menu's LtitleE, the ROM's own where
+ * nothing is appended (GoldenEye's and Goldfinger's).
  */
-static void writeMissionFolder(const char *outdir)
+static void writeMissionFolder(const char *outdir, buf *title)
 {
+	const buf *rom = langBank(LANG_TITLE << 10, "title bank");
+	const uint32_t count = be32(rom->v, 0) / 4;
+	uint32_t extra[2 * MAX_FOLDER_ROWS], slot[2 * MAX_FOLDER_ROWS];
+	size_t nextra = 0;
 	buf out = {0};
+
+	// each other bank's name once, in the folder's order
+	for (size_t i = 0; i < 2 * g_NumFolderRows; ++i) {
+		const uint32_t text = i & 1 ? g_FolderRows[i / 2].icon : g_FolderRows[i / 2].name;
+		size_t k = 0;
+
+		if (!text || text >> 10 == LANG_TITLE) {
+			continue;
+		}
+
+		while (k < nextra && extra[k] != text) {
+			++k;
+		}
+
+		if (k == nextra) {
+			slot[nextra] = count + (uint32_t)nextra;
+			extra[nextra++] = text;
+		}
+	}
+
+	*title = *rom;
+
+	if (nextra) {
+		// the ROM's table moved up by the new slots, its strings after it as
+		// they were, then the new strings
+		const uint32_t grow = 4 * (uint32_t)nextra;
+		buf t = {0};
+
+		for (uint32_t i = 0; i < count; ++i) {
+			const uint32_t at = be32(rom->v, 4 * i);
+
+			bufU32(&t, at ? at + grow : 0);
+		}
+
+		bufZeros(&t, grow);
+		bufPut(&t, rom->v + 4 * count, rom->n - 4 * count);
+
+		for (size_t k = 0; k < nextra; ++k) {
+			const char *s = textRaw(extra[k], "mission folder row");
+
+			set32(t.v, 4 * (count + k), (uint32_t)t.n);
+			bufPut(&t, (const uint8_t *)s, strlen(s) + 1);
+		}
+
+		bufPad(&t, 4);
+		*title = t;
+		note("geconvert: %s: %d of its folder's names out of other banks, LtitleE's slots %u on",
+			g_Layout->name, (int)nextra, (unsigned)count);
+	}
 
 	bufPut(&out, (const uint8_t *)"GEF1", 4);
 	bufU16(&out, (uint32_t)g_NumFolderRows);
@@ -9348,11 +10271,26 @@ static void writeMissionFolder(const char *outdir)
 	for (size_t i = 0; i < g_NumFolderRows; ++i) {
 		const struct folderrow *f = &g_FolderRows[i];
 		uint8_t label[8] = {0}, brief[20] = {0}, lang[12] = {0};
+		uint32_t names[2] = { f->name, f->icon };
+
+		for (int j = 0; j < 2; ++j) {
+			if (names[j] >> 10 == LANG_TITLE || !names[j]) {
+				names[j] &= 0x3ff;
+				continue;
+			}
+
+			for (size_t k = 0; k < nextra; ++k) {
+				if (extra[k] == names[j]) {
+					names[j] = slot[k];
+					break;
+				}
+			}
+		}
 
 		memcpy(label, f->label, strlen(f->label));
 		bufPut(&out, label, sizeof(label));
-		bufU16(&out, f->name);
-		bufU16(&out, f->icon);
+		bufU16(&out, names[0]);
+		bufU16(&out, names[1]);
 		bufU16(&out, (uint32_t)(f->mission & 0xffff));
 		bufU16(&out, 0);
 		if (f->mission >= 0) {
@@ -9379,15 +10317,6 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	memset(alltex, 0, sizeof(alltex));
 	memset(allmodels, 0, sizeof(allmodels));
 	memset(allanims, 0, sizeof(allanims));
-
-	// Every one of GoldenEye's guard animations, and not only those the
-	// missions' lists, the watch and the openings name: a GE Plus character
-	// walks, fires, flinches and dies in GoldenEye's own (gechranims.c). The
-	// rows the decompilation names nullNN are one byte into the segment and
-	// hold nothing.
-	for (int i = 0; i < GEANIM_NUM_ANIMS; ++i) {
-		allanims[i] = g_GeAnims[i].at > 1;
-	}
 	g_FailMsg[0] = '\0';
 
 	if (setjmp(g_Fail)) {
@@ -9412,6 +10341,15 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	g_Rom = rom;
 	g_RomLen = romlen;
 	romOpen();
+
+	// Every one of GoldenEye's guard animations, and not only those the
+	// missions' lists, the watch and the openings name: a GE Plus character
+	// walks, fires, flinches and dies in GoldenEye's own (gechranims.c). The
+	// rows the decompilation names nullNN are one byte into the segment and
+	// hold nothing.
+	for (int i = 0; i < GEANIM_NUM_ANIMS; ++i) {
+		allanims[i] = animHasRecord(i);
+	}
 
 	if (g_Layout->variant) {
 		variantLevels();
@@ -9878,10 +10816,12 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 	// music are its own), and its mission folder with them
 	{
 		const size_t keep = g_NumAllocs;
-		buf title;
+		buf title = {0};
 
 		if (g_Layout->variant) {
-			writeMissionFolder(outdir);
+			writeMissionFolder(outdir, &title);
+		} else {
+			title = romFile("LtitleE");
 		}
 
 		for (size_t i = 0; i < sizeof(g_MenuImages) / sizeof(g_MenuImages[0]); ++i) {
@@ -9903,7 +10843,6 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			writeFile(outdir, rel, g_Rom + at, size);
 		}
 
-		title = romFile("LtitleE");
 		writeFile(outdir, "menu/LtitleE", title.v, title.n);
 
 		// and the banks the watch reads (gewatch.c): its own screens' strings,
@@ -9971,9 +10910,20 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			writeGuns(outdir);
 		}
 
-		// and the solo missions' briefings, with the text bank each one indexes
+		// and the solo missions' briefings, with the text bank each one
+		// indexes: a variant's those of the missions it has (TND64 has no
+		// UbriefcontrolZ, nor any of 14 to 19's), and Cuba's where it kept it
 		for (size_t i = 0; i < sizeof(g_MenuText) / sizeof(g_MenuText[0]); ++i) {
 			const char *names[2] = { g_MenuText[i].brief, g_MenuText[i].lang };
+			int named = !g_Layout->variant || !names[0];
+
+			for (size_t k = 0; k < g_NumRunMissions && !named; ++k) {
+				named = g_RunMissions[k].num == (int)i;
+			}
+
+			if (!named || (g_Layout->variant && !names[0] && !romHas(names[1]))) {
+				continue;
+			}
 
 			for (int j = 0; j < 2; ++j) {
 				char rel[64];
@@ -10070,7 +11020,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 			for (size_t i = 0; i < numanims; ++i) {
 				struct animout e;
-				buf data = animConvert(g_IntroAnims[i].at, &e, ANIM_PARTS);
+				buf data = animConvert(animRecord(g_IntroAnims[i].id, 0), &e, ANIM_PARTS);
 				uint8_t name[32] = {0};
 
 				snprintf((char *)name, sizeof(name), "%s", g_IntroAnims[i].name);
@@ -10120,7 +11070,9 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		}
 
 		// menu/gecast.bin: who a mission's people are where the code says
-		// rather than a setup - "GEK1", u8 men, u8 women, u8 cuffs, u8 0, the
+		// rather than a setup - "GEK1", u8 men, u8 women, u8 cuffs, u8 how
+		// many of the men a level draws from (romlayout.maleheads: 0 for
+		// GoldenEye's four, TND64's 8), the
 		// pool a guard with no head of its own draws from (chr.c's
 		// random_male_heads and random_female_heads, or the layout's first),
 		// then solo_char_load()'s Bond, body and head an outfit
@@ -10153,7 +11105,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			bufU8(&cast, (uint32_t)nmen);
 			bufU8(&cast, (uint32_t)nwomen);
 			bufU8(&cast, 9);
-			bufU8(&cast, 0);
+			bufU8(&cast, g_Layout->maleheads);
 			bufPut(&cast, men, nmen);
 			bufPut(&cast, women, nwomen);
 			bufPut(&cast, &g_Layout->bond[0][0], sizeof(g_Layout->bond));
@@ -10301,8 +11253,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// ammunition pictures (gehud.c), gun.c's ammo_related[] read where
 		// the hack's code reads it (0x80035ef0, 30 rows of max, image row,
 		// IconYOffset) with each picture's row out of the ROM's global image
-		// table (segment 2, ROM 0x29d160 in both). Goldfinger 64 redrew most
-		// of them at other sizes (its 9mm round 4x13 where GoldenEye's is
+		// table (segment 2, ROM 0x29d160 in GoldenEye's and Goldfinger's,
+		// romlayout.globalimages). Goldfinger 64 redrew most of them at other sizes (its 9mm round 4x13 where GoldenEye's is
 		// 5x12) and gave two more types one (2237, 2193), so gehud.c's
 		// GoldenEye table drew its rounds out of shape (F3 20261003-050551).
 		// "GEA1", the count, then a 16-byte row a type: the image as the
@@ -10311,6 +11263,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// GoldenEye's own conversion writes none: gehud.c's table is its rows.
 		if (g_Layout->variant) {
 			const size_t at = GE_AMMO_TABLE_AT - DATA_VRAM;
+			const size_t globals = g_Layout->globalimages ? g_Layout->globalimages : GE_GLOBAL_IMAGES_ROM;
 			buf ammo = {0};
 
 			if (at + 12 * (size_t)GE_AMMO_TYPES > g_DataLen) {
@@ -10326,8 +11279,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 				uint32_t image = 0;
 				uint8_t row[8] = {0};
 
-				if (seg >> 24 == 2 && GE_GLOBAL_IMAGES_ROM + (seg & 0xffffff) + 12 <= g_RomLen) {
-					const size_t r = GE_GLOBAL_IMAGES_ROM + (seg & 0xffffff);
+				if (seg >> 24 == 2 && globals + (seg & 0xffffff) + 12 <= g_RomLen) {
+					const size_t r = globals + (seg & 0xffffff);
 
 					image = be32(g_Rom, r);
 					memcpy(row, g_Rom + r + 4, 7);
@@ -10347,6 +11300,30 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 
 			writeFile(outdir, "menu/geammo.bin", ammo.v, ammo.n);
+		}
+
+		// menu/getimes.bin, a variant's only: solo_target_time_array
+		// (front.c), the seconds to beat on Agent, Secret Agent and 00 Agent
+		// for each mission's cheat - "GET1", u16 missions, u8 the mission
+		// after which the credits play and u8 the first that moves on to no
+		// other (romlayout.creditsafter/advancebelow, 0 for GoldenEye's),
+		// then three s16 a mission. A hack sets its own (TND64's readme's);
+		// gexfront.c has GoldenEye's
+		if (g_Layout->variant) {
+			const size_t at = SOLO_TARGET_TIMES_AT - DATA_VRAM;
+			const uint32_t num = g_Layout->nummissions ? g_Layout->nummissions : 20;
+			buf times = {0};
+
+			if (at + 6 * 20 > g_DataLen) {
+				fail("the target times run off the data segment");
+			}
+
+			bufPut(&times, (const uint8_t *)"GET1", 4);
+			bufU16(&times, num);
+			bufU8(&times, g_Layout->creditsafter);
+			bufU8(&times, g_Layout->advancebelow);
+			bufPut(&times, g_Data + at, 6 * (size_t)num);
+			writeFile(outdir, "menu/getimes.bin", times.v, times.n);
 		}
 
 		// menu/gewatch.bin, a variant's only: "GEW1" and the watch's tint
@@ -10479,7 +11456,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 					continue;
 				}
 
-				data = animConvert(GEANIM_BASE + g_GeAnims[i].at, &e, ANIM_PARTS);
+				data = animConvert(animRecord(i, 0), &e, ANIM_PARTS);
 				bufU16(&aindex, (uint32_t)i);
 				bufU16(&aindex, e.numframes);
 				bufU16(&aindex, e.bytesperframe);
@@ -10500,7 +11477,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			// one: they are one part and four root channels apiece.
 			for (int i = 0; i < GEVEH_NUM_ANIMS; ++i) {
 				struct animout e;
-				buf data = animConvert(GEANIM_BASE + g_GeVehicleAnims[i].at, &e, 1);
+				buf data = animConvert(animRecord(i, 1), &e, 1);
 
 				bufU16(&aindex, (uint32_t)(GEVEH_ANIM_FIRST + i));
 				bufU16(&aindex, e.numframes);

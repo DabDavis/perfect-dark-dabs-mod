@@ -516,8 +516,11 @@ static const u8 g_GeRomFemaleHeads[] = { 70, 71, 72, 73 };
 
 // GoldenEye takes its four heads from one place in the male list for a whole
 // level (initguards.c's current_random_male_head, and bodyChooseHead()'s
-// `+ (random & 3)`), and one female head for all of it
+// `+ (random & 3)`), and one female head for all of it. A ROM hack may take
+// more (gecast.bin's fourth byte: Tomorrow Never Dies 64's `andi 7` at
+// 7F0235E4 is eight), up to the game's own eight (g_ActiveMaleHeads)
 #define GEROM_MALE_HEADS_PER_LEVEL 4
+#define GEROM_MAX_MALE_HEADS_PER_LEVEL 8
 
 struct geromchr {
 	f32 scale;
@@ -583,6 +586,7 @@ static s32 g_GeRomNumMen;
 static s32 g_GeRomNumWomen;
 static u8 g_GeRomBond[GEROM_NUM_CUFFS][2];
 static s32 g_GeRomHasBond;
+static s32 g_GeRomMenPerLevel = GEROM_MALE_HEADS_PER_LEVEL;
 
 /**
  * A ROM hack's further pools, after the file's Bond (converter 102): a guard
@@ -597,7 +601,7 @@ static s32 g_GeRomHasBond;
 struct geromextrapool {
 	u8 heads[2][GEROM_MAX_POOL];     // men, women
 	s32 num[2];
-	s16 active[2][GEROM_MALE_HEADS_PER_LEVEL];
+	s16 active[2][GEROM_MAX_MALE_HEADS_PER_LEVEL];
 	s32 numactive[2];
 	s32 next[2];
 };
@@ -676,6 +680,7 @@ static void geRomReadCast(const char *dir)
 	memcpy(g_GeRomWomen, g_GeRomFemaleHeads, sizeof(g_GeRomFemaleHeads));
 	g_GeRomHasBond = 0;
 	g_GeRomNumExtraPools = 0;
+	g_GeRomMenPerLevel = GEROM_MALE_HEADS_PER_LEVEL;
 
 	snprintf(path, sizeof(path), "%s/menu/gecast.bin", dir);
 
@@ -702,6 +707,11 @@ static void geRomReadCast(const char *dir)
 
 			memcpy(g_GeRomBond, d + 8 + men + women, sizeof(g_GeRomBond));
 			g_GeRomHasBond = 1;
+
+			// how many men a level draws from (converter 113; 0 GoldenEye's four)
+			if (d[7] > 0 && d[7] <= GEROM_MAX_MALE_HEADS_PER_LEVEL) {
+				g_GeRomMenPerLevel = d[7];
+			}
 
 			// and any further pools: u8 how many, then u8 men, u8 women and
 			// the heads each
@@ -1307,9 +1317,9 @@ void gexPlusMissionHeads(void)
 	start = (s32)(rngRandom() % (u32)g_GeRomNumMen);
 	female = geRomTake(g_GeRomWomen[rngRandom() % (u32)g_GeRomNumWomen], -1);
 
-	g_NumActiveHeadsPerGender = GEROM_MALE_HEADS_PER_LEVEL;
+	g_NumActiveHeadsPerGender = g_GeRomMenPerLevel;
 
-	for (s32 i = 0; i < GEROM_MALE_HEADS_PER_LEVEL; i++) {
+	for (s32 i = 0; i < g_GeRomMenPerLevel; i++) {
 		const s32 row = geRomTake(g_GeRomMen[(start + i) % g_GeRomNumMen], -1);
 
 		g_ActiveMaleHeads[i] = row >= 0 ? row : HEAD_JAMIE;
@@ -1319,13 +1329,13 @@ void gexPlusMissionHeads(void)
 	g_ActiveMaleHeadsIndex = 0;
 	g_ActiveFemaleHeadsIndex = 0;
 
-	// a hack's further pools, the same way: four men from a start of the
-	// level's, one woman
+	// a hack's further pools, the same way: four men (or the hack's number)
+	// from a start of the level's, one woman
 	for (s32 k = 0; k < g_GeRomNumExtraPools; k++) {
 		struct geromextrapool *pool = &g_GeRomExtraPools[k];
 
 		for (s32 sex = 0; sex < 2; sex++) {
-			const s32 want = sex == 0 ? GEROM_MALE_HEADS_PER_LEVEL : 1;
+			const s32 want = sex == 0 ? g_GeRomMenPerLevel : 1;
 
 			pool->numactive[sex] = 0;
 			pool->next[sex] = -1;

@@ -462,6 +462,7 @@ static void gexPlusRomConvertGoldenEye(void)
 	char dest[FS_MAXPATH + 1] = "";
 	char temp[FS_MAXPATH + 1];
 	char job_err[256] = "";
+	char from[FS_MAXPATH + 1];
 	u32 romlen = 0;
 	u8 *rom;
 
@@ -576,7 +577,10 @@ static void gexPlusRomConvertGoldenEye(void)
 
 	sysLogPrintf(LOG_NOTE, "gexplus: converting %s into %s, this happens once", fsFullPath(search.path), dest);
 
-	switch (gexPlusRomConvertInto(rom, romlen, dest, fsFullPath(search.path), job_err, sizeof(job_err))) {
+	// a copy: fsFullPath()'s buffer is the next path's, and the stamp is written after many
+	snprintf(from, sizeof(from), "%s", fsFullPath(search.path));
+
+	switch (gexPlusRomConvertInto(rom, romlen, dest, from, job_err, sizeof(job_err))) {
 	case 1:
 		sysLogPrintf(LOG_NOTE, "gexplus: the GoldenEye arenas are in %s", dest);
 		gexPlusRomSetReady();
@@ -645,6 +649,20 @@ s32 gexPlusRomIsConversionDir(const char *name)
 	return 0;
 }
 
+// a hack's place in the converter's table (geconvertVariantNameAt())
+static s32 variantOrder(const char *name)
+{
+	s32 i;
+
+	for (i = 0; geconvertVariantNameAt(i); ++i) {
+		if (!strcmp(geconvertVariantNameAt(i), name)) {
+			break;
+		}
+	}
+
+	return i;
+}
+
 static void variantReady(const char *name)
 {
 	for (s32 i = 0; i < g_NumVariants; ++i) {
@@ -655,6 +673,16 @@ static void variantReady(const char *name)
 
 	if (g_NumVariants < VARIANTS_MAX) {
 		snprintf(g_Variants[g_NumVariants++], sizeof(g_Variants[0]), "%s", name);
+	}
+
+	// in the converter's order, not the order added-content/ lists them in:
+	// the Perfect Menu's rows (mainmenu.c) keep their places start to start
+	for (s32 i = g_NumVariants - 1; i > 0 && variantOrder(g_Variants[i]) < variantOrder(g_Variants[i - 1]); --i) {
+		char swap[sizeof(g_Variants[0])];
+
+		memcpy(swap, g_Variants[i], sizeof(swap));
+		memcpy(g_Variants[i], g_Variants[i - 1], sizeof(swap));
+		memcpy(g_Variants[i - 1], swap, sizeof(swap));
 	}
 }
 
@@ -801,8 +829,14 @@ static void variantConvert(u8 *rom, u32 romlen, const char *name, const char *fr
 	}
 }
 
-/** A patch at path (from names the file the player put in added-content/). */
-static void variantFromPatch(const char *path, const char *from)
+/**
+ * A patch at path (from names the file the player put in added-content/).
+ * Whether it applies to GoldenEye 007 (US) and makes a hack this converts; one
+ * out of an archive (`inarchive`) that makes another says nothing, since a
+ * hack's zip holds its older releases beside the one this knows (TND64's
+ * eight: its Original V1-V4 and Expanded's earlier three).
+ */
+static s32 variantFromPatch(const char *path, const char *from, s32 inarchive)
 {
 	char err[256];
 	u8 *patch, *out = NULL;
@@ -810,21 +844,25 @@ static void variantFromPatch(const char *path, const char *from)
 	const char *name;
 
 	if (!variantUsRom()) {
-		sysLogPrintf(LOG_NOTE, "gexplus: %s may be a GoldenEye ROM hack; it needs the GoldenEye 007 (US) ROM in "
-				FS_ADDED_CONTENT_DIR "/ to be applied to", from);
-		return;
+		// an archive's patches are told of once, by variantFromArchive()
+		if (!inarchive) {
+			sysLogPrintf(LOG_NOTE, "gexplus: %s may be a GoldenEye ROM hack; it needs the GoldenEye 007 (US) ROM in "
+					FS_ADDED_CONTENT_DIR "/ to be applied to", from);
+		}
+
+		return 0;
 	}
 
 	patch = fsFileLoad(path, &patchlen);
 
 	if (!patch) {
-		return;
+		return 0;
 	}
 
 	if (rompatchApply(g_UsRom, g_UsRomLen, patch, patchlen, &out, &outlen, err, sizeof(err)) < 0) {
 		// a patch for something else: added-content/ holds the releases' too
 		sysMemFree(patch);
-		return;
+		return 0;
 	}
 
 	sysMemFree(patch);
@@ -832,11 +870,12 @@ static void variantFromPatch(const char *path, const char *from)
 
 	if (name) {
 		variantConvert(out, outlen, name, from);
-	} else {
+	} else if (!inarchive) {
 		sysLogPrintf(LOG_NOTE, "gexplus: %s applies to GoldenEye 007 (US) but makes no ROM hack this can convert", from);
 	}
 
 	free(out);
+	return name != NULL;
 }
 
 static s32 variantIsDir(const char *path)
@@ -867,10 +906,12 @@ static void variantListAdd(const char *name, void *arg)
 	snprintf(list->names[list->count++], 256, "%s", name);
 }
 
-// the patches in an unpacked zip, a few folders down
-static void variantPatchesIn(const char *dir, const char *from, s32 depth)
+// the patches in an unpacked zip, a few folders down, each tried: how many
+// make a hack this converts, and how many were tried
+static s32 variantPatchesIn(const char *dir, const char *from, s32 depth, s32 *tried)
 {
 	struct variantlist list = { NULL, 0, 0 };
+	s32 made = 0;
 
 	if (fsScanDir(dir, variantListAdd, &list) >= 0) {
 		for (s32 i = 0; i < list.count; ++i) {
@@ -879,14 +920,16 @@ static void variantPatchesIn(const char *dir, const char *from, s32 depth)
 			snprintf(path, sizeof(path), "%s/%s", dir, list.names[i]);
 
 			if (rompatchIsPatchName(list.names[i])) {
-				variantFromPatch(path, from);
+				made += variantFromPatch(path, from, 1);
+				++*tried;
 			} else if (depth < 3 && variantIsDir(path)) {
-				variantPatchesIn(path, from, depth + 1);
+				made += variantPatchesIn(path, from, depth + 1, tried);
 			}
 		}
 	}
 
 	free(list.names);
+	return made;
 }
 
 // whether an archive holds a ROM patch (archiveFindEntry() wants the path expanded)
@@ -938,7 +981,18 @@ static void variantFromArchive(const char *path, const char *name, const char *f
 		}
 	}
 
-	variantPatchesIn(dir, from, 0);
+	{
+		s32 tried = 0;
+		const s32 made = variantPatchesIn(dir, from, 0, &tried);
+
+		if (tried && !g_UsRom) {
+			sysLogPrintf(LOG_NOTE, "gexplus: %s may hold a GoldenEye ROM hack; it needs the GoldenEye 007 (US) ROM in "
+					FS_ADDED_CONTENT_DIR "/ to be applied to", from);
+		} else if (!made && tried) {
+			sysLogPrintf(LOG_NOTE, "gexplus: %s holds %d patch%s, and none makes a GoldenEye ROM hack this can convert",
+					from, tried, tried == 1 ? "" : "es");
+		}
+	}
 }
 
 struct variantsearch {
@@ -1019,7 +1073,7 @@ static void gexPlusRomConvertVariants(void)
 			}
 
 			if (rompatchIsPatchName(name)) {
-				variantFromPatch(path, from);
+				variantFromPatch(path, from, 0);
 			} else if (archiveIsSupported(name) && size <= VARIANT_ARCHIVE_MAX) {
 				variantFromArchive(path, name, from);
 			} else if ((u32)size > GECONVERT_ROM_SIZE) {

@@ -5532,6 +5532,12 @@ struct bgroom {
 	struct coord pos;
 	u8 br_light_min;
 	u8 br_light_max;
+#ifndef PLATFORM_N64
+	// a converted level's piece of a room too wide for 16-bit vertices: the
+	// room it is drawn with, 0 for none (geconvert.c's roomSplit(); the
+	// row's padding in the file)
+	u16 drawnwith;
+#endif
 };
 
 struct damagetype {

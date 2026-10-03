@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <math.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
@@ -22,6 +23,7 @@
 #include "geguns.h"
 #include "gebean.h"
 #include "geslappers.h"
+#include "gehud.h"
 #include "modloader.h"
 #include "mod.h"
 #include "langpack.h"
@@ -1559,6 +1561,102 @@ static u32 envitems = GEGUNS_ENVMAP_ITEMS;
 s32 gegunsItemNumber(s32 index)
 {
 	return index >= 0 && index < NUM_GE_WEAPONS ? items[index] : 0;
+}
+
+/**
+ * The LpropobjE slot generate_language_specific_text_for_weapon() (propobj.c)
+ * words each hand item's pickup with: whole, article and all, as the hack
+ * wrote them - TND64's "a H&K P7.", "an Uzi (9mm).", "the Golden Gyrojet.",
+ * which a guess from the name got wrong. The thrown and placed ones are
+ * worded as ammunition there and are not here.
+ */
+static s32 gegunsPickupSlot(s32 weaponnum)
+{
+	static const u8 slots[] = {
+		[2] = 0x20, [4] = 0x21, [5] = 0x22, [6] = 0x23, [7] = 0x24, [8] = 0x25,
+		[9] = 0x26, [10] = 0x27, [11] = 0x28, [12] = 0x29, [13] = 0x2a, [14] = 0x2b,
+		[15] = 0x2c, [16] = 0x2d, [17] = 0x2e, [24] = 0x2f, [25] = 0x30, [18] = 0x31,
+		[19] = 0x32, [22] = 0x33, [35] = 0x34, [36] = 0x35, [20] = 0x36, [21] = 0x37,
+	};
+	const s32 index = weaponnum - WEAPON_GE_FIRST;
+	s32 item;
+
+	if (!GE_GUN_INDEX(index)) {
+		return -1;
+	}
+
+	item = gegunsItemNumber(index);
+
+	return item > 0 && item < (s32)ARRAYCOUNT(slots) && slots[item] ? slots[item] : -1;
+}
+
+// a word of `words` (up to `end`), brackets and case aside, among name's
+static s32 gegunsWordIn(const char *word, s32 len, const char *name)
+{
+	const char *p = name;
+
+	while (*p) {
+		s32 n;
+
+		while (*p == ' ' || *p == '(' || *p == ')' || *p == '\n') {
+			p++;
+		}
+
+		n = strcspn(p, " ()\n");
+
+		if (n && n == len && strncasecmp(p, word, len) == 0) {
+			return 1;
+		}
+
+		p += n;
+	}
+
+	return 0;
+}
+
+const char *gegunsPickupWords(s32 weaponnum, const char *name)
+{
+	const s32 slot = gegunsPickupSlot(weaponnum);
+	const char *words = slot >= 0 ? geHudPropobjString(slot) : NULL;
+	const char *p;
+	s32 any = 0;
+
+	if (!words || !name) {
+		return NULL;
+	}
+
+	// Only where every word after the article is one of the gun's own name's:
+	// Goldfinger 64 hands its guns other items than the slots it reworded
+	// ("a Thompson (Drum)." is its MP40's item's), and there the guess from
+	// the name stays
+	p = strchr(words, ' ');
+
+	if (!p) {
+		return NULL;
+	}
+
+	while (*p) {
+		s32 n;
+
+		while (*p == ' ' || *p == '(' || *p == ')' || *p == '.' || *p == '\n') {
+			p++;
+		}
+
+		n = strcspn(p, " ().\n");
+
+		if (n == 0) {
+			continue;
+		}
+
+		if (!gegunsWordIn(p, n, name)) {
+			return NULL;
+		}
+
+		any = 1;
+		p += n;
+	}
+
+	return any ? words : NULL;
 }
 
 s32 gegunsItemWeapon(s32 item)
@@ -3738,8 +3836,15 @@ void gegunsSetWatchLaser(s32 on)
  * the hack's own the guns' definitions are built from it once and swapped in
  * whole, and on any other stage GoldenEye's are swapped back, as they were -
  * as the watch laser is on Train.
+ *
+ * GGN3 adds a word of flags after GGN2's envmap items. GEGUNS_NOLASER: the
+ * hack's code tests for the laser by a number no item has (TND64 Expanded's
+ * fourteen, 0x99), so its gun on the Moonraker's number (its FAMAS, on
+ * GlaserZ) is a rifle like any other - it stands on the AR33's host while the
+ * set is in, no beam and a rifle's muzzle, and on the laser again after.
  */
 #define GEGUNS_SETS     4
+#define GEGUNS_NOLASER  0x1
 #define GEGUNS_NAMELEN  40
 #define GEGUNS_STATROW  0x70
 #define GEGUNS_ROW      (4 + GEGUNS_NAMELEN + GEGUNS_STATROW)
@@ -3756,6 +3861,7 @@ struct gegunset {
 	u16 nameids[NUM_GE_WEAPONS];
 	char names[NUM_GE_WEAPONS][GEGUNS_NAMELEN + 2];
 	u32 envitems;
+	u32 flags; // GEGUNS_NOLASER
 	s32 built;
 	struct weapon defs[NUM_GE_WEAPONS];
 	struct aibotweaponpreference prefs[NUM_GE_WEAPONS];
@@ -3882,10 +3988,12 @@ static struct gegunset *gegunsSetAt(s32 moddir)
 	snprintf(path, sizeof(path), "%s/menu/geguns.bin", fsGetModDirAt(moddir));
 	d = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
 
-	// GGN2 carries the items drawn under the envmap light after the count
+	// GGN2 carries the items drawn under the envmap light after the count,
+	// GGN3 its flags after them
 	hdr = d && len >= 12 && !memcmp(d, "GGN2", 4) ? 12 : 8;
+	hdr = d && len >= 16 && !memcmp(d, "GGN3", 4) ? 16 : hdr;
 
-	if (!d || len < 8 || (memcmp(d, "GGN1", 4) && hdr != 12) || len < hdr + (count = gegunsBe32(d + 4)) * GEGUNS_ROW) {
+	if (!d || len < 8 || (memcmp(d, "GGN1", 4) && hdr == 8) || len < hdr + (count = gegunsBe32(d + 4)) * GEGUNS_ROW) {
 		if (d) {
 			sysLogPrintf(LOG_WARNING, "geguns: %s is not a gun set", path);
 		}
@@ -3913,7 +4021,8 @@ static struct gegunset *gegunsSetAt(s32 moddir)
 	}
 
 	set->moddir = moddir;
-	set->envitems = hdr == 12 ? gegunsBe32(d + 8) : GEGUNS_ENVMAP_ITEMS;
+	set->envitems = hdr >= 12 ? gegunsBe32(d + 8) : GEGUNS_ENVMAP_ITEMS;
+	set->flags = hdr >= 16 ? gegunsBe32(d + 12) : 0;
 
 	// GoldenEye's, where the hack has no gun on a weapon: its gadgets, and
 	// whatever of GoldenEye's it has no row for
@@ -4009,6 +4118,10 @@ void gegunsStageSet(s32 stagenum)
 	}
 
 	gegunsUseTables(set);
+
+	// the Moonraker's number a rifle where the hack has no laser (GEGUNS_NOLASER)
+	g_GeWeaponHosts[WEAPON_GE_MOONRAKER - WEAPON_GE_FIRST] = set && (set->flags & GEGUNS_NOLASER)
+		? g_GeWeaponHosts[WEAPON_GE_AR33 - WEAPON_GE_FIRST] : WEAPON_LASER;
 
 	if (!set) {
 		memcpy(g_GeWeaponDefs, g_GunSetGeDefs, sizeof(g_GunSetGeDefs));
