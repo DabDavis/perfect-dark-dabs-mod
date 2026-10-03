@@ -1579,8 +1579,11 @@ Gfx *lvRender(Gfx *gdl)
 						// returns true only when propFindForInteract() found
 						// nothing in front of the player to open or operate, so
 						// a press that reached a door - even a locked one - is
-						// spent on the door and never becomes a jump.
-						bwalkTryJump();
+						// spent on the door and never becomes a jump. Nor does
+						// the trigger of a gadget that fires to activate.
+						if (!(g_Vars.currentplayer->bondactivateorreload & JO_ACTION_FROMTRIGGER)) {
+							bwalkTryJump();
+						}
 					}
 #endif
 				} else if (g_Vars.currentplayer->eyespy

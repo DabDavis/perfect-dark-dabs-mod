@@ -660,8 +660,17 @@ f32 bmoveCalculateLookahead(void)
 	return result;
 }
 
+#ifndef PLATFORM_N64
+// Of this frame's btapcount, how many were the trigger pulled with a
+// fire-to-activate gadget in the hand - see JO_ACTION_FROMTRIGGER
+static s32 g_BmoveTriggerTaps;
+#endif
+
 void bmoveResetMoveData(struct movedata *data)
 {
+#ifndef PLATFORM_N64
+	g_BmoveTriggerTaps = 0;
+#endif
 	data->canswivelgun = 0;
 	data->canmanualaim = 0;
 	data->triggeron = false;
@@ -1295,7 +1304,12 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							geTankFireCannon();
 						} else
 #endif
-						movedata.btapcount++;
+						{
+							movedata.btapcount++;
+#ifndef PLATFORM_N64
+							g_BmoveTriggerTaps++;
+#endif
+						}
 #ifndef PLATFORM_N64
 						// GoldenEye's camera and watch magnet, whose trigger
 						// does something of its own as well (gegadgets.c)
@@ -2029,7 +2043,12 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							geTankFireCannon();
 						} else
 #endif
-						movedata.btapcount++;
+						{
+							movedata.btapcount++;
+#ifndef PLATFORM_N64
+							g_BmoveTriggerTaps++;
+#endif
+						}
 #ifndef PLATFORM_N64
 						// GoldenEye's camera and watch magnet, whose trigger
 						// does something of its own as well (gegadgets.c)
@@ -2076,6 +2095,15 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			g_Vars.currentplayer->bondactivateorreload = movedata.btapcount ?
 				(g_Vars.currentplayer->bondactivateorreload | JO_ACTION_ACTIVATE | JO_ACTION_RELOAD) : 0;
 		}
+
+#ifndef PLATFORM_N64
+		// Jump shares the use button, and a fire-to-activate gadget's trigger
+		// is a use press: GoldenEye's camera jumped with every photo (F3
+		// 20261002-155304). Marked so it reaches a door and never the jump.
+		if (g_BmoveTriggerTaps >= movedata.btapcount) {
+			g_Vars.currentplayer->bondactivateorreload |= JO_ACTION_FROMTRIGGER;
+		}
+#endif
 
 		bmoveHandleActivate();
 	}

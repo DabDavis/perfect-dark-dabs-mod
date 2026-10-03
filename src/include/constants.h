@@ -5206,6 +5206,11 @@ enum weaponnum {
 
 #define JO_ACTION_ACTIVATE           0x0001
 #define JO_ACTION_RELOAD             0x0002
+#ifndef PLATFORM_N64
+// every activate press this frame was a fire-to-activate gadget's trigger
+// (WEAPONFLAG_FIRETOACTIVATE), which operates a thing but never jumps
+#define JO_ACTION_FROMTRIGGER        0x0004
+#endif
 
 #ifdef PLATFORM_N64
 

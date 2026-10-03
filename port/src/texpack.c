@@ -76,8 +76,11 @@
 
 // Pack files that no texture number claimed, kept to be matched against the
 // texels of whatever gets drawn. A power of two well clear of how many there
-// usually are - 259 of 1509 for the pack this was built against.
-#define TEXPACK_UNPLACED_SLOTS 2048
+// usually are - 259 of 1509 for the pack this was built against. Every placed
+// file is kept here too (texpackAddTwin()), and a GoldenEye pack runs to
+// 1700 or more, so 2048 was a table run full - and a full open-addressed table
+// walks every slot for each miss.
+#define TEXPACK_UNPLACED_SLOTS 16384
 
 // Which image a pack file holds, best first. A Rice pack may ship several for
 // one texture, and only some of them are the whole picture.
@@ -123,6 +126,9 @@ struct texpackunplaced {
 
 static struct texpackunplaced *unplaced;
 static s32 numUnplaced;
+// Files that took a texture number and are kept in the table above as well, so
+// texels drawn under another numbering still find them - see texpackAddTwin().
+static s32 numTwins;
 static s32 numTexelMatched; // of those, how many have actually turned up
 static u8 *riceScratch;
 
@@ -331,6 +337,7 @@ static u8 *modReplaceFlip;
 static s32 numModReplacements;
 static struct texpackunplaced *modUnplaced; // its texel-matched files
 static s32 numModUnplaced;
+static s32 numModTwins;
 static s32 modIndexDir = -1;   // the mounted directory it was built from
 static s32 modIndexHtcFile;    // where its cache files start, so they can be cut back
 static s32 modIndexHtcEntry;
@@ -1237,12 +1244,11 @@ static s32 texpackParseNativeName(const char *name)
 	return texpackParseHexName(name, NUM_TEXTURES);
 }
 
-static void texpackAddUnplaced(u32 crc, char *path)
+static void texpackAddUnplacedTo(u32 crc, char *path, s32 *count)
 {
 	// A mod's own pack keeps its texel-matched files with the rest of its
 	// index, so they go when it does - they name records inside its cache file.
 	struct texpackunplaced **table = scanningMod ? &modUnplaced : &unplaced;
-	s32 *count = scanningMod ? &numModUnplaced : &numUnplaced;
 	u32 slot;
 	u32 i;
 
@@ -1280,6 +1286,29 @@ static void texpackAddUnplaced(u32 crc, char *path)
 	}
 
 	free(path);
+}
+
+static void texpackAddUnplaced(u32 crc, char *path)
+{
+	texpackAddUnplacedTo(crc, path, scanningMod ? &numModUnplaced : &numUnplaced);
+}
+
+/**
+ * A file named for a checksum that matched a texture number is placed under
+ * that number, and is kept here as well, under its checksum.
+ *
+ * The checksum index is built from whatever texLoadFromTextureNum() answers
+ * at the time, which inside a GoldenEye Plus level is the conversion's own
+ * texture at that number - and a texture of the running stage's mod
+ * (TEXPACK_ART_MODSTAGE) takes nothing from a numbered file. So an emulator
+ * pack made for GoldenEye had every file that matched placed under a number
+ * the level then refused, and nothing left for the texel match: the pack drew
+ * nothing on GoldenEye Plus at all (F3 20261002-161556). The texel match is
+ * the one lookup that names the picture itself, so it sees the whole pack.
+ */
+static void texpackAddTwin(u32 crc, char *path)
+{
+	texpackAddUnplacedTo(crc, path, scanningMod ? &numModTwins : &numTwins);
 }
 
 static const char *texpackFindUnplacedIn(const struct texpackunplaced *table, u32 crc)
@@ -2024,6 +2053,7 @@ static void texpackIndexHtc(const char *dir, const char *name)
 					n.flip[texturenum] = 0;
 					textures++;
 				}
+				texpackAddTwin(r->crc, texpackHtcPath(entry));
 				continue;
 			}
 
@@ -2377,6 +2407,10 @@ static void texpackIndexFile(const char *name, void *arg)
 
 			return;
 		}
+
+		if (!isAlpha) {
+			texpackAddTwin(crc, texpackJoin(dir, name));
+		}
 	}
 
 	path = texpackJoin(dir, name);
@@ -2498,6 +2532,7 @@ static void texpackFreeIndex(void)
 	unplaced = NULL;
 	riceScratch = NULL;
 	numUnplaced = 0;
+	numTwins = 0;
 	numTexelMatched = 0;
 }
 
@@ -2948,6 +2983,7 @@ static void texpackModDrop(void)
 	modUnplaced = NULL;
 	numModReplacements = 0;
 	numModUnplaced = 0;
+	numModTwins = 0;
 
 	for (i = modIndexHtcFile; i < numHtcFiles; i++) {
 		free(htcFiles[i].data);
@@ -3266,7 +3302,7 @@ s32 texpackHaveUnplacedFiles(void)
 	// The running stage's mod's own files count: a texel checksum names the
 	// picture itself, so those are matched the same way and cannot collide -
 	// see texpackFindUnplaced().
-	return texpackHaveReplacements() && (numUnplaced > 0 || numModUnplaced > 0);
+	return texpackHaveReplacements() && (numUnplaced > 0 || numModUnplaced > 0 || numTwins > 0 || numModTwins > 0);
 }
 
 u8 *texpackLoadReplacementForTexels(const u8 *data, u32 size, s32 width, s32 height,

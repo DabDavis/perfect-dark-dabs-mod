@@ -4839,7 +4839,20 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 				}
 			}
 		} else {
+#ifndef PLATFORM_N64
+			// A dialog waits for the menus' background to have faded in, and
+			// the fade from none waits for the blur's still - which is put off
+			// for as long as GE Plus's intro or folder hides the level
+			// (schedConsiderScreenshot()). After a GE Plus mission the
+			// Perfect Menu under the folder had not faded in yet, so F3's
+			// Report a Problem over the folder stayed a title bar and no more
+			// (F3 20261002-012728). Over the folder the folder is the
+			// background, and the dialog opens.
+			if (g_MenuData.nextbg == 255 || g_MenuData.bg != 0
+					|| geIntroIsActive() || gexFrontIsActive()) {
+#else
 			if (g_MenuData.nextbg == 255 || g_MenuData.bg != 0) {
+#endif
 				dialog->state = MENUDIALOGSTATE_OPENING;
 				dialog->redrawtimer = 0.0f;
 				dialog->statefrac = 0.5f;
