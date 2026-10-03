@@ -650,10 +650,24 @@ s32 geRoomPortalsOverBox(struct coord *min, struct coord *max, s32 *rooms, s32 c
 				// bgIsBboxOverlapping(), less boxes that only touch: a pane
 				// standing on a floor portal is 0.01 over it on the cartridge
 				// (Dam's windows, traced on ares) and level with it here, its
-				// scale rounded the other way
-				if (min->x > pmax[0] - GEROOM_TOUCH || max->x < pmin[0] + GEROOM_TOUCH
-						|| min->y > pmax[1] - GEROOM_TOUCH || max->y < pmin[1] + GEROOM_TOUCH
-						|| min->z > pmax[2] - GEROOM_TOUCH || max->z < pmin[2] + GEROOM_TOUCH) {
+				// scale rounded the other way. A pane lying flat in a flat
+				// portal's own plane is no touch but the portal itself, and
+				// GoldenEye's test, which takes equal as over, files it in
+				// both rooms: Control's floor of glass at the stairwell
+				// (tinted glass 133, portal 75), 0.0004 under the portal
+				// here, was in the lower room alone and never drawn from the
+				// upper floor (F3 20261003-152909)
+				for (k = 0; k < 3; k++) {
+					if (pmax[k] - pmin[k] < GEROOM_TOUCH && max->f[k] - min->f[k] < GEROOM_TOUCH) {
+						if (fabsf((min->f[k] + max->f[k]) - (pmin[k] + pmax[k])) * 0.5f > GEROOM_TOUCH) {
+							break;
+						}
+					} else if (min->f[k] > pmax[k] - GEROOM_TOUCH || max->f[k] < pmin[k] + GEROOM_TOUCH) {
+						break;
+					}
+				}
+
+				if (k < 3) {
 					continue;
 				}
 
