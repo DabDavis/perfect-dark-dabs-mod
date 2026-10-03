@@ -13916,3 +13916,24 @@ unexplained. Cradle's Trevelyan skips "I was always better" when Bond is already
 Aztec 20261003-003005 is the same two doors (records 239/240, pads 297/298) and console as pass 28's notabug.
 Natalya at Control's kiosk stops on pad 225 (walk, typing and the off-screen teleport, `scen/natalya.py`); the
 tester's trace had her 58 units further on, at the console, not reproduced.
+
+## Round 2 of pass 29's AI items (2026-10-03, fix/f3-1003-aiscript)
+
+**Surface 2 ending stairs (F3 20261002-160950):** `playerTickThirdPerson()` set FORCETOGROUND on the body
+every cutscene tick, so a converted list's Bond (`chrIsGeListBody()`, now exported) snapped a whole 24-unit
+tread at a time down the bunker stairs. GoldenEye's guard is INIT once, then eased up / falls down. Forced
+now only on the first tick a list has him (a frame gap re-arms it). `scen/surf2end.py` (twin, `--pd-arg
+--cinema-ending`, mission surface2): base manground 168,168,...,144 per tread; fixed falls smoothly. Twenty
+endings at 120/250/400 frames base vs fixed: only Surface 2's stairs differ (`out/endsweep`).
+
+**Archives Natalya's guard (F3 20261002-231301/231349):** chr 9 (list 0x40a, then 0x808 RunToBond) cut
+straight to Bond past Archives' double swing doors (pads 409/410) and walked into the open leaf for good:
+the route follower's obstacle check leaves out AI-openable doors (stock and GoldenEye alike), which is fine
+for Perfect Dark's sliding doors. `cdExamCylMove03` at the stuck spot: doors collide at 40 units, BG clear.
+Converted levels add `CDTYPE_OPENDOORS` to `chrNavTickMain()`'s check. `scen/arch.py` (GF_GUARDS=9,
+GF_BOND=-1663,43,-139): base stuck at (-1317,-1408), the tester's position; fixed reaches Bond.
+
+**Not changed:** Control's dying guard (013938) - guards killed at (-1906,-200,874) lie at ground+15 like the
+tester's chr, no part under the floor in our shots. Boris at Bunker's doors (155647): the tester's shot has Bond
+standing in the doorway Boris is walking through. gdb trap: `$gs` is a register - name convenience variables
+otherwise ("Couldn't write registers").
