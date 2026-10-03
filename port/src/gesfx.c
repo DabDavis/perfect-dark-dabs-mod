@@ -327,6 +327,11 @@ s32 geSfxGet(s32 id)
 	return sfxGetIn(sfxBank(), id);
 }
 
+s32 geSfxIsBankSound(s32 ours)
+{
+	return ours > 0 && ours < SND_MAX_SOUNDS && g_SfxGeBank[ours] != 0;
+}
+
 s32 geSfxChain(s32 ours)
 {
 	const s32 id = ours > 0 && ours < SND_MAX_SOUNDS ? g_SfxGeId[ours] : 0;

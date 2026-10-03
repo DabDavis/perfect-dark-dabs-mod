@@ -106,6 +106,34 @@ ALMicroTime _n_sndpVoiceHandler(void *node)
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
+#if VERSION >= VERSION_NTSC_1_0
+/**
+ * Whether an envelope phase of `*delta` is past the player's 5.5 s ceiling,
+ * which stops the sound before it is heard. GoldenEye's player (snd.c) has no
+ * such ceiling, and Goldfinger 64 gave 34 of its re-recorded samples - most of
+ * its guns' shots - an 11.1 s decay: on Perfect Dark's player they were cut
+ * at the first frame, and only the ricochets were heard (F3 20261003-163557).
+ * A sound out of a converted bank (gesfx.c) plays its phase for at most the
+ * ceiling instead; the sample itself ends long before. Perfect Dark's own
+ * sounds keep its rule.
+ */
+static bool sndpEnvTooLong(struct sndstate *state, ALMicroTime *delta)
+{
+	if (*delta <= 5500000) {
+		return false;
+	}
+
+#ifndef PLATFORM_N64
+	if (geSfxIsBankSound(state->soundnum)) {
+		*delta = 5500000;
+		return false;
+	}
+#endif
+
+	return true;
+}
+#endif
+
 void _n_handleEvent(N_ALSndpEvent *event)
 {
 	ALVoiceConfig config;
@@ -224,7 +252,7 @@ void _n_handleEvent(N_ALSndpEvent *event)
 				}
 			}
 
-			if (delta > 5500000) {
+			if (sndpEnvTooLong(state, &delta)) {
 				func00033090(state);
 				return;
 			}
@@ -263,7 +291,7 @@ void _n_handleEvent(N_ALSndpEvent *event)
 					delta = sound->envelope->decayTime / state->basepitch / state->pitch;
 
 #if VERSION >= VERSION_NTSC_1_0
-					if (delta > 5500000) {
+					if (sndpEnvTooLong(state, &delta)) {
 						func00033090(state);
 						return;
 					}
@@ -287,7 +315,7 @@ void _n_handleEvent(N_ALSndpEvent *event)
 					delta = sound->envelope->attackTime / state->pitch / state->basepitch;
 
 #if VERSION >= VERSION_NTSC_1_0
-					if (delta > 5500000) {
+					if (sndpEnvTooLong(state, &delta)) {
 						func00033090(state);
 						return;
 					}
@@ -307,7 +335,7 @@ void _n_handleEvent(N_ALSndpEvent *event)
 					delta = sound->envelope->releaseTime / state->basepitch / state->pitch;
 
 #if VERSION >= VERSION_NTSC_1_0
-					if (delta > 5500000) {
+					if (sndpEnvTooLong(state, &delta)) {
 						func00033090(state);
 						break;
 					}
@@ -405,7 +433,7 @@ void _n_handleEvent(N_ALSndpEvent *event)
 				delta = sound->envelope->releaseTime / state->basepitch / state->pitch;
 
 #if VERSION >= VERSION_NTSC_1_0
-				if (delta > 5500000) {
+				if (sndpEnvTooLong(state, &delta)) {
 					func00033090(state);
 					break;
 				}
@@ -423,7 +451,7 @@ void _n_handleEvent(N_ALSndpEvent *event)
 				delta = sound->envelope->decayTime / state->basepitch / state->pitch;
 
 #if VERSION >= VERSION_NTSC_1_0
-				if (delta > 5500000) {
+				if (sndpEnvTooLong(state, &delta)) {
 					func00033090(state);
 					break;
 				}
