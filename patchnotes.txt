@@ -38,7 +38,7 @@ Goldfinger 64: guns on the watch keep their own size and names after playing a G
 Goldfinger 64 Monitor Programmes: the TV sets are the same size as GE Plus's and sit in their cells (thanks Shockwave S08)
 GE Plus Control, XBLA look: the big windows show GoldenEye's reflective glass instead of a flat black wall
 GE Plus Egyptian, XBLA look: the block under the hieroglyph door is stone like its sides, not a squashed picture
-GE Plus Cradle: shots stop on the catwalks overhead, as in GoldenEye
+GE Plus Cradle, N64 look: shots stop on the catwalks overhead, as in GoldenEye
 GE Plus: with Perfect Dark death animations on, a guard no longer freezes kneeling halfway through his fall
 GE Plus Control: the glass floor inside the upper-floor railing is drawn, not a hole showing the floor below
 GE Plus, XBLA look: no more brief freezes the first time a guard, prop or gun shows up; their HD models are built while the level loads (thanks Shockwave S08)
