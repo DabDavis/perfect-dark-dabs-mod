@@ -140,6 +140,13 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
  * shoots: a grenade, a mine or a knife in a guard's hand is held and aimed
  * like a gun and never thrown (user, 2026-09-28). Stages whose guards drew a
  * throwable under v4 draw again, in the same stream.
+ *
+ * Version 6 never asks for a weapon the player cannot pick up. Villa keeps
+ * four tagged CMP150s on pad 0x19a for its script, uncollectable and
+ * invisible, and a "Recover the ..." dealt on one of them was a mission that
+ * could not be finished (F3 20261002-224232). And a run's landing on the Duel
+ * keeps out of, and a door away from, the three rooms whose doorways show the
+ * sky there (modrun.c, modRunRoomIsBare(); F3 20261002-082816).
  */
 #define MODRANDOM_VERSION MODRANDOM_VERSION_DEFAULT
 
@@ -1475,6 +1482,12 @@ static bool modRandomDealObjective(struct modrandomlists *lists, u8 *reached, s3
 		struct weapon *weapondef = weaponFindById(weapon->weaponnum);
 		char *name = weapondef ? langGet(weapondef->name) : NULL;
 
+		// A weapon row with no name of its own reads "Recover the " - say
+		// what it is instead of nothing.
+		if (name && (name[0] == '\0' || name[0] == '\n')) {
+			name = NULL;
+		}
+
 		modRandomWriteObjective(cmd, slot, OBJECTIVETYPE_COLLECTOBJ,
 				modRandomTagNumOf(lists, &weapon->base));
 
@@ -1583,6 +1596,14 @@ static void modRandomGenerateObjectives(struct modrandomlists *lists, u8 *reache
 		s32 room;
 
 		if (!modRandomObjIsFreeStanding(&weapon->base)) {
+			continue;
+		}
+
+		// A weapon the stage keeps out of reach for its script is not one to
+		// send the player for: objTestForPickup() refuses an uncollectable
+		// one, and an invisible one is not there to find.
+		if (g_ModRandomVersion >= 6
+				&& ((weapon->base.flags & OBJFLAG_UNCOLLECTABLE) || (weapon->base.flags2 & OBJFLAG2_INVISIBLE))) {
 			continue;
 		}
 

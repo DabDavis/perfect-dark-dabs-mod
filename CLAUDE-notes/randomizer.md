@@ -293,3 +293,12 @@ tester read as guns carried over from the mission before. `modRandomDisarmMissio
 (and `modGhostDisarmTrial()`) now run on each of those doors (mainmenu.c,
 ghostmenu.c, gexfront.c `frontStartMission()`). A new door into a mission needs
 the same two calls.
+
+## A fetch objective names only what can be picked up (v6)
+
+F3 20261002-224232, Villa: four tagged CMP150s on pad 0x19a are the script's,
+`OBJFLAG_UNCOLLECTABLE` and `OBJFLAG2_INVISIBLE`, and the pool took them -
+"Recover the ..." on a gun nobody can see or carry. From v6 the pool skips
+both flags, and a weapon whose name text is empty reads "Recover the stolen
+hardware". Seed 894768209 on Perfect Agent: v5 folds unchanged, v6 moves the
+objectives fold only (`220b06c4` -> `e142b052`).
