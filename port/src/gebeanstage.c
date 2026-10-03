@@ -3013,11 +3013,23 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 			// middle on the other: Frigate's pipe wall is bands of two
 			// pictures, and one band runs 9 units into the next along half
 			// the wall, where the two fought (F3 20261002-035958). A point a
-			// quarter of the way in from one of its corners lying inside the
-			// other counts (in the plane: a face beside it, sharing an edge,
-			// never does)
+			// tenth of the way in from one of its corners or edges lying
+			// inside the other counts (in the plane: a face beside it,
+			// sharing an edge, never does). A pair where the other's middle
+			// lies on this one is not a strip: the other's own pass decides
+			// it by the rules below, and deciding it here by the strip's
+			// rule as well could make each the decal of the other
 			if (d > DECAL_DIST * DECAL_DIST) {
 				s32 inside = 0;
+				f32 umid[3];
+
+				for (s32 j = 0; j < 3; j++) {
+					umid[j] = (u->pos[0][j] + u->pos[1][j] + u->pos[2][j]) / 3.0f;
+				}
+
+				if (pointTriDist(umid, t->pos[0], t->pos[1], t->pos[2]) <= DECAL_DIST * DECAL_DIST) {
+					continue;
+				}
 
 				for (s32 k = 0; k < 6 && !inside; k++) {
 					f32 p[3], rel[3], off;
@@ -3062,8 +3074,10 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 				continue;
 			}
 
-			// Along a strip, the one Bean draws later shows, as the release's
-			// depth test (less or equal) has it
+			// Along a strip (neither middle on the other), the one with a
+			// cut-out picture, else the one Bean draws later, as the release's
+			// depth test (less or equal) has it - the same pick from either
+			// face's pass, so only one of the pair is ever the decal
 			if ((t->blend && u->blend) || (strip ? (alphai != alphau ? alphai > alphau : i > o)
 					: full && full[i] != full[o] ? full[i]
 					: alphai != alphau ? alphai > alphau
