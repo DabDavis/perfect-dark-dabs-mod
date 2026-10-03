@@ -14,6 +14,10 @@ filled with that byte instead, one picture OUT/ge/fill.ppm (the shade alone,
 with ff). GF_FILLLEN=<bytes> fills that many bytes from each hit instead of the
 I4 image and its mips: any format, or a CI image's palette (GF_TEXHEX its
 first bytes, GF_FILL=ff: every entry white, the shade alone again).
+GF_PASSES=name=OFF:BYTE:LEN+OFF:BYTE:LEN;name2=... takes one picture a pass,
+OUT/ge/<name>.ppm, each with the image put back first and then LEN bytes from
+OFF (hex or decimal, from each hit) set to BYTE: a CI image's mip levels each
+given a different index, say, to see which level a surface draws.
 """
 import os, sys, traceback
 sys.path.insert(0, os.environ['GF_COMMON'])
@@ -79,8 +83,23 @@ try:
             lib.say('ram', '0x%08x' % h, orig[h][:48].hex(), 'mip1', orig[h][W * H // 2:W * H // 2 + 16].hex())
         fill = os.environ.get('GF_FILL')
         passes = [('fill', None)] if fill else [('rows', False), ('cols', True)]
+        pokes = {}
+        if os.environ.get('GF_PASSES'):
+            passes = []
+            for spec in os.environ['GF_PASSES'].split(';'):
+                name, edits = spec.split('=', 1)
+                passes.append((name, None))
+                pokes[name] = [tuple(int(v, 0) for v in e.split(':')) for e in edits.split('+')]
+            size = max([size] + [o + n for e in pokes.values() for o, _, n in e])
+            orig = {h: lib.peek(h, size) for h in hits}
         for name, cols in passes:
             for h in hits:
+                if name in pokes:
+                    img = bytearray(orig[h])
+                    for off, byte, n in pokes[name]:
+                        img[off:off + n] = bytes([byte]) * n
+                    lib.poke(h, bytes(img))
+                    continue
                 lib.poke(h, bytes([int(fill, 16)]) * size if fill else image(cols))
             lib.place(x, y, z, HEAD, VERTA, stan)
             side.no_lookahead()
