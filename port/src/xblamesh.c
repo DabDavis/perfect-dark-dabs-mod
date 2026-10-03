@@ -8774,12 +8774,6 @@ static s32 xblaMeshBodyDrawsBare(struct model *model)
 	return 0;
 }
 
-/**
- * Whether a head's made neck (gebeanmats.neck) is drawn on this body: always
- * under a head ending at its jaw; under a head with a neck of its own only
- * inside the parka's open collar, which that neck does not reach (on a suit's
- * collar the tube stood out round it).
- */
 // How far a body's collar must dip under a head's neck before the made neck
 // fills the gap (xblaMeshHeadTubeOn())
 #define XBLAMESH_COLLAR_GAP 2.0f
@@ -8833,6 +8827,13 @@ static s32 xblaMeshCollarUnderHead(struct model *model, const struct xblameshbui
 	return 0;
 }
 
+/**
+ * Whether a head's made neck (gebeanmats.neck) is drawn on this body: always
+ * under a head ending at its jaw; under a head with a neck of its own only
+ * inside the parka's open collar, which that neck does not reach (on a suit's
+ * collar the tube stood out round it) - and wherever the body's collar is cut
+ * lower than the head's neck (xblaMeshCollarUnderHead()).
+ */
 static s32 xblaMeshHeadTubeOn(struct model *model, const struct xblameshbuilt *head)
 {
 	return head->beanopenrim > GEBEAN_OPENRIM_JAW || xblaMeshBodyDrawsBare(model)

@@ -7045,6 +7045,18 @@ static void hdPick(const struct collect *c, const char *tag)
 	}
 }
 
+/** PD_UNLITLOG=1: each plain draw's black face build() looks at logged (a probe for F3 work). Read once. */
+static s32 unlitLogOn(void)
+{
+	static s32 on = -1;
+
+	if (on < 0) {
+		on = getenv("PD_UNLITLOG") != NULL;
+	}
+
+	return on;
+}
+
 static s32 build(void)
 {
 	const u64 start = sysGetMicroseconds();
@@ -7350,7 +7362,7 @@ static s32 build(void)
 				// Aztec's filler block at the top of a shaft is lit on
 				// GoldenEye's side and keeps its light (F3 20260929-055243)
 				if (tri->unlitplain && near >= 0 && d < UNLIT_GE_NEAR && gridBright && near < gridBrightCap) {
-					if (getenv("PD_UNLITLOG")) {
+					if (unlitLogOn()) {
 						sysLogPrintf(LOG_NOTE, "unlitplain ge %.1f d %.1f (%.0f %.0f %.0f)", gridBright[near], d, mid[0], mid[1], mid[2]);
 					}
 
