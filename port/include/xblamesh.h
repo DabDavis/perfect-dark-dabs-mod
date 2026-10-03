@@ -124,6 +124,19 @@ void xblaMeshRegisterModel(struct modeldef *modeldef, u16 fileid);
 s32 xblaMeshPrebuildBean(struct modeldef *modeldef);
 
 /**
+ * Building a GoldenEye stage's HD meshes while it loads (hdpreload.c): on, a
+ * model that registers has its mesh built there and then (xblaMeshPrebuildBean()).
+ * xblaMeshPreloadModelFile() loads a model the stage has not - a gun's
+ * first-person model - into memory of its own, builds its mesh and lets the
+ * model go again: 1 when a mesh was built. Stats: meshes built and time spent
+ * since it was switched on.
+ */
+void xblaMeshPreloadSet(s32 on);
+s32 xblaMeshPreloading(void);
+void xblaMeshPreloadStats(s32 *built, u64 *us);
+s32 xblaMeshPreloadModelFile(u16 fileid);
+
+/**
  * Draws a node from the release's mesh instead of its own display list.
  *
  * Returns 0 when there is nothing to draw it from, and the caller carries on

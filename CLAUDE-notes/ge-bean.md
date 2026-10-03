@@ -14168,3 +14168,64 @@ now does both.
 **Crash 20261003-073032 (v3.13.0)** was 20261003-040138 again (stale
 `headfitNextBody` after the menu preview; fixed by 892ed66f7). The static is
 gone: the preview calls `bodyCalculateHeadOffsetForBody()` with its own body.
+
+## HD meshes built while the stage loads, not on their first frame (31st F3 pass, 2026-10-03, fix/f3-1003c-hitch)
+
+F3 20261003-123556 (Steam Deck, GE Plus Dam, HD look): "the game briefly freezes every time a new model
+loads". A GoldenEye model's HD mesh is built on the game thread by `xblaMeshBuildBeanOnce()` ->
+`gebeanBuild()` the first frame it is drawn. Timed on the RX 580 box: 95-895 ms a first-person gun at
+4e98c8a, 4-15 ms a character, 0.2-10 ms a prop. Two parts:
+
+1. **Faster builds** (3df3ed836): `beanMarkDecals()` files triangles in a grid by their grown boxes
+   instead of trying every pair, and `fpRefineRoundsN()` (the first-person placement walk) sorts
+   Bean's points along the longest axis and scans outward. Both give bit-identical results (checked
+   beside the old loops: 0 triangles differ over every Dam gun and missions 1/2/4/7/12; 744 fits SAME).
+   Gun builds went to 18-93 ms.
+2. **Built at the load** (owner's choice, proposal A): `port/src/hdpreload.c`. `lvReset()` calls
+   `hdPreloadBegin()` before `setupLoadFiles()`; on a GE Plus or converted stage (`modloaderStageIsRemake`
+   + `modloaderDirIndexIsConversion`) in the HD look (`xblaMeshGetEnabled() && gebeanGetEnabled()`) it
+   switches `xblaMeshPreloadSet(1)`, and from then every model that registers
+   (`xblaMeshRegisterModel()`) is built at once through `xblaMeshPrebuildBean()` - the census path
+   (GEBEAN_CENSUS) without the census. That covers the setup's chrs, heads, props, the guards' guns and
+   the pickups (their third-person models). `hdPreloadEnd()` (after the players spawn) and
+   `hdPreloadTick()` for the first 10 ticks (the intro AI hands guards their guns and hats there:
+   Cradle's ZMGs and berets) gather the weapons in the players' inventories, on the floor and in the
+   guards' hands, and build each one's **first-person** model with `xblaMeshPreloadModelFile()`: the
+   file loaded the way `bgunTickGunLoad()` loads a gun (LOADTYPE_GUN, inflated size + 0x8000) into
+   malloc'd memory of its own, promoted, registered (which builds it), then `xblaMeshForgetModel()` and
+   freed, with `g_FileInfo[file]` put back so bondgun's own load is untouched. The players' own guns
+   also get their third-person model state loaded (`setupLoadModeldef()`). After tick 10 the switch goes
+   off and the log says `hdpreload: N HD meshes built while the stage loaded (M of them first-person
+   guns)`.
+
+Why it is safe: the meshes are the same `beanBuilt[look][fileid]` cache the draw fills, keyed by file,
+holding no pointer into the model (the draw-time ones - posedmodel, keptsrc, neckbackdef - are set at the
+draw and cleared at `xblaMeshResetBeanMeshes()`); the temporary model's hash/use entries are forgotten
+before its memory goes. **Mod swap:** `romdataResetFiles()` can give a file slot to another model, and
+every draw path reads `beanBuilt` by slot - a mesh now records `beangen` (`romdataFilesGeneration()`)
+and `xblaMeshResetBeanMeshes()` lets go of any built under an older generation at the next stage reset
+(leaked, not freed, as `xblaMeshDropStale()` does for packs: the render thread may be in its lists; GPU
+copies forgotten, kept lists freed). This was a latent bug before the preload too.
+
+Measured (instrumented copy, `--fixed-step --rng-seed 1`, Vulkan offscreen, RX 580; patch kept at
+`~/wt/f3-1003c-hitch-run/instrumented2.patch`, env PD_HITCH_NOPRELOAD for the A/B, PD_HITCH_GUNS for the
+25-gun walk):
+
+| stage | lvReset before -> after | meshes at load | RSS at frame 600 | first-frames spike (lv 6/7) |
+|---|---|---|---|---|
+| Dam | 24 -> 377 ms | 41 (5 fp guns) | 258 -> 297 MB | 246/102 -> 239/73 ms |
+| Facility | 52 -> 408 ms | 45 (5) | 186 -> 238 MB | 322 -> 108 ms |
+| Runway | 19 -> 247 ms | 27 (3) | 229 -> 249 MB | 169/120 -> 163/55 ms |
+| Cradle | 33 -> 205 ms (+~30 ms at tick 6) | 21 (4) | 230 -> 211 MB | 425/235 -> 155/71 ms |
+
+Mesh memory itself is 2.5-4 MB a stage; most of the RSS is the decoded pictures. In play nothing
+preloaded builds late: the starting gun's 45-55 ms spike at frame 23 is gone on all four, and on Dam's
+25-gun walk only the 17 guns Dam never hands out build on equip (the harness gives them). Still late:
+guns handed out after tick 10 (a later AI give, a mid-mission spawn's weapon), chrs that spawn
+mid-mission with a model the setup never loaded, the pause watch's bare gun copies
+(`GEBEAN_FPWATCH_BASE` rows, built on first pause), and the first frame's own spike (HD level setup and
+texture upload, not a model build). Build hashes (gebeanBuild output + material flags) are identical
+between preloaded and first-draw builds on all four stages (28/1/13/15 compared); `--state-hash 100`
+identical with and without the preload on Dam and Cradle in the HD look; replaytest compare
+(match/solo/gematch/gesolo) same against 4e98c8a. Stage change + a forced generation bump (gdb) dropped
+the 41 Dam meshes and rebuilt at the next load with no fault.
