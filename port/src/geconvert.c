@@ -59,6 +59,11 @@
 #define FILES_AT 0x252c4
 #define FOG_AT 0x24080
 #define FOG_ROW 92
+// gun.c's ammo_related[] (30 rows of 12 bytes) and the global image table
+// (segment 2) its rows point into; both where they are in every ROM so far
+#define GE_AMMO_TABLE_AT 0x80035ef0u
+#define GE_AMMO_TYPES 30
+#define GE_GLOBAL_IMAGES_ROM 0x29d160u
 
 /**
  * Where a ROM keeps the tables that are not where GoldenEye 007 (US) has them.
@@ -145,6 +150,10 @@ struct romlayout {
 	// the block's place and length and moved where each one starts
 	uint16_t monprograms[GEMON_NUM_PROGRAMS];
 	uint32_t monimages;
+	// the watch's colours (menu/gewatch.bin, gewatch.c): 1 where the hack
+	// patched every green of its watch, mpmenu.c's pause and the watch's
+	// ammunition to the same with its red raised to its green - yellow
+	uint8_t watchtint;
 };
 
 static const struct romlayout g_Layouts[] = {
@@ -238,6 +247,12 @@ static const struct romlayout g_Layouts[] = {
 			913, 927, 941, 955,
 		},
 		0x29debc,
+		// its watch is yellow: every colour of GoldenEye's watch code (7F0A3420-
+		// 7F0AD000), mpmenu.c's and gunDrawWatchAmmoDisplay()'s (7F069C3C)
+		// patched red = green - 0x00ff00b0 to 0xffff00b0, 0xa0ffa0f0 to
+		// 0xffffa0f0, the face's ramp (sub_GAME_7F0A33F8) given its green
+		// for its red, the pulses stepped 0x10100000
+		1,
 	},
 };
 
@@ -10276,6 +10291,66 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 
 			writeFile(outdir, "menu/gemonitors.bin", mon.v, mon.n);
+		}
+
+		// menu/geammo.bin, a variant's only: the HUD's and the watch's
+		// ammunition pictures (gehud.c), gun.c's ammo_related[] read where
+		// the hack's code reads it (0x80035ef0, 30 rows of max, image row,
+		// IconYOffset) with each picture's row out of the ROM's global image
+		// table (segment 2, ROM 0x29d160 in both). Goldfinger 64 redrew most
+		// of them at other sizes (its 9mm round 4x13 where GoldenEye's is
+		// 5x12) and gave two more types one (2237, 2193), so gehud.c's
+		// GoldenEye table drew its rounds out of shape (F3 20261003-050551).
+		// "GEA1", the count, then a 16-byte row a type: the image as the
+		// conversion writes it (0 for none), width, height, level, format,
+		// depth, the two wrap modes, a pad and the y offset's float bits.
+		// GoldenEye's own conversion writes none: gehud.c's table is its rows.
+		if (g_Layout->variant) {
+			const size_t at = GE_AMMO_TABLE_AT - DATA_VRAM;
+			buf ammo = {0};
+
+			if (at + 12 * (size_t)GE_AMMO_TYPES > g_DataLen) {
+				fail("the ammunition table runs off the data segment");
+			}
+
+			bufPut(&ammo, (const uint8_t *)"GEA1", 4);
+			bufU16(&ammo, GE_AMMO_TYPES);
+			bufU16(&ammo, 0);
+
+			for (int i = 0; i < GE_AMMO_TYPES; ++i) {
+				const uint32_t seg = be32(g_Data, at + 12 * i + 4);
+				uint32_t image = 0;
+				uint8_t row[8] = {0};
+
+				if (seg >> 24 == 2 && GE_GLOBAL_IMAGES_ROM + (seg & 0xffffff) + 12 <= g_RomLen) {
+					const size_t r = GE_GLOBAL_IMAGES_ROM + (seg & 0xffffff);
+
+					image = be32(g_Rom, r);
+					memcpy(row, g_Rom + r + 4, 7);
+
+					if (image >= (uint32_t)NUM_IMAGES) {
+						fail("%s's ammunition picture %d is image %u, past its last", g_Layout->name, i, (unsigned)image);
+					}
+				}
+
+				if (image) {
+					setAdd(alltex, image);
+				}
+
+				bufU32(&ammo, image ? texRemap(image) : 0);
+				bufPut(&ammo, row, sizeof(row));
+				bufU32(&ammo, be32(g_Data, at + 12 * i + 8));
+			}
+
+			writeFile(outdir, "menu/geammo.bin", ammo.v, ammo.n);
+		}
+
+		// menu/gewatch.bin, a variant's only: "GEW1" and the watch's tint
+		// (romlayout.watchtint; 0 GoldenEye's green)
+		if (g_Layout->variant) {
+			const uint8_t w[8] = { 'G', 'E', 'W', '1', g_Layout->watchtint, 0, 0, 0 };
+
+			writeFile(outdir, "menu/gewatch.bin", w, sizeof(w));
 		}
 
 		// the watch the remake's pause wears (gewatch.c): GoldenEye's own
