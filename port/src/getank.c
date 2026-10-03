@@ -1937,7 +1937,15 @@ void geTankTick(void)
 
 		tank->turretyaw = gotyaw;
 	}
+	// bondview2.c: the barrel is lifted 10 degrees over the view while the
+	// shells are in hand, so a shell from the muzzle, which is under the eye,
+	// comes down on what the sight is on. Without it every shell landed short
+	// of the sight (F3 20261002-155025, "the tank shells shoot a little low")
 	tank->turretpitch = g_Vars.currentplayer->vv_verta * M_BADTAU / 360.0f;
+
+	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS) {
+		tank->turretpitch += 0.17453294f;
+	}
 
 	if (tank->turretpitch < -0.087266468f) {
 		tank->turretpitch = -0.087266468f;
