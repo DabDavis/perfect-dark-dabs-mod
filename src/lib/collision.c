@@ -1182,13 +1182,22 @@ s32 cdTestRampWall(struct geotilei *tile, struct coord *pos, f32 width, f32 y1, 
 #ifndef PLATFORM_N64
 #include "gestan.h"
 
-// what a body touches beyond its own radius and still counts as reached: the
-// walls stand on the tiles' edges and a tile's box is asked, not its shape
-#define GESTAN_MARGIN 8.0f
+// what a body touches beyond its own radius and still counts as reached:
+// nothing. GoldenEye follows a link where the body's circle touches the edge
+// itself (stanFlood()), and a wall stands on its tile's edge, so a body whose
+// circle meets a wall reaches that wall's tile by edges within its radius - or
+// is stopped by an unlinked edge on the way. This was 8 from the days a tile
+// was reached by its box: the extra reach took the flood round corners no
+// circle could touch - from the foot of Dam's outside stair to the ground
+// under it, whose wall then stopped a player 28 from it on the bottom tread,
+// and round the ends of the walls either side of Cradle's hatch ladder,
+// which left a window a few units wide of GoldenEye's twenty to walk into it
+// by (F3 reports 20261002-153526, 20261003-002353)
+#define GESTAN_MARGIN 0.0f
 
 // and a line: the tiles it crosses and no others, as GoldenEye's own line test
 // walks them (gestan.c's stanFlood() says what a circle the line's length did)
-#define GESTAN_LINEREACH GESTAN_MARGIN
+#define GESTAN_LINEREACH 8.0f
 
 /**
  * A body wholly over the top of one of a converted level's walls that is an

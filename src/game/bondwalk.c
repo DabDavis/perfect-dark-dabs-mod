@@ -378,6 +378,50 @@ void bwalk0f0c3b38(struct coord *reltarget, struct defaultobj *obj)
 	func0f082e84(obj, &posunk, &vector, &tween, false);
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The player is held up by another body's cylinder (bwalkUpdateVertical()):
+ * move him off it in plan, away from its middle, a few units a tick, so the
+ * fall goes on. The move is an ordinary one: the level's walls still stop it.
+ */
+static void bwalkGeSlipOffBody(struct prop *body)
+{
+	struct coord delta;
+	f32 dx = g_Vars.currentplayer->prop->pos.x - body->pos.x;
+	f32 dz = g_Vars.currentplayer->prop->pos.z - body->pos.z;
+	f32 dist = sqrtf(dx * dx + dz * dz);
+	f32 step = 4.0f * g_Vars.lvupdate60freal;
+
+	if (dist < 0.5f) {
+		// dead over its middle: any way will do
+		dx = g_Vars.currentplayer->vv_sintheta;
+		dz = g_Vars.currentplayer->vv_costheta;
+		dist = 1.0f;
+	}
+
+	delta.x = dx / dist * step;
+	delta.y = 0.0f;
+	delta.z = dz / dist * step;
+
+	if (bwalkCalculateNewPosition(&delta, 0, true, 0, CDTYPE_ALL) != CDRESULT_NOCOLLISION) {
+		// a wall behind him: either way round it
+		const f32 side[2] = { 1.0f, -1.0f };
+
+		for (s32 i = 0; i < 2; i++) {
+			struct coord turn;
+
+			turn.x = -dz / dist * step * side[i];
+			turn.y = 0.0f;
+			turn.z = dx / dist * step * side[i];
+
+			if (bwalkCalculateNewPosition(&turn, 0, true, 0, CDTYPE_ALL) == CDRESULT_NOCOLLISION) {
+				break;
+			}
+		}
+	}
+}
+#endif
+
 /**
  * Attempt to move the current player up vertically by the given amount.
  *
@@ -1672,6 +1716,20 @@ void bwalkUpdateVertical(void)
 				// Not falling - but still at least 30 units off the ground.
 				// Must be something in the way...
 				prop = cdGetObstacleProp();
+
+#ifndef PLATFORM_N64
+				// GoldenEye's height is the floor tile and nothing else: no
+				// guard ever holds Bond up, and its bodies stop each other in
+				// plan only. Perfect Dark's fall stops on any body's cylinder,
+				// so a player running down a converted stair over a scientist
+				// coming up it landed on his head and stayed there, the two of
+				// them stuck (F3 report 20261003-000823, Caverns). On a
+				// converted level he slides off the head, away from its middle
+				if (prop && geRoomActive()
+						&& (prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER)) {
+					bwalkGeSlipOffBody(prop);
+				}
+#endif
 
 				if (prop) {
 					if (prop->type == PROPTYPE_CHR) {
