@@ -5029,6 +5029,21 @@ void weaponTick(struct prop *prop)
 			if (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) {
 				exptype = EXPLOSIONTYPE_HUGE17;
 			}
+#ifndef PLATFORM_N64
+			// GoldenEye's mission 1 (modloaderStageMission(); Cradle 17, Cuba 20)
+#define GEMISSION_FACILITY 1
+			// GoldenEye's remote mine goes off bigger on Facility
+			// (propobj.c: EXPLOSION_DEF_FACILITY_REMOTE when the stage is
+			// LEVELID_FACILITY), the row Perfect Dark kept as 19: 250 out
+			// and hurting to 600 where the standard is 200 and 400 - the
+			// one mine that takes the three guards in the room with the
+			// console there (F3 20261002-154524)
+			else if (weapon->weaponnum == WEAPON_GE_REMOTEMINE
+					&& modloaderStageIsMission(g_Vars.stagenum)
+					&& modloaderStageMission(g_Vars.stagenum) == GEMISSION_FACILITY) {
+				exptype = EXPLOSIONTYPE_GEFACILITYREMOTE;
+			}
+#endif
 
 			if (propExplode(prop, exptype)) {
 				weapon->timer240 = -1;
