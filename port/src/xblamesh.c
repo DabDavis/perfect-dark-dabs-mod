@@ -13128,11 +13128,31 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 			continue;
 		}
 
-		use = (e->use >= 0 && e->use < numUses && uses[e->use].modeldef == e->modeldef)
-				? &uses[e->use] : NULL;
+		if (hitLists[r].bean) {
+			// GoldenEye's release (Bean): group p is list node p's, posed from
+			// the pack's use, as xblaMeshRenderNode()'s frombean branch draws
+			// it. The release's own rule below (e->part, e->use) is not a Bean
+			// entry's: its part is 0 on every list, so each list tested the
+			// whole mesh under its own node's matrix, and Dam's truck, whose
+			// lists sit on five matrices, was shot on copies of itself standing
+			// beside and behind the one drawn (F3 20261003-231401)
+			use = (e->packuse >= 0 && e->packuse < numUses && uses[e->packuse].modeldef == e->modeldef)
+					? &uses[e->packuse] : NULL;
+
+			if (e->packpart >= m->numgroups || (e->packpart < 64 && (m->groupabsent & (1ull << e->packpart)))) {
+				continue;
+			}
+
+			groups[numgroups++] = e->packpart;
+		} else {
+			use = (e->use >= 0 && e->use < numUses && uses[e->use].modeldef == e->modeldef)
+					? &uses[e->use] : NULL;
+		}
 
 		// The groups this node draws, by xblaMeshRenderNode()'s rule.
-		if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
+		if (numgroups) {
+			// a Bean list's, above
+		} else if (use && use->numparts == m->numgroups && e->part < m->numgroups) {
 			groups[numgroups++] = e->part;
 		} else if (e->part == 0) {
 			for (s32 g = 0; g < m->numgroups; g++) {
