@@ -5749,6 +5749,29 @@ static u8 *beanDecodeTextureFrame(const struct beanmodel *bm, s32 t, s32 frame, 
 		}
 	}
 
+	// Depot's roller doors (prop/doorroller4): the arrow painted on the
+	// shutter is white in the release's picture and yellow in GoldenEye's and
+	// the Community Edition's ("doorroller4", its blue taken down to 0.4 of
+	// the arrow's brightness; F3 20261002-232341). The arrow's box, grey
+	// texels only, by brightness: the shutter's dark slats are left as they
+	// are, the arrow's bright paint loses most of its blue.
+	if (w == 512 && h == 512 && t < bm->numtex
+			&& strcmp(caffAssetName(c, c->files[bm->texfile[t]].asset), "_0x07E50215.tga.bin") == 0) {
+		for (u32 y = 160; y <= 269; y++) {
+			for (u32 x = 200; x <= 291; x++) {
+				u8 *px = rgba + ((size_t)y * w + x) * 4;
+				const s32 lo = MIN(px[0], MIN(px[1], px[2]));
+				const s32 hi = MAX(px[0], MAX(px[1], px[2]));
+				const f32 l = (px[0] + px[1] + px[2]) / 3.0f;
+				const f32 k = l <= 120.0f ? 0.0f : l >= 200.0f ? 1.0f : (l - 120.0f) / 80.0f;
+
+				if (hi - lo <= 24) {
+					px[2] = (u8)(px[2] * (1.0f - 0.6f * k) + 0.5f);
+				}
+			}
+		}
+	}
+
 	beanBleedCutout(rgba, w, h);
 
 	// Decoded top row first, as a PNG of it would be; the renderer wants the
