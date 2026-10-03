@@ -87,7 +87,7 @@ static f32 chrFindGround(struct coord *pos, f32 radius, RoomNum *rooms, u16 *flo
  * Not in play (ACT_BONDMULTI: the walk is the body's) nor in the opening swirl
  * (ACT_BONDINTRO: he stands on his spawn).
  */
-static bool chrIsGeListBody(struct chrdata *chr)
+bool chrIsGeListBody(struct chrdata *chr)
 {
 	return chr->prop->type == PROPTYPE_PLAYER
 		&& chr->actiontype != ACT_BONDMULTI && chr->actiontype != ACT_BONDINTRO

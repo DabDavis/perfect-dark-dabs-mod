@@ -13947,3 +13947,44 @@ nearest standing chr's head), `fuzz.py` (random stick in a box, flags a ground d
   (ground 13267 over 13112), after off in 15 frames, on the floor, walks away.
   Simply ignoring bodies in the fall was tried: he sank into the guard's cylinder
   and then could not move at all.
+
+## Egyptian never ended: Mission Respawn freed the carried Golden Gun (29th F3 pass, 2026-10-03, fix/f3-1003-aiscript)
+
+**F3 20261002-100746/100932** ("objective A failed after the Golden Gun was taken"). Egyptian's A collects
+tags 4 (the Golden Gun) and 5 (its ammo box); a collected tagged object is carried as a child of the player's
+prop, and `objectiveCheck()` fails a collect objective once its object has no prop. The tester had
+`Mod.MissionRespawn=1`: `playerStartNewLife()` marks every child of a solo player's prop `OBJHFLAG_DELETING`
+for the first life, and Mission Respawn's new life went through the same branch. The mark is latent until
+the player's body ticks its children (`chr0f022214()`: third person, the death replay), then the objects are
+freed and A fails for good. Respawning now skips the mark. Probe `~/wt/f3-1003-aiscript-run/scen/egyptdie.py`
+(pick up, `playerDie(1)`, respawn, third person): base A 1 -> 2, fixed stays 1. With A and B complete the
+ending (bg 0x1009) runs as GoldenEye's.
+
+**Looked at, not changed:** Control's Trevelyan lift door (tag 0x1e) closes on base whether Bond walks up or
+shoots him, early or with the late stage flags 0x16dc00 (`scen/control2.py`); the testers' stuck door is
+unexplained. Cradle's Trevelyan skips "I was always better" when Bond is already in the rooms of pads
+0x73/0x74/0x94/0x6d as he stops at pad 0x96 - GoldenEye's own branch in ai_15 (0x410 -> 0x415 -> 0x417).
+Aztec 20261003-003005 is the same two doors (records 239/240, pads 297/298) and console as pass 28's notabug.
+Natalya at Control's kiosk stops on pad 225 (walk, typing and the off-screen teleport, `scen/natalya.py`); the
+tester's trace had her 58 units further on, at the console, not reproduced.
+
+## Round 2 of pass 29's AI items (2026-10-03, fix/f3-1003-aiscript)
+
+**Surface 2 ending stairs (F3 20261002-160950):** `playerTickThirdPerson()` set FORCETOGROUND on the body
+every cutscene tick, so a converted list's Bond (`chrIsGeListBody()`, now exported) snapped a whole 24-unit
+tread at a time down the bunker stairs. GoldenEye's guard is INIT once, then eased up / falls down. Forced
+now only on the first tick a list has him (a frame gap re-arms it). `scen/surf2end.py` (twin, `--pd-arg
+--cinema-ending`, mission surface2): base manground 168,168,...,144 per tread; fixed falls smoothly. Twenty
+endings at 120/250/400 frames base vs fixed: only Surface 2's stairs differ (`out/endsweep`).
+
+**Archives Natalya's guard (F3 20261002-231301/231349):** chr 9 (list 0x40a, then 0x808 RunToBond) cut
+straight to Bond past Archives' double swing doors (pads 409/410) and walked into the open leaf for good:
+the route follower's obstacle check leaves out AI-openable doors (stock and GoldenEye alike), which is fine
+for Perfect Dark's sliding doors. `cdExamCylMove03` at the stuck spot: doors collide at 40 units, BG clear.
+Converted levels add `CDTYPE_OPENDOORS` to `chrNavTickMain()`'s check. `scen/arch.py` (GF_GUARDS=9,
+GF_BOND=-1663,43,-139): base stuck at (-1317,-1408), the tester's position; fixed reaches Bond.
+
+**Not changed:** Control's dying guard (013938) - guards killed at (-1906,-200,874) lie at ground+15 like the
+tester's chr, no part under the floor in our shots. Boris at Bunker's doors (155647): the tester's shot has Bond
+standing in the doorway Boris is walking through. gdb trap: `$gs` is a register - name convenience variables
+otherwise ("Couldn't write registers").

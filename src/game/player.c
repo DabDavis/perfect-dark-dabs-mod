@@ -611,7 +611,17 @@ void playerStartNewLife(void)
 
 	g_Vars.currentplayer->dostartnewlife = false;
 
+#ifndef PLATFORM_N64
+	// Mission Respawn keeps what the player carries, and a collected
+	// objective item (Egyptian's Golden Gun and its ammo box, a key) is a
+	// prop carried as the player prop's child: marked for deletion here it
+	// was freed, and its collect objective failed at the first death (F3
+	// 20261002-100746/100932). Only the first life of a solo stage clears
+	// them.
+	if (g_Vars.coopplayernum < 0 && !modRespawnIsRespawning()) {
+#else
 	if (g_Vars.coopplayernum < 0) {
+#endif
 		struct prop *prop = g_Vars.currentplayer->prop->child;
 
 		while (prop) {
@@ -8155,7 +8165,32 @@ s32 playerTickThirdPerson(struct prop *prop)
 		if (var80075d60 == 0
 				|| var80075d60 == 1
 				|| (player->cameramode == CAMERAMODE_THIRDPERSON && player->visionmode != VISIONMODE_SLAYERROCKET)) {
+#ifndef PLATFORM_N64
+			// A converted mission's list moving Bond's body (an ending's walk):
+			// GoldenEye makes him a guard, and a guard is put on the floor once
+			// (CHRFLAG_INIT) and then eased up a step and falls down one. Forced
+			// every tick his height snapped a whole tread at a time, and he was
+			// seen bobbing down the stairs into Surface 2's bunker (F3
+			// 20261002-160950). Forced on the first tick the list has him, as
+			// before, and whenever the list itself asks (a teleport's INIT).
+			// (the frame it last had him: a gap is a new list, or a new level)
+			static s32 s_GeListBodyFrame[MAX_PLAYERS];
+
+			if (!chrIsGeListBody(chr)) {
+				chr->chrflags |= CHRCFLAG_FORCETOGROUND;
+			} else if (g_Vars.lvframenum < s_GeListBodyFrame[playernum]
+					|| g_Vars.lvframenum > s_GeListBodyFrame[playernum] + 2) {
+				chr->chrflags |= CHRCFLAG_FORCETOGROUND;
+			}
+
+			if (chrIsGeListBody(chr)) {
+				s_GeListBodyFrame[playernum] = g_Vars.lvframenum;
+			} else {
+				s_GeListBodyFrame[playernum] = -10;
+			}
+#else
 			chr->chrflags |= CHRCFLAG_FORCETOGROUND;
+#endif
 
 			player->bondperimenabled = false;
 			tickop1 = chrTick(prop);

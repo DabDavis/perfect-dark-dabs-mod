@@ -14352,6 +14352,16 @@ void chrNavTickMain(struct chrdata *chr, struct coord *nextpos, struct waydata *
 	if (modAlarmGuardOpensAnyDoor(chr)) {
 		cdtypes &= ~CDTYPE_DOORSLOCKEDTOAI;
 	}
+
+	// A door left wide open is in the way like any other object on a level
+	// converted from GoldenEye, whose doors swing: Perfect Dark's slide away
+	// into the wall when open, so a door the AI can open was never an obstacle
+	// to steer round, only a thing to open. A swung leaf stands out into the
+	// room, and a guard cutting across to the player past one walked into it
+	// for good (Archives, Natalya's guard, F3 20261002-231301/231349).
+	if (geRoomActive()) {
+		cdtypes |= CDTYPE_OPENDOORS;
+	}
 #endif
 
 	if (chr->hidden & CHRHFLAG_BLOCKINGDOOR) {

@@ -35,6 +35,9 @@ void chrsUnrefPoisonProp(struct prop *prop);
 void chrTickPoisoned(struct chrdata *chr);
 bool chrTickBeams(struct prop *prop);
 s32 chrTick(struct prop *prop);
+#ifndef PLATFORM_N64
+bool chrIsGeListBody(struct chrdata *chr);
+#endif
 void chrDropConcealedItems(struct chrdata *chr);
 void chrSetHudpieceVisible(struct chrdata *chr, bool visible);
 void chrDropItemsForOwnerReap(struct chrdata *chr);
