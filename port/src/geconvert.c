@@ -5566,6 +5566,8 @@ static int itemWeaponIsGun(uint32_t w)
 static void itemWeaponsBuild(void)
 {
 	int extras = 0;
+	uint32_t later[NUM_WEAPON_GE_EXTRA * 2];
+	int nlater = 0;
 
 	memset(g_ItemWeapon, 0, sizeof(g_ItemWeapon));
 
@@ -5589,7 +5591,13 @@ static void itemWeaponsBuild(void)
 		}
 
 		if (ge == 20 || ge == 21 || ge == 23 || ge == 31) {
+			// one no hand holds as a prop takes what the held ones leave,
+			// after them: TND64's Phone Taser (31), which Hotel's opening
+			// gives Bond, and its watch laser (23)
 			if (g_Layout->heldprops[item] < 0) {
+				if (nlater < (int)(sizeof(later) / sizeof(later[0]))) {
+					later[nlater++] = item;
+				}
 				continue;
 			}
 
@@ -5607,6 +5615,12 @@ static void itemWeaponsBuild(void)
 		if (item != (uint32_t)ge && g_ItemWeapon[item]) {
 			note("geconvert: item %u (%s) is weapon 0x%02x", (unsigned)item, g_Items[item].file, g_ItemWeapon[item]);
 		}
+	}
+
+	for (int k = 0; k < nlater && extras < NUM_WEAPON_GE_EXTRA; ++k) {
+		g_ItemWeapon[later[k]] = (uint8_t)(WEAPON_GE_EXTRA_FIRST + extras++);
+		note("geconvert: item %u (%s), held as no prop, is weapon 0x%02x", (unsigned)later[k], g_Items[later[k]].file,
+			g_ItemWeapon[later[k]]);
 	}
 
 	g_ItemWeaponsBuilt = 1;
