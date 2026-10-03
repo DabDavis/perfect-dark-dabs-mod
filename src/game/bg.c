@@ -411,7 +411,8 @@ void bgSetRoomOnscreen(s32 roomnum, s32 draworder, struct screenbox *box)
 	s32 index;
 
 #ifndef PLATFORM_N64
-	for (s32 i = 0; i < g_BgNumRoomPieces; i++) {
+	// A piece goes dark with the room it was cut from
+	for (s32 i = 0; i < g_BgNumRoomPieces && (g_Rooms[roomnum].flags & ROOMFLAG_DISABLEDBYSCRIPT) == 0; i++) {
 		if (g_BgRoomPieces[i][0] == roomnum) {
 			struct screenbox piecebox = *box;
 
