@@ -271,6 +271,9 @@ static s32 geChrAnimsBuildMix(void)
 	animOriginal(0x005b);
 	animOriginal(0x0255);
 
+	// the fall ANIM_DEATH_STOMACH_LONG (0x39) runs on into at its end (chrTickDie())
+	animOriginal(0x003c);
+
 	// the blast deaths (g_YeetAnimsHuman)
 	for (s32 i = 0x82; i <= 0x8e; i++) {
 		animOriginal(i);
@@ -309,6 +312,20 @@ s32 geChrAnimsPd(s32 animnum)
 	s32 num = animOriginal(animnum);
 
 	return num > 0 ? num : animnum;
+}
+
+s32 geChrAnimsPlayingPd(s32 playing, s32 animnum)
+{
+	s32 num;
+
+	// the pool's build made every number asked for here; none is made mid-level
+	if (!g_GeChrAnims || !g_GeMixBuilt || playing <= 0) {
+		return 0;
+	}
+
+	num = animOriginal(animnum);
+
+	return num > 0 && num != animnum && playing == num;
 }
 
 /* ---- the switch --------------------------------------------------------- */

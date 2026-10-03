@@ -10295,6 +10295,20 @@ void chrTickDie(struct chrdata *chr)
 
 	// Check for end of death animation and switch to ACT_DEAD
 	if (modelGetCurAnimFrame(model) >= modelGetAnimEndFrame(model)) {
+#ifndef PLATFORM_N64
+		// Perfect Dark's own stomach death beside GoldenEye's on a GE Plus
+		// level plays under another number (gechranims.c), and ends half way
+		// down; it falls the rest of the way by Perfect Dark's own 0x3c
+		// (F3 20261003-154731: a Cradle guard left frozen kneeling)
+		if (CHRRACE(chr) == RACE_HUMAN && geChrAnimsPlayingPd(modelGetAnimNum(model), ANIM_DEATH_STOMACH_LONG)) {
+			s32 next = geChrAnimsPd(ANIM_003C);
+
+			modelSetAnimation(model, next, !modelIsFlipped(model), 50, 0.3, animGetNumFrames(next) - 51.0f);
+			modelSetAnimSpeed(model, 0.5, animGetNumFrames(next) - 51.0f);
+			return;
+		}
+#endif
+
 		if (CHRRACE(chr) == RACE_HUMAN && modelGetAnimNum(model) == ANIM_DEATH_STOMACH_LONG) {
 			modelSetAnimation(model, ANIM_003C, !modelIsFlipped(model), 50, 0.3, animGetNumFrames(ANIM_003C) - 51.0f);
 			modelSetAnimSpeed(model, 0.5, animGetNumFrames(ANIM_003C) - 51.0f);
