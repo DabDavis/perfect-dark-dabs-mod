@@ -1074,3 +1074,22 @@ by `modRunEnemyEngaged()` - a zone hostile on screen (`PROPFLAG_ONTHISSCREEN...`
 `--run-room N` (with `--run-stage`) makes the first landing one in room N, when
 a waypoint there passes the landing tests; a room that fails them falls back to
 "the stage starts the player its own way".
+
+## Laser grids in the zone, and the Duel's doorways onto the sky (pass 29)
+
+F3 20261002-085425, Investigation room 75: a corridor with a laser grid at
+either end (pads 0x1f0-0x1fe, `DOORTYPE_LASER`, `OBJFLAG_CANNOT_ACTIVATE`,
+in no portal, so the zone walk went straight through them). The seal lifted
+and every way out burned. The landing's `modRunOpenDoors(..., inside)` now
+opens every laser door whose prop stands in the zone and sets
+`OBJFLAG_DOOR_KEEPOPEN` *after* the request (`doorStartOpen()` clears it, and
+the grid's own autoclose is 240 ticks). Log: `run: switched off 15 laser
+grid(s) in the zone of room 75 on stage 0x33`.
+
+F3 20261002-082816, Duel room 116: the Duel shares the Institute's map, and the
+Institute stands doors that never open over holes in its walls (no portal, no
+room behind). The Duel's setup has two doors (rooms 20/22). Every portal-less
+Institute door stood in front of on the Duel: rooms 70, 114 and 116 show the
+sky. They are `g_ModRunBareDuel` in `modRunRoomIsBare()` (room count 141,
+generator v6). `--run-stage 0x4f --run-room 115/116/117` now falls back to the
+stock start.

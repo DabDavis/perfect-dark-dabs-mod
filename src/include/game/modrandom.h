@@ -6,7 +6,7 @@
 
 // The generator this build deals with; a run's own version lives in
 // g_ModOptions.randomversion and may be older. See modrandom.c.
-#define MODRANDOM_VERSION_DEFAULT 5
+#define MODRANDOM_VERSION_DEFAULT 6
 
 void modRandomArmMission(void);
 void modRandomDisarmMission(void);

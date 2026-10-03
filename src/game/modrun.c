@@ -18,6 +18,7 @@
 #include "game/objectives.h"
 #include "game/pad.h"
 #include "game/pdmode.h"
+#include "game/propobj.h"
 #include "mod.h"
 #include "game/player.h"
 #include "game/setup.h"
@@ -919,16 +920,31 @@ static const s16 g_ModRunBareRescue[] = { 2, 9, 10, 19, 33, 34, 65, 73, 75, 77, 
 static const s16 g_ModRunBareMaianSos[] = { 2, 9, 10, 19, 33, 34, -1 };
 #define MODRUN_AREA51_ROOMS 271
 
+/**
+ * The Duel is the same story on the Carrington Institute's map, which the
+ * Institute's training, Retaking and Defense share with it. The Institute has
+ * doors that never open standing over holes in its walls - a doorway with no
+ * room and no portal behind it - and the Duel's setup has two doors in all,
+ * between rooms 20 and 22. A run landing in the basement stood the player in
+ * front of open doorways with the sky through them (F3 20261002-082816, room
+ * 116). Every door the Institute's setup has in no portal, stood in front of
+ * on the Duel (2026-10-03): rooms 70, 114 and 116 show the sky, the lift doors
+ * of 1 and 66 and the rest a wall or a room. From generator version 6.
+ */
+static const s16 g_ModRunBareDuel[] = { 70, 114, 116, -1 };
+#define MODRUN_INSTITUTE_ROOMS 141
+
 static bool modRunRoomIsBare(s32 room)
 {
 	const s16 *list = NULL;
 	s32 i;
 
-	if (g_Vars.roomcount != MODRUN_AREA51_ROOMS) {
+	if (g_Vars.stagenum == STAGE_DUEL && g_Vars.roomcount == MODRUN_INSTITUTE_ROOMS
+			&& modRandomGetVersion() >= 6) {
+		list = g_ModRunBareDuel;
+	} else if (g_Vars.roomcount != MODRUN_AREA51_ROOMS) {
 		return false;
-	}
-
-	if (g_Vars.stagenum == STAGE_RESCUE) {
+	} else if (g_Vars.stagenum == STAGE_RESCUE) {
 		list = g_ModRunBareRescue;
 	} else if (g_Vars.stagenum == STAGE_MAIANSOS) {
 		list = g_ModRunBareMaianSos;
@@ -1986,6 +2002,7 @@ static void modRunOpenDoors(bool exits, bool inside)
 {
 	struct defaultobj *obj = (struct defaultobj *)g_StageSetup.props;
 	s32 opened = 0;
+	s32 lasers = 0;
 
 	if (obj == NULL || g_ModRunNumZone <= 0 || g_BgPortals == NULL) {
 		return;
@@ -1994,6 +2011,27 @@ static void modRunOpenDoors(bool exits, bool inside)
 	while (obj->type != OBJTYPE_END) {
 		if (obj->type == OBJTYPE_DOOR) {
 			struct doorobj *door = (struct doorobj *)obj;
+
+			// A laser grid in the zone is switched off for good. Nothing the
+			// player can do opens one - Investigation's are
+			// OBJFLAG_CANNOT_ACTIVATE and lifted by the stage's script and its
+			// maintenance robot - and they stand in no portal, so the walk that
+			// builds the zone goes straight through them. A landing in room 75
+			// was a corridor with a grid at either end: the seal lifted and
+			// there was no way out of it that did not burn (F3
+			// 20261002-085425). KEEPOPEN, or the door's own autoclose shuts it
+			// again four seconds later.
+			if (inside && door->doortype == DOORTYPE_LASER && door->base.prop
+					&& modRunRoomsInZone(door->base.prop->rooms)) {
+				if (door->mode != DOORMODE_OPENING && door->frac < door->maxfrac) {
+					doorsRequestMode(door, DOORMODE_OPENING);
+				}
+
+				// After the request: doorStartOpen() clears the flag.
+				door->base.flags |= OBJFLAG_DOOR_KEEPOPEN;
+
+				lasers++;
+			}
 
 			if (door->keyflags && (door->base.flags & OBJFLAG_DOOR_HASPORTAL) && door->portalnum >= 0) {
 				const struct bgportal *portal = &g_BgPortals[door->portalnum];
@@ -2015,6 +2053,11 @@ static void modRunOpenDoors(bool exits, bool inside)
 		sysLogPrintf(0, "run: unlocked %d door(s) %s room %d on stage 0x%02x",
 				opened, exits ? (inside ? "in and out of" : "out of") : "inside the zone of",
 				g_ModRunLandRoom, g_ModRunStage);
+	}
+
+	if (lasers) {
+		sysLogPrintf(0, "run: switched off %d laser grid(s) in the zone of room %d on stage 0x%02x",
+				lasers, g_ModRunLandRoom, g_ModRunStage);
 	}
 #endif
 }
