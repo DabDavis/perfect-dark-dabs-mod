@@ -740,10 +740,39 @@ s32 geSfxGuns(void)
 	return sfxBank() != NULL;
 }
 
+// the numbers geSfxGunShot() gave in place of a slot the remap leaves alone,
+// which are heard as the remapped ones are (geSfxHeardAsRemapped())
+static u8 g_SfxShotAlias[SND_MAX_SOUNDS];
+
+s32 geSfxHeardAsRemapped(s32 num)
+{
+	return num > 0 && num < SND_MAX_SOUNDS && g_SfxShotAlias[num] && geSfxStage();
+}
+
 s32 geSfxGunShot(s32 id)
 {
 	if (modloaderStageIsRemake(g_Vars.stagenum)) {
-		return geSfxStage() ? id : 0;
+		if (!geSfxStage()) {
+			return 0;
+		}
+
+		// a slot the remap leaves Perfect Dark's: GoldenEye's guns fire with
+		// none of them, but a ROM hack's may - Goldfinger 64's Luger and MP40
+		// with 100 and 101 (GoldenEye's taser, Perfect Dark's shield and
+		// laser stream: "luger sounds like electricity"), its M1 Carbine with
+		// 55 (Perfect Dark's "no sound"). Its own sample, by the number the
+		// remap cannot reach (F3 20261003-062234-63c5b872 and five more)
+		if (!sfxRemappable(id)) {
+			const s32 ours = geSfxGet(id);
+
+			if (ours > 0 && ours < SND_MAX_SOUNDS) {
+				g_SfxShotAlias[ours] = 1;
+			}
+
+			return ours > 0 ? ours : 0;
+		}
+
+		return id;
 	}
 
 	// a stage of Perfect Dark's: GoldenEye's own gun's sample

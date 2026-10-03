@@ -755,6 +755,37 @@ same without the file).
 - **Oddjob's hat** (F3 20261003-071520): the big black hat lower right is the
   hack's item 3 (GthrowknifeZ) in the hand; the cartridge draws it the same.
 
+## Its sounds and explosions (converter 111, F3 pass 30)
+
+Its sound bank keeps GoldenEye's 261 numbers and replaces 41 samples in
+place (`probe/ctl.py` in the session: 3-6, 12, 16-17, 50, 55-57, 63, 74,
+85-89, 95-97, 100-101, 109-121, 166-167, 205-207, 233, 248-250, 256; 5, 6,
+16, 17 and 205-207 with a 66-byte silent raw wave). Nothing is renumbered,
+and its code plays the numbers GoldenEye's does (the reload's
+GUN_RIFLECOCK, 50, for every gun item from 4 to 26 but the laser: the jump
+table at 0x80054294). Two faults, both its own:
+
+- **Shots on the remap's reserved slots.** gesfx.c's remap leaves 2, 7, 9,
+  16, 43, 55, 100, 101 and 245 Perfect Dark's, since its own code plays them
+  for a meaning of its own; no GoldenEye gun fires with one. Goldfinger's
+  Luger fires with 100 (GoldenEye's taser, PD's shield damage), its MP40
+  with 101 (PD's looped laser stream: "electricity constantly") and its M1
+  Carbine with 55 (PD's "no sound", dropped by sndStart()). Its P38 and Uzi
+  use 56 and 57, which remap. `geSfxGunShot()` now hands a reserved slot's
+  shot as the bank's own appended number, and `geSfxHeardAsRemapped()`
+  gives that number the remap's volume share and GoldenEye's falloff
+  (n_sndplayer.c, propsnd.c). GoldenEye's guns never take the branch.
+- **No prop exploded.** The layout's `object_explosion_details` was
+  0x8070f028, a block of mostly -1 rows; the code loads the table from
+  0x8070dd28 (the lh at 7F04CE6C, GoldenEye's 0x8003b224; the crumple
+  seeds' sites at +2 and +8). 149 of its 416 props explode now; GoldenEye's
+  output is byte-identical (only Goldfinger's `menu/geexplosions.bin`
+  changes).
+
+Probe: `snd.py` (gdb, the session's run dir): fires GUNS, forces a reload,
+logs every sound the player starts (n_sndplayer.c:714/730), then damages
+explosive props and counts explosion props.
+
 ## Open
 
 - Props' shading against GoldenEye's: no measured case now (Crab Key's

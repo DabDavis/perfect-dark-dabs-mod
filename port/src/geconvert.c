@@ -200,8 +200,12 @@ static const struct romlayout g_Layouts[] = {
 		},
 		// every character may wear a hat (chrRender()'s range is 0-125)
 		0x80703000, 0, 126,
-		// a row for each of its 416 props
-		0x8070f028,
+		// a row for each of its 416 props, where the explosion code loads
+		// it from (the lh at 7F04CE6C, GoldenEye's 0x8003b224; the crumple
+		// seeds' two sites read the same rows at +2 and +8). 0x8070f028,
+		// which this was, is something else of mostly -1s: no prop of the
+		// hack's exploded (F3 20261003-062303-b0958a20)
+		0x8070dd28,
 		// its Bond is one head (74, CheadbondZ) on a body a mission: golf,
 		// tuxedo, alpine, sneaking suit, ranch, Fort Knox and the folder's
 		// CsoloZ (solo_char_load() at 7F079D94 against GoldenEye's)

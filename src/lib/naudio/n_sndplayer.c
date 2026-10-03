@@ -714,6 +714,8 @@ struct sndstate *func00033820(s32 arg0, s16 soundnum, u16 vol, ALPan pan, f32 pi
 	if (geSfxRemaps(soundnum)) {
 		soundnum = geSfxRemap(soundnum);
 		vol = (u32)(vol * GESFX_VOLUME) >> 15;
+	} else if (geSfxHeardAsRemapped(soundnum)) {
+		vol = (u32)(vol * GESFX_VOLUME) >> 15;
 	}
 #endif
 
