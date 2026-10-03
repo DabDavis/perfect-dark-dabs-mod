@@ -378,15 +378,6 @@ void bwalk0f0c3b38(struct coord *reltarget, struct defaultobj *obj)
 	func0f082e84(obj, &posunk, &vector, &tween, false);
 }
 
-/**
- * Attempt to move the current player up vertically by the given amount.
- *
- * Collision checks are done for the new location, and if successful the
- * player's positional values are updated.
- *
- * The function is called with amount = 0 when attempting to stand up from a
- * crouch, after increasing the player's bbox to the standing size.
- */
 #ifndef PLATFORM_N64
 /**
  * The player is held up by another body's cylinder (bwalkUpdateVertical()):
@@ -431,6 +422,15 @@ static void bwalkGeSlipOffBody(struct prop *body)
 }
 #endif
 
+/**
+ * Attempt to move the current player up vertically by the given amount.
+ *
+ * Collision checks are done for the new location, and if successful the
+ * player's positional values are updated.
+ *
+ * The function is called with amount = 0 when attempting to stand up from a
+ * crouch, after increasing the player's bbox to the standing size.
+ */
 s32 bwalkTryMoveUpwards(f32 amount)
 {
 	bool result;
@@ -484,7 +484,6 @@ s32 bwalkTryMoveUpwards(f32 amount)
 	if (g_Vars.currentplayer->tank) {
 		propSetPerimEnabled(g_Vars.currentplayer->tank, false);
 	}
-
 #endif
 
 	ymin -= 0.1f;
