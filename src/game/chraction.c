@@ -2776,6 +2776,13 @@ void chrStartAnim(struct chrdata *chr, s32 animnum, f32 startframe, f32 endframe
 				modelSetAnimEndFrame(chr->model, endframe);
 			}
 
+#ifndef PLATFORM_N64
+			// GoldenEye clears its sneeze bit (CHRFLAG_02000000) on every
+			// PlayAnimation, so a guard idling on ANIM_sneeze over and over
+			// is heard each time. A deferred start clears it in chrTickAnim
+			// once the new animation is set, so the old one cannot sneeze twice.
+			chr->gesneezed = false;
+#endif
 			chr->hidden &= ~CHRHFLAG_NEEDANIM;
 		}
 
