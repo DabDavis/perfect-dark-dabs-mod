@@ -361,17 +361,24 @@ f32 geslappersDamageScale(const struct chrdata *chr, f32 angle)
 		return 1.0f;
 	}
 
-	switch (chr->actiontype) {
-	case ACT_STAND:
-	case ACT_PATROL:
-	case ACT_SURRENDER:
-	case ACT_ANIM:
-		return 1.0f;
-	case ACT_GOPOS:
-		if ((chr->act_gopos.flags & GOPOSMASK_SPEED) == GOPOSFLAG_WALK) {
+	// A player or a simulant is never a guard standing about. GoldenEye's
+	// players all hold ACT_BONDMULTI (bondview2.c), so a slap on one is always
+	// cut; Perfect Dark leaves a first-person player's chr at ACT_STAND and a
+	// simulant walks under ACT_GOPOS, which took the whole slap: a simulant's
+	// two-handed slap killed outright in the GE Arenas (F3 20261004-060027)
+	if (chr->aibot == NULL && (chr->prop == NULL || chr->prop->type != PROPTYPE_PLAYER)) {
+		switch (chr->actiontype) {
+		case ACT_STAND:
+		case ACT_PATROL:
+		case ACT_SURRENDER:
+		case ACT_ANIM:
 			return 1.0f;
+		case ACT_GOPOS:
+			if ((chr->act_gopos.flags & GOPOSMASK_SPEED) == GOPOSFLAG_WALK) {
+				return 1.0f;
+			}
+			break;
 		}
-		break;
 	}
 
 	if (angle < sixty || angle > 5 * sixty) {
