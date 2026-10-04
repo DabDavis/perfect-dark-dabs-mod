@@ -482,6 +482,25 @@ static const char *const g_MenuRaw[NUM_MENU_RAW] = {
 // and how many as u16s, then the rows.
 #define HEAD_HAT_ROW (6 * 24)
 
+// get_hat_model() (propobj.c, 7F052684): which kind a hat prop is - beret 0,
+// side cap 1, peaked cap 2, helmet 3, fur hat 4, moon headgear 5 - which is
+// where headhats.bin's row is taken from and how a shot at it goes (a helmet
+// rings and stays on, the moon headgear is the head, the rest fall off). A
+// switch on the prop number, PROP_HATFURRY (212) to PROP_HATPEAKED (223),
+// through a jump table in the data segment whose cases each return one
+// number. A ROM hack keeps the code and deals the cases out anew: Goldfinger
+// 64's helmets are 212 and 217, its 218 and 221-223 peaked caps, where
+// GoldenEye's 218 is the grey helmet (F3 20261003-195003, "shooting these
+// guards' hats, it behaves like a soldier's metallic helmet"). The table is
+// read through GoldenEye's case addresses; one that is none of them leaves
+// the file out and the port keeps GoldenEye's kinds. menu/hattypes.bin is
+// "GHT1", the first prop, how many, then a kind each.
+#define HAT_TYPES_AT 0x800532f4u
+#define HAT_TYPES_FIRST 212
+#define HAT_TYPES_COUNT 12
+
+static void writeHatTypes(const char *outdir);
+
 // random_male_heads, then random_female_heads, each ended by -1 (chr.c)
 #define RANDOM_HEADS_AT 0x8002cdb8u
 
@@ -9824,6 +9843,41 @@ static void note(const char *fmt, ...)
 	g_Note(msg);
 }
 
+static void writeHatTypes(const char *outdir)
+{
+	static const struct { uint32_t addr; uint8_t type; } cases[] = {
+		{ 0x7f0526b4, 4 }, { 0x7f0526bc, 1 }, { 0x7f0526c4, 3 },
+		{ 0x7f0526cc, 5 }, { 0x7f0526d4, 0 }, { 0x7f0526dc, 2 },
+	};
+	const size_t at = HAT_TYPES_AT - DATA_VRAM;
+	uint8_t out[4 + 2 + HAT_TYPES_COUNT];
+
+	if (at + 4 * HAT_TYPES_COUNT > g_DataLen) {
+		return;
+	}
+
+	memcpy(out, "GHT1", 4);
+	out[4] = HAT_TYPES_FIRST;
+	out[5] = HAT_TYPES_COUNT;
+
+	for (int i = 0; i < HAT_TYPES_COUNT; ++i) {
+		const uint32_t addr = be32(g_Data, at + 4 * i);
+		size_t k;
+
+		for (k = 0; k < sizeof(cases) / sizeof(cases[0]) && cases[k].addr != addr; ++k);
+
+		if (k == sizeof(cases) / sizeof(cases[0])) {
+			note("hat props: case %#x of prop %d is none of GoldenEye's; its hats keep GoldenEye's kinds",
+					addr, HAT_TYPES_FIRST + i);
+			return;
+		}
+
+		out[6 + i] = cases[k].type;
+	}
+
+	writeFile(outdir, "menu/hattypes.bin", out, sizeof(out));
+}
+
 void geconvertSetLog(void (*fn)(const char *msg))
 {
 	g_Note = fn ? fn : noteDefault;
@@ -10896,6 +10950,10 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			bufPut(&hats, g_Data + at, size);
 			writeFile(outdir, "menu/headhats.bin", hats.v, hats.n);
 		}
+
+		// get_hat_model()'s jump table: which kind each of the twelve hat
+		// props is, as menu/hattypes.bin (HAT_TYPES_*)
+		writeHatTypes(outdir);
 
 		// gitem_structs as it stands, for where the watch holds each item up on
 		// its face (gewatch.c): a row's two pointers mean nothing out of the

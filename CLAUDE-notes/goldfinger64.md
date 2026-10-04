@@ -869,3 +869,26 @@ explosive props and counts explosion props.
   Its Pgx075Z is its own set, box 1250 x 1000 against GoldenEye's 408 x 386.
   `frontLoadTvs()` fits the box to GoldenEye's (`g_TvFit`, 1 for GoldenEye's)
   and centres it. Probe: `~/wt/f3-1003c-watch-run/mon.py` (`GF=1`, `LOOK`).
+
+## F3 pass 32 (2026-10-04, fix/f3-1003d-gfgame)
+
+- **Hats ring like helmets (F3 20261003-195003, converter 120).** Its code
+  keeps get_hat_model() (7F052684) and deals the jump table at 0x800532f4
+  anew: 212 and 217 helmets, 213/216 fur, 214/218/221-223 peaked, 215 side
+  cap, 219/220 berets; the default `li v0,-1` became 4. Cartel's guards wear
+  218 (GoldenEye's grey helmet). `writeHatTypes()` -> `menu/hattypes.bin`
+  ("GHT1", first, count, kinds), read by `gexPlusHatType()` from
+  hatGetType(); the default is not carried (no hat outside 212-223 seen).
+- **Stuck in Cartel's second silo doorway (F3 20261003-214052).** Silo 2 is
+  silo 1 moved 5000 in z: same sliver tiles (540/541) across the doorway's
+  crouch tiles 535/536. geStanForcesCrouch() found the tile by height (the
+  sliver), so a player stopped there stood up and every step was held for
+  the squat; at 3/240 steps it never finished. Now the walked tile
+  (stanMoverTile()), no hold from a crouch tile, give-way counted in 240ths.
+  Probe: `~/wt/f3-1003d-gfgame-run/probe/stop.py` (STEP240=3 reproduces on
+  the base binary; gdbpd's frames() deletes every breakpoint - use a local one).
+- **Capture's armour (F3 20261003-200644)**: record 316 on pad 708 is a type
+  3 prop with the armour model in its own setup - scenery on the cartridge
+  too; the collectable one is record 399 (pad 598).
+- **Reload sound (F3 20261003-164059, on 4e98c8a)**: GUN_RIFLECOCK 50 was
+  one of the 11 s envelopes cut by n_sndplayer; fixed by b68af49f9.

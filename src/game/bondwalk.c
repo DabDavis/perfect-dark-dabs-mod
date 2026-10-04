@@ -76,7 +76,7 @@ extern f32 fabsf(f32);
 
 #ifndef PLATFORM_N64
 // how long each player's move has been held at the edge of a force-crouch tile
-// while the squat finishes (bwalk0f0c63bc())
+// while the squat finishes (bwalk0f0c63bc()), in 240ths
 static s32 g_GeCrouchHoldTicks[MAX_PLAYERS];
 
 // how far under the player's own the eye is drawn, after GoldenEye's climb
@@ -2125,10 +2125,16 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 		target.z = g_Vars.currentplayer->prop->pos.z + arg0->z;
 
 		bool hold = false;
+		bool crouch;
 
-		if (geStanForcesCrouch(&target, g_Vars.currentplayer->vv_manground + 40.0f,
+		// on the player's own tile as their walk has it, as the walls are
+		geStanSetMover(g_Vars.currentplayernum);
+		crouch = geStanForcesCrouch(&target, g_Vars.currentplayer->vv_manground + 40.0f,
 					geStanRise(true), g_Vars.currentplayer->bond2.radius,
-					&g_Vars.currentplayer->prop->pos, &hold)) {
+					&g_Vars.currentplayer->prop->pos, &hold);
+		geStanSetMover(-1);
+
+		if (crouch) {
 			g_Vars.currentplayer->autocrouchpos = CROUCHPOS_SQUAT;
 		}
 
@@ -2141,8 +2147,10 @@ void bwalk0f0c63bc(struct coord *arg0, u32 arg1, s32 types)
 		// The hold gives way after a second and a half whatever happens, so
 		// a squat that cannot finish never leaves the player rooted
 		if (hold && g_Vars.currentplayer->crouchoffset > bwalkSquatOffset() + 0.5f
-				&& g_GeCrouchHoldTicks[g_Vars.currentplayernum] < TICKS(90)) {
-			g_GeCrouchHoldTicks[g_Vars.currentplayernum] += g_Vars.lvupdate60;
+				&& g_GeCrouchHoldTicks[g_Vars.currentplayernum] < TICKS(90) * 4) {
+			// in 240ths: at a high refresh rate most frames are under a 60th
+			// (lvupdate60 0) and the second and a half never ran out
+			g_GeCrouchHoldTicks[g_Vars.currentplayernum] += g_Vars.lvupdate240;
 			return;
 		}
 

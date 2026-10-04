@@ -1250,14 +1250,30 @@ bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach, struc
 		return false;
 	}
 
-	tile = stanTileUnder(pos->x, pos->z, limit, rise);
+	// the player's own tile as their walk has it (stanMoverTile()), as the
+	// walls are found: Cartel's second silo (Goldfinger 64) has the same
+	// sliver of floor along the top of its wall as the first, linked to
+	// nothing, across the doorway's force-crouch tiles. Found by height it was
+	// the floor under a player stopped in the doorway, its flood reached no
+	// crouch tile, and he stood up; each step on was then held until he was
+	// down again, and at a high refresh rate the squat never got there - stuck
+	// in the doorway (F3 20261003-214052)
+	tile = g_StanMover >= 0 ? stanMoverTile(pos->x, pos->z, limit, rise) : -1;
+
+	if (tile < 0) {
+		tile = stanTileUnder(pos->x, pos->z, limit, rise);
+	}
 
 	if (tile < 0) {
 		return false;
 	}
 
 	if (hold && from) {
-		own = stanTileUnder(from->x, from->z, limit, rise);
+		own = g_StanMover >= 0 ? stanMoverTile(from->x, from->z, limit, rise) : -1;
+
+		if (own < 0) {
+			own = stanTileUnder(from->x, from->z, limit, rise);
+		}
 	}
 
 	stanFlood(tile, pos->x, pos->z, pos->x, pos->z, reach, true);
@@ -1265,16 +1281,16 @@ bool geStanForcesCrouch(struct coord *pos, f32 limit, f32 rise, f32 reach, struc
 	for (s32 i = 0; i < g_Stan.numtiles; i++) {
 		if (g_Stan.reached[i] == g_Stan.gen && g_Stan.tiles[i].special == GESTAN_SPECIAL_CROUCH) {
 			result = true;
-
-			if (!hold) {
-				break;
-			}
-
-			if (i != own) {
-				*hold = true;
-				break;
-			}
+			break;
 		}
+	}
+
+	// held at the edge of a force-crouch tile until the squat is done, as
+	// GoldenEye's link into one is a wall until then - from a tile that is not
+	// one. A player already on one is in: a second crouch tile in reach (the
+	// doorway is two) is no edge to wait at
+	if (result && hold && (own < 0 || g_Stan.tiles[own].special != GESTAN_SPECIAL_CROUCH)) {
+		*hold = true;
 	}
 
 	// the marks are this flood's now, not the one a wall test remembers
