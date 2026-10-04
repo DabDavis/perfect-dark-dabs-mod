@@ -8097,6 +8097,25 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
  * Perfect Dark at 12. Type 6 is ten words, which is what Perfect Dark's is
  * (modrandom.c sizes INTROCMD_6 at 40 bytes).
  */
+/**
+ * An item a mission's start hands Bond, as the port's weapon: soloItemWeapon(),
+ * and the watch's detonator, the item GtriggerZ is (GoldenEye's 30). The
+ * cartridge gives the detonator at the start only where the setup names it -
+ * Facility and Jungle, each beside its remote mines; Surface 2's one mine,
+ * Q's ten-second fuse, comes without it - and the runtime no longer adds it to
+ * a starting mine (inv.c's g_InvIntroGive), so it is converted here. The item
+ * has no weapon of its own in g_ItemWeapon, so the command was left out and
+ * Facility started with no detonator (F3 20261003-234527, 20261004-030928).
+ */
+static uint32_t soloIntroItemWeapon(uint32_t item)
+{
+	if (item < NUM_ITEMS && g_Items[item].file && !strcmp(g_Items[item].file, "GtriggerZ")) {
+		return WEAPON_GE_DETONATOR_;
+	}
+
+	return soloItemWeapon(item);
+}
+
 static buf writeSoloIntro(const buf *f, size_t numpads, double levelscale, const double *offset)
 {
 	static const uint8_t words[9] = { 3, 4, 4, 8, 2, 2, 10, 3, 2 };
@@ -8171,8 +8190,8 @@ static buf writeSoloIntro(const buf *f, size_t numpads, double levelscale, const
 			const uint8_t *raw = f->v + o;
 			const int32_t rightitem = (int32_t)be32(raw, 4);
 			const int32_t leftitem = (int32_t)be32(raw, 8);
-			const uint32_t right = rightitem >= 0 ? soloItemWeapon((uint32_t)rightitem) : 0;
-			const uint32_t left = leftitem >= 0 ? soloItemWeapon((uint32_t)leftitem) : 0;
+			const uint32_t right = rightitem >= 0 ? soloIntroItemWeapon((uint32_t)rightitem) : 0;
+			const uint32_t left = leftitem >= 0 ? soloIntroItemWeapon((uint32_t)leftitem) : 0;
 
 			if (right) {
 				bufU32(&out, be32(raw, 0));
