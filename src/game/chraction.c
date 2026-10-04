@@ -5849,9 +5849,25 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 					}
 				} else {
 					// Non-explosion damage to solo mode chr
+#ifndef PLATFORM_N64
+					// GoldenEye yelps only for a hit it reacts to: an armoured
+					// chr (damage still below 0) that can take no argh is given
+					// the body's twitch and nothing else, silently
+					// (handles_shot_actors(): flinch and return before
+					// play_sound_for_shot_actor()). Baron Samedi yelped at
+					// every shot he shrugged off (F3 20261004-001835, Egyptian).
+					f32 gearmourend = -1;
+					bool gesilent = chr->damage < 0 && modloaderStageIsRemake(g_Vars.stagenum)
+						&& !chrIsAnimPreventingArgh(chr, &gearmourend);
+
+					if (chr->actiontype != ACT_DRUGGEDKO && canchoke && !gesilent) {
+						chrChoke(chr, choketype);
+					}
+#else
 					if (chr->actiontype != ACT_DRUGGEDKO && canchoke) {
 						chrChoke(chr, choketype);
 					}
+#endif
 
 					if (makedizzy && chr->damage >= chr->maxdamage) {
 						chr->damage = chr->maxdamage - 0.1f;
