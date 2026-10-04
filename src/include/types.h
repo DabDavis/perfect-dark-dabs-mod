@@ -1444,6 +1444,9 @@ struct chrdata {
 	// has only CHRCFLAG_JUST_INJURED, which is GoldenEye's WAS_DAMAGED - set
 	// when the damage is taken, so never while the chr is invincible.
 	u8 gewashit;
+	// GoldenEye's CHRFLAG_02000000: this animation's sneeze has been heard
+	// (or skipped), cleared as each animation starts (chrlvTickAnim())
+	u8 gesneezed;
 #endif
 };
 

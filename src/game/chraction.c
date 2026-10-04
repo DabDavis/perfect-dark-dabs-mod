@@ -2776,6 +2776,13 @@ void chrStartAnim(struct chrdata *chr, s32 animnum, f32 startframe, f32 endframe
 				modelSetAnimEndFrame(chr->model, endframe);
 			}
 
+#ifndef PLATFORM_N64
+			// GoldenEye clears its sneeze bit (CHRFLAG_02000000) on every
+			// PlayAnimation, so a guard idling on ANIM_sneeze over and over
+			// is heard each time. A deferred start clears it in chrTickAnim
+			// once the new animation is set, so the old one cannot sneeze twice.
+			chr->gesneezed = false;
+#endif
 			chr->hidden &= ~CHRHFLAG_NEEDANIM;
 		}
 
@@ -9883,6 +9890,9 @@ void chrTickAnim(struct chrdata *chr)
 			modelSetAnimEndFrame(chr->model, chr->act_anim.endframe);
 		}
 
+#ifndef PLATFORM_N64
+		chr->gesneezed = false;
+#endif
 		chr->hidden &= ~CHRHFLAG_NEEDANIM;
 	}
 
@@ -9896,19 +9906,34 @@ void chrTickAnim(struct chrdata *chr)
 	}
 
 	// Play sneezing sound
+#ifndef PLATFORM_N64
+	if (modloaderStageIsRemake(g_Vars.stagenum)) {
+		// GoldenEye's chrlvTickAnim(): once an animation, 42 frames in, heard
+		// on an even frame within 800 of Bond. A converted mission's guards
+		// sneeze by GoldenEye's own animation under its appended number, which
+		// is not ANIM_SNEEZE, so the sneeze went unheard (F3 20261004-160617)
+		const s32 animnum = modelGetAnimNum(chr->model);
+		const s32 gesneeze = g_GeChrAnims ? geChrAnim(159) : -1;
+
+		if ((animnum == ANIM_SNEEZE || (gesneeze > 0 && animnum == gesneeze))
+				&& modelGetCurAnimFrame(chr->model) >= 42
+				&& !chr->gesneezed) {
+			if ((g_Vars.lvframenum % 2) == 0 && chrGetDistanceToCurrentPlayer(chr) < 800) {
+				psCreate(NULL, chr->prop, geSfxOr(257, SFX_0037), -1,
+						-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+			}
+
+			chr->gesneezed = true;
+		}
+	} else
+#endif
 	if (CHRRACE(chr) == RACE_HUMAN
 			&& modelGetAnimNum(chr->model) == ANIM_SNEEZE
 			&& modelGetCurAnimFrame(chr->model) >= 42
 			&& (g_Vars.lvframenum % 2) == 0
 			&& chrGetDistanceToCurrentPlayer(chr) < 800) {
-#ifndef PLATFORM_N64
-		// GoldenEye's SNEEZE_SFX, which Perfect Dark left as its "no sound"
-		psCreate(NULL, chr->prop, geSfxOr(257, SFX_0037), -1,
-				-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
-#else
 		psCreate(NULL, chr->prop, SFX_0037, -1,
 				-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
-#endif
 	}
 
 	if (chr->sleep <= 0 && chr->act_anim.slowupdate) {
