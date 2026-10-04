@@ -13114,6 +13114,25 @@ void bgunRender(Gfx **gdlptr)
 			// but no guns have this model part so it's not used.
 			node = modelGetPart(hand->gunmodel.definition, MODELPART_0010);
 
+#ifndef PLATFORM_N64
+			// A screen is a quad: tvscreenRender() copies the node's first
+			// four vertices. Tomorrow Never Dies 64's Phone Taser (GoldenEye's
+			// taser file) has a screen node whose list loads none, so it was
+			// converted with none, and the four read were the bytes after its
+			// record - a huge flickering card across the view under Vulkan's
+			// depth clamp (F3 20261004-043613, -044028). No quad, no screen.
+			if (node && ((node->type & 0xff) != MODELNODETYPE_DL || node->rodata->dl.numvertices < 4)) {
+				struct modelnode *toggle = modelGetPart(hand->gunmodel.definition, MODELPART_0011);
+				union modelrwdata *rwdata = toggle ? modelGetNodeRwData(&hand->gunmodel, toggle) : NULL;
+
+				if (rwdata) {
+					rwdata->toggle.visible = false;
+				}
+
+				node = NULL;
+			}
+#endif
+
 			if (node) {
 				union modelrwdata *rwdata = modelGetNodeRwData(&hand->gunmodel, modelGetPart(hand->gunmodel.definition, MODELPART_0011));
 
