@@ -57,6 +57,7 @@
 #include "fs.h"
 #include "input.h"
 #include "mod.h"
+#include "gexplusrom.h"
 #include "modborrow.h"
 #include "gebean.h"
 #include "modloader.h"
@@ -6727,6 +6728,29 @@ static Gfx *frontDrawCinemaPick(Gfx *gdl)
 }
 
 /**
+ * The mounted mod the difficulty page's tick is loaded from: GoldenEye
+ * Arenas' own for GoldenEye and for a ROM hack alike, -1 when it is not
+ * mounted.
+ */
+static s32 frontCheckDir(void)
+{
+	const size_t len = strlen(GEXPLUSROM_DIR);
+
+	for (s32 i = 0; i < fsGetNumModDirs(); i++) {
+		const char *dir = fsGetModDirAt(i);
+		const size_t dlen = dir ? strlen(dir) : 0;
+
+		if (dlen >= len && strcmp(dir + dlen - len, GEXPLUSROM_DIR) == 0
+				&& (dlen == len || dir[dlen - len - 1] == '/' || dir[dlen - len - 1] == '\\')) {
+			return i;
+		}
+	}
+
+	// not mounted: a hack's own number holds another picture, so none
+	return -1;
+}
+
+/**
  * GoldenEye's tick (IMAGE_CHECK) centred on a point, in its red: the
  * release's picture where its look is on, else GoldenEye's own where the
  * conversion carries it, else one drawn the same size out of squares.
@@ -6735,15 +6759,24 @@ static Gfx *frontDrawCheck(Gfx *gdl, f32 cx, f32 cy)
 {
 	static s32 haveimage = -1;
 	static s32 havedir = -1;
+	static s32 checkdir = -1;
 	struct textureconfig tex;
 	struct textureconfig *image = NULL;
 	s32 theight = -20;
 
-	// an older conversion has not got GoldenEye's own
+	// an older conversion has not got GoldenEye's own.
+	// A ROM hack's conversion moves its images on Perfect Dark's numbers to
+	// wherever it has room (geconvert.c's variantTexRemap()), so its tick is not
+	// at geconvertTexRemap()'s number - there it has one of its own pictures
+	// (F3 20261004-023119, 20261004-042713). Goldfinger 64's and Tomorrow Never
+	// Dies 64's ticks are GoldenEye's byte for byte: a hack draws GoldenEye
+	// Arenas' (the GoldenEye ROM the hack was applied to is always converted)
 	if (haveimage < 0 || havedir != g_Front.moddir) {
-		const char *dir = fsGetModDirAt(g_Front.moddir);
 		char path[1024];
+		const char *dir;
 
+		checkdir = frontCheckDir();
+		dir = fsGetModDirAt(checkdir);
 		snprintf(path, sizeof(path), "%s/textures/%04x.bin", dir ? dir : "", geconvertTexRemap(CHECK_IMAGE));
 		haveimage = dir && fsFileSize(path) > 0;
 		havedir = g_Front.moddir;
@@ -6755,7 +6788,7 @@ static Gfx *frontDrawCheck(Gfx *gdl, f32 cx, f32 cy)
 		theight = -FRONT_PICTURE_TEXELS;
 		image = &tex;
 	} else if (haveimage && (image = frontTexture(geconvertTexRemap(CHECK_IMAGE), 20, 20, G_IM_FMT_IA, G_IM_SIZ_8b, false))) {
-		const s32 prevsrc = modSetTextureSourceMod(g_Front.moddir);
+		const s32 prevsrc = modSetTextureSourceMod(checkdir);
 
 		texSelect(&gdl, image, 1, 0, 2, 1, NULL);
 		modSetTextureSourceMod(prevsrc);
