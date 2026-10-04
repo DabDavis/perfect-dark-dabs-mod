@@ -17604,6 +17604,45 @@ bool objIsHealthy(struct defaultobj *obj)
 	return objGetDestroyedLevel(obj) == 0;
 }
 
+/**
+ * OBJFLAG2_INTERACTCHECKLOS: whether the player can use `prop` from where he
+ * stands. GoldenEye's flag means "not across a gap in the tile graph" - its
+ * test walks the tiles in plan from Bond's to the object's x/z
+ * (walkTilesBetweenPoints_NoCallback()) and never asks about height. And
+ * the x/z it walks to is not always the box's centre: GoldenEye places an
+ * object on a bound pad at the centre only when the tiles walk there from the
+ * pad (prop.c's setup), and otherwise its prop stands on the pad itself.
+ * Aztec's mainframe keyboard is centred 0.4 over the edge of the hole under
+ * its desk, so GoldenEye's keyboard stands on the floor's side of the edge,
+ * and Perfect Dark's 3-D line from the eye met the desk: it could not be used
+ * (F3 20261004-163431).
+ */
+static bool objInteractLosClear(struct prop *playerprop, struct prop *prop)
+{
+#ifndef PLATFORM_N64
+	if (geRoomActive()) {
+		struct defaultobj *obj = prop->obj;
+		s32 reach = geStanWalkReaches(&playerprop->pos, prop->pos.x, prop->pos.z);
+
+		if (reach == 0 && obj && obj->pad >= 0) {
+			struct pad pad;
+
+			padUnpack(obj->pad, PADFIELD_POS, &pad);
+
+			if (geStanWalkReaches(&pad.pos, prop->pos.x, prop->pos.z) == 0) {
+				reach = geStanWalkReaches(&playerprop->pos, pad.pos.x, pad.pos.z);
+			}
+		}
+
+		if (reach >= 0) {
+			return reach == 1;
+		}
+	}
+#endif
+
+	return cdTestLos06(&playerprop->pos, playerprop->rooms, &prop->pos, prop->rooms, CDTYPE_BG);
+}
+
 bool objTestForInteract(struct prop *prop)
 {
 	u32 stack;
@@ -17697,7 +17736,7 @@ bool objTestForInteract(struct prop *prop)
 
 			if (angle <= cone) {
 				if ((obj->flags2 & OBJFLAG2_INTERACTCHECKLOS) == 0
-						|| cdTestLos06(&playerprop->pos, playerprop->rooms, &prop->pos, prop->rooms, CDTYPE_BG)) {
+						|| objInteractLosClear(playerprop, prop)) {
 #ifndef PLATFORM_N64
 					// a chair and the terminal on its desk: the nearer one
 					if (!sitChairKeepsInteract(g_InteractProp, prop))
@@ -22668,7 +22707,11 @@ bool doorTestForInteract(struct prop *prop)
 		}
 
 		if (maybe) {
+			// GoldenEye's doorTestForInteract() asks no line of sight at all
 			if ((door->base.flags2 & OBJFLAG2_INTERACTCHECKLOS) == 0
+#ifndef PLATFORM_N64
+					|| geRoomActive()
+#endif
 					|| cdTestLos06(&playerprop->pos, playerprop->rooms, &prop->pos, prop->rooms, CDTYPE_BG)) {
 				checkmore = func0f08f968(door, false);
 

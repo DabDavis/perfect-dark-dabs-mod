@@ -1332,7 +1332,7 @@ static bool stanCrosses(f32 x0, f32 z0, f32 x1, f32 z1, f32 ax, f32 az, f32 bx, 
  * with nothing across it - a camera out over a drop stays on the brink's tile.
  * With `noclimb`, a link the conversion raised a climb wall on stops it too.
  */
-static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb)
+static s32 stanWalkLineReached(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb, bool *reached)
 {
 	s32 prev, prevprev, next = -1;
 	const f32 negdz = -(z1 - z0);
@@ -1363,13 +1363,26 @@ static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb)
 		prev = tile;
 
 		if (crossings == 0 || next == tile || next < 0) {
-			break;
+			if (reached) {
+				*reached = crossings == 0 || next == tile;
+			}
+
+			return tile;
 		}
 
 		tile = next;
 	}
 
+	if (reached) {
+		*reached = false;
+	}
+
 	return tile;
+}
+
+static s32 stanWalkLine(s32 tile, f32 x0, f32 z0, f32 x1, f32 z1, bool noclimb)
+{
+	return stanWalkLineReached(tile, x0, z0, x1, z1, noclimb, NULL);
 }
 
 /**
@@ -2219,6 +2232,39 @@ s32 geStanLineReach(struct coord *from, f32 x1, f32 z1, f32 *hitx, f32 *hitz, s3
 	*ground = stanSurface(t, *hitx, *hitz);
 
 	return 0;
+}
+
+/**
+ * GoldenEye's walkTilesBetweenPoints_NoCallback() from the tile under `from`
+ * to x1/z1, as its objTestForInteract() asks it for a prop with
+ * PROPFLAG2_INTERACTCHECKLOS: 1 when the walk ends without an edge left to
+ * cross, 0 when an edge with nothing across stops it, -1 with no graph or no
+ * tile under `from`. Unlike geStanLineReach() the end need not be held by a
+ * tile: a point on a hole's edge counts as reached, which is where Aztec's
+ * mainframe keyboard stands, on the edge of the hole under its desk.
+ */
+s32 geStanWalkReaches(struct coord *from, f32 x1, f32 z1)
+{
+	bool reached;
+	s32 tile;
+
+	if (g_Stan.stagenum != g_Vars.stagenum || g_Stan.tiledata != g_TileFileData.u8) {
+		stanBuild();
+	}
+
+	if (!g_Stan.active) {
+		return -1;
+	}
+
+	tile = stanTileUnder(from->x, from->z, from->y, GESTAN_RISE);
+
+	if (tile < 0) {
+		return -1;
+	}
+
+	stanWalkLineReached(tile, from->x, from->z, x1, z1, false, &reached);
+
+	return reached ? 1 : 0;
 }
 
 /**
