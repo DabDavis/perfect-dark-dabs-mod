@@ -14,8 +14,10 @@ directory. Each one can be moved with an environment variable:
     GEFIT_GEX_FILES   GE-X's model files (compressed or inflated both read)
                       default: $GEFIT_GEX_MOD/files
     GEFIT_GEX_TEXDUMP a --dump-textures run with GE-X mounted
-                      (texture-dumps/ntsc-final), for texcompare.py only
-                      default: <repo>/build/texture-dumps/ntsc-final
+                      (texture-dumps/pd-n64), for texcompare.py only
+                      default: <repo>/build/texture-dumps/pd-n64, or the
+                      older layout's texture-dumps/ntsc-final when only
+                      that is there
 
 The GoldenEye ROM itself is found by tools/geconvert/gefiles.py (GE_ROM).
 
@@ -38,7 +40,11 @@ BEAN = _env('GEFIT_BEAN', os.path.join(REPO, '..', '.xbla-work', 'ge-bean', 'Bea
 GE_DECOMP = _env('GEFIT_GE_DECOMP', '~/claude-007/007')
 GEX_MOD = _env('GEFIT_GEX_MOD', os.path.join(REPO, 'build', 'mods', 'GE-X_6a_01-19-25'))
 GEX_FILES = _env('GEFIT_GEX_FILES', os.path.join(GEX_MOD, 'files'))
-GEX_TEXDUMP = _env('GEFIT_GEX_TEXDUMP', os.path.join(REPO, 'build', 'texture-dumps', 'ntsc-final'))
+_TEXDUMPS = os.path.join(REPO, 'build', 'texture-dumps')
+GEX_TEXDUMP = _env('GEFIT_GEX_TEXDUMP', os.path.join(_TEXDUMPS, 'pd-n64')
+                   if os.path.isdir(os.path.join(_TEXDUMPS, 'pd-n64'))
+                   or not os.path.isdir(os.path.join(_TEXDUMPS, 'ntsc-final'))
+                   else os.path.join(_TEXDUMPS, 'ntsc-final'))
 TEXPACK = os.path.join(REPO, 'tools', 'texpack')
 
 for _p in (GECONVERT, HERE):

@@ -5,7 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
-- **Texture packs** — [texture-packs.md](CLAUDE-notes/texture-packs.md): where a pack goes (one of four directories is read by nothing); decoding off the render thread and the backlog; the kept store and why a decode must never be handed over (textures flicker to the original otherwise); an emulator pack's image is the tile, the renderer maps the padded row; the *other* stretch is the game's own - a tile sampled past its edge, which no image edit can fix and **Stretched Edges** (`Video.StretchedEdges`: Original/Mirror/Repeat) can; PNG is ours, JPEG is stb_image, and the two row orders; font glyphs (the image is the whole tile, the outline pass wants both images); F7–F10; a folder named **`xbla`** inside a pack replaces the XBLA release's own texture records, by record rather than by number, on its models *and* its rooms (F7 writes them out in the same layout, which is the only way to learn which record a surface is); and **Community Packs**, which installs a pack from its author's release page - what is in the binary is the pack and not the release, the row-order marker is written at install time because v0.09 of the PD Plus pack renamed the `ext_tex` folder that used to say so, and the cover art is drawn through a stand-in tile the way an XBLA mesh's texture is (and is *not* turned over); since 2026-09-15 it is three packs from the one v0.10 release (Ultimate, XBLA and Forever Plus HD) on three swipe pages, one ask answering all three, every row asking about *its* pack (item `param`) because every sibling page is drawn, and **v0.10 is stored the right way up**, so no marker - the opposite of v0.09; and **a texture number belongs to whatever supplied the texels** (2026-09-12) - a mod's map loaded by the Stage Loader draws its own art at stock numbers (GE-X: 2104 of them, all below `NUM_TEXTURES`), so a picture chosen by number is the wrong subject *and*, since a pack replaces pixels and not the tile, stretched over it - `texpackTextureArt()` tells the three sources apart, a maps-only mod's texture takes nothing from the stock index, and that mod gets **an index of its own** built from its `textures/` (one mod at a time, its own job ids and its own half of the kept store, its texel-matched files searched beside ours, and the game's font and the release's records kept out of it)
+- **Texture packs** — [texture-packs.md](CLAUDE-notes/texture-packs.md): where a pack goes (one of four directories is read by nothing); decoding off the render thread and the backlog; the kept store and why a decode must never be handed over (textures flicker to the original otherwise); an emulator pack's image is the tile, the renderer maps the padded row; the *other* stretch is the game's own - a tile sampled past its edge, which no image edit can fix and **Stretched Edges** (`Video.StretchedEdges`: Original/Mirror/Repeat) can; PNG is ours, JPEG is stb_image, and the two row orders; font glyphs (the image is the whole tile, the outline pass wants both images); F7–F10; a folder named **`xbla`** inside a pack replaces the XBLA release's own texture records, by record rather than by number, on its models *and* its rooms (F7 writes them out in the same layout, which is the only way to learn which record a surface is); and **Community Packs**, which installs a pack from its author's release page - what is in the binary is the pack and not the release, the row-order marker is written at install time because v0.09 of the PD Plus pack renamed the `ext_tex` folder that used to say so, and the cover art is drawn through a stand-in tile the way an XBLA mesh's texture is (and is *not* turned over); since 2026-09-15 it is three packs from the one v0.10 release (Ultimate, XBLA and Forever Plus HD) on three swipe pages, one ask answering all three, every row asking about *its* pack (item `param`) because every sibling page is drawn, and **v0.10 is stored the right way up**, so no marker - the opposite of v0.09; and **a texture number belongs to whatever supplied the texels** (2026-09-12) - a mod's map loaded by the Stage Loader draws its own art at stock numbers (GE-X: 2104 of them, all below `NUM_TEXTURES`), so a picture chosen by number is the wrong subject *and*, since a pack replaces pixels and not the tile, stretched over it - `texpackTextureArt()` tells the three sources apart, a maps-only mod's texture takes nothing from the stock index, and that mod gets **an index of its own** built from its `textures/` (one mod at a time, its own job ids and its own half of the kept store, its texel-matched files searched beside ours, and the game's font and the release's records kept out of it); and **the dump's layout and a conversion's folder in a pack** (2026-10-04): Perfect Dark dumps to `texture-dumps/pd-n64/` (+`raw/` side files, `index.csv`) and `pd-xbla/` like GoldenEye's `ge-n64/`, the hacks to `gf64-n64/`/`tnd64-n64/`, a pack folder named for a conversion (`<tag>-n64`) is skipped by the stock scan and indexed into that conversion's own (4096 numbers wide), and F7 puts a map's own art in its mod's folder, never pd-n64
 
 
 ## Where a texture pack goes
@@ -489,6 +489,94 @@ was, not stretched. Then boot another mod's map and a stock level with the file
 still there - neither may show it, and neither does, because the stock scan
 never saw it. `texpack mod:` in the F3 trace says which mod's index is in hand.
 
+## The dump's layout, and a conversion's folder in a pack (2026-10-04)
+
+Parabolee asked for Perfect Dark's dump in GoldenEye's layout and for the two
+GoldenEye ROM hacks' textures, to make packs of them. What came out:
+
+```
+texture-dumps/pd-n64/           %04x_<fmt>.png + index.csv (texnum,fmt,width,height,png,romid)
+texture-dumps/pd-n64/raw/       %04x.raw, %04x.pal, manifest.csv (Dump All, 12 columns),
+                                manifest-live.csv (F7 with Mod.DumpTextureData, 8 columns)
+texture-dumps/pd-xbla/          %04x.png per record + index.csv (record,width,height,png)
+texture-dumps/ge-n64/           GoldenEye's conversion   } index.csv: '# <game>, geconvert <ver>',
+texture-dumps/gf64-n64/         Goldfinger 64's          } then texnum,rom_image,fmt,width,
+texture-dumps/tnd64-n64/        Tomorrow Never Dies 64's } height,png
+```
+
+A build of another ROM version writes `pd-n64-<romid>` and `pd-xbla-<romid>`:
+texture numbers index that version's own table. The old `texture-dumps/<romid>/`
+is left alone and logged once. `tools/texpack/riceconvert.py` and `n64tex.py`
+look for `manifest.csv` in `<dump>/raw/` first and in `<dump>/` after, so both
+layouts convert.
+
+**Two bugs the move fixed.** F7's `texpackDumpRaw()` opened `manifest.csv`
+"wb" with 8 columns, wiping Dump All's 12-column one that the converters read -
+F7's is `manifest-live.csv` now. And F7 never asked where a texture came from:
+on a mod's map the map's own art went into the PD folder under stock numbers,
+whichever was drawn first winning, and numbers past `NUM_TEXTURES` were never
+written. `TEXPACK_ART_MODSTAGE` art now goes to `texture-dumps/<tag>-n64/` for
+a conversion (`gexPlusRomDirTag()` by folder name) or `texture-dumps/<mod's
+folder>/` for any other maps-only mod, numbers to 4096, a done-bitmap per
+mounted dir (`dumpModDone`, 128 dirs). No side files for those.
+
+**The tags** are a field of `struct romlayout` (`"ge"`, `"gf64"`, `"tnd64"`;
+`geconvertVariantTagAt()`, `geconvertGoldenEyeTag()`), so a future hack gets its
+folder from its row. `gexPlusRomDirTag(dir)` maps a mod dir to one,
+`gexPlusRomTagOfDumpFolder("gf64-n64")` the other way.
+
+**A hack's ROM image numbers need the converter's help.** `variantTexRemap()`
+moves an image on a reserved number to the next free one at first use, and
+`g_VariantTex` is never saved, so nothing could say which image 0x0f4b was.
+Converter 122 writes `textures/remap.csv` (`texnum,image`, every written
+texture) for every conversion; GoldenEye's output is otherwise byte-identical
+(standalone `-DGECONVERT_MAIN` compare, `diff -r`). The dump reads it, with
+`geconvertTexUnremap()` as GoldenEye's fallback and a blank `rom_image` for a
+hack converted before 122.
+
+**Finding the conversions.** `assetDumpFindGeDir()` took the first mounted dir
+with `files/Cgx000Z` and `modconfig.txt` - all three conversions have both, and
+mount order is the unsorted directory listing. Now each is looked up by folder
+name (`modloaderGexPlusDirIndex()` for GoldenEye, `gexPlusRomDirTag()` for the
+rest) and, if its maps are switched off or `--moddir` is in use, mounted for
+its maps with `fsAddMapsDir()` as modborrow.c does (it stays mounted until
+exit). Models are still GoldenEye's alone: a hack's would need its own names
+(Goldfinger 64 renamed 318 of GoldenEye's 340 props) and `GENAMES_MAX` raised.
+
+**A conversion's folder in a pack.** A `ge-n64` folder copied into a pack used
+to go into the **stock** index - GoldenEye's 0041 repainting Perfect Dark's 0041
+(base binary on a pack holding ge-n64 + 3 pd-n64 files: "2290 replacement
+textures"; now "3"). `texpackIndexFile()` skips any folder named
+`<tag>-n64` in a stock scan. `texpackModUse()` for a conversion's dir, after
+`mods/<conv>/textures/`, scans the selected pack again with `scanPackConv` set
+to that folder's name: files are ignored until the walk reaches the folder of
+that name (any depth), whose files go into the mod index, so the pack wins.
+The pack lives outside `mods/<conv>/`, which `gexPlusRomConvertInto()` deletes
+on every reconversion. The log says `<pack>'s gf64-n64 folder repaints N of
+<dir>'s texture(s)`. A folder named `pd-xbla` counts as `xbla`, and a model
+pack reads `pd-n64`/`pd-xbla` beside `n64`/`xbla` (modelpack.c), so either dump
+copies into a pack unchanged.
+
+**The mod index is 4096 wide** (`TEXPACK_MOD_TEXTURES`), the stock one stays
+`NUM_TEXTURES`. Goldfinger 64 has 563 of its 2807 textures at 0xdaf and up;
+before this none could be replaced. Every site: the mod index's callocs and
+frees, `TEXPACK_KEPT_SLOTS` and `texpackKeptIndex()`, `TEXPACK_NUM_JOB_IDS`
+(the backlog bitmap), `keptReport` and its poll loop and claim test, the
+early-out in `texpackLoadReplacement()` (4096 only for `TEXPACK_ART_MODSTAGE`),
+and `texpackParseNativeName()` while `scanningMod`. The poll reports a mod id
+as its number (up to 0xfff), well under `TEXPACK_FONT_ID_BASE` 0x10000, so
+`gfx_texture_cache_drop_texnum()` needs nothing. Other `NUM_TEXTURES` tests on
+the way (`texLoadFromConfigs`, surfaces, impacts) are gameplay tables and not
+the pack's path.
+
+**Testing** (2026-10-04, ~/wt/texdump-run): `--dump-assets` gave pd-n64 3502
+PNG, pd-xbla 5747, ge-n64 2283, gf64-n64 2807 (563 at 0xdaf+, to 0x0ff7),
+tnd64-n64 1482, every MTL `map_Kd` resolving. A pack `test` with F7's
+Junkyard numbers recoloured in `gf64-n64/` (magenta at 0xdaf+, green below),
+three Skedar walls in `pd-n64/` and all of ge-n64 in red: Goldfinger 64's
+Junkyard (0x8b) magenta rocks and crane, green sky and ground, no red;
+Skedar (0x32) blue walls, no red; GoldenEye's Dam (0x51) red.
+
 ## Replacing the XBLA release's own textures (2026-09-11)
 
 A pack can repaint the Xbox 360 release's models and rooms as well, from a
@@ -531,7 +619,7 @@ one stand-in address, so the two-entries-taking-turns case the flag exists for
 cannot arise.
 
 **Getting the pictures to paint over.** `Mod.DumpTextures` (F7) writes every
-record the game draws into `texture-dumps/<romid>/xbla/`, once per record per run
+record the game draws into `texture-dumps/pd-xbla/` (was `<romid>/xbla/`), once per record per run
 and the right way up - which is the layout a pack reads back, so a dump can be
 edited and dropped in as it is. It is also the only way to learn *which* record
 a particular surface uses: stand in front of it and dump. All of them at once

@@ -385,7 +385,7 @@ poster - on 4J's coordinates: the release's record 007b is a 1024x1024 atlas
 of the towers round the rooftop (facades, window strips, roofs), and
 bg_ame's release rooms 6, 7 and 11 map whole towers onto it. The note above
 used to list 007b as "a lit video panel", a redraw; the dump
-(`texture-dumps/ntsc-final/xbla/007b.png`) says atlas. Any 007b that is not
+(`texture-dumps/pd-xbla/007b.png`, `ntsc-final/xbla/` before 2026-10-04) says atlas. Any 007b that is not
 the release's own paints the poster there: a pack's (PD Forever Plus HD
 ships `007b.png`, the poster) or the ROM's whenever the numbered record is
 not asked for - which in the tester's build was every texture loaded before

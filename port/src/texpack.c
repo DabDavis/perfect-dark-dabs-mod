@@ -38,6 +38,7 @@
 #include "texpack.h"
 #include "modelpack.h"
 #include "modloader.h"
+#include "gexplusrom.h"
 #include "video.h"
 #include "versioninfo.h"
 #include "langpack.h"
@@ -45,6 +46,34 @@
 #include <SDL.h>
 
 #define TEXPACK_DUMP_DIR_NAME "texture-dumps"
+
+/**
+ * Perfect Dark's folders under it, in the layout GoldenEye's dump has had
+ * from the start (ge-n64: the pictures and an index.csv, nothing else):
+ *
+ *   pd-n64/            %04x_<fmt>.png and index.csv
+ *   pd-n64/raw/        %04x.raw, %04x.pal, manifest.csv (Dump All's twelve
+ *                      columns) and manifest-live.csv (F7's eight) - the side
+ *                      files tools/texpack/ converts with, kept out of the way
+ *   pd-xbla/           a picture per record of the XBLA release, index.csv
+ *   <tag>-n64/         F7's pictures of a conversion's own art (ge-n64,
+ *                      gf64-n64, tnd64-n64), by the conversion's numbers
+ *
+ * Texture numbers index one ROM version's own table, so a build of another
+ * version writes pd-n64-<romid> and pd-xbla-<romid>. Until 2026-10 the dump
+ * was texture-dumps/<romid>/ with everything in one folder and the records
+ * under xbla/ inside it; that folder is left where it is.
+ */
+#define TEXPACK_DUMP_PD_N64 "pd-n64"
+#define TEXPACK_DUMP_PD_XBLA "pd-xbla"
+#define TEXPACK_DUMP_RAW_SUB "raw"
+#define TEXPACK_DUMP_DEFAULT_ROMID "ntsc-final"
+
+// Texture numbers a maps-only mod's own index covers: the twelve bits a
+// texture command holds. A conversion numbers past NUM_TEXTURES (Goldfinger
+// 64's moved images reach 0x0ff7), and its art is never looked up in the
+// stock index, which stays at NUM_TEXTURES.
+#define TEXPACK_MOD_TEXTURES 4096
 
 // Matches the "textures" directory modTextureLoad() already reads its %04x.bin
 // replacements from, so one pack directory holds both kinds.
@@ -282,9 +311,10 @@ static u8 *texpackGlyphCopy(const struct texpackglyph *glyph, s32 *outWidth, s32
  * see xblatex.h - and xblatex.c asks here, by record, before it decodes the
  * release's own picture for one.
  *
- * A pack keeps them in a folder named `xbla`, one image per record named in hex
- * the way `<texnum>.png` is (0e9d.png, and 0e9d_whatever.png too), which is
- * exactly the layout Mod.DumpTextures writes under the dump directory. The
+ * A pack keeps them in a folder named `xbla` (or `pd-xbla`, the dump's name),
+ * one image per record named in hex the way `<texnum>.png` is (0e9d.png, and
+ * 0e9d_whatever.png too), which is exactly the layout Mod.DumpTextures writes
+ * to texture-dumps/pd-xbla. The
  * folder is what says a name means a record rather than a texture number: the
  * two number spaces overlap below NUM_TEXTURES and a filename cannot tell them
  * apart.
@@ -296,6 +326,9 @@ static u8 *texpackGlyphCopy(const struct texpackglyph *glyph, s32 *outWidth, s32
  * flipped on the way out and flipped back on the way in.
  */
 #define TEXPACK_XBLA_DIR "xbla"
+// the asset dump's own name for it (TEXPACK_DUMP_PD_XBLA), so a dump copied
+// into a pack works unchanged
+#define TEXPACK_XBLA_DUMP_DIR TEXPACK_DUMP_PD_XBLA
 
 // Records a pack may name. The release has 5747 and the meshes use 2006 of
 // them; this is the bound on the id space below and on the dump, and a file
@@ -330,7 +363,7 @@ static s32 numXblaReplacements;
  */
 #define TEXPACK_MOD_ID_BASE (TEXPACK_XBLA_ID_BASE + TEXPACK_XBLA_RECORDS)
 
-static char **modReplacePaths;      // NUM_TEXTURES entries, or NULL for no pack
+static char **modReplacePaths;      // TEXPACK_MOD_TEXTURES entries, or NULL for no pack
 static char **modReplaceAlphaPaths;
 static u8 *modReplaceKinds;
 static u8 *modReplaceFlip;
@@ -344,6 +377,11 @@ static s32 modIndexHtcEntry;
 
 // Which numbered index a scan is filling, and which one a job id belongs to.
 static s32 scanningMod;
+
+// What a mod's scan of the selected pack looks for: the folder of the
+// conversion it is for ("gf64-n64"), its files indexed and nothing else.
+// NULL for every other scan. See texpackModUse().
+static const char *scanPackConv;
 
 /**
  * One numbered index, so the scan and the decode can name either without
@@ -386,7 +424,7 @@ static struct texpacknumbered texpackNumbered(s32 mod)
  * the same sizes, and a stage's and a mesh's compete for the same memory. A
  * glyph is -1: fontDecoded keeps those, being small and wanted constantly.
  */
-#define TEXPACK_KEPT_SLOTS (NUM_TEXTURES + TEXPACK_XBLA_RECORDS + NUM_TEXTURES)
+#define TEXPACK_KEPT_SLOTS (NUM_TEXTURES + TEXPACK_XBLA_RECORDS + TEXPACK_MOD_TEXTURES)
 
 static s32 texpackKeptIndex(s32 id)
 {
@@ -398,7 +436,7 @@ static s32 texpackKeptIndex(s32 id)
 		return NUM_TEXTURES + (id - TEXPACK_XBLA_ID_BASE);
 	}
 
-	if (id >= TEXPACK_MOD_ID_BASE && id < TEXPACK_MOD_ID_BASE + NUM_TEXTURES) {
+	if (id >= TEXPACK_MOD_ID_BASE && id < TEXPACK_MOD_ID_BASE + TEXPACK_MOD_TEXTURES) {
 		return NUM_TEXTURES + TEXPACK_XBLA_RECORDS + (id - TEXPACK_MOD_ID_BASE);
 	}
 
@@ -447,8 +485,9 @@ static u32 keptEvicted;  // images the budget threw out
 
 // Texture numbers kept by a claim rather than by the poll. The poll is what
 // tells the renderer a decode landed, and a claim mid-frame took the slot
-// before it could look - so these are told on the next poll instead.
-static u8 keptReport[(NUM_TEXTURES + 7) / 8];
+// before it could look - so these are told on the next poll instead. A mod's
+// number is told the same way and may be past NUM_TEXTURES.
+static u8 keptReport[(TEXPACK_MOD_TEXTURES + 7) / 8];
 static s32 keptReportCount;
 
 static void texpackKeptFree(void)
@@ -582,9 +621,16 @@ static struct texpackkept *texpackJobKeep(struct texpackjob *job);
 static s32 dumpTextures = 0;
 static s32 dumpTextureData = 0;
 static FILE *dumpManifest;
-static char dumpDir[FS_MAXPATH + 1];
+static char dumpRoot[FS_MAXPATH + 1]; // texture-dumps, expanded
+static char dumpDir[FS_MAXPATH + 1];  // texture-dumps/pd-n64
+static char dumpXblaDir[FS_MAXPATH + 1]; // texture-dumps/pd-xbla
 static s32 dumpDirState; // 0 = not looked at yet, 1 = ready, -1 = gave up
 static u8 dumpDone[(NUM_TEXTURES + 7) / 8];
+
+// F7's once-a-run marks for a mod's own art, a set of TEXPACK_MOD_TEXTURES
+// bits per mounted directory: each mod's numbers are its own
+#define TEXPACK_DUMP_MOD_DIRS 128
+static u8 (*dumpModDone)[(TEXPACK_MOD_TEXTURES + 7) / 8];
 
 static inline u32 texpackHash(const void *data)
 {
@@ -1241,7 +1287,9 @@ static s32 texpackParseHexName(const char *name, u32 limit)
 
 static s32 texpackParseNativeName(const char *name)
 {
-	return texpackParseHexName(name, NUM_TEXTURES);
+	// a maps-only mod numbers its own art, past the ROM's table where it is
+	// a conversion's
+	return texpackParseHexName(name, scanningMod ? TEXPACK_MOD_TEXTURES : NUM_TEXTURES);
 }
 
 static void texpackAddUnplacedTo(u32 crc, char *path, s32 *count)
@@ -1381,10 +1429,11 @@ struct texpackscan {
 	s32 fontId;   // the font this folder holds glyphs for, or -1
 	s32 outline;  // and whether they are the outline set
 	s32 xbla;     // this folder's names are Textures.raw records, not texture numbers
+	s32 conv;     // this is the folder scanPackConv names, inside a pack
 };
 
 static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline,
-		s32 xbla);
+		s32 xbla, s32 conv);
 
 /**
  * The character index a glyph image is for: its name in hex, any number of
@@ -2322,6 +2371,30 @@ static void texpackIndexFile(const char *name, void *arg)
 	const char *dir = scan->dir;
 	s32 texturenum;
 
+	// A conversion's folder (ge-n64, gf64-n64, tnd64-n64: the asset dump's
+	// names) holds that conversion's numbers, which are not the ROM's: never
+	// in the stock index, where 0041_ci8.png out of ge-n64 repainted Perfect
+	// Dark's own 0041, and only in the conversion's own - see texpackModUse().
+	// A mod's scan of the pack walks the folders looking for its one and
+	// indexes nothing on the way.
+	if (scanPackConv && !scan->conv) {
+		const char *dot = strrchr(name, '.');
+
+		if (scan->depth < TEXPACK_MAXDEPTH && (!dot || texpackImageExt(dot) == TEXPACK_EXT_NONE)) {
+			char sub[FS_MAXPATH + 1];
+
+			snprintf(sub, sizeof(sub), "%s/%s", dir, name);
+			texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp, -1, 0, 0,
+					!strcasecmp(name, scanPackConv));
+		}
+
+		return;
+	}
+
+	if (!scanningMod && gexPlusRomTagOfDumpFolder(name)) {
+		return;
+	}
+
 	// Inside a font's folder a name means a character, not a texture number:
 	// 21.png is '!', not texture 0x0021.
 	if (scan->fontId >= 0 && texpackParseGlyphName(name) >= 0) {
@@ -2384,12 +2457,14 @@ static void texpackIndexFile(const char *name, void *arg)
 					subOutline = 1;
 				}
 
-				if (subFont < 0 && !strcasecmp(name, TEXPACK_XBLA_DIR)) {
+				if (subFont < 0 && (!strcasecmp(name, TEXPACK_XBLA_DIR)
+							|| !strcasecmp(name, TEXPACK_XBLA_DUMP_DIR))) {
 					subXbla = 1;
 				}
 
 				snprintf(sub, sizeof(sub), "%s/%s", dir, name);
-				texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp, subFont, subOutline, subXbla);
+				texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp, subFont, subOutline, subXbla,
+						scan->conv);
 			}
 
 			return;
@@ -2569,7 +2644,7 @@ static s32 texpackDirIsBottomUp(const char *path)
 }
 
 static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline,
-		s32 xbla)
+		s32 xbla, s32 conv)
 {
 	struct texpackscan scan;
 
@@ -2590,13 +2665,14 @@ static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fon
 	scan.fontId = fontId;
 	scan.outline = outline;
 	scan.xbla = xbla;
+	scan.conv = conv;
 
 	fsScanDir(path, texpackIndexFile, &scan);
 }
 
 static void texpackScanPath(const char *path)
 {
-	texpackScanPathAt(path, 0, 0, -1, 0, 0);
+	texpackScanPathAt(path, 0, 0, -1, 0, 0, 0);
 }
 
 static void texpackScanDir(const char *dir)
@@ -2958,11 +3034,11 @@ static void texpackModDrop(void)
 
 	texpackAsyncReset();
 
-	for (i = 0; modReplacePaths && i < NUM_TEXTURES; i++) {
+	for (i = 0; modReplacePaths && i < TEXPACK_MOD_TEXTURES; i++) {
 		free(modReplacePaths[i]);
 	}
 
-	for (i = 0; modReplaceAlphaPaths && i < NUM_TEXTURES; i++) {
+	for (i = 0; modReplaceAlphaPaths && i < TEXPACK_MOD_TEXTURES; i++) {
 		free(modReplaceAlphaPaths[i]);
 	}
 
@@ -2995,7 +3071,7 @@ static void texpackModDrop(void)
 
 	// Its decoded images go with it; the stock half of the store is left
 	// alone, since those numbers still mean what they meant.
-	for (i = 0; kept && i < NUM_TEXTURES; i++) {
+	for (i = 0; kept && i < TEXPACK_MOD_TEXTURES; i++) {
 		texpackKeptDrop(NUM_TEXTURES + TEXPACK_XBLA_RECORDS + i);
 	}
 
@@ -3032,10 +3108,10 @@ static void texpackModUse(s32 dir)
 	modIndexHtcFile = numHtcFiles;
 	modIndexHtcEntry = numHtcEntries;
 
-	modReplacePaths = calloc(NUM_TEXTURES, sizeof(char *));
-	modReplaceAlphaPaths = calloc(NUM_TEXTURES, sizeof(char *));
-	modReplaceKinds = calloc(NUM_TEXTURES, sizeof(u8));
-	modReplaceFlip = calloc(NUM_TEXTURES, sizeof(u8));
+	modReplacePaths = calloc(TEXPACK_MOD_TEXTURES, sizeof(char *));
+	modReplaceAlphaPaths = calloc(TEXPACK_MOD_TEXTURES, sizeof(char *));
+	modReplaceKinds = calloc(TEXPACK_MOD_TEXTURES, sizeof(u8));
+	modReplaceFlip = calloc(TEXPACK_MOD_TEXTURES, sizeof(u8));
 
 	if (!modReplacePaths || !modReplaceAlphaPaths || !modReplaceKinds || !modReplaceFlip) {
 		sysLogPrintf(LOG_ERROR, "texpack: could not alloc the index for %s", path);
@@ -3045,6 +3121,30 @@ static void texpackModUse(s32 dir)
 
 	scanningMod = 1;
 	texpackScanDir(path);
+
+	// A conversion's pictures in the selected pack, in a folder named for
+	// it the way the asset dump names it (gf64-n64/0f12_rgba16.png), after
+	// its own textures/ so the pack wins. Outside mods/<conversion>/, which
+	// every reconversion deletes and writes again.
+	if (modloaderDirIndexIsConversion(dir) && gexPlusRomDirTag(path)) {
+		const char *pack = texpackResolveSelected();
+		char folder[64];
+
+		if (pack) {
+			const s32 before = numModReplacements;
+
+			snprintf(folder, sizeof(folder), "%s" GEXPLUSROM_DUMP_SUFFIX, gexPlusRomDirTag(path));
+			scanPackConv = folder;
+			texpackScanPath(pack);
+			scanPackConv = NULL;
+
+			if (numModReplacements != before) {
+				sysLogPrintf(LOG_NOTE, "texpack: %s's %s folder repaints %d of %s's texture(s)",
+						packName, folder, numModReplacements - before, path);
+			}
+		}
+	}
+
 	scanningMod = 0;
 
 	if (numModReplacements || numModUnplaced) {
@@ -3521,7 +3621,7 @@ static struct texpackkept *texpackJobKeep(struct texpackjob *job)
  * the queue as slots free up - from texpackPollDecoded(), once a frame. Order
  * is by id rather than by request, which nothing depends on.
  */
-#define TEXPACK_NUM_JOB_IDS (TEXPACK_MOD_ID_BASE + NUM_TEXTURES)
+#define TEXPACK_NUM_JOB_IDS (TEXPACK_MOD_ID_BASE + TEXPACK_MOD_TEXTURES)
 
 static u8 jobBacklog[(TEXPACK_NUM_JOB_IDS + 7) / 8];
 static s32 jobBacklogCount;
@@ -3876,7 +3976,7 @@ static u8 *texpackClaimDecoded(s32 texturenum, s32 *outWidth, s32 *outHeight)
 							? texturenum - TEXPACK_MOD_ID_BASE
 							: texturenum;
 
-						if (num < NUM_TEXTURES
+						if (num < TEXPACK_MOD_TEXTURES
 								&& !(keptReport[num >> 3] & (1 << (num & 7)))) {
 							keptReport[num >> 3] |= (u8)(1 << (num & 7));
 							keptReportCount++;
@@ -3935,7 +4035,7 @@ s32 texpackPollDecoded(s32 *out, s32 max)
 	SDL_LockMutex(jobLock);
 
 	// Kept by a claim since the last call - see keptReport.
-	for (i = 0; keptReportCount > 0 && count < max && i < NUM_TEXTURES; i++) {
+	for (i = 0; keptReportCount > 0 && count < max && i < TEXPACK_MOD_TEXTURES; i++) {
 		if (!keptReport[i >> 3]) {
 			i |= 7;
 			continue;
@@ -4051,7 +4151,9 @@ u8 *texpackLoadReplacement(const void *data, s32 *outWidth, s32 *outHeight)
 	slot = texpackFindSlot(data);
 	texturenum = slot ? slot->texturenum : -1;
 
-	if (texturenum < 0 || texturenum >= NUM_TEXTURES) {
+	// A mod's map numbers its art up to the twelve bits a texture command
+	// holds; the ROM's table stops at NUM_TEXTURES
+	if (texturenum < 0 || texturenum >= (slot->modart == TEXPACK_ART_MODSTAGE ? TEXPACK_MOD_TEXTURES : NUM_TEXTURES)) {
 		return NULL;
 	}
 
@@ -4689,14 +4791,30 @@ static const char *texpackFormatName(u32 fmt, u32 siz)
 	return name;
 }
 
+// pd-n64 or pd-xbla, with the ROM version after it for a build of another
+static void texpackDumpPdName(char *dst, size_t len, const char *base)
+{
+	if (!strcmp(VERSION_ROMID, TEXPACK_DUMP_DEFAULT_ROMID)) {
+		snprintf(dst, len, "%s", base);
+	} else {
+		snprintf(dst, len, "%s-%s", base, VERSION_ROMID);
+	}
+}
+
+static s32 texpackDumpMakeDir(const char *path)
+{
+	return fsFileSize(path) >= 0 || fsCreateDir(path) == 0;
+}
+
 /**
  * Picks and creates the dump directory on the first texture written, so a run
- * with dumping off never touches the disk.
+ * with dumping off never touches the disk. The layout is over
+ * TEXPACK_DUMP_DIR_NAME.
  */
 s32 texpackOpenDumpDir(void)
 {
 	char rel[FS_MAXPATH + 1];
-	u32 len;
+	char name[64];
 
 	if (dumpDirState != 0) {
 		return dumpDirState > 0;
@@ -4710,24 +4828,59 @@ s32 texpackOpenDumpDir(void)
 		return 0;
 	}
 
-	// One directory per ROM version. Texture numbers index that version's own
+	snprintf(dumpRoot, sizeof(dumpRoot), "%s", fsFullPath(rel));
+
+	// One folder per ROM version. Texture numbers index that version's own
 	// table, so a dump from an NTSC build names different textures to a PAL
 	// one and the two must not land on top of each other.
-	len = strlen(rel);
-	snprintf(rel + len, sizeof(rel) - len, "/%s", VERSION_ROMID);
+	texpackDumpPdName(name, sizeof(name), TEXPACK_DUMP_PD_N64);
+	snprintf(dumpDir, sizeof(dumpDir), "%s/%s", dumpRoot, name);
+	texpackDumpPdName(name, sizeof(name), TEXPACK_DUMP_PD_XBLA);
+	snprintf(dumpXblaDir, sizeof(dumpXblaDir), "%s/%s", dumpRoot, name);
 
-	if (fsFileSize(rel) < 0 && fsCreateDir(rel) != 0) {
-		sysLogPrintf(LOG_ERROR, "texpack: could not create %s", rel);
+	if (!texpackDumpMakeDir(dumpDir)) {
+		sysLogPrintf(LOG_ERROR, "texpack: could not create %s", dumpDir);
 		return 0;
 	}
 
-	strncpy(dumpDir, fsFullPath(rel), sizeof(dumpDir) - 1);
-	dumpDir[sizeof(dumpDir) - 1] = '\0';
 	dumpDirState = 1;
 
 	sysLogPrintf(LOG_NOTE, "texpack: dumping textures to %s", dumpDir);
 
+	{
+		// The layout before pd-n64, one folder named for the ROM version
+		char old[FS_MAXPATH + 1];
+
+		snprintf(old, sizeof(old), "%s/%s", dumpRoot, VERSION_ROMID);
+
+		if (fsFileSize(old) >= 0) {
+			sysLogPrintf(LOG_NOTE, "texpack: %s is an older dump's layout and is left as it is;"
+					" dumps go to %s and %s now", old, dumpDir, dumpXblaDir);
+		}
+	}
+
 	return 1;
+}
+
+/**
+ * pd-n64/raw/, where the side files go: made on the first one, so a dump of
+ * pictures alone does not leave an empty folder. NULL when it cannot be.
+ */
+static const char *texpackDumpRawDir(void)
+{
+	static char dir[FS_MAXPATH + 1];
+	static s32 state; // 0 = not tried, 1 = ready, -1 = gave up
+
+	if (state == 0 && texpackOpenDumpDir()) {
+		snprintf(dir, sizeof(dir), "%s/" TEXPACK_DUMP_RAW_SUB, dumpDir);
+		state = texpackDumpMakeDir(dir) ? 1 : -1;
+
+		if (state < 0) {
+			sysLogPrintf(LOG_ERROR, "texpack: could not create %s", dir);
+		}
+	}
+
+	return state > 0 ? dir : NULL;
 }
 
 /**
@@ -4741,14 +4894,18 @@ s32 texpackOpenDumpDir(void)
 static void texpackDumpRaw(s32 texturenum, u32 fmt, u32 siz, const struct texpackrawinfo *raw)
 {
 	char path[FS_MAXPATH + 1];
+	const char *rawdir = texpackDumpRawDir();
 	FILE *f;
 
-	if (!raw || !raw->data || !raw->sizeBytes) {
+	if (!raw || !raw->data || !raw->sizeBytes || !rawdir) {
 		return;
 	}
 
+	// Its own manifest: Dump All's manifest.csv beside it has twelve columns,
+	// which the converters in tools/texpack/ read, and F7 opening that name
+	// for writing wiped it.
 	if (!dumpManifest) {
-		snprintf(path, sizeof(path), "%s/manifest.csv", dumpDir);
+		snprintf(path, sizeof(path), "%s/manifest-live.csv", rawdir);
 		dumpManifest = fopen(path, "wb");
 
 		if (!dumpManifest) {
@@ -4767,7 +4924,7 @@ static void texpackDumpRaw(s32 texturenum, u32 fmt, u32 siz, const struct texpac
 	// it, and the manifest is worth nothing if the last buffer never lands.
 	fflush(dumpManifest);
 
-	snprintf(path, sizeof(path), "%s/%04x.raw", dumpDir, texturenum);
+	snprintf(path, sizeof(path), "%s/%04x.raw", rawdir, texturenum);
 	f = fopen(path, "wb");
 
 	if (f) {
@@ -4776,7 +4933,7 @@ static void texpackDumpRaw(s32 texturenum, u32 fmt, u32 siz, const struct texpac
 	}
 
 	if (raw->palette) {
-		snprintf(path, sizeof(path), "%s/%04x.pal", dumpDir, texturenum);
+		snprintf(path, sizeof(path), "%s/%04x.pal", rawdir, texturenum);
 		f = fopen(path, "wb");
 
 		if (f) {
@@ -4940,17 +5097,94 @@ void texpackDumpFlush(void)
 	SDL_UnlockMutex(dumpLock);
 }
 
+/**
+ * F7 on a mod's map: the map's own art, which its mod numbers itself, into a
+ * folder of that mod's under texture-dumps/ rather than pd-n64, where it took
+ * the ROM's numbers and whichever was drawn first won. A conversion's is the
+ * folder the asset dump writes for it (gf64-n64), which is also the folder a
+ * pack keeps its pictures in; another maps-only mod's is named for its
+ * folder. No side files: tools/texpack/ converts Perfect Dark's.
+ */
+static void texpackDumpModTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 siz,
+		const struct texpackslot *slot)
+{
+	const s32 texturenum = slot->texturenum;
+	const s32 moddir = slot->moddir;
+	const char *mod = moddir >= 0 ? fsGetModDirAt(moddir) : NULL;
+	const char *tag;
+	char dir[FS_MAXPATH + 1];
+	char path[FS_MAXPATH + 1];
+
+	if (!mod || texturenum < 0 || texturenum >= TEXPACK_MOD_TEXTURES || moddir >= TEXPACK_DUMP_MOD_DIRS) {
+		return;
+	}
+
+	if (!dumpModDone) {
+		dumpModDone = calloc(TEXPACK_DUMP_MOD_DIRS, sizeof(*dumpModDone));
+
+		if (!dumpModDone) {
+			return;
+		}
+	}
+
+	if (dumpModDone[moddir][texturenum >> 3] & (1 << (texturenum & 7))) {
+		return;
+	}
+
+	// Marked before the write, as below
+	dumpModDone[moddir][texturenum >> 3] |= (u8)(1 << (texturenum & 7));
+
+	if (!texpackOpenDumpDir()) {
+		return;
+	}
+
+	tag = gexPlusRomDirTag(mod);
+
+	if (tag) {
+		snprintf(dir, sizeof(dir), "%s/%s" GEXPLUSROM_DUMP_SUFFIX, dumpRoot, tag);
+	} else {
+		const char *base = mod;
+
+		for (const char *p = mod; *p; p++) {
+			if (*p == '/' || *p == '\\') {
+				base = p + 1;
+			}
+		}
+
+		snprintf(dir, sizeof(dir), "%s/%s", dumpRoot, base);
+	}
+
+	if (!texpackDumpMakeDir(dir)) {
+		sysLogPrintf(LOG_ERROR, "texpack: could not create %s", dir);
+		return;
+	}
+
+	snprintf(path, sizeof(path), "%s/%04x_%s.png", dir, texturenum, texpackFormatName(fmt, siz));
+
+	if (texpackDumpWrite(path, rgba32, width, height)) {
+		sysLogPrintf(LOG_NOTE, "texpack: dumped %04x %ux%u %s of %s",
+				texturenum, width, height, texpackFormatName(fmt, siz), mod);
+	}
+}
+
 void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 siz,
 		const struct texpackrawinfo *raw)
 {
 	char path[FS_MAXPATH + 1];
+	const struct texpackslot *slot;
 	s32 texturenum;
 
 	if (!dumpTextures || !rgba32 || width == 0 || height == 0) {
 		return;
 	}
 
-	texturenum = texpackGetTextureNum(raw ? raw->data : NULL);
+	slot = texpackFindSlot(raw ? raw->data : NULL);
+	texturenum = slot ? slot->texturenum : -1;
+
+	if (slot && slot->modart == TEXPACK_ART_MODSTAGE) {
+		texpackDumpModTexture(rgba32, width, height, fmt, siz, slot);
+		return;
+	}
 
 	if (texturenum < 0 || texturenum >= NUM_TEXTURES) {
 		// Framebuffer captures, the Japanese font glyph cache and anything
@@ -4996,8 +5230,8 @@ void texpackDumpTexture(const u8 *rgba32, u32 width, u32 height, u32 fmt, u32 si
  * nothing above ever sees them - but they are the one thing a person editing
  * the meshes' art needs, and the only way to know which record a jacket or a
  * wall panel is, is to see it come off the thing being looked at. Written from
- * the same F7 as everything else, into an xbla/ folder under the dump, which is
- * the folder a pack wants: dump, paint over it, drop the folder into the pack.
+ * the same F7 as everything else, into pd-xbla/ beside the dump, which is the
+ * folder a pack wants: dump, paint over it, drop the folder into the pack.
  *
  * Once per record per run, and turned over on the way out for the same reason
  * every other dump is - the picture is in the game's row order and an image
@@ -5030,10 +5264,13 @@ void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
  * The same file, written whether or not the F7 dump is on: what the asset
  * dump calls for every record in the package.
  */
+static FILE *dumpXblaIndex; // pd-xbla/index.csv, while the asset dump writes the records
+
 static s32 texpackWriteXblaRecordTo(const u8 *rgba32, u32 width, u32 height, u32 record, s32 queued)
 {
 	static s32 xblaDumpDirState; // 0 = not tried, 1 = ready, -1 = gave up
 	char path[FS_MAXPATH + 1];
+	s32 written;
 
 	if (!rgba32 || width == 0 || height == 0) {
 		return 0;
@@ -5044,13 +5281,10 @@ static s32 texpackWriteXblaRecordTo(const u8 *rgba32, u32 width, u32 height, u32
 	}
 
 	if (xblaDumpDirState == 0) {
-		xblaDumpDirState = -1;
-		snprintf(path, sizeof(path), "%s/" TEXPACK_XBLA_DIR, dumpDir);
+		xblaDumpDirState = texpackDumpMakeDir(dumpXblaDir) ? 1 : -1;
 
-		if (fsFileSize(path) >= 0 || fsCreateDir(path) == 0) {
-			xblaDumpDirState = 1;
-		} else {
-			sysLogPrintf(LOG_ERROR, "texpack: could not create %s", path);
+		if (xblaDumpDirState < 0) {
+			sysLogPrintf(LOG_ERROR, "texpack: could not create %s", dumpXblaDir);
 		}
 	}
 
@@ -5058,10 +5292,38 @@ static s32 texpackWriteXblaRecordTo(const u8 *rgba32, u32 width, u32 height, u32
 		return 0;
 	}
 
-	snprintf(path, sizeof(path), "%s/" TEXPACK_XBLA_DIR "/%04x.png", dumpDir, record);
+	snprintf(path, sizeof(path), "%s/%04x.png", dumpXblaDir, record);
 
-	return queued ? texpackDumpWrite(path, rgba32, width, height)
-		: pngWrite(path, rgba32, width, height, 4, 1) != 0;
+	if (queued) {
+		return texpackDumpWrite(path, rgba32, width, height);
+	}
+
+	written = pngWrite(path, rgba32, width, height, 4, 1) != 0;
+
+	// The asset dump's pass over every record writes the index beside them,
+	// as GoldenEye's has; F7's are a handful and have none
+	if (written && !dumpXblaIndex) {
+		snprintf(path, sizeof(path), "%s/index.csv", dumpXblaDir);
+		dumpXblaIndex = fopen(path, "wb");
+
+		if (dumpXblaIndex) {
+			fprintf(dumpXblaIndex, "record,width,height,png\n");
+		}
+	}
+
+	if (written && dumpXblaIndex) {
+		fprintf(dumpXblaIndex, "%04x,%u,%u,%04x.png\n", record, width, height, record);
+	}
+
+	return written;
+}
+
+void texpackDumpXblaClose(void)
+{
+	if (dumpXblaIndex) {
+		fclose(dumpXblaIndex);
+		dumpXblaIndex = NULL;
+	}
 }
 
 s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
@@ -5072,6 +5334,16 @@ s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
 const char *texpackGetDumpDir(void)
 {
 	return texpackOpenDumpDir() ? dumpDir : NULL;
+}
+
+const char *texpackGetDumpRoot(void)
+{
+	return texpackOpenDumpDir() ? dumpRoot : NULL;
+}
+
+const char *texpackGetDumpXblaDir(void)
+{
+	return texpackOpenDumpDir() ? dumpXblaDir : NULL;
 }
 
 /**
@@ -5214,18 +5486,20 @@ u8 *texpackTexToRgba(struct tex *tex, s32 *outWidth, s32 *outHeight)
 // The incremental whole-table dump: a pool, a manifest and where it is up
 // to, so that the asset dump can write a few textures a frame from the menu.
 static u8 *dumpAllBuffer;
-static FILE *dumpAllManifest;
+static FILE *dumpAllManifest; // pd-n64/raw/manifest.csv
+static FILE *dumpAllIndex;    // pd-n64/index.csv
 static s32 dumpAllCount;
 
 s32 texpackDumpOpen(void)
 {
 	char path[FS_MAXPATH + 1];
+	const char *rawdir;
 
 	if (dumpAllBuffer) {
 		return 1;
 	}
 
-	if (!texpackOpenDumpDir()) {
+	if (!texpackOpenDumpDir() || !(rawdir = texpackDumpRawDir())) {
 		return 0;
 	}
 
@@ -5236,7 +5510,7 @@ s32 texpackDumpOpen(void)
 		return 0;
 	}
 
-	snprintf(path, sizeof(path), "%s/manifest.csv", dumpDir);
+	snprintf(path, sizeof(path), "%s/manifest.csv", rawdir);
 	dumpAllManifest = fopen(path, "wb");
 
 	if (!dumpAllManifest) {
@@ -5248,6 +5522,15 @@ s32 texpackDumpOpen(void)
 
 	fprintf(dumpAllManifest, "texnum,fmt,siz,tilewidth,tileheight,linesize,size,palidx,numlods,hasloddata,lutmode,numcolours\n");
 	dumpAllCount = 0;
+
+	// GoldenEye's columns (assetdump.c) less its image number, and the ROM
+	// version the numbers are of. The size is the padded one, the picture's.
+	snprintf(path, sizeof(path), "%s/index.csv", dumpDir);
+	dumpAllIndex = fopen(path, "wb");
+
+	if (dumpAllIndex) {
+		fprintf(dumpAllIndex, "texnum,fmt,width,height,png,romid\n");
+	}
 
 	return 1;
 }
@@ -5300,7 +5583,7 @@ s32 texpackDumpTextureNum(s32 n)
 			texGetLineSizeInBytes(tex, 0) * 8 * wide, size, tex->numlods, tex->hasloddata,
 			tex->lutmodeindex, tex->unk0a + 1);
 
-	snprintf(path, sizeof(path), "%s/%04x.raw", dumpDir, n);
+	snprintf(path, sizeof(path), "%s/%04x.raw", texpackDumpRawDir(), n);
 	f = fopen(path, "wb");
 
 	if (f) {
@@ -5314,9 +5597,15 @@ s32 texpackDumpTextureNum(s32 n)
 		u8 *rgba = texpackTexToRgba(tex, &pngWidth, &pngHeight);
 
 		if (rgba) {
-			snprintf(path, sizeof(path), "%s/%04x_%s.png", dumpDir, n,
-					texpackFormatName(tex->gbiformat, tex->depth));
-			pngWrite(path, rgba, pngWidth, pngHeight, 4, 0);
+			const char *fmt = texpackFormatName(tex->gbiformat, tex->depth);
+
+			snprintf(path, sizeof(path), "%s/%04x_%s.png", dumpDir, n, fmt);
+
+			if (pngWrite(path, rgba, pngWidth, pngHeight, 4, 0) && dumpAllIndex) {
+				fprintf(dumpAllIndex, "%04x,%s,%d,%d,%04x_%s.png,%s\n", n, fmt, pngWidth, pngHeight,
+						n, fmt, VERSION_ROMID);
+			}
+
 			free(rgba);
 		}
 	}
@@ -5330,7 +5619,7 @@ s32 texpackDumpTextureNum(s32 n)
 
 		texGetDepthAndSize(tex, &depth, &len);
 
-		snprintf(path, sizeof(path), "%s/%04x.pal", dumpDir, n);
+		snprintf(path, sizeof(path), "%s/%04x.pal", texpackDumpRawDir(), n);
 		f = fopen(path, "wb");
 
 		if (f) {
@@ -5356,6 +5645,12 @@ void texpackDumpClose(void)
 
 	fclose(dumpAllManifest);
 	dumpAllManifest = NULL;
+
+	if (dumpAllIndex) {
+		fclose(dumpAllIndex);
+		dumpAllIndex = NULL;
+	}
+
 	free(dumpAllBuffer);
 	dumpAllBuffer = NULL;
 

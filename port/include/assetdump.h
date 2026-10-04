@@ -14,28 +14,41 @@ extern "C" {
  * Four passes for Perfect Dark, each of which is the whole of its table
  * rather than what the game happened to draw:
  *
- *   texture-dumps/<romid>/          every texture in the ROM, as texpack's
- *                                   --dump-textures wrote them: a PNG the
- *                                   right way up, the raw texels, the palette
- *                                   and a manifest - the layout a texture
- *                                   pack reads back
- *   texture-dumps/<romid>/xbla/     every record of the XBLA release's
- *                                   Textures.raw, the folder a pack's xbla/
- *                                   folder is a copy of
- *   model-dumps/n64/<name>.obj      every model in the ROM - the characters,
+ *   texture-dumps/pd-n64/           every texture in the ROM as a PNG the
+ *                                   right way up, with index.csv - the layout
+ *                                   a texture pack reads back - and in raw/
+ *                                   the raw texels, the palettes and
+ *                                   manifest.csv, which tools/texpack/ reads
+ *                                   (pd-n64-<romid> for a ROM version other
+ *                                   than ntsc-final)
+ *   texture-dumps/pd-xbla/          every record of the XBLA release's
+ *                                   Textures.raw with index.csv, the folder a
+ *                                   pack's xbla/ (or pd-xbla/) folder is a
+ *                                   copy of
+ *   model-dumps/pd-n64/<name>.obj   every model in the ROM - the characters,
  *                                   the props and the guns - as OBJ, a group
  *                                   per list node, with an MTL naming the
  *                                   textures above
- *   model-dumps/xbla/<name>.obj     every mesh in the XBLA release's
+ *   model-dumps/pd-xbla/<name>.obj  every mesh in the XBLA release's
  *                                   package, the same way, named for the
  *                                   model it replaces
  *
- * and GoldenEye's, each in folders of their own, only when there is one:
+ * Until 2026-10 those were texture-dumps/<romid>/ (records in xbla/ inside
+ * it) and model-dumps/n64/ and xbla/; a dump of then is left where it is.
+ *
+ * and the GoldenEye ROM's conversions, each in folders of their own, only
+ * when there is one:
  *
  *   texture-dumps/ge-n64/           the textures of the conversion of the
  *                                   player's GoldenEye ROM (mods/GoldenEye
  *                                   Arenas/textures), by the conversion's
  *                                   number, with index.csv giving GoldenEye's
+ *                                   own (rom_image), its first line the game
+ *                                   and the converter that wrote it
+ *   texture-dumps/gf64-n64/, tnd64-n64/  the same of each ROM hack's
+ *                                   conversion (mods/Goldfinger 64, mods/
+ *                                   Tomorrow Never Dies 64), rom_image from
+ *                                   its textures/remap.csv; textures only
  *   model-dumps/ge-n64/{props,chars,hand}/  its models (files/Pgx, Cgx,
  *                                   Igx), named by the ROM's own file names,
  *                                   index.csv saying which is which

@@ -168,6 +168,13 @@ in the session, lui/lo at the same PCs in both ROMs), ares its pieces.
   both looks (`gebeanFindRow()`, and `gebeanPoolRowForFile()`'s remake-file
   branch, which is where Goldfinger's `Pgx030Z` became GoldenEye's console):
   `gebeanFileIsRomHack()` keeps them off a hack's files.
+- **Texture packs and the dump** (converter 122, 2026-10-04): Dump All writes
+  its textures to `texture-dumps/gf64-n64/` (TND64's to `tnd64-n64/`, the
+  `tag` of its `g_Layouts` row), `index.csv`'s `rom_image` read from the
+  `textures/remap.csv` the converter writes - the one record of which image
+  `variantTexRemap()` moved where. A pack's `gf64-n64/` folder repaints this
+  hack's levels and nothing else, numbers to 0x0fff (563 of its textures are
+  at 0xdaf and up). No model dump for a hack yet. texture-packs.md has it.
 
 ## Its guns (converter 99)
 

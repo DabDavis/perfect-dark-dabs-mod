@@ -33,6 +33,7 @@
 #include "gebean.h"
 #include "geconvert.h"
 #include "gexplusrom.h"
+#include "modloader.h"
 #include "game/file.h"
 #include "game/tex.h"
 #include "game/texdecompress.h"
@@ -41,12 +42,19 @@
 #ifndef PLATFORM_N64
 
 #define ASSETDUMP_DIR "model-dumps"
-#define ASSETDUMP_N64_SUB "n64"
-#define ASSETDUMP_XBLA_SUB "xbla"
+// Perfect Dark's, named as GoldenEye's are (n64 and xbla before 2026-10,
+// still read by a model pack, never written)
+#define ASSETDUMP_N64_SUB "pd-n64"
+#define ASSETDUMP_XBLA_SUB "pd-xbla"
 // GoldenEye's, each in a folder of its own under both model-dumps/ and
-// texture-dumps/: the conversion of the player's ROM, and the XBLA release
+// texture-dumps/: the conversion of the player's ROM, and the XBLA release.
+// A ROM hack's conversion is <its tag>-n64 under texture-dumps/ alone
+// (gexPlusRomDirTag(): gf64-n64, tnd64-n64)
 #define ASSETDUMP_GEN64_SUB "ge-n64"
 #define ASSETDUMP_GEXBLA_SUB "ge-xbla"
+
+// Conversions the textures pass can visit: GoldenEye's and its hacks'
+#define ASSETDUMP_MAXCONV 8
 
 // Texture numbers a model's texture command can name: twelve bits, which is
 // more than the ROM's table, since GoldenEye's conversion has its own
@@ -87,7 +95,8 @@ static u64 phaseStart; // for the log: how long each pass took
 static char status[128];
 static char modelDir[FS_MAXPATH + 1];   // model-dumps, expanded
 static char texDir[FS_MAXPATH + 1];     // texture-dumps/<romid>, expanded
-static char texRel[FS_MAXPATH + 1];     // the same as an MTL from model-dumps/n64/ sees it
+static char texRel[FS_MAXPATH + 1];     // the same as an MTL from model-dumps/pd-n64/ sees it
+static char texXblaRel[FS_MAXPATH + 1]; // texture-dumps/pd-xbla as an MTL from model-dumps/pd-xbla/ sees it
 static char texRoot[FS_MAXPATH + 1];    // texture-dumps, expanded
 static char texRootName[64];            // its own name, "texture-dumps"
 static s32 texRootShared;               // under the same folder as model-dumps
@@ -134,8 +143,10 @@ static s32 assetDumpMakeDir(const char *path)
 	return fsFileSize(path) >= 0 || fsCreateDir(path) == 0;
 }
 
+static void assetDumpTexRelFrom(char *dst, size_t len, s32 depth, const char *sub);
+
 /**
- * model-dumps/ with n64/ and xbla/ inside it, and how the texture dump is
+ * model-dumps/ with pd-n64/ and pd-xbla/ inside it, and how the texture dump is
  * reached from there. Both directories come from fsChooseOutputDir(), so
  * they are normally under one root and the MTL can say ../../texture-dumps;
  * when they are not, the MTL says the whole path.
@@ -216,6 +227,14 @@ static s32 assetDumpOpenDirs(void)
 		const char *slash = strrchr(texRoot, '/');
 
 		snprintf(texRootName, sizeof(texRootName), "%s", slash ? slash + 1 : texRoot);
+	}
+
+	{
+		// the release's records beside the ROM's textures, not inside them
+		const char *xbla = texpackGetDumpXblaDir();
+		const char *slash = xbla ? strrchr(xbla, '/') : NULL;
+
+		assetDumpTexRelFrom(texXblaRel, sizeof(texXblaRel), 1, slash ? slash + 1 : ASSETDUMP_XBLA_SUB);
 	}
 
 	return 1;
@@ -866,15 +885,15 @@ static s32 assetDumpMesh(s32 slot, s32 numslots)
 		struct objmaterial *mat = &m->materials[i];
 
 		if (mat->kind == OBJMAT_XBLA) {
-			snprintf(mat->image, sizeof(mat->image), "%s/xbla/%04x.png", texRel, mat->id);
+			snprintf(mat->image, sizeof(mat->image), "%s/%04x.png", texXblaRel, mat->id);
 		}
 	}
 
 	snprintf(path, sizeof(path), "%s/" ASSETDUMP_XBLA_SUB "/%s.obj", modelDir, name);
 	snprintf(comment, sizeof(comment),
 			"XBLA mesh for %s: PackedSegFile slot %d, named by model file id 0x%04x, %u groups, %u palette entries, header scale %g\n"
-			"a group per part of the model (part0..); textures are xbla_<record> in %s/xbla%s",
-			name, slot, fileid, m->numgroups, m->nummatrices, m->headerscale, texRel, where);
+			"a group per part of the model (part0..); textures are xbla_<record> in %s%s",
+			name, slot, fileid, m->numgroups, m->nummatrices, m->headerscale, texXblaRel, where);
 	written = objmeshWrite(m, path, comment);
 	objmeshFree(m);
 
@@ -1016,12 +1035,32 @@ static void assetDumpSafeName(char *dst, size_t len, const char *src)
 #define GENAMES_MAX 340
 #define GENAMES_LEN 40
 
-static s32 geDir = -1;               // the mounted mod dir holding the conversion
-static char geTexOut[FS_MAXPATH + 1];    // texture-dumps/ge-n64, expanded
+static s32 geDir = -1;               // the mounted mod dir holding GoldenEye's conversion
+static char geTexOut[FS_MAXPATH + 1];    // texture-dumps/<tag>-n64 of the conversion in hand, expanded
 static char geModelOut[FS_MAXPATH + 1];  // model-dumps/ge-n64, expanded
 static char (*geNames)[GENAMES_MAX][GENAMES_LEN];
 static FILE *geIndex;
 static char texRelRom[FS_MAXPATH + 1];   // texRel while the GE models have it
+
+/**
+ * The conversions the textures pass dumps, each by the converter's numbers
+ * into texture-dumps/<tag>-n64/: GoldenEye's (ge-n64) and each ROM hack's
+ * (gf64-n64, tnd64-n64). Found by their folders' names, never by what is in
+ * them: all three have the same files, and the first mounted folder holding
+ * GoldenEye's first body was whichever the mod list happened to list first.
+ */
+struct assetdumpconv {
+	s32 dir;            // mounted mod dir
+	const char *tag;    // gexPlusRomDirTag()
+	const char *game;   // for the log and index.csv's first line
+	s32 count;          // textures written
+};
+
+static struct assetdumpconv convs[ASSETDUMP_MAXCONV];
+static s32 numConvs;
+static s32 convAt;      // the one the textures pass is on
+static s32 convDir = -1; // and its mounted dir
+static u16 *convImages; // its remap.csv: texture number -> ROM image + 1, 0 for none
 
 static void assetDumpGeName(void *arg, int kind, int num, const char *file)
 {
@@ -1030,31 +1069,123 @@ static void assetDumpGeName(void *arg, int kind, int num, const char *file)
 	}
 }
 
-/** The mounted mod that is GoldenEye's conversion (its first body is the marker, as in gexplus.c), or -1. */
-static s32 assetDumpFindGeDir(void)
+/**
+ * The mounted dir of the conversion in mods/<name>, mounting it for its maps
+ * if it is not - the player may have switched its maps off in the Stage
+ * Loader, or started with --moddir. Mounted as modborrow.c mounts the mod it
+ * borrows from, until the game exits. -1 when it is not there at all.
+ */
+static s32 assetDumpFindConvDir(const char *name)
 {
-	const s32 numdirs = fsGetNumModDirs();
+	static const char *const containers[] = { "$E/mods", "$H/mods" };
 
-	for (s32 i = 0; i < numdirs; i++) {
-		const char *at = fsGetModDirAt(i);
-		char path[FS_MAXPATH + 1];
+	const char *want = gexPlusRomDirTag(name);
 
-		if (!at) {
-			continue;
+	for (s32 i = 0; want && i < fsGetNumModDirs(); i++) {
+		const char *tag = gexPlusRomDirTag(fsGetModDirAt(i));
+
+		if (tag && !strcmp(tag, want)) {
+			return i;
 		}
+	}
 
-		snprintf(path, sizeof(path), "%s/files/Cgx000Z", at);
+	for (u32 i = 0; i < ARRAYCOUNT(containers); i++) {
+		char path[FS_MAXPATH + 1];
+		char dir[FS_MAXPATH + 1];
+
+		snprintf(dir, sizeof(dir), "%s/%s", containers[i], name);
+		snprintf(path, sizeof(path), "%s/modconfig.txt", dir);
 
 		if (fsFileSize(path) > 0) {
-			snprintf(path, sizeof(path), "%s/modconfig.txt", at);
+			const s32 index = fsAddMapsDir(dir);
 
-			if (fsFileSize(path) > 0) {
-				return i;
+			if (index >= 0) {
+				sysLogPrintf(LOG_NOTE, "assetdump: %s mounted for the dump", fsGetModDirAt(index));
 			}
+
+			return index;
 		}
 	}
 
 	return -1;
+}
+
+static void assetDumpConvAdd(const char *name, const char *game)
+{
+	const s32 dir = numConvs < ASSETDUMP_MAXCONV ? assetDumpFindConvDir(name) : -1;
+
+	if (dir >= 0) {
+		convs[numConvs].dir = dir;
+		convs[numConvs].tag = gexPlusRomDirTag(name);
+		convs[numConvs].game = game;
+		convs[numConvs].count = 0;
+		numConvs++;
+	}
+}
+
+static void assetDumpConvsFind(void)
+{
+	numConvs = 0;
+	convAt = -1;
+	convDir = -1;
+	geDir = modloaderGexPlusDirIndex();
+
+	if (geDir < 0) {
+		geDir = assetDumpFindConvDir(GEXPLUSROM_DIR);
+	}
+
+	if (geDir >= 0) {
+		convs[numConvs].dir = geDir;
+		convs[numConvs].tag = geconvertGoldenEyeTag();
+		convs[numConvs].game = "GoldenEye 007";
+		convs[numConvs].count = 0;
+		numConvs++;
+	} else {
+		sysLogPrintf(LOG_NOTE, "assetdump: no GoldenEye conversion (mods/" GEXPLUSROM_DIR "), so no " ASSETDUMP_GEN64_SUB " dump");
+	}
+
+	for (s32 i = 0; geconvertVariantNameAt(i); i++) {
+		assetDumpConvAdd(geconvertVariantNameAt(i), geconvertVariantNameAt(i));
+	}
+}
+
+/**
+ * The conversion's textures/remap.csv into convImages: the image each number
+ * was written from, which for a hack's moved numbers is known to nothing else
+ * (geconvert.c writes it since version 122). 0 when there is none.
+ */
+static s32 assetDumpReadRemap(s32 dir)
+{
+	char path[FS_MAXPATH + 1];
+	char line[64];
+	s32 rows = 0;
+	FILE *f;
+
+	free(convImages);
+	convImages = NULL;
+
+	snprintf(path, sizeof(path), "%s/textures/remap.csv", fsGetModDirAt(dir));
+	f = fopen(path, "rb");
+
+	if (!f) {
+		return 0;
+	}
+
+	convImages = calloc(ASSETDUMP_MAXTEX, sizeof(*convImages));
+
+	while (convImages && fgets(line, sizeof(line), f)) {
+		u32 num;
+		u32 image;
+
+		if (sscanf(line, "%x,%u", &num, &image) == 2 && num < ASSETDUMP_MAXTEX && image < 0xffff) {
+			convImages[num] = (u16)(image + 1);
+			rows++;
+		}
+	}
+
+	fclose(f);
+
+	return rows;
 }
 
 static void assetDumpScanGeTexture(const char *name, void *arg)
@@ -1076,45 +1207,78 @@ static void assetDumpScanGeModel(const char *name, void *arg)
 	}
 }
 
-/** The GE textures pass's list; 0 when there is no conversion to dump. */
-static s32 assetDumpGeTexturesBegin(void)
+/** One conversion's textures pass list; 0 when there is nothing to dump. */
+static s32 assetDumpGeTexturesBegin(const struct assetdumpconv *conv)
 {
 	char path[FS_MAXPATH + 1];
+	char stamp[64] = "geconvert " GECONVERT_VERSION_STR;
+	s32 remapped;
 
 	assetDumpJobsClear();
-	geDir = assetDumpFindGeDir();
+	convDir = conv->dir;
 
-	if (geDir < 0) {
-		sysLogPrintf(LOG_NOTE, "assetdump: no GoldenEye conversion mounted (mods/" GEXPLUSROM_DIR "), so no " ASSETDUMP_GEN64_SUB " dump");
-		return 0;
-	}
-
-	snprintf(geTexOut, sizeof(geTexOut), "%s/" ASSETDUMP_GEN64_SUB, texRoot);
-	snprintf(geModelOut, sizeof(geModelOut), "%s/" ASSETDUMP_GEN64_SUB, modelDir);
+	snprintf(geTexOut, sizeof(geTexOut), "%s/%s" GEXPLUSROM_DUMP_SUFFIX, texRoot, conv->tag);
 
 	if (!assetDumpMakeDirs(geTexOut)) {
 		sysLogPrintf(LOG_ERROR, "assetdump: could not create %s", geTexOut);
-		geDir = -1;
+		convDir = -1;
 		return 0;
 	}
 
-	snprintf(path, sizeof(path), "%s/textures", fsGetModDirAt(geDir));
+	snprintf(path, sizeof(path), "%s/textures", fsGetModDirAt(convDir));
 	fsScanDir(path, assetDumpScanGeTexture, NULL);
 	assetDumpJobsSort();
 
-	// A model's numbers are the conversion's now, not the ROM's
-	memset(texInfo, 0, sizeof(*texInfo) * ASSETDUMP_MAXTEX);
+	remapped = assetDumpReadRemap(convDir);
+
+	{
+		// The converter that wrote it, CONVERT.txt's first line: the
+		// numbers are that version's
+		FILE *f;
+
+		snprintf(path, sizeof(path), "%s/CONVERT.txt", fsGetModDirAt(convDir));
+		f = fopen(path, "rb");
+
+		if (f) {
+			char line[64];
+
+			if (fgets(line, sizeof(line), f) && !strncmp(line, "geconvert ", 10)) {
+				line[strcspn(line, "\r\n")] = '\0';
+				snprintf(stamp, sizeof(stamp), "%s", line);
+			}
+
+			fclose(f);
+		}
+	}
 
 	snprintf(path, sizeof(path), "%s/index.csv", geTexOut);
 	geIndex = fopen(path, "wb");
 
 	if (geIndex) {
-		fprintf(geIndex, "texnum,goldeneye_image,fmt,width,height,png\n");
+		fprintf(geIndex, "# %s, %s\n", conv->game, stamp);
+		fprintf(geIndex, "texnum,rom_image,fmt,width,height,png\n");
 	}
 
-	sysLogPrintf(LOG_NOTE, "assetdump: GoldenEye's conversion in %s: %d textures", fsGetModDirAt(geDir), numJobs);
+	sysLogPrintf(LOG_NOTE, "assetdump: %s's conversion in %s: %d textures%s", conv->game,
+			fsGetModDirAt(convDir), numJobs,
+			remapped ? "" : conv->tag == geconvertGoldenEyeTag() ? ""
+				: " (no textures/remap.csv: converted before 122, so the moved numbers' ROM images are not known)");
 
 	return numJobs;
+}
+
+/** The next conversion's textures pass list, 0 when they are all done. */
+static s32 assetDumpGeTexturesNext(void)
+{
+	while (++convAt < numConvs) {
+		const s32 count = assetDumpGeTexturesBegin(&convs[convAt]);
+
+		if (count > 0) {
+			return count;
+		}
+	}
+
+	return 0;
 }
 
 /** One of the conversion's textures, as the models' MTLs name it. */
@@ -1127,11 +1291,11 @@ static s32 assetDumpGeTexture(const char *file)
 	s32 written = 0;
 	s32 prev;
 
-	if (sscanf(file, "%4x", &num) != 1) {
+	if (convDir < 0 || sscanf(file, "%4x", &num) != 1) {
 		return 0;
 	}
 
-	prev = modSetTextureSourceMod(geDir);
+	prev = modSetTextureSourceMod(convDir);
 
 	texInitPool(&pool, texPool, ASSETDUMP_TEXPOOL);
 	texLoadFromTextureNum(num, &pool);
@@ -1149,7 +1313,18 @@ static s32 assetDumpGeTexture(const char *file)
 			written = pngWrite(path, rgba, width, height, 4, 0) != 0;
 
 			if (written && geIndex) {
-				fprintf(geIndex, "%04x,%u,%s,%d,%d,%04x_%s.png\n", num, geconvertTexUnremap(num), fmt,
+				// GoldenEye's own numbers move by one fixed table; a hack's
+				// by the order its arenas first used them, which only its
+				// remap.csv has - blank where that is missing
+				char image[16] = "";
+
+				if (convImages && convImages[num]) {
+					snprintf(image, sizeof(image), "%u", convImages[num] - 1);
+				} else if (convDir == geDir) {
+					snprintf(image, sizeof(image), "%u", geconvertTexUnremap(num));
+				}
+
+				fprintf(geIndex, "%04x,%s,%s,%d,%d,%04x_%s.png\n", num, image, fmt,
 						width, height, num, fmt);
 			}
 
@@ -1160,6 +1335,10 @@ static s32 assetDumpGeTexture(const char *file)
 	texpackForgetRange(texPool, texPool + ASSETDUMP_TEXPOOL);
 	modSetTextureSourceMod(prev);
 
+	if (written && convAt >= 0 && convAt < numConvs) {
+		convs[convAt].count++;
+	}
+
 	return written;
 }
 
@@ -1169,6 +1348,9 @@ static void assetDumpGeTexturesEnd(void)
 		fclose(geIndex);
 		geIndex = NULL;
 	}
+
+	free(convImages);
+	convImages = NULL;
 }
 
 static const char *const geKindDirs[GENAMES_KINDS] = { "props", "chars", "hand" };
@@ -1180,9 +1362,16 @@ static s32 assetDumpGeModelsBegin(void)
 
 	assetDumpJobsClear();
 
+	// GoldenEye's own models only: a hack's are not dumped (yet), and
+	// GoldenEye's names below would be wrong for them
 	if (geDir < 0 || !fsGetModDirAt(geDir)) {
 		return 0;
 	}
+
+	snprintf(geModelOut, sizeof(geModelOut), "%s/" ASSETDUMP_GEN64_SUB, modelDir);
+
+	// A model's numbers are the conversion's now, not the ROM's
+	memset(texInfo, 0, sizeof(*texInfo) * ASSETDUMP_MAXTEX);
 
 	for (s32 k = 0; k < GENAMES_KINDS; k++) {
 		snprintf(path, sizeof(path), "%s/%s", geModelOut, geKindDirs[k]);
@@ -1853,6 +2042,7 @@ static void assetDumpBeanStep(const char *job)
 static void assetDumpFinish(void)
 {
 	texpackDumpClose();
+	texpackDumpXblaClose();
 	free(texInfo);
 	free(texPool);
 	texInfo = NULL;
@@ -1872,9 +2062,17 @@ static void assetDumpFinish(void)
 	sysLogPrintf(LOG_NOTE, "assetdump: %s; textures in %s, models in %s%s", status, texDir, modelDir,
 			haveXbla ? "" : " (no XBLA package, so no XBLA textures or meshes)");
 
-	if (numGeTextures || numGeModels) {
-		sysLogPrintf(LOG_NOTE, "assetdump: GoldenEye's conversion: %d textures in %s, %d models in %s",
-				numGeTextures, geTexOut, numGeModels, geModelOut);
+	for (s32 i = 0; i < numConvs; i++) {
+		char models[FS_MAXPATH + 32] = "";
+
+		if (convs[i].dir == geDir && numGeModels) {
+			snprintf(models, sizeof(models), ", %d models in %s", numGeModels, geModelOut);
+		}
+
+		if (convs[i].count || models[0]) {
+			sysLogPrintf(LOG_NOTE, "assetdump: %s's conversion: %d textures in %s/%s" GEXPLUSROM_DUMP_SUFFIX "%s",
+					convs[i].game, convs[i].count, texRoot, convs[i].tag, models);
+		}
 	}
 
 	if (numBeanModels || numBeanTextures) {
@@ -1900,6 +2098,8 @@ void assetDumpStart(void)
 	numTextures = numRecords = numModels = numMeshes = numRefused = numUnnamed = 0;
 	numGeTextures = numGeModels = numBeanModels = numBeanTextures = numBeanRefused = 0;
 	geDir = -1;
+	convDir = -1;
+	numConvs = 0;
 	meshPrevName[0] = '\0';
 	meshSincePrev = 0;
 	cursor = 0;
@@ -1960,6 +2160,7 @@ static void assetDumpStep(void)
 			cursor++;
 			assetDumpSetStatus("XBLA textures: %d of %d", cursor, total);
 		} else {
+			texpackDumpXblaClose();
 			assetDumpLogPhase("XBLA textures", numRecords);
 			phase = PHASE_MODELS;
 			cursor = 1;
@@ -2000,20 +2201,26 @@ static void assetDumpStep(void)
 			assetDumpLogPhase("XBLA meshes", numMeshes);
 			phase = PHASE_GE_TEXTURES;
 			cursor = 0;
-			total = assetDumpGeTexturesBegin();
+			assetDumpConvsFind();
+			total = assetDumpGeTexturesNext();
 		}
 		break;
 	case PHASE_GE_TEXTURES:
 		if (cursor < total) {
 			numGeTextures += assetDumpGeTexture(jobList[cursor]);
 			cursor++;
-			assetDumpSetStatus("GoldenEye textures: %d of %d", cursor, total);
+			assetDumpSetStatus("%s textures: %d of %d", convs[convAt].game, cursor, total);
 		} else {
+			// one conversion after another, GoldenEye's first
 			assetDumpGeTexturesEnd();
-			assetDumpLogPhase("GoldenEye textures", numGeTextures);
-			phase = PHASE_GE_MODELS;
 			cursor = 0;
-			total = assetDumpGeModelsBegin();
+			total = assetDumpGeTexturesNext();
+
+			if (total <= 0) {
+				assetDumpLogPhase("converted GoldenEye textures", numGeTextures);
+				phase = PHASE_GE_MODELS;
+				total = assetDumpGeModelsBegin();
+			}
 		}
 		break;
 	case PHASE_GE_MODELS:
