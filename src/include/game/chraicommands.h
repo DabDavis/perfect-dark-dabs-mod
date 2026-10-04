@@ -461,6 +461,7 @@
 /*0x01e9*/ bool aiGeCreditsRoll(void);
 /*0x01ea*/ bool aiGeIfCreditsHaveRolled(void);
 /*0x01eb*/ bool aiGeGasLeak(void);
+/*0x01ec*/ bool aiGeObjectNudge(void);
 #endif
 
 void propDecrementSoundCount(struct prop *prop);

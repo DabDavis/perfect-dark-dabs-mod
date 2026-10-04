@@ -105,6 +105,13 @@
 //     01eb <harmless:1>, written 1
 #define GEAI_GASLEAK_CMD 0x01eb
 
+// And a ROM hack's own move of an object, Tomorrow Never Dies 64's poke on a
+// setup record's runtime_pos (geconvert.c's tndHookConvert()): Bazaar's jet
+// down the runway, Parkhaus's BMW backing out. Ten bytes:
+//     01ec <record index:2> <axis:1> <flags:1> <amount:4, a float's bits>
+// flags 1: times the tick's sixtieths; 2: subtracted
+#define GEAI_NUDGE_CMD 0x01ec
+
 // GoldenEye's chr flags are one byte of its own (chr->flags2, set and tested by
 // six of its commands), and neither of Perfect Dark's two banks has eight bits
 // to spare - every bit of theirs means something to the game. The byte gets a

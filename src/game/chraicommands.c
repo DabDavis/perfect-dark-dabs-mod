@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "../lib/naudio/n_sndp.h"
 #include "constants.h"
 #include "game/bondmove.h"
@@ -10650,6 +10651,58 @@ bool aiGeGasLeak(void)
 	}
 
 	g_Vars.aioffset += 3;
+
+	return false;
+}
+
+/**
+ * @cmd 01ec
+ *
+ * A ROM hack's own move of an object, Tomorrow Never Dies 64's: its code reads
+ * TRYFindCover with label 0xfe as a memory poke spelt by the PRINT after it,
+ * and two of its missions slide a vehicle that way, a tick at a time - adding
+ * a float times g_GlobalTimerDelta to the setup record's runtime_pos, where
+ * GoldenEye draws the object from. Bazaar's jet rolls away down the runway
+ * through the ending ("80075D0C+P000022B8+A41A00000FT", 20 a tick on z) and
+ * Parkhaus's BMW backs out ("...+S3F400000FT"). Dropped with the hack's other
+ * pokes, the jet stood still (F3 20261004-030332). The converter names the
+ * record by its index and the field by its axis (geconvert.c's
+ * tndHookConvert()). Ten bytes:
+ *     01ec <record index:2> <axis:1> <flags:1> <amount:4, a float's bits>
+ * flags 1: times the tick's sixtieths ('T'); 2: subtracted ('S')
+ */
+bool aiGeObjectNudge(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	struct defaultobj *obj = setupGetObjByCmdIndex(cmd[2] << 8 | cmd[3]);
+	u32 bits = (u32)cmd[6] << 24 | (u32)cmd[7] << 16 | (u32)cmd[8] << 8 | cmd[9];
+	f32 amount;
+
+	memcpy(&amount, &bits, sizeof(amount));
+
+	if (obj && obj->prop && cmd[4] < 3) {
+		struct prop *prop = obj->prop;
+		struct coord from = prop->pos;
+		RoomNum rooms[8];
+
+		if (cmd[5] & 1) {
+			amount *= g_Vars.lvupdate60freal;
+		}
+
+		if (cmd[5] & 2) {
+			amount = -amount;
+		}
+
+		prop->pos.f[cmd[4]] += amount;
+
+		func0f065e74(&from, prop->rooms, &prop->pos, rooms);
+		propDeregisterRooms(prop);
+		roomsCopy(rooms, prop->rooms);
+		propRegisterRooms(prop);
+		func0f069c1c(obj);
+	}
+
+	g_Vars.aioffset += 10;
 
 	return false;
 }
