@@ -5849,9 +5849,25 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 					}
 				} else {
 					// Non-explosion damage to solo mode chr
+#ifndef PLATFORM_N64
+					// GoldenEye yelps only for a hit it reacts to: an armoured
+					// chr (damage still below 0) that can take no argh is given
+					// the body's twitch and nothing else, silently
+					// (handles_shot_actors(): flinch and return before
+					// play_sound_for_shot_actor()). Baron Samedi yelped at
+					// every shot he shrugged off (F3 20261004-001835, Egyptian).
+					f32 gearmourend = -1;
+					bool gesilent = chr->damage < 0 && modloaderStageIsRemake(g_Vars.stagenum)
+						&& !chrIsAnimPreventingArgh(chr, &gearmourend);
+
+					if (chr->actiontype != ACT_DRUGGEDKO && canchoke && !gesilent) {
+						chrChoke(chr, choketype);
+					}
+#else
 					if (chr->actiontype != ACT_DRUGGEDKO && canchoke) {
 						chrChoke(chr, choketype);
 					}
+#endif
 
 					if (makedizzy && chr->damage >= chr->maxdamage) {
 						chr->damage = chr->maxdamage - 0.1f;
@@ -15540,6 +15556,10 @@ void chraTick(struct chrdata *chr)
 		return;
 	}
 
+#ifndef PLATFORM_N64
+	bool firsttick = chr->actiontype == ACT_INIT;
+#endif
+
 	if (chr->actiontype == ACT_INIT) {
 		chr->chrflags |= CHRCFLAG_FORCETOGROUND;
 		func0f02e9a0(chr, 0);
@@ -15564,6 +15584,21 @@ void chraTick(struct chrdata *chr)
 	}
 
 	chr->sleep -= g_Vars.lvupdate60;
+
+#ifndef PLATFORM_N64
+	// A converted GoldenEye mission's chr runs its list on the tick it is
+	// made, as GoldenEye's does (chrpropActivateThisFrame, every chr every
+	// frame). Ticking faster than 60 Hz the tick it is made can hold no whole
+	// 60th, so the sleep above stays at 0 and the list waited for the chr's
+	// next tick - up to seven frames off screen, one prop state round. Lists
+	// that test the new chr by the number its list gives it saw no such chr:
+	// Facility's Doak (spawned as 5000-odd, renamed 0x4f by his first command)
+	// read as dead to the background list one tick behind him, failing
+	// "Contact double agent" on 00 Agent the moment Bond left the duct.
+	if (firsttick && chr->sleep == 0 && modloaderStageIsMission(g_Vars.stagenum)) {
+		chr->sleep = -1;
+	}
+#endif
 
 	if (chr->sleep < 0
 			|| (chr->chrflags & CHRCFLAG_NEVERSLEEP)
