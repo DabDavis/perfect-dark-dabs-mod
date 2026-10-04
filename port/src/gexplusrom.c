@@ -268,8 +268,10 @@ void gexPlusRomNotice(const char *title, const char *line, s32 done, s32 total)
 	videoEndFrame();
 }
 
-// what the notice says is being converted: GE Plus's GoldenEye or a ROM hack
-static char g_NoticeTitle[64] = "CONVERTING GOLDENEYE 007 FOR GE PLUS";
+// what the notice says is being converted: GoldenEye itself or a ROM hack
+// (the player-facing name is "GoldenEye", F3 20261004-170343)
+#define NOTICE_TITLE_GOLDENEYE "CONVERTING GOLDENEYE"
+static char g_NoticeTitle[64] = NOTICE_TITLE_GOLDENEYE;
 
 static void noticeDraw(s32 done, s32 total)
 {
@@ -576,6 +578,7 @@ static void gexPlusRomConvertGoldenEye(void)
 	}
 
 	sysLogPrintf(LOG_NOTE, "gexplus: converting %s into %s, this happens once", fsFullPath(search.path), dest);
+	snprintf(g_NoticeTitle, sizeof(g_NoticeTitle), "%s", NOTICE_TITLE_GOLDENEYE);
 
 	// a copy: fsFullPath()'s buffer is the next path's, and the stamp is written after many
 	snprintf(from, sizeof(from), "%s", fsFullPath(search.path));
