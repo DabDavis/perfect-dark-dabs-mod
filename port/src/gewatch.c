@@ -4316,7 +4316,11 @@ static void watchGunParts(s32 item)
 	// user asked for the whole barrel. The only such part: every other gun
 	// with a toggle among 8 to 13 (the PP7s, the Cougar, the Golden Gun, the
 	// knife) has the hand there and nothing else.
-	if (item == GEITEM_DD44) {
+	//
+	// GoldenEye's DD44 alone: a ROM hack's item 6 is its own gun on its own
+	// model, and Goldfinger 64's (the Colt M1911) has Bond's fingers round
+	// the grip as part 11, which showed on the face (F3 20261003-193536)
+	if (item == GEITEM_DD44 && !gegunsHackSetIn()) {
 		watchGunSetPart(11, 1);
 	}
 
@@ -4352,7 +4356,7 @@ static void watchGunNoFlash(s32 weaponnum)
 
 		// the DD44's part 11 is the bore at the end of its slide, not a hand
 		// (watchGunParts())
-		if (weaponnum == WEAPON_GE_DD44) {
+		if (weaponnum == WEAPON_GE_DD44 && !gegunsHackSetIn()) {
 			watchGunSetPart(11, 1);
 		}
 

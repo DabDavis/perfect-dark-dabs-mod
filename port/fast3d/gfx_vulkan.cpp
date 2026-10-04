@@ -234,6 +234,14 @@ static VkFormat vk_depth_format;
 static bool vk_depth_has_stencil;
 static bool vk_have_depth_clamp;
 static bool vk_have_clip_distance;
+// VK_EXT_depth_clip_control: clip space's depth in OpenGL's -1..1, so the
+// buffer gets the value OpenGL writes, worked out the way OpenGL works it out.
+// Without it the vertex shader moves z into 0..1 itself, (z + w) / 2, which
+// rounds at the precision of w rather than of z / w: a step or two of the
+// depth buffer, enough for a level's own coplanar shadows and patches (drawn
+// translucent, compared strictly in front) to come and go in stripes that
+// OpenGL never shows (F3 20261003-200848, Goldfinger 64's Capture)
+static bool vk_have_depth_clip_control;
 static bool vk_have_mirror_clamp;
 static bool vk_have_anisotropy;
 static uint32_t vk_max_msaa = 1;
@@ -1954,7 +1962,10 @@ static struct ShaderProgram *gfx_vk_create_and_load_new_shader(uint64_t shader_i
         vs += "    gl_Position.z *= 0.3;\n";
     }
     // OpenGL's -1..1 depth into Vulkan's 0..1, the same value in the buffer
-    vs += "    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n";
+    // (by the viewport, as OpenGL does, where the device can be told to)
+    if (!vk_have_depth_clip_control) {
+        vs += "    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n";
+    }
     vs += "}\n";
 
     std::string fs = "#version 450\n";
@@ -2347,6 +2358,11 @@ static VkPipeline vk_create_pipeline(VkShaderModule vsm, VkShaderModule fsm, con
     VkPipelineViewportStateCreateInfo vp = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
     vp.viewportCount = 1;
     vp.scissorCount = 1;
+    VkPipelineViewportDepthClipControlCreateInfoEXT vpdcc = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_DEPTH_CLIP_CONTROL_CREATE_INFO_EXT };
+    vpdcc.negativeOneToOne = VK_TRUE;
+    if (prg && vk_have_depth_clip_control) {
+        vp.pNext = &vpdcc;
+    }
 
     VkPipelineRasterizationStateCreateInfo rs = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
     rs.depthClampEnable = (prg && vk_have_depth_clamp) ? VK_TRUE : VK_FALSE;
@@ -3161,7 +3177,7 @@ static bool vk_mesh_program(VkProgram *prg) {
         vs += strf("layout(location = %d) %sout %s %s;\n", (int)k, vk_var_interp(cc, vars[k].first),
                    vk_vec_type(vars[k].second), vars[k].first.c_str());
     }
-    vs += gfx_mesh_vs_main(cc, !vk_have_depth_clamp, true);
+    vs += gfx_mesh_vs_main(cc, !vk_have_depth_clamp, !vk_have_depth_clip_control);
 
     char name[64];
     std::string err;
@@ -4785,6 +4801,16 @@ static bool vk_init_device(void) {
     VkPhysicalDeviceDynamicRenderingFeatures dr = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES };
     VkPhysicalDeviceVulkan12Features v12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
     v12.pNext = &dr;
+    VkPhysicalDeviceDepthClipControlFeaturesEXT dcc = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_CONTROL_FEATURES_EXT };
+    {
+        uint32_t n = 0;
+        vkEnumerateDeviceExtensionProperties(vk_phys, NULL, &n, NULL);
+        std::vector<VkExtensionProperties> dexts(n);
+        vkEnumerateDeviceExtensionProperties(vk_phys, NULL, &n, dexts.data());
+        if (vk_has_ext(dexts, VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME)) {
+            dr.pNext = &dcc;
+        }
+    }
     VkPhysicalDeviceFeatures2 f2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
     f2.pNext = &v12;
     vkGetPhysicalDeviceFeatures2(vk_phys, &f2);
@@ -4815,6 +4841,7 @@ static bool vk_init_device(void) {
     vk_have_clip_distance = f2.features.shaderClipDistance;
     vk_have_anisotropy = f2.features.samplerAnisotropy;
     vk_have_mirror_clamp = v12.samplerMirrorClampToEdge;
+    vk_have_depth_clip_control = dcc.depthClipControl;
 
     VkPhysicalDeviceDynamicRenderingFeatures dr_on = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES };
     dr_on.dynamicRendering = VK_TRUE;
@@ -4830,9 +4857,17 @@ static bool vk_init_device(void) {
     f2_on.features.depthClamp = vk_have_depth_clamp;
     f2_on.features.shaderClipDistance = vk_have_clip_distance;
     f2_on.features.samplerAnisotropy = vk_have_anisotropy;
+    VkPhysicalDeviceDepthClipControlFeaturesEXT dcc_on = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_CONTROL_FEATURES_EXT };
+    if (vk_have_depth_clip_control) {
+        dcc_on.depthClipControl = VK_TRUE;
+        dr_on.pNext = &dcc_on;
+    }
 
     std::vector<const char *> exts;
     exts.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    if (vk_have_depth_clip_control) {
+        exts.push_back(VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME);
+    }
     if (vk_props.apiVersion < VK_API_VERSION_1_3) {
         exts.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     }
@@ -5151,12 +5186,13 @@ static void gfx_vk_init(void) {
     }
 
     sysLogPrintf(LOG_NOTE, "Vulkan: using %s", vk_device_desc);
-    sysLogPrintf(LOG_NOTE, "Vulkan: depth %s, depth clamp %s, mirror clamp %s, anisotropy %s, MSAA up to %ux",
+    sysLogPrintf(LOG_NOTE, "Vulkan: depth %s, depth clamp %s, depth clip control %s, mirror clamp %s, anisotropy %s, MSAA up to %ux",
                  vk_depth_format == VK_FORMAT_D24_UNORM_S8_UINT     ? "D24S8"
                  : vk_depth_format == VK_FORMAT_D32_SFLOAT_S8_UINT ? "D32FS8"
                  : vk_depth_format == VK_FORMAT_D32_SFLOAT         ? "D32F"
                                                                    : "D16",
-                 vk_have_depth_clamp ? "yes" : "no", vk_have_mirror_clamp ? "yes" : "no",
+                 vk_have_depth_clamp ? "yes" : "no", vk_have_depth_clip_control ? "yes" : "no",
+                 vk_have_mirror_clamp ? "yes" : "no",
                  vk_have_anisotropy ? "yes" : "no", vk_max_msaa);
 
     gfx_sdl_set_vulkan_hooks(vk_present, vk_get_swap_interval, vk_set_swap_interval);
