@@ -56,6 +56,7 @@ needs either the py7zr module or a 7z command on PATH.
 import argparse
 import contextlib
 import csv
+import glob
 import io
 import os
 import re
@@ -142,8 +143,12 @@ def side_dir(dumpdir):
     texture-dumps/pd-n64 since 2026-10, the folder itself in the older
     texture-dumps/<romid>. texture-dumps itself is taken to mean its pd-n64.
     """
-    for d in (os.path.join(dumpdir, 'raw'), dumpdir,
-              os.path.join(dumpdir, 'pd-n64', 'raw'), os.path.join(dumpdir, 'ntsc-final')):
+    # then another ROM version's (pd-n64-pal-final/raw) and the old <romid>
+    # folders, ntsc-final first
+    others = sorted(glob.glob(os.path.join(dumpdir, 'pd-n64-*', 'raw')))
+    others += [os.path.join(dumpdir, 'ntsc-final')]
+    others += sorted(d for d in glob.glob(os.path.join(dumpdir, '*-final')) if d not in others)
+    for d in [os.path.join(dumpdir, 'raw'), dumpdir, os.path.join(dumpdir, 'pd-n64', 'raw')] + others:
         if os.path.exists(os.path.join(d, 'manifest.csv')):
             return d
     return dumpdir

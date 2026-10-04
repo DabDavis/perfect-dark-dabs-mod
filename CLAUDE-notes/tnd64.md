@@ -198,7 +198,7 @@ NEXT from each mission in all three modes (`folder.py`).
 ## Its textures in the dump and in a pack (converter 122)
 
 As Goldfinger 64's (goldfinger64.md, At run time): `texture-dumps/tnd64-n64/`,
-1482 textures, `rom_image` from `textures/remap.csv`; a pack's `tnd64-n64/`
+1482 textures, `goldeneye_image` from `textures/remap.csv`; a pack's `tnd64-n64/`
 folder repaints its levels only. texture-packs.md, "The dump's layout".
 
 ## Not done

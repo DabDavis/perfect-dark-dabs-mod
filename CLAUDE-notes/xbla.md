@@ -3365,7 +3365,7 @@ the texgen over its normals spreads the streaks over the whole tile at 1.4 m
 and 6 m as at arm's length (gfx_pc normalises the LookAt under the chr's tenth
 scale, and the eye-ray bend normalises too). It is 4J's data: force-building
 every gun slot (`call xblaMeshBuild(slot)` from gdb after `xblaMeshOpen(1)`,
-slots from line 2 of `model-dumps/xbla/<name>.obj`) shows many `Pchr*Z` meshes
+slots from line 2 of `model-dumps/pd-xbla/<name>.obj`) shows many `Pchr*Z` meshes
 with no byte 16 in any draw while their `G*Z` mesh has one - cmp150, crossbow,
 cyclone, devastator, druggun, dyrocket, fnp90, m16, maianpistol, maiansmg,
 rcp120, shotgun, uzi, and `PchravengerZ` against `Gk7avengerZ`. So

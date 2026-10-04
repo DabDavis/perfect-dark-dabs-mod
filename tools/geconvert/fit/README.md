@@ -18,7 +18,7 @@ those from the player's own copies, found through `paths.py`.
 | `GEFIT_GE_DECOMP` | the GoldenEye decomp tree (`assets/obseg/...`, `src/aicommands2.h`) | `~/claude-007/007` |
 | `GEFIT_GEX_MOD` | GoldenEye X 6a as the importer unpacked it (`files/`, `segs/data`) | `<repo>/build/mods/GE-X_6a_01-19-25` |
 | `GEFIT_GEX_FILES` | GE-X's model/bg files (compressed or inflated) | `$GEFIT_GEX_MOD/files` |
-| `GEFIT_GEX_TEXDUMP` | a `--dump-textures` run with GE-X mounted | `<repo>/build/texture-dumps/pd-n64` (the older `ntsc-final` when only that is there) |
+| `GEFIT_GEX_TEXDUMP` | a `--dump-textures` run with GE-X mounted | `<repo>/build/texture-dumps/<GE-X folder>` when GE-X was mounted by the Stage Loader, else `pd-n64` (the older `ntsc-final` when only that is there) |
 | `GEFIT_ORIGTEX`, `GEFIT_SCRATCH` | texcompare.py only: cafftool's decode of the release's original/ characters, and where the contact sheet goes | `<repo>/build/origtex`, `<repo>/build` |
 | `GE_ROM` | the GoldenEye ROM (US), read by `tools/geconvert/gefiles.py` | `gefiles.ROM` (the decomp's `baserom.u.z64`) |
 

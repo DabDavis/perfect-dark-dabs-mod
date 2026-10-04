@@ -300,7 +300,12 @@ static void modelpackIndexAdd(const char *name, void *arg)
 		return;
 	}
 
-	free(scan->table[fileid]);
+	// a model in both of a pack's names (n64 and pd-n64) is counted once
+	if (scan->table[fileid]) {
+		free(scan->table[fileid]);
+		scan->found--;
+	}
+
 	scan->table[fileid] = malloc(strlen(scan->dir) + 1 + len + 1);
 
 	if (scan->table[fileid]) {

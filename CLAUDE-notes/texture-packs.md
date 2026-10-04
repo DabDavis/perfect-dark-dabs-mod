@@ -499,9 +499,9 @@ texture-dumps/pd-n64/           %04x_<fmt>.png + index.csv (texnum,fmt,width,hei
 texture-dumps/pd-n64/raw/       %04x.raw, %04x.pal, manifest.csv (Dump All, 12 columns),
                                 manifest-live.csv (F7 with Mod.DumpTextureData, 8 columns)
 texture-dumps/pd-xbla/          %04x.png per record + index.csv (record,width,height,png)
-texture-dumps/ge-n64/           GoldenEye's conversion   } index.csv: '# <game>, geconvert <ver>',
-texture-dumps/gf64-n64/         Goldfinger 64's          } then texnum,rom_image,fmt,width,
-texture-dumps/tnd64-n64/        Tomorrow Never Dies 64's } height,png
+texture-dumps/ge-n64/           GoldenEye's conversion   } index.csv: texnum,goldeneye_image,fmt,
+texture-dumps/gf64-n64/         Goldfinger 64's          } width,height,png; source.txt:
+texture-dumps/tnd64-n64/        Tomorrow Never Dies 64's } '<game>, geconvert <ver>'
 ```
 
 A build of another ROM version writes `pd-n64-<romid>` and `pd-xbla-<romid>`:
@@ -516,9 +516,12 @@ F7's is `manifest-live.csv` now. And F7 never asked where a texture came from:
 on a mod's map the map's own art went into the PD folder under stock numbers,
 whichever was drawn first winning, and numbers past `NUM_TEXTURES` were never
 written. `TEXPACK_ART_MODSTAGE` art now goes to `texture-dumps/<tag>-n64/` for
-a conversion (`gexPlusRomDirTag()` by folder name) or `texture-dumps/<mod's
-folder>/` for any other maps-only mod, numbers to 4096, a done-bitmap per
-mounted dir (`dumpModDone`, 128 dirs). No side files for those.
+a conversion (`gexPlusRomDirTag()` by folder name, and a `CONVERT.txt` in it,
+so a hand-unpacked patch called "Goldfinger 64" is not taken for one) or
+`texture-dumps/<mod's folder>/` for any other maps-only mod - `mod-<folder>`
+when that name is one of the dump's own (`pd-n64*`, `pd-xbla*`, `raw`,
+`<tag>-n64`) - numbers to 4096, a done-bitmap per mounted dir (`dumpModDone`,
+128 dirs). No side files for those.
 
 **The tags** are a field of `struct romlayout` (`"ge"`, `"gf64"`, `"tnd64"`;
 `geconvertVariantTagAt()`, `geconvertGoldenEyeTag()`), so a future hack gets its
@@ -531,7 +534,7 @@ moves an image on a reserved number to the next free one at first use, and
 Converter 122 writes `textures/remap.csv` (`texnum,image`, every written
 texture) for every conversion; GoldenEye's output is otherwise byte-identical
 (standalone `-DGECONVERT_MAIN` compare, `diff -r`). The dump reads it, with
-`geconvertTexUnremap()` as GoldenEye's fallback and a blank `rom_image` for a
+`geconvertTexUnremap()` as GoldenEye's fallback and a blank `goldeneye_image` for a
 hack converted before 122.
 
 **Finding the conversions.** `assetDumpFindGeDir()` took the first mounted dir
@@ -540,20 +543,27 @@ mount order is the unsorted directory listing. Now each is looked up by folder
 name (`modloaderGexPlusDirIndex()` for GoldenEye, `gexPlusRomDirTag()` for the
 rest) and, if its maps are switched off or `--moddir` is in use, mounted for
 its maps with `fsAddMapsDir()` as modborrow.c does (it stays mounted until
-exit). Models are still GoldenEye's alone: a hack's would need its own names
+exit: there is no unmount, and the texture registry keys on mounted dir
+indices; the cost after is `texpackHaveReplacements()` answering yes, one
+registry probe per upload). Models are still GoldenEye's alone: a hack's would need its own names
 (Goldfinger 64 renamed 318 of GoldenEye's 340 props) and `GENAMES_MAX` raised.
 
 **A conversion's folder in a pack.** A `ge-n64` folder copied into a pack used
 to go into the **stock** index - GoldenEye's 0041 repainting Perfect Dark's 0041
 (base binary on a pack holding ge-n64 + 3 pd-n64 files: "2290 replacement
 textures"; now "3"). `texpackIndexFile()` skips any folder named
-`<tag>-n64` in a stock scan. `texpackModUse()` for a conversion's dir, after
-`mods/<conv>/textures/`, scans the selected pack again with `scanPackConv` set
-to that folder's name: files are ignored until the walk reaches the folder of
-that name (any depth), whose files go into the mod index, so the pack wins.
-The pack lives outside `mods/<conv>/`, which `gexPlusRomConvertInto()` deletes
-on every reconversion. The log says `<pack>'s gf64-n64 folder repaints N of
-<dir>'s texture(s)`. A pack of conversions' folders alone empties the stock
+`<tag>-n64` in a stock scan, and the ones inside the selected pack are noted on
+the way past (`convFolders`, 16, with their depth and row order decided, freed
+by `texpackReload()`). `texpackModUse()` for a conversion's dir, after
+`mods/<conv>/textures/`, scans just the noted folders of its tag into the mod
+index, so the pack wins. (The first cut walked the whole pack again on every
+mod index build - and the index is rebuilt each time the mod dir of the art
+drawn changes, e.g. a hack's level with borrowed GoldenEye HUD art - and logged
+"N64 row order" again each time.) `texpackModUse()` runs the stock scan first
+if it has not, so the list is there and its cache files stay out of the mod
+index's tail. The pack lives outside `mods/<conv>/`, which
+`gexPlusRomConvertInto()` deletes on every reconversion. The log says
+`<pack>'s <path> repaints N of <dir>'s texture(s)`. A pack of conversions' folders alone empties the stock
 index and says so in a note rather than "nothing matches" (`scanSkippedConv`);
 its folders are still read, since a conversion is always mounted for its maps
 and `texpackHaveReplacements()` answers yes for that. A folder named `pd-xbla` counts as `xbla`, and a model

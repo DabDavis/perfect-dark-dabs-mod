@@ -94,7 +94,7 @@ static s32 numGeTextures, numGeModels, numBeanModels, numBeanTextures, numBeanRe
 static u64 phaseStart; // for the log: how long each pass took
 static char status[128];
 static char modelDir[FS_MAXPATH + 1];   // model-dumps, expanded
-static char texDir[FS_MAXPATH + 1];     // texture-dumps/<romid>, expanded
+static char texDir[FS_MAXPATH + 1];     // texture-dumps/pd-n64 (pd-n64-<romid>), expanded
 static char texRel[FS_MAXPATH + 1];     // the same as an MTL from model-dumps/pd-n64/ sees it
 static char texXblaRel[FS_MAXPATH + 1]; // texture-dumps/pd-xbla as an MTL from model-dumps/pd-xbla/ sees it
 static char texRoot[FS_MAXPATH + 1];    // texture-dumps, expanded
@@ -1251,12 +1251,27 @@ static s32 assetDumpGeTexturesBegin(const struct assetdumpconv *conv)
 		}
 	}
 
+	{
+		// Which game and converter the numbers are, beside index.csv rather
+		// than in it, so its first line stays the header a CSV reader wants
+		FILE *f;
+
+		snprintf(path, sizeof(path), "%s/source.txt", geTexOut);
+		f = fopen(path, "wb");
+
+		if (f) {
+			fprintf(f, "%s, %s\n", conv->game, stamp);
+			fclose(f);
+		}
+	}
+
 	snprintf(path, sizeof(path), "%s/index.csv", geTexOut);
 	geIndex = fopen(path, "wb");
 
+	// goldeneye_image as before the hacks had folders: a hack's ROM is in
+	// GoldenEye's layout, and its image numbers are of that ROM's table
 	if (geIndex) {
-		fprintf(geIndex, "# %s, %s\n", conv->game, stamp);
-		fprintf(geIndex, "texnum,rom_image,fmt,width,height,png\n");
+		fprintf(geIndex, "texnum,goldeneye_image,fmt,width,height,png\n");
 	}
 
 	sysLogPrintf(LOG_NOTE, "assetdump: %s's conversion in %s: %d textures%s", conv->game,

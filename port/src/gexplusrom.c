@@ -651,13 +651,25 @@ s32 gexPlusRomIsConversionDir(const char *name)
 
 const char *gexPlusRomDirTag(const char *dir)
 {
-	const char *base = dir;
+	char trimmed[FS_MAXPATH + 1];
+	const char *base;
+	size_t len;
 
 	if (!dir) {
 		return NULL;
 	}
 
-	for (; *dir; ++dir) {
+	// "mods/Goldfinger 64/" is the same folder as without the slash
+	snprintf(trimmed, sizeof(trimmed), "%s", dir);
+	len = strlen(trimmed);
+
+	while (len > 1 && (trimmed[len - 1] == '/' || trimmed[len - 1] == '\\')) {
+		trimmed[--len] = '\0';
+	}
+
+	base = trimmed;
+
+	for (dir = trimmed; *dir; ++dir) {
 		if (*dir == '/' || *dir == '\\') {
 			base = dir + 1;
 		}

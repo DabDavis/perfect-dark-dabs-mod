@@ -378,13 +378,25 @@ static s32 modIndexHtcEntry;
 // Which numbered index a scan is filling, and which one a job id belongs to.
 static s32 scanningMod;
 
-// What a mod's scan of the selected pack looks for: the folder of the
-// conversion it is for ("gf64-n64"), its files indexed and nothing else.
-// NULL for every other scan. See texpackModUse().
-static const char *scanPackConv;
-
 // Conversions' folders the stock scan stepped over, for its closing line
 static s32 scanSkippedConv;
+
+// The ones it stepped over inside the selected pack, kept so a conversion's
+// index reads its folder straight off this list (texpackModUse()) instead of
+// walking the whole pack again each time the mod in hand changes. Lives until
+// the pack is read again (texpackReload()).
+#define TEXPACK_MAX_CONV_FOLDERS 16
+
+struct texpackconvfolder {
+	char *path;
+	const char *tag;  // geconvert's own string, compared by pointer
+	s32 depth;
+	s32 bottomUp;     // already decided, so reading it again says nothing
+};
+
+static struct texpackconvfolder convFolders[TEXPACK_MAX_CONV_FOLDERS];
+static s32 numConvFolders;
+static s32 scanInPack;
 
 /**
  * One numbered index, so the scan and the decode can name either without
@@ -1432,11 +1444,11 @@ struct texpackscan {
 	s32 fontId;   // the font this folder holds glyphs for, or -1
 	s32 outline;  // and whether they are the outline set
 	s32 xbla;     // this folder's names are Textures.raw records, not texture numbers
-	s32 conv;     // this is the folder scanPackConv names, inside a pack
 };
 
 static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline,
-		s32 xbla, s32 conv);
+		s32 xbla);
+static s32 texpackDirIsBottomUp(const char *path);
 
 /**
  * The character index a glyph image is for: its name in hex, any number of
@@ -2378,24 +2390,25 @@ static void texpackIndexFile(const char *name, void *arg)
 	// names) holds that conversion's numbers, which are not the ROM's: never
 	// in the stock index, where 0041_ci8.png out of ge-n64 repainted Perfect
 	// Dark's own 0041, and only in the conversion's own - see texpackModUse().
-	// A mod's scan of the pack walks the folders looking for its one and
-	// indexes nothing on the way.
-	if (scanPackConv && !scan->conv) {
-		const char *dot = strrchr(name, '.');
+	// The pack's ones are noted on the way past, for that.
+	if (!scanningMod && gexPlusRomTagOfDumpFolder(name)) {
+		scanSkippedConv++;
 
-		if (scan->depth < TEXPACK_MAXDEPTH && (!dot || texpackImageExt(dot) == TEXPACK_EXT_NONE)) {
+		if (scanInPack && numConvFolders < TEXPACK_MAX_CONV_FOLDERS && scan->depth < TEXPACK_MAXDEPTH) {
+			struct texpackconvfolder *folder = &convFolders[numConvFolders];
 			char sub[FS_MAXPATH + 1];
 
 			snprintf(sub, sizeof(sub), "%s/%s", dir, name);
-			texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp, -1, 0, 0,
-					!strcasecmp(name, scanPackConv));
+			folder->path = strdup(sub);
+
+			if (folder->path) {
+				folder->tag = gexPlusRomTagOfDumpFolder(name);
+				folder->depth = scan->depth + 1;
+				folder->bottomUp = scan->bottomUp || texpackDirIsBottomUp(sub);
+				numConvFolders++;
+			}
 		}
 
-		return;
-	}
-
-	if (!scanningMod && gexPlusRomTagOfDumpFolder(name)) {
-		scanSkippedConv++;
 		return;
 	}
 
@@ -2467,8 +2480,7 @@ static void texpackIndexFile(const char *name, void *arg)
 				}
 
 				snprintf(sub, sizeof(sub), "%s/%s", dir, name);
-				texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp, subFont, subOutline, subXbla,
-						scan->conv);
+				texpackScanPathAt(sub, scan->depth + 1, scan->bottomUp, subFont, subOutline, subXbla);
 			}
 
 			return;
@@ -2648,7 +2660,7 @@ static s32 texpackDirIsBottomUp(const char *path)
 }
 
 static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fontId, s32 outline,
-		s32 xbla, s32 conv)
+		s32 xbla)
 {
 	struct texpackscan scan;
 
@@ -2669,14 +2681,13 @@ static void texpackScanPathAt(const char *path, s32 depth, s32 bottomUp, s32 fon
 	scan.fontId = fontId;
 	scan.outline = outline;
 	scan.xbla = xbla;
-	scan.conv = conv;
 
 	fsScanDir(path, texpackIndexFile, &scan);
 }
 
 static void texpackScanPath(const char *path)
 {
-	texpackScanPathAt(path, 0, 0, -1, 0, 0, 0);
+	texpackScanPathAt(path, 0, 0, -1, 0, 0);
 }
 
 static void texpackScanDir(const char *dir)
@@ -2970,7 +2981,9 @@ static void texpackScan(void)
 		const char *dir = texpackResolveSelected();
 
 		if (dir) {
+			scanInPack = 1;
 			texpackScanPath(dir);
+			scanInPack = 0;
 		}
 	}
 
@@ -3104,6 +3117,12 @@ static void texpackModUse(s32 dir)
 		return;
 	}
 
+	// The stock scan notes the pack's conversion folders read below, and
+	// appends cache files of its own that must stay out of this index's tail
+	if (!replaceScanned) {
+		texpackScan();
+	}
+
 	texpackModDrop();
 
 	path = dir >= 0 ? fsGetModDirAt(dir) : NULL;
@@ -3135,22 +3154,24 @@ static void texpackModUse(s32 dir)
 	// A conversion's pictures in the selected pack, in a folder named for
 	// it the way the asset dump names it (gf64-n64/0f12_rgba16.png), after
 	// its own textures/ so the pack wins. Outside mods/<conversion>/, which
-	// every reconversion deletes and writes again.
+	// every reconversion deletes and writes again. The stock scan found the
+	// folders on its walk of the pack, so only they are read here.
 	if (modloaderDirIndexIsConversion(dir) && gexPlusRomDirTag(path)) {
-		const char *pack = texpackResolveSelected();
-		char folder[64];
+		const char *tag = gexPlusRomDirTag(path);
+		s32 i;
 
-		if (pack) {
+		for (i = 0; i < numConvFolders; i++) {
 			const s32 before = numModReplacements;
 
-			snprintf(folder, sizeof(folder), "%s" GEXPLUSROM_DUMP_SUFFIX, gexPlusRomDirTag(path));
-			scanPackConv = folder;
-			texpackScanPath(pack);
-			scanPackConv = NULL;
+			if (convFolders[i].tag != tag) {
+				continue;
+			}
+
+			texpackScanPathAt(convFolders[i].path, convFolders[i].depth, convFolders[i].bottomUp, -1, 0, 0);
 
 			if (numModReplacements != before) {
-				sysLogPrintf(LOG_NOTE, "texpack: %s's %s folder repaints %d of %s's texture(s)",
-						packName, folder, numModReplacements - before, path);
+				sysLogPrintf(LOG_NOTE, "texpack: %s's %s repaints %d of %s's texture(s)",
+						packName, convFolders[i].path, numModReplacements - before, path);
 			}
 		}
 	}
@@ -4386,7 +4407,16 @@ void texpackFreeReplacement(u8 *rgba)
  */
 void texpackReload(void)
 {
+	s32 i;
+
 	texpackFreeIndex();
+
+	// Before the next scan, which notes them again from the pack it reads
+	for (i = 0; i < numConvFolders; i++) {
+		free(convFolders[i].path);
+	}
+
+	numConvFolders = 0;
 
 	numReplacements = 0;
 	replaceScanned = 0;
@@ -5151,6 +5181,17 @@ static void texpackDumpModTexture(const u8 *rgba32, u32 width, u32 height, u32 f
 	tag = gexPlusRomDirTag(mod);
 
 	if (tag) {
+		// A conversion by its folder's name and the converter's stamp in
+		// it, so a hand-unpacked patch that happens to be called
+		// "Goldfinger 64" does not write into the conversion's folder
+		snprintf(path, sizeof(path), "%s/CONVERT.txt", mod);
+
+		if (fsFileSize(path) <= 0) {
+			tag = NULL;
+		}
+	}
+
+	if (tag) {
 		snprintf(dir, sizeof(dir), "%s/%s" GEXPLUSROM_DUMP_SUFFIX, dumpRoot, tag);
 	} else {
 		const char *base = mod;
@@ -5161,7 +5202,15 @@ static void texpackDumpModTexture(const u8 *rgba32, u32 width, u32 height, u32 f
 			}
 		}
 
-		snprintf(dir, sizeof(dir), "%s/%s", dumpRoot, base);
+		// Never one of the dump's own folders (pd-n64, pd-xbla-<romid>,
+		// gf64-n64, ...) or the raw/ inside them: such a mod gets its
+		// folder under a prefix instead
+		if (!strncasecmp(base, "pd-n64", 6) || !strncasecmp(base, "pd-xbla", 7)
+				|| !strcasecmp(base, "raw") || gexPlusRomTagOfDumpFolder(base)) {
+			snprintf(dir, sizeof(dir), "%s/mod-%s", dumpRoot, base);
+		} else {
+			snprintf(dir, sizeof(dir), "%s/%s", dumpRoot, base);
+		}
 	}
 
 	if (!texpackDumpMakeDir(dir)) {
@@ -5344,11 +5393,6 @@ s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record)
 const char *texpackGetDumpDir(void)
 {
 	return texpackOpenDumpDir() ? dumpDir : NULL;
-}
-
-const char *texpackGetDumpRoot(void)
-{
-	return texpackOpenDumpDir() ? dumpRoot : NULL;
 }
 
 const char *texpackGetDumpXblaDir(void)

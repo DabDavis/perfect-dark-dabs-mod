@@ -43,11 +43,11 @@ extern "C" {
  *                                   player's GoldenEye ROM (mods/GoldenEye
  *                                   Arenas/textures), by the conversion's
  *                                   number, with index.csv giving GoldenEye's
- *                                   own (rom_image), its first line the game
- *                                   and the converter that wrote it
+ *                                   own (goldeneye_image) and source.txt the
+ *                                   game and the converter that wrote it
  *   texture-dumps/gf64-n64/, tnd64-n64/  the same of each ROM hack's
  *                                   conversion (mods/Goldfinger 64, mods/
- *                                   Tomorrow Never Dies 64), rom_image from
+ *                                   Tomorrow Never Dies 64), goldeneye_image from
  *                                   its textures/remap.csv; textures only
  *   model-dumps/ge-n64/{props,chars,hand}/  its models (files/Pgx, Cgx,
  *                                   Igx), named by the ROM's own file names,

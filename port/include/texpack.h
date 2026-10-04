@@ -189,11 +189,10 @@ void texpackDumpClose(void);
 /**
  * The dump directory (texture-dumps/pd-n64), expanded, creating it if it has
  * to; NULL when nowhere can be written. Where the asset dump's model files
- * point their textures. The root (texture-dumps) and the release's records'
- * folder (texture-dumps/pd-xbla, made by the first record written) beside it.
+ * point their textures. The release's records' folder (texture-dumps/pd-xbla,
+ * made by the first record written) beside it.
  */
 const char *texpackGetDumpDir(void);
-const char *texpackGetDumpRoot(void);
 const char *texpackGetDumpXblaDir(void);
 s32 texpackOpenDumpDir(void);
 

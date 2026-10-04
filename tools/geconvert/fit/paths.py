@@ -41,10 +41,20 @@ GE_DECOMP = _env('GEFIT_GE_DECOMP', '~/claude-007/007')
 GEX_MOD = _env('GEFIT_GEX_MOD', os.path.join(REPO, 'build', 'mods', 'GE-X_6a_01-19-25'))
 GEX_FILES = _env('GEFIT_GEX_FILES', os.path.join(GEX_MOD, 'files'))
 _TEXDUMPS = os.path.join(REPO, 'build', 'texture-dumps')
-GEX_TEXDUMP = _env('GEFIT_GEX_TEXDUMP', os.path.join(_TEXDUMPS, 'pd-n64')
-                   if os.path.isdir(os.path.join(_TEXDUMPS, 'pd-n64'))
-                   or not os.path.isdir(os.path.join(_TEXDUMPS, 'ntsc-final'))
-                   else os.path.join(_TEXDUMPS, 'ntsc-final'))
+
+
+def _gex_texdump():
+    # GE-X mounted by the Stage Loader dumps its maps' art under its folder's
+    # name; as the overlay ModDir, into pd-n64 with Perfect Dark's; the old
+    # per-ROM folder before either
+    for d in (os.path.join(_TEXDUMPS, os.path.basename(GEX_MOD)),
+              os.path.join(_TEXDUMPS, 'pd-n64'), os.path.join(_TEXDUMPS, 'ntsc-final')):
+        if os.path.isdir(d):
+            return d
+    return os.path.join(_TEXDUMPS, 'pd-n64')
+
+
+GEX_TEXDUMP = _env('GEFIT_GEX_TEXDUMP', _gex_texdump())
 TEXPACK = os.path.join(REPO, 'tools', 'texpack')
 
 for _p in (GECONVERT, HERE):
