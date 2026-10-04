@@ -48,6 +48,18 @@ const char *gexPlusRomGetVariant(s32 index);
 s32 gexPlusRomIsConversionDir(const char *name);
 
 /**
+ * A conversion's short tag ("ge", "gf64", "tnd64") by the last part of its
+ * folder (a mod dir's path or its bare name), NULL for any other folder. Its
+ * folder under texture-dumps/ and inside a texture pack is "<tag>-n64"
+ * (GEXPLUSROM_DUMP_SUFFIX); gexPlusRomTagOfDumpFolder() is the way back.
+ */
+#define GEXPLUSROM_DUMP_SUFFIX "-n64"
+const char *gexPlusRomDirTag(const char *dir);
+const char *gexPlusRomTagOfDumpFolder(const char *name);
+// a conversion's folder by its tag, as gexPlusRomIsConversionDir() knows it
+const char *gexPlusRomDirOfTag(const char *tag);
+
+/**
  * Whether a patch the Mod list found applies to no Perfect Dark ROM (mod.c)
  * makes a GoldenEye ROM hack this converts; gexPlusRomAdoptFile() then moves
  * it - or the archive it came out of - to added-content/, where the next start

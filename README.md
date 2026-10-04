@@ -185,6 +185,13 @@ page with a link to where it came from:
 | - | - |
 | PD Plus HD Textures | Parabolee of Retro Foundry |
 
+A pack made from the dump below keeps the dump's folder names: `pd-n64/` (or
+images at the top of the pack) repaints Perfect Dark's own textures,
+`pd-xbla/` (or `xbla/`) the XBLA release's, and `ge-n64/`, `gf64-n64/` and
+`tnd64-n64/` repaint GoldenEye's, Goldfinger 64's and Tomorrow Never Dies 64's
+levels and nothing else. File names are the dump's, unchanged
+(`gf64-n64/0f12_rgba16.png`).
+
 ### Model packs
 
 A model pack replaces the game's geometry the way a texture pack replaces its
@@ -192,9 +199,11 @@ pictures. It goes in **`model-packs/`** beside the executable, a folder per
 pack, and is chosen on the same page, where **Use Model Packs** turns it on:
 
 ```
-model-packs/<pack>/n64/<model name>.obj    replaces one of the game's own models
-model-packs/<pack>/xbla/<model name>.obj   replaces the XBLA release's mesh for it
+model-packs/<pack>/pd-n64/<model name>.obj    replaces one of the game's own models
+model-packs/<pack>/pd-xbla/<model name>.obj   replaces the XBLA release's mesh for it
 ```
+
+(`n64/` and `xbla/`, the names before the dump took GoldenEye's layout, still work.)
 
 The names are the ROM's own (`Pcrate`, `CcarringtonZ`, ...), which is what the
 dump below writes, so a pack is made by dumping, editing in Blender or
@@ -219,16 +228,18 @@ of the two wins - the pack's model by default.
 the game has, somewhere you can edit them:
 
 ```
-texture-dumps/<romid>/         every texture in the ROM, the layout a texture pack reads back
-texture-dumps/<romid>/xbla/    every texture of the XBLA release, the layout a pack's xbla/ folder is
-model-dumps/n64/               every model in the ROM as OBJ, a group per part, textures in the MTL
-model-dumps/xbla/              every mesh of the XBLA release the same way
+texture-dumps/pd-n64/          every texture in the ROM and an index.csv, the layout a texture pack reads back
+texture-dumps/pd-n64/raw/      their raw N64 data, for the converters in tools/texpack/
+texture-dumps/pd-xbla/         every texture of the XBLA release, the layout a pack's pd-xbla/ folder is
+model-dumps/pd-n64/            every model in the ROM as OBJ, a group per part, textures in the MTL
+model-dumps/pd-xbla/           every mesh of the XBLA release the same way
 ```
 
-and GoldenEye's, each in folders of its own:
+and GoldenEye's and its ROM hacks', each in folders of their own:
 
 ```
 texture-dumps/ge-n64/                    the textures of GoldenEye converted from your ROM (index.csv: GoldenEye's own numbers)
+texture-dumps/gf64-n64/, tnd64-n64/      the same for Goldfinger 64 and Tomorrow Never Dies 64, when they are converted
 model-dumps/ge-n64/props, chars, hand/   its props, characters and first person guns/gadgets, by GoldenEye's own file names
 model-dumps/ge-xbla/new/..., original/...  the GoldenEye XBLA release's char, head, gun, prop, background (levels) and skydome, by its own names
 texture-dumps/ge-xbla/...                those models' pictures, a folder each, and the release's own picture files
@@ -236,7 +247,9 @@ texture-dumps/ge-xbla/...                those models' pictures, a folder each, 
 
 The two XBLA folders are written when a copy of the release is in
 `added-content/`; the GoldenEye ones when the GoldenEye ROM (or its
-conversion) and the GoldenEye XBLA release are there. It
+conversion) and the GoldenEye XBLA release are there, and each hack's when it
+is converted. A dump from before October 2026 (`texture-dumps/ntsc-final/`,
+`model-dumps/n64/`) is left where it is. It
 takes a few minutes and the game stays usable while it runs; the line under the
 row says where it is up to. F7 still writes out the textures the game draws as
 it draws them, which is the way to learn which file a particular wall or jacket

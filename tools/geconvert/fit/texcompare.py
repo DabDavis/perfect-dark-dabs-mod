@@ -2,7 +2,8 @@
 """Tell same-mesh GoldenEye characters apart by the textures a GE-X file uses.
 
 GE-X's pictures come from a --dump-textures run of the game with GE-X
-mounted (texture-dumps/ntsc-final/<texnum>_<fmt>.png, bottom row first);
+mounted (texture-dumps/pd-n64/<texnum>_<fmt>.png as the overlay ModDir,
+texture-dumps/<GE-X folder>/ through the Stage Loader; bottom row first);
 GoldenEye's originals from the Bean release's original/ tree (decoded by
 cafftool.py, the game's row order). Each texture is reduced to 16x16 RGB
 and a candidate scores the mean, over the file's textures, of its closest

@@ -963,7 +963,7 @@ placed that way, and a nearest vertex has nothing to say about them.
 
 **Which hosts really are the same model** was settled by matching the GE
 decomp's `obseg/gun/*/Model.c` vertices against Perfect Dark's own dumped
-models (`build/model-dumps/n64/G*Z.obj`, from Dump All Assets) under a
+models (`build/model-dumps/pd-n64/G*Z.obj` - `n64/` then - from Dump All Assets) under a
 translation: the Klobb (105 of 220 vertices), the KF7 (56/135), the ZMG
 (90/132), the D5K (149/166), the AR33 (43/122) and the RC-P90 (88/161) are
 GoldenEye's own models in Perfect Dark, byte for byte. The PP7, DD44, shotgun,

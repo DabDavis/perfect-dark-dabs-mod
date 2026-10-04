@@ -28,7 +28,7 @@ Usage:
     ./pd.x86_64 --dump-textures
 
     tools/texpack/riceconvert.py \\
-        --dump ~/.local/share/perfectdark/texture-dumps/ntsc-final \\
+        --dump ~/.local/share/perfectdark/texture-dumps/pd-n64 \\
         --pack "/path/to/Perfect Dark Forever 0.4.7z" \\
         --out  ~/.local/share/perfectdark/mypack
 
@@ -56,6 +56,7 @@ needs either the py7zr module or a 7z command on PATH.
 import argparse
 import contextlib
 import csv
+import glob
 import io
 import os
 import re
@@ -136,8 +137,26 @@ def rice_crc32(data, width, height, siz, stride):
     return crc
 
 
+def side_dir(dumpdir):
+    """
+    Where a dump keeps manifest.csv and the .raw/.pal files: raw/ inside
+    texture-dumps/pd-n64 since 2026-10, the folder itself in the older
+    texture-dumps/<romid>. texture-dumps itself is taken to mean its pd-n64.
+    """
+    # then another ROM version's (pd-n64-pal-final/raw) and the old <romid>
+    # folders, ntsc-final first
+    others = sorted(glob.glob(os.path.join(dumpdir, 'pd-n64-*', 'raw')))
+    others += [os.path.join(dumpdir, 'ntsc-final')]
+    others += sorted(d for d in glob.glob(os.path.join(dumpdir, '*-final')) if d not in others)
+    for d in [os.path.join(dumpdir, 'raw'), dumpdir, os.path.join(dumpdir, 'pd-n64', 'raw')] + others:
+        if os.path.exists(os.path.join(d, 'manifest.csv')):
+            return d
+    return dumpdir
+
+
 def read_dump(dumpdir):
     """Maps every checksum the game's own textures produce to a texture number."""
+    dumpdir = side_dir(dumpdir)
     manifest = os.path.join(dumpdir, 'manifest.csv')
 
     if not os.path.exists(manifest):
@@ -349,7 +368,7 @@ def combine_rgb_alpha(rgb_bytes, alpha_bytes, out_path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
             formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--dump', required=True, help='texture-dumps/<romid> from --dump-assets')
+    ap.add_argument('--dump', required=True, help='texture-dumps/pd-n64 from --dump-assets (or an older texture-dumps/<romid>)')
     ap.add_argument('--pack', required=True,
             help='the Rice pack: a directory, a .zip or a .7z')
     ap.add_argument('--out', required=True, help='where to write the converted pack')

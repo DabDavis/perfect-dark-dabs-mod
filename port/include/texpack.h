@@ -170,9 +170,10 @@ s32 texpackGetNumUnplaced(void);
 s32 texpackGetNumTexelMatched(void);
 
 /**
- * Writes the raw texel bytes, a PNG and the tile geometry of every texture in
- * the ROM to texture-dumps/<romid>/, the layout a pack reads back. Returns
- * how many were written.
+ * Writes a PNG of every texture in the ROM to texture-dumps/pd-n64/ with an
+ * index.csv, the layout a pack reads back, and the raw texel bytes, palettes
+ * and tile geometry (manifest.csv) to pd-n64/raw/. pd-n64-<romid> for a ROM
+ * version other than ntsc-final. Returns how many were written.
  *
  * The per-texture dump (F7) only sees what the game actually draws, which for
  * a converter means playing through every room of every level. This walks the
@@ -186,10 +187,13 @@ s32 texpackDumpTextureNum(s32 n);
 void texpackDumpClose(void);
 
 /**
- * The dump directory, expanded, creating it if it has to; NULL when nowhere
- * can be written. Where the asset dump's model files point their textures.
+ * The dump directory (texture-dumps/pd-n64), expanded, creating it if it has
+ * to; NULL when nowhere can be written. Where the asset dump's model files
+ * point their textures. The release's records' folder (texture-dumps/pd-xbla,
+ * made by the first record written) beside it.
  */
 const char *texpackGetDumpDir(void);
+const char *texpackGetDumpXblaDir(void);
 s32 texpackOpenDumpDir(void);
 
 /** The picture size texpackTexToRgba() would make of a texture. */
@@ -356,14 +360,19 @@ u8 *texpackDecodeReplacementNow(s32 texturenum, s32 *outWidth, s32 *outHeight);
 s32 texpackXblaRecordFromId(s32 id);
 
 /**
- * Writes one of the release's texture records out under the dump directory, in
- * the xbla/ folder a pack reads back. Once per record per run, and only while
- * Mod.DumpTextures is on.
+ * Writes one of the release's texture records out to texture-dumps/pd-xbla/,
+ * the folder a pack reads back (as pd-xbla or xbla). Once per record per run,
+ * and only while Mod.DumpTextures is on.
  */
 void texpackDumpXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record);
 
-/** The same file whether or not the F7 dump is on; 1 when it was written. */
+/**
+ * The same file whether or not the F7 dump is on; 1 when it was written. The
+ * asset dump's: each is a row of pd-xbla/index.csv, which
+ * texpackDumpXblaClose() finishes.
+ */
 s32 texpackWriteXblaRecord(const u8 *rgba32, u32 width, u32 height, u32 record);
+void texpackDumpXblaClose(void);
 void texpackAsyncShutdown(void);
 void texpackDumpFlush(void);
 

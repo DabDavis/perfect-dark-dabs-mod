@@ -13,6 +13,7 @@ disagree, that file is right.
 """
 
 import csv
+import glob
 import os
 
 # G_IM_FMT_*
@@ -139,6 +140,23 @@ def read_palette(path):
     return [(raw[i] << 8) | raw[i + 1] for i in range(0, len(raw) - 1, 2)]
 
 
+def side_dir(dumpdir):
+    """
+    Where a dump keeps manifest.csv and the .raw/.pal files: raw/ inside
+    texture-dumps/pd-n64 since 2026-10, the folder itself in the older
+    texture-dumps/<romid>. texture-dumps itself is taken to mean its pd-n64.
+    """
+    # then another ROM version's (pd-n64-pal-final/raw) and the old <romid>
+    # folders, ntsc-final first
+    others = sorted(glob.glob(os.path.join(dumpdir, 'pd-n64-*', 'raw')))
+    others += [os.path.join(dumpdir, 'ntsc-final')]
+    others += sorted(d for d in glob.glob(os.path.join(dumpdir, '*-final')) if d not in others)
+    for d in [os.path.join(dumpdir, 'raw'), dumpdir, os.path.join(dumpdir, 'pd-n64', 'raw')] + others:
+        if os.path.exists(os.path.join(d, 'manifest.csv')):
+            return d
+    return dumpdir
+
+
 def load_dump(dumpdir):
     """
     Yields (texnum, name, width, height, rgba_bytes) for every texture in a dump.
@@ -146,6 +164,8 @@ def load_dump(dumpdir):
     name is <texnum>_<fmt><siz>.png, the same shape the in-game dumper writes, so
     the two can be mixed in one pack directory.
     """
+    dumpdir = side_dir(dumpdir)
+
     with open(os.path.join(dumpdir, 'manifest.csv')) as f:
         rows = list(csv.DictReader(f))
 

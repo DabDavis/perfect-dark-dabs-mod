@@ -649,6 +649,90 @@ s32 gexPlusRomIsConversionDir(const char *name)
 	return 0;
 }
 
+const char *gexPlusRomDirTag(const char *dir)
+{
+	char trimmed[FS_MAXPATH + 1];
+	const char *base;
+	size_t len;
+
+	if (!dir) {
+		return NULL;
+	}
+
+	// "mods/Goldfinger 64/" is the same folder as without the slash
+	snprintf(trimmed, sizeof(trimmed), "%s", dir);
+	len = strlen(trimmed);
+
+	while (len > 1 && (trimmed[len - 1] == '/' || trimmed[len - 1] == '\\')) {
+		trimmed[--len] = '\0';
+	}
+
+	base = trimmed;
+
+	for (dir = trimmed; *dir; ++dir) {
+		if (*dir == '/' || *dir == '\\') {
+			base = dir + 1;
+		}
+	}
+
+	if (!strcasecmp(base, GEXPLUSROM_DIR)) {
+		return geconvertGoldenEyeTag();
+	}
+
+	for (s32 i = 0; geconvertVariantNameAt(i); ++i) {
+		if (!strcasecmp(base, geconvertVariantNameAt(i))) {
+			return geconvertVariantTagAt(i);
+		}
+	}
+
+	return NULL;
+}
+
+const char *gexPlusRomDirOfTag(const char *tag)
+{
+	if (!tag) {
+		return NULL;
+	}
+
+	if (!strcasecmp(tag, geconvertGoldenEyeTag())) {
+		return GEXPLUSROM_DIR;
+	}
+
+	for (s32 i = 0; geconvertVariantTagAt(i); ++i) {
+		if (!strcasecmp(tag, geconvertVariantTagAt(i))) {
+			return geconvertVariantNameAt(i);
+		}
+	}
+
+	return NULL;
+}
+
+const char *gexPlusRomTagOfDumpFolder(const char *name)
+{
+	const size_t suffix = strlen(GEXPLUSROM_DUMP_SUFFIX);
+	const size_t len = name ? strlen(name) : 0;
+	char tag[32];
+
+	if (len <= suffix || len - suffix >= sizeof(tag) || strcasecmp(name + len - suffix, GEXPLUSROM_DUMP_SUFFIX)) {
+		return NULL;
+	}
+
+	memcpy(tag, name, len - suffix);
+	tag[len - suffix] = '\0';
+
+	if (!strcasecmp(tag, geconvertGoldenEyeTag())) {
+		return geconvertGoldenEyeTag();
+	}
+
+	for (s32 i = 0; geconvertVariantTagAt(i); ++i) {
+		if (!strcasecmp(tag, geconvertVariantTagAt(i))) {
+			return geconvertVariantTagAt(i);
+		}
+	}
+
+	return NULL;
+}
+
 // a hack's place in the converter's table (geconvertVariantNameAt())
 static s32 variantOrder(const char *name)
 {

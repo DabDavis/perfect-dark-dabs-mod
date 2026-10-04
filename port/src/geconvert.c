@@ -101,6 +101,9 @@ struct rompiece {
 
 struct romlayout {
 	const char *name;   // in the log and in errors
+	// short, for folder names: the asset dump's texture-dumps/<tag>-n64/ and
+	// a texture pack's folder of the same name (geconvertVariantTagAt())
+	const char *tag;
 	const char *title;  // the header's name, its first characters
 	const char *code;   // the header's game code
 	uint8_t crc[8];     // the header's CRCs, which cover the code
@@ -190,7 +193,7 @@ struct romlayout {
 
 static const struct romlayout g_Layouts[] = {
 	{
-		"GoldenEye 007 (US)", "GOLDENEYE", "NGEE",
+		"GoldenEye 007 (US)", "ge", "GOLDENEYE", "NGEE",
 		{ 0xdc, 0xbc, 0x50, 0xd1, 0x09, 0xfd, 0x1a, 0xa3 },
 		US_ROM_SIZE, 0,
 		0x80049300, 0x8f7df0, 2698, 8, 0xffffff,
@@ -219,7 +222,7 @@ static const struct romlayout g_Layouts[] = {
 	},
 	{
 		// version 1.0 (2017)
-		"Goldfinger 64", "GOLDFINGER", "NGFE",
+		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
 		{ 0xb2, 0x24, 0x27, 0x48, 0xff, 0xbd, 0x61, 0xda },
 		0x1800000, 1,
 		0x80049300, 0xeae714, 3915, 4, 0x7fffff,
@@ -294,7 +297,7 @@ static const struct romlayout g_Layouts[] = {
 		// Expanded 06-22 (2022), "TND64_Expanded_06-22.z64": the header keeps
 		// GoldenEye's title and code, only the CRCs and the size differ. Its
 		// Original V4 (20 MB, its tables where GoldenEye's are) has no row
-		"Tomorrow Never Dies 64", "GOLDENEYE", "NGEE",
+		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
 		{ 0xd2, 0x24, 0x26, 0x04, 0xf7, 0xa5, 0x07, 0x84 },
 		0x1000000, 1,
 		// image_entries_load() (7F000BD0): four-byte rows and a 23-bit size
@@ -1076,6 +1079,22 @@ const char *geconvertVariantNameAt(int i)
 	}
 
 	return NULL;
+}
+
+const char *geconvertVariantTagAt(int i)
+{
+	for (size_t k = 0; k < sizeof(g_Layouts) / sizeof(g_Layouts[0]); ++k) {
+		if (g_Layouts[k].variant && i-- == 0) {
+			return g_Layouts[k].tag;
+		}
+	}
+
+	return NULL;
+}
+
+const char *geconvertGoldenEyeTag(void)
+{
+	return g_Layouts[0].tag;
 }
 
 const char *geconvertVariantName(uint8_t *rom, size_t len)
@@ -11795,6 +11814,13 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 		// the count of texture numbers (4096), u16 0, then a byte a number.
 		static uint8_t surf[4096];
 		const int writesurf = g_Layout->variant != 0;
+		// textures/remap.csv: the image each texture number was written
+		// from. A variant's moved numbers (variantTexRemap()) are decided at
+		// first use and kept nowhere else, so this is the one way back from
+		// a number to the ROM's image - the asset dump's index.csv
+		struct textbuf remap = {0};
+
+		textf(&remap, "texnum,image\n");
 
 		memset(surf, 0, sizeof(surf));
 
@@ -11827,6 +11853,7 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 			snprintf(rel, sizeof(rel), "textures/%04x.bin", texRemap(num));
 			writeFile(outdir, rel, data, len);
+			textf(&remap, "%04x,%u\n", texRemap(num), num);
 			++count;
 
 			if (texRemap(num) < sizeof(surf)) {
@@ -11834,6 +11861,8 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			}
 		}
 		note("geconvert: %d textures, %d missing", count, missing);
+		writeFile(outdir, "textures/remap.csv", (const uint8_t *)remap.s, remap.n);
+		free(remap.s);
 
 		if (writesurf) {
 			buf s = {0};

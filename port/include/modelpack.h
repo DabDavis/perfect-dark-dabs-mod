@@ -22,7 +22,8 @@ extern "C" {
  * The file name is the ROM's own name for the model (CcarringtonZ, Pcrate,
  * ...), which is what the asset dump writes them out as - so a pack is made
  * by dumping, editing and dropping the file back in. A dump from
- * model-dumps/n64/ goes in n64/ and one from model-dumps/xbla/ goes in xbla/;
+ * model-dumps/pd-n64/ goes in pd-n64/ (or n64/, the old name) and one from
+ * model-dumps/pd-xbla/ goes in pd-xbla/ (or xbla/);
  * the two are not interchangeable, since an XBLA mesh is one piece in the
  * model's space and a Perfect Dark model is a piece per list node in the
  * node's own space (objmesh.h).

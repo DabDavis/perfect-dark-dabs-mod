@@ -5,7 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
-- **Model packs and the asset dump** — [model-packs.md](CLAUDE-notes/model-packs.md): `model-packs/<pack>/n64/` and `xbla/` hold OBJ replacements named by the ROM's file names, read through `objmesh.c` and drawn by the XBLA mesh loader (an OBJ is written back out in 4J's own layout and goes through the same builder); the one **Dump All Assets To Disk** row (`assetdump.c`, `--dump-assets`) writes `texture-dumps/<romid>/` (+`xbla/`) and `model-dumps/n64/` and `xbla/`, and GoldenEye's into `ge-n64/` (the ROM's conversion, by GoldenEye's own file names) and `ge-xbla/` (the Bean release, by Rare's `new|original/<kind>/<name>`) under both; an N64 model's list pointers are *not* promoted with the rest and stay segment 5 until the texture rewrite; a group of an N64 model is a list node in the node's own space and the dump adds the rest offset the loader takes off; skinning does not survive OBJ and is transferred by nearest vertex; and everything about a pack is **live** since 2026-09-11 - both halves of a node (the release's mesh and the pack's file) are filed as every model loads, whichever draws is decided at the draw and settled by **Mod.ModelPackPrefer** where a model has both, F9 re-reads an edited OBJ, and a material named for one of the ROM's textures binds the *ROM's* picture plus its number so a texture pack repaints it (the dump's `map_Kd` points out of the pack and is a reference, not the author's picture - reading it as one is what stopped that)
+- **Model packs and the asset dump** — [model-packs.md](CLAUDE-notes/model-packs.md): `model-packs/<pack>/n64/` and `xbla/` (or `pd-n64/` and `pd-xbla/`, the dump's names since 2026-10-04) hold OBJ replacements named by the ROM's file names, read through `objmesh.c` and drawn by the XBLA mesh loader (an OBJ is written back out in 4J's own layout and goes through the same builder); the one **Dump All Assets To Disk** row (`assetdump.c`, `--dump-assets`) writes `texture-dumps/pd-n64/` (+`raw/`) and `pd-xbla/` and `model-dumps/pd-n64/` and `pd-xbla/` (until 2026-10-04 `texture-dumps/<romid>/`+`xbla/` and `model-dumps/n64/`, `xbla/`), the hacks' textures into `gf64-n64/` and `tnd64-n64/`, and GoldenEye's into `ge-n64/` (the ROM's conversion, by GoldenEye's own file names) and `ge-xbla/` (the Bean release, by Rare's `new|original/<kind>/<name>`) under both; an N64 model's list pointers are *not* promoted with the rest and stay segment 5 until the texture rewrite; a group of an N64 model is a list node in the node's own space and the dump adds the rest offset the loader takes off; skinning does not survive OBJ and is transferred by nearest vertex; and everything about a pack is **live** since 2026-09-11 - both halves of a node (the release's mesh and the pack's file) are filed as every model loads, whichever draws is decided at the draw and settled by **Mod.ModelPackPrefer** where a model has both, F9 re-reads an edited OBJ, and a material named for one of the ROM's textures binds the *ROM's* picture plus its number so a texture pack repaints it (the dump's `map_Kd` points out of the pack and is a reference, not the author's picture - reading it as one is what stopped that)
 
 
 Files: `port/src/objmesh.c` (the mesh in the middle, OBJ in and out),
@@ -20,16 +20,18 @@ and `port/src/xblatex.c`. The player-facing description is in README.md
 ```
 xbla/                          only what the player put there (the .7z or the package)
 cache/xbla/                    the archive unpacked, once - used to be xbla/.unpacked/
-texture-dumps/<romid>/         the whole texture table; was texturedump/
-texture-dumps/<romid>/xbla/    every Textures.raw record
-model-dumps/n64/<name>.obj     every C*, P* and G* file in the ROM
-model-dumps/xbla/<name>.obj    every mesh in the package, named for the model that names it
+texture-dumps/pd-n64/          the whole texture table + index.csv; was <romid>/, before that texturedump/
+texture-dumps/pd-n64/raw/      its .raw, .pal and manifest.csv (tools/texpack/)
+texture-dumps/pd-xbla/         every Textures.raw record + index.csv; was <romid>/xbla/
+model-dumps/pd-n64/<name>.obj  every C*, P* and G* file in the ROM; was n64/
+model-dumps/pd-xbla/<name>.obj every mesh in the package, named for the model that names it; was xbla/
 model-dumps/ge-n64/{props,chars,hand}/   GoldenEye's conversion, by the GE ROM's own names
 model-dumps/ge-xbla/<look>/<kind>/<name>.obj   the GoldenEye XBLA release, by Rare's names
 texture-dumps/ge-n64/          the conversion's textures, by the conversion's number
+texture-dumps/gf64-n64/, tnd64-n64/   each ROM hack's, the same (textures only; texture-packs.md)
 texture-dumps/ge-xbla/...      the GoldenEye release's pictures, a folder a model
-model-packs/<pack>/n64/        replacements for the ROM's models, same names
-model-packs/<pack>/xbla/       replacements for the release's meshes, same names
+model-packs/<pack>/n64/        replacements for the ROM's models, same names (or pd-n64/)
+model-packs/<pack>/xbla/       replacements for the release's meshes, same names (or pd-xbla/)
 ```
 
 All of them are `fsChooseOutputDir()` choices - beside the executable, or in
@@ -200,8 +202,8 @@ for an instance) and names the groups `node0..` in
 right after promotion in both the dump and the loader so the two agree (the
 walk changes later, when `modelCalculateRwDataIndexes()` rewrites the
 DISTANCE/TOGGLE children). The loader subtracts the same offsets, giving a
-vertex two groups share a copy for each. So a file from `model-dumps/n64/`
-belongs in a pack's `n64/` and one from `model-dumps/xbla/` in its `xbla/`;
+vertex two groups share a copy for each. So a file from `model-dumps/pd-n64/`
+belongs in a pack's `pd-n64/` (or `n64/`) and one from `model-dumps/pd-xbla/` in its `pd-xbla/` (or `xbla/`);
 they are not interchangeable.
 
 ## How a pack's file is drawn
@@ -335,12 +337,12 @@ cd build && xvfb-run -a ./pd.x86_64 --dump-assets --savedir /tmp/pdsave --no-sou
 
 # make a pack out of the dump and see it drawn
 mkdir -p build/model-packs/test/n64 build/model-packs/test/xbla
-cp build/model-dumps/n64/Pcrate.obj build/model-dumps/n64/Pcrate.mtl build/model-packs/test/n64/
+cp build/model-dumps/pd-n64/Pcrate.obj build/model-dumps/pd-n64/Pcrate.mtl build/model-packs/test/n64/
 # pd.ini: Mod.LoadModels=1 and Mod.ModelPack=test under [Mod]
 
 # something always on screen to look at: the player's gun, in a Combat Sim
 # match, with Mod.StartArmed=1 in pd.ini
-cp build/model-dumps/n64/Gfalcon2Z.obj build/model-dumps/n64/Gfalcon2Z.mtl build/model-packs/test/n64/
+cp build/model-dumps/pd-n64/Gfalcon2Z.obj build/model-dumps/pd-n64/Gfalcon2Z.mtl build/model-packs/test/n64/
 cd build && xvfb-run -a ./pd.x86_64 --savedir /tmp/pdsave --skip-intro --no-sound \
     --boot-stage 0x1f --mpsims 1 --fixed-step --rng-seed 1 --screenshot-frame 400 --exit-frame 420 --log
 ```

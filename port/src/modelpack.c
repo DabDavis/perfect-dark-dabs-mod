@@ -26,8 +26,13 @@
 #ifndef PLATFORM_N64
 
 #define MODELPACK_DIR "model-packs"
+// A pack's two folders. The asset dump writes model-dumps/pd-n64 and pd-xbla
+// (GoldenEye's layout, ge-n64 beside them), so a dump copied in keeps its
+// name; n64 and xbla are what packs were made with before, and still read.
 #define MODELPACK_N64_SUB "n64"
 #define MODELPACK_XBLA_SUB "xbla"
+#define MODELPACK_N64_DUMP_SUB "pd-n64"
+#define MODELPACK_XBLA_DUMP_SUB "pd-xbla"
 #define MODELPACK_MAXPACKS 64
 #define MODELPACK_NAMELEN 64
 
@@ -295,7 +300,12 @@ static void modelpackIndexAdd(const char *name, void *arg)
 		return;
 	}
 
-	free(scan->table[fileid]);
+	// a model in both of a pack's names (n64 and pd-n64) is counted once
+	if (scan->table[fileid]) {
+		free(scan->table[fileid]);
+		scan->found--;
+	}
+
 	scan->table[fileid] = malloc(strlen(scan->dir) + 1 + len + 1);
 
 	if (scan->table[fileid]) {
@@ -351,19 +361,30 @@ static void modelpackIndex(void)
 		return;
 	}
 
-	snprintf(dir, sizeof(dir), "%s/%s/" MODELPACK_N64_SUB, packs, packNames[selectedPack]);
-	scan.table = n64Paths;
-	scan.dir = dir;
-	scan.found = 0;
-	fsScanDir(dir, modelpackIndexAdd, &scan);
-	n64 = scan.found;
+	{
+		// The old name first, so where a pack has both the dump's name wins
+		static const char *const subs[2][2] = {
+			{ MODELPACK_N64_SUB, MODELPACK_N64_DUMP_SUB },
+			{ MODELPACK_XBLA_SUB, MODELPACK_XBLA_DUMP_SUB },
+		};
 
-	snprintf(dir, sizeof(dir), "%s/%s/" MODELPACK_XBLA_SUB, packs, packNames[selectedPack]);
-	scan.table = xblaPaths;
-	scan.dir = dir;
-	scan.found = 0;
-	fsScanDir(dir, modelpackIndexAdd, &scan);
-	xbla = scan.found;
+		for (s32 k = 0; k < 2; k++) {
+			scan.table = k == 0 ? n64Paths : xblaPaths;
+			scan.dir = dir;
+			scan.found = 0;
+
+			for (s32 j = 0; j < 2; j++) {
+				snprintf(dir, sizeof(dir), "%s/%s/%s", packs, packNames[selectedPack], subs[k][j]);
+				fsScanDir(dir, modelpackIndexAdd, &scan);
+			}
+
+			if (k == 0) {
+				n64 = scan.found;
+			} else {
+				xbla = scan.found;
+			}
+		}
+	}
 
 	sysLogPrintf(LOG_NOTE, "modelpack: %s has %d N64 model%s and %d XBLA mesh%s",
 			packNames[selectedPack], n64, n64 == 1 ? "" : "s", xbla, xbla == 1 ? "" : "es");
