@@ -133,6 +133,7 @@ static struct {
 	s32 lastshot60;
 	s32 weaponwas;
 	s32 leftweaponwas; // the left hand's, which under Akimbo is its own gun
+	s32 shellsin;     // ticks until the shells he was handed are put in his hand
 	s32 crushes;
 	f32 entertheta;
 	f32 enterverta;
@@ -739,12 +740,13 @@ static void tankEnter(struct prop *prop)
 	g_Vars.currentplayer->speedsideways = 0;
 
 	// bondview2.c: he is handed the tank's shells as he gets in, and holds
-	// them - GoldenEye's ITEM_TANKSHELLS, nothing in the hand
+	// them - GoldenEye's ITEM_TANKSHELLS, nothing in the hand. They go in
+	// his hand two ticks on (geTankTick()), once the lists have run with
+	// him in it: a level's script may take them away again (TND64's City)
 	g_Tank[p].weaponwas = bgunGetWeaponNum(HAND_RIGHT);
 	g_Tank[p].leftweaponwas = bgunGetWeaponNum(HAND_LEFT);
 	invGiveSingleWeapon(WEAPON_GE_TANKSHELLS);
-	bgunEquipWeapon2(HAND_RIGHT, WEAPON_GE_TANKSHELLS);
-	bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+	g_Tank[p].shellsin = 2;
 
 	// the player is inside it now, and walks its collision about himself
 	tank->base.hidden |= OBJHFLAG_MOUNTED;
@@ -1874,11 +1876,19 @@ void geTankTick(void)
 
 	tankSize(tank, &halfwidth, &halflength, &height, &bottom);
 
-	// The level's script took the shells from him (Tomorrow Never Dies 64's
-	// City: its motorbike is the tank, and a list takes item 32 for as long as
-	// he rides it, so the cartridge's rider keeps his gun out and has no
-	// shells, F3 20261004-151609): his hands are his own again, as they are
-	// when he climbs out
+	// The shells he was handed as he got in go in his hand - unless a level's
+	// script took them again: Tomorrow Never Dies 64's City, whose motorbike
+	// is the tank, has a list take item 32 for as long as he rides it, so the
+	// cartridge's rider keeps his gun out and has no shells (F3
+	// 20261004-151609). Two ticks, so the lists have run once with him in it
+	// whichever comes first in the frame; and if they are taken after all,
+	// his hands are his own again, as they are when he climbs out
+	if (g_Tank[p].shellsin > 0 && --g_Tank[p].shellsin == 0
+			&& invHasSingleWeaponExcAllGuns(WEAPON_GE_TANKSHELLS)) {
+		bgunEquipWeapon2(HAND_RIGHT, WEAPON_GE_TANKSHELLS);
+		bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+	}
+
 	if (!invHasSingleWeaponExcAllGuns(WEAPON_GE_TANKSHELLS)
 			&& (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS
 				|| bgunGetWeaponNum(HAND_LEFT) == WEAPON_GE_TANKSHELLS
