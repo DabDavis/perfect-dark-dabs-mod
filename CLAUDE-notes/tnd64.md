@@ -223,5 +223,53 @@ NEXT from each mission in all three modes (`folder.py`).
   reach it in 1700 frames; not fixed (a read, and the fix moves hit tests).
 - The Windows cross-build builds; not run under wine.
 
+## F3 pass 33 (guns)
+
+- **LAW 80 in the left hand (F3 20261004-000140).** Under Akimbo (the
+  port's mixed pairs) the LAW 80 left of a Remington filled the view with the
+  inside of its tube. TND's LAW model is built off to the right of its
+  origin, and its row (0x00020af1) has neither CAN_DUAL_WIELD nor
+  MIRROR_DUAL: the cartridge never holds it in the left hand, and its host
+  (Perfect Dark's rocket launcher) has no WEAPONFLAG_DUALFLIP, so drawn
+  unmirrored at -posx it stood at the eye. A GoldenEye-row gun with no
+  CAN_DUAL_WIELD drawn on its own model now gets DUALFLIP
+  (gegunsSetOwnModelInUse(), `flipAdded[]` undoes it for the other look):
+  only the LAW changes in TND (its watch laser and taser had DUALFLIP
+  already); GoldenEye's own are all CAN_DUAL_WIELD but the thrown ones,
+  which are skipped (no model in the hand). GoldenEye's rocket launcher
+  (MIRROR_DUAL, CAN_DUAL_WIELD, model centred) stays as it was.
+- **Flash on the silenced guns' numbers (F3 20261004-031854).** TND's
+  MP5A2 and Goldfinger 64's drum-magazine Thompson stand on the silenced
+  D5K (0x65), which gegunsOwnTrigger() gave FUNCFLAG_NOMUZZLEFLASH by number.
+  The cartridge has no such rule: gunfire.c lights Switches[1] of whatever
+  model is in the hand on every shot (flashvisptr), and in ares the switch
+  word (hand->modeldatas[0]) is 1 on every shot of TND's MP5A2 and PPK
+  (silenced) - and of GoldenEye's own silenced PP7 and D5K on Dam (US ROM:
+  7 of 7, 30 of 30 shots). A hack's set now keeps the flash on both numbers
+  (`stats != geStats`); GoldenEye's own still have none (GoldenEye X's
+  choice from 31c341608, not the cartridge's - left for a decision).
+- **Shot sounds (F3 20261004-030108, the Norinco).** guns/run.py with
+  GF_GAME=tnd on Bazaar (both sides; ares-side patch: the watch also reads
+  hand->modeldatas, run_ge_group/run_pd_group pass GF_GAME and the variant):
+  every gun's shot is the same id as the cartridge's, from TND's own bank
+  (109 for the Norinco, re-recorded: 23352 bytes, keyBase 54 detune 50, decay
+  0.53 s - no long envelope), as many times a hold. Two differences, neither
+  the shot's: the cartridge ran this empty scene at ~1 tick a frame (no frame
+  cap in GoldenEye; 2.1 on Dam), so its automatics fired every 3 ticks
+  against our fixed GoldenEye frame of 2 ticks (6, gegunsRpm()); and its
+  bullets hit Bazaar's walls as HIT_BULLET_SNOW where ours rang STONE.
+- **A hack's surfaces (converter, needs a GECONVERT bump).** getexsurface.c
+  gave every converted level GoldenEye's own image surfaces
+  (geimagesurfaces.h, indexed by GoldenEye's image numbers). A hack's image
+  rows carry their own in the top byte (the 4-byte rows' bits 24-31, as
+  GoldenEye's first byte): TND changed 15 of the textures its levels use and
+  has 345 past GoldenEye's 2698 (55 not default). A variant's conversion now
+  writes `menu/gesurfaces.bin` ("GES1", u16 4096, u16 0, a byte per texture
+  number as written, after variantTexRemap()), and getexsurface.c takes it
+  where it is; GoldenEye's own conversion writes none and is unchanged. On
+  Bazaar the guns sweep's impacts now agree with the cartridge (SNOW, RICO)
+  for the Norinco, MP5A2 and silenced PPK. Without a bump an existing
+  conversion has no file and keeps GoldenEye's table.
+
 Rigs: `~/wt/tnd-run/rig` (the game, all three sources in added-content/),
 `~/wt/tnd-run/rt` (replay test), `~/wt/tnd-run/run.sh` (standalone GE/GF/TND).

@@ -1178,6 +1178,18 @@ static void gegunsOwnTrigger(s32 i)
 		switch (weaponnum) {
 		case WEAPON_GE_PP7SILENCED:
 		case WEAPON_GE_D5KSILENCED:
+			// A ROM hack's gun on these numbers keeps its flash: the
+			// cartridge lights the flash switch (Switches[1]) of whatever
+			// model the hand holds on every shot of every gun, silenced or
+			// not (gunfire.c's flashvisptr), and the hacks' models have one
+			// - TND64's MP5A2 and Goldfinger 64's drum-magazine Thompson
+			// stand here and are no silenced guns (F3 20261004-031854; on
+			// the TND64 cartridge in ares the switch is on for every shot of
+			// both, its silenced PPK's too)
+			if (stats != geStats) {
+				break;
+			}
+			// fall through
 		case WEAPON_GE_ROCKETLAUNCHER:
 			if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 				func->flags |= FUNCFLAG_NOMUZZLEFLASH;
@@ -1943,6 +1955,7 @@ static struct gunviscmd *hostVis[NUM_GE_WEAPONS];
 static struct guncmd *hostEquip[NUM_GE_WEAPONS];
 static struct guncmd *hostUnequip[NUM_GE_WEAPONS];
 static s32 animsTaken[NUM_GE_WEAPONS];
+static u8 flipAdded[NUM_GE_WEAPONS]; // WEAPONFLAG_DUALFLIP given for the own model
 
 
 /**
@@ -1997,6 +2010,22 @@ void gegunsSetOwnModelInUse(s32 index, s32 inuse)
 		}
 
 		animsTaken[index] = 0;
+	}
+
+	// A gun GoldenEye never puts in the left hand (no CAN_DUAL_WIELD in its
+	// row), which Akimbo can, is mirrored there as Perfect Dark mirrors its
+	// own pairs (WEAPONFLAG_DUALFLIP); its host may not be, having no pair
+	// either. Drawn as it is, a model built off to the right of its origin
+	// stood at the eye: TND64's LAW 80 on the left of a Remington filled the
+	// view with the inside of its tube (F3 20261004-000140). GoldenEye's own
+	// guns all pair but the thrown ones, which draw no model in the hand.
+	if (inuse && !(def->flags & (WEAPONFLAG_DUALFLIP | WEAPONFLAG_THROWABLE)) && stats[index].bitflags
+			&& !(stats[index].bitflags & GESTATFLAG_CAN_DUAL_WIELD)) {
+		def->flags |= WEAPONFLAG_DUALFLIP;
+		flipAdded[index] = 1;
+	} else if (!inuse && flipAdded[index]) {
+		def->flags &= ~WEAPONFLAG_DUALFLIP;
+		flipAdded[index] = 0;
 	}
 
 	if (inuse) {
