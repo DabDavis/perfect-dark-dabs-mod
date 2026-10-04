@@ -2896,6 +2896,187 @@ static s32 decalCovered(const struct stri *tris, const struct tgrid *g, s32 i)
 }
 
 /**
+ * The face triangle i is drawn as the decal of (markDecals()), or -1. Sets
+ * *bystrip when the pick was along a strip (neither's middle on the other).
+ * With redo, a face along a strip of a face that is itself a decal is
+ * passed over.
+ */
+static s32 decalPick(struct stri *tris, const struct tgrid *g, const u8 *full, s32 i, s32 redo, s32 *bystrip)
+{
+	struct stri *t = &tris[i];
+	f32 ni[3], mid[3];
+	f32 ai;
+
+	*bystrip = 0;
+
+	ai = triNormal(t, ni);
+
+	if (ai <= 0) {
+		return -1;
+	}
+
+	for (s32 j = 0; j < 3; j++) {
+		mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
+	}
+
+	// The cells of its middle and of the points the strip test below
+	// takes: a face overlapping it along a strip need not touch the
+	// middle's cell
+	u32 keys[7];
+	s32 numkeys = 0;
+
+	for (s32 k = 0; k < 7; k++) {
+		f32 p[3];
+		u32 key;
+		s32 seen = 0;
+
+		for (s32 j = 0; j < 3; j++) {
+			const f32 from = k == 0 ? mid[j] : k < 4 ? t->pos[k - 1][j] : (t->pos[k - 4][j] + t->pos[(k - 3) % 3][j]) * 0.5f;
+
+			p[j] = from + (mid[j] - from) * 0.1f;
+		}
+
+		key = gridKey((s32)floorf(p[0] / g->cell), (s32)floorf(p[1] / g->cell), (s32)floorf(p[2] / g->cell));
+
+		for (s32 q = 0; q < numkeys; q++) {
+			seen |= keys[q] == key;
+		}
+
+		if (!seen) {
+			keys[numkeys++] = key;
+		}
+	}
+
+	for (s32 c = 0; c < numkeys; c++)
+	for (s32 e = g->head[keys[c]]; e >= 0; e = g->entnext[e]) {
+		const s32 o = g->room[g->enttri[e]];
+		const struct stri *u = &tris[o];
+		const s32 alphai = texHasAlpha(t->tex), alphau = texHasAlpha(u->tex);
+		f32 nu[3], au, cosang, d;
+		s32 flat = 1, strip = 0;
+
+		if (o == i || !triOther(t, u)) {
+			continue;
+		}
+
+		au = triNormal(u, nu);
+		cosang = dot3(ni, nu);
+
+		if (au <= 0 || (cosang < DECAL_COS && cosang > -DECAL_COS)) {
+			continue;
+		}
+
+		// Back to back and drawn culled (markBacked(), markFights()):
+		// each side shows its own face, and a decal would show from
+		// behind as well
+		if (cosang < 0 && triCulled(t) && triCulled(u)) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 3 && flat; k++) {
+			f32 rel[3] = { t->pos[k][0] - u->pos[0][0], t->pos[k][1] - u->pos[0][1], t->pos[k][2] - u->pos[0][2] };
+
+			flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
+		}
+
+		if (!flat) {
+			continue;
+		}
+
+		d = pointTriDist(mid, u->pos[0], u->pos[1], u->pos[2]);
+
+		// Two faces in one plane that overlap along a strip, neither's
+		// middle on the other: Frigate's pipe wall is bands of two
+		// pictures, and one band runs 9 units into the next along half
+		// the wall, where the two fought (F3 20261002-035958). A point a
+		// tenth of the way in from one of its corners or edges lying
+		// inside the other counts (in the plane: a face beside it,
+		// sharing an edge, never does). A pair where the other's middle
+		// lies on this one is not a strip: the other's own pass decides
+		// it by the rules below, and deciding it here by the strip's
+		// rule as well could make each the decal of the other
+		if (d > DECAL_DIST * DECAL_DIST) {
+			s32 inside = 0;
+			f32 umid[3];
+
+			for (s32 j = 0; j < 3; j++) {
+				umid[j] = (u->pos[0][j] + u->pos[1][j] + u->pos[2][j]) / 3.0f;
+			}
+
+			if (pointTriDist(umid, t->pos[0], t->pos[1], t->pos[2]) <= DECAL_DIST * DECAL_DIST) {
+				continue;
+			}
+
+			for (s32 k = 0; k < 6 && !inside; k++) {
+				f32 p[3], rel[3], off;
+
+				for (s32 j = 0; j < 3; j++) {
+					const f32 from = k < 3 ? t->pos[k][j] : (t->pos[k - 3][j] + t->pos[(k - 2) % 3][j]) * 0.5f;
+
+					p[j] = from + (mid[j] - from) * 0.1f;
+					rel[j] = p[j] - u->pos[0][j];
+				}
+
+				off = dot3(rel, nu);
+
+				for (s32 j = 0; j < 3; j++) {
+					p[j] -= nu[j] * off;
+				}
+
+				inside = pointTriDist(p, u->pos[0], u->pos[1], u->pos[2]) <= 0.0001f;
+			}
+
+			if (!inside) {
+				continue;
+			}
+
+			strip = 1;
+		}
+
+		// Deciding it again (markDecals()): not along a strip of a face
+		// that is itself a decal, where the two would be pulled the same
+		// and fight; the face it truly lies on, if any, is looked for
+		if (redo && strip && u->decal && u->decalbase != i) {
+			continue;
+		}
+
+		// Two blended draws: the release's blended pass writes no depth,
+		// so the later one paints over the earlier wherever they share,
+		// whichever is smaller or lies wholly on the other (Archives'
+		// bulletin board, a blended cork over three blended papers drawn
+		// before it: the release shows the board bare, and ours drew the
+		// papers on it - fighting it, F3 20261001-043410). Of a pair
+		// with an opaque face, or two, the rules below, as before
+		if (t->blend && u->blend && i < o) {
+			// and wholly under one with no alpha anywhere, it is never seen
+			if (full && full[i] && !texHasAlpha(u->tex) && (u->argb[0] >> 24) == 0xff
+					&& (u->argb[1] >> 24) == 0xff && (u->argb[2] >> 24) == 0xff) {
+				t->painted = 1;
+			}
+
+			continue;
+		}
+
+		// Along a strip (neither middle on the other), the one with a
+		// cut-out picture, else the one Bean draws later, as the release's
+		// depth test (less or equal) has it - the same pick from either
+		// face's pass, so only one of the pair is ever the decal
+		if ((t->blend && u->blend) || (strip ? (alphai != alphau ? alphai > alphau : i > o)
+				: full && full[i] != full[o] ? full[i]
+				: alphai != alphau ? alphai > alphau
+				: full && full[i] ? i > o
+				: ai < au * 0.999f ? 1
+				: ai <= au * 1.001f && i > o)) {
+			*bystrip = strip;
+
+			return o;
+		}
+	}
+
+	return -1;
+}
+
+/**
  * Marks the triangles that lie flat on another picture's triangle. Bean's
  * decals share the plane of the surface under them exactly, and drawn with
  * the ordinary depth test the two fought (a tester's F3 on Aztec, every HD
@@ -2922,7 +3103,7 @@ static s32 decalCovered(const struct stri *tris, const struct tgrid *g, s32 i)
 static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 {
 	s32 count = 0;
-	s32 unstripped = 0;
+	s32 unstripped = 0, rebased = 0;
 	u8 *full = calloc(num > 0 ? num : 1, 1);
 	u8 *bystrip = calloc(num > 0 ? num : 1, 1);
 
@@ -2931,168 +3112,21 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 	}
 
 	for (s32 i = 0; i < num; i++) {
-		struct stri *t = &tris[i];
-		f32 ni[3], mid[3];
-		f32 ai;
+		s32 strip, o;
 
-		ai = triNormal(t, ni);
-
-		if (ai <= 0) {
+		if (tris[i].decal) {
 			continue;
 		}
 
-		for (s32 j = 0; j < 3; j++) {
-			mid[j] = (t->pos[0][j] + t->pos[1][j] + t->pos[2][j]) / 3.0f;
-		}
+		o = decalPick(tris, g, full, i, 0, &strip);
 
-		// The cells of its middle and of the points the strip test below
-		// takes: a face overlapping it along a strip need not touch the
-		// middle's cell
-		u32 keys[7];
-		s32 numkeys = 0;
+		if (o >= 0) {
+			tris[i].decal = 1;
+			tris[i].decalbase = o;
+			count++;
 
-		for (s32 k = 0; k < 7; k++) {
-			f32 p[3];
-			u32 key;
-			s32 seen = 0;
-
-			for (s32 j = 0; j < 3; j++) {
-				const f32 from = k == 0 ? mid[j] : k < 4 ? t->pos[k - 1][j] : (t->pos[k - 4][j] + t->pos[(k - 3) % 3][j]) * 0.5f;
-
-				p[j] = from + (mid[j] - from) * 0.1f;
-			}
-
-			key = gridKey((s32)floorf(p[0] / g->cell), (s32)floorf(p[1] / g->cell), (s32)floorf(p[2] / g->cell));
-
-			for (s32 q = 0; q < numkeys; q++) {
-				seen |= keys[q] == key;
-			}
-
-			if (!seen) {
-				keys[numkeys++] = key;
-			}
-		}
-
-		for (s32 c = 0; c < numkeys && !t->decal; c++)
-		for (s32 e = g->head[keys[c]]; e >= 0 && !t->decal; e = g->entnext[e]) {
-			const s32 o = g->room[g->enttri[e]];
-			const struct stri *u = &tris[o];
-			const s32 alphai = texHasAlpha(t->tex), alphau = texHasAlpha(u->tex);
-			f32 nu[3], au, cosang, d;
-			s32 flat = 1, strip = 0;
-
-			if (o == i || !triOther(t, u)) {
-				continue;
-			}
-
-			au = triNormal(u, nu);
-			cosang = dot3(ni, nu);
-
-			if (au <= 0 || (cosang < DECAL_COS && cosang > -DECAL_COS)) {
-				continue;
-			}
-
-			// Back to back and drawn culled (markBacked(), markFights()):
-			// each side shows its own face, and a decal would show from
-			// behind as well
-			if (cosang < 0 && triCulled(t) && triCulled(u)) {
-				continue;
-			}
-
-			for (s32 k = 0; k < 3 && flat; k++) {
-				f32 rel[3] = { t->pos[k][0] - u->pos[0][0], t->pos[k][1] - u->pos[0][1], t->pos[k][2] - u->pos[0][2] };
-
-				flat = fabsf(dot3(rel, nu)) <= DECAL_DIST;
-			}
-
-			if (!flat) {
-				continue;
-			}
-
-			d = pointTriDist(mid, u->pos[0], u->pos[1], u->pos[2]);
-
-			// Two faces in one plane that overlap along a strip, neither's
-			// middle on the other: Frigate's pipe wall is bands of two
-			// pictures, and one band runs 9 units into the next along half
-			// the wall, where the two fought (F3 20261002-035958). A point a
-			// tenth of the way in from one of its corners or edges lying
-			// inside the other counts (in the plane: a face beside it,
-			// sharing an edge, never does). A pair where the other's middle
-			// lies on this one is not a strip: the other's own pass decides
-			// it by the rules below, and deciding it here by the strip's
-			// rule as well could make each the decal of the other
-			if (d > DECAL_DIST * DECAL_DIST) {
-				s32 inside = 0;
-				f32 umid[3];
-
-				for (s32 j = 0; j < 3; j++) {
-					umid[j] = (u->pos[0][j] + u->pos[1][j] + u->pos[2][j]) / 3.0f;
-				}
-
-				if (pointTriDist(umid, t->pos[0], t->pos[1], t->pos[2]) <= DECAL_DIST * DECAL_DIST) {
-					continue;
-				}
-
-				for (s32 k = 0; k < 6 && !inside; k++) {
-					f32 p[3], rel[3], off;
-
-					for (s32 j = 0; j < 3; j++) {
-						const f32 from = k < 3 ? t->pos[k][j] : (t->pos[k - 3][j] + t->pos[(k - 2) % 3][j]) * 0.5f;
-
-						p[j] = from + (mid[j] - from) * 0.1f;
-						rel[j] = p[j] - u->pos[0][j];
-					}
-
-					off = dot3(rel, nu);
-
-					for (s32 j = 0; j < 3; j++) {
-						p[j] -= nu[j] * off;
-					}
-
-					inside = pointTriDist(p, u->pos[0], u->pos[1], u->pos[2]) <= 0.0001f;
-				}
-
-				if (!inside) {
-					continue;
-				}
-
-				strip = 1;
-			}
-
-			// Two blended draws: the release's blended pass writes no depth,
-			// so the later one paints over the earlier wherever they share,
-			// whichever is smaller or lies wholly on the other (Archives'
-			// bulletin board, a blended cork over three blended papers drawn
-			// before it: the release shows the board bare, and ours drew the
-			// papers on it - fighting it, F3 20261001-043410). Of a pair
-			// with an opaque face, or two, the rules below, as before
-			if (t->blend && u->blend && i < o) {
-				// and wholly under one with no alpha anywhere, it is never seen
-				if (full && full[i] && !texHasAlpha(u->tex) && (u->argb[0] >> 24) == 0xff
-						&& (u->argb[1] >> 24) == 0xff && (u->argb[2] >> 24) == 0xff) {
-					t->painted = 1;
-				}
-
-				continue;
-			}
-
-			// Along a strip (neither middle on the other), the one with a
-			// cut-out picture, else the one Bean draws later, as the release's
-			// depth test (less or equal) has it - the same pick from either
-			// face's pass, so only one of the pair is ever the decal
-			if ((t->blend && u->blend) || (strip ? (alphai != alphau ? alphai > alphau : i > o)
-					: full && full[i] != full[o] ? full[i]
-					: alphai != alphau ? alphai > alphau
-					: full && full[i] ? i > o
-					: ai < au * 0.999f ? 1
-					: ai <= au * 1.001f && i > o)) {
-				t->decal = 1;
-				t->decalbase = o;
-				count++;
-
-				if (strip && bystrip) {
-					bystrip[i] = 1;
-				}
+			if (bystrip) {
+				bystrip[i] = strip;
 			}
 		}
 	}
@@ -3105,23 +3139,54 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 	// each quad, drawn later and overlapping the kerb along its edge, was
 	// made the kerb's decal by the strip rule - every other half-quad
 	// along the street drew the kerb half-covered in dots of wall (F3
-	// 20261004-042343: "graphics bugs at the bottom of some walls"). Such
-	// a face is drawn plainly; the decal it lay on stays in front of it.
-	// Only a strip's pick: a decal whose middle lies on another decal (a
-	// sticker on a poster on a wall) stays one
-	for (s32 i = 0; bystrip && i < num; i++) {
-		const s32 o = tris[i].decalbase;
+	// 20261004-042343: "graphics bugs at the bottom of some walls").
+	// Such a face is decided again without that pick. A paper on a notice
+	// board overlapping the next paper along a strip is the decal of the
+	// board it lies on (Control's papers, Archives' posters, Bunker's bar
+	// shadows, Frigate's deck bracket: drawn plainly they fought their
+	// base or sank under it); the wall's other half-quad, on nothing
+	// else, is drawn plainly and the kerb stays in front of it. A decal
+	// whose middle lies on another decal (a sticker on a poster) stays
+	// one. Again until nothing changes: a face decided again can become
+	// the decal another face's strip pick lies on
+	for (s32 pass = 0; bystrip && pass < 4; pass++) {
+		s32 changed = 0;
 
-		if (bystrip[i] && tris[i].decal && o >= 0 && o < num && tris[o].decal && tris[o].decalbase != i) {
+		for (s32 i = 0; i < num; i++) {
+			const s32 o = tris[i].decalbase;
+			s32 strip, b;
+
+			if (!bystrip[i] || !tris[i].decal || o < 0 || o >= num || !tris[o].decal || tris[o].decalbase == i) {
+				continue;
+			}
+
 			tris[i].decal = 0;
 			tris[i].decalbase = -1;
+			bystrip[i] = 0;
 			count--;
-			unstripped++;
+			changed++;
+
+			b = decalPick(tris, g, full, i, 1, &strip);
+
+			if (b >= 0) {
+				tris[i].decal = 1;
+				tris[i].decalbase = b;
+				bystrip[i] = strip;
+				count++;
+				rebased++;
+			} else {
+				unstripped++;
+			}
+		}
+
+		if (!changed) {
+			break;
 		}
 	}
 
-	if (unstripped) {
-		sysLogPrintf(LOG_NOTE, "gebeanstage: %d faces along a strip of a decal drawn plainly under it", unstripped);
+	if (unstripped || rebased) {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: faces along a strip of a decal: %d drawn plainly under it, %d made the decal of the face they lie on",
+			unstripped, rebased);
 	}
 
 	free(full);
@@ -5594,7 +5659,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 20
+#define HDCACHE_VERSION 21
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {

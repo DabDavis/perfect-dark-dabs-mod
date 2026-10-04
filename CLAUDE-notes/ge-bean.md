@@ -14405,13 +14405,25 @@ kerb's decal by the strip rule (later draw wins). Two decals at the same pull
 fought: every other half-quad along the street drew the kerb half-covered in
 dark dots (a bigger decal offset changes nothing; `PD_HDPICK` shows both
 `decal 1`). Now a face made a decal *by the strip rule* over a face that is
-itself a decal is drawn plainly (log: `faces along a strip of a decal drawn
-plainly under it`); a decal whose middle lies on another decal (sticker on a
-poster) keeps its mark. Counts: Dam 3, Train 44, Streets 27, Bunker 2 10,
-Archives 6, Caverns 4, Cradle 2, Frigate 1, Depot 4, Control 6, others 0;
-Train's are the same kerb/half-quad pattern (pixel diff: only the dots go).
-HDCACHE_VERSION 20. Probe binaries: `PD_HDSKIPTEX` (drop one Bean picture) was
-a temporary patch, not committed.
+itself a decal is decided again (`decalPick()` with redo) without strip picks
+over decals: most find the face they truly lie on and stay decals of it, and
+only one with nothing else under it (the wall's other half-quad) is drawn
+plainly (log: `faces along a strip of a decal: N drawn plainly under it, M
+made the decal of the face they lie on`). The first version (merge review,
+HDCACHE 20) only cleared the flag: papers on Control's notice board, Archives'
+posters, Bunker 2's cell-bar shadows and a Frigate deck bracket each lost
+their decal mark against the board/wall/floor they lie on (their strip pick
+had been a neighbouring decal, found first) and fought or sank under it
+(review shots `~/wt/f3-1004a-hdlook1-run/shots/g-d*.png`, fix check
+`~/wt/f3-1004a-fixup-run`). A decal whose middle lies on another decal
+(sticker on a poster) keeps its mark. Counts (plain / decal of their own base):
+Streets 15/12 (the kerb half-quads plain; 12 posters back on their walls -
+the clear-only version cut them diagonally), Train 44/0 (same kerb/half-quad
+pattern), Bunker 2 9/1, Control 1/5, Archives 1/5, Frigate 0/1, Caverns 4/0,
+Cradle 2/0 (Caverns' hazard strip and Cradle's grating were broken before
+and are whole now). HDCACHE_VERSION 21 (20 was the clear-only version).
+Probe binaries: `PD_HDSKIPTEX` (drop one Bean picture) was a temporary patch,
+not committed.
 
 **Answers.** Dam tunnel mouth (233306, HD): the release draws the same cliff
 wall filling the mouth (Xenia pair at Dam pad 9, heading 313: `~/wt/f3-1004a-hdlevels-run/xp/r1`);
