@@ -12553,6 +12553,30 @@ been applied to the HD ones as they were.
   chrMoveToPos() and the guard's facing). Guards in the toilet stalls show a
   door - pick other chrs.
 
+**34th F3 pass (2026-10-04, F3 20261004-153345 Dam, 153904/154424/154647/155030 Facility):
+"hat placement/size needs fixing on this specific head".** The lift-only seat
+floated side caps on Dave 51 (11.9), Karl 42 (14.6), 59 (18.2) and still let
+hair through their sides; the peaked cap (hattype 2, unmeasured) on Dam's
+officer with head 56 had hair through its crown (the black slit on top). The
+column test only saw hair straight above up-facing faces, so it lifted and
+never covered. `xblaMeshHatSeat()` now (a) casts rays both ways - from each
+hat vertex along its outside's averaged normal to the head surface it leaves
+through (stopping at the first it enters: a quiff over a peak), and from each
+head vertex above the hat's local rim down and in to the hat's outside it
+comes out of (thin quiff spikes between the hat's few corners); (b) sizes the
+hat about the middle of its rim (smallest size with sides clear and crown
+lift <= 4; max 1.25 side cap, 1.12 helmet/peaked cap - bigger look like
+buckets), then lifts 2 clear, at most 14; (c) a hat nothing stands through is
+set down until it meets the head (<= 20). chrRender() applies offset + size
+about the anchor; peaked caps are now measured. Measured once per head/hat
+(shared between chrs), 13-28 ms. Results: 51 1.17, 42 1.23, 59 1.23, 48 1.03
+side caps; helmets 1.11-1.12; 56 peaked cap 1.11 +14. Karl's quiff (spike to
+z=150, 30 units in front of the cap) still shows a nub through the side cap's
+and helmet's front - no reasonable size covers it.
+Probe: `~/wt/f3-1004b-gehats-run/heads.py` + `suite.sh` (GEHEAD=n forces all
+four male heads to Cgx0nnZ after gexPlusMissionHeads; Dam's officer is chr
+13; dump/plot helpers plotdump.py).
+
 ### 13th F3 pass: props with no HD row (fix/f3-0927b-hdprops, 2026-09-27)
 
 - **Jungle's drone guns "N64" (F3 20260927-192053)**: they are the release's own. `Pgx299Z <- new/prop/groundgun`

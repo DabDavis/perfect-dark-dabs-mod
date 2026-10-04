@@ -3509,7 +3509,7 @@ s32 chrTick(struct prop *prop)
 					// 20260927-191839)
 					s32 hattype = hatGetType(chr->weapons_held[2]);
 					f32 fit[6];
-					f32 seat[3];
+					f32 seat[7];
 					struct modeldef *headdef = NULL;
 
 					if (model->definition->skel == &g_SkelChr) {
@@ -3525,17 +3525,31 @@ s32 chrTick(struct prop *prop)
 					// of four heads in ten: the hat is worn as the model has
 					// it, which is where it sits on 4J's heads, and a side cap
 					// or a helmet is lifted clear of hair standing through it
-					// (xblaMeshHatSeat(), F3 20260930-020448, 022258). A beret
+					// (xblaMeshHatSeat(), F3 20260930-020448, 022258), made
+					// as much bigger as covers it, and set down onto hair it
+					// floats over (F3 20261004-153345 to 155030). A beret
 					// and a fur hat measured so were lifted off their heads by
 					// their own flaps, and need nothing.
 					if (hatmodel && hatmodel->matrices && (chr->weapons_held[2]->flags & PROPFLAG_ONTHISSCREENTHISTICK)
 							&& headdef && xblaMeshHatSeat(model, headdef, hatmodel,
-								hattype == 1 /* side cap */ || hattype == HATTYPE_METAL, seat)) {
-						struct coord hatpos = { seat[0], seat[1], seat[2] };
+								hattype == 1 /* side cap */ ? 1.25f
+								: hattype == HATTYPE_2 /* peaked cap */ || hattype == HATTYPE_METAL ? 1.12f : 0.0f, seat)) {
+						// set on the hair, and sized about the middle of its
+						// rim to cover it: (offset + anchor) * size(anchor)
+						struct coord hatpos = {
+							seat[0] + seat[4] * (1.0f - seat[3]),
+							seat[1] + seat[5] * (1.0f - seat[3]),
+							seat[2] + seat[6] * (1.0f - seat[3]),
+						};
 						Mtxf seatmtx;
 						Mtxf moved;
 
 						mtx4LoadTranslation(&hatpos, &seatmtx);
+						for (s32 i = 0; i < 3; i++) {
+							for (s32 j = 0; j < 3; j++) {
+								seatmtx.m[i][j] *= seat[3];
+							}
+						}
 						mtx00015be4(hatmodel->matrices, &seatmtx, &moved);
 						mtx4Copy(&moved, hatmodel->matrices);
 
