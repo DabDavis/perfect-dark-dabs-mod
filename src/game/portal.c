@@ -73,9 +73,21 @@ struct var8009dd78 var8009dd78[10];
 u16 *g_PortalXluFracs;
 s32 g_NumPortalXluFracs;
 
+/**
+ * Whether a portal number names one of the stage's portals. The port bounds
+ * every use of the translucency table by it: a level of no portals at all has
+ * no table (portal0f0b65a8()), and a pane that named portal 0 on such a level -
+ * Tomorrow Never Dies 64's The End, whose one room has none - wrote through a
+ * NULL table when it broke (crash 20261003-231820).
+ */
+s32 portalIsValid(s32 portalnum)
+{
+	return portalnum >= 0 && g_PortalXluFracs != NULL && portalnum < g_NumPortalXluFracs;
+}
+
 void portalSetXluFrac2(s32 portalnum, f32 frac)
 {
-	if (portalnum >= 0) {
+	if (portalIsValid(portalnum)) {
 		u8 value = (u32)(255 * frac);
 		value <<= 0;
 		g_PortalXluFracs[portalnum] = (g_PortalXluFracs[portalnum] & 0xff00) | value;
@@ -84,7 +96,7 @@ void portalSetXluFrac2(s32 portalnum, f32 frac)
 
 void portalSetXluFrac(s32 portalnum, f32 frac)
 {
-	if (portalnum >= 0) {
+	if (portalIsValid(portalnum)) {
 		u8 value = (u32)(15 * frac) & 0xf;
 		g_PortalXluFracs[portalnum] = (g_PortalXluFracs[portalnum] & 0xf0ff) | (value << 8);
 	}
@@ -92,14 +104,26 @@ void portalSetXluFrac(s32 portalnum, f32 frac)
 
 f32 portalGetXluFrac2(s32 arg0)
 {
-	f32 value = (g_PortalXluFracs[arg0] & 0xff) * 0.0039215688593686f;
+	f32 value;
+
+	if (!portalIsValid(arg0)) {
+		return 1;
+	}
+
+	value = (g_PortalXluFracs[arg0] & 0xff) * 0.0039215688593686f;
 
 	return value;
 }
 
 f32 portalGetXluFrac(s32 arg0)
 {
-	f32 value = ((g_PortalXluFracs[arg0] & 0xf00) >> 8) * 0.06666667f;
+	f32 value;
+
+	if (!portalIsValid(arg0)) {
+		return 1;
+	}
+
+	value = ((g_PortalXluFracs[arg0] & 0xf00) >> 8) * 0.06666667f;
 
 	return value;
 }
@@ -110,6 +134,7 @@ void portal0f0b65a8(s32 numportals)
 		g_NumPortalXluFracs = numportals;
 		g_PortalXluFracs = mempAlloc(ALIGN16(numportals * 2), MEMPOOL_STAGE);
 	} else {
+		g_NumPortalXluFracs = 0;
 		g_PortalXluFracs = NULL;
 	}
 }

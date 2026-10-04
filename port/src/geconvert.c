@@ -7974,6 +7974,18 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 				// (gemonitortable.h), which the port plays on a remake stage
 				rec[0xd3] = (uint8_t)(be32(raw, 0xfc) & 0xff);
 			}
+			if (t == 0x2a) {
+				// a plain pane's portal, s16 at 0x5c: GoldenEye's record has
+				// none (the ObjectRecord alone), so none (-1) unless its flag
+				// finds one at the load. Left at nought, every pane named
+				// portal 0, shut it while whole (portal.c's portalsReset())
+				// and opened it when broken - and on a level of no portals
+				// (Tomorrow Never Dies 64's The End) a pane shot to pieces
+				// wrote through a NULL table (crash 20261003-231820).
+				// setup.c's setupNormaliseGlassPortal() does the same for a
+				// level converted before this.
+				set16(rec, 0x5c, 0xffff);
+			}
 			if (t == 0x0b && recs.v[i].len >= 0x254) {
 				// the four screens of a bank of monitors: a byte each after the
 				// four MonitorRecords, which are 0x74 in both games

@@ -5494,6 +5494,15 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 													|| (tmpgdl->words.w1 & 1)) {
 #endif
 												texturenum = -1;
+#ifndef PLATFORM_N64
+											// An HD room's list loads a stand-in tile, and what sits
+											// before it is no texture number: GoldenEye's own triangle
+											// under the hit says (gebeanStageHitTexture()). Asked
+											// before the read, which for a tile was 8 bytes before
+											// its malloc'd buffer (ASan, HD Temple)
+											} else if (gebeanStageIsTile((uintptr_t)tmpgdl->words.w1)) {
+												texturenum = gebeanStageHitTexture(roomnum, &spb0);
+#endif
 											} else {
 #ifdef PLATFORM_N64
 												s32 tmp = UNSEGADDR(tmpgdl->words.w1) - 8;
@@ -5502,15 +5511,6 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 #endif
 												texturenum = *(s16 *) PHYS_TO_K0(tmp);
 											}
-
-#ifndef PLATFORM_N64
-											// An HD room's list loads a stand-in tile, and what sits
-											// before it is no texture number: GoldenEye's own triangle
-											// under the hit says (gebeanStageHitTexture())
-											if (tmpgdl != gdl && gebeanStageIsTile((uintptr_t)tmpgdl->words.w1)) {
-												texturenum = gebeanStageHitTexture(roomnum, &spb0);
-											}
-#endif
 
 #ifdef AVOID_UB
 											if (batch->type == VTXBATCHTYPE_XLU && texturenum >= 0 && texturenum < NUM_TEXTURES && g_Textures[texturenum].surfacetype == SURFACETYPE_DEFAULT) {
