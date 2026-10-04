@@ -1,11 +1,13 @@
 n64twin owner: none
 
-Final build, 2026-10-01 (agent C, the census read pass), on the user's request
-that every agent use one complete binary:
-  twin.cpp md5               e2a2b7738bafc499e895b8c97c39fc43 (this tree's, the source of truth)
+Current build, 2026-10-02 (2580ead9a, --expansion-pak for a ROM that needs
+the 8 MB), on top of the 2026-10-01 build (agent C, the census read pass) that
+the user asked every agent to share:
+  twin.cpp md5               da3b1431deefd6c754b9280ba9969fed (this tree's, the source of truth;
+                             the host's oracle/twin.cpp matches it)
   installed binary           sdg@10.8.0.3:~/claude-007/ares/ares-nightly/build/n64twin.installed
-                             7404456 bytes, mtime 2026-10-01 02:32:21 -0500 (host time),
-                             md5 18a1c5af3f41e8579a1488703554b434
+                             7404456 bytes, mtime 2026-10-02 02:20:59 -0500 (host time),
+                             md5 4c584d4dbdc3026b8a6f17cd4c09e5ce
   ares core                  ares-readhook.patch applied: cpuReadHook in CPU::read (null unless
                              readwatch-* arms it) and, while armed, the JIT's slow path for every
                              load (recompiler.cpp: its fast-path loads bypassed CPU::read - 93% of
