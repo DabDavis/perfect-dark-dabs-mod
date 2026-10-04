@@ -1874,6 +1874,18 @@ void geTankTick(void)
 
 	tankSize(tank, &halfwidth, &halflength, &height, &bottom);
 
+	// The level's script took the shells from him (Tomorrow Never Dies 64's
+	// City: its motorbike is the tank, and a list takes item 32 for as long as
+	// he rides it, so the cartridge's rider keeps his gun out and has no
+	// shells, F3 20261004-151609): his hands are his own again, as they are
+	// when he climbs out
+	if (!invHasSingleWeaponExcAllGuns(WEAPON_GE_TANKSHELLS)
+			&& (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS
+				|| bgunGetWeaponNum(HAND_LEFT) == WEAPON_GE_TANKSHELLS
+				|| g_Vars.currentplayer->gunctrl.switchtoweaponnum == WEAPON_GE_TANKSHELLS)) {
+		tankGiveBackHands();
+	}
+
 	if (g_Tank[p].state == TANK_ENTERING) {
 		if (g_Tank[p].entert == 0.0f && geSfxStage() && geSfxNum(66)) {
 			// TRUCK_START as the engine catches, at 25000 (0x61a8), from
