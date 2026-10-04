@@ -6,6 +6,7 @@
 #include <PR/os_thread.h>
 #include <PR/os_cont.h>
 #include "platform.h"
+#include "net/net.h"
 #include "input.h"
 #include "video.h"
 #include "config.h"
@@ -1003,6 +1004,8 @@ static inline void inputLoadBinds(void)
 
 s32 inputInit(void)
 {
+	if (g_NetDedicated) return 0;
+
 	// Set SDL hints before initializing the controller subsystem.
 	useHIDAPIActive = useHIDAPI;
 	useRawInputActive = useRawInput;
@@ -1315,6 +1318,8 @@ static inline void inputUpdateMouse(void)
 
 void inputUpdate(void)
 {
+	if (g_NetDedicated) return;
+
 	SDL_GameControllerUpdate();
 
 	if (mouseEnabled) {
@@ -1702,9 +1707,11 @@ void inputMouseGetRawDelta(s32 *dx, s32 *dy)
 void inputMouseGetScaledDelta(f32* dx, f32* dy)
 {
 	f32 mdx = 0.f, mdy = 0.f;
+	s32 rawdx = mouseDX, rawdy = mouseDY;
+	if (g_NetMode != NETMODE_NONE) netInputMouseRaw(&rawdx, &rawdy);
 	if (mouseLocked) {
-		mdx = mouseDX * (0.022f / 3.5f) * mouseSensX;
-		mdy = mouseDY * (0.022f / 3.5f) * mouseSensY;
+		mdx = rawdx * (0.022f / 3.5f) * mouseSensX;
+		mdy = rawdy * (0.022f / 3.5f) * mouseSensY;
 	}
 	if (dx) *dx = mdx;
 	if (dy) *dy = mdy;
@@ -1713,9 +1720,11 @@ void inputMouseGetScaledDelta(f32* dx, f32* dy)
 void inputMouseGetAbsScaledDelta(f32* dx, f32* dy)
 {
 	f32 mdx = 0.f, mdy = 0.f;
+	s32 rawdx = mouseDX, rawdy = mouseDY;
+	if (g_NetMode != NETMODE_NONE) netInputMouseRaw(&rawdx, &rawdy);
 	if (mouseLocked) {
-		mdx = mouseDX * (0.022f / 3.5f) * fabsf(mouseSensX);
-		mdy = mouseDY * (0.022f / 3.5f) * fabsf(mouseSensY);
+		mdx = rawdx * (0.022f / 3.5f) * fabsf(mouseSensX);
+		mdy = rawdy * (0.022f / 3.5f) * fabsf(mouseSensY);
 	}
 	if (dx) *dx = mdx;
 	if (dy) *dy = mdy;

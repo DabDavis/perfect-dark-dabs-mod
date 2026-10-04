@@ -10,6 +10,7 @@
 #include "texpack.h"
 #include "xblafont.h"
 #include "video.h"
+#include "net/net.h"
 
 #include "../fast3d/gfx_api.h"
 #include "../fast3d/gfx_sdl.h"
@@ -36,6 +37,9 @@ static struct GfxWindowManagerAPI *wmAPI;
 static struct GfxRenderingAPI *renderingAPI;
 
 static bool initDone = false;
+// --dedicated: no window and no renderer (videoInitNull); every call that
+// would reach the renderer is skipped
+static s32 vidNull = 0;
 
 #define VID_RESTORE_FRAMES 10
 
@@ -127,8 +131,106 @@ static s32 vidFrameStep240 = 0;
 static s32 videoInitDisplayModes(void);
 void optionsMenuInit();
 
+/**
+ * --dedicated: no window and no renderer. Everything that reads the window
+ * goes through wmAPI without asking whether there is one, so a window
+ * manager that does nothing stands in; initDone stays false, which keeps
+ * videoStartFrame/SubmitCommands/EndFrame away from the renderer.
+ */
+static void vidNullInit(const struct GfxWindowInitSettings *settings) { }
+static void vidNullVoid(void) { }
+static int vidNullGetDisplayMode(int modenum, int *out_w, int *out_h) { return 0; }
+static int vidNullGetCurrentDisplayMode(int *out_w, int *out_h) { return 0; }
+static int vidNullGetInt(void) { return 0; }
+static int32_t vidNullGetInt32(void) { return 0; }
+static void vidNullSetFullscreenChangedCallback(void (*cb)(bool is_now_fullscreen)) { }
+static void vidNullSetBool(bool enable) { }
+static void vidNullSetInt32(int32_t value) { }
+static void vidNullGetRefreshRate(uint32_t *refresh_rate) { *refresh_rate = 0; }
+static void vidNullSetClosestResolution(int32_t width, int32_t height, bool should_center) { }
+static void vidNullSetDimensions(uint32_t width, uint32_t height, int32_t posX, int32_t posY) { }
+static void vidNullGetDimensions(uint32_t *width, uint32_t *height, int32_t *posX, int32_t *posY)
+{
+	*width = 0;
+	*height = 0;
+	*posX = 0;
+	*posY = 0;
+}
+static void vidNullGetCenteredPositions(int32_t width, int32_t height, int32_t *posX, int32_t *posY)
+{
+	*posX = 0;
+	*posY = 0;
+}
+static bool vidNullStartFrame(void) { return false; }
+static double vidNullGetTime(void) { return (double)sysGetMicroseconds() / 1000000.0; }
+static void vidNullSetTargetFps(int fps) { }
+static bool vidNullCanDisableVsync(void) { return false; }
+static void *vidNullGetWindowHandle(void) { return NULL; }
+static void vidNullSetWindowTitle(const char *title) { }
+static bool vidNullSetSwapInterval(int interval) { return false; }
+
+static struct GfxWindowManagerAPI vidNullWm = {
+	vidNullInit,
+	vidNullVoid,
+	vidNullGetDisplayMode,
+	vidNullGetCurrentDisplayMode,
+	vidNullGetInt,
+	vidNullGetInt32,
+	vidNullSetFullscreenChangedCallback,
+	vidNullSetBool,
+	vidNullSetBool,
+	vidNullSetInt32,
+	vidNullGetInt32,
+	vidNullGetInt32,
+	vidNullSetBool,
+	vidNullGetRefreshRate,
+	vidNullSetBool,
+	vidNullSetClosestResolution,
+	vidNullSetDimensions,
+	vidNullGetDimensions,
+	vidNullGetCenteredPositions,
+	vidNullVoid,
+	vidNullStartFrame,
+	vidNullVoid,
+	vidNullVoid,
+	vidNullGetTime,
+	vidNullGetInt32,
+	vidNullSetTargetFps,
+	vidNullCanDisableVsync,
+	vidNullGetWindowHandle,
+	vidNullSetWindowTitle,
+	vidNullGetInt,
+	vidNullSetSwapInterval,
+};
+
+static s32 videoInitNull(void)
+{
+	vidNull = 1;
+	wmAPI = &vidNullWm;
+	renderingAPI = NULL;
+
+	// What the game reads of the screen: the native mode, and the draw
+	// area's aspect for every player's view (videoGetAspect)
+	gfx_current_native_viewport.width = 320;
+	gfx_current_native_viewport.height = 220;
+	gfx_current_native_aspect = 320.f / 220.f;
+	gfx_current_window_dimensions.width = vidWidth;
+	gfx_current_window_dimensions.height = vidHeight;
+	gfx_current_window_dimensions.aspect_ratio = (float)vidWidth / (float)vidHeight;
+	gfx_current_window_dimensions.internal_mul = 1.f;
+	gfx_current_dimensions = gfx_current_window_dimensions;
+
+	videoInitDisplayModes();
+	optionsMenuInit();
+
+	sysLogPrintf(LOG_NOTE, "VIDEO: none (dedicated server)");
+	return 0;
+}
+
 s32 videoInit(void)
 {
+	if (g_NetDedicated) return videoInitNull();
+
 	wmAPI = &gfx_sdl;
 	renderingAPI = &gfx_opengl_api;
 	vidRendererActive = VIDEO_RENDERER_OPENGL;
@@ -719,6 +821,10 @@ u32 videoGetAnisotropicFilter()
 
 u32 videoGetMaxAnisotropyLevel()
 {
+	if (!renderingAPI) {
+		return 0;
+	}
+
 	return renderingAPI->get_max_anisotropy_level();
 }
 
@@ -858,7 +964,7 @@ void videoSetTextureFilter(u32 filter)
 	if (filter > FILTER_THREE_POINT) filter = FILTER_THREE_POINT;
 	if (texFilter == filter) return;
 	texFilter = filter;
-	gfx_set_texture_filter((enum FilteringMode)filter);
+	if (!vidNull) gfx_set_texture_filter((enum FilteringMode)filter);
 }
 
 void videoSetTextureFilter2D(s32 filter)
@@ -869,7 +975,9 @@ void videoSetTextureFilter2D(s32 filter)
 void videoSetAnisotropicFilter(u32 level)
 {
 	texAnisotropicFilter = level;
-	renderingAPI->set_anisotropy_level(level);
+	if (renderingAPI) {
+		renderingAPI->set_anisotropy_level(level);
+	}
 }
 
 void videoSetDetailTextures(s32 detail)
@@ -886,7 +994,7 @@ void videoSetDetailTextures(s32 detail)
 void videoSetClampedEdgeMode(s32 mode)
 {
 	texClampedEdge = mode;
-	gfx_set_clamped_edge_mode(mode);
+	if (!vidNull) gfx_set_clamped_edge_mode(mode);
 }
 
 s32 videoGetClampedEdgeMode(void)
@@ -922,7 +1030,7 @@ void videoSetCleanTextOutlines(s32 on)
  */
 void videoSetTextureEnhance(s32 texturescale, s32 textscale)
 {
-	gfx_set_texture_enhance(texturescale, textscale);
+	if (!vidNull) gfx_set_texture_enhance(texturescale, textscale);
 }
 
 /**
@@ -955,6 +1063,7 @@ void videoSetOverexposureScale(f32 scale)
 
 s32 videoCreateFramebuffer(u32 w, u32 h, s32 upscale, s32 autoresize)
 {
+	if (vidNull) return 0;
 	return gfx_create_framebuffer(w, h, upscale, autoresize);
 }
 
@@ -1108,7 +1217,7 @@ void videoSetMipmapFilter(s32 mode)
 	if (mode > MIPMAP_LINEAR) mode = MIPMAP_LINEAR;
 	if (texMipmapFilter == mode) return;
 	texMipmapFilter = mode;
-	gfx_set_mipmap_filter((enum MipmapFilteringMode)mode);
+	if (!vidNull) gfx_set_mipmap_filter((enum MipmapFilteringMode)mode);
 }
 
 s32 videoGetAllowHiDpi(void)
@@ -1143,11 +1252,13 @@ void videoSetFramebufferEffects(s32 on)
 
 void videoSetFramebuffer(s32 target)
 {
+	if (vidNull) return;
 	return gfx_set_framebuffer(target, 1.f);
 }
 
 void videoResetFramebuffer(void)
 {
+	if (vidNull) return;
 	return gfx_reset_framebuffer();
 }
 
@@ -1158,13 +1269,13 @@ s32 videoFramebuffersSupported(void)
 
 void videoResizeFramebuffer(s32 target, u32 w, u32 h, s32 upscale, s32 autoresize)
 {
-	gfx_resize_framebuffer(target, w, h, upscale, autoresize);
+	if (!vidNull) gfx_resize_framebuffer(target, w, h, upscale, autoresize);
 }
 
 void videoCopyFramebuffer(s32 dst, s32 src, s32 left, s32 top)
 {
 	// assume immediate copies always read the front buffer
-	gfx_copy_framebuffer(dst, src, left, top, false);
+	if (!vidNull) gfx_copy_framebuffer(dst, src, left, top, false);
 }
 
 // The texture id registry is keyed on the same pool addresses the renderer's
@@ -1181,7 +1292,7 @@ void videoCopyFramebuffer(s32 dst, s32 src, s32 left, s32 top)
 
 void videoResetTextureCache(void)
 {
-	gfx_texture_cache_clear();
+	if (!vidNull) gfx_texture_cache_clear();
 }
 
 void videoResetTextureIds(void)
@@ -1191,7 +1302,7 @@ void videoResetTextureIds(void)
 
 void videoFreeCachedTexture(const void *texptr)
 {
-	gfx_texture_cache_delete(texptr);
+	if (!vidNull) gfx_texture_cache_delete(texptr);
 	texpackForgetTexture(texptr);
 }
 
@@ -1199,12 +1310,12 @@ void videoFreeCachedTexture(const void *texptr)
 // that is to be uploaded again the same, repainted (handtint.c)
 void videoEvictCachedTexture(const void *texptr)
 {
-	gfx_texture_cache_delete(texptr);
+	if (!vidNull) gfx_texture_cache_delete(texptr);
 }
 
 void videoFreeCachedTextures(const void *start, const void *end)
 {
-	gfx_texture_cache_delete_range(start, end);
+	if (!vidNull) gfx_texture_cache_delete_range(start, end);
 	texpackForgetRange(start, end);
 }
 

@@ -486,6 +486,37 @@ void joyConsumeSamples(struct joydata *joydata)
 	}
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Netplay's present-only pass (PLANS/netplay/spec-tick.md §3d): the frame
+ * sees no samples and nothing pressed or released, and the sample waiting
+ * for the next tick stays where it is. Held buttons read samples[curlast].
+ */
+void joyConsumeNone(void)
+{
+	s32 d;
+	s32 i;
+
+	for (d = 0; d < NUM_DATA; d++) {
+		g_JoyData[d].curstart = g_JoyData[d].curlast;
+
+		for (i = 0; i < NUM_PADS; i++) {
+			g_JoyData[d].buttonspressed[i] = 0;
+			g_JoyData[d].buttonsreleased[i] = 0;
+		}
+	}
+}
+
+/**
+ * Whether a sample has been read and not yet consumed: the one the stock
+ * loop read at the end of the frame before netplay's tick loop took over
+ */
+s32 joyHasPendingSample(void)
+{
+	return g_JoyData[0].nextlast != g_JoyData[0].curlast;
+}
+#endif
+
 #if VERSION < VERSION_NTSC_1_0
 void joy0001509cnb(void)
 {

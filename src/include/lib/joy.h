@@ -58,4 +58,9 @@ s32 joyGetPakState(s8 device);
 s32 joyGetPakState2(s8 device);
 void joysTickRumble(void);
 
+#ifndef PLATFORM_N64
+void joyConsumeNone(void);
+s32 joyHasPendingSample(void);
+#endif
+
 #endif

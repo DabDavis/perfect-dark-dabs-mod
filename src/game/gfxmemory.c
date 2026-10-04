@@ -16,6 +16,7 @@
 #ifndef PLATFORM_N64
 #include "xblamesh.h"
 #include "system.h"
+#include "net/net.h"
 #endif
 
 /**
@@ -121,6 +122,12 @@ u32 g_GfxNumSwaps = 2;
 void gfxReset(void)
 {
 	s32 stack;
+	s32 sizeindex = PLAYERCOUNT() - 1;
+
+#ifndef PLATFORM_N64
+	// a dedicated server can have no player of its own: never row -1
+	if (g_NetMode != NETMODE_NONE) sizeindex = netGfxSizeIndex(sizeindex);
+#endif
 
 	if (argFindByPrefix(1, "-mgfx")) {
 		// Argument specified master_dl_size\n
@@ -146,19 +153,19 @@ void gfxReset(void)
 		// ******** Original Amount required = %dK ber buffer\n
 		// ******** Extra Amount required = %dK ber buffer\n
 		// ******** Total of %dK (Double Buffered)\n
-		g_GfxSizesByPlayerCount[PLAYERCOUNT() - 1] = (gfx + gfxtra) * GFX_SIZE_MULTIPLIER;
+		g_GfxSizesByPlayerCount[sizeindex] = (gfx + gfxtra) * GFX_SIZE_MULTIPLIER;
 	}
 
 	if (argFindByPrefix(1, "-mvtx")) {
 		// Argument specified mtxvtx_size\n
-		g_VtxSizesByPlayerCount[PLAYERCOUNT() - 1] = strtol(argFindByPrefix(1, "-mvtx"), NULL, 0) * 1024;
+		g_VtxSizesByPlayerCount[sizeindex] = strtol(argFindByPrefix(1, "-mvtx"), NULL, 0) * 1024;
 	}
 
 	// Scaled into locals rather than back into the tables, which gfxReset()
 	// would otherwise multiply again on every stage load.
 	{
-		u32 gfxsize = g_GfxSizesByPlayerCount[PLAYERCOUNT() - 1];
-		u32 vtxsize = g_VtxSizesByPlayerCount[PLAYERCOUNT() - 1];
+		u32 gfxsize = g_GfxSizesByPlayerCount[sizeindex];
+		u32 vtxsize = g_VtxSizesByPlayerCount[sizeindex];
 
 #ifndef PLATFORM_N64
 		gfxsize *= GFX_POOL_SCALE;

@@ -35,6 +35,7 @@
 #include "xblaimport.h"
 #include "modenhance.h"
 #include "gexfront.h"
+#include "net/net.h"
 
 /*
  * private typedefs and defines
@@ -257,7 +258,7 @@ void schedAudioFrame(OSSched *sc)
 	s32 i;
 
 	if (!g_SndDisabled) {
-		for (i = 0; i < g_Vars.diffframe60; i++) {
+		for (i = 0; i < (g_NetInStageLoop ? g_NetTicksThisFrame : g_Vars.diffframe60); i++) {
 			amgrFrame();
 			audioEndFrame();
 		}
@@ -299,6 +300,7 @@ void schedEndFrame(OSSched *sc)
 	}
 
 	inputUpdate();
+	if (g_NetMode) netInputAccumulateMouse();
 
 	// After inputUpdate() and before the next frame is submitted: the shot is
 	// taken in that frame's pre-swap callback, one frame after the key press.
@@ -312,14 +314,17 @@ void schedEndFrame(OSSched *sc)
 	xblaImportTick();
 	recordTick();
 
-	joyStartReadData(&g_PiMesgQueue);
-	joyReadData();
+	// netplay's stage loop reads one sample per tick instead (netTickReadPad)
+	if (!g_NetInStageLoop) {
+		joyStartReadData(&g_PiMesgQueue);
+		joyReadData();
+	}
 	joy00014238();
 
 	sndHandleRetrace();
 	schedAudioFrame(sc);
 	schedRenderCrashPeriodically(sc->frameCount);
-	videoSetFrameStep(g_Vars.diffframe240);
+	videoSetFrameStep(g_NetInStageLoop ? g_NetTicksThisFrame * 4 : g_Vars.diffframe240);
 	videoEndFrame();
 
 	if (g_MainIsBooting == 0) {

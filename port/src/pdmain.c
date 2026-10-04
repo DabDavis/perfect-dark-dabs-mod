@@ -87,6 +87,7 @@
 #include "gebean.h"
 #include "gexfront.h"
 #include "simnav.h"
+#include "net/net.h"
 
 extern u8 *g_MempHeap;
 extern u32 g_MempHeapSize;
@@ -336,6 +337,8 @@ void mainOverrideVariable(char *name, void *value)
  * Decomp patches these reads in its build system so it can be played
  * without the development board.
  */
+static void mainNetFrame(void);
+
 void mainLoop(void)
 {
 	s32 ending = false;
@@ -620,9 +623,13 @@ void mainLoop(void)
 		lvReset(g_StageNum);
 		viReset(g_StageNum);
 		frametimeCalculate();
+		if (g_NetMode != NETMODE_NONE) netStageStart();
 		profileReset();
 
 		while (g_MainChangeToStageNum < 0) {
+			if (g_NetMode != NETMODE_NONE) netCheckQuit();
+			if (g_NetMode != NETMODE_NONE && netSessionInStage()) { mainNetFrame(); continue; }
+
 			const s32 cycles = osGetCount() - g_Vars.thisframestartt;
 			if (!g_Vars.mininc60 || (cycles >= g_Vars.mininc60 * CYCLES_PER_FRAME - CYCLES_PER_FRAME / 2)) {
 				schedStartFrame(&g_Sched);
@@ -646,6 +653,65 @@ void mainLoop(void)
 	}
 }
 
+/**
+ * Netplay's frame (PLANS/netplay/spec-tick.md §3b): the ticks the clock says
+ * are due, each one the whole of mainTick() as a stock frame of diff (1, 4)
+ * with one pad sample of its own, and only the last of them drawn. No tick
+ * due is a present-only pass, a paused frame that consumes no input; a host
+ * that renders at the tick rate (and the clock test) never runs one.
+ */
+static s32 s_NetWasReady = 0;
+
+static void mainNetFrame(void)
+{
+	s32 ready;
+	s32 ticks;
+	s32 k;
+
+	netPump();
+
+	ready = netStageReady();
+
+	if (ready && !s_NetWasReady) {
+		// the wait for the stage is not ticks to catch up on
+		frametimeNetReset();
+	}
+
+	s_NetWasReady = ready;
+	ticks = ready ? frametimeNetTicksDue(g_NetDedicated ? 8 : 4, netClockPpm()) : 0;
+
+	if (g_NetDedicated && ticks == 0) {
+		netWait(frametimeNetUsToNextTick());
+		return;
+	}
+
+	if (g_NetMode == NETMODE_SERVER && g_NetHostRenderAtTickRate && ticks == 0) {
+		sysSleep(EXTRA_SLEEP_TIME);
+		return;
+	}
+
+	g_NetTicksThisFrame = ticks;
+	schedStartFrame(&g_Sched);
+
+	if (ticks == 0) {
+		g_NetPass = NETPASS_PRESENT_ONLY;
+		mainTick();
+	}
+
+	for (k = 0; k < ticks && g_MainChangeToStageNum < 0; k++) {
+		g_NetPass = (k == ticks - 1 && !g_NetDedicated) ? NETPASS_TICK_PRESENT : NETPASS_TICK;
+		mainTick();
+	}
+
+	g_NetPass = NETPASS_NONE;
+	schedEndFrame(&g_Sched);
+	netFlush();
+
+	if (g_TickExtraSleep) {
+		sysSleep(EXTRA_SLEEP_TIME);
+	}
+}
+
 void mainTick(void)
 {
 	Gfx *gdl = NULL;
@@ -654,10 +720,11 @@ void mainTick(void)
 	s32 i;
 
 	if (g_MainChangeToStageNum < 0) {
-		frametimeCalculate();
+		if (g_NetPass) frametimeNetApplyPass(g_NetPass != NETPASS_PRESENT_ONLY); else frametimeCalculate();
 		profileReset();
 		profileSetMarker(PROFILE_MAINTICK_START);
-		joyDebugJoy();
+		if (g_NetPass == NETPASS_PRESENT_ONLY) joyConsumeNone(); else { if (g_NetPass) netTickReadPad(); joyDebugJoy(); }
+		if (g_NetPass >= NETPASS_TICK) netTickBegin();
 		schedSetCrashEnable2(false);
 
 		if (g_MainGameLogicEnabled) {
@@ -684,6 +751,7 @@ void mainTick(void)
 				}
 			}
 
+			if (g_NetMode == NETMODE_CLIENT && g_NetPass != NETPASS_TICK) netPosePuppets(frametimeNetAlpha());
 			gdl = lvRender(gdl);
 
 			if (debugGetProfileMode() >= 2) {
@@ -695,12 +763,14 @@ void mainTick(void)
 			gfxCheckGfxPool(gdl);
 		}
 
+		if (g_NetPass >= NETPASS_TICK) netTickEnd();
+
 		if (g_MainGameLogicEnabled) {
 			gfxSwapBuffers();
 			viUpdateMode();
 		}
 
-		rdpCreateTask(gdlstart, gdl, 0, (uintptr_t) &msg);
+		if (g_NetPass != NETPASS_TICK) rdpCreateTask(gdlstart, gdl, 0, (uintptr_t) &msg);
 		memaPrint();
 		profileSetMarker(PROFILE_MAINTICK_END);
 	}

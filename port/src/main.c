@@ -45,6 +45,7 @@
 #include "gexplusrom.h"
 #include "system.h"
 #include "statehash.h"
+#include "net/net.h"
 #include "utils.h"
 #include "gebean.h"
 #include "modenhance.h"
@@ -135,8 +136,11 @@ static void cleanup(void)
 	texpackAsyncShutdown();
 	// F7 dumps still queued for the writer thread.
 	texpackDumpFlush();
-	inputSaveBinds();
-	configSave(CONFIG_PATH);
+	// a dedicated server has no player of its own to save settings for
+	if (!g_NetDedicated) {
+		inputSaveBinds();
+		configSave(CONFIG_PATH);
+	}
 	videoShutdown();
 	// After it, for the same reason as the pack worker: the renderer is what
 	// asks for an XBLA mesh's texture, so nothing may close the package it
@@ -227,6 +231,9 @@ int main(int argc, const char **argv)
 
 	mainApplySettingsRevision();
 
+	// --dedicated (no window, sound or input) and --net-clock-test
+	netInitArgs();
+
 	// The window before the mods: GE Plus's arenas are converted from the
 	// player's GoldenEye ROM here when they are not there yet, which draws a
 	// notice while it works, and they must exist before the mods are mounted.
@@ -262,7 +269,9 @@ int main(int argc, const char **argv)
 	updatenoticeStart();
 	// A report from a run that did not come back, so the menu can offer it.
 	crashReportScan();
-	audioInit();
+	if (!g_NetDedicated) {
+		audioInit();
+	}
 	romdataInit();
 	modloaderInit();
 
@@ -295,7 +304,7 @@ int main(int argc, const char **argv)
 	sysLogPrintf(LOG_NOTE, "memp heap at %p - %p", g_MempHeap, g_MempHeap + g_MempHeapSize);
 	sysLogPrintf(LOG_NOTE, "rom  file at %p - %p", g_RomFile, g_RomFile + g_RomFileSize);
 
-	g_SndDisabled = sysArgCheck("--no-sound");
+	g_SndDisabled = sysArgCheck("--no-sound") || g_NetDedicated;
 
 	// Renderer cost, printed every N frames. --gfxbatch caps how many triangles
 	// may share a draw call, which is what tells a frame that is bound by

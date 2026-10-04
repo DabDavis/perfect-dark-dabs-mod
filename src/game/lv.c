@@ -2,6 +2,7 @@
 #include "headfit.h"
 #include "trace.h"
 #include "statehash.h"
+#include "net/net.h"
 #endif
 #include <ultra64.h>
 #include "constants.h"
@@ -1990,6 +1991,11 @@ Gfx *lvRender(Gfx *gdl)
 					&& g_Vars.currentplayernum != 0) {
 				gdl = savedgdl;
 			}
+
+#ifndef PLATFORM_N64
+			// netplay: a view nobody here looks at is simulated, not drawn
+			if (g_NetMode != NETMODE_NONE && netDiscardPass(g_Vars.currentplayernum)) gdl = savedgdl;
+#endif
 		} // end of player loop
 	} // end of stage if-statements
 
@@ -2541,6 +2547,14 @@ void lvTick(void)
 			}
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// netplay: slow motion and pause are the host's to decide
+	if (g_NetPass >= NETPASS_TICK) {
+		if (g_NetMode == NETMODE_CLIENT) g_Vars.lvupdate240 = netClientLvupdate240();
+		else netHostSetLvupdate240(g_Vars.lvupdate240);
+	}
+#endif
 
 	g_Vars.lvupdate60 = g_Vars.lvupdate240 + g_Vars.lvupdate240rem;
 	g_Vars.lvupdate240rem = g_Vars.lvupdate60 & 3;
