@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <math.h>
 #include <ultra64.h>
 #include <PR/ultratypes.h>
@@ -49,6 +50,7 @@
 #include "handtint.h"
 #include "headfit.h"
 #include "xblatex.h"
+#include "texpack.h"
 #include "objmesh.h"
 #include "modelpack.h"
 #include "roomsheen.h"
@@ -367,6 +369,8 @@ struct xblameshbuilt {
 	f32 *normals;      // three per emitted vertex, only for a mesh that reflects
 	u8 *vink;          // one per emitted vertex, how light its paint is, for a classic gun only: see xblaMeshInkFile()
 	u8 *venv;          // two per emitted vertex: its atlas cell and reflection amount, the same
+	u8 *vmatte;        // one per emitted vertex, 1 + its row of xblaMeshMattes, or 0; NULL when none is
+	u32 mattemask;     // and the rows that are, a bit each
 	s32 numgfx;        // commands in gdl
 	Gfx *envgdl;       // gdl, binding the reflection atlas: see xblaMeshBuildEnvironment()
 	Gfx *sheengdl;     // envgdl, lit and sphere-mapped the N64 way: see xblaMeshBuildSheen()
@@ -488,6 +492,109 @@ struct xblameshmats {
 	u8 envamount[XBLAMESH_MAXMATS];
 	const char *envkey;
 };
+
+/**
+ * Materials of the release a texture pack repaints as something that does not
+ * shine, whose reflection is taken away while that pack is selected - in all
+ * three of Mod.XblaReflectStyle's styles, read when the frame is drawn so an
+ * F10 to another pack follows without a rebuild (xblaMeshMatteActive()).
+ *
+ * A row is a record and the percentage the release's material reflects at
+ * (byte 16), which is what tells one draw of a body from another on the same
+ * record, and a word the pack's folder name has in it, case-blind. The pack has
+ * to repaint the record as well: a pack of that name without the picture is
+ * drawing the release's art, which shines.
+ *
+ * Joanna's combat suit (Cdark_combatZ, slot 2370, the only mesh on 0x12a6):
+ * 4J's body gives the torso's side panels 15% and the white pads 50%. PD
+ * Ultimate Plus HD paints the panels as matte fabric (Parabolee's board item
+ * 20261002-034647: "should not be reflective other than the metal parts"), so
+ * they go to nothing and the pads keep theirs.
+ */
+struct xblameshmatte {
+	u16 record;
+	u8 percent;
+	const char *packword;
+};
+
+static const struct xblameshmatte xblaMeshMattes[] = {
+	{ 0x12a6, 15, "ultimate" },
+};
+
+#define XBLAMESH_NUM_MATTES ((s32)(sizeof(xblaMeshMattes) / sizeof(xblaMeshMattes[0])))
+
+// 1 + the row of xblaMeshMattes for a material, or 0
+static s32 xblaMeshMatteRow(u32 record, u32 percent)
+{
+	for (s32 i = 0; i < XBLAMESH_NUM_MATTES && i < 32; i++) {
+		if (xblaMeshMattes[i].record == record && xblaMeshMattes[i].percent == percent) {
+			return i + 1;
+		}
+	}
+
+	return 0;
+}
+
+static s32 xblaMeshContainsWord(const char *name, const char *word)
+{
+	const size_t len = strlen(word);
+
+	for (; *name; name++) {
+		if (strncasecmp(name, word, len) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * The rows of xblaMeshMattes the selected pack makes matte, a bit each. Asked
+ * per mesh drawn, so it is worked out again only when the pack's index changes
+ * (texpackGetIndexSerial(): a reload, F10, packs turned off).
+ */
+static u32 xblaMeshMatteActive(void)
+{
+	static s32 seenSerial = -1;
+	static u32 active = 0;
+	const s32 serial = texpackGetIndexSerial();
+
+	if (serial != seenSerial) {
+		const s32 pack = texpackLoadEnabled() ? texpackGetSelectedPack() : -1;
+		const char *name = pack >= 0 ? texpackGetPackName(pack) : NULL;
+		u32 now = 0;
+
+		for (s32 i = 0; name && i < XBLAMESH_NUM_MATTES && i < 32; i++) {
+			if (xblaMeshContainsWord(name, xblaMeshMattes[i].packword) &&
+					texpackHaveXblaReplacement(xblaMeshMattes[i].record)) {
+				now |= 1u << i;
+			}
+		}
+
+		// the scan above can move the serial on: read it after
+		seenSerial = texpackGetIndexSerial();
+
+		if (now != active) {
+			sysLogPrintf(LOG_NOTE, "xblamesh: matte materials 0x%x under pack \"%s\"", now, name ? name : "");
+		}
+
+		active = now;
+	}
+
+	return active;
+}
+
+// A vertex's reflection amount, less a matte material's under the pack that
+// makes it so. matte is m->mattemask & xblaMeshMatteActive(), 0 for nearly
+// every mesh.
+static inline u32 xblaMeshVertexAmount(const struct xblameshbuilt *m, u32 i, u32 matte)
+{
+	if (matte && m->vmatte[i] && (matte >> (m->vmatte[i] - 1) & 1)) {
+		return 0;
+	}
+
+	return m->venv[i * 2 + 1];
+}
 
 static s32 optEnabled;
 
@@ -2370,6 +2477,11 @@ struct xblameshbuilder {
 	f32 *normals;
 	u8 *venv;
 
+	// And which row of xblaMeshMattes the vertex's material is, if any (1 +
+	// the row): a pack that repaints it takes its reflection away.
+	s32 envmatte;
+	u8 *vmatte;
+
 	// For a classic gun, how light the paint under each vertex is (vink), read
 	// off the current material's picture - see xblaMeshInkFile().
 	s32 ink;
@@ -2574,6 +2686,13 @@ static s32 xblaMeshRoomForVtx(struct xblameshbuilder *b, s32 want)
 		}
 
 		b->venv = env;
+		env = realloc(b->vmatte, (size_t)b->capvtx);
+
+		if (!env) {
+			return 0;
+		}
+
+		b->vmatte = env;
 
 		if (b->ink) {
 			u8 *ink = realloc(b->vink, (size_t)b->capvtx);
@@ -2762,6 +2881,7 @@ static s32 xblaMeshAddVertex(struct xblameshbuilder *b, const u8 *file,
 		// A batch holds one material's vertices, so this is the material's.
 		b->venv[b->numvtx * 2] = (u8)b->envindex;
 		b->venv[b->numvtx * 2 + 1] = (u8)b->envamount;
+		b->vmatte[b->numvtx] = (u8)b->envmatte;
 
 		if (b->ink) {
 			b->vink[b->numvtx] = b->inkrgba ? xblaMeshInkAt(b, vtx->s, vtx->t) : 255;
@@ -2937,11 +3057,14 @@ static s32 xblaMeshSetMaterial(struct xblameshbuilder *b, u32 material, s32 span
 			b->envindex = 0;
 			b->envamount = 0;
 		}
+
+		b->envmatte = 0;
 	} else {
 		const u32 percent = (material >> 16) & 0xff;
 
 		b->envindex = (material >> 24) & 0xff;
 		b->envamount = percent >= 100 ? 255 : (s32)(percent * 255 / 100);
+		b->envmatte = percent ? xblaMeshMatteRow(record, percent) : 0;
 
 		// A classic gun's paint, for its vertices' ink. Whether or not the
 		// material reflects, since a third-person mesh with none borrows an
@@ -5323,6 +5446,9 @@ static void xblaMeshBuildEnvironment(struct xblameshbuilt *m, const struct xblam
 		m->venv = NULL;
 		free(m->vink);
 		m->vink = NULL;
+		free(m->vmatte);
+		m->vmatte = NULL;
+		m->mattemask = 0;
 
 		// A title logo that reflects nothing of the release's still needs its
 		// normals for the glint (xblaMeshBuildLogo()).
@@ -5999,6 +6125,7 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		free(b.turn);
 		free(b.normals);
 		free(b.venv);
+		free(b.vmatte);
 		free(b.vink);
 		free(b.inkrgba);
 		free(file);
@@ -6030,6 +6157,7 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 		free(b.bones);
 		free(b.normals);
 		free(b.venv);
+		free(b.vmatte);
 		free(b.vink);
 		free(file);
 		return 0;
@@ -6049,6 +6177,25 @@ static s32 xblaMeshBuildFile(struct xblameshbuilt *m, u8 *file, u32 len,
 	m->normals = b.normals;
 	m->venv = b.venv;
 	m->vink = b.vink;
+	m->vmatte = NULL;
+	m->mattemask = 0;
+
+	// Kept only for a mesh with a vertex on a material a pack can make matte
+	// (xblaMeshMattes): every other mesh's per-frame loops never look.
+	if (b.vmatte) {
+		for (s32 i = 0; i < b.numvtx; i++) {
+			if (b.vmatte[i]) {
+				m->mattemask |= 1u << (b.vmatte[i] - 1);
+			}
+		}
+
+		if (m->mattemask) {
+			m->vmatte = b.vmatte;
+			sysLogPrintf(LOG_NOTE, "xblamesh: %s has a material a pack can make matte", what);
+		} else {
+			free(b.vmatte);
+		}
+	}
 
 	if (m->vink) {
 		sysLogPrintf(LOG_NOTE, "xblamesh: %s is a classic gun, its sheen weighted by its paint", what);
@@ -6714,6 +6861,7 @@ static void xblaMeshFreePackMeshes(void)
 		free(m->bindpos);
 		free(m->normals);
 		free(m->vink);
+		free(m->vmatte);
 		free(m->weights);
 		free(m->bones);
 		free(m->anatexbone);
@@ -10980,6 +11128,7 @@ static s32 xblaMeshEnvironmentGpu(struct xblameshbuilt *m, const struct model *m
 		const u8 *wound, Vtx **outVtx, Col **outCol)
 {
 	Vtx *vtx = xblaMeshEnvStatic(m);
+	const u32 matte = m->mattemask ? m->mattemask & xblaMeshMatteActive() : 0;
 	Col *col;
 
 	if (!vtx) {
@@ -11001,8 +11150,9 @@ static s32 xblaMeshEnvironmentGpu(struct xblameshbuilt *m, const struct model *m
 
 	for (s32 k = 0; k < m->numenvidx; k++) {
 		const u32 i = m->envidx[k];
-		const u32 share = XBLAMESH_SHEEN_SHARE(m->venv[i * 2 + 1]);
-		const u32 amount = !sheen ? m->venv[i * 2 + 1] : m->vink ? share * m->vink[i] / 255 : share;
+		const u32 own = xblaMeshVertexAmount(m, i, matte);
+		const u32 share = XBLAMESH_SHEEN_SHARE(own);
+		const u32 amount = !sheen ? own : m->vink ? share * m->vink[i] / 255 : share;
 
 		if (m->bindpos) {
 			col[i].r = col[i].g = col[i].b = 0;
@@ -11064,6 +11214,7 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 		Vtx **outVtx, Col **outCol)
 {
 	const s32 unitnormals = normals == m->normals;
+	const u32 matte = m->mattemask ? m->mattemask & xblaMeshMatteActive() : 0;
 	Vtx *vtx;
 	Col *col;
 
@@ -11090,8 +11241,9 @@ static s32 xblaMeshEnvironmentVertices(struct xblameshbuilt *m, const struct mod
 	for (s32 k = 0; k < m->numenvidx; k++) {
 		const u32 i = m->envidx[k];
 		const f32 *n = &normals[i * 3];
-		const u32 share = XBLAMESH_SHEEN_SHARE(m->venv[i * 2 + 1]);
-		const u32 amount = !sheen ? m->venv[i * 2 + 1] : m->vink ? share * m->vink[i] / 255 : share;
+		const u32 own = xblaMeshVertexAmount(m, i, matte);
+		const u32 share = XBLAMESH_SHEEN_SHARE(own);
+		const u32 amount = !sheen ? own : m->vink ? share * m->vink[i] / 255 : share;
 		f32 nx = n[0], ny = n[1], nz = n[2];
 
 		if (!unitnormals) {
@@ -12089,12 +12241,16 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		// The N64 sheen is added over the colours as they are: see
 		// XBLAMESH_SHEEN_SHARE().
 		if (envlight > 0 && !sheen && !m->envown) {
+			// A matte material's colours are left whole (xblaMeshMattes):
+			// dimcol was made at the release's amounts, so it is passed over.
+			// It cannot change inside a frame, so keptcol needs no key of it.
+			const u32 matte = m->mattemask ? m->mattemask & xblaMeshMatteActive() : 0;
 			Col *kept = NULL;
 
 			// Scaled by the amount the distance leaves (envreach), so the sheen
 			// fades into the plain colours past the cutoff instead of the
 			// colours jumping back up at it.
-			if (boundcol == m->colours && envreach == 255 && m->dimcol) {
+			if (boundcol == m->colours && envreach == 255 && m->dimcol && !matte) {
 				kept = m->dimcol;
 			} else if (m->keptcol && m->keptmodel == model && m->keptframe == frameCount &&
 					m->keptsrc == boundcol && m->keptreach == envreach) {
@@ -12107,7 +12263,8 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 
 					for (s32 k = 0; k < m->numenvidx; k++) {
 						const u32 i = m->envidx[k];
-						const u32 share = wound ? m->venv[i * 2 + 1] * (255u - wound[i]) / 255 : m->venv[i * 2 + 1];
+						const u32 own = xblaMeshVertexAmount(m, i, matte);
+						const u32 share = wound ? own * (255u - wound[i]) / 255 : own;
 						const u32 left = 255 - (share * envreach + 127) / 255;
 
 						kept[i].r = (u8)((boundcol[i].r * left + 127) / 255);
