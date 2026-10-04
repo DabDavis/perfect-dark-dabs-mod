@@ -10,7 +10,7 @@ extern "C" {
 
 // Raise when a change alters what a conversion writes: arenas converted by an
 // older one are converted again at the next start (gexplusrom.c)
-#define GECONVERT_VERSION_STR "121"
+#define GECONVERT_VERSION_STR "122"
 
 #define GECONVERT_ROM_SIZE 0xc00000
 
@@ -40,6 +40,10 @@ const char *geconvertHeaderVariantName(const uint8_t *head, size_t len);
 // the i'th ROM hack the conversion knows, NULL past the last: its name is its
 // folder's under mods/ and its entry in the menus
 const char *geconvertVariantNameAt(int i);
+// and its short tag for folder names ("gf64"), the asset dump's
+// texture-dumps/<tag>-n64/; GoldenEye's own is geconvertGoldenEyeTag() ("ge")
+const char *geconvertVariantTagAt(int i);
+const char *geconvertGoldenEyeTag(void);
 
 /**
  * Converts GoldenEye's levels and props out of the ROM into the maps-only mod
