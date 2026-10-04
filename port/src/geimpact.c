@@ -269,8 +269,10 @@ struct textureconfig *geImpactConfig(s32 texnum)
 			}
 		}
 
-		// the renderer keeps a texture by the address it was uploaded from
-		videoFreeCachedTexture(tc->textureptr);
+		// the renderer keeps a texture by the address it was uploaded from:
+		// its copy alone, the registry still naming the picture the
+		// conversion's (gemonitor.c's geMonitorBindPicture())
+		videoEvictCachedTexture(tc->textureptr);
 	}
 
 	return tc;

@@ -754,8 +754,9 @@ static void geFolderBind(struct gebeanpictures *pics, const struct modeldef *mod
 		bound[numBound++] = tc->textureptr;
 
 		// The renderer keeps a texture by the address it was uploaded from, so
-		// whatever it has for this one is the ROM's picture and has to go.
-		videoFreeCachedTexture(tc->textureptr);
+		// whatever it has for this one is the ROM's picture and has to go -
+		// its copy alone (geFolderForget())
+		videoEvictCachedTexture(tc->textureptr);
 	}
 }
 
@@ -2240,7 +2241,13 @@ void geFolderForget(void)
 
 	for (s32 i = 0; i < numBound; i++) {
 		xblaTexForgetPicture(bound[i]);
-		videoFreeCachedTexture(bound[i]);
+		// The renderer's copy alone. The folder's pictures are GoldenEye's
+		// textures in the shared pool, which the menu draws by number as well
+		// (the film strip's holes): forgetting the registry's entry left the
+		// next load of one from the pool named the ROM's texture of that
+		// number, and a texture pack drew Perfect Dark's picture of it after
+		// the look was switched back (F3 20261004-031724)
+		videoEvictCachedTexture(bound[i]);
 		bound[i] = NULL;
 	}
 

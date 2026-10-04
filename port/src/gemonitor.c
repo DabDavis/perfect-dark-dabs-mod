@@ -379,8 +379,14 @@ static void geMonitorBindPicture(s32 i)
 		}
 	}
 
-	// the renderer keeps a texture by the address it was uploaded from
-	videoFreeCachedTexture(tc->textureptr);
+	// the renderer keeps a texture by the address it was uploaded from - its
+	// copy alone: the registry's entry is what names this picture GoldenEye's,
+	// out of its conversion. Freed with it, the next load found the picture
+	// in the pool and registered it as the ROM's texture of that number, and
+	// a texture pack, or the release's art, drew Perfect Dark's picture of
+	// that number on the set from then on (F3 20261004-031724: the second
+	// page after the look was switched back to the N64's)
+	videoEvictCachedTexture(tc->textureptr);
 }
 
 struct textureconfig *geMonitorImage(u32 *cmdlist, u32 index)
