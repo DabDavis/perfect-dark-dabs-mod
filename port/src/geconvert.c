@@ -8092,12 +8092,6 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 }
 
 /**
- * GoldenEye's intro commands are Perfect Dark's own: the same types in the same
- * order at the same widths, and only the end differs - GoldenEye stops at 9 and
- * Perfect Dark at 12. Type 6 is ten words, which is what Perfect Dark's is
- * (modrandom.c sizes INTROCMD_6 at 40 bytes).
- */
-/**
  * An item a mission's start hands Bond, as the port's weapon: soloItemWeapon(),
  * and the watch's detonator, the item GtriggerZ is (GoldenEye's 30). The
  * cartridge gives the detonator at the start only where the setup names it -
@@ -8116,6 +8110,12 @@ static uint32_t soloIntroItemWeapon(uint32_t item)
 	return soloItemWeapon(item);
 }
 
+/**
+ * GoldenEye's intro commands are Perfect Dark's own: the same types in the same
+ * order at the same widths, and only the end differs - GoldenEye stops at 9 and
+ * Perfect Dark at 12. Type 6 is ten words, which is what Perfect Dark's is
+ * (modrandom.c sizes INTROCMD_6 at 40 bytes).
+ */
 static buf writeSoloIntro(const buf *f, size_t numpads, double levelscale, const double *offset)
 {
 	static const uint8_t words[9] = { 3, 4, 4, 8, 2, 2, 10, 3, 2 };

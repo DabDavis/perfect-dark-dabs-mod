@@ -31,6 +31,25 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 40 2026-10-04
+GoldenEye Facility and Jungle: you start with the watch detonator again, as on the cartridge (thanks Mike D)
+GoldenEye Facility on 00 Agent: dropping out of the vent no longer fails the double agent objective at high frame rates (thanks REMi)
+GoldenEye: armoured enemies such as Baron Samedi no longer cry out when a shot only makes them twitch, as in GoldenEye (thanks Odeyseis)
+GoldenEye arenas: picking up the same gun from a second spot gives you its ammo instead of a dual-wield pair, as in GoldenEye (thanks dblaney1)
+GoldenEye HD look with a Perfect Dark mod selected: Bond's own hand, the proper PP7 and the Moonraker laser are back instead of Perfect Dark's guns (thanks savantique)
+GoldenEye Monitor Programmes: no Perfect Dark textures on the screens after switching the XBLA look off and on with a texture pack installed (thanks Shockwave S08)
+GoldenEye Monitor Programmes, HD look: the Skateboard screen shows GoldenEye's own skater instead of dark photo stills (thanks Shockwave S08)
+GoldenEye Streets, HD look: the kerb along the bottom of the walls is no longer dotted with dark spots
+Goldfinger 64 and Tomorrow Never Dies 64: completed-difficulty checkmarks show the proper red tick instead of a scrambled picture (thanks N4h, savantique, Odeyseis)
+Tomorrow Never Dies 64 Bazaar: the jet rolls away down the runway when the ending starts (thanks Odeyseis)
+Tomorrow Never Dies 64 Party: the bouncer waits for you and talks, unless you come in holding a gun (thanks Odeyseis)
+Tomorrow Never Dies 64 and Goldfinger 64: shooting walls makes the mod's own impact sounds, as on its cartridge (thanks Odeyseis)
+Tomorrow Never Dies 64: the LAW 80 in your left hand sits on your left shoulder instead of filling the screen
+Tomorrow Never Dies 64 and Goldfinger 64: the MP5A2, the drum-magazine Thompson and the silenced PPKs show a muzzle flash when fired (thanks raffine52)
+Tomorrow Never Dies 64: two looping sound effects no longer crash the game the first time they play (thanks to those who sent crash reports)
+Mods that replace voice lines, such as Uncompressed VOX, no longer crash the game partway through a line
+Perfect Dark with a mod selected: the SuperDragon switches back from its grenade launcher instead of staying stuck in that pose (thanks savantique)
+
 notes 39 2026-10-04
 Goldfinger 64: a shot knocks the guards' hats off as on the cartridge, instead of ringing off them like a steel helmet (thanks Odeyseis)
 Goldfinger 64 Cartel: you no longer get stuck crouching in the second silo's doorway at high frame rates (thanks savantique)
