@@ -105,10 +105,10 @@ static const struct { u16 image; const char *bean; } g_GeMonBean[] = {
 	{ 2220, "anim4.2" },         // IMAGE_MONITOR_FIST2
 	{ 2221, "anim4.3" },         // IMAGE_MONITOR_FIST3
 	{ 2222, "anim4.4" },         // IMAGE_MONITOR_FIST4
-	{ 2218, "anim5.1" },         // IMAGE_MONITOR_SKATEBOARD4
-	{ 2207, "anim5.2" },         // IMAGE_MONITOR_SKATEBOARD1
-	{ 2208, "anim5.3" },         // IMAGE_MONITOR_SKATEBOARD2
-	{ 2209, "anim5.4" },         // IMAGE_MONITOR_SKATEBOARD3
+	// the skateboard (2207-2209, 2218) keeps GoldenEye's own frames in both
+	// looks: the release's anim5.1-5.4 are dark photo stills - a figure, a
+	// face, a can - not the skater, near black under the programme's green
+	// tint (F3 20261004-031402; the owner, pass 33)
 	{ 2210, "anim3.1" },         // IMAGE_MONITOR_TALK1
 	{ 2211, "anim3.2" },         // IMAGE_MONITOR_TALK2
 	{ 2212, "anim3.3" },         // IMAGE_MONITOR_TALK3
