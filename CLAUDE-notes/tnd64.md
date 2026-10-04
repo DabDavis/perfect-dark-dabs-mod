@@ -318,3 +318,35 @@ Rigs: `~/wt/tnd-run/rig` (the game, all three sources in added-content/),
 - Probes: `~/wt/f3-1004b-tndmissions-run/probe/` (detq.py, bike.py,
   tamara.py, hans.py, roomprops.py, grid.py); setup AI dumps
   `ana/setup.py <file> [list ids]` from the TND ROM.
+
+## F3 pass 34 (guns, fix/f3-1004b-tndguns)
+
+- **Two flashes on the MP5s, the Remington's out ahead (F3 20261004-171602,
+  -171616).** TND's flash quads lie off their nodes along z (the MP5s' 100
+  out, the Remington's 500), GoldenEye's at z 0. gunfire.c turns the star
+  with guAlignF() about the line from the eye to it, so a z offset stays on
+  that line; ours billboarded it on the eye's own axes, so the MP5s' star
+  stood under the gun and the Remington's went past the near plane
+  (`gegunsStarMatrix()`). The cartridge (ares, `guns/firepics.py`, item 10
+  and 15 on level 25) shows one flash at the MP5's muzzle and the
+  Remington's flash a little past its barrel, as ours now. The HD cards keep
+  the eye's axes.
+- **The Phone Taser's card (F3 20261004-043613).** GoldenEye's taser file
+  carries a screen (part 16 under toggle 17, gunfire.c runs monitor
+  programme 35 on it, PD's bondgun.c the same code with its own programme).
+  TND's screen node's list loads no vertices, so it converted with none and
+  tvscreenRender() read four vertices of garbage: a huge flickering card,
+  seen under Vulkan (depth clamp) and clipped away under OpenGL. A screen
+  node with fewer than four vertices is now not drawn (bondgun.c). Not done:
+  the programme on the phone's screen as the cartridge runs it (needs the
+  converter to keep the quad's vertices, and programme 35 from
+  gemonitors.bin).
+- **Not done: the taser's fire (F3 20261004-044028).** On the cartridge each
+  shot moves the phone along taserFireKeyFrames (down and away, then back
+  with taserRaiseKeyframes; gunfire.c), ours fires it as the host pistol
+  recoils.
+- **Not done: the Camera's z-fight in the watch (F3 20261004-144742).**
+  GoldenEye draws the watch's inventory model with no z-buffer
+  (set_enviro_fog_for_items_in_solo_watch_menu, zbufferenabled FALSE); ours
+  draws it with z and no culling (gewatch.c, for the D5K's silencer), so
+  coplanar lettering fights. Not reproduced headlessly.

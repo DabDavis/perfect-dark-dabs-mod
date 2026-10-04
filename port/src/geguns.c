@@ -3259,6 +3259,72 @@ static void gegunsFlashMatrix(Mtxf *out, const Mtxf *parent, f32 roll, f32 scale
 }
 
 /**
+ * The star's matrix as gunfire.c builds it: guAlignF() about the line from
+ * the eye to the star (its z along that line, rolled by `roll` about it),
+ * `scale` all round, and the z of every axis stretched by `ext`
+ * (matrix_row_3_scalar_multiply()), at `pos` in the eye's space.
+ *
+ * Its z is the line of sight, not the eye's own z: a star drawn away from its
+ * node along z stays over the flash on the screen. GoldenEye's stars lie at
+ * z 0, where the two agree, but Tomorrow Never Dies 64's lie 100 out (the
+ * MP5s, its flash too) and 500 (the Remington), and along the eye's z that
+ * moved the star toward the eye and off the line through the muzzle: a second
+ * flash under the MP5s (F3 20261004-171602), and the Remington's left out
+ * past the near plane with only its flash, out ahead of the barrel, to see
+ * (F3 20261004-171616).
+ */
+static void gegunsStarMatrix(Mtxf *out, f32 roll, f32 scale, f32 ext, const f32 *pos)
+{
+	f32 x = pos[0];
+	f32 y = pos[1];
+	f32 z = pos[2];
+	f32 len = sqrtf(x * x + y * y + z * z);
+	f32 h;
+	const f32 c = cosf(roll);
+	const f32 s = sinf(roll);
+
+	if (len <= 0.0f) {
+		gegunsFlashMatrix(out, NULL, roll, scale, ext, pos, 1);
+		return;
+	}
+
+	// guAlignF(m, roll, -pos): the vector normalised, and its rows
+	x = -x / len;
+	y = -y / len;
+	z = -z / len;
+	h = sqrtf(x * x + z * z);
+
+	if (h <= 0.0f) {
+		gegunsFlashMatrix(out, NULL, roll, scale, ext, pos, 1);
+		return;
+	}
+
+	out->m[0][0] = (-z * c - s * y * x) / h;
+	out->m[1][0] = (z * s - c * y * x) / h;
+	out->m[2][0] = -x;
+	out->m[0][1] = s * h;
+	out->m[1][1] = c * h;
+	out->m[2][1] = -y;
+	out->m[0][2] = (c * x - s * y * z) / h;
+	out->m[1][2] = (-s * x - c * y * z) / h;
+	out->m[2][2] = -z;
+
+	for (s32 r = 0; r < 3; r++) {
+		for (s32 col = 0; col < 3; col++) {
+			out->m[r][col] *= scale;
+		}
+
+		out->m[r][2] *= ext;
+		out->m[r][3] = 0.0f;
+	}
+
+	out->m[3][0] = pos[0];
+	out->m[3][1] = pos[1];
+	out->m[3][2] = pos[2];
+	out->m[3][3] = 1.0f;
+}
+
+/**
  * A star under the flash that gunfire.c never poses: the ZMG carries a second
  * one in the flash as the KF7 does (part 4, 68 units out past its first), but
  * only the KF7's skeleton has it posed, and GoldenEye leaves its matrix the
@@ -3387,8 +3453,14 @@ void gegunsOwnModelFlash(struct hand *hand, struct model *model)
 			}
 		}
 
-		gegunsFlashMatrix(&model->matrices[modelFindNodeMtxIndex(star, 0)], NULL,
-				gegunsRandFrac() * M_BADTAU, unit * scale, ext, at, 1);
+		// the release's cards (HD) keep the eye's axes they were fitted to
+		if (cards) {
+			gegunsFlashMatrix(&model->matrices[modelFindNodeMtxIndex(star, 0)], NULL,
+					gegunsRandFrac() * M_BADTAU, unit * scale, ext, at, 1);
+		} else {
+			gegunsStarMatrix(&model->matrices[modelFindNodeMtxIndex(star, 0)],
+					gegunsRandFrac() * M_BADTAU, unit * scale, ext, at);
+		}
 	}
 }
 
