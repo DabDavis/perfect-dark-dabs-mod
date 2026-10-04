@@ -31,6 +31,23 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 42 2026-10-04
+GoldenEye Aztec: the keyboard beside the mainframes can be used again to slide them open (thanks Odeyseis)
+GoldenEye, HD look: guards' side caps and the Dam officer's peaked cap now sit down on the head and cover the hair (thanks Odeyseis)
+GoldenEye: guards who sneeze now make the sneeze sound (thanks Odeyseis)
+GoldenEye arenas: a simulant's slap no longer kills in one hit
+Goldfinger 64 Cartel: stopping in the silo doorway by the swinging door no longer leaves you stuck (thanks savantique)
+Goldfinger 64 Cartel ending: Bond stays on the floor while he checks his watch, even after a GoldenEye mission in the same session (thanks Odeyseis)
+Tomorrow Never Dies 64 City: getting on the motorbike keeps your gun out and no longer gives you tank shells (thanks Odeyseis)
+Tomorrow Never Dies 64 Party: Bond's line now shows when you draw the watch detonator after planting the remote mine (thanks Odeyseis)
+Tomorrow Never Dies 64 Party ending: Tamara no longer falls through the floor when the ending starts (thanks Odeyseis)
+Tomorrow Never Dies 64: the MP5 and MP5A2 show one muzzle flash at the barrel, and the Remington's flash starts at its barrel tip (thanks raffine52)
+Tomorrow Never Dies 64: taking out the Phone Taser no longer draws a flickering card across the screen with the Vulkan renderer (thanks Odeyseis)
+XBLA look: the X-ray scanner shows Pelagic II's screens again (thanks trevor)
+XBLA look: the spinning part of the menu eyepiece no longer cuts through itself (thanks Shockwave S08)
+First start: the conversion screen now says CONVERTING GOLDENEYE (thanks Shockwave S08)
+GoldenEye, Goldfinger 64 and Tomorrow Never Dies 64 convert once more on the next start
+
 notes 41 2026-10-04
 PD Ultimate Plus HD pack, XBLA look: Joanna's combat suit no longer shines on its fabric panels, only on the armour pads (thanks Parabolee)
 Dump All Assets: Perfect Dark's textures now go in texture-dumps/pd-n64 and pd-xbla with an index.csv, laid out like GoldenEye's (thanks Parabolee)
