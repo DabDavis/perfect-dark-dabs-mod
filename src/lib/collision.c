@@ -3777,6 +3777,74 @@ bool cdTestLos04(struct coord *frompos, RoomNum *fromrooms, struct coord *topos,
 	return cdTestLos03(frompos, fromrooms, topos, types, GEOFLAG_WALL | GEOFLAG_BLOCK_SIGHT | GEOFLAG_BLOCK_SHOOT);
 }
 
+#ifndef PLATFORM_N64
+#include "geroom.h"
+#include "gebeanstage.h"
+
+/**
+ * The rooms a line of sight is tested in on a converted GoldenEye level: the
+ * portal walk's (`walked`, -1 ended) and then every other room whose box the
+ * line enters, into `dst` (len entries, -1 ended).
+ *
+ * A converted level's portals do not follow its rooms: on the Bunker the walk
+ * from the stairs' head (rooms 4, 3) went straight into the corridor behind
+ * the windowed door (room 6) and never entered the two rooms between, so the
+ * door, which stands in one of them, was never tested and a guard up the
+ * stairs shot Bond through it shut (F3 20261003-230640). GoldenEye's own test
+ * (stanTestLineUnobstructed() with CDTYPE_DOORS) meets every door on the line.
+ * The same reason as Bond's own shots' rooms (prop.c, shotGeRooms()); a room
+ * the HD look hides stops neither.
+ */
+static void cdGeLineRooms(struct coord *from, struct coord *to, RoomNum *walked, RoomNum *dst, s32 len)
+{
+	struct coord dist;
+	struct coord inv;
+	struct coord hit;
+	s32 n = 0;
+	s32 i;
+	s32 r;
+
+	for (i = 0; walked[i] != -1 && n < len - 1; i++) {
+		dst[n++] = walked[i];
+	}
+
+	dist.x = to->x - from->x;
+	dist.y = to->y - from->y;
+	dist.z = to->z - from->z;
+	inv.x = 1.0f / dist.x;
+	inv.y = 1.0f / dist.y;
+	inv.z = 1.0f / dist.z;
+
+	for (r = 1; r < g_Vars.roomcount && n < len - 1; r++) {
+		struct coord bbmin;
+		struct coord bbmax;
+
+		for (i = 0; walked[i] != -1; i++) {
+			if (walked[i] == r) {
+				break;
+			}
+		}
+
+		if (walked[i] != -1 || gebeanStageRoomHidden(r)) {
+			continue;
+		}
+
+		bbmin.x = g_Rooms[r].bbmin[0];
+		bbmin.y = g_Rooms[r].bbmin[1];
+		bbmin.z = g_Rooms[r].bbmin[2];
+		bbmax.x = g_Rooms[r].bbmax[0];
+		bbmax.y = g_Rooms[r].bbmax[1];
+		bbmax.z = g_Rooms[r].bbmax[2];
+
+		if (bg0f1612e4(&bbmin, &bbmax, from, &dist, &inv, &hit) != 0) {
+			dst[n++] = r;
+		}
+	}
+
+	dst[n] = -1;
+}
+#endif
+
 bool cdTestLos05(struct coord *coord, RoomNum *rooms, struct coord *coord2, RoomNum *rooms2, s32 types, u16 geoflags)
 {
 	bool result;
@@ -3786,7 +3854,17 @@ bool cdTestLos05(struct coord *coord, RoomNum *rooms, struct coord *coord2, Room
 	func0f065d1c(coord, rooms, coord2, sp34, sp44, 20);
 
 	if (arrayIntersects(sp34, rooms2)) {
-		result = cdTestAToB(coord, coord2, sp44, types, geoflags, CHECKVERTICAL_YES, 1, 0, 0);
+		RoomNum *testrooms = sp44;
+#ifndef PLATFORM_N64
+		RoomNum gerooms[128];
+
+		if (geRoomActive()) {
+			cdGeLineRooms(coord, coord2, sp44, gerooms, ARRAYCOUNT(gerooms));
+			testrooms = gerooms;
+		}
+#endif
+
+		result = cdTestAToB(coord, coord2, testrooms, types, geoflags, CHECKVERTICAL_YES, 1, 0, 0);
 	} else {
 		result = false;
 	}

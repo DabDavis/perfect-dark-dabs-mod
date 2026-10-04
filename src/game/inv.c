@@ -383,12 +383,17 @@ bool invCanHaveAllGunsWeapon(s32 weaponnum)
  * The All Guns cheat's list. Perfect Dark's is every weapon up to the
  * Psychosis Gun, by number. In a level GE Plus started it is GoldenEye's
  * instead (bondinv.c's equipallguns: ITEM_FIST up to ITEM_TANKSHELLS, in
- * GoldenEye's item order) - the guns, the knives, the explosives and the
- * detonator it gives with them, but not its tank's shells, which nothing can
- * fire outside the tank, nor the Silver and Gold PP7s, the watch laser and
- * the taser that the port has no weapon for; followed by Perfect Dark's own
- * list only when the player has asked for Perfect Dark's guns in GE Plus
+ * GoldenEye's item order) - the guns, the knives, the explosives, the
+ * detonator it gives with them and its tank's shells ("Tank" on the watch,
+ * the list's last), but not the Silver and Gold PP7s, the watch laser and the
+ * taser that the port has no weapon for; followed by Perfect Dark's own list
+ * only when the player has asked for Perfect Dark's guns in GE Plus
  * (Mod.GePlusPdGuns). F3 20260929-025554.
+ *
+ * The shells on foot are as GoldenEye's: listed and held, but with none to
+ * fire, since only the tank's seat holds any (bondview2.c gives them on the
+ * way in and takes them on the way out; geTankFireCannon() fires only from
+ * the seat). F3 20261003-164121.
  */
 #ifndef PLATFORM_N64
 static const u8 g_GeAllGuns[] = {
@@ -419,6 +424,7 @@ static const u8 g_GeAllGuns[] = {
 	WEAPON_GE_PROXIMITYMINE,
 	WEAPON_GE_REMOTEMINE,
 	WEAPON_GE_DETONATOR,
+	WEAPON_GE_TANKSHELLS,
 };
 
 #define NUM_GE_ALLGUNS ((s32)(sizeof(g_GeAllGuns) / sizeof(g_GeAllGuns[0])))
@@ -552,13 +558,10 @@ bool invAllGunsGives(s32 weaponnum)
  */
 static s32 invAllGunsStep(s32 weaponnum, s32 dir, bool needammo)
 {
-	const s32 listed = invAllGunsCount();
-	// the tank's shells, which the list leaves out, while he drives: one
-	// more stop after the list's end, as in GoldenEye's cycle (F3
-	// 20260929-062621)
-	const bool shells = invHasSingleWeaponExcAllGuns(WEAPON_GE_TANKSHELLS);
-	const s32 count = listed + (shells ? 1 : 0);
-	s32 index = weaponnum == WEAPON_GE_TANKSHELLS && shells ? listed : invAllGunsIndexOf(weaponnum);
+	// the tank's shells are in the list, as in GoldenEye's cycle (F3
+	// 20260929-062621, 20261003-164121)
+	const s32 count = invAllGunsCount();
+	s32 index = invAllGunsIndexOf(weaponnum);
 
 	if (index < 0) {
 		index = dir > 0 ? -1 : count;
@@ -568,7 +571,7 @@ static s32 invAllGunsStep(s32 weaponnum, s32 dir, bool needammo)
 		s32 candidate;
 
 		index = (index + dir + count) % count;
-		candidate = index == listed ? WEAPON_GE_TANKSHELLS : invAllGunsWeaponAt(index);
+		candidate = invAllGunsWeaponAt(index);
 
 		if (candidate == weaponnum) {
 			break;
