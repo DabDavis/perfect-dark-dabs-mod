@@ -489,7 +489,8 @@ static void borrowLoadSounds(void)
 	sysMemFree(raw);
 
 	snprintf(path, sizeof(path), "%s/segs/sfxtbl", src.dir);
-	src.tbl = fsFileSize(path) > 0 ? fsFileLoad(path, &len) : NULL;
+	// padded: the sound DMA reads a whole item from where a sample starts
+	src.tbl = fsFileSize(path) > 0 ? fsFileLoadPadded(path, &len, ADMA_ITEM_SIZE) : NULL;
 
 	if (!src.ctl || !src.tbl) {
 		return;
@@ -580,6 +581,9 @@ static s32 borrowAppendSound(s32 id)
 					if (wave->waveInfo.adpcmWave.loop) {
 						wave->waveInfo.adpcmWave.loop = (ALADPCMloop *)((uintptr_t)wave->waveInfo.adpcmWave.loop + BORROW_CTL_DELTA());
 					}
+				} else if (wave->type == AL_RAW16_WAVE && wave->waveInfo.rawWave.loop) {
+					// read by sndLoadWavetable() as a ctl offset, as the ADPCM loop is
+					wave->waveInfo.rawWave.loop = (ALRawLoop *)((uintptr_t)wave->waveInfo.rawWave.loop + BORROW_CTL_DELTA());
 				}
 			}
 		}
