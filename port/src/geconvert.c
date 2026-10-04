@@ -11610,6 +11610,18 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 
 	{
 		int count = 0, missing = 0;
+		// menu/gesurfaces.bin, a variant's only: each written texture's
+		// surface, the top byte of its image row (romImage()) - what a
+		// bullet sounds like on it and the hole it leaves. getexsurface.c
+		// had GoldenEye's own table (geimagesurfaces.h) for every level, but
+		// a hack's rows are its own: TND64's images past GoldenEye's 2698
+		// and ten it changed, so its Bazaar's walls rang of stone where its
+		// cartridge plays HIT_BULLET_SNOW (F3 20261004-030108). "GES1", u16
+		// the count of texture numbers (4096), u16 0, then a byte a number.
+		static uint8_t surf[4096];
+		const int writesurf = g_Layout->variant != 0;
+
+		memset(surf, 0, sizeof(surf));
 
 		setAdd(alltex, GE_IMAGE_CLOUDS);
 		setAdd(alltex, GE_IMAGE_WATER_GREY);
@@ -11641,8 +11653,22 @@ int geconvertRun(uint8_t *rom, size_t romlen, const char *outdir, char *err, siz
 			snprintf(rel, sizeof(rel), "textures/%04x.bin", texRemap(num));
 			writeFile(outdir, rel, data, len);
 			++count;
+
+			if (texRemap(num) < sizeof(surf)) {
+				surf[texRemap(num)] = g_Data[IMAGES_AT + g_Layout->imagestride * num];
+			}
 		}
 		note("geconvert: %d textures, %d missing", count, missing);
+
+		if (writesurf) {
+			buf s = {0};
+
+			bufPut(&s, (const uint8_t *)"GES1", 4);
+			bufU16(&s, sizeof(surf));
+			bufU16(&s, 0);
+			bufPut(&s, surf, sizeof(surf));
+			writeFile(outdir, "menu/gesurfaces.bin", s.v, s.n);
+		}
 	}
 
 	if (g_Layout->variant) {

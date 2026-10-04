@@ -20,6 +20,7 @@
  */
 #include <ultra64.h>
 #include <stdio.h>
+#include <string.h>
 #include "constants.h"
 #include "types.h"
 #include "bss.h"
@@ -73,6 +74,43 @@ void geTexSurfaceReset(s32 stagenum)
 		}
 
 		g_PdSurfacesKept = true;
+	}
+
+	// a ROM hack's own (menu/gesurfaces.bin, geconvert.c): its image rows'
+	// surfaces by the texture number written, which are not GoldenEye's
+	// past its own images nor everywhere before them
+	snprintf(path, sizeof(path), "%s/menu/gesurfaces.bin", dir);
+
+	if (fsFileSize(path) > 0) {
+		u32 len = 0;
+		u8 *d = fsFileLoad(path, &len);
+		const u32 count = d && len >= 8 && !memcmp(d, "GES1", 4) ? (u32)(d[4] << 8 | d[5]) : 0;
+
+		if (count && len >= 8 + count) {
+			for (u32 num = 0; num < count && num < NUM_TEXTURES; num++) {
+				snprintf(path, sizeof(path), "%s/textures/%04x.bin", dir, num);
+
+				if (fsFileSize(path) <= 0) {
+					continue;
+				}
+
+				if (g_PdSurfaces[num] != d[8 + num]) {
+					changed++;
+				}
+
+				texSurfaceSet(num, d[8 + num]);
+			}
+
+			sysMemFree(d);
+			g_GeSurfacesIn = true;
+
+			sysLogPrintf(LOG_NOTE, "getexsurface: stage 0x%02x: %d of the level's textures take its ROM's surface over Perfect Dark's",
+					stagenum, changed);
+			return;
+		}
+
+		sysLogPrintf(LOG_WARNING, "getexsurface: %s is not a surface table", path);
+		sysMemFree(d);
 	}
 
 	for (s32 image = 0; image < GE_NUM_IMAGES; image++) {
