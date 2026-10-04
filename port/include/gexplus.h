@@ -123,6 +123,14 @@ void gexPlusWeaponSetsAppend(void); // GoldenEye's own sets in the whole list, a
 s32 gexPlusGetPdGuns(void);
 void gexPlusSetPdGuns(s32 on);
 
+/**
+ * Whether this match's pickups pair by GoldenEye's rule: an arena of a
+ * GoldenEye ROM's conversion (GE Plus's or a ROM hack's), where only a linked
+ * prop gives a pair - the same gun from a second pad adds ammo. Perfect
+ * Dark's own arenas and its mods' keep Perfect Dark's second-pad pair.
+ */
+s32 gexPlusArenaPairsLinkedOnly(void);
+
 /** The explosion a converted GoldenEye prop makes when destroyed (GoldenEye's own table), or -1. */
 s32 gexPlusPropExplosionType(s32 modelnum);
 u16 gexPlusPropDeformSeed(s32 modelnum, s32 index);

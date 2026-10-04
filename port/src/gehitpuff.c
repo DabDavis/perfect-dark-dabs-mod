@@ -347,7 +347,9 @@ static struct textureconfig *geHitPuffConfig(s32 i)
 			}
 		}
 
-		videoFreeCachedTexture(tc->textureptr);
+		// the renderer's copy alone: the registry still names the frame the
+		// conversion's (gemonitor.c's geMonitorBindPicture(), geimpact.c)
+		videoEvictCachedTexture(tc->textureptr);
 	}
 
 	return tc;

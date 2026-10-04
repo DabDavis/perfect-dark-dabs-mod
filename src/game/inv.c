@@ -880,6 +880,10 @@ s32 invGiveWeaponsByProp(struct prop *prop)
 			}
 
 			if (g_Vars.normmplayerisrunning
+#ifndef PLATFORM_N64
+					// GoldenEye's arenas pair a linked prop alone (below)
+					&& !gexPlusArenaPairsLinkedOnly()
+#endif
 					&& weaponHasFlag(weaponnum, WEAPONFLAG_DUALWIELD)
 					&& !invHasDoubleWeaponExcAllGuns(weaponnum, weaponnum)) {
 				struct invitem *invitem = invFindSingleWeapon(weaponnum);
