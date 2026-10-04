@@ -553,8 +553,9 @@ A pack's picture can change what a material *should* reflect, which the pack has
 no way to say: the release's reflection amounts are 4J's, per material. Where a
 pack repaints a shiny material as something matte, `xblaMeshMattes` in
 xblamesh.c takes the reflection away while that pack (by a word of its name) is
-selected and repaints the record - Joanna's combat suit's side panels under PD
-Ultimate Plus HD, 2026-10-04. xbla.md, "A pack that makes a material matte".
+selected and itself repaints the record
+(`texpackXblaReplacementIsSelectedPack()`) - Joanna's combat suit's side panels
+under PD Ultimate Plus HD, 2026-10-04. xbla.md, "A pack that makes a material matte".
 
 ## Texture pack keys
 

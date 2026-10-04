@@ -334,6 +334,7 @@ s32 texpackDecodedIsGlyph(s32 id, u32 glyph);
  * the release's art is drawn until the decode lands.
  */
 s32 texpackHaveXblaReplacement(s32 record);
+s32 texpackXblaReplacementIsSelectedPack(s32 record);
 
 u8 *texpackLoadXblaReplacement(s32 record, s32 *outWidth, s32 *outHeight);
 u8 *texpackDecodeXblaReplacementNow(s32 record, s32 *outWidth, s32 *outHeight);

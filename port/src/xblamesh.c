@@ -502,8 +502,10 @@ struct xblameshmats {
  * A row is a record and the percentage the release's material reflects at
  * (byte 16), which is what tells one draw of a body from another on the same
  * record, and a word the pack's folder name has in it, case-blind. The pack has
- * to repaint the record as well: a pack of that name without the picture is
- * drawing the release's art, which shines.
+ * to repaint the record as well, itself: a pack of that name without the
+ * picture is drawing the release's art, which shines, or another source's
+ * (a textures/ under $B or an overlay mod), which is not this pack's repaint
+ * (texpackXblaReplacementIsSelectedPack()).
  *
  * Joanna's combat suit (Cdark_combatZ, slot 2370, the only mesh on 0x12a6):
  * 4J's body gives the torso's side panels 15% and the white pads 50%. PD
@@ -566,7 +568,7 @@ static u32 xblaMeshMatteActive(void)
 
 		for (s32 i = 0; name && i < XBLAMESH_NUM_MATTES && i < 32; i++) {
 			if (xblaMeshContainsWord(name, xblaMeshMattes[i].packword) &&
-					texpackHaveXblaReplacement(xblaMeshMattes[i].record)) {
+					texpackXblaReplacementIsSelectedPack(xblaMeshMattes[i].record)) {
 				now |= 1u << i;
 			}
 		}
