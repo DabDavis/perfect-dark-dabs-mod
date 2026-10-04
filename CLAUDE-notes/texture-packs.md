@@ -650,6 +650,14 @@ is decided from the release's own picture as the display list is built, on the
 game thread, which may not touch the pack index - see `xblaTexRecordIsSoft()`.
 Painting a glow over a solid therefore still draws as a cutout.
 
+A pack's picture can change what a material *should* reflect, which the pack has
+no way to say: the release's reflection amounts are 4J's, per material. Where a
+pack repaints a shiny material as something matte, `xblaMeshMattes` in
+xblamesh.c takes the reflection away while that pack (by a word of its name) is
+selected and itself repaints the record
+(`texpackXblaReplacementIsSelectedPack()`) - Joanna's combat suit's side panels
+under PD Ultimate Plus HD, 2026-10-04. xbla.md, "A pack that makes a material matte".
+
 ## Texture pack keys
 
 `Mod.DumpTexturesKey` (F7), `Mod.TexturePackKey` (F8, packs on/off),

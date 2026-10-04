@@ -340,7 +340,9 @@ static u8 *texpackGlyphCopy(const struct texpackglyph *glyph, s32 *outWidth, s32
 
 static char **xblaReplacePaths; // TEXPACK_XBLA_RECORDS entries, made on the first one found
 static u8 *xblaReplaceFlip;
+static u8 *xblaReplaceInPack; // 1 where the selected pack, not $B or a mod's textures/, supplied it
 static s32 numXblaReplacements;
+static s32 scanningSelected;
 
 /**
  * The pack of the mod whose stage is running, indexed on its own.
@@ -1528,12 +1530,15 @@ static void texpackIndexXbla(const struct texpackscan *scan, const char *name, s
 	if (!xblaReplacePaths) {
 		xblaReplacePaths = calloc(TEXPACK_XBLA_RECORDS, sizeof(char *));
 		xblaReplaceFlip = calloc(TEXPACK_XBLA_RECORDS, 1);
+		xblaReplaceInPack = calloc(TEXPACK_XBLA_RECORDS, 1);
 
-		if (!xblaReplacePaths || !xblaReplaceFlip) {
+		if (!xblaReplacePaths || !xblaReplaceFlip || !xblaReplaceInPack) {
 			free(xblaReplacePaths);
 			free(xblaReplaceFlip);
+			free(xblaReplaceInPack);
 			xblaReplacePaths = NULL;
 			xblaReplaceFlip = NULL;
+			xblaReplaceInPack = NULL;
 			return;
 		}
 	}
@@ -1555,6 +1560,7 @@ static void texpackIndexXbla(const struct texpackscan *scan, const char *name, s
 	free(*slot);
 	*slot = path;
 	xblaReplaceFlip[record] = (u8)!scan->bottomUp;
+	xblaReplaceInPack[record] = (u8)scanningSelected;
 }
 
 /**
@@ -2599,8 +2605,10 @@ static void texpackFreeIndex(void)
 
 	free(xblaReplacePaths);
 	free(xblaReplaceFlip);
+	free(xblaReplaceInPack);
 	xblaReplacePaths = NULL;
 	xblaReplaceFlip = NULL;
+	xblaReplaceInPack = NULL;
 	numXblaReplacements = 0;
 
 	numFontReplacements = 0;
@@ -2982,7 +2990,9 @@ static void texpackScan(void)
 
 		if (dir) {
 			scanInPack = 1;
+			scanningSelected = 1;
 			texpackScanPath(dir);
+			scanningSelected = 0;
 			scanInPack = 0;
 		}
 	}
@@ -4288,6 +4298,18 @@ s32 texpackHaveXblaReplacement(s32 record)
 
 	return xblaReplacePaths && record >= 0 && record < TEXPACK_XBLA_RECORDS
 		&& xblaReplacePaths[record] != NULL;
+}
+
+/**
+ * Whether the picture for a record came from the pack chosen in the menu,
+ * rather than from a textures/ folder under $B or an overlay mod. For a rule
+ * that belongs to one pack's art (xblamesh.c's matte materials): another
+ * source's picture is not that pack's repaint.
+ */
+s32 texpackXblaReplacementIsSelectedPack(s32 record)
+{
+	return texpackHaveXblaReplacement(record) && xblaReplaceInPack
+		&& xblaReplaceInPack[record];
 }
 
 /**
