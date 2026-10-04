@@ -1497,8 +1497,9 @@ static s32 gebeanGunsAreN64(void)
  * GoldenEye's guns (geguns.c): their Combat Simulator rows are shown, and
  * each one's model state is an alias of its host's pickup that the release's
  * pickup is drawn on, when the switch is on, a copy is in added-content/ or GoldenEye X
- * is borrowed from, and the weapon list is the game's own; otherwise the rows
- * are hidden and the model states are the host's pickup again.
+ * is borrowed from; otherwise the rows are hidden and the model states are the
+ * host's pickup again. Under a mod with a weapon list of its own the rows are
+ * hidden and the models kept.
  */
 static void gebeanGunsRefresh(void)
 {
@@ -1506,6 +1507,7 @@ static void gebeanGunsRefresh(void)
 	s32 anyborrowed = 0;
 	s32 anyown = 0;
 	s32 show;
+	s32 listed;
 	s32 shown = 0;
 
 	// GoldenEye X's own guns (modborrow.c) are GoldenEye's guns too, with or
@@ -1515,7 +1517,15 @@ static void gebeanGunsRefresh(void)
 		anyown |= gegunsHasOwnModel(i);
 	}
 
-	show = !modDataMpWeaponsImported() && (bean || anyborrowed || anyown);
+	// The models whenever there is something to draw them with; the Combat
+	// Simulator's rows only under the game's own weapon list. A mod with a
+	// list of its own (any console mod's data segment imports one, even a
+	// map-only mod like PD Investigation) hides the rows, but GoldenEye's
+	// missions still hand its guns out: hidden models too, every GoldenEye gun
+	// in the HD look was its Perfect Dark host - the Moonraker the Laser, the
+	// PP7 the classic PP7 in Joanna's glove (F3 20261004-023448, -023659)
+	listed = !modDataMpWeaponsImported();
+	show = bean || anyborrowed || anyown;
 
 	// The release's spent cartridges, on aliases of Perfect Dark's casings
 	// that only a GoldenEye gun's ejection loads (gebeanCasingFile())
@@ -1566,7 +1576,7 @@ static void gebeanGunsRefresh(void)
 		state->fileid = (u16)fileid;
 		state->scale = scale;
 
-		g_MpWeapons[MPWEAPON_GE_FIRST + i].unlockfeature = show ? 0 : MPFEATURE_NEVER;
+		g_MpWeapons[MPWEAPON_GE_FIRST + i].unlockfeature = show && listed ? 0 : MPFEATURE_NEVER;
 
 		// And the first-person model: an alias of the gun's own model - the
 		// host's, or GoldenEye X's when borrowed - which Bean's gun is drawn on,
@@ -1624,7 +1634,7 @@ static void gebeanGunsRefresh(void)
 		}
 	}
 
-	if (show) {
+	if (show && listed) {
 		sysLogPrintf(LOG_NOTE, "gebean: %d GoldenEye guns in the Combat Simulator's weapons, %d with the release's pickup",
 				ARRAYCOUNT(gunRows), shown);
 	}
