@@ -302,7 +302,14 @@ static struct guncmd *cvGuncmds(u32 addr)
 		if (out[i].type == GUNCMD_INCLUDE || out[i].type == GUNCMD_RANDOM) {
 			out[i].unk04 = (intptr_t)cvGuncmds(v);
 		} else {
-			out[i].unk04 = (intptr_t)v;
+			// the word as the game's own lists hold it: an s32 widened with
+			// its sign. A play animation's word is (direction << 16) | speed,
+			// and bondgun.c plays it backwards when it is negative (bgun0f09815c()) - the
+			// SuperDragon's return from the grenade launcher, 65535 and 55536.
+			// Widened as a u32 it was 0xffffd8f0, played forwards at 429496
+			// times speed, and the gun stayed in the launcher's pose under a
+			// console mod's imported weapons (F3 20261004-030118)
+			out[i].unk04 = (intptr_t)(s32)v;
 		}
 
 		if (borrowing && out[i].type == GUNCMD_PLAYANIMATION && borrowing->remapanim) {
