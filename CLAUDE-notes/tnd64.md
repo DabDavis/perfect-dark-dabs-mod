@@ -279,3 +279,42 @@ folder repaints its levels only. texture-packs.md, "The dump's layout".
 
 Rigs: `~/wt/tnd-run/rig` (the game, all three sources in added-content/),
 `~/wt/tnd-run/rt` (replay test), `~/wt/tnd-run/run.sh` (standalone GE/GF/TND).
+
+## F3 pass 34 (converter 123, fix/f3-1004b-tndmissions)
+
+- **Hook 0xfc decoded** (dispatcher at 0x7005c2c0 in the Expansion Pak: label
+  -2 the poke interpreter, -3 a compare-and-go-to, -4 the item remover, -5
+  bondviewKillCurrentPlayer while Bond lives, any other negative sets a
+  player word to 9). 0xfc reads the PRINT's two hex digits as an item and
+  calls bondinvRemoveItemByID() (ff: every item 32 down to 2). Only City uses
+  it: "Tanks, But No Tanks" takes item 32 (the shells) every tick Bond is on
+  its motorbike (the tank). Converted to 01dc aiRemoveWeaponFromInventory
+  (`tndHookConvert()`), and getank.c now puts the shells in the driver's hand
+  two ticks after he climbs in, only if they are still his, and gives his
+  hands back if they are taken: on City the gun stays out and there are no
+  shells (F3 20261004-151609); GE Plus's tanks hold the shells as before.
+  0xfb (kill Bond) is in every setup's Girl Power list and stays dropped.
+- **IFBondHasItemEquipped 30** (the detonator, GtriggerZ) asked about item
+  30's collectable slot: Party's "Bond Quip" ("Time for a station break.")
+  never came (F3 20261004-143603). soloHandItemWeapon() (was
+  soloIntroItemWeapon) maps 30 to the detonator and 32 to the shells for the
+  intro, IFBondHasItemEquipped and the hand hook.
+- **Party's outro (F3 20261004-143938)**: Tamara is teleported to pad 0x30,
+  which lies exactly on its floor (y 28); chrMoveToPos() found no ground
+  strictly below and she fell out of the world. On converted stages the
+  search is retried from 50 above. Left: her RunToPad 0x39 routes through the
+  hall (both pads are on the stage, 71 over the hall floor) and she stalls at
+  the stage's corner (~1008, 3002) - the converter's climb walls (stanClimb,
+  > 60) keep a chr from GoldenEye's lift onto the stage. Not changed.
+- **Volcano's bare room (F3 20261004-145902)**: the cartridge's room is as
+  bare (ares, view/spot4_ares.py with GF_GAME=tnd --mission streets; Volcano
+  is level 29, offset ours = GE + (-1217, -125, +1246)). All 191 setup
+  records convert. Not a bug.
+- **Volcano's Hans (F3 20261004-150442)**: list 0x40a waits on the terrace
+  (pad 0x32) until he sees Bond, is shot or missed, or Bond is in pad 0x33's
+  room; the strategy guide says "chase Hans, who has escaped to the lakeside
+  terrace". From the ledge above, GoldenEye's tile-walk sight rule
+  (chrHasLosToChr's geStanLinks) does not see Bond. Not a bug.
+- Probes: `~/wt/f3-1004b-tndmissions-run/probe/` (detq.py, bike.py,
+  tamara.py, hans.py, roomprops.py, grid.py); setup AI dumps
+  `ana/setup.py <file> [list ids]` from the TND ROM.

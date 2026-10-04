@@ -17779,6 +17779,22 @@ bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 an
 		ground = cdFindGroundInfoAtCyl(&pos2, chr->radius, rooms2, &chr->floorcol,
 				&chr->floortype, NULL, &chr->floorroom, NULL, NULL);
 
+#ifndef PLATFORM_N64
+		// A converted pad can lie exactly on its floor (the converter lifts
+		// one under its tile onto it), and the ground is looked for strictly
+		// below the point: none was found, and the chr fell out of the world.
+		// GoldenEye snaps a teleported chr to its tile's floor. Party's outro
+		// put Tamara on pad 0x30, at her own floor's height, and she fell
+		// (F3 20261004-143938)
+		if (ground < -30000.0f && geRoomActive()) {
+			struct coord above = pos2;
+
+			above.y += 50.0f;
+			ground = cdFindGroundInfoAtCyl(&above, chr->radius, rooms2, &chr->floorcol,
+					&chr->floortype, NULL, &chr->floorroom, NULL, NULL);
+		}
+#endif
+
 		chr->ground = ground;
 		chr->manground = ground;
 		chr->sumground = ground * (PAL ? 8.4175090789795f : 9.999998f);

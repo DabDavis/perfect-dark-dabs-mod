@@ -8111,19 +8111,26 @@ static buf writeSoloProps(const buf *f, size_t numpads, uint8_t *models, struct 
 }
 
 /**
- * An item a mission's start hands Bond, as the port's weapon: soloItemWeapon(),
- * and the watch's detonator, the item GtriggerZ is (GoldenEye's 30). The
- * cartridge gives the detonator at the start only where the setup names it -
- * Facility and Jungle, each beside its remote mines; Surface 2's one mine,
- * Q's ten-second fuse, comes without it - and the runtime no longer adds it to
- * a starting mine (inv.c's g_InvIntroGive), so it is converted here. The item
- * has no weapon of its own in g_ItemWeapon, so the command was left out and
- * Facility started with no detonator (F3 20261003-234527, 20261004-030928).
+ * An item in Bond's hand, as the port's weapon: soloItemWeapon(), and two items
+ * no item table gives a weapon of its own - the watch's detonator, the item
+ * GtriggerZ is (GoldenEye's 30), and the tank's shells (32). A mission's start
+ * hands him the detonator only where the setup names it - Facility and Jungle,
+ * each beside its remote mines; Surface 2's one mine, Q's ten-second fuse, comes
+ * without it - and the runtime no longer adds it to a starting mine (inv.c's
+ * g_InvIntroGive), so it is converted here: Facility started with no detonator
+ * (F3 20261003-234527, 20261004-030928). A list asking whether Bond holds it
+ * (IFBondHasItemEquipped 30) asked about item 30's collectable slot, never the
+ * detonator he holds: Party's quip on drawing it after throwing the mine never
+ * came (F3 20261004-143603).
  */
-static uint32_t soloIntroItemWeapon(uint32_t item)
+static uint32_t soloHandItemWeapon(uint32_t item)
 {
 	if (item < NUM_ITEMS && g_Items[item].file && !strcmp(g_Items[item].file, "GtriggerZ")) {
 		return WEAPON_GE_DETONATOR_;
+	}
+
+	if (item == ITEM_TANKSHELLS) {
+		return WEAPON_GE_TANKSHELLS_;
 	}
 
 	return soloItemWeapon(item);
@@ -8209,8 +8216,8 @@ static buf writeSoloIntro(const buf *f, size_t numpads, double levelscale, const
 			const uint8_t *raw = f->v + o;
 			const int32_t rightitem = (int32_t)be32(raw, 4);
 			const int32_t leftitem = (int32_t)be32(raw, 8);
-			const uint32_t right = rightitem >= 0 ? soloIntroItemWeapon((uint32_t)rightitem) : 0;
-			const uint32_t left = leftitem >= 0 ? soloIntroItemWeapon((uint32_t)leftitem) : 0;
+			const uint32_t right = rightitem >= 0 ? soloHandItemWeapon((uint32_t)rightitem) : 0;
+			const uint32_t left = leftitem >= 0 ? soloHandItemWeapon((uint32_t)leftitem) : 0;
 
 			if (right) {
 				bufU32(&out, be32(raw, 0));
@@ -8384,13 +8391,35 @@ static int tndHookConvert(const buf *f, size_t at, size_t len, buf *out)
 	int numoffs = 0;
 	char op;
 
-	if (f->v[at + 1] != 0xfe || print >= f->n || f->v[print] != 0xad) {
+	if (print >= f->n || f->v[print] != 0xad) {
 		return 0;
 	}
 
 	s = (const char *)f->v + print + 1;
 	for (n = 0; print + 1 + n < f->n && s[n]; ++n) {
 		;
+	}
+
+	// 0xfc: the item its two hex digits name is taken from Bond's inventory
+	// (bondinvRemoveItemByID(); "ff" takes all of them). City's "Tanks, But
+	// No Tanks" takes the tank's shells while he rides its motorbike, the
+	// tank, so the ride keeps his gun out (F3 20261004-151609)
+	if (f->v[at + 1] == 0xfc) {
+		const char hex[9] = { '0', '0', '0', '0', '0', '0', s[0], n >= 2 ? s[1] : 0, 0 };
+		const int64_t item = n == 2 ? tndHex8(hex) : -1;
+		const uint32_t w = item >= 0 && item < NUM_ITEMS ? soloHandItemWeapon((uint32_t)item) : 0;
+
+		if (!w) {
+			return 0;
+		}
+
+		bufU16(out, 0x01dc);   // aiRemoveWeaponFromInventory
+		bufU8(out, w);
+		return 1;
+	}
+
+	if (f->v[at + 1] != 0xfe) {
+		return 0;
 	}
 
 	if (n < 18 || (base = tndHex8(s)) < 0) {
@@ -8428,7 +8457,7 @@ static int tndHookConvert(const buf *f, size_t at, size_t len, buf *out)
 
 		bufU16(out, 0x0060);
 		bufU8(out, 0xf2);
-		bufU8(out, soloItemWeapon((uint32_t)v));
+		bufU8(out, soloHandItemWeapon((uint32_t)v));
 		bufU8(out, (uint32_t)label);
 		return 1;
 	}
@@ -8664,7 +8693,9 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 			// twenty missions: every guard a list armed carried a door for a
 			// gun, and so did Bond in Archives' ending. The prop becomes the
 			// remake's own model, as a setup record's does.
-			if (op == 0x59 || op == 0x57 || op == 0x58) {
+			if (op == 0x59) {
+				vals[0] = soloHandItemWeapon(vals[0]);
+			} else if (op == 0x57 || op == 0x58) {
 				vals[0] = soloItemWeapon(vals[0]);
 			} else if (op == 0xc0) {
 				// TRYGiveMeHat: GoldenEye's hat prop as the remake's model,
