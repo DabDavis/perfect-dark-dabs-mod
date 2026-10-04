@@ -203,6 +203,7 @@ struct xblameshentry {
 	s32 suppress;                      // XBLAMESH_SUPPRESS_*: stock geometry that draws nothing
 	u8 matched;                        // whether the four above say anything
 	u8 releaseonly;                    // a file only the release has: drawn in both looks (xblaMeshEntryLive())
+	u8 xraystock;                      // drawn as the game's own model through the X-ray scanner: see xblaMeshXrayStock()
 
 	// The model pack's side: this node's place in the model's list nodes, and
 	// the file id the pack's n64/ folder is looked up by. Filed for every
@@ -1466,6 +1467,23 @@ static s32 xblaMeshTogglesAreInMesh(s32 fileid)
 }
 
 /**
+ * A model drawn as the game's own while the X-ray scanner is on.
+ *
+ * Pelagic II's communications hubs (PcomhubZ) have three screens inside the
+ * casing - lists 1 to 3, which the release leaves at zero and the game draws
+ * beside the mesh - and through the scanner, which draws every prop
+ * see-through and writing no depth, those screens are the green and red
+ * panels the mission shows the player. The release's casing is drawn with
+ * its own depth wherever it is solid, so through the scanner it hid them and
+ * the hubs showed no screens at all (F3 20261004-072609). Under the scanner
+ * the hub is a tinted silhouette either way, so it is drawn as the game's.
+ */
+static s32 xblaMeshXrayStock(s32 fileid)
+{
+	return fileid == FILE_PCOMHUB;
+}
+
+/**
  * Whether the model's own mesh has this node's geometry already.
  *
  * **A mesh is the whole model, and the release names it on one node.** The id
@@ -1629,6 +1647,7 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 				e->use = xblaMeshUseFor(modeldef, slot, 0);
 				e->suppress = 0;
 				e->matched = 1;
+				e->xraystock = xblaMeshXrayStock(xblaMeshFileId);
 				found++;
 
 				if (e->use >= 0 && e->part < XBLAMESH_MAXPARTS) {
@@ -11609,6 +11628,12 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 				|| gebeanRowIsFirstPerson(e->beanrow));
 
 	if (!frompack && !havemesh && !frombean) {
+		return 0;
+	}
+
+	// Through the X-ray scanner, a model whose insides the scanner shows
+	if (havemesh && !frompack && e->xraystock && g_Vars.currentplayer
+			&& g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
 		return 0;
 	}
 
