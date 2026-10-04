@@ -20845,6 +20845,14 @@ s32 hatGetType(struct prop *prop)
 	// shot fur hat, side cap, beret or peaked cap falls off, a helmet rings
 	// (HATTYPE_METAL) and the moon headgear is the head (HATTYPE_CLOTH)
 	if (prop && prop->obj) {
+		// a ROM hack deals the kinds out anew (menu/hattypes.bin): Goldfinger
+		// 64's peaked caps on 218 and 221-223 are no helmets
+		const s32 own = gexPlusHatType(prop->obj->modelnum - MODEL_REMAKE_FIRST);
+
+		if (own != -2) {
+			return own;
+		}
+
 		switch (prop->obj->modelnum - MODEL_REMAKE_FIRST) {
 		case 212: case 213: case 214: return 4;             // fur hats
 		case 215: case 216: return 1;                       // side caps

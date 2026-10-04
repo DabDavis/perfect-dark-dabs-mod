@@ -92,6 +92,13 @@ const char *gexPlusMissionLangTr(s32 slot);
 // x/y/z and scale x/y/z (headHat_array_8003E464). 0 where it has no row.
 s32 gexPlusHeadHat(s32 headnum, s32 hattype, f32 *out);
 
+// The kind of hat (propobj.c's hatGetType()) GoldenEye prop `propnum` is on
+// this stage's conversion, by its own get_hat_model() (menu/hattypes.bin), -1
+// for a prop that is no hat of its table; -2 where the conversion says nothing
+// (a stage that is not converted, or an older conversion), which takes
+// GoldenEye's kinds.
+s32 gexPlusHatType(s32 propnum);
+
 void gexPlusMissionAnimLoad(s32 stagenum);
 s32 gexPlusMissionAnim(s32 geid);
 

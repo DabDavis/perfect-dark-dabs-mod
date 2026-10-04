@@ -885,6 +885,59 @@ s32 gexPlusHeadHat(s32 headnum, s32 hattype, f32 *out)
 }
 
 /**
+ * menu/hattypes.bin (converter 120): get_hat_model()'s kinds of the twelve hat
+ * props as the conversion's ROM deals them, "GHT1", the first prop, how many,
+ * then a kind each. Loaded by the stage's mod as headhats.bin is.
+ */
+static u8 *g_GeHatTypes;
+static u32 g_GeHatTypesLen;
+static s32 g_GeHatTypesModDir = -2;
+
+s32 gexPlusHatType(s32 propnum)
+{
+	const s32 moddir = modloaderStageIsRemake(g_Vars.stagenum) ? modloaderGetStageModDirIndex(g_Vars.stagenum) : -1;
+
+	if (moddir < 0) {
+		return -2;
+	}
+
+	if (g_GeHatTypesModDir != moddir) {
+		const char *dir = modloaderGetStageModDir(g_Vars.stagenum);
+		char path[FS_MAXPATH + 1];
+
+		sysMemFree(g_GeHatTypes);
+		g_GeHatTypes = NULL;
+		g_GeHatTypesLen = 0;
+		g_GeHatTypesModDir = moddir;
+
+		if (dir) {
+			snprintf(path, sizeof(path), "%s/menu/hattypes.bin", dir);
+
+			if (fsFileSize(path) > 0) {
+				g_GeHatTypes = fsFileLoad(path, &g_GeHatTypesLen);
+			}
+		}
+
+		if (g_GeHatTypes && (g_GeHatTypesLen < 6 || memcmp(g_GeHatTypes, "GHT1", 4) != 0
+					|| g_GeHatTypesLen < 6u + g_GeHatTypes[5])) {
+			sysMemFree(g_GeHatTypes);
+			g_GeHatTypes = NULL;
+			g_GeHatTypesLen = 0;
+		}
+	}
+
+	if (!g_GeHatTypes) {
+		return -2;
+	}
+
+	if (propnum < g_GeHatTypes[4] || propnum >= g_GeHatTypes[4] + g_GeHatTypes[5]) {
+		return -2;
+	}
+
+	return g_GeHatTypes[6 + propnum - g_GeHatTypes[4]] < GEHAT_NUM_TYPES ? g_GeHatTypes[6 + propnum - g_GeHatTypes[4]] : -2;
+}
+
+/**
  * Every row this held, given back: a mission's rows are its own, and the next
  * one asks for whichever characters it wants.
  */
