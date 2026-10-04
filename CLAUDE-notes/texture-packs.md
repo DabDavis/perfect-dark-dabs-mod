@@ -553,7 +553,10 @@ to that folder's name: files are ignored until the walk reaches the folder of
 that name (any depth), whose files go into the mod index, so the pack wins.
 The pack lives outside `mods/<conv>/`, which `gexPlusRomConvertInto()` deletes
 on every reconversion. The log says `<pack>'s gf64-n64 folder repaints N of
-<dir>'s texture(s)`. A folder named `pd-xbla` counts as `xbla`, and a model
+<dir>'s texture(s)`. A pack of conversions' folders alone empties the stock
+index and says so in a note rather than "nothing matches" (`scanSkippedConv`);
+its folders are still read, since a conversion is always mounted for its maps
+and `texpackHaveReplacements()` answers yes for that. A folder named `pd-xbla` counts as `xbla`, and a model
 pack reads `pd-n64`/`pd-xbla` beside `n64`/`xbla` (modelpack.c), so either dump
 copies into a pack unchanged.
 

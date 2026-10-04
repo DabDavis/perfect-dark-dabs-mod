@@ -383,6 +383,9 @@ static s32 scanningMod;
 // NULL for every other scan. See texpackModUse().
 static const char *scanPackConv;
 
+// Conversions' folders the stock scan stepped over, for its closing line
+static s32 scanSkippedConv;
+
 /**
  * One numbered index, so the scan and the decode can name either without
  * knowing which they have.
@@ -2392,6 +2395,7 @@ static void texpackIndexFile(const char *name, void *arg)
 	}
 
 	if (!scanningMod && gexPlusRomTagOfDumpFolder(name)) {
+		scanSkippedConv++;
 		return;
 	}
 
@@ -2941,6 +2945,7 @@ static void texpackScan(void)
 	replaceAlphaPaths = calloc(NUM_TEXTURES, sizeof(char *));
 	replaceKinds = calloc(NUM_TEXTURES, sizeof(u8));
 	replaceFlip = calloc(NUM_TEXTURES, sizeof(u8));
+	scanSkippedConv = 0;
 
 	if (!replacePaths || !replaceAlphaPaths || !replaceKinds || !replaceFlip) {
 		sysLogPrintf(LOG_ERROR, "texpack: could not alloc the replacement index");
@@ -2992,7 +2997,12 @@ static void texpackScan(void)
 					numUnplaced, numReplacements ? " more" : "");
 		}
 	} else {
-		if (packName[0]) {
+		if (packName[0] && scanSkippedConv) {
+			// a pack for the conversions alone, read when one of their
+			// levels asks (texpackModUse())
+			sysLogPrintf(LOG_NOTE, "texpack: %s has only conversions' folders (ge-n64, gf64-n64, ...),"
+					" read on their levels", packName);
+		} else if (packName[0]) {
 			sysLogPrintf(LOG_WARNING, "texpack: nothing in %s matches a texture in this ROM",
 					packName);
 		}
