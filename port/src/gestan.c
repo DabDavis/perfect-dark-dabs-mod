@@ -1495,6 +1495,56 @@ void geStanSetMover(s32 playernum)
 	}
 }
 
+/**
+ * The tile x/z is on, walked to through the links from inside `tile` (or else
+ * `other`), at a height a foot at `ground` stands on - or -1.
+ */
+static s32 stanWalkOnTo(s32 tile, s32 other, f32 x, f32 z, f32 ground)
+{
+	for (s32 n = 0; n < 2; n++, tile = other) {
+		const struct stantile *t;
+		const struct stanpoint *p;
+		f32 cx = 0.0f, cz = 0.0f, y;
+		s32 end;
+
+		if (tile < 0 || tile >= g_Stan.numtiles || stanTileUpright(tile)) {
+			continue;
+		}
+
+		t = &g_Stan.tiles[tile];
+		p = &g_Stan.points[t->first];
+
+		if (t->npts == 0) {
+			continue;
+		}
+
+		// a tile is convex: its middle is inside it
+		for (s32 k = 0; k < t->npts; k++) {
+			cx += p[k].x;
+			cz += p[k].z;
+		}
+
+		cx /= t->npts;
+		cz /= t->npts;
+
+		end = stanHolds(t, x, z) ? tile : stanWalkLine(tile, cx, cz, x, z, false);
+
+		if (!stanHolds(&g_Stan.tiles[end], x, z) || stanTileUpright(end)) {
+			continue;
+		}
+
+		y = stanSurface(&g_Stan.tiles[end], x, z);
+
+		if (y > ground + 10.0f + GESTAN_RISE || y < ground - 160.0f) {
+			continue;
+		}
+
+		return end;
+	}
+
+	return -1;
+}
+
 bool geStanFloorAhead(s32 playernum, struct coord *pos, struct coord *to, f32 ground, f32 *surface, bool *sheer)
 {
 	s32 tile, end;
@@ -1526,7 +1576,17 @@ bool geStanFloorAhead(s32 playernum, struct coord *pos, struct coord *to, f32 gr
 
 	if (tile < 0 || tile >= g_Stan.numtiles || stanTileUpright(tile)
 			|| !stanHolds(&g_Stan.tiles[tile], pos->x, pos->z)) {
-		tile = stanTileUnder(pos->x, pos->z, ground + 10.0f, GESTAN_RISE);
+		// The player left the tile by a move this walk did not see (a slide
+		// along a wall, the easing to a stop): walked on from it through the
+		// links, as GoldenEye's current_tile_ptr is, before the floor is
+		// looked for by height. In a Cartel silo's doorway (Goldfinger 64, door
+		// on pad 1440) the two doorway tiles are crossed by an unlinked sliver at the
+		// doorway floor's own height; stopping just over the line between the
+		// two, a player was put on the sliver, all its walls stood round him
+		// and he could not move again (F3 20261004-084819).
+		const s32 walked = stanWalkOnTo(tile, g_StanPlayerFromTile[playernum], pos->x, pos->z, ground);
+
+		tile = walked >= 0 ? walked : stanTileUnder(pos->x, pos->z, ground + 10.0f, GESTAN_RISE);
 	}
 
 	g_StanPlayerTile[playernum] = tile;
