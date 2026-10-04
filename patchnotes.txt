@@ -31,6 +31,13 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 41 2026-10-04
+PD Ultimate Plus HD pack, XBLA look: Joanna's combat suit no longer shines on its fabric panels, only on the armour pads (thanks Parabolee)
+Dump All Assets: Perfect Dark's textures now go in texture-dumps/pd-n64 and pd-xbla with an index.csv, laid out like GoldenEye's (thanks Parabolee)
+Dump All Assets: Goldfinger 64 and Tomorrow Never Dies 64 textures are dumped too (gf64-n64, tnd64-n64), and a texture pack can carry those folders to repaint those games
+Texture packs: a ge-n64 folder inside a pack no longer repaints Perfect Dark's own textures, and Goldfinger 64's higher texture numbers can now be replaced
+Goldfinger 64, Tomorrow Never Dies 64 and GoldenEye convert once more on the next start
+
 notes 40 2026-10-04
 GoldenEye Facility and Jungle: you start with the watch detonator again, as on the cartridge (thanks Mike D)
 GoldenEye Facility on 00 Agent: dropping out of the vent no longer fails the double agent objective at high frame rates (thanks REMi)
