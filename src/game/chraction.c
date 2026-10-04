@@ -15540,6 +15540,10 @@ void chraTick(struct chrdata *chr)
 		return;
 	}
 
+#ifndef PLATFORM_N64
+	bool firsttick = chr->actiontype == ACT_INIT;
+#endif
+
 	if (chr->actiontype == ACT_INIT) {
 		chr->chrflags |= CHRCFLAG_FORCETOGROUND;
 		func0f02e9a0(chr, 0);
@@ -15564,6 +15568,21 @@ void chraTick(struct chrdata *chr)
 	}
 
 	chr->sleep -= g_Vars.lvupdate60;
+
+#ifndef PLATFORM_N64
+	// A converted GoldenEye mission's chr runs its list on the tick it is
+	// made, as GoldenEye's does (chrpropActivateThisFrame, every chr every
+	// frame). Ticking faster than 60 Hz the tick it is made can hold no whole
+	// 60th, so the sleep above stays at 0 and the list waited for the chr's
+	// next tick - up to seven frames off screen, one prop state round. Lists
+	// that test the new chr by the number its list gives it saw no such chr:
+	// Facility's Doak (spawned as 5000-odd, renamed 0x4f by his first command)
+	// read as dead to the background list one tick behind him, failing
+	// "Contact double agent" on 00 Agent the moment Bond left the duct.
+	if (firsttick && chr->sleep == 0 && modloaderStageIsMission(g_Vars.stagenum)) {
+		chr->sleep = -1;
+	}
+#endif
 
 	if (chr->sleep < 0
 			|| (chr->chrflags & CHRCFLAG_NEVERSLEEP)
