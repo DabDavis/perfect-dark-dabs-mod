@@ -899,3 +899,28 @@ explosive props and counts explosion props.
   too; the collectable one is record 399 (pad 598).
 - **Reload sound (F3 20261003-164059, on 4e98c8a)**: GUN_RIFLECOCK 50 was
   one of the 11 s envelopes cut by n_sndplayer; fixed by b68af49f9.
+
+## F3 pass 34 (2026-10-04, fix/f3-1004b-gf64)
+
+- **Stuck in a Cartel silo doorway (F3 20261004-084819, "silo door closing on
+  Bond").** The doorway at the door on pad 1440 (-6351, -6786; a swinging door
+  turning about its middle) is two crouch tiles (728/729) crossed by an
+  unlinked sliver pair (730/731) lying at the doorway floor's own height (-540).
+  A player easing to a stop just over the 729/728 line was off the tile
+  geStanFloorAhead() remembered; it re-found his floor by height, took the
+  sliver, and all its walls stood round him - stuck with the door open or
+  shut (the door is a bystander: a blocked closing door stops in GoldenEye
+  too, door7F054FB4()). Now `stanWalkOnTo()` walks on from the remembered tile
+  (or the move's start tile) through the links first. Probe:
+  `~/wt/f3-1004b-gf64-run/probe/walkjam7.py` (CLOSE=0/1); walkcmp unchanged
+  on GF 0/1/5/9 and GE 0/5/9.
+- **Bond sinks into the floor in Cartel's ending (F3 20261004-171154).** Its
+  ending list (0x44f, kicked from 0x1003 +147; gecinemaFindEnding() does not
+  find it) plays animation 45, `bond_watch`. Goldfinger 64 and Tomorrow Never
+  Dies 64 replaced 45 with Bond's whole body raising his wrist (GoldenEye's is
+  the arm alone); TND64 also redid 129, 170 and 171. gexPlusMissionAnimLoad()
+  appended one set a session, so after any GoldenEye mission Cartel played
+  GoldenEye's arm animation on Bond's body. Now one set per conversion, rows
+  byte-identical to an earlier set's shared (GF64 appends 1 after GoldenEye's
+  173); gewatch.c's watch arm likewise loads its `bond_watch` per mod. Probe:
+  `probe/outro7.py` (GEFIRST=1 loads GoldenEye's set before Cartel's).

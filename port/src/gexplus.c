@@ -1530,8 +1530,50 @@ void gexPlusMissionLangLoad(s32 stagenum)
 // an id space of their own from GEVEH_ANIM_FIRST (256): animation_table_ptrs2[]
 // shares its numbering with the guards' table and only an AI list's owner tells
 // the two apart, so the conversion separates them here.
-static s16 g_GeMissionAnims[GEANIM_MAX];
+// One set per conversion the session has played a stage of: GoldenEye's own,
+// and each ROM hack's, whose animation under an id can be its own -
+// Goldfinger 64's and Tomorrow Never Dies 64's `bond_watch` (45) is Bond's
+// whole body raising his wrist where GoldenEye's is the arm alone, and
+// Tomorrow Never Dies 64 redid 129, 170 and 171.
+#define GEANIM_SETS 8
+
+static struct {
+	char dir[FS_MAXPATH + 1];
+	s16 anims[GEANIM_MAX];   // ours, or -1
+	u32 sizes[GEANIM_MAX];   // the bytes behind it, for telling two sets' apart
+} g_GeAnimSets[GEANIM_SETS];
+
+static s32 g_GeNumAnimSets;
+
+// lib/anim.c's: the rows animAppendExternal() fills, and the bytes behind them
+extern struct animtableentry *g_RomAnims;
+extern u8 **g_AnimReplacements;
+static s16 *g_GeMissionAnims;
 static s32 g_GeMissionAnimsLoaded;
+
+/**
+ * An animation an earlier set appended that is this one byte for byte - the
+ * same id's in another conversion that kept GoldenEye's - or -1.
+ */
+static s32 gexPlusAnimShared(s32 id, const struct animtableentry *e, const u8 *data, u32 size)
+{
+	for (s32 k = 0; k < g_GeNumAnimSets; k++) {
+		const s32 num = g_GeAnimSets[k].anims[id];
+
+		if (num >= 0 && g_GeAnimSets[k].sizes[id] == size
+				&& g_RomAnims[num].numframes == e->numframes
+				&& g_RomAnims[num].bytesperframe == e->bytesperframe
+				&& g_RomAnims[num].headerlen == e->headerlen
+				&& g_RomAnims[num].framelen == e->framelen
+				&& g_RomAnims[num].flags == e->flags
+				&& g_AnimReplacements[num]
+				&& memcmp(g_AnimReplacements[num], data, size) == 0) {
+			return num;
+		}
+	}
+
+	return -1;
+}
 
 /**
  * The mod's mission animations, appended after the game's own.
@@ -1541,13 +1583,15 @@ static s32 g_GeMissionAnimsLoaded;
  * (animAppendExternal(), which is what a borrowed mod's animations do), so
  * aiChrDoAnimation() asks gexPlusMissionAnim() for ours.
  *
- * Read once a session: an appended animation is permanent - it counts as one
- * of the ROM's and animsReset() keeps it - so loading the file again on the
- * next mission would only spend the thousand rows there are. A GoldenEye ROM
- * hack's conversion carries the same animations (Goldfinger 64 kept
- * GoldenEye's segment byte for byte), so whichever is loaded first serves
- * both; a stage whose mod has none (an arena of a conversion older than its
- * missions) leaves the load to the next.
+ * Read once a session for each conversion: an appended animation is permanent
+ * - it counts as one of the ROM's and animsReset() keeps it - so only the
+ * animations a conversion has that no set before it had the same are
+ * appended; the rest share the earlier one's number. Once a session for all
+ * conversions together, as it was, Cartel's ending (Goldfinger 64) played
+ * GoldenEye's arm-only `bond_watch` on Bond's whole body after a GoldenEye
+ * mission had loaded first, and he sank to his waist in the floor (F3
+ * 20261004-171154). A stage whose mod has none (an arena of a conversion
+ * older than its missions) keeps the set already in use.
  */
 void gexPlusMissionAnimLoad(s32 stagenum)
 {
@@ -1555,14 +1599,22 @@ void gexPlusMissionAnimLoad(s32 stagenum)
 	char path[FS_MAXPATH + 1];
 	u32 len = 0;
 	u8 *d;
-	s32 numanims, appended = 0;
+	s32 numanims, appended = 0, shared = 0, set;
 
-	if (g_GeMissionAnimsLoaded || !dir) {
+	if (!dir) {
 		return;
 	}
 
-	for (s32 i = 0; i < GEANIM_MAX; i++) {
-		g_GeMissionAnims[i] = -1;
+	for (set = 0; set < g_GeNumAnimSets; set++) {
+		if (strcmp(g_GeAnimSets[set].dir, dir) == 0) {
+			g_GeMissionAnims = g_GeAnimSets[set].anims;
+			g_GeMissionAnimsLoaded = 1;
+			return;
+		}
+	}
+
+	if (g_GeNumAnimSets >= GEANIM_SETS) {
+		return;
 	}
 
 	snprintf(path, sizeof(path), "%s/menu/geanims.bin", dir);
@@ -1574,13 +1626,19 @@ void gexPlusMissionAnimLoad(s32 stagenum)
 		return;
 	}
 
-	g_GeMissionAnimsLoaded = 1;
-
 	numanims = (s32)((d[4] << 8) | d[5]);
 
 	if (numanims < 0 || len < 8 + (u32)GEANIM_ROW * numanims) {
 		sysMemFree(d);
 		return;
+	}
+
+	set = g_GeNumAnimSets;
+	snprintf(g_GeAnimSets[set].dir, sizeof(g_GeAnimSets[set].dir), "%s", dir);
+
+	for (s32 i = 0; i < GEANIM_MAX; i++) {
+		g_GeAnimSets[set].anims[i] = -1;
+		g_GeAnimSets[set].sizes[i] = 0;
 	}
 
 	for (s32 r = 0; r < numanims; r++) {
@@ -1592,7 +1650,7 @@ void gexPlusMissionAnimLoad(s32 stagenum)
 		u8 *copy;
 		s32 ours;
 
-		if (id < 0 || id >= GEANIM_MAX || g_GeMissionAnims[id] >= 0 || !size || at + size > len) {
+		if (id < 0 || id >= GEANIM_MAX || g_GeAnimSets[set].anims[id] >= 0 || !size || at + size > len) {
 			continue;
 		}
 
@@ -1606,6 +1664,15 @@ void gexPlusMissionAnimLoad(s32 stagenum)
 		// holding the last one - the walks and the runs all carry it
 		e.flags = row[9] ? ANIMFLAG_LOOP : 0;
 		e.data = 0;
+
+		ours = gexPlusAnimShared(id, &e, d + at, size);
+
+		if (ours >= 0) {
+			g_GeAnimSets[set].anims[id] = (s16)ours;
+			g_GeAnimSets[set].sizes[id] = size;
+			shared++;
+			continue;
+		}
 
 		// the header and the frames are read into the slot buffers the ROM's
 		// own sizes made, and the bit reader runs off the end of the last frame
@@ -1626,12 +1693,19 @@ void gexPlusMissionAnimLoad(s32 stagenum)
 			continue;
 		}
 
-		g_GeMissionAnims[id] = (s16)ours;
+		g_GeAnimSets[set].anims[id] = (s16)ours;
+		g_GeAnimSets[set].sizes[id] = size;
 		appended++;
 	}
 
 	sysMemFree(d);
-	sysLogPrintf(LOG_NOTE, "gexplus: %d of GoldenEye's own animations, appended", appended);
+
+	g_GeNumAnimSets++;
+	g_GeMissionAnims = g_GeAnimSets[set].anims;
+	g_GeMissionAnimsLoaded = 1;
+
+	sysLogPrintf(LOG_NOTE, "gexplus: %d of GoldenEye's own animations appended for %s, %d shared with a conversion before it",
+			appended, dir, shared);
 }
 
 /**

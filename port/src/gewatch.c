@@ -642,16 +642,32 @@ static f32 watchChrScale(s32 num)
  */
 static s32 watchLoadAnim(void)
 {
-	static s32 animnum = -2;
+	// one a conversion: Goldfinger 64's and Tomorrow Never Dies 64's
+	// `bond_watch` is Bond's whole body raising his wrist, GoldenEye's the arm
+	// alone, and whichever mission came first served the other's watch
+#define WATCH_ANIM_MODS 8
+	static s32 loadedmod[WATCH_ANIM_MODS];
+	static s32 loadedanim[WATCH_ANIM_MODS];
+	static s32 numloaded;
+	s32 animnum;
 	u32 len = 0;
 	u8 *d;
 	s32 numanims;
 
-	if (animnum != -2) {
-		return animnum;
+	for (s32 i = 0; i < numloaded; i++) {
+		if (loadedmod[i] == g_Watch.moddir) {
+			return loadedanim[i];
+		}
+	}
+
+	if (numloaded >= WATCH_ANIM_MODS) {
+		return -1;
 	}
 
 	animnum = -1;
+	loadedmod[numloaded] = g_Watch.moddir;
+	loadedanim[numloaded] = -1;
+	numloaded++;
 	d = watchLoad("geanims.bin", &len);
 
 	if (!d || len < 8 || memcmp(d, "GEA1", 4)) {
@@ -703,6 +719,8 @@ static s32 watchLoadAnim(void)
 	if (animnum < 0) {
 		sysLogPrintf(LOG_WARNING, "gewatch: the conversion has no `bond_watch`; the arm will not move");
 	}
+
+	loadedanim[numloaded - 1] = animnum;
 
 	return animnum;
 }
