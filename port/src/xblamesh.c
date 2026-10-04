@@ -14147,29 +14147,62 @@ s32 xblaMeshTraceModel(FILE *f, const struct model *model, const char *indent)
  * applied, and a side cap or a helmet is only lifted where 4J's hair stands
  * through it - Karl's quiff, Pete's and Dave's crowns, 6 to 21 units:
  *
- * the head's surfaces over each 2-unit column, in the frame of the joint the
- * hat hangs on, against the hat's outside (its HD triangles facing up there);
- * the third deepest vertex of it under the head's top surface, and above its
- * underside, is lifted 2 units clear. Deeper than 40 is a brim passing under
- * an overhang (a quiff over a helmet's peak, the skull over its neck guard),
- * not hair through a crown. A beret's and a fur hat's up-turned flaps read the
- * same way and lifted them off their heads, so those are left as modelled
- * (`measure` 0), as they sit.
+ * 2026-09-30 that lift was all it did, and it floated the cap over the hair it
+ * was lifted clear of while hair still stood through its sides (F3 20261004-
+ * 153345 to 155030: Dave 51, Karl 42, 59, 48, and the peaked cap on 56 at Dam
+ * with hair through its crown). Now, in the frame of the joint the hat hangs
+ * on, both ways round: from each point of the hat's outside (faces up, or out
+ * from its middle and not down; a band's inward lining is not outside) along
+ * its normal, how far the head's surface stands beyond it - the triangles it
+ * leaves through until it first enters one, so a quiff over a peak is not
+ * counted; and from each point of the head above the hat's rim there, down
+ * and in towards its middle, how far it is to the outside it comes out of - a
+ * thin spike of quiff between the hat's few corners. Hair through the sides
+ * only a bigger hat covers (sized about the middle of its rim, so the rim
+ * stays where it was, as GoldenEye's own table sizes a hat to each N64 head,
+ * 0.77 to 1.18); hair through the crown a lift clears. The smallest size with
+ * the sides clear and the crown within 4 units, up to `maxscale` (1.25 for a
+ * side cap, 1.12 for a helmet or a peaked cap, which look like buckets past
+ * that); then the lift, 2 clear, at most 14 - a few hairs through it beat a hat
+ * in the air. Each the third worst, so one stray strand is not the answer;
+ * through the sides deeper than 12 is a brow or a nape under the band, which
+ * no size fixes. A hat nothing stands through is set down until it meets the
+ * head (the third nearest, up from the head to any of its triangles), at most
+ * 20. A beret's and a fur hat's up-turned flaps read as hair and lifted them
+ * off their heads, so those are left as modelled (`maxscale` 0), as they sit.
  *
- * Handed back as an offset in the hat's own space, for chrRender() to apply
- * the way it applied the table's. Measured once per chr, head and hat (the hat
+ * Handed back as an offset, a size and the point it is sized about, in the
+ * hat's own space, for chrRender() to apply where it applied the table's. Measured once per chr, head and hat (the hat
  * hangs rigidly on the head joint), from this frame's matrices. 0 when either
  * is not drawn from the release in this look, and GoldenEye's table applies.
  */
-#define XBLAMESH_HAT_CELL   2.0f
-#define XBLAMESH_HAT_GRID   160
 // A hat triangle faces up (its outside) past this much of its normal
 #define XBLAMESH_HAT_UP     0.3f
+// ... or out from its middle, short of facing down past this
+#define XBLAMESH_HAT_SIDE   -0.2f
+// The most hair is taken to stand through a hat's sides
+#define XBLAMESH_HAT_SIDEDEEP 12.0f
+// An upward face turned in towards the hat's middle past this is its lining
+#define XBLAMESH_HAT_INWARD -0.3f
 // How far clear of the hair a hat's outside is lifted
 #define XBLAMESH_HAT_CLEAR  2.0f
 // The most hair is taken to stand through a hat
 #define XBLAMESH_HAT_DEEPEST 40.0f
 #define XBLAMESH_HAT_CACHE  128
+// The largest a hat is made to cover 4J's hair, in steps from its own size
+#define XBLAMESH_HAT_STEPMAX 1.3f
+#define XBLAMESH_HAT_STEPS  30
+// A bigger hat is only worth what it takes off the hair standing through it
+#define XBLAMESH_HAT_GAIN   0.5f
+// The most a hat is lifted at a size before a bigger one is tried
+#define XBLAMESH_HAT_LIFTOK 4.0f
+// The most a hat is lifted at all: a few hairs through it beat a hat in the air
+#define XBLAMESH_HAT_MAXLIFT 14.0f
+// How near a hat's corners stand to a point of the head to be its rim there
+#define XBLAMESH_HAT_RIMNEAR 16.0f
+// The furthest a hat standing over the hair is set down onto it
+#define XBLAMESH_HAT_LOWEST 20.0f
+#define XBLAMESH_HAT_MAXPTS 8192
 
 static struct {
 	const struct model *chrmodel;
@@ -14178,10 +14211,10 @@ static struct {
 	s32 ok;
 	s32 headrow; // the release's rows, plus one, for the log
 	s32 hatrow;
-	f32 offset[3];
+	f32 maxscale;
+	f32 offset[7];
 } hatSeats[XBLAMESH_HAT_CACHE];
 static s32 hatSeatNext;
-static f32 *hatSeatHeight;
 
 static void xblaMeshHatSeatsReset(void)
 {
@@ -14215,8 +14248,211 @@ static const struct xblameshentry *xblaMeshBeanEntry(struct modeldef *def)
 	return NULL;
 }
 
-static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, s32 measure,
-		f32 out[3], s32 *outheadrow, s32 *outhatrow)
+/**
+ * Where a ray from `o` along `d` meets the triangle p0 p1 p2: its distance, 0
+ * when it misses, and `det`, which is below 0 when the ray goes the way of the
+ * triangle's normal (e1 x e2) - out through it.
+ */
+static f32 xblaMeshHatSeatTriHit(const f32 *p0, const f32 *p1, const f32 *p2, const f32 o[3], const f32 d[3], f32 *det)
+{
+	const f32 e1[3] = { p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
+	const f32 e2[3] = { p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2] };
+	const f32 h[3] = { d[1] * e2[2] - d[2] * e2[1], d[2] * e2[0] - d[0] * e2[2], d[0] * e2[1] - d[1] * e2[0] };
+	const f32 sv[3] = { o[0] - p0[0], o[1] - p0[1], o[2] - p0[2] };
+	f32 qv[3];
+	f32 u;
+	f32 v;
+	f32 t;
+
+	*det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2];
+
+	if (*det > -1e-6f && *det < 1e-6f) {
+		return 0.0f;
+	}
+
+	u = (sv[0] * h[0] + sv[1] * h[1] + sv[2] * h[2]) / *det;
+
+	if (u < 0.0f || u > 1.0f) {
+		return 0.0f;
+	}
+
+	qv[0] = sv[1] * e1[2] - sv[2] * e1[1];
+	qv[1] = sv[2] * e1[0] - sv[0] * e1[2];
+	qv[2] = sv[0] * e1[1] - sv[1] * e1[0];
+	v = (d[0] * qv[0] + d[1] * qv[1] + d[2] * qv[2]) / *det;
+
+	if (v < 0.0f || u + v > 1.0f) {
+		return 0.0f;
+	}
+
+	t = (e2[0] * qv[0] + e2[1] * qv[1] + e2[2] * qv[2]) / *det;
+
+	return t > 0.0f ? t : 0.0f;
+}
+
+/**
+ * How far the head's surface stands beyond a point of the hat's outside `o`
+ * along its outward normal `n` (both in the head joint's frame): the head's
+ * triangles the ray leaves through (facing along it), one after another, up to
+ * the first it enters (a quiff's underside over a cap's front is outside the
+ * hair) and no further than XBLAMESH_HAT_DEEPEST. 0 when the point is clear.
+ */
+static f32 xblaMeshHatSeatRay(const f32 *local, const s32 *tris, s32 numtris, const f32 o[3], const f32 n[3])
+{
+	f32 exitt = 0.0f;
+	f32 entert = XBLAMESH_HAT_DEEPEST;
+	f32 rlo[3];
+	f32 rhi[3];
+
+	for (s32 a = 0; a < 3; a++) {
+		const f32 end = o[a] + n[a] * XBLAMESH_HAT_DEEPEST;
+
+		rlo[a] = o[a] < end ? o[a] : end;
+		rhi[a] = o[a] > end ? o[a] : end;
+	}
+
+	// the first it enters, then the furthest it leaves short of that
+	for (s32 pass = 0; pass < 2; pass++) {
+		for (s32 i = 0; i < numtris; i++) {
+			const f32 *p0 = &local[tris[i * 3] * 3];
+			const f32 *p1 = &local[tris[i * 3 + 1] * 3];
+			const f32 *p2 = &local[tris[i * 3 + 2] * 3];
+			s32 apart = 0;
+			f32 det;
+			f32 t;
+
+			for (s32 a = 0; a < 3 && !apart; a++) {
+				apart = (p0[a] < rlo[a] && p1[a] < rlo[a] && p2[a] < rlo[a])
+					|| (p0[a] > rhi[a] && p1[a] > rhi[a] && p2[a] > rhi[a]);
+			}
+
+			if (apart) {
+				continue;
+			}
+
+			t = xblaMeshHatSeatTriHit(p0, p1, p2, o, n, &det);
+
+			// the triangle's own normal is e1 x e2: det < 0 is the ray
+			// leaving through it
+			if (t <= 0.0f || (pass == 0) != (det > 0.0f)) {
+				continue;
+			}
+
+			if (pass == 0) {
+				entert = t < entert ? t : entert;
+			} else if (t < entert && t > exitt) {
+				exitt = t;
+			}
+		}
+	}
+
+	return exitt;
+}
+
+/**
+ * The nearest of the hat's outside triangles `htris` (corners in the head
+ * joint's frame) a ray from `o` along `d` enters from in front, short of
+ * `maxt`; 0 when none. A hair from the head out through the hat's outside is
+ * one such - and a thin spike of a quiff between the hat's few corners, which
+ * xblaMeshHatSeatRay() from those corners passes by.
+ */
+static f32 xblaMeshHatSeatHit(const f32 *htris, s32 numhtris, const f32 o[3], const f32 d[3], f32 maxt, s32 anyface)
+{
+	f32 best = 0.0f;
+	f32 rlo[3];
+	f32 rhi[3];
+
+	for (s32 a = 0; a < 3; a++) {
+		const f32 end = o[a] + d[a] * maxt;
+
+		rlo[a] = o[a] < end ? o[a] : end;
+		rhi[a] = o[a] > end ? o[a] : end;
+	}
+
+	for (s32 i = 0; i < numhtris; i++) {
+		const f32 *p = &htris[i * 9];
+		s32 apart = 0;
+		f32 det;
+		f32 t;
+
+		for (s32 a = 0; a < 3 && !apart; a++) {
+			apart = (p[a] < rlo[a] && p[3 + a] < rlo[a] && p[6 + a] < rlo[a])
+				|| (p[a] > rhi[a] && p[3 + a] > rhi[a] && p[6 + a] > rhi[a]);
+		}
+
+		if (apart) {
+			continue;
+		}
+
+		t = xblaMeshHatSeatTriHit(p, p + 3, p + 6, o, d, &det);
+
+		// entering through its front: d against its normal
+		if (t > 0.0f && (anyface || det > 0.0f) && t < maxt && (best == 0.0f || t < best)) {
+			best = t;
+		}
+	}
+
+	return best;
+}
+
+static void xblaMeshHatSeatTop3(f32 worst[3], f32 d)
+{
+	for (s32 r = 0; r < 3; r++) {
+		if (d > worst[r]) {
+			for (s32 m2 = 2; m2 > r; m2--) {
+				worst[m2] = worst[m2 - 1];
+			}
+
+			worst[r] = d;
+			break;
+		}
+	}
+}
+
+/**
+ * With the hat sized `scale` about `anchor`, how far hair still stands through
+ * its sides (which only a bigger hat covers) and the lift that clears its
+ * crown - each the third worst, so one stray strand of hair is not the answer.
+ */
+static void xblaMeshHatSeatNeed(const f32 *pts, s32 numpts, const f32 anchor[3], f32 scale, f32 *side, f32 *need, s32 *through)
+{
+	f32 sides[3] = { 0.0f, 0.0f, 0.0f };
+	f32 lifts[3] = { 0.0f, 0.0f, 0.0f };
+
+	*through = 0;
+
+	for (s32 i = 0; i < numpts; i++) {
+		const f32 *pt = &pts[i * 7];
+		f32 r;
+
+		if (pt[6] <= 0.0f) {
+			continue;
+		}
+
+		r = pt[6] - (scale - 1.0f) * ((pt[0] - anchor[0]) * pt[3] + (pt[1] - anchor[1]) * pt[4] + (pt[2] - anchor[2]) * pt[5]);
+
+		if (r <= 0.0f) {
+			continue;
+		}
+
+		(*through)++;
+
+		// hair through the crown a lift clears; through the sides only a
+		// bigger hat, and deeper there than hair stands is a brow or a nape
+		// under the band, which none does
+		if (pt[4] >= XBLAMESH_HAT_UP) {
+			xblaMeshHatSeatTop3(lifts, r / pt[4]);
+		} else if (pt[6] <= XBLAMESH_HAT_SIDEDEEP) {
+			xblaMeshHatSeatTop3(sides, r);
+		}
+	}
+
+	*side = sides[2];
+	*need = lifts[2];
+}
+
+static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale,
+		f32 out[7], s32 *outheadrow, s32 *outhatrow)
 {
 	const struct xblameshentry *he = xblaMeshBeanEntry(headdef);
 	const struct xblameshentry *te = xblaMeshBeanEntry(hatmodel->definition);
@@ -14230,13 +14466,27 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 	Mtxf hj;
 	Mtxf invhj;
 	f32 *local;
-	f32 lo[2] = { 1e9f, 1e9f };
-	f32 hi[2] = { -1e9f, -1e9f };
-	s32 gw;
-	s32 gh;
-	f32 lift;
+	f32 lift = 0.0f;
 	f32 worst[3] = { -1e9f, -1e9f, -1e9f };
 	s32 touches = 0;
+	f32 *pts;
+	s32 numpts = 0;
+	f32 alo[3] = { 1e9f, 1e9f, 1e9f };
+	f32 ahi[3] = { -1e9f, -1e9f, -1e9f };
+	f32 anchor[3];
+	f32 mid[2];
+	f32 scale = 1.0f;
+	s32 *tris = NULL;
+	s32 numtris = 0;
+	s32 captris = 0;
+	f32 *vnormals;
+	f32 *htris = NULL;
+	s32 numhtris = 0;
+	s32 caphtris = 0;
+	f32 *atris = NULL;
+	s32 numatris = 0;
+	s32 capatris = 0;
+	f32 drop = 0.0f;
 
 	if (!he || !te) {
 		return 0;
@@ -14252,8 +14502,10 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 	}
 
 	out[0] = out[1] = out[2] = 0.0f;
+	out[3] = 1.0f;
+	out[4] = out[5] = out[6] = 0.0f;
 
-	if (!measure) {
+	if (maxscale <= 0.0f) {
 		return 1;
 	}
 
@@ -14339,38 +14591,10 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 		local[i * 3] = q.x;
 		local[i * 3 + 1] = q.y;
 		local[i * 3 + 2] = q.z;
-
-		lo[0] = q.x < lo[0] ? q.x : lo[0];
-		hi[0] = q.x > hi[0] ? q.x : hi[0];
-		lo[1] = q.z < lo[1] ? q.z : lo[1];
-		hi[1] = q.z > hi[1] ? q.z : hi[1];
 	}
 
-	gw = (s32)((hi[0] - lo[0]) / XBLAMESH_HAT_CELL) + 1;
-	gh = (s32)((hi[1] - lo[1]) / XBLAMESH_HAT_CELL) + 1;
-
-	if (gw <= 0 || gh <= 0 || gw > XBLAMESH_HAT_GRID || gh > XBLAMESH_HAT_GRID) {
-		free(local);
-		return 0;
-	}
-
-	if (!hatSeatHeight) {
-		hatSeatHeight = malloc(2 * XBLAMESH_HAT_GRID * XBLAMESH_HAT_GRID * sizeof(f32));
-
-		if (!hatSeatHeight) {
-			free(local);
-			return 0;
-		}
-	}
-
-	for (s32 i = 0; i < gw * gh; i++) {
-		hatSeatHeight[i] = -1e9f;
-		hatSeatHeight[XBLAMESH_HAT_GRID * XBLAMESH_HAT_GRID + i] = 1e9f;
-	}
-
-	// The head's surfaces over each column: its triangles, the hair's cutout
-	// cards with them (not its fading span), read out of the lists as the hit
-	// test reads them
+	// The head's triangles, the hair's cutout cards with them (not its fading
+	// span), read out of the lists as the hit test reads them
 	for (s32 k = 0; k < head->numgroups * 2 && k < 128; k++) {
 		const s32 group = k >> 1;
 		const s32 start = (k & 1) ? head->groupxlu[group] : head->groupgfx[group];
@@ -14387,10 +14611,6 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 			const u8 op = (u8)(gdl->words.w0 >> 24);
 			const uintptr_t w1 = gdl->words.w1;
 			s32 idx[3];
-			const f32 *p[3];
-			f32 tlo[2];
-			f32 thi[2];
-			f32 den;
 
 			if (op == (u8)G_ENDDL) {
 				break;
@@ -14414,61 +14634,100 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 				continue;
 			}
 
-			for (s32 v = 0; v < 3; v++) {
-				p[v] = &local[idx[v] * 3];
-			}
+			// kept for the rays out from the hat's outside
+			if (numtris >= captris) {
+				s32 *grown = realloc(tris, (size_t)(captris + 1024) * 3 * sizeof(s32));
 
-			den = (p[1][2] - p[2][2]) * (p[0][0] - p[2][0]) + (p[2][0] - p[1][0]) * (p[0][2] - p[2][2]);
-
-			if (den > -1e-6f && den < 1e-6f) {
-				continue;
-			}
-
-			tlo[0] = thi[0] = p[0][0];
-			tlo[1] = thi[1] = p[0][2];
-
-			for (s32 v = 1; v < 3; v++) {
-				tlo[0] = p[v][0] < tlo[0] ? p[v][0] : tlo[0];
-				thi[0] = p[v][0] > thi[0] ? p[v][0] : thi[0];
-				tlo[1] = p[v][2] < tlo[1] ? p[v][2] : tlo[1];
-				thi[1] = p[v][2] > thi[1] ? p[v][2] : thi[1];
-			}
-
-			for (s32 gx = (s32)((tlo[0] - lo[0]) / XBLAMESH_HAT_CELL); gx <= (s32)((thi[0] - lo[0]) / XBLAMESH_HAT_CELL) && gx < gw; gx++) {
-				for (s32 gz = (s32)((tlo[1] - lo[1]) / XBLAMESH_HAT_CELL); gz <= (s32)((thi[1] - lo[1]) / XBLAMESH_HAT_CELL) && gz < gh; gz++) {
-					const f32 x = lo[0] + ((f32)gx + 0.5f) * XBLAMESH_HAT_CELL;
-					const f32 z = lo[1] + ((f32)gz + 0.5f) * XBLAMESH_HAT_CELL;
-					const f32 a = ((p[1][2] - p[2][2]) * (x - p[2][0]) + (p[2][0] - p[1][0]) * (z - p[2][2])) / den;
-					const f32 b = ((p[2][2] - p[0][2]) * (x - p[2][0]) + (p[0][0] - p[2][0]) * (z - p[2][2])) / den;
-					const f32 g = 1.0f - a - b;
-
-					if (gx < 0 || gz < 0 || a < -0.001f || b < -0.001f || g < -0.001f) {
-						continue;
-					}
-
-					{
-						const f32 y = a * p[0][1] + b * p[1][1] + g * p[2][1];
-						f32 *cell = &hatSeatHeight[gz * gw + gx];
-						f32 *under = &hatSeatHeight[XBLAMESH_HAT_GRID * XBLAMESH_HAT_GRID + gz * gw + gx];
-
-						if (y > *cell) {
-							*cell = y;
-						}
-
-						if (y < *under) {
-							*under = y;
-						}
-					}
+				if (grown) {
+					tris = grown;
+					captris += 1024;
 				}
+			}
+
+			if (numtris < captris) {
+				tris[numtris * 3] = idx[0];
+				tris[numtris * 3 + 1] = idx[1];
+				tris[numtris * 3 + 2] = idx[2];
+				numtris++;
 			}
 		}
 	}
 
-	free(local);
+	// The hat's middle across, which its sides face away from, and the head's
+	// triangles within reach of it (a ray goes no further than
+	// XBLAMESH_HAT_DEEPEST): the face and neck below are most of the head
+	{
+		f32 mlo[2] = { 1e9f, 1e9f };
+		f32 mhi[2] = { -1e9f, -1e9f };
+		f32 blo[3] = { 1e9f, 1e9f, 1e9f };
+		f32 bhi[3] = { -1e9f, -1e9f, -1e9f };
+		s32 kept = 0;
 
-	// The hat's outside - its triangles facing up in the head's frame, which
-	// a cap's lining under them does not - against the head's surface over
-	// each column: how far the hair stands through it
+		for (s32 i = 0; i < hat->numvertices; i++) {
+			struct coord in = { hat->vertices[i].x, hat->vertices[i].y, hat->vertices[i].z };
+			struct coord w;
+			struct coord q;
+
+			mtx4TransformVec(&hatmodel->matrices[0], &in, &w);
+			mtx4TransformVec(&invhj, &w, &q);
+			mlo[0] = q.x < mlo[0] ? q.x : mlo[0];
+			mhi[0] = q.x > mhi[0] ? q.x : mhi[0];
+			mlo[1] = q.z < mlo[1] ? q.z : mlo[1];
+			mhi[1] = q.z > mhi[1] ? q.z : mhi[1];
+
+			for (s32 a = 0; a < 3; a++) {
+				blo[a] = q.f[a] < blo[a] ? q.f[a] : blo[a];
+				bhi[a] = q.f[a] > bhi[a] ? q.f[a] : bhi[a];
+			}
+		}
+
+		mid[0] = (mlo[0] + mhi[0]) * 0.5f;
+		mid[1] = (mlo[1] + mhi[1]) * 0.5f;
+
+		// grown by the reach and by the most the hat is made bigger
+		for (s32 a = 0; a < 3; a++) {
+			const f32 grow = XBLAMESH_HAT_DEEPEST + (bhi[a] - blo[a]) * (XBLAMESH_HAT_STEPMAX - 1.0f);
+
+			blo[a] -= grow;
+			bhi[a] += grow;
+		}
+
+		for (s32 i = 0; i < numtris; i++) {
+			s32 near = 1;
+
+			for (s32 a = 0; a < 3 && near; a++) {
+				const f32 v0 = local[tris[i * 3] * 3 + a];
+				const f32 v1 = local[tris[i * 3 + 1] * 3 + a];
+				const f32 v2 = local[tris[i * 3 + 2] * 3 + a];
+
+				near = !((v0 < blo[a] && v1 < blo[a] && v2 < blo[a]) || (v0 > bhi[a] && v1 > bhi[a] && v2 > bhi[a]));
+			}
+
+			if (near) {
+				memmove(&tris[kept * 3], &tris[i * 3], 3 * sizeof(s32));
+				kept++;
+			}
+		}
+
+		numtris = kept;
+	}
+
+	// The hat's outside - its triangles facing up in the head's frame, or out
+	// from its middle and not down, which a cap's lining does not - each
+	// corner with its triangle's outward normal, and how far the head's
+	// surface stands beyond it that way: hair through the hat there
+	pts = malloc((size_t)XBLAMESH_HAT_MAXPTS * 7 * sizeof(f32));
+	vnormals = calloc((size_t)hat->numvertices * 4, sizeof(f32));
+
+	if (!pts || !vnormals) {
+		free(pts);
+		free(vnormals);
+		free(local);
+		free(tris);
+		return 0;
+	}
+
+
 	for (s32 k = 0; k < hat->numgroups && k < 64; k++) {
 		for (s32 l = 0; l < 2; l++) {
 			const s32 start = l == 0 ? hat->groupgfx[k] : hat->groupxlu[k];
@@ -14488,7 +14747,7 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 				struct coord q[3];
 				f32 e0[3];
 				f32 e1[3];
-				f32 ny;
+				f32 n[3];
 				f32 len;
 
 				if (op == (u8)G_ENDDL) {
@@ -14523,74 +14782,287 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 
 				e0[0] = q[1].x - q[0].x; e0[1] = q[1].y - q[0].y; e0[2] = q[1].z - q[0].z;
 				e1[0] = q[2].x - q[0].x; e1[1] = q[2].y - q[0].y; e1[2] = q[2].z - q[0].z;
-				ny = e0[2] * e1[0] - e0[0] * e1[2];
-				len = sqrtf(ny * ny
-						+ (e0[1] * e1[2] - e0[2] * e1[1]) * (e0[1] * e1[2] - e0[2] * e1[1])
-						+ (e0[0] * e1[1] - e0[1] * e1[0]) * (e0[0] * e1[1] - e0[1] * e1[0]));
+				n[0] = e0[1] * e1[2] - e0[2] * e1[1];
+				n[1] = e0[2] * e1[0] - e0[0] * e1[2];
+				n[2] = e0[0] * e1[1] - e0[1] * e1[0];
+				len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
 
-				if (len < 1e-6f || ny / len < XBLAMESH_HAT_UP) {
+				if (len < 1e-6f) {
 					continue;
 				}
 
+				n[0] /= len;
+				n[1] /= len;
+				n[2] /= len;
+
+				if (numatris >= capatris) {
+					f32 *grown = realloc(atris, (size_t)(capatris + 256) * 9 * sizeof(f32));
+
+					if (grown) {
+						atris = grown;
+						capatris += 256;
+					}
+				}
+
+				if (numatris < capatris) {
+					for (s32 v = 0; v < 3; v++) {
+						atris[numatris * 9 + v * 3] = q[v].x;
+						atris[numatris * 9 + v * 3 + 1] = q[v].y;
+						atris[numatris * 9 + v * 3 + 2] = q[v].z;
+					}
+
+					numatris++;
+				}
+
+				{
+					const f32 cx = (q[0].x + q[1].x + q[2].x) / 3.0f - mid[0];
+					const f32 cz = (q[0].z + q[1].z + q[2].z) / 3.0f - mid[1];
+					const f32 cl = sqrtf(cx * cx + cz * cz);
+					const f32 out = cl > 1e-3f ? (n[0] * cx + n[2] * cz) / cl : 0.0f;
+
+					// a band's inside, facing in however much up, is the
+					// lining, not the outside
+					if (n[1] < XBLAMESH_HAT_UP ? n[1] < XBLAMESH_HAT_SIDE || out <= 0.0f : out < XBLAMESH_HAT_INWARD) {
+						continue;
+					}
+				}
+
+				if (numhtris >= caphtris) {
+					f32 *grown = realloc(htris, (size_t)(caphtris + 256) * 9 * sizeof(f32));
+
+					if (grown) {
+						htris = grown;
+						caphtris += 256;
+					}
+				}
+
+				if (numhtris < caphtris) {
+					for (s32 v = 0; v < 3; v++) {
+						htris[numhtris * 9 + v * 3] = q[v].x;
+						htris[numhtris * 9 + v * 3 + 1] = q[v].y;
+						htris[numhtris * 9 + v * 3 + 2] = q[v].z;
+					}
+
+					numhtris++;
+				}
+
+				// each corner once, along the outside's normals there
+				// averaged (a ray a corner is a few hundred tests)
 				for (s32 v = 0; v < 3; v++) {
-					const s32 gx = (s32)floorf((q[v].x - lo[0]) / XBLAMESH_HAT_CELL);
-					const s32 gz = (s32)floorf((q[v].z - lo[1]) / XBLAMESH_HAT_CELL);
-					f32 d;
+					const f32 o[3] = { q[v].x, q[v].y, q[v].z };
+					f32 *vn = &vnormals[idx[v] * 4];
 
-					// inside the head only between its surfaces over the
-					// column: a helmet's strap under the chin is not
-					if (gx < 0 || gz < 0 || gx >= gw || gz >= gh || hatSeatHeight[gz * gw + gx] < -1e8f
-							|| q[v].y < hatSeatHeight[XBLAMESH_HAT_GRID * XBLAMESH_HAT_GRID + gz * gw + gx]) {
-						continue;
-					}
+					vn[0] += n[0]; vn[1] += n[1]; vn[2] += n[2];
+					vn[3] = 1.0f;
 
-					d = hatSeatHeight[gz * gw + gx] - q[v].y;
-					touches++;
-
-					// the three worst, so one stray strand of hair is not the answer
-					// deeper than hair stands through a hat is its rim passing
-					// under an overhang - a quiff over a helmet's brim, the
-					// back of the skull over its neck guard - which no lift
-					// that still keeps it on the head clears
-					if (d > XBLAMESH_HAT_DEEPEST) {
-						continue;
-					}
-					for (s32 r = 0; r < 3; r++) {
-						if (d > worst[r]) {
-							for (s32 m2 = 2; m2 > r; m2--) {
-								worst[m2] = worst[m2 - 1];
-							}
-
-							worst[r] = d;
-							break;
-						}
-					}
+					alo[0] = o[0] < alo[0] ? o[0] : alo[0];
+					ahi[0] = o[0] > ahi[0] ? o[0] : ahi[0];
+					alo[1] = o[1] < alo[1] ? o[1] : alo[1];
+					alo[2] = o[2] < alo[2] ? o[2] : alo[2];
+					ahi[2] = o[2] > ahi[2] ? o[2] : ahi[2];
 				}
 			}
 		}
 	}
 
-	if (touches < 3) {
+	for (s32 i = 0; i < hat->numvertices && numpts < XBLAMESH_HAT_MAXPTS; i++) {
+		const f32 *vn = &vnormals[i * 4];
+		const f32 len = sqrtf(vn[0] * vn[0] + vn[1] * vn[1] + vn[2] * vn[2]);
+		struct coord in = { hat->vertices[i].x, hat->vertices[i].y, hat->vertices[i].z };
+		struct coord w;
+		struct coord q;
+		f32 *pt = &pts[numpts * 7];
+
+		if (vn[3] == 0.0f || len < 1e-3f) {
+			continue;
+		}
+
+		mtx4TransformVec(&hatmodel->matrices[0], &in, &w);
+		mtx4TransformVec(&invhj, &w, &q);
+		pt[0] = q.x; pt[1] = q.y; pt[2] = q.z;
+		pt[3] = vn[0] / len; pt[4] = vn[1] / len; pt[5] = vn[2] / len;
+		pt[6] = xblaMeshHatSeatRay(local, tris, numtris, pt, &pt[3]);
+		numpts++;
+	}
+
+	free(vnormals);
+
+	// The head's own points out through the hat's outside, straight down
+	// onto it or in towards its middle: each a point of the hat to move out
+	// past the hair, the way the ray came in reversed
+	for (s32 i = 0; i < head->numvertices && numhtris > 0; i++) {
+		const f32 *o = &local[i * 3];
+		f32 dirs[2][3] = { { 0.0f, -1.0f, 0.0f }, { mid[0] - o[0], 0.0f, mid[1] - o[2] } };
+		const f32 across = sqrtf(dirs[1][0] * dirs[1][0] + dirs[1][2] * dirs[1][2]);
+		f32 hit[2] = { 0.0f, 0.0f };
+		f32 rim = 1e9f;
+
+		if (o[0] < alo[0] || o[0] > ahi[0] || o[2] < alo[2] || o[2] > ahi[2] || o[1] <= alo[1]) {
+			continue;
+		}
+
+		hit[0] = xblaMeshHatSeatHit(htris, numhtris, o, dirs[0], XBLAMESH_HAT_DEEPEST, 0);
+
+		if (across >= 1e-3f) {
+			dirs[1][0] /= across;
+			dirs[1][2] /= across;
+			hit[1] = xblaMeshHatSeatHit(htris, numhtris, o, dirs[1],
+					across < XBLAMESH_HAT_DEEPEST ? across : XBLAMESH_HAT_DEEPEST, 0);
+		}
+
+		if (hit[0] <= 0.0f && hit[1] <= 0.0f) {
+			continue;
+		}
+
+		// above the hat's rim there - a brow under a cap's peak or its
+		// band is outside it, not through it
+		for (s32 j = 0; j < numatris * 3; j++) {
+			const f32 *c = &atris[j * 3];
+			const f32 dx = c[0] - o[0];
+			const f32 dz = c[2] - o[2];
+
+			if (dx * dx + dz * dz < XBLAMESH_HAT_RIMNEAR * XBLAMESH_HAT_RIMNEAR && c[1] < rim) {
+				rim = c[1];
+			}
+		}
+
+		if (o[1] <= rim) {
+			continue;
+		}
+
+		for (s32 k = 0; k < 2 && numpts < XBLAMESH_HAT_MAXPTS; k++) {
+			if (hit[k] > 0.0f) {
+				f32 *pt = &pts[numpts * 7];
+
+				pt[0] = o[0] + dirs[k][0] * hit[k];
+				pt[1] = o[1] + dirs[k][1] * hit[k];
+				pt[2] = o[2] + dirs[k][2] * hit[k];
+				pt[3] = -dirs[k][0];
+				pt[4] = -dirs[k][1];
+				pt[5] = -dirs[k][2];
+				pt[6] = hit[k];
+				numpts++;
+			}
+		}
+	}
+
+	// How far the hat could come down before it meets the head: up from
+	// each point of the head under it to the nearest of its triangles, the
+	// third nearest of them
+	{
+		f32 nearest[3] = { -XBLAMESH_HAT_DEEPEST, -XBLAMESH_HAT_DEEPEST, -XBLAMESH_HAT_DEEPEST };
+		const f32 up[3] = { 0.0f, 1.0f, 0.0f };
+		s32 hits = 0;
+
+		for (s32 i = 0; i < head->numvertices && numatris > 0; i++) {
+			const f32 *o = &local[i * 3];
+			f32 t;
+
+			if (o[0] < alo[0] || o[0] > ahi[0] || o[2] < alo[2] || o[2] > ahi[2]) {
+				continue;
+			}
+
+			t = xblaMeshHatSeatHit(atris, numatris, o, up, XBLAMESH_HAT_DEEPEST, 1);
+
+			if (t > 0.0f) {
+				xblaMeshHatSeatTop3(nearest, -t);
+				hits++;
+			}
+		}
+
+		drop = hits >= 3 ? -nearest[2] : 0.0f;
+	}
+
+	free(local);
+	free(tris);
+	free(htris);
+	free(atris);
+
+	if (numpts < 3) {
+		free(pts);
 		return 0;
 	}
 
-	// Hair through the outside lifts the hat clear of it; a hat clear of the
-	// hair stays as the model has it, which is where it sits on most of the
-	// HD heads (it is the table's fit that floated them)
-	lift = worst[2] + XBLAMESH_HAT_CLEAR > 0.0f ? worst[2] + XBLAMESH_HAT_CLEAR : 0.0f;
+	// The hat is sized about the middle of its rim: wider and taller, its
+	// rim where it was
+	anchor[0] = (alo[0] + ahi[0]) * 0.5f;
+	anchor[1] = alo[1];
+	anchor[2] = (alo[2] + ahi[2]) * 0.5f;
 
-	// Along the joint's up, as an offset in the hat's own space
+	// Hair through the hat's sides only a bigger hat covers; through its
+	// crown a lift clears too. The smallest size whose sides are clear and
+	// whose lift is no more than XBLAMESH_HAT_LIFTOK (GoldenEye's own table
+	// sizes the hat to each N64 head, 0.77 to 1.18); past the largest, the
+	// size with the least left over
+	{
+		f32 bestcost = 1e9f;
+
+		for (s32 step = 0; step <= XBLAMESH_HAT_STEPS; step++) {
+			const f32 s = 1.0f + (XBLAMESH_HAT_STEPMAX - 1.0f) * (f32)step / (f32)XBLAMESH_HAT_STEPS;
+
+			if (s > maxscale + 0.001f) {
+				break;
+			}
+
+			f32 side;
+			f32 need;
+			f32 cost;
+
+			xblaMeshHatSeatNeed(pts, numpts, anchor, s, &side, &need, &touches);
+
+			if (step == 0) {
+				worst[0] = need > side ? need : side;
+			}
+
+			if (side <= 0.0f && need <= XBLAMESH_HAT_LIFTOK) {
+				scale = s;
+				lift = need;
+				bestcost = -1.0f;
+				break;
+			}
+
+			cost = (side > 0.0f ? side : 0.0f) + (need > 0.0f ? need : 0.0f);
+
+			if (cost < bestcost - XBLAMESH_HAT_GAIN) {
+				bestcost = cost;
+				scale = s;
+				lift = need;
+			}
+		}
+	}
+
+	free(pts);
+
+	worst[2] = lift;
+	lift = lift > 0.0f ? lift + XBLAMESH_HAT_CLEAR : 0.0f;
+	lift = lift > XBLAMESH_HAT_MAXLIFT ? XBLAMESH_HAT_MAXLIFT : lift;
+
+	// Nothing through it, a hat standing over the hair is set down onto it
+	if (scale == 1.0f && lift == 0.0f && drop > XBLAMESH_HAT_CLEAR) {
+		lift = -(drop - XBLAMESH_HAT_CLEAR < XBLAMESH_HAT_LOWEST ? drop - XBLAMESH_HAT_CLEAR : XBLAMESH_HAT_LOWEST);
+	}
+
+	// Along the joint's up, as an offset in the hat's own space, and the
+	// point it is sized about there
 	{
 		struct coord up = { hj.m[1][0] * lift, hj.m[1][1] * lift, hj.m[1][2] * lift };
+		struct coord a = { anchor[0], anchor[1], anchor[2] };
+		struct coord aw;
 		struct coord t;
 		Mtxf invmt;
 
 		xblaMeshInvert(&hatmodel->matrices[0], &invmt);
+		mtx4TransformVec(&hj, &a, &aw);
+		mtx4TransformVec(&invmt, &aw, &t);
+		out[4] = t.x;
+		out[5] = t.y;
+		out[6] = t.z;
 		invmt.m[3][0] = invmt.m[3][1] = invmt.m[3][2] = 0.0f;
 		mtx4TransformVec(&invmt, &up, &t);
 		out[0] = t.x;
 		out[1] = t.y;
 		out[2] = t.z;
+		out[3] = scale;
 	}
 
 	// Once a stage for each head and hat
@@ -14605,8 +15077,8 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 		}
 
 		if (!seen) {
-			sysLogPrintf(LOG_NOTE, "xblamesh: hat %s on head %s seated by its HD mesh: hair %.1f through its outside, lifted %.1f",
-					gebeanRowName(te->beanrow), gebeanRowName(he->beanrow), worst[2], lift);
+			sysLogPrintf(LOG_NOTE, "xblamesh: hat %s on head %s seated by its HD mesh: hair %.1f through its outside, sized %.2f (hair %.1f), %.1f over the head, lifted %.1f",
+					gebeanRowName(te->beanrow), gebeanRowName(he->beanrow), worst[0], scale, worst[2], drop, lift);
 		}
 
 		*outheadrow = he->beanrow + 1;
@@ -14616,43 +15088,56 @@ static s32 xblaMeshHatSeatMeasure(struct model *chrmodel, struct modeldef *headd
 	return 1;
 }
 
-s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, s32 measure, f32 out[3])
+s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale, f32 out[7])
 {
 	s32 at = -1;
+	s32 same = -1;
 
 	if (!xblaMeshGetEnabled() || !chrmodel || !headdef || !hatmodel || !hatmodel->definition || !chrmodel->definition) {
 		return 0;
 	}
 
 	for (s32 i = 0; i < XBLAMESH_HAT_CACHE; i++) {
-		if (hatSeats[i].chrmodel == chrmodel && hatSeats[i].headdef == headdef
-				&& hatSeats[i].hatdef == hatmodel->definition) {
-			at = i;
-			break;
+		if (hatSeats[i].chrmodel && hatSeats[i].headdef == headdef && hatSeats[i].hatdef == hatmodel->definition
+				&& hatSeats[i].maxscale == maxscale) {
+			if (hatSeats[i].chrmodel == chrmodel) {
+				at = i;
+				break;
+			}
+
+			same = i;
 		}
 	}
 
 	if (at < 0) {
 		at = hatSeatNext;
 		hatSeatNext = (hatSeatNext + 1) % XBLAMESH_HAT_CACHE;
-		hatSeats[at].chrmodel = chrmodel;
-		hatSeats[at].headdef = headdef;
-		hatSeats[at].hatdef = hatmodel->definition;
-		hatSeats[at].headrow = hatSeats[at].hatrow = 0;
-		{
+
+		if (same >= 0 && same != at) {
+			// another chr wears the same hat on the same head: the seat is in
+			// the hat's own space, which hangs rigidly on the head's joint, so
+			// it is the same seat, and each measure is millions of ray tests
+			hatSeats[at] = hatSeats[same];
+			hatSeats[at].chrmodel = chrmodel;
+		} else {
 			s32 headrow = 0;
 			s32 hatrow = 0;
 
-			hatSeats[at].ok = xblaMeshHatSeatMeasure(chrmodel, headdef, hatmodel, measure, hatSeats[at].offset, &headrow, &hatrow);
+			hatSeats[at].chrmodel = chrmodel;
+			hatSeats[at].headdef = headdef;
+			hatSeats[at].hatdef = hatmodel->definition;
+			hatSeats[at].maxscale = maxscale;
+			hatSeats[at].headrow = hatSeats[at].hatrow = 0;
+			hatSeats[at].ok = xblaMeshHatSeatMeasure(chrmodel, headdef, hatmodel, maxscale, hatSeats[at].offset, &headrow, &hatrow);
 			hatSeats[at].headrow = headrow;
 			hatSeats[at].hatrow = hatrow;
 		}
 	}
 
 	if (hatSeats[at].ok) {
-		out[0] = hatSeats[at].offset[0];
-		out[1] = hatSeats[at].offset[1];
-		out[2] = hatSeats[at].offset[2];
+		for (s32 i = 0; i < 7; i++) {
+			out[i] = hatSeats[at].offset[i];
+		}
 	}
 
 	return hatSeats[at].ok;
@@ -14914,7 +15399,7 @@ s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
 void xblaMeshResetModels(void) { }
 void xblaMeshHitBegin(void) { }
-s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, s32 measure, f32 out[3]) { return 0; }
+s32 xblaMeshHatSeat(struct model *chrmodel, struct modeldef *headdef, struct model *hatmodel, f32 maxscale, f32 out[7]) { return 0; }
 s32 xblaMeshTakeFineModel(struct model *model) { return 0; }
 s32 xblaMeshHitSkipsNode(struct model *model, struct modelnode *node) { return 0; }
 s32 xblaMeshModelHasMesh(struct model *model) { return 0; }
