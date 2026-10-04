@@ -1997,8 +1997,8 @@ the CRCs) and its size (12MB) - is converted at startup, once, into
   nothing is what cost the reporter their evening.
 - **The notice** (user: "a small notification that the converter is running so
   players dont think they black screened"): the conversion is on its own thread
-  while the main thread draws a frame every 16ms - "CONVERTING GOLDENEYE 007 FOR
-  GE-X PLUS", a count and a bar - with fill rectangles in a 5x7 pixel font,
+  while the main thread draws a frame every 16ms - "CONVERTING GOLDENEYE" (F3 20261004-170343; was "CONVERTING GOLDENEYE 007 FOR
+  GE PLUS"), a count and a bar - with fill rectangles in a 5x7 pixel font,
   since no game font is loaded. It needs `videoUpdateNativeResolution(320, 240)`
   (0 until the scheduler's first frame) and a colour image address that is not
   the depth buffer's, or `gfx_dp_fill_rectangle()` draws nothing. The converter's

@@ -203,6 +203,7 @@ struct xblameshentry {
 	s32 suppress;                      // XBLAMESH_SUPPRESS_*: stock geometry that draws nothing
 	u8 matched;                        // whether the four above say anything
 	u8 releaseonly;                    // a file only the release has: drawn in both looks (xblaMeshEntryLive())
+	u8 xraystock;                      // drawn as the game's own model through the X-ray scanner: see xblaMeshXrayStock()
 
 	// The model pack's side: this node's place in the model's list nodes, and
 	// the file id the pack's n64/ folder is looked up by. Filed for every
@@ -478,6 +479,10 @@ struct xblameshbuilt {
 	s8 beanhubmtx[GEBEAN_MAXHUBS];
 	s8 beanhubparent[GEBEAN_MAXHUBS];
 	f32 beanhubshift[GEBEAN_MAXHUBS][3];
+	// The menu hudpiece's rotor, turned about its own ring: see xblaMeshRotorShift()
+	s32 rotorstate;    // 0 not looked at, 1 rotorcentre is good, -1 nothing to do
+	s8 rotormtx;
+	f32 rotorcentre[3];
 };
 
 // The pictures a build's materials draw with, when they are not records.
@@ -1462,6 +1467,23 @@ static s32 xblaMeshTogglesAreInMesh(s32 fileid)
 }
 
 /**
+ * A model drawn as the game's own while the X-ray scanner is on.
+ *
+ * Pelagic II's communications hubs (PcomhubZ) have three screens inside the
+ * casing - lists 1 to 3, which the release leaves at zero and the game draws
+ * beside the mesh - and through the scanner, which draws every prop
+ * see-through and writing no depth, those screens are the green and red
+ * panels the mission shows the player. The release's casing is drawn with
+ * its own depth wherever it is solid, so through the scanner it hid them and
+ * the hubs showed no screens at all (F3 20261004-072609). Under the scanner
+ * the hub is a tinted silhouette either way, so it is drawn as the game's.
+ */
+static s32 xblaMeshXrayStock(s32 fileid)
+{
+	return fileid == FILE_PCOMHUB;
+}
+
+/**
  * Whether the model's own mesh has this node's geometry already.
  *
  * **A mesh is the whole model, and the release names it on one node.** The id
@@ -1625,6 +1647,7 @@ static s32 xblaMeshMatchNodes(struct modeldef *modeldef, const u8 *file, u32 len
 				e->use = xblaMeshUseFor(modeldef, slot, 0);
 				e->suppress = 0;
 				e->matched = 1;
+				e->xraystock = xblaMeshXrayStock(xblaMeshFileId);
 				found++;
 
 				if (e->use >= 0 && e->part < XBLAMESH_MAXPARTS) {
@@ -7896,6 +7919,88 @@ static void xblaMeshHubShift(const struct xblameshbuilt *m, const struct model *
 	}
 }
 
+/**
+ * The menu hudpiece's rotor (menu.c turns MODELPART_HUDPIECE_0002 about its X
+ * axis every frame). The release's rotor is a striped sleeve, radius 20.9,
+ * over a drum of radius 20.4 that is weighted to the root - and the sleeve's
+ * axis is 0.57 units off the node it is weighted to, so turned about the node
+ * it swung through the drum under it twice a turn (F3 20261004-170717, "the
+ * rotating portion clips into a duplicate of itself", XBLA look only).
+ *
+ * So the rotor's matrix is moved on by however far it carries the sleeve's
+ * centre away from where the root's matrix puts that point: the sleeve turns
+ * about its own axis, which is the drum's, and stays where it was at rest.
+ * The centre is the mean of the vertices weighted to the rotor alone, in the
+ * bind pose, worked out once.
+ */
+static void xblaMeshRotorShift(struct xblameshbuilt *m, const struct model *model, s32 i, s32 posable, Mtxf *mtx)
+{
+	if (m->rotorstate < 0 || !model->definition || model->definition->skel != &g_SkelHudPiece) {
+		return;
+	}
+
+	if (m->rotorstate == 0) {
+		struct modelnode *node = modelGetPart(model->definition, MODELPART_HUDPIECE_0002);
+		f64 sum[3] = { 0, 0, 0 };
+		s32 count = 0;
+
+		m->rotorstate = -1;
+
+		if (!node || !m->bindpos || !m->bones || (node->type & 0xff) != MODELNODETYPE_POSITION) {
+			return;
+		}
+
+		m->rotormtx = (s8)node->rodata->position.mtxindex0;
+
+		if (m->rotormtx <= 0 || m->rotormtx >= m->nummatrices) {
+			return;
+		}
+
+		for (s32 v = 0; v < m->numvertices; v++) {
+			const u8 *bone = &m->bones[v * 4];
+
+			if (bone[0] == (u8)m->rotormtx && bone[3] <= 1) {
+				sum[0] += m->bindpos[v * 3 + 0];
+				sum[1] += m->bindpos[v * 3 + 1];
+				sum[2] += m->bindpos[v * 3 + 2];
+				count++;
+			}
+		}
+
+		if (count == 0) {
+			return;
+		}
+
+		for (s32 j = 0; j < 3; j++) {
+			m->rotorcentre[j] = (f32)(sum[j] / count);
+		}
+
+		m->rotorstate = 1;
+		sysLogPrintf(LOG_NOTE, "xblamesh: the hudpiece's rotor (matrix %d, %d vertices) turns about "
+				"its own centre (%.2f %.2f %.2f)", m->rotormtx, count,
+				m->rotorcentre[0], m->rotorcentre[1], m->rotorcentre[2]);
+	}
+
+	if (i != m->rotormtx || posable <= 0 || m->rotormtx >= posable) {
+		return;
+	}
+
+	{
+		Mtxf root;
+		struct coord c = { m->rotorcentre[0], m->rotorcentre[1], m->rotorcentre[2] };
+		struct coord want;
+		struct coord got;
+
+		mtx4MultMtx4(&model->matrices[0], &m->invbind[0], &root);
+		mtx4TransformVec(&root, &c, &want);
+		mtx4TransformVec(mtx, &c, &got);
+
+		mtx->m[3][0] += want.x - got.x;
+		mtx->m[3][1] += want.y - got.y;
+		mtx->m[3][2] += want.z - got.z;
+	}
+}
+
 static s32 xblaMeshPoseMatrices(struct xblameshbuilt *m, struct model *model, Mtxf *invroot,
 		const f32 *headshift, Mtxf *pal, Mtxf *lin)
 {
@@ -7969,6 +8074,8 @@ static s32 xblaMeshPoseMatrices(struct xblameshbuilt *m, struct model *model, Mt
 		if (m->beannumhubs) {
 			xblaMeshHubShift(m, model, i, posable, &step);
 		}
+
+		xblaMeshRotorShift(m, model, i, posable, &step);
 
 		mtx4MultMtx4(invroot, &step, &pal[i]);
 
@@ -11524,6 +11631,12 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		return 0;
 	}
 
+	// Through the X-ray scanner, a model whose insides the scanner shows
+	if (havemesh && !frompack && e->xraystock && g_Vars.currentplayer
+			&& g_Vars.currentplayer->visionmode == VISIONMODE_XRAY) {
+		return 0;
+	}
+
 	// A GoldenEye monitor's screen: the programme it is running, not Bean's
 	// picture. Bean's mesh has the screen as a list of its own with one still
 	// texture on it - a spiral, or a grille under the Community Edition - where
@@ -13361,6 +13474,8 @@ s32 xblaMeshHitTest(struct model *model, struct coord *pos, struct coord *far, s
 					if (m->beannumhubs) {
 						xblaMeshHubShift(m, model, i, posable, &pal[i]);
 					}
+
+					xblaMeshRotorShift(m, model, i, posable, &pal[i]);
 				} else if (posable > 0) {
 					mtx4Copy(&pal[0], &pal[i]);
 				} else {
