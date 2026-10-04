@@ -8289,6 +8289,159 @@ static size_t aiLength(const buf *f, size_t at)
 	return end - at + 1;
 }
 
+/** Eight hex digits of a hook's string, or -1. */
+static int64_t tndHex8(const char *s)
+{
+	uint32_t v = 0;
+
+	for (int i = 0; i < 8; ++i) {
+		const char c = s[i];
+
+		if (c >= '0' && c <= '9') {
+			v = v << 4 | (uint32_t)(c - '0');
+		} else if (c >= 'A' && c <= 'F') {
+			v = v << 4 | (uint32_t)(c - 'A' + 10);
+		} else {
+			return -1;
+		}
+	}
+
+	return v;
+}
+
+/**
+ * Tomorrow Never Dies 64's hooks (romlayout.aihooks), where they mean
+ * something this game can do. Its code (0x7005c250, called from ai()'s
+ * TRYFindCover case) reads label 0xfe as a poke spelt by the PRINT after it:
+ * "AAAAAAAA" an address, then "+P<8 hex>" steps through a pointer (*addr +
+ * offset), and the last "+<op><8 hex>" acts on the word there: C stores, A/S
+ * add or subtract ("F" after it: as floats; "T": times the tick), E, H and L
+ * go to the label "+Rxx" names when the word is equal, higher or lower. Most
+ * are its Girl Power Mode's own memory and stay dropped. Two kinds are the
+ * game's:
+ *
+ * - "8007A0B0+P00000870+E<item>+R<label>": g_CurrentPlayer->hands[0].weaponnum
+ *   is the item. Party's door list sets stage flag 0x800 - the bouncer's cue to
+ *   fight - unless Bond holds nothing, his fists, the watch laser or the phone
+ *   (items 0, 1, 0x17, 0x1e, 0x1f), so he is let in to talk. Dropped, the
+ *   flag was set at once and the bouncer came at him (F3 20261004-030749).
+ *   Becomes IFBondHasItemEquipped's own row (0x0060).
+ * - "80075D0C+P<offset>...": g_CurrentSetup's objects, a setup record by its
+ *   offset. An E on the record's header words is the hack checking it is the
+ *   record it means (the model and pad it was placed with), true of the file:
+ *   decided here, a GotoNext or nothing. An A/S of a float on runtime_pos
+ *   (0x58, 0x5c, 0x60), which GoldenEye draws the object from, is the port's
+ *   GEAI_NUDGE_CMD: Bazaar's jet rolling away in its ending (F3
+ *   20261004-030332) and Parkhaus's BMW backing out.
+ *
+ * Returns whether it wrote anything.
+ */
+static int tndHookConvert(const buf *f, size_t at, size_t len, buf *out)
+{
+	const size_t print = at + len;
+	const char *s;
+	size_t n, k;
+	int64_t base, v;
+	uint32_t offs[4];
+	int numoffs = 0;
+	char op;
+
+	if (f->v[at + 1] != 0xfe || print >= f->n || f->v[print] != 0xad) {
+		return 0;
+	}
+
+	s = (const char *)f->v + print + 1;
+	for (n = 0; print + 1 + n < f->n && s[n]; ++n) {
+		;
+	}
+
+	if (n < 18 || (base = tndHex8(s)) < 0) {
+		return 0;
+	}
+
+	// "+<letter><8 hex>" from text[8] on, as many P steps as there are
+	for (k = 8;; k += 10) {
+		if (k + 10 > n || s[k] != '+' || (v = tndHex8(s + k + 2)) < 0) {
+			return 0;
+		}
+
+		op = s[k + 1];
+
+		if (op != 'P') {
+			break;
+		}
+
+		if (numoffs == 4) {
+			return 0;
+		}
+
+		offs[numoffs++] = (uint32_t)v;
+	}
+
+	// Bond's right hand
+	if (base == 0x8007a0b0 && numoffs == 1 && offs[0] == 0x870 && op == 'E'
+			&& k + 14 <= n && s[k + 10] == '+' && s[k + 11] == 'R') {
+		const char lab[9] = { '0', '0', '0', '0', '0', '0', s[k + 12], s[k + 13], 0 };
+		const int64_t label = tndHex8(lab);
+
+		if (label < 0 || v >= NUM_ITEMS) {
+			return 0;
+		}
+
+		bufU16(out, 0x0060);
+		bufU8(out, 0xf2);
+		bufU8(out, soloItemWeapon((uint32_t)v));
+		bufU8(out, (uint32_t)label);
+		return 1;
+	}
+
+	// a setup record
+	if (base == 0x80075d0c && numoffs == 1) {
+		const records recs = setupRecords(f);
+		const size_t objs = be32(f->v, 12);
+		size_t start = objs;
+
+		for (size_t i = 0; i < recs.n; ++i, start += recs.v[i - 1].len) {
+			const size_t field = (size_t)offs[0] + objs - start;
+
+			if ((size_t)offs[0] + objs < start || field >= recs.v[i].len) {
+				continue;
+			}
+
+			if (op == 'E' && field + 4 <= 12 && k + 14 <= n && s[k + 10] == '+' && s[k + 11] == 'R') {
+				const char lab[9] = { '0', '0', '0', '0', '0', '0', s[k + 12], s[k + 13], 0 };
+				const int64_t label = tndHex8(lab);
+
+				if (label < 0) {
+					return 0;
+				}
+
+				if (be32(recs.v[i].b, field) == (uint32_t)v) {
+					bufU16(out, 0x0000);   // GotoNext
+					bufU8(out, (uint32_t)label);
+				}
+				return 1;
+			}
+
+			if ((op == 'A' || op == 'S') && k + 11 <= n && s[k + 10] == 'F'
+					&& (field == 0x58 || field == 0x5c || field == 0x60)) {
+				const int pertick = k + 12 <= n && s[k + 11] == 'T';
+
+				bufU16(out, GEAI_NUDGE_CMD);
+				bufU16(out, (uint32_t)i);
+				bufU8(out, (uint32_t)(field - 0x58) / 4);
+				bufU8(out, (pertick ? 1u : 0u) | (op == 'S' ? 2u : 0u));
+				bufU32(out, (uint32_t)v);
+				return 1;
+			}
+
+			return 0;
+		}
+	}
+
+	return 0;
+}
+
 /**
  * One GoldenEye AI list as Perfect Dark bytecode (geaitable.h).
  *
@@ -8319,7 +8472,10 @@ static void writeSoloAilist(const buf *f, size_t at, size_t numpads, int vehicle
 		// TRYFindCover in a background list, which has no prop, crashed in
 		// chrGoToCoverProp() at the first tick of every TND mission
 		if (g_Layout->aihooks && op == 0x2b && f->v[at + 1] >= 0xfb && f->v[at + 1] <= 0xfe) {
-			st->aidropped++;
+			const int kept = tndHookConvert(f, at, len, out);
+
+			st->aidropped += kept ? 0 : 1;
+			st->aikept += kept ? 1 : 0;
 			at += len;
 
 			if (at < f->n && f->v[at] == 0xad && aiLength(f, at) && at + aiLength(f, at) <= f->n) {

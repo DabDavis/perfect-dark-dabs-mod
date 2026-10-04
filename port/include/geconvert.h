@@ -10,7 +10,7 @@ extern "C" {
 
 // Raise when a change alters what a conversion writes: arenas converted by an
 // older one are converted again at the next start (gexplusrom.c)
-#define GECONVERT_VERSION_STR "120"
+#define GECONVERT_VERSION_STR "121"
 
 #define GECONVERT_ROM_SIZE 0xc00000
 

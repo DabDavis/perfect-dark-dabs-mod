@@ -160,6 +160,41 @@ NEXT from each mission in all three modes (`folder.py`).
 - A split room's pieces go dark with it when a script disables it.
 - Without the GoldenEye ROM, tnd64.zip logs one note, not one a patch.
 
+## F3 pass 33 (converter 121, fix/f3-1004a-tndgame)
+
+- **Its hooks, decoded.** ai()'s TRYFindCover case calls 0x7005c250 (code in
+  the Expansion Pak, readable in `tables/ram_exp.bin` at 0x5c1e0) with the chr;
+  it reads the label byte signed. 0: restore a saved word; 1..0x7f: a per-level
+  table at 0x8004eb10; 0xfe (-2): the poke interpreter at 0x7005c3b0 (0xfd, 0xfc
+  and 0xfb are three others, not decoded). The PRINT's string: 8 hex digits an
+  address, then `+<letter><8 hex>` steps - P: `addr = *addr + n` - and the last
+  acts: C store, A/S add/subtract (`F` after: float bits; `T`: times
+  g_GlobalTimerDelta, or g_ClockTimer for ints), E/H/L go to the label of
+  `+Rxx` when the word is equal/higher/lower, else on to the next command.
+  Census over the 14 setups (`hooks.py` in the pass's scratch): most are its
+  own memory 0x8004e5f0-0x8004e760 (Girl Power, clocks, bonuses) and stay
+  dropped. `tndHookConvert()` converts two kinds:
+  - `8007A0B0+P00000870+E<item>+R<lbl>` (g_CurrentPlayer->hands[0].weaponnum):
+    Party's 0x100c sets stage flag 0x800, the bouncer's cue to fight, unless
+    Bond holds item 0, 1, 0x17, 0x1e or 0x1f. Now IFBondHasItemEquipped (0x0060).
+    The bouncer attacked at once (F3 20261004-030749); now "One moment please".
+  - `80075D0C+P<offset>...` (g_CurrentSetup's objects): an E on a record's
+    header (obj/pad, the hack's own check) is decided from the file (GotoNext or
+    nothing); A/S of a float on runtime_pos (0x58/0x5c/0x60), which GoldenEye
+    draws an object from (propobj.c), is the new 01ec aiGeObjectNudge
+    (record index, axis, flags, float). Bazaar's jet (record 85, +20 z a tick
+    on stage flag 2; F3 20261004-030332 "does not move") and Parkhaus's BMW
+    (record 103, -0.75 z a tick on 0x40000000).
+  Only TND's three setups change (Usetupgsark34Z, dam33, silo20); GE and GF
+  conversions are byte-identical. Probes: `~/wt/f3-1004a-tndgame-run/probe/`
+  (bouncer.py, jet.py with IDX/FLAG).
+- **Kaufman's head (F3 20261004-035753)** is the hack's own CorumovZ head: a
+  64-vertex near LOD (GoldenEye's Ourumov has 148), boxy, with a long face. The
+  cartridge draws it the same (ares, `view/chrface_ares.py`, GF_GAME=tnd,
+  level 25, chr 2, pad 3). Not a bug. aresge.py has a `tnd` layout now (ROM
+  `~/gefidelity-roms/tnd.z64` on the oracle host, Expansion Pak, osMemSize
+  0x700000, characters 0x80702e00).
+
 ## Not done
 
 - Girl Power Mode (the pokes above), and its clocks and bonuses.
@@ -175,7 +210,8 @@ NEXT from each mission in all three modes (`folder.py`).
 - The Stage Loader's "NAME (mod)" is cut at 30 characters
   ("Atlantic Hotel (Tomorrow Neve)", "Complex (Tomorrow Never Dies )"):
   the Combat Simulator's arena row.
-- Nothing checked against the cartridge yet (no ares twin run for TND). Hotel,
+- Little checked against the cartridge yet: aresge.py boots it (GF_GAME=tnd)
+  but twin.py/levels.py do not name its missions. Hotel,
   Party, Tower and The End start with Bond unarmed (his PPK in the inventory
   on Hotel): not checked against the cartridge.
 - ASan (`~/wt/tnd-run/asan.sh`, build `~/wt/tnd-run/build-asan`): all 14

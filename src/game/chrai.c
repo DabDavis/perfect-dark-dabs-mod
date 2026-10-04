@@ -526,6 +526,7 @@ bool (*g_CommandPointers[])(void) = {
 	/*0x01e9*/ aiGeCreditsRoll,
 	/*0x01ea*/ aiGeIfCreditsHaveRolled,
 	/*0x01eb*/ aiGeGasLeak,
+	/*0x01ec*/ aiGeObjectNudge,
 #endif
 };
 
@@ -666,6 +667,7 @@ u16 g_CommandLengths[] = {
 	/*0x01e9*/ 2,
 	/*0x01ea*/ 3,
 	/*0x01eb*/ 3,
+	/*0x01ec*/ 10,
 #endif
 };
 

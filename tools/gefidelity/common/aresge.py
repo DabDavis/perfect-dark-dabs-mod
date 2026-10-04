@@ -91,6 +91,10 @@ LAYOUTS = {
            'props': (0x8003a228, 340), 'chrs': (0x8003de10, 80)},
     'gf': {'rom': '~/gefidelity-roms/gf.z64', 'pak': True, 'memsize': 0x700000,
            'props': (0x8070b400, 416), 'chrs': (0x80700fc0, 126)},
+    # Tomorrow Never Dies 64 (Expanded 06-22, CLAUDE-notes/tnd64.md): props
+    # unmoved, characters at 0x80702e00 (112)
+    'tnd': {'rom': '~/gefidelity-roms/tnd.z64', 'pak': True, 'memsize': 0x700000,
+            'props': (0x8003a228, 340), 'chrs': (0x80702e00, 112)},
 }
 LAYOUT = LAYOUTS[GAME]
 ROM = os.path.expanduser(os.environ.get('GF_ARES_ROM', LAYOUT['rom']))
