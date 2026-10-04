@@ -96,6 +96,7 @@ static const struct { const char *key, *sky; } skyNames[] = {
 static const struct { const char *key, *sky; } releaseSkyNames[] = {
 	{ "sevx",  "surface" },
 	{ "dam",   "dam" },
+	{ "run",   "runway" },
 };
 
 /**

@@ -14345,3 +14345,50 @@ between preloaded and first-draw builds on all four stages (28/1/13/15 compared)
 identical with and without the preload on Dam and Cradle in the HD look; replaytest compare
 (match/solo/gematch/gesolo) same against 4e98c8a. Stage change + a forced generation bump (gdb) dropped
 the 41 Dam meshes and rebuilt at the next load with no fault.
+
+## Silo's blue arrows, Runway's sky; four answers (32nd F3 pass, 2026-10-03, fix/f3-1003d-hdlevels)
+
+**Silo's hazard arrows drew as opaque blue squares (F3 20261003-184819).** Bean's
+draw 32 of `new/background/silo` is one draw of two pictures: slot 0 the white
+arrow cut-out `_0x0DB0BBD5` (first UV set, +16), slot 1 the concrete
+`_0x0E374AF5` (second set, +20), neither alpha-tested nor blended (`at 0/0
+blend 0`). `gebeanLevelTriangles()` read it as the arrow alone with nothing to
+cut it. Such a draw (`decalpic`: stride 32, slot 1 solid, slot 0 with alpha)
+is now drawn as the solid picture with the cut-out a twin in the blended pass,
+the way `blendpic` already does vertex-blended pairs; `markDecals()` lays it on.
+Five draws in the 26 arenas: Silo 2 (the arrows, a "4-K2" stencil), Archives'
+and Depot's window frames, Streets' brick patch. The arrow tile is white in the
+release (material colour 0x00ffffff), so the arrows are pale on the concrete,
+not GoldenEye's yellow. Probe: `PD_BEANDRAWLOG=1` logs each such draw's first
+corner (`beandraw N: cut-out A over B from (...)`, file units). HDCACHE 19.
+Picture dumps: `tools/geconvert/fit/cafftool.py` with `CAFF_OUT=dir` on a
+level's `default.bin`.
+
+**Runway's sky without the CE (231151).** The release has a Runway dome
+(`new/skydome/runway`, the same placeholder picture as Dam's, its own ring);
+`releaseSkyNames[]` takes it now, so the release's daylit panorama is no longer
+capped by GoldenEye's flat teal. Runtime only.
+
+**Runway/Depot "slivers" and a missing ceiling (230741, 230819, 230849,
+231736; RTX 4080, OpenGL, GPU vertex shading on): not reproduced.** The
+tester's built level is byte-identical to ours (474234 bytes, same log lines);
+at their exact cameras, at their frame times, in GL and Vulkan on the RX 580,
+the start room's ceiling and the dock corridor are whole and there is no
+sliver. Every room was drawn in the trace (`[rooms on screen]` 1-17). The
+artifacts are time-dependent on their machine (ceiling present at frame 2750,
+gone 15 units away at 4007), which points at the renderer (GPU room path on
+NVIDIA's GL), not the HD build. Asked: GPU Vertex Shading off, or Vulkan.
+The red lines in 231151 are guards' tracer beams.
+
+**Dam's windows (223736) are GoldenEye's own pane** since 37779c7d5: a tinted
+window going opaque draws the cartridge's environment-mapped glass (the N64
+look draws the same blocky 32x32 reflection there) and fades to see-through
+close up by GoldenEye's xludist/opadist; before that commit the far pane was a
+flat grey with no reflection at all. Offered to the owner: Bean's own
+reflection instead.
+
+**Aztec's exhaust bay doors (212630)** were seen from the shuttle bay's upper
+level (cam y 1256) with the doors open: the panels slide sideways and their
+toothed hazard edges stay in sight along the pit's sides, in the N64 look (the
+cartridge's geometry) as in HD. Rig: `OPENDOORS=0x332,0x333 SPEC=--spectate
+STAGE=0x70 ./shot.sh` in `~/wt/f3-1003d-hdlevels-run`.
