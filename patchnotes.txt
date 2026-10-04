@@ -31,6 +31,18 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 39 2026-10-04
+Goldfinger 64: a shot knocks the guards' hats off as on the cartridge, instead of ringing off them like a steel helmet (thanks Odeyseis)
+Goldfinger 64 Cartel: you no longer get stuck crouching in the second silo's doorway at high frame rates (thanks savantique)
+Goldfinger 64: the Colt M1911 on the watch's mission page no longer shows Bond's fingers on its grip
+GoldenEye Silo, HD look: the hazard arrows are painted on the concrete again, not solid blue squares (thanks Odeyseis)
+GoldenEye Runway, HD look without the Community Edition: the release's own sky, so the peaks no longer meet a flat sky in a hard line (thanks echoremastered)
+GoldenEye All Guns cheat: the Tank is on the list after the Detonator, as on the cartridge (thanks Casey)
+GoldenEye: guards can no longer shoot you through a shut door, such as the windowed door at the foot of Bunker's stairs (thanks echoremastered)
+GoldenEye Dam, HD look: shots just past the convoy truck no longer stop on an invisible wall beside it (thanks echoremastered)
+Tomorrow Never Dies 64 The End: shooting the glass pane no longer crashes the game (thanks a tester)
+Vulkan: more exact depth, so overlapping floor layers (such as Goldfinger 64 Capture's wall shadows) flicker much less
+
 notes 38 2026-10-03
 Tomorrow Never Dies 64: put tnd64.zip in added-content and its 14 missions and 11 arenas are converted at the next start, with its own row on the Perfect Menu
 GE Plus is now just called GoldenEye in the menus and options
