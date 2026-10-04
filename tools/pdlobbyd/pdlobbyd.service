@@ -1,0 +1,45 @@
+[Unit]
+Description=Perfect Dark Lobby Server (Dab's Mod netplay rooms)
+After=network.target
+
+[Service]
+Type=simple
+User=sdg
+WorkingDirectory=/home/sdg
+ExecStart=/usr/bin/python3 /home/sdg/pdlobbyd.py
+Restart=on-failure
+RestartSec=5
+
+# Everything is in memory; nothing is written anywhere. HTTP stays on
+# 127.0.0.1 behind nginx, the rendezvous listens on UDP 27101 on every address.
+Environment=PDLOBBYD_HOST=127.0.0.1
+Environment=PDLOBBYD_PORT=8091
+Environment=PDLOBBYD_UDP_HOST=0.0.0.0
+Environment=PDLOBBYD_UDP_PORT=27101
+Environment=PDLOBBYD_AUTH=ghost
+Environment=PDLOBBYD_GHOST_URL=http://127.0.0.1:8090
+
+# The same walls as pdghostd, and fewer holes in them: the process sees an
+# empty home apart from its own script, a read-only system, no devices and no
+# way to gain anything it did not start with. It has no data directory at all.
+# If the script moves, BindReadOnlyPaths= has to move with it - see the README.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/sdg/pdlobbyd.py
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+# The box is shared (1 vCPU, ~550 MB free): a lobby that misbehaves is killed
+# and restarted rather than allowed to crowd the others. A full lobby measures
+# ~15 MB.
+MemoryMax=128M
+TasksMax=32
+# Every parked poll is a socket. Config.max_conns (1500) sits under this with
+# room for the listen and UDP sockets and the login pool's; the systemd
+# default soft limit of 1024 would hit EMFILE first.
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

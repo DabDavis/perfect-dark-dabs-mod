@@ -631,6 +631,7 @@ set(SRC
 if(WIN32)
   list(APPEND SRC "${CMAKE_SOURCE_DIR}/dist/windows/icon.rc")
   list(APPEND LIBS powrprof) # unrar's system.cpp
+  list(APPEND LIBS ws2_32 winmm) # ENet (port/external/enet.c), the netplay transport
 endif()
 
 # Asset files
@@ -678,6 +679,21 @@ target_link_libraries(pd ${LIBS})
 set_target_properties(pd PROPERTIES OUTPUT_NAME "${BIN_NAME}")
 if(WIN32)
   set_target_properties(pd PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
+
+# pd-nettest: the netplay transport, buffers and delta codec tested on their
+# own (tools/nettest/nettest.c), with none of the game linked in. Not built by
+# default: `cmake --build build --target pd-nettest`, then run it.
+add_executable(pd-nettest EXCLUDE_FROM_ALL
+  "${CMAKE_SOURCE_DIR}/tools/nettest/nettest.c"
+  "${CMAKE_SOURCE_DIR}/tools/nettest/nettesthostile.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/netdelta.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/nettransport.c"
+  "${CMAKE_SOURCE_DIR}/port/external/enet.c"
+)
+if(WIN32)
+  target_link_libraries(pd-nettest ws2_32 winmm -static-libgcc)
 endif()
 
 # Additional commands for specific platforms.
