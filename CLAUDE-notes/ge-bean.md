@@ -14392,3 +14392,33 @@ level (cam y 1256) with the doors open: the panels slide sideways and their
 toothed hazard edges stay in sight along the pit's sides, in the N64 look (the
 cartridge's geometry) as in HD. Rig: `OPENDOORS=0x332,0x333 SPEC=--spectate
 STAGE=0x70 ./shot.sh` in `~/wt/f3-1003d-hdlevels-run`.
+
+## Streets' kerb dotted with wall; four answers (33rd F3 pass, 2026-10-04, fix/f3-1004a-hdlevels)
+
+**Dots of wall over the kerb at the foot of Streets' houses (F3 20261004-042343,
+"graphics bugs at the bottom of some walls").** Bean's kerb strip (draw 12,
+`_0x09F47AB5`, 21 units tall, a long thin quad) lies in the plane of each house
+wall (draw 46, `_0x0D17BEE1`, quads cut in two). `markDecals()` made the kerb
+the decal of the half-quads its middle lies on, and the *other* half of each
+quad - whose middle is off the kerb but which overlaps it along an edge - the
+kerb's decal by the strip rule (later draw wins). Two decals at the same pull
+fought: every other half-quad along the street drew the kerb half-covered in
+dark dots (a bigger decal offset changes nothing; `PD_HDPICK` shows both
+`decal 1`). Now a face made a decal *by the strip rule* over a face that is
+itself a decal is drawn plainly (log: `faces along a strip of a decal drawn
+plainly under it`); a decal whose middle lies on another decal (sticker on a
+poster) keeps its mark. Counts: Dam 3, Train 44, Streets 27, Bunker 2 10,
+Archives 6, Caverns 4, Cradle 2, Frigate 1, Depot 4, Control 6, others 0;
+Train's are the same kerb/half-quad pattern (pixel diff: only the dots go).
+HDCACHE_VERSION 20. Probe binaries: `PD_HDSKIPTEX` (drop one Bean picture) was
+a temporary patch, not committed.
+
+**Answers.** Dam tunnel mouth (233306, HD): the release draws the same cliff
+wall filling the mouth (Xenia pair at Dam pad 9, heading 313: `~/wt/f3-1004a-hdlevels-run/xp/r1`);
+ours is a little brighter. Dam platform (234004, N64 look): the rusty frame
+under the bungee grating is GoldenEye's own geometry - the cartridge (ares,
+GE (-4, 30, -3112), headings 0/90/270 pitch -60) shows it too, even drawn over
+the grate. Dam roller door (023842/023858, HD): matches the release frame for
+frame (Xenia pair, Dam pad 110 heading 117). Streets' floating props: cars,
+jeeps and sawhorse barricades checked in both looks at a dozen spots, all
+grounded; needs the tester's spot. Coordinates: Dam ours = GE + (-3390, 13219, 8584).
