@@ -37,6 +37,7 @@
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "gesfx.h"
+#include "gexplus.h"
 #endif
 
 #define PICKUPCRITERIA_DEFAULT  0
@@ -662,7 +663,15 @@ u32 botPickupProp(struct prop *prop, struct chrdata *chr)
 					if (itemtype == INVITEMTYPE_WEAP
 							&& weapondef
 							&& (weapondef->flags & WEAPONFLAG_DUALWIELD)
-							&& originalpad != currentpad) {
+#ifndef PLATFORM_N64
+							// GoldenEye's arenas: a linked prop's partner alone
+							&& (gexPlusArenaPairsLinkedOnly()
+								? (weapon->dualweapon != NULL || weapon->dualweaponnum != 0xff)
+								: originalpad != currentpad)
+#else
+							&& originalpad != currentpad
+#endif
+							) {
 						botinvGiveDualWeapon(chr, weapon->weaponnum);
 						result = 1;
 					} else {
@@ -792,6 +801,13 @@ bool botTestPropForPickup(struct prop *prop, struct chrdata *chr)
 		itemtype = botinvGetItemType(chr, weaponobj->weaponnum);
 		weapon = weaponFindById(weaponobj->weaponnum);
 		singleonly = weapon && (weapon->flags & WEAPONFLAG_DUALWIELD) == 0;
+
+#ifndef PLATFORM_N64
+		// in GoldenEye's arenas a second copy is ammo unless it is linked
+		if (gexPlusArenaPairsLinkedOnly() && weaponobj->dualweapon == NULL && weaponobj->dualweaponnum == 0xff) {
+			singleonly = true;
+		}
+#endif
 
 		if (weaponHost(weaponobj->weaponnum) != WEAPON_BRIEFCASE2) {
 			// If aibot is dual wielding, or single wielding and weapon doesn't support dual,

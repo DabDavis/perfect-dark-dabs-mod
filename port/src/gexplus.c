@@ -2251,3 +2251,17 @@ s32 gexPlusPsychosis(struct chrdata *chr)
 
 	return true;
 }
+
+/**
+ * GoldenEye MP pairs a gun only off a linked prop: its pickup gives the pair
+ * when the prop it touches has a partner, and the same gun again from another
+ * pad is ammo (F3 20261004-023322: our GoldenEye arenas kept Perfect Dark's
+ * rule that a second pad's copy makes a pair, players in inv.c and sims in
+ * bot.c alike). A converted arena of GoldenEye's or a ROM hack's, in any
+ * Combat Simulator; never Perfect Dark's own nor a PD mod's (GoldenEye X's).
+ */
+s32 gexPlusArenaPairsLinkedOnly(void)
+{
+	return g_Vars.normmplayerisrunning
+		&& modloaderDirIndexIsConversion(modloaderGetStageModDirIndex(g_Vars.stagenum));
+}
