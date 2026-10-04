@@ -15,6 +15,7 @@
 #include "preprocess.h"
 #include "platform.h"
 #include "xblamesh.h"
+#include "lib/audiodma.h"
 
 /**
  * asset files and ROM segments can be replaced by optional external files,
@@ -322,7 +323,9 @@ static inline void romdataInitSegment(struct romfile *seg)
 	u8 *newData = NULL;
 	const s32 extFileSize = fsFileSize(tmp);
 	if (extFileSize > 0) {
-		newData = fsFileLoad(tmp, &seg->size);
+		// padded: the sound DMA reads a whole item from where a sample starts,
+		// past a sound or music table's last one (sfxtbl, seqtbl)
+		newData = fsFileLoadPadded(tmp, &seg->size, ADMA_ITEM_SIZE);
 	}
 
 	if (!newData) {
@@ -938,7 +941,11 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 
 		if (fsFileSize(tmp) > 0) {
 			u32 size = 0;
-			out = fsFileLoad(tmp, &size);
+			// padded: a voice line (an MP3) is read by the sound DMA a whole
+			// item at a time, up to ADMA_ITEM_SIZE past its last byte, which
+			// the ROM had more of and a file of its own does not (crash
+			// 20261004-015507, "Uncompressed VOX")
+			out = fsFileLoadPadded(tmp, &size, ADMA_ITEM_SIZE);
 			if (out && size) {
 				sysLogPrintf(LOG_NOTE, "file %d (%s) loaded externally", fileNum, fileSlots[fileNum].name);
 				fileSlots[fileNum].data = out;

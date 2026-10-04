@@ -1381,6 +1381,20 @@ ALWaveTable *sndLoadWavetable(uintptr_t offset, u16 cacheindex)
 		tmp->waveInfo.adpcmWave.book = sndLoadAdpcmBook((uintptr_t)tmp->waveInfo.adpcmWave.book, cacheindex);
 		tmp->waveInfo.adpcmWave.loop = sndLoadAdpcmLoop((uintptr_t)tmp->waveInfo.adpcmWave.loop, cacheindex);
 	}
+#ifndef PLATFORM_N64
+	else if (tmp->type == AL_RAW16_WAVE && tmp->waveInfo.rawWave.loop) {
+		// A raw wave's loop is a ctl offset too, and was handed to the voice as
+		// it was: Perfect Dark's bank has no looped raw wave, but Tomorrow
+		// Never Dies 64's has two (its sounds 62 and 67), and n_alLoadParam()
+		// read the loop through the offset (crash 20261004-000427). Loaded
+		// into the cache slot the ADPCM loop would take; ALRawLoop is that
+		// loop's first three words.
+		ALRawLoop *loop = (ALRawLoop *)&g_SndCache.loops[cacheindex];
+
+		dmaExecHighPriority(loop, (uintptr_t)tmp->waveInfo.rawWave.loop + (romptr_t) REF_SEG _sfxctlSegmentRomStart, sizeof(*loop));
+		tmp->waveInfo.rawWave.loop = loop;
+	}
+#endif
 
 	return tmp;
 }
