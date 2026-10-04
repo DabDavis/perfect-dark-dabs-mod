@@ -2922,7 +2922,9 @@ static s32 decalCovered(const struct stri *tris, const struct tgrid *g, s32 i)
 static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 {
 	s32 count = 0;
+	s32 unstripped = 0;
 	u8 *full = calloc(num > 0 ? num : 1, 1);
+	u8 *bystrip = calloc(num > 0 ? num : 1, 1);
 
 	for (s32 i = 0; full && i < num; i++) {
 		full[i] = decalCovered(tris, g, i);
@@ -3087,11 +3089,43 @@ static s32 markDecals(struct stri *tris, s32 num, const struct tgrid *g)
 				t->decal = 1;
 				t->decalbase = o;
 				count++;
+
+				if (strip && bystrip) {
+					bystrip[i] = 1;
+				}
 			}
 		}
 	}
 
+	// A face made the decal along a strip of another face that is itself
+	// a decal: both are drawn pulled towards the camera by the same
+	// amount and fight where they overlap. Streets' kerb strip (draw 12,
+	// a long thin quad on the foot of each house wall) is the decal of
+	// the wall's half-quads its middle lies on, and the other half of
+	// each quad, drawn later and overlapping the kerb along its edge, was
+	// made the kerb's decal by the strip rule - every other half-quad
+	// along the street drew the kerb half-covered in dots of wall (F3
+	// 20261004-042343: "graphics bugs at the bottom of some walls"). Such
+	// a face is drawn plainly; the decal it lay on stays in front of it.
+	// Only a strip's pick: a decal whose middle lies on another decal (a
+	// sticker on a poster on a wall) stays one
+	for (s32 i = 0; bystrip && i < num; i++) {
+		const s32 o = tris[i].decalbase;
+
+		if (bystrip[i] && tris[i].decal && o >= 0 && o < num && tris[o].decal && tris[o].decalbase != i) {
+			tris[i].decal = 0;
+			tris[i].decalbase = -1;
+			count--;
+			unstripped++;
+		}
+	}
+
+	if (unstripped) {
+		sysLogPrintf(LOG_NOTE, "gebeanstage: %d faces along a strip of a decal drawn plainly under it", unstripped);
+	}
+
 	free(full);
+	free(bystrip);
 
 	return count;
 }
@@ -5560,7 +5594,7 @@ static s32 markWaterPictures(const struct collect *c, u8 **filerooms, u32 *filel
  * taken again each load.
  * ------------------------------------------------------------------------- */
 
-#define HDCACHE_VERSION 19
+#define HDCACHE_VERSION 20
 #define HDCACHE_MAGIC "GEHDLVL"
 
 struct hdcachehead {
