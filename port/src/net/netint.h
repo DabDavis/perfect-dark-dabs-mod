@@ -70,6 +70,23 @@ s32 netSessionSendSlot(s32 slot, s32 channel, const void *data, s32 len, s32 fla
 s32 netSessionSendServer(s32 channel, const void *data, s32 len, s32 flags);
 void netSessionClientCfgTick(void);  // client: SLOTCFG again when the settings change
 
+// netsession.c: a lobby room's session, opened at run time (netlobby.c)
+s32 netSessionLobbyHost(const char *name);
+u16 netSessionLobbyPort(void);
+void netSessionLobbySetRoom(const char *roomid, const char *secret);
+void netSessionLobbyClock(s64 offset);
+s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name);
+void netSessionLobbyStop(void);
+s32 netSessionLobbyRole(void);       // 1 host, 2 client, 0 none
+s32 netSessionClientJoined(void);
+s32 netSessionClientGone(void);
+s32 netSessionHostSlotOf(const char *user);
+s32 netSessionHostNumClients(void);
+const char *netSessionHostClientName(s32 index);
+void netSessionHostDropUser(const char *user, const char *why);
+void netSessionLobbyStartMatch(void);
+const char *netSessionNoticeText(void);
+
 // netplayers.c: remote players on the host, the client's usercmds, the
 // clock (PLANS/netplay/spec-players.md, the wire in netproto.h)
 void netPlayersArgs(void);

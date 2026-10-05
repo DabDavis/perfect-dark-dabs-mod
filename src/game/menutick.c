@@ -383,6 +383,9 @@ void menuTick(void)
 				g_MpPlayerNum = 0;
 
 #ifndef PLATFORM_N64
+				// netplay: a match from an Online Game room goes back to its lobby
+				if (g_NetLobbyRoom) netLobbyMenuAfterMatch();
+
 				// A GE Plus match was started from GoldenEye's folder
 				// screens and goes back to them, with the Perfect Menu under
 				// the folder the way it was when the folder was opened - not

@@ -116,9 +116,13 @@ struct ghostnetreq {
 	// of the reply; set from another thread by whoever wants the transfer
 	// over with, which is the game shutting down under a download.
 	volatile s32 *cancel;
+	// More request headers, or NULL: whole lines, each ending "\r\n" (the
+	// netplay lobby's Authorization and X-PD-Member). Never followed across
+	// a redirect: a request that sets these leaves redirect off.
+	const char *headers;
 };
 
-_Static_assert(sizeof(struct ghostnetreq) == 4 * sizeof(void *) + 4 * sizeof(s32) + sizeof(void *),
+_Static_assert(sizeof(struct ghostnetreq) == 5 * sizeof(void *) + 4 * sizeof(s32) + sizeof(void *),
 		"struct ghostnetreq must lay out the same in every file that fills one in");
 
 /**

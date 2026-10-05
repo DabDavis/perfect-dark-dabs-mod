@@ -224,11 +224,15 @@ class RoomTests(Base):
         for bad in (dict(max_humans=1), dict(max_humans=13), dict(name="\x01\x02"),
                     dict(content="xyz"), dict(proto=0), dict(build="a b"),
                     dict(rules={"Bad Key": 1}), dict(rules={"k": [1]}),
-                    dict(endpoints=["nope"]), dict(password="x" * 17)):
+                    dict(endpoints=["nope"]), dict(password="x" * 17), dict(sims=81),
+                    dict(sims=-1)):
             st, r = host.create(**bad)
             self.assertEqual(st, 400, (bad, r))
         st, r = Client(self.srv.port).req("POST", "/rooms", {"name": "x"})
         self.assertEqual(st, 401)
+        # every simulant slot the game has (MAX_BOTS) is a room's to fill
+        st, r = host.create(sims=80)
+        self.assertEqual(st, 200, r)
 
     def test_join_password_and_mismatch(self):
         host = self.client("hostess")

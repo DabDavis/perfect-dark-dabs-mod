@@ -615,3 +615,40 @@ void netHostSetSim(struct nethost *h, s32 droppct, s32 delayms, s32 jitterms, u3
 		h->simcount = 0;
 	}
 }
+
+/**
+ * The address this machine's outgoing traffic to `probe` leaves from: a
+ * datagram socket "connected" to it (nothing is sent) and asked where it is.
+ * The lobby's LAN endpoint for a host. 0, or -1 (no route, or no network).
+ */
+s32 netLocalAddrFor(const char *probe, struct netaddr *out)
+{
+	ENetAddress to;
+	ENetAddress me;
+	ENetSocket s;
+	s32 ok = -1;
+
+	memset(out, 0, sizeof(*out));
+	memset(&to, 0, sizeof(to));
+	memset(&me, 0, sizeof(me));
+
+	if (enet_address_set_ip(&to, probe) != 0) {
+		return -1;
+	}
+
+	to.port = 53;
+	s = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+
+	if (s == ENET_SOCKET_NULL) {
+		return -1;
+	}
+
+	if (enet_socket_connect(s, &to) == 0 && enet_socket_get_address(s, &me) == 0) {
+		addrToNet(&me, out);
+		ok = 0;
+	}
+
+	enet_socket_destroy(s);
+
+	return ok;
+}

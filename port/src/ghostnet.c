@@ -538,8 +538,8 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	wchar_t wurl[512];
 	wchar_t whost[256];
 	wchar_t wpath[512];
-	wchar_t wheaders[512];
-	char headers[512];
+	wchar_t wheaders[1024];
+	char headers[1024];
 	URL_COMPONENTS parts;
 	HINTERNET session = NULL;
 	HINTERNET connect = NULL;
@@ -585,10 +585,13 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	}
 
 	// Milliseconds, and the same budget the curl backend is given: ten seconds
-	// to connect and twenty for the whole exchange.
+	// to connect and twenty for the whole exchange. A request with a shorter
+	// budget (the lobby's leave on the way out) resolves and connects within
+	// it too, as curl's whole-exchange timeout bounds those there.
 	{
 		int budget = (int)((req->timeout > 0 ? req->timeout : GHOSTNET_TIMEOUT) * 1000);
-		WinHttpSetTimeouts(session, 10000, 10000, budget, budget);
+		int connectms = budget < 10000 ? budget : 10000;
+		WinHttpSetTimeouts(session, connectms, connectms, budget, budget);
 	}
 
 	connect = WinHttpConnect(session, whost, parts.nPort, 0);
@@ -628,6 +631,10 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 	if (req->auth) {
 		at = ghostnetHeaderAdd(headers, sizeof(headers), at, "X-Ghost-User: %s\r\n", g_JobUser);
 		at = ghostnetHeaderAdd(headers, sizeof(headers), at, "X-Ghost-Pin: %s\r\n", g_JobPin);
+	}
+
+	if (req->headers) {
+		at = ghostnetHeaderAdd(headers, sizeof(headers), at, "%s", req->headers);
 	}
 
 	if (at >= sizeof(headers)) {
@@ -795,6 +802,28 @@ bool ghostnetSend(const struct ghostnetreq *req, struct ghostnetbuf *buf,
 		headers = curl_slist_append(headers, header);
 		snprintf(header, sizeof(header), "X-Ghost-Pin: %s", g_JobPin);
 		headers = curl_slist_append(headers, header);
+	}
+
+	// the caller's own lines, one list entry each without the CRLF
+	if (req->headers) {
+		const char *line = req->headers;
+
+		while (*line) {
+			const char *eol = strstr(line, "\r\n");
+			const size_t len = eol ? (size_t)(eol - line) : strlen(line);
+
+			if (len > 0 && len < sizeof(header)) {
+				memcpy(header, line, len);
+				header[len] = '\0';
+				headers = curl_slist_append(headers, header);
+			}
+
+			line += len;
+
+			if (eol) {
+				line += 2;
+			}
+		}
 	}
 
 	if (headers) {

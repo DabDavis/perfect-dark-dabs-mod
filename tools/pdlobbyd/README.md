@@ -91,7 +91,7 @@ empty body is `{}`.
 
 **Create** (`POST /rooms`): `name` (required, 1-32), `password` (0-16
 printable, "" = none), `max_humans` 2-12 (default 4), `stage`, `scenario`
-(<= 32), `sims` 0-32, `region` (<= 16, self-reported, shown in the list),
+(<= 32), `sims` 0-80 (the game's `MAX_BOTS`), `region` (<= 16, self-reported, shown in the list),
 `rules` (object, <= 24 keys `[a-z0-9_]{1,24}`, values bool / 32-bit int /
 string <= 32: the summary the lobby shows, never applied by the lobby),
 `endpoints` (<= 4 `"a.b.c.d:port"` / `"[v6]:port"` the host listens on: LAN,

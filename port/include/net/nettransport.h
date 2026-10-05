@@ -140,6 +140,8 @@ s32 netHostPeerStats(const struct nethost *h, s32 peer, struct netpeerstats *out
 s32 netHostPeerAddr(const struct nethost *h, s32 peer, struct netaddr *out);
 
 s32 netAddrResolve(const char *hostname, u16 port, struct netaddr *out);
+// The local address traffic to the IP `probe` would leave from (nothing is sent)
+s32 netLocalAddrFor(const char *probe, struct netaddr *out);
 void netAddrToString(const struct netaddr *addr, char *buf, s32 bufsize);
 
 // Sends NET_RAWMAGIC then len bytes (at most NET_MAXRAW) to `to`. 0, or -1

@@ -131,6 +131,7 @@ void netInitArgs(void)
 
 	// --host [port] / --connect addr[:port] (the socket opens in netSessionInit)
 	netSessionArgs();
+	netLobbyArgs();
 	netPlayersArgs();
 }
 
@@ -202,6 +203,11 @@ static void netHandleEvent(const struct netevent *ev)
 void netPump(void)
 {
 	struct netevent ev;
+
+	// the lobby's results and the room's demands, socket or not
+	if (g_NetLobbyActive) {
+		netLobbyTick();
+	}
 
 	if (!g_NetHostSocket) {
 		return;

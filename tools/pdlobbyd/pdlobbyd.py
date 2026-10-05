@@ -173,6 +173,8 @@ FIELD_MAX = 32
 REGION_MAX = 16
 RULES_MAX = 24
 ENDPOINTS_MAX = 4
+# The game's simulant slots (MAX_BOTS in src/include/constants.h).
+SIMS_MAX = 80
 
 
 def clean_text(value, limit):
@@ -915,8 +917,8 @@ class Lobby:
                 upd[key] = clean_text(body.get(key), limit)
         if "sims" in body:
             n = body.get("sims")
-            if not isinstance(n, int) or isinstance(n, bool) or not 0 <= n <= 32:
-                raise HttpError(400, "sims is 0-32")
+            if not isinstance(n, int) or isinstance(n, bool) or not 0 <= n <= SIMS_MAX:
+                raise HttpError(400, "sims is 0-%d" % SIMS_MAX)
             upd["sims"] = n
         if "rules" in body:
             upd["rules"] = read_rules(body.get("rules"))
