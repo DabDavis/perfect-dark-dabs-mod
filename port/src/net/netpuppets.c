@@ -317,6 +317,36 @@ static f32 netPupDelay(void)
 	return delay;
 }
 
+/**
+ * The host tick (and fraction) this tick's pose step draws the puppets at:
+ * the same sum netClientPosePuppetsRun makes, which the tick's command
+ * carries for the host's rewind (netlagcomp.c)
+ */
+s32 netPuppetsViewTick(f64 *view, f32 *delay)
+{
+	f64 rt;
+	f32 d;
+
+	if (!g_NetClientWorld || !s_HaveOff) {
+		return 0;
+	}
+
+	d = netPupDelay();
+	rt = (f64)g_NetTick - s_Off - d;
+
+	if (delay) {
+		*delay = d;
+	}
+
+	if (rt < 0) {
+		return 0;
+	}
+
+	*view = rt;
+
+	return 1;
+}
+
 /*
  * Snapshot lookups
  */

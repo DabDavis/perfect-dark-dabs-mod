@@ -1476,10 +1476,12 @@ Gfx *lvRender(Gfx *gdl)
 				if (g_NetMode == NETMODE_SERVER) netHostNoteVisible(g_Vars.currentplayernum); // netplay H5
 				if (!NET_CLIENT) scenarioTickChr(NULL); // netplay C13: scenarios are the host's
 				propsSort();
+				if (g_NetMode == NETMODE_SERVER) netLagCompPassBegin(); // netplay: a remote player's autoaim and shots see the others where it did
 				autoaimTick();
 				NET_REMOTE_PASS_BEGIN();
 				handsTickAttack();
 				NET_REMOTE_PASS_END();
+				if (g_NetMode == NETMODE_SERVER) netLagCompPassEnd();
 
 #ifndef PLATFORM_N64
 				// glares calculated earlier on PC, before prop matrices turn into garbage

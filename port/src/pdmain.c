@@ -727,6 +727,7 @@ void mainTick(void)
 		if (g_NetPass) frametimeNetApplyPass(g_NetPass != NETPASS_PRESENT_ONLY); else frametimeCalculate();
 		profileReset();
 		profileSetMarker(PROFILE_MAINTICK_START);
+		if (g_NetPass == NETPASS_PRESENT_ONLY) netPresentBegin(); // netplay: a frame between ticks moves no aim (netlagcomp.c)
 		if (g_NetPass == NETPASS_PRESENT_ONLY) joyConsumeNone(); else { if (g_NetPass) netTickReadPad(); joyDebugJoy(); }
 		if (g_NetPass >= NETPASS_TICK) netTickBegin();
 		schedSetCrashEnable2(false);
@@ -772,6 +773,7 @@ void mainTick(void)
 		}
 
 		if (g_NetPass >= NETPASS_TICK) netTickEnd();
+		if (g_NetPass == NETPASS_PRESENT_ONLY) netPresentEnd();
 
 		if (g_MainGameLogicEnabled) {
 			gfxSwapBuffers();

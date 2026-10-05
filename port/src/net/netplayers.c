@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <PR/ultratypes.h>
 #include <ultra64.h>
 #include "constants.h"
@@ -11,6 +12,8 @@
 #include "video.h"
 #include "input.h"
 #include "lib/joy.h"
+#include "lib/mtx.h"
+#include "game/camera.h"
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "net/netsnap.h"
@@ -60,7 +63,12 @@ struct netcmd {
 	f32 mdx;
 	f32 mdy;
 	u8 flags;
+	u32 viewtick;            // the host tick the client's puppets were drawn at
+	u8 viewfrac;             // ... and the fraction past it, in 1/256ths (NETCMD_NOVIEW: none)
+	u8 viewdelay;            // how far its render clock sat behind the newest snapshot, 1/8 ticks
 };
+
+#define NETCMD_NOVIEW 0xffffffff
 
 // A remote pad on the host
 struct netpadq {
@@ -130,6 +138,17 @@ static s32 s_TestTrace = 0;      // --net-test-trace N: every player's state eve
 
 static u8 s_CmdBuf[NET_MAXUNRELIABLE];
 
+// --net-test-aimat N[,Y[,GAIN]] (with --net-test-input): the script's mouse
+// replaced by a turn toward player N as this machine last drew it (Y units
+// above its prop's place), for the lag compensation harness
+static s32 s_AimAt = -1;
+static f32 s_AimY = 0;
+static f32 s_AimGain = 0.5f;
+static u32 s_AimTick1 = 0;   // the tick the aim below is for, + 1
+static f32 s_AimDx = 0;
+static f32 s_AimDy = 0;
+static f32 s_AimNear = 0;    // farther than this from the target: walk toward it instead of the script's moves (until within it once)
+
 extern s32 g_StageNum;
 
 /*
@@ -192,6 +211,36 @@ void netPlayersArgs(void)
 	}
 
 	s_TestTrace = sysArgGetInt("--net-test-trace", 0);
+
+	{
+		const char *aim = sysArgGetString("--net-test-aimat");
+
+		if (aim) {
+			float y = 0;
+			float gain = 0.5f;
+
+			s_AimAt = atoi(aim);
+			aim = strchr(aim, ',');
+
+			if (aim) {
+				y = (float)atof(aim + 1);
+				aim = strchr(aim + 1, ',');
+
+				if (aim) {
+					gain = (float)atof(aim + 1);
+					aim = strchr(aim + 1, ',');
+
+					if (aim) {
+						s_AimNear = (float)atof(aim + 1);
+					}
+				}
+			}
+
+			s_AimY = y;
+			s_AimGain = gain;
+			sysLogPrintf(LOG_NOTE, "net: --net-test-aimat: the mouse turns to player %d (%+.0f units up, gain %.2f)", s_AimAt, s_AimY, s_AimGain);
+		}
+	}
 }
 
 /*
@@ -271,6 +320,37 @@ static const struct netscriptline *netScriptAt(u32 tick)
  * Hooks V and V2
  */
 
+// --net-test-aimat's fourth number: whether the target is farther than that
+static s32 netPlayersTestAimFar(void)
+{
+	struct player *me;
+	struct player *tg;
+	f32 dx;
+	f32 dz;
+
+	if (s_AimAt < 0 || s_AimNear <= 0 || s_AimAt >= PLAYERCOUNT() || g_NetLocalSlot < 0 || s_AimAt == g_NetLocalSlot) {
+		return 0;
+	}
+
+	me = g_Vars.players[g_NetLocalSlot];
+	tg = g_Vars.players[s_AimAt];
+
+	if (!me || !tg || !me->prop || !tg->prop) {
+		return 0;
+	}
+
+	dx = tg->prop->pos.x - me->prop->pos.x;
+	dz = tg->prop->pos.z - me->prop->pos.z;
+
+	// once there it stays: a hit's knock back is not walked off again
+	if (dx * dx + dz * dz <= s_AimNear * s_AimNear) {
+		s_AimNear = -1;
+		return 0;
+	}
+
+	return 1;
+}
+
 s32 netContGetReadData(void *pads)
 {
 	OSContPad *pad = pads;
@@ -298,6 +378,10 @@ s32 netContGetReadData(void *pads)
 			phys.stick_y = script->sy;
 			phys.rstick_x = script->rsx;
 			phys.rstick_y = script->rsy;
+		}
+
+		if (netPlayersTestAimFar()) {
+			phys.button = (phys.button & Z_TRIG) | U_CBUTTONS;
 		}
 	}
 
@@ -501,6 +585,11 @@ void netMouseDelta(s32 playernum, f32 *dx, f32 *dy)
 			*dy = script->mdy;
 		}
 
+		if (g_NetPass != NETPASS_PRESENT_ONLY && s_AimTick1 == g_NetTick + 1) {
+			*dx = s_AimDx;
+			*dy = s_AimDy;
+		}
+
 		return;
 	}
 
@@ -673,6 +762,9 @@ void netPlayersHostOnCmd(s32 slot, struct netbuf *b)
 		cmds[i].mdx = netBufReadF32(b);
 		cmds[i].mdy = netBufReadF32(b);
 		cmds[i].flags = netBufReadU8(b);
+		cmds[i].viewtick = netBufReadU32(b);
+		cmds[i].viewfrac = netBufReadU8(b);
+		cmds[i].viewdelay = netBufReadU8(b);
 
 		// nothing from the wire is trusted: a mouse that is not a number,
 		// or a turn of more than a whole screen in one tick, is none
@@ -740,6 +832,14 @@ void netPlayersHostOnCmd(s32 slot, struct netbuf *b)
 
 static void netFold(struct netcmd *into, const struct netcmd *c)
 {
+	// the view the fire was pressed on: the first command's, unless the fire
+	// is newly pressed in a later one (folded past NET_DEPTH_FOLDANY)
+	if (c->buttons & ~into->buttons & Z_TRIG) {
+		into->viewtick = c->viewtick;
+		into->viewfrac = c->viewfrac;
+		into->viewdelay = c->viewdelay;
+	}
+
 	into->buttons |= c->buttons;
 	into->sx = c->sx;
 	into->sy = c->sy;
@@ -898,6 +998,91 @@ void netPlayersClientMatchStart(s32 pad)
 	g_NetExtCfgOn = 1;
 }
 
+/**
+ * --net-test-aimat: the turn this tick toward the target as the last frame
+ * drew it, in this camera (whatever the angle conventions): the yaw and
+ * pitch to it, a share of each a tick (a turn of 3.5 degrees a tick per
+ * unit of mouse, bondmove.c)
+ */
+static void netPlayersTestAim(void)
+{
+	struct player *me;
+	struct player *tg;
+	f32 yaw;
+	f32 pitch;
+
+	s_AimTick1 = 0;
+
+	if (s_AimAt < 0 || s_AimAt >= PLAYERCOUNT() || s_AimAt == g_NetLocalSlot || g_NetLocalSlot < 0) {
+		return;
+	}
+
+	me = g_Vars.players[g_NetLocalSlot];
+	tg = g_Vars.players[s_AimAt];
+
+	if (!me || !tg || !tg->prop || !me->prop || me->isdead) {
+		return;
+	}
+
+	// the eye's own frame: forward, right and up
+	{
+		const struct coord *f0 = &me->cam_look;
+		const struct coord *u0 = &me->cam_up;
+		f32 fl = sqrtf(f0->x * f0->x + f0->y * f0->y + f0->z * f0->z);
+		f32 f[3];
+		f32 r[3];
+		f32 u[3];
+		f32 d[3];
+		f32 rl;
+		f32 x;
+		f32 y;
+		f32 z;
+
+		if (!(fl > 0.0001f)) {
+			return;
+		}
+
+		f[0] = f0->x / fl; f[1] = f0->y / fl; f[2] = f0->z / fl;
+		r[0] = f[1] * u0->z - f[2] * u0->y;
+		r[1] = f[2] * u0->x - f[0] * u0->z;
+		r[2] = f[0] * u0->y - f[1] * u0->x;
+		rl = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+
+		if (!(rl > 0.0001f)) {
+			return;
+		}
+
+		r[0] /= rl; r[1] /= rl; r[2] /= rl;
+		u[0] = r[1] * f[2] - r[2] * f[1];
+		u[1] = r[2] * f[0] - r[0] * f[2];
+		u[2] = r[0] * f[1] - r[1] * f[0];
+		d[0] = tg->prop->pos.x - me->cam_pos.x;
+		d[1] = tg->prop->pos.y + s_AimY - me->cam_pos.y;
+		d[2] = tg->prop->pos.z - me->cam_pos.z;
+		x = d[0] * r[0] + d[1] * r[1] + d[2] * r[2];
+		y = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
+		z = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+
+		// (the game's atan2f is its own, 0..2pi: libm's, in doubles)
+		yaw = (f32)(atan2((double)x, (double)z) * 57.29577951);
+		pitch = (f32)(atan2((double)y, sqrt((double)x * x + (double)z * z)) * 57.29577951);
+	}
+
+	if (!isfinite(yaw) || !isfinite(pitch)) {
+		return;
+	}
+
+	s_AimDx = yaw * s_AimGain / 3.5f;
+	s_AimDy = -pitch * s_AimGain / 3.5f;
+	s_AimDx = s_AimDx > 8 ? 8 : s_AimDx < -8 ? -8 : s_AimDx;
+	s_AimDy = s_AimDy > 8 ? 8 : s_AimDy < -8 ? -8 : s_AimDy;
+	s_AimTick1 = g_NetTick + 1;
+
+	if (s_TestTrace && g_NetTick % (u32)s_TestTrace == 0) {
+		sysLogPrintf(LOG_NOTE, "net: aim tick %u at player %d: yaw %.2f pitch %.2f deg -> mouse %.3f %.3f (theta %.1f verta %.1f)", g_NetTick, s_AimAt, yaw, pitch, s_AimDx, s_AimDy, me->vv_theta, me->vv_verta);
+	}
+}
+
 static void netPlayersClientCapture(void)
 {
 	struct netcmd *c;
@@ -910,6 +1095,11 @@ static void netPlayersClientCapture(void)
 	}
 
 	joyNetGetCurrentPad(s_LocalPad, &pad);
+
+	if (s_AimAt >= 0 && s_ScriptLen) {
+		netPlayersTestAim();
+	}
+
 	netMouseDelta(g_NetLocalSlot, &mdx, &mdy);
 
 	// a menu open here has the pad: the player stands still on the host
@@ -929,6 +1119,23 @@ static void netPlayersClientCapture(void)
 	c->mdx = mdx;
 	c->mdy = mdy;
 	c->flags = netMouseLocked(g_NetLocalSlot) ? NETCMD_MOUSELOCKED : 0;
+
+	// what this tick's pose step will draw the others at (netlagcomp.c)
+	{
+		f64 view;
+		f32 delay;
+
+		if (netPuppetsViewTick(&view, &delay) && view >= 0 && view < 4.0e9) {
+			c->viewtick = (u32)floor(view);
+			c->viewfrac = (u8)((view - floor(view)) * 256.0);
+			c->viewdelay = (u8)(delay * 8.f > 255.f ? 255 : delay < 0 ? 0 : delay * 8.f);
+		} else {
+			c->viewtick = NETCMD_NOVIEW;
+			c->viewfrac = 0;
+			c->viewdelay = 0;
+		}
+	}
+
 	s_SentTick[g_NetTick % NETCMD_RING] = g_NetTick + 1;
 	s_Newest = g_NetTick;
 	s_HaveNewest = 1;
@@ -992,6 +1199,9 @@ static void netPlayersClientSend(void)
 		netBufWriteF32(&b, c->mdx);
 		netBufWriteF32(&b, c->mdy);
 		netBufWriteU8(&b, c->flags);
+		netBufWriteU32(&b, c->viewtick);
+		netBufWriteU8(&b, c->viewfrac);
+		netBufWriteU8(&b, c->viewdelay);
 	}
 
 	if (netSessionSendServer(NET_CHAN_UNRELIABLE, s_CmdBuf, netBufLen(&b), 0) == 0) {
@@ -1037,6 +1247,40 @@ void netPlayersClientOnAck(struct netbuf *b)
 	if (s_Ppm > s_PpmMax) {
 		s_PpmMax = s_Ppm;
 	}
+}
+
+/**
+ * The host tick the slot's command for this tick was drawn at on its
+ * machine. Nothing from the wire is trusted: a tick from the future is now,
+ * and the caller caps how far back it goes.
+ */
+s32 netPlayersHostView(s32 slot, f64 *view, f32 *delay)
+{
+	const struct netcmd *c;
+
+	if (slot < 0 || slot >= MAX_PLAYERS || !s_Pads[slot].remote || s_Pads[slot].lastplayed < 0) {
+		return 0;
+	}
+
+	c = &s_Pads[slot].cur;
+
+	if (c->viewtick == NETCMD_NOVIEW) {
+		return 0;
+	}
+
+	*view = (f64)c->viewtick + c->viewfrac / 256.0;
+	*delay = c->viewdelay / 8.f;
+
+	if (*view > (f64)g_NetTick) {
+		*view = (f64)g_NetTick;
+	}
+
+	return 1;
+}
+
+s32 netPlayersHostDepth(s32 slot)
+{
+	return slot >= 0 && slot < MAX_PLAYERS && s_Pads[slot].remote ? (s32)netQDepth(&s_Pads[slot]) : 0;
 }
 
 s32 netPlayersHostLastPlayed(s32 slot)

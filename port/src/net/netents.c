@@ -1600,7 +1600,11 @@ void netEntsClientApplyLocal(void)
 		s_LpHardAbs++;
 	}
 
-	netPredictReconcile(p, lp, s_LpCmd, s_LpCorrAbs);
+	if (netPredictReconcile(p, lp, s_LpCmd, s_LpCorrAbs) && g_NetPass == NETPASS_PRESENT_ONLY) {
+		// a frame between ticks puts the aim back at its end: the replayed one
+		netLagCompAimResave(g_NetLocalSlot);
+	}
+
 	s_LpCorrAbs = 0;
 
 	// inventory, ammo and the gun in hand: once the host's have held still

@@ -947,6 +947,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 		}
 	}
 
+	if (g_NetMode != NETMODE_NONE) netLagCompShotBegin(&shotdata, isshooting && !ismelee); // netplay: chrs where the shooter saw them (netlagcomp.c)
 	propptr = g_Vars.endonscreenprops - 1;
 
 	while (propptr >= g_Vars.onscreenprops) {
@@ -965,6 +966,8 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 
 		propptr--;
 	}
+
+	if (g_NetMode != NETMODE_NONE) netLagCompShotEnd(&shotdata, isshooting && !ismelee, cheap); // netplay: and back
 
 	hitindex = -1;
 
@@ -1771,7 +1774,7 @@ void handTickAttack(s32 handnum)
 					shotCreate(handnum, true, true, bgunGetShotsToTake(handnum), g_Vars.mplayerisrunning);
 				}
 
-				if (g_NetMode == NETMODE_SERVER) netEvPlayerShot(handnum); // netplay E2
+				if (g_NetMode != NETMODE_NONE) netEvPlayerShot(handnum); // netplay E2 (a client keeps its own, netevents.c)
 				mpstats0f0b0520();
 			}
 			break;

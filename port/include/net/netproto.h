@@ -43,7 +43,7 @@
  */
 
 // Bumped whenever any message below changes shape or meaning
-#define NET_PROTOCOL_VERSION 5
+#define NET_PROTOCOL_VERSION 6
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -267,6 +267,17 @@
  *     f32 mdx, f32 mdy            inputMouseGetScaledDelta: the client's own
  *                                 sensitivity is in it, 0 when unlocked
  *     u8 flags                    NETCMD_MOUSELOCKED
+ *     u32 viewtick                (protocol 6) the host tick this client's
+ *                                 puppets were drawn at on this command's
+ *                                 tick (its render clock), 0xffffffff none
+ *                                 yet: the host's lag-compensated hits
+ *                                 rewind the others to it (netlagcomp.c;
+ *                                 never past now, at most Net.LagCompMaxMs
+ *                                 plus the interpolation delay below)
+ *     u8 viewfrac                 ... and the fraction past it, 1/256ths
+ *     u8 viewdelay                the render clock's delay behind the newest
+ *                                 snapshot then, 1/8 ticks (capped at 19
+ *                                 ticks on the host)
  *
  * CMDACK (host -> client, UNRELIABLE, once a host tick) - what the host has
  * of this client's commands, and the clock (spec-tick.md §3b)
@@ -375,8 +386,12 @@
  *   1 FIRESLOT   (E1, chrUpdateFireslot)  REF chr, u8 hand | 2 sound | 4 beam,
  *                POS from, POS to
  *   2 PLAYERSHOT (E2, handTickAttack)     u8 playernum, u8 hand | 4 beam,
- *                POS from (the body's muzzle), POS to (the hit); never to
- *                the shooter's own machine
+ *                POS from (the body's muzzle), POS to (the hit), u32 the
+ *                shooter's command tick the shot came from (protocol 6; the
+ *                host's own player's: the host tick). The shooter's own
+ *                machine gets it too and drops it when it fired on that
+ *                command itself (its flash, tracer and impact were drawn
+ *                then); one it did not fire is counted, not drawn
  *   3 EXPLOSION  (E3, explosionCreate)    REF source, POS, u8 nrooms (1-8),
  *                s16 rooms[nrooms], s16 type, s8 playernum, u8 1 scorch |
  *                2 arg6 | 4 arg8, [POS arg6], s16 room, [POS arg8]: the
@@ -403,7 +418,8 @@
  * Each event must parse to exactly its len; an unknown type or a field past
  * its bound drops that event (counted), never the message's others.
  * The events the pass of a remote player made on the host that its machine
- * made itself (its shots, their sparks and flames) are not sent to it.
+ * made itself (its shots' sparks and flames) are not sent to it; its
+ * PLAYERSHOTs are, for it to drop (above).
  */
 
 #define NET_MAXCMDSEND    16

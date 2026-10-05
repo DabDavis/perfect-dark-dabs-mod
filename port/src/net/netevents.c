@@ -163,6 +163,11 @@ static f64 s_LagSum = 0;
 static u32 s_LagN = 0;
 static u32 s_NextKill = NETEV_KILLEVERY;
 static u32 s_LocalSkipped = 0;  // this machine's own mpstatsRecordDeath calls refused
+#define NETEV_MYSHOTS 64
+static u32 s_MyShots[NETEV_MYSHOTS]; // the command ticks this machine's player fired on, + 1
+static u32 s_MyShotsN = 0;
+static u32 s_OwnDupes = 0;      // E2s for this machine's player that it had fired itself (dropped)
+static u32 s_OwnUnpredicted = 0; // ... that it had not
 
 static s32 s_Quiet = 0;         // --net-test-quiet-events: events make no sound here (the audio check's null)
 static FILE *s_Log = NULL;      // --net-event-log FILE: every event recorded (host) or applied (client)
@@ -462,17 +467,31 @@ static s32 netEvWeaponBeam(s32 weaponnum)
 
 /**
  * E2 (handTickAttack, a shot fired): the shooter's machine made its own
- * muzzle, sound and tracer; everybody else gets them on its puppet
+ * muzzle, sound and tracer when it fired; everybody else gets them on its
+ * puppet. The shooter's machine gets the event too, with the command it
+ * came from, and drops it if it fired on that command (a client keeps the
+ * commands it fired on here)
  */
 void netEvPlayerShot(s32 handnum)
 {
 	struct player *player = g_Vars.currentplayer;
 	struct netbuf b;
 	s32 weaponnum;
+	u32 cmd;
+
+	if (g_NetMode == NETMODE_CLIENT) {
+		if (player && g_Vars.currentplayernum == g_NetLocalSlot && !g_NetReplaying && netSessionMatchActive()) {
+			s_MyShots[s_MyShotsN++ % NETEV_MYSHOTS] = g_NetTick + 1;
+		}
+
+		return;
+	}
 
 	if (!player || !player->prop || !netEvHostOn()) {
 		return;
 	}
+
+	cmd = netPlayersHostSlotIsRemote(g_Vars.currentplayernum) ? (u32)netPlayersHostLastPlayed(g_Vars.currentplayernum) : g_NetTick;
 
 	weaponnum = player->hands[handnum].gset.weaponnum;
 
@@ -481,7 +500,8 @@ void netEvPlayerShot(s32 handnum)
 	netBufWriteU8(&b, (u8)((handnum & 1) | (netEvWeaponBeam(weaponnum) ? 4 : 0)));
 	netWritePos(&b, &player->chrmuzzlelastpos[handnum & 1]);
 	netWritePos(&b, &player->hands[handnum & 1].hitpos);
-	netEvEnd(&b, NETEV_PLAYERSHOT, -1, g_Vars.currentplayernum);
+	netBufWriteU32(&b, cmd);
+	netEvEnd(&b, NETEV_PLAYERSHOT, -1, -1);
 }
 
 void netEvExplosion(struct prop *source, struct coord *pos, RoomNum *rooms, s32 type, s32 playernum,
@@ -1026,6 +1046,7 @@ static s32 netEvParse(struct netbuf *b, struct netevc *e)
 		e->flags = netBufReadU8(b);
 		netReadPos(b, e->p0);
 		netReadPos(b, e->p1);
+		e->u[0] = netBufReadU32(b);
 
 		if (e->a < 0 || e->a >= MAX_PLAYERS) {
 			return 0;
@@ -1407,6 +1428,26 @@ static void netEvApply(struct netevc *e, f64 rt)
 		s_ShotSounds += (e->flags & 2) != 0;
 		break;
 	case NETEV_PLAYERSHOT:
+		if (e->a == g_NetLocalSlot) {
+			// this machine's own shot: drawn when it fired, if it did
+			s32 mine = 0;
+			s32 k;
+
+			for (k = 0; k < NETEV_MYSHOTS; k++) {
+				const u32 t = s_MyShots[k];
+
+				if (t && t >= e->u[0] && t - 1 <= e->u[0] + 1) {
+					mine = 1;
+					break;
+				}
+			}
+
+			s_OwnDupes += mine;
+			s_OwnUnpredicted += !mine;
+			snprintf(extra, sizeof(extra), "player %d hand %d own cmd %u %s", e->a, e->flags & 1, e->u[0], mine ? "fired here: dropped" : "not fired here");
+			break;
+		}
+
 		prop = e->a < PLAYERCOUNT() && g_Vars.players[(s32)e->a] ? g_Vars.players[(s32)e->a]->prop : NULL;
 
 		if (!prop || prop == netLocalProp() || !netIsPuppet(prop) || !prop->chr) {
@@ -1625,9 +1666,10 @@ static void netEvClientLog(const char *why)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: events client %s (tick %u): applied/received %s; %u messages, %u bytes, out of order %u, malformed %u, other match %u, unresolved %u, overflow %u, queued max %d, lag mean %.1f ticks; shot sounds %u (no gun %u, started %u), hits on me %u, my hits %u, hudmsgs for me %u, own deaths refused %u",
+	sysLogPrintf(LOG_NOTE, "net: events client %s (tick %u): applied/received %s; %u messages, %u bytes, out of order %u, malformed %u, other match %u, unresolved %u, overflow %u, queued max %d, lag mean %.1f ticks; shot sounds %u (no gun %u, started %u), hits on me %u, my hits %u, hudmsgs for me %u, own deaths refused %u, own shots back %u (fired here %u, not %u)",
 			why, g_NetTick, counts, s_RecvMsgs, s_RecvBytes, s_OutOfOrder, s_Malformed, s_OtherMatch, s_Unresolved, s_Overflow,
-			s_QMax, s_LagN ? s_LagSum / s_LagN : 0.0, s_ShotSounds, s_ShotNoGun, s_ShotPlayed, s_HitsOnMe, s_MyHits, s_HudForMe, s_LocalSkipped);
+			s_QMax, s_LagN ? s_LagSum / s_LagN : 0.0, s_ShotSounds, s_ShotNoGun, s_ShotPlayed, s_HitsOnMe, s_MyHits, s_HudForMe, s_LocalSkipped,
+			s_OwnDupes + s_OwnUnpredicted, s_OwnDupes, s_OwnUnpredicted);
 }
 
 void netEventsClientTickEnd(void)
@@ -1684,6 +1726,10 @@ void netEventsStageStart(void)
 	memset(s_HudHash, 0, sizeof(s_HudHash));
 	memset(s_HudTick, 0, sizeof(s_HudTick));
 	s_HudDupes = 0;
+	memset(s_MyShots, 0, sizeof(s_MyShots));
+	s_MyShotsN = 0;
+	s_OwnDupes = 0;
+	s_OwnUnpredicted = 0;
 
 	s_QHead = 0;
 	s_QCount = 0;

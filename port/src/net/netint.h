@@ -121,7 +121,7 @@ void netPredictTickEnd(void);         // the client's tick has run: its player's
 void netPredictCaptureMove(struct player *p, struct netmove *mv); // host: the block's movement state
 // the pose step: the newest block (after command cmd; abs: a respawn or
 // teleport, taken whatever it says) against this machine's own run
-void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, s32 abs);
+s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, s32 abs); // 1 the player was moved (a replay or a snap)
 void netPredictLog(const char *why);
 void netPredictHostTickEnd(s32 slot, struct player *p); // host: a remote player after the tick (--net-predict-log)
 u32 netPlayersHostCurButtons(s32 slot, s8 *sx, s8 *sy); // the pad the host played for the slot this tick
@@ -171,6 +171,31 @@ void netPuppetsStop(void);        // H12, or the tables went
 void netPuppetsOnSnap(u32 hosttick, s32 rate); // a snapshot decoded: the render clock's sample
 void netPuppetsLog(const char *why);
 void netPuppetsTraceFlush(void); // after the frame's lvRender: the traced poses as drawn
+
+// netlagcomp.c: lag-compensated hits on the host
+extern s32 g_NetLagComp;
+void netLagCompArgs(void);
+void netLagCompStageStart(void);
+void netLagCompHostTickEnd(void);   // netTickEnd: every chr's pose for the tick
+void netLagCompMatchStopped(void);
+void netLagCompLog(const char *why);
+void netLagCompPresentBegin(void);  // a frame drawn between ticks: the aim it moves is put back
+void netLagCompPresentEnd(void);
+// netplayers.c: the host tick (and fraction) the slot's current command was
+// drawn at on its machine, and how far that sat behind the newest snapshot
+// there (the interpolation delay, ticks); 0 if it said none
+s32 netPlayersHostView(s32 slot, f64 *view, f32 *delay);
+// netplayers.c: the slot's commands waiting in the host's queue (ticks)
+s32 netPlayersHostDepth(s32 slot);
+// netsession.c: the round trip ENet measures to the slot's peer and its
+// variance, ms (rtt -1: no such peer); 0 found
+s32 netSessionSlotRtt(s32 slot, s32 *rtt, s32 *rttvar);
+// netlagcomp.c: the client's own aim as a correction replayed on a frame
+// between ticks left it, kept for that frame's end
+void netLagCompAimResave(s32 pn);
+// netpuppets.c: the host tick (and fraction) this tick's pose step draws, 0
+// none yet; delay (may be NULL) the interpolation delay in it
+s32 netPuppetsViewTick(f64 *view, f32 *delay);
 
 // nethash.c: the session hash (computed once) and the stage hash
 s32 netSessionHash(struct nethashcomp *comps, s32 max);

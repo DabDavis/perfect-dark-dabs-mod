@@ -179,6 +179,11 @@ void netCheckQuit(void);
 void netTickReadPad(void);
 void netTickBegin(void);
 void netTickEnd(void);
+// Around a present-only pass (pdmain.c mainTick): what it does to an aim
+// this machine plays (a remote player's on the host, its own on a client) is
+// put back, so a crosshair moves on ticks alone, the same on both (netlagcomp.c)
+void netPresentBegin(void);
+void netPresentEnd(void);
 void netPosePuppets(f32 alpha);
 
 // lvTick: the host decides slow motion and pause
@@ -273,6 +278,23 @@ s32 netEvPickupSound(s32 sound);                                                
 void netEvOriginMade(s32 on);   // E8: what follows the pass's player's machine makes itself (its CamSpy pickup)
 void netEvNbomb(struct coord *pos, struct prop *owner);                                                                 // E9
 void netEvGas(struct coord *pos);                                                                                       // E9
+
+/**
+ * Hits (PLANS/NETPLAY.md "Hits", netlagcomp.c). Around shotCalculateHits'
+ * chr loop: on the host, in a remote player's pass, every other chr on that
+ * screen is put where that player saw it when it fired (its matrices
+ * rebuilt in fresh gfx memory, the live ones never written) and put back
+ * after; on a client the shot's hits are logged for the harness.
+ * Net.LagComp=0 turns the rewind off, Net.LagCompMaxMs caps it (200).
+ */
+struct shotdata;
+void netLagCompShotBegin(struct shotdata *sd, s32 isshooting);
+void netLagCompShotEnd(struct shotdata *sd, s32 isshooting, s32 cheap);
+// lvRender, host: around a remote player's autoaimTick and handsTickAttack
+// (its autoaim follows the others where it saw them, so with the autoaim on
+// everything on its screen is rewound for the two)
+void netLagCompPassBegin(void);
+void netLagCompPassEnd(void);
 
 // The session's hooks (H1-H14, HA-HD)
 #include "net/netsession.h"

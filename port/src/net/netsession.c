@@ -2114,6 +2114,7 @@ void netStageStopped(void)
 	netRulesRestore();
 	netEventsMatchStopped();
 	netEntsMatchStopped();
+	netLagCompMatchStopped();
 	netPlayersMatchStopped();
 	s_MatchActive = 0;
 	s_MatchLoaded = 0;
@@ -2181,6 +2182,33 @@ s32 netSessionSendSlot(s32 slot, s32 channel, const void *data, s32 len, s32 fla
 	for (i = 0; i < NET_MAXPEERS; i++) {
 		if (s_Clients[i].state == NETCL_PLAYING && s_Clients[i].slot == slot) {
 			return netHostSend(g_NetHostSocket, i, channel, data, len, flags);
+		}
+	}
+
+	return -1;
+}
+
+s32 netSessionSlotRtt(s32 slot, s32 *rtt, s32 *rttvar)
+{
+	struct netpeerstats st;
+	s32 i;
+
+	*rtt = -1;
+	*rttvar = 0;
+
+	if (s_Role != NETROLE_HOST || !g_NetHostSocket) {
+		return -1;
+	}
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (s_Clients[i].state == NETCL_PLAYING && s_Clients[i].slot == slot) {
+			if (netHostPeerStats(g_NetHostSocket, i, &st) != 0 || !st.connected) {
+				return -1;
+			}
+
+			*rtt = (s32)st.rtt;
+			*rttvar = (s32)st.rttvar;
+			return 0;
 		}
 	}
 

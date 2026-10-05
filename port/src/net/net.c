@@ -122,6 +122,11 @@ void netInitArgs(void)
 	}
 
 	// --net-ticket-selftest: the lobby ticket check against pdlobbyd's vector
+	// a listen host that draws only on ticks (the harness's A/B)
+	if (sysArgCheck("--net-host-render-at-tick-rate")) {
+		g_NetHostRenderAtTickRate = 1;
+	}
+
 	if (sysArgCheck("--net-ticket-selftest")) {
 		const s32 fail = netTicketSelfTest();
 
@@ -136,6 +141,7 @@ void netInitArgs(void)
 	netPlayersArgs();
 	netEntsArgs();
 	netPredictArgs();
+	netLagCompArgs();
 }
 
 /**
@@ -177,6 +183,7 @@ void netStageStart(void)
 	// a match's stage: the entity table (setup commands <-> props)
 	netEntsStageStart();
 	netEventsStageStart();
+	netLagCompStageStart();
 }
 
 s32 netStageReady(void)
@@ -295,6 +302,7 @@ void netTickEnd(void)
 			// the tick's events go before its snapshot
 			netEventsHostFlush();
 			netEntsHostTickEnd();
+			netLagCompHostTickEnd();
 		} else if (g_NetMode == NETMODE_CLIENT) {
 			netEntsClientTickEnd();
 			netEventsClientTickEnd();
@@ -319,6 +327,16 @@ void netTickEnd(void)
 
 void netPosePuppets(f32 alpha)
 {
+}
+
+void netPresentBegin(void)
+{
+	netLagCompPresentBegin();
+}
+
+void netPresentEnd(void)
+{
+	netLagCompPresentEnd();
 }
 
 s32 netClientLvupdate240(void)

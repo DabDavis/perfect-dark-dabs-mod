@@ -1282,7 +1282,7 @@ static s32 netPredReplay(struct player *p, const struct netlpstate *lp, u32 n, s
  * The pose step (netEntsClientApplyLocal): the newest local-player block
  * against what this machine had after the same command
  */
-void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, s32 abs)
+s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, s32 abs)
 {
 	struct netpredtick *e;
 	f32 oldpos[3];
@@ -1295,7 +1295,7 @@ void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd,
 	s32 i;
 
 	if (!s_Ring || !p || !p->prop || p->isdead || (lp->flags & NETLP_DEAD)) {
-		return;
+		return 0;
 	}
 
 	if (!netPredBlockSane(lp)) {
@@ -1304,11 +1304,11 @@ void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd,
 					cmd, lp->pos[0], lp->pos[1], lp->pos[2]);
 		}
 
-		return;
+		return 0;
 	}
 
 	if (cmd == 0xffffffff) {
-		return;
+		return 0;
 	}
 
 	// a command this machine has not run yet (a broken or hostile host, a
@@ -1320,18 +1320,18 @@ void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd,
 			sysLogPrintf(LOG_WARNING, "net: prediction: a block for command %u, not yet run here (tick %u): not taken", cmd, g_NetTick);
 		}
 
-		return;
+		return 0;
 	}
 
 	if (!abs && s_HaveLast && cmd <= s_LastCmd) {
 		// nothing played since the last block
-		return;
+		return 0;
 	}
 
 	if (!abs && cmd < s_RespawnFloor) {
 		// the host's run of the ticks this machine spent dead before its
 		// respawn reached here: compared from the respawn's tick on
-		return;
+		return 0;
 	}
 
 	if (g_NetTick - cmd > NETPRED_RING - 8) {
@@ -1350,7 +1350,7 @@ void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd,
 
 		s_HaveLast = 1;
 		s_LastCmd = cmd;
-		return;
+		return abs ? 1 : 0;
 	}
 
 	s_HaveLast = 1;
@@ -1367,7 +1367,7 @@ void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd,
 
 		if (!e || !e->hasstate) {
 			s_Missing++;
-			return;
+			return 0;
 		}
 
 		dx = lp->pos[0] - e->pos[0];
@@ -1411,7 +1411,7 @@ void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd,
 
 		if (!posoff && !angoff && !discoff) {
 			s_Matched++;
-			return;
+			return 0;
 		}
 
 		if (!posoff) {
@@ -1492,6 +1492,8 @@ void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd,
 	if (s_Log) {
 		fprintf(s_Log, "R %u %u %.4f %.4f %d %d\n", cmd, g_NetTick, err, dist, played, abs);
 	}
+
+	return 1;
 }
 
 /*
