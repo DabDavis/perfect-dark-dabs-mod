@@ -20081,6 +20081,7 @@ struct defaultobj *debrisAllocate(void)
 
 void playerActivateRemoteMineDetonator(s32 playernum)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	g_PlayersDetonatingMines |= 1 << playernum;
 
 #ifndef PLATFORM_N64

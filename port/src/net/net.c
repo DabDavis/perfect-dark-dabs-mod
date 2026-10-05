@@ -135,6 +135,7 @@ void netInitArgs(void)
 	netLobbyArgs();
 	netPlayersArgs();
 	netEntsArgs();
+	netPredictArgs();
 }
 
 /**
@@ -367,6 +368,13 @@ void netInputMouseRaw(s32 *dx, s32 *dy)
 		*dx = s_NetMouseDX;
 		*dy = s_NetMouseDY;
 	}
+}
+
+// The mouse summed since the last tick and not yet spent (netpredict.c's view)
+void netPendingMouse(s32 *dx, s32 *dy)
+{
+	*dx = g_NetInStageLoop ? s_NetMouseDX : 0;
+	*dy = g_NetInStageLoop ? s_NetMouseDY : 0;
 }
 
 s32 netGfxSizeIndex(s32 index)

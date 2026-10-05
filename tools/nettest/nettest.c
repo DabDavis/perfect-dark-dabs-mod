@@ -1396,6 +1396,7 @@ s32 hostileBigDatagrams(void);
 
 // nettestsnap.c
 s32 snapTestQuant(void);
+s32 snapTestLocalPlayer(void);
 s32 snapTestStreamClean(void);
 s32 snapTestStreamLossy(void);
 s32 snapTestHostile(void);
@@ -1468,6 +1469,7 @@ int main(int argc, char **argv)
 		testBaselineRing();
 		testBaselineScheme();
 		testPlain("snapshot quantizers", snapTestQuant);
+		testPlain("local-player block round trip", snapTestLocalPlayer);
 		testPlain("snapshot stream, no loss", snapTestStreamClean);
 		testPlain("snapshot stream, 10% loss each way", snapTestStreamLossy);
 		testPlain("snapshot hostile input", snapTestHostile);

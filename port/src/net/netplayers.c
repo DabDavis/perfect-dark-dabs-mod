@@ -467,7 +467,20 @@ void netMouseDelta(s32 playernum, f32 *dx, f32 *dy)
 	*dx = 0;
 	*dy = 0;
 
+	// a prediction replay's tick turns by its own command's mouse
+	if (g_NetReplaying && netIsLocalSlot(playernum)) {
+		netPredictReplayMouse(dx, dy);
+		return;
+	}
+
 	if (netPadIsRemote(pad)) {
+		// once a tick, as the client spends it: never again on a frame drawn
+		// between ticks (the client's own reads none there, net.c), where the
+		// aim's crosshair would be moved by it once more each frame
+		if (g_NetPass == NETPASS_PRESENT_ONLY) {
+			return;
+		}
+
 		if (s_Pads[pad].cur.flags & NETCMD_MOUSELOCKED) {
 			*dx = s_Pads[pad].cur.mdx;
 			*dy = s_Pads[pad].cur.mdy;
@@ -922,6 +935,20 @@ static void netPlayersClientCapture(void)
 
 	s_ZPresses += (c->buttons & ~s_PrevButtons & Z_TRIG) ? 1 : 0;
 	s_PrevButtons = c->buttons;
+
+	// and kept for a replay of this tick (netpredict.c)
+	netPredictRecordCmd(g_NetTick, c->buttons, c->sx, c->sy, c->rsx, c->rsy, c->mdx, c->mdy, c->flags);
+}
+
+s32 netPlayersLocalPad(void)
+{
+	return s_LocalPad;
+}
+
+// The client: the newest command it has made (and sent), 0 before any
+u32 netPlayersClientNewest(void)
+{
+	return s_HaveNewest ? s_Newest : 0;
 }
 
 static void netPlayersClientSend(void)
@@ -1017,14 +1044,61 @@ s32 netPlayersHostLastPlayed(s32 slot)
 	return slot >= 0 && slot < MAX_PLAYERS && s_Pads[slot].remote ? s_Pads[slot].lastplayed : -1;
 }
 
+u32 netPlayersHostCurButtons(s32 slot, s8 *sx, s8 *sy)
+{
+	if (slot < 0 || slot >= MAX_PLAYERS) {
+		*sx = *sy = 0;
+		return 0;
+	}
+
+	*sx = s_Pads[slot].cur.sx;
+	*sy = s_Pads[slot].cur.sy;
+
+	return s_Pads[slot].cur.buttons;
+}
+
 s32 netPlayersHostSlotIsRemote(s32 slot)
 {
 	return g_NetMode == NETMODE_SERVER && slot >= 0 && slot < MAX_PLAYERS && s_Pads[slot].remote && netPlaying();
 }
 
+/**
+ * The client's clock trim. Past NET_LEAD_HOLD ticks ahead of the host's last
+ * word (a host that stalled, under a debugger or a hitch, and dropped the
+ * ticks it could not catch up on) the client holds still until the host is
+ * near again: its commands would otherwise run more than a ring ahead of the
+ * host's queue and be thrown away as a broken client's, every one after
+ * (netPlayersHostOnCmd), and its prediction more than a ring ahead of any
+ * snapshot. 5% either way could never win back a stall of seconds.
+ */
+#define NET_LEAD_HOLD 90
+
 s32 netPlayersClockPpm(void)
 {
-	return g_NetMode == NETMODE_CLIENT && netPlaying() ? s_Ppm : 0;
+	static u32 holds = 0;
+	static s32 holding = 0;
+
+	if (g_NetMode != NETMODE_CLIENT || !netPlaying()) {
+		holding = 0;
+		return 0;
+	}
+
+	if (s_AcksHeard && s_HaveNewest && (s32)(s_Newest - s_HostTick) > NET_LEAD_HOLD) {
+		if (!holding) {
+			holding = 1;
+
+			if (holds++ < 8) {
+				sysLogPrintf(LOG_NOTE, "net: %d ticks ahead of the host (tick %u, the host's %u): holding until it comes near",
+						(s32)(s_Newest - s_HostTick), s_Newest, s_HostTick);
+			}
+		}
+
+		return -1000000; // a rate of nothing: frametimeNetTicksDue's floor
+	}
+
+	holding = 0;
+
+	return s_Ppm;
 }
 
 /*

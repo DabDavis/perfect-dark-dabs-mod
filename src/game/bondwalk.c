@@ -39,6 +39,7 @@
 #ifndef PLATFORM_N64
 #include "getank.h"
 #include "sitchair.h"
+#include "net/net.h"
 #endif
 
 #ifndef PLATFORM_N64
@@ -88,6 +89,23 @@ static f32 g_GeClimbEyeLag[MAX_PLAYERS];
 // circle still touches it and his middle is not yet over it
 // (geStanTouchesFloor()); GESTAN_NOCLIMBFLOOR when there is none
 static f32 g_GeClimbHold[MAX_PLAYERS] = { GESTAN_NOCLIMBFLOOR, GESTAN_NOCLIMBFLOOR, GESTAN_NOCLIMBFLOOR, GESTAN_NOCLIMBFLOOR };
+
+void bwalkNetSide(s32 playernum, s32 save, s32 *crouchhold, f32 *eyelag, f32 *climbhold)
+{
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		return;
+	}
+
+	if (save) {
+		*crouchhold = g_GeCrouchHoldTicks[playernum];
+		*eyelag = g_GeClimbEyeLag[playernum];
+		*climbhold = g_GeClimbHold[playernum];
+	} else {
+		g_GeCrouchHoldTicks[playernum] = *crouchhold;
+		g_GeClimbEyeLag[playernum] = *eyelag;
+		g_GeClimbHold[playernum] = *climbhold;
+	}
+}
 
 /**
  * Something that is not a number was about to go into the player's height.
@@ -641,6 +659,7 @@ bool bwalkIsRolling(void)
  */
 void bwalkTryJump(void)
 {
+	if (g_NetMode == NETMODE_CLIENT) netPredictJumpTry(); // netplay: a replay of this tick tries the jump again
 	if (!modIsJumpEnabled()
 			|| g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK
 #ifndef PLATFORM_N64
@@ -902,7 +921,8 @@ bool bwalkCalculateNewPositionWithPush(struct coord *delta, f32 rotateamount, bo
 	if (result != CDRESULT_NOCOLLISION) {
 		struct prop *obstacle = cdGetObstacleProp();
 
-		if (obstacle && g_Vars.lvupdate240 > 0) {
+		// (netplay: a prediction replay pushes and is hurt by nothing, netpredict.c)
+		if (obstacle && g_Vars.lvupdate240 > 0 && !g_NetReplaying) {
 			if (obstacle->type == PROPTYPE_DOOR) {
 				struct doorobj *door = obstacle->door;
 				struct coord sp90;

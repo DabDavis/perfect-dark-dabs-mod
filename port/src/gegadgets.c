@@ -38,6 +38,7 @@
 #include "gegadgets.h"
 #include "gehud.h"
 #include "langpack.h"
+#include "net/net.h"
 
 #ifndef PLATFORM_N64
 
@@ -1219,6 +1220,7 @@ static void gegadgetsAnalyseKey(void)
 /** The trigger, pulled with a gadget in the hand (bondmove.c). */
 void gegadgetsFire(s32 weaponnum)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	if (g_Gadgets.moddir < 0) {
 		return;
 	}

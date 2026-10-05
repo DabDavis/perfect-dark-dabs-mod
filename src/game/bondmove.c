@@ -65,8 +65,11 @@ static void bgunProcessQuickDetonate(struct movedata *data, u32 c1buttons, u32 c
 		data->btapcount = 0;
 		// prevent the previous slotnum
 		// from causing Jo to switch weapons
-		g_AmMenus[g_AmIndex].slotnum = 4;
-		amClose();
+		// (netplay: not again in a prediction replay, netpredict.c)
+		if (!g_NetReplaying) {
+			g_AmMenus[g_AmIndex].slotnum = 4;
+			amClose();
+		}
 		g_Vars.currentplayer->invdowntime = -2;
 		g_Vars.currentplayer->usedowntime = -2;
 	}
@@ -318,6 +321,7 @@ void bmoveSetModeForAllPlayers(u32 movemode)
 
 void bmoveHandleActivate(void)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 #ifndef PLATFORM_N64
 	// GoldenEye's tank: in beside it, out of it (getank.c)
 	if (geTankActivate()) {
@@ -872,7 +876,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	// always pause with ESC
 	if (allowc1buttons && g_Vars.currentplayer->isdead == false && g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
 		// (netplay: this machine's ESC is its own player's, never spent by another's)
-		if (netIsLocalSlot(g_Vars.currentplayernum) && inputKeyJustPressed(VK_ESCAPE)) {
+		if (!g_NetReplaying && netIsLocalSlot(g_Vars.currentplayernum) && inputKeyJustPressed(VK_ESCAPE)) {
 			c1buttonsthisframe |= START_BUTTON;
 		}
 	}
@@ -2659,6 +2663,7 @@ void bmoveTick(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 	f32 zdiff;
 	f32 distance;
 
+	if (g_NetMode == NETMODE_CLIENT) netPredictMoveBegin(allowc1x, allowc1y, allowc1buttons, ignorec2); // netplay: the tick's movement, for a replay
 	bmoveProcessInput(allowc1x, allowc1y, allowc1buttons, ignorec2);
 
 	if (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {
@@ -2682,7 +2687,7 @@ void bmoveTick(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 
 	// Update footstep sounds. Not while spectating: the camera flies, and
 	// at its speed it stepped every few frames (F3 20260927-210959).
-	if (!modSpectateIsOn()
+	if (!modSpectateIsOn() && !g_NetReplaying
 			&& (g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK || g_Vars.currentplayer->bondmovemode == MOVEMODE_GRAB)
 			&& (g_Vars.currentplayer->speedforwards || g_Vars.currentplayer->speedsideways)
 			&& (!g_Vars.normmplayerisrunning || PLAYERCOUNT() == 1)) {

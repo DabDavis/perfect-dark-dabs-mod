@@ -157,8 +157,119 @@ void netQuatCanon(f32 *q);
  * precision (f32 bits as they are), delta'd against the block in the
  * baseline snapshot. Layout in netproto.h.
  */
-#define NETLP_SIZE     208
+#define NETLP_SIZE     (208 + NETMOVE_SIZE)
 #define NETLP_NUMAMMO  33
+#define NETMOVE_SIZE   480
+#define NETMOVE_HEADWORDS 30 // struct player bondheadsave: the head model's rwdata
+
+/**
+ * The movement state in the local-player block (bytes 208..687): what the
+ * walk carries from one tick into the next, at full precision, so a client
+ * can start its replay of the commands the host has not played yet from the
+ * host's own state (netpredict.c, PLANS/NETPLAY.md "Prediction"). Fields
+ * are struct player's of the same name; fallage is lvframe60 - fallstart,
+ * as the two machines' level clocks differ.
+ */
+struct netmove {
+	f32 speedtheta;
+	f32 speedverta;
+	f32 speedthetacontrol;
+	f32 speedsideways;
+	f32 speedstrafe;
+	f32 speedforwards;
+	f32 speedboost;
+	f32 speedgo;
+	s32 speedmaxtime60;
+	f32 shotspeed[3];     // bondshotspeed
+	f32 moveinitspeed[3];
+	f32 forcespeed[3];    // bondforcespeed
+	f32 rollspeed[3];
+	s32 rolltime60;
+	f32 vely;             // bdeltapos.y: the vertical speed
+	f32 sumground;
+	f32 manground;        // vv_manground
+	f32 ground;           // vv_ground
+	f32 onground;         // bondonground
+	s32 fallage;
+	f32 crouchoffset;
+	f32 crouchspeed;
+	f32 crouchheight;
+	f32 crouchfall;
+	f32 sumcrouch;
+	f32 crouchoffsetsmall;
+	s32 crouchtime240;
+	s32 crouchoffsetreal;
+	s32 crouchoffsetrealsmall;
+	f32 swaytarget;       // the lean
+	f32 swayoffset0;
+	f32 swayoffset2;
+	f32 laddernormal[3];
+	f32 ladderupdown;
+	f32 liftground;
+	f32 height;           // vv_height
+	f32 eyeheight;        // vv_eyeheight
+	f32 gunspeed;
+	f32 breathing;        // bondbreathing
+	f32 headpossum[3];    // the head bob's sum, which walks the player
+	s32 headwalkingtime60;
+	s16 floorroom;
+	u16 floorflags;
+	u8 isfalling;
+	u8 onladder;
+	u8 inlift;
+	u8 movemode;          // bondmovemode
+	s8 crouchpos;
+	s8 autocrouchpos;
+	s8 headanim;
+	u8 floortype;
+	// the head's animation (struct anim, player->unk01c0): the bob that
+	// walks the player is read off it. Not its frame slots (this machine's
+	// cache, loaded again from framea/frameb whenever it is posed) nor its
+	// functions
+	s16 animnum;
+	s16 animnum2;
+	s8 flip;
+	s8 flip2;
+	s8 looping;
+	s8 average;
+	s16 framea;
+	s16 frameb;
+	s16 frame2a;
+	s16 frame2b;
+	f32 frame;
+	f32 frac;
+	f32 endframe;
+	f32 speed;
+	f32 newspeed;
+	f32 oldspeed;
+	f32 timespeed;
+	f32 elapsespeed;
+	f32 frame2;
+	f32 frac2;
+	f32 endframe2;
+	f32 speed2;
+	f32 newspeed2;
+	f32 oldspeed2;
+	f32 timespeed2;
+	f32 elapsespeed2;
+	f32 fracmerge;
+	f32 timemerge;
+	f32 elapsemerge;
+	f32 loopframe;
+	f32 loopmerge;
+	f32 playspeed;
+	f32 newplay;
+	f32 oldplay;
+	f32 timeplay;
+	f32 elapseplay;
+	f32 animscale;
+	u32 headsave[NETMOVE_HEADWORDS]; // the head model's rwdata (its root's place)
+	// the aim: the mouse's crosshair, which turns the view past the edge
+	// boundary while aiming (bmoveProcessInput)
+	f32 swivelpos[2];
+	u8 insightaimmode;
+	// (3 bytes of 0 on the wire: NETMOVE_SIZE)
+};
 
 #define NETLP_DEAD       0x01
 #define NETLP_INVINCIBLE 0x02
@@ -179,6 +290,7 @@ struct netlpstate {
 	u16 ammo[NETLP_NUMAMMO];
 	u8 inv[32];             // a bit per weapon number held
 	u8 invdual[32];         // a bit per weapon number held twice
+	struct netmove mv;
 };
 
 void netLpPack(const struct netlpstate *s, u8 *out);

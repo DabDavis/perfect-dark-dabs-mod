@@ -27,6 +27,9 @@ void bwalkUpdateSpeedSideways(f32 targetspeed, f32 accelspeed, s32 mult);
 void bwalkUpdateSpeedForwards(f32 targetspeed, f32 accelspeed);
 #ifndef PLATFORM_N64
 f32 bwalkGeClimbEyeLag(void);
+// netplay's prediction (netpredict.c): the walk's per-player side tables,
+// kept with each tick it may play again (save 1: read them out, 0: put back)
+void bwalkNetSide(s32 playernum, s32 save, s32 *crouchhold, f32 *eyelag, f32 *climbhold);
 #endif
 void bwalkUpdateVertical(void);
 void bwalkApplyCrouchSpeed(void);

@@ -10,6 +10,7 @@
 #include "lib/vars.h"
 #include "data.h"
 #include "types.h"
+#include "net/net.h"
 
 /**
  * Spectator mode: the camera comes off the player and flies.
@@ -251,6 +252,7 @@ bool modSpectateTakeBodyStale(void)
 
 void modSpectateToggle(void)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	modSpectateSetOn(!modSpectateIsOn());
 }
 

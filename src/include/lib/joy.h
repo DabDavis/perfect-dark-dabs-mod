@@ -63,6 +63,12 @@ void joyConsumeNone(void);
 s32 joyHasPendingSample(void);
 void joyNetSetPendingPad(s32 idx, const OSContPad *pad);
 void joyNetGetCurrentPad(s32 idx, OSContPad *pad);
+// netplay's prediction replay (netpredict.c): the pad state it borrows and
+// gives back, and a sample of its own consumed as a tick's
+s32 joyNetSaveSize(void);
+void joyNetSave(void *buf);
+void joyNetRestore(const void *buf);
+void joyNetInjectSample(const OSContPad *pads);
 #endif
 
 #endif

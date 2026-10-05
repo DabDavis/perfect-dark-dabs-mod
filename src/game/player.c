@@ -6033,7 +6033,9 @@ void playerTick(bool arg0)
 				&& !geWatchMpHoldsInput()
 #endif
 				) {
+			if (g_NetPass == NETPASS_PRESENT_ONLY) netPredictPresentBegin(); // netplay: a frame drawn between ticks moves nobody
 			bmoveTick(1, 1, arg0, 0);
+			if (g_NetPass == NETPASS_PRESENT_ONLY) netPredictPresentEnd();
 		} else {
 			bmoveTick(0, 0, 0, 1);
 		}
@@ -6063,6 +6065,7 @@ void playerTick(bool arg0)
 		// position as the hint and so resolves the camera's room the way the
 		// Slayer rocket's does. Only the copies the camera is built from move,
 		// and while the player is alive only the position of it does.
+		if (g_NetMode == NETMODE_CLIENT && netIsLocalSlot(g_Vars.currentplayernum)) netPredictView(&spf4, &camup, &camlook); // netplay: the eye eased, the mouse turned in between ticks
 		playerTiltCamera(&spf4, &camup, &camlook);
 
 #ifndef PLATFORM_N64
@@ -7443,6 +7446,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 
 void playerDie(bool force)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	struct chrdata *chr = g_Vars.currentplayer->prop->chr;
 	s32 shooter;
 
@@ -7457,6 +7461,7 @@ void playerDie(bool force)
 
 void playerDieByShooter(u32 shooter, bool force)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 #if VERSION >= VERSION_NTSC_1_0
 	if (!g_Vars.currentplayer->isdead && (force || !g_Vars.currentplayer->invincible))
 #else

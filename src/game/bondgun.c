@@ -7222,6 +7222,7 @@ static bool bgunCycleEquipsPair(s32 right, s32 left)
 
 void bgunCycleForward(void)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	s32 weaponnum1;
 	s32 weaponnum2;
 	struct player *player = g_Vars.currentplayer;
@@ -7265,6 +7266,7 @@ void bgunCycleForward(void)
 
 void bgunCycleBack(void)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	s32 weaponnum1;
 	s32 weaponnum2;
 	struct player *player = g_Vars.currentplayer;
@@ -14266,6 +14268,7 @@ bool bgunScopeCoversView(s32 weaponnum)
 
 void bgunTickGameplay(bool triggeron)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	s32 gunsfiring[2] = {false, false};
 	struct player *player = g_Vars.currentplayer;
 	s32 i;

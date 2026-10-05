@@ -4247,6 +4247,7 @@ static bool chrYeetFromPosWithAction(struct chrdata *chr, struct coord *exppos, 
 
 void chrYeetFromPos(struct chrdata *chr, struct coord *exppos, f32 force)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	chrYeetFromPosWithAction(chr, exppos, force, false);
 }
 
@@ -9605,6 +9606,7 @@ void chrPlayPunchAnimation(struct chrdata *chr)
  */
 void chrPlayRollAnimation(struct chrdata *chr, bool toleft)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	struct attackanimconfig *animcfg;
 	struct prop *leftgun;
 	struct prop *rightgun;

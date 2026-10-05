@@ -25,6 +25,11 @@
 #include "game/challenge.h"
 #include "game/modoptions.h"
 #include "game/mplayer/mplayer.h"
+#include "game/lv.h"
+
+extern s32 g_MpTimeLimit60;
+extern s32 g_MpScoreLimit;
+extern s32 g_NumReasonsToEndMpMatch;
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "net/netlobby.h"
@@ -1162,6 +1167,9 @@ void netHostMatchEnded(void)
 		return;
 	}
 
+	sysLogPrintf(LOG_NOTE, "net: match clock at the end: tick %u, level time %d (60ths), time limit %d, score limit %d, other reasons %d",
+			g_NetTick, lvGetStageTime60(), g_MpTimeLimit60, g_MpScoreLimit, g_NumReasonsToEndMpMatch);
+
 	// the last tick's events (its deaths) on the same channel, first
 	netEventsHostMatchEnded();
 
@@ -1540,6 +1548,7 @@ static void netClientOnMatchEnd(struct netbuf *b)
 	// to the end screen rather than wait for a GO that will not come
 	s_BarrierHeld = 0;
 	sysLogPrintf(LOG_NOTE, "net: match %u: the host ended it", matchid);
+	sysLogPrintf(LOG_NOTE, "net: match clock at the end: tick %u, level time %d (60ths), time limit %d", g_NetTick, lvGetStageTime60(), g_MpTimeLimit60);
 }
 
 /**

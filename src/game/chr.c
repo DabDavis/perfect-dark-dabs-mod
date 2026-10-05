@@ -5966,6 +5966,7 @@ void chr0f02855c(s32 arg0)
 
 void chrsCheckForNoise(f32 noiseradius)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	s32 i;
 	f32 add = 0.075f;
 

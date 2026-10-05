@@ -818,6 +818,7 @@ void amAssignWeaponSlots(void)
 
 void amOpen(void)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	if (g_Vars.currentplayer->gunctrl.passivemode == false) {
 		g_AmIndex = g_Vars.currentplayernum;
 		g_Vars.currentplayer->activemenumode = AMMODE_VIEW;
@@ -905,6 +906,7 @@ static void amApplyLeftWeapon(s32 weaponnum)
 
 void amClose(void)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	if (g_AmMenus[g_AmIndex].slotnum != 4) {
 		amApply(g_AmMenus[g_AmIndex].slotnum);
 	}

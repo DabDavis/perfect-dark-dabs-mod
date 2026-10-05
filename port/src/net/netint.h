@@ -105,6 +105,28 @@ s32 netPlayersClockPpm(void);
 s32 netPlayersHostLastPlayed(s32 slot);   // the last command tick played, -1 none
 s32 netPlayersHostSlotIsRemote(s32 slot);
 
+s32 netPlayersLocalPad(void);         // the client's own player's pad (its mpindex)
+
+// netpredict.c: the client's own player run ahead and reconciled
+struct player;
+struct netlpstate;
+struct netmove;
+void netPredictArgs(void);
+void netPredictStageStart(void);
+void netPredictMatchStopped(void);
+void netPredictRecordCmd(u32 tick, u32 buttons, s8 sx, s8 sy, s8 rsx, s8 rsy, f32 mdx, f32 mdy, u8 flags);
+void netPredictReplayMouse(f32 *dx, f32 *dy);
+u32 netPlayersClientNewest(void);     // netplayers.c: the newest command the client made, 0 none
+void netPredictTickEnd(void);         // the client's tick has run: its player's state for the tick
+void netPredictCaptureMove(struct player *p, struct netmove *mv); // host: the block's movement state
+// the pose step: the newest block (after command cmd; abs: a respawn or
+// teleport, taken whatever it says) against this machine's own run
+void netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, s32 abs);
+void netPredictLog(const char *why);
+void netPredictHostTickEnd(s32 slot, struct player *p); // host: a remote player after the tick (--net-predict-log)
+u32 netPlayersHostCurButtons(s32 slot, s8 *sx, s8 *sy); // the pad the host played for the slot this tick
+void netPendingMouse(s32 *dx, s32 *dy); // net.c: the mouse not yet spent by a tick
+
 // netents.c: the entity table and snapshots, the game's side (netsnap.h the wire)
 struct netsnapack;
 void netEntsArgs(void);

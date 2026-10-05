@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "net/net.h"
 
 /**
  * Ghost Time Trial. See modghost.h for the format and what is stored.
@@ -791,6 +792,7 @@ static u16 modGhostLerpTurn(u16 from, u16 to, f32 frac)
  */
 void modGhostRecordSample(void)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	struct modghostsample *sample;
 	struct player *player;
 	s32 time60;

@@ -191,6 +191,10 @@ run() {
 	# from the save), so its mix is the game's sounds
 	waitfor "$OUT/client.log" "net: match 1: GO" 120 && [ -n "$cp" ] &&
 		gdb -p "$cp" -batch -ex 'call (void)optionsSetMusicVolume(0)' >/dev/null 2>&1
+	# the client's player invincible from the start on the host: a sim that
+	# killed it before the staging (tick 600) left it to spend the held
+	# fire at 1100 on its respawn, and its own shots were never fired
+	[ -n "$hp" ] && gdb -p "$hp" -batch -ex "source $OUT/stage.py" -ex "python invincible(remote())" >/dev/null 2>&1
 	if waitfor "$OUT/host.log" "snap slot 1 so far (tick 600)" 150 && [ -n "$hp" ] && [ -n "$cp" ]; then
 		for n in 1 2 3 4 5 6 7 8 9; do
 			stage "$hp" "sim(220)"

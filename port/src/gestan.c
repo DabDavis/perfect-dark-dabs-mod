@@ -1449,6 +1449,21 @@ static s32 g_StanPlayerTile[MAX_PLAYERS] = { -1, -1, -1, -1 };
 static s32 g_StanPlayerFromTile[MAX_PLAYERS] = { -1, -1, -1, -1 };
 static s32 g_StanPlayerTileStage = -1;
 
+void geStanNetPlayerTile(s32 playernum, s32 save, s32 *tile, s32 *fromtile)
+{
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		return;
+	}
+
+	if (save) {
+		*tile = g_StanPlayerTile[playernum];
+		*fromtile = g_StanPlayerFromTile[playernum];
+	} else {
+		g_StanPlayerTile[playernum] = *tile;
+		g_StanPlayerFromTile[playernum] = *fromtile;
+	}
+}
+
 void geStanForgetPlayerTile(s32 playernum)
 {
 	if (playernum >= 0 && playernum < MAX_PLAYERS) {

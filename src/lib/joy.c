@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "game/pak.h"
 #include "bss.h"
@@ -538,6 +539,59 @@ void joyNetGetCurrentPad(s32 idx, OSContPad *pad)
 
 		*pad = none;
 	}
+}
+
+/**
+ * Netplay's prediction replay (PLANS/netplay/spec-players.md §7): the client
+ * plays its own commands again through bmoveTick, each one a sample of its
+ * own consumed as a tick's, so presses and held timers come out as they did
+ * live. What it borrows (the samples, the cooldown) is saved first and put
+ * back after.
+ */
+struct joynetsave {
+	struct joydata data;
+	s32 cooldown[NUM_PADS];
+};
+
+s32 joyNetSaveSize(void)
+{
+	return sizeof(struct joynetsave);
+}
+
+void joyNetSave(void *buf)
+{
+	struct joynetsave *save = buf;
+
+	save->data = g_JoyData[0];
+	memcpy(save->cooldown, g_JoyDisableCooldown, sizeof(save->cooldown));
+}
+
+void joyNetRestore(const void *buf)
+{
+	const struct joynetsave *save = buf;
+
+	g_JoyData[0] = save->data;
+	memcpy(g_JoyDisableCooldown, save->cooldown, sizeof(save->cooldown));
+}
+
+// pads is OSContPad[NUM_PADS]: the tick's sample, consumed at once
+void joyNetInjectSample(const OSContPad *pads)
+{
+	struct joydata *d = &g_JoyData[0];
+	s32 index = (d->nextlast + 1) % NUM_SAMPLES;
+	s32 i;
+
+	if (index == d->curstart) {
+		index = d->nextlast;
+	}
+
+	for (i = 0; i < NUM_PADS; i++) {
+		d->samples[index].pads[i] = pads[i];
+	}
+
+	d->nextlast = index;
+	d->nextsecondlast = (d->nextlast + NUM_SAMPLES - 1) % NUM_SAMPLES;
+	joyConsumeSamples(d);
 }
 #endif
 

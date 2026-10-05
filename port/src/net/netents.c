@@ -111,19 +111,6 @@ static u32 s_Misfits = 0;         // descriptors naming a local prop of the wron
 static u16 s_LastMapSeq = 0;
 static u16 s_NackRing[64];
 static s32 s_NackCount = 0;
-struct netlocalhist {
-	u32 tick;
-	f32 pos[3];
-	s32 valid;
-};
-#define NET_LOCALHIST 256
-static struct netlocalhist s_LocalHist[NET_LOCALHIST];
-static u32 s_ErrN = 0;
-static f64 s_ErrSum = 0;
-static f32 s_ErrMax = 0;
-static u32 s_ErrOver = 0;
-static u32 s_ErrMissing = 0;
-static u32 s_ErrHuge = 0;
 static u8 s_LastRespawns = 0;
 static u8 s_LastTeleports = 0;
 static s32 s_LpSeen = 0;
@@ -137,14 +124,11 @@ static struct netlpstate s_LpNew;
 static s32 s_LpPending = 0;
 static s32 s_LpRespawnPending = 0;
 static s32 s_LpCorrAbs = 0;           // a teleport or respawn: to the host's position
-static s32 s_LpCorrErr = 0;           // the error past NET_HARDCORRECT: shifted by it
-static f32 s_LpCorrDelta[3];
+static u32 s_LpCmd = 0xffffffff;      // the pending block's command (the last the host played)
 static u32 s_LpStableSince = 0;       // the tick the block's inventory and ammo last changed
 static struct netlpstate s_LpPrev;
 static s32 s_LpHaveBlock = 0;
 static u32 s_LpHardAbs = 0;
-static u32 s_LpHardErr = 0;
-static u32 s_LpRejectedY = 0;         // a host position at "no ground" (y -4294967296): not taken
 static u32 s_LpDeaths = 0;
 static u32 s_LpRespawnsDone = 0;
 static u32 s_LpInvChanges = 0;
@@ -166,8 +150,6 @@ static u32 s_LpEquips = 0;
 #define NET_LPREVIVE 90        // ticks of alive blocks before a death only this machine saw is undone
 #define NET_LPSTABLE 30        // ticks a block's inventory/ammo must hold before it overrides this machine's
 #define NET_LPSANE   1000000.f // past this a coordinate is no place (the host's "no ground" is -2^32)
-
-#define NET_HARDCORRECT 200.f   // phase 4: a local error past this would be corrected outright
 
 // debug
 static FILE *s_DumpFile = NULL;
@@ -479,27 +461,21 @@ void netEntsStageStart(void)
 		}
 	}
 
-	memset(s_LocalHist, 0, sizeof(s_LocalHist));
 	s_Mapped = s_Unresolved = s_StaleSeen = s_NacksSent = 0;
 	s_PresentUnmapped = s_NoneNacked = s_KeptOverGap = s_Misfits = 0;
 	s_LastMapSeq = 0;
 	s_HostileAccepted = s_HostileDropped = 0;
 	s_NackCount = 0;
-	s_ErrN = 0;
-	s_ErrSum = 0;
-	s_ErrMax = 0;
-	s_ErrOver = 0;
-	s_ErrMissing = 0;
-	s_ErrHuge = 0;
 	s_LpSeen = 0;
 	s_RespawnsSeen = 0;
 	s_TeleportsSeen = 0;
 	s_HostileFed = 0;
 	s_HostileRejected = 0;
-	s_LpPending = s_LpRespawnPending = s_LpCorrAbs = s_LpCorrErr = 0;
+	s_LpPending = s_LpRespawnPending = s_LpCorrAbs = 0;
+	s_LpCmd = 0xffffffff;
 	s_LpHaveBlock = 0;
 	s_LpStableSince = 0;
-	s_LpHardAbs = s_LpHardErr = s_LpRejectedY = s_LpDeaths = s_LpRespawnsDone = 0;
+	s_LpHardAbs = s_LpDeaths = s_LpRespawnsDone = 0;
 	s_LpInvChanges = s_LpAmmoSets = s_LpEquips = 0;
 	s_LpAliveWhileDead = s_LpRevives = s_LpBadFloats = 0;
 	s_LpHaveSig = 0;
@@ -510,6 +486,7 @@ void netEntsStageStart(void)
 	if (g_NetMode == NETMODE_CLIENT) {
 		g_NetClientWorld = 1;
 		netPuppetsStageStart();
+		netPredictStageStart();
 	}
 }
 
@@ -898,6 +875,8 @@ static void netLpCapture(s32 slot, s32 pn, u8 *out)
 	s.loaded[2] = p->hands[HAND_LEFT].loadedammo[0];
 	s.loaded[3] = p->hands[HAND_LEFT].loadedammo[1];
 
+	netPredictCaptureMove(p, &s.mv);
+
 	for (i = 0; i < NETLP_NUMAMMO; i++) {
 		const s32 a = p->ammoheldarr[i];
 
@@ -1085,6 +1064,7 @@ void netEntsHostTickEnd(void)
 
 		if (pn >= 0) {
 			netLpTrack(slot, pn);
+			netPredictHostTickEnd(slot, g_Vars.players[pn]);
 		}
 
 		if (g_NetTick < s_NextSnap[slot]) {
@@ -1409,27 +1389,18 @@ static void netClientDumpSnap(const struct netsnaphdr *hdr)
 }
 
 /**
- * Phase 5 will reconcile; phase 4 measures, and corrects only outright. The
- * host's position for this player after the last command it played, against
- * where this machine's own run had the player after the same command. The
- * block itself is applied in the pose step (netEntsClientApplyLocal).
+ * The host's block for this machine's own player, kept for the pose step
+ * (netEntsClientApplyLocal), which squares it with this machine's own run
+ * (netpredict.c): the host's state after lastcmd, the last command of this
+ * client's it played.
  */
-static s32 netLpSane(const f32 *pos)
-{
-	return pos[0] > -NET_LPSANE && pos[0] < NET_LPSANE
-		&& pos[1] > -NET_LPSANE && pos[1] < NET_LPSANE
-		&& pos[2] > -NET_LPSANE && pos[2] < NET_LPSANE;
-}
+static u32 s_LpFutureCmds = 0;
 
 static void netClientMeasureLocal(const struct netsnaphdr *hdr)
 {
 	const struct netsnapinfo *info = netSnapClientInfo(&s_Client, hdr->seq);
 	const struct netlocalhist *h;
 	struct netlpstate lp;
-	f32 dx;
-	f32 dy;
-	f32 dz;
-	f32 err;
 
 	if (!info || !info->haslp) {
 		return;
@@ -1472,7 +1443,6 @@ static void netClientMeasureLocal(const struct netsnaphdr *hdr)
 
 		if (dr || dt) {
 			s_LpCorrAbs = 1;
-			s_LpCorrErr = 0;
 		}
 	}
 
@@ -1490,102 +1460,26 @@ static void netClientMeasureLocal(const struct netsnaphdr *hdr)
 	s_LpPrev = lp;
 	s_LpHaveBlock = 1;
 	s_LpNew = lp;
-	s_LpPending = 1;
+	s_LpCmd = hdr->lastcmd;
 
-	if (hdr->lastcmd == 0xffffffff) {
-		return;
-	}
-
-	h = &s_LocalHist[hdr->lastcmd % NET_LOCALHIST];
-
-	if (!h->valid || h->tick != hdr->lastcmd) {
-		s_ErrMissing++;
-		return;
-	}
-
-	dx = lp.pos[0] - h->pos[0];
-	dy = lp.pos[1] - h->pos[1];
-	dz = lp.pos[2] - h->pos[2];
-	err = sqrtf(dx * dx + dy * dy + dz * dz);
-
-	s_ErrN++;
-	s_ErrSum += err;
-
-	if (err > s_ErrMax) {
-		s_ErrMax = err;
-	}
-
-	if (err > NET_HARDCORRECT) {
-		s_ErrOver++;
-
-		// corrected outright by the error, unless either end is no place
-		// (the host's "no ground" y) or a teleport already moves it
-		if (!netLpSane(lp.pos) || !netLpSane(h->pos)) {
-			s_LpRejectedY++;
-		} else if (!s_LpCorrAbs && (lp.flags & NETLP_DEAD) == 0) {
-			s_LpCorrErr = 1;
-			s_LpCorrDelta[0] = dx;
-			s_LpCorrDelta[1] = dy;
-			s_LpCorrDelta[2] = dz;
+	// a command this client never made: the block's movement is no state of
+	// any command here (its life, health and guns are still the host's)
+	if (s_LpCmd != 0xffffffff && s_LpCmd > netPlayersClientNewest()) {
+		if (s_LpFutureCmds++ < 4) {
+			sysLogPrintf(LOG_WARNING, "net: local-player block for command %u, past the newest made here (%u)", s_LpCmd, netPlayersClientNewest());
 		}
+
+		s_LpCmd = 0xffffffff;
 	}
 
-	if (err > 100000.f && s_ErrHuge++ < 4) {
-		sysLogPrintf(LOG_WARNING, "net: local error %.0f at command %u: host %.1f %.1f %.1f, here %.1f %.1f %.1f",
-				err, hdr->lastcmd, lp.pos[0], lp.pos[1], lp.pos[2], h->pos[0], h->pos[1], h->pos[2]);
-	}
+	s_LpPending = 1;
 }
 
 /*
  * The local-player block applied (pose step, inside the tick): what the
- * host decides about this machine's own player. The player itself still
- * runs here (no reconciliation until phase 5); its position is corrected
- * only outright, on a teleport or respawn or an error past NET_HARDCORRECT.
+ * host decides about this machine's own player: its life, health, guns and
+ * ammo here; its movement is predicted and reconciled (netpredict.c).
  */
-
-static void netLpMove(struct player *p, const f32 *pos, const s16 *rooms, s32 settheta, f32 theta)
-{
-	struct prop *prop = p->prop;
-	s32 n = 0;
-	s32 i;
-
-	prop->pos.x = pos[0];
-	prop->pos.y = pos[1];
-	prop->pos.z = pos[2];
-	p->bondprevpos = prop->pos;
-	p->bond2.unk10 = prop->pos;
-
-	if (settheta) {
-		p->vv_theta = theta;
-	}
-
-	propDeregisterRooms(prop);
-
-	if (rooms) {
-		for (i = 0; i < 8 && n < 7; i++) {
-			if (rooms[i] < 0) {
-				break;
-			}
-
-			if (rooms[i] > 0 && rooms[i] < g_Vars.roomcount) {
-				prop->rooms[n++] = rooms[i];
-			}
-		}
-
-		prop->rooms[n] = -1;
-	}
-
-	if (n == 0) {
-		bmoveFindEnteredRooms(p, prop->rooms);
-	}
-
-	propRegisterRooms(prop);
-
-	// the history this machine measures against was before the move
-	for (i = 0; i < NET_LOCALHIST; i++) {
-		s_LocalHist[i].valid = 0;
-	}
-}
 
 static void netLpLocalSig(struct player *p, struct netlplocalsig *sig)
 {
@@ -1699,36 +1593,15 @@ void netEntsClientApplyLocal(void)
 		}
 	}
 
-	// position, outright only
-	if (s_LpCorrAbs) {
-		if (netLpSane(lp->pos)) {
-			netLpMove(p, lp->pos, lp->rooms, 1, lp->theta);
-			s_LpHardAbs++;
-		} else {
-			s_LpRejectedY++;
-		}
-
-		s_LpCorrAbs = 0;
-		s_LpCorrErr = 0;
-	} else if (s_LpCorrErr) {
-		f32 pos[3];
-
-		pos[0] = p->prop->pos.x + s_LpCorrDelta[0];
-		pos[1] = p->prop->pos.y + s_LpCorrDelta[1];
-		pos[2] = p->prop->pos.z + s_LpCorrDelta[2];
-
-		if (netLpSane(pos)) {
-			if (s_LpHardErr < 12) {
-				sysLogPrintf(LOG_NOTE, "net: local player corrected by %.1f %.1f %.1f at tick %u (dead %d)",
-						s_LpCorrDelta[0], s_LpCorrDelta[1], s_LpCorrDelta[2], g_NetTick, p->isdead);
-			}
-
-			netLpMove(p, pos, NULL, 0, 0);
-			s_LpHardErr++;
-		}
-
-		s_LpCorrErr = 0;
+	// movement: the host's state after the command it played, squared with
+	// this machine's own run of the commands since (a respawn or teleport
+	// taken whatever this machine had)
+	if (s_LpCorrAbs && !p->isdead) {
+		s_LpHardAbs++;
 	}
+
+	netPredictReconcile(p, lp, s_LpCmd, s_LpCorrAbs);
+	s_LpCorrAbs = 0;
 
 	// inventory, ammo and the gun in hand: once the host's have held still
 	// long enough that this machine's own commands are in them
@@ -1783,13 +1656,12 @@ static void netClientLog(const char *why)
 {
 	const struct netsnapclient *c = &s_Client;
 
-	sysLogPrintf(LOG_NOTE, "net: snap client %s (tick %u): %u received, %u decoded, %u old, %u other match, %u no baseline, %u malformed, %u keyframes, %u entity keyframes, bytes mean %u; mapped %u, unresolved %u, present unmapped %u, stale seen %u, nacks sent %u, unmapped nacked %u, kept over gaps %u, misfits %u, resyncs %u; local error at the played command: n %u mean %.2f max %.2f, over %.0f: %u, unmatched %u; respawns %u, teleports %u; hostile fed %u rejected %u accepted %u dropped %u",
+	sysLogPrintf(LOG_NOTE, "net: snap client %s (tick %u): %u received, %u decoded, %u old, %u other match, %u no baseline, %u malformed, %u keyframes, %u entity keyframes, bytes mean %u; mapped %u, unresolved %u, present unmapped %u, stale seen %u, nacks sent %u, unmapped nacked %u, kept over gaps %u, misfits %u, resyncs %u; respawns %u, teleports %u; hostile fed %u rejected %u accepted %u dropped %u",
 			why, g_NetTick, c->received, c->decoded, c->old, c->otherMatch, c->nobase, c->malformed, c->keyframes, c->entkeys,
 			c->received ? c->bytes / c->received : 0, s_Mapped, s_Unresolved, s_PresentUnmapped, s_StaleSeen, s_NacksSent, s_NoneNacked, s_KeptOverGap, s_Misfits, c->resyncs,
-			s_ErrN, s_ErrN ? (f32)(s_ErrSum / s_ErrN) : 0.f, s_ErrMax, NET_HARDCORRECT, s_ErrOver, s_ErrMissing,
 			s_RespawnsSeen, s_TeleportsSeen, s_HostileFed, s_HostileRejected, s_HostileAccepted, s_HostileDropped);
-	sysLogPrintf(LOG_NOTE, "net: local block %s (tick %u): hard corrections: teleport/respawn %u, error %u, no-place positions refused %u; deaths %u, respawns %u, inventory changes %u, ammo sets %u, equips %u, revives %u, bad floats %u",
-			why, g_NetTick, s_LpHardAbs, s_LpHardErr, s_LpRejectedY, s_LpDeaths, s_LpRespawnsDone, s_LpInvChanges, s_LpAmmoSets, s_LpEquips, s_LpRevives, s_LpBadFloats);
+	sysLogPrintf(LOG_NOTE, "net: local block %s (tick %u): respawns or teleports taken %u; deaths %u, respawns %u, inventory changes %u, ammo sets %u, equips %u, revives %u, bad floats %u",
+			why, g_NetTick, s_LpHardAbs, s_LpDeaths, s_LpRespawnsDone, s_LpInvChanges, s_LpAmmoSets, s_LpEquips, s_LpRevives, s_LpBadFloats);
 	netPuppetsLog(why);
 }
 
@@ -1954,7 +1826,6 @@ void netEntsClientWriteAck(struct netbuf *b)
 void netEntsClientTickEnd(void)
 {
 	struct player *p;
-	struct netlocalhist *h;
 
 	if (!s_MaxIds || g_NetLocalSlot < 0 || g_NetLocalSlot >= PLAYERCOUNT()) {
 		return;
@@ -1966,12 +1837,8 @@ void netEntsClientTickEnd(void)
 		return;
 	}
 
-	h = &s_LocalHist[g_NetTick % NET_LOCALHIST];
-	h->tick = g_NetTick;
-	h->pos[0] = p->prop->pos.x;
-	h->pos[1] = p->prop->pos.y;
-	h->pos[2] = p->prop->pos.z;
-	h->valid = 1;
+	// its own player's state for the tick, for the prediction's ring
+	netPredictTickEnd();
 
 	// --net-test-stale: as if this machine's own sim had freed and reused a
 	// mapped sim's prop slot; the next snapshot must find the mapping stale,
@@ -2007,6 +1874,10 @@ void netEntsMatchStopped(void)
 		}
 	} else if (g_NetMode == NETMODE_CLIENT && s_Client.maxids) {
 		netClientLog("at the match's end");
+	}
+
+	if (g_NetMode == NETMODE_CLIENT) {
+		netPredictMatchStopped();
 	}
 
 	if (s_DumpFile) {

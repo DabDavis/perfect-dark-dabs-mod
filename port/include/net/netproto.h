@@ -43,7 +43,7 @@
  */
 
 // Bumped whenever any message below changes shape or meaning
-#define NET_PROTOCOL_VERSION 4
+#define NET_PROTOCOL_VERSION 5
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -314,12 +314,37 @@
  *     (CHR byte 46 counts the chr's teleports, wrapping: snap when it
  *     changes, by any amount; a toggled bit would lose two in one gap)
  *   u8      haslp                 0 none, 1 keyframe, 2 against the baseline's
- *   delta   localplayer           NETLP_SIZE (208) bytes, full precision:
+ *   delta   localplayer           NETLP_SIZE (688) bytes, full precision:
  *     u8 flags (1 dead, 2 invincible), u8 respawns, u8 teleports (counters),
  *     u8 dualwielding, f32 pos[3], s16 rooms[8], f32 theta, f32 verta,
  *     f32 health, f32 shield, s16 weaponnum, s16 0, s32 loadedammo[4]
  *     (right 0, 1, left 0, 1), u16 ammoheld[33], u16 0, u8 weapons[32]
- *     (a bit per weapon number), u8 dualweapons[32], u8 0[8]
+ *     (a bit per weapon number), u8 dualweapons[32], u8 0[8],
+ *     then the movement state (protocol 5; struct netmove, netsnap.h), the
+ *     player after command lastcmd, from which the client replays the
+ *     commands after it (netpredict.c): f32 speedtheta, speedverta,
+ *     speedthetacontrol, speedsideways, speedstrafe, speedforwards,
+ *     speedboost, speedgo, s32 speedmaxtime60, f32 bondshotspeed[3],
+ *     moveinitspeed[3], bondforcespeed[3], rollspeed[3], s32 rolltime60,
+ *     f32 bdeltapos.y, sumground, vv_manground, vv_ground, bondonground,
+ *     s32 fallage (lvframe60 - fallstart), f32 crouchoffset, crouchspeed,
+ *     crouchheight, crouchfall, sumcrouch, crouchoffsetsmall, s32
+ *     crouchtime240, crouchoffsetreal, crouchoffsetrealsmall, f32
+ *     swaytarget, swayoffset0, swayoffset2, laddernormal[3], ladderupdown,
+ *     liftground, vv_height, vv_eyeheight, gunspeed, bondbreathing,
+ *     headpossum[3], s32 headwalkingtime60, s16 floorroom, u16 floorflags,
+ *     u8 isfalling, onladder, inlift, bondmovemode, s8 crouchpos,
+ *     autocrouchpos, headanim, u8 floortype (224 bytes); the head bob's
+ *     animation (struct anim, player->unk01c0): s16 animnum, animnum2, s8
+ *     flip, flip2, looping, average, s16 framea, frameb, frame2a, frame2b,
+ *     f32 frame, frac, endframe, speed, newspeed, oldspeed, timespeed,
+ *     elapsespeed, frame2, frac2, endframe2, speed2, newspeed2, oldspeed2,
+ *     timespeed2, elapsespeed2, fracmerge, timemerge, elapsemerge,
+ *     loopframe, loopmerge, playspeed, newplay, oldplay, timeplay,
+ *     elapseplay, animscale (124 bytes); u32 headsave[30], the head model's
+ *     rwdata (bondheadsave, 120 bytes); the aim: f32 swivelpos[2], u8
+ *     insightaimmode, u8 0[3] (12 bytes). NETMOVE_SIZE 480 in all, at
+ *     bytes 208..687
  *
  * Present and not updated: the client copies the baseline's record (it is
  * unchanged, or changed and left by the 1100-byte cap for a later packet).

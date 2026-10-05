@@ -134,6 +134,93 @@ s32 snapTestQuant(void)
 	return fails;
 }
 
+/**
+ * The local-player block round trip: every field of it, the movement state
+ * (protocol 5) included, comes back bit for bit, and the block is all its
+ * bytes and no more (a field left out of the packing would come back zero)
+ */
+s32 snapTestLocalPlayer(void)
+{
+	const char *name = "local-player block";
+	s32 fails = 0;
+	s32 n;
+
+	for (n = 0; n < 2000; n++) {
+		struct netlpstate s;
+		struct netlpstate o;
+		u8 a[NETLP_SIZE + 8];
+		u8 b[NETLP_SIZE];
+		u8 *raw = (u8 *)&s.mv;
+		size_t k;
+		s32 i;
+
+		memset(&s, 0, sizeof(s));
+		s.flags = (u8)srnd();
+		s.respawns = (u8)srnd();
+		s.teleports = (u8)srnd();
+		s.dual = (u8)srnd();
+
+		for (i = 0; i < 3; i++) {
+			s.pos[i] = srndf(-60000, 60000);
+		}
+
+		for (i = 0; i < 8; i++) {
+			s.rooms[i] = (s16)(srnd() % 400) - 1;
+		}
+
+		s.theta = srndf(0, 360);
+		s.verta = srndf(-90, 90);
+		s.health = srndf(0, 1);
+		s.shield = srndf(0, 8);
+		s.weaponnum = (s16)(srnd() % 256);
+
+		for (i = 0; i < 4; i++) {
+			s.loaded[i] = (s32)srnd();
+		}
+
+		for (i = 0; i < NETLP_NUMAMMO; i++) {
+			s.ammo[i] = (u16)srnd();
+		}
+
+		for (i = 0; i < 32; i++) {
+			s.inv[i] = (u8)srnd();
+			s.invdual[i] = (u8)srnd();
+		}
+
+		// the movement state: random bits in every field (the struct's own
+		// padding is whatever it is, and is not compared)
+		for (k = 0; k < sizeof(s.mv); k++) {
+			raw[k] = (u8)srnd();
+		}
+
+		memset(a, 0xa5, sizeof(a));
+		netLpPack(&s, a);
+		SCHECK(a[NETLP_SIZE] == 0xa5 && a[NETLP_SIZE + 7] == 0xa5);
+		netLpUnpack(a, &o);
+		netLpPack(&o, b);
+		SCHECK(memcmp(a, b, NETLP_SIZE) == 0);
+		SCHECK(o.pos[0] == s.pos[0] && o.theta == s.theta && o.weaponnum == s.weaponnum);
+		SCHECK(memcmp(o.ammo, s.ammo, sizeof(s.ammo)) == 0 && memcmp(o.invdual, s.invdual, sizeof(s.invdual)) == 0);
+		SCHECK(memcmp(&o.mv.speedtheta, &s.mv.speedtheta, 4) == 0);
+		SCHECK(o.mv.fallage == s.mv.fallage && o.mv.headwalkingtime60 == s.mv.headwalkingtime60);
+		SCHECK(o.mv.floorroom == s.mv.floorroom && o.mv.floorflags == s.mv.floorflags);
+		SCHECK(o.mv.isfalling == s.mv.isfalling && o.mv.movemode == s.mv.movemode && o.mv.crouchpos == s.mv.crouchpos);
+		SCHECK(o.mv.headanim == s.mv.headanim && o.mv.floortype == s.mv.floortype);
+		SCHECK(o.mv.animnum == s.mv.animnum && o.mv.frame2b == s.mv.frame2b && o.mv.flip2 == s.mv.flip2);
+		SCHECK(memcmp(&o.mv.frame, &s.mv.frame, 4) == 0 && memcmp(&o.mv.animscale, &s.mv.animscale, 4) == 0);
+		SCHECK(memcmp(&o.mv.headpossum, &s.mv.headpossum, sizeof(s.mv.headpossum)) == 0);
+		SCHECK(memcmp(o.mv.headsave, s.mv.headsave, sizeof(s.mv.headsave)) == 0);
+		SCHECK(memcmp(&o.mv.laddernormal, &s.mv.laddernormal, sizeof(s.mv.laddernormal)) == 0);
+		SCHECK(memcmp(o.mv.swivelpos, s.mv.swivelpos, sizeof(s.mv.swivelpos)) == 0);
+		SCHECK(o.mv.insightaimmode == (s.mv.insightaimmode ? 1 : 0));
+		// the aim is the last of the packed movement, then 3 bytes of 0
+		SCHECK(a[208 + NETMOVE_SIZE - 4] == (s.mv.insightaimmode ? 1 : 0));
+		SCHECK(a[208 + NETMOVE_SIZE - 3] == 0 && a[208 + NETMOVE_SIZE - 2] == 0 && a[208 + NETMOVE_SIZE - 1] == 0);
+	}
+
+	return fails;
+}
+
 /*
  * The stream
  */

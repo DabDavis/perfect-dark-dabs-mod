@@ -545,6 +545,120 @@ static s32 netDescSize(const struct netdesc *d)
  * The local-player block (netproto.h, SNAP)
  */
 
+// The movement state, field by field in netsnap.h's order (never the
+// struct's bytes: its layout is the compiler's)
+#define MVF(f)    do { putF(p, m->f); p += 4; } while (0)
+#define MVS(f)    do { put32(p, (u32)m->f); p += 4; } while (0)
+#define MVF3(f)   do { MVF(f[0]); MVF(f[1]); MVF(f[2]); } while (0)
+
+static void netMovePack(const struct netmove *m, u8 *out)
+{
+	u8 *p = out;
+	s32 i;
+
+	MVF(speedtheta); MVF(speedverta); MVF(speedthetacontrol);
+	MVF(speedsideways); MVF(speedstrafe); MVF(speedforwards); MVF(speedboost); MVF(speedgo);
+	MVS(speedmaxtime60);
+	MVF3(shotspeed); MVF3(moveinitspeed); MVF3(forcespeed); MVF3(rollspeed);
+	MVS(rolltime60);
+	MVF(vely); MVF(sumground); MVF(manground); MVF(ground); MVF(onground);
+	MVS(fallage);
+	MVF(crouchoffset); MVF(crouchspeed); MVF(crouchheight); MVF(crouchfall); MVF(sumcrouch); MVF(crouchoffsetsmall);
+	MVS(crouchtime240); MVS(crouchoffsetreal); MVS(crouchoffsetrealsmall);
+	MVF(swaytarget); MVF(swayoffset0); MVF(swayoffset2);
+	MVF3(laddernormal); MVF(ladderupdown); MVF(liftground);
+	MVF(height); MVF(eyeheight); MVF(gunspeed); MVF(breathing);
+	MVF3(headpossum);
+	MVS(headwalkingtime60);
+	put16(p, (u16)m->floorroom); p += 2;
+	put16(p, m->floorflags); p += 2;
+	p[0] = m->isfalling;
+	p[1] = m->onladder;
+	p[2] = m->inlift;
+	p[3] = m->movemode;
+	p[4] = (u8)m->crouchpos;
+	p[5] = (u8)m->autocrouchpos;
+	p[6] = (u8)m->headanim;
+	p[7] = m->floortype;
+	p += 8;
+	put16(p, (u16)m->animnum); put16(p + 2, (u16)m->animnum2);
+	p[4] = (u8)m->flip; p[5] = (u8)m->flip2; p[6] = (u8)m->looping; p[7] = (u8)m->average;
+	put16(p + 8, (u16)m->framea); put16(p + 10, (u16)m->frameb);
+	put16(p + 12, (u16)m->frame2a); put16(p + 14, (u16)m->frame2b);
+	p += 16;
+	MVF(frame); MVF(frac); MVF(endframe); MVF(speed); MVF(newspeed); MVF(oldspeed); MVF(timespeed); MVF(elapsespeed);
+	MVF(frame2); MVF(frac2); MVF(endframe2); MVF(speed2); MVF(newspeed2); MVF(oldspeed2); MVF(timespeed2); MVF(elapsespeed2);
+	MVF(fracmerge); MVF(timemerge); MVF(elapsemerge); MVF(loopframe); MVF(loopmerge);
+	MVF(playspeed); MVF(newplay); MVF(oldplay); MVF(timeplay); MVF(elapseplay); MVF(animscale);
+
+	for (i = 0; i < NETMOVE_HEADWORDS; i++) {
+		put32(p, m->headsave[i]);
+		p += 4;
+	}
+
+	MVF(swivelpos[0]); MVF(swivelpos[1]);
+	p[0] = m->insightaimmode ? 1 : 0;
+	p[1] = p[2] = p[3] = 0;
+}
+
+#undef MVF
+#undef MVS
+#define MVF(f)    do { m->f = getF(p); p += 4; } while (0)
+#define MVS(f)    do { m->f = (s32)get32(p); p += 4; } while (0)
+
+static void netMoveUnpack(const u8 *in, struct netmove *m)
+{
+	const u8 *p = in;
+	s32 i;
+
+	MVF(speedtheta); MVF(speedverta); MVF(speedthetacontrol);
+	MVF(speedsideways); MVF(speedstrafe); MVF(speedforwards); MVF(speedboost); MVF(speedgo);
+	MVS(speedmaxtime60);
+	MVF3(shotspeed); MVF3(moveinitspeed); MVF3(forcespeed); MVF3(rollspeed);
+	MVS(rolltime60);
+	MVF(vely); MVF(sumground); MVF(manground); MVF(ground); MVF(onground);
+	MVS(fallage);
+	MVF(crouchoffset); MVF(crouchspeed); MVF(crouchheight); MVF(crouchfall); MVF(sumcrouch); MVF(crouchoffsetsmall);
+	MVS(crouchtime240); MVS(crouchoffsetreal); MVS(crouchoffsetrealsmall);
+	MVF(swaytarget); MVF(swayoffset0); MVF(swayoffset2);
+	MVF3(laddernormal); MVF(ladderupdown); MVF(liftground);
+	MVF(height); MVF(eyeheight); MVF(gunspeed); MVF(breathing);
+	MVF3(headpossum);
+	MVS(headwalkingtime60);
+	m->floorroom = (s16)get16(p); p += 2;
+	m->floorflags = (u16)get16(p); p += 2;
+	m->isfalling = p[0];
+	m->onladder = p[1];
+	m->inlift = p[2];
+	m->movemode = p[3];
+	m->crouchpos = (s8)p[4];
+	m->autocrouchpos = (s8)p[5];
+	m->headanim = (s8)p[6];
+	m->floortype = p[7];
+	p += 8;
+	m->animnum = (s16)get16(p); m->animnum2 = (s16)get16(p + 2);
+	m->flip = (s8)p[4]; m->flip2 = (s8)p[5]; m->looping = (s8)p[6]; m->average = (s8)p[7];
+	m->framea = (s16)get16(p + 8); m->frameb = (s16)get16(p + 10);
+	m->frame2a = (s16)get16(p + 12); m->frame2b = (s16)get16(p + 14);
+	p += 16;
+	MVF(frame); MVF(frac); MVF(endframe); MVF(speed); MVF(newspeed); MVF(oldspeed); MVF(timespeed); MVF(elapsespeed);
+	MVF(frame2); MVF(frac2); MVF(endframe2); MVF(speed2); MVF(newspeed2); MVF(oldspeed2); MVF(timespeed2); MVF(elapsespeed2);
+	MVF(fracmerge); MVF(timemerge); MVF(elapsemerge); MVF(loopframe); MVF(loopmerge);
+	MVF(playspeed); MVF(newplay); MVF(oldplay); MVF(timeplay); MVF(elapseplay); MVF(animscale);
+
+	for (i = 0; i < NETMOVE_HEADWORDS; i++) {
+		m->headsave[i] = get32(p);
+		p += 4;
+	}
+
+	MVF(swivelpos[0]); MVF(swivelpos[1]);
+	m->insightaimmode = p[0] ? 1 : 0;
+}
+
+#undef MVF
+#undef MVS
+#undef MVF3
+
 void netLpPack(const struct netlpstate *s, u8 *out)
 {
 	s32 i;
@@ -579,6 +693,7 @@ void netLpPack(const struct netlpstate *s, u8 *out)
 
 	memcpy(out + 136, s->inv, 32);
 	memcpy(out + 168, s->invdual, 32);
+	netMovePack(&s->mv, out + 208);
 }
 
 void netLpUnpack(const u8 *in, struct netlpstate *s)
@@ -615,6 +730,7 @@ void netLpUnpack(const u8 *in, struct netlpstate *s)
 
 	memcpy(s->inv, in + 136, 32);
 	memcpy(s->invdual, in + 168, 32);
+	netMoveUnpack(in + 208, &s->mv);
 }
 
 /*

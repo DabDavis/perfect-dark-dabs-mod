@@ -91,6 +91,32 @@ struct player;
 struct player *netLocalPlayer(struct player *fallback);
 
 /**
+ * Prediction (PLANS/NETPLAY.md "Prediction", netpredict.c). A client runs
+ * its own player on its own commands at once; when the host's state for a
+ * command it played differs from what this machine had after the same
+ * command, the host's state is taken and the commands since are played
+ * again through bmoveTick. g_NetReplaying is set for that replay: anything
+ * other than the player's movement that the walk would do (a sound, a door,
+ * a death, the gun, a push) is not done again. Each such place returns at
+ * its top on it.
+ */
+extern s32 g_NetReplaying;
+// bmoveTick, at its head: a tick's movement starts (the client's own player)
+void netPredictMoveBegin(s32 allowc1x, s32 allowc1y, s32 allowc1buttons, s32 ignorec2);
+// playerTick, around bmoveTick on a frame drawn between ticks (g_NetPass
+// NETPASS_PRESENT_ONLY): the walk's state as the last tick left it, whatever
+// the input handling of a zero-length frame did to it (each machine draws
+// its own number of such frames, so nothing they do may stick)
+void netPredictPresentBegin(void);
+void netPredictPresentEnd(void);
+// bwalkTryJump, at its head: the tick's jump (pressed after its walk), for a replay
+void netPredictJumpTry(void);
+// playerTick's camera (player.c): the eye eased off a correction, and the
+// mouse not yet ticked turned in on a frame drawn between ticks
+struct coord;
+void netPredictView(struct coord *eye, struct coord *up, struct coord *look);
+
+/**
  * Set around code that belongs to the player of the current pass (its gun,
  * its HUD, its own life) when that player is not this machine's: sndStart
  * then plays nothing, as nobody here is that player (spec-players.md §6).
@@ -119,7 +145,7 @@ static inline s32 netWorldSoundBegin(void)
 {
 	const s32 pass = g_NetRemotePass;
 
-	if (g_NetMode != NETMODE_NONE) g_NetRemotePass = 0;
+	if (g_NetMode != NETMODE_NONE && !g_NetReplaying) g_NetRemotePass = 0;
 	return pass;
 }
 

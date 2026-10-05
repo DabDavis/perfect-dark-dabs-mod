@@ -84,6 +84,9 @@ bool geStanFloorAhead(s32 playernum, struct coord *pos, struct coord *to, f32 gr
 /** The player's tile is to be found afresh: they fell, climbed a ladder or rode. */
 void geStanForgetPlayerTile(s32 playernum);
 
+/** Netplay's prediction (netpredict.c): the player's tile memory read out (save 1) or put back (0). */
+void geStanNetPlayerTile(s32 playernum, s32 save, s32 *tile, s32 *fromtile);
+
 /**
  * The player whose own move the walls are asked about next, or -1 when done:
  * the tile their cylinder stands on is the one GoldenEye's walk from their

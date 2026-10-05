@@ -79,6 +79,7 @@
 #include "gexplusveh.h"
 #include "modloader.h"
 #include "romdata.h"
+#include "net/net.h"
 
 #define TANK_MAX_SPEED      15.0f
 #define TANK_TURN_FILTER    0.92f
@@ -1709,6 +1710,7 @@ static void tankFire(struct tankobj *tank)
 
 void geTankFireCannon(void)
 {
+	if (g_NetReplaying) return; // netplay: a prediction replay moves the player and does nothing else (netpredict.c)
 	const s32 p = g_Vars.currentplayernum;
 	struct tankobj *tank = geTankIsDriving() ? tankDriven() : NULL;
 
