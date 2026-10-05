@@ -43,7 +43,7 @@
  */
 
 // Bumped whenever any message below changes shape or meaning
-#define NET_PROTOCOL_VERSION 6
+#define NET_PROTOCOL_VERSION 7
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -226,6 +226,9 @@
  *   per mpchr slot (MPCHR(i)):
  *     s8 placement, s32 rankablescore, s16 numdeaths, s16 numpoints,
  *     s16 killcounts[MAX_MPCHRS]
+ *   u16     scenlen               NETSCEN_SIZE (protocol 7)
+ *   bytes   scenario              the host's scenario block at the end (the
+ *                                 SNAP block below), applied with the table
  *
  * LOBBY (client -> host) - the client's match stage has stopped (its H12,
  * past its end screen) and it is back in the menus. The host sends RULES and
@@ -317,6 +320,11 @@
  *     PLAYER:    u8 mpindex, s16 bodynum, s16 headnum
  *     BODY:      s16 bodynum, s16 headnum
  *     DYNWEAPON: u8 weaponnum, u8 gunfunc, s16 modelnum, u8 objtype
+ *     SCENOBJ:   (protocol 7; kind 9, OBJ records only) a scenario's prop,
+ *                a briefcase, the uplink or a terminal: s16 modelnum,
+ *                u8 objtype, u8 weaponnum, u16 extrascale (1-4096, 256 = 1),
+ *                u8 team (0-3, a Capture the Case briefcase's), u8 flags
+ *                (1 a Hacker Central terminal). Always in scope.
  *     others:    s16 modelnum, u8 objtype
  *   records, for each updated id rising: its record (CHR 48, OBJ 24, DOOR
  *     6, LIFT 14 bytes; layouts in netsnap.c netRecPack) XOR'd against the
@@ -356,6 +364,34 @@
  *     rwdata (bondheadsave, 120 bytes); the aim: f32 swivelpos[2], u8
  *     insightaimmode, u8 0[3] (12 bytes). NETMOVE_SIZE 480 in all, at
  *     bytes 208..687
+ *   u8      hasscen               (protocol 7) 0 none, 1 keyframe, 2 against
+ *                                 the baseline's
+ *   delta   scenario              NETSCEN_SIZE (640) bytes, the match's
+ *     scenario state, the same for every client (netscen.c), every index
+ *     an mpchr config slot (players 0-3, sims 4+); REF5 is u8 kind (0 none,
+ *     1 a chr: u8 slot, 2 an entity: u16 id, u16 gen) and 4 bytes:
+ *       0  u8 scenario (0xff outside a match), u8 0[3]
+ *       4  s16 numpoints[84]       MPCHR(slot)->numpoints
+ *     172  u16 tokenheld[4]        each player's tokenheldtime
+ *     180  u8 holds[4]             each player's inventory: 1 briefcase, 2 uplink
+ *     184  Hold the Briefcase: REF5 token, f32 pos[3]
+ *          Hacker Central: s8 download slot, s8 in-range slot, s8 terminal,
+ *            u8 0, REF5 uplink, REF5 terminal, u8 terminal team, u8 0,
+ *            s16 downloads[84], u16 dltime240[84]
+ *          Pop a Cap: s16 victimindex, u16 age240, u8 nvictims,
+ *            u8 victims[84] (slots, 0xff none), s16 caps[84], s16 survivals[84]
+ *          King of the Hill: s16 occupiedteam, elapsed240, movehill,
+ *            hillindex, hillcount, s16 hillrooms[2], f32 hillpos[3],
+ *            f32 colourfrac[3]
+ *          Capture the Case: s16 teamindexes[4], s16 playercounts[4],
+ *            s16 baserooms[4], REF5 tokens[4]
+ *   u32     evseq                 (protocol 7, only with hasscen != 0) the
+ *                                 EVENTS messages the host had sent this
+ *                                 client in the match before this block
+ *     The client applies the block of host tick T once its render clock
+ *     reaches T and it has received evseq EVENTS messages (a lost one sent
+ *     again; at most 120 ticks' wait), after every event of T and before
+ *     any later one
  *
  * Present and not updated: the client copies the baseline's record (it is
  * unchanged, or changed and left by the 1100-byte cap for a later packet).

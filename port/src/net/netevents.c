@@ -101,6 +101,7 @@ static u8 s_One[NETEV_MAXTEXT + 128];
 static u32 s_HostRecorded[NETEV_COUNT];
 static u32 s_HostSentBytes = 0;
 static u32 s_HostMsgs = 0;
+static u32 s_HostSeq[MAX_PLAYERS]; // EVENTS messages sent to each slot this match (the SNAP's evseq)
 static u32 s_HostDroppedFull = 0;
 static u32 s_HostRecordedTotal = 0;
 static char s_Detail[160];     // what the host's log line adds to the next event
@@ -147,6 +148,7 @@ static s32 s_ClientEnded = 0;  // MATCH_END came: the match's events are all in
 static u32 s_Received[NETEV_COUNT];
 static u32 s_Applied[NETEV_COUNT];
 static u32 s_RecvMsgs = 0;
+static u32 s_RecvSeq = 0;      // EVENTS messages of this match received (against the SNAP's evseq)
 static u32 s_RecvBytes = 0;
 static u32 s_OutOfOrder = 0;
 static u32 s_Malformed = 0;
@@ -860,6 +862,7 @@ static void netEvSendSlot(s32 slot, s32 pn)
 			netSessionSendSlot(slot, NET_CHAN_RELIABLE, s_Msg, netBufLen(&b), NET_SEND_RELIABLE);
 			s_HostSentBytes += netBufLen(&b);
 			s_HostMsgs++;
+			s_HostSeq[slot]++;
 			countp = NULL;
 		}
 
@@ -883,7 +886,24 @@ static void netEvSendSlot(s32 slot, s32 pn)
 		netSessionSendSlot(slot, NET_CHAN_RELIABLE, s_Msg, netBufLen(&b), NET_SEND_RELIABLE);
 		s_HostSentBytes += netBufLen(&b);
 		s_HostMsgs++;
+		s_HostSeq[slot]++;
 	}
+}
+
+/**
+ * How many EVENTS messages have gone to a slot this match: a snapshot
+ * carries it with its scenario block (netscen.c), so the client applies the
+ * block only once every event the host had sent before it is in
+ */
+u32 netEventsHostSeq(s32 slot)
+{
+	return slot >= 0 && slot < MAX_PLAYERS ? s_HostSeq[slot] : 0;
+}
+
+// ... and how many of this match's have come here (the channel is ordered)
+u32 netEventsClientSeq(void)
+{
+	return s_RecvSeq;
 }
 
 static void netEvHostLog(const char *why)
@@ -963,6 +983,7 @@ void netEventsHostMatchEnded(void)
 		netBufWriteU32(&b, g_NetTick);
 		netBufWriteU16(&b, 0);
 		netSessionSendSlot(slot, NET_CHAN_RELIABLE, s_Msg, netBufLen(&b), NET_SEND_RELIABLE);
+		s_HostSeq[slot]++;
 	}
 
 	netEvKillLine("end", g_NetTick);
@@ -1245,6 +1266,7 @@ void netEventsClientOnMsg(const u8 *data, s32 len)
 	}
 
 	s_RecvMsgs++;
+	s_RecvSeq++;
 	s_RecvBytes += len;
 
 	if (s_HaveTick && tick < s_LastTick) {
@@ -1583,6 +1605,11 @@ static void netEvApply(struct netevc *e, f64 rt)
 				e->u[0], e->u[1], e->u[2], e->i[3], e->u[3], e->i[5], e->i[4], e->uflags);
 		setCurrentPlayerNum(prevplayernum);
 		s_HudForMe++;
+
+		if (!s_Quiet) {
+			netScenClientHudmsg(e->text); // a sound the host's scenario code makes with it
+		}
+
 		snprintf(extra, sizeof(extra), "\"%.100s\"", e->text);
 
 		// a log line wants one line
@@ -1638,10 +1665,15 @@ void netEventsClientDrain(s32 haveclock, f64 rt)
 			s_NextKill += NETEV_KILLEVERY;
 		}
 
+		// the scenario's blocks from before this tick first (netscen.c)
+		netScenClientBeforeEvent(e->tick);
 		netEvApply(e, rt);
 		s_QHead = (s_QHead + 1) % NETEV_QUEUE;
 		s_QCount--;
 	}
+
+	// ... and every block the render clock has reached, after its tick's events
+	netScenClientUpTo(rt);
 
 	// a sample with nothing after it: once the clock is well past it
 	while (!s_QCount && rt >= (f64)(s_NextKill + NETEV_KILLSETTLE)) {
@@ -1720,6 +1752,7 @@ void netEventsStageStart(void)
 	memset(s_HostRecorded, 0, sizeof(s_HostRecorded));
 	s_HostSentBytes = 0;
 	s_HostMsgs = 0;
+	memset(s_HostSeq, 0, sizeof(s_HostSeq));
 	s_HostDroppedFull = 0;
 	s_HostRecordedTotal = 0;
 	s_HostEnded = 0;
@@ -1742,6 +1775,7 @@ void netEventsStageStart(void)
 	memset(s_Received, 0, sizeof(s_Received));
 	memset(s_Applied, 0, sizeof(s_Applied));
 	s_RecvMsgs = 0;
+	s_RecvSeq = 0;
 	s_RecvBytes = 0;
 	s_OutOfOrder = 0;
 	s_Malformed = 0;

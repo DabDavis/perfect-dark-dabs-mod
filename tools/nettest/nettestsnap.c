@@ -277,6 +277,14 @@ static void worldSpawn(s32 id)
 		e->desc.weaponnum = (u8)(srnd() % 60);
 		e->desc.modelnum = (s16)(srnd() % 500);
 		e->moving = srnd() % 6 == 0;
+
+		if (r == 9 && srnd() % 2) {
+			// a scenario's prop (protocol 7): its scale and team come along
+			e->desc.kind = NETDESC_SCENOBJ;
+			e->desc.extrascale = (u16)(51 + srnd() % 462);
+			e->desc.team = (u8)(srnd() % 4);
+			e->desc.scenflags = (u8)(srnd() % 2);
+		}
 	}
 
 	e->st.pos[0] = srndf(-5000, 5000);
@@ -370,6 +378,7 @@ static s32 snapStream(const char *name, s32 losspct, s32 steps, s32 hostile, u32
 	s32 decodedpoison = 0;
 	u32 probes[3] = {0, 0, 0};
 	u8 lp[NETLP_SIZE];
+	static u8 scen[NETSCEN_SIZE];
 	struct netlpstate lps;
 
 	memset(s_World, 0, sizeof(s_World));
@@ -406,12 +415,21 @@ static s32 snapStream(const char *name, s32 losspct, s32 steps, s32 hostile, u32
 		lps.ammo[step % NETLP_NUMAMMO] = (u16)step;
 		netLpPack(&lps, lp);
 
+		// the scenario block: a few counters moving, a holder now and then
+		scen[0] = 3;
+		scen[4 + (step % 40) * 2] = (u8)step;
+		scen[200 + step % 3] = (u8)(step / 7);
+
+		if (srnd() % 10 == 0) {
+			scen[184 + srnd() % 400] = (u8)srnd();
+		}
+
 		memset(&hdr, 0, sizeof(hdr));
 		hdr.matchid = 42;
 		hdr.hosttick = step * 2;
 		hdr.lvupdate240 = 4;
 		hdr.lastcmd = step * 2 - 3;
-		len = netSnapHostBuild(&h, &hdr, ents, n, lp, pkt, 1100);
+		len = netSnapHostBuild(&h, &hdr, ents, n, lp, step % 50 == 7 ? NULL : scen, (u32)step * 3 + 1, pkt, 1100);
 		SCHECK(len > 0 && len <= 1100);
 
 		// what the host claims is SENT or SYNC is the world as it is
@@ -552,6 +570,9 @@ static s32 snapStream(const char *name, s32 losspct, s32 steps, s32 hostile, u32
 					}
 				}
 				SCHECK(info && info->haslp && memcmp(info->lp, h.lp[got.seq % NETBASELINE_SLOTS], NETLP_SIZE) == 0);
+				SCHECK(info->hasscen == (h.scenseq[got.seq % NETBASELINE_SLOTS] == got.seq));
+				SCHECK(!info->hasscen || memcmp(info->scen, h.scen[got.seq % NETBASELINE_SLOTS], NETSCEN_SIZE) == 0);
+				SCHECK(!info->hasscen || info->evseq == info->hosttick / 2 * 3 + 1);
 				decodedafter++;
 			}
 

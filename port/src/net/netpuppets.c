@@ -10,6 +10,7 @@
 #include "data.h"
 #include "system.h"
 #include "lib/model.h"
+#include "lib/memp.h"
 #include "lib/anim.h"
 #include "game/chr.h"
 #include "game/chraction.h"
@@ -1331,6 +1332,95 @@ static struct prop *netPupMakeCrate(const struct netdesc *d, const struct netent
 	return prop;
 }
 
+/**
+ * A scenario's prop (SCENOBJ, netscen.c): a briefcase or the uplink as a
+ * weapon at the host's scale with its team, or Hacker Central's terminal as
+ * scenarioCreateObj makes it. Never made by this machine's own
+ * scenarioInitProps, so nothing else here owns or reaps it.
+ */
+static struct prop *netPupMakeScen(const struct netdesc *d, const struct netentstate *s)
+{
+	const f32 scale = d->extrascale * (1.0f / 256.0f);
+	struct prop *prop;
+
+	if (d->objtype == OBJTYPE_WEAPON) {
+		struct weaponobj *weapon;
+
+		prop = netPupMakeWeapon(d, s);
+
+		if (!prop || !(weapon = prop->weapon) || !weapon->base.model) {
+			return prop;
+		}
+
+		weapon->base.extrascale = d->extrascale;
+		weapon->team = d->team;
+		modelSetScale(weapon->base.model, weapon->base.model->scale * scale);
+		netPupPlaceObj(&weapon->base, s, weapon->base.model->scale);
+
+		return prop;
+	}
+
+	if (d->modelnum < 0 || d->modelnum >= NUM_MODELS || g_ModelStates[d->modelnum].fileid == 0
+			|| (setupLoadModeldef(d->modelnum), 0) || !g_ModelStates[d->modelnum].modeldef) {
+		return NULL;
+	}
+
+	{
+		struct defaultobj tmp = {
+			256,                    // extrascale
+			0,                      // hidden2
+			OBJTYPE_BASIC,          // type
+			0,                      // modelnum
+			-1,                     // pad
+			0,                      // flags: still, the snapshots place it
+			OBJFLAG2_IMMUNETOGUNFIRE | OBJFLAG2_IMMUNETOEXPLOSIONS,
+			0,                      // flags3
+			NULL,                   // prop
+			NULL,                   // model
+			1, 0, 0,                // realrot
+			0, 1, 0,
+			0, 0, 1,
+			0,                      // hidden
+			NULL,                   // geo
+			NULL,                   // projectile
+			0,                      // damage
+			1000,                   // maxdamage
+			0xff, 0xff, 0xff, 0x00, // shadecol
+			0xff, 0xff, 0xff, 0x00, // nextcol
+			0x0fff,                 // floorcol
+			0,                      // tiles
+		};
+		struct defaultobj *obj = mempAlloc(ALIGN16(sizeof(struct defaultobj)), MEMPOOL_STAGE);
+
+		if (!obj) {
+			return NULL;
+		}
+
+		*obj = tmp;
+		obj->modelnum = d->modelnum;
+		obj->extrascale = d->extrascale;
+		obj->flags |= OBJFLAG_INVINCIBLE;
+
+		// the use key near it does what it does on the host (netClientInteract)
+		if (d->scenflags & NETSCENOBJ_TERMINAL) {
+			obj->flags3 |= OBJFLAG3_HTMTERMINAL | OBJFLAG3_INTERACTABLE;
+		}
+
+		prop = objInitWithModelDef(obj, g_ModelStates[d->modelnum].modeldef);
+
+		if (!prop || !obj->model) {
+			return NULL;
+		}
+
+		modelSetScale(obj->model, obj->model->scale * scale);
+		propActivate(prop);
+		propEnable(prop);
+		netPupPlaceObj(obj, s, obj->model->scale);
+	}
+
+	return prop;
+}
+
 static void netPupFreeDyn(struct netpup *u)
 {
 	struct prop *prop = u->dyn;
@@ -1390,6 +1480,9 @@ static struct prop *netPupDyn(struct netpup *u, u16 id, u16 gen, s32 kind, s32 r
 		break;
 	case NETDESC_AMMOCRATE:
 		prop = netPupMakeCrate(d, s);
+		break;
+	case NETDESC_SCENOBJ:
+		prop = netPupMakeScen(d, s);
 		break;
 	default:
 		// DYNOBJ (debris and the like) and BODY (Mod.Bodies' corpses) are
@@ -1751,6 +1844,25 @@ static void netClientPosePuppetsRun(void)
 	}
 }
 
+/**
+ * A host entity's prop here: one made for it (a dynamic kind) or the one
+ * mapped to it, while its local generation holds; NULL otherwise
+ */
+struct prop *netPuppetsLocalProp(u16 id, u16 gen)
+{
+	if (s_Pup && id < s_PupMax && s_Pup[id].dyn) {
+		struct netpup *u = &s_Pup[id];
+
+		if (u->hostgen == gen && netEntsPropGen(netPupLocalIndex(u->dyn)) == u->dyngen) {
+			return u->dyn;
+		}
+
+		return NULL;
+	}
+
+	return netEntsMapped(id, gen);
+}
+
 /*
  * The gates' helpers
  */
@@ -1901,8 +2013,8 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, trails %u, player puppet deaths %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, trails %u, player puppet deaths %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
-			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE],
+			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
 			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_Trails, s_PlayerDeaths);
 }

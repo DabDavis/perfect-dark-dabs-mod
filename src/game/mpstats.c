@@ -269,7 +269,7 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 	}
 #endif
 
-	if (g_Vars.normmplayerisrunning && g_MpSetup.scenario == MPSCENARIO_POPACAP) {
+	if (g_Vars.normmplayerisrunning && g_MpSetup.scenario == MPSCENARIO_POPACAP && !NET_CLIENT) { // netplay: a client's Pop a Cap state is the host's block
 		pacHandleDeath(aplayernum, vplayernum);
 	}
 

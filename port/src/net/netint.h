@@ -164,6 +164,8 @@ void netEventsClientOnMsg(const u8 *data, s32 len);
 void netEventsClientDrain(s32 haveclock, f64 rt); // after the pose step: what the render clock reached
 void netEventsClientTickEnd(void);
 void netEventsClientMatchEnd(void);  // MATCH_END: everything queued, then the table
+u32 netEventsHostSeq(s32 slot);     // EVENTS messages sent to a slot this match (SNAP's evseq)
+u32 netEventsClientSeq(void);       // ... and received here
 
 // netpuppets.c
 void netPuppetsStageStart(void);  // the client's match stage began (after netEntsStageStart)
@@ -197,6 +199,23 @@ void netLagCompAimResave(s32 pn);
 // none yet; delay (may be NULL) the interpolation delay in it
 s32 netPuppetsViewTick(f64 *view, f32 *delay);
 
+// netscen.c: Combat Simulator scenarios online (phase 7a)
+void netScenArgs(void);
+void netScenStageStart(void);
+void netScenMatchStopped(void);
+void netScenHostTickEnd(void);           // netTickEnd: the tick's block, before the snapshots
+const u8 *netScenHostBlock(void);        // the tick's block (NETSCEN_SIZE), NULL outside a match
+void netScenHostFinal(u8 *out);          // H9: the block for MATCH_END
+s32 netScenObjDesc(struct prop *prop, struct netdesc *d); // a scenario's prop: SCENOBJ's fields
+void netScenClientOnSnap(u32 hosttick, const u8 *scen, u32 evseq); // evseq: EVENTS messages the host had sent before it
+void netScenClientHudmsg(const char *text); // a hudmsg event shown: the scenario sound that goes with it
+void netScenClientBeforeEvent(u32 tick); // netEventsClientDrain: the blocks before an event's tick
+void netScenClientUpTo(f64 rt);          // ... and the ones the render clock has reached
+void netScenClientFinal(const u8 *scen); // MATCH_END's block
+void netScenClientApplyFinal(void);      // H10
+// netpuppets.c: the local prop for a host entity, mapped or made here; NULL none
+struct prop *netPuppetsLocalProp(u16 id, u16 gen);
+
 // nethash.c: the session hash (computed once) and the stage hash
 s32 netSessionHash(struct nethashcomp *comps, s32 max);
 void netStageHashReset(void);
@@ -205,6 +224,8 @@ s32 netStageHashOpen(void);
 void netStageHashOpenWindow(void);
 void netStageHashCloseWindow(void);
 u32 netStageHashCount(s32 comp);
+void netStageHashNoteRng(void); // the RNG as it is now goes in at H6 (before a scenario's props draw)
+s32 netEntsClientLpHolds(s32 weaponnum); // the newest local-player block: 1 holds it, 0 not, -1 no block
 
 // netrules.c
 struct netkeyvalue {

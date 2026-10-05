@@ -475,6 +475,14 @@ void netDescWrite(struct netbuf *b, const struct netdesc *d)
 		netBufWriteS16(b, d->modelnum);
 		netBufWriteU8(b, d->objtype);
 		break;
+	case NETDESC_SCENOBJ:
+		netBufWriteS16(b, d->modelnum);
+		netBufWriteU8(b, d->objtype);
+		netBufWriteU8(b, d->weaponnum);
+		netBufWriteU16(b, d->extrascale);
+		netBufWriteU8(b, d->team);
+		netBufWriteU8(b, d->scenflags);
+		break;
 	default:
 		netBufWriteS16(b, d->modelnum);
 		netBufWriteU8(b, d->objtype);
@@ -517,6 +525,19 @@ void netDescRead(struct netbuf *b, struct netdesc *d)
 		d->modelnum = netBufReadS16(b);
 		d->objtype = netBufReadU8(b);
 		break;
+	case NETDESC_SCENOBJ:
+		d->modelnum = netBufReadS16(b);
+		d->objtype = netBufReadU8(b);
+		d->weaponnum = netBufReadU8(b);
+		d->extrascale = netBufReadU16(b);
+		d->team = netBufReadU8(b);
+		d->scenflags = netBufReadU8(b);
+
+		// an object, never a door or lift; a scale the model code takes
+		if (d->rec != NETREC_OBJ || d->extrascale == 0 || d->extrascale > 4096 || d->team > 3) {
+			b->error = 1;
+		}
+		break;
 	default:
 		d->modelnum = netBufReadS16(b);
 		d->objtype = netBufReadU8(b);
@@ -537,6 +558,7 @@ static s32 netDescSize(const struct netdesc *d)
 	case NETDESC_PLAYER: return 3 + 5;
 	case NETDESC_BODY: return 3 + 4;
 	case NETDESC_DYNWEAPON: return 3 + 5;
+	case NETDESC_SCENOBJ: return 3 + 8;
 	default: return 3 + 3;
 	}
 }
@@ -821,6 +843,7 @@ void netSnapHostReset(struct netsnaphost *h)
 	netBaselineReset(&h->bl);
 	h->acked = 0;
 	memset(h->lpseq, 0, sizeof(h->lpseq));
+	memset(h->scenseq, 0, sizeof(h->scenseq));
 	memset(h->prio, 0, h->maxids * sizeof(f32));
 }
 
@@ -914,7 +937,7 @@ static s32 s_CandsCap = 0;
 static u8 s_Present[NETSNAP_MAXBYTES];
 static u8 s_BasePresent[NETSNAP_MAXBYTES];
 static u8 s_Updated[NETSNAP_MAXBYTES];
-static u8 s_Tmp[NETDELTA_MAXENCODED(NETLP_SIZE) + 16];
+static u8 s_Tmp[NETDELTA_MAXENCODED(NETLP_SIZE > NETSCEN_SIZE ? NETLP_SIZE : NETSCEN_SIZE) + 16];
 
 static s32 netCandCmp(const void *a, const void *b)
 {
@@ -989,7 +1012,7 @@ static void netSnapWriteHdr(struct netbuf *b, const struct netsnaphdr *hdr)
  */
 static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr, const struct netsnapent *ents,
 		struct netcand *cands, s32 ncands, const struct netbaselineslot *base, const u8 *lp, const u8 *lpbase,
-		u8 *out, s32 cap, u8 msgtype)
+		const u8 *scen, const u8 *scenbase, u32 evseq, u8 *out, s32 cap, u8 msgtype)
 {
 	struct netbuf b;
 	const s32 nbytes = (h->maxids + 7) / 8;
@@ -1054,16 +1077,26 @@ static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr,
 		netBufWriteU8(&b, 0);
 	}
 
+	if (scen) {
+		netBufWriteU8(&b, scenbase ? 2 : 1);
+		netDeltaWrite(&b, scen, scenbase, NETSCEN_SIZE);
+		netBufWriteU32(&b, evseq);
+	} else {
+		netBufWriteU8(&b, 0);
+	}
+
 	return netBufOk(&b) ? netBufLen(&b) : -1;
 }
 
 #define NETSNAP_MSGTYPE 14 // NETMSG_SNAP (netproto.h)
 
 s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsnapent *ents, s32 n,
-		const u8 *lp, u8 *out, s32 cap)
+		const u8 *lp, const u8 *scen, u32 evseq, u8 *out, s32 cap)
 {
 	const struct netbaselineslot *base;
 	const u8 *lpbase = NULL;
+	const u8 *scenbase = NULL;
+	s32 scenlen = 0;
 	u16 baseline;
 	u16 seq;
 	s32 i;
@@ -1121,10 +1154,18 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		if (h->lpseq[baseline % NETBASELINE_SLOTS] == baseline) {
 			lpbase = h->lp[baseline % NETBASELINE_SLOTS];
 		}
+
+		if (h->scenseq[baseline % NETBASELINE_SLOTS] == baseline) {
+			scenbase = h->scen[baseline % NETBASELINE_SLOTS];
+		}
 	}
 
 	if (lp) {
 		lplen = netDeltaEncode(lp, lpbase, NETLP_SIZE, s_Tmp, sizeof(s_Tmp)) + 1;
+	}
+
+	if (scen) {
+		scenlen = netDeltaEncode(scen, scenbase, NETSCEN_SIZE, s_Tmp, sizeof(s_Tmp)) + 1 + 4;
 	}
 
 	// what each entity would cost, and how much it wants to go
@@ -1178,7 +1219,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 	// the most wanted first, as many as fit
 	qsort(s_Cands, ncands, sizeof(*s_Cands), netCandCmp);
 
-	fixed = NETSNAP_HDRSIZE + lplen + 1 + 8;
+	fixed = NETSNAP_HDRSIZE + lplen + 1 + scenlen + 1 + 8;
 	budget = cap - fixed;
 
 	for (attempt = 0; attempt < 8; attempt++) {
@@ -1200,7 +1241,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		}
 
 		qsort(s_Cands, ncands, sizeof(*s_Cands), netCandEntCmp);
-		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, out, cap, NETSNAP_MSGTYPE);
+		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, out, cap, NETSNAP_MSGTYPE);
 
 		if (len >= 0 || budget <= 0) {
 			break;
@@ -1218,7 +1259,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		}
 
 		qsort(s_Cands, ncands, sizeof(*s_Cands), netCandEntCmp);
-		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, out, cap, NETSNAP_MSGTYPE);
+		len = netSnapHostWrite(h, hdr, ents, s_Cands, ncands, base, lp, lpbase, scen, scenbase, evseq, out, cap, NETSNAP_MSGTYPE);
 
 		if (len < 0) {
 			return -1;
@@ -1284,6 +1325,13 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		h->lpseq[seq % NETBASELINE_SLOTS] = seq;
 	} else {
 		h->lpseq[seq % NETBASELINE_SLOTS] = 0;
+	}
+
+	if (scen) {
+		memcpy(h->scen[seq % NETBASELINE_SLOTS], scen, NETSCEN_SIZE);
+		h->scenseq[seq % NETBASELINE_SLOTS] = seq;
+	} else {
+		h->scenseq[seq % NETBASELINE_SLOTS] = 0;
 	}
 
 	h->seq = seq;
@@ -1443,7 +1491,10 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 	s32 prev = -1;
 	s32 i;
 	s32 haslp;
+	s32 hasscen;
+	u32 evseq;
 	u8 lp[NETLP_SIZE];
+	static u8 scen[NETSCEN_SIZE];
 	s32 entkeys = 0;
 
 	c->received++;
@@ -1652,6 +1703,22 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 		return netSnapClientFail(c);
 	}
 
+	hasscen = netBufReadU8(b);
+
+	if (hasscen == 1) {
+		netDeltaRead(b, NULL, scen, NETSCEN_SIZE);
+	} else if (hasscen == 2) {
+		if (!baseinfo || !baseinfo->hasscen) {
+			return netSnapClientFail(c);
+		}
+
+		netDeltaRead(b, baseinfo->scen, scen, NETSCEN_SIZE);
+	} else if (hasscen != 0) {
+		return netSnapClientFail(c);
+	}
+
+	evseq = hasscen ? netBufReadU32(b) : 0;
+
 	if (!netBufOk(b) || netBufRemaining(b) != 0) {
 		return netSnapClientFail(c);
 	}
@@ -1679,6 +1746,13 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 
 	if (haslp) {
 		memcpy(info->lp, lp, NETLP_SIZE);
+	}
+
+	info->hasscen = hasscen != 0;
+	info->evseq = evseq;
+
+	if (hasscen) {
+		memcpy(info->scen, scen, NETSCEN_SIZE);
 	}
 
 	if (c->newest == 0) {

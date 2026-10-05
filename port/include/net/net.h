@@ -247,8 +247,12 @@ s32 netClientRenderPass(s32 order, s32 count, s32 *islast);
 void netClientOrderPlayers(void);
 // a client in a match's stage, from its load (setup.c's scenario props)
 s32 netClientInMatch(void);
+// setup.c, in place of scenarioInitProps: 1 on a client, whose scenario
+// props are the host's entities and whose scenario state comes in the
+// snapshots (netscen.c); 0 on the host, which makes them
+s32 netScenInitProps(void);
 // The host refuses to start a net match it cannot play yet (menutick.c):
-// a client never starts one, and scenarios are not online yet
+// a client never starts one
 s32 netRefuseMatchStart(void);
 s32 netMatchStartRefused(void);
 

@@ -142,6 +142,7 @@ void netInitArgs(void)
 	netEntsArgs();
 	netPredictArgs();
 	netLagCompArgs();
+	netScenArgs();
 }
 
 /**
@@ -184,6 +185,7 @@ void netStageStart(void)
 	netEntsStageStart();
 	netEventsStageStart();
 	netLagCompStageStart();
+	netScenStageStart();
 }
 
 s32 netStageReady(void)
@@ -301,6 +303,7 @@ void netTickEnd(void)
 		if (g_NetMode == NETMODE_SERVER) {
 			// the tick's events go before its snapshot
 			netEventsHostFlush();
+			netScenHostTickEnd();
 			netEntsHostTickEnd();
 			netLagCompHostTickEnd();
 		} else if (g_NetMode == NETMODE_CLIENT) {

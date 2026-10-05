@@ -423,6 +423,19 @@ static struct {
 	u8 seen[NUM_FILE_SLOTS / 8];
 } s_NetStage;
 
+// the RNG as a scenario's props were about to draw from it (netscen.c): a
+// client makes none of them, so the machines' RNGs agree up to there only
+static u64 s_RngNote = 0;
+static s32 s_RngNoted = 0;
+
+void netStageHashNoteRng(void)
+{
+	if (s_NetStage.open) {
+		s_RngNote = g_RngSeed;
+		s_RngNoted = 1;
+	}
+}
+
 s32 netStageHashOpen(void)
 {
 	return s_NetStage.open;
@@ -431,6 +444,7 @@ s32 netStageHashOpen(void)
 void netStageHashReset(void)
 {
 	memset(&s_NetStage, 0, sizeof(s_NetStage));
+	s_RngNoted = 0;
 }
 
 static void netStageAdd(s32 comp, const u8 *digest)
@@ -523,7 +537,7 @@ void netStageHashCloseWindow(void)
 	}
 
 	// the seed itself: two machines that drew differently since H4 differ here
-	s_NetStage.sum[NETSTAGE_RNG] = g_RngSeed;
+	s_NetStage.sum[NETSTAGE_RNG] = s_RngNoted ? s_RngNote : g_RngSeed;
 	s_NetStage.count[NETSTAGE_RNG] = 1;
 
 	s_NetStage.open = 0;

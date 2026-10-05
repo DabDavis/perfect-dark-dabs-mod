@@ -53,7 +53,11 @@ s32 netRecSize(s32 rec); // 0 for a kind that is not one
 #define NETDESC_DYNOBJ    6
 #define NETDESC_AMMOCRATE 7
 #define NETDESC_HAT       8
-#define NETDESC_COUNT     9
+#define NETDESC_SCENOBJ   9 // a scenario's prop: a briefcase, the uplink, a terminal (protocol 7)
+#define NETDESC_COUNT     10
+
+// SCENOBJ's scenflags
+#define NETSCENOBJ_TERMINAL 0x01 // Hacker Central's terminal (OBJFLAG3_HTMTERMINAL)
 
 struct netdesc {
 	u8 kind;      // NETDESC_*
@@ -66,6 +70,9 @@ struct netdesc {
 	u8 gunfunc;
 	s16 bodynum;
 	s16 headnum;
+	u16 extrascale; // SCENOBJ: the object's extrascale (256 = 1)
+	u8 team;        // SCENOBJ: a Capture the Case briefcase's team
+	u8 scenflags;   // SCENOBJ: NETSCENOBJ_*
 };
 
 void netDescWrite(struct netbuf *b, const struct netdesc *d);
@@ -297,6 +304,14 @@ void netLpPack(const struct netlpstate *s, u8 *out);
 void netLpUnpack(const u8 *in, struct netlpstate *out);
 
 /**
+ * The scenario block (protocol 7): the match's scenario state, the same for
+ * every client, delta'd against the block in the baseline snapshot like the
+ * local-player block. Its layout is netscen.c's (netproto.h, SNAP); this
+ * file carries its bytes only.
+ */
+#define NETSCEN_SIZE 640
+
+/**
  * The ack block in each CMD (client -> host): the newest snapshot decoded
  * and the 32 before it as bits, reliable.io style, plus descriptors the
  * client needs again (its mapping went stale)
@@ -356,6 +371,8 @@ struct netsnaphost {
 	u8 *nack;       // [maxids]: resend the descriptor
 	u8 lp[NETBASELINE_SLOTS][NETLP_SIZE];
 	u16 lpseq[NETBASELINE_SLOTS];
+	u8 scen[NETBASELINE_SLOTS][NETSCEN_SIZE];
+	u16 scenseq[NETBASELINE_SLOTS];
 	s32 rate;
 	// the adaptive rate's window
 	u32 winsent;
@@ -387,11 +404,13 @@ void netSnapHostOnAck(struct netsnaphost *h, const struct netsnapack *a);
 /**
  * Builds snapshot hdr->seq (set here, with hdr->baseline and hdr->rate)
  * into out, at most cap bytes, and stores it as the client will hold it.
- * lp is this client's NETLP_SIZE block or NULL. Returns the length, or -1
- * if nothing could be built.
+ * lp is this client's NETLP_SIZE block or NULL, scen the NETSCEN_SIZE
+ * scenario block or NULL, evseq the EVENTS messages sent to this client
+ * before it (sent with the block). Returns the length, or -1 if nothing could be
+ * built.
  */
 s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsnapent *ents, s32 n,
-		const u8 *lp, u8 *out, s32 cap);
+		const u8 *lp, const u8 *scen, u32 evseq, u8 *out, s32 cap);
 
 /**
  * Client
@@ -403,7 +422,10 @@ struct netsnapinfo {
 	u8 lvupdate240;
 	u8 rate;
 	u8 haslp;
+	u8 hasscen;
+	u32 evseq;      // with the scenario block: EVENTS messages the host had sent before it
 	u8 lp[NETLP_SIZE];
+	u8 scen[NETSCEN_SIZE];
 };
 
 struct netsnapdescin {

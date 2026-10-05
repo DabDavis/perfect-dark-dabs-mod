@@ -25,12 +25,14 @@
 #include "game/challenge.h"
 #include "game/modoptions.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/scenarios.h"
 #include "game/lv.h"
 
 extern s32 g_MpTimeLimit60;
 extern s32 g_MpScoreLimit;
 extern s32 g_NumReasonsToEndMpMatch;
 #include "net/net.h"
+#include "net/netsnap.h"
 #include "net/nettransport.h"
 #include "net/netlobby.h"
 #include "netint.h"
@@ -164,6 +166,7 @@ static struct {
 	s16 numpoints[MAX_MPCHRS];
 	s16 killcounts[MAX_MPCHRS][MAX_MPCHRS];
 } s_End;
+static u8 s_EndScen[NETSCEN_SIZE]; // MATCH_END's scenario block (protocol 7)
 
 // harness
 static s32 s_TestHost = 0;    // --net-test-host N: start the match once N have joined
@@ -1216,6 +1219,15 @@ void netHostMatchEnded(void)
 		}
 	}
 
+	// the scenario's state at the end (protocol 7; netscen.c's block)
+	{
+		static u8 scen[NETSCEN_SIZE];
+
+		netScenHostFinal(scen);
+		netBufWriteU16(&b, NETSCEN_SIZE);
+		netBufWriteBytes(&b, scen, NETSCEN_SIZE);
+	}
+
 	for (i = 0; i < NET_MAXPEERS; i++) {
 		// a client still loading too: it would otherwise wait at the barrier
 		if (s_Clients[i].state >= NETCL_LOADING && s_Clients[i].state <= NETCL_PLAYING) {
@@ -1532,10 +1544,18 @@ static void netClientOnMatchEnd(struct netbuf *b)
 		}
 	}
 
+	if (netBufReadU16(b) != NETSCEN_SIZE) {
+		b->error = 1;
+	} else {
+		netBufReadBytes(b, s_EndScen, NETSCEN_SIZE);
+	}
+
 	if (!netBufOk(b) || netBufRemaining(b) != 0 || matchid != s_MatchIdCur || !s_MatchActive) {
 		sysLogPrintf(LOG_WARNING, "net: a MATCH_END that does not fit this match; ignored");
 		return;
 	}
+
+	netScenClientFinal(s_EndScen);
 
 	s_End.valid = 1;
 	s_EndPending = 1;
@@ -1586,6 +1606,10 @@ void netClientApplyMatchEnd(void)
 			mpchr->killcounts[j] = s_End.killcounts[i][j];
 		}
 	}
+
+	// the scenario's own counts (Hacker Central's downloads, Pop a Cap's
+	// caps) the scores are worked out from
+	netScenClientApplyFinal();
 }
 
 /*
@@ -1894,6 +1918,53 @@ static void netTestStartMatch(void)
 		}
 	}
 
+	// --net-test-scenario N (MPSCENARIO_*, its radar and highlight options
+	// on) / --net-test-teams N (players and sims dealt round the N teams)
+	{
+		const s32 scen = sysArgGetInt("--net-test-scenario", -1);
+		const s32 teams = sysArgGetInt("--net-test-teams", 0);
+
+		if (teams >= 2 && teams <= MAX_TEAMS) {
+			g_MpSetup.options |= MPOPTION_TEAMSENABLED;
+
+			for (s = 0; s < MAX_PLAYERS; s++) {
+				g_PlayerConfigsArray[s].base.team = s % teams;
+			}
+
+			for (s = 0; s < MAX_BOTS; s++) {
+				g_BotConfigsArray[s].base.team = (s + 1) % teams;
+			}
+
+			// --net-test-simteam K: every sim on team K instead
+			if (sysArgGetInt("--net-test-simteam", -1) >= 0 && sysArgGetInt("--net-test-simteam", -1) < teams) {
+				for (s = 0; s < MAX_BOTS; s++) {
+					g_BotConfigsArray[s].base.team = sysArgGetInt("--net-test-simteam", 0);
+				}
+			}
+		}
+
+		if (scen >= MPSCENARIO_COMBAT && scen <= MPSCENARIO_CAPTURETHECASE) {
+			g_MpSetup.scenario = scen;
+			g_MpSetup.options |= MPOPTION_HTB_HIGHLIGHTBRIEFCASE | MPOPTION_HTB_SHOWONRADAR | MPOPTION_CTC_SHOWONRADAR
+				| MPOPTION_KOH_HILLONRADAR | MPOPTION_HTM_SHOWONRADAR | MPOPTION_PAC_HIGHLIGHTTARGET | MPOPTION_PAC_SHOWONRADAR;
+			scenarioInit();
+
+			// --net-test-hilltime N: King of the Hill's hold, N + 10 seconds
+			if (sysArgGetInt("--net-test-hilltime", -1) >= 0) {
+				g_Vars.mphilltime = sysArgGetInt("--net-test-hilltime", 10);
+			}
+
+			// the time limit ends it unless a score limit was asked for
+			if (sysArgGetInt("--net-test-scorelimit", 0) <= 0) {
+				g_MpSetup.scorelimit = 100;
+				g_MpSetup.teamscorelimit = 400;
+			}
+
+			sysLogPrintf(LOG_NOTE, "net: --net-test-scenario: scenario %d, teams %s", scen,
+					(g_MpSetup.options & MPOPTION_TEAMSENABLED) ? "on" : "off");
+		}
+	}
+
 	mpStartMatch();
 	menuStop();
 }
@@ -1985,8 +2056,7 @@ void netClientRefuseLocalStart(void)
 
 /**
  * menutick.c (H2): a match this session will not start. A client never
- * starts one; a host does not start a scenario yet (phase 7 syncs them),
- * and says so rather than starting a match the clients cannot see.
+ * starts one; a host starts any Combat Simulator scenario.
  */
 s32 netRefuseMatchStart(void)
 {
@@ -1995,10 +2065,10 @@ s32 netRefuseMatchStart(void)
 		return 1;
 	}
 
-	if (s_Role == NETROLE_HOST && g_MpSetup.scenario != MPSCENARIO_COMBAT) {
-		sysLogPrintf(LOG_NOTE, "net: refused to start a net match with scenario %d: only Combat is online yet", g_MpSetup.scenario);
-		snprintf(s_NoticeText, sizeof(s_NoticeText), "%s",
-				"Scenarios are not online yet: set the scenario to Combat to start a net match.");
+	// every Combat Simulator scenario is online (phase 7a, netscen.c)
+	if (s_Role == NETROLE_HOST && (g_MpSetup.scenario < MPSCENARIO_COMBAT || g_MpSetup.scenario > MPSCENARIO_CAPTURETHECASE)) {
+		sysLogPrintf(LOG_NOTE, "net: refused to start a net match with scenario %d", g_MpSetup.scenario);
+		snprintf(s_NoticeText, sizeof(s_NoticeText), "%s", "This scenario cannot be played online.");
 		g_NetNoticePending = 1;
 		return 1;
 	}
@@ -2116,6 +2186,7 @@ void netStageStopped(void)
 	netEntsMatchStopped();
 	netLagCompMatchStopped();
 	netPlayersMatchStopped();
+	netScenMatchStopped();
 	s_MatchActive = 0;
 	s_MatchLoaded = 0;
 	s_MatchStage = -1;

@@ -773,6 +773,8 @@ static void netCaptureAll(void)
 			if (s_SetupCmdOfProp[idx] >= 0 && s_SetupGenOfProp[idx] == c->desc.gen) {
 				c->desc.kind = NETDESC_SETUPOBJ;
 				c->desc.key = (u16)s_SetupCmdOfProp[idx];
+			} else if (netScenObjDesc(prop, &c->desc)) {
+				// a briefcase, the uplink or a terminal: SCENOBJ (netscen.c)
 			} else if (prop->type == PROPTYPE_WEAPON || obj->type == OBJTYPE_WEAPON) {
 				c->desc.kind = NETDESC_DYNWEAPON;
 				c->desc.weaponnum = prop->weapon->weaponnum;
@@ -967,8 +969,12 @@ static void netHostSendSnap(s32 slot)
 		near = self && netDist2(&self->pos, c->st.pos) < NETENT_NEAR * NETENT_NEAR;
 
 		// scope: chrs (the radar shows them all), doors and lifts always;
-		// objects when seen lately or near, projectiles from further
-		switch (c->desc.rec) {
+		// objects when seen lately or near, projectiles from further; a
+		// scenario's prop always (the radar shows it, the scenario block
+		// names it)
+		if (c->desc.kind == NETDESC_SCENOBJ) {
+			weight = 4;
+		} else switch (c->desc.rec) {
 		case NETREC_CHR:
 			weight = 8;
 			break;
@@ -1007,7 +1013,7 @@ static void netHostSendSnap(s32 slot)
 		netLpCapture(slot, pn, lp);
 	}
 
-	len = netSnapHostBuild(h, &hdr, s_Ents, n, pn >= 0 && g_Vars.players[pn]->prop ? lp : NULL, s_Pkt, sizeof(s_Pkt));
+	len = netSnapHostBuild(h, &hdr, s_Ents, n, pn >= 0 && g_Vars.players[pn]->prop ? lp : NULL, netScenHostBlock(), netEventsHostSeq(slot), s_Pkt, sizeof(s_Pkt));
 
 	if (len <= 0) {
 		return;
@@ -1499,6 +1505,15 @@ static void netLpLocalSig(struct player *p, struct netlplocalsig *sig)
 	sig->loaded[3] = p->hands[HAND_LEFT].loadedammo[1];
 }
 
+s32 netEntsClientLpHolds(s32 weaponnum)
+{
+	if (!s_LpHaveBlock || weaponnum <= 0 || weaponnum >= 256) {
+		return -1;
+	}
+
+	return ((s_LpNew.inv[weaponnum >> 3] | s_LpNew.invdual[weaponnum >> 3]) >> (weaponnum & 7)) & 1;
+}
+
 static void netLpInventory(struct player *p, const struct netlpstate *lp)
 {
 	s32 w;
@@ -1739,6 +1754,15 @@ void netEntsClientOnSnap(const u8 *data, s32 len)
 	netClientMap(hdr.seq);
 	netClientDumpSnap(&hdr);
 	netClientMeasureLocal(&hdr);
+
+	{
+		const struct netsnapinfo *info = netSnapClientInfo(&s_Client, hdr.seq);
+
+		if (info && info->hasscen) {
+			netScenClientOnSnap(hdr.hosttick, info->scen, info->evseq);
+		}
+	}
+
 	netPuppetsOnSnap(hdr.hosttick, hdr.rate);
 }
 
