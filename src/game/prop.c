@@ -42,6 +42,7 @@
 #include "geroom.h"
 #include "gestan.h"
 #include "geslappers.h"
+#include "net/net.h"
 #endif
 #include "lib/model.h"
 #include "lib/snd.h"
@@ -285,6 +286,8 @@ struct prop *propAllocate(void)
 			g_Vars.allocstateindex = 0;
 		}
 
+		if (g_NetMode != NETMODE_NONE) netPropGenBump(prop); // netplay H2
+
 		return prop;
 	}
 
@@ -309,6 +312,7 @@ void propFree(struct prop *prop)
 	prop->prev = NULL;
 	prop->chr = NULL;
 	prop->rooms[0] = -1;
+	if (g_NetMode != NETMODE_NONE) netPropGenBump(prop); // netplay H3
 	g_Vars.freeprops = prop;
 }
 

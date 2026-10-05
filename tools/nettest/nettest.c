@@ -1394,6 +1394,24 @@ static s32 testDeadPeer(void)
 s32 hostileFragmentFlood(void);
 s32 hostileBigDatagrams(void);
 
+// nettestsnap.c
+s32 snapTestQuant(void);
+s32 snapTestStreamClean(void);
+s32 snapTestStreamLossy(void);
+s32 snapTestHostile(void);
+
+static void testPlain(const char *name, s32 (*fn)(void))
+{
+	const s32 fails = fn();
+
+	g_Checks++;
+	printf("%s %s\n", fails ? "FAIL" : "PASS", name);
+
+	if (fails) {
+		g_Failures++;
+	}
+}
+
 static void testHostile(const char *name, s32 (*fn)(void))
 {
 	s32 fails;
@@ -1449,6 +1467,10 @@ int main(int argc, char **argv)
 		testDeltaNetBuf();
 		testBaselineRing();
 		testBaselineScheme();
+		testPlain("snapshot quantizers", snapTestQuant);
+		testPlain("snapshot stream, no loss", snapTestStreamClean);
+		testPlain("snapshot stream, 10% loss each way", snapTestStreamLossy);
+		testPlain("snapshot hostile input", snapTestHostile);
 	}
 
 	if (!skipnet) {

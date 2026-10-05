@@ -132,6 +132,7 @@ void netInitArgs(void)
 	// --host [port] / --connect addr[:port] (the socket opens in netSessionInit)
 	netSessionArgs();
 	netPlayersArgs();
+	netEntsArgs();
 }
 
 /**
@@ -169,6 +170,9 @@ void netStageStart(void)
 	s_NetMouseDX = 0;
 	s_NetMouseDY = 0;
 	frametimeNetReset();
+
+	// a match's stage: the entity table (setup commands <-> props)
+	netEntsStageStart();
 }
 
 s32 netStageReady(void)
@@ -270,6 +274,15 @@ void netTickBegin(void)
 
 void netTickEnd(void)
 {
+	// the tick has run: the host's snapshots, the client's own position
+	if (netSessionMatchActive() && !netSessionBarrierHeld()) {
+		if (g_NetMode == NETMODE_SERVER) {
+			netEntsHostTickEnd();
+		} else if (g_NetMode == NETMODE_CLIENT) {
+			netEntsClientTickEnd();
+		}
+	}
+
 	netPlayersTickEnd();
 
 	// the barrier's ticks are not the match's: everyone starts from 0 at GO

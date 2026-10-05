@@ -46,8 +46,8 @@
  * goes to the clients in MATCH_END (H8-H10), and the rules come off again
  * when the stage stops (H12).
  *
- * Phase 2: clients still run their own whole simulation; nothing but the
- * session's own messages crosses the wire yet.
+ * Phase 4a: the host's snapshots reach the clients (netents.c), which decode
+ * and buffer them but still run their own whole simulation.
  */
 
 #define NETROLE_NONE   0
@@ -1592,6 +1592,8 @@ static void netHostEvent(const struct netevent *ev)
 		} else if (type == NETMSG_CMD) {
 			// unreliable: late ones from the last match are dropped there
 			if (c->state == NETCL_PLAYING) {
+				// --net-test-hostile: mangled copies first
+				if (netEntsHostile()) netEntsHostileCmd(c->slot, ev->data, ev->len);
 				netPlayersHostOnCmd(c->slot, &b);
 			}
 		} else if (type == NETMSG_SLOTCFG) {
@@ -1723,6 +1725,9 @@ static void netClientEvent(const struct netevent *ev)
 			break;
 		case NETMSG_CMDACK:
 			netPlayersClientOnAck(&b);
+			break;
+		case NETMSG_SNAP:
+			netEntsClientOnSnap(ev->data, ev->len);
 			break;
 		default:
 			break;
@@ -1996,6 +2001,7 @@ void netStageStopped(void)
 	}
 
 	netRulesRestore();
+	netEntsMatchStopped();
 	netPlayersMatchStopped();
 	s_MatchActive = 0;
 	s_MatchLoaded = 0;

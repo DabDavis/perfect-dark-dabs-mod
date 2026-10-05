@@ -6,6 +6,9 @@
 #include "lib/vars.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 
 void varsResetRoomProps(void);
 
@@ -14,6 +17,10 @@ void varsReset(void)
 	s32 i;
 
 	g_Vars.props = mempAlloc(ALIGN64(g_Vars.maxprops * sizeof(struct prop)), MEMPOOL_STAGE);
+#ifndef PLATFORM_N64
+	// netplay H1: each prop slot's generation (an entity id), a side table
+	if (g_NetMode != NETMODE_NONE) netPropGenAlloc(g_Vars.maxprops); else g_NetPropGen = NULL;
+#endif
 	g_Vars.onscreenprops = mempAlloc(ALIGN64((MAX_ONSCREENPROPS + 1) * sizeof(void *)), MEMPOOL_STAGE);
 
 #ifndef PLATFORM_N64

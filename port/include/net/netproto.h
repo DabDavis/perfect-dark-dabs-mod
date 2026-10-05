@@ -43,7 +43,7 @@
  */
 
 // Bumped whenever any message below changes shape or meaning
-#define NET_PROTOCOL_VERSION 2
+#define NET_PROTOCOL_VERSION 3
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -58,6 +58,7 @@
 #define NETMSG_CMD        11
 #define NETMSG_CMDACK     12
 #define NETMSG_SLOTCFG    13
+#define NETMSG_SNAP       14 // netsnap.c writes this number itself (NETSNAP_MSGTYPE)
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -249,6 +250,14 @@
  * captured on; the host plays them in tick order, one per host tick.
  *   u8      NETMSG_CMD
  *   u32     matchid
+ *   snapshot ack (netsnap.h, reliable.io's scheme):
+ *     u16 snapack                 the newest SNAP decoded, 0 none yet
+ *     u32 ackbits                 bit i: snapack-1-i decoded as well
+ *     u8 ackflags                 0x01 WANTKEY: a baseline the host named
+ *                                 is gone here; send keyframes
+ *     u8 nnack                    <= NETSNAP_MAXNACK (8)
+ *     u16 nack[nnack]             entity ids whose descriptor this client
+ *                                 needs again (its local prop went stale)
  *   u32     first                 the first command's tick
  *   u8      count                 1..NET_MAXCMDSEND
  *   per command, ticks first, first+1, ...:
@@ -268,6 +277,57 @@
  *   u8      depth                 commands arrived and not yet played, after
  *                                 this tick's: the client trims its clock
  *                                 to keep it at 1-2 (Overwatch time dilation)
+ *
+ * SNAP (host -> client, UNRELIABLE sequenced, every 2 host ticks, 3 while
+ * snapshots are lost or the cap leaves changes behind; at most
+ * NET_MAXUNRELIABLE bytes) - the world as this client may see it
+ * (PLANS/netplay/spec-entities.md §7; netsnap.c builds and checks it)
+ *   u8      NETMSG_SNAP
+ *   u32     matchid
+ *   u16     seq                   per client, wraps, never 0
+ *   u16     baseline              the snapshot every delta below is against:
+ *                                 the newest this client acked; 0 = keyframe
+ *   u32     hosttick              the host's g_NetTick the state is from
+ *   u8      lvupdate240           the host's timescale that tick
+ *   u8      rate                  host ticks per snapshot now (2 or 3)
+ *   u32     lastcmd               this client's last command played (0xffffffff none)
+ *   u16     maxids                entity ids run 0..maxids-1 (<= 8192)
+ *   delta   presence              a bit per id present, XOR'd against the
+ *                                 baseline's presence (netdelta.h encoding,
+ *                                 (maxids+7)/8 bytes)
+ *   delta   updated               a bit per id whose record follows (against zeros)
+ *   varu32  ndescs                spawn descriptors, ids rising:
+ *     varu32 gap                  id - previous id - 1 (previous starts at -1)
+ *     u8 kind<<4 | rec            NETDESC_*, NETREC_*
+ *     u16 gen                     the host prop slot's generation (never 0)
+ *     SETUPOBJ:  u16 setup command index, u8 objtype
+ *     SIM:       u8 bot config slot, s16 bodynum, s16 headnum
+ *     PLAYER:    u8 mpindex, s16 bodynum, s16 headnum
+ *     BODY:      s16 bodynum, s16 headnum
+ *     DYNWEAPON: u8 weaponnum, u8 gunfunc, s16 modelnum, u8 objtype
+ *     others:    s16 modelnum, u8 objtype
+ *   records, for each updated id rising: its record (CHR 48, OBJ 24, DOOR
+ *     6, LIFT 14 bytes; layouts in netsnap.c netRecPack) XOR'd against the
+ *     baseline's, or against zeros when the baseline lacks the id or holds
+ *     another generation, rec or kind there (then a descriptor came too)
+ *     (CHR byte 46 counts the chr's teleports, wrapping: snap when it
+ *     changes, by any amount; a toggled bit would lose two in one gap)
+ *   u8      haslp                 0 none, 1 keyframe, 2 against the baseline's
+ *   delta   localplayer           NETLP_SIZE (208) bytes, full precision:
+ *     u8 flags (1 dead, 2 invincible), u8 respawns, u8 teleports (counters),
+ *     u8 dualwielding, f32 pos[3], s16 rooms[8], f32 theta, f32 verta,
+ *     f32 health, f32 shield, s16 weaponnum, s16 0, s32 loadedammo[4]
+ *     (right 0, 1, left 0, 1), u16 ammoheld[33], u16 0, u8 weapons[32]
+ *     (a bit per weapon number), u8 dualweapons[32], u8 0[8]
+ *
+ * Present and not updated: the client copies the baseline's record (it is
+ * unchanged, or changed and left by the 1100-byte cap for a later packet).
+ * Present in this snapshot and not in the baseline: always a descriptor and
+ * a record; one that does not fit is not present at all yet. A client that
+ * lacks the named baseline drops the packet and sets WANTKEY. A delta's
+ * baseline is never more than 64 behind its seq (malformed otherwise); a
+ * client that finds NETSNAP_RESYNC snapshots in a row older than its newest
+ * (a corrupt seq got in) forgets its baselines and sets WANTKEY.
  */
 
 #define NET_MAXCMDSEND    16

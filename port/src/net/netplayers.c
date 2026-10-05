@@ -13,6 +13,7 @@
 #include "lib/joy.h"
 #include "net/net.h"
 #include "net/nettransport.h"
+#include "net/netsnap.h"
 #include "netint.h"
 
 /**
@@ -627,6 +628,7 @@ void netPlayersHostOnCmd(s32 slot, struct netbuf *b)
 {
 	struct netpadq *q;
 	struct netcmd cmds[NET_MAXCMDSEND];
+	struct netsnapack ack;
 	u32 matchid;
 	u32 first;
 	u32 t;
@@ -639,6 +641,7 @@ void netPlayersHostOnCmd(s32 slot, struct netbuf *b)
 
 	q = &s_Pads[slot];
 	matchid = netBufReadU32(b);
+	netSnapAckRead(b, &ack);
 	first = netBufReadU32(b);
 	count = netBufReadU8(b);
 
@@ -677,6 +680,9 @@ void netPlayersHostOnCmd(s32 slot, struct netbuf *b)
 	if (!q->remote || matchid != netSessionMatchId() || !netInMatch()) {
 		return;
 	}
+
+	// the snapshots it has (netents.c)
+	netEntsHostOnAck(slot, &ack);
 
 	// a client's ticks run with the host's (the clock keeps it 1-2 ahead):
 	// one more than a ring ahead is a broken or hostile client, never a
@@ -942,6 +948,7 @@ static void netPlayersClientSend(void)
 	netBufInitWrite(&b, s_CmdBuf, sizeof(s_CmdBuf));
 	netBufWriteU8(&b, NETMSG_CMD);
 	netBufWriteU32(&b, netSessionMatchId());
+	netEntsClientWriteAck(&b);
 	netBufWriteU32(&b, first);
 	netBufWriteU8(&b, (u8)count);
 
@@ -1001,6 +1008,16 @@ void netPlayersClientOnAck(struct netbuf *b)
 	if (s_Ppm > s_PpmMax) {
 		s_PpmMax = s_Ppm;
 	}
+}
+
+s32 netPlayersHostLastPlayed(s32 slot)
+{
+	return slot >= 0 && slot < MAX_PLAYERS && s_Pads[slot].remote ? s_Pads[slot].lastplayed : -1;
+}
+
+s32 netPlayersHostSlotIsRemote(s32 slot)
+{
+	return g_NetMode == NETMODE_SERVER && slot >= 0 && slot < MAX_PLAYERS && s_Pads[slot].remote && netPlaying();
 }
 
 s32 netPlayersClockPpm(void)

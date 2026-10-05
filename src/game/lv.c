@@ -1471,6 +1471,7 @@ Gfx *lvRender(Gfx *gdl)
 				bgTick();
 				lightsTick();
 				propsTickPlayer(islastplayer);
+				if (g_NetMode == NETMODE_SERVER) netHostNoteVisible(g_Vars.currentplayernum); // netplay H5
 				scenarioTickChr(NULL);
 				propsSort();
 				autoaimTick();

@@ -687,6 +687,8 @@ endif()
 add_executable(pd-nettest EXCLUDE_FROM_ALL
   "${CMAKE_SOURCE_DIR}/tools/nettest/nettest.c"
   "${CMAKE_SOURCE_DIR}/tools/nettest/nettesthostile.c"
+  "${CMAKE_SOURCE_DIR}/tools/nettest/nettestsnap.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/netsnap.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/netdelta.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/nettransport.c"
@@ -694,6 +696,8 @@ add_executable(pd-nettest EXCLUDE_FROM_ALL
 )
 if(WIN32)
   target_link_libraries(pd-nettest ws2_32 winmm -static-libgcc)
+else()
+  target_link_libraries(pd-nettest m)
 endif()
 
 # Additional commands for specific platforms.

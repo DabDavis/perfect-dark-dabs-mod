@@ -85,6 +85,21 @@ void netPlayersTickReadPad(void);     // the remote pads into the tick's sample
 void netPlayersTickBegin(void);
 void netPlayersTickEnd(void);
 s32 netPlayersClockPpm(void);
+s32 netPlayersHostLastPlayed(s32 slot);   // the last command tick played, -1 none
+s32 netPlayersHostSlotIsRemote(s32 slot);
+
+// netents.c: the entity table and snapshots, the game's side (netsnap.h the wire)
+struct netsnapack;
+void netEntsArgs(void);
+void netEntsStageStart(void);
+void netEntsHostTickEnd(void);
+void netEntsHostOnAck(s32 slot, const struct netsnapack *a);
+void netEntsClientOnSnap(const u8 *data, s32 len);
+void netEntsClientWriteAck(struct netbuf *b);
+void netEntsClientTickEnd(void);
+void netEntsMatchStopped(void);
+s32 netEntsHostile(void);
+void netEntsHostileCmd(s32 slot, const u8 *data, s32 len);
 
 // nethash.c: the session hash (computed once) and the stage hash
 s32 netSessionHash(struct nethashcomp *comps, s32 max);

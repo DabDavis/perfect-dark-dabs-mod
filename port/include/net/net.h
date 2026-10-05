@@ -164,6 +164,19 @@ void netInputMouseRaw(s32 *dx, s32 *dy);
 // gfxReset: the player-count row the display list pools are sized by
 s32 netGfxSizeIndex(s32 index);
 
+/**
+ * Entities (PLANS/netplay/spec-entities.md §1, §6): a prop slot's
+ * generation, bumped whenever the slot is allocated or freed, so an entity
+ * id (pool index, generation) never names two props. A side table, never a
+ * field of struct prop.
+ */
+struct prop;
+extern u16 *g_NetPropGen;
+void netPropGenAlloc(s32 maxprops);   // H1 varsreset.c, after g_Vars.props
+void netPropGenBump(struct prop *prop); // H2 propAllocate, H3 propFree
+// H5 lv.c lvRender, after propsTickPlayer: what this player's pass put on its screen
+void netHostNoteVisible(s32 playernum);
+
 // The session's hooks (H1-H14, HA-HD)
 #include "net/netsession.h"
 
