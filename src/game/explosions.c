@@ -277,6 +277,8 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 		return false;
 	}
 
+	if (g_NetMode == NETMODE_SERVER) netEvExplosion(sourceprop, exppos, exprooms, type, playernum, makescorch, arg6, room, arg8); // netplay E3
+
 	// Bullet holes: only crate the flame (explosion) if within 4 metres.
 	// GoldenEye has no such limit (explosion.c), so its levels flash at any
 	// range (gehitpuff.c).

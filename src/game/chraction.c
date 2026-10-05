@@ -4429,6 +4429,8 @@ void chrChoke(struct chrdata *chr, s32 choketype)
 	static s32 nextindexmale = 0;
 	static s32 nextindexfemale = 0;
 
+	if (g_NetMode == NETMODE_SERVER) netEvChoke(chr, choketype); // netplay E4
+
 	if (race == RACE_EYESPY || race == RACE_ROBOT) {
 		return;
 	}
@@ -5005,6 +5007,8 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	if (chr->prop == g_Vars.currentplayer->prop && g_Vars.currentplayer->invincible) {
 		return;
 	}
+
+	if (g_NetMode == NETMODE_SERVER) netEvChrDamage(chr, aprop, hitpart, damageshield, explosion); // netplay E4: a hit that lands
 
 	if (ismelee) {
 		isshoot = false;
@@ -10675,6 +10679,7 @@ void chrTickSurprised(struct chrdata *chr)
 
 void chrUpdateFireslot(struct chrdata *chr, s32 handnum, bool withsound, bool withbeam, struct coord *from, struct coord *to)
 {
+	if (g_NetMode == NETMODE_SERVER) netEvChrFireslot(chr, handnum, withsound, withbeam, from, to); // netplay E1
 	struct prop *weaponprop;
 	struct weaponobj *weapon;
 	s32 weaponnum;

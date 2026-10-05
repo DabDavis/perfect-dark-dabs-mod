@@ -1258,7 +1258,9 @@ void eyespyProcessInput(bool allowbuttons)
 		chr->chrflags |= CHRCFLAG_HIDDEN;
 		chr->chrflags |= CHRCFLAG_INVINCIBLE;
 
+		if (g_NetMode == NETMODE_SERVER) netEvOriginMade(1); // netplay E8: the player's machine plays it itself
 		weaponPlayPickupSound(WEAPON_EYESPY);
+		if (g_NetMode == NETMODE_SERVER) netEvOriginMade(0);
 		currentPlayerQueuePickupWeaponHudmsg(WEAPON_EYESPY, false);
 		psStopSound(g_Vars.currentplayer->eyespy->prop, PSTYPE_GENERAL, 0xffff);
 		chrClearReferences(g_Vars.currentplayer->eyespy->prop - g_Vars.props);

@@ -6,6 +6,7 @@
 s32 audioInit(void);
 s32 audioGetBytesBuffered(void);
 s32 audioGetSamplesBuffered(void);
+u64 audioGetFramesQueued(void);
 
 // What the device is actually running at, for anything that has to describe the
 // stream it is handed - the recorder does. Always s16 stereo.

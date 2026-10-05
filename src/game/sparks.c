@@ -13,6 +13,7 @@
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
+#include "net/net.h"
 
 struct spark g_Sparks[100];
 s32 g_NextSparkIndex;
@@ -180,6 +181,8 @@ void sparksCreate(s32 room, struct prop *prop, struct coord *pos, struct coord *
 	struct sparktype *type = &g_SparkTypes[typenum];
 	struct coord grouppos;
 	s32 i;
+
+	if (g_NetMode == NETMODE_SERVER) netEvSparks(room, prop, pos, arg3, arg4, typenum); // netplay E2/E4: impacts
 
 	if ((typenum == SPARKTYPE_BLOOD || typenum == SPARKTYPE_FLESH) && prop && prop->type == PROPTYPE_CHR) {
 		struct chrdata *chr = prop->chr;

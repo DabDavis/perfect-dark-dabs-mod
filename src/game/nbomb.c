@@ -25,6 +25,7 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "net/net.h"
 
 s16 var8009cb00;
 s32 var8009cb04;
@@ -704,6 +705,8 @@ void nbombCreateStorm(struct coord *pos, struct prop *ownerprop)
 	s32 oldest240;
 	s32 index;
 	s32 i;
+
+	if (g_NetMode == NETMODE_SERVER) netEvNbomb(pos, ownerprop); // netplay E9
 
 	oldest240 = -1;
 	index = 0;

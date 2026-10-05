@@ -98,10 +98,15 @@ struct player *netLocalPlayer(struct player *fallback);
  * lift the flag with netWorldSoundBegin/End.
  */
 extern s32 g_NetRemotePass;
+// The pass's player while it is another machine's (-1 otherwise): what its
+// code makes there (its shot, the shot's sparks and flames) that machine
+// made itself, so the events leave it out (netevents.c)
+extern s32 g_NetPassPlayer;
 void netRemotePassBegin(void);
 static inline void netRemotePassEnd(void)
 {
 	g_NetRemotePass = 0;
+	g_NetPassPlayer = -1;
 }
 
 #define NET_REMOTE_PASS_BEGIN() do { if (g_NetMode != NETMODE_NONE) netRemotePassBegin(); } while (0)
@@ -215,6 +220,33 @@ s32 netClientInMatch(void);
 // a client never starts one, and scenarios are not online yet
 s32 netRefuseMatchStart(void);
 s32 netMatchStartRefused(void);
+
+/**
+ * Events (PLANS/netplay/spec-entities.md §5; the wire is EVENTS in
+ * netproto.h, netevents.c does the work). The host's hooks record, behind
+ * g_NetMode == NETMODE_SERVER; the ones that return 1 tell the caller to
+ * return (a hudmsg or pickup sound sent to the machine whose player it is;
+ * a client's own death count refused, the host's arriving as E6).
+ */
+struct chrdata;
+struct coord;
+struct defaultobj;
+void netEvChrFireslot(struct chrdata *chr, s32 handnum, s32 withsound, s32 withbeam, struct coord *from, struct coord *to); // E1
+void netEvPlayerShot(s32 handnum);                                                                                       // E2
+void netEvExplosion(struct prop *source, struct coord *pos, s16 *rooms, s32 type, s32 playernum,
+		s32 makescorch, struct coord *arg6, s16 room, struct coord *arg8);                                              // E3
+void netEvSparks(s32 room, struct prop *prop, struct coord *pos, struct coord *arg3, struct coord *arg4, s32 type);     // E2/E4
+void netEvChrDamage(struct chrdata *chr, struct prop *aprop, s32 hitpart, s32 damageshield, s32 explosion);            // E4
+void netEvChoke(struct chrdata *chr, s32 choketype);                                                                    // E4
+void netEvObjDeform(struct defaultobj *obj, s32 level);                                                                 // E5
+void netEvGlassDestroy(struct defaultobj *obj);                                                                         // E5
+s32 netEvRecordDeath(s32 aplayernum, s32 vplayernum);                                                                   // E6
+s32 netEvHudmsg(char *text, s32 type, s32 conf00, s32 conf01, s32 conf02, u32 textcolour, u32 glowcolour,
+		u32 alignh, s32 conf16, u32 alignv, s32 conf18, s32 arg14, u32 flags);                                           // E7
+s32 netEvPickupSound(s32 sound);                                                                                        // E8
+void netEvOriginMade(s32 on);   // E8: what follows the pass's player's machine makes itself (its CamSpy pickup)
+void netEvNbomb(struct coord *pos, struct prop *owner);                                                                 // E9
+void netEvGas(struct coord *pos);                                                                                       // E9
 
 // The session's hooks (H1-H14, HA-HD)
 #include "net/netsession.h"

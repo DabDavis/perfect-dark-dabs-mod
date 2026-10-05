@@ -15403,6 +15403,7 @@ static void objDeformGe(struct defaultobj *obj, s32 level, s32 geprop, struct mo
 
 void objDeform(struct defaultobj *obj, s32 level)
 {
+	if (g_NetMode == NETMODE_SERVER) netEvObjDeform(obj, level); // netplay E5
 	f32 min;
 	f32 max;
 	f32 average;
@@ -16718,6 +16719,7 @@ u32 add43214321(u32 value)
 
 void glassDestroy(struct defaultobj *obj)
 {
+	if (g_NetMode == NETMODE_SERVER) netEvGlassDestroy(obj); // netplay E5
 	struct prop *prop = obj->prop;
 	struct modelrodata_bbox *bbox = objFindBboxRodata(obj);
 
@@ -18527,6 +18529,7 @@ void ammotypeGetPickupName(char *dst, s32 ammotype2, s32 qty)
  */
 static void objPlayPickupSfx(s32 sound)
 {
+	if (g_NetMode == NETMODE_SERVER && netEvPickupSound(sound)) return; // netplay E8: to the picking player's machine
 #ifndef PLATFORM_N64
 	if (geSfxPickup(sound, NULL)) {
 		return;
@@ -22899,6 +22902,7 @@ bool alarmIsActive(void)
 
 void gasReleaseFromPos(struct coord *pos)
 {
+	if (g_NetMode == NETMODE_SERVER) netEvGas(pos); // netplay E9
 	g_GasReleasing = true;
 	g_GasSoundTimer240 = 0;
 

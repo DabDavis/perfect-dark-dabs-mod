@@ -88,6 +88,7 @@ struct netpadq {
 struct extplayerconfig g_NetExtCfg[MAX_PLAYERS];
 s32 g_NetExtCfgOn = 0;
 s32 g_NetRemotePass = 0;
+s32 g_NetPassPlayer = -1;
 
 static struct netpadq s_Pads[MAX_PLAYERS];
 static s32 s_LocalPad = 0;       // this machine's player's pad in the match
@@ -451,6 +452,7 @@ struct player *netLocalPlayer(struct player *fallback)
 void netRemotePassBegin(void)
 {
 	g_NetRemotePass = !netIsLocalSlot(g_Vars.currentplayernum);
+	g_NetPassPlayer = g_NetRemotePass ? g_Vars.currentplayernum : -1;
 }
 
 /*
@@ -1123,6 +1125,7 @@ void netPlayersMatchStopped(void)
 	memset(s_Pads, 0, sizeof(s_Pads));
 	g_NetExtCfgOn = 0;
 	g_NetRemotePass = 0;
+	g_NetPassPlayer = -1;
 	s_LocalPad = 0;
 	s_Ppm = 0;
 }

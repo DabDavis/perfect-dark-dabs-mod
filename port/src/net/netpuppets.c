@@ -1464,7 +1464,27 @@ void netPuppetsTraceFlush(void)
  * The pose step
  */
 
+// the render clock as the last pose step had it, for the events
+static f64 s_PoseRt = 0;
+static s32 s_PoseRtValid = 0;
+
+static void netClientPosePuppetsRun(void);
+
+/**
+ * The pose step, then every event the render clock has reached: a tick's
+ * records are posed before its events are applied (spec-entities.md §5)
+ */
 void netClientPosePuppets(void)
+{
+	s_PoseRtValid = 0;
+	netClientPosePuppetsRun();
+
+	if (g_NetClientWorld && g_NetPass != NETPASS_PRESENT_ONLY) {
+		netEventsClientDrain(s_PoseRtValid, s_PoseRt);
+	}
+}
+
+static void netClientPosePuppetsRun(void)
 {
 	const struct netsnapclient *c;
 	const struct netbaselineslot *sb;
@@ -1518,6 +1538,8 @@ void netClientPosePuppets(void)
 	}
 
 	ht = rt <= 0 ? 0 : (u32)floor(rt);
+	s_PoseRt = rt;
+	s_PoseRtValid = 1;
 
 	netSnapClientBracket(c, ht, &before, &after);
 

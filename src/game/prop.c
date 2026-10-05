@@ -1771,6 +1771,7 @@ void handTickAttack(s32 handnum)
 					shotCreate(handnum, true, true, bgunGetShotsToTake(handnum), g_Vars.mplayerisrunning);
 				}
 
+				if (g_NetMode == NETMODE_SERVER) netEvPlayerShot(handnum); // netplay E2
 				mpstats0f0b0520();
 			}
 			break;

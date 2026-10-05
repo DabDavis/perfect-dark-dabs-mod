@@ -18,6 +18,7 @@
 #include "bss.h"
 #include "data.h"
 #include "types.h"
+#include "net/net.h"
 
 u32 var80070590 = 0x00000000;
 
@@ -235,6 +236,8 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 	struct mpchrconfig *ampchr = NULL;
 	s32 prevplayernum;
 	char text[256];
+
+	if (g_NetMode != NETMODE_NONE && netEvRecordDeath(aplayernum, vplayernum)) return; // netplay E6: the host's deaths, by mpchr slot
 
 #ifndef PLATFORM_N64
 	// A death in a Combat Simulator match whose victim is not in the match

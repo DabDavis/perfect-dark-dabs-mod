@@ -220,14 +220,14 @@ run() {
 	local host=$!
 	waitfor "$OUT/$label-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: $label host did not start"; kill -TERM $host; exit 2; }
 	game "$label-client" 230 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join \
-		--net-test-input "$OUT/$cscript" --net-puppet-trace "$OUT/$label-client.trace,5" \
+		--net-test-input "$OUT/$cscript" --net-puppet-trace "$OUT/$label-client.trace,5" --net-event-log "$OUT/$label-client.events" \
 		--exit-frame "$frames" "$@" &
 	local client=$!
 	local client2=
 	if [ "$nclients" -ge 2 ]; then
 		waitfor "$OUT/$label-client.log" "net: accepted by" 60
 		game "$label-client2" 230 --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join \
-			--net-test-input "$OUT/client2.script" --net-puppet-trace "$OUT/$label-client2.trace,5" \
+			--net-test-input "$OUT/client2.script" --net-puppet-trace "$OUT/$label-client2.trace,5" --net-event-log "$OUT/$label-client2.events" \
 			--exit-frame "$frames" "$@" &
 		client2=$!
 	fi

@@ -14,6 +14,8 @@ static u32 nextSize = 0;
 static s32 bufferSize = 512;
 static s32 queueLimit = 8192;
 static s32 sampleRate = 22020;
+static u64 queuedTotal = 0; // bytes ever queued: where the next mixed buffer lands in the output
+static FILE *dumpFile = NULL; // --audio-dump FILE: every buffer queued, raw (s16 stereo), for tests
 
 s32 audioInit(void)
 {
@@ -42,6 +44,10 @@ s32 audioInit(void)
 
 	sampleRate = have.freq;
 
+	if (sysArgGetString("--audio-dump")) {
+		dumpFile = fopen(sysArgGetString("--audio-dump"), "wb");
+	}
+
 	return 0;
 }
 
@@ -60,6 +66,13 @@ s32 audioGetSamplesBuffered(void)
 	return audioGetBytesBuffered() / 4;
 }
 
+// Stereo frames queued since boot: the output position the next mix lands at
+// (netplay's event log puts its sounds against the mixed audio by it)
+u64 audioGetFramesQueued(void)
+{
+	return queuedTotal / 4;
+}
+
 void audioSetNextBuffer(const s16 *buf, u32 len)
 {
 	nextBuf = buf;
@@ -71,6 +84,12 @@ void audioEndFrame(void)
 	if (nextBuf && nextSize) {
 		if (audioGetSamplesBuffered() < queueLimit) {
 			SDL_QueueAudio(dev, nextBuf, nextSize);
+			queuedTotal += nextSize;
+
+			if (dumpFile) {
+				fwrite(nextBuf, 1, nextSize, dumpFile);
+				fflush(dumpFile);
+			}
 			// Inside the check on purpose: a recording should hold what was
 			// played, and a buffer dropped for a full queue was not.
 			recordPushAudio(nextBuf, nextSize);

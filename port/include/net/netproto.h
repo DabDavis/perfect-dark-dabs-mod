@@ -43,7 +43,7 @@
  */
 
 // Bumped whenever any message below changes shape or meaning
-#define NET_PROTOCOL_VERSION 3
+#define NET_PROTOCOL_VERSION 4
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -59,6 +59,7 @@
 #define NETMSG_CMDACK     12
 #define NETMSG_SLOTCFG    13
 #define NETMSG_SNAP       14 // netsnap.c writes this number itself (NETSNAP_MSGTYPE)
+#define NETMSG_EVENTS     15
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -328,6 +329,56 @@
  * baseline is never more than 64 behind its seq (malformed otherwise); a
  * client that finds NETSNAP_RESYNC snapshots in a row older than its newest
  * (a corrupt seq got in) forgets its baselines and sets WANTKEY.
+ *
+ * EVENTS (host -> client, RELIABLE, at the end of a host tick that had any
+ * for this client, before that tick's SNAP; and before MATCH_END) - what
+ * happened in the tick (PLANS/netplay/spec-entities.md §5; netevents.c).
+ * The client applies a tick's events once its render clock reaches the
+ * tick, after the snapshot records it poses for it, in the order sent.
+ *   u8      NETMSG_EVENTS
+ *   u32     matchid
+ *   u32     hosttick              the host's g_NetTick they happened on
+ *   u16     count                 events that follow (a tick's events may
+ *                                 take several messages of <= 16 KB)
+ *   per event:
+ *     varu32 len                  the event's bytes, its type included
+ *     u8     type, then its fields:
+ *   REF  u8 kind: 0 none; 1 player: u8 playernum (the same slots on every
+ *        machine); 2 entity: u16 id, u16 gen (the host prop and generation)
+ *   POS  f32 x, y, z (finite, |v| < 2^20)
+ *   DIR  s16 x, y, z at 1/8192
+ *   1 FIRESLOT   (E1, chrUpdateFireslot)  REF chr, u8 hand | 2 sound | 4 beam,
+ *                POS from, POS to
+ *   2 PLAYERSHOT (E2, handTickAttack)     u8 playernum, u8 hand | 4 beam,
+ *                POS from (the body's muzzle), POS to (the hit); never to
+ *                the shooter's own machine
+ *   3 EXPLOSION  (E3, explosionCreate)    REF source, POS, u8 nrooms (1-8),
+ *                s16 rooms[nrooms], s16 type, s8 playernum, u8 1 scorch |
+ *                2 arg6 | 4 arg8, [POS arg6], s16 room, [POS arg8]: the
+ *                scorch's place, room and normal, sent with a scorch only
+ *                (both or neither; room 0 without); never a bullet hole's flame
+ *   4 SPARKS     (sparksCreate)           s16 room, REF prop, POS, u8 type,
+ *                u8 1 dir | 2 normal, [DIR], [DIR]; never a pad's or the
+ *                rain's
+ *   5 CHRDAMAGE  (E4, chrDamage)          REF victim, REF attacker, s8 hitpart,
+ *                u8 1 shield hit | 2 explosion | 4 shield up
+ *   6 CHOKE      (E4, chrChoke)           REF chr, s8 choketype (0-8)
+ *   7 DEFORM     (E5, objDeform)          REF obj, s16 level
+ *   8 GLASS      (E5, glassDestroy)       REF obj
+ *   9 DEATH      (E6, mpstatsRecordDeath) s8 attacker, s8 victim (mpchr slots:
+ *                players 0-3, sims 4+, -1 none), s8 attacker given (-1 none,
+ *                -2 outside the match), s8 victim given (the same)
+ *  10 HUDMSG     (E7, hudmsgCreateFromArgs; only to the player's machine)
+ *                str(255) text, u8 type (<= 11), s32 conf00, conf01, conf02,
+ *                u32 textcolour, glowcolour, alignh, s32 conf16, u32 alignv,
+ *                s32 conf18, s32 duration, u32 flags (fonts: the type's)
+ *  11 PICKUPSFX  (E8, objPlayPickupSfx; only to the player's machine) s16 sound
+ *  12 NBOMB      (E9, nbombCreateStorm)   POS, REF owner
+ *  13 GAS        (E9, gasReleaseFromPos)  POS
+ * Each event must parse to exactly its len; an unknown type or a field past
+ * its bound drops that event (counted), never the message's others.
+ * The events the pass of a remote player made on the host that its machine
+ * made itself (its shots, their sparks and flames) are not sent to it.
  */
 
 #define NET_MAXCMDSEND    16

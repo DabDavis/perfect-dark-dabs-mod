@@ -1114,6 +1114,9 @@ void netHostMatchEnded(void)
 		return;
 	}
 
+	// the last tick's events (its deaths) on the same channel, first
+	netEventsHostMatchEnded();
+
 	netBufInitWrite(&b, s_Buf, sizeof(s_Buf));
 	netBufWriteU8(&b, NETMSG_MATCH_END);
 	netBufWriteU32(&b, s_MatchIdCur);
@@ -1481,6 +1484,10 @@ static void netClientOnMatchEnd(struct netbuf *b)
 	s_End.valid = 1;
 	s_EndPending = 1;
 
+	// the events before it on the channel, all of them, before H10 puts
+	// the host's table over this machine's
+	netEventsClientMatchEnd();
+
 	// ended while this machine was still loading or at the barrier: run on
 	// to the end screen rather than wait for a GO that will not come
 	s_BarrierHeld = 0;
@@ -1729,6 +1736,9 @@ static void netClientEvent(const struct netevent *ev)
 		case NETMSG_SNAP:
 			netEntsClientOnSnap(ev->data, ev->len);
 			break;
+		case NETMSG_EVENTS:
+			netEventsClientOnMsg(ev->data, ev->len);
+			break;
 		default:
 			break;
 		}
@@ -1803,6 +1813,21 @@ static void netTestStartMatch(void)
 
 			g_MpSetup.weapons[s] = (v >= 0 && v < NUM_MPWEAPONS) ? (u8)v : MPWEAPON_NONE;
 			weapons = *end == ',' ? end + 1 : end;
+		}
+	}
+
+	// --net-test-timelimit N (minutes, 1-60) / --net-test-scorelimit N
+	// (kills, 1-100): the match ends on its own, the host's MATCH_END
+	{
+		const s32 mins = sysArgGetInt("--net-test-timelimit", 0);
+		const s32 kills = sysArgGetInt("--net-test-scorelimit", 0);
+
+		if (mins >= 1 && mins <= 60) {
+			g_MpSetup.timelimit = mins - 1;
+		}
+
+		if (kills >= 1 && kills <= 100) {
+			g_MpSetup.scorelimit = kills - 1;
 		}
 	}
 
@@ -2024,6 +2049,7 @@ void netStageStopped(void)
 	}
 
 	netRulesRestore();
+	netEventsMatchStopped();
 	netEntsMatchStopped();
 	netPlayersMatchStopped();
 	s_MatchActive = 0;

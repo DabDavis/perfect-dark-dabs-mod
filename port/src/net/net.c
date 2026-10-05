@@ -173,6 +173,7 @@ void netStageStart(void)
 
 	// a match's stage: the entity table (setup commands <-> props)
 	netEntsStageStart();
+	netEventsStageStart();
 }
 
 s32 netStageReady(void)
@@ -277,9 +278,12 @@ void netTickEnd(void)
 	// the tick has run: the host's snapshots, the client's own position
 	if (netSessionMatchActive() && !netSessionBarrierHeld()) {
 		if (g_NetMode == NETMODE_SERVER) {
+			// the tick's events go before its snapshot
+			netEventsHostFlush();
 			netEntsHostTickEnd();
 		} else if (g_NetMode == NETMODE_CLIENT) {
 			netEntsClientTickEnd();
+			netEventsClientTickEnd();
 		}
 	}
 

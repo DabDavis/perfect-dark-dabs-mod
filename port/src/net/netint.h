@@ -116,6 +116,16 @@ s32 netEntsPropIndex(const struct prop *prop);
 u16 netEntsPropGen(s32 idx);
 void netEntsClientApplyLocal(void); // the local-player block (pose step)
 
+// netevents.c: the event channel (spec-entities.md §5)
+void netEventsStageStart(void);
+void netEventsMatchStopped(void);
+void netEventsHostFlush(void);       // the tick's events to each remote slot (netTickEnd)
+void netEventsHostMatchEnded(void);  // H9, before MATCH_END
+void netEventsClientOnMsg(const u8 *data, s32 len);
+void netEventsClientDrain(s32 haveclock, f64 rt); // after the pose step: what the render clock reached
+void netEventsClientTickEnd(void);
+void netEventsClientMatchEnd(void);  // MATCH_END: everything queued, then the table
+
 // netpuppets.c
 void netPuppetsStageStart(void);  // the client's match stage began (after netEntsStageStart)
 void netPuppetsStop(void);        // H12, or the tables went
