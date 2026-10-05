@@ -20,6 +20,9 @@
 #include "game/inv.h"
 #include "game/bondmove.h"
 #include "game/prop.h"
+#include "game/mplayer/mplayer.h"
+#include "gexplus.h"
+#include "modloader.h"
 #include "net/net.h"
 #include "net/netsnap.h"
 #include "net/nettransport.h"
@@ -146,6 +149,14 @@ struct netlplocalsig {
 static struct netlplocalsig s_LpLocalSig;
 static s32 s_LpHaveSig = 0;
 static u32 s_LpAmmoSets = 0;
+static u32 s_LpTicks = 0;      // ticks this machine's player was in the match
+static u32 s_LpGeGunTicks = 0; // ... with a GoldenEye gun in its hand
+// You Only Live Twice (GoldenEye's scenario): twice dead is out for good,
+// here as on the host (the content gate)
+static u32 s_YoltOutTicks = 0;      // chr-ticks with a chr out of lives
+static u32 s_YoltOutAlive = 0;      // ... of them a second past its last death, alive again
+static u32 s_YoltLocalOut = 0;      // ticks this machine's player was out
+static s32 s_YoltOutSince[MAX_MPCHRS];
 static u32 s_LpEquips = 0;
 #define NET_LPREVIVE 90        // ticks of alive blocks before a death only this machine saw is undone
 #define NET_LPSTABLE 30        // ticks a block's inventory/ammo must hold before it overrides this machine's
@@ -477,6 +488,9 @@ void netEntsStageStart(void)
 	s_LpStableSince = 0;
 	s_LpHardAbs = s_LpDeaths = s_LpRespawnsDone = 0;
 	s_LpInvChanges = s_LpAmmoSets = s_LpEquips = 0;
+	s_LpTicks = s_LpGeGunTicks = 0;
+	s_YoltOutTicks = s_YoltOutAlive = s_YoltLocalOut = 0;
+	memset(s_YoltOutSince, 0, sizeof(s_YoltOutSince));
 	s_LpAliveWhileDead = s_LpRevives = s_LpBadFloats = 0;
 	s_LpHaveSig = 0;
 
@@ -1671,6 +1685,53 @@ void netEntsClientApplyLocal(void)
 	setCurrentPlayerNum(prev);
 }
 
+/**
+ * You Only Live Twice on the client: every chr the host's DEATH events have
+ * killed twice is out, and stays down here (a sim's puppet dead, a player
+ * dead). A second's grace after it went out, for the record and the event
+ * to meet.
+ */
+static void netYoltTick(void)
+{
+	s32 i;
+
+	if (!g_GexPlusMode || gexPlusGetScenario() != GEXPLUS_YOLT) {
+		return;
+	}
+
+	for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+		struct chrdata *chr = g_MpAllChrPtrs[i];
+		s32 alive;
+
+		if (!chr || !chr->prop || !g_MpAllChrConfigPtrs[i] || g_MpAllChrConfigPtrs[i]->numdeaths < 2) {
+			s_YoltOutSince[i] = 0;
+			continue;
+		}
+
+		if (!s_YoltOutSince[i]) {
+			s_YoltOutSince[i] = g_NetTick ? g_NetTick : 1;
+		}
+
+		if (chr->prop->type == PROPTYPE_PLAYER) {
+			const s32 pn = playermgrGetPlayerNumByProp(chr->prop);
+
+			alive = pn >= 0 && pn < PLAYERCOUNT() && g_Vars.players[pn] && !g_Vars.players[pn]->isdead;
+			s_YoltLocalOut += pn == g_NetLocalSlot;
+		} else {
+			alive = chr->actiontype != ACT_DIE && chr->actiontype != ACT_DEAD;
+		}
+
+		s_YoltOutTicks++;
+
+		if (alive && g_NetTick - s_YoltOutSince[i] > TICKS(60)) {
+			if (s_YoltOutAlive++ < 4) {
+				sysLogPrintf(LOG_NOTE, "net: yolt: mpchr %d out (%d deaths, since tick %d) yet alive at tick %u: prop type %d, action %d",
+						i, g_MpAllChrConfigPtrs[i]->numdeaths, s_YoltOutSince[i], g_NetTick, chr->prop->type, chr->actiontype);
+			}
+		}
+	}
+}
+
 static void netClientLog(const char *why)
 {
 	const struct netsnapclient *c = &s_Client;
@@ -1682,6 +1743,19 @@ static void netClientLog(const char *why)
 	sysLogPrintf(LOG_NOTE, "net: local block %s (tick %u): respawns or teleports taken %u; deaths %u, respawns %u, inventory changes %u, ammo sets %u, equips %u, revives %u, bad floats %u",
 			why, g_NetTick, s_LpHardAbs, s_LpDeaths, s_LpRespawnsDone, s_LpInvChanges, s_LpAmmoSets, s_LpEquips, s_LpRevives, s_LpBadFloats);
 	netPuppetsLog(why);
+	netSessionContentLog(why, s_LpTicks, s_LpGeGunTicks);
+
+	if (g_GexPlusMode && gexPlusGetScenario() == GEXPLUS_YOLT) {
+		s32 out = 0;
+		s32 i;
+
+		for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+			out += s_YoltOutSince[i] != 0;
+		}
+
+		sysLogPrintf(LOG_NOTE, "net: yolt client %s (tick %u): chrs out %d, out ticks %u, out yet alive %u, this machine's player out %u ticks",
+				why, g_NetTick, out, s_YoltOutTicks, s_YoltOutAlive, s_YoltLocalOut);
+	}
 }
 
 static void netClientHostileSnap(const u8 *data, s32 len)
@@ -1780,6 +1854,37 @@ s32 netEntsMaxIds(void)
 	return s_Map ? s_Client.maxids : 0;
 }
 
+/**
+ * Host: the setup command a prop is the object of, while it is still the
+ * prop the stage made for it; -1 otherwise (an event's REF names it, so a
+ * client that never had it in scope finds its own: netEntsSetupLocal)
+ */
+s32 netEntsSetupCmdOf(s32 idx)
+{
+	if (!s_SetupCmdOfProp || !s_SetupGenOfProp || idx < 0 || idx >= s_MaxIds
+			|| s_SetupCmdOfProp[idx] < 0 || s_SetupGenOfProp[idx] != netPropGen(idx)) {
+		return -1;
+	}
+
+	return s_SetupCmdOfProp[idx];
+}
+
+/**
+ * Client: this machine's own prop for setup command cmd, while it is still
+ * the one its stage made; NULL otherwise
+ */
+struct prop *netEntsSetupLocal(s32 cmd)
+{
+	s32 idx;
+
+	if (!s_SetupPropOfCmd || cmd < 0 || cmd >= s_NumCmds || (idx = s_SetupPropOfCmd[cmd]) < 0
+			|| netPropGen(idx) != s_SetupGenOfProp[idx]) {
+		return NULL;
+	}
+
+	return &g_Vars.props[idx];
+}
+
 struct prop *netEntsMapped(u16 id, u16 hostgen)
 {
 	struct netmap *m;
@@ -1867,6 +1972,11 @@ void netEntsClientTickEnd(void)
 
 	// its own player's state for the tick, for the prediction's ring
 	netPredictTickEnd();
+
+	// what it holds, for the content summary (netSessionContentLog)
+	s_LpTicks++;
+	s_LpGeGunTicks += WEAPON_IS_GE(p->gunctrl.weaponnum) != 0;
+	netYoltTick();
 
 	// --net-test-stale: as if this machine's own sim had freed and reused a
 	// mapped sim's prop slot; the next snapshot must find the mapping stale,

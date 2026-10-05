@@ -193,6 +193,7 @@ static u32 s_PeakTick = 0;
 static FILE *s_Log = NULL;
 static s32 s_Debug = 0;
 static s32 s_God = 0;
+static s32 s_Invincible = 0; // --net-test-invincible
 static s32 s_Compare = 0;       // --net-lagcomp-compare
 static f32 s_ShotDistance = 0;  // the shot's reach before the chr loop (hits shorten it)
 
@@ -215,6 +216,7 @@ void netLagCompArgs(void)
 	// --exit-frame and the like end the process mid-match: the counts still go out
 	atexit(netLagCompAtExit);
 	s_God = sysArgCheck("--net-test-god");
+	s_Invincible = sysArgCheck("--net-test-invincible");
 	s_Compare = sysArgCheck("--net-lagcomp-compare");
 }
 
@@ -1499,6 +1501,16 @@ void netLagCompHostTickEnd(void)
 		if (used > s_GfxPeak[half]) {
 			s_GfxPeak[half] = used;
 			s_PeakTick = g_NetTick;
+		}
+	}
+
+	// --net-test-invincible: the players take no damage at all (an
+	// explosion is more than --net-test-god's one point of health a tick)
+	if (s_Invincible) {
+		for (i = 0; i < PLAYERCOUNT(); i++) {
+			if (g_Vars.players[i]) {
+				g_Vars.players[i]->invincible = 1;
+			}
 		}
 	}
 

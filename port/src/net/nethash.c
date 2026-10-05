@@ -16,6 +16,8 @@
 #include "sha256.h"
 #include "gestan.h"
 #include "geconvert.h"
+#include "mod.h"
+#include "modborrow.h"
 #include "net/net.h"
 #include "netint.h"
 
@@ -328,6 +330,37 @@ static void netSessionHashCompute(void)
 
 	netHashAddComp("mapmods", &ctx);
 
+	// borrow: the mod GoldenEye X's guns, characters and weapon sets are
+	// borrowed from (modborrow.c), names and sizes. Its mount is global, not
+	// one map's, and Mod.BorrowGoldenEyeGuns reads "auto" on both machines
+	// whether or not it is installed, so it is refused at CONNECT even
+	// though "mapmods" is not (protocol 8)
+	sha256Begin(&ctx);
+
+	{
+		const char *gex = modBorrowGoldenEyeName();
+
+		if (gex) {
+			sha256Add(&ctx, gex, strlen(gex) + 1);
+
+			for (i = 0; i < modListGetCount(); i++) {
+				const char *name = modListGetName(i);
+				const char *path = modListGetPath(i);
+
+				if (name && path && strcmp(name, gex) == 0) {
+					snprintf(full, sizeof(full), "%s", fsFullPath(path));
+					w.ctx = &ctx;
+					w.contents = 0;
+					w.numfiles = 0;
+					netHashTree(&w, full, "", 0);
+					break;
+				}
+			}
+		}
+	}
+
+	netHashAddComp("borrow", &ctx);
+
 	// added: the GoldenEye ROM and the XBLA releases, names and sizes
 	sha256Begin(&ctx);
 
@@ -356,6 +389,12 @@ static void netSessionHashCompute(void)
 	for (i = 0; i < s_NetSessionNumComps; i++) {
 		u8 b[8];
 		s32 k;
+
+		// the Stage Loader's mods need not match (a missing map is refused
+		// when it is played): a room lists as compatible without them
+		if (strcmp(s_NetSessionComps[i].name, "mapmods") == 0) {
+			continue;
+		}
 
 		for (k = 0; k < 8; k++) {
 			b[k] = (u8)(s_NetSessionComps[i].hash >> (56 - k * 8));

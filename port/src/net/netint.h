@@ -152,6 +152,10 @@ struct prop *netEntsMapped(u16 id, u16 hostgen);
 // the last descriptor that came for host id, or NULL
 const struct netdesc *netEntsDesc(u16 id);
 s32 netEntsPropIndex(const struct prop *prop);
+void netSessionContentLog(const char *why, u32 ticks, u32 geticks); // netsession.c
+struct prop *netTestLooseCrate(s32 pn); // netsession.c, the content gate's staging
+s32 netEntsSetupCmdOf(s32 idx);           // host: its setup command, or -1
+struct prop *netEntsSetupLocal(s32 cmd);  // client: this machine's prop of a setup command
 u16 netEntsPropGen(s32 idx);
 void netEntsClientApplyLocal(void); // the local-player block (pose step)
 

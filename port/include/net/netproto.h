@@ -43,7 +43,7 @@
  */
 
 // Bumped whenever any message below changes shape or meaning
-#define NET_PROTOCOL_VERSION 7
+#define NET_PROTOCOL_VERSION 8
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -111,8 +111,14 @@
  *   str(15) geconvert         GECONVERT_VERSION_STR
  *   u8      romversion        VERSION (the ROM's region and revision)
  *   u8      ncomps            <= NET_MAXCOMPS; session hash components:
- *     str(15) name              "rom", "mod", "mapmods", "added", "geconv", "all"
+ *     str(15) name              "rom", "mod", "mapmods", "borrow", "added", "geconv", "all"
  *     u64     hash              the first 8 bytes of the component's SHA-256
+ *                               (protocol 8: "mapmods", the Stage Loader's
+ *                               other mods, is compared and logged, never
+ *                               refused: a map the client lacks is refused
+ *                               at STAGE_LOAD, NOSTAGE, with the map and its
+ *                               mod named, and the stage hash checks the one
+ *                               played; "all", the lobby's, leaves it out)
  *   str(31) name              Net.Name, or the agent's name
  *   per-slot settings (spec-players.md §2):
  *     u8 mpheadnum, u8 mpbodynum   g_PlayerConfigsArray[0].base
@@ -318,7 +324,9 @@
  *     SETUPOBJ:  u16 setup command index, u8 objtype
  *     SIM:       u8 bot config slot, s16 bodynum, s16 headnum
  *     PLAYER:    u8 mpindex, s16 bodynum, s16 headnum
- *     BODY:      s16 bodynum, s16 headnum
+ *     BODY:      s16 bodynum, s16 headnum (a Mod.Bodies corpse: the dead
+ *                sim's host prop, handed to a chr of its own; the client
+ *                builds one from the body and head a chr there wears)
  *     DYNWEAPON: u8 weaponnum, u8 gunfunc, s16 modelnum, u8 objtype
  *     SCENOBJ:   (protocol 7; kind 9, OBJ records only) a scenario's prop,
  *                a briefcase, the uplink or a terminal: s16 modelnum,
@@ -416,7 +424,11 @@
  *     varu32 len                  the event's bytes, its type included
  *     u8     type, then its fields:
  *   REF  u8 kind: 0 none; 1 player: u8 playernum (the same slots on every
- *        machine); 2 entity: u16 id, u16 gen (the host prop and generation)
+ *        machine); 2 entity: u16 id, u16 gen (the host prop and generation);
+ *        3 (protocol 8) a setup object: u16 id, u16 gen, u16 its setup
+ *        command index, by which a client that never had it in scope finds
+ *        its own (glass broken across the map); a Mod.Bodies corpse or a
+ *        dropped gun resolves to the prop the client made for the entity
  *   POS  f32 x, y, z (finite, |v| < 2^20)
  *   DIR  s16 x, y, z at 1/8192
  *   1 FIRESLOT   (E1, chrUpdateFireslot)  REF chr, u8 hand | 2 sound | 4 beam,

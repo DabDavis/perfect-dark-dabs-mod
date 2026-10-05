@@ -74,12 +74,14 @@ static const char *const s_EvNames[NETEV_COUNT] = {
 #define NETREF_NONE   0
 #define NETREF_PLAYER 1 // u8 playernum: the same slots on every machine
 #define NETREF_ENT    2 // u16 entity id, u16 its generation on the host
+#define NETREF_SETUP  3 // the same, then u16 the setup command it is the object of (protocol 8)
 
 struct netref {
 	u8 kind;
 	u8 pn;
 	u16 id;
 	u16 gen;
+	u16 cmd; // NETREF_SETUP
 };
 
 #define NETEV_MAXROOMS   8
@@ -153,7 +155,14 @@ static u32 s_RecvBytes = 0;
 static u32 s_OutOfOrder = 0;
 static u32 s_Malformed = 0;
 static u32 s_OtherMatch = 0;
+extern struct fogenvironment *g_EnvTransitionFrom;
+extern struct fogenvironment *g_EnvTransitionTo;
+
 static u32 s_Unresolved = 0;
+static u32 s_UnresolvedBy[NETEV_COUNT];
+static s32 s_ViaSetup = 0;      // the last REF resolved by its setup command, never in scope here
+static u32 s_GlassViaSetup = 0; // glass broken that this machine never had in scope
+static u32 s_GasReleased = 0;   // gas let go here (not dropped for want of a sky)
 static u32 s_Overflow = 0;
 static u32 s_HitsOnMe = 0;      // CHRDAMAGE with this machine's player the victim
 static u32 s_MyHits = 0;        // ... the attacker
@@ -290,6 +299,16 @@ static void netWriteRef(struct netbuf *b, struct prop *prop)
 
 	if (idx < 0) {
 		netBufWriteU8(b, NETREF_NONE);
+		return;
+	}
+
+	// a setup object also names its setup command: a client that never had
+	// it in scope (glass broken across the map) finds its own copy by it
+	if (netEntsSetupCmdOf(idx) >= 0 && netEntsSetupCmdOf(idx) < 0xffff) {
+		netBufWriteU8(b, NETREF_SETUP);
+		netBufWriteU16(b, (u16)idx);
+		netBufWriteU16(b, netEntsPropGen(idx));
+		netBufWriteU16(b, (u16)netEntsSetupCmdOf(idx));
 		return;
 	}
 
@@ -1014,6 +1033,11 @@ static void netReadRef(struct netbuf *b, struct netref *r)
 		r->id = netBufReadU16(b);
 		r->gen = netBufReadU16(b);
 		break;
+	case NETREF_SETUP:
+		r->id = netBufReadU16(b);
+		r->gen = netBufReadU16(b);
+		r->cmd = netBufReadU16(b);
+		break;
 	default:
 		b->error = 1;
 		break;
@@ -1336,7 +1360,22 @@ static struct prop *netEvResolve(const struct netref *r)
 		}
 		return NULL;
 	case NETREF_ENT:
-		return netEntsMapped(r->id, r->gen);
+		// mapped to a prop of this machine's, or one the pose step made for
+		// it (a dropped gun, a Mod.Bodies corpse)
+		return netPuppetsLocalProp(r->id, r->gen);
+	case NETREF_SETUP: {
+		// mapped, or never in this machine's scope: its own object of that
+		// setup command (the stage made the same ones)
+		struct prop *prop = netPuppetsLocalProp(r->id, r->gen);
+
+		if (prop) {
+			return prop;
+		}
+
+		prop = netEntsSetupLocal(r->cmd);
+		s_ViaSetup = prop != NULL;
+		return prop;
+	}
 	default:
 		return NULL;
 	}
@@ -1411,7 +1450,10 @@ static void netEvApply(struct netevc *e, f64 rt)
 		s_LagN++;
 	}
 
+	const u32 unresolved = s_Unresolved;
+
 	s_Applying = 1;
+	s_ViaSetup = 0;
 
 	switch (e->type) {
 	case NETEV_FIRESLOT:
@@ -1419,6 +1461,7 @@ static void netEvApply(struct netevc *e, f64 rt)
 
 		if (!chr) {
 			s_Unresolved++;
+			s_UnresolvedBy[e->type]++;
 			break;
 		}
 
@@ -1474,6 +1517,7 @@ static void netEvApply(struct netevc *e, f64 rt)
 
 		if (!prop || prop == netLocalProp() || !netIsPuppet(prop) || !prop->chr) {
 			s_Unresolved++;
+			s_UnresolvedBy[e->type]++;
 			break;
 		}
 
@@ -1513,6 +1557,7 @@ static void netEvApply(struct netevc *e, f64 rt)
 		// prop->chr shares its place with obj/door/weapon
 		if (!victim || (victim->type != PROPTYPE_CHR && victim->type != PROPTYPE_PLAYER) || !victim->chr) {
 			s_Unresolved++;
+			s_UnresolvedBy[e->type]++;
 			break;
 		}
 
@@ -1551,6 +1596,7 @@ static void netEvApply(struct netevc *e, f64 rt)
 
 		if (!prop || (prop->type != PROPTYPE_CHR && prop->type != PROPTYPE_PLAYER) || !prop->chr || !prop->chr->model) {
 			s_Unresolved++;
+			s_UnresolvedBy[e->type]++;
 			break;
 		}
 
@@ -1563,6 +1609,7 @@ static void netEvApply(struct netevc *e, f64 rt)
 
 		if (!prop || !prop->obj || (prop->type != PROPTYPE_OBJ && prop->type != PROPTYPE_DOOR && prop->type != PROPTYPE_WEAPON)) {
 			s_Unresolved++;
+			s_UnresolvedBy[e->type]++;
 			break;
 		}
 
@@ -1576,10 +1623,13 @@ static void netEvApply(struct netevc *e, f64 rt)
 				|| (prop->obj->type != OBJTYPE_GLASS && prop->obj->type != OBJTYPE_TINTEDGLASS)
 				|| !prop->obj->model || !objFindBboxRodata(prop->obj)) {
 			s_Unresolved++;
+			s_UnresolvedBy[e->type]++;
 			break;
 		}
 
 		glassDestroy(prop->obj);
+		s_GlassViaSetup += s_ViaSetup;
+		snprintf(extra, sizeof(extra), "%s", s_ViaSetup ? "by its setup command" : "mapped");
 		break;
 	case NETEV_DEATH: {
 		const s32 a = netEvMpIndexOf(e->a);
@@ -1630,14 +1680,29 @@ static void netEvApply(struct netevc *e, f64 rt)
 		nbombCreateStorm(&c0, netEvResolve(&e->r0));
 		break;
 	case NETEV_GAS:
+		// gasTick fades to the stage's second sky, which a stage with no
+		// sky of its own has not got (envApplyTransitionFrac would read
+		// NULL): only the host's word for it, so never unchecked
+		if (!g_EnvTransitionFrom || !g_EnvTransitionTo) {
+			s_Unresolved++;
+			s_UnresolvedBy[e->type]++;
+			break;
+		}
+
 		gasReleaseFromPos(&c0);
+		s_GasReleased++;
 		break;
 	default:
 		break;
 	}
 
 	s_Applying = 0;
-	s_Applied[e->type]++;
+
+	// applied: the event acted here (one dropped as unresolved did not)
+	if (s_Unresolved == unresolved) {
+		s_Applied[e->type]++;
+	}
+
 	netEvLogApplied(e, rt, extra);
 }
 
@@ -1685,6 +1750,7 @@ void netEventsClientDrain(s32 haveclock, f64 rt)
 static void netEvClientLog(const char *why)
 {
 	char counts[512];
+	char ucounts[256];
 	s32 len = 0;
 	s32 i;
 
@@ -1698,10 +1764,22 @@ static void netEvClientLog(const char *why)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: events client %s (tick %u): applied/received %s; %u messages, %u bytes, out of order %u, malformed %u, other match %u, unresolved %u, overflow %u, queued max %d, lag mean %.1f ticks; shot sounds %u (no gun %u, started %u), hits on me %u, my hits %u, hudmsgs for me %u, own deaths refused %u, own shots back %u (fired here %u, not %u)",
+	{
+		s32 ulen = 0;
+
+		ucounts[0] = '\0';
+
+		for (i = 1; i < NETEV_COUNT; i++) {
+			if (s_UnresolvedBy[i] && ulen < (s32)sizeof(ucounts)) {
+				ulen += snprintf(ucounts + ulen, sizeof(ucounts) - ulen, "%s%s %u", ulen ? ", " : "", s_EvNames[i], s_UnresolvedBy[i]);
+			}
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: events client %s (tick %u): applied/received %s; %u messages, %u bytes, out of order %u, malformed %u, other match %u, unresolved %u, overflow %u, queued max %d, lag mean %.1f ticks; shot sounds %u (no gun %u, started %u), hits on me %u, my hits %u, hudmsgs for me %u, own deaths refused %u, own shots back %u (fired here %u, not %u); glass by setup command %u, gas released %u; unresolved by type: %s",
 			why, g_NetTick, counts, s_RecvMsgs, s_RecvBytes, s_OutOfOrder, s_Malformed, s_OtherMatch, s_Unresolved, s_Overflow,
 			s_QMax, s_LagN ? s_LagSum / s_LagN : 0.0, s_ShotSounds, s_ShotNoGun, s_ShotPlayed, s_HitsOnMe, s_MyHits, s_HudForMe, s_LocalSkipped,
-			s_OwnDupes + s_OwnUnpredicted, s_OwnDupes, s_OwnUnpredicted);
+			s_OwnDupes + s_OwnUnpredicted, s_OwnDupes, s_OwnUnpredicted, s_GlassViaSetup, s_GasReleased, ucounts[0] ? ucounts : "none");
 }
 
 void netEventsClientTickEnd(void)
@@ -1781,6 +1859,8 @@ void netEventsStageStart(void)
 	s_Malformed = 0;
 	s_OtherMatch = 0;
 	s_Unresolved = 0;
+	memset(s_UnresolvedBy, 0, sizeof(s_UnresolvedBy));
+	s_GlassViaSetup = s_GasReleased = 0;
 	s_Overflow = 0;
 	s_HitsOnMe = 0;
 	s_MyHits = 0;

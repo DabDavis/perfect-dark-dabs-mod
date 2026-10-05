@@ -14,6 +14,8 @@
 #include "lib/anim.h"
 #include "game/chr.h"
 #include "game/chraction.h"
+#include "game/body.h"
+#include "game/bg.h"
 #include "game/footstep.h"
 #include "game/game_0b0fd0.h"
 #include "game/gunfx.h"
@@ -50,8 +52,9 @@
  *     mpindex) are chrs posed modghost's way, with the anim fields, the
  *     chrinfo root and yaw, the aim, rooms, render state, held items and
  *     muzzle flash; a sim stays hidden and disabled until its first record;
- *   - dropped weapons, projectiles, ammo crates and hats are made from their
- *     descriptors and taken away when their id leaves the snapshot;
+ *   - dropped weapons, projectiles, ammo crates, hats and Mod.Bodies'
+ *     corpses are made from their descriptors and taken away when their id
+ *     leaves the snapshot;
  *   - doors (frac, tiles, portals, the sounds of their mode changes), lifts,
  *     regenerating pickups (GONE and back, with the regen sound), moved
  *     paused props unpaused, projectile trails made here.
@@ -122,6 +125,16 @@ static u32 s_DoorSounds = 0;
 static u32 s_Regens = 0;
 static u32 s_Unpaused = 0;
 static u32 s_Trails = 0;
+static u32 s_LiftMoves = 0;  // lift records that moved a lift
+static u32 s_HatsWorn = 0;   // hats put on a chr from its record
+static u32 s_GeGunsHeld = 0; // GoldenEye guns put in a chr's hand from its record
+static u32 s_HeldFails = 0;  // held guns that could not be made (no model)
+static u32 s_BodyLoads = 0;  // corpses whose body and head no chr here wore (not made)
+static u32 s_GeGunsMade = 0; // GoldenEye guns made from descriptors (dropped, thrown, a pickup)
+static u32 s_GoldenGuns = 0; // ... of them the Golden Gun (its scenario's one gun)
+static u32 s_GoldenHands = 0;  // the Golden Gun put in a puppet's hand
+static u32 s_GoldenHolders = 0; // ... by how many holders in turn (it passes on with a death)
+static struct chrdata *s_GoldenHolder = NULL;
 static u32 s_Deaths = 0;
 static u32 s_FirstRecords = 0;
 static u32 s_BadAnims = 0;
@@ -238,6 +251,9 @@ void netPuppetsStageStart(void)
 	s_CreateFail = s_Freed = s_Stolen = s_NoDesc = s_HeldSwaps = s_Snaps = 0;
 	s_DoorMoves = s_DoorSounds = s_Regens = s_Unpaused = s_Trails = s_Deaths = s_FirstRecords = s_BadAnims = s_Resyncs = 0;
 	s_PlayerDeaths = 0;
+	s_LiftMoves = s_HatsWorn = s_GeGunsHeld = s_BodyLoads = s_GeGunsMade = s_GoldenGuns = s_HeldFails = 0;
+	s_GoldenHands = s_GoldenHolders = 0;
+	s_GoldenHolder = NULL;
 	memset(s_Created, 0, sizeof(s_Created));
 
 	// --net-puppet-trace FILE[,N]: what each puppet is posed with, every N ticks
@@ -604,6 +620,15 @@ static void netPupHeld(struct netpup *u, struct chrdata *chr, s32 hand, u8 want)
 		if (modelnum < 0 || modelnum >= NUM_MODELS
 				|| !weaponCreateForChr(chr, modelnum, want, hand == HAND_LEFT ? OBJFLAG_WEAPON_LEFTHANDED : 0, NULL, NULL)) {
 			u->heldfail[hand] = want;
+			s_HeldFails += modelnum >= 0;
+		} else if (WEAPON_IS_GE(want)) {
+			s_GeGunsHeld++;
+
+			if (want == WEAPON_GE_GOLDENGUN) {
+				s_GoldenHands++;
+				s_GoldenHolders += chr != s_GoldenHolder;
+				s_GoldenHolder = chr;
+			}
 		}
 	}
 }
@@ -629,8 +654,12 @@ static void netPupHat(struct netpup *u, struct chrdata *chr, u16 want)
 
 	u->hatfail = 0;
 
-	if (want != 0xffff && want < NUM_MODELS && !hatCreateForChr(chr, want, 0)) {
-		u->hatfail = want;
+	if (want != 0xffff && want < NUM_MODELS) {
+		if (hatCreateForChr(chr, want, 0)) {
+			s_HatsWorn++;
+		} else {
+			u->hatfail = want;
+		}
 	}
 }
 
@@ -1076,6 +1105,7 @@ static void netPupLift(struct netpup *u, struct prop *prop, const struct netents
 	lift->levelaim = s->levelaim;
 
 	if (moved) {
+		s_LiftMoves += u->havestate;
 		lift->prevpos = prop->pos;
 		prop->pos.x = s->pos[0];
 		prop->pos.y = s->pos[1];
@@ -1333,6 +1363,121 @@ static struct prop *netPupMakeCrate(const struct netdesc *d, const struct netent
 }
 
 /**
+ * A Mod.Bodies corpse (BODY): the host hands a dead sim's prop and model to a
+ * chr of its own (modbodies.c) and the sim gets up in a fresh pair, so the
+ * corpse is an entity of its own here. It is built as modBodyAllocateModel
+ * builds the host's, from the body and head a chr here already wears (the
+ * sim it was), so nothing is loaded again; posed from its record like any
+ * chr puppet (its death anim's last frame), never ticked (C1, C4), and
+ * removed when its id leaves the snapshot.
+ */
+static struct prop *netPupMakeBody(const struct netdesc *d, const struct netentstate *s)
+{
+	struct chrdata *src = NULL;
+	struct model *model = NULL;
+	struct chrdata *chr;
+	struct prop *prop;
+	struct coord pos;
+	RoomNum inrooms[8];
+	RoomNum aboverooms[8];
+	RoomNum seed[2];
+	RoomNum *rooms;
+	s32 i;
+
+	// chrInit() dereferences the slot it failed to find (modbodies.c)
+	if (chrsGetNumFree() < 2 || mempGetStageFreeTotal() < 256 * 1024) {
+		return NULL;
+	}
+
+	for (i = 0; i < chrsGetNumSlots(); i++) {
+		struct chrdata *chr = &g_ChrSlots[i];
+
+		if (chr->model && chr->model->definition && chr->prop
+				&& chr->bodynum == d->bodynum && chr->headnum == d->headnum) {
+			src = chr;
+			break;
+		}
+	}
+
+	if (src) {
+		struct modeldef *bodydef = src->model->definition;
+		struct modeldef *headdef = NULL;
+		struct modelnode *node = modelGetPart(bodydef, MODELPART_CHR_HEADSPOT);
+
+		if (node) {
+			struct modelrwdata_headspot *rwdata = modelGetNodeRwData(src->model, node);
+			headdef = rwdata->headmodeldef;
+		}
+
+		model = body0f02d338(src->bodynum, headdef ? 1 : src->headnum, bodydef, headdef, false, false);
+
+		if (model) {
+			modelSetScale(model, src->model->scale);
+		}
+	} else {
+		// No chr here wears the pair: never load one from the wire's numbers.
+		// Those are the host's to choose and unbounded (headnum indexes the
+		// head tables unchecked), and a per-corpse head load is the stage
+		// pool leak modbodies.c avoids. The corpse is simply not made.
+		s_BodyLoads++;
+	}
+
+	if (!model) {
+		return NULL;
+	}
+
+	pos.x = s->pos[0];
+	pos.y = s->pos[1];
+	pos.z = s->pos[2];
+
+	// seven at most into arrays of eight (bgFindRoomsByPos writes its
+	// terminator at max, modghost.c)
+	bgFindRoomsByPos(&pos, inrooms, aboverooms, 7, NULL);
+
+	if (inrooms[0] != -1) {
+		rooms = inrooms;
+	} else if (aboverooms[0] != -1) {
+		rooms = aboverooms;
+	} else if (s->room >= 0 && s->room < g_Vars.roomcount) {
+		seed[0] = s->room;
+		seed[1] = -1;
+		rooms = seed;
+	} else {
+		modelmgrFreeModel(model);
+		return NULL;
+	}
+
+	prop = chrAllocate(model, &pos, rooms, 0.0f, NULL);
+
+	if (!prop) {
+		modelmgrFreeModel(model);
+		return NULL;
+	}
+
+	chr = prop->chr;
+	propActivateThisFrame(prop);
+	propEnable(prop);
+
+	chr->actiontype = ACT_DEAD;
+	memset(&chr->act_dead, 0, sizeof(chr->act_dead));
+	chr->act_dead.fadetimer60 = -1;
+	chr->ailist = NULL;
+	chr->sleep = 0;
+	chr->keptbody60 = g_Vars.lvframe60;
+	chr->fadealpha = 255;
+	chr->chrflags |= CHRCFLAG_INVINCIBLE | CHRCFLAG_UNEXPLODABLE | CHRCFLAG_NOAUTOAIM | CHRCFLAG_NEVERSLEEP;
+	chr->chrflags &= ~CHRCFLAG_KILLCOUNTABLE;
+	chr->hidden |= CHRHFLAG_UNTARGETABLE;
+
+	if (src) {
+		chr->race = src->race;
+		chr->team = src->team;
+	}
+
+	return prop;
+}
+
+/**
  * A scenario's prop (SCENOBJ, netscen.c): a briefcase or the uplink as a
  * weapon at the host's scale with its team, or Hacker Central's terminal as
  * scenarioCreateObj makes it. Never made by this machine's own
@@ -1431,7 +1576,16 @@ static void netPupFreeDyn(struct netpup *u)
 		return;
 	}
 
-	if (prop->obj && prop->obj->prop == prop) {
+	if (prop->type == PROPTYPE_CHR && prop->chr && prop->chr->prop == prop) {
+		// a corpse made here (BODY): chrRemove leaves the prop to its
+		// caller (player.c's way; the pose step runs before propsTick's walk)
+		chrRemove(prop, true);
+		propDeregisterRooms(prop);
+		propDelist(prop);
+		propDisable(prop);
+		propFree(prop);
+		s_Freed++;
+	} else if (prop->type != PROPTYPE_CHR && prop->obj && prop->obj->prop == prop) {
 		objFreePermanently(prop->obj, true);
 		s_Freed++;
 	}
@@ -1455,7 +1609,7 @@ static struct prop *netPupDyn(struct netpup *u, u16 id, u16 gen, s32 kind, s32 r
 		}
 	}
 
-	if (rec != NETREC_OBJ) {
+	if (rec != NETREC_OBJ && !(rec == NETREC_CHR && kind == NETDESC_BODY)) {
 		return NULL;
 	}
 
@@ -1474,6 +1628,11 @@ static struct prop *netPupDyn(struct netpup *u, u16 id, u16 gen, s32 kind, s32 r
 	switch (kind) {
 	case NETDESC_DYNWEAPON:
 		prop = netPupMakeWeapon(d, s);
+
+		if (prop && WEAPON_IS_GE(d->weaponnum)) {
+			s_GeGunsMade++;
+			s_GoldenGuns += d->weaponnum == WEAPON_GE_GOLDENGUN;
+		}
 		break;
 	case NETDESC_HAT:
 		prop = netPupMakeHat(d, s);
@@ -1484,9 +1643,11 @@ static struct prop *netPupDyn(struct netpup *u, u16 id, u16 gen, s32 kind, s32 r
 	case NETDESC_SCENOBJ:
 		prop = netPupMakeScen(d, s);
 		break;
+	case NETDESC_BODY:
+		prop = netPupMakeBody(d, s);
+		break;
 	default:
-		// DYNOBJ (debris and the like) and BODY (Mod.Bodies' corpses) are
-		// not made yet
+		// DYNOBJ (debris and the like) is not made
 		break;
 	}
 
@@ -1767,6 +1928,14 @@ static void netClientPosePuppetsRun(void)
 
 		isdyn = kind != NETDESC_SETUPOBJ && kind != NETDESC_SIM && kind != NETDESC_PLAYER;
 
+		// what was made for this id and generation stays while the id is
+		// present: a corpse is the same host prop as the sim before it, and
+		// a render clock that steps back a tick poses that sim's last record
+		// again (nothing to pose then: the kept body is not made twice)
+		if (u->dyn && u->hostgen == gen) {
+			u->posed = s_Serial;
+		}
+
 		if (isdyn) {
 			prop = netPupDyn(u, id, gen, kind, rec, &st);
 		} else {
@@ -1856,10 +2025,9 @@ struct prop *netPuppetsLocalProp(u16 id, u16 gen)
 		if (u->hostgen == gen && netEntsPropGen(netPupLocalIndex(u->dyn)) == u->dyngen) {
 			return u->dyn;
 		}
-
-		return NULL;
 	}
 
+	// (one made for an older generation of the id goes at the next pose)
 	return netEntsMapped(id, gen);
 }
 
@@ -2013,8 +2181,9 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, trails %u, player puppet deaths %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
 			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
-			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_Trails, s_PlayerDeaths);
+			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_Trails, s_PlayerDeaths,
+			s_Created[NETDESC_BODY], s_BodyLoads, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves);
 }

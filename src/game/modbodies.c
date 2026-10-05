@@ -18,6 +18,7 @@
 #include "data.h"
 #include "types.h"
 #include <string.h>
+#include "gexplus.h"
 
 /**
  * Bodies that are left lying where they fell.
@@ -413,6 +414,12 @@ void modBodiesTick(void)
 		// for its body to be taken off it. If the body cannot be kept after
 		// all, the simulant still gets up on this tick.
 		if (chr->aibot && chr->act_dead.fadetimer60 >= TICKS(90)) {
+			// You Only Live Twice (GoldenEye): chrTickDead() holds a simulant
+			// twice dead here for good, and this was getting it up anyway
+			if (gexPlusLivesSpent(chr)) {
+				continue;
+			}
+
 			if (!modBodyIsKept(chr) || chr->act_dead.fadenow || !modBodyHandOff(chr)) {
 				chr->keptbody60 = -1;
 				chr->fadealpha = 0;

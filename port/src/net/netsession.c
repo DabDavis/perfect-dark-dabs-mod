@@ -26,7 +26,14 @@
 #include "game/modoptions.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
+#include "game/mplayer/setup.h"
+#include "gexplus.h"
+#include "gehud.h"
+#include "xblamesh.h"
 #include "game/lv.h"
+#include "game/prop.h"
+#include "game/propobj.h"
+#include "game/setuputils.h"
 
 extern s32 g_MpTimeLimit60;
 extern s32 g_MpScoreLimit;
@@ -146,6 +153,8 @@ static u64 s_ClientBarrierDeadline = 0;
 static s32 s_MatchActive = 0;  // from the start (H1 / STAGE_LOAD) to H12
 static s32 s_MatchLoaded = 0;  // its stage has begun loading (H5): H12 then ends it
 static s32 s_MatchStage = -1;
+static s32 s_MatchKeyKind = -1;                 // the stage key's kind (client: as it came)
+static char s_MatchWhat[NET_MAXMAPDIR + NET_MAXMAPNAME + 32];
 static u32 s_MatchIdCur = 0;
 static s32 s_SeedPending = 0;
 static u64 s_Seed = 0;
@@ -468,6 +477,7 @@ static const char *netCompDescription(const char *name)
 	if (strcmp(name, "rom") == 0) return "Perfect Dark ROM";
 	if (strcmp(name, "mod") == 0) return "loaded mod (--moddir / the Mods menu)";
 	if (strcmp(name, "mapmods") == 0) return "Stage Loader map mods (Mod.MapMods)";
+	if (strcmp(name, "borrow") == 0) return "GoldenEye X borrowed for GoldenEye's guns (Mod.BorrowGoldenEyeGuns)";
 	if (strcmp(name, "added") == 0) return "added content (GoldenEye ROM, XBLA releases)";
 	if (strcmp(name, "geconv") == 0) return "GoldenEye conversion";
 	return name;
@@ -677,7 +687,14 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 			if (strcmp(theirs[j].name, mine[i].name) == 0) {
 				found = 1;
 
-				if (theirs[j].hash != mine[i].hash) {
+				// the Stage Loader's other mods may differ: a match on a map
+				// the client lacks is refused at STAGE_LOAD with the map and
+				// its mod named (NOSTAGE), and the stage hash checks the
+				// contents of the one played (protocol 8)
+				if (theirs[j].hash != mine[i].hash && strcmp(mine[i].name, "mapmods") == 0) {
+					sysLogPrintf(LOG_NOTE, "net: peer %d's Stage Loader map mods differ from this machine's (%016llx here, %016llx theirs); a map is checked when it is played",
+							peer, (unsigned long long)mine[i].hash, (unsigned long long)theirs[j].hash);
+				} else if (theirs[j].hash != mine[i].hash) {
 					snprintf(text, sizeof(text), "Your %s differs from the host's (%s %016llx here, %016llx yours). Load the same ROM, mods and added content as the host.",
 							netCompDescription(mine[i].name), mine[i].name,
 							(unsigned long long)mine[i].hash, (unsigned long long)theirs[j].hash);
@@ -1395,6 +1412,8 @@ static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize)
 	char base[NET_MAXMAPDIR + 1];
 	s32 id;
 
+	s_MatchKeyKind = kind;
+
 	if (kind == 0) {
 		id = netBufReadU8(b);
 		snprintf(what, whatsize, "stock stage 0x%02x", id);
@@ -1486,6 +1505,7 @@ static void netClientBeginStage(struct netbuf *b)
 	s_MatchActive = 1;
 	s_MatchStage = id;
 	s_MatchIdCur = matchid;
+	snprintf(s_MatchWhat, sizeof(s_MatchWhat), "%s", what);
 	s_SeedPending = 1;
 	s_BarrierHeld = 1;
 	s_EndPending = 0;
@@ -1865,12 +1885,41 @@ static void netClientDropToMenus(void)
 
 static void netTestStartMatch(void)
 {
-	const s32 stage = sysArgGetInt("--net-test-stage", 0x32);
+	const char *mapname = sysArgGetString("--net-test-map");
+	const s32 gescen = sysArgGetInt("--net-test-ge", -1);
 	const s32 sims = sysArgGetInt("--net-test-sims", 0);
 	const char *weapons = sysArgGetString("--mp-weapons");
+	s32 stage = sysArgGetInt("--net-test-stage", 0x32);
 	s32 s;
 
-	sysLogPrintf(LOG_NOTE, "net: --net-test-host: starting a match on 0x%02x with %d sims", stage, sims);
+	// --net-test-map NAME: a mod's or the Stage Loader's map by its name (its
+	// id depends on the mods installed), as --boot-map finds it
+	if (mapname) {
+		for (s = 1; s <= STAGE_MAX_ID; s++) {
+			const char *name = modloaderGetStageMapName(s);
+
+			if (name && strcmp(name, mapname) == 0 && !modloaderStageIsMission(s)) {
+				break;
+			}
+		}
+
+		if (s <= STAGE_MAX_ID) {
+			stage = s;
+		} else {
+			sysLogPrintf(LOG_WARNING, "net: --net-test-map %s: no such map", mapname);
+		}
+	}
+
+	// --net-test-ge N: the GoldenEye mode's Combat Simulator (its arenas,
+	// weapon sets and simulants) with GoldenEye scenario N (gexplus.h)
+	if (gescen >= 0 && gescen < GEXPLUS_NUMSCENARIOS) {
+		mpSetGexPlusMode(true);
+		gexPlusSetScenario(gescen);
+		challengeDetermineUnlockedFeatures();
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: --net-test-host: starting a match on 0x%02x with %d sims%s", stage, sims,
+			gescen >= 0 ? " (GoldenEye mode)" : "");
 
 	g_MpSetup.stagenum = stage;
 	mpClearSimSlots();
@@ -1967,6 +2016,110 @@ static void netTestStartMatch(void)
 
 	mpStartMatch();
 	menuStop();
+}
+
+/**
+ * Content gate staging, host only, called through gdb between ticks
+ * (tools/ci/netcontenttest.sh): a loose ammo crate out of the setup
+ * multi-ammo crate nearest player pn, made as propobj.c's shot-crate path
+ * makes one (a path nothing reaches) and dropped from it, so a client
+ * has a NETDESC_AMMOCRATE to make. Returns the crate's prop or NULL.
+ */
+struct prop *netTestLooseCrate(s32 pn)
+{
+	struct prop *best = NULL;
+	struct prop *prop;
+	struct ammocrateobj *crate;
+	struct multiammocrateobj *multi;
+	struct defaultobj tmp = {
+		256, 0, OBJTYPE_AMMOCRATE, 0, -1, OBJFLAG_FALL, 0, 0, NULL, NULL,
+		1, 0, 0, 0, 1, 0, 0, 0, 1,
+		0, NULL, NULL, 0, 1000,
+		0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00, 0x0fff, 0,
+	};
+	f32 bestdist = 0;
+	s32 guard = 0;
+	s32 i;
+
+	if (g_NetMode != NETMODE_SERVER || pn < 0 || pn >= PLAYERCOUNT() || !g_Vars.players[pn] || !g_Vars.players[pn]->prop) {
+		return NULL;
+	}
+
+	prop = g_Vars.activeprops ? g_Vars.activeprops : g_Vars.pausedprops;
+
+	for (; prop && guard < 4096; prop = prop->next, guard++) {
+		if (prop->type == PROPTYPE_OBJ && prop->obj && prop->obj->type == OBJTYPE_MULTIAMMOCRATE && !prop->child) {
+			const f32 dx = prop->pos.x - g_Vars.players[pn]->prop->pos.x;
+			const f32 dz = prop->pos.z - g_Vars.players[pn]->prop->pos.z;
+
+			if (!best || dx * dx + dz * dz < bestdist) {
+				best = prop;
+				bestdist = dx * dx + dz * dz;
+			}
+		}
+	}
+
+	if (!best) {
+		return NULL;
+	}
+
+	multi = (struct multiammocrateobj *)best->obj;
+
+	for (i = 0; i < ARRAYCOUNT(multi->slots); i++) {
+		// a Combat Simulator crate's slots name no model of their own: the
+		// loose one then wears the crate's
+		s32 modelnum = multi->slots[i].modelnum;
+
+		if (modelnum <= 0 || modelnum >= NUM_MODELS || !g_ModelStates[modelnum].fileid) {
+			modelnum = multi->base.modelnum;
+		}
+
+		if (multi->slots[i].quantity > 0 && modelnum > 0 && modelnum < NUM_MODELS && g_ModelStates[modelnum].fileid) {
+			setupLoadModeldef(modelnum);
+
+			if (!g_ModelStates[modelnum].modeldef || !(crate = ammocrateAllocate())) {
+				return NULL;
+			}
+
+			crate->base = tmp;
+			crate->base.modelnum = modelnum;
+			crate->ammotype = i + 1;
+
+			if (!objInitWithModelDef(&crate->base, g_ModelStates[modelnum].modeldef)) {
+				return NULL;
+			}
+
+			// the drop needs the crate a projectile first (objDrop)
+			propReparent(crate->base.prop, best);
+			objSetDropped(crate->base.prop, DROPTYPE_DEFAULT);
+			objDropRecursively(best, false);
+			sysLogPrintf(LOG_NOTE, "net: test: a loose ammo crate (model 0x%x, ammo type %d) out of the crate at %.0f %.0f %.0f",
+					modelnum, i + 1, best->pos.x, best->pos.y, best->pos.z);
+			return crate->base.prop;
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * The client's content summary (tools/ci/netcontenttest.sh): the stage as
+ * the host's key named it, the GoldenEye mode and scenario its RULES set,
+ * whether GoldenEye's HUD is drawing, and what this machine's player held
+ */
+void netSessionContentLog(const char *why, u32 ticks, u32 geticks)
+{
+	const s32 pn = g_NetLocalSlot;
+	const s32 weapon = pn >= 0 && pn < PLAYERCOUNT() && g_Vars.players[pn] ? g_Vars.players[pn]->gunctrl.weaponnum : -1;
+
+	if (s_Role != NETROLE_CLIENT || !s_MatchActive) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: content client %s (tick %u): stage 0x%02x, key kind %d (%s); GoldenEye mode %d scenario %d (%s), GoldenEye HUD %s; weapon in hand 0x%02x%s, a GoldenEye gun %u of %u ticks; Mod.Bodies %d, Mod.XblaMeshes %d",
+			why, g_NetTick, s_MatchStage, s_MatchKeyKind, s_MatchWhat, g_GexPlusMode != 0, gexPlusGetScenario(),
+			gexPlusScenarioName(gexPlusGetScenario()), geHudActive() ? "on" : "off", weapon & 0xff,
+			WEAPON_IS_GE(weapon) ? " (GoldenEye's)" : "", geticks, ticks, modGetBodiesKept(), xblaMeshGetEnabled());
 }
 
 /**
