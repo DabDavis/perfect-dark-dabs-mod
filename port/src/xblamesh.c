@@ -31,6 +31,7 @@
 #include "types.h"
 #include "config.h"
 #include "system.h"
+#include "net/net.h"
 #include "input.h"
 #include "lib/main.h"
 #include "lib/model.h"
@@ -14070,6 +14071,9 @@ s32 xblaMeshGetEnabled(void)
  */
 void xblaMeshSetEnabled(s32 enabled)
 {
+	// netplay: a match's rules stay as they started (H14)
+	if (g_NetMode != NETMODE_NONE && netRulesLocked()) return;
+
 	enabled = enabled ? 1 : 0;
 
 	if (enabled == optEnabled) {

@@ -49,6 +49,7 @@
 #ifndef PLATFORM_N64
 #include "patchnotes.h"
 #include "update.h"
+#include "net/net.h"
 #endif
 
 u8 g_InventoryWeapon;
@@ -5275,6 +5276,8 @@ MenuDialogHandlerResult menudialogMainMenu(s32 operation, struct menudialogdef *
 			patchnotesMainMenuTick();
 			// Then, once that is out of the way, whether a newer one is out.
 			updatenoticeMainMenuTick(dialogdef, data->dialog2.inputs, true);
+			// netplay: why the last net game ended
+			if (g_NetNoticePending) netMainMenuTick();
 		} else {
 			updatenoticeMainMenuTick(dialogdef, data->dialog2.inputs, false);
 #endif

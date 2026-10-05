@@ -15,4 +15,20 @@
  */
 bool sha256File(const char *path, char *out);
 
+/**
+ * A hash built up in pieces, and HMAC-SHA256 over it (netplay's content
+ * hashes and the lobby's join tickets). out is 32 raw bytes.
+ */
+struct sha256ctx {
+	u32 h[8];
+	u64 len;
+	u8 block[64];
+	u32 fill;
+};
+
+void sha256Begin(struct sha256ctx *ctx);
+void sha256Add(struct sha256ctx *ctx, const void *data, u32 len);
+void sha256End(struct sha256ctx *ctx, u8 *out);
+void sha256Hmac(const u8 *key, u32 keylen, const void *msg, u32 msglen, u8 *out);
+
 #endif

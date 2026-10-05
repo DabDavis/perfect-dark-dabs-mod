@@ -9,6 +9,7 @@
 #include "input.h"
 #include "system.h"
 #include "utils.h"
+#include "net/net.h"
 
 #define CONFIG_MAX_SECNAME 128
 #define CONFIG_MAX_KEYNAME 256
@@ -302,7 +303,79 @@ u32 configDumpSection(const char *section, char *dst, u32 dstsize)
 	return at;
 }
 
+/**
+ * A registered setting's type and variable, by key: netplay applies the
+ * host's values for a match through it, many of them file statics nothing
+ * else can reach (PLANS/netplay/spec-stage.md §3b). 0 if nothing has that key.
+ */
+s32 configGetEntry(const char *key, s32 *type, void **ptr, u32 *maxstr)
+{
+	struct configentry *cfg = configFindEntry(key);
+
+	if (!cfg || cfg->type == CFG_NONE || !cfg->ptr) {
+		return 0;
+	}
+
+	*type = cfg->type == CFG_S32 ? CONFIG_TYPE_S32
+		: cfg->type == CFG_F32 ? CONFIG_TYPE_F32
+		: cfg->type == CFG_U32 ? CONFIG_TYPE_U32 : CONFIG_TYPE_STR;
+	*ptr = cfg->ptr;
+
+	if (maxstr) {
+		*maxstr = cfg->type == CFG_STR ? cfg->max_str : 0;
+	}
+
+	return 1;
+}
+
+/**
+ * Puts a setting back within the range it was registered with (netplay
+ * writes values that came over the wire)
+ */
+void configClampEntry(const char *key)
+{
+	struct configentry *cfg = configFindEntry(key);
+
+	if (!cfg || !cfg->ptr) {
+		return;
+	}
+
+	switch (cfg->type) {
+		case CFG_S32:
+			if (cfg->min_s32 < cfg->max_s32) {
+				*(s32 *)cfg->ptr = configClampInt(*(s32 *)cfg->ptr, cfg->min_s32, cfg->max_s32);
+			}
+			break;
+		case CFG_F32:
+			if (cfg->min_f32 < cfg->max_f32) {
+				*(f32 *)cfg->ptr = configClampFloat(*(f32 *)cfg->ptr, cfg->min_f32, cfg->max_f32);
+			}
+			break;
+		case CFG_U32:
+			if (cfg->min_u32 < cfg->max_u32) {
+				*(u32 *)cfg->ptr = configClampUInt(*(u32 *)cfg->ptr, cfg->min_u32, cfg->max_u32);
+			}
+			break;
+		default:
+			break;
+	}
+}
+
+static s32 configSaveFile(const char *fname);
+
 s32 configSave(const char *fname)
+{
+	s32 ok;
+
+	// netplay: the player's own values go to pd.ini, never the host's rules
+	if (g_NetMode != NETMODE_NONE) netRulesConfigSaveBegin();
+	ok = configSaveFile(fname);
+	if (g_NetMode != NETMODE_NONE) netRulesConfigSaveEnd();
+
+	return ok;
+}
+
+static s32 configSaveFile(const char *fname)
 {
 	// The binds are kept as keys and turned into pd.ini's text only on
 	// request; every save asks, not just the one on exit (input.c)

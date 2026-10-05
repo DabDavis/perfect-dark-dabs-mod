@@ -227,4 +227,8 @@ extern s32 g_GeStanAsked;
 extern s32 g_GeStanSkipped;
 extern s32 g_GeStanNoTile;
 
+// The SHA-256 (32 bytes) of the stage's tile graph file, for netplay's stage
+// hash; 0 if the stage has none
+s32 geStanFileHash(u8 *out);
+
 #endif

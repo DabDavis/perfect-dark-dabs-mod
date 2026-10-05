@@ -12,6 +12,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "system.h"
+#include "net/net.h"
 #endif
 
 /**
@@ -4164,6 +4165,8 @@ void fileLoad(u8 *dst, u32 allocationlen, romptr_t *romaddrptr, struct fileinfo 
 	if (!filedata) {
 		return;
 	}
+	// netplay: the stage hash, raw bytes as on disk (HA)
+	if (g_NetMode != NETMODE_NONE) netStageHashFile(filenum, g_LoadType, filedata, romsize);
 	// An empty file has nothing to inflate: rzipInflate() would read its
 	// header from one past the end of the allocation (the asset dump's
 	// model pass hit this under ASan)
@@ -4256,6 +4259,8 @@ void fileLoadPartToAddr(u16 filenum, void *memaddr, s32 offset, u32 len)
 		const u8 *src = romdataFileGetData(filenum);
 		const u32 size = romdataFileGetSize(filenum);
 		if (src) {
+			// netplay: the stage hash takes the whole bg file once (HB)
+			if (g_NetMode != NETMODE_NONE) netStageHashFile(filenum, LOADTYPE_BG, src, size);
 			// The bg loader asks for a section rounded up to 16 bytes, which
 			// for the last runs past the end of the file - the cartridge
 			// has bytes there, a buffer of the file's own size does not, and

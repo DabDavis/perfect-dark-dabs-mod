@@ -452,6 +452,8 @@ void lvReset(s32 stagenum)
 	modelmgrReset();
 	psReset();
 #ifndef PLATFORM_N64
+	// netplay: the match's seeds, the same point on every machine (H4)
+	if (g_NetMode != NETMODE_NONE) netStageSeed();
 	// A GoldenEye stage's HD meshes are built as its models load, not on
 	// their first frame on screen (hdpreload.c)
 	hdPreloadBegin(stagenum);
@@ -2479,6 +2481,10 @@ void lvTick(void)
 		g_Vars.players[j]->hands[HAND_RIGHT].hasdotinfo = false;
 	}
 
+#ifndef PLATFORM_N64
+	// netplay: no level ticks until every machine has loaded, as paused (H7)
+	if (g_NetMode != NETMODE_NONE && netStageBarrierHold()) { g_Vars.lvupdate240 = 0; } else
+#endif
 	if (lvIsPaused()) {
 		g_Vars.lvupdate240 = 0;
 	} else if (mpIsPaused()) {
@@ -2689,6 +2695,10 @@ void lvTick(void)
 
 			if (elapsed < TICKS(g_MpTimeLimit60) && nexttime >= TICKS(g_MpTimeLimit60)) {
 				// Match is ending due to time limit reached
+				// (netplay: a client never ends one on its own clock, H8)
+#ifndef PLATFORM_N64
+				if (!netIsClient())
+#endif
 				mainEndStage();
 			}
 
@@ -2758,6 +2768,10 @@ void lvTick(void)
 				// g_NumReasonsToEndMpMatch blocks respawning in playerTick.
 				// Wait for the animations, but not indefinitely.
 				if (numdying == 0 || g_MpEndMatchDelay60 >= TICKS(180)) {
+#ifndef PLATFORM_N64
+					// netplay: the host's MATCH_END ends a client's (H8)
+					if (!netIsClient())
+#endif
 					mainEndStage();
 				} else {
 					g_MpEndMatchDelay60 += g_Vars.lvupdate60;

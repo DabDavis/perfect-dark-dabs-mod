@@ -19,6 +19,9 @@
 #include "lib/main.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 
 // read only by the Japanese layout (JPNLAYOUT), which a CJK pack selects
 #if VERSION >= VERSION_JPN_FINAL || !defined(PLATFORM_N64)
@@ -108,6 +111,10 @@ MenuItemHandlerResult mpStatsForPlayerDropdownHandler(s32 operation, struct menu
 MenuItemHandlerResult menuhandlerMpEndGame(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
+#ifndef PLATFORM_N64
+		// netplay: End Game on a client leaves the session (H11)
+		if (g_NetMode != NETMODE_NONE && netIsClient()) { netClientLeave(); return 0; }
+#endif
 		g_Vars.currentplayer->aborted = true;
 		mainEndStage();
 	}

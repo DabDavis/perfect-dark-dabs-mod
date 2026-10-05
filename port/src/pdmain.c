@@ -620,7 +620,9 @@ void mainLoop(void)
 		joyReset();
 		dhudReset();
 		zbufReset(g_StageNum);
+		if (g_NetMode != NETMODE_NONE) netStageHashBegin(g_StageNum);
 		lvReset(g_StageNum);
+		if (g_NetMode != NETMODE_NONE) netStageHashEnd();
 		viReset(g_StageNum);
 		frametimeCalculate();
 		if (g_NetMode != NETMODE_NONE) netStageStart();
@@ -629,6 +631,7 @@ void mainLoop(void)
 		while (g_MainChangeToStageNum < 0) {
 			if (g_NetMode != NETMODE_NONE) netCheckQuit();
 			if (g_NetMode != NETMODE_NONE && netSessionInStage()) { mainNetFrame(); continue; }
+			if (g_NetMode != NETMODE_NONE) netIdleFrame();
 
 			const s32 cycles = osGetCount() - g_Vars.thisframestartt;
 			if (!g_Vars.mininc60 || (cycles >= g_Vars.mininc60 * CYCLES_PER_FRAME - CYCLES_PER_FRAME / 2)) {
@@ -642,6 +645,7 @@ void mainLoop(void)
 		}
 
 		lvStop();
+		if (g_NetMode != NETMODE_NONE) netStageStopped();
 		mempDisablePool(MEMPOOL_STAGE);
 		mempDisablePool(MEMPOOL_7);
 		filesStop(4);
@@ -817,6 +821,7 @@ void mainEndStage(void)
 			musicStartMenu();
 		} else if (g_Vars.normmplayerisrunning) {
 			mpEndMatch();
+			if (g_NetMode != NETMODE_NONE) netHostMatchEnded();
 		} else if (gexFrontMissionReport()) {
 			// A mission GE Plus's folder started ends as GoldenEye's do: no
 			// endscreen over the level, but out of it to the folder's own
@@ -851,6 +856,12 @@ static bool mainStageIsLoadable(s32 stagenum)
 	bgfileid = g_Stages[index].bgfileid;
 
 	return bgfileid > 0 && romdataFileGetName(bgfileid) != NULL;
+}
+
+// netplay: a client checks the host's stage before it changes to it (H3)
+s32 mainStageCanLoad(s32 stagenum)
+{
+	return mainStageIsLoadable(stagenum);
 }
 
 void mainChangeToStage(s32 stagenum)

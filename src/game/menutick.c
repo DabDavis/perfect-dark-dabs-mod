@@ -34,6 +34,7 @@
 #include "modloader.h"
 #include "trace.h"
 #include "optionsmenu.h"
+#include "net/net.h"
 #endif
 
 #ifndef PLATFORM_N64
@@ -665,6 +666,10 @@ void menuTick(void)
 		if (g_MenuData.prevmenuroot != -1) {
 			if (g_MenuData.prevmenuroot == -5) {
 				// Match is beginning
+#ifndef PLATFORM_N64
+				// netplay: a client never starts one from its own menus (H2)
+				if (g_NetMode != NETMODE_NONE && netIsClient()) { netClientRefuseLocalStart(); } else
+#endif
 				mpStartMatch();
 				menuStop();
 

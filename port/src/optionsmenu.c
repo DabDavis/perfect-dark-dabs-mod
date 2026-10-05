@@ -29,6 +29,7 @@
 #include "mod.h"
 #include "modloader.h"
 #include "system.h"
+#include "net/net.h"
 #include "texpack.h"
 #include "xblaimport.h"
 #include "xblamesh.h"
@@ -2573,6 +2574,9 @@ static const struct modpreset g_ModPresets[] = {
 
 static void menuhandlerModPresetApply(const struct modpreset *preset)
 {
+	// netplay: a match's rules stay as they started (H14)
+	if (g_NetMode != NETMODE_NONE && netRulesLocked()) return;
+
 	g_ModOptions.jumpheight = preset->jumpheight;
 	g_ModOptions.roll = preset->roll;
 	g_ModOptions.melee = preset->melee;
@@ -2757,6 +2761,9 @@ void modEnhancementsSetOn(s32 on)
 	s32 extra[MODENHANCE_EXTRA_COUNT];
 	s32 *fields = &preset.jumpheight;
 	u32 i;
+
+	// netplay: a match's rules stay as they started (H14)
+	if (g_NetMode != NETMODE_NONE && netRulesLocked()) return;
 
 	if (!on == !modEnhancementsAreOn()) {
 		return;

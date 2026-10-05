@@ -66,6 +66,7 @@
 #include "gexplus.h"
 #include "gebean.h"
 #include "geguns.h"
+#include "net/net.h"
 #include "geanimtable.h"
 #include "game/bondmove.h"
 #include "game/body.h"
@@ -6064,6 +6065,8 @@ static void watchMpTick(void)
 				watchPlaySelect();
 				mpSetPaused(MPPAUSEMODE_UNPAUSED);
 				g_MpWatch[num].on = 0;
+				// netplay: the watch's exit on a client leaves the session (H11)
+				if (g_NetMode != NETMODE_NONE && netIsClient()) { netClientLeave(); return; }
 				mainEndStage();
 				return;
 			}

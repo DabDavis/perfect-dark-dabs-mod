@@ -13,6 +13,7 @@
 #include "fs.h"
 #include "system.h"
 #include "gestan.h"
+#include "sha256.h"
 #include "game/prop.h"
 
 #ifndef PLATFORM_N64
@@ -137,6 +138,29 @@ static u8 *stanLoadFile(u32 *len)
 	snprintf(path, sizeof(path), "%s/files/%s", dir, name);
 
 	return fsFileLoad(path, len);
+}
+
+/**
+ * The SHA-256 of the stage's tile graph file as it is on disk, for netplay's
+ * stage hash (the graph is read lazily, outside fileLoad(), so the hash
+ * window never sees it: spec-stage.md §5 HD). 0 if the stage has none.
+ */
+s32 geStanFileHash(u8 *out)
+{
+	struct sha256ctx ctx;
+	u32 len = 0;
+	u8 *d = stanLoadFile(&len);
+
+	if (!d) {
+		return 0;
+	}
+
+	sha256Begin(&ctx);
+	sha256Add(&ctx, d, len);
+	sha256End(&ctx, out);
+	sysMemFree(d);
+
+	return 1;
 }
 
 static s32 stanCellOf(f32 v, f32 origin, s32 count)

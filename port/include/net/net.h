@@ -87,4 +87,7 @@ void netInputMouseRaw(s32 *dx, s32 *dy);
 // gfxReset: the player-count row the display list pools are sized by
 s32 netGfxSizeIndex(s32 index);
 
+// The session's hooks (H1-H14, HA-HD)
+#include "net/netsession.h"
+
 #endif

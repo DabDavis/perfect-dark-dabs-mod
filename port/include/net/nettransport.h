@@ -126,8 +126,13 @@ void netHostFlush(struct nethost *h);
  */
 s32 netHostSend(struct nethost *h, s32 peer, s32 channel, const void *data, s32 len, s32 flags);
 
-// Closes politely: NETEVENT_DISCONNECT follows once the peer acknowledges
+// Closes politely: NETEVENT_DISCONNECT follows once the peer acknowledges.
+// What is still queued to the peer is dropped, and the peer drops what it
+// has received and not yet handed out: a last message is lost. For that,
 void netHostDisconnect(struct nethost *h, s32 peer, u32 reason);
+// which disconnects once everything queued to the peer has been delivered
+// and acknowledged (a refusal's reason, a goodbye)
+void netHostDisconnectLater(struct nethost *h, s32 peer, u32 reason);
 // Drops the peer at once; the peer is told once, unreliably, and no event follows here
 void netHostDisconnectNow(struct nethost *h, s32 peer, u32 reason);
 

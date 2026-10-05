@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <PR/ultratypes.h>
 #include <ultra64.h>
@@ -12,15 +13,17 @@
 #include "input.h"
 #include "net/net.h"
 #include "net/nettransport.h"
+#include "netint.h"
 
 /**
  * Netplay's core state and the calls the game's hooks make (net.h). This
  * file is the game's side: it sees types.h's bool, so it never includes
  * ENet; the transport is reached through nettransport.h's plain C face.
  *
- * Phase 2 so far (PLANS/netplay/spec-tick.md): the fixed tick, one pad
- * sample per tick, the mouse summed over a frame and spent by one tick, the
- * host's slow motion, and --dedicated. Sessions, commands and snapshots come
+ * Phase 2 (PLANS/netplay/spec-tick.md): the fixed tick, one pad sample per
+ * tick, the mouse summed over a frame and spent by one tick, the host's slow
+ * motion, and --dedicated. The session itself (--host/--connect, rules,
+ * stage, barrier, match end) is netsession.c. Commands and snapshots come
  * later; their calls are here as the stubs the main loop already makes.
  */
 
@@ -37,11 +40,8 @@ s32 g_NetClockTest = 0;
 
 extern s32 g_StageNum;
 
-// The transport's host, once a session opens one (phase 2's --host/--connect)
-static struct nethost *s_NetHost = NULL;
-
 // The host's lvupdate240 for the tick: what a client plays its ticks at
-static s32 s_NetHostLvupdate240 = 4;
+static s32 g_NetHostSocketLvupdate240 = 4;
 
 // Raw mouse counts summed since the last tick spent them
 static s32 s_NetMouseDX = 0;
@@ -119,6 +119,18 @@ void netInitArgs(void)
 
 		sysLogPrintf(LOG_NOTE, "net: clock test, %d ticks per presented frame", g_NetClockTest);
 	}
+
+	// --net-ticket-selftest: the lobby ticket check against pdlobbyd's vector
+	if (sysArgCheck("--net-ticket-selftest")) {
+		const s32 fail = netTicketSelfTest();
+
+		sysLogPrintf(fail ? LOG_ERROR : LOG_NOTE, "net: ticket self test %s (%d)", fail ? "FAILED" : "passed", fail);
+		fflush(stdout);
+		exit(fail ? 1 : 0);
+	}
+
+	// --host [port] / --connect addr[:port] (the socket opens in netSessionInit)
+	netSessionArgs();
 }
 
 /**
@@ -132,6 +144,11 @@ s32 netSessionInStage(void)
 
 	if (g_NetDedicated || g_NetClockTest) {
 		instage = STAGE_IS_LEVEL(g_StageNum);
+	}
+
+	// a net match's stage, host and client alike
+	if (netSessionMatchActive()) {
+		instage = 1;
 	}
 
 	g_NetInStageLoop = instage;
@@ -176,6 +193,8 @@ static void netHandleEvent(const struct netevent *ev)
 	default:
 		break;
 	}
+
+	netSessionEvent(ev);
 }
 
 // Everything queued, without waiting; once per loop
@@ -183,19 +202,21 @@ void netPump(void)
 {
 	struct netevent ev;
 
-	if (!s_NetHost) {
+	if (!g_NetHostSocket) {
 		return;
 	}
 
-	while (netHostService(s_NetHost, &ev, 0) > 0) {
+	while (netHostService(g_NetHostSocket, &ev, 0) > 0) {
 		netHandleEvent(&ev);
 	}
+
+	netSessionTick();
 }
 
 void netFlush(void)
 {
-	if (s_NetHost) {
-		netHostFlush(s_NetHost);
+	if (g_NetHostSocket) {
+		netHostFlush(g_NetHostSocket);
 	}
 }
 
@@ -211,8 +232,8 @@ void netWait(s32 us)
 		us = 1;
 	}
 
-	if (s_NetHost) {
-		if (netHostService(s_NetHost, &ev, (u32)((us + 999) / 1000)) > 0) {
+	if (g_NetHostSocket) {
+		if (netHostService(g_NetHostSocket, &ev, (u32)((us + 999) / 1000)) > 0) {
 			netHandleEvent(&ev);
 			netPump();
 		}
@@ -239,11 +260,15 @@ void netTickReadPad(void)
 
 void netTickBegin(void)
 {
+	netSessionTickBegin();
 }
 
 void netTickEnd(void)
 {
-	g_NetTick++;
+	// the barrier's ticks are not the match's: everyone starts from 0 at GO
+	if (!netSessionBarrierHeld()) {
+		g_NetTick++;
+	}
 
 	// the tick has spent the frame's mouse; any further tick sees none
 	s_NetMouseDX = 0;
@@ -256,12 +281,12 @@ void netPosePuppets(f32 alpha)
 
 s32 netClientLvupdate240(void)
 {
-	return s_NetHostLvupdate240;
+	return g_NetHostSocketLvupdate240;
 }
 
 void netHostSetLvupdate240(s32 lvupdate240)
 {
-	s_NetHostLvupdate240 = lvupdate240;
+	g_NetHostSocketLvupdate240 = lvupdate240;
 }
 
 s32 netSlotHasMouse(s32 playernum)

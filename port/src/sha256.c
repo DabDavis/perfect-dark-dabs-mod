@@ -26,12 +26,7 @@
 #include "types.h"
 #include "sha256.h"
 
-struct sha256 {
-	u32 h[8];
-	u64 len;
-	u8 block[64];
-	u32 fill;
-};
+// struct sha256ctx is in sha256.h: netplay builds its hashes up in pieces
 
 static const u32 g_Sha256K[64] = {
 	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -46,7 +41,7 @@ static const u32 g_Sha256K[64] = {
 
 #define SHA256_ROR(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
 
-static void sha256Block(struct sha256 *ctx, const u8 *p)
+static void sha256Block(struct sha256ctx *ctx, const u8 *p)
 {
 	u32 w[64];
 	u32 a, b, c, d, e, f, g, h;
@@ -77,7 +72,7 @@ static void sha256Block(struct sha256 *ctx, const u8 *p)
 	ctx->h[4] += e; ctx->h[5] += f; ctx->h[6] += g; ctx->h[7] += h;
 }
 
-static void sha256Init(struct sha256 *ctx)
+static void sha256Init(struct sha256ctx *ctx)
 {
 	ctx->h[0] = 0x6a09e667; ctx->h[1] = 0xbb67ae85; ctx->h[2] = 0x3c6ef372; ctx->h[3] = 0xa54ff53a;
 	ctx->h[4] = 0x510e527f; ctx->h[5] = 0x9b05688c; ctx->h[6] = 0x1f83d9ab; ctx->h[7] = 0x5be0cd19;
@@ -85,7 +80,7 @@ static void sha256Init(struct sha256 *ctx)
 	ctx->fill = 0;
 }
 
-static void sha256Update(struct sha256 *ctx, const void *ptr, u32 len)
+static void sha256Update(struct sha256ctx *ctx, const void *ptr, u32 len)
 {
 	const u8 *p = ptr;
 
@@ -110,9 +105,8 @@ static void sha256Update(struct sha256 *ctx, const void *ptr, u32 len)
 	}
 }
 
-static void sha256Final(struct sha256 *ctx, char *out)
+static void sha256FinalRaw(struct sha256ctx *ctx, u8 *out)
 {
-	static const char hex[] = "0123456789abcdef";
 	u64 bits = ctx->len * 8;
 	u8 tail[8];
 	u8 pad = 0x80;
@@ -135,9 +129,21 @@ static void sha256Final(struct sha256 *ctx, char *out)
 	sha256Block(ctx, ctx->block);
 
 	for (i = 0; i < 32; i++) {
-		u8 byte = (u8)(ctx->h[i / 4] >> (24 - (i % 4) * 8));
-		out[i * 2] = hex[byte >> 4];
-		out[i * 2 + 1] = hex[byte & 15];
+		out[i] = (u8)(ctx->h[i / 4] >> (24 - (i % 4) * 8));
+	}
+}
+
+static void sha256Final(struct sha256ctx *ctx, char *out)
+{
+	static const char hex[] = "0123456789abcdef";
+	u8 raw[32];
+	s32 i;
+
+	sha256FinalRaw(ctx, raw);
+
+	for (i = 0; i < 32; i++) {
+		out[i * 2] = hex[raw[i] >> 4];
+		out[i * 2 + 1] = hex[raw[i] & 15];
 	}
 
 	out[64] = '\0';
@@ -150,7 +156,7 @@ static void sha256Final(struct sha256 *ctx, char *out)
  */
 bool sha256File(const char *path, char *out)
 {
-	struct sha256 ctx;
+	struct sha256ctx ctx;
 	u8 chunk[16384];
 	size_t got;
 	FILE *f = fopen(path, "rb");
@@ -174,4 +180,59 @@ bool sha256File(const char *path, char *out)
 	sha256Final(&ctx, out);
 
 	return true;
+}
+
+void sha256Begin(struct sha256ctx *ctx)
+{
+	sha256Init(ctx);
+}
+
+void sha256Add(struct sha256ctx *ctx, const void *data, u32 len)
+{
+	sha256Update(ctx, data, len);
+}
+
+void sha256End(struct sha256ctx *ctx, u8 *out)
+{
+	sha256FinalRaw(ctx, out);
+}
+
+/**
+ * HMAC-SHA256 (RFC 2104): the join ticket's mac (tools/pdlobbyd/README.md).
+ */
+void sha256Hmac(const u8 *key, u32 keylen, const void *msg, u32 msglen, u8 *out)
+{
+	struct sha256ctx ctx;
+	u8 k[64];
+	u8 pad[64];
+	u8 inner[32];
+	s32 i;
+
+	memset(k, 0, sizeof(k));
+
+	if (keylen > 64) {
+		sha256Init(&ctx);
+		sha256Update(&ctx, key, keylen);
+		sha256FinalRaw(&ctx, k);
+	} else {
+		memcpy(k, key, keylen);
+	}
+
+	for (i = 0; i < 64; i++) {
+		pad[i] = k[i] ^ 0x36;
+	}
+
+	sha256Init(&ctx);
+	sha256Update(&ctx, pad, 64);
+	sha256Update(&ctx, msg, msglen);
+	sha256FinalRaw(&ctx, inner);
+
+	for (i = 0; i < 64; i++) {
+		pad[i] = k[i] ^ 0x5c;
+	}
+
+	sha256Init(&ctx);
+	sha256Update(&ctx, pad, 64);
+	sha256Update(&ctx, inner, 32);
+	sha256FinalRaw(&ctx, out);
 }

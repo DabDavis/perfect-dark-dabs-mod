@@ -128,6 +128,8 @@ static void gameInit(void)
 
 static void cleanup(void)
 {
+	// netplay: a goodbye to whoever is connected
+	if (g_NetMode != NETMODE_NONE) netShutdown();
 	sysLogPrintf(LOG_NOTE, "shutdown");
 	// Before anything else: an unfinished mp4 has no index and will not play.
 	recordStop();
@@ -288,6 +290,9 @@ int main(int argc, const char **argv)
 
 	// After the mod's lists are in, since a mod's lists keep GoldenEye's out
 	gebeanPoolRefresh();
+
+	// netplay: --host/--connect open their socket once the mods are mounted
+	if (g_NetMode != NETMODE_NONE) netSessionInit();
 
 	atexit(cleanup);
 

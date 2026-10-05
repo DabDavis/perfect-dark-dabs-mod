@@ -469,6 +469,15 @@ void netHostDisconnect(struct nethost *h, s32 peer, u32 reason)
 	}
 }
 
+void netHostDisconnectLater(struct nethost *h, s32 peer, u32 reason)
+{
+	ENetPeer *p = peerGet(h, peer);
+
+	if (p && p->state != ENET_PEER_STATE_DISCONNECTED) {
+		enet_peer_disconnect_later(p, reason);
+	}
+}
+
 void netHostDisconnectNow(struct nethost *h, s32 peer, u32 reason)
 {
 	ENetPeer *p = peerGet(h, peer);

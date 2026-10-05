@@ -30,6 +30,7 @@
 #include "bss.h"
 #include "config.h"
 #include "system.h"
+#include "net/net.h"
 #include "romdata.h"
 #include "lib/main.h"
 #include "game/bg.h"
@@ -808,6 +809,9 @@ void *xblaStageLoadTiles(s32 fileNum)
 	mempRealloc(dst, outlen, MEMPOOL_STAGE);
 
 	sysLogPrintf(LOG_NOTE, "xblastage: %s collision from the release (4J's fixes)", base);
+
+	// netplay: this collision skips fileLoad, so the stage hash notes it (HC)
+	if (g_NetMode != NETMODE_NONE) netStageHashNote(LOADTYPE_TILES, fix->crc, fix->len);
 
 	return dst;
 }

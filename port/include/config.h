@@ -23,3 +23,11 @@ void configRegisterIntRetired(const char *key, s32 *var, s32 min, s32 max);
 void configRegisterUInt(const char* key, u32* var, u32 min, u32 max);
 void configRegisterFloat(const char *key, f32 *var, f32 min, f32 max);
 void configRegisterString(const char *key, char *var, u32 maxstr);
+
+// A registered setting's type and variable, by key (netplay's RULES). 0 if none
+#define CONFIG_TYPE_S32 1
+#define CONFIG_TYPE_F32 2
+#define CONFIG_TYPE_U32 3
+#define CONFIG_TYPE_STR 4
+s32 configGetEntry(const char *key, s32 *type, void **ptr, u32 *maxstr);
+void configClampEntry(const char *key);

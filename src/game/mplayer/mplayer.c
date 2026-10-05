@@ -45,6 +45,9 @@
 #include "modloader.h"
 #include "gedeathcam.h"
 #include "langpack.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 
 // bss
 struct chrdata *g_MpAllChrPtrs[MAX_MPCHRS];
@@ -424,6 +427,11 @@ void mpStartMatch(void)
 	if (g_MpSetup.stagenum == STAGE_MP_RANDOM) {
 		stagenum = mpChooseRandomStage();
 	}
+
+#ifndef PLATFORM_N64
+	// netplay: the host sends the resolved match and decides the human count (H1)
+	if (g_NetMode != NETMODE_NONE) numplayers = netHostMatchStarting(stagenum, numplayers);
+#endif
 
 	titleSetNextStage(stagenum);
 	mainChangeToStage(stagenum);
@@ -2994,6 +3002,10 @@ void mpEndMatch(void)
 	}
 
 	setCurrentPlayerNum(prevplayernum);
+#ifndef PLATFORM_N64
+	// netplay: a client takes the host's scores and awards (H10)
+	if (g_NetMode != NETMODE_NONE && netIsClient()) netClientApplyMatchEnd(); else
+#endif
 	mpCalculateAwards();
 
 	if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE) {

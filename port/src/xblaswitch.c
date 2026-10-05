@@ -13,6 +13,7 @@
 #include "types.h"
 #include "config.h"
 #include "system.h"
+#include "net/net.h"
 #include "input.h"
 #include "xblamesh.h"
 #include "xblatex.h"
@@ -79,6 +80,9 @@ u32 xblaSwitchGetParts(void)
 
 void xblaSwitchSetParts(u32 parts)
 {
+	// netplay: a match's rules stay as they started (H14)
+	if (g_NetMode != NETMODE_NONE && netRulesLocked()) return;
+
 	// The rooms before the models: both setters drop the rooms loaded under
 	// the old setting (xblaStageSwitched()), and the rooms count only while
 	// the meshes are on, so setting them this way round means the models have
