@@ -5648,6 +5648,7 @@ static void bgunAimThrowAtCrosshair(s32 handnum, struct coord *spawnpos, struct 
 
 void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 {
+	if (NET_CLIENT) return; // netplay C11: the host makes projectiles
 	struct coord velocity = {0, 0, 0};
 	Mtxf sp1f4;
 	struct coord gunpos;
@@ -5971,6 +5972,7 @@ void bgunFreeHeldRocket(s32 handnum)
 
 void bgunCreateFiredProjectile(s32 handnum)
 {
+	if (NET_CLIENT) return; // netplay C11
 	struct weapon *weapondef;
 	struct hand *hand;
 	Mtxf sp270;

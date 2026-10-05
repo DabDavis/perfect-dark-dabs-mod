@@ -119,6 +119,7 @@
 #include "getank.h"
 #include "gexfront.h"
 #include "gecinema.h"
+#include "net/net.h"
 #endif
 #endif
 
@@ -5327,6 +5328,7 @@ void weaponTick(struct prop *prop)
 
 void func0f07063c(struct prop *prop, bool arg1)
 {
+	if (NET_CLIENT) return; // netplay C7: fuses, crates and spare guns are the host's
 	struct defaultobj *obj = prop->obj;
 
 	if (arg1) {
@@ -12004,6 +12006,7 @@ bool propCanRegen(struct prop *prop)
 
 u32 objTick(struct prop *prop)
 {
+	if (NET_CLIENT) return netPuppetObjTick(prop); // netplay C5
 	struct defaultobj *obj = prop->obj;
 	bool silent = false;
 	bool regenning;
@@ -12389,7 +12392,7 @@ s32 objTickPlayer(struct prop *prop)
 		}
 	}
 
-	if (fulltick) {
+	if (fulltick && !NET_CLIENT) { // netplay C6a: projectiles, doors and machines are the host's
 		if (model->anim == NULL && (obj->hidden & OBJHFLAG_PROJECTILE)) {
 			sp592 = projectileTick(obj, &embedded);
 
@@ -12546,7 +12549,7 @@ s32 objTickPlayer(struct prop *prop)
 		objDamage(obj, RANDOMFRAC() * 4.0f + 2.0f, &prop->pos, WEAPON_NONE, (obj->hidden & 0xf0000000) >> 28);
 	}
 
-	if (fulltick) {
+	if (fulltick && !NET_CLIENT) { // netplay C6b
 		if (obj->type == OBJTYPE_AUTOGUN) {
 			autogunTickShoot(prop);
 		}
@@ -16000,6 +16003,7 @@ void objDetach(struct prop *prop)
 
 bool objDrop(struct prop *prop, bool lazy)
 {
+	if (NET_CLIENT) return false; // netplay C10: the host drops
 	struct prop *parent = prop->parent;
 	struct defaultobj *obj = prop->obj;
 	struct prop *root;
@@ -16919,6 +16923,7 @@ void objTakeGunfire(struct defaultobj *obj, f32 damage, struct coord *pos, s32 w
 
 void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weaponnum, s32 playernum)
 {
+	if (NET_CLIENT) return; // netplay C9
 	// Store the attacker playernum into the object's "hidden" field
 #if VERSION >= VERSION_NTSC_1_0
 	// ...but not for deployed laptop guns in multiplayer, because those bits
@@ -21053,6 +21058,7 @@ bool doorIsRangeEmpty(struct doorobj *door)
  */
 void doorsCheckAutomatic(void)
 {
+	if (NET_CLIENT) return; // netplay C12: the host opens doors
 	struct prop *doorprop;
 	s16 *propnumptr;
 	s16 propnums[MAX_ROOMPROPS];
@@ -23261,6 +23267,7 @@ void func0f091030(void)
 
 void currentPlayerDropAllItems(void)
 {
+	if (NET_CLIENT) return; // netplay C10
 	struct chrdata *chr = g_Vars.currentplayer->prop->chr;
 	s32 i;
 

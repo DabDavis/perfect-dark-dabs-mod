@@ -109,6 +109,7 @@ bool chrIsGeListBody(struct chrdata *chr)
 #ifndef PLATFORM_N64
 #include "getank.h"
 #endif
+#include "net/net.h"
 #endif
 #endif
 
@@ -2444,6 +2445,8 @@ void chr0f0220ec(struct chrdata *chr, s32 lvupdate240, bool arg2)
 {
 	struct model *model = chr->model;
 
+	if (NET_CLIENT && netIsPuppet(chr->prop)) return; // netplay C2
+
 	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
 		if (chr->prop->type == PROPTYPE_PLAYER) {
 			chr->hidden &= ~CHRHFLAG_00000800;
@@ -2987,7 +2990,7 @@ s32 chrTick(struct prop *prop)
 		prop->flags &= ~PROPFLAG_NOTYETTICKED;
 	}
 
-	if (fulltick) {
+	if (fulltick && !(NET_CLIENT && netIsPuppet(prop))) { // netplay C1
 #if VERSION >= VERSION_NTSC_1_0
 		if (chr->goposhitcount > 0 && (chr->hidden & CHRHFLAG_BLOCKINGDOOR) == 0) {
 			chr->goposhitcount--;

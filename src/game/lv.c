@@ -1363,6 +1363,8 @@ Gfx *lvRender(Gfx *gdl)
 				islastplayer = playercount == nextplayernum;
 			}
 
+			if (g_NetMode == NETMODE_CLIENT && netClientRenderPass(i, playercount, &islastplayer)) continue; // netplay: a puppet player's view is not simulated here
+
 			// Calculate bluramount - this will be used later
 			if (g_Vars.tickmode != TICKMODE_CUTSCENE) {
 				player = g_Vars.currentplayer;
@@ -1472,7 +1474,7 @@ Gfx *lvRender(Gfx *gdl)
 				lightsTick();
 				propsTickPlayer(islastplayer);
 				if (g_NetMode == NETMODE_SERVER) netHostNoteVisible(g_Vars.currentplayernum); // netplay H5
-				scenarioTickChr(NULL);
+				if (!NET_CLIENT) scenarioTickChr(NULL); // netplay C13: scenarios are the host's
 				propsSort();
 				autoaimTick();
 				NET_REMOTE_PASS_BEGIN();
@@ -1991,7 +1993,7 @@ Gfx *lvRender(Gfx *gdl)
 					gdl = mpRenderModalText(gdl);
 				}
 
-				if (g_Vars.currentplayer->dostartnewlife) {
+				if (g_Vars.currentplayer->dostartnewlife && !(NET_CLIENT && g_Vars.currentplayer->isdead)) { // netplay C15: a respawn is the host's
 					playerStartNewLife();
 				}
 			}
@@ -2863,7 +2865,7 @@ void lvTick(void)
 		traceReportTick();
 #endif
 		menuTick();
-		scenarioTick();
+		if (!NET_CLIENT) scenarioTick(); // netplay C13
 
 		if (!g_MainIsEndscreen) {
 			propsTick();

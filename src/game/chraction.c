@@ -79,6 +79,7 @@
 #include "gehitpuff.h"
 #include "modloader.h"
 #include "simbrain.h"
+#include "net/net.h"
 
 // GoldenEye's frame as geguns.c takes it for its guns' rates: two sixtieths
 #define GE_FRAME60 2
@@ -4887,6 +4888,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 		struct modelnode *node, struct model *model, s32 side, s16 *arg11,
 		bool explosion, struct coord *explosionpos)
 {
+	if (NET_CLIENT) return; // netplay C9: the host deals the damage
 	bool onehitko = false;
 	s32 race = CHRRACE(chr);
 	f32 shield;
@@ -15801,6 +15803,8 @@ void chraTickBg(void)
 #endif
 
 	static s32 mosteveralive = 0;
+
+	if (NET_CLIENT) return; // netplay C4
 
 	numaliveonscreen = 0;
 

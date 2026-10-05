@@ -15,6 +15,11 @@
 #include "game/chraction.h"
 #include "game/playermgr.h"
 #include "game/setuputils.h"
+#include "game/player.h"
+#include "game/bondgun.h"
+#include "game/inv.h"
+#include "game/bondmove.h"
+#include "game/prop.h"
 #include "net/net.h"
 #include "net/netsnap.h"
 #include "net/nettransport.h"
@@ -124,6 +129,43 @@ static u8 s_LastTeleports = 0;
 static s32 s_LpSeen = 0;
 static u32 s_RespawnsSeen = 0;
 static u32 s_TeleportsSeen = 0;
+static struct netdesc *s_Desc = NULL;         // [maxids]: the last descriptor for each host id
+static u8 *s_DescValid = NULL;                // [maxids]
+
+// The local-player block, applied in the pose step (netEntsClientApplyLocal)
+static struct netlpstate s_LpNew;
+static s32 s_LpPending = 0;
+static s32 s_LpRespawnPending = 0;
+static s32 s_LpCorrAbs = 0;           // a teleport or respawn: to the host's position
+static s32 s_LpCorrErr = 0;           // the error past NET_HARDCORRECT: shifted by it
+static f32 s_LpCorrDelta[3];
+static u32 s_LpStableSince = 0;       // the tick the block's inventory and ammo last changed
+static struct netlpstate s_LpPrev;
+static s32 s_LpHaveBlock = 0;
+static u32 s_LpHardAbs = 0;
+static u32 s_LpHardErr = 0;
+static u32 s_LpRejectedY = 0;         // a host position at "no ground" (y -4294967296): not taken
+static u32 s_LpDeaths = 0;
+static u32 s_LpRespawnsDone = 0;
+static u32 s_LpInvChanges = 0;
+static u32 s_LpAliveWhileDead = 0;   // the tick a block first said alive while dead here (0 = not)
+static u32 s_LpRevives = 0;
+static u32 s_LpBadFloats = 0;
+
+// this machine's own ammo and gun as last seen by the pose step
+struct netlplocalsig {
+	s32 weaponnum;
+	s32 switchto;
+	s32 ammo[NETLP_NUMAMMO];
+	s32 loaded[4];
+};
+static struct netlplocalsig s_LpLocalSig;
+static s32 s_LpHaveSig = 0;
+static u32 s_LpAmmoSets = 0;
+static u32 s_LpEquips = 0;
+#define NET_LPREVIVE 90        // ticks of alive blocks before a death only this machine saw is undone
+#define NET_LPSTABLE 30        // ticks a block's inventory/ammo must hold before it overrides this machine's
+#define NET_LPSANE   1000000.f // past this a coordinate is no place (the host's "no ground" is -2^32)
 
 #define NET_HARDCORRECT 200.f   // phase 4: a local error past this would be corrected outright
 
@@ -243,11 +285,12 @@ static FILE *netDumpFile(void)
 	return s_DumpFile;
 }
 
-static void netDumpState(FILE *f, const struct netentstate *st)
+static void netDumpState(FILE *f, const struct netentstate *st, s32 kind)
 {
-	fprintf(f, " %.4f %.4f %.4f %.5f %d %.4f %.6f %.6f %.6f %.6f %.6f %u\n",
+	// flags and kind last (netpuppettest.sh reads them; netsnaptest.sh stops before)
+	fprintf(f, " %.4f %.4f %.4f %.5f %d %.4f %.6f %.6f %.6f %.6f %.6f %u %u %d\n",
 			st->pos[0], st->pos[1], st->pos[2], st->yaw, st->animnum, st->frame, st->doorfrac,
-			st->quat[0], st->quat[1], st->quat[2], st->quat[3], st->teleports);
+			st->quat[0], st->quat[1], st->quat[2], st->quat[3], st->teleports, st->flags, kind);
 }
 
 /*
@@ -350,6 +393,12 @@ static void netEntsFreeAll(void)
 {
 	s32 i;
 
+	if (g_NetMode == NETMODE_CLIENT) {
+		netPuppetsStop();
+	}
+
+	g_NetClientWorld = 0;
+
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		if (s_Hosts[i].maxids) {
 			netSnapHostFree(&s_Hosts[i]);
@@ -369,6 +418,10 @@ static void netEntsFreeAll(void)
 	free(s_TelePrev);
 	free(s_TeleCount);
 	free(s_TeleGen);
+	free(s_Desc);
+	free(s_DescValid);
+	s_Desc = NULL;
+	s_DescValid = NULL;
 	s_SetupCmdOfProp = NULL;
 	s_SetupGenOfProp = NULL;
 	s_SetupPropOfCmd = NULL;
@@ -443,8 +496,21 @@ void netEntsStageStart(void)
 	s_TeleportsSeen = 0;
 	s_HostileFed = 0;
 	s_HostileRejected = 0;
+	s_LpPending = s_LpRespawnPending = s_LpCorrAbs = s_LpCorrErr = 0;
+	s_LpHaveBlock = 0;
+	s_LpStableSince = 0;
+	s_LpHardAbs = s_LpHardErr = s_LpRejectedY = s_LpDeaths = s_LpRespawnsDone = 0;
+	s_LpInvChanges = s_LpAmmoSets = s_LpEquips = 0;
+	s_LpAliveWhileDead = s_LpRevives = s_LpBadFloats = 0;
+	s_LpHaveSig = 0;
 
 	sysLogPrintf(LOG_NOTE, "net: entity table: %d prop slots, %d setup commands", s_MaxIds, s_NumCmds);
+
+	// a client's world is the host's from here (the gates, NET_CLIENT)
+	if (g_NetMode == NETMODE_CLIENT) {
+		g_NetClientWorld = 1;
+		netPuppetsStageStart();
+	}
 }
 
 /*
@@ -579,6 +645,28 @@ static void netCaptureChr(struct netcap *c, struct prop *prop, s32 idx)
 	st->fadeintimer = chr->aibot ? chr->aibot->fadeintimer60 : 0;
 }
 
+/**
+ * An object's realrot carries its model's scale (bgun0f09ebcc() scales the
+ * matrix, and so do setup objects): the rotation alone, columns made unit,
+ * goes on the wire, and the client puts its own scale back
+ */
+static void netCaptureRot(f32 rot[3][3], f32 *q)
+{
+	f32 m[3][3];
+	s32 i;
+	s32 j;
+
+	for (j = 0; j < 3; j++) {
+		const f32 len = sqrtf(rot[j][0] * rot[j][0] + rot[j][1] * rot[j][1] + rot[j][2] * rot[j][2]);
+
+		for (i = 0; i < 3; i++) {
+			m[j][i] = len > 0.000001f ? rot[j][i] / len : (i == j ? 1.f : 0.f);
+		}
+	}
+
+	netQuatFromMatrix(m, q);
+}
+
 static void netCaptureObj(struct netcap *c, struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
@@ -612,7 +700,7 @@ static void netCaptureObj(struct netcap *c, struct prop *prop)
 		if (obj->hidden & OBJHFLAG_EMBEDDED) flags |= NETOBJ_EMBEDDED;
 
 		st->flags = flags;
-		netQuatFromMatrix(obj->realrot, st->quat);
+		netCaptureRot(obj->realrot, st->quat);
 		st->damage = obj->damage;
 		st->extra[0] = netWeaponOf(prop) == 0xff ? 0 : netWeaponOf(prop);
 	}
@@ -863,7 +951,7 @@ static void netHostDumpSnap(s32 slot, const struct netsnaphdr *hdr, s32 n)
 		const struct netsnapent *e = &s_Ents[i];
 
 		fprintf(f, "H %u %d %u %u %u %u %u", hdr->hosttick, slot, hdr->seq, e->id, e->desc.gen, e->desc.rec, e->status);
-		netDumpState(f, &s_Cap[e->id].st);
+		netDumpState(f, &s_Cap[e->id].st, e->desc.kind);
 	}
 }
 
@@ -1205,8 +1293,16 @@ static void netClientMap(u16 seq)
 
 	if (!s_Map) {
 		s_Map = calloc(s_Client.maxids, sizeof(*s_Map));
+		s_Desc = calloc(s_Client.maxids, sizeof(*s_Desc));
+		s_DescValid = calloc(s_Client.maxids, 1);
 
-		if (!s_Map) {
+		if (!s_Map || !s_Desc || !s_DescValid) {
+			free(s_Map);
+			free(s_Desc);
+			free(s_DescValid);
+			s_Map = NULL;
+			s_Desc = NULL;
+			s_DescValid = NULL;
 			return;
 		}
 	}
@@ -1219,6 +1315,8 @@ static void netClientMap(u16 seq)
 
 		m->hostgen = in->desc.gen;
 		m->nackqueued = 0;
+		s_Desc[in->id] = in->desc;
+		s_DescValid[in->id] = 1;
 
 		if (netResolve(&in->desc, &local) > 0) {
 			const s32 lidx = netPropIndex(local);
@@ -1306,15 +1404,23 @@ static void netClientDumpSnap(const struct netsnaphdr *hdr)
 
 		netRecUnpack(netStoreRec(store), store + NETSNAP_STOREHDR, &st);
 		fprintf(f, "C %u %u %u %u %d", hdr->hosttick, hdr->seq, slot->ids[i], netStoreGen(store), netStoreRec(store));
-		netDumpState(f, &st);
+		netDumpState(f, &st, netStoreKind(store));
 	}
 }
 
 /**
- * Phase 5 will reconcile; phase 4 measures. The host's position for this
- * player after the last command it played, against where this machine's
- * own run had the player after the same command.
+ * Phase 5 will reconcile; phase 4 measures, and corrects only outright. The
+ * host's position for this player after the last command it played, against
+ * where this machine's own run had the player after the same command. The
+ * block itself is applied in the pose step (netEntsClientApplyLocal).
  */
+static s32 netLpSane(const f32 *pos)
+{
+	return pos[0] > -NET_LPSANE && pos[0] < NET_LPSANE
+		&& pos[1] > -NET_LPSANE && pos[1] < NET_LPSANE
+		&& pos[2] > -NET_LPSANE && pos[2] < NET_LPSANE;
+}
+
 static void netClientMeasureLocal(const struct netsnaphdr *hdr)
 {
 	const struct netsnapinfo *info = netSnapClientInfo(&s_Client, hdr->seq);
@@ -1331,14 +1437,60 @@ static void netClientMeasureLocal(const struct netsnaphdr *hdr)
 
 	netLpUnpack(info->lp, &lp);
 
+	// floats straight off the wire: a non-finite or absurd theta would spin
+	// bwalk's wrap loop for good, a NaN health would stick
+	if (!isfinite(lp.theta) || !isfinite(lp.verta) || !isfinite(lp.health) || !isfinite(lp.shield)
+			|| fabsf(lp.theta) > NET_LPSANE || fabsf(lp.verta) > NET_LPSANE
+			|| fabsf(lp.health) > NET_LPSANE || fabsf(lp.shield) > NET_LPSANE) {
+		if (s_LpBadFloats++ < 4) {
+			sysLogPrintf(LOG_WARNING, "net: local-player block with bad floats refused (seq %u)", hdr->seq);
+		}
+
+		return;
+	}
+
+	lp.theta = fmodf(lp.theta, 360.f);
+
+	if (lp.theta < 0) {
+		lp.theta += 360.f;
+	}
+
+	if (lp.theta >= 360.f) {
+		lp.theta = 0;
+	}
+
 	if (s_LpSeen) {
-		s_RespawnsSeen += (u8)(lp.respawns - s_LastRespawns);
-		s_TeleportsSeen += (u8)(lp.teleports - s_LastTeleports);
+		const u8 dr = (u8)(lp.respawns - s_LastRespawns);
+		const u8 dt = (u8)(lp.teleports - s_LastTeleports);
+
+		s_RespawnsSeen += dr;
+		s_TeleportsSeen += dt;
+
+		if (dr) {
+			s_LpRespawnPending = 1;
+		}
+
+		if (dr || dt) {
+			s_LpCorrAbs = 1;
+			s_LpCorrErr = 0;
+		}
 	}
 
 	s_LastRespawns = lp.respawns;
 	s_LastTeleports = lp.teleports;
 	s_LpSeen = 1;
+
+	// what the pose step applies: the newest block
+	if (!s_LpHaveBlock || memcmp(lp.inv, s_LpPrev.inv, sizeof(lp.inv)) || memcmp(lp.invdual, s_LpPrev.invdual, sizeof(lp.invdual))
+			|| memcmp(lp.ammo, s_LpPrev.ammo, sizeof(lp.ammo)) || memcmp(lp.loaded, s_LpPrev.loaded, sizeof(lp.loaded))
+			|| lp.weaponnum != s_LpPrev.weaponnum || lp.dual != s_LpPrev.dual) {
+		s_LpStableSince = g_NetTick;
+	}
+
+	s_LpPrev = lp;
+	s_LpHaveBlock = 1;
+	s_LpNew = lp;
+	s_LpPending = 1;
 
 	if (hdr->lastcmd == 0xffffffff) {
 		return;
@@ -1365,12 +1517,266 @@ static void netClientMeasureLocal(const struct netsnaphdr *hdr)
 
 	if (err > NET_HARDCORRECT) {
 		s_ErrOver++;
+
+		// corrected outright by the error, unless either end is no place
+		// (the host's "no ground" y) or a teleport already moves it
+		if (!netLpSane(lp.pos) || !netLpSane(h->pos)) {
+			s_LpRejectedY++;
+		} else if (!s_LpCorrAbs && (lp.flags & NETLP_DEAD) == 0) {
+			s_LpCorrErr = 1;
+			s_LpCorrDelta[0] = dx;
+			s_LpCorrDelta[1] = dy;
+			s_LpCorrDelta[2] = dz;
+		}
 	}
 
 	if (err > 100000.f && s_ErrHuge++ < 4) {
 		sysLogPrintf(LOG_WARNING, "net: local error %.0f at command %u: host %.1f %.1f %.1f, here %.1f %.1f %.1f",
 				err, hdr->lastcmd, lp.pos[0], lp.pos[1], lp.pos[2], h->pos[0], h->pos[1], h->pos[2]);
 	}
+}
+
+/*
+ * The local-player block applied (pose step, inside the tick): what the
+ * host decides about this machine's own player. The player itself still
+ * runs here (no reconciliation until phase 5); its position is corrected
+ * only outright, on a teleport or respawn or an error past NET_HARDCORRECT.
+ */
+
+static void netLpMove(struct player *p, const f32 *pos, const s16 *rooms, s32 settheta, f32 theta)
+{
+	struct prop *prop = p->prop;
+	s32 n = 0;
+	s32 i;
+
+	prop->pos.x = pos[0];
+	prop->pos.y = pos[1];
+	prop->pos.z = pos[2];
+	p->bondprevpos = prop->pos;
+	p->bond2.unk10 = prop->pos;
+
+	if (settheta) {
+		p->vv_theta = theta;
+	}
+
+	propDeregisterRooms(prop);
+
+	if (rooms) {
+		for (i = 0; i < 8 && n < 7; i++) {
+			if (rooms[i] < 0) {
+				break;
+			}
+
+			if (rooms[i] > 0 && rooms[i] < g_Vars.roomcount) {
+				prop->rooms[n++] = rooms[i];
+			}
+		}
+
+		prop->rooms[n] = -1;
+	}
+
+	if (n == 0) {
+		bmoveFindEnteredRooms(p, prop->rooms);
+	}
+
+	propRegisterRooms(prop);
+
+	// the history this machine measures against was before the move
+	for (i = 0; i < NET_LOCALHIST; i++) {
+		s_LocalHist[i].valid = 0;
+	}
+}
+
+static void netLpLocalSig(struct player *p, struct netlplocalsig *sig)
+{
+	s32 i;
+
+	memset(sig, 0, sizeof(*sig));
+	sig->weaponnum = p->gunctrl.weaponnum;
+	sig->switchto = p->gunctrl.switchtoweaponnum;
+
+	for (i = 0; i < NETLP_NUMAMMO && i < ARRAYCOUNT(p->ammoheldarr); i++) {
+		sig->ammo[i] = p->ammoheldarr[i];
+	}
+
+	sig->loaded[0] = p->hands[HAND_RIGHT].loadedammo[0];
+	sig->loaded[1] = p->hands[HAND_RIGHT].loadedammo[1];
+	sig->loaded[2] = p->hands[HAND_LEFT].loadedammo[0];
+	sig->loaded[3] = p->hands[HAND_LEFT].loadedammo[1];
+}
+
+static void netLpInventory(struct player *p, const struct netlpstate *lp)
+{
+	s32 w;
+
+	for (w = 1; w < 256 && w < NUM_WEAPONS; w++) {
+		const s32 hostsingle = (lp->inv[w >> 3] >> (w & 7)) & 1;
+		const s32 hostdual = (lp->invdual[w >> 3] >> (w & 7)) & 1;
+
+		if (hostsingle && !invHasSingleWeaponExcAllGuns(w)) {
+			invGiveSingleWeapon(w);
+			s_LpInvChanges++;
+		}
+
+		if (hostdual && !invHasDoubleWeaponExcAllGuns(w, w)) {
+			invGiveDoubleWeapon(w, w);
+			s_LpInvChanges++;
+		}
+
+		// taken away only when it is not in the hands
+		if (!hostsingle && !hostdual && invHasSingleWeaponExcAllGuns(w)
+				&& p->gunctrl.weaponnum != w) {
+			invRemoveItemByNum(w);
+			s_LpInvChanges++;
+		}
+	}
+}
+
+void netEntsClientApplyLocal(void)
+{
+	const struct netlpstate *lp = &s_LpNew;
+	struct netlplocalsig sig;
+	struct player *p;
+	s32 prev;
+	s32 i;
+
+	if (!s_LpPending || g_NetLocalSlot < 0 || g_NetLocalSlot >= PLAYERCOUNT()) {
+		return;
+	}
+
+	p = g_Vars.players[g_NetLocalSlot];
+
+	if (!p || !p->prop || !p->prop->chr) {
+		return;
+	}
+
+	s_LpPending = 0;
+	prev = g_Vars.currentplayernum;
+	setCurrentPlayerNum(g_NetLocalSlot);
+
+	// life: the host's word
+	if (lp->flags & NETLP_DEAD) {
+		if (!p->isdead) {
+			playerDie(true);
+			s_LpDeaths++;
+		}
+	} else if (p->isdead && s_LpRespawnPending) {
+		playerStartNewLife();
+		s_LpRespawnsDone++;
+		s_LpCorrAbs = 1;
+	} else if (p->isdead) {
+		// dead only here (this machine's own walk killed it, the host's
+		// player lives): back to life where the host has the player once
+		// the host's blocks have gone on saying alive
+		if (s_LpAliveWhileDead == 0) {
+			s_LpAliveWhileDead = g_NetTick ? g_NetTick : 1;
+		} else if (g_NetTick - s_LpAliveWhileDead >= NET_LPREVIVE) {
+			playerStartNewLife();
+			s_LpRevives++;
+			s_LpCorrAbs = 1;
+			s_LpAliveWhileDead = 0;
+			sysLogPrintf(LOG_NOTE, "net: local player dead only here: revived at the host's position (tick %u)", g_NetTick);
+		}
+	}
+
+	if (!p->isdead || (lp->flags & NETLP_DEAD)) {
+		s_LpAliveWhileDead = 0;
+	}
+
+	if ((lp->flags & NETLP_DEAD) == 0) {
+		s_LpRespawnPending = 0;
+	}
+
+	// health and shield, the bar shown as a hit here would show it
+	if (!p->isdead && (p->bondhealth != lp->health || p->prop->chr->cshield != lp->shield)) {
+		const s32 hurt = lp->health < p->bondhealth || lp->shield < p->prop->chr->cshield;
+
+		p->bondhealth = lp->health;
+		p->prop->chr->cshield = lp->shield < 0 ? 0 : lp->shield;
+
+		if (hurt) {
+			playerDisplayHealth();
+		}
+	}
+
+	// position, outright only
+	if (s_LpCorrAbs) {
+		if (netLpSane(lp->pos)) {
+			netLpMove(p, lp->pos, lp->rooms, 1, lp->theta);
+			s_LpHardAbs++;
+		} else {
+			s_LpRejectedY++;
+		}
+
+		s_LpCorrAbs = 0;
+		s_LpCorrErr = 0;
+	} else if (s_LpCorrErr) {
+		f32 pos[3];
+
+		pos[0] = p->prop->pos.x + s_LpCorrDelta[0];
+		pos[1] = p->prop->pos.y + s_LpCorrDelta[1];
+		pos[2] = p->prop->pos.z + s_LpCorrDelta[2];
+
+		if (netLpSane(pos)) {
+			if (s_LpHardErr < 12) {
+				sysLogPrintf(LOG_NOTE, "net: local player corrected by %.1f %.1f %.1f at tick %u (dead %d)",
+						s_LpCorrDelta[0], s_LpCorrDelta[1], s_LpCorrDelta[2], g_NetTick, p->isdead);
+			}
+
+			netLpMove(p, pos, NULL, 0, 0);
+			s_LpHardErr++;
+		}
+
+		s_LpCorrErr = 0;
+	}
+
+	// inventory, ammo and the gun in hand: once the host's have held still
+	// long enough that this machine's own commands are in them
+	if (!p->isdead && g_NetTick - s_LpStableSince >= NET_LPSTABLE) {
+		s32 set = 0;
+
+		netLpInventory(p, lp);
+
+		for (i = 0; i < NETLP_NUMAMMO && i < ARRAYCOUNT(p->ammoheldarr); i++) {
+			if (p->ammoheldarr[i] != lp->ammo[i]) {
+				p->ammoheldarr[i] = lp->ammo[i];
+				set = 1;
+			}
+		}
+
+		// a magazine only into the gun it belongs to
+		if (lp->weaponnum == p->gunctrl.weaponnum
+				&& p->hands[HAND_RIGHT].state != HANDSTATE_RELOAD && p->hands[HAND_LEFT].state != HANDSTATE_RELOAD) {
+			if (p->hands[HAND_RIGHT].loadedammo[0] != lp->loaded[0]) { p->hands[HAND_RIGHT].loadedammo[0] = lp->loaded[0]; set = 1; }
+			if (p->hands[HAND_RIGHT].loadedammo[1] != lp->loaded[1]) { p->hands[HAND_RIGHT].loadedammo[1] = lp->loaded[1]; set = 1; }
+			if (p->hands[HAND_LEFT].loadedammo[0] != lp->loaded[2]) { p->hands[HAND_LEFT].loadedammo[0] = lp->loaded[2]; set = 1; }
+			if (p->hands[HAND_LEFT].loadedammo[1] != lp->loaded[3]) { p->hands[HAND_LEFT].loadedammo[1] = lp->loaded[3]; set = 1; }
+		}
+
+		s_LpAmmoSets += set;
+
+		if (lp->weaponnum > 0 && lp->weaponnum < NUM_WEAPONS && lp->weaponnum != p->gunctrl.weaponnum
+				&& p->gunctrl.switchtoweaponnum < 0
+				&& (invHasSingleWeaponIncAllGuns(lp->weaponnum) || lp->weaponnum == WEAPON_UNARMED)) {
+			bgunEquipWeapon(lp->weaponnum);
+			s_LpEquips++;
+		}
+
+		// once per stable stretch
+		s_LpStableSince = g_NetTick;
+	}
+
+	// what this machine itself changed since: the host's block has not
+	// seen it yet, so it waits another stable stretch
+	netLpLocalSig(p, &sig);
+
+	if (!s_LpHaveSig || memcmp(&sig, &s_LpLocalSig, sizeof(sig)) != 0) {
+		s_LpLocalSig = sig;
+		s_LpHaveSig = 1;
+		s_LpStableSince = g_NetTick;
+	}
+
+	setCurrentPlayerNum(prev);
 }
 
 static void netClientLog(const char *why)
@@ -1382,6 +1788,9 @@ static void netClientLog(const char *why)
 			c->received ? c->bytes / c->received : 0, s_Mapped, s_Unresolved, s_PresentUnmapped, s_StaleSeen, s_NacksSent, s_NoneNacked, s_KeptOverGap, s_Misfits, c->resyncs,
 			s_ErrN, s_ErrN ? (f32)(s_ErrSum / s_ErrN) : 0.f, s_ErrMax, NET_HARDCORRECT, s_ErrOver, s_ErrMissing,
 			s_RespawnsSeen, s_TeleportsSeen, s_HostileFed, s_HostileRejected, s_HostileAccepted, s_HostileDropped);
+	sysLogPrintf(LOG_NOTE, "net: local block %s (tick %u): hard corrections: teleport/respawn %u, error %u, no-place positions refused %u; deaths %u, respawns %u, inventory changes %u, ammo sets %u, equips %u, revives %u, bad floats %u",
+			why, g_NetTick, s_LpHardAbs, s_LpHardErr, s_LpRejectedY, s_LpDeaths, s_LpRespawnsDone, s_LpInvChanges, s_LpAmmoSets, s_LpEquips, s_LpRevives, s_LpBadFloats);
+	netPuppetsLog(why);
 }
 
 static void netClientHostileSnap(const u8 *data, s32 len)
@@ -1454,6 +1863,62 @@ void netEntsClientOnSnap(const u8 *data, s32 len)
 	netClientMap(hdr.seq);
 	netClientDumpSnap(&hdr);
 	netClientMeasureLocal(&hdr);
+	netPuppetsOnSnap(hdr.hosttick, hdr.rate);
+}
+
+/*
+ * For netpuppets.c
+ */
+
+const struct netsnapclient *netEntsClient(void)
+{
+	return &s_Client;
+}
+
+s32 netEntsMaxIds(void)
+{
+	return s_Map ? s_Client.maxids : 0;
+}
+
+struct prop *netEntsMapped(u16 id, u16 hostgen)
+{
+	struct netmap *m;
+
+	if (!s_Map || id >= s_Client.maxids) {
+		return NULL;
+	}
+
+	m = &s_Map[id];
+
+	if (m->state != NETMAP_MAPPED || m->hostgen != hostgen || !m->local) {
+		return NULL;
+	}
+
+	if (netPropGen(netPropIndex(m->local)) != m->localgen) {
+		// gone since the map was made: the next snapshot NACKs it
+		return NULL;
+	}
+
+	return m->local;
+}
+
+const struct netdesc *netEntsDesc(u16 id)
+{
+	if (!s_Desc || id >= s_Client.maxids || !s_DescValid[id]) {
+		return NULL;
+	}
+
+	return &s_Desc[id];
+}
+
+s32 netEntsPropIndex(const struct prop *prop)
+{
+	return netPropIndex(prop);
+}
+
+u16 netEntsPropGen(s32 idx)
+{
+	return netPropGen(idx);
 }
 
 // The ack block of the next CMD (netplayers.c)

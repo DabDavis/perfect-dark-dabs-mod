@@ -1947,6 +1947,7 @@ void propFindForUplink(void)
 
 bool currentPlayerInteract(bool eyespy)
 {
+	if (NET_CLIENT) return netClientInteract(eyespy); // netplay C12: the host operates it
 	struct prop *prop;
 	bool op = TICKOP_NONE;
 
@@ -2779,6 +2780,7 @@ void propSetPerimEnabled(struct prop *prop, s32 enable)
 
 void propsTestForPickup(void)
 {
+	if (NET_CLIENT) return; // netplay C12: the host picks up
 	s16 *propnumptr;
 	s32 i;
 	s16 propnums[MAX_ROOMPROPS];

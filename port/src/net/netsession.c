@@ -1896,6 +1896,29 @@ void netClientRefuseLocalStart(void)
 }
 
 /**
+ * menutick.c (H2): a match this session will not start. A client never
+ * starts one; a host does not start a scenario yet (phase 7 syncs them),
+ * and says so rather than starting a match the clients cannot see.
+ */
+s32 netRefuseMatchStart(void)
+{
+	if (s_Role == NETROLE_CLIENT) {
+		netClientRefuseLocalStart();
+		return 1;
+	}
+
+	if (s_Role == NETROLE_HOST && g_MpSetup.scenario != MPSCENARIO_COMBAT) {
+		sysLogPrintf(LOG_NOTE, "net: refused to start a net match with scenario %d: only Combat is online yet", g_MpSetup.scenario);
+		snprintf(s_NoticeText, sizeof(s_NoticeText), "%s",
+				"Scenarios are not online yet: set the scenario to Combat to start a net match.");
+		g_NetNoticePending = 1;
+		return 1;
+	}
+
+	return 0;
+}
+
+/**
  * H4, lvReset right after psReset: the same numbers from here on, on every
  * machine (music has drawn already, from each machine's own settings)
  */
@@ -2180,4 +2203,21 @@ void netMainMenuTick(void)
 
 	g_NetNoticePending = 0;
 	menuPushDialog(&s_NetNoticeDialog);
+}
+
+/**
+ * menutick.c (H2), after a refused start: the menus had all closed for the
+ * match, so the setup menu comes back with the reason on top of it
+ */
+s32 netMatchStartRefused(void)
+{
+	if (IS4MB()) {
+		menuPushRootDialog(&g_MainMenu4MbMenuDialog, MENUROOT_4MBMAINMENU);
+	} else {
+		menuPushRootDialog(&g_CombatSimulatorMenuDialog, MENUROOT_MPSETUP);
+	}
+
+	netMainMenuTick();
+
+	return true;
 }

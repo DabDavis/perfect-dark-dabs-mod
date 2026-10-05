@@ -63,6 +63,7 @@
 #include "geslappers.h"
 #include "modborrow.h"
 #include "modloader.h"
+#include "net/net.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
 #endif
@@ -2806,6 +2807,7 @@ void setupCreateProps(s32 stagenum)
 			}
 
 			if (g_Vars.normmplayerisrunning) {
+				if (g_NetMode == NETMODE_CLIENT && netClientInMatch()) {} else // netplay C13: the host's scenario props come as entities
 				scenarioInitProps();
 			}
 

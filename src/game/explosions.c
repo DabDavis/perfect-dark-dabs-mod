@@ -34,6 +34,7 @@
 #ifndef PLATFORM_N64
 #include "geroom.h"
 #include "gehitpuff.h"
+#include "net/net.h"
 
 #define GE_EXPLOSION_HARMLESS_TICKS 8
 #endif
@@ -779,6 +780,7 @@ static bool explosionGeHurtsWeapon(struct explosion *exp, struct prop *expprop, 
 
 void explosionInflictDamage(struct prop *expprop)
 {
+	if (NET_CLIENT) return; // netplay C8
 	s32 stack;
 	struct explosion *exp = expprop->explosion;
 	struct explosiontype *type = &g_ExplosionTypes[exp->type];

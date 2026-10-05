@@ -43,6 +43,7 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "net/net.h"
 
 void propsTick(void)
 {
@@ -60,6 +61,7 @@ void propsTick(void)
 	}
 
 	shieldhitsTick();
+	if (g_NetMode == NETMODE_CLIENT) netClientPosePuppets(); // netplay: the pose step
 	chraTickBg();
 
 	prop = g_Vars.activeprops;

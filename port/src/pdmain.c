@@ -739,6 +739,7 @@ void mainTick(void)
 
 			lvTick();
 			playermgrShuffle();
+			if (NET_CLIENT) netClientOrderPlayers(); // netplay: this machine's player is index 0 (the frame's first pass)
 
 			if (STAGE_IS_LEVEL(g_StageNum)) {
 				for (i = 0; i < PLAYERCOUNT(); i++) {
@@ -751,6 +752,7 @@ void mainTick(void)
 								g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
 					}
 
+					if (g_NetMode == NETMODE_CLIENT && netClientPuppetPlayerTick(g_Vars.currentplayernum)) continue; // netplay: another machine's player is a puppet
 					if (g_NetMode != NETMODE_NONE) netRemotePassBegin();
 					lvTickPlayer();
 					if (g_NetMode != NETMODE_NONE) netRemotePassEnd();

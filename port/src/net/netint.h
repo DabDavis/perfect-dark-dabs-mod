@@ -101,6 +101,28 @@ void netEntsMatchStopped(void);
 s32 netEntsHostile(void);
 void netEntsHostileCmd(s32 slot, const u8 *data, s32 len);
 
+// netents.c, for netpuppets.c: the client's decoded snapshots and its map
+struct prop;
+struct netsnapclient;
+struct netdesc;
+const struct netsnapclient *netEntsClient(void);
+s32 netEntsMaxIds(void);
+// host id's local prop if it is mapped to this host generation and the
+// local prop is still the one mapped; NULL otherwise
+struct prop *netEntsMapped(u16 id, u16 hostgen);
+// the last descriptor that came for host id, or NULL
+const struct netdesc *netEntsDesc(u16 id);
+s32 netEntsPropIndex(const struct prop *prop);
+u16 netEntsPropGen(s32 idx);
+void netEntsClientApplyLocal(void); // the local-player block (pose step)
+
+// netpuppets.c
+void netPuppetsStageStart(void);  // the client's match stage began (after netEntsStageStart)
+void netPuppetsStop(void);        // H12, or the tables went
+void netPuppetsOnSnap(u32 hosttick, s32 rate); // a snapshot decoded: the render clock's sample
+void netPuppetsLog(const char *why);
+void netPuppetsTraceFlush(void); // after the frame's lvRender: the traced poses as drawn
+
 // nethash.c: the session hash (computed once) and the stage hash
 s32 netSessionHash(struct nethashcomp *comps, s32 max);
 void netStageHashReset(void);

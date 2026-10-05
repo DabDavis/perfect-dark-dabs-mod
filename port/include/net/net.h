@@ -177,6 +177,45 @@ void netPropGenBump(struct prop *prop); // H2 propAllocate, H3 propFree
 // H5 lv.c lvRender, after propsTickPlayer: what this player's pass put on its screen
 void netHostNoteVisible(s32 playernum);
 
+/**
+ * Puppets on the client (PLANS/netplay/spec-entities.md §2-§4). In a
+ * match's stage a client's world is the host's: no AI, no damage, no drops,
+ * no pickups; every chr but its own player, every object, door and
+ * projectile is posed from the snapshots (netpuppets.c). g_NetClientWorld
+ * is set from the stage's start (netStageStart) to its end (H12).
+ */
+extern s32 g_NetClientWorld;
+#define NET_CLIENT (g_NetMode == NETMODE_CLIENT && g_NetClientWorld)
+
+// Whether the client poses this chr or player prop from snapshots (C1, C2,
+// C14): every PROPTYPE_CHR, and another machine's player once its first
+// record has come
+s32 netIsPuppet(struct prop *prop);
+// The pose step (proptick.c, before chraTickBg): the interpolated snapshot
+// into every puppet; puppets are made and taken away only here
+void netClientPosePuppets(void);
+// C5: objTick on the client
+u32 netPuppetObjTick(struct prop *prop);
+// C12: currentPlayerInteract on the client: whether nothing was in reach
+// (the host does the opening)
+s32 netClientInteract(s32 eyespy);
+// pdmain.c and lvRender's player loops: another machine's player is not
+// simulated here once it is a puppet. netClientPuppetPlayerTick returns 1
+// to skip lvTickPlayer (keeping its body built); netClientRenderPass 1 to
+// skip the view's pass, and otherwise says whether this pass is the last
+s32 netClientPuppetPlayerTick(s32 playernum);
+s32 netClientRenderPass(s32 order, s32 count, s32 *islast);
+// after playermgrShuffle: the local player first, so the passes keyed to
+// index 0 (the swirl, propsTickPlayer's frame start, bgTick) run in its
+// pass when the others are skipped
+void netClientOrderPlayers(void);
+// a client in a match's stage, from its load (setup.c's scenario props)
+s32 netClientInMatch(void);
+// The host refuses to start a net match it cannot play yet (menutick.c):
+// a client never starts one, and scenarios are not online yet
+s32 netRefuseMatchStart(void);
+s32 netMatchStartRefused(void);
+
 // The session's hooks (H1-H14, HA-HD)
 #include "net/netsession.h"
 

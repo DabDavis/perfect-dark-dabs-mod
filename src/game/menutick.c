@@ -673,10 +673,12 @@ void menuTick(void)
 				// Match is beginning
 #ifndef PLATFORM_N64
 				// netplay: a client never starts one from its own menus (H2)
-				if (g_NetMode != NETMODE_NONE && netIsClient()) { netClientRefuseLocalStart(); } else
+				if (g_NetMode != NETMODE_NONE && netRefuseMatchStart()) isdialogopen = netMatchStartRefused(); else
 #endif
-				mpStartMatch();
-				menuStop();
+				{
+					mpStartMatch();
+					menuStop();
+				}
 
 				if (g_Vars.modifiedfiles & MODFILE_MPSETUP) {
 					bossfileSave();

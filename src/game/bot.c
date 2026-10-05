@@ -38,6 +38,7 @@
 #ifndef PLATFORM_N64
 #include "gesfx.h"
 #include "gexplus.h"
+#include "net/net.h"
 #endif
 
 #define PICKUPCRITERIA_DEFAULT  0
@@ -1208,6 +1209,8 @@ s32 botTick(struct prop *prop)
 	s32 result = TICKOP_NONE;
 	bool updateable;
 	s32 i;
+
+	if (NET_CLIENT) return chrTick(prop); // netplay C3
 	f32 diffangle;
 	f32 tweenangle;
 	f32 targetangle;

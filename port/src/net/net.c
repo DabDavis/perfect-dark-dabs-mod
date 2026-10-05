@@ -283,6 +283,10 @@ void netTickEnd(void)
 		}
 	}
 
+	if (g_NetMode == NETMODE_CLIENT) {
+		netPuppetsTraceFlush();
+	}
+
 	netPlayersTickEnd();
 
 	// the barrier's ticks are not the match's: everyone starts from 0 at GO

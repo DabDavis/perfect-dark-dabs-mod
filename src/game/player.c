@@ -8117,6 +8117,7 @@ static void playerTetherBody(struct player *player, s32 playernum, struct chrdat
 
 s32 playerTickThirdPerson(struct prop *prop)
 {
+	if (NET_CLIENT && netIsPuppet(prop)) return chrTick(prop); // netplay C14: posed from snapshots
 	s32 playernum = playermgrGetPlayerNumByProp(prop);
 	struct player *player = g_Vars.players[playernum];
 	struct chrdata *chr = prop->chr;
