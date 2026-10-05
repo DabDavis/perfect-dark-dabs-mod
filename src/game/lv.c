@@ -3,6 +3,9 @@
 #include "trace.h"
 #include "statehash.h"
 #include "net/net.h"
+#else
+#define NET_REMOTE_PASS_BEGIN()
+#define NET_REMOTE_PASS_END()
 #endif
 #include <ultra64.h>
 #include "constants.h"
@@ -1471,7 +1474,9 @@ Gfx *lvRender(Gfx *gdl)
 				scenarioTickChr(NULL);
 				propsSort();
 				autoaimTick();
+				NET_REMOTE_PASS_BEGIN();
 				handsTickAttack();
+				NET_REMOTE_PASS_END();
 
 #ifndef PLATFORM_N64
 				// glares calculated earlier on PC, before prop matrices turn into garbage
@@ -1541,7 +1546,10 @@ Gfx *lvRender(Gfx *gdl)
 				gegadgetsAfterProps();
 #endif
 
-				// Handle eyespy Z presses
+				// Handle eyespy Z presses (netplay: from here to the pickups,
+				// the pass's player's own sounds, silent for another machine's)
+				NET_REMOTE_PASS_BEGIN();
+
 				if (g_Vars.currentplayer->eyespy
 						&& (g_Vars.currentplayer->devicesactive & ~g_Vars.currentplayer->devicesinhibit & DEVICE_EYESPY)
 						&& g_Vars.currentplayer->eyespy->camerabuttonheld) {
@@ -1618,6 +1626,7 @@ Gfx *lvRender(Gfx *gdl)
 				}
 
 				propsTestForPickup();
+				NET_REMOTE_PASS_END();
 
 				gdl = bgRender(gdl);
 				chr0f028498(var80075d68 == 15 || g_AnimHostEnabled);
@@ -1638,7 +1647,9 @@ Gfx *lvRender(Gfx *gdl)
 #endif
 
 				if (var80075d60 == 2) {
+					NET_REMOTE_PASS_BEGIN();
 					gdl = playerRenderHud(gdl);
+					NET_REMOTE_PASS_END();
 
 #ifdef DEBUG
 					gdl = lvRenderManPosIfEnabled(gdl);
@@ -1803,7 +1814,9 @@ Gfx *lvRender(Gfx *gdl)
 							|| (g_Vars.speedpillwant && !g_Vars.speedpillon)
 							|| (!g_Vars.speedpillwant && g_Vars.speedpillon)) {
 						if (g_Vars.speedpillchange == (PAL ? 26 : 30) && !g_Vars.speedpillwant) {
+							NET_REMOTE_PASS_BEGIN();
 							sndStart(var80095200, lvGetSlowMotionType() ? SFX_JO_BOOST_ACTIVATE : SFX_ARGH_JO_02AD, 0, -1, -1, -1, -1, -1);
+							NET_REMOTE_PASS_END();
 						}
 
 						if (g_Vars.speedpillchange < (PAL ? 13 : 15)) {

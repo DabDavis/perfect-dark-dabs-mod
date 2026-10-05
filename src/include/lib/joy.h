@@ -61,6 +61,8 @@ void joysTickRumble(void);
 #ifndef PLATFORM_N64
 void joyConsumeNone(void);
 s32 joyHasPendingSample(void);
+void joyNetSetPendingPad(s32 idx, const OSContPad *pad);
+void joyNetGetCurrentPad(s32 idx, OSContPad *pad);
 #endif
 
 #endif

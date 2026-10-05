@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 #include "game/tex.h"
 #include "game/camera.h"
 #include "game/player.h"
@@ -713,11 +716,11 @@ Gfx *viRenderViewportEdges(Gfx *gdl)
 	gDPSetFillColor(gdl++, GPACK_RGBA5551(0, 0, 0, 1) << 16 | GPACK_RGBA5551(0, 0, 0, 1));
 
 #if VERSION >= VERSION_NTSC_1_0
-	if (PLAYERCOUNT() == 1
+	if (VIEWCOUNT() == 1
 			|| ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
 				&& playerHasSharedViewport() && g_Vars.currentplayernum == 0))
 #else
-	if (PLAYERCOUNT() == 1
+	if (VIEWCOUNT() == 1
 			|| ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
 				&& (
 					(g_InCutscene && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE
@@ -744,10 +747,10 @@ Gfx *viRenderViewportEdges(Gfx *gdl)
 			s32 bottomplayernum = 0;
 			s32 tmpplayernum = 0;
 
-			if (PLAYERCOUNT() == 2) {
+			if (VIEWCOUNT() == 2) {
 				bottomplayernum = 1;
 				tmpplayernum = 1;
-			} else if (PLAYERCOUNT() >= 3) {
+			} else if (VIEWCOUNT() >= 3) {
 				bottomplayernum = 2;
 				tmpplayernum = 2;
 			}
@@ -772,9 +775,9 @@ Gfx *viRenderViewportEdges(Gfx *gdl)
 					viGetWidth() - 1, g_Vars.players[tmpplayernum]->viewtop - 1);
 			gDPPipeSync(gdl++);
 
-			if (PLAYERCOUNT() >= 3 ||
-					(PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || g_Vars.fourmeg2player))) {
-				if (PLAYERCOUNT() == 2) {
+			if (VIEWCOUNT() >= 3 ||
+					(VIEWCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || g_Vars.fourmeg2player))) {
+				if (VIEWCOUNT() == 2) {
 					tmpplayernum = 0;
 				}
 
@@ -785,7 +788,7 @@ Gfx *viRenderViewportEdges(Gfx *gdl)
 				gDPPipeSync(gdl++);
 			}
 
-			if (PLAYERCOUNT() == 3) {
+			if (VIEWCOUNT() == 3) {
 				// Blank square in P4 spot
 				gDPFillRectangle(gdl++,
 						g_Vars.players[tmpplayernum]->viewleft + g_Vars.players[tmpplayernum]->viewwidth + 1, g_Vars.players[tmpplayernum]->viewtop,

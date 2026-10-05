@@ -515,6 +515,30 @@ s32 joyHasPendingSample(void)
 {
 	return g_JoyData[0].nextlast != g_JoyData[0].curlast;
 }
+
+/**
+ * Netplay's host (PLANS/netplay/spec-players.md §2): a remote player's
+ * command goes into its pad of the sample the next tick consumes, before
+ * joyConsumeSamples works out the presses from it
+ */
+void joyNetSetPendingPad(s32 idx, const OSContPad *pad)
+{
+	if (idx >= 0 && idx < NUM_PADS) {
+		g_JoyData[0].samples[g_JoyData[0].nextlast].pads[idx] = *pad;
+	}
+}
+
+// A client's command is the pad its own tick consumed
+void joyNetGetCurrentPad(s32 idx, OSContPad *pad)
+{
+	if (idx >= 0 && idx < NUM_PADS) {
+		*pad = g_JoyData[0].samples[g_JoyData[0].curlast].pads[idx];
+	} else {
+		OSContPad none = {0};
+
+		*pad = none;
+	}
+}
 #endif
 
 #if VERSION < VERSION_NTSC_1_0

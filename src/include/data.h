@@ -642,7 +642,11 @@ extern s32 g_MpWeaponRandomFilterNum;
 extern struct mpsetupfile g_MpSetupFile;
 extern s16 g_MpCurrentSetup;
 
-#define PLAYER_EXTCFG() g_PlayerExtCfg[g_Vars.currentplayerstats->mpindex & 3]
+// netplay: a net match's players' own settings (port/src/net/netplayers.c),
+// never written to pd.ini; g_NetExtCfgOn is 0 offline
+extern s32 g_NetExtCfgOn;
+extern struct extplayerconfig g_NetExtCfg[MAX_PLAYERS];
+#define PLAYER_EXTCFG() (g_NetExtCfgOn ? g_NetExtCfg : g_PlayerExtCfg)[g_Vars.currentplayerstats->mpindex & 3]
 #define PLAYER_DEFAULT_FOV (PLAYER_EXTCFG().fovy)
 
 #define TEX_FILTER_2D g_TexFilter2D

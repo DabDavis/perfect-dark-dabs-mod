@@ -53,6 +53,7 @@
 #include "gewatch.h"
 #include "optionsmenu.h"
 #include "gehud.h"
+#include "net/net.h"
 #endif
 #ifndef PLATFORM_N64
 #include "game/modghost.h"
@@ -2736,7 +2737,7 @@ void playerTickCutscene(bool arg0)
 	}
 
 #ifndef PLATFORM_N64
-	if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
+	if (arg0 && netIsLocalSlot(g_Vars.currentplayernum) && inputKeyJustPressed(VK_ESCAPE)) {
 		buttons |= START_BUTTON;
 	}
 
@@ -3726,14 +3727,14 @@ s16 playerGetViewportWidth(void)
 	if ((!g_InCutscene || g_MainIsEndscreen) && menuGetRoot() != MENUROOT_COOPCONTINUE)
 #endif
 	{
-		if (PLAYERCOUNT() >= 3) {
+		if (VIEWCOUNT() >= 3) {
 			// 3/4 players
 			width = g_ViModes[g_ViRes].width / 2;
 
 			if (g_Vars.currentplayernum == 0 || g_Vars.currentplayernum == 2) {
 				width--;
 			}
-		} else if (PLAYERCOUNT() == 2) {
+		} else if (VIEWCOUNT() == 2) {
 			if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || g_Vars.fourmeg2player) {
 				// 2 players vsplit
 				width = g_ViModes[g_ViRes].width / 2;
@@ -3766,7 +3767,7 @@ s16 playerGetViewportLeft(void)
 #endif
 	s16 left;
 
-	if (PLAYERCOUNT() >= 3 && something != 0) {
+	if (VIEWCOUNT() >= 3 && something != 0) {
 		if (g_Vars.currentplayernum == 1 || g_Vars.currentplayernum == 3) {
 			// 3/4 players - right side
 			left = g_ViModes[g_ViRes].width / 2 + g_ViModes[g_ViRes].fbwidth - g_ViModes[g_ViRes].width;
@@ -3774,7 +3775,7 @@ s16 playerGetViewportLeft(void)
 			// 3/4 players - left side
 			left = g_ViModes[g_ViRes].fbwidth - g_ViModes[g_ViRes].width;
 		}
-	} else if (PLAYERCOUNT() == 2 && something != 0) {
+	} else if (VIEWCOUNT() == 2 && something != 0) {
 		if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || g_Vars.fourmeg2player) {
 			if (g_Vars.currentplayernum == 1) {
 				// 2 players vsplit - right side
@@ -3799,7 +3800,7 @@ s16 playerGetViewportHeight(void)
 {
 	s16 height;
 
-	if (PLAYERCOUNT() >= 2
+	if (VIEWCOUNT() >= 2
 #if VERSION >= VERSION_NTSC_1_0
 			&& !playerHasSharedViewport()
 #else
@@ -3814,7 +3815,7 @@ s16 playerGetViewportHeight(void)
 			height = tmp / 2;
 		}
 
-		if (PLAYERCOUNT() == 2) {
+		if (VIEWCOUNT() == 2) {
 			if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 				height = tmp;
 			} else if (g_Vars.currentplayernum == 0 && IS8MB()) {
@@ -3850,7 +3851,7 @@ s16 playerGetViewportTop(void)
 {
 	s16 top;
 
-	if (PLAYERCOUNT() >= 2
+	if (VIEWCOUNT() >= 2
 #if VERSION >= VERSION_NTSC_1_0
 			&& !playerHasSharedViewport()
 #else
@@ -3861,12 +3862,12 @@ s16 playerGetViewportTop(void)
 		top = g_ViModes[g_ViRes].fulltop;
 
 #if VERSION >= VERSION_NTSC_1_0
-		if (optionsGetScreenSplit() != SCREENSPLIT_VERTICAL || PLAYERCOUNT() != 2)
+		if (optionsGetScreenSplit() != SCREENSPLIT_VERTICAL || VIEWCOUNT() != 2)
 #else
 		if (optionsGetScreenSplit() != SCREENSPLIT_VERTICAL)
 #endif
 		{
-			if (PLAYERCOUNT() == 2
+			if (VIEWCOUNT() == 2
 					&& g_Vars.currentplayernum == 1
 					&& optionsGetScreenSplit() != SCREENSPLIT_VERTICAL
 					&& !g_Vars.fourmeg2player) {
@@ -3928,6 +3929,9 @@ f32 player0f0bd358(void)
 #ifdef PLATFORM_N64
 	return result;
 #else
+	// netplay: a remote player's view has the shape of its own client's screen
+	if (g_NetMode != NETMODE_NONE) return result * (netSlotAspect(g_Vars.currentplayernum) / ((f32)SCREEN_WIDTH_LO / (f32)SCREEN_HEIGHT_LO));
+
 	return result * (videoGetAspect() / ((f32)SCREEN_WIDTH_LO / (f32)SCREEN_HEIGHT_LO));
 #endif
 }
@@ -5532,7 +5536,7 @@ void playerTick(bool arg0)
 					u32 buttons = arg0 ? joyGetButtons(contpad1, 0xffffffff) : 0;
 
 #ifndef PLATFORM_N64
-					if (arg0 && inputKeyJustPressed(VK_ESCAPE)) {
+					if (arg0 && netIsLocalSlot(g_Vars.currentplayernum) && inputKeyJustPressed(VK_ESCAPE)) {
 						buttons |= START_BUTTON;
 					}
 #endif
@@ -5826,7 +5830,7 @@ void playerTick(bool arg0)
 				}
 
 #ifndef PLATFORM_N64
-				if (g_PlayersWithControl[g_Vars.currentplayernum] && inputKeyJustPressed(VK_ESCAPE)) {
+				if (g_PlayersWithControl[g_Vars.currentplayernum] && netIsLocalSlot(g_Vars.currentplayernum) && inputKeyJustPressed(VK_ESCAPE)) {
 					pause = true;
 				}
 #endif
@@ -5852,8 +5856,9 @@ void playerTick(bool arg0)
 					sp178 = -sp178;
 				}
 				// mouse control
-				if (g_Vars.currentplayernum == 0) {
+				if (NET_MOUSE_SLOT(g_Vars.currentplayernum)) {
 					f32 mdx, mdy;
+					if (g_NetMode != NETMODE_NONE) netMouseDelta(g_Vars.currentplayernum, &mdx, &mdy); else
 					inputMouseGetScaledDelta(&mdx, &mdy);
 					if (mdx || mdy) {
 						mdx *= 0.022f;

@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 #include "game/modrules.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
@@ -13072,7 +13075,7 @@ void bgunRender(Gfx **gdlptr)
 		gdl = vi0000b0e8(gdl, 60, f2);
 	}
 
-	if (PLAYERCOUNT() == 1 && IS8MB()) {
+	if (VIEWCOUNT() == 1 && IS8MB()) {
 		gdl = lasersightRenderBeam(gdl);
 	}
 
@@ -13274,7 +13277,7 @@ void bgunRender(Gfx **gdlptr)
 			}
 
 			// Slide the laser's liquid texture
-			if (PLAYERCOUNT() == 1) {
+			if (VIEWCOUNT() == 1) {
 				node = modelGetPart(hand->gunmodel.definition, MODELPART_GUN_LASERLIQUID);
 
 				// a5c
@@ -13474,9 +13477,12 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		return;
 	}
 
+	const s32 netpass = netWorldSoundBegin();
+
 	geSfxGunHitBegin(gset->weaponnum);
 	bgunPlayPropHitSoundAs(gset, prop, texturenum);
 	geSfxGunHitEnd();
+	netWorldSoundEnd(netpass);
 }
 
 static void bgunPlayPropHitSoundAs(struct gset *gset, struct prop *prop, s32 texturenum)
@@ -13751,7 +13757,13 @@ void bgunPlayGlassHitSound(struct coord *pos, RoomNum *rooms, s32 texturenum)
 		struct sndstate **handle = bgunAllocateAudioHandle();
 
 		if (handle) {
+#ifndef PLATFORM_N64
+			const s32 netpass = netWorldSoundBegin();
+#endif
 			sndStart(var80095200, SFX_HIT_GLASS, handle, -1, -1, -1, -1, -1);
+#ifndef PLATFORM_N64
+			netWorldSoundEnd(netpass);
+#endif
 
 			if (*handle) {
 				psApplyVolPan(*handle, pos, 400, 2500, 3000, rooms, SFX_HIT_GLASS, AL_VOL_FULL, 0);
@@ -13766,9 +13778,12 @@ static void bgunPlayBgHitSoundAs(struct gset *gset, struct coord *hitpos, s32 te
 // as bgunPlayPropHitSound()
 void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum, RoomNum *rooms)
 {
+	const s32 netpass = netWorldSoundBegin();
+
 	geSfxGunHitBegin(gset->weaponnum);
 	bgunPlayBgHitSoundAs(gset, hitpos, texturenum, rooms);
 	geSfxGunHitEnd();
+	netWorldSoundEnd(netpass);
 }
 
 static void bgunPlayBgHitSoundAs(struct gset *gset, struct coord *hitpos, s32 texturenum, RoomNum *rooms)
@@ -15222,7 +15237,7 @@ Gfx *bgunDrawHud(Gfx *gdl)
 {
 	struct player *player = g_Vars.currentplayer;
 	s32 bottom = viGetViewTop() + viGetViewHeight() - 13;
-	s32 playercount = PLAYERCOUNT();
+	s32 playercount = VIEWCOUNT();
 	s32 playernum = g_Vars.currentplayernum;
 	struct gunctrl *ctrl;
 	s32 secs60;

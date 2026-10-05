@@ -12,6 +12,7 @@
 #include "gewatch.h"
 #include "trace.h"
 #include "langpack.h"
+#include "net/net.h"
 #endif
 #include "../lib/naudio/n_sndp.h"
 #include "game/camdraw.h"
@@ -184,6 +185,11 @@ s32 g_MouseEndDeferredSlider = false;
 
 s32 menuAlt1Pressed(s32 playerNum)
 {
+#ifndef PLATFORM_N64
+	// netplay: this machine's player has its first pad and Ctrl, nobody else any
+	if (g_NetMode != NETMODE_NONE && (playerNum = netLocalUiIndex(playerNum)) < 0) return false;
+#endif
+
 	const s32 rshoulderKey = VK_JOY1_RSHOULDER + playerNum * INPUT_MAX_CONTROLLER_BUTTONS;
 
 	if (playerNum == 0) {
@@ -195,6 +201,10 @@ s32 menuAlt1Pressed(s32 playerNum)
 
 s32 menuAlt2Pressed(s32 playerNum)
 {
+#ifndef PLATFORM_N64
+	if (g_NetMode != NETMODE_NONE && (playerNum = netLocalUiIndex(playerNum)) < 0) return false;
+#endif
+
 	const s32 lshoulderKey = VK_JOY1_LSHOULDER + playerNum * INPUT_MAX_CONTROLLER_BUTTONS;
 
 	if (playerNum == 0) {
@@ -3937,7 +3947,7 @@ void menuFindAvailableSize(s32 *leftptr, s32 *topptr, s32 *rightptr, s32 *bottom
 		*rightptr = (g_Vars.players[g_Menus[g_MpPlayerNum].playernum]->viewleft + g_Vars.players[g_Menus[g_MpPlayerNum].playernum]->viewwidth) / g_ScaleX;
 		*bottomptr = g_Vars.players[g_Menus[g_MpPlayerNum].playernum]->viewtop + g_Vars.players[g_Menus[g_MpPlayerNum].playernum]->viewheight;
 
-		if (PLAYERCOUNT() > 2) {
+		if (VIEWCOUNT() > 2) {
 			if (g_Menus[g_MpPlayerNum].playernum == 0 || g_Menus[g_MpPlayerNum].playernum == 2) {
 				*leftptr += 22;
 			} else {
@@ -3946,9 +3956,9 @@ void menuFindAvailableSize(s32 *leftptr, s32 *topptr, s32 *rightptr, s32 *bottom
 		}
 
 #if VERSION >= VERSION_NTSC_1_0
-		if (PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()))
+		if (VIEWCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()))
 #else
-		if (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)
+		if (VIEWCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL)
 #endif
 		{
 			if (g_Menus[g_MpPlayerNum].playernum == 0) {
@@ -5302,8 +5312,8 @@ void menuProcessInput(void)
 	inputs.mousescroll = 0;
 	inputs.mousex = 0;
 	inputs.mousey = 0;
-	// only allow mouse controls for player 1 menus
-	if (menu->playernum == 0) {
+	// only allow mouse controls for player 1 menus (netplay: this machine's player's)
+	if (NET_LOCAL_UI(menu->playernum)) {
 		// ESC always acts as back
 		inputs.back = inputKeyJustPressed(VK_ESCAPE);
 		if (inputMouseIsEnabled() && !inputMouseIsLocked() && g_MenuMouseControl) {
@@ -6389,7 +6399,7 @@ Gfx *menuRender(Gfx *gdl)
 		s32 left = 0;
 		s32 right = 0;
 
-		if (PLAYERCOUNT() >= 3) {
+		if (VIEWCOUNT() >= 3) {
 			if (g_Vars.currentplayernum == 1 || g_Vars.currentplayernum == 3) {
 				right = 15;
 			} else {
@@ -6397,7 +6407,7 @@ Gfx *menuRender(Gfx *gdl)
 			}
 		}
 
-		if (PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) {
+		if (VIEWCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) {
 			if (g_Vars.currentplayernum == 1) {
 				right = 15;
 			} else {
@@ -6405,9 +6415,9 @@ Gfx *menuRender(Gfx *gdl)
 			}
 		}
 
-		gdl = menuRenderBanner(gdl, x1, y1, x2, y2, PLAYERCOUNT() < 2, g_MenuData.bannernum, left, right);
+		gdl = menuRenderBanner(gdl, x1, y1, x2, y2, VIEWCOUNT() < 2, g_MenuData.bannernum, left, right);
 #else
-		if (PLAYERCOUNT() >= 3) {
+		if (VIEWCOUNT() >= 3) {
 			if (g_Vars.currentplayernum == 1 || g_Vars.currentplayernum == 3) {
 				x2 -= 10;
 			} else {
@@ -6415,7 +6425,7 @@ Gfx *menuRender(Gfx *gdl)
 			}
 		}
 
-		if (PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) {
+		if (VIEWCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) {
 			if (g_Vars.currentplayernum == 1) {
 				x2 -= 10;
 			} else {
@@ -6423,7 +6433,7 @@ Gfx *menuRender(Gfx *gdl)
 			}
 		}
 
-		gdl = menuRenderBanner(gdl, x1, y1, x2, y2, PLAYERCOUNT() < 2, g_MenuData.bannernum);
+		gdl = menuRenderBanner(gdl, x1, y1, x2, y2, VIEWCOUNT() < 2, g_MenuData.bannernum);
 #endif
 	}
 

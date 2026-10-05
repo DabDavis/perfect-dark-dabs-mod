@@ -179,6 +179,11 @@ MenuItemHandlerResult menuhandlerMpPause(s32 operation, struct menuitem *item, u
 	}
 
 	if (operation == MENUOP_CHECKHIDDEN) {
+#ifndef PLATFORM_N64
+		// netplay: nobody pauses everyone's match from their own menu
+		if (g_NetMode != NETMODE_NONE) return true;
+#endif
+
 		if (PLAYERCOUNT() == 1) {
 			return true;
 		}

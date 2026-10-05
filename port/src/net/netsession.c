@@ -76,33 +76,6 @@
 
 #define NET_MAXPEERS (MAX_PLAYERS + 2)
 
-struct netslotcfg {
-	u8 mpheadnum;
-	u8 mpbodynum;
-	u8 controlmode;
-	u16 options;
-	f32 fovy;
-	f32 fovzoommult;
-	s32 fovzoom;
-	s32 mouseaimmode;
-	f32 mouseaimspeedx;
-	f32 mouseaimspeedy;
-	s32 crouchmode;
-	f32 radialmenuspeed;
-	f32 crosshairsway;
-	s32 extcontrols;
-	u32 crosshaircolour;
-	u32 crosshairsize;
-	f32 crosshairedgeboundary;
-	s32 crosshairhealth;
-	s32 usereloads;
-	f32 aspect;
-	s8 sensxsign;
-	s8 sensysign;
-	u8 aimlock;
-	u8 akimbotriggers;
-};
-
 struct netclient {
 	s32 state;
 	s32 slot;
@@ -150,6 +123,7 @@ static s32 s_Leaving = 0;
 static s32 s_DropToMenus = 0;
 static s32 s_EndPending = 0;
 static s32 s_HostDedicated = 0;
+static s32 s_ClientSlot = 0;      // the slot (pad, mpindex) ACCEPT gave this machine
 static s32 s_ServerClosed = 0;    // the host's peer is disconnected for good
 static u64 s_ClientBarrierDeadline = 0;
 
@@ -294,6 +268,7 @@ void netSessionArgs(void)
 }
 
 static void netClientEnd(s32 code, const char *text);
+static void netSessionOpenSocket(void);
 
 static void netSessionNotice(const char *fmt, const char *a, const char *b)
 {
@@ -321,7 +296,30 @@ void netSessionInit(void)
 	}
 
 	netSessionHash(comps, NET_MAXCOMPS);
+	netSessionOpenSocket();
+}
 
+/**
+ * --net-sim DROP,DELAY[,JITTER]: the transport's loss and latency simulator
+ * on what this machine receives (tools/ci/netplayertest.sh)
+ */
+static void netSessionApplySim(void)
+{
+	const char *sim = sysArgGetString("--net-sim");
+	int drop = 0;
+	int delay = 0;
+	int jitter = 0;
+
+	if (!sim || !g_NetHostSocket || sscanf(sim, "%d,%d,%d", &drop, &delay, &jitter) < 1) {
+		return;
+	}
+
+	netHostSetSim(g_NetHostSocket, drop, delay, jitter, 12345);
+	sysLogPrintf(LOG_NOTE, "net: --net-sim: %d%% of datagrams in dropped, the rest %d ms late (+0..%d)", drop, delay, jitter);
+}
+
+static void netSessionOpenSocket(void)
+{
 	if (s_Role == NETROLE_HOST) {
 		g_NetHostSocket = netHostCreate(NULL, (u16)s_Port, NET_MAXPEERS);
 
@@ -350,6 +348,8 @@ void netSessionInit(void)
 		// the handshake's retries
 		s_ClientState = NETCS_IDLE;
 	}
+
+	netSessionApplySim();
 }
 
 static void netClientStartConnect(void)
@@ -426,6 +426,13 @@ static void netHostKick(s32 peer, s32 code, const char *component, const char *t
 
 	netSendRefuse(peer, code, component, text);
 	netHostDisconnectLater(g_NetHostSocket, peer, (u32)code);
+
+	// kicked mid-match: its player is left on a neutral pad, as on a leave
+	// (the DISCONNECT that follows finds it REFUSED and does nothing)
+	if (c->state >= NETCL_LOADING && c->state <= NETCL_PLAYING) {
+		netPlayersHostSlotGone(c->slot);
+	}
+
 	c->state = NETCL_REFUSED;
 }
 
@@ -443,7 +450,7 @@ static const char *netCompDescription(const char *name)
 	return name;
 }
 
-static void netReadSlotCfg(struct netbuf *b, struct netslotcfg *cfg)
+void netReadSlotCfg(struct netbuf *b, struct netslotcfg *cfg)
 {
 	cfg->mpheadnum = netBufReadU8(b);
 	cfg->mpbodynum = netBufReadU8(b);
@@ -471,7 +478,7 @@ static void netReadSlotCfg(struct netbuf *b, struct netslotcfg *cfg)
 	cfg->akimbotriggers = netBufReadU8(b);
 }
 
-static void netWriteSlotCfg(struct netbuf *b)
+void netWriteSlotCfg(struct netbuf *b)
 {
 	struct extplayerconfig *ext = &g_PlayerExtCfg[0];
 	struct mpplayerconfig *p = &g_PlayerConfigsArray[0];
@@ -870,6 +877,8 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 		}
 	}
 
+	netPlayersHostMatchStart();
+
 	for (i = 0; i < NET_MAXPEERS; i++) {
 		struct netclient *c = &s_Clients[i];
 
@@ -880,6 +889,10 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 			p->base.mpheadnum = c->cfg.mpheadnum;
 			p->base.mpbodynum = c->cfg.mpbodynum;
 			memset(&p->fileguid, 0, sizeof(p->fileguid));
+
+			// its controls, settings and screen (before RULES: they carry
+			// the slot's options)
+			netPlayersHostSlotStart(c->slot, &c->cfg);
 		}
 	}
 
@@ -1191,6 +1204,54 @@ static void netClientSendConnect(void)
 }
 
 /**
+ * The player's settings again, now the window is up (CONNECT's aspect is
+ * not) and whenever it is back in the lobby, where they may have changed
+ */
+static u8 s_SlotCfgSent[128];
+static s32 s_SlotCfgSentLen = 0;
+
+static void netClientSendSlotCfg(void)
+{
+	struct netbuf b;
+
+	netBufInitWrite(&b, s_Buf, sizeof(s_Buf));
+	netBufWriteU8(&b, NETMSG_SLOTCFG);
+	netWriteSlotCfg(&b);
+	netSend(s_ServerPeer, NET_CHAN_RELIABLE, &b);
+
+	if (netBufOk(&b) && netBufLen(&b) <= (s32)sizeof(s_SlotCfgSent)) {
+		memcpy(s_SlotCfgSent, s_Buf, netBufLen(&b));
+		s_SlotCfgSentLen = netBufLen(&b);
+	}
+}
+
+/**
+ * Mid-match, from netPlayersTickBegin: the pause menu can change the
+ * player's settings (crouch mode, aim, fov, the mouse's signs) and the
+ * host simulates this player with them, so a change goes again. Looked
+ * at twice a second, which also keeps a window being dragged to a new
+ * aspect from sending one every tick.
+ */
+void netSessionClientCfgTick(void)
+{
+	u8 buf[sizeof(s_SlotCfgSent)];
+	struct netbuf b;
+
+	if (g_NetMode != NETMODE_CLIENT || s_ServerPeer < 0 || s_ServerClosed || g_NetTick % 30 != 0) {
+		return;
+	}
+
+	netBufInitWrite(&b, buf, sizeof(buf));
+	netBufWriteU8(&b, NETMSG_SLOTCFG);
+	netWriteSlotCfg(&b);
+
+	if (netBufOk(&b) && (netBufLen(&b) != s_SlotCfgSentLen || memcmp(buf, s_SlotCfgSent, netBufLen(&b)) != 0)) {
+		sysLogPrintf(LOG_NOTE, "net: settings changed mid-match; sent to the host");
+		netClientSendSlotCfg();
+	}
+}
+
+/**
  * A client about to go offline services the socket a moment longer, so
  * its goodbye (LEAVE, then the queued disconnect) reaches the host rather
  * than the host timing it out
@@ -1350,6 +1411,7 @@ static void netClientBeginStage(struct netbuf *b)
 	netRulesSetLocked(1);
 
 	g_NetLocalSlot = yourplayer;
+	netPlayersClientMatchStart(s_ClientSlot);
 	s_MatchActive = 1;
 	s_MatchStage = id;
 	s_MatchIdCur = matchid;
@@ -1491,6 +1553,10 @@ static void netHostEvent(const struct netevent *ev)
 					ev->timedout ? " (timed out)" : "");
 		}
 
+		if (c->state >= NETCL_LOADING && c->state <= NETCL_PLAYING) {
+			netPlayersHostSlotGone(c->slot);
+		}
+
 		memset(c, 0, sizeof(*c));
 		c->slot = -1;
 		break;
@@ -1516,9 +1582,26 @@ static void netHostEvent(const struct netevent *ev)
 			sysLogPrintf(LOG_NOTE, "net: slot %d (\"%s\") is leaving [%s]: %s; the slot is free", c->slot, c->name, netRefuseName(code), text);
 
 			// gone now, not when ENet notices: the barrier stops waiting for it
+			if (c->state >= NETCL_LOADING && c->state <= NETCL_PLAYING) {
+				netPlayersHostSlotGone(c->slot);
+			}
+
 			c->state = NETCL_REFUSED;
 			netHostDisconnectLater(g_NetHostSocket, ev->peer, (u32)code);
 			netHostBarrierTick();
+		} else if (type == NETMSG_CMD) {
+			// unreliable: late ones from the last match are dropped there
+			if (c->state == NETCL_PLAYING) {
+				netPlayersHostOnCmd(c->slot, &b);
+			}
+		} else if (type == NETMSG_SLOTCFG) {
+			netReadSlotCfg(&b, &c->cfg);
+
+			if (!netBufOk(&b) || netBufRemaining(&b) != 0) {
+				netHostKick(ev->peer, NETREFUSE_BADMSG, "", "Your game's SLOTCFG did not parse.");
+			} else if (c->state >= NETCL_LOADING && c->state <= NETCL_PLAYING) {
+				netPlayersHostSlotCfg(c->slot, &c->cfg);
+			}
 		} else if (type == NETMSG_LOBBY) {
 			u32 matchid = netBufReadU32(&b);
 
@@ -1593,8 +1676,10 @@ static void netClientEvent(const struct netevent *ev)
 
 				if (netBufOk(&b) && slot < MAX_PLAYERS) {
 					s_ClientState = NETCS_JOINED;
+					s_ClientSlot = slot;
 					sysLogPrintf(LOG_NOTE, "net: accepted by \"%s\"%s into slot %d", hostname,
 							s_HostDedicated ? " (dedicated)" : "", slot);
+					netClientSendSlotCfg();
 				}
 			}
 			break;
@@ -1635,6 +1720,9 @@ static void netClientEvent(const struct netevent *ev)
 			break;
 		case NETMSG_MATCH_END:
 			netClientOnMatchEnd(&b);
+			break;
+		case NETMSG_CMDACK:
+			netPlayersClientOnAck(&b);
 			break;
 		default:
 			break;
@@ -1677,6 +1765,7 @@ static void netTestStartMatch(void)
 {
 	const s32 stage = sysArgGetInt("--net-test-stage", 0x32);
 	const s32 sims = sysArgGetInt("--net-test-sims", 0);
+	const char *weapons = sysArgGetString("--mp-weapons");
 	s32 s;
 
 	sysLogPrintf(LOG_NOTE, "net: --net-test-host: starting a match on 0x%02x with %d sims", stage, sims);
@@ -1694,6 +1783,22 @@ static void netTestStartMatch(void)
 
 	if (sims > 0) {
 		g_Vars.lvmpbotlevel = 1;
+	}
+
+	// --mp-weapons a,b,c,d,e,f as the --mpsims boot takes it: slot 1 is
+	// what Mod.StartArmed hands out
+	if (weapons) {
+		for (s = 0; s < NUM_MPWEAPONSLOTS && *weapons; s++) {
+			char *end;
+			const long v = strtol(weapons, &end, 10);
+
+			if (end == weapons) {
+				break;
+			}
+
+			g_MpSetup.weapons[s] = (v >= 0 && v < NUM_MPWEAPONS) ? (u8)v : MPWEAPON_NONE;
+			weapons = *end == ',' ? end + 1 : end;
+		}
 	}
 
 	mpStartMatch();
@@ -1891,6 +1996,7 @@ void netStageStopped(void)
 	}
 
 	netRulesRestore();
+	netPlayersMatchStopped();
 	s_MatchActive = 0;
 	s_MatchLoaded = 0;
 	s_MatchStage = -1;
@@ -1920,6 +2026,7 @@ void netStageStopped(void)
 			netBufWriteU8(&b, NETMSG_LOBBY);
 			netBufWriteU32(&b, s_MatchIdCur);
 			netSend(s_ServerPeer, NET_CHAN_RELIABLE, &b);
+			netClientSendSlotCfg();
 			netHostFlush(g_NetHostSocket);
 		}
 	}
@@ -1933,6 +2040,42 @@ s32 netSessionMatchActive(void)
 s32 netSessionBarrierHeld(void)
 {
 	return netStageBarrierHold();
+}
+
+s32 netSessionMatchLoading(void)
+{
+	return s_MatchActive && g_StageNum == s_MatchStage;
+}
+
+u32 netSessionMatchId(void)
+{
+	return s_MatchIdCur;
+}
+
+s32 netSessionSendSlot(s32 slot, s32 channel, const void *data, s32 len, s32 flags)
+{
+	s32 i;
+
+	if (s_Role != NETROLE_HOST || !g_NetHostSocket) {
+		return -1;
+	}
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (s_Clients[i].state == NETCL_PLAYING && s_Clients[i].slot == slot) {
+			return netHostSend(g_NetHostSocket, i, channel, data, len, flags);
+		}
+	}
+
+	return -1;
+}
+
+s32 netSessionSendServer(s32 channel, const void *data, s32 len, s32 flags)
+{
+	if (s_Role != NETROLE_CLIENT || !g_NetHostSocket || s_ServerPeer < 0 || s_ClientState == NETCS_GONE) {
+		return -1;
+	}
+
+	return netHostSend(g_NetHostSocket, s_ServerPeer, channel, data, len, flags);
 }
 
 void netShutdown(void)

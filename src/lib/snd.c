@@ -24,6 +24,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "system.h"
+#include "net/net.h"
 #include "preprocess.h"
 #include "mod.h"
 #include "gesfx.h"
@@ -2406,6 +2407,12 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 	}
 
 #ifndef PLATFORM_N64
+	// netplay: the gun, HUD and life of a player who is not this machine's
+	// make no sound here (net.h, g_NetRemotePass)
+	if (g_NetRemotePass) {
+		return NULL;
+	}
+
 	// a Perfect Dark gun's hit on a converted level (gesfx.c)
 	sp44.packed = geSfxGunHit(sp44.packed);
 #endif

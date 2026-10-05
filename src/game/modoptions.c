@@ -10,6 +10,7 @@
 #include "bss.h"
 #include "geguns.h"
 #include "geroom.h"
+#include "net/net.h"
 #endif
 #include "types.h"
 
@@ -420,6 +421,9 @@ bool modIsAkimboForGuards(void)
 
 bool modIsAkimboTriggersOn(void)
 {
+#ifndef PLATFORM_N64
+	if (g_NetMode != NETMODE_NONE) return netSlotAkimboTriggers(g_Vars.currentplayernum, g_ModOptions.akimbotriggers != 0);
+#endif
 	return g_ModOptions.akimbotriggers != 0;
 }
 
@@ -452,6 +456,9 @@ bool modIsCodAimingOn(void)
  */
 bool modIsCodAimLockOn(void)
 {
+#ifndef PLATFORM_N64
+	if (g_NetMode != NETMODE_NONE) return netSlotAimLock(g_Vars.currentplayernum, g_ModOptions.codaiming != 0, g_ModOptions.codaiming != 0 && g_ModOptions.codaimlock != 0);
+#endif
 	return g_ModOptions.codaiming != 0 && g_ModOptions.codaimlock != 0;
 }
 

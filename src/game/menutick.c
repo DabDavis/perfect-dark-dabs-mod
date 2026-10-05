@@ -585,6 +585,11 @@ void menuTick(void)
 				if (g_MenuData.root == MENUROOT_MPENDSCREEN) {
 					u32 buttons2 = joyGetButtonsPressedThisFrame(g_PlayerConfigsArray[i].contpad1, 0xffffffff);
 
+#ifndef PLATFORM_N64
+					// netplay: a pad here that is someone else's opens nothing
+					if (g_NetMode != NETMODE_NONE && !netIsLocalPad(i)) buttons2 = 0;
+#endif
+
 					if (buttons2 & B_BUTTON) {
 						s32 playernum = -1;
 						s32 k;
@@ -708,6 +713,10 @@ void menuTick(void)
 							endscreenPushAnti();
 							setCurrentPlayerNum(prevplayernum);
 							isdialogopen = true;
+#ifndef PLATFORM_N64
+						} else if (g_NetMode != NETMODE_NONE && !netIsLocalPad(i)) {
+							// netplay: another machine's player has its end screen there
+#endif
 						} else {
 							mpPushEndscreenDialog(playernum, i);
 							isdialogopen = true;

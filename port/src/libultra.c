@@ -12,6 +12,7 @@
 #include "video.h"
 #include "audio.h"
 #include "fs.h"
+#include "net/net.h"
 
 #define EEPROM_SIZE (EEP16K_MAXBLOCKS * 8)
 #define EEPROM_FNAME "eeprom.bin"
@@ -192,6 +193,9 @@ s32 osContStartReadData(OSMesgQueue *mesgq)
 
 void osContGetReadData(OSContPad *pad)
 {
+	// netplay (hook V): this machine's pad for its own player, the rest neutral
+	if (g_NetMode != NETMODE_NONE && netContGetReadData(pad)) return;
+
 	// game always passes in an array of 4 OSContPads
 	for (s32 i = 0; i < MAXCONTROLLERS; ++i, ++pad) {
 		pad->button = 0;
@@ -216,7 +220,7 @@ void osContGetQuery(OSContStatus *status)
 {
 	// also always 4 status structs here
 	for (s32 i = 0; i < MAXCONTROLLERS; ++i, ++status) {
-		if (inputControllerConnected(i)) {
+		if (inputControllerConnected(i) || (g_NetMode != NETMODE_NONE && netVpadConnected(i))) {
 			status->errnum = 0;
 			status->type = CONT_ABSOLUTE;
 			status->status = CONT_CARD_ON;
@@ -247,6 +251,9 @@ s32 __osMotorAccess(OSPfs *pfs, s32 cmd)
 	if (!pfs || pfs->channel < 0 || pfs->channel >= INPUT_MAX_CONTROLLERS) {
 		return PFS_ERR_NOPACK;
 	}
+
+	// netplay: a pad here that belongs to someone else's player never rumbles
+	if (g_NetMode != NETMODE_NONE && !netIsLocalPad(pfs->channel)) return 0;
 
 	const f32 strength = (f32)(cmd == MOTOR_START);
 	inputRumble(pfs->channel, strength, 5.f); // hope someone turns it off in those 5 seconds

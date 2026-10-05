@@ -6016,8 +6016,8 @@ static void watchMpTick(void)
 		|| (stickx < -0x2d && !g_MpWatch[num].sticky);
 	const s32 right = joyGetButtonsPressedThisFrame(pad, R_JPAD | R_CBUTTONS | R_TRIG) != 0
 		|| (stickx > 0x2e && !g_MpWatch[num].sticky);
-	const s32 accept = joyGetButtonsPressedThisFrame(pad, A_BUTTON | Z_TRIG | (num == 0 ? BUTTON_UI_ACCEPT : 0)) != 0;
-	const s32 back = joyGetButtonsPressedThisFrame(pad, B_BUTTON | (num == 0 ? BUTTON_UI_CANCEL : 0)) != 0;
+	const s32 accept = joyGetButtonsPressedThisFrame(pad, A_BUTTON | Z_TRIG | (NET_LOCAL_UI(num) ? BUTTON_UI_ACCEPT : 0)) != 0;
+	const s32 back = joyGetButtonsPressedThisFrame(pad, B_BUTTON | (NET_LOCAL_UI(num) ? BUTTON_UI_CANCEL : 0)) != 0;
 	s32 start;
 	const s32 opened = g_MpWatch[num].opened;
 
@@ -6043,7 +6043,7 @@ static void watchMpTick(void)
 	// and Esc never paused a match on a GoldenEye arena, into the GE overlay
 	// or Perfect Dark's own dialog (F3 20260928-131305)
 	start = joyGetButtonsPressedThisFrame(pad, START_BUTTON) != 0
-		|| (num == 0 && inputKeyJustPressed(VK_ESCAPE));
+		|| (NET_LOCAL_UI(num) && inputKeyJustPressed(VK_ESCAPE));
 
 	if (start && !opened) {
 		watchMpClose(num);

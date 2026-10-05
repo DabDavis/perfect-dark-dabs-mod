@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 #include "game/modrules.h"
 #include "game/modoptions.h"
 #include "game/chraction.h"
@@ -625,7 +628,7 @@ void amReset(void)
 	g_AmFont1 = g_CharsHandelGothicSm;
 	g_AmFont2 = g_FontHandelGothicSm;
 #else
-	if (PLAYERCOUNT() >= 2) {
+	if (VIEWCOUNT() >= 2) {
 		g_AmFont1 = g_CharsHandelGothicXs;
 		g_AmFont2 = g_FontHandelGothicXs;
 	} else {
@@ -661,7 +664,7 @@ s16 amCalculateSlotWidth(void)
 	}
 
 #if VERSION >= VERSION_NTSC_1_0
-	if (PLAYERCOUNT() > 1) {
+	if (VIEWCOUNT() > 1) {
 		max += 3;
 	} else {
 		max += 4;
@@ -914,32 +917,32 @@ void amClose(void)
 bool amIsCramped(void)
 {
 #if VERSION == VERSION_JPN_FINAL
-	if (PLAYERCOUNT() >= 3 && g_AmMenus[g_AmIndex].screenindex != 1) {
+	if (VIEWCOUNT() >= 3 && g_AmMenus[g_AmIndex].screenindex != 1) {
 		return true;
 	}
 
-	if (IS4MB() && PLAYERCOUNT() == 2) {
+	if (IS4MB() && VIEWCOUNT() == 2) {
 		return true;
 	}
 
 	if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL
-			&& PLAYERCOUNT() == 2
+			&& VIEWCOUNT() == 2
 			&& g_AmMenus[g_AmIndex].screenindex != 1) {
 		return true;
 	}
 
 	return false;
 #else
-	return (g_AmMenus[g_AmIndex].screenindex == 0 && PLAYERCOUNT() >= 3)
-		|| (IS4MB() && PLAYERCOUNT() == 2)
-		|| (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL);
+	return (g_AmMenus[g_AmIndex].screenindex == 0 && VIEWCOUNT() >= 3)
+		|| (IS4MB() && VIEWCOUNT() == 2)
+		|| (VIEWCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL);
 #endif
 }
 
 void amCalculateSlotPosition(s16 column, s16 row, s16 *x, s16 *y)
 {
 #if VERSION == VERSION_JPN_FINAL
-	s32 playercount = PLAYERCOUNT();
+	s32 playercount = VIEWCOUNT();
 
 	*x = g_AmMenus[g_AmIndex].xradius * (column - 1);
 	*y = (row - 1) * 50;
@@ -993,7 +996,7 @@ void amCalculateSlotPosition(s16 column, s16 row, s16 *x, s16 *y)
 		}
 	}
 #elif VERSION >= VERSION_NTSC_1_0
-	s32 playercount = PLAYERCOUNT();
+	s32 playercount = VIEWCOUNT();
 
 	*x = g_AmMenus[g_AmIndex].xradius * (column - 1);
 	*y = (row - 1) * 50;
@@ -1045,7 +1048,7 @@ void amCalculateSlotPosition(s16 column, s16 row, s16 *x, s16 *y)
 		}
 	}
 #else
-	s32 playercount = PLAYERCOUNT();
+	s32 playercount = VIEWCOUNT();
 
 	*x = g_AmMenus[g_AmIndex].xradius * (column - 1);
 	*y = (row - 1) * 50;
@@ -1139,15 +1142,15 @@ Gfx *amRenderAibotInfo(Gfx *gdl, s32 buddynum)
 #endif
 
 #if VERSION >= VERSION_NTSC_1_0
-	if (PLAYERCOUNT() == 1 && optionsGetEffectiveScreenSize() != SCREENSIZE_FULL) {
+	if (VIEWCOUNT() == 1 && optionsGetEffectiveScreenSize() != SCREENSIZE_FULL) {
 		wide = true;
 	}
 #endif
 
 #if VERSION >= VERSION_NTSC_1_0
-	if ((PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) || PLAYERCOUNT() >= 3)
+	if ((VIEWCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) || VIEWCOUNT() >= 3)
 #else
-	if ((PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) || PLAYERCOUNT() >= 3)
+	if ((VIEWCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) || VIEWCOUNT() >= 3)
 #endif
 	{
 		if ((g_Vars.currentplayernum % 2) == 0) {
@@ -1180,7 +1183,7 @@ Gfx *amRenderAibotInfo(Gfx *gdl, s32 buddynum)
 			- (s32)(textwidth * 0.5f)
 			+ offset;
 
-		if (PLAYERCOUNT() >= 2) {
+		if (VIEWCOUNT() >= 2) {
 			y = viGetViewTop() + 5;
 		} else {
 			y = viGetViewTop() + 10;
@@ -1196,12 +1199,12 @@ Gfx *amRenderAibotInfo(Gfx *gdl, s32 buddynum)
 		gdl = func0f1574d0jf(gdl, &x, &y, aibotname, g_AmFont1, g_AmFont2, -1,
 				0x000000ff, SCREEN_320, SCREEN_240, 0, 0);
 
-		y += (PLAYERCOUNT() >= 2) ? 0 : (s32)(textheight * 1.1f);
+		y += (VIEWCOUNT() >= 2) ? 0 : (s32)(textheight * 1.1f);
 #else
 		gdl = textRender(gdl, &x, &y, aibotname, g_AmFont1, g_AmFont2, -1,
 				0x000000ff, SCREEN_320, SCREEN_240, 0, 0);
 
-		y += (PLAYERCOUNT() >= 2) ? 0 : (s32)(textheight * 1.1f);
+		y += (VIEWCOUNT() >= 2) ? 0 : (s32)(textheight * 1.1f);
 		textMeasure(&textheight, &textwidth, weaponname, g_AmFont1, g_AmFont2, 0);
 
 		x = viGetViewLeft() / g_ScaleX
@@ -1230,7 +1233,7 @@ Gfx *amRenderAibotInfo(Gfx *gdl, s32 buddynum)
 			- (s32)(textwidth * 0.5f)
 			+ offset;
 
-		if (PLAYERCOUNT() >= 2) {
+		if (VIEWCOUNT() >= 2) {
 			y = viGetViewTop() + 5;
 		} else {
 			y = viGetViewTop() + 10;
@@ -1289,7 +1292,7 @@ Gfx *amRenderSlot(Gfx *gdl, char *text, s16 x, s16 y, s32 mode, s32 flags)
 	paddingtop = 6;
 	paddingbottom = 6;
 
-	if (PLAYERCOUNT() >= 2) {
+	if (VIEWCOUNT() >= 2) {
 		paddingtop = 5;
 		paddingbottom = 3;
 	}
@@ -1428,7 +1431,7 @@ Gfx *amRender(Gfx *gdl)
 #endif
 
 #ifndef PLATFORM_N64
-	const s32 playercount = PLAYERCOUNT();
+	const s32 playercount = VIEWCOUNT();
 	if (playercount < 2 || (playercount == 2 && optionsGetScreenSplit() == SCREENSPLIT_HORIZONTAL)) {
 		gSPSetExtraGeometryModeEXT(gdl++, G_ASPECT_CENTER_EXT);
 	}
@@ -1625,7 +1628,7 @@ Gfx *amRender(Gfx *gdl)
 			s16 titley;
 
 			amCalculateSlotPosition(1, 0, &titlex, &titley);
-			titley -= PLAYERCOUNT() >= 2 ? 13 : 18;
+			titley -= VIEWCOUNT() >= 2 ? 13 : 18;
 
 			colour = g_Vars.currentplayer->activemenumode == AMMODE_EDIT ? 0x4f4f4f7f : 0xffffffff;
 
@@ -1669,7 +1672,7 @@ Gfx *amRender(Gfx *gdl)
 			above = 6;
 			below = 6;
 
-			if (PLAYERCOUNT() >= 2) {
+			if (VIEWCOUNT() >= 2) {
 				above = 5;
 				below = 3;
 			}
@@ -1692,7 +1695,7 @@ Gfx *amRender(Gfx *gdl)
 					halfwidth = 1;
 					above = 2;
 					below = 0;
-				} else if (PLAYERCOUNT() >= 2) {
+				} else if (VIEWCOUNT() >= 2) {
 					s32 textheight;
 					s32 textwidth;
 					char text[32];
@@ -1779,16 +1782,16 @@ Gfx *amRender(Gfx *gdl)
 		}
 #endif
 
-		barwidth = PLAYERCOUNT() >= 2 ? 48 : 64;
-		barheight = PLAYERCOUNT() >= 2 ? 7 : 11;
+		barwidth = VIEWCOUNT() >= 2 ? 48 : 64;
+		barheight = VIEWCOUNT() >= 2 ? 7 : 11;
 		xoffset = 0;
 
 #if VERSION >= VERSION_NTSC_1_0
-		if ((PLAYERCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) || PLAYERCOUNT() >= 3) {
+		if ((VIEWCOUNT() == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB())) || VIEWCOUNT() >= 3) {
 			xoffset = (g_Vars.currentplayernum & 1) == 0 ? 8 : -8;
 		}
 
-		if (PLAYERCOUNT() == 1 && optionsGetEffectiveScreenSize() != SCREENSIZE_FULL) {
+		if (VIEWCOUNT() == 1 && optionsGetEffectiveScreenSize() != SCREENSIZE_FULL) {
 			part1left = viGetViewLeft() / g_ScaleX + 32;
 		} else {
 			part1left = (s32) ((viGetViewWidth() / g_ScaleX) * 0.5f)
@@ -1797,7 +1800,7 @@ Gfx *amRender(Gfx *gdl)
 				+ xoffset;
 		}
 #else
-		if ((PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) || PLAYERCOUNT() >= 3) {
+		if ((VIEWCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) || VIEWCOUNT() >= 3) {
 			xoffset = (g_Vars.currentplayernum & 1) == 0 ? 8 : -8;
 		}
 
@@ -1823,7 +1826,7 @@ Gfx *amRender(Gfx *gdl)
 		gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
 		gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
 
-		y = viGetViewTop() + viGetViewHeight() - (PLAYERCOUNT() >= 2 ? 19 : 34);
+		y = viGetViewTop() + viGetViewHeight() - (VIEWCOUNT() >= 2 ? 19 : 34);
 
 		// NTSC beta doesn't scale the health bar when hi-res is on,
 		// and it only matches if part2left is an inline expression

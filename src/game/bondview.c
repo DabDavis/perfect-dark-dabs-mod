@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 #include "game/dlights.h"
 #include "game/game_006900.h"
 #include "game/atan2f.h"
@@ -664,7 +667,7 @@ Gfx *bviewDrawFisheye(Gfx *gdl, u32 colour, u32 alpha, s32 shuttertime60, s8 sta
 	s2 = 0;
 
 #if PAL
-	if (PLAYERCOUNT() >= 2
+	if (VIEWCOUNT() >= 2
 			|| optionsGetEffectiveScreenSize() == SCREENSIZE_WIDE
 			|| optionsGetEffectiveScreenSize() == SCREENSIZE_CINEMA) {
 		vpadding = 16;
@@ -1007,7 +1010,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 
 #if VERSION >= VERSION_PAL_FINAL
 #if PAL
-	if (PLAYERCOUNT() >= 2
+	if (VIEWCOUNT() >= 2
 			|| optionsGetEffectiveScreenSize() == SCREENSIZE_WIDE
 			|| optionsGetEffectiveScreenSize() == SCREENSIZE_CINEMA) {
 		viewtop += 16;
@@ -1029,7 +1032,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 	chr = g_Vars.currentplayer->eyespy->prop->chr;
 
 #if VERSION >= VERSION_NTSC_1_0
-	if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL && PLAYERCOUNT() >= 2) {
+	if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL && VIEWCOUNT() >= 2) {
 		vsplit = true;
 	}
 #endif
@@ -1987,7 +1990,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 #endif
 
 #if VERSION == VERSION_PAL_FINAL
-			if (PLAYERCOUNT() >= 2
+			if (VIEWCOUNT() >= 2
 					|| optionsGetEffectiveScreenSize() == SCREENSIZE_WIDE
 					|| optionsGetEffectiveScreenSize() == SCREENSIZE_CINEMA) {
 				ypos += 16;
@@ -2056,7 +2059,7 @@ Gfx *bviewDrawEyespyMetrics(Gfx *gdl)
 #endif
 
 #if VERSION == VERSION_PAL_FINAL
-			if (PLAYERCOUNT() >= 2
+			if (VIEWCOUNT() >= 2
 					|| optionsGetEffectiveScreenSize() == SCREENSIZE_WIDE
 					|| optionsGetEffectiveScreenSize() == SCREENSIZE_CINEMA) {
 				ypos += 16;
@@ -2417,10 +2420,10 @@ Gfx *bviewDrawIrLens(Gfx *gdl)
 
 			// Scanlines to the left and right of the semicircle
 			gDPFillRectangle(gdl++, viewleft, i, viewcentrex, i + 1);
-			if (PLAYERCOUNT() <= 2 && g_Vars.currentplayernum == 0 && i == viewcentrey) {
+			if (VIEWCOUNT() <= 2 && g_Vars.currentplayernum == 0 && i == viewcentrey) {
 				semicircleright -= 1;
 			}
-			else if (PLAYERCOUNT() > 2 && (g_Vars.currentplayernum == 1 || g_Vars.currentplayernum == 3 ) && i == viewcentrey) {
+			else if (VIEWCOUNT() > 2 && (g_Vars.currentplayernum == 1 || g_Vars.currentplayernum == 3 ) && i == viewcentrey) {
 				semicircleright -= 1;
 			}
 			gDPFillRectangle(gdl++, semicircleright, i, semicircleright + rightsidewidth, i + 1);
@@ -2600,7 +2603,7 @@ Gfx *bviewDrawHorizonScanner(Gfx *gdl)
 		scale = 2;
 	}
 
-	if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL && PLAYERCOUNT() >= 2) {
+	if (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL && VIEWCOUNT() >= 2) {
 		vsplit = true;
 	}
 
@@ -2819,9 +2822,9 @@ Gfx *bviewDrawIrBinoculars(Gfx *gdl)
 	for (y = viewtop; y < viewbottom; y++) {
 		s32 ytocentre = centrey - y;
 		s32 sqytocentre = ytocentre * ytocentre;
-		if (PLAYERCOUNT() <= 2) {
+		if (VIEWCOUNT() <= 2) {
 			sqytocentre += 1;
-		} else if (PLAYERCOUNT() > 2) {
+		} else if (VIEWCOUNT() > 2) {
 			if (g_Vars.currentplayernum == 1 || g_Vars.currentplayernum == 3) {
 				sqytocentre += 1;
 			}

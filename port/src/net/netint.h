@@ -8,12 +8,41 @@
 /**
  * What port/src/net/'s files share among themselves and nothing else sees:
  * the session (netsession.c), the content hashes (nethash.c), the rules
- * (netrules.c) and the lobby ticket (netticket.c).
+ * (netrules.c), the lobby ticket (netticket.c) and the players' commands
+ * (netplayers.c).
  */
 
 struct nethashcomp {
 	char name[NET_MAXCOMPNAME + 1];
 	u64 hash;
+};
+
+// A player's own settings, as CONNECT and SLOTCFG carry them (netproto.h)
+struct netslotcfg {
+	u8 mpheadnum;
+	u8 mpbodynum;
+	u8 controlmode;
+	u16 options;
+	f32 fovy;
+	f32 fovzoommult;
+	s32 fovzoom;
+	s32 mouseaimmode;
+	f32 mouseaimspeedx;
+	f32 mouseaimspeedy;
+	s32 crouchmode;
+	f32 radialmenuspeed;
+	f32 crosshairsway;
+	s32 extcontrols;
+	u32 crosshaircolour;
+	u32 crosshairsize;
+	f32 crosshairedgeboundary;
+	s32 crosshairhealth;
+	s32 usereloads;
+	f32 aspect;
+	s8 sensxsign;
+	s8 sensysign;
+	u8 aimlock;
+	u8 akimbotriggers;
 };
 
 // netbuf helpers for the session's messages
@@ -32,6 +61,30 @@ void netSessionTick(void);
 void netSessionTickBegin(void);
 s32 netSessionMatchActive(void);
 s32 netSessionBarrierHeld(void);
+s32 netSessionMatchLoading(void);  // a match's stage is the one loaded or loading (from H1/H3 to H12)
+u32 netSessionMatchId(void);
+void netReadSlotCfg(struct netbuf *b, struct netslotcfg *cfg);
+void netWriteSlotCfg(struct netbuf *b);
+// host: to the client in slot `slot`; client: to the host. 0, or -1 if nobody
+s32 netSessionSendSlot(s32 slot, s32 channel, const void *data, s32 len, s32 flags);
+s32 netSessionSendServer(s32 channel, const void *data, s32 len, s32 flags);
+void netSessionClientCfgTick(void);  // client: SLOTCFG again when the settings change
+
+// netplayers.c: remote players on the host, the client's usercmds, the
+// clock (PLANS/netplay/spec-players.md, the wire in netproto.h)
+void netPlayersArgs(void);
+void netPlayersHostSlotStart(s32 slot, const struct netslotcfg *cfg); // H1, per joined client
+void netPlayersHostSlotCfg(s32 slot, const struct netslotcfg *cfg);   // SLOTCFG mid-match
+void netPlayersHostSlotGone(s32 slot);
+void netPlayersHostOnCmd(s32 slot, struct netbuf *b);
+void netPlayersHostMatchStart(void);  // H1, before the slots
+void netPlayersClientMatchStart(s32 pad); // H3, after the rules are on
+void netPlayersClientOnAck(struct netbuf *b);
+void netPlayersMatchStopped(void);    // H12
+void netPlayersTickReadPad(void);     // the remote pads into the tick's sample
+void netPlayersTickBegin(void);
+void netPlayersTickEnd(void);
+s32 netPlayersClockPpm(void);
 
 // nethash.c: the session hash (computed once) and the stage hash
 s32 netSessionHash(struct nethashcomp *comps, s32 max);

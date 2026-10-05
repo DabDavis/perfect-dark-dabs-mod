@@ -33,6 +33,7 @@
 #include <math.h>
 #include <ultra64.h>
 #include "constants.h"
+#include "net/net.h"
 #include "types.h"
 #include "bss.h"
 #include "data.h"
@@ -875,7 +876,7 @@ static struct textureconfig *hudReleaseIcon(s32 icon, struct textureconfig *tex)
 Gfx *geHudRenderAmmo(Gfx *gdl)
 {
 	struct hudframe f;
-	const s32 playercount = PLAYERCOUNT();
+	const s32 playercount = VIEWCOUNT();
 	const s32 release = hudReleaseLook();
 	s32 leftx = 59;
 	s32 rightx = 59;
@@ -1188,7 +1189,7 @@ Gfx *geHudRadarBegin(Gfx *gdl)
 	g_Hud.radarx = f.width - 0x29;
 	g_Hud.radary = 0x1a;
 
-	if (PLAYERCOUNT() >= 3 && !(g_Vars.currentplayernum & 1)) {
+	if (VIEWCOUNT() >= 3 && !(g_Vars.currentplayernum & 1)) {
 		g_Hud.radarx += 0xf;
 	}
 
@@ -1323,7 +1324,7 @@ static s32 hudTimerBottom(const struct hudframe *f)
 		y = f->height - 2;
 	}
 
-	if (PLAYERCOUNT() < 3 && g_Vars.currentplayernum == 1) {
+	if (VIEWCOUNT() == 2 && g_Vars.currentplayernum == 1) {
 		y -= 8;
 	}
 
@@ -1437,7 +1438,7 @@ Gfx *geHudRenderMissionTimer(Gfx *gdl, s32 time60, s32 hassplit, s32 split60)
 
 	hudFrame(&f);
 
-	if (PLAYERCOUNT() >= 3 && (g_Vars.currentplayernum & 1)) {
+	if (VIEWCOUNT() >= 3 && (g_Vars.currentplayernum & 1)) {
 		x = 0xa;
 	}
 
@@ -1500,7 +1501,7 @@ Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 intro, s32 *row
 
 	hudFrame(&f);
 
-	if (PLAYERCOUNT() >= 3 && (g_Vars.currentplayernum & 1)) {
+	if (VIEWCOUNT() >= 3 && (g_Vars.currentplayernum & 1)) {
 		x = 0xa;
 	}
 
@@ -1531,7 +1532,7 @@ Gfx *geHudRenderMessage(Gfx *gdl, const char *text, s32 top, s32 intro, s32 *row
 		return hudEnd(gdl);
 	}
 
-	if (PLAYERCOUNT() < 3) {
+	if (VIEWCOUNT() < 3) {
 		// BONDVIEW_VIEW_TOP_OFFSET_1 and _2: over the left hand's ammunition
 		// and the countdown when either is there
 		const s32 raised = g_Vars.currentplayer->hands[HAND_LEFT].inuse || !g_CountdownTimerOff;

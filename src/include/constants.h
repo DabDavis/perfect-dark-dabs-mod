@@ -170,6 +170,13 @@ s32 langpackIsCjk(void);
 #define PLAYERCOUNT()       1
 #endif
 
+// How many views share the screen, at layout branches only: one per machine
+// in a net game (port/include/net/net.h defines it on PC), the player count
+// on the N64
+#ifdef PLATFORM_N64
+#define VIEWCOUNT()         PLAYERCOUNT()
+#endif
+
 // A GoldenEye gun keeps its host's choice of function (weaponHost()): the
 // saved bits run to WEAPON_COMBATBOOST
 #define VALIDWEAPON()       (weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) >= WEAPON_UNARMED && weaponHost(g_Vars.currentplayer->gunctrl.weaponnum) <= WEAPON_COMBATBOOST)

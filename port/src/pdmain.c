@@ -751,7 +751,9 @@ void mainTick(void)
 								g_Vars.currentplayer->viewwidth, g_Vars.currentplayer->viewheight);
 					}
 
+					if (g_NetMode != NETMODE_NONE) netRemotePassBegin();
 					lvTickPlayer();
+					if (g_NetMode != NETMODE_NONE) netRemotePassEnd();
 				}
 			}
 

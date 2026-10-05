@@ -18,6 +18,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "gesfx.h"
+#include "net/net.h"
 #endif
 
 struct pschannel *g_PsChannels = NULL;
@@ -666,10 +667,38 @@ void psStopOneShootChannel(struct prop *prop)
 }
 #endif
 
+#ifndef PLATFORM_N64
+static s16 psCreateAs(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 padnum,
+		s32 vol, u16 flags, u16 flags2, s32 type,
+		struct coord *pos, f32 pitch, RoomNum *rooms, s32 room,
+		f32 dist1, f32 dist2, f32 dist3);
+
+// netplay: a positional sound is the world's, heard here even when a
+// remote player's pass started it (net.h netWorldSoundBegin)
 s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 padnum,
 		s32 vol, u16 flags, u16 flags2, s32 type,
 		struct coord *pos, f32 pitch, RoomNum *rooms, s32 room,
 		f32 dist1, f32 dist2, f32 dist3)
+{
+	const s32 netpass = netWorldSoundBegin();
+	const s16 result = psCreateAs(channel, prop, soundnum, padnum, vol, flags, flags2, type,
+			pos, pitch, rooms, room, dist1, dist2, dist3);
+
+	netWorldSoundEnd(netpass);
+
+	return result;
+}
+
+static s16 psCreateAs(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 padnum,
+		s32 vol, u16 flags, u16 flags2, s32 type,
+		struct coord *pos, f32 pitch, RoomNum *rooms, s32 room,
+		f32 dist1, f32 dist2, f32 dist3)
+#else
+s16 psCreate(struct pschannel *channel, struct prop *prop, s16 soundnum, s16 padnum,
+		s32 vol, u16 flags, u16 flags2, s32 type,
+		struct coord *pos, f32 pitch, RoomNum *rooms, s32 room,
+		f32 dist1, f32 dist2, f32 dist3)
+#endif
 {
 	union soundnumhack spac;
 	OSPri prevpri;
@@ -1276,6 +1305,11 @@ s32 psCalculateVol(struct coord *pos, f32 dist1, f32 dist2, f32 dist3, RoomNum *
 		struct player *player = g_Vars.players[i];
 		s32 camroom;
 
+#ifndef PLATFORM_N64
+		// netplay: only this machine's own player hears anything here
+		if (g_NetMode != NETMODE_NONE && !netIsLocalSlot(i)) continue;
+#endif
+
 		if (sp6c.unk02 == 0) {
 			camroom = player->cam_room;
 		} else {
@@ -1383,13 +1417,19 @@ s32 psCalculatePan2(struct coord *pos, s32 arg1, f32 arg2, struct pschannel *cha
 	u32 stack[4];
 	s32 degrees;
 	f32 f2;
+	struct player *listener = g_Vars.currentplayer;
 
-	if (PLAYERCOUNT() < 2) {
-		struct coord *campos = &g_Vars.currentplayer->cam_pos;
+#ifndef PLATFORM_N64
+	// netplay: panned for this machine's own player, whichever pass started it
+	if (g_NetMode != NETMODE_NONE) listener = netLocalPlayer(listener);
+#endif
+
+	if (VIEWCOUNT() < 2) {
+		struct coord *campos = &listener->cam_pos;
 		f32 sp3c;
 		f32 sp38;
 
-		f2 = -(atan2f(pos->x - campos->x, pos->z - campos->z) * 180.0f / M_PI + g_Vars.currentplayer->vv_theta);
+		f2 = -(atan2f(pos->x - campos->x, pos->z - campos->z) * 180.0f / M_PI + listener->vv_theta);
 
 		if (arg2 >= 0.0f) {
 			sp3c = sinf(0.017453292f * f2);

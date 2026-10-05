@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 #include "game/modrules.h"
 #include "game/cheats.h"
 #include "game/modoptions.h"
@@ -193,7 +196,7 @@ f32 func0f0b131c(s32 hand)
 		}
 #endif
 
-		if (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
+		if (VIEWCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 			x -= 3.5f;
 
 			if (g_Vars.currentplayernum == 0) {
@@ -221,7 +224,7 @@ f32 func0f0b131c(s32 hand)
 		}
 #endif
 
-		if (PLAYERCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
+		if (VIEWCOUNT() == 2 && optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 			x += 3.5f;
 
 			if (g_Vars.currentplayernum == 0) {

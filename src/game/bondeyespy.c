@@ -26,6 +26,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "input.h"
+#include "net/net.h"
 #endif
 
 u8 g_EyespyPickup = false;
@@ -940,8 +941,9 @@ void eyespyProcessInput(bool allowbuttons)
 #endif
 
 #ifndef PLATFORM_N64
-		if (g_Vars.currentplayernum == 0) {
+		if (NET_MOUSE_SLOT(g_Vars.currentplayernum)) {
 			f32 mdx, mdy;
+			if (g_NetMode != NETMODE_NONE) netMouseDelta(g_Vars.currentplayernum, &mdx, &mdy); else
 			inputMouseGetScaledDelta(&mdx, &mdy);
 			if (mdx || mdy) {
 				if (g_Vars.currentplayerstats && !optionsGetForwardPitch(g_Vars.currentplayerstats->mpindex)) {

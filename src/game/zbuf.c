@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 #include "lib/sched.h"
 #include "game/player.h"
 #include "game/zbuf.h"
@@ -101,7 +104,8 @@ Gfx *zbufConfigureRdp(Gfx *gdl)
 	uintptr_t addr;
 
 	if (g_Vars.normmplayerisrunning
-			&& (g_Vars.currentplayernum >= 2 || (PLAYERCOUNT() == 2 && g_Vars.currentplayernum == 1))) {
+			&& VIEWCOUNT() >= 2
+			&& (g_Vars.currentplayernum >= 2 || (VIEWCOUNT() == 2 && g_Vars.currentplayernum == 1))) {
 		subamount = playerGetFbWidth() * playerGetFbHeight();
 
 		if (IS4MB() || optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {

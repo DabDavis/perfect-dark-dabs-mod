@@ -47,8 +47,85 @@ static inline s32 netIsLocalSlot(s32 playernum)
 
 s32 netSlotHasMouse(s32 playernum);
 
-// Whether this player's mouse drives it (bondmove.c, player.c, bondeyespy.c)
+// Whether this player's mouse drives it (bondmove.c, player.c, bondeyespy.c):
+// the local player's here, a remote player's from its commands on the host
 #define NET_MOUSE_SLOT(pn) (g_NetMode == NETMODE_NONE ? (pn) == 0 : netSlotHasMouse(pn))
+
+// Whether this player's menus take this machine's mouse, ESC and shoulder
+// keys (menu.c): player 0 offline, the local player in a net game
+#define NET_LOCAL_UI(pn) (g_NetMode == NETMODE_NONE ? (pn) == 0 : netIsLocalSlot(pn))
+
+/**
+ * Remote players (PLANS/netplay/spec-players.md). A pad index is a player's
+ * mpindex (its contpad1); a slot or playernum is g_Vars.players' index.
+ */
+
+// Hook V (libultra.c osContGetReadData): the four pads for a sample during a
+// net match: the local player's from this machine, every other neutral (a
+// remote player's are written per tick by netTickReadPad). `pads` is
+// OSContPad[4]. 0 outside a net match: the stock read then runs.
+s32 netContGetReadData(void *pads);
+// Hook V2 (libultra.c osContGetQuery): every human's pad is connected in a match
+s32 netVpadConnected(s32 idx);
+// Rumble only for this machine's own player (libultra.c __osMotorAccess)
+s32 netIsLocalPad(s32 idx);
+// menu.c's shoulder keys: 0 for this machine's player, -1 for any other
+s32 netLocalUiIndex(s32 playernum);
+
+// A player's mouse for the tick: the live one for the local player, the
+// command's for a remote one on the host (bondmove.c, player.c,
+// bondeyespy.c, activemenutick.c)
+void netMouseDelta(s32 playernum, f32 *dx, f32 *dy);
+void netMouseAbsDelta(s32 playernum, f32 *dx, f32 *dy);
+s32 netMouseLocked(s32 playernum);
+
+// player0f0bd358: the aspect of the screen this player is seen on
+f32 netSlotAspect(s32 playernum);
+// a player's own Aim Lock / akimbo triggers (modoptions.c): a remote
+// player's from its SLOTCFG, else `mine`, this machine's
+s32 netSlotAimLock(s32 playernum, s32 codaiming, s32 mine);
+s32 netSlotAkimboTriggers(s32 playernum, s32 mine);
+
+// The player whose ears and eyes this machine has (propsnd.c), or fallback
+struct player;
+struct player *netLocalPlayer(struct player *fallback);
+
+/**
+ * Set around code that belongs to the player of the current pass (its gun,
+ * its HUD, its own life) when that player is not this machine's: sndStart
+ * then plays nothing, as nobody here is that player (spec-players.md §6).
+ * World sounds started from the same pass still play: positional ones
+ * lift the flag with netWorldSoundBegin/End.
+ */
+extern s32 g_NetRemotePass;
+void netRemotePassBegin(void);
+static inline void netRemotePassEnd(void)
+{
+	g_NetRemotePass = 0;
+}
+
+#define NET_REMOTE_PASS_BEGIN() do { if (g_NetMode != NETMODE_NONE) netRemotePassBegin(); } while (0)
+#define NET_REMOTE_PASS_END()   do { if (g_NetMode != NETMODE_NONE) netRemotePassEnd(); } while (0)
+
+// Around a positional sound (psCreate, a shot's hit sounds in bondgun.c),
+// which the local listener hears wherever it was started from: the remote
+// pass's silence is lifted and put back after
+static inline s32 netWorldSoundBegin(void)
+{
+	const s32 pass = g_NetRemotePass;
+
+	if (g_NetMode != NETMODE_NONE) g_NetRemotePass = 0;
+	return pass;
+}
+
+static inline void netWorldSoundEnd(s32 pass)
+{
+	if (g_NetMode != NETMODE_NONE) g_NetRemotePass = pass;
+}
+
+// The players' own settings for the match (data.h PLAYER_EXTCFG()):
+// g_NetExtCfg is on from the match's start to its end (H1/H3 .. H12)
+extern s32 g_NetExtCfgOn;
 
 // How many views share the screen: one per machine in a net game, whatever
 // the player count (layout branches only; loops and counts keep PLAYERCOUNT())

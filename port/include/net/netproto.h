@@ -43,7 +43,7 @@
  */
 
 // Bumped whenever any message below changes shape or meaning
-#define NET_PROTOCOL_VERSION 1
+#define NET_PROTOCOL_VERSION 2
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -55,6 +55,9 @@
 #define NETMSG_MATCH_END  8
 #define NETMSG_LEAVE      9
 #define NETMSG_LOBBY      10
+#define NETMSG_CMD        11
+#define NETMSG_CMDACK     12
+#define NETMSG_SLOTCFG    13
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -231,6 +234,43 @@
  *
  * A LEAVE from a client frees its slot at once (the host disconnects it and
  * the load barrier stops waiting for it).
+ *
+ * SLOTCFG (client -> host, RELIABLE) - the per-slot settings again, sent on
+ * ACCEPT and on every LOBBY (CONNECT's go out before the window is up, so
+ * its aspect is no use; and the player may change them between matches).
+ * The host takes the last one it has at H1, and one mid-match at once.
+ *   u8      NETMSG_SLOTCFG
+ *   per-slot settings             exactly CONNECT's block
+ *
+ * CMD (client -> host, UNRELIABLE, once a tick from GO) - the client's
+ * usercmds (spec-players.md §2): every one the host has not acked, newest
+ * last, at most NET_MAXCMDSEND (the oldest are dropped past that; the host
+ * then skips them). A command's tick is the client's g_NetTick it was
+ * captured on; the host plays them in tick order, one per host tick.
+ *   u8      NETMSG_CMD
+ *   u32     matchid
+ *   u32     first                 the first command's tick
+ *   u8      count                 1..NET_MAXCMDSEND
+ *   per command, ticks first, first+1, ...:
+ *     u32 buttons                 OSContPad.button, START already cleared
+ *     s8 stick_x, s8 stick_y, s8 rstick_x, s8 rstick_y
+ *     f32 mdx, f32 mdy            inputMouseGetScaledDelta: the client's own
+ *                                 sensitivity is in it, 0 when unlocked
+ *     u8 flags                    NETCMD_MOUSELOCKED
+ *
+ * CMDACK (host -> client, UNRELIABLE, once a host tick) - what the host has
+ * of this client's commands, and the clock (spec-tick.md §3b)
+ *   u8      NETMSG_CMDACK
+ *   u32     matchid
+ *   u32     hosttick              the host's g_NetTick
+ *   u32     ack                   every command up to this tick has arrived
+ *                                 (0xffffffff: none yet)
+ *   u8      depth                 commands arrived and not yet played, after
+ *                                 this tick's: the client trims its clock
+ *                                 to keep it at 1-2 (Overwatch time dilation)
  */
+
+#define NET_MAXCMDSEND    16
+#define NETCMD_MOUSELOCKED 0x01
 
 #endif

@@ -131,6 +131,7 @@ void netInitArgs(void)
 
 	// --host [port] / --connect addr[:port] (the socket opens in netSessionInit)
 	netSessionArgs();
+	netPlayersArgs();
 }
 
 /**
@@ -178,7 +179,7 @@ s32 netStageReady(void)
 // The client's clock trim in parts per million (0 on the host)
 s32 netClockPpm(void)
 {
-	return 0;
+	return netPlayersClockPpm();
 }
 
 static void netHandleEvent(const struct netevent *ev)
@@ -256,15 +257,21 @@ void netTickReadPad(void)
 		joyStartReadData(&g_PiMesgQueue);
 		joyReadData();
 	}
+
+	// the host: each remote player's command for the tick into its pad
+	netPlayersTickReadPad();
 }
 
 void netTickBegin(void)
 {
 	netSessionTickBegin();
+	netPlayersTickBegin();
 }
 
 void netTickEnd(void)
 {
+	netPlayersTickEnd();
+
 	// the barrier's ticks are not the match's: everyone starts from 0 at GO
 	if (!netSessionBarrierHeld()) {
 		g_NetTick++;
@@ -287,11 +294,6 @@ s32 netClientLvupdate240(void)
 void netHostSetLvupdate240(s32 lvupdate240)
 {
 	g_NetHostSocketLvupdate240 = lvupdate240;
-}
-
-s32 netSlotHasMouse(s32 playernum)
-{
-	return !g_NetDedicated && playernum == g_NetLocalSlot;
 }
 
 s32 netDiscardPass(s32 playernum)

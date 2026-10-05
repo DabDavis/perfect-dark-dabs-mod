@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 #include "game/modrules.h"
 #include "game/chraction.h"
 #include "game/bondgun.h"
@@ -544,7 +547,7 @@ Gfx *sightDrawAimer(Gfx *gdl, s32 x, s32 y, s32 radius, s32 cornergap, u32 colou
 #endif
 
 	// Draw the lines that span most of the viewport
-	if (PLAYERCOUNT() == 1) {
+	if (VIEWCOUNT() == 1) {
 		gDPHudRectangle(gdl++, viewleft + 48, y, x - radius + 2, y);
 		gDPHudRectangle(gdl++, x + radius - 2, y, viewright - 49, y);
 		gDPHudRectangle(gdl++, x, viewtop + 10, x, y - radius + 2);
@@ -1377,7 +1380,7 @@ Gfx *sightDrawZoom(Gfx *gdl, bool sighton, f32 crossx, f32 crossy)
 			cornerheight *= frac;
 		}
 
-		if (PLAYERCOUNT() >= 2) {
+		if (VIEWCOUNT() >= 2) {
 			cornerheight *= 2;
 		}
 
@@ -1684,7 +1687,7 @@ Gfx *sightDraw(Gfx *gdl, bool sighton, s32 sight)
 	}
 #endif
 
-	if (PLAYERCOUNT() >= g_ModSightSplitMin && g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0) {
+	if (VIEWCOUNT() >= g_ModSightSplitMin && g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0) {
 		sight = SIGHT_DEFAULT;
 	}
 

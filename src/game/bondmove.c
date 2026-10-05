@@ -49,6 +49,7 @@
 #include <math.h>
 #include "input.h"
 #include "video.h"
+#include "net/net.h"
 #ifndef PLATFORM_N64
 #include "getank.h"
 #include "sitchair.h"
@@ -789,7 +790,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	f32 newverta;
 #ifndef PLATFORM_N64
 	const f32 mlookscale = g_Vars.lvupdate240 ? (4.f / (f32)g_Vars.lvupdate240) : 4.f;
-	const bool allowmlook = (g_Vars.currentplayernum == 0) && (allowc1x || allowc1y);
+	const bool allowmlook = NET_MOUSE_SLOT(g_Vars.currentplayernum) && (allowc1x || allowc1y);
 	bool allowmcross = false;
 	// GoldenEye's tank with the cannon in hand holds its sight in the middle
 	// as Aim Lock does, the mouse turning the turret in aim mode (getank.c)
@@ -859,6 +860,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	}
 
 	if (allowmlook) {
+		// netplay: a remote player's mouse is its command's
+		if (g_NetMode != NETMODE_NONE) netMouseDelta(g_Vars.currentplayernum, &movedata.freelookdx, &movedata.freelookdy); else
 		inputMouseGetScaledDelta(&movedata.freelookdx, &movedata.freelookdy);
 		allowmcross = (PLAYER_EXTCFG().mouseaimmode == MOUSEAIM_CLASSIC) && !aimlock &&
 			(movedata.freelookdx || movedata.freelookdy || g_Vars.currentplayer->swivelpos[0] || g_Vars.currentplayer->swivelpos[1]);
@@ -868,7 +871,8 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	}
 	// always pause with ESC
 	if (allowc1buttons && g_Vars.currentplayer->isdead == false && g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
-		if (inputKeyJustPressed(VK_ESCAPE)) {
+		// (netplay: this machine's ESC is its own player's, never spent by another's)
+		if (netIsLocalSlot(g_Vars.currentplayernum) && inputKeyJustPressed(VK_ESCAPE)) {
 			c1buttonsthisframe |= START_BUTTON;
 		}
 	}

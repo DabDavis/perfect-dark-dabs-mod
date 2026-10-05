@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 #include "game/modrules.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
@@ -317,7 +320,7 @@ Gfx *radarRender(Gfx *gdl)
 
 	g_RadarX = (viGetViewLeft() + viGetViewWidth()) / g_ScaleX - 41;
 
-	if (playercount == 2) {
+	if (VIEWCOUNT() == 2) {
 		if (IS4MB() || optionsGetScreenSplit() == SCREENSPLIT_VERTICAL) {
 			if (playernum == 0) {
 				g_RadarX += 16;
@@ -329,7 +332,7 @@ Gfx *radarRender(Gfx *gdl)
 		} else {
 			g_RadarX -= 7;
 		}
-	} else if (playercount >= 3) {
+	} else if (VIEWCOUNT() >= 3) {
 		if ((playernum & 1) == 0) {
 			g_RadarX += 7;
 		} else {
@@ -339,7 +342,7 @@ Gfx *radarRender(Gfx *gdl)
 
 	g_RadarY = viGetViewTop() + (PAL ? 29 : 26);
 
-	if (playercount == 2) {
+	if (VIEWCOUNT() == 2) {
 		if (IS4MB()) {
 			g_RadarY -= 6;
 		} else if (optionsGetScreenSplit() != SCREENSPLIT_VERTICAL && playernum == 1) {
@@ -350,7 +353,7 @@ Gfx *radarRender(Gfx *gdl)
 			gSPExtraGeometryModeEXT(gdl++, G_ASPECT_MODE_EXT, g_HudAlignModeR);
 		}
 #endif
-	} else if (playercount >= 3) {
+	} else if (VIEWCOUNT() >= 3) {
 		if (playernum >= 2) {
 			g_RadarY -= 8;
 		} else {
