@@ -39,7 +39,7 @@ class LobbyThread:
 
     def __init__(self, **over):
         cfg = dict(port=0, udp_port=0, udp_host="127.0.0.1", auth="open",
-                   reap_interval=0.05, countdown=0.3)
+                   reap_interval=0.05, countdown=0.3, relay_ports="")
         cfg.update(over)
         self.cfg = L.Config(**cfg)
         self.loop = asyncio.new_event_loop()
@@ -224,11 +224,15 @@ class RoomTests(Base):
         for bad in (dict(max_humans=1), dict(max_humans=13), dict(name="\x01\x02"),
                     dict(content="xyz"), dict(proto=0), dict(build="a b"),
                     dict(rules={"Bad Key": 1}), dict(rules={"k": [1]}),
-                    dict(endpoints=["nope"]), dict(password="x" * 17)):
+                    dict(endpoints=["nope"]), dict(password="x" * 17), dict(sims=81),
+                    dict(sims=-1)):
             st, r = host.create(**bad)
             self.assertEqual(st, 400, (bad, r))
         st, r = Client(self.srv.port).req("POST", "/rooms", {"name": "x"})
         self.assertEqual(st, 401)
+        # every simulant slot the game has (MAX_BOTS) is a room's to fill
+        st, r = host.create(sims=80)
+        self.assertEqual(st, 200, r)
 
     def test_join_password_and_mismatch(self):
         host = self.client("hostess")
@@ -707,6 +711,274 @@ class RendezvousTests(Base):
         self.assertEqual(d[6:14], b"nonce123")
         self.assertEqual(L.decode_endpoint(d, 14)[0], s.getsockname())
         s.close()
+
+
+# ------------------------------------------------------------------ relay
+
+def relay_request(c):
+    c.seq += 1
+    out = L.udp_header(L.UDP_RELAY_REQUEST) + struct.pack(">I", int(c.room, 16)) + c.udp_id
+    out += struct.pack(">I", c.seq)
+    return out + L.register_mac(c.udp_key, out)
+
+
+def relay_bind(c, rid, proof=b"\0" * 8):
+    c.seq += 1
+    out = L.udp_header(L.UDP_RELAY_BIND) + struct.pack(">I", int(c.room, 16)) + c.udp_id
+    out += rid + proof + struct.pack(">I", c.seq)
+    return out + L.register_mac(c.udp_key, out)
+
+
+def parse_offer(d):
+    assert d[:6] == L.udp_header(L.UDP_RELAY_OFFER), d[:6]
+    room = struct.unpack_from(">I", d, 6)[0]
+    rid = d[10:18]
+    port = struct.unpack_from(">H", d, 18)[0]
+    n = d[20]
+    name = d[21:21 + n].decode()
+    assert len(d) == 21 + n
+    return room, rid, port, name
+
+
+def parse_bound(d):
+    assert d[:6] == L.udp_header(L.UDP_RELAY_BOUND), d[:6]
+    return d[10:18], d[18], d[19:27]
+
+
+def quiet(sock, t=0.3):
+    """Nothing arrives on sock for t seconds."""
+    end = time.monotonic() + t
+    try:
+        while True:
+            left = end - time.monotonic()
+            if left <= 0:
+                return True
+            sock.settimeout(left)
+            try:
+                d = sock.recvfrom(2048)
+            except socket.timeout:
+                return True
+            # The rendezvous's PROBE to a registered host is not the relay's.
+            if d[0][:6] != L.udp_header(L.UDP_PROBE):
+                raise AssertionError("unexpected datagram %r" % (d,))
+    finally:
+        sock.settimeout(2.0)
+
+
+class RelayTests(Base):
+    over = dict(udp_rate=1000.0, udp_burst=1000.0, probe_interval=1000.0)
+
+    def setup_pair(self, joiner="alpha"):
+        host, (a,) = self.room_with(joiner)
+        hs, js = udp_sock(), udp_sock()
+        to = ("127.0.0.1", self.srv.udp_port)
+        hs.sendto(host.register(), to)
+        recv_kind(hs, L.UDP_REGISTERED)
+        js.sendto(a.register(), to)
+        recv_kind(js, L.UDP_REGISTERED)
+        recv_kind(hs, L.UDP_PEER)
+        recv_kind(js, L.UDP_PEER)
+        return host, a, hs, js, to
+
+    def bind_both(self, host, a, hs, js, rid, port):
+        rel = ("127.0.0.1", port)
+        for c, s in ((host, hs), (a, js)):
+            s.sendto(relay_bind(c, rid), rel)
+            _rid, _flags, proof = parse_bound(recv_kind(s, L.UDP_RELAY_BOUND))
+            s.sendto(relay_bind(c, rid, proof), rel)
+            _rid, flags, _p = parse_bound(recv_kind(s, L.UDP_RELAY_BOUND))
+        self.assertEqual(flags, 3)
+        return rel
+
+    def offer(self, host, a, hs, js, to):
+        req = relay_request(a)
+        js.sendto(req, to)
+        d = recv_kind(js, L.UDP_RELAY_OFFER)
+        self.assertLessEqual(len(d), len(req))      # no bigger than what asked
+        jo = parse_offer(d)
+        ho = parse_offer(recv_kind(hs, L.UDP_RELAY_OFFER))
+        self.assertEqual(jo[3], "hostess")
+        self.assertEqual(ho[3], "alpha")
+        self.assertEqual(jo[1], ho[1])
+        self.assertEqual(jo[2], ho[2])
+        return jo[1], jo[2]
+
+    def test_relay_forwards_between_the_bound_pair(self):
+        host, a, hs, js, to = self.setup_pair()
+        rid, port = self.offer(host, a, hs, js, to)
+        rel = ("127.0.0.1", port)
+
+        # Unbound, nothing is forwarded or answered.
+        js.sendto(b"\x01early", rel)
+        quiet(hs, 0.2)
+
+        # A first BIND gets the proof, and is not yet an end the relay sends to.
+        js.sendto(relay_bind(a, rid), rel)
+        d = recv_kind(js, L.UDP_RELAY_BOUND)
+        _rid, flags, proof = parse_bound(d)
+        self.assertEqual(flags, 0)
+        self.assertLess(len(d), L.UDP_RELAY_BIND_LEN)
+        js.sendto(relay_bind(a, rid, proof), rel)
+        self.assertEqual(parse_bound(recv_kind(js, L.UDP_RELAY_BOUND))[1], 2)
+        hs.sendto(relay_bind(host, rid), rel)
+        proof = parse_bound(recv_kind(hs, L.UDP_RELAY_BOUND))[2]
+        hs.sendto(relay_bind(host, rid, proof), rel)
+        self.assertEqual(parse_bound(recv_kind(hs, L.UDP_RELAY_BOUND))[1], 3)
+
+        # Opaque datagrams, both ways, from the relay's port.
+        js.sendto(b"\x07enet-from-joiner", rel)
+        d, src = hs.recvfrom(2048)
+        self.assertEqual((d, src), (b"\x07enet-from-joiner", rel))
+        hs.sendto(b"\x08enet-from-host", rel)
+        d, src = js.recvfrom(2048)
+        self.assertEqual((d, src), (b"\x08enet-from-host", rel))
+        # A punch packet (PDLB, outside the relay's types) goes through too.
+        js.sendto(L.udp_header(0x20) + b"x" * 17, rel)
+        self.assertEqual(hs.recvfrom(2048)[0][5], 0x20)
+
+        # A stranger is neither forwarded nor answered, and a sniffed BIND
+        # replayed from elsewhere is refused (stale seq).
+        ss = udp_sock()
+        ss.sendto(b"\x09stranger", rel)
+        quiet(hs, 0.2)
+        a.seq -= 1
+        ss.sendto(relay_bind(a, rid, proof), rel)
+        quiet(ss, 0.2)
+        quiet(js, 0.1)
+        # Too big for the game: dropped.
+        js.sendto(b"\x01" * 1500, rel)
+        quiet(hs, 0.2)
+        ss.close()
+
+        # A re-request returns the same relay.
+        self.assertEqual(self.offer(host, a, hs, js, to), (rid, port))
+        hs.close()
+        js.close()
+
+    def test_new_address_needs_its_proof(self):
+        host, a, hs, js, to = self.setup_pair()
+        rid, port = self.offer(host, a, hs, js, to)
+        rel = self.bind_both(host, a, hs, js, rid, port)
+        # The joiner's NAT moved: a signed BIND from a new socket makes that
+        # the joiner's end, but nothing goes there before its proof comes back.
+        js2 = udp_sock()
+        js2.sendto(relay_bind(a, rid), rel)
+        proof = parse_bound(recv_kind(js2, L.UDP_RELAY_BOUND))[2]
+        hs.sendto(b"\x01to-joiner", rel)
+        quiet(js2, 0.2)
+        quiet(js, 0.1)
+        # Another address's proof does not do.
+        js2.sendto(relay_bind(a, rid, b"\x11" * 8), rel)
+        self.assertEqual(parse_bound(recv_kind(js2, L.UDP_RELAY_BOUND))[1], 1)
+        js2.sendto(relay_bind(a, rid, proof), rel)
+        self.assertEqual(parse_bound(recv_kind(js2, L.UDP_RELAY_BOUND))[1], 3)
+        hs.sendto(b"\x01to-joiner", rel)
+        self.assertEqual(js2.recvfrom(2048)[0], b"\x01to-joiner")
+        for s in (hs, js, js2):
+            s.close()
+
+    def test_request_refused(self):
+        host, a, hs, js, to = self.setup_pair()
+        # The host does not ask for a relay; unknown ids and bad macs get ERROR.
+        hs.sendto(relay_request(host), to)
+        self.assertEqual(recv_kind(hs, L.UDP_ERROR)[6], L.UDP_ERR_REFUSED)
+        bad = bytearray(relay_request(a))
+        bad[-1] ^= 1
+        js.sendto(bytes(bad), to)
+        self.assertEqual(recv_kind(js, L.UDP_ERROR)[6], L.UDP_ERR_REFUSED)
+        self.assertEqual(self.srv.call(lambda: len(self.srv.lobby.relays)), 0)
+        hs.close()
+        js.close()
+
+    def test_relay_closes_with_the_member(self):
+        host, a, hs, js, to = self.setup_pair()
+        rid, port = self.offer(host, a, hs, js, to)
+        self.assertEqual(self.srv.call(lambda: len(self.srv.lobby.relays)), 1)
+        st, _ = a.act("leave")
+        self.assertEqual(st, 200)
+        self.assertEqual(self.srv.call(lambda: len(self.srv.lobby.relays)), 0)
+        hs.close()
+        js.close()
+
+
+class RelayCapTests(RelayTests):
+    over = dict(udp_rate=1000.0, udp_burst=1000.0, probe_interval=1000.0, relay_room_pps=20.0, relay_burst=1.0,
+                relay_max=1, relay_idle=0.6)
+
+    def test_relay_forwards_between_the_bound_pair(self):
+        pass
+
+    def test_new_address_needs_its_proof(self):
+        pass
+
+    def test_caps(self):
+        host, a, hs, js, to = self.setup_pair()
+        rid, port = self.offer(host, a, hs, js, to)
+        rel = self.bind_both(host, a, hs, js, rid, port)
+        for i in range(200):
+            js.sendto(b"\x01" + bytes([i]) * 100, rel)
+        got = 0
+        hs.settimeout(0.3)
+        try:
+            while True:
+                hs.recvfrom(2048)
+                got += 1
+        except socket.timeout:
+            pass
+        # 20 a second with a one-second bucket: about 20 of 200 went.
+        self.assertGreater(got, 5)
+        self.assertLess(got, 40)
+        self.assertGreater(self.srv.call(lambda: self.srv.lobby.relay_dropped), 150)
+
+        # relay_max is 1: a second pair in another room is refused.
+        host2 = self.client("hostess2")
+        host2.create(name="Two")
+        b = self.client("bravo")
+        b.join(host2.room)
+        h2, bs = udp_sock(), udp_sock()
+        h2.sendto(host2.register(), to)
+        recv_kind(h2, L.UDP_REGISTERED)
+        bs.sendto(b.register(), to)
+        recv_kind(bs, L.UDP_REGISTERED)
+        bs.sendto(relay_request(b), to)
+        self.assertEqual(recv_kind(bs, L.UDP_ERROR)[6], L.UDP_ERR_RELAY)
+        for s in (hs, js, h2, bs):
+            s.close()
+
+    def test_idle_relay_reaped(self):
+        host, a, hs, js, to = self.setup_pair()
+        rid, port = self.offer(host, a, hs, js, to)
+        rel = self.bind_both(host, a, hs, js, rid, port)
+        time.sleep(1.2)
+        self.assertEqual(self.srv.call(lambda: len(self.srv.lobby.relays)), 0)
+        js.sendto(b"\x01after", rel)
+        quiet(hs, 0.2)
+        hs.close()
+        js.close()
+
+
+class NetinfoTests(Base):
+    def test_netinfo_in_the_roster(self):
+        host, (a,) = self.room_with("alpha")
+        st, r = a.act("netinfo", {"path": "punch", "ping": 40})
+        self.assertEqual(st, 200, r)
+        v = r["version"]
+        st, s = host.state()
+        me = [m for m in s["members"] if m["user"] == "alpha"][0]
+        self.assertEqual((me["path"], me["ping"]), ("punch", 40))
+        # A small ping change does not wake everyone; a path change does.
+        st, r = a.act("netinfo", {"path": "punch", "ping": 44})
+        self.assertEqual(r["version"], v)
+        st, r = a.act("netinfo", {"path": "relay", "ping": 44})
+        self.assertGreater(r["version"], v)
+        for bad in ({"path": "carrier pigeon"}, {"path": "lan", "ping": -1},
+                    {"path": "lan", "ping": "12"}, {"path": "lan", "ping": True}):
+            self.assertEqual(a.act("netinfo", bad)[0], 400)
+        # The host has no path to itself.
+        host.act("netinfo", {"path": "lan", "ping": 1})
+        st, s = host.state()
+        me = [m for m in s["members"] if m["host"]][0]
+        self.assertIsNone(me["path"])
 
 
 class UdpRateTests(Base):

@@ -27,6 +27,7 @@
 #include "game/mplayer/mplayer.h"
 #include "net/net.h"
 #include "net/nettransport.h"
+#include "net/netlobby.h"
 #include "netint.h"
 
 /**
@@ -91,6 +92,7 @@ struct netclient {
 };
 
 struct nethost *g_NetHostSocket = NULL;
+static s32 s_SockLent = 0; // g_NetHostSocket is the lobby's (netrdv.c), not ours to close
 s32 g_NetNoticePending = 0;
 
 static s32 s_Role = NETROLE_NONE;
@@ -100,6 +102,12 @@ static s32 s_RequireTicket = 0;
 static char s_RoomId[16] = "";
 static char s_RoomSecret[72] = "";
 static s32 s_LobbyClockOffset = 0;
+
+// A room from the lobby (netlobby.c): set at runtime, never saved to pd.ini
+static s32 s_LobbyRoomOn = 0;
+static char s_LobbyRoomId[16] = "";
+static char s_LobbyRoomSecret[72] = "";
+static s64 s_LobbyClock = 0; // the lobby's unix clock minus this machine's
 
 static char s_ConnectAddr[256];
 static u16 s_ConnectPort;
@@ -185,6 +193,13 @@ PD_CONSTRUCTOR static void netSessionConfigInit(void)
 	configRegisterString("Net.RoomId", s_RoomId, sizeof(s_RoomId));
 	configRegisterString("Net.RoomSecret", s_RoomSecret, sizeof(s_RoomSecret));
 	configRegisterInt("Net.LobbyClockOffset", &s_LobbyClockOffset, -86400, 86400);
+}
+
+// The lobby's clock as the host keeps it: a lobby room's offset from the
+// times in its own state replies, else Net.LobbyClockOffset
+static u64 netSessionLobbyNow(void)
+{
+	return (u64)((s64)time(NULL) + (s_LobbyRoomOn ? s_LobbyClock : (s64)s_LobbyClockOffset));
 }
 
 static u64 netNowMs(void)
@@ -558,6 +573,7 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 	s32 code;
 	s32 i;
 	s32 j;
+	s32 oldseat = -1;
 
 	if (c->state != NETCL_CONNECTING) {
 		netHostKick(peer, NETREFUSE_BADMSG, "", "CONNECT sent twice");
@@ -670,7 +686,10 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 		}
 	}
 
-	if (s_RequireTicket) {
+	if (s_RequireTicket || s_LobbyRoomOn) {
+		// a lobby room's own id and secret, else Net.RoomId/Net.RoomSecret
+		const char *roomid = s_LobbyRoomOn ? s_LobbyRoomId : s_RoomId;
+		const char *roomsecret = s_LobbyRoomOn ? s_LobbyRoomSecret : s_RoomSecret;
 		u8 secret[32];
 		char user[16];
 		char why[96];
@@ -678,22 +697,43 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 		for (i = 0; i < 32; i++) {
 			unsigned int v = 0;
 
-			if (sscanf(s_RoomSecret + i * 2, "%2x", &v) != 1) {
+			if (sscanf(roomsecret + i * 2, "%2x", &v) != 1) {
 				break;
 			}
 
 			secret[i] = (u8)v;
 		}
 
-		if (i != 32 || netTicketVerify(ticket, ticketlen, secret, s_RoomId,
-					(u64)time(NULL) + (s64)s_LobbyClockOffset, user, sizeof(user), nonce, &nonceexpiry, why, sizeof(why)) != 0) {
+		if (i != 32 || netTicketVerify(ticket, ticketlen, secret, roomid,
+					netSessionLobbyNow(), user, sizeof(user), nonce, &nonceexpiry, why, sizeof(why)) != 0) {
 			snprintf(text, sizeof(text), "This room needs a join ticket from the lobby: %s.", i != 32 ? "the host has no room secret" : why);
 			netHostKick(peer, NETREFUSE_TICKET, "ticket", text);
 			return;
 		}
 
+		// check 5: a lobby room's current roster, as the host's own state
+		// poll last saw it (a kick or a leave is off it within a round trip)
+		if (s_LobbyRoomOn && !netLobbyRosterHas(user)) {
+			snprintf(text, sizeof(text), "This room needs a join ticket from the lobby: %s is not in the room.", user);
+			netHostKick(peer, NETREFUSE_TICKET, "roster", text);
+			return;
+		}
+
 		// the ticket's user is the player's name, not anything else CONNECT says
 		snprintf(c->name, sizeof(c->name), "%s", user);
+		sysLogPrintf(LOG_NOTE, "net: peer %d: lobby ticket for \"%s\" in room %s verified", peer, user, roomid);
+
+		// one seat per user: a CONNECT for a user who holds a seat replaces
+		// it (a restarted game) rather than taking a second, but only once
+		// it has passed every check below
+		if (s_LobbyRoomOn) {
+			for (j = 0; j < NET_MAXPEERS; j++) {
+				if (j != peer && s_Clients[j].state >= NETCL_JOINED && s_Clients[j].state != NETCL_REFUSED
+						&& strcasecmp(s_Clients[j].name, user) == 0) {
+					oldseat = j;
+				}
+			}
+		}
 	}
 
 	if (netRulesCheckClientKeys(c->keys, c->nkeys, -1, &code, key, sizeof(key), text, sizeof(text))) {
@@ -708,15 +748,23 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 
 	c->slot = netHostFreeSlot(peer);
 
+	if (c->slot < 0 && oldseat >= 0) {
+		c->slot = s_Clients[oldseat].slot; // the seat it replaces
+	}
+
 	if (c->slot < 0) {
 		netHostKick(peer, NETREFUSE_FULL, "", "The game is full.");
 		return;
 	}
 
 	// the join is accepted: only now is the ticket spent
-	if (s_RequireTicket && netTicketUse(nonce, nonceexpiry, (u64)time(NULL) + (s64)s_LobbyClockOffset) != 0) {
+	if ((s_RequireTicket || s_LobbyRoomOn) && netTicketUse(nonce, nonceexpiry, netSessionLobbyNow()) != 0) {
 		netHostKick(peer, NETREFUSE_TICKET, "ticket", "This room needs a join ticket from the lobby: the ticket was used already.");
 		return;
+	}
+
+	if (oldseat >= 0) {
+		netHostKick(oldseat, NETREFUSE_TICKET, "roster", "You connected again from another game.");
 	}
 
 	c->state = NETCL_JOINED;
@@ -1774,6 +1822,12 @@ static void netClientDropToMenus(void)
 	titleSetNextMode(TITLEMODE_SKIP);
 	mainChangeToStage(STAGE_CITRAINING);
 	menuStop();
+
+	// a match from a lobby room goes back the way a finished match does,
+	// to the menus (menutick.c), and from there to the room's lobby
+	if (g_NetLobbyRoom) {
+		var80087260 = 3;
+	}
 }
 
 static void netTestStartMatch(void)
@@ -2133,15 +2187,31 @@ s32 netSessionSendServer(s32 channel, const void *data, s32 len, s32 flags)
 	return netHostSend(g_NetHostSocket, s_ServerPeer, channel, data, len, flags);
 }
 
+static void netSessionClose(void);
+
 void netShutdown(void)
 {
-	struct netevent ev;
-	u64 until;
-	s32 i;
+	if (g_NetLobbyActive) {
+		netLobbyShutdown();
+	}
 
 	if (!g_NetHostSocket) {
 		return;
 	}
+
+	netSessionClose();
+	netTransportShutdown();
+}
+
+/**
+ * The goodbyes to whoever is connected, a moment for them to go out, and
+ * the socket closed (the transport stays up)
+ */
+static void netSessionClose(void)
+{
+	struct netevent ev;
+	u64 until;
+	s32 i;
 
 	if (s_Role == NETROLE_HOST) {
 		for (i = 0; i < NET_MAXPEERS; i++) {
@@ -2166,9 +2236,253 @@ void netShutdown(void)
 		}
 	}
 
-	netHostDestroy(g_NetHostSocket);
+	if (s_SockLent) {
+		// the lobby's socket: the path it punched or the relay it bound
+		// stays open for the room's next match; only the peer goes
+		if (s_ServerPeer >= 0) {
+			netHostDisconnectNow(g_NetHostSocket, s_ServerPeer, NETREFUSE_LEFT);
+		}
+
+		s_SockLent = 0;
+	} else {
+		netHostDestroy(g_NetHostSocket);
+	}
+
 	g_NetHostSocket = NULL;
-	netTransportShutdown();
+}
+
+/*
+ * A lobby room's session (netlobby.c): opened and closed at run time, not
+ * from --host/--connect
+ */
+
+/**
+ * The room's host: listens on Net.Port and turns away every CONNECT without
+ * a ticket for this room from its roster (check 5). The room's id and secret
+ * come once the lobby has made it (netSessionLobbySetRoom); until then no
+ * ticket can match. 0, or -1 if the socket did not open.
+ */
+s32 netSessionLobbyHost(const char *name)
+{
+	struct nethashcomp comps[NET_MAXCOMPS];
+
+	if (s_Role != NETROLE_NONE) {
+		return s_Role == NETROLE_HOST && g_NetHostSocket ? 0 : -1;
+	}
+
+	if (netTransportInit() != 0) {
+		return -1;
+	}
+
+	netSessionHash(comps, NET_MAXCOMPS);
+	memset(s_Clients, 0, sizeof(s_Clients));
+	snprintf(s_Name, sizeof(s_Name), "%s", name);
+	s_Role = NETROLE_HOST;
+	s_LobbyRoomOn = 1;
+	s_LobbyRoomId[0] = '\0';
+	s_LobbyRoomSecret[0] = '\0';
+	g_NetMode = NETMODE_SERVER;
+	g_NetLocalSlot = 0;
+	netSessionOpenSocket();
+
+	if (!g_NetHostSocket) {
+		s_Role = NETROLE_NONE;
+		s_LobbyRoomOn = 0;
+		g_NetMode = NETMODE_NONE;
+		netTransportShutdown();
+		return -1;
+	}
+
+	return 0;
+}
+
+u16 netSessionLobbyPort(void)
+{
+	return g_NetHostSocket && s_Role == NETROLE_HOST ? netHostPort(g_NetHostSocket) : 0;
+}
+
+void netSessionLobbySetRoom(const char *roomid, const char *secret)
+{
+	snprintf(s_LobbyRoomId, sizeof(s_LobbyRoomId), "%s", roomid);
+	snprintf(s_LobbyRoomSecret, sizeof(s_LobbyRoomSecret), "%s", secret);
+}
+
+void netSessionLobbyClock(s64 offset)
+{
+	s_LobbyClock = offset;
+}
+
+/**
+ * A member at launch: connects to the host with its ticket. The connect
+ * itself starts from netSessionTick, as for --connect. sock, if given, is
+ * the lobby's socket that punched (or bound the relay) to addr: the
+ * session uses it and hands it back when it closes.
+ */
+s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name, struct nethost *sock)
+{
+	struct nethashcomp comps[NET_MAXCOMPS];
+
+	if (s_Role != NETROLE_NONE) {
+		return -1;
+	}
+
+	if (netTransportInit() != 0) {
+		return -1;
+	}
+
+	netSessionHash(comps, NET_MAXCOMPS);
+	snprintf(s_ConnectAddr, sizeof(s_ConnectAddr), "%s", addr);
+	s_ConnectPort = port;
+	snprintf(s_Ticket, sizeof(s_Ticket), "%s", ticket);
+	snprintf(s_Name, sizeof(s_Name), "%s", name);
+	s_Role = NETROLE_CLIENT;
+	s_LobbyRoomOn = 1;
+	s_ClientState = NETCS_IDLE;
+	s_ServerPeer = -1;
+	s_ServerClosed = 0;
+	s_ConnectTries = 0;
+	s_Leaving = 0;
+	s_DropToMenus = 0;
+	s_EndPending = 0;
+	g_NetMode = NETMODE_CLIENT;
+	g_NetLocalSlot = 0;
+
+	if (sock) {
+		g_NetHostSocket = sock;
+		s_SockLent = 1;
+		s_ClientState = NETCS_IDLE;
+		netSessionApplySim();
+	} else {
+		netSessionOpenSocket();
+	}
+
+	if (!g_NetHostSocket) {
+		s_Role = NETROLE_NONE;
+		s_LobbyRoomOn = 0;
+		g_NetMode = NETMODE_NONE;
+		netTransportShutdown();
+		return -1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: lobby: connecting to the room's host at %s port %u", addr, port);
+
+	return 0;
+}
+
+/**
+ * The room is left or gone: the session it made closes (a host says
+ * goodbye to its clients, a client to its host). Not mid-match: the lobby
+ * waits for the stage to stop first.
+ */
+void netSessionLobbyStop(void)
+{
+	if (!s_LobbyRoomOn) {
+		return;
+	}
+
+	if (g_NetHostSocket) {
+		netSessionClose();
+		netTransportShutdown();
+	}
+
+	memset(s_Clients, 0, sizeof(s_Clients));
+	s_Role = NETROLE_NONE;
+	s_LobbyRoomOn = 0;
+	s_LobbyRoomId[0] = '\0';
+	s_LobbyRoomSecret[0] = '\0';
+	s_ClientState = NETCS_IDLE;
+	s_ServerPeer = -1;
+	s_Ticket[0] = '\0';
+	g_NetMode = NETMODE_NONE;
+	g_NetLocalSlot = 0;
+
+	sysLogPrintf(LOG_NOTE, "net: lobby: the room's session is closed");
+}
+
+// 1 host, 2 client, 0 none (a lobby room's session only)
+s32 netSessionLobbyRole(void)
+{
+	return s_LobbyRoomOn ? s_Role : NETROLE_NONE;
+}
+
+// A client: connected and accepted by the host, and not gone since
+s32 netSessionClientJoined(void)
+{
+	return s_Role == NETROLE_CLIENT && s_ClientState >= NETCS_JOINED && s_ClientState != NETCS_GONE;
+}
+
+// A client whose session is over (refused, left, the host gone)
+s32 netSessionClientGone(void)
+{
+	return s_Role == NETROLE_CLIENT && s_ClientState == NETCS_GONE;
+}
+
+// The host: the slot of the joined client called `user`, or -1
+s32 netSessionHostSlotOf(const char *user)
+{
+	s32 i;
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (s_Clients[i].state >= NETCL_JOINED && s_Clients[i].state != NETCL_REFUSED
+				&& strcasecmp(s_Clients[i].name, user) == 0) {
+			return s_Clients[i].slot;
+		}
+	}
+
+	return -1;
+}
+
+// The host: the clients in the session (joined, loading or playing)
+s32 netSessionHostNumClients(void)
+{
+	s32 n = 0;
+	s32 i;
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		n += s_Clients[i].state >= NETCL_JOINED && s_Clients[i].state <= NETCL_PLAYING;
+	}
+
+	return n;
+}
+
+// The host: the name of the i'th client in the session, or NULL past the last
+const char *netSessionHostClientName(s32 index)
+{
+	s32 i;
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (s_Clients[i].state >= NETCL_JOINED && s_Clients[i].state != NETCL_REFUSED && index-- == 0) {
+			return s_Clients[i].name;
+		}
+	}
+
+	return NULL;
+}
+
+// The host: `user` has left the room's roster (left, kicked, timed out)
+void netSessionHostDropUser(const char *user, const char *why)
+{
+	s32 i;
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (s_Clients[i].state >= NETCL_CONNECTING && s_Clients[i].state != NETCL_REFUSED
+				&& s_Clients[i].name[0] && strcasecmp(s_Clients[i].name, user) == 0) {
+			netHostKick(i, NETREFUSE_TICKET, "roster", why);
+		}
+	}
+}
+
+/**
+ * The host, once everyone launched has connected: the match on the
+ * Combat Simulator setup the room was made from, as the menus' own start
+ * does (menutick.c, prevmenuroot -5)
+ */
+void netSessionLobbyStartMatch(void)
+{
+	sysLogPrintf(LOG_NOTE, "net: lobby: starting the room's match on 0x%02x, %d clients", g_MpSetup.stagenum, netSessionHostNumClients());
+	g_MpSetup.chrslots |= 1;
+	mpStartMatch();
+	menuStop();
 }
 
 /*
@@ -2176,6 +2490,12 @@ void netShutdown(void)
  */
 
 static char *netMenuTextNotice(struct menuitem *item)
+{
+	return s_NoticeText;
+}
+
+// Why the last session ended, for the lobby's room page (netlobby.c)
+const char *netSessionNoticeText(void)
 {
 	return s_NoticeText;
 }
@@ -2223,6 +2543,12 @@ static struct menudialogdef s_NetNoticeDialog = {
  */
 void netMainMenuTick(void)
 {
+	// a client whose match ended under it lands here: back to the room
+	if (g_NetLobbyRoom && !g_NetNoticePending) {
+		netLobbyMenuAfterMatch();
+		return;
+	}
+
 	if (!g_NetNoticePending) {
 		return;
 	}

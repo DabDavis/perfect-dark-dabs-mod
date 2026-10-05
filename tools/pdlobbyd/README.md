@@ -88,10 +88,11 @@ empty body is `{}`.
 | `POST /rooms/<id>/leave` | member | | host leaving closes the room |
 | `POST /rooms/<id>/heartbeat` | host | `endpoints`? | `version`, `time`; every 5 s; 15 s without one closes the room |
 | `POST /rooms/<id>/ticket` | member | | a fresh `ticket`, `ticket_expires`, `time`; `409` (`reason: not_started`) while the room is open |
+| `POST /rooms/<id>/netinfo` | member | `path` (`lan`/`direct`/`punch`/`relay`/`none` or null), `ping` (0-9999 ms or null) | `version`; the member's own report of how it reaches the host, shown in every roster; the host's report is ignored; 8 / 10 s per member |
 
 **Create** (`POST /rooms`): `name` (required, 1-32), `password` (0-16
 printable, "" = none), `max_humans` 2-12 (default 4), `stage`, `scenario`
-(<= 32), `sims` 0-32, `region` (<= 16, self-reported, shown in the list),
+(<= 32), `sims` 0-80 (the game's `MAX_BOTS`), `region` (<= 16, self-reported, shown in the list),
 `rules` (object, <= 24 keys `[a-z0-9_]{1,24}`, values bool / 32-bit int /
 string <= 32: the summary the lobby shows, never applied by the lobby),
 `endpoints` (<= 4 `"a.b.c.d:port"` / `"[v6]:port"` the host listens on: LAN,
@@ -140,7 +141,7 @@ never reaped. Reply:
  "room": {"id": "0a1b2c3d", "...": "summary"},
  "rules": {"time_limit": 10},
  "members": [{"user": "dab", "team": 0, "ready": true, "spectator": false,
-              "host": true, "udp": true}],
+              "host": true, "udp": true, "path": null, "ping": null}],
  "chat": [{"v": 15, "user": "dab", "text": "gl hf", "t": 1791148000}],
  "countdown": {"remaining": 3.2, "forced": false},
  "launch": {"at": 1791148010, "endpoints": ["192.168.1.5:27100"],
@@ -148,6 +149,12 @@ never reaped. Reply:
  "you": {"user": "joiner", "host": false, "spectator": false,
          "ticket": "...", "ticket_expires": 1791148310}}
 ```
+
+`path` and `ping` are what that member last reported with `netinfo`
+(null until it does): the rung of the game's connectivity ladder that
+reached the host and the round trip it measures over it. A report moves the
+version only when the path changes or the ping moves by 10 ms or more, so a
+member's ping does not wake the whole room every few seconds.
 
 `chat` holds only lines posted after version `N` (the last 50 are kept), so a
 client passes back the `version` it last saw. `countdown` is null unless
@@ -252,7 +259,13 @@ address (4 or 16 bytes), `port u16`.
 | `06` ECHO_REPLY | L->C | `nonce` 8, endpoint: the sender as the lobby saw it |
 | `07` PROBE | L->C | `room u32`, `nonce` 8 (to a registered host) |
 | `08` PROBE_REPLY | C->L | `room u32`, `nonce` 8, echoed back by the host |
-| `10`-`1f` | | reserved for the relay |
+| `10` RELAY_REQUEST | C->L | `room u32`, `member id` 8, `seq u32`, `mac` 16 (signed as REGISTER; 38 bytes) |
+| `11` RELAY_OFFER | L->C | `room u32`, `relay id` 8, `port u16`, `namelen u8`, name (<= 15): the other end of the pair |
+| `12` RELAY_BIND | C->R | `room u32`, `member id` 8, `relay id` 8, `proof` 8, `seq u32`, `mac` 16 (46 bytes) |
+| `13` RELAY_BOUND | R->C | `room u32`, `relay id` 8, `flags u8` (bit 0 host bound, bit 1 joiner bound), `proof` 8 (27 bytes) |
+| `14`-`1f` | | reserved for the relay |
+| `20` PUNCH | game->game | `cookie` 8, `nonce u32`, `sent ms u32`, `flags u8` (23 bytes); the lobby drops it |
+| `21` PUNCH_REPLY | game->game | the same, nonce and sent ms echoed |
 
 **REGISTER signing**: `mac` is the first 16 bytes of HMAC-SHA256(key = the
 32 raw bytes of `udp_key` from create/join, message = every byte of the
@@ -301,11 +314,85 @@ address, burst 20. The per-source table holds at most 20000 addresses (about
 4 MB): sources past that share one overflow bucket (200/s) until entries age
 out after a minute idle, so forged source addresses cannot grow memory.
 
-**The relay** (types `10`-`1f`) is a later phase. Its place is
-`Lobby.relay_datagram()`: a RELAY_ALLOC authenticated like REGISTER gets a
-session id, and datagrams under that id are forwarded only between the two
-registered public endpoints of that pair, under a per-room byte budget - never
-to an address the datagram itself names. Until then those types are dropped.
+## The relay
+
+For a pair whose NATs will not punch (a symmetric NAT on either side: a new
+public port for every destination, so the port the rendezvous saw is not the
+one the peer would have to answer). One UDP socket per (room, joiner) pair,
+from `relay_ports` (`PDLOBBYD_RELAY_PORTS`, default `27110-27141`, `0` for
+ports the kernel picks), so the host's game sees every relayed joiner at an
+address and port of its own and ENet keeps them apart as peers. The game's
+datagrams go through as they are: the relay adds no header and the host's
+game needs nothing to accept a relayed player but the usual ticket.
+
+1. The joiner, having heard nothing from the host 4.5 s after PEER, sends
+   RELAY_REQUEST (signed with its `udp_key`, a fresh `seq`) to the rendezvous
+   port. The lobby opens the pair's relay (or finds the one it has) and sends
+   RELAY_OFFER to the joiner (to where the request came from) and to the
+   host's registered socket (at most twice a second). The offer to each names
+   the other end.
+2. Each end sends RELAY_BIND to the relay's port from its game socket. A
+   BIND with a valid mac and a fresh `seq` from an address not yet proven is
+   answered with a **proof** (the first 8 bytes of an HMAC of the relay id and
+   that address under a key of this process) and nothing else; a BIND that
+   brings the proof back makes that address the pair's end. BOUND's flags say
+   which ends are proven. An end that binds from a new address (its NAT
+   moved) gets nothing forwarded until it proves the new one.
+3. From then on any datagram from one proven end is sent on, as it is, to
+   the other from the relay's port - except PDLB datagrams of types
+   `10`-`1f`, which are the relay's own and never forwarded. Punch packets
+   (`20`/`21`) go through, which is how the joiner checks the path and keeps
+   measuring its ping over it.
+
+So the relay never sends to an address that has not both signed for a
+member of the pair and answered from where it says it is; a datagram from
+anyone else is dropped unanswered; every answer to a BIND is smaller than
+the BIND (27 against 46 bytes) and a forwarded datagram is exactly one for
+one. ERROR code 3 refuses a request (the host not registered, or a cap).
+
+Caps (`Config`), every one a drop, never a queue: a datagram over 1400 bytes;
+per room 256 KB/s and 2000 datagrams/s through its relays; in all 2 MB/s and
+8000 datagrams/s; at most 32 pairs at once, 16 in a room; each bucket holds
+two seconds of its rate. A 4-player match is tens of KB/s per relayed joiner,
+so a room's budget is several matches' worth and the global one is what a
+1-vCPU box shared with other services can spare. Measured on the dev desktop
+(one 200-byte datagram stream through one relay, the lobby in its own
+process): 5000/s cost 22% of a core, 10000/s 39%, 20000/s 69%, nothing
+dropped - so the 8000/s cap is about a third of a desktop core, more on the
+VPS's slower vCPU. A relay with nothing forwarded or bound for 60 s
+is closed, and so is a pair's relay when its joiner leaves the room or the
+host's going closes it. Each close logs the datagrams and bytes it carried
+and how many it dropped.
+
+## The connectivity ladder (the game's side)
+
+`port/src/net/netrdv.c`. The game's ENet socket is the one both ends speak
+from, so every mapping a NAT makes is one ENet's own packets then use: a
+joiner opens it when the Online Game page opens (it times ECHO for the
+list's PING column from there), a host uses its session's. In order:
+
+| Rung | Answered when | Roster |
+|---|---|---|
+| LAN | a private-range address the host registered answers first | `LAN` |
+| direct | the host's public address answers before the host has sent the joiner anything | `DIR` |
+| punch | the same once the host has sprayed the joiner's addresses (1 s after PEER, for 3 s) | `NAT` |
+| relay | nothing by 4.5 s: the relay above, checked with a punch packet through it | `RLY` |
+
+The host tells a punch from a joiner simply reaching it by bit 1 of its
+PUNCH_REPLY's flags (it had sprayed that joiner already). At launch the
+member connects ENet to whichever address answered, with its ticket; the
+punch packets go on every 2 s as pings, which keep the NAT mappings and the
+relay alive between matches and are the ping the member reports with
+`netinfo`. If nothing answers in 16 s, or the rendezvous never does (no
+REGISTERED in 5 s, or no PEER for the host in 10 s), the ladder fails and a
+launch goes straight to the host's advertised endpoints, as before, without
+waiting on it. A failed ladder is tried again every 20 s while the member
+stays in the room (a relay may have freed up); an ERROR 3 to a relay request
+spaces the next request 5 s out. The member's lobby socket only dials out:
+it drops inbound ENet connects, so strangers who learn its public endpoint
+cannot hold its peer slots. `tools/ci/netnattest.sh` builds the cases out of
+network namespaces and nftables NATs (cone, cone, symmetric, public, and a
+member whose rendezvous traffic is dropped) and plays a match over each.
 
 ## Limits
 
@@ -321,6 +408,7 @@ to an address the datagram itself names. Until then those types are dropped.
 | Parked polls | one per member, 24 per address, 1200 in all; connections 1500 (unit `LimitNOFILE=4096`) |
 | Tickets | 30 s, only from the countdown on |
 | UDP sources tracked | 20000, then one shared overflow bucket |
+| Relays | 32 pairs, 16 per room; 256 KB/s + 2000 datagrams/s per room, 2 MB/s + 8000/s in all; 1400-byte datagrams; 60 s idle |
 | Sessions | 5000, four per account, 12 h sliding |
 
 Names, room names, stage/scenario/region strings, rules strings and chat are
@@ -335,7 +423,7 @@ and nonces come from `os.urandom`.
 python3 tools/pdlobbyd/test_pdlobbyd.py
 ```
 
-60 cases in about thirteen seconds, each against its own server (an event
+71 cases in about sixteen seconds, each against its own server (an event
 loop on a background thread, HTTP and UDP on ports the kernel picks, timeouts
 cut to fractions of a second): create/list/filters, validation, join with
 password, the protocol and content refusals, the wrong-password limiter, full
@@ -354,7 +442,12 @@ countdown), the rendezvous over real UDP sockets (signed REGISTER ->
 REGISTERED -> PEER both ways, matching cookies, a sniffed REGISTER replayed or
 re-sequenced refused, the UDP key no HTTP credential, a re-join's new key,
 public LAN claims dropped, ERROR, junk dropped, ECHO, PROBE -> `host_rtt_ms`),
-the UDP rate limit and its bounded table, the HTTP rate limits, the body and
+the relay (offers to both ends, no forwarding before both ends prove their
+address, opaque datagrams and punch packets both ways from the relay's port,
+strangers neither forwarded nor answered, a replayed BIND refused, oversize
+dropped, a moved end re-proven, refused requests, closed with its member,
+the per-room datagram cap, the pair cap, idle reaping), the members' path and
+ping reports, the UDP rate limit and its bounded table, the HTTP rate limits, the body and
 header caps, chunked bodies, keep-alive, and sign-in through a stub pdghostd
 (forwarded `X-Real-IP`, refusals passed through, the account server down,
 logout). Nothing outside 127.0.0.1.
@@ -403,9 +496,10 @@ players before nginx refuses everyone, pdghostd included. Look with
 and raise `worker_connections` (e.g. 4096, with `worker_rlimit_nofile 8192`)
 if the lobby is to hold more.
 
-And UDP 27101 open inbound - in the host firewall (`sudo ufw allow
-27101/udp` if ufw is in use) **and in the VPS provider's firewall, which the
-plan records as unverified**. Check from outside with an ECHO:
+And UDP 27101 and the relay range 27110-27141 open inbound - in the host
+firewall (`sudo ufw allow 27101/udp`, `sudo ufw allow 27110:27141/udp` if ufw
+is in use) **and in the VPS provider's firewall, which the plan records as
+unverified**. Check from outside with an ECHO:
 
 ```sh
 python3 -c 'import socket;s=socket.socket(2,2);s.settimeout(3);s.sendto(b"PDLB\x01\x05"+b"n"*8+b"\0"*26,("texturepacks.art",27101));print(s.recvfrom(64))'
@@ -422,7 +516,8 @@ cap clear of the systemd default 1024 descriptors.
 
 Configuration is environment (in the unit) or flags: `PDLOBBYD_HOST`/`--host`,
 `PDLOBBYD_PORT`/`--port` (8091), `PDLOBBYD_UDP_HOST`/`--udp-host`,
-`PDLOBBYD_UDP_PORT`/`--udp-port` (27101), `PDLOBBYD_AUTH`/`--auth`
+`PDLOBBYD_UDP_PORT`/`--udp-port` (27101), `PDLOBBYD_RELAY_PORTS`/`--relay-ports`
+(`27110-27141`; `0` for any), `PDLOBBYD_AUTH`/`--auth`
 (`ghost`|`open`), `PDLOBBYD_GHOST_URL`/`--ghost-url`. Every other limit is an
 attribute of `Config` at the top of the file.
 

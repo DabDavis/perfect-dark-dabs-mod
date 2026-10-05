@@ -631,7 +631,7 @@ void mainLoop(void)
 		while (g_MainChangeToStageNum < 0) {
 			if (g_NetMode != NETMODE_NONE) netCheckQuit();
 			if (g_NetMode != NETMODE_NONE && netSessionInStage()) { mainNetFrame(); continue; }
-			if (g_NetMode != NETMODE_NONE) netIdleFrame();
+			if (g_NetMode != NETMODE_NONE || g_NetLobbyActive) netIdleFrame();
 
 			const s32 cycles = osGetCount() - g_Vars.thisframestartt;
 			if (!g_Vars.mininc60 || (cycles >= g_Vars.mininc60 * CYCLES_PER_FRAME - CYCLES_PER_FRAME / 2)) {

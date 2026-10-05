@@ -5277,7 +5277,7 @@ MenuDialogHandlerResult menudialogMainMenu(s32 operation, struct menudialogdef *
 			// Then, once that is out of the way, whether a newer one is out.
 			updatenoticeMainMenuTick(dialogdef, data->dialog2.inputs, true);
 			// netplay: why the last net game ended
-			if (g_NetNoticePending) netMainMenuTick();
+			if (g_NetNoticePending || g_NetLobbyRoom) netMainMenuTick();
 		} else {
 			updatenoticeMainMenuTick(dialogdef, data->dialog2.inputs, false);
 #endif

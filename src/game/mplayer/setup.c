@@ -7166,6 +7166,12 @@ struct menudialogdef g_MpQuickTeamMenuDialog = {
 	NULL,
 };
 
+#ifndef PLATFORM_N64
+// netplay's Online Game row (port/src/netlobbymenu.c)
+char *netLobbyMenuTextOnline(struct menuitem *item);
+MenuItemHandlerResult netLobbyMenuHandlerOnline(s32 operation, struct menuitem *item, union handlerdata *data);
+#endif
+
 struct menuitem g_CombatSimulatorMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -7199,6 +7205,17 @@ struct menuitem g_CombatSimulatorMenuItems[] = {
 		0x00000003,
 		menuhandlerMpAdvancedSetup,
 	},
+#ifndef PLATFORM_N64
+	{
+		// netplay: the lobby's rooms (port/src/netlobbymenu.c)
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_BIGFONT,
+		(uintptr_t)&netLobbyMenuTextOnline,
+		0x00000004,
+		netLobbyMenuHandlerOnline,
+	},
+#endif
 	{ MENUITEMTYPE_END },
 };
 

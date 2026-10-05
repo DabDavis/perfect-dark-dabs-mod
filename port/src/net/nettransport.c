@@ -58,6 +58,8 @@ struct nethost {
 	u32 simrng;
 	struct simpacket *simq; // allocated when the simulator is first turned on
 	s32 simcount;
+
+	s32 dialonly; // refuse inbound connects (netHostSetDialOnly)
 };
 
 static s32 g_NetTransportRefs = 0;
@@ -137,6 +139,28 @@ static int ENET_CALLBACK netInterceptCallback(ENetEvent *event, ENetAddress *add
 			h->rawcount++;
 		}
 
+		return 1;
+	}
+
+	// the lobby's rendezvous, relay and punch datagrams, whole (see the header)
+	if (len >= NET_LOBBYMAGICLEN && memcmp(data, NET_LOBBYMAGIC, NET_LOBBYMAGICLEN) == 0) {
+		if (h->rawcount < RAWQUEUE_LEN && len <= NET_MTU) {
+			struct rawpacket *pkt = &h->raw[(h->rawhead + h->rawcount) % RAWQUEUE_LEN];
+
+			pkt->addr = *address;
+			pkt->len = len;
+			memcpy(pkt->data, data, len);
+			h->rawcount++;
+		}
+
+		return 1;
+	}
+
+	// a dial-out-only socket: ENet addresses a datagram that opens a
+	// connection to peer id 0xFFF (no peer yet; flag and session bits
+	// 0x7000 aside). Dropped here, a stranger never gets a peer slot,
+	// not even a half-open one.
+	if (h->dialonly && len >= 2 && ((((u32)data[0] << 8) | data[1]) & ~0x7000u) == 0x0fff) {
 		return 1;
 	}
 
@@ -589,6 +613,29 @@ s32 netHostSendRaw(struct nethost *h, const struct netaddr *to, const void *data
 	return enet_socket_send(h->enet->socket, &addr, &buf, 1) == (int)buf.dataLength ? 0 : -1;
 }
 
+s32 netHostSendDatagram(struct nethost *h, const struct netaddr *to, const void *data, s32 len)
+{
+	ENetAddress addr;
+	ENetBuffer buf;
+
+	if (!h || !to || !data || len <= 0 || len > NET_MTU) {
+		return -1;
+	}
+
+	addrFromNet(to, &addr);
+	buf.data = (void *)data;
+	buf.dataLength = len;
+
+	return enet_socket_send(h->enet->socket, &addr, &buf, 1) == (int)buf.dataLength ? 0 : -1;
+}
+
+void netHostSetDialOnly(struct nethost *h, s32 on)
+{
+	if (h) {
+		h->dialonly = on ? 1 : 0;
+	}
+}
+
 void netHostSetSim(struct nethost *h, s32 droppct, s32 delayms, s32 jitterms, u32 seed)
 {
 	if (!h) {
@@ -614,4 +661,41 @@ void netHostSetSim(struct nethost *h, s32 droppct, s32 delayms, s32 jitterms, u3
 
 		h->simcount = 0;
 	}
+}
+
+/**
+ * The address this machine's outgoing traffic to `probe` leaves from: a
+ * datagram socket "connected" to it (nothing is sent) and asked where it is.
+ * The lobby's LAN endpoint for a host. 0, or -1 (no route, or no network).
+ */
+s32 netLocalAddrFor(const char *probe, struct netaddr *out)
+{
+	ENetAddress to;
+	ENetAddress me;
+	ENetSocket s;
+	s32 ok = -1;
+
+	memset(out, 0, sizeof(*out));
+	memset(&to, 0, sizeof(to));
+	memset(&me, 0, sizeof(me));
+
+	if (enet_address_set_ip(&to, probe) != 0) {
+		return -1;
+	}
+
+	to.port = 53;
+	s = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+
+	if (s == ENET_SOCKET_NULL) {
+		return -1;
+	}
+
+	if (enet_socket_connect(s, &to) == 0 && enet_socket_get_address(s, &me) == 0) {
+		addrToNet(&me, out);
+		ok = 0;
+	}
+
+	enet_socket_destroy(s);
+
+	return ok;
 }

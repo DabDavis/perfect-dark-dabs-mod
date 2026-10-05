@@ -3,6 +3,7 @@
 #include <string.h>
 #include <strings.h>
 #include <PR/ultratypes.h>
+#include <SDL2/SDL.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "types.h"
@@ -374,9 +375,15 @@ static void netSessionHashCompute(void)
 	sysLogPrintf(LOG_NOTE, "net: session hash took %u ms", (u32)((sysGetMicroseconds() - t0) / 1000));
 }
 
+// the lobby's action thread hashes too (netlobby.c): one at a time, and
+// nobody reads a table half made
+static SDL_SpinLock s_NetSessionHashLock;
+
 s32 netSessionHash(struct nethashcomp *comps, s32 max)
 {
 	s32 i;
+
+	SDL_AtomicLock(&s_NetSessionHashLock);
 
 	if (s_NetSessionNumComps < 0) {
 		netSessionHashCompute();
@@ -385,6 +392,8 @@ s32 netSessionHash(struct nethashcomp *comps, s32 max)
 	for (i = 0; i < s_NetSessionNumComps && i < max; i++) {
 		comps[i] = s_NetSessionComps[i];
 	}
+
+	SDL_AtomicUnlock(&s_NetSessionHashLock);
 
 	return i;
 }

@@ -251,4 +251,7 @@ void netEvGas(struct coord *pos);                                               
 // The session's hooks (H1-H14, HA-HD)
 #include "net/netsession.h"
 
+// The lobby's rooms (Online Game)
+#include "net/netlobby.h"
+
 #endif
