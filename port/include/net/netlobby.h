@@ -65,6 +65,8 @@ struct netlobbymember {
 	s32 spectator;
 	s32 host;
 	s32 udp;
+	char path[8];      // the member's path to the host: lan, direct, punch, relay, none; "" not yet
+	s32 ping;          // ms over that path, -1 unknown
 };
 
 struct netlobbychat {
@@ -124,6 +126,7 @@ void netLobbyRefresh(void);
 s32 netLobbyNumRooms(void);
 const struct netlobbyroomsum *netLobbyRoomAt(s32 index);
 const char *netLobbyCompatText(s32 compat);
+s32 netLobbyRoomPing(const struct netlobbyroomsum *r); // ms, measured: us to the lobby + the lobby to the host; -1
 
 void netLobbyCreate(const struct netlobbycreate *c);   // from the current Combat Simulator setup
 void netLobbyJoin(const char *roomid, const char *password);

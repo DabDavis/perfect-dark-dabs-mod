@@ -50,6 +50,7 @@ import ipaddress
 import json
 import os
 import re
+import socket
 import struct
 import sys
 import time
@@ -149,6 +150,30 @@ class Config:
         self.udp_ttl = 60.0
         self.peer_min_interval = 1.0
         self.probe_interval = 10.0
+
+        # The relay: one UDP socket per (room, joiner) pair whose NATs would
+        # not punch, forwarding the game's own datagrams between the host and
+        # that joiner. Sized for a 1-vCPU VPS shared with other services:
+        # every cap drops (never queues) what is over it. A 4-player match is
+        # some tens of KB/s per relayed joiner; the per-room budget is that
+        # several times over, the global one what the box can spare.
+        # relay_ports: "lo-hi" (firewall that range for UDP), or "" for ports
+        # the kernel picks (tests).
+        self.relay_ports = env("PDLOBBYD_RELAY_PORTS", "27110-27141")
+        self.relay_max = 32               # pairs at once, all rooms
+        self.relay_per_room = 16          # pairs in one room
+        self.relay_room_bps = 256 * 1024  # bytes a second through one room's relays
+        self.relay_room_pps = 2000.0      # datagrams a second through one room's relays
+        self.relay_global_bps = 2 * 1024 * 1024
+        self.relay_global_pps = 8000.0
+        self.relay_burst = 2.0            # buckets hold this many seconds of their rate
+        self.relay_idle = 60.0            # s with nothing forwarded or bound: closed
+        self.relay_max_datagram = 1400    # bytes; the game sends at most 1200
+        self.offer_min_interval = 0.5
+        # Members report their path to the host and its ping (netinfo); a
+        # report moves the room's version only when it changes this much.
+        self.netinfo_window = (10.0, 8)
+        self.netinfo_ping_step = 10
 
         for k, v in over.items():
             if not hasattr(self, k):
@@ -360,9 +385,17 @@ UDP_PROBE = 0x07
 UDP_PROBE_REPLY = 0x08
 UDP_RELAY_FIRST = 0x10
 UDP_RELAY_LAST = 0x1f
+UDP_RELAY_REQUEST = 0x10
+UDP_RELAY_OFFER = 0x11
+UDP_RELAY_BIND = 0x12
+UDP_RELAY_BOUND = 0x13
+UDP_RELAY_REQUEST_LEN = 6 + 4 + 8 + 4 + 16
+UDP_RELAY_BIND_LEN = 6 + 4 + 8 + 8 + 8 + 4 + 16
+UDP_ERR_RELAY = 3
 UDP_ECHO_MIN = 40
 UDP_ERR_UNKNOWN = 1
 UDP_ERR_REFUSED = 2
+NETINFO_PATHS = ("lan", "direct", "punch", "relay", "none")
 UDP_REGISTER_MIN = 6 + 4 + 8 + 4 + 1 + 16
 UDP_MAC_LEN = 16
 
@@ -493,7 +526,8 @@ class Session:
 class Member:
     __slots__ = ("user", "token", "host", "ip", "team", "ready", "spectator",
                  "joined", "seen", "poll", "udp_id", "udp_key", "udp_seq",
-                 "udp_public", "udp_private", "udp_seen", "peer_sent")
+                 "udp_public", "udp_private", "udp_seen", "peer_sent",
+                 "path", "ping")
 
     def __init__(self, user, token, host, ip, now):
         self.user = user
@@ -513,6 +547,8 @@ class Member:
         self.udp_private = []
         self.udp_seen = 0.0
         self.peer_sent = 0.0
+        self.path = None           # what the member reported (netinfo)
+        self.ping = None
 
     def role(self):
         if self.host:
@@ -555,6 +591,9 @@ class Room:
         self.probe_nonce = None
         self.probe_sent = 0.0
         self.cookies = {}
+        self.relays = {}           # joiner's member token -> Relay
+        self.relay_bytes = (0.0, 0.0)   # token bucket (tokens, last)
+        self.relay_pkts = (0.0, 0.0)
 
     def changed(self):
         """Every mutation ends here: the version moves and every parked poll
@@ -622,6 +661,12 @@ class Lobby:
         self.reaper = None
         self.bound_port = None
         self.bound_udp_port = None
+        self.relays = {}         # relay id (8 bytes) -> Relay
+        self.relay_secret = os.urandom(32)  # the return-routability proofs
+        self.relay_next_port = 0
+        self.relay_bytes = (0.0, 0.0)
+        self.relay_pkts = (0.0, 0.0)
+        self.relay_dropped = 0
 
     # ---------------------------------------------------------- lifecycle
 
@@ -639,6 +684,8 @@ class Lobby:
     async def stop(self):
         if self.reaper:
             self.reaper.cancel()
+        for r in list(self.relays.values()):
+            self.close_relay(r, "lobby stopping")
         if self.udp:
             self.udp.close()
         if self.http_server:
@@ -1061,7 +1108,11 @@ class Lobby:
             self.remove_member(room, room.members[tok], "you joined another room")
 
     def forget_member(self, room, m):
-        """The token and the UDP id stop resolving; the seat is gone."""
+        """The token and the UDP id stop resolving; the seat is gone, and so
+        is any relay it had (a host's going takes every relay in the room)."""
+        for r in list(room.relays.values()):
+            if m.host or r.joiner_token == m.token:
+                self.close_relay(r, "member gone")
         self.tokens.pop(m.token, None)
         if self.udp_ids.get(m.udp_id) == m.token:
             del self.udp_ids[m.udp_id]
@@ -1173,7 +1224,8 @@ class Lobby:
     def state_of(self, room, me, since):
         members = [{"user": m.user, "team": m.team, "ready": m.ready,
                     "spectator": m.spectator, "host": m.host,
-                    "udp": m.udp_public is not None}
+                    "udp": m.udp_public is not None,
+                    "path": m.path, "ping": m.ping}
                    for m in room.members.values()]
         chat = [{"v": v, "user": u, "text": t, "t": at}
                 for (v, u, t, at) in room.chat if v > since]
@@ -1329,6 +1381,29 @@ class Lobby:
                 room.changed()
         return {"ok": True, "version": room.version, "time": int(time.time())}
 
+    def act_netinfo(self, req, room, m, body):
+        """A member's path to the host (lan, direct, punch, relay, none) and
+        its measured round trip, for everyone's roster. Display only: the
+        lobby never acts on it. The version moves only on a change of path or
+        a ping change of netinfo_ping_step ms or more."""
+        if not self.windows.allow(("netinfo", m.token), self.cfg.netinfo_window[0],
+                                  self.cfg.netinfo_window[1], time.monotonic()):
+            raise HttpError(429, "slow down")
+        path = body.get("path")
+        if path is not None and path not in NETINFO_PATHS:
+            raise HttpError(400, "path is one of %s" % ", ".join(NETINFO_PATHS))
+        ping = body.get("ping")
+        if ping is not None and (not isinstance(ping, int) or isinstance(ping, bool) or not 0 <= ping <= 9999):
+            raise HttpError(400, "ping is 0-9999 ms or null")
+        if m.host:
+            path, ping = None, None
+        moved = (path != m.path or (ping is None) != (m.ping is None)
+                 or (ping is not None and abs(ping - m.ping) >= self.cfg.netinfo_ping_step))
+        if moved:
+            m.path, m.ping = path, ping
+            room.changed()
+        return {"ok": True, "version": room.version}
+
     def act_ticket(self, req, room, m, body):
         # Only for the connect window: a ticket held through a long lobby
         # wait is one more thing a kick cannot take back.
@@ -1374,6 +1449,9 @@ class Lobby:
                     lapsed = True
             if lapsed:
                 room.changed()
+        for r in list(self.relays.values()):
+            if now - r.active > self.cfg.relay_idle:
+                self.close_relay(r, "idle")
         for k in [k for k, (_r, until) in self.gone.items() if until < now]:
             del self.gone[k]
         self.prune_sessions(wall)
@@ -1396,13 +1474,7 @@ class Lobby:
             return
         ip, port = norm_addr(addr)
         now = time.monotonic()
-        b = self.udp_buckets
-        if ip in b.b or len(b.b) < self.cfg.udp_sources_max:
-            ok = b.allow(ip, self.cfg.udp_rate, self.cfg.udp_burst, now)
-        else:
-            # Table full: every newcomer shares one bucket until entries age out.
-            ok = b.allow(None, self.cfg.udp_overflow_rate, self.cfg.udp_overflow_burst, now)
-        if not ok:
+        if not self.udp_allow(ip, now):
             return
         kind = data[5]
         try:
@@ -1414,10 +1486,17 @@ class Lobby:
                                   + encode_endpoint(ip, port), addr)
             elif kind == UDP_PROBE_REPLY:
                 self.udp_probe_reply(data, ip, port, now)
-            elif UDP_RELAY_FIRST <= kind <= UDP_RELAY_LAST:
-                self.relay_datagram(data, ip, port, now)
+            elif kind == UDP_RELAY_REQUEST:
+                self.udp_relay_request(data, ip, port, now)
         except (ValueError, struct.error, IndexError):
             return
+
+    def udp_allow(self, ip, now):
+        b = self.udp_buckets
+        if ip in b.b or len(b.b) < self.cfg.udp_sources_max:
+            return b.allow(ip, self.cfg.udp_rate, self.cfg.udp_burst, now)
+        # Table full: every newcomer shares one bucket until entries age out.
+        return b.allow(None, self.cfg.udp_overflow_rate, self.cfg.udp_overflow_burst, now)
 
     def udp_register(self, data, ip, port, now):
         if len(data) < UDP_REGISTER_MIN:
@@ -1506,17 +1585,253 @@ class Lobby:
         room.host_rtt = rtt if room.host_rtt is None else room.host_rtt * 0.7 + rtt * 0.3
         room.probe_nonce = None
 
-    def relay_datagram(self, data, ip, port, now):
-        """Types 0x10-0x1f: the relay, for pairs whose NATs will not punch.
+    # ---------------------------------------------------------- relay
+    #
+    # A pair whose NATs will not punch (a symmetric NAT on either side) plays
+    # through a relay: one UDP socket here per (room, joiner), so the host's
+    # game sees each relayed joiner at its own address and port. The joiner
+    # asks with a signed RELAY_REQUEST to the rendezvous port; both ends get a
+    # RELAY_OFFER (the port and a relay id) and BIND to that port from their
+    # game sockets, signed as REGISTER is. The first BIND from an address is
+    # answered with a proof (an HMAC of the relay id and that address under a
+    # secret of this process); only a BIND that brings the proof back makes
+    # the address the pair's end. So a datagram is only ever forwarded to an
+    # address that (a) a member's udp_key signed for and (b) answered from,
+    # and only as one datagram for one datagram, never larger.
 
-        Not in this version. When it comes it belongs here: a RELAY_ALLOC from
-        a registered member (member id, seq and mac, signed as REGISTER is)
-        gets a relay session id, and datagrams prefixed with that id are
-        forwarded between the two registered public endpoints of that pair
-        only, under a per-room byte budget - never to an address the datagram
-        itself names. Dropping them now keeps the type range free.
-        """
-        return
+    def relay_signed(self, data, off, room_num, udp_id, seq):
+        """The member a signed relay datagram is from, or None (answered with
+        ERROR where REGISTER would be)."""
+        tok = self.udp_ids.get(udp_id)
+        room = self.tokens.get(tok) if tok else None
+        if room is None or int(room.id, 16) != room_num:
+            return None, None, UDP_ERR_UNKNOWN
+        m = room.members[tok]
+        mac = register_mac(m.udp_key, bytes(data[:off]))
+        if not hmac.compare_digest(mac, bytes(data[off:off + UDP_MAC_LEN])) or seq <= m.udp_seq:
+            return None, None, UDP_ERR_REFUSED
+        m.udp_seq = seq
+        return room, m, 0
+
+    def udp_relay_request(self, data, ip, port, now):
+        if len(data) != UDP_RELAY_REQUEST_LEN:
+            return
+        room_num = struct.unpack_from(">I", data, 6)[0]
+        udp_id = bytes(data[10:18])
+        seq = struct.unpack_from(">I", data, 18)[0]
+        room, m, err = self.relay_signed(data, 22, room_num, udp_id, seq)
+        if room is None or m.host:
+            self.udp_send(udp_header(UDP_ERROR) + bytes((err or UDP_ERR_REFUSED,))
+                          + struct.pack(">I", room_num), (ip, port))
+            return
+        host = room.host_member()
+        r = room.relays.get(m.token)
+        if r is None:
+            if (host is None or host.udp_public is None or len(self.relays) >= self.cfg.relay_max
+                    or len(room.relays) >= self.cfg.relay_per_room):
+                self.udp_send(udp_header(UDP_ERROR) + bytes((UDP_ERR_RELAY,))
+                              + struct.pack(">I", room_num), (ip, port))
+                return
+            r = self.open_relay(room, m, host, now)
+            if r is None:
+                self.udp_send(udp_header(UDP_ERROR) + bytes((UDP_ERR_RELAY,))
+                              + struct.pack(">I", room_num), (ip, port))
+                return
+        r.active = now
+        # The joiner asked from here, signed: its offer comes back here. The
+        # host's goes to its registered socket (as PEER does), at most twice a
+        # second however often the joiner asks.
+        self.udp_send(offer_packet(room_num, r, host), (ip, port))
+        if host is not None and host.udp_public and now - r.offer_sent >= self.cfg.offer_min_interval:
+            r.offer_sent = now
+            self.udp_send(offer_packet(room_num, r, m), host.udp_public)
+
+    def relay_port_candidates(self):
+        spec = (self.cfg.relay_ports or "").strip()
+        if not spec or spec == "0":
+            return [0]
+        lo, _, hi = spec.partition("-")
+        lo, hi = int(lo), int(hi or lo)
+        n = hi - lo + 1
+        start = self.relay_next_port % n
+        return [lo + (start + i) % n for i in range(n)]
+
+    def open_relay(self, room, joiner, host, now):
+        loop = asyncio.get_running_loop()
+        fam = socket.AF_INET6 if ":" in self.cfg.udp_host else socket.AF_INET
+        sock = None
+        for p in self.relay_port_candidates():
+            s = socket.socket(fam, socket.SOCK_DGRAM)
+            try:
+                s.bind((self.cfg.udp_host, p))
+            except OSError:
+                s.close()
+                continue
+            sock = s
+            self.relay_next_port += 1
+            break
+        if sock is None:
+            log("relay: no free port for room %s" % room.id)
+            return None
+        sock.setblocking(False)
+        r = Relay(room, joiner.token, host.token, sock, now)
+        self.relays[r.rid] = r
+        room.relays[joiner.token] = r
+        loop.add_reader(sock.fileno(), self.relay_readable, r)
+        log("relay %s: port %d for %s in room %s" % (r.rid.hex(), r.port, joiner.user, room.id))
+        return r
+
+    def close_relay(self, r, why):
+        if self.relays.get(r.rid) is not r:
+            return
+        del self.relays[r.rid]
+        if r.room.relays.get(r.joiner_token) is r:
+            del r.room.relays[r.joiner_token]
+        try:
+            asyncio.get_running_loop().remove_reader(r.sock.fileno())
+        except (RuntimeError, ValueError, OSError):
+            pass
+        r.sock.close()
+        log("relay %s closed (%s): %d datagrams, %d bytes forwarded, %d dropped"
+            % (r.rid.hex(), why, r.fwd_pkts, r.fwd_bytes, r.dropped))
+
+    def relay_readable(self, r):
+        # Bounded per wake so one busy relay cannot starve the loop.
+        for _ in range(64):
+            try:
+                data, addr = r.sock.recvfrom(2048)
+            except (BlockingIOError, InterruptedError):
+                return
+            except OSError:
+                return
+            if self.relays.get(r.rid) is not r:
+                return
+            self.relay_datagram(r, data, norm_addr(addr), time.monotonic())
+
+    def relay_proof(self, r, ep):
+        return hmac.new(self.relay_secret, r.rid + encode_endpoint(*ep), hashlib.sha256).digest()[:8]
+
+    def relay_datagram(self, r, data, src, now):
+        if (len(data) >= 6 and data[:4] == UDP_MAGIC and data[4] == UDP_VERSION
+                and UDP_RELAY_FIRST <= data[5] <= UDP_RELAY_LAST):
+            if data[5] == UDP_RELAY_BIND and self.udp_allow(src[0], now):
+                try:
+                    self.relay_bind(r, data, src, now)
+                except (ValueError, struct.error, IndexError):
+                    pass
+            return
+        if src == r.host_ep and r.joiner_ok:
+            to = r.joiner_ep
+        elif src == r.joiner_ep and r.host_ok:
+            to = r.host_ep
+        else:
+            return   # not one of the pair: never forwarded, never answered
+        if len(data) > self.cfg.relay_max_datagram:
+            r.dropped += 1
+            return
+        if not self.relay_budget(r, len(data), now):
+            r.dropped += 1
+            self.relay_dropped += 1
+            return
+        try:
+            r.sock.sendto(data, to)
+        except OSError:
+            return
+        r.active = now
+        r.fwd_pkts += 1
+        r.fwd_bytes += len(data)
+
+    def relay_budget(self, r, size, now):
+        """The room's and the whole relay's bytes and datagrams a second; a
+        datagram over any of them is dropped (the game's own protocol copes
+        with loss, and a queue here would only add latency)."""
+        c, burst = self.cfg, self.cfg.relay_burst
+        room = r.room
+        rb, ok1 = take(room.relay_bytes, size, c.relay_room_bps, c.relay_room_bps * burst, now)
+        rp, ok2 = take(room.relay_pkts, 1, c.relay_room_pps, c.relay_room_pps * burst, now)
+        gb, ok3 = take(self.relay_bytes, size, c.relay_global_bps, c.relay_global_bps * burst, now)
+        gp, ok4 = take(self.relay_pkts, 1, c.relay_global_pps, c.relay_global_pps * burst, now)
+        if not (ok1 and ok2 and ok3 and ok4):
+            # Nothing is spent on a datagram that does not go; the buckets
+            # refill from their last spend.
+            return False
+        room.relay_bytes, room.relay_pkts, self.relay_bytes, self.relay_pkts = rb, rp, gb, gp
+        return True
+
+    def relay_bind(self, r, data, src, now):
+        if len(data) != UDP_RELAY_BIND_LEN:
+            return
+        room_num = struct.unpack_from(">I", data, 6)[0]
+        udp_id = bytes(data[10:18])
+        rid = bytes(data[18:26])
+        proof = bytes(data[26:34])
+        seq = struct.unpack_from(">I", data, 34)[0]
+        if rid != r.rid or int(r.room.id, 16) != room_num:
+            return
+        room, m, err = self.relay_signed(data, 38, room_num, udp_id, seq)
+        if room is not r.room or m is None:
+            return
+        if m.token == r.host_token:
+            who = "host"
+        elif m.token == r.joiner_token:
+            who = "joiner"
+        else:
+            return
+        r.active = now
+        want = self.relay_proof(r, src)
+        if hmac.compare_digest(proof, want):
+            # The address answered with the proof it was sent: it is this
+            # member's, and the relay may send to it.
+            setattr(r, who + "_ep", src)
+            setattr(r, who + "_ok", True)
+        elif getattr(r, who + "_ep") != src:
+            # A new address for this end (first bind, or its NAT moved):
+            # nothing goes to it until it brings the proof back.
+            setattr(r, who + "_ep", src)
+            setattr(r, who + "_ok", False)
+        flags = (1 if r.host_ok else 0) | (2 if r.joiner_ok else 0)
+        try:
+            r.sock.sendto(udp_header(UDP_RELAY_BOUND) + struct.pack(">I", room_num) + r.rid
+                          + bytes((flags,)) + want, src)
+        except OSError:
+            pass
+
+
+def take(bucket, cost, rate, burst, now):
+    """A token bucket as a (tokens, last) tuple: (new tuple, allowed)."""
+    tokens, last = bucket
+    if last == 0.0:
+        tokens = burst
+    tokens = min(burst, tokens + (now - last) * rate)
+    if tokens < cost:
+        return (tokens, now), False
+    return (tokens - cost, now), True
+
+
+class Relay:
+    __slots__ = ("room", "joiner_token", "host_token", "sock", "port", "rid",
+                 "host_ep", "joiner_ep", "host_ok", "joiner_ok", "active",
+                 "offer_sent", "fwd_pkts", "fwd_bytes", "dropped")
+
+    def __init__(self, room, joiner_token, host_token, sock, now):
+        self.room = room
+        self.joiner_token = joiner_token
+        self.host_token = host_token
+        self.sock = sock
+        self.port = sock.getsockname()[1]
+        self.rid = os.urandom(8)
+        self.host_ep = self.joiner_ep = None
+        self.host_ok = self.joiner_ok = False
+        self.active = now
+        self.offer_sent = 0.0
+        self.fwd_pkts = self.fwd_bytes = self.dropped = 0
+
+
+def offer_packet(room_num, r, other):
+    """RELAY_OFFER: the relay's port and id, and who is at the other end."""
+    name = other.user.encode("ascii", "replace")[:15] if other is not None else b""
+    return (udp_header(UDP_RELAY_OFFER) + struct.pack(">I", room_num) + r.rid
+            + struct.pack(">H", r.port) + bytes((len(name),)) + name)
 
 
 def peer_packet(room_num, cookie, who):
@@ -1552,7 +1867,7 @@ REASONS = {200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden",
            502: "Bad Gateway", 503: "Service Unavailable"}
 
 ROOM_ACTIONS = frozenset(("ready", "team", "chat", "settings", "kick", "launch",
-                          "reopen", "leave", "heartbeat", "ticket"))
+                          "reopen", "leave", "heartbeat", "ticket", "netinfo"))
 
 
 class Request:
@@ -1699,15 +2014,17 @@ def main():
     args = sys.argv[1:]
     for flag, attr, conv in (("--port", "port", int), ("--udp-port", "udp_port", int),
                              ("--host", "host", str), ("--udp-host", "udp_host", str),
-                             ("--auth", "auth", str), ("--ghost-url", "ghost_url", str)):
+                             ("--auth", "auth", str), ("--ghost-url", "ghost_url", str),
+                             ("--relay-ports", "relay_ports", str)):
         if flag in args:
             setattr(cfg, attr, conv(args[args.index(flag) + 1]))
 
     async def run():
         lobby = Lobby(cfg)
         await lobby.start()
-        log("pdlobbyd listening on %s:%d, rendezvous udp %s:%d, auth %s"
-            % (cfg.host, lobby.bound_port, cfg.udp_host, lobby.bound_udp_port, cfg.auth))
+        log("pdlobbyd listening on %s:%d, rendezvous udp %s:%d, auth %s, relay ports %s"
+            % (cfg.host, lobby.bound_port, cfg.udp_host, lobby.bound_udp_port, cfg.auth,
+               cfg.relay_ports or "any"))
         await asyncio.Event().wait()
 
     try:

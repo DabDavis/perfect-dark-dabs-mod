@@ -31,6 +31,16 @@
  * mapping they open is the one ENet's own packets then use. ENet never sends
  * a datagram that starts 0xff (its first byte holds a 12-bit peer id and two
  * flag bits below the top one), so the two cannot be confused.
+ *
+ * Lobby datagrams: anything starting "PDLB" (tools/pdlobbyd/README.md, the
+ * rendezvous, the relay's control messages and the punch packets between a
+ * host and a joiner) is taken off the socket the same way and comes out as
+ * NETEVENT_RAW whole, magic included; netHostSendDatagram sends bytes as
+ * they are. ENet does not send one between our hosts: its header's first two
+ * bytes are the receiver's peer id (12 bits), two session bits and the
+ * sent-time flag, and 'P' 'D' (0x5044) would be peer 68, where a host here
+ * has at most a few more peers than MAX_PLAYERS (ENet drops a datagram for
+ * a peer id past its count anyway).
  */
 
 #define NET_CHAN_UNRELIABLE 0
@@ -45,6 +55,8 @@
 #define NET_RAWMAGIC        "\xff\xffPD"
 #define NET_RAWMAGICLEN     4
 #define NET_MAXRAW          (NET_MTU - NET_RAWMAGICLEN)
+#define NET_LOBBYMAGIC      "PDLB"
+#define NET_LOBBYMAGICLEN   4
 
 // netHostSend flags
 #define NET_SEND_RELIABLE    0x01
@@ -146,6 +158,13 @@ void netAddrToString(const struct netaddr *addr, char *buf, s32 bufsize);
 
 // Sends NET_RAWMAGIC then len bytes (at most NET_MAXRAW) to `to`. 0, or -1
 s32 netHostSendRaw(struct nethost *h, const struct netaddr *to, const void *data, s32 len);
+// Sends len bytes (at most NET_MTU) to `to` as they are: a lobby datagram. 0, or -1
+s32 netHostSendDatagram(struct nethost *h, const struct netaddr *to, const void *data, s32 len);
+
+// on: the host accepts no inbound connections, only those it starts with
+// netHostConnect (a socket that only dials out, so strangers cannot hold
+// its peer slots)
+void netHostSetDialOnly(struct nethost *h, s32 on);
 
 /**
  * The loss and latency simulator, for tests: every ENet datagram this host

@@ -75,7 +75,7 @@ s32 netSessionLobbyHost(const char *name);
 u16 netSessionLobbyPort(void);
 void netSessionLobbySetRoom(const char *roomid, const char *secret);
 void netSessionLobbyClock(s64 offset);
-s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name);
+s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name, struct nethost *sock);
 void netSessionLobbyStop(void);
 s32 netSessionLobbyRole(void);       // 1 host, 2 client, 0 none
 s32 netSessionClientJoined(void);

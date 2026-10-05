@@ -14,6 +14,7 @@
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "netint.h"
+#include "netrdv.h"
 
 /**
  * Netplay's core state and the calls the game's hooks make (net.h). This
@@ -185,6 +186,12 @@ s32 netClockPpm(void)
 
 static void netHandleEvent(const struct netevent *ev)
 {
+	// the lobby's rendezvous, relay and punch datagrams on the session's socket
+	if (ev->type == NETEVENT_RAW) {
+		netRdvRaw(g_NetHostSocket, ev);
+		return;
+	}
+
 	switch (ev->type) {
 	case NETEVENT_CONNECT:
 		sysLogPrintf(LOG_NOTE, "net: peer %d connected", ev->peer);

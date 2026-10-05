@@ -23,6 +23,7 @@
 #include "net/netlobby.h"
 #include "net/nettransport.h"
 #include "netint.h"
+#include "netrdv.h"
 
 /**
  * The lobby client: tools/pdlobbyd/README.md is the API it speaks, and
@@ -54,6 +55,8 @@
 #define LOBBY_HEARTBEAT_MS 5000
 #define LOBBY_LAUNCH_WAIT_MS 20000 // the host waits this long for the launched to connect
 #define LOBBY_REPLY_MAX    (64 * 1024)
+#define LOBBY_LADDER_WAIT_MS 15000 // a member at launch waits this long for its path to the host
+#define LOBBY_NETINFO_MS   5000    // a member reports its path and ping at most this often
 
 #define JOB_NONE     0
 #define JOB_LIST     1
@@ -117,6 +120,12 @@ static SDL_atomic_t s_Unreachable; // the last request on either thread got no a
 static char s_PendTicket[NET_MAXTICKET + 2] = "";
 static char s_JobUser[GHOSTNET_MAXUSER + 2] = "";  // the account as the last job was queued
 static char s_JobPin[GHOSTNET_MAXPIN + 2] = "";     // (Ghost Trials edits g_GhostNet* meanwhile)
+static char s_UdpId[17] = "";     // this seat's rendezvous id and key (hex), from create/join
+static char s_UdpKey[65] = "";
+static struct netaddr s_PendUdpAddr; // the lobby's rendezvous, from /ping (action thread)
+static u32 s_PendUdpSeq = 0;
+static u64 s_UdpTried = 0;        // action thread only
+static s32 s_UdpDone = 0;         // action thread only: learnt, or the lobby offers none
 
 #endif
 
@@ -135,6 +144,12 @@ static s32 s_MainIsHost = 0;
 static s32 s_CreatePending = 0; // the host's socket is open for a create in flight
 static char s_PendTicketMain[NET_MAXTICKET + 2] = ""; // this member's latest ticket
 static u64 s_RoomAtMs = 0;      // when s_Room came: the countdown runs on from there
+static u32 s_SeenUdpSeq = 0;
+static u64 s_LaunchSeenMs = 0;  // a member: when this launch was first seen (the path may still be coming)
+static u32 s_LaunchSeenAt = 0;
+static s32 s_ReportedPath = -1; // a member: the path and ping last sent to the roster
+static s32 s_ReportedPing = -1;
+static u64 s_ReportedAt = 0;
 
 // the launch, as this machine follows it
 static u32 s_LaunchHandled = 0;    // the launch (its "at") this machine acted on
@@ -590,6 +605,8 @@ static void lobbyReadState(struct jspan o, struct netlobbyroom *st)
 			m->spectator = (s32)jsonGetInt(el, "spectator", 0);
 			m->host = (s32)jsonGetInt(el, "host", 0);
 			m->udp = (s32)jsonGetInt(el, "udp", 0);
+			jsonGetStr(el, "path", m->path, sizeof(m->path));
+			m->ping = jsonGet(el, "ping", &v) && !jsonIsNull(v) ? (s32)jsonInt(v, -1) : -1;
 		}
 	}
 
@@ -918,9 +935,20 @@ static void lobbyRunJob(struct lobbyjob *job)
 			char token[40];
 			char secret[72];
 
+			char udpid[20];
+			char udpkey[70];
+
 			jsonGetStr(obj, "room", room, sizeof(room));
 			jsonGetStr(obj, "token", token, sizeof(token));
 			jsonGetStr(obj, "secret", secret, sizeof(secret));
+
+			if (!jsonGetStr(obj, "udp_id", udpid, sizeof(udpid))) {
+				udpid[0] = '\0';
+			}
+
+			if (!jsonGetStr(obj, "udp_key", udpkey, sizeof(udpkey))) {
+				udpkey[0] = '\0';
+			}
 
 			if (strlen(room) == 8 && strlen(token) == 32) {
 				SDL_LockMutex(s_Lock);
@@ -949,6 +977,8 @@ static void lobbyRunJob(struct lobbyjob *job)
 				snprintf(s_RoomId, sizeof(s_RoomId), "%s", room);
 				snprintf(s_Token, sizeof(s_Token), "%s", token);
 				snprintf(s_Secret, sizeof(s_Secret), "%s", secret);
+				snprintf(s_UdpId, sizeof(s_UdpId), "%s", udpid);
+				snprintf(s_UdpKey, sizeof(s_UdpKey), "%s", udpkey);
 				s_IsHost = job->kind == JOB_CREATE;
 				s_InRoomShared = 1;
 				s_Epoch++;
@@ -1036,6 +1066,70 @@ static void lobbyRunJob(struct lobbyjob *job)
 	free(reply);
 }
 
+/**
+ * The lobby's rendezvous address: the lobby server's host (from the URL)
+ * and the UDP port its /ping names. Resolving may block, so it is done
+ * here and not on the main thread.
+ */
+static void lobbyLearnUdp(void)
+{
+	char base[256];
+	char host[200];
+	char err[128];
+	char *reply = NULL;
+	struct jspan obj;
+	struct netaddr addr;
+	const char *p;
+	s32 objok = 0;
+	s32 len = 0;
+	s32 status;
+	s64 port;
+
+	s_UdpTried = lobbyNowMs();
+	lobbyBaseUrl(base, sizeof(base));
+	p = strstr(base, "://");
+	p = p ? p + 3 : base;
+
+	if (*p == '[') {
+		p++;
+
+		while (p[len] && p[len] != ']' && len < (s32)sizeof(host) - 1) {
+			len++;
+		}
+	} else {
+		while (p[len] && p[len] != ':' && p[len] != '/' && len < (s32)sizeof(host) - 1) {
+			len++;
+		}
+	}
+
+	snprintf(host, sizeof(host), "%.*s", len, p);
+	status = lobbyRequest("/ping", NULL, AUTH_NONE, 3, &reply, &obj, &objok, err, sizeof(err));
+	port = status == 200 && objok ? jsonGetInt(obj, "udp_port", 0) : 0;
+	free(reply);
+
+	if (status == 200 && objok && (port <= 0 || port > 65535)) {
+		// the lobby answered and runs no rendezvous: never ask again
+		s_UdpDone = 1;
+		sysLogPrintf(LOG_NOTE, "lobby: the lobby offers no UDP rendezvous; joins use the advertised endpoints");
+		return;
+	}
+
+	if (port <= 0 || port > 65535 || !host[0]) {
+		return;
+	}
+
+	if (netAddrResolve(host, (u16)port, &addr) != 0) {
+		sysLogPrintf(LOG_WARNING, "lobby: could not resolve %s for the rendezvous", host);
+		return;
+	}
+
+	SDL_LockMutex(s_Lock);
+	s_PendUdpAddr = addr;
+	s_PendUdpSeq++;
+	SDL_UnlockMutex(s_Lock);
+	s_UdpDone = 1;
+}
+
 static int lobbyActionThread(void *arg)
 {
 	u64 lastbeat = 0;
@@ -1046,6 +1140,7 @@ static int lobbyActionThread(void *arg)
 		struct lobbyjob job;
 		s32 beat = 0;
 		s32 user = 0;
+		s32 learn = 0;
 
 		SDL_LockMutex(s_Lock);
 
@@ -1068,7 +1163,21 @@ static int lobbyActionThread(void *arg)
 				break;
 			}
 
+			// the rendezvous address, only while nothing the player asked
+			// for is waiting (so a dead lobby does not hold their requests
+			// up): at once, then every 10 s until learnt
+			if (!s_UdpDone && (s_UdpTried == 0 || now - s_UdpTried >= 10000)) {
+				learn = 1;
+				break;
+			}
+
 			SDL_CondWaitTimeout(s_Wake, s_Lock, 500);
+		}
+
+		if (learn) {
+			SDL_UnlockMutex(s_Lock);
+			lobbyLearnUdp();
+			continue;
 		}
 
 		if (beat) {
@@ -1251,6 +1360,10 @@ static void lobbyStartThreads(void)
 		return;
 	}
 
+	// the lobby socket first: it brings the transport up (on Windows,
+	// Winsock), which the action thread's resolving of the lobby needs
+	netRdvOpen();
+
 	s_Lock = SDL_CreateMutex();
 	s_Wake = SDL_CreateCond();
 	s_Threads = 2;
@@ -1315,6 +1428,8 @@ void netLobbyWarm(void)
 {
 #ifdef PD_GHOST_NET
 	if (netLobbyAvailable()) {
+		// the socket the list's pings and a member's ladder go from
+		netRdvOpen();
 		lobbyStartThreads();
 		g_NetLobbyActive = 1; // and stopped on the way out
 	}
@@ -1754,6 +1869,7 @@ void netLobbyLeave(void)
 	}
 #endif
 
+	netRdvLeave();
 	s_InRoom = 0;
 	s_MainIsHost = 0;
 	s_CreatePending = 0;
@@ -2024,25 +2140,52 @@ static void lobbyClientTick(void)
 			// still connected from the last match: the host counts it in
 			s_LaunchHandled = s_Room.launchat;
 		} else if (s_PendTicketMain[0] && netSessionLobbyRole() == 0) {
-			s_LaunchHandled = s_Room.launchat;
+			const s32 ladder = netRdvLadder();
+			const char *how = "the host's first advertised endpoint";
 
-			// 6a: the host's first advertised endpoint (its LAN address, or
-			// loopback on one machine), else the public one; the ladder that
-			// tries them in turn and punches is 6b
-			for (i = 0; i < s_Room.nendpoints; i++) {
-				if (lobbySplitEndpoint(s_Room.endpoints[i], addr, sizeof(addr), &port) == 0) {
-					break;
+			if (s_LaunchSeenAt != s_Room.launchat) {
+				s_LaunchSeenAt = s_Room.launchat;
+				s_LaunchSeenMs = lobbyNowMs();
+
+				if (ladder == NETRDV_LADDER_WAITING || ladder == NETRDV_LADDER_RUNNING) {
+					sysLogPrintf(LOG_NOTE, "lobby: room %s launched; holding for the path to the host (ladder %d)", s_Room.sum.id, ladder);
 				}
 			}
 
-			if (i == s_Room.nendpoints && !(s_Room.publicep[0] && lobbySplitEndpoint(s_Room.publicep, addr, sizeof(addr), &port) == 0)) {
-				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "The host gave no address to connect to.");
+			// the ladder still climbing: a moment more for it (a WAITING one
+			// gives up by itself within seconds when the rendezvous is mute)
+			if ((ladder == NETRDV_LADDER_WAITING || ladder == NETRDV_LADDER_RUNNING)
+					&& lobbyNowMs() - s_LaunchSeenMs < LOBBY_LADDER_WAIT_MS) {
 				return;
 			}
 
-			sysLogPrintf(LOG_NOTE, "lobby: room %s launched; connecting to %s port %u with the lobby's ticket", s_Room.sum.id, addr, port);
+			s_LaunchHandled = s_Room.launchat;
 
-			if (netSessionLobbyConnect(addr, port, s_PendTicketMain, netLobbyAccount()) != 0) {
+			if (ladder == NETRDV_LADDER_DONE && netRdvEndpoint(addr, sizeof(addr), &port) == 0) {
+				how = netRdvPathName(netRdvPath());
+			} else {
+				// no path from the rendezvous (its UDP port unreachable, or
+				// nothing answered): the host's advertised endpoints, LAN
+				// first, then where the rendezvous saw it
+				for (i = 0; i < s_Room.nendpoints; i++) {
+					if (lobbySplitEndpoint(s_Room.endpoints[i], addr, sizeof(addr), &port) == 0) {
+						break;
+					}
+				}
+
+				if (i == s_Room.nendpoints) {
+					how = "the host's public address";
+
+					if (!(s_Room.publicep[0] && lobbySplitEndpoint(s_Room.publicep, addr, sizeof(addr), &port) == 0)) {
+						snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "The host gave no address to connect to.");
+						return;
+					}
+				}
+			}
+
+			sysLogPrintf(LOG_NOTE, "lobby: room %s launched; connecting to %s port %u (%s) with the lobby's ticket", s_Room.sum.id, addr, port, how);
+
+			if (netSessionLobbyConnect(addr, port, s_PendTicketMain, netLobbyAccount(), netRdvSocket()) != 0) {
 				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "Could not open a UDP socket for the game.");
 			}
 		}
@@ -2055,6 +2198,49 @@ static void lobbyClientTick(void)
 	}
 }
 
+/**
+ * A member's path to the host and its ping, for everyone's roster: when the
+ * ladder settles, and when the ping moves, at most every few seconds
+ */
+static void lobbyReportPath(void)
+{
+	const s32 ladder = netRdvLadder();
+	const s32 path = ladder == NETRDV_LADDER_DONE ? netRdvPath() : ladder == NETRDV_LADDER_FAILED ? NETRDV_PATH_NONE : -1;
+	const s32 ping = netRdvPing();
+	char body[80];
+
+	if (path < 0 || lobbyNowMs() - s_ReportedAt < LOBBY_NETINFO_MS) {
+		return;
+	}
+
+	if (path == s_ReportedPath && (ping < 0 || (s_ReportedPing >= 0 && abs(ping - s_ReportedPing) < 10))) {
+		return;
+	}
+
+	s_ReportedPath = path;
+	s_ReportedPing = ping;
+	s_ReportedAt = lobbyNowMs();
+
+	if (ping >= 0) {
+		snprintf(body, sizeof(body), "{\"path\":\"%s\",\"ping\":%d}", netRdvPathName(path), ping > 9999 ? 9999 : ping);
+	} else {
+		snprintf(body, sizeof(body), "{\"path\":\"%s\",\"ping\":null}", netRdvPathName(path));
+	}
+
+	lobbyAction("netinfo", body);
+}
+
+/**
+ * A room's ping in the list: this machine's round trip to the lobby plus
+ * the lobby's to the host (both measured, README "Ping hint"), -1 unknown
+ */
+s32 netLobbyRoomPing(const struct netlobbyroomsum *r)
+{
+	const s32 echo = netRdvLobbyRtt();
+
+	return r && r->hostrtt >= 0 && echo >= 0 ? r->hostrtt + echo : -1;
+}
+
 static void lobbyScriptTick(void);
 
 void netLobbyTick(void)
@@ -2064,9 +2250,17 @@ void netLobbyTick(void)
 	u32 goneseq;
 	s32 entered = 0;
 	s32 gone = 0;
+	char udpid[17] = "";
+	char udpkey[65] = "";
+	char roomid[9] = "";
 
 	if (s_Lock) {
 		SDL_LockMutex(s_Lock);
+
+		if (s_PendUdpSeq != s_SeenUdpSeq) {
+			s_SeenUdpSeq = s_PendUdpSeq;
+			netRdvSetLobby(&s_PendUdpAddr);
+		}
 
 		if (s_MessageSeq != s_SeenMessageSeq) {
 			s_SeenMessageSeq = s_MessageSeq;
@@ -2090,6 +2284,12 @@ void netLobbyTick(void)
 			if (entered > 0 && s_IsHost) {
 				netSessionLobbySetRoom(s_RoomId, s_Secret);
 			}
+
+			if (entered > 0) {
+				snprintf(roomid, sizeof(roomid), "%s", s_RoomId);
+				snprintf(udpid, sizeof(udpid), "%s", s_UdpId);
+				snprintf(udpkey, sizeof(udpkey), "%s", s_UdpKey);
+			}
 		}
 
 		if (goneseq != s_SeenGoneSeq) {
@@ -2099,6 +2299,25 @@ void netLobbyTick(void)
 		}
 
 		if (s_InRoom && s_PendRoomSeq != s_SeenRoomSeq && s_PendRoom.valid) {
+			s32 i;
+			s32 j;
+
+			// a member's path to the host as the roster shows it, logged
+			// when it changes (tools/ci/netnattest.sh reads these)
+			for (i = 0; i < s_PendRoom.nmembers; i++) {
+				const struct netlobbymember *m = &s_PendRoom.members[i];
+
+				for (j = 0; j < s_Room.nmembers; j++) {
+					if (strcmp(s_Room.members[j].user, m->user) == 0) {
+						break;
+					}
+				}
+
+				if (m->path[0] && (j == s_Room.nmembers || strcmp(s_Room.members[j].path, m->path) != 0)) {
+					sysLogPrintf(LOG_NOTE, "lobby: roster: %s reaches the host by %s (%d ms)", m->user, m->path, m->ping);
+				}
+			}
+
 			s_SeenRoomSeq = s_PendRoomSeq;
 			s_Room = s_PendRoom;
 			s_RoomAtMs = lobbyNowMs();
@@ -2119,10 +2338,18 @@ void netLobbyTick(void)
 		s_CreatePending = 0;
 		g_NetLobbyRoom = 1;
 		s_LaunchHandled = 0;
+		s_LaunchSeenAt = 0;
 		s_MatchSeen = 0;
 		s_StopPending = 0;
+		s_ReportedPath = -1;
+		s_ReportedPing = -1;
+		s_ReportedAt = 0;
 		memset(&s_Room, 0, sizeof(s_Room));
 		s_SeenRoomSeq = 0;
+
+		// the rendezvous: the host registers its session's socket, a member
+		// its lobby socket, and the ladder finds the member's path
+		netRdvEnter(s_MainIsHost, roomid, udpid, udpkey);
 	} else if (entered < 0 && s_CreatePending) {
 		// the create was refused: the socket opened for it closes
 		s_CreatePending = 0;
@@ -2131,6 +2358,7 @@ void netLobbyTick(void)
 
 	if (gone && s_InRoom) {
 		sysLogPrintf(LOG_NOTE, "lobby: out of room %s: %s", s_Room.sum.id, s_MainMessage);
+		netRdvLeave();
 		s_InRoom = 0;
 		s_MainIsHost = 0;
 		g_NetLobbyRoom = 0;
@@ -2149,11 +2377,14 @@ void netLobbyTick(void)
 		netSessionLobbyStop();
 	}
 
+	netRdvTick();
+
 	if (s_InRoom && s_Room.valid) {
 		if (s_MainIsHost) {
 			lobbyHostTick();
 		} else {
 			lobbyClientTick();
+			lobbyReportPath();
 		}
 	}
 
@@ -2237,6 +2468,13 @@ void netLobbyShutdown(void)
 		s_PollThread = NULL;
 	}
 #endif
+
+	// a session on the lobby's socket lets go of it before it closes
+	if (netRdvSocket() && g_NetHostSocket == netRdvSocket()) {
+		netSessionLobbyStop();
+	}
+
+	netRdvShutdown();
 
 	s_InRoom = 0;
 	g_NetLobbyRoom = 0;
@@ -2463,9 +2701,18 @@ static void lobbyScriptTick(void)
 			}
 			break;
 		case 2:
-			if (s_InRoom && s_Room.valid && !s_Room.launched) {
+			// READY once the ladder has found the way to the host (or given
+			// up), so the launch never waits on it
+			if (s_InRoom && s_Room.valid && !s_Room.launched
+					&& (netRdvLadder() == NETRDV_LADDER_DONE || netRdvLadder() == NETRDV_LADDER_FAILED || now - s_ScriptAt > 20000)) {
+				if (netRdvLadder() == NETRDV_LADDER_DONE) {
+					snprintf(text, sizeof(text), "join: path to the host is %s, %d ms; READY", netRdvPathName(netRdvPath()), netRdvPing());
+				} else {
+					snprintf(text, sizeof(text), "join: no path from the rendezvous (ladder %d); READY", netRdvLadder());
+				}
+
 				netLobbySetReady(1);
-				lobbyScriptStep(3, "join: READY");
+				lobbyScriptStep(3, text);
 			} else if (!netLobbyBusy() && !s_InRoom && now - s_ScriptAt > 3000) {
 				sysLogPrintf(LOG_ERROR, "lobby script: could not join: %s", s_MainMessage);
 				fflush(stdout);

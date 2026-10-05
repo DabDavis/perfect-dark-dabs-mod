@@ -94,6 +94,26 @@ static Gfx *drawCell(Gfx *gdl, struct menuitemrenderdata *rd, s32 x, const char 
 	return textRenderProjected(gdl, &tx, &ty, buf, g_CharsHandelGothicSm, g_FontHandelGothicSm, colour, viGetWidth(), viGetHeight(), 0, 0);
 }
 
+static s32 cellWidth(const char *text)
+{
+	s32 w = 0;
+	s32 h = 0;
+
+	textMeasure(&h, &w, (char *)text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+
+	return w;
+}
+
+// text cut (in place) until it measures no wider than width
+static void cellFit(char *text, s32 width)
+{
+	s32 n = strlen(text);
+
+	while (n > 0 && cellWidth(text) > width) {
+		text[--n] = '\0';
+	}
+}
+
 static u32 headerColour(u32 colour)
 {
 	return 0xffc04000 | (colour & 0xff);
@@ -235,8 +255,10 @@ static const char *roomMode(const struct netlobbyroomsum *r)
 
 static void roomPing(const struct netlobbyroomsum *r, char *out, s32 size)
 {
-	if (r->hostrtt >= 0) {
-		snprintf(out, size, "%d", r->hostrtt);
+	const s32 ping = netLobbyRoomPing(r);
+
+	if (ping >= 0) {
+		snprintf(out, size, "%d", ping > 999 ? 999 : ping);
 	} else {
 		snprintf(out, size, "--");
 	}
@@ -708,6 +730,43 @@ static const struct netlobbymember *rosterCell(s32 column, s32 row)
 	return NULL;
 }
 
+/**
+ * A member's way to the host and its ping: LAN, DIR (the host reachable),
+ * NAT (punched through both NATs), RLY (through the lobby's relay), as the
+ * member measured it; the host's own row says HOST
+ */
+static void rosterNet(const struct netlobbymember *m, char *out, s32 size)
+{
+	const char *tag = "";
+
+	if (m->host) {
+		snprintf(out, size, "HOST");
+		return;
+	}
+
+	if (strcmp(m->path, "lan") == 0) {
+		tag = "LAN";
+	} else if (strcmp(m->path, "direct") == 0) {
+		tag = "DIR";
+	} else if (strcmp(m->path, "punch") == 0) {
+		tag = "NAT";
+	} else if (strcmp(m->path, "relay") == 0) {
+		tag = "RLY";
+	} else if (strcmp(m->path, "none") == 0) {
+		snprintf(out, size, "NO PATH");
+		return;
+	} else {
+		snprintf(out, size, "...");
+		return;
+	}
+
+	if (m->ping >= 0) {
+		snprintf(out, size, "%s %d", tag, m->ping > 999 ? 999 : m->ping);
+	} else {
+		snprintf(out, size, "%s", tag);
+	}
+}
+
 static s32 rosterRows(void)
 {
 	s32 rows = 1;
@@ -786,8 +845,18 @@ static MenuItemHandlerResult handlerRoster(s32 operation, struct menuitem *item,
 				const struct netlobbymember *m = rosterCell(c, index - 1);
 
 				if (m) {
-					snprintf(buf, sizeof(buf), "%s%s%s", m->ready || m->host ? "* " : "  ", m->user, m->host ? " (host)" : "");
-					gdl = drawCell(gdl, rd, 4 + c * 96, buf, 20, m->ready || m->host ? colour : dimColour(colour));
+					const u32 col = m->ready || m->host ? colour : dimColour(colour);
+
+					char tag[16];
+					s32 tagw;
+
+					// the path and ping at the column's right, the name cut to what is left
+					rosterNet(m, tag, sizeof(tag));
+					tagw = cellWidth(tag);
+					snprintf(buf, sizeof(buf), "%s%s", m->ready || m->host ? "* " : "  ", m->user);
+					cellFit(buf, 90 - tagw - 4);
+					gdl = drawCell(gdl, rd, 4 + c * 96, buf, 20, col);
+					gdl = drawCell(gdl, rd, 4 + c * 96 + 90 - tagw, tag, 15, dimColour(colour));
 				}
 			}
 		}

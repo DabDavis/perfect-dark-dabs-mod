@@ -55,7 +55,7 @@ waitfor() {
 }
 
 # the lobby, on ports the kernel picks
-python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open \
+python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
 	> "$OUT/pdlobbyd.log" 2>&1 &
 LOBBY=$!
 if ! waitfor "$OUT/pdlobbyd.log" "pdlobbyd listening on" 20; then
@@ -107,7 +107,7 @@ meet() {
 	[ -n "$room" ] && pass "$label: host made room $room: $(line "$L" "room $room '")" || { fail "$label: host made no room"; return; }
 	grep -q "lobby script: found room $room" "$J" && pass "$label: join listed it: $(line "$J" "found room")" || fail "$label: join did not list the room"
 	grep -q "lobby: joined room $room" "$J" && pass "$label: join joined room $room" || fail "$label: join did not join"
-	grep -q "join: READY" "$J" && grep -q "a member is ready; LAUNCH" "$H" && pass "$label: join READY, host LAUNCH" || fail "$label: ready/launch missing"
+	grep -q "join: .*READY" "$J" && grep -q "a member is ready; LAUNCH" "$H" && pass "$label: join READY, host LAUNCH" || fail "$label: ready/launch missing"
 	grep -q "room $room launched" "$L" && pass "$label: pdlobbyd: $(line "$L" "room $room launched")" || fail "$label: the room never launched"
 	if grep -q "lobby ticket for \"$user\" in room $room verified" "$H"; then
 		pass "$label: host: $(line "$H" "net: peer [0-9]*: lobby ticket")"

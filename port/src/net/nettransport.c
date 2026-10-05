@@ -58,6 +58,8 @@ struct nethost {
 	u32 simrng;
 	struct simpacket *simq; // allocated when the simulator is first turned on
 	s32 simcount;
+
+	s32 dialonly; // refuse inbound connects (netHostSetDialOnly)
 };
 
 static s32 g_NetTransportRefs = 0;
@@ -137,6 +139,28 @@ static int ENET_CALLBACK netInterceptCallback(ENetEvent *event, ENetAddress *add
 			h->rawcount++;
 		}
 
+		return 1;
+	}
+
+	// the lobby's rendezvous, relay and punch datagrams, whole (see the header)
+	if (len >= NET_LOBBYMAGICLEN && memcmp(data, NET_LOBBYMAGIC, NET_LOBBYMAGICLEN) == 0) {
+		if (h->rawcount < RAWQUEUE_LEN && len <= NET_MTU) {
+			struct rawpacket *pkt = &h->raw[(h->rawhead + h->rawcount) % RAWQUEUE_LEN];
+
+			pkt->addr = *address;
+			pkt->len = len;
+			memcpy(pkt->data, data, len);
+			h->rawcount++;
+		}
+
+		return 1;
+	}
+
+	// a dial-out-only socket: ENet addresses a datagram that opens a
+	// connection to peer id 0xFFF (no peer yet; flag and session bits
+	// 0x7000 aside). Dropped here, a stranger never gets a peer slot,
+	// not even a half-open one.
+	if (h->dialonly && len >= 2 && ((((u32)data[0] << 8) | data[1]) & ~0x7000u) == 0x0fff) {
 		return 1;
 	}
 
@@ -587,6 +611,29 @@ s32 netHostSendRaw(struct nethost *h, const struct netaddr *to, const void *data
 	buf.dataLength = NET_RAWMAGICLEN + len;
 
 	return enet_socket_send(h->enet->socket, &addr, &buf, 1) == (int)buf.dataLength ? 0 : -1;
+}
+
+s32 netHostSendDatagram(struct nethost *h, const struct netaddr *to, const void *data, s32 len)
+{
+	ENetAddress addr;
+	ENetBuffer buf;
+
+	if (!h || !to || !data || len <= 0 || len > NET_MTU) {
+		return -1;
+	}
+
+	addrFromNet(to, &addr);
+	buf.data = (void *)data;
+	buf.dataLength = len;
+
+	return enet_socket_send(h->enet->socket, &addr, &buf, 1) == (int)buf.dataLength ? 0 : -1;
+}
+
+void netHostSetDialOnly(struct nethost *h, s32 on)
+{
+	if (h) {
+		h->dialonly = on ? 1 : 0;
+	}
 }
 
 void netHostSetSim(struct nethost *h, s32 droppct, s32 delayms, s32 jitterms, u32 seed)

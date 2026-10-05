@@ -92,6 +92,7 @@ struct netclient {
 };
 
 struct nethost *g_NetHostSocket = NULL;
+static s32 s_SockLent = 0; // g_NetHostSocket is the lobby's (netrdv.c), not ours to close
 s32 g_NetNoticePending = 0;
 
 static s32 s_Role = NETROLE_NONE;
@@ -2180,7 +2181,18 @@ static void netSessionClose(void)
 		}
 	}
 
-	netHostDestroy(g_NetHostSocket);
+	if (s_SockLent) {
+		// the lobby's socket: the path it punched or the relay it bound
+		// stays open for the room's next match; only the peer goes
+		if (s_ServerPeer >= 0) {
+			netHostDisconnectNow(g_NetHostSocket, s_ServerPeer, NETREFUSE_LEFT);
+		}
+
+		s_SockLent = 0;
+	} else {
+		netHostDestroy(g_NetHostSocket);
+	}
+
 	g_NetHostSocket = NULL;
 }
 
@@ -2247,9 +2259,11 @@ void netSessionLobbyClock(s64 offset)
 
 /**
  * A member at launch: connects to the host with its ticket. The connect
- * itself starts from netSessionTick, as for --connect.
+ * itself starts from netSessionTick, as for --connect. sock, if given, is
+ * the lobby's socket that punched (or bound the relay) to addr: the
+ * session uses it and hands it back when it closes.
  */
-s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name)
+s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name, struct nethost *sock)
 {
 	struct nethashcomp comps[NET_MAXCOMPS];
 
@@ -2277,7 +2291,15 @@ s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const
 	s_EndPending = 0;
 	g_NetMode = NETMODE_CLIENT;
 	g_NetLocalSlot = 0;
-	netSessionOpenSocket();
+
+	if (sock) {
+		g_NetHostSocket = sock;
+		s_SockLent = 1;
+		s_ClientState = NETCS_IDLE;
+		netSessionApplySim();
+	} else {
+		netSessionOpenSocket();
+	}
 
 	if (!g_NetHostSocket) {
 		s_Role = NETROLE_NONE;
