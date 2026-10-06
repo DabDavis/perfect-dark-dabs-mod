@@ -41,6 +41,7 @@
 #ifndef PLATFORM_N64
 #include "modloader.h"
 #include "gexplus.h"
+#include "net/net.h"
 #endif
 
 /**

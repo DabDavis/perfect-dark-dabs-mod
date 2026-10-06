@@ -43,7 +43,7 @@
  */
 
 // Bumped whenever any message below changes shape or meaning
-#define NET_PROTOCOL_VERSION 8
+#define NET_PROTOCOL_VERSION 9
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -60,6 +60,7 @@
 #define NETMSG_SLOTCFG    13
 #define NETMSG_SNAP       14 // netsnap.c writes this number itself (NETSNAP_MSGTYPE)
 #define NETMSG_EVENTS     15
+#define NETMSG_ROSTER     16 // protocol 9: the match's seats, host -> client
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -73,7 +74,7 @@
 #define NETREFUSE_REGION    4  // the ROM's version (NTSC/PAL/JPN) differs
 #define NETREFUSE_GECONVERT 5  // GECONVERT_VERSION_STR differs
 #define NETREFUSE_FULL      6  // no free player slot
-#define NETREFUSE_STARTED   7  // a match is loading or running (join-in-progress is phase 7)
+#define NETREFUSE_STARTED   7  // a match is loading or ending: join once it runs, or is over
 #define NETREFUSE_TICKET    8  // Net.RequireTicket and no valid lobby ticket
 #define NETREFUSE_MUST      9  // a MUST key differs (named)
 #define NETREFUSE_NOTSTOCK  10 // a REFUSE key is not stock on one side (named)
@@ -138,6 +139,8 @@
  *     value                   see VALUE below
  *   u16     ticketlen         0, or <= NET_MAXTICKET
  *   bytes   ticket            the lobby's join ticket, ASCII (README.md)
+ *   u8      flags             (protocol 9) NETCONN_SPECTATE: a spectator,
+ *                             never a player's seat
  *
  * VALUE
  *   u8 type                   CONFIG_TYPE_S32/F32/U32/STR (config.h)
@@ -145,10 +148,37 @@
  *
  * ACCEPT (host -> client)
  *   u8      NETMSG_ACCEPT
- *   u8      slot              the client's mpindex slot (0-3)
+ *   u8      slot              the client's mpindex slot (0-3), or
+ *                             NETSLOT_SPECTATOR for a spectator
  *   u32     hosttick          the host's g_NetTick now
  *   u8      dedicated         1 if the host has no player of its own
  *   str(31) hostname          the host's Net.Name
+ *   u8      flags             (protocol 9) NETACC_INPROGRESS: a match is
+ *                             running; its RULES and STAGE_LOAD follow at
+ *                             once. NETACC_RESUMED: the seat is the one
+ *                             this account held when it dropped (its score
+ *                             kept). NETACC_SPECTATOR: a spectator.
+ *
+ * Join in progress (protocol 9). A CONNECT while a match runs (after its
+ * GO, before its MATCH_END; else REFUSE STARTED, which a lobby member
+ * tries again on while its room stays launched) is given a seat of the
+ * match: the one its account held, else an open one no other client keeps
+ * as its slot (Net.JoinInProgress 1, and every lobby room, has the host
+ * start each match with all four seats, the ones nobody took out of play:
+ * dead and hidden, never respawned, passed over as Pop a Cap's victim),
+ * else REFUSE FULL. The account is a lobby ticket's user: only a ticketed
+ * seat is held when it drops, Net.ReconnectHold seconds (30) from its
+ * game's last message, and only a ticket for that user takes it back (a
+ * seat without one opens when it drops). A seat that opens mid-match drops
+ * what its player carries, and its scenario counts go with its row. A spectator takes no
+ * seat (at most NET_MAXSPECS). The joiner then loads as at a match's start:
+ * RULES, STAGE_LOAD (its seat's player, or NETSLOT_SPECTATOR), LOADED
+ * checked against the host's own stage hash, and GO with the host's tick
+ * now; its first EVENTS message holds one SCORES event, the match's table
+ * as it stands, and its first snapshot is a keyframe. A seat that comes
+ * back to a player has its player respawned (at the next respawn point)
+ * if it was out of play. A seat whose hold runs out is opened: its player
+ * goes out of play and its row of the table is cleared (SCORES to all).
  *
  * REFUSE (host -> client; the host disconnects after it)
  *   u8      NETMSG_REFUSE
@@ -203,7 +233,9 @@
  *   u64     seed                  rngSetSeed at H4
  *   u64     seed2                 rng2SetSeed at H4
  *   u8      numplayers            humans in the match (chrslots bits 0-3)
- *   u8      yourplayer            this client's player number in the match
+ *   u8      yourplayer            this client's player number in the match;
+ *                                 NETSLOT_SPECTATOR: none, a spectator
+ *                                 (protocol 9; it watches through player 0)
  *
  * LOADED (client -> host)
  *   u8      NETMSG_LOADED
@@ -218,7 +250,22 @@
  * GO (host -> client)
  *   u8      NETMSG_GO
  *   u32     matchid
- *   u32     hosttick              g_NetTick the host starts from (0)
+ *   u32     hosttick              g_NetTick the host starts from: 0, or for
+ *                                 a join in progress the tick the host runs
+ *                                 next (the client starts a little past it)
+ *   s32     stagetime60           (protocol 9) the match's clock then
+ *                                 (g_StageTimeElapsed60): the time limit
+ *                                 and the HUD's clock read it
+ *
+ * ROSTER (host -> client, RELIABLE; protocol 9) - the match's seats, on GO
+ * of a join in progress and to everyone whenever one changes hands:
+ *   u8      NETMSG_ROSTER
+ *   u32     matchid
+ *   u8      nseats                MAX_PLAYERS
+ *   per seat (mpindex 0-3):
+ *     u8 state                    0 not in the match, 1 the host's, 2 a
+ *                                 client's, 3 open, 4 held for a dropped one
+ *     str(14) name                the player's name (g_PlayerConfigsArray)
  *
  * MATCH_END (host -> client; also to a client still loading or at the
  * barrier, which then runs on to its end screen without a GO)
@@ -287,6 +334,10 @@
  *     u8 viewdelay                the render clock's delay behind the newest
  *                                 snapshot then, 1/8 ticks (capped at 19
  *                                 ticks on the host)
+ *
+ * A spectator sends CMD too (protocol 9): the host takes its snapshot ack
+ * and nothing else (its commands drive nothing), and its CMDACK names the
+ * newest it has, with as depth how far that is ahead of the host's tick.
  *
  * CMDACK (host -> client, UNRELIABLE, once a host tick) - what the host has
  * of this client's commands, and the clock (spec-tick.md §3b)
@@ -463,6 +514,11 @@
  *  11 PICKUPSFX  (E8, objPlayPickupSfx; only to the player's machine) s16 sound
  *  12 NBOMB      (E9, nbombCreateStorm)   POS, REF owner
  *  13 GAS        (E9, gasReleaseFromPos)  POS
+ *  14 SCORES     (protocol 9) the match's kill table as it stands before
+ *                the tick: u8 flags (1 a joiner's catch-up), u8 n, n x
+ *                { u8 mpchr slot, s16 numdeaths, s16 numpoints, u8 nk,
+ *                nk x { u8 j, s16 killcounts[j] } } (rows and counts left
+ *                out are 0); the client's table is replaced by it
  * Each event must parse to exactly its len; an unknown type or a field past
  * its bound drops that event (counted), never the message's others.
  * The events the pass of a remote player made on the host that its machine
@@ -472,5 +528,12 @@
 
 #define NET_MAXCMDSEND    16
 #define NETCMD_MOUSELOCKED 0x01
+
+#define NETCONN_SPECTATE   0x01 // CONNECT's flags
+#define NETACC_INPROGRESS  0x01 // ACCEPT's flags
+#define NETACC_RESUMED     0x02
+#define NETACC_SPECTATOR   0x04
+#define NETSLOT_SPECTATOR  0xff // ACCEPT's slot, STAGE_LOAD's yourplayer
+#define NET_MAXSPECS       2    // spectators a host takes
 
 #endif

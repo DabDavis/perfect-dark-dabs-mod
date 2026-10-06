@@ -86,18 +86,18 @@ static s32 s_NumCmds = 0;
 // host
 static struct netcap *s_Cap = NULL;           // [maxids]
 static u32 *s_Seen[MAX_PLAYERS];              // [maxids]: tick + 1 last on that player's screen
-static struct netsnaphost s_Hosts[MAX_PLAYERS];
-static u32 s_NextSnap[MAX_PLAYERS];
+static struct netsnaphost s_Hosts[NET_MAXVIEWS]; // per view: a remote player's slot, or a spectator's
+static u32 s_NextSnap[NET_MAXVIEWS];
 static struct netsnapent *s_Ents = NULL;      // [maxids]
-static u8 s_LpRespawns[MAX_PLAYERS];
-static u8 s_LpTeleports[MAX_PLAYERS];
-static s32 s_LpWasDead[MAX_PLAYERS];
-static struct coord s_LpPrevPos[MAX_PLAYERS];
-static s32 s_LpHavePrev[MAX_PLAYERS];
+static u8 s_LpRespawns[NET_MAXVIEWS];
+static u8 s_LpTeleports[NET_MAXVIEWS];
+static s32 s_LpWasDead[NET_MAXVIEWS];
+static struct coord s_LpPrevPos[NET_MAXVIEWS];
+static s32 s_LpHavePrev[NET_MAXVIEWS];
 static f32 *s_TelePrev = NULL;                // [maxids * 3]: a chr's position at its last capture
 static u8 *s_TeleCount = NULL;                  // [maxids]
 static u16 *s_TeleGen = NULL;                 // [maxids]
-static u32 s_OfferedSum[MAX_PLAYERS];
+static u32 s_OfferedSum[NET_MAXVIEWS];
 static u8 s_Pkt[NET_MAXUNRELIABLE];
 
 // client
@@ -392,13 +392,15 @@ static void netEntsFreeAll(void)
 
 	g_NetClientWorld = 0;
 
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < NET_MAXVIEWS; i++) {
 		if (s_Hosts[i].maxids) {
 			netSnapHostFree(&s_Hosts[i]);
 		}
 
-		free(s_Seen[i]);
-		s_Seen[i] = NULL;
+		if (i < MAX_PLAYERS) {
+			free(s_Seen[i]);
+			s_Seen[i] = NULL;
+		}
 	}
 
 	netSnapClientFree(&s_Client);
@@ -459,7 +461,7 @@ void netEntsStageStart(void)
 
 	netEntsBuildSetupTable();
 
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < NET_MAXVIEWS; i++) {
 		s_NextSnap[i] = 0;
 		s_LpRespawns[i] = 0;
 		s_LpTeleports[i] = 0;
@@ -467,7 +469,7 @@ void netEntsStageStart(void)
 		s_LpHavePrev[i] = 0;
 		s_OfferedSum[i] = 0;
 
-		if (g_NetMode == NETMODE_SERVER) {
+		if (g_NetMode == NETMODE_SERVER && i < MAX_PLAYERS) {
 			s_Seen[i] = calloc(s_MaxIds, sizeof(u32));
 		}
 	}
@@ -1067,10 +1069,10 @@ void netEntsHostTickEnd(void)
 		return;
 	}
 
-	for (slot = 0; slot < MAX_PLAYERS; slot++) {
+	for (slot = 0; slot < NET_MAXVIEWS; slot++) {
 		s32 pn;
 
-		if (!netPlayersHostSlotIsRemote(slot)) {
+		if (slot < MAX_PLAYERS ? !netPlayersHostSlotIsRemote(slot) : !netSessionViewLive(slot)) {
 			if (s_Hosts[slot].maxids) {
 				netHostLogSlot(slot, "at leaving");
 				if (s_Hostile) sysLogPrintf(LOG_NOTE, "net: hostile: %u mangled commands fed to the parser", s_HostileFed);
@@ -1100,7 +1102,7 @@ void netEntsHostTickEnd(void)
 	}
 
 	if (g_NetTick % 300 == 0 && g_NetTick) {
-		for (slot = 0; slot < MAX_PLAYERS; slot++) {
+		for (slot = 0; slot < NET_MAXVIEWS; slot++) {
 			netHostLogSlot(slot, "so far");
 		}
 	}
@@ -1108,11 +1110,31 @@ void netEntsHostTickEnd(void)
 
 void netEntsHostOnAck(s32 slot, const struct netsnapack *a)
 {
-	if (slot < 0 || slot >= MAX_PLAYERS || !s_Hosts[slot].maxids) {
+	if (slot < 0 || slot >= NET_MAXVIEWS || !s_Hosts[slot].maxids) {
 		return;
 	}
 
 	netSnapHostOnAck(&s_Hosts[slot], a);
+}
+
+/**
+ * A new client in the view (a join in progress, a reconnect, a spectator):
+ * its snapshots start over from a keyframe, nothing acked
+ */
+void netEntsHostViewReset(s32 view)
+{
+	if (view < 0 || view >= NET_MAXVIEWS) {
+		return;
+	}
+
+	if (s_Hosts[view].maxids) {
+		netHostLogSlot(view, "before a new client took it");
+		netSnapHostFree(&s_Hosts[view]);
+	}
+
+	s_NextSnap[view] = 0;
+	s_LpHavePrev[view] = 0;
+	s_OfferedSum[view] = 0;
 }
 
 /*
@@ -1964,6 +1986,16 @@ void netEntsClientTickEnd(void)
 		return;
 	}
 
+	// a spectator has no player of its own to predict
+	if (netSessionSpectating()) {
+		if (g_NetTick % 300 == 0 && g_NetTick && s_Client.maxids) {
+			netClientLog("so far");
+			netSpecLog("so far");
+		}
+
+		return;
+	}
+
 	p = g_Vars.players[g_NetLocalSlot];
 
 	if (!p || !p->prop) {
@@ -2007,7 +2039,7 @@ void netEntsMatchStopped(void)
 	s32 i;
 
 	if (g_NetMode == NETMODE_SERVER) {
-		for (i = 0; i < MAX_PLAYERS; i++) {
+		for (i = 0; i < NET_MAXVIEWS; i++) {
 			netHostLogSlot(i, "at the match's end");
 		}
 	} else if (g_NetMode == NETMODE_CLIENT && s_Client.maxids) {

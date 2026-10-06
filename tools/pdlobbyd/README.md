@@ -107,14 +107,14 @@ content hash). Making a room leaves any room the account was in.
 `proto` (`"this room runs netplay protocol 3 and your game has 2 - one of you
 needs to update"`), `content` (`"this room's game content differs from yours
 (ROM, mods or added content) - load the same set as the host"`), `password`,
-`kicked`, `full`, `started` (countdown or launched; join-in-progress is phase
-7). `build` is not compared - it is listed (`same_build`) so the client can
+`kicked`, `full`, `started` (during the countdown only: a launched room takes
+joiners, players and spectators, into the match in progress, protocol 9). `build` is not compared - it is listed (`same_build`) so the client can
 warn. Joining a room you are already in returns the same token. Joining
 another room leaves the first.
 
 **Room summary** (list and `state.room`): `id` (8 hex), `name`, `host`,
 `stage`, `scenario`, `humans` (non-spectators, host included unless
-dedicated), `max_humans`, `spectators`, `max_spectators` (4), `sims`,
+dedicated), `max_humans`, `spectators`, `max_spectators` (2, the game host's `NET_MAXSPECS`), `sims`,
 `locked`, `proto`, `build`, `content`, `created` (unix), `state`
 (`open`/`countdown`/`launched`), `dedicated`, `region`, `host_rtt_ms`.
 
@@ -403,7 +403,7 @@ member whose rendezvous traffic is dropped) and plays a match over each.
 | Sign-ins per address | 10 / 5 min, plus pdghostd's own |
 | Rooms | 200 in all (`503`), 4 live per address, 6 created / 10 min per address |
 | Joins per address | 30 / min; wrong passwords 5 / 5 min per address per room |
-| Members | 2-12 humans + 4 spectators per room; one room per account |
+| Members | 2-12 humans + 2 spectators per room (the game host takes two); one room per account |
 | Chat | 120 chars, 6 lines / 10 s per member, last 50 kept |
 | Parked polls | one per member, 24 per address, 1200 in all; connections 1500 (unit `LimitNOFILE=4096`) |
 | Tickets | 30 s, only from the countdown on |

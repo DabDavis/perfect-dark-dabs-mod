@@ -182,6 +182,11 @@ static void netPupSetLive(struct prop *prop)
 
 static struct prop *netLocalPlayerProp(void)
 {
+	// a spectator's camera player is a puppet like the rest (netspec.c)
+	if (netSessionSpectating()) {
+		return NULL;
+	}
+
 	if (g_NetLocalSlot >= 0 && g_NetLocalSlot < PLAYERCOUNT() && g_Vars.players[g_NetLocalSlot]) {
 		return g_Vars.players[g_NetLocalSlot]->prop;
 	}
@@ -275,6 +280,8 @@ void netPuppetsStageStart(void)
 
 		s_TraceFile = fopen(path, "w");
 	}
+
+	netSpecStageStart();
 
 	// The sims setup made are hidden and still until the host's first record
 	// for each says where it is (no AI here ever spawns them)
@@ -699,7 +706,7 @@ static void netPupChr(struct netpup *u, struct prop *prop, s32 kind, const struc
 	if (isplayer) {
 		const s32 pn = playermgrGetPlayerNumByProp(prop);
 
-		if (pn >= 0 && pn < PLAYERCOUNT() && pn != g_NetLocalSlot && g_Vars.players[pn]) {
+		if (pn >= 0 && pn < PLAYERCOUNT() && (pn != g_NetLocalSlot || netSessionSpectating()) && g_Vars.players[pn]) {
 			struct player *player = g_Vars.players[pn];
 
 			if (life != 0 && !player->isdead) {
@@ -2090,6 +2097,30 @@ static s32 netPupPlayerSkipped(s32 playernum)
 s32 netClientPuppetPlayerTick(s32 playernum)
 {
 	struct player *player;
+
+	// a spectator: its camera player is posed like the others, and its
+	// tick builds the camera (netspec.c)
+	if (g_NetClientWorld && netSessionSpectating() && playernum == g_NetLocalSlot) {
+		player = g_Vars.players[playernum];
+
+		if (player && player->prop) {
+			if (!netPupIsLive(player->prop)) {
+				if (player->prop->chr) {
+					player->prop->chr->chrflags |= CHRCFLAG_HIDDEN;
+				}
+			} else if (!player->haschrbody) {
+				const s32 idx = netPupLocalIndex(player->prop);
+
+				playerTickChrBody();
+
+				if (idx >= 0 && idx < s_LiveMax) {
+					s_LiveGen[idx] = netEntsPropGen(idx);
+				}
+			}
+		}
+
+		return netSpecCameraTick();
+	}
 
 	if (!g_NetClientWorld || playernum == g_NetLocalSlot || playernum < 0 || playernum >= PLAYERCOUNT()) {
 		return 0;

@@ -1799,6 +1799,8 @@ Gfx *mpRenderModalText(Gfx *gdl)
 	g_ScaleX = g_ViRes == VIRES_HI ? 2 : 1;
 #endif
 
+	if (g_NetMode == NETMODE_CLIENT && netSpecOn()) return netSpecRenderText(gdl); // netplay: a spectator's keys, not the camera player's prompt
+
 	if (g_MpSetup.paused == MPPAUSEMODE_PAUSED) {
 		s32 red = (s32) ((1.0f - g_20SecIntervalFrac) * 20.0f * 255.0f) % 255;
 		s32 stack2;

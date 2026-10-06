@@ -203,6 +203,8 @@ void pacApplyNextVictim(void)
 		data->victimindex = 0;
 	}
 
+	if (g_NetMode != NETMODE_NONE) data->victimindex = netPacVictimIndex(data->victimindex); // netplay: past seats out of play
+
 	data->age240 = 0;
 
 	vplayernum = data->victims[data->victimindex];

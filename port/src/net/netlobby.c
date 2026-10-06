@@ -145,6 +145,8 @@ static s32 s_CreatePending = 0; // the host's socket is open for a create in fli
 static char s_PendTicketMain[NET_MAXTICKET + 2] = ""; // this member's latest ticket
 static u64 s_RoomAtMs = 0;      // when s_Room came: the countdown runs on from there
 static u32 s_SeenUdpSeq = 0;
+static u64 s_LaunchRetryAt = 0;  // a member refused STARTED (the host still loading or ending): connect again then
+static s32 s_LaunchRetries = 0;
 static u64 s_LaunchSeenMs = 0;  // a member: when this launch was first seen (the path may still be coming)
 static u32 s_LaunchSeenAt = 0;
 static s32 s_ReportedPath = -1; // a member: the path and ping last sent to the roster
@@ -153,6 +155,7 @@ static u64 s_ReportedAt = 0;
 
 // the launch, as this machine follows it
 static u32 s_LaunchHandled = 0;    // the launch (its "at") this machine acted on
+static s32 s_LobbyConnSpectator = 0; // a member: the connection it made was a spectator's
 static u64 s_LaunchDeadline = 0;
 static s32 s_HostWaitStart = 0;    // host: launched, waiting for the members to connect
 static s32 s_MatchSeen = 0;        // a match from the room has begun loading here
@@ -2043,12 +2046,17 @@ static void lobbyHostTick(void)
 			break;
 		}
 
-		// a player kept connected from the last match who has gone to the
-		// spectators: out of the session too, or the next match counts them
-		// in (netHostStartMatch takes every joined client); not mid-match
-		if (s_Room.valid && lobbyRosterSpectator(name) && !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
-			sysLogPrintf(LOG_NOTE, "lobby: %s is spectating; closing their player connection", name);
-			netSessionHostDropUser(name, "You are spectating this room's next match.");
+		// a member kept connected from the last match who has moved between
+		// the players and the spectators: that connection closes (a
+		// player's would be counted into the next match, a spectator's
+		// would watch it), and the next launch connects as the other; not
+		// mid-match
+		if (s_Room.valid && netSessionHostUserSpectating(name) >= 0
+				&& (lobbyRosterSpectator(name) != 0) != (netSessionHostUserSpectating(name) != 0)
+				&& !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
+			sysLogPrintf(LOG_NOTE, "lobby: %s is %s now; closing their connection", name,
+					lobbyRosterSpectator(name) ? "spectating" : "playing");
+			netSessionHostDropUser(name, lobbyRosterSpectator(name) ? "You are spectating this room's next match." : "You are playing this room's next match.");
 			break;
 		}
 	}
@@ -2115,12 +2123,26 @@ static void lobbyClientTick(void)
 	u16 port;
 	s32 i;
 
+	if (netSessionClientJoined()) {
+		s_LaunchRetries = 0;
+	}
+
 	// a session that ended (refused, left the match, the host gone) closes,
 	// so the next launch connects afresh
 	if (netSessionClientGone() && !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
 		// a refusal (another build, a setting that must match) is the
 		// room's to show, not a notice over the main menu later
-		if (g_NetNoticePending) {
+		const s32 started = netSessionLastRefuse() == NETREFUSE_STARTED;
+
+		if (started && s_Room.launched && s_LaunchRetries < 30) {
+			// the host was loading the match, or ending it: the room is
+			// still launched, so the same launch is tried again shortly
+			g_NetNoticePending = 0;
+			s_LaunchRetries++;
+			s_LaunchRetryAt = lobbyNowMs() + 2000;
+			snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "The match is starting; joining in a moment.");
+			sysLogPrintf(LOG_NOTE, "lobby: the host is starting or ending the match; connecting again in 2 s (try %d)", s_LaunchRetries);
+		} else if (g_NetNoticePending) {
 			g_NetNoticePending = 0;
 			snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", netSessionNoticeText());
 		}
@@ -2128,14 +2150,27 @@ static void lobbyClientTick(void)
 		netSessionLobbyStop();
 	}
 
-	// gone to the spectators while still connected from the last match: the
-	// player connection closes (spectators do not connect until phase 7)
-	if (s_Room.youspectator && netSessionLobbyRole() == 2 && !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
-		sysLogPrintf(LOG_NOTE, "lobby: spectating in room %s; closing the player connection", s_Room.sum.id);
+	if (s_LaunchRetryAt && lobbyNowMs() >= s_LaunchRetryAt && netSessionLobbyRole() == 0) {
+		s_LaunchRetryAt = 0;
+
+		if (s_Room.launched && s_Room.launchat == s_LaunchHandled) {
+			s_LaunchHandled = 0;
+		}
+	}
+
+	// moved between the players and the spectators while still connected
+	// from the last match: that connection closes, and the next launch
+	// connects as the other (a spectator connects too, protocol 9)
+	if (netSessionLobbyRole() == 2 && (s_Room.youspectator != 0) != (s_LobbyConnSpectator != 0)
+			&& !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
+		sysLogPrintf(LOG_NOTE, "lobby: %s in room %s; closing the %s connection", s_Room.youspectator ? "spectating" : "playing",
+				s_Room.sum.id, s_LobbyConnSpectator ? "spectator's" : "player's");
 		netSessionLobbyStop();
 	}
 
-	if (s_Room.launched && s_Room.launchat != s_LaunchHandled && !s_Room.youspectator) {
+	// a launched room is joined while its match runs too (protocol 9): the
+	// first state seen has the launch in it, and the connect is the same
+	if (s_Room.launched && s_Room.launchat != s_LaunchHandled) {
 		if (netSessionLobbyRole() == 2) {
 			// still connected from the last match: the host counts it in
 			s_LaunchHandled = s_Room.launchat;
@@ -2184,6 +2219,9 @@ static void lobbyClientTick(void)
 			}
 
 			sysLogPrintf(LOG_NOTE, "lobby: room %s launched; connecting to %s port %u (%s) with the lobby's ticket", s_Room.sum.id, addr, port, how);
+
+			s_LobbyConnSpectator = s_Room.youspectator != 0;
+			netSessionSetSpectate(s_LobbyConnSpectator);
 
 			if (netSessionLobbyConnect(addr, port, s_PendTicketMain, netLobbyAccount(), netRdvSocket()) != 0) {
 				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "Could not open a UDP socket for the game.");
@@ -2339,6 +2377,8 @@ void netLobbyTick(void)
 		g_NetLobbyRoom = 1;
 		s_LaunchHandled = 0;
 		s_LaunchSeenAt = 0;
+		s_LaunchRetryAt = 0;
+		s_LaunchRetries = 0;
 		s_MatchSeen = 0;
 		s_StopPending = 0;
 		s_ReportedPath = -1;

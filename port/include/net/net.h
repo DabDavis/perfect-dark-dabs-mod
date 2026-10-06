@@ -255,6 +255,13 @@ s32 netScenInitProps(void);
 // a client never starts one
 s32 netRefuseMatchStart(void);
 s32 netMatchStartRefused(void);
+// popacap.inc pacApplyNextVictim, host: the next victim's index past any
+// seat out of play (join in progress, protocol 9)
+s32 netPacVictimIndex(s32 index);
+// mpRenderModalText, client: a spectator's line in place of the camera
+// player's "Press START" (netspec.c); the Gfx pointer through void *
+s32 netSpecOn(void);
+void *netSpecRenderText(void *gdl);
 
 /**
  * Events (PLANS/netplay/spec-entities.md §5; the wire is EVENTS in

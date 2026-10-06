@@ -277,6 +277,12 @@ class RoomTests(Base):
         st, s = b.state()
         me = [m for m in s["members"] if m["user"] == "bravo"][0]
         self.assertTrue(me["spectator"])
+        # two spectators, as many as the game host takes (NET_MAXSPECS)
+        c = self.client("charlie")
+        self.assertEqual(c.join(host.room, spectator=True)[0], 200)
+        d = self.client("delta")
+        st, r = d.join(host.room, spectator=True)
+        self.assertEqual((st, r["reason"]), (409, "full"))
 
     def test_ready_team_chat_state(self):
         host, (a, b) = self.room_with("alpha", "bravo")
@@ -370,6 +376,26 @@ class RoomTests(Base):
         st, r = b.act("ticket")
         self.assertEqual(st, 200, r)
         self.assertTrue(L.verify_ticket(host.secret, r["ticket"], host.room)[0])
+        # A launched room takes joiners into the match in progress (protocol
+        # 9): the join reply carries the ticket, and its state the launch.
+        st, r = c.join(host.room)
+        self.assertEqual(st, 200, r)
+        self.assertIn("ticket", r)
+        ok, user, _ = L.verify_ticket(host.secret, r["ticket"], host.room,
+                                      roster={"alpha", "bravo", "charlie"})
+        self.assertTrue(ok)
+        self.assertEqual(user, "charlie")
+        st, s = c.state()
+        self.assertEqual(s["room"]["state"], "launched")
+        self.assertIsNotNone(s["launch"])
+        self.assertIn("ticket", s["you"])
+        # ... and spectators, flagged so in the roster.
+        d = self.client("delta")
+        st, r = d.join(host.room, spectator=True)
+        self.assertEqual(st, 200, r)
+        st, s = d.state()
+        self.assertTrue(s["you"]["spectator"])
+        self.assertIn("ticket", s["you"])
         # And back to the lobby.
         self.assertEqual(host.act("reopen")[0], 200)
         st, s = a.state()

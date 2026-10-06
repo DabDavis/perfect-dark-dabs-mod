@@ -63,12 +63,15 @@
 #define NETEV_PICKUPSFX  11 // E8: for one player
 #define NETEV_NBOMB      12 // E9
 #define NETEV_GAS        13 // E9
-#define NETEV_COUNT      14
+#define NETEV_SCORES     14 // protocol 9: the kill table, to a joiner or everyone
+#define NETEV_COUNT      15
 
 static const char *const s_EvNames[NETEV_COUNT] = {
 	"?", "fireslot", "playershot", "explosion", "sparks", "chrdamage", "choke",
-	"deform", "glass", "death", "hudmsg", "pickupsfx", "nbomb", "gas",
+	"deform", "glass", "death", "hudmsg", "pickupsfx", "nbomb", "gas", "scores",
 };
+
+#define NETEV_SCORES_CATCHUP 0x01
 
 // A reference to a prop on the wire
 #define NETREF_NONE   0
@@ -99,11 +102,11 @@ struct netref {
 static u8 s_Arena[NETEV_ARENA];  // [s8 target][s8 exclude][u16 len][payload] ...
 static s32 s_ArenaLen = 0;
 static u8 s_Msg[NETEV_MAXMSG + 64];
-static u8 s_One[NETEV_MAXTEXT + 128];
+static u8 s_One[NETEV_MAXMSG]; // one event as it is recorded (a SCORES table is the largest)
 static u32 s_HostRecorded[NETEV_COUNT];
 static u32 s_HostSentBytes = 0;
 static u32 s_HostMsgs = 0;
-static u32 s_HostSeq[MAX_PLAYERS]; // EVENTS messages sent to each slot this match (the SNAP's evseq)
+static u32 s_HostSeq[NET_MAXVIEWS]; // EVENTS messages sent to each view this match (the SNAP's evseq)
 static u32 s_HostDroppedFull = 0;
 static u32 s_HostRecordedTotal = 0;
 static char s_Detail[160];     // what the host's log line adds to the next event
@@ -134,6 +137,8 @@ struct netevc {
 	s32 i[8];
 	u32 uflags;
 	char *text;
+	u8 *blob;   // SCORES: the table's bytes (malloc'd, freed once applied)
+	s32 bloblen;
 };
 
 static struct netevc *s_Q = NULL;     // [NETEV_QUEUE]
@@ -214,8 +219,8 @@ static s32 netEvHostOn(void)
 		return 0;
 	}
 
-	for (slot = 0; slot < MAX_PLAYERS; slot++) {
-		if (netPlayersHostSlotIsRemote(slot)) {
+	for (slot = 0; slot < NET_MAXVIEWS; slot++) {
+		if (slot < MAX_PLAYERS ? netPlayersHostSlotIsRemote(slot) : netSessionViewLive(slot)) {
 			return 1;
 		}
 	}
@@ -852,6 +857,128 @@ void netEvGas(struct coord *pos)
 	netEvEnd(&b, NETEV_GAS, -1, -1);
 }
 
+/**
+ * The kill table as it stands (protocol 9): every mpchr's deaths, points
+ * and kill counts, the rows and counts that are 0 left out
+ */
+static void netEvWriteScores(struct netbuf *b, s32 flags)
+{
+	u8 *np;
+	s32 n = 0;
+	s32 i;
+	s32 j;
+
+	netBufWriteU8(b, (u8)flags);
+	np = netBufReserve(b, 1);
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		struct mpchrconfig *mpchr = MPCHR(i);
+		u8 *nkp;
+		s32 nk = 0;
+
+		if (!mpchr->numdeaths && !mpchr->numpoints) {
+			for (j = 0; j < MAX_MPCHRS && !mpchr->killcounts[j]; j++);
+
+			if (j == MAX_MPCHRS) {
+				continue;
+			}
+		}
+
+		netBufWriteU8(b, (u8)i);
+		netBufWriteS16(b, mpchr->numdeaths);
+		netBufWriteS16(b, mpchr->numpoints);
+		nkp = netBufReserve(b, 1);
+
+		for (j = 0; j < MAX_MPCHRS; j++) {
+			if (mpchr->killcounts[j]) {
+				netBufWriteU8(b, (u8)j);
+				netBufWriteS16(b, mpchr->killcounts[j]);
+				nk++;
+			}
+		}
+
+		if (nkp) {
+			*nkp = (u8)nk;
+		}
+
+		n++;
+	}
+
+	if (np) {
+		*np = (u8)n;
+	}
+}
+
+// The kill table to everyone, in this tick's events (a seat's row cleared)
+void netEventsHostScores(void)
+{
+	struct netbuf b;
+
+	if (!netEvHostOn()) {
+		return;
+	}
+
+	netEvBegin(&b, NETEV_SCORES);
+	netEvWriteScores(&b, 0);
+	netEvEnd(&b, NETEV_SCORES, -1, -1);
+}
+
+// A new client in the view: its events count from the first it gets
+void netEventsHostViewReset(s32 view)
+{
+	if (view >= 0 && view < NET_MAXVIEWS) {
+		s_HostSeq[view] = 0;
+	}
+
+	if (view >= 0 && view < MAX_PLAYERS) {
+		s_HudHash[view] = 0;
+		s_HudTick[view] = 0;
+	}
+}
+
+/**
+ * A join in progress's first EVENTS, before the tick the host runs next:
+ * one SCORES, the kill table up to now
+ */
+void netEventsHostCatchUp(s32 view)
+{
+	struct netbuf ev;
+	struct netbuf b;
+	s32 len;
+
+	if (g_NetMode != NETMODE_SERVER || view < 0 || view >= NET_MAXVIEWS) {
+		return;
+	}
+
+	netEvBegin(&ev, NETEV_SCORES);
+	netEvWriteScores(&ev, NETEV_SCORES_CATCHUP);
+	len = netBufLen(&ev);
+
+	if (!netBufOk(&ev)) {
+		return;
+	}
+
+	netBufInitWrite(&b, s_Msg, sizeof(s_Msg));
+	netBufWriteU8(&b, NETMSG_EVENTS);
+	netBufWriteU32(&b, netSessionMatchId());
+	netBufWriteU32(&b, g_NetTick);
+	netBufWriteU16(&b, 1);
+	netBufWriteVarU32(&b, (u32)len);
+	netBufWriteBytes(&b, s_One, len);
+
+	if (netBufOk(&b)) {
+		netSessionSendSlot(view, NET_CHAN_RELIABLE, s_Msg, netBufLen(&b), NET_SEND_RELIABLE);
+		s_HostSeq[view]++;
+		s_HostSentBytes += netBufLen(&b);
+		s_HostMsgs++;
+		s_HostRecorded[NETEV_SCORES]++;
+
+		if (s_Log) {
+			fprintf(s_Log, "E %u scores target view%d exclude -1 len %d catch-up\n", g_NetTick, view, len);
+		}
+	}
+}
+
 /*
  * Host: sending
  */
@@ -916,7 +1043,7 @@ static void netEvSendSlot(s32 slot, s32 pn)
  */
 u32 netEventsHostSeq(s32 slot)
 {
-	return slot >= 0 && slot < MAX_PLAYERS ? s_HostSeq[slot] : 0;
+	return slot >= 0 && slot < NET_MAXVIEWS ? s_HostSeq[slot] : 0;
 }
 
 // ... and how many of this match's have come here (the channel is ordered)
@@ -967,6 +1094,13 @@ void netEventsHostFlush(void)
 			}
 		}
 
+		// a spectator: what is for everyone (it is no player: -100 is none)
+		for (slot = MAX_PLAYERS; slot < NET_MAXVIEWS; slot++) {
+			if (netSessionViewLive(slot)) {
+				netEvSendSlot(slot, -100);
+			}
+		}
+
 		s_ArenaLen = 0;
 	}
 
@@ -989,10 +1123,10 @@ void netEventsHostMatchEnded(void)
 
 	// an empty EVENTS: the tick the match ended on, so a client knows its
 	// events are all in up to there
-	for (slot = 0; slot < MAX_PLAYERS; slot++) {
+	for (slot = 0; slot < NET_MAXVIEWS; slot++) {
 		struct netbuf b;
 
-		if (netEvPlayerOfSlot(slot) < 0 || !netPlayersHostSlotIsRemote(slot)) {
+		if (slot < MAX_PLAYERS ? netEvPlayerOfSlot(slot) < 0 || !netPlayersHostSlotIsRemote(slot) : !netSessionViewLive(slot)) {
 			continue;
 		}
 
@@ -1232,6 +1366,50 @@ static s32 netEvParse(struct netbuf *b, struct netevc *e)
 	case NETEV_GAS:
 		netReadPos(b, e->p0);
 		break;
+	case NETEV_SCORES: {
+		// checked whole here, kept as bytes until applied
+		const s32 start = b->pos;
+		s32 n;
+		s32 k;
+
+		e->flags = netBufReadU8(b);
+		n = netBufReadU8(b);
+
+		for (k = 0; k < n && netBufOk(b); k++) {
+			s32 nk;
+			s32 j;
+
+			if (netBufReadU8(b) >= MAX_MPCHRS) {
+				return 0;
+			}
+
+			netBufReadS16(b);
+			netBufReadS16(b);
+			nk = netBufReadU8(b);
+
+			for (j = 0; j < nk && netBufOk(b); j++) {
+				if (netBufReadU8(b) >= MAX_MPCHRS) {
+					return 0;
+				}
+
+				netBufReadS16(b);
+			}
+		}
+
+		if (!netBufOk(b) || netBufRemaining(b) != 0) {
+			return 0;
+		}
+
+		e->bloblen = b->pos - start;
+		e->blob = malloc(e->bloblen);
+
+		if (!e->blob) {
+			return 0;
+		}
+
+		memcpy(e->blob, b->data + start, e->bloblen);
+		break;
+	}
 	default:
 		return 0;
 	}
@@ -1383,6 +1561,10 @@ static struct prop *netEvResolve(const struct netref *r)
 
 static struct prop *netLocalProp(void)
 {
+	if (netSessionSpectating()) {
+		return NULL;
+	}
+
 	if (g_NetLocalSlot >= 0 && g_NetLocalSlot < PLAYERCOUNT() && g_Vars.players[g_NetLocalSlot]) {
 		return g_Vars.players[g_NetLocalSlot]->prop;
 	}
@@ -1428,6 +1610,55 @@ static void netEvLogApplied(const struct netevc *e, f64 rt, const char *extra)
 	// its time: ENet's clock (ms) and the audio frame the next mix lands at
 	fprintf(s_Log, "A %u %.2f %s %u %llu%s%s\n", e->tick, rt, s_EvNames[e->type], netTransportTime(),
 			(unsigned long long)audioGetFramesQueued(), extra[0] ? " " : "", extra);
+}
+
+/**
+ * SCORES: the host's kill table in place of this machine's (deaths, points
+ * and kill counts; rows it left out are 0). Returns the rows it had.
+ */
+static s32 netEvApplyScores(const struct netevc *e)
+{
+	struct netbuf b;
+	s32 n;
+	s32 i;
+	s32 j;
+
+	if (!e->blob) {
+		return 0;
+	}
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		struct mpchrconfig *mpchr = MPCHR(i);
+
+		mpchr->numdeaths = 0;
+		mpchr->numpoints = 0;
+
+		for (j = 0; j < MAX_MPCHRS; j++) {
+			mpchr->killcounts[j] = 0;
+		}
+	}
+
+	netBufInitRead(&b, e->blob, e->bloblen);
+	netBufReadU8(&b);
+	n = netBufReadU8(&b);
+
+	for (i = 0; i < n && netBufOk(&b); i++) {
+		const s32 row = netBufReadU8(&b); // MPCHR reads its argument twice
+		struct mpchrconfig *mpchr = MPCHR(row);
+		s32 nk;
+
+		mpchr->numdeaths = netBufReadS16(&b);
+		mpchr->numpoints = netBufReadS16(&b);
+		nk = netBufReadU8(&b);
+
+		for (j = 0; j < nk && netBufOk(&b); j++) {
+			const s32 k = netBufReadU8(&b);
+
+			mpchr->killcounts[k] = netBufReadS16(&b);
+		}
+	}
+
+	return n;
 }
 
 static void netEvApply(struct netevc *e, f64 rt)
@@ -1493,7 +1724,7 @@ static void netEvApply(struct netevc *e, f64 rt)
 		s_ShotSounds += (e->flags & 2) != 0;
 		break;
 	case NETEV_PLAYERSHOT:
-		if (e->a == g_NetLocalSlot) {
+		if (e->a == g_NetLocalSlot && !netSessionSpectating()) {
 			// this machine's own shot: drawn when it fired, if it did
 			s32 mine = 0;
 			s32 k;
@@ -1692,10 +1923,16 @@ static void netEvApply(struct netevc *e, f64 rt)
 		gasReleaseFromPos(&c0);
 		s_GasReleased++;
 		break;
+	case NETEV_SCORES:
+		snprintf(extra, sizeof(extra), "%s, %d rows", (e->flags & NETEV_SCORES_CATCHUP) ? "catch-up" : "a seat cleared",
+				netEvApplyScores(e));
+		break;
 	default:
 		break;
 	}
 
+	free(e->blob);
+	e->blob = NULL;
 	s_Applying = 0;
 
 	// applied: the event acted here (one dropped as unresolved did not)
@@ -1722,6 +1959,12 @@ void netEventsClientDrain(s32 haveclock, f64 rt)
 
 		if ((f64)e->tick > rt) {
 			break;
+		}
+
+		// a join in progress: the table starts at its catch-up, so the
+		// samples before it are not this machine's to take
+		if (e->type == NETEV_SCORES && (e->flags & NETEV_SCORES_CATCHUP) && e->tick > s_NextKill) {
+			s_NextKill = (e->tick + NETEV_KILLEVERY - 1) / NETEV_KILLEVERY * NETEV_KILLEVERY;
 		}
 
 		// the kill table as it stood after every event up to the sample's tick
@@ -1798,6 +2041,10 @@ void netEventsClientMatchEnd(void)
 {
 	while (s_Q && s_QCount) {
 		struct netevc *e = &s_Q[s_QHead];
+
+		if (e->type == NETEV_SCORES && (e->flags & NETEV_SCORES_CATCHUP) && e->tick > s_NextKill) {
+			s_NextKill = (e->tick + NETEV_KILLEVERY - 1) / NETEV_KILLEVERY * NETEV_KILLEVERY;
+		}
 
 		while (e->tick > s_NextKill) {
 			netEvKillLine("tick", s_NextKill);
@@ -1887,6 +2134,14 @@ void netEventsStageStart(void)
 void netEventsMatchStopped(void)
 {
 	s_ArenaLen = 0;
+
+	while (s_Q && s_QCount) {
+		free(s_Q[s_QHead].blob);
+		s_Q[s_QHead].blob = NULL;
+		s_QHead = (s_QHead + 1) % NETEV_QUEUE;
+		s_QCount--;
+	}
+
 	s_QCount = 0;
 	s_QHead = 0;
 

@@ -104,7 +104,9 @@ class Config:
         # Rooms and members.
         self.max_rooms = 200
         self.max_rooms_per_ip = 4
-        self.max_spectators = 4
+        # the game host's own limit (NET_MAXSPECS in port/include/net/netproto.h):
+        # a spectator past it would be refused by the host
+        self.max_spectators = 2
         self.min_humans = 2
         self.max_humans = 12
         self.chat_keep = 50
@@ -1058,9 +1060,11 @@ class Lobby:
             m.udp_seq = 0
             return self.join_reply(room, m)
 
-        if room.status != "open":
-            raise HttpError(409, "the match is %s" % ("starting" if room.status == "countdown"
-                                                     else "in progress"), reason="started")
+        # A launched room takes joiners while its match runs (the host seats
+        # them in the match in progress, protocol 9); only the countdown,
+        # a few seconds, turns them away.
+        if room.status == "countdown":
+            raise HttpError(409, "the match is starting", reason="started")
         spectator = bool(body.get("spectator", False))
         if spectator:
             if room.spectators() >= self.cfg.max_spectators:

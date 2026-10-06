@@ -120,6 +120,7 @@ static struct {
 } s_Ring[NETSCEN_RING];
 static s32 s_RingHead = 0;
 static s32 s_RingCount = 0;
+static u32 s_PacSkips = 0;           // host: Pop a Cap turns passed over seats out of play
 static u32 s_RingLast = 0;          // the newest tick pushed + 1 (0 none)
 static u8 s_Cur[NETSCEN_SIZE];      // the block applied last
 static s32 s_HaveCur = 0;
@@ -490,6 +491,87 @@ static void netScenCapture(u8 *out)
 	}
 	default:
 		break;
+	}
+}
+
+/**
+ * A seat opened mid-match (its player left, or its hold ran out): the
+ * counts the scenario keeps of it by player number go too, so the next
+ * player in the seat starts on nothing (Hack That Mac's uploads, Pop a
+ * Cap's caps and survivals, the time a briefcase was held)
+ */
+void netScenHostSeatCleared(s32 slot)
+{
+	const s32 idx = netScenIndexOf(slot);
+	s32 pn;
+
+	if (g_NetMode != NETMODE_SERVER || !g_Vars.normmplayerisrunning || idx < 0 || idx >= MAX_MPCHRS) {
+		return;
+	}
+
+	g_ScenarioData.htm.numpoints[idx] = 0;
+	g_ScenarioData.htm.dltime240[idx] = 0;
+	g_ScenarioData.pac.killcounts[idx] = 0;
+	g_ScenarioData.pac.survivalcounts[idx] = 0;
+
+	for (pn = 0; pn < PLAYERCOUNT(); pn++) {
+		if ((g_Vars.playerstats[pn].mpindex & 3) == slot) {
+			g_Vars.playerstats[pn].tokenheldtime = 0;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: seat %d's scenario counts cleared", slot);
+}
+
+static s32 netScenPacOut(s32 index)
+{
+	const struct scenariodata_pac *d = &g_ScenarioData.pac;
+
+	return index >= 0 && index < g_MpNumChrs && netSessionSeatOutOfPlay(netScenSlotOf(d->victims[index]));
+}
+
+/**
+ * pacApplyNextVictim's hook (popacap.inc): the turn passes over a seat out
+ * of play, whose player is dead and hidden for good, so nobody could cap it
+ * and it never earns a point for living (the scenario would stall on it)
+ */
+s32 netPacVictimIndex(s32 index)
+{
+	s32 k;
+
+	if (g_NetMode != NETMODE_SERVER || g_MpNumChrs <= 0) {
+		return index;
+	}
+
+	for (k = 0; k < g_MpNumChrs; k++) {
+		const s32 n = (index + k) % g_MpNumChrs;
+
+		if (!netScenPacOut(n)) {
+			if (k) {
+				s_PacSkips += k;
+				sysLogPrintf(LOG_NOTE, "net: Pop a Cap (tick %u): the turn passes over %d seat%s out of play, to slot %d",
+						g_NetTick, k, k == 1 ? "" : "s", netScenSlotOf(g_ScenarioData.pac.victims[n]));
+			}
+
+			return n;
+		}
+	}
+
+	return index;
+}
+
+void netScenHostPacCheck(void)
+{
+	struct scenariodata_pac *d = &g_ScenarioData.pac;
+
+	if (g_NetMode != NETMODE_SERVER || !g_Vars.normmplayerisrunning || g_MpSetup.scenario != MPSCENARIO_POPACAP) {
+		return;
+	}
+
+	if (d->victimindex >= 0 && netScenPacOut(d->victimindex)) {
+		sysLogPrintf(LOG_NOTE, "net: Pop a Cap (tick %u): the victim's seat %d went out of play",
+				g_NetTick, netScenSlotOf(d->victims[d->victimindex]));
+		pacApplyNextVictim();
 	}
 }
 
@@ -894,7 +976,7 @@ static void netScenLocalInventory(const u8 *b)
 	s32 i;
 	u8 holds;
 
-	if (g_NetLocalSlot < 0 || g_NetLocalSlot >= PLAYERCOUNT() || g_NetLocalSlot >= MAX_PLAYERS) {
+	if (g_NetLocalSlot < 0 || g_NetLocalSlot >= PLAYERCOUNT() || g_NetLocalSlot >= MAX_PLAYERS || netSessionSpectating()) {
 		return;
 	}
 

@@ -70,6 +70,13 @@ s32 netSessionSendSlot(s32 slot, s32 channel, const void *data, s32 len, s32 fla
 s32 netSessionSendServer(s32 channel, const void *data, s32 len, s32 flags);
 void netSessionClientCfgTick(void);  // client: SLOTCFG again when the settings change
 
+// Views (protocol 9): the host sends snapshots and events to a remote
+// player's slot (its mpindex, 0..MAX_PLAYERS-1) or to a spectator's
+// (MAX_PLAYERS..NET_MAXVIEWS-1), who has no player
+#define NET_MAXVIEWS (MAX_PLAYERS + NET_MAXSPECS)
+s32 netSessionViewLive(s32 view);    // host: a client in that view plays (snapshots and events go to it)
+s32 netSessionSpectating(void);      // client: this machine watches the match, no player of its own
+
 // netsession.c: a lobby room's session, opened at run time (netlobby.c)
 s32 netSessionLobbyHost(const char *name);
 u16 netSessionLobbyPort(void);
@@ -80,7 +87,11 @@ void netSessionLobbyStop(void);
 s32 netSessionLobbyRole(void);       // 1 host, 2 client, 0 none
 s32 netSessionClientJoined(void);
 s32 netSessionClientGone(void);
+s32 netSessionLastRefuse(void);     // client: NETREFUSE_* its last session ended on, -1 none
+s32 netSessionSeatOutOfPlay(s32 slot); // host: that seat (mpindex) is open, its player out of play
 s32 netSessionHostSlotOf(const char *user);
+s32 netSessionHostUserSpectating(const char *user); // 1 a spectator's connection, 0 a player's, -1 none
+void netSessionSetSpectate(s32 on);                 // client: connect as a spectator
 s32 netSessionHostNumClients(void);
 const char *netSessionHostClientName(s32 index);
 void netSessionHostDropUser(const char *user, const char *why);
@@ -93,6 +104,10 @@ void netPlayersArgs(void);
 void netPlayersHostSlotStart(s32 slot, const struct netslotcfg *cfg); // H1, per joined client
 void netPlayersHostSlotCfg(s32 slot, const struct netslotcfg *cfg);   // SLOTCFG mid-match
 void netPlayersHostSlotGone(s32 slot);
+void netPlayersHostSlotJoin(s32 slot, const struct netslotcfg *cfg, u32 tick); // a join in progress, its commands from tick
+void netPlayersHostSpecCmd(s32 view, struct netbuf *b); // a spectator's CMD: only its snapshot ack
+void netPlayersHostSpecGone(s32 view);
+void netPlayersClientJoinAt(u32 tick); // a join in progress: the client's commands start at tick
 void netPlayersHostOnCmd(s32 slot, struct netbuf *b);
 void netPlayersHostMatchStart(void);  // H1, before the slots
 void netPlayersClientMatchStart(s32 pad); // H3, after the rules are on
@@ -133,6 +148,7 @@ void netEntsArgs(void);
 void netEntsStageStart(void);
 void netEntsHostTickEnd(void);
 void netEntsHostOnAck(s32 slot, const struct netsnapack *a);
+void netEntsHostViewReset(s32 view);   // a new client in the view: keyframes from scratch
 void netEntsClientOnSnap(const u8 *data, s32 len);
 void netEntsClientWriteAck(struct netbuf *b);
 void netEntsClientTickEnd(void);
@@ -170,6 +186,9 @@ void netEventsClientTickEnd(void);
 void netEventsClientMatchEnd(void);  // MATCH_END: everything queued, then the table
 u32 netEventsHostSeq(s32 slot);     // EVENTS messages sent to a slot this match (SNAP's evseq)
 u32 netEventsClientSeq(void);       // ... and received here
+void netEventsHostViewReset(s32 view); // a new client in the view: its EVENTS count from 0
+void netEventsHostCatchUp(s32 view);   // its first EVENTS: the kill table (a SCORES event)
+void netEventsHostScores(void);        // the kill table to everyone (a seat's row cleared)
 
 // netpuppets.c
 void netPuppetsStageStart(void);  // the client's match stage began (after netEntsStageStart)
@@ -203,6 +222,12 @@ void netLagCompAimResave(s32 pn);
 // none yet; delay (may be NULL) the interpolation delay in it
 s32 netPuppetsViewTick(f64 *view, f32 *delay);
 
+// netspec.c: a spectator's camera (protocol 9)
+void netSpecStageStart(void);
+void netSpecStop(void);
+s32 netSpecCameraTick(void);   // the camera player's tick: 1 done (the player is not simulated)
+void netSpecLog(const char *why);
+
 // netscen.c: Combat Simulator scenarios online (phase 7a)
 void netScenArgs(void);
 void netScenStageStart(void);
@@ -217,6 +242,8 @@ void netScenClientBeforeEvent(u32 tick); // netEventsClientDrain: the blocks bef
 void netScenClientUpTo(f64 rt);          // ... and the ones the render clock has reached
 void netScenClientFinal(const u8 *scen); // MATCH_END's block
 void netScenClientApplyFinal(void);      // H10
+void netScenHostSeatCleared(s32 slot);   // a seat opened: its scenario counts go with its kill table row
+void netScenHostPacCheck(void);          // a seat's tick: Pop a Cap's victim gone out of play, the next one
 // netpuppets.c: the local prop for a host entity, mapped or made here; NULL none
 struct prop *netPuppetsLocalProp(u16 id, u16 gen);
 

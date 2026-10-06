@@ -99,6 +99,17 @@ s32 g_NetRemotePass = 0;
 s32 g_NetPassPlayer = -1;
 
 static struct netpadq s_Pads[MAX_PLAYERS];
+
+// a spectator's commands drive nothing: only their snapshot ack is taken,
+// and the newest tick kept for its CMDACK (the clock trim)
+struct netspecq {
+	s32 live;
+	s32 have;
+	u32 newest;
+	u32 cmds;
+};
+
+static struct netspecq s_Specs[NET_MAXSPECS];
 static s32 s_LocalPad = 0;       // this machine's player's pad in the match
 
 // client
@@ -667,6 +678,7 @@ void netPlayersHostMatchStart(void)
 	s32 i;
 
 	memset(s_Pads, 0, sizeof(s_Pads));
+	memset(s_Specs, 0, sizeof(s_Specs));
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		s_Pads[i].lastplayed = -1;
@@ -696,6 +708,96 @@ void netPlayersHostSlotStart(s32 slot, const struct netslotcfg *cfg)
 	sysLogPrintf(LOG_NOTE, "net: slot %d is remote: control mode %d, fov %.0f, aspect %.2f, mouse signs %d %d",
 			slot, g_PlayerConfigsArray[slot].controlmode, g_NetExtCfg[slot].fovy, q->cfg.aspect,
 			q->cfg.sensxsign, q->cfg.sensysign);
+}
+
+/**
+ * A join in progress (protocol 9): the slot is remote from now, its
+ * commands played from the client's first tick (the ones before it never
+ * come). A spectator's view only has its acks taken.
+ */
+void netPlayersHostSlotJoin(s32 slot, const struct netslotcfg *cfg, u32 tick)
+{
+	if (slot >= MAX_PLAYERS && slot < NET_MAXVIEWS) {
+		struct netspecq *sq = &s_Specs[slot - MAX_PLAYERS];
+
+		memset(sq, 0, sizeof(*sq));
+		sq->live = 1;
+		return;
+	}
+
+	if (slot < 0 || slot >= MAX_PLAYERS) {
+		return;
+	}
+
+	netPlayersHostSlotStart(slot, cfg);
+	s_Pads[slot].next = tick;
+	s_Pads[slot].skipto = tick;
+	s_Pads[slot].lastplayed = -1;
+	sysLogPrintf(LOG_NOTE, "net: slot %d joined in progress: its commands from tick %u", slot, tick);
+}
+
+void netPlayersHostSpecGone(s32 view)
+{
+	if (view >= MAX_PLAYERS && view < NET_MAXVIEWS) {
+		struct netspecq *sq = &s_Specs[view - MAX_PLAYERS];
+
+		if (sq->live) {
+			sysLogPrintf(LOG_NOTE, "net: spectator view %d: %u command packets taken for their acks", view, sq->cmds);
+		}
+
+		memset(sq, 0, sizeof(*sq));
+	}
+}
+
+/**
+ * A spectator's CMD: parsed whole like a player's (a bad one dropped), and
+ * nothing of it played; its snapshot ack goes to its view's snapshots
+ */
+void netPlayersHostSpecCmd(s32 view, struct netbuf *b)
+{
+	struct netspecq *sq;
+	struct netsnapack ack;
+	u32 matchid;
+	u32 first;
+	s32 count;
+	s32 i;
+
+	if (view < MAX_PLAYERS || view >= NET_MAXVIEWS) {
+		return;
+	}
+
+	sq = &s_Specs[view - MAX_PLAYERS];
+	matchid = netBufReadU32(b);
+	netSnapAckRead(b, &ack);
+	first = netBufReadU32(b);
+	count = netBufReadU8(b);
+
+	if (count < 1 || count > NET_MAXCMDSEND) {
+		b->error = 1;
+	}
+
+	for (i = 0; i < count && netBufOk(b); i++) {
+		netBufReadU32(b);
+		netBufReadU32(b);
+		netBufReadF32(b);
+		netBufReadF32(b);
+		netBufReadU8(b);
+		netBufReadU32(b);
+		netBufReadU8(b);
+		netBufReadU8(b);
+	}
+
+	if (!netBufOk(b) || netBufRemaining(b) != 0 || !sq->live || matchid != netSessionMatchId() || !netInMatch()) {
+		return;
+	}
+
+	netEntsHostOnAck(view, &ack);
+	sq->cmds++;
+
+	if (first <= g_NetTick + NETCMD_RING && (!sq->have || first + (u32)count - 1 > sq->newest)) {
+		sq->newest = first + (u32)count - 1;
+		sq->have = 1;
+	}
 }
 
 void netPlayersHostSlotCfg(s32 slot, const struct netslotcfg *cfg)
@@ -955,11 +1057,38 @@ static void netPlayersHostSendAcks(void)
 		netBufWriteU8(&b, (u8)(depth > 255 ? 255 : depth));
 		netSessionSendSlot(slot, NET_CHAN_UNRELIABLE, s_CmdBuf, netBufLen(&b), 0);
 	}
+
+	// a spectator's: what it has sent, and as its depth how far its newest
+	// is ahead of this tick (a player's would wait that many)
+	for (slot = 0; slot < NET_MAXSPECS; slot++) {
+		struct netspecq *sq = &s_Specs[slot];
+		s32 ahead;
+
+		if (!sq->live) {
+			continue;
+		}
+
+		ahead = sq->have ? (s32)(sq->newest - g_NetTick) : 0;
+
+		netBufInitWrite(&b, s_CmdBuf, sizeof(s_CmdBuf));
+		netBufWriteU8(&b, NETMSG_CMDACK);
+		netBufWriteU32(&b, netSessionMatchId());
+		netBufWriteU32(&b, g_NetTick);
+		netBufWriteU32(&b, sq->have ? sq->newest : 0xffffffff);
+		netBufWriteU8(&b, (u8)(ahead < 0 ? 0 : ahead > 255 ? 255 : ahead));
+		netSessionSendSlot(MAX_PLAYERS + slot, NET_CHAN_UNRELIABLE, s_CmdBuf, netBufLen(&b), 0);
+	}
 }
 
 /*
  * Client
  */
+
+// A join in progress: the commands before tick are not the host's to want
+void netPlayersClientJoinAt(u32 tick)
+{
+	s_AckNext = tick;
+}
 
 void netPlayersClientMatchStart(s32 pad)
 {
@@ -1441,6 +1570,7 @@ void netPlayersMatchStopped(void)
 	}
 
 	memset(s_Pads, 0, sizeof(s_Pads));
+	memset(s_Specs, 0, sizeof(s_Specs));
 	g_NetExtCfgOn = 0;
 	g_NetRemotePass = 0;
 	g_NetPassPlayer = -1;
