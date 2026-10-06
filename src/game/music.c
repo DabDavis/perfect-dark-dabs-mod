@@ -277,6 +277,15 @@ void musicSaveInterval(void)
 
 void musicRestoreInterval(void)
 {
+#ifndef PLATFORM_N64
+	// Like the other queue writers: with sound off (--no-sound, a dedicated
+	// host) nothing drains the queue, and every MP death added two of these
+	// until the 40 entries ran over into the globals after them
+	if (g_SndDisabled) {
+		return;
+	}
+#endif
+
 	g_MusicEventQueue[g_MusicEventQueueLength].tracktype = TRACKTYPE_6;
 	g_MusicEventQueue[g_MusicEventQueueLength].eventtype = MUSICEVENTTYPE_SETINTERVAL;
 	g_MusicEventQueue[g_MusicEventQueueLength].id = g_MusicNextEventId++;

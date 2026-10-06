@@ -146,7 +146,7 @@ void challengeDetermineUnlockedFeatures(void)
 	}
 
 	// Now same as above, but per player
-	for (j = 0; j < MAX_PLAYERS; j++) {
+	for (j = 0; j < MAX_LOCAL_PLAYERS; j++) {
 		numgifted = 0;
 
 		for (challengeindex = 0; challengeindex < ARRAYCOUNT(g_MpChallenges); challengeindex++) {
@@ -207,7 +207,7 @@ void challengeDetermineUnlockedFeatures(void)
 		}
 
 		for (challengeindex = 0; challengeindex < ARRAYCOUNT(g_MpChallenges); challengeindex++) {
-			for (prev = 0; prev < MAX_PLAYERS; prev++) {
+			for (prev = 0; prev < MAX_LOCAL_PLAYERS; prev++) {
 				if (challengeIsAvailableToPlayer(prev, challengeindex)) {
 					for (i = 0; i < ARRAYCOUNT(g_MpChallenges[challengeindex].unlockfeatures); i++) {
 						if (g_MpChallenges[challengeindex].unlockfeatures[i] == j) {
@@ -253,7 +253,7 @@ void challengePerformSanityChecks(void)
 		s32 i;
 
 		// Reset player handicaps
-		for (i = 0; i < MAX_PLAYERS; i++) {
+		for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 			if (g_MpSetup.chrslots & (1 << i)) {
 				g_PlayerConfigsArray[i].handicap = 0x80;
 				numplayers++;
@@ -449,7 +449,7 @@ static void challengeDecodeRomConfig(const u8 *rec, struct mpconfig *config)
 		config->simulants[i].mpheadnum = sim[1];
 		config->simulants[i].mpbodynum = sim[2];
 		config->simulants[i].team = sim[3];
-		memcpy(config->simulants[i].difficulties, sim + 4, MAX_PLAYERS);
+		memcpy(config->simulants[i].difficulties, sim + 4, MAX_LOCAL_PLAYERS);
 	}
 }
 
@@ -736,7 +736,7 @@ void challengeForceUnlockConfigFeatures(struct mpconfig *config, u8 *array, s32 
 			}
 		}
 
-		for (numplayers = 0; numplayers < MAX_PLAYERS; numplayers++) {
+		for (numplayers = 0; numplayers < MAX_LOCAL_PLAYERS; numplayers++) {
 			simtype = mpFindBotProfile(0, config->simulants[i].difficulties[numplayers]);
 
 			if (simtype >= 0) {
@@ -900,7 +900,7 @@ void challengeApply(void)
 	mpApplyConfig(challengeLoadCurrent(buffer, 0x1ca));
 	mpSetLock(MPLOCKTYPE_CHALLENGE, 5);
 
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 		g_PlayerConfigsArray[i].base.team = 0;
 	}
 
@@ -1059,6 +1059,11 @@ void challengeConsiderMarkingComplete(void)
 	{
 		u32 prevplayernum;
 		s32 i;
+
+		// completions[] holds 1-4 players (gamefile-serialized)
+		if (PLAYERCOUNT() > MAX_LOCAL_PLAYERS) {
+			return;
+		}
 
 		challengeSetCompletedByAnyPlayerWithNumPlayers(g_MpChallengeIndex, PLAYERCOUNT(), 1);
 		prevplayernum = g_Vars.currentplayernum;

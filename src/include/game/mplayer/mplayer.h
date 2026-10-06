@@ -49,6 +49,10 @@ s32 mpGetWeaponSet(void);
 bool mpIsPaused(void);
 void mpSetPaused(u8 mode);
 Gfx *mpRenderModalText(Gfx *gdl);
+s32 mpFindMaxIntN(s32 numplayers, struct awardmetrics *m, u32 off);
+s32 mpFindMinIntN(s32 numplayers, struct awardmetrics *m, u32 off);
+s32 mpFindMaxFloatN(s32 numplayers, struct awardmetrics *m, u32 off);
+s32 mpFindMinFloatN(s32 numplayers, struct awardmetrics *m, u32 off);
 s32 mpFindMaxInt(s32 playercount, s32 val0, s32 val1, s32 val2, s32 val3);
 s32 mpFindMinInt(s32 playercount, s32 val0, s32 val1, s32 val2, s32 val3);
 s32 mpFindMaxFloat(s32 playercount, f32 val0, f32 val1, f32 val2, f32 val3);
@@ -130,6 +134,13 @@ s32 mpGetNumSimSlotsOn(void);
 void mpClearSimSlots(void);
 void mpKeepFirstSimSlots(s32 count);
 bool mpIsChrSlotOn(s32 slot);
+
+// phase 8: human slots 4-11 (net rooms only) in a side mask beside chrslots
+extern u8 g_MpHumanSlotsHi;
+extern struct mplockinfo g_MpLockInfo;
+bool mpIsHumanSlotOn(s32 slot);
+u16 mpHumanSlotMask(void);
+void mpSetHumanSlotMask(u16 mask);
 s32 mpFindBotProfile(s32 type, s32 difficulty);
 void mpGenerateBotNames(void);
 s32 mpPlayerGetIndex(struct chrdata *chr);

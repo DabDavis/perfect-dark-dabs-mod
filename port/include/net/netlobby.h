@@ -104,7 +104,7 @@ struct netlobbyroom {
 struct netlobbycreate {
 	char name[NETLOBBY_MAXROOMNAME + 1];
 	char password[NETLOBBY_MAXPASSWORD + 1];
-	s32 maxhumans; // 2-4 for now (MAX_PLAYERS)
+	s32 maxhumans; // 2 to Net.MaxPlayers (at most MAX_PLAYERS, 12)
 };
 
 extern s32 g_NetLobbyActive; // the lobby is in use (signed in or in a room): netLobbyTick runs
@@ -123,6 +123,7 @@ const char *netLobbyMessage(void);   // what the last of those said ("" if nothi
 void netLobbyClearMessage(void);
 
 void netLobbyRefresh(void);
+s32 netLobbyRoomMaxHumans(void); // the hosted room's size (0: none)
 s32 netLobbyNumRooms(void);
 const struct netlobbyroomsum *netLobbyRoomAt(s32 index);
 const char *netLobbyCompatText(s32 compat);

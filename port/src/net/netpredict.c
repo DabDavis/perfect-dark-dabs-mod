@@ -1102,12 +1102,12 @@ void netPredictTickEnd(void)
 
 static void netPredInject(const struct netpredcmd *c)
 {
-	OSContPad pads[MAXCONTROLLERS];
+	OSContPad pads[NET_NUM_PADS];
 	const s32 pad = netPlayersLocalPad();
 
 	memset(pads, 0, sizeof(pads));
 
-	if (c && pad >= 0 && pad < MAXCONTROLLERS) {
+	if (c && pad >= 0 && pad < NET_NUM_PADS) {
 		pads[pad].button = c->buttons;
 		pads[pad].stick_x = c->sx;
 		pads[pad].stick_y = c->sy;

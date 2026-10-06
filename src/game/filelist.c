@@ -24,7 +24,7 @@
 
 s32 g_FilelistKnownPlugCounts[5];
 
-struct filelist *g_FileLists[MAX_PLAYERS] = { NULL };
+struct filelist *g_FileLists[MAX_LOCAL_PLAYERS] = { NULL };
 bool var80075bd0[] = { true, true, true, true };
 bool var80075be0[] = { false, false, false, false };
 u32 var80075bf0 = false;

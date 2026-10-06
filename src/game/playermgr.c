@@ -36,20 +36,20 @@ void playermgrInit(void)
 
 void playermgrReset(void)
 {
-	g_Vars.players[0] = NULL;
-	g_Vars.players[1] = NULL;
-	g_Vars.players[2] = NULL;
-	g_Vars.players[3] = NULL;
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		g_Vars.players[i] = NULL;
+	}
 
 	g_Vars.currentplayer = NULL;
 	g_Vars.currentplayerindex = 0;
 	g_Vars.currentplayerstats = NULL;
 	g_Vars.currentplayernum = 0;
 
-	g_Vars.playerorder[0] = 0;
-	g_Vars.playerorder[1] = 1;
-	g_Vars.playerorder[2] = 2;
-	g_Vars.playerorder[3] = 3;
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		g_Vars.playerorder[i] = i;
+	}
 
 	g_Vars.bond = NULL;
 	g_Vars.coop = NULL;
@@ -58,10 +58,11 @@ void playermgrReset(void)
 
 void playermgrAllocatePlayers(s32 count)
 {
-	g_Vars.players[0] = NULL;
-	g_Vars.players[1] = NULL;
-	g_Vars.players[2] = NULL;
-	g_Vars.players[3] = NULL;
+	s32 j;
+
+	for (j = 0; j < MAX_PLAYERS; j++) {
+		g_Vars.players[j] = NULL;
+	}
 
 	if (count > 0) {
 		s32 i;
@@ -453,7 +454,7 @@ void playermgrAllocatePlayer(s32 index)
 	g_Vars.players[index]->aimtype = 0;
 	g_Vars.players[index]->lookingatprop.prop = NULL;
 
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < ARRAYCOUNT(g_Vars.players[index]->trackedprops); i++) {
 		g_Vars.players[index]->trackedprops[i].prop = NULL;
 	}
 
@@ -630,7 +631,7 @@ void playermgrAllocatePlayer(s32 index)
 	g_Vars.players[index]->introanimnum = 0;
 	g_Vars.players[index]->lastsighton = 0;
 
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < ARRAYCOUNT(g_Vars.players[index]->targetset); i++) {
 		g_Vars.players[index]->targetset[i] = 0;
 	}
 
@@ -883,15 +884,20 @@ void playermgrCreateWeapon(s32 hand)
 void playermgrShuffle(void)
 {
 	s32 i;
+	s32 n;
 
 	// Order them ascending
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		g_Vars.playerorder[i] = i;
 	}
 
-	// Randomly swap numbers with later elements
-	for (i = 0; i < MAX_PLAYERS - 1; i++) {
-		s32 otherindex = rngRandom() % (MAX_PLAYERS - i);
+	// Randomly swap numbers with later elements. Phase 8: over the 4 the
+	// game always shuffled, or all MAX_PLAYERS in a net room of more than 4
+	// (the same on host and clients), so offline play consumes the same RNG
+	n = PLAYERCOUNT() > MAX_LOCAL_PLAYERS ? MAX_PLAYERS : MAX_LOCAL_PLAYERS;
+
+	for (i = 0; i < n - 1; i++) {
+		s32 otherindex = rngRandom() % (n - i);
 		s32 tmp = g_Vars.playerorder[i];
 
 		g_Vars.playerorder[i] = g_Vars.playerorder[i + otherindex];

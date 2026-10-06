@@ -309,7 +309,7 @@ void netLpUnpack(const u8 *in, struct netlpstate *out);
  * local-player block. Its layout is netscen.c's (netproto.h, SNAP); this
  * file carries its bytes only.
  */
-#define NETSCEN_SIZE 640
+#define NETSCEN_SIZE 768 // protocol 10 (was 640): MAX_MPCHRS 92, MAX_PLAYERS 12
 
 /**
  * The ack block in each CMD (client -> host): the newest snapshot decoded

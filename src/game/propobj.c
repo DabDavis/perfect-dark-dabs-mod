@@ -4780,7 +4780,7 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 bool propExplode(struct prop *prop, s32 exptype)
 {
 	struct defaultobj *obj = prop->obj;
-	s32 playernum = (obj->hidden & 0xf0000000) >> 28;
+	s32 playernum = OBJ_OWNER(obj);
 	bool result;
 
 	if (prop->parent) {
@@ -4975,7 +4975,7 @@ void weaponTick(struct prop *prop)
 				// Nbombs detonate when they hit the ground, so this code only
 				// runs if it's airborne for the entire duration of its timer.
 				struct prop *ownerprop = NULL;
-				s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+				s32 ownerplayernum = OBJ_OWNER(obj);
 
 				if (g_Vars.normmplayerisrunning) {
 					struct chrdata *chr = mpGetChrFromPlayerIndex(ownerplayernum);
@@ -5051,7 +5051,7 @@ void weaponTick(struct prop *prop)
 	} else if (weaponHasFlag3(weapon->weaponnum, WEAPONFLAG3_REMOTEDETONATED)) {
 		// Handle remote mines
 		if (g_PlayersDetonatingMines != 0) {
-			s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+			s32 ownerplayernum = OBJ_OWNER(obj);
 			struct chrdata *parentchr = prop->parent ? prop->parent->chr : NULL;
 
 			// If a player manages to throw a mine on themselves, it will not detonate.
@@ -5144,7 +5144,7 @@ void weaponTick(struct prop *prop)
 			if (weaponHost(weapon->weaponnum) == WEAPON_NBOMB) {
 				u32 stack;
 				struct prop *ownerprop = NULL;
-				s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+				s32 ownerplayernum = OBJ_OWNER(obj);
 
 				if (g_Vars.normmplayerisrunning) {
 					struct chrdata *chr = mpGetChrFromPlayerIndex(ownerplayernum);
@@ -7827,11 +7827,11 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									}
 								}
 							} else if (weaponHost(weapon->weaponnum) == WEAPON_ROCKET || weaponHost(weapon->weaponnum) == WEAPON_HOMINGROCKET) {
-								s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+								s32 ownerplayernum = OBJ_OWNER(obj);
 
 								if (g_EmbedProp->type == PROPTYPE_CHR || (g_EmbedProp->type == PROPTYPE_PLAYER && g_EmbedProp->chr)) {
 #if VERSION < VERSION_NTSC_1_0
-									s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+									s32 ownerplayernum = OBJ_OWNER(obj);
 #endif
 									struct prop *ownerprop2 = NULL;
 
@@ -9645,7 +9645,7 @@ void autogunTick(struct prop *prop)
 				}
 
 				if (g_Vars.normmplayerisrunning) {
-					ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+					ownerplayernum = OBJ_OWNER(obj);
 
 					if (autogun->nextchrtest == ownerplayernum) {
 						continue;
@@ -10109,7 +10109,7 @@ void autogunTickShoot(struct prop *autogunprop)
 				struct gset gset = { WEAPON_RCP45, 0, 0, FUNC_PRIMARY };
 				struct prop *ownerprop = NULL;
 				struct chrdata *ownerchr = NULL;
-				s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+				s32 ownerplayernum = OBJ_OWNER(obj);
 				struct coord *shootfrom = &autogunprop->pos;
 				RoomNum *shootrooms = autogunprop->rooms;
 #ifndef PLATFORM_N64
@@ -12546,7 +12546,7 @@ s32 objTickPlayer(struct prop *prop)
 
 	if (obj->hidden & OBJHFLAG_DAMAGEFORBOUNCE) {
 		obj->hidden &= ~OBJHFLAG_DAMAGEFORBOUNCE;
-		objDamage(obj, RANDOMFRAC() * 4.0f + 2.0f, &prop->pos, WEAPON_NONE, (obj->hidden & 0xf0000000) >> 28);
+		objDamage(obj, RANDOMFRAC() * 4.0f + 2.0f, &prop->pos, WEAPON_NONE, OBJ_OWNER(obj));
 	}
 
 	if (fulltick && !NET_CLIENT) { // netplay C6b
@@ -16234,10 +16234,12 @@ void objFall(struct defaultobj *obj, s32 playernum)
 	} else {
 		obj->hidden &= 0x0fffffff;
 		obj->hidden |= (playernum << 28) & 0xf0000000;
+		NET_OBJ_OWNER(obj, playernum);
 	}
 #else
 	obj->hidden &= 0x0fffffff;
 	obj->hidden |= (playernum << 28) & 0xf0000000;
+	NET_OBJ_OWNER(obj, playernum);
 #endif
 
 	if ((obj->flags2 & OBJFLAG2_NOFALL) == 0
@@ -16833,10 +16835,12 @@ void func0f085050(struct prop *prop, f32 damage, struct coord *pos, s32 arg3, s3
 	} else {
 		obj->hidden &= 0x0fffffff;
 		obj->hidden |= (playernum << 28) & 0xf0000000;
+		NET_OBJ_OWNER(obj, playernum);
 	}
 #else
 	obj->hidden &= 0x0fffffff;
 	obj->hidden |= (playernum << 28) & 0xf0000000;
+	NET_OBJ_OWNER(obj, playernum);
 #endif
 
 	if ((obj->hidden & OBJHFLAG_HASOWNER) == 0) {
@@ -16933,10 +16937,12 @@ void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weapon
 	if (obj->type != OBJTYPE_AUTOGUN || !g_Vars.normmplayerisrunning) {
 		obj->hidden &= 0x0fffffff;
 		obj->hidden |= (playernum << 28) & 0xf0000000;
+		NET_OBJ_OWNER(obj, playernum);
 	}
 #else
 	obj->hidden &= 0x0fffffff;
 	obj->hidden |= (playernum << 28) & 0xf0000000;
+	NET_OBJ_OWNER(obj, playernum);
 #endif
 
 	if (obj->type == OBJTYPE_GASBOTTLE && objGetDestroyedLevel(obj) == 1) {
@@ -20309,6 +20315,7 @@ bool chrEquipWeapon(struct weaponobj *weapon, struct chrdata *chr)
 
 			weapon->base.hidden &= 0x0fffffff;
 			weapon->base.hidden |= (playernum << 28) & 0xf0000000;
+			NET_OBJ_OWNER(&weapon->base, playernum);
 		}
 
 		if ((weapon->base.flags & OBJFLAG_WEAPON_AICANNOTUSE) == 0) {
@@ -20669,6 +20676,7 @@ struct weaponobj *weaponCreateProjectileFromGset(s32 modelnum, struct gset *gset
 
 				weapon->base.hidden &= 0x0fffffff;
 				weapon->base.hidden |= ((index << 28) & 0xf0000000);
+				NET_OBJ_OWNER(&weapon->base, index);
 			}
 
 			prop->forcetick = true;

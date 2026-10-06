@@ -30,8 +30,10 @@
 
 ## The shape
 
-One host, up to three clients (`MAX_PLAYERS` stays 4 until phase 8 widens
-it), plus two spectators and the host's simulants. Netplay is off unless
+One host, up to eleven clients (`MAX_PLAYERS` is 12 since phase 8; a room
+seats its own size, 2-12, a direct host `Net.MaxPlayers`, default 4), plus two
+spectators and the host's simulants. Splitscreen, pads, binds, pd.ini's
+`Game.Player1-4` and every file format stay at `MAX_LOCAL_PLAYERS` (4). Netplay is off unless
 `--host`, `--connect`, `--dedicated` or a lobby room turns it on, and every
 hook in `src/` is a one-line call into `port/src/net/` behind
 `g_NetMode != NETMODE_NONE`, so offline play is bit-identical (the replay
@@ -42,7 +44,7 @@ gate proves it after each change).
 | transport | `nettransport.c` | the only file that includes ENet (vendored from upstream, patched: fragment-count bomb, oversized Windows datagrams, a 5 s retry limit); three channels, raw datagrams on the same socket for hole punching, a loss/latency simulator (`--net-sim`) |
 | codec | `netbuf.c`, `netdelta.c` | bounded little-endian reader/writer with a sticky error; EQOA-style XOR against the last acked baseline plus zero-run RLE, a 64-entry baseline ring per peer |
 | tick | `net.c` | an integer 60 Hz clock: `mainNetFrame` runs the whole `mainTick`s due, one pad sample per tick, the mouse summed per frame |
-| session | `netsession.c`, `netrules.c`, `nethash.c`, `netticket.c` | CONNECT/ACCEPT/REFUSE (protocol, build, region, converter, named content-hash components, lobby ticket), RULES and STAGE_LOAD by stage key, LOADED stage hashes, the GO barrier, MATCH_END, seats, join in progress, reconnect holds |
+| session | `netsession.c`, `netrules.c`, `nethash.c`, `netticket.c` | CONNECT/ACCEPT/REFUSE (protocol, build, region, converter, named content-hash components, lobby ticket), RULES and STAGE_LOAD by stage key, LOADED stage hashes, the GO barrier, MATCH_END, seats (a room's size or `Net.MaxPlayers`), join in progress, reconnect holds |
 | remote players | `netplayers.c` | a client's commands drive a virtual pad on the host (`osContGetReadData` hook), per-slot settings in a side table |
 | snapshots | `netents.c`, `netsnap.c` | prop generations, per-client visibility and priority, fixed quantized records, a full-precision local-player block, acks/NACKs |
 | puppets | `netpuppets.c` | the client poses the host's world: chrs interpolated ~2 snapshots behind, objects, doors, lifts, projectiles from descriptors |
@@ -81,7 +83,7 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 `netproto.h` documents every message byte by byte (u8 type first, then
 fields through netbuf, never a struct copied whole), the channel each goes
 on (RULES and STAGE_LOAD share BULK so a STAGE_LOAD never overtakes its
-RULES), the refusal codes, and the protocol history. Protocol 9 is current.
+RULES), the refusal codes, and the protocol history. Protocol 10 is current (phase 8: twelve human slots).
 The lobby's HTTP API and the rendezvous/relay datagrams are in
 `tools/pdlobbyd/README.md`. A change to a message's shape or meaning bumps
 `NET_PROTOCOL_VERSION`; pdlobbyd lists a room's protocol and the Briefing
@@ -110,6 +112,8 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netscenariotest.sh` | 21 min | every scenario, two lossy |
 | `netcontenttest.sh` | 7.5 min | GoldenEye arenas, mod maps, overlay, bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
+| `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
+| `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, pauses, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
 gate: `build/pd-base.x86_64` is the pre-netplay baseline; offline play must
@@ -119,9 +123,13 @@ mingw one in `build-win` (re-run `cmake -Bbuild . && cmake -Bbuild-win .`
 after adding a file, or the Windows link fails).
 
 **Statistical gates get one solo rerun.** neteventtest's audio check,
-netscenariotest's King of the Hill, netnattest's case c and netlagcomptest's
+netscenariotest's King of the Hill, netnattest's case c, netpredicttest's
+sims case (head data refused) and netlagcomptest's on (hit rate 93.9%),
 loss and soak cases each failed once in a full sequential run and passed
-alone; replaytest's `randrun` case flips between two hashes on the base
+alone. netscenariotest's htmloss ("not played enough": the download
+started, then "Connection broken") fails alone too, about half the time
+on the phase 7 binary as well (2 of 3 on 2026-10-06; 4 of 5 on phase 8's):
+a flake of the case, not a regression; replaytest's `randrun` case flips between two hashes on the base
 binary too. Rerun the one gate alone before looking for a regression.
 
 **The Windows lobby client under wine.** `netlobbywinetest.sh` stages
@@ -137,6 +145,63 @@ then lists, joins, READYs and plays; the Linux host is
 (`ghostnet.c`), which takes plain `http://` as well as https.
 
 ## Traps
+
+- **Two player counts (phase 8).** `MAX_PLAYERS` (12) is a net room's
+  humans: player structs, stats, menus, pads (`NUM_PADS`, a virtual pad
+  per slot), side tables. `MAX_LOCAL_PLAYERS` (4) is everything physical or
+  on disk: splitscreen, `MAXCONTROLLERS`/`g_Paks`/`g_Pfses` (every rumble
+  and pak call is bounded there: `mpindex` is a pad number up to 11 on the
+  host), binds, `g_PlayerExtCfg` (pd.ini `Game.Player1-4`; slot k's is
+  `LOCALPLAYER(k)` offline), challenge completions, mpsetup teams, the save
+  queue's sentinel 4, `mpconfigsim.difficulties` (ROM). `g_MpSetup.chrslots`
+  keeps bits 0-3 humans and 4-11 sims (ROM, saves, challenges); humans 4-11
+  live in `g_MpHumanSlotsHi`, set only by net code, so test a human with
+  `mpIsHumanSlotOn()`. The sim mirror shifts by `MPSETUP_HUMANBITS`, never
+  `MAX_PLAYERS` (at 12 it runs off the u16 and every save loses its sims;
+  the replay gate does not see that, a save round trip does). The first bot
+  mpchr slot is `MAX_PLAYERS`; the solo/co-op stash is
+  `[MPINDEX_SOLO]`/`[+1]` = 12/13 (it was 4/5: `gamefile.c` and the solo
+  options' items, which still say 4 and 5, map through `SOLO_OPTIONS_INDEX`).
+- **The owner nibble (phase 8).** `obj->hidden >> 28` is an owner mpchr
+  index (a thrown or placed weapon's, an object's last attacker, the HTM
+  terminal's activator), and a room of 12 humans and sims passes 16 chrs.
+  Every writer notes the full index in a side table (`NET_OBJ_OWNER`,
+  netents.c) and every reader goes through `OBJ_OWNER(obj)`, which returns
+  the table's value when its low four bits still equal the nibble, else the
+  nibble (offline: the nibble, the ROM's). A new writer of those bits needs
+  the hook, or a stale table entry can name the wrong chr.
+- **A command-line client has no agent file.** `--connect` from a fresh
+  `--savedir` skips Choose Your Reality, and the game-file save PD queues
+  after every match (save queue value 4) put "Error Saving Game: insert the
+  Controller Pak" over the end screen, which START only retried. A net match
+  queues it only when a game file is loaded.
+- **Host traffic.** Every 300 ticks the host logs ENet's bytes to and from
+  each client (`net: traffic slot N so far`) beside the snapshot stats
+  (`net: snap slot N so far`); nettwelvetest reads both. A client that has
+  left for the menus (its LOBBY for the current match came) gets no more
+  snapshots while the host sits on its end screen: they had all become
+  keyframes, nothing acked, about 23 KB/s each until the host stopped the
+  stage (`netSessionSlotLeftMatch`).
+- **A pad's START does not pause a client.** A `--net-test-input` START
+  on a client in a match (its player alive, tick 30) left the pause menu
+  shut, though START on the end screen works; ESC is the path bondmove.c
+  names for a net client. Not chased in phase 8 (commands strip START on
+  the way to the host; where the client's own player loses it is unknown).
+  nettwelvetest puts the pause menu up from gdb instead, as the player:
+  `setCurrentPlayerNum(slot)` first, or it goes into slot 0's menu and
+  nothing draws.
+- **Sound off fills the music queue.** With `g_SndDisabled` (`--no-sound`,
+  every `--dedicated` host) nothing drains `g_MusicEventQueue[40]`, and
+  `musicRestoreInterval`, unlike the other queue writers, did not check it:
+  two entries per MP death of a player whose HUD is drawn, so a dedicated
+  host with a dozen players ran past the queue into the globals after it
+  within a match (it crashed in `objectiveCheckRoomEntered`). Found by
+  nettwelvetest under ASan; the writer now returns with sound off.
+- **The player-order shuffle.** `playermgrShuffle` draws RNG for a fixed
+  count every tick: 4, or 12 in a room of more than 4 (keyed on the count,
+  never on `g_NetMode`: `--net-clock-test` runs offline as a server and
+  compares RNG with the stock run). Award ties draw RNG per player too
+  (`mpFind*N`, the same draws for 4 or fewer).
 
 - **`bool` is two sizes.** ENet includes `<stdbool.h>` (1-byte `bool`); the
   game's `types.h` makes `bool` an `s32`. Keep ENet in `nettransport.c`

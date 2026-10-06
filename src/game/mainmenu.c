@@ -97,6 +97,13 @@ u16 g_ControlStyleOptions[] = {
 	L_OPTIONS_246, // "2.4"
 };
 
+/**
+ * The solo options' items name their player 4 or 5, the solo/co-op stash's
+ * old place in g_PlayerConfigsArray; it is [MPINDEX_SOLO] and
+ * [MPINDEX_SOLO + 1] since phase 8 (MAX_PLAYERS 12)
+ */
+#define SOLO_OPTIONS_INDEX(p3) ((p3) == 4 ? MPINDEX_SOLO : (p3) == 5 ? MPINDEX_SOLO + 1 : (p3))
+
 MenuItemHandlerResult menuhandlerControlStyleImpl(s32 operation, struct menuitem *item, union handlerdata *data, s32 mpindex)
 {
 	u16 categories[] = {
@@ -153,12 +160,12 @@ MenuItemHandlerResult menuhandlerControlStyleImpl(s32 operation, struct menuitem
 
 MenuItemHandlerResult menuhandler001024dc(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	return menuhandlerControlStyleImpl(operation, item, data, 4);
+	return menuhandlerControlStyleImpl(operation, item, data, MPINDEX_SOLO);
 }
 
 MenuItemHandlerResult menuhandler001024fc(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	return menuhandlerControlStyleImpl(operation, item, data, 5);
+	return menuhandlerControlStyleImpl(operation, item, data, MPINDEX_SOLO + 1);
 }
 
 MenuItemHandlerResult menuhandlerReversePitch(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -168,7 +175,7 @@ MenuItemHandlerResult menuhandlerReversePitch(s32 operation, struct menuitem *it
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -185,7 +192,7 @@ MenuItemHandlerResult menuhandlerReversePitch(s32 operation, struct menuitem *it
 MenuItemHandlerResult menuhandlerAimControl(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	u32 playernum = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
-		? g_Vars.currentplayerstats->mpindex : item->param3;
+		? g_Vars.currentplayerstats->mpindex : SOLO_OPTIONS_INDEX(item->param3);
 
 #if VERSION >= VERSION_PAL_FINAL
 	s32 index = 0;
@@ -380,7 +387,7 @@ MenuItemHandlerResult menuhandlerLookAhead(s32 operation, struct menuitem *item,
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -401,7 +408,7 @@ MenuItemHandlerResult menuhandlerHeadRoll(s32 operation, struct menuitem *item, 
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -492,7 +499,7 @@ MenuItemHandlerResult menuhandlerAmmoOnScreen(s32 operation, struct menuitem *it
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -513,7 +520,7 @@ MenuItemHandlerResult menuhandlerShowGunFunction(s32 operation, struct menuitem 
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -539,7 +546,7 @@ MenuItemHandlerResult menuhandlerShowMissionTime(s32 operation, struct menuitem 
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -560,7 +567,7 @@ MenuItemHandlerResult menuhandlerAlwaysShowTarget(s32 operation, struct menuitem
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -586,7 +593,7 @@ MenuItemHandlerResult menuhandlerShowZoomRange(s32 operation, struct menuitem *i
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -612,7 +619,7 @@ MenuItemHandlerResult menuhandlerPaintball(s32 operation, struct menuitem *item,
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -633,7 +640,7 @@ MenuItemHandlerResult menuhandlerSightOnScreen(s32 operation, struct menuitem *i
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {
@@ -654,7 +661,7 @@ MenuItemHandlerResult menuhandlerAutoAim(s32 operation, struct menuitem *item, u
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mpchrnum = g_Vars.currentplayerstats->mpindex;
 	} else {
-		mpchrnum = item->param3;
+		mpchrnum = SOLO_OPTIONS_INDEX(item->param3);
 	}
 
 	switch (operation) {

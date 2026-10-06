@@ -43,7 +43,12 @@
  */
 
 // Bumped whenever any message below changes shape or meaning
-#define NET_PROTOCOL_VERSION 9
+// 10 (phase 8, MAX_PLAYERS 4 -> 12): RULES carries 12 human slots and a
+//    u16 humanslotshi after chrslots, ROSTER 12 seats, MATCH_END 12 award and
+//    medal pairs and 92 mpchrs, the scenario block is 768 bytes with 12
+//    players' tokenheld/holds (OFF_BODY 224), spectator views are 12-13,
+//    every mpchr slot is players 0-11, sims 12+
+#define NET_PROTOCOL_VERSION 10
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -148,7 +153,7 @@
  *
  * ACCEPT (host -> client)
  *   u8      NETMSG_ACCEPT
- *   u8      slot              the client's mpindex slot (0-3), or
+ *   u8      slot              the client's mpindex slot (0-11), or
  *                             NETSLOT_SPECTATOR for a spectator
  *   u32     hosttick          the host's g_NetTick now
  *   u8      dedicated         1 if the host has no player of its own
@@ -198,6 +203,9 @@
  *   g_MpSetup:
  *     str(17) name, u32 options, u8 scenario, u8 timelimit, u8 scorelimit,
  *     u16 teamscorelimit, u16 chrslots, u8 weapons[6]
+ *   u16     humanslotshi          (protocol 10) human slots 4-11, bit k =
+ *                                 slot 4+k (chrslots keeps bits 0-3 humans,
+ *                                 4-11 sims: the ROM/save layout)
  *   u32     scenario save bits    scenarioWriteSave()'s 32
  *   s32     weaponsetnum          g_MpWeaponSetNum
  *   u64     randomfilters         g_MpWeaponSetRandomFilters, one bit each
@@ -205,8 +213,8 @@
  *   u8      nsims                 sims that follow (slots with simslots[i])
  *     u8 index, u8 type, u8 difficulty, u8 mpheadnum, u8 mpbodynum, u8 team,
  *     u32 displayoptions, str(14) name, s8 stats[5]
- *   u8      difficulties[80][4]   g_MpSimulantDifficultiesPerNumPlayers
- *   4 x human slot (g_PlayerConfigsArray[0-3]):
+ *   u8      difficulties[80][4]   g_MpSimulantDifficultiesPerNumPlayers (pinned at 4)
+ *   12 x human slot (g_PlayerConfigsArray[0-11]; protocol 10, was 4):
  *     str(14) name, u8 mpheadnum, u8 mpbodynum, u8 team, u32 displayoptions,
  *     u8 handicap, u16 options, u8 gunfuncs[6]
  *     (never fileguid or career stats)
@@ -232,7 +240,8 @@
  *   str(31) label                 the arena's name, for the lobby and logs
  *   u64     seed                  rngSetSeed at H4
  *   u64     seed2                 rng2SetSeed at H4
- *   u8      numplayers            humans in the match (chrslots bits 0-3)
+ *   u8      numplayers            humans in the match (chrslots bits 0-3
+ *                                 and humanslotshi)
  *   u8      yourplayer            this client's player number in the match;
  *                                 NETSLOT_SPECTATOR: none, a spectator
  *                                 (protocol 9; it watches through player 0)
@@ -261,8 +270,8 @@
  * of a join in progress and to everyone whenever one changes hands:
  *   u8      NETMSG_ROSTER
  *   u32     matchid
- *   u8      nseats                MAX_PLAYERS
- *   per seat (mpindex 0-3):
+ *   u8      nseats                MAX_PLAYERS (12; protocol 10, was 4)
+ *   per seat (mpindex 0-11):
  *     u8 state                    0 not in the match, 1 the host's, 2 a
  *                                 client's, 3 open, 4 held for a dropped one
  *     str(14) name                the player's name (g_PlayerConfigsArray)
@@ -274,8 +283,8 @@
  *   u8      numplayers
  *   per player (g_Vars.players[i]):
  *     u8 award1, u8 award2        index into g_AwardNames, 0xff for none
- *   per human slot (g_PlayerConfigsArray[0-3]): u8 medals, u8 title
- *   u8      nchrs                 MAX_MPCHRS
+ *   per human slot (g_PlayerConfigsArray[0-11]): u8 medals, u8 title
+ *   u8      nchrs                 MAX_MPCHRS (92; protocol 10, was 84)
  *   per mpchr slot (MPCHR(i)):
  *     s8 placement, s32 rankablescore, s16 numdeaths, s16 numpoints,
  *     s16 killcounts[MAX_MPCHRS]
@@ -425,20 +434,21 @@
  *     bytes 208..687
  *   u8      hasscen               (protocol 7) 0 none, 1 keyframe, 2 against
  *                                 the baseline's
- *   delta   scenario              NETSCEN_SIZE (640) bytes, the match's
- *     scenario state, the same for every client (netscen.c), every index
- *     an mpchr config slot (players 0-3, sims 4+); REF5 is u8 kind (0 none,
+ *   delta   scenario              NETSCEN_SIZE (768; protocol 10, was 640)
+ *     bytes, the match's scenario state, the same for every client
+ *     (netscen.c), every index an mpchr config slot (players 0-11, sims
+ *     12+); REF5 is u8 kind (0 none,
  *     1 a chr: u8 slot, 2 an entity: u16 id, u16 gen) and 4 bytes:
  *       0  u8 scenario (0xff outside a match), u8 0[3]
- *       4  s16 numpoints[84]       MPCHR(slot)->numpoints
- *     172  u16 tokenheld[4]        each player's tokenheldtime
- *     180  u8 holds[4]             each player's inventory: 1 briefcase, 2 uplink
- *     184  Hold the Briefcase: REF5 token, f32 pos[3]
+ *       4  s16 numpoints[92]       MPCHR(slot)->numpoints
+ *     188  u16 tokenheld[12]       each player's tokenheldtime
+ *     212  u8 holds[12]            each player's inventory: 1 briefcase, 2 uplink
+ *     224  Hold the Briefcase: REF5 token, f32 pos[3]
  *          Hacker Central: s8 download slot, s8 in-range slot, s8 terminal,
  *            u8 0, REF5 uplink, REF5 terminal, u8 terminal team, u8 0,
- *            s16 downloads[84], u16 dltime240[84]
+ *            s16 downloads[92], u16 dltime240[92]
  *          Pop a Cap: s16 victimindex, u16 age240, u8 nvictims,
- *            u8 victims[84] (slots, 0xff none), s16 caps[84], s16 survivals[84]
+ *            u8 victims[92] (slots, 0xff none), s16 caps[92], s16 survivals[92]
  *          King of the Hill: s16 occupiedteam, elapsed240, movehill,
  *            hillindex, hillcount, s16 hillrooms[2], f32 hillpos[3],
  *            f32 colourfrac[3]
@@ -505,7 +515,7 @@
  *   7 DEFORM     (E5, objDeform)          REF obj, s16 level
  *   8 GLASS      (E5, glassDestroy)       REF obj
  *   9 DEATH      (E6, mpstatsRecordDeath) s8 attacker, s8 victim (mpchr slots:
- *                players 0-3, sims 4+, -1 none), s8 attacker given (-1 none,
+ *                players 0-11, sims 12+, -1 none), s8 attacker given (-1 none,
  *                -2 outside the match), s8 victim given (the same)
  *  10 HUDMSG     (E7, hudmsgCreateFromArgs; only to the player's machine)
  *                str(255) text, u8 type (<= 11), s32 conf00, conf01, conf02,

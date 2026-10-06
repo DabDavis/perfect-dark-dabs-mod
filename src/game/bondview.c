@@ -35,7 +35,7 @@ char var800a41c0[26];
 char var800a41c0[24];
 #endif
 
-u8 g_IrScanlines[4][480];
+u8 g_IrScanlines[MAX_PLAYERS][480];
 
 #if VERSION < VERSION_NTSC_1_0
 u8 var800a8b58nb[0x1c0];

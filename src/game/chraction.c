@@ -6218,7 +6218,7 @@ bool chrIsRoomOffScreen(struct chrdata *chr, struct coord *waypos, RoomNum *wayr
 
 		if (g_Vars.mplayerisrunning) {
 			for (i = 0; sp7c[i] != -1; i++) {
-				if (g_MpRoomVisibility[sp7c[i]] & 0x0f) {
+				if (g_MpRoomVisibility[sp7c[i]] & MPROOMVIS_ONSCREEN) {
 					offscreen = false;
 					break;
 				}

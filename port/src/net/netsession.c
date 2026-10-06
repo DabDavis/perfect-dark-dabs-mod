@@ -135,7 +135,8 @@ struct netseat {
 };
 
 static struct netseat s_Seats[MAX_PLAYERS];
-static s32 s_JoinInProgress = 0; // Net.JoinInProgress: every match starts with all four seats
+static s32 s_JoinInProgress = 0; // Net.JoinInProgress: every match starts with all its seats
+static s32 s_MaxPlayers = 4;     // Net.MaxPlayers: humans a direct host seats (2-12; lobby rooms seat their own size)
 static s32 s_ReconnectHold = 30; // Net.ReconnectHold: seconds a dropped player's seat is kept
 static s32 s_HostEnded = 0;      // the host's MATCH_END has gone
 static s32 s_Spectate = 0;       // client: --net-spectate, or a lobby room's spectator
@@ -264,6 +265,28 @@ PD_CONSTRUCTOR static void netSessionConfigInit(void)
 	configRegisterInt("Net.LobbyClockOffset", &s_LobbyClockOffset, -86400, 86400);
 	configRegisterInt("Net.JoinInProgress", &s_JoinInProgress, 0, 1);
 	configRegisterInt("Net.ReconnectHold", &s_ReconnectHold, 0, 600);
+	configRegisterInt("Net.MaxPlayers", &s_MaxPlayers, 2, MAX_PLAYERS);
+}
+
+s32 netSessionMaxPlayers(void)
+{
+	return s_MaxPlayers < 2 ? 2 : s_MaxPlayers > MAX_PLAYERS ? MAX_PLAYERS : s_MaxPlayers;
+}
+
+/**
+ * The seats a match this host starts has (phase 8): a lobby room's size, or
+ * Net.MaxPlayers. Every seat is a player pass on the host, so a 2-player
+ * room seats 2, not MAX_PLAYERS.
+ */
+static s32 netHostSeatCount(void)
+{
+	s32 n = s_LobbyRoomOn ? netLobbyRoomMaxHumans() : 0;
+
+	if (n <= 0) {
+		n = netSessionMaxPlayers();
+	}
+
+	return n < 1 ? 1 : n > MAX_PLAYERS ? MAX_PLAYERS : n;
 }
 
 // The lobby's clock as the host keeps it: a lobby room's offset from the
@@ -625,7 +648,7 @@ static s32 netHostFreeSlot(s32 peer)
 	s32 slot;
 	s32 i;
 
-	for (slot = netIsDedicatedHost() ? 0 : 1; slot < MAX_PLAYERS; slot++) {
+	for (slot = netIsDedicatedHost() ? 0 : 1; slot < netHostSeatCount(); slot++) {
 		s32 taken = 0;
 
 		for (i = 0; i < NET_MAXPEERS; i++) {
@@ -1069,7 +1092,7 @@ static s32 netSeatPlayer(s32 slot)
 	s32 i;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
-		if (g_Vars.players[i] && (g_Vars.playerstats[i].mpindex & 3) == slot) {
+		if (g_Vars.players[i] && g_Vars.playerstats[i].mpindex == slot) {
 			return i;
 		}
 	}
@@ -1141,12 +1164,12 @@ static u64 netMix(u64 x)
 /**
  * RULES and STAGE_LOAD for the match (s_MatchId on s_MatchStage) to one
  * client: at H1, or to a join in progress. The players are chrslots' bits
- * 0-3; a spectator is none of them.
+ * 0-3 and g_MpHumanSlotsHi's 4-11 (mpHumanSlotMask); a spectator is none of them.
  */
 static void netHostSendStage(s32 peer)
 {
 	const struct netclient *c = &s_Clients[peer];
-	const s32 bits = g_MpSetup.chrslots & ((1 << MAX_PLAYERS) - 1);
+	const s32 bits = mpHumanSlotMask();
 	char label[NET_MAXMAPDIR + NET_MAXMAPNAME + 8];
 	struct netbuf b;
 	s32 numplayers = 0;
@@ -1219,7 +1242,7 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 	// go out of play once it runs, and wait for a joiner
 	// A lobby room's too: pdlobbyd lets a launched room be joined
 	if (s_JoinInProgress || s_LobbyRoomOn) {
-		bits = (1 << MAX_PLAYERS) - 1;
+		bits = (1 << netHostSeatCount()) - 1;
 	}
 
 	memset(s_Seats, 0, sizeof(s_Seats));
@@ -1310,7 +1333,7 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 		}
 	}
 
-	g_MpSetup.chrslots = (g_MpSetup.chrslots & ~0xf) | bits;
+	mpSetHumanSlotMask(bits);
 
 	s_MatchId++;
 	s_MatchIdCur = s_MatchId;
@@ -1538,7 +1561,7 @@ static void netHostSendRoster(void)
 
 static void netHostLogSeats(const char *why)
 {
-	char line[384];
+	char line[1024];
 	s32 len = 0;
 	s32 i;
 
@@ -1550,6 +1573,11 @@ static void netHostLogSeats(const char *why)
 		char name[16];
 		s32 kills = 0;
 		s32 j;
+
+		// seats past the room's size are never in the match
+		if (i >= MAX_LOCAL_PLAYERS && s_Seats[i].state == NETSEAT_NONE) {
+			continue;
+		}
 
 		for (j = 0; j < MAX_MPCHRS; j++) {
 			kills += j != i ? mpchr->killcounts[j] : 0;
@@ -2173,7 +2201,7 @@ static void netClientBeginStage(struct netbuf *b)
 	if (s_Spectating) {
 		s32 pad = 0;
 
-		while (pad < MAX_PLAYERS - 1 && !(g_MpSetup.chrslots & (1 << pad))) {
+		while (pad < MAX_PLAYERS - 1 && !mpIsHumanSlotOn(pad)) {
 			pad++;
 		}
 
@@ -3273,6 +3301,62 @@ s32 netSessionSlotRtt(s32 slot, s32 *rtt, s32 *rttvar)
 	return -1;
 }
 
+/**
+ * A client in this slot or view that has gone back to its menus from the
+ * current match (its LOBBY for it came) while the host is still on the
+ * stage, its end screen: it gets no more snapshots, which with nothing acked
+ * would all be keyframes
+ */
+s32 netSessionSlotLeftMatch(s32 slot)
+{
+	s32 i;
+
+	if (s_Role != NETROLE_HOST || !s_MatchIdCur) {
+		return 0;
+	}
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (s_Clients[i].state >= NETCL_LOADING && s_Clients[i].state <= NETCL_PLAYING
+				&& s_Clients[i].slot == slot && s_Clients[i].lobbymatch == s_MatchIdCur) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Phase 8: the host's traffic with each client so far, ENet's totals (every
+ * datagram's length, ENet's headers included, UDP/IP's not), for the
+ * bandwidth gate (tools/ci/nettwelvetest.sh)
+ */
+void netSessionLogTraffic(const char *why)
+{
+	struct netpeerstats st;
+	u64 sent = 0;
+	u64 recv = 0;
+	s32 n = 0;
+	s32 i;
+
+	if (s_Role != NETROLE_HOST || !g_NetHostSocket) {
+		return;
+	}
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (s_Clients[i].state >= NETCL_JOINED && s_Clients[i].state != NETCL_REFUSED
+				&& netHostPeerStats(g_NetHostSocket, i, &st) == 0 && st.connected) {
+			sysLogPrintf(LOG_NOTE, "net: traffic slot %d %s (tick %u): sent %u bytes, received %u bytes, rtt %u ms",
+					s_Clients[i].slot, why, g_NetTick, st.bytessent, st.bytesreceived, st.rtt);
+			sent += st.bytessent;
+			recv += st.bytesreceived;
+			n++;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: traffic host %s (tick %u): %d clients, sent %llu bytes, received %llu bytes",
+			why, g_NetTick, n, (unsigned long long)sent, (unsigned long long)recv);
+}
+
 s32 netSessionSendServer(s32 channel, const void *data, s32 len, s32 flags)
 {
 	if (s_Role != NETROLE_CLIENT || !g_NetHostSocket || s_ServerPeer < 0 || s_ClientState == NETCS_GONE) {
@@ -3488,6 +3572,7 @@ void netSessionLobbyStop(void)
 	s_LobbyRoomOn = 0;
 	s_LobbyRoomId[0] = '\0';
 	s_LobbyRoomSecret[0] = '\0';
+	g_MpHumanSlotsHi = 0;
 	s_ClientState = NETCS_IDLE;
 	s_ServerPeer = -1;
 	s_Ticket[0] = '\0';

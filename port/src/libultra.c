@@ -196,7 +196,18 @@ void osContGetReadData(OSContPad *pad)
 	// netplay (hook V): this machine's pad for its own player, the rest neutral
 	if (g_NetMode != NETMODE_NONE && netContGetReadData(pad)) return;
 
-	// game always passes in an array of 4 OSContPads
+	// the game passes in NET_NUM_PADS (joy.c's NUM_PADS) OSContPads; only the
+	// first MAXCONTROLLERS are physical, the rest (net players' virtual pads)
+	// read nothing here
+	for (s32 i = MAXCONTROLLERS; i < NET_NUM_PADS; ++i) {
+		pad[i].button = 0;
+		pad[i].stick_x = 0;
+		pad[i].stick_y = 0;
+		pad[i].rstick_x = 0;
+		pad[i].rstick_y = 0;
+		pad[i].errnum = CONT_NO_RESPONSE_ERROR;
+	}
+
 	for (s32 i = 0; i < MAXCONTROLLERS; ++i, ++pad) {
 		pad->button = 0;
 		pad->stick_x = 0;
@@ -218,9 +229,10 @@ s32 osContStartQuery(OSMesgQueue *mq)
 
 void osContGetQuery(OSContStatus *status)
 {
-	// also always 4 status structs here
-	for (s32 i = 0; i < MAXCONTROLLERS; ++i, ++status) {
-		if (inputControllerConnected(i) || (g_NetMode != NETMODE_NONE && netVpadConnected(i))) {
+	// NET_NUM_PADS status structs (joy.c's g_JoyContStatuses): pads 4-11 are
+	// only ever a net player's virtual pad
+	for (s32 i = 0; i < NET_NUM_PADS; ++i, ++status) {
+		if ((i < MAXCONTROLLERS && inputControllerConnected(i)) || (g_NetMode != NETMODE_NONE && netVpadConnected(i))) {
 			status->errnum = 0;
 			status->type = CONT_ABSOLUTE;
 			status->status = CONT_CARD_ON;

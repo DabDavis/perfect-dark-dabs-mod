@@ -234,8 +234,8 @@ bool g_PlayerTriggerGeFadeIn = false;
 u32 var80070748 = 0;
 u32 var8007074c = 0;
 
-bool g_PlayersWithControl[] = {
-	true, true, true, true
+bool g_PlayersWithControl[MAX_PLAYERS] = {
+	[0 ... MAX_PLAYERS - 1] = true
 };
 
 bool g_PlayerInvincible = false;

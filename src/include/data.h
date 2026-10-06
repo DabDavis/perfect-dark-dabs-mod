@@ -293,7 +293,7 @@ extern struct gecreditsdata *g_CurrentGeCreditsData;
 extern bool g_PlayerTriggerGeFadeIn;
 extern u32 var80070748;
 extern u32 var8007074c;
-extern bool g_PlayersWithControl[];
+extern bool g_PlayersWithControl[MAX_PLAYERS];
 extern bool g_PlayerInvincible;
 extern s32 g_InCutscene;
 extern s16 g_DeathAnimations[];
@@ -336,7 +336,7 @@ extern struct menudialogdef g_MpConfirmChallenge4MbMenuDialog;
 extern struct menudialogdef g_MainMenu4MbMenuDialog;
 extern struct menudialogdef g_MpEditSimulant4MbMenuDialog;
 extern struct menudialogdef g_AdvancedSetup4MbMenuDialog;
-extern struct filelist *g_FileLists[MAX_PLAYERS];
+extern struct filelist *g_FileLists[MAX_LOCAL_PLAYERS];
 extern bool var80075bd0[];
 extern struct headanim g_HeadAnims[2];
 extern s32 var80075d60;
@@ -607,7 +607,7 @@ extern struct menudialogdef g_HangarListMenuDialog;
 
 #ifndef PLATFORM_N64
 
-extern struct extplayerconfig g_PlayerExtCfg[MAX_PLAYERS];
+extern struct extplayerconfig g_PlayerExtCfg[MAX_LOCAL_PLAYERS];
 
 extern struct weathercfg g_WeatherConfig[WEATHERCFG_MAX_STAGES];
 extern const struct weathercfg g_DefaultWeatherConfig;
@@ -646,7 +646,8 @@ extern s16 g_MpCurrentSetup;
 // never written to pd.ini; g_NetExtCfgOn is 0 offline
 extern s32 g_NetExtCfgOn;
 extern struct extplayerconfig g_NetExtCfg[MAX_PLAYERS];
-#define PLAYER_EXTCFG() (g_NetExtCfgOn ? g_NetExtCfg : g_PlayerExtCfg)[g_Vars.currentplayerstats->mpindex & 3]
+#define PLAYER_EXTCFG() (*(g_NetExtCfgOn ? &g_NetExtCfg[g_Vars.currentplayerstats->mpindex % MAX_PLAYERS] \
+                                       : &g_PlayerExtCfg[LOCALPLAYER(g_Vars.currentplayerstats->mpindex)]))
 #define PLAYER_DEFAULT_FOV (PLAYER_EXTCFG().fovy)
 
 #define TEX_FILTER_2D g_TexFilter2D

@@ -345,7 +345,9 @@ void propsReset(void)
 	g_AutogunDamageRxScale = 1;
 	g_AmmoQuantityScale = 1;
 
-	g_MaxThrownLaptops = g_Vars.normmplayerisrunning ? 12 : PLAYERCOUNT();
+	// 12 = the ROM's 4 players + 8 sims; a net room seats more (laptopDeploy
+	// indexes this by mpchr index)
+	g_MaxThrownLaptops = g_Vars.normmplayerisrunning ? (g_NetMode != NETMODE_NONE ? MAX_MPCHRS : 12) : PLAYERCOUNT();
 
 	g_ThrownLaptops = mempAlloc(ALIGN16(g_MaxThrownLaptops * sizeof(struct autogunobj)), MEMPOOL_STAGE);
 	g_ThrownLaptopBeams = mempAlloc(ALIGN16(g_MaxThrownLaptops * sizeof(struct beam)), MEMPOOL_STAGE);
@@ -880,6 +882,7 @@ void setupCreateMine(struct mineobj *mine, s32 cmdindex)
 
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		mine->base.hidden = (mine->base.hidden & 0x0fffffff) | (2 << 28);
+		NET_OBJ_OWNER(&mine->base, 2);
 	}
 
 	mine->base.prop->forcetick = true;
@@ -2172,7 +2175,7 @@ void setupCreateProps(s32 stagenum)
 					diffflag |= OBJFLAG2_EXCLUDE_2P;
 				} else if (PLAYERCOUNT() == 3) {
 					diffflag |= OBJFLAG2_EXCLUDE_3P;
-				} else if (PLAYERCOUNT() == 4) {
+				} else if (PLAYERCOUNT() >= 4) {
 					diffflag |= OBJFLAG2_EXCLUDE_4P;
 				}
 			}

@@ -217,6 +217,8 @@ s32 netPlayersHostDepth(s32 slot);
 // netsession.c: the round trip ENet measures to the slot's peer and its
 // variance, ms (rtt -1: no such peer); 0 found
 s32 netSessionSlotRtt(s32 slot, s32 *rtt, s32 *rttvar);
+void netSessionLogTraffic(const char *why);
+s32 netSessionSlotLeftMatch(s32 slot);
 // netlagcomp.c: the client's own aim as a correction replayed on a frame
 // between ticks left it, kept for that frame's end
 void netLagCompAimResave(s32 pn);

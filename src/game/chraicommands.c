@@ -66,6 +66,7 @@
 #include "modloader.h"
 #include "game/modbodies.h"
 #include "game/setup.h"
+#include "net/net.h"
 #endif
 
 /**
@@ -2453,6 +2454,7 @@ bool aiGiveObjectToChr(void)
 			propExecuteTickOperation(obj->prop, something);
 			playernum = playermgrGetPlayerNumByProp(chr->prop);
 			obj2->hidden = (playernum << 28) | (obj2->hidden & 0x0fffffff);
+			NET_OBJ_OWNER(obj2, playernum);
 			setCurrentPlayerNum(prevplayernum);
 		} else {
 			if (obj->prop->parent) {

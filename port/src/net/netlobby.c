@@ -135,6 +135,7 @@ static s32 s_UdpDone = 0;         // action thread only: learnt, or the lobby of
 static struct netlobbyroomsum s_Rooms[NETLOBBY_MAXROOMS];
 static s32 s_NumRooms = 0;
 static struct netlobbyroom s_Room;
+static s32 s_CreateMaxHumans = 0; // the size this machine made its room with
 static char s_MainMessage[200] = "";
 static u32 s_SeenRoomsSeq = 0;
 static u32 s_SeenRoomSeq = 0;
@@ -1732,6 +1733,8 @@ void netLobbyCreate(const struct netlobbycreate *c)
 
 	lobbyLeaveForNew();
 
+	s_CreateMaxHumans = maxhumans;
+
 	// the room's host is a listen server from the moment the room exists:
 	// its port goes in the endpoints, and joiners arrive at launch
 	if (netSessionLobbyHost(g_GhostNetUser) != 0) {
@@ -1763,6 +1766,8 @@ void netLobbyJoin(const char *roomid, const char *password)
 	s32 len;
 
 	lobbyLeaveForNew();
+
+	s_CreateMaxHumans = 0;
 
 	ghostnetJsonEscape(password ? password : "", pw, sizeof(pw));
 	snprintf(path, sizeof(path), "/rooms/%.8s/join", roomid);
@@ -1902,6 +1907,8 @@ void netLobbyLeave(void)
 	}
 
 	sysLogPrintf(LOG_NOTE, "lobby: leaving room %s", s_Room.sum.id[0] ? s_Room.sum.id : "(new)");
+
+	s_CreateMaxHumans = 0;
 
 #ifdef PD_GHOST_NET
 	if (s_InRoom) {
@@ -3011,4 +3018,19 @@ static void lobbyScriptTick(void)
 			break;
 		}
 	}
+}
+
+/**
+ * Phase 8: the size of the room this machine hosts, which its matches seat
+ * (netsession.c), or 0 when it hosts none
+ */
+s32 netLobbyRoomMaxHumans(void)
+{
+	if (s_InRoom && s_Room.valid && s_Room.sum.maxhumans > 0) {
+		// Remember the room's latest size (Room Settings can change it) for
+		// a moment its record is not valid
+		s_CreateMaxHumans = s_Room.sum.maxhumans;
+	}
+
+	return s_CreateMaxHumans;
 }

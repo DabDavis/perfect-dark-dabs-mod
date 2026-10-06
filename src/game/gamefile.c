@@ -53,8 +53,8 @@ void gamefilePrintFlags(void)
 
 void gamefileApplyOptions(struct gamefile *file)
 {
-	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : 4;
-	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
+	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : MPINDEX_SOLO;
+	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : MPINDEX_SOLO + 1;
 
 	optionsSetForwardPitch(player1, pakHasBitflag(GAMEFILEFLAG_P1_FORWARDPITCH, file->flags));
 	optionsSetAutoAim(player1, pakHasBitflag(GAMEFILEFLAG_P1_AUTOAIM, file->flags));
@@ -142,8 +142,8 @@ void gamefileApplyOptions(struct gamefile *file)
 
 void gamefileLoadDefaults(struct gamefile *file)
 {
-	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : 4;
-	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
+	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : MPINDEX_SOLO;
+	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : MPINDEX_SOLO + 1;
 	s32 i;
 	s32 j;
 
@@ -258,7 +258,7 @@ void gamefileLoadDefaults(struct gamefile *file)
 	}
 
 	for (i = 0; i < ARRAYCOUNT(g_MpChallenges); i++) {
-		for (j = 1; j < MAX_PLAYERS + 1; j++) {
+		for (j = 1; j < MAX_LOCAL_PLAYERS + 1; j++) {
 			challengeSetCompletedByAnyPlayerWithNumPlayers(i, j, false);
 		}
 	}
@@ -303,8 +303,8 @@ s32 gamefileLoad(s32 device)
 	s32 ret;
 	u32 stack;
 
-	p1index = g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 ? 0 : 4;
-	p2index = g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 ? 1 : 5;
+	p1index = g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 ? 0 : MPINDEX_SOLO;
+	p2index = g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 ? 1 : MPINDEX_SOLO + 1;
 
 	if (device >= 0) {
 		savebufferClear(&buffer);
@@ -362,7 +362,7 @@ s32 gamefileLoad(s32 device)
 			}
 
 			for (i = 0; i < ARRAYCOUNT(g_MpChallenges); i++) {
-				for (j = 1; j < MAX_PLAYERS + 1; j++) {
+				for (j = 1; j < MAX_LOCAL_PLAYERS + 1; j++) {
 					challengeSetCompletedByAnyPlayerWithNumPlayers(i, j, savebufferReadBits(&buffer, 1));
 				}
 			}
@@ -417,8 +417,8 @@ s32 gamefileSave(s32 device, s32 fileid, u16 deviceserial)
 	s32 p2index;
 	struct savebuffer buffer;
 
-	p1index = g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 ? 0 : 4;
-	p2index = g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 ? 1 : 5;
+	p1index = g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 ? 0 : MPINDEX_SOLO;
+	p2index = g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 ? 1 : MPINDEX_SOLO + 1;
 
 	var80075bd0[0] = 1;
 
@@ -537,7 +537,7 @@ s32 gamefileSave(s32 device, s32 fileid, u16 deviceserial)
 		}
 
 		for (i = 0; i < ARRAYCOUNT(g_MpChallenges); i++) {
-			for (j = 1; j < MAX_PLAYERS + 1; j++) {
+			for (j = 1; j < MAX_LOCAL_PLAYERS + 1; j++) {
 				savebufferOr(&buffer, challengeIsCompletedByAnyPlayerWithNumPlayers(i, j), 1);
 			}
 		}
@@ -598,7 +598,7 @@ void gamefileUnlockEverything(void)
 
 	// unlock all challenges
 	for (i = 0; i < ARRAYCOUNT(g_MpChallenges); ++i) {
-		for (j = 0; j < MAX_PLAYERS; ++j) {
+		for (j = 0; j < MAX_LOCAL_PLAYERS; ++j) {
 			g_MpChallenges[i].completions[j] = 0xff;
 		}
 	}

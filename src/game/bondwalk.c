@@ -88,7 +88,7 @@ static f32 g_GeClimbEyeLag[MAX_PLAYERS];
 // the floor GoldenEye's climb lifted the player onto, held under him while his
 // circle still touches it and his middle is not yet over it
 // (geStanTouchesFloor()); GESTAN_NOCLIMBFLOOR when there is none
-static f32 g_GeClimbHold[MAX_PLAYERS] = { GESTAN_NOCLIMBFLOOR, GESTAN_NOCLIMBFLOOR, GESTAN_NOCLIMBFLOOR, GESTAN_NOCLIMBFLOOR };
+static f32 g_GeClimbHold[MAX_PLAYERS] = { [0 ... MAX_PLAYERS - 1] = GESTAN_NOCLIMBFLOOR };
 
 void bwalkNetSide(s32 playernum, s32 save, s32 *crouchhold, f32 *eyelag, f32 *climbhold)
 {

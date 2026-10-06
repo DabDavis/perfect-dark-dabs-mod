@@ -1538,6 +1538,7 @@ void scenarioHandleActivatedProp(struct chrdata *chr, struct prop *prop)
 			if ((obj->hidden & OBJHFLAG_ACTIVATED_BY_BOND) == 0) {
 				obj->hidden &= 0x0fffffff;
 				obj->hidden |= (mpindex << 28) & 0xf0000000;
+				NET_OBJ_OWNER(obj, mpindex);
 				obj->hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
 			}
 		}

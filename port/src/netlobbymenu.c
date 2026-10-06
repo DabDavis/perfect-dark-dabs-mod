@@ -41,7 +41,7 @@
  */
 
 #define ROWH 11
-#define ROSTER_HEIGHT 44 // the header and three rows
+#define ROSTER_HEIGHT 44 // the header and three rows (a room of up to six; rosterFit grows it)
 #define LABEL_WIDTH 262  // a small-font label's line inside the dialog, in its own font's units (labelWidth; ~2.2 px a unit at 640x480, the line from x 32 to the edge at ~612); it does not widen the dialog
 #define ROSTER_COLW 88   // three columns in the dialog's ~266 units
 #define CHAT_LINES 3
@@ -59,6 +59,7 @@ static char s_BriefingNote[160]; // why the focused room cannot be joined
 extern struct menudialogdef g_NetBriefingMenuDialog;
 extern struct menudialogdef g_NetCreateMenuDialog;
 extern struct menudialogdef g_NetRoomMenuDialog;
+static void rosterFit(void);
 extern struct menudialogdef g_NetJoinPasswordMenuDialog;
 extern struct menudialogdef g_NetKickMenuDialog;
 extern struct menudialogdef g_NetRoomSettingsMenuDialog;
@@ -646,6 +647,7 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 
 		if (s_WaitingForRoom && netLobbyInRoom()) {
 			s_WaitingForRoom = 0;
+			rosterFit();
 			menuPushDialog(&g_NetRoomMenuDialog);
 		} else if (s_WaitingForRoom && !netLobbyBusy()) {
 			s_WaitingForRoom = 0;
@@ -823,6 +825,10 @@ static MenuItemHandlerResult handlerMaxPlayers(s32 operation, struct menuitem *i
 		s_Create.maxhumans = data->dropdown.value + 2;
 		break;
 	case MENUOP_GETSELECTEDINDEX:
+		if (s_Create.maxhumans > MAX_PLAYERS) {
+			s_Create.maxhumans = MAX_PLAYERS;
+		}
+
 		data->dropdown.value = s_Create.maxhumans - 2;
 		break;
 	}
@@ -879,6 +885,7 @@ static MenuDialogHandlerResult dialogCreate(s32 operation, struct menudialogdef 
 
 		if (s_WaitingForRoom && netLobbyInRoom()) {
 			s_WaitingForRoom = 0;
+			rosterFit();
 			func0f0f3704(&g_NetRoomMenuDialog); // the room in place of this page
 		} else if (s_WaitingForRoom && !netLobbyBusy()) {
 			s_WaitingForRoom = 0;
@@ -1383,6 +1390,22 @@ static struct menuitem s_RoomItems[] = {
 	{ MENUITEMTYPE_END },
 };
 
+/**
+ * Phase 8: the roster box as tall as the room needs, set before the Game
+ * Lobby is pushed (a dialog lays its items out then): three rows for a room
+ * of up to six, as before, and up to six for twelve in two team columns. A
+ * box taller than three rows makes the dialog scroll, so only a big room
+ * pays for it.
+ */
+static void rosterFit(void)
+{
+	const struct netlobbyroom *room = netLobbyGetRoom();
+	s32 rows = room && room->valid ? (room->sum.maxhumans + 1) / 2 : 3;
+
+	rows = rows < 3 ? 3 : rows > 6 ? 6 : rows;
+	s_RoomItems[4].param3 = rows == 3 ? ROSTER_HEIGHT : ROWH * (rows + 1);
+}
+
 struct menudialogdef g_NetRoomMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
 	(uintptr_t)"Game Lobby",
@@ -1504,6 +1527,8 @@ void netLobbyMenuPushRoom(void)
 	if (isCurrent(&g_NetRoomMenuDialog)) {
 		return;
 	}
+
+	rosterFit();
 
 	if (g_Menus[g_MpPlayerNum].curdialog) {
 		menuPushDialog(&g_NetRoomMenuDialog);

@@ -34,7 +34,11 @@
 
 #define NUM_DATA    2
 #define NUM_SAMPLES 20
-#define NUM_PADS    MAXCONTROLLERS
+// Phase 8: a pad per player, so a net room's remote player k reads virtual
+// pad k (contpad1 = mpindex). Pads 4-11 are never physical: rumble, paks and
+// g_Pfses stay at MAXCONTROLLERS, and offline pads 4-11 are disconnected.
+#define NUM_PADS    MAX_PLAYERS
+_Static_assert(NUM_PADS <= 16, "g_JoyConnectedControllers is a u16");
 
 struct contsample {
 	OSContPad pads[NUM_PADS];
@@ -86,7 +90,7 @@ u32 g_JoyBadReadsRStickY[NUM_PADS] = {0};
 u32 g_JoyBadReadsButtons[NUM_PADS] = {0};
 u32 g_JoyBadReadsButtonsPressed[NUM_PADS] = {0};
 
-u8 g_JoyConnectedControllers = 0;
+u16 g_JoyConnectedControllers = 0;
 bool g_JoyQueuesCreated = false;
 bool g_JoyInitDone = false;
 bool g_JoyNeedsInit = true;
@@ -355,22 +359,24 @@ void joyReset(void)
 
 void joy00013e84(void)
 {
-	static u8 prevconnected = 0xff;
+	static u16 prevconnected = 0xffff;
 
 	// osContInit should be called only once. The first time this function is
 	// called it'll take the first branch here, and all subsequent calls will
 	// take the second branch.
 	if (g_JoyNeedsInit) {
 		s32 i;
+		u8 connected = 0;
 		g_JoyNeedsInit = false;
-		osContInit(&g_PiMesgQueue, &g_JoyConnectedControllers, g_JoyContStatuses);
+		osContInit(&g_PiMesgQueue, &connected, g_JoyContStatuses);
+		g_JoyConnectedControllers = connected;
 		g_JoyInitDone = true;
 
-		for (i = 0; i < NUM_PADS; i++) {
+		for (i = 0; i < MAXCONTROLLERS; i++) {
 			joyStopRumble(i, false);
 		}
 	} else {
-		u32 slots = 0xf;
+		u32 slots = (1u << NUM_PADS) - 1;
 		s32 i;
 
 		osContStartQuery(&g_PiMesgQueue);
@@ -627,7 +633,7 @@ void joy00014238(void)
 	if (!doingit) {
 		doingit = true;
 
-		for (i = 0; i < NUM_PADS; i++) {
+		for (i = 0; i < MAXCONTROLLERS; i++) {
 			if (joyGetPakState2(i) == PAKSTATE_13) {
 				pakSetState(i, PAKSTATE_READY);
 			}
@@ -1176,7 +1182,7 @@ void joyDestroy(void)
 	osCreateMesgQueue(&g_PiMesgQueue, g_PiMesgBuf, ARRAYCOUNT(g_PiMesgBuf));
 	osSetEventMesg(OS_EVENT_SI, &g_PiMesgQueue, 0);
 
-	for (i = 0; i < NUM_PADS; i++) {
+	for (i = 0; i < MAXCONTROLLERS; i++) {
 		if (osMotorProbe(&g_PiMesgQueue, PFS(i), i) == 0) {
 			osMotorStop(PFS(i));
 			osMotorStop(PFS(i));
@@ -1199,6 +1205,11 @@ void joyGetContpadNumsForPlayer(s8 playernum, s32 *pad1, s32 *pad2)
 	u8 controlmode = g_PlayerConfigsArray[g_Vars.playerstats[playernum].mpindex].controlmode;
 	if (controlmode >= CONTROLMODE_21 && controlmode < CONTROLMODE_PC) {
 		*pad2 = PLAYERCOUNT() + playernum;
+
+		if (*pad2 >= NUM_PADS) {
+			*pad2 = -1;
+		}
+
 		return;
 	}
 
@@ -1208,7 +1219,8 @@ void joyGetContpadNumsForPlayer(s8 playernum, s32 *pad1, s32 *pad2)
 
 void joyStopRumble(s8 arg0, bool disablepolling)
 {
-	if (arg0 != SAVEDEVICE_GAMEPAK) {
+	// phase 8: a pad number can reach 11; only 0-3 have a g_Paks/g_Pfses entry
+	if (arg0 != SAVEDEVICE_GAMEPAK && arg0 >= 0 && arg0 < MAXCONTROLLERS) {
 #if VERSION >= VERSION_NTSC_1_0
 		s32 device = arg0;
 #else
@@ -1250,6 +1262,10 @@ void joyStopRumble(s8 arg0, bool disablepolling)
 
 s32 joyGetPakState(s8 device)
 {
+	if (device < 0 || device >= ARRAYCOUNT(g_Paks)) {
+		return PAKSTATE_NOPAK;
+	}
+
 	return g_Paks[device].state;
 }
 
@@ -1262,7 +1278,7 @@ void joysTickRumble(void)
 {
 	s32 i;
 
-	for (i = 0; i < NUM_PADS; i++) {
+	for (i = 0; i < MAXCONTROLLERS; i++) {
 		if (g_Paks[i].state == PAKSTATE_READY && g_Paks[i].type == PAKTYPE_RUMBLE) {
 			switch (g_Paks[i].rumblestate) {
 			case RUMBLESTATE_ENABLED_STARTING:

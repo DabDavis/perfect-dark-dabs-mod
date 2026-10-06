@@ -2274,7 +2274,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 
 		if (g_Vars.currentplayer->lookaheadcentreenabled) {
 			if (g_Vars.lvframenum != g_Vars.currentplayer->lookaheadframe
-					&& g_Vars.currentplayernum == (g_Vars.lvframenum & 3)) {
+					&& (g_Vars.currentplayernum & 3) == (g_Vars.lvframenum & 3)) {
 				g_Vars.currentplayer->cachedlookahead = bmoveCalculateLookahead();
 			}
 

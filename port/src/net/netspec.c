@@ -91,7 +91,7 @@ static void netSpecNext(s32 dir, const char *why)
 			if (pn != s_Target) {
 				char name[16];
 
-				snprintf(name, sizeof(name), "%s", g_PlayerConfigsArray[g_Vars.playerstats[pn].mpindex & 3].base.name);
+				snprintf(name, sizeof(name), "%s", g_PlayerConfigsArray[g_Vars.playerstats[pn].mpindex].base.name);
 				name[strcspn(name, "\n")] = '\0';
 				s_Switches++;
 				sysLogPrintf(LOG_NOTE, "net: spectator (tick %u): following player %d (\"%s\") (%s)", g_NetTick, pn, name, why);
@@ -386,7 +386,7 @@ void *netSpecRenderText(void *gdlp)
 	} else if (netSpecEligible(s_Target)) {
 		char name[16];
 
-		snprintf(name, sizeof(name), "%s", g_PlayerConfigsArray[g_Vars.playerstats[s_Target].mpindex & 3].base.name);
+		snprintf(name, sizeof(name), "%s", g_PlayerConfigsArray[g_Vars.playerstats[s_Target].mpindex].base.name);
 		name[strcspn(name, "\n")] = '\0';
 		snprintf(text, sizeof(text), "Watching %s   Z: next   A: free camera   ESC: leave", name);
 	} else {

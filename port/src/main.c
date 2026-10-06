@@ -112,7 +112,7 @@ static void gameInit(void)
 {
 	osMemSize = g_OsMemSizeMb * 1024 * 1024;
 
-	for (s32 i = 0; i < MAX_PLAYERS; ++i) {
+	for (s32 i = 0; i < MAX_LOCAL_PLAYERS; ++i) {
 		struct extplayerconfig *cfg = g_PlayerExtCfg + i;
 		cfg->fovzoommult = cfg->fovzoom ? cfg->fovy / 60.0f : 1.0f;
 	}
@@ -608,7 +608,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	// update.c for what setting it means.
 	configRegisterString("Mod.UpdateServer", g_UpdateUrl, sizeof(g_UpdateUrl) - 1);
 
-	for (s32 j = 0; j < MAX_PLAYERS; ++j) {
+	for (s32 j = 0; j < MAX_LOCAL_PLAYERS; ++j) {
 		const s32 i = j + 1;
 		configRegisterFloat(strFmt("Game.Player%d.FovY", i), &g_PlayerExtCfg[j].fovy, 5.f, 175.f);
 		configRegisterInt(strFmt("Game.Player%d.FovAffectsZoom", i), &g_PlayerExtCfg[j].fovzoom, 0, 1);

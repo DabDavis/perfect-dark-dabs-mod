@@ -47,6 +47,9 @@ static inline s32 netIsLocalSlot(s32 playernum)
 
 s32 netSlotHasMouse(s32 playernum);
 
+// joy.c's NUM_PADS (MAX_PLAYERS): a virtual pad per player slot (asserted in joy.c)
+#define NET_NUM_PADS 12
+
 // Whether this player's mouse drives it (bondmove.c, player.c, bondeyespy.c):
 // the local player's here, a remote player's from its commands on the host
 #define NET_MOUSE_SLOT(pn) (g_NetMode == NETMODE_NONE ? (pn) == 0 : netSlotHasMouse(pn))
@@ -135,6 +138,18 @@ static inline void netRemotePassEnd(void)
 	g_NetPassPlayer = -1;
 }
 
+// Phase 8: obj->hidden's top nibble holds an owner mpchr index (ROM: thrown
+// and placed weapons, an object's last attacker, the HTM terminal's
+// activator), which wraps once a room has 16 or more chrs (12 humans and
+// sims). Every writer notes the full index in a side table (netents.c);
+// OBJ_OWNER reads it back when its low bits still match the nibble, else
+// the nibble. Offline it is the nibble, as before.
+struct defaultobj;
+s32 netObjOwnerGet(const struct defaultobj *obj);
+void netObjOwnerNote(const struct defaultobj *obj, s32 owner);
+#define OBJ_OWNER(obj) (g_NetMode != NETMODE_NONE ? netObjOwnerGet(obj) : (s32)(((obj)->hidden & 0xf0000000) >> 28))
+#define NET_OBJ_OWNER(obj, owner) do { if (g_NetMode != NETMODE_NONE) netObjOwnerNote((obj), (owner)); } while (0)
+
 #define NET_REMOTE_PASS_BEGIN() do { if (g_NetMode != NETMODE_NONE) netRemotePassBegin(); } while (0)
 #define NET_REMOTE_PASS_END()   do { if (g_NetMode != NETMODE_NONE) netRemotePassEnd(); } while (0)
 
@@ -199,6 +214,10 @@ void netInputMouseRaw(s32 *dx, s32 *dy);
 
 // gfxReset: the player-count row the display list pools are sized by
 s32 netGfxSizeIndex(s32 index);
+u32 netGfxVtxExtra(void);
+
+// Net.MaxPlayers: the humans a room this machine hosts can seat (2-12)
+s32 netSessionMaxPlayers(void);
 
 /**
  * Entities (PLANS/netplay/spec-entities.md §1, §6): a prop slot's

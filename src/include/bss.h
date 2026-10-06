@@ -197,7 +197,7 @@ extern struct covercandidate *g_CoverCandidates;
 extern u16 g_NumSpecialCovers;
 extern u16 *g_SpecialCoverNums;
 extern struct pak g_Paks[5];
-extern OSPfs g_Pfses[MAX_PLAYERS];
+extern OSPfs g_Pfses[MAX_LOCAL_PLAYERS];
 extern u32 g_SkyStageNum;
 extern bool g_SkyLightningActive;
 extern struct explosion *g_Explosions;
@@ -226,7 +226,9 @@ extern struct room *g_Rooms;
 #ifndef PLATFORM_N64
 extern s32 g_NumRoomsAllocated;
 #endif
-extern u8 *g_MpRoomVisibility;
+extern u32 *g_MpRoomVisibility;
+#define MPROOMVIS_ONSCREEN ((1u << MAX_PLAYERS) - 1) // a bit per player (bits 0-15)
+#define MPROOMVIS_STANDBY  (MPROOMVIS_ONSCREEN << 16)
 extern struct bgroom *g_BgRooms;
 extern struct bgportal *g_BgPortals;
 extern struct portalmetric *g_PortalMetrics;
@@ -297,7 +299,7 @@ extern struct chrdata *g_MpAllChrPtrs[MAX_MPCHRS];
 extern struct mpchrconfig *g_MpAllChrConfigPtrs[MAX_MPCHRS];
 extern s32 g_MpNumChrs;
 extern struct mpbotconfig g_BotConfigsArray[MAX_BOTS];
-extern u8 g_MpSimulantDifficultiesPerNumPlayers[MAX_BOTS][MAX_PLAYERS];
+extern u8 g_MpSimulantDifficultiesPerNumPlayers[MAX_BOTS][MAX_LOCAL_PLAYERS];
 extern struct mpplayerconfig g_PlayerConfigsArray[MAX_MPPLAYERCONFIGS];
 extern u8 g_AmBotCommands[9];
 extern struct mpsetup g_MpSetup;

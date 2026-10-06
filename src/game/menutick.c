@@ -320,7 +320,7 @@ void menuTick(void)
 			g_MpNumJoined = 0;
 			g_MpPlayerNum = 0;
 
-			for (i = 0; i < MAX_PLAYERS; i++) {
+			for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 				g_Vars.waitingtojoin[i] = false;
 			}
 
@@ -357,7 +357,7 @@ void menuTick(void)
 					g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
 				}
 
-				for (i = 0; i < MAX_PLAYERS; i++) {
+				for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 					g_Vars.waitingtojoin[i] = false;
 
 					if (g_MpSetup.chrslots & (1 << i)) {
@@ -393,7 +393,7 @@ void menuTick(void)
 				if (g_GexPlusMode && !IS4MB() && !g_Vars.usingadvsetup
 						&& (g_MpSetup.chrslots & 0xf)
 						&& gexFrontOpenAfterMatch()) {
-					for (i = 0; i < MAX_PLAYERS; i++) {
+					for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 						g_Vars.waitingtojoin[i] = false;
 					}
 
@@ -449,7 +449,9 @@ void menuTick(void)
 
 			g_MpNumJoined = 0;
 
-			for (i = 0; i < ARRAYCOUNT(g_Menus); i++) {
+			// the setup menus are local: menus 4-11 are net players' and
+			// setting their bit would turn on simulants
+			for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 				if (g_Menus[i].curdialog) {
 					g_Menus[i].playernum = g_MpNumJoined++;
 
@@ -489,7 +491,8 @@ void menuTick(void)
 				menuProcessInput();
 				setCurrentPlayerNum(prevplayernum);
 			} else {
-				if (g_MenuData.root == MENUROOT_MPSETUP || g_MenuData.root == MENUROOT_4MBMAINMENU) {
+				// joining reads a physical pad: only local players 0-3
+				if (i < MAX_LOCAL_PLAYERS && (g_MenuData.root == MENUROOT_MPSETUP || g_MenuData.root == MENUROOT_4MBMAINMENU)) {
 					// Check if player is joining the game
 					bool canjoin;
 					u32 buttons = joyGetButtonsPressedThisFrame(i, 0xffffffff);
@@ -499,7 +502,7 @@ void menuTick(void)
 							// Limit to 2 players? But in a roundabout kind of way
 							canjoin = true;
 
-							for (j = 0; j < MAX_PLAYERS; j++) {
+							for (j = 0; j < MAX_LOCAL_PLAYERS; j++) {
 								if (g_Vars.waitingtojoin[j]) {
 									canjoin = false;
 								}
@@ -692,11 +695,17 @@ void menuTick(void)
 				s32 playernum = 0;
 
 				if (g_Vars.normmplayerisrunning) {
+#ifndef PLATFORM_N64
+					// netplay: a machine that joined from the command line
+					// may have no agent file loaded; saving none put up "insert
+					// the Controller Pak" over its end screen after every match
+					if (g_NetMode == NETMODE_NONE || g_GameFileGuid.fileid)
+#endif
 					func0f0fd548(4);
 				}
 
 				for (i = 0; i < MAX_PLAYERS; i++) {
-					if (g_MpSetup.chrslots & (1 << i)) {
+					if (mpIsHumanSlotOn(i)) {
 						if (g_Vars.coopplayernum >= 0) {
 							if (g_Vars.stagenum == STAGE_DEEPSEA) {
 								g_MissionConfig.stageindex++;
@@ -726,7 +735,8 @@ void menuTick(void)
 							mpPushEndscreenDialog(playernum, i);
 							isdialogopen = true;
 
-							if (g_PlayerConfigsArray[i].fileguid.fileid && g_PlayerConfigsArray[i].fileguid.deviceserial) {
+							// the save queue's value 4 means the game file
+							if (i < MAX_LOCAL_PLAYERS && g_PlayerConfigsArray[i].fileguid.fileid && g_PlayerConfigsArray[i].fileguid.deviceserial) {
 								func0f0fd548(i);
 							}
 						}
@@ -796,12 +806,12 @@ void menuTick(void)
 				} else if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 					struct mpplayerconfig tmp;
 
-					tmp = g_PlayerConfigsArray[4];
-					g_PlayerConfigsArray[4] = g_PlayerConfigsArray[0];
+					tmp = g_PlayerConfigsArray[MPINDEX_SOLO];
+					g_PlayerConfigsArray[MPINDEX_SOLO] = g_PlayerConfigsArray[0];
 					g_PlayerConfigsArray[0] = tmp;
 
-					tmp = g_PlayerConfigsArray[5];
-					g_PlayerConfigsArray[5] = g_PlayerConfigsArray[1];
+					tmp = g_PlayerConfigsArray[MPINDEX_SOLO + 1];
+					g_PlayerConfigsArray[MPINDEX_SOLO + 1] = g_PlayerConfigsArray[1];
 					g_PlayerConfigsArray[1] = tmp;
 				}
 

@@ -431,6 +431,58 @@ static void netEntsFreeAll(void)
 }
 
 /**
+ * Phase 8: the owner side table behind OBJ_OWNER (net.h). Open addressing on
+ * the object's address, cleared on every stage; a full table drops the
+ * oldest probe's entry, and a lookup that misses reads the nibble.
+ */
+#define OWNER_SLOTS 4096
+static struct { const struct defaultobj *obj; s32 owner; } s_Owners[OWNER_SLOTS];
+
+static u32 ownerHash(const struct defaultobj *obj)
+{
+	uintptr_t v = (uintptr_t)obj;
+
+	v ^= v >> 17;
+	v *= 0x9e3779b1u;
+	return (u32)(v ^ (v >> 15)) & (OWNER_SLOTS - 1);
+}
+
+void netObjOwnerNote(const struct defaultobj *obj, s32 owner)
+{
+	u32 h = ownerHash(obj);
+	s32 i;
+
+	for (i = 0; i < 16; i++, h = (h + 1) & (OWNER_SLOTS - 1)) {
+		if (s_Owners[h].obj == obj || s_Owners[h].obj == NULL) {
+			break;
+		}
+	}
+
+	if (i == 16) {
+		h = ownerHash(obj);
+	}
+
+	s_Owners[h].obj = obj;
+	s_Owners[h].owner = owner;
+}
+
+s32 netObjOwnerGet(const struct defaultobj *obj)
+{
+	const s32 nibble = (s32)((obj->hidden & 0xf0000000) >> 28);
+	u32 h = ownerHash(obj);
+	s32 i;
+
+	for (i = 0; i < 16 && s_Owners[h].obj; i++, h = (h + 1) & (OWNER_SLOTS - 1)) {
+		if (s_Owners[h].obj == obj) {
+			const s32 owner = s_Owners[h].owner;
+			return owner >= 0 && (owner & 15) == nibble ? owner : nibble;
+		}
+	}
+
+	return nibble;
+}
+
+/**
  * After lvReset on every stage (netStageStart): a match's stage gets its
  * tables, anything else none
  */
@@ -439,6 +491,7 @@ void netEntsStageStart(void)
 	s32 i;
 
 	netEntsFreeAll();
+	memset(s_Owners, 0, sizeof(s_Owners));
 
 	if (!netSessionMatchLoading() || !g_NetPropGen || g_Vars.maxprops <= 0 || g_Vars.maxprops > NETSNAP_MAXIDS) {
 		return;
@@ -823,7 +876,7 @@ static s32 netPlayerOfSlot(s32 slot)
 	s32 i;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
-		if ((g_Vars.playerstats[i].mpindex & 3) == slot && g_Vars.players[i]) {
+		if (g_Vars.playerstats[i].mpindex == slot && g_Vars.players[i]) {
 			return i;
 		}
 	}
@@ -1082,6 +1135,10 @@ void netEntsHostTickEnd(void)
 			continue;
 		}
 
+		if (netSessionSlotLeftMatch(slot)) {
+			continue;
+		}
+
 		pn = netPlayerOfSlot(slot);
 
 		if (pn >= 0) {
@@ -1105,6 +1162,8 @@ void netEntsHostTickEnd(void)
 		for (slot = 0; slot < NET_MAXVIEWS; slot++) {
 			netHostLogSlot(slot, "so far");
 		}
+
+		netSessionLogTraffic("so far");
 	}
 }
 

@@ -168,6 +168,9 @@ void gfxReset(void)
 		u32 vtxsize = g_VtxSizesByPlayerCount[sizeindex];
 
 #ifndef PLATFORM_N64
+		// netplay (phase 8): remote passes keep their matrices and vertices
+		if (g_NetMode != NETMODE_NONE) vtxsize += netGfxVtxExtra();
+
 		gfxsize *= GFX_POOL_SCALE;
 		vtxsize *= GFX_POOL_SCALE;
 #endif

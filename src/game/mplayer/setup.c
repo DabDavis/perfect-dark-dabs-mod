@@ -2706,7 +2706,7 @@ MenuItemHandlerResult mpLoadPlayerMenuHandler(s32 operation, struct menuitem *it
 		file = &g_FileLists[0]->files[data->list.value];
 		available = true;
 
-		for (i = 0; i < MAX_PLAYERS; i++) {
+		for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 			if (file->fileid == g_PlayerConfigsArray[i].fileguid.fileid
 					&& file->deviceserial == g_PlayerConfigsArray[i].fileguid.deviceserial) {
 				if ((g_MpSetup.chrslots & (1 << i)) == 0) {
@@ -2848,7 +2848,7 @@ MenuItemHandlerResult menuhandlerMpRestoreHandicapDefaults(s32 operation, struct
 	if (operation == MENUOP_SET) {
 		s32 i;
 
-		for (i = 0; i < MAX_PLAYERS; i++) {
+		for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 			g_PlayerConfigsArray[i].handicap = 0x80;
 		}
 	}
@@ -4665,7 +4665,7 @@ MenuItemHandlerResult menuhandlerMpHumansVsSimulants(s32 operation, struct menui
 			if (mpIsChrSlotOn(i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
-				mpchr->team = i < 4 ? 0 : 1;
+				mpchr->team = i < MAX_PLAYERS ? 0 : 1;
 			}
 		}
 
@@ -4687,10 +4687,10 @@ MenuItemHandlerResult menuhandlerMpHumanSimulantPairs(s32 operation, struct menu
 			if (mpIsChrSlotOn(i)) {
 				struct mpchrconfig *mpchr = MPCHR(i);
 
-				if (i < 4) {
-					mpchr->team = team_ids[playerindex++];
+				if (i < MAX_PLAYERS) {
+					mpchr->team = team_ids[playerindex++ % ARRAYCOUNT(team_ids)];
 				} else {
-					mpchr->team = team_ids[simindex++];
+					mpchr->team = team_ids[simindex++ % ARRAYCOUNT(team_ids)];
 
 					if (simindex >= playerindex) {
 						simindex = 0;
@@ -6173,7 +6173,7 @@ void mpConfigureQuickTeamPlayers(void)
 		case MPQUICKTEAM_PLAYERSTEAMS:
 			g_MpSetup.options |= MPOPTION_TEAMSENABLED;
 
-			for (i = 0; i < MAX_PLAYERS; i++) {
+			for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 				g_PlayerConfigsArray[i].base.team = g_Vars.mpplayerteams[i];
 			}
 
@@ -6181,7 +6181,7 @@ void mpConfigureQuickTeamPlayers(void)
 		case MPQUICKTEAM_PLAYERSVSSIMS:
 			g_MpSetup.options |= MPOPTION_TEAMSENABLED;
 
-			for (i = 0; i < MAX_PLAYERS; i++) {
+			for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 				g_PlayerConfigsArray[i].base.team = 0;
 			}
 
@@ -6189,7 +6189,7 @@ void mpConfigureQuickTeamPlayers(void)
 		case MPQUICKTEAM_PLAYERSIMTEAMS:
 			g_MpSetup.options |= MPOPTION_TEAMSENABLED;
 
-			for (i = 0; i < MAX_PLAYERS; i++) {
+			for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 				g_PlayerConfigsArray[i].base.team = i;
 			}
 

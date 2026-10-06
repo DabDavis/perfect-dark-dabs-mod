@@ -266,7 +266,9 @@ static void bgDepthTestRemakeRoom(struct roomblock *block)
 s32 g_NumRoomsAllocated;
 #endif
 
-u8 *g_MpRoomVisibility;
+// per room: bits 0-11 on screen, 16-27 on standby, per player (phase 8:
+// a u32, so player 4's on-screen bit is no longer player 0's standby bit)
+u32 *g_MpRoomVisibility;
 RoomNum g_BgForceOnscreenRooms[350];
 s32 g_BgNumForceOnscreenRooms;
 u16 g_BgUnloadDelay240;
@@ -2076,7 +2078,7 @@ void bgBuildTables(s32 stagenum)
 	}
 
 	if (g_Vars.mplayerisrunning) {
-		g_MpRoomVisibility = mempAlloc(ALIGN16(g_Vars.roomcount), MEMPOOL_STAGE);
+		g_MpRoomVisibility = mempAlloc(ALIGN16(g_Vars.roomcount * sizeof(*g_MpRoomVisibility)), MEMPOOL_STAGE);
 
 		for (i = 0; i < g_Vars.roomcount; i++) {
 			g_MpRoomVisibility[i] = 0;
@@ -3014,7 +3016,7 @@ void bgCopyBox(struct screenbox *dst, struct screenbox *src)
 bool bgRoomIsOnscreen(s32 room)
 {
 	if (g_Vars.mplayerisrunning) {
-		return (g_MpRoomVisibility[room] & 0xf) != 0;
+		return (g_MpRoomVisibility[room] & MPROOMVIS_ONSCREEN) != 0;
 	} else {
 #ifndef PLATFORM_N64
 		// The AI's question - can the player see into this room - and on an
@@ -3031,7 +3033,7 @@ bool bgRoomIsOnscreen(s32 room)
 bool bgRoomIsStandby(s32 room)
 {
 	if (g_Vars.mplayerisrunning) {
-		return (g_MpRoomVisibility[room] & 0xf0) != 0;
+		return (g_MpRoomVisibility[room] & MPROOMVIS_STANDBY) != 0;
 	}
 
 	return g_Rooms[room].flags & ROOMFLAG_STANDBY;
@@ -3040,7 +3042,7 @@ bool bgRoomIsStandby(s32 room)
 bool bgRoomIsOnPlayerScreen(s32 room, u32 playernum)
 {
 	if (g_Vars.mplayerisrunning) {
-		return (g_MpRoomVisibility[room] & (1 << playernum)) != 0;
+		return (g_MpRoomVisibility[room] & (1u << playernum)) != 0;
 	} else {
 		return g_Rooms[room].flags & ROOMFLAG_ONSCREEN;
 	}
@@ -3049,7 +3051,7 @@ bool bgRoomIsOnPlayerScreen(s32 room, u32 playernum)
 bool bgRoomIsOnPlayerStandby(s32 room, u32 playernum)
 {
 	if (g_Vars.mplayerisrunning) {
-		return (g_MpRoomVisibility[room] & (0x10 << playernum)) != 0;
+		return (g_MpRoomVisibility[room] & (0x10000u << playernum)) != 0;
 	} else {
 		return g_Rooms[room].flags & ROOMFLAG_STANDBY;
 	}
@@ -7015,8 +7017,8 @@ void bgChooseRoomsToLoad(void)
 
 	// Update visibility per player
 	if (g_Vars.mplayerisrunning) {
-		u8 flag1 = 0x01 << g_Vars.currentplayernum;
-		u8 flag2 = 0x10 << g_Vars.currentplayernum;
+		u32 flag1 = 0x00001u << g_Vars.currentplayernum;
+		u32 flag2 = 0x10000u << g_Vars.currentplayernum;
 
 		for (i = 0; i < g_Vars.roomcount; i++) {
 			if (g_Rooms[i].flags & ROOMFLAG_ONSCREEN) {

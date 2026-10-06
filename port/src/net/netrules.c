@@ -104,13 +104,14 @@ static struct {
 	u8 scorelimit;
 	u16 teamscorelimit;
 	u16 chrslots;
+	u16 humanslotshi; // protocol 10: human slots 4-11 (g_MpHumanSlotsHi)
 	u8 weapons[NUM_MPWEAPONSLOTS];
 	u32 scenariobits;
 	s32 weaponsetnum;
 	u64 filters;
 	u8 simslots[MAX_BOTS];
 	struct netrulessim sims[MAX_BOTS];
-	u8 difficulties[MAX_BOTS][MAX_PLAYERS];
+	u8 difficulties[MAX_BOTS][MAX_LOCAL_PLAYERS];
 	struct netruleshuman humans[MAX_PLAYERS];
 	char teamnames[MAX_TEAMS][12];
 	u8 unlocked[80];
@@ -125,7 +126,7 @@ static struct {
 
 /**
  * What a match changed, as it was before: a client's whole match state and
- * its own values of the SYNC keys; the host's player slots 1-3
+ * its own values of the SYNC keys; the host's player slots 1-11
  */
 static struct {
 	s32 client;  // a client's whole state is saved
@@ -133,8 +134,9 @@ static struct {
 	struct mpsetup mpsetup;
 	struct mpbotconfig bots[MAX_BOTS];
 	u8 simslots[MAX_BOTS];
-	u8 difficulties[MAX_BOTS][MAX_PLAYERS];
+	u8 difficulties[MAX_BOTS][MAX_LOCAL_PLAYERS];
 	struct mpplayerconfig players[MAX_PLAYERS];
+	struct mplockinfo lockinfo; // a net match's winner/loser can be slot 4-11
 	char teamnames[MAX_TEAMS][12];
 	s32 weaponsetnum;
 	u8 filters[NUM_MPWEAPONS];
@@ -401,6 +403,7 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 	netBufWriteU8(b, g_MpSetup.scorelimit);
 	netBufWriteU16(b, g_MpSetup.teamscorelimit);
 	netBufWriteU16(b, g_MpSetup.chrslots);
+	netBufWriteU16(b, g_MpHumanSlotsHi);
 
 	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
 		netBufWriteU8(b, g_MpSetup.weapons[i]);
@@ -449,7 +452,7 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 	}
 
 	for (i = 0; i < MAX_BOTS; i++) {
-		for (j = 0; j < MAX_PLAYERS; j++) {
+		for (j = 0; j < MAX_LOCAL_PLAYERS; j++) {
 			netBufWriteU8(b, g_MpSimulantDifficultiesPerNumPlayers[i][j]);
 		}
 	}
@@ -518,6 +521,11 @@ s32 netRulesRead(struct netbuf *b)
 	s_NetRules.scorelimit = netBufReadU8(b);
 	s_NetRules.teamscorelimit = netBufReadU16(b);
 	s_NetRules.chrslots = netBufReadU16(b);
+	s_NetRules.humanslotshi = netBufReadU16(b);
+
+	if (s_NetRules.humanslotshi >> (MAX_PLAYERS - MPSETUP_HUMANBITS)) {
+		b->error = 1;
+	}
 
 	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
 		s_NetRules.weapons[i] = netBufReadU8(b);
@@ -559,7 +567,7 @@ s32 netRulesRead(struct netbuf *b)
 	}
 
 	for (i = 0; i < MAX_BOTS; i++) {
-		for (j = 0; j < MAX_PLAYERS; j++) {
+		for (j = 0; j < MAX_LOCAL_PLAYERS; j++) {
 			s_NetRules.difficulties[i][j] = netBufReadU8(b);
 		}
 	}
@@ -635,7 +643,7 @@ s32 netRulesRead(struct netbuf *b)
 			b->error = 1;
 		}
 
-		for (j = 0; j < MAX_PLAYERS; j++) {
+		for (j = 0; j < MAX_LOCAL_PLAYERS; j++) {
 			if (s_NetRules.difficulties[i][j] > BOTDIFF_DISABLED) {
 				b->error = 1;
 			}
@@ -681,6 +689,7 @@ static void netRulesSaveClient(void)
 	s_NetSaved.endless = g_MpEndlessMatch;
 	s_NetSaved.maxexplosions = g_MaxExplosionsSetting;
 	s_NetSaved.locktype = g_BossFile.locktype;
+	s_NetSaved.lockinfo = g_MpLockInfo;
 
 	s_NetSaved.nkeys = 0;
 
@@ -703,6 +712,7 @@ void netRulesSaveHost(void)
 	memcpy(s_NetSaved.players, g_PlayerConfigsArray, sizeof(s_NetSaved.players));
 	s_NetSaved.mpsetup = g_MpSetup;
 	s_NetSaved.locktype = g_BossFile.locktype;
+	s_NetSaved.lockinfo = g_MpLockInfo;
 	s_NetSaved.host = 1;
 }
 
@@ -799,6 +809,7 @@ void netRulesApply(void)
 
 	// the host's chrslots last: mpSetSimSlotOn mirrored the sims into it
 	g_MpSetup.chrslots = s_NetRules.chrslots;
+	g_MpHumanSlotsHi = (u8)s_NetRules.humanslotshi;
 
 	for (i = 0; i < MAX_TEAMS; i++) {
 		snprintf(g_BossFile.teamnames[i], sizeof(g_BossFile.teamnames[i]), "%s", s_NetRules.teamnames[i]);
@@ -828,11 +839,11 @@ void netRulesApply(void)
 		netRulesWriteKey(&s_NetRules.keys[i]);
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: rules applied: match %u, scenario %d, chrslots 0x%04x, options 0x%08x, %d keys",
-			s_NetRules.matchid, g_MpSetup.scenario, g_MpSetup.chrslots, g_MpSetup.options, s_NetRules.nkeys);
+	sysLogPrintf(LOG_NOTE, "net: rules applied: match %u, scenario %d, chrslots 0x%04x, human slots 4-11 0x%02x, options 0x%08x, %d keys",
+			s_NetRules.matchid, g_MpSetup.scenario, g_MpSetup.chrslots, g_MpHumanSlotsHi, g_MpSetup.options, s_NetRules.nkeys);
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
-		if (g_MpSetup.chrslots & (1 << i)) {
+		if (mpIsHumanSlotOn(i)) {
 			sysLogPrintf(LOG_NOTE, "net: the match's players: \"%s\" in slot %d", g_PlayerConfigsArray[i].base.name, i);
 		}
 	}
@@ -840,7 +851,7 @@ void netRulesApply(void)
 
 /**
  * H12: everything a net match changed goes back. A client's whole state; on
- * the host only its slots 1-3, which the remote players' names went into.
+ * the host only its slots 1-11, which the remote players' names went into.
  */
 void netRulesRestore(void)
 {
@@ -862,6 +873,8 @@ void netRulesRestore(void)
 		g_MpEndlessMatch = s_NetSaved.endless;
 		g_MaxExplosionsSetting = s_NetSaved.maxexplosions;
 		g_BossFile.locktype = s_NetSaved.locktype;
+		g_MpLockInfo = s_NetSaved.lockinfo;
+		g_MpHumanSlotsHi = 0;
 
 		for (i = 0; i < s_NetSaved.nkeys; i++) {
 			netRulesWriteKey(&s_NetSaved.keys[i]);
@@ -878,6 +891,8 @@ void netRulesRestore(void)
 
 		g_MpSetup.chrslots = s_NetSaved.mpsetup.chrslots;
 		g_BossFile.locktype = s_NetSaved.locktype;
+		g_MpLockInfo = s_NetSaved.lockinfo;
+		g_MpHumanSlotsHi = 0;
 	}
 
 	s_NetSaved.client = 0;

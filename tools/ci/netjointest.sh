@@ -299,7 +299,7 @@ PY
 # --- 2. the spectator
 S=$OUT/spec.log
 grep -q "accepted by .* as a spectator of the match in progress" "$S" && pass "spectator: $(grep -m1 -o "accepted.*" "$S")" || fail "spectator: not accepted as one"
-grep -q "spectator view [0-9] (\"charlie\") is in the match in progress" "$H" && pass "host: $(grep -m1 -o "spectator view [0-9] (\"charlie\") is in the match in progress.*" "$H")" \
+grep -q "spectator view [0-9]* (\"charlie\") is in the match in progress" "$H" && pass "host: $(grep -m1 -o "spectator view [0-9]* (\"charlie\") is in the match in progress.*" "$H")" \
 	|| fail "host: the spectator never came in"
 seatsj=$(grep -o "net: seats after a join (tick [0-9]*): .*" "$H" | tail -1)
 nseat=$(echo "$seatsj" | grep -o "[0-3] [a-z]* \"" | wc -l)

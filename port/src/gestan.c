@@ -1444,9 +1444,9 @@ static bool stanTileSheer(s32 i)
 	return width < 16.0f && ymax - ymin > 3.0f * width && ymax - ymin > GESTAN_RISE;
 }
 
-static s32 g_StanPlayerTile[MAX_PLAYERS] = { -1, -1, -1, -1 };
+static s32 g_StanPlayerTile[MAX_PLAYERS] = { [0 ... MAX_PLAYERS - 1] = -1 };
 // and the tile the move it walked started on, under the player as they stand
-static s32 g_StanPlayerFromTile[MAX_PLAYERS] = { -1, -1, -1, -1 };
+static s32 g_StanPlayerFromTile[MAX_PLAYERS] = { [0 ... MAX_PLAYERS - 1] = -1 };
 static s32 g_StanPlayerTileStage = -1;
 
 void geStanNetPlayerTile(s32 playernum, s32 save, s32 *tile, s32 *fromtile)

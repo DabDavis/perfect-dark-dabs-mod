@@ -5526,6 +5526,7 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 		}
 
 		obj->hidden |= playernum << 28;
+		NET_OBJ_OWNER(obj, playernum);
 
 		if (obj->hidden & OBJHFLAG_PROJECTILE) {
 			obj->projectile->flags |= PROJECTILEFLAG_00000002;
@@ -6177,6 +6178,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 
 					weapon->base.hidden &= 0x0fffffff;
 					weapon->base.hidden |= g_Vars.currentplayernum << 28;
+					NET_OBJ_OWNER(&weapon->base, g_Vars.currentplayernum);
 
 					bgun0f09ed2c(&weapon->base, &spawnpos, &sp210, &sp264, &sp270);
 
@@ -6262,6 +6264,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 
 				weapon->base.hidden &= 0x0fffffff;
 				weapon->base.hidden |= g_Vars.currentplayernum << 28;
+				NET_OBJ_OWNER(&weapon->base, g_Vars.currentplayernum);
 
 				bgun0f09ed2c(&weapon->base, &spawnpos, &sp210, &sp264, &sp270);
 

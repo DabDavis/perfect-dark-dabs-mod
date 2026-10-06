@@ -315,8 +315,8 @@ bool currentPlayerIsMenuOpenInSoloOrMp(void)
 	s32 mpindex = g_Vars.currentplayerstats->mpindex;
 
 	if (menuIsSoloMissionOrMp()) {
-		if (mpindex >= 4) {
-			mpindex -= 4;
+		if (mpindex >= MPINDEX_SOLO) {
+			mpindex -= MPINDEX_SOLO;
 		}
 
 		if (g_Menus[mpindex].curdialog) {
@@ -1756,7 +1756,7 @@ bool func0f0f3220(s32 arg0)
 		}
 
 		g_MpPlayerNum = prevplayernum;
-	} else if (g_MenuData.unk669[arg0] < 4) {
+	} else if (g_MenuData.unk669[arg0] < MAX_LOCAL_PLAYERS) {
 		s32 prevplayernum = g_MpPlayerNum;
 		g_MpPlayerNum = g_MenuData.unk669[arg0];
 		filemgrSaveOrLoad(&g_PlayerConfigsArray[g_MpPlayerNum].fileguid, FILEOP_SAVE_MPPLAYER, g_MpPlayerNum);
@@ -1787,7 +1787,7 @@ void func0f0f3220(s32 arg0)
 		filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
 
 		g_MpPlayerNum = prevplayernum;
-	} else if (g_MenuData.unk669[arg0] < 4) {
+	} else if (g_MenuData.unk669[arg0] < MAX_LOCAL_PLAYERS) {
 		s32 prevplayernum = g_MpPlayerNum;
 		g_MpPlayerNum = g_MenuData.unk669[arg0];
 		filemgrSaveOrLoad(&g_PlayerConfigsArray[g_MpPlayerNum].fileguid, FILEOP_SAVE_MPPLAYER, g_MpPlayerNum);
@@ -3221,11 +3221,13 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 		}
 
 		{
-			char *sp154[] = {
+			char *sp154[MAX_PLAYERS] = {
 				"1\n",
 				"2\n",
 				"3\n",
 				"4\n",
+				// Net rooms seat up to MAX_PLAYERS; g_MpPlayerNum is the mpindex
+				"5\n", "6\n", "7\n", "8\n", "9\n", "10\n", "11\n", "12\n",
 			};
 
 			colour1 = MIXCOLOUR(dialog, dialog_titlefg);
@@ -3249,7 +3251,7 @@ Gfx *dialogRender(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bool l
 					|| g_MenuData.root == MENUROOT_MPPAUSE
 					|| g_MenuData.root == MENUROOT_MPENDSCREEN
 					|| g_MenuData.root == MENUROOT_4MBMAINMENU) {
-				x = dialogright - 9;
+				x = dialogright - (g_MpPlayerNum >= 9 ? 15 : 9);
 				y = dialogtop + 2;
 
 				gdl = textRenderProjected(gdl, &x, &y, sp154[g_MpPlayerNum], g_CharsHandelGothicSm, g_FontHandelGothicSm, colour1, dialogwidth, viGetHeight(), 0, 0);
@@ -6272,7 +6274,7 @@ Gfx *menuRender(Gfx *gdl)
 
 			gdl = text0f153628(gdl);
 
-			for (i = 0; i < MAX_PLAYERS; i++) {
+			for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 				// Figure out what text will be displayed. The text calculated
 				// here is for measuring purposes only and isn't rendered.
 				// Amusingly, there's a %d placeholder in the text which isn't

@@ -425,13 +425,14 @@ void htmTickChr(struct chrdata *chr)
 				}
 			} else {
 				if (obj->hidden & OBJHFLAG_ACTIVATED_BY_BOND) {
-					activatedbyplayernum = (obj->hidden & 0xf0000000) >> 28;
+					activatedbyplayernum = OBJ_OWNER(obj);
 				}
 			}
 
 			if (playernum == activatedbyplayernum) {
 				obj->hidden &= ~OBJHFLAG_ACTIVATED_BY_BOND;
 				obj->hidden &= ~0xf0000000;
+				NET_OBJ_OWNER(obj, 0);
 
 				if (hasuplink) {
 					if (data->dlterminalnum == -1) {

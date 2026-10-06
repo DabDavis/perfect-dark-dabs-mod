@@ -233,7 +233,7 @@ static s32 netEvPlayerOfSlot(s32 slot)
 	s32 i;
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
-		if ((g_Vars.playerstats[i].mpindex & 3) == slot && g_Vars.players[i]) {
+		if (g_Vars.playerstats[i].mpindex == slot && g_Vars.players[i]) {
 			return i;
 		}
 	}

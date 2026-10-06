@@ -14,6 +14,7 @@
 #include "lib/joy.h"
 #include "lib/mtx.h"
 #include "game/camera.h"
+#include "game/mplayer/mplayer.h"
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "net/netsnap.h"
@@ -275,7 +276,7 @@ static s32 netPadOfPlayer(s32 playernum)
 		return -1;
 	}
 
-	return g_Vars.playerstats[playernum].mpindex & 3;
+	return g_Vars.playerstats[playernum].mpindex % MAX_PLAYERS;
 }
 
 static s32 netPadIsRemote(s32 pad)
@@ -396,7 +397,7 @@ s32 netContGetReadData(void *pads)
 		}
 	}
 
-	for (i = 0; i < MAXCONTROLLERS; i++) {
+	for (i = 0; i < NET_NUM_PADS; i++) {
 		memset(&pad[i], 0, sizeof(pad[i]));
 
 		if (!g_NetDedicated && i == s_LocalPad) {
@@ -414,7 +415,7 @@ s32 netVpadConnected(s32 idx)
 		return 0;
 	}
 
-	return (g_MpSetup.chrslots >> idx) & 1;
+	return mpIsHumanSlotOn(idx);
 }
 
 /*
@@ -682,7 +683,8 @@ void netPlayersHostMatchStart(void)
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		s_Pads[i].lastplayed = -1;
-		g_NetExtCfg[i] = g_PlayerExtCfg[i];
+		// pd.ini has Player1-4 only: slot k starts from Player (k & 3) + 1's (LOCALPLAYER); a joined slot's own config replaces it (netPlayersHostSlotStart)
+		g_NetExtCfg[i] = g_PlayerExtCfg[LOCALPLAYER(i)];
 	}
 
 	s_LocalPad = g_NetDedicated ? -1 : 0;
@@ -1094,7 +1096,7 @@ void netPlayersClientMatchStart(s32 pad)
 {
 	s32 i;
 
-	s_LocalPad = pad & 3;
+	s_LocalPad = pad >= 0 && pad < MAX_PLAYERS ? pad : 0;
 	s_HaveNewest = 0;
 	s_Newest = 0;
 	s_AckNext = 0;
@@ -1111,7 +1113,7 @@ void netPlayersClientMatchStart(s32 pad)
 	memset(s_Pads, 0, sizeof(s_Pads));
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
-		g_NetExtCfg[i] = g_PlayerExtCfg[i];
+		g_NetExtCfg[i] = g_PlayerExtCfg[LOCALPLAYER(i)];
 	}
 
 	// this machine's player is the client's own first player, whatever slot

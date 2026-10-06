@@ -71,7 +71,17 @@
 #define MAX_MPCHRS             (MAX_PLAYERS + MAX_BOTS)
 #define MAX_MPPLAYERCONFIGS    (MAX_PLAYERS + 2)
 #define MAX_OBJECTIVES         10
-#define MAX_PLAYERS            4
+#define MAX_PLAYERS            12
+// Splitscreen, physical pads, binds, pd.ini Game.Player1-4 and every file
+// format stay at four; MAX_PLAYERS is a net room's humans (phase 8)
+#define MAX_LOCAL_PLAYERS      4
+// g_MpSetup.chrslots: bits 0-3 humans, 4-11 sims (ROM mpconfig, mpsetups,
+// challenges, RULES); net humans 4-11 live in g_MpHumanSlotsHi
+#define MPSETUP_HUMANBITS      4
+// solo's mpindex and the co-op stash [MPINDEX_SOLO], [MPINDEX_SOLO + 1]
+#define MPINDEX_SOLO           MAX_PLAYERS
+// the old "& 3": a slot's local pd.ini player (12 & 3 == 0, 13 & 3 == 1)
+#define LOCALPLAYER(m)         ((m) & (MAX_LOCAL_PLAYERS - 1))
 #ifdef PLATFORM_N64
 #define MAX_ONSCREENPROPS      200
 #else
@@ -160,15 +170,9 @@ s32 langpackIsCjk(void);
 #define SECSTOTIME60(secs)  (secs * 60)
 #define PFS(device)         (device == SAVEDEVICE_GAMEPAK ? NULL : &g_Pfses[device])
 
-#if MAX_PLAYERS >= 4
-#define PLAYERCOUNT()       ((g_Vars.players[0] ? 1 : 0) + (g_Vars.players[1] ? 1 : 0) + (g_Vars.players[2] ? 1 : 0) + (g_Vars.players[3] ? 1 : 0))
-#elif MAX_PLAYERS >= 3
-#define PLAYERCOUNT()       ((g_Vars.players[0] ? 1 : 0) + (g_Vars.players[1] ? 1 : 0) + (g_Vars.players[2] ? 1 : 0))
-#elif MAX_PLAYERS >= 2
-#define PLAYERCOUNT()       ((g_Vars.players[0] ? 1 : 0) + (g_Vars.players[1] ? 1 : 0))
-#else
-#define PLAYERCOUNT()       1
-#endif
+// Phase 8: a loop over MAX_PLAYERS, so it counts exactly the non-null
+// players like the old 4-term sum did (offline players 4-11 are always NULL)
+#define PLAYERCOUNT()       ({ s32 pc_n_ = 0; for (s32 pc_i_ = 0; pc_i_ < MAX_PLAYERS; pc_i_++) { pc_n_ += g_Vars.players[pc_i_] ? 1 : 0; } pc_n_; })
 
 // How many views share the screen, at layout branches only: one per machine
 // in a net game (port/include/net/net.h defines it on PC), the player count
@@ -5322,5 +5326,11 @@ enum weaponnum {
 #define MPSETUP_VERSION_LATEST MPSETUP_VERSION_SIMSTATS
 
 #endif
+
+// Phase 8 widening: the limits MAX_PLAYERS must stay inside
+_Static_assert(MAX_PLAYERS <= 16, "obj->hidden owner nibble (>> 28), room visibility u32 halves, u16 pad masks");
+_Static_assert(MAX_LOCAL_PLAYERS == 4, "chrslots layout, save-queue sentinel 4, file formats, pd.ini Player1-4");
+_Static_assert(MAX_PLAYERS + MAX_BOTS <= 127, "DEATH event s8 attacker/victim");
+_Static_assert(MPSETUP_HUMANBITS + MAX_BOTS_CONFIG <= 16, "chrslots u16");
 
 #endif

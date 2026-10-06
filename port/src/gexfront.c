@@ -471,16 +471,16 @@ static struct {
 	s32 levelpage;
 	s32 tabnext;
 
-	s32 handicap[MAX_PLAYERS];  // MP_handicap_table index a player
-	s32 chosen[MAX_PLAYERS];    // a player has chosen on a per-player page
-	s32 stickarmed[MAX_PLAYERS];
+	s32 handicap[MAX_LOCAL_PLAYERS];  // MP_handicap_table index a player
+	s32 chosen[MAX_LOCAL_PLAYERS];    // a player has chosen on a per-player page
+	s32 stickarmed[MAX_LOCAL_PLAYERS];
 
 	s32 characters[MAX_CHARACTERS]; // mpbodynums the Characters page lists
 	s32 numcharacters;
-	s32 charcur[MAX_PLAYERS];     // the character a player is on
-	s32 charprev[MAX_PLAYERS];    // the one the strip is centred on while it scrolls
-	s32 charscroll[MAX_PLAYERS];  // how far past it
-	s32 charsize[MAX_PLAYERS];    // how far a chosen portrait has grown, to 11
+	s32 charcur[MAX_LOCAL_PLAYERS];     // the character a player is on
+	s32 charprev[MAX_LOCAL_PLAYERS];    // the one the strip is centred on while it scrolls
+	s32 charscroll[MAX_LOCAL_PLAYERS];  // how far past it
+	s32 charsize[MAX_LOCAL_PLAYERS];    // how far a chosen portrait has grown, to 11
 	s32 charpicked;               // player 1 chose on the Characters page this session
 
 	s32 cinemawhat;     // the cinema last picked for a mission: its opening, its ending or the Cradle's credits
@@ -1842,7 +1842,7 @@ static s32 frontNumControllers(void)
 	const u32 mask = joyGetConnectedControllers();
 	s32 count = 0;
 
-	for (s32 i = 0; i < MAX_PLAYERS; i++) {
+	for (s32 i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 		if (mask & (1 << i)) {
 			count++;
 		}
@@ -1855,7 +1855,7 @@ static s32 frontNumPlayers(void)
 {
 	s32 count = 0;
 
-	for (s32 i = 0; i < MAX_PLAYERS; i++) {
+	for (s32 i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 		if (g_MpSetup.chrslots & (1 << i)) {
 			count++;
 		}
@@ -1979,7 +1979,7 @@ static void frontApplyAim(void)
 	const s32 sight = g_Front.aim & 1;
 	const s32 autoaim = (g_Front.aim >> 1) & 1;
 
-	for (s32 i = 0; i < MAX_PLAYERS; i++) {
+	for (s32 i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 		g_PlayerConfigsArray[i].options &= ~(OPTION_SIGHTONSCREEN | OPTION_AUTOAIM);
 
 		if (sight) {
@@ -2043,7 +2043,7 @@ static void frontSelectRow(s32 row)
 		frontBuildCharacters();
 
 		// init_menu0f_mpcharsel(): each player on their own character
-		for (s32 i = 0; i < MAX_PLAYERS; i++) {
+		for (s32 i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 			g_Front.charcur[i] = 0;
 
 			for (s32 k = 0; k < g_Front.numcharacters; k++) {
@@ -2063,7 +2063,7 @@ static void frontSelectRow(s32 row)
 		break;
 	case ROW_HEALTH:
 	case ROW_CONTROLSTYLE:
-		for (s32 i = 0; i < MAX_PLAYERS; i++) {
+		for (s32 i = 0; i < MAX_LOCAL_PLAYERS; i++) {
 			g_Front.chosen[i] = 0;
 			g_Front.stickarmed[i] = 0;
 			g_Front.handicap[i] = frontHandicapIndex(g_PlayerConfigsArray[i].handicap);

@@ -147,10 +147,13 @@ void playerReset(void)
 	g_NumSpawnPoints = 0;
 	g_Vars.currentplayer->bondtankexplode = false;
 	g_Vars.currentplayer->gunmem2 = NULL;
-	g_PlayersWithControl[0] = true;
-	g_PlayersWithControl[1] = true;
-	g_PlayersWithControl[2] = true;
-	g_PlayersWithControl[3] = true;
+	{
+		s32 pwc;
+
+		for (pwc = 0; pwc < MAX_PLAYERS; pwc++) {
+			g_PlayersWithControl[pwc] = true;
+		}
+	}
 	g_PlayerInvincible = false;
 
 	playerSetTickMode(TICKMODE_GE_FADEIN);

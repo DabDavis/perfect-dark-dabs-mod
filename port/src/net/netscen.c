@@ -41,15 +41,15 @@
  * many are in (a lost one being sent again), at most NETSCEN_HOLDMAX ticks
  * past its tick. MATCH_END carries the host's last block too.
  *
- * Every index in the block is an mpchr config slot (players 0-3, sims 4+),
+ * Every index in the block is an mpchr config slot (players 0-11, sims 12+),
  * as the DEATH event's are: g_MpAllChrPtrs' order is each machine's own.
  *
  * Block (NETSCEN_SIZE bytes, little-endian, zeros past what is used):
  *     0  u8  scenario (g_MpSetup.scenario; 0xff outside a match)
- *     4  s16 numpoints[MAX_MPCHRS]        MPCHR(slot)->numpoints
- *   172  u16 tokenheld[4]                 playerstats[pn].tokenheldtime
- *   180  u8  holds[4]                     pn's inventory: 1 briefcase, 2 uplink
- *   184  per scenario:
+ *     4  s16 numpoints[MAX_MPCHRS]        MPCHR(slot)->numpoints (92)
+ *   188  u16 tokenheld[MAX_PLAYERS]       playerstats[pn].tokenheldtime (12)
+ *   212  u8  holds[MAX_PLAYERS]           pn's inventory: 1 briefcase, 2 uplink
+ *   224  per scenario (OFF_BODY; protocol 10, was 184):
  *     HTB  REF token, f32 pos[3]
  *     HTM  s8 dlslot, s8 inrangeslot, s8 dlterminal, u8 0, REF uplink,
  *          REF terminal, u8 terminal team, u8 0, s16 numpoints[MAX_MPCHRS],
@@ -68,8 +68,8 @@
 #define OFF_SCEN    0
 #define OFF_POINTS  4
 #define OFF_HELD    (OFF_POINTS + MAX_MPCHRS * 2)
-#define OFF_HOLDS   (OFF_HELD + 8)
-#define OFF_BODY    184
+#define OFF_HOLDS   (OFF_HELD + MAX_PLAYERS * 2)
+#define OFF_BODY    ((OFF_HOLDS + MAX_PLAYERS + 3) & ~3) // 224
 
 #define HTB_TOKEN   (OFF_BODY + 0)
 #define HTB_POS     (OFF_BODY + 5)
@@ -105,6 +105,7 @@
 #define HOLD_BRIEFCASE 1
 #define HOLD_UPLINK    2
 
+typedef char netscen_body[OFF_BODY == 224 ? 1 : -1]; // the layout netproto.h documents
 typedef char netscen_fits[(PAC_SURV + MAX_MPCHRS * 2 <= NETSCEN_SIZE && HTM_TIME + MAX_MPCHRS * 2 <= NETSCEN_SIZE) ? 1 : -1];
 
 // host
@@ -515,7 +516,7 @@ void netScenHostSeatCleared(s32 slot)
 	g_ScenarioData.pac.survivalcounts[idx] = 0;
 
 	for (pn = 0; pn < PLAYERCOUNT(); pn++) {
-		if ((g_Vars.playerstats[pn].mpindex & 3) == slot) {
+		if (g_Vars.playerstats[pn].mpindex == slot) {
 			g_Vars.playerstats[pn].tokenheldtime = 0;
 		}
 	}
@@ -593,7 +594,7 @@ void netScenHostTickEnd(void)
 
 	if (s_Log) {
 		for (pn = 0; pn < PLAYERCOUNT(); pn++) {
-			if (netPlayersHostSlotIsRemote(g_Vars.playerstats[pn].mpindex & 3)) {
+			if (netPlayersHostSlotIsRemote(g_Vars.playerstats[pn].mpindex)) {
 				netScenLogLine("S", g_NetTick, pn, 0);
 			}
 		}
@@ -616,7 +617,7 @@ void netScenHostFinal(u8 *out)
 
 	if (s_Log) {
 		for (pn = 0; pn < PLAYERCOUNT(); pn++) {
-			if (netPlayersHostSlotIsRemote(g_Vars.playerstats[pn].mpindex & 3)) {
+			if (netPlayersHostSlotIsRemote(g_Vars.playerstats[pn].mpindex)) {
 				netScenLogLine("E", g_NetTick, pn, 0);
 			}
 		}

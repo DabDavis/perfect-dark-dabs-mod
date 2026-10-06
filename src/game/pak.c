@@ -234,7 +234,7 @@ struct pak g_Paks[5]; // controller paks + EEPROM
 u32 var800a317c;
 #endif
 
-OSPfs g_Pfses[MAX_PLAYERS];
+OSPfs g_Pfses[MAX_LOCAL_PLAYERS];
 u32 var800a3320;
 u32 var800a3324;
 u32 var800a3328;
@@ -558,6 +558,11 @@ u16 _pakGetSerial(s8 device)
 
 u32 _pakGetType(s8 device)
 {
+	// phase 8: a pad number can reach 11 (bondgun's 2-pad modes)
+	if (device < 0 || device >= ARRAYCOUNT(g_Paks)) {
+		return PAKTYPE_NONE;
+	}
+
 	return g_Paks[device].type;
 }
 
@@ -575,6 +580,10 @@ ubool pak0f116d4c(s8 device)
 
 void pakSetState(s8 device, s32 state)
 {
+	if (device < 0 || device >= ARRAYCOUNT(g_Paks)) {
+		return;
+	}
+
 	g_Paks[device].state = state;
 }
 
@@ -4430,7 +4439,7 @@ void pak0f11c6d0(void)
 {
 	s32 i;
 
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < MAXCONTROLLERS; i++) {
 		switch (g_Paks[i].state) {
 		case PAKSTATE_PROBE:
 		case PAKSTATE_MEM_DISPATCH:
@@ -5348,6 +5357,11 @@ void pak0f11d9c4(s8 device, u8 *arg1, u8 *arg2, u32 arg3)
 #if VERSION >= VERSION_NTSC_1_0
 void pakRumble(s32 device, f32 numsecs, s32 onduration, s32 offduration)
 {
+	// phase 8: contpad1 = mpindex reaches 11 on a net host; only 0-3 rumble
+	if (device < 0 || device >= MAXCONTROLLERS) {
+		return;
+	}
+
 	if (g_Paks[device].state == PAKSTATE_READY
 			&& g_Paks[device].type == PAKTYPE_RUMBLE
 			&& g_Paks[device].rumblestate != RUMBLESTATE_DISABLED_STOPPING
@@ -5404,7 +5418,7 @@ void pakDisableRumbleForPlayer(s8 playernum)
 	joyGetContpadNumsForPlayer(tmp, &contpads[0], &contpads[1]);
 
 	for (i = 0; i < 2; i++) {
-		if (contpads[i] >= 0 && g_Paks[contpads[i]].type == PAKTYPE_RUMBLE) {
+		if (contpads[i] >= 0 && contpads[i] < MAXCONTROLLERS && g_Paks[contpads[i]].type == PAKTYPE_RUMBLE) {
 			g_Paks[contpads[i]].rumblestate = RUMBLESTATE_DISABLED_STOPPING;
 			joyStopRumble(contpads[i], true);
 		}
@@ -5427,7 +5441,7 @@ void pakEnableRumbleForPlayer(s8 playernum)
 	joyGetContpadNumsForPlayer(tmp, &contpads[0], &contpads[1]);
 
 	for (i = 0; i < 2; i++) {
-		if (contpads[i] >= 0
+		if (contpads[i] >= 0 && contpads[i] < MAXCONTROLLERS
 				&& g_Paks[contpads[i]].type == PAKTYPE_RUMBLE
 				&& g_Paks[contpads[i]].rumblestate == RUMBLESTATE_DISABLED_STOPPED) {
 			g_Paks[contpads[i]].rumblestate = RUMBLESTATE_ENABLING;
@@ -5446,14 +5460,14 @@ void pakDisableRumbleForAllPlayers(void)
 	s32 i;
 
 #if VERSION >= VERSION_NTSC_1_0
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < MAXCONTROLLERS; i++) {
 		if (g_Paks[i].type == PAKTYPE_RUMBLE) {
 			g_Paks[i].rumblestate = RUMBLESTATE_DISABLED_STOPPING;
 			joyStopRumble(i, true);
 		}
 	}
 #else
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < MAXCONTROLLERS; i++) {
 		pakDisableRumbleForPlayer(i);
 	}
 #endif
@@ -5464,13 +5478,13 @@ void pakEnableRumbleForAllPlayers(void)
 	s32 i;
 
 #if VERSION >= VERSION_NTSC_FINAL
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < MAXCONTROLLERS; i++) {
 		if (g_Paks[i].type == PAKTYPE_RUMBLE && g_Paks[i].rumblestate == RUMBLESTATE_DISABLED_STOPPED) {
 			g_Paks[i].rumblestate = RUMBLESTATE_ENABLING;
 		}
 	}
 #else
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < MAXCONTROLLERS; i++) {
 		pakEnableRumbleForPlayer(i);
 	}
 #endif
@@ -5994,7 +6008,7 @@ bool gbpakIsAnyPerfectDark(void)
 #ifdef PLATFORM_N64
 	s8 i;
 
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (i = 0; i < MAXCONTROLLERS; i++) {
 		if (gbpakIdentifyGame(i) == GBGAME_PD) {
 			return true;
 		}

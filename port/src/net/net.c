@@ -398,6 +398,18 @@ void netPendingMouse(s32 *dx, s32 *dy)
 	*dy = g_NetInStageLoop ? s_NetMouseDY : 0;
 }
 
+// Phase 8: the 4-row tables stop at 4 players. A room of more keeps row 3
+// and adds a vertex pool step per extra player: remote passes rewind gdl,
+// not gfxAllocate, so every pass's matrices and vertices stay live.
+_Static_assert(NET_NUM_PADS == MAX_PLAYERS, "joy.c's NUM_PADS is MAX_PLAYERS: a pad per player slot");
+
+u32 netGfxVtxExtra(void)
+{
+	s32 n = PLAYERCOUNT();
+
+	return n > MAX_LOCAL_PLAYERS ? (u32)(n - MAX_LOCAL_PLAYERS) * 0x8000 : 0;
+}
+
 s32 netGfxSizeIndex(s32 index)
 {
 	if (index < 0) {
