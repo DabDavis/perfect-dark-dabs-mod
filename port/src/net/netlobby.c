@@ -107,6 +107,8 @@ static char s_Message[200] = "";
 static u32 s_MessageSeq = 0;
 static struct netlobbyroomsum s_PendRooms[NETLOBBY_MAXROOMS];
 static s32 s_PendNumRooms = 0;
+static s32 s_PendHttpRtt = -1;  // the list request's round trip (worker), halved: the PING estimate when the ECHO is mute
+static s32 s_HttpRtt = -1;
 static u32 s_PendRoomsSeq = 0;
 static struct netlobbyroom s_PendRoom;
 static u32 s_PendRoomSeq = 0;
@@ -149,6 +151,16 @@ static u64 s_LaunchRetryAt = 0;  // a member refused STARTED (the host still loa
 static s32 s_LaunchRetries = 0;
 static u64 s_LaunchSeenMs = 0;  // a member: when this launch was first seen (the path may still be coming)
 static u32 s_LaunchSeenAt = 0;
+#define LOBBY_MAXCANDS 6
+#define LOBBY_CAND_WINDOW_MS 8000   // each fallback address but the last gets this long to answer (the ladder's path: the full window)
+static char s_CandAddr[LOBBY_MAXCANDS][64]; // a member at launch: the ways to the host, in order
+static u16 s_CandPort[LOBBY_MAXCANDS];
+static const char *s_CandHow[LOBBY_MAXCANDS];
+static s32 s_CandFull[LOBBY_MAXCANDS];  // the path the ladder found: the full connect window
+static s32 s_NumCands = 0;
+static s32 s_CandAt = 0;
+static s32 s_CandNext = 0;      // the last one found no host: the next one, for the same launch
+static u32 s_CandLaunch = 0;    // the launch ("at") the list was made for
 static s32 s_ReportedPath = -1; // a member: the path and ping last sent to the roster
 static s32 s_ReportedPing = -1;
 static u64 s_ReportedAt = 0;
@@ -178,8 +190,17 @@ static s32 s_ScriptStep = 0;
 static u64 s_ScriptAt = 0;
 static s32 s_ScriptLeaveFrame = 600;
 static s32 s_ScriptClients = 0;
+static s32 s_ScriptSkipLadder = 0; // --net-test-skip-ladder: a launch takes the advertised endpoints
+static s32 s_ScriptNoEcho = 0;     // --net-test-no-echo: the list's PING as if UDP to the lobby were blocked; the join script lists only
+static s32 s_ScriptShots = 0;      // --net-lobby-shots: the menus up, screenshots of them (netlobbyuitest.sh)
+static s32 s_ScriptShotStep = 0;   // 0 nothing yet, 1 menu up, 2 shot taken
+static u64 s_ScriptShotAt = 0;
 
-void netLobbyMenuPushRoom(void); // netlobbymenu.c
+void netLobbyMenuPushRoom(void);     // netlobbymenu.c
+void netLobbyMenuPushBriefing(void); // netlobbymenu.c
+s32 netLobbyMenuPageUp(s32 room);     // netlobbymenu.c
+void screenshotRequest(void);        // screenshot.h
+extern struct menudialogdef g_MpEndscreenSavePlayerMenuDialog;
 
 extern s32 g_StageNum;
 extern s32 g_MainChangeToStageNum;
@@ -910,8 +931,26 @@ static void lobbyRunJob(struct lobbyjob *job)
 
 	switch (job->kind) {
 	case JOB_LIST:
-		snprintf(path, sizeof(path), "/rooms?build=%s", VERSION_HASH);
-		status = lobbyRequest(path, NULL, AUTH_NONE, 0, &reply, &obj, &objok, err, sizeof(err));
+		{
+			const u64 t0 = lobbyNowMs();
+			s32 rtt;
+
+			snprintf(path, sizeof(path), "/rooms?build=%s", VERSION_HASH);
+			status = lobbyRequest(path, NULL, AUTH_NONE, 0, &reply, &obj, &objok, err, sizeof(err));
+
+			// a fresh connection and the request: about two round trips
+			// (more over TLS, so it reads high, never low); the lowest seen
+			rtt = (s32)((lobbyNowMs() - t0) / 2);
+			rtt = rtt < 1 ? 1 : rtt;
+
+			SDL_LockMutex(s_Lock);
+
+			if (status == 200 && (s_PendHttpRtt < 0 || rtt < s_PendHttpRtt)) {
+				s_PendHttpRtt = rtt;
+			}
+
+			SDL_UnlockMutex(s_Lock);
+		}
 
 		if (status == 200 && objok && jsonGet(obj, "rooms", &v)) {
 			SDL_LockMutex(s_Lock);
@@ -1653,13 +1692,21 @@ static s32 lobbyEndpointsJson(char *out, s32 size, u16 port)
 	char addr[64];
 	s32 len = snprintf(out, size, "\"endpoints\":[");
 	s32 n = 0;
+	const char *test = sysArgGetString("--net-test-endpoint");
+
+	// a test's dead address ahead of the real ones (netlobbyuitest.sh): the
+	// joiner must go on to the next
+	if (test && strlen(test) < 48 && strspn(test, "0123456789.:") == strlen(test)) {
+		len += snprintf(out + len, size - len, "\"%s\"", test);
+		n++;
+	}
 
 	if (netLocalAddrFor("8.8.8.8", &me) == 0) {
 		netAddrToString(&me, addr, sizeof(addr));
 
 		if (strchr(addr, ':') && addr[0] != '[' && strncmp(addr, "0.", 2) != 0 && strncmp(addr, "127.", 4) != 0) {
 			*strchr(addr, ':') = '\0';
-			len += snprintf(out + len, size - len, "\"%s:%u\"", addr, port);
+			len += snprintf(out + len, size - len, "%s\"%s:%u\"", n ? "," : "", addr, port);
 			n++;
 		}
 	}
@@ -2117,6 +2164,26 @@ static void lobbyHostTick(void)
 	}
 }
 
+// one more way to the host for this launch, if it is not one already
+static void lobbyAddCand(const char *addr, u16 port, const char *how, s32 full)
+{
+	s32 i;
+
+	for (i = 0; i < s_NumCands; i++) {
+		if (s_CandPort[i] == port && strcmp(s_CandAddr[i], addr) == 0) {
+			return;
+		}
+	}
+
+	if (s_NumCands < LOBBY_MAXCANDS) {
+		snprintf(s_CandAddr[s_NumCands], sizeof(s_CandAddr[0]), "%s", addr);
+		s_CandPort[s_NumCands] = port;
+		s_CandHow[s_NumCands] = how;
+		s_CandFull[s_NumCands] = full;
+		s_NumCands++;
+	}
+}
+
 static void lobbyClientTick(void)
 {
 	char addr[64];
@@ -2134,12 +2201,23 @@ static void lobbyClientTick(void)
 		// room's to show, not a notice over the main menu later
 		const s32 started = netSessionLastRefuse() == NETREFUSE_STARTED;
 
-		if (started && s_Room.launched && s_LaunchRetries < 30) {
+		if (netSessionClientUnreached() && s_Room.launched && s_Room.launchat == s_LaunchHandled && s_CandAt + 1 < s_NumCands) {
+			// nobody at that address (a LAN address from elsewhere, a
+			// forwarded port that is not): the host's next one at once
+			g_NetNoticePending = 0;
+			s_CandAt++;
+			s_CandNext = 1;
+			s_LaunchHandled = 0;
+			sysLogPrintf(LOG_NOTE, "lobby: no host at that address; trying the next (%d of %d)", s_CandAt + 1, s_NumCands);
+		} else if (started && s_Room.launched && s_LaunchRetries < 30) {
 			// the host was loading the match, or ending it: the room is
 			// still launched, so the same launch is tried again shortly
 			g_NetNoticePending = 0;
 			s_LaunchRetries++;
 			s_LaunchRetryAt = lobbyNowMs() + 2000;
+			// that address reached the host: the retry goes back to it,
+			// not through the dead ones ahead of it in the list
+			s_CandNext = 1;
 			snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "The match is starting; joining in a moment.");
 			sysLogPrintf(LOG_NOTE, "lobby: the host is starting or ending the match; connecting again in 2 s (try %d)", s_LaunchRetries);
 		} else if (g_NetNoticePending) {
@@ -2176,7 +2254,7 @@ static void lobbyClientTick(void)
 			s_LaunchHandled = s_Room.launchat;
 		} else if (s_PendTicketMain[0] && netSessionLobbyRole() == 0) {
 			const s32 ladder = netRdvLadder();
-			const char *how = "the host's first advertised endpoint";
+			const char *how;
 
 			if (s_LaunchSeenAt != s_Room.launchat) {
 				s_LaunchSeenAt = s_Room.launchat;
@@ -2196,34 +2274,48 @@ static void lobbyClientTick(void)
 
 			s_LaunchHandled = s_Room.launchat;
 
-			if (ladder == NETRDV_LADDER_DONE && netRdvEndpoint(addr, sizeof(addr), &port) == 0) {
-				how = netRdvPathName(netRdvPath());
-			} else {
-				// no path from the rendezvous (its UDP port unreachable, or
-				// nothing answered): the host's advertised endpoints, LAN
-				// first, then where the rendezvous saw it
+			if (!s_CandNext || s_CandLaunch != s_Room.launchat) {
+				// the ways to the host, in order: the path the ladder found,
+				// then (that failing, or no path from the rendezvous: its UDP
+				// port unreachable, nothing answered) every endpoint the host
+				// advertised, LAN first, then where the rendezvous saw it
+				s_NumCands = 0;
+				s_CandAt = 0;
+				s_CandLaunch = s_Room.launchat;
+
+				if (ladder == NETRDV_LADDER_DONE && !s_ScriptSkipLadder && netRdvEndpoint(addr, sizeof(addr), &port) == 0) {
+					lobbyAddCand(addr, port, netRdvPathName(netRdvPath()), 1);
+				}
+
 				for (i = 0; i < s_Room.nendpoints; i++) {
 					if (lobbySplitEndpoint(s_Room.endpoints[i], addr, sizeof(addr), &port) == 0) {
-						break;
+						lobbyAddCand(addr, port, "an advertised endpoint", 0);
 					}
 				}
 
-				if (i == s_Room.nendpoints) {
-					how = "the host's public address";
+				if (s_Room.publicep[0] && lobbySplitEndpoint(s_Room.publicep, addr, sizeof(addr), &port) == 0) {
+					lobbyAddCand(addr, port, "the host's public address", 0);
+				}
 
-					if (!(s_Room.publicep[0] && lobbySplitEndpoint(s_Room.publicep, addr, sizeof(addr), &port) == 0)) {
-						snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "The host gave no address to connect to.");
-						return;
-					}
+				if (s_NumCands == 0) {
+					snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "The host gave no address to connect to.");
+					return;
 				}
 			}
 
-			sysLogPrintf(LOG_NOTE, "lobby: room %s launched; connecting to %s port %u (%s) with the lobby's ticket", s_Room.sum.id, addr, port, how);
+			s_CandNext = 0;
+			snprintf(addr, sizeof(addr), "%s", s_CandAddr[s_CandAt]);
+			port = s_CandPort[s_CandAt];
+			how = s_CandHow[s_CandAt];
+
+			sysLogPrintf(LOG_NOTE, "lobby: room %s launched; connecting to %s port %u (endpoint %d of %d: %s) with the lobby's ticket",
+					s_Room.sum.id, addr, port, s_CandAt + 1, s_NumCands, how);
 
 			s_LobbyConnSpectator = s_Room.youspectator != 0;
 			netSessionSetSpectate(s_LobbyConnSpectator);
 
-			if (netSessionLobbyConnect(addr, port, s_PendTicketMain, netLobbyAccount(), netRdvSocket()) != 0) {
+			if (netSessionLobbyConnect(addr, port, s_PendTicketMain, netLobbyAccount(), netRdvSocket(),
+						s_CandAt + 1 < s_NumCands && !s_CandFull[s_CandAt] ? LOBBY_CAND_WINDOW_MS : 0) != 0) {
 				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "Could not open a UDP socket for the game.");
 			}
 		}
@@ -2270,13 +2362,33 @@ static void lobbyReportPath(void)
 
 /**
  * A room's ping in the list: this machine's round trip to the lobby plus
- * the lobby's to the host (both measured, README "Ping hint"), -1 unknown
+ * the lobby's to the host (both measured, README "Ping hint"), -1 unknown.
+ * This machine's leg is the rendezvous ECHO; with UDP to the lobby blocked
+ * (no ECHO back) it is estimated from the room list's HTTP round trip
+ * instead, and *estimate says so (the list shows it as "~n").
  */
-s32 netLobbyRoomPing(const struct netlobbyroomsum *r)
+s32 netLobbyRoomPingEx(const struct netlobbyroomsum *r, s32 *estimate)
 {
-	const s32 echo = netRdvLobbyRtt();
+	s32 echo = s_ScriptNoEcho ? -1 : netRdvLobbyRtt();
+
+	if (estimate) {
+		*estimate = 0;
+	}
+
+	if (echo < 0 && s_HttpRtt >= 0) {
+		echo = s_HttpRtt;
+
+		if (estimate) {
+			*estimate = 1;
+		}
+	}
 
 	return r && r->hostrtt >= 0 && echo >= 0 ? r->hostrtt + echo : -1;
+}
+
+s32 netLobbyRoomPing(const struct netlobbyroomsum *r)
+{
+	return netLobbyRoomPingEx(r, NULL);
 }
 
 static void lobbyScriptTick(void);
@@ -2309,6 +2421,7 @@ void netLobbyTick(void)
 			s_SeenRoomsSeq = s_PendRoomsSeq;
 			memcpy(s_Rooms, s_PendRooms, sizeof(s_Rooms));
 			s_NumRooms = s_PendNumRooms;
+			s_HttpRtt = s_PendHttpRtt;
 		}
 
 		enteredseq = s_EnteredSeq;
@@ -2531,6 +2644,8 @@ void netLobbyShutdown(void)
  *   --net-lobby-leave-frame F      join: End Game at frame F of each match (0 never)
  *   --net-lobby-end-frame F        host: End Game at frame F of each match (0: when
  *                                  the clients have all left)
+ *   --net-lobby-shots              the Briefing Room and Game Lobby menus up on the
+ *                                  way, each screenshotted (tools/ci/netlobbyuitest.sh)
  */
 
 static s32 s_ScriptMatches = 1;
@@ -2552,6 +2667,9 @@ void netLobbyArgs(void)
 		s_ScriptLeaveFrame = sysArgGetInt("--net-lobby-leave-frame", 600);
 		s_ScriptEndFrame = sysArgGetInt("--net-lobby-end-frame", 0);
 		s_ScriptMatches = sysArgGetInt("--net-lobby-matches", 1);
+		s_ScriptShots = sysArgCheck("--net-lobby-shots");
+		s_ScriptSkipLadder = sysArgCheck("--net-test-skip-ladder");
+		s_ScriptNoEcho = sysArgCheck("--net-test-no-echo");
 
 		if (sysArgGetString("--net-lobby-room")) {
 			s_ScriptRoom = sysArgGetString("--net-lobby-room");
@@ -2603,6 +2721,13 @@ static void lobbyScriptTick(void)
 		} else if (endsince == 0) {
 			endsince = now;
 		} else if (now - endsince > 1500) {
+			// a profile prompt over a net match's end screen is a bug (spec-stage trap 13)
+			for (i = 0; i < MAX_PLAYERS; i++) {
+				if (g_Menus[i].curdialog && g_Menus[i].curdialog->definition == &g_MpEndscreenSavePlayerMenuDialog) {
+					sysLogPrintf(LOG_WARNING, "lobby script: a Save Player prompt is up for player %d", i);
+				}
+			}
+
 			sysLogPrintf(LOG_NOTE, "lobby script: closing the end screen");
 
 			for (i = 0; i < MAX_PLAYERS; i++) {
@@ -2645,8 +2770,33 @@ static void lobbyScriptTick(void)
 			break;
 		case 1:
 			if (s_InRoom && s_Room.valid && !s_Room.launched && s_Room.countdownms < 0) {
+				if (s_ScriptShots && s_ScriptShotStep == 0) {
+					netLobbyMenuPushRoom();
+					s_ScriptShotStep = 1;
+					s_ScriptShotAt = now;
+				}
+
 				for (i = 0; i < s_Room.nmembers; i++) {
 					if (!s_Room.members[i].host && s_Room.members[i].ready) {
+						if (s_ScriptShots && s_ScriptShotStep == 1) {
+							// the member's path and ping on the roster first (or 20 s)
+							if (!netLobbyMenuPageUp(1)) {
+								netLobbyMenuPushRoom();
+								s_ScriptShotAt = now;
+							} else if ((s_Room.members[i].path[0] && now - s_ScriptShotAt > 3000) || now - s_ScriptShotAt > 20000) {
+								screenshotRequest();
+								sysLogPrintf(LOG_NOTE, "lobby script: shot the host's Game Lobby: %s path %s ping %d",
+										s_Room.members[i].user, s_Room.members[i].path[0] ? s_Room.members[i].path : "-", s_Room.members[i].ping);
+								s_ScriptShotStep = 2;
+								s_ScriptShotAt = now;
+							}
+							break;
+						}
+
+						if (s_ScriptShots && now - s_ScriptShotAt < 1500) {
+							break;
+						}
+
 						netLobbyLaunch(0);
 						lobbyScriptStep(2, "host: a member is ready; LAUNCH");
 						break;
@@ -2725,16 +2875,62 @@ static void lobbyScriptTick(void)
 			if (!netLobbyBusy()) {
 				for (i = 0; i < s_NumRooms; i++) {
 					if (strcmp(s_Rooms[i].name, s_ScriptRoom) == 0) {
+						if (s_ScriptShots && s_ScriptShotStep == 0) {
+							// the Briefing Room up until the room's ping is in (or 30 s),
+							// over the boot's menus once they are up (Choose Your Reality)
+							if (!g_Menus[g_MpPlayerNum].curdialog || g_MenuData.root == 0) {
+								break;
+							}
+
+							netLobbyMenuPushBriefing();
+							s_ScriptShotStep = 1;
+							s_ScriptShotAt = now;
+							sysLogPrintf(LOG_NOTE, "lobby script: Briefing Room up");
+						}
+
+						if (s_ScriptShots && s_ScriptShotStep == 1) {
+							if (!netLobbyMenuPageUp(0)) {
+								// something of the boot's came up over it
+								netLobbyMenuPushBriefing();
+								s_ScriptShotAt = now;
+								sysLogPrintf(LOG_NOTE, "lobby script: Briefing Room up again");
+							} else if ((netLobbyRoomPing(&s_Rooms[i]) >= 0 && now - s_ScriptShotAt > 4000) || now - s_ScriptShotAt > 30000) {
+								s32 est = 0;
+								const s32 ping = netLobbyRoomPingEx(&s_Rooms[i], &est);
+
+								screenshotRequest();
+								sysLogPrintf(LOG_NOTE, "lobby script: shot the Briefing Room: %d rooms, \"%s\" ping %d%s (lobby echo %d, http %d, host %d)",
+										s_NumRooms, s_Rooms[i].name, ping, est ? " by HTTP" : "", s_ScriptNoEcho ? -1 : netRdvLobbyRtt(), s_HttpRtt, s_Rooms[i].hostrtt);
+								s_ScriptShotStep = 2;
+								s_ScriptShotAt = now;
+							} else if (now - s_ScriptAt > 2000) {
+								netLobbyRefresh();
+								s_ScriptAt = now;
+							}
+							break;
+						}
+
+						if (s_ScriptShots && s_ScriptShotStep == 2 && now - s_ScriptShotAt < 1500) {
+							break;
+						}
+
+						if (s_ScriptNoEcho) {
+							// a lister only: the Briefing Room's HTTP-estimated PING was the test
+							sysLogPrintf(LOG_NOTE, "lobby script: listed only (--net-test-no-echo); quitting");
+							exit(0);
+						}
+
 						sysLogPrintf(LOG_NOTE, "lobby script: found room %s \"%s\" by %s, %d/%d, %s, %s, compat %d",
 								s_Rooms[i].id, s_Rooms[i].name, s_Rooms[i].host, s_Rooms[i].humans, s_Rooms[i].maxhumans,
 								s_Rooms[i].stage, s_Rooms[i].scenario, s_Rooms[i].compat);
+						s_ScriptShotStep = 0;
 						netLobbyJoin(s_Rooms[i].id, "");
 						lobbyScriptStep(2, "join: join the room");
 						break;
 					}
 				}
 
-				if (s_ScriptStep == 1 && now - s_ScriptAt > 2000) {
+				if (s_ScriptStep == 1 && s_ScriptShotStep == 0 && now - s_ScriptAt > 2000) {
 					netLobbyRefresh();
 					s_ScriptAt = now;
 				}
@@ -2753,6 +2949,12 @@ static void lobbyScriptTick(void)
 
 				netLobbySetReady(1);
 				lobbyScriptStep(3, text);
+
+				if (s_ScriptShots) {
+					netLobbyMenuPushRoom();
+					s_ScriptShotStep = 1;
+					s_ScriptShotAt = now;
+				}
 			} else if (!netLobbyBusy() && !s_InRoom && now - s_ScriptAt > 3000) {
 				sysLogPrintf(LOG_ERROR, "lobby script: could not join: %s", s_MainMessage);
 				fflush(stdout);
@@ -2760,6 +2962,17 @@ static void lobbyScriptTick(void)
 			}
 			break;
 		case 3:
+			// the Game Lobby as the joiner sees it, before the 5 s countdown is out
+			if (s_ScriptShots && s_ScriptShotStep == 1 && !netLobbyMenuPageUp(1) && !netSessionMatchLoading()) {
+				netLobbyMenuPushRoom();
+				s_ScriptShotAt = now;
+			} else if (s_ScriptShots && s_ScriptShotStep == 1 && now - s_ScriptShotAt > 2500 && !netSessionMatchLoading()) {
+				screenshotRequest();
+				sysLogPrintf(LOG_NOTE, "lobby script: shot the joiner's Game Lobby (%d members, path %s, %d ms)",
+						s_Room.nmembers, netRdvLadder() == NETRDV_LADDER_DONE ? netRdvPathName(netRdvPath()) : "-", netRdvPing());
+				s_ScriptShotStep = 2;
+			}
+
 			if (netSessionMatchLoading()) {
 				snprintf(text, sizeof(text), "join: in the room's match %d", s_ScriptPlayed + 1);
 				lobbyScriptStep(4, text);

@@ -211,7 +211,7 @@ game() {
 
 declare -A HOSTNS=([a]=a1 [b]=b1 [c]=c1 [d]=d1 [e]=e1) JOINNS=([a]=a2 [b]=b2 [c]=c2 [d]=d2 [e]=e2)
 declare -A ROSTER=([e]=none)
-declare -A WANT=([a]=punch [b]=relay [c]=direct [d]=lan [e]="the host's [a-z ]*")
+declare -A WANT=([a]=punch [b]=relay [c]=direct [d]=lan [e]="an advertised endpoint\|the host's public address")
 declare -A RUNS
 n=0
 for c in $CASES; do
@@ -258,7 +258,7 @@ for c in $CASES; do
 		grep -q "rdv: relay for joinerb bound" "$H" && pass "b: host: $(line "$H" "rdv: relay for")" || fail "b: host never bound the relay"; }
 	[ "$c" = a ] && { grep -q "rdv: joinera has not reached us; spraying" "$H" && pass "a: host: $(line "$H" "rdv: joinera has not")" || fail "a: host never sprayed"; }
 	[ "$c" = c ] && { grep -q "spraying" "$H" && fail "c: host sprayed a joiner that reached it unaided" || pass "c: host never sprayed (reachable)"; }
-	if grep -q "connecting to .* ($want) with the lobby's ticket" "$J"; then
+	if grep -q "connecting to .* (endpoint [0-9] of [0-9]: $want) with the lobby's ticket" "$J"; then
 		pass "$c: joiner: $(line "$J" "lobby: room $room launched; connecting")"
 	else
 		fail "$c: joiner did not connect over $want: $(line "$J" "lobby: room $room launched")"

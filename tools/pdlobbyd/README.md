@@ -122,7 +122,9 @@ dedicated), `max_humans`, `spectators`, `max_spectators` (2, the game host's `NE
 registered socket (PROBE every 10 s, smoothed), null until the host registers
 and answers. A client estimates its ping to a room as its own ECHO round trip
 to the lobby plus `host_rtt_ms` - an upper-ish bound that never puts a host's
-address in a public list. Addresses are only ever given to members: the
+address in a public list. When its ECHO gets no answer (UDP to the lobby
+blocked) the game estimates its own leg from the `GET /rooms` round trip
+instead and marks the figure `~`. Addresses are only ever given to members: the
 roster says `udp: true/false`, the endpoints come in `launch` and in PEER.
 
 **State** (`GET /rooms/<id>/state?since=N&wait=S`): if the room's `version`
@@ -385,8 +387,13 @@ punch packets go on every 2 s as pings, which keep the NAT mappings and the
 relay alive between matches and are the ping the member reports with
 `netinfo`. If nothing answers in 16 s, or the rendezvous never does (no
 REGISTERED in 5 s, or no PEER for the host in 10 s), the ladder fails and a
-launch goes straight to the host's advertised endpoints, as before, without
-waiting on it. A failed ladder is tried again every 20 s while the member
+launch goes straight to the host's advertised endpoints without waiting on
+it. At launch the member tries, in order, the ladder's path, every endpoint
+the host advertised, then the public address the rendezvous saw. The
+ladder's path and the last address get the full 30 s to answer, the other
+fallbacks 8 s each, so a LAN address that is not reachable from here no
+longer ends the join; a host still loading (refused STARTED) is retried at
+the address that answered. A failed ladder is tried again every 20 s while the member
 stays in the room (a relay may have freed up); an ERROR 3 to a relay request
 spaces the next request 5 s out. The member's lobby socket only dials out:
 it drops inbound ENet connects, so strangers who learn its public endpoint

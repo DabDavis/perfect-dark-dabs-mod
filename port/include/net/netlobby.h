@@ -126,6 +126,7 @@ void netLobbyRefresh(void);
 s32 netLobbyNumRooms(void);
 const struct netlobbyroomsum *netLobbyRoomAt(s32 index);
 const char *netLobbyCompatText(s32 compat);
+s32 netLobbyRoomPingEx(const struct netlobbyroomsum *r, s32 *estimate); // *estimate 1: this machine's leg by HTTP (UDP to the lobby mute)
 s32 netLobbyRoomPing(const struct netlobbyroomsum *r); // ms, measured: us to the lobby + the lobby to the host; -1
 
 void netLobbyCreate(const struct netlobbycreate *c);   // from the current Combat Simulator setup

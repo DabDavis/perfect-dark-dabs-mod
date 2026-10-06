@@ -878,7 +878,11 @@ void mpPushEndscreenDialog(u32 arg0, u32 playernum)
 	{
 		if ((g_PlayerConfigsArray[g_MpPlayerNum].options & OPTION_ASKEDSAVEPLAYER) == 0
 				&& g_PlayerConfigsArray[g_MpPlayerNum].fileguid.fileid == 0
-				&& g_PlayerConfigsArray[g_MpPlayerNum].fileguid.deviceserial == 0) {
+				&& g_PlayerConfigsArray[g_MpPlayerNum].fileguid.deviceserial == 0
+#ifndef PLATFORM_N64
+				&& g_NetMode == NETMODE_NONE // netplay: no profile prompt after a net match (spec-stage trap 13)
+#endif
+				) {
 			g_PlayerConfigsArray[g_MpPlayerNum].options |= OPTION_ASKEDSAVEPLAYER;
 			menuPushDialog(&g_MpEndscreenSavePlayerMenuDialog);
 		}

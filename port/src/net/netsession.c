@@ -182,6 +182,10 @@ static s32 s_ClientState = NETCS_IDLE;
 static s32 s_ServerPeer = -1;
 static u64 s_ConnectStart = 0;  // the first attempt
 static s32 s_ConnectTries = 0;
+static s32 s_ConnectWindowMs = NET_CONNECT_WINDOW_MS; // a lobby member trying several endpoints shortens it
+static s32 s_Unreached = 0;        // the last connect never reached a host (no ENet connect in the window)
+static char s_HostOwnName[16];     // a lobby host: its profile's name while it plays a match as its account
+static s32 s_HostNameOn = 0;
 static s32 s_Leaving = 0;
 static s32 s_DropToMenus = 0;
 static s32 s_EndPending = 0;
@@ -1231,6 +1235,22 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 		if (i == 0 && !netIsDedicatedHost()) {
 			s_Seats[i].state = NETSEAT_HOST;
 			snprintf(s_Seats[i].account, sizeof(s_Seats[i].account), "%s", s_Name);
+
+			// a lobby room's host plays as its account on its own machine
+			// too: the HUD text it builds and forwards ("Killed by %s", "Get
+			// %s!") names the same player the members' scoreboards do. Its
+			// profile's name comes back at the match's end (H9), before any
+			// end screen or profile save.
+			if (s_LobbyRoomOn && s_Name[0]) {
+				if (!s_HostNameOn) {
+					snprintf(s_HostOwnName, sizeof(s_HostOwnName), "%s", g_PlayerConfigsArray[0].base.name);
+					s_HostNameOn = 1;
+				}
+
+				snprintf(g_PlayerConfigsArray[0].base.name, sizeof(g_PlayerConfigsArray[0].base.name), "%s", s_Name);
+				sysLogPrintf(LOG_NOTE, "net: lobby host: slot 0 plays as \"%s\" (its profile \"%.14s\" back at the end)",
+						g_PlayerConfigsArray[0].base.name, s_HostOwnName);
+			}
 		} else {
 			s_Seats[i].state = NETSEAT_OPEN;
 			s_Seats[i].vacate = 1;
@@ -1506,7 +1526,7 @@ static void netHostSendRoster(void)
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		netBufWriteU8(&b, (u8)s_Seats[i].state);
-		netWriteStr(&b, g_PlayerConfigsArray[i].base.name, 14);
+		netWriteStr(&b, netSessionWireName(i), 14);
 	}
 
 	for (i = 0; i < NET_MAXPEERS; i++) {
@@ -1802,6 +1822,16 @@ static void netHostLateTick(void)
 	}
 }
 
+// A lobby host: its profile's own name back in slot 0 (see netHostMatchStarting)
+static void netHostOwnNameBack(void)
+{
+	if (s_HostNameOn) {
+		snprintf(g_PlayerConfigsArray[0].base.name, sizeof(g_PlayerConfigsArray[0].base.name), "%s", s_HostOwnName);
+		s_HostNameOn = 0;
+		sysLogPrintf(LOG_NOTE, "net: lobby host: slot 0's profile name is back");
+	}
+}
+
 /**
  * H9, after mpEndMatch has worked out the awards: the clients end theirs on
  * the host's numbers
@@ -1811,6 +1841,8 @@ void netHostMatchEnded(void)
 	struct netbuf b;
 	s32 i;
 	s32 j;
+
+	netHostOwnNameBack();
 
 	if (s_Role != NETROLE_HOST || !s_MatchActive || !g_NetHostSocket) {
 		return;
@@ -2467,12 +2499,13 @@ static void netClientEvent(const struct netevent *ev)
 		if (ev->peer == s_ServerPeer && s_ClientState != NETCS_GONE) {
 			if (s_Leaving) {
 				netClientEnd(NETREFUSE_LEFT, "You left the game.");
-			} else if (s_ClientState == NETCS_CONNECTING && netNowMs() - s_ConnectStart < NET_CONNECT_WINDOW_MS) {
+			} else if (s_ClientState == NETCS_CONNECTING && netNowMs() - s_ConnectStart < (u64)s_ConnectWindowMs) {
 				// a host still booting services its socket only once its
 				// main loop runs, after ENet's handshake may have given up
 				netClientStartConnect();
 			} else if (s_ClientState == NETCS_CONNECTING) {
 				snprintf(text, sizeof(text), "Could not connect to %s port %u.", s_ConnectAddr, s_ConnectPort);
+				s_Unreached = 1;
 				netClientEnd(NETREFUSE_SHUTDOWN, text);
 			} else {
 				netClientEnd(NETREFUSE_SHUTDOWN, ev->timedout ? "The connection to the host was lost." : "The host closed the connection.");
@@ -2921,11 +2954,12 @@ void netSessionTick(void)
 			netClientStartConnect();
 		}
 
-		if (s_ClientState == NETCS_CONNECTING && netNowMs() - s_ConnectStart > NET_CONNECT_WINDOW_MS) {
+		if (s_ClientState == NETCS_CONNECTING && netNowMs() - s_ConnectStart > (u64)s_ConnectWindowMs) {
 			char text[NET_MAXTEXT + 1];
 
 			snprintf(text, sizeof(text), "Could not connect to %s port %u.", s_ConnectAddr, s_ConnectPort);
 			netHostDisconnectNow(g_NetHostSocket, s_ServerPeer, 0);
+			s_Unreached = 1;
 			netClientEnd(NETREFUSE_SHUTDOWN, text);
 		}
 
@@ -3101,6 +3135,7 @@ void netStageStopped(void)
 		return;
 	}
 
+	netHostOwnNameBack();
 	netRulesRestore();
 	netEventsMatchStopped();
 	netEntsMatchStopped();
@@ -3378,7 +3413,7 @@ void netSessionLobbyClock(s64 offset)
  * the lobby's socket that punched (or bound the relay) to addr: the
  * session uses it and hands it back when it closes.
  */
-s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name, struct nethost *sock)
+s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name, struct nethost *sock, s32 windowms)
 {
 	struct nethashcomp comps[NET_MAXCOMPS];
 
@@ -3395,6 +3430,8 @@ s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const
 	s_ConnectPort = port;
 	snprintf(s_Ticket, sizeof(s_Ticket), "%s", ticket);
 	snprintf(s_Name, sizeof(s_Name), "%s", name);
+	s_ConnectWindowMs = windowms > 0 ? windowms : NET_CONNECT_WINDOW_MS;
+	s_Unreached = 0;
 	s_Role = NETROLE_CLIENT;
 	s_LobbyRoomOn = 1;
 	s_ClientState = NETCS_IDLE;
@@ -3445,6 +3482,7 @@ void netSessionLobbyStop(void)
 		netTransportShutdown();
 	}
 
+	netHostOwnNameBack();
 	memset(s_Clients, 0, sizeof(s_Clients));
 	s_Role = NETROLE_NONE;
 	s_LobbyRoomOn = 0;
@@ -3476,6 +3514,27 @@ s32 netSessionClientJoined(void)
 s32 netSessionClientGone(void)
 {
 	return s_Role == NETROLE_CLIENT && s_ClientState == NETCS_GONE;
+}
+
+/**
+ * The name a slot goes out under (RULES, ROSTER). A lobby room's host plays
+ * as its account, as its members do, not as whatever its local profile is
+ * called ("Player 1" when it has none); its profile keeps its own name, so
+ * nothing the endscreen saves changes it.
+ */
+const char *netSessionWireName(s32 slot)
+{
+	if (slot == 0 && s_Role == NETROLE_HOST && s_LobbyRoomOn && !netIsDedicatedHost() && s_Name[0]) {
+		return s_Name;
+	}
+
+	return g_PlayerConfigsArray[slot].base.name;
+}
+
+// A client whose last connect found no host at its address in the window
+s32 netSessionClientUnreached(void)
+{
+	return s_Unreached;
 }
 
 // The code the client's last session ended on (NETREFUSE_*), or -1

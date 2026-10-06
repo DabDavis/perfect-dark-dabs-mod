@@ -457,7 +457,7 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		struct mpplayerconfig *p = &g_PlayerConfigsArray[i];
 
-		netWriteStr(b, p->base.name, 14);
+		netWriteStr(b, netSessionWireName(i), 14);
 		netBufWriteU8(b, p->base.mpheadnum);
 		netBufWriteU8(b, p->base.mpbodynum);
 		netBufWriteU8(b, p->base.team);
@@ -830,6 +830,12 @@ void netRulesApply(void)
 
 	sysLogPrintf(LOG_NOTE, "net: rules applied: match %u, scenario %d, chrslots 0x%04x, options 0x%08x, %d keys",
 			s_NetRules.matchid, g_MpSetup.scenario, g_MpSetup.chrslots, g_MpSetup.options, s_NetRules.nkeys);
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (g_MpSetup.chrslots & (1 << i)) {
+			sysLogPrintf(LOG_NOTE, "net: the match's players: \"%s\" in slot %d", g_PlayerConfigsArray[i].base.name, i);
+		}
+	}
 }
 
 /**

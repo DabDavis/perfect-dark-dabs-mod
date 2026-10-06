@@ -152,6 +152,57 @@ on every stage; **Spectator Start Game** in the Combat Simulator menu arms it fo
 one match only. Spectator Speed sets how fast it flies. Combined with a match
 with no time or score limit, it's the tool for watching 80 simulants fight.
 
+### Playing online
+
+Combat Simulator matches can be played over the internet with up to four
+players, their simulants and two spectators. One player's game hosts the
+match (a listen server); everyone else's connects to it.
+
+**Rooms.** Online play uses your Ghost Trials account: sign in (or make one)
+under **Ghost Trials > Account** first. Then **Combat Simulator > Online
+Game**:
+
+- **Browse Rooms** opens the Briefing Room: every open room with its host,
+  players in/max, arena, mode, ping and whether it has a password. A room
+  marked **!** cannot be joined from your game - select it to see why
+  (another version of the game, or different ROM, mods or added content).
+  The ping there is an estimate (you to the lobby plus the lobby to the
+  host); a **~** in front means your network blocks the lobby's UDP port
+  and your half was estimated from the web request instead. Once you are
+  in the room the Game Lobby shows the real one.
+- **Create Room** makes a room from your current Combat Simulator setup:
+  name, password, how many players, then the usual scenario, arena,
+  weapons, limits and simulants.
+- **Game Lobby** is the room itself: the players by team with how each one
+  reaches the host and their ping (LAN, DIR direct, NAT punched through,
+  RLY relayed through the lobby), chat, Change Team (team 1, team 2 or
+  spectator) and Ready. The host has Launch, Kick and Settings. After the
+  match everyone comes back to the room for the next one.
+
+A room that is already playing can still be joined: you drop into the
+match in progress. If your game crashes or your connection drops, rejoin
+the room within 30 seconds (`Net.ReconnectHold`) to get your seat and
+score back.
+
+**Ports.** Nobody needs to open a port for a room to work: the game finds
+its own way to the host - over your LAN, straight to the host, punched
+through both routers, or through the lobby's relay as the last resort.
+Hosting is smoother if the host forwards **UDP 27100** (`Net.Port` in
+`pd.ini`) to its machine, because joiners can then connect directly. The
+lobby itself only needs outgoing HTTPS and UDP, which every home router
+allows.
+
+**Without the lobby.** On a LAN, or with a forwarded port, start the host
+with `--host` (or `--host PORT`) and have the others run
+`--connect ADDRESS` (or `ADDRESS:PORT`); the host then starts the match
+from its Combat Simulator as usual. `--dedicated` runs a host with no
+window and no player of its own.
+
+Everyone needs the same game version, ROM, mods and added content; the game
+names what differs when it refuses. Online Game is in Perfect Dark's own
+Combat Simulator (the GoldenEye mode's menu greys it out), and missions,
+co-op and counter-operative are offline only for now.
+
 ### Screenshots and video
 
 - **F12** writes a PNG to `screenshots/` beside your `pd.ini`.

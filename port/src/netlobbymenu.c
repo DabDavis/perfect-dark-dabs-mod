@@ -42,6 +42,8 @@
 
 #define ROWH 11
 #define ROSTER_HEIGHT 44 // the header and three rows
+#define LABEL_WIDTH 262  // a small-font label's line inside the dialog, in its own font's units (labelWidth; ~2.2 px a unit at 640x480, the line from x 32 to the edge at ~612); it does not widen the dialog
+#define ROSTER_COLW 88   // three columns in the dialog's ~266 units
 #define CHAT_LINES 3
 
 static char s_RoomPassword[NETLOBBY_MAXPASSWORD + 1];
@@ -72,12 +74,12 @@ static s32 isCurrent(struct menudialogdef *def)
 	return g_Menus[g_MpPlayerNum].curdialog && g_Menus[g_MpPlayerNum].curdialog->definition == def;
 }
 
-// A cell, drawn at x (menu units from the row's left), cut to maxchars
-static Gfx *drawCell(Gfx *gdl, struct menuitemrenderdata *rd, s32 x, const char *text, s32 maxchars, u32 colour)
+// A cell, drawn at x, y (menu units from the row's top left), cut to maxchars
+static Gfx *drawCellAt(Gfx *gdl, struct menuitemrenderdata *rd, s32 x, s32 y, const char *text, s32 maxchars, u32 colour)
 {
 	char buf[48];
 	s32 tx = rd->x + x;
-	s32 ty = rd->y + 1;
+	s32 ty = rd->y + y;
 	s32 n = strlen(text);
 
 	if (n > maxchars) {
@@ -94,24 +96,74 @@ static Gfx *drawCell(Gfx *gdl, struct menuitemrenderdata *rd, s32 x, const char 
 	return textRenderProjected(gdl, &tx, &ty, buf, g_CharsHandelGothicSm, g_FontHandelGothicSm, colour, viGetWidth(), viGetHeight(), 0, 0);
 }
 
-static s32 cellWidth(const char *text)
+static Gfx *drawCell(Gfx *gdl, struct menuitemrenderdata *rd, s32 x, const char *text, s32 maxchars, u32 colour)
+{
+	return drawCellAt(gdl, rd, x, 1, text, maxchars, colour);
+}
+
+static s32 fontWidth(const char *text, s32 label)
 {
 	s32 w = 0;
 	s32 h = 0;
 
-	textMeasure(&h, &w, (char *)text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+	// a MENUITEMFLAG_SMALLFONT label draws in HandelGothicXs (menuitem.c),
+	// the cells drawCellAt draws in HandelGothicSm
+	if (label) {
+		textMeasure(&h, &w, (char *)text, g_CharsHandelGothicXs, g_FontHandelGothicXs, 0);
+	} else {
+		textMeasure(&h, &w, (char *)text, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0);
+	}
 
 	return w;
 }
 
-// text cut (in place) until it measures no wider than width
-static void cellFit(char *text, s32 width)
+static s32 cellWidth(const char *text)
+{
+	return fontWidth(text, 0);
+}
+
+static s32 labelWidth(const char *text)
+{
+	return fontWidth(text, 1);
+}
+
+// text cut (in place) to width, ".." where it was cut
+static void fitDots(char *text, s32 size, s32 width, s32 label)
 {
 	s32 n = strlen(text);
 
-	while (n > 0 && cellWidth(text) > width) {
-		text[--n] = '\0';
+	if (fontWidth(text, label) <= width) {
+		return;
 	}
+
+	while (n > 0) {
+		text[--n] = '\0';
+
+		while (n > 0 && text[n - 1] == ' ') {
+			text[--n] = '\0';
+		}
+
+		if (n + 3 <= size) {
+			memcpy(text + n, "..", 3);
+
+			if (fontWidth(text, label) <= width) {
+				return;
+			}
+
+			text[n] = '\0';
+		}
+	}
+}
+
+static void cellFitDots(char *text, s32 size, s32 width)
+{
+	fitDots(text, size, width, 0);
+}
+
+// a small-font label's text cut to width, in the font it draws in
+static void labelFitDots(char *text, s32 size, s32 width)
+{
+	fitDots(text, size, width, 1);
 }
 
 static u32 headerColour(u32 colour)
@@ -255,12 +307,97 @@ static const char *roomMode(const struct netlobbyroomsum *r)
 
 static void roomPing(const struct netlobbyroomsum *r, char *out, s32 size)
 {
-	const s32 ping = netLobbyRoomPing(r);
+	s32 est = 0;
+	const s32 ping = netLobbyRoomPingEx(r, &est);
 
 	if (ping >= 0) {
-		snprintf(out, size, "%d", ping > 999 ? 999 : ping);
+		// "~": this machine's leg estimated from the list's HTTP round trip
+		snprintf(out, size, "%s%d", est ? "~" : "", ping > 999 ? 999 : ping);
 	} else {
 		snprintf(out, size, "--");
+	}
+}
+
+/**
+ * A room is two lines: its name across the whole row with its host at the
+ * right, then IN, ARENA, MODE, PING and PASS under it, each column as wide
+ * as its widest cell (to a cap) and laid out from the left. One line had
+ * room for 11 characters of a name that may have 32 ("Stock Gam"): the
+ * dialog is about 270 units wide at any window size, and the five columns
+ * need 130 of them. A cell still too wide is cut with "..".
+ */
+#define ROOMROWH        22
+#define ROOMLIST_WIDTH  266 // what shows of the list's 304 inside the dialog
+#define ROOMCOL_IN      0
+#define ROOMCOL_ARENA   1
+#define ROOMCOL_MODE    2
+#define ROOMCOL_PING    3
+#define ROOMCOL_PASS    4
+#define ROOMCOL_COUNT   5
+#define ROOMCOL_GAP     10
+
+struct roomcol {
+	s32 x;
+	s32 w;
+};
+
+static const char *s_RoomColHeads[ROOMCOL_COUNT] = { "IN", "ARENA", "MODE", "PING", "PASS" };
+static const s32 s_RoomColCaps[ROOMCOL_COUNT] = { 28, 76, 64, 24, 24 };
+static struct roomcol s_RoomCols[ROOMCOL_COUNT];
+
+static void roomCell(const struct netlobbyroomsum *r, s32 col, char *out, s32 size)
+{
+	switch (col) {
+	case ROOMCOL_IN:
+		snprintf(out, size, "%d/%d", r->humans, r->maxhumans);
+		break;
+	case ROOMCOL_ARENA:
+		snprintf(out, size, "%s", r->stage[0] ? r->stage : "-");
+		break;
+	case ROOMCOL_MODE:
+		snprintf(out, size, "%s", roomMode(r));
+		break;
+	case ROOMCOL_PING:
+		roomPing(r, out, size);
+		break;
+	default:
+		snprintf(out, size, "%s", r->locked ? "YES" : "-");
+		break;
+	}
+}
+
+static void roomColumns(struct roomcol *cols)
+{
+	char buf[48];
+	s32 x = 12;
+	s32 c;
+	s32 i;
+
+	for (c = 0; c < ROOMCOL_COUNT; c++) {
+		s32 w = cellWidth(s_RoomColHeads[c]);
+
+		for (i = 0; i < netLobbyNumRooms(); i++) {
+			s32 cw;
+
+			roomCell(netLobbyRoomAt(i), c, buf, sizeof(buf));
+			cw = cellWidth(buf);
+
+			if (cw > w) {
+				w = cw;
+			}
+		}
+
+		if (w > s_RoomColCaps[c]) {
+			w = s_RoomColCaps[c];
+		}
+
+		if (x + w > ROOMLIST_WIDTH) {
+			w = ROOMLIST_WIDTH - x;
+		}
+
+		cols[c].x = x;
+		cols[c].w = w;
+		x += w + ROOMCOL_GAP;
 	}
 }
 
@@ -272,6 +409,7 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 	char buf[48];
 	u32 colour;
 	s32 index;
+	s32 c;
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
@@ -280,7 +418,7 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 	case MENUOP_GETOPTIONTEXT:
 		return (intptr_t)"";
 	case MENUOP_GETOPTIONHEIGHT:
-		data->list.value = ROWH;
+		data->list.value = ROOMROWH;
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->list.value = 0xfffff;
@@ -297,7 +435,22 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 		s_SelectedRoom = (s32)data->list.value - 1;
 		r = netLobbyRoomAt(s_SelectedRoom);
 		netLobbyClearMessage();
-		snprintf(s_BriefingNote, sizeof(s_BriefingNote), "%s", r && r->compat != NETLOBBY_COMPAT_OK ? netLobbyCompatText(r->compat) : "");
+		if (r && r->compat != NETLOBBY_COMPAT_OK) {
+			snprintf(s_BriefingNote, sizeof(s_BriefingNote), "%s", netLobbyCompatText(r->compat));
+		} else if (r) {
+			// the whole name, which the GAME column may have cut
+			// (a label does not widen the dialog: name and host cut to fit)
+			char name[64];
+			char host[48];
+
+			snprintf(host, sizeof(host), "%s", r->host);
+			labelFitDots(host, sizeof(host), 96);
+			snprintf(name, sizeof(name), "%s", r->name);
+			labelFitDots(name, sizeof(name), LABEL_WIDTH - labelWidth(" ()") - labelWidth(host));
+			snprintf(s_BriefingNote, sizeof(s_BriefingNote), "%s (%s)", name, host);
+		} else {
+			s_BriefingNote[0] = '\0';
+		}
 		break;
 	case MENUOP_SET:
 		s_SelectedRoom = (s32)data->list.value - 1;
@@ -325,28 +478,38 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 		colour = rd->colour;
 		gdl = text0f153628(gdl);
 
+		// laid out on every row drawn: the header row may be scrolled off
+		roomColumns(s_RoomCols);
+
 		if (index == 0) {
 			colour = headerColour(colour);
-			gdl = drawCell(gdl, rd, 4, "GAME", 20, colour);
-			gdl = drawCell(gdl, rd, 80, "IN/MAX", 8, colour);
-			gdl = drawCell(gdl, rd, 124, "ARENA", 12, colour);
-			gdl = drawCell(gdl, rd, 184, "MODE", 12, colour);
-			gdl = drawCell(gdl, rd, 224, "PING", 6, colour);
-			gdl = drawCell(gdl, rd, 250, "PASS", 6, colour);
+			gdl = drawCellAt(gdl, rd, 4, 1, "GAME", 20, colour);
+			gdl = drawCellAt(gdl, rd, ROOMLIST_WIDTH - cellWidth("HOST"), 1, "HOST", 20, colour);
+
+			for (c = 0; c < ROOMCOL_COUNT; c++) {
+				gdl = drawCellAt(gdl, rd, s_RoomCols[c].x, 12, s_RoomColHeads[c], 20, colour);
+			}
 		} else if ((r = netLobbyRoomAt(index - 1)) != NULL) {
+			char host[NETLOBBY_MAXUSER + 4];
+			s32 hostw;
+
 			if (r->compat != NETLOBBY_COMPAT_OK) {
 				colour = dimColour(colour);
 			}
 
+			snprintf(host, sizeof(host), "%s", r->host);
+			cellFitDots(host, sizeof(host), 70);
+			hostw = cellWidth(host);
 			snprintf(buf, sizeof(buf), "%s%s", r->compat != NETLOBBY_COMPAT_OK ? "! " : "", r->name);
-			gdl = drawCell(gdl, rd, 4, buf, 11, colour);
-			snprintf(buf, sizeof(buf), "%d/%d", r->humans, r->maxhumans);
-			gdl = drawCell(gdl, rd, 80, buf, 6, colour);
-			gdl = drawCell(gdl, rd, 124, r->stage, 9, colour);
-			gdl = drawCell(gdl, rd, 184, roomMode(r), 7, colour);
-			roomPing(r, buf, sizeof(buf));
-			gdl = drawCell(gdl, rd, 224, buf, 4, colour);
-			gdl = drawCell(gdl, rd, 250, r->locked ? "YES" : "-", 3, colour);
+			cellFitDots(buf, sizeof(buf), ROOMLIST_WIDTH - 4 - hostw - 8);
+			gdl = drawCellAt(gdl, rd, 4, 1, buf, sizeof(buf) - 1, colour);
+			gdl = drawCellAt(gdl, rd, ROOMLIST_WIDTH - hostw, 1, host, sizeof(host) - 1, dimColour(colour));
+
+			for (c = 0; c < ROOMCOL_COUNT; c++) {
+				roomCell(r, c, buf, sizeof(buf));
+				cellFitDots(buf, sizeof(buf), s_RoomCols[c].w);
+				gdl = drawCellAt(gdl, rd, s_RoomCols[c].x, 12, buf, sizeof(buf) - 1, colour);
+			}
 		}
 
 		gdl = text0f153780(gdl);
@@ -423,6 +586,47 @@ static MenuItemHandlerResult handlerJoin(s32 operation, struct menuitem *item, u
 	return 0;
 }
 
+/**
+ * A plain list scrolls its focused row to the middle of its view, so with
+ * the first row focused half the view is empty above it. Held like a
+ * dropdown's: the first row at the top, the last at the bottom.
+ */
+static void listClamp(struct menudialog *dialog, struct menuitem *item, s32 rowh)
+{
+	struct menu *menu = &g_Menus[g_MpPlayerNum];
+	union handlerdata hd;
+	s32 col;
+	s32 j;
+
+	for (col = dialog->colstart; col < dialog->colstart + dialog->numcols; col++) {
+		for (j = 0; j < menu->cols[col].numrows; j++) {
+			const s32 row = menu->cols[col].rowstart + j;
+
+			if (&dialog->definition->items[menu->rows[row].itemindex] == item && menu->rows[row].blockindex != -1) {
+				union menuitemdata *d = (union menuitemdata *)&menu->blocks[menu->rows[row].blockindex];
+				const s32 view = d->list.viewheight > 0 ? d->list.viewheight : item->param3;
+				const s32 min = (view / 2) / rowh * rowh;
+				s32 max;
+
+				item->handler(MENUOP_GETOPTIONCOUNT, item, &hd);
+				max = (s32)hd.list.value * rowh - view + min;
+
+				if (max < min) {
+					max = min;
+				}
+
+				if (d->list.targetoffsety < min) {
+					d->list.targetoffsety = min;
+				} else if (d->list.targetoffsety > max) {
+					d->list.targetoffsety = max;
+				}
+
+				return;
+			}
+		}
+	}
+}
+
 static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
 {
 	if (operation == MENUOP_OPEN) {
@@ -430,6 +634,11 @@ static MenuDialogHandlerResult dialogBriefing(s32 operation, struct menudialogde
 		s_SelectedRoom = -1;
 		netLobbyClearMessage();
 		netLobbyRefresh();
+	}
+
+	if (operation == MENUOP_TICK && g_Menus[g_MpPlayerNum].curdialog
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef) {
+		listClamp(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[5], ROOMROWH);
 	}
 
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
@@ -458,10 +667,13 @@ static struct menuitem s_BriefingItems[] = {
 	// (its rows wrap), so below it they could not be reached by keys; a
 	// room's row joins it, and Back is the menus' own back
 	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)&textBriefingStatus, 0, NULL },
+	// what the PING column measures (netLobbyRoomPing): no packet goes to a
+	// host before joining, which keeps its address out of the public list
+	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT | MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"PING: ms, you to lobby + lobby to host (~ by HTTP)\n", 0, NULL },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Refresh\n", 0, handlerRefresh },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Join\n", 0, handlerJoin },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Create\n", 0, handlerCreateOpen },
-	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER, 304, 88, handlerRoomList },
+	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER, 304, ROOMROWH * 5, handlerRoomList },
 	{ MENUITEMTYPE_END },
 };
 
@@ -657,6 +869,11 @@ static MenuDialogHandlerResult dialogCreate(s32 operation, struct menudialogdef 
 		g_MpSetup.chrslots |= 1;
 	}
 
+	if (operation == MENUOP_TICK && g_Menus[g_MpPlayerNum].curdialog
+			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef) {
+		listClamp(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[5], ROOMROWH);
+	}
+
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
 		netLobbyTick();
 
@@ -733,14 +950,16 @@ static const struct netlobbymember *rosterCell(s32 column, s32 row)
 /**
  * A member's way to the host and its ping: LAN, DIR (the host reachable),
  * NAT (punched through both NATs), RLY (through the lobby's relay), as the
- * member measured it; the host's own row says HOST
+ * member measured it; nothing on the host's own row (the settings line
+ * above the roster says "Host: name")
  */
 static void rosterNet(const struct netlobbymember *m, char *out, s32 size)
 {
 	const char *tag = "";
 
+	// the host's row has no path: the line above the roster names it
 	if (m->host) {
-		snprintf(out, size, "HOST");
+		out[0] = '\0';
 		return;
 	}
 
@@ -838,7 +1057,7 @@ static MenuItemHandlerResult handlerRoster(s32 operation, struct menuitem *item,
 				}
 
 				snprintf(buf, sizeof(buf), "%s %d", heads[c], n);
-				gdl = drawCell(gdl, rd, 4 + c * 96, buf, 16, headerColour(colour));
+				gdl = drawCell(gdl, rd, 4 + c * ROSTER_COLW, buf, 16, headerColour(colour));
 			}
 		} else {
 			for (c = 0; c < 3; c++) {
@@ -854,9 +1073,9 @@ static MenuItemHandlerResult handlerRoster(s32 operation, struct menuitem *item,
 					rosterNet(m, tag, sizeof(tag));
 					tagw = cellWidth(tag);
 					snprintf(buf, sizeof(buf), "%s%s", m->ready || m->host ? "* " : "  ", m->user);
-					cellFit(buf, 90 - tagw - 4);
-					gdl = drawCell(gdl, rd, 4 + c * 96, buf, 20, col);
-					gdl = drawCell(gdl, rd, 4 + c * 96 + 90 - tagw, tag, 15, dimColour(colour));
+					cellFitDots(buf, sizeof(buf), ROSTER_COLW - 6 - tagw - (tagw ? 4 : 0));
+					gdl = drawCell(gdl, rd, 4 + c * ROSTER_COLW, buf, 20, col);
+					gdl = drawCell(gdl, rd, 4 + c * ROSTER_COLW + ROSTER_COLW - 6 - tagw, tag, 15, dimColour(colour));
 				}
 			}
 		}
@@ -877,8 +1096,9 @@ static char *textRoomTitle(struct menuitem *item)
 		return "Waiting for the room...\n";
 	}
 
-	snprintf(text, sizeof(text), "%s  -  %s  -  %s  (%d/%d)\n", room->sum.name, room->sum.stage, room->sum.scenario,
-			room->sum.humans, room->sum.maxhumans);
+	// the arena and mode are on the line below: a 32-character name with
+	// them ran off the dialog's right edge
+	snprintf(text, sizeof(text), "%s  (%d/%d)\n", room->sum.name, room->sum.humans, room->sum.maxhumans);
 
 	return text;
 }
@@ -899,8 +1119,8 @@ static const char *ruleValue(const char *key)
 
 static char *textRoomSettings(struct menuitem *item)
 {
-	static char texts[2][160];
-	char *text = texts[item->param & 1];
+	static char texts[3][160];
+	char *text = texts[item->param % 3];
 	const struct netlobbyroom *room = netLobbyGetRoom();
 	const char *time = ruleValue("time_limit");
 	const char *score = ruleValue("score_limit");
@@ -908,7 +1128,23 @@ static char *textRoomSettings(struct menuitem *item)
 
 	// one line each (item->param): a label that grows a line after the
 	// dialog is laid out pushes the rows above it under the title bar
-	if (item->param == 1) {
+	if (item->param == 2) {
+		// a label does not widen the dialog (CLAUDE-notes/text-rendering.md):
+		// each value cut to what is left of the line, the host's name kept
+		char arena[64];
+		char mode[48];
+		char host[48];
+		char tail[128];
+
+		snprintf(host, sizeof(host), "%s", room->sum.host[0] ? room->sum.host : "-");
+		labelFitDots(host, sizeof(host), 96);
+		snprintf(mode, sizeof(mode), "%s", room->sum.scenario[0] ? room->sum.scenario : "-");
+		labelFitDots(mode, sizeof(mode), 64);
+		snprintf(tail, sizeof(tail), "   Mode: %s   Host: %s", mode, host);
+		snprintf(arena, sizeof(arena), "%s", room->sum.stage[0] ? room->sum.stage : "-");
+		labelFitDots(arena, sizeof(arena), LABEL_WIDTH - labelWidth("Arena: ") - labelWidth(tail));
+		snprintf(text, sizeof(texts[0]), "Arena: %s%s\n", arena, tail);
+	} else if (item->param == 1) {
 		snprintf(text, sizeof(texts[0]), "Weapons: %s\n", weapons ? weapons : "-");
 	} else {
 		snprintf(text, sizeof(texts[0]), "Time: %s%s  Score: %s  Simulants: %d\n",
@@ -1111,7 +1347,7 @@ static MenuDialogHandlerResult dialogRoom(s32 operation, struct menudialogdef *d
 
 	if (operation == MENUOP_TICK && g_Menus[g_MpPlayerNum].curdialog
 			&& g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef) {
-		rosterPinTop(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[3]);
+		rosterPinTop(g_Menus[g_MpPlayerNum].curdialog, &dialogdef->items[4]);
 	}
 
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
@@ -1129,6 +1365,7 @@ static MenuDialogHandlerResult dialogRoom(s32 operation, struct menudialogdef *d
 
 static struct menuitem s_RoomItems[] = {
 	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LESSLEFTPADDING, (uintptr_t)&textRoomTitle, 0, NULL },
+	{ MENUITEMTYPE_LABEL, 2, MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)&textRoomSettings, 0, NULL },
 	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)&textRoomSettings, 0, NULL },
 	{ MENUITEMTYPE_LABEL, 1, MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)&textRoomSettings, 0, NULL },
 	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER, 304, ROSTER_HEIGHT, handlerRoster },
@@ -1273,4 +1510,24 @@ void netLobbyMenuPushRoom(void)
 	} else {
 		menuPushRootDialog(&g_NetRoomMenuDialog, MENUROOT_MPSETUP);
 	}
+}
+
+// The Briefing Room over whatever is up (the lobby test's screenshots)
+void netLobbyMenuPushBriefing(void)
+{
+	if (isCurrent(&g_NetBriefingMenuDialog)) {
+		return;
+	}
+
+	if (g_Menus[g_MpPlayerNum].curdialog) {
+		menuPushDialog(&g_NetBriefingMenuDialog);
+	} else {
+		menuPushRootDialog(&g_NetBriefingMenuDialog, MENUROOT_MPSETUP);
+	}
+}
+
+// The lobby test's screenshots: is that page the one on screen?
+s32 netLobbyMenuPageUp(s32 room)
+{
+	return isCurrent(room ? &g_NetRoomMenuDialog : &g_NetBriefingMenuDialog);
 }

@@ -82,11 +82,13 @@ s32 netSessionLobbyHost(const char *name);
 u16 netSessionLobbyPort(void);
 void netSessionLobbySetRoom(const char *roomid, const char *secret);
 void netSessionLobbyClock(s64 offset);
-s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name, struct nethost *sock);
+s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name, struct nethost *sock, s32 windowms); // windowms 0: NET_CONNECT_WINDOW_MS
 void netSessionLobbyStop(void);
 s32 netSessionLobbyRole(void);       // 1 host, 2 client, 0 none
 s32 netSessionClientJoined(void);
 s32 netSessionClientGone(void);
+s32 netSessionClientUnreached(void); // client: the last connect found no host at the address
+const char *netSessionWireName(s32 slot); // host: the name a slot goes out under (a lobby host's is its account)
 s32 netSessionLastRefuse(void);     // client: NETREFUSE_* its last session ended on, -1 none
 s32 netSessionSeatOutOfPlay(s32 slot); // host: that seat (mpindex) is open, its player out of play
 s32 netSessionHostSlotOf(const char *user);
