@@ -54,6 +54,7 @@
 #define REG_SLOW_MS         12000
 #define ECHO_MS             5000
 #define DIRECT_WINDOW_MS    1000
+#define DIRECT_WINDOW_PUBLIC_MS 2500 // a host the lobby sees at its own address
 #define SPRAY_MS            3000
 #define PUNCH_EVERY_MS      100
 #define PUNCH_DEADLINE_MS   4500   // after PEER: nothing answered, ask for a relay
@@ -85,6 +86,7 @@ struct rdvpeer {
 	s32 role;
 	struct rdvcand eps[MAXCANDS];
 	s32 neps;
+	u64 peerat;      // when its PEER came
 	u64 sprayfrom;
 	u64 sprayuntil;
 	u64 lastspray;
@@ -113,6 +115,7 @@ static s32 s_SockTransport = 0;
 
 static s32 s_InRoom = 0;
 static s32 s_Host = 0;
+static s32 s_NoNat = 0;  // the lobby saw this socket at its own address and port: no NAT here
 static u32 s_RoomNum = 0;
 static u8 s_UdpId[8];
 static u8 s_UdpKey[32];
@@ -650,7 +653,11 @@ static void rdvOnPeer(struct nethost *h, const u8 *d, s32 len)
 		// a new joiner (or one whose addresses moved) that has not reached
 		// us yet: the direct window, then the spray
 		if (changed && !p->heard) {
-			p->sprayfrom = rdvNow() + DIRECT_WINDOW_MS;
+			// a host with no NAT of its own is reachable as it is: its spray
+			// only opens a stateful firewall, so it waits longer for a joiner
+			// to come by itself (a busy joiner can be a second late)
+			p->peerat = rdvNow();
+			p->sprayfrom = p->peerat + (s_NoNat ? DIRECT_WINDOW_PUBLIC_MS : DIRECT_WINDOW_MS);
 			p->sprayuntil = p->sprayfrom + SPRAY_MS;
 			sysLogPrintf(LOG_NOTE, "rdv: PEER %s, %d endpoint%s (public %s)", name, neps, neps == 1 ? "" : "s", addrStr(&eps[0].a));
 		}
@@ -700,11 +707,14 @@ static void rdvOnPunch(struct nethost *h, const struct netaddr *from, const u8 *
 
 			if (p->used && memcmp(p->cookie, d + 6, 8) == 0) {
 				if (!p->heard) {
-					sysLogPrintf(LOG_NOTE, "rdv: %s reached us from %s%s", p->name, addrStr(from), p->sprayed ? " (after our spray)" : "");
+					sysLogPrintf(LOG_NOTE, "rdv: %s reached us from %s%s, %u ms after its PEER", p->name, addrStr(from),
+							p->sprayed ? " (after our spray)" : "", (u32)(rdvNow() - p->peerat));
 				}
 
 				p->heard = p->lastuse = rdvNow();
-				rdvPunchReply(h, from, d, PUNCHF_HOST | (p->sprayed ? PUNCHF_SPRAYED : 0));
+				// SPRAYED tells the joiner its path is a punch: never from a
+				// host with no NAT, which a joiner reaches without one
+				rdvPunchReply(h, from, d, PUNCHF_HOST | (p->sprayed && !s_NoNat ? PUNCHF_SPRAYED : 0));
 				return;
 			}
 		}
@@ -923,6 +933,31 @@ void netRdvRaw(struct nethost *h, const struct netevent *ev)
 			if (getEndpoint(d + 10, len - 10, &seen) && (!s_Registered || !addrEq(&seen, &s_Public))) {
 				sysLogPrintf(LOG_NOTE, "rdv: registered with the lobby as the room's %s; seen as %s", s_Host ? "host" : "member", addrStr(&seen));
 				s_Public = seen;
+
+				{
+					// the address this socket leaves from toward the lobby,
+					// against where the lobby saw it
+					struct netaddr me;
+					char lobbyip[80];
+					char *colon;
+
+					netAddrToString(&s_Lobby, lobbyip, sizeof(lobbyip));
+					colon = strrchr(lobbyip, ':');
+					s_NoNat = 0;
+
+					if (colon && lobbyip[0] != '[') {
+						*colon = '\0';
+
+						if (netLocalAddrFor(lobbyip, &me) == 0) {
+							me.port = netHostPort(h);
+							s_NoNat = addrEq(&me, &seen);
+						}
+					}
+
+					if (s_NoNat) {
+						sysLogPrintf(LOG_NOTE, "rdv: no NAT here (the lobby sees this socket at its own address)");
+					}
+				}
 			}
 
 			s_Registered = 1;
@@ -1082,6 +1117,7 @@ void netRdvLeave(void)
 {
 	s_InRoom = 0;
 	s_Host = 0;
+	s_NoNat = 0;
 	s_Registered = 0;
 	s_Ladder = NETRDV_LADDER_IDLE;
 	s_Path = NETRDV_PATH_NONE;
@@ -1106,14 +1142,17 @@ static void rdvHostTick(struct nethost *h, u64 now)
 		}
 
 		if (!p->sprayed) {
-			sysLogPrintf(LOG_NOTE, "rdv: %s has not reached us; spraying its %d endpoint%s", p->name, p->neps, p->neps == 1 ? "" : "s");
+			sysLogPrintf(LOG_NOTE, "rdv: %s has not reached us; spraying its %d endpoint%s (%u ms after its PEER)", p->name, p->neps, p->neps == 1 ? "" : "s",
+					(u32)(now - p->peerat));
 		}
 
 		p->sprayed = 1;
 		p->lastspray = now;
 
 		for (j = 0; j < p->neps; j++) {
-			rdvPunch(h, &p->eps[j].a, p->cookie, PUNCHF_HOST | PUNCHF_SPRAYED);
+			// (the joiner reads SPRAYED from the host's reply alone, never a
+			// spray; flagged as the reply is, all the same)
+			rdvPunch(h, &p->eps[j].a, p->cookie, PUNCHF_HOST | (s_NoNat ? 0 : PUNCHF_SPRAYED));
 		}
 	}
 

@@ -22,11 +22,12 @@
   meaning and say what changed beside the number.
 - **Gates** — the section of that name: every `tools/ci/net*test.sh`, one at
   a time, offscreen on the RX 580, plus the replay gate, pdlobbyd's unit
-  tests and `pd-nettest`; which ones are slow, which ones are statistical
-  and get one solo rerun, and how the Windows build is run as a lobby
-  client under wine (`netlobbywinetest.sh`).
-- **Traps** — the section of that name: the ones phases 1-7 met, from
-  `bool` being two sizes to a profile prompt over a net match's end screen.
+  tests and `pd-nettest`; which ones are slow, the seven that were flaky
+  and what made each deterministic (a full sound event queue among them),
+  and how the Windows build is run as a lobby client under wine
+  (`netlobbywinetest.sh`).
+- **Traps** — the section of that name: the ones phases 1-8 met, from
+  `bool` being two sizes to a client's START and a name's newline.
 
 ## The shape
 
@@ -83,7 +84,7 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 `netproto.h` documents every message byte by byte (u8 type first, then
 fields through netbuf, never a struct copied whole), the channel each goes
 on (RULES and STAGE_LOAD share BULK so a STAGE_LOAD never overtakes its
-RULES), the refusal codes, and the protocol history. Protocol 10 is current (phase 8: twelve human slots).
+RULES), the refusal codes, and the protocol history. Protocol 11 is current (a command's START reaches the host, which plays it only for a dead player: the respawn).
 The lobby's HTTP API and the rendezvous/relay datagrams are in
 `tools/pdlobbyd/README.md`. A change to a message's shape or meaning bumps
 `NET_PROTOCOL_VERSION`; pdlobbyd lists a room's protocol and the Briefing
@@ -102,18 +103,18 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netplayertest.sh` | 1 min | the host moves a remote player from its commands, clean and lossy |
 | `netsnaptest.sh` | 1.5 min | snapshots decode, lossy, hostile input |
 | `netpuppettest.sh` | 4 min | puppets, doors, two clients |
-| `neteventtest.sh` | 2 min | kill tables, tick order, hudmsgs, an audio check |
+| `neteventtest.sh` | 4.5 min | kill tables, tick order, hudmsgs, an audio check (two staging rounds in a two-minute match), the client's sound event queue never full |
 | `netlobbytest.sh` | 0.5 min | two pairs meet through a local pdlobbyd room, leave and rematch |
 | `netlobbyuitest.sh` | 0.7 min | the Briefing Room and Game Lobby screenshotted, PING measured (and by HTTP for a lister with the echo mute), the advertised endpoints tried in turn, the host named by its account on the wire and in its own match, no Save Player prompt |
 | `netlobbywinetest.sh` | 0.5 min | the Windows build (WinHTTP) as a lobby member under wine against a Linux host |
 | `netnattest.sh` | 0.5 min | punch, relay, direct, LAN, mute rendezvous in user-namespace NATs |
 | `netpredicttest.sh` | 6.5 min | prediction at 0/150 ms, loss, wine client, sims, a time limit |
-| `netlagcomptest.sh` | 6 min | hits at 150 ms with and without lag compensation, loss, soak |
+| `netlagcomptest.sh` | 9 min | hits at 150 ms with and without lag compensation (on and loss: 8400 frames, at least 30 shots), loss, soak |
 | `netscenariotest.sh` | 21 min | every scenario, two lossy |
-| `netcontenttest.sh` | 7.5 min | GoldenEye arenas, mod maps, overlay, bodies, props |
+| `netcontenttest.sh` | 7.5 min | GoldenEye arenas (YOLT: a client respawned by its START alone), mod maps, overlay, bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
-| `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, pauses, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
+| `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
 gate: `build/pd-base.x86_64` is the pre-netplay baseline; offline play must
@@ -182,14 +183,39 @@ then lists, joins, READYs and plays; the Linux host is
   snapshots while the host sits on its end screen: they had all become
   keyframes, nothing acked, about 23 KB/s each until the host stopped the
   stage (`netSessionSlotLeftMatch`).
-- **A pad's START does not pause a client.** A `--net-test-input` START
-  on a client in a match (its player alive, tick 30) left the pause menu
-  shut, though START on the end screen works; ESC is the path bondmove.c
-  names for a net client. Not chased in phase 8 (commands strip START on
-  the way to the host; where the client's own player loses it is unknown).
-  nettwelvetest puts the pause menu up from gdb instead, as the player:
-  `setCurrentPlayerNum(slot)` first, or it goes into slot 0's menu and
-  nothing draws.
+- **A client's START.** It opens the client's own pause menu (never the
+  host's, never a pause of the match): the command's START is cleared on the
+  host unless that player is dead, where it is the death screen's respawn as
+  offline (`playerTick` reads A, Z or START; before protocol 11 a client's
+  "Press START" did nothing). While a menu is up the client sends neutral
+  commands (spec-players §6) and logs "this machine's menu up/down", which
+  nettwelvetest reads; `--net-test-menu-shot` has the game screenshot its
+  first menu a third of a second in (a gdb stop came a second late, after a
+  death had shut it). Phase 8 thought START never paused a client: its test
+  pressed at tick 30, inside the match's opening swirl (`TICKMODE_MPSWIRL`,
+  no control until about tick 114, offline too). A test script's line that
+  covers a tick wins over a later one: put START lines first.
+  Checked by netcontenttest geyolt (the client presses START alone every
+  second; its first death's respawn, which the second YOLT kill needs, is
+  START's: phase 7's binary fails it, 0 respawns) and nettwelvetest (the
+  menu from the pad; on the host, in every window its menu was up, the
+  host played only neutral commands for that slot and its walk speed
+  stayed 0, though its script walks there. The host's `--net-test-trace`
+  line carries `busy` (commands played with any input), `speed`
+  (forwards, sideways) and `push` (`bondshotspeed`) for that: a player
+  standing still is pushed by shots and explosions, once 1100 units in
+  150 ticks, so its place is printed, not gated. That player is
+  invincible on the host (`--net-test-invincible-pad`, a host test flag):
+  with twelve players and explosives it was dead at all six of its
+  presses in one run in five, each press a respawn instead.
+- **A name ends in a newline.** PD keeps every `base.name` as "text\n"
+  (`textMeasure` sizes a label by its lines); a name from the wire, a lobby
+  account or "(open)" had none, so the end screen's name row measured no
+  height and "Title:" was drawn over it (every slot, phase 7 too). Net code
+  writes names with `netNameSet` and prints them with `netNameLen`; "the
+  match's players" log line says "(its name has no newline)", which
+  nettwelvetest fails on. `base.name` holds 13 characters and the newline:
+  a 14-character lobby or wire name loses its last.
 - **Sound off fills the music queue.** With `g_SndDisabled` (`--no-sound`,
   every `--dedicated` host) nothing drains `g_MusicEventQueue[40]`, and
   `musicRestoreInterval`, unlike the other queue writers, did not check it:

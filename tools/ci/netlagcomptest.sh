@@ -37,7 +37,8 @@
 #   netlagcomptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netlagcomp-out), PORT (27400; uses PORT..PORT+7), MODDIR
-# (mod_allinone), CASES (on off loss still soak), FRAMES (3600), MINON (95),
+# (mod_allinone), CASES (on off loss still soak), FRAMES (3600), RATEFRAMES
+# (8400: the on and loss runs, at least 30 shots), MINON (95),
 # MINGAP (20), AIMY (-50), STAGE (0x25), SEED (1), NEAR (700).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
@@ -47,6 +48,10 @@ OUT=${OUT:-$BUILD/netlagcomp-out}; PORT=${PORT:-27400}
 MODDIR=${MODDIR:-mod_allinone}
 CASES=${CASES:-on off loss still soak}
 FRAMES=${FRAMES:-3600}
+# the on and loss runs, whose rate is held to MINON: 8400 frames, the
+# shooter firing to tick 7800, 36-65 shots the shooter saw hit (one
+# minute's 33 put a run at 93.9% on two misses)
+RATEFRAMES=${RATEFRAMES:-8400}
 MINON=${MINON:-95}
 MINGAP=${MINGAP:-20}
 AIMY=${AIMY:--50}
@@ -70,7 +75,12 @@ def write(name, lines):
     with open("%s/%s" % (out, name), "w") as f:
         for l in lines:
             f.write("%d %d %x %d %d %d %d %g %g\n" % l)
-write("shooter.script", [(t, t, 0x2000, 0, 0, 0, 0, 0, 0) for t in range(150, 20000, 30)])
+# the shooter fires until tick 7800 (what the 256-line cap left it before;
+# the target can be pinned on Temple's wall at x 6270, from as early as tick
+# 1300, where grazing shots used to flip between the two machines: the
+# host's autoaim locked on 17 ticks before the shooter's, its line of sight
+# tested to the target's live place; netplay.md, "Found 2026-10-07")
+write("shooter.script", [(t, t, 0x2000, 0, 0, 0, 0, 0, 0) for t in range(150, 7800, 30)])
 write("target.script", [(t, t + 59, 0x0001 if (t // 60) % 2 else 0x0002, 0, 0, 0, 0, 0, 0) for t in range(60, 20000, 60)])
 write("still.script", [(60, 20000, 0x0000, 0, 0, 0, 0, 0, 0)])
 write("spray.script", [(t, t + 49, 0x2000, 0, 0, 0, 0, 0, 0) for t in range(150, 20000, 60)])
@@ -101,18 +111,19 @@ INI="[Mod]\nStartArmed=1\n[Game]\nPlayer1.CrosshairSway=0\n"
 run() {
 	local label=$1 port=$2 lc=$3 sim=$4 tscript=$5; shift 5
 	local simargs="--net-sim $sim" weapons=${WEAPONS:-1,1,1,1,1,1}
-	game "$label-host" 400 "${INI}[Net]\nLagComp=$lc\n" --moddir "$MODDIR" --host "$port" --net-test-host 2 --net-test-stage ${STAGE:-0x25} \
+	local tmo=$((FRAMES / 60 + 340))
+	game "$label-host" $((tmo + 10)) "${INI}[Net]\nLagComp=$lc\n" --moddir "$MODDIR" --host "$port" --net-test-host 2 --net-test-stage ${STAGE:-0x25} \
 		--net-test-sims ${SIMS:-0} --rng-seed ${SEED:-1} --mp-weapons "$weapons" --endless --net-test-god \
 		--net-lagcomp-log "$OUT/$label-host.lc" --net-lagcomp-compare ${HOSTDEBUG:-} --exit-frame $((FRAMES + 500)) $simargs "$@" &
 	local host=$!
 	waitfor "$OUT/$label-host.log" "net: hosting on UDP port" 60 || { echo "FAIL: $label host did not start"; kill -TERM $host; exit 2; }
-	game "$label-shooter" 390 "$INI" --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join \
+	game "$label-shooter" $tmo "$INI" --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join \
 		--net-test-input "$OUT/${SHOOTSCRIPT:-shooter.script}" --net-test-aimat "2,$AIMY,0.5,${NEAR:-700}" --net-lagcomp-log "$OUT/$label-shooter.lc" \
 		--exit-frame "$FRAMES" $simargs ${SHOOTARGS:-} &
 	local shooter=$!
 	# the shooter first, so it is slot 1 and the target slot 2
 	waitfor "$OUT/$label-shooter.log" "net: accepted by" 60 || { echo "FAIL: $label shooter was not accepted"; kill -TERM $host $shooter; exit 2; }
-	game "$label-target" 390 "$INI" --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join \
+	game "$label-target" $tmo "$INI" --moddir "$MODDIR" --connect "127.0.0.1:$port" --net-test-join \
 		--net-test-input "$OUT/$tscript" --net-test-aimat "1,$AIMY,0.5,${NEAR:-700}" --net-lagcomp-log "$OUT/$label-target.lc" \
 		--exit-frame "$FRAMES" $simargs &
 	local target=$!
@@ -163,20 +174,21 @@ check_ok() {
 	return 0
 }
 
-declare -A R
+declare -A R M
 show() {
 	# label rate shots saw matched both hostonly rewind-mean rewind-max capped
 	set -- $1
 	echo "     $1: shooter fired $3, saw $4 hit the target ($5 found on the host); the host scored $6 of them: $2%; host-only hits $7; rewind mean $8 ticks, most $9, capped ${10}; the same shots unrewound (--net-lagcomp-compare) hit ${11} of ${12}"
 	R[$1]=$2
+	M[$1]=$5
 }
 
 i=0
 for c in $CASES; do
 	case $c in
-		on)    run on $((PORT + i)) 1 "0,75" target.script; check_ok on && show "$(rate on)" ;;
+		on)    FRAMES=$RATEFRAMES run on $((PORT + i)) 1 "0,75" target.script; check_ok on && show "$(rate on)" ;;
 		off)   run off $((PORT + i)) 0 "0,75" target.script; check_ok off && show "$(rate off)" ;;
-		loss)  run loss $((PORT + i)) 1 "2,75" target.script; check_ok loss && show "$(rate loss)" ;;
+		loss)  FRAMES=$RATEFRAMES run loss $((PORT + i)) 1 "2,75" target.script; check_ok loss && show "$(rate loss)" ;;
 		still) HOSTDEBUG=--net-lagcomp-debug run still $((PORT + i)) 1 "0,75" still.script; check_ok still && show "$(rate still)" ;;
 		soak)  FRAMES=3000 SIMS=8 WEAPONS=9,9,9,9,9,9 SHOOTSCRIPT=spray.script HOSTDEBUG=--net-lagcomp-debug \
 		           run soak $((PORT + i)) 1 "0,75" spray.script ;;
@@ -190,7 +202,9 @@ for c in $CASES; do
 	case $c in
 		on|loss)
 			[ -n "${R[$c]:-}" ] || { fail "$c: no rate"; continue; }
-			ge "${R[$c]}" "$MINON" && pass "$c: $c-run hit rate ${R[$c]}% (at least $MINON%)" || fail "$c: hit rate ${R[$c]}% under $MINON%"
+			ge "${R[$c]}" "$MINON" && pass "$c: $c-run hit rate ${R[$c]}% of ${M[$c]} shots (at least $MINON%)" || fail "$c: hit rate ${R[$c]}% under $MINON% (${M[$c]} shots)"
+			# a rate of a few shots says little: the run must have enough
+			[ "${M[$c]:-0}" -ge 30 ] || fail "$c: only ${M[$c]:-0} shots the shooter saw hit found on the host (want 30)"
 			;;
 		off)
 			[ -n "${R[off]:-}" ] || { fail "off: no rate"; continue; }

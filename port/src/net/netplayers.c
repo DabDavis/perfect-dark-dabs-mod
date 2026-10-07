@@ -15,6 +15,7 @@
 #include "lib/mtx.h"
 #include "game/camera.h"
 #include "game/mplayer/mplayer.h"
+#include "screenshot.h"
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "net/netsnap.h"
@@ -89,6 +90,7 @@ struct netpadq {
 	u32 dry;
 	u32 lost;
 	u32 presses;             // Z (fire) press edges played
+	u32 busy;                // commands played with a button, a stick or the mouse in them
 	u32 outoforder;
 	s32 lastplayed;          // the last tick played, -1 none
 	u32 depthsum;
@@ -126,6 +128,11 @@ static u32 s_AcksHeard = 0;
 static u32 s_CmdsSent = 0;
 static u32 s_ZPresses = 0;
 static u32 s_PrevButtons = 0;
+static s32 s_MenuUp = 0;          // this machine's menu was up at the last command
+static u32 s_MenuCmds = 0;        // commands sent while it was up
+static u32 s_MenuBusy = 0;        // ... of which any held a button, a stick or the mouse
+static s32 s_MenuShot = 0;        // --net-test-menu-shot: the game's own screenshot of its first menu up
+static u32 s_MenuShotAt = 0;      // the tick to take it at (a third of a second in: the dialog drawn whole)
 static s32 s_PpmMin = 0;
 static s32 s_PpmMax = 0;
 
@@ -142,7 +149,9 @@ struct netscriptline {
 	f32 mdy;
 };
 
-#define NET_MAXSCRIPT 256
+// a test script's lines (netlagcomptest's shooter fires on one every 30
+// ticks: 256 lines stopped it at tick 7800 whatever the run's length)
+#define NET_MAXSCRIPT 4096
 
 static struct netscriptline s_Script[NET_MAXSCRIPT];
 static s32 s_ScriptLen = 0;
@@ -177,7 +186,7 @@ static void netPlayersLoadScript(const char *path)
 		return;
 	}
 
-	while (fgets(line, sizeof(line), f) && s_ScriptLen < NET_MAXSCRIPT) {
+	while (fgets(line, sizeof(line), f)) {
 		struct netscriptline *l = &s_Script[s_ScriptLen];
 		unsigned int from;
 		unsigned int to;
@@ -191,6 +200,11 @@ static void netPlayersLoadScript(const char *path)
 
 		if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') {
 			continue;
+		}
+
+		if (s_ScriptLen >= NET_MAXSCRIPT) {
+			sysLogPrintf(LOG_ERROR, "net: --net-test-input %s: more than %d lines; the rest left out", path, NET_MAXSCRIPT);
+			break;
 		}
 
 		if (sscanf(line, "%u %u %x %d %d %d %d %f %f", &from, &to, &buttons, &sx, &sy, &rsx, &rsy, &mdx, &mdy) != 9) {
@@ -223,6 +237,7 @@ void netPlayersArgs(void)
 	}
 
 	s_TestTrace = sysArgGetInt("--net-test-trace", 0);
+	s_MenuShot = sysArgCheck("--net-test-menu-shot");
 
 	{
 		const char *aim = sysArgGetString("--net-test-aimat");
@@ -277,6 +292,20 @@ static s32 netPadOfPlayer(s32 playernum)
 	}
 
 	return g_Vars.playerstats[playernum].mpindex % MAX_PLAYERS;
+}
+
+// Whether the player on this pad (a slot) is dead: its START is a respawn
+static s32 netSlotPlayerDead(s32 pad)
+{
+	s32 pn;
+
+	for (pn = 0; pn < PLAYERCOUNT(); pn++) {
+		if (netPadOfPlayer(pn) == pad) {
+			return g_Vars.players[pn] && g_Vars.players[pn]->isdead;
+		}
+	}
+
+	return 0;
 }
 
 static s32 netPadIsRemote(s32 pad)
@@ -880,7 +909,6 @@ void netPlayersHostOnCmd(s32 slot, struct netbuf *b)
 			cmds[i].mdy = 0;
 		}
 
-		cmds[i].buttons &= ~START_BUTTON;
 	}
 
 	if (!netBufOk(b) || netBufRemaining(b) != 0) {
@@ -1024,9 +1052,18 @@ static void netPlayersHostPlay(void)
 
 		q->depthsum += netQDepth(q);
 		q->presses += (q->cur.buttons & ~prevbuttons & Z_TRIG) ? 1 : 0;
+		q->busy += q->cur.buttons || q->cur.sx || q->cur.sy || q->cur.rsx || q->cur.rsy || q->cur.mdx != 0 || q->cur.mdy != 0;
 
 		memset(&pad, 0, sizeof(pad));
-		pad.button = q->cur.buttons & ~START_BUTTON;
+		pad.button = q->cur.buttons;
+
+		// START is the client's own (its pause menu, never the host's) except
+		// on its death screen, where it is a respawn as offline ("Press
+		// START": playerTick reads A, Z or START)
+		if (!netSlotPlayerDead(slot)) {
+			pad.button &= ~START_BUTTON;
+		}
+
 		pad.stick_x = q->cur.sx;
 		pad.stick_y = q->cur.sy;
 		pad.rstick_x = q->cur.rsx;
@@ -1109,6 +1146,7 @@ void netPlayersClientMatchStart(s32 pad)
 	s_CmdsSent = 0;
 	s_ZPresses = 0;
 	s_PrevButtons = 0;
+	s_MenuUp = 0;
 	memset(s_SentTick, 0, sizeof(s_SentTick));
 	memset(s_Pads, 0, sizeof(s_Pads));
 
@@ -1235,20 +1273,60 @@ static void netPlayersClientCapture(void)
 
 	// a menu open here has the pad: the player stands still on the host
 	// meanwhile (spec-players.md §6)
-	if (g_NetLocalSlot >= 0 && g_NetLocalSlot < MAX_PLAYERS && g_Menus[g_NetLocalSlot].curdialog) {
-		memset(&pad, 0, sizeof(pad));
-		mdx = 0;
-		mdy = 0;
+	{
+		const s32 up = g_NetLocalSlot >= 0 && g_NetLocalSlot < MAX_PLAYERS && g_Menus[g_NetLocalSlot].curdialog;
+
+		if (up) {
+			memset(&pad, 0, sizeof(pad));
+			mdx = 0;
+			mdy = 0;
+		}
+
+		// said in the log for the gates (nettwelvetest opens the pause menu
+		// with a pad's START)
+		if (up != s_MenuUp) {
+			if (up) {
+				s_MenuCmds = 0;
+				s_MenuBusy = 0;
+				sysLogPrintf(LOG_NOTE, "net: this machine's menu up at tick %u (menu root %d)", g_NetTick, g_MenuData.root);
+
+				if (s_MenuShot == 1) {
+					s_MenuShot = 2;
+					s_MenuShotAt = g_NetTick + 20;
+				}
+			} else {
+				sysLogPrintf(LOG_NOTE, "net: this machine's menu down at tick %u: %u commands sent while it was up, %u not neutral",
+						g_NetTick, s_MenuCmds, s_MenuBusy);
+			}
+
+			s_MenuUp = up;
+		}
+
+		if (s_MenuShot == 2 && g_NetTick == s_MenuShotAt) {
+			s_MenuShot = up ? 3 : 1;
+			sysLogPrintf(LOG_NOTE, "net: menu screenshot at tick %u%s", g_NetTick, up ? "" : ": the menu had gone; the next one");
+
+			if (up) {
+				screenshotRequest();
+			}
+		}
 	}
 
 	c = &s_Sent[g_NetTick % NETCMD_RING];
-	c->buttons = pad.button & ~START_BUTTON;
+	// START goes too: the host takes it only from a dead player, as the
+	// respawn (protocol 11)
+	c->buttons = pad.button;
 	c->sx = pad.stick_x;
 	c->sy = pad.stick_y;
 	c->rsx = pad.rstick_x;
 	c->rsy = pad.rstick_y;
 	c->mdx = mdx;
 	c->mdy = mdy;
+
+	if (s_MenuUp) {
+		s_MenuCmds++;
+		s_MenuBusy += c->buttons || c->sx || c->sy || c->rsx || c->rsy || c->mdx != 0 || c->mdy != 0;
+	}
 	c->flags = netMouseLocked(g_NetLocalSlot) ? NETCMD_MOUSELOCKED : 0;
 
 	// what this tick's pose step will draw the others at (netlagcomp.c)
@@ -1507,10 +1585,14 @@ static void netPlayersTrace(void)
 			continue;
 		}
 
-		sysLogPrintf(LOG_NOTE, "net: trace tick %u player %d pad %d%s pos %.1f %.1f %.1f theta %.2f verta %.2f weapon %d ammo %d dead %d",
+		// (busy: the commands played for that pad so far that held any
+		// input; speed: the walk's forwards and sideways, the shot push)
+		sysLogPrintf(LOG_NOTE, "net: trace tick %u player %d pad %d%s pos %.1f %.1f %.1f theta %.2f verta %.2f weapon %d ammo %d dead %d busy %u speed %.2f %.2f push %.1f %.1f",
 				g_NetTick, i, pad, netPadIsRemote(pad) ? " (remote)" : netIsLocalSlot(i) ? " (local)" : "",
 				p->prop->pos.x, p->prop->pos.y, p->prop->pos.z, p->vv_theta, p->vv_verta,
-				p->gunctrl.weaponnum, p->hands[HAND_RIGHT].loadedammo[0], p->isdead);
+				p->gunctrl.weaponnum, p->hands[HAND_RIGHT].loadedammo[0], p->isdead,
+				pad >= 0 && pad < MAX_PLAYERS ? s_Pads[pad].busy : 0, p->speedforwards, p->speedsideways,
+				p->bondshotspeed.x, p->bondshotspeed.z);
 	}
 
 	if (g_NetMode == NETMODE_CLIENT) {

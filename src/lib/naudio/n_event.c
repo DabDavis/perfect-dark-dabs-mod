@@ -2,6 +2,9 @@
 #include "n_libaudio.h"
 #include <os_internal.h>
 #include <ultraerror.h>
+#ifndef PLATFORM_N64
+#include "system.h"
+#endif
 
 void n_alEvtqNew(ALEventQueue *evtq, N_ALEventListItem *items, s32 itemCount)
 {
@@ -60,12 +63,20 @@ void n_alEvtqPostEvent(ALEventQueue *evtq, N_ALEvent *evt, ALMicroTime delta, s3
 
 	item = (N_ALEventListItem *)evtq->freeList.next;
 
-	if (!item) {
-		osSetIntMask(mask);
-		return;
-	}
+	if (!item || (!item->node.next && !arg3)) {
+#ifndef PLATFORM_N64
+		// said once a run: a dropped PLAY or STOP is a sound never heard or
+		// never stopped (neteventtest.sh fails a client that says it)
+		extern N_ALSndPlayer *g_SndPlayer;
+		static s32 said[2] = {0, 0};
+		const s32 sfx = g_SndPlayer && evtq == &g_SndPlayer->evtq;
 
-	if (!item->node.next && !arg3) {
+		if (!said[sfx]) {
+			said[sfx] = 1;
+			sysLogPrintf(LOG_WARNING, "audio: an event queue is full (%s); an event of type %d dropped (said once)",
+					sfx ? "the sound player's" : "a sequence player's", evt->type);
+		}
+#endif
 		osSetIntMask(mask);
 		return;
 	}

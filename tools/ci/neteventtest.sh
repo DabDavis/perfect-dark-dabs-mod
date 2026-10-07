@@ -3,7 +3,7 @@
 # does the client's scoreboard follow the host's?
 #
 # Loopback (PLANS/netplay/spec-entities.md §5): a listen host and one client
-# on 127.0.0.1, offscreen on the GPU, Skedar (0x32) with 8 sims and a one
+# on 127.0.0.1, offscreen on the GPU, Skedar (0x32) with 8 sims and a two
 # minute time limit, so the match ends on its own and the host sends
 # MATCH_END. Both write every event to --net-event-log (the host each it
 # recorded, with the player it was for or left out; the client each it
@@ -174,13 +174,17 @@ stage() {
 }
 
 run() {
-	local frames=4600
-	game host 300 0 --moddir "$MODDIR" --host "$PORT" --net-test-host 1 --net-test-stage 0x32 \
-		--net-test-sims 8 --rng-seed 1 --mp-weapons 10,4,7,9,28,1 --net-test-timelimit 1 \
+	# two minutes: the audio check's sample (shots that begin in a quiet
+	# moment) was 4-15 in one, too few to judge a rate on every run; no
+	# score limits (100 and 400 are none): the team limit, which counts
+	# even without teams, ended them at 30-45 seconds
+	local frames=8200
+	game host 420 0 --moddir "$MODDIR" --host "$PORT" --net-test-host 1 --net-test-stage 0x32 \
+		--net-test-sims 8 --rng-seed 1 --mp-weapons 10,4,7,9,28,1 --net-test-timelimit 2 --net-test-scorelimit 100 --net-test-teamscorelimit 400 \
 		--net-test-input "$OUT/host.script" --net-event-log "$OUT/host.events" --exit-frame $((frames + 200)) &
 	local host=$!
 	waitfor "$OUT/host.log" "net: hosting on UDP port" 60 || { echo "FAIL: host did not start"; kill -TERM $host; exit 2; }
-	game client 290 1 --moddir "$MODDIR" --connect "127.0.0.1:$PORT" --net-test-join \
+	game client 410 1 --moddir "$MODDIR" --connect "127.0.0.1:$PORT" --net-test-join \
 		--net-test-input "$OUT/client.script" --net-event-log "$OUT/client.events" --exit-frame "$frames" ${CLIENTARGS:-} &
 	local client=$!
 	local hp cp n
@@ -206,6 +210,14 @@ run() {
 		sleep 4
 		shot1 "$cp" "$SHOTDIR/events-client.png"
 		shot1 "$hp" "$SHOTDIR/events-host.png"
+		# a second round for the audio check: more of a sim's shots near the
+		# client, some of them begun in a quiet moment
+		if waitfor "$OUT/host.log" "snap slot 1 so far (tick 4500)" 150; then
+			for n in 1 2 3 4 5 6 7 8 9; do
+				stage "$hp" "sim(220)"
+				sleep 2
+			done
+		fi
 	else
 		echo "     staging skipped (host '$hp', client '$cp')"
 	fi
@@ -332,15 +344,21 @@ PY
 # mixed from (the game's own dump of what it queued, so the two line up),
 # against that mix. The match is loud most of the time (eight sims fighting
 # round the client), so the measure is the sound a shot starts in a quiet
-# moment: a sim within 1500 units whose gun's sound began with the event,
-# the mix quiet for the 100 ms before; does the mix turn loud within 120 ms,
-# as against any quiet moment of the run? (Further off, behind the arena's
-# walls, the game's own room-by-room volume lets few through: printed only.)
+# moment: a sim's gun whose sound began with the event at a volume the game
+# itself gives it from there of at least VOLMIN (a sixteenth of full: the
+# client's psGetTheoreticalVolPan, through the rooms, logged with the event;
+# a sim near in a straight line but behind walls is quiet, which a distance
+# alone counted as near and made the rate swing from 34% to 100%), the mix
+# quiet for the 100 ms before; does the mix turn loud within 120 ms, as
+# against any quiet moment of the run? The quieter ones are printed only.
 python3 - "$OUT/client.pcm" "$OUT/client.events" "$SHOTDIR" <<'PY' || status=1
 import sys, os, subprocess
 import numpy as np
 pcm, evp, shotdir = sys.argv[1:4]
 rate = 22020
+VOLMIN = 2048
+NQMIN = 30                                 # quiet-moment shots needed (38-92 in eight runs): a client that
+                                           # gave shots too low a volume shrinks the sample, and fails
 if not os.path.exists(pcm) or os.path.getsize(pcm) < rate * 4 * 10:
     print(f"FAIL audio: no mix from the client ({pcm})"); sys.exit(1)
 a = np.fromfile(pcm, dtype='<i2').reshape(-1, 2).astype(np.float32).mean(axis=1)
@@ -348,11 +366,11 @@ H = int(rate * 0.01)                       # 10 ms hops
 nb = len(a) // H
 lr = np.log(np.sqrt((a[:nb * H].reshape(nb, H) ** 2).mean(axis=1) + 1.0))
 QUIET, LOUD = np.log(250), np.log(1100)
-def dist(j): return float(j.split(" dist ")[1].split()[0]) if " dist " in j else 1e9
+def vol(j): return int(j.split(" vol ")[1].split()[0]) if " vol " in j else -1
 ev = [l.rstrip("\n") for l in open(evp) if l.startswith("A ")]
 sounds = sum(1 for l in ev if (l.split()[3] == "fireslot" and "sound 1" in l) or l.split()[3] == "playershot")
-def began(lo, hi): return np.array([int(l.split()[5]) // H for l in ev if l.split()[3] == "fireslot" and "started 1" in l and lo <= dist(l) < hi])
-near = began(0, 1500)
+def began(lo, hi): return np.array([int(l.split()[5]) // H for l in ev if l.split()[3] == "fireslot" and "started 1" in l and lo <= vol(l) < hi])
+near = began(VOLMIN, 1 << 20)
 def outcome(k):
     k = k[(k >= 10) & (k + 13 < nb)]
     quiet = np.array([lr[i - 10:i].mean() < QUIET for i in k], dtype=bool)
@@ -361,20 +379,24 @@ def outcome(k):
 nq, nl = outcome(near)
 rq, rl = outcome(np.random.default_rng(1).integers(10, nb - 14, 20000))
 p, pr = nl / max(nq, 1), rl / max(rq, 1)
-far = ", ".join("%d-%s units %d/%d" % ((lo, hi if hi < 1e9 else "", ) + outcome(began(lo, hi))[::-1]) for lo, hi in ((1500, 3000), (3000, 1e9)))
-print(f"     audio: {len(a) / rate:.0f} s mixed, {sounds} shot sounds applied, {len(near)} began a sim's gun sound within 1500 units; "
-      f"of the {nq} that began in a quiet moment the mix turned loud within 120 ms after {nl} ({p:.0%}); after a random quiet moment {pr:.0%} ({rq} tried); further off: {far}")
+quieter = ", ".join("vol %d-%d %d/%d" % ((lo, hi) + outcome(began(lo, hi))[::-1]) for lo, hi in ((1, 512), (512, VOLMIN)))
+print(f"     audio: {len(a) / rate:.0f} s mixed, {sounds} shot sounds applied, {len(near)} began a sim's gun sound at a volume of {VOLMIN} or more; "
+      f"of the {nq} that began in a quiet moment the mix turned loud within 120 ms after {nl} ({p:.0%}); after a random quiet moment {pr:.0%} ({rq} tried); quieter: {quieter}")
 try:
     os.makedirs(shotdir, exist_ok=True)
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "s16le", "-ar", str(rate), "-ac", "2", "-i", pcm,
                     "-lavfi", "showspectrumpic=s=1200x300:legend=0", "-frames:v", "1", "-update", "1", os.path.join(shotdir, "events-audio.png")], check=False)
 except Exception:
     pass
-if nq >= 5 and p >= 0.6 and p >= 4 * pr:
+if nq >= NQMIN and p >= 0.6 and p >= 4 * pr:
     print("ok   audio: the host's shots are heard in the client's mix")
 else:
-    print(f"FAIL audio: shots not heard ({nl}/{nq} against {pr:.0%})"); sys.exit(1)
+    print(f"FAIL audio: shots not heard ({nl}/{nq}, at least {NQMIN} needed, against {pr:.0%})"); sys.exit(1)
 PY
 
+# a full sound event queue drops PLAYs and STOPs: shots never heard (snd.c)
+grep -h "audio: an event queue is full" "$OUT/client.log" | head -2 | sed 's/^/     client: /'
+grep -q "audio: an event queue is full (the sound player's)" "$OUT/client.log" && fail "audio: the client's sound event queue overflowed" \
+	|| pass "audio: the client's sound event queue never overflowed"
 for f in explosion client host; do [ -s "$SHOTDIR/events-$f.png" ] || fail "no events-$f screenshot"; done
 exit $status

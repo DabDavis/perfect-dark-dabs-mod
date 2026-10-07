@@ -775,7 +775,7 @@ void netRulesApply(void)
 			bot->base.mpbodynum = sim->mpbodynum <= mpGetNumBodies() + 1 ? sim->mpbodynum : 0;
 			bot->base.team = sim->team;
 			bot->base.displayoptions = sim->displayoptions;
-			snprintf(bot->base.name, sizeof(bot->base.name), "%s", sim->name);
+			netNameSet(bot->base.name, sizeof(bot->base.name), sim->name);
 
 			for (j = 0; j < BOTSTAT_COUNT; j++) {
 				bot->stats[j] = sim->stats[j];
@@ -791,7 +791,7 @@ void netRulesApply(void)
 		struct mpplayerconfig *p = &g_PlayerConfigsArray[i];
 		struct netruleshuman *h = &s_NetRules.humans[i];
 
-		snprintf(p->base.name, sizeof(p->base.name), "%s", h->name);
+		netNameSet(p->base.name, sizeof(p->base.name), h->name);
 		p->base.mpheadnum = mpHeadNumSafe(h->mpheadnum);
 		p->base.mpbodynum = h->mpbodynum <= mpGetNumBodies() + 1 ? h->mpbodynum : 0;
 		p->base.team = h->team;
@@ -844,7 +844,12 @@ void netRulesApply(void)
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		if (mpIsHumanSlotOn(i)) {
-			sysLogPrintf(LOG_NOTE, "net: the match's players: \"%s\" in slot %d", g_PlayerConfigsArray[i].base.name, i);
+			const char *name = g_PlayerConfigsArray[i].base.name;
+			const s32 len = netNameLen(name);
+
+			// (a name without its newline draws with no height: netNameSet)
+			sysLogPrintf(LOG_NOTE, "net: the match's players: \"%.*s\" in slot %d%s", len, name, i,
+					len > 0 && name[len] != '\n' ? " (its name has no newline)" : "");
 		}
 	}
 }

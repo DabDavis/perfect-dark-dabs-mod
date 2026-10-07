@@ -6,7 +6,7 @@
 # (0x32) with SIMS sims and explosive weapons, for each N in COUNTS (default
 # 2 4 8 12: the old cap's four, then up to the full room). Every client walks,
 # turns and fires from a per-tick script (--net-test-input) for the whole
-# match (the last one's pause menu up for a second early on), sits on the end
+# match (the last one presses START now and then: its pause menu), sits on the end
 # screen after the host's MATCH_END and leaves it at tick 4600 for the
 # menus (the pause and end-screen dialogs draw the slot's number: slots
 # 4-11 read past the ROM's four labels before phase 8). Checks, per run:
@@ -14,8 +14,19 @@
 #   - nothing crashed: the host ran the match to MATCH_END; every client
 #     had it, went back to the menus (their stage set up) and was still
 #     running five seconds later (then it is stopped with SIGTERM);
-#   - the last client's pause menu, put up from gdb early in the match, is
-#     up (menu root MENUROOT_MPPAUSE, a dialog in its slot's menu) and draws;
+#   - the last client's pause menu comes up from its own pad's START in
+#     the script (ticks 630, 930, ... 2130: a press toggles it) as
+#     MENUROOT_MPPAUSE (4), draws, and goes down again (from START, or a
+#     death closes it); every command it sent while the menu was up was
+#     neutral (spec-players.md §6), and the host played on meanwhile
+#     (others moved on the host between those ticks) while that player
+#     was played as paused there: only neutral commands, its walk speed 0
+#     (its script walks in every window). That player
+#     is invincible on the host (--net-test-invincible-pad): a press while
+#     it is dead is a respawn instead, and with twelve players and
+#     explosives it was dead at all six presses in one run in five
+#     (netcontenttest geyolt checks the respawn);
+#   - every client has every human's name in PD's form, ending in "\n";
 #   - every slot played: each walked on the host from its own commands
 #     (a path of > 100 units between ticks 120 and 1800, respawn jumps left
 #     out), every command in order and
@@ -51,7 +62,7 @@ case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 HOSTBIN=${HOSTBIN:-$BIN}
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
 SHOTDIR=$BUILD/net-shots
-rm -rf "$OUT"/*.log "$OUT"/*.events "$OUT"/save-* "$OUT"/table.txt
+rm -rf "$OUT"/*.log "$OUT"/*.events "$OUT"/save-* "$OUT"/table.txt "$OUT"/*-pauseshot
 export SDL_VIDEODRIVER=${SDL_VIDEODRIVER:-offscreen} SDL_GAMECONTROLLER_IGNORE_DEVICES=0x054c/0x0ce6,0x045e/0x028e \
 	SDL_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT=0x0000/0x0000 SDL_JOYSTICK_HIDAPI=0
 
@@ -72,6 +83,10 @@ pass() { echo "ok   $*"; }
 	done
 	echo "4600 4601 1000 0 0 0 0 0 0"
 } > "$OUT/client.script"
+# the last client's: START every 300 ticks from 630 (its pause menu up and
+# down from the pad, never from gdb), first in the file (the first line that
+# covers a tick is the one played) and where no other line's buttons are
+{ for t in 630 930 1230 1530 1830 2130; do echo "$t $t 1000 0 0 0 0 0 0"; done; cat "$OUT/client.script"; } > "$OUT/last.script"
 
 # game LABEL TIMEOUT INI ARGS... &  ($! is timeout's pid; timeout passes a
 # TERM on, and a dedicated host stops cleanly on it)
@@ -128,37 +143,35 @@ run() {
 	echo "== $n clients, $SIMS sims"
 	game "h$n" 600 "[Mod]\nStartArmed=1\n[Net]\nMaxPlayers=12\n" --moddir "$MODDIR" --dedicated --host "$PORT" \
 		--net-test-host "$n" --net-test-stage 0x32 --net-test-sims "$SIMS" --net-test-timelimit 1 --net-test-scorelimit 100 --net-test-teamscorelimit 400 --rng-seed 7 \
-		--mp-weapons 10,13,22,28,23,1 --net-test-trace 30 --net-event-log "$OUT/h$n.events" &
+		--mp-weapons 10,13,22,28,23,1 --net-test-trace 30 --net-event-log "$OUT/h$n.events" \
+		--net-test-invincible-pad $((n - 1)) &
 	host=$!
 	waitfor "$OUT/h$n.log" "net: hosting on UDP port" 60 || { echo "FAIL: the host did not start"; kill -TERM $host; exit 2; }
+	mkdir -p "$BUILD/screenshots"
+	local shotsbefore; shotsbefore=$(ls "$BUILD/screenshots" | sort)
 	for k in $(seq 1 "$n"); do
+		local script=$OUT/client.script extra=""
+		# the last: its pause menu from its START, and the game's own picture of it
+		[ "$k" = "$n" ] && script=$OUT/last.script && extra=--net-test-menu-shot
 		game "c$n-$k" 560 "[Mod]\nStartArmed=1\n" --moddir "$MODDIR" --connect "127.0.0.1:$PORT" --net-test-join \
-			--net-test-input "$OUT/client.script" --net-event-log "$OUT/c$n-$k.events" &
+			--net-test-input "$script" --net-event-log "$OUT/c$n-$k.events" $extra &
 		pids="$pids $!"
 		sleep 0.5
 	done
-	# the last client: its pause menu, then its end screen
+	# the last client: its pause menu (up from its script's START), then its
+	# end screen
 	cp=""
 	for k in $(seq 40); do cp=$(gamepid "c$n-$n"); [ -n "$cp" ] && break; sleep 0.5; done
 	if [ -n "$cp" ]; then
-		# its pause menu put up from gdb (a pad's START never reaches a
-		# client's own player: see the notes) two seconds into the match,
-		# while everyone is alive, and taken down a second later
-		if waitfor "$OUT/c$n-$n.log" "net: match 1: GO" 200; then
-			sleep 2
-			# up to four tries a second apart: a player dead just then (an
-			# early grenade) has no pause menu
-			for k in 1 2 3 4; do
-				gdb -p "$cp" -batch -ex 'set $p = g_Vars.currentplayernum' -ex "call (void)setCurrentPlayerNum($((n - 1)))" \
-					-ex 'call (void)mpPushPauseDialog()' -ex 'call (void)setCurrentPlayerNum($p)' >/dev/null 2>&1
-				sleep 0.6
-				gdb -p "$cp" -batch -ex 'print g_MenuData.root' -ex "print g_Menus[$((n - 1))].curdialog != 0" -ex 'print g_NetTick' \
-					-ex "print g_Vars.players[$((n - 1))]->isdead" 2>/dev/null | grep '^\$' | tr '\n' ' ' > "$OUT/n$n-pause.txt"
-				grep -Eq '^\$1 = 4 \$2 = (1|true) ' "$OUT/n$n-pause.txt" && break
-				sleep 1
+		# the picture the game took of its pause menu a third of a second
+		# after it came up (a gdb stop would be late: a death shuts it)
+		rm -f "$SHOTDIR/twelve-pause.png"
+		if waitfor "$OUT/c$n-$n.log" "menu screenshot at tick [0-9]*$" 200; then
+			for k in $(seq 50); do
+				f=$(comm -13 <(echo "$shotsbefore") <(ls "$BUILD/screenshots" | sort) | tail -1)
+				[ -n "$f" ] && { sleep 0.3; cp "$BUILD/screenshots/$f" "$SHOTDIR/twelve-pause.png"; touch "$OUT/n$n-pauseshot"; echo "     shot: $SHOTDIR/twelve-pause.png ($(grep -m1 -o "menu screenshot at tick [0-9]*" "$OUT/c$n-$n.log"))"; break; }
+				sleep 0.1
 			done
-			shot1 "$cp" "$SHOTDIR/twelve-pause.png"
-			gdb -p "$cp" -batch -ex "set var g_MpPlayerNum = $((n - 1))" -ex 'call (void)menuPopDialog()' -ex 'set var g_MpPlayerNum = 0' >/dev/null 2>&1
 		fi
 		waitfor "$OUT/c$n-$n.log" "the host ended it" 200 && sleep 4 && shot1 "$cp" "$SHOTDIR/twelve-endscreen.png"
 	fi
@@ -188,6 +201,71 @@ run() {
 	check "$n"
 }
 
+# the last client's pause menu from its pad's START (see the top)
+pausecheck() {
+	local n=$1 c=$OUT/c$1-$1.log H=$OUT/h$1.log up down moved=0 s a b
+	up=$(grep -m1 "this machine's menu up at tick" "$c" | sed -n 's/.*up at tick \([0-9]*\) (menu root \([0-9]*\)).*/\1 \2/p')
+	down=$(grep -m1 "this machine's menu down at tick" "$c" | sed -n 's/.*down at tick \([0-9]*\): \([0-9]*\) commands.*, \([0-9]*\) not neutral/\1 \2 \3/p')
+	set -- $up; local uptick=${1:-} root=${2:-}
+	set -- $down; local downtick=${1:-} cmds=${2:-0} busy=${3:-}
+	if [ -z "$uptick" ]; then
+		fail "$n: slot $((n - 1))'s pause menu never came up from its pad's START"; return
+	fi
+	case $uptick in 63[0-2]|93[0-2]|123[0-2]|153[0-2]|183[0-2]|213[0-2]) ;; *) fail "$n: slot $((n - 1))'s menu came up at tick $uptick, not at a START of its script" ;; esac
+	# (the game's own line: its slot's menu has a dialog, under the root it
+	# names; a look from gdb a second later can find it shut by a death)
+	[ "$root" = 4 ] && pass "$n: slot $((n - 1))'s pause menu up from its pad's START at tick $uptick (MENUROOT_MPPAUSE)" \
+		|| fail "$n: slot $((n - 1))'s menu at tick $uptick: root ${root:-?} (MENUROOT_MPPAUSE is 4)"
+	[ -e "$OUT/n$n-pauseshot" ] && pass "$n: the game's own picture of it: $SHOTDIR/twelve-pause.png" \
+		|| fail "$n: no picture of the pause menu (--net-test-menu-shot)"
+	if [ -z "$downtick" ]; then
+		fail "$n: slot $((n - 1))'s pause menu never went down"; return
+	fi
+	[ "$busy" = 0 ] && [ "$cmds" -ge 30 ] && pass "$n: down again at tick $downtick; all $cmds commands sent meanwhile neutral" \
+		|| fail "$n: menu down at tick $downtick: $busy of $cmds commands sent while it was up were not neutral"
+	# the host played on meanwhile: another slot moved between those ticks
+	for s in $(seq 0 $((n - 2))); do
+		a=$(pos "$H" $(( (uptick / 30) * 30 )) "$s"); b=$(pos "$H" $(( (downtick / 30 + 1) * 30 )) "$s")
+		[ -n "$a" ] && [ -n "$b" ] && awk -v d="$(dist "$a" "$b")" 'BEGIN { exit !(d > 1) }' && moved=$((moved + 1))
+	done
+	[ "$moved" -ge 1 ] && pass "$n: the host played on while it was up ($moved other slots moved)" \
+		|| fail "$n: nobody else moved on the host between ticks $uptick and $downtick"
+	# and the host played it as paused: from the first trace 30 ticks after
+	# each up to the down (alive throughout), the host played only neutral
+	# commands for that slot (the trace's busy count, the commands played
+	# with any input, stands still) and its walk's own speed stayed 0 at
+	# every trace, though its script walks 140 ticks in every 300. Its place
+	# is printed, not gated: shots and explosions push a player standing
+	# still (seen: 1100 units over 150 ticks, the push nonzero, busy and
+	# speed 0), and this one is invincible
+	python3 - "$c" "$H" $((n - 1)) <<'PY2' || { status=1; echo "FAIL $n: slot $((n - 1)) was not played as paused on the host while its menu was up"; }
+import sys, re
+c, h, slot = sys.argv[1], sys.argv[2], int(sys.argv[3])
+ups, wins = None, []
+for l in open(c):
+    m = re.search(r"this machine's menu (up|down) at tick (\d+)", l)
+    if m and m.group(1) == 'up': ups = int(m.group(2))
+    elif m and ups is not None: wins.append((ups, int(m.group(2)))); ups = None
+tr = {}
+for l in open(h):
+    m = re.match(r"net: trace tick (\d+) player %d .* pos (\S+) \S+ (\S+) theta.* dead (\d+) busy (\d+) speed (\S+) (\S+)" % slot, l)
+    if m: tr[int(m.group(1))] = (float(m.group(2)), float(m.group(3)), int(m.group(4)), int(m.group(5)), float(m.group(6)), float(m.group(7)))
+seen, far, bad = 0, 0.0, []
+for a, b in wins:
+    ts = [t for t in range((a + 30 + 29) // 30 * 30, b + 1, 30) if t in tr]
+    if len(ts) < 3 or any(tr[t][2] for t in ts): continue
+    seen += 1
+    far = max([far] + [((tr[t][0] - tr[ts[0]][0]) ** 2 + (tr[t][1] - tr[ts[0]][1]) ** 2) ** 0.5 for t in ts])
+    busy = tr[ts[-1]][3] - tr[ts[0]][3]
+    walk = [t for t in ts if tr[t][4] != 0 or tr[t][5] != 0]
+    if busy or walk: bad.append((a, b, "%d commands with input" % busy, "walking at ticks %s" % walk))
+print("     menu up %s: %d windows looked at (alive throughout); pushed at most %.0f units meanwhile" % (" ".join("%d-%d" % w for w in wins), seen, far))
+if bad: print("     not paused: %s" % bad); sys.exit(1)
+if not seen: print("     no window to look at (dead, or too short)"); sys.exit(1)
+print("ok   slot %d: the host played only neutral commands for it while its menu was up, its walk speed 0 (%d windows)" % (slot, seen))
+PY2
+}
+
 check() {
 	local n=$1 H=$OUT/h$1.log c k s d st walked=0 inorder=0 ok=0
 	grep -q "renderD128: Permission denied" "$OUT"/c"$n"-*.log && fail "$n: a run fell back to llvmpipe"
@@ -210,10 +288,13 @@ check() {
 			ok=$((ok + 1))
 		fi
 	done
-	if [ -f "$OUT/n$n-pause.txt" ]; then
-		grep -Eq '^\$1 = 4 \$2 = (1|true) ' "$OUT/n$n-pause.txt" && pass "$n: slot $((n - 1))'s pause menu was up ($(cat "$OUT/n$n-pause.txt"))" \
-			|| fail "$n: slot $((n - 1))'s pause menu was not up: $(cat "$OUT/n$n-pause.txt") (MENUROOT_MPPAUSE is 4)"
-	fi
+	pausecheck "$n"
+	# every human's name in PD's form, "text\n" (else the end screen's
+	# "Title:" row draws over its name row: netNameSet)
+	k=$(cat "$OUT"/c"$n"-*.log | grep -c "net: the match's players:")
+	nn=$(cat "$OUT"/c"$n"-*.log | grep -c "net: the match's players:.*(its name has no newline)")
+	[ "$k" -ge $((n * n)) ] && [ "$nn" = 0 ] && pass "$n: every client had all $n names with PD's newline ($k lines)" \
+		|| fail "$n: names: $k lines of $((n * n)), $nn without their newline"
 	[ "$ok" = "$n" ] && pass "$n: all $n clients played, had MATCH_END, left the end screen for the menus and ran on" || fail "$n: $ok of $n clients came through"
 
 	for s in $(seq 0 $((n - 1))); do

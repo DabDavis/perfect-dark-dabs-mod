@@ -1725,7 +1725,20 @@ void sndInit(void)
 			synconfig.fxTypes[i] = 6;
 		}
 
+#ifdef PLATFORM_N64
 		sndpconfig.maxEvents = 64;
+#else
+		// A net client starts the sounds of a whole tick's events at once,
+		// many guns' at a time with eight sims, and a full queue drops what
+		// is posted to it: a PLAY lost leaves its state allocated and never
+		// heard, a STOP lost leaves one sounding (n_alEvtqPostEvent). Sixty
+		// four ran out within seconds of a net match's start. (A client
+		// holding its clock also stopped mixing while its sounds' pan and
+		// effect changes went on: schedAudioFrame mixes then too.) The heap
+		// has the room (some 120 KB free after a stage loads; 512 items are
+		// 28 KB).
+		sndpconfig.maxEvents = 512;
+#endif
 		sndpconfig.maxStates = 64;
 		sndpconfig.maxSounds = 20;
 		sndpconfig.unk10 = NUM_KEYTHINGS;

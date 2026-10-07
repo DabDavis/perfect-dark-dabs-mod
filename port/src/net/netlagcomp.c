@@ -194,6 +194,7 @@ static FILE *s_Log = NULL;
 static s32 s_Debug = 0;
 static s32 s_God = 0;
 static s32 s_Invincible = 0; // --net-test-invincible
+static s32 s_InvinciblePad = -1; // --net-test-invincible-pad N: that slot's player alone
 static s32 s_Compare = 0;       // --net-lagcomp-compare
 static f32 s_ShotDistance = 0;  // the shot's reach before the chr loop (hits shorten it)
 
@@ -217,6 +218,7 @@ void netLagCompArgs(void)
 	atexit(netLagCompAtExit);
 	s_God = sysArgCheck("--net-test-god");
 	s_Invincible = sysArgCheck("--net-test-invincible");
+	s_InvinciblePad = sysArgGetString("--net-test-invincible-pad") ? atoi(sysArgGetString("--net-test-invincible-pad")) : -1;
 	s_Compare = sysArgCheck("--net-lagcomp-compare");
 }
 
@@ -1504,11 +1506,12 @@ void netLagCompHostTickEnd(void)
 		}
 	}
 
-	// --net-test-invincible: the players take no damage at all (an
+	// --net-test-invincible: the players take no damage at all, or with
+	// --net-test-invincible-pad the one on that slot (an
 	// explosion is more than --net-test-god's one point of health a tick)
-	if (s_Invincible) {
+	if (s_Invincible || s_InvinciblePad >= 0) {
 		for (i = 0; i < PLAYERCOUNT(); i++) {
-			if (g_Vars.players[i]) {
+			if (g_Vars.players[i] && (s_Invincible || g_Vars.playerstats[i].mpindex % MAX_PLAYERS == s_InvinciblePad)) {
 				g_Vars.players[i]->invincible = 1;
 			}
 		}

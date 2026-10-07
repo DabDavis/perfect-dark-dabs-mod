@@ -19,6 +19,8 @@
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/propobj.h"
+#include "game/propsnd.h"
+#include "game/game_0b0fd0.h"
 #include "game/sparks.h"
 #include "game/mplayer/mplayer.h"
 #include "gesfx.h"
@@ -1713,12 +1715,26 @@ static void netEvApply(struct netevc *e, f64 rt)
 			s_ShotPlayed += started;
 
 			// started: the gun's sound began (else one still sounding);
-			// dist: how far from this machine's player, for the audio check
-			snprintf(extra, sizeof(extra), "chr %d hand %d sound %d beam %d started %d dist %.0f", e->r0.id, e->flags & 1,
+			// dist: how far from this machine's player; vol: the volume the
+			// game gives that gun's sound from there, through the rooms
+			// (psGetTheoreticalVolPan, 0..AL_VOL_FULL; -1 none), for the
+			// audio check - worked out only for the log
+			s32 vol = -1;
+
+			if (s_Log && started && (e->flags & 2)) {
+				struct prop *gun = chrGetHeldProp(chr, e->flags & 1);
+				s32 pan;
+
+				if (gun && gun->type == PROPTYPE_WEAPON && gun->weapon) {
+					psGetTheoreticalVolPan(&chr->prop->pos, chr->prop->rooms, gsetGetSingleShootSound(&gun->weapon->gset), &vol, &pan);
+				}
+			}
+
+			snprintf(extra, sizeof(extra), "chr %d hand %d sound %d beam %d started %d dist %.0f vol %d", e->r0.id, e->flags & 1,
 					(e->flags & 2) != 0, (e->flags & 4) != 0, started,
 					me ? sqrtf((chr->prop->pos.x - me->pos.x) * (chr->prop->pos.x - me->pos.x)
 						+ (chr->prop->pos.y - me->pos.y) * (chr->prop->pos.y - me->pos.y)
-						+ (chr->prop->pos.z - me->pos.z) * (chr->prop->pos.z - me->pos.z)) : -1.f);
+						+ (chr->prop->pos.z - me->pos.z) * (chr->prop->pos.z - me->pos.z)) : -1.f, vol);
 		}
 
 		s_ShotSounds += (e->flags & 2) != 0;

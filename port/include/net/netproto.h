@@ -48,7 +48,10 @@
 //    medal pairs and 92 mpchrs, the scenario block is 768 bytes with 12
 //    players' tokenheld/holds (OFF_BODY 224), spectator views are 12-13,
 //    every mpchr slot is players 0-11, sims 12+
-#define NET_PROTOCOL_VERSION 10
+// 11: a command's buttons keep START; the host plays it only for a dead
+//    player (the death screen's respawn), never for a living one (the
+//    client's pause menu is its own)
+#define NET_PROTOCOL_VERSION 11
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -327,7 +330,9 @@
  *   u32     first                 the first command's tick
  *   u8      count                 1..NET_MAXCMDSEND
  *   per command, ticks first, first+1, ...:
- *     u32 buttons                 OSContPad.button, START already cleared
+ *     u32 buttons                 OSContPad.button (protocol 11: START too;
+ *                                 the host clears it unless the player is
+ *                                 dead, where it respawns as offline)
  *     s8 stick_x, s8 stick_y, s8 rstick_x, s8 rstick_y
  *     f32 mdx, f32 mdy            inputMouseGetScaledDelta: the client's own
  *                                 sensitivity is in it, 0 when unlocked

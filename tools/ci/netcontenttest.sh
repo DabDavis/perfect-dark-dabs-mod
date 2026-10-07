@@ -26,8 +26,9 @@
 # which have no bbox, are left on: dropping one crashes offline too), a loose
 # ammo crate (netTestLooseCrate), the glass furthest from the client broken
 # out of its scope, the N-bomb, gas, and You Only Live Twice's deaths (sim 0
-# and the client's player killed twice over; the client pulls its trigger
-# every second to ask for its respawn).
+# and the client's player killed twice over; the client presses START, and
+# nothing else, every second to ask for its respawn: a client's START is its
+# own pause menu while it lives, a respawn on its death screen, as offline).
 #
 # A refusal case (gemust, modmissing) instead checks the client was refused
 # with the key, or the map and its mod, named in the text it was given.
@@ -194,9 +195,12 @@ def kill():
     print("STAGE kill: %s" % (", ".join(out) or "nobody alive to kill"))
 PY
 
-# the client's trigger pulled a tick in every sixty: a dead player asks the
-# host to get it up again (player.c's respawn press)
-for t in $(seq 60 60 3000); do echo "$t $((t + 1)) 2000 0 0 0 0 0 0"; done > "$OUT/respawn.script"
+# the client's START pressed a tick in every sixty: a dead player asks the
+# host to get it up again (player.c's respawn press reads A, Z or START; a
+# client's START reaches the host only while its player is dead there, and
+# opens and shuts its own pause menu while it lives). START alone, so the
+# first death's respawn, which the second kill needs, is START's
+for t in $(seq 60 60 3000); do echo "$t $((t + 1)) 1000 0 0 0 0 0 0"; done > "$OUT/respawn.script"
 
 stage() {
 	local hp=$1 what=$2
@@ -382,6 +386,7 @@ for c in $CASES; do
 		want geyolt "deaths the client took from the host" "$(evnum geyolt death)"
 		yl=$(lastline "$C" "net: yolt client")
 		want geyolt "chrs out of lives on the client" "$(num "$yl" "chrs out")"
+		want geyolt "respawns of the client's own player from its START alone" "$(lastline "$C" "net: local block" | sed -n 's/.*, respawns \([0-9]*\), inventory.*/\1/p')"
 		want geyolt "ticks the client's own player was out (no respawn)" "$(echo "$yl" | grep -o "player out [0-9]*" | awk '{print $NF}')"
 		[ "$(num "$yl" "out yet alive")" = 0 ] && pass "geyolt: no chr out of lives came back on the client ($(num "$yl" "out ticks") chr-ticks out)" \
 			|| fail "geyolt: chrs out of lives alive again on the client: ${yl:-no yolt line}"

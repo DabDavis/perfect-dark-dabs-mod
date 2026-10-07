@@ -258,7 +258,19 @@ void schedAudioFrame(OSSched *sc)
 	s32 i;
 
 	if (!g_SndDisabled) {
-		for (i = 0; i < (g_NetInStageLoop ? g_NetTicksThisFrame : g_Vars.diffframe60); i++) {
+		s32 frames = g_NetInStageLoop ? g_NetTicksThisFrame : g_Vars.diffframe60;
+
+		// netplay: a frame with no tick (a client holding its clock while it
+		// is ahead of the host, or waiting at the barrier) still mixes when
+		// the output runs low. With none the synth stood still while the
+		// game went on posting its sounds' pan and effect changes, until
+		// the sound player's event queue was full and dropped the next
+		// PLAYs (neteventtest.sh: a host stalled by gdb, the client held)
+		if (g_NetInStageLoop && frames == 0 && audioGetSamplesBuffered() < 1100) {
+			frames = 1;
+		}
+
+		for (i = 0; i < frames; i++) {
 			amgrFrame();
 			audioEndFrame();
 		}

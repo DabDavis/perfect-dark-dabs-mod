@@ -272,15 +272,22 @@ starts = [t for t in sorted(T) if t - 1 in T and T[t][0] & 0x0008 and not T[t][0
           and not T[t - 1][0] & 0x000f and T[t - 1][2] == 0 and T[t][9]]
 # at once: on a walk's first tick the client moves its player as far as the
 # host moves it for the same command (a round trip before any snapshot of
-# it), and walks do move it then
-moved = []
+# it), and walks do move it then. From nothing on the host too: a walk
+# begun while the host had the player moving on the command before (a sim's
+# shot or blast pushing it, which this machine learns of only from the
+# blocks after; seen: 2.4 units a tick, then 4.1 against 0.8 on the walk's
+# first) is counted apart, not compared
+moved, pushed = [], []
 for t in starts:
+    if t - 1 in H and t - 2 in H and math.hypot(H[t - 1][0] - H[t - 2][0], H[t - 1][2] - H[t - 2][2]) > 0.05:
+        pushed.append(t)
+        continue
     a, b = T[t - 1], T[t]
     d = math.hypot(b[4] - a[4], b[6] - a[6])
     hd = math.hypot(H[t][0] - H[t - 1][0], H[t][2] - H[t - 1][2]) if t in H and t - 1 in H else None
     moved.append((t, d, hd))
-print("     %s: %d walks started; on its own tick each moved the player here / on the host for that command: %s"
-      % (label, len(moved), "  ".join("%.2f/%s" % (m[1], "%.2f" % m[2] if m[2] is not None else "-") for m in moved[:9])))
+print("     %s: %d walks started (%d more while the host had the player pushed); on its own tick each moved the player here / on the host for that command: %s"
+      % (label, len(moved), len(pushed), "  ".join("%.2f/%s" % (m[1], "%.2f" % m[2] if m[2] is not None else "-") for m in moved[:9])))
 apart = [m for m in moved if m[2] is not None and abs(m[1] - m[2]) > 0.05]
 if not moved or not any(m[1] > 0.3 for m in moved):
     print("FAIL %s: no walk moved the player on its first tick" % label); ok = False

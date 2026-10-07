@@ -178,6 +178,72 @@ def htm2():
     o = "g_ScenarioData.htm.terminals[0].prop->obj->hidden"
     gdb.execute("set var %s = (%s & 0x0fffffff) | 0x4000 | (%d << 28)" % (o, o, pn))
     print("STAGE htm: player %d used the terminal" % pn)
+def place_terminal(pn):
+    p = "g_Vars.players[%d]" % pn
+    a = math.radians(f(p + "->vv_theta"))
+    t = "g_ScenarioData.htm.terminals[0].prop->pos"
+    gdb.execute("set var %s.x = %f" % (t, f(p + "->prop->pos.x") - math.sin(a) * 120))
+    gdb.execute("set var %s.z = %f" % (t, f(p + "->prop->pos.z") + math.cos(a) * 120))
+    gdb.execute("set var %s.y = %f" % (t, f(p + "->prop->pos.y")))
+class HtmKeeper(gdb.Breakpoint):
+    """While the client's player downloads, the terminal stays in front of
+    it: a sim's hit knocks the view (and the player) about, and past 45
+    degrees or 250 units the download breaks ("Connection broken") and
+    starts over. A player at a terminal would turn back to it; this puts
+    the terminal back instead, each tick it has drifted, until the download
+    is done (a point) or 30 seconds have gone."""
+    def __init__(self, pn):
+        super().__init__("netScenHostTickEnd", internal=True)
+        self.pn = pn; self.ticks = 0; self.moves = 0; self.done = False
+        self.base = i("g_ScenarioData.htm.numpoints[%d]" % pn)
+    def stop(self):
+        self.ticks += 1
+        pn = self.pn
+        if i("g_ScenarioData.htm.numpoints[%d]" % pn) > self.base or self.ticks > 1800:
+            self.done = True
+            return True
+        if i("g_ScenarioData.htm.dlplayernum") == pn and i("g_ScenarioData.htm.dlterminalnum") >= 0:
+            p = "g_Vars.players[%d]" % pn
+            t = "g_ScenarioData.htm.terminals[0].prop->pos"
+            dx = f(t + ".x") - f(p + "->prop->pos.x"); dz = f(t + ".z") - f(p + "->prop->pos.z")
+            rel = math.degrees(math.atan2(dx, dz)) + f(p + "->vv_theta")
+            rel = (rel + 180) % 360 - 180
+            if math.hypot(dx, dz) > 200 or abs(rel) > 30 or abs(f(t + ".y") - f(p + "->prop->pos.y")) > 150:
+                place_terminal(pn); self.moves += 1
+        return False
+s_keeper = None
+def htm2keep():
+    """htm2, then the terminal kept in front of the player until its download
+    has scored (the stage() call goes on running the host meanwhile)"""
+    global s_keeper
+    htm2()
+    s_keeper = HtmKeeper(remote())
+def keep_continue():
+    if s_keeper is None: return
+    gdb.execute("continue")
+    k = s_keeper
+    k.delete()
+    print("STAGE htm: the terminal kept in front of player %d for %d ticks (put back %d times); %s" %
+          (k.pn, k.ticks, k.moves, "its download scored" if k.done and k.ticks <= 1800 else "no download scored"))
+def koh():
+    """the client's player invincible and the hill moved to its room (as
+    the hill's own move would choose a pad there): it stands still, so its
+    team takes the hill and, held alone for the hill time, scores. A room
+    the host's own player stands in too (the other team) would contest it"""
+    pn = remote()
+    if pn < 0: print("STAGE koh: no remote player"); return
+    gdb.execute("set var g_Vars.players[%d]->invincible = 1" % pn)
+    p = "g_Vars.players[%d]->prop" % pn
+    room = i(p + "->rooms[0]"); old = i("g_ScenarioData.koh.hillrooms[0]")
+    if room == i("g_Vars.players[0]->prop->rooms[0]"): print("STAGE koh: player %d shares room %d with the host's player" % (pn, room))
+    if old >= 0: gdb.execute("call (void)roomSetLightOp(%d, 0, 0, 0, 0)" % old)
+    gdb.execute("set var g_ScenarioData.koh.hillrooms[0] = %d" % room)
+    gdb.execute("set var g_ScenarioData.koh.hillrooms[1] = -1")
+    for c in "xyz": gdb.execute("set var g_ScenarioData.koh.hillpos.%s = %s->pos.%s" % (c, p, c))
+    gdb.execute("set var g_ScenarioData.koh.occupiedteam = -1")
+    gdb.execute("set var g_ScenarioData.koh.elapsed240 = 0")
+    gdb.execute("call (void)roomSetLightOp(%d, 5, 0, 0, 0)" % room)
+    print("STAGE koh: player %d invincible, the hill moved from room %d to its room %d" % (pn, old, room))
 def invincible():
     pn = remote()
     if pn >= 0: gdb.execute("set var g_Vars.players[%d]->invincible = 1" % pn); print("STAGE player %d invincible" % pn)
@@ -185,8 +251,8 @@ PY
 
 stage() {
 	local hp=$1 what=$2
-	timeout 30 gdb -p "$hp" -batch -ex "source $OUT/stage.py" -ex "break netScenHostTickEnd" -ex "continue" \
-		-ex "delete" -ex "python $what" 2>/dev/null | grep "^STAGE" | sed 's/^/     host: /'
+	timeout 75 gdb -p "$hp" -batch -ex "source $OUT/stage.py" -ex "break netScenHostTickEnd" -ex "continue" \
+		-ex "delete" -ex "python $what" -ex "python keep_continue()" 2>/dev/null | grep "^STAGE" | sed 's/^/     host: /'
 }
 
 # the client's newest scenario line has PATTERN for its player
@@ -217,12 +283,17 @@ runcase() {
 	if waitfor "$OUT/$name-client.log" "net: match 1: GO" 120 && [ -n "$hp" ] && [ -n "$cp" ]; then
 		sleep 3
 		# a staging of several steps: a|b, four seconds apart
-		local step first=1
+		# (a step starting with & goes on in the background: htm2keep()
+		# holds the host for the download's twenty seconds)
+		local step first=1 keeper=""
 		local IFS='|'
 		for step in $staging; do
 			[ "$first" = 1 ] || sleep 4
 			first=0
-			stage "$hp" "$step"
+			case $step in
+			"&"*) stage "$hp" "${step#&}" & keeper=$! ;;
+			*) stage "$hp" "$step" ;;
+			esac
 		done
 		unset IFS
 		# the HUD with something on it for the client's player, then a shot
@@ -230,6 +301,7 @@ runcase() {
 		clientshows "$name" "$hudpat" && echo "     the client's HUD shows its state ($hudpat) after ${n}s" || echo "     the client's HUD never showed $hudpat"
 		sleep 2
 		shot1 "$cp" "$SHOTDIR/scenario-$name.png"
+		[ -n "$keeper" ] && wait "$keeper"
 		if [ -n "$later" ]; then
 			sleep 20
 			stage "$hp" "$later"
@@ -368,15 +440,15 @@ run() {
 	for c in $CASES; do
 		case $c in
 		htb)      runcase htb 1 0 2 "htb()" "hb=1 ht=[1-9][0-9][0-9]" ;;
-		htm)      runcase htm 2 0 2 "htm1()|htm2()" "dl=1 term=0" ;;
+		htm)      runcase htm 2 0 2 "htm1()|&htm2keep()" "dl=1 term=0" ;;
 		pac)      runcase pac 3 0 1 "pac()" "v=1 " ;;
-		koh)      runcase koh 4 2 2 "invincible()" "hud=1" "" "--net-test-simteam 1" ;;
+		koh)      runcase koh 4 2 2 "koh()" "hud=1" "" "--net-test-simteam 1" ;;
 		ctc)      runcase ctc 5 2 2 "ctc()" "t[0-3]=c" "capture()" ;;
 		htbteams) runcase htbteams 1 2 1 "htb(1)" "hb=1 ht=[1-9][0-9][0-9]" ;;
 		pacteams) runcase pacteams 3 2 1 "pac()" "v=1 " ;;
 		# a lossy link (the client's --net-sim: drop %, delay ms, jitter ms):
 		# a block waits for the events sent again before it
-		htmloss)  runcase htmloss 2 0 2 "htm1()|htm2()" "dl=1 term=0" "" "" "--net-sim 5,80,60" ;;
+		htmloss)  runcase htmloss 2 0 2 "htm1()|&htm2keep()" "dl=1 term=0" "" "" "--net-sim 5,80,60" ;;
 		pacloss)  runcase pacloss 3 0 1 "pac()" "v=1 " "" "" "--net-sim 10,30,20" ;;
 		esac
 	done

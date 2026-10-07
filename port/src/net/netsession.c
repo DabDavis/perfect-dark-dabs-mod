@@ -412,6 +412,11 @@ void netSessionInit(void)
 
 	if (s_Name[0] == '\0') {
 		snprintf(s_Name, sizeof(s_Name), "%s", g_PlayerConfigsArray[0].base.name[0] ? g_PlayerConfigsArray[0].base.name : "Player");
+		s_Name[strcspn(s_Name, "\n")] = '\0';
+
+		if (s_Name[0] == '\0') {
+			snprintf(s_Name, sizeof(s_Name), "%s", "Player");
+		}
 	}
 
 	if (netTransportInit() != 0) {
@@ -938,7 +943,7 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 		seat->until = 0;
 		seat->ticketed = c->ticketed;
 		snprintf(seat->account, sizeof(seat->account), "%s", c->name);
-		snprintf(g_PlayerConfigsArray[c->slot].base.name, sizeof(g_PlayerConfigsArray[c->slot].base.name), "%s", c->name);
+		netNameSet(g_PlayerConfigsArray[c->slot].base.name, sizeof(g_PlayerConfigsArray[c->slot].base.name), c->name);
 	}
 
 	if (oldseat >= 0) {
@@ -1270,14 +1275,15 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 					s_HostNameOn = 1;
 				}
 
-				snprintf(g_PlayerConfigsArray[0].base.name, sizeof(g_PlayerConfigsArray[0].base.name), "%s", s_Name);
-				sysLogPrintf(LOG_NOTE, "net: lobby host: slot 0 plays as \"%s\" (its profile \"%.14s\" back at the end)",
-						g_PlayerConfigsArray[0].base.name, s_HostOwnName);
+				netNameSet(g_PlayerConfigsArray[0].base.name, sizeof(g_PlayerConfigsArray[0].base.name), s_Name);
+				sysLogPrintf(LOG_NOTE, "net: lobby host: slot 0 plays as \"%.*s\" (its profile \"%.*s\" back at the end)",
+						netNameLen(g_PlayerConfigsArray[0].base.name), g_PlayerConfigsArray[0].base.name,
+						netNameLen(s_HostOwnName), s_HostOwnName);
 			}
 		} else {
 			s_Seats[i].state = NETSEAT_OPEN;
 			s_Seats[i].vacate = 1;
-			snprintf(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), "%s", "(open)");
+			netNameSet(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), "(open)");
 		}
 	}
 
@@ -1322,7 +1328,7 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 		if (c->state == NETCL_JOINED && !c->spectator) {
 			struct mpplayerconfig *p = &g_PlayerConfigsArray[c->slot];
 
-			snprintf(p->base.name, sizeof(p->base.name), "%s", c->name);
+			netNameSet(p->base.name, sizeof(p->base.name), c->name);
 			p->base.mpheadnum = c->cfg.mpheadnum;
 			p->base.mpbodynum = c->cfg.mpbodynum;
 			memset(&p->fileguid, 0, sizeof(p->fileguid));
@@ -1670,7 +1676,7 @@ static void netHostSeatsTick(void)
 			seat->clear = 1;
 			seat->ticketed = 0;
 			seat->account[0] = '\0';
-			snprintf(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), "%s", "(open)");
+			netNameSet(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), "(open)");
 			s_HoldsExpired++;
 			changed = 1;
 		}
@@ -1765,7 +1771,7 @@ static void netHostPeerGone(s32 peer, s32 held)
 		seat->clear = 1;
 		seat->ticketed = 0;
 		seat->account[0] = '\0';
-		snprintf(g_PlayerConfigsArray[c->slot].base.name, sizeof(g_PlayerConfigsArray[c->slot].base.name), "%s", "(open)");
+		netNameSet(g_PlayerConfigsArray[c->slot].base.name, sizeof(g_PlayerConfigsArray[c->slot].base.name), "(open)");
 	}
 
 	netHostSendRoster();
@@ -2276,7 +2282,7 @@ static void netClientOnRoster(struct netbuf *b)
 		}
 
 		if (st[i] != NETSEAT_NONE) {
-			snprintf(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), "%s", names[i]);
+			netNameSet(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), names[i]);
 		}
 
 		if (len < (s32)sizeof(line)) {
@@ -3607,6 +3613,42 @@ s32 netSessionClientGone(void)
  * called ("Player 1" when it has none); its profile keeps its own name, so
  * nothing the endscreen saves changes it.
  */
+/**
+ * A player's name as PD keeps it: the text and then a newline, which every
+ * menu row, ranking and HUD line that draws a name relies on (textMeasure
+ * sizes a label by its lines: a name without one measured no height, and the
+ * end screen's "Title:" row was drawn over the name row above it). Names from
+ * the wire, a lobby account or "(open)" come without one; a profile's has it.
+ */
+void netNameSet(char *dst, s32 size, const char *src)
+{
+	s32 n = 0;
+
+	if (size < 2) {
+		if (size == 1) {
+			dst[0] = '\0';
+		}
+		return;
+	}
+
+	while (src && src[n] && src[n] != '\n' && n < size - 2) {
+		dst[n] = src[n];
+		n++;
+	}
+
+	// an empty name stays empty, as an unnamed one is offline
+	if (n > 0) {
+		dst[n++] = '\n';
+	}
+
+	dst[n] = '\0';
+}
+
+s32 netNameLen(const char *name)
+{
+	return (s32)strcspn(name, "\n");
+}
+
 const char *netSessionWireName(s32 slot)
 {
 	if (slot == 0 && s_Role == NETROLE_HOST && s_LobbyRoomOn && !netIsDedicatedHost() && s_Name[0]) {

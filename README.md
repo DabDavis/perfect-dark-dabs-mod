@@ -154,9 +154,10 @@ with no time or score limit, it's the tool for watching 80 simulants fight.
 
 ### Playing online
 
-Combat Simulator matches can be played over the internet with up to four
+Combat Simulator matches can be played over the internet with up to twelve
 players, their simulants and two spectators. One player's game hosts the
-match (a listen server); everyone else's connects to it.
+match (a listen server); everyone else's connects to it. A full room of
+twelve needs about 2 Mbit/s of upload from the host.
 
 **Rooms.** Online play uses your Ghost Trials account: sign in (or make one)
 under **Ghost Trials > Account** first. Then **Combat Simulator > Online
@@ -195,7 +196,8 @@ allows.
 **Without the lobby.** On a LAN, or with a forwarded port, start the host
 with `--host` (or `--host PORT`) and have the others run
 `--connect ADDRESS` (or `ADDRESS:PORT`); the host then starts the match
-from its Combat Simulator as usual. `--dedicated` runs a host with no
+from its Combat Simulator as usual. A direct host seats four players unless
+`Net.MaxPlayers` in `pd.ini` says more (up to 12). `--dedicated` runs a host with no
 window and no player of its own.
 
 Everyone needs the same game version, ROM, mods and added content; the game

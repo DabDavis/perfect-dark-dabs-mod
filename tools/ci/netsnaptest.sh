@@ -70,7 +70,10 @@ game() {
 	rm -rf "$save"; mkdir -p "$save"
 	printf '%b' "$INI" > "$save/pd.ini"
 	cd "$BUILD" || exit 2
-	exec timeout -k 5 "$t" "$BIN" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
+	# stdout a line at a time: block-buffered, a 4 KB write could end mid
+	# line and a warning on stderr land inside the summary line the checks
+	# read (hostile: "stWARNING: net: prediction: ...")
+	exec timeout -k 5 "$t" stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
 }
 
 waitfor() {
@@ -239,7 +242,8 @@ check_hostile() {
 	local label=$1 H=$OUT/$1-host.log C=$OUT/$1-client.log hx cx
 	hx=$(grep -o "$label: host exit [0-9]*" "$OUT/run.log" | awk '{print $4}')
 	cx=$(grep -o "$label: client exit [0-9]*" "$OUT/run.log" | awk '{print $4}')
-	local cs; cs=$(grep "net: snap client " "$C" | tail -1)
+	# the last whole summary line (it ends with the hostile counts)
+	local cs; cs=$(grep -E "^net: snap client .*; hostile fed [0-9]+ rejected [0-9]+ accepted [0-9]+ dropped [0-9]+$" "$C" | tail -1)
 	echo "     $label client: ${cs#*net: }"
 	grep "net: hostile:" "$H" | tail -1 | sed "s/^.*net: /     $label host: /"
 	local dec fed rej acc drop

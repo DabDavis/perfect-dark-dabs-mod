@@ -230,6 +230,11 @@ static u32 s_AngleOff = 0;    // ... or the angles alone
 static u32 s_StartTick = 0;
 static u32 s_Future = 0;      // a block for a command this client has not sent: not taken
 static u32 s_AnimRefused = 0; // a block's head animation or head data out of range: this machine's kept
+static u32 s_HeadDeath = 0;   // a block whose head was in a death animation (headanim -1): this machine's kept
+static u32 s_HeadDeathWait = 0; // ... not yet near a death or respawn of this machine's player
+static u32 s_HeadDeathAt = 0;   // the tick the first of those came
+static u32 s_DeathSeen = 0;     // the last tick a block had the player dead, or was a respawn or teleport
+#define NETPRED_DEATHWIN 120    // ticks a death head may come before or after one of those
 static u32 s_RespawnFloor = 0; // blocks for commands before this (a respawn taken here) are not compared
 static f32 s_AngOff[2];       // the eased view's angle offset (theta, verta), as s_EyeOff
 
@@ -303,7 +308,8 @@ void netPredictStageStart(void)
 	s_Snaps = s_AbsSnaps = s_Missing = s_Refused = s_Replayed = s_Overrun = 0;
 	s_DiscreteOff = s_AngleOff = 0;
 	s_StartTick = 0;
-	s_Future = s_AnimRefused = 0;
+	s_Future = s_AnimRefused = s_HeadDeath = s_HeadDeathWait = s_HeadDeathAt = 0;
+	s_DeathSeen = 0;
 	s_RespawnFloor = 0;
 	s_AngOff[0] = s_AngOff[1] = 0;
 
@@ -336,11 +342,11 @@ void netPredictMatchStopped(void)
 
 void netPredictLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u",
+	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u, death heads kept %u (%u awaiting a death or respawn)",
 			why, g_NetTick, s_Compared, s_Matched, s_Compared ? 100.0 * s_Matched / s_Compared : 0.0, s_Corrections,
 			s_Corrections ? (f32)(s_ErrSum / s_Corrections) : 0.f, s_ErrMax,
 			s_Corrections ? (f32)(s_ShiftSum / s_Corrections) : 0.f, s_ShiftMax, s_AngleOff, s_DiscreteOff,
-			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused);
+			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused, s_HeadDeath, s_HeadDeathWait);
 }
 
 static struct netpredtick *netPredAt(u32 tick)
@@ -703,7 +709,19 @@ static void netPredApplyMove(struct player *p, const struct netmove *mv, s32 lvf
 
 	// the head's animation, when it is one this machine has (a death's
 	// is never taken: the player lives in every block that gets here)
-	if (!netPredHeadOk(mv)) {
+	if (mv->headanim == -1) {
+		// a death animation on the head (bheadStartDeathAnimation): the
+		// host's player at the tick of its death or the one of its respawn,
+		// before its head walks again; real data, not this machine's to play
+		// on a player that lives here, and nothing wrong with the block.
+		// Only near a death or respawn of this player, though: one away
+		// from any is bad head data (netPredDeathCheck)
+		if (s_DeathSeen && g_NetTick - s_DeathSeen <= NETPRED_DEATHWIN) {
+			s_HeadDeath++;
+		} else if (s_HeadDeathWait++ == 0) {
+			s_HeadDeathAt = g_NetTick;
+		}
+	} else if (!netPredHeadOk(mv)) {
 		if (s_AnimRefused++ < 4) {
 			sysLogPrintf(LOG_WARNING, "net: prediction: a block's head animation not taken (headanim %d, anims %d %d, frames %d %d %d %d, at %g %g %g / %g %g)",
 					mv->headanim, mv->animnum, mv->animnum2, mv->framea, mv->frameb, mv->frame2a, mv->frame2b,
@@ -1282,6 +1300,22 @@ static s32 netPredReplay(struct player *p, const struct netlpstate *lp, u32 n, s
  * The pose step (netEntsClientApplyLocal): the newest local-player block
  * against what this machine had after the same command
  */
+// Death heads waiting for a death or respawn: confirmed by one (seen: one
+// now), else refused as bad head data once NETPRED_DEATHWIN has passed
+static void netPredDeathCheck(s32 seen)
+{
+	if (seen) {
+		s_DeathSeen = g_NetTick ? g_NetTick : 1;
+		s_HeadDeath += s_HeadDeathWait;
+		s_HeadDeathWait = 0;
+	} else if (s_HeadDeathWait && g_NetTick - s_HeadDeathAt > NETPRED_DEATHWIN) {
+		sysLogPrintf(LOG_WARNING, "net: prediction: %u blocks with a death on the head and no death or respawn of the player within %d ticks (tick %u): head data refused",
+				s_HeadDeathWait, NETPRED_DEATHWIN, s_HeadDeathAt);
+		s_AnimRefused += s_HeadDeathWait;
+		s_HeadDeathWait = 0;
+	}
+}
+
 s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, s32 abs)
 {
 	struct netpredtick *e;
@@ -1293,6 +1327,8 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 	f32 err = 0;
 	s32 played;
 	s32 i;
+
+	netPredDeathCheck(p && (abs || p->isdead || (lp->flags & NETLP_DEAD)));
 
 	if (!s_Ring || !p || !p->prop || p->isdead || (lp->flags & NETLP_DEAD)) {
 		return 0;
