@@ -16,6 +16,7 @@
 #include "xblaagent4.h"
 #include "xblamesh.h"
 #include "files.h"
+#include "net/net.h"
 
 /**
  * The male guard heads as the XBLA release deals them. 4J remodelled Penny's
@@ -34,7 +35,13 @@ static s32 bodyReleaseMaleHeads(s32 *list, s32 len, bool team, s32 **out)
 
 	*out = list;
 
-	if (!xblaMeshGetEnabled() || g_HeadsAndBodies[HEAD_PENNY].filenum != FILE_CHEADPENNY
+	u32 look;
+
+	// online the host's look deals them on every machine (netcontent.c): the
+	// RNG's draws follow the list
+	const s32 release = netLookData(&look) ? (look & NETLOOK_MESHES) != 0 : xblaMeshGetEnabled();
+
+	if (!release || g_HeadsAndBodies[HEAD_PENNY].filenum != FILE_CHEADPENNY
 			|| len <= 1 || len > (s32)ARRAYCOUNT(heads)) {
 		return len;
 	}

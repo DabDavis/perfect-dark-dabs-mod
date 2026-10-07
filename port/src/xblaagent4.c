@@ -13,6 +13,7 @@
 #include "xblamesh.h"
 #include "xblaagent4.h"
 #include "langpack.h"
+#include "net/net.h"
 
 /**
  * Agent 4: the one character 4J added to the XBLA release, and not an unlock -
@@ -79,6 +80,11 @@ static struct modeldef *keptHead[2];
 static struct modeldef *keptBody[2];
 static s32 appliedLook = -1;
 
+s32 xblaAgent4IsListed(void)
+{
+	return listed;
+}
+
 const char *xblaAgent4BodyName(s32 bodynum)
 {
 	return listed && bodynum == XBLA_AGENT4_BODYROW ? LANG_N("Agent 4\n") : NULL;
@@ -88,6 +94,28 @@ void xblaAgent4StageReset(void)
 {
 	memset(keptHead, 0, sizeof(keptHead));
 	memset(keptBody, 0, sizeof(keptBody));
+
+	// the rows again before anyone is made: online the numbers are the
+	// host's look's (xblaAgent4MeshesSwitched())
+	xblaAgent4MeshesSwitched();
+}
+
+/**
+ * A row's numbers - height, the random height, scale - from the other look's
+ * row, its model left as it is. The model is what a look draws; the numbers
+ * are the simulation's: a chr's eye height, its size and a random height
+ * draw at its spawn (the Shock Trooper's row varies, Agent 4's does not),
+ * which online every machine must make as the host does.
+ */
+static void xblaAgent4TakeNumbers(struct headorbody *dst, const struct headorbody *src)
+{
+	struct headorbody t = *src;
+
+	t.type = dst->type; // the head's seat, drawing only (headfit.c)
+	t.filenum = dst->filenum;
+	t.modeldef = dst->modeldef;
+	t.handfilenum = dst->handfilenum;
+	*dst = t;
 }
 
 /**
@@ -100,6 +128,9 @@ void xblaAgent4MeshesSwitched(void)
 	struct headorbody *head = &g_HeadsAndBodies[XBLA_AGENT4_HEADROW];
 	struct headorbody *body = &g_HeadsAndBodies[XBLA_AGENT4_BODYROW];
 	const s32 look = xblaMeshGetEnabled() ? 1 : 0;
+	u32 netlook;
+	// online the host's look plays (netcontent.c), this machine's draws
+	const s32 simlook = netLookData(&netlook) ? (netlook & NETLOOK_MESHES) != 0 : look;
 
 	if (!listed) {
 		return;
@@ -119,6 +150,12 @@ void xblaAgent4MeshesSwitched(void)
 	*body = lookBody[look];
 	head->modeldef = keptHead[look];
 	body->modeldef = keptBody[look];
+
+	if (simlook != look) {
+		xblaAgent4TakeNumbers(head, &lookHead[simlook]);
+		xblaAgent4TakeNumbers(body, &lookBody[simlook]);
+	}
+
 	appliedLook = look;
 }
 

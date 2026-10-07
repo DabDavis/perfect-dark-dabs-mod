@@ -61,6 +61,7 @@ s32 xblaMeshIsAvailable(void);
 
 /** Mod.XblaMeshes: whether to draw them. Off unless the player asks. */
 s32 xblaMeshGetEnabled(void);
+s32 xblaMeshPackageReady(s32 mayUnpack);
 
 /**
  * A live switch either way, in a level as much as out of one: switching it on

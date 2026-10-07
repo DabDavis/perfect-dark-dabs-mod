@@ -14002,6 +14002,16 @@ s32 xblaMeshIsAvailable(void)
 }
 
 /**
+ * Whether the package is open to read: what a model load or the release's
+ * collision (xblaStageLoadTiles()) takes. mayUnpack takes a package still in
+ * its archive out of it first (seconds, once), as the switch does.
+ */
+s32 xblaMeshPackageReady(s32 mayUnpack)
+{
+	return xblaMeshOpen(mayUnpack);
+}
+
+/**
  * For handtint.c: the mesh a model's lists are drawn from in the look the
  * game is in, analysed at its build (xblaMeshAnalyse()) - a GoldenEye
  * character's Bean mesh in either look, the release's own mesh in the XBLA
@@ -14088,9 +14098,7 @@ s32 xblaMeshGetEnabled(void)
  */
 void xblaMeshSetEnabled(s32 enabled)
 {
-	// netplay: a match's rules stay as they started (H14)
-	if (g_NetMode != NETMODE_NONE && netRulesLocked()) return;
-
+	// (live in a net match too: xblaSwitchSetParts())
 	enabled = enabled ? 1 : 0;
 
 	if (enabled == optEnabled) {
@@ -15532,6 +15540,7 @@ s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 void xblaMeshFrameReset(void) { }
 void xblaMeshPassBegin(void) { }
 s32 xblaMeshIsAvailable(void) { return 0; }
+s32 xblaMeshPackageReady(s32 mayUnpack) { return 0; }
 s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }
 void xblaMeshResetModels(void) { }

@@ -246,6 +246,13 @@ is named. Your own `Mod.ModDir` and `Mod.MapMods` are never changed.
 Online Game is on Perfect Dark's main menu and in the Combat Simulator of
 GoldenEye and the ROM hacks; counter-operative is offline only for now.
 
+**Your look is your own.** Everyone picks the N64 look or the XBLA/HD look
+for themselves, and F6 switches it during a match too. The few things a
+look changes in the game itself (GoldenEye's Community Edition fixes, the
+XBLA release's corrected collision on Area 51 and Ruins) are the host's
+for everyone. The simulants' AI (Simulant AI) is the host's setting as
+well.
+
 ### Screenshots and video
 
 - **F12** writes a PNG to `screenshots/` beside your `pd.ini`.

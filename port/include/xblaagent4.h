@@ -13,6 +13,8 @@ void xblaAgent4Refresh(void);
 
 /** "Agent 4" for his body row while he is listed, else NULL. */
 const char *xblaAgent4BodyName(s32 bodynum);
+// Whether he is in the Combat Simulator's lists here (the release unpacked)
+s32 xblaAgent4IsListed(void);
 
 /** F6 or the meshes checkbox: his own rows with the release's meshes, else the Shock Trooper's. */
 void xblaAgent4MeshesSwitched(void);

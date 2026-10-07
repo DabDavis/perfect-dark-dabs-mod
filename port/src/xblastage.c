@@ -781,6 +781,21 @@ void *xblaStageLoadTiles(s32 fileNum)
 		return NULL;
 	}
 
+	// online the host's collision on every machine (netcontent.c): the
+	// ROM's if the host has no release ready, and the release's taken out of
+	// its archive here if need be when it has
+	{
+		u32 look;
+
+		if (netLookData(&look)) {
+			if (!(look & NETLOOK_XBLATILES)) {
+				return NULL;
+			}
+
+			xblaMeshPackageReady(1);
+		}
+	}
+
 	// Ready-only, as for the rooms: a package still in its archive gives the
 	// ROM's collision until something that may unpack it has
 	raw = xblaMeshReadFile((u16)fileNum, &len);

@@ -66,7 +66,9 @@
 //    conversion's mission by its number in its conversion, and a client that
 //    lacks a key's conversion or map mod asks the host for its files
 //    (CONTENT_REQ .. CONTENT_END), which it holds in memory for the session
-#define NET_PROTOCOL_VERSION 14
+// 15 (a client's own choices): a CMD's command can carry a gun picked from a
+//    menu (NETCMD_EQUIP) and a device switched on or off (NETCMD_DEVICE)
+#define NET_PROTOCOL_VERSION 15
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -158,6 +160,14 @@
  *   str(31) name              Net.Name, or the agent's name
  *   per-slot settings (spec-players.md §2):
  *     u8 mpheadnum, u8 mpbodynum   g_PlayerConfigsArray[0].base
+ *     s16 headrow, s16 bodyrow     (protocol 15) the rows those name here
+ *                                  (netWriteMpChar: past the list end, -1-k
+ *                                  for k past it); the reader takes its own
+ *                                  index of the row, since the lists differ
+ *                                  (Agent 4 is listed only where the XBLA
+ *                                  release is unpacked, ahead of GoldenEye's
+ *                                  characters; one not listed is the Shock
+ *                                  Trooper, his N64 look)
  *     u8 controlmode, u16 options  g_PlayerConfigsArray[0]
  *     f32 fovy, f32 fovzoommult, s32 fovzoom, s32 mouseaimmode,
  *     f32 mouseaimspeedx, f32 mouseaimspeedy, s32 crouchmode,
@@ -249,11 +259,13 @@
  *   u64     randomfilters         g_MpWeaponSetRandomFilters, one bit each
  *   u8      simslots[80]          g_MpSimSlots
  *   u8      nsims                 sims that follow (slots with simslots[i])
- *     u8 index, u8 type, u8 difficulty, u8 mpheadnum, u8 mpbodynum, u8 team,
+ *     u8 index, u8 type, u8 difficulty, u8 mpheadnum, u8 mpbodynum,
+ *     s16 headrow, s16 bodyrow (protocol 15, as CONNECT's), u8 team,
  *     u32 displayoptions, str(14) name, s8 stats[5]
  *   u8      difficulties[80][4]   g_MpSimulantDifficultiesPerNumPlayers (pinned at 4)
  *   12 x human slot (g_PlayerConfigsArray[0-11]; protocol 10, was 4):
- *     str(14) name, u8 mpheadnum, u8 mpbodynum, u8 team, u32 displayoptions,
+ *     str(14) name, u8 mpheadnum, u8 mpbodynum, s16 headrow, s16 bodyrow
+ *     (protocol 15), u8 team, u32 displayoptions,
  *     u8 handicap, u16 options, u8 gunfuncs[6]
  *     (never fileguid or career stats)
  *   8 x str(11) teamnames         g_BossFile.teamnames
@@ -445,6 +457,15 @@
  *     u8 viewdelay                the render clock's delay behind the newest
  *                                 snapshot then, 1/8 ticks (capped at 19
  *                                 ticks on the host)
+ *     (protocol 15) when flags has NETCMD_EQUIP: u8 right, u8 left - the
+ *                                 guns this machine put in its player's
+ *                                 hands from a menu (PD's pause inventory,
+ *                                 GoldenEye's watch), left 0 for none; the
+ *                                 host equips them if the player holds them
+ *     (protocol 15) when flags has NETCMD_DEVICE: u8 weaponnum, u8 on - a
+ *                                 device switched from the inventory
+ *                                 (goggles, the cloak); the host sets it
+ *                                 if the player has it
  *
  * A spectator sends CMD too (protocol 9): the host takes its snapshot ack
  * and nothing else (its commands drive nothing), and its CMDACK names the
@@ -644,6 +665,8 @@
 
 #define NET_MAXCMDSEND    16
 #define NETCMD_MOUSELOCKED 0x01
+#define NETCMD_EQUIP       0x02 // u8 right, u8 left follow (protocol 15)
+#define NETCMD_DEVICE      0x04 // u8 weaponnum, u8 on follow (protocol 15)
 
 #define NETCONN_SPECTATE   0x01 // CONNECT's flags
 #define NETACC_INPROGRESS  0x01 // ACCEPT's flags

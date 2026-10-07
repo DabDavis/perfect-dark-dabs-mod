@@ -15,6 +15,7 @@
 #include "lib/lib_17ce0.h"
 #include "xblamesh.h"
 #include "gebean.h"
+#include "net/net.h"
 #include "game/pad.h"
 #include "game/setuputils.h"
 #include "game/propobj.h"
@@ -43,6 +44,14 @@ s32 geRoomActive(void)
  */
 s32 geRoomCeData(void)
 {
+	u32 look;
+
+	// online every machine loads the host's, whatever its own look is
+	// (netcontent.c): the look is only drawn
+	if (netLookData(&look)) {
+		return (look & NETLOOK_GECE) != 0;
+	}
+
 	return xblaMeshGetEnabled() && gebeanCeIsActive();
 }
 

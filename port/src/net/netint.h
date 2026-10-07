@@ -64,6 +64,9 @@ s32 netSessionBarrierHeld(void);
 s32 netSessionMatchLoading(void);  // a match's stage is the one loaded or loading (from H1/H3 to H12)
 u32 netSessionMatchId(void);
 void netReadSlotCfg(struct netbuf *b, struct netslotcfg *cfg);
+// A Combat Simulator character on the wire by the rows it names (protocol 15)
+void netWriteMpChar(struct netbuf *b, s32 mpheadnum, s32 mpbodynum);
+void netReadMpChar(struct netbuf *b, u8 *mpheadnum, u8 *mpbodynum);
 void netWriteSlotCfg(struct netbuf *b);
 // host: to the client in slot `slot`; client: to the host. 0, or -1 if nobody
 s32 netSessionSendSlot(s32 slot, s32 channel, const void *data, s32 len, s32 flags);
@@ -242,7 +245,9 @@ struct netcontentneed {
 	char mod[NET_MAXMAPDIR + 1];
 	u64 modhash;
 	char gevariant[NET_MAXCOMPNAME + 1];
+	u8 look; // protocol 15 (RULES only): NETLOOK_*, the data the host's look loads
 };
+void netContentLookLatch(void);                // host: at a match's start, the data its look loads
 void netContentHostNeed(struct netcontentneed *n);
 void netContentWrite(struct netbuf *b, const struct netcontentneed *n, s32 withvariant);
 void netContentRead(struct netbuf *b, struct netcontentneed *n, s32 withvariant);

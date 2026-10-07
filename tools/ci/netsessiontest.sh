@@ -8,15 +8,17 @@
 # GO barrier, tick past frame 600, and the host must free the slot when the
 # client quits at frame 700. The client's pd.ini has its own Mod.JumpHeight:
 # the match plays the host's (SYNC) and the client's pd.ini keeps its own
-# after the exit (H13), Game.MaxExplosions likewise. The client's --moddir
+# after the exit (H13), Game.MaxExplosions likewise. Both have
+# Mod.SimBrain=modern: the host's simulants walk the navmesh and the
+# client's stay stock (its simulants are the host's puppets), the stage
+# hash equal all the same. The client's --moddir
 # ends in a slash (the stage key's mod name must still match), and its LEAVE
 # on quitting must free the slot without an ENet timeout.
 #
 # Refusals, against a second host that wants a lobby ticket
 # (Net.RequireTicket, pdlobbyd's key and room): a newer protocol, no ticket,
-# a MUST key that differs (Mod.BorrowGoldenEyeGuns) and a REFUSE key off
-# stock (Mod.SimBrain) - the last two with a good ticket, so the ticket check
-# is passed first. Each must be refused with its reason and component named,
+# and a MUST key that differs (Mod.BorrowGoldenEyeGuns) - the last with a
+# good ticket, so the ticket check is passed first. Each must be refused with its reason and component named,
 # and the client exit 3. Content follows the host (protocol 13,
 # netcontent.c): the host-quit client below has no mod loaded, so it must
 # switch to its host's mod_allinone live on ACCEPT, play the match on it
@@ -98,7 +100,7 @@ else
 fi
 
 # --- loopback and the refusal host, side by side ------------------------
-game host "[Mod]\nJumpHeight=1\n[Game]\nMaxExplosions=96\n" 150 --moddir "$MODDIR" --dedicated --host "$PORT" \
+game host "[Mod]\nJumpHeight=1\nSimBrain=modern\n[Game]\nMaxExplosions=96\n" 150 --moddir "$MODDIR" --dedicated --host "$PORT" \
 	--net-test-host 1 --net-test-stage 0x32 --net-test-sims 4 --endless --rng-seed 12345 --state-hash 100 &
 HOST=$!
 game thost "[Net]\nRequireTicket=1\nRoomId=$ROOM\nRoomSecret=$SECRET\n" 150 --moddir "$MODDIR" --dedicated --host $((PORT + 1)) &
@@ -111,7 +113,7 @@ for l in host thost qhost; do
 	waitfor "$OUT/$l.log" "net: hosting on UDP port" 60 || { echo "FAIL: $l did not start (see $OUT/$l.log)"; kill -TERM $HOST $THOST $QHOST; exit 2; }
 done
 
-game client "[Mod]\nJumpHeight=3\n[Game]\nMaxExplosions=48\n" 120 --moddir "$MODDIR/" --connect "127.0.0.1:$PORT" --net-test-join \
+game client "[Mod]\nJumpHeight=3\nSimBrain=modern\n[Game]\nMaxExplosions=48\n" 120 --moddir "$MODDIR/" --connect "127.0.0.1:$PORT" --net-test-join \
 	--state-hash 100 --exit-frame "$FRAMES" &
 CLIENT=$!
 
@@ -124,8 +126,6 @@ game r-nomod "" 90 --moddir "$OUT/mod_other" --connect "$T" --net-test-join --ne
 game r-ticket "" 90 --moddir "$MODDIR" --connect "$T" --net-test-join & R3=$!
 game r-must "[Mod]\nBorrowGoldenEyeGuns=nosuchmod\n" 90 --moddir "$MODDIR" --connect "$T" --net-test-join \
 	--net-ticket "$(ticket joiner)" & R4=$!
-game r-notstock "[Mod]\nSimBrain=modern\n" 90 --moddir "$MODDIR" --connect "$T" --net-test-join \
-	--net-ticket "$(ticket other)" & R5=$!
 # the host that quits mid-match; its client has no mod of its own and
 # follows the host's (swap)
 game qclient "[Mod]\nModDir=\n" 150 --connect "127.0.0.1:$((PORT + 2))" --state-hash 100 &
@@ -140,7 +140,7 @@ kill -TERM "$QHOST" "$QCLIENT" 2>/dev/null
 wait "$QHOST"; wait "$QCLIENT"
 
 wait $CLIENT; crc=$?
-for p in $R1 $R2 $R3 $R4 $R5; do wait "$p"; done
+for p in $R1 $R2 $R3 $R4; do wait "$p"; done
 sleep 3
 kill -TERM "$HOST" "$THOST" 2>/dev/null
 wait "$HOST"; wait "$THOST"
@@ -192,6 +192,13 @@ else
 	fail "loopback: client pd.ini $(grep -m1 '^MaxExplosions' "$OUT/save-client/pd.ini")"
 fi
 
+# Mod.SimBrain is the host's alone: modern there, stock on the client
+if grep -q "simbrain: modern simulant movement this match" "$H" && ! grep -q "simbrain: modern" "$C"; then
+	pass "loopback: Mod.SimBrain=modern on both, the host's simulants modern, the client's stock"
+else
+	fail "loopback: SimBrain: host $(grep -m1 -c 'simbrain: modern' "$H"), client $(grep -m1 -c 'simbrain: modern' "$C")"
+fi
+
 # the client's --moddir carried a trailing slash: the stage key still matched
 grep -q "net: match 1: loading stage 0x32 of mod $MODDIR as" "$C" \
 	&& pass "loopback: --moddir $MODDIR/ resolved the host's stage key" || fail "loopback: stage key with a trailing slash"
@@ -213,7 +220,6 @@ refused() {
 refused r-protocol "\[protocol protocol\]: This host runs netplay protocol"
 refused r-ticket "\[ticket ticket\]: This room needs a join ticket"
 refused r-must "\[must Mod.BorrowGoldenEyeGuns\]"
-refused r-notstock "\[notstock Mod.SimBrain\]"
 
 # content follows the host (protocol 13): r-nomod left naming the host's
 # mod; swap switched to it on ACCEPT, played in the lobby and switched back

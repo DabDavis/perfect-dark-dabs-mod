@@ -4401,6 +4401,9 @@ MenuItemHandlerResult menuhandlerInventoryList(s32 operation, struct menuitem *i
 						} else {
 							currentPlayerSetDeviceActive(weaponnum, false);
 						}
+
+						// netplay: the host switches it too (protocol 15)
+						if (g_NetMode == NETMODE_CLIENT) netPlayersClientDevice(weaponnum, state == DEVICESTATE_INACTIVE);
 					}
 				}
 			}
@@ -4420,6 +4423,13 @@ MenuItemHandlerResult menuhandlerInventoryList(s32 operation, struct menuitem *i
 					} else {
 						bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
 					}
+				}
+
+				// netplay: the host puts the same guns in the hands (protocol 15)
+				if (g_NetMode == NETMODE_CLIENT) {
+					netPlayersClientEquip(weaponnum,
+							invHasDoubleWeaponIncAllGuns(weaponnum, weaponnum) || weaponHost(weaponnum) == WEAPON_REMOTEMINE
+							? weaponnum : WEAPON_NONE);
 				}
 			}
 

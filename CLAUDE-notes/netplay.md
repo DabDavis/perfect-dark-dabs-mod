@@ -44,6 +44,15 @@
   its set's menus; each mission it starts is the room's next match; the
   black screen on GoldenEye's openings, late joins, the host's menus and
   what a client drew wrong, its doors among them: 2026-10-07).
+- **A player's own look, and choices made in a menu** — the section of
+  that name (protocol 15): the N64 or XBLA/HD look is each machine's own,
+  F6 included mid-match; what a look decides at a load (GoldenEye's
+  Community Edition copies, the PD release's collision, the guards' heads,
+  Agent 4's numbers) is the host's on every machine (`NETLOOK_*`,
+  `netLookData()`); characters go on the wire by row; Mod.SimBrain is the
+  host's alone; a gun or device a client picks in a menu reaches the host
+  (`NETCMD_EQUIP`/`NETCMD_DEVICE`); what of the host's look is still the
+  host's world, and the start-of-match swirl that runs ahead on a client.
 
 ## The shape
 
@@ -773,8 +782,9 @@ nothing is ever sent from one machine to another but names and hashes.
   (netents.c) and prediction does not reconcile under it (netpredict.c,
   "watch blocks left N" at the end of the prediction line). Left: a weapon
   chosen on the watch's inventory page reaches the host only from the
-  host's own player (nothing on the wire carries a choice; PD's pause
-  inventory online is the same); the host's own player is unarmed to the
+  host's own player (nothing on the wire carried a choice; PD's pause
+  inventory online was the same: protocol 15's NETCMD_EQUIP since, "A
+  player's own look" below); the host's own player is unarmed to the
   others while its watch is up; the static flash stays off online (the
   host's RNG).
 - **An out-of-play seat's view is not built (the same day).** The user,
@@ -809,8 +819,9 @@ nothing is ever sent from one machine to another but names and hashes.
   drawing calls have game side effects to keep (ROOMFLAG and prop
   on-screen flags, the sky's flare timers), so an audit, then the net
   gates; idle guests at the spawn understate the simulation half. A host
-  refuses every joiner while its own Mod.SimBrain is "modern", and an HD
-  host one whose Mod.XblaMeshes differs (both met setting this up).
+  refused every joiner while its own Mod.SimBrain was "modern", and an HD
+  host one whose Mod.XblaMeshes differed (both met setting this up; both
+  gone with protocol 15, "A player's own look" below).
 - **Seen once: netcontenttest geyolt, the client's START respawn missed
   (2026-10-07).** In the gate run for the commits above, the client took
   its first death from the host's block, pressed START every second, and
@@ -863,3 +874,103 @@ nothing is ever sent from one machine to another but names and hashes.
   (`stat` showed the log at 259 bytes, the stderr warnings, until the
   kill). Every Linux gate launches through `stdbuf -oL -eL` now (netplayertest and netwidetest too).
 
+## A player's own look, and choices made in a menu (protocol 15, 2026-10-07)
+
+The user: "players should be able to have xbla or n64 mode active without
+affecting other players", then "the players and host being decoupled as
+much as possible without losing sync is best". Before this a host refused
+a joiner on a GoldenEye stage whose Mod.XblaMeshes or
+Mod.GeXblaCommunityEdition differed (MUST_GE), F6 and Mod.XblaMeshes were
+locked in a match (H14), and on any stage a differing Mod.XblaMeshes could
+get a client refused by the stage hash's `rng`. Two read-only audits (the
+GoldenEye HD look, the PD release's parts) listed every place a look
+reaches the simulation; what came of them:
+
+- **What a look decides at a load is the host's** (`netContentLookLatch()`
+  at the host's match start, RULES' content block carries `look`,
+  `netLookData()` answers on both sides, offline 0 so the local look
+  decides as before):
+  - `NETLOOK_GECE`: GoldenEye's Community Edition copies of a mission's
+    setup, pads, tiles and stan (`geRoomCeData()`). The converter writes
+    the `_ce` files into every conversion (they are the ROM with
+    `g_RomPatches`, geconvert.c), and a served conversion carries them, so
+    any client follows whatever its look and whether it has the CE zip.
+  - `NETLOOK_XBLATILES`: the PD release's collision on Area 51 and MP Ruins
+    (`xblaStageLoadTiles()`). It followed whether the package was
+    *unpacked*, which any F6 does once: an N64 player with the release
+    still in its .7z differed from one who had looked once. A client takes
+    the host's choice, unpacking its own copy if it must
+    (`xblaMeshPackageReady(1)`); one with no release at all is still
+    refused, now with the xblatiles text (`netCompsDiffer` looks at
+    `xblatiles` before `tiles`, which differs too and used to win).
+  - `NETLOOK_MESHES`: the release's meshes take Penny out of the male
+    guards' heads (bodyreset.c), which changes the RNG's draws at the load
+    on every stage; and Agent 4's numbers (xblaagent4.c,
+    `xblaAgent4TakeNumbers`: height, scale, animscale, the random height -
+    the Shock Trooper's row varies, his does not, so the N64 machine drew
+    one more random number and was refused every time he played). His
+    model stays this machine's look's; the rows are applied again at every
+    stage reset.
+- **The look itself is live in a match**: H14 is gone from
+  `xblaSwitchSetParts()` and `xblaMeshSetEnabled()` (the other parts'
+  checkboxes never had it). `--net-test-look-switch TICK` switches as F6
+  does at a match tick.
+- **Characters by row** (`netWriteMpChar`/`netReadMpChar`, RULES' sims and
+  humans, CONNECT/SLOTCFG): Agent 4 is listed only where the release is
+  unpacked, ahead of GoldenEye's characters, so their list indexes differ
+  by one between machines. An index goes with the row it names and the
+  reader takes its own index of it; one past the list as how far past; an
+  Agent 4 the reader does not list is the Shock Trooper (his N64 look).
+- **Mod.SimBrain is the host's** (out of `s_NetKeys`; `simbrainWanted()`
+  is 0 on a client): simulants are ticked on the host alone and modern
+  draws no random number. netsessiontest's loopback runs both with modern.
+- **A multiplayer room's visibility** (bg.c, `g_MpRoomVisibility`) asks
+  `bgRoomIsPortalVisible()` as solo's `bgRoomIsOnscreen()` does: on an HD
+  level every room is ROOMFLAG_ONSCREEN, so in a match or a co-op mission
+  nobody spawned "off screen" (Ourumov's squad, offline 2P co-op too), no
+  simulant went cheap and lag compensation rewound everyone. Identical in
+  the N64 look.
+- **A menu's choices reach the host** (`NETCMD_EQUIP` u8 right, u8 left;
+  `NETCMD_DEVICE` u8 weaponnum, u8 on; after a command's fixed part, only
+  when its flag is set, resent with it until acked, folded by the later
+  one): PD's pause inventory (mainmenu.c, guns and devices) and GoldenEye's
+  watch (`g_Watch.picked`, sent as the hand comes back). The host applies
+  them at that player's pass (`netPlayersHostApplyChoices`, from
+  `netRemotePassBegin`) when the player holds what was picked; the
+  client's own equip stands, and the host's block agrees before
+  `NET_LPSTABLE` would take it back. `--net-test-equip TICK,WEAPON`;
+  netcooptest `ge` checks it (the host took the pick a tick later, the
+  hand still the pick three seconds on).
+
+**Still the host's world** (the host simulates everyone; its look decides,
+for all, details the same level has in both looks): shots against the
+rooms it loaded (the release's PD rooms carry two to four times the
+triangles; HD GoldenEye rooms are Bean's), translucent and cut-out
+surfaces, hit textures and their RNG, the release's meshes in projectile
+and object hit tests (chr shots online are boxes: `cheap`), landed
+projectiles, held guns and hats moved onto the release's meshes, head
+boxes seated by headfit, the XBLA tables (smoke types, Crash Site's fog,
+head types), props ticked in the foreground. None of it is on a client's
+prediction path, and none desyncs. Not fixed and found on the way: on the
+release's PD rooms a hit's texture is read out of the header before a
+SETTIMG's image (bg.c ~5486), which for a release-only record is the
+stand-in tile's malloc header or `xblaStageWhiteTile` (the same fault
+`gebeanStageHitTexture` fixed for GoldenEye's).
+
+**The start-of-match swirl runs ahead on a client.** netcontenttest
+gelook (an HD+CE host, an N64 client, Bunker) predicted at 97.8%, all of
+its 24-25 corrections (about 41 units, the eye against the body's root)
+before tick 130; the same with both N64 gave 2-8, both HD 10. Not the
+look: the client's `TICKMODE_MPSWIRL` advanced about 14 steps at
+`g_NetTick` 0 (gdb on `playerTickMpSwirl`) while it waited for the host's
+first ticks, so its swirl ended ~20 ticks before the host's, and until the
+host's ended the host's block had the player at its body's root (the swirl
+is third person: chrTick puts prop->pos there) where the client's bwalk had
+the eye. A slow-starting host (the HD look builds meshes in its first
+ticks) makes the gap; nothing is out of step after it. Left as found.
+
+**Gate changes.** netcontenttest `gemust` (a refusal) is `gelook` now (it
+plays, every stage hash component equal, the client's own N64 look at tick
+900, both switch looks in the match); netsessiontest's `r-notstock` case is
+gone, its loopback runs Mod.SimBrain=modern on both (the host's modern, the
+client's stock); netcooptest `ge` has the pick.

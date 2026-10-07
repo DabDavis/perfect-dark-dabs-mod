@@ -14,6 +14,8 @@
 #include "modloader.h"
 #include "gexplusrom.h"
 #include "geconvert.h"
+#include "gebean.h"
+#include "xblamesh.h"
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "netint.h"
@@ -53,6 +55,48 @@
  *    weapon set list holds the same block (gexplus.c) when it reads the
  *    host's set number.
  */
+
+/*
+ * The look's data (protocol 15). A look is a picture, each machine's own,
+ * but a few choices it makes at a stage's load are the simulation's: on a
+ * GoldenEye stage the HD look with the Community Edition loads the
+ * converter's _ce copies of a mission's setup, pads and tiles
+ * (geRoomCeData()), and on two of Perfect Dark's the release's collision
+ * replaces the ROM's while the release is installed (xblaStageLoadTiles()),
+ * and on every stage the release's meshes take Penny out of the male guards'
+ * heads, which changes the RNG's draws at the load (bodyreset.c).
+ * A net match plays the host's choice on every machine: the converter
+ * writes the _ce copies into every conversion (and the host serves a missing
+ * one), so any client can follow it whatever its own look.
+ */
+static u32 s_HostLook = 0;
+static s32 s_HostLookLatched = 0;
+
+void netContentLookLatch(void)
+{
+	s_HostLook = (xblaMeshGetEnabled() && gebeanCeIsActive() ? NETLOOK_GECE : 0)
+		| (xblaMeshPackageReady(0) ? NETLOOK_XBLATILES : 0)
+		| (xblaMeshGetEnabled() ? NETLOOK_MESHES : 0);
+	s_HostLookLatched = 1;
+	sysLogPrintf(LOG_NOTE, "net: the match plays the host's look data: GoldenEye's Community Edition copies %s, the XBLA release's collision %s, "
+			"the guards' heads as the release deals them %s", (s_HostLook & NETLOOK_GECE) ? "on" : "off",
+			(s_HostLook & NETLOOK_XBLATILES) ? "on" : "off", (s_HostLook & NETLOOK_MESHES) ? "on" : "off");
+}
+
+s32 netLookData(u32 *bits)
+{
+	if (g_NetMode == NETMODE_SERVER && s_HostLookLatched) {
+		*bits = s_HostLook;
+		return 1;
+	}
+
+	if (g_NetMode == NETMODE_CLIENT && netRulesMatchId()) {
+		*bits = netRulesContent()->look;
+		return 1;
+	}
+
+	return 0;
+}
 
 static s32 s_Swapped = 0;        // this machine's mod was switched for the host's
 static s32 s_OwnLoaded = -1;     // the mod loaded before (an installed index, -1 none)
@@ -125,6 +169,7 @@ void netContentHostNeed(struct netcontentneed *n)
 	}
 
 	snprintf(n->gevariant, sizeof(n->gevariant), "%s", netContentVariantTag());
+	n->look = (u8)s_HostLook;
 }
 
 void netContentWrite(struct netbuf *b, const struct netcontentneed *n, s32 withvariant)
@@ -134,6 +179,7 @@ void netContentWrite(struct netbuf *b, const struct netcontentneed *n, s32 withv
 
 	if (withvariant) {
 		netWriteStr(b, n->gevariant, NET_MAXCOMPNAME);
+		netBufWriteU8(b, n->look); // protocol 15
 	}
 }
 
@@ -145,6 +191,7 @@ void netContentRead(struct netbuf *b, struct netcontentneed *n, s32 withvariant)
 
 	if (withvariant) {
 		netBufReadString(b, n->gevariant, sizeof(n->gevariant));
+		n->look = netBufReadU8(b) & (NETLOOK_GECE | NETLOOK_XBLATILES | NETLOOK_MESHES);
 	}
 }
 

@@ -59,6 +59,7 @@
 #include "game/modoptions.h"
 #include "simnav.h"
 #include "simbrain.h"
+#include "net/net.h"
 
 #define SIMBRAIN_QUERIES      4           // path queries run a frame
 #define SIMBRAIN_CORNERAGE    4           // ticks between looking for the corners ahead
@@ -147,6 +148,13 @@ void simbrainSetOption(s32 modern)
 s32 simbrainWanted(void)
 {
 	const char *arg = sysArgGetString("--simbrain");
+
+	// netplay: a client's simulants are puppets the host moves (no AI runs
+	// on a client), so the host's own setting is the one that counts and a
+	// client builds no mesh for it
+	if (g_NetMode == NETMODE_CLIENT) {
+		return 0;
+	}
 
 	if (arg) {
 		return strcasecmp(arg, "modern") == 0;

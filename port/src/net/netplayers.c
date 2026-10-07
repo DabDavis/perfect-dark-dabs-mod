@@ -14,6 +14,10 @@
 #include "lib/joy.h"
 #include "lib/mtx.h"
 #include "game/camera.h"
+#include "game/bondgun.h"
+#include "game/inv.h"
+#include "game/game_0b0fd0.h"
+#include "game/playermgr.h"
 #include "game/mplayer/mplayer.h"
 #include "screenshot.h"
 #include "gewatch.h"
@@ -69,6 +73,8 @@ struct netcmd {
 	u32 viewtick;            // the host tick the client's puppets were drawn at
 	u8 viewfrac;             // ... and the fraction past it, in 1/256ths (NETCMD_NOVIEW: none)
 	u8 viewdelay;            // how far its render clock sat behind the newest snapshot, 1/8 ticks
+	u8 equip[2];             // NETCMD_EQUIP: the guns a menu put in the hands, right and left (0 none)
+	u8 device[2];            // NETCMD_DEVICE: a device's weapon number, and on or off
 };
 
 #define NETCMD_NOVIEW 0xffffffff
@@ -136,6 +142,12 @@ static s32 s_MenuShot = 0;        // --net-test-menu-shot: the game's own screen
 static u32 s_MenuShotAt = 0;      // the tick to take it at (a third of a second in: the dialog drawn whole)
 static s32 s_PpmMin = 0;
 static s32 s_PpmMax = 0;
+static s32 s_EquipPending = 0;    // a menu's pick for the next command (NETCMD_EQUIP)
+static u8 s_EquipHands[2];
+static s32 s_DevicePending = 0;   // ... and a device switched (NETCMD_DEVICE)
+static u8 s_Device[2];
+static u32 s_TestEquipTick = 0;   // --net-test-equip TICK,WEAPON: a menu's pick made at TICK
+static s32 s_TestEquipWeapon = 0;
 
 // --net-test-input FILE: a per-tick script for the local pad and mouse
 struct netscriptline {
@@ -239,6 +251,15 @@ void netPlayersArgs(void)
 
 	s_TestTrace = sysArgGetInt("--net-test-trace", 0);
 	s_MenuShot = sysArgCheck("--net-test-menu-shot");
+
+	{
+		const char *equip = sysArgGetString("--net-test-equip");
+
+		if (equip && strchr(equip, ',')) {
+			s_TestEquipTick = (u32)strtoul(equip, NULL, 0);
+			s_TestEquipWeapon = (s32)strtol(strchr(equip, ',') + 1, NULL, 0);
+		}
+	}
 
 	{
 		const char *aim = sysArgGetString("--net-test-aimat");
@@ -575,10 +596,101 @@ struct player *netLocalPlayer(struct player *fallback)
 	return fallback;
 }
 
+/**
+ * The host, at a client's player's pass: the guns its menu put in the hands
+ * and the device it switched (protocol 15), played once each, and only
+ * what the player holds here
+ */
+static void netPlayersHostApplyChoices(s32 playernum)
+{
+	const s32 pad = netPadOfPlayer(playernum);
+	struct netpadq *q;
+	struct player *p = g_Vars.currentplayer;
+
+	if (pad < 0 || pad >= MAX_PLAYERS || !s_Pads[pad].remote || !p) {
+		return;
+	}
+
+	q = &s_Pads[pad];
+
+	if (q->cur.flags & NETCMD_EQUIP) {
+		const s32 right = q->cur.equip[0];
+		const s32 left = q->cur.equip[1];
+		const s32 okright = right == WEAPON_UNARMED || (right > WEAPON_UNARMED && right < NUM_WEAPONS && invHasSingleWeaponIncAllGuns(right));
+		const s32 okleft = left == WEAPON_NONE
+			|| (left == right ? invHasDoubleWeaponIncAllGuns(right, right) || weaponHost(right) == WEAPON_REMOTEMINE
+				: left > WEAPON_UNARMED && left < NUM_WEAPONS && invHasSingleWeaponIncAllGuns(left));
+		s32 i;
+
+		q->cur.flags &= ~NETCMD_EQUIP;
+
+		if (!p->isdead && okright && okleft) {
+			bgunEquipHands(right, left);
+
+			for (i = 0; i < invGetCount(); i++) {
+				if (invGetWeaponNumByIndex(i) == right) {
+					p->equipcuritem = i;
+					break;
+				}
+			}
+
+			sysLogPrintf(LOG_NOTE, "net: slot %d picked guns 0x%02x/0x%02x from its menu (tick %u)", pad, right, left, g_NetTick);
+		} else {
+			sysLogPrintf(LOG_NOTE, "net: slot %d's pick of guns 0x%02x/0x%02x not taken: %s", pad, right, left,
+					p->isdead ? "dead" : "not held here");
+		}
+	}
+
+	if (q->cur.flags & NETCMD_DEVICE) {
+		const s32 w = q->cur.device[0];
+
+		q->cur.flags &= ~NETCMD_DEVICE;
+
+		if (!p->isdead && w > WEAPON_UNARMED && w < NUM_WEAPONS && currentPlayerGetDeviceState(w) != DEVICESTATE_UNEQUIPPED) {
+			currentPlayerSetDeviceActive(w, q->cur.device[1] != 0);
+			sysLogPrintf(LOG_NOTE, "net: slot %d switched device 0x%02x %s (tick %u)", pad, w, q->cur.device[1] ? "on" : "off", g_NetTick);
+		}
+	}
+}
+
 void netRemotePassBegin(void)
 {
 	g_NetRemotePass = !netIsLocalSlot(g_Vars.currentplayernum);
 	g_NetPassPlayer = g_NetRemotePass ? g_Vars.currentplayernum : -1;
+
+	if (g_NetMode == NETMODE_SERVER && g_NetRemotePass) {
+		netPlayersHostApplyChoices(g_Vars.currentplayernum);
+	}
+}
+
+/**
+ * A client: guns this machine's menu put in its player's hands (PD's pause
+ * inventory, GoldenEye's watch), for the host to put in the same hands with
+ * the next command; the host never sees the menu
+ */
+void netPlayersClientEquip(s32 right, s32 left)
+{
+	if (g_NetMode != NETMODE_CLIENT || right <= WEAPON_NONE || right > 0xff) {
+		return;
+	}
+
+	s_EquipHands[0] = (u8)right;
+	s_EquipHands[1] = left > WEAPON_NONE && left <= 0xff ? (u8)left : WEAPON_NONE;
+	s_EquipPending = 1;
+	sysLogPrintf(LOG_NOTE, "net: this machine picked guns 0x%02x/0x%02x from a menu at tick %u", s_EquipHands[0], s_EquipHands[1], g_NetTick);
+}
+
+/** A client: a device switched from its inventory, likewise */
+void netPlayersClientDevice(s32 weaponnum, s32 on)
+{
+	if (g_NetMode != NETMODE_CLIENT || weaponnum <= WEAPON_NONE || weaponnum > 0xff) {
+		return;
+	}
+
+	s_Device[0] = (u8)weaponnum;
+	s_Device[1] = on ? 1 : 0;
+	s_DevicePending = 1;
+	sysLogPrintf(LOG_NOTE, "net: this machine switched device 0x%02x %s at tick %u", weaponnum, on ? "on" : "off", g_NetTick);
 }
 
 /*
@@ -782,6 +894,36 @@ void netPlayersHostSpecGone(s32 view)
 }
 
 /**
+ * One command off the wire, the choices a menu made with it (protocol 15)
+ */
+static void netCmdRead(struct netbuf *b, struct netcmd *c)
+{
+	c->buttons = netBufReadU32(b);
+	c->sx = netBufReadS8(b);
+	c->sy = netBufReadS8(b);
+	c->rsx = netBufReadS8(b);
+	c->rsy = netBufReadS8(b);
+	c->mdx = netBufReadF32(b);
+	c->mdy = netBufReadF32(b);
+	c->flags = netBufReadU8(b);
+	c->viewtick = netBufReadU32(b);
+	c->viewfrac = netBufReadU8(b);
+	c->viewdelay = netBufReadU8(b);
+	c->equip[0] = c->equip[1] = 0;
+	c->device[0] = c->device[1] = 0;
+
+	if (c->flags & NETCMD_EQUIP) {
+		c->equip[0] = netBufReadU8(b);
+		c->equip[1] = netBufReadU8(b);
+	}
+
+	if (c->flags & NETCMD_DEVICE) {
+		c->device[0] = netBufReadU8(b);
+		c->device[1] = netBufReadU8(b);
+	}
+}
+
+/**
  * A spectator's CMD: parsed whole like a player's (a bad one dropped), and
  * nothing of it played; its snapshot ack goes to its view's snapshots
  */
@@ -809,14 +951,9 @@ void netPlayersHostSpecCmd(s32 view, struct netbuf *b)
 	}
 
 	for (i = 0; i < count && netBufOk(b); i++) {
-		netBufReadU32(b);
-		netBufReadU32(b);
-		netBufReadF32(b);
-		netBufReadF32(b);
-		netBufReadU8(b);
-		netBufReadU32(b);
-		netBufReadU8(b);
-		netBufReadU8(b);
+		struct netcmd c;
+
+		netCmdRead(b, &c);
 	}
 
 	if (!netBufOk(b) || netBufRemaining(b) != 0 || !sq->live || matchid != netSessionMatchId() || !netInMatch()) {
@@ -888,17 +1025,7 @@ void netPlayersHostOnCmd(s32 slot, struct netbuf *b)
 	}
 
 	for (i = 0; i < count && netBufOk(b); i++) {
-		cmds[i].buttons = netBufReadU32(b);
-		cmds[i].sx = netBufReadS8(b);
-		cmds[i].sy = netBufReadS8(b);
-		cmds[i].rsx = netBufReadS8(b);
-		cmds[i].rsy = netBufReadS8(b);
-		cmds[i].mdx = netBufReadF32(b);
-		cmds[i].mdy = netBufReadF32(b);
-		cmds[i].flags = netBufReadU8(b);
-		cmds[i].viewtick = netBufReadU32(b);
-		cmds[i].viewfrac = netBufReadU8(b);
-		cmds[i].viewdelay = netBufReadU8(b);
+		netCmdRead(b, &cmds[i]);
 
 		// nothing from the wire is trusted: a mouse that is not a number,
 		// or a turn of more than a whole screen in one tick, is none
@@ -981,6 +1108,17 @@ static void netFold(struct netcmd *into, const struct netcmd *c)
 	into->mdx += c->mdx;
 	into->mdy += c->mdy;
 	into->flags |= c->flags;
+
+	// a menu's choices: the later one's
+	if (c->flags & NETCMD_EQUIP) {
+		into->equip[0] = c->equip[0];
+		into->equip[1] = c->equip[1];
+	}
+
+	if (c->flags & NETCMD_DEVICE) {
+		into->device[0] = c->device[0];
+		into->device[1] = c->device[1];
+	}
 }
 
 /**
@@ -1148,6 +1286,8 @@ void netPlayersClientMatchStart(s32 pad)
 	s_ZPresses = 0;
 	s_PrevButtons = 0;
 	s_MenuUp = 0;
+	s_EquipPending = 0;
+	s_DevicePending = 0;
 	memset(s_SentTick, 0, sizeof(s_SentTick));
 	memset(s_Pads, 0, sizeof(s_Pads));
 
@@ -1272,6 +1412,25 @@ static void netPlayersClientCapture(void)
 
 	netMouseDelta(g_NetLocalSlot, &mdx, &mdy);
 
+	// --net-test-equip: the pick a pause menu's inventory makes, and the hand
+	// three seconds on (still the pick once the host's block has it)
+	if (s_TestEquipTick && g_NetLocalSlot >= 0 && g_NetLocalSlot < PLAYERCOUNT()
+			&& (g_NetTick == s_TestEquipTick || g_NetTick == s_TestEquipTick + 180)) {
+		const s32 prev = g_Vars.currentplayernum;
+
+		setCurrentPlayerNum(g_NetLocalSlot);
+
+		if (g_NetTick == s_TestEquipTick) {
+			bgunEquipHands(s_TestEquipWeapon, WEAPON_NONE);
+			netPlayersClientEquip(s_TestEquipWeapon, WEAPON_NONE);
+		} else {
+			sysLogPrintf(LOG_NOTE, "net: --net-test-equip: tick %u, the hand holds 0x%02x (picked 0x%02x)",
+					g_NetTick, bgunGetWeaponNum(HAND_RIGHT), s_TestEquipWeapon);
+		}
+
+		setCurrentPlayerNum(prev);
+	}
+
 	// a menu open here has the pad: the player stands still on the host
 	// meanwhile (spec-players.md §6). So has GoldenEye's watch on a converted
 	// level, which leaves the level running online (gewatch.c)
@@ -1331,6 +1490,21 @@ static void netPlayersClientCapture(void)
 		s_MenuBusy += c->buttons || c->sx || c->sy || c->rsx || c->rsy || c->mdx != 0 || c->mdy != 0;
 	}
 	c->flags = netMouseLocked(g_NetLocalSlot) ? NETCMD_MOUSELOCKED : 0;
+
+	// a menu's choices go with this command, and with every resend of it
+	if (s_EquipPending) {
+		c->flags |= NETCMD_EQUIP;
+		c->equip[0] = s_EquipHands[0];
+		c->equip[1] = s_EquipHands[1];
+		s_EquipPending = 0;
+	}
+
+	if (s_DevicePending) {
+		c->flags |= NETCMD_DEVICE;
+		c->device[0] = s_Device[0];
+		c->device[1] = s_Device[1];
+		s_DevicePending = 0;
+	}
 
 	// what this tick's pose step will draw the others at (netlagcomp.c)
 	{
@@ -1414,6 +1588,16 @@ static void netPlayersClientSend(void)
 		netBufWriteU32(&b, c->viewtick);
 		netBufWriteU8(&b, c->viewfrac);
 		netBufWriteU8(&b, c->viewdelay);
+
+		if (c->flags & NETCMD_EQUIP) {
+			netBufWriteU8(&b, c->equip[0]);
+			netBufWriteU8(&b, c->equip[1]);
+		}
+
+		if (c->flags & NETCMD_DEVICE) {
+			netBufWriteU8(&b, c->device[0]);
+			netBufWriteU8(&b, c->device[1]);
+		}
 	}
 
 	if (netSessionSendServer(NET_CHAN_UNRELIABLE, s_CmdBuf, netBufLen(&b), 0) == 0) {

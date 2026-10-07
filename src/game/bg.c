@@ -7021,7 +7021,16 @@ void bgChooseRoomsToLoad(void)
 		u32 flag2 = 0x10000u << g_Vars.currentplayernum;
 
 		for (i = 0; i < g_Vars.roomcount; i++) {
+#ifndef PLATFORM_N64
+			// The AI's question, as bgRoomIsOnscreen() asks it in solo: on an
+			// HD level ROOMFLAG_ONSCREEN is the whole level, and a match or a
+			// co-op mission there spawned nobody "off screen" and never let a
+			// simulant go cheap. The N64 look's answer is the same as before
+			// (online the host's look decides nothing for the others)
+			if (bgRoomIsPortalVisible(i)) {
+#else
 			if (g_Rooms[i].flags & ROOMFLAG_ONSCREEN) {
+#endif
 				g_MpRoomVisibility[i] |= flag1;
 			} else {
 				g_MpRoomVisibility[i] &= ~flag1;

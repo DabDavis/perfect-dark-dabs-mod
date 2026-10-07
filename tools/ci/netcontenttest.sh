@@ -30,8 +30,13 @@
 # nothing else, every second to ask for its respawn: a client's START is its
 # own pause menu while it lives, a respawn on its death screen, as offline).
 #
-# A refusal case (gemust, modmissing) instead checks the client was refused
-# with the key, or the mod, named in the text it was given. Content follows
+# A refusal case (modmissing) instead checks the client was refused with
+# the mod named in the text it was given. gelook: the look is each
+# machine's own on GoldenEye's stages too (protocol 15): an HD host with the
+# Community Edition and an N64 client on Bunker, whose tiles have a _ce
+# copy; the client loads the host's data whatever its look (every stage
+# hash component equal) and keeps its own Mod.XblaMeshes, and each switches
+# its look in the middle of the match (--net-test-look-switch) as F6 does. Content follows
 # the host (protocol 13, netcontent.c): modmount's client left the host's
 # map mod out of its Mod.MapMods and mounts it on demand; modmissing's host
 # plays with a mod the client has no copy of, which the client leaves over
@@ -40,7 +45,7 @@
 #   netcontenttest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netcontent-out), PORT (27300), CASES (all: ge geyolt gegg
-# gemust gfvariant fetch xbla modmap modmount modmissing overlay props), CHECKONLY (1: only the checks,
+# gelook gfvariant fetch xbla modmap modmount modmissing overlay props), CHECKONLY (1: only the checks,
 # on the last run's files). The GoldenEye cases need the GoldenEye ROM
 # converted (mods/GoldenEye Arenas), gfvariant Goldfinger 64 converted too
 # (its zip in added-content/); they are skipped, not failed, without it.
@@ -56,7 +61,7 @@ set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcontent-out}; PORT=${PORT:-27300}
-CASES=${CASES:-ge geyolt gegg gemust gfvariant fetch xbla modmap modmount modmissing overlay props}
+CASES=${CASES:-ge geyolt gegg gelook gfvariant fetch xbla modmap modmount modmissing overlay props}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -375,7 +380,8 @@ run() {
 				"--net-test-input $OUT/respawn.script" "kill()|kill()|gas()|kill()" ;;
 		gegg)   runcase gegg "${GEMAPS}StartArmed=1\n" "$GEMAPS" "--net-test-map Archives --net-test-ge 4" "" ;;
 		# a GoldenEye stage's MUST key that differs: refused at the start, named
-		gemust) runcase gemust "${GEMAPS}XblaMeshes=1\n" "${GEMAPS}XblaMeshes=0\n" "--net-test-map Complex --net-test-ge 0" "" "" 1 ;;
+		gelook) runcase gelook "${GEMAPS}XblaMeshes=1\nGeXblaCommunityEdition=1\nStartArmed=1\n" "${GEMAPS}XblaMeshes=0\nGeXblaCommunityEdition=0\n" \
+				"--net-test-map Bunker --net-test-ge 0 --net-test-look-switch 900" "--net-test-look-switch 1200" ;;
 		# a ROM hack's mode: Goldfinger 64's Junkyard, its weapon sets; the
 		# client mounts Goldfinger on demand and takes the mode from RULES
 		gfvariant) runcase gfvariant "ModDir=\nMapMods=GoldenEye Arenas;Goldfinger 64\nStartArmed=1\n" "$GEMAPS" \
@@ -408,7 +414,7 @@ run() {
 
 for c in $CASES; do
 	case $c in
-	ge|geyolt|gegg|gemust)
+	ge|geyolt|gegg|gelook)
 		if skipped "$c"; then echo "skip $c: GoldenEye is not converted here"; continue; fi ;;
 	gfvariant)
 		if skipped "$c"; then echo "skip $c: Goldfinger 64 is not converted here"; continue; fi ;;
@@ -447,7 +453,21 @@ for c in $CASES; do
 		want gegg "the Golden Gun in a puppet's hand" "$(pupnum gegg "in a puppet's hand")"
 		echo "     Golden Gun holders in turn on the client: $(pupnum gegg "holders in turn")"
 		;;
-	gemust) checkrefused gemust "must" "Mod.XblaMeshes must match" ;;
+	gelook)
+		checkplay gelook "map Bunker from mod GoldenEye Arenas"
+		grep -q "net: the match plays the host's look data: GoldenEye's Community Edition copies on" "$OUT/gelook-host.log" \
+			&& pass "gelook: the host's HD look with the Community Edition chose its copies" \
+			|| fail "gelook: the host did not play the Community Edition's copies: $(grep -m1 -o "the match plays the host's look data.*" "$OUT/gelook-host.log")"
+		# (the summary before the client's own switch at 1200)
+		grep "net: content client so far (tick 900)" "$C" | grep -q "Mod.XblaMeshes 0" \
+			&& pass "gelook: the client played its own N64 look on the host's data" || fail "gelook: the client's Mod.XblaMeshes was not its own 0 at tick 900"
+		for c in host client; do
+			L=$OUT/gelook-$c.log
+			grep -q "net: --net-test-look-switch: the look switched to the XBLA release's\|net: --net-test-look-switch: the look switched to the N64's" "$L" \
+				&& pass "gelook: the $c switched its look in the match: $(grep -m1 -o 'net-test-look-switch: the look.*' "$L")" \
+				|| fail "gelook: the $c did not switch its look in the match"
+		done
+		;;
 	fetch)
 		checkplay fetch "map Complex from mod GoldenEye Arenas"
 		grep -q "^mod: 0 installed" "$C" && pass "fetch: the client had no mods of its own" || fail "fetch: the client's mod list was not empty: $(grep -m1 '^mod: .* installed' "$C" | cut -c1-80)"

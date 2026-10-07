@@ -612,8 +612,7 @@ static const char *netCompDescription(const char *name)
 
 void netReadSlotCfg(struct netbuf *b, struct netslotcfg *cfg)
 {
-	cfg->mpheadnum = netBufReadU8(b);
-	cfg->mpbodynum = netBufReadU8(b);
+	netReadMpChar(b, &cfg->mpheadnum, &cfg->mpbodynum);
 	cfg->controlmode = netBufReadU8(b);
 	cfg->options = netBufReadU16(b);
 	cfg->fovy = netBufReadF32(b);
@@ -647,8 +646,7 @@ void netWriteSlotCfg(struct netbuf *b)
 
 	inputMouseGetSpeed(&sx, &sy);
 
-	netBufWriteU8(b, p->base.mpheadnum);
-	netBufWriteU8(b, p->base.mpbodynum);
+	netWriteMpChar(b, p->base.mpheadnum, p->base.mpbodynum);
 	netBufWriteU8(b, p->controlmode);
 	netBufWriteU16(b, p->options);
 	netBufWriteF32(b, ext->fovy);
@@ -1295,6 +1293,9 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 
 	netRulesSaveHost();
 
+	// the data the host's look loads is the match's on every machine (protocol 15)
+	netContentLookLatch();
+
 	bits = netHostJoinedSlots();
 
 	// Net.JoinInProgress: every seat is in the match; the ones nobody has
@@ -1442,31 +1443,41 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 
 static s32 netCompsDiffer(const struct nethashcomp *a, s32 na, const struct nethashcomp *b, s32 nb, char *which, s32 whichsize)
 {
+	s32 pass;
 	s32 i;
 	s32 j;
 
-	for (i = 0; i < na; i++) {
-		s32 found = 0;
+	// the release's collision first: where one side took it, "tiles" (the
+	// ROM's file, hashed only where it was loaded) differs too, and the text
+	// for "xblatiles" is the one that says what to do
+	for (pass = 0; pass < 2; pass++) {
+		for (i = 0; i < na; i++) {
+			s32 found = 0;
 
-		// model packs and XBLA meshes may differ: a diagnostic only
-		if (strcmp(a[i].name, "models") == 0) {
-			continue;
-		}
+			// model packs and XBLA meshes may differ: a diagnostic only
+			if (strcmp(a[i].name, "models") == 0) {
+				continue;
+			}
 
-		for (j = 0; j < nb; j++) {
-			if (strcmp(a[i].name, b[j].name) == 0) {
-				found = 1;
+			if ((strcmp(a[i].name, "xblatiles") == 0) != (pass == 0)) {
+				continue;
+			}
 
-				if (a[i].hash != b[j].hash) {
-					snprintf(which, whichsize, "%s", a[i].name);
-					return 1;
+			for (j = 0; j < nb; j++) {
+				if (strcmp(a[i].name, b[j].name) == 0) {
+					found = 1;
+
+					if (a[i].hash != b[j].hash) {
+						snprintf(which, whichsize, "%s", a[i].name);
+						return 1;
+					}
 				}
 			}
-		}
 
-		if (!found) {
-			snprintf(which, whichsize, "%s", a[i].name);
-			return 1;
+			if (!found) {
+				snprintf(which, whichsize, "%s", a[i].name);
+				return 1;
+			}
 		}
 	}
 

@@ -11,6 +11,8 @@
 #include "system.h"
 #include "modloader.h"
 #include "gexplus.h"
+#include "gebean.h"
+#include "xblaagent4.h"
 #include "game/challenge.h"
 #include "game/savebuffer.h"
 #include "game/modunlocks.h"
@@ -33,6 +35,16 @@
  *   MUST     must already match (a startup-only state, or content): refused
  *   MUST_GE  the same, on a GoldenEye stage only (checked at the match start)
  *   REFUSE   a net game only when the value is stock on both sides
+ *
+ * Mod.XblaMeshes and Mod.GeXblaCommunityEdition are in none of them either:
+ * a look is each machine's own picture, and the data a look chooses at a
+ * load (the Community Edition's copies, the release's collision) is the
+ * host's on every machine (netcontent.c, NETLOOK_*).
+ *
+ * Mod.SimBrain is in none of them: simulants are ticked on the host alone
+ * (a client's are puppets) and modern draws no random number (simnav.md),
+ * so a host plays its own setting and a client goes stock
+ * (simbrainWanted()).
  */
 
 extern u8 g_MpFeaturesUnlocked[80];
@@ -65,9 +77,6 @@ static const struct {
 	{ "Mod.GePlusRegion",            NETKEY_SYNC },
 	{ "Mod.BorrowGoldenEyeGuns",     NETKEY_MUST },
 	{ "Mod.GePlusRevisionFixes",     NETKEY_MUST_GE },
-	{ "Mod.XblaMeshes",              NETKEY_MUST_GE },
-	{ "Mod.GeXblaCommunityEdition",  NETKEY_MUST_GE },
-	{ "Mod.SimBrain",                NETKEY_REFUSE, "stock" },
 	// a mission's guards (spec-coop.md): the host's, as the AI is
 	{ "Mod.GuardsAlerted",           NETKEY_SYNC },
 	{ "Mod.AlertedGuards",           NETKEY_SYNC },
@@ -395,6 +404,92 @@ s32 netRulesCheckClientKeys(const struct netkeyvalue *keys, s32 nkeys, s32 gesta
 }
 
 /*
+ * A character by its rows (protocol 15)
+ *
+ * The Combat Simulator's head and body lists are not the same on every
+ * machine: Agent 4 is appended where the XBLA release is unpacked (and so
+ * wherever the XBLA look was ever switched on), ahead of GoldenEye's
+ * characters, which then stand one further on. An index is sent with the row
+ * it names, and the reader takes its own index of that row. An index past the
+ * list (the personal heads, the hidden bodies) is sent as how far past it is.
+ * A row the reader does not list is Agent 4's (his N64 look, the Shock
+ * Trooper) or else the index as sent.
+ */
+
+static s32 netMpHeadRow(s32 mpheadnum)
+{
+	return mpheadnum < mpGetNumHeads() ? mpGetHeadId(mpheadnum) : -1 - (mpheadnum - mpGetNumHeads());
+}
+
+static s32 netMpBodyRow(s32 mpbodynum)
+{
+	return mpbodynum < (s32)mpGetNumBodies() ? g_MpBodies[mpbodynum].bodynum : -1 - (mpbodynum - (s32)mpGetNumBodies());
+}
+
+static s32 netMpHeadIndex(s32 row, s32 sent)
+{
+	s32 i;
+
+	if (row < 0) {
+		return mpGetNumHeads() + (-1 - row);
+	}
+
+	if (row == XBLA_AGENT4_HEADROW && !xblaAgent4IsListed()) {
+		row = HEAD_DDSHOCK;
+	}
+
+	for (i = 0; i < mpGetNumHeads(); i++) {
+		if (g_MpHeads[i].headnum == row) {
+			return i;
+		}
+	}
+
+	return sent;
+}
+
+static s32 netMpBodyIndex(s32 row, s32 sent)
+{
+	s32 i;
+
+	if (row < 0) {
+		return (s32)mpGetNumBodies() + (-1 - row);
+	}
+
+	if (row == XBLA_AGENT4_BODYROW && !xblaAgent4IsListed()) {
+		row = BODY_DDSHOCK;
+	}
+
+	for (i = 0; i < (s32)mpGetNumBodies(); i++) {
+		if (g_MpBodies[i].bodynum == row) {
+			return i;
+		}
+	}
+
+	return sent;
+}
+
+void netWriteMpChar(struct netbuf *b, s32 mpheadnum, s32 mpbodynum)
+{
+	netBufWriteU8(b, (u8)mpheadnum);
+	netBufWriteU8(b, (u8)mpbodynum);
+	netBufWriteS16(b, (s16)netMpHeadRow(mpheadnum));
+	netBufWriteS16(b, (s16)netMpBodyRow(mpbodynum));
+}
+
+void netReadMpChar(struct netbuf *b, u8 *mpheadnum, u8 *mpbodynum)
+{
+	const s32 head = netBufReadU8(b);
+	const s32 body = netBufReadU8(b);
+	const s32 headrow = netBufReadS16(b);
+	const s32 bodyrow = netBufReadS16(b);
+	const s32 h = netMpHeadIndex(headrow, head);
+	const s32 d = netMpBodyIndex(bodyrow, body);
+
+	*mpheadnum = (u8)(h >= 0 && h <= 0xff ? h : head);
+	*mpbodynum = (u8)(d >= 0 && d <= 0xff ? d : body);
+}
+
+/*
  * RULES
  */
 
@@ -457,8 +552,7 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 		netBufWriteU8(b, (u8)i);
 		netBufWriteU8(b, bot->type);
 		netBufWriteU8(b, bot->difficulty);
-		netBufWriteU8(b, bot->base.mpheadnum);
-		netBufWriteU8(b, bot->base.mpbodynum);
+		netWriteMpChar(b, bot->base.mpheadnum, bot->base.mpbodynum);
 		netBufWriteU8(b, bot->base.team);
 		netBufWriteU32(b, bot->base.displayoptions);
 		netWriteStr(b, bot->base.name, 14);
@@ -478,8 +572,7 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 		struct mpplayerconfig *p = &g_PlayerConfigsArray[i];
 
 		netWriteStr(b, netSessionWireName(i), 14);
-		netBufWriteU8(b, p->base.mpheadnum);
-		netBufWriteU8(b, p->base.mpbodynum);
+		netWriteMpChar(b, p->base.mpheadnum, p->base.mpbodynum);
 		netBufWriteU8(b, p->base.team);
 		netBufWriteU32(b, p->base.displayoptions);
 		netBufWriteU8(b, p->handicap);
@@ -582,8 +675,7 @@ s32 netRulesRead(struct netbuf *b)
 		sim.on = 1;
 		sim.type = netBufReadU8(b);
 		sim.difficulty = netBufReadU8(b);
-		sim.mpheadnum = netBufReadU8(b);
-		sim.mpbodynum = netBufReadU8(b);
+		netReadMpChar(b, &sim.mpheadnum, &sim.mpbodynum);
 		sim.team = netBufReadU8(b);
 		sim.displayoptions = netBufReadU32(b);
 		netBufReadString(b, sim.name, sizeof(sim.name));
@@ -610,8 +702,7 @@ s32 netRulesRead(struct netbuf *b)
 		struct netruleshuman *h = &s_NetRules.humans[i];
 
 		netBufReadString(b, h->name, sizeof(h->name));
-		h->mpheadnum = netBufReadU8(b);
-		h->mpbodynum = netBufReadU8(b);
+		netReadMpChar(b, &h->mpheadnum, &h->mpbodynum);
 		h->team = netBufReadU8(b);
 		h->displayoptions = netBufReadU32(b);
 		h->handicap = netBufReadU8(b);

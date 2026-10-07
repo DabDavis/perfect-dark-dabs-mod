@@ -80,8 +80,9 @@ u32 xblaSwitchGetParts(void)
 
 void xblaSwitchSetParts(u32 parts)
 {
-	// netplay: a match's rules stay as they started (H14)
-	if (g_NetMode != NETMODE_NONE && netRulesLocked()) return;
+	// (live in a net match too: a look is each machine's own picture, and
+	// the data a look picks at a load is the host's on every machine,
+	// netcontent.c)
 
 	// The rooms before the models: both setters drop the rooms loaded under
 	// the old setting (xblaStageSwitched()), and the rooms count only while
@@ -148,6 +149,25 @@ void xblaSwitchSetKey(s32 vk)
 void xblaSwitchTick(void)
 {
 	const s32 vk = xblaSwitchGetKey();
+
+	// --net-test-look-switch TICK: the key's switch at a net match's tick, for
+	// the gates (netcontenttest gelook)
+	{
+		static s32 testtick = -2;
+
+		if (testtick == -2) {
+			testtick = sysArgGetInt("--net-test-look-switch", -1);
+		}
+
+		if (testtick > 0 && g_NetMode != NETMODE_NONE && g_NetTick == (u32)testtick && STAGE_IS_LEVEL(mainGetStageNum())) {
+			const s32 enabled = !xblaSwitchGetEnabled();
+
+			testtick = -1;
+			xblaSwitchSetEnabled(enabled);
+			sysLogPrintf(LOG_NOTE, "net: --net-test-look-switch: the look switched to the %s at tick %u",
+					enabled ? "XBLA release's" : "N64's", g_NetTick);
+		}
+	}
 
 	// Every frame, not on the key: the tables follow the switch however it was
 	// moved (a checkbox, the settings preset), and a mod load copies its own

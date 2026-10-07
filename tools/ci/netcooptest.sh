@@ -24,7 +24,11 @@
 #           mission (--net-lobby-coop): the room's summary names the mission
 #           and "Co-op Agent", the joiner plays the mission, the host's end
 #           at a frame reaches the joiner, both come back to the room.
-#   ge      GoldenEye's Dam as a co-op mission (protocol 14), both to GO.
+#   ge      GoldenEye's Dam as a co-op mission (protocol 14), both to GO;
+#           at tick 1200 the client picks Unarmed as its pause inventory
+#           would (--net-test-equip): the host must put it in that player's
+#           hands (protocol 15) and the client's hand must still hold it
+#           three seconds on (the host's block never took it back).
 #   campaign  a GoldenEye campaign's host starting Dam from its folder alone
 #           (--net-test-campaign ge --net-test-campaign-mission 0): the
 #           opening ends on the host's own player; a client then joins the
@@ -136,7 +140,7 @@ case_ge() {
 	if grep -q "cannot be played online" "$H"; then
 		echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; return
 	fi
-	game ge-client 290 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --exit-frame 3000 &
+	game ge-client 290 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --exit-frame 3000 --net-test-equip 1200,1 &
 	local client=$!
 	waitfor "$C" "net: match 1: GO" 150 || echo "     no GO on the client"
 	waitfor "$C" "net: content client so far (tick 1500)" 120 || echo "     the client did not reach tick 1500"
@@ -158,6 +162,13 @@ case_ge() {
 	grep -q "co-op client: the first mission block" "$C" && pass "$name: $(grep -o 'co-op client: the first mission block.*' "$C" | head -1)" || fail "$name: no mission block reached the client"
 	local tick; tick=$(lastline "$C" "net: content client so far" | grep -o "tick [0-9]*" | awk '{print $2}')
 	[ "${tick:-0}" -ge 1500 ] && pass "$name: the client played $tick ticks of GoldenEye's Dam" || fail "$name: the client played ${tick:-no} ticks"
+	# a gun picked from the client's menu (protocol 15)
+	grep -q "net: slot 1 picked guns 0x01/0x00 from its menu" "$H" \
+		&& pass "$name: the host took the client's pick: $(grep -o 'slot 1 picked guns.*' "$H" | head -1)" \
+		|| fail "$name: the host never took the client's pick ($(grep -o "slot 1's pick.*" "$H" | head -1))"
+	grep -q "net: --net-test-equip: tick 1380, the hand holds 0x01 (picked 0x01)" "$C" \
+		&& pass "$name: the client's hand still held its pick three seconds on" \
+		|| fail "$name: the client's hand: $(grep -o 'net-test-equip: tick.*' "$C" | head -1)"
 }
 
 # ---------------------------------------------------------------- campaign

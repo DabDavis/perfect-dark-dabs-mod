@@ -450,6 +450,7 @@ struct gewatch {
 	s32 music; // the watch theme is playing over the level's
 	s32 weapons[2];
 	s32 hadweapons;
+	s32 picked; // the inventory took a gun: online a client tells the host as the hand comes back
 	// the player whose watch it is (a playernum): the one who brought it up.
 	// Online the host ticks and draws every player, and only this one's tick
 	// moves the watch on and only this one's view draws it
@@ -1804,6 +1805,7 @@ static void watchPutGunAway(void)
 	g_Watch.weapons[HAND_RIGHT] = bgunGetWeaponNum(HAND_RIGHT);
 	g_Watch.weapons[HAND_LEFT] = bgunGetWeaponNum(HAND_LEFT);
 	g_Watch.hadweapons = 1;
+	g_Watch.picked = 0;
 
 	// its rounds as the hand has them, before the lowering empties it
 	g_Watch.ammoweapon = g_Watch.weapons[HAND_RIGHT];
@@ -1829,6 +1831,13 @@ static void watchTakeGunBack(void)
 	// doubles any gun the inventory holds two of (a single KF7 came back
 	// as a pair when a second had been picked up)
 	bgunEquipHands(g_Watch.weapons[HAND_RIGHT], g_Watch.weapons[HAND_LEFT]);
+
+	// online the host never saw the watch, and its hands are still the ones
+	// the watch came up on: a gun the inventory took goes to it
+	if (g_Watch.picked) {
+		g_Watch.picked = 0;
+		netPlayersClientEquip(g_Watch.weapons[HAND_RIGHT], g_Watch.weapons[HAND_LEFT]);
+	}
 }
 
 /**
@@ -2360,6 +2369,7 @@ static void watchInventoryTake(s32 start)
 	invSetCurrentIndex(g_Watch.invrow);
 	g_Watch.weapons[HAND_RIGHT] = weaponnum;
 	g_Watch.weapons[HAND_LEFT] = WEAPON_NONE;
+	g_Watch.picked = 1;
 	g_Watch.invflash = 10;
 	watchSfx(GESFX_CAMERA_BEEP1, MENUSOUND_FOCUS);
 }

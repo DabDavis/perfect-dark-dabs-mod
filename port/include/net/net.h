@@ -132,6 +132,20 @@ extern s32 g_NetRemotePass;
 // made itself, so the events leave it out (netevents.c)
 extern s32 g_NetPassPlayer;
 void netRemotePassBegin(void);
+// The data a player's look decides at a stage's load, as a net match plays it
+// on every machine: the host's at the match start, carried in RULES (protocol
+// 15). Each machine draws its own look over it. Returns 0 offline (and before
+// a client has its first RULES), when the look of this machine decides.
+#define NETLOOK_GECE      0x01 // GoldenEye's Community Edition copies (geRoomCeData())
+#define NETLOOK_XBLATILES 0x02 // the PD release's collision fixes (xblaStageLoadTiles())
+#define NETLOOK_MESHES    0x04 // the release's meshes: the male guards' heads dealt (bodyreset.c)
+s32 netLookData(u32 *bits);
+// A client: guns its own menu put in its player's hands (PD's pause
+// inventory, GoldenEye's watch), and a device it switched there, for the
+// host to do the same with the next command (protocol 15); nothing offline
+// or on the host
+void netPlayersClientEquip(s32 right, s32 left);
+void netPlayersClientDevice(s32 weaponnum, s32 on);
 static inline void netRemotePassEnd(void)
 {
 	g_NetRemotePass = 0;
