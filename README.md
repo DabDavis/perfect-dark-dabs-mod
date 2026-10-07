@@ -159,9 +159,9 @@ players, their simulants and two spectators. One player's game hosts the
 match (a listen server); everyone else's connects to it. A full room of
 twelve needs about 2 Mbit/s of upload from the host.
 
-**Rooms.** **Online Game** is on the main menu (and in the Combat
-Simulator, where the GoldenEye and ROM hack modes make rooms on their own
-arenas). Online play uses your Ghost Trials account: the page's **Sign In**
+**Rooms.** **Online Game** is on the main menu. The GoldenEye and ROM
+hack modes have the row in their Combat Simulator instead, where a room is
+made on their own arenas. Online play uses your Ghost Trials account: the page's **Sign In**
 row opens the account page (the same one as Ghost Trials > Account) to
 enter a name and PIN or make an account; the page's first line says whether
 the lobby knows you, and a refused sign-in says why. Then:
@@ -243,9 +243,8 @@ segments (GoldenEye X and the Mario characters do), which the game can
 only load at a start, so the room tells you to choose it under Extended
 Options > Load Mods, Restart Now, and join again, and one you do not have
 is named. Your own `Mod.ModDir` and `Mod.MapMods` are never changed.
-Online Game is on the main menu and in the Combat Simulator of Perfect
-Dark, GoldenEye and the ROM hacks alike; counter-operative is offline only
-for now.
+Online Game is on Perfect Dark's main menu and in the Combat Simulator of
+GoldenEye and the ROM hacks; counter-operative is offline only for now.
 
 ### Screenshots and video
 

@@ -85,8 +85,13 @@ the stage stops (H12), and never writes the host's values to its pd.ini
   `netdelta.h`, `netbuf.h`, `nettransport.h`, `netsession.h`,
   `netlobby.h` — each layer's face.
 - `port/src/net/netint.h` — calls between the net files only.
-- `port/src/netlobbymenu.c` — Combat Simulator > Online Game, Briefing
-  Room, Create Room, Game Lobby, Room Settings, Kick.
+- `port/src/netlobbymenu.c` — Online Game (the main menu's row, its own
+  menu root; the GoldenEye/ROM hack Combat Simulators' row, hidden in
+  Perfect Dark's as a duplicate), Briefing Room, Create Room, Game Lobby,
+  Room Settings, Kick. The rows ask `netLobbyBuilt()` whether the build has
+  the lobby: `PD_GHOST_NET` is ghostnet.h's, and a file that does not
+  include it sees it undefined - both rows were greyed in every build until
+  2026-10-07 by an `#ifdef` of it in netlobbymenu.c.
 - `tools/pdlobbyd/` — stdlib Python rooms service (`pdlobbyd.py`, its
   `README.md` = the API, `test_pdlobbyd.py`, the systemd unit). Deployed
   2026-10-07 on the ghost server's box (README "Running it": unit, nginx

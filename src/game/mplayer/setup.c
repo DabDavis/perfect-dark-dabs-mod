@@ -7207,7 +7207,9 @@ struct menuitem g_CombatSimulatorMenuItems[] = {
 	},
 #ifndef PLATFORM_N64
 	{
-		// netplay: the lobby's rooms (port/src/netlobbymenu.c)
+		// netplay: the lobby's rooms in the GoldenEye mode's and a ROM hack's
+		// Combat Simulator; hidden in Perfect Dark's, whose main menu has the
+		// row (port/src/netlobbymenu.c)
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_BIGFONT,

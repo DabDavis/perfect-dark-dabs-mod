@@ -296,13 +296,17 @@ struct menudialogdef g_NetOnlineMenuDialog = {
 };
 
 /**
- * The Combat Simulator's own row for it (setup.c). Always open where the
- * build has the lobby: the page's Sign In row is where an account is made
- * or entered (it used to be greyed "sign in first", which sent the player
- * to Ghost Trials with no word of why). The GoldenEye mode's and a ROM
- * hack's Combat Simulator have it too (protocol 13): a room made there
+ * The Combat Simulator's own row for it (setup.c), in the GoldenEye mode's
+ * and a ROM hack's Combat Simulator only (protocol 13): a room made there
  * carries the mode in its RULES, and a joiner plays the arena from its own
- * conversion
+ * conversion. In Perfect Dark's it is hidden: the main menu's row below is
+ * one step nearer, and a second one here was a duplicate (the user,
+ * 2026-10-07). Open wherever the build has the lobby: the page's Sign In
+ * row is where an account is made or entered (it used to be greyed "sign
+ * in first", which sent the player to Ghost Trials with no word of why).
+ * Built or not is netLobbyBuilt()'s answer, not PD_GHOST_NET's: this file
+ * does not include ghostnet.h, so the macro is never defined here and the
+ * rows were greyed in every build (the user's report, 2026-10-07).
  */
 char *netLobbyMenuTextOnline(struct menuitem *item)
 {
@@ -311,12 +315,12 @@ char *netLobbyMenuTextOnline(struct menuitem *item)
 
 MenuItemHandlerResult netLobbyMenuHandlerOnline(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return !g_GexPlusMode;
+	}
+
 	if (operation == MENUOP_CHECKDISABLED) {
-#ifdef PD_GHOST_NET
-		return 0;
-#else
-		return 1;
-#endif
+		return !netLobbyBuilt();
 	}
 
 	if (operation == MENUOP_SET) {
@@ -339,11 +343,7 @@ MenuItemHandlerResult netLobbyMenuHandlerOnline(s32 operation, struct menuitem *
 MenuItemHandlerResult netLobbyMenuHandlerOnlineMain(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKDISABLED) {
-#ifdef PD_GHOST_NET
-		return 0;
-#else
-		return 1;
-#endif
+		return !netLobbyBuilt();
 	}
 
 	if (operation == MENUOP_SET) {

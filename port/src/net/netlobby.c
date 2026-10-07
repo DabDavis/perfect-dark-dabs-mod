@@ -1518,6 +1518,21 @@ static void lobbyComputeContent(void)
 	SDL_AtomicUnlock(&s_ContentLock);
 }
 
+/**
+ * Whether the build has the lobby at all. The Online Game rows ask this
+ * rather than testing PD_GHOST_NET themselves: ghostnet.h defines it, and a
+ * file that does not include it (netlobbymenu.c) sees it undefined - both
+ * rows were greyed in every build by that (2026-10-07).
+ */
+s32 netLobbyBuilt(void)
+{
+#ifdef PD_GHOST_NET
+	return 1;
+#else
+	return 0;
+#endif
+}
+
 s32 netLobbyAvailable(void)
 {
 #ifdef PD_GHOST_NET

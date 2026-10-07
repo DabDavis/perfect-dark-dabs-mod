@@ -119,6 +119,7 @@ void netLobbyTick(void);      // main thread, every loop pass while g_NetLobbyAc
 void netLobbyShutdown(void);  // main.c cleanup: leave the room
 
 // The menus
+s32 netLobbyBuilt(void);             // the build has the lobby at all (the HTTPS transport is compiled in)
 s32 netLobbyAvailable(void);         // a build with the HTTPS transport and an account set
 const char *netLobbyAccount(void);   // the ghost account the lobby signs in as
 s32 netLobbySignedIn(void);
