@@ -159,9 +159,12 @@ players, their simulants and two spectators. One player's game hosts the
 match (a listen server); everyone else's connects to it. A full room of
 twelve needs about 2 Mbit/s of upload from the host.
 
-**Rooms.** Online play uses your Ghost Trials account: sign in (or make one)
-under **Ghost Trials > Account** first. Then **Combat Simulator > Online
-Game**:
+**Rooms.** **Online Game** is on the main menu (and in the Combat
+Simulator, where the GoldenEye and ROM hack modes make rooms on their own
+arenas). Online play uses your Ghost Trials account: the page's **Sign In**
+row opens the account page (the same one as Ghost Trials > Account) to
+enter a name and PIN or make an account; the page's first line says whether
+the lobby knows you, and a refused sign-in says why. Then:
 
 - **Browse Rooms** opens the Briefing Room: every open room with its host,
   players in/max, arena, mode, ping and whether it has a password. A room
@@ -224,9 +227,9 @@ the game can only load at a start: the room tells you to choose it under
 Extended Options > Load Mods, Restart Now, and join again. A mod or
 conversion you do not have is named, with where to put it (`mods/`, or the
 ROM or patch in `added-content/`); your own `Mod.ModDir` and `Mod.MapMods`
-are never changed. Online Game is in the Combat Simulator of Perfect Dark,
-GoldenEye and the ROM hacks alike; counter-operative and GoldenEye's
-missions are offline only for now.
+are never changed. Online Game is on the main menu and in the Combat
+Simulator of Perfect Dark, GoldenEye and the ROM hacks alike;
+counter-operative and GoldenEye's missions are offline only for now.
 
 ### Screenshots and video
 

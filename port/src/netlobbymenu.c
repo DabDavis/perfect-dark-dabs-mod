@@ -10,6 +10,8 @@
 #include "data.h"
 #include "system.h"
 #include "game/menu.h"
+#include "game/challenge.h"
+#include "game/mplayer/setup.h"
 #include "game/game_1531a0.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
@@ -184,12 +186,14 @@ static u32 dimColour(u32 colour)
  * Online Game
  */
 
+extern struct menudialogdef g_GhostAccountsMenuDialog;
+
 static char *textAccount(struct menuitem *item)
 {
 	static char text[96];
 
 	if (!netLobbyAvailable()) {
-		snprintf(text, sizeof(text), "%s", "No account: make one in Ghost Trials > Account.\n");
+		snprintf(text, sizeof(text), "%s", "No account yet: Sign In below to make or enter one.\n");
 	} else if (netLobbySignedIn()) {
 		snprintf(text, sizeof(text), "Signed in as %s\n", netLobbyAccount());
 	} else {
@@ -211,6 +215,23 @@ static char *textMessage(struct menuitem *item)
 	}
 
 	return s_Status;
+}
+
+/**
+ * Sign In: the Ghost Trials account page (ghostmenu.c), where a name and
+ * PIN are entered, an account made, or a PIN reset. The lobby signs in with
+ * what that page leaves in Mod.GhostUser/GhostPin the next time it is asked
+ * (Browse Rooms, Create Room), and the status line says what the account
+ * server answered.
+ */
+static MenuItemHandlerResult handlerSignIn(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		netLobbyClearMessage();
+		menuPushDialog(&g_GhostAccountsMenuDialog);
+	}
+
+	return 0;
 }
 
 static MenuItemHandlerResult handlerBrowse(s32 operation, struct menuitem *item, union handlerdata *data)
@@ -260,6 +281,7 @@ static struct menuitem s_OnlineItems[] = {
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_BIGFONT, (uintptr_t)"Browse Rooms\n", 0, handlerBrowse },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_BIGFONT, (uintptr_t)"Create Room\n", 0, handlerCreateOpen },
 	{ MENUITEMTYPE_SEPARATOR, 0, 0, 0, 0, NULL },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Sign In...\n", 0, handlerSignIn },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
 	{ MENUITEMTYPE_END },
 };
@@ -274,25 +296,66 @@ struct menudialogdef g_NetOnlineMenuDialog = {
 };
 
 /**
- * The Combat Simulator's own row for it (setup.c): greyed, with a hint,
- * until there is an account to sign in with. The GoldenEye mode's and a ROM
+ * The Combat Simulator's own row for it (setup.c). Always open where the
+ * build has the lobby: the page's Sign In row is where an account is made
+ * or entered (it used to be greyed "sign in first", which sent the player
+ * to Ghost Trials with no word of why). The GoldenEye mode's and a ROM
  * hack's Combat Simulator have it too (protocol 13): a room made there
  * carries the mode in its RULES, and a joiner plays the arena from its own
  * conversion
  */
 char *netLobbyMenuTextOnline(struct menuitem *item)
 {
-	return netLobbyAvailable() ? "Online Game\n" : "Online Game (sign in first)\n";
+	return "Online Game\n";
 }
 
 MenuItemHandlerResult netLobbyMenuHandlerOnline(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKDISABLED) {
-		return !netLobbyAvailable();
+#ifdef PD_GHOST_NET
+		return 0;
+#else
+		return 1;
+#endif
 	}
 
 	if (operation == MENUOP_SET) {
 		menuPushDialog(&g_NetOnlineMenuDialog);
+	}
+
+	return 0;
+}
+
+/**
+ * Online Game on the Perfect Menu (mainmenu.c): the lobby's pages as the
+ * root of the Combat Simulator's menus, so a room is one step from the main
+ * menu and Back comes back to it rather than into the Combat Simulator (the
+ * user, 2026-10-07: nested there it "traps you inside combat simulator").
+ * The match state is Perfect Dark's Combat Simulator's, set as its own row
+ * sets it (menuhandlerMainMenuCombatSimulator); the GoldenEye mode's and a
+ * ROM hack's Combat Simulator keep their own Online Game row for rooms in
+ * their mode.
+ */
+MenuItemHandlerResult netLobbyMenuHandlerOnlineMain(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKDISABLED) {
+#ifdef PD_GHOST_NET
+		return 0;
+#else
+		return 1;
+#endif
+	}
+
+	if (operation == MENUOP_SET) {
+		g_GexPlusVariant = NULL;
+		mpSetGexPlusMode(false);
+		g_Vars.bondplayernum = 0;
+		g_Vars.coopplayernum = -1;
+		g_Vars.antiplayernum = -1;
+		challengeDetermineUnlockedFeatures();
+		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
+		func0f0f820c(&g_NetOnlineMenuDialog, MENUROOT_MPSETUP);
+		func0f0f8300();
 	}
 
 	return 0;
