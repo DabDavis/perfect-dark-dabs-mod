@@ -138,6 +138,7 @@ struct netseat {
 };
 
 static struct netseat s_Seats[MAX_PLAYERS];
+static u32 s_IdlePasses = 0;      // views of out-of-play seats not built (netHostRenderPass)
 static s32 s_JoinInProgress = 0; // Net.JoinInProgress: every match starts with all its seats
 static s32 s_MaxPlayers = 4;     // Net.MaxPlayers: humans a direct host seats (2-12; lobby rooms seat their own size)
 static s32 s_ReconnectHold = 30; // Net.ReconnectHold: seconds a dropped player's seat is kept
@@ -1660,8 +1661,8 @@ static void netHostLogSeats(const char *why)
 				mpchr->numpoints, mpchr->numdeaths, kills, pn >= 0 && g_Vars.players[pn]->isdead ? " (dead)" : "");
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: seats %s (tick %u): %s; joins %u (back to a held seat %u), spectators %u, holds run out %u, out of play %u",
-			why, g_NetTick, line, s_Joins, s_Resumes, s_SpecJoins, s_HoldsExpired, s_Vacated);
+	sysLogPrintf(LOG_NOTE, "net: seats %s (tick %u): %s; joins %u (back to a held seat %u), spectators %u, holds run out %u, out of play %u, their views not built %u",
+			why, g_NetTick, line, s_Joins, s_Resumes, s_SpecJoins, s_HoldsExpired, s_Vacated, s_IdlePasses);
 }
 
 /**
@@ -3522,6 +3523,88 @@ void netStageStopped(void)
 s32 netSessionMatchActive(void)
 {
 	return s_MatchActive && s_MatchLoaded && g_StageNum == s_MatchStage;
+}
+
+/**
+ * A seat nobody has, whose player is out of play (netSeatVacate: dead,
+ * hidden, solid to nothing) and not about to come back (a joiner's GO sets
+ * dostartnewlife, and lvRender's pass is where the respawn happens). Its
+ * view is not built: nothing in it shoots, moves, picks up or is sent.
+ */
+static s32 netHostPassIdle(s32 playernum)
+{
+	const struct player *p;
+	s32 slot;
+
+	if (s_Role != NETROLE_HOST || !netSessionMatchActive() || playernum < 0 || playernum >= MAX_PLAYERS) {
+		return 0;
+	}
+
+	p = g_Vars.players[playernum];
+	slot = g_Vars.playerstats[playernum].mpindex;
+
+	return p && p->isdead && !p->dostartnewlife && slot >= 0 && slot < MAX_PLAYERS
+		&& s_Seats[slot].state == NETSEAT_OPEN && !s_Seats[slot].vacate;
+}
+
+/**
+ * After playermgrShuffle on a host: the out-of-play seats last, the others
+ * in the order dealt, so the work keyed to the frame's first pass
+ * (currentplayerindex 0: bgTick's, propsTickPlayer's frame start, the
+ * swirl) is a player's that runs - as netClientOrderPlayers does for a
+ * client's own.
+ */
+void netHostOrderPlayers(void)
+{
+	s32 order[MAX_PLAYERS];
+	s32 n = 0;
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (!netHostPassIdle(g_Vars.playerorder[i])) {
+			order[n++] = g_Vars.playerorder[i];
+		}
+	}
+
+	if (n == MAX_PLAYERS) {
+		return;
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (netHostPassIdle(g_Vars.playerorder[i])) {
+			order[n++] = g_Vars.playerorder[i];
+		}
+	}
+
+	memcpy(g_Vars.playerorder, order, sizeof(order));
+}
+
+/**
+ * lvRender's player loop on a host: 1 to skip an out-of-play seat's view
+ * (in a lobby room every member slot is a seat, so a room of four played
+ * alone built four views a frame for the one it drew), otherwise whether
+ * this pass is the last that runs (propsTickPlayer's updateframe). The
+ * frame's first pass always runs.
+ */
+s32 netHostRenderPass(s32 order, s32 count, s32 *islast)
+{
+	s32 j;
+
+	if (order > 0 && netHostPassIdle(playermgrGetPlayerAtOrder(order))) {
+		s_IdlePasses++;
+		return 1;
+	}
+
+	*islast = 1;
+
+	for (j = order + 1; j < count; j++) {
+		if (!netHostPassIdle(playermgrGetPlayerAtOrder(j))) {
+			*islast = 0;
+			break;
+		}
+	}
+
+	return 0;
 }
 
 // gecinema.c: a client's stage loaded and the host's GO still to come

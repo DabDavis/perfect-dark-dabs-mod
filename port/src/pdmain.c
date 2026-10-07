@@ -747,6 +747,7 @@ void mainTick(void)
 			lvTick();
 			playermgrShuffle();
 			if (NET_CLIENT) netClientOrderPlayers(); // netplay: this machine's player is index 0 (the frame's first pass)
+			else if (g_NetMode == NETMODE_SERVER) netHostOrderPlayers(); // netplay: out-of-play seats last
 
 			if (STAGE_IS_LEVEL(g_StageNum)) {
 				for (i = 0; i < PLAYERCOUNT(); i++) {

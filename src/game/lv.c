@@ -1364,6 +1364,7 @@ Gfx *lvRender(Gfx *gdl)
 			}
 
 			if (g_NetMode == NETMODE_CLIENT && netClientRenderPass(i, playercount, &islastplayer)) continue; // netplay: a puppet player's view is not simulated here
+			if (g_NetMode == NETMODE_SERVER && netHostRenderPass(i, playercount, &islastplayer)) continue; // netplay: nor an out-of-play seat's on a host
 
 #ifndef PLATFORM_N64
 			// a mesh's kept pose is drawn under this view's camera, not the last view's

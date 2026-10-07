@@ -266,6 +266,10 @@ s32 netClientRenderPass(s32 order, s32 count, s32 *islast);
 // index 0 (the swirl, propsTickPlayer's frame start, bgTick) run in its
 // pass when the others are skipped
 void netClientOrderPlayers(void);
+// the host's: an out-of-play seat's view is not built, and goes last in the
+// order so the frame's first pass is one that runs (netsession.c)
+void netHostOrderPlayers(void);
+s32 netHostRenderPass(s32 order, s32 count, s32 *islast);
 // a client in a match's stage, from its load (setup.c's scenario props)
 s32 netClientInMatch(void);
 // setup.c, in place of scenarioInitProps: 1 on a client, whose scenario
