@@ -123,15 +123,134 @@ be identical), `python3 tools/pdlobbyd/test_pdlobbyd.py` and
 mingw one in `build-win` (re-run `cmake -Bbuild . && cmake -Bbuild-win .`
 after adding a file, or the Windows link fails).
 
-**Statistical gates get one solo rerun.** neteventtest's audio check,
-netscenariotest's King of the Hill, netnattest's case c, netpredicttest's
-sims case (head data refused) and netlagcomptest's on (hit rate 93.9%),
-loss and soak cases each failed once in a full sequential run and passed
-alone. netscenariotest's htmloss ("not played enough": the download
-started, then "Connection broken") fails alone too, about half the time
-on the phase 7 binary as well (2 of 3 on 2026-10-06; 4 of 5 on phase 8's):
-a flake of the case, not a regression; replaytest's `randrun` case flips between two hashes on the base
-binary too. Rerun the one gate alone before looking for a regression.
+**Flaky gates, and what made them deterministic (2026-10-06).** Each was
+fixed at its cause, not by lowering its bar (netlagcomptest's loss case is
+the one still statistical):
+
+- netscenariotest htm/htmloss ("client's downloads 0"): Hack That Mac's
+  download breaks past 45 degrees or 250 units. The staging now keeps the
+  terminal in front of the staged player for the download's 20 seconds (a
+  per-tick gdb breakpoint on the host, `HtmKeeper`, put back only when it
+  drifted), in the background while the HUD is screenshotted.
+- netscenariotest koh ("points 0"): nobody held the hill ten seconds alone
+  in two minutes. The staging (`koh()`) moves the hill to the invincible
+  client's own room (lights and all, which the client follows), so its
+  team scores; the hill then moves on as usual.
+- neteventtest audio: three causes. (1) A real bug: the sound player's
+  event queue (`sndpconfig.maxEvents` 64) filled within seconds on a net
+  client with eight sims, and `n_alEvtqPostEvent` drops what does not fit:
+  a lost PLAY left a state allocated and never heard, so shots went silent
+  (34-53% heard on bad runs). PC builds now have 512 (heap room checked: ~120 KB
+  free, 512 items 28 KB). What still filled even 512: a client holding its
+  clock (ahead of a host stalled by the staging's gdb; a real host's hitch
+  does the same) ran no ticks, so `schedAudioFrame` mixed nothing and the
+  synth stood still while each frame posted its sounds' pan and effect
+  changes (249 PAN and 248 FX events in the full queue). It now mixes a
+  frame whenever a tickless frame finds the output under 1100 samples.
+  A full queue's dropped event is logged once ("audio: an event queue is
+  full"), and the gate fails a client that logs it. (2) "Near" was a
+  straight-line distance; a sim behind walls is quiet. The client's event
+  log now carries the volume the game itself gives that gun's sound from
+  there (`vol`, `psGetTheoreticalVolPan`), and the check takes shots at a
+  sixteenth of full or more. (3) Sample size: a two-minute match, with
+  its score limits off (`--net-test-scorelimit 100
+  --net-test-teamscorelimit 400`: the team limit counts even without teams
+  and ended the match at 30-45 seconds, sometimes before the staged
+  explosion), and a second round of sims staged in front of the
+  client. The bar (60% heard, four times the random rate) is unchanged;
+  the sample it needs went from 5 shots begun in a quiet moment to 30
+  (38-92 in eight runs): a client that worked volumes out too low would shrink
+  the sample, not pass on it.
+- netlagcomptest on/loss: 33 shots put one run at 93.9% on two misses.
+  `--net-test-input` kept only 256 script lines, so the shooter (a line
+  every 30 ticks) silently stopped at tick 7800; the cap is 4096 and a
+  longer script now says it was cut. The rate runs are 8400 frames with the
+  shooter firing to tick 7800 (36-65 shots the shooter saw hit, against
+  33) and need at least 30 behind the rate; the 95% bar is unchanged.
+  **Still statistical.** Firing past 7800 (now possible) showed the target
+  pinned on Temple's wall near x 6270, where grazing shots (the ray 46-50
+  units from the target's place) that the shooter saw hit miss on the host
+  with the view tick equal to 0.01, no loss and no extrapolation: 4 of 65
+  in a run without loss. Under 2% loss misses ran 0 to 9 of 52-76 in
+  three-minute runs. A lag compensation question for its own phase (the
+  rewound pose against the drawn one: an anim frame, a blocked strafe, or
+  a lost snapshot interpolated across); until then a rate failure gets one
+  solo rerun.
+  **Narrowed 2026-10-07** (on-case runs at 77.6% and 91.8%, 11 and 4
+  misses, all with the target pinned at x 6270, which in those runs was
+  from about tick 1300 on, not 7200): with `--net-lagcomp-debug` on the
+  host, every missed shot had the same origin on both machines (to 0.1),
+  the same view tick, and the host's rewound target place equal to the
+  shooter's puppet (to 0.1), but a different direction: dir.y off by
+  0.011-0.020, about 30-50 units at the 2600-unit range, so the grazing
+  shots a pinned target gets flip. The cause is the crosshair: the
+  shooter's sat centred (`crosspos` 160.0 110.0) while the host's run of
+  the same commands had it swivelled to the autoaim target (160.5 107.4);
+  `autoaimx/y` were near equal (-0.034 / -0.029) or one side had none.
+  So the remote player's autoaim lock (`autoxaimprop`/`autoyaimprop`,
+  `canautoaim` in `bmoveUpdate`'s swivel branch) differs between the two
+  machines.
+  **Found 2026-10-07 (the user: auto-aim is to work online, not be turned
+  off):** a per-tick trace of the aim on both machines (`--net-lagcomp-debug`
+  on the shooter and the host: an `A` line per tick with the lock, autoaimx/y,
+  the crosshair and the view angles, and an `M` line per other player with
+  the lock test's inputs, `chrCalculateAutoAim` + `func0f06438c` run again
+  on the matrices as autoaimTick saw them; scratchpad `aimdiff.py` and
+  `lockdiff.py` lined them up by command) showed the two machines with the
+  same view angles and the target's matrices within half a unit, yet the
+  host locking on 17-18 ticks before the client every time. The one input
+  left was the lock test's line of sight, `cdTestLos03` from the shooter to
+  `prop->pos`: the pass rewinds a chr's matrices, not its prop's place, so
+  the host tested the line to where the strafing target was *now*, 17 ticks
+  on, and it cleared a wall's edge ticks before the line to the puppet did.
+  `netLagCompAimPos()` (netlagcomp.c) now gives func0f06438c the rewound
+  place of a chr rewound for this pass (`s_Rew[].rewpos`), prop->pos
+  otherwise, and the GE tile walk gets the same. After it the lock starts on
+  the same command on both (8388 of 8389 ticks the same target, the
+  crosshair within half a pixel on 95% of ticks, from 74% and 51%); what is
+  left is the puppet's interpolation between snapshots against the host's
+  per-tick ring (about 6 units for 5 ticks at a strafe reversal) and the
+  isolated 180-unit "jumps" in the trace on a shot's tick, which are the
+  trace reading live matrices after the shot ended the rewind, not a fault.
+  The aim is still not in the predicted state (netmove): a lock that still
+  parts is never corrected by the host; carrying it would mean a protocol
+  bump and a visible nudge of the crosshair, left for when a run shows the
+  need. MPOPTION_NOAUTOAIM is the match's own option again; nothing forces
+  it.
+- netpredicttest sims ("head data refused 1"): a block taken at the tick of
+  a death or respawn carries the head's death animation (`headanim -1`,
+  `bheadStartDeathAnimation`), real data that was counted as refused. It is
+  kept out of the head (as before) and counted apart ("death heads kept"),
+  but only within 120 ticks of a block that has this player dead, or is a
+  respawn or teleport (`netPredDeathCheck`): a death head away from any is
+  counted refused and fails the gate, so a host sending death heads for a
+  living player cannot pass. Out-of-range head data still counts as refused.
+  A second sims flake ("walks' first ticks moved the player otherwise",
+  4.13 on the host against 0.76 here, one run in five): the host's player
+  was already moving under a sim's push (2.4 units a tick on neutral
+  commands) when the walk began, which the client learns only from later
+  blocks. Such a walk is counted apart ("while the host had the player
+  pushed"); every walk begun from rest on both machines is still compared
+  to 0.05 units.
+- netsnaptest hostile (unparsable summary line): its games were the only
+  ones without `stdbuf -oL -eL`; block-buffered stdout broke a 700-byte
+  summary line mid-way and a stderr warning landed inside it. Line-buffered
+  now, and the check reads the last whole summary line.
+- netnattest c ("host sprayed"/"path is not direct", not reproduced in ten
+  runs, loaded or not): a public host (the lobby sees its socket at its own
+  address: `rdv: no NAT here`) now waits 2.5 s, not 1 s, before spraying a
+  joiner that has not come by itself, and never marks its reply (or its
+  spray) SPRAYED, so a late joiner's path is direct. Not root-caused: a
+  guess at a joiner later than the 1 s window on a loaded machine. The
+  joiner takes its path's kind from the host's PUNCH_REPLY flag alone
+  (`rdvOnPunchReply`; a spray is a PUNCH, whose flag it never reads). The
+  kind is a label (the roster's netinfo, logs): a public host behind a
+  stateful firewall that only its spray opens is really a punch, and is now
+  called direct. On loopback lobbies (`no NAT here` every time) the longer
+  window delays nothing: the joiner reaches the host before any spray.
+
+replaytest's `randrun` case flips between two hashes on the base binary too
+(pre-existing); rerun `CASES=randrun` alone before looking for a regression.
 
 **The Windows lobby client under wine.** `netlobbywinetest.sh` stages
 `build-win/pd.x86_64.exe` in `build/netlobbywine-out/win/` with

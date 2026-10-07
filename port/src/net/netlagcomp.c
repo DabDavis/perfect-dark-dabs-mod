@@ -16,6 +16,8 @@
 #include "lib/mtx.h"
 #include "lib/vi.h"
 #include "game/bondmove.h"
+#include "game/bondgun.h"
+#include "game/prop.h"
 #include "game/camera.h"
 #include "game/chr.h"
 #include "game/gfxmemory.h"
@@ -1090,6 +1092,34 @@ static void netLcRestore(void)
 }
 
 /**
+ * The place the autoaim's line of sight is tested to (func0f06438c): a chr
+ * rewound for this pass is where the remote player saw it, as its matrices
+ * are, not where it is now (a strafing target was 17 ticks on, and the line
+ * to it cleared a wall's edge on the host ticks before it did on the client:
+ * the host locked on first, and the two crosshairs parted for every lock)
+ */
+const struct coord *netLagCompAimPos(struct prop *prop)
+{
+	static struct coord pos;
+	s32 i;
+
+	if (g_NetMode != NETMODE_SERVER || !s_InPass) {
+		return &prop->pos;
+	}
+
+	for (i = 0; i < s_NumRew; i++) {
+		if (s_Rew[i].prop == prop) {
+			pos.x = s_Rew[i].rewpos[0];
+			pos.y = s_Rew[i].rewpos[1];
+			pos.z = s_Rew[i].rewpos[2];
+			return &pos;
+		}
+	}
+
+	return &prop->pos;
+}
+
+/**
  * lvRender, before autoaimTick in a remote player's pass: with the autoaim
  * on for its gun, its autoaim picks and follows the others where it saw
  * them (as its own machine's did), so every chr on its screen then is
@@ -1587,4 +1617,101 @@ void netLagCompMatchStopped(void)
 	s_Hist = NULL;
 	s_Life = NULL;
 	s_HistSlots = 0;
+}
+
+/*
+ * --net-lagcomp-debug: one line per tick of a player's aim, on the host for
+ * each remote player (keyed by the command it played) and on a client for
+ * its own (keyed by the tick), after the pass's autoaimTick and the shots:
+ * what the two machines' autoaim and crosshair did with the same commands
+ */
+static void netLcPropName(const struct prop *prop, char *buf, s32 size)
+{
+	if (!prop) {
+		snprintf(buf, size, "-");
+	} else if (prop->type == PROPTYPE_PLAYER) {
+		snprintf(buf, size, "p%d", playermgrGetPlayerNumByProp((struct prop *)prop));
+	} else if (prop->type == PROPTYPE_CHR) {
+		snprintf(buf, size, "c%d", (s32)(prop - g_Vars.props));
+	} else {
+		snprintf(buf, size, "o%d", (s32)(prop - g_Vars.props));
+	}
+}
+
+void netLagCompAimTrace(void)
+{
+	const s32 slot = g_Vars.currentplayernum;
+	struct player *p = g_Vars.currentplayer;
+	char xp[16];
+	char yp[16];
+	u32 cmd;
+	f64 view = -1;
+	s32 tg;
+	s32 op;
+	f32 tpos[3] = {0, 0, 0};
+
+	if (!s_Log || !s_Debug || !p || g_NetReplaying || g_NetPass < NETPASS_TICK || !netSessionMatchActive()) {
+		return;
+	}
+
+	if (g_NetMode == NETMODE_SERVER) {
+		if (!netPlayersHostSlotIsRemote(slot)) {
+			return;
+		}
+
+		cmd = netPlayersHostLastPlayed(slot);
+	} else if (g_NetMode == NETMODE_CLIENT && slot == g_NetLocalSlot) {
+		cmd = g_NetTick;
+		netPuppetsViewTick(&view, NULL);
+	} else {
+		return;
+	}
+
+	netLcPropName(p->autoxaimprop, xp, sizeof(xp));
+	netLcPropName(p->autoyaimprop, yp, sizeof(yp));
+
+	// the last other player's place as this machine has it (the harness's target)
+	for (tg = PLAYERCOUNT() - 1; tg >= 0; tg--) {
+		if (tg != slot && g_Vars.players[tg] && g_Vars.players[tg]->prop) {
+			tpos[0] = g_Vars.players[tg]->prop->pos.x;
+			tpos[1] = g_Vars.players[tg]->prop->pos.y;
+			tpos[2] = g_Vars.players[tg]->prop->pos.z;
+			break;
+		}
+	}
+
+	// the lock test's inputs for every other player on this screen, as autoaimTick would see them
+	for (op = 0; op < PLAYERCOUNT(); op++) {
+		struct prop *tp = op != slot && g_Vars.players[op] ? g_Vars.players[op]->prop : NULL;
+		struct model *tm = tp && tp->chr ? tp->chr->model : NULL;
+		struct coord c = {0, 0, 0};
+		f32 ex[2] = {0, 0};
+		f32 ey[2] = {0, 0};
+		f32 aim[2] = {0, 0};
+		s32 vis = 0;
+		f32 res = -9;
+
+		if (tp && tm && tm->matrices && tm->definition && tm->definition->nummatrices >= 2 && (tp->flags & PROPFLAG_ONTHISSCREENTHISTICK) && g_NetTick > 0) {
+			vis = chrCalculateAutoAim(tp, &c, ex, ey) ? 1 : 0;
+
+			if (vis) {
+				res = func0f06438c(tp, &c, ex, ey, aim, false, false, 0);
+			}
+
+			fprintf(s_Log, "M %u cmd %u tg %d flags %x m0 %.2f %.2f %.2f m1 %.2f %.2f %.2f vis %d c %.2f %.2f %.2f ex %.2f %.2f ey %.2f %.2f res %.3f aim %.2f %.2f cam %.1f %.1f %.1f look %.4f %.4f %.4f\n",
+					g_NetTick, cmd, op, tp->flags & PROPFLAG_ONTHISSCREENTHISTICK ? 1 : 0,
+					tm->matrices[0].m[3][0], tm->matrices[0].m[3][1], tm->matrices[0].m[3][2],
+					tm->matrices[1].m[3][0], tm->matrices[1].m[3][1], tm->matrices[1].m[3][2],
+					vis, c.x, c.y, c.z, ex[0], ex[1], ey[0], ey[1], res, aim[0], aim[1],
+					p->cam_pos.x, p->cam_pos.y, p->cam_pos.z, p->cam_look.x, p->cam_look.y, p->cam_look.z);
+		}
+	}
+
+	fprintf(s_Log, "A %u slot %d cmd %u view %.2f wpn %d en %d%d ins %d prop %s %s ax %.4f ay %.4f t %d %d damp %.4f cross %.2f %.2f hand %.2f %.2f sum %.4f %.4f cd %.4f swv %.3f %.3f scr %d th %.3f vt %.3f tg %d %.1f %.1f %.1f\n",
+			g_NetTick, slot, cmd, view, bgunGetWeaponNum(HAND_RIGHT),
+			bmoveIsAutoAimXEnabledForCurrentWeapon() ? 1 : 0, bmoveIsAutoAimYEnabledForCurrentWeapon() ? 1 : 0,
+			p->insightaimmode ? 1 : 0, xp, yp, p->autoaimx, p->autoaimy, p->autoxaimtime60, p->autoyaimtime60, p->autoaimdamp,
+			p->crosspos[0], p->crosspos[1], p->hands[0].crosspos[0], p->hands[0].crosspos[1],
+			p->crosspossum[0], p->crosspossum[1], p->guncrossdamp, p->swivelpos[0], p->swivelpos[1],
+			g_Vars.numonscreenprops, p->vv_theta, p->vv_verta, tg, tpos[0], tpos[1], tpos[2]);
 }

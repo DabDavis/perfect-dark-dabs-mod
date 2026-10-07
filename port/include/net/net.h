@@ -325,6 +325,8 @@ void netLagCompShotEnd(struct shotdata *sd, s32 isshooting, s32 cheap);
 // everything on its screen is rewound for the two)
 void netLagCompPassBegin(void);
 void netLagCompPassEnd(void);
+const struct coord *netLagCompAimPos(struct prop *prop); // the autoaim's line of sight to a chr: its rewound place in a remote pass
+void netLagCompAimTrace(void);  // --net-lagcomp-debug: a line per tick of a player's aim on both machines
 
 // The session's hooks (H1-H14, HA-HD)
 #include "net/netsession.h"

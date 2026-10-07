@@ -1481,6 +1481,7 @@ Gfx *lvRender(Gfx *gdl)
 				NET_REMOTE_PASS_BEGIN();
 				handsTickAttack();
 				NET_REMOTE_PASS_END();
+				if (g_NetMode != NETMODE_NONE) netLagCompAimTrace();
 				if (g_NetMode == NETMODE_SERVER) netLagCompPassEnd();
 
 #ifndef PLATFORM_N64

@@ -2922,16 +2922,23 @@ f32 func0f06438c(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3, f3
 		}
 
 		if (sp4c) {
+#ifndef PLATFORM_N64
+			// netplay: a chr the host rewound for a remote player's pass is
+			// tested where that player saw it (netlagcomp.c)
+			const struct coord *targetpos = g_NetMode != NETMODE_NONE ? netLagCompAimPos(prop) : &prop->pos;
+#else
+			const struct coord *targetpos = &prop->pos;
+#endif
 			playerprop = g_Vars.currentplayer->prop;
 
 			playerSetPerimEnabled(playerprop, false);
 
 			if (throughobjects) {
-				ok = cdTestLos03(&playerprop->pos, playerprop->rooms, &prop->pos,
+				ok = cdTestLos03(&playerprop->pos, playerprop->rooms, targetpos,
 						CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_BG,
 						GEOFLAG_BLOCK_SHOOT);
 			} else {
-				ok = cdTestLos03(&playerprop->pos, playerprop->rooms, &prop->pos,
+				ok = cdTestLos03(&playerprop->pos, playerprop->rooms, targetpos,
 						CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_BG,
 						GEOFLAG_BLOCK_SHOOT);
 			}
@@ -2947,7 +2954,7 @@ f32 func0f06438c(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3, f3
 			// 20261002-160509, 20261002-155820).
 			if (ok && geRoomActive() && prop->chr
 					&& geStanLinks(&playerprop->pos, g_Vars.currentplayer->vv_ground,
-						&prop->pos, prop->chr->ground, true) == 0) {
+						targetpos, prop->chr->ground, true) == 0) {
 				ok = false;
 			}
 #endif
