@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <math.h>
 #include <PR/ultratypes.h>
 #include <ultra64.h>
@@ -9,6 +10,9 @@
 #include "data.h"
 #include "system.h"
 #include "modloader.h"
+#include "gexplusrom.h"
+#include "gexfront.h"
+#include "geconvert.h"
 #include "game/bg.h"
 #include "game/coop.h"
 #include "game/lv.h"
@@ -85,6 +89,18 @@ extern s32 g_CutsceneTweenDuration60;
 struct netcoopsetup g_NetCoopSetup = { 0, 0, DIFF_A, 1, 0 };
 
 static s32 s_HostMatch = 0;       // host: the match H1 is starting (or running) is a co-op mission
+static char s_HostGame[16];       // host: the mission's set ("" Perfect Dark's, else a conversion's tag)
+static const char *s_HostVariantBefore; // host: g_GexPlusVariant before a conversion's mission, put back after
+
+// a campaign room: the host plays its set's missions from its own menus
+static struct {
+	s32 on;
+	char game[16];
+	s32 radar;
+	s32 friendlyfire;
+} s_Campaign;
+
+extern struct menudialogdef g_CiMenuViaPcMenuDialog;
 static s32 s_ClientMatch = 0;     // client: RULES said a mission
 static u8 s_ObjStatus[MAX_OBJECTIVES];
 static s32 s_HaveObj = 0;
@@ -123,19 +139,170 @@ s32 netCoopHostMatch(void)
 	return s_HostMatch;
 }
 
+const char *netCoopHostGame(void)
+{
+	return s_HostGame;
+}
+
+/*
+ * The mission sets (protocol 14): Perfect Dark's own twenty, GoldenEye's
+ * converted from the ROM, and each ROM hack's. A set is named by its
+ * conversion's tag ("ge", "gf64", "tnd64"; "" Perfect Dark's), which both
+ * machines resolve in their own conversions: the missions of a set are the
+ * mod loader's for that conversion whatever Combat Simulator mode is chosen
+ * (modloaderMissionStageOf).
+ */
+
+/**
+ * The g_GexPlusVariant a set plays under (NULL for Perfect Dark's and
+ * GoldenEye's own, the hack's converted name for its), in *variant; 0 when
+ * the tag names a hack not converted here
+ */
+static s32 netCoopGameVariant(const char *game, const char **variant)
+{
+	*variant = NULL;
+
+	if (!game || !game[0] || strcasecmp(game, geconvertGoldenEyeTag()) == 0) {
+		return 1;
+	}
+
+	// the hack converted here, or its folder as the host served it (netcontent.c)
+	*variant = netContentVariantName(game);
+
+	return *variant != NULL;
+}
+
+static s32 netCoopIsPdGame(const char *game)
+{
+	return !game || !game[0];
+}
+
+/** The stage a set's mission runs here, 0 when the set or the mission is not here */
+static s32 netCoopMissionStage(const char *game, s32 index)
+{
+	const char *variant;
+
+	if (netCoopIsPdGame(game)) {
+		return index >= 0 && index <= SOLOSTAGEINDEX_WAR ? g_SoloStages[index].stagenum : 0;
+	}
+
+	if (!netCoopGameVariant(game, &variant)) {
+		return 0;
+	}
+
+	return modloaderMissionStageOf(variant, index);
+}
+
+const char *netCoopGameName(const char *game)
+{
+	const char *dir;
+
+	if (netCoopIsPdGame(game)) {
+		return "Perfect Dark";
+	}
+
+	if (strcasecmp(game, geconvertGoldenEyeTag()) == 0) {
+		return "GoldenEye";
+	}
+
+	dir = gexPlusRomDirOfTag(game);
+
+	return dir ? dir : game;
+}
+
+s32 netCoopGameMissions(const char *game)
+{
+	const char *variant;
+
+	if (netCoopIsPdGame(game)) {
+		return SOLOSTAGEINDEX_WAR + 1;
+	}
+
+	if (!netCoopGameVariant(game, &variant)) {
+		return 0;
+	}
+
+	return modloaderNumMissionsOf(variant);
+}
+
+/**
+ * The sets a room here can offer, in order: Perfect Dark's, then GoldenEye's
+ * and each hack's that has a mission converted. The n-th into tag; 0 past
+ * the end.
+ */
+s32 netCoopGameTag(s32 n, char *tag, s32 size)
+{
+	s32 k = 0;
+	s32 i;
+
+	if (n == 0) {
+		tag[0] = '\0';
+		return 1;
+	}
+
+	if (netCoopGameMissions(geconvertGoldenEyeTag()) > 0 && ++k == n) {
+		snprintf(tag, size, "%s", geconvertGoldenEyeTag());
+		return 1;
+	}
+
+	for (i = 0; geconvertVariantTagAt(i); i++) {
+		if (netCoopGameMissions(geconvertVariantTagAt(i)) > 0 && ++k == n) {
+			snprintf(tag, size, "%s", geconvertVariantTagAt(i));
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+const char *netCoopMissionNameOf(const char *game, s32 index)
+{
+	const s32 stage = netCoopMissionStage(game, index);
+	const char *name;
+
+	if (netCoopIsPdGame(game)) {
+		return netCoopMissionName(index);
+	}
+
+	name = stage > 0 ? modloaderGetStageMapName(stage) : NULL;
+
+	return name && name[0] ? name : "?";
+}
+
 s32 netCoopRulesOk(const struct netcooprules *r)
 {
-	return r->stageindex <= SOLOSTAGEINDEX_WAR && r->difficulty <= DIFF_PA;
+	if (r->difficulty > DIFF_PA) {
+		return 0;
+	}
+
+	if (netCoopIsPdGame(r->game)) {
+		return r->stageindex <= SOLOSTAGEINDEX_WAR;
+	}
+
+	return r->stageindex < MODLOADER_MAX_MISSIONS;
 }
 
 // H3, from netRulesApply on a client: the host's mission
 void netCoopClientApplyRules(const struct netcooprules *r)
 {
+	const char *variant = NULL;
+
+	// a conversion's mission plays under its set's mode (a hack's name, or
+	// none for GoldenEye's own): the mission systems key off the stage,
+	// the list it is looked up in off this (netRulesRestore puts it back)
+	if (!netCoopIsPdGame(r->game)) {
+		if (!netCoopGameVariant(r->game, &variant)) {
+			sysLogPrintf(LOG_WARNING, "net: co-op: the host's mission set \"%s\" is not converted here", r->game);
+		}
+
+		g_GexPlusVariant = variant;
+	}
+
 	g_MissionConfig.iscoop = true;
 	g_MissionConfig.isanti = false;
 	g_MissionConfig.pdmode = false;
 	g_MissionConfig.stageindex = r->stageindex;
-	g_MissionConfig.stagenum = g_SoloStages[r->stageindex].stagenum;
+	g_MissionConfig.stagenum = netCoopMissionStage(r->game, r->stageindex);
 	g_MissionConfig.difficulty = r->difficulty;
 	g_Vars.coopradaron = r->radar ? true : false;
 	g_Vars.coopfriendlyfire = r->friendlyfire ? true : false;
@@ -145,9 +312,9 @@ void netCoopClientApplyRules(const struct netcooprules *r)
 	{
 		char name[48];
 
-		sysLogPrintf(LOG_NOTE, "net: co-op: the host's mission is %s (index %d, stage 0x%02x) on difficulty %d, radar %d, friendly fire %d",
-				netCoopClean(langGet(g_SoloStages[r->stageindex].name3), name, sizeof(name)), r->stageindex, g_MissionConfig.stagenum,
-				r->difficulty, r->radar, r->friendlyfire);
+		sysLogPrintf(LOG_NOTE, "net: co-op: the host's mission is %s (%s, index %d, stage 0x%02x) on difficulty %d, radar %d, friendly fire %d",
+				netCoopClean(netCoopMissionNameOf(r->game, r->stageindex), name, sizeof(name)), netCoopGameName(r->game), r->stageindex,
+				g_MissionConfig.stagenum, r->difficulty, r->radar, r->friendlyfire);
 	}
 }
 
@@ -209,8 +376,9 @@ void netCoopModeName(s32 difficulty, char *out, s32 size)
  * with the session's seats as the players (H1) and the mission in RULES.
  * Returns 0 and a notice when it cannot.
  */
-s32 netCoopHostStart(s32 stageindex, s32 difficulty, s32 radar, s32 friendlyfire)
+s32 netCoopHostStart(const char *game, s32 stageindex, s32 difficulty, s32 radar, s32 friendlyfire)
 {
+	const char *variant = NULL;
 	s32 numplayers;
 	s32 stagenum;
 
@@ -218,16 +386,33 @@ s32 netCoopHostStart(s32 stageindex, s32 difficulty, s32 radar, s32 friendlyfire
 		return 0;
 	}
 
-	if (stageindex < 0 || stageindex > SOLOSTAGEINDEX_WAR || difficulty < DIFF_A || difficulty > DIFF_PA) {
-		sysLogPrintf(LOG_WARNING, "net: co-op: mission index %d / difficulty %d cannot be played online", stageindex, difficulty);
+	if (!game) {
+		game = "";
+	}
+
+	stagenum = netCoopMissionStage(game, stageindex);
+
+	if (stagenum <= 0 || difficulty < DIFF_A || difficulty > DIFF_PA || !netCoopGameVariant(game, &variant)) {
+		sysLogPrintf(LOG_WARNING, "net: co-op: mission %d of %s / difficulty %d cannot be played online (stage 0x%02x)",
+				stageindex, netCoopGameName(game), difficulty, stagenum);
 		return 0;
 	}
 
-	stagenum = g_SoloStages[stageindex].stagenum;
+	snprintf(s_HostGame, sizeof(s_HostGame), "%s", game);
+
+	// a conversion's mission plays under its set's mode (netCoopClientApplyRules)
+	if (!netCoopIsPdGame(game)) {
+		s_HostVariantBefore = g_GexPlusVariant;
+		g_GexPlusVariant = variant;
+	}
 
 	g_MissionConfig.iscoop = true;
 	g_MissionConfig.isanti = false;
-	g_MissionConfig.pdmode = false;
+	// a campaign's host keeps what its folder set (GoldenEye's 007 is
+	// Perfect Dark's PD Mode with its sliders): the host runs the simulation
+	if (!s_Campaign.on) {
+		g_MissionConfig.pdmode = false;
+	}
 	g_MissionConfig.stageindex = stageindex;
 	g_MissionConfig.stagenum = stagenum;
 	g_MissionConfig.difficulty = difficulty;
@@ -263,8 +448,8 @@ s32 netCoopHostStart(s32 stageindex, s32 difficulty, s32 radar, s32 friendlyfire
 		char name[48];
 		char diff[32];
 
-		sysLogPrintf(LOG_NOTE, "net: co-op: starting %s (index %d, stage 0x%02x) on %s with %d players, radar %d, friendly fire %d",
-				netCoopClean(netCoopMissionName(stageindex), name, sizeof(name)), stageindex, stagenum,
+		sysLogPrintf(LOG_NOTE, "net: co-op: starting %s (%s, index %d, stage 0x%02x) on %s with %d players, radar %d, friendly fire %d",
+				netCoopClean(netCoopMissionNameOf(game, stageindex), name, sizeof(name)), netCoopGameName(game), stageindex, stagenum,
 				netCoopClean(netCoopDifficultyName(difficulty), diff, sizeof(diff)), numplayers, radar, friendlyfire);
 	}
 
@@ -292,6 +477,29 @@ s32 netCoopAcceptMission(void)
 
 	stageindex = g_MissionConfig.stageindex;
 
+	// a campaign room: whatever mission the host's menus start - Perfect
+	// Dark's briefing (solo or co-op), GoldenEye's folder, a ROM hack's - is
+	// the session's next co-op match, with the seats as the players
+	if (s_Campaign.on) {
+		const char *game = "";
+		const char *dir = modloaderStageIsMission(g_MissionConfig.stagenum) ? modloaderGetStageModDir(g_MissionConfig.stagenum) : NULL;
+		const char *tag = dir ? gexPlusRomDirTag(dir) : NULL;
+
+		if (tag) {
+			game = tag;
+		} else if (dir || stageindex > SOLOSTAGEINDEX_WAR || g_SoloStages[stageindex].stagenum != g_MissionConfig.stagenum) {
+			netSessionNoticeSet("This mission cannot be played online.");
+			sysLogPrintf(LOG_NOTE, "net: co-op: campaign: refused to start stage 0x%02x (index %d) online", g_MissionConfig.stagenum, stageindex);
+			return 1;
+		}
+
+		if (!netCoopHostStart(game, stageindex, g_MissionConfig.difficulty, s_Campaign.radar, s_Campaign.friendlyfire)) {
+			netSessionNoticeSet("This mission cannot be played online.");
+		}
+
+		return 1;
+	}
+
 	if (!g_MissionConfig.iscoop || g_MissionConfig.isanti || g_Vars.numaibuddies > 0
 			|| stageindex > SOLOSTAGEINDEX_WAR || g_SoloStages[stageindex].stagenum != g_MissionConfig.stagenum
 			|| modloaderStageIsRemake(g_MissionConfig.stagenum)) {
@@ -301,21 +509,100 @@ s32 netCoopAcceptMission(void)
 		return 1;
 	}
 
-	netCoopHostStart(stageindex, g_MissionConfig.difficulty, g_Vars.coopradaron, g_Vars.coopfriendlyfire);
+	netCoopHostStart("", stageindex, g_MissionConfig.difficulty, g_Vars.coopradaron, g_Vars.coopfriendlyfire);
 	return 1;
 }
 
-// --net-test-coop INDEX (with --net-test-difficulty, --net-test-coop-ff):
-// the gates' mission in place of a match; -1 when not asked for
+/*
+ * A campaign room: the host plays its set's missions from its own menus
+ * (the user, 2026-10-07: "start the whole mode ... host controls
+ * everything, and game is seamless like offline"). The room's launch opens
+ * the host's menus for the set rather than a match; every mission the host
+ * starts there is the session's next co-op match (netCoopAcceptMission),
+ * and after it the host is back in those menus while the guests are back
+ * in the room, pulled into the next mission by its STAGE_LOAD.
+ */
+s32 netCoopCampaignOn(void)
+{
+	return s_Campaign.on;
+}
+
+void netCoopCampaignEnd(void)
+{
+	if (s_Campaign.on) {
+		sysLogPrintf(LOG_NOTE, "net: co-op: the %s campaign is over", netCoopGameName(s_Campaign.game));
+	}
+
+	memset(&s_Campaign, 0, sizeof(s_Campaign));
+}
+
+// the host's menus for the set: the Perfect Menu, or the set's folder over it
+static void netCoopCampaignMenus(s32 afterMission)
+{
+	const char *variant = NULL;
+
+	menuPushRootDialog(&g_CiMenuViaPcMenuDialog, MENUROOT_MAINMENU);
+
+	if (netCoopIsPdGame(s_Campaign.game)) {
+		return;
+	}
+
+	netCoopGameVariant(s_Campaign.game, &variant);
+	g_GexPlusVariant = variant;
+
+	if (afterMission) {
+		gexFrontOpenAfterMission();
+	} else if (!gexFrontOpen()) {
+		sysLogPrintf(LOG_WARNING, "net: co-op: campaign: the %s folder did not open", netCoopGameName(s_Campaign.game));
+	}
+}
+
+/** The room's launch: the campaign begins in the host's menus (no match yet) */
+s32 netCoopCampaignOpen(const char *game, s32 radar, s32 friendlyfire)
+{
+	const char *variant;
+
+	if (g_NetMode != NETMODE_SERVER || !netCoopGameVariant(game ? game : "", &variant)) {
+		return 0;
+	}
+
+	memset(&s_Campaign, 0, sizeof(s_Campaign));
+	s_Campaign.on = 1;
+	s_Campaign.radar = radar;
+	s_Campaign.friendlyfire = friendlyfire;
+	snprintf(s_Campaign.game, sizeof(s_Campaign.game), "%s", game ? game : "");
+	sysLogPrintf(LOG_NOTE, "net: co-op: the %s campaign begins: the host picks the missions in its menus", netCoopGameName(s_Campaign.game));
+	netCoopCampaignMenus(0);
+
+	return 1;
+}
+
+s32 netCoopCampaignAfterMatch(void)
+{
+	if (!s_Campaign.on || g_NetMode != NETMODE_SERVER) {
+		return 0;
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: co-op: campaign: back to the %s menus for the next mission", netCoopGameName(s_Campaign.game));
+	netCoopCampaignMenus(1);
+	playerPause(MENUROOT_MAINMENU);
+
+	return 1;
+}
+
+// --net-test-coop INDEX (with --net-test-difficulty, --net-test-coop-ff,
+// --net-test-coop-game TAG: a conversion's set, protocol 14): the gates'
+// mission in place of a match; -1 when not asked for
 s32 netCoopTestStart(void)
 {
 	const s32 index = sysArgGetInt("--net-test-coop", -1);
+	const char *game = sysArgGetString("--net-test-coop-game");
 
 	if (index < 0) {
 		return 0;
 	}
 
-	return netCoopHostStart(index, sysArgGetInt("--net-test-difficulty", DIFF_A), 1, sysArgCheck("--net-test-coop-ff"));
+	return netCoopHostStart(game ? game : "", index, sysArgGetInt("--net-test-difficulty", DIFF_A), 1, sysArgCheck("--net-test-coop-ff"));
 }
 
 /*
@@ -358,7 +645,14 @@ void netCoopMatchStopped(void)
 		sysLogPrintf(LOG_NOTE, "net: co-op client: %u mission blocks applied, %u cutscene starts, %u ends", s_BlocksApplied, s_CutStarts, s_CutEnds);
 	}
 
+	// the host's own mode back after a conversion's mission (a client's
+	// comes back with its rules, netRulesRestore)
+	if (g_NetMode == NETMODE_SERVER && s_HostMatch && s_HostGame[0]) {
+		g_GexPlusVariant = s_HostVariantBefore;
+	}
+
 	s_HostMatch = 0;
+	s_HostGame[0] = '\0';
 	s_ClientMatch = 0;
 	s_HaveObj = 0;
 }

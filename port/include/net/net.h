@@ -337,10 +337,12 @@ void netLagCompAimTrace(void);  // --net-lagcomp-debug: a line per tick of a pla
  */
 struct netcoopsetup {
 	s32 on;           // the lobby room is a co-op mission, not a match
-	s32 stageindex;   // g_SoloStages index (0 .. SOLOSTAGEINDEX_WAR)
+	s32 stageindex;   // the mission in its set: g_SoloStages index (0 .. SOLOSTAGEINDEX_WAR), or a conversion's mission number
 	s32 difficulty;   // DIFF_A/SA/PA
 	s32 radar;
 	s32 friendlyfire;
+	char game[16];    // the set: "" Perfect Dark's, else a conversion's tag ("ge", "gf64", "tnd64": protocol 14)
+	s32 campaign;     // the host picks the missions in its own menus (the set's folder); each one is the session's next match
 };
 extern struct netcoopsetup g_NetCoopSetup;
 // mainmenu.c Accept Mission in a net session: 1 handled (started, or refused with a notice)
@@ -355,8 +357,16 @@ s32 netCoopObjectiveStatus(s32 index, s32 *status);
 struct coord;
 void netCoopSpreadSpawn(struct coord *pos, s16 *rooms); // rooms: RoomNum[8]
 // the host starts a co-op mission for the session (lobby launch, tests); 1 started
-s32 netCoopHostStart(s32 stageindex, s32 difficulty, s32 radar, s32 friendlyfire);
+s32 netCoopHostStart(const char *game, s32 stageindex, s32 difficulty, s32 radar, s32 friendlyfire);
 const char *netCoopMissionName(s32 stageindex);      // "dataDyne Defection" (langGet's, with its newline)
+const char *netCoopMissionNameOf(const char *game, s32 index); // a set's mission ("Dam" of "ge"); "" PD's
+const char *netCoopGameName(const char *game);       // "Perfect Dark", "GoldenEye", a hack's name
+s32 netCoopGameMissions(const char *game);           // missions the set has here (0: not converted)
+s32 netCoopGameTag(s32 n, char *tag, s32 size);      // the n-th set offered here ("" first); 0 past the end
+// A campaign room (netcoop.c): the host plays its set's missions from its own menus, each the session's next co-op match
+s32 netCoopCampaignOn(void);
+void netCoopCampaignEnd(void);                       // the room is left
+s32 netCoopCampaignAfterMatch(void);                 // host, after a match: back to the set's menus; 1 handled
 void netCoopModeName(s32 difficulty, char *out, s32 size); // "Co-op Agent"
 
 // The session's hooks (H1-H14, HA-HD)

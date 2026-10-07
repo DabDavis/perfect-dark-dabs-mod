@@ -33,11 +33,15 @@
   PLANS/netplay/spec-coop.md): the host plays PD's own co-op widened to N,
   clients pose its world; the mission's state rides in the scenario block.
 - **Content follows the host** — the section of that name (`netcontent.c`,
-  protocol 13): a client plays the host's overlay mod, Stage Loader maps,
-  conversions and ROM hack mode from its own copies, never sent a file:
-  the content block in ACCEPT and RULES, the live swap and its restart
-  rule, on-demand map mounts, LOADED's "mod" component, the lobby's `mod`
-  and `ge` fields, what a refusal tells the player.
+  protocols 13 and 14): a client plays the host's overlay mod, Stage Loader
+  maps, conversions and ROM hack mode from its own copies (the content
+  block in ACCEPT and RULES, the live swap and its restart rule, on-demand
+  map mounts, LOADED's "mod" component, the lobby's `mod` and `ge` fields),
+  and a conversion or map mod it has not got is **served by the host** into
+  one of fs.c's memory directories (`$N/<name>`): only the host needs the
+  ROM. Also there: **co-op on the conversions' missions** (the mission
+  set in RULES, stage key kind 3) and **campaign rooms** (the host plays
+  its set's menus; each mission it starts is the room's next match).
 
 ## The shape
 
@@ -97,7 +101,7 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 `netproto.h` documents every message byte by byte (u8 type first, then
 fields through netbuf, never a struct copied whole), the channel each goes
 on (RULES and STAGE_LOAD share BULK so a STAGE_LOAD never overtakes its
-RULES), the refusal codes, and the protocol history. Protocol 13 is current (content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
+RULES), the refusal codes, and the protocol history. Protocol 14 is current (co-op on the conversions' missions: the mission block's set tag and stage key kind 3; content served by the host: CONTENT_REQ/BEGIN/FILE/END/NO; 13 was content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
 The lobby's HTTP API and the rendezvous/relay datagrams are in
 `tools/pdlobbyd/README.md`. A change to a message's shape or meaning bumps
 `NET_PROTOCOL_VERSION`; pdlobbyd lists a room's protocol and the Briefing
@@ -124,10 +128,10 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netpredicttest.sh` | 6.5 min | prediction at 0/150 ms, loss, wine client, sims, a time limit |
 | `netlagcomptest.sh` | 9 min | hits at 150 ms with and without lag compensation (on and loss: 8400 frames, at least 30 shots), loss, soak |
 | `netscenariotest.sh` | 21 min | every scenario, two lossy |
-| `netcontenttest.sh` | 8 min | GoldenEye arenas (YOLT: a client respawned by its START alone), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
+| `netcontenttest.sh` | 9 min | GoldenEye arenas (YOLT: a client respawned by its START alone), Goldfinger's mode (gfvariant, needs its zip in added-content), a client with nothing installed served the conversion by the host (fetch), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
-| `netcooptest.sh` | 8 min (pair 4.5, twelve 2, lobby 1.2) | online co-op (spec-coop.md): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission |
+| `netcooptest.sh` | 9 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
@@ -582,11 +586,75 @@ nothing is ever sent from one machine to another but names and hashes.
   restart / NOT INSTALLED HERE" (`roomContentNote`), or for a GoldenEye
   room whether its arenas are converted here, and the Game Lobby's weapons
   line names the mod.
+- **Served by the host (protocol 14).** The user, later the same day:
+  "only the host needs the rom conversion". A client whose STAGE_LOAD key
+  (kind 1 or 3) names a conversion or map mod it has not got, and could not
+  mount, keeps the STAGE_LOAD (`s_FetchStage`) and sends CONTENT_REQ; the
+  host (`netContentServeRequest`) serves only a dir it has mounted for its
+  maps (never its overlay, never a "$N/" dir), lists it without text,
+  caches, archives and ROMs but **with modconfig.txt** (the first cut
+  skipped every .txt, and the maps registered under their file names), and
+  sends CONTENT_FILE parts of 48 KB, two a tick on BULK
+  (`netContentServeTick`), with CONTENT_BEGIN/END round them and the load
+  deadline kept open meanwhile. The client puts the files in a memory
+  directory (fs.c: `fsMemDirCreate/AddFile/Seal`, path `$N/<name>`, which
+  fsFileSize/fsFileLoad/fsScanDir/fsFileOpenRead answer from the table;
+  `fsAddModDirWith` mounts such a path verbatim), mounts it for its maps,
+  `modloaderAddDir`s it and replays the kept STAGE_LOAD. GoldenEye Arenas
+  is 2905 files, 12.7 MB, 1.1 s on loopback; the stage hash (stan too) came
+  out the host's on a machine with no mods and no added content at all.
+  Nothing touches the client's disk; the memory lasts the process. A hack's
+  mode on such a client: `netContentVariantName(tag)` gives the hack's
+  converted name, else the served folder's name (a static copy), and both
+  `netContentVariantApply` and netcoop's set resolution go through it.
+  GE-X and the Mario characters (segs/) are not served: they load only at
+  a start.
+- **Co-op on the conversions' missions (protocol 14).** `g_NetCoopSetup.game`
+  / RULES' mission block `game`: "" Perfect Dark's, else a conversion tag;
+  `stageindex` is then the mission's number in that conversion
+  (`modloaderMissionStageOf(variant, n)`, the mode's list test factored out
+  of `modloaderMissionStage`). The host sets `g_GexPlusVariant` for a
+  hack's mission and puts it back at the match's end; a client applies it
+  from the tag. STAGE_LOAD's key is kind 3 (dir + mission number: a
+  mission's map name is its arena's, so a map key found the arena) and
+  `netClientBeginStage` sets `g_MissionConfig.stagenum` from the key's
+  stage. The room settings: a Missions dropdown (the sets converted here,
+  `netCoopGameTag`), the Mission list per set. `--net-test-coop-game TAG`
+  for the gates. GoldenEye's opening is gecinema's, run on each machine:
+  the client predicts while the host holds the player, so prediction
+  wobbles for the opening and settles (75% -> 83% matched in the smoke
+  run); not judged by the gate. GoldenEye's own code addresses players
+  through `g_Vars.currentplayernum`, so the pad-0 fear in spec-coop.md was
+  unfounded. The folder's REPORT page does not open online
+  (`gexFrontMissionReport` bails in co-op): PD's co-op end screen instead.
+- **Campaign rooms.** The user: "start the whole mode ... host controls
+  everything, and game is seamless like offline" and "same for PD
+  missions". Game = "<Set> Campaign" in Create Room (`g_NetCoopSetup.campaign`,
+  the lobby's `stage_key` "campaign:ge"); the launch
+  (`netSessionLobbyStartMatch`) opens the host's menus for the set instead
+  of a match (`netCoopCampaignOpen`: the Perfect Menu root, and the set's
+  folder over it through `gexFrontOpen`); `netCoopAcceptMission` then
+  takes any mission the host's menus start (the folder's
+  `frontStartMission` goes through Accept Mission) as the session's next
+  co-op match, the set from the stage's dir, the host's pdmode kept;
+  after it `netMenuAfterMatch` (menutick.c's one hook, replacing the
+  lobby-only call) sends a campaign host back to its set's menus
+  (`gexFrontOpenAfterMission` + the main menu root + `playerPause`), the
+  guests to the room, where the next STAGE_LOAD pulls them in (a guest
+  still on its end screen joins late, as before). `--net-test-campaign
+  TAG` opens one on a `--host` session eight seconds in. Verified on the
+  rig with gdb driving the folder (`set var g_Front.mission=N`,
+  `call frontStartMission()`): Dam then Facility, the guest fetching the
+  conversion first; the host's return to its folder after the end screen
+  is by code path only - a headless host's end screen cannot be dismissed
+  (`--net-test-input` feeds the match, not the menus, and
+  `menuPopDialog()` under gdb did not take it down).
 - **Not done.** A restart-and-rejoin for the segs/ mods (the game could
   relaunch itself with the mod selected for that run and join the room
   again: `updateRelaunchSelf` is the relaunch, `--net-lobby-*` the
-  precedent for driving the lobby from arguments); GoldenEye's missions
-  online; the three MUST_GE keys still refuse rather than follow.
+  precedent for driving the lobby from arguments); the three MUST_GE keys
+  still refuse rather than follow; GoldenEye's REPORT page after an online
+  mission; a client's prediction held during GoldenEye's opening.
 - **Traps met.** `modListSwap()` sets the selection to what it loaded, which
   is bound to `Mod.ModDir`: the player's own selection must be read before
   the swap and put back after it (the first cut read it after, remembered

@@ -201,6 +201,9 @@ static u64 s_ClientBarrierDeadline = 0;
 // channel): taken once the ACCEPT is
 static u8 s_PendStage[512];
 static s32 s_PendStageLen = 0;
+static u8 s_FetchStage[512];   // protocol 14: the STAGE_LOAD a content fetch holds (netcontent.c)
+static u64 s_TestCampaignAt = 0; // --net-test-campaign: when to open the host's menus for it
+static s32 s_FetchStageLen = 0;
 
 // the match, both sides
 static s32 s_MatchActive = 0;  // from the start (H1 / STAGE_LOAD) to H12
@@ -431,6 +434,13 @@ void netSessionInit(void)
 
 	netSessionHash(comps, NET_MAXCOMPS);
 	netSessionOpenSocket();
+
+	// --net-test-campaign TAG: a --host session as a campaign room's host:
+	// its menus for the set open once the title has booted (a mission
+	// started there is a match)
+	if (s_Role == NETROLE_HOST && sysArgGetString("--net-test-campaign")) {
+		s_TestCampaignAt = netNowMs() + 8000;
+	}
 }
 
 /**
@@ -509,6 +519,15 @@ static void netClientStartConnect(void)
 /*
  * Sending
  */
+
+s32 netSessionSendPeer(s32 peer, s32 channel, const void *data, s32 len)
+{
+	if (s_Role != NETROLE_HOST || !g_NetHostSocket || peer < 0 || peer >= NET_MAXPEERS) {
+		return -1;
+	}
+
+	return netHostSend(g_NetHostSocket, peer, channel, data, len, NET_SEND_RELIABLE);
+}
 
 static void netSend(s32 peer, s32 channel, struct netbuf *b)
 {
@@ -1156,7 +1175,17 @@ static void netWriteStageKey(struct netbuf *b, s32 stagenum, char *label, s32 la
 	const char *dir = modloaderGetStageModDir(stagenum);
 	char base[NET_MAXMAPDIR + 1];
 
-	if (dir) {
+	if (dir && modloaderStageIsMission(stagenum)) {
+		// a conversion's mission (protocol 14, co-op): by its number in
+		// its conversion, since its name is its arena's too
+		const char *map = modloaderGetStageMapName(stagenum);
+
+		netBasename(dir, base, sizeof(base));
+		netBufWriteU8(b, 3);
+		netWriteStr(b, base, NET_MAXMAPDIR);
+		netBufWriteU8(b, (u8)modloaderStageMission(stagenum));
+		snprintf(label, labelsize, "%s (%s)", map ? map : "?", base);
+	} else if (dir) {
 		const char *map = modloaderGetStageMapName(stagenum);
 
 		netBasename(dir, base, sizeof(base));
@@ -1757,6 +1786,8 @@ static void netHostSeatsTick(void)
  */
 static void netHostPeerGone(s32 peer, s32 held)
 {
+	netContentServeStop(peer);
+
 	struct netclient *c = &s_Clients[peer];
 	struct netseat *seat;
 
@@ -2135,6 +2166,22 @@ static void netClientEnd(s32 code, const char *text)
 	}
 }
 
+static s32 netFindMissionStage(const char *dir, s32 mission)
+{
+	char base[NET_MAXMAPDIR + 1];
+	s32 id;
+
+	for (id = 0; id <= 0xff; id++) {
+		const char *d = modloaderGetStageModDir(id);
+
+		if (d && modloaderStageMission(id) == mission && strcasecmp(netBasename(d, base, sizeof(base)), dir) == 0) {
+			return id;
+		}
+	}
+
+	return -1;
+}
+
 static s32 netFindMapStage(const char *dir, const char *map)
 {
 	char base[NET_MAXMAPDIR + 1];
@@ -2158,7 +2205,7 @@ static s32 netFindMapStage(const char *dir, const char *map)
  * machine lacks for it (netcontent.c). A map of a mod installed here but
  * not mounted is mounted on the spot (protocol 13).
  */
-static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize, char *nostage, s32 nostagesize)
+static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize, char *nostage, s32 nostagesize, char *fetchdir)
 {
 	s32 kind = netBufReadU8(b);
 	char dir[NET_MAXMAPDIR + 1];
@@ -2168,6 +2215,7 @@ static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize, char *
 
 	s_MatchKeyKind = kind;
 	nostage[0] = '\0';
+	fetchdir[0] = '\0';
 
 	if (kind == 0) {
 		id = netBufReadU8(b);
@@ -2194,6 +2242,32 @@ static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize, char *
 
 		if (id < 0) {
 			netContentNoStageText(1, dir, map, 0, nostage, nostagesize);
+			snprintf(fetchdir, NET_MAXMAPDIR + 1, "%s", dir);
+		}
+
+		return id;
+	}
+
+	if (kind == 3) {
+		s32 mission;
+
+		netBufReadString(b, dir, sizeof(dir));
+		mission = netBufReadU8(b);
+		snprintf(what, whatsize, "mission %d of %s", mission, dir);
+
+		if (!netBufOk(b)) {
+			return -1;
+		}
+
+		id = netFindMissionStage(dir, mission);
+
+		if (id < 0 && netContentMountMaps(dir)) {
+			id = netFindMissionStage(dir, mission);
+		}
+
+		if (id < 0) {
+			netContentNoStageText(3, dir, "", mission, nostage, nostagesize);
+			snprintf(fetchdir, NET_MAXMAPDIR + 1, "%s", dir);
 		}
 
 		return id;
@@ -2222,14 +2296,15 @@ static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize, char *
  * H3: the client loads what the host chose, with the host's rules and
  * seeds, and none of mpStartMatch's own choices
  */
-static void netClientBeginStage(struct netbuf *b)
+static s32 netClientBeginStage(struct netbuf *b)
 {
 	char what[NET_MAXMAPDIR + NET_MAXMAPNAME + 32];
 	char label[NET_MAXNAME + 1];
 	char text[NET_MAXTEXT + 1];
 	char nostage[NET_MAXTEXT + 1];
+	char fetchdir[NET_MAXMAPDIR + 1];
 	u32 matchid = netBufReadU32(b);
-	s32 id = netResolveStageKey(b, what, sizeof(what), nostage, sizeof(nostage));
+	s32 id = netResolveStageKey(b, what, sizeof(what), nostage, sizeof(nostage), fetchdir);
 	s32 numplayers;
 	s32 yourplayer;
 	s32 followed;
@@ -2245,7 +2320,15 @@ static void netClientBeginStage(struct netbuf *b)
 		netSendLeave(s_ServerPeer, NETREFUSE_BADMSG, "STAGE_LOAD did not parse, or came without its RULES");
 		netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_BADMSG);
 		netClientEnd(NETREFUSE_BADMSG, "The host's stage message did not parse.");
-		return;
+		return 0;
+	}
+
+	// a conversion or map mod this machine has not got: the host serves
+	// it (protocol 14, netcontent.c), and this STAGE_LOAD is tried again
+	// once it is here
+	if (id < 0 && fetchdir[0] && netContentFetchStart(fetchdir)) {
+		sysLogPrintf(LOG_NOTE, "net: match %u: %s is not here; fetching %s from the host first", matchid, what, fetchdir);
+		return 1;
 	}
 
 	if (id < 0 || !mainStageCanLoad(id)) {
@@ -2258,7 +2341,7 @@ static void netClientBeginStage(struct netbuf *b)
 		netSendLeave(s_ServerPeer, NETREFUSE_NOSTAGE, text);
 		netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOSTAGE);
 		netClientEnd(NETREFUSE_NOSTAGE, text);
-		return;
+		return 0;
 	}
 
 	// the host's mod once more, as its RULES name it (protocol 13): it may
@@ -2270,7 +2353,7 @@ static void netClientBeginStage(struct netbuf *b)
 		netSendLeave(s_ServerPeer, NETREFUSE_NOMOD, text);
 		netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOMOD);
 		netClientEnd(NETREFUSE_NOMOD, text);
-		return;
+		return 0;
 	}
 
 	netRulesApply();
@@ -2315,12 +2398,16 @@ static void netClientBeginStage(struct netbuf *b)
 	titleSetNextMode(TITLEMODE_SKIP);
 
 	if (netRulesCoopOn()) {
+		// the stage as the key resolved it (a conversion's mission served
+		// by the host resolves by its folder, not by the mode's list)
+		g_MissionConfig.stagenum = id;
 		netCoopClientStage();
 	} else {
 		g_Vars.perfectbuddynum = 1;
 	}
 
 	menuStop();
+	return 0;
 }
 
 // ROSTER: who sits where (the names the scoreboard shows)
@@ -2539,6 +2626,11 @@ static void netHostEvent(const struct netevent *ev)
 			netHostOnConnect(ev->peer, &b);
 		} else if (c->state == NETCL_CONNECTING) {
 			netHostKick(ev->peer, NETREFUSE_BADMSG, "", "Messages before CONNECT.");
+		} else if (type == NETMSG_CONTENT_REQ) {
+			// protocol 14: a folder of this machine's a client lacks (netcontent.c)
+			if (c->state >= NETCL_JOINED && c->state != NETCL_REFUSED) {
+				netContentServeRequest(ev->peer, &b);
+			}
 		} else if (type == NETMSG_LOADED) {
 			netHostOnLoaded(ev->peer, &b);
 		} else if (type == NETMSG_LEAVE) {
@@ -2713,9 +2805,51 @@ static void netClientEvent(const struct netevent *ev)
 				sysLogPrintf(LOG_WARNING, "net: the host's RULES did not parse");
 			}
 			break;
+		case NETMSG_CONTENT_BEGIN:
+			netContentFetchBegin(&b);
+			break;
+		case NETMSG_CONTENT_FILE:
+			netContentFetchFile(&b);
+			break;
+		case NETMSG_CONTENT_NO:
+			netContentFetchNo(&b);
+
+			// the STAGE_LOAD kept is tried again: it leaves with the reason
+			if (s_ClientState == NETCS_JOINED && s_FetchStageLen) {
+				struct netbuf pb;
+
+				netBufInitRead(&pb, s_FetchStage, s_FetchStageLen);
+				netBufReadU8(&pb);
+				s_FetchStageLen = 0;
+				netClientBeginStage(&pb);
+			}
+			break;
+		case NETMSG_CONTENT_END:
+			if (netContentFetchEnd(&b) && s_ClientState == NETCS_JOINED && s_FetchStageLen) {
+				struct netbuf pb;
+
+				netBufInitRead(&pb, s_FetchStage, s_FetchStageLen);
+				netBufReadU8(&pb);
+				s_FetchStageLen = 0;
+				sysLogPrintf(LOG_NOTE, "net: the STAGE_LOAD kept through the fetch");
+
+				if (netClientBeginStage(&pb)) {
+					sysLogPrintf(LOG_WARNING, "net: the stage still wants a folder after the fetch");
+				}
+			}
+			break;
 		case NETMSG_STAGE_LOAD:
 			if (s_ClientState == NETCS_JOINED) {
-				netClientBeginStage(&b);
+				s_FetchStageLen = 0;
+
+				if (ev->len <= (s32)sizeof(s_FetchStage)) {
+					memcpy(s_FetchStage, ev->data, ev->len);
+					s_FetchStageLen = ev->len;
+				}
+
+				if (!netClientBeginStage(&b)) {
+					s_FetchStageLen = 0;
+				}
 			} else if (s_ClientState == NETCS_HELLO && ev->len <= (s32)sizeof(s_PendStage)) {
 				memcpy(s_PendStage, ev->data, ev->len);
 				s_PendStageLen = ev->len;
@@ -3093,6 +3227,23 @@ void netSessionTick(void)
 			if (s_Clients[i].state == NETCL_CONNECTING && netNowMs() - s_Clients[i].since > NET_CONNECT_TIMEOUT_MS) {
 				netHostKick(i, NETREFUSE_BADMSG, "", "No CONNECT came.");
 			}
+		}
+
+		netContentServeTick();
+
+		if (s_TestCampaignAt && netNowMs() >= s_TestCampaignAt) {
+			const char *game = sysArgGetString("--net-test-campaign");
+
+			s_TestCampaignAt = 0;
+
+			if (!netCoopCampaignOpen(strcmp(game, "pd") == 0 ? "" : game, 1, 0)) {
+				sysLogPrintf(LOG_WARNING, "net: --net-test-campaign %s: not converted here", game);
+			}
+		}
+
+		// a client being served its stage's folder loads when it has it
+		if (netContentServing() && s_BarrierHeld && s_LoadDeadline < netNowMs() + NET_LOAD_TIMEOUT_MS) {
+			s_LoadDeadline = netNowMs() + NET_LOAD_TIMEOUT_MS;
 		}
 
 		netHostBarrierTick();
@@ -3891,10 +4042,23 @@ void netSessionHostDropUser(const char *user, const char *why)
  */
 void netSessionLobbyStartMatch(void)
 {
+	// a campaign room: the host's menus for the set; the missions it starts
+	// there are the session's matches (netcoop.c)
+	if (g_NetCoopSetup.on && g_NetCoopSetup.campaign) {
+		sysLogPrintf(LOG_NOTE, "net: lobby: the room is a %s campaign, %d clients", netCoopGameName(g_NetCoopSetup.game), netSessionHostNumClients());
+
+		if (!netCoopCampaignOpen(g_NetCoopSetup.game, g_NetCoopSetup.radar, g_NetCoopSetup.friendlyfire)) {
+			netSessionNoticeSet("The campaign's missions are not converted here.");
+		}
+
+		return;
+	}
+
 	// a co-op room: the mission (spec-coop.md)
 	if (g_NetCoopSetup.on) {
-		sysLogPrintf(LOG_NOTE, "net: lobby: starting the room's co-op mission %d, %d clients", g_NetCoopSetup.stageindex, netSessionHostNumClients());
-		netCoopHostStart(g_NetCoopSetup.stageindex, g_NetCoopSetup.difficulty, g_NetCoopSetup.radar, g_NetCoopSetup.friendlyfire);
+		sysLogPrintf(LOG_NOTE, "net: lobby: starting the room's co-op mission %d of %s, %d clients", g_NetCoopSetup.stageindex,
+				netCoopGameName(g_NetCoopSetup.game), netSessionHostNumClients());
+		netCoopHostStart(g_NetCoopSetup.game, g_NetCoopSetup.stageindex, g_NetCoopSetup.difficulty, g_NetCoopSetup.radar, g_NetCoopSetup.friendlyfire);
 		menuStop();
 		return;
 	}
@@ -3967,6 +4131,19 @@ static struct menudialogdef s_NetNoticeDialog = {
  * From the Perfect Menu's tick while it is on top: why the last session
  * ended, once
  */
+void netMenuAfterMatch(void)
+{
+	// a campaign's host: its set's menus for the next mission, with or
+	// without a lobby room (a --host session plays one too)
+	if (netCoopCampaignAfterMatch()) {
+		return;
+	}
+
+	if (g_NetLobbyRoom) {
+		netLobbyMenuAfterMatch();
+	}
+}
+
 void netMainMenuTick(void)
 {
 	// a client whose match ended under it lands here: back to the room

@@ -97,8 +97,10 @@ printable, "" = none), `max_humans` 2-12 (default 4), `stage`, `scenario`
 `rules` (object, <= 24 keys `[a-z0-9_]{1,24}`, values bool / 32-bit int /
 string <= 32: the summary the lobby shows, never applied by the lobby;
 a co-op mission room sends `stage` = the mission's name, `scenario` =
-"Co-op Agent" and the like and `rules.stage_key` = `mission:NN`, nothing the
-lobby treats apart),
+"Co-op Agent" and the like and `rules.stage_key` = `mission:NN` (Perfect
+Dark's), `mission:ge:NN` (a conversion's: `ge`, `gf64`, `tnd64`) or
+`campaign:ge` (a campaign room, `stage` = the game's name, `scenario` =
+"Campaign"), nothing the lobby treats apart),
 `endpoints` (<= 4 `"a.b.c.d:port"` / `"[v6]:port"` the host listens on: LAN,
 public, UPnP; a malformed one is a `400`, and a well-formed one whose address
 is neither private-range nor the address the request came from is quietly

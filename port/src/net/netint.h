@@ -211,8 +211,11 @@ struct netcooprules {
 	u8 difficulty;
 	u8 radar;
 	u8 friendlyfire;
+	char game[16]; // protocol 14: the mission's set ("" Perfect Dark's, else a conversion's tag)
 };
 s32 netCoopHostMatch(void);                 // host: the match being started/run is a co-op mission
+const char *netCoopHostGame(void);          // host: its mission's set tag ("" Perfect Dark's)
+s32 netCoopCampaignOpen(const char *game, s32 radar, s32 friendlyfire); // host: a campaign room's launch
 s32 netCoopRulesOk(const struct netcooprules *r);
 void netCoopClientApplyRules(const struct netcooprules *r); // H3, from netRulesApply
 void netCoopClientStage(void);              // H3's tail on a client
@@ -249,6 +252,20 @@ void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, c
 const char *netContentVariantTag(void);
 s32 netContentVariantApply(const char *tag);
 const struct netcontentneed *netRulesContent(void); // netrules.c: the block the RULES received carry
+// Content served by the host (protocol 14): a conversion or map mod a stage key named that a client lacks
+void netContentServeRequest(s32 peer, struct netbuf *b); // host: CONTENT_REQ
+void netContentServeTick(void);                          // host: a few parts to each client served, every tick
+void netContentServeStop(s32 peer);                      // host: the peer went
+s32 netContentServing(void);                             // host: any transfer under way (the load deadline waits)
+s32 netContentFetchStart(const char *dir);               // client: ask; 1 asked (the STAGE_LOAD waits)
+void netContentFetchBegin(struct netbuf *b);
+void netContentFetchFile(struct netbuf *b);
+void netContentFetchNo(struct netbuf *b);
+s32 netContentFetchEnd(struct netbuf *b);                // 1: mounted, try the STAGE_LOAD kept
+s32 netContentFetching(void);
+const char *netContentFetchStatus(char *out, s32 size);
+const char *netContentVariantName(const char *tag);      // g_GexPlusVariant's value for a tag: converted here, or a folder mounted (served)
+s32 netSessionSendPeer(s32 peer, s32 channel, const void *data, s32 len); // netsession.c: host, reliable, to a peer by index
 u64 netHashDirContents(const char *path);      // nethash.c: a folder's simulation-affecting bytes, cached
 void netSessionHashInvalidate(void);           // nethash.c: the overlay changed; the table is taken again
 

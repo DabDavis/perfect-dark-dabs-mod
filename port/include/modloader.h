@@ -63,6 +63,9 @@ s32 modloaderLendRemakeModel(s32 slot);
 // The GoldenEye remake's solo missions, from a mod's `missions` block: the
 // stage mission n registered as (0 for none), and how many there are.
 s32 modloaderMissionStage(s32 mission);
+// the same for the set a conversion name picks (NULL GoldenEye's own), whatever mode is chosen (netcoop.c)
+s32 modloaderMissionStageOf(const char *variant, s32 mission);
+s32 modloaderNumMissionsOf(const char *variant);
 s32 modloaderNumMissions(void);
 s32 modloaderStageIsMission(s32 stagenum);
 // and the other way round: the mission a stage is, or -1

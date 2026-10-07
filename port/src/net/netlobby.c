@@ -1667,7 +1667,9 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 	// a joiner can see what its own game needs before it joins
 	netContentHostNeed(&need);
 	ghostnetJsonEscape(need.mod, emod, sizeof(emod));
-	ghostnetJsonEscape(!g_GexPlusMode ? "" : need.gevariant[0] ? need.gevariant : geconvertGoldenEyeTag(), ege, sizeof(ege));
+	// (a co-op room on a conversion's mission names that conversion the same way)
+	ghostnetJsonEscape(g_NetCoopSetup.on ? g_NetCoopSetup.game : !g_GexPlusMode ? "" : need.gevariant[0] ? need.gevariant : geconvertGoldenEyeTag(),
+			ege, sizeof(ege));
 
 	if (g_NetCoopSetup.on) {
 		// a co-op mission (netcoop.c): the mission as the arena, the
@@ -1675,9 +1677,19 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 		char mode[40];
 
 		netCoopModeName(g_NetCoopSetup.difficulty, mode, sizeof(mode));
-		lobbyCleanName(netCoopMissionName(g_NetCoopSetup.stageindex), stage, 33);
+		lobbyCleanName(netCoopMissionNameOf(g_NetCoopSetup.game, g_NetCoopSetup.stageindex), stage, 33);
 		lobbyCleanName(mode, scenario, 33);
-		snprintf(key, sizeof(key), "mission:%02x", g_NetCoopSetup.stageindex);
+		// "mission:NN" Perfect Dark's, "mission:ge:NN" a conversion's; a
+		// campaign ("campaign:ge") lists the set as its arena (protocol 14)
+		if (g_NetCoopSetup.campaign) {
+			lobbyCleanName(netCoopGameName(g_NetCoopSetup.game), stage, 33);
+			snprintf(scenario, sizeof(scenario), "%s", "Campaign");
+			snprintf(key, sizeof(key), "campaign:%s", g_NetCoopSetup.game[0] ? g_NetCoopSetup.game : "pd");
+		} else if (g_NetCoopSetup.game[0]) {
+			snprintf(key, sizeof(key), "mission:%s:%02x", g_NetCoopSetup.game, g_NetCoopSetup.stageindex);
+		} else {
+			snprintf(key, sizeof(key), "mission:%02x", g_NetCoopSetup.stageindex);
+		}
 	} else {
 		lobbyCleanName(mpMenuTextArenaName(NULL), stage, 33);
 		lobbyCleanName(mpMenuTextScenarioShortName(NULL), scenario, 33);
@@ -1934,6 +1946,7 @@ void netLobbyLeave(void)
 	sysLogPrintf(LOG_NOTE, "lobby: leaving room %s", s_Room.sum.id[0] ? s_Room.sum.id : "(new)");
 
 	s_CreateMaxHumans = 0;
+	netCoopCampaignEnd();
 
 #ifdef PD_GHOST_NET
 	if (s_InRoom) {
@@ -2790,6 +2803,9 @@ static void lobbyScriptTick(void)
 					g_NetCoopSetup.on = 1;
 					g_NetCoopSetup.stageindex = sysArgGetInt("--net-lobby-coop", 0);
 					g_NetCoopSetup.difficulty = sysArgGetInt("--net-test-difficulty", DIFF_A);
+					// --net-test-coop-game TAG: a conversion's set (protocol 14)
+					snprintf(g_NetCoopSetup.game, sizeof(g_NetCoopSetup.game), "%s",
+							sysArgGetString("--net-test-coop-game") ? sysArgGetString("--net-test-coop-game") : "");
 				}
 
 				for (i = 0; i < sims && i < MAX_BOTS; i++) {

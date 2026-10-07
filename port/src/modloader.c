@@ -1115,19 +1115,44 @@ static void modloaderReadMissions(s32 modIndex, const char *dir, const char *mod
 }
 
 /** The stage mission `mission` is registered as in the set of the mode chosen, or 0. */
-s32 modloaderMissionStage(s32 mission)
+static s32 modloaderStageInListFor(s32 stagenum, const char *variant);
+
+/**
+ * Mission `mission` of the set `variant` names (NULL GoldenEye's own, else a
+ * ROM hack's conversion name), whatever mode is chosen: a net co-op room
+ * picks its missions from any set installed (netcoop.c). 0 when not here.
+ */
+s32 modloaderMissionStageOf(const char *variant, s32 mission)
 {
 	if (mission < 0 || mission >= MODLOADER_MAX_MISSIONS) {
 		return 0;
 	}
 
 	for (s32 stagenum = 1; stagenum <= STAGE_MAX_ID; stagenum++) {
-		if (g_ModStageMission[stagenum] == mission + 1 && modloaderStageInGexPlusList(stagenum)) {
+		if (g_ModStageMission[stagenum] == mission + 1 && modloaderStageInListFor(stagenum, variant)) {
 			return stagenum;
 		}
 	}
 
 	return 0;
+}
+
+s32 modloaderNumMissionsOf(const char *variant)
+{
+	s32 n = 0;
+
+	for (s32 i = 0; i < MODLOADER_MAX_MISSIONS; i++) {
+		if (modloaderMissionStageOf(variant, i)) {
+			n++;
+		}
+	}
+
+	return n;
+}
+
+s32 modloaderMissionStage(s32 mission)
+{
+	return modloaderMissionStageOf(g_GexPlusVariant, mission);
 }
 
 /** The mission a stage is, in GoldenEye's own mission order, or -1 - whichever set it is in. */
@@ -1359,13 +1384,18 @@ s32 modloaderGexPlusVariantDirIndex(void)
 	return -1;
 }
 
-s32 modloaderStageInGexPlusList(s32 stagenum)
+static s32 modloaderStageInListFor(s32 stagenum, const char *variant)
 {
-	if (g_GexPlusVariant) {
-		return modloaderStageIsRemake(stagenum) && modloaderDirIs(modloaderGetStageModDir(stagenum), g_GexPlusVariant);
+	if (variant) {
+		return modloaderStageIsRemake(stagenum) && modloaderDirIs(modloaderGetStageModDir(stagenum), variant);
 	}
 
 	return modloaderStageIsGexPlus(stagenum);
+}
+
+s32 modloaderStageInGexPlusList(s32 stagenum)
+{
+	return modloaderStageInListFor(stagenum, g_GexPlusVariant);
 }
 
 void modloaderApplyStageModels(s32 stagenum)

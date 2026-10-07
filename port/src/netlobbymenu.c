@@ -1014,26 +1014,149 @@ static MenuDialogHandlerResult dialogCreate(s32 operation, struct menudialogdef 
  * other is chosen; an item that opens a dialog cannot hide itself (menu.c
  * asks only a plain item's handler), so the setup pages open from handlers.
  */
+/**
+ * The room's game: a Combat Simulator match, one co-op mission, or a
+ * campaign of a set's missions (Perfect Dark's, GoldenEye's, a ROM hack's,
+ * as converted here), which the host plays from its own menus. The
+ * GoldenEye mode's rooms are matches on its arenas.
+ */
+static s32 gameOptions(void)
+{
+	char tag[16];
+	s32 n;
+
+	if (g_GexPlusMode) {
+		return 1;
+	}
+
+	for (n = 0; netCoopGameTag(n, tag, sizeof(tag)); n++) {
+	}
+
+	return 2 + n;
+}
+
 static MenuItemHandlerResult handlerGame(s32 operation, struct menuitem *item, union handlerdata *data)
 {
-	// the co-op missions are Perfect Dark's own: the GoldenEye mode's
-	// rooms are matches on its arenas
+	static char text[48];
+	char tag[16];
+	s32 n;
+
 	if (g_GexPlusMode) {
 		g_NetCoopSetup.on = 0;
+		g_NetCoopSetup.campaign = 0;
 	}
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = g_GexPlusMode ? 1 : 2;
+		data->dropdown.value = gameOptions();
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)(data->dropdown.value == 1 ? "Co-op Mission" : "Combat Simulator");
+		if (data->dropdown.value == 0) {
+			return (intptr_t)"Combat Simulator";
+		}
+
+		if (data->dropdown.value == 1) {
+			return (intptr_t)"Co-op Mission";
+		}
+
+		if (!netCoopGameTag(data->dropdown.value - 2, tag, sizeof(tag))) {
+			tag[0] = '\0';
+		}
+
+		snprintf(text, sizeof(text), "%s Campaign", netCoopGameName(tag));
+		return (intptr_t)text;
 	case MENUOP_SET:
-		g_NetCoopSetup.on = data->dropdown.value == 1 && !g_GexPlusMode;
+		g_NetCoopSetup.on = data->dropdown.value >= 1 && !g_GexPlusMode;
+		g_NetCoopSetup.campaign = data->dropdown.value >= 2 && !g_GexPlusMode;
+
+		if (g_NetCoopSetup.campaign) {
+			if (!netCoopGameTag(data->dropdown.value - 2, tag, sizeof(tag))) {
+				tag[0] = '\0';
+			}
+
+			snprintf(g_NetCoopSetup.game, sizeof(g_NetCoopSetup.game), "%s", tag);
+		}
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = g_NetCoopSetup.on ? 1 : 0;
+		data->dropdown.value = 0;
+
+		if (g_NetCoopSetup.on && g_NetCoopSetup.campaign) {
+			for (n = 0; netCoopGameTag(n, tag, sizeof(tag)); n++) {
+				if (strcasecmp(tag, g_NetCoopSetup.game) == 0) {
+					data->dropdown.value = 2 + n;
+				}
+			}
+		} else if (g_NetCoopSetup.on) {
+			data->dropdown.value = 1;
+		}
 		break;
+	}
+
+	return 0;
+}
+
+/**
+ * Missions: whose - Perfect Dark's, GoldenEye's, a ROM hack's - among the
+ * sets converted here (protocol 14, netcoop.c). A joiner plays the mission
+ * from its own conversion, as it does an arena.
+ */
+static MenuItemHandlerResult handlerMissionSet(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static char text[40];
+	char tag[16];
+	s32 n;
+
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !g_NetCoopSetup.on || g_NetCoopSetup.campaign;
+	case MENUOP_GETOPTIONCOUNT:
+		for (n = 0; netCoopGameTag(n, tag, sizeof(tag)); n++) {
+		}
+
+		data->dropdown.value = n;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		if (!netCoopGameTag(data->dropdown.value, tag, sizeof(tag))) {
+			tag[0] = '\0';
+		}
+
+		snprintf(text, sizeof(text), "%s", netCoopGameName(tag));
+		return (intptr_t)text;
+	case MENUOP_SET:
+		if (netCoopGameTag(data->dropdown.value, tag, sizeof(tag)) && strcasecmp(tag, g_NetCoopSetup.game) != 0) {
+			snprintf(g_NetCoopSetup.game, sizeof(g_NetCoopSetup.game), "%s", tag);
+			g_NetCoopSetup.stageindex = 0;
+		}
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = 0;
+
+		for (n = 0; netCoopGameTag(n, tag, sizeof(tag)); n++) {
+			if (strcasecmp(tag, g_NetCoopSetup.game) == 0) {
+				data->dropdown.value = n;
+			}
+		}
+		break;
+	}
+
+	return 0;
+}
+
+// a conversion's mission has no number in its own set that this machine
+// lacks: the list is the set's missions here, each by its number
+static s32 missionAt(s32 n)
+{
+	s32 k = 0;
+	s32 i;
+
+	if (!g_NetCoopSetup.game[0]) {
+		return n;
+	}
+
+	for (i = 0; i < MODLOADER_MAX_MISSIONS; i++) {
+		if (strcmp(netCoopMissionNameOf(g_NetCoopSetup.game, i), "?") != 0 && k++ == n) {
+			return i;
+		}
 	}
 
 	return 0;
@@ -1041,19 +1164,43 @@ static MenuItemHandlerResult handlerGame(s32 operation, struct menuitem *item, u
 
 static MenuItemHandlerResult handlerMission(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	static char text[40];
+	s32 i;
+	s32 k;
+
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
-		return !g_NetCoopSetup.on;
+		return !g_NetCoopSetup.on || g_NetCoopSetup.campaign;
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = SOLOSTAGEINDEX_WAR + 1;
+		data->dropdown.value = netCoopGameMissions(g_NetCoopSetup.game);
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		return (intptr_t)langGet(g_SoloStages[data->dropdown.value <= SOLOSTAGEINDEX_WAR ? data->dropdown.value : 0].name3);
+		if (!g_NetCoopSetup.game[0]) {
+			return (intptr_t)langGet(g_SoloStages[data->dropdown.value <= SOLOSTAGEINDEX_WAR ? data->dropdown.value : 0].name3);
+		}
+
+		snprintf(text, sizeof(text), "%s\n", netCoopMissionNameOf(g_NetCoopSetup.game, missionAt(data->dropdown.value)));
+		return (intptr_t)text;
 	case MENUOP_SET:
-		g_NetCoopSetup.stageindex = data->dropdown.value <= SOLOSTAGEINDEX_WAR ? data->dropdown.value : 0;
+		g_NetCoopSetup.stageindex = missionAt(data->dropdown.value);
 		break;
 	case MENUOP_GETSELECTEDINDEX:
-		data->dropdown.value = g_NetCoopSetup.stageindex;
+		data->dropdown.value = 0;
+
+		for (i = 0, k = 0; i < MODLOADER_MAX_MISSIONS; i++) {
+			if (!g_NetCoopSetup.game[0]) {
+				data->dropdown.value = g_NetCoopSetup.stageindex;
+				break;
+			}
+
+			if (strcmp(netCoopMissionNameOf(g_NetCoopSetup.game, i), "?") != 0) {
+				if (i == g_NetCoopSetup.stageindex) {
+					data->dropdown.value = k;
+				}
+
+				k++;
+			}
+		}
 		break;
 	}
 
@@ -1066,7 +1213,7 @@ static MenuItemHandlerResult handlerDifficulty(s32 operation, struct menuitem *i
 
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
-		return !g_NetCoopSetup.on;
+		return !g_NetCoopSetup.on || g_NetCoopSetup.campaign;
 	case MENUOP_GETOPTIONCOUNT:
 		data->dropdown.value = 3;
 		break;
@@ -1158,6 +1305,7 @@ static MenuItemHandlerResult handlerSetupSimulants(s32 operation, struct menuite
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_023, 0, handlerSetupWeapons }, \
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_024, 0, handlerSetupLimits }, \
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_025, 0, handlerSetupSimulants }, \
+	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Missions", 0, handlerMissionSet }, \
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Mission", 0, handlerMission }, \
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Difficulty", 0, handlerDifficulty }, \
 	{ MENUITEMTYPE_CHECKBOX, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Radar", 0, handlerCoopRadar }, \

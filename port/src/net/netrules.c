@@ -510,6 +510,7 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 	netBufWriteU8(b, (u8)g_MissionConfig.difficulty);
 	netBufWriteU8(b, (u8)(g_Vars.coopradaron != 0));
 	netBufWriteU8(b, (u8)(g_Vars.coopfriendlyfire != 0));
+	netWriteStr(b, netCoopHostGame(), NET_MAXCOMPNAME); // protocol 14: the mission's set
 
 	{
 		// the content block (protocol 13, netcontent.c): the mod and the
@@ -639,6 +640,7 @@ s32 netRulesRead(struct netbuf *b)
 	s_NetRules.coop.difficulty = netBufReadU8(b);
 	s_NetRules.coop.radar = netBufReadU8(b);
 	s_NetRules.coop.friendlyfire = netBufReadU8(b);
+	netBufReadString(b, s_NetRules.coop.game, sizeof(s_NetRules.coop.game));
 	netContentRead(b, &s_NetRules.content, 1);
 
 	if (s_NetRules.coop.on && !netCoopRulesOk(&s_NetRules.coop)) {

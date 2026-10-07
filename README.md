@@ -184,16 +184,28 @@ the lobby knows you, and a refused sign-in says why. Then:
   match everyone comes back to the room for the next one.
 
 **Co-op missions.** A room can be a co-op mission instead of a match: in
-Create Room (or the host's Settings) set **Game** to Co-op Mission and
-pick the mission, difficulty, radar and friendly fire. Up to twelve of you
-play the mission together as Perfect Dark's own co-operative mode does:
-one player is Joanna, everyone else a coop agent in their Combat Simulator
-character; a dead player presses START to come back, taking half of a
-living player's health; the mission fails when everyone is dead. Every
+Create Room (or the host's Settings) set **Game** to Co-op Mission, pick
+whose missions under **Missions** (Perfect Dark's, GoldenEye's, Goldfinger
+64's or Tomorrow Never Dies 64's, as converted on the host's machine), then
+the mission, difficulty, radar and friendly fire. Up to twelve of you play
+the mission together as Perfect Dark's own co-operative mode does: one
+player is Joanna (or Bond), everyone else a coop agent in their Combat
+Simulator character; a dead player presses START to come back, taking half
+of a living player's health; the mission fails when everyone is dead. Every
 mission and difficulty is open online, and nothing played online counts
 towards your own solo progress. Without the lobby, a `--host` session
 starts one from the Carrington Institute's mission briefing with
 Co-Operative and a human buddy.
+
+**Campaigns.** Set **Game** to a campaign instead (Perfect Dark, GoldenEye,
+Goldfinger 64 or Tomorrow Never Dies 64) and the room's launch puts the
+host in that game's own menus rather than a match: GoldenEye's folder, or
+the Perfect Menu's missions. Every mission the host starts there is the
+room's next co-op mission, and the others are pulled into it from the Game
+Lobby without a new launch; when it ends the host is back in the folder
+and everyone else back in the room, ready for the next one. The host plays
+through the game as offline, with its own difficulty (GoldenEye's 007
+sliders included), and the room follows.
 
 A room that is already playing can still be joined: you drop into the
 match in progress. If your game crashes or your connection drops, rejoin
@@ -216,20 +228,24 @@ from its Combat Simulator as usual. A direct host seats four players unless
 window and no player of its own.
 
 Everyone needs the same game version and Perfect Dark ROM; the game names
-what differs when it refuses. **Mods and added content follow the host.**
-A room made with a mod loaded (GoldenEye X, the Mario characters, All in
-One) or on a GoldenEye, Goldfinger 64 or Tomorrow Never Dies 64 arena says
-so in the Briefing Room, and a joining game plays it from its own copy:
-nothing is ever sent from one player to another. A mod you have installed
-is switched to when you join and switched back when you leave, except one
-that replaces ROM segments (GoldenEye X and the Mario characters do), which
-the game can only load at a start: the room tells you to choose it under
-Extended Options > Load Mods, Restart Now, and join again. A mod or
-conversion you do not have is named, with where to put it (`mods/`, or the
-ROM or patch in `added-content/`); your own `Mod.ModDir` and `Mod.MapMods`
-are never changed. Online Game is on the main menu and in the Combat
-Simulator of Perfect Dark, GoldenEye and the ROM hacks alike;
-counter-operative and GoldenEye's missions are offline only for now.
+what differs when it refuses. **Only the host needs the rest.** A room on
+a GoldenEye, Goldfinger 64 or Tomorrow Never Dies 64 arena or mission, or
+on another mod's map, says so in the Briefing Room, and a joining game
+that has not got that conversion or mod is sent its files by the host when
+the match starts (a GoldenEye conversion is about 13 MB, a second or two on
+a LAN). They are held in memory for the session only: nothing is written
+to your disk, nothing is offered to anyone outside the room, and they are
+gone when the game exits. A joiner that has its own copy plays from that
+instead. A mod loaded over the game (GoldenEye X, the Mario characters,
+All in One) is different: a mod you have installed is switched to when you
+join and switched back when you leave, except one that replaces ROM
+segments (GoldenEye X and the Mario characters do), which the game can
+only load at a start, so the room tells you to choose it under Extended
+Options > Load Mods, Restart Now, and join again, and one you do not have
+is named. Your own `Mod.ModDir` and `Mod.MapMods` are never changed.
+Online Game is on the main menu and in the Combat Simulator of Perfect
+Dark, GoldenEye and the ROM hacks alike; counter-operative is offline only
+for now.
 
 ### Screenshots and video
 

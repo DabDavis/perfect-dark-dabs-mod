@@ -34,7 +34,7 @@ set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby}
+CASES=${CASES:-pair twelve lobby ge}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -112,6 +112,48 @@ stage() {
 		-ex "delete" -ex "python $what" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     host: /'
 }
 
+# ---------------------------------------------------------------- ge
+# A conversion's mission (protocol 14): GoldenEye's Dam from the host's room
+# (--net-test-coop 0 --net-test-coop-game ge), the client taking the set
+# from RULES and the stage by its mission number; both to GO and 1500 ticks
+# on, no crash. Skipped where GoldenEye is not converted (mods/GoldenEye
+# Arenas; the conversion is mounted for its maps whatever Mod.MapMods says,
+# so there is no on-demand mount to see here: netcontenttest's modmount and
+# fetch cover those). The opening is GoldenEye's own (gecinema.c), run on
+# each machine, so prediction is not judged.
+case_ge() {
+	local name=ge port=$((PORT + 3)) H=$OUT/ge-host.log C=$OUT/ge-client.log
+	echo "== $name"
+	game ge-host 300 '[Mod]\nMapMods=GoldenEye Arenas\n' --host "$port" --net-test-host 1 --rng-seed 7 --net-test-coop 0 --net-test-coop-game ge --exit-frame 4000 &
+	local host=$!
+	waitfor "$H" "net: hosting on UDP port\|cannot be played online" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
+	if grep -q "cannot be played online" "$H"; then
+		echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; return
+	fi
+	game ge-client 290 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --exit-frame 3000 &
+	local client=$!
+	waitfor "$C" "net: match 1: GO" 150 || echo "     no GO on the client"
+	waitfor "$C" "net: content client so far (tick 1500)" 120 || echo "     the client did not reach tick 1500"
+	local cp; cp=$(gamepid ge-client); [ -n "$cp" ] && kill -TERM "$cp"
+	wait "$client"; local cx=$?
+	[ "$cx" = 143 ] && cx=0
+	local hp; hp=$(gamepid ge-host); [ -n "$hp" ] && kill -TERM "$hp"
+	wait "$host"; local hx=$?
+	[ "$hx" = 143 ] && hx=0
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
+	grep -q "net: co-op: starting Dam (GoldenEye, index 0, stage 0x[0-9a-f]*) on Agent with 2 players" "$H" \
+		&& pass "$name: host: $(grep -o 'co-op: starting.*' "$H" | head -1)" || fail "$name: the host did not start GoldenEye's Dam"
+	grep -q "net: co-op: the host's mission is Dam (GoldenEye, index 0, stage 0x[0-9a-f]*) on difficulty 0" "$C" \
+		&& pass "$name: client: $(grep -o "the host's mission is.*" "$C" | head -1)" || fail "$name: the client did not take the set from RULES"
+	grep -q "net: match 1: loading mission 0 of GoldenEye Arenas as 0x" "$C" && pass "$name: the client loaded the mission by its number" || fail "$name: the client did not load mission 0 of GoldenEye Arenas"
+	grep -q "slot 1 (\"[^\"]*\") loaded the stage, every component the host's" "$H" && pass "$name: every stage hash component equal" || fail "$name: stage hashes differ"
+	grep -q "net: match 1: GO" "$C" && pass "$name: the client passed GO" || fail "$name: no GO on the client"
+	grep -q "co-op client: the first mission block" "$C" && pass "$name: $(grep -o 'co-op client: the first mission block.*' "$C" | head -1)" || fail "$name: no mission block reached the client"
+	local tick; tick=$(lastline "$C" "net: content client so far" | grep -o "tick [0-9]*" | awk '{print $2}')
+	[ "${tick:-0}" -ge 1500 ] && pass "$name: the client played $tick ticks of GoldenEye's Dam" || fail "$name: the client played ${tick:-no} ticks"
+}
+
 # ---------------------------------------------------------------- pair
 case_pair() {
 	local name=pair port=$PORT H=$OUT/pair-host.log C=$OUT/pair-client.log
@@ -158,9 +200,9 @@ case_pair() {
 	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
 	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
 	grep -q "renderD128: Permission denied" "$H" "$C" && fail "$name: a run fell back to llvmpipe"
-	grep -q "net: co-op: starting dataDyne Defection (index 0, stage 0x30) on Agent with 2 players" "$H" \
+	grep -q "net: co-op: starting dataDyne Defection (Perfect Dark, index 0, stage 0x30) on Agent with 2 players" "$H" \
 		&& pass "$name: host: $(grep -o 'co-op: starting.*' "$H" | head -1)" || fail "$name: the host did not start the mission"
-	grep -q "net: co-op: the host's mission is dataDyne Defection (index 0, stage 0x30) on difficulty 0" "$C" \
+	grep -q "net: co-op: the host's mission is dataDyne Defection (Perfect Dark, index 0, stage 0x30) on difficulty 0" "$C" \
 		&& pass "$name: client: $(grep -o "the host's mission is.*" "$C" | head -1)" || fail "$name: the client did not take the mission from RULES"
 	grep -q "net: match 1: loading stock stage 0x30 as 0x30" "$C" && pass "$name: the client loaded the mission's stage" || fail "$name: the client did not load stage 0x30"
 	grep -q "slot 1 (\"[^\"]*\") loaded the stage, every component the host's" "$H" \
@@ -296,6 +338,7 @@ case_lobby() {
 for c in $CASES; do
 	case $c in
 		pair) case_pair ;;
+		ge) case_ge ;;
 		twelve) case_twelve ;;
 		lobby) case_lobby ;;
 		*) fail "unknown case $c" ;;

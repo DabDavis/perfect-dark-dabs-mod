@@ -60,7 +60,13 @@
 //    the GoldenEye ROM hack mode's tag as well); CONNECT's "mod" and "added"
 //    session components are logged, never refused; LOADED carries a "mod"
 //    component (the overlay as loaded there); LEAVE NOMOD (17)
-#define NET_PROTOCOL_VERSION 13
+// 14 (co-op on the conversions' missions, and content served by the host):
+//    RULES' mission block ends in the mission's set (str(15) game: ""
+//    Perfect Dark's, else a conversion's tag), a stage key of kind 3 names a
+//    conversion's mission by its number in its conversion, and a client that
+//    lacks a key's conversion or map mod asks the host for its files
+//    (CONTENT_REQ .. CONTENT_END), which it holds in memory for the session
+#define NET_PROTOCOL_VERSION 14
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -78,6 +84,12 @@
 #define NETMSG_SNAP       14 // netsnap.c writes this number itself (NETSNAP_MSGTYPE)
 #define NETMSG_EVENTS     15
 #define NETMSG_ROSTER     16 // protocol 9: the match's seats, host -> client
+// protocol 14: a conversion or map mod served by the host (netcontent.c)
+#define NETMSG_CONTENT_REQ   17 // client -> host: the dir a stage key named that it lacks
+#define NETMSG_CONTENT_BEGIN 18 // host -> client: the dir, its file count and bytes
+#define NETMSG_CONTENT_FILE  19 // host -> client: a file, or a part of one
+#define NETMSG_CONTENT_END   20 // host -> client: the dir is complete
+#define NETMSG_CONTENT_NO    21 // host -> client: not served, with why
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -257,6 +269,12 @@
  *     u8 stageindex               g_SoloStages index (0 Defection .. 19 WAR)
  *     u8 difficulty               DIFF_A/SA/PA
  *     u8 radar, u8 friendlyfire   g_Vars.coopradaron, g_Vars.coopfriendlyfire
+ *     str(15) game                (protocol 14) the mission's set: ""
+ *                                 Perfect Dark's (stageindex a g_SoloStages
+ *                                 index), "ge" GoldenEye's, a hack's tag
+ *                                 ("gf64", "tnd64"): stageindex is then the
+ *                                 mission's number in that conversion, which
+ *                                 each machine resolves in its own
  *   content block (protocol 13; netcontent.c):
  *     str(127) mod, u64 modhash   as ACCEPT's (checked again at H3)
  *     str(15) gevariant           the GoldenEye ROM hack whose mode the
@@ -271,10 +289,13 @@
  *   u8      NETMSG_STAGE_LOAD
  *   u32     matchid
  *   stage key (spec-stage.md §4):
- *     u8 kind                     0 stock, 1 mod or Stage Loader map, 2 overlay arena
+ *     u8 kind                     0 stock, 1 mod or Stage Loader map, 2 overlay arena,
+ *                                 3 a conversion's mission (protocol 14)
  *     kind 0: u8 id
  *     kind 1: str(127) moddir basename, str(31) map name
  *     kind 2: str(127) overlay mod dir basename, u8 id
+ *     kind 3: str(127) conversion dir basename, u8 mission number (its name
+ *             is its arena's, so a map key would find the arena)
  *   str(31) label                 the arena's name, for the lobby and logs
  *   u64     seed                  rngSetSeed at H4
  *   u64     seed2                 rng2SetSeed at H4
@@ -283,6 +304,45 @@
  *   u8      yourplayer            this client's player number in the match;
  *                                 NETSLOT_SPECTATOR: none, a spectator
  *                                 (protocol 9; it watches through player 0)
+ *
+ * Content served by the host (protocol 14, netcontent.c). A client whose
+ * STAGE_LOAD key (kind 1 or 3) names a conversion or map mod it has not
+ * got asks the host for the directory, holds what comes in memory for
+ * the session (fs.c's "$N/<name>" directories; nothing is written to disk)
+ * and mounts it for its maps, then loads the stage as the key says. The
+ * host serves only a directory it has mounted for its maps (never its
+ * overlay mod, nor anything outside them), without the pictures, text and
+ * caches nothing in play reads, up to NETCONTENT_MAXBYTES, a few parts a
+ * tick on BULK, and keeps the load deadline open while it sends.
+ *
+ * CONTENT_REQ (client -> host)
+ *   u8      NETMSG_CONTENT_REQ
+ *   str(127) dir               the key's dir basename
+ *
+ * CONTENT_BEGIN (host -> client, BULK)
+ *   u8      NETMSG_CONTENT_BEGIN
+ *   str(127) dir
+ *   u32     nfiles
+ *   u32     bytes
+ *
+ * CONTENT_FILE (host -> client, BULK), one or more per file, in order
+ *   u8      NETMSG_CONTENT_FILE
+ *   str(255) path             inside the dir, with '/'
+ *   u32     size              the whole file's
+ *   u32     offset            this part's
+ *   u16     len               this part's bytes (<= NETCONTENT_PART)
+ *   bytes(len)
+ *
+ * CONTENT_END (host -> client, BULK)
+ *   u8      NETMSG_CONTENT_END
+ *   str(127) dir
+ *   u32     nfiles
+ *   u32     bytes
+ *
+ * CONTENT_NO (host -> client, BULK)
+ *   u8      NETMSG_CONTENT_NO
+ *   str(127) dir
+ *   str(255) text
  *
  * LOADED (client -> host)
  *   u8      NETMSG_LOADED

@@ -57,5 +57,7 @@ s32 netRulesLocked(void);
 // Main menu: the reason a session ended, shown once
 extern s32 g_NetNoticePending;
 void netMainMenuTick(void);
+// menutick.c, back from a net match: a campaign host's set menus, else the room's page
+void netMenuAfterMatch(void);
 
 #endif

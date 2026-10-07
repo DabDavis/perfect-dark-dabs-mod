@@ -40,20 +40,23 @@
 #   netcontenttest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netcontent-out), PORT (27300), CASES (all: ge geyolt gegg
-# gemust gfvariant xbla modmap modmount modmissing overlay props), CHECKONLY (1: only the checks,
+# gemust gfvariant fetch xbla modmap modmount modmissing overlay props), CHECKONLY (1: only the checks,
 # on the last run's files). The GoldenEye cases need the GoldenEye ROM
 # converted (mods/GoldenEye Arenas), gfvariant Goldfinger 64 converted too
 # (its zip in added-content/); they are skipped, not failed, without it.
 # gfvariant: the host's Combat Simulator is Goldfinger 64's (its mode, so
 # its weapon sets in the list's block), the client has neither its mode
 # nor its maps mounted: the mode comes from RULES and the maps are mounted
-# on demand (protocol 13).
+# on demand (protocol 13). fetch: the client has no mods at all (its binary
+# hard-linked into a folder of its own, with an empty mods/ and only the
+# ROM), so it fetches GoldenEye Arenas from the host (protocol 14,
+# netcontent.c) into memory and plays Complex from it; skipped with ge.
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcontent-out}; PORT=${PORT:-27300}
-CASES=${CASES:-ge geyolt gegg gemust gfvariant xbla modmap modmount modmissing overlay props}
+CASES=${CASES:-ge geyolt gegg gemust gfvariant fetch xbla modmap modmount modmissing overlay props}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -68,14 +71,30 @@ pass() { echo "ok   $*"; }
 
 GEMAPS="ModDir=\nMapMods=GoldenEye Arenas\n"
 
-# game LABEL TIMEOUT INI ARGS...
+# game LABEL TIMEOUT INI ARGS... (CLIENTBIN, when set, is the binary a
+# *-client label runs: the fetch case's copy in a folder with no mods)
 game() {
 	local label=$1 t=$2 ini=$3; shift 3
 	local save=$OUT/save-$label
+	local bin=$BIN
 	rm -rf "$save"; mkdir -p "$save"
 	printf '[Mod]\n%b' "$ini" > "$save/pd.ini"
 	cd "$BUILD" || exit 2
-	exec timeout -k 5 "$t" stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
+	# (and from its own folder: the game scans ./mods and $E/mods, and the
+	# build directory's ./mods would give it everything after all)
+	case $label in *-client) [ -n "${CLIENTBIN:-}" ] && { bin=$CLIENTBIN; cd "$(dirname "$CLIENTBIN")" || exit 2; } ;; esac
+	exec timeout -k 5 "$t" stdbuf -oL -eL "$bin" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
+}
+
+# the fetch case's client: the same binary hard-linked (or copied) into a
+# folder of its own, so its executable dir has an empty mods/ and no
+# added-content/, and only the ROM through a link
+fetchclient() {
+	local dir=$OUT/fetchbin
+	rm -rf "$dir"; mkdir -p "$dir/mods" "$dir/added-content"
+	ln "$BIN" "$dir/pd.x86_64" 2>/dev/null || cp "$BIN" "$dir/pd.x86_64"
+	ln -s "$BUILD/data" "$dir/data"
+	echo "$dir/pd.x86_64"
 }
 
 waitfor() {
@@ -98,13 +117,17 @@ gamepid() {
 # shot1 PID FILE: one screenshot from that game into FILE
 shot1() {
 	local pid=$1 dest=$2 before f i
+	# a game writes its pictures beside its executable: the fetch client's
+	# are in its own folder
+	local src=$BUILD/screenshots
+	[ -n "${CLIENTBIN:-}" ] && src=$(dirname "$CLIENTBIN")/screenshots
 	rm -f "$dest"
-	mkdir -p "$BUILD/screenshots" "$SHOTDIR"
-	before=$(ls "$BUILD/screenshots" 2>/dev/null | sort)
+	mkdir -p "$src" "$SHOTDIR"
+	before=$(ls "$src" 2>/dev/null | sort)
 	gdb -p "$pid" -batch -ex 'call (void)screenshotRequest()' >/dev/null 2>&1
 	for i in $(seq 50); do
-		f=$(comm -13 <(echo "$before") <(ls "$BUILD/screenshots" 2>/dev/null | sort) | head -1)
-		[ -n "$f" ] && { sleep 0.3; cp "$BUILD/screenshots/$f" "$dest"; echo "     shot: $dest"; return; }
+		f=$(comm -13 <(echo "$before") <(ls "$src" 2>/dev/null | sort) | head -1)
+		[ -n "$f" ] && { sleep 0.3; cp "$src/$f" "$dest"; echo "     shot: $dest"; return; }
 		sleep 0.1
 	done
 	echo "     shot: none from $pid"
@@ -357,6 +380,8 @@ run() {
 		# client mounts Goldfinger on demand and takes the mode from RULES
 		gfvariant) runcase gfvariant "ModDir=\nMapMods=GoldenEye Arenas;Goldfinger 64\nStartArmed=1\n" "$GEMAPS" \
 				"--net-test-map Junkyard --net-test-ge 0 --net-test-ge-variant gf64" "" ;;
+		# a client with nothing installed fetches the host's conversion
+		fetch)  CLIENTBIN=$(fetchclient) runcase fetch "${GEMAPS}StartArmed=1\n" "ModDir=\nMapMods=\n" "--net-test-map Complex --net-test-ge 0" "" ;;
 		# (4) the XBLA look is one machine's own on Perfect Dark's stages
 		xbla)   runcase xbla "ModDir=\nMapMods=\nXblaMeshes=1\nStartArmed=1\n" "ModDir=\nMapMods=\nXblaMeshes=0\n" "--net-test-stage 0x32" "" ;;
 		# (2) a Stage Loader map, keyed by its mod's dir and its name
@@ -387,6 +412,8 @@ for c in $CASES; do
 		if skipped "$c"; then echo "skip $c: GoldenEye is not converted here"; continue; fi ;;
 	gfvariant)
 		if skipped "$c"; then echo "skip $c: Goldfinger 64 is not converted here"; continue; fi ;;
+	fetch)
+		if skipped "$c"; then echo "skip $c: GoldenEye is not converted here"; continue; fi ;;
 	esac
 	C=$OUT/$c-client.log
 	case $c in
@@ -421,6 +448,15 @@ for c in $CASES; do
 		echo "     Golden Gun holders in turn on the client: $(pupnum gegg "holders in turn")"
 		;;
 	gemust) checkrefused gemust "must" "Mod.XblaMeshes must match" ;;
+	fetch)
+		checkplay fetch "map Complex from mod GoldenEye Arenas"
+		grep -q "^mod: 0 installed" "$C" && pass "fetch: the client had no mods of its own" || fail "fetch: the client's mod list was not empty: $(grep -m1 '^mod: .* installed' "$C" | cut -c1-80)"
+		grep -q "net: content: GoldenEye Arenas fetched from the host and mounted for its maps: [0-9]* files" "$C" \
+			&& pass "fetch: $(grep -o 'net: content: GoldenEye Arenas fetched.*' "$C" | head -1 | cut -c14-)" || fail "fetch: the client did not fetch GoldenEye Arenas"
+		grep -q "net: the STAGE_LOAD kept through the fetch" "$C" && pass "fetch: the stage load waited for the folder" || fail "fetch: the stage load was not kept"
+		grep -q "net: content: GoldenEye Arenas served to peer" "$OUT/fetch-host.log" && pass "fetch: host: $(grep -o 'served to peer.*' "$OUT/fetch-host.log" | head -1)" || fail "fetch: the host did not serve"
+		lastline "$C" "net: content client" | grep -q "GoldenEye mode 1" && pass "fetch: the GoldenEye mode on the fetched conversion" || fail "fetch: not in the GoldenEye mode"
+		;;
 	gfvariant)
 		checkplay gfvariant "map Junkyard from mod Goldfinger 64"
 		ct=$(lastline "$C" "net: content client")

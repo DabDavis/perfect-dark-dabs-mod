@@ -27,6 +27,17 @@ const char *fsGetModDir(void);
 // mod loader, never by the file search. How many of the mounted dirs overlay
 // (0 or 1): those are the ones a texture pack or a modconfig is read from.
 s32 fsAddMapsDir(const char *path);
+
+// Directories held in memory (a net session's content, netcontent.c): made,
+// filled, sealed, then mounted by their "$N/<name>" path like any other.
+// Never written to disk; they last the process.
+s32 fsMemDirCreate(const char *name);                  // -1 when one of the name exists, or none is free
+s32 fsMemDirAddFile(s32 dir, const char *rel, const void *data, u32 size); // a copy; 0 ok
+void fsMemDirSeal(s32 dir);                            // sorted for lookup; no more files after
+const char *fsMemDirPath(s32 dir);                     // "$N/<name>"
+s32 fsMemDirFind(const char *name);                    // by name, -1 none
+u32 fsMemDirBytes(s32 dir);
+s32 fsMemDirCount(s32 dir);
 s32 fsGetNumOverlayModDirs(void);
 typedef void (*fsScanCallback)(const char *name, void *arg);
 s32 fsScanDir(const char *path, fsScanCallback cb, void *arg);

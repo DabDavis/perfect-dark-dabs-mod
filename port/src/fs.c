@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <limits.h>
 #include <ctype.h>
 #include <unistd.h>
@@ -72,6 +73,245 @@ s32 fsPathIsCwdRelative(const char *path)
 {
 	// ., .., ./, ../
 	return (path[0] == '.' && (path[1] == '.' || path[1] == '/' || path[1] == '\\' || path[1] == '\0'));
+}
+
+/*
+ * Directories held in memory: a net session's content (netcontent.c), the
+ * files of a conversion or a map mod the host served this game, kept for
+ * the process and never written anywhere. A mounted one is "$N/<name>" to
+ * the mod loader and to every path composed from it, and the primitives
+ * below answer for such a path out of the table instead of the disk.
+ */
+#define FS_MAXMEMDIRS 8
+
+struct memfile {
+	char *rel;
+	u8 *data;
+	u32 size;
+};
+
+struct memdir {
+	char name[128];
+	struct memfile *files;
+	s32 count;
+	s32 cap;
+	s32 sealed;
+	u32 bytes;
+};
+
+static struct memdir memDirs[FS_MAXMEMDIRS];
+static s32 numMemDirs;
+
+static char *fsMemStrDup(const char *s)
+{
+	const size_t len = strlen(s) + 1;
+	char *d = malloc(len);
+
+	if (d) {
+		memcpy(d, s, len);
+	}
+
+	return d;
+}
+
+static s32 fsMemIsPath(const char *path)
+{
+	return path && path[0] == '$' && path[1] == 'N' && (path[2] == '/' || path[2] == '\\' || path[2] == '\0');
+}
+
+// the memory dir a path names and the path inside it ("" the dir itself); -1 none
+static s32 fsMemResolve(const char *path, const char **rel)
+{
+	const char *name;
+	const char *end;
+	s32 len;
+	s32 i;
+
+	if (!fsMemIsPath(path) || path[2] == '\0') {
+		return -1;
+	}
+
+	name = path + 3;
+	end = name;
+
+	while (*end && *end != '/' && *end != '\\') {
+		end++;
+	}
+
+	len = end - name;
+
+	while (*end == '/' || *end == '\\') {
+		end++;
+	}
+
+	for (i = 0; i < numMemDirs; i++) {
+		if ((s32)strlen(memDirs[i].name) == len && strncmp(memDirs[i].name, name, len) == 0) {
+			*rel = end;
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static int fsMemFileCmp(const void *a, const void *b)
+{
+	return strcmp(((const struct memfile *)a)->rel, ((const struct memfile *)b)->rel);
+}
+
+static const struct memfile *fsMemFind(const struct memdir *d, const char *rel)
+{
+	struct memfile key;
+	s32 i;
+
+	if (d->sealed) {
+		key.rel = (char *)rel;
+		return bsearch(&key, d->files, d->count, sizeof(struct memfile), fsMemFileCmp);
+	}
+
+	for (i = 0; i < d->count; i++) {
+		if (strcmp(d->files[i].rel, rel) == 0) {
+			return &d->files[i];
+		}
+	}
+
+	return NULL;
+}
+
+// whether rel is a directory of d: the dir itself, or a prefix of a file's path
+static s32 fsMemIsDir(const struct memdir *d, const char *rel)
+{
+	const size_t len = strlen(rel);
+	s32 i;
+
+	if (len == 0) {
+		return 1;
+	}
+
+	for (i = 0; i < d->count; i++) {
+		if (strncmp(d->files[i].rel, rel, len) == 0 && d->files[i].rel[len] == '/') {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+s32 fsMemDirCreate(const char *name)
+{
+	struct memdir *d;
+	s32 i;
+
+	if (!name || !name[0] || strlen(name) >= sizeof(d->name) || strchr(name, '/') || strchr(name, '\\')) {
+		return -1;
+	}
+
+	for (i = 0; i < numMemDirs; i++) {
+		if (strcasecmp(memDirs[i].name, name) == 0) {
+			return -1;
+		}
+	}
+
+	if (numMemDirs >= FS_MAXMEMDIRS) {
+		return -1;
+	}
+
+	d = &memDirs[numMemDirs];
+	memset(d, 0, sizeof(*d));
+	snprintf(d->name, sizeof(d->name), "%s", name);
+
+	return numMemDirs++;
+}
+
+s32 fsMemDirAddFile(s32 dir, const char *rel, const void *data, u32 size)
+{
+	struct memdir *d;
+	struct memfile *f;
+
+	if (dir < 0 || dir >= numMemDirs || !rel || !rel[0] || rel[0] == '/' || strstr(rel, "..")) {
+		return -1;
+	}
+
+	d = &memDirs[dir];
+
+	if (d->sealed || fsMemFind(d, rel)) {
+		return -1;
+	}
+
+	if (d->count == d->cap) {
+		const s32 cap = d->cap ? d->cap * 2 : 256;
+		struct memfile *files = realloc(d->files, sizeof(struct memfile) * cap);
+
+		if (!files) {
+			return -1;
+		}
+
+		d->files = files;
+		d->cap = cap;
+	}
+
+	f = &d->files[d->count];
+	f->rel = fsMemStrDup(rel);
+	f->data = size ? malloc(size) : NULL;
+
+	if (!f->rel || (size && !f->data)) {
+		free(f->rel);
+		free(f->data);
+		return -1;
+	}
+
+	if (size) {
+		memcpy(f->data, data, size);
+	}
+
+	f->size = size;
+	d->count++;
+	d->bytes += size;
+
+	return 0;
+}
+
+void fsMemDirSeal(s32 dir)
+{
+	if (dir >= 0 && dir < numMemDirs && !memDirs[dir].sealed) {
+		qsort(memDirs[dir].files, memDirs[dir].count, sizeof(struct memfile), fsMemFileCmp);
+		memDirs[dir].sealed = 1;
+	}
+}
+
+const char *fsMemDirPath(s32 dir)
+{
+	static char path[FS_MAXPATH + 1];
+
+	if (dir < 0 || dir >= numMemDirs) {
+		return NULL;
+	}
+
+	snprintf(path, sizeof(path), "$N/%s", memDirs[dir].name);
+	return path;
+}
+
+s32 fsMemDirFind(const char *name)
+{
+	s32 i;
+
+	for (i = 0; i < numMemDirs; i++) {
+		if (strcasecmp(memDirs[i].name, name) == 0) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+u32 fsMemDirBytes(s32 dir)
+{
+	return dir >= 0 && dir < numMemDirs ? memDirs[dir].bytes : 0;
+}
+
+s32 fsMemDirCount(s32 dir)
+{
+	return dir >= 0 && dir < numMemDirs ? memDirs[dir].count : 0;
 }
 
 const char *fsFullPath(const char *relPath)
@@ -295,7 +535,10 @@ static s32 fsAddModDirWith(const char *path, s32 overlay)
 	char *dst = modDirs[numModDirs];
 	dst[0] = '\0';
 
-	if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
+	if (fsMemIsPath(path)) {
+		// a directory held in memory: its path is its name
+		strncpy(dst, path, FS_MAXPATH);
+	} else if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
 		// path is explicit; check as-is
 		if (fsFileSize(path) >= 0) {
 			strncpy(dst, fsFullPath(path), FS_MAXPATH);
@@ -487,7 +730,68 @@ s32 fsInit(void)
 s32 fsScanDir(const char *path, fsScanCallback cb, void *arg)
 {
 	const char *full = fsFullPath(path);
+	const char *rel;
 	s32 count = 0;
+	s32 mem = fsMemResolve(path, &rel);
+
+	if (mem >= 0) {
+		// the immediate children of rel, files and directories, each once
+		const struct memdir *d = &memDirs[mem];
+		const size_t len = strlen(rel);
+		char **names = NULL;
+		s32 n = 0;
+		s32 i;
+
+		if (!fsMemIsDir(d, rel)) {
+			return -1;
+		}
+
+		for (i = 0; i < d->count; i++) {
+			const char *f = d->files[i].rel;
+			const char *slash;
+			s32 clen;
+			s32 k;
+
+			if (len) {
+				if (strncmp(f, rel, len) != 0 || f[len] != '/') {
+					continue;
+				}
+
+				f += len + 1;
+			}
+
+			slash = strchr(f, '/');
+			clen = slash ? (s32)(slash - f) : (s32)strlen(f);
+
+			for (k = 0; k < n; k++) {
+				if ((s32)strlen(names[k]) == clen && strncmp(names[k], f, clen) == 0) {
+					break;
+				}
+			}
+
+			if (k < n) {
+				continue;
+			}
+
+			names = realloc(names, sizeof(char *) * (n + 1));
+			names[n] = malloc(clen + 1);
+			memcpy(names[n], f, clen);
+			names[n][clen] = '\0';
+			n++;
+		}
+
+		for (i = 0; i < n; i++) {
+			if (cb) {
+				cb(names[i], arg);
+			}
+
+			free(names[i]);
+			count++;
+		}
+
+		free(names);
+		return count;
+	}
 
 #ifdef PLATFORM_WIN32
 	char pattern[FS_MAXPATH + 1];
@@ -620,6 +924,33 @@ void *fsFileLoad(const char *name, u32 *outSize)
 void *fsFileLoadPadded(const char *name, u32 *outSize, u32 pad)
 {
 	const char *fullName = fsFullPath(name);
+	const char *rel;
+	const s32 mem = fsMemResolve(name, &rel);
+
+	if (mem >= 0) {
+		const struct memfile *f = fsMemFind(&memDirs[mem], rel);
+		void *buf;
+
+		if (!f) {
+			sysLogPrintf(LOG_ERROR, "fsFileLoad: could not find file: %s", name);
+			return NULL;
+		}
+
+		buf = sysMemZeroAlloc(f->size + pad + 1);
+
+		if (!buf) {
+			sysLogPrintf(LOG_ERROR, "fsFileLoad: could not alloc %u bytes for file: %s", f->size, name);
+			return NULL;
+		}
+
+		memcpy(buf, f->data, f->size);
+
+		if (outSize) {
+			*outSize = f->size;
+		}
+
+		return buf;
+	}
 
 	FILE *f = fopen(fullName, "rb");
 	if (!f) {
@@ -659,8 +990,19 @@ void *fsFileLoadPadded(const char *name, u32 *outSize, u32 pad)
 
 s32 fsFileSize(const char *name)
 {
-	const char *fullName = fsFullPath(name);
+	const char *fullName;
+	const char *rel;
+	const s32 mem = fsMemResolve(name, &rel);
 	struct stat st;
+
+	if (mem >= 0) {
+		const struct memfile *f = fsMemFind(&memDirs[mem], rel);
+
+		return f ? (s32)f->size : fsMemIsDir(&memDirs[mem], rel) ? 0 : -1;
+	}
+
+	fullName = fsFullPath(name);
+
 	if (stat(fullName, &st) < 0) {
 		return -1;
 	} else {
@@ -675,6 +1017,29 @@ FILE *fsFileOpenWrite(const char *name)
 
 FILE *fsFileOpenRead(const char *name)
 {
+	const char *rel;
+	const s32 mem = fsMemResolve(name, &rel);
+
+	if (mem >= 0) {
+		const struct memfile *f = fsMemFind(&memDirs[mem], rel);
+		FILE *fp;
+
+		if (!f) {
+			return NULL;
+		}
+
+		// a temporary file the system deletes (fmemopen is not everywhere;
+		// nothing that reads a conversion or a map mod comes this way)
+		fp = tmpfile();
+
+		if (fp) {
+			fwrite(f->data, 1, f->size, fp);
+			rewind(fp);
+		}
+
+		return fp;
+	}
+
 	return fopen(fsFullPath(name), "rb");
 }
 
