@@ -84,9 +84,11 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 - `port/src/netlobbymenu.c` — Combat Simulator > Online Game, Briefing
   Room, Create Room, Game Lobby, Room Settings, Kick.
 - `tools/pdlobbyd/` — stdlib Python rooms service (`pdlobbyd.py`, its
-  `README.md` = the API, `test_pdlobbyd.py`, the systemd unit). Not
-  deployed: the VPS needs UDP 27101 (rendezvous) and 27110-27141 (relay)
-  open and nginx's `/pdlobby/` location first.
+  `README.md` = the API, `test_pdlobbyd.py`, the systemd unit). Deployed
+  2026-10-07 on the ghost server's box (README "Running it": unit, nginx
+  location, nftables rules; UDP 27101 and 27110-27141 open in the host
+  firewall; the ECHO answered over the public internet, so the provider's
+  firewall passes it).
 - `tools/nettest/` — `pd-nettest` (built beside the game): codec, buffer,
   snapshot and hostile-packet tests, clean under ASan/UBSan and wine.
 

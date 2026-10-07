@@ -465,7 +465,21 @@ header caps, chunked bodies, keep-alive, and sign-in through a stub pdghostd
 (forwarded `X-Real-IP`, refusals passed through, the account server down,
 logout). Nothing outside 127.0.0.1.
 
-## Running it (not deployed yet)
+## Running it
+
+Deployed 2026-10-07 on the ghost server's box (`sdg@10.8.0.1`, "vultr"): the
+script is `/home/sdg/pdlobbyd.py` (kept byte-identical to this folder's, as
+pdghostd's is), the unit `/etc/systemd/system/pdlobbyd.service`, the nginx
+`upstream pdlobbyd` and `location ^~ /pdlobby/` in `/etc/nginx/nginx.conf`
+beside pdghostd's block, and the UDP rules in `/etc/nftables.conf` (`udp dport
+27101 accept`, `udp dport 27110-27141 accept`, before the chain's final drop).
+The game reaches it as `https://texturepacks.art/pdlobby` (its ghost server's
+host with `/pdlobby`, netlobby.c). nginx's `worker_connections` is 1024 on one
+worker there: about 500 parked polls before it refuses everyone, pdghostd
+included; raise it before a real crowd. A redeploy is `scp` the script over,
+`python3 -c "import ast; ast.parse(open('/home/sdg/pdlobbyd.py').read())"` on
+the box, `sudo -n systemctl restart pdlobbyd` (rooms are in memory: a restart
+empties them). `journalctl -u pdlobbyd -f` for the log.
 
 ```sh
 scp tools/pdlobbyd/pdlobbyd.py sdg@10.8.0.1:~/pdlobbyd.py
