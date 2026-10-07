@@ -1365,6 +1365,11 @@ Gfx *lvRender(Gfx *gdl)
 
 			if (g_NetMode == NETMODE_CLIENT && netClientRenderPass(i, playercount, &islastplayer)) continue; // netplay: a puppet player's view is not simulated here
 
+#ifndef PLATFORM_N64
+			// a mesh's kept pose is drawn under this view's camera, not the last view's
+			xblaMeshPassBegin();
+#endif
+
 			// Calculate bluramount - this will be used later
 			if (g_Vars.tickmode != TICKMODE_CUTSCENE) {
 				player = g_Vars.currentplayer;

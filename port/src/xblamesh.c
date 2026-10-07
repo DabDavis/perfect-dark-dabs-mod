@@ -7530,6 +7530,23 @@ void xblaMeshFrameReset(void)
 }
 
 /**
+ * Each player's view is its own as far as a mesh's kept copies go: the pose
+ * and the GPU palette are in the first part's own space and would do for any
+ * view, but the matrix they are drawn under (posedmtx, gpumtx) is a copy of
+ * that part's, made under the camera of the view that posed it. A net host
+ * builds every player's view and keeps only its own player's (lv.c,
+ * netDiscardPass), in an order shuffled each frame, so whenever another
+ * player's view came first the host drew Dam's spawn gate and its truck under
+ * that player's camera - somewhere off the screen, a frame at a time
+ * (2026-10-07).
+ * Only the key moves: the arena is the frame's, as before.
+ */
+void xblaMeshPassBegin(void)
+{
+	frameCount++;
+}
+
+/**
  * One more chunk on this side, big enough for what is being asked for.
  *
  * A single mesh's pose is one allocation, so a chunk has to be able to hold
@@ -15513,6 +15530,7 @@ void xblaMeshSetReflections(s32 enabled) { }
 s32 xblaMeshRenderNode(struct modelrenderdata *renderdata, struct model *model,
 		struct modelnode *node) { return 0; }
 void xblaMeshFrameReset(void) { }
+void xblaMeshPassBegin(void) { }
 s32 xblaMeshIsAvailable(void) { return 0; }
 s32 xblaMeshGetEnabled(void) { return 0; }
 void xblaMeshSetEnabled(s32 enabled) { }

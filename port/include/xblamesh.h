@@ -159,6 +159,14 @@ s32 xblaMeshKeptLists(struct model *model, struct modelnode *node, Gfx **opa, Gf
 void xblaMeshFrameReset(void);
 
 /**
+ * A player's view is starting (lvRender's loop): what a mesh keeps for the
+ * frame (its pose, its GPU palette, the matrix they are drawn under) is kept
+ * for this view only. The matrix is a copy of the model's, which each view
+ * computes under its own camera.
+ */
+void xblaMeshPassBegin(void);
+
+/**
  * Shots tested against the release's triangles rather than the N64's, for
  * func0f06bea0() (propobj.c): Begin() at the top of its walk, SkipsNode() for
  * each list it passes (nonzero: the stock list is not drawn, so is not tested),
