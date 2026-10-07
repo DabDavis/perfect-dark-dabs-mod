@@ -46,6 +46,8 @@ s32 gexFrontMissionEnded(void);
 s32 gexFrontMissionReport(void);
 s32 gexFrontWantsMain(void);
 s32 gexFrontLeavingForLevel(void);
+// the gates (--net-test-campaign-mission): the open folder starts mission N as its own start does
+s32 gexFrontTestStartMission(s32 mission);
 s32 gexFrontHidesLevel(void);
 // set by schedConsiderScreenshot() while a menu backdrop waits for a frame with the level in it
 extern s32 g_MenuBlurDeferred;

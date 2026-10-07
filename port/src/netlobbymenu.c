@@ -330,6 +330,8 @@ MenuItemHandlerResult netLobbyMenuHandlerOnline(s32 operation, struct menuitem *
 	return 0;
 }
 
+void netLobbyMenuPushRoom(void);
+
 /**
  * Online Game on the Perfect Menu (mainmenu.c): the lobby's pages as the
  * root of the Combat Simulator's menus, so a room is one step from the main
@@ -347,6 +349,13 @@ MenuItemHandlerResult netLobbyMenuHandlerOnlineMain(s32 operation, struct menuit
 	}
 
 	if (operation == MENUOP_SET) {
+		// already in a room (a campaign's host between missions): its Game
+		// Lobby, over the Perfect Menu and with the mode as it is
+		if (netLobbyInRoom()) {
+			netLobbyMenuPushRoom();
+			return 0;
+		}
+
 		g_GexPlusVariant = NULL;
 		mpSetGexPlusMode(false);
 		g_Vars.bondplayernum = 0;
@@ -1599,7 +1608,13 @@ static char *textRoomStatus(struct menuitem *item)
 		snprintf(s_Status, sizeof(s_Status), "Launching in %d...\n", (netLobbyCountdownMs() + 999) / 1000);
 		break;
 	case 2:
-		snprintf(s_Status, sizeof(s_Status), "%s", netLobbyIsHost() ? "Launched: waiting for the players to connect...\n" : "Launched: connecting to the host...\n");
+		if (netLobbyCampaignState() == 1) {
+			snprintf(s_Status, sizeof(s_Status), "%s", "Campaign: start missions from your menus.\n");
+		} else if (netLobbyCampaignState() == 2) {
+			snprintf(s_Status, sizeof(s_Status), "%s", "Campaign: you join the host's next mission.\n");
+		} else {
+			snprintf(s_Status, sizeof(s_Status), "%s", netLobbyIsHost() ? "Launched: waiting for the players to connect...\n" : "Launched: connecting to the host...\n");
+		}
 		break;
 	case 3:
 		snprintf(s_Status, sizeof(s_Status), "%s", "In the match.\n");
@@ -1718,6 +1733,24 @@ static MenuItemHandlerResult handlerHostOnly(s32 operation, struct menuitem *ite
 	return 0;
 }
 
+/**
+ * A campaign's host (netcoop.c): the set's menus again. The Game Lobby
+ * ignores Back, and a campaign host comes to it from the Perfect Menu's
+ * Online Game between missions.
+ */
+static MenuItemHandlerResult handlerCampaign(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return !netCoopCampaignOn() || !netLobbyIsHost();
+	}
+
+	if (operation == MENUOP_SET) {
+		netCoopCampaignMenusOpen();
+	}
+
+	return 0;
+}
+
 static MenuItemHandlerResult handlerLeave(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
@@ -1795,6 +1828,7 @@ static struct menuitem s_RoomItems[] = {
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Chat...\n", 0, handlerChat },
 	{ MENUITEMTYPE_SELECTABLE, 1, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Kick...\n", 0, handlerHostOnly },
 	{ MENUITEMTYPE_SELECTABLE, 2, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Settings...\n", 0, handlerHostOnly },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Back to the Campaign\n", 0, handlerCampaign },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Leave\n", 0, handlerLeave },
 	{ MENUITEMTYPE_END },
 };

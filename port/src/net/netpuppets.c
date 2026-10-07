@@ -293,6 +293,21 @@ void netPuppetsStageStart(void)
 			propDisable(chr->prop);
 		}
 	}
+
+	// A mission's own chrs too (made here from the setup, mapped to the
+	// host's by setup command: NETDESC_SETUPCHR). No AI runs here to give
+	// one an animation or move it, so one the host has not sent yet would
+	// stand where the load left it - and one the host killed and freed
+	// before a join in progress is never sent at all. The first record
+	// says hidden or not, enabled or not, as every record does.
+	for (i = 0; g_ChrSlots && i < g_NumChrSlots; i++) {
+		struct chrdata *chr = &g_ChrSlots[i];
+
+		if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
+			chr->chrflags |= CHRCFLAG_HIDDEN;
+			propDisable(chr->prop);
+		}
+	}
 }
 
 /*
@@ -881,23 +896,72 @@ static void netQuatToRot(const f32 *q, f32 scale, f32 m[3][3])
 {
 	const f32 x = q[0], y = q[1], z = q[2], w = q[3];
 
-	// column-major as the game's Mtx3 (m[col][row]), the inverse of netQuatFromMatrix
+	// the inverse of netQuatFromMatrix, index for index: it reads m[i][j]
+	// as row i, column j, and so must this. Written the other way round
+	// (m[col][row]) it gave every object the host sent the transpose of its
+	// rotation - turned -theta where the host's was turned theta: Dam's
+	// realrots, host against client, 2026-10-07 (Perfect Dark's props stand
+	// mostly square to the axes, where it barely shows)
 	m[0][0] = (1 - 2 * (y * y + z * z)) * scale;
-	m[0][1] = (2 * (x * y + z * w)) * scale;
-	m[0][2] = (2 * (x * z - y * w)) * scale;
-	m[1][0] = (2 * (x * y - z * w)) * scale;
+	m[0][1] = (2 * (x * y - z * w)) * scale;
+	m[0][2] = (2 * (x * z + y * w)) * scale;
+	m[1][0] = (2 * (x * y + z * w)) * scale;
 	m[1][1] = (1 - 2 * (x * x + z * z)) * scale;
-	m[1][2] = (2 * (y * z + x * w)) * scale;
-	m[2][0] = (2 * (x * z + y * w)) * scale;
-	m[2][1] = (2 * (y * z - x * w)) * scale;
+	m[1][2] = (2 * (y * z - x * w)) * scale;
+	m[2][0] = (2 * (x * z - y * w)) * scale;
+	m[2][1] = (2 * (y * z + x * w)) * scale;
 	m[2][2] = (1 - 2 * (x * x + y * y)) * scale;
 }
 
-static f32 netRotScale(f32 m[3][3])
+/**
+ * A setup object's own scale, column by column. The host sends the rotation
+ * alone (netCaptureRot makes each column unit), and a setup object here has
+ * the same matrix from the same setup. Put back as one scale - column 0's,
+ * as it was - an object stretched along one axis more than another came out
+ * stretched along all three (GoldenEye's converted props often are: Dam's
+ * doors 1.37 x 1.15 x 0.86).
+ */
+static void netRotScales(f32 m[3][3], f32 *scales)
 {
-	const f32 len = sqrtf(m[0][0] * m[0][0] + m[0][1] * m[0][1] + m[0][2] * m[0][2]);
+	s32 j;
 
-	return len > 0.000001f && len < 100000.f ? len : 1.f;
+	for (j = 0; j < 3; j++) {
+		const f32 len = sqrtf(m[j][0] * m[j][0] + m[j][1] * m[j][1] + m[j][2] * m[j][2]);
+
+		scales[j] = len > 0.000001f && len < 100000.f ? len : 1.f;
+	}
+}
+
+/**
+ * Whether the host's rotation for an object is the one this machine's own
+ * matrix would send (netCaptureRot's columns made unit, quantized as the
+ * wire does), within a sixth of a degree. Then the object keeps its own
+ * matrix, from the same setup: GoldenEye's converted panes are a unit pane
+ * sheared into place (Dam's model 616, columns not square to each other),
+ * which no rotation and scale can carry. A setup object the host has
+ * turned since takes the record's rotation.
+ */
+static s32 netRotSameOnWire(f32 m[3][3], const f32 *q)
+{
+	f32 n[3][3];
+	f32 own[4];
+	f32 dot;
+	s32 i;
+	s32 j;
+
+	for (j = 0; j < 3; j++) {
+		const f32 len = sqrtf(m[j][0] * m[j][0] + m[j][1] * m[j][1] + m[j][2] * m[j][2]);
+
+		for (i = 0; i < 3; i++) {
+			n[j][i] = len > 0.000001f ? m[j][i] / len : (i == j ? 1.f : 0.f);
+		}
+	}
+
+	netQuatFromMatrix(n, own);
+	netQuatWire(own);
+	dot = own[0] * q[0] + own[1] * q[1] + own[2] * q[2] + own[3] * q[3];
+
+	return fabsf(dot) > 0.999999f;
 }
 
 static void netPupSeedRooms(struct prop *prop, s32 room)
@@ -916,11 +980,23 @@ static s32 netPupIsPaused(struct prop *prop)
 	return !prop->active && (prop->prev || prop->next || prop == g_Vars.pausedprops);
 }
 
-static void netPupPlaceObj(struct defaultobj *obj, const struct netentstate *s, f32 scale)
+// scales NULL: the object's own matrix kept, its place moved
+static void netPupPlaceObjScaled(struct defaultobj *obj, const struct netentstate *s, const f32 *scales)
 {
 	struct prop *prop = obj->prop;
+	s32 i;
+	s32 j;
 
-	netQuatToRot(s->quat, scale, obj->realrot);
+	if (scales) {
+		netQuatToRot(s->quat, 1.f, obj->realrot);
+
+		for (j = 0; j < 3; j++) {
+			for (i = 0; i < 3; i++) {
+				obj->realrot[j][i] *= scales[j];
+			}
+		}
+	}
+
 	prop->pos.x = s->pos[0];
 	prop->pos.y = s->pos[1];
 	prop->pos.z = s->pos[2];
@@ -929,6 +1005,13 @@ static void netPupPlaceObj(struct defaultobj *obj, const struct netentstate *s, 
 	// registered; shading, geometry
 	netPupSeedRooms(prop, s->room);
 	func0f069c70(obj, true, true);
+}
+
+static void netPupPlaceObj(struct defaultobj *obj, const struct netentstate *s, f32 scale)
+{
+	const f32 scales[3] = { scale, scale, scale };
+
+	netPupPlaceObjScaled(obj, s, scales);
 }
 
 static void netPupObj(struct netpup *u, struct prop *prop, const struct netentstate *s, s32 isdyn)
@@ -976,7 +1059,18 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 	}
 
 	if (moved || isdyn) {
-		netPupPlaceObj(obj, s, isdyn ? obj->model->scale : netRotScale(obj->realrot));
+		if (isdyn) {
+			netPupPlaceObj(obj, s, obj->model->scale);
+		} else if (netRotSameOnWire(obj->realrot, s->quat)) {
+			// a setup object the host has not turned: its own matrix,
+			// from the same setup, which a rotation cannot always carry
+			netPupPlaceObjScaled(obj, s, NULL);
+		} else {
+			f32 scales[3];
+
+			netRotScales(obj->realrot, scales);
+			netPupPlaceObjScaled(obj, s, scales);
+		}
 
 		// rooms unpause their props only when they come on screen: one moved
 		// into a room already in view would never draw

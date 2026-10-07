@@ -2233,6 +2233,18 @@ static void frontStartMission(void)
 	menuhandlerAcceptMission(MENUOP_SET, NULL, &data);
 }
 
+s32 gexFrontTestStartMission(s32 mission)
+{
+	if (!g_Front.active || mission < 0 || mission >= frontNumMissions()) {
+		return 0;
+	}
+
+	g_Front.mission = mission;
+	frontStartMission();
+
+	return 1;
+}
+
 /**
  * The Cradle finished: GoldenEye's credits, which are its level Cuba
  * (front.c: `mission_num == SP_LEVEL_CRADLE` -> `selected_stage =

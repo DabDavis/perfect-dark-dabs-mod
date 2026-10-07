@@ -2103,6 +2103,24 @@ s32 netLobbyLaunchState(void)
 	return s_Room.countdownms >= 0 ? 1 : 0;
 }
 
+/**
+ * A launched campaign room between missions (netcoop.c): the host is in its
+ * own menus and a member connected to it waits for its next mission, which
+ * "waiting for the players" and "connecting" did not say
+ */
+s32 netLobbyCampaignState(void)
+{
+	if (netLobbyLaunchState() != 2 || strcmp(s_Room.sum.scenario, "Campaign") != 0) {
+		return 0;
+	}
+
+	if (s_MainIsHost) {
+		return 1;
+	}
+
+	return netSessionClientJoined() ? 2 : 3;
+}
+
 /*
  * netLobbyTick: what the room asks of this machine
  */
@@ -2706,6 +2724,11 @@ void netLobbyShutdown(void)
  *                                  the clients have all left)
  *   --net-lobby-shots              the Briefing Room and Game Lobby menus up on the
  *                                  way, each screenshotted (tools/ci/netlobbyuitest.sh)
+ *   --net-lobby-campaign TAG       host: the room is TAG's campaign ("pd", "ge", a
+ *                                  hack's tag): the host's menus at the launch
+ *   --net-lobby-solo               host: LAUNCH with nobody else in the room
+ *   --net-lobby-menus              host: the room made from the Perfect Menu's Online
+ *                                  Game, its Game Lobby up, as a player makes one
  */
 
 static s32 s_ScriptMatches = 1;
@@ -2806,6 +2829,19 @@ static void lobbyScriptTick(void)
 	if (s_Script == SCRIPT_HOST) {
 		switch (s_ScriptStep) {
 		case 0:
+			// --net-lobby-menus: the Perfect Menu's Online Game first (its own menu root)
+			if (sysArgCheck("--net-lobby-menus") && now - s_ScriptAt > 1500 && g_MainChangeToStageNum < 0
+					&& g_MenuData.root != MENUROOT_MPSETUP) {
+				MenuItemHandlerResult netLobbyMenuHandlerOnlineMain(s32 operation, struct menuitem *item, union handlerdata *data);
+				union handlerdata data;
+
+				memset(&data, 0, sizeof(data));
+				netLobbyMenuHandlerOnlineMain(MENUOP_SET, NULL, &data);
+				sysLogPrintf(LOG_NOTE, "lobby script: host: Online Game from the Perfect Menu (menu root %d)", g_MenuData.root);
+				s_ScriptAt = now;
+				break;
+			}
+
 			if (now - s_ScriptAt > 3000 && g_MainChangeToStageNum < 0) {
 				struct netlobbycreate c;
 				const s32 sims = sysArgGetInt("--net-test-sims", 2);
@@ -2821,6 +2857,15 @@ static void lobbyScriptTick(void)
 					// --net-test-coop-game TAG: a conversion's set (protocol 14)
 					snprintf(g_NetCoopSetup.game, sizeof(g_NetCoopSetup.game), "%s",
 							sysArgGetString("--net-test-coop-game") ? sysArgGetString("--net-test-coop-game") : "");
+				}
+
+				// --net-lobby-campaign TAG: the set's campaign, as Create Room's Game makes it
+				if (sysArgGetString("--net-lobby-campaign")) {
+					const char *tag = sysArgGetString("--net-lobby-campaign");
+
+					g_NetCoopSetup.on = 1;
+					g_NetCoopSetup.campaign = 1;
+					snprintf(g_NetCoopSetup.game, sizeof(g_NetCoopSetup.game), "%s", strcmp(tag, "pd") == 0 ? "" : tag);
 				}
 
 				for (i = 0; i < sims && i < MAX_BOTS; i++) {
@@ -2840,6 +2885,13 @@ static void lobbyScriptTick(void)
 			break;
 		case 1:
 			if (s_InRoom && s_Room.valid && !s_Room.launched && s_Room.countdownms < 0) {
+				if (sysArgCheck("--net-lobby-solo") && now - s_ScriptAt > 1500) {
+					netLobbyMenuPushRoom();
+					netLobbyLaunch(0);
+					lobbyScriptStep(2, "host: alone in the room; LAUNCH");
+					break;
+				}
+
 				if (s_ScriptShots && s_ScriptShotStep == 0) {
 					netLobbyMenuPushRoom();
 					s_ScriptShotStep = 1;

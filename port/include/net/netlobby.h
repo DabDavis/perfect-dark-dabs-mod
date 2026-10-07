@@ -153,6 +153,7 @@ void netLobbyLeave(void);
 void netLobbyWarm(void);           // the Online Game page opened: hash off the frame
 void netLobbyCancelPending(void);  // the create/join page closed before the reply
 s32 netLobbyLaunchState(void);       // 0 open, 1 counting down, 2 launched/connecting, 3 in the match
+s32 netLobbyCampaignState(void);     // a launched campaign room: 1 its host, 2 a member in with the host, 3 connecting; else 0
 s32 netLobbyCountdownMs(void);       // the launch countdown left, -1 if none
 
 // The session's side (netsession.c): the room's roster for ticket check 5

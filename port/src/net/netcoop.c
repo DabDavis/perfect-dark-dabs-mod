@@ -14,6 +14,7 @@
 #include "gexfront.h"
 #include "geconvert.h"
 #include "game/bg.h"
+#include "game/chraction.h"
 #include "game/coop.h"
 #include "game/lv.h"
 #include "game/lang.h"
@@ -89,6 +90,7 @@ extern s32 g_CutsceneTweenDuration60;
 struct netcoopsetup g_NetCoopSetup = { 0, 0, DIFF_A, 1, 0 };
 
 static s32 s_HostMatch = 0;       // host: the match H1 is starting (or running) is a co-op mission
+static u32 s_JoinNear = 0;        // host: players a join in progress took, whose next spawn is beside a living one
 static char s_HostGame[16];       // host: the mission's set ("" Perfect Dark's, else a conversion's tag)
 static const char *s_HostVariantBefore; // host: g_GexPlusVariant before a conversion's mission, put back after
 
@@ -432,6 +434,7 @@ s32 netCoopHostStart(const char *game, s32 stageindex, s32 difficulty, s32 radar
 	titleSetNextStage(stagenum);
 
 	s_HostMatch = 1;
+	s_JoinNear = 0;
 	numplayers = netHostMatchStarting(stagenum, 2);
 
 	if (numplayers < 1) {
@@ -577,6 +580,14 @@ s32 netCoopCampaignOpen(const char *game, s32 radar, s32 friendlyfire)
 	return 1;
 }
 
+/** The Game Lobby's row on a campaign host: back to the set's menus */
+void netCoopCampaignMenusOpen(void)
+{
+	if (s_Campaign.on && g_NetMode == NETMODE_SERVER) {
+		netCoopCampaignMenus(0);
+	}
+}
+
 s32 netCoopCampaignAfterMatch(void)
 {
 	if (!s_Campaign.on || g_NetMode != NETMODE_SERVER) {
@@ -652,6 +663,7 @@ void netCoopMatchStopped(void)
 	}
 
 	s_HostMatch = 0;
+	s_JoinNear = 0;
 	s_HostGame[0] = '\0';
 	s_ClientMatch = 0;
 	s_HaveObj = 0;
@@ -686,6 +698,78 @@ void netCoopSpreadSpawn(struct coord *pos, s16 *rooms)
 	} else if (aboverooms[0] != -1) {
 		memcpy(rooms, aboverooms, sizeof(aboverooms));
 	}
+}
+
+/**
+ * A join in progress (the user, 2026-10-07: a campaign "should allow a late
+ * join in progress"): netHostLateGo brings the seat's player into play with a
+ * new life, and a mission's own spawn is its start, which the players may
+ * have left long ago. This one life starts beside a living player instead -
+ * the one with the most health, as a co-op respawn picks its buddy - out of
+ * PD's own co-op test for the second player's spawn (chrAdjustPosForSpawn:
+ * 60 units round in eight directions, ground under it, nothing in the way).
+ * A death later respawns the mission's way.
+ */
+void netCoopHostLateJoin(s32 playernum)
+{
+	if (s_HostMatch && playernum >= 0 && playernum < MAX_PLAYERS) {
+		s_JoinNear |= 1u << playernum;
+	}
+}
+
+s32 netCoopJoinSpawn(struct coord *pos, s16 *rooms, f32 *turnanglerad)
+{
+	const s32 pn = g_Vars.currentplayernum;
+	struct player *buddy;
+	struct coord at;
+	RoomNum atrooms[8];
+	s32 bn;
+	s32 i;
+
+	if (g_NetMode != NETMODE_SERVER || !s_HostMatch || pn < 0 || pn >= MAX_PLAYERS || !(s_JoinNear & (1u << pn))) {
+		return 0;
+	}
+
+	s_JoinNear &= ~(1u << pn);
+	bn = coopRespawnBuddy(pn);
+	buddy = bn >= 0 && bn < PLAYERCOUNT() ? g_Vars.players[bn] : NULL;
+
+	if (!buddy || bn == pn || !buddy->prop || !buddy->prop->chr || buddy->isdead || buddy->prop->rooms[0] < 0) {
+		sysLogPrintf(LOG_NOTE, "net: co-op: player %d joined in progress; nobody living to spawn beside, the mission's spawn", pn);
+		return 0;
+	}
+
+	// from just over the buddy's feet, so the test's height covers a body
+	at.x = buddy->prop->pos.x;
+	at.y = buddy->vv_manground + 30.0f;
+	at.z = buddy->prop->pos.z;
+
+	for (i = 0; i < ARRAYCOUNT(atrooms) - 1 && buddy->prop->rooms[i] != -1; i++) {
+		atrooms[i] = buddy->prop->rooms[i];
+	}
+
+	atrooms[i] = -1;
+
+	if (!chrAdjustPosForSpawn(30.0f, &at, atrooms, buddy->vv_theta * (M_BADTAU / 360.0f), true, false, true)) {
+		sysLogPrintf(LOG_NOTE, "net: co-op: player %d joined in progress; no room beside player %d, the mission's spawn", pn, bn);
+		return 0;
+	}
+
+	*pos = at;
+
+	for (i = 0; i < 8; i++) {
+		rooms[i] = atrooms[i];
+
+		if (atrooms[i] == -1) {
+			break;
+		}
+	}
+
+	*turnanglerad = buddy->vv_theta * (M_BADTAU / 360.0f);
+	sysLogPrintf(LOG_NOTE, "net: co-op: player %d joined in progress; spawns beside player %d at %.0f %.0f %.0f (room %d)",
+			pn, bn, at.x, at.y, at.z, rooms[0]);
+
+	return 1;
 }
 
 /*

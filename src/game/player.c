@@ -667,6 +667,9 @@ void playerStartNewLife(void)
 	} else if (modRandomTakeSpawn(&pos, rooms, &angle)) {
 		// Randomizer: the mission's first life starts where the roll said,
 		// which a mission that opens with a cutscene will not do on its own.
+	} else if (g_NetMode == NETMODE_SERVER && netCoopJoinSpawn(&pos, rooms, &angle)) {
+		// netplay: a co-op mission joined in progress starts beside a
+		// living player, not at the mission's start (netcoop.c)
 	} else
 #endif
 	{

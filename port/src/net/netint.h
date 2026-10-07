@@ -222,6 +222,7 @@ void netCoopClientStage(void);              // H3's tail on a client
 s32 netRulesCoopOn(void);                   // client: the RULES received say a mission
 s32 netCoopTestStart(void);                 // --net-test-coop: 1 started
 void netCoopMatchStopped(void);             // H12
+void netCoopHostLateJoin(s32 playernum);    // host: a join in progress takes this player; its next spawn is beside a living one
 void netCoopCapture(u8 *body);              // host: the mission block's body (netscen.c's OFF_BODY)
 s32 netCoopBlockOk(const u8 *body);
 void netCoopApply(const u8 *body);          // client, in tick order with the events

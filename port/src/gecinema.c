@@ -48,6 +48,7 @@
 #include "game/chrai.h"
 #include "game/chraction.h"
 #include "game/env.h"
+#include "game/playermgr.h"
 #include "lib/model.h"
 #include "lib/ailist.h"
 #include "lib/rng.h"
@@ -61,6 +62,7 @@
 #include "gecinema.h"
 #include "config.h"
 #include "platform.h"
+#include "net/net.h"
 #include "geroom.h"
 #include "trace.h"
 #include "video.h"
@@ -433,6 +435,30 @@ static void gecinemaCollect(void)
 	// five on Silo where the later cartridges are played (geconvert.c's
 	// revisionSetup()), one on the US one
 	sysLogPrintf(LOG_NOTE, "gecinema: %d opening shots, %d swirl points", g_GeCinemaNumShots, g_GeNumSwirl);
+}
+
+/**
+ * The player GoldenEye's opening is played for. GoldenEye's is made for one
+ * player and runs on whichever is current; offline that is the only one. An
+ * online co-op mission has a player for every seat and the host ticks them
+ * all, so the opening is this machine's own player's (each machine plays
+ * its own): the still and its fades from lvTick() as that player, and the
+ * swirl's clock and its end in that player's tick only. Played on whoever
+ * the last loop left current, the fade to black at the end of the still
+ * landed on one player and the fade back on another, and a campaign host
+ * played the mission on a black screen (2026-10-07).
+ */
+static s32 gecinemaOwnPlayerNum(void)
+{
+	if (g_NetMode != NETMODE_NONE) {
+		if (g_NetLocalSlot >= 0 && g_NetLocalSlot < PLAYERCOUNT() && g_Vars.players[g_NetLocalSlot]) {
+			return g_NetLocalSlot;
+		}
+
+		return g_Vars.bondplayernum >= 0 && g_Vars.bondplayernum < PLAYERCOUNT() ? g_Vars.bondplayernum : 0;
+	}
+
+	return g_Vars.currentplayernum;
 }
 
 /** The player is the camera: no walk, no gun, no HUD and nothing to hit them. */
@@ -1147,6 +1173,7 @@ static void gecinemaIntroEnd(void)
 
 	g_GeIntroStage = GEINTRO_NONE;
 	g_GeCinemaCamRoom = -1;
+	sysLogPrintf(LOG_NOTE, "gecinema: the opening is over for player %d", g_Vars.currentplayernum);
 
 	bgunSetSightVisible(GUNSIGHTREASON_NOCONTROL, true);
 	bgunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, true);
@@ -1352,6 +1379,36 @@ static void gecinemaSwirlCamera(s32 index, f32 time, struct coord *pos, struct c
 	}
 }
 
+/** The current player's camera where the swirl's path is now. */
+static void gecinemaSwirlView(struct player *pl)
+{
+	struct coord pos, lookat, look;
+	struct coord up = {0, 1, 0};
+
+	gecinemaSwirlCamera(g_GeIntroLeg, g_GeIntroTimer, &pos, &lookat);
+
+	look.x = lookat.x - pos.x;
+	look.y = lookat.y - pos.y;
+	look.z = lookat.z - pos.z;
+
+	playerSetCameraMode(CAMERAMODE_THIRDPERSON);
+
+	if (g_GeSwirl[g_GeIntroLeg].pad >= 0) {
+		// a leg far enough from Bond to be in another part of the level names
+		// the pad whose room it is in (Dam's starts over the reservoir)
+		struct pad pad;
+
+		padUnpack(g_GeSwirl[g_GeIntroLeg].pad, PADFIELD_POS | PADFIELD_ROOM, &pad);
+
+		if (pad.room > 0 && pad.room < g_Vars.roomcount) {
+			player0f0c1ba4(&pos, &up, &look, &pad.pos, pad.room);
+			return;
+		}
+	}
+
+	player0f0c1840(&pos, &up, &look, &pl->prop->pos, pl->prop->rooms);
+}
+
 /**
  * The swirl's camera, from playerTick()'s TICKMODE_WARP once the body has been
  * built and ticked. True while the swirl has the camera, so that the warp's own
@@ -1360,8 +1417,6 @@ static void gecinemaSwirlCamera(s32 index, f32 time, struct coord *pos, struct c
 s32 gecinemaSwirlTick(void)
 {
 	struct player *pl = g_Vars.currentplayer;
-	struct coord pos, lookat, look;
-	struct coord up = {0, 1, 0};
 	f32 left;
 
 	if (g_GeIntroStage == GEINTRO_HOLD) {
@@ -1370,6 +1425,14 @@ s32 gecinemaSwirlTick(void)
 
 	if (g_GeIntroStage != GEINTRO_SWIRL || !pl || !pl->prop) {
 		return 0;
+	}
+
+	// another player of an online mission (the host ticks every seat): the
+	// camera on the path as it is, round its own body; the path is the own
+	// player's to move on and to end (gecinemaOwnPlayerNum)
+	if (g_Vars.currentplayernum != gecinemaOwnPlayerNum()) {
+		gecinemaSwirlView(pl);
+		return 1;
 	}
 
 	if (gecinemaIsOn() && !traceReportHoldsInput() && gecinemaLeavePressed()) {
@@ -1446,28 +1509,7 @@ s32 gecinemaSwirlTick(void)
 		playerSetFadeFrac(playerIsFadeComplete() ? 60 : pl->colourfadetime60, 1);
 	}
 
-	gecinemaSwirlCamera(g_GeIntroLeg, g_GeIntroTimer, &pos, &lookat);
-
-	look.x = lookat.x - pos.x;
-	look.y = lookat.y - pos.y;
-	look.z = lookat.z - pos.z;
-
-	playerSetCameraMode(CAMERAMODE_THIRDPERSON);
-
-	if (g_GeSwirl[g_GeIntroLeg].pad >= 0) {
-		// a leg far enough from Bond to be in another part of the level names
-		// the pad whose room it is in (Dam's starts over the reservoir)
-		struct pad pad;
-
-		padUnpack(g_GeSwirl[g_GeIntroLeg].pad, PADFIELD_POS | PADFIELD_ROOM, &pad);
-
-		if (pad.room > 0 && pad.room < g_Vars.roomcount) {
-			player0f0c1ba4(&pos, &up, &look, &pad.pos, pad.room);
-			return 1;
-		}
-	}
-
-	player0f0c1840(&pos, &up, &look, &pl->prop->pos, pl->prop->rooms);
+	gecinemaSwirlView(pl);
 
 	return 1;
 }
@@ -1549,8 +1591,26 @@ static void gecinemaLoopNext(void)
 	gecinemaFinish();
 }
 
-/** Every frame of a level, from lvTick(). */
+static void gecinemaTickOwn(void);
+
+/** Every frame of a level, from lvTick(): as the opening's own player */
 void gecinemaTick(void)
+{
+	const s32 prev = g_Vars.currentplayernum;
+	const s32 own = gecinemaOwnPlayerNum();
+
+	if (own != prev) {
+		setCurrentPlayerNum(own);
+	}
+
+	gecinemaTickOwn();
+
+	if (own != prev) {
+		setCurrentPlayerNum(prev);
+	}
+}
+
+static void gecinemaTickOwn(void)
 {
 	const u8 *shot;
 	f32 end;
@@ -1568,7 +1628,24 @@ void gecinemaTick(void)
 
 	if (g_GeIntroPending && g_Vars.currentplayer && g_Vars.currentplayer->prop
 			&& !g_Vars.currentplayer->isdead) {
-		gecinemaIntroBegin();
+		if (netClientAwaitingGo()) {
+			// a client's opening waits for the host's GO, in the black it
+			// opens from: only the GO says whether the match is starting or
+			// already under way
+			playerSetFadeColour(0, 0, 0, 1);
+			return;
+		}
+
+		if (netClientJoinedInProgress()) {
+			// a join in progress: the mission is under way, and the host's
+			// world goes on round a player held in an opening (its
+			// prediction missed every tick of it)
+			g_GeIntroPending = 0;
+			playerSetFadeFrac(30, 0);
+			sysLogPrintf(LOG_NOTE, "gecinema: joined the mission in progress; no opening");
+		} else {
+			gecinemaIntroBegin();
+		}
 	}
 
 	if (g_GeIntroStage != GEINTRO_NONE) {

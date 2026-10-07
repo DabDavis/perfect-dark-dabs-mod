@@ -21,6 +21,7 @@
 #include "game/bondmove.h"
 #include "game/prop.h"
 #include "game/mplayer/mplayer.h"
+#include "gecinema.h"
 #include "gexplus.h"
 #include "modloader.h"
 #include "net/net.h"
@@ -1759,8 +1760,11 @@ void netEntsClientApplyLocal(void)
 
 		s_LpAmmoSets += set;
 
+		// not while GoldenEye's opening holds this machine's hands empty
+		// (gecinemaEnter): the host plays no opening for this player, and
+		// its gun stood in the client's opening shots
 		if (lp->weaponnum > 0 && lp->weaponnum < NUM_WEAPONS && lp->weaponnum != p->gunctrl.weaponnum
-				&& p->gunctrl.switchtoweaponnum < 0
+				&& p->gunctrl.switchtoweaponnum < 0 && !gecinemaIntroIsOn()
 				&& (invHasSingleWeaponIncAllGuns(lp->weaponnum) || lp->weaponnum == WEAPON_UNARMED)) {
 			bgunEquipWeapon(lp->weaponnum);
 			s_LpEquips++;

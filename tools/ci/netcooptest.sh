@@ -24,17 +24,23 @@
 #           mission (--net-lobby-coop): the room's summary names the mission
 #           and "Co-op Agent", the joiner plays the mission, the host's end
 #           at a frame reaches the joiner, both come back to the room.
+#   ge      GoldenEye's Dam as a co-op mission (protocol 14), both to GO.
+#   campaign  a GoldenEye campaign's host starting Dam from its folder alone
+#           (--net-test-campaign ge --net-test-campaign-mission 0): the
+#           opening ends on the host's own player; a client then joins the
+#           mission in progress with no opening, spawns beside the host's
+#           player and predicts at 95% or better.
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge}
+CASES=${CASES:-pair twelve lobby ge campaign}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -152,6 +158,60 @@ case_ge() {
 	grep -q "co-op client: the first mission block" "$C" && pass "$name: $(grep -o 'co-op client: the first mission block.*' "$C" | head -1)" || fail "$name: no mission block reached the client"
 	local tick; tick=$(lastline "$C" "net: content client so far" | grep -o "tick [0-9]*" | awk '{print $2}')
 	[ "${tick:-0}" -ge 1500 ] && pass "$name: the client played $tick ticks of GoldenEye's Dam" || fail "$name: the client played ${tick:-no} ticks"
+}
+
+# ---------------------------------------------------------------- campaign
+# A GoldenEye campaign (2026-10-07): a --host session opens GoldenEye's
+# folder as a campaign room's launch does (--net-test-campaign ge) and the
+# folder starts Dam itself (--net-test-campaign-mission 0) with nobody
+# connected - a solo start, the host's own player beside the seats join in
+# progress keeps open (Net.JoinInProgress). GoldenEye's opening must end on
+# the host's own player (it ran on whoever was current: the fade to black
+# and back landed on two players and the host played on a black screen).
+# Then a client joins the mission in progress: no opening of its own
+# (gecinema.c), its life beside the host's player (netCoopJoinSpawn), and
+# its prediction must hold from there (its opening had held the player
+# through 270 corrections, 49% matched).
+case_campaign() {
+	local name=campaign port=$((PORT + 4)) H=$OUT/campaign-host.log C=$OUT/campaign-client.log
+	echo "== $name"
+	game campaign-host 300 '[Mod]\nMapMods=GoldenEye Arenas\n[Net]\nJoinInProgress=1\n' --host "$port" --rng-seed 7 \
+		--net-test-campaign ge --net-test-campaign-mission 0 --exit-frame 5400 &
+	local host=$!
+	waitfor "$H" "net: hosting on UDP port" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
+	waitfor "$H" "net: co-op: starting\|not converted here\|the folder is not open" 60
+	if grep -q "not converted here" "$H"; then
+		echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; return
+	fi
+	waitfor "$H" "gecinema: the opening is over for player" 120 || echo "     the host's opening did not end"
+	game campaign-client 240 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --exit-frame 2400 &
+	local client=$!
+	waitfor "$C" "net: match 1: GO" 120 || echo "     no GO on the client"
+	waitfor "$C" "net: prediction so far (tick" 120 || echo "     no prediction line on the client"
+	local hold=0
+	while [ $hold -lt 60 ] && [ "$(grep -c 'net: prediction so far' "$C")" -lt 3 ]; do sleep 1; hold=$((hold + 1)); done
+	local cp; cp=$(gamepid campaign-client); [ -n "$cp" ] && kill -TERM "$cp"
+	wait "$client"; local cx=$?
+	[ "$cx" = 143 ] && cx=0
+	local hp; hp=$(gamepid campaign-host); [ -n "$hp" ] && kill -TERM "$hp"
+	wait "$host"; local hx=$?
+	[ "$hx" = 143 ] && hx=0
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
+	grep -q "net: co-op: the GoldenEye campaign begins" "$H" && pass "$name: the campaign opened the host's folder" || fail "$name: no campaign"
+	grep -q "net: co-op: starting Dam (GoldenEye, index 0" "$H" && pass "$name: the folder started Dam" || fail "$name: the folder did not start Dam"
+	if grep -q "gecinema: the opening is over for player 0$" "$H" && ! grep -q "gecinema: the opening is over for player [1-9]" "$H"; then
+		pass "$name: the host's opening ended on its own player"
+	else
+		fail "$name: the host's opening ended on $(grep -o 'the opening is over for player [0-9]*' "$H" | head -1 | awk '{print "player", $NF}')"
+	fi
+	grep -q "an open seat of the match in progress" "$C" && pass "$name: the client joined the mission in progress" || fail "$name: the client did not join in progress"
+	grep -q "gecinema: joined the mission in progress; no opening" "$C" && pass "$name: no opening on the joiner" || fail "$name: the joiner played an opening"
+	grep -q "gecinema: the opening is over" "$C" && fail "$name: the joiner's opening ran"
+	grep -q "net: co-op: player 1 joined in progress; spawns beside player 0" "$H" \
+		&& pass "$name: $(grep -o 'player 1 joined in progress; spawns beside.*' "$H" | head -1)" || fail "$name: the joiner did not spawn beside the host's player"
+	local pr; pr=$(lastline "$C" "net: prediction so far" | grep -o 'matched [0-9]* ([0-9.]*%)' | grep -o '[0-9.]*%' | tr -d '%')
+	awk -v p="${pr:-0}" 'BEGIN { exit !(p >= 95) }' && pass "$name: the joiner's prediction matched ${pr}%" || fail "$name: the joiner's prediction matched ${pr:-no}%"
 }
 
 # ---------------------------------------------------------------- pair
@@ -339,6 +399,7 @@ for c in $CASES; do
 	case $c in
 		pair) case_pair ;;
 		ge) case_ge ;;
+		campaign) case_campaign ;;
 		twelve) case_twelve ;;
 		lobby) case_lobby ;;
 		*) fail "unknown case $c" ;;

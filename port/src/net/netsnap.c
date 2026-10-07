@@ -274,6 +274,16 @@ static void putQuat(u8 *p, const f32 *qin)
 	}
 }
 
+static void getQuat(const u8 *p, f32 *q);
+
+void netQuatWire(f32 *q)
+{
+	u8 p[6];
+
+	putQuat(p, q);
+	getQuat(p, q);
+}
+
 static void getQuat(const u8 *p, f32 *q)
 {
 	u64 bits = 0;

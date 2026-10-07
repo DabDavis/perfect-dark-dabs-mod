@@ -30,6 +30,7 @@
 #include "game/mplayer/setup.h"
 #include "gexplus.h"
 #include "gexplusrom.h"
+#include "gexfront.h"
 #include "gehud.h"
 #include "xblamesh.h"
 #include "game/lv.h"
@@ -203,6 +204,7 @@ static u8 s_PendStage[512];
 static s32 s_PendStageLen = 0;
 static u8 s_FetchStage[512];   // protocol 14: the STAGE_LOAD a content fetch holds (netcontent.c)
 static u64 s_TestCampaignAt = 0; // --net-test-campaign: when to open the host's menus for it
+static u64 s_TestCampaignMissionAt = 0; // --net-test-campaign-mission N: when the folder starts mission N
 static s32 s_FetchStageLen = 0;
 
 // the match, both sides
@@ -1872,7 +1874,9 @@ static void netHostLateGo(s32 peer)
 		netPlayersHostSlotJoin(c->slot, &c->cfg, tick);
 
 		if (pn >= 0 && g_Vars.players[pn]->isdead) {
-			// back into play at the next respawn point
+			// back into play at the next respawn point (a co-op mission's:
+			// beside a living player, netCoopJoinSpawn)
+			netCoopHostLateJoin(pn);
 			g_Vars.players[pn]->dostartnewlife = true;
 		}
 
@@ -3238,6 +3242,20 @@ void netSessionTick(void)
 
 			if (!netCoopCampaignOpen(strcmp(game, "pd") == 0 ? "" : game, 1, 0)) {
 				sysLogPrintf(LOG_WARNING, "net: --net-test-campaign %s: not converted here", game);
+			} else if (sysArgGetInt("--net-test-campaign-mission", -1) >= 0) {
+				s_TestCampaignMissionAt = netNowMs() + 4000;
+			}
+		}
+
+		// --net-test-campaign-mission N: the folder's own start of mission N
+		// a few seconds after it opened, as a player picks it
+		if (s_TestCampaignMissionAt && netNowMs() >= s_TestCampaignMissionAt) {
+			const s32 mission = sysArgGetInt("--net-test-campaign-mission", -1);
+
+			s_TestCampaignMissionAt = 0;
+
+			if (!gexFrontTestStartMission(mission)) {
+				sysLogPrintf(LOG_WARNING, "net: --net-test-campaign-mission %d: the folder is not open", mission);
 			}
 		}
 
@@ -3504,6 +3522,18 @@ void netStageStopped(void)
 s32 netSessionMatchActive(void)
 {
 	return s_MatchActive && s_MatchLoaded && g_StageNum == s_MatchStage;
+}
+
+// gecinema.c: a client's stage loaded and the host's GO still to come
+s32 netClientAwaitingGo(void)
+{
+	return s_Role == NETROLE_CLIENT && netStageBarrierHold();
+}
+
+// gecinema.c: this client joined the running match (GO carried the host's tick)
+s32 netClientJoinedInProgress(void)
+{
+	return s_Role == NETROLE_CLIENT && s_MatchActive && s_JoinGoTick != 0;
 }
 
 s32 netSessionBarrierHeld(void)
@@ -4146,9 +4176,15 @@ void netMenuAfterMatch(void)
 
 void netMainMenuTick(void)
 {
-	// a client whose match ended under it lands here: back to the room
+	// a client whose match ended under it lands here: back to the room. Not
+	// a campaign's host, whose menus these are: it plays the set's missions
+	// from them (the Game Lobby pushed over them on the first tick left
+	// it nowhere but Leave), and Online Game takes it to the room
 	if (g_NetLobbyRoom && !g_NetNoticePending) {
-		netLobbyMenuAfterMatch();
+		if (!netCoopCampaignOn()) {
+			netLobbyMenuAfterMatch();
+		}
+
 		return;
 	}
 

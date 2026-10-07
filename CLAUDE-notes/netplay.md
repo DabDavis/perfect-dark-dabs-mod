@@ -41,7 +41,9 @@
   one of fs.c's memory directories (`$N/<name>`): only the host needs the
   ROM. Also there: **co-op on the conversions' missions** (the mission
   set in RULES, stage key kind 3) and **campaign rooms** (the host plays
-  its set's menus; each mission it starts is the room's next match).
+  its set's menus; each mission it starts is the room's next match; the
+  black screen on GoldenEye's openings, late joins, the host's menus and
+  what a client drew wrong: 2026-10-07).
 
 ## The shape
 
@@ -136,7 +138,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netcontenttest.sh` | 9 min | GoldenEye arenas (YOLT: a client respawned by its START alone), Goldfinger's mode (gfvariant, needs its zip in added-content), a client with nothing installed served the conversion by the host (fetch), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
-| `netcooptest.sh` | 9 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission |
+| `netcooptest.sh` | 10.5 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, beside the host, predicting at 95% or better |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
@@ -654,6 +656,82 @@ nothing is ever sent from one machine to another but names and hashes.
   is by code path only - a headless host's end screen cannot be dismissed
   (`--net-test-input` feeds the match, not the menus, and
   `menuPopDialog()` under gdb did not take it down).
+- **The black screen on GoldenEye's, Goldfinger 64's and TND64's campaigns
+  (2026-10-07).** The user: "the GE, GF64, TND64 campaigns black screen, i
+  started them solo". GoldenEye's opening (gecinema.c) was made for one
+  player and ran on whoever was current: `gecinemaTick` at the top of
+  `lvTick` (whoever the last player loop left), and `gecinemaSwirlTick` in
+  *every* player's `playerTick`, each call advancing the swirl's clock. A
+  lobby room always has a seat per member slot (join in progress), so even
+  a solo room's mission has two players and the host ticks both: the fade
+  to black at the end of the still landed on one, the fade back in and
+  `player0f0b9a20()` on the other, and the host's player stayed at
+  `colourscreenfrac` 1 for the rest of the mission. Which one depended on
+  the frame (every run on the user's box, about half here). Now the
+  opening has an owner (`gecinemaOwnPlayerNum`: this machine's
+  `g_NetLocalSlot`, bond on a dedicated host, offline the current player as
+  before): `gecinemaTick` runs as it, and only its tick moves the swirl on
+  and ends it; the other players get the swirl's camera round their own
+  bodies (`gecinemaSwirlView`). Found with gdb: the black host had
+  `players[0]->colourscreenfrac` 1, `bondfadefracnew` 1. Perfect Dark's
+  missions were never affected (their intro is per player).
+- **Late join into a campaign (the same day: "should allow a late join in
+  progress").** A launched room was already joinable: between missions a
+  joiner connects and waits in the Game Lobby (status "Campaign: you join
+  the host's next mission", `netLobbyCampaignState`) and the next
+  STAGE_LOAD takes it in; during a mission it is a join in progress. Three
+  fixes made that work: a client holds GoldenEye's opening until the host's
+  GO, in black (`netClientAwaitingGo`), and skips it when the GO says the
+  match is under way (`netClientJoinedInProgress`) - its local opening had
+  held the player through 270 corrections, prediction 49% where it is now
+  99.9%; the host's `netHostLateGo` marks the seat (`netCoopHostLateJoin`)
+  and `playerStartNewLife` puts that one life beside a living player
+  (`netCoopJoinSpawn`: `coopRespawnBuddy`'s pick, PD's own
+  `chrAdjustPosForSpawn` 60 units round it) rather than at the mission's
+  start (a death later respawns the mission's way); a client hides a
+  mission's setup chrs until their first record, as it does sims (one the
+  host killed and freed before the join is never sent, and would stand
+  where the load left it).
+- **A campaign host's menus.** The Perfect Menu's tick pushed the Game
+  Lobby over it whenever a room was open (`netMainMenuTick`), so a Perfect
+  Dark campaign host got the Game Lobby on the first tick after the launch,
+  with Back ignored and only Leave out of it; a GoldenEye campaign host met
+  it on backing out of the folder. A campaign's host is left on its menus
+  now; the Perfect Menu's Online Game row takes anyone in a room to its
+  Game Lobby (keeping the mode as it is), and the Game Lobby has "Back to
+  the Campaign" for a campaign's host (`netCoopCampaignMenusOpen`).
+- **What a client drew wrong in GoldenEye's levels (the same session).**
+  An object's rotation went on the wire as a quaternion of the matrix read
+  row by row, and `netQuatToRot` wrote it back column by column: every
+  object the host sent stood turned -theta for theta (PD's props are
+  mostly square to the axes, so nobody saw it). Fixed in the decode only
+  (the wire's meaning is unchanged; no protocol bump). A setup object keeps
+  its own matrix while the host's rotation is still the one it would send
+  (`netRotSameOnWire`, within a sixth of a degree after the wire's
+  quantization): GoldenEye's converted panes are sheared into place, which
+  no rotation and scale can carry; a turned one takes the record's rotation
+  with each column's own scale (`netRotScales`; one scale for all three, as
+  before, blew a stretched object up). The client's own gun stood in its
+  opening's shots: the local block re-equipped it from the host, which
+  plays no opening for that player; not while `gecinemaIntroIsOn()`.
+- **Still wrong on a client, found but not fixed:** Dam's tower doors
+  (models 690-692, 670, 837; 18 doors) draw as shards that change from frame
+  to frame. Hiding the doors on the client (`OBJFLAG2_INVISIBLE` by gdb)
+  takes every shard away; their `frac`, `maxfrac`, mode, place and
+  `realrot` are the host's to the digit, all one matrix on `g_SkelBasic`,
+  `--cpu-vertices` changes nothing, the same install as the host changes
+  nothing, and the old binary (1165f9253) has them too. Next: what a door's
+  draw reads that the client never writes (the host's `doorTick` and the
+  rest of `objTick`'s `fulltick && !NET_CLIENT` block). And Dam's truck,
+  inside the near plane of one opening still (gecinemaPropAlpha), fades on
+  the host and not on a client.
+- **Test switches for these (lobby script host):** `--net-lobby-campaign
+  TAG` (the room is TAG's campaign: "pd", "ge", "gf64", "tnd64"),
+  `--net-lobby-solo` (LAUNCH with nobody else in), `--net-lobby-menus` (made
+  from the Perfect Menu's Online Game, the menu root a player has). A
+  mission from the folder by gdb: `set var g_Front.mission=N`, `call
+  (void)frontStartMission()`; a forced opening still on any machine: `set
+  var g_GeIntroShot = g_GeCinemaShots[K]`, `set var g_GeIntroTimer = 0`.
 - **Not done.** A restart-and-rejoin for the segs/ mods (the game could
   relaunch itself with the mod selected for that run and join the room
   again: `updateRelaunchSelf` is the relaunch, `--net-lobby-*` the

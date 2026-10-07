@@ -356,6 +356,14 @@ s32 netCoopObjectiveStatus(s32 index, s32 *status);
 // playerreset.c: a co-op spawn past two players spread round the pad
 struct coord;
 void netCoopSpreadSpawn(struct coord *pos, s16 *rooms); // rooms: RoomNum[8]
+// playerreset.c, the host: a join in progress's first life beside a living
+// player (pos, rooms and the facing set); 0 for the mission's own spawn
+s32 netCoopJoinSpawn(struct coord *pos, s16 *rooms, f32 *turnanglerad);
+// gecinema.c on a client: the host's GO not here yet (the stage loaded), and
+// whether this machine joined the running match (GoldenEye's opening is then
+// skipped: the mission is under way)
+s32 netClientAwaitingGo(void);
+s32 netClientJoinedInProgress(void);
 // the host starts a co-op mission for the session (lobby launch, tests); 1 started
 s32 netCoopHostStart(const char *game, s32 stageindex, s32 difficulty, s32 radar, s32 friendlyfire);
 const char *netCoopMissionName(s32 stageindex);      // "dataDyne Defection" (langGet's, with its newline)
@@ -367,6 +375,7 @@ s32 netCoopGameTag(s32 n, char *tag, s32 size);      // the n-th set offered her
 s32 netCoopCampaignOn(void);
 void netCoopCampaignEnd(void);                       // the room is left
 s32 netCoopCampaignAfterMatch(void);                 // host, after a match: back to the set's menus; 1 handled
+void netCoopCampaignMenusOpen(void);                 // host: the set's menus again (the Game Lobby's row)
 void netCoopModeName(s32 difficulty, char *out, s32 size); // "Co-op Agent"
 
 // The session's hooks (H1-H14, HA-HD)
