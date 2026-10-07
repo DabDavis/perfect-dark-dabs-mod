@@ -227,6 +227,31 @@ s32 netCoopObjectivesComplete(void);
 void netSessionNoticeSet(const char *text); // netsession.c: the main menu's notice
 void netClientRefuseLocalStart(void);
 
+// Content follows the host (netcontent.c, protocol 13): the host's overlay
+// mod by name and contents hash, and the ROM hack mode's tag
+#define NETCONTENT_OK      0 // playing with what the host has
+#define NETCONTENT_SWAPPED 1 // switched to the host's mod (or off this machine's) live
+#define NETCONTENT_RESTART 2 // installed, but a swap to or from it is a restart (ROM segments, --moddir)
+#define NETCONTENT_MISSING 3 // the host's mod is not installed here
+#define NETCONTENT_DIFFERS 4 // installed, but not the host's bytes
+struct netcontentneed {
+	char mod[NET_MAXMAPDIR + 1];
+	u64 modhash;
+	char gevariant[NET_MAXCOMPNAME + 1];
+};
+void netContentHostNeed(struct netcontentneed *n);
+void netContentWrite(struct netbuf *b, const struct netcontentneed *n, s32 withvariant);
+void netContentRead(struct netbuf *b, struct netcontentneed *n, s32 withvariant);
+s32 netContentFollow(const struct netcontentneed *n, char *text, s32 textsize); // client: a NETCONTENT_*
+void netContentRestore(void);                  // client: the session is over
+s32 netContentMountMaps(const char *dirbase);  // client: a map's mod installed but not mounted; 1 mounted now
+void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, char *text, s32 size);
+const char *netContentVariantTag(void);
+s32 netContentVariantApply(const char *tag);
+const struct netcontentneed *netRulesContent(void); // netrules.c: the block the RULES received carry
+u64 netHashDirContents(const char *path);      // nethash.c: a folder's simulation-affecting bytes, cached
+void netSessionHashInvalidate(void);           // nethash.c: the overlay changed; the table is taken again
+
 void netLagCompArgs(void);
 void netLagCompStageStart(void);
 void netLagCompHostTickEnd(void);   // netTickEnd: every chr's pose for the tick

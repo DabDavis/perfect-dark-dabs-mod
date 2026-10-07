@@ -293,6 +293,17 @@ class RoomTests(Base):
         self.assertEqual([m["team"] for m in s["members"]], [0, 1, 0])
         self.assertTrue(s["members"][0]["host"])
         self.assertEqual(s["rules"]["weapons"], "Slayer")
+        # the room's mod and GoldenEye mode: listed as given (protocol 13),
+        # cut to their caps, absent as ""
+        self.assertEqual((s["room"]["mod"], s["room"]["ge"]), ("", ""))
+        self.assertEqual(host.act("settings", {"mod": "GE-X_6a_01-19-25", "ge": "gf64"})[0], 200)
+        st, s = a.state(since=s["version"])
+        self.assertEqual((s["room"]["mod"], s["room"]["ge"]), ("GE-X_6a_01-19-25", "gf64"))
+        self.assertEqual(host.act("settings", {"mod": "m" * 200})[0], 200)
+        st, s = a.state(since=s["version"])
+        self.assertEqual(len(s["room"]["mod"]), 127)
+        st, r = a.req("GET", "/rooms")
+        self.assertEqual(r["rooms"][0]["mod"], "m" * 127)
 
         self.assertEqual(a.act("ready", {"ready": True})[0], 200)
         self.assertEqual(a.act("team", {"team": 3})[0], 200)

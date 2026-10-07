@@ -93,6 +93,7 @@ empty body is `{}`.
 **Create** (`POST /rooms`): `name` (required, 1-32), `password` (0-16
 printable, "" = none), `max_humans` 2-12 (default 4), `stage`, `scenario`
 (<= 32), `sims` 0-80 (the game's `MAX_BOTS`), `region` (<= 16, self-reported, shown in the list),
+`mod` (<= 127) and `ge` (<= 15) as the summary lists them,
 `rules` (object, <= 24 keys `[a-z0-9_]{1,24}`, values bool / 32-bit int /
 string <= 32: the summary the lobby shows, never applied by the lobby;
 a co-op mission room sends `stage` = the mission's name, `scenario` =
@@ -116,7 +117,9 @@ warn. Joining a room you are already in returns the same token. Joining
 another room leaves the first.
 
 **Room summary** (list and `state.room`): `id` (8 hex), `name`, `host`,
-`stage`, `scenario`, `humans` (non-spectators, host included unless
+`stage`, `scenario`, `mod` (<= 127, the mod the host plays with, which a
+joiner's game loads from its own copy, never from the lobby), `ge` (<= 15,
+the GoldenEye ROM hack mode the room is in, as a conversion tag), `humans` (non-spectators, host included unless
 dedicated), `max_humans`, `spectators`, `max_spectators` (2, the game host's `NET_MAXSPECS`), `sims`,
 `locked`, `proto`, `build`, `content`, `created` (unix), `state`
 (`open`/`countdown`/`launched`), `dedicated`, `region`, `host_rtt_ms`.

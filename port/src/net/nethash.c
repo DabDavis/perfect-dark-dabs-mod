@@ -255,6 +255,75 @@ static const char *netHashBasename(const char *path)
 	return s ? s + 1 : path;
 }
 
+/**
+ * The contents hash of one folder: every byte that is not a picture, a
+ * sound or text, as the "mod" component takes the overlay (protocol 13: a
+ * client hashes the host's mod among its own installed ones before it
+ * switches to it, and the one it then runs for LOADED). Cached by path for
+ * the process: an installed mod does not change under a running game, and
+ * GoldenEye X's 89 MB take a few hundred ms.
+ */
+#define NETHASH_DIRCACHE 8
+
+static struct {
+	char path[FS_MAXPATH + 1];
+	u64 hash;
+} s_NetDirCache[NETHASH_DIRCACHE];
+static s32 s_NetDirCacheNext;
+static SDL_SpinLock s_NetDirCacheLock; // the lobby's worker threads hash too (netlobby.c)
+
+u64 netHashDirContents(const char *path)
+{
+	struct sha256ctx ctx;
+	struct nethashwalk w;
+	u8 digest[32];
+	char full[FS_MAXPATH + 1];
+	u64 h;
+	s32 i;
+	s32 hit = 0;
+	const u64 t0 = sysGetMicroseconds();
+
+	if (!path || !path[0]) {
+		return 0;
+	}
+
+	snprintf(full, sizeof(full), "%s", fsFullPath(path));
+
+	SDL_AtomicLock(&s_NetDirCacheLock);
+
+	for (i = 0; i < NETHASH_DIRCACHE && !hit; i++) {
+		if (s_NetDirCache[i].path[0] && strcmp(s_NetDirCache[i].path, full) == 0) {
+			h = s_NetDirCache[i].hash;
+			hit = 1;
+		}
+	}
+
+	SDL_AtomicUnlock(&s_NetDirCacheLock);
+
+	if (hit) {
+		return h;
+	}
+
+	sha256Begin(&ctx);
+	w.ctx = &ctx;
+	w.contents = 1;
+	w.numfiles = 0;
+	netHashTree(&w, full, "", 0);
+	sha256End(&ctx, digest);
+	h = netDigestU64(digest);
+
+	SDL_AtomicLock(&s_NetDirCacheLock);
+	snprintf(s_NetDirCache[s_NetDirCacheNext].path, sizeof(s_NetDirCache[0].path), "%s", full);
+	s_NetDirCache[s_NetDirCacheNext].hash = h;
+	s_NetDirCacheNext = (s_NetDirCacheNext + 1) % NETHASH_DIRCACHE;
+	SDL_AtomicUnlock(&s_NetDirCacheLock);
+
+	sysLogPrintf(LOG_NOTE, "net: hashed %s: %016llx (%d files, %u ms)", netHashBasename(full),
+			(unsigned long long)h, w.numfiles, (u32)((sysGetMicroseconds() - t0) / 1000));
+
+	return h;
+}
+
 static void netHashAddComp(const char *name, struct sha256ctx *ctx)
 {
 	u8 digest[32];
@@ -285,24 +354,35 @@ static void netSessionHashCompute(void)
 
 	s_NetSessionNumComps = 0;
 
-	// rom: Perfect Dark's own ROM, every byte
+	// rom: Perfect Dark's own ROM, every byte, as it is on disk. Not
+	// g_RomFile: the game preprocesses a file in place inside the image as
+	// it is first loaded, so the image's bytes depend on what has loaded
+	// so far, and a host with GoldenEye X over the game hashed its own ROM
+	// differently from a joiner's identical one (protocol 13, found with
+	// a cross-machine join)
 	sha256Begin(&ctx);
-	sha256Add(&ctx, g_RomFile, g_RomFileSize);
+
+	{
+		u32 romsize = 0;
+		u8 *rom = fsFileLoad(romdataGetRomPath(), &romsize);
+
+		if (rom) {
+			sha256Add(&ctx, rom, romsize);
+			sysMemFree(rom);
+		} else {
+			sha256Add(&ctx, g_RomFile, g_RomFileSize);
+		}
+	}
+
 	netHashAddComp("rom", &ctx);
 
 	// mod: the mod that overlays the game's files, every byte that is not
-	// a picture, a sound or text
-	sha256Begin(&ctx);
-
-	if (overlay) {
-		snprintf(full, sizeof(full), "%s", fsFullPath(overlay));
-		w.ctx = &ctx;
-		w.contents = 1;
-		w.numfiles = 0;
-		netHashTree(&w, full, "", 0);
-	}
-
-	netHashAddComp("mod", &ctx);
+	// a picture, a sound or text (protocol 13: the client follows the
+	// host's, netcontent.c, so the host logs a difference here and checks
+	// the one the client then loaded in LOADED)
+	s_NetSessionComps[s_NetSessionNumComps].hash = overlay ? netHashDirContents(overlay) : 0;
+	snprintf(s_NetSessionComps[s_NetSessionNumComps].name, sizeof(s_NetSessionComps[0].name), "%s", "mod");
+	s_NetSessionNumComps++;
 
 	// mapmods: every other mounted dir (the Stage Loader's maps), names and
 	// sizes, in name order
@@ -391,8 +471,12 @@ static void netSessionHashCompute(void)
 		s32 k;
 
 		// the Stage Loader's mods need not match (a missing map is refused
-		// when it is played): a room lists as compatible without them
-		if (strcmp(s_NetSessionComps[i].name, "mapmods") == 0) {
+		// when it is played): a room lists as compatible without them; nor
+		// (protocol 13) the overlay mod, which a client follows, or the
+		// added content, whose conversions are checked as their maps are
+		// played: the lobby's value is the ROM, the borrow and the converter
+		if (strcmp(s_NetSessionComps[i].name, "mapmods") == 0 || strcmp(s_NetSessionComps[i].name, "mod") == 0
+				|| strcmp(s_NetSessionComps[i].name, "added") == 0) {
 			continue;
 		}
 
@@ -417,6 +501,18 @@ static void netSessionHashCompute(void)
 // the lobby's action thread hashes too (netlobby.c): one at a time, and
 // nobody reads a table half made
 static SDL_SpinLock s_NetSessionHashLock;
+
+/**
+ * The overlay changed under a running game (a client followed the host's
+ * mod, netcontent.c; the Load Mods page): the table is taken again when it
+ * is next asked for. The lobby's value is unchanged by it.
+ */
+void netSessionHashInvalidate(void)
+{
+	SDL_AtomicLock(&s_NetSessionHashLock);
+	s_NetSessionNumComps = -1;
+	SDL_AtomicUnlock(&s_NetSessionHashLock);
+}
 
 s32 netSessionHash(struct nethashcomp *comps, s32 max)
 {
@@ -449,10 +545,11 @@ s32 netSessionHash(struct nethashcomp *comps, s32 max)
 #define NETSTAGE_STAN      5
 #define NETSTAGE_MODELS    6
 #define NETSTAGE_RNG       7
-#define NETSTAGE_COUNT     8
+#define NETSTAGE_MOD       8
+#define NETSTAGE_COUNT     9
 
 static const char *s_NetStageCompNames[NETSTAGE_COUNT] = {
-	"setup", "pads", "tiles", "bg", "xblatiles", "stan", "models", "rng",
+	"setup", "pads", "tiles", "bg", "xblatiles", "stan", "models", "rng", "mod",
 };
 
 static struct {
@@ -578,6 +675,12 @@ void netStageHashCloseWindow(void)
 	// the seed itself: two machines that drew differently since H4 differ here
 	s_NetStage.sum[NETSTAGE_RNG] = s_RngNoted ? s_RngNote : g_RngSeed;
 	s_NetStage.count[NETSTAGE_RNG] = 1;
+
+	// the overlay mod as this machine has it loaded (protocol 13): a client
+	// that followed the host's mod (netcontent.c) proves it here, since
+	// the mod's weapons, bodies and tables are not the stage's files
+	s_NetStage.sum[NETSTAGE_MOD] = fsGetModDir() ? netHashDirContents(fsGetModDir()) : 0;
+	s_NetStage.count[NETSTAGE_MOD] = 1;
 
 	s_NetStage.open = 0;
 }

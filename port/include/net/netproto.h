@@ -55,7 +55,12 @@
 //    maxexplosions (u8 coop, stageindex, difficulty, radar, friendlyfire);
 //    SNAP's scenario block is a mission block (scenario 0xfe) on a mission;
 //    the SETUPCHR descriptor (kind 10)
-#define NET_PROTOCOL_VERSION 12
+// 13 (content follows the host, netcontent.c): ACCEPT and RULES carry a
+//    content block (the host's overlay mod by name and contents hash, RULES
+//    the GoldenEye ROM hack mode's tag as well); CONNECT's "mod" and "added"
+//    session components are logged, never refused; LOADED carries a "mod"
+//    component (the overlay as loaded there); LEAVE NOMOD (17)
+#define NET_PROTOCOL_VERSION 13
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -96,7 +101,8 @@
 #define NETREFUSE_BADMSG    14 // a message that does not parse
 #define NETREFUSE_SHUTDOWN  15 // the host is going away
 #define NETREFUSE_LEFT      16 // the player left (End Game, quit)
-#define NETREFUSE_COUNT     17
+#define NETREFUSE_NOMOD     17 // the host's mod is not installed, differs, or needs a restart here (client's LEAVE)
+#define NETREFUSE_COUNT     18
 
 #define NET_DEFAULT_PORT     27100
 #define NET_LOAD_TIMEOUT_MS  15000 // H7: the host waits this long for LOADED
@@ -131,7 +137,12 @@
  *                               refused: a map the client lacks is refused
  *                               at STAGE_LOAD, NOSTAGE, with the map and its
  *                               mod named, and the stage hash checks the one
- *                               played; "all", the lobby's, leaves it out)
+ *                               played; protocol 13: "mod" and "added" the
+ *                               same, since the client follows the host's
+ *                               mod (the content block below) and a
+ *                               conversion is checked as its map is played;
+ *                               "all", the lobby's, is rom, borrow and
+ *                               geconv alone)
  *   str(31) name              Net.Name, or the agent's name
  *   per-slot settings (spec-players.md §2):
  *     u8 mpheadnum, u8 mpbodynum   g_PlayerConfigsArray[0].base
@@ -170,6 +181,14 @@
  *                             once. NETACC_RESUMED: the seat is the one
  *                             this account held when it dropped (its score
  *                             kept). NETACC_SPECTATOR: a spectator.
+ *   content block             (protocol 13) what the client is to play with:
+ *     str(127) mod            the host's overlay mod dir basename, "" none
+ *     u64      modhash        its contents hash (nethash.c, the "mod"
+ *                             component's walk), 0 none
+ *   The client finds the mod among its own installed ones (by name, then
+ *   the hash), switches to it live, or leaves with NOMOD (text: the mod to
+ *   install, or to load with a restart when it holds ROM segments). It is
+ *   never sent any file.
  *
  * Join in progress (protocol 9). A CONNECT while a match runs (after its
  * GO, before its MATCH_END; else REFUSE STARTED, which a lobby member
@@ -238,6 +257,12 @@
  *     u8 stageindex               g_SoloStages index (0 Defection .. 19 WAR)
  *     u8 difficulty               DIFF_A/SA/PA
  *     u8 radar, u8 friendlyfire   g_Vars.coopradaron, g_Vars.coopfriendlyfire
+ *   content block (protocol 13; netcontent.c):
+ *     str(127) mod, u64 modhash   as ACCEPT's (checked again at H3)
+ *     str(15) gevariant           the GoldenEye ROM hack whose mode the
+ *                                 host's Combat Simulator is in, as its
+ *                                 conversion tag ("gf64", "tnd64"); ""
+ *                                 GoldenEye's own, or not that mode
  *   u8      nkeys                 <= NET_MAXKEYS SYNC ini keys
  *     str(47) key, VALUE
  *   str(15) tickratediv           unused, ""
@@ -264,10 +289,12 @@
  *   u32     matchid
  *   u8      ncomps                <= NET_MAXCOMPS; the stage hash components:
  *     str(15) name                "setup", "pads", "tiles", "bg", "xblatiles",
- *                                 "stan", "models", "rng"
+ *                                 "stan", "models", "rng", "mod"
  *     u64     hash
  *   ("models" is diagnostic only and never refused: model packs and XBLA
- *   meshes may differ; "rng" is g_RngSeed right after lvReset)
+ *   meshes may differ; "rng" is g_RngSeed right after lvReset; "mod"
+ *   (protocol 13) is the overlay mod's contents hash as this machine has
+ *   it loaded, 0 for none: the host's check that the client followed it)
  *
  * GO (host -> client)
  *   u8      NETMSG_GO

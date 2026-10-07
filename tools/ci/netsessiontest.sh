@@ -13,11 +13,16 @@
 # on quitting must free the slot without an ENet timeout.
 #
 # Refusals, against a second host that wants a lobby ticket
-# (Net.RequireTicket, pdlobbyd's key and room): a newer protocol, another
-# --moddir (the "mod" component), no ticket, a MUST key that differs
-# (Mod.BorrowGoldenEyeGuns) and a REFUSE key off stock (Mod.SimBrain) - the
-# last two with a good ticket, so the ticket check is passed first. Each must
-# be refused with its reason and component named, and the client exit 3.
+# (Net.RequireTicket, pdlobbyd's key and room): a newer protocol, no ticket,
+# a MUST key that differs (Mod.BorrowGoldenEyeGuns) and a REFUSE key off
+# stock (Mod.SimBrain) - the last two with a good ticket, so the ticket check
+# is passed first. Each must be refused with its reason and component named,
+# and the client exit 3. Content follows the host (protocol 13,
+# netcontent.c): the host-quit client below has no mod loaded, so it must
+# switch to its host's mod_allinone live on ACCEPT, play the match on it
+# (the stage hash's "mod" component the host's) and switch back when the
+# session ends (swap); a client whose mod came from --moddir cannot switch,
+# and must leave with NOMOD naming the host's mod (r-nomod).
 # Host quits: a third host is stopped (SIGTERM) in the middle of a match;
 # its client, with no --net-test-join, must say why, take the rules off
 # (H12) and go back to the menus (the Carrington Institute).
@@ -59,7 +64,11 @@ game() {
 	rm -rf "$save"; mkdir -p "$save"
 	[ -n "$ini" ] && printf '%b' "$ini" > "$save/pd.ini"
 	cd "$BUILD" || exit 2
-	exec timeout -k 5 "$t" "$BIN" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
+	# line-buffered: a redirected stdout is block-buffered, and whether a
+	# line waitfor wants has reached the file would otherwise depend on how
+	# many bytes the game logged before it (a 4 KB boundary moved by one
+	# new log line failed the host's wait on 2026-10-07)
+	exec timeout -k 5 "$t" stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
 }
 
 # waits for a line in a log, up to N seconds
@@ -108,15 +117,18 @@ CLIENT=$!
 
 T="127.0.0.1:$((PORT + 1))"
 game r-protocol "" 90 --moddir "$MODDIR" --connect "$T" --net-test-join --net-test-protocol 99 & R1=$!
-game r-mod "" 90 --connect "$T" --net-test-join & R2=$!
+# a mod of its own, from --moddir: no live swap to the host's (a folder with
+# a files/ dir is a mod to the list)
+mkdir -p "$OUT/mod_other/files"
+game r-nomod "" 90 --moddir "$OUT/mod_other" --connect "$T" --net-test-join --net-ticket "$(ticket nomod)" & R2=$!
 game r-ticket "" 90 --moddir "$MODDIR" --connect "$T" --net-test-join & R3=$!
 game r-must "[Mod]\nBorrowGoldenEyeGuns=nosuchmod\n" 90 --moddir "$MODDIR" --connect "$T" --net-test-join \
 	--net-ticket "$(ticket joiner)" & R4=$!
 game r-notstock "[Mod]\nSimBrain=modern\n" 90 --moddir "$MODDIR" --connect "$T" --net-test-join \
 	--net-ticket "$(ticket other)" & R5=$!
-
-# the host that quits mid-match
-game qclient "" 150 --moddir "$MODDIR" --connect "127.0.0.1:$((PORT + 2))" --state-hash 100 &
+# the host that quits mid-match; its client has no mod of its own and
+# follows the host's (swap)
+game qclient "[Mod]\nModDir=\n" 150 --connect "127.0.0.1:$((PORT + 2))" --state-hash 100 &
 QCLIENT=$!
 if waitfor "$OUT/qclient.log" "statehash: frame 300" 90; then
 	kill -TERM "$QHOST" 2>/dev/null
@@ -199,10 +211,32 @@ refused() {
 	fi
 }
 refused r-protocol "\[protocol protocol\]: This host runs netplay protocol"
-refused r-mod "\[content mod\]: Your loaded mod"
 refused r-ticket "\[ticket ticket\]: This room needs a join ticket"
 refused r-must "\[must Mod.BorrowGoldenEyeGuns\]"
 refused r-notstock "\[notstock Mod.SimBrain\]"
+
+# content follows the host (protocol 13): r-nomod left naming the host's
+# mod; swap switched to it on ACCEPT, played in the lobby and switched back
+N=$OUT/r-nomod.log
+if grep -q "net: content: leaving \[nomod $MODDIR\]: The host plays with the mod $MODDIR, and this game's mods came from --moddir" "$N" \
+		&& grep -q "net: session ended \[nomod\]" "$N" && grep -q "net-test-join: exiting 3" "$N"; then
+	pass "r-nomod: $(grep -m1 -o 'net: content: leaving.*' "$N" | cut -c1-120)"
+else
+	fail "r-nomod: $(grep -E 'net: (content|session ended|the host)' "$N" | head -3 | tr '\n' ';')"
+fi
+S=$OUT/qclient.log
+if grep -q "net: content: switched to $MODDIR for the host (this machine's no mod comes back after the session)" "$S" \
+		&& grep -q "net: match 1: loading stage 0x32 of mod $MODDIR as" "$S" && grep -q "net: match 1: GO" "$S" \
+		&& grep -q "net: content: back to no mod after the session" "$S" && grep -qx "ModDir=" "$OUT/save-qclient/pd.ini"; then
+	pass "swap: qclient switched to $MODDIR live on ACCEPT, played its stage, back to no mod after the session, pd.ini's ModDir still empty"
+else
+	fail "swap: $(grep -E 'net: (content|match 1: loading|match 1: GO|session ended)' "$S" | head -5 | tr '\n' ';') pd.ini $(grep -m1 '^ModDir' "$OUT/save-qclient/pd.ini")"
+fi
+if grep -q "net: stage hash mod " "$S" && grep -q 'slot 0 ("[^"]*") loaded the stage, every component the host' "$OUT/qhost.log"; then
+	pass "swap: the host found every stage hash component (the mod among them) the client's"
+else
+	fail "swap: $(grep -m1 'net: stage hash mod' "$S"); host: $(grep -m1 'loaded the stage\|stagehash' "$OUT/qhost.log")"
+fi
 
 # the host quit mid-match: the client says why and goes back to the menus
 Q=$OUT/qclient.log

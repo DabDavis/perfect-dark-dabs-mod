@@ -77,7 +77,7 @@ game() {
 	done
 	printf '[Mod]\nGhostUser=%s\nGhostPin=1234\n[Net]\nLobbyServer=http://127.0.0.1:%s\nPort=%s\n' "$user" "$LPORT" "$port" > "$save/pd.ini"
 	cd "$BUILD" || exit 2
-	exec timeout -k 5 "$t" "$BIN" --savedir "$save" --skip-intro --no-sound --moddir "$MODDIR" "$@" > "$OUT/$label.log" 2>&1
+	exec timeout -k 5 "$t" stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound --moddir "$MODDIR" "$@" > "$OUT/$label.log" 2>&1
 }
 
 game leave-host hostguy "$GPORT" 240 --net-lobby-script host --net-lobby-room "Leave Test" \

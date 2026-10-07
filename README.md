@@ -212,10 +212,21 @@ from its Combat Simulator as usual. A direct host seats four players unless
 `Net.MaxPlayers` in `pd.ini` says more (up to 12). `--dedicated` runs a host with no
 window and no player of its own.
 
-Everyone needs the same game version, ROM, mods and added content; the game
-names what differs when it refuses. Online Game is in Perfect Dark's own
-Combat Simulator (the GoldenEye mode's menu greys it out), and missions,
-co-op and counter-operative are offline only for now.
+Everyone needs the same game version and Perfect Dark ROM; the game names
+what differs when it refuses. **Mods and added content follow the host.**
+A room made with a mod loaded (GoldenEye X, the Mario characters, All in
+One) or on a GoldenEye, Goldfinger 64 or Tomorrow Never Dies 64 arena says
+so in the Briefing Room, and a joining game plays it from its own copy:
+nothing is ever sent from one player to another. A mod you have installed
+is switched to when you join and switched back when you leave, except one
+that replaces ROM segments (GoldenEye X and the Mario characters do), which
+the game can only load at a start: the room tells you to choose it under
+Extended Options > Load Mods, Restart Now, and join again. A mod or
+conversion you do not have is named, with where to put it (`mods/`, or the
+ROM or patch in `added-content/`); your own `Mod.ModDir` and `Mod.MapMods`
+are never changed. Online Game is in the Combat Simulator of Perfect Dark,
+GoldenEye and the ROM hacks alike; counter-operative and GoldenEye's
+missions are offline only for now.
 
 ### Screenshots and video
 

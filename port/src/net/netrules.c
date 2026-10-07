@@ -16,6 +16,7 @@
 #include "game/modunlocks.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
+#include "game/mplayer/setup.h"
 #include "game/lv.h"
 #include "net/net.h"
 #include "netint.h"
@@ -129,6 +130,7 @@ static struct {
 	u8 endless;
 	s32 maxexplosions;
 	struct netcooprules coop; // protocol 12: a mission (spec-coop.md)
+	struct netcontentneed content; // protocol 13: the host's mod and ROM hack mode (netcontent.c)
 	struct netkeyvalue keys[NET_MAXKEYS];
 	s32 nkeys;
 } s_NetRules;
@@ -153,6 +155,7 @@ static struct {
 	u32 modunlocks;
 	s32 gexplusmode;
 	s32 gexplusscenario;
+	const char *gexplusvariant; // g_GexPlusVariant (a static name, or NULL)
 	s32 endless;
 	s32 maxexplosions;
 	u8 locktype;
@@ -508,6 +511,15 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 	netBufWriteU8(b, (u8)(g_Vars.coopradaron != 0));
 	netBufWriteU8(b, (u8)(g_Vars.coopfriendlyfire != 0));
 
+	{
+		// the content block (protocol 13, netcontent.c): the mod and the
+		// ROM hack mode the client is to play this match in
+		struct netcontentneed need;
+
+		netContentHostNeed(&need);
+		netContentWrite(b, &need, 1);
+	}
+
 	nkeysat = netBufReserve(b, 1);
 
 	for (k = 0; k < ARRAYCOUNT(s_NetKeys) && nkeys < NET_MAXKEYS; k++) {
@@ -627,6 +639,7 @@ s32 netRulesRead(struct netbuf *b)
 	s_NetRules.coop.difficulty = netBufReadU8(b);
 	s_NetRules.coop.radar = netBufReadU8(b);
 	s_NetRules.coop.friendlyfire = netBufReadU8(b);
+	netContentRead(b, &s_NetRules.content, 1);
 
 	if (s_NetRules.coop.on && !netCoopRulesOk(&s_NetRules.coop)) {
 		b->error = 1;
@@ -696,6 +709,11 @@ u32 netRulesMatchId(void)
 	return s_NetRules.valid ? s_NetRules.matchid : 0;
 }
 
+const struct netcontentneed *netRulesContent(void)
+{
+	return &s_NetRules.content;
+}
+
 // the RULES received say a co-op mission (0 a match, or none received)
 s32 netRulesCoopOn(void)
 {
@@ -722,6 +740,7 @@ static void netRulesSaveClient(void)
 	s_NetSaved.modunlocks = g_ModUnlocks;
 	s_NetSaved.gexplusmode = g_GexPlusMode;
 	s_NetSaved.gexplusscenario = gexPlusGetScenario();
+	s_NetSaved.gexplusvariant = g_GexPlusVariant;
 	s_NetSaved.endless = g_MpEndlessMatch;
 	s_NetSaved.maxexplosions = g_MaxExplosionsSetting;
 	s_NetSaved.locktype = g_BossFile.locktype;
@@ -780,8 +799,16 @@ void netRulesApply(void)
 
 	s_NetRulesAppliedId = s_NetRules.matchid;
 
+	// the mode first, through its setter: a ROM hack's mode (protocol 13)
+	// puts the hack's weapon sets in the list's block, which the set number
+	// and weapons below index (gexplus.c); the setter's own choice of set
+	// and scenario is overwritten by the host's right after
+	if (!netContentVariantApply(s_NetRules.content.gevariant)) {
+		sysLogPrintf(LOG_WARNING, "net: rules: the host's ROM hack mode \"%s\" is not converted here", s_NetRules.content.gevariant);
+	}
+
+	mpSetGexPlusMode(s_NetRules.gexplusmode != 0);
 	gexPlusSetScenario(s_NetRules.gexplusscenario);
-	g_GexPlusMode = s_NetRules.gexplusmode;
 
 	snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "%s", s_NetRules.name);
 	g_MpSetup.options = s_NetRules.options;
@@ -909,8 +936,9 @@ void netRulesRestore(void)
 	s32 i;
 
 	if (s_NetSaved.client) {
+		g_GexPlusVariant = s_NetSaved.gexplusvariant;
+		mpSetGexPlusMode(s_NetSaved.gexplusmode != 0);
 		gexPlusSetScenario(s_NetSaved.gexplusscenario);
-		g_GexPlusMode = s_NetSaved.gexplusmode;
 		g_MpSetup = s_NetSaved.mpsetup;
 		memcpy(g_BotConfigsArray, s_NetSaved.bots, sizeof(s_NetSaved.bots));
 		memcpy(g_MpSimSlots, s_NetSaved.simslots, sizeof(s_NetSaved.simslots));

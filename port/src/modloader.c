@@ -1648,6 +1648,62 @@ void modloaderGetStats(s32 *registered, s32 *found, s32 *mods)
  * and arena tables back and romdataResetFiles() has dropped the pinned
  * slots, so it starts from nothing each time.
  */
+/**
+ * Register mounted dir i's maps: every directory mounted for its maps gets
+ * its files pinned and its own stage entries, so mods that share filenames
+ * never collide, and no stock stage is touched. The overlay mod, when there
+ * is one, keeps priority in the search order and its maps already have
+ * arenas. Returns the maps registered.
+ */
+s32 modloaderAddDir(s32 i)
+{
+	const char *dir = fsGetModDirAt(i);
+	char path[FS_MAXPATH + 1];
+	struct modloaderScan scan = { i, 0, 0, NULL };
+	const char *base;
+
+	if (!dir || i < fsGetNumOverlayModDirs() || modBorrowIsGunsOnlyMount(i)) {
+		return 0;
+	}
+
+	base = strrchr(dir, '/');
+	base = base ? base + 1 : dir;
+	if (!strncmp(base, "mod_", 4)) {
+		base += 4;
+	}
+	scan.label = base;
+
+	// what the mod says it has, and only if it says nothing, what its
+	// file names look like
+	if (!modloaderAddFromConfig(i, dir, &scan)) {
+		snprintf(path, sizeof(path), "%s/files/bgdata", dir);
+
+		if (fsFileSize(path) < 0) {
+			return 0;   // a mod with no maps of its own
+		}
+
+		if (fsScanDir(path, modloaderScanEntry, &scan) < 0) {
+			sysLogPrintf(LOG_WARNING, "modloader: could not scan %s", path);
+			return 0;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "modloader: %s registered %d of %d maps", base, scan.registered, scan.found);
+
+	if (scan.registered < scan.found) {
+		sysLogPrintf(LOG_WARNING, "modloader: out of usable stage numbers; %d maps skipped",
+			scan.found - scan.registered);
+	}
+
+	g_ModStagesRegistered += scan.registered;
+	g_ModStagesFound += scan.found;
+	if (scan.found) {
+		g_ModStageMods++;
+	}
+
+	return scan.registered;
+}
+
 void modloaderInit(void)
 {
 	g_ModStageNextSlot = MODSTAGE_FIRST_SLOT;
@@ -1673,53 +1729,8 @@ void modloaderInit(void)
 
 	modloaderFixStageBg(STAGE_WAR, "stat", FILE_BG_STAT_SEG, FILE_BG_STAT_TILES);
 
-	// The overlay mod, when there is one, keeps priority in the search order
-	// and its maps already have arenas. Every directory mounted for its maps
-	// gets its files pinned and its own stage entries, so mods that share
-	// filenames never collide, and no stock stage is touched.
 	for (s32 i = fsGetNumOverlayModDirs(); i < fsGetNumModDirs(); ++i) {
-		const char *dir = fsGetModDirAt(i);
-		char path[FS_MAXPATH + 1];
-		struct modloaderScan scan = { i, 0, 0, NULL };
-		const char *base = strrchr(dir, '/');
-
-		if (modBorrowIsGunsOnlyMount(i)) {
-			continue;
-		}
-
-		base = base ? base + 1 : dir;
-		if (!strncmp(base, "mod_", 4)) {
-			base += 4;
-		}
-		scan.label = base;
-
-		// what the mod says it has, and only if it says nothing, what its
-		// file names look like
-		if (!modloaderAddFromConfig(i, dir, &scan)) {
-			snprintf(path, sizeof(path), "%s/files/bgdata", dir);
-
-			if (fsFileSize(path) < 0) {
-				continue;   // a mod with no maps of its own
-			}
-
-			if (fsScanDir(path, modloaderScanEntry, &scan) < 0) {
-				sysLogPrintf(LOG_WARNING, "modloader: could not scan %s", path);
-				continue;
-			}
-		}
-
-		sysLogPrintf(LOG_NOTE, "modloader: %s registered %d of %d maps", base, scan.registered, scan.found);
-
-		if (scan.registered < scan.found) {
-			sysLogPrintf(LOG_WARNING, "modloader: out of usable stage numbers; %d maps skipped",
-				scan.found - scan.registered);
-		}
-
-		g_ModStagesRegistered += scan.registered;
-		g_ModStagesFound += scan.found;
-		if (scan.found) {
-			g_ModStageMods++;
-		}
+		modloaderAddDir(i);
 	}
 }
 

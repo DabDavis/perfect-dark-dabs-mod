@@ -31,20 +31,29 @@
 # own pause menu while it lives, a respawn on its death screen, as offline).
 #
 # A refusal case (gemust, modmissing) instead checks the client was refused
-# with the key, or the map and its mod, named in the text it was given.
+# with the key, or the mod, named in the text it was given. Content follows
+# the host (protocol 13, netcontent.c): modmount's client left the host's
+# map mod out of its Mod.MapMods and mounts it on demand; modmissing's host
+# plays with a mod the client has no copy of, which the client leaves over
+# (NOMOD), named.
 #
 #   netcontenttest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netcontent-out), PORT (27300), CASES (all: ge geyolt gegg
-# gemust xbla modmap modmissing overlay props), CHECKONLY (1: only the checks,
+# gemust gfvariant xbla modmap modmount modmissing overlay props), CHECKONLY (1: only the checks,
 # on the last run's files). The GoldenEye cases need the GoldenEye ROM
-# converted (mods/GoldenEye Arenas); they are skipped, not failed, without it.
+# converted (mods/GoldenEye Arenas), gfvariant Goldfinger 64 converted too
+# (its zip in added-content/); they are skipped, not failed, without it.
+# gfvariant: the host's Combat Simulator is Goldfinger 64's (its mode, so
+# its weapon sets in the list's block), the client has neither its mode
+# nor its maps mounted: the mode comes from RULES and the maps are mounted
+# on demand (protocol 13).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcontent-out}; PORT=${PORT:-27300}
-CASES=${CASES:-ge geyolt gegg gemust xbla modmap modmissing overlay props}
+CASES=${CASES:-ge geyolt gegg gemust gfvariant xbla modmap modmount modmissing overlay props}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -344,11 +353,20 @@ run() {
 		gegg)   runcase gegg "${GEMAPS}StartArmed=1\n" "$GEMAPS" "--net-test-map Archives --net-test-ge 4" "" ;;
 		# a GoldenEye stage's MUST key that differs: refused at the start, named
 		gemust) runcase gemust "${GEMAPS}XblaMeshes=1\n" "${GEMAPS}XblaMeshes=0\n" "--net-test-map Complex --net-test-ge 0" "" "" 1 ;;
+		# a ROM hack's mode: Goldfinger 64's Junkyard, its weapon sets; the
+		# client mounts Goldfinger on demand and takes the mode from RULES
+		gfvariant) runcase gfvariant "ModDir=\nMapMods=GoldenEye Arenas;Goldfinger 64\nStartArmed=1\n" "$GEMAPS" \
+				"--net-test-map Junkyard --net-test-ge 0 --net-test-ge-variant gf64" "" ;;
 		# (4) the XBLA look is one machine's own on Perfect Dark's stages
 		xbla)   runcase xbla "ModDir=\nMapMods=\nXblaMeshes=1\nStartArmed=1\n" "ModDir=\nMapMods=\nXblaMeshes=0\n" "--net-test-stage 0x32" "" ;;
 		# (2) a Stage Loader map, keyed by its mod's dir and its name
 		modmap) runcase modmap "ModDir=\nMapMods=PD_Kakariko\nStartArmed=1\n" "ModDir=\nMapMods=PD_Kakariko\n" "--net-test-map Playground" "" ;;
-		modmissing) runcase modmissing "ModDir=\nMapMods=PD_Kakariko\n" "ModDir=\nMapMods=\n" "--net-test-map Playground" "" "" 1 ;;
+		# the client's Mod.MapMods left the host's map mod out: mounted on demand
+		modmount) runcase modmount "ModDir=\nMapMods=PD_Kakariko\nStartArmed=1\n" "ModDir=\nMapMods=\n" "--net-test-map Playground" "" ;;
+		# the host's overlay mod is one the client has no copy of (a folder
+		# with a files/ dir is a mod): the client leaves over it, named
+		modmissing) mkdir -p "$OUT/mod_only/files"
+			runcase modmissing "StartArmed=1\n" "ModDir=\n" "--moddir $OUT/mod_only --net-test-stage 0x32" "" "" 1 ;;
 		# (3) an arena only the overlay mod has (mod_allinone's Suburb)
 		overlay) runcase overlay "StartArmed=1\n" "" "--moddir mod_allinone --net-test-stage 0x18" "--moddir mod_allinone" ;;
 		# (5) Grid: a lift and glass; rockets, grenades and mines; Mod.Bodies;
@@ -367,6 +385,8 @@ for c in $CASES; do
 	case $c in
 	ge|geyolt|gegg|gemust)
 		if skipped "$c"; then echo "skip $c: GoldenEye is not converted here"; continue; fi ;;
+	gfvariant)
+		if skipped "$c"; then echo "skip $c: Goldfinger 64 is not converted here"; continue; fi ;;
 	esac
 	C=$OUT/$c-client.log
 	case $c in
@@ -401,15 +421,29 @@ for c in $CASES; do
 		echo "     Golden Gun holders in turn on the client: $(pupnum gegg "holders in turn")"
 		;;
 	gemust) checkrefused gemust "must" "Mod.XblaMeshes must match" ;;
+	gfvariant)
+		checkplay gfvariant "map Junkyard from mod Goldfinger 64"
+		ct=$(lastline "$C" "net: content client")
+		echo "$ct" | grep -q 'GoldenEye mode 1 scenario 0 (.*) variant "gf64"' && pass "gfvariant: Goldfinger 64's mode from the host's RULES" || fail "gfvariant: not in Goldfinger 64's mode: $ct"
+		hs=$(lastline "$OUT/gfvariant-host.log" "net: --net-test-host: starting a match")
+		set1=$(echo "$ct" | grep -o "weapon set [0-9]*" | awk '{print $3}')
+		grep -q "net: content: Goldfinger 64 mounted for its maps for the host's choice" "$C" && pass "gfvariant: the client mounted Goldfinger 64 on demand" || fail "gfvariant: no on-demand mount in the client's log"
+		[ -n "$set1" ] && pass "gfvariant: the client's weapon set number $set1 (the host's list block is Goldfinger's)" || fail "gfvariant: no weapon set in the client's summary"
+		;;
 	xbla)
 		checkplay xbla "stock stage 0x32"
 		lastline "$C" "net: content client" | grep -q "Mod.XblaMeshes 0" && grep -q "net: rules applied" "$C" \
 			&& pass "xbla: the client kept its own Mod.XblaMeshes (0) beside the host's 1" || fail "xbla: Mod.XblaMeshes not the client's own"
 		;;
 	modmap) checkplay modmap "map Playground from mod PD_Kakariko" ;;
+	modmount)
+		checkplay modmount "map Playground from mod PD_Kakariko"
+		grep -q "net: content: PD_Kakariko mounted for its maps for the host's choice" "$C" && pass "modmount: the client mounted PD_Kakariko on demand" || fail "modmount: no on-demand mount in the client's log"
+		grep -q "Stage Loader map mods differ" "$OUT/modmount-host.log" && pass "modmount: joined with other map mods (noted, not refused)" || fail "modmount: refused at CONNECT for its map mods"
+		;;
 	modmissing)
-		checkrefused modmissing "nostage" "map Playground from mod PD_Kakariko, which is not installed here"
-		grep -q "Stage Loader map mods differ" "$OUT/modmissing-host.log" && pass "modmissing: joined with other map mods (noted, not refused)" || fail "modmissing: refused at CONNECT for its map mods"
+		checkrefused modmissing "nomod" "The host plays with the mod mod_only, which is not installed here"
+		grep -q "loaded mod differs from this machine's" "$OUT/modmissing-host.log" && pass "modmissing: joined with another mod loaded (noted, not refused at CONNECT)" || fail "modmissing: refused at CONNECT for its mod"
 		;;
 	overlay) checkplay overlay "stage 0x18 of mod mod_allinone" ;;
 	props)

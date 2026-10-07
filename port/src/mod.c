@@ -3550,6 +3550,23 @@ s32 modListGetSelected(void)
 }
 
 /**
+ * The installed mod of this name (a mod dir's basename, as a net host names
+ * its own: netcontent.c), case-insensitive, or -1.
+ */
+s32 modListIndexOf(const char *name)
+{
+	if (name && name[0]) {
+		for (s32 i = 0; i < numModsListed; ++i) {
+			if (!strcasecmp(modList[i].name, name)) {
+				return i;
+			}
+		}
+	}
+
+	return -1;
+}
+
+/**
  * The GoldenEye ROM's conversion is a mod folder so that the Stage Loader can
  * mount its maps and GE Plus can read its files, and nothing else: its
  * textures/ are GoldenEye's own pictures under Perfect Dark's texture numbers,
@@ -3846,6 +3863,16 @@ s32 modListSwapIsLive(s32 index)
 	return true;
 }
 
+/** Whether installed mod index (or, at -1, the mod loaded) holds ROM segments: a swap to or from it is a restart. */
+s32 modListHasSegs(s32 index)
+{
+	if (index < 0) {
+		return modDirHasSegs(fsGetModDir());
+	}
+
+	return index < numModsListed && modDirHasSegs(modList[index].path);
+}
+
 /**
  * Switch mods now.
  *
@@ -4084,6 +4111,41 @@ static s32 modMapsMount(void)
 s32 modMapsNumMounted(void)
 {
 	return numMapDirsMounted;
+}
+
+/**
+ * Mount installed mod index for its maps now, whatever Mod.MapMods says (a
+ * net client follows the host's choice of map: netcontent.c), and register
+ * its maps as arenas. Returns the mounted dir's index, or -1. A dir already
+ * mounted (as the overlay, or for its maps) is answered as it is; one
+ * mounted here stays until the next swap or start, which the Stage Loader
+ * page's "pending" note allows for.
+ */
+s32 modMapsMountIndex(s32 index)
+{
+	s32 dir;
+
+	if (index < 0 || index >= numModsListed) {
+		return -1;
+	}
+
+	for (dir = 0; dir < fsGetNumModDirs(); ++dir) {
+		if (!strcmp(fsGetModDirAt(dir), modList[index].path)) {
+			return dir;
+		}
+	}
+
+	dir = fsAddMapsDir(modList[index].path);
+
+	if (dir < 0) {
+		return -1;
+	}
+
+	numMapDirsMounted++;
+	modloaderAddDir(dir);
+	sysLogPrintf(LOG_NOTE, "mod: `%s` mounted for its maps on request", modList[index].name);
+
+	return dir;
 }
 
 /**

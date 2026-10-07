@@ -32,6 +32,12 @@
   twelve players (`netcoop.c`, `src/game/coop.c`, protocol 12,
   PLANS/netplay/spec-coop.md): the host plays PD's own co-op widened to N,
   clients pose its world; the mission's state rides in the scenario block.
+- **Content follows the host** — the section of that name (`netcontent.c`,
+  protocol 13): a client plays the host's overlay mod, Stage Loader maps,
+  conversions and ROM hack mode from its own copies, never sent a file:
+  the content block in ACCEPT and RULES, the live swap and its restart
+  rule, on-demand map mounts, LOADED's "mod" component, the lobby's `mod`
+  and `ge` fields, what a refusal tells the player.
 
 ## The shape
 
@@ -89,7 +95,7 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 `netproto.h` documents every message byte by byte (u8 type first, then
 fields through netbuf, never a struct copied whole), the channel each goes
 on (RULES and STAGE_LOAD share BULK so a STAGE_LOAD never overtakes its
-RULES), the refusal codes, and the protocol history. Protocol 12 is current (online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
+RULES), the refusal codes, and the protocol history. Protocol 13 is current (content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
 The lobby's HTTP API and the rendezvous/relay datagrams are in
 `tools/pdlobbyd/README.md`. A change to a message's shape or meaning bumps
 `NET_PROTOCOL_VERSION`; pdlobbyd lists a room's protocol and the Briefing
@@ -104,7 +110,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | Gate | Time (2026-10-06 run) | What it proves |
 |---|---|---|
 | `netclocktest.sh` | 0.5 min | `--net-clock-test N` state hashes equal the stock run |
-| `netsessiontest.sh` | 0.5 min | handshake, refusals, host quit (load-sensitive: alone) |
+| `netsessiontest.sh` | 0.5 min | handshake, refusals, host quit (load-sensitive: alone); a client with no mod switches to the host's `mod_allinone` live and back (swap), one with a `--moddir` of its own leaves with NOMOD (r-nomod) |
 | `netplayertest.sh` | 1 min | the host moves a remote player from its commands, clean and lossy |
 | `netsnaptest.sh` | 1.5 min | snapshots decode, lossy, hostile input |
 | `netpuppettest.sh` | 4 min | puppets, doors, two clients |
@@ -116,7 +122,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netpredicttest.sh` | 6.5 min | prediction at 0/150 ms, loss, wine client, sims, a time limit |
 | `netlagcomptest.sh` | 9 min | hits at 150 ms with and without lag compensation (on and loss: 8400 frames, at least 30 shots), loss, soak |
 | `netscenariotest.sh` | 21 min | every scenario, two lossy |
-| `netcontenttest.sh` | 7.5 min | GoldenEye arenas (YOLT: a client respawned by its START alone), mod maps, overlay, bodies, props |
+| `netcontenttest.sh` | 8 min | GoldenEye arenas (YOLT: a client respawned by its START alone), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
 | `netcooptest.sh` | 8 min (pair 4.5, twelve 2, lobby 1.2) | online co-op (spec-coop.md): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission |
@@ -517,3 +523,91 @@ progression").
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene
   does not skip it on the host (A, B or Z do, as the host reads them).
+
+## Content follows the host
+
+Protocol 13 (`port/src/net/netcontent.c`; the user, 2026-10-07: "share the
+host's mod/conversion with the guests ... the share is without
+distributing"). A client plays what the host plays out of its own copies;
+nothing is ever sent from one machine to another but names and hashes.
+
+- **What the host names.** `netContentHostNeed()`: the overlay mod's dir
+  basename and its contents hash (`netHashDirContents()`, the "mod"
+  component's walk, cached per path for the process), and the GoldenEye
+  ROM hack mode's conversion tag (`g_GexPlusVariant` -> "gf64"). ACCEPT
+  carries the mod (a client learns at the join); RULES carry the mod and
+  the tag (per match, checked again at H3: a join in progress has both at
+  once, and a host may have swapped since).
+- **The overlay mod on a client.** `netContentFollow()`: the same name
+  among the installed mods (`modListIndexOf`), the same bytes
+  (`netHashDirContents` of that dir), then `modListSwap()` live, with the
+  player's own `Mod.ModDir` put back into the selection so pd.ini keeps it
+  (H13) and `netContentRestore()` swapping the own mod back when the
+  session ends (`netClientEnd` outside a match, H12 inside one). The
+  restart rule is mods.md's: a mod with `segs/` (every imported patch:
+  GoldenEye X, the Mario characters) swaps neither in nor out under a
+  running game, so the client leaves with NOMOD and the text says to choose
+  it in Load Mods, Restart Now and join again; so does one whose mods came
+  from `--moddir` (the gates'). Missing or another version: named, with the
+  hashes. The host trusts none of it: LOADED's "mod" component is the
+  overlay as the client has it loaded (`netStageHashCloseWindow`), and a
+  difference is STAGEHASH "mod".
+- **Maps and conversions.** `netResolveStageKey` kind 1: a dir installed
+  but not mounted (Mod.MapMods left it out) is mounted on the spot
+  (`netContentMountMaps` -> `modMapsMountIndex` -> `fsAddMapsDir` +
+  `modloaderAddDir`, the per-dir half of `modloaderInit` split out) and the
+  key looked up again; it stays mounted until the next swap or start. A
+  conversion missing here (GoldenEye Arenas, Goldfinger 64, Tomorrow Never
+  Dies 64: `gexPlusRomIsConversionDir`) is refused with the source to put in
+  `added-content/` (`netContentNoStageText`); the game converts it at the
+  next start. The converter version is still compared at CONNECT.
+- **The mode.** `netRulesApply` sets `g_GexPlusVariant` from the tag
+  (`netContentVariantApply`: the hack converted here under it) and calls
+  `mpSetGexPlusMode()` rather than writing `g_GexPlusMode`: the setter puts
+  the hack's weapon sets in the list's block (gexplus.c), which the set
+  number and weapons RULES carry index; its own choice of set and scenario
+  is overwritten by the host's right after. `netRulesRestore` does the
+  same with the saved pointer. Online Game is no longer greyed in the
+  GoldenEye and ROM hack modes; a room made there is a match (the Game
+  dropdown offers no co-op mission in those modes).
+- **CONNECT and the lobby.** The host logs, and no longer refuses, a
+  different "mod" or "added" component (as "mapmods" since protocol 8);
+  "rom", "borrow" and "geconv" still refuse. The session hash's "all", the
+  lobby's `content`, is rom + borrow + geconv, so rooms list as joinable
+  across mods and added content; pdlobbyd's room summary has `mod` and
+  `ge` (create/settings fields, caps 127 and 15), the Briefing Room's focus
+  note says "Mod X: loaded / installed, loads on join / installed: load it,
+  restart / NOT INSTALLED HERE" (`roomContentNote`), or for a GoldenEye
+  room whether its arenas are converted here, and the Game Lobby's weapons
+  line names the mod.
+- **Not done.** A restart-and-rejoin for the segs/ mods (the game could
+  relaunch itself with the mod selected for that run and join the room
+  again: `updateRelaunchSelf` is the relaunch, `--net-lobby-*` the
+  precedent for driving the lobby from arguments); GoldenEye's missions
+  online; the three MUST_GE keys still refuse rather than follow.
+- **Traps met.** `modListSwap()` sets the selection to what it loaded, which
+  is bound to `Mod.ModDir`: the player's own selection must be read before
+  the swap and put back after it (the first cut read it after, remembered
+  the host's mod as the player's and wrote `ModDir=mod_allinone` into the
+  gate client's pd.ini; netsessiontest's swap case checks the file).
+  `mpSetGexPlusMode(true)` calls `mpApplyWeaponSet()`, which rewrites
+  `g_MpSetup.weapons` from the set it chose: it must run before RULES'
+  weapons are written, never after. The lobby's `rules` values are capped
+  at 32 characters, too short for a mod dir name (one archive mod's is 40):
+  `mod` is a field of its own. The "rom" session component hashed
+  `g_RomFile`, and the game preprocesses a stock segment in place inside
+  that image (`ROMSEG_DECL_SEG`'s preprocess functions; a mod's `segs/`
+  copy is preprocessed in its own buffer instead), so a host with GoldenEye
+  X loaded hashed its ROM as 4e51142a... and a joiner with no mod the
+  identical file as 69a7c78a...: found on the first cross-machine join,
+  the guest refused for its "ROM". It now hashes the file on disk
+  (`romdataGetRomPath()`).
+  `netsessiontest.sh` and `netlobbytest.sh` launched the game without
+  `stdbuf -oL` (netcontenttest had it): a redirected stdout is
+  block-buffered, so whether "net: hosting on UDP port" had reached the
+  log inside the 60 s wait depended on the game having logged 4 KB by
+  then. One more log line before it ("net: hashed ...") left the host's
+  total just short, and the gate failed its host's start every time
+  (`stat` showed the log at 259 bytes, the stderr warnings, until the
+  kill). Every Linux gate launches through `stdbuf -oL -eL` now (netplayertest and netwidetest too).
+

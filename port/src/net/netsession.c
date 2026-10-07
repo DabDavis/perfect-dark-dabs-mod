@@ -17,6 +17,7 @@
 #include "versioninfo.h"
 #include "geconvert.h"
 #include "modloader.h"
+#include "mod.h"
 #include "lib/main.h"
 #include "game/lang.h"
 #include "game/menu.h"
@@ -28,6 +29,7 @@
 #include "game/mplayer/scenarios.h"
 #include "game/mplayer/setup.h"
 #include "gexplus.h"
+#include "gexplusrom.h"
 #include "gehud.h"
 #include "xblamesh.h"
 #include "game/lv.h"
@@ -248,12 +250,13 @@ s32 mainStageCanLoad(s32 stagenum);
 
 static const char *s_RefuseNames[NETREFUSE_COUNT] = {
 	"none", "protocol", "build", "content", "region", "geconvert", "full", "started", "ticket",
-	"must", "notstock", "stagehash", "nostage", "timeout", "badmsg", "shutdown", "left",
+	"must", "notstock", "stagehash", "nostage", "timeout", "badmsg", "shutdown", "left", "nomod",
 };
 
 #define NET_CLIENT_BARRIER_TIMEOUT_MS (NET_LOAD_TIMEOUT_MS * 4)
 #define NET_JOIN_LEAD 3 // ticks a join in progress starts ahead of the host's GO
 extern s32 g_StageTimeElapsed60;
+extern s32 g_MpWeaponSetNum;
 
 PD_CONSTRUCTOR static void netSessionConfigInit(void)
 {
@@ -577,10 +580,10 @@ static void netHostKick(s32 peer, s32 code, const char *component, const char *t
 static const char *netCompDescription(const char *name)
 {
 	if (strcmp(name, "rom") == 0) return "Perfect Dark ROM";
-	if (strcmp(name, "mod") == 0) return "loaded mod (--moddir / the Mods menu)";
+	if (strcmp(name, "mod") == 0) return "loaded mod (--moddir / the Mods menu; a client follows the host's)";
 	if (strcmp(name, "mapmods") == 0) return "Stage Loader map mods (Mod.MapMods)";
 	if (strcmp(name, "borrow") == 0) return "GoldenEye X borrowed for GoldenEye's guns (Mod.BorrowGoldenEyeGuns)";
-	if (strcmp(name, "added") == 0) return "added content (GoldenEye ROM, XBLA releases)";
+	if (strcmp(name, "added") == 0) return "added content (GoldenEye ROM, XBLA releases; checked as a map is played)";
 	if (strcmp(name, "geconv") == 0) return "GoldenEye conversion";
 	return name;
 }
@@ -804,6 +807,16 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 				if (theirs[j].hash != mine[i].hash && strcmp(mine[i].name, "mapmods") == 0) {
 					sysLogPrintf(LOG_NOTE, "net: peer %d's Stage Loader map mods differ from this machine's (%016llx here, %016llx theirs); a map is checked when it is played",
 							peer, (unsigned long long)mine[i].hash, (unsigned long long)theirs[j].hash);
+				} else if (theirs[j].hash != mine[i].hash && strcmp(mine[i].name, "mod") == 0) {
+					// protocol 13: the client follows this machine's mod from
+					// ACCEPT's content block (netcontent.c); the one it then
+					// loaded is checked in LOADED
+					sysLogPrintf(LOG_NOTE, "net: peer %d's loaded mod differs from this machine's (%016llx here, %016llx theirs); it follows the host's",
+							peer, (unsigned long long)mine[i].hash, (unsigned long long)theirs[j].hash);
+				} else if (theirs[j].hash != mine[i].hash && strcmp(mine[i].name, "added") == 0) {
+					// a conversion it lacks is refused as its map is played
+					sysLogPrintf(LOG_NOTE, "net: peer %d's added content differs from this machine's (%016llx here, %016llx theirs); a conversion is checked when its map is played",
+							peer, (unsigned long long)mine[i].hash, (unsigned long long)theirs[j].hash);
 				} else if (theirs[j].hash != mine[i].hash) {
 					snprintf(text, sizeof(text), "Your %s differs from the host's (%s %016llx here, %016llx yours). Load the same ROM, mods and added content as the host.",
 							netCompDescription(mine[i].name), mine[i].name,
@@ -963,6 +976,15 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 	netBufWriteU8(b, netIsDedicatedHost() ? 1 : 0);
 	netWriteStr(b, s_Name, NET_MAXNAME);
 	netBufWriteU8(b, accflags);
+
+	{
+		// protocol 13: what the client is to play with (netcontent.c)
+		struct netcontentneed need;
+
+		netContentHostNeed(&need);
+		netContentWrite(b, &need, 0);
+	}
+
 	netSend(peer, NET_CHAN_RELIABLE, b);
 
 	addr[0] = '\0';
@@ -1446,8 +1468,17 @@ static void netHostCheckLoaded(s32 peer)
 			}
 		}
 
-		snprintf(text, sizeof(text), "The stage loaded differently here: its %s is %016llx on the host and %016llx on yours.",
-				which, (unsigned long long)h, (unsigned long long)t);
+		if (strcmp(which, "mod") == 0) {
+			snprintf(text, sizeof(text), "The mod loaded on your game is not the host's (%016llx on the host, %016llx on yours): "
+					"load the same mod as the host.", (unsigned long long)h, (unsigned long long)t);
+		} else if (strcmp(which, "xblatiles") == 0) {
+			snprintf(text, sizeof(text), "The stage's collision differs: %s plays this level with the Perfect Dark XBLA release's "
+					"(Perfect Dark XBLA.7z in added-content/), %s without it.", h ? "the host" : "your game", h ? "yours" : "the host");
+		} else {
+			snprintf(text, sizeof(text), "The stage loaded differently here: its %s is %016llx on the host and %016llx on yours.",
+					which, (unsigned long long)h, (unsigned long long)t);
+		}
+
 		netHostKick(peer, NETREFUSE_STAGEHASH, which, text);
 		return;
 	}
@@ -2094,6 +2125,7 @@ static void netClientEnd(s32 code, const char *text)
 		netClientDrain();
 		g_NetMode = NETMODE_NONE;
 		g_NetLocalSlot = 0;
+		netContentRestore();
 	}
 
 	if (s_TestJoin && code != NETREFUSE_LEFT) {
@@ -2103,7 +2135,30 @@ static void netClientEnd(s32 code, const char *text)
 	}
 }
 
-static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize)
+static s32 netFindMapStage(const char *dir, const char *map)
+{
+	char base[NET_MAXMAPDIR + 1];
+	s32 id;
+
+	for (id = 0; id <= 0xff; id++) {
+		const char *d = modloaderGetStageModDir(id);
+		const char *m = d ? modloaderGetStageMapName(id) : NULL;
+
+		if (d && m && strcasecmp(netBasename(d, base, sizeof(base)), dir) == 0 && strcasecmp(m, map) == 0
+				&& !modloaderStageIsMission(id)) {
+			return id;
+		}
+	}
+
+	return -1;
+}
+
+/**
+ * The stage the host's key names, or -1 with nostage saying what this
+ * machine lacks for it (netcontent.c). A map of a mod installed here but
+ * not mounted is mounted on the spot (protocol 13).
+ */
+static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize, char *nostage, s32 nostagesize)
 {
 	s32 kind = netBufReadU8(b);
 	char dir[NET_MAXMAPDIR + 1];
@@ -2112,10 +2167,12 @@ static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize)
 	s32 id;
 
 	s_MatchKeyKind = kind;
+	nostage[0] = '\0';
 
 	if (kind == 0) {
 		id = netBufReadU8(b);
 		snprintf(what, whatsize, "stock stage 0x%02x", id);
+		netContentNoStageText(0, "", "", id, nostage, nostagesize);
 
 		return netBufOk(b) && !modloaderGetStageModDir(id) ? id : -1;
 	}
@@ -2129,23 +2186,24 @@ static s32 netResolveStageKey(struct netbuf *b, char *what, s32 whatsize)
 			return -1;
 		}
 
-		for (id = 0; id <= 0xff; id++) {
-			const char *d = modloaderGetStageModDir(id);
-			const char *m = d ? modloaderGetStageMapName(id) : NULL;
+		id = netFindMapStage(dir, map);
 
-			if (d && m && strcasecmp(netBasename(d, base, sizeof(base)), dir) == 0 && strcasecmp(m, map) == 0
-					&& !modloaderStageIsMission(id)) {
-				return id;
-			}
+		if (id < 0 && netContentMountMaps(dir)) {
+			id = netFindMapStage(dir, map);
 		}
 
-		return -1;
+		if (id < 0) {
+			netContentNoStageText(1, dir, map, 0, nostage, nostagesize);
+		}
+
+		return id;
 	}
 
 	if (kind == 2) {
 		netBufReadString(b, dir, sizeof(dir));
 		id = netBufReadU8(b);
 		snprintf(what, whatsize, "stage 0x%02x of mod %s", id, dir);
+		netContentNoStageText(2, dir, "", id, nostage, nostagesize);
 
 		if (!netBufOk(b) || !fsGetModDir() || strcasecmp(netBasename(fsGetModDir(), base, sizeof(base)), dir) != 0) {
 			return -1;
@@ -2169,10 +2227,12 @@ static void netClientBeginStage(struct netbuf *b)
 	char what[NET_MAXMAPDIR + NET_MAXMAPNAME + 32];
 	char label[NET_MAXNAME + 1];
 	char text[NET_MAXTEXT + 1];
+	char nostage[NET_MAXTEXT + 1];
 	u32 matchid = netBufReadU32(b);
-	s32 id = netResolveStageKey(b, what, sizeof(what));
+	s32 id = netResolveStageKey(b, what, sizeof(what), nostage, sizeof(nostage));
 	s32 numplayers;
 	s32 yourplayer;
+	s32 followed;
 
 	netBufReadString(b, label, sizeof(label));
 	s_Seed = netReadU64(b);
@@ -2189,10 +2249,27 @@ static void netClientBeginStage(struct netbuf *b)
 	}
 
 	if (id < 0 || !mainStageCanLoad(id)) {
-		snprintf(text, sizeof(text), "The host chose %s, which is not installed here.", what);
+		if (nostage[0]) {
+			snprintf(text, sizeof(text), "%s", nostage);
+		} else {
+			snprintf(text, sizeof(text), "The host chose %s, which is not installed here.", what);
+		}
+
 		netSendLeave(s_ServerPeer, NETREFUSE_NOSTAGE, text);
 		netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOSTAGE);
 		netClientEnd(NETREFUSE_NOSTAGE, text);
+		return;
+	}
+
+	// the host's mod once more, as its RULES name it (protocol 13): it may
+	// have changed since ACCEPT, and a join in progress had both at once
+	followed = netContentFollow(netRulesContent(), text, sizeof(text));
+
+	if (followed != NETCONTENT_OK && followed != NETCONTENT_SWAPPED) {
+		sysLogPrintf(LOG_NOTE, "net: content: leaving at the match [nomod %s]: %s", netRulesContent()->mod, text);
+		netSendLeave(s_ServerPeer, NETREFUSE_NOMOD, text);
+		netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOMOD);
+		netClientEnd(NETREFUSE_NOMOD, text);
 		return;
 	}
 
@@ -2566,15 +2643,31 @@ static void netClientEvent(const struct netevent *ev)
 				s32 slot = netBufReadU8(&b);
 				char hostname[NET_MAXNAME + 1];
 				s32 flags;
+				struct netcontentneed need;
+				s32 followed;
 
 				netBufReadU32(&b);
 				s_HostDedicated = netBufReadU8(&b);
 				netBufReadString(&b, hostname, sizeof(hostname));
 				flags = netBufReadU8(&b);
+				netContentRead(&b, &need, 0);
 
 				if (netBufOk(&b) && (slot < MAX_PLAYERS || (slot == NETSLOT_SPECTATOR && (flags & NETACC_SPECTATOR)))) {
 					s_ClientState = NETCS_JOINED;
 					s_ClientSlot = slot == NETSLOT_SPECTATOR ? 0 : slot;
+
+					// the host's mod, out of this machine's own copies
+					// (protocol 13, netcontent.c): switched to live, or the
+					// session ends with what the player can do about it
+					followed = netContentFollow(&need, text, sizeof(text));
+
+					if (followed != NETCONTENT_OK && followed != NETCONTENT_SWAPPED) {
+						sysLogPrintf(LOG_NOTE, "net: content: leaving [nomod %s]: %s", need.mod[0] ? need.mod : "none", text);
+						netSendLeave(s_ServerPeer, NETREFUSE_NOMOD, text);
+						netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOMOD);
+						netClientEnd(NETREFUSE_NOMOD, text);
+						break;
+					}
 
 					if (flags & NETACC_SPECTATOR) {
 						sysLogPrintf(LOG_NOTE, "net: accepted by \"%s\"%s as a spectator%s", hostname,
@@ -2747,8 +2840,29 @@ static void netTestStartMatch(void)
 	}
 
 	// --net-test-ge N: the GoldenEye mode's Combat Simulator (its arenas,
-	// weapon sets and simulants) with GoldenEye scenario N (gexplus.h)
+	// weapon sets and simulants) with GoldenEye scenario N (gexplus.h);
+	// --net-test-ge-variant NAME|TAG: a ROM hack's ("Goldfinger 64", or
+	// its conversion tag gf64, which has no space for a script to quote)
+	// instead of GoldenEye's own, as its Perfect Menu row opens it
+	// (protocol 13: RULES carry the mode's tag, netcontent.c)
 	if (gescen >= 0 && gescen < GEXPLUS_NUMSCENARIOS) {
+		const char *variant = sysArgGetString("--net-test-ge-variant");
+		s32 v;
+
+		g_GexPlusVariant = NULL;
+
+		for (v = 0; variant && gexPlusRomGetVariant(v); v++) {
+			const char *tag = gexPlusRomDirTag(gexPlusRomGetVariant(v));
+
+			if (strcasecmp(gexPlusRomGetVariant(v), variant) == 0 || (tag && strcasecmp(tag, variant) == 0)) {
+				g_GexPlusVariant = gexPlusRomGetVariant(v);
+			}
+		}
+
+		if (variant && !g_GexPlusVariant) {
+			sysLogPrintf(LOG_WARNING, "net: --net-test-ge-variant %s: not converted here", variant);
+		}
+
 		mpSetGexPlusMode(true);
 		gexPlusSetScenario(gescen);
 		challengeDetermineUnlockedFeatures();
@@ -2959,10 +3073,11 @@ void netSessionContentLog(const char *why, u32 ticks, u32 geticks)
 		return;
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: content client %s (tick %u): stage 0x%02x, key kind %d (%s); GoldenEye mode %d scenario %d (%s), GoldenEye HUD %s; weapon in hand 0x%02x%s, a GoldenEye gun %u of %u ticks; Mod.Bodies %d, Mod.XblaMeshes %d",
+	sysLogPrintf(LOG_NOTE, "net: content client %s (tick %u): stage 0x%02x, key kind %d (%s); GoldenEye mode %d scenario %d (%s) variant \"%s\" weapon set %d, GoldenEye HUD %s; weapon in hand 0x%02x%s, a GoldenEye gun %u of %u ticks; Mod.Bodies %d, Mod.XblaMeshes %d; mod %s",
 			why, g_NetTick, s_MatchStage, s_MatchKeyKind, s_MatchWhat, g_GexPlusMode != 0, gexPlusGetScenario(),
-			gexPlusScenarioName(gexPlusGetScenario()), geHudActive() ? "on" : "off", weapon & 0xff,
-			WEAPON_IS_GE(weapon) ? " (GoldenEye's)" : "", geticks, ticks, modGetBodiesKept(), xblaMeshGetEnabled());
+			gexPlusScenarioName(gexPlusGetScenario()), netContentVariantTag(), g_MpWeaponSetNum, geHudActive() ? "on" : "off", weapon & 0xff,
+			WEAPON_IS_GE(weapon) ? " (GoldenEye's)" : "", geticks, ticks, modGetBodiesKept(), xblaMeshGetEnabled(),
+			modListGetLoadedName() ? modListGetLoadedName() : "none");
 }
 
 /**
@@ -3219,6 +3334,7 @@ void netStageStopped(void)
 			netClientDrain();
 			g_NetMode = NETMODE_NONE;
 			g_NetLocalSlot = 0;
+			netContentRestore();
 		} else {
 			struct netbuf b;
 

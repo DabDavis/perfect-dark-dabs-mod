@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <PR/ultratypes.h>
 #include <ultra64.h>
 #include "platform.h"
@@ -15,6 +16,8 @@
 #include "lib/vi.h"
 #include "game/lang.h"
 #include "modloader.h"
+#include "mod.h"
+#include "gexplusrom.h"
 #include "net/net.h"
 #include "net/netlobby.h"
 
@@ -272,22 +275,20 @@ struct menudialogdef g_NetOnlineMenuDialog = {
 
 /**
  * The Combat Simulator's own row for it (setup.c): greyed, with a hint,
- * until there is an account to sign in with, and in the GoldenEye mode,
- * whose arenas net games do not carry yet
+ * until there is an account to sign in with. The GoldenEye mode's and a ROM
+ * hack's Combat Simulator have it too (protocol 13): a room made there
+ * carries the mode in its RULES, and a joiner plays the arena from its own
+ * conversion
  */
 char *netLobbyMenuTextOnline(struct menuitem *item)
 {
-	if (g_GexPlusMode) {
-		return "Online Game (Perfect Dark only)\n";
-	}
-
 	return netLobbyAvailable() ? "Online Game\n" : "Online Game (sign in first)\n";
 }
 
 MenuItemHandlerResult netLobbyMenuHandlerOnline(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_CHECKDISABLED) {
-		return !netLobbyAvailable() || g_GexPlusMode;
+		return !netLobbyAvailable();
 	}
 
 	if (operation == MENUOP_SET) {
@@ -402,6 +403,45 @@ static void roomColumns(struct roomcol *cols)
 	}
 }
 
+
+/**
+ * What a room plays with that this game must have its own copy of
+ * (netcontent.c): the host's mod, or the GoldenEye ROM hack mode, and
+ * whether it is here. One status line: about 42 characters.
+ */
+static void roomContentNote(const struct netlobbyroomsum *r, char *out, s32 size)
+{
+	char name[48];
+
+	if (r->mod[0]) {
+		const char *loaded = modListGetLoadedName();
+		const s32 index = modListIndexOf(r->mod);
+		const char *state;
+
+		if (loaded && strcasecmp(loaded, r->mod) == 0) {
+			state = "loaded";
+		} else if (index < 0) {
+			state = "NOT INSTALLED HERE";
+		} else if (modListSwapIsLive(index)) {
+			state = "installed, loads on join";
+		} else {
+			state = "installed: load it, restart";
+		}
+
+		snprintf(name, sizeof(name), "%s", r->mod);
+		labelFitDots(name, sizeof(name), 110);
+		snprintf(out, size, "Mod %s: %s", name, state);
+		return;
+	}
+
+	{
+		// a conversion's folder is listed among the mods (maps-only)
+		const char *dir = gexPlusRomDirOfTag(r->ge);
+		const s32 have = dir && modListIndexOf(dir) >= 0;
+
+		snprintf(out, size, "%s: %s", dir ? dir : r->ge, have ? "converted here" : "NOT CONVERTED HERE (added-content/)");
+	}
+}
 static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	struct menuitemrenderdata *rd;
@@ -438,6 +478,8 @@ static MenuItemHandlerResult handlerRoomList(s32 operation, struct menuitem *ite
 		netLobbyClearMessage();
 		if (r && r->compat != NETLOBBY_COMPAT_OK) {
 			snprintf(s_BriefingNote, sizeof(s_BriefingNote), "%s", netLobbyCompatText(r->compat));
+		} else if (r && (r->mod[0] || r->ge[0])) {
+			roomContentNote(r, s_BriefingNote, sizeof(s_BriefingNote));
 		} else if (r) {
 			// the whole name, which the GAME column may have cut
 			// (a label does not widen the dialog: name and host cut to fit)
@@ -911,14 +953,20 @@ static MenuDialogHandlerResult dialogCreate(s32 operation, struct menudialogdef 
  */
 static MenuItemHandlerResult handlerGame(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	// the co-op missions are Perfect Dark's own: the GoldenEye mode's
+	// rooms are matches on its arenas
+	if (g_GexPlusMode) {
+		g_NetCoopSetup.on = 0;
+	}
+
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = 2;
+		data->dropdown.value = g_GexPlusMode ? 1 : 2;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		return (intptr_t)(data->dropdown.value == 1 ? "Co-op Mission" : "Combat Simulator");
 	case MENUOP_SET:
-		g_NetCoopSetup.on = data->dropdown.value == 1;
+		g_NetCoopSetup.on = data->dropdown.value == 1 && !g_GexPlusMode;
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = g_NetCoopSetup.on ? 1 : 0;
@@ -1294,7 +1342,15 @@ static char *textRoomSettings(struct menuitem *item)
 		labelFitDots(arena, sizeof(arena), LABEL_WIDTH - labelWidth("Arena: ") - labelWidth(tail));
 		snprintf(text, sizeof(texts[0]), "Arena: %s%s\n", arena, tail);
 	} else if (item->param == 1) {
-		snprintf(text, sizeof(texts[0]), "Weapons: %s\n", weapons ? weapons : "-");
+		if (room->sum.mod[0]) {
+			char mod[64];
+
+			snprintf(mod, sizeof(mod), "%s", room->sum.mod);
+			labelFitDots(mod, sizeof(mod), LABEL_WIDTH - labelWidth("Weapons: ") - labelWidth(weapons ? weapons : "-") - labelWidth("   Mod: "));
+			snprintf(text, sizeof(texts[0]), "Weapons: %s   Mod: %s\n", weapons ? weapons : "-", mod);
+		} else {
+			snprintf(text, sizeof(texts[0]), "Weapons: %s\n", weapons ? weapons : "-");
+		}
 	} else {
 		snprintf(text, sizeof(texts[0]), "Time: %s%s  Score: %s  Simulants: %d\n",
 				time && strcmp(time, "0") ? time : "none", time && strcmp(time, "0") ? " min" : "",

@@ -31,9 +31,11 @@
 #define NETLOBBY_MAXCHATTEXT 120
 
 // Why a room in the list cannot be joined from here (or 0)
+#define NETLOBBY_MAXMOD 127 // a room's mod dir name (NET_MAXMAPDIR)
+
 #define NETLOBBY_COMPAT_OK      0
 #define NETLOBBY_COMPAT_PROTO   1 // another netplay protocol
-#define NETLOBBY_COMPAT_CONTENT 2 // another ROM, mod or added-content set
+#define NETLOBBY_COMPAT_CONTENT 2 // another ROM or GoldenEye converter (a mod or added content is followed: netcontent.c)
 #define NETLOBBY_COMPAT_BUILD   3 // another build: joinable, but the host will refuse it
 
 struct netlobbyroomsum {
@@ -42,6 +44,8 @@ struct netlobbyroomsum {
 	char host[NETLOBBY_MAXUSER + 1];
 	char stage[33];
 	char scenario[33];
+	char mod[NETLOBBY_MAXMOD + 1]; // the mod the host plays with ("" none): a joiner loads its own copy (netcontent.c)
+	char ge[16];       // the GoldenEye ROM hack mode the room is in, as a conversion tag ("gf64"); ""
 	char build[41];
 	char content[65];
 	char state[12];    // open, countdown, launched

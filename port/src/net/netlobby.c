@@ -16,6 +16,8 @@
 #include "versioninfo.h"
 #include "ghostnet.h"
 #include "modloader.h"
+#include "gexplus.h"
+#include "geconvert.h"
 #include "game/menu.h"
 #include "game/mplayer/mplayer.h"
 #include "lib/main.h"
@@ -588,6 +590,8 @@ static void lobbyReadSummary(struct jspan o, struct netlobbyroomsum *r)
 	jsonGetStr(o, "host", r->host, sizeof(r->host));
 	jsonGetStr(o, "stage", r->stage, sizeof(r->stage));
 	jsonGetStr(o, "scenario", r->scenario, sizeof(r->scenario));
+	jsonGetStr(o, "mod", r->mod, sizeof(r->mod));
+	jsonGetStr(o, "ge", r->ge, sizeof(r->ge));
 	jsonGetStr(o, "build", r->build, sizeof(r->build));
 	jsonGetStr(o, "content", r->content, sizeof(r->content));
 	jsonGetStr(o, "state", r->state, sizeof(r->state));
@@ -1594,7 +1598,7 @@ const char *netLobbyCompatText(s32 compat)
 	case NETLOBBY_COMPAT_PROTO:
 		return "Can't join: another netplay version.";
 	case NETLOBBY_COMPAT_CONTENT:
-		return "Can't join: other ROM, mods or content.";
+		return "Can't join: other ROM or GoldenEye version.";
 	case NETLOBBY_COMPAT_BUILD:
 		return "Can't join: the host runs another build.";
 	}
@@ -1654,7 +1658,16 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 	char escen[40 * 6];
 	char ekey[48 * 6];
 	char eweap[40 * 6];
+	char emod[(NETLOBBY_MAXMOD + 1) * 6];
+	char ege[16 * 6];
+	struct netcontentneed need;
 	const s32 sims = mpGetNumSimSlotsOn();
+
+	// the mod and GoldenEye mode the room plays in (protocol 13): listed so
+	// a joiner can see what its own game needs before it joins
+	netContentHostNeed(&need);
+	ghostnetJsonEscape(need.mod, emod, sizeof(emod));
+	ghostnetJsonEscape(!g_GexPlusMode ? "" : need.gevariant[0] ? need.gevariant : geconvertGoldenEyeTag(), ege, sizeof(ege));
 
 	if (g_NetCoopSetup.on) {
 		// a co-op mission (netcoop.c): the mission as the arena, the
@@ -1678,9 +1691,9 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 	ghostnetJsonEscape(weapons, eweap, sizeof(eweap));
 
 	return snprintf(out, size,
-			"\"stage\":\"%s\",\"scenario\":\"%s\",\"sims\":%d,"
+			"\"stage\":\"%s\",\"scenario\":\"%s\",\"sims\":%d,\"mod\":\"%s\",\"ge\":\"%s\","
 			"\"rules\":{\"stage_key\":\"%.32s\",\"time_limit\":%d,\"score_limit\":%d,\"team_score_limit\":%d,\"weapons\":\"%s\"}%s",
-			estage, escen, sims, ekey,
+			estage, escen, sims, emod, ege, ekey,
 			g_MpSetup.timelimit >= 60 ? 0 : g_MpSetup.timelimit + 1,
 			g_MpSetup.scorelimit >= 100 ? 0 : g_MpSetup.scorelimit + 1,
 			g_MpSetup.teamscorelimit >= 400 ? 0 : g_MpSetup.teamscorelimit + 1,

@@ -514,6 +514,12 @@ const char *romdataGetSegmentInfo(s32 index, u32 *romofs, u32 *size)
 	return romSegDecls[index].name;
 }
 
+/** The ROM file's path as it was loaded (ROMDATA_ROM_NAME, or --rom-file's) */
+const char *romdataGetRomPath(void)
+{
+	return romName;
+}
+
 s32 romdataInit(void)
 {
 	const char *altRomName = sysArgGetString("--rom-file");

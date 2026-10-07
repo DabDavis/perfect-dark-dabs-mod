@@ -294,6 +294,8 @@ void modRemoveDirTree(const char *dir);
 s32 modListIsFromArgs(void);
 s32 modListSwapIsLive(s32 index);
 s32 modListSwap(s32 index);
+s32 modListIndexOf(const char *name); // the installed mod of this name, or -1
+s32 modListHasSegs(s32 index);       // index's (or -1, the loaded mod's) segs/: a swap to or from it restarts
 
 // The Stage Loader: every installed mod's maps as extra Combat Simulator
 // arenas, each mod mounted for its maps alone beside the mod loaded (fs.h,
@@ -304,6 +306,7 @@ void modMapsSetAll(s32 on);
 void modMapsSetEnabled(const char *name, s32 on);
 void modMapsEnableByName(const char *name);
 s32 modMapsNumMounted(void);
+s32 modMapsMountIndex(s32 index); // mount installed mod index for its maps now; its dir index, or -1
 s32 modMapsPending(void);   // the setting changed and could not be applied where we stand
 s32 modMapsApply(void);     // apply it now; false when a restart is needed
 

@@ -76,7 +76,7 @@ game() {
 	rm -rf "$save"; mkdir -p "$save"
 	printf '%b' "$INI" > "$save/pd.ini"
 	cd "$BUILD" || exit 2
-	exec timeout -k 5 "$t" "$BIN" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
+	exec timeout -k 5 "$t" stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound "$@" > "$OUT/$label.log" 2>&1
 }
 
 waitfor() {

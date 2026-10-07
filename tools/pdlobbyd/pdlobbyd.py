@@ -198,6 +198,8 @@ PASSWORD_MAX = 16
 CHAT_MAX = 120
 FIELD_MAX = 32
 REGION_MAX = 16
+MOD_MAX = 127     # the host's overlay mod dir name (the game's NET_MAXMAPDIR)
+GE_MAX = 15       # a GoldenEye conversion's tag (the game's NET_MAXCOMPNAME)
 RULES_MAX = 24
 ENDPOINTS_MAX = 4
 # The game's simulant slots (MAX_BOTS in src/include/constants.h).
@@ -570,6 +572,8 @@ class Room:
         self.max_humans = 4
         self.stage = ""
         self.scenario = ""
+        self.mod = ""       # the mod the host plays with, which joiners load from their own copy
+        self.ge = ""        # the GoldenEye ROM hack mode the room is in ("gf64"), "" GoldenEye's own or none
         self.sims = 0
         self.rules = {}
         self.region = ""
@@ -902,6 +906,8 @@ class Lobby:
             "host": host.user if host else "",
             "stage": room.stage,
             "scenario": room.scenario,
+            "mod": room.mod,
+            "ge": room.ge,
             "humans": room.humans(),
             "max_humans": room.max_humans,
             "spectators": room.spectators(),
@@ -961,7 +967,8 @@ class Lobby:
             if n < room.humans():
                 raise HttpError(409, "more players than that are already in the room")
             upd["max_humans"] = n
-        for key, limit in (("stage", FIELD_MAX), ("scenario", FIELD_MAX), ("region", REGION_MAX)):
+        for key, limit in (("stage", FIELD_MAX), ("scenario", FIELD_MAX), ("region", REGION_MAX),
+                           ("mod", MOD_MAX), ("ge", GE_MAX)):
             if key in body:
                 upd[key] = clean_text(body.get(key), limit)
         if "sims" in body:

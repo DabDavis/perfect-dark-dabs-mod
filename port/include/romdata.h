@@ -7,6 +7,7 @@ extern u8 *g_RomFile;
 extern u32 g_RomFileSize;
 
 s32 romdataInit(void);
+const char *romdataGetRomPath(void); // the ROM file as loaded (its bytes on disk: nethash.c)
 
 // The ROM file name, with --rom-file honoured; valid before romdataInit().
 const char *romdataGetRomName(void);
