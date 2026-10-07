@@ -29,13 +29,19 @@ void geWatchStageStart(s32 stagenum);
  */
 s32 geWatchPause(void);
 
-// Anywhere but closed: the watch owns the pad and Perfect Dark's pause is off
+// Anywhere but closed, for the current player: the watch owns the pad and
+// Perfect Dark's pause is off
 s32 geWatchIsOpen(void);
+
+// The solo watch is anywhere but closed for this player (a playernum): online,
+// the one a client's commands are neutral for (netplayers.c)
+s32 geWatchHoldsPlayer(s32 playernum);
 
 /**
  * The current player's GE Plus multiplayer overlay is up, and has their pad:
  * GoldenEye's disablePlayerActionsWhenPausedOrInMpMenu(). playerTick() then
  * ticks the movement with no control, as under Perfect Dark's own pause menu.
+ * Online the solo watch too, which leaves the level running.
  */
 s32 geWatchMpHoldsInput(void);
 

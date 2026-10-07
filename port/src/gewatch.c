@@ -39,6 +39,14 @@
  * comes down (GoldenEye's `pausing_flag`). The watch's own clock is the real
  * frame delta (`g_Vars.diffframe60freal`), as GoldenEye's is, so it keeps
  * moving while the level does not.
+ *
+ * Online (a co-op mission on a converted level) the level is everyone's and
+ * is never frozen: the watch belongs to the player who brought it up
+ * (`g_Watch.owner`; the host ticks and draws every player), that player stands
+ * still under it (geWatchMpHoldsInput(), a client's commands neutral), a
+ * client keeps its own gun put away and its view tilted to the wrist while it
+ * is up (the local block and prediction leave both alone), and a death puts it
+ * away at once.
  */
 #include <stdlib.h>
 #include <stdio.h>
@@ -442,6 +450,10 @@ struct gewatch {
 	s32 music; // the watch theme is playing over the level's
 	s32 weapons[2];
 	s32 hadweapons;
+	// the player whose watch it is (a playernum): the one who brought it up.
+	// Online the host ticks and draws every player, and only this one's tick
+	// moves the watch on and only this one's view draws it
+	s32 owner;
 };
 
 static struct gewatch g_Watch;
@@ -484,6 +496,7 @@ static void watchMpTick(void);
 static void watchMpClose(s32 num);
 static Gfx *watchMpRender(Gfx *gdl);
 static s32 watchIsMp(void);
+static s32 watchPadNum(void);
 
 
 static u32 watchBe32(const u8 *p)
@@ -1246,6 +1259,7 @@ void geWatchStageStart(s32 stagenum)
 
 	g_Watch.loaded = 1;
 	g_Watch.state = WS_CLOSED;
+	g_Watch.owner = 0;
 	g_Watch.page = PAGE_MISSION;
 	g_Watch.selected = 0;
 	g_Watch.confirm = 0;
@@ -1263,9 +1277,20 @@ void geWatchStageStart(s32 stagenum)
 
 /* ---- the state machine -------------------------------------------------- */
 
+/** The current player is the one whose watch it is. */
+static s32 watchOwns(void)
+{
+	return g_Vars.currentplayernum == g_Watch.owner;
+}
+
 s32 geWatchIsOpen(void)
 {
-	return g_Watch.loaded && g_Watch.state != WS_CLOSED;
+	return g_Watch.loaded && g_Watch.state != WS_CLOSED && watchOwns();
+}
+
+s32 geWatchHoldsPlayer(s32 playernum)
+{
+	return g_Watch.loaded && !watchIsMp() && g_Watch.state != WS_CLOSED && playernum == g_Watch.owner;
 }
 
 /**
@@ -1397,7 +1422,7 @@ static void watchTickStatic(void)
 		// frames after they let go of it eases back to rest
 		{
 			const s32 held = g_Watch.page == PAGE_CONTROL && g_Watch.selected && g_Watch.controlrow == 1;
-			const s32 stickx = gexMenuStickX(0);
+			const s32 stickx = gexMenuStickX(watchPadNum());
 
 			if (held && (stickx >= 10 || stickx < -9)) {
 				g_Watch.padidle = 0;
@@ -1424,7 +1449,7 @@ static void watchTickStatic(void)
 		// while they have hold of it, and back when they let go
 		{
 			const s32 held = g_Watch.page == PAGE_CONTROL && g_Watch.selected && g_Watch.controlrow == 1;
-			const f32 target = held ? (f32)gexMenuStickY(0) * M_BADTAU / 360.0f : 0.0f;
+			const f32 target = held ? (f32)gexMenuStickY(watchPadNum()) * M_BADTAU / 360.0f : 0.0f;
 
 			g_Watch.padpitch += (target - g_Watch.padpitch) / 4.0f;
 		}
@@ -1745,7 +1770,14 @@ static void watchSetPaused(s32 paused)
 	}
 
 	g_Watch.paused = paused;
-	lvSetPaused(paused);
+
+	// online the level is everyone's - the host's world, or a client's copy
+	// of it - and the watch never stops it: the player whose watch it is
+	// stands still under it instead (geWatchMpHoldsInput(), and a client's
+	// commands go neutral: netplayers.c)
+	if (g_NetMode == NETMODE_NONE) {
+		lvSetPaused(paused);
+	}
 
 	// GoldenEye's watch theme over the level's, which comes back as the arm
 	// goes down (its mission state 3, mp_music.c)
@@ -1877,12 +1909,19 @@ s32 geWatchPause(void)
 		return 1;
 	}
 
+	// one watch, up for another player: Perfect Dark's own pause for this one
+	// (online the host ticks every player, though only its own has a START)
+	if (g_Watch.state != WS_CLOSED && !watchOwns()) {
+		return 0;
+	}
+
 	if (!watchEnsureModel()) {
 		return 0;
 	}
 
 	switch (g_Watch.state) {
 	case WS_CLOSED:
+		g_Watch.owner = g_Vars.currentplayernum;
 		g_Watch.tiltstart = g_Vars.currentplayer->vv_verta;
 
 		// sub_GAME_7F0A69A8(): every time it comes up the watch is on the
@@ -1925,6 +1964,20 @@ s32 geWatchPause(void)
 /* ---- the screens' own input --------------------------------------------- */
 
 /**
+ * The pad the watch reads: GoldenEye's one pad, which is pad 0 offline; online
+ * the owner's own, which on a client is its slot's (every other pad there is
+ * neutral, netplayers.c)
+ */
+static s32 watchPadNum(void)
+{
+	if (g_NetMode == NETMODE_NONE || g_Watch.owner < 0 || g_Watch.owner >= PLAYERCOUNT()) {
+		return 0;
+	}
+
+	return optionsGetContpadNum1(g_Vars.playerstats[g_Watch.owner].mpindex);
+}
+
+/**
  * GoldenEye's stick, as the watch reads it (options.c): a move sideways or up
  * and down counts once and then not again until the stick has been let back
  * to the middle (controlstick_lr_enabled, watch_stick_y_nav_ready), which
@@ -1932,8 +1985,8 @@ s32 geWatchPause(void)
  */
 static void watchTickLatches(void)
 {
-	const s32 x = gexMenuStickX(0);
-	const s32 y = gexMenuStickY(0);
+	const s32 x = gexMenuStickX(watchPadNum());
+	const s32 y = gexMenuStickY(watchPadNum());
 
 	if (x >= -0xa && x < 0xb) {
 		g_Watch.lrready = 1;
@@ -1946,58 +1999,58 @@ static void watchTickLatches(void)
 
 static s32 watchStickLeft(void)
 {
-	return gexMenuStickX(0) < -0x2d && g_Watch.lrready;
+	return gexMenuStickX(watchPadNum()) < -0x2d && g_Watch.lrready;
 }
 
 static s32 watchStickRight(void)
 {
-	return gexMenuStickX(0) >= 0x2e && g_Watch.lrready;
+	return gexMenuStickX(watchPadNum()) >= 0x2e && g_Watch.lrready;
 }
 
 static s32 watchStickUp(void)
 {
-	return gexMenuStickY(0) >= 0x2e && g_Watch.yready;
+	return gexMenuStickY(watchPadNum()) >= 0x2e && g_Watch.yready;
 }
 
 static s32 watchStickDown(void)
 {
-	return gexMenuStickY(0) < -0x2d && g_Watch.yready;
+	return gexMenuStickY(watchPadNum()) < -0x2d && g_Watch.yready;
 }
 
 static s32 watchPressedUp(void)
 {
-	return joyGetButtonsPressedThisFrame(0, U_JPAD | U_CBUTTONS) != 0 || watchStickUp();
+	return joyGetButtonsPressedThisFrame(watchPadNum(), U_JPAD | U_CBUTTONS) != 0 || watchStickUp();
 }
 
 static s32 watchPressedDown(void)
 {
-	return joyGetButtonsPressedThisFrame(0, D_JPAD | D_CBUTTONS) != 0 || watchStickDown();
+	return joyGetButtonsPressedThisFrame(watchPadNum(), D_JPAD | D_CBUTTONS) != 0 || watchStickDown();
 }
 
 static s32 watchPressedLeft(void)
 {
-	return joyGetButtonsPressedThisFrame(0, L_JPAD | L_CBUTTONS | L_TRIG) != 0 || watchStickLeft();
+	return joyGetButtonsPressedThisFrame(watchPadNum(), L_JPAD | L_CBUTTONS | L_TRIG) != 0 || watchStickLeft();
 }
 
 static s32 watchPressedRight(void)
 {
-	return joyGetButtonsPressedThisFrame(0, R_JPAD | R_CBUTTONS | R_TRIG) != 0 || watchStickRight();
+	return joyGetButtonsPressedThisFrame(watchPadNum(), R_JPAD | R_CBUTTONS | R_TRIG) != 0 || watchStickRight();
 }
 
 static s32 watchPressedAccept(void)
 {
-	return joyGetButtonsPressedThisFrame(0, A_BUTTON | Z_TRIG | BUTTON_UI_ACCEPT) != 0
+	return joyGetButtonsPressedThisFrame(watchPadNum(), A_BUTTON | Z_TRIG | BUTTON_UI_ACCEPT) != 0
 		|| inputKeyPressedThisFrame(VK_MOUSE_LEFT);
 }
 
 static s32 watchPressedBack(void)
 {
-	return joyGetButtonsPressedThisFrame(0, B_BUTTON | BUTTON_UI_CANCEL) != 0;
+	return joyGetButtonsPressedThisFrame(watchPadNum(), B_BUTTON | BUTTON_UI_CANCEL) != 0;
 }
 
 static s32 watchPressedStart(void)
 {
-	return joyGetButtonsPressedThisFrame(0, START_BUTTON) != 0 || inputKeyPressedThisFrame(VK_ESCAPE);
+	return joyGetButtonsPressedThisFrame(watchPadNum(), START_BUTTON) != 0 || inputKeyPressedThisFrame(VK_ESCAPE);
 }
 
 /**
@@ -2012,7 +2065,7 @@ static s32 watchPressedStart(void)
 
 static void watchListNav(f32 *cursor, s32 *index, s32 count, s32 *texty, s32 top, s32 line, s32 *settled)
 {
-	const s32 sticky = gexMenuStickY(0);
+	const s32 sticky = gexMenuStickY(watchPadNum());
 	s32 target;
 	s32 ticks = 0;
 
@@ -2029,11 +2082,11 @@ static void watchListNav(f32 *cursor, s32 *index, s32 count, s32 *texty, s32 top
 		ticks++;
 	}
 
-	if (joyGetButtonsPressedThisFrame(0, U_JPAD | U_CBUTTONS)) {
+	if (joyGetButtonsPressedThisFrame(watchPadNum(), U_JPAD | U_CBUTTONS)) {
 		if ((s32)*cursor > 0) {
 			*cursor -= 1.0f;
 		}
-	} else if (joyGetButtonsPressedThisFrame(0, D_JPAD | D_CBUTTONS)) {
+	} else if (joyGetButtonsPressedThisFrame(watchPadNum(), D_JPAD | D_CBUTTONS)) {
 		if ((s32)*cursor < count - 1) {
 			*cursor += 1.0f;
 		}
@@ -2050,11 +2103,11 @@ static void watchListNav(f32 *cursor, s32 *index, s32 count, s32 *texty, s32 top
 			}
 		}
 
-		if (joyGetButtons(0, U_JPAD | U_CBUTTONS)) {
+		if (joyGetButtons(watchPadNum(), U_JPAD | U_CBUTTONS)) {
 			if ((s32)*cursor > 0) {
 				*cursor -= 0.1f;
 			}
-		} else if (joyGetButtons(0, D_JPAD | D_CBUTTONS)) {
+		} else if (joyGetButtons(watchPadNum(), D_JPAD | D_CBUTTONS)) {
 			if ((s32)*cursor < count - 1) {
 				*cursor += 0.1f;
 			}
@@ -2101,7 +2154,7 @@ static void watchListNav(f32 *cursor, s32 *index, s32 count, s32 *texty, s32 top
 		*settled = 1;
 	}
 
-	if (!joyGetButtons(0, 0xffff)) {
+	if (!joyGetButtons(watchPadNum(), 0xffff)) {
 		if ((f32)*index + 0.55f < *cursor) {
 			*cursor -= 0.1f;
 		} else if (*cursor <= (f32)*index + 0.45f) {
@@ -2188,11 +2241,11 @@ static void watchAdjustVolume(s32 row)
 {
 	s32 v = row == 0 ? (s32)optionsGetMusicVolume() : (s32)VOLUME(g_SfxVolume);
 	const s32 old = v;
-	s32 x = gexMenuStickX(0);
+	s32 x = gexMenuStickX(watchPadNum());
 
-	if (joyGetButtons(0, R_CBUTTONS | R_TRIG | R_JPAD)) {
+	if (joyGetButtons(watchPadNum(), R_CBUTTONS | R_TRIG | R_JPAD)) {
 		v += (s32)(1024 * VOL_SCALE);
-	} else if (joyGetButtons(0, L_CBUTTONS | L_TRIG | L_JPAD)) {
+	} else if (joyGetButtons(watchPadNum(), L_CBUTTONS | L_TRIG | L_JPAD)) {
 		v -= (s32)(1024 * VOL_SCALE);
 	}
 
@@ -2257,6 +2310,13 @@ static void watchAbort(void)
 	watchSetPaused(0);
 	watchTakeGunBack();
 	watchSetState(WS_CLOSED);
+
+	// online it is Perfect Dark's own co-op Abort's (menuhandlerAbortMission):
+	// a client leaves the session, the host's ends the mission for everyone
+	if (g_NetMode != NETMODE_NONE && netCoopClientAbort()) {
+		return;
+	}
+
 	g_Vars.currentplayer->aborted = true;
 	mainEndStage();
 }
@@ -2340,13 +2400,13 @@ static void watchTickInput(void)
 		if (g_Watch.selected) {
 			// held, not pressed: the stick or a right button to CONFIRM, the
 			// left ones back to CANCEL (draw_abort_cancel_confirm())
-			if (!g_Watch.confirm && (gexMenuStickX(0) >= 0x2e || joyGetButtons(0, R_JPAD | R_TRIG | R_CBUTTONS))) {
+			if (!g_Watch.confirm && (gexMenuStickX(watchPadNum()) >= 0x2e || joyGetButtons(watchPadNum(), R_JPAD | R_TRIG | R_CBUTTONS))) {
 				g_Watch.confirm = 1;
-			} else if (g_Watch.confirm && (gexMenuStickX(0) < -0x2d || joyGetButtons(0, L_JPAD | L_TRIG | L_CBUTTONS))) {
+			} else if (g_Watch.confirm && (gexMenuStickX(watchPadNum()) < -0x2d || joyGetButtons(watchPadNum(), L_JPAD | L_TRIG | L_CBUTTONS))) {
 				g_Watch.confirm = 0;
 			}
 
-			if (g_Watch.confirm && joyGetButtonsPressedThisFrame(0, Z_TRIG | A_BUTTON | BUTTON_UI_ACCEPT)) {
+			if (g_Watch.confirm && joyGetButtonsPressedThisFrame(watchPadNum(), Z_TRIG | A_BUTTON | BUTTON_UI_ACCEPT)) {
 				watchAbort();
 				return;
 			}
@@ -2436,7 +2496,7 @@ static void watchTickInput(void)
 	// left and right turn the screens when nothing is held; on the control and
 	// options screens not while Z is down either
 	if (!g_Watch.selected && (watchPressedLeft() || watchPressedRight())
-			&& !((g_Watch.page == PAGE_CONTROL || g_Watch.page == PAGE_OPTIONS) && joyGetButtons(0, Z_TRIG))) {
+			&& !((g_Watch.page == PAGE_CONTROL || g_Watch.page == PAGE_OPTIONS) && joyGetButtons(watchPadNum(), Z_TRIG))) {
 		const s32 right = watchPressedRight();
 		const s32 from = g_Watch.page;
 		const s32 page = (from + (right ? 1 : NUM_PAGES - 1)) % NUM_PAGES;
@@ -2489,7 +2549,22 @@ void geWatchTick(void)
 		return;
 	}
 
-	if (g_Watch.state == WS_CLOSED) {
+	// only the owner's tick moves it on (online the host ticks every player)
+	if (g_Watch.state == WS_CLOSED || !watchOwns()) {
+		return;
+	}
+
+	// online the level runs on under the watch and its player can die there:
+	// the watch goes at once, and the death screen's START is the player's
+	if (g_Vars.currentplayer->isdead) {
+		watchSetPaused(0);
+		g_Watch.hadweapons = 0;
+		g_Watch.tiltstate = 0;
+		watchSetState(WS_CLOSED);
+		g_Watch.armframe = 0.0f;
+		g_Watch.armstep = 0;
+		playerSetZoomFovY(PLAYER_DEFAULT_FOV, 1.0f);
+		watchUpdateZoom();
 		return;
 	}
 
@@ -4871,8 +4946,8 @@ static const f32 g_PadButtonPos[13][3] = {
 static void watchPadStickLean(Mtxf *out)
 {
 	Mtxf rx;
-	f32 x = gexMenuStickX(0);
-	f32 y = gexMenuStickY(0);
+	f32 x = gexMenuStickX(watchPadNum());
+	f32 y = gexMenuStickY(watchPadNum());
 	const f32 ax = fabsf(x);
 	const f32 ay = fabsf(y);
 	const f32 big = ax > ay ? ax : ay;
@@ -5058,7 +5133,7 @@ static Gfx *watchDrawController(Gfx *gdl)
 				continue;
 			case PADPART_R:
 			case PADPART_L:
-				if (joyGetButtons(0, part == PADPART_R ? R_TRIG : L_TRIG)) {
+				if (joyGetButtons(watchPadNum(), part == PADPART_R ? R_TRIG : L_TRIG)) {
 					mtx4LoadYRotation(part == PADPART_R ? -0.17453294f : 0.17453294f, &rock);
 				}
 
@@ -5069,15 +5144,15 @@ static Gfx *watchDrawController(Gfx *gdl)
 
 				mtx4LoadIdentity(&side);
 
-				if (joyGetButtons(0, U_JPAD)) {
+				if (joyGetButtons(watchPadNum(), U_JPAD)) {
 					mtx4LoadXRotation(-0.17453294f, &rock);
-				} else if (joyGetButtons(0, D_JPAD)) {
+				} else if (joyGetButtons(watchPadNum(), D_JPAD)) {
 					mtx4LoadXRotation(0.17453294f, &rock);
 				}
 
-				if (joyGetButtons(0, L_JPAD)) {
+				if (joyGetButtons(watchPadNum(), L_JPAD)) {
 					mtx4LoadZRotation(0.17453294f, &side);
-				} else if (joyGetButtons(0, R_JPAD)) {
+				} else if (joyGetButtons(watchPadNum(), R_JPAD)) {
 					mtx4LoadZRotation(-0.17453294f, &side);
 				}
 
@@ -5086,7 +5161,7 @@ static Gfx *watchDrawController(Gfx *gdl)
 				break;
 			}
 			case PADPART_Z:
-				if (joyGetButtons(0, Z_TRIG)) {
+				if (joyGetButtons(watchPadNum(), Z_TRIG)) {
 					mtx4LoadXRotation(-0.17453294f, &rock);
 				}
 
@@ -5103,7 +5178,7 @@ static Gfx *watchDrawController(Gfx *gdl)
 				case PADPART_B:      button = B_BUTTON; break;
 				}
 
-				if (button && joyGetButtons(0, button)) {
+				if (button && joyGetButtons(watchPadNum(), button)) {
 					press.y = -10.0f;
 				}
 
@@ -5544,19 +5619,19 @@ static Gfx *watchDrawControlLabels(Gfx *gdl, s32 mode)
 		return gdl;
 	}
 
-	gdl = watchLabel(gdl, 0x32, OPTLABELS_ROW1_Y, watchStyleWord(cs[CS_L]), COL_LIST, joyGetButtons(0, L_TRIG) != 0, 0);
-	movesight |= joyGetButtons(0, L_TRIG) && cs[CS_L] == STR_AIM;
+	gdl = watchLabel(gdl, 0x32, OPTLABELS_ROW1_Y, watchStyleWord(cs[CS_L]), COL_LIST, joyGetButtons(watchPadNum(), L_TRIG) != 0, 0);
+	movesight |= joyGetButtons(watchPadNum(), L_TRIG) && cs[CS_L] == STR_AIM;
 
 	y = OPTLABELS_ROW2_Y;
 
-	if (holding && cs[CS_DPAD] != STR_WEAPON && joyGetButtons(0, U_JPAD | D_JPAD | L_JPAD | R_JPAD)) {
+	if (holding && cs[CS_DPAD] != STR_WEAPON && joyGetButtons(watchPadNum(), U_JPAD | D_JPAD | L_JPAD | R_JPAD)) {
 		const char *text;
 
-		if (joyGetButtons(0, U_JPAD)) {
+		if (joyGetButtons(watchPadNum(), U_JPAD)) {
 			text = cs[CS_DPAD] == STR_MOVE ? watchString(STR_FORWARD) : dir1;
-		} else if (joyGetButtons(0, D_JPAD)) {
+		} else if (joyGetButtons(watchPadNum(), D_JPAD)) {
 			text = cs[CS_DPAD] == STR_MOVE ? watchString(STR_BACK) : dir2;
-		} else if (joyGetButtons(0, L_JPAD)) {
+		} else if (joyGetButtons(watchPadNum(), L_JPAD)) {
 			text = watchString(STR_SIDESTEP2);
 		} else {
 			text = watchString(STR_SIDESTEP1);
@@ -5570,16 +5645,16 @@ static Gfx *watchDrawControlLabels(Gfx *gdl, s32 mode)
 	y += OPTLABELS_ROW_PITCH;
 	gdl = watchLabel(gdl, 0x32, y, watchStyleWord(cs[CS_START]), COL_LIST, 0, 0);
 	y += OPTLABELS_ROW_PITCH;
-	gdl = watchLabel(gdl, 0x32, y, watchStyleWord(cs[CS_Z]), COL_LIST, joyGetButtons(0, Z_TRIG) != 0, 0);
-	movesight |= joyGetButtons(0, Z_TRIG) && cs[CS_Z] == STR_AIM;
+	gdl = watchLabel(gdl, 0x32, y, watchStyleWord(cs[CS_Z]), COL_LIST, joyGetButtons(watchPadNum(), Z_TRIG) != 0, 0);
+	movesight |= joyGetButtons(watchPadNum(), Z_TRIG) && cs[CS_Z] == STR_AIM;
 
 	y = OPTLABELS_ROW1_Y;
-	gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_R]), COL_LIST, joyGetButtons(0, R_TRIG) != 0, 2);
-	movesight |= joyGetButtons(0, R_TRIG) && cs[CS_R] == STR_AIM;
+	gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_R]), COL_LIST, joyGetButtons(watchPadNum(), R_TRIG) != 0, 2);
+	movesight |= joyGetButtons(watchPadNum(), R_TRIG) && cs[CS_R] == STR_AIM;
 	y += OPTLABELS_ROW_PITCH;
 
 	{
-		const u32 c = joyGetButtons(0, U_CBUTTONS | D_CBUTTONS | L_CBUTTONS | R_CBUTTONS);
+		const u32 c = joyGetButtons(watchPadNum(), U_CBUTTONS | D_CBUTTONS | L_CBUTTONS | R_CBUTTONS);
 
 		if (holding && c && (c & (c - 1)) == 0) {
 			const char *text;
@@ -5601,9 +5676,9 @@ static Gfx *watchDrawControlLabels(Gfx *gdl, s32 mode)
 	}
 
 	y += OPTLABELS_ROW_PITCH;
-	gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_B]), COL_LIST, joyGetButtons(0, B_BUTTON) != 0, 2);
+	gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_B]), COL_LIST, joyGetButtons(watchPadNum(), B_BUTTON) != 0, 2);
 	y += OPTLABELS_ROW_PITCH;
-	gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_A]), COL_LIST, joyGetButtons(0, A_BUTTON) != 0, 2);
+	gdl = watchLabel(gdl, 0x10e, y, watchStyleWord(cs[CS_A]), COL_LIST, joyGetButtons(watchPadNum(), A_BUTTON) != 0, 2);
 
 	if (movesight) {
 		gdl = watchLabel(gdl, 0xfa, OPTLABELS_HINT_Y, watchString(STR_MOVESIGHT), COL_LIST, 1, 2);
@@ -5907,7 +5982,7 @@ Gfx *geWatchRender(Gfx *gdl)
 		return watchMpRender(gdl);
 	}
 
-	if (g_Watch.state == WS_CLOSED || !g_Watch.model) {
+	if (g_Watch.state == WS_CLOSED || !g_Watch.model || !watchOwns()) {
 		return gdl;
 	}
 
@@ -5975,15 +6050,24 @@ static const char *watchMpString(s32 index)
 /** Whether this level's pause is the multiplayer overlay rather than the arm. */
 static s32 watchIsMp(void)
 {
-	return g_Vars.mplayerisrunning;
+	// a match's, not a co-op mission's: mpReset() sets mplayerisrunning for
+	// co-op and counter-op too, and an online co-op mission on a converted
+	// level opened the scoreboard of every seat and simulant for its pause
+	return g_Vars.normmplayerisrunning;
 }
 
 s32 geWatchMpHoldsInput(void)
 {
 	const s32 num = g_Vars.currentplayernum;
 
-	if (!g_Watch.loaded || !watchIsMp() || num < 0 || num >= MAX_PLAYERS) {
+	if (!g_Watch.loaded || num < 0 || num >= MAX_PLAYERS) {
 		return 0;
+	}
+
+	// online the solo watch leaves the level running: its player stands still
+	// under it (offline the frozen level holds them)
+	if (!watchIsMp()) {
+		return g_NetMode != NETMODE_NONE && geWatchHoldsPlayer(num);
 	}
 
 	return g_MpWatch[num].on || g_MpWatch[num].closed;

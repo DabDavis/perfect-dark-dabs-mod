@@ -16,6 +16,7 @@
 #include "game/camera.h"
 #include "game/mplayer/mplayer.h"
 #include "screenshot.h"
+#include "gewatch.h"
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "net/netsnap.h"
@@ -1272,9 +1273,11 @@ static void netPlayersClientCapture(void)
 	netMouseDelta(g_NetLocalSlot, &mdx, &mdy);
 
 	// a menu open here has the pad: the player stands still on the host
-	// meanwhile (spec-players.md §6)
+	// meanwhile (spec-players.md §6). So has GoldenEye's watch on a converted
+	// level, which leaves the level running online (gewatch.c)
 	{
-		const s32 up = g_NetLocalSlot >= 0 && g_NetLocalSlot < MAX_PLAYERS && g_Menus[g_NetLocalSlot].curdialog;
+		const s32 up = g_NetLocalSlot >= 0 && g_NetLocalSlot < MAX_PLAYERS
+			&& (g_Menus[g_NetLocalSlot].curdialog || geWatchHoldsPlayer(g_NetLocalSlot));
 
 		if (up) {
 			memset(&pad, 0, sizeof(pad));

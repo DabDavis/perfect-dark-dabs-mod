@@ -24,6 +24,7 @@
 #include "game/timing.h"
 #include "game/activemenu.h"
 #include "gestan.h"
+#include "gewatch.h"
 #include "net/net.h"
 #include "net/netsnap.h"
 #include "netint.h"
@@ -222,6 +223,7 @@ static f32 s_ShiftMax = 0;
 static u32 s_Snaps = 0;       // corrections too large to ease (not respawns)
 static u32 s_AbsSnaps = 0;    // respawns and teleports
 static u32 s_CutsceneLeft = 0; // blocks left unapplied during a cutscene (online co-op: the host holds the player where the opening put it)
+static u32 s_WatchLeft = 0;    // ... and while GoldenEye's watch is up here (gewatch.c: the view tilted to the wrist, the commands neutral)
 static s32 s_ForceSnap = 0;    // the next block is taken outright (a cutscene ended: the host's place from here)
 static u32 s_Missing = 0;     // no state in the ring for the block's command
 static u32 s_Refused = 0;     // a block with no place or bad floats: not taken
@@ -309,6 +311,7 @@ void netPredictStageStart(void)
 	s_ShiftMax = 0;
 	s_Snaps = s_AbsSnaps = s_Missing = s_Refused = s_Replayed = s_Overrun = 0;
 	s_CutsceneLeft = 0;
+	s_WatchLeft = 0;
 	s_ForceSnap = 0;
 	s_DiscreteOff = s_AngleOff = 0;
 	s_StartTick = 0;
@@ -346,11 +349,11 @@ void netPredictMatchStopped(void)
 
 void netPredictLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u, death heads kept %u (%u awaiting a death or respawn), cutscene blocks left %u",
+	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u, death heads kept %u (%u awaiting a death or respawn), cutscene blocks left %u, watch blocks left %u",
 			why, g_NetTick, s_Compared, s_Matched, s_Compared ? 100.0 * s_Matched / s_Compared : 0.0, s_Corrections,
 			s_Corrections ? (f32)(s_ErrSum / s_Corrections) : 0.f, s_ErrMax,
 			s_Corrections ? (f32)(s_ShiftSum / s_Corrections) : 0.f, s_ShiftMax, s_AngleOff, s_DiscreteOff,
-			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused, s_HeadDeath, s_HeadDeathWait, s_CutsceneLeft);
+			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused, s_HeadDeath, s_HeadDeathWait, s_CutsceneLeft, s_WatchLeft);
 }
 
 // netcoop.c: a cutscene ended here; the host's place is taken outright at the next block
@@ -1391,6 +1394,17 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 	// is taken outright (netPredictForceSnap)
 	if (g_Vars.tickmode == TICKMODE_CUTSCENE && !abs) {
 		s_CutsceneLeft++;
+		s_HaveLast = 1;
+		s_LastCmd = cmd;
+		return 0;
+	}
+
+	// GoldenEye's watch up here (gewatch.c): the view is tilted down to the
+	// wrist on this machine alone, and the commands are neutral, so the host's
+	// player stands where this one does; a correction would put the view back
+	// level under the watch. Compared again once it is down
+	if (geWatchHoldsPlayer(g_NetLocalSlot) && !abs) {
+		s_WatchLeft++;
 		s_HaveLast = 1;
 		s_LastCmd = cmd;
 		return 0;
