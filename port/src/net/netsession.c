@@ -2231,12 +2231,18 @@ static void netClientBeginStage(struct netbuf *b)
 			matchid, what, id, label, numplayers, s_Spectating ? "a spectator through player" : "player",
 			s_Spectating ? 0 : yourplayer, (unsigned long long)s_Seed, (unsigned long long)s_Seed2);
 
-	// the end of mpStartMatch only
+	// the end of mpStartMatch only (a co-op mission's: Accept Mission's, netcoop.c)
 	titleSetNextStage(id);
 	mainChangeToStage(id);
 	setNumPlayers(numplayers);
 	titleSetNextMode(TITLEMODE_SKIP);
-	g_Vars.perfectbuddynum = 1;
+
+	if (netRulesCoopOn()) {
+		netCoopClientStage();
+	} else {
+		g_Vars.perfectbuddynum = 1;
+	}
+
 	menuStop();
 }
 
@@ -2710,6 +2716,12 @@ static void netClientDropToMenus(void)
 static void netTestStartMatch(void)
 {
 	const char *mapname = sysArgGetString("--net-test-map");
+
+	// --net-test-coop INDEX: a co-op mission in place of a match (netcoop.c)
+	if (netCoopTestStart()) {
+		return;
+	}
+
 	const s32 gescen = sysArgGetInt("--net-test-ge", -1);
 	const s32 sims = sysArgGetInt("--net-test-sims", 0);
 	const char *weapons = sysArgGetString("--mp-weapons");
@@ -3176,6 +3188,7 @@ void netStageStopped(void)
 	netLagCompMatchStopped();
 	netPlayersMatchStopped();
 	netScenMatchStopped();
+	netCoopMatchStopped();
 	s_MatchActive = 0;
 	s_MatchLoaded = 0;
 	s_MatchStage = -1;
@@ -3762,10 +3775,24 @@ void netSessionHostDropUser(const char *user, const char *why)
  */
 void netSessionLobbyStartMatch(void)
 {
+	// a co-op room: the mission (spec-coop.md)
+	if (g_NetCoopSetup.on) {
+		sysLogPrintf(LOG_NOTE, "net: lobby: starting the room's co-op mission %d, %d clients", g_NetCoopSetup.stageindex, netSessionHostNumClients());
+		netCoopHostStart(g_NetCoopSetup.stageindex, g_NetCoopSetup.difficulty, g_NetCoopSetup.radar, g_NetCoopSetup.friendlyfire);
+		menuStop();
+		return;
+	}
+
 	sysLogPrintf(LOG_NOTE, "net: lobby: starting the room's match on 0x%02x, %d clients", g_MpSetup.stagenum, netSessionHostNumClients());
 	g_MpSetup.chrslots |= 1;
 	mpStartMatch();
 	menuStop();
+}
+
+void netSessionNoticeSet(const char *text)
+{
+	snprintf(s_NoticeText, sizeof(s_NoticeText), "%s", text);
+	g_NetNoticePending = 1;
 }
 
 /*

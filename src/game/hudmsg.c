@@ -1646,7 +1646,7 @@ Gfx *hudmsgsRender(Gfx *gdl)
 	if ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
 			&& g_InCutscene
 			&& g_MainIsEndscreen == 0
-			&& g_Vars.currentplayernum == 0) {
+			&& NET_LOCAL_UI(g_Vars.currentplayernum)) {
 		spdc = false;
 	}
 

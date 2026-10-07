@@ -105,6 +105,8 @@
 #define HOLD_BRIEFCASE 1
 #define HOLD_UPLINK    2
 
+#define NETSCEN_MISSION 0xfe // the block is a co-op mission's (protocol 12; netcoop.c's body at OFF_BODY)
+
 typedef char netscen_body[OFF_BODY == 224 ? 1 : -1]; // the layout netproto.h documents
 typedef char netscen_fits[(PAC_SURV + MAX_MPCHRS * 2 <= NETSCEN_SIZE && HTM_TIME + MAX_MPCHRS * 2 <= NETSCEN_SIZE) ? 1 : -1];
 
@@ -385,7 +387,13 @@ static void netScenCapture(u8 *out)
 	memset(out, 0, NETSCEN_SIZE);
 
 	if (!g_Vars.normmplayerisrunning) {
-		out[OFF_SCEN] = 0xff;
+		// a co-op mission's state rides here instead (netcoop.c)
+		if (g_Vars.coopplayernum >= 0) {
+			out[OFF_SCEN] = NETSCEN_MISSION;
+			netCoopCapture(out + OFF_BODY);
+		} else {
+			out[OFF_SCEN] = 0xff;
+		}
 		return;
 	}
 
@@ -584,7 +592,7 @@ void netScenHostTickEnd(void)
 {
 	s32 pn;
 
-	if (!g_Vars.normmplayerisrunning) {
+	if (!g_Vars.normmplayerisrunning && g_Vars.coopplayernum < 0) {
 		s_HostHave = 0;
 		return;
 	}
@@ -782,6 +790,10 @@ void netScenStageStart(void)
 {
 	s_Applied = s_Skipped = s_Dropped = s_Refs = s_Unresolved = s_InvSyncs = s_Sounds = s_Held = s_GaveUp = 0;
 	s_HostHave = 0;
+	s_RingLast = 0;
+	s_RingCount = 0;
+	s_RingHead = 0;
+	s_HaveCur = 0;
 }
 
 void netScenClientOnSnap(u32 hosttick, const u8 *scen, u32 evseq)
@@ -804,6 +816,11 @@ void netScenClientOnSnap(u32 hosttick, const u8 *scen, u32 evseq)
 	s_Ring[at].held = 0;
 	memcpy(s_Ring[at].data, scen, NETSCEN_SIZE);
 	s_RingCount++;
+
+	if (!s_RingLast) {
+		sysLogPrintf(LOG_NOTE, "net: scenario client: the first block, host tick %u, scenario 0x%02x, %u events before it", hosttick, scen[OFF_SCEN], evseq);
+	}
+
 	s_RingLast = hosttick + 1;
 }
 
@@ -816,6 +833,10 @@ static s32 netScenRoomOk(s32 room)
 static s32 netScenBlockOk(const u8 *b)
 {
 	s32 i;
+
+	if (b[OFF_SCEN] == NETSCEN_MISSION) {
+		return !g_Vars.normmplayerisrunning && g_Vars.coopplayernum >= 0 && netCoopBlockOk(b + OFF_BODY);
+	}
 
 	if (b[OFF_SCEN] != (u8)g_MpSetup.scenario) {
 		return 0;
@@ -1021,7 +1042,27 @@ static void netScenApply(const u8 *b, u32 tick, const char *tag)
 	s32 i;
 
 	if (!netScenBlockOk(b)) {
+		if (!s_Skipped) {
+			sysLogPrintf(LOG_WARNING, "net: scenario client: a block of host tick %u skipped: scenario 0x%02x against %d here (normal match %d, co-op %d)",
+					tick, b[OFF_SCEN], g_MpSetup.scenario, g_Vars.normmplayerisrunning, g_Vars.coopplayernum);
+		}
+
 		s_Skipped++;
+		return;
+	}
+
+	// a co-op mission's block: netcoop.c's, none of a scenario's
+	if (b[OFF_SCEN] == NETSCEN_MISSION) {
+		if (tick == 0xffffffff) {
+			netCoopApplyFinal(b + OFF_BODY);
+		} else {
+			netCoopApply(b + OFF_BODY);
+		}
+
+		memcpy(s_Cur, b, NETSCEN_SIZE);
+		s_HaveCur = 1;
+		s_CurTick = tick;
+		s_Applied++;
 		return;
 	}
 

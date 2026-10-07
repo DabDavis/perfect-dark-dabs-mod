@@ -26,6 +26,9 @@
 #include "gegadgets.h"
 #endif
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
 
 void playerInitEyespy(void)
 {
@@ -464,6 +467,10 @@ void playerReset(void)
 	if (g_NumSpawnPoints > 0) {
 		if (g_Vars.coopplayernum >= 0) {
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
+#ifndef PLATFORM_N64
+			// netplay: twelve players round one pad (netcoop.c)
+			if (g_NetMode != NETMODE_NONE) netCoopSpreadSpawn(&pos, rooms);
+#endif
 		} else if (g_Vars.antiplayernum >= 0) {
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
 		} else {

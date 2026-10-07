@@ -28,6 +28,10 @@
   (`netlobbywinetest.sh`).
 - **Traps** — the section of that name: the ones phases 1-8 met, from
   `bool` being two sizes to a client's START and a name's newline.
+- **Online co-op** — the section of that name: the solo missions for up to
+  twelve players (`netcoop.c`, `src/game/coop.c`, protocol 12,
+  PLANS/netplay/spec-coop.md): the host plays PD's own co-op widened to N,
+  clients pose its world; the mission's state rides in the scenario block.
 
 ## The shape
 
@@ -54,6 +58,7 @@ gate proves it after each change).
 | lag compensation | `netlagcomp.c` | a 64-tick pose ring per chr on the host; a remote shot is tested against the chrs as its shooter saw them |
 | scenarios | `netscen.c` | every Combat Simulator scenario: props as host entities, state in a delta-coded block in every SNAP |
 | spectators | `netspec.c` | follow and free cameras for the two spectator seats |
+| co-op | `netcoop.c` | the solo missions online (protocol 12): the mission in RULES, its state (tick mode and cutscene, objectives, timer, alarm, deaths) in the scenario block as a mission block, the host's end in MATCH_END |
 | lobby | `netlobby.c`, `netrdv.c`, `netlobbymenu.c` | the pdlobbyd client on two worker threads, the Online Game pages, the LAN/direct/punch/relay ladder |
 
 Clients keep all N player slots with the host's numbering; every slot that
@@ -84,7 +89,7 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 `netproto.h` documents every message byte by byte (u8 type first, then
 fields through netbuf, never a struct copied whole), the channel each goes
 on (RULES and STAGE_LOAD share BULK so a STAGE_LOAD never overtakes its
-RULES), the refusal codes, and the protocol history. Protocol 11 is current (a command's START reaches the host, which plays it only for a dead player: the respawn).
+RULES), the refusal codes, and the protocol history. Protocol 12 is current (online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
 The lobby's HTTP API and the rendezvous/relay datagrams are in
 `tools/pdlobbyd/README.md`. A change to a message's shape or meaning bumps
 `NET_PROTOCOL_VERSION`; pdlobbyd lists a room's protocol and the Briefing
@@ -114,6 +119,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netcontenttest.sh` | 7.5 min | GoldenEye arenas (YOLT: a client respawned by its START alone), mod maps, overlay, bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
+| `netcooptest.sh` | 8 min (pair 4.5, twelve 2, lobby 1.2) | online co-op (spec-coop.md): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
@@ -424,9 +430,90 @@ then lists, joins, READYs and plays; the Linux host is
   "Arena / Mode / Host" line and the Briefing Room's selected-room note
   are cut value by value with `labelFitDots` to `LABEL_WIDTH` (262 units, measured in HandelGothicXs, the font a small-font label draws in, not the Sm the list cells use);
   the host's name is cut last.
+- **A client's event queue is made at the first EVENTS message.** A match
+  whose host had sent no event yet (a mission's quiet opening: nobody
+  fires) left `netEventsClientDrain` returning at once, and the scenario
+  blocks are applied from that drain, so a co-op client never took a
+  mission block. The drain makes the queue itself now.
+- **Prediction in a cutscene.** The reconcile reloaded the ring entry's
+  copy of the player (taken before this machine's cutscene began: walk
+  mode) over the live one, which then recorded itself every tick: the
+  client's player fell under gravity to the ground and was moved back to
+  the host's held place, 54 units a tick, through Defection's whole
+  opening. In a cutscene nothing is reconciled (`cutscene blocks left`
+  in the prediction summary) and the host's place is taken outright when
+  it ends (`netPredictForceSnap`).
 - **Test driving.** Wait on PIDs or log lines, never `pgrep -f` (it matches
   the waiting shell); `pkill -x` with the exact process name; a
   `--net-lobby-shots` run screenshots from inside the game
   (`screenshotRequest`) at the step it reached, which is steadier than gdb
   from outside; the boot's Choose Your Reality can come up over a menu the
   script pushed, so it checks the page is current before shooting.
+
+## Online co-op
+
+The solo missions for up to twelve players (PLANS/netplay/spec-coop.md; the
+user, 2026-10-07: "add online co-op up to 12 players for the game's solo
+missions", "no need for it to affect offline progress, like the locked
+progression").
+
+- **PD's own co-op, widened.** Offline co-op is bond and one coop player
+  (`g_Vars.coop`, `chr->p1p2`, `CHR_P1P2_OPPOSITE`, "the other player").
+  `src/game/coop.c` answers those questions for N players and gives the
+  old answer at two, so the replay gate stays identical:
+  `coopOtherPlayerNum` (the nearest living other past two),
+  `coopRespawnBuddy` (the living other with the most health),
+  `coopAllDead`/`coopAllDeadDone`/`coopAnyAborted`,
+  `coopAlternatePlayerProp` (cameras and autoguns cycle the players),
+  `coopIsCoopPlayer`/`coopIsPlayerProp`. `chr->p1p2` is 4 bits (was 2).
+  `mpReset`'s co-op branch makes a player per human slot; online the
+  solo stash swap ([0]/[1] with [12]/[13]) is skipped on both sides and
+  `menutick.c` goes back to the menus as after a match. A setup file's
+  mine is owned by `COOP_SETUP_MINE_OWNER` (2 offline, 12 online: slot 2
+  is a player online).
+- **Starting one.** The host: a lobby room with Game = Co-op Mission
+  (mission, difficulty, radar, friendly fire; `g_NetCoopSetup`, the room's
+  summary says the mission and "Co-op Agent"), the Carrington Institute's
+  Accept Mission in a `--host` session (Co-Operative with a human buddy;
+  anything else is refused with a notice), or `--net-test-coop INDEX`
+  (`--net-test-difficulty`, `--net-test-coop-ff`). `netCoopHostStart`
+  does what Accept Mission does and calls H1 (`netHostMatchStarting`) for
+  the seats; RULES carry the mission block (protocol 12); STAGE_LOAD's
+  stock key names the mission. A client applies the mission at H3
+  (`netCoopClientApplyRules`, `netCoopClientStage`) and restores its own
+  `g_MissionConfig`, difficulty and co-op options at H12.
+- **The world on a client.** As a match: every chr a puppet. A mission's
+  setup chrs are spawned on every machine from the setup, and the host
+  maps its to the client's by setup command index (`NETDESC_SETUPCHR`,
+  kind 10, alongside `SETUPOBJ`), so the guards pose from their records
+  with their guns. Chrs spawned at run time are `BODY` puppets (made when
+  a chr of the same body and head is here). The client's `objectiveCheck`
+  returns the host's statuses (its objects are puppets) and
+  `objectivesCheckAll` runs only on the host (its "Objective N:
+  Completed" reaches the client as a hudmsg event).
+- **The mission block.** When a mission runs, the SNAP scenario block is
+  a mission block (scenario byte 0xfe; the body at netscen.c's OFF_BODY,
+  layout in netcoop.c): tick mode, in_cutscene, the cutscene anim, frame
+  and tween, the alarm timer, the countdown timer, the objective
+  statuses, each player's dead/aborted/coopcanrestart bits. A client
+  starts its cutscene when the host's begins (`playerStartCutscene` on
+  its own player, the frame reset from every block, the tween only when
+  it is bond) and ends it when the host's does; the alarm and countdown
+  follow. MATCH_END's block is the final one: a client takes it before
+  its end screen (`netCoopMatchEnded` in pdmain.c's co-op branch).
+- **Ends.** The host alone ends a mission: all dead (`coopAllDeadDone`
+  from bond's pass), the objectives met (`aiEndLevel`), its own Abort.
+  A client's Abort leaves the session (as End Game does). Every machine
+  shows PD's co-op end screen for its own player; the solo stash swap,
+  Deep Sea's auto-advance and `endscreenPushSolo` are skipped online;
+  `endscreenSetCoopCompleted` writes nothing online (no completion bit,
+  no best time, no game file save).
+- **Spawns.** Past two players a co-op spawn is spread in a ring round the
+  pad (`netCoopSpreadSpawn`, 60 or 90 units, the rooms found again). A
+  co-op player online wears its own Combat Simulator character; bond
+  stays Joanna. A co-op mission past two players keeps the setup's
+  two-player exclusions (`OBJFLAG2_EXCLUDE_2P`).
+- **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
+  read pad 0); AI buddies; the host's cheats are not synced to clients;
+  spectators were not tried on a mission; a client's START in a cutscene
+  does not skip it on the host (A, B or Z do, as the host reads them).

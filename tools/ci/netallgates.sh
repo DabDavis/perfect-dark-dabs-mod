@@ -11,7 +11,7 @@
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT" || exit 2
 LOG=${1:-$ROOT/build/netallgates.log}
-GATES=${GATES:-"netclocktest netsessiontest netplayertest netsnaptest netpuppettest neteventtest netlobbytest netlobbyuitest netlobbywinetest netnattest netpredicttest netlagcomptest netscenariotest netcontenttest netjointest netwidetest nettwelvetest"}
+GATES=${GATES:-"netclocktest netsessiontest netplayertest netsnaptest netpuppettest neteventtest netlobbytest netlobbyuitest netlobbywinetest netnattest netpredicttest netlagcomptest netscenariotest netcontenttest netjointest netwidetest nettwelvetest netcooptest"}
 {
 cmake -Bbuild . >/dev/null && cmake --build build -j8 2>&1 | grep -E "error|Built target pd$"
 cmake -Bbuild-win . >/dev/null 2>&1 && cmake --build build-win -j8 2>&1 | grep -E " error|Built target pd$"

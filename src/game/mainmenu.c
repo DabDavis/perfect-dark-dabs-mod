@@ -745,6 +745,11 @@ struct menudialogdef g_PreAndPostMissionBriefingMenuDialog = {
 MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
+#ifndef PLATFORM_N64
+		// netplay: the host starts the mission for the session as online
+		// co-op (netcoop.c); a client never starts one
+		if (g_NetMode != NETMODE_NONE && netCoopAcceptMission()) return 0;
+#endif
 		menuStop();
 
 		if (g_Vars.stagenum == g_MissionConfig.stagenum) {
@@ -4454,6 +4459,10 @@ MenuItemHandlerResult menuhandlerInventoryList(s32 operation, struct menuitem *i
 MenuItemHandlerResult menuhandlerAbortMission(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
+#ifndef PLATFORM_N64
+		// netplay: a client leaves the session; the host's abort ends it for all
+		if (g_NetMode != NETMODE_NONE && netCoopClientAbort()) return 0;
+#endif
 		g_Vars.currentplayer->aborted = true;
 		mainEndStage();
 	}

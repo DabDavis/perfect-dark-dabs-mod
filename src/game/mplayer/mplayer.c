@@ -34,6 +34,7 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "geguns.h"
 #endif
@@ -496,41 +497,46 @@ void mpReset(void)
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 		struct mpplayerconfig tmp;
 
-		tmp = g_PlayerConfigsArray[MAX_PLAYERS];
-		g_PlayerConfigsArray[MAX_PLAYERS] = g_PlayerConfigsArray[0];
-		g_PlayerConfigsArray[0] = tmp;
+#ifndef PLATFORM_N64
+		// netplay: an online co-op mission plays its slots as a match does,
+		// the names and heads RULES put in them; the solo stash stays put
+		// (menutick.c's swap back is skipped the same way)
+		if (g_NetMode == NETMODE_NONE)
+#endif
+		{
+			tmp = g_PlayerConfigsArray[MAX_PLAYERS];
+			g_PlayerConfigsArray[MAX_PLAYERS] = g_PlayerConfigsArray[0];
+			g_PlayerConfigsArray[0] = tmp;
 
-		tmp = g_PlayerConfigsArray[MAX_PLAYERS + 1];
-		g_PlayerConfigsArray[MAX_PLAYERS + 1] = g_PlayerConfigsArray[1];
-		g_PlayerConfigsArray[1] = tmp;
-
-		// Player index 0
-		g_Vars.playerstats[0].mpindex = 0;
-
-		g_PlayerConfigsArray[0].contpad1 = 0;
-		g_PlayerConfigsArray[0].contpad2 = 2;
-
-		if ((g_Vars.coopplayernum >= 0 && g_Vars.coopradaron)
-				|| (g_Vars.antiplayernum >= 0 && g_Vars.antiradaron)) {
-			g_PlayerConfigsArray[0].base.displayoptions |= MPDISPLAYOPTION_RADAR;
-		} else {
-			g_PlayerConfigsArray[0].base.displayoptions &= ~MPDISPLAYOPTION_RADAR;
+			tmp = g_PlayerConfigsArray[MAX_PLAYERS + 1];
+			g_PlayerConfigsArray[MAX_PLAYERS + 1] = g_PlayerConfigsArray[1];
+			g_PlayerConfigsArray[1] = tmp;
 		}
 
-		// Player index 1
-		g_Vars.playerstats[1].mpindexu32 = 1;
+		// A player per human slot: 0 and 1 (chrslots 0x03) offline; online
+		// co-op seats up to twelve (spec-coop.md), the host's mask in
+		// g_MpHumanSlotsHi as a Combat Simulator match's
+		g_MpNumChrs = 0;
 
-		g_PlayerConfigsArray[1].contpad1 = 1;
-		g_PlayerConfigsArray[1].contpad2 = 3;
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (!mpIsHumanSlotOn(i)) {
+				continue;
+			}
 
-		if ((g_Vars.coopplayernum >= 0 && g_Vars.coopradaron)
-				|| (g_Vars.antiplayernum >= 0 && g_Vars.antiradaron)) {
-			g_PlayerConfigsArray[1].base.displayoptions |= MPDISPLAYOPTION_RADAR;
-		} else {
-			g_PlayerConfigsArray[1].base.displayoptions &= ~MPDISPLAYOPTION_RADAR;
+			g_Vars.playerstats[g_MpNumChrs].mpindex = i;
+
+			g_PlayerConfigsArray[i].contpad1 = i;
+			g_PlayerConfigsArray[i].contpad2 = i < 2 ? i + 2 : 0;
+
+			if ((g_Vars.coopplayernum >= 0 && g_Vars.coopradaron)
+					|| (g_Vars.antiplayernum >= 0 && g_Vars.antiradaron)) {
+				g_PlayerConfigsArray[i].base.displayoptions |= MPDISPLAYOPTION_RADAR;
+			} else {
+				g_PlayerConfigsArray[i].base.displayoptions &= ~MPDISPLAYOPTION_RADAR;
+			}
+
+			g_MpNumChrs++;
 		}
-
-		g_MpNumChrs = 2;
 	} else {
 		for (i = 0; i < MAX_PLAYERS; i++) {
 			if (mpIsHumanSlotOn(i)) {
@@ -1891,7 +1897,7 @@ Gfx *mpRenderModalText(Gfx *gdl)
 			// (gedeathcam.c)
 			&& !geDeathCamHolds()
 #endif
-			&& !(g_Vars.coopplayernum >= 0 && ((g_Vars.bond->isdead && g_Vars.coop->isdead) || !g_Vars.currentplayer->coopcanrestart || g_InCutscene))
+			&& !(g_Vars.coopplayernum >= 0 && (coopAllDead() || !g_Vars.currentplayer->coopcanrestart || g_InCutscene))
 			&& !(g_Vars.antiplayernum >= 0 && ((g_Vars.currentplayer != g_Vars.anti || g_InCutscene)))
 			&& g_NumReasonsToEndMpMatch == 0) {
 		// Render "Press START" text

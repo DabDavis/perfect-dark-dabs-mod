@@ -43,7 +43,7 @@ or a section heading, don't read one whole.
 - [randomizer-run.md](CLAUDE-notes/randomizer-run.md) — The Randomizer's run: a room at a time across every map
 - [project-list.md](CLAUDE-notes/project-list.md) — Projects we can do, not started
 - [languages.md](CLAUDE-notes/languages.md) — the Language setting, translations, CJK fonts
-- [netplay.md](CLAUDE-notes/netplay.md) — Online matches: the netcode's layers in `port/src/net/`, the wire (`netproto.h`), pdlobbyd rooms and the connectivity ladder, the gates and how to run them (the Windows lobby client under wine too), the traps phases 1-7 met
+- [netplay.md](CLAUDE-notes/netplay.md) — Online matches: the netcode's layers in `port/src/net/`, the wire (`netproto.h`), pdlobbyd rooms and the connectivity ladder, the gates and how to run them (the Windows lobby client under wine too), the traps phases 1-8 met; online co-op (the solo missions for up to twelve players: `netcoop.c`, `src/game/coop.c`)
 - [simnav.md](CLAUDE-notes/simnav.md) — The simulants' navmesh and its links; Mod.SimBrain (stock is bit-identical, modern walks stock's decisions along the navmesh); the traps met doing it
 
 **Judging GE Plus against GoldenEye itself: `tools/gefidelity/`** (start at its README). `twin.py` runs one gdb

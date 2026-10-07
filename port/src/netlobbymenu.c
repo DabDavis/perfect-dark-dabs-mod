@@ -902,13 +902,155 @@ static MenuDialogHandlerResult dialogCreate(s32 operation, struct menudialogdef 
 	return 0;
 }
 
-// The Combat Simulator's own setup pages, as Advanced Setup lists them
+/*
+ * The room's game: a Combat Simulator match (the Simulator's own setup
+ * pages, as Advanced Setup lists them) or a co-op mission (netcoop.c:
+ * mission, difficulty, radar, friendly fire). Each set hides while the
+ * other is chosen; an item that opens a dialog cannot hide itself (menu.c
+ * asks only a plain item's handler), so the setup pages open from handlers.
+ */
+static MenuItemHandlerResult handlerGame(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = 2;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)(data->dropdown.value == 1 ? "Co-op Mission" : "Combat Simulator");
+	case MENUOP_SET:
+		g_NetCoopSetup.on = data->dropdown.value == 1;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_NetCoopSetup.on ? 1 : 0;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult handlerMission(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !g_NetCoopSetup.on;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = SOLOSTAGEINDEX_WAR + 1;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)langGet(g_SoloStages[data->dropdown.value <= SOLOSTAGEINDEX_WAR ? data->dropdown.value : 0].name3);
+	case MENUOP_SET:
+		g_NetCoopSetup.stageindex = data->dropdown.value <= SOLOSTAGEINDEX_WAR ? data->dropdown.value : 0;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_NetCoopSetup.stageindex;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult handlerDifficulty(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	static const u16 names[3] = { L_OPTIONS_251, L_OPTIONS_252, L_OPTIONS_253 }; // "Agent", "Special Agent", "Perfect Agent"
+
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !g_NetCoopSetup.on;
+	case MENUOP_GETOPTIONCOUNT:
+		data->dropdown.value = 3;
+		break;
+	case MENUOP_GETOPTIONTEXT:
+		return (intptr_t)langGet(names[data->dropdown.value < 3 ? data->dropdown.value : 0]);
+	case MENUOP_SET:
+		g_NetCoopSetup.difficulty = data->dropdown.value < 3 ? data->dropdown.value : DIFF_A;
+		break;
+	case MENUOP_GETSELECTEDINDEX:
+		data->dropdown.value = g_NetCoopSetup.difficulty;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult handlerCoopRadar(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !g_NetCoopSetup.on;
+	case MENUOP_GET:
+		return g_NetCoopSetup.radar;
+	case MENUOP_SET:
+		g_NetCoopSetup.radar = data->checkbox.value ? 1 : 0;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult handlerCoopFriendlyFire(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	switch (operation) {
+	case MENUOP_CHECKHIDDEN:
+		return !g_NetCoopSetup.on;
+	case MENUOP_GET:
+		return g_NetCoopSetup.friendlyfire;
+	case MENUOP_SET:
+		g_NetCoopSetup.friendlyfire = data->checkbox.value ? 1 : 0;
+		break;
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult handlerSetupPage(s32 operation, struct menuitem *item, struct menudialogdef *page)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return g_NetCoopSetup.on;
+	}
+
+	if (operation == MENUOP_SET) {
+		menuPushDialog(page);
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult handlerSetupScenario(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return handlerSetupPage(operation, item, &g_MpScenarioMenuDialog);
+}
+
+static MenuItemHandlerResult handlerSetupArena(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return handlerSetupPage(operation, item, &g_MpArenaMenuDialog);
+}
+
+static MenuItemHandlerResult handlerSetupWeapons(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return handlerSetupPage(operation, item, &g_MpWeaponsMenuDialog);
+}
+
+static MenuItemHandlerResult handlerSetupLimits(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return handlerSetupPage(operation, item, &g_MpLimitsMenuDialog);
+}
+
+static MenuItemHandlerResult handlerSetupSimulants(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	return handlerSetupPage(operation, item, &g_MpSimulantsMenuDialog);
+}
+
 #define NETLOBBY_SETUP_ITEMS \
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_OPENSDIALOG, L_MPMENU_019, (uintptr_t)&textScenario, (void *)&g_MpScenarioMenuDialog }, \
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_OPENSDIALOG, L_MPMENU_020, (uintptr_t)&textArena, (void *)&g_MpArenaMenuDialog }, \
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_OPENSDIALOG, L_MPMENU_023, 0, (void *)&g_MpWeaponsMenuDialog }, \
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_OPENSDIALOG, L_MPMENU_024, 0, (void *)&g_MpLimitsMenuDialog }, \
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_SELECTABLE_OPENSDIALOG, L_MPMENU_025, 0, (void *)&g_MpSimulantsMenuDialog }
+	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Game", 0, handlerGame }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_019, (uintptr_t)&textScenario, handlerSetupScenario }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_020, (uintptr_t)&textArena, handlerSetupArena }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_023, 0, handlerSetupWeapons }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_024, 0, handlerSetupLimits }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_025, 0, handlerSetupSimulants }, \
+	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Mission", 0, handlerMission }, \
+	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Difficulty", 0, handlerDifficulty }, \
+	{ MENUITEMTYPE_CHECKBOX, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Radar", 0, handlerCoopRadar }, \
+	{ MENUITEMTYPE_CHECKBOX, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Friendly Fire", 0, handlerCoopFriendlyFire }
 
 static struct menuitem s_CreateItems[] = {
 	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)&textMessage, 0, NULL },
@@ -1478,6 +1620,7 @@ struct menudialogdef g_NetKickMenuDialog = {
 // something else.
 static struct mpsetup s_SettingsSetup;
 static struct mpbotconfig s_SettingsBots[MAX_BOTS];
+static struct netcoopsetup s_SettingsCoop;
 
 static MenuItemHandlerResult handlerSettingsApply(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -1493,11 +1636,13 @@ static MenuDialogHandlerResult dialogRoomSettings(s32 operation, struct menudial
 	if (operation == MENUOP_OPEN) {
 		memcpy(&s_SettingsSetup, &g_MpSetup, sizeof(s_SettingsSetup));
 		memcpy(s_SettingsBots, g_BotConfigsArray, sizeof(s_SettingsBots));
+		s_SettingsCoop = g_NetCoopSetup;
 	}
 
 	if (operation == MENUOP_CLOSE) {
 		if (memcmp(&s_SettingsSetup, &g_MpSetup, sizeof(s_SettingsSetup)) != 0
-				|| memcmp(s_SettingsBots, g_BotConfigsArray, sizeof(s_SettingsBots)) != 0) {
+				|| memcmp(s_SettingsBots, g_BotConfigsArray, sizeof(s_SettingsBots)) != 0
+				|| memcmp(&s_SettingsCoop, &g_NetCoopSetup, sizeof(s_SettingsCoop)) != 0) {
 			netLobbySendSettings();
 		}
 	}

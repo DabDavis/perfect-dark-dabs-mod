@@ -180,6 +180,18 @@ Game**:
   spectator) and Ready. The host has Launch, Kick and Settings. After the
   match everyone comes back to the room for the next one.
 
+**Co-op missions.** A room can be a co-op mission instead of a match: in
+Create Room (or the host's Settings) set **Game** to Co-op Mission and
+pick the mission, difficulty, radar and friendly fire. Up to twelve of you
+play the mission together as Perfect Dark's own co-operative mode does:
+one player is Joanna, everyone else a coop agent in their Combat Simulator
+character; a dead player presses START to come back, taking half of a
+living player's health; the mission fails when everyone is dead. Every
+mission and difficulty is open online, and nothing played online counts
+towards your own solo progress. Without the lobby, a `--host` session
+starts one from the Carrington Institute's mission briefing with
+Co-Operative and a human buddy.
+
 A room that is already playing can still be joined: you drop into the
 match in progress. If your game crashes or your connection drops, rejoin
 the room within 30 seconds (`Net.ReconnectHold`) to get your seat and

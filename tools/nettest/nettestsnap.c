@@ -251,9 +251,10 @@ static void worldSpawn(s32 id)
 	e->desc.gen = e->gen;
 
 	if (r < 2) {
-		e->desc.kind = NETDESC_SIM;
+		// a sim, or (protocol 12) a mission's setup chr keyed by its command
+		e->desc.kind = srnd() % 3 == 0 ? NETDESC_SETUPCHR : NETDESC_SIM;
 		e->desc.rec = NETREC_CHR;
-		e->desc.key = id % 32;
+		e->desc.key = e->desc.kind == NETDESC_SETUPCHR ? (u16)id : id % 32;
 		e->desc.bodynum = (s16)(srnd() % 60);
 		e->desc.headnum = (s16)(srnd() % 60);
 		e->moving = 1;

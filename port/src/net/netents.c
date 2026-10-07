@@ -376,6 +376,19 @@ static void netEntsBuildSetupTable(void)
 				s_SetupGenOfProp[idx] = netPropGen(idx);
 				s_SetupPropOfCmd[cmdindex] = idx;
 			}
+		} else if ((u8)PD_BE32(cmd[0]) == OBJTYPE_CHR) {
+			// a mission's chr (spec-coop.md): every machine spawns it from
+			// the setup (bodyAllocateChr), so the host's maps to the
+			// client's by this command, as an object does
+			struct packedchr *packed = (struct packedchr *)cmd;
+			struct chrdata *chr = chrFindByLiteralId(packed->chrnum);
+			const s32 idx = chr && chr->prop && chr->prop->type == PROPTYPE_CHR ? netPropIndex(chr->prop) : -1;
+
+			if (idx >= 0 && s_SetupCmdOfProp[idx] < 0) {
+				s_SetupCmdOfProp[idx] = cmdindex;
+				s_SetupGenOfProp[idx] = netPropGen(idx);
+				s_SetupPropOfCmd[cmdindex] = idx;
+			}
 		}
 
 		cmd += setupGetCmdLength(cmd);
@@ -816,6 +829,9 @@ static void netCaptureAll(void)
 
 				c->desc.kind = NETDESC_SIM;
 				c->desc.key = (u16)slot;
+			} else if (s_SetupCmdOfProp[idx] >= 0 && s_SetupGenOfProp[idx] == c->desc.gen) {
+				c->desc.kind = NETDESC_SETUPCHR;
+				c->desc.key = (u16)s_SetupCmdOfProp[idx];
 			} else {
 				c->desc.kind = NETDESC_BODY;
 			}
@@ -1307,6 +1323,7 @@ static s32 netResolve(const struct netdesc *d, struct prop **out)
 
 	switch (d->kind) {
 	case NETDESC_SETUPOBJ:
+	case NETDESC_SETUPCHR:
 		if (d->key < s_NumCmds && s_SetupPropOfCmd && s_SetupPropOfCmd[d->key] >= 0) {
 			const s32 idx = s_SetupPropOfCmd[d->key];
 

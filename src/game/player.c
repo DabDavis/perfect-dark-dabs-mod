@@ -110,6 +110,7 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
 #include "gebean.h"
@@ -1550,7 +1551,12 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 	}
 #endif
 
-	if (g_Vars.normmplayerisrunning) {
+	if (g_Vars.normmplayerisrunning
+#ifndef PLATFORM_N64
+			// netplay: a coop player online wears its own character (bond stays Joanna)
+			|| (g_NetMode != NETMODE_NONE && coopIsCoopPlayer(g_Vars.currentplayer))
+#endif
+			) {
 		const s32 mpheadnum = mpHeadNumSafe(g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.mpheadnum);
 
 		if (mpheadnum < mpGetNumHeads2()) {
@@ -1568,7 +1574,7 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 	}
 
 	outfit = g_Vars.currentplayer->bondtype;
-	solo = !(g_Vars.coopplayernum >= 0) || (g_Vars.currentplayer != g_Vars.coop);
+	solo = !coopIsCoopPlayer(g_Vars.currentplayer);
 
 	if (cheatIsActive(CHEAT_PLAYASELVIS)) {
 		*bodynum = MOD_BODY(BODY_THEKING);
@@ -3707,6 +3713,14 @@ s16 playerGetFbHeight(void)
 #if VERSION >= VERSION_NTSC_1_0
 bool playerHasSharedViewport(void)
 {
+#ifndef PLATFORM_N64
+	// netplay: every machine draws one view, its own player's, whatever
+	// the player count (spec-coop.md)
+	if (g_NetMode != NETMODE_NONE) {
+		return false;
+	}
+#endif
+
 	if ((g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
 			&& menuGetRoot() == MENUROOT_MPENDSCREEN
 			&& var8009dfc0 == 0) {
@@ -6566,10 +6580,11 @@ void playerTick(bool arg0)
 					mainEndStage();
 				}
 			} else if (g_Vars.coopplayernum >= 0) {
-				if (g_Vars.currentplayer == g_Vars.bond
-						&& g_Vars.coop->isdead
-						&& g_Vars.coop->redbloodfinished
-						&& g_Vars.coop->deathanimfinished) {
+				if (g_Vars.currentplayer == g_Vars.bond && coopAllDeadDone()) {
+#ifndef PLATFORM_N64
+					// netplay: the host's MATCH_END ends a client's mission (H8)
+					if (!netIsClient())
+#endif
 					mainEndStage();
 				} else {
 					chrsClearRefsToPlayer(g_Vars.currentplayernum);
@@ -7192,8 +7207,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 							}
 						} else {
 							// Coop
-							if (g_Vars.coopplayernum >= 0 &&
-									(!g_Vars.bond->isdead || !g_Vars.coop->isdead)) {
+							if (g_Vars.coopplayernum >= 0 && !coopAllDead()) {
 								f32 totalhealth;
 								u32 buddyplayernum = g_Vars.bondplayernum;
 								u32 prevplayernum = g_Vars.currentplayernum;
@@ -7204,8 +7218,15 @@ Gfx *playerRenderHud(Gfx *gdl)
 									&& !mpIsPaused();
 
 								// Get ready to respawn.
-								// The other player's health will be halved.
-								buddyplayernum = g_Vars.currentplayer == g_Vars.coop ? g_Vars.bondplayernum : g_Vars.coopplayernum;
+								// The other player's health will be halved
+								// (past two players: the living one with the
+								// most health, coop.c).
+								buddyplayernum = coopRespawnBuddy(g_Vars.currentplayernum);
+
+								if ((s32)buddyplayernum < 0) {
+									// nobody living with a prop (never past the !coopAllDead() above): the game's own other
+									buddyplayernum = g_Vars.currentplayer == g_Vars.coop ? g_Vars.bondplayernum : g_Vars.coopplayernum;
+								}
 
 								setCurrentPlayerNum(buddyplayernum);
 								shield = chrGetShield(g_Vars.currentplayer->prop->chr) * 0.125f;

@@ -469,6 +469,11 @@ void netDescWrite(struct netbuf *b, const struct netdesc *d)
 		netBufWriteS16(b, d->bodynum);
 		netBufWriteS16(b, d->headnum);
 		break;
+	case NETDESC_SETUPCHR:
+		netBufWriteU16(b, d->key);
+		netBufWriteS16(b, d->bodynum);
+		netBufWriteS16(b, d->headnum);
+		break;
 	case NETDESC_DYNWEAPON:
 		netBufWriteU8(b, d->weaponnum);
 		netBufWriteU8(b, d->gunfunc);
@@ -519,6 +524,11 @@ void netDescRead(struct netbuf *b, struct netdesc *d)
 		d->bodynum = netBufReadS16(b);
 		d->headnum = netBufReadS16(b);
 		break;
+	case NETDESC_SETUPCHR:
+		d->key = netBufReadU16(b);
+		d->bodynum = netBufReadS16(b);
+		d->headnum = netBufReadS16(b);
+		break;
 	case NETDESC_DYNWEAPON:
 		d->weaponnum = netBufReadU8(b);
 		d->gunfunc = netBufReadU8(b);
@@ -545,7 +555,7 @@ void netDescRead(struct netbuf *b, struct netdesc *d)
 	}
 
 	// a chr's record goes with a chr's descriptor and nothing else does
-	if ((d->rec == NETREC_CHR) != (d->kind == NETDESC_SIM || d->kind == NETDESC_PLAYER || d->kind == NETDESC_BODY)) {
+	if ((d->rec == NETREC_CHR) != (d->kind == NETDESC_SIM || d->kind == NETDESC_PLAYER || d->kind == NETDESC_BODY || d->kind == NETDESC_SETUPCHR)) {
 		b->error = 1;
 	}
 }
@@ -557,6 +567,7 @@ static s32 netDescSize(const struct netdesc *d)
 	case NETDESC_SIM:
 	case NETDESC_PLAYER: return 3 + 5;
 	case NETDESC_BODY: return 3 + 4;
+	case NETDESC_SETUPCHR: return 3 + 6;
 	case NETDESC_DYNWEAPON: return 3 + 5;
 	case NETDESC_SCENOBJ: return 3 + 8;
 	default: return 3 + 3;

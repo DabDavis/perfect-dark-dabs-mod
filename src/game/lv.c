@@ -1335,7 +1335,7 @@ Gfx *lvRender(Gfx *gdl)
 		Gfx *savedgdl;
 #if VERSION >= VERSION_NTSC_1_0
 		bool forcesingleplayer = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
-			&& playerHasSharedViewport();
+			&& playerHasSharedViewport(); // (never online: one view a machine, spec-coop.md)
 #else
 		bool forcesingleplayer = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
 			&& ((g_InCutscene && !g_MainIsEndscreen) || menuGetRoot() == MENUROOT_COOPCONTINUE);

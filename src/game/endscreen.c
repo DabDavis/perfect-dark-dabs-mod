@@ -31,6 +31,10 @@
 #include "lib/str.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
+#include "game/coop.h"
 
 MenuItemHandlerResult endscreenHandleDeclineMission(s32 operation, struct menuitem *item, union handlerdata *data)
 {
@@ -300,11 +304,11 @@ char *endscreenMenuTextMissionStatus(struct menuitem *item)
 	}
 
 	if (g_Vars.coopplayernum >= 0) {
-		if (g_Vars.bond->aborted || g_Vars.coop->aborted) {
+		if (coopAnyAborted()) {
 			return langGet(L_OPTIONS_295); // "Aborted"
 		}
 
-		if (g_Vars.bond->isdead && g_Vars.coop->isdead) {
+		if (coopAllDead()) {
 			return langGet(L_OPTIONS_293); // "Failed"
 		}
 	} else if (g_Vars.antiplayernum >= 0) {
@@ -1381,6 +1385,11 @@ char *endscreenMenuTextTargetTime(struct menuitem *item)
 
 void endscreenSetCoopCompleted(void)
 {
+#ifndef PLATFORM_N64
+	// netplay: an online mission never writes offline progress (spec-coop.md)
+	if (g_NetMode != NETMODE_NONE) return;
+#endif
+
 	if (g_CheatsActiveBank0 == 0 && g_CheatsActiveBank1 == 0) {
 #if VERSION >= VERSION_NTSC_1_0
 		if (g_GameFile.coopcompletions[g_MissionConfig.difficulty] & (1 << g_MissionConfig.stageindex)) {
@@ -1697,14 +1706,12 @@ void endscreenPushCoop(void)
 	g_Menus[g_MpPlayerNum].playernum = g_Vars.currentplayernum;
 
 #if VERSION >= VERSION_NTSC_1_0 && defined(DEBUG)
-	if (((g_Vars.bond->isdead && g_Vars.coop->isdead)
-			|| g_Vars.bond->aborted
-			|| g_Vars.coop->aborted
+	if ((coopAllDead()
+			|| coopAnyAborted()
 			|| !objectiveIsAllComplete()) && !debugIsSetCompleteEnabled())
 #else
-	if ((g_Vars.bond->isdead && g_Vars.coop->isdead)
-			|| g_Vars.bond->aborted
-			|| g_Vars.coop->aborted
+	if (coopAllDead()
+			|| coopAnyAborted()
 			|| !objectiveIsAllComplete())
 #endif
 	{
@@ -1747,14 +1754,12 @@ void endscreenPushSolo(void)
 	g_Menus[g_MpPlayerNum].playernum = 0;
 
 #if VERSION >= VERSION_NTSC_1_0 && defined(DEBUG)
-	if (((g_Vars.bond->isdead && g_Vars.coop->isdead)
-			|| g_Vars.bond->aborted
-			|| g_Vars.coop->aborted
+	if ((coopAllDead()
+			|| coopAnyAborted()
 			|| !objectiveIsAllComplete()) && !debugIsSetCompleteEnabled())
 #else
-	if ((g_Vars.bond->isdead && g_Vars.coop->isdead)
-			|| g_Vars.bond->aborted
-			|| g_Vars.coop->aborted
+	if (coopAllDead()
+			|| coopAnyAborted()
 			|| !objectiveIsAllComplete())
 #endif
 	{

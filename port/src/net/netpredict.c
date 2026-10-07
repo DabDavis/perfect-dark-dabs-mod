@@ -221,6 +221,8 @@ static f64 s_ShiftSum = 0;    // how far a correction moved the player now
 static f32 s_ShiftMax = 0;
 static u32 s_Snaps = 0;       // corrections too large to ease (not respawns)
 static u32 s_AbsSnaps = 0;    // respawns and teleports
+static u32 s_CutsceneLeft = 0; // blocks left unapplied during a cutscene (online co-op: the host holds the player where the opening put it)
+static s32 s_ForceSnap = 0;    // the next block is taken outright (a cutscene ended: the host's place from here)
 static u32 s_Missing = 0;     // no state in the ring for the block's command
 static u32 s_Refused = 0;     // a block with no place or bad floats: not taken
 static u32 s_Replayed = 0;    // ticks played again
@@ -306,6 +308,8 @@ void netPredictStageStart(void)
 	s_ShiftSum = 0;
 	s_ShiftMax = 0;
 	s_Snaps = s_AbsSnaps = s_Missing = s_Refused = s_Replayed = s_Overrun = 0;
+	s_CutsceneLeft = 0;
+	s_ForceSnap = 0;
 	s_DiscreteOff = s_AngleOff = 0;
 	s_StartTick = 0;
 	s_Future = s_AnimRefused = s_HeadDeath = s_HeadDeathWait = s_HeadDeathAt = 0;
@@ -342,11 +346,17 @@ void netPredictMatchStopped(void)
 
 void netPredictLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u, death heads kept %u (%u awaiting a death or respawn)",
+	sysLogPrintf(LOG_NOTE, "net: prediction %s (tick %u): compared %u, matched %u (%.2f%%), corrections %u (position error at the command mean %.2f max %.2f; moved now mean %.2f max %.2f; angles only %u, discrete only %u), ticks replayed %u, snaps %u, respawn/teleport snaps %u, no state %u, too old %u, blocks refused %u, future commands %u, head data refused %u, death heads kept %u (%u awaiting a death or respawn), cutscene blocks left %u",
 			why, g_NetTick, s_Compared, s_Matched, s_Compared ? 100.0 * s_Matched / s_Compared : 0.0, s_Corrections,
 			s_Corrections ? (f32)(s_ErrSum / s_Corrections) : 0.f, s_ErrMax,
 			s_Corrections ? (f32)(s_ShiftSum / s_Corrections) : 0.f, s_ShiftMax, s_AngleOff, s_DiscreteOff,
-			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused, s_HeadDeath, s_HeadDeathWait);
+			s_Replayed, s_Snaps, s_AbsSnaps, s_Missing, s_Overrun, s_Refused, s_Future, s_AnimRefused, s_HeadDeath, s_HeadDeathWait, s_CutsceneLeft);
+}
+
+// netcoop.c: a cutscene ended here; the host's place is taken outright at the next block
+void netPredictForceSnap(void)
+{
+	s_ForceSnap = 1;
 }
 
 static struct netpredtick *netPredAt(u32 tick)
@@ -1177,8 +1187,13 @@ static s32 netPredReplay(struct player *p, const struct netlpstate *lp, u32 n, s
 	memcpy(s_SaveConfigs, g_PlayerConfigsArray, sizeof(s_SaveConfigs));
 	memcpy(s_SaveAmMenus, g_AmMenus, sizeof(s_SaveAmMenus));
 
-	// the state after n: this machine's own, the host's over it
-	if (!abs && start && start->hasstate) {
+	// the state after n: this machine's own, the host's over it. Not in a
+	// cutscene (online co-op, netcoop.c): the entry's copy was taken before
+	// this machine's cutscene began and would put the walk's mode back,
+	// which then recorded itself every tick after (the player fell under
+	// gravity to the host's held place and back, 54 units a tick on
+	// Defection's opening); the live state stays, the host's place goes on it
+	if (!abs && start && start->hasstate && g_Vars.tickmode != TICKMODE_CUTSCENE) {
 		netPredLoadRich(p, start->rich);
 		bwalkNetSide(g_NetLocalSlot, 0, &start->gecrouchhold, &start->geeyelag, &start->geclimbhold);
 		geStanNetPlayerTile(g_NetLocalSlot, 0, &start->getile, &start->gefromtile);
@@ -1368,6 +1383,22 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 		// the host's run of the ticks this machine spent dead before its
 		// respawn reached here: compared from the respawn's tick on
 		return 0;
+	}
+
+	// a cutscene (online co-op, netcoop.c): the host holds every player
+	// where the opening put it and this machine's is in the cutscene's
+	// own mode; nothing to reconcile until it ends, when the host's place
+	// is taken outright (netPredictForceSnap)
+	if (g_Vars.tickmode == TICKMODE_CUTSCENE && !abs) {
+		s_CutsceneLeft++;
+		s_HaveLast = 1;
+		s_LastCmd = cmd;
+		return 0;
+	}
+
+	if (s_ForceSnap) {
+		s_ForceSnap = 0;
+		abs = 1;
 	}
 
 	if (g_NetTick - cmd > NETPRED_RING - 8) {

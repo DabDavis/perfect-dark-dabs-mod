@@ -1656,10 +1656,22 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 	char eweap[40 * 6];
 	const s32 sims = mpGetNumSimSlotsOn();
 
-	lobbyCleanName(mpMenuTextArenaName(NULL), stage, 33);
-	lobbyCleanName(mpMenuTextScenarioShortName(NULL), scenario, 33);
+	if (g_NetCoopSetup.on) {
+		// a co-op mission (netcoop.c): the mission as the arena, the
+		// difficulty as the mode, "mission:N" as the key
+		char mode[40];
+
+		netCoopModeName(g_NetCoopSetup.difficulty, mode, sizeof(mode));
+		lobbyCleanName(netCoopMissionName(g_NetCoopSetup.stageindex), stage, 33);
+		lobbyCleanName(mode, scenario, 33);
+		snprintf(key, sizeof(key), "mission:%02x", g_NetCoopSetup.stageindex);
+	} else {
+		lobbyCleanName(mpMenuTextArenaName(NULL), stage, 33);
+		lobbyCleanName(mpMenuTextScenarioShortName(NULL), scenario, 33);
+		lobbyStageKey(key, sizeof(key));
+	}
+
 	lobbyCleanName(mpGetWeaponSetName(mpGetWeaponSet()), weapons, 33);
-	lobbyStageKey(key, sizeof(key));
 	ghostnetJsonEscape(stage, estage, sizeof(estage));
 	ghostnetJsonEscape(scenario, escen, sizeof(escen));
 	ghostnetJsonEscape(key, ekey, sizeof(ekey));
@@ -2759,6 +2771,13 @@ static void lobbyScriptTick(void)
 
 				g_MpSetup.stagenum = sysArgGetInt("--net-test-stage", 0x32);
 				mpClearSimSlots();
+
+				// --net-lobby-coop INDEX: the room is a co-op mission (netcoop.c)
+				if (sysArgGetInt("--net-lobby-coop", -1) >= 0) {
+					g_NetCoopSetup.on = 1;
+					g_NetCoopSetup.stageindex = sysArgGetInt("--net-lobby-coop", 0);
+					g_NetCoopSetup.difficulty = sysArgGetInt("--net-test-difficulty", DIFF_A);
+				}
 
 				for (i = 0; i < sims && i < MAX_BOTS; i++) {
 					mpSetSimSlotOn(i, true);

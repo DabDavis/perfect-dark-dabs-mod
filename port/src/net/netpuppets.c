@@ -1933,7 +1933,7 @@ static void netClientPosePuppetsRun(void)
 
 		netPupBlend(rec, &stb, ra ? &sta : NULL, t, rp ? &stp : NULL, ptick, dt, &st);
 
-		isdyn = kind != NETDESC_SETUPOBJ && kind != NETDESC_SIM && kind != NETDESC_PLAYER;
+		isdyn = kind != NETDESC_SETUPOBJ && kind != NETDESC_SIM && kind != NETDESC_PLAYER && kind != NETDESC_SETUPCHR;
 
 		// what was made for this id and generation stays while the id is
 		// present: a corpse is the same host prop as the sim before it, and

@@ -142,6 +142,7 @@ void netPredictCaptureMove(struct player *p, struct netmove *mv); // host: the b
 // teleport, taken whatever it says) against this machine's own run
 s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, s32 abs); // 1 the player was moved (a replay or a snap)
 void netPredictLog(const char *why);
+void netPredictForceSnap(void);       // netcoop.c: a cutscene ended; the next block is taken outright
 void netPredictHostTickEnd(s32 slot, struct player *p); // host: a remote player after the tick (--net-predict-log)
 u32 netPlayersHostCurButtons(s32 slot, s8 *sx, s8 *sy); // the pad the host played for the slot this tick
 void netPendingMouse(s32 *dx, s32 *dy); // net.c: the mouse not yet spent by a tick
@@ -203,6 +204,29 @@ void netPuppetsTraceFlush(void); // after the frame's lvRender: the traced poses
 
 // netlagcomp.c: lag-compensated hits on the host
 extern s32 g_NetLagComp;
+// Online co-op (netcoop.c, PLANS/netplay/spec-coop.md)
+struct netcooprules {
+	u8 on;
+	u8 stageindex;
+	u8 difficulty;
+	u8 radar;
+	u8 friendlyfire;
+};
+s32 netCoopHostMatch(void);                 // host: the match being started/run is a co-op mission
+s32 netCoopRulesOk(const struct netcooprules *r);
+void netCoopClientApplyRules(const struct netcooprules *r); // H3, from netRulesApply
+void netCoopClientStage(void);              // H3's tail on a client
+s32 netRulesCoopOn(void);                   // client: the RULES received say a mission
+s32 netCoopTestStart(void);                 // --net-test-coop: 1 started
+void netCoopMatchStopped(void);             // H12
+void netCoopCapture(u8 *body);              // host: the mission block's body (netscen.c's OFF_BODY)
+s32 netCoopBlockOk(const u8 *body);
+void netCoopApply(const u8 *body);          // client, in tick order with the events
+void netCoopApplyFinal(const u8 *body);     // client: MATCH_END's block
+s32 netCoopObjectivesComplete(void);
+void netSessionNoticeSet(const char *text); // netsession.c: the main menu's notice
+void netClientRefuseLocalStart(void);
+
 void netLagCompArgs(void);
 void netLagCompStageStart(void);
 void netLagCompHostTickEnd(void);   // netTickEnd: every chr's pose for the tick

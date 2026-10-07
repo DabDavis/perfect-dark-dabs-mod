@@ -16,6 +16,7 @@
 #include "game/modunlocks.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
+#include "game/lv.h"
 #include "net/net.h"
 #include "netint.h"
 
@@ -66,6 +67,13 @@ static const struct {
 	{ "Mod.XblaMeshes",              NETKEY_MUST_GE },
 	{ "Mod.GeXblaCommunityEdition",  NETKEY_MUST_GE },
 	{ "Mod.SimBrain",                NETKEY_REFUSE, "stock" },
+	// a mission's guards (spec-coop.md): the host's, as the AI is
+	{ "Mod.GuardsAlerted",           NETKEY_SYNC },
+	{ "Mod.AlertedGuards",           NETKEY_SYNC },
+	{ "Mod.GuardSpawnSpeed",         NETKEY_SYNC },
+	{ "Mod.GuardWeapons",            NETKEY_SYNC },
+	{ "Mod.MissionRespawn",          NETKEY_SYNC },
+	{ "Mod.MissionLives",            NETKEY_SYNC },
 };
 
 /**
@@ -120,6 +128,7 @@ static struct {
 	u8 gexplusscenario;
 	u8 endless;
 	s32 maxexplosions;
+	struct netcooprules coop; // protocol 12: a mission (spec-coop.md)
 	struct netkeyvalue keys[NET_MAXKEYS];
 	s32 nkeys;
 } s_NetRules;
@@ -147,6 +156,11 @@ static struct {
 	s32 endless;
 	s32 maxexplosions;
 	u8 locktype;
+	struct missionconfig mission; // a client's own mission settings (co-op)
+	s32 difficulty;
+	s32 coopradaron;
+	s32 coopfriendlyfire;
+	s32 numaibuddies;
 	struct netkeyvalue keys[NET_MAXKEYS];
 	s32 nkeys;
 	s32 swapped; // H13: the own values are in while pd.ini is written
@@ -487,6 +501,13 @@ void netRulesWrite(struct netbuf *b, u32 matchid)
 	netBufWriteU8(b, (u8)(g_MpEndlessMatch != 0));
 	netBufWriteS32(b, g_MaxExplosionsSetting);
 
+	// the mission (protocol 12): what the host set before H1 (netcoop.c)
+	netBufWriteU8(b, (u8)(netCoopHostMatch() != 0));
+	netBufWriteU8(b, (u8)g_MissionConfig.stageindex);
+	netBufWriteU8(b, (u8)g_MissionConfig.difficulty);
+	netBufWriteU8(b, (u8)(g_Vars.coopradaron != 0));
+	netBufWriteU8(b, (u8)(g_Vars.coopfriendlyfire != 0));
+
 	nkeysat = netBufReserve(b, 1);
 
 	for (k = 0; k < ARRAYCOUNT(s_NetKeys) && nkeys < NET_MAXKEYS; k++) {
@@ -601,6 +622,15 @@ s32 netRulesRead(struct netbuf *b)
 	s_NetRules.gexplusscenario = netBufReadU8(b);
 	s_NetRules.endless = netBufReadU8(b);
 	s_NetRules.maxexplosions = netBufReadS32(b);
+	s_NetRules.coop.on = netBufReadU8(b);
+	s_NetRules.coop.stageindex = netBufReadU8(b);
+	s_NetRules.coop.difficulty = netBufReadU8(b);
+	s_NetRules.coop.radar = netBufReadU8(b);
+	s_NetRules.coop.friendlyfire = netBufReadU8(b);
+
+	if (s_NetRules.coop.on && !netCoopRulesOk(&s_NetRules.coop)) {
+		b->error = 1;
+	}
 	s_NetRules.nkeys = netBufReadU8(b);
 
 	if (s_NetRules.nkeys > NET_MAXKEYS) {
@@ -666,6 +696,12 @@ u32 netRulesMatchId(void)
 	return s_NetRules.valid ? s_NetRules.matchid : 0;
 }
 
+// the RULES received say a co-op mission (0 a match, or none received)
+s32 netRulesCoopOn(void)
+{
+	return s_NetRules.valid && s_NetRules.coop.on;
+}
+
 /*
  * Applying and restoring
  */
@@ -690,6 +726,11 @@ static void netRulesSaveClient(void)
 	s_NetSaved.maxexplosions = g_MaxExplosionsSetting;
 	s_NetSaved.locktype = g_BossFile.locktype;
 	s_NetSaved.lockinfo = g_MpLockInfo;
+	s_NetSaved.mission = g_MissionConfig;
+	s_NetSaved.difficulty = lvGetDifficulty();
+	s_NetSaved.coopradaron = g_Vars.coopradaron;
+	s_NetSaved.coopfriendlyfire = g_Vars.coopfriendlyfire;
+	s_NetSaved.numaibuddies = g_Vars.numaibuddies;
 
 	s_NetSaved.nkeys = 0;
 
@@ -829,6 +870,11 @@ void netRulesApply(void)
 		g_BossFile.locktype = MPLOCKTYPE_NONE;
 	}
 
+	// a mission's settings (spec-coop.md): the host's mission and difficulty
+	if (s_NetRules.coop.on) {
+		netCoopClientApplyRules(&s_NetRules.coop);
+	}
+
 	for (i = 0; i < s_NetRules.nkeys; i++) {
 		if (netRulesReadKey(s_NetRules.keys[i].key, &mine) && !netRulesValuesEqual(&mine, &s_NetRules.keys[i])) {
 			netRulesValueString(&mine, a, sizeof(a));
@@ -880,6 +926,11 @@ void netRulesRestore(void)
 		g_BossFile.locktype = s_NetSaved.locktype;
 		g_MpLockInfo = s_NetSaved.lockinfo;
 		g_MpHumanSlotsHi = 0;
+		g_MissionConfig = s_NetSaved.mission;
+		lvSetDifficulty(s_NetSaved.difficulty);
+		g_Vars.coopradaron = s_NetSaved.coopradaron;
+		g_Vars.coopfriendlyfire = s_NetSaved.coopfriendlyfire;
+		g_Vars.numaibuddies = s_NetSaved.numaibuddies;
 
 		for (i = 0; i < s_NetSaved.nkeys; i++) {
 			netRulesWriteKey(&s_NetSaved.keys[i]);

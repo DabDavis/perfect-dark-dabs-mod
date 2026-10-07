@@ -54,7 +54,8 @@ s32 netRecSize(s32 rec); // 0 for a kind that is not one
 #define NETDESC_AMMOCRATE 7
 #define NETDESC_HAT       8
 #define NETDESC_SCENOBJ   9 // a scenario's prop: a briefcase, the uplink, a terminal (protocol 7)
-#define NETDESC_COUNT     10
+#define NETDESC_SETUPCHR  10 // a mission's setup chr (protocol 12): key is its setup command index, spawned on every machine
+#define NETDESC_COUNT     11
 
 // SCENOBJ's scenflags
 #define NETSCENOBJ_TERMINAL 0x01 // Hacker Central's terminal (OBJFLAG3_HTMTERMINAL)

@@ -536,7 +536,13 @@ void mainLoop(void)
 			if (g_MpSetup.chrslots & 0xfff0) {
 				g_MpSetup.storedbotbits = g_MpSetup.chrslots & 0xfff0;
 			}
-			g_MpSetup.chrslots = 0x03;
+			// netplay: an online co-op mission keeps the seats H1/H3 set
+			// (spec-coop.md); offline co-op is players 0 and 1
+			if (g_NetMode == NETMODE_NONE) {
+				g_MpSetup.chrslots = 0x03;
+			} else {
+				g_MpSetup.chrslots &= 0x000f;
+			}
 			mpReset();
 		} else if (g_Vars.perfectbuddynum) {
 			mpReset();
@@ -807,7 +813,13 @@ void mainEndStage(void)
 			s32 prevplayernum = g_Vars.currentplayernum;
 			s32 i;
 
+			// netplay: the host's MATCH_END (H9); a client's final block
+			// (H10), so its end screen reads the host's end (netcoop.c)
+			if (g_NetMode != NETMODE_NONE) netCoopMatchEnded();
+
 			for (i = 0; i < PLAYERCOUNT(); i++) {
+				// netplay: another machine's player has its end screen there
+				if (g_NetMode != NETMODE_NONE && !netIsLocalPad(g_Vars.playerstats[i].mpindex)) continue;
 				setCurrentPlayerNum(i);
 				endscreenPushCoop();
 			}

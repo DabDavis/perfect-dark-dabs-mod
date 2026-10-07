@@ -328,6 +328,37 @@ void netLagCompPassEnd(void);
 const struct coord *netLagCompAimPos(struct prop *prop); // the autoaim's line of sight to a chr: its rewound place in a remote pass
 void netLagCompAimTrace(void);  // --net-lagcomp-debug: a line per tick of a player's aim on both machines
 
+/**
+ * Online co-op: the solo missions for up to twelve players (netcoop.c,
+ * PLANS/netplay/spec-coop.md). The host plays the mission as offline co-op
+ * does (src/game/coop.c widens "the other player"); a client's world is the
+ * host's, the mission's own state (cutscene, objectives, timer, alarm)
+ * coming in the snapshots' block.
+ */
+struct netcoopsetup {
+	s32 on;           // the lobby room is a co-op mission, not a match
+	s32 stageindex;   // g_SoloStages index (0 .. SOLOSTAGEINDEX_WAR)
+	s32 difficulty;   // DIFF_A/SA/PA
+	s32 radar;
+	s32 friendlyfire;
+};
+extern struct netcoopsetup g_NetCoopSetup;
+// mainmenu.c Accept Mission in a net session: 1 handled (started, or refused with a notice)
+s32 netCoopAcceptMission(void);
+// mainmenu.c Abort Mission: 1 handled (a client leaves; the host's abort ends it for all)
+s32 netCoopClientAbort(void);
+// pdmain.c mainEndStage's co-op branch: MATCH_END from the host, the final block on a client
+void netCoopMatchEnded(void);
+// objectives.c objectiveCheck on a client: the host's status, 1 when known
+s32 netCoopObjectiveStatus(s32 index, s32 *status);
+// playerreset.c: a co-op spawn past two players spread round the pad
+struct coord;
+void netCoopSpreadSpawn(struct coord *pos, s16 *rooms); // rooms: RoomNum[8]
+// the host starts a co-op mission for the session (lobby launch, tests); 1 started
+s32 netCoopHostStart(s32 stageindex, s32 difficulty, s32 radar, s32 friendlyfire);
+const char *netCoopMissionName(s32 stageindex);      // "dataDyne Defection" (langGet's, with its newline)
+void netCoopModeName(s32 difficulty, char *out, s32 size); // "Co-op Agent"
+
 // The session's hooks (H1-H14, HA-HD)
 #include "net/netsession.h"
 

@@ -51,7 +51,11 @@
 // 11: a command's buttons keep START; the host plays it only for a dead
 //    player (the death screen's respawn), never for a living one (the
 //    client's pause menu is its own)
-#define NET_PROTOCOL_VERSION 11
+// 12 (online co-op, spec-coop.md): RULES carries a mission block after
+//    maxexplosions (u8 coop, stageindex, difficulty, radar, friendlyfire);
+//    SNAP's scenario block is a mission block (scenario 0xfe) on a mission;
+//    the SETUPCHR descriptor (kind 10)
+#define NET_PROTOCOL_VERSION 12
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -228,6 +232,12 @@
  *   u8      gexplusscenario       gexPlusGetScenario()
  *   u8      endless               g_MpEndlessMatch
  *   s32     maxexplosions         Game.MaxExplosions (a client keeps the larger)
+ *   mission (protocol 12; spec-coop.md):
+ *     u8 coop                     1: an online co-op mission, the fields below
+ *                                 (0: a Combat Simulator match, zeros)
+ *     u8 stageindex               g_SoloStages index (0 Defection .. 19 WAR)
+ *     u8 difficulty               DIFF_A/SA/PA
+ *     u8 radar, u8 friendlyfire   g_Vars.coopradaron, g_Vars.coopfriendlyfire
  *   u8      nkeys                 <= NET_MAXKEYS SYNC ini keys
  *     str(47) key, VALUE
  *   str(15) tickratediv           unused, ""
@@ -392,6 +402,10 @@
  *     BODY:      s16 bodynum, s16 headnum (a Mod.Bodies corpse: the dead
  *                sim's host prop, handed to a chr of its own; the client
  *                builds one from the body and head a chr there wears)
+ *     SETUPCHR:  (protocol 12; kind 10, CHR records) a mission's setup
+ *                chr: u16 setup command index, s16 bodynum, s16 headnum.
+ *                Every machine spawns it from the setup (spec-coop.md);
+ *                the client poses its own from the record
  *     DYNWEAPON: u8 weaponnum, u8 gunfunc, s16 modelnum, u8 objtype
  *     SCENOBJ:   (protocol 7; kind 9, OBJ records only) a scenario's prop,
  *                a briefcase, the uplink or a terminal: s16 modelnum,

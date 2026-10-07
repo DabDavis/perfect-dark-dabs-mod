@@ -706,8 +706,17 @@ void menuTick(void)
 
 				for (i = 0; i < MAX_PLAYERS; i++) {
 					if (mpIsHumanSlotOn(i)) {
+#ifndef PLATFORM_N64
+						if (g_NetMode != NETMODE_NONE && !netIsLocalPad(i)) {
+							// netplay: another machine's player has its end screen there
+						} else
+#endif
 						if (g_Vars.coopplayernum >= 0) {
-							if (g_Vars.stagenum == STAGE_DEEPSEA) {
+							if (g_Vars.stagenum == STAGE_DEEPSEA
+#ifndef PLATFORM_N64
+									&& g_NetMode == NETMODE_NONE // online: the end screen, like any mission
+#endif
+									) {
 								g_MissionConfig.stageindex++;
 								g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
 								titleSetNextStage(g_MissionConfig.stagenum);
@@ -803,6 +812,10 @@ void menuTick(void)
 			case MENUROOT_MPENDSCREEN:
 				if (g_Vars.normmplayerisrunning) {
 					var80087260 = 3;
+				} else if (g_NetMode != NETMODE_NONE && g_Vars.coopplayernum >= 0) {
+					// netplay: an online co-op mission goes back like a match
+					// (no stash was swapped: mpReset); the room reopens
+					var80087260 = 3;
 				} else if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 					struct mpplayerconfig tmp;
 
@@ -816,6 +829,9 @@ void menuTick(void)
 				}
 
 				if (g_Vars.coopplayernum >= 0
+#ifndef PLATFORM_N64
+						&& g_NetMode == NETMODE_NONE
+#endif
 						&& g_MissionConfig.stageindex <= SOLOSTAGEINDEX_SKEDARRUINS
 						&& ((!g_CheatsActiveBank0 && !g_CheatsActiveBank1) || isStageDifficultyUnlocked(g_MissionConfig.stageindex + 1, g_MissionConfig.difficulty))) {
 					endscreenPushSolo();

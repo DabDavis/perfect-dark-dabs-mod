@@ -1966,7 +1966,18 @@ static void netEvApply(struct netevc *e, f64 rt)
  */
 void netEventsClientDrain(s32 haveclock, f64 rt)
 {
-	if (!s_Q || !haveclock || s_ClientEnded) {
+	if (!haveclock || s_ClientEnded) {
+		return;
+	}
+
+	// the queue is made at the first EVENTS message; a match that has sent
+	// none yet (a mission's quiet opening) still has scenario blocks to
+	// apply below, so it is made here too
+	if (!s_Q) {
+		netEvQueueAlloc();
+	}
+
+	if (!s_Q) {
 		return;
 	}
 

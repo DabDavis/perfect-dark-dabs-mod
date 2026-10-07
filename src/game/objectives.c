@@ -24,6 +24,10 @@
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
+#ifndef PLATFORM_N64
+#include "net/net.h"
+#endif
+#include "game/coop.h"
 #include "platform.h"
 #include "gehud.h"
 
@@ -215,6 +219,11 @@ s32 objectiveCheck(s32 index)
 	u32 stack[5];
 	s32 objstatus = OBJECTIVE_COMPLETE;
 
+#ifndef PLATFORM_N64
+	// netplay: a client's objectives are the host's (its objects are puppets)
+	if (NET_CLIENT && netCoopObjectiveStatus(index, &objstatus)) return objstatus;
+#endif
+
 	if (index < ARRAYCOUNT(g_Objectives)) {
 		if (g_Objectives[index] == NULL) {
 			objstatus = g_ObjectiveStatuses[index];
@@ -395,7 +404,7 @@ void objectivesShowHudmsg(char *buffer, s32 hudmsgtype)
 	for (i = 0; i < PLAYERCOUNT(); i++) {
 		setCurrentPlayerNum(i);
 
-		if (g_Vars.currentplayer == g_Vars.bond || g_Vars.currentplayer == g_Vars.coop) {
+		if (g_Vars.currentplayer == g_Vars.bond || coopIsCoopPlayer(g_Vars.currentplayer)) {
 			hudmsgCreateWithFlags(buffer, hudmsgtype, HUDMSGFLAG_DELAY | HUDMSGFLAG_ALLOWDUPES);
 		}
 	}
@@ -409,6 +418,12 @@ void objectivesCheckAll(void)
 	s32 availableindex = 0;
 	s32 i;
 	char buffer[50] = "";
+
+#ifndef PLATFORM_N64
+	// netplay: the host's "Objective N: Completed" reaches a client as a
+	// hudmsg event (E7); its own statuses come in the mission block
+	if (NET_CLIENT) return;
+#endif
 
 	if (!g_ObjectiveChecksDisabled) {
 		for (i = 0; i <= g_ObjectiveLastIndex; i++) {
