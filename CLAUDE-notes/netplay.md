@@ -731,6 +731,95 @@ nothing is ever sent from one machine to another but names and hashes.
   elimination with gdb: hiding the doors (`OBJFLAG2_INVISIBLE`) took every
   shard away, their tick state matched the host's, and the one thing a
   door's draw reads that only the tick writes was `rwdata->dl.vertices`.
+- **The host's own view, flickering in the HD look (the same day).** The
+  user, hosting Dam's campaign alone in a lobby room: "the door by the spawn
+  of dam is glitching and also the truck". A lobby room's mission has a
+  seat per member slot (four here, three empty: dead, hidden, at the spawn
+  ring), and the host builds every player's view each frame and keeps only
+  its own (lv.c, `netDiscardPass`), in the order `playermgrShuffle` deals
+  every frame. An HD mesh keeps its pose and GPU palette for the frame
+  (xblamesh.c, keyed on `frameCount`, which `gfxSwapBuffers` moved), and
+  with them `posedmtx`/`gpumtx`: a *copy* of the model's root matrix,
+  which every view computes under its own camera. So whenever an empty
+  seat's view came before the host's, the host drew the gate and the truck
+  under that seat's camera, off its screen: the gate was there one frame
+  in three or four, a grey slab and black ground behind it the rest. The
+  N64 look never did it, nor one player alone, nor the same run with the
+  host's player forced first in the order (gdb on `playerorder`); the
+  door's state was the host's own all along. Now `xblaMeshPassBegin()`
+  moves the key at the head of each view in lvRender's loop: a view's
+  meshes are posed for that view (the arena stays the frame's). Any host
+  with more than one player had it (guests in a co-op mission, a Combat
+  Simulator match on an HD arena); a client never did (it builds only its
+  own player's view, `netClientRenderPass`). Found by filming the gate
+  every three frames from gdb (`screenshotRequest` called from the main
+  loop of the gdb script, never inside a Breakpoint's `stop()`, which
+  freezes the game).
+- **GoldenEye's watch online (the same day).** The user: "the ingame pause
+  menu it unreadable it shows sims and lots". gewatch.c's `watchIsMp()` read
+  `mplayerisrunning`, which `mpReset` sets for co-op too, so START in a
+  co-op mission on a converted level opened GoldenEye's multiplayer overlay
+  (every seat, the simulants). It reads `normmplayerisrunning` now (a match
+  started from the folder keeps the overlay; the Combat Simulator's own on a
+  GoldenEye arena keeps PD's dialog, `gexFrontIsInside`). Online the watch:
+  has an owner (`g_Watch.owner`: tick, render and `geWatchIsOpen` act for
+  that player only - the host ticks every player); never freezes the level
+  (`lvSetPaused` offline only; `pausemode` PAUSED still stops the zoom and a
+  second START); holds its owner's controls (`geWatchHoldsPlayer`,
+  `geWatchMpHoldsInput`); reads its owner's pad (`watchPadNum`: a client's
+  pad 0 is neutral); closes when its owner dies; and Abort goes through
+  `netCoopClientAbort`. On a client its commands are neutral while it is up
+  (netplayers.c, as a menu), the host's gun is not re-equipped over it
+  (netents.c) and prediction does not reconcile under it (netpredict.c,
+  "watch blocks left N" at the end of the prediction line). Left: a weapon
+  chosen on the watch's inventory page reaches the host only from the
+  host's own player (nothing on the wire carries a choice; PD's pause
+  inventory online is the same); the host's own player is unarmed to the
+  others while its watch is up; the static flash stays off online (the
+  host's RNG).
+- **An out-of-play seat's view is not built (the same day).** The user,
+  on hearing a host builds every player's view: "is that the most optimal
+  way?" Half of it has to stay - PD's simulation is per view (bgTick's
+  rooms, propsTickPlayer, autoaim, handsTickAttack's shot against what that
+  player had on screen) - and the costly half (gfx_run) never ran for a
+  discarded view. But an open seat's player (netSeatVacate: dead, hidden,
+  nothing in it moves or shoots) had its whole view built every frame: three
+  of the four in a lobby room played alone. `netHostRenderPass` skips such a
+  view (seat OPEN and vacated, player dead, no `dostartnewlife` pending - a
+  joiner's GO sets that, and the respawn happens inside the view's pass), as
+  `netClientRenderPass` skips a puppet's on a client, and
+  `netHostOrderPlayers` puts those seats last after playermgrShuffle, since
+  eight places key once-a-frame work on `currentplayerindex == 0` (bg.c,
+  prop.c, player.c). The frame's first pass always runs (a dedicated host
+  with every seat open). The seats line says how many views were skipped
+  ("their views not built N").
+  **Measured, not done: a remote player's view without its drawing.**
+  Dam co-op in the HD look, a host and three idle clients on one machine,
+  the host's main thread over ticks 1200-2400 (`perf stat -t`, the game's
+  pid by its --savedir - not timeout's): alone 14.4 M instructions a tick;
+  with the three views built as now 31.3 / 31.2 M; with a temporary switch
+  skipping the views' drawing calls (skyRender, gebeanStageRenderBackdrop,
+  bgRender with the props, beams, puffs, shards, sparks, weather, the HUD)
+  22.2 / 22.5 M. So a guest's view costs the host about 5.6 M a tick, 3.0
+  M of it drawing that is thrown away and 2.6 M the simulation it needs:
+  skipping the drawing would take ~29% off the host's thread with three
+  guests, ~43% with eleven. Cycles were too noisy to use with four games
+  on one box (25.4 / 30.4 against 24.5 / 21.0 M; the frame limiter also
+  spins its last 1.5 ms, sync_framerate_with_timer). Before doing it: the
+  drawing calls have game side effects to keep (ROOMFLAG and prop
+  on-screen flags, the sky's flare timers), so an audit, then the net
+  gates; idle guests at the spawn understate the simulation half. A host
+  refuses every joiner while its own Mod.SimBrain is "modern", and an HD
+  host one whose Mod.XblaMeshes differs (both met setting this up).
+- **Seen once: netcontenttest geyolt, the client's START respawn missed
+  (2026-10-07).** In the gate run for the commits above, the client took
+  its first death from the host's block, pressed START every second, and
+  never came back ("deaths 1, respawns 0", 935 ticks out, no revive), while
+  the host had respawned it (the second staged kill found it alive). The
+  same binary passed the case alone three times after. Not traced: the
+  client's side is netEntsClientApplyLocal's `s_LpRespawnPending` from the
+  block's respawn counter (`netLpTrack` on the host). Rerun the case alone
+  (`CASES=geyolt`); if it comes back, trace that counter on both sides.
 - **Still open on a client:** the gate's switch on Dam (the pillar beside the
   tunnel gate) shows its light grey where the host's is red; Dam's truck,
   inside the near plane of one opening still, may not fade on a client
