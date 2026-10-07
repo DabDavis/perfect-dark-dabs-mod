@@ -1675,8 +1675,10 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 	char eweap[40 * 6];
 	char emod[(NETLOBBY_MAXMOD + 1) * 6];
 	char ege[16 * 6];
+	char coop[64] = "";
 	struct netcontentneed need;
-	const s32 sims = mpGetNumSimSlotsOn();
+	// a co-op room's mission has none (the Combat Simulator setup's are not its)
+	const s32 sims = g_NetCoopSetup.on ? 0 : mpGetNumSimSlotsOn();
 
 	// the mod and GoldenEye mode the room plays in (protocol 13): listed so
 	// a joiner can see what its own game needs before it joins
@@ -1705,6 +1707,11 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 		} else {
 			snprintf(key, sizeof(key), "mission:%02x", g_NetCoopSetup.stageindex);
 		}
+
+		// what the Game Lobby's summary says of a co-op room in place of
+		// the limits and the simulants
+		snprintf(coop, sizeof(coop), ",\"radar\":%d,\"friendly_fire\":%d", g_NetCoopSetup.radar ? 1 : 0,
+				g_NetCoopSetup.friendlyfire ? 1 : 0);
 	} else {
 		lobbyCleanName(mpMenuTextArenaName(NULL), stage, 33);
 		lobbyCleanName(mpMenuTextScenarioShortName(NULL), scenario, 33);
@@ -1719,12 +1726,12 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 
 	return snprintf(out, size,
 			"\"stage\":\"%s\",\"scenario\":\"%s\",\"sims\":%d,\"mod\":\"%s\",\"ge\":\"%s\","
-			"\"rules\":{\"stage_key\":\"%.32s\",\"time_limit\":%d,\"score_limit\":%d,\"team_score_limit\":%d,\"weapons\":\"%s\"}%s",
+			"\"rules\":{\"stage_key\":\"%.32s\",\"time_limit\":%d,\"score_limit\":%d,\"team_score_limit\":%d,\"weapons\":\"%s\"%s}%s",
 			estage, escen, sims, emod, ege, ekey,
 			g_MpSetup.timelimit >= 60 ? 0 : g_MpSetup.timelimit + 1,
 			g_MpSetup.scorelimit >= 100 ? 0 : g_MpSetup.scorelimit + 1,
 			g_MpSetup.teamscorelimit >= 400 ? 0 : g_MpSetup.teamscorelimit + 1,
-			eweap, withcompat ? "," : "");
+			eweap, coop, withcompat ? "," : "");
 }
 
 static s32 lobbyCompatJson(char *out, s32 size)

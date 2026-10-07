@@ -1542,10 +1542,43 @@ static char *textRoomSettings(struct menuitem *item)
 	const char *time = ruleValue("time_limit");
 	const char *score = ruleValue("score_limit");
 	const char *weapons = ruleValue("weapons");
+	const char *key = ruleValue("stage_key");
 
 	// one line each (item->param): a label that grows a line after the
 	// dialog is laid out pushes the rows above it under the title bar
-	if (item->param == 2) {
+	if (key && (strncmp(key, "mission:", 8) == 0 || strncmp(key, "campaign:", 9) == 0)) {
+		// a co-op room (netcoop.c): its mission, difficulty and options,
+		// none of the Combat Simulator's limits, weapons or simulants
+		const s32 campaign = key[0] == 'c';
+		const char *radar = ruleValue("radar");
+		const char *ff = ruleValue("friendly_fire");
+		char host[48];
+		char tail[64];
+		char stage[64];
+
+		if (item->param == 2) {
+			snprintf(host, sizeof(host), "%s", room->sum.host[0] ? room->sum.host : "-");
+			labelFitDots(host, sizeof(host), 96);
+			snprintf(tail, sizeof(tail), "   Host: %s", host);
+			snprintf(stage, sizeof(stage), "%s", room->sum.stage[0] ? room->sum.stage : "-");
+			labelFitDots(stage, sizeof(stage), LABEL_WIDTH - labelWidth(campaign ? "Campaign: " : "Mission: ") - labelWidth(tail));
+			snprintf(text, sizeof(texts[0]), "%s%s%s\n", campaign ? "Campaign: " : "Mission: ", stage, tail);
+		} else if (item->param == 0) {
+			char mode[48];
+
+			snprintf(mode, sizeof(mode), "%s", campaign ? "Host picks missions" : room->sum.scenario);
+			snprintf(text, sizeof(texts[0]), "%s   Radar: %s   Friendly Fire: %s\n", mode,
+					radar && strcmp(radar, "0") ? "On" : radar ? "Off" : "-", ff && strcmp(ff, "0") ? "On" : ff ? "Off" : "-");
+		} else if (room->sum.mod[0]) {
+			char mod[64];
+
+			snprintf(mod, sizeof(mod), "%s", room->sum.mod);
+			labelFitDots(mod, sizeof(mod), LABEL_WIDTH - labelWidth("Mod: "));
+			snprintf(text, sizeof(texts[0]), "Mod: %s\n", mod);
+		} else {
+			snprintf(text, sizeof(texts[0]), "%s", "Mod: none\n");
+		}
+	} else if (item->param == 2) {
 		// a label does not widen the dialog (CLAUDE-notes/text-rendering.md):
 		// each value cut to what is left of the line, the host's name kept
 		char arena[64];
