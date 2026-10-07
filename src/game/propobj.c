@@ -12385,6 +12385,12 @@ s32 objTickPlayer(struct prop *prop)
 		}
 	}
 
+#ifndef PLATFORM_N64
+	if (fulltick && NET_CLIENT && obj->type == OBJTYPE_DOOR) { // netplay C6c: a door's clipped vertices
+		netPuppetDoorTick(prop);
+	}
+#endif
+
 	if (fulltick && !NET_CLIENT) { // netplay C6a: projectiles, doors and machines are the host's
 		if (model->anim == NULL && (obj->hidden & OBJHFLAG_PROJECTILE)) {
 			sp592 = projectileTick(obj, &embedded);

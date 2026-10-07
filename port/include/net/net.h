@@ -251,6 +251,8 @@ s32 netIsPuppet(struct prop *prop);
 void netClientPosePuppets(void);
 // C5: objTick on the client
 u32 netPuppetObjTick(struct prop *prop);
+// C6c: objTickPlayer's full tick of a door on the client (its clipped vertices)
+void netPuppetDoorTick(struct prop *prop);
 // C12: currentPlayerInteract on the client: whether nothing was in reach
 // (the host does the opening)
 s32 netClientInteract(s32 eyespy);

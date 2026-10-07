@@ -1153,6 +1153,9 @@ static void netPupDoor(struct netpup *u, struct prop *prop, const struct netents
 		door->frac = frac;
 		doorUpdateTiles(door);
 		setup0f0923d4(&door->base);
+		// clipped to its box at this frac, as doorsCalcFrac does while a
+		// door moves (netPuppetDoorTick keeps it from the next tick on)
+		func0f08d3dc(door);
 		s_DoorMoves++;
 
 		if (frac > 0) {
@@ -2163,6 +2166,32 @@ u32 netPuppetObjTick(struct prop *prop)
 	}
 
 	return TICKOP_NONE;
+}
+
+/**
+ * objTickPlayer's full tick of a door on a client, where doorTick is the
+ * host's. A door that clips to its box as it slides (DOORFLAG_0004: most of
+ * a converted GoldenEye level's) draws its display list from vertices
+ * clipped by doorsCalcFrac every tick - into the door's own buffer once it
+ * is still (func0f08d460), into the frame's while it moves (func0f08d3dc,
+ * also the load's). Never ticked here, every such door drew from the
+ * load's frame memory, whatever the frames since had put there: Dam's
+ * tower doors were shards that changed every frame on every client while
+ * their state was the host's to the digit (2026-10-07).
+ */
+void netPuppetDoorTick(struct prop *prop)
+{
+	struct doorobj *door = prop->door;
+
+	if (!door || !(door->doorflags & DOORFLAG_0004)) {
+		return;
+	}
+
+	if (door->doorflags & DOORFLAG_0080) {
+		func0f08d460(door);
+	} else {
+		func0f08d3dc(door);
+	}
 }
 
 s32 netClientInteract(s32 eyespy)

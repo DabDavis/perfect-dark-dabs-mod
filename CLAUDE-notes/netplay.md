@@ -43,7 +43,7 @@
   set in RULES, stage key kind 3) and **campaign rooms** (the host plays
   its set's menus; each mission it starts is the room's next match; the
   black screen on GoldenEye's openings, late joins, the host's menus and
-  what a client drew wrong: 2026-10-07).
+  what a client drew wrong, its doors among them: 2026-10-07).
 
 ## The shape
 
@@ -714,17 +714,27 @@ nothing is ever sent from one machine to another but names and hashes.
   before, blew a stretched object up). The client's own gun stood in its
   opening's shots: the local block re-equipped it from the host, which
   plays no opening for that player; not while `gecinemaIntroIsOn()`.
-- **Still wrong on a client, found but not fixed:** Dam's tower doors
-  (models 690-692, 670, 837; 18 doors) draw as shards that change from frame
-  to frame. Hiding the doors on the client (`OBJFLAG2_INVISIBLE` by gdb)
-  takes every shard away; their `frac`, `maxfrac`, mode, place and
-  `realrot` are the host's to the digit, all one matrix on `g_SkelBasic`,
-  `--cpu-vertices` changes nothing, the same install as the host changes
-  nothing, and the old binary (1165f9253) has them too. Next: what a door's
-  draw reads that the client never writes (the host's `doorTick` and the
-  rest of `objTick`'s `fulltick && !NET_CLIENT` block). And Dam's truck,
-  inside the near plane of one opening still (gecinemaPropAlpha), fades on
-  the host and not on a client.
+- **A client's doors that clip to their box (the same day).** Dam's tower
+  doors and its tunnel gate drew as shards that changed every frame on
+  every client, with their `frac`, mode, place, rooms and `realrot` the
+  host's to the digit. A door with `DOORFLAG_0004` (clips to its box as it
+  slides: most of a converted GoldenEye level's, and by xblamesh.c's count
+  nearly every sliding door in Perfect Dark's own) draws its display list
+  from clipped vertices that `doorsCalcFrac` makes every tick: into the
+  door's own buffer once it is still (`func0f08d460`, `door->unka4`), into
+  the frame's memory while it moves and at the load (`func0f08d3dc`,
+  `gfxAllocateVertices`). A client never runs `doorTick`, so every such
+  door drew from the load's frame memory, whatever later frames had put
+  there. Now objTickPlayer's full tick calls `netPuppetDoorTick` for a
+  door on a client (C6c), which does the still-door half, and `netPupDoor`
+  clips again whenever a record changes the door's `frac`. Found by
+  elimination with gdb: hiding the doors (`OBJFLAG2_INVISIBLE`) took every
+  shard away, their tick state matched the host's, and the one thing a
+  door's draw reads that only the tick writes was `rwdata->dl.vertices`.
+- **Still open on a client:** the gate's switch on Dam (the pillar beside the
+  tunnel gate) shows its light grey where the host's is red; Dam's truck,
+  inside the near plane of one opening still, may not fade on a client
+  (gecinemaPropAlpha) - seen once, not confirmed after the door fix.
 - **Test switches for these (lobby script host):** `--net-lobby-campaign
   TAG` (the room is TAG's campaign: "pd", "ge", "gf64", "tnd64"),
   `--net-lobby-solo` (LAUNCH with nobody else in), `--net-lobby-menus` (made
