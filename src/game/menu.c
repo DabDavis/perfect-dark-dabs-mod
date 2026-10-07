@@ -63,6 +63,7 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "video.h"
 #include "input.h"
@@ -6482,9 +6483,8 @@ u32 menuChooseMusic(void)
 
 	if (g_MenuData.root == MENUROOT_MPENDSCREEN) {
 		if (g_Vars.coopplayernum >= 0) {
-			if ((g_Vars.bond->isdead && g_Vars.coop->isdead)
-					|| g_Vars.bond->aborted
-					|| g_Vars.coop->aborted
+			if (coopAllDead()
+					|| coopAnyAborted()
 					|| !objectiveIsAllComplete()) {
 				return MUSIC_MISSION_FAILED;
 			}

@@ -10,6 +10,7 @@
 #include "lib/lib_39c80.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "system.h"
 #endif
@@ -1063,7 +1064,7 @@ void musicTick(void)
 		if (g_MusicDeathTimer240 > 0
 				&& (g_Vars.normmplayerisrunning
 					|| (g_Vars.antiplayernum >= 0 && !g_Vars.bond->isdead)
-					|| (g_Vars.coopplayernum >= 0 && (!g_Vars.bond->isdead || !g_Vars.coop->isdead)))) {
+					|| (g_Vars.coopplayernum >= 0 && !coopAllDead()))) {
 			// Someone is dying in MP, or anti is dying, or *one* person is dying in coop
 			g_MusicSilenceTimer60 = 0;
 			g_MusicDeathTimer240 -= g_Vars.lvupdate240;

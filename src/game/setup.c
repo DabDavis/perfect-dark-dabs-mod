@@ -42,6 +42,7 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #include "gexplus.h"
 #include "gexfront.h"
 #include "gecinema.h"
@@ -881,8 +882,9 @@ void setupCreateMine(struct mineobj *mine, s32 cmdindex)
 	setupCreateObject(&mine->base, cmdindex);
 
 	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
-		mine->base.hidden = (mine->base.hidden & 0x0fffffff) | (2 << 28);
-		NET_OBJ_OWNER(&mine->base, 2);
+		// no player's: 2 on the N64 (the third slot), past every slot online
+		mine->base.hidden = (mine->base.hidden & 0x0fffffff) | ((u32)COOP_SETUP_MINE_OWNER << 28);
+		NET_OBJ_OWNER(&mine->base, COOP_SETUP_MINE_OWNER);
 	}
 
 	mine->base.prop->forcetick = true;
@@ -2171,6 +2173,13 @@ void setupCreateProps(s32 stagenum)
 			diffflag |= 1 << (lvGetDifficulty() + 4);
 
 			if (g_Vars.mplayerisrunning) {
+#ifndef PLATFORM_N64
+				// online co-op past two players: the mission as its two-player
+				// co-op lays it out (spec-coop.md)
+				if (g_NetMode != NETMODE_NONE && g_Vars.coopplayernum >= 0) {
+					diffflag |= OBJFLAG2_EXCLUDE_2P;
+				} else
+#endif
 				if (PLAYERCOUNT() == 2) {
 					diffflag |= OBJFLAG2_EXCLUDE_2P;
 				} else if (PLAYERCOUNT() == 3) {

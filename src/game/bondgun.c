@@ -66,6 +66,7 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "game/stagetable.h"
 #include "video.h"
@@ -8012,8 +8013,7 @@ void bgunDisarm(struct prop *attackerprop)
 		// Coop must not allow player to drop a mission critical weapon
 		// because AI lists can fail the mission if the player has zero
 		// quantity.
-		if (g_Vars.coopplayernum >= 0
-				&& (attackerprop == g_Vars.bond->prop || attackerprop == g_Vars.coop->prop)
+		if (coopIsPlayerProp(attackerprop)
 				&& bgunIsMissionCritical(weaponnum)) {
 			return;
 		}

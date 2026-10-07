@@ -1357,12 +1357,11 @@ struct chrdata {
 	u8 darkroomthing : 1;
 	u8 playerdeadthing : 1;
 
-	u8 p1p2 : 2;
+	u8 p1p2 : 4; // a player index: 0-1 on the N64, 0-11 online (co-op of up to twelve); unk32c_22's two unused bits
 	u8 unk32c_18 : 1;
 	u8 noblood : 1;
 	u8 rtracked : 1;
 	u8 unk32c_21 : 1;
-	u8 unk32c_22 : 2;
 
 	u8 specialdie : 8;
 

@@ -31,6 +31,7 @@
 #include "lib/anim.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
 #include "gehitpuff.h"
@@ -1141,8 +1142,8 @@ void explosionInflictDamage(struct prop *expprop)
 						}
 					} else if (exp->owner == g_Vars.bondplayernum) {
 						ownerprop = g_Vars.bond->prop;
-					} else if (g_Vars.coopplayernum >= 0 && exp->owner == g_Vars.coopplayernum) {
-						ownerprop = g_Vars.coop->prop;
+					} else if (g_Vars.coopplayernum >= 0 && exp->owner >= 0 && exp->owner < MAX_PLAYERS && g_Vars.players[exp->owner]) {
+						ownerprop = g_Vars.players[exp->owner]->prop; // any coop player's (coop.c)
 					} else if (g_Vars.antiplayernum >= 0 && exp->owner == g_Vars.antiplayernum) {
 						ownerprop = g_Vars.anti->prop;
 					}
@@ -1382,8 +1383,9 @@ u32 explosionTick(struct prop *prop)
 				chr = mpGetChrFromPlayerIndex(exp->owner);
 			} else if (g_Vars.antiplayernum >= 0 && exp->owner == g_Vars.antiplayernum) {
 				chr = g_Vars.anti->prop->chr;
-			} else if (g_Vars.coopplayernum >= 0 && exp->owner == g_Vars.coopplayernum) {
-				chr = g_Vars.coop->prop->chr;
+			} else if (g_Vars.coopplayernum >= 0 && exp->owner >= 0 && exp->owner < MAX_PLAYERS && g_Vars.players[exp->owner]
+					&& g_Vars.players[exp->owner]->prop) {
+				chr = g_Vars.players[exp->owner]->prop->chr; // any coop player's (coop.c)
 			} else {
 				chr = g_Vars.bond->prop->chr;
 			}

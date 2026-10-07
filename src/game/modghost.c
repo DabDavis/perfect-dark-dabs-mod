@@ -23,6 +23,7 @@
 #include "lib/vars.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #include "fs.h"
 #include "system.h"
 #include "versioninfo.h"
@@ -332,7 +333,7 @@ bool modGhostMenuCharacterApplies(void)
 		return false;
 	}
 
-	if (g_Vars.coopplayernum >= 0 && g_Vars.currentplayer == g_Vars.coop) {
+	if (coopIsCoopPlayer(g_Vars.currentplayer)) {
 		return false;
 	}
 

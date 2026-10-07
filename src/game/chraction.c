@@ -65,6 +65,7 @@
 #include "game/modghost.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
 #ifndef PLATFORM_N64
@@ -16531,14 +16532,11 @@ void chrsClearRefsToPlayer(s32 playernum)
 	s32 playerpropnum;
 	s32 i;
 
-	if (g_Vars.coopplayernum >= 0) {
-		if (playernum == g_Vars.bondplayernum) {
-			otherplayernum = g_Vars.coopplayernum;
-			playerpropnum = g_Vars.bond->prop - g_Vars.props;
-		} else {
-			otherplayernum = g_Vars.bondplayernum;
-			playerpropnum = g_Vars.coop->prop - g_Vars.props;
-		}
+	if (g_Vars.coopplayernum >= 0 && playernum >= 0 && playernum < MAX_PLAYERS
+			&& g_Vars.players[playernum] && g_Vars.players[playernum]->prop) {
+		// the other player: the nearest living one past two players (coop.c)
+		otherplayernum = coopOtherPlayerNum(playernum);
+		playerpropnum = g_Vars.players[playernum]->prop - g_Vars.props;
 
 		for (i = 0; i < chrsGetNumSlots(); i++) {
 			if (g_ChrSlots[i].p1p2 == playernum) {
@@ -16607,7 +16605,7 @@ s32 chrResolveId(struct chrdata *ref, s32 id)
 			break;
 		case CHR_P1P2_OPPOSITE:
 			if (g_Vars.coopplayernum >= 0) {
-				struct player *player = g_Vars.players[1 - ref->p1p2];
+				struct player *player = g_Vars.players[coopOtherPlayerNum(ref->p1p2)];
 				if (player && player->prop && player->prop->chr) {
 					id = player->prop->chr->chrnum;
 				}

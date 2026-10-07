@@ -55,6 +55,7 @@
 #include "lib/libc/ll.h"
 #include "data.h"
 #include "types.h"
+#include "game/coop.h"
 #ifndef PLATFORM_N64
 #include "gexplus.h"
 #include "gesfx.h"
@@ -2291,7 +2292,7 @@ bool aiIfChrActivatedObject(void)
 				if (chr->prop == g_Vars.bond->prop && (obj->hidden & OBJHFLAG_ACTIVATED_BY_BOND)) {
 					pass = true;
 					obj->hidden &= ~OBJHFLAG_ACTIVATED_BY_BOND;
-				} else if (g_Vars.coopplayernum >= 0 && chr->prop == g_Vars.coop->prop && (obj->hidden & OBJHFLAG_ACTIVATED_BY_COOP)) {
+				} else if (coopIsPlayerProp(chr->prop) && chr->prop != g_Vars.bond->prop && (obj->hidden & OBJHFLAG_ACTIVATED_BY_COOP)) {
 					pass = true;
 					obj->hidden &= ~OBJHFLAG_ACTIVATED_BY_COOP;
 				}
@@ -7344,11 +7345,7 @@ bool aiSayQuip(void)
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 
 		if (g_Vars.coopplayernum >= 0 && g_Vars.players[playernum]->isdead) {
-			if (playernum == g_Vars.bondplayernum) {
-				playernum = g_Vars.coopplayernum;
-			} else {
-				playernum = g_Vars.bondplayernum;
-			}
+			playernum = coopOtherPlayerNum(playernum);
 		}
 
 		setCurrentPlayerNum(playernum);
@@ -9443,10 +9440,11 @@ bool aiToggleP1P2(void)
 		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 		if (chr) {
-			if (chr->p1p2 == g_Vars.bondplayernum && !g_Vars.coop->isdead) {
-				chr->p1p2 = g_Vars.coopplayernum;
-			} else if (!g_Vars.bond->isdead) {
-				chr->p1p2 = g_Vars.bondplayernum;
+			// the other player (the nearest living one past two: coop.c) if it lives
+			const s32 other = coopOtherPlayerNum(chr->p1p2);
+
+			if (coopPlayerAlive(other)) {
+				chr->p1p2 = other;
 			}
 		}
 	}
@@ -9471,11 +9469,7 @@ bool aiChrSetP1P2(void)
 			u32 playernum = playermgrGetPlayerNumByProp(chr2->prop);
 
 			if (!g_Vars.players[playernum]->isdead) {
-				if (chr2->prop == g_Vars.coop->prop) {
-					chr1->p1p2 = g_Vars.coopplayernum;
-				} else {
-					chr1->p1p2 = g_Vars.bondplayernum;
-				}
+				chr1->p1p2 = playernum;
 			}
 		}
 	}

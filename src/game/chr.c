@@ -54,6 +54,7 @@
 #include "geimpact.h"
 #include "gehitpuff.h"
 #include "types.h"
+#include "game/coop.h"
 #include "game/modoptions.h"
 #ifndef PLATFORM_N64
 #include "geroom.h"
@@ -6180,7 +6181,7 @@ bool chrCalculateAutoAim(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *
 			&& (chr->chrflags & CHRCFLAG_NOAUTOAIM) == 0
 			&& ((chr->hidden & CHRHFLAG_CLOAKED) == 0 || USINGDEVICE(DEVICE_IRSCANNER))
 			&& !(prop->type == PROPTYPE_PLAYER && g_Vars.players[playermgrGetPlayerNumByProp(prop)]->isdead)
-			&& !(g_Vars.coopplayernum >= 0 && (prop == g_Vars.bond->prop || prop == g_Vars.coop->prop))) {
+			&& !coopIsPlayerProp(prop)) {
 		struct model *model = chr->model;
 		Mtxf *mtx1;
 		Mtxf *mtx2;

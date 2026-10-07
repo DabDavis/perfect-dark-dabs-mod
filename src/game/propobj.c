@@ -83,6 +83,7 @@
 #include "geimpact.h"
 #include "gehitpuff.h"
 #include "types.h"
+#include "game/coop.h"
 #include "string.h"
 #ifndef PLATFORM_N64
 #include "system.h"
@@ -5058,15 +5059,15 @@ void weaponTick(struct prop *prop)
 			// You can't throw a mine on yourself anyway, so this check always passes
 			if (prop->parent == NULL || parentchr == NULL || mpPlayerGetIndex(parentchr) != ownerplayernum) {
 				if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
-					if (ownerplayernum == 2) {
+					if (ownerplayernum == COOP_SETUP_MINE_OWNER) {
+						// the setup's own mine: any player detonates it
 						u32 mask = 0;
+						s32 k;
 
-						if (g_Vars.coop && g_Vars.coop->prop) {
-							mask |= 1 << playermgrGetPlayerNumByProp(g_Vars.coop->prop);
-						}
-
-						if (g_Vars.bond && g_Vars.bond->prop) {
-							mask |= 1 << playermgrGetPlayerNumByProp(g_Vars.bond->prop);
+						for (k = 0; k < MAX_PLAYERS; k++) {
+							if (g_Vars.players[k] && g_Vars.players[k]->prop) {
+								mask |= 1 << k;
+							}
 						}
 
 						g_PlayersDetonatingMines &= mask;
@@ -9127,11 +9128,7 @@ void cctvTick(struct prop *camprop)
 
 	// If playing in coop mode, cycle between players in alternating frames
 	if (g_Vars.coopplayernum >= 0) {
-		if (g_Vars.lvframenum & 1) {
-			playerprop = g_Vars.bond->prop;
-		} else {
-			playerprop = g_Vars.coop->prop;
-		}
+		playerprop = coopAlternatePlayerProp();
 	} else {
 		playerprop = g_Vars.bond->prop;
 	}
@@ -9696,11 +9693,7 @@ void autogunTick(struct prop *prop)
 		} else {
 			// Not configured for teams, so target a player
 			if (g_Vars.coopplayernum >= 0) {
-				if (g_Vars.lvframenum & 1) {
-					target = g_Vars.bond->prop;
-				} else {
-					target = g_Vars.coop->prop;
-				}
+				target = coopAlternatePlayerProp();
 			} else {
 				target = g_Vars.bond->prop;
 			}
@@ -17934,7 +17927,7 @@ bool propobjInteract(struct prop *prop)
 	if (g_Vars.normmplayerisrunning) {
 		scenarioHandleActivatedProp(g_Vars.currentplayer->prop->chr, prop);
 	} else {
-		if (g_Vars.currentplayernum == g_Vars.coopplayernum) {
+		if (coopIsCoopPlayer(g_Vars.currentplayer)) {
 			obj->hidden |= OBJHFLAG_ACTIVATED_BY_COOP;
 		} else if (g_Vars.currentplayernum == g_Vars.bondplayernum) {
 			obj->hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
@@ -22771,7 +22764,7 @@ void doorsActivate(struct prop *doorprop, bool allowliftclose)
 		}
 	}
 
-	if (g_Vars.currentplayernum == g_Vars.coopplayernum) {
+	if (coopIsCoopPlayer(g_Vars.currentplayer)) {
 		door->base.hidden |= OBJHFLAG_ACTIVATED_BY_COOP;
 	} else if (g_Vars.currentplayernum == g_Vars.bondplayernum) {
 		door->base.hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
@@ -22872,7 +22865,7 @@ bool propdoorInteract(struct prop *doorprop)
 			}
 		}
 
-		if (g_Vars.currentplayernum == g_Vars.coopplayernum) {
+		if (coopIsCoopPlayer(g_Vars.currentplayer)) {
 			door->base.hidden |= OBJHFLAG_ACTIVATED_BY_COOP;
 		} else if (g_Vars.currentplayernum == g_Vars.bondplayernum) {
 			door->base.hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
