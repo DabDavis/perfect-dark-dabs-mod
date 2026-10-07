@@ -5331,6 +5331,7 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 	f32 sqdist;
 	f32 lowestsqdist;
 	s32 texturenum;
+	bool standin;
 	s32 index;
 	struct coord *point1;
 	struct coord *point2;
@@ -5480,6 +5481,7 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 #endif
 												) {
 											hit = true;
+											standin = false;
 
 											tmpgdl = iter;
 
@@ -5504,6 +5506,15 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 											// its malloc'd buffer (ASan, HD Temple)
 											} else if (gebeanStageIsTile((uintptr_t)tmpgdl->words.w1)) {
 												texturenum = gebeanStageHitTexture(roomnum, &spb0);
+											// So does a Perfect Dark XBLA room's record past the ROM's
+											// table, or a slot 4J reused (xblaStageWriteTexture()): the
+											// read gave the stand-in's malloc header, or whatever static
+											// data sits before the white tile. No ROM triangle is under
+											// it to ask, so it is the default surface, and a translucent
+											// one lets a shot through as the game's own default ones do
+											} else if (xblaStageIsStandIn((uintptr_t)tmpgdl->words.w1)) {
+												texturenum = -1;
+												standin = true;
 #endif
 											} else {
 #ifdef PLATFORM_N64
@@ -5515,7 +5526,8 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 											}
 
 #ifdef AVOID_UB
-											if (batch->type == VTXBATCHTYPE_XLU && texturenum >= 0 && texturenum < NUM_TEXTURES && g_Textures[texturenum].surfacetype == SURFACETYPE_DEFAULT) {
+											if (batch->type == VTXBATCHTYPE_XLU && (standin
+													|| (texturenum >= 0 && texturenum < NUM_TEXTURES && g_Textures[texturenum].surfacetype == SURFACETYPE_DEFAULT))) {
 #else
 											if (batch->type == VTXBATCHTYPE_XLU && g_Textures[texturenum].surfacetype == SURFACETYPE_DEFAULT) {
 #endif

@@ -856,6 +856,25 @@ const void *xblaTexBindTexture(s32 texturenum, u8 *rgba, s32 width, s32 height)
 	return xblaTexBindPicture(key, rgba, width, height, texturenum);
 }
 
+s32 xblaTexIsRecordTile(const void *addr)
+{
+	const struct xblatexentry *e;
+	s32 found = 0;
+
+	if (!lock || numBound == 0 || !addr) {
+		return 0;
+	}
+
+	SDL_LockMutex(lock);
+
+	e = xblaTexFind(addr);
+	found = e && e->record != XBLATEX_NOREC;
+
+	SDL_UnlockMutex(lock);
+
+	return found;
+}
+
 s32 xblaTexImageInfo(const void *addr, s32 *outAlpha, s32 *outSoft)
 {
 	const struct xblatexentry *e;

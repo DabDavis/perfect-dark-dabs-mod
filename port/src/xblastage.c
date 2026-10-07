@@ -607,6 +607,11 @@ static s32 xblaStageLog2(s32 n)
  * gSPTexture before it divides by the tile: a coordinate of one source width
  * lands at one tile width, which is where the replacement is sampled from.
  */
+s32 xblaStageIsStandIn(uintptr_t addr)
+{
+	return addr && (addr == (uintptr_t)xblaStageWhiteTile || xblaTexIsRecordTile((const void *)addr));
+}
+
 Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record)
 {
 	const s32 smode = (cmd->words.w0 >> 22) & 3;
@@ -855,6 +860,7 @@ u32 xblaStageRoomSize(s32 roomnum) { return 0; }
 uintptr_t xblaStageRoomRead(s32 roomnum, u8 *dst, u32 len) { return 0; }
 void xblaStageRoomDone(void) { }
 s32 xblaStageDrawsEveryRoom(void) { return 0; }
+s32 xblaStageIsStandIn(uintptr_t addr) { return 0; }
 s32 xblaStageIsRelease(void) { return 0; }
 s32 xblaStageSlotIsReused(u32 texturenum) { return 0; }
 void xblaStageSetVerbose(s32 verbose) { }

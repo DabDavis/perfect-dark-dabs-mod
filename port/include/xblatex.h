@@ -146,6 +146,13 @@ const void *xblaTexBindTexture(s32 texturenum, u8 *rgba, s32 width, s32 height);
  * addr is not such a stand-in.
  */
 s32 xblaTexImageInfo(const void *addr, s32 *outAlpha, s32 *outSoft);
+
+/**
+ * Whether addr is a record's stand-in tile (xblaTexBind()): memory of its own,
+ * with no texture of the game's around it. A picture bound at a texture's own
+ * address (xblaTexBindPictureAt()) is not one.
+ */
+s32 xblaTexIsRecordTile(const void *addr);
 s32 xblaTexImageMean(const void *addr, f32 outMean[3]);
 
 /**

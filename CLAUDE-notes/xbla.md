@@ -9,6 +9,8 @@ the long form.
 
 Added since, and not in CLAUDE.md:
 
+- **A shot at a release room's own picture read a malloc header as its texture** — xbla.md, "A shot at a release room's stand-in": `xblaStageIsStandIn()` (a record's tile from `xblaTexBind()`, or the white tile) is asked before bg.c's read of the s16 8 bytes before a G_SETTIMG's image; such a hit is texture -1 (the default surface) and a translucent one passes, as the game's default ones do; 30 of 30 such hits in seeded matches on 0x45/0x31 read 2065 (0x811, the 2048-byte tile's chunk header) before
+
 - **A pack that repaints a shiny material as matte (Joanna's combat suit)** — xbla.md, "A pack that makes a material matte": `xblaMeshMattes` in xblamesh.c, a row per record + byte-16 percent + pack-name word; 0x12a6 at 15% goes to nothing under PD Ultimate Plus HD (its fabric side panels; the 50% pads keep theirs); read when the frame is drawn, keyed on `texpackGetIndexSerial()`, so F10 follows; the Xbox 360 style's `dimcol` is passed over while a row applies
 
 
@@ -4629,3 +4631,37 @@ unpack it again.
 `xblaImportIsAvailable()` is the question to ask when all you want to know is
 whether there is a package — it never unpacks. `xblaImportGetStfsPath()` blocks
 for the unpack and belongs only on a path that is about to read the package.
+
+## A shot at a release room's stand-in (2026-10-07)
+
+`bgTestHitInVtxBatch()` finds a hit triangle's texture by walking back to
+the list's G_SETTIMG and reading the s16 8 bytes before its image: the
+game's texture cache keeps the number there. A release room's record past
+the ROM's table, or a slot 4J reused (`xblaslots.h`), is loaded instead by
+`xblaStageWriteTexture()` from a 32x32 stand-in of `xblaTexBind()`'s
+(malloc'd, kept for the game's life) or from `xblaStageWhiteTile` (static),
+so the read gave the malloc chunk's size word or whatever static data sits
+before the white tile. Found by the netplay audit of what the XBLA look does
+to the simulation (netplay.md, "A player's own look"); GoldenEye's HD rooms
+had the same fault and `gebeanStageHitTexture()` mended theirs.
+
+Measured with a log line in the new branch (seeded `--boot-stage S
+--mpsims 80 --spectate --fixed-step`, 6000 frames, every XBLA part on): 0
+such hits on 0x1c, 0x2c and 0x32, 1 on 0x31, 29 on 0x45, every one opaque
+and every one reading 2065 (0x811: a 2048-byte tile's chunk of 2064 with
+its in-use bit), so each took texture 2065's surface (impact, sound, hole)
+and, for a translucent one, its pass-through rule. A `--xbla-stage-verbose`
+sweep of the stages lists which bind stand-ins ("xblastage: record N ...
+bound"): 0x0a-0x15 are GoldenEye's arenas (their tiles are `gebeanStage`'s,
+asked first), and of Perfect Dark's own 0x1c binds 11 records, 0x2c 7, 0x31
+6, 0x45 5, 0x27 4, 0x32 one (165, a reused slot).
+
+Now `xblaStageIsStandIn()` (`xblaTexIsRecordTile()`: an entry with a record,
+never a picture bound at a game texture's own address) is asked after
+GoldenEye's tile and before the read: the hit is texture -1, the default
+surface, as GoldenEye's is where no triangle of its own is under it (no ROM
+triangle is under a Perfect Dark release room's: its ROM list is not
+loaded), and a translucent one lets the shot through, as the game's own
+translucent default-surface triangles do. The release's own surface types
+are not known (4J's table was never read for them). Replay 8/8 same (the
+N64 look has no stand-ins).

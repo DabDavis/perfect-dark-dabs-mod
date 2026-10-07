@@ -957,11 +957,10 @@ and object hit tests (chr shots online are boxes: `cheap`), landed
 projectiles, held guns and hats moved onto the release's meshes, head
 boxes seated by headfit, the XBLA tables (smoke types, Crash Site's fog,
 head types), props ticked in the foreground. None of it is on a client's
-prediction path, and none desyncs. Not fixed and found on the way: on the
-release's PD rooms a hit's texture is read out of the header before a
-SETTIMG's image (bg.c ~5486), which for a release-only record is the
-stand-in tile's malloc header or `xblaStageWhiteTile` (the same fault
-`gebeanStageHitTexture` fixed for GoldenEye's).
+prediction path, and none desyncs. Found on the way and fixed after: on
+the release's PD rooms a hit's texture was read out of the header before a
+SETTIMG's image, which for a release-only record is the stand-in tile's
+malloc header (xbla.md, "A shot at a release room's stand-in").
 
 **The start-of-match swirl runs ahead on a client.** netcontenttest
 gelook (an HD+CE host, an N64 client, Bunker) predicted at 97.8%, all of

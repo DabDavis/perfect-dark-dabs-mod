@@ -89,6 +89,13 @@ s32 xblaStageDrawsEveryRoom(void);
  */
 Gfx *xblaStageWriteTexture(Gfx *gdl, const Gfx *cmd, u32 record);
 
+/**
+ * Whether a G_SETTIMG's image is one xblaStageWriteTexture() bound: a record's
+ * stand-in tile or the white one. Such an image has no texture number before
+ * it, which is where a shot's hit reads one (bgTestHitInVtxBatch()).
+ */
+s32 xblaStageIsStandIn(uintptr_t addr);
+
 // True for a slot under NUM_TEXTURES that the release reused for a different
 // picture (xblaslots.h): a release room binding it draws the release's record.
 s32 xblaStageSlotIsReused(u32 texturenum);
