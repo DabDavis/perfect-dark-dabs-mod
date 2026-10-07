@@ -827,10 +827,16 @@ nothing is ever sent from one machine to another but names and hashes.
   its first death from the host's block, pressed START every second, and
   never came back ("deaths 1, respawns 0", 935 ticks out, no revive), while
   the host had respawned it (the second staged kill found it alive). The
-  same binary passed the case alone three times after. Not traced: the
-  client's side is netEntsClientApplyLocal's `s_LpRespawnPending` from the
-  block's respawn counter (`netLpTrack` on the host). Rerun the case alone
-  (`CASES=geyolt`); if it comes back, trace that counter on both sides.
+  same binary passed the case alone three times after. **Traced the next
+  day (three in six runs): the staging, not the game.** gdb's attach stalls
+  the host while the client goes on sending; the first tick after it plays
+  the queued START (the respawn, `playerStartNewLife` at 1099) and the
+  step's breakpoint at that same tick's end killed the player again, before
+  `netLpTrack` sampled it: dead at 1098's end, dead at 1099's, so no block
+  ever counted the respawn (nothing out of step: the client stayed dead,
+  as the host had it). `stage()` now runs a step 30 ticks after the attach
+  (`ignore 1 30`): 4/4. A life shorter than a tick is still never sent;
+  the client then stays dead with the host, which is right.
 - **Still open on a client:** the gate's switch on Dam (the pillar beside the
   tunnel gate) shows its light grey where the host's is red; Dam's truck,
   inside the near plane of one opening still, may not fade on a client

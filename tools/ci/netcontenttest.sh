@@ -239,9 +239,15 @@ PY
 # first death's respawn, which the second kill needs, is START's
 for t in $(seq 60 60 3000); do echo "$t $((t + 1)) 1000 0 0 0 0 0 0"; done > "$OUT/respawn.script"
 
+# Half a second after the attach: the attach stalls the host while a client
+# goes on sending, and the first ticks after it play what queued up - a dead
+# client's START among them, whose respawn a step run in that same tick would
+# undo before the tick's end counted it (geyolt's "respawns from START alone:
+# 0", three times in six on 2026-10-07: the host respawned it at 1099 and the
+# second kill had it dead again at 1099's end, so no block ever said alive)
 stage() {
 	local hp=$1 what=$2
-	timeout 30 gdb -p "$hp" -batch -ex "source $OUT/stage.py" -ex "break netScenHostTickEnd" -ex "continue" \
+	timeout 30 gdb -p "$hp" -batch -ex "source $OUT/stage.py" -ex "break netScenHostTickEnd" -ex "ignore 1 30" -ex "continue" \
 		-ex "delete" -ex "python $what" 2>/dev/null | grep "^STAGE" | sed 's/^/     host: /'
 }
 
