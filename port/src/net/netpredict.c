@@ -1196,7 +1196,7 @@ static s32 netPredReplay(struct player *p, const struct netlpstate *lp, u32 n, s
 	// which then recorded itself every tick after (the player fell under
 	// gravity to the host's held place and back, 54 units a tick on
 	// Defection's opening); the live state stays, the host's place goes on it
-	if (!abs && start && start->hasstate && g_Vars.tickmode != TICKMODE_CUTSCENE) {
+	if (!abs && start && start->hasstate && g_Vars.tickmode != TICKMODE_CUTSCENE && !netCoopFollowingWarp()) {
 		netPredLoadRich(p, start->rich);
 		bwalkNetSide(g_NetLocalSlot, 0, &start->gecrouchhold, &start->geeyelag, &start->geclimbhold);
 		geStanNetPlayerTile(g_NetLocalSlot, 0, &start->getile, &start->gefromtile);
@@ -1391,8 +1391,9 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 	// a cutscene (online co-op, netcoop.c): the host holds every player
 	// where the opening put it and this machine's is in the cutscene's
 	// own mode; nothing to reconcile until it ends, when the host's place
-	// is taken outright (netPredictForceSnap)
-	if (g_Vars.tickmode == TICKMODE_CUTSCENE && !abs) {
+	// is taken outright (netPredictForceSnap). A GoldenEye CameraSwitch's
+	// shot (protocol 17) is held the same way
+	if ((g_Vars.tickmode == TICKMODE_CUTSCENE || netCoopFollowingWarp()) && !abs) {
 		s_CutsceneLeft++;
 		s_HaveLast = 1;
 		s_LastCmd = cmd;

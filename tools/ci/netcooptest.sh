@@ -33,8 +33,10 @@
 #           Dam with a client joined, the host's list kicked into Dam's own
 #           ending (the bungee objective, the exit's wait, Bond's dive) and
 #           the client's player given 3 kills and 20 shots on the host; the
-#           client learns of the wait, its START (a tick in every sixty)
-#           skips the outro on the host, both screens fade, and each machine
+#           client learns of the wait, takes the host's CameraSwitch shot
+#           and the host's lists' fades into its own view (protocol 17), its
+#           START (a tick in every sixty) skips the outro on the host, both
+#           screens fade, and each machine
 #           ends on GoldenEye's REPORT page for its own player, Completed, the
 #           client's with the host's 3 kills; no Perfect Dark end screen; the
 #           client's two NEXTs close its folder.
@@ -316,6 +318,10 @@ case_geend() {
 	grep -q "net: co-op client: the host's GoldenEye exit waits for a press" "$C" && pass "$name: the client learnt of the exit's wait" || fail "$name: the client never learnt of the exit's wait"
 	grep -q "gexplus: the exit's press at frame" "$H" && pass "$name: $(grep -o "the exit's press at frame.*" "$H" | head -1) (the client's START)" || fail "$name: the host never took a press to leave"
 	grep -q "net: co-op client: the host's GoldenEye exit fades out" "$C" && pass "$name: the client's screen faded with the host's" || fail "$name: no fade on the client"
+	local hostcam; hostcam=$(grep -o "GoldenEye's camera switch to setup command [0-9]*" "$H" | head -1 | awk '{print $NF}')
+	[ -n "$hostcam" ] && grep -q "net: co-op client: the host's camera switch to setup command $hostcam " "$C" \
+		&& pass "$name: the client took the host's outro shot (setup command $hostcam)" || fail "$name: the client did not take the host's outro shot (${hostcam:-none on the host})"
+	grep -q "net: co-op client: the host's screen fade to 000000ff" "$C" && pass "$name: the client's screen took the host's lists' fade to black" || fail "$name: no list fade on the client"
 	grep -q "this machine's menu up" "$C" && fail "$name: the client's START opened its pause during the exit's wait"
 	grep -q "gexfront: online mission 0 over at [0-9]* for player 0 (completed" "$H" && pass "$name: host: $(grep -o 'online mission 0 over.*' "$H" | head -1)" || fail "$name: host: $(grep -o 'online mission 0 over.*' "$H" | head -1)"
 	grep -q "gexfront: online mission 0 over at [0-9]* for player 1 (completed, 3 kills)" "$C" && pass "$name: client: $(grep -o 'online mission 0 over.*' "$C" | head -1)" || fail "$name: client: $(grep -o 'online mission 0 over.*' "$C" | head -1)"

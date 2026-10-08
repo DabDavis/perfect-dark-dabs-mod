@@ -72,7 +72,11 @@
 //    mission time, kill count and seven shot counts after its awards; the
 //    mission block's flags say GoldenEye's exit waits for a press (8) and
 //    fades out (16); a living player's START in its command is that press
-#define NET_PROTOCOL_VERSION 16
+// 17 (GoldenEye's endings seen online): the mission block grows by the
+//    CameraSwitch the host's camera is in (s16 setup command, s16 its
+//    direction word) and the last of a converted mission's screen fades
+//    (u8 count, u32 colour, s16 frames); a client takes both into its view
+#define NET_PROTOCOL_VERSION 17
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2

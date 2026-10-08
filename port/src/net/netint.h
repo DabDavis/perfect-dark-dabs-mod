@@ -229,6 +229,7 @@ void netCoopHostLateJoin(s32 playernum);    // host: a join in progress takes th
 void netCoopCapture(u8 *body);              // host: the mission block's body (netscen.c's OFF_BODY)
 s32 netCoopBlockOk(const u8 *body);
 void netCoopApply(const u8 *body);          // client, in tick order with the events
+s32 netCoopFollowingWarp(void);             // client: in the host's CameraSwitch shot (netpredict.c)
 void netCoopApplyFinal(const u8 *body);     // client: MATCH_END's block
 s32 netCoopObjectivesComplete(void);
 void netSessionNoticeSet(const char *text); // netsession.c: the main menu's notice

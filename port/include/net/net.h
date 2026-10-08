@@ -374,6 +374,12 @@ s32 netCoopAcceptMission(void);
 s32 netCoopClientAbort(void);
 // pdmain.c mainEndStage's co-op branch: MATCH_END from the host, the final block on a client
 void netCoopMatchEnded(void);
+// The host, chraicommands.c on a converted mission: GoldenEye's CameraSwitch
+// (ai00df, setup command `cmdindex`) and a list's screen fade (aiFadeScreen),
+// for the clients to take into their own view (protocol 17)
+struct warpparams;
+void netCoopHostCameraSwitch(s32 cmdindex, struct warpparams *params);
+void netCoopHostFade(u32 colour, s16 frames);
 // pdmain.c mainEndStage's co-op branch: out of the mission at once, as the end
 // screen's close goes (a GoldenEye mission's report is the folder's, gexfront.c)
 void netCoopLeaveMission(void);

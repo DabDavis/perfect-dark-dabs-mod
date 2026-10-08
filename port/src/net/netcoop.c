@@ -18,6 +18,8 @@
 #include "game/chraction.h"
 #include "game/coop.h"
 #include "game/lv.h"
+#include "game/bondmove.h"
+#include "game/setuputils.h"
 #include "game/lang.h"
 #include "game/menu.h"
 #include "game/objectives.h"
@@ -65,6 +67,14 @@
  *    12  f32 countdown60          g_CountdownTimerValue60
  *    16  u8  objectives[10]       objectiveCheck(i): 0 complete, 1 incomplete, 2 failed
  *    26  u8  players[12]          bit 0 isdead, 1 aborted, 2 coopcanrestart
+ *    38  s16 warpcmd              the setup command a GoldenEye CameraSwitch
+ *                                 (ai00df) put the camera at, -1 none
+ *                                 (protocol 17)
+ *    40  s16 warpdir              its direction word (g_WarpType2HasDirection)
+ *    42  u8  fadeseq              counts the screen fades a converted
+ *                                 mission's lists asked for (aiFadeScreen)
+ *    44  u32 fadecolour           the last one's colour
+ *    48  s16 fadeframes           and length
  */
 
 #define MIS_TICKMODE  0
@@ -76,7 +86,12 @@
 #define MIS_COUNTDOWN 12
 #define MIS_OBJ       16
 #define MIS_PLAYERS   (MIS_OBJ + MAX_OBJECTIVES)
-#define MIS_SIZE      (MIS_PLAYERS + MAX_PLAYERS)
+#define MIS_WARPCMD   (MIS_PLAYERS + MAX_PLAYERS)
+#define MIS_WARPDIR   (MIS_WARPCMD + 2)
+#define MIS_FADESEQ   (MIS_WARPDIR + 2)
+#define MIS_FADECOL   (MIS_FADESEQ + 2)
+#define MIS_FADELEN   (MIS_FADECOL + 4)
+#define MIS_SIZE      (MIS_FADELEN + 2)
 
 #define MISF_INCUTSCENE 0x01
 #define MISF_COUNTDOWN  0x02
@@ -91,6 +106,9 @@
 // player.c's (PC builds are NTSC: s32; no header declares them)
 extern s32 g_CutsceneCurAnimFrame240;
 extern s32 g_CutsceneTweenDuration60;
+extern s16 g_WarpType1Pad;
+extern struct warpparams *g_WarpType2Params;
+extern s32 g_WarpType2HasDirection;
 
 struct netcoopsetup g_NetCoopSetup = { 0, 0, DIFF_A, 1, 0 };
 
@@ -115,6 +133,17 @@ static u32 s_BlocksApplied = 0;
 static u32 s_CutStarts = 0;
 static u32 s_CutEnds = 0;
 static s32 s_LoggedStart = 0;
+
+// a converted mission's camera and fades, as the host's lists set them
+static s32 s_HostWarpCmd = -1;                // host: the setup command the last CameraSwitch named
+static struct warpparams *s_HostWarpParams;   // host: and its record, while the warp is still that one
+static u8 s_HostFadeSeq = 0;                  // host: counts aiFadeScreen
+static u32 s_HostFadeColour = 0;
+static s16 s_HostFadeFrames = 0;
+static s32 s_WarpCmd = -1;                    // client: the host's shot this machine is in, -1 none
+static s32 s_HaveFadeSeq = 0;                 // client: a fade count seen (the first is only noted)
+static u8 s_FadeSeq = 0;
+static u32 s_WarpFollows = 0;
 
 static void put16(u8 *p, u32 v) { p[0] = (u8)v; p[1] = (u8)(v >> 8); }
 static u16 get16(const u8 *p) { return (u16)(p[0] | (p[1] << 8)); }
@@ -343,6 +372,9 @@ void netCoopClientStage(void)
 	s_CutStarts = 0;
 	s_CutEnds = 0;
 	s_LoggedStart = 0;
+	s_WarpCmd = -1;
+	s_HaveFadeSeq = 0;
+	s_WarpFollows = 0;
 }
 
 /*
@@ -679,7 +711,8 @@ void netCoopLeaveMission(void)
 void netCoopMatchStopped(void)
 {
 	if (g_NetMode == NETMODE_CLIENT && s_ClientMatch) {
-		sysLogPrintf(LOG_NOTE, "net: co-op client: %u mission blocks applied, %u cutscene starts, %u ends", s_BlocksApplied, s_CutStarts, s_CutEnds);
+		sysLogPrintf(LOG_NOTE, "net: co-op client: %u mission blocks applied, %u cutscene starts, %u ends, %u camera switches followed",
+				s_BlocksApplied, s_CutStarts, s_CutEnds, s_WarpFollows);
 	}
 
 	// the host's own mode back after a conversion's mission (a client's
@@ -693,6 +726,14 @@ void netCoopMatchStopped(void)
 	s_HostGame[0] = '\0';
 	s_ClientMatch = 0;
 	s_HaveObj = 0;
+	s_HostWarpCmd = -1;
+	s_HostWarpParams = NULL;
+	s_HostFadeSeq = 0;
+	s_HostFadeColour = 0;
+	s_HostFadeFrames = 0;
+	s_WarpCmd = -1;
+	s_HaveFadeSeq = 0;
+	s_WarpFollows = 0;
 }
 
 /**
@@ -852,6 +893,48 @@ void netCoopCapture(u8 *body)
 
 		body[MIS_PLAYERS + i] = bits;
 	}
+
+	// a GoldenEye CameraSwitch's shot while the warp is still the one it
+	// set (an opening's swirl and the credits are warps of their own)
+	if (g_Vars.tickmode == TICKMODE_WARP && g_WarpType1Pad < 0 && g_WarpType2Params
+			&& g_WarpType2Params == s_HostWarpParams && s_HostWarpCmd >= 0) {
+		put16(body + MIS_WARPCMD, (u16)s_HostWarpCmd);
+		put16(body + MIS_WARPDIR, (u16)g_WarpType2HasDirection);
+	} else {
+		put16(body + MIS_WARPCMD, 0xffff);
+	}
+
+	body[MIS_FADESEQ] = s_HostFadeSeq;
+	put32(body + MIS_FADECOL, s_HostFadeColour);
+	put16(body + MIS_FADELEN, (u16)s_HostFadeFrames);
+}
+
+/**
+ * The host, ai00df on a converted mission: GoldenEye's CameraSwitch put the
+ * camera at setup command `cmdindex` (an ending's shots, Dam's dive). The
+ * clients take the same record from their own setup (netCoopApplyWarp())
+ */
+void netCoopHostCameraSwitch(s32 cmdindex, struct warpparams *params)
+{
+	if (g_NetMode != NETMODE_SERVER || !s_HostMatch) {
+		return;
+	}
+
+	s_HostWarpCmd = cmdindex;
+	s_HostWarpParams = params;
+	sysLogPrintf(LOG_NOTE, "net: co-op: GoldenEye's camera switch to setup command %d (tick %u)", cmdindex, g_NetTick);
+}
+
+/** The host, aiFadeScreen on a converted mission: the clients' screens fade too */
+void netCoopHostFade(u32 colour, s16 frames)
+{
+	if (g_NetMode != NETMODE_SERVER || !s_HostMatch || !modloaderStageIsMission(g_Vars.stagenum)) {
+		return;
+	}
+
+	s_HostFadeSeq++;
+	s_HostFadeColour = colour;
+	s_HostFadeFrames = frames;
 }
 
 /*
@@ -921,6 +1004,82 @@ static void netCoopApplyCutscene(const u8 *body)
 	setCurrentPlayerNum(prev);
 }
 
+/**
+ * A client: the host's GoldenEye CameraSwitch shot (an ending's: Dam's dive),
+ * from this machine's own copy of the setup record, the warp's camera on the
+ * host's Bond (playerExecutePreparedWarp()); left when the host's is. The
+ * player stands meanwhile, as everyone does on the host (MOVEMODE_CUTSCENE),
+ * and prediction waits as in a cutscene (netCoopFollowingWarp())
+ */
+static void netCoopApplyWarp(const u8 *body)
+{
+	const s32 cmdindex = gets16(body + MIS_WARPCMD);
+	const s32 prev = g_Vars.currentplayernum;
+
+	if (g_NetLocalSlot < 0 || g_NetLocalSlot >= PLAYERCOUNT() || !g_Vars.players[g_NetLocalSlot] || g_MainIsEndscreen) {
+		return;
+	}
+
+	if (body[MIS_TICKMODE] == TICKMODE_WARP && cmdindex >= 0) {
+		struct warpparams *params;
+
+		if (cmdindex == s_WarpCmd && g_Vars.tickmode == TICKMODE_WARP) {
+			return;
+		}
+
+		params = (struct warpparams *) setupGetCmdByIndex(cmdindex);
+
+		if (!params) {
+			return;
+		}
+
+		setCurrentPlayerNum(g_NetLocalSlot);
+		playerPrepareWarpType2(params, (s16)get16(body + MIS_WARPDIR), 0);
+		setCurrentPlayerNum(prev);
+		s_WarpCmd = cmdindex;
+		s_WarpFollows++;
+		sysLogPrintf(LOG_NOTE, "net: co-op client: the host's camera switch to setup command %d (tick %u)", cmdindex, g_NetTick);
+	} else if (s_WarpCmd >= 0) {
+		s_WarpCmd = -1;
+
+		if (g_Vars.tickmode == TICKMODE_WARP) {
+			playerSetTickMode(TICKMODE_NORMAL);
+			bmoveSetModeForAllPlayers(MOVEMODE_WALK);
+			netPredictForceSnap();
+		}
+
+		sysLogPrintf(LOG_NOTE, "net: co-op client: the host's camera is back (host tick mode %d, tick %u)", body[MIS_TICKMODE], g_NetTick);
+	}
+}
+
+// a client: the host's lists' screen fades on a converted mission
+static void netCoopApplyFade(const u8 *body)
+{
+	const u8 seq = body[MIS_FADESEQ];
+
+	if (!s_HaveFadeSeq) {
+		s_HaveFadeSeq = 1;
+		s_FadeSeq = seq;
+		return;
+	}
+
+	if (seq != s_FadeSeq && modloaderStageIsMission(g_Vars.stagenum) && !g_MainIsEndscreen) {
+		const u32 colour = get32(body + MIS_FADECOL);
+		const s16 frames = gets16(body + MIS_FADELEN);
+
+		lvConfigureFade(colour, frames);
+		sysLogPrintf(LOG_NOTE, "net: co-op client: the host's screen fade to %08x over %d frames (tick %u)", colour, frames, g_NetTick);
+	}
+
+	s_FadeSeq = seq;
+}
+
+/** netpredict.c: this machine is in the host's CameraSwitch shot */
+s32 netCoopFollowingWarp(void)
+{
+	return s_WarpCmd >= 0 && g_Vars.tickmode == TICKMODE_WARP;
+}
+
 void netCoopApply(const u8 *body)
 {
 	s32 i;
@@ -937,6 +1096,8 @@ void netCoopApply(const u8 *body)
 	}
 
 	netCoopApplyCutscene(body);
+	netCoopApplyWarp(body);
+	netCoopApplyFade(body);
 
 	for (i = 0; i < MAX_OBJECTIVES; i++) {
 		s_ObjStatus[i] = body[MIS_OBJ + i];

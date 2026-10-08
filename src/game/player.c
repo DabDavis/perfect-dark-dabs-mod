@@ -2464,11 +2464,15 @@ void playerExecutePreparedWarp(void)
 			// thirty-one CameraSwitches in the twenty missions are that one.
 			//
 			// The player's prop is the eye (cam_pos and prop->pos are the same
-			// point in normal play), so it is what the shot looks at.
+			// point in normal play), so it is what the shot looks at - Bond's,
+			// which in online co-op is the host's player, on every machine and
+			// for every player's view (netcoop.c)
 			if (g_WarpType2HasDirection == 1) {
-				look.x = g_Vars.currentplayer->prop->pos.x - pos.x;
-				look.y = g_Vars.currentplayer->prop->pos.y - pos.y;
-				look.z = g_Vars.currentplayer->prop->pos.z - pos.z;
+				struct prop *eye = g_Vars.bond && g_Vars.bond->prop ? g_Vars.bond->prop : g_Vars.currentplayer->prop;
+
+				look.x = eye->pos.x - pos.x;
+				look.y = eye->pos.y - pos.y;
+				look.z = eye->pos.z - pos.z;
 			} else {
 				look.x = cosf(g_WarpType2Params->look[1]) * sinf(g_WarpType2Params->look[0]);
 				look.y = sinf(g_WarpType2Params->look[1]);

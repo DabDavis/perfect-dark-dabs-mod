@@ -5393,6 +5393,10 @@ bool ai00df(void)
 		if (cmdindex >= 0) {
 			struct warpparams *params = (struct warpparams *) setupGetCmdByIndex(cmdindex + tag->cmdoffset);
 			playerPrepareWarpType2(params, cmd[4] | (cmd[3] << 8), cmd[6] | (cmd[5] << 8));
+#ifndef PLATFORM_N64
+			// netplay: a co-op client takes the same shot (netcoop.c)
+			if (g_NetMode == NETMODE_SERVER && params) netCoopHostCameraSwitch(cmdindex + tag->cmdoffset, params);
+#endif
 		}
 	}
 
@@ -9852,6 +9856,10 @@ bool aiFadeScreen(void)
 	u32 color = (cmd[3] << 16) | (cmd[4] << 8) | cmd[5] | (cmd[2] << 24);
 	s16 num_frames = (cmd[7] | (cmd[6] << 8));
 	lvConfigureFade(color, num_frames);
+#ifndef PLATFORM_N64
+	// netplay: a converted mission's fades reach a co-op client (netcoop.c)
+	if (g_NetMode == NETMODE_SERVER) netCoopHostFade(color, num_frames);
+#endif
 	g_Vars.aioffset += 8;
 
 	return false;
