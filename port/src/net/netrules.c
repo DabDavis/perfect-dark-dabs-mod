@@ -467,6 +467,80 @@ void netRulesPlayerKeysRestore(const struct netplayerkeys *saved)
 	}
 }
 
+/*
+ * F3's [netplay] section (nettrace.c)
+ */
+
+static void netRulesTraceKv(FILE *f, const struct netkeyvalue *kv)
+{
+	char buf[NET_MAXSTRVAL + 4];
+
+	netRulesValueString(kv, buf, sizeof(buf));
+	fprintf(f, " %s=%s", kv->key, buf);
+}
+
+// the match's rules as in force on this machine (a client's are the host's)
+void netRulesTraceSync(FILE *f)
+{
+	struct netkeyvalue kv;
+	u32 k;
+
+	fprintf(f, "rules in force:");
+
+	for (k = 0; k < ARRAYCOUNT(s_NetKeys); k++) {
+		if (s_NetKeys[k].cls == NETKEY_SYNC && netRulesReadKey(s_NetKeys[k].key, &kv)) {
+			netRulesTraceKv(f, &kv);
+		}
+	}
+
+	fprintf(f, "\n");
+}
+
+// this machine's own NETKEY_PLAYER values (what its SLOTCFG says)
+void netRulesTraceOwnHere(FILE *f)
+{
+	struct netkeyvalue kv;
+	u32 k;
+
+	fprintf(f, "own settings here:");
+
+	for (k = 0; k < ARRAYCOUNT(s_NetKeys); k++) {
+		if (s_NetKeys[k].cls == NETKEY_PLAYER && netRulesReadKey(s_NetKeys[k].key, &kv)) {
+			netRulesTraceKv(f, &kv);
+		}
+	}
+
+	fprintf(f, "\n");
+}
+
+// a remote player's own values as the host keeps them, by key
+void netRulesTracePlayerKeys(FILE *f, const struct netplayerkeys *in)
+{
+	struct netkeyvalue kv;
+	s32 type;
+	void *ptr;
+	u32 k;
+	s32 i;
+
+	for (k = 0; k < ARRAYCOUNT(s_NetKeys); k++) {
+		if (s_NetKeys[k].cls != NETKEY_PLAYER || !configGetEntry(s_NetKeys[k].key, &type, &ptr, NULL)) {
+			continue;
+		}
+
+		for (i = 0; i < in->n; i++) {
+			if (in->k[i].ptr == ptr) {
+				memset(&kv, 0, sizeof(kv));
+				snprintf(kv.key, sizeof(kv.key), "%s", s_NetKeys[k].key);
+				kv.type = in->k[i].type;
+				kv.s = in->k[i].v.s;
+				kv.f = in->k[i].v.f;
+				kv.u = in->k[i].v.u;
+				netRulesTraceKv(f, &kv);
+			}
+		}
+	}
+}
+
 static s32 netRulesIsStock(const struct netkeyvalue *kv)
 {
 	const char *stock = netRulesKeyStock(kv->key);

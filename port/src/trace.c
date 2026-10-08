@@ -34,6 +34,7 @@
 #include "game/game_0b0fd0.h"
 #include "modloader.h"
 #include "trace.h"
+#include "net/net.h"
 #include "pngwrite.h"
 #include "crashreport.h"
 #include "../fast3d/gfx_api.h"
@@ -892,6 +893,12 @@ static void traceWrite(FILE *f)
 	traceDisplay(f);
 	traceFrames(f);
 	traceEvents(f);
+
+	// online: which machine this is, the rules and settings in force, every
+	// player's hands, and the netcode's summaries into the log (nettrace.c)
+	if (g_NetMode != NETMODE_NONE) {
+		netTraceWrite(f);
+	}
 
 	fprintf(f, "\n[memory]\n");
 	fprintf(f, "memp: stage pool free onboard %u expansion %u (total %u); permanent free onboard %u expansion %u\n",

@@ -1103,6 +1103,56 @@ static void netPlayersLogSlot(s32 slot, const char *why)
 			q->played + q->dry ? (f32)q->depthsum / (f32)(q->played + q->dry - q->folded) : 0.f);
 }
 
+/**
+ * F3 (nettrace.c): the commands' summaries into the log now, as the periodic
+ * "so far" lines would put them
+ */
+void netPlayersLogNow(const char *why)
+{
+	s32 i;
+
+	if (g_NetMode == NETMODE_SERVER) {
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (s_Pads[i].remote) {
+				netPlayersLogSlot(i, why);
+			}
+		}
+	} else if (g_NetMode == NETMODE_CLIENT) {
+		sysLogPrintf(LOG_NOTE, "net: commands %s (tick %u): %u packets to tick %u, host tick %u, acked to %u, clock %d ppm (seen %d..%d), depth %.2f, fire presses %u",
+				why, g_NetTick, s_CmdsSent, s_Newest, s_HostTick, s_AckNext, s_Ppm, s_PpmMin, s_PpmMax, s_DepthAvg / 256.f, s_ZPresses);
+	}
+}
+
+/**
+ * F3: what the host plays a player by: a remote one's command queue, the
+ * buttons of the command this tick, its control mode and its own settings
+ * (NETKEY_PLAYER) as the host keeps them
+ */
+void netPlayersTraceSlot(FILE *f, s32 playernum)
+{
+	const s32 pad = netPadOfPlayer(playernum);
+	const struct netpadq *q;
+
+	if (g_NetMode != NETMODE_SERVER || pad < 0 || pad >= MAX_PLAYERS || !s_Pads[pad].remote) {
+		return;
+	}
+
+	q = &s_Pads[pad];
+	fprintf(f, "    commands: next tick %u, played %u, folded %u, dry %u, lost %u, out of order %u, buttons now %04x, mean depth %.2f\n",
+			q->next, q->played, q->folded, q->dry, q->lost, q->outoforder, q->cur.buttons,
+			q->played + q->dry > q->folded ? (f32)q->depthsum / (f32)(q->played + q->dry - q->folded) : 0.f);
+
+	if (!q->hascfg) {
+		fprintf(f, "    settings: none received yet (the host's own are used)\n");
+		return;
+	}
+
+	fprintf(f, "    settings: controlmode %d, options %04x, fov %.0f, crouchmode %d, aspect %.2f; own:",
+			q->cfg.controlmode, q->cfg.options, q->cfg.fovy, q->cfg.crouchmode, q->cfg.aspect);
+	netRulesTracePlayerKeys(f, &q->cfg.own);
+	fprintf(f, "\n");
+}
+
 void netPlayersHostSlotGone(s32 slot)
 {
 	if (slot < 0 || slot >= MAX_PLAYERS || !s_Pads[slot].remote) {

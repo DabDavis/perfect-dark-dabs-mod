@@ -4143,6 +4143,47 @@ s32 netSessionSlotLeftMatch(s32 slot)
  * datagram's length, ENet's headers included, UDP/IP's not), for the
  * bandwidth gate (tools/ci/nettwelvetest.sh)
  */
+/**
+ * F3 (nettrace.c): each link as the transport sees it, the host's to every
+ * client (with its state and seat) and a client's to the host
+ */
+static void netSessionTracePeer(FILE *f, s32 peer, const char *who)
+{
+	struct netpeerstats st;
+
+	if (!g_NetHostSocket || netHostPeerStats(g_NetHostSocket, peer, &st) != 0 || !st.connected) {
+		fprintf(f, "  %s: not connected\n", who);
+		return;
+	}
+
+	fprintf(f, "  %s: rtt %u ms (+-%u), resent %u of %u (%.1f%%, a late ack counts), mtu %u, sent %u bytes, received %u bytes\n",
+			who, st.rtt, st.rttvar, st.resent, st.packetssent, st.resentfrac * 100.f, st.mtu, st.bytessent, st.bytesreceived);
+}
+
+void netSessionTraceLinks(FILE *f)
+{
+	char who[96];
+	s32 i;
+
+	fprintf(f, "links:\n");
+
+	if (s_Role == NETROLE_HOST) {
+		for (i = 0; i < NET_MAXPEERS; i++) {
+			if (s_Clients[i].state == NETCL_FREE) {
+				continue;
+			}
+
+			snprintf(who, sizeof(who), "peer %d \"%s\", %s %d, state %d%s", i, s_Clients[i].name,
+					s_Clients[i].spectator ? "view" : "slot", s_Clients[i].slot, s_Clients[i].state,
+					s_Clients[i].ticketed ? ", lobby ticket" : "");
+			netSessionTracePeer(f, i, who);
+		}
+	} else if (s_Role == NETROLE_CLIENT && s_ServerPeer >= 0) {
+		snprintf(who, sizeof(who), "the host (client state %d)", s_ClientState);
+		netSessionTracePeer(f, s_ServerPeer, who);
+	}
+}
+
 void netSessionLogTraffic(const char *why)
 {
 	struct netpeerstats st;

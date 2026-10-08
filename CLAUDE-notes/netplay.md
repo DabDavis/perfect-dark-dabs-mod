@@ -88,6 +88,15 @@
   outside it (the HUD pass, `amTick`); a read about player Y during player
   X's tick (a tranquilizer hit); the drugged screen in the local-player
   block; why a setting costs nothing on the wire while it stays the same.
+- **A host ticks every player's hands (2026-10-08)** — the section of
+  that name: GoldenEye's slap ran twice as fast online (and its knife
+  slash and throw were cancelled) because its swing state was one pair of
+  slots for the machine; per player now. Any per-hand state in port code
+  is per player.
+- **F3 online (2026-10-08)** — the [netplay] section of a trace
+  (`nettrace.c`): role, links, tick pacing, rules and own settings, every
+  player's hands and swings, a client's commands as the host plays them,
+  and every module's summary into the log "at F3".
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -1561,4 +1570,65 @@ settings would remain static."
   what the host considers on screen, which is the host's world anyway;
   snapshots are not culled by view.
 
+## A host ticks every player's hands: GoldenEye's slap, knife and throw (2026-10-08)
+
+The user, hosting: "unarmed punches are incredibly rapid online", "also
+the sound fires fast", "it only happens online", then "maybe because slap
+is not working". Every reproduction on Perfect Dark's stages (Temple,
+Defection; offline 39 swings in 10 s, online 40-42, at 60 or 144 fps,
+with latency and loss, with the user's own pd.ini, with real input held
+under Xvfb) was normal: Perfect Dark's fists keep their state in each
+player's hand. On a GoldenEye level unarmed is GoldenEye's slap, timed
+by `geslappers.c`'s own clock, and that clock was `track[2]`,
+`slaptime[2]`: one pair of slots for the whole machine.
+
+- **What happened.** A host runs `bgunTickHand` for every player.
+  Another unarmed player's tick advanced the host's slap clock too (twice
+  GoldenEye's speed with one other player, six times with five netbots);
+  a player holding anything else cancelled it, and a cancelled slap counts
+  as struck (`geslappersStruck`), so the next began at once. Before (GE
+  Arenas' Complex, one still unarmed client): the host's slaps 21 ticks
+  apart; after, GoldenEye's 42. Both slapping: 21-63 tick gaps, each
+  cutting the other's swing, before; 42 and 42, matching the client's
+  own prediction to the tick, after.
+- **The fix.** `[MAX_PLAYERS][2]` by `g_Vars.currentplayernum`: the slap
+  (`geslappers.c`), GoldenEye's own hunting knife slash and its throwing
+  knife's throw (`geguns.c` `geKnifeTrack`/`geThrowStep`, which a player
+  without that weapon reset outright). Reset at every stage load.
+- **The rule.** Any port-side per-hand state is per player too. Grep for
+  `static .*\[2\]` beside a `handnum` in a new file; offline it is
+  invisible (one player), online every client's tick runs on the host.
+
+## F3 online: the [netplay] section (2026-10-08)
+
+The user: "you can upgrade F3 to help with online bugs". `nettrace.c`,
+called from `trace.c` when `g_NetMode` is not NONE:
+
+- the role, protocol, tick, local slot, match and HUD state; a client's
+  route to the host (`netRdvPathName`: lan/direct/punch/relay, or a
+  direct connect with no lobby);
+- **links** (`netSessionTraceLinks`): each peer's transport stats, rtt,
+  jitter, resent share, mtu, bytes; the host's lists every client with
+  its slot and state;
+- **pacing**: the last 600 frames' ticks per frame (0 is a frame drawn
+  between ticks) with their span, fps and ticks a second
+  (`netTraceNoteFrame` from `mainNetFrame`);
+- the **rules in force** (SYNC keys: a client's are the host's), this
+  machine's **own settings** (NETKEY_PLAYER), pd.ini [Net] without
+  `RoomSecret`;
+- **every player**: seat name and ping, who simulates it, life, health,
+  position, camera, weapon and switch; each hand's state, minor state,
+  frames, animation, trigger, and GoldenEye's slap/slash/throw mid-swing
+  (`geslappersTraceHand`, `gegunsOwnSwingTrace`); on the host a client's
+  command queue, the buttons it plays now and its own settings as kept
+  (`netPlayersTraceSlot`);
+- then each module's running summary goes into the log "at F3"
+  (`netPlayersLogNow`, `netEntsLogNow`, `netEventsLogNow`,
+  `netPredictLog`, `netPuppetsLog`, `netLagCompLog`), so the log tail the
+  trace ends with carries them.
+
+A report from both ends of one moment is the best: the host's picture of
+a client next to the client's own. In a harness, `call
+(void)traceRequest()` from gdb writes one (`Mod.TraceReport=0` keeps the
+send dialog from holding the input); traces land in `build/traces/`.
 

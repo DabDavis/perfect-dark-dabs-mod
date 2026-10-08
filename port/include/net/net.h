@@ -1,6 +1,8 @@
 #ifndef _IN_NET_NET_H
 #define _IN_NET_NET_H
 
+#include <stdio.h>
+
 #include <signal.h>
 #include <PR/ultratypes.h>
 
@@ -206,6 +208,9 @@ void netInitArgs(void);
 // Main loop (pdmain.c)
 s32 netSessionInStage(void);
 s32 netStageReady(void);
+// F3 (nettrace.c): the ticks a frame ran (pdmain.c), and the trace's [netplay] section (trace.c)
+void netTraceNoteFrame(s32 ticks);
+void netTraceWrite(FILE *f);
 s32 netClockPpm(void);
 void netPump(void);
 void netFlush(void);

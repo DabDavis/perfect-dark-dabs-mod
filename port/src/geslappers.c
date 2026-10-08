@@ -149,9 +149,29 @@ static struct weapon slappers;
 static struct weapon *pdunarmed;
 static s32 active;
 
-// Each hand's slap: which track, and how far into it in sixtieths (-1 none)
-static s8 track[2] = { -1, -1 };
-static f32 slaptime[2];
+// Each player's hands' slaps: which track, and how far into it in sixtieths
+// (-1 none). By player, not by hand alone: a netplay host ticks every
+// player's hands, and with one pair of slots the other players' ticks ran
+// the host's slap on (twice as fast with one other unarmed player, six times
+// with five) or, holding a gun, cancelled it, which struck at once
+static s8 track[MAX_PLAYERS][2];
+static f32 slaptime[MAX_PLAYERS][2];
+
+// The current player's, the one whose hands bondgun.c is ticking
+#define TRACK(h)    track[geslappersPlayer()][h]
+#define SLAPTIME(h) slaptime[geslappersPlayer()][h]
+
+static s32 geslappersPlayer(void)
+{
+	const s32 pn = g_Vars.currentplayernum;
+
+	return pn >= 0 && pn < MAX_PLAYERS ? pn : 0;
+}
+
+static void geslappersStopAll(void)
+{
+	memset(track, -1, sizeof(track));
+}
 
 PD_CONSTRUCTOR static void geslappersInit(void)
 {
@@ -216,6 +236,8 @@ PD_CONSTRUCTOR static void geslappersInit(void)
 	slappers.flags3 = engine->flags3;
 	slappers.unequippedreloadindex = engine->unequippedreloadindex;
 	slappers.pickupsound = 0;
+
+	geslappersStopAll();
 }
 
 /**
@@ -247,7 +269,7 @@ void geslappersStageLoad(s32 stagenum)
 {
 	const u16 model = geslappersModel(stagenum);
 
-	track[0] = track[1] = -1;
+	geslappersStopAll();
 
 	if (g_Weapons[WEAPON_UNARMED] != &slappers) {
 		pdunarmed = g_Weapons[WEAPON_UNARMED];
@@ -298,43 +320,54 @@ void geslappersStart(struct hand *hand, s32 handnum)
 	}
 
 	if (!geslappersInHand(hand)) {
-		track[handnum] = -1;
+		TRACK(handnum) = -1;
 		return;
 	}
 
 	// gunfire.c: !(randomGetNext() & 1) is the first
-	track[handnum] = (rngRandom() & 1) ? 1 : 0;
-	slaptime[handnum] = 0.0f;
+	TRACK(handnum) = (rngRandom() & 1) ? 1 : 0;
+	SLAPTIME(handnum) = 0.0f;
 }
 
 s32 geslappersStruck(s32 handnum)
 {
-	return handnum >= 0 && handnum <= 1 && (track[handnum] < 0 || slaptime[handnum] >= GESLAP_STRIKE);
+	return handnum >= 0 && handnum <= 1 && (TRACK(handnum) < 0 || SLAPTIME(handnum) >= GESLAP_STRIKE);
 }
 
 s32 geslappersSwinging(s32 handnum)
 {
-	return handnum >= 0 && handnum <= 1 && track[handnum] >= 0;
+	return handnum >= 0 && handnum <= 1 && TRACK(handnum) >= 0;
 }
 
 void geslappersTick(struct hand *hand, s32 handnum, f32 lvupdate60)
 {
-	if (handnum < 0 || handnum > 1 || track[handnum] < 0) {
+	if (handnum < 0 || handnum > 1 || TRACK(handnum) < 0) {
 		return;
 	}
 
 	if (!geslappersInHand(hand) || hand->state == HANDSTATE_CHANGEGUN) {
-		track[handnum] = -1;
+		TRACK(handnum) = -1;
 		return;
 	}
 
-	slaptime[handnum] += lvupdate60;
+	SLAPTIME(handnum) += lvupdate60;
 
-	if (gegunsSampleTrack(geSlap[track[handnum]], slaptime[handnum], &hand->posrotmtx, handnum == HAND_LEFT)) {
+	if (gegunsSampleTrack(geSlap[TRACK(handnum)], SLAPTIME(handnum), &hand->posrotmtx, handnum == HAND_LEFT)) {
 		hand->useposrot = true;
 	} else {
-		track[handnum] = -1;
+		TRACK(handnum) = -1;
 	}
+}
+
+// F3's [netplay] section: a player's hand's slap (-1 none) and how far in
+s32 geslappersTraceHand(s32 playernum, s32 handnum, f32 *time)
+{
+	if (playernum < 0 || playernum >= MAX_PLAYERS || handnum < 0 || handnum > 1) {
+		return -1;
+	}
+
+	*time = slaptime[playernum][handnum];
+	return track[playernum][handnum];
 }
 
 void geslappersMissed(void)

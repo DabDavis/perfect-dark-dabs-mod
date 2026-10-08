@@ -2052,6 +2052,16 @@ static void netEvClientLog(const char *why)
 			s_OwnDupes + s_OwnUnpredicted, s_OwnDupes, s_OwnUnpredicted, s_GlassViaSetup, s_GasReleased, ucounts[0] ? ucounts : "none");
 }
 
+// F3 (nettrace.c): the events' summary into the log now
+void netEventsLogNow(const char *why)
+{
+	if (g_NetMode == NETMODE_SERVER) {
+		netEvHostLog(why);
+	} else if (g_NetMode == NETMODE_CLIENT) {
+		netEvClientLog(why);
+	}
+}
+
 void netEventsClientTickEnd(void)
 {
 	if (g_NetTick % 1800 == 0 && g_NetTick && !s_ClientEnded) {

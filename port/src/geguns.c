@@ -2674,9 +2674,23 @@ static const struct geknifekey geKnifeSlash[2][10] = {
 	},
 };
 
-// Each hand's slash: which track, and how far into it in sixtieths (-1 none)
-static s8 geKnifeTrack[2] = { -1, -1 };
-static f32 geKnifeTime[2];
+// Each player's hands' slashes: which track, and how far into it in
+// sixtieths (-1 none). By player as well as hand, like the slap's
+// (geslappers.c): a netplay host ticks every player's hands, and another
+// player's tick without the knife cancelled the host's slash
+static s8 geKnifeTrack[MAX_PLAYERS][2];
+static f32 geKnifeTime[MAX_PLAYERS][2];
+
+// the current player, whose hands bondgun.c is ticking or drawing
+static s32 gegunsSwingPlayer(void)
+{
+	const s32 pn = g_Vars.currentplayernum;
+
+	return pn >= 0 && pn < MAX_PLAYERS ? pn : 0;
+}
+
+#define KNIFETRACK(h) geKnifeTrack[gegunsSwingPlayer()][h]
+#define KNIFETIME(h)  geKnifeTime[gegunsSwingPlayer()][h]
 
 // quaternion.c's own, from GoldenEye's: w first
 static void geQuatFromAngles(const f32 *angles, f32 *q)
@@ -2909,12 +2923,12 @@ void gegunsOwnMeleeStart(struct hand *hand, s32 handnum)
 	}
 
 	if (hand->gset.weaponnum != WEAPON_GE_HUNTINGKNIFE || !gegunsOwnModelInUse(hand->gset.weaponnum)) {
-		geKnifeTrack[handnum] = -1;
+		KNIFETRACK(handnum) = -1;
 		return;
 	}
 
-	geKnifeTrack[handnum] = (rngRandom() & 1) ? 1 : 0;
-	geKnifeTime[handnum] = 0.0f;
+	KNIFETRACK(handnum) = (rngRandom() & 1) ? 1 : 0;
+	KNIFETIME(handnum) = 0.0f;
 }
 
 /**
@@ -2924,22 +2938,22 @@ void gegunsOwnMeleeStart(struct hand *hand, s32 handnum)
  */
 void gegunsOwnMeleeTick(struct hand *hand, s32 handnum, f32 lvupdate60)
 {
-	if (handnum < 0 || handnum > 1 || geKnifeTrack[handnum] < 0) {
+	if (handnum < 0 || handnum > 1 || KNIFETRACK(handnum) < 0) {
 		return;
 	}
 
 	if (hand->gset.weaponnum != WEAPON_GE_HUNTINGKNIFE || !gegunsOwnModelInUse(hand->gset.weaponnum)
 			|| hand->state == HANDSTATE_CHANGEGUN) {
-		geKnifeTrack[handnum] = -1;
+		KNIFETRACK(handnum) = -1;
 		return;
 	}
 
-	geKnifeTime[handnum] += lvupdate60;
+	KNIFETIME(handnum) += lvupdate60;
 
-	if (gegunsSampleTrack(geKnifeSlash[geKnifeTrack[handnum]], geKnifeTime[handnum], &hand->posrotmtx, handnum == HAND_LEFT)) {
+	if (gegunsSampleTrack(geKnifeSlash[KNIFETRACK(handnum)], KNIFETIME(handnum), &hand->posrotmtx, handnum == HAND_LEFT)) {
 		hand->useposrot = true;
 	} else {
-		geKnifeTrack[handnum] = -1;
+		KNIFETRACK(handnum) = -1;
 	}
 }
 
@@ -2975,9 +2989,20 @@ static const struct geknifekey geKnifeRelease[6] = {
 
 enum { GETHROW_NONE, GETHROW_DRAW, GETHROW_RECOVER };
 
-// Each hand's throw: which step, and how far into it in sixtieths
-static s8 geThrowStep[2];
-static f32 geThrowTime[2];
+// Each player's hands' throws: which step, and how far into it in sixtieths
+// (by player, as the slashes above)
+static s8 geThrowStep[MAX_PLAYERS][2];
+static f32 geThrowTime[MAX_PLAYERS][2];
+
+#define THROWSTEP(h) geThrowStep[gegunsSwingPlayer()][h]
+#define THROWTIME(h) geThrowTime[gegunsSwingPlayer()][h]
+
+// no slash or throw under way in anyone's hands (a stage starting)
+static void gegunsOwnSwingsStop(void)
+{
+	memset(geKnifeTrack, -1, sizeof(geKnifeTrack));
+	memset(geThrowStep, GETHROW_NONE, sizeof(geThrowStep));
+}
 
 static s32 gegunsOwnThrowApplies(const struct hand *hand)
 {
@@ -2993,8 +3018,8 @@ void gegunsOwnThrowStart(struct hand *hand, s32 handnum)
 		return;
 	}
 
-	geThrowStep[handnum] = gegunsOwnThrowApplies(hand) ? GETHROW_DRAW : GETHROW_NONE;
-	geThrowTime[handnum] = 0.0f;
+	THROWSTEP(handnum) = gegunsOwnThrowApplies(hand) ? GETHROW_DRAW : GETHROW_NONE;
+	THROWTIME(handnum) = 0.0f;
 }
 
 /**
@@ -3005,25 +3030,25 @@ void gegunsOwnThrowStart(struct hand *hand, s32 handnum)
  */
 void gegunsOwnThrowTick(struct hand *hand, s32 handnum, f32 lvupdate60)
 {
-	if (handnum < 0 || handnum > 1 || geThrowStep[handnum] == GETHROW_NONE) {
+	if (handnum < 0 || handnum > 1 || THROWSTEP(handnum) == GETHROW_NONE) {
 		return;
 	}
 
 	if (!gegunsOwnThrowApplies(hand) || hand->state == HANDSTATE_CHANGEGUN) {
-		geThrowStep[handnum] = GETHROW_NONE;
+		THROWSTEP(handnum) = GETHROW_NONE;
 		return;
 	}
 
-	if (geThrowStep[handnum] == GETHROW_DRAW
+	if (THROWSTEP(handnum) == GETHROW_DRAW
 			&& (hand->state != HANDSTATE_ATTACK || hand->stateminor != HANDSTATEMINOR_ATTACK_THROW_0)) {
-		geThrowStep[handnum] = GETHROW_RECOVER;
-		geThrowTime[handnum] = 0.0f;
+		THROWSTEP(handnum) = GETHROW_RECOVER;
+		THROWTIME(handnum) = 0.0f;
 	} else {
-		geThrowTime[handnum] += lvupdate60;
+		THROWTIME(handnum) += lvupdate60;
 	}
 
-	if (geThrowStep[handnum] == GETHROW_DRAW) {
-		if (!gegunsSampleTrack(geKnifeDrawBack, geThrowTime[handnum], &hand->posrotmtx, handnum == HAND_LEFT)) {
+	if (THROWSTEP(handnum) == GETHROW_DRAW) {
+		if (!gegunsSampleTrack(geKnifeDrawBack, THROWTIME(handnum), &hand->posrotmtx, handnum == HAND_LEFT)) {
 			// drawn back and held there
 			gegunsSampleTrack(geKnifeRelease, 0.0f, &hand->posrotmtx, handnum == HAND_LEFT);
 		}
@@ -3037,13 +3062,30 @@ void gegunsOwnThrowTick(struct hand *hand, s32 handnum, f32 lvupdate60)
 	// then lowers and raises the hand to fill its one-knife clip, which would
 	// otherwise have brought the empty hand back to rest in between (GoldenEye
 	// goes from the follow-through straight to the knife coming up)
-	if (!gegunsSampleTrack(geKnifeRelease, geThrowTime[handnum], &hand->posrotmtx, handnum == HAND_LEFT)
+	if (!gegunsSampleTrack(geKnifeRelease, THROWTIME(handnum), &hand->posrotmtx, handnum == HAND_LEFT)
 			&& (hand->loadedammo[0] > 0 || (hand->state != HANDSTATE_ATTACK && hand->state != HANDSTATE_RELOAD))) {
-		geThrowStep[handnum] = GETHROW_NONE;
+		THROWSTEP(handnum) = GETHROW_NONE;
 		return;
 	}
 
 	hand->useposrot = true;
+}
+
+// F3's [netplay] section: a player's hand's knife slash (-1 none) and throw
+// step, and how far into each
+void gegunsOwnSwingTrace(s32 playernum, s32 handnum, s32 *slash, f32 *slashtime, s32 *throwstep, f32 *throwtime)
+{
+	if (playernum < 0 || playernum >= MAX_PLAYERS || handnum < 0 || handnum > 1) {
+		*slash = -1;
+		*throwstep = GETHROW_NONE;
+		*slashtime = *throwtime = 0.0f;
+		return;
+	}
+
+	*slash = geKnifeTrack[playernum][handnum];
+	*slashtime = geKnifeTime[playernum][handnum];
+	*throwstep = geThrowStep[playernum][handnum];
+	*throwtime = geThrowTime[playernum][handnum];
 }
 
 /**
@@ -3060,7 +3102,7 @@ static s32 gegunsOwnThrowKnifeGone(const struct hand *hand)
 
 	for (s32 i = 0; player && i < 2; i++) {
 		if (hand == &player->hands[i]) {
-			return geThrowStep[i] == GETHROW_RECOVER;
+			return THROWSTEP(i) == GETHROW_RECOVER;
 		}
 	}
 
@@ -3086,7 +3128,7 @@ s32 gegunsOwnThrowHidesHand(const struct hand *hand)
 
 	for (s32 i = 0; player && i < 2; i++) {
 		if (hand == &player->hands[i]) {
-			return geThrowStep[i] == GETHROW_RECOVER && geThrowTime[i] >= 2.0f;
+			return THROWSTEP(i) == GETHROW_RECOVER && THROWTIME(i) >= 2.0f;
 		}
 	}
 
@@ -3712,6 +3754,8 @@ s32 gegunsHostModel(s32 index)
 
 PD_CONSTRUCTOR static void gegunsInit(void)
 {
+	gegunsOwnSwingsStop();
+
 	stockFalcon2 = *g_Weapons[WEAPON_FALCON2];
 	stockKnife = *g_Weapons[WEAPON_COMBATKNIFE];
 	stockCmp150 = *g_Weapons[WEAPON_CMP150];
@@ -4199,6 +4243,8 @@ void gegunsStageSet(s32 stagenum)
 {
 	struct gegunset *set = NULL;
 	s32 dir = -1;
+
+	gegunsOwnSwingsStop();
 
 	if (modloaderStageIsRemake(stagenum) && !modloaderStageIsGexPlus(stagenum)) {
 		set = gegunsSetAt(modloaderGetStageModDirIndex(stagenum));

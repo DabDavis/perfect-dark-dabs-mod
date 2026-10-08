@@ -46,6 +46,8 @@ void geslappersTick(struct hand *hand, s32 handnum, f32 lvupdate60);
 
 // A slap that reached nobody: GoldenEye's whoosh (chrprop.c's PUNCHING_AIR_SFX)
 void geslappersMissed(void);
+// F3: a player's hand's slap (-1 none) and how far in (sixtieths)
+s32 geslappersTraceHand(s32 playernum, s32 handnum, f32 *time);
 
 // GoldenEye's own cut of a slap's damage by what the victim is doing and
 // which side it is hit from (chraction.c's ITEM_FIST); 1 for anything else

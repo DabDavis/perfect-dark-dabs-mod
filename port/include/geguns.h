@@ -170,6 +170,8 @@ void gegunsOwnMeleeTick(struct hand *hand, s32 handnum, f32 lvupdate60);
 void gegunsOwnThrowStart(struct hand *hand, s32 handnum);
 void gegunsOwnThrowTick(struct hand *hand, s32 handnum, f32 lvupdate60);
 s32 gegunsOwnThrowHidesHand(const struct hand *hand);
+// F3: a player's hand's knife slash (-1 none) and throw step, and how far into each
+void gegunsOwnSwingTrace(s32 playernum, s32 handnum, s32 *slash, f32 *slashtime, s32 *throwstep, f32 *throwtime);
 
 // Whether a model is the gun in one of the current player's hands and that
 // hand has no rocket loaded (gebean.c's fpRound)

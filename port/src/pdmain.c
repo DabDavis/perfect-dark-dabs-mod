@@ -701,6 +701,7 @@ static void mainNetFrame(void)
 	}
 
 	g_NetTicksThisFrame = ticks;
+	netTraceNoteFrame(ticks);
 	schedStartFrame(&g_Sched);
 
 	if (ticks == 0) {

@@ -1191,6 +1191,31 @@ void netEntsHostTickEnd(void)
 	}
 }
 
+static void netClientLog(const char *why);
+
+/**
+ * F3 (nettrace.c): the snapshot summaries into the log now (the host's per
+ * view and its traffic; a client's own, and a spectator's camera)
+ */
+void netEntsLogNow(const char *why)
+{
+	s32 slot;
+
+	if (g_NetMode == NETMODE_SERVER) {
+		for (slot = 0; slot < NET_MAXVIEWS; slot++) {
+			netHostLogSlot(slot, why);
+		}
+
+		netSessionLogTraffic(why);
+	} else if (g_NetMode == NETMODE_CLIENT && s_Client.maxids) {
+		netClientLog(why);
+
+		if (netSessionSpectating()) {
+			netSpecLog(why);
+		}
+	}
+}
+
 void netEntsHostOnAck(s32 slot, const struct netsnapack *a)
 {
 	if (slot < 0 || slot >= NET_MAXVIEWS || !s_Hosts[slot].maxids) {

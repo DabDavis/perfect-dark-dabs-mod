@@ -1,6 +1,7 @@
 #ifndef _IN_NET_NETINT_H
 #define _IN_NET_NETINT_H
 
+#include <stdio.h>
 #include <PR/ultratypes.h>
 #include "net/netbuf.h"
 #include "net/netproto.h"
@@ -408,6 +409,15 @@ void netRulesWritePlayerKeys(struct netbuf *b); // this machine's NETKEY_PLAYER 
 void netRulesReadPlayerKeys(struct netbuf *b, struct netplayerkeys *out);
 void netRulesPlayerKeysSwap(const struct netplayerkeys *in, struct netplayerkeys *saved); // in's values in, the old ones to saved
 void netRulesPlayerKeysRestore(const struct netplayerkeys *saved);
+void netRulesTraceSync(FILE *f);     // F3: the rules in force here
+// F3 (nettrace.c): each module's summary into the log now, and the host's view of a player
+void netPlayersLogNow(const char *why);
+void netPlayersTraceSlot(FILE *f, s32 playernum);
+void netEntsLogNow(const char *why);
+void netEventsLogNow(const char *why);
+void netSessionTraceLinks(FILE *f);
+void netRulesTraceOwnHere(FILE *f);  // F3: this machine's own NETKEY_PLAYER values
+void netRulesTracePlayerKeys(FILE *f, const struct netplayerkeys *in);
 // The first MUST/REFUSE key the client's set fails against this host's, or
 // 0: the class and key are written out for the refusal
 s32 netRulesCheckClientKeys(const struct netkeyvalue *keys, s32 nkeys, s32 gestage, s32 *code, char *key, s32 keysize, char *text, s32 textsize);
