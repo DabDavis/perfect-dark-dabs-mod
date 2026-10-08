@@ -53,6 +53,15 @@
   host's alone; a gun or device a client picks in a menu reaches the host
   (`NETCMD_EQUIP`/`NETCMD_DEVICE`); what of the host's look is still the
   host's world, and the start-of-match swirl that runs ahead on a client.
+- **GoldenEye's end of a mission online** — the section of that name
+  (protocol 16): the exit's wait for a press asks every player online (it
+  had read whoever was current at the top of `lvTick`, a seat nobody
+  held), a client's START reaches it and its screen fades with the host's;
+  the mission ends on the folder's REPORT/STATISTICS for each machine's
+  own player (a campaign host's in its menus, anyone else's for the two
+  pages over the room), MATCH_END carrying each player's time, kills and
+  hits; the same-frame `menuTick` that cleared `var80087260` before the
+  Institute had loaded.
 
 ## The shape
 
@@ -147,7 +156,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netcontenttest.sh` | 9 min | GoldenEye arenas (YOLT: a client respawned by its START alone), Goldfinger's mode (gfvariant, needs its zip in added-content), a client with nothing installed served the conversion by the host (fetch), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
-| `netcooptest.sh` | 10.5 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, beside the host, predicting at 95% or better |
+| `netcooptest.sh` | 12.5 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, beside the host, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client's START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
@@ -641,8 +650,10 @@ nothing is ever sent from one machine to another but names and hashes.
   wobbles for the opening and settles (75% -> 83% matched in the smoke
   run); not judged by the gate. GoldenEye's own code addresses players
   through `g_Vars.currentplayernum`, so the pad-0 fear in spec-coop.md was
-  unfounded. The folder's REPORT page does not open online
-  (`gexFrontMissionReport` bails in co-op): PD's co-op end screen instead.
+  unfounded. A mission ends on the folder's REPORT and STATISTICS pages
+  online too, each machine's for its own player (protocol 16: "GoldenEye's
+  end of a mission online", below); Perfect Dark's missions keep PD's co-op
+  end screen.
 - **Campaign rooms.** The user: "start the whole mode ... host controls
   everything, and game is seamless like offline" and "same for PD
   missions". Game = "<Set> Campaign" in Create Room (`g_NetCoopSetup.campaign`,
@@ -852,8 +863,8 @@ nothing is ever sent from one machine to another but names and hashes.
   relaunch itself with the mod selected for that run and join the room
   again: `updateRelaunchSelf` is the relaunch, `--net-lobby-*` the
   precedent for driving the lobby from arguments); the three MUST_GE keys
-  still refuse rather than follow; GoldenEye's REPORT page after an online
-  mission; a client's prediction held during GoldenEye's opening.
+  still refuse rather than follow; a client's prediction held during
+  GoldenEye's opening.
 - **Traps met.** `modListSwap()` sets the selection to what it loaded, which
   is bound to `Mod.ModDir`: the player's own selection must be read before
   the swap and put back after it (the first cut read it after, remembered
@@ -979,3 +990,68 @@ plays, every stage hash component equal, the client's own N64 look at tick
 900, both switch looks in the match); netsessiontest's `r-notstock` case is
 gone, its loopback runs Mod.SimBrain=modern on both (the host's modern, the
 client's stock); netcooptest `ge` has the pick.
+
+## GoldenEye's end of a mission online (protocol 16, 2026-10-07)
+
+The user, after playing GoldenEye's Dam online: "the outro cannot be
+skipped, then the completion screen goes to a PD screen instead of GE".
+
+- **The exit's press** (`gexPlusMissionExitTick`, GoldenEye's
+  TriggerFadeAndExitLevelOnButtonPress: the list says the mission is over,
+  the next press fades out and leaves; Dam's comes as Bond's dive starts).
+  It read `g_Vars.currentplayerstats`' pad, and the tick runs at the top of
+  `lvTick`, outside every player's pass, with whichever player the last
+  drawn view left current: a campaign host has four (a seat per member
+  slot), and the order puts the open ones last, so the host's own press was
+  never read. A client could not skip at all: it runs no AI list, so never
+  starts the wait, and the host strips START from a living player's pad
+  (protocol 11). Now, online, `gexPlusExitPressed()` asks every player:
+  this machine's pad and Esc, and each client's raw command
+  (`netPlayersHostPressed()`: the press edge of the command played this
+  tick, START included). Offline is the current player's pad as before.
+- **A client knows of the wait**: the mission block's flags carry it (8
+  waiting, 16 fading; `gexPlusExitFromHost()`), so its START is the press
+  rather than its pause (bondmove.c skips the pause while
+  `gexPlusExitPending()`; offline too, where the wait has the controls
+  locked anyway), its Esc goes as START in the command, and its screen
+  fades with the host's (`lvConfigureFade` once). It never ends the level
+  itself: MATCH_END does.
+- **The report** (`gexFrontNetMissionReport()`, from mainEndStage's co-op
+  branch for each local player): a mission of a conversion's set ends as
+  offline, on the folder's REPORT then STATISTICS pages, not PD's co-op end
+  screen. The end is co-op's (completed unless all dead or one aborted;
+  killed in action only on a mission that was not completed); the mission
+  number by its stage (a client's folder never started it); the folder's
+  difficulty where it started the mission, else `lvGetDifficulty()`;
+  nothing filed (no best time, no ghost). The level is left at once
+  (`netCoopLeaveMission()`, the end screen's close for online co-op). At
+  the Institute `netMenuAfterMatch()` takes it: a campaign host's menus
+  open the folder on the report (`gexFrontOpenAfterMission`, as offline;
+  NEXT goes on to the next briefing, which it starts for everyone); anyone
+  else gets the folder for the two pages alone over the room
+  (`gexFrontOpenNetReport()`, the mission's own set put in
+  `g_GexPlusVariant` while it is up, since the rules' is off again), and
+  NEXT from STATISTICS or BACK closes it to the room. With no room (a
+  `--connect` session) the Perfect Menu goes under it: the folder is drawn
+  in place of the menus and nothing was up. A STAGE_LOAD closes it first
+  (`gexFrontCloseNetReport()` before the rules are applied).
+- **MATCH_END carries each player's numbers** (time, kill count, seven
+  shot counts, after its awards): a client's guards are puppets whose
+  deaths and hits are counted on the host alone, so a client's STATISTICS
+  (and PD's co-op end screen) had zero kills. A co-op client takes them as
+  its own at H10; a match's are not applied (its tables follow as before).
+- **Trap: a match left from inside its own tick.** The co-op leave sets
+  `var80087260` and changes stage from inside `lvTick`, and `menuTick` runs
+  later in that same frame: it saw the flag with `lvframenum >= 4` on the
+  mission's own stage and cleared it, so the Institute came up with no
+  menu. The end screen's close never met it (it sets the flag in
+  `menuTick` itself, after that check). The return-from-match branch now
+  waits while `g_MainChangeToStageNum` is pending.
+- **Gate:** netcooptest `geend` (Dam's list 0x1004 kicked to its exit body,
+  the first label 7, found by walking the list in gdb; the client's player
+  given 3 kills and 20 shots on the host). Harness by hand: scratch
+  `run.sh` beside it drove the host's own START (`buttonspressed[0]` at a
+  `gexPlusMissionExitTick` break), the host starting Facility while the
+  client read its STATISTICS (`set var 'gexfront.c'::g_Front.mission = 1`,
+  `call (void)frontStartMission()`), and screenshots of each page.
+
