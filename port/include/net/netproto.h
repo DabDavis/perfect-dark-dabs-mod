@@ -108,7 +108,13 @@
 //    online (a new life where the player fell, its kit kept, Mission Lives
 //    the team's; no START, no health taken from another), and a player whose
 //    death does not come back watches the others (netspec.c)
-#define NET_PROTOCOL_VERSION 22
+// 23 (snapshots in crowded matches, netsnap.c): SNAP's per-entity bases -
+//    after the descriptors a list of present entities whose base record is
+//    in another acked snapshot than the baseline (u8 seq minus that one) -
+//    and a "deferred" bitmap after "updated" (present, not updated, changed
+//    on the host: its record is its base's, older); a full snapshot no
+//    longer lowers the rate, only loss does
+#define NET_PROTOCOL_VERSION 23
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -613,7 +619,7 @@
  *                                 to keep it at 1-2 (Overwatch time dilation)
  *
  * SNAP (host -> client, UNRELIABLE sequenced, every 2 host ticks, 3 while
- * snapshots are lost or the cap leaves changes behind; at most
+ * snapshots are lost (protocol 23: never for the cap leaving changes); at most
  * NET_MAXUNRELIABLE bytes) - the world as this client may see it
  * (PLANS/netplay/spec-entities.md §7; netsnap.c builds and checks it)
  *   u8      NETMSG_SNAP
@@ -630,6 +636,11 @@
  *                                 baseline's presence (netdelta.h encoding,
  *                                 (maxids+7)/8 bytes)
  *   delta   updated               a bit per id whose record follows (against zeros)
+ *   delta   deferred              (protocol 23) a bit per id present and not
+ *                                 updated whose state changed on the host:
+ *                                 the cap left it for a later packet, so its
+ *                                 record (its base's) is older than hosttick
+ *                                 (against zeros; a subset of present & ~updated)
  *   varu32  ndescs                spawn descriptors, ids rising:
  *     varu32 gap                  id - previous id - 1 (previous starts at -1)
  *     u8 kind<<4 | rec            NETDESC_*, NETREC_*
@@ -651,10 +662,18 @@
  *                u8 team (0-3, a Capture the Case briefcase's), u8 flags
  *                (1 a Hacker Central terminal). Always in scope.
  *     others:    s16 modelnum, u8 objtype
+ *   varu32  nrebase               (protocol 23) present ids whose base record
+ *                                 is not the baseline's, ids rising:
+ *     varu32 gap                  id - previous id - 1 (previous starts at -1)
+ *     u8 back                     1..63: the base is snapshot seq - back, the
+ *                                 newest the client acked that held the id
+ *                                 (one sent while the baseline was in
+ *                                 flight, or left out of the baseline)
  *   records, for each updated id rising: its record (CHR 48, OBJ 24, DOOR
- *     6, LIFT 14 bytes; layouts in netsnap.c netRecPack) XOR'd against the
- *     baseline's, or against zeros when the baseline lacks the id or holds
- *     another generation, rec or kind there (then a descriptor came too)
+ *     6, LIFT 14 bytes; layouts in netsnap.c netRecPack) XOR'd against its
+ *     base record (the baseline's, or the rebase list's snapshot's), or
+ *     against zeros when there is none or it holds another generation, rec
+ *     or kind (then a descriptor came too)
  *     (CHR byte 46 counts the chr's teleports, wrapping: snap when it
  *     changes, by any amount; a toggled bit would lose two in one gap)
  *   u8      haslp                 0 none, 1 keyframe, 2 against the baseline's
@@ -720,11 +739,15 @@
  *     again; at most 120 ticks' wait), after every event of T and before
  *     any later one
  *
- * Present and not updated: the client copies the baseline's record (it is
- * unchanged, or changed and left by the 1100-byte cap for a later packet).
- * Present in this snapshot and not in the baseline: always a descriptor and
- * a record; one that does not fit is not present at all yet. A client that
- * lacks the named baseline drops the packet and sets WANTKEY. A delta's
+ * Present and not updated: the client copies its base record (it is
+ * unchanged, or - deferred - changed and left by the 1100-byte cap for a
+ * later packet: then it is the state of the base's tick, and the puppets
+ * pose such a record by that tick, never as a step back). Present with no
+ * base record anywhere the client acked: always a descriptor and a record;
+ * one that does not fit is not present at all yet. Each side stores, per
+ * record, the host tick its bytes are from (hosttick if updated or unchanged,
+ * the base's if deferred): local, never on the wire. A client that lacks
+ * the named baseline or a rebase snapshot drops the packet and sets WANTKEY. A delta's
  * baseline is never more than 64 behind its seq (malformed otherwise); a
  * client that finds NETSNAP_RESYNC snapshots in a row older than its newest
  * (a corrupt seq got in) forgets its baselines and sets WANTKEY.

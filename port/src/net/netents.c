@@ -1127,10 +1127,10 @@ static void netHostLogSlot(s32 slot, const char *why)
 		return;
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: snap slot %d %s (tick %u): %u sent, bytes mean %u min %u max %u, keyframes %u, entity keyframes %u, records %u, descriptors %u, deferred %u, excluded %u, acks %u, nacks %u, resets %u, rate %d Hz (%u changes), entities offered mean %u, first at tick %u, last left out at tick %u",
+	sysLogPrintf(LOG_NOTE, "net: snap slot %d %s (tick %u): %u sent, bytes mean %u min %u max %u, keyframes %u, entity keyframes %u, records %u, descriptors %u, deferred %u, excluded %u, acks %u, nacks %u, resets %u, rate %d Hz (%u changes), entities offered mean %u, first at tick %u, last left out at tick %u, deferred behind a newer one sent %u",
 			slot, why, g_NetTick, h->sent, h->sent ? h->bytes / h->sent : 0, h->sent ? h->bytesmin : 0, h->bytesmax,
 			h->keyframes, h->entkeys, h->records, h->descs, h->deferred, h->excluded, h->acks, h->nacks, h->resets,
-			60 / (h->rate ? h->rate : 2), h->ratechanges, h->sent ? s_OfferedSum[slot] / h->sent : 0, h->firsttick, h->lastexcl);
+			60 / (h->rate ? h->rate : 2), h->ratechanges, h->sent ? s_OfferedSum[slot] / h->sent : 0, h->firsttick, h->lastexcl, h->behind);
 }
 
 /**

@@ -377,6 +377,7 @@ struct netsnaphost {
 	u16 acked;      // the newest the client acked (0 none)
 	f32 *prio;      // [maxids]
 	u8 *nack;       // [maxids]: resend the descriptor
+	u16 *sentseq;   // [maxids]: the last snapshot that carried its record
 	u8 lp[NETBASELINE_SLOTS][NETLP_SIZE];
 	u16 lpseq[NETBASELINE_SLOTS];
 	u8 scen[NETBASELINE_SLOTS][NETSCEN_SIZE];
@@ -404,6 +405,8 @@ struct netsnaphost {
 	u32 ratechanges;
 	u32 firsttick;  // the host tick of the first snapshot since init or a reset
 	u32 lastexcl;   // ... and of the last one that left an entity out (0 none)
+	u32 behind;     // deferred records whose base is older than a record sent since
+	                // (before protocol 23 a client posed them as a step back)
 };
 
 s32 netSnapHostInit(struct netsnaphost *h, s32 maxids);
@@ -460,6 +463,7 @@ struct netsnapclient {
 	// scratch
 	u16 *ids;        // [maxids]
 	u8 *stores;      // [maxids * NETSNAP_STORE]
+	u8 *rebase;      // [maxids]: this packet's base snapshot for the id, seq minus it (0: the baseline)
 	// counts
 	u32 received;
 	u32 decoded;

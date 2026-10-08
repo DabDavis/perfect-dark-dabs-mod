@@ -134,7 +134,7 @@ gate proves it after each change).
 | Layer | File | What |
 |---|---|---|
 | transport | `nettransport.c` | the only file that includes ENet (vendored from upstream, patched: fragment-count bomb, oversized Windows datagrams, a 5 s retry limit); three channels, raw datagrams on the same socket for hole punching, a loss/latency simulator (`--net-sim`) |
-| codec | `netbuf.c`, `netdelta.c` | bounded little-endian reader/writer with a sticky error; EQOA-style XOR against the last acked baseline plus zero-run RLE, a 64-entry baseline ring per peer |
+| codec | `netbuf.c`, `netdelta.c` | bounded little-endian reader/writer with a sticky error; EQOA-style XOR against the last acked baseline (protocol 23: each record against the newest the client acked of it) plus zero-run RLE, a 64-entry baseline ring per peer |
 | tick | `net.c` | an integer 60 Hz clock: `mainNetFrame` runs the whole `mainTick`s due, one pad sample per tick, the mouse summed per frame |
 | session | `netsession.c`, `netrules.c`, `nethash.c`, `netticket.c` | CONNECT/ACCEPT/REFUSE (protocol, build, region, converter, named content-hash components, lobby ticket), RULES and STAGE_LOAD by stage key, LOADED stage hashes, the GO barrier, MATCH_END, seats (a room's size or `Net.MaxPlayers`), join in progress, reconnect holds |
 | remote players | `netplayers.c` | a client's commands drive a virtual pad on the host (`osContGetReadData` hook), per-slot settings in a side table |
@@ -184,7 +184,7 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 `netproto.h` documents every message byte by byte (u8 type first, then
 fields through netbuf, never a struct copied whole), the channel each goes
 on (RULES and STAGE_LOAD share BULK so a STAGE_LOAD never overtakes its
-RULES), the refusal codes, and the protocol history (netproto.h's list is the full one). Protocol 22 is current (a co-op death online: the mission block's player bit 8 names the death that lost the mission, bit 16 a death that comes back; co-op's respawn is Mission Respawn's); 21 was (host migration: GO's stagetime for every client, RESUME); 14 was (co-op on the conversions' missions: the mission block's set tag and stage key kind 3; content served by the host: CONTENT_REQ/BEGIN/FILE/END/NO; 13 was content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
+RULES), the refusal codes, and the protocol history (netproto.h's list is the full one). Protocol 23 (this branch: SNAP's per-entity bases and deferred bitmap, Traps "Snapshots in a crowded match") follows 22 (a co-op death online: the mission block's player bit 8 names the death that lost the mission, bit 16 a death that comes back; co-op's respawn is Mission Respawn's); 21 was (host migration: GO's stagetime for every client, RESUME); 14 was (co-op on the conversions' missions: the mission block's set tag and stage key kind 3; content served by the host: CONTENT_REQ/BEGIN/FILE/END/NO; 13 was content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
 The lobby's HTTP API and the rendezvous/relay datagrams are in
 `tools/pdlobbyd/README.md`. A change to a message's shape or meaning bumps
 `NET_PROTOCOL_VERSION`; pdlobbyd lists a room's protocol and the Briefing
@@ -437,6 +437,45 @@ then lists, joins, READYs and plays; the Linux host is
   snapshots while the host sits on its end screen: they had all become
   keyframes, nothing acked, about 23 KB/s each until the host stopped the
   stage (`netSessionSlotLeftMatch`).
+- **Snapshots in a crowded match (protocol 23, 2026-10-08).** Three faults
+  of the 1100-byte cap, all in `netsnap.c`. (1) A changed record that did
+  not fit went out present-not-updated, i.e. the client copied its base's
+  (the acked snapshot's, a round trip old), and the puppets posed it at
+  the new snapshot's tick: a chr stepped back about one RTT and forward
+  again. Now each store keeps the host tick its record's bytes are from
+  (`netStoreTick`, store bytes 4-7, never on the wire: updated or unchanged
+  = the snapshot's tick, deferred = the base's), SNAP carries a "deferred"
+  bitmap so the client can tell unchanged from left behind, and
+  `netClientPosePuppetsRun` poses any record whose tick is not its
+  snapshot's from the newest record held at or before the render tick and
+  the oldest after it, from whichever snapshots carried them
+  (`netPupSearch`; the puppets' log line: "chr records older than the last
+  posed", "blended towards an older one", "posed from other snapshots").
+  It also poses an id present in the snapshot after the render tick but
+  missing from the one before (left out while new), so a made prop is not
+  freed and rebuilt. (2) The rate fell to 20 Hz after ten snapshots that
+  left changes behind - less bandwidth exactly when short of it; only loss
+  lowers it now. (3) The ramp after a join or a WANTKEY: every snapshot was
+  a delta against the one newest acked snapshot, so entities sent in the
+  snapshots in flight were new again in the next ones (resent or left out
+  every RTT, and gone from a later acked snapshot that had left them out).
+  Each entity is now coded against its own newest acked record
+  (`netSnapHostBase` = `netBaselineGetAcked`, less than 64 behind), and
+  SNAP lists the present ids whose base is not the baseline (u8 seq minus
+  it). Measured with `build/crowd/run.sh` (not a gate: a listen host on
+  Defection co-op, two clients, `--net-sim 2,75` everywhere, so 150 ms and
+  2% loss each way): every offered entity present after 30 ticks, was 86;
+  entity keyframes in the first 300 ticks 507, was 1344, left out 2623, was
+  4692; the client's chr poses blended towards an older record 0, was 1659
+  and 2291. The host's log line now ends "first at tick F, last left out
+  at tick T, deferred behind a newer one sent N" (N: the deferrals the old
+  puppets showed as a step back). The reliable EVENTS channel was measured
+  too (24 sims spraying SMGs, two clients, 150 ms/2%, `traffic slot`
+  lines' "reliable in flight peak", "queued peak"; the events client line's
+  "lag ... max, over 6 ticks"): about 7 KB/s per client, at most 4 KB in
+  flight and three commands queued - no backlog; a late event is the
+  ordered channel waiting out one loss (max 25 ticks), not volume, so
+  events are still sent to everyone reliably.
 - **A client's START.** It opens the client's own pause menu (never the
   host's, never a pause of the match): the command's START is cleared on the
   host unless that player is dead, where it is the death screen's respawn as
