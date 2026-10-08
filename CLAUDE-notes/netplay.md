@@ -54,7 +54,9 @@
   (`NETCMD_EQUIP`/`NETCMD_DEVICE`); what of the host's look is still the
   host's world, and the start-of-match swirl that runs ahead on a client.
 - **GoldenEye's end of a mission online** — the section of that name
-  (protocol 16): the exit's wait for a press asks every player online (it
+  (protocols 16 and 17): a client sees the host's ending (its CameraSwitch
+  shots and its lists' fades, from its own setup); the exit's wait for a
+  press asks every player online (it
   had read whoever was current at the top of `lvTick`, a seat nobody
   held), a client's START reaches it and its screen fades with the host's;
   the mission ends on the folder's REPORT/STATISTICS for each machine's
@@ -156,7 +158,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netcontenttest.sh` | 9 min | GoldenEye arenas (YOLT: a client respawned by its START alone), Goldfinger's mode (gfvariant, needs its zip in added-content), a client with nothing installed served the conversion by the host (fetch), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
-| `netcooptest.sh` | 12.5 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, beside the host, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client's START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder |
+| `netcooptest.sh` | 12.5 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, beside the host, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
@@ -1040,6 +1042,29 @@ skipped, then the completion screen goes to a PD screen instead of GE".
   deaths and hits are counted on the host alone, so a client's STATISTICS
   (and PD's co-op end screen) had zero kills. A co-op client takes them as
   its own at H10; a match's are not applied (its tables follow as before).
+- **The ending's shots on a client (protocol 17; the user: "let guests
+  see the host's outro camera too").** GoldenEye's CameraSwitch is ai00df,
+  Perfect Dark's warp (`playerPrepareWarpType2`, TICKMODE_WARP, the camera
+  at a setup record's place); a client runs no list, so it played on in its
+  own view while the host's showed Bond's dive. The host notes the
+  record's setup command (`netCoopHostCameraSwitch`, from ai00df) and every
+  screen fade a converted mission's lists ask for (`netCoopHostFade`, from
+  aiFadeScreen: Dam fades to black between its three shots); the mission
+  block carries the shot while the warp is still that one (s16 command,
+  s16 direction word; an opening's swirl and the credits are warps of
+  their own and leave it -1) and the fades (a count, colour, length). A
+  client takes the same record from its own setup
+  (`setupGetCmdByIndex`, `netCoopApplyWarp`), leaves the shot when the
+  host's tick mode does (then `netPredictForceSnap`), and holds prediction
+  as in a cutscene (`netCoopFollowingWarp`). The shot that looks at the
+  player (direction word 1) looks at Bond's prop, `g_Vars.bond` - the
+  host's player on every machine and for every view (it was the current
+  player's, the guest's own body on a client; offline the same prop).
+  Filmed on loopback: the client took Dam's shots 322, 324, 326 and four
+  fades, about 50 ticks behind the host under the screenshot attaches.
+  Not carried: who stands in the shot - HideAllChrs leaves every player's
+  chr on a converted mission, so a guest beside Bond is in it, as the host
+  sees it.
 - **Trap: a match left from inside its own tick.** The co-op leave sets
   `var80087260` and changes stage from inside `lvTick`, and `menuTick` runs
   later in that same frame: it saw the flag with `lvframenum >= 4` on the
@@ -1049,7 +1074,8 @@ skipped, then the completion screen goes to a PD screen instead of GE".
   waits while `g_MainChangeToStageNum` is pending.
 - **Gate:** netcooptest `geend` (Dam's list 0x1004 kicked to its exit body,
   the first label 7, found by walking the list in gdb; the client's player
-  given 3 kills and 20 shots on the host). Harness by hand: scratch
+  given 3 kills and 20 shots on the host; the client taking the host's
+  first shot and a fade to black). Harness by hand: scratch
   `run.sh` beside it drove the host's own START (`buttonspressed[0]` at a
   `gexPlusMissionExitTick` break), the host starting Facility while the
   client read its STATISTICS (`set var 'gexfront.c'::g_Front.mission = 1`,

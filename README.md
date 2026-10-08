@@ -206,9 +206,10 @@ Lobby without a new launch; when it ends the host is back in the folder
 and everyone else back in the room, ready for the next one. The host plays
 through the game as offline, with its own difficulty (GoldenEye's 007
 sliders included), and the room follows. A GoldenEye, Goldfinger 64 or
-Tomorrow Never Dies 64 mission ends as it does offline: anyone's button
-skips its ending, and each player gets the folder's report and statistics
-pages for their own game before the next mission.
+Tomorrow Never Dies 64 mission ends as it does offline: everyone watches
+its ending through the host's camera, anyone's button skips it, and each
+player gets the folder's report and statistics pages for their own game
+before the next mission.
 
 A room that is already playing can still be joined: you drop into the
 match in progress. If your game crashes or your connection drops, rejoin
