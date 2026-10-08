@@ -1451,29 +1451,27 @@ static char *menutextGhostAccountStatus(struct menuitem *item)
 	} else if (ghostnetIsSignedIn()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
 				langTr("Signed in as %s\n"), g_GhostNetUser);
-	} else if (ghostnetAccountIsValid() && !ghostnetRecoveryIsSet()) {
-		// Create Account is refused without one, and a greyed out button with
-		// no reason beside it is the thing this page has already been wrong
-		// about once. Signing in is not gated: somebody who set their question
-		// on another machine has nothing to pick here.
+	} else if (ghostnetIsNewName()) {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"%s", langTr("Set 3 Security Questions, then Create Account.\n"));
+				langTr("%s is new - pick 3 Security Questions.\n"), g_GhostNetUser);
 	} else if (ghostnetAccountIsValid()) {
-		// Well formed, and that is all this end knows. Whether the name is
-		// registered, and whether the PIN is its PIN, are questions only the
-		// server can answer - so the page names the two buttons that ask it
-		// rather than saying the account works.
+		// There is one button. Whether the name is somebody's, and whether
+		// the PIN is its PIN, only the server can say - and a name nobody has
+		// is made into this player's account by the same press, which is the
+		// thing a new player could not tell from the page when it had Sign
+		// In and Create Account side by side (2026-10-08).
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				langTr("Create Account if %s is new, or Sign In.\n"), g_GhostNetUser);
-	} else if (ghostnetHasAccount()) {
+				"%s", langTr("Sign In - a new name makes a new account.\n"));
+	} else if (g_GhostNetUser[0] && g_GhostNetPin[0]) {
 		// Both are filled in and one of them is not something the server will
 		// take. Saying which beats letting the player press a greyed out
-		// button and wonder, or press a live one and be refused by a machine.
-		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"%s", langTr("Name needs 3-15 of letters, digits, _ . - and PIN 4-8 digits.\n"));
+		// button and wonder.
+		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg), "%s",
+				ghostnetNameIsValid() ? langTr("The PIN is 4 to 8 digits.\n")
+				: langTr("Name: 3-15 letters, digits, _ . or -\n"));
 	} else {
 		snprintf(g_GhostAccountMsg, sizeof(g_GhostAccountMsg),
-				"%s", langTr("Pick a name and a PIN, then Create Account.\n"));
+				"%s", langTr("Type a name and a PIN, then Sign In.\n"));
 	}
 
 	return g_GhostAccountMsg;
@@ -1507,7 +1505,10 @@ static MenuItemHandlerResult menuhandlerGhostPin(s32 operation, struct menuitem 
 {
 	switch (operation) {
 	case MENUOP_GETTEXT:
-		snprintf(data->keyboard.string, MPSETUP_MAXNAME + 1, "%s", g_GhostNetPin);
+		// Empty: the field shows *s, and a PIN is retyped, not edited (it
+		// opened holding the old one, to be deleted a dot at a time).
+		// Cancel keeps the old one.
+		data->keyboard.string[0] = '\0';
 		break;
 	case MENUOP_SETTEXT:
 		snprintf(g_GhostNetPin, sizeof(g_GhostNetPin), "%s", data->keyboard.string);
@@ -1517,36 +1518,60 @@ static MenuItemHandlerResult menuhandlerGhostPin(s32 operation, struct menuitem 
 	return 0;
 }
 
-static MenuItemHandlerResult menuhandlerGhostCreate(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	switch (operation) {
-	case MENUOP_CHECKDISABLED:
-		// A new account picks its security question here or never: the only
-		// other way to set one is to sign in with the PIN, which is exactly
-		// what somebody who has lost it cannot do.
-		return !ghostnetIsAvailable() || !ghostnetAccountIsValid()
-			|| !ghostnetRecoveryIsSet()
-			|| ghostnetGetState() == GHOSTNET_BUSY;
-	case MENUOP_SET:
-		ghostnetRegister();
-		break;
-	}
+/**
+ * Sign In: the only button. A name that exists is signed into; a free one is
+ * made into the account - first coming back "new", which puts the security
+ * questions up, then made by the questions page's Create Account. The label
+ * says which the next press does.
+ *
+ * A sign-in pressed here closes the page once it has worked (and the
+ * questions page over it), so the player is back where they came from -
+ * the Online Game page, Ghost Trials - instead of on a page with nothing
+ * left to press but Back.
+ */
+static bool g_GhostSignInPending = false;
 
-	return 0;
+static void menuGhostOpenSensitive(struct menudialogdef *next);
+extern struct menudialogdef g_GhostQuestionMenuDialog;
+
+static char *menutextGhostSignIn(struct menuitem *item)
+{
+	return (char *)(ghostnetIsNewName() ? langTr("Create Account\n") : langTr("Sign In\n"));
 }
 
 static MenuItemHandlerResult menuhandlerGhostSignIn(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
-		return !ghostnetIsAvailable() || !ghostnetAccountIsValid()
-			|| ghostnetGetState() == GHOSTNET_BUSY;
+		// Not greyed while the request is out: a greyed row loses the
+		// cursor, which then sat on Forgot My PIN when the answer came
+		return !ghostnetIsAvailable() || !ghostnetAccountIsValid();
 	case MENUOP_SET:
-		ghostnetLogin();
+		if (ghostnetGetState() == GHOSTNET_BUSY) {
+			break;
+		}
+
+		if (ghostnetIsNewName() && !ghostnetRecoveryIsSet()) {
+			menuGhostOpenSensitive(&g_GhostQuestionMenuDialog);
+		} else {
+			g_GhostSignInPending = true;
+			ghostnetSignIn();
+		}
 		break;
 	}
 
 	return 0;
+}
+
+static s32 menuGhostIsCurrent(struct menudialogdef *dialogdef)
+{
+	return g_Menus[g_MpPlayerNum].curdialog && g_Menus[g_MpPlayerNum].curdialog->definition == dialogdef;
+}
+
+// A sign-in this page started has worked: the page under it is next
+static bool menuGhostSignInDone(void)
+{
+	return g_GhostSignInPending && ghostnetGetState() == GHOSTNET_OK && ghostnetIsSignedIn();
 }
 
 static MenuDialogHandlerResult menudialogGhostAccount(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
@@ -1557,6 +1582,21 @@ static MenuDialogHandlerResult menudialogGhostAccount(s32 operation, struct menu
 	// forgotten doing.
 	if (operation == MENUOP_OPEN) {
 		ghostnetClearState();
+		g_GhostSignInPending = false;
+	}
+
+	if (operation == MENUOP_TICK && menuGhostIsCurrent(dialogdef) && g_GhostSignInPending) {
+		if (menuGhostSignInDone()) {
+			g_GhostSignInPending = false;
+			menuPopDialog();
+		} else if (ghostnetGetState() == GHOSTNET_ERROR && ghostnetIsNewName() && !ghostnetRecoveryIsSet()) {
+			// A free name: its questions next, through the red warning
+			// because that page shows the answers by name
+			g_GhostSignInPending = false;
+			menuGhostOpenSensitive(&g_GhostQuestionMenuDialog);
+		} else if (ghostnetGetState() == GHOSTNET_ERROR) {
+			g_GhostSignInPending = false;
+		}
 	}
 
 	return 0;
@@ -1617,11 +1657,13 @@ struct menuitem g_GhostNameMenuItems[] = {
 		NULL,
 	},
 	{
+		// fifteen, where the grid stopped at ten (param 0), and full width;
+		// typed _ and - get through (KEYBOARDFLAG_NAME), ? ! and space do not
 		MENUITEMTYPE_KEYBOARD,
+		GHOSTNET_MAXUSER,
 		0,
-		0,
-		0,
-		0,
+		KEYBOARDFLAG_NAME,
+		1,
 		menuhandlerGhostUser,
 	},
 	{ MENUITEMTYPE_END },
@@ -1629,7 +1671,7 @@ struct menuitem g_GhostNameMenuItems[] = {
 
 struct menudialogdef g_GhostNameMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Ghost Account Name",
+	(uintptr_t)"Account Name",
 	g_GhostNameMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -1646,10 +1688,11 @@ struct menuitem g_GhostPinMenuItems[] = {
 		NULL,
 	},
 	{
+		// digits only, shown as *s: no streamer warning in front of it now
 		MENUITEMTYPE_KEYBOARD,
+		GHOSTNET_MAXPIN,
 		0,
-		0,
-		0,
+		KEYBOARDFLAG_DIGITS | KEYBOARDFLAG_MASKED,
 		0,
 		menuhandlerGhostPin,
 	},
@@ -1658,7 +1701,7 @@ struct menuitem g_GhostPinMenuItems[] = {
 
 struct menudialogdef g_GhostPinMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Ghost Account PIN",
+	(uintptr_t)"Account PIN",
 	g_GhostPinMenuItems,
 	NULL,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -1785,15 +1828,32 @@ static MenuItemHandlerResult menuhandlerGhostSaveRecovery(s32 operation, struct 
 {
 	switch (operation) {
 	case MENUOP_CHECKDISABLED:
+		// not greyed while busy, for the cursor's sake (menuhandlerGhostSignIn)
 		return !ghostnetIsAvailable() || !ghostnetAccountIsValid()
-			|| !ghostnetRecoveryIsSet()
-			|| ghostnetGetState() == GHOSTNET_BUSY;
+			|| !ghostnetRecoveryIsSet();
 	case MENUOP_SET:
-		ghostnetSetRecovery();
+		if (ghostnetGetState() == GHOSTNET_BUSY) {
+			break;
+		}
+
+		// Not signed in, this is a new account's page: the Sign In again,
+		// questions and all, which makes it. "Save To Account" here used to
+		// be pressed before any account existed and refused (2026-10-05/07).
+		if (ghostnetIsSignedIn()) {
+			ghostnetSetRecovery();
+		} else {
+			g_GhostSignInPending = true;
+			ghostnetSignIn();
+		}
 		break;
 	}
 
 	return 0;
+}
+
+static char *menutextGhostSaveRecovery(struct menuitem *item)
+{
+	return (char *)(ghostnetIsSignedIn() ? langTr("Save To Account\n") : langTr("Create Account\n"));
 }
 
 static char g_GhostQuestionMsg[128];
@@ -1804,6 +1864,16 @@ static char *menutextGhostQuestionStatus(struct menuitem *item)
 
 	if (state == GHOSTNET_BUSY || state == GHOSTNET_OK || state == GHOSTNET_ERROR) {
 		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg), "%s\n", langTr(ghostnetGetMessage()));
+	} else if (!ghostnetIsSignedIn() && ghostnetRecoveryIsRepeated()) {
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
+				"%s", langTr("Each question must be different.\n"));
+	} else if (!ghostnetIsSignedIn() && !ghostnetRecoveryIsSet()) {
+		// a new account's: what they are for, then Create Account
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
+				langTr("New account %s: pick 3 you will remember.\n"), g_GhostNetUser);
+	} else if (!ghostnetIsSignedIn()) {
+		snprintf(g_GhostQuestionMsg, sizeof(g_GhostQuestionMsg),
+				"%s", langTr("Now Create Account.\n"));
 	} else if (ghostnetGetAccountRecovery() == GHOSTNET_RECOVERY_MISSING
 			&& !ghostnetRecoveryIsSet()) {
 		// The state a player is pushed into this page in, having pressed
@@ -1839,6 +1909,12 @@ static MenuDialogHandlerResult menudialogGhostQuestion(s32 operation, struct men
 {
 	if (operation == MENUOP_OPEN) {
 		ghostnetClearState();
+	}
+
+	// A new account made from here: this page goes, and the account page
+	// under it follows (it keeps the pending sign-in for that)
+	if (operation == MENUOP_TICK && menuGhostIsCurrent(dialogdef) && menuGhostSignInDone()) {
+		menuPopDialog();
 	}
 
 	return 0;
@@ -1881,8 +1957,8 @@ struct menuitem g_GhostQuestionMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Save To Account\n",
+		0,
+		(uintptr_t)&menutextGhostSaveRecovery,
 		0,
 		menuhandlerGhostSaveRecovery,
 	},
@@ -2121,20 +2197,37 @@ static MenuItemHandlerResult menuhandlerGhostSensitiveShow(s32 operation, struct
 	return 0;
 }
 
+// The PIN is *s on its keyboard now, so what is left behind this is the
+// security answers. A new account is sent here by Sign In, and is told why
+// before it is told to hide the game.
+static char *menutextGhostSensitiveFirst(struct menuitem *item)
+{
+	return (char *)(!ghostnetIsSignedIn() && ghostnetIsNewName()
+		? langTr("A new account needs 3 security questions.\n")
+		: langTr("The next screen shows sensitive info -\n"));
+}
+
+static char *menutextGhostSensitiveSecond(struct menuitem *item)
+{
+	return (char *)(!ghostnetIsSignedIn() && ghostnetIsNewName()
+		? langTr("The next screen shows the answers, readable.\n")
+		: langTr("your security answers, readable.\n"));
+}
+
 struct menuitem g_GhostSensitiveMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
-		(uintptr_t)"The next screen shows sensitive info -\n",
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostSensitiveFirst,
 		0,
 		NULL,
 	},
 	{
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
-		(uintptr_t)"your PIN or security answers, readable.\n",
+		MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT,
+		(uintptr_t)&menutextGhostSensitiveSecond,
 		0,
 		NULL,
 	},
@@ -2189,17 +2282,16 @@ struct menudialogdef g_GhostSensitiveMenuDialog = {
  * handler would - so these are rows with a handler that pushes the warning,
  * with the page it stands in front of remembered for the Show It row.
  */
-static MenuItemHandlerResult menuhandlerGhostPinDoor(s32 operation, struct menuitem *item, union handlerdata *data)
-{
-	if (operation == MENUOP_SET) {
-		menuGhostOpenSensitive(&g_GhostPinMenuDialog);
-	}
-
-	return 0;
-}
-
 static MenuItemHandlerResult menuhandlerGhostQuestionDoor(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	// An account that exists has its questions, and a name not yet tried
+	// may be one: the row is for the signed in and for a name the server
+	// has called new, so a returning player is not asked to pick three
+	// things they picked already
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return !ghostnetIsSignedIn() && !ghostnetIsNewName();
+	}
+
 	if (operation == MENUOP_SET) {
 		menuGhostOpenSensitive(&g_GhostQuestionMenuDialog);
 	}
@@ -2244,10 +2336,10 @@ static char *menutextGhostAccountsStatus(struct menuitem *item)
 		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg), "%s\n", langTr(ghostnetGetMessage()));
 	} else if (ghostnetHasAccount()) {
 		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
-				langTr("Racing as %s - A on a name switches.\n"), ghostnetGetAccountName());
+				langTr("Using %s - A on a name switches.\n"), ghostnetGetAccountName());
 	} else {
 		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
-				"%s", langTr("No account - ghosts stay on this machine.\n"));
+				"%s", langTr("No account on this machine yet.\n"));
 	}
 
 	return g_GhostAccountsMsg;
@@ -2323,7 +2415,7 @@ struct menuitem g_GhostAccountsMenuItems[] = {
 		MENUITEMTYPE_SELECTABLE,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"New Account...\n",
+		(uintptr_t)"Add Account...\n",
 		0,
 		menuhandlerGhostNewAccount,
 	},
@@ -2364,7 +2456,7 @@ struct menuitem g_GhostAccountsMenuItems[] = {
 
 struct menudialogdef g_GhostAccountsMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Ghost Account",
+	(uintptr_t)"Accounts",
 	g_GhostAccountsMenuItems,
 	menudialogGhostAccounts,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -2399,10 +2491,10 @@ struct menuitem g_GhostAccountMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		0,
+		MENUITEMFLAG_SELECTABLE_OPENSDIALOG,
 		(uintptr_t)&menutextGhostPinRow,
 		0,
-		menuhandlerGhostPinDoor,
+		(void *)&g_GhostPinMenuDialog,
 	},
 	{
 		MENUITEMTYPE_SELECTABLE,
@@ -2423,16 +2515,8 @@ struct menuitem g_GhostAccountMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Create Account\n",
 		0,
-		menuhandlerGhostCreate,
-	},
-	{
-		MENUITEMTYPE_SELECTABLE,
-		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Sign In\n",
+		(uintptr_t)&menutextGhostSignIn,
 		0,
 		menuhandlerGhostSignIn,
 	},
@@ -2457,7 +2541,7 @@ struct menuitem g_GhostAccountMenuItems[] = {
 
 struct menudialogdef g_GhostAccountMenuDialog = {
 	MENUDIALOGTYPE_DEFAULT,
-	(uintptr_t)"Ghost Account",
+	(uintptr_t)"Account",
 	g_GhostAccountMenuItems,
 	menudialogGhostAccount,
 	MENUDIALOGFLAG_LITERAL_TEXT,
@@ -3504,7 +3588,9 @@ static MenuDialogHandlerResult menudialogGhostTrials(s32 operation, struct menud
 
 		if (ghostnetIsAvailable()) {
 			if (!ghostnetHasAccount()) {
-				menuPushDialog(&g_GhostAccountsMenuDialog);
+				// the sign-in page itself: the list of remembered accounts
+				// has nothing on it yet but "< Empty >"
+				menuPushDialog(ghostnetGetNumAccounts() ? &g_GhostAccountsMenuDialog : &g_GhostAccountMenuDialog);
 			} else if (ghostnetAccountIsValid() && !ghostnetIsSignedIn()) {
 				ghostnetLogin();
 			}
@@ -3545,7 +3631,9 @@ static MenuItemHandlerResult menuhandlerGhostOnlineRow(s32 operation, struct men
 	case MENUOP_CHECKDISABLED:
 		return !g_GhostOnline;
 	case MENUOP_SET:
-		if (item->param < (s32)ARRAYCOUNT(dialogs)) {
+		if (item->param == 0 && ghostnetGetNumAccounts() == 0) {
+			menuPushDialog(&g_GhostAccountMenuDialog);
+		} else if (item->param < (s32)ARRAYCOUNT(dialogs)) {
 			menuPushDialog(dialogs[item->param]);
 		}
 		break;

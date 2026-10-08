@@ -161,10 +161,14 @@ twelve needs about 2 Mbit/s of upload from the host.
 
 **Rooms.** **Online Game** is on the main menu. The GoldenEye and ROM
 hack modes have the row in their Combat Simulator instead, where a room is
-made on their own arenas. Online play uses your Ghost Trials account: the page's **Sign In**
-row opens the account page (the same one as Ghost Trials > Account) to
-enter a name and PIN or make an account; the page's first line says whether
-the lobby knows you, and a refused sign-in says why. Then:
+made on their own arenas. Online play uses your Ghost Trials account. The
+page's **Sign In** row opens the account page (the same one as Ghost Trials
+> Account): type a name and a PIN and press **Sign In**. There is no separate
+Create Account - a name nobody has yet becomes your account, after you pick
+three security questions (they are only used to reset a forgotten PIN). The
+Online Game page signs in as it opens and its first line says whether the
+lobby knows you; a refused sign-in says why. On a PC keyboard, just type: Enter
+is OK and Escape is Cancel on every on-screen keyboard. Then:
 
 - **Browse Rooms** opens the Briefing Room: every open room with its host,
   players in/max, arena, mode, ping and whether it has a password. A room

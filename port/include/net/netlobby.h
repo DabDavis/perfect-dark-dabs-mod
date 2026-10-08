@@ -150,6 +150,8 @@ void netLobbyKick(const char *user);
 void netLobbyLaunch(s32 force);
 void netLobbyCancelLaunch(void);
 void netLobbyLeave(void);
+void netLobbySignIn(void);         // sign in now, once per account (the Online Game page's tick)
+void netLobbySignInAgain(void);    // and once more (the page opened again)
 void netLobbyWarm(void);           // the Online Game page opened: hash off the frame
 void netLobbyCancelPending(void);  // the create/join page closed before the reply
 s32 netLobbyLaunchState(void);       // 0 open, 1 counting down, 2 launched/connecting, 3 in the match

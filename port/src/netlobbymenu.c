@@ -186,18 +186,23 @@ static u32 dimColour(u32 colour)
  * Online Game
  */
 
-extern struct menudialogdef g_GhostAccountsMenuDialog;
+extern struct menudialogdef g_GhostAccountMenuDialog;
 
 static char *textAccount(struct menuitem *item)
 {
 	static char text[96];
 
 	if (!netLobbyAvailable()) {
-		snprintf(text, sizeof(text), "%s", "No account yet: Sign In below to make or enter one.\n");
+		// Sign In makes the account when the name is new: there is no
+		// Create Account to find first (players could not tell they needed
+		// one, 2026-10-08)
+		snprintf(text, sizeof(text), "%s", "Sign In below - a new name makes your account.\n");
 	} else if (netLobbySignedIn()) {
 		snprintf(text, sizeof(text), "Signed in as %s\n", netLobbyAccount());
+	} else if (netLobbyBusy()) {
+		snprintf(text, sizeof(text), "Signing in as %s...\n", netLobbyAccount());
 	} else {
-		snprintf(text, sizeof(text), "Account: %s\n", netLobbyAccount());
+		snprintf(text, sizeof(text), "Not signed in as %s\n", netLobbyAccount());
 	}
 
 	return text;
@@ -218,17 +223,25 @@ static char *textMessage(struct menuitem *item)
 }
 
 /**
- * Sign In: the Ghost Trials account page (ghostmenu.c), where a name and
- * PIN are entered, an account made, or a PIN reset. The lobby signs in with
- * what that page leaves in Mod.GhostUser/GhostPin the next time it is asked
- * (Browse Rooms, Create Room), and the status line says what the account
- * server answered.
+ * Sign In: the account page (ghostmenu.c, shared with Ghost Trials), where a
+ * name and PIN are typed and one Sign In signs in or, for a new name, makes
+ * the account; it closes itself once that has worked. It used to open
+ * Ghost Trials' list of remembered accounts ("No account - ghosts stay on
+ * this machine", "< Empty >", and a list the cursor could not leave upwards)
+ * with the page behind New Account on it. Signed in, the row is Change
+ * Account and opens the same page. The lobby signs in with what the page
+ * leaves in Mod.GhostUser/GhostPin as this page comes back (dialogOnline).
  */
+static char *textSignIn(struct menuitem *item)
+{
+	return netLobbySignedIn() ? "Change Account...\n" : "Sign In...\n";
+}
+
 static MenuItemHandlerResult handlerSignIn(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
 		netLobbyClearMessage();
-		menuPushDialog(&g_GhostAccountsMenuDialog);
+		menuPushDialog(&g_GhostAccountMenuDialog);
 	}
 
 	return 0;
@@ -265,9 +278,12 @@ static MenuDialogHandlerResult dialogOnline(s32 operation, struct menudialogdef 
 	if (operation == MENUOP_OPEN) {
 		netLobbyClearMessage();
 		netLobbyWarm();
+		netLobbySignInAgain();
 	}
 
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
+		// as it opens, and as the account page closes over a new account
+		netLobbySignIn();
 		netLobbyTick();
 	}
 
@@ -281,7 +297,7 @@ static struct menuitem s_OnlineItems[] = {
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_BIGFONT, (uintptr_t)"Browse Rooms\n", 0, handlerBrowse },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_BIGFONT, (uintptr_t)"Create Room\n", 0, handlerCreateOpen },
 	{ MENUITEMTYPE_SEPARATOR, 0, 0, 0, 0, NULL },
-	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Sign In...\n", 0, handlerSignIn },
+	{ MENUITEMTYPE_SELECTABLE, 0, 0, (uintptr_t)&textSignIn, 0, handlerSignIn },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
 	{ MENUITEMTYPE_END },
 };

@@ -241,6 +241,7 @@ void ghostnetSelectAccount(s32 index);
 void ghostnetBeginNewAccount(void);
 bool ghostnetHasAccount(void);
 bool ghostnetAccountIsValid(void);
+bool ghostnetNameIsValid(void);
 bool ghostnetIsSignedIn(void);
 bool ghostnetRecoveryIsSet(void);
 s32 ghostnetRecoveryCount(void);
@@ -267,6 +268,16 @@ void ghostnetClearState(void);
 
 void ghostnetRegister(void);
 void ghostnetLogin(void);
+
+/**
+ * Sign In: the account in the boxes, made if its name is free (the server's
+ * /login with "create", and the security questions once all three are
+ * chosen). A free name sent without them comes back ghostnetIsNewName(), and
+ * the page asks for them. ghostnetLogin() above is the plain sign-in that
+ * never makes anything, for switching to a remembered account.
+ */
+void ghostnetSignIn(void);
+bool ghostnetIsNewName(void);
 void ghostnetSetRecovery(void);
 void ghostnetResetPin(void);
 void ghostnetUploadMine(void);

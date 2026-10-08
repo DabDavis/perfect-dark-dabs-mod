@@ -66,6 +66,7 @@
 #define JOB_JOIN     3
 #define JOB_ACTION   4 // POST /rooms/<id>/<path> as the member
 #define JOB_LEAVE    5
+#define JOB_SIGNIN   6 // signing in alone: the Online Game page says who this is as it opens
 
 struct lobbyjob {
 	s32 kind;
@@ -1058,6 +1059,16 @@ static void lobbyRunJob(struct lobbyjob *job)
 			SDL_UnlockMutex(s_Lock);
 		}
 		break;
+	case JOB_SIGNIN:
+		SDL_LockMutex(s_Lock);
+		i = s_Session[0] != '\0';
+		SDL_UnlockMutex(s_Lock);
+
+		// lobbyLogin puts a refusal on the status line
+		if (!i) {
+			lobbyLogin();
+		}
+		break;
 	case JOB_ACTION:
 	case JOB_LEAVE:
 		SDL_LockMutex(s_Lock);
@@ -1238,7 +1249,7 @@ static int lobbyActionThread(void *arg)
 			job = s_Queue[s_QueueHead];
 			s_QueueHead = (s_QueueHead + 1) % LOBBY_QUEUE;
 			s_QueueLen--;
-			user = job.kind == JOB_LIST || job.kind == JOB_CREATE || job.kind == JOB_JOIN;
+			user = job.kind == JOB_LIST || job.kind == JOB_CREATE || job.kind == JOB_JOIN || job.kind == JOB_SIGNIN;
 		}
 
 		SDL_UnlockMutex(s_Lock);
@@ -1442,7 +1453,7 @@ static void lobbyQueue(s32 kind, const char *path, const char *body)
 		snprintf(job->body, sizeof(job->body), "%s", body ? body : "{}");
 		s_QueueLen++;
 
-		if (kind == JOB_LIST || kind == JOB_CREATE || kind == JOB_JOIN) {
+		if (kind == JOB_LIST || kind == JOB_CREATE || kind == JOB_JOIN || kind == JOB_SIGNIN) {
 			s_Busy++;
 		}
 
@@ -1594,6 +1605,41 @@ void netLobbyClearMessage(void)
 void netLobbyRefresh(void)
 {
 	lobbyQueue(JOB_LIST, "", NULL);
+}
+
+/**
+ * Sign in now, rather than at the first Browse or Create: the Online Game
+ * page asks as it opens and whenever the account changes under it (Sign In
+ * there made or changed it), so it says "Signed in as" or why not before
+ * anything is pressed. Once per name and PIN until netLobbySignInAgain(), so
+ * a refusal is not asked again every frame.
+ */
+static char s_TriedUser[GHOSTNET_MAXUSER + 2] = "";
+static char s_TriedPin[GHOSTNET_MAXPIN + 2] = "";
+
+void netLobbySignIn(void)
+{
+#ifdef PD_GHOST_NET
+	if (!netLobbyAvailable() || netLobbySignedIn() || netLobbyBusy()) {
+		return;
+	}
+
+	if (strcmp(s_TriedUser, g_GhostNetUser) == 0 && strcmp(s_TriedPin, g_GhostNetPin) == 0) {
+		return;
+	}
+
+	snprintf(s_TriedUser, sizeof(s_TriedUser), "%s", g_GhostNetUser);
+	snprintf(s_TriedPin, sizeof(s_TriedPin), "%s", g_GhostNetPin);
+	netLobbyClearMessage();
+	netLobbyWarm();
+	lobbyQueue(JOB_SIGNIN, "", NULL);
+#endif
+}
+
+void netLobbySignInAgain(void)
+{
+	s_TriedUser[0] = '\0';
+	s_TriedPin[0] = '\0';
 }
 
 s32 netLobbyNumRooms(void)

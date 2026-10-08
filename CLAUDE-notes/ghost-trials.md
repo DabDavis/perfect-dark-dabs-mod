@@ -6,6 +6,7 @@ The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
 - **Ghost Trials networking** — [ghost-trials.md](CLAUDE-notes/ghost-trials.md): WinHTTP and libcurl, why not one of them, and what the worker thread may touch; the three security questions' wire format and `rec_count`; the red Streamer Beware door and the Offline/Online page; **the pd.ini key is `Mod.GhostServer`** - point a scratch ini at a local daemon before any headless drive that presses Create Account
+- **One Sign In button** — a new name makes the account (`/login` "create", `ghostnetSignIn`, the questions only for a new name); the server no longer counts a new account as a failed sign-in; the on-screen keyboard on a PC (types at once, Enter OK, Escape CANCEL, held keys latched, name/PIN charsets and the masked PIN)
 
 
 `port/src/ghostnet.c` has one seam, `ghostnetSend()`, and two implementations
@@ -60,15 +61,86 @@ same reason absent `recovery` means unknown.
 
 **The account page names nothing.** Its row reads `(set)`, `(n of 3)` or
 `(not set)`; the categories and answers are shown only on the questions and
-reset pages, and those, and the PIN keyboard (which shows the digits as they
-are typed), open through the red **Streamer Beware!** dialog
+reset pages, and those open through the red **Streamer Beware!** dialog
 (`g_GhostSensitiveMenuDialog`, `MENUDIALOGTYPE_DANGER`) every time - once a
 run would miss the streamer who started streaming after dismissing it. A row
-that opens a dialog has no handler, so the three doors are rows with a
+that opens a dialog has no handler, so the doors are rows with a
 handler that pushes the warning and remembers the page for its Show It row,
 which closes the warning first (`menuitemSelectableTick` pops before it calls)
 and then pushes the page. The nag from the Ghost Trials tick goes through the
-same door.
+same door. The PIN keyboard used to be a third door, for showing the digits
+as they were typed; it draws them as `*`s now (`KEYBOARDFLAG_MASKED`) and
+opens directly, empty, since a masked PIN is retyped rather than edited.
+
+## One Sign In button: a new name makes the account (2026-10-08)
+
+Players could not tell they had to make an account first. The account page
+had Create Account and Sign In side by side, Create greyed until all three
+questions were picked, so the one lit button was Sign In - and the live
+server's log shows new players pressing it again and again ("wrong name or
+pin"), then pressing Save To Account on the questions page (refused: no
+account yet), then finding Create Account. The user asked for a sign-in with
+a name that does not exist to make it.
+
+- The page is Name, PIN, Sign In, Forgot My PIN. Sign In is
+  `ghostnetSignIn()` (`JOB_SIGNIN`): `/login` with `"create": true`, plus the
+  three pairs once `ghostnetRecoveryIsSet()`. An existing account signs in
+  and never sees the questions; the server ignores pairs sent to one.
+- A free name sent without pairs answers `404 "new": true`; the client keeps
+  it (`ghostnetIsNewName()`, valid while the name box still holds it), the
+  account page's tick pushes the questions through the Streamer door (whose
+  first two lines then say a new account needs them), and the questions
+  page's button reads Create Account and sends the same Sign In with them.
+  The Sign In button itself reads Create Account in that state.
+- A sign-in pressed on the account or questions page closes them when it has
+  worked (`g_GhostSignInPending`, one pop a tick, the questions page first),
+  so the player is back on Online Game or the accounts list.
+- Neither button greys while busy: a greyed row loses the cursor, which then
+  sat on Forgot My PIN when the answer came back.
+- The Security Questions row is hidden unless signed in or the name is known
+  to be new.
+- `ghostnetLogin()` stays the plain sign-in (no create): choosing a
+  remembered account, and Ghost Trials' sign-in on open, never make one.
+
+**The server counted a new account as a failed sign-in.** `/register`'s
+failure-budget check recorded, so a player who had pressed Sign In seven
+times made the account with the eighth and was refused "too many attempts"
+at every sign-in for five minutes ("Roku", 2026-10-05: four refused
+sign-ins, three refused Save To Accounts, register 200, five 403s, then 429
+on Create). See tools/pdghostd/README.md: registering now asks the budget,
+clears it on success, and has its own cap (`REGISTER_MAX`, 20 an hour).
+
+**The on-screen keyboard on a PC (all of them, not only these pages).** Typing
+needed TYPE WITH KEYBOARD (or I) first, and letters before it were menu
+buttons: `E` is a second Accept, so "Eddie" typed into the name page came
+out as "e". In typing mode Enter did not confirm (upstream ccb3c8668 took it
+out because the Enter also pressed the menu under the keyboard), Escape left
+typing mode under a hint reading "ESC: OK", and a second Escape closed the
+keyboard and threw away the text. Now:
+
+- a keyboard opened by a key or mouse press starts typing
+  (`inputLastPressWasKeyboard()`, `menuitemKeyboardInit`); a pad's player
+  gets the grid;
+- Enter is OK, Escape (or back) is CANCEL; Enter's key repeats are not
+  presses, so the Enter that opened a keyboard cannot confirm it;
+- keys held when typing stops are latched up until released
+  (`inputStopTextInput`, `inputKeyPressed`), so the confirming Enter does not
+  press the menu underneath - that was upstream's reason;
+- while typing, only the keyboard's binds are off; a pad and the mouse still
+  work the grid (`inputBindPressedNotKeys`);
+- every way the keyboard closes itself stops the typing (a mouse click on OK
+  left it on, and the menu under it then took no keys);
+- `KEYBOARDFLAG_NAME` / `_DIGITS` / `_MASKED` in a keyboard item's param2
+  (port only) filter typed and grid characters (`inputTextCharAllowed`) and
+  mask the field. The name keyboard is 15 characters and full width (it
+  stopped at 10, the item's param 0, under a label saying 15) and takes `_`
+  and `-`, which the old filter dropped.
+
+**Testing it headless:** Xvfb + xdotool against a local pdghostd and pdlobbyd
+(`--auth ghost --ghost-url` the local pdghostd), scratch savedir with
+`GhostServer`/`LobbyServer` pointed at them. `xdotool type` reaches the game
+once typing has started. Restart the local pdghostd after editing it: a copy
+made before the change answers the old way (a 403 where a 404 was expected).
 
 **Offline or Online is asked in front of Ghost Trials every time**
 (`g_GhostModeMenuDialog`, what the main menu row opens now). Offline: no

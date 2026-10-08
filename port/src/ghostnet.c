@@ -85,6 +85,7 @@ static s32 g_BoardDiff = -1;
 #define JOB_DOWNLOAD 5
 #define JOB_SETRECOVERY 6
 #define JOB_RESETPIN    7
+#define JOB_SIGNIN      8 // /login with "create": the one Sign In button
 
 static SDL_mutex *g_Lock = NULL;
 static SDL_Thread *g_Thread = NULL;
@@ -123,6 +124,7 @@ static char g_JobPin[GHOSTNET_MAXPIN + 2];
 static char g_JobQuestion[GHOSTNET_NUMQUESTIONS][GHOSTNET_MAXQA + 2];
 static char g_JobAnswer[GHOSTNET_NUMQUESTIONS][GHOSTNET_MAXQA + 2];
 static s32 g_JobQuestionCount = 0;
+static bool g_JobQuestionsReady = false; // all three, each its own category
 static char g_JobUploads[GHOSTNET_MAXUPLOAD][64];
 static s32 g_JobUploadCount = 0;
 static s32 g_JobUploadSkipped = 0;
@@ -232,6 +234,35 @@ static char g_OkPin[GHOSTNET_MAXPIN + 2] = { 0 };
  * such reply, and the pages read it from here.
  */
 static s32 g_OkRecovery = GHOSTNET_RECOVERY_UNKNOWN;
+
+/**
+ * A name the last Sign In found free.
+ *
+ * Sign In makes the account when the name is new, but a new account needs
+ * its security questions, and an account that exists never sees them - so
+ * the server says "new" when it was sent none, and the page asks for them
+ * and the same Sign In goes again with them. Kept until a sign-in succeeds;
+ * it stands only while the name box still holds it.
+ */
+static char g_NewUser[GHOSTNET_MAXUSER + 2] = { 0 };
+
+static void ghostnetSetNewName(const char *user)
+{
+	SDL_LockMutex(g_Lock);
+	snprintf(g_NewUser, sizeof(g_NewUser), "%s", user);
+	SDL_UnlockMutex(g_Lock);
+}
+
+bool ghostnetIsNewName(void)
+{
+	bool same;
+
+	SDL_LockMutex(g_Lock);
+	same = g_NewUser[0] != '\0' && strcasecmp(g_NewUser, g_GhostNetUser) == 0;
+	SDL_UnlockMutex(g_Lock);
+
+	return same;
+}
 
 static void ghostnetSetVerified(const char *user, const char *pin, s32 recovery)
 {
@@ -934,7 +965,8 @@ static bool ghostnetJsonOk(const char *json)
  * when it was the only one, so a server from before there were three stores
  * that one and ignores the rest.
  */
-static bool ghostnetPostCredentials(const char *endpoint, bool recovery, char *msg, u32 msgsize)
+static bool ghostnetPostCredentials(const char *endpoint, bool recovery, bool create, s32 *isnew, s32 *created,
+		char *msg, u32 msgsize)
 {
 	struct ghostnetbuf buf = { NULL, 0 };
 	struct ghostnetreq req;
@@ -972,6 +1004,10 @@ static bool ghostnetPostCredentials(const char *endpoint, bool recovery, char *m
 		}
 	}
 
+	if (create && len < (s32)sizeof(body)) {
+		len += snprintf(body + len, sizeof(body) - len, ",\"create\":true");
+	}
+
 	if (len < (s32)sizeof(body)) {
 		snprintf(body + len, sizeof(body) - len, "}");
 	}
@@ -985,6 +1021,18 @@ static bool ghostnetPostCredentials(const char *endpoint, bool recovery, char *m
 	if (!ghostnetSend(&req, &buf, &status, msg, msgsize)) {
 		free(buf.data);
 		return false;
+	}
+
+	if (buf.data) {
+		char flag[8];
+
+		if (isnew) {
+			*isnew = ghostnetJsonField(buf.data, NULL, "new", flag, sizeof(flag)) && !strcasecmp(flag, "true");
+		}
+
+		if (created) {
+			*created = ghostnetJsonField(buf.data, NULL, "created", flag, sizeof(flag)) && !strcasecmp(flag, "true");
+		}
 	}
 
 	if (buf.data && ghostnetJsonOk(buf.data)) {
@@ -1392,7 +1440,7 @@ static int ghostnetWorker(void *arg)
 
 	switch (g_Job) {
 	case JOB_REGISTER:
-		ok = ghostnetPostCredentials("register", true, msg, sizeof(msg));
+		ok = ghostnetPostCredentials("register", true, false, NULL, NULL, msg, sizeof(msg));
 
 		if (ok) {
 			snprintf(msg, sizeof(msg), "%s", LANG_N("account created, you are signed in"));
@@ -1403,21 +1451,47 @@ static int ghostnetWorker(void *arg)
 		}
 		break;
 	case JOB_LOGIN:
-		ok = ghostnetPostCredentials("login", false, msg, sizeof(msg));
+		ok = ghostnetPostCredentials("login", false, false, NULL, NULL, msg, sizeof(msg));
 
 		if (ok) {
 			snprintf(msg, sizeof(msg), "signed in as %s", g_JobUser);
 		}
 		break;
+	case JOB_SIGNIN:
+		{
+			// The questions go along once all three are chosen. An account
+			// that exists ignores them; a free name becomes the account with
+			// them, or comes back "new" without them.
+			s32 isnew = 0;
+			s32 created = 0;
+
+			ok = ghostnetPostCredentials("login", g_JobQuestionsReady, true, &isnew, &created, msg, sizeof(msg));
+
+			if (ok) {
+				ghostnetSetNewName("");
+				snprintf(msg, sizeof(msg), created ? LANG_N("account %s created, you are signed in")
+						: LANG_N("signed in as %s"), g_JobUser);
+			} else if (isnew) {
+				ghostnetSetNewName(g_JobUser);
+				snprintf(msg, sizeof(msg), "%s", LANG_N("new name - pick 3 Security Questions to create it"));
+			} else if (strcmp(msg, "wrong PIN") == 0) {
+				// Taken, and maybe by somebody else: the player may just have
+				// picked a name that is in use.
+				snprintf(msg, sizeof(msg), "%s", LANG_N("wrong PIN - or the name is someone else's"));
+			} else if (strstr(msg, "already taken")) {
+				snprintf(msg, sizeof(msg), "%s", LANG_N("that name was just taken - pick another"));
+			}
+		}
+		break;
 	case JOB_SETRECOVERY:
-		ok = ghostnetPostCredentials("setrecovery", true, msg, sizeof(msg));
+		ok = ghostnetPostCredentials("setrecovery", true, false, NULL, NULL, msg, sizeof(msg));
 
 		if (ok) {
 			snprintf(msg, sizeof(msg), "%s", LANG_N("security question saved"));
 		}
 		break;
 	case JOB_RESETPIN:
-		ok = ghostnetPostCredentials("resetpin", true, msg, sizeof(msg));
+		ok = ghostnetPostCredentials("resetpin", true, false, NULL, NULL, msg, sizeof(msg));
 
 		if (ok) {
 			// The PIN in the box is the account's PIN now, which is what the
@@ -1447,7 +1521,7 @@ static int ghostnetWorker(void *arg)
 	// filled the two boxes in and never pressed Create Account is the one who
 	// most needs telling that the button is there.
 	if (!ok && !ghostnetEverVerified() && strstr(msg, "username or pin")) {
-		snprintf(msg, sizeof(msg), "%s", LANG_N("wrong name or pin - Create Account if it is new"));
+		snprintf(msg, sizeof(msg), "%s", LANG_N("wrong name or PIN"));
 	}
 
 	ghostnetSetResult(ok ? GHOSTNET_OK : GHOSTNET_ERROR, msg);
@@ -1479,6 +1553,7 @@ static bool ghostnetStart(s32 job)
 	// answered by its one; the other two endpoints are refused by their pages
 	// until all three are chosen.
 	g_JobQuestionCount = ghostnetRecoveryCount();
+	g_JobQuestionsReady = ghostnetRecoveryIsSet();
 
 	{
 		s32 i;
@@ -1710,6 +1785,11 @@ void ghostnetLogin(void)
 	ghostnetStart(JOB_LOGIN);
 }
 
+void ghostnetSignIn(void)
+{
+	ghostnetStart(JOB_SIGNIN);
+}
+
 void ghostnetSetRecovery(void)
 {
 	ghostnetStart(JOB_SETRECOVERY);
@@ -1875,6 +1955,8 @@ void ghostnetInit(void) {}
 void ghostnetShutdown(void) {}
 void ghostnetRegister(void) {}
 void ghostnetLogin(void) {}
+void ghostnetSignIn(void) {}
+bool ghostnetIsNewName(void) { return false; }
 void ghostnetSetRecovery(void) {}
 void ghostnetResetPin(void) {}
 bool ghostnetIsSignedIn(void) { return false; }
@@ -1950,7 +2032,7 @@ bool ghostnetHasAccount(void)
  * Both ends keep the rule rather than one end trusting the other: this one is
  * for the player, and the server's is the one that means anything.
  */
-bool ghostnetAccountIsValid(void)
+bool ghostnetNameIsValid(void)
 {
 	u32 len = strlen(g_GhostNetUser);
 	u32 i;
@@ -1966,6 +2048,18 @@ bool ghostnetAccountIsValid(void)
 				|| (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-')) {
 			return false;
 		}
+	}
+
+	return true;
+}
+
+bool ghostnetAccountIsValid(void)
+{
+	u32 len;
+	u32 i;
+
+	if (!ghostnetNameIsValid()) {
+		return false;
 	}
 
 	len = strlen(g_GhostNetPin);
