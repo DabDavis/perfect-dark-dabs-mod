@@ -203,7 +203,10 @@ host in that game's own menus rather than a match: GoldenEye's folder, or
 the Perfect Menu's missions. Every mission the host starts there is the
 room's next co-op mission, and the others are pulled into it from the Game
 Lobby without a new launch; when it ends the host is back in the folder
-and everyone else back in the room, ready for the next one. The host plays
+and everyone else back in the room, ready for the next one. A campaign's
+room stays open to newcomers for as long as the host plays it: anyone who
+joins between missions waits in the Game Lobby for the host's next one, and
+anyone who joins during one drops into it. The host plays
 through the game as offline, with its own difficulty (GoldenEye's 007
 sliders included), and the room follows. A GoldenEye, Goldfinger 64 or
 Tomorrow Never Dies 64 mission ends as it does offline: everyone watches

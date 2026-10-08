@@ -2240,12 +2240,21 @@ static void lobbyHostTick(void)
 		}
 	}
 
-	// back from the match: the room opens again
+	// back from the match: the room opens again - but a campaign's stays
+	// launched while the campaign runs: its next mission is the host's to
+	// start from its menus, and only a launched room hands a newcomer the
+	// way in (reopened, anyone who came after the first mission waited
+	// READY in the room for good)
 	if (s_MatchSeen && !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
 		s_MatchSeen = 0;
-		s_WantRoomMenu = 1;
-		sysLogPrintf(LOG_NOTE, "lobby: the match is over; reopening room %s", s_Room.sum.id);
-		lobbyAction("reopen", "{}");
+
+		if (netCoopCampaignOn()) {
+			sysLogPrintf(LOG_NOTE, "lobby: the mission is over; campaign room %s stays launched for the next", s_Room.sum.id);
+		} else {
+			s_WantRoomMenu = 1;
+			sysLogPrintf(LOG_NOTE, "lobby: the match is over; reopening room %s", s_Room.sum.id);
+			lobbyAction("reopen", "{}");
+		}
 	}
 }
 

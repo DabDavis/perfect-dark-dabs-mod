@@ -48,14 +48,14 @@
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -511,6 +511,78 @@ case_lobby() {
 	[ "$r1" = 0 ] && [ "$r2" = 0 ] && pass "$name: exits 0 0" || fail "$name: exits host $r1 join $r2"
 }
 
+# ---------------------------------------------------------------- camproom
+# A campaign room's newcomer after the first mission (2026-10-08: the
+# host's lobby reopened the room when Dam ended, and a player who came
+# after that waited READY in the room for good - the campaign's next
+# mission is the host's to start from its menus, never a launch). The host
+# launches a GoldenEye campaign room alone, plays Dam from its folder and
+# aborts it; the room must still be launched, a joiner arriving then must
+# connect to the host between missions, and Facility, started from the
+# host's folder, must take it in.
+cat > "$OUT/camproom-start.gdb" <<'GDB'
+break netSessionTick
+continue
+delete
+python import gdb; print("STAGE camproom: folder start of mission %d: %d" % (int(gdb.parse_and_eval("$m")), int(gdb.parse_and_eval("gexFrontTestStartMission($m)"))))
+GDB
+
+case_camproom() {
+	local name=camproom port=$((PORT + 6)) L=$OUT/camproom-pdlobbyd.log H=$OUT/camproom-host.log J=$OUT/camproom-join.log
+	echo "== $name"
+	python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
+		> "$L" 2>&1 &
+	local lobby=$!
+	if ! waitfor "$L" "pdlobbyd listening on" 20; then
+		fail "$name: pdlobbyd did not start"; kill $lobby 2>/dev/null; return
+	fi
+	local lport; lport=$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$L" | head -1)
+	game camproom-host 400 "[Mod]\nGhostUser=camphost\nGhostPin=1234\nMapMods=GoldenEye Arenas\n[Net]\nLobbyServer=http://127.0.0.1:$lport\nPort=$port\nJoinInProgress=1\n" \
+		--net-lobby-script host --net-lobby-room "Campaign Test" --net-lobby-campaign ge --net-lobby-solo --net-test-sims 0 --rng-seed 7 &
+	local host=$!
+	waitfor "$H" "net: co-op: the GoldenEye campaign begins\|not converted here" 90
+	if grep -q "not converted here" "$H"; then
+		echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; kill $lobby; wait $lobby 2>/dev/null; return
+	fi
+	local hp; hp=$(gamepid camproom-host)
+	sleep 3
+	timeout 40 gdb -p "$hp" -batch -ex "set \$m = 0" -x "$OUT/camproom-start.gdb" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     host: /'
+	waitfor "$H" "net: match 1: every machine has loaded; GO" 120 || echo "     no GO for Dam on the host"
+	sleep 5
+	stage "$hp" "abort()"
+	waitfor "$H" "campaign: back to the GoldenEye menus" 60 || echo "     the host is not back in its menus"
+	waitfor "$H" "lobby: the mission is over\|lobby: the match is over" 30
+	sleep 3
+	local state; state=$(curl -s "http://127.0.0.1:$lport/rooms" | grep -o '"state": *"[a-z]*"' | head -1 | grep -o '[a-z]*"$' | tr -d '"')
+	game camproom-join 300 "[Mod]\nGhostUser=campjoiner\nGhostPin=1234\nMapMods=\n[Net]\nLobbyServer=http://127.0.0.1:$lport\n" \
+		--net-lobby-script join --net-lobby-room "Campaign Test" --net-lobby-leave-frame 0 &
+	local join=$!
+	waitfor "$J" "net: accepted by" 60 || echo "     the joiner was not accepted between missions"
+	if grep -q "net: accepted by" "$J"; then
+		sleep 3
+		timeout 40 gdb -p "$hp" -batch -ex "set \$m = 1" -x "$OUT/camproom-start.gdb" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     host: /'
+		waitfor "$J" "net: co-op client: the first mission block" 120 || echo "     no mission block on the joiner"
+	fi
+	local jp; jp=$(gamepid camproom-join); [ -n "$jp" ] && kill -TERM "$jp"
+	wait $join; local jx=$?
+	[ "$jx" = 143 ] && jx=0
+	hp=$(gamepid camproom-host); [ -n "$hp" ] && kill -TERM "$hp"
+	wait $host; local hx=$?
+	[ "$hx" = 143 ] && hx=0
+	kill $lobby 2>/dev/null; wait $lobby 2>/dev/null
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$J" && fail "$name: the joiner crashed" || { [ "$jx" = 0 ] && pass "$name: joiner ran to the end" || fail "$name: joiner exit $jx"; }
+	grep -q "net: co-op: the GoldenEye campaign begins" "$H" && pass "$name: the room's launch opened the host's folder" || fail "$name: no campaign"
+	grep -q "net: co-op: starting Dam (GoldenEye, index 0" "$H" && pass "$name: the folder started Dam" || fail "$name: the folder did not start Dam"
+	grep -q "STAGE abort" "$OUT/stage.log" && pass "$name: the host aborted Dam" || fail "$name: Dam was not aborted"
+	grep -q "lobby: the mission is over; campaign room [0-9a-f]* stays launched" "$H" && pass "$name: the host kept the room launched" || fail "$name: the host did not keep the room launched"
+	grep -q "reopening room" "$H" && fail "$name: the host reopened the room"
+	[ "$state" = launched ] && pass "$name: pdlobbyd: the room is launched between missions" || fail "$name: pdlobbyd: the room is ${state:-gone} between missions"
+	grep -q "net: accepted by \"camphost\"" "$J" && pass "$name: the newcomer connected between missions" || fail "$name: the newcomer never connected"
+	grep -q "net: co-op: starting Facility (GoldenEye, index 1" "$H" && pass "$name: the folder started Facility" || fail "$name: the folder did not start Facility"
+	grep -q "net: co-op client: the first mission block" "$J" && pass "$name: the newcomer is in Facility" || fail "$name: the newcomer is not in Facility"
+}
+
 {
 for c in $CASES; do
 	case $c in
@@ -520,6 +592,7 @@ for c in $CASES; do
 		geend) case_geend ;;
 		twelve) case_twelve ;;
 		lobby) case_lobby ;;
+		camproom) case_camproom ;;
 		*) fail "unknown case $c" ;;
 	esac
 done
