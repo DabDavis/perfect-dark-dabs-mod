@@ -107,6 +107,12 @@ static f32 mouseSensY = 2.5f;
 static s32 lastKey = 0;
 static s32 textInput = 0;
 
+// the last press was a key or a mouse button (1) or a controller's (0)
+static s32 lastPressKeyboard = 1;
+
+// keys held when text input stopped: up until let go (inputStopTextInput)
+static u8 keyLatched[VK_MOUSE_BEGIN - VK_KEYBOARD_BEGIN];
+
 // Typed characters not yet read, oldest first. One character used to be kept
 // per frame and the rest of that frame's thrown away, so a quick typist, or a
 // slow frame (a 4K screen, wine), lost letters: "kb note" arrived as "k noe".
@@ -536,18 +542,26 @@ static int inputEventFilter(void *data, SDL_Event *event)
 			break;
 
 		case SDL_MOUSEBUTTONDOWN:
+			lastPressKeyboard = 1;
 			if (!lastKey) {
 				lastKey = VK_MOUSE_BEGIN - 1 + event->button.button;
 			}
 			break;
 
 		case SDL_KEYDOWN:
-			if (!lastKey) {
+			lastPressKeyboard = 1;
+			// A held Enter's repeats are not presses: the Enter that opened a
+			// keyboard dialog would otherwise confirm it half a second later
+			// (inputTextHandler). Backspace's repeats are wanted.
+			if (!lastKey && !(event->key.repeat
+					&& (event->key.keysym.scancode == SDL_SCANCODE_RETURN
+						|| event->key.keysym.scancode == SDL_SCANCODE_KP_ENTER))) {
 				lastKey = VK_KEYBOARD_BEGIN + event->key.keysym.scancode;
 			}
 			break;
 
 		case SDL_CONTROLLERBUTTONDOWN:
+			lastPressKeyboard = 0;
 			if (!lastKey) {
 				lastKey = VK_JOY1_BEGIN + event->cbutton.button;
 				SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
@@ -559,6 +573,9 @@ static int inputEventFilter(void *data, SDL_Event *event)
 			break;
 
 		case SDL_CONTROLLERAXISMOTION:
+			if (event->caxis.value > 0x4000 || event->caxis.value < -0x4000) {
+				lastPressKeyboard = 0;
+			}
 			if (!lastKey) {
 				if (event->caxis.axis >= SDL_CONTROLLER_AXIS_TRIGGERLEFT && event->caxis.value > TRIG_THRESHOLD) {
 					lastKey = VK_JOY1_LTRIG + (event->caxis.axis - SDL_CONTROLLER_AXIS_TRIGGERLEFT);
@@ -1104,6 +1121,21 @@ static inline s32 inputBindPressed(const s32 idx, const u32 ck)
 	return 0;
 }
 
+// as inputBindPressed(), leaving out the keyboard's keys: while text input is
+// on they type, and a controller or the mouse still works the menus
+static s32 inputBindPressedNotKeys(const s32 idx, const u32 ck)
+{
+	for (s32 i = 0; i < INPUT_MAX_BINDS; ++i) {
+		const u32 vk = binds[idx][ck][i];
+
+		if (vk >= VK_MOUSE_BEGIN && inputKeyPressed(vk)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 // inputSetCancelExclusive(): the keys bound to cancel stand for cancel only,
 // and stay so, once turned off, until each is let go
 static s32 cancelExclusive[INPUT_MAX_CONTROLLERS];
@@ -1178,13 +1210,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 
 	npad->button = 0;
 
-	if (textInput) {
-		npad->stick_x = 0;
-		npad->stick_y = 0;
-		npad->rstick_x = 0;
-		npad->rstick_y = 0;
-		return 0;
-	}
+	// Typing: the keyboard's keys are letters, not buttons. A controller
+	// used to go dead as well, which left a pad player who had pressed TYPE
+	// WITH KEYBOARD by mistake no way out of it but Escape.
+	const s32 typing = textInput;
 
 	if (cancelLatched[idx] && !inputCancelKeyHeld(idx)) {
 		cancelLatched[idx] = 0;
@@ -1193,7 +1222,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 	const s32 cancelonly = cancelExclusive[idx] || cancelLatched[idx];
 
 	for (u32 i = 0; i < CONT_NUM_BUTTONS; ++i) {
-		const s32 pressed = (cancelonly && i != CK_CANCEL)
+		const s32 pressed = typing ? inputBindPressedNotKeys(idx, i)
+			: (cancelonly && i != CK_CANCEL)
 			? inputBindPressedNotCancel(idx, i)
 			: inputBindPressed(idx, i);
 
@@ -1202,8 +1232,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 		}
 	}
 
-	const s32 xdiff = (inputBindPressed(idx, CK_STICK_XPOS) - inputBindPressed(idx, CK_STICK_XNEG));
-	const s32 ydiff = (inputBindPressed(idx, CK_STICK_YPOS) - inputBindPressed(idx, CK_STICK_YNEG));
+	const s32 xdiff = typing ? inputBindPressedNotKeys(idx, CK_STICK_XPOS) - inputBindPressedNotKeys(idx, CK_STICK_XNEG)
+		: inputBindPressed(idx, CK_STICK_XPOS) - inputBindPressed(idx, CK_STICK_XNEG);
+	const s32 ydiff = typing ? inputBindPressedNotKeys(idx, CK_STICK_YPOS) - inputBindPressedNotKeys(idx, CK_STICK_YNEG)
+		: inputBindPressed(idx, CK_STICK_YPOS) - inputBindPressed(idx, CK_STICK_YNEG);
 	npad->stick_x = xdiff < 0 ? -0x80 : (xdiff > 0 ? 0x7F : 0);
 	npad->stick_y = ydiff < 0 ? -0x80 : (ydiff > 0 ? 0x7F : 0);
 
@@ -1620,7 +1652,17 @@ s32 inputKeyPressed(u32 vk)
 {
 	if (vk >= VK_KEYBOARD_BEGIN && vk < VK_MOUSE_BEGIN) {
 		const u8 *state = SDL_GetKeyboardState(NULL);
-		return state[vk - VK_KEYBOARD_BEGIN];
+		const u32 sc = vk - VK_KEYBOARD_BEGIN;
+
+		if (keyLatched[sc]) {
+			if (state[sc]) {
+				return 0;
+			}
+
+			keyLatched[sc] = 0;
+		}
+
+		return state[sc];
 	}
 
 	if (vk >= VK_MOUSE_BEGIN && vk < VK_JOY_BEGIN) {
@@ -1895,19 +1937,28 @@ char inputGetLastTextChar(void)
 	return textQueueLen > 0 ? textQueue[textQueueHead] : 0;
 }
 
-static inline s32 filterChar(const char ch)
+s32 inputTextCharAllowed(const char ch, const s32 charset)
 {
-	return isalnum(ch) || ch == ' ' || ch == '?' || ch == '!' || ch == '.';
+	switch (charset) {
+	case INPUT_TEXT_OSK:
+		return isalnum((u8)ch) || ch == ' ' || ch == '?' || ch == '!' || ch == '.';
+	case INPUT_TEXT_NAME:
+		return isalnum((u8)ch) || ch == '_' || ch == '.' || ch == '-';
+	case INPUT_TEXT_DIGITS:
+		return ch >= '0' && ch <= '9';
+	default:
+		return isprint((u8)ch);
+	}
 }
 
-s32 inputTextHandler(char *out, const u32 outSize, s32 *curCol, s32 oskCharsOnly)
+s32 inputTextHandler(char *out, const u32 outSize, s32 *curCol, s32 charset)
 {
 	const s32 ctrlHeld = inputGetKeyModState() & KM_CTRL;
 
 	if (!ctrlHeld) {
 		const char chr = inputGetLastTextChar();
 		inputClearLastTextChar();
-		const s32 valid = chr && (oskCharsOnly ? filterChar(chr) : isprint(chr));
+		const s32 valid = chr && inputTextCharAllowed(chr, charset);
 		if (valid) {
 			if (*curCol < outSize - 1) {
 				out[(*curCol)++] = chr;
@@ -1934,6 +1985,14 @@ s32 inputTextHandler(char *out, const u32 outSize, s32 *curCol, s32 oskCharsOnly
 			out[--*curCol] = '\0';
 		} else {
 			out[0] = '\0';
+		}
+	} else if (key == VK_RETURN || key == VK_KEYBOARD_BEGIN + SDL_SCANCODE_KP_ENTER) {
+		// OK. Upstream took this out (ccb3c8668) because the Enter went on to
+		// press the menu under the keyboard as well; keys held as typing
+		// stops are latched now (inputStopTextInput), and Enter's repeats
+		// are not presses (inputEventFilter).
+		if (out[0] && *curCol) {
+			return 1;
 		}
 	} else if (key == VK_ESCAPE) {
 		return -1;
@@ -1970,12 +2029,26 @@ const char *inputGetClipboard(void)
 void inputStopTextInput(void)
 {
 	SDL_StopTextInput();
+
+	if (textInput) {
+		const u8 *state = SDL_GetKeyboardState(NULL);
+
+		for (u32 sc = 0; sc < sizeof(keyLatched); ++sc) {
+			keyLatched[sc] = state[sc] != 0;
+		}
+	}
+
 	textInput = 0;
 }
 
 s32 inputIsTextInputActive(void)
 {
 	return textInput;
+}
+
+s32 inputLastPressWasKeyboard(void)
+{
+	return lastPressKeyboard;
 }
 
 u32 inputGetKeyModState(void)

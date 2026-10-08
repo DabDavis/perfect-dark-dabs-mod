@@ -5339,7 +5339,17 @@ void menuProcessInput(void)
 		}
 		if (inputs.back && g_MenuKeyboardPlayer != -1) {
 			// eat the back input so that other menus don't quit when we hit ESC
-			inputs.back = false;
+			// (the F3 report's own fields). On a keyboard item back is its
+			// CANCEL, closing it as it stops the typing: it used to stop the
+			// typing only, and the second press threw away what was typed.
+			const s32 kbfocused = g_MenuKeyboardPlayer == menu->playernum && menu->curdialog
+				&& menu->curdialog->focuseditem
+				&& menu->curdialog->focuseditem->type == MENUITEMTYPE_KEYBOARD;
+
+			if (!kbfocused) {
+				inputs.back = false;
+			}
+
 			if (g_MenuKeyboardPlayer == menu->playernum) {
 				g_MenuKeyboardPlayer = -1;
 				inputStopTextInput();

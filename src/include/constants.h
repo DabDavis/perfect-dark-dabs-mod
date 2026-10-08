@@ -1915,6 +1915,12 @@ s32 langpackIsCjk(void);
 
 #ifndef PLATFORM_N64
 #define MENUITEMTYPE_COLORBOX    0x1b
+
+// A MENUITEMTYPE_KEYBOARD's param2 (unused by the game's own keyboards): what
+// it takes, typed or picked on the grid, and how it shows what it has
+#define KEYBOARDFLAG_NAME   0x01 // an account name: letters, digits, _ . -
+#define KEYBOARDFLAG_DIGITS 0x02 // a PIN: digits only
+#define KEYBOARDFLAG_MASKED 0x04 // drawn as *s
 #endif
 
 #define MENUMODELFLAG_HASSCALE    0x01

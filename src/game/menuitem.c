@@ -27,6 +27,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include "input.h"
+#include "net/net.h"
 #include "patchnotes.h"
 #define MENU_KEYBOARD_ROWS 6
 #include "langpack.h"
@@ -1152,6 +1153,32 @@ bool menuitemKeyboardIsStringEmptyOrSpaces(char *text)
  * |  DEL  |    CAPS   |   CANCEL  |   OK  |
  * +-------+-----------+-----------+-------+
  */
+#ifndef PLATFORM_N64
+// what a keyboard item takes, typed or picked on the grid (KEYBOARDFLAG_*)
+static s32 menuitemKeyboardCharset(struct menuitem *item)
+{
+	if (item->param2 & KEYBOARDFLAG_DIGITS) {
+		return INPUT_TEXT_DIGITS;
+	}
+
+	if (item->param2 & KEYBOARDFLAG_NAME) {
+		return INPUT_TEXT_NAME;
+	}
+
+	return INPUT_TEXT_OSK;
+}
+
+// Every way a keyboard closes itself stops the typing: OK clicked with the
+// mouse used to leave it on, and the menu under it then took no keys at all
+static void menuitemKeyboardStopTyping(void)
+{
+	if (g_MenuKeyboardPlayer == g_MpPlayerNum) {
+		g_MenuKeyboardPlayer = -1;
+		inputStopTextInput();
+	}
+}
+#endif
+
 Gfx *menuitemKeyboardRender(Gfx *gdl, struct menurendercontext *context)
 {
 	char label[8];
@@ -1198,7 +1225,25 @@ Gfx *menuitemKeyboardRender(Gfx *gdl, struct menurendercontext *context)
 	y = context->y + 2;
 
 	gdl = text0f153628(gdl);
+#ifndef PLATFORM_N64
+	{
+		// a PIN shows as *s, so its keyboard needs no streamer warning
+		char masked[sizeof(data->string)];
+		char *shown = data->string;
+
+		if (context->item->param2 & KEYBOARDFLAG_MASKED) {
+			s32 n = strlen(data->string);
+
+			memset(masked, '*', n);
+			masked[n] = '\0';
+			shown = masked;
+		}
+
+		gdl = textRenderProjected(gdl, &x, &y, shown, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0xffffffff, context->width, context->height, 0, 0);
+	}
+#else
 	gdl = textRenderProjected(gdl, &x, &y, data->string, g_CharsHandelGothicSm, g_FontHandelGothicSm, 0xffffffff, context->width, context->height, 0, 0);
+#endif
 	gdl = text0f153780(gdl);
 
 	// Render cursor
@@ -1375,7 +1420,7 @@ Gfx *menuitemKeyboardRender(Gfx *gdl, struct menurendercontext *context)
 					// make the button yellow if it's active
 					if (g_MenuKeyboardPlayer == g_MpPlayerNum) {
 						textcolour = (textcolour & 0xff) | 0xffff0000;
-						kbtext = (char *)"ESC: OK";
+						kbtext = (char *)"ENTER: OK  ESC: CANCEL";
 					} else {
 						kbtext = (char *)"TYPE WITH KEYBOARD";
 					}
@@ -1562,6 +1607,9 @@ bool menuitemKeyboardTick(struct menuitem *item, struct menuinputs *inputs, u32 
 				handlerdata.keyboard.string = kb->string;
 				item->handler(MENUOP_SETTEXT, item, &handlerdata);
 
+#ifndef PLATFORM_N64
+				menuitemKeyboardStopTyping();
+#endif
 				menuPopDialog();
 
 				item->handler(MENUOP_SET, item, &handlerdata);
@@ -1590,11 +1638,14 @@ bool menuitemKeyboardTick(struct menuitem *item, struct menuinputs *inputs, u32 
 			// handle text input
 			s32 prevpos = strlen(kb->string);
 			s32 pos = prevpos;
-			s32 result = inputTextHandler(kb->string, maxlen + 1, &pos, true);
+			s32 result = inputTextHandler(kb->string, maxlen + 1, &pos, menuitemKeyboardCharset(item));
 			if (result == -1) {
-				// cancel
-				kb->row = 5;
-				kb->col = 0;
+				// Escape is CANCEL. It used to stop the typing only, under a
+				// hint that read "ESC: OK", and the second Escape then closed
+				// the keyboard and threw away what was typed (menu.c's back
+				// now does the same thing; this is in case it did not see it).
+				kb->row = 4;
+				kb->col = 5;
 				inputs->select = true;
 			} else if (result == 1) {
 				// accept
@@ -1635,6 +1686,9 @@ bool menuitemKeyboardTick(struct menuitem *item, struct menuinputs *inputs, u32 
 					s32 ok = (kb->col == 8);
 
 					if (kb->col == 5 || !menuitemKeyboardIsStringEmptyOrSpaces(kb->string)) {
+#ifndef PLATFORM_N64
+						menuitemKeyboardStopTyping();
+#endif
 						menuPopDialog();
 
 						if (ok) {
@@ -1666,8 +1720,25 @@ bool menuitemKeyboardTick(struct menuitem *item, struct menuinputs *inputs, u32 
 				s32 i;
 				s32 textwidth;
 				s32 textheight;
+				s32 allowed = true;
 
-				if (kb->string[maxlen-1] == '\0') {
+#ifndef PLATFORM_N64
+				{
+					// a PIN's grid has letters on it too, and a name's has ? and !
+					u8 key = g_KeyboardKeys[kb->row][kb->col];
+
+					if (kb->capseffective == 0 && key >= 'A' && key <= 'Z') {
+						key += 32;
+					}
+
+					if (!inputTextCharAllowed(key, menuitemKeyboardCharset(item))) {
+						allowed = false;
+						menuPlaySound(MENUSOUND_ERROR);
+					}
+				}
+#endif
+
+				if (allowed && kb->string[maxlen-1] == '\0') {
 					// String is not full
 					i = 0;
 
@@ -1759,6 +1830,20 @@ void menuitemKeyboardInit(struct menuitem *item, union menuitemdata *data)
 	data->keyboard.row = 4;
 	data->keyboard.capseffective = 0;
 	data->keyboard.capslock = 0;
+
+#ifndef PLATFORM_N64
+	// A keyboard and mouse player types at once. It took TYPE WITH KEYBOARD
+	// (or I) first, and the letters pressed before it were menu buttons: E is
+	// a second Accept, so "Eddie" typed into the name page came out as "e"
+	// (2026-10-08). A controller's player gets the grid as before.
+	if (g_MenuKeyboardPlayer == -1 && inputLastPressWasKeyboard() && NET_LOCAL_UI(g_MpPlayerNum)) {
+		g_MenuKeyboardPlayer = g_MpPlayerNum;
+		inputClearLastKey();
+		inputClearLastTextChar();
+		inputStartTextInput();
+		data->keyboard.col = 8; // OK, where the Enter goes
+	}
+#endif
 }
 
 Gfx *menuitemSeparatorRender(Gfx *gdl, struct menurendercontext *context)

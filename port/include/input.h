@@ -281,14 +281,30 @@ void inputMouseShowCursor(s32 show);
 // draws its own cursor where the pointer is (GE Plus's folder)
 void inputMouseHideCursorThisFrame(void);
 
+// While text input is on, keys type and only a controller's and the mouse's
+// binds reach the menus. Keys still held when it stops count as up until let
+// go, so the Enter that confirmed a keyboard does not also press the menu
+// under it.
 void inputStartTextInput(void);
 void inputStopTextInput(void);
 s32 inputIsTextInputActive(void);
 
+// Whether the last thing pressed was a key or a mouse button rather than a
+// controller's button or stick: a keyboard dialog starts typing for the one
+s32 inputLastPressWasKeyboard(void);
+
 void inputClearLastTextChar(void);
 char inputGetLastTextChar(void);
 
-s32 inputTextHandler(char *out, const u32 outSize, s32 *curCol, s32 oskCharsOnly);
+// inputTextHandler's charset: what a typed character may be
+#define INPUT_TEXT_ANY    0 // anything printable
+#define INPUT_TEXT_OSK    1 // what the on screen keyboard has: letters, digits, space ? ! .
+#define INPUT_TEXT_NAME   2 // an account name: letters, digits, _ . -
+#define INPUT_TEXT_DIGITS 3 // a PIN
+
+// Types into out; 1 when Enter is pressed with something in it, -1 for Escape
+s32 inputTextHandler(char *out, const u32 outSize, s32 *curCol, s32 charset);
+s32 inputTextCharAllowed(char ch, s32 charset);
 
 void inputClearClipboard(void);
 const char *inputGetClipboard(void);
