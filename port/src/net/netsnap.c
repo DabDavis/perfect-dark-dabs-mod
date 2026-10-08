@@ -868,6 +868,8 @@ void netSnapHostReset(struct netsnaphost *h)
 	memset(h->lpseq, 0, sizeof(h->lpseq));
 	memset(h->scenseq, 0, sizeof(h->scenseq));
 	memset(h->prio, 0, h->maxids * sizeof(f32));
+	h->firsttick = 0;
+	h->lastexcl = 0;
 }
 
 static const struct netbaselineslot *netSlotOf(const struct netbaseline *bl, u16 seq)
@@ -1303,6 +1305,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		if (c->isnew && !c->take) {
 			e->status = NETSNAPST_EXCLUDED;
 			h->excluded++;
+			h->lastexcl = hdr->hosttick;
 			continue;
 		}
 
@@ -1314,6 +1317,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 
 		if (c->take && (c->isnew || c->changed)) {
 			memcpy(store + NETSNAP_STOREHDR, e->record, netRecSize(e->desc.rec));
+			netStoreSetTick(store, hdr->hosttick);
 			e->status = NETSNAPST_SENT;
 			h->prio[e->id] = 0;
 			h->records++;
@@ -1323,6 +1327,7 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 
 			if (bstore) {
 				memcpy(store + NETSNAP_STOREHDR, bstore + NETSNAP_STOREHDR, NETREC_MAX);
+				netStoreSetTick(store, netStoreTick(bstore));
 			}
 
 			if (e->status != NETSNAPST_SYNC) {
@@ -1355,6 +1360,10 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		h->scenseq[seq % NETBASELINE_SLOTS] = seq;
 	} else {
 		h->scenseq[seq % NETBASELINE_SLOTS] = 0;
+	}
+
+	if (!h->firsttick) {
+		h->firsttick = hdr->hosttick;
 	}
 
 	h->seq = seq;
@@ -1698,6 +1707,7 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 				return netSnapClientFail(c);
 			}
 
+			netStoreSetTick(store, hdr->hosttick);
 			entkeys += keyframe;
 		} else {
 			if (keyframe) {
@@ -1706,6 +1716,7 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 			}
 
 			memcpy(store + NETSNAP_STOREHDR, bstore + NETSNAP_STOREHDR, NETREC_MAX);
+			netStoreSetTick(store, netStoreTick(bstore));
 		}
 
 		c->ids[n] = (u16)id;

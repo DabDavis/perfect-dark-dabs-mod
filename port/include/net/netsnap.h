@@ -81,14 +81,19 @@ void netDescRead(struct netbuf *b, struct netdesc *d); // a bad kind or rec sets
 
 /**
  * What both rings store per entity: [0..1] gen (LE), [2] rec, [3] desc kind,
- * [4..] the record (its kind's size; the rest zero)
+ * [4..7] the host tick the record was taken on (LE: the snapshot that carried
+ * its bytes; a record present and not updated keeps its source's tick, so it
+ * can be older than the snapshot holding it - never on the wire, both sides
+ * derive it the same way), [8..] the record (its kind's size; the rest zero)
  */
-#define NETSNAP_STOREHDR 4
+#define NETSNAP_STOREHDR 8
 #define NETSNAP_STORE    (NETSNAP_STOREHDR + NETREC_MAX)
 
 static inline u16 netStoreGen(const u8 *s) { return (u16)(s[0] | (s[1] << 8)); }
 static inline s32 netStoreRec(const u8 *s) { return s[2]; }
 static inline s32 netStoreKind(const u8 *s) { return s[3]; }
+static inline u32 netStoreTick(const u8 *s) { return (u32)s[4] | ((u32)s[5] << 8) | ((u32)s[6] << 16) | ((u32)s[7] << 24); }
+static inline void netStoreSetTick(u8 *s, u32 t) { s[4] = (u8)t; s[5] = (u8)(t >> 8); s[6] = (u8)(t >> 16); s[7] = (u8)(t >> 24); }
 
 // Flag bits: CHR record bytes 0-1
 #define NETCHR_LIFEMASK  0x0003 // 0 alive, 1 dying, 2 dead
@@ -397,6 +402,8 @@ struct netsnaphost {
 	u32 nacks;      // descriptor resends asked for
 	u32 resets;     // keyframes the client asked for
 	u32 ratechanges;
+	u32 firsttick;  // the host tick of the first snapshot since init or a reset
+	u32 lastexcl;   // ... and of the last one that left an entity out (0 none)
 };
 
 s32 netSnapHostInit(struct netsnaphost *h, s32 maxids);

@@ -530,6 +530,8 @@ s32 netHostPeerStats(const struct nethost *h, s32 peer, struct netpeerstats *out
 	out->resentfrac = p->totalPacketsSent ? (f32)p->totalPacketsLost / (f32)p->totalPacketsSent : 0.0f;
 	out->bytessent = (u32)p->totalDataSent;
 	out->bytesreceived = (u32)p->totalDataReceived;
+	out->reliableinflight = p->reliableDataInTransit;
+	out->queued = (u32)enet_list_size(&p->outgoingCommands);
 
 	return 0;
 }

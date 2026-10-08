@@ -179,6 +179,8 @@ static u32 s_ShotNoGun = 0;     // ... whose puppet held nothing in that hand
 static u32 s_ShotPlayed = 0;    // ... that started the gun's sound (not one still sounding)
 static f64 s_LagSum = 0;
 static u32 s_LagN = 0;
+static f64 s_LagMax = 0;  // the latest an event was applied, ticks past its own
+static u32 s_LagLate = 0; // events applied more than 6 ticks (100 ms) past their tick
 static u32 s_NextKill = NETEV_KILLEVERY;
 static u32 s_LocalSkipped = 0;  // this machine's own mpstatsRecordDeath calls refused
 #define NETEV_MYSHOTS 64
@@ -1681,6 +1683,12 @@ static void netEvApply(struct netevc *e, f64 rt)
 	if (rt >= 0) {
 		s_LagSum += rt - e->tick;
 		s_LagN++;
+
+		if (rt - e->tick > s_LagMax) {
+			s_LagMax = rt - e->tick;
+		}
+
+		s_LagLate += rt - e->tick > 6;
 	}
 
 	const u32 unresolved = s_Unresolved;
@@ -2046,9 +2054,9 @@ static void netEvClientLog(const char *why)
 		}
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: events client %s (tick %u): applied/received %s; %u messages, %u bytes, out of order %u, malformed %u, other match %u, unresolved %u, overflow %u, queued max %d, lag mean %.1f ticks; shot sounds %u (no gun %u, started %u), hits on me %u, my hits %u, hudmsgs for me %u, own deaths refused %u, own shots back %u (fired here %u, not %u); glass by setup command %u, gas released %u; unresolved by type: %s",
+	sysLogPrintf(LOG_NOTE, "net: events client %s (tick %u): applied/received %s; %u messages, %u bytes, out of order %u, malformed %u, other match %u, unresolved %u, overflow %u, queued max %d, lag mean %.1f ticks (max %.1f, over 6 ticks %u); shot sounds %u (no gun %u, started %u), hits on me %u, my hits %u, hudmsgs for me %u, own deaths refused %u, own shots back %u (fired here %u, not %u); glass by setup command %u, gas released %u; unresolved by type: %s",
 			why, g_NetTick, counts, s_RecvMsgs, s_RecvBytes, s_OutOfOrder, s_Malformed, s_OtherMatch, s_Unresolved, s_Overflow,
-			s_QMax, s_LagN ? s_LagSum / s_LagN : 0.0, s_ShotSounds, s_ShotNoGun, s_ShotPlayed, s_HitsOnMe, s_MyHits, s_HudForMe, s_LocalSkipped,
+			s_QMax, s_LagN ? s_LagSum / s_LagN : 0.0, s_LagMax, s_LagLate, s_ShotSounds, s_ShotNoGun, s_ShotPlayed, s_HitsOnMe, s_MyHits, s_HudForMe, s_LocalSkipped,
 			s_OwnDupes + s_OwnUnpredicted, s_OwnDupes, s_OwnUnpredicted, s_GlassViaSetup, s_GasReleased, ucounts[0] ? ucounts : "none");
 }
 
@@ -2154,6 +2162,8 @@ void netEventsStageStart(void)
 	s_ShotPlayed = 0;
 	s_LagSum = 0;
 	s_LagN = 0;
+	s_LagMax = 0;
+	s_LagLate = 0;
 	s_NextKill = NETEV_KILLEVERY;
 	s_LocalSkipped = 0;
 

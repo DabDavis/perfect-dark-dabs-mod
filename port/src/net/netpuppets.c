@@ -88,6 +88,9 @@ struct netpup {
 	u8 lastb[NETREC_MAX]; // the records last applied (unchanged statics are skipped)
 	u8 lasta[NETREC_MAX];
 	f32 lastt;
+	u32 lastsrc;         // the host tick the last posed record was taken on
+	u16 lastsrcgen;      // ... and its generation
+	u8 havesrc;
 	s32 smoketimer240;   // a projectile's trail, at projectileTick's interval
 };
 
@@ -128,6 +131,8 @@ static u32 s_Trails = 0;
 static u32 s_LiftMoves = 0;  // lift records that moved a lift
 static u32 s_HatsWorn = 0;   // hats put on a chr from its record
 static u32 s_GeGunsHeld = 0; // GoldenEye guns put in a chr's hand from its record
+static u32 s_Backsteps = 0;  // a chr posed from a record older than one posed before it
+static u32 s_StaleAfter = 0; // ... or blended towards a record older than the one before
 static u32 s_HeldFails = 0;  // held guns that could not be made (no model)
 static u32 s_BodyLoads = 0;  // corpses whose body and head no chr here wore (not made)
 static u32 s_GeGunsMade = 0; // GoldenEye guns made from descriptors (dropped, thrown, a pickup)
@@ -2033,6 +2038,23 @@ static void netClientPosePuppetsRun(void)
 		ra = sa ? netPupFind(sa, id, gen, rec) : NULL;
 		rp = sp ? netPupFind(sp, id, gen, rec) : NULL;
 
+		if (rec == NETREC_CHR) {
+			// a step back in the host's time (a record left out of a full
+			// snapshot stands for the older one the client acked)
+			if (u->havesrc && u->lastsrcgen == gen && netStoreTick(rb) < u->lastsrc && netStoreTick(rb) != ib->hosttick) {
+				s_Backsteps++;
+			}
+
+			if (ra && netStoreTick(ra) < netStoreTick(rb)
+					&& memcmp(ra + NETSNAP_STOREHDR, rb + NETSNAP_STOREHDR, NETREC_MAX) != 0) {
+				s_StaleAfter++;
+			}
+
+			u->lastsrc = netStoreTick(rb);
+			u->lastsrcgen = gen;
+			u->havesrc = 1;
+		}
+
 		netRecUnpack(rec, rb + NETSNAP_STOREHDR, &stb);
 
 		if (ra) {
@@ -2350,9 +2372,9 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
 			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
 			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_Trails, s_PlayerDeaths,
-			s_Created[NETDESC_BODY], s_BodyLoads, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves);
+			s_Created[NETDESC_BODY], s_BodyLoads, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter);
 }
