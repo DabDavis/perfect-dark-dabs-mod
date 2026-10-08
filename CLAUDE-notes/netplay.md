@@ -64,6 +64,12 @@
   pages over the room), MATCH_END carrying each player's time, kills and
   hits; the same-frame `menuTick` that cleared `var80087260` before the
   Institute had loaded.
+- **Joining from anywhere, tried live (2026-10-08)** — the section of that
+  name: six headless joiners in the user's own GoldenEye campaign room on
+  the deployed lobby; the hole punch and the VPS relay both working
+  between two home routers; a campaign room reopened after its first
+  mission (nobody could join after that); the lobby answering a WireGuard
+  peer from the wrong address; how to steer one joiner's traffic.
 
 ## The shape
 
@@ -158,7 +164,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netcontenttest.sh` | 9 min | GoldenEye arenas (YOLT: a client respawned by its START alone), Goldfinger's mode (gfvariant, needs its zip in added-content), a client with nothing installed served the conversion by the host (fetch), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
-| `netcooptest.sh` | 12.5 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, beside the host, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder |
+| `netcooptest.sh` | 14 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2, camproom 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, beside the host, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder; camproom: a GoldenEye campaign room on a local pdlobbyd launched by its host alone, Dam started from the folder and aborted, the room still launched, a newcomer connecting between missions and taken into Facility |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
@@ -1080,4 +1086,74 @@ skipped, then the completion screen goes to a PD screen instead of GE".
   `gexPlusMissionExitTick` break), the host starting Facility while the
   client read its STATISTICS (`set var 'gexfront.c'::g_Front.mission = 1`,
   `call (void)frontStartMission()`), and screenshots of each page.
+
+## Joining from anywhere, tried live (2026-10-08)
+
+The user, hosting a GoldenEye campaign room on the deployed lobby from
+10.8.0.3: "please join with 5 other players so I can test", then "how can
+we make this easier for players abroad, so anyone can play anyone".
+
+- **Live joiners.** `build/netbots/` (gitignored): a modless guest folder
+  (the binary hard-linked from `build/`, `data` symlinked, empty `mods/` and
+  `added-content/`), `saveN/pd.ini` with `[Mod] GhostUser=netbotN`,
+  `GhostPin=`, `run.sh N` = `--net-lobby-script join --net-lobby-room NAME
+  --net-lobby-leave-frame 0` offscreen. Accounts netbot1-6 are real ones on
+  pdghostd. The join script needs nothing more for a launched room:
+  `netLobbyTick` connects by itself while the script waits at step 2.
+  Four modless joiners fetched GoldenEye Arenas (12.7 MB, 2905 files) from
+  the host at once in 25 s each over the internet; 0 resyncs, ~130 B a
+  snapshot. Harmless: `$N/GoldenEye Arenas/menu/gewatch.bin` not found
+  (the converter writes it for hack variants only).
+- **Trap: this box sends everything down the tunnel.** wg-quick here has
+  `AllowedIPs = 0.0.0.0/0`, so this box's internet traffic, the lobby's
+  rendezvous included, leaves through 10.8.0.1 - not the user's network
+  (an early guess that both share a public address was wrong). Its own
+  line is enp5s0 (public 158.62.150.136, a different network from the
+  user's 166.113.108.166). The host advertised 192.168.1.234 (its LAN) and
+  166.113.108.166:27100 (no port forward), neither reachable from here.
+- **The lobby answered the tunnel from 10.8.0.1.** pdlobbyd's UDP bound to
+  0.0.0.0 replied to a REGISTER that came in over wg0 from 10.8.0.1, and
+  netrdv.c drops anything not from the rendezvous it sent to: "the lobby's
+  rendezvous did not answer; no path from it", so no punch and no relay
+  (tcpdump on the VPS showed every REGISTERED and PEER going out). The unit
+  now binds `PDLOBBYD_UDP_HOST` to the public address (the relays bind
+  there too; a RELAY_OFFER carries only a port). Players outside the VPN
+  never met it.
+- **Steering one joiner.** Tunnel joiners reached the host through an nft
+  table `netbots` here (`dnat` 192.168.1.234:27100 to 10.8.0.3, masquerade
+  on wg0; a client that tried before the rule needs a restart, conntrack
+  keeps the old flow). A real-network joiner runs as its own unit
+  (`systemd-run --user --unit=netbot6 ... bash -c "sleep 8; exec ..."`, the
+  sleep so the rules can name its cgroup before its first packet) with a
+  table `netbots6`: a `type route hook output` chain marking its UDP
+  0xca6c (wg-quick's own mark, so the main table and enp5s0 carry it) with
+  `ct mark` for the replies, masquerade on enp5s0, and a `return` for its
+  cgroup at the top of `netbots`' dnat. nft resolves a `socket cgroupv2`
+  path when the rule is loaded: a restarted unit needs its rules again.
+- **What the ladder did, live.** From the real line to the user's home
+  router: REGISTER seen as 158.62.150.136, PEER, a punch through both NATs
+  in 45 ms - no port forwarding anywhere. With the host's three addresses
+  dropped for it (166.113.108.166, 192.168.1.234 and 10.8.0.3 - the host
+  also lists its WireGuard address, which the main table reaches over wg0,
+  and the first try punched there): "no direct or punched path in 4500 ms;
+  asking the lobby for a relay", port 27110 offered and bound at both ends,
+  relay path 54 ms. The match over the relay was not played: the room was
+  open by then (next bullet).
+- **A campaign room reopened after its first mission.** `lobbyHostTick`'s
+  "back from the match" reopened every room. A campaign's missions after
+  the first start from the host's menus over the session and never launch
+  the room again, so a member who came after mission 1 waited READY in an
+  open room for good (netbot6 did). A campaign's room now stays launched
+  while `netCoopCampaignOn()` ("the mission is over; campaign room ... stays
+  launched for the next"): a newcomer connects with its ticket between
+  missions and the next STAGE_LOAD takes it in, as the earlier late-join
+  bullet meant. pdlobbyd reaps nobody in a launched room, so a member whose
+  game dies stays on the roster (its ticket brings it back) until it leaves
+  or the host kicks it. Gate: netcooptest `camproom` (fails 6 of 11 on
+  the build before, all pass after).
+- **Not done.** A client whose session ends mid-campaign (its own Abort
+  Mission, a refusal) is not connected again by itself: the launch it took
+  is handled, and only a fresh Join gets a new one. Router port mapping
+  (UPnP/NAT-PMP/PCP), the room's empty `region`, IPv6 and a TCP fallback
+  for networks that drop UDP are the next steps the user was offered.
 
