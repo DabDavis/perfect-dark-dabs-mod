@@ -39,8 +39,9 @@
  * action thread takes jobs off a short queue - sign in, list, create, join,
  * the member actions -; the beat thread sends the host's heartbeat every
  * 5 s, never behind that queue; the poll thread sits in
- * GET /rooms/<id>/state while this machine is in a room. All reach the network through ghostnetSend, the HTTPS transport the ghost
- * client, the updater and the crash reporter share.
+ * GET /rooms/<id>/state while this machine is in a room. All reach the
+ * network through ghostnetSend, the HTTPS transport the ghost client, the
+ * updater and the crash reporter share.
  *
  * What the threads hear is parsed on the thread, with a bounded scanner
  * (every read is limited by the reply's end and every string copy by its
