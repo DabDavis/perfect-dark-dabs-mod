@@ -306,6 +306,30 @@ s32 netSpecOn(void);
 void *netSpecRenderText(void *gdl);
 
 /**
+ * The online HUD (nethud.c, protocol 18): a line on screen when a player
+ * joins the match in progress, leaves, drops, comes back or starts watching,
+ * with the count of seats played; the chat; and the players. The chat key
+ * (Net.ChatKey, T; Space as well when none of player 1's binds uses it)
+ * opens a line the keyboard types into at once: Enter says it, Escape drops
+ * it. The players key (Net.PlayersKey, P) held shows who is in, with each
+ * one's score and ping. In a lobby room's Game Lobby, Space and the chat key
+ * open the same line for the room's chat (pdlobbyd's).
+ */
+void netHudFrame(void);         // pdsched.c, right after inputUpdate: the keys (ESC typed into the line is the line's)
+void *netHudRender(void *gdl);  // lv.c lvRender: over the local player's view, its HUD and menus
+s32 netHudChatOpen(void);       // the line is open: the keyboard's keys are letters
+s32 netHudAteEscape(void);      // this frame's ESC was the line's (for what reads inputKeyPressedThisFrame)
+void netHudLobbyFrame(void);    // netlobbymenu.c: the Game Lobby is the dialog on screen this frame
+s32 netHudChatLine(char *out, s32 size, s32 maxchars); // the line as typed (its tail, a cursor); 0 shut
+void netHudSay(const char *text); // a line said from a menu (the pause menu's Players page)
+const char *netHudChatKeyName(void); // "T", or "T or Space"
+// The pause menu's Players page (netlobbymenu.c): the seats played out of the
+// match's and the spectators; its k-th row (the seats played or kept, then
+// the spectators), name and ping as shown; 0 past the last
+void netHudCounts(s32 *in, s32 *of, s32 *specs);
+s32 netHudPlayerRow(s32 k, char *name, s32 namesize, char *value, s32 valuesize);
+
+/**
  * Events (PLANS/netplay/spec-entities.md §5; the wire is EVENTS in
  * netproto.h, netevents.c does the work). The host's hooks record, behind
  * g_NetMode == NETMODE_SERVER; the ones that return 1 tell the caller to

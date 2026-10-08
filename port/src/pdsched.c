@@ -313,6 +313,9 @@ void schedEndFrame(OSSched *sc)
 
 	inputUpdate();
 	if (g_NetMode) netInputAccumulateMouse();
+	// netplay's chat line and players key: first, so an ESC typed into the
+	// line is the line's (nethud.c; nothing offline)
+	netHudFrame();
 
 	// After inputUpdate() and before the next frame is submitted: the shot is
 	// taken in that frame's pre-swap callback, one frame after the key press.

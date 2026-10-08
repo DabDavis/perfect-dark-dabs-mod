@@ -2002,6 +2002,10 @@ Gfx *lvRender(Gfx *gdl)
 					gdl = mpRenderModalText(gdl);
 				}
 
+#ifndef PLATFORM_N64
+				if (g_NetMode != NETMODE_NONE) gdl = netHudRender(gdl); // netplay: joins and leaves, the chat, the players
+#endif
+
 				if (g_Vars.currentplayer->dostartnewlife && !(NET_CLIENT && g_Vars.currentplayer->isdead)) { // netplay C15: a respawn is the host's
 					playerStartNewLife();
 				}

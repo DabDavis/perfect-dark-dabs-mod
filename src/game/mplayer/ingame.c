@@ -263,6 +263,11 @@ struct menudialogdef g_MpEndGameMenuDialog = {
 	NULL,
 };
 
+#ifndef PLATFORM_N64
+char *netLobbyMenuTextPlayers(struct menuitem *item);
+MenuItemHandlerResult netLobbyMenuHandlerPlayers(s32 operation, struct menuitem *item, union handlerdata *data);
+#endif
+
 struct menuitem g_MpPauseControlMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
@@ -346,6 +351,18 @@ struct menuitem g_MpPauseControlMenuItems[] = {
 		0,
 		menuhandlerMpPause,
 	},
+#ifndef PLATFORM_N64
+	{
+		// netplay: who is in, their pings, and the chat without a keyboard
+		// (netlobbymenu.c); hidden offline
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_SELECTABLE_CENTRE,
+		(uintptr_t)&netLobbyMenuTextPlayers,
+		0,
+		netLobbyMenuHandlerPlayers,
+	},
+#endif
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,

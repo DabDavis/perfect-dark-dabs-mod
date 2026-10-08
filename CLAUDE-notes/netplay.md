@@ -64,6 +64,13 @@
   pages over the room), MATCH_END carrying each player's time, kills and
   hits; the same-frame `menuTick` that cleared `var80087260` before the
   Institute had loaded.
+- **The online HUD (protocol 18, 2026-10-08)** — the section of that name
+  (`nethud.c`): the feed of joins, leaves, drops, returns and spectators
+  with the seats played ("3/8"), the chat (T; Space when no bind uses it;
+  Space or T in the Game Lobby for the room's chat), the players panel
+  (hold P) and the pause menu's Players page for pads; CHAT and PLAYERS
+  on the wire, ROSTER at every GO; why ESC typed into the line never
+  pauses, why the page is a row and not a tab, `netchattest.sh`.
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -98,6 +105,7 @@ gate proves it after each change).
 | spectators | `netspec.c` | follow and free cameras for the two spectator seats |
 | co-op | `netcoop.c` | the solo missions online (protocol 12): the mission in RULES, its state (tick mode and cutscene, objectives, timer, alarm, deaths) in the scenario block as a mission block, the host's end in MATCH_END |
 | lobby | `netlobby.c`, `netrdv.c`, `netlobbymenu.c` | the pdlobbyd client on two worker threads, the Online Game pages, the LAN/direct/punch/relay ladder |
+| online HUD | `nethud.c` (+ the Players page in `netlobbymenu.c`) | protocol 18: the feed of the host's notices and the chat, the chat line, the players panel, the keys (`Net.ChatKey`, `Net.PlayersKey`, `Net.ChatSpace`) |
 
 Clients keep all N player slots with the host's numbering; every slot that
 is not local is a puppet. The host's RULES carry each slot's name, head,
@@ -163,6 +171,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netscenariotest.sh` | 21 min | every scenario, two lossy |
 | `netcontenttest.sh` | 9 min | GoldenEye arenas (YOLT: a client respawned by its START alone), Goldfinger's mode (gfvariant, needs its zip in added-content), a client with nothing installed served the conversion by the host (fetch), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
+| `netchattest.sh` | 4.5 min | protocol 18: chat on every machine in order, the host's burst limit (5 of 7, the sender alone told), the notices of a join in progress (with "3/4"), a spectator, a drop, a return within the hold, a hold running out and a spectator gone, a client's first PLAYERS, the host's pause Control page and Players page, screenshots of the feed, panel and open line |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
 | `netcooptest.sh` | 14 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2, camproom 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, beside the host, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder; camproom: a GoldenEye campaign room on a local pdlobbyd launched by its host alone, Dam started from the folder and aborted, the room still launched, a newcomer connecting between missions and taken into Facility |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
@@ -1168,4 +1177,79 @@ we make this easier for players abroad, so anyone can play anyone".
   is handled, and only a fresh Join gets a new one. Router port mapping
   (UPnP/NAT-PMP/PCP), the room's empty `region`, IPv6 and a TCP fallback
   for networks that drop UDP are the next steps the user was offered.
+
+## The online HUD (protocol 18, 2026-10-08)
+
+The user: "lets add online play hud, when players join the game in
+progress. also in game player list and count. in game text chat also",
+then mid-way: "if space doesnt do anything lets also make chat open for
+lobby and ingame automatically with space and the keyboard can
+immediately type without choosing type with keyboard".
+
+- **What is on screen** (`port/src/net/nethud.c`, drawn by `netHudRender`
+  from lvRender after the modal text, the local view only): the feed low on
+  the left (ten seconds a line, the last ten while the chat line is open,
+  never above the panel's foot); the chat line under it; the players panel
+  at the top while P is held (not with the line open: twelve rows would
+  leave the history three lines; seats played or kept,
+  score and deaths from `scenarioCalculatePlayerScore` in a Combat
+  Simulator match, the host's ping for each, open seats, spectators, the
+  count). The key hint ("T: chat    hold P: players") is the feed's first
+  line each time the HUD goes live.
+- **Who says what.** The host makes every notice (`netHostNotice`, from
+  `netHostLateGo`, `netHostPeerGone`, the hold running out in
+  `netHostSeatsTick`) and sends it as a CHAT of kind 1 to everyone in the
+  session; clients never work joins out for themselves. A client's line
+  goes to the host, which cleans it, holds it to a burst of 5 and one per
+  1.5 s (`chattokens` on the netclient; past that kind 2 back to the sender
+  alone) and sends it to everyone with the sender's seat and name (its
+  CONNECT name, which is the seat's name; a ticket's account). The host's
+  own line goes out the same way. Names and text are printable ASCII
+  only (`netChatClean`), both ends.
+- **ROSTER at GO.** A client knew the seats only after a change, so its
+  list could not tell an open seat from a taken one at the start of a
+  `JoinInProgress` match. The host now sends ROSTER right after the GO of
+  a match's start too; `s_ClSeat` keeps it on the client.
+- **PLAYERS** every 60 host ticks, unreliable: each seat's ENet round trip
+  as the host measures it (the host's own seat 0), the spectators by name.
+  ENet's RTT includes each end's service interval, so loopback reads 8-50
+  ms and a fresh peer starts high and settles.
+- **ESC typed into the line never pauses.** `netHudFrame` runs in
+  schedEndFrame right after `inputUpdate`, before any tick asks
+  `inputKeyJustPressed(VK_ESCAPE)` (the pause in bondmove.c, a spectator's
+  leave, a menu's back), and calls it itself every frame the line is open,
+  which spends the press. The keys that open the line are read with
+  `inputKeyPressedThisFrame` instead, which spends nothing: a hotkey bound
+  to the same key still sees its press. While the line is open input.c's
+  `textInput` drops the keyboard's binds (as for a menu's keyboard), so the
+  player stops and the mouse still aims; the Enter that sends is latched by
+  `inputStopTextInput` and is neither the menu's OK nor the N64 binds' START.
+  GoldenEye's watch (its close) and cinema (leave and skip) read the
+  frame's ESC with `inputKeyPressedThisFrame`, which nothing spends: they
+  ask `netHudAteEscape()` (the line open, or its ESC this frame) first.
+- **Space.** Space is the second Fire bind in the PC defaults (`CK_ZTRIG`)
+  and Z is Select in the menus. In the Game Lobby Space opens the line
+  always (its Select is a duplicate of Enter's, and a stray one could hit
+  Leave); in a match only when no bind of player 1's uses it
+  (`netHudSpaceFree`, `Net.ChatSpace` to turn it off). The line opens with
+  text input already on, so the keyboard types at once - no keyboard to
+  pick on screen; a pad player's **Chat...** row is still the on-screen
+  keyboard (17 characters, MPSETUP_MAXNAME, `handlerChatKeyboard` now says
+  it through `netHudSay`: the room's chat in the lobby, the match's in one).
+- **Why the pause menu has a row, not a tab.** `menuPushDialog` builds at
+  most five siblings, and a team match's pause chain is already five (Team
+  Ranking, Ranking, Stats, Inventory, Control): a sixth would have pushed
+  Control, End Game with it, off the end. So the Players page is a row on
+  Control (ingame.c) and on the mission pause (mainmenu.c, both lists),
+  hidden offline by its handler. Its rows are labels, and a label's size is
+  taken when the dialog opens: the page lists the seats as they were then,
+  their names and pings live.
+- **Harness flags** (nethud.c): `--net-test-chat "TICK:TEXT|..."` (up to 8),
+  `--net-test-chat-type TICK:TEXT` (the line opened with TEXT),
+  `--net-test-players TICK` (the panel from then on),
+  `--net-test-players-page TICK` (the pause's Control page, three seconds
+  later the Players page; from `netHudTick` in netTickEnd, a tick's
+  context, as menus want), `--net-test-lobby-chat-type TEXT` (the Game
+  Lobby's line). A client logs its first PLAYERS of a match ("net: players
+  (tick N): seat pings 0:0 1:12; 0 watching").
 

@@ -298,6 +298,8 @@ void netTickBegin(void)
 
 void netTickEnd(void)
 {
+	netHudTick();
+
 	// the tick has run: the host's snapshots, the client's own position
 	if (netSessionMatchActive() && !netSessionBarrierHeld()) {
 		if (g_NetMode == NETMODE_SERVER) {

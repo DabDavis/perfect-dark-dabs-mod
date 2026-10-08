@@ -185,7 +185,9 @@ is OK and Escape is Cancel on every on-screen keyboard. Then:
   reaches the host and their ping (LAN, DIR direct, NAT punched through,
   RLY relayed through the lobby), chat, Change Team (team 1, team 2 or
   spectator) and Ready. The host has Launch, Kick and Settings. After the
-  match everyone comes back to the room for the next one.
+  match everyone comes back to the room for the next one. To chat there,
+  press **Space** (or **T**) and type; **Enter** sends, **Escape** cancels.
+  On a controller, **Chat...** opens the on-screen keyboard.
 
 **Co-op missions.** A room can be a co-op mission instead of a match: in
 Create Room (or the host's Settings) set **Game** to Co-op Mission, pick
@@ -222,6 +224,18 @@ A room that is already playing can still be joined: you drop into the
 match in progress. If your game crashes or your connection drops, rejoin
 the room within 30 seconds (`Net.ReconnectHold`) to get your seat and
 score back.
+
+**In the match.** A line low on the left of the screen says when someone
+joins the match in progress, leaves, loses the connection, comes back to
+their kept seat or starts watching, with how many seats are being played
+("3/8"). Press **T** to chat (and **Space** too, if none of your binds use
+it - by default it is a second fire button): type straight away, **Enter**
+sends, **Escape** cancels. Hold **P** to see the players: each one's score,
+deaths and ping, the open seats and who is watching. On a controller,
+pause and pick **Players** (on the Combat Simulator's Control page, or the
+mission's pause page) for the same list, the on-screen keyboard and a list
+of quick messages. The keys are `Net.ChatKey`, `Net.PlayersKey` and
+`Net.ChatSpace` in `pd.ini`.
 
 **Ports.** Nobody needs to open a port for a room to work: the game finds
 its own way to the host - over your LAN, straight to the host, punched

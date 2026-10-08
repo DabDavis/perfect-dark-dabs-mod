@@ -2059,7 +2059,7 @@ static s32 watchPressedBack(void)
 
 static s32 watchPressedStart(void)
 {
-	return joyGetButtonsPressedThisFrame(watchPadNum(), START_BUTTON) != 0 || inputKeyPressedThisFrame(VK_ESCAPE);
+	return joyGetButtonsPressedThisFrame(watchPadNum(), START_BUTTON) != 0 || (inputKeyPressedThisFrame(VK_ESCAPE) && !netHudAteEscape());
 }
 
 /**

@@ -76,7 +76,11 @@
 //    CameraSwitch the host's camera is in (s16 setup command, s16 its
 //    direction word) and the last of a converted mission's screen fades
 //    (u8 count, u32 colour, s16 frames); a client takes both into its view
-#define NET_PROTOCOL_VERSION 17
+// 18 (the online HUD, nethud.c): CHAT both ways (a player's line, and the
+//    host's notices of who joined, left, came back or watches), PLAYERS
+//    (each seat's ping and the spectators, once a second); the host sends
+//    ROSTER at a match's GO as well, not only on a change
+#define NET_PROTOCOL_VERSION 18
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -100,6 +104,9 @@
 #define NETMSG_CONTENT_FILE  19 // host -> client: a file, or a part of one
 #define NETMSG_CONTENT_END   20 // host -> client: the dir is complete
 #define NETMSG_CONTENT_NO    21 // host -> client: not served, with why
+// protocol 18: the online HUD (nethud.c)
+#define NETMSG_CHAT          22 // both ways: a chat line, or the host's notice
+#define NETMSG_PLAYERS       23 // host -> client: each seat's ping, the spectators
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -138,6 +145,7 @@
 #define NET_MAXKEY       47  // an ini key
 #define NET_MAXSTRVAL    63  // an ini string value
 #define NET_MAXTEXT      255 // a refusal's human text
+#define NET_MAXCHAT      120 // a chat line (pdlobbyd's CHAT_MAX: the same line fits a room's chat)
 #define NET_MAXMAPDIR    127 // a mod dir's basename in a stage key
 #define NET_MAXMAPNAME   31  // a map's name (modloader.c, char[32])
 #define NET_MAXTICKET    133 // TICKET_MAX in tools/pdlobbyd
@@ -395,6 +403,42 @@
  *     u8 state                    0 not in the match, 1 the host's, 2 a
  *                                 client's, 3 open, 4 held for a dropped one
  *     str(14) name                the player's name (g_PlayerConfigsArray)
+ * (protocol 18) also to every client at a match's GO, so a client knows
+ * the seats (open ones included) from the start
+ *
+ * CHAT (protocol 18; RELIABLE) - the online HUD's chat (nethud.c)
+ *   client -> host: what this machine's player typed
+ *     u8      NETMSG_CHAT
+ *     str(120) text               printable ASCII; the host drops the rest,
+ *                                 trims it, and an empty line is no line
+ *   host -> client: a line for everyone in the session (the host's own
+ *   player's too), or the host's notice of a join, a leave, a drop, a
+ *   return or a spectator (shown on the host as well)
+ *     u8      NETMSG_CHAT
+ *     u8      kind                0 a player's line, 1 a notice, 2 a notice
+ *                                 to this machine alone (too many lines)
+ *     u8      from                the sender's seat (mpindex 0-11), its
+ *                                 spectator view (12-13), 0xff none
+ *     str(31) name                the sender's name ("" for a notice)
+ *     str(120) text
+ *   The host takes a burst of NETCHAT_BURST lines from a client, then one
+ *   per NETCHAT_REFILL_MS; past that it answers with kind 2 and drops it.
+ *
+ * PLAYERS (host -> client, UNRELIABLE; protocol 18) - every 60 host ticks of
+ * a match, to each client in it: what the HUD's player list shows besides
+ * the ROSTER's seats
+ *   u8      NETMSG_PLAYERS
+ *   u32     matchid
+ *   u8      nseats                MAX_PLAYERS
+ *   per seat (mpindex 0-11):
+ *     u16 ping                    the round trip ENet measures between the
+ *                                 host and that seat's game, ms; 0 the
+ *                                 host's own seat, 0xffff none
+ *   u8      nspecs                <= NET_MAXSPECS
+ *   per spectator:
+ *     u8 view                     12-13
+ *     str(14) name
+ *     u16 ping
  *
  * MATCH_END (host -> client; also to a client still loading or at the
  * barrier, which then runs on to its end screen without a GO)
@@ -686,5 +730,13 @@
 #define NETACC_SPECTATOR   0x04
 #define NETSLOT_SPECTATOR  0xff // ACCEPT's slot, STAGE_LOAD's yourplayer
 #define NET_MAXSPECS       2    // spectators a host takes
+
+#define NETCHAT_PLAYER     0    // CHAT's kind
+#define NETCHAT_NOTICE     1
+#define NETCHAT_PRIVATE    2    // a notice to its receiver alone
+#define NETCHAT_FROM_NONE  0xff
+#define NETCHAT_BURST      5    // lines a client may send at once ...
+#define NETCHAT_REFILL_MS  1500 // ... and one more per this long
+#define NETPING_NONE       0xffff
 
 #endif

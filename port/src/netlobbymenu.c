@@ -22,6 +22,7 @@
 #include "gexplusrom.h"
 #include "net/net.h"
 #include "net/netlobby.h"
+#include "net/netproto.h"
 
 /**
  * Online Game: the lobby's rooms on PD's own menu dialogs (the flow is
@@ -1640,7 +1641,7 @@ static char *textChatLine(struct menuitem *item)
 	if (i < room->nchat) {
 		snprintf(text[line], sizeof(text[0]), "%s: %s\n", room->chat[i].user, room->chat[i].text);
 	} else if (line == 0 && room->nchat == 0) {
-		snprintf(text[line], sizeof(text[0]), "%s", "(no chat yet)\n");
+		snprintf(text[line], sizeof(text[0]), "%s", "(no chat yet: press SPACE to talk)\n");
 	} else {
 		snprintf(text[line], sizeof(text[0]), "%s", " \n");
 	}
@@ -1651,6 +1652,11 @@ static char *textChatLine(struct menuitem *item)
 static char *textRoomStatus(struct menuitem *item)
 {
 	const struct netlobbyroom *room = netLobbyGetRoom();
+
+	// the chat line, while it is open (nethud.c: Space or the chat key)
+	if (netHudChatLine(s_Status, sizeof(s_Status), 36)) {
+		return s_Status;
+	}
 
 	switch (netLobbyLaunchState()) {
 	case 1:
@@ -1692,7 +1698,9 @@ static MenuItemHandlerResult handlerChatKeyboard(s32 operation, struct menuitem 
 		snprintf(s_ChatLine, sizeof(s_ChatLine), "%s", data->keyboard.string);
 		break;
 	case MENUOP_SET:
-		netLobbyChat(s_ChatLine);
+		// the room's chat in the Game Lobby, the match's from its pause
+		// menu (nethud.c)
+		netHudSay(s_ChatLine);
 		break;
 	}
 
@@ -1712,6 +1720,160 @@ static MenuItemHandlerResult handlerChat(s32 operation, struct menuitem *item, u
 {
 	if (operation == MENUOP_SET) {
 		menuPushDialog(&s_ChatDialog);
+	}
+
+	return 0;
+}
+
+/*
+ * A match's pause menu: Players (protocol 18, nethud.c). The seats played
+ * or kept and the spectators with their pings, and the chat for a player
+ * with no keyboard: the on-screen one, or a line picked from a list. Its
+ * rows are laid out as it opens (a label's size is taken then), their text
+ * live after.
+ */
+
+#define PLAYERS_ROWS (MAX_PLAYERS + NET_MAXSPECS)
+
+static const char *const s_QuickLines[] = {
+	"Good game!",
+	"Nice shot!",
+	"Wait for me.",
+	"Follow me.",
+	"Need help!",
+	"On my way.",
+	"Thanks!",
+	"Sorry!",
+	"Ready.",
+	"One more?",
+};
+
+static char *textPlayersCount(struct menuitem *item)
+{
+	static char text[64];
+	s32 in;
+	s32 of;
+	s32 specs;
+
+	netHudCounts(&in, &of, &specs);
+
+	if (specs > 0) {
+		snprintf(text, sizeof(text), "%d/%d playing, %d watching\n", in, of, specs);
+	} else {
+		snprintf(text, sizeof(text), "%d/%d playing\n", in, of);
+	}
+
+	return text;
+}
+
+static char s_PlayerNames[PLAYERS_ROWS][NET_MAXNAME + 24];
+static char s_PlayerValues[PLAYERS_ROWS][16];
+
+static char *textPlayerName(struct menuitem *item)
+{
+	const s32 k = item->param % PLAYERS_ROWS;
+
+	if (!netHudPlayerRow(k, s_PlayerNames[k], sizeof(s_PlayerNames[k]), s_PlayerValues[k], sizeof(s_PlayerValues[k]))) {
+		snprintf(s_PlayerNames[k], sizeof(s_PlayerNames[k]), "%s", "-\n");
+		snprintf(s_PlayerValues[k], sizeof(s_PlayerValues[k]), "%s", "\n");
+	}
+
+	return s_PlayerNames[k];
+}
+
+static char *textPlayerValue(struct menuitem *item)
+{
+	return s_PlayerValues[item->param % PLAYERS_ROWS];
+}
+
+static MenuItemHandlerResult handlerPlayerRow(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	char name[NET_MAXNAME + 24];
+	char value[16];
+
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return !netHudPlayerRow(item->param, name, sizeof(name), value, sizeof(value));
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult handlerQuickLine(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		netHudSay(s_QuickLines[item->param % ARRAYCOUNT(s_QuickLines)]);
+	}
+
+	return 0;
+}
+
+#define QUICKROW(i, text) { MENUITEMTYPE_SELECTABLE, i, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)text "\n", 0, handlerQuickLine }
+
+static struct menuitem s_QuickItems[] = {
+	QUICKROW(0, "Good game!"), QUICKROW(1, "Nice shot!"), QUICKROW(2, "Wait for me."), QUICKROW(3, "Follow me."),
+	QUICKROW(4, "Need help!"), QUICKROW(5, "On my way."), QUICKROW(6, "Thanks!"), QUICKROW(7, "Sorry!"),
+	QUICKROW(8, "Ready."), QUICKROW(9, "One more?"),
+	{ MENUITEMTYPE_END },
+};
+
+static struct menudialogdef s_QuickDialog = {
+	MENUDIALOGTYPE_DEFAULT, (uintptr_t)"Quick Message", s_QuickItems, NULL, MENUDIALOGFLAG_LITERAL_TEXT, NULL,
+};
+
+static MenuItemHandlerResult handlerQuickOpen(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		menuPushDialog(&s_QuickDialog);
+	}
+
+	return 0;
+}
+
+#define PLAYERROW(i) { MENUITEMTYPE_LABEL, i, MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)&textPlayerName, (uintptr_t)&textPlayerValue, handlerPlayerRow }
+
+static struct menuitem s_PlayersItems[] = {
+	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LESSLEFTPADDING, (uintptr_t)&textPlayersCount, 0, NULL },
+	PLAYERROW(0), PLAYERROW(1), PLAYERROW(2), PLAYERROW(3), PLAYERROW(4), PLAYERROW(5), PLAYERROW(6),
+	PLAYERROW(7), PLAYERROW(8), PLAYERROW(9), PLAYERROW(10), PLAYERROW(11), PLAYERROW(12), PLAYERROW(13),
+	{ MENUITEMTYPE_SEPARATOR, 0, 0, 0, 0, NULL },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Send Message...\n", 0, handlerChat },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Quick Message...\n", 0, handlerQuickOpen },
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
+	{ MENUITEMTYPE_END },
+};
+
+struct menudialogdef g_NetPlayersMenuDialog = {
+	MENUDIALOGTYPE_DEFAULT,
+	(uintptr_t)"Players",
+	s_PlayersItems,
+	NULL,
+	MENUDIALOGFLAG_LITERAL_TEXT,
+	NULL,
+};
+
+// The pause menus' row (ingame.c's Control page, mainmenu.c's mission
+// pause): "Players (3/8)", only in a net match
+char *netLobbyMenuTextPlayers(struct menuitem *item)
+{
+	static char text[48];
+	s32 in;
+	s32 of;
+	s32 specs;
+
+	netHudCounts(&in, &of, &specs);
+	snprintf(text, sizeof(text), "Players (%d/%d)\n", in, of);
+
+	return text;
+}
+
+MenuItemHandlerResult netLobbyMenuHandlerPlayers(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return g_NetMode == NETMODE_NONE;
+	}
+
+	if (operation == MENUOP_SET) {
+		menuPushDialog(&g_NetPlayersMenuDialog);
 	}
 
 	return 0;
@@ -1850,6 +2012,9 @@ static MenuDialogHandlerResult dialogRoom(s32 operation, struct menudialogdef *d
 
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
 		netLobbyTick();
+
+		// its chat line may open: Space or the chat key (nethud.c)
+		netHudLobbyFrame();
 
 		// the seat went (kicked, the room closed): back to where it was
 		// opened from, the reason on the status line there

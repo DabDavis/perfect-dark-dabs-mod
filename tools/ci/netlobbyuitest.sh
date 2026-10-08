@@ -116,7 +116,7 @@ game host hostguy "$GPORT" 240 --net-lobby-script host --net-lobby-room "$ROOMNA
 	--net-lobby-end-frame 300 --net-test-endpoint 10.255.255.1:$GPORT --net-test-stage 0x32 --net-test-sims 2 --rng-seed 9 &
 P1=$!
 game join joiner "$GPORT" 240 --net-lobby-script join --net-lobby-room "$ROOMNAME" --net-lobby-shots \
-	--net-lobby-leave-frame 0 --net-test-skip-ladder &
+	--net-lobby-leave-frame 0 --net-test-skip-ladder --net-test-lobby-chat-type "hello from the joiner" &
 P2=$!
 # a third machine whose UDP to the lobby is as if blocked (--net-test-no-echo):
 # its PING is this machine's leg from the room list's HTTP round trip
@@ -158,6 +158,11 @@ else
 	fail "join: the advertised endpoints were not tried in turn"
 fi
 grep -q "match 1: every machine has loaded; GO" "$H" && grep -q "net: match 1: GO" "$J" && pass "both passed GO" || fail "no GO on both"
+# the Game Lobby's chat line (nethud.c, protocol 18): opened as Space would,
+# said, and in the host's room chat
+grep -q "net: --net-test-lobby-chat-type: the Game Lobby's line open" "$J" && grep -q "net: lobby chat: joiner: hello from the joiner" "$H" \
+	&& pass "the joiner's Game Lobby chat line reached the host's room: $(line "$H" "net: lobby chat: joiner" | sed 's/net: //')" \
+	|| fail "the Game Lobby's chat line: opened $(grep -c "Game Lobby's line open" "$J"), host's room chat [$(grep -m1 -o "net: lobby chat: .*" "$H")]"
 grep -q "lobby host: slot 0 plays as \"hostguy\"" "$H" && grep -q "slot 0's profile name is back" "$H" \
 	&& pass "host: $(line "$H" "slot 0 plays as" | sed 's/ (its.*//') in its own match (HUD text it sends), profile name back after" \
 	|| fail "host: slot 0 did not play as hostguy on the host, or its profile name did not come back"

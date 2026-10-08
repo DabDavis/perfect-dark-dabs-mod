@@ -292,6 +292,29 @@ s32 netPlayersHostDepth(s32 slot);
 // netsession.c: the round trip ENet measures to the slot's peer and its
 // variance, ms (rtt -1: no such peer); 0 found
 s32 netSessionSlotRtt(s32 slot, s32 *rtt, s32 *rttvar);
+
+// The online HUD (protocol 18): nethud.c shows the lines and reads the keys,
+// netsession.c carries them and keeps the seats as each machine knows them
+#define NETSEATINFO_HOST  1 // netseatinfo.state: NETSEAT_* on the host, ROSTER's on a client
+#define NETSEATINFO_TAKEN 2
+#define NETSEATINFO_OPEN  3
+#define NETSEATINFO_HELD  4
+struct netseatinfo {
+	s32 state;
+	s32 ping;  // ms, -1 unknown
+	s32 local; // this machine's own player
+	char name[NET_MAXNAME + 1]; // without PD's "\n"
+};
+s32 netSessionSeatInfo(s32 seat, struct netseatinfo *out); // 0: the seat is not in the match
+s32 netSessionSpecInfo(s32 k, char *name, s32 size, s32 *ping); // the k-th spectator; 0 none
+void netSessionSeatCounts(s32 *in, s32 *of); // seats played (the host's and taken) and the match's seats
+s32 netSessionHudLive(void);                // a match's stage runs here (GO passed): the HUD draws
+s32 netSessionChatSend(const char *text);   // this machine's player says it; 0 sent
+const char *netSessionHostTitle(void);      // whose match: the host's name ("" unknown)
+void netHudArgs(void);                       // --net-test-chat and friends
+void netHudTick(void);                       // net.c netTickEnd: the harness's menu pages, in a tick
+void netHudFeed(s32 kind, s32 from, const char *name, const char *text); // a line for the feed (NETCHAT_*)
+s32 netChatClean(char *text);                // printable ASCII only, trimmed; its length
 void netSessionLogTraffic(const char *why);
 s32 netSessionSlotLeftMatch(s32 slot);
 // netlagcomp.c: the client's own aim as a correction replayed on a frame

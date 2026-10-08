@@ -4618,6 +4618,11 @@ char *soloMenuTitlePauseStatus(struct menudialogdef *dialogdef)
 	return g_StringPointer;
 }
 
+#ifndef PLATFORM_N64
+char *netLobbyMenuTextPlayers(struct menuitem *item);
+MenuItemHandlerResult netLobbyMenuHandlerPlayers(s32 operation, struct menuitem *item, union handlerdata *data);
+#endif
+
 struct menuitem g_2PMissionPauseVMenuItems[] = {
 	{
 		MENUITEMTYPE_OBJECTIVES,
@@ -4627,6 +4632,18 @@ struct menuitem g_2PMissionPauseVMenuItems[] = {
 		0,
 		NULL,
 	},
+#ifndef PLATFORM_N64
+	{
+		// netplay: who is in, their pings, the chat without a keyboard
+		// (netlobbymenu.c); hidden offline
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		0,
+		(uintptr_t)&netLobbyMenuTextPlayers,
+		0,
+		netLobbyMenuHandlerPlayers,
+	},
+#endif
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
@@ -4647,6 +4664,18 @@ struct menuitem g_MissionPauseMenuItems[] = {
 		0,
 		NULL,
 	},
+#ifndef PLATFORM_N64
+	{
+		// netplay: who is in, their pings, the chat without a keyboard
+		// (netlobbymenu.c); hidden offline
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		0,
+		(uintptr_t)&netLobbyMenuTextPlayers,
+		0,
+		netLobbyMenuHandlerPlayers,
+	},
+#endif
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,

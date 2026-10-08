@@ -3,6 +3,7 @@
 #include <string.h>
 #include <strings.h>
 #include <time.h>
+#include <stdarg.h>
 #include <PR/ultratypes.h>
 #include <ultra64.h>
 #include "constants.h"
@@ -114,6 +115,8 @@ struct netclient {
 	s32 resumed;    // ... into the seat its account held
 	s32 ticketed;   // its CONNECT had a lobby ticket (the user is the account)
 	u64 lastrecv;   // when its last message came (a drop's hold runs from it)
+	s32 chattokens; // protocol 18: chat lines it may send now (NETCHAT_BURST)
+	u64 chatrefill; // ... counted from then (0: a full burst)
 };
 
 /**
@@ -146,8 +149,24 @@ static s32 s_HostEnded = 0;      // the host's MATCH_END has gone
 static s32 s_Spectate = 0;       // client: --net-spectate, or a lobby room's spectator
 static s32 s_Spectating = 0;     // client: this match is watched, not played
 static u32 s_JoinGoTick = 0;     // client: the host tick a join in progress started at (0 none)
+
+// The online HUD (protocol 18), a client's: the seats as the last ROSTER
+// had them, each seat's ping and the spectators as the last PLAYERS did
+static u8 s_ClSeat[MAX_PLAYERS];
+static s32 s_ClSeatValid = 0;
+static u16 s_ClPing[MAX_PLAYERS];
+static struct {
+	u8 view;
+	char name[15];
+	u16 ping;
+} s_ClSpecs[NET_MAXSPECS];
+static s32 s_ClNumSpecs = 0;
+static u64 s_ClPlayersAt = 0;     // when the last PLAYERS came (0 none this match)
+static s32 s_ClWelcome = 0;       // a join in progress: its first ROSTER says who is in
+static char s_HostTitle[NET_MAXNAME + 1]; // the host's name, as ACCEPT gave it
 static u32 s_Joins = 0, s_Resumes = 0, s_SpecJoins = 0, s_HoldsExpired = 0, s_Vacated = 0;
 static s32 s_LastRefuse = -1;
+static s32 s_PeerGoneKicked = 0; // netHostPeerGone is for a kick (its notice says so, not a drop)
 static s32 s_TestGiveSlot = -1, s_TestGiveN = 0; // --net-test-givekills
 static u32 s_TestGiveTick = 0;    // client: the code the session last ended on
 
@@ -352,6 +371,7 @@ void netSessionArgs(void)
 	s_TestJoin = sysArgCheck("--net-test-join");
 	s_Spectate = sysArgCheck("--net-spectate");
 	s_ProtocolSent = (u32)sysArgGetInt("--net-test-protocol", NET_PROTOCOL_VERSION);
+	netHudArgs();
 
 	if (ticket) {
 		snprintf(s_Ticket, sizeof(s_Ticket), "%s", ticket);
@@ -401,6 +421,7 @@ void netSessionArgs(void)
 }
 
 static void netClientEnd(s32 code, const char *text);
+static void netHostSendRoster(void);
 static void netSessionOpenSocket(void);
 static void netHostPeerGone(s32 peer, s32 held);
 static void netHostLogSeats(const char *why);
@@ -592,7 +613,9 @@ static void netHostKick(s32 peer, s32 code, const char *component, const char *t
 	// (the DISCONNECT that follows finds it REFUSED and does nothing)
 	if (c->state >= NETCL_LOADING && c->state <= NETCL_PLAYING) {
 		netPlayersHostSlotGone(c->slot);
+		s_PeerGoneKicked = 1;
 		netHostPeerGone(peer, 1);
+		s_PeerGoneKicked = 0;
 	}
 
 	c->state = NETCL_REFUSED;
@@ -1605,6 +1628,10 @@ static void netHostBarrierTick(void)
 	}
 
 	s_BarrierHeld = 0;
+
+	// protocol 18: the seats from the start (the open ones too), for the
+	// players list on every client's HUD
+	netHostSendRoster();
 	netHostFlush(g_NetHostSocket);
 	sysLogPrintf(LOG_NOTE, "net: match %u: every machine has loaded; GO", s_MatchIdCur);
 }
@@ -1638,6 +1665,182 @@ static void netHostSendRoster(void)
 	for (i = 0; i < NET_MAXPEERS; i++) {
 		if (s_Clients[i].state >= NETCL_LOADING && s_Clients[i].state <= NETCL_PLAYING) {
 			netSend(i, NET_CHAN_RELIABLE, &b);
+		}
+	}
+}
+
+/*
+ * The online HUD's lines (protocol 18; nethud.c draws them): a player's chat
+ * and the host's notices of the seats changing hands
+ */
+
+// CHAT to every client in the session (onlypeer -1), or to the one
+static void netHostChatSend(s32 kind, s32 from, const char *name, const char *text, s32 onlypeer)
+{
+	u8 buf[NET_MAXNAME + NET_MAXCHAT + 16];
+	struct netbuf b;
+	s32 i;
+
+	netBufInitWrite(&b, buf, sizeof(buf));
+	netBufWriteU8(&b, NETMSG_CHAT);
+	netBufWriteU8(&b, (u8)kind);
+	netBufWriteU8(&b, (u8)from);
+	netWriteStr(&b, name, NET_MAXNAME);
+	netWriteStr(&b, text, NET_MAXCHAT);
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		const s32 st = s_Clients[i].state;
+
+		if ((onlypeer < 0 || i == onlypeer) && st >= NETCL_JOINED && st != NETCL_REFUSED) {
+			netSend(i, NET_CHAN_RELIABLE, &b);
+		}
+	}
+}
+
+// A notice to everyone in the session, the host's own HUD included
+static void netHostNotice(const char *fmt, ...)
+{
+	char text[NET_MAXCHAT + 1];
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsnprintf(text, sizeof(text), fmt, ap);
+	va_end(ap);
+
+	netHostChatSend(NETCHAT_NOTICE, NETCHAT_FROM_NONE, "", text, -1);
+	netHudFeed(NETCHAT_NOTICE, NETCHAT_FROM_NONE, "", text);
+}
+
+// A client's name as a notice or a chat line shows it
+static void netClientShownName(const struct netclient *c, char *out, s32 size)
+{
+	snprintf(out, size, "%s", c->name);
+	out[strcspn(out, "\n")] = '\0';
+
+	if (netChatClean(out) == 0) {
+		snprintf(out, size, "%s", "Someone");
+	}
+}
+
+/**
+ * A client's line: cleaned, held to a burst of NETCHAT_BURST and one more
+ * per NETCHAT_REFILL_MS (past that the sender alone hears why it went
+ * nowhere), then to everyone
+ */
+static void netHostOnChat(s32 peer, struct netbuf *b)
+{
+	struct netclient *c = &s_Clients[peer];
+	char text[NET_MAXCHAT + 1];
+	char name[NET_MAXNAME + 1];
+	const u64 now = netNowMs();
+	u64 gained;
+
+	netBufReadString(b, text, sizeof(text));
+
+	if (!netBufOk(b) || netBufRemaining(b) != 0) {
+		netHostKick(peer, NETREFUSE_BADMSG, "", "Your game's CHAT did not parse.");
+		return;
+	}
+
+	if (netChatClean(text) == 0) {
+		return;
+	}
+
+	if (c->chatrefill == 0) {
+		c->chattokens = NETCHAT_BURST;
+		c->chatrefill = now;
+	}
+
+	gained = (now - c->chatrefill) / NETCHAT_REFILL_MS;
+
+	if (gained) {
+		c->chattokens = c->chattokens + (s32)gained > NETCHAT_BURST ? NETCHAT_BURST : c->chattokens + (s32)gained;
+		c->chatrefill += gained * NETCHAT_REFILL_MS;
+	}
+
+	if (c->chattokens >= NETCHAT_BURST) {
+		c->chatrefill = now;
+	}
+
+	if (c->chattokens <= 0) {
+		sysLogPrintf(LOG_NOTE, "net: chat: a line from slot %d (\"%s\") dropped: too many at once", c->slot, c->name);
+		netHostChatSend(NETCHAT_PRIVATE, NETCHAT_FROM_NONE, "", "Too many lines at once: wait a moment.", peer);
+		return;
+	}
+
+	c->chattokens--;
+	netClientShownName(c, name, sizeof(name));
+	netHostChatSend(NETCHAT_PLAYER, c->slot >= 0 && c->slot < NET_MAXVIEWS ? c->slot : NETCHAT_FROM_NONE, name, text, -1);
+	netHudFeed(NETCHAT_PLAYER, c->slot >= 0 && c->slot < NET_MAXVIEWS ? c->slot : NETCHAT_FROM_NONE, name, text);
+}
+
+// A seat's ping as the host has it: 0 its own, -1 none
+static s32 netHostSeatPing(s32 seat)
+{
+	s32 rtt;
+	s32 var;
+
+	if (s_Seats[seat].state == NETSEAT_HOST) {
+		return 0;
+	}
+
+	if (s_Seats[seat].state == NETSEAT_TAKEN && netSessionSlotRtt(seat, &rtt, &var) == 0) {
+		return rtt;
+	}
+
+	return -1;
+}
+
+// PLAYERS to every client in the match: the pings and the spectators
+static void netHostSendPlayers(void)
+{
+	u8 buf[256];
+	struct netbuf b;
+	struct netpeerstats st;
+	s32 nspecs = 0;
+	s32 i;
+
+	netBufInitWrite(&b, buf, sizeof(buf));
+	netBufWriteU8(&b, NETMSG_PLAYERS);
+	netBufWriteU32(&b, s_MatchIdCur);
+	netBufWriteU8(&b, MAX_PLAYERS);
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		const s32 ping = netHostSeatPing(i);
+
+		netBufWriteU16(&b, ping < 0 ? NETPING_NONE : ping > 9999 ? 9999 : (u16)ping);
+	}
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		nspecs += s_Clients[i].spectator && s_Clients[i].state == NETCL_PLAYING;
+	}
+
+	nspecs = nspecs > NET_MAXSPECS ? NET_MAXSPECS : nspecs;
+	netBufWriteU8(&b, (u8)nspecs);
+
+	for (i = 0; i < NET_MAXPEERS && nspecs > 0; i++) {
+		const struct netclient *c = &s_Clients[i];
+		char name[NET_MAXNAME + 1];
+		s32 ping = -1;
+
+		if (!c->spectator || c->state != NETCL_PLAYING) {
+			continue;
+		}
+
+		if (netHostPeerStats(g_NetHostSocket, i, &st) == 0 && st.connected) {
+			ping = (s32)st.rtt;
+		}
+
+		netClientShownName(c, name, sizeof(name));
+		netBufWriteU8(&b, (u8)c->slot);
+		netWriteStr(&b, name, 14);
+		netBufWriteU16(&b, ping < 0 ? NETPING_NONE : ping > 9999 ? 9999 : (u16)ping);
+		nspecs--;
+	}
+
+	for (i = 0; i < NET_MAXPEERS && netBufOk(&b); i++) {
+		if (s_Clients[i].state == NETCL_PLAYING) {
+			netHostSend(g_NetHostSocket, i, NET_CHAN_UNRELIABLE, buf, netBufLen(&b), 0);
 		}
 	}
 }
@@ -1748,6 +1951,15 @@ static void netHostSeatsTick(void)
 			sysLogPrintf(LOG_NOTE, "net: seat %d (\"%s\"): the hold ran out (%d s); the seat is open, its score cleared",
 					i, seat->account, s_ReconnectHold);
 			seat->state = NETSEAT_OPEN;
+
+			{
+				char name[NET_MAXNAME + 1];
+
+				snprintf(name, sizeof(name), "%s", seat->account);
+				netChatClean(name);
+				netHostNotice("%s did not come back: the seat is open", name);
+			}
+
 			seat->vacate = 1;
 			seat->drop = 1;
 			seat->clear = 1;
@@ -1794,6 +2006,11 @@ static void netHostSeatsTick(void)
 		netHostSendRoster();
 		netHostLogSeats("after a hold ran out");
 	}
+
+	// protocol 18: the pings and spectators for every client's players list
+	if (g_NetTick % 60 == 0) {
+		netHostSendPlayers();
+	}
 }
 
 /**
@@ -1810,8 +2027,15 @@ static void netHostPeerGone(s32 peer, s32 held)
 
 	if (c->spectator) {
 		if (c->state >= NETCL_LOADING && c->state <= NETCL_PLAYING) {
+			char name[NET_MAXNAME + 1];
+
 			netPlayersHostSpecGone(c->slot);
 			sysLogPrintf(LOG_NOTE, "net: spectator view %d (\"%s\") left", c->slot, c->name);
+
+			if (c->state == NETCL_PLAYING) {
+				netClientShownName(c, name, sizeof(name));
+				netHostNotice("%s stopped watching", name);
+			}
 		}
 
 		return;
@@ -1841,6 +2065,18 @@ static void netHostPeerGone(s32 peer, s32 held)
 		sysLogPrintf(LOG_NOTE, "net: seat %d (\"%s\") dropped; held for it %d s from its last message (%llu ms ago)",
 				c->slot, seat->account, s_ReconnectHold, (unsigned long long)(now - from));
 		netHostLogSeats("after a drop");
+
+		if (c->state == NETCL_PLAYING) {
+			char name[NET_MAXNAME + 1];
+
+			netClientShownName(c, name, sizeof(name));
+
+			if (s_PeerGoneKicked) {
+				netHostNotice("%s was removed from the game", name);
+			} else {
+				netHostNotice("%s lost the connection: the seat is kept %d s", name, s_ReconnectHold);
+			}
+		}
 	} else {
 		sysLogPrintf(LOG_NOTE, "net: seat %d is open (\"%s\" %s)", c->slot, c->name,
 				!held ? "left" : !seat->ticketed && s_ReconnectHold > 0 && !s_HostEnded ? "dropped; no lobby ticket to come back on" : "dropped");
@@ -1851,6 +2087,18 @@ static void netHostPeerGone(s32 peer, s32 held)
 		seat->ticketed = 0;
 		seat->account[0] = '\0';
 		netNameSet(g_PlayerConfigsArray[c->slot].base.name, sizeof(g_PlayerConfigsArray[c->slot].base.name), "(open)");
+
+		// only one that was in play: a join that never got its GO went unseen
+		if (c->state == NETCL_PLAYING) {
+			char name[NET_MAXNAME + 1];
+			s32 in;
+			s32 of;
+
+			netClientShownName(c, name, sizeof(name));
+			netSessionSeatCounts(&in, &of);
+			netHostNotice(s_PeerGoneKicked ? "%s was removed from the game (%d/%d)" : held ? "%s lost the connection (%d/%d)" : "%s left the game (%d/%d)",
+					name, in, of);
+		}
 	}
 
 	netHostSendRoster();
@@ -1911,6 +2159,22 @@ static void netHostLateGo(s32 peer)
 			c->spectator ? "spectator view" : "slot", c->slot, c->name, tick,
 			c->spectator ? "spectating" : c->resumed ? "its held seat, its score kept" : "an open seat");
 	netHostLogSeats("after a join");
+
+	// protocol 18: everyone's HUD says so, with the seats now played
+	{
+		char name[NET_MAXNAME + 1];
+		s32 in;
+		s32 of;
+
+		netClientShownName(c, name, sizeof(name));
+		netSessionSeatCounts(&in, &of);
+
+		if (c->spectator) {
+			netHostNotice("%s is watching", name);
+		} else {
+			netHostNotice(c->resumed ? "%s is back (%d/%d)" : "%s joined the game (%d/%d)", name, in, of);
+		}
+	}
 }
 
 // Between ticks: a join in progress loaded, or too slow to
@@ -2341,6 +2605,11 @@ static s32 netClientBeginStage(struct netbuf *b)
 	netBufReadString(b, label, sizeof(label));
 	s_Seed = netReadU64(b);
 	s_Seed2 = netReadU64(b);
+
+	// protocol 18: this match's seats come in its own ROSTER and PLAYERS
+	s_ClSeatValid = 0;
+	s_ClPlayersAt = 0;
+	s_ClNumSpecs = 0;
 	numplayers = netBufReadU8(b);
 	yourplayer = netBufReadU8(b);
 
@@ -2475,6 +2744,10 @@ static void netClientOnRoster(struct netbuf *b)
 
 	line[0] = '\0';
 
+	// protocol 18: the seats as the HUD's players list shows them
+	memcpy(s_ClSeat, st, sizeof(s_ClSeat));
+	s_ClSeatValid = 1;
+
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		s32 k;
 
@@ -2498,6 +2771,77 @@ static void netClientOnRoster(struct netbuf *b)
 	}
 
 	sysLogPrintf(LOG_NOTE, "net: roster (tick %u): %s", g_NetTick, line);
+}
+
+// PLAYERS (protocol 18): each seat's ping and the spectators, for the HUD
+static void netClientOnPlayers(struct netbuf *b)
+{
+	u16 ping[MAX_PLAYERS];
+	u8 views[NET_MAXSPECS];
+	char names[NET_MAXSPECS][15];
+	u16 specping[NET_MAXSPECS];
+	const u32 matchid = netBufReadU32(b);
+	const s32 n = netBufReadU8(b);
+	s32 nspecs;
+	s32 i;
+
+	if (n != MAX_PLAYERS) {
+		b->error = 1;
+	}
+
+	for (i = 0; i < MAX_PLAYERS && netBufOk(b); i++) {
+		ping[i] = netBufReadU16(b);
+	}
+
+	nspecs = netBufReadU8(b);
+
+	if (nspecs > NET_MAXSPECS) {
+		b->error = 1;
+	}
+
+	for (i = 0; i < nspecs && netBufOk(b); i++) {
+		views[i] = netBufReadU8(b);
+		netBufReadString(b, names[i], sizeof(names[i]));
+		specping[i] = netBufReadU16(b);
+
+		if (views[i] < MAX_PLAYERS || views[i] >= NET_MAXVIEWS) {
+			b->error = 1;
+		}
+	}
+
+	// unreliable: one from the last match is dropped
+	if (!netBufOk(b) || netBufRemaining(b) != 0 || matchid != s_MatchIdCur || !s_MatchActive) {
+		return;
+	}
+
+	memcpy(s_ClPing, ping, sizeof(s_ClPing));
+
+	for (i = 0; i < nspecs; i++) {
+		s_ClSpecs[i].view = views[i];
+		snprintf(s_ClSpecs[i].name, sizeof(s_ClSpecs[i].name), "%s", names[i]);
+		netChatClean(s_ClSpecs[i].name);
+		s_ClSpecs[i].ping = specping[i];
+	}
+
+	s_ClNumSpecs = nspecs;
+
+	// the first of a match, for the log (the gates read it)
+	if (!s_ClPlayersAt) {
+		char line[256];
+		s32 len = 0;
+
+		line[0] = '\0';
+
+		for (i = 0; i < MAX_PLAYERS && len < (s32)sizeof(line); i++) {
+			if (ping[i] != NETPING_NONE) {
+				len += snprintf(line + len, sizeof(line) - len, "%s%d:%u", len ? " " : "", i, ping[i]);
+			}
+		}
+
+		sysLogPrintf(LOG_NOTE, "net: players (tick %u): seat pings %s; %d watching", g_NetTick, line[0] ? line : "none", nspecs);
+	}
+
+	s_ClPlayersAt = netNowMs();
 }
 
 static void netClientOnMatchEnd(struct netbuf *b)
@@ -2716,6 +3060,9 @@ static void netHostEvent(const struct netevent *ev)
 			} else if (c->state >= NETCL_LOADING && c->state <= NETCL_PLAYING && !c->spectator) {
 				netPlayersHostSlotCfg(c->slot, &c->cfg);
 			}
+		} else if (type == NETMSG_CHAT) {
+			// protocol 18: a line for everyone (nethud.c)
+			netHostOnChat(ev->peer, &b);
 		} else if (type == NETMSG_LOBBY) {
 			u32 matchid = netBufReadU32(&b);
 
@@ -2797,6 +3144,8 @@ static void netClientEvent(const struct netevent *ev)
 				if (netBufOk(&b) && (slot < MAX_PLAYERS || (slot == NETSLOT_SPECTATOR && (flags & NETACC_SPECTATOR)))) {
 					s_ClientState = NETCS_JOINED;
 					s_ClientSlot = slot == NETSLOT_SPECTATOR ? 0 : slot;
+					snprintf(s_HostTitle, sizeof(s_HostTitle), "%s", hostname);
+					netChatClean(s_HostTitle);
 
 					// the host's mod, out of this machine's own copies
 					// (protocol 13, netcontent.c): switched to live, or the
@@ -2934,6 +3283,28 @@ static void netClientEvent(const struct netevent *ev)
 		}
 		case NETMSG_ROSTER:
 			netClientOnRoster(&b);
+			break;
+		case NETMSG_CHAT: {
+			// protocol 18: a player's line or the host's notice (nethud.c)
+			char name[NET_MAXNAME + 1];
+			char chat[NET_MAXCHAT + 1];
+			const s32 kind = netBufReadU8(&b);
+			const s32 from = netBufReadU8(&b);
+
+			netBufReadString(&b, name, sizeof(name));
+			netBufReadString(&b, chat, sizeof(chat));
+
+			if (netBufOk(&b) && netBufRemaining(&b) == 0 && kind <= NETCHAT_PRIVATE) {
+				netChatClean(name);
+
+				if (netChatClean(chat)) {
+					netHudFeed(kind, from < NET_MAXVIEWS ? from : NETCHAT_FROM_NONE, name, chat);
+				}
+			}
+			break;
+		}
+		case NETMSG_PLAYERS:
+			netClientOnPlayers(&b);
 			break;
 		case NETMSG_MATCH_END:
 			netClientOnMatchEnd(&b);
@@ -4094,6 +4465,186 @@ const char *netSessionWireName(s32 slot)
 	}
 
 	return g_PlayerConfigsArray[slot].base.name;
+}
+
+/*
+ * The online HUD's view of the session (protocol 18, nethud.c)
+ */
+
+/**
+ * A seat of the running match as this machine knows it: the host from its
+ * own seats, a client from the last ROSTER (until the first, every seat
+ * RULES gave a player, the host's first) and the last PLAYERS' pings
+ */
+s32 netSessionSeatInfo(s32 seat, struct netseatinfo *out)
+{
+	s32 state;
+
+	memset(out, 0, sizeof(*out));
+	out->ping = -1;
+
+	if (seat < 0 || seat >= MAX_PLAYERS || !s_MatchActive) {
+		return 0;
+	}
+
+	if (s_Role == NETROLE_HOST) {
+		state = s_Seats[seat].state;
+
+		if (state == NETSEAT_NONE) {
+			return 0;
+		}
+
+		out->ping = netHostSeatPing(seat);
+		out->local = state == NETSEAT_HOST && seat == g_NetLocalSlot;
+	} else if (s_Role == NETROLE_CLIENT) {
+		if (s_ClSeatValid) {
+			state = s_ClSeat[seat];
+		} else {
+			state = seat >= PLAYERCOUNT() ? NETSEAT_NONE : seat == 0 && !s_HostDedicated ? NETSEAT_HOST : NETSEAT_TAKEN;
+		}
+
+		if (state == NETSEAT_NONE) {
+			return 0;
+		}
+
+		if (s_ClPlayersAt && netNowMs() - s_ClPlayersAt < 5000 && s_ClPing[seat] != NETPING_NONE) {
+			out->ping = s_ClPing[seat];
+		}
+
+		out->local = !s_Spectating && seat == g_NetLocalSlot;
+	} else {
+		return 0;
+	}
+
+	out->state = state;
+	snprintf(out->name, sizeof(out->name), "%s", netSessionWireName(seat));
+	out->name[strcspn(out->name, "\n")] = '\0';
+	netChatClean(out->name);
+
+	return 1;
+}
+
+// The k-th spectator of the running match (its name and ping); 0 none
+s32 netSessionSpecInfo(s32 k, char *name, s32 size, s32 *ping)
+{
+	s32 i;
+
+	*ping = -1;
+
+	if (!s_MatchActive) {
+		return 0;
+	}
+
+	if (s_Role == NETROLE_HOST) {
+		for (i = 0; i < NET_MAXPEERS; i++) {
+			const struct netclient *c = &s_Clients[i];
+			struct netpeerstats st;
+
+			if (!c->spectator || c->state != NETCL_PLAYING || k-- > 0) {
+				continue;
+			}
+
+			netClientShownName(c, name, size);
+
+			if (netHostPeerStats(g_NetHostSocket, i, &st) == 0 && st.connected) {
+				*ping = (s32)st.rtt;
+			}
+
+			return 1;
+		}
+
+		return 0;
+	}
+
+	if (s_Role == NETROLE_CLIENT && s_ClPlayersAt && netNowMs() - s_ClPlayersAt < 5000 && k >= 0 && k < s_ClNumSpecs) {
+		snprintf(name, size, "%s", s_ClSpecs[k].name);
+		*ping = s_ClSpecs[k].ping == NETPING_NONE ? -1 : s_ClSpecs[k].ping;
+		return 1;
+	}
+
+	return 0;
+}
+
+// The seats played now (the host's and the taken ones) and the match's seats
+void netSessionSeatCounts(s32 *in, s32 *of)
+{
+	struct netseatinfo info;
+	s32 i;
+
+	*in = 0;
+	*of = 0;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (netSessionSeatInfo(i, &info)) {
+			*of += 1;
+			*in += info.state == NETSEAT_HOST || info.state == NETSEAT_TAKEN;
+		}
+	}
+}
+
+// A match's stage runs on this machine, past GO: the HUD's lines and keys
+s32 netSessionHudLive(void)
+{
+	if (!g_NetInStageLoop || !s_MatchActive || !s_MatchLoaded) {
+		return 0;
+	}
+
+	if (s_Role == NETROLE_HOST) {
+		return !g_NetDedicated && !s_BarrierHeld;
+	}
+
+	return s_Role == NETROLE_CLIENT && s_ClientState == NETCS_PLAYING;
+}
+
+// Whose match this is, for the HUD: the host's name
+const char *netSessionHostTitle(void)
+{
+	static char name[NET_MAXNAME + 1];
+
+	if (s_Role == NETROLE_HOST) {
+		snprintf(name, sizeof(name), "%s", netSessionWireName(0));
+		name[strcspn(name, "\n")] = '\0';
+		netChatClean(name);
+		return name;
+	}
+
+	return s_HostTitle;
+}
+
+/**
+ * This machine's player says `text`: a client sends it to the host, which
+ * says it to everyone; the host's own goes out at once. 0 sent.
+ */
+s32 netSessionChatSend(const char *text)
+{
+	char line[NET_MAXCHAT + 1];
+	u8 buf[NET_MAXCHAT + 8];
+	struct netbuf b;
+
+	snprintf(line, sizeof(line), "%s", text);
+
+	if (netChatClean(line) == 0) {
+		return -1;
+	}
+
+	if (s_Role == NETROLE_HOST && g_NetHostSocket && !g_NetDedicated) {
+		char name[NET_MAXNAME + 1];
+
+		snprintf(name, sizeof(name), "%s", netSessionHostTitle());
+		netHostChatSend(NETCHAT_PLAYER, g_NetLocalSlot, name, line, -1);
+		netHudFeed(NETCHAT_PLAYER, g_NetLocalSlot, name, line);
+		return 0;
+	}
+
+	if (s_Role != NETROLE_CLIENT || s_ClientState < NETCS_JOINED || s_ClientState == NETCS_GONE) {
+		return -1;
+	}
+
+	netBufInitWrite(&b, buf, sizeof(buf));
+	netBufWriteU8(&b, NETMSG_CHAT);
+	netWriteStr(&b, line, NET_MAXCHAT);
+
+	return netSessionSendServer(NET_CHAN_RELIABLE, buf, netBufLen(&b), NET_SEND_RELIABLE) == 0 ? 0 : -1;
 }
 
 // A client whose last connect found no host at its address in the window

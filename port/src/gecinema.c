@@ -913,7 +913,7 @@ static s32 gecinemaLeavePressed(void)
 	const u32 ui = contpad == 0 ? ~0u : ~(u32)(BUTTON_UI_CANCEL | BUTTON_UI_ACCEPT);
 
 	return joyGetButtonsPressedThisFrame(contpad, LEAVE_BUTTONS & ui) != 0
-		|| inputKeyPressedThisFrame(VK_ESCAPE);
+		|| (inputKeyPressedThisFrame(VK_ESCAPE) && !netHudAteEscape());
 }
 
 /**
@@ -1154,7 +1154,7 @@ static s32 gecinemaPressed(void)
 	const u32 ui = contpad == 0 ? ~0u : ~(u32)(BUTTON_UI_CANCEL | BUTTON_UI_ACCEPT);
 
 	return joyGetButtonsPressedThisFrame(contpad, (LEAVE_BUTTONS | SKIP_BUTTONS) & ui) != 0
-		|| inputKeyPressedThisFrame(VK_ESCAPE)
+		|| (inputKeyPressedThisFrame(VK_ESCAPE) && !netHudAteEscape())
 		|| inputKeyPressedThisFrame(VK_MOUSE_LEFT);
 }
 
@@ -1740,7 +1740,7 @@ static void gecinemaTickOwn(void)
 
 		if (g_GeCinemaTotal60 > 10.0f
 				&& (joyGetButtonsPressedThisFrame(contpad, LEAVE_BUTTONS & ui)
-					|| inputKeyPressedThisFrame(VK_ESCAPE))) {
+					|| (inputKeyPressedThisFrame(VK_ESCAPE) && !netHudAteEscape()))) {
 			g_GeCinemaShot = g_GeCinemaNumShots;
 			g_GeCinemaLeft = 1;
 			return;
