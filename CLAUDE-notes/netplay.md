@@ -1187,9 +1187,12 @@ lobby and ingame automatically with space and the keyboard can
 immediately type without choosing type with keyboard".
 
 - **What is on screen** (`port/src/net/nethud.c`, drawn by `netHudRender`
-  from lvRender after the modal text, the local view only): the feed low on
-  the left (ten seconds a line, the last ten while the chat line is open,
-  never above the panel's foot); the chat line under it; the players panel
+  from lvRender after the modal text, the local view only): the feed at the
+  top left, oldest first (ten seconds a line, the last ten while the chat
+  line is open, below the panel's foot while it is up, no lower than 60% of
+  the view; it was low on the left until the user's "lets move the chat to
+  the top left of the screen", where the stock pickups and kill messages
+  sit); the chat line under its newest line; the players panel
   at the top while P is held (not with the line open: twelve rows would
   leave the history three lines; seats played or kept,
   score and deaths from `scenarioCalculatePlayerScore` in a Combat
@@ -1252,4 +1255,14 @@ immediately type without choosing type with keyboard".
   context, as menus want), `--net-test-lobby-chat-type TEXT` (the Game
   Lobby's line). A client logs its first PLAYERS of a match ("net: players
   (tick N): seat pings 0:0 1:12; 0 watching").
+- **`--net-test-chat-echo`**: a headless joiner answers every line from a
+  name not starting "netbot" with "NAME said: TEXT", so a player testing
+  with the netbots has someone to talk to.
+- **Seen with five netbots joining the user's TND64 campaign (2026-10-08),
+  not fixed:** every bot segfaulted seconds after its GO in progress -
+  unbounded recursion in func0f0706f8 (propobj.c) from chrTick: a chr's
+  child prop list loops on the client. Two later single joins at other
+  points of the mission ran on, so it depends on what the mission has in a
+  chr's hands at the join. Next session: catch it with the cycle walker
+  (a gdb script walking `prop->child`/`next` from chrTick's prop).
 

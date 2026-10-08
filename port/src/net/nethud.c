@@ -25,7 +25,7 @@
  * Three things over the local player's view in a net match, and one in a
  * lobby room's Game Lobby:
  *
- *   - the feed, low on the left: the host's notices (a player joined the
+ *   - the feed, at the top left: the host's notices (a player joined the
  *     match in progress, left, lost the connection, came back to the seat
  *     kept for it, started watching; with the seats played out of the
  *     match's, "3/8") and everyone's chat. A line stays ten seconds; with
@@ -119,6 +119,10 @@ static u32 s_TestPanelTick = 0;
 static u32 s_TestPageTick = 0;   // --net-test-players-page TICK: the pause's Control page, then Players
 static char s_TestLobbyType[NET_MAXCHAT + 1];
 static u32 s_TestLobbySendAt = 0; // ... and said half a second later
+// --net-test-chat-echo: a headless joiner answers every person's line (not
+// another bot's: "netbot" names), so a player has someone to talk to
+static s32 s_TestEcho = 0;
+static char s_EchoPending[NET_MAXCHAT + 1];
 
 // the room's last chat line as last logged (the gates read "net: lobby chat:")
 static char s_LobbyLast[NETLOBBY_MAXUSER + NETLOBBY_MAXCHATTEXT + 8];
@@ -195,6 +199,7 @@ void netHudArgs(void)
 
 	s_TestPanelTick = (u32)sysArgGetInt("--net-test-players", 0);
 	s_TestPageTick = (u32)sysArgGetInt("--net-test-players-page", 0);
+	s_TestEcho = sysArgCheck("--net-test-chat-echo");
 
 	if (lobby) {
 		snprintf(s_TestLobbyType, sizeof(s_TestLobbyType), "%s", lobby);
@@ -264,6 +269,10 @@ void netHudFeed(s32 kind, s32 from, const char *name, const char *text)
 	}
 
 	netHudPush(kind, from, name, text);
+
+	if (s_TestEcho && kind == NETCHAT_PLAYER && from != g_NetLocalSlot && strncmp(name, "netbot", 6) != 0) {
+		snprintf(s_EchoPending, sizeof(s_EchoPending), "%s said: %s", name, text);
+	}
 }
 
 // Whether Space is free for the chat in a match: no bind of player 1's uses it
@@ -566,6 +575,11 @@ void netHudFrame(void)
 	}
 
 	netHudTestTick(live);
+
+	if (s_EchoPending[0] && live) {
+		netSessionChatSend(s_EchoPending);
+		s_EchoPending[0] = '\0';
+	}
 }
 
 s32 netHudChatOpen(void)
@@ -807,9 +821,10 @@ static u32 netHudNameColour(const struct feedline *line)
 }
 
 /**
- * The feed, its newest line at the bottom, and under it the open line, low
- * on the view's left; never above `top` (the panel's foot): the oldest of
- * the lines shown go first
+ * The feed at the view's top left, oldest line first, and under its newest
+ * the open line; from `top` (the panel's foot while it is up) down to no
+ * lower than 60% of the view: the oldest of the lines shown go first. The
+ * stock HUD's own messages (pickups, kills) sit at the bottom left.
  */
 static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 {
@@ -817,9 +832,10 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 	const s32 open = s_ChatOpen == CHAT_MATCH;
 	const s32 left = viGetViewLeft() + 10;
 	const s32 maxw = viGetViewWidth() * 60 / 100;
-	s32 bottom = viGetViewTop() + viGetViewHeight() * 74 / 100;
+	const s32 bottom = viGetViewTop() + viGetViewHeight() * 60 / 100;
 	s32 lineh;
 	s32 dummy;
+	s32 room;
 	s32 shown[FEED_SHOW_OPEN];
 	s32 nshown = 0;
 	s32 total = 0;
@@ -828,10 +844,8 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 
 	netHudMeasure("Ay\n", &dummy, &lineh);
 
-	// the line at the bottom, the feed over it
-	if (open) {
-		bottom -= lineh + 4;
-	}
+	// the open line goes under the feed: its room is kept
+	room = bottom - top - (open ? lineh + 6 : 0);
 
 	for (i = s_FeedLen - 1; i >= 0 && nshown < (open ? FEED_SHOW_OPEN : FEED_SHOW); i--) {
 		struct feedline *line = netHudFeedAt(i);
@@ -855,7 +869,7 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 			line->width += prefixw;
 		}
 
-		if (bottom - total - line->height - 2 < top) {
+		if (total + line->height + 2 > room) {
 			break;
 		}
 
@@ -863,7 +877,7 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 		total += line->height + 2;
 	}
 
-	y = bottom - total;
+	y = top;
 
 	for (i = nshown - 1; i >= 0; i--) {
 		struct feedline *line = netHudFeedAt(shown[i]);
@@ -923,7 +937,7 @@ static Gfx *netHudRenderFeed(Gfx *gdl, s32 top)
 			boxw = hintw;
 		}
 
-		y = bottom + 4;
+		y += 4;
 		gdl = text0f153a34(gdl, left - 3, y - 1, left + boxw + 3, y + lineh + 1, COL_PANEL);
 		gdl = netHudText(gdl, left, y, say, COL_TEXT, 255);
 
@@ -1127,7 +1141,7 @@ void *netHudRender(void *gdlp)
 {
 	Gfx *gdl = gdlp;
 	const s32 panel = s_PanelHeld || (s_TestPanelTick && g_NetTick >= s_TestPanelTick);
-	s32 top = viGetViewTop() + 16;
+	s32 top = viGetViewTop() + 12;
 
 	if (!netSessionHudLive() || !netIsLocalSlot(g_Vars.currentplayernum)) {
 		return gdl;

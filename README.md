@@ -225,7 +225,7 @@ match in progress. If your game crashes or your connection drops, rejoin
 the room within 30 seconds (`Net.ReconnectHold`) to get your seat and
 score back.
 
-**In the match.** A line low on the left of the screen says when someone
+**In the match.** A line at the top left of the screen says when someone
 joins the match in progress, leaves, loses the connection, comes back to
 their kept seat or starts watching, with how many seats are being played
 ("3/8"). Press **T** to chat (and **Space** too, if none of your binds use
