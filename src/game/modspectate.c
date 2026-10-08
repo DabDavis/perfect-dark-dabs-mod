@@ -5,6 +5,8 @@
 #include "game/body.h"
 #include "game/modghost.h"
 #include "game/modspectate.h"
+#include "game/playermgr.h"
+#include "net/net.h"
 #include "game/prop.h"
 #include "bss.h"
 #include "lib/vars.h"
@@ -37,15 +39,17 @@
  * camera drawing the room it left rather than handing the renderer nothing.
  * That is why this can skip collision at all.
  *
- * g_Vars.bondvisible is what keeps it out of the match, and it is about being
- * noticed rather than being drawn: every check that asks whether something can
- * see or target the player reads it, and nothing in the render path does -
- * bot.c's botIsTargetInvisible, chraction.c's target tests, the autoguns' and
- * choppers' line of sight in propobj.c. Clearing it is why the camera can hang
- * in front of a simulant and be ignored while still being on screen. It is a
- * global rather than per player, so in splitscreen one spectator makes every
- * player unnoticeable - accepted, because splitscreen spectating is not a thing
- * this is for.
+ * modSpectatePropNoticeable() is what keeps it out of the match, and it is
+ * about being noticed rather than being drawn: every check that asks whether
+ * something can see or target a player asks it, and nothing in the render path
+ * does - bot.c's botIsTargetInvisible, chraction.c's target tests, the
+ * autoguns', cameras' and choppers' line of sight in propobj.c, a shot's noise
+ * in bondmove.c. It is why the camera can hang in front of a simulant and be
+ * ignored while still being on screen. It asks about the one player: this used
+ * to clear the global g_Vars.bondvisible (and bondcollisions), which hid every
+ * player at once - and online, where the host's spectating ran the whole
+ * match, the guards chased the clients round in circles and never fired (user,
+ * 2026-10-08), and every client's walk lost its collisions with props.
  */
 
 // How far the camera moves in one frame at full stick.
@@ -83,10 +87,6 @@ static bool g_ModSpectateStartLive = false;
 
 static bool g_ModSpectating[MAX_PLAYERS] = { false, false, false, false };
 
-// bondvisible and bondcollisions are global and cheats also write them, so what
-// goes back on exit is what was there on entry rather than an assumed true.
-static bool g_ModSpectateOldVisible = true;
-static bool g_ModSpectateOldCollisions = true;
 static u8 g_ModSpectateOldInvincible = 0;
 static bool g_ModSpectateOldThirdPerson = false;
 
@@ -124,6 +124,25 @@ bool modSpectateIsOn(void)
 	return modSpectateIsOnForPlayer(g_Vars.currentplayernum);
 }
 
+/**
+ * Whether prop can be noticed - seen, aimed at, heard, tracked. Anything that
+ * is not a player is. A player is not while g_Vars.bondvisible is clear (a
+ * cinema shot, the invisibility cheat: every player) or while that player is
+ * spectating (that one alone).
+ */
+bool modSpectatePropNoticeable(struct prop *prop)
+{
+	if (prop == NULL || prop->type != PROPTYPE_PLAYER) {
+		return true;
+	}
+
+	if (!g_Vars.bondvisible) {
+		return false;
+	}
+
+	return !modSpectateIsOnForPlayer(playermgrGetPlayerNumByProp(prop));
+}
+
 void modSpectateSetOn(bool on)
 {
 	if (g_Vars.currentplayernum < 0 || g_Vars.currentplayernum >= MAX_PLAYERS) {
@@ -150,12 +169,8 @@ void modSpectateSetOn(bool on)
 	g_ModSpectateBodyStale[g_Vars.currentplayernum] = true;
 
 	if (on) {
-		g_ModSpectateOldVisible = g_Vars.bondvisible;
-		g_ModSpectateOldCollisions = g_Vars.bondcollisions;
-
-		g_Vars.bondvisible = false;
-		g_Vars.bondcollisions = false;
-
+		// Unnoticed by modSpectatePropNoticeable(), and no collisions to
+		// lose: modSpectateTick() moves the camera in place of the walk.
 		if (g_Vars.currentplayer) {
 			g_ModSpectateOldInvincible = g_Vars.currentplayer->invincible;
 			g_Vars.currentplayer->invincible = true;
@@ -174,9 +189,6 @@ void modSpectateSetOn(bool on)
 			}
 		}
 	} else {
-		g_Vars.bondvisible = g_ModSpectateOldVisible;
-		g_Vars.bondcollisions = g_ModSpectateOldCollisions;
-
 		if (g_Vars.currentplayer) {
 			g_Vars.currentplayer->invincible = g_ModSpectateOldInvincible;
 			g_Vars.currentplayer->thirdperson = g_ModSpectateOldThirdPerson;
@@ -280,11 +292,9 @@ void modSpectateClearStartNext(void)
 /**
  * Act on --spectate, Start Spectating and Spectator Start Game, once per stage.
  *
- * It cannot be done at boot: playermgrAllocatePlayer() ends by putting
- * bondvisible and bondcollisions back to true, so anything set before it runs
- * is undone. It waits for a prop as well, because entering the mode turns the
- * prop's perimeter off. The first movement tick of a stage is the first moment
- * both are true.
+ * It cannot be done at boot: it waits for the player and its prop, because
+ * entering the mode sets the player invincible and turns the prop's perimeter
+ * off. The first movement tick of a stage is the first moment both are there.
  *
  * Spectator Start Game's flag is spent here rather than when the match starts,
  * because this is the first point at which it has actually been honoured.
@@ -303,6 +313,16 @@ void modSpectateApplyStart(void)
 		return;
 	}
 
+	// Online the stage's first movement tick can be any player's - the host
+	// deals the order (netHostOrderPlayers) - and the host's --spectate went
+	// to a client's player. Only this machine's own player starts spectating,
+	// and on a client none: the host never hears of the option and would walk
+	// the player while its camera flew (the key is heard, in the command's
+	// buttons).
+	if (g_NetMode != NETMODE_NONE && (netIsClient() || !netIsLocalSlot(g_Vars.currentplayernum))) {
+		return;
+	}
+
 	g_ModSpectateAppliedStage = g_Vars.stagenum;
 	g_ModSpectateStartLive = false;
 	modSpectateSetOn(true);
@@ -310,7 +330,7 @@ void modSpectateApplyStart(void)
 
 /**
  * Forget the mode across a stage load. The prop and the room list on the far
- * side belong to a different level, and the saved bondvisible does not.
+ * side belong to a different level.
  *
  * This is also where Spectator Start Game's promise comes due: the stage it was
  * armed in has gone, so the next movement tick is the arena's own. The
@@ -331,8 +351,6 @@ void modSpectateReset(void)
 		g_ModSpectateStartLive = true;
 	}
 
-	g_ModSpectateOldVisible = true;
-	g_ModSpectateOldCollisions = true;
 	g_ModSpectateOldInvincible = 0;
 	g_ModSpectateOldThirdPerson = false;
 	g_ModSpectateAppliedStage = -1;

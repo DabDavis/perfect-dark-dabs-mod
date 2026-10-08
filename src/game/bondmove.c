@@ -2137,7 +2137,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 #endif
 	bgunTickGameplay(movedata.triggeron);
 
-	if (g_Vars.bondvisible && (bgunIsFiring(HAND_RIGHT) || bgunIsFiring(HAND_LEFT))) {
+	if (g_Vars.bondvisible && !modSpectateIsOn() && (bgunIsFiring(HAND_RIGHT) || bgunIsFiring(HAND_LEFT))) {
 		noiseradius = 0;
 
 		if (bgunIsFiring(HAND_RIGHT) && bgunGetNoiseRadius(HAND_RIGHT) > noiseradius) {

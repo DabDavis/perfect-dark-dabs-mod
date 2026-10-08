@@ -3,6 +3,7 @@
 #include "gegadgets.h"
 #endif
 #include "constants.h"
+#include "game/modspectate.h"
 #include "game/bondmove.h"
 #include "game/bondwalk.h"
 #include "game/cheats.h"
@@ -9146,7 +9147,7 @@ void cctvTick(struct prop *camprop)
 		}
 	}
 
-	if (g_Vars.bondvisible == false
+	if (!modSpectatePropNoticeable(playerprop)
 			|| (obj->flags & OBJFLAG_CAMERA_DISABLED)
 			|| (playerprop->chr->hidden & CHRHFLAG_CLOAKED)) {
 		canseeplayer = false;
@@ -9780,7 +9781,7 @@ void autogunTick(struct prop *prop)
 
 				// Decide if target can be tracked
 				if (target->type == PROPTYPE_PLAYER) {
-					if (!g_Vars.bondvisible
+					if (!modSpectatePropNoticeable(target)
 							|| g_Vars.players[playermgrGetPlayerNumByProp(target)]->isdead
 							|| (target->chr->chrflags & CHRCFLAG_HIDDEN)
 							|| (target->chr->hidden & CHRHFLAG_CLOAKED)) {
@@ -10594,7 +10595,7 @@ bool chopperCheckTargetInSight(struct chopperobj *obj)
 		bool visible = false;
 		struct prop *target = chopperGetTargetProp(chopper);
 
-		if (target->type != PROPTYPE_PLAYER || g_Vars.bondvisible) {
+		if (modSpectatePropNoticeable(target)) {
 			visible = cdTestLos05(&target->pos, target->rooms, &chopper->base.prop->pos, chopper->base.prop->rooms,
 					CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_BG | CDTYPE_AIOPAQUE,
 					GEOFLAG_BLOCK_SHOOT);

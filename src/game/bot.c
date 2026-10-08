@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modspectate.h"
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -1789,7 +1790,7 @@ void botSetTarget(struct chrdata *botchr, s32 propnum)
 
 bool botIsTargetInvisible(struct chrdata *botchr, struct chrdata *otherchr)
 {
-	if (otherchr->prop->type == PROPTYPE_PLAYER && !g_Vars.bondvisible) {
+	if (!modSpectatePropNoticeable(otherchr->prop)) {
 		return true;
 	}
 

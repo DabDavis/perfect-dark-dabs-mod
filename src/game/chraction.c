@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/modspectate.h"
 #include "game/acosfasinf.h"
 #include "game/atan2f.h"
 #include "game/bg.h"
@@ -7927,7 +7928,7 @@ bool chrHasLosToEntity(struct chrdata *chr, struct coord *chrpos, RoomNum *chrro
 		if ((attackflags & ATTACKFLAG_AIMATTARGET)) {
 			targetprop = chrGetTargetProp(chr);
 
-			if (targetprop->type != PROPTYPE_PLAYER || g_Vars.bondvisible) {
+			if (modSpectatePropNoticeable(targetprop)) {
 				propSetPerimEnabled(targetprop, false);
 
 				if (allowextraheight && (chr->chrflags & CHRCFLAG_LOSEXTRAHEIGHT)) {
@@ -16904,7 +16905,7 @@ bool chrIsTargetAimingAtMe(struct chrdata *chr)
 		}
 
 		if (target->type == PROPTYPE_PLAYER) {
-			if (g_Vars.bondvisible &&
+			if (modSpectatePropNoticeable(target) &&
 					(cdTestLos05(&target->pos, target->rooms, &chr->prop->pos, chr->prop->rooms,
 									  CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_BG,
 									  GEOFLAG_BLOCK_SIGHT))) {
@@ -17355,7 +17356,7 @@ bool chrSetPadPresetToPadOnRouteToTarget(struct chrdata *chr)
 	s32 i;
 	struct pad pad;
 
-	if (target->type != PROPTYPE_PLAYER || g_Vars.bondvisible) {
+	if (modSpectatePropNoticeable(target)) {
 		if (cdTestLos04(&prop->pos, prop->rooms, &target->pos, CDTYPE_BG)) {
 			return false;
 		}

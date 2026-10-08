@@ -4,6 +4,7 @@
 #include "game/chraction.h"
 #include "game/coop.h"
 #include "game/playermgr.h"
+#include "game/modspectate.h"
 #include "modloader.h"
 #include "net/net.h"
 #include "bss.h"
@@ -155,6 +156,22 @@ struct prop *coopAlternatePlayerProp(void)
 	return g_Vars.players[index]->prop;
 }
 
+// a player a guard can be turned to: living, and noticeable (not spectating)
+static bool coopPlayerTargetable(s32 playernum)
+{
+	return coopPlayerAlive(playernum) && g_Vars.players[playernum]->prop
+		&& modSpectatePropNoticeable(g_Vars.players[playernum]->prop);
+}
+
+// guards are turned among the players by coop.c's rules: past two players,
+// and at two on a converted mission, whose lists never switch players
+static bool coopTurnsGuards(void)
+{
+	const s32 count = PLAYERCOUNT();
+
+	return count > 2 || (count == 2 && modloaderStageIsMission(g_Vars.stagenum));
+}
+
 s32 coopNearestPlayerNum(struct chrdata *chr, s32 skip)
 {
 	s32 best = -1;
@@ -168,7 +185,7 @@ s32 coopNearestPlayerNum(struct chrdata *chr, s32 skip)
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		f32 sq;
 
-		if (i == skip || !coopPlayerAlive(i) || !g_Vars.players[i]->prop) {
+		if (i == skip || !coopPlayerTargetable(i)) {
 			continue;
 		}
 
@@ -192,7 +209,7 @@ static s32 coopNextInTurn(struct chrdata *chr, s32 nearest)
 	for (i = 1; i <= MAX_PLAYERS; i++) {
 		const s32 next = (chr->coopturn + i) % MAX_PLAYERS;
 
-		if (next != nearest && coopPlayerAlive(next) && g_Vars.players[next]->prop) {
+		if (next != nearest && coopPlayerTargetable(next)) {
 			chr->coopturn = next;
 			return next;
 		}
@@ -237,7 +254,7 @@ bool coopNoiseReaches(struct chrdata *chr, struct prop *noiseprop)
 {
 	struct prop *target = chrGetTargetProp(chr);
 
-	return target == noiseprop || (PLAYERCOUNT() > 2 && coopIsPlayerProp(target));
+	return target == noiseprop || (coopIsPlayerProp(target) && coopTurnsGuards());
 }
 
 /**
@@ -255,7 +272,7 @@ bool coopHearPlayerNoise(struct chrdata *chr, struct prop *noiseprop, s32 player
 		return true;
 	}
 
-	if (PLAYERCOUNT() <= 2 || !coopIsPlayerProp(target) || !coopPlayerAlive(playernum)
+	if (!coopIsPlayerProp(target) || !coopTurnsGuards() || !coopPlayerTargetable(playernum)
 			|| g_Vars.players[playernum]->prop != noiseprop || !chr->prop) {
 		return false;
 	}
@@ -285,10 +302,11 @@ bool coopHearPlayerNoise(struct chrdata *chr, struct prop *noiseprop, s32 player
  * Dies 64's) never switch players: GoldenEye had no co-op. Their "Bond" is
  * the chr's target where they see, hear, aim at, run to or measure the
  * distance to him, and CHR_P1P2 where they give, equip, take control or ask
- * whether he is dead. Past two co-op players the host chooses the target
- * again every ten ticks of the chr's own, toward the living player nearest
- * it, and leaves p1p2 - the host's player - to the Bond-only commands:
- * - a target that is dead or has gone a second unseen gives way to the
+ * whether he is dead. With two co-op players or more the host chooses the
+ * target again every ten ticks of the chr's own, toward the living player
+ * nearest it who is not spectating (coopPlayerTargetable()), and leaves p1p2 -
+ * the host's player - to the Bond-only commands:
+ * - a target that is dead, spectating or a second unseen gives way to the
  *   nearest;
  * - a seen one gives way to a nearer player in the chr's line of sight at
  *   under 70% of its distance, so two players about as near do not trade it;
@@ -307,7 +325,7 @@ void coopRetarget(struct chrdata *chr)
 	s32 nearest;
 	s32 pick;
 
-	if (!coopIsOn() || netIsClient() || PLAYERCOUNT() <= 2 || !modloaderStageIsMission(g_Vars.stagenum)
+	if (!coopIsOn() || netIsClient() || PLAYERCOUNT() < 2 || !modloaderStageIsMission(g_Vars.stagenum)
 			|| (g_Vars.tickmode != TICKMODE_NORMAL && g_Vars.tickmode != TICKMODE_GE_FADEIN) || g_InCutscene
 			|| !chr->prop || chr->prop->type != PROPTYPE_CHR || chr->aibot
 			|| chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD) {
@@ -343,7 +361,7 @@ void coopRetarget(struct chrdata *chr)
 				&& chr->actiontype != ACT_ATTACKROLL && chr->actiontype != ACT_ATTACKAMOUNT) {
 			pick = coopNextInTurn(chr, nearest);
 		}
-	} else if (!coopPlayerAlive(cur) || chr->lastseetarget60 < g_Vars.lvframe60 - TICKS(60)) {
+	} else if (!coopPlayerTargetable(cur) || chr->lastseetarget60 < g_Vars.lvframe60 - TICKS(60)) {
 		pick = nearest;
 	} else if (coopSqDist(chr->prop, nearprop) < 0.49f * coopSqDist(chr->prop, target)
 			&& chrHasLosToProp(chr, nearprop)) {

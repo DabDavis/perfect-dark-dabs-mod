@@ -10,6 +10,7 @@ extern s32 g_ModSpectateStartArg;
 
 bool modSpectateIsOnForPlayer(s32 playernum);
 bool modSpectateIsOn(void);
+bool modSpectatePropNoticeable(struct prop *prop);
 void modSpectateSetOn(bool on);
 void modSpectateToggle(void);
 s32 modSpectateGetBodyNum(void);

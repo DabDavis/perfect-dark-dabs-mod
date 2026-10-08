@@ -581,7 +581,26 @@ progression").
   Dam 0%/89%, Goldfinger's Cartel 0%/69%, TND's Bazaar -/90%. A trap met
   measuring it: `chrMoveToPos` onto a player's own spot leaves the guard
   not running its list for hundreds of ticks; measure guards where they
-  stand.
+  stand. Since GoldenEye's lists cannot switch at any count, the converted
+  missions' rules apply from two players (`coopTurnsGuards()`); Perfect
+  Dark's own two-player co-op stays stock.
+- **A spectating player is hidden alone.** `modspectate.c` used to clear the
+  global `g_Vars.bondvisible` (and `bondcollisions`): online, the host
+  spectating hid every client from every guard, camera, autogun and
+  simulant - the guards ran circles round the clients and never fired
+  (user, 2026-10-08) - and took every client's walk off props. Now
+  `modSpectatePropNoticeable(prop)` answers per player (the global still
+  hides everyone during a cinema shot or the cheat) at each of the eight
+  reads, the globals are left alone (the spectator's own movement is
+  `modSpectateTick()` in place of the walk), and the co-op choices skip a
+  spectator (`coopPlayerTargetable()`). The start options (pd.ini Start
+  Spectating, `--spectate`, Spectator Start Game) went to whichever player's
+  movement tick ran first on the stage - online a client's, dealt by
+  `netHostOrderPlayers`; now only the local player's, and a client's none (the
+  key still works: it rides the command's buttons to the host). Census with
+  the host spectating from tick 900 (gdb `modSpectateSetOn` on player 0):
+  guards that saw their target / guard-samples attacking a client, before
+  and after - TND's Bazaar 0/0 and 10/23, Defection 0/0 and 8/24.
 - **Starting one.** The host: a lobby room with Game = Co-op Mission
   (mission, difficulty, radar, friendly fire; `g_NetCoopSetup`, the room's
   summary says the mission and "Co-op Agent"), the Carrington Institute's
