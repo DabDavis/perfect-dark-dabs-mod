@@ -43,6 +43,17 @@ struct netslotcfg {
 	s8 sensysign;
 	u8 aimlock;
 	u8 akimbotriggers;
+	// (protocol 19) the third person camera: the host builds this player's
+	// camera, which a third person shot is fired from, by these
+	f32 camdist;
+	f32 camclearance;
+	f32 camside;
+	f32 camfwd;
+	f32 camheight;
+	u8 camtether;
+	u8 cameratilt;
+	u8 tiltinvert;
+	u8 tiltforward;
 };
 
 // netbuf helpers for the session's messages

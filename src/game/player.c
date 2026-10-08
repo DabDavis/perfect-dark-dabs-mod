@@ -8024,10 +8024,14 @@ s32 playerTickBeams(struct prop *prop)
 static f32 g_TetherTravel[MAX_PLAYERS];
 static bool g_TetherTravelSet[MAX_PLAYERS];
 
+// netIsLocalSlot: the tether is this machine's setting, so it poses this
+// machine's player alone; a host poses a client's body by what that client's
+// tether sent (playerTetherBodyRemote)
 static bool playerTetherBodyActive(struct player *player, s32 playernum)
 {
 	return g_ModOptions.camtether != MODTETHER_OFF
 		&& playernum == g_Vars.currentplayernum
+		&& netIsLocalSlot(playernum)
 		&& playerIsThirdPerson(player);
 }
 
@@ -8165,24 +8169,81 @@ static bool playerTetherBodyHeld(struct player *player, s32 playernum)
 {
 	return g_ModOptions.camtether != MODTETHER_OFF
 		&& playernum != g_Vars.currentplayernum
+		&& netIsLocalSlot(playernum)
 		&& player->thirdpersonbodyset
 		&& playerIsThirdPerson(player);
 }
 
-static void playerTetherBodyKeep(struct player *player, s32 playernum, struct chrdata *chr, f32 *facing, f32 *sideways, f32 *forwards, f32 *speedtheta)
+// A tethered body's facing and the speeds read against it, from a facing and
+// a direction of travel already worked out (the travel only when held)
+static void playerTetherBodyPose(struct chrdata *chr, f32 body, f32 travel, bool travelset, f32 *facing, f32 *sideways, f32 *forwards, f32 *speedtheta)
 {
 	const f32 look = *facing;
 	const f32 speed = sqrtf(*sideways * *sideways + *forwards * *forwards);
 
-	if (!chrIsDead(chr) && speed >= 0.05f && g_TetherTravelSet[playernum]) {
-		const f32 travel = g_TetherTravel[playernum] - (look - player->thirdpersonbodytheta);
+	if (!chrIsDead(chr) && speed >= 0.05f && travelset) {
+		const f32 rel = travel - (look - body);
 
-		*sideways = speed * sinf(travel);
-		*forwards = speed * cosf(travel);
+		*sideways = speed * sinf(rel);
+		*forwards = speed * cosf(rel);
 	}
 
 	*speedtheta = 0;
+	*facing = body;
+}
+
+static void playerTetherBodyKeep(struct player *player, s32 playernum, struct chrdata *chr, f32 *facing, f32 *sideways, f32 *forwards, f32 *speedtheta)
+{
+	playerTetherBodyPose(chr, player->thirdpersonbodytheta, g_TetherTravel[playernum], g_TetherTravelSet[playernum],
+			facing, sideways, forwards, speedtheta);
+}
+
+/**
+ * Netplay, the host: a client's player. Its Camera Tether is that machine's
+ * setting, run in that machine's own pass, and it sends the body's facing
+ * and direction of travel in every command while the tether poses it
+ * (protocol 19, NETCMD_BODY). The body here is posed by those, so the host,
+ * its lag compensation and everyone the snapshots reach see it turned as
+ * the client does; without them, the stock body facing the look.
+ */
+static void playerTetherBodyRemote(s32 playernum, struct chrdata *chr, f32 *facing, f32 *sideways, f32 *forwards, f32 *speedtheta)
+{
+	f32 body;
+	f32 travel;
+	s32 travelset;
+
+	if (netPlayersHostBody(playernum, &body, &travel, &travelset)) {
+		playerTetherBodyPose(chr, body, travel, travelset != 0, facing, sideways, forwards, speedtheta);
+	}
+}
+
+static bool playerTetherBodyRemoteWanted(s32 playernum)
+{
+	f32 body;
+	f32 travel;
+	s32 travelset;
+
+	return g_NetMode == NETMODE_SERVER && !netIsLocalSlot(playernum)
+		&& netPlayersHostBody(playernum, &body, &travel, &travelset);
+}
+
+/**
+ * Netplay, a client: this player's body as its own pass's tether left it,
+ * for the command (protocol 19); 0 when the tether is not posing it
+ */
+s32 playerTetherBodyState(s32 playernum, f32 *facing, f32 *travel, s32 *travelset)
+{
+	struct player *player = playernum >= 0 && playernum < MAX_PLAYERS ? g_Vars.players[playernum] : NULL;
+
+	if (!player || g_ModOptions.camtether == MODTETHER_OFF || !player->thirdpersonbodyset || !playerIsThirdPerson(player)) {
+		return 0;
+	}
+
 	*facing = player->thirdpersonbodytheta;
+	*travel = g_TetherTravel[playernum];
+	*travelset = g_TetherTravelSet[playernum] ? 1 : 0;
+
+	return 1;
 }
 #endif
 
@@ -8315,6 +8376,12 @@ s32 playerTickThirdPerson(struct prop *prop)
 			&& player->model00d4
 			&& ((g_Vars.mplayerisrunning && g_Vars.currentplayernum != playernum)
 				|| playerIsThirdPerson(player)
+#ifndef PLATFORM_N64
+				// netplay: a client whose tether poses its body (protocol 19),
+				// in its own pass on the host too, or that pass's movement
+				// leaves the body facing the look for the snapshot
+				|| playerTetherBodyRemoteWanted(playernum)
+#endif
 				|| player->cameramode == CAMERAMODE_EYESPY
 				|| (player->cameramode == CAMERAMODE_THIRDPERSON && player->visionmode == VISIONMODE_SLAYERROCKET))) {
 		chr->actiontype = ACT_BONDMULTI;
@@ -8328,7 +8395,10 @@ s32 playerTickThirdPerson(struct prop *prop)
 		// Camera Tether: the body's own facing, and the speeds relative to
 		// it. Outside the block below because the facing is applied after
 		// it, and every tick, whether or not this one animates the body.
-		if (playerTetherBodyActive(player, playernum)) {
+		if (g_NetMode == NETMODE_SERVER && !netIsLocalSlot(playernum)) {
+			playerTetherBodyRemote(playernum, chr, &facing, &speedsideways, &speedforwards, &speedtheta);
+			player->thirdpersonbodyset = false;
+		} else if (playerTetherBodyActive(player, playernum)) {
 			playerTetherBody(player, playernum, chr, &facing, &speedsideways, &speedforwards, &speedtheta);
 		} else if (playerTetherBodyHeld(player, playernum)) {
 			playerTetherBodyKeep(player, playernum, chr, &facing, &speedsideways, &speedforwards, &speedtheta);

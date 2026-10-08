@@ -82,6 +82,10 @@ s32 playerGetMissionTime(void);
 s32 playerTickBeams(struct prop *prop);
 s32 playerTickThirdPerson(struct prop *prop);
 bool playerIsThirdPerson(struct player *player);
+#ifndef PLATFORM_N64
+// netplay, a client: its tethered body for the command (protocol 19); s32, not bool: netplayers.c reads it
+s32 playerTetherBodyState(s32 playernum, f32 *facing, f32 *travel, s32 *travelset);
+#endif
 f32 playerGetCutsceneBodyAlphaFrac(struct prop *prop);
 f32 playerGetOwnBodyAlphaFrac(struct prop *prop);
 f32 playerGetNearChrAlphaFrac(struct prop *prop);

@@ -176,8 +176,9 @@ speeds read against it, nothing updated). A host backing up with one client
 in: body 0 degrees from the look before, 180 after (scratchpad harness,
 gdb sets `camtether` and `thirdperson`; the scripts walk on the C buttons,
 0x0004 back). A client's own body was never affected (its other players'
-passes are skipped), but the host poses a client's body by the host's own
-`camtether`, so others see a client's body by the host's setting.
+passes are skipped); the host now poses a client's body by the facing the
+client sends (protocol 19, NETCMD_BODY: netplay.md, "A client's tethered
+body"), never by the host's own `camtether`.
 
 Two things that cost a run each:
 

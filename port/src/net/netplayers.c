@@ -17,6 +17,8 @@
 #include "game/bondgun.h"
 #include "game/inv.h"
 #include "game/game_0b0fd0.h"
+#include "game/modoptions.h"
+#include "game/player.h"
 #include "game/playermgr.h"
 #include "game/mplayer/mplayer.h"
 #include "screenshot.h"
@@ -76,6 +78,8 @@ struct netcmd {
 	u8 viewdelay;            // how far its render clock sat behind the newest snapshot, 1/8 ticks
 	u8 equip[2];             // NETCMD_EQUIP: the guns a menu put in the hands, right and left (0 none)
 	u8 device[2];            // NETCMD_DEVICE: a device's weapon number, and on or off
+	u16 body[2];             // NETCMD_BODY: the tethered body's facing and travel, 65536ths of a turn
+	u8 bodyflags;            // ... NETBODY_TRAVEL
 };
 
 #define NETCMD_NOVIEW 0xffffffff
@@ -541,6 +545,81 @@ static void netPlayersApplyRemoteCfg(s32 slot)
 }
 
 /**
+ * The host, around a client's player's playerTick (lv.c lvTickPlayer): that
+ * player's third person camera settings in g_ModOptions for the tick, the
+ * host's own put back after (protocol 19). The camera, its clearance from a
+ * wall, the tether's rod and the tilt are all built inside playerTick, from
+ * g_ModOptions, and a third person shot is fired from the camera: built
+ * with the host's settings, a client with another distance or shoulder
+ * offset was aimed from one place and fired from another. Body Fade is only
+ * drawing, and Body Turn Speed's body comes in the commands (NETCMD_BODY).
+ */
+static struct {
+	s32 on;
+	f32 camdist;
+	f32 camclearance;
+	f32 camside;
+	f32 camfwd;
+	f32 camheight;
+	s32 camtether;
+	s32 cameratilt;
+	s32 tiltinvert;
+	s32 tiltforward;
+} s_CamSaved;
+
+void netPlayersCamBegin(s32 playernum)
+{
+	const s32 pad = netPadOfPlayer(playernum);
+	const struct netslotcfg *cfg;
+
+	if (s_CamSaved.on || g_NetMode != NETMODE_SERVER || !netPadIsRemote(pad) || !s_Pads[pad].hascfg) {
+		return;
+	}
+
+	cfg = &s_Pads[pad].cfg;
+
+	s_CamSaved.on = 1;
+	s_CamSaved.camdist = g_ModOptions.camdist;
+	s_CamSaved.camclearance = g_ModOptions.camclearance;
+	s_CamSaved.camside = g_ModOptions.camside;
+	s_CamSaved.camfwd = g_ModOptions.camfwd;
+	s_CamSaved.camheight = g_ModOptions.camheight;
+	s_CamSaved.camtether = g_ModOptions.camtether;
+	s_CamSaved.cameratilt = g_ModOptions.cameratilt;
+	s_CamSaved.tiltinvert = g_ModOptions.tiltinvert;
+	s_CamSaved.tiltforward = g_ModOptions.tiltforward;
+
+	// the ranges main.c registers the options with
+	g_ModOptions.camdist = netClampF(cfg->camdist, 60.f, 600.f, THIRDPERSON_CAMDIST);
+	g_ModOptions.camclearance = netClampF(cfg->camclearance, 0.f, 120.f, THIRDPERSON_CAMCLEARANCE);
+	g_ModOptions.camside = netClampF(cfg->camside, -150.f, 150.f, 0.f);
+	g_ModOptions.camfwd = netClampF(cfg->camfwd, -150.f, 150.f, 0.f);
+	g_ModOptions.camheight = netClampF(cfg->camheight, -150.f, 150.f, 0.f);
+	g_ModOptions.camtether = netClampS(cfg->camtether, MODTETHER_OFF, MODTETHER_MAX);
+	g_ModOptions.cameratilt = netClampS(cfg->cameratilt, MODTILT_OFF, MODTILT_MAX);
+	g_ModOptions.tiltinvert = cfg->tiltinvert ? 1 : 0;
+	g_ModOptions.tiltforward = cfg->tiltforward ? 1 : 0;
+}
+
+void netPlayersCamEnd(void)
+{
+	if (!s_CamSaved.on) {
+		return;
+	}
+
+	g_ModOptions.camdist = s_CamSaved.camdist;
+	g_ModOptions.camclearance = s_CamSaved.camclearance;
+	g_ModOptions.camside = s_CamSaved.camside;
+	g_ModOptions.camfwd = s_CamSaved.camfwd;
+	g_ModOptions.camheight = s_CamSaved.camheight;
+	g_ModOptions.camtether = s_CamSaved.camtether;
+	g_ModOptions.cameratilt = s_CamSaved.cameratilt;
+	g_ModOptions.tiltinvert = s_CamSaved.tiltinvert;
+	g_ModOptions.tiltforward = s_CamSaved.tiltforward;
+	s_CamSaved.on = 0;
+}
+
+/**
  * The local player's own settings, refreshed each tick: the options menu
  * mid-match changes g_PlayerExtCfg[0], whatever slot the player is in here
  */
@@ -612,6 +691,50 @@ u32 netPlayersHostPressed(s32 playernum, u32 mask)
 	}
 
 	return s_Pads[pad].pressed & mask;
+}
+
+// NETCMD_BODY's angles: the game's radians (0 to tau) as 65536ths of a turn
+static u16 netBodyAngleToWire(f32 a)
+{
+	f32 turns = a / M_TAU;
+
+	turns -= floorf(turns);
+
+	return (u16)((s32)(turns * 65536.0f + 0.5f) & 0xffff);
+}
+
+static f32 netBodyAngleFromWire(u16 w)
+{
+	return w * (M_TAU / 65536.0f);
+}
+
+/**
+ * The host: the facing a client's Camera Tether gave its player's body, and
+ * its direction of travel, as the command this tick plays carried them
+ * (protocol 19, NETCMD_BODY; a dry tick holds the last). 0 when the client's
+ * tether is not posing the body: the stock MP body then, never the host's
+ * own tether, which is this machine's setting and not theirs.
+ */
+s32 netPlayersHostBody(s32 playernum, f32 *facing, f32 *travel, s32 *travelset)
+{
+	const s32 pad = netPadOfPlayer(playernum);
+	const struct netcmd *c;
+
+	if (g_NetMode != NETMODE_SERVER || !netPadIsRemote(pad)) {
+		return 0;
+	}
+
+	c = &s_Pads[pad].cur;
+
+	if (!(c->flags & NETCMD_BODY)) {
+		return 0;
+	}
+
+	*facing = netBodyAngleFromWire(c->body[0]);
+	*travel = netBodyAngleFromWire(c->body[1]);
+	*travelset = (c->bodyflags & NETBODY_TRAVEL) != 0;
+
+	return 1;
 }
 
 /**
@@ -939,6 +1062,15 @@ static void netCmdRead(struct netbuf *b, struct netcmd *c)
 		c->device[0] = netBufReadU8(b);
 		c->device[1] = netBufReadU8(b);
 	}
+
+	c->body[0] = c->body[1] = 0;
+	c->bodyflags = 0;
+
+	if (c->flags & NETCMD_BODY) {
+		c->body[0] = netBufReadU16(b);
+		c->body[1] = netBufReadU16(b);
+		c->bodyflags = netBufReadU8(b);
+	}
 }
 
 /**
@@ -1137,6 +1269,12 @@ static void netFold(struct netcmd *into, const struct netcmd *c)
 		into->device[0] = c->device[0];
 		into->device[1] = c->device[1];
 	}
+
+	// the body: the later one's, and none if the later one has none
+	into->flags = (into->flags & ~NETCMD_BODY) | (c->flags & NETCMD_BODY);
+	into->body[0] = c->body[0];
+	into->body[1] = c->body[1];
+	into->bodyflags = c->bodyflags;
 }
 
 /**
@@ -1530,6 +1668,20 @@ static void netPlayersClientCapture(void)
 		s_DevicePending = 0;
 	}
 
+	// the body as this machine's tether last turned it (protocol 19)
+	{
+		f32 facing;
+		f32 travel;
+		s32 travelset;
+
+		if (playerTetherBodyState(g_NetLocalSlot, &facing, &travel, &travelset)) {
+			c->flags |= NETCMD_BODY;
+			c->body[0] = netBodyAngleToWire(facing);
+			c->body[1] = netBodyAngleToWire(travel);
+			c->bodyflags = travelset ? NETBODY_TRAVEL : 0;
+		}
+	}
+
 	// what this tick's pose step will draw the others at (netlagcomp.c)
 	{
 		f64 view;
@@ -1621,6 +1773,12 @@ static void netPlayersClientSend(void)
 		if (c->flags & NETCMD_DEVICE) {
 			netBufWriteU8(&b, c->device[0]);
 			netBufWriteU8(&b, c->device[1]);
+		}
+
+		if (c->flags & NETCMD_BODY) {
+			netBufWriteU16(&b, c->body[0]);
+			netBufWriteU16(&b, c->body[1]);
+			netBufWriteU8(&b, c->bodyflags);
 		}
 	}
 

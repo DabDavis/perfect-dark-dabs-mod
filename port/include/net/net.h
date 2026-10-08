@@ -416,6 +416,13 @@ void netCoopHostFade(u32 colour, s16 frames);
 void netCoopLeaveMission(void);
 // objectives.c objectiveCheck on a client: the host's status, 1 when known
 s32 netCoopObjectiveStatus(s32 index, s32 *status);
+// lv.c lvTickPlayer, the host: a client's third person camera settings in
+// g_ModOptions around its playerTick, the host's own back after (protocol 19)
+void netPlayersCamBegin(s32 playernum);
+void netPlayersCamEnd(void);
+// player.c playerTickThirdPerson, the host: a client's tethered body as its
+// command carried it (protocol 19, NETCMD_BODY); 0 none (radians, 0 to tau)
+s32 netPlayersHostBody(s32 playernum, f32 *facing, f32 *travel, s32 *travelset);
 // playerreset.c: a co-op mission's first life, every player on the first's
 // spot (pos and rooms set, the facing returned); player.c: a co-op life's
 // pad, other players no obstacle (rooms: RoomNum[8])

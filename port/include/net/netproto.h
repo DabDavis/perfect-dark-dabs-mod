@@ -80,7 +80,13 @@
 //    host's notices of who joined, left, came back or watches), PLAYERS
 //    (each seat's ping and the spectators, once a second); the host sends
 //    ROSTER at a match's GO as well, not only on a change
-#define NET_PROTOCOL_VERSION 18
+// 19 (a client's tethered third person body): a CMD's command can carry the
+//    facing the client's Camera Tether gave its own body and its direction
+//    of travel (NETCMD_BODY); the host poses that player's body by it, never
+//    by the host's own tether setting. The per-slot settings (CONNECT,
+//    SLOTCFG) end in the player's third person camera, which the host builds
+//    that player's camera by: a third person shot is fired from the camera
+#define NET_PROTOCOL_VERSION 19
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -194,6 +200,11 @@
  *     s8 sensxsign, s8 sensysign   the signs of the mouse speeds (-1, 0, 1)
  *     u8 aimlock                   modIsCodAimLockOn()
  *     u8 akimbotriggers            Mod.AkimboTriggers
+ *     (protocol 19) the third person camera, g_ModOptions: f32 camdist,
+ *     f32 camclearance, f32 camside, f32 camfwd, f32 camheight (Mod.ThirdPerson
+ *     Distance/Clearance/Sideways/Forward/Height), u8 camtether, u8 cameratilt,
+ *     u8 tiltinvert, u8 tiltforward; the host swaps them in for that player's
+ *     playerTick (netPlayersCamBegin), clamped to the options' own ranges
  *   u8      nkeys             <= NET_MAXKEYS; this machine's MUST and REFUSE
  *                             keys (netrules.c's table), each a value:
  *     str(47) key
@@ -522,6 +533,20 @@
  *                                 device switched from the inventory
  *                                 (goggles, the cloak); the host sets it
  *                                 if the player has it
+ *     (protocol 19) when flags has NETCMD_BODY: u16 facing, u16 travel,
+ *                                 u8 bodyflags - the player's body as this
+ *                                 machine's Camera Tether turned it in third
+ *                                 person (playerTetherBody): its facing and
+ *                                 the steadied direction of travel relative
+ *                                 to the look, both in 65536ths of a turn of
+ *                                 the game's radians (0 to tau), bodyflags
+ *                                 NETBODY_TRAVEL when the travel is held
+ *                                 (the player moving); sent on every command
+ *                                 while the tether poses the body, so a
+ *                                 command without it means it does not; the
+ *                                 host faces that player's body by it and
+ *                                 reads its speeds against it, and the body
+ *                                 reaches everyone in SNAP as any chr's yaw
  *
  * A spectator sends CMD too (protocol 9): the host takes its snapshot ack
  * and nothing else (its commands drive nothing), and its CMDACK names the
@@ -723,6 +748,8 @@
 #define NETCMD_MOUSELOCKED 0x01
 #define NETCMD_EQUIP       0x02 // u8 right, u8 left follow (protocol 15)
 #define NETCMD_DEVICE      0x04 // u8 weaponnum, u8 on follow (protocol 15)
+#define NETCMD_BODY        0x08 // u16 facing, u16 travel, u8 bodyflags follow (protocol 19)
+#define NETBODY_TRAVEL     0x01 // NETCMD_BODY's travel is held (the player moving)
 
 #define NETCONN_SPECTATE   0x01 // CONNECT's flags
 #define NETACC_INPROGRESS  0x01 // ACCEPT's flags

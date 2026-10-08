@@ -73,6 +73,13 @@
   pauses, why the page is a row and not a tab, `netchattest.sh`; a
   player's name over its head while the crosshair is on it
   (`netHudAimFrame`, `Net.PlayerNames`, no wire change).
+- **A client's tethered body (protocol 19, 2026-10-08)** — the section of
+  that name: NETCMD_BODY carries the facing a client's Camera Tether gave
+  its body and its steadied travel; the host poses that body by it (and
+  never by its own tether setting), so the host, its lag compensation and
+  every snapshot see it turned as the client does; the client's third
+  person camera settings in its per-slot settings, swapped in around its
+  `playerTick` on the host (a third person shot is fired from the camera).
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -1412,4 +1419,64 @@ immediately type without choosing type with keyboard".
   currentPlayerDropAllItems: never let go of, or the projectile never
   ticks - its view is skipped once the seat is out of play); "dying black
   screens" in the co-op mission (the user's words; ask what they saw).
+
+## A client's tethered body (protocol 19, 2026-10-08)
+
+The user, after the host's own tethered body was fixed (third-person.md,
+"A body is ticked in every view's pass"): "do the protocol change by
+sending each clients body facing to the host".
+
+- **Why the host could not work it out.** Camera Tether (`Mod.ThirdPersonTether`,
+  Body Turn Speed) is each machine's own `g_ModOptions`; nothing of third
+  person was in SLOTCFG. The host ran `playerTetherBody` for a client's
+  player with the host's setting, or (host tether off, or the host not
+  thinking the client in third person) posed the stock body facing the
+  look. A client's own screen was right (its own pass), everyone else's
+  wrong: client 2 drew client 1 backing up facing its camera, 0 degrees,
+  where client 1 saw its body turned 180.
+- **The wire.** NETCMD_BODY (0x08) in a CMD's command: u16 facing, u16
+  travel (65536ths of a turn of the game's radians), u8 bodyflags
+  (NETBODY_TRAVEL while the travel is held). A client sets it on every
+  command while its tether poses the body (`playerTetherBodyState`: the
+  setting on, third person, `thirdpersonbodyset`), so a command without it
+  means none. `netFold` takes the later command's body (or none). A dry
+  tick holds the last command, flag included.
+- **The host.** `netPlayersHostBody(playernum)` reads the command the tick
+  plays; `playerTickThirdPerson` poses a client's body by it
+  (`playerTetherBodyRemote`: the facing, and the speeds read against it
+  for the animation chooser, as `playerTetherBody` does) in every pass, its
+  own included (`playerTetherBodyRemoteWanted` is in the block's condition:
+  the host need not think the client in third person, and without it the
+  client's own pass left the body to its movement, facing the look, for
+  the snapshot). The host's own tether now poses the host's player alone
+  (`netIsLocalSlot` in `playerTetherBodyActive`/`Held`). The body reaches
+  everyone as any chr's yaw (`modelGetChrRotY` in the chr record).
+- **Checked** (scratchpad harness: host + two clients on Temple, gdb turns
+  tethered third person on for client 1 only, which backs up on C-down):
+  host's pose of client 1 and client 2's drawing of it 0 degrees from the
+  look before, 180 after in every sample. pd-nettest passes.
+- **The camera too (same protocol).** The user asked "do we only have that
+  issue with tether or all", then "yes add the camera settings too":
+  `playerPullBackCameraNow` and its helpers read `g_ModOptions.camdist/
+  camclearance/camside/camfwd/camheight/camtether` (the rod) and
+  `cameratilt/tiltinvert/tiltforward` for whichever player's `playerTick`
+  it is, and a third person shot is fired from the camera, so the host had
+  built a client's camera, and fired its shots, by the host's own settings.
+  The per-slot settings (CONNECT and SLOTCFG, `netWriteSlotCfg`) now end in
+  those nine, and `lvTickPlayer` on the host wraps a client's `playerTick`
+  in `netPlayersCamBegin`/`End`: the slot's values (clamped to the
+  options' registered ranges) in `g_ModOptions` for that tick, the host's
+  own back after. A swap rather than a per-player accessor because every
+  read is inside that one call, `modoptions.c`'s tilt helpers included.
+  SLOTCFG goes at connect and again only when the encoding changes (the
+  client compares every 30 ticks; `s_SlotCfgSent` is 256 bytes now, the
+  block 100). Body Fade is drawing only; Body Turn Speed's body comes in
+  NETCMD_BODY. Checked: a client at Distance 400, Sideways 80, Height 40,
+  third person on both ends by gdb: the host's camera for it 200 straight
+  back before, 410 (400, 40, -80) after, the client's own 410; the host's
+  own camera still its 200.
+- **Bandwidth.** NETCMD_BODY is 5 bytes on each command while a client's
+  tether poses its body (the CMD resends every unacked command, so a few
+  of them a packet): of the order of 1 KB/s up from such a client, against
+  about 20 KB/s of snapshots down.
 
