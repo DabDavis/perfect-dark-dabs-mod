@@ -329,6 +329,75 @@ void netContentRestore(void)
 }
 
 /**
+ * Host migration: a conversion's folder (by its tag) mounted here for its
+ * maps, converted from this machine's own ROM or served into memory by a
+ * host this session (the user, 2026-10-08: a guest that was served the
+ * content can host it after)
+ */
+static s32 netContentConversionHere(const char *tag)
+{
+	const char *dir = gexPlusRomDirOfTag(tag);
+	char base[NET_MAXMAPDIR + 1];
+	s32 i;
+
+	for (i = 0; dir && i < fsGetNumModDirs(); i++) {
+		if (strcasecmp(contentBasename(fsGetModDirAt(i), base, sizeof(base)), dir) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Host migration: whether this machine could take over a room that plays
+ * with the overlay mod `mod` ("" none), in the conversion or ROM hack mode
+ * tagged `ge` ("" none), on the stage `stagekey` names (the room's rules:
+ * "map:NAME", "stage:NN", "mission:...", "campaign:..." or ""). The mod must
+ * be one this game can switch to live (as a client's following it is); the
+ * rest must be mounted here, the game's own or a host's served copy.
+ */
+s32 netContentCanHost(const char *mod, const char *ge, const char *stagekey)
+{
+	char loaded[NET_MAXMAPDIR + 1];
+	const char *overlay = fsGetModDir();
+	s32 index;
+	s32 id;
+
+	contentBasename(overlay, loaded, sizeof(loaded));
+
+	if (mod && mod[0]) {
+		if (!overlay || strcasecmp(loaded, mod) != 0) {
+			index = modListIndexOf(mod);
+
+			if (index < 0 || modListIsFromArgs() || !modListSwapIsLive(index)) {
+				return 0;
+			}
+		}
+	} else if (overlay && (modListIsFromArgs() || !modListSwapIsLive(-1))) {
+		return 0;
+	}
+
+	if (ge && ge[0] && !netContentConversionHere(ge)) {
+		return 0;
+	}
+
+	if (stagekey && strncmp(stagekey, "map:", 4) == 0) {
+		for (id = 1; id <= 0xff; id++) {
+			const char *name = modloaderGetStageModDir(id) ? modloaderGetStageMapName(id) : NULL;
+
+			if (name && strcmp(name, stagekey + 4) == 0 && !modloaderStageIsMission(id)) {
+				return 1;
+			}
+		}
+
+		return 0;
+	}
+
+	return 1;
+}
+
+/**
  * Client: STAGE_LOAD named a map of a mod dir that is not mounted here.
  * Mounted now when it is installed (Mod.MapMods left it out); 1 if so.
  */
@@ -416,10 +485,11 @@ void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, c
  * maps and read by the mod loader, the textures, the GoldenEye tables and
  * everything else through the same file calls as a folder on disk. Nothing
  * is written to the guest's disk, nothing is offered to anyone outside the
- * session, and the memory goes with the process. The host serves only a
+ * room's sessions, and the memory goes with the process. The host serves only a
  * directory it has mounted for its maps (never its overlay mod, which a
  * guest could not take live anyway), leaving out what nothing in play
- * reads: text, caches, the converter's and importer's own notes.
+ * reads: text, caches, the converter's and importer's own notes. A guest
+ * that takes a room over (host migration) serves what it was served in turn.
  */
 
 #define NETCONTENT_PART      (48 * 1024)        // a CONTENT_FILE's bytes
@@ -694,10 +764,13 @@ void netContentServeRequest(s32 peer, struct netbuf *b)
 		why = "one transfer at a time";
 	}
 
+	// a folder a host served this machine (fs.c's "$N/<name>") is served on
+	// too: a guest that took a room over (host migration) hosts its
+	// conversion from that copy, and its own guests need it as it did
 	for (i = fsGetNumOverlayModDirs(); !why && i < fsGetNumModDirs(); i++) {
 		const char *d = fsGetModDirAt(i);
 
-		if (d && strncmp(d, "$N/", 3) != 0 && strcasecmp(contentBasename(d, base, sizeof(base)), dir) == 0) {
+		if (d && strcasecmp(contentBasename(d, base, sizeof(base)), dir) == 0) {
 			found = d;
 		}
 	}

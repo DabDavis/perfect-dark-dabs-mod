@@ -1375,6 +1375,39 @@ s32 netRdvLobbyRtt(void)
 	return s_EchoRtt;
 }
 
+s32 netRdvRegistered(void)
+{
+	return s_InRoom && s_Registered;
+}
+
+s32 netRdvNoNat(void)
+{
+	return !s_InRoom || !s_Registered ? -1 : s_NoNat;
+}
+
+/**
+ * Host migration: the room's host is another machine now. The path found to
+ * the old one is no path to the new one: the ladder waits for the new host's
+ * PEER (the lobby gave every pair a new cookie) from now.
+ */
+void netRdvHostChanged(void)
+{
+	if (!s_InRoom || s_Host) {
+		return;
+	}
+
+	s_Ladder = NETRDV_LADDER_WAITING;
+	s_Path = NETRDV_PATH_NONE;
+	s_Ping = -1;
+	s_HavePeer = 0;
+	s_NumCands = 0;
+	s_RelayHave = 0;
+	s_EnteredAt = rdvNow();
+	s_FailedAt = 0;
+	s_LastReg = 0;
+	sysLogPrintf(LOG_NOTE, "rdv: the room's host changed; waiting for its PEER");
+}
+
 const char *netRdvPathName(s32 path)
 {
 	switch (path) {

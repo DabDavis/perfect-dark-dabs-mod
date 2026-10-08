@@ -186,6 +186,7 @@ void netTraceWrite(FILE *f)
 	}
 
 	netSessionTraceLinks(f);
+	netMigrateTrace(f);
 	netTracePacing(f);
 	netRulesTraceSync(f);
 	netRulesTraceOwnHere(f);

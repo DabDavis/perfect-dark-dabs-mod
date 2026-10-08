@@ -228,6 +228,22 @@ match in progress. If your game crashes or your connection drops, rejoin
 the room within 30 seconds (`Net.ReconnectHold`) to get your seat and
 score back.
 
+**If the host leaves.** The room carries on without them. The lobby hands
+it to the player best placed to host it: one whose game has the room's
+arena or conversion (a conversion the host sent you counts), preferring an
+open connection and a low ping. Mid-match, the match starts again on the
+same arena under the new host and carries on where it was: the clock,
+everyone's score, and each player back where they stood with their health,
+shield, guns and ammo. The arena's pickups and a scenario's briefcase,
+hill or terminal start over, and a player who was dead when the host left
+starts a fresh life. A co-op mission starts again from its beginning. It
+takes a second or two when the host quits, and up to about ten seconds
+when the host's game crashes or its connection drops. Between matches the
+room simply has a new host, who keeps its settings, and anyone the old
+host had to send a conversion to can still be sent it by the new one. If
+the old host comes back within 30 seconds, it gets its seat and score back
+as a player.
+
 **In the match.** A line at the top left of the screen says when someone
 joins the match in progress, leaves, loses the connection, comes back to
 their kept seat or starts watching, with how many seats are being played

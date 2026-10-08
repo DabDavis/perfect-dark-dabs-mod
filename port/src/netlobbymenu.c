@@ -1674,6 +1674,14 @@ static char *textRoomStatus(struct menuitem *item)
 	case 3:
 		snprintf(s_Status, sizeof(s_Status), "%s", "In the match.\n");
 		break;
+	case 4:
+		// host migration: the room's match goes on under its new host
+		if (netLobbyIsHost()) {
+			snprintf(s_Status, sizeof(s_Status), "%s", "You host the room now: the match carries on in a moment.\n");
+		} else {
+			snprintf(s_Status, sizeof(s_Status), "%s hosts the room now: the match carries on in a moment.\n", room->sum.host);
+		}
+		break;
 	default:
 		if (netLobbyMessage()[0]) {
 			snprintf(s_Status, sizeof(s_Status), "%s\n", netLobbyMessage());

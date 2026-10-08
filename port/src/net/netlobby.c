@@ -18,8 +18,11 @@
 #include "modloader.h"
 #include "gexplus.h"
 #include "geconvert.h"
+#include "game/challenge.h"
+#include "game/lv.h"
 #include "game/menu.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/setup.h"
 #include "lib/main.h"
 #include "net/net.h"
 #include "net/netlobby.h"
@@ -178,12 +181,26 @@ static s32 s_MatchSeen = 0;        // a match from the room has begun loading he
 static s32 s_StopPending = 0;      // the room is gone: close the session once off the match stage
 static s32 s_WantRoomMenu = 0;     // back from a match: the room's menu to come up
 
+// host migration (netmigrate.c; tools/pdlobbyd/README.md "Host migration")
+static s32 s_SeenEpoch = 0;        // the room's host_epoch as last seen (0 none yet)
+static s32 s_TakeOver = 0;         // the lobby made this machine the room's host: taking it over
+static s32 s_TakeOverAsked = 0;    // ... the old host's session was told to end
+static s32 s_DeclinedEpoch = 0;    // the host epoch this machine declined
+static s32 s_Adopted = 0;          // hosting a room taken over: its setup adopted, its own back after
+static s32 s_AdoptEndDue = 0;      // ... and back once the session closes
+static s32 s_RelaunchDue = 0;      // the room is migrating: relaunch (or reopen) it once listening
+static u64 s_TookOverAt = 0;
+static char s_MainUdpKey[70] = ""; // the rendezvous key this machine's seat entered with
+static s32 s_ReportedCanHost = -1;
+static s32 s_ReportedNoNat = -2;
+
 // the content hash and build the lobby compares
 static char s_Content[24] = "";
 static SDL_atomic_t s_ContentReady; // s_Content written (by whichever thread hashed first)
 static SDL_SpinLock s_ContentLock;
 static void lobbyComputeContent(void);
 static void lobbyLeaveForNew(void);
+static void lobbyStopSession(void);
 
 // --net-lobby-script host|join: the lobby test (tools/ci/netlobbytest.sh)
 #define SCRIPT_NONE 0
@@ -606,6 +623,9 @@ static void lobbyReadSummary(struct jspan o, struct netlobbyroomsum *r)
 	r->proto = (s32)jsonGetInt(o, "proto", 0);
 	r->dedicated = (s32)jsonGetInt(o, "dedicated", 0);
 	r->hostrtt = jsonGet(o, "host_rtt_ms", &v) ? (s32)jsonInt(v, -1) : -1;
+	r->hostepoch = (s32)jsonGetInt(o, "host_epoch", 1);
+	r->migrating = (s32)jsonGetInt(o, "migrating", 0);
+	jsonGetStr(o, "prev_host", r->prevhost, sizeof(r->prevhost));
 	r->compat = lobbyCompat(r);
 }
 
@@ -637,6 +657,7 @@ static void lobbyReadState(struct jspan o, struct netlobbyroom *st)
 			m->udp = (s32)jsonGetInt(el, "udp", 0);
 			jsonGetStr(el, "path", m->path, sizeof(m->path));
 			m->ping = jsonGet(el, "ping", &v) && !jsonIsNull(v) ? (s32)jsonInt(v, -1) : -1;
+			m->canhost = (s32)jsonGetInt(el, "can_host", 0);
 		}
 	}
 
@@ -724,6 +745,9 @@ static void lobbyReadState(struct jspan o, struct netlobbyroom *st)
 		jsonGetStr(v, "user", st->you, sizeof(st->you));
 		st->youhost = (s32)jsonGetInt(v, "host", 0);
 		st->youspectator = (s32)jsonGetInt(v, "spectator", 0);
+		jsonGetStr(v, "secret", st->yousecret, sizeof(st->yousecret));
+		jsonGetStr(v, "udp_id", st->youudpid, sizeof(st->youudpid));
+		jsonGetStr(v, "udp_key", st->youudpkey, sizeof(st->youudpkey));
 	}
 }
 
@@ -1877,6 +1901,21 @@ void netLobbyJoin(const char *roomid, const char *password)
 	ghostnetJsonEscape(password ? password : "", pw, sizeof(pw));
 	snprintf(path, sizeof(path), "/rooms/%.8s/join", roomid);
 	len = snprintf(body, sizeof(body), "{\"password\":\"%s\",", pw);
+
+	// host migration: whether this game could take the room over (its mod
+	// and conversion here; the stage is reported once in the room)
+	{
+		s32 canhost = 0;
+		s32 i;
+
+		for (i = 0; i < s_NumRooms; i++) {
+			if (strncmp(s_Rooms[i].id, roomid, 8) == 0) {
+				canhost = netContentCanHost(s_Rooms[i].mod, s_Rooms[i].ge, "");
+			}
+		}
+
+		len += snprintf(body + len, sizeof(body) - len, "\"can_host\":%s,", canhost ? "true" : "false");
+	}
 	len += lobbyCompatJson(body + len, sizeof(body) - len);
 	snprintf(body + len, sizeof(body) - len, "}");
 
@@ -2033,6 +2072,13 @@ void netLobbyLeave(void)
 #endif
 
 	netRdvLeave();
+
+	if (s_Adopted) {
+		s_Adopted = 0;
+		s_AdoptEndDue = 1;
+	}
+
+	netMigrateForget();
 	s_InRoom = 0;
 	s_MainIsHost = 0;
 	s_CreatePending = 0;
@@ -2087,7 +2133,7 @@ static void lobbyLeaveForNew(void)
 
 	if (s_StopPending && !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
 		s_StopPending = 0;
-		netSessionLobbyStop();
+		lobbyStopSession();
 	}
 }
 
@@ -2147,6 +2193,11 @@ s32 netLobbyLaunchState(void)
 
 	if (netSessionMatchLoading()) {
 		return 3;
+	}
+
+	// host migration: launched, its new host not listening yet
+	if (s_Room.sum.migrating) {
+		return 4;
 	}
 
 	if (s_Room.launched) {
@@ -2210,6 +2261,24 @@ static void lobbyHostTick(void)
 {
 	s32 i;
 
+	// a room taken over mid-launch: once this machine listens (registered at
+	// the rendezvous, or a moment for it), the launch is relaunched as its
+	// own - the members connect to it - when there is a match to carry on or
+	// a campaign; a room whose match had ended is opened again
+	if (s_RelaunchDue && !s_Room.sum.migrating) {
+		s_RelaunchDue = 0;
+	} else if (s_RelaunchDue && (netRdvRegistered() || lobbyNowMs() - s_TookOverAt > 4000)) {
+		s_RelaunchDue = 0;
+
+		if (netMigrateResumeKept(s_Room.sum.id) || strcmp(s_Room.sum.scenario, "Campaign") == 0) {
+			sysLogPrintf(LOG_NOTE, "lobby: room %s: listening; relaunching it for its members (registered %d)", s_Room.sum.id, netRdvRegistered());
+			lobbyAction("relaunch", "{}");
+		} else {
+			sysLogPrintf(LOG_NOTE, "lobby: room %s: its match was over; opening it again", s_Room.sum.id);
+			lobbyAction("reopen", "{}");
+		}
+	}
+
 	// the roster is who may be connected: anyone off it is dropped
 	for (i = 0; ; i++) {
 		const char *name = netSessionHostClientName(i);
@@ -2271,8 +2340,9 @@ static void lobbyHostTick(void)
 
 			s_HostWaitStart = 0;
 
-			// the room's teams onto the players' slots
-			for (i = 0; i < s_Room.nmembers; i++) {
+			// the room's teams onto the players' slots (a match carried on
+			// keeps the teams its rules have: netmigrate.c)
+			for (i = 0; i < s_Room.nmembers && !netMigrateResumePending(); i++) {
 				const struct netlobbymember *m = &s_Room.members[i];
 				const s32 slot = m->host ? 0 : netSessionHostSlotOf(m->user);
 
@@ -2472,31 +2542,70 @@ static void lobbyClientTick(void)
  * A member's path to the host and its ping, for everyone's roster: when the
  * ladder settles, and when the ping moves, at most every few seconds
  */
+// A lobby rule's value by its key, "" none
+static const char *lobbyRule(const char *key)
+{
+	s32 i;
+
+	for (i = 0; i < s_Room.nrules; i++) {
+		if (strcmp(s_Room.rules[i].key, key) == 0) {
+			return s_Room.rules[i].value;
+		}
+	}
+
+	return "";
+}
+
+// Host migration: this game could take the room over as it plays now
+static s32 lobbyCanHost(void)
+{
+	return netContentCanHost(s_Room.sum.mod, s_Room.sum.ge, lobbyRule("stage_key"));
+}
+
+/**
+ * A member's path to the host and its ping, for everyone's roster: when the
+ * ladder settles, and when the ping moves, at most every few seconds. With
+ * them, for host migration, whether this game could host the room and
+ * whether it is behind a NAT (the lobby picks the next host by them).
+ */
 static void lobbyReportPath(void)
 {
 	const s32 ladder = netRdvLadder();
 	const s32 path = ladder == NETRDV_LADDER_DONE ? netRdvPath() : ladder == NETRDV_LADDER_FAILED ? NETRDV_PATH_NONE : -1;
 	const s32 ping = netRdvPing();
-	char body[80];
+	const s32 canhost = lobbyCanHost();
+	const s32 nonat = netRdvNoNat();
+	char body[160];
+	s32 len;
 
-	if (path < 0 || lobbyNowMs() - s_ReportedAt < LOBBY_NETINFO_MS) {
+	if (lobbyNowMs() - s_ReportedAt < LOBBY_NETINFO_MS) {
 		return;
 	}
 
-	if (path == s_ReportedPath && (ping < 0 || (s_ReportedPing >= 0 && abs(ping - s_ReportedPing) < 10))) {
+	if (canhost == s_ReportedCanHost && nonat == s_ReportedNoNat
+			&& (path < 0 || (path == s_ReportedPath && (ping < 0 || (s_ReportedPing >= 0 && abs(ping - s_ReportedPing) < 10))))) {
 		return;
 	}
 
 	s_ReportedPath = path;
 	s_ReportedPing = ping;
+	s_ReportedCanHost = canhost;
+	s_ReportedNoNat = nonat;
 	s_ReportedAt = lobbyNowMs();
 
-	if (ping >= 0) {
-		snprintf(body, sizeof(body), "{\"path\":\"%s\",\"ping\":%d}", netRdvPathName(path), ping > 9999 ? 9999 : ping);
-	} else {
-		snprintf(body, sizeof(body), "{\"path\":\"%s\",\"ping\":null}", netRdvPathName(path));
+	len = snprintf(body, sizeof(body), "{\"can_host\":%s", canhost ? "true" : "false");
+
+	if (nonat >= 0) {
+		len += snprintf(body + len, sizeof(body) - len, ",\"nat\":\"%s\"", nonat ? "open" : "nat");
 	}
 
+	if (path >= 0 && ping >= 0) {
+		len += snprintf(body + len, sizeof(body) - len, ",\"path\":\"%s\",\"ping\":%d", netRdvPathName(path), ping > 9999 ? 9999 : ping);
+	} else if (path >= 0) {
+		len += snprintf(body + len, sizeof(body) - len, ",\"path\":\"%s\",\"ping\":null", netRdvPathName(path));
+	}
+
+	snprintf(body + len, sizeof(body) - len, "}");
 	lobbyAction("netinfo", body);
 }
 
@@ -2529,6 +2638,206 @@ s32 netLobbyRoomPingEx(const struct netlobbyroomsum *r, s32 *estimate)
 s32 netLobbyRoomPing(const struct netlobbyroomsum *r)
 {
 	return netLobbyRoomPingEx(r, NULL);
+}
+
+/*
+ * Host migration (netmigrate.c; tools/pdlobbyd/README.md "Host migration"):
+ * the room outlives its host. The lobby gives it to the member best placed
+ * to host it; that machine takes it over here (it listens, adopts the room's
+ * setup, tells the lobby where it is and relaunches a room that was
+ * mid-match), and every other member follows the new host as it follows any
+ * host at a launch.
+ */
+
+const char *netLobbyRoomId(void)
+{
+	return s_InRoom ? s_Room.sum.id : "";
+}
+
+// A client's session lost the room's host: the lobby moves the room on sooner
+void netLobbyHostLost(void)
+{
+	if (s_InRoom && s_Room.valid && !s_Room.youhost && !s_MainIsHost) {
+		sysLogPrintf(LOG_NOTE, "lobby: lost room %s's host (%s); telling the lobby", s_Room.sum.id, s_Room.sum.host);
+		lobbyAction("hostlost", "{}");
+	}
+}
+
+static void lobbyDecline(const char *why)
+{
+	sysLogPrintf(LOG_WARNING, "lobby: cannot host room %s: %s; declining it", s_Room.sum.id, why);
+	snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", why);
+	s_DeclinedEpoch = s_Room.sum.hostepoch;
+	s_TakeOver = 0;
+	lobbyAction("decline", "{}");
+}
+
+/**
+ * The lobby made this machine the room's host. Once any session with the old
+ * host has closed and the stage it played is down: listen, adopt the room's
+ * kept setup (netMigrateAdopt), the heartbeat with where it listens, and a
+ * relaunch (lobbyHostTick) when the room was mid-match. Anything that will
+ * not do declines the room, which passes it on.
+ */
+static void lobbyTakeOver(void)
+{
+	char text[256];
+	char body[400];
+	s32 len;
+
+	if (s_Room.sum.hostepoch == s_DeclinedEpoch) {
+		return;
+	}
+
+	if (!s_TakeOver) {
+		s_TakeOver = 1;
+		s_TakeOverAsked = 0;
+		sysLogPrintf(LOG_NOTE, "lobby: room %s is this machine's to host now (epoch %d, %s before)", s_Room.sum.id, s_Room.sum.hostepoch,
+				s_Room.sum.prevhost[0] ? s_Room.sum.prevhost : "?");
+	}
+
+	// still in the old host's session: it ends, as the host's going does
+	if (netSessionLobbyRole() == 2 && !netSessionClientGone() && !s_TakeOverAsked) {
+		s_TakeOverAsked = 1;
+		netSessionClientNewHost();
+	}
+
+	// lobbyClientTick closes a session that ended, once off its stage
+	if (netSessionLobbyRole() != 0 || netSessionMatchLoading() || g_MainChangeToStageNum >= 0) {
+		return;
+	}
+
+	s_TakeOver = 0;
+
+	if (strlen(s_Room.yousecret) != 64 || strlen(s_Room.youudpid) != 16 || strlen(s_Room.youudpkey) != 64) {
+		lobbyDecline("The lobby did not hand this game the room's keys.");
+		return;
+	}
+
+	if (netSessionLobbyHost(netLobbyAccount()) != 0) {
+		lobbyDecline("This game could not open its UDP port to host the room (Net.Port in pd.ini).");
+		return;
+	}
+
+	if (!netMigrateAdopt(s_Room.sum.id, strcmp(s_Room.sum.scenario, "Campaign") == 0, text, sizeof(text))) {
+		netSessionLobbyStop();
+		lobbyDecline(text);
+		return;
+	}
+
+	s_MainIsHost = 1;
+	s_Adopted = 1;
+
+	SDL_LockMutex(s_Lock);
+	s_IsHost = 1;
+	snprintf(s_Secret, sizeof(s_Secret), "%s", s_Room.yousecret);
+	snprintf(s_UdpKey, sizeof(s_UdpKey), "%s", s_Room.youudpkey);
+	SDL_CondBroadcast(s_Wake);
+	SDL_UnlockMutex(s_Lock);
+
+	netSessionLobbySetRoom(s_Room.sum.id, s_Room.yousecret);
+	netRdvEnter(1, s_Room.sum.id, s_Room.youudpid, s_Room.youudpkey);
+	snprintf(s_MainUdpKey, sizeof(s_MainUdpKey), "%s", s_Room.youudpkey);
+	s_LaunchHandled = s_Room.launchat;
+	s_HostWaitStart = 0;
+	s_MatchSeen = 0;
+	s_RelaunchDue = s_Room.sum.migrating;
+	s_TookOverAt = lobbyNowMs();
+	s_CreateMaxHumans = s_Room.sum.maxhumans;
+
+	// where it listens: the old host's endpoints went with it
+	len = snprintf(body, sizeof(body), "{");
+	len += lobbyEndpointsJson(body + len, sizeof(body) - len, netSessionLobbyPort());
+	snprintf(body + len, sizeof(body) - len, "}");
+	lobbyAction("heartbeat", body);
+
+	// an open room's summary from the setup it plays now
+	if (!s_Room.sum.migrating && strcmp(s_Room.sum.state, "open") == 0) {
+		netLobbySendSettings();
+	}
+
+	snprintf(s_MainMessage, sizeof(s_MainMessage), "%s left. You host the room now.",
+			s_Room.sum.prevhost[0] ? s_Room.sum.prevhost : "The host");
+	sysLogPrintf(LOG_NOTE, "lobby: hosting room %s on port %u, taken over from %s%s", s_Room.sum.id, netSessionLobbyPort(),
+			s_Room.sum.prevhost[0] ? s_Room.sum.prevhost : "?", s_RelaunchDue ? "; its launch to follow" : "");
+}
+
+// This machine hosted the room and the lobby gave it on (a decline): a member again
+static void lobbyStepDown(void)
+{
+	if (netSessionMatchLoading() || g_MainChangeToStageNum >= 0) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "lobby: room %s is %s's to host now; this machine is a member again", s_Room.sum.id, s_Room.sum.host);
+	netSessionLobbyStop();
+
+	if (s_Adopted) {
+		s_Adopted = 0;
+		netMigrateAdoptEnd();
+	}
+
+	s_MainIsHost = 0;
+	s_HostWaitStart = 0;
+	s_RelaunchDue = 0;
+
+	SDL_LockMutex(s_Lock);
+	s_IsHost = 0;
+	s_Secret[0] = '\0';
+	snprintf(s_UdpKey, sizeof(s_UdpKey), "%s", s_Room.youudpkey);
+	SDL_UnlockMutex(s_Lock);
+
+	netRdvEnter(0, s_Room.sum.id, s_Room.youudpid, s_Room.youudpkey);
+	snprintf(s_MainUdpKey, sizeof(s_MainUdpKey), "%s", s_Room.youudpkey);
+	s_ReportedCanHost = -1;
+	s_LaunchHandled = s_Room.launchat;
+}
+
+static void lobbyMigrateTick(void)
+{
+	// the room's host changed
+	if (s_Room.sum.hostepoch != s_SeenEpoch) {
+		if (s_SeenEpoch != 0) {
+			sysLogPrintf(LOG_NOTE, "lobby: room %s's host is %s now (epoch %d, %s before)%s", s_Room.sum.id, s_Room.sum.host,
+					s_Room.sum.hostepoch, s_Room.sum.prevhost[0] ? s_Room.sum.prevhost : "?", s_Room.youhost ? ": this machine" : "");
+
+			if (!s_Room.youhost) {
+				snprintf(s_MainMessage, sizeof(s_MainMessage), "%s left. %s hosts the room now.",
+						s_Room.sum.prevhost[0] ? s_Room.sum.prevhost : "The host", s_Room.sum.host);
+				netRdvHostChanged();
+
+				// still in the old host's session (it was moved on while this
+				// machine played with it): the next launch is the new host's
+				if (netSessionLobbyRole() == 2 && !netSessionClientGone()) {
+					netSessionClientNewHost();
+				}
+			}
+		}
+
+		s_SeenEpoch = s_Room.sum.hostepoch;
+	}
+
+	if (s_Room.youhost && !s_MainIsHost) {
+		lobbyTakeOver();
+	} else if (!s_Room.youhost && s_MainIsHost && s_Room.you[0]) {
+		lobbyStepDown();
+	} else if (!s_MainIsHost && s_Room.youudpkey[0] && s_MainUdpKey[0] && strcmp(s_Room.youudpkey, s_MainUdpKey) != 0) {
+		// the seat's rendezvous key was renewed: registered again under it
+		sysLogPrintf(LOG_NOTE, "lobby: room %s renewed this seat's rendezvous key", s_Room.sum.id);
+		netRdvEnter(0, s_Room.sum.id, s_Room.youudpid, s_Room.youudpkey);
+		snprintf(s_MainUdpKey, sizeof(s_MainUdpKey), "%s", s_Room.youudpkey);
+	}
+}
+
+// The room's session closes (left, gone): a room taken over gives its setup back with it
+static void lobbyStopSession(void)
+{
+	netSessionLobbyStop();
+
+	if (s_AdoptEndDue) {
+		s_AdoptEndDue = 0;
+		netMigrateAdoptEnd();
+	}
 }
 
 static void lobbyScriptTick(void);
@@ -2639,6 +2948,13 @@ void netLobbyTick(void)
 		s_ReportedAt = 0;
 		memset(&s_Room, 0, sizeof(s_Room));
 		s_SeenRoomSeq = 0;
+		s_SeenEpoch = 0;
+		s_TakeOver = 0;
+		s_DeclinedEpoch = 0;
+		s_RelaunchDue = 0;
+		s_ReportedCanHost = -1;
+		s_ReportedNoNat = -2;
+		snprintf(s_MainUdpKey, sizeof(s_MainUdpKey), "%s", udpkey);
 
 		// the rendezvous: the host registers its session's socket, a member
 		// its lobby socket, and the ladder finds the member's path
@@ -2652,6 +2968,13 @@ void netLobbyTick(void)
 	if (gone && s_InRoom) {
 		sysLogPrintf(LOG_NOTE, "lobby: out of room %s: %s", s_Room.sum.id, s_MainMessage);
 		netRdvLeave();
+
+		if (s_Adopted) {
+			s_Adopted = 0;
+			s_AdoptEndDue = 1;
+		}
+
+		netMigrateForget();
 		s_InRoom = 0;
 		s_MainIsHost = 0;
 		g_NetLobbyRoom = 0;
@@ -2667,10 +2990,14 @@ void netLobbyTick(void)
 
 	if (s_StopPending && !netSessionMatchLoading() && g_MainChangeToStageNum < 0) {
 		s_StopPending = 0;
-		netSessionLobbyStop();
+		lobbyStopSession();
 	}
 
 	netRdvTick();
+
+	if (s_InRoom && s_Room.valid) {
+		lobbyMigrateTick();
+	}
 
 	if (s_InRoom && s_Room.valid) {
 		if (s_MainIsHost) {
@@ -2791,11 +3118,29 @@ void netLobbyShutdown(void)
  *   --net-lobby-solo               host: LAUNCH with nobody else in the room
  *   --net-lobby-menus              host: the room made from the Perfect Menu's Online
  *                                  Game, its Game Lobby up, as a player makes one
+ *
+ * Host migration (tools/ci/netmigratetest.sh):
+ *   --net-lobby-size N             host: the room seats N (2)
+ *   --net-lobby-wait N             host: LAUNCH once N members are READY (1)
+ *   --net-lobby-quit-frame F       host: quit the game at frame F of its match, the
+ *                                  way a player's quit goes (the lobby told, LEAVE sent)
+ *   --net-lobby-crash-frame F      host: at frame F, gone at once as a crash is (no
+ *                                  goodbye to the lobby or the players)
+ *   --net-lobby-host-leaves        host: after its match, leave the room and quit
+ *   --net-lobby-migrate F          join: stay through the host's going and play the
+ *                                  room's match on under whoever hosts it next; the
+ *                                  machine that hosts it ends it at its frame F
  */
 
 static s32 s_ScriptMatches = 1;
 static s32 s_ScriptPlayed = 0;
 static s32 s_ScriptEndFrame = 0;
+static s32 s_ScriptMigrateFrame = 0; // --net-lobby-migrate F
+static u64 s_ScriptLostAt = 0;
+static s32 s_ScriptEpoch = 0;        // the room's host epoch as its match began here
+static s32 s_ScriptHosting = 0;      // ... and whether this machine hosted it
+static u64 s_ScriptLaunchAt = 0;
+static s32 s_ScriptResumeLogged = 0;
 static const char *s_ScriptRoom = "Lobby Test";
 
 void netLobbyArgs(void)
@@ -2813,6 +3158,7 @@ void netLobbyArgs(void)
 		s_ScriptEndFrame = sysArgGetInt("--net-lobby-end-frame", 0);
 		s_ScriptMatches = sysArgGetInt("--net-lobby-matches", 1);
 		s_ScriptShots = sysArgCheck("--net-lobby-shots");
+		s_ScriptMigrateFrame = sysArgGetInt("--net-lobby-migrate", 0);
 		s_ScriptSkipLadder = sysArgCheck("--net-test-skip-ladder");
 		s_ScriptNoEcho = sysArgCheck("--net-test-no-echo");
 
@@ -2904,11 +3250,36 @@ static void lobbyScriptTick(void)
 				break;
 			}
 
-			if (now - s_ScriptAt > 3000 && g_MainChangeToStageNum < 0) {
+			// the boot's menus up first: the boot's own mpInit (Skedar, no
+			// sims) would otherwise land on the setup the room was made from
+			if (now - s_ScriptAt > 3000 && g_MainChangeToStageNum < 0 && g_MenuData.root != 0 && g_Menus[g_MpPlayerNum].curdialog) {
 				struct netlobbycreate c;
 				const s32 sims = sysArgGetInt("--net-test-sims", 2);
 
 				g_MpSetup.stagenum = sysArgGetInt("--net-test-stage", 0x32);
+
+				// --net-test-ge N: GoldenEye's Combat Simulator, scenario N;
+				// --net-test-map NAME: a Stage Loader map by its name (a
+				// GoldenEye arena), as the direct host's harness takes them
+				if (sysArgGetInt("--net-test-ge", -1) >= 0) {
+					mpSetGexPlusMode(true);
+					gexPlusSetScenario(sysArgGetInt("--net-test-ge", 0));
+					challengeDetermineUnlockedFeatures();
+				}
+
+				if (sysArgGetString("--net-test-map")) {
+					s32 id;
+
+					for (id = 1; id <= 0xff; id++) {
+						const char *name = modloaderGetStageModDir(id) ? modloaderGetStageMapName(id) : NULL;
+
+						if (name && strcmp(name, sysArgGetString("--net-test-map")) == 0 && !modloaderStageIsMission(id)) {
+							g_MpSetup.stagenum = id;
+							break;
+						}
+					}
+				}
+
 				mpClearSimSlots();
 
 				// --net-lobby-coop INDEX: the room is a co-op mission (netcoop.c)
@@ -2940,7 +3311,7 @@ static void lobbyScriptTick(void)
 
 				memset(&c, 0, sizeof(c));
 				snprintf(c.name, sizeof(c.name), "%s", s_ScriptRoom);
-				c.maxhumans = 2;
+				c.maxhumans = sysArgGetInt("--net-lobby-size", 2);
 				netLobbyCreate(&c);
 				lobbyScriptStep(1, "host: create room");
 			}
@@ -2958,6 +3329,19 @@ static void lobbyScriptTick(void)
 					netLobbyMenuPushRoom();
 					s_ScriptShotStep = 1;
 					s_ScriptShotAt = now;
+				}
+
+				{
+					s32 nready = 0;
+
+					// --net-lobby-wait N: that many members READY first
+					for (i = 0; i < s_Room.nmembers; i++) {
+						nready += !s_Room.members[i].host && s_Room.members[i].ready;
+					}
+
+					if (nready < sysArgGetInt("--net-lobby-wait", 1)) {
+						break;
+					}
 				}
 
 				for (i = 0; i < s_Room.nmembers; i++) {
@@ -3005,6 +3389,18 @@ static void lobbyScriptTick(void)
 			}
 
 			if (netSessionMatchActive() && !g_MainIsEndscreen && !netSessionBarrierHeld()) {
+				if (sysArgGetInt("--net-lobby-quit-frame", 0) > 0 && g_Vars.lvframenum >= sysArgGetInt("--net-lobby-quit-frame", 0)) {
+					sysLogPrintf(LOG_NOTE, "lobby script: host: frame %d, level time %d; quitting the game", g_Vars.lvframenum, lvGetStageTime60());
+					fflush(stdout);
+					exit(0);
+				}
+
+				if (sysArgGetInt("--net-lobby-crash-frame", 0) > 0 && g_Vars.lvframenum >= sysArgGetInt("--net-lobby-crash-frame", 0)) {
+					sysLogPrintf(LOG_NOTE, "lobby script: host: frame %d, level time %d; gone as a crash is", g_Vars.lvframenum, lvGetStageTime60());
+					fflush(stdout);
+					_Exit(9);
+				}
+
 				if (s_ScriptEndFrame > 0 && g_Vars.lvframenum >= s_ScriptEndFrame) {
 					snprintf(text, sizeof(text), "host: frame %d; End Game", g_Vars.lvframenum);
 					lobbyScriptStep(4, text);
@@ -3026,6 +3422,9 @@ static void lobbyScriptTick(void)
 
 				if (s_ScriptPlayed < s_ScriptMatches) {
 					lobbyScriptStep(1, "host: waiting for READY again");
+				} else if (sysArgCheck("--net-lobby-host-leaves")) {
+					netLobbyLeave();
+					lobbyScriptStep(6, "host: leaving the room");
 				} else {
 					lobbyScriptStep(5, "host: waiting for the client's word");
 				}
@@ -3139,6 +3538,11 @@ static void lobbyScriptTick(void)
 					s_ScriptShotStep = 1;
 					s_ScriptShotAt = now;
 				}
+			} else if (s_InRoom && s_Room.valid && s_Room.launched && netSessionMatchLoading()) {
+				// a launched room: joined into its match in progress
+				s_ScriptEpoch = s_Room.sum.hostepoch;
+				s_ScriptHosting = 0;
+				lobbyScriptStep(4, "join: in the room's match in progress");
 			} else if (!netLobbyBusy() && !s_InRoom && now - s_ScriptAt > 3000) {
 				sysLogPrintf(LOG_ERROR, "lobby script: could not join: %s", s_MainMessage);
 				fflush(stdout);
@@ -3146,6 +3550,19 @@ static void lobbyScriptTick(void)
 			}
 			break;
 		case 3:
+			// a joiner that hosts the room now (host migration) launches it
+			// once another member is READY, as a host does
+			if (s_MainIsHost && s_Room.valid && !s_Room.launched && s_Room.countdownms < 0 && now - s_ScriptLaunchAt > 3000) {
+				for (i = 0; i < s_Room.nmembers; i++) {
+					if (!s_Room.members[i].host && s_Room.members[i].ready) {
+						s_ScriptLaunchAt = now;
+						netLobbyLaunch(0);
+						sysLogPrintf(LOG_NOTE, "lobby script: join: hosting the room now; a member is ready; LAUNCH");
+						break;
+					}
+				}
+			}
+
 			// the Game Lobby as the joiner sees it, before the 5 s countdown is out
 			if (s_ScriptShots && s_ScriptShotStep == 1 && !netLobbyMenuPageUp(1) && !netSessionMatchLoading()) {
 				netLobbyMenuPushRoom();
@@ -3158,11 +3575,30 @@ static void lobbyScriptTick(void)
 			}
 
 			if (netSessionMatchLoading()) {
-				snprintf(text, sizeof(text), "join: in the room's match %d", s_ScriptPlayed + 1);
+				s_ScriptEpoch = s_Room.sum.hostepoch;
+				s_ScriptHosting = s_MainIsHost;
+				snprintf(text, sizeof(text), "join: in the room's match %d%s", s_ScriptPlayed + 1, s_ScriptHosting ? " as its host" : "");
 				lobbyScriptStep(4, text);
 			}
 			break;
 		case 4:
+			// --net-lobby-migrate: the host's going is where this goes on
+			if (s_ScriptMigrateFrame > 0 && !s_ScriptHosting && netMigrateResumeKept(s_Room.sum.id)) {
+				s_ScriptLostAt = now;
+				lobbyScriptStep(7, "join: the host went; following the room");
+				break;
+			}
+
+			// a match this machine hosts (it took the room over): it ends it
+			if (s_ScriptHosting && s_ScriptMigrateFrame > 0 && netSessionMatchActive() && !g_MainIsEndscreen && !netSessionBarrierHeld()
+					&& g_Vars.lvframenum >= s_ScriptMigrateFrame) {
+				snprintf(text, sizeof(text), "join: hosting the room's match; frame %d; End Game", g_Vars.lvframenum);
+				g_Vars.currentplayer->aborted = true;
+				mainEndStage();
+				lobbyScriptStep(5, text);
+				break;
+			}
+
 			if (netSessionMatchActive() && s_ScriptLeaveFrame > 0 && g_Vars.lvframenum >= s_ScriptLeaveFrame) {
 				snprintf(text, sizeof(text), "join: frame %d; End Game", g_Vars.lvframenum);
 				lobbyScriptStep(5, text);
@@ -3179,8 +3615,11 @@ static void lobbyScriptTick(void)
 						netSessionLobbyRole() == 2 ? "still connected" : "closed");
 
 				if (s_ScriptPlayed < s_ScriptMatches) {
-					netLobbySetReady(1);
-					lobbyScriptStep(3, "join: READY again");
+					if (!s_MainIsHost) {
+						netLobbySetReady(1);
+					}
+
+					lobbyScriptStep(3, s_MainIsHost ? "join: hosting the room now; waiting for a member's READY" : "join: READY again");
 				} else {
 					netLobbyChat("back in the room");
 					lobbyScriptStep(6, "join: said so in the chat");
@@ -3191,6 +3630,50 @@ static void lobbyScriptTick(void)
 			if (now - s_ScriptAt > 3000) {
 				fflush(stdout);
 				exit(0);
+			}
+			break;
+		case 7:
+			// the room's match again, under its new host (this machine or another)
+			if (netSessionMatchActive() && !netSessionBarrierHeld() && g_Vars.lvframenum > 1) {
+				snprintf(text, sizeof(text), "join: in the room's match again %llu ms after the host went, as %s (room host %s, epoch %d)",
+						(unsigned long long)(now - s_ScriptLostAt), s_MainIsHost ? "its host" : "a member", s_Room.sum.host, s_Room.sum.hostepoch);
+				lobbyScriptStep(8, text);
+			} else if (now - s_ScriptAt > 90000) {
+				sysLogPrintf(LOG_ERROR, "lobby script: the room's match did not come back in 90 s");
+				fflush(stdout);
+				exit(5);
+			}
+			break;
+		case 8:
+			if (g_Vars.lvframenum >= 240 && !s_ScriptResumeLogged && netSessionMatchActive()) {
+				const s32 pn = g_NetLocalSlot >= 0 && g_NetLocalSlot < PLAYERCOUNT() ? g_NetLocalSlot : 0;
+				const struct player *p = g_Vars.players[pn];
+
+				s_ScriptResumeLogged = 1;
+
+				if (p && p->prop) {
+					sysLogPrintf(LOG_NOTE, "lobby script: resumed: frame 240, level time %d, player %d at %.0f %.0f %.0f, health %.2f, weapon %d, %s",
+							lvGetStageTime60(), pn, p->prop->pos.x, p->prop->pos.y, p->prop->pos.z, p->bondhealth, p->gunctrl.weaponnum,
+							p->isdead ? "dead" : "alive");
+				}
+			}
+
+			if (s_MainIsHost && netSessionMatchActive() && !g_MainIsEndscreen && !netSessionBarrierHeld()
+					&& g_Vars.lvframenum >= s_ScriptMigrateFrame) {
+				snprintf(text, sizeof(text), "join: hosting the carried-on match; frame %d, level time %d; End Game", g_Vars.lvframenum, lvGetStageTime60());
+				g_Vars.currentplayer->aborted = true;
+				mainEndStage();
+				lobbyScriptStep(9, text);
+			} else if (!s_MainIsHost && !netSessionMatchLoading() && g_StageNum == STAGE_CITRAINING) {
+				lobbyScriptStep(9, "join: the new host ended the match");
+			}
+			break;
+		case 9:
+			if (!netSessionMatchLoading() && g_StageNum == STAGE_CITRAINING && s_InRoom && s_Room.valid
+					&& !s_Room.launched && now - s_ScriptAt > 2000) {
+				snprintf(text, sizeof(text), "join: back in room %s after the carried-on match (host %s, %d members, state %s)",
+						s_Room.sum.id, s_Room.sum.host, s_Room.nmembers, s_Room.sum.state);
+				lobbyScriptStep(6, text);
 			}
 			break;
 		}

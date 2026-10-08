@@ -163,6 +163,7 @@ static struct {
 static s32 s_ClNumSpecs = 0;
 static u64 s_ClPlayersAt = 0;     // when the last PLAYERS came (0 none this match)
 static s32 s_ClWelcome = 0;       // a join in progress: its first ROSTER says who is in
+static u32 s_ClLastSnapTick = 0;  // the host tick of its last SNAP (host migration: the clock then)
 static char s_HostTitle[NET_MAXNAME + 1]; // the host's name, as ACCEPT gave it
 static u32 s_Joins = 0, s_Resumes = 0, s_SpecJoins = 0, s_HoldsExpired = 0, s_Vacated = 0;
 static s32 s_LastRefuse = -1;
@@ -703,6 +704,11 @@ static s32 netHostFreeSlot(s32 peer)
 	for (slot = netIsDedicatedHost() ? 0 : 1; slot < netHostSeatCount(); slot++) {
 		s32 taken = 0;
 
+		// host migration: a resumed match's seat its account will be back for
+		if (netMigrateSeatReserved(slot, s_Clients[peer].name)) {
+			continue;
+		}
+
 		for (i = 0; i < NET_MAXPEERS; i++) {
 			if (i != peer && s_Clients[i].state >= NETCL_JOINED && s_Clients[i].state != NETCL_REFUSED
 					&& s_Clients[i].slot == slot) {
@@ -965,7 +971,19 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 			return;
 		}
 	} else {
-		c->slot = netHostFreeSlot(peer);
+		// host migration: the seat this account had in the match carried on
+		c->slot = ticketed ? netMigrateSeatOf(c->name) : -1;
+
+		for (j = 0; c->slot >= 0 && j < NET_MAXPEERS; j++) {
+			if (j != peer && j != oldseat && s_Clients[j].state >= NETCL_JOINED && s_Clients[j].state != NETCL_REFUSED
+					&& !s_Clients[j].spectator && s_Clients[j].slot == c->slot) {
+				c->slot = -1;
+			}
+		}
+
+		if (c->slot < 0) {
+			c->slot = netHostFreeSlot(peer);
+		}
 
 		if (c->slot < 0 && oldseat >= 0) {
 			c->slot = s_Clients[oldseat].slot; // the seat it replaces
@@ -1378,6 +1396,25 @@ s32 netHostMatchStarting(s32 stagenum, s32 numplayers)
 		}
 	}
 
+	// host migration: a resumed match's seats whose players have not come
+	// back yet are held for their accounts, as a drop's is, and out of play
+	// until they do (netmigrate.c)
+	if (netMigrateResuming()) {
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			const char *account = netMigrateSeatAccount(i);
+
+			if (account && s_Seats[i].state == NETSEAT_OPEN) {
+				s_Seats[i].state = NETSEAT_HELD;
+				s_Seats[i].ticketed = 1;
+				s_Seats[i].until = netNowMs() + (u64)(s_ReconnectHold > 0 ? s_ReconnectHold : 30) * 1000;
+				s_Seats[i].vacate = 1;
+				snprintf(s_Seats[i].account, sizeof(s_Seats[i].account), "%s", account);
+				netNameSet(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), account);
+				sysLogPrintf(LOG_NOTE, "net: migrate: seat %d held for \"%s\" until it comes back", i, account);
+			}
+		}
+	}
+
 	for (i = 0; i < NET_MAXPEERS; i++) {
 		if (s_Clients[i].state == NETCL_AWAY) {
 			sysLogPrintf(LOG_NOTE, "net: slot %d (\"%s\") is still on the last match's end screen; it sits this match out",
@@ -1608,13 +1645,18 @@ static void netHostBarrierTick(void)
 		return;
 	}
 
+	// a resumed match (protocol 21): its clock where the old host's was
+	if (netMigrateGoTime() > 0) {
+		g_StageTimeElapsed60 = netMigrateGoTime();
+	}
+
 	for (i = 0; i < NET_MAXPEERS; i++) {
 		if (s_Clients[i].state == NETCL_LOADED) {
 			netBufInitWrite(&b, s_Buf, sizeof(s_Buf));
 			netBufWriteU8(&b, NETMSG_GO);
 			netBufWriteU32(&b, s_MatchIdCur);
 			netBufWriteU32(&b, 0);
-			netBufWriteS32(&b, 0);
+			netBufWriteS32(&b, netMigrateGoTime());
 			netSend(i, NET_CHAN_RELIABLE, &b);
 			s_Clients[i].state = NETCL_PLAYING;
 
@@ -1707,6 +1749,19 @@ static void netHostNotice(const char *fmt, ...)
 
 	netHostChatSend(NETCHAT_NOTICE, NETCHAT_FROM_NONE, "", text, -1);
 	netHudFeed(NETCHAT_NOTICE, NETCHAT_FROM_NONE, "", text);
+}
+
+// netmigrate.c's: a notice on every HUD
+void netSessionHostNotice(const char *fmt, ...)
+{
+	char text[NET_MAXCHAT + 1];
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsnprintf(text, sizeof(text), fmt, ap);
+	va_end(ap);
+
+	netHostNotice("%s", text);
 }
 
 // A client's name as a notice or a chat line shows it
@@ -1934,9 +1989,16 @@ static void netHostSeatsTick(void)
 		return;
 	}
 
-	if (s_TestGiveTick && g_NetTick == s_TestGiveTick && netSeatPlayer(s_TestGiveSlot) >= 0 && g_MpNumChrs > PLAYERCOUNT()) {
+	// a resumed match's kill table, and its players' lives back (netmigrate.c)
+	netMigrateHostTick();
+
+	if (s_TestGiveTick && g_NetTick == s_TestGiveTick && netSeatPlayer(s_TestGiveSlot) >= 0 && g_MpNumChrs > 1) {
+		// the last sim the victim, or with none the last player not the slot's
+		const s32 victim = g_MpNumChrs > PLAYERCOUNT() ? g_MpNumChrs - 1
+			: netSeatPlayer(s_TestGiveSlot) == PLAYERCOUNT() - 1 ? PLAYERCOUNT() - 2 : PLAYERCOUNT() - 1;
+
 		for (i = 0; i < s_TestGiveN; i++) {
-			mpstatsRecordDeath(netSeatPlayer(s_TestGiveSlot), g_MpNumChrs - 1);
+			mpstatsRecordDeath(netSeatPlayer(s_TestGiveSlot), victim);
 		}
 
 		sysLogPrintf(LOG_NOTE, "net: --net-test-givekills: %d kills for slot %d at tick %u", s_TestGiveN, s_TestGiveSlot, g_NetTick);
@@ -1968,7 +2030,7 @@ static void netHostSeatsTick(void)
 			changed = 1;
 		}
 
-		if (seat->vacate && seat->state == NETSEAT_OPEN) {
+		if (seat->vacate && (seat->state == NETSEAT_OPEN || seat->state == NETSEAT_HELD)) {
 			seat->vacate = 0;
 			netSeatVacate(i, seat->drop);
 			seat->drop = 0;
@@ -2425,6 +2487,48 @@ static void netClientDrain(void)
  * The session is over for this client: say why, and go back to the menus
  * if a match was running. g_NetMode stays until the stage stops (H12).
  */
+static void netClientEnd(s32 code, const char *text);
+
+/**
+ * The host went away (it quit, or the connection to it is lost). A lobby
+ * room carries on under its next host (host migration, netmigrate.c), which
+ * may be this machine: what it knows of the match is kept first, and the
+ * lobby told, which moves the room on sooner when the host is gone for good.
+ */
+static void netClientHostGone(const char *text)
+{
+	if (s_LobbyRoomOn && s_Role == NETROLE_CLIENT && s_ClientState != NETCS_GONE) {
+		if (s_MatchActive && s_MatchLoaded) {
+			netMigrateKeep(netLobbyRoomId(), s_MatchIdCur, s_MatchStage, s_Spectating ? -1 : g_NetLocalSlot,
+					!s_End.valid && !g_MainIsEndscreen, s_ClSeatValid ? s_ClSeat : NULL,
+					s_ClLastSnapTick && g_NetTick > s_ClLastSnapTick && g_NetTick - s_ClLastSnapTick < 36000 ? (s32)(g_NetTick - s_ClLastSnapTick) : 0);
+		}
+
+		netLobbyHostLost();
+	}
+
+	netClientEnd(NETREFUSE_SHUTDOWN, text);
+}
+
+/**
+ * netlobby.c: the room has a host this client is not connected to (it was
+ * moved on while this machine still played with the old one): the old
+ * session ends as a host's going does, and the next launch connects to the
+ * room's host
+ */
+void netSessionClientNewHost(void)
+{
+	if (s_Role != NETROLE_CLIENT || s_ClientState == NETCS_GONE) {
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: migrate: the room has a new host; leaving the old one's session");
+	s_Leaving = 1;
+	netSendLeave(s_ServerPeer, NETREFUSE_LEFT, "The room has a new host");
+	netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_LEFT);
+	netClientHostGone("The room has a new host.");
+}
+
 static void netClientEnd(s32 code, const char *text)
 {
 	if (s_ClientState == NETCS_GONE) {
@@ -3061,6 +3165,11 @@ static void netHostEvent(const struct netevent *ev)
 		} else if (type == NETMSG_CHAT) {
 			// protocol 18: a line for everyone (nethud.c)
 			netHostOnChat(ev->peer, &b);
+		} else if (type == NETMSG_RESUME) {
+			// protocol 21: a player's state in the match the room carries on
+			if (!netMigrateOnRecord(c->spectator ? -1 : c->slot, &b)) {
+				netHostKick(ev->peer, NETREFUSE_BADMSG, "", "Your game's RESUME did not parse.");
+			}
 		} else if (type == NETMSG_LOBBY) {
 			u32 matchid = netBufReadU32(&b);
 
@@ -3112,7 +3221,7 @@ static void netClientEvent(const struct netevent *ev)
 				s_Unreached = 1;
 				netClientEnd(NETREFUSE_SHUTDOWN, text);
 			} else {
-				netClientEnd(NETREFUSE_SHUTDOWN, ev->timedout ? "The connection to the host was lost." : "The host closed the connection.");
+				netClientHostGone(ev->timedout ? "The connection to the host was lost." : "The host closed the connection.");
 			}
 		}
 		break;
@@ -3170,6 +3279,12 @@ static void netClientEvent(const struct netevent *ev)
 
 					netClientSendSlotCfg();
 
+					// host migration: this player's state as the old host had
+					// it, for the match carried on (netmigrate.c)
+					if (s_LobbyRoomOn && !(flags & NETACC_SPECTATOR)) {
+						netMigrateSendRecord(netLobbyRoomId());
+					}
+
 					if (s_PendStageLen) {
 						struct netbuf pb;
 
@@ -3194,6 +3309,15 @@ static void netClientEvent(const struct netevent *ev)
 			netBufReadString(&b, text, sizeof(text));
 			sysLogPrintf(LOG_NOTE, "net: the host %s [%s%s%s]: %s", type == NETMSG_REFUSE ? "refused" : "is leaving",
 					netRefuseName(code), comp[0] ? " " : "", comp, text);
+
+			// the host quitting (not a refusal of this machine): its room
+			// carries on under the next one
+			if (type == NETMSG_LEAVE && (code == NETREFUSE_SHUTDOWN || code == NETREFUSE_LEFT)) {
+				netClientHostGone(text);
+				s_Leaving = 1;
+				break;
+			}
+
 			s_Leaving = 1;
 			netClientEnd(code == NETREFUSE_LEFT ? NETREFUSE_SHUTDOWN : code, text);
 			break;
@@ -3274,7 +3398,16 @@ static void netClientEvent(const struct netevent *ev)
 					sysLogPrintf(LOG_NOTE, "net: match %u: GO, in progress from host tick %u (level time %d), this machine from tick %u%s",
 							s_MatchIdCur, hosttick, stagetime, g_NetTick, s_Spectating ? ", spectating" : "");
 				} else {
+					// a match carried on under a new host (protocol 21): its clock
+					if (stagetime > 0) {
+						g_StageTimeElapsed60 = stagetime;
+					}
+
 					sysLogPrintf(LOG_NOTE, "net: match %u: GO%s", s_MatchIdCur, s_Spectating ? ", spectating" : "");
+
+					if (stagetime > 0) {
+						sysLogPrintf(LOG_NOTE, "net: migrate: match %u carries on at level time %d", s_MatchIdCur, stagetime);
+					}
 				}
 			}
 			break;
@@ -3311,6 +3444,13 @@ static void netClientEvent(const struct netevent *ev)
 			netPlayersClientOnAck(&b);
 			break;
 		case NETMSG_SNAP:
+			// its host tick (netproto.h: after the type, matchid, seq and baseline)
+			if (ev->len >= 13) {
+				const u8 *d = ev->data;
+
+				s_ClLastSnapTick = d[9] | (d[10] << 8) | (d[11] << 16) | ((u32)d[12] << 24);
+			}
+
 			netEntsClientOnSnap(ev->data, ev->len);
 			break;
 		case NETMSG_EVENTS:
@@ -3881,6 +4021,15 @@ void netStageStopped(void)
 	}
 
 	netHostOwnNameBack();
+
+	// host migration: a lobby room's client keeps the match's setup, the
+	// room's should its host go between matches (a host gone mid-match had
+	// the match itself kept as it went: netClientHostGone)
+	if (s_Role == NETROLE_CLIENT && s_LobbyRoomOn && s_ClientState != NETCS_GONE) {
+		netMigrateKeep(netLobbyRoomId(), s_MatchIdCur, s_MatchStage, s_Spectating ? -1 : g_NetLocalSlot, 0, s_ClSeatValid ? s_ClSeat : NULL, 0);
+	}
+
+	netMigrateMatchStopped();
 	netRulesRestore();
 	netEventsMatchStopped();
 	netEntsMatchStopped();
@@ -3913,6 +4062,7 @@ void netStageStopped(void)
 		netSpecStop();
 		s_Spectating = 0;
 		s_JoinGoTick = 0;
+		s_ClLastSnapTick = 0;
 
 		if (s_ClientState == NETCS_GONE) {
 			netClientDrain();
@@ -4790,6 +4940,11 @@ void netSessionHostDropUser(const char *user, const char *why)
  */
 void netSessionLobbyStartMatch(void)
 {
+	// host migration: the room's match carried on, or its mission again
+	if (netMigrateHostStart()) {
+		return;
+	}
+
 	// a campaign room: the host's menus for the set; the missions it starts
 	// there are the session's matches (netcoop.c)
 	if (g_NetCoopSetup.on && g_NetCoopSetup.campaign) {

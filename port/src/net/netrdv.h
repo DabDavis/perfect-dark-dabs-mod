@@ -55,6 +55,12 @@ s32 netRdvPath(void);
 s32 netRdvEndpoint(char *addr, s32 size, u16 *port); // the chosen path's address; 0 or -1
 s32 netRdvPing(void);       // ms over the chosen path, -1 unknown
 s32 netRdvLobbyRtt(void);   // ms to the lobby (ECHO), -1 unknown
+// Host migration: this socket is registered with the rendezvous; the lobby
+// saw it at its own address (-1 not yet known, 0 a NAT, 1 none); the room's
+// host changed (a member's ladder starts over toward the new one)
+s32 netRdvRegistered(void);
+s32 netRdvNoNat(void);
+void netRdvHostChanged(void);
 const char *netRdvPathName(s32 path); // "lan", "direct", "punch", "relay", "none"
 
 #endif

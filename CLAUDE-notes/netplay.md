@@ -97,6 +97,15 @@
   (`nettrace.c`): role, links, tick pacing, rules and own settings, every
   player's hands and swings, a client's commands as the host plays them,
   and every module's summary into the log "at F3".
+- **Host migration (protocol 21, 2026-10-08)** — the section of that
+  name (`netmigrate.c`, pdlobbyd README "Host migration",
+  `netmigratetest.sh`): a lobby room outlives its host; how the lobby
+  picks the next one (`can_host`, `nat`, `hostlost`, `relaunch`,
+  `decline`), what a client keeps of the match, how the new host adopts
+  the room's rules and carries a Combat Simulator match on (clock, kill
+  table, each player back where it stood: RESUME) or starts a mission
+  again, content a member was served hosted and served on; the boot's
+  `mpInit` that had wiped every scripted room's arena and sims.
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -168,7 +177,7 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 `netproto.h` documents every message byte by byte (u8 type first, then
 fields through netbuf, never a struct copied whole), the channel each goes
 on (RULES and STAGE_LOAD share BULK so a STAGE_LOAD never overtakes its
-RULES), the refusal codes, and the protocol history. Protocol 14 is current (co-op on the conversions' missions: the mission block's set tag and stage key kind 3; content served by the host: CONTENT_REQ/BEGIN/FILE/END/NO; 13 was content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
+RULES), the refusal codes, and the protocol history (netproto.h's list is the full one). Protocol 21 is current (host migration: GO's stagetime for every client, RESUME); 14 was (co-op on the conversions' missions: the mission block's set tag and stage key kind 3; content served by the host: CONTENT_REQ/BEGIN/FILE/END/NO; 13 was content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
 The lobby's HTTP API and the rendezvous/relay datagrams are in
 `tools/pdlobbyd/README.md`. A change to a message's shape or meaning bumps
 `NET_PROTOCOL_VERSION`; pdlobbyd lists a room's protocol and the Briefing
@@ -200,6 +209,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netchattest.sh` | 4.5 min | protocol 18: chat on every machine in order, the host's burst limit (5 of 7, the sender alone told), the notices of a join in progress (with "3/4"), a spectator, a drop, a return within the hold, a hold running out and a spectator gone, a client's first PLAYERS, the host's pause Control page and Players page, screenshots of the feed, panel and open line |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
 | `netcooptest.sh` | 14 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2, camproom 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection (eleven: stacked on one spot): the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, on the host's spot, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder; camproom: a GoldenEye campaign room on a local pdlobbyd launched by its host alone, Dam started from the folder and aborted, the room still launched, a newcomer connecting between missions and taken into Facility |
+| `netmigratetest.sh` | 8 min (quit 1.5, crash 1.7, lobby 1.5, coop 1.6, served 1.7) | host migration (protocol 21): a host and two joiners per case, a lobby of its own each. quit: the host quits mid-match on 0x32 (two sims, three kills given to a seat): a joiner takes the room over, the other reconnects with a new ticket and its RESUME, the match carries on (clock within 4 s of the old host's, the kill table, every living record's life back at its place); crash: the same with the host gone as a crash is (the joiners' `hostlost` move the room on); lobby: the host leaves between matches, the room stays open under a joiner who plays the next match with the other on the room's arena; coop: Defection, the mission starts again under the new host; served: a GoldenEye arena whose joiner has nothing installed, hosted after the host quits from the served copy and served on to a newcomer |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
@@ -1632,3 +1642,140 @@ a client next to the client's own. In a harness, `call
 (void)traceRequest()` from gdb writes one (`Mod.TraceReport=0` keeps the
 send dialog from holding the input); traces land in `build/traces/`.
 
+
+## Host migration (protocol 21, 2026-10-08)
+
+The user: "lets add host-migration, so lobby doesnt end if host leaves";
+asked, they chose for a Combat Simulator match to **carry on** under the
+new host and for a co-op mission (a campaign's too) to **start again**;
+then "they should still have the download from original host, even if
+they dont own the mods/conversions should work fine". `netmigrate.c` is
+the game's side, pdlobbyd's "Host migration" (its README) the lobby's;
+`tools/ci/netmigratetest.sh` the gate.
+
+**The lobby picks the next host.** A host's leave, its heartbeat 15 s
+stale, or half the playing members reporting it lost (`hostlost`, from
+`netClientHostGone`) with its heartbeat 8 s stale (`hostlost_grace`: a
+live host beats every 5 s, so reports alone never move a room off one)
+hand the room to `pick_host`: a non-spectator whose game said
+`can_host` (join and netinfo) on the room's build; no NAT first (netinfo
+`nat`, the rendezvous saw its socket at its own address), then a
+punched/direct path over a relayed one, the ping, the longest in the
+room. Nobody able: the room closes as before (members that never say
+`can_host` keep the old behaviour; the 71 older lobby tests pass
+unchanged). `promote` renews the room secret (the old host could go on
+minting tickets) and the new host's UDP key (a REGISTER still on its way
+from its member socket must not be taken for its host socket's; both reach
+the game in its state reply's `you`), clears every pair's punch cookie (so
+each member's ladder restarts toward the new host: a member keeping the
+old cookie kept punching the old address for 20 s), closes the relays,
+cancels a countdown, unreadies everyone, and marks a launched room
+`migrating`: its state carries no `launch` until the new host says
+`relaunch`, so no member connects to an address that is not listening yet.
+A host that cannot host after all says `decline` and the room moves on
+(it stays a member). `reopen` clears `migrating` (a room whose match had
+ended is opened, not relaunched).
+
+**What a client keeps.** `netMigrateKeep`, from two places: H12 of every
+lobby-room match (the setup: RULES via `netRulesKeep`, the stage as it
+resolved here, the seats' accounts from the last ROSTER), and
+`netClientHostGone` when the host goes mid-match (a LEAVE SHUTDOWN/LEFT
+from it, its connection lost, or `netSessionClientNewHost` when the lobby
+moved the room while this machine still played with the old one): the
+match itself too - the level clock as of the host's last snapshot (the
+client's ticks past the last SNAP's host tick are taken off: it runs on a
+moment after the host is gone, a crash's ~5 s ENet timeout, and its
+clock holds once it is a second ahead, so wall time over-corrected), the
+kill table, the scenario block it applied last (`netScenKeep`) and its
+own last local-player block (`netEntsClientLastLp`, the host's word on
+its player: place, rooms, facing, health, shield, guns, ammo, clips). A
+co-op mission keeps only that it is to start again. Kept for 3 minutes.
+
+**The new host takes over** (`lobbyTakeOver`, netlobby.c): once its
+session with the old host has closed and the stage is down, it opens a
+listen session (`netSessionLobbyHost` on `Net.Port`, a new socket: the
+member socket has two peers and is dial-only), adopts the kept setup
+(`netMigrateAdopt`: the kept content followed as a client follows a host's
+- a mod switched live, the GoldenEye mode's variant - then
+`netRulesAdopt`, the RULES over its own setup with seat 0 and its own old
+seat exchanged; its own setup is saved in `s_Own` and comes back when it
+stops hosting, and a pd.ini write meanwhile writes its own values, H13),
+enters the rendezvous as host under the new key, heartbeats with its
+endpoints, and once registered (or 4 s) relaunches a migrating room - or
+reopens one with nothing to carry on. The other members follow the
+relaunch as any launch: ladder, ticket, CONNECT. The members' message
+line and Game Lobby status say who hosts now
+(`netLobbyLaunchState` 4 while migrating).
+
+**The match carried on** (`netMigrateHostStart`, from
+`netSessionLobbyStartMatch`): `mpStartMatch`'s tail without its rerolls
+(random arena, random weapons, quick-team sims) on the kept stage. Seats:
+an account connecting before it gets its old seat (0 and the new host's
+swapped: `netMigrateSeatOf`; `netHostFreeSlot` skips seats kept for other
+accounts), and H1 holds the seats of accounts not back yet
+(`NETSEAT_HELD`, ticketed, `Net.ReconnectHold`, vacated at the start - the
+seats tick now vacates a held seat too), so the old host or a slow member
+gets seat and score back through the ordinary join in progress. GO's
+`stagetime60` (protocol 21: every client takes it) starts the clock where
+it was; at the first tick the kill table (rows and columns 0 and the swap
+exchanged) and the scenario's per-seat counts (`netScenResume`: Hacker
+Central's downloads, Pop a Cap's caps and survivals, a briefcase's held
+time; points are the table's) go in, a SCORES event sends the table to
+everyone, and a notice says who left and who hosts. Each player with a
+record alive in it (RESUME, below; the host's own from its kept block)
+is given a new life (`dostartnewlife`, as the Randomizer moves a living
+player) that player.c's hooks turn into its old one, the way the
+Randomizer's run lands a player: `netMigrateTakeSpawn` (its place, rooms,
+facing; the ground found under it), `netMigrateRestoreInventory` (guns,
+ammo capped at capacity), `netMigrateSpawnHands` (the gun it held, dual
+if it was; the only place a hand may be filled from) and
+`netMigrateRestoreHealth` (health, shield, loaded clips, after
+`playerSpawn` zeroes the shield). A client's own machine sees its player
+move by the local-player block's teleport counter (a jump past
+`NETENT_TELEPORT`) and its guns by `netLpInventory`. Pickups, a
+briefcase, the hill and the terminal start over; sims are made afresh
+with their rows of the table.
+
+**RESUME** (client -> host, after ACCEPT, protocol 21): the kept block
+with the old match's id; the host keeps it for the seat until the
+player's next life (a held seat's player comes back through
+`netHostLateGo`'s respawn and lands on it the same way). A record that
+came before the start is kept through it (the last connect starts the
+match, the RESUME follows its ACCEPT). A dead player's record is
+accepted and gives nothing (a fresh life); one that does not hold
+together (non-finite, a position past 10^6, a health past 100, a weapon
+past the table) is logged and the seat starts afresh. The record is the
+client's word: a modified client could claim a full kit. Accepted, the
+lobby's players being friends; clamping it against the new host's own
+view of that player (its puppet's place and held gun) would be the
+answer if it matters.
+
+**Content a member was served.** A conversion or map mod the old host
+served into memory (`$N/<name>`, fs.c, alive for the process) is the
+member's to host from: `netContentCanHost` (the room's mod switchable
+live, its conversion mounted here own or served, a `map:` stage key's map
+found) counts it, and `netContentServeRequest` now serves `$N/` folders
+too (it had excluded them), so the new host's own joiners are served what
+it was served. The served case of the gate: a guest with nothing
+installed hosts Complex from its copy and serves 2905 files (12.7 MB) on
+to a newcomer in about a second.
+
+**Traps met.**
+
+- The lobby test scripts made their room 3 s into the boot, before the
+  boot's own `mpInit` (filemgr.c/pdmain.c: Skedar, no sims) ran as the
+  menus came up: every scripted room (netlobbytest's too) played 0x32
+  with no simulants, whatever it was made with. The host script now waits
+  for the boot's menus first. (`--net-test-givekills` also takes a player
+  as its victim when there are no sims.)
+- pdlobbyd limits sign-ins to 10 per address per 5 minutes: a gate of
+  several cases from 127.0.0.1 runs a lobby per case.
+- With sims really in the match, idle test players die: a record dead at
+  the host's going is a fresh life, and the gate counts lives given back
+  against records alive.
+
+**Not done.** A client's predicted state between the last snapshot and
+the host's going is lost (the block is the host's last word); the swirl
+at the resumed match's start plays as at any start; a campaign mission
+restarted on GoldenEye's 007 difficulty keeps the room's difficulty, not
+the old host's sliders; the gate has no GoldenEye campaign case.

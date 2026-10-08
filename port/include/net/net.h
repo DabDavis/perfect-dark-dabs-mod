@@ -438,6 +438,14 @@ f32 netCoopSpawnPick(struct coord *pos, s16 *rooms);
 // player.c, the host: a join in progress's first life on a living player's
 // spot (pos, rooms and the facing set); 0 for the mission's own spawn
 s32 netCoopJoinSpawn(struct coord *pos, s16 *rooms, f32 *turnanglerad);
+// player.c, the host, host migration (netmigrate.c): a player of a match
+// carried on under a new host given its life back where the old host last had
+// it (pos, rooms, the facing; 0 not this player's), its guns and ammo before
+// playerSpawn, its hands (1: they are this file's), its health and shield after
+s32 netMigrateTakeSpawn(struct coord *pos, s16 *rooms, f32 *angle);
+void netMigrateRestoreInventory(void);
+s32 netMigrateSpawnHands(void);
+void netMigrateRestoreHealth(void);
 // gecinema.c on a client: the host's GO not here yet (the stage loaded), and
 // whether this machine joined the running match (GoldenEye's opening is then
 // skipped: the mission is under way)

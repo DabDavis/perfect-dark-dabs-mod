@@ -132,7 +132,7 @@ struct netruleshuman {
 	u8 gunfuncs[6];
 };
 
-static struct {
+struct netrulesmsg {
 	s32 valid;
 	u32 matchid;
 	char name[MPSETUP_MAXNAME + 1];
@@ -162,13 +162,15 @@ static struct {
 	struct netcontentneed content; // protocol 13: the host's mod and ROM hack mode (netcontent.c)
 	struct netkeyvalue keys[NET_MAXKEYS];
 	s32 nkeys;
-} s_NetRules;
+};
+
+static struct netrulesmsg s_NetRules;
 
 /**
  * What a match changed, as it was before: a client's whole match state and
  * its own values of the SYNC keys; the host's player slots 1-11
  */
-static struct {
+struct netrulessaved {
 	s32 client;  // a client's whole state is saved
 	s32 host;    // the host's remote slots are saved
 	struct mpsetup mpsetup;
@@ -196,7 +198,15 @@ static struct {
 	struct netkeyvalue keys[NET_MAXKEYS];
 	s32 nkeys;
 	s32 swapped; // H13: the own values are in while pd.ini is written
-} s_NetSaved;
+};
+
+static struct netrulessaved s_NetSaved;
+
+// Host migration (netmigrate.c): the RULES of the match whose host went
+// away, kept past its H12; and, on a machine that took the room over and
+// plays on with them as its own setup, its own state until it stops hosting
+static struct netrulesmsg s_Kept;
+static struct netrulessaved s_Own;
 
 static s32 s_NetRulesLocked = 0;
 static u32 s_NetRulesAppliedId = 0; // the matchid of the RULES netRulesApply took
@@ -1026,43 +1036,44 @@ s32 netRulesCoopOn(void)
  * Applying and restoring
  */
 
-static void netRulesSaveClient(void)
+static void netRulesSaveInto(struct netrulessaved *out)
 {
 	u32 k;
 
-	s_NetSaved.mpsetup = g_MpSetup;
-	memcpy(s_NetSaved.bots, g_BotConfigsArray, sizeof(s_NetSaved.bots));
-	memcpy(s_NetSaved.simslots, g_MpSimSlots, sizeof(s_NetSaved.simslots));
-	memcpy(s_NetSaved.difficulties, g_MpSimulantDifficultiesPerNumPlayers, sizeof(s_NetSaved.difficulties));
-	memcpy(s_NetSaved.players, g_PlayerConfigsArray, sizeof(s_NetSaved.players));
-	memcpy(s_NetSaved.teamnames, g_BossFile.teamnames, sizeof(s_NetSaved.teamnames));
-	s_NetSaved.weaponsetnum = g_MpWeaponSetNum;
-	memcpy(s_NetSaved.filters, g_MpWeaponSetRandomFilters, sizeof(s_NetSaved.filters));
-	memcpy(s_NetSaved.unlocked, g_MpFeaturesUnlocked, sizeof(s_NetSaved.unlocked));
-	s_NetSaved.modunlocks = g_ModUnlocks;
-	s_NetSaved.gexplusmode = g_GexPlusMode;
-	s_NetSaved.gexplusscenario = gexPlusGetScenario();
-	s_NetSaved.gexplusvariant = g_GexPlusVariant;
-	s_NetSaved.endless = g_MpEndlessMatch;
-	s_NetSaved.maxexplosions = g_MaxExplosionsSetting;
-	s_NetSaved.locktype = g_BossFile.locktype;
-	s_NetSaved.lockinfo = g_MpLockInfo;
-	s_NetSaved.mission = g_MissionConfig;
-	s_NetSaved.difficulty = lvGetDifficulty();
-	s_NetSaved.coopradaron = g_Vars.coopradaron;
-	s_NetSaved.coopfriendlyfire = g_Vars.coopfriendlyfire;
-	s_NetSaved.numaibuddies = g_Vars.numaibuddies;
+	out->mpsetup = g_MpSetup;
+	memcpy(out->bots, g_BotConfigsArray, sizeof(out->bots));
+	memcpy(out->simslots, g_MpSimSlots, sizeof(out->simslots));
+	memcpy(out->difficulties, g_MpSimulantDifficultiesPerNumPlayers, sizeof(out->difficulties));
+	memcpy(out->players, g_PlayerConfigsArray, sizeof(out->players));
+	memcpy(out->teamnames, g_BossFile.teamnames, sizeof(out->teamnames));
+	out->weaponsetnum = g_MpWeaponSetNum;
+	memcpy(out->filters, g_MpWeaponSetRandomFilters, sizeof(out->filters));
+	memcpy(out->unlocked, g_MpFeaturesUnlocked, sizeof(out->unlocked));
+	out->modunlocks = g_ModUnlocks;
+	out->gexplusmode = g_GexPlusMode;
+	out->gexplusscenario = gexPlusGetScenario();
+	out->gexplusvariant = g_GexPlusVariant;
+	out->endless = g_MpEndlessMatch;
+	out->maxexplosions = g_MaxExplosionsSetting;
+	out->locktype = g_BossFile.locktype;
+	out->lockinfo = g_MpLockInfo;
+	out->mission = g_MissionConfig;
+	out->difficulty = lvGetDifficulty();
+	out->coopradaron = g_Vars.coopradaron;
+	out->coopfriendlyfire = g_Vars.coopfriendlyfire;
+	out->numaibuddies = g_Vars.numaibuddies;
 
-	s_NetSaved.nkeys = 0;
+	out->nkeys = 0;
 
 	for (k = 0; k < ARRAYCOUNT(s_NetKeys); k++) {
 		if (s_NetKeys[k].cls == NETKEY_SYNC
-				&& netRulesReadKey(s_NetKeys[k].key, &s_NetSaved.keys[s_NetSaved.nkeys])) {
-			s_NetSaved.nkeys++;
+				&& netRulesReadKey(s_NetKeys[k].key, &out->keys[out->nkeys])) {
+			out->nkeys++;
 		}
 	}
 
-	s_NetSaved.client = 1;
+	out->client = 1;
+	out->swapped = 0;
 }
 
 void netRulesSaveHost(void)
@@ -1078,11 +1089,32 @@ void netRulesSaveHost(void)
 	s_NetSaved.host = 1;
 }
 
+static void netRulesPut(const struct netrulesmsg *rules, s32 coop);
+
 /**
  * H3: a client takes the host's rules over its own for the match. The GE
  * scenario first: its setter overwrites g_MpSetup.scenario.
  */
 void netRulesApply(void)
+{
+	if (!s_NetRules.valid) {
+		return;
+	}
+
+	if (!s_NetSaved.client) {
+		netRulesSaveInto(&s_NetSaved);
+	}
+
+	s_NetRulesAppliedId = s_NetRules.matchid;
+	netRulesPut(&s_NetRules, 1);
+}
+
+/**
+ * The rules over this machine's own setup (netRulesApply's, and a migrated
+ * host's adoption of the last match's); coop takes a mission block's
+ * settings as a client
+ */
+static void netRulesPut(const struct netrulesmsg *rules, s32 coop)
 {
 	struct savebuffer sb;
 	char a[NET_MAXSTRVAL + 4];
@@ -1091,53 +1123,43 @@ void netRulesApply(void)
 	s32 i;
 	s32 j;
 
-	if (!s_NetRules.valid) {
-		return;
-	}
-
-	if (!s_NetSaved.client) {
-		netRulesSaveClient();
-	}
-
-	s_NetRulesAppliedId = s_NetRules.matchid;
-
 	// the mode first, through its setter: a ROM hack's mode (protocol 13)
 	// puts the hack's weapon sets in the list's block, which the set number
 	// and weapons below index (gexplus.c); the setter's own choice of set
 	// and scenario is overwritten by the host's right after
-	if (!netContentVariantApply(s_NetRules.content.gevariant)) {
-		sysLogPrintf(LOG_WARNING, "net: rules: the host's ROM hack mode \"%s\" is not converted here", s_NetRules.content.gevariant);
+	if (!netContentVariantApply(rules->content.gevariant)) {
+		sysLogPrintf(LOG_WARNING, "net: rules: the host's ROM hack mode \"%s\" is not converted here", rules->content.gevariant);
 	}
 
-	mpSetGexPlusMode(s_NetRules.gexplusmode != 0);
-	gexPlusSetScenario(s_NetRules.gexplusscenario);
+	mpSetGexPlusMode(rules->gexplusmode != 0);
+	gexPlusSetScenario(rules->gexplusscenario);
 
-	snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "%s", s_NetRules.name);
-	g_MpSetup.options = s_NetRules.options;
-	g_MpSetup.scenario = s_NetRules.scenario;
-	g_MpSetup.timelimit = s_NetRules.timelimit;
-	g_MpSetup.scorelimit = s_NetRules.scorelimit;
-	g_MpSetup.teamscorelimit = s_NetRules.teamscorelimit;
+	snprintf(g_MpSetup.name, sizeof(g_MpSetup.name), "%s", rules->name);
+	g_MpSetup.options = rules->options;
+	g_MpSetup.scenario = rules->scenario;
+	g_MpSetup.timelimit = rules->timelimit;
+	g_MpSetup.scorelimit = rules->scorelimit;
+	g_MpSetup.teamscorelimit = rules->teamscorelimit;
 
 	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
-		g_MpSetup.weapons[i] = s_NetRules.weapons[i];
+		g_MpSetup.weapons[i] = rules->weapons[i];
 	}
 
 	savebufferClear(&sb);
-	savebufferOr(&sb, s_NetRules.scenariobits, 32);
+	savebufferOr(&sb, rules->scenariobits, 32);
 	sb.bitpos = 0;
 	scenarioReadSave(&sb, 1);
 
-	g_MpWeaponSetNum = s_NetRules.weaponsetnum;
+	g_MpWeaponSetNum = rules->weaponsetnum;
 
 	for (i = 0; i < NUM_MPWEAPONS && i < 64; i++) {
-		g_MpWeaponSetRandomFilters[i] = (s_NetRules.filters >> i) & 1;
+		g_MpWeaponSetRandomFilters[i] = (rules->filters >> i) & 1;
 	}
 
 	for (i = 0; i < MAX_BOTS; i++) {
-		if (s_NetRules.sims[i].on) {
+		if (rules->sims[i].on) {
 			struct mpbotconfig *bot = &g_BotConfigsArray[i];
-			struct netrulessim *sim = &s_NetRules.sims[i];
+			const struct netrulessim *sim = &rules->sims[i];
 
 			bot->type = sim->type;
 			bot->difficulty = sim->difficulty;
@@ -1152,14 +1174,14 @@ void netRulesApply(void)
 			}
 		}
 
-		mpSetSimSlotOn(i, s_NetRules.simslots[i]);
+		mpSetSimSlotOn(i, rules->simslots[i]);
 	}
 
-	memcpy(g_MpSimulantDifficultiesPerNumPlayers, s_NetRules.difficulties, sizeof(s_NetRules.difficulties));
+	memcpy(g_MpSimulantDifficultiesPerNumPlayers, rules->difficulties, sizeof(rules->difficulties));
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		struct mpplayerconfig *p = &g_PlayerConfigsArray[i];
-		struct netruleshuman *h = &s_NetRules.humans[i];
+		const struct netruleshuman *h = &rules->humans[i];
 
 		netNameSet(p->base.name, sizeof(p->base.name), h->name);
 		p->base.mpheadnum = mpHeadNumSafe(h->mpheadnum);
@@ -1178,20 +1200,20 @@ void netRulesApply(void)
 	}
 
 	// the host's chrslots last: mpSetSimSlotOn mirrored the sims into it
-	g_MpSetup.chrslots = s_NetRules.chrslots;
-	g_MpHumanSlotsHi = (u8)s_NetRules.humanslotshi;
+	g_MpSetup.chrslots = rules->chrslots;
+	g_MpHumanSlotsHi = (u8)rules->humanslotshi;
 
 	for (i = 0; i < MAX_TEAMS; i++) {
-		snprintf(g_BossFile.teamnames[i], sizeof(g_BossFile.teamnames[i]), "%s", s_NetRules.teamnames[i]);
+		snprintf(g_BossFile.teamnames[i], sizeof(g_BossFile.teamnames[i]), "%s", rules->teamnames[i]);
 	}
 
-	memcpy(g_MpFeaturesUnlocked, s_NetRules.unlocked, sizeof(s_NetRules.unlocked));
-	g_ModUnlocks = s_NetRules.modunlocks;
-	g_MpEndlessMatch = s_NetRules.endless;
+	memcpy(g_MpFeaturesUnlocked, rules->unlocked, sizeof(rules->unlocked));
+	g_ModUnlocks = rules->modunlocks;
+	g_MpEndlessMatch = rules->endless;
 
 	// puppet explosions must fit as many as the host makes
-	if (s_NetRules.maxexplosions > g_MaxExplosionsSetting) {
-		g_MaxExplosionsSetting = s_NetRules.maxexplosions;
+	if (rules->maxexplosions > g_MaxExplosionsSetting) {
+		g_MaxExplosionsSetting = rules->maxexplosions;
 	}
 
 	// a challenge is never marked complete from a net match
@@ -1200,22 +1222,22 @@ void netRulesApply(void)
 	}
 
 	// a mission's settings (spec-coop.md): the host's mission and difficulty
-	if (s_NetRules.coop.on) {
-		netCoopClientApplyRules(&s_NetRules.coop);
+	if (rules->coop.on && coop) {
+		netCoopClientApplyRules(&rules->coop);
 	}
 
-	for (i = 0; i < s_NetRules.nkeys; i++) {
-		if (netRulesReadKey(s_NetRules.keys[i].key, &mine) && !netRulesValuesEqual(&mine, &s_NetRules.keys[i])) {
+	for (i = 0; i < rules->nkeys; i++) {
+		if (netRulesReadKey(rules->keys[i].key, &mine) && !netRulesValuesEqual(&mine, &rules->keys[i])) {
 			netRulesValueString(&mine, a, sizeof(a));
-			netRulesValueString(&s_NetRules.keys[i], b, sizeof(b));
-			sysLogPrintf(LOG_NOTE, "net: rules: %s %s -> %s (the host's, for the match)", s_NetRules.keys[i].key, a, b);
+			netRulesValueString(&rules->keys[i], b, sizeof(b));
+			sysLogPrintf(LOG_NOTE, "net: rules: %s %s -> %s (the host's, for the match)", rules->keys[i].key, a, b);
 		}
 
-		netRulesWriteKey(&s_NetRules.keys[i]);
+		netRulesWriteKey(&rules->keys[i]);
 	}
 
 	sysLogPrintf(LOG_NOTE, "net: rules applied: match %u, scenario %d, chrslots 0x%04x, human slots 4-11 0x%02x, options 0x%08x, %d keys",
-			s_NetRules.matchid, g_MpSetup.scenario, g_MpSetup.chrslots, g_MpHumanSlotsHi, g_MpSetup.options, s_NetRules.nkeys);
+			rules->matchid, g_MpSetup.scenario, g_MpSetup.chrslots, g_MpHumanSlotsHi, g_MpSetup.options, rules->nkeys);
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		if (mpIsHumanSlotOn(i)) {
@@ -1229,6 +1251,8 @@ void netRulesApply(void)
 	}
 }
 
+static void netRulesRestoreFrom(const struct netrulessaved *saved);
+
 /**
  * H12: everything a net match changed goes back. A client's whole state; on
  * the host only its slots 1-11, which the remote players' names went into.
@@ -1238,37 +1262,7 @@ void netRulesRestore(void)
 	s32 i;
 
 	if (s_NetSaved.client) {
-		g_GexPlusVariant = s_NetSaved.gexplusvariant;
-		mpSetGexPlusMode(s_NetSaved.gexplusmode != 0);
-		gexPlusSetScenario(s_NetSaved.gexplusscenario);
-		g_MpSetup = s_NetSaved.mpsetup;
-		memcpy(g_BotConfigsArray, s_NetSaved.bots, sizeof(s_NetSaved.bots));
-		memcpy(g_MpSimSlots, s_NetSaved.simslots, sizeof(s_NetSaved.simslots));
-		memcpy(g_MpSimulantDifficultiesPerNumPlayers, s_NetSaved.difficulties, sizeof(s_NetSaved.difficulties));
-		memcpy(g_PlayerConfigsArray, s_NetSaved.players, sizeof(s_NetSaved.players));
-		memcpy(g_BossFile.teamnames, s_NetSaved.teamnames, sizeof(s_NetSaved.teamnames));
-		g_MpWeaponSetNum = s_NetSaved.weaponsetnum;
-		memcpy(g_MpWeaponSetRandomFilters, s_NetSaved.filters, sizeof(s_NetSaved.filters));
-		memcpy(g_MpFeaturesUnlocked, s_NetSaved.unlocked, sizeof(s_NetSaved.unlocked));
-		g_ModUnlocks = s_NetSaved.modunlocks;
-		g_MpEndlessMatch = s_NetSaved.endless;
-		g_MaxExplosionsSetting = s_NetSaved.maxexplosions;
-		g_BossFile.locktype = s_NetSaved.locktype;
-		g_MpLockInfo = s_NetSaved.lockinfo;
-		g_MpHumanSlotsHi = 0;
-		g_MissionConfig = s_NetSaved.mission;
-		lvSetDifficulty(s_NetSaved.difficulty);
-		g_Vars.coopradaron = s_NetSaved.coopradaron;
-		g_Vars.coopfriendlyfire = s_NetSaved.coopfriendlyfire;
-		g_Vars.numaibuddies = s_NetSaved.numaibuddies;
-
-		for (i = 0; i < s_NetSaved.nkeys; i++) {
-			netRulesWriteKey(&s_NetSaved.keys[i]);
-		}
-
-		// the unlock table is the profile's again
-		challengeDetermineUnlockedFeatures();
-
+		netRulesRestoreFrom(&s_NetSaved);
 		sysLogPrintf(LOG_NOTE, "net: rules restored: this machine's own setup and settings are back");
 	} else if (s_NetSaved.host) {
 		for (i = 1; i < MAX_PLAYERS; i++) {
@@ -1292,42 +1286,174 @@ void netRulesRestore(void)
 	}
 }
 
+// A client's whole state back as it was saved (netRulesSaveInto)
+static void netRulesRestoreFrom(const struct netrulessaved *saved)
+{
+	s32 i;
+
+	g_GexPlusVariant = saved->gexplusvariant;
+	mpSetGexPlusMode(saved->gexplusmode != 0);
+	gexPlusSetScenario(saved->gexplusscenario);
+	g_MpSetup = saved->mpsetup;
+	memcpy(g_BotConfigsArray, saved->bots, sizeof(saved->bots));
+	memcpy(g_MpSimSlots, saved->simslots, sizeof(saved->simslots));
+	memcpy(g_MpSimulantDifficultiesPerNumPlayers, saved->difficulties, sizeof(saved->difficulties));
+	memcpy(g_PlayerConfigsArray, saved->players, sizeof(saved->players));
+	memcpy(g_BossFile.teamnames, saved->teamnames, sizeof(saved->teamnames));
+	g_MpWeaponSetNum = saved->weaponsetnum;
+	memcpy(g_MpWeaponSetRandomFilters, saved->filters, sizeof(saved->filters));
+	memcpy(g_MpFeaturesUnlocked, saved->unlocked, sizeof(saved->unlocked));
+	g_ModUnlocks = saved->modunlocks;
+	g_MpEndlessMatch = saved->endless;
+	g_MaxExplosionsSetting = saved->maxexplosions;
+	g_BossFile.locktype = saved->locktype;
+	g_MpLockInfo = saved->lockinfo;
+	g_MpHumanSlotsHi = 0;
+	g_MissionConfig = saved->mission;
+	lvSetDifficulty(saved->difficulty);
+	g_Vars.coopradaron = saved->coopradaron;
+	g_Vars.coopfriendlyfire = saved->coopfriendlyfire;
+	g_Vars.numaibuddies = saved->numaibuddies;
+
+	for (i = 0; i < saved->nkeys; i++) {
+		netRulesWriteKey(&saved->keys[i]);
+	}
+
+	// the unlock table is the profile's again
+	challengeDetermineUnlockedFeatures();
+}
+
 /**
  * H13: while pd.ini is written the player's own values are in, then the
  * host's go back for the rest of the match
  */
-static void netRulesSwap(void)
+static void netRulesSwap(struct netrulessaved *saved)
 {
 	struct netkeyvalue cur;
 	s32 maxexplosions = g_MaxExplosionsSetting;
 	s32 i;
 
 	// Game.MaxExplosions too: a client raised it to the host's
-	g_MaxExplosionsSetting = s_NetSaved.maxexplosions;
-	s_NetSaved.maxexplosions = maxexplosions;
+	g_MaxExplosionsSetting = saved->maxexplosions;
+	saved->maxexplosions = maxexplosions;
 
-	for (i = 0; i < s_NetSaved.nkeys; i++) {
-		if (netRulesReadKey(s_NetSaved.keys[i].key, &cur)) {
-			netRulesWriteKey(&s_NetSaved.keys[i]);
-			s_NetSaved.keys[i] = cur;
+	for (i = 0; i < saved->nkeys; i++) {
+		if (netRulesReadKey(saved->keys[i].key, &cur)) {
+			netRulesWriteKey(&saved->keys[i]);
+			saved->keys[i] = cur;
 		}
 	}
 }
 
+// a client's match, or a migrated host's adopted rules (s_Own), whose own
+// values go into pd.ini
+static struct netrulessaved *netRulesOwnValues(void)
+{
+	return s_NetSaved.client ? &s_NetSaved : s_Own.client ? &s_Own : NULL;
+}
+
 void netRulesConfigSaveBegin(void)
 {
-	if (s_NetSaved.client && !s_NetSaved.swapped) {
-		netRulesSwap();
-		s_NetSaved.swapped = 1;
+	struct netrulessaved *saved = netRulesOwnValues();
+
+	if (saved && !saved->swapped) {
+		netRulesSwap(saved);
+		saved->swapped = 1;
 	}
 }
 
 void netRulesConfigSaveEnd(void)
 {
-	if (s_NetSaved.client && s_NetSaved.swapped) {
-		netRulesSwap();
-		s_NetSaved.swapped = 0;
+	struct netrulessaved *saved = netRulesOwnValues();
+
+	if (saved && saved->swapped) {
+		netRulesSwap(saved);
+		saved->swapped = 0;
 	}
+}
+
+/*
+ * Host migration (netmigrate.c)
+ */
+
+/**
+ * A client whose host went away mid-match: the match's RULES, as it took
+ * them at H3, kept past the H12 that is coming (which forgets them)
+ */
+s32 netRulesKeep(void)
+{
+	if (!s_NetRules.valid || s_NetRules.matchid != s_NetRulesAppliedId) {
+		s_Kept.valid = 0;
+		return 0;
+	}
+
+	s_Kept = s_NetRules;
+	return 1;
+}
+
+void netRulesKeptForget(void)
+{
+	s_Kept.valid = 0;
+}
+
+// The kept match's mission block (a co-op mission's), or NULL
+const struct netcooprules *netRulesKeptCoop(void)
+{
+	return s_Kept.valid && s_Kept.coop.on ? &s_Kept.coop : NULL;
+}
+
+// The kept match's content: the mod and the ROM hack mode it was played in
+const struct netcontentneed *netRulesKeptContent(void)
+{
+	return s_Kept.valid ? &s_Kept.content : NULL;
+}
+
+/**
+ * This machine took the room over: the kept match's rules become its own
+ * setup, the room's from here, with this machine's player in slot 0 and the
+ * old host's in `swapslot` (this machine's in the kept match). Its own setup
+ * and settings are saved first (once) and come back at netRulesAdoptEnd; a
+ * pd.ini write meanwhile writes its own values (H13).
+ */
+s32 netRulesAdopt(s32 swapslot)
+{
+	struct netruleshuman t;
+
+	if (!s_Kept.valid || swapslot < 0 || swapslot >= MAX_PLAYERS) {
+		return 0;
+	}
+
+	if (!s_Own.client) {
+		netRulesSaveInto(&s_Own);
+	}
+
+	t = s_Kept.humans[0];
+	s_Kept.humans[0] = s_Kept.humans[swapslot];
+	s_Kept.humans[swapslot] = t;
+
+	netRulesPut(&s_Kept, 0);
+	s_Kept.valid = 0;
+
+	sysLogPrintf(LOG_NOTE, "net: rules: the last match's rules adopted as this host's setup (slot %d its player there, now 0)", swapslot);
+
+	return 1;
+}
+
+// This machine stops hosting the room it took over: its own setup back
+void netRulesAdoptEnd(void)
+{
+	if (!s_Own.client) {
+		return;
+	}
+
+	if (s_Own.swapped) {
+		netRulesSwap(&s_Own);
+		s_Own.swapped = 0;
+	}
+
+	netRulesRestoreFrom(&s_Own);
+	s_Own.client = 0;
+	sysLogPrintf(LOG_NOTE, "net: rules: hosting over; this machine's own setup and settings are back");
 }
 
 void netRulesSetLocked(s32 locked)

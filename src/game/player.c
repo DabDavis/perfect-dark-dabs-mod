@@ -667,6 +667,9 @@ void playerStartNewLife(void)
 	} else if (modRandomTakeSpawn(&pos, rooms, &angle)) {
 		// Randomizer: the mission's first life starts where the roll said,
 		// which a mission that opens with a cutscene will not do on its own.
+	} else if (g_NetMode == NETMODE_SERVER && netMigrateTakeSpawn(&pos, rooms, &angle)) {
+		// netplay: a match carried on under a new host gives the player its
+		// life back where the old host last had it (netmigrate.c)
 	} else if (g_NetMode == NETMODE_SERVER && netCoopJoinSpawn(&pos, rooms, &angle)) {
 		// netplay: a co-op mission joined in progress starts on a living
 		// player's spot, not at the mission's start (netcoop.c)
@@ -830,6 +833,12 @@ void playerStartNewLife(void)
 	// rather than from the tick because a gun in a hand is a model to load and
 	// the load runs from the spawn below.
 	modRunRestoreInventory();
+
+	// netplay: the guns and ammo a player of a match carried on under a new
+	// host had (netmigrate.c)
+	if (g_NetMode == NETMODE_SERVER) {
+		netMigrateRestoreInventory();
+	}
 #endif
 
 	if (g_Vars.coopplayernum >= 0 && g_Vars.currentplayer->stealhealth > 0) {
@@ -861,6 +870,11 @@ void playerStartNewLife(void)
 	// And the damage the run has taken so far, after playerSpawn() has set the
 	// shield back to zero.
 	modRunRestoreHealth();
+
+	// netplay: a match carried on: the player's health and shield as they were
+	if (g_NetMode == NETMODE_SERVER) {
+		netMigrateRestoreHealth();
+	}
 #endif
 }
 
@@ -1152,6 +1166,12 @@ static void playerSpawnWeapons(void)
 	// portal. The same override as Mission Respawn's below and for the same
 	// reason - this is the one place a hand may be filled from, since what
 	// goes in it decides which gun model the spawn loads.
+	// netplay: a match carried on under a new host: the guns the player held
+	// (netmigrate.c)
+	if (g_NetMode == NETMODE_SERVER && netMigrateSpawnHands()) {
+		return;
+	}
+
 	if (modRunIsLanding()) {
 		const s32 leftweaponnum = modRunGetHandWeapon(HAND_LEFT);
 		const s32 rightweaponnum = modRunGetHandWeapon(HAND_RIGHT);

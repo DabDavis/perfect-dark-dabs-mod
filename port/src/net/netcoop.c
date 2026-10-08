@@ -622,6 +622,21 @@ s32 netCoopCampaignOpen(const char *game, s32 radar, s32 friendlyfire)
 	return 1;
 }
 
+/**
+ * Host migration (netmigrate.c): a campaign room taken over mid-mission is
+ * this host's campaign now; the mission starts again at once, and its menus
+ * come after it as a campaign host's do
+ */
+void netCoopCampaignResume(const char *game, s32 radar, s32 friendlyfire)
+{
+	memset(&s_Campaign, 0, sizeof(s_Campaign));
+	s_Campaign.on = 1;
+	s_Campaign.radar = radar;
+	s_Campaign.friendlyfire = friendlyfire;
+	snprintf(s_Campaign.game, sizeof(s_Campaign.game), "%s", game ? game : "");
+	sysLogPrintf(LOG_NOTE, "net: co-op: the %s campaign is this host's now", netCoopGameName(s_Campaign.game));
+}
+
 /** The Game Lobby's row on a campaign host: back to the set's menus */
 void netCoopCampaignMenusOpen(void)
 {

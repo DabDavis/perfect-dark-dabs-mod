@@ -93,7 +93,14 @@
 //    Fog, Glass See-Through and Tranquilizer Effect left RULES for no wire at
 //    all (each machine's picture); the local-player block carries the
 //    player's drugged-screen amount (u16 at byte 200)
-#define NET_PROTOCOL_VERSION 20
+// 21 (host migration, netmigrate.c): a lobby room outlives its host. GO's
+//    stagetime60 is the level clock every client takes, not only a join in
+//    progress (a match carried on under a new host starts where it was);
+//    RESUME, client -> host, a player's state as the old host last had it
+//    (its local-player block), which the new host gives that player's next
+//    life; a LEAVE SHUTDOWN or LEFT from the host, or its connection lost,
+//    keeps the match on a lobby room's client for its next host
+#define NET_PROTOCOL_VERSION 21
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -120,6 +127,8 @@
 // protocol 18: the online HUD (nethud.c)
 #define NETMSG_CHAT          22 // both ways: a chat line, or the host's notice
 #define NETMSG_PLAYERS       23 // host -> client: each seat's ping, the spectators
+// protocol 21: host migration (netmigrate.c)
+#define NETMSG_RESUME        24 // client -> host: its player as the old host last had it
 
 /**
  * Refusal and leave reasons: REFUSE's and LEAVE's code byte, and the u32
@@ -415,7 +424,27 @@
  *                                 next (the client starts a little past it)
  *   s32     stagetime60           (protocol 9) the match's clock then
  *                                 (g_StageTimeElapsed60): the time limit
- *                                 and the HUD's clock read it
+ *                                 and the HUD's clock read it; (protocol 21)
+ *                                 every client takes it, a match carried on
+ *                                 under a new host starting from it (0 a
+ *                                 match's own start)
+ *
+ * RESUME (client -> host, RELIABLE; protocol 21) - host migration: right
+ * after ACCEPT from the room's new host, a client whose last host went
+ * mid-match sends its player as that host last had it
+ *   u8      NETMSG_RESUME
+ *   u32     oldmatch              the old host's id of the match
+ *   u16     len                   NETLP_SIZE (688)
+ *   bytes   localplayer           the newest local-player block it had (the
+ *                                 SNAP layout below): the new host gives that
+ *                                 seat's player its next life where the block
+ *                                 stood, facing its way, with its health,
+ *                                 shield, guns, ammo and loaded clips (dead
+ *                                 in it: a life of its own). A record for
+ *                                 another match is ignored; one that does not
+ *                                 hold together (a position past 10^6, a
+ *                                 health past 100, a weapon past the table)
+ *                                 is logged and the seat starts afresh
  *
  * ROSTER (host -> client, RELIABLE; protocol 9) - the match's seats, on GO
  * of a join in progress and to everyone whenever one changes hands:

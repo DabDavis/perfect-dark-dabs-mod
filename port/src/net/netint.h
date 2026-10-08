@@ -110,6 +110,7 @@ void netSessionLobbySetRoom(const char *roomid, const char *secret);
 void netSessionLobbyClock(s64 offset);
 s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const char *name, struct nethost *sock, s32 windowms); // windowms 0: NET_CONNECT_WINDOW_MS
 void netSessionLobbyStop(void);
+void netSessionClientNewHost(void); // host migration: the room's host is another now; this client's session ends
 s32 netSessionLobbyRole(void);       // 1 host, 2 client, 0 none
 s32 netSessionClientJoined(void);
 s32 netSessionClientGone(void);
@@ -277,6 +278,7 @@ void netContentWrite(struct netbuf *b, const struct netcontentneed *n, s32 withv
 void netContentRead(struct netbuf *b, struct netcontentneed *n, s32 withvariant);
 s32 netContentFollow(const struct netcontentneed *n, char *text, s32 textsize); // client: a NETCONTENT_*
 void netContentRestore(void);                  // client: the session is over
+s32 netContentCanHost(const char *mod, const char *ge, const char *stagekey); // host migration: this machine could host such a room
 s32 netContentMountMaps(const char *dirbase);  // client: a map's mod installed but not mounted; 1 mounted now
 void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, char *text, s32 size);
 const char *netContentVariantTag(void);
@@ -428,6 +430,41 @@ void netRulesApply(void);           // a client: the stored blob over its own st
 void netRulesSaveHost(void);        // the host: what it changes for remote slots
 void netRulesRestore(void);         // H12
 void netRulesSetLocked(s32 locked);
+// Host migration (netmigrate.c): a client keeps the match's RULES past H12;
+// a machine that took the room over adopts them as its own setup (its
+// player's seat exchanged with 0) until it stops hosting
+s32 netRulesKeep(void);
+void netRulesKeptForget(void);
+const struct netcooprules *netRulesKeptCoop(void);
+const struct netcontentneed *netRulesKeptContent(void);
+s32 netRulesAdopt(s32 swapslot);
+void netRulesAdoptEnd(void);
+
+// netmigrate.c: host migration (CLAUDE-notes/netplay.md "Host migration")
+void netMigrateKeep(const char *room, u32 matchid, s32 stage, s32 myslot, s32 resume, const u8 *seats, s32 pastsnap);
+void netMigrateForget(void);
+s32 netMigrateKeptFor(const char *room);       // kept for this room, and fresh
+s32 netMigrateResumeKept(const char *room);    // ... a match to carry on, or a mission to start again
+const char *netMigratePrevHost(void);          // the kept match's host
+s32 netMigrateAdopt(const char *room, s32 campaign, char *text, s32 textsize); // the room's new host: 0 cannot (text why)
+void netMigrateAdoptEnd(void);                 // it stops hosting
+s32 netMigrateResumePending(void);             // host: the room's next match carries the kept one on
+s32 netMigrateResuming(void);                  // host: the match running is a resumed one
+s32 netMigrateSeatOf(const char *account);     // host, a CONNECT before it: the account's seat, -1
+s32 netMigrateSeatReserved(s32 slot, const char *account); // ... seat kept for another account
+const char *netMigrateSeatAccount(s32 slot);   // host at H1: the account the seat is held for
+s32 netMigrateHostStart(void);                 // host: 1 started the kept match (or mission) again
+s32 netMigrateGoTime(void);                    // host: GO's level time
+void netMigrateSendRecord(const char *room);   // client, ACCEPT: its kept player (RESUME)
+s32 netMigrateOnRecord(s32 slot, struct netbuf *b); // host: RESUME; 0 malformed
+void netMigrateHostTick(void);                 // host, each tick's head
+void netMigrateMatchStopped(void);             // H12
+void netMigrateTrace(FILE *f);
+s32 netScenKeep(u8 *out);                      // netscen.c: the client's last block
+void netScenResume(const u8 *b, s32 swap);     // ... its per-player counts on the new host
+s32 netEntsClientLastLp(u8 *out);              // netents.c: the newest local-player block, packed
+void netSessionHostNotice(const char *fmt, ...); // a notice on every HUD (protocol 18)
+void netCoopCampaignResume(const char *game, s32 radar, s32 friendlyfire); // a campaign room taken over mid-mission
 
 // netticket.c: tools/pdlobbyd/README.md "Join ticket", checks 1-4 and 6;
 // 5 (the roster) is the lobby client's, phase 6. 0 if good, else why not;

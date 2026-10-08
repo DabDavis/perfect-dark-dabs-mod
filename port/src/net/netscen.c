@@ -532,6 +532,71 @@ void netScenHostSeatCleared(s32 slot)
 	sysLogPrintf(LOG_NOTE, "net: seat %d's scenario counts cleared", slot);
 }
 
+/**
+ * Host migration (netmigrate.c), a client whose host went away: the block it
+ * applied last, the counts the scenario keeps per player in it. 0 none.
+ */
+s32 netScenKeep(u8 *out)
+{
+	if (!s_HaveCur || s_Cur[OFF_SCEN] > MPSCENARIO_CAPTURETHECASE) {
+		return 0;
+	}
+
+	memcpy(out, s_Cur, NETSCEN_SIZE);
+	return 1;
+}
+
+/**
+ * The new host, at its resumed match's first tick: those counts back, each
+ * seat's from the seat that player had before (`swap` and 0 exchanged, as
+ * the kill table's rows are). The scenario's props start over (a briefcase
+ * at its spawn, the hill where the new stage put it); what the players
+ * earned stays theirs. Points are the kill table's (MPCHR numpoints).
+ */
+void netScenResume(const u8 *b, s32 swap)
+{
+	s32 i;
+
+	if (g_NetMode != NETMODE_SERVER || !g_Vars.normmplayerisrunning || b[OFF_SCEN] != g_MpSetup.scenario) {
+		return;
+	}
+
+	for (i = 0; i < g_MpNumChrs; i++) {
+		s32 slot = netScenSlotOf(i);
+
+		if (slot < 0) {
+			continue;
+		}
+
+		// the seat's count before the exchange
+		slot = slot == 0 ? swap : slot == swap ? 0 : slot;
+
+		switch (g_MpSetup.scenario) {
+		case MPSCENARIO_HACKERCENTRAL:
+			g_ScenarioData.htm.numpoints[i] = gets16(b + HTM_POINTS + slot * 2);
+			g_ScenarioData.htm.dltime240[i] = 0;
+			break;
+		case MPSCENARIO_POPACAP:
+			g_ScenarioData.pac.killcounts[i] = gets16(b + PAC_KILLS + slot * 2);
+			g_ScenarioData.pac.survivalcounts[i] = gets16(b + PAC_SURV + slot * 2);
+			break;
+		default:
+			break;
+		}
+	}
+
+	for (i = 0; i < PLAYERCOUNT() && i < MAX_PLAYERS; i++) {
+		s32 slot = g_Vars.playerstats[i].mpindex;
+
+		if (slot >= 0 && slot < MAX_PLAYERS) {
+			slot = slot == 0 ? swap : slot == swap ? 0 : slot;
+			g_Vars.playerstats[i].tokenheldtime = get16(b + OFF_HELD + slot * 2);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: scenario %d's counts carried into the resumed match", g_MpSetup.scenario);
+}
+
 static s32 netScenPacOut(s32 index)
 {
 	const struct scenariodata_pac *d = &g_ScenarioData.pac;

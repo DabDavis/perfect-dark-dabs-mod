@@ -1650,6 +1650,20 @@ static void netLpLocalSig(struct player *p, struct netlplocalsig *sig)
 	sig->loaded[3] = p->hands[HAND_LEFT].loadedammo[1];
 }
 
+/**
+ * Host migration (netmigrate.c): this machine's player as the host last had
+ * it, the newest local-player block packed (NETLP_SIZE). 0 when none came.
+ */
+s32 netEntsClientLastLp(u8 *out)
+{
+	if (!s_LpHaveBlock) {
+		return 0;
+	}
+
+	netLpPack(&s_LpNew, out);
+	return 1;
+}
+
 s32 netEntsClientLpHolds(s32 weaponnum)
 {
 	if (!s_LpHaveBlock || weaponnum <= 0 || weaponnum >= 256) {

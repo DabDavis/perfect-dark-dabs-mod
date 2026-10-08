@@ -60,6 +60,9 @@ struct netlobbyroomsum {
 	s32 dedicated;
 	s32 hostrtt;       // ms, -1 unknown
 	s32 compat;        // NETLOBBY_COMPAT_*
+	s32 hostepoch;     // host migration: counts the room's hosts (1 its maker)
+	s32 migrating;     // launched, its new host not yet listening
+	char prevhost[NETLOBBY_MAXUSER + 1]; // who hosted before the last migration
 };
 
 struct netlobbymember {
@@ -71,6 +74,7 @@ struct netlobbymember {
 	s32 udp;
 	char path[8];      // the member's path to the host: lan, direct, punch, relay, none; "" not yet
 	s32 ping;          // ms over that path, -1 unknown
+	s32 canhost;       // host migration: its game could take the room over
 };
 
 struct netlobbychat {
@@ -102,6 +106,9 @@ struct netlobbyroom {
 	s32 youhost;
 	s32 youspectator;
 	char you[NETLOBBY_MAXUSER + 1];
+	char yousecret[72]; // the room secret, to its host only (a host that took the room over learns it here)
+	char youudpid[20];  // this seat's rendezvous credentials (a migration renews the key)
+	char youudpkey[70];
 };
 
 // Room settings for create (and the host's settings change)
@@ -154,12 +161,15 @@ void netLobbySignIn(void);         // sign in now, once per account (the Online 
 void netLobbySignInAgain(void);    // and once more (the page opened again)
 void netLobbyWarm(void);           // the Online Game page opened: hash off the frame
 void netLobbyCancelPending(void);  // the create/join page closed before the reply
-s32 netLobbyLaunchState(void);       // 0 open, 1 counting down, 2 launched/connecting, 3 in the match
+s32 netLobbyLaunchState(void);       // 0 open, 1 counting down, 2 launched/connecting, 3 in the match, 4 the host went: a new one taking the match over
 s32 netLobbyCampaignState(void);     // a launched campaign room: 1 its host, 2 a member in with the host, 3 connecting; else 0
 s32 netLobbyCountdownMs(void);       // the launch countdown left, -1 if none
 
 // The session's side (netsession.c): the room's roster for ticket check 5
 s32 netLobbyRosterHas(const char *user); // a non-host member, case-insensitive
+// Host migration: the room's id ("" none); a client lost its host (the lobby is told)
+const char *netLobbyRoomId(void);
+void netLobbyHostLost(void);
 
 // Back from a match that came from a room (menutick.c, mainmenu.c)
 void netLobbyMenuAfterMatch(void);
