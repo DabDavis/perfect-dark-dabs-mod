@@ -50,5 +50,16 @@ s32 coopRespawnBuddy(s32 playernum);
 // the player prop a camera or autogun looks for this frame, cycling the
 // players over the frames (bond on odd frames and coop on even at two)
 struct prop *coopAlternatePlayerProp(void);
+// the living player nearest chr other than skip (-1 none)
+s32 coopNearestPlayerNum(struct chrdata *chr, s32 skip);
+// the player chr_toggle_p1p2 turns chr to: the other one at two; past that
+// the nearest living player, or from the nearest the next in chr's turn
+s32 coopToggleP1P2(struct chrdata *chr);
+// a player's noise at noiseprop is for chr's ears: its target's (the game's
+// rule), or past two players any player's when chr's target is a player
+bool coopNoiseReaches(struct chrdata *chr, struct prop *noiseprop);
+// chr heard player playernum's noise (in its range, coopNoiseReaches): its
+// target's, or past two the guard turned to it; false if it kept its target
+bool coopHearPlayerNoise(struct chrdata *chr, struct prop *noiseprop, s32 playernum);
 
 #endif

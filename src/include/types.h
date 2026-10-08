@@ -1446,6 +1446,10 @@ struct chrdata {
 	// GoldenEye's CHRFLAG_02000000: this animation's sneeze has been heard
 	// (or skipped), cleared as each animation starts (chrlvTickAnim())
 	u8 gesneezed;
+	// Past two co-op players: the last player chr_toggle_p1p2 turned this
+	// guard to from the nearest one, so the next switch away from the
+	// nearest goes on to the player after it (coopToggleP1P2(), coop.c)
+	u8 coopturn;
 #endif
 };
 

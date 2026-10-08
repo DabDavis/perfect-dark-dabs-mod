@@ -527,7 +527,8 @@ progression").
   (`g_Vars.coop`, `chr->p1p2`, `CHR_P1P2_OPPOSITE`, "the other player").
   `src/game/coop.c` answers those questions for N players and gives the
   old answer at two, so the replay gate stays identical:
-  `coopOtherPlayerNum` (the nearest living other past two),
+  `coopOtherPlayerNum` (the nearest living other past two; no longer the
+  guards' switch, see below),
   `coopRespawnBuddy` (the living other with the most health),
   `coopAllDead`/`coopAllDeadDone`/`coopAnyAborted`,
   `coopAlternatePlayerProp` (cameras and autoguns cycle the players),
@@ -537,6 +538,29 @@ progression").
   `menutick.c` goes back to the menus as after a match. A setup file's
   mine is owned by `COOP_SETUP_MINE_OWNER` (2 offline, 12 online: slot 2
   is a player online).
+- **Which player a guard is after, past two.** A guard watches one
+  player, `chr->p1p2` (its target when `chr->target` is -1; `chrInit` sets
+  player one, the host online), and sight and hearing test only that one.
+  The guard lists reach the others through `chr_toggle_p1p2`, often as
+  "switch, test, switch back". The first widening went to the player
+  nearest the *current target*, which walks a nearest-neighbour chain:
+  a guard on the host bounced between the host and whoever stood by it
+  and never tested a player off on their own, even one standing beside
+  it (2026-10-08 user: "the AI enemies ignore the other players, only
+  target the host"). Now (`coop.c`, all at two players the old answer):
+  `coopToggleP1P2` has a home, the living player nearest the guard: from
+  anyone else it goes home, from home to the next living player after
+  `chr->coopturn`, so two switches come home and everyone is tested in
+  turn. A player's gunfire (`chrsCheckForNoise`) or explosion
+  (`explosionAlertChrs`, credited to `exp->owner` past two; owner 0 is also
+  "nobody's", as stock's current player mostly was) turns a guard whose
+  target is another player to the noise (`coopHearPlayerNoise`) unless it
+  saw its target within a second and that one is nearer. A death sends
+  each guard on the dead player to the living player nearest it
+  (`chrsClearRefsToPlayer`). The check: the scratchpad harness of
+  2026-10-08 put a guard beside a client that had walked 10 m off; before
+  the change it kept the host for 600 ticks at alertness 0, after it shot
+  that client.
 - **Starting one.** The host: a lobby room with Game = Co-op Mission
   (mission, difficulty, radar, friendly fire; `g_NetCoopSetup`, the room's
   summary says the mission and "Co-op Agent"), the Carrington Institute's

@@ -1610,6 +1610,7 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->geflags2 = 0;
 	chr->gewashit = 0;
 	chr->gesneezed = 0;
+	chr->coopturn = 0;
 #endif
 	chr->aishootingatmelist = -1;
 	chr->aidarkroomlist = -1;
@@ -5975,8 +5976,9 @@ void chrsCheckForNoise(f32 noiseradius)
 		if (g_ChrSlots[i].model) {
 			struct prop *prop = g_ChrSlots[i].prop;
 
+			// its target's noise; past two co-op players any player's (coop.c)
 			if (prop && prop->type == PROPTYPE_CHR &&
-					chrGetTargetProp(&g_ChrSlots[i]) == g_Vars.currentplayer->prop) {
+					coopNoiseReaches(&g_ChrSlots[i], g_Vars.currentplayer->prop)) {
 
 				f32 distance = chrGetDistanceToCurrentPlayer(&g_ChrSlots[i]);
 
@@ -5986,7 +5988,8 @@ void chrsCheckForNoise(f32 noiseradius)
 					distance = (noiseradius * 100 * g_ChrSlots[i].hearingscale * (1.0f + add)) / distance;
 				}
 
-				if (distance > 1.0f) {
+				if (distance > 1.0f
+						&& coopHearPlayerNoise(&g_ChrSlots[i], g_Vars.currentplayer->prop, g_Vars.currentplayernum)) {
 					chrRecordLastHearTargetTime(&g_ChrSlots[i]);
 #if PIRACYCHECKS
 					{

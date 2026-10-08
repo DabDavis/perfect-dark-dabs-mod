@@ -211,15 +211,24 @@ void explosionGetBboxAtFrame(struct coord *lower, struct coord *upper, s32 frame
 	upper->z = prop->pos.z + rangeh;
 }
 
-void explosionAlertChrs(f32 *radius, struct coord *noisepos)
+void explosionAlertChrs(f32 *radius, struct coord *noisepos, s32 owner)
 {
 	u32 stack[2];
 	s32 *end = (s32 *)&doorDestroyGlass;
 	s32 i;
+	// the noise is the current player's; past two co-op players it is the
+	// one who set the explosion off, if that one lives (coop.c)
+	s32 playernum = g_Vars.currentplayernum;
+	struct prop *noiseprop = g_Vars.currentplayer->prop;
+
+	if (PLAYERCOUNT() > 2 && coopIsOn() && coopPlayerAlive(owner) && g_Vars.players[owner]->prop) {
+		playernum = owner;
+		noiseprop = g_Vars.players[owner]->prop;
+	}
 
 	for (i = 0; i < g_NumChrSlots; i++) {
 		if (g_ChrSlots[i].model
-				&& chrGetTargetProp(&g_ChrSlots[i]) == g_Vars.currentplayer->prop
+				&& coopNoiseReaches(&g_ChrSlots[i], noiseprop)
 				&& g_ChrSlots[i].prop
 				&& g_ChrSlots[i].prop->type == PROPTYPE_CHR
 				&& (g_ChrSlots[i].prop->flags & PROPFLAG_ENABLED)) {
@@ -231,7 +240,7 @@ void explosionAlertChrs(f32 *radius, struct coord *noisepos)
 				distance = (10.0f * *radius * g_ChrSlots[i].hearingscale) / distance;
 			}
 
-			if (distance > 1) {
+			if (distance > 1 && coopHearPlayerNoise(&g_ChrSlots[i], noiseprop, playernum)) {
 				chrRecordLastHearTargetTime(&g_ChrSlots[i]);
 			}
 		}
@@ -587,7 +596,7 @@ bool explosionCreate(struct prop *sourceprop, struct coord *exppos, RoomNum *exp
 				smokeClearSomeTypes();
 			}
 
-			explosionAlertChrs(&g_ExplosionTypes[type].rangeh, exppos);
+			explosionAlertChrs(&g_ExplosionTypes[type].rangeh, exppos, playernum);
 		}
 	}
 

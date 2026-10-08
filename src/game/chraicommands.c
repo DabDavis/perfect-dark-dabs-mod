@@ -9444,12 +9444,9 @@ bool aiToggleP1P2(void)
 		struct chrdata *chr = chrFindById(g_Vars.chrdata, cmd[2]);
 
 		if (chr) {
-			// the other player (the nearest living one past two: coop.c) if it lives
-			const s32 other = coopOtherPlayerNum(chr->p1p2);
-
-			if (coopPlayerAlive(other)) {
-				chr->p1p2 = other;
-			}
+			// the other player if it lives; past two the nearest living one,
+			// or from the nearest the next in the guard's turn (coop.c)
+			chr->p1p2 = coopToggleP1P2(chr);
 		}
 	}
 

@@ -16521,6 +16521,17 @@ s32 chrResolvePadId(struct chrdata *chr, s32 pad_id)
 }
 
 /**
+ * The player a chr watching the dead playernum turns to: the other one at two
+ * players; past two the living player nearest the chr itself
+ */
+static s32 chrsPlayerAfterDeath(struct chrdata *chr, s32 playernum, s32 otherplayernum)
+{
+	s32 nearest = PLAYERCOUNT() > 2 ? coopNearestPlayerNum(chr, playernum) : -1;
+
+	return nearest >= 0 ? nearest : otherplayernum;
+}
+
+/**
  * For all chrs, clear their target and p1p2 values if set to the given player.
  *
  * This function is called when the given player has died. It causes all guards
@@ -16540,7 +16551,7 @@ void chrsClearRefsToPlayer(s32 playernum)
 
 		for (i = 0; i < chrsGetNumSlots(); i++) {
 			if (g_ChrSlots[i].p1p2 == playernum) {
-				g_ChrSlots[i].p1p2 = otherplayernum;
+				g_ChrSlots[i].p1p2 = chrsPlayerAfterDeath(&g_ChrSlots[i], playernum, otherplayernum);
 			}
 
 			if (g_ChrSlots[i].target == playerpropnum) {
@@ -16550,7 +16561,7 @@ void chrsClearRefsToPlayer(s32 playernum)
 
 		for (i = 0; i < g_NumBgChrs; i++) {
 			if (g_BgChrs[i].p1p2 == playernum) {
-				g_BgChrs[i].p1p2 = otherplayernum;
+				g_BgChrs[i].p1p2 = chrsPlayerAfterDeath(&g_BgChrs[i], playernum, otherplayernum);
 			}
 
 			if (g_BgChrs[i].target == playerpropnum) {
