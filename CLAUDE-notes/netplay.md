@@ -561,6 +561,27 @@ progression").
   2026-10-08 put a guard beside a client that had walked 10 m off; before
   the change it kept the host for 600 ticks at alertness 0, after it shot
   that client.
+- **A converted mission's guards (GoldenEye, Goldfinger 64, TND 64).**
+  Their lists never call `chr_toggle_p1p2` (GoldenEye had no co-op), so the
+  switch above never ran and every guard kept the host (user, in
+  Goldfinger: "the guards are slow to target the other players though they
+  are closer", "we want the guard targetting nearest player to it, for
+  GE,GF and TND"). The converter's "Bond" is the chr's *target* for seeing,
+  hearing, aiming, running to and distance (`IFISeeBond` is
+  `if_can_see_target`), and `CHR_P1P2` (0x00f2 inlined, `geaitable.h`) for
+  the Bond-only commands (give, equip, control, "is Bond dead"). So
+  `coopRetarget` (called in `chraiExecute`, host only) re-chooses the
+  **target** every ten ticks toward the nearest living player and leaves
+  `p1p2` the host's: unseen for a second or dead gives way to the nearest; a
+  seen one to a nearer player in sight at under 70% of the distance; on the
+  nearest and two seconds unseen, one choice in four looks at the next player
+  in turn. A noise there sets the target, not p1p2. Census (every armed
+  guard within 30 m of a player, every 30 ticks, the host and three
+  clients): guards whose nearest is a client targeting it, before/after -
+  Dam 0%/89%, Goldfinger's Cartel 0%/69%, TND's Bazaar -/90%. A trap met
+  measuring it: `chrMoveToPos` onto a player's own spot leaves the guard
+  not running its list for hundreds of ticks; measure guards where they
+  stand.
 - **Starting one.** The host: a lobby room with Game = Co-op Mission
   (mission, difficulty, radar, friendly fire; `g_NetCoopSetup`, the room's
   summary says the mission and "Co-op Agent"), the Carrington Institute's

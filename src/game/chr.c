@@ -1611,6 +1611,7 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->gewashit = 0;
 	chr->gesneezed = 0;
 	chr->coopturn = 0;
+	chr->coopretarget60 = 0;
 #endif
 	chr->aishootingatmelist = -1;
 	chr->aidarkroomlist = -1;

@@ -61,5 +61,8 @@ bool coopNoiseReaches(struct chrdata *chr, struct prop *noiseprop);
 // chr heard player playernum's noise (in its range, coopNoiseReaches): its
 // target's, or past two the guard turned to it; false if it kept its target
 bool coopHearPlayerNoise(struct chrdata *chr, struct prop *noiseprop, s32 playernum);
+// a converted mission's chr past two co-op players: its target player chosen
+// again toward the nearest every ten ticks (host only; p1p2 left alone)
+void coopRetarget(struct chrdata *chr);
 
 #endif

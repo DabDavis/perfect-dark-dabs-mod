@@ -1450,6 +1450,9 @@ struct chrdata {
 	// guard to from the nearest one, so the next switch away from the
 	// nearest goes on to the player after it (coopToggleP1P2(), coop.c)
 	u8 coopturn;
+	// The level time a converted mission's chr last had its target player
+	// chosen again past two co-op players (coopRetarget(), coop.c)
+	s32 coopretarget60;
 #endif
 };
 

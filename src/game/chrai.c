@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/chraction.h"
+#include "game/coop.h"
 #include "game/chrai.h"
 #include "game/modrules.h"
 #ifndef PLATFORM_N64
@@ -763,6 +764,11 @@ void chraiExecute(void *entity, s32 proptype)
 
 	if (g_Vars.ailist) {
 		if (g_Vars.chrdata) {
+#ifndef PLATFORM_N64
+			// a converted mission's lists never switch players: past two
+			// co-op players the target goes to the nearest (coop.c)
+			coopRetarget(g_Vars.chrdata);
+#endif
 			chrAddTargetToBdlist(g_Vars.chrdata);
 		}
 
