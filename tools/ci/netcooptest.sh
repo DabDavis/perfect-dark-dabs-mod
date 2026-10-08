@@ -29,6 +29,15 @@
 #           would (--net-test-equip): the host must put it in that player's
 #           hands (protocol 15) and the client's hand must still hold it
 #           three seconds on (the host's block never took it back).
+#   geend   GoldenEye's end of a mission online (protocol 16): a campaign's
+#           Dam with a client joined, the host's list kicked into Dam's own
+#           ending (the bungee objective, the exit's wait, Bond's dive) and
+#           the client's player given 3 kills and 20 shots on the host; the
+#           client learns of the wait, its START (a tick in every sixty)
+#           skips the outro on the host, both screens fade, and each machine
+#           ends on GoldenEye's REPORT page for its own player, Completed, the
+#           client's with the host's 3 kills; no Perfect Dark end screen; the
+#           client's two NEXTs close its folder.
 #   campaign  a GoldenEye campaign's host starting Dam from its folder alone
 #           (--net-test-campaign ge --net-test-campaign-mission 0): the
 #           opening ends on the host's own player; a client then joins the
@@ -37,14 +46,14 @@
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign}
+CASES=${CASES:-pair twelve lobby ge campaign geend}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -223,6 +232,97 @@ case_campaign() {
 		&& pass "$name: $(grep -o 'player 1 joined in progress; spawns beside.*' "$H" | head -1)" || fail "$name: the joiner did not spawn beside the host's player"
 	local pr; pr=$(lastline "$C" "net: prediction so far" | grep -o 'matched [0-9]* ([0-9.]*%)' | grep -o '[0-9.]*%' | tr -d '%')
 	awk -v p="${pr:-0}" 'BEGIN { exit !(p >= 95) }' && pass "$name: the joiner's prediction matched ${pr}%" || fail "$name: the joiner's prediction matched ${pr:-no}%"
+}
+
+# ---------------------------------------------------------------- geend
+# GoldenEye's end of a mission online (2026-10-07, the user: "the outro
+# cannot be skipped, then the completion screen goes to a PD screen instead
+# of GE"). The exit's wait (TriggerFadeAndExitLevelOnButtonPress) read the
+# pad of whichever player was current at the top of lvTick - on a campaign's
+# host one of four seats, often an open one - and never a client's START;
+# and the co-op end screen was Perfect Dark's. Dam's list 0x1004 is kicked
+# into its exit body (the first label 7) at tick 2000, as Bond reaching the
+# platform does.
+cat > "$OUT/geend.py" <<'PY'
+import gdb
+def i(e): return int(gdb.parse_and_eval(e))
+idx = [k for k in range(i("g_NumBgChrs")) if i("g_BgChrs[%d].chrnum" % k) == 4004]
+base = int(gdb.parse_and_eval("g_BgChrs[%d].ailist" % idx[0])) if idx else 0
+off, found = 0, None
+while base and off < 4000:
+    b = bytes(gdb.selected_inferior().read_memory(base + off, 3))
+    if b[:3] == b"\x00\x02\x07":
+        found = off
+        break
+    if b[:2] == b"\x00\x04":
+        break
+    off += i("chraiGetCommandLength((u8*)%d, 0)" % (base + off))
+if found is not None:
+    gdb.execute("set var g_BgChrs[%d].aioffset = %d" % (idx[0], found))
+    gdb.execute("set var g_BgChrs[%d].sleep = 0" % idx[0])
+    gdb.execute("set var g_Vars.playerstats[1].killcount = 3")
+    gdb.execute("set var g_Vars.playerstats[1].shotcount[0] = 20")
+print("STAGE geend: Dam's ending kicked at offset %s at tick %d" % (found, i("g_NetTick")))
+PY
+cat > "$OUT/geend-press.gdb" <<'GDB'
+break gexFrontTick if 'gexfront.c'::g_Front.inputdelay == 0 && 'gexfront.c'::g_Front.active
+continue
+delete
+set var g_JoyDataPtr->buttonspressed[0] = 0x8000
+printf "STAGE geend: the client's NEXT on folder page %d\n", 'gexfront.c'::g_Front.screen
+GDB
+
+case_geend() {
+	local name=geend port=$((PORT + 5)) H=$OUT/geend-host.log C=$OUT/geend-client.log
+	echo "== $name"
+	# the client's START a tick in every sixty from tick 2600: the exit's
+	# wait starts about tick 2420 (the dive after Bond's fall)
+	for t in $(seq 2600 60 5000); do echo "$t $((t + 1)) 1000 0 0 0 0 0 0"; done > "$OUT/geend-start.script"
+	game geend-host 400 '[Mod]\nMapMods=GoldenEye Arenas\n[Net]\nJoinInProgress=1\n' --host "$port" --rng-seed 7 \
+		--net-test-campaign ge --net-test-campaign-mission 0 &
+	local host=$!
+	waitfor "$H" "net: hosting on UDP port" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
+	waitfor "$H" "net: co-op: starting\|not converted here\|the folder is not open" 60
+	if grep -q "not converted here" "$H"; then
+		echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; return
+	fi
+	waitfor "$H" "gecinema: the opening is over for player" 120 || echo "     the host's opening did not end"
+	game geend-client 360 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join --net-test-input "$OUT/geend-start.script" &
+	local client=$!
+	waitfor "$C" "net: match 1: GO" 120 || echo "     no GO on the client"
+	local hp; hp=$(gamepid geend-host)
+	timeout 60 gdb -p "$hp" -batch -ex "break netScenHostTickEnd if g_NetTick >= 2000" -ex "continue" -ex "delete" \
+		-ex "source $OUT/geend.py" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     host: /'
+	waitfor "$C" "the online mission's report is up\|did not open for the online\|briefing did not load" 120 || echo "     no report on the client"
+	waitfor "$H" "back in the folder on mission" 30 || echo "     no report on the host"
+	local cp; cp=$(gamepid geend-client)
+	if [ -n "$cp" ] && grep -q "the online mission's report is up" "$C"; then
+		local n
+		for n in 1 2; do
+			timeout 40 gdb -p "$cp" -batch -x "$OUT/geend-press.gdb" 2>/dev/null | grep "^STAGE" | sed 's/^/     client: /'
+			sleep 1
+		done
+		waitfor "$C" "the online mission's report closed" 20
+	fi
+	cp=$(gamepid geend-client); [ -n "$cp" ] && kill -TERM "$cp"
+	wait "$client"; local cx=$?
+	[ "$cx" = 143 ] && cx=0
+	hp=$(gamepid geend-host); [ -n "$hp" ] && kill -TERM "$hp"
+	wait "$host"; local hx=$?
+	[ "$hx" = 143 ] && hx=0
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
+	grep -q "STAGE geend: Dam's ending kicked at offset [0-9]" "$OUT/stage.log" && pass "$name: Dam's ending kicked on the host" || fail "$name: Dam's ending was not found to kick"
+	grep -q "net: co-op client: the host's GoldenEye exit waits for a press" "$C" && pass "$name: the client learnt of the exit's wait" || fail "$name: the client never learnt of the exit's wait"
+	grep -q "gexplus: the exit's press at frame" "$H" && pass "$name: $(grep -o "the exit's press at frame.*" "$H" | head -1) (the client's START)" || fail "$name: the host never took a press to leave"
+	grep -q "net: co-op client: the host's GoldenEye exit fades out" "$C" && pass "$name: the client's screen faded with the host's" || fail "$name: no fade on the client"
+	grep -q "this machine's menu up" "$C" && fail "$name: the client's START opened its pause during the exit's wait"
+	grep -q "gexfront: online mission 0 over at [0-9]* for player 0 (completed" "$H" && pass "$name: host: $(grep -o 'online mission 0 over.*' "$H" | head -1)" || fail "$name: host: $(grep -o 'online mission 0 over.*' "$H" | head -1)"
+	grep -q "gexfront: online mission 0 over at [0-9]* for player 1 (completed, 3 kills)" "$C" && pass "$name: client: $(grep -o 'online mission 0 over.*' "$C" | head -1)" || fail "$name: client: $(grep -o 'online mission 0 over.*' "$C" | head -1)"
+	grep -q "net: co-op: no end screen here" "$H" && grep -q "net: co-op: no end screen here" "$C" && pass "$name: no Perfect Dark end screen on either" || fail "$name: a Perfect Dark end screen went up"
+	grep -q "gexfront: back in the folder on mission 0's report" "$H" && pass "$name: the host's folder opened on Dam's report" || fail "$name: the host's folder did not open on the report"
+	grep -q "gexfront: the online mission's report is up (mission 0)" "$C" && pass "$name: the client's folder opened on Dam's report" || fail "$name: the client's report did not open"
+	grep -q "gexfront: the online mission's report closed" "$C" && pass "$name: the client's two NEXTs closed its folder" || fail "$name: the client's folder did not close"
 }
 
 # ---------------------------------------------------------------- pair
@@ -411,6 +511,7 @@ for c in $CASES; do
 		pair) case_pair ;;
 		ge) case_ge ;;
 		campaign) case_campaign ;;
+		geend) case_geend ;;
 		twelve) case_twelve ;;
 		lobby) case_lobby ;;
 		*) fail "unknown case $c" ;;

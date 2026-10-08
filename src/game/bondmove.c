@@ -7,6 +7,7 @@
 #include "game/bondmove.h"
 #ifndef PLATFORM_N64
 #include "gewatch.h"
+#include "gexplus.h"
 #include "gegadgets.h"
 #endif
 #include "game/bondwalk.h"
@@ -885,6 +886,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	// Pausing
 	if (g_Vars.currentplayer->isdead == false) {
 		if (g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED && (c1buttonsthisframe & START_BUTTON)) {
+#ifndef PLATFORM_N64
+			if (gexPlusExitPending()) {
+				// GoldenEye's end of a mission waits for a press, and START
+				// is that press, not a pause (gexplus.c; online a client's
+				// goes to the host in its command)
+			} else
+#endif
 			if (g_Vars.mplayerisrunning == false) {
 				if (g_Vars.lvframenum > 15) {
 #ifndef PLATFORM_N64

@@ -21,6 +21,7 @@
 #include "game/mplayer/mplayer.h"
 #include "screenshot.h"
 #include "gewatch.h"
+#include "gexplus.h"
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "net/netsnap.h"
@@ -101,6 +102,7 @@ struct netpadq {
 	u32 outoforder;
 	s32 lastplayed;          // the last tick played, -1 none
 	u32 depthsum;
+	u32 pressed;             // buttons this tick's command pressed, START too (netPlayersHostPressed)
 };
 
 struct extplayerconfig g_NetExtCfg[MAX_PLAYERS];
@@ -594,6 +596,22 @@ struct player *netLocalPlayer(struct player *fallback)
 	}
 
 	return fallback;
+}
+
+/**
+ * The host: what a client's player pressed this tick, as its command carried
+ * it - START too, which reaches a living player's pad here never (protocol
+ * 11). GoldenEye's end of a mission takes any player's press (gexplus.c).
+ */
+u32 netPlayersHostPressed(s32 playernum, u32 mask)
+{
+	const s32 pad = netPadOfPlayer(playernum);
+
+	if (!netPadIsRemote(pad)) {
+		return 0;
+	}
+
+	return s_Pads[pad].pressed & mask;
 }
 
 /**
@@ -1190,6 +1208,7 @@ static void netPlayersHostPlay(void)
 		}
 
 		q->depthsum += netQDepth(q);
+		q->pressed = q->cur.buttons & ~prevbuttons;
 		q->presses += (q->cur.buttons & ~prevbuttons & Z_TRIG) ? 1 : 0;
 		q->busy += q->cur.buttons || q->cur.sx || q->cur.sy || q->cur.rsx || q->cur.rsy || q->cur.mdx != 0 || q->cur.mdy != 0;
 
@@ -1476,8 +1495,13 @@ static void netPlayersClientCapture(void)
 
 	c = &s_Sent[g_NetTick % NETCMD_RING];
 	// START goes too: the host takes it only from a dead player, as the
-	// respawn (protocol 11)
+	// respawn (protocol 11), and as the press GoldenEye's end of a mission
+	// waits for - Esc then too, which is this machine's START there
 	c->buttons = pad.button;
+
+	if (gexPlusExitPending() == 1 && inputKeyPressed(VK_ESCAPE)) {
+		c->buttons |= START_BUTTON;
+	}
 	c->sx = pad.stick_x;
 	c->sy = pad.stick_y;
 	c->rsx = pad.rstick_x;

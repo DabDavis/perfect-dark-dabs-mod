@@ -12,6 +12,7 @@
 #include "modloader.h"
 #include "gexplusrom.h"
 #include "gexfront.h"
+#include "gexplus.h"
 #include "geconvert.h"
 #include "game/bg.h"
 #include "game/chraction.h"
@@ -54,7 +55,9 @@
  * Block body (at netscen.c's OFF_BODY, little-endian):
  *     0  u8  tickmode             g_Vars.tickmode
  *     1  u8  flags                1 in_cutscene, 2 countdown running,
- *                                 4 objective checks disabled
+ *                                 4 objective checks disabled, 8 GoldenEye's
+ *                                 end waits for a press, 16 and fades out
+ *                                 (gexplus.c; protocol 16)
  *     2  s16 cutsceneanim         g_CutsceneAnimNum
  *     4  s32 cutsceneframe240     g_CutsceneCurAnimFrame240
  *     8  s16 tween60              g_CutsceneTweenDuration60
@@ -78,6 +81,8 @@
 #define MISF_INCUTSCENE 0x01
 #define MISF_COUNTDOWN  0x02
 #define MISF_NOCHECKS   0x04
+#define MISF_GEEXIT     0x08
+#define MISF_GEFADE     0x10
 
 #define MISP_DEAD       0x01
 #define MISP_ABORTED    0x02
@@ -649,6 +654,27 @@ void netCoopMatchEnded(void)
 	}
 }
 
+/**
+ * pdmain.c mainEndStage, the co-op branch, when no end screen went up here
+ * (a GoldenEye mission's report is its folder's, gexFrontNetMissionReport()):
+ * out of the mission at once, the way the end screen's close goes
+ * (menutick.c, MENUROOT_MPENDSCREEN online), back to the room or the
+ * campaign's menus (netMenuAfterMatch)
+ */
+void netCoopLeaveMission(void)
+{
+	sysLogPrintf(LOG_NOTE, "net: co-op: no end screen here: out of the mission to the menus");
+	var80087260 = 3;
+	mpSetPaused(MPPAUSEMODE_UNPAUSED);
+	g_Vars.mplayerisrunning = false;
+	g_Vars.normmplayerisrunning = false;
+	g_Vars.lvmpbotlevel = 0;
+	titleSetNextStage(STAGE_CITRAINING);
+	setNumPlayers(1);
+	titleSetNextMode(TITLEMODE_SKIP);
+	mainChangeToStage(STAGE_CITRAINING);
+}
+
 // H12: the match's flags off
 void netCoopMatchStopped(void)
 {
@@ -796,6 +822,11 @@ void netCoopCapture(u8 *body)
 		flags |= MISF_NOCHECKS;
 	}
 
+	switch (gexPlusExitPending()) {
+	case 1: flags |= MISF_GEEXIT; break;
+	case 2: flags |= MISF_GEEXIT | MISF_GEFADE; break;
+	}
+
 	body[MIS_FLAGS] = flags;
 	put16(body + MIS_CUTANIM, (u16)g_CutsceneAnimNum);
 	put32(body + MIS_CUTFRAME, (u32)g_CutsceneCurAnimFrame240);
@@ -913,6 +944,18 @@ void netCoopApply(const u8 *body)
 
 	s_HaveObj = 1;
 	g_ObjectiveChecksDisabled = (body[MIS_FLAGS] & MISF_NOCHECKS) != 0;
+
+	// GoldenEye's end of a mission: this machine's press goes to the host,
+	// and its screen fades with the host's
+	{
+		const s32 ge = (body[MIS_FLAGS] & MISF_GEFADE) ? 2 : (body[MIS_FLAGS] & MISF_GEEXIT) ? 1 : 0;
+
+		if (ge != gexPlusExitPending()) {
+			sysLogPrintf(LOG_NOTE, "net: co-op client: the host's GoldenEye exit %s (tick %u)",
+					ge == 2 ? "fades out" : ge == 1 ? "waits for a press" : "is off", g_NetTick);
+			gexPlusExitFromHost(ge);
+		}
+	}
 	g_CountdownTimerRunning = (body[MIS_FLAGS] & MISF_COUNTDOWN) != 0;
 	g_CountdownTimerValue60 = getf(body + MIS_COUNTDOWN);
 

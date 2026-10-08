@@ -64,6 +64,8 @@
 #include "game/options.h"
 #include "game/chr.h"
 #include "lib/ailist.h"
+#include "input.h"
+#include "net/net.h"
 
 static s32 g_GexPlusScenario = GEXPLUS_NORMAL;
 
@@ -1850,6 +1852,67 @@ void gexPlusExitOnButtonPress(void)
 	}
 }
 
+/**
+ * The exit's state: 0 none, 1 waiting for a press, 2 fading out. On a client
+ * it is the host's, as its mission block says (gexPlusExitFromHost()): a
+ * client runs no AI list, so never the command that starts the wait.
+ */
+s32 gexPlusExitPending(void)
+{
+	return g_GeExitState;
+}
+
+/**
+ * A client: the host's exit, from its mission block (netcoop.c). Waiting, this
+ * machine's START is the press that leaves rather than its pause (bondmove.c),
+ * and goes to the host in its command; fading, the screen goes to black with
+ * the host's. The level ends here with the host's MATCH_END, never on its own.
+ */
+void gexPlusExitFromHost(s32 state)
+{
+	if (state == 2 && g_GeExitState != 2) {
+		lvConfigureFade(0x000000ff, GE_EXIT_FADE60);
+	}
+
+	g_GeExitState = state;
+}
+
+/**
+ * Whether the press that leaves has come. Offline it is the current player's
+ * pad, as ever. Online the host asks every player in the mission: the tick
+ * runs outside every player's pass, with whichever player the last view drawn
+ * left current - a seat nobody holds as often as not, and nobody's press then
+ * left (2026-10-07: Dam's outro could not be skipped online). This machine's
+ * own pad and Esc, and each client's press as its command carried it, START
+ * included (netPlayersHostPressed()).
+ */
+static s32 gexPlusExitPressed(void)
+{
+	if (g_NetMode == NETMODE_NONE) {
+		const s8 contpad = optionsGetContpadNum1(g_Vars.currentplayerstats
+				? g_Vars.currentplayerstats->mpindex : 0);
+
+		return joyGetButtonsPressedThisFrame(contpad, GE_EXIT_BUTTONS) != 0;
+	}
+
+	for (s32 i = 0; i < PLAYERCOUNT(); i++) {
+		if (!g_Vars.players[i]) {
+			continue;
+		}
+
+		if (netIsLocalSlot(i) && !g_NetDedicated) {
+			if (joyGetButtonsPressedThisFrame(optionsGetContpadNum1(g_Vars.playerstats[i].mpindex), GE_EXIT_BUTTONS)
+					|| inputKeyJustPressed(VK_ESCAPE)) {
+				return 1;
+			}
+		} else if (netPlayersHostPressed(i, GE_EXIT_BUTTONS)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
 void gexPlusMissionExitTick(void)
 {
 	if (g_GeExitState == 0) {
@@ -1862,11 +1925,17 @@ void gexPlusMissionExitTick(void)
 		return;
 	}
 
-	if (g_GeExitState == 1) {
-		const s8 contpad = optionsGetContpadNum1(g_Vars.currentplayerstats
-				? g_Vars.currentplayerstats->mpindex : 0);
+	// a client's is the host's (gexPlusExitFromHost())
+	if (g_NetMode == NETMODE_CLIENT) {
+		return;
+	}
 
-		if (joyGetButtonsPressedThisFrame(contpad, GE_EXIT_BUTTONS)) {
+	if (g_GeExitState == 1) {
+		if (gexPlusExitPressed()) {
+			if (g_NetMode != NETMODE_NONE) {
+				sysLogPrintf(LOG_NOTE, "gexplus: the exit's press at frame %d: fading out", g_Vars.lvframenum);
+			}
+
 			g_GeExitState = 2;
 			g_GeExitFade60 = GE_EXIT_FADE60 + 2;   // the two frames lvConfigureFade waits
 			lvConfigureFade(0x000000ff, GE_EXIT_FADE60);   // GoldenEye's own second, to black

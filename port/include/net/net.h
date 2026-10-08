@@ -88,6 +88,9 @@ f32 netSlotAspect(s32 playernum);
 // player's from its SLOTCFG, else `mine`, this machine's
 s32 netSlotAimLock(s32 playernum, s32 codaiming, s32 mine);
 s32 netSlotAkimboTriggers(s32 playernum, s32 mine);
+// The host: buttons a client's player pressed this tick, as its command
+// carried them (START too); 0 for anyone else's (GoldenEye's exit, gexplus.c)
+u32 netPlayersHostPressed(s32 playernum, u32 mask);
 
 // The player whose ears and eyes this machine has (propsnd.c), or fallback
 struct player;
@@ -371,6 +374,9 @@ s32 netCoopAcceptMission(void);
 s32 netCoopClientAbort(void);
 // pdmain.c mainEndStage's co-op branch: MATCH_END from the host, the final block on a client
 void netCoopMatchEnded(void);
+// pdmain.c mainEndStage's co-op branch: out of the mission at once, as the end
+// screen's close goes (a GoldenEye mission's report is the folder's, gexfront.c)
+void netCoopLeaveMission(void);
 // objectives.c objectiveCheck on a client: the host's status, 1 when known
 s32 netCoopObjectiveStatus(s32 index, s32 *status);
 // playerreset.c: a co-op spawn past two players spread round the pad

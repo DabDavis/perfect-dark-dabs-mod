@@ -44,6 +44,14 @@ s32 gexFrontMissionEnded(void);
 // how it went is kept, Perfect Dark's endscreen is not put up, and the level is
 // left for the folder's own report and statistics pages, as GoldenEye's is.
 s32 gexFrontMissionReport(void);
+// online co-op (pdmain.c's co-op branch): a GoldenEye mission's end for this
+// machine's own player, kept for the folder's report; 1 kept (no end screen)
+s32 gexFrontNetMissionReport(void);
+// back at the Institute after it (netMenuAfterMatch): the report alone, over
+// the room; 1 when up
+s32 gexFrontOpenNetReport(void);
+// a client's next mission is loading: that report put away
+void gexFrontCloseNetReport(void);
 s32 gexFrontWantsMain(void);
 s32 gexFrontLeavingForLevel(void);
 // the gates (--net-test-campaign-mission): the open folder starts mission N as its own start does

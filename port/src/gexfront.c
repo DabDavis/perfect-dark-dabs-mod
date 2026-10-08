@@ -103,6 +103,7 @@
 #include "game/mplayer/setup.h"
 #include "game/mpstats.h"
 #include "game/objectives.h"
+#include "game/coop.h"
 #include "game/inv.h"
 #include "game/bondgun.h"
 #include "game/player.h"
@@ -1159,6 +1160,10 @@ static struct {
 	s32 weapondual;
 	s32 difficulty;
 	f32 slider[NUM_SLIDERS];
+	// online (gexFrontNetMissionReport()): the folder opens for the report
+	// alone where no campaign's menus take it, in the mission's own set
+	s32 net;
+	const char *variant;
 } g_FrontReport;
 
 // solo_target_time_array: the time a cheat is won by, in seconds, a difficulty
@@ -3422,6 +3427,11 @@ static void frontTickBriefing(s32 pick, s32 back)
  * the mission select, and so it is from PREVIOUS on either page. With the
  * cursor on neither tab a pick is NEXT.
  */
+// the folder is up for an online mission's report alone: leaving either page
+// leaves the folder, back to the menus under it (gexFrontOpenNetReport())
+static s32 g_FrontNetReport;
+static void frontCloseNetReport(void);
+
 static void frontTickReport(s32 pick, s32 back)
 {
 	if (!g_Front.tabprev) {
@@ -3430,6 +3440,13 @@ static void frontTickReport(s32 pick, s32 back)
 
 	if (back || (pick && g_Front.tabprev)) {
 		frontSfx(GESFX_DOOR_METAL_CLOSE2, MENUSOUND_TOGGLEOFF);
+
+		// online, the report alone: out of the folder to the room
+		if (g_FrontNetReport) {
+			frontCloseNetReport();
+			return;
+		}
+
 		frontFreeBriefing();
 		g_Front.screen = SCREEN_MISSION;
 		frontSetCursorForMission(g_Front.mission);
@@ -3444,6 +3461,12 @@ static void frontTickReport(s32 pick, s32 back)
 
 	if (g_Front.screen == SCREEN_REPORT) {
 		g_Front.screen = SCREEN_STATS;
+		return;
+	}
+
+	// online, the report alone: the next mission is the host's to start
+	if (g_FrontNetReport) {
+		frontCloseNetReport();
 		return;
 	}
 
@@ -3777,44 +3800,26 @@ void gexFrontGoBack(void)
  * in the remake's own file instead, under the conditions Perfect Dark lets a
  * time count by.
  */
-s32 gexFrontMissionReport(void)
+/**
+ * How the mission went for the current player, into g_FrontReport: the level's
+ * own state, read while the level is still there.
+ */
+static void frontKeepReport(struct player *player, s32 kia, s32 aborted, s32 completed, s32 difficulty)
 {
-	struct player *player = g_Vars.currentplayer;
 	s32 weapon1 = 0;
 	s32 weapon2 = 0;
 	const char *name;
 	char *end;
 
-	if (!g_FrontInside || !frontMissionsAreOwn() || !player
-			|| g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
-		return 0;
-	}
-
-	// the credits (bossReturnTitleStage(): Cuba has no report) - the long cast
-	// reel is next, then the grid (gexFrontOpenAfterMission())
-	if (g_FrontCredits && g_Vars.stagenum == modloaderMissionStage(GEMISSION_CUBA)) {
-		g_FrontCredits = 2;
-		g_FrontReport.valid = 0;
-		g_FrontWantMain = 1;
-		gexFrontGoBack();
-		return 1;
-	}
-
-	g_FrontCredits = 0;
-
-	if (g_Vars.stagenum != frontMissionStage(g_Front.mission)) {
-		return 0;
-	}
-
 	memset(&g_FrontReport, 0, sizeof(g_FrontReport));
 
 	g_FrontReport.valid = 1;
-	g_FrontReport.kia = player->isdead != 0;
-	g_FrontReport.aborted = player->aborted != 0;
-	g_FrontReport.completed = !g_FrontReport.kia && !g_FrontReport.aborted && objectiveIsAllComplete();
+	g_FrontReport.kia = kia;
+	g_FrontReport.aborted = aborted;
+	g_FrontReport.completed = completed;
 	g_FrontReport.time60 = playerGetMissionTime();
 	g_FrontReport.kills = mpstatsGetPlayerKillCount();
-	g_FrontReport.difficulty = g_Front.difficulty;
+	g_FrontReport.difficulty = difficulty;
 
 	for (s32 i = 0; i < BRIEF_OBJECTIVES; i++) {
 		g_FrontReport.objstatus[i] = i < objectiveGetCount() ? objectiveCheck(i) : OBJECTIVE_INCOMPLETE;
@@ -3838,6 +3843,35 @@ s32 gexFrontMissionReport(void)
 	for (s32 i = 0; i < NUM_SLIDERS; i++) {
 		g_FrontReport.slider[i] = g_Front.slider[i];
 	}
+}
+
+s32 gexFrontMissionReport(void)
+{
+	struct player *player = g_Vars.currentplayer;
+
+	if (!g_FrontInside || !frontMissionsAreOwn() || !player
+			|| g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
+		return 0;
+	}
+
+	// the credits (bossReturnTitleStage(): Cuba has no report) - the long cast
+	// reel is next, then the grid (gexFrontOpenAfterMission())
+	if (g_FrontCredits && g_Vars.stagenum == modloaderMissionStage(GEMISSION_CUBA)) {
+		g_FrontCredits = 2;
+		g_FrontReport.valid = 0;
+		g_FrontWantMain = 1;
+		gexFrontGoBack();
+		return 1;
+	}
+
+	g_FrontCredits = 0;
+
+	if (g_Vars.stagenum != frontMissionStage(g_Front.mission)) {
+		return 0;
+	}
+
+	frontKeepReport(player, player->isdead != 0, player->aborted != 0,
+			!player->isdead && !player->aborted && objectiveIsAllComplete(), g_Front.difficulty);
 
 	if (g_FrontReport.completed && !g_CheatsActiveBank0 && !g_CheatsActiveBank1) {
 		s32 secs = g_FrontReport.time60 / 60;
@@ -3866,6 +3900,122 @@ s32 gexFrontMissionReport(void)
 	gexFrontGoBack();
 
 	return 1;
+}
+
+/**
+ * An online co-op mission's end, for this machine's own player (pdmain.c
+ * mainEndStage's co-op branch, with that player current): a mission of a
+ * GoldenEye conversion - GoldenEye's, a ROM hack's - ends on the folder's
+ * REPORT and STATISTICS pages as offline, not on Perfect Dark's co-op end
+ * screen (the user, 2026-10-07: "the completion screen goes to a PD screen
+ * instead of GE"). The end is the co-op one: completed unless everybody died
+ * or somebody aborted, and killed in action is this player's death on a
+ * mission that was not. Nothing is filed - no best time, no ghost: nothing
+ * online touches offline progress. A client's numbers are the host's
+ * (MATCH_END, netsession.c).
+ *
+ * The folder opens after the level, at the Institute: a campaign host's in its
+ * menus (gexFrontOpenAfterMission()), anyone else's for the two pages alone
+ * (gexFrontOpenNetReport()). 1 when kept: no end screen goes up for it.
+ */
+s32 gexFrontNetMissionReport(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	s32 mission = -1;
+	s32 aborted;
+	s32 completed;
+	s32 difficulty;
+
+	if (!player || g_Vars.coopplayernum < 0 || !modloaderStageIsMission(g_Vars.stagenum)
+			|| modBorrowLoadedIsGoldenEyeX() || !frontMissionsAreOwn()) {
+		return 0;
+	}
+
+	// by the stage: a client's folder never started it (and the count of a
+	// set's missions is known once its folder has loaded, so all twenty asked)
+	for (s32 i = 0; i < NUM_MISSIONS; i++) {
+		if (modloaderMissionStage(i) == g_Vars.stagenum) {
+			mission = i;
+			break;
+		}
+	}
+
+	if (mission < 0) {
+		return 0;
+	}
+
+	// the folder's own difficulty where it started the mission (007 is the
+	// fourth of its four), else the mission's
+	difficulty = g_FrontInside && g_Front.mission == mission ? g_Front.difficulty : lvGetDifficulty();
+	g_Front.mission = mission;
+
+	aborted = coopAnyAborted();
+	completed = !aborted && !coopAllDead() && objectiveIsAllComplete();
+
+	frontKeepReport(player, !completed && !aborted && player->isdead, aborted, completed, difficulty);
+	g_FrontReport.net = 1;
+	g_FrontReport.variant = g_GexPlusVariant;
+
+	sysLogPrintf(LOG_NOTE, "gexfront: online mission %d over at %d for player %d (%s, %d kills), to the folder's report",
+			mission, g_FrontReport.time60, g_Vars.currentplayernum,
+			g_FrontReport.kia ? "killed" : aborted ? "aborted" : completed ? "completed" : "failed", g_FrontReport.kills);
+
+	return 1;
+}
+
+// the player's own set, put back when the report's folder closes
+static const char *g_FrontNetVariantBefore;
+
+static void frontCloseNetReport(void)
+{
+	g_FrontNetReport = 0;
+	frontClose();
+	g_GexPlusVariant = g_FrontNetVariantBefore;
+	sysLogPrintf(LOG_NOTE, "gexfront: the online mission's report closed");
+}
+
+/**
+ * Back at the Institute after an online mission (netMenuAfterMatch(), the
+ * menus up under it): the report gexFrontNetMissionReport() kept, in the
+ * folder of the mission's own set - the rules' set is off again by now.
+ */
+s32 gexFrontOpenNetReport(void)
+{
+	if (!g_FrontReport.valid || !g_FrontReport.net) {
+		return 0;
+	}
+
+	g_FrontNetVariantBefore = g_GexPlusVariant;
+	g_GexPlusVariant = g_FrontReport.variant;
+
+	if (!gexFrontOpenAfterMission()) {
+		g_GexPlusVariant = g_FrontNetVariantBefore;
+		g_FrontReport.valid = 0;
+		sysLogPrintf(LOG_WARNING, "gexfront: the folder did not open for the online mission's report");
+		return 0;
+	}
+
+	if (g_Front.screen != SCREEN_REPORT) {
+		g_FrontNetReport = 1;
+		frontCloseNetReport();
+		sysLogPrintf(LOG_WARNING, "gexfront: mission %d's briefing did not load for its online report", g_Front.mission);
+		return 0;
+	}
+
+	g_FrontNetReport = 1;
+	sysLogPrintf(LOG_NOTE, "gexfront: the online mission's report is up (mission %d)", g_Front.mission);
+
+	return 1;
+}
+
+/** A client's next mission is loading (netsession.c): the report is put away */
+void gexFrontCloseNetReport(void)
+{
+	if (g_FrontNetReport) {
+		frontCloseNetReport();
+	}
+
+	g_FrontReport.valid = 0;
 }
 
 /**
@@ -3946,6 +4096,7 @@ s32 gexFrontOpenAfterMission(void)
 	// ended, with the cursor on NEXT - and the difficulty it was played at,
 	// which opening the folder has put back to where GoldenEye starts it
 	if (g_FrontReport.valid && frontLoadBriefing(g_Front.mission)) {
+		sysLogPrintf(LOG_NOTE, "gexfront: back in the folder on mission %d's report", g_Front.mission);
 		g_Front.screen = SCREEN_REPORT;
 		g_Front.difficulty = g_FrontReport.difficulty;
 		g_Front.cursorx = 399.0f;

@@ -226,6 +226,9 @@ static struct {
 	u8 numplayers;
 	u8 award1[MAX_PLAYERS];
 	u8 award2[MAX_PLAYERS];
+	s32 time60[MAX_PLAYERS];        // protocol 16: each player's own numbers
+	s32 killcount[MAX_PLAYERS];
+	s32 shotcount[MAX_PLAYERS][7];
 	u8 medals[MAX_PLAYERS];
 	u8 title[MAX_PLAYERS];
 	s8 placement[MAX_MPCHRS];
@@ -1989,6 +1992,16 @@ void netHostMatchEnded(void)
 
 		netBufWriteU8(&b, award[0]);
 		netBufWriteU8(&b, award[1]);
+
+		// the player's own numbers (protocol 16): the host's are the
+		// mission's, where a guard's death is counted (a co-op end screen,
+		// GoldenEye's statistics page)
+		netBufWriteS32(&b, g_Vars.players[i]->bondviewlevtime60);
+		netBufWriteS32(&b, g_Vars.playerstats[i].killcount);
+
+		for (j = 0; j < 7; j++) {
+			netBufWriteS32(&b, g_Vars.playerstats[i].shotcount[j]);
+		}
 	}
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
@@ -2331,6 +2344,10 @@ static s32 netClientBeginStage(struct netbuf *b)
 	numplayers = netBufReadU8(b);
 	yourplayer = netBufReadU8(b);
 
+	// the last mission's report, if it is still up, is put away: the folder
+	// has its own set, and the next mission's comes with these rules
+	gexFrontCloseNetReport();
+
 	if (!netBufOk(b) || netBufRemaining(b) != 0 || matchid != netRulesMatchId()
 			|| numplayers < 1 || numplayers > MAX_PLAYERS || (yourplayer >= numplayers && yourplayer != NETSLOT_SPECTATOR)) {
 		netSendLeave(s_ServerPeer, NETREFUSE_BADMSG, "STAGE_LOAD did not parse, or came without its RULES");
@@ -2499,6 +2516,12 @@ static void netClientOnMatchEnd(struct netbuf *b)
 	for (i = 0; i < s_End.numplayers && netBufOk(b); i++) {
 		s_End.award1[i] = netBufReadU8(b);
 		s_End.award2[i] = netBufReadU8(b);
+		s_End.time60[i] = netBufReadS32(b);
+		s_End.killcount[i] = netBufReadS32(b);
+
+		for (j = 0; j < 7; j++) {
+			s_End.shotcount[i][j] = netBufReadS32(b);
+		}
 	}
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
@@ -2566,6 +2589,17 @@ void netClientApplyMatchEnd(void)
 	for (i = 0; i < s_End.numplayers && i < PLAYERCOUNT(); i++) {
 		g_Vars.players[i]->award1 = s_End.award1[i] < 17 ? langGet(g_AwardNames[s_End.award1[i]]) : NULL;
 		g_Vars.players[i]->award2 = s_End.award2[i] < 17 ? langGet(g_AwardNames[s_End.award2[i]]) : NULL;
+
+		// a mission's: the guards are puppets here, whose deaths and hits
+		// are counted on the host alone (a match's tables follow below)
+		if (netRulesCoopOn()) {
+			g_Vars.players[i]->bondviewlevtime60 = s_End.time60[i];
+			g_Vars.playerstats[i].killcount = s_End.killcount[i];
+
+			for (j = 0; j < 7; j++) {
+				g_Vars.playerstats[i].shotcount[j] = s_End.shotcount[i][j];
+			}
+		}
 	}
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
@@ -4255,17 +4289,33 @@ static struct menudialogdef s_NetNoticeDialog = {
  * From the Perfect Menu's tick while it is on top: why the last session
  * ended, once
  */
-void netMenuAfterMatch(void)
+s32 netMenuAfterMatch(void)
 {
 	// a campaign's host: its set's menus for the next mission, with or
-	// without a lobby room (a --host session plays one too)
+	// without a lobby room (a --host session plays one too); a GoldenEye
+	// mission's report is the folder's first page there
 	if (netCoopCampaignAfterMatch()) {
-		return;
+		return 1;
 	}
 
 	if (g_NetLobbyRoom) {
 		netLobbyMenuAfterMatch();
 	}
+
+	// a GoldenEye mission's report over the room, for this machine's own
+	// player (gexfront.c): the folder for its two pages alone. It is drawn in
+	// place of the menus, so one is up under it: the room's, else the
+	// Perfect Menu, where leaving the folder lands
+	if (!gexFrontOpenNetReport()) {
+		return 0;
+	}
+
+	if (!g_NetLobbyRoom && !g_Menus[g_MpPlayerNum].curdialog) {
+		menuPushRootDialog(&g_CiMenuViaPcMenuDialog, MENUROOT_MAINMENU);
+		playerPause(MENUROOT_MAINMENU);
+	}
+
+	return 1;
 }
 
 void netMainMenuTick(void)

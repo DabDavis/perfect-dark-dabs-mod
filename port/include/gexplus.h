@@ -107,6 +107,10 @@ s32 gexPlusMissionAnim(s32 geid);
 // out and leaves. The tick runs every frame of a level, from lvTick().
 void gexPlusExitOnButtonPress(void);
 void gexPlusMissionExitTick(void);
+// 0 none, 1 waiting for the press, 2 fading out (a client's: the host's)
+s32 gexPlusExitPending(void);
+// a client: the host's exit state from its mission block (netcoop.c)
+void gexPlusExitFromHost(s32 state);
 
 // Perfect Dark's psychosis gun on a converted mission's guard, whose GoldenEye
 // AI list never looks for CHRHFLAG_PSYCHOSISED: hands him to

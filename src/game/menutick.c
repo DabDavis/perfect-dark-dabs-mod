@@ -35,6 +35,8 @@
 #include "trace.h"
 #include "optionsmenu.h"
 #include "net/net.h"
+
+extern s32 g_MainChangeToStageNum; // pdmain.c: the stage the frame's end changes to, -1 none
 #endif
 
 #ifndef PLATFORM_N64
@@ -345,7 +347,15 @@ void menuTick(void)
 	} else
 #endif
 	// Check if returning from a multiplayer match
-	if (var80087260 > 0) {
+	if (var80087260 > 0
+#ifndef PLATFORM_N64
+			// not while the stage is still the match's, on its way out: a
+			// match left from inside its own tick (an online GoldenEye
+			// mission to its folder's report, netCoopLeaveMission()) gets
+			// here that same frame, and was taken as back already
+			&& g_MainChangeToStageNum < 0
+#endif
+			) {
 		if (g_Vars.lvframenum >= 4) {
 			if (g_Vars.stagenum == STAGE_CITRAINING || g_Vars.stagenum == STAGE_4MBMENU) {
 				viBlack(false);
@@ -384,14 +394,15 @@ void menuTick(void)
 
 #ifndef PLATFORM_N64
 				// netplay: a match from an Online Game room goes back to its
-				// lobby, a campaign's host to its set's menus (netsession.c)
-				netMenuAfterMatch();
+				// lobby, a campaign's host to its set's menus (netsession.c),
+				// a GoldenEye mission to its folder's report
+				const s32 netfolder = netMenuAfterMatch();
 
 				// A GE Plus match was started from GoldenEye's folder
 				// screens and goes back to them, with the Perfect Menu under
 				// the folder the way it was when the folder was opened - not
 				// to Perfect Dark's Combat Simulator dialog, retitled.
-				if (g_GexPlusMode && !IS4MB() && !g_Vars.usingadvsetup
+				if (!netfolder && g_GexPlusMode && !IS4MB() && !g_Vars.usingadvsetup
 						&& (g_MpSetup.chrslots & 0xf)
 						&& gexFrontOpenAfterMatch()) {
 					for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {

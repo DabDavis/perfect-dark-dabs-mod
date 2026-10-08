@@ -813,6 +813,7 @@ void mainEndStage(void)
 		if (g_Vars.coopplayernum >= 0) {
 			s32 prevplayernum = g_Vars.currentplayernum;
 			s32 i;
+			s32 report = 0;
 
 			// netplay: the host's MATCH_END (H9); a client's final block
 			// (H10), so its end screen reads the host's end (netcoop.c)
@@ -822,11 +823,24 @@ void mainEndStage(void)
 				// netplay: another machine's player has its end screen there
 				if (g_NetMode != NETMODE_NONE && !netIsLocalPad(g_Vars.playerstats[i].mpindex)) continue;
 				setCurrentPlayerNum(i);
+
+				// netplay: a GoldenEye mission ends on its folder's report,
+				// as offline, out of the level (gexfront.c)
+				if (g_NetMode != NETMODE_NONE && gexFrontNetMissionReport()) {
+					report = 1;
+					continue;
+				}
+
 				endscreenPushCoop();
 			}
 
 			setCurrentPlayerNum(prevplayernum);
-			musicStartMenu();
+
+			if (report) {
+				netCoopLeaveMission();
+			} else {
+				musicStartMenu();
+			}
 		} else if (g_Vars.antiplayernum >= 0) {
 			s32 prevplayernum = g_Vars.currentplayernum;
 			s32 i;

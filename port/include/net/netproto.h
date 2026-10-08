@@ -68,7 +68,11 @@
 //    (CONTENT_REQ .. CONTENT_END), which it holds in memory for the session
 // 15 (a client's own choices): a CMD's command can carry a gun picked from a
 //    menu (NETCMD_EQUIP) and a device switched on or off (NETCMD_DEVICE)
-#define NET_PROTOCOL_VERSION 15
+// 16 (GoldenEye's end of a mission online): MATCH_END carries each player's
+//    mission time, kill count and seven shot counts after its awards; the
+//    mission block's flags say GoldenEye's exit waits for a press (8) and
+//    fades out (16); a living player's START in its command is that press
+#define NET_PROTOCOL_VERSION 16
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -395,6 +399,10 @@
  *   u8      numplayers
  *   per player (g_Vars.players[i]):
  *     u8 award1, u8 award2        index into g_AwardNames, 0xff for none
+ *     s32 time60                  bondviewlevtime60 (protocol 16)
+ *     s32 killcount               playerstats' (protocol 16)
+ *     s32 shotcount[7]            playerstats', SHOTREGION_* (protocol 16);
+ *                                 a co-op client takes these three as its own
  *   per human slot (g_PlayerConfigsArray[0-11]): u8 medals, u8 title
  *   u8      nchrs                 MAX_MPCHRS (92; protocol 10, was 84)
  *   per mpchr slot (MPCHR(i)):
