@@ -8149,6 +8149,41 @@ static void playerTetherBody(struct player *player, s32 playernum, struct chrdat
 	*speedtheta = 0;
 	*facing = player->thirdpersonbodytheta;
 }
+
+/**
+ * A body is ticked in every view's pass of a frame, not only its own
+ * player's: splitscreen runs a pass per view, and an online host one per
+ * player in the match. playerTetherBody() works in the player's own pass;
+ * in any other the body keeps the facing that pass left it, the speeds read
+ * against it the same way, and nothing is reset. Clearing
+ * thirdpersonbodyset here, as every pass but the player's own did, started
+ * the body from the look again each frame, so a host's tethered body could
+ * never come round from the camera (the user, online: "i cannot turn a full
+ * 360 with the tethered character like can normally be done offline").
+ */
+static bool playerTetherBodyHeld(struct player *player, s32 playernum)
+{
+	return g_ModOptions.camtether != MODTETHER_OFF
+		&& playernum != g_Vars.currentplayernum
+		&& player->thirdpersonbodyset
+		&& playerIsThirdPerson(player);
+}
+
+static void playerTetherBodyKeep(struct player *player, s32 playernum, struct chrdata *chr, f32 *facing, f32 *sideways, f32 *forwards, f32 *speedtheta)
+{
+	const f32 look = *facing;
+	const f32 speed = sqrtf(*sideways * *sideways + *forwards * *forwards);
+
+	if (!chrIsDead(chr) && speed >= 0.05f && g_TetherTravelSet[playernum]) {
+		const f32 travel = g_TetherTravel[playernum] - (look - player->thirdpersonbodytheta);
+
+		*sideways = speed * sinf(travel);
+		*forwards = speed * cosf(travel);
+	}
+
+	*speedtheta = 0;
+	*facing = player->thirdpersonbodytheta;
+}
 #endif
 
 s32 playerTickThirdPerson(struct prop *prop)
@@ -8295,6 +8330,8 @@ s32 playerTickThirdPerson(struct prop *prop)
 		// it, and every tick, whether or not this one animates the body.
 		if (playerTetherBodyActive(player, playernum)) {
 			playerTetherBody(player, playernum, chr, &facing, &speedsideways, &speedforwards, &speedtheta);
+		} else if (playerTetherBodyHeld(player, playernum)) {
+			playerTetherBodyKeep(player, playernum, chr, &facing, &speedsideways, &speedforwards, &speedtheta);
 		} else {
 			player->thirdpersonbodyset = false;
 		}

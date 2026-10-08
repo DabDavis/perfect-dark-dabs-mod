@@ -5,7 +5,7 @@
 The entries CLAUDE.md carried for this note, verbatim. The sections below are
 the long form.
 
-- **The third person camera, and why melee, rockets and beams came out of it** — [third-person.md](CLAUDE-notes/third-person.md): (2026-09-26: a hit's rebuilt position, the body's held gun in "weapon landed", its crouch on converted levels) (2026-09-27: a wall never cuts to first person - the camera goes onto the eye with `thirdpersondist` 0.01 and the player's own body fades by the camera's distance from it, drawn depth-first so it is one surface, `G_DEPTH_PREPASS_EXT`/`G_DEPTH_FRONT_EXT`; Camera Body Fade replaced Minimum Distance) the player's shot is fired from the camera and not the eye, so the crosshair is honest at any offset but everything that measures *from* the origin was two metres out; the two halves of the fix and the melee site that does not go through the shot path; the floor flags the camera trace needs; driving the camera from gdb; **Camera Tether** (`Mod.ThirdPersonTether`), a rod that pivots about `bond2.unk10` and not the shaken copy, and the game's `atan2f()` answering in 0 to tau; light glares are depth-less sprites, drawn before the gun, and whether a glare or the sun is seen is the GPU's occlusion query at each point (`artifactsTestOcclusion()`, `G_OCCLUSIONTEST_EXT`; `shotTestLos()` only as a fallback, it walked the camera's room alone and missed hills and translucent streets), and **Glare Clipping** (`Mod.GlareClip`) depth-tests their halos at draw time (`G_SETRECTDEPTH_EXT`), since the check misses props, is a frame or two stale, and passes a whole halo for a sliver of light; the player's footsteps are `bmoveTick()`'s alone, since the animated body's `footstepCheckDefault()` read the head bob's frame out of `oldframe` and played them in bursts
+- **The third person camera, and why melee, rockets and beams came out of it** — [third-person.md](CLAUDE-notes/third-person.md): (2026-09-26: a hit's rebuilt position, the body's held gun in "weapon landed", its crouch on converted levels) (2026-09-27: a wall never cuts to first person - the camera goes onto the eye with `thirdpersondist` 0.01 and the player's own body fades by the camera's distance from it, drawn depth-first so it is one surface, `G_DEPTH_PREPASS_EXT`/`G_DEPTH_FRONT_EXT`; Camera Body Fade replaced Minimum Distance) the player's shot is fired from the camera and not the eye, so the crosshair is honest at any offset but everything that measures *from* the origin was two metres out; the two halves of the fix and the melee site that does not go through the shot path; the floor flags the camera trace needs; driving the camera from gdb; **Camera Tether** (`Mod.ThirdPersonTether`), a rod that pivots about `bond2.unk10` and not the shaken copy, the body ticked in every view's pass (other passes keep its facing: the online host's body never turned round), and the game's `atan2f()` answering in 0 to tau; light glares are depth-less sprites, drawn before the gun, and whether a glare or the sun is seen is the GPU's occlusion query at each point (`artifactsTestOcclusion()`, `G_OCCLUSIONTEST_EXT`; `shotTestLos()` only as a fallback, it walked the camera's room alone and missed hills and translucent streets), and **Glare Clipping** (`Mod.GlareClip`) depth-tests their halos at draw time (`G_SETRECTDEPTH_EXT`), since the check misses props, is a frame or two stale, and passes a whole halo for a sliver of light; the player's footsteps are `bmoveTick()`'s alone, since the animated body's `footstepCheckDefault()` read the head bob's frame out of `oldframe` and played them in bursts
 - **Sitting in the Institute's chairs** — third-person.md, "Sitting in the Institute's chairs": `port/src/sitchair.c`, `Mod.SitInChairs`, office chairs and two-seater sofas (`g_SeatModels`); sitting down is `ANIM_STAND_UP_FROM_SITTING` backwards; a chair's +z is its front; the nearer of a chair and its desk's terminal wins, and seated the use button is the terminal's; anyone near the third person camera fades (`playerGetNearChrAlphaFrac()`)
 
 
@@ -160,6 +160,24 @@ look's. The flag `thirdpersonbodyset` is cleared with the tether's, so coming
 back from aiming starts the body facing the aim, where first person left it.
 Movement needed nothing: the walk is along `vv_theta`, which is now the
 camera's yaw, so the left stick is already screen-relative.
+
+**A body is ticked in every view's pass, not only its own player's**
+(2026-10-08, online: "i cannot turn a full 360 with the tethered character
+like can normally be done offline"). `propsTickPlayer()` ticks every
+foreground prop in each view's pass - splitscreen runs one per view, an
+online host one per player in the match - so the host's body was ticked in
+its own pass and then in each client's. The tether's condition is
+`playernum == g_Vars.currentplayernum`, and every other pass took the else
+and cleared `thirdpersonbodyset`, posing the body to the look: the next
+own pass started the facing from the look again, so the body never came
+round further than the chooser's own part turn. Other passes now keep the
+facing (`playerTetherBodyHeld`/`playerTetherBodyKeep`: the facing and the
+speeds read against it, nothing updated). A host backing up with one client
+in: body 0 degrees from the look before, 180 after (scratchpad harness,
+gdb sets `camtether` and `thirdperson`; the scripts walk on the C buttons,
+0x0004 back). A client's own body was never affected (its other players'
+passes are skipped), but the host poses a client's body by the host's own
+`camtether`, so others see a client's body by the host's setting.
 
 Two things that cost a run each:
 
