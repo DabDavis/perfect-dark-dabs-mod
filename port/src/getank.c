@@ -1847,11 +1847,21 @@ void geTankTick(void)
 	f32 halfwidth, halflength, height, bottom;
 
 	if (g_Tank[p].state == TANK_OUT) {
-		tankFadeEngine();
+		if (!g_NetReplaying) {
+			tankFadeEngine();
+		}
+
 		return;
 	}
 
 	tank = tankDriven();
+
+	// netplay: a prediction replay (netpredict.c) walks the tank again and
+	// does nothing else - no sound, no hands, no crush; the live tick did
+	// those once
+	if (g_NetReplaying && (!tank || !objIsHealthy(&tank->base) || g_Vars.currentplayer->isdead)) {
+		return;
+	}
 
 	if (!tank || !objIsHealthy(&tank->base)) {
 		// blown up under him: the shells went with it, and his hands are
@@ -1885,13 +1895,13 @@ void geTankTick(void)
 	// 20261004-151609). Two ticks, so the lists have run once with him in it
 	// whichever comes first in the frame; and if they are taken after all,
 	// his hands are his own again, as they are when he climbs out
-	if (g_Tank[p].shellsin > 0 && --g_Tank[p].shellsin == 0
+	if (!g_NetReplaying && g_Tank[p].shellsin > 0 && --g_Tank[p].shellsin == 0
 			&& invHasSingleWeaponExcAllGuns(WEAPON_GE_TANKSHELLS)) {
 		bgunEquipWeapon2(HAND_RIGHT, WEAPON_GE_TANKSHELLS);
 		bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
 	}
 
-	if (!invHasSingleWeaponExcAllGuns(WEAPON_GE_TANKSHELLS)
+	if (!g_NetReplaying && !invHasSingleWeaponExcAllGuns(WEAPON_GE_TANKSHELLS)
 			&& (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_GE_TANKSHELLS
 				|| bgunGetWeaponNum(HAND_LEFT) == WEAPON_GE_TANKSHELLS
 				|| g_Vars.currentplayer->gunctrl.switchtoweaponnum == WEAPON_GE_TANKSHELLS)) {
@@ -1899,7 +1909,7 @@ void geTankTick(void)
 	}
 
 	if (g_Tank[p].state == TANK_ENTERING) {
-		if (g_Tank[p].entert == 0.0f && geSfxStage() && geSfxNum(66)) {
+		if (g_Tank[p].entert == 0.0f && !g_NetReplaying && geSfxStage() && geSfxNum(66)) {
 			// TRUCK_START as the engine catches, at 25000 (0x61a8), from
 			// the tank and as the tank's engine - tankSounds() keeps it
 			// and tankStopSounds() lets it go
@@ -1977,7 +1987,7 @@ void geTankTick(void)
 		tank->turretpitch = 25.0f * M_BADTAU / 360.0f;
 	}
 
-	if (tank->firing > 0) {
+	if (tank->firing > 0 && !g_NetReplaying) {
 		tank->firing -= g_Vars.lvupdate60;
 	}
 
@@ -2026,12 +2036,86 @@ void geTankTick(void)
 		propSetPerimEnabled(prop, false);
 	}
 
+	if (g_NetReplaying) {
+		return;
+	}
+
 	if (tank->speed != 0.0f || tank->turnspeed != 0.0f) {
 		tankCrush(tank, halfwidth, halflength);
 		tankDriveOverProps(tank);
 	}
 
 	tankSounds(tank);
+}
+
+void geTankNetSave(s32 playernum, struct getanknet *out)
+{
+	struct tankobj *tank = NULL;
+	struct player *player;
+
+	memset(out, 0, sizeof(*out));
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || g_Tank[playernum].state == TANK_OUT
+			|| !(player = g_Vars.players[playernum])) {
+		return;
+	}
+
+	if (player->unk1af0 && player->unk1af0->obj && player->unk1af0->obj->type == OBJTYPE_TANK) {
+		tank = (struct tankobj *)player->unk1af0->obj;
+	}
+
+	if (!tank) {
+		return;
+	}
+
+	out->state = (u8)g_Tank[playernum].state;
+	out->penalty = (u8)(g_Tank[playernum].penalty < 0 ? 0 : g_Tank[playernum].penalty > 255 ? 255 : g_Tank[playernum].penalty);
+	out->entert = g_Tank[playernum].entert;
+	out->hullyaw = tank->hullyaw;
+	out->speed = tank->speed;
+	out->turnsum = g_Tank[playernum].turnsum;
+	out->turretyaw = tank->turretyaw;
+}
+
+void geTankNetLoad(s32 playernum, const struct getanknet *in)
+{
+	struct tankobj *tank = NULL;
+	struct player *player;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || g_Tank[playernum].state == TANK_OUT
+			|| in->state == TANK_OUT || in->state > TANK_RUNNING
+			|| !(player = g_Vars.players[playernum])) {
+		return;
+	}
+
+	if (player->unk1af0 && player->unk1af0->obj && player->unk1af0->obj->type == OBJTYPE_TANK) {
+		tank = (struct tankobj *)player->unk1af0->obj;
+	}
+
+	if (!tank || !isfinite(in->hullyaw) || !isfinite(in->speed) || !isfinite(in->turnsum)
+			|| !isfinite(in->turretyaw) || !isfinite(in->entert)) {
+		return;
+	}
+
+	g_Tank[playernum].state = in->state;
+	g_Tank[playernum].penalty = in->penalty;
+	g_Tank[playernum].entert = in->entert;
+	g_Tank[playernum].turnsum = in->turnsum;
+	g_Tank[playernum].speedtheta = in->turnsum * (1.0f - TANK_TURN_FILTER);
+	tank->hullyaw = tankWrap(in->hullyaw);
+	tank->speed = in->speed;
+	tank->turretyaw = tankWrap(in->turretyaw);
+}
+
+s32 geTankDriverOf(struct prop *prop)
+{
+	for (s32 i = 0; i < PLAYERCOUNT() && i < MAX_PLAYERS; i++) {
+		if (g_Tank[i].state != TANK_OUT && g_Vars.players[i] && g_Vars.players[i]->unk1af0 == prop) {
+			return i;
+		}
+	}
+
+	return -1;
 }
 
 /* ------------------------------------------------------------------------ */

@@ -765,6 +765,20 @@ static void netCaptureObj(struct netcap *c, struct prop *prop)
 		netCaptureRot(obj->realrot, st->quat);
 		st->damage = obj->damage;
 		st->extra[0] = netWeaponOf(prop) == 0xff ? 0 : netWeaponOf(prop);
+
+		// (protocol 23) GoldenEye's tank: the turret against the hull in
+		// 256ths of a turn, the barrel's elevation in quarter degrees
+		if (obj->type == OBJTYPE_TANK) {
+			const struct tankobj *tank = (const struct tankobj *)obj;
+			f32 yaw = tank->turretyaw;
+			s32 pitch = (s32)roundf(tank->turretpitch * 360.f * 4.f / (f32)M_BADTAU);
+
+			while (yaw < 0) yaw += (f32)M_BADTAU;
+			while (yaw >= (f32)M_BADTAU) yaw -= (f32)M_BADTAU;
+
+			st->extra[1] = (u8)((s32)roundf(yaw * 256.f / (f32)M_BADTAU) & 0xff);
+			st->extra[2] = (u8)(s8)(pitch < -127 ? -127 : pitch > 127 ? 127 : pitch);
+		}
 	}
 }
 
@@ -972,6 +986,7 @@ static void netLpCapture(s32 slot, s32 pn, u8 *out)
 	}
 
 	netPredictCaptureMove(p, &s.mv);
+	netPredictCaptureTank(pn, &s.tank);
 
 	for (i = 0; i < NETLP_NUMAMMO; i++) {
 		const s32 a = p->ammoheldarr[i];

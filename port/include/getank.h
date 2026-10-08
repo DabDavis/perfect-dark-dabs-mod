@@ -80,4 +80,30 @@ void geTankUpdateParkedModel(struct prop *prop);
 // The current player died, in the tank or not (playerDieByShooter()).
 void geTankPlayerDied(void);
 
+/**
+ * Netplay (netpredict.c, netpuppets.c): what of a driver's tank the walk
+ * carries from one tick to the next. A client keeps it per tick in its
+ * prediction ring and puts it back before replaying commands, and the host
+ * sends its own for the client's player in the local-player block, so the
+ * replay starts from the host's tank as it does from the host's walk.
+ * state 0 is out of any tank (nothing else is meaningful then).
+ */
+struct getanknet {
+	u8 state;       // 0 out, 1 climbing in, 2 driving
+	u8 penalty;     // ticks held to half speed after driving over something
+	f32 entert;
+	f32 hullyaw;
+	f32 speed;
+	f32 turnsum;    // the turn's one pole filter
+	f32 turretyaw;
+};
+
+void geTankNetSave(s32 playernum, struct getanknet *out);
+// only while both this machine and `in` have the player in a tank: entering
+// and leaving are each machine's own press
+void geTankNetLoad(s32 playernum, const struct getanknet *in);
+
+// the player driving this tank prop, -1 when none
+s32 geTankDriverOf(struct prop *prop);
+
 #endif

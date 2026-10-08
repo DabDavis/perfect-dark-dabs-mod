@@ -4888,6 +4888,30 @@ void playerUpdateDamageStats(struct prop *attacker, struct prop *victim, f32 dam
  * explosion - true if damage is coming from an explosion
  * explosionpos - position of said explosion
  */
+#ifndef PLATFORM_N64
+/**
+ * GoldenEye's BOND_GET_HIT1_SFX for the current player, a hit accepted to the
+ * body (showdamage) or to the armour (chrDamage()). Offline one clock for the
+ * armour's spacing, as ever; online each player's, and heard on this machine
+ * even from inside another player's pass (netWorldSoundBegin()).
+ */
+void chrGeHitGrunt(bool showdamage)
+{
+	static s32 lastgrunt60[MAX_PLAYERS];
+	s32 *last = &lastgrunt60[g_NetMode == NETMODE_NONE ? 0 : g_Vars.currentplayernum];
+
+	if (showdamage
+			? g_Vars.currentplayer->damageshowtime < 0
+			: g_Vars.lvframe60 - *last >= TICKS(30) || g_Vars.lvframe60 < *last) {
+		const s32 pass = netWorldSoundBegin();
+
+		*last = g_Vars.lvframe60;
+		geSfxPlay(68, GESFX_VOLUME);
+		netWorldSoundEnd(pass);
+	}
+}
+#endif
+
 void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gset *gset,
 		struct prop *aprop, s32 hitpart, bool damageshield, struct prop *prop2,
 		struct modelnode *node, struct model *model, s32 side, s16 *arg11,
@@ -5601,15 +5625,14 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				// red flash of the last is still up, which is what spaces
 				// them; armour here raises no flash, so that is spaced by
 				// hand.
-				if ((showdamage || showshield) && !lvIsPaused() && geSfxStage()) {
-					static s32 lastgrunt60;
-
-					if (showdamage
-							? g_Vars.currentplayer->damageshowtime < 0
-							: g_Vars.lvframe60 - lastgrunt60 >= TICKS(30) || g_Vars.lvframe60 < lastgrunt60) {
-						lastgrunt60 = g_Vars.lvframe60;
-						geSfxPlay(68, GESFX_VOLUME);
-					}
+				//
+				// Online (netplay) the victim's own machine grunts: a host
+				// only for its own player (whoever's pass dealt the hit), a
+				// client for its own from the host's damage event
+				// (netevents.c), by chrGeHitGrunt() too
+				if ((showdamage || showshield) && !lvIsPaused() && geSfxStage()
+						&& netIsLocalSlot(g_Vars.currentplayernum)) {
+					chrGeHitGrunt(showdamage);
 				}
 #endif
 

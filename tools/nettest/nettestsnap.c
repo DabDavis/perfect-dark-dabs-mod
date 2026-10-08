@@ -193,6 +193,15 @@ s32 snapTestLocalPlayer(void)
 			raw[k] = (u8)srnd();
 		}
 
+		// (protocol 23) the tank
+		s.tank.state = (u8)(srnd() % 3);
+		s.tank.penalty = (u8)srnd();
+		s.tank.entert = srndf(0, 1);
+		s.tank.hullyaw = srndf(0, 6.28f);
+		s.tank.speed = srndf(-20, 20);
+		s.tank.turnsum = srndf(-4, 4);
+		s.tank.turretyaw = srndf(0, 6.28f);
+
 		memset(a, 0xa5, sizeof(a));
 		netLpPack(&s, a);
 		SCHECK(a[NETLP_SIZE] == 0xa5 && a[NETLP_SIZE + 7] == 0xa5);
@@ -213,6 +222,9 @@ s32 snapTestLocalPlayer(void)
 		SCHECK(memcmp(&o.mv.laddernormal, &s.mv.laddernormal, sizeof(s.mv.laddernormal)) == 0);
 		SCHECK(memcmp(o.mv.swivelpos, s.mv.swivelpos, sizeof(s.mv.swivelpos)) == 0);
 		SCHECK(o.mv.insightaimmode == (s.mv.insightaimmode ? 1 : 0));
+		SCHECK(o.tank.state == s.tank.state && o.tank.penalty == s.tank.penalty && o.tank.entert == s.tank.entert
+				&& o.tank.hullyaw == s.tank.hullyaw && o.tank.speed == s.tank.speed && o.tank.turnsum == s.tank.turnsum
+				&& o.tank.turretyaw == s.tank.turretyaw);
 		// the aim is the last of the packed movement, then 3 bytes of 0
 		SCHECK(a[208 + NETMOVE_SIZE - 4] == (s.mv.insightaimmode ? 1 : 0));
 		SCHECK(a[208 + NETMOVE_SIZE - 3] == 0 && a[208 + NETMOVE_SIZE - 2] == 0 && a[208 + NETMOVE_SIZE - 1] == 0);

@@ -172,15 +172,18 @@ static struct {
 	u8 *buf;
 	u32 buflen;
 	struct modeldef *def;
-	f32 press;         // the detonator's hand, 0 off the watch to DETONATOR_PRESS on it
-	f32 flash[3];      // the watch laser's muzzle in the camera's space, last drawn
-	s32 flashframe;    // the frame it was drawn on, -1 for none
+	// per player: a host draws (or at least passes) every player's view and
+	// ticks every player's hands, and one value for the machine was stepped
+	// or set by each of them and read by whichever came next (netplay)
+	f32 press[MAX_PLAYERS];      // the detonator's hand, 0 off the watch to DETONATOR_PRESS on it
+	f32 flash[MAX_PLAYERS][3];   // the watch laser's muzzle in the camera's space, last drawn
+	s32 flashframe[MAX_PLAYERS]; // the frame it was drawn on, -1 for none
 	u16 lasertext;
 	struct model model;
 	u32 rwdata[GADGET_RWDATA_MAX];
-	s32 photo;         // the camera's trigger was pulled: judged in the render
+	s32 photo[MAX_PLAYERS]; // the camera's trigger was pulled: judged in that player's own view
 	struct prop *keyprop; // the GoldenEye key's own prop, while it is carried
-} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .flashframe = -1 };
+} g_Gadgets = { .mission = -1, .moddir = -1, .item = -1, .failed = -1, .flashframe = { [0 ... MAX_PLAYERS - 1] = -1 } };
 
 // the watch magnet's hum, each player's (gegadgetsTick())
 static struct sndstate *g_MagnetHum[MAX_PLAYERS];
@@ -564,8 +567,12 @@ void gegadgetsStageLoad(s32 stagenum)
 	gegadgetsUnloadModel();
 
 	g_Gadgets.failed = -1;
-	g_Gadgets.photo = 0;
-	g_Gadgets.flashframe = -1;
+	for (s32 i = 0; i < MAX_PLAYERS; i++) {
+		g_Gadgets.photo[i] = 0;
+		g_Gadgets.flashframe[i] = -1;
+		g_Gadgets.press[i] = 0.0f;
+	}
+
 	g_Gadgets.keyprop = NULL;
 	memset(g_MagnetHum, 0, sizeof(g_MagnetHum));
 	g_Gadgets.mission = modloaderStageMission(stagenum);
@@ -800,22 +807,23 @@ static void gegadgetsDetonatorPress(Mtxf *matrices)
 {
 	struct modelnode *node = modelGetPart(g_Gadgets.def, DETONATOR_PART_HAND);
 	const f32 step = g_Vars.lvupdate60freal;
+	f32 *press = &g_Gadgets.press[g_Vars.currentplayernum];
 	Mtxf turn;
 	Mtxf out;
 	s32 index;
 
 	if (g_Vars.currentplayer->hands[HAND_RIGHT].triggeron) {
-		g_Gadgets.press += DETONATOR_IN * step;
+		*press += DETONATOR_IN * step;
 	} else {
-		g_Gadgets.press -= DETONATOR_OUT * step;
+		*press -= DETONATOR_OUT * step;
 	}
 
-	if (g_Gadgets.press > DETONATOR_PRESS) {
-		g_Gadgets.press = DETONATOR_PRESS;
+	if (*press > DETONATOR_PRESS) {
+		*press = DETONATOR_PRESS;
 	}
 
-	if (g_Gadgets.press < 0.0f) {
-		g_Gadgets.press = 0.0f;
+	if (*press < 0.0f) {
+		*press = 0.0f;
 	}
 
 	if (!node || (node->type & 0xff) != MODELNODETYPE_POSITION) {
@@ -828,7 +836,7 @@ static void gegadgetsDetonatorPress(Mtxf *matrices)
 		return;
 	}
 
-	guRotateF(turn.m, (g_Gadgets.press - DETONATOR_PRESS) * (180.0f / 3.1415927f),
+	guRotateF(turn.m, (*press - DETONATOR_PRESS) * (180.0f / 3.1415927f),
 			DETONATOR_AXIS_X, DETONATOR_AXIS_Y, DETONATOR_AXIS_Z);
 	mtx4MultMtx4(&matrices[index], &turn, &out);
 	mtx4Copy(&out, &matrices[index]);
@@ -963,11 +971,11 @@ s32 gegadgetsRenderHand(struct modelrenderdata *renderdata, struct model *hostmo
 				const struct coord *at = &flash->rodata->position.pos;
 
 				for (s32 a = 0; a < 3; a++) {
-					g_Gadgets.flash[a] = at->x * matrices[0].m[0][a] + at->y * matrices[0].m[1][a]
+					g_Gadgets.flash[g_Vars.currentplayernum][a] = at->x * matrices[0].m[0][a] + at->y * matrices[0].m[1][a]
 						+ at->z * matrices[0].m[2][a] + matrices[0].m[3][a];
 				}
 
-				g_Gadgets.flashframe = g_Vars.lvframenum;
+				g_Gadgets.flashframe[g_Vars.currentplayernum] = g_Vars.lvframenum;
 			}
 		}
 
@@ -1011,14 +1019,16 @@ s32 gegadgetsWatchLaserActive(s32 weaponnum)
  */
 s32 gegadgetsWatchLaserMuzzle(s32 weaponnum, f32 *campos)
 {
+	const s32 p = g_Vars.currentplayernum;
+
 	if (!gegadgetsIsWatchLaser(weaponnum) || g_Gadgets.item != ITEM_WATCHLASER
-			|| g_Gadgets.flashframe < 0 || g_Vars.lvframenum - g_Gadgets.flashframe > 2) {
+			|| g_Gadgets.flashframe[p] < 0 || g_Vars.lvframenum - g_Gadgets.flashframe[p] > 2) {
 		return 0;
 	}
 
-	campos[0] = g_Gadgets.flash[0];
-	campos[1] = g_Gadgets.flash[1];
-	campos[2] = g_Gadgets.flash[2];
+	campos[0] = g_Gadgets.flash[p][0];
+	campos[1] = g_Gadgets.flash[p][1];
+	campos[2] = g_Gadgets.flash[p][2];
 
 	return 1;
 }
@@ -1186,8 +1196,10 @@ void gegadgetsThrown(s32 weaponnum, struct weaponobj *thrown)
  */
 void gegadgetsAfterProps(void)
 {
-	if (g_Gadgets.photo) {
-		g_Gadgets.photo = 0;
+	// the presser's own view: online a host passes every player's, and the
+	// first pass after the press (its own) had judged a client's photograph
+	if (g_Gadgets.photo[g_Vars.currentplayernum]) {
+		g_Gadgets.photo[g_Vars.currentplayernum] = 0;
 		objectiveCheckHolograph(0.0f);
 	}
 }
@@ -1230,7 +1242,7 @@ void gegadgetsFire(s32 weaponnum)
 		// in the tick, when the props' matrices are last frame's and already
 		// in the hardware's fixed point
 		geSfxPlay(GESFX_CAMERA_CLICK, GESFX_VOLUME);
-		g_Gadgets.photo = 1;
+		g_Gadgets.photo[g_Vars.currentplayernum] = 1;
 
 		// GoldenEye's shutter (gunfire.c, ITEM_CAMERA's trigger press): the
 		// view goes black on the press and comes back over 8 ticks from its

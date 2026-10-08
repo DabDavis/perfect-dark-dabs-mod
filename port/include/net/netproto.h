@@ -108,7 +108,14 @@
 //    online (a new life where the player fell, its kit kept, Mission Lives
 //    the team's; no START, no health taken from another), and a player whose
 //    death does not come back watches the others (netspec.c)
-#define NET_PROTOCOL_VERSION 22
+// 23 (GoldenEye's tank driven online, fix/net-1008-ge): the local-player
+//    block grows by 32 bytes (NETLP_SIZE 720): the tank the player drives as
+//    the walk carries it (u8 state, u8 penalty, u16 0, f32 entert, hullyaw,
+//    speed, turnsum, turretyaw, u8 0[8]), which a client's prediction replays
+//    from; an OBJ record of a tank (OBJTYPE_TANK) carries its turret in extra
+//    byte 1 (256ths of a turn against the hull) and its barrel's elevation in
+//    extra byte 2 (s8, quarter degrees)
+#define NET_PROTOCOL_VERSION 23
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -442,7 +449,7 @@
  * mid-match sends its player as that host last had it
  *   u8      NETMSG_RESUME
  *   u32     oldmatch              the old host's id of the match
- *   u16     len                   NETLP_SIZE (688)
+ *   u16     len                   NETLP_SIZE (720)
  *   bytes   localplayer           the newest local-player block it had (the
  *                                 SNAP layout below): the new host gives that
  *                                 seat's player its next life where the block
@@ -658,7 +665,7 @@
  *     (CHR byte 46 counts the chr's teleports, wrapping: snap when it
  *     changes, by any amount; a toggled bit would lose two in one gap)
  *   u8      haslp                 0 none, 1 keyframe, 2 against the baseline's
- *   delta   localplayer           NETLP_SIZE (688) bytes, full precision:
+ *   delta   localplayer           NETLP_SIZE (720) bytes, full precision:
  *     u8 flags (1 dead, 2 invincible), u8 respawns, u8 teleports (counters),
  *     u8 dualwielding, f32 pos[3], s16 rooms[8], f32 theta, f32 verta,
  *     f32 health, f32 shield, s16 weaponnum, s16 0, s32 loadedammo[4]
@@ -689,7 +696,9 @@
  *     elapseplay, animscale (124 bytes); u32 headsave[30], the head model's
  *     rwdata (bondheadsave, 120 bytes); the aim: f32 swivelpos[2], u8
  *     insightaimmode, u8 0[3] (12 bytes). NETMOVE_SIZE 480 in all, at
- *     bytes 208..687
+ *     bytes 208..687; (protocol 23) GoldenEye's tank the player drives:
+ *     u8 state (0 none, 1 climbing in, 2 driving), u8 penalty, u16 0, f32
+ *     entert, hullyaw, speed, turnsum, turretyaw, u8 0[8] (bytes 688..719)
  *   u8      hasscen               (protocol 7) 0 none, 1 keyframe, 2 against
  *                                 the baseline's
  *   delta   scenario              NETSCEN_SIZE (768; protocol 10, was 640)

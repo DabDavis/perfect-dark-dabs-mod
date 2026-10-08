@@ -169,6 +169,8 @@ void netPredictCaptureMove(struct player *p, struct netmove *mv); // host: the b
 // the pose step: the newest block (after command cmd; abs: a respawn or
 // teleport, taken whatever it says) against this machine's own run
 s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, s32 abs); // 1 the player was moved (a replay or a snap)
+struct netlptank;
+void netPredictCaptureTank(s32 playernum, struct netlptank *t); // GoldenEye's tank the player drives (protocol 23)
 void netPredictLog(const char *why);
 void netPredictForceSnap(void);       // netcoop.c: a cutscene ended; the next block is taken outright
 void netPredictHostTickEnd(s32 slot, struct player *p); // host: a remote player after the tick (--net-predict-log)
