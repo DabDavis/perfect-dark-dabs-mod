@@ -305,6 +305,17 @@ AUTH_ATTEMPT_WINDOW = 300
 AUTH_ATTEMPT_MAX = 30
 UPLOAD_WINDOW = 3600
 
+# Accounts made from one address. Registering used to be counted in the
+# failure budget above, which capped it, and also meant a new player's own
+# account counted as a wrong guess: one who had pressed Sign In a few times
+# before finding Create Account made the account and was then refused "too
+# many attempts" at every sign-in for five minutes (a real player, 2026-10-05).
+# Making an account now counts only here, and clears the failure budget the
+# way a good PIN does; a name that is already taken is still a failure, since
+# that answer says which names exist.
+REGISTER_WINDOW = 3600
+REGISTER_MAX = 20
+
 # One press of Upload sends what the client thinks is worth sending, which is
 # its best run per level rather than everything it kept. Sixty an hour was
 # written when a player had one ghost per stage and no reason to re-send it.
@@ -354,6 +365,7 @@ BOARD_KEEP = 100
 _lock = threading.Lock()
 _auth_failures = {}
 _auth_attempts = {}
+_registers = {}      # address -> accounts made from it
 _user_failures = {}
 _user_serial = {}    # account -> (lock, waiting count), while any attempt is in it
 _upload_counts = {}
@@ -1917,6 +1929,118 @@ class Handler(BaseHTTPRequestHandler):
 
         return True, None
 
+    def create_account(self, username, pin, pairs):
+        """Make an account. Returns (status, reply).
+
+        /register and a /login that asks to create both come here. The
+        failure budget is asked and not spent: making an account is not a
+        wrong guess, and counting it as one locked a new player out of the
+        account they had just made (see REGISTER_WINDOW). A taken name is
+        counted, because that answer is the list of names one at a time.
+        """
+        ip = self.client_ip()
+
+        if not USERNAME_RE.match(username):
+            return 400, {"ok": False, "error": "3-15 chars, letters, digits, _ . - only"}
+        if not PIN_RE.match(pin):
+            return 400, {"ok": False, "error": "pin must be 4-8 digits"}
+
+        if (not rate_ok(_auth_failures, ip, AUTH_WINDOW, AUTH_MAX_FAILURES, record=False)
+                or not rate_ok(_registers, ip, REGISTER_WINDOW, REGISTER_MAX, record=False)):
+            return 429, {"ok": False, "error": "too many attempts"}
+
+        # Registering hashes a PIN as well, and needs no account to reach.
+        if not rate_ok(_auth_attempts, ip, AUTH_ATTEMPT_WINDOW, AUTH_ATTEMPT_MAX):
+            return 429, {"ok": False, "error": "too many attempts"}
+
+        rec_salt, rec_hash = b"", b""
+
+        if pairs:
+            rec_salt = os.urandom(16)
+            rec_hash = hash_answer(pairs, rec_salt)
+
+        salt = os.urandom(16)
+        try:
+            with db() as conn:
+                # The address that made the account is its first known
+                # one, so its owner is never slowed on the machine they
+                # registered from.
+                conn.execute(
+                    "INSERT INTO users (username, pin_salt, pin_hash, created, known_ips,"
+                    " rec_salt, rec_hash, rec_count) VALUES (?,?,?,?,?,?,?,?)",
+                    (username, salt, hash_pin(pin, salt), int(time.time()), ip,
+                     rec_salt, rec_hash, len(pairs)))
+        except sqlite3.IntegrityError:
+            # Unique usernames, case-insensitively.
+            rate_hit(_auth_failures, ip)
+            return 409, {"ok": False, "error": "username already taken"}
+
+        rate_hit(_registers, ip)
+
+        # Whoever made it holds its PIN: the same as a good sign-in.
+        with _lock:
+            _auth_failures.pop(ip, None)
+            _user_failures.pop(username.lower(), None)
+
+        return 200, {"ok": True, "username": username,
+                     "recovery": bool(rec_hash), "questions": len(pairs)}
+
+    def login_or_create(self, req, username, pin):
+        """/login with "create": sign in, or make the account if the name is
+        free. Returns (status, reply).
+
+        An account that exists is signed into exactly as a plain /login
+        does, but a wrong PIN says so ("wrong PIN"): a client that asks to
+        create is told when a name is free, which says which names are taken
+        - as /register's 409 always has - so there is nothing left to hide by
+        saying "username or pin". A free name with the security questions
+        in the body becomes the account; without them the reply is 404 with
+        "new": true, and the client asks for them and sends the same again.
+        That 404 counts as a failure, so finding free names costs what
+        guessing PINs does.
+        """
+        ip = self.client_ip()
+
+        if not username or not pin:
+            return 400, {"ok": False, "error": "username and pin required"}
+
+        with db() as conn:
+            row = conn.execute("SELECT username FROM users WHERE username = ?", (username,)).fetchone()
+
+        if row is not None:
+            ok, err = self.authenticate(username, pin)
+            if not ok:
+                if err == "wrong username or pin":
+                    err = "wrong PIN"
+                return 403, {"ok": False, "error": err, "new": False}
+
+            reply = {"ok": True, "created": False, "username": row["username"]}
+            reply.update(recovery_state(username))
+            return 200, reply
+
+        if (not rate_ok(_auth_failures, ip, AUTH_WINDOW, AUTH_MAX_FAILURES, record=False)
+                or not rate_ok(_auth_attempts, ip, AUTH_ATTEMPT_WINDOW, AUTH_ATTEMPT_MAX, record=False)):
+            return 429, {"ok": False, "error": "too many attempts, wait a few minutes"}
+
+        if not USERNAME_RE.match(username):
+            return 400, {"ok": False, "error": "3-15 chars, letters, digits, _ . - only"}
+        if not PIN_RE.match(pin):
+            return 400, {"ok": False, "error": "pin must be 4-8 digits"}
+
+        pairs, err = read_questions(req)
+        if err:
+            return 400, {"ok": False, "error": err}
+
+        if not pairs:
+            rate_hit(_auth_failures, ip)
+            rate_hit(_auth_attempts, ip)
+            return 404, {"ok": False, "new": True, "error": "no account called %s yet" % username}
+
+        status, reply = self.create_account(username, pin, pairs)
+        if status == 200:
+            reply["created"] = True
+        return status, reply
+
     @staticmethod
     def check_answer(row, pairs):
         """One PBKDF2 whatever the row is, for the same reason check_pin does.
@@ -2129,36 +2253,8 @@ class Handler(BaseHTTPRequestHandler):
             if err:
                 return self.send_json(400, {"ok": False, "error": err})
 
-            rec_salt, rec_hash = b"", b""
-
-            if pairs:
-                rec_salt = os.urandom(16)
-                rec_hash = hash_answer(pairs, rec_salt)
-
-            if not rate_ok(_auth_failures, self.client_ip(), AUTH_WINDOW, AUTH_MAX_FAILURES):
-                return self.send_json(429, {"ok": False, "error": "too many attempts"})
-
-            # Registering hashes a PIN as well, and needs no account to reach.
-            if not rate_ok(_auth_attempts, self.client_ip(), AUTH_ATTEMPT_WINDOW, AUTH_ATTEMPT_MAX):
-                return self.send_json(429, {"ok": False, "error": "too many attempts"})
-
-            salt = os.urandom(16)
-            try:
-                with db() as conn:
-                    # The address that made the account is its first known
-                    # one, so its owner is never slowed on the machine they
-                    # registered from.
-                    conn.execute(
-                        "INSERT INTO users (username, pin_salt, pin_hash, created, known_ips,"
-                        " rec_salt, rec_hash, rec_count) VALUES (?,?,?,?,?,?,?,?)",
-                        (username, salt, hash_pin(pin, salt), int(time.time()), self.client_ip(),
-                         rec_salt, rec_hash, len(pairs)))
-            except sqlite3.IntegrityError:
-                # Unique usernames, case-insensitively.
-                return self.send_json(409, {"ok": False, "error": "username already taken"})
-
-            return self.send_json(200, {"ok": True, "username": username,
-                                        "recovery": bool(rec_hash), "questions": len(pairs)})
+            status, reply = self.create_account(username, pin, pairs)
+            return self.send_json(status, reply)
 
         if path == "/login":
             req = self.read_json()
@@ -2166,6 +2262,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(400, {"ok": False, "error": "bad body"})
 
             username = str(req.get("username", "")).strip()
+
+            # A client that sends "create" has one Sign In button and no
+            # Create Account: a name nobody has is made into an account here.
+            if req.get("create") is True:
+                status, reply = self.login_or_create(req, username, str(req.get("pin", "")).strip())
+                return self.send_json(status, reply)
 
             ok, err = self.authenticate(username, str(req.get("pin", "")).strip())
             if not ok:

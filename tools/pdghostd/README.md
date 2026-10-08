@@ -114,6 +114,23 @@ refused sign-in says `wrong username or pin` whether or not the account
 exists. Uploads are counted separately, 120 an hour per account, and a valid
 PIN counts against nothing.
 
+Making an account is not a failure: `/register` asks the failure budget and
+does not spend it, and a success clears it the way a good PIN does (counting
+it locked a player out of the account they had just made, 2026-10-05). A
+taken name is a failure, since that answer says which names exist. Accounts
+per address are capped on their own, 20 an hour (`REGISTER_MAX`).
+
+**`/login` with `"create": true`** is the client's one Sign In button
+(2026-10-08). An account that exists is signed into as usual, except that a
+wrong PIN says `wrong PIN` with `"new": false`. A free name with the security
+questions in the body (as `/register` takes them) becomes the account:
+`200` with `"created": true`. A free name without them answers `404` with
+`"new": true`, and the client asks for them and sends the same again; that
+404 counts as a failure, so finding free names costs what guessing PINs
+does. A free name is held to registration's rules (`400`). Without `create`,
+`/login` is unchanged, so released clients still get one sentence for a
+missing account and a wrong PIN.
+
 A PIN that is lost is reset by answering the account's security questions:
 up to three, each one category out of ten and one answer out of that
 category's fifty, all chosen from dropdowns in the client

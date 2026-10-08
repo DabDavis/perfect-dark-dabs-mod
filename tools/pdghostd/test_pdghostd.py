@@ -67,6 +67,9 @@ USER_SLOW_DELAY = 0.6
 # makes guessing at one expensive. Twenty attempts at two seconds is not a test
 # suite, so the copy under test waits a tenth of that.
 RESET_DELAY = 0.2
+# Accounts one address may make in an hour. The suite's own default address
+# makes six (tester, hoarder, ev1-4), so the cap is tested from its own.
+REGISTER_MAX = 8
 
 
 def build_daemon():
@@ -83,6 +86,7 @@ def build_daemon():
     sub("USER_QUOTA = 64 * 1024 * 1024", "USER_QUOTA = %d" % USER_QUOTA)
     sub("USER_SLOW_DELAY = 3.0", "USER_SLOW_DELAY = %r" % USER_SLOW_DELAY)
     sub("RESET_DELAY = 2.0", "RESET_DELAY = %r" % RESET_DELAY)
+    sub("REGISTER_MAX = 20", "REGISTER_MAX = %d" % REGISTER_MAX)
     sub("CRASH_MAX_FILES = 5000", "CRASH_MAX_FILES = %d" % CRASH_MAX_FILES)
     sub("REPORT_MAX_FILES = 10000", "REPORT_MAX_FILES = %d" % REPORT_MAX_FILES)
     sub("BOARD_PAGE = 25", "BOARD_PAGE = %d" % BOARD_PAGE)
@@ -832,6 +836,103 @@ def send_crash(report, note="", version="abc1234", platform="x86_64-windows",
                                 "platform": platform, "channel": channel}, ip=ip)
 
 
+def signin(user, pin, ip=None, question=None, answer=None, more=None, create=True):
+    """/login as the one-button client sends it: "create", and the questions
+    once the client has asked for them."""
+    body = {"username": user, "pin": pin, "create": create}
+    if question is not None:
+        body["question"] = question
+    if answer is not None:
+        body["answer"] = answer
+    body.update(more or {})
+    return post_json("/login", body, ip=ip)
+
+
+def test_sign_in_creates():
+    print("sign in creates a free name; making an account is not a failure")
+
+    # The lockout a real player met (2026-10-05): seven refusals, the
+    # account made, and every sign-in after it "too many attempts".
+    for i in range(7):
+        login("ghostly%d" % i, "0000", ip="10.7.0.1")
+    st, body, _ = register("fresh1", "1234", ip="10.7.0.1")
+    check(st == 200, "register after seven refusals from the address -> 200")
+    st, body, _ = login("fresh1", "1234", ip="10.7.0.1")
+    check(st == 200, "and the new account signs in at once (%d %r)" % (st, body))
+    for i in range(7):
+        login("ghostly%d" % i, "0000", ip="10.7.0.1")
+    st, body, _ = login("fresh1", "1234", ip="10.7.0.1")
+    check(st == 200, "making the account cleared the budget like a good PIN does")
+
+    # A taken name is still a failure: that answer is the list of names.
+    for i in range(8):
+        register("fresh1", "1234", ip="10.7.0.2")
+    st, body, _ = register("fresh2", "1234", ip="10.7.0.2")
+    check(st == 429, "8 taken names from one address -> its next register refused (%d)" % st)
+
+    # The cap on accounts per address.
+    made = 0
+    for i in range(REGISTER_MAX):
+        st, _, _ = register("cap%d" % i, "1234", ip="10.7.0.3")
+        made += st == 200
+    st, body, _ = register("capover", "1234", ip="10.7.0.3")
+    check(made == REGISTER_MAX and st == 429,
+          "%d accounts from one address, the next refused (%d)" % (made, st))
+
+    # Sign In with "create" on a free name, no questions: 404, "new".
+    st, body, _ = signin("newbie", "4321", ip="10.7.1.1")
+    check(st == 404 and body.get("new") is True and "newbie" in body.get("error", ""),
+          "a free name without questions -> 404 new (%d %r)" % (st, body))
+    st, body, _ = login("newbie", "4321", ip="10.7.1.1")
+    check(st == 403, "and it was not made")
+
+    # The same with the three pairs: made, and signed in.
+    more = pairs23("food", "pizza", "drink", "coffee")
+    st, body, _ = signin("newbie", "4321", ip="10.7.1.1", question="game", answer="goldeneye007", more=more)
+    check(st == 200 and body.get("created") is True and body.get("questions") == 3
+          and body.get("recovery") is True, "with three pairs -> made (%d %r)" % (st, body))
+    st, body, _ = login("newbie", "4321", ip="10.7.1.1")
+    check(st == 200, "a plain sign-in takes it")
+
+    # An account that exists: signed into, never made again.
+    st, body, _ = signin("NEWBIE", "4321", ip="10.7.1.2")
+    check(st == 200 and body.get("created") is False and body.get("username") == "newbie"
+          and body.get("questions") == 3,
+          "the right PIN, any case -> signed in, its own spelling back (%r)" % body)
+    st, body, _ = signin("newbie", "9999", ip="10.7.1.2", question="game", answer="tetris", more=more)
+    check(st == 403 and body.get("error") == "wrong PIN" and body.get("new") is False,
+          "a wrong PIN on an existing name says so, questions or not (%d %r)" % (st, body))
+    st, body, _ = resetpin("newbie", "game", "goldeneye007", "1111", ip="10.7.1.3", more=more)
+    check(st == 200, "the questions it was made with reset it")
+
+    # A plain /login keeps its one sentence for released clients.
+    st1, b1, _ = login("nobody-at-all", "0000", ip="10.7.1.4")
+    st2, b2, _ = login("newbie", "0000", ip="10.7.1.4")
+    check((st1, b1) == (st2, b2) == (403, {"ok": False, "error": "wrong username or pin"}),
+          "without create, a free name and a wrong PIN still read the same")
+    st, body, _ = post_json("/login", {"username": "nobody-else", "pin": "1234", "create": "yes"}, ip="10.7.1.4")
+    check(st == 403 and body.get("error") == "wrong username or pin", "create must be true, not truthy")
+
+    # A free name is held to registration's rules.
+    st, body, _ = signin("bad name", "1234", ip="10.7.1.5", question="game", answer="tetris")
+    check(st == 400, "a free name with a space -> 400")
+    st, body, _ = signin("goodname", "12ab", ip="10.7.1.5", question="game", answer="tetris")
+    check(st == 400 and "pin" in body.get("error", ""), "a free name with a letter in the PIN -> 400")
+    st, body, _ = signin("goodname", "1234", ip="10.7.1.5", question="game", answer="")
+    check(st == 400, "a half-chosen question -> 400")
+    st, body, _ = signin("", "1234", ip="10.7.1.5")
+    check(st == 400, "no name -> 400")
+
+    # Looking for free names costs what guessing PINs does.
+    for i in range(8):
+        signin("probe%d" % i, "1234", ip="10.7.1.6")
+    st, body, _ = signin("probe-more", "1234", ip="10.7.1.6", question="game", answer="tetris")
+    check(st == 429, "8 free names found from one address -> refused (%d)" % st)
+    st, body, _ = signin("newbie", "1111", ip="10.7.1.6")
+    check(st == 403 and "too many" in body.get("error", ""),
+          "and that address cannot sign into an account either")
+
+
 def test_crash_reports():
     print("crash reports")
 
@@ -1460,6 +1561,7 @@ def main():
         test_upload_not_auth_limited()
         test_recovery()
         test_three_questions()
+        test_sign_in_creates()
         test_crash_reports()
         test_problem_reports()
         test_report_board()
