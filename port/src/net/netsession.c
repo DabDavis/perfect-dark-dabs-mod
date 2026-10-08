@@ -1943,6 +1943,14 @@ static void netHostLogSeats(const char *why)
  * as a death does, so a briefcase, an uplink or a case stays in the match;
  * Pop a Cap passes over it (netScenHostPacCheck).
  */
+static s32 s_VacatingSeat = 0;
+
+// netcoop.c: the death being dealt empties a seat (netSeatVacate)
+s32 netSessionVacating(void)
+{
+	return s_VacatingSeat;
+}
+
 static void netSeatVacate(s32 slot, s32 drop)
 {
 	const s32 pn = netSeatPlayer(slot);
@@ -1965,7 +1973,9 @@ static void netSeatVacate(s32 slot, s32 drop)
 		}
 
 		g_Vars.mplayerisrunning = false;
+		s_VacatingSeat = 1;
 		playerDieByShooter(pn, true);
+		s_VacatingSeat = 0;
 		g_Vars.mplayerisrunning = running;
 	}
 
@@ -4854,6 +4864,17 @@ s32 netSessionSeatOutOfPlay(s32 slot)
 {
 	return s_Role == NETROLE_HOST && s_MatchActive && slot >= 0 && slot < MAX_PLAYERS
 		&& s_Seats[slot].state == NETSEAT_OPEN;
+}
+
+// coop.c, the host: a player whose seat nobody plays (by player number);
+// 0 offline and on a client
+s32 netPlayerOutOfPlay(s32 playernum)
+{
+	if (g_NetMode == NETMODE_NONE || playernum < 0 || playernum >= MAX_PLAYERS || !g_Vars.players[playernum]) {
+		return 0;
+	}
+
+	return netSessionSeatOutOfPlay(g_Vars.playerstats[playernum].mpindex);
 }
 
 // The host: the slot of the joined client called `user`, or -1

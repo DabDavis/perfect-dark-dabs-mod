@@ -4611,6 +4611,20 @@ char *soloMenuTitlePauseStatus(struct menudialogdef *dialogdef)
 		return langGet(L_OPTIONS_172); // "Status"
 	}
 
+#ifndef PLATFORM_N64
+	// a converted mission's own name (GoldenEye's Dam was "dataDyne
+	// Defection" here, by its index): its pause is GoldenEye's watch, but
+	// online a dead co-op player's is this one (netspec.c)
+	if (modloaderStageIsMission(g_Vars.stagenum)) {
+		const char *name = modloaderGetStageMapName(g_Vars.stagenum);
+
+		if (name && name[0]) {
+			sprintf(g_StringPointer, "%s: %s\n", name, langGet(L_OPTIONS_172));
+			return g_StringPointer;
+		}
+	}
+#endif
+
 	sprintf(g_StringPointer, "%s: %s\n",
 			langGet(g_SoloStages[g_MissionConfig.stageindex].name3),
 			langGet(L_OPTIONS_172));

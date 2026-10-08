@@ -14,6 +14,7 @@
 #include "game/chr.h"
 #include "game/chraction.h"
 #include "game/playermgr.h"
+#include "game/modrespawn.h"
 #include "game/setuputils.h"
 #include "game/player.h"
 #include "game/bondgun.h"
@@ -1729,6 +1730,12 @@ void netEntsClientApplyLocal(void)
 			s_LpDeaths++;
 		}
 	} else if (p->isdead && s_LpRespawnPending) {
+		// a co-op death that came back by Mission Respawn's rules: the
+		// local new life where the player fell, with its kit (netcoop.c)
+		if (netCoopTakeLocalRespawn()) {
+			modRespawnMark();
+		}
+
 		playerStartNewLife();
 		s_LpRespawnsDone++;
 		s_LpCorrAbs = 1;

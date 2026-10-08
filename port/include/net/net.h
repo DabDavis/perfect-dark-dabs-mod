@@ -429,6 +429,35 @@ void netPlayersOwnEnd(void);
 // player.c playerTickThirdPerson, the host: a client's tethered body as its
 // command carried it (protocol 19, NETCMD_BODY); 0 none (radians, 0 to tau)
 s32 netPlayersHostBody(s32 playernum, f32 *facing, f32 *travel, s32 *travelset);
+// player.c playerDieByShooter: a player's death; on the host the one that
+// leaves nobody in play alive loses the mission (protocol 22)
+void netCoopPlayerDied(s32 playernum);
+// the player whose death lost the mission, -1 while somebody lives (both sides)
+s32 netCoopLostSubject(void);
+// gedeathcam.c: GoldenEye's replay plays for this player's death online (the
+// mission's last: the host's pass poses the body, its own machine watches)
+s32 netCoopReplaysDeath(s32 playernum);
+// player.c playerDieByShooter, the host, before the drop: this online co-op
+// death comes back (Mission Respawn's rules: where the player fell, its kit
+// kept; Mission Lives the team's), and nothing is dropped
+s32 netCoopDeathRespawns(void);
+// that player is dead and its death comes back (host; a client knows its own); 0 offline
+s32 netCoopRespawnDue(s32 playernum);
+// the host: a dead player in play will come back (the mission is not over)
+s32 netCoopAnyRespawnDue(void);
+// netents.c, a client's new life from the host's: Mission Respawn's, taken once
+s32 netCoopTakeLocalRespawn(void);
+// modrespawn.c modRespawnReset, every stage
+void netCoopStageReset(void);
+// player.c / mplayer.c: this machine's dead co-op player watches the others
+// (netspec.c; Mission Respawn off): its camera, 1 when it built one, and its
+// line along the foot of the view
+s32 netSpecDeadCameraTick(void);
+s32 netSpecDeadOn(void);
+#define NET_DEAD_WATCHING() (g_NetMode != NETMODE_NONE && g_Vars.currentplayer->isdead && netSpecDeadOn())
+// coop.c, the host: that player's seat is open (nobody plays it, its player
+// killed to vacate it): not counted among the living or the dead; 0 offline
+s32 netPlayerOutOfPlay(s32 playernum);
 // playerreset.c: a co-op mission's first life, every player on the first's
 // spot (pos and rooms set, the facing returned); player.c: a co-op life's
 // pad, other players no obstacle (rooms: RoomNum[8])

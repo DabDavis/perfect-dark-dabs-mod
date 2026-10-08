@@ -19,6 +19,10 @@ s32 geDeathCamIsGoldenEye(void);
 // stage end (solo) and the respawn (multiplayer) wait for it.
 s32 geDeathCamHolds(void);
 
+// The host of an online co-op mission everyone has died in: the replay of the
+// death that lost it is still to run, or running (netcoop.c); the end waits.
+s32 geDeathCamLostHolds(void);
+
 // The replay was cut short by a press, which in multiplayer is the respawn.
 s32 geDeathCamTakeRespawn(void);
 

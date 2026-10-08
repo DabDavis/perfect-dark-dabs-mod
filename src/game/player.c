@@ -6121,6 +6121,8 @@ void playerTick(bool arg0)
 		if (g_Vars.currentplayer->isdead
 				&& geDeathCamCamera(&spf4, &camup, &camlook, &deathcamhint, deathcamrooms)) {
 			player0f0c1840(&spf4, &camup, &camlook, &deathcamhint, deathcamrooms);
+		} else if (g_Vars.currentplayer->isdead && g_NetMode != NETMODE_NONE && netSpecDeadCameraTick()) {
+			// netplay: a dead co-op player watching the others (netspec.c)
 		} else
 #endif
 		{
@@ -6610,7 +6612,15 @@ void playerTick(bool arg0)
 					mainEndStage();
 				}
 			} else if (g_Vars.coopplayernum >= 0) {
-				if (g_Vars.currentplayer == g_Vars.bond && coopAllDeadDone()) {
+				if (g_Vars.currentplayer == g_Vars.bond && coopAllDeadDone()
+#ifndef PLATFORM_N64
+						// online: not while a death is still to come back
+						// (netcoop.c), and GoldenEye's replay of the death
+						// that lost the mission first (gedeathcam.c)
+						&& !netCoopAnyRespawnDue()
+						&& !geDeathCamLostHolds()
+#endif
+						) {
 #ifndef PLATFORM_N64
 					// netplay: the host's MATCH_END ends a client's mission (H8)
 					if (!netIsClient())
@@ -7237,6 +7247,19 @@ Gfx *playerRenderHud(Gfx *gdl)
 							}
 						} else {
 							// Coop
+#ifndef PLATFORM_N64
+							if (g_NetMode != NETMODE_NONE) {
+								// netplay: Mission Respawn's rules online
+								// (netcoop.c): a death that comes back is a
+								// new life where the player fell, at once,
+								// with the kit it had and full health; one
+								// that does not watches the others (netspec.c)
+								if (g_NetMode == NETMODE_SERVER && netCoopRespawnDue(g_Vars.currentplayernum)) {
+									g_Vars.currentplayer->stealhealth = 0;
+									modRespawnBegin();
+								}
+							} else
+#endif
 							if (g_Vars.coopplayernum >= 0 && !coopAllDead()) {
 								f32 totalhealth;
 								u32 buddyplayernum = g_Vars.bondplayernum;
@@ -7532,7 +7555,15 @@ void playerDieByShooter(u32 shooter, bool force)
 
 		chrUncloak(g_Vars.currentplayer->prop->chr, true);
 
-		if (g_Vars.mplayerisrunning &&
+#ifndef PLATFORM_N64
+		// netplay: an online co-op death that comes back keeps its kit
+		// (Mission Respawn's rules, netcoop.c)
+		const bool keepkit = g_NetMode == NETMODE_SERVER && netCoopDeathRespawns();
+#else
+		const bool keepkit = false;
+#endif
+
+		if (g_Vars.mplayerisrunning && !keepkit &&
 				(g_Vars.antiplayernum < 0
 				 || g_Vars.currentplayernum != g_Vars.antiplayernum
 				 || shooter != g_Vars.antiplayernum)) {
@@ -7583,6 +7614,12 @@ void playerDieByShooter(u32 shooter, bool force)
 		}
 
 		g_Vars.currentplayer->lifestarttime60 = playerGetMissionTime();
+
+#ifndef PLATFORM_N64
+		// netplay: the death that leaves nobody alive loses an online co-op
+		// mission (netcoop.c)
+		if (g_NetMode != NETMODE_NONE) netCoopPlayerDied(g_Vars.currentplayernum);
+#endif
 	}
 }
 

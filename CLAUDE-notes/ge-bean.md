@@ -11497,7 +11497,11 @@ answer too, though it only acts in the Combat Sim, which is out anyway). The
 sight and ammo hide during the fall has the same scope. The multiplayer half
 (Press START held back, a press as the respawn) was built and verified on
 Jungle before the gate was narrowed and is left in, unreached. No setting: it is
-GoldenEye's death on GoldenEye's missions, as the blood is.
+GoldenEye's death on GoldenEye's missions, as the blood is. **Online co-op
+(2026-10-08, protocol 22)** has it for the death that leaves nobody alive:
+the host's pass of that player poses the body, that player's own machine
+watches, the host's end waits (`geDeathCamLostHolds()`); netplay.md "A death
+online".
 
 **The oracle recipe** (native GE port on 10.8.0.3): `PORT_DEMO=0`, gdb on
 `currentPlayerDrawFade`, `call bondviewKillCurrentPlayer()` a few frames into

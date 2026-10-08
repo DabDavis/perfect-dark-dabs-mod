@@ -13,6 +13,8 @@
 #include "lib/joy.h"
 #include "lib/collision.h"
 #include "game/chraction.h"
+#include "game/coop.h"
+#include "game/mplayer/mplayer.h"
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "lib/vi.h"
@@ -42,6 +44,17 @@
  * HUD is drawn. ESC leaves the match. --net-test-spec-cycle N moves on to the
  * next player every N ticks, --net-test-spec-free T flies free from tick T
  * (tools/ci/netjointest.sh).
+ *
+ * The same two cameras serve a co-op player whose death does not come back
+ * (Mission Respawn off, or Mission Lives spent: netCoopRespawnDue(); the
+ * user, 2026-10-08: "let the dead players only spectate with no weapons
+ * allowed"):
+ * netSpecDeadCameraTick() from playerTick's dead camera, on this machine's
+ * own player alone. Once the death has faded to black the picture fades back
+ * in on a living player, and Z and A work as above; the player stays dead -
+ * no gun, nothing to pick up, nobody's target - until the mission ends. When
+ * nobody is left alive the camera takes whatever body still stands: the last
+ * death's, which GoldenEye's replay poses again (gedeathcam.c).
  */
 
 #define NETSPEC_BACK   170.f
@@ -66,12 +79,19 @@ static u32 s_FreeTicks = 0;
 static u32 s_Pulled = 0;
 static f32 s_Flown = 0;  // units the free camera has moved
 static u32 s_FollowTicks[MAX_PLAYERS];
+static s32 s_Dead = 0;        // this machine's player, dead in a co-op mission, watches
+static s32 s_DeadLife = 0;    // the death it watches since (lifestarttime60)
 
 static s32 netSpecEligible(s32 pn)
 {
 	struct player *p;
 
 	if (pn < 0 || pn >= PLAYERCOUNT() || !(p = g_Vars.players[pn]) || !p->prop || !p->prop->chr) {
+		return 0;
+	}
+
+	// a dead player watches the others
+	if (s_Dead && pn == g_NetLocalSlot) {
 		return 0;
 	}
 
@@ -82,23 +102,28 @@ static s32 netSpecEligible(s32 pn)
 static void netSpecNext(s32 dir, const char *why)
 {
 	const s32 n = PLAYERCOUNT();
+	s32 pass;
 	s32 k;
 
-	for (k = 1; k <= n; k++) {
-		const s32 pn = ((s_Target < 0 ? (dir > 0 ? -1 : 0) : s_Target) + dir * k + n * 2) % n;
+	// a dead co-op player looks for the living first, then any body still up
+	for (pass = s_Dead ? 0 : 1; pass < 2; pass++) {
+		for (k = 1; k <= n; k++) {
+			const s32 pn = ((s_Target < 0 ? (dir > 0 ? -1 : 0) : s_Target) + dir * k + n * 2) % n;
 
-		if (netSpecEligible(pn)) {
-			if (pn != s_Target) {
-				char name[16];
+			if (netSpecEligible(pn) && (pass || !g_Vars.players[pn]->isdead)) {
+				if (pn != s_Target) {
+					char name[16];
 
-				snprintf(name, sizeof(name), "%s", g_PlayerConfigsArray[g_Vars.playerstats[pn].mpindex].base.name);
-				name[strcspn(name, "\n")] = '\0';
-				s_Switches++;
-				sysLogPrintf(LOG_NOTE, "net: spectator (tick %u): following player %d (\"%s\") (%s)", g_NetTick, pn, name, why);
+					snprintf(name, sizeof(name), "%s", g_PlayerConfigsArray[g_Vars.playerstats[pn].mpindex].base.name);
+					name[strcspn(name, "\n")] = '\0';
+					s_Switches++;
+					sysLogPrintf(LOG_NOTE, "net: %s (tick %u): following player %d (\"%s\") (%s)",
+							s_Dead ? "co-op: out of the mission" : "spectator", g_NetTick, pn, name, why);
+				}
+
+				s_Target = pn;
+				return;
 			}
-
-			s_Target = pn;
-			return;
 		}
 	}
 }
@@ -106,6 +131,7 @@ static void netSpecNext(s32 dir, const char *why)
 void netSpecStop(void)
 {
 	s_On = 0;
+	s_Dead = 0;
 	s_Target = -1;
 	s_HaveCam = 0;
 }
@@ -134,7 +160,7 @@ void netSpecLog(const char *why)
 	s32 len = 0;
 	s32 i;
 
-	if (!s_On) {
+	if (!s_On && !s_Dead) {
 		return;
 	}
 
@@ -144,7 +170,8 @@ void netSpecLog(const char *why)
 		len += snprintf(line + len, sizeof(line) - len, "%s%u", i ? " " : "", s_FollowTicks[i]);
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: spectator %s (tick %u): %u camera ticks, following per player [%s], free %u (flown %.0f units), nobody to follow %u, switches %u, pulled in by a wall %u",
+	sysLogPrintf(LOG_NOTE, "net: %s %s (tick %u): %u camera ticks, following per player [%s], free %u (flown %.0f units), nobody to follow %u, switches %u, pulled in by a wall %u",
+			s_Dead ? "co-op: out of the mission, watching" : "spectator",
 			why, g_NetTick, s_Ticks, line, s_FreeTicks, s_Flown, s_NoTarget, s_Switches, s_Pulled);
 }
 
@@ -254,10 +281,10 @@ static void netSpecFollow(void)
 	s_HaveCam = 1;
 }
 
-static void netSpecFly(void)
+static void netSpecFly(s32 move)
 {
 	const s32 pad = netPlayersLocalPad();
-	const s32 tick = g_NetPass >= NETPASS_TICK; // it moves on ticks; a frame between draws it where it is
+	const s32 tick = move && g_NetPass >= NETPASS_TICK && !g_NetReplaying; // it moves on ticks; a frame between draws it where it is
 	struct coord look;
 	struct coord up;
 	struct coord dst;
@@ -297,6 +324,23 @@ static void netSpecFly(void)
 	s_FreeTicks += tick;
 }
 
+// A and Z on a tick: the free camera, the next player
+static void netSpecControls(s32 pad)
+{
+	if (joyGetButtonsPressedThisFrame(pad, A_BUTTON) || (s_FreeAt && g_NetTick == s_FreeAt)) {
+		s_Free = !s_Free;
+		sysLogPrintf(LOG_NOTE, "net: %s (tick %u): %s camera at %.0f %.0f %.0f", s_Dead ? "co-op: out of the mission" : "spectator",
+				g_NetTick, s_Free ? "free" : "follow", s_CamPos.x, s_CamPos.y, s_CamPos.z);
+	}
+
+	if (joyGetButtonsPressedThisFrame(pad, Z_TRIG)) {
+		netSpecNext(1, "fire");
+	} else if (s_CycleEvery > 0 && g_NetTick - s_LastCycle >= (u32)s_CycleEvery) {
+		s_LastCycle = g_NetTick;
+		netSpecNext(1, "--net-test-spec-cycle");
+	}
+}
+
 /**
  * The camera player's tick (netpuppets.c, in place of its lvTickPlayer):
  * the input, the target, the camera
@@ -333,18 +377,7 @@ s32 netSpecCameraTick(void)
 			return 1;
 		}
 
-		if (joyGetButtonsPressedThisFrame(pad, A_BUTTON) || (s_FreeAt && g_NetTick == s_FreeAt)) {
-			s_Free = !s_Free;
-			sysLogPrintf(LOG_NOTE, "net: spectator (tick %u): %s camera at %.0f %.0f %.0f", g_NetTick, s_Free ? "free" : "follow",
-					s_CamPos.x, s_CamPos.y, s_CamPos.z);
-		}
-
-		if (joyGetButtonsPressedThisFrame(pad, Z_TRIG)) {
-			netSpecNext(1, "fire");
-		} else if (s_CycleEvery > 0 && g_NetTick - s_LastCycle >= (u32)s_CycleEvery) {
-			s_LastCycle = g_NetTick;
-			netSpecNext(1, "--net-test-spec-cycle");
-		}
+		netSpecControls(pad);
 	}
 
 	if (!netSpecEligible(s_Target)) {
@@ -352,7 +385,7 @@ s32 netSpecCameraTick(void)
 	}
 
 	if (s_Free && s_HaveCam) {
-		netSpecFly();
+		netSpecFly(1);
 	} else if (netSpecEligible(s_Target)) {
 		netSpecFollow();
 	} else {
@@ -365,6 +398,85 @@ s32 netSpecCameraTick(void)
 s32 netSpecOn(void)
 {
 	return s_On;
+}
+
+/**
+ * playerTick's camera for this machine's own player, dead in an online co-op
+ * mission whose death does not come back: 1 when it built the camera (follow
+ * or free, as a spectator's), 0 for the game's own death camera - before the
+ * death has faded to black, when the new life is on its way, and for the
+ * death that lost the mission (GoldenEye's replay, or the end).
+ */
+s32 netSpecDeadCameraTick(void)
+{
+	struct player *pl = g_Vars.currentplayer;
+
+	// the host runs every player's pass: only this machine's own is watching
+	if (g_NetMode == NETMODE_NONE || netSessionSpectating() || g_Vars.currentplayernum != g_NetLocalSlot) {
+		return 0;
+	}
+
+	if (g_Vars.normmplayerisrunning || g_Vars.coopplayernum < 0 || !pl->isdead || netCoopRespawnDue(g_Vars.currentplayernum)) {
+		s_Dead = 0;
+		return 0;
+	}
+
+	if (!s_Dead || s_DeadLife != pl->lifestarttime60) {
+		// out once the death has gone to black, unless nobody is left alive
+		// (the mission is lost, and ends on its own)
+		if (!pl->redbloodfinished || !pl->deathanimfinished || !playerIsFadeComplete() || pl->colourscreenfrac < 1
+				|| coopAllDead() || netCoopLostSubject() >= 0) {
+			s_Dead = 0;
+			return 0;
+		}
+
+		s_Dead = 1;
+		s_DeadLife = pl->lifestarttime60;
+		s_Free = 0;
+		s_Target = -1;
+		s_HaveCam = 0;
+		s_Switches = s_Ticks = s_NoTarget = s_FreeTicks = s_Pulled = 0;
+		s_Flown = 0;
+		memset(s_FollowTicks, 0, sizeof(s_FollowTicks));
+		sysLogPrintf(LOG_NOTE, "net: co-op: player %d is out of the mission (tick %u): watching the others, Z the next, A the free camera",
+				g_Vars.currentplayernum, g_NetTick);
+		netSpecNext(1, "the first");
+
+		// the picture back from the death's black
+		playerSetFadeColour(0, 0, 0, 1);
+		playerSetFadeFrac(60, 0);
+	}
+
+	s_Ticks += g_NetPass >= NETPASS_TICK && !g_NetReplaying;
+
+	if (g_NetPass >= NETPASS_TICK && !g_NetReplaying && !mpIsPaused()) {
+		netSpecControls(netPlayersLocalPad());
+	}
+
+	if (!netSpecEligible(s_Target)) {
+		netSpecNext(1, s_Target < 0 ? "the first" : "the last one went out of play");
+	}
+
+	if (s_Free && s_HaveCam) {
+		netSpecFly(1);
+	} else if (netSpecEligible(s_Target)) {
+		netSpecFollow();
+	} else if (s_HaveCam) {
+		// nobody up to watch: the camera stays where it was
+		s_NoTarget += g_NetPass >= NETPASS_TICK && !g_NetReplaying;
+		netSpecFly(0);
+	} else {
+		s_NoTarget += g_NetPass >= NETPASS_TICK && !g_NetReplaying;
+		return 0;
+	}
+
+	return 1;
+}
+
+s32 netSpecDeadOn(void)
+{
+	return s_Dead && g_Vars.currentplayernum == g_NetLocalSlot && g_Vars.currentplayer->isdead
+		&& s_DeadLife == g_Vars.currentplayer->lifestarttime60;
 }
 
 /**
@@ -381,16 +493,19 @@ void *netSpecRenderText(void *gdlp)
 	s32 x;
 	s32 y;
 
+	// a dead co-op player's ESC is its pause, as before
+	const char *leave = s_Dead ? "" : "   ESC: leave";
+
 	if (s_Free) {
-		snprintf(text, sizeof(text), "Free camera   A: follow   ESC: leave");
+		snprintf(text, sizeof(text), "Free camera   A: follow%s", leave);
 	} else if (netSpecEligible(s_Target)) {
 		char name[16];
 
 		snprintf(name, sizeof(name), "%s", g_PlayerConfigsArray[g_Vars.playerstats[s_Target].mpindex].base.name);
 		name[strcspn(name, "\n")] = '\0';
-		snprintf(text, sizeof(text), "Watching %s   Z: next   A: free camera   ESC: leave", name);
+		snprintf(text, sizeof(text), "Watching %s   Z: next   A: free camera%s", name, leave);
 	} else {
-		snprintf(text, sizeof(text), "Spectating   A: free camera   ESC: leave");
+		snprintf(text, sizeof(text), "Spectating   A: free camera%s", leave);
 	}
 
 	gdl = text0f153628(gdl);

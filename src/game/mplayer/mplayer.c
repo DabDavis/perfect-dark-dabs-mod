@@ -1842,6 +1842,7 @@ Gfx *mpRenderModalText(Gfx *gdl)
 #endif
 
 	if (g_NetMode == NETMODE_CLIENT && netSpecOn()) return netSpecRenderText(gdl); // netplay: a spectator's keys, not the camera player's prompt
+	if (g_NetMode != NETMODE_NONE && netSpecDeadOn() && g_MpSetup.paused == MPPAUSEMODE_UNPAUSED) return netSpecRenderText(gdl); // netplay: a dead co-op player's, watching (netspec.c)
 
 	if (g_MpSetup.paused == MPPAUSEMODE_PAUSED) {
 		s32 red = (s32) ((1.0f - g_20SecIntervalFrac) * 20.0f * 255.0f) % 255;

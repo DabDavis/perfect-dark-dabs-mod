@@ -22,7 +22,7 @@ bool coopAllDead(void)
 	s32 i;
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
-		if (g_Vars.players[i] && !g_Vars.players[i]->isdead) {
+		if (g_Vars.players[i] && !g_Vars.players[i]->isdead && !netPlayerOutOfPlay(i)) {
 			return false;
 		}
 	}
@@ -30,6 +30,13 @@ bool coopAllDead(void)
 	return true;
 }
 
+/**
+ * Every player dead and done falling. Online, an open seat's player is left
+ * out (netPlayerOutOfPlay): it was killed to vacate the seat, and the host
+ * builds no view for it, so its fall never finishes - a room played alone
+ * (every member slot a seat) never ended when its one player died, and sat
+ * on a black screen.
+ */
 bool coopAllDeadDone(void)
 {
 	s32 i;
@@ -37,7 +44,7 @@ bool coopAllDeadDone(void)
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		struct player *p = g_Vars.players[i];
 
-		if (p && !(p->isdead && p->redbloodfinished && p->deathanimfinished)) {
+		if (p && !(p->isdead && p->redbloodfinished && p->deathanimfinished) && !netPlayerOutOfPlay(i)) {
 			return false;
 		}
 	}

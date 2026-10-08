@@ -32,6 +32,10 @@
   twelve players (`netcoop.c`, `src/game/coop.c`, protocol 12,
   PLANS/netplay/spec-coop.md): the host plays PD's own co-op widened to N,
   clients pose its world; the mission's state rides in the scenario block.
+  Also there: **a death online (protocol 22, 2026-10-08)** - the open
+  seats that kept a room played alone on black for ever, the dead watching
+  the others with Mission Respawn off (`netspec.c`'s cameras), the last
+  death's GoldenEye replay before the end (`gedeathcam.c`).
 - **Content follows the host** — the section of that name (`netcontent.c`,
   protocols 13 and 14): a client plays the host's overlay mod, Stage Loader
   maps, conversions and ROM hack mode from its own copies (the content
@@ -177,7 +181,7 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 `netproto.h` documents every message byte by byte (u8 type first, then
 fields through netbuf, never a struct copied whole), the channel each goes
 on (RULES and STAGE_LOAD share BULK so a STAGE_LOAD never overtakes its
-RULES), the refusal codes, and the protocol history (netproto.h's list is the full one). Protocol 21 is current (host migration: GO's stagetime for every client, RESUME); 14 was (co-op on the conversions' missions: the mission block's set tag and stage key kind 3; content served by the host: CONTENT_REQ/BEGIN/FILE/END/NO; 13 was content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
+RULES), the refusal codes, and the protocol history (netproto.h's list is the full one). Protocol 22 is current (a co-op death online: the mission block's player bit 8 names the death that lost the mission, bit 16 a death that comes back; co-op's respawn is Mission Respawn's); 21 was (host migration: GO's stagetime for every client, RESUME); 14 was (co-op on the conversions' missions: the mission block's set tag and stage key kind 3; content served by the host: CONTENT_REQ/BEGIN/FILE/END/NO; 13 was content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
 The lobby's HTTP API and the rendezvous/relay datagrams are in
 `tools/pdlobbyd/README.md`. A change to a message's shape or meaning bumps
 `NET_PROTOCOL_VERSION`; pdlobbyd lists a room's protocol and the Briefing
@@ -208,7 +212,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netchattest.sh` | 4.5 min | protocol 18: chat on every machine in order, the host's burst limit (5 of 7, the sender alone told), the notices of a join in progress (with "3/4"), a spectator, a drop, a return within the hold, a hold running out and a spectator gone, a client's first PLAYERS, the host's pause Control page and Players page, screenshots of the feed, panel and open line |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
-| `netcooptest.sh` | 14 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2, camproom 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection (eleven: stacked on one spot): the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, on the host's spot, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder; camproom: a GoldenEye campaign room on a local pdlobbyd launched by its host alone, Dam started from the folder and aborted, the room still launched, a newcomer connecting between missions and taken into Facility |
+| `netcooptest.sh` | 15.5 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2, camproom 1.5, death 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection (eleven: stacked on one spot): the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, on the host's spot, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder; camproom: a GoldenEye campaign room on a local pdlobbyd launched by its host alone, Dam started from the folder and aborted, the room still launched, a newcomer connecting between missions and taken into Facility; death: Mission Respawn off on a GoldenEye campaign's Dam with two seats open, the client killed (no respawn offered, out to watch the host's player), then the host killed (the mission lost, GoldenEye's replay three times on the host, the end after it, both on the report, killed); the pair's respawn runs with Mission Respawn on |
 | `netmigratetest.sh` | 8 min (quit 1.5, crash 1.7, lobby 1.5, coop 1.6, served 1.7) | host migration (protocol 21): a host and two joiners per case, a lobby of its own each. quit: the host quits mid-match on 0x32 (two sims, three kills given to a seat): a joiner takes the room over, the other reconnects with a new ticket and its RESUME, the match carries on (clock within 4 s of the old host's, the kill table, every living record's life back at its place); crash: the same with the host gone as a crash is (the joiners' `hostlost` move the room on); lobby: the host leaves between matches, the room stays open under a joiner who plays the next match with the other on the room's arena; coop: Defection, the mission starts again under the new host; served: a GoldenEye arena whose joiner has nothing installed, hosted after the host quits from the served copy and served on to a newcomer |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
@@ -714,6 +718,80 @@ progression").
   co-op player online wears its own Combat Simulator character; bond
   stays Joanna. A co-op mission past two players keeps the setup's
   two-player exclusions (`OBJFLAG2_EXCLUDE_2P`).
+- **A death online (protocol 22, 2026-10-08).** The user: "similar to how
+  we fixed the intro black screen, the death screen where bond is replayed
+  3x showing his death is causing the same. also if co-op with no mission
+  respawn, let the dead players only spectate with no weapons allowed, then
+  if last player dies the 3x death scene then mission failure."
+  - *The black screen.* A lobby room's mission has a seat per member slot;
+    an open seat's player is killed to vacate it (`netSeatVacate`) and the
+    host builds no view for it (`netHostPassIdle`), so its fall never
+    finishes (`redbloodfinished`/`deathanimfinished` stay 0). The end of a
+    co-op mission waits on `coopAllDeadDone()`, every player dead *and done
+    falling*: a room played alone, or everyone dead, sat on black for ever
+    and never failed (probed: host and client both dead, 24 s on, the host
+    at `colourscreenfrac` 1, its two open seats `red 0 anim 0`). Now
+    `coopAllDead`/`coopAllDeadDone` leave an open seat's player out
+    (`netPlayerOutOfPlay`, the host's seat table; 0 offline). The replay was
+    never the cause: it had been for one player alone (`PLAYERCOUNT() == 1`
+    and no co-op), so it never ran online at all.
+  - *Mission Respawn's rules (the user, the same day: "switch co-op respawn
+    to Mission Respawn's rules").* Online, PD's co-op respawn (A, Z or
+    START, half a living player's health) is gone: the host decides at each
+    death whether it comes back (`netCoopDeathRespawns()`, from
+    `playerDieByShooter` before the drop): the host's Mission Respawn on
+    (a RULES key) and Mission Lives not spent, counted for the team
+    (`s_CoopDeaths`, the mission's deaths by every player: with five, the
+    fifth does not come back). One that comes back keeps its kit (nothing
+    dropped), and once the fade is black the host's pass for that player
+    asks Mission Respawn for the new life (`modRespawnBegin`: where the
+    player fell, full health, the guns in its hands, "N lives left" - a
+    hudmsg for a guest goes to the guest's machine); the mission block's
+    player bit 16 (`MISP_RESPAWNDUE`) tells the guest, which holds it
+    (`s_LocalRespawnDue`: the block saying the player lives may come before
+    the local block's respawn) and sets its own new life up the same way
+    (`modRespawnMark`, netents.c), the fade back in its own; the guest's
+    lives line is the host's. The music is ended for this machine's own
+    player only (the host's pass for a guest restarted the host's music).
+    The mission is not lost, nor ended, while a dead player is due back
+    (`netCoopAnyRespawnDue()` in `netCoopPlayerDied` and before bond's
+    `mainEndStage`): everyone dying at once with lives left all get up. A
+    death that does not come back drops its guns as co-op's always did (the
+    team can pick them up) and its player is offered nothing
+    (`coopcanrestart` 0, no Press START) and
+    watches: `netSpecDeadCameraTick()` from playerTick's dead camera, on
+    this machine's own player alone, once the death has gone to black (and
+    not when nobody is left alive). The picture fades back in on a living
+    player (the spectator seat's follow camera; Z the next, A the free
+    camera, the line along the foot of the view from `mpRenderModalText`).
+    The player stays dead throughout: no gun, no pickups, nobody's target.
+    START and ESC open its pause (`NET_DEAD_WATCHING()` in bondmove.c: a
+    dead player had no pause at all, START being the respawn) - PD's
+    mission pause, never GoldenEye's watch, whose arm a dead player has not
+    got; its title names a converted mission by its own name now (it said
+    "dataDyne Defection" on Dam, by the index). Trap met: the host runs
+    every player's pass, so the dead camera returns at once for any pass
+    but this machine's own - resetting its state there put the host's
+    watcher back on the floor's death camera every frame.
+  - *The last death.* On the host, the death that leaves nobody in play
+    alive loses the mission (`netCoopPlayerDied` from
+    `playerDieByShooter`; a seat being emptied is never it); the mission
+    block's player bit 8 (`MISP_LASTDEATH`) tells the clients whose it is.
+    On a converted mission `deathcamEligible()` online is that death, for
+    the host's pass of that player (which poses the body: every machine
+    sees it fall again through the host's records, and the watchers follow
+    it) and for that player's own machine (which watches it from GoldenEye's
+    cameras, with the swoosh; a client makes no tank explosion of its own).
+    The host's end waits for it (`geDeathCamLostHolds()`, given up a minute
+    after the death), then MATCH_END takes everyone to GoldenEye's report,
+    killed. A replay cut short by A, B, Z or START: the subject's press
+    reaches the host in its command (a dead player's START is let through).
+  - Probed (scratchpad death/run.sh, SCEN clientfirst/hostfirst/solo;
+    run2.sh SCEN respawn/lives for Mission Respawn's rules; gdb `playerDie`
+    per player on the host, screenshots from both): every order ends on the
+    report after three replays; the watcher's line reads "Watching Player 1
+    Z: next   A: free camera". Gate: netcooptest `death`, and `pair`'s
+    respawn (Mission Respawn on: where it fell, nobody's health taken).
 - **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene

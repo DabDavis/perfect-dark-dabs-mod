@@ -874,8 +874,9 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			movedata.freelookdy = -movedata.freelookdy;
 		}
 	}
-	// always pause with ESC
-	if (allowc1buttons && g_Vars.currentplayer->isdead == false && g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
+	// always pause with ESC (netplay: a dead co-op player watching the
+	// others too, netspec.c)
+	if (allowc1buttons && (g_Vars.currentplayer->isdead == false || NET_DEAD_WATCHING()) && g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
 		// (netplay: this machine's ESC is its own player's, never spent by another's)
 		if (!g_NetReplaying && netIsLocalSlot(g_Vars.currentplayernum) && inputKeyJustPressed(VK_ESCAPE)) {
 			c1buttonsthisframe |= START_BUTTON;
@@ -884,7 +885,13 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 #endif
 
 	// Pausing
-	if (g_Vars.currentplayer->isdead == false) {
+	if (g_Vars.currentplayer->isdead == false
+#ifndef PLATFORM_N64
+			// netplay: a dead co-op player watching the others has the rest
+			// of the mission to sit out, and its pause to leave by (netspec.c)
+			|| NET_DEAD_WATCHING()
+#endif
+			) {
 		if (g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED && (c1buttonsthisframe & START_BUTTON)) {
 #ifndef PLATFORM_N64
 			if (gexPlusExitPending()) {
@@ -908,8 +915,9 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 			} else {
 #ifndef PLATFORM_N64
 				// and a GE Plus match's pause is GoldenEye's own multiplayer
-				// overlay, in each player's own viewport (gewatch.c)
-				if (!geWatchPause())
+				// overlay, in each player's own viewport (gewatch.c) - not a
+				// dead player's, whose watch has no arm to hold it
+				if (NET_DEAD_WATCHING() || !geWatchPause())
 #endif
 				{
 					mpPushPauseDialog();

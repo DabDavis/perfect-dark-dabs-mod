@@ -100,7 +100,15 @@
 //    (its local-player block), which the new host gives that player's next
 //    life; a LEAVE SHUTDOWN or LEFT from the host, or its connection lost,
 //    keeps the match on a lobby room's client for its next host
-#define NET_PROTOCOL_VERSION 21
+// 22 (a co-op death online): the mission block's player bits name the death
+//    that left nobody alive (8): the mission is lost, and on a converted
+//    mission GoldenEye's replay plays for it, on that player's machine and
+//    in the host's pass for it (gedeathcam.c), before the host ends it; and
+//    a death that comes back (16): co-op plays by Mission Respawn's rules
+//    online (a new life where the player fell, its kit kept, Mission Lives
+//    the team's; no START, no health taken from another), and a player whose
+//    death does not come back watches the others (netspec.c)
+#define NET_PROTOCOL_VERSION 22
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2

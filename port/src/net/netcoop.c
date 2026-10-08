@@ -22,6 +22,7 @@
 #include "game/setuputils.h"
 #include "game/lang.h"
 #include "game/menu.h"
+#include "game/modoptions.h"
 #include "game/objectives.h"
 #include "game/player.h"
 #include "game/playermgr.h"
@@ -67,7 +68,13 @@
  *    10  s16 alarmtimer           g_AlarmTimer (clamped)
  *    12  f32 countdown60          g_CountdownTimerValue60
  *    16  u8  objectives[10]       objectiveCheck(i): 0 complete, 1 incomplete, 2 failed
- *    26  u8  players[12]          bit 0 isdead, 1 aborted, 2 coopcanrestart
+ *    26  u8  players[12]          bit 0 isdead, 1 aborted, 2 coopcanrestart,
+ *                                 3 the death that left nobody alive: the
+ *                                 mission is lost, and on a converted
+ *                                 mission GoldenEye's replay plays for it
+ *                                 (protocol 22), 4 the death comes
+ *                                 back (Mission Respawn's rules online:
+ *                                 a new life where the player fell)
  *    38  s16 warpcmd              the setup command a GoldenEye CameraSwitch
  *                                 (ai00df) put the camera at, -1 none
  *                                 (protocol 17)
@@ -103,6 +110,8 @@
 #define MISP_DEAD       0x01
 #define MISP_ABORTED    0x02
 #define MISP_CANRESTART 0x04
+#define MISP_LASTDEATH  0x08
+#define MISP_RESPAWNDUE 0x10
 
 // player.c's (PC builds are NTSC: s32; no header declares them)
 extern s32 g_CutsceneCurAnimFrame240;
@@ -141,6 +150,11 @@ static s32 s_LoggedStart = 0;
 
 // a converted mission's camera and fades, as the host's lists set them
 static s32 s_HostWarpCmd = -1;                // host: the setup command the last CameraSwitch named
+static s32 s_LostSubject = -1;                // the player whose death lost the mission (both sides), -1 none
+static s32 s_LostFrame = 0;                   // the frame it was seen (a stage since is a new one)
+static s32 s_CoopDeaths = 0;                  // host: this mission's deaths, every player's (Mission Lives is the team's)
+static u8 s_RespawnDue[MAX_PLAYERS];          // host: that player's death comes back
+static s32 s_LocalRespawnDue = 0;             // client: the host said this machine's player's death comes back
 static struct warpparams *s_HostWarpParams;   // host: and its record, while the warp is still that one
 static u8 s_HostFadeSeq = 0;                  // host: counts aiFadeScreen
 static u32 s_HostFadeColour = 0;
@@ -748,6 +762,7 @@ void netCoopMatchStopped(void)
 	s_ClientMatch = 0;
 	s_HaveObj = 0;
 	s_HostWarpCmd = -1;
+	netCoopStageReset();
 	s_HostWarpParams = NULL;
 	s_HostFadeSeq = 0;
 	s_HostFadeColour = 0;
@@ -932,6 +947,8 @@ void netCoopCapture(u8 *body)
 			bits |= p->isdead ? MISP_DEAD : 0;
 			bits |= p->aborted ? MISP_ABORTED : 0;
 			bits |= p->coopcanrestart ? MISP_CANRESTART : 0;
+			bits |= i == netCoopLostSubject() ? MISP_LASTDEATH : 0;
+			bits |= netCoopRespawnDue(i) ? MISP_RESPAWNDUE : 0;
 		}
 
 		body[MIS_PLAYERS + i] = bits;
@@ -978,6 +995,153 @@ void netCoopHostFade(u32 colour, s16 frames)
 	s_HostFadeSeq++;
 	s_HostFadeColour = colour;
 	s_HostFadeFrames = frames;
+}
+
+/**
+ * modrespawn.c modRespawnReset, every stage: no deaths yet, nobody's due back,
+ * the mission not lost
+ */
+void netCoopStageReset(void)
+{
+	s_CoopDeaths = 0;
+	memset(s_RespawnDue, 0, sizeof(s_RespawnDue));
+	s_LocalRespawnDue = 0;
+	s_LostSubject = -1;
+}
+
+/**
+ * player.c playerDieByShooter on the host, before the guns are dropped:
+ * whether this death comes back. Online co-op plays by Mission Respawn's
+ * rules (the user, 2026-10-08: "switch co-op respawn to Mission Respawn's
+ * rules"), not Perfect Dark's co-op one (START, half a living player's
+ * health): with the host's Mission Respawn on, a death is a new life where
+ * the player fell, once the fade is black, with full health and the kit it
+ * had - so nothing is dropped - while Mission Lives lasts, counted for the
+ * team (with five, the fifth death of the mission is the one that does not
+ * come back). A death that does not come back drops its guns as co-op's
+ * does, and its player watches the others (netspec.c). A seat emptied by a
+ * leaver is no death.
+ */
+s32 netCoopDeathRespawns(void)
+{
+	const s32 pn = g_Vars.currentplayernum;
+	const s32 lives = modGetMissionLives();
+	s32 due;
+
+	if (g_NetMode != NETMODE_SERVER || !s_HostMatch || g_Vars.normmplayerisrunning || g_Vars.coopplayernum < 0
+			|| pn < 0 || pn >= MAX_PLAYERS || netSessionVacating() || netPlayerOutOfPlay(pn)) {
+		return 0;
+	}
+
+	s_CoopDeaths++;
+	due = modIsMissionRespawnOn() && (lives == MODLIVES_UNLIMITED || s_CoopDeaths < lives);
+	s_RespawnDue[pn] = due;
+
+	if (due) {
+		sysLogPrintf(LOG_NOTE, "net: co-op: player %d died (the mission's death %d, tick %u): a new life where it fell (Mission Respawn, %s)",
+				pn, s_CoopDeaths, g_NetTick, lives == MODLIVES_UNLIMITED ? "lives unlimited" : "lives left after it");
+	} else {
+		sysLogPrintf(LOG_NOTE, "net: co-op: player %d died (the mission's death %d, tick %u): out of the mission (%s)",
+				pn, s_CoopDeaths, g_NetTick, modIsMissionRespawnOn() ? "Mission Lives spent" : "Mission Respawn off");
+	}
+
+	return due;
+}
+
+/**
+ * That player is dead and its death comes back: the host's word (the client
+ * knows its own player's alone, from the mission block). 0 offline.
+ */
+s32 netCoopRespawnDue(s32 playernum)
+{
+	struct player *p;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || !(p = g_Vars.players[playernum]) || !p->isdead
+			|| g_Vars.normmplayerisrunning || g_Vars.coopplayernum < 0) {
+		return 0;
+	}
+
+	if (g_NetMode == NETMODE_SERVER) {
+		return s_RespawnDue[playernum];
+	}
+
+	return g_NetMode == NETMODE_CLIENT && playernum == g_NetLocalSlot && s_LocalRespawnDue;
+}
+
+/** The host: a dead player in play will come back (the mission is not lost while one will) */
+s32 netCoopAnyRespawnDue(void)
+{
+	s32 i;
+
+	if (g_NetMode != NETMODE_SERVER) {
+		return 0;
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (netCoopRespawnDue(i) && !netPlayerOutOfPlay(i)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * netents.c, a client's new life from the host's: whether it is Mission
+ * Respawn's (where the player fell, with its kit), taken once
+ */
+s32 netCoopTakeLocalRespawn(void)
+{
+	const s32 due = s_LocalRespawnDue;
+
+	s_LocalRespawnDue = 0;
+
+	return due;
+}
+
+/**
+ * player.c, a player's death (the host): the one that leaves nobody in play
+ * alive, and nobody due back, loses the mission. Its fall goes on to
+ * GoldenEye's replay on a converted mission (gedeathcam.c, for that player
+ * alone: the others are watching already, netspec.c), and the host ends the
+ * mission when that is over (geDeathCamLostHolds()). A seat emptied by a
+ * leaver (netSeatVacate) is never the one.
+ */
+void netCoopPlayerDied(s32 playernum)
+{
+	if (g_NetMode != NETMODE_SERVER || !s_HostMatch || g_Vars.normmplayerisrunning || g_Vars.coopplayernum < 0
+			|| playernum < 0 || playernum >= MAX_PLAYERS || netSessionVacating() || netPlayerOutOfPlay(playernum)
+			|| !coopAllDead() || netCoopAnyRespawnDue()) {
+		return;
+	}
+
+	s_LostSubject = playernum;
+	s_LostFrame = g_Vars.lvframenum;
+	sysLogPrintf(LOG_NOTE, "net: co-op: player %d's death leaves nobody alive: the mission is lost (tick %u)%s",
+			playernum, g_NetTick, modloaderStageIsMission(g_Vars.stagenum) ? "; GoldenEye's replay plays for it" : "");
+}
+
+/** The player whose death lost the mission, -1 while somebody lives */
+s32 netCoopLostSubject(void)
+{
+	if (g_NetMode == NETMODE_NONE || s_LostSubject < 0 || s_LostSubject >= MAX_PLAYERS
+			|| g_Vars.lvframenum < s_LostFrame || g_Vars.normmplayerisrunning || g_Vars.coopplayernum < 0
+			|| !g_Vars.players[s_LostSubject] || !g_Vars.players[s_LostSubject]->isdead) {
+		return -1;
+	}
+
+	return s_LostSubject;
+}
+
+/**
+ * gedeathcam.c: GoldenEye's replay plays for this player's death online -
+ * the mission's last, on the host (which poses the body everyone sees) and
+ * on that player's own machine (which watches it). 0 offline.
+ */
+s32 netCoopReplaysDeath(s32 playernum)
+{
+	return playernum >= 0 && playernum == netCoopLostSubject()
+		&& (g_NetMode == NETMODE_SERVER || playernum == g_NetLocalSlot);
 }
 
 /*
@@ -1117,6 +1281,30 @@ static void netCoopApplyFade(const u8 *body)
 	s_FadeSeq = seq;
 }
 
+/** The client: the host's word on whose death lost the mission */
+static void netCoopApplyLost(const u8 *body)
+{
+	s32 subject = -1;
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (body[MIS_PLAYERS + i] & MISP_LASTDEATH) {
+			subject = i;
+			break;
+		}
+	}
+
+	if (subject != s_LostSubject) {
+		if (subject >= 0) {
+			sysLogPrintf(LOG_NOTE, "net: co-op client: player %d's death lost the mission (tick %u)%s", subject, g_NetTick,
+					subject == g_NetLocalSlot ? ": this machine's own" : "");
+		}
+
+		s_LostSubject = subject;
+		s_LostFrame = g_Vars.lvframenum;
+	}
+}
+
 /** netpredict.c: this machine is in the host's CameraSwitch shot */
 s32 netCoopFollowingWarp(void)
 {
@@ -1181,6 +1369,8 @@ void netCoopApply(const u8 *body)
 		}
 	}
 
+	netCoopApplyLost(body);
+
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		struct player *p = g_Vars.players[i];
 		const u8 bits = body[MIS_PLAYERS + i];
@@ -1191,6 +1381,14 @@ void netCoopApply(const u8 *body)
 
 		p->aborted = (bits & MISP_ABORTED) != 0;
 		p->coopcanrestart = (bits & MISP_CANRESTART) != 0;
+
+		// held until this machine's new life takes it: the block that says
+		// the player lives again may come before the local block's respawn,
+		// and a block from before it after (only while dead here)
+		if (i == g_NetLocalSlot && (bits & MISP_RESPAWNDUE) && !s_LocalRespawnDue && p->isdead) {
+			s_LocalRespawnDue = 1;
+			sysLogPrintf(LOG_NOTE, "net: co-op client: this machine's player comes back where it fell (tick %u)", g_NetTick);
+		}
 
 		// another machine's player's death: the record's life mirrors it
 		// each pose (netpuppets.c); the host's word settles the end screen

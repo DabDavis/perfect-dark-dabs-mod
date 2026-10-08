@@ -196,8 +196,17 @@ whose missions under **Missions** (Perfect Dark's, GoldenEye's, Goldfinger
 the mission, difficulty, radar and friendly fire. Up to twelve of you play
 the mission together as Perfect Dark's own co-operative mode does: one
 player is Joanna (or Bond), everyone else a coop agent in their Combat
-Simulator character; a dead player presses START to come back, taking half
-of a living player's health; the mission fails when everyone is dead.
+Simulator character. Deaths follow the host's **Mission Respawn**: with it
+on, a dead player gets up again where they fell once the screen has gone
+black, with full health and everything they were carrying, and **Mission
+Lives** is the whole team's (with five, the team's fifth death does not come
+back). A player whose death does not come back - Mission Respawn off, or
+the lives spent - drops their guns for the others and watches the rest of
+the mission (Z the next player, A a free camera, START or ESC the pause
+menu), with no gun and nothing to do but watch. The mission fails when
+everyone is dead; on GoldenEye's missions (and the two ROM hacks') the last
+death is first replayed three times from GoldenEye's own cameras, as it is
+alone.
 Everyone starts on the mission's own start spot, and anyone joining
 mid-mission appears on a living player's spot: co-op players walk through
 each other, so nobody is ever put behind a wall to make room. Every

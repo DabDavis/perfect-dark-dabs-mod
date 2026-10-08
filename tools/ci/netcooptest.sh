@@ -11,9 +11,10 @@
 #           clock and ended when the host's did, the guards posed from
 #           SETUPCHR records (the puppet trace), prediction matching after
 #           the opening (nothing reconciled during it), then the staging on
-#           the host through gdb: the client's player killed, its START (a
-#           tick in every sixty: the pause menu while it lives, the respawn
-#           when dead) bringing it back with half a living player's health,
+#           the host through gdb: the client's player killed and back by
+#           Mission Respawn's rules (on here: online co-op's respawn is
+#           Mission Respawn's) - where it fell, nobody's health taken, no
+#           press (its START, a tick in every sixty, is the pause menu),
 #           and the host's Abort Mission ending it for both: the client's
 #           end screen (closed by its START) and its stage stopped.
 #   twelve  a host and eleven clients (twelve games at once: alone), the
@@ -41,6 +42,17 @@
 #           ends on GoldenEye's REPORT page for its own player, Completed, the
 #           client's with the host's 3 kills; no Perfect Dark end screen; the
 #           client's two NEXTs close its folder.
+#   death   a co-op death online with Mission Respawn off (protocol 22): a
+#           GoldenEye campaign's Dam (two seats open) with a client joined;
+#           the client's player killed on the host: no respawn offered, its
+#           picture back from black on the host's player ("out of the
+#           mission", following player 0); then the host's player killed:
+#           the death that leaves nobody alive loses the mission (the open
+#           seats are no living players, and no dead ones the end waits on:
+#           a room played alone had sat on black for ever), GoldenEye's
+#           replay of it runs three times on the host before the end, the
+#           client learns whose death it was, and both machines end on
+#           GoldenEye's report, killed.
 #   campaign  a GoldenEye campaign's host starting Dam from its folder alone
 #           (--net-test-campaign ge --net-test-campaign-mission 0): the
 #           opening ends on the host's own player; a client then joins the
@@ -49,14 +61,14 @@
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend camproom}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom death}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -116,6 +128,11 @@ def kill(pn):
         print("STAGE kill: player %d killed at tick %d" % (pn, i("g_NetTick")))
     else:
         print("STAGE kill: player %d not alive" % pn)
+def where(pn):
+    """where slot pn's player stands on the host"""
+    print("STAGE where: player %d dead %d at %.0f %.0f %.0f tick %d" % (pn, i("g_Vars.players[%d]->isdead" % pn),
+        float(gdb.parse_and_eval("g_Vars.players[%d]->prop->pos.x" % pn)), float(gdb.parse_and_eval("g_Vars.players[%d]->prop->pos.y" % pn)),
+        float(gdb.parse_and_eval("g_Vars.players[%d]->prop->pos.z" % pn)), i("g_NetTick")))
 def abort():
     """the host's Abort Mission"""
     gdb.execute("set var g_Vars.players[0]->aborted = 1")
@@ -332,6 +349,69 @@ case_geend() {
 	grep -q "gexfront: the online mission's report closed" "$C" && pass "$name: the client's two NEXTs closed its folder" || fail "$name: the client's folder did not close"
 }
 
+# ---------------------------------------------------------------- death
+case_death() {
+	local name=death port=$((PORT + 7)) H=$OUT/death-host.log C=$OUT/death-client.log
+	echo "== $name"
+	game death-host 300 '[Mod]\nMapMods=GoldenEye Arenas\nMissionRespawn=0\n[Net]\nJoinInProgress=1\n' --host "$port" --rng-seed 7 \
+		--net-test-campaign ge --net-test-campaign-mission 0 &
+	local host=$!
+	waitfor "$H" "net: hosting on UDP port" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
+	waitfor "$H" "net: co-op: starting\|not converted here\|the folder is not open" 60
+	if grep -q "not converted here" "$H"; then
+		echo "skip $name: GoldenEye is not converted here"; kill -TERM $host; wait $host; return
+	fi
+	waitfor "$H" "gecinema: the opening is over for player" 120 || echo "     the host's opening did not end"
+	game death-client 280 '[Mod]\nMapMods=\n' --connect "127.0.0.1:$port" --net-test-join &
+	local client=$!
+	local hp
+	if waitfor "$C" "net: match 1: GO" 120; then
+		sleep 6
+		hp=$(gamepid death-host)
+		stage "$hp" "kill(1)"
+		waitfor "$C" "net: co-op: player 1 is out of the mission" 30 || echo "     the client never went out to watch"
+		sleep 3
+		stage "$hp" "status()"
+		stage "$hp" "kill(0)"
+		waitfor "$H" "gexfront: online mission 0 over" 90 || echo "     the host's mission did not end"
+		waitfor "$C" "the online mission's report is up" 30 || echo "     no report on the client"
+	else
+		echo "     no GO on the client: no staging"
+	fi
+	local cp; cp=$(gamepid death-client); [ -n "$cp" ] && kill -TERM "$cp"
+	wait "$client"; local cx=$?
+	[ "$cx" = 143 ] && cx=0
+	hp=$(gamepid death-host); [ -n "$hp" ] && kill -TERM "$hp"
+	wait "$host"; local hx=$?
+	[ "$hx" = 143 ] && hx=0
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
+	grep -q "STAGE kill: player 1 killed" "$OUT/stage.log" && grep -q "STAGE kill: player 0 killed" "$OUT/stage.log" \
+		&& pass "$name: both players killed on the host" || fail "$name: the kills were not staged"
+	grep -q "net: co-op: player 1 is out of the mission" "$C" && grep -q "net: co-op: out of the mission (tick [0-9]*): following player 0" "$C" \
+		&& pass "$name: the client went out to watch: $(grep -o 'out of the mission (tick [0-9]*): following.*' "$C" | head -1)" \
+		|| fail "$name: the client did not go out to watch the host's player"
+	grep -q "STAGE status: tick [0-9]*, player 0 dead 0 health [0-9.]*, player 1 dead [12] canrestart 0" "$OUT/stage.log" \
+		&& pass "$name: no respawn offered the dead client" || fail "$name: $(grep -o 'STAGE status.*' "$OUT/stage.log" | tail -1)"
+	grep -q "net: co-op: player 0's death leaves nobody alive: the mission is lost" "$H" \
+		&& pass "$name: the host's death lost the mission (the open seats left out)" || fail "$name: the mission was never lost on the host"
+	grep -q "net: co-op client: player 0's death lost the mission" "$C" && pass "$name: the client learnt whose death lost it" \
+		|| fail "$name: the client never learnt the mission was lost"
+	local replays; replays=$(grep -c "gedeathcam: replay [0-2] from" "$H")
+	[ "$replays" = 3 ] && pass "$name: GoldenEye's replay ran three times on the host" || fail "$name: replays on the host: $replays"
+	# the end only after the last replay
+	local lr ov
+	lr=$(grep -n "gedeathcam: replay 2 from" "$H" | head -1 | cut -d: -f1)
+	ov=$(grep -n "gexfront: online mission 0 over" "$H" | head -1 | cut -d: -f1)
+	[ -n "$lr" ] && [ -n "$ov" ] && [ "$ov" -gt "$lr" ] && pass "$name: the mission ended after the replays" \
+		|| fail "$name: the end (line ${ov:-none}) did not wait for the third replay (line ${lr:-none})"
+	grep -q "gexfront: online mission 0 over at [0-9]* for player 0 (killed" "$H" && pass "$name: host: $(grep -o 'online mission 0 over.*' "$H" | head -1)" \
+		|| fail "$name: host: $(grep -o 'online mission 0 over.*' "$H" | head -1)"
+	grep -q "gexfront: online mission 0 over at [0-9]* for player 1 (killed" "$C" && pass "$name: client: $(grep -o 'online mission 0 over.*' "$C" | head -1)" \
+		|| fail "$name: client: $(grep -o 'online mission 0 over.*' "$C" | head -1)"
+	grep -q "the online mission's report is up" "$C" && pass "$name: the client's report is up" || fail "$name: no report on the client"
+}
+
 # ---------------------------------------------------------------- pair
 case_pair() {
 	local name=pair port=$PORT H=$OUT/pair-host.log C=$OUT/pair-client.log
@@ -342,7 +422,7 @@ case_pair() {
 	for t in $(seq 3900 60 12000); do echo "$t $((t + 1)) 1000 0 0 0 0 0 0"; done > "$OUT/pair-start.script"
 	# (--exit-frame counts a level's own frames: past the mission the games
 	# are stopped here once the client's stage has stopped)
-	game pair-host 600 '[Mod]\n' --host "$port" --net-test-host 1 --rng-seed 7 --net-test-coop 0 --exit-frame 12000 &
+	game pair-host 600 '[Mod]\nMissionRespawn=1\n' --host "$port" --net-test-host 1 --rng-seed 7 --net-test-coop 0 --exit-frame 12000 &
 	local host=$!
 	waitfor "$H" "net: hosting on UDP port" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
 	game pair-client 590 '[Mod]\n' --connect "127.0.0.1:$port" --net-test-join --exit-frame 11000 \
@@ -355,9 +435,9 @@ case_pair() {
 		if waitfor "$C" "co-op client: the cutscene ended" 200 && [ -n "$hp" ]; then
 			sleep 4
 			stage "$hp" "status()"
-			stage "$hp" "kill(1)"
+			stage "$hp" "where(1); kill(1)"
 			sleep 12
-			stage "$hp" "status()"
+			stage "$hp" "status(); where(1)"
 			sleep 6
 			stage "$hp" "abort()"
 			# the client's end screen closed by its START, its stage stopped (H12)
@@ -406,11 +486,24 @@ case_pair() {
 	fi
 	local lb; lb=$(lastline "$C" "net: local block")
 	[ "$(num "$lb" respawns)" = 1 ] && [ "$(num "$lb" deaths)" = 1 ] \
-		&& pass "$name: the client's player died once and respawned once by its START" \
+		&& pass "$name: the client's player died once and came back once" \
 		|| fail "$name: deaths/respawns: $(echo "$lb" | grep -o 'deaths [0-9]*, respawns [0-9]*')"
-	grep -q "STAGE status: tick [0-9]*, player 0 dead 0 health 0.5" "$OUT/stage.log" 2>/dev/null \
-		&& pass "$name: the respawn took half of bond's health on the host" \
-		|| fail "$name: bond's health after the respawn not 0.5: $(grep -o 'STAGE status.*' "$OUT/stage.log" 2>/dev/null | tail -1)"
+	grep -q "net: co-op: player 1 died (the mission's death 1, tick [0-9]*): a new life where it fell (Mission Respawn" "$H" \
+		&& grep -q "net: co-op client: this machine's player comes back where it fell" "$C" \
+		&& pass "$name: a new life by Mission Respawn's rules, the client told" \
+		|| fail "$name: the death was not Mission Respawn's: $(grep -o 'co-op: player 1 died.*' "$H" | head -1)"
+	grep -q "STAGE status: tick [0-9]*, player 0 dead 0 health 1.000, player 1 dead 0 canrestart 0 health 1.000" "$OUT/stage.log" 2>/dev/null \
+		&& pass "$name: back at full health, bond's untouched" \
+		|| fail "$name: health after the respawn: $(grep -o 'STAGE status.*' "$OUT/stage.log" 2>/dev/null | tail -1)"
+	# where it fell: the two where lines of the staging, before the kill and after the respawn
+	local w1 w2
+	w1=$(grep "STAGE where: player 1 dead 0" "$OUT/stage.log" 2>/dev/null | sed -n 1p)
+	w2=$(grep "STAGE where: player 1 dead 0" "$OUT/stage.log" 2>/dev/null | sed -n 2p)
+	if [ -n "$w1" ] && [ -n "$w2" ] && echo "$w1 $w2" | awk '{ dx = $8 - $20; dz = $10 - $22; exit !(dx * dx + dz * dz < 60 * 60) }'; then
+		pass "$name: the new life where the player fell ($(echo "$w2" | grep -o 'at [-0-9 ]*'))"
+	else
+		fail "$name: the new life not where it fell: '${w1:-none}' / '${w2:-none}'"
+	fi
 	grep -q "co-op client: the mission ended: aborted" "$C" && pass "$name: $(grep -o 'co-op client: the mission ended.*' "$C" | head -1)" \
 		|| fail "$name: the client did not see the host's abort"
 	grep -q "net: match 1 ended; scores and awards sent" "$H" && pass "$name: the host sent MATCH_END" || fail "$name: no MATCH_END from the host"
@@ -598,6 +691,7 @@ for c in $CASES; do
 		twelve) case_twelve ;;
 		lobby) case_lobby ;;
 		camproom) case_camproom ;;
+		death) case_death ;;
 		*) fail "unknown case $c" ;;
 	esac
 done

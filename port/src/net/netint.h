@@ -120,6 +120,7 @@ void netNameSet(char *dst, s32 size, const char *src); // a player's base.name i
 s32 netNameLen(const char *name); // its length without that "\n" (for "%.*s")
 s32 netSessionLastRefuse(void);     // client: NETREFUSE_* its last session ended on, -1 none
 s32 netSessionSeatOutOfPlay(s32 slot); // host: that seat (mpindex) is open, its player out of play
+s32 netSessionVacating(void);          // host: the death being dealt empties a seat (netSeatVacate)
 s32 netSessionHostSlotOf(const char *user);
 s32 netSessionHostUserSpectating(const char *user); // 1 a spectator's connection, 0 a player's, -1 none
 void netSessionSetSpectate(s32 on);                 // client: connect as a spectator

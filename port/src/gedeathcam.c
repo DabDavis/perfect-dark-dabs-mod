@@ -33,6 +33,13 @@
  * 182 units from what they looked at, the look climbing from the fallen eye
  * to the standing head and down with the body.
  *
+ * Online co-op (netcoop.c) has it too, for the death that leaves nobody
+ * alive - the mission's last, which loses it: the host's pass for that player
+ * poses the body (every machine sees it fall again through the host's
+ * records) and that player's own machine watches it; the host ends the
+ * mission when it is over (geDeathCamLostHolds()). Everyone who died before
+ * is watching already (netspec.c).
+ *
  * Only on GE Plus's converted missions, played alone, as GoldenEye does it
  * (getPlayerCount() == 1). No Combat Simulator match has it - GE Plus's arenas
  * included, the user's call (2026-09-26); co-operative and counter-operative
@@ -90,6 +97,7 @@
 #include "game/propobj.h"
 #include "game/mplayer/mplayer.h"
 #include "modloader.h"
+#include "net/net.h"
 #include "gemusic.h"
 #include "getank.h"
 #include "gestan.h"
@@ -190,7 +198,16 @@ static s32 deathcamEligible(void)
 {
 	struct player *pl = g_Vars.currentplayer;
 
-	if (!pl || !pl->prop || !pl->isdead || PLAYERCOUNT() != 1 || !deathcamStageIsGoldenEye()) {
+	if (!pl || !pl->prop || !pl->isdead || !deathcamStageIsGoldenEye()) {
+		return 0;
+	}
+
+	// online co-op: the death that lost the mission (netcoop.c)
+	if (g_NetMode != NETMODE_NONE) {
+		return netCoopReplaysDeath(g_Vars.currentplayernum);
+	}
+
+	if (PLAYERCOUNT() != 1) {
 		return 0;
 	}
 
@@ -617,7 +634,8 @@ static s32 deathcamBegin(struct deathcam *dc)
 	dc->timer60 = 0;
 	dc->posed = 0;
 
-	if (dc->tankprop) {
+	// a client's explosions are the host's (netevents.c)
+	if (dc->tankprop && g_NetMode != NETMODE_CLIENT) {
 		// GoldenEye's explosion type 0xd, Perfect Dark's rocket
 		explosionCreateSimple(dc->tankprop->type == PROPTYPE_OBJ && dc->tankprop->obj ? dc->tankprop : NULL,
 				&dc->tankpos, dc->tankrooms, EXPLOSIONTYPE_ROCKET, g_Vars.currentplayernum);
@@ -626,7 +644,9 @@ static s32 deathcamBegin(struct deathcam *dc)
 	playerSetFadeColour(0, 0, 0, 1);
 	playerSetFadeFrac(DEATHCAM_FADE60, 0);
 
-	if (dc->replays == 0 && !g_Vars.mplayerisrunning) {
+	// online, the machine whose player it is (never the host's pass for another's)
+	if (dc->replays == 0 && (!g_Vars.mplayerisrunning
+				|| (g_NetMode != NETMODE_NONE && g_Vars.currentplayernum == g_NetLocalSlot))) {
 		const s32 swoosh = geMusicSequence(DEATHCAM_SWOOSH);
 
 		if (swoosh >= 0) {
@@ -793,6 +813,35 @@ s32 geDeathCamHolds(void)
 	}
 
 	dc = deathcamGet();
+
+	return dc->state != DEATHCAM_DONE;
+}
+
+/**
+ * The host of an online co-op mission everyone has died in: the replay of
+ * the death that lost it still to run, or running (netcoop.c). Given up a
+ * minute after the death, should that player's pass never run it.
+ */
+s32 geDeathCamLostHolds(void)
+{
+	const s32 pn = netCoopLostSubject();
+	struct player *pl;
+	struct deathcam *dc;
+
+	if (pn < 0 || !deathcamStageIsGoldenEye() || !(pl = g_Vars.players[pn])) {
+		return 0;
+	}
+
+	if (playerGetMissionTime() - pl->lifestarttime60 > 60 * 60) {
+		return 0;
+	}
+
+	dc = &g_DeathCam[pn];
+
+	// not under way yet: the fall and its fade come first
+	if (dc->stagenum != g_Vars.stagenum || dc->lifestarttime60 != pl->lifestarttime60) {
+		return 1;
+	}
 
 	return dc->state != DEATHCAM_DONE;
 }

@@ -7,6 +7,7 @@
 #include "game/modrespawn.h"
 #include "game/music.h"
 #include "game/player.h"
+#include "net/net.h"
 #include "bss.h"
 #include "data.h"
 #include "types.h"
@@ -50,6 +51,11 @@ void modRespawnReset(void)
 		g_ModRespawnWeapons[i][HAND_LEFT] = WEAPON_NONE;
 		g_ModRespawnWeapons[i][HAND_RIGHT] = WEAPON_NONE;
 	}
+
+#ifndef PLATFORM_N64
+	// online co-op plays by these rules too, its lives the team's (netcoop.c)
+	netCoopStageReset();
+#endif
 }
 
 /**
@@ -98,6 +104,17 @@ void modRespawnBegin(void)
 }
 
 /**
+ * netplay, a client: the host's new life for this machine's player is
+ * Mission Respawn's (netcoop.c), and the local copy of it is set up the same
+ * way - where the player fell, with the kit and guns it had, the fade back in.
+ * The host counted the death.
+ */
+void modRespawnMark(void)
+{
+	g_ModRespawning[g_Vars.currentplayernum] = true;
+}
+
+/**
  * True from the ask until the new life is set up, which is how
  * playerStartNewLife() and playerSpawnWeapons() know to keep the position,
  * the inventory and the guns.
@@ -135,11 +152,17 @@ void modRespawnEnd(void)
 
 	g_ModRespawning[g_Vars.currentplayernum] = false;
 
-	musicEndDeath();
+	// netplay: the music is this machine's, never another's player's to end
+	if (netIsLocalSlot(g_Vars.currentplayernum)) {
+		musicEndDeath();
+	}
+
 	playerSetFadeColour(0, 0, 0, 1);
 	playerSetFadeFrac(60, 0);
 
-	if (lives != MODLIVES_UNLIMITED) {
+	// netplay: a client's line comes from the host, which counts the team's
+	// lives (a hudmsg for another machine's player goes to it)
+	if (lives != MODLIVES_UNLIMITED && !NET_CLIENT) {
 		s32 left = lives - g_ModRespawnDeaths;
 
 		// Four seconds where the default type's second and a bit would be
