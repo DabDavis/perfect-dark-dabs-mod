@@ -1018,6 +1018,228 @@ class NetinfoTests(Base):
         self.assertIsNone(me["path"])
 
 
+# ------------------------------------------------------------------ host migration
+
+class MigrationTests(Base):
+    over = dict(udp_rate=1000.0, udp_burst=1000.0, probe_interval=1000.0)
+
+    def roster(self, c):
+        st, s = c.state()
+        self.assertEqual(st, 200, s)
+        return s
+
+    def test_host_leaving_hands_the_room_over(self):
+        host, (a, b) = self.room_with("alpha", "bravo")
+        a.act("netinfo", {"path": "punch", "ping": 40, "can_host": True})
+        b.act("ready")
+        old_secret = host.secret
+        self.assertEqual(host.act("leave")[0], 200)
+        sa = self.roster(a)
+        self.assertTrue(sa["you"]["host"])
+        self.assertEqual(sa["room"]["host"], "alpha")
+        self.assertEqual((sa["room"]["host_epoch"], sa["room"]["prev_host"]), (2, "hostess"))
+        self.assertFalse(sa["room"]["migrating"])
+        # a new secret, which only the host is told
+        self.assertNotEqual(bytes.fromhex(sa["you"]["secret"]), old_secret)
+        sb = self.roster(b)
+        self.assertNotIn("secret", sb["you"])
+        self.assertEqual(sorted(m["user"] for m in sb["members"]), ["alpha", "bravo"])
+        # new terms: everyone readies again
+        self.assertFalse([m for m in sb["members"] if m["user"] == "bravo"][0]["ready"])
+        st, r = host.state()
+        self.assertEqual(st, 410)
+        self.assertIn("you left the room", r["error"])
+        rooms = Client(self.srv.port).req("GET", "/rooms")[1]["rooms"]
+        self.assertEqual([r["host"] for r in rooms], ["alpha"])
+        # the new host does what a host does
+        self.assertEqual(a.act("heartbeat")[0], 200)
+        self.assertEqual(a.act("settings", {"name": "Renamed"})[0], 200)
+        self.assertEqual(b.act("settings", {"name": "Mine"})[0], 403)
+
+    def test_who_hosts_next(self):
+        host, (a, b, c, d, e) = self.room_with("alpha", "bravo", "charlie", "delta", "echo", max_humans=6)
+        a.act("netinfo", {"path": "relay", "ping": 20, "can_host": True})
+        b.act("netinfo", {"path": "punch", "ping": 90, "can_host": True})
+        c.act("netinfo", {"path": "punch", "ping": 60, "can_host": True})
+        d.act("netinfo", {"path": "direct", "ping": 10, "can_host": False})
+        e.act("team", {"spectator": True})
+        e.act("netinfo", {"path": "lan", "ping": 1, "can_host": True})
+        host.act("leave")
+        # not a spectator, not one that cannot; punched before relayed; then the ping
+        self.assertEqual(self.roster(c)["room"]["host"], "charlie")
+        # no NAT beats everything
+        b.act("netinfo", {"nat": "open"})
+        c.act("leave")
+        self.assertEqual(self.roster(b)["room"]["host"], "bravo")
+        self.assertEqual(b.act("netinfo", {"nat": "carrier"})[0], 400)
+        self.assertEqual(b.act("netinfo", {"can_host": "yes"})[0], 400)
+
+    def test_nobody_able_closes_the_room(self):
+        host, (a,) = self.room_with("alpha")
+        a.act("netinfo", {"path": "punch", "ping": 40, "can_host": False})
+        host.act("leave")
+        st, r = a.state()
+        self.assertEqual(st, 410)
+        self.assertIn("host closed", r["error"])
+
+    def test_another_build_cannot_host(self):
+        host = self.client("hostess")
+        host.create()
+        a = self.client("alpha")
+        self.assertEqual(a.join(host.room, build="v3.8.0-old", can_host=True)[0], 200)
+        b = self.client("bravo")
+        self.assertEqual(b.join(host.room, can_host=True)[0], 200)
+        host.act("leave")
+        self.assertEqual(self.roster(a)["room"]["host"], "bravo")
+
+    def test_dedicated_host_leaves_to_a_player(self):
+        host = self.client("server1")
+        host.create(dedicated=True, max_humans=2)
+        a = self.client("alpha")
+        a.join(host.room, can_host=True)
+        host.act("leave")
+        s = self.roster(a)
+        self.assertEqual(s["room"]["host"], "alpha")
+        self.assertFalse(s["room"]["dedicated"])
+        self.assertEqual(s["room"]["humans"], 1)
+
+    def test_launched_room_migrates_then_relaunches(self):
+        host, (a, b) = self.room_with("alpha", "bravo")
+        a.join(host.room, can_host=True)   # a re-join keeps the seat and says so
+        a.act("ready")
+        b.act("ready")
+        host.act("launch")
+        st, s = b.state(since=b.state()[1]["version"], wait=5)
+        self.assertEqual(s["room"]["state"], "launched")
+        at = s["launch"]["at"]
+        host.act("leave")
+        sb = self.roster(b)
+        # still launched, but no launch to connect to until the new host listens
+        self.assertEqual(sb["room"]["state"], "launched")
+        self.assertTrue(sb["room"]["migrating"])
+        self.assertIsNone(sb["launch"])
+        sa = self.roster(a)
+        secret = bytes.fromhex(sa["you"]["secret"])
+        # tickets keep coming, for the new host's secret only
+        ok, user, _ = L.verify_ticket(secret, sb["you"]["ticket"], host.room, roster={"bravo"})
+        self.assertEqual((ok, user), (True, "bravo"))
+        self.assertFalse(L.verify_ticket(host.secret, sb["you"]["ticket"], host.room)[0])
+        self.assertEqual(b.act("relaunch")[0], 403)
+        a.act("heartbeat", {"endpoints": ["192.168.7.7:27100"]})
+        st, r = a.act("relaunch")
+        self.assertEqual(st, 200, r)
+        sb = self.roster(b)
+        self.assertFalse(sb["room"]["migrating"])
+        self.assertGreater(sb["launch"]["at"], at)
+        self.assertEqual(sb["launch"]["endpoints"], ["192.168.7.7:27100"])
+        self.assertEqual(a.act("relaunch")[0], 409)
+        # the match over, the new host reopens as any host does
+        self.assertEqual(a.act("reopen")[0], 200)
+        self.assertEqual(self.roster(b)["room"]["state"], "open")
+
+    def test_countdown_is_cancelled(self):
+        host, (a, b) = self.room_with("alpha", "bravo")
+        a.act("netinfo", {"can_host": True})
+        a.act("ready")
+        b.act("ready")
+        host.act("launch", {"force": True})
+        host.act("leave")
+        s = self.roster(b)
+        self.assertEqual(s["room"]["state"], "open")
+        self.assertFalse(s["room"]["migrating"])
+
+    def test_decline_passes_the_room_on(self):
+        host, (a, b) = self.room_with("alpha", "bravo")
+        a.act("netinfo", {"path": "punch", "ping": 10, "can_host": True})
+        b.act("netinfo", {"path": "punch", "ping": 50, "can_host": True})
+        host.act("leave")
+        self.assertEqual(self.roster(a)["room"]["host"], "alpha")
+        self.assertEqual(b.act("decline")[0], 403)
+        self.assertEqual(a.act("decline")[0], 200)
+        sa = self.roster(a)
+        self.assertEqual(sa["room"]["host"], "bravo")
+        self.assertFalse(sa["you"]["host"])
+        self.assertEqual(sa["room"]["host_epoch"], 3)
+        # with nobody left who can, the room closes
+        self.assertEqual(b.act("decline")[0], 200)
+        st, r = a.state()
+        self.assertEqual(st, 410)
+        self.assertIn("nobody left", r["error"])
+
+    def test_new_host_registers_under_a_new_key(self):
+        host, (a, b) = self.room_with("alpha", "bravo")
+        a.act("netinfo", {"can_host": True})
+        to = ("127.0.0.1", self.srv.udp_port)
+        hs, js, ks = udp_sock(), udp_sock(), udp_sock()
+        hs.sendto(host.register(), to)
+        recv_kind(hs, L.UDP_REGISTERED)
+        js.sendto(a.register(), to)
+        recv_kind(js, L.UDP_REGISTERED)
+        recv_kind(js, L.UDP_PEER)
+        ks.sendto(b.register(), to)
+        recv_kind(ks, L.UDP_REGISTERED)
+        old_cookie = parse_peer(recv_kind(ks, L.UDP_PEER))[1]
+        host.act("leave")
+        sa = self.roster(a)
+        self.assertNotEqual(bytes.fromhex(sa["you"]["udp_key"]), a.udp_key)
+        self.assertEqual(bytes.fromhex(sa["you"]["udp_id"]), a.udp_id)
+        # the member socket's next REGISTER under the old key is refused...
+        js.sendto(a.register(), to)
+        self.assertEqual(recv_kind(js, L.UDP_ERROR)[6], L.UDP_ERR_REFUSED)
+        # ... and the host socket's under the new one pairs it with bravo,
+        # with a cookie of the new host's
+        a.udp_key, a.seq = bytes.fromhex(sa["you"]["udp_key"]), 0
+        ns = udp_sock()
+        ns.sendto(a.register(), to)
+        recv_kind(ns, L.UDP_REGISTERED)
+        hp = parse_peer(recv_kind(ns, L.UDP_PEER))
+        bp = parse_peer(recv_kind(ks, L.UDP_PEER))
+        self.assertEqual((hp[3], bp[3], bp[2]), ("bravo", "alpha", L.ROLE_HOST))
+        self.assertEqual(bp[4][0], ns.getsockname())
+        self.assertEqual(hp[1], bp[1])
+        self.assertNotEqual(bp[1], old_cookie)
+        for s in (hs, js, ks, ns):
+            s.close()
+
+
+class MigrationReapTests(Base):
+    over = dict(host_timeout=0.8, member_timeout=30.0, hostlost_grace=0.3, hostlost_keep=5.0)
+
+    def test_silent_host_hands_over(self):
+        host, (a,) = self.room_with("alpha")
+        a.act("netinfo", {"can_host": True})
+        for _ in range(4):
+            time.sleep(0.25)
+            host.act("heartbeat")
+        self.assertEqual(self.roster_host(a), "hostess")
+        time.sleep(1.2)
+        self.assertEqual(self.roster_host(a), "alpha")
+        st, r = host.state()
+        self.assertEqual(st, 410)
+        self.assertIn("stopped responding", r["error"])
+
+    def test_reported_lost(self):
+        self.srv.call(lambda: setattr(self.srv.cfg, "host_timeout", 30.0))
+        host, (a, b, c, d) = self.room_with("alpha", "bravo", "charlie", "delta", max_humans=5)
+        a.act("netinfo", {"can_host": True})
+        # a report never moves a room off a host that still beats
+        b.act("hostlost")
+        self.assertEqual(self.roster_host(a), "hostess")
+        time.sleep(0.5)
+        # its heartbeat a beat late: one report of four players is not enough...
+        b.act("hostlost")
+        self.assertEqual(self.roster_host(a), "hostess")
+        # ... two are
+        c.act("hostlost")
+        self.assertEqual(self.roster_host(a), "alpha")
+        self.assertEqual(a.act("hostlost")[0], 400)
+
+    def roster_host(self, c):
+        st, s = c.state()
+        self.assertEqual(st, 200, s)
+        return s["room"]["host"]
+
+
 class UdpRateTests(Base):
     over = dict(udp_rate=1.0, udp_burst=5.0)
 

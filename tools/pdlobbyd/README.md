@@ -76,7 +76,7 @@ empty body is `{}`.
 | `POST /logout` | session | | |
 | `GET /rooms?proto=&build=` | anyone | `proto` filters to that protocol; `build` adds `same_build` to each | `rooms: [summary]`, newest first |
 | `POST /rooms` | session | see **Create** | `room`, `token` (host's member token), `secret` (64 hex), `udp_id` (16 hex), `udp_key` (64 hex), `version`, `time` |
-| `POST /rooms/<id>/join` | session | `proto`, `build`, `content`, `password`?, `spectator`? | `room`, `token`, `udp_id`, `udp_key`, `version`, `time`; plus `ticket`, `ticket_expires` when the room is counting down or launched (a re-join of your own seat) |
+| `POST /rooms/<id>/join` | session | `proto`, `build`, `content`, `password`?, `spectator`?, `can_host`? | `room`, `token`, `udp_id`, `udp_key`, `version`, `time`; plus `ticket`, `ticket_expires` when the room is counting down or launched (a re-join of your own seat) |
 | `GET /rooms/<id>/state?since=N&wait=S` | member | | see **State** |
 | `POST /rooms/<id>/ready` | member (not host) | `ready` (default true) | `version` |
 | `POST /rooms/<id>/team` | member | `team` 0-7, `spectator` | `version` |
@@ -85,10 +85,13 @@ empty body is `{}`.
 | `POST /rooms/<id>/kick` | host | `user` | `version`; the user cannot rejoin this room |
 | `POST /rooms/<id>/launch` | host | `force`?, `cancel`? | `version`, `countdown` (s) |
 | `POST /rooms/<id>/reopen` | host | | back to `open` after a match, nobody ready |
-| `POST /rooms/<id>/leave` | member | | host leaving closes the room |
-| `POST /rooms/<id>/heartbeat` | host | `endpoints`? | `version`, `time`; every 5 s; 15 s without one closes the room |
+| `POST /rooms/<id>/leave` | member | | a host leaving hands the room on (**Host migration**), or closes it when nobody can host |
+| `POST /rooms/<id>/heartbeat` | host | `endpoints`? | `version`, `time`; every 5 s; 15 s without one hands the room on (or closes it) |
 | `POST /rooms/<id>/ticket` | member | | a fresh `ticket`, `ticket_expires`, `time`; `409` (`reason: not_started`) while the room is open |
-| `POST /rooms/<id>/netinfo` | member | `path` (`lan`/`direct`/`punch`/`relay`/`none` or null), `ping` (0-9999 ms or null) | `version`; the member's own report of how it reaches the host, shown in every roster; the host's report is ignored; 8 / 10 s per member |
+| `POST /rooms/<id>/netinfo` | member | `path` (`lan`/`direct`/`punch`/`relay`/`none` or null), `ping` (0-9999 ms or null), `can_host`? (bool), `nat`? (`open`/`nat`) | `version`; the member's own report of how it reaches the host, shown in every roster; the host's path and ping are ignored; `can_host` and `nat` rank it as the next host; 8 / 10 s per member |
+| `POST /rooms/<id>/hostlost` | member (not host) | | `version`; its game lost its connection to the host (**Host migration**) |
+| `POST /rooms/<id>/relaunch` | host | | `version`; a host that took a launched room over listens now: the launch is its own (`409` unless migrating) |
+| `POST /rooms/<id>/decline` | host | | `version`; a host that cannot host after all hands the room on and stays a member (the room closes when nobody else can) |
 
 **Create** (`POST /rooms`): `name` (required, 1-32), `password` (0-16
 printable, "" = none), `max_humans` 2-12 (default 4), `stage`, `scenario`
@@ -124,7 +127,10 @@ joiner's game loads from its own copy, never from the lobby), `ge` (<= 15,
 the GoldenEye ROM hack mode the room is in, as a conversion tag), `humans` (non-spectators, host included unless
 dedicated), `max_humans`, `spectators`, `max_spectators` (2, the game host's `NET_MAXSPECS`), `sims`,
 `locked`, `proto`, `build`, `content`, `created` (unix), `state`
-(`open`/`countdown`/`launched`), `dedicated`, `region`, `host_rtt_ms`.
+(`open`/`countdown`/`launched`), `dedicated`, `region`, `host_rtt_ms`,
+`host_epoch` (1 its maker, one more at every migration), `migrating`
+(launched, its new host not listening yet), `prev_host` (who hosted
+before the last migration, "" none).
 
 **Ping hint**: `host_rtt_ms` is the lobby's own UDP round trip to the host's
 registered socket (PROBE every 10 s, smoothed), null until the host registers
@@ -151,12 +157,13 @@ never reaped. Reply:
  "room": {"id": "0a1b2c3d", "...": "summary"},
  "rules": {"time_limit": 10},
  "members": [{"user": "dab", "team": 0, "ready": true, "spectator": false,
-              "host": true, "udp": true, "path": null, "ping": null}],
+              "host": true, "udp": true, "path": null, "ping": null, "can_host": true}],
  "chat": [{"v": 15, "user": "dab", "text": "gl hf", "t": 1791148000}],
  "countdown": {"remaining": 3.2, "forced": false},
  "launch": {"at": 1791148010, "endpoints": ["192.168.1.5:27100"],
             "public": "203.0.113.9:51234"},
  "you": {"user": "joiner", "host": false, "spectator": false,
+         "udp_id": "...", "udp_key": "...",
          "ticket": "...", "ticket_expires": 1791148310}}
 ```
 
@@ -165,6 +172,12 @@ never reaped. Reply:
 reached the host and the round trip it measures over it. A report moves the
 version only when the path changes or the ping moves by 10 ms or more, so a
 member's ping does not wake the whole room every few seconds.
+
+`you.udp_id` and `you.udp_key` are the seat's rendezvous credentials (a
+migration renews a new host's key and a declining host's), and a host's
+`you` carries `secret`, the room secret as 64 hex: how a member that took
+the room over learns the key it checks tickets with. `launch` is null
+while the room is `migrating`.
 
 `chat` holds only lines posted after version `N` (the last 50 are kept), so a
 client passes back the `version` it last saw. `countdown` is null unless
@@ -180,13 +193,51 @@ non-spectator, non-host member is ready, or `force: true`. Starts a 5 s
 countdown; an unready, a leave or a kick cancels it unless forced; `cancel:
 true` cancels it; settings cancel it. When it runs out the room is `launched`.
 
-**Reaping**: a host silent for 15 s (no heartbeat) closes the room; a member
+**Reaping**: a host silent for 15 s (no heartbeat) hands the room on (or
+closes it, **Host migration**); a member
 with no request for 30 s and no poll parked is removed - except while the
 room is `launched`: then only the host's heartbeat counts, nobody is reaped,
 and a member whose game crashed can re-join its seat for a new ticket (the
 roster is what the host admits against). `reopen` gives every member a fresh
 30 s. A client should still keep its state poll running through the match:
 that is how it hears the room close.
+
+## Host migration
+
+A room outlives its host (the game's side: `port/src/net/netmigrate.c`,
+CLAUDE-notes/netplay.md "Host migration"). The room goes on when its host
+leaves (`leave`, or a `join`/`create` elsewhere), stops beating for
+`host_timeout` (15 s), or is reported lost (`hostlost`) by half the playing
+members or more within `hostlost_keep` (20 s) while its heartbeat is more
+than `hostlost_grace` (8 s) old - a live host beats every 5 s, so reports
+alone never move a room off one that is there.
+
+The next host is a member, never a spectator, whose game said it can host
+the room (`can_host` in join and netinfo: it has the room's mod and
+conversion, its own or one the host served it) on the room's build; of
+those, one the rendezvous saw with no NAT (`nat` "open") first, then one
+whose path to the old host was LAN, direct or punched before a relayed or
+pathless one, then the lower ping, then the longest in the room. When
+there is none the room closes as it always did (so a game that never
+sends `can_host` keeps the old behaviour).
+
+Taking over (`promote`): the new host is ready and not a spectator; the
+room gets a new secret (the old host could go on minting tickets
+otherwise), the new host a new UDP key and no registration (a REGISTER
+still on its way from its member socket must not be taken for its host
+socket's), every pair a new punch cookie (each member's ladder starts
+over toward the new host), and every relay closes; a countdown is
+cancelled, everyone else unreadied, `host_epoch` counted up, `prev_host`
+set, a dedicated room becomes a listen one, and the endpoints are
+forgotten. A launched room stays launched but `migrating`, with no
+`launch` in its state, until the new host has registered its new socket
+and says `relaunch`: the launch is then a new one (`at` moves on), which
+the members connect to with tickets for the new secret. A host that took
+over a launched room whose match was over says `reopen` instead. A new
+host that cannot host after all (its port would not open) says `decline`:
+the room goes to the next, and it stays a member. The old host's token
+answers 410 with "you left the room" or "you stopped responding; another
+player hosts the room now"; it can join again as a member.
 
 ## Join ticket
 
@@ -438,7 +489,7 @@ and nonces come from `os.urandom`.
 python3 tools/pdlobbyd/test_pdlobbyd.py
 ```
 
-71 cases in about sixteen seconds, each against its own server (an event
+82 cases in about nineteen seconds, each against its own server (an event
 loop on a background thread, HTTP and UDP on ports the kernel picks, timeouts
 cut to fractions of a second): create/list/filters, validation, join with
 password, the protocol and content refusals, the wrong-password limiter, full
@@ -447,6 +498,14 @@ host-only settings (refused settings leave the room untouched) and kick, the
 launch countdown (refused while unready, cancelled by an unready, forced, run
 out into launched with filtered endpoints and a ticket, reopened), leaving,
 one room per account, a host leaving for another room, dedicated hosts,
+host migration (the room handed on when its host leaves, the pick order -
+no NAT, path, ping, spectators and members that cannot host passed over,
+another build passed over -, nobody able closes it, a dedicated host's
+room to a player, a launched room migrating until relaunch with tickets
+for the new secret only, a countdown cancelled, decline passing it on and
+closing it when nobody is left, the new host's REGISTER under its new key
+and the old key refused, new cookies; a silent host handed on, half the
+players' reports with a missed heartbeat, never with a live one),
 long-poll wakeup on a change (and on a UDP registration), timeout, room close,
 the parked-poll cap, one poll per member, polls per address, polls charged per
 member, host and member reaping (none during a match; a parked poll keeping a

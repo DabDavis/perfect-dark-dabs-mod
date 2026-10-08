@@ -58,7 +58,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-API_VERSION = 1
+API_VERSION = 2   # 2: host migration (README "Host migration")
 
 
 def env(name, default):
@@ -112,6 +112,13 @@ class Config:
         self.chat_keep = 50
         self.countdown = 5.0
         self.host_timeout = 15.0
+        # Host migration: a host whose heartbeat is this old, and whom half
+        # the playing members or more have reported lost (hostlost) within
+        # hostlost_keep, is gone now rather than at host_timeout. A host
+        # beats every 5 s, so a live one never reaches it; a report alone
+        # never moves a room off a host that is still beating.
+        self.hostlost_grace = 8.0
+        self.hostlost_keep = 20.0
         self.member_timeout = 30.0
         self.gone_keep = 120.0
         self.reap_interval = 1.0
@@ -400,6 +407,11 @@ UDP_ECHO_MIN = 40
 UDP_ERR_UNKNOWN = 1
 UDP_ERR_REFUSED = 2
 NETINFO_PATHS = ("lan", "direct", "punch", "relay", "none")
+NETINFO_NATS = ("open", "nat")
+# Host migration: how a member's report of its own path ranks it as the next
+# host (lower first). A relayed member sits behind a NAT that will not punch,
+# so it would make a poor host; one with no path at all a worse one.
+HOST_PATH_RANK = {"lan": 0, "direct": 0, "punch": 0, "relay": 1}
 UDP_REGISTER_MIN = 6 + 4 + 8 + 4 + 1 + 16
 UDP_MAC_LEN = 16
 
@@ -531,7 +543,7 @@ class Member:
     __slots__ = ("user", "token", "host", "ip", "team", "ready", "spectator",
                  "joined", "seen", "poll", "udp_id", "udp_key", "udp_seq",
                  "udp_public", "udp_private", "udp_seen", "peer_sent",
-                 "path", "ping")
+                 "path", "ping", "build", "can_host", "nat", "hostlost")
 
     def __init__(self, user, token, host, ip, now):
         self.user = user
@@ -553,6 +565,10 @@ class Member:
         self.peer_sent = 0.0
         self.path = None           # what the member reported (netinfo)
         self.ping = None
+        self.build = ""            # the build it joined with (a new host must be the room's)
+        self.can_host = False      # its game says it could host the room (join, netinfo)
+        self.nat = None            # "open" (no NAT: the rendezvous saw it at its own address), "nat", or unknown
+        self.hostlost = 0.0        # when it last reported the host lost (hostlost), monotonic
 
     def role(self):
         if self.host:
@@ -598,6 +614,9 @@ class Room:
         self.probe_sent = 0.0
         self.cookies = {}
         self.relays = {}           # joiner's member token -> Relay
+        self.host_epoch = 1        # counts the room's hosts: moves at every migration
+        self.migrating = False     # launched, the new host not yet listening (relaunch ends it)
+        self.prev_host = ""        # who hosted before the last migration
         self.relay_bytes = (0.0, 0.0)   # token bucket (tokens, last)
         self.relay_pkts = (0.0, 0.0)
 
@@ -926,6 +945,9 @@ class Lobby:
             # own round trip to the lobby (ECHO) for an estimate that does not
             # hand every lister the host's address.
             "host_rtt_ms": None if room.host_rtt is None else int(room.host_rtt * 1000 + 0.5),
+            "host_epoch": room.host_epoch,
+            "migrating": room.migrating,
+            "prev_host": room.prev_host,
         }
         if build is not None:
             out["same_build"] = room.build == build
@@ -1017,6 +1039,8 @@ class Lobby:
         host = Member(s.user, new_token(), True, req.ip, now)
         host.ready = True
         host.spectator = room.dedicated
+        host.build = build
+        host.can_host = True
         self.add_member(room, host)
         self.rooms[room.id] = room
         log("room %s '%s' made by %s" % (room.id, room.name, s.user))
@@ -1065,6 +1089,9 @@ class Lobby:
             # game that never saw the old one or its seq.
             m.udp_key = os.urandom(32)
             m.udp_seq = 0
+            if not m.host:
+                m.build = build
+                m.can_host = bool(body.get("can_host", False))
             return self.join_reply(room, m)
 
         # A launched room takes joiners while its match runs (the host seats
@@ -1082,6 +1109,8 @@ class Lobby:
         self.leave_any(s.user)
         m = Member(s.user, new_token(), False, req.ip, now)
         m.spectator = spectator
+        m.build = build
+        m.can_host = bool(body.get("can_host", False))
         m.team = self.quietest_team(room)
         self.add_member(room, m)
         room.changed()
@@ -1131,12 +1160,11 @@ class Lobby:
             del self.user_room[m.user.lower()]
 
     def remove_member(self, room, m, reason):
-        """Out of the room; a host leaving closes it, since the host is the
-        game server and there is no room without one."""
+        """Out of the room. A host leaving hands the room to the member best
+        placed to host it (host_gone); with nobody able to, the room closes,
+        since the host is the game server and there is no room without one."""
         if m.host:
-            # The others are told the host closed it; only the host's own
-            # token keeps why (it may have joined another room).
-            return self.close_room(room, "the host closed the room", host_reason=reason)
+            return self.host_gone(room, m, reason, "left")
         room.members.pop(m.token, None)
         room.cookies.pop(m.token, None)
         self.forget_member(room, m)
@@ -1166,6 +1194,107 @@ class Lobby:
             room.countdown_handle.cancel()
             room.countdown_handle = None
         room.status = "open"
+
+    # ---------------------------------------------------------- host migration
+    #
+    # The room outlives its host: when the host leaves, stops beating, or
+    # half the playing members report it lost, the member best placed to
+    # host takes the room over (README "Host migration"). The new host gets
+    # a new room secret (the old host could otherwise go on minting
+    # tickets) and a new UDP key (a REGISTER still on its way from its old
+    # member socket must not be taken for its host socket's); every pair's
+    # punch cookie is new, so each member's ladder starts again toward the
+    # new host. A launched room stays launched but "migrating", with no
+    # launch in its state, until the new host listens and says relaunch:
+    # the members then connect to it as at any launch.
+
+    def pick_host(self, room, exclude=None):
+        """The member that should host next, or None. Players only (a
+        spectator would have to play), and only one whose game said it can
+        host this room (it has the room's content of its own) on the room's
+        build. Then: no NAT first, a punched or direct path over a relayed
+        one, the lower ping, the longest in the room."""
+        cands = [m for m in room.members.values()
+                 if m is not exclude and not m.host and not m.spectator and m.can_host
+                 and m.build == room.build]
+        if not cands:
+            return None
+        return min(cands, key=lambda m: (0 if m.nat == "open" else 1,
+                                         HOST_PATH_RANK.get(m.path, 2),
+                                         m.ping if m.ping is not None else 9999,
+                                         m.joined))
+
+    def host_gone(self, room, old, reason, why):
+        """The host is out of the room (left, timed out, reported lost): the
+        room goes to the next host, or closes when there is none. reason is
+        what the old host's token says from now; why, the log's word."""
+        new = self.pick_host(room, exclude=old)
+        if new is None:
+            # The others are told the host closed it; only the host's own
+            # token keeps why (it may have joined another room).
+            if why == "left":
+                return self.close_room(room, "the host closed the room", host_reason=reason)
+            return self.close_room(room, "the host stopped responding")
+        room.members.pop(old.token, None)
+        room.cookies.pop(old.token, None)
+        self.forget_member(room, old)
+        self.gone[old.token] = (reason if reason != "left" else "you left the room",
+                                time.monotonic() + self.cfg.gone_keep)
+        self.promote(room, new, old.user, why)
+
+    def promote(self, room, new, prev, why):
+        now = time.monotonic()
+        new.host = True
+        new.ready = True
+        new.spectator = False
+        new.hostlost = 0.0
+        new.path = new.ping = None
+        self.new_udp_key(new)
+        room.secret = os.urandom(32)
+        room.cookies.clear()
+        room.host_epoch += 1
+        room.prev_host = prev
+        room.host_seen = now
+        room.host_rtt = None
+        room.probe_nonce = None
+        room.dedicated = False
+        room.endpoints = []
+        for o in room.members.values():
+            o.peer_sent = 0.0
+            o.hostlost = 0.0
+            if not o.host:
+                o.ready = False
+        # every relay was a pair with the old host
+        for r in list(room.relays.values()):
+            self.close_relay(r, "host migrated")
+        self.cancel_countdown(room, unless_forced=False)
+        room.migrating = room.status == "launched"
+        room.changed()
+        log("room %s: host %s %s; %s hosts it now (epoch %d%s)"
+            % (room.id, prev, why, new.user, room.host_epoch, ", match to resume" if room.migrating else ""))
+
+    def new_udp_key(self, m):
+        """A seat's rendezvous registration starts over under a new key (its
+        game reads it from its next state reply)."""
+        m.udp_key = os.urandom(32)
+        m.udp_seq = 0
+        m.udp_public = None
+        m.udp_private = []
+        m.udp_seen = 0.0
+
+    def check_hostlost(self, room, now):
+        """Half the playing members or more have reported the host lost, and
+        its heartbeat has missed a beat: it is gone now."""
+        host = room.host_member()
+        if host is None or now - room.host_seen <= self.cfg.hostlost_grace:
+            return False
+        voters = [m for m in room.members.values() if not m.host and not m.spectator]
+        lost = [m for m in voters if m.hostlost and now - m.hostlost <= self.cfg.hostlost_keep]
+        if not lost or len(lost) * 2 < len(voters):
+            return False
+        self.host_gone(room, host, "you stopped responding; another player hosts the room now",
+                       "was reported lost by %d of %d" % (len(lost), len(voters)))
+        return True
 
     def countdown_done(self, room):
         if self.rooms.get(room.id) is not room or room.status != "countdown":
@@ -1236,7 +1365,7 @@ class Lobby:
         members = [{"user": m.user, "team": m.team, "ready": m.ready,
                     "spectator": m.spectator, "host": m.host,
                     "udp": m.udp_public is not None,
-                    "path": m.path, "ping": m.ping}
+                    "path": m.path, "ping": m.ping, "can_host": m.can_host}
                    for m in room.members.values()]
         chat = [{"v": v, "user": u, "text": t, "t": at}
                 for (v, u, t, at) in room.chat if v > since]
@@ -1244,11 +1373,18 @@ class Lobby:
                "room": self.room_summary(room),
                "rules": room.rules, "members": members, "chat": chat,
                "countdown": None, "launch": None,
-               "you": {"user": me.user, "host": me.host, "spectator": me.spectator}}
+               "you": {"user": me.user, "host": me.host, "spectator": me.spectator,
+                       # the seat's rendezvous credentials, which a migration
+                       # renews (only ever to the seat's own token, over HTTPS)
+                       "udp_id": me.udp_id.hex(), "udp_key": me.udp_key.hex()}}
+        if me.host:
+            # a host that took the room over learns the secret it checks
+            # tickets with here (its creator had it from create)
+            out["you"]["secret"] = room.secret.hex()
         if room.status == "countdown":
             out["countdown"] = {"remaining": round(max(0.0, room.countdown_end - time.monotonic()), 2),
                                 "forced": room.forced}
-        if room.status == "launched":
+        if room.status == "launched" and not room.migrating:
             # What the host advertised, and the address its UDP socket was
             # seen from at the rendezvous (null when it never registered).
             host = room.host_member()
@@ -1368,6 +1504,8 @@ class Lobby:
         self.cancel_countdown(room, unless_forced=False)
         room.status = "open"
         room.launched_at = 0
+        # a host that took over a room whose match had ended reopens it
+        room.migrating = False
         # Member reaping was off during the match; everyone gets a full
         # member_timeout from here to show they are still there.
         now = time.monotonic()
@@ -1406,13 +1544,61 @@ class Lobby:
         ping = body.get("ping")
         if ping is not None and (not isinstance(ping, int) or isinstance(ping, bool) or not 0 <= ping <= 9999):
             raise HttpError(400, "ping is 0-9999 ms or null")
+        nat = body.get("nat", m.nat)
+        if nat is not None and nat not in NETINFO_NATS:
+            raise HttpError(400, "nat is one of %s" % ", ".join(NETINFO_NATS))
+        can_host = body.get("can_host", m.can_host)
+        if not isinstance(can_host, bool):
+            raise HttpError(400, "can_host is true or false")
+        m.nat = nat
         if m.host:
             path, ping = None, None
         moved = (path != m.path or (ping is None) != (m.ping is None)
-                 or (ping is not None and abs(ping - m.ping) >= self.cfg.netinfo_ping_step))
+                 or (ping is not None and abs(ping - m.ping) >= self.cfg.netinfo_ping_step)
+                 or (can_host != m.can_host and not m.host))
         if moved:
             m.path, m.ping = path, ping
+            if not m.host:
+                m.can_host = can_host
             room.changed()
+        return {"ok": True, "version": room.version}
+
+    def act_hostlost(self, req, room, m, body):
+        """A member's game lost its connection to the host (host migration):
+        with half the playing members saying so and the host's heartbeat a
+        beat late, the room moves on now rather than at host_timeout."""
+        if m.host:
+            raise HttpError(400, "the host cannot lose itself")
+        now = time.monotonic()
+        m.hostlost = now
+        self.check_hostlost(room, now)
+        return {"ok": True, "version": room.version}
+
+    def act_relaunch(self, req, room, m, body):
+        """A host that took a launched room over is listening: the launch is
+        its now, and the members connect to it."""
+        self.require_host(m)
+        if not room.migrating:
+            raise HttpError(409, "nothing to relaunch")
+        room.migrating = False
+        room.launched_at = max(int(time.time()), room.launched_at + 1)
+        room.changed()
+        log("room %s relaunched by %s" % (room.id, m.user))
+        return {"ok": True, "version": room.version}
+
+    def act_decline(self, req, room, m, body):
+        """A host that cannot host after all (its port would not open, it
+        lacks the room's content) hands the room on and stays a member."""
+        self.require_host(m)
+        m.can_host = False
+        new = self.pick_host(room, exclude=m)
+        if new is None:
+            self.close_room(room, "nobody left in the room can host it")
+            return {"ok": True}
+        m.host = False
+        m.ready = False
+        self.new_udp_key(m)
+        self.promote(room, new, m.user, "could not host")
         return {"ok": True, "version": room.version}
 
     def act_ticket(self, req, room, m, body):
@@ -1437,8 +1623,13 @@ class Lobby:
         now = time.monotonic()
         wall = time.time()
         for room in list(self.rooms.values()):
-            if now - room.host_seen > self.cfg.host_timeout:
-                self.close_room(room, "the host stopped responding")
+            host = room.host_member()
+            if host is not None and now - room.host_seen > self.cfg.host_timeout:
+                self.host_gone(room, host, "you stopped responding; another player hosts the room now",
+                               "stopped responding")
+                if self.rooms.get(room.id) is not room:
+                    continue
+            elif self.check_hostlost(room, now) and self.rooms.get(room.id) is not room:
                 continue
             # A member with a poll parked is there, whatever its last request
             # time says; the poll itself refreshes it on the way out. During a
@@ -1878,7 +2069,8 @@ REASONS = {200: "OK", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden",
            502: "Bad Gateway", 503: "Service Unavailable"}
 
 ROOM_ACTIONS = frozenset(("ready", "team", "chat", "settings", "kick", "launch",
-                          "reopen", "leave", "heartbeat", "ticket", "netinfo"))
+                          "reopen", "leave", "heartbeat", "ticket", "netinfo",
+                          "hostlost", "relaunch", "decline"))
 
 
 class Request:
