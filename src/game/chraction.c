@@ -7922,6 +7922,18 @@ bool chrHasLosToEntity(struct chrdata *chr, struct coord *chrpos, RoomNum *chrro
 			}
 		}
 
+#ifndef PLATFORM_N64
+		// netplay: online co-op players are no cover for each other. They
+		// pass through one another (and start stacked on one spot, netcoop.c),
+		// and the bullet already passes a player it was not aimed at
+		// (chrTickShoot's line leaves players out): only this test stopped
+		// it, so a stacked player could not be shot and one behind them hid
+		// (the user: "im hiding behind them and the bots act like a wall")
+		if (g_NetMode != NETMODE_NONE && g_Vars.coopplayernum >= 0) {
+			types &= ~CDTYPE_PLAYERS;
+		}
+#endif
+
 		chrGetAttackEntityPos(chr, attackflags, entityid, &targetpos, targetrooms);
 		chrSetPerimEnabled(chr, false);
 

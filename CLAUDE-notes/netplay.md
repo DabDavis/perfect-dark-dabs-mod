@@ -661,7 +661,22 @@ progression").
   spot (an opening that walks player 0 leaves it up to 34 units on), the
   late joiner on player 0's. netcooptest's twelve now checks the stack
   (clients on one spot within 2 units, within 100 of player 0), campaign
-  "spawns on player 0"; prediction 99.7%+ stacked. A
+  "spawns on player 0"; prediction 99.7%+ stacked.
+- **Players are no cover for each other online (2026-10-08).** With the
+  stack deployed, the user in the live Archives room: "the guards are not
+  able to shoot the bots, but can shoot me well", "im hiding behind them
+  and the bots act like a wall to protect me". A solo guard's shot at a
+  player lands only if `chrHasLosToAttackTarget` passes, and its line
+  (`chrHasLosToEntity`) tests `CDTYPE_ALL`, players included, with only the
+  target's own perimeter off: a stacked player stood inside the others'
+  cylinders and could never be hit, and anyone behind the group was
+  covered. The bullet itself already passes a player it was not aimed at
+  (`chrTickShoot`'s `cdExamLos08` types leave players out), so online co-op
+  now drops `CDTYPE_PLAYERS` from that test too. Cradle, four players, the
+  three clients stacked and standing, no god mode: before, 5-7 guards
+  attacking a client for 100 s and every client still on 1.000 health;
+  after, all four hurt, three dead by tick 4800. Sight tests
+  (`chrHasLosToPos` and friends) never counted players. A
   co-op player online wears its own Combat Simulator character; bond
   stays Joanna. A co-op mission past two players keeps the setup's
   two-player exclusions (`OBJFLAG2_EXCLUDE_2P`).
