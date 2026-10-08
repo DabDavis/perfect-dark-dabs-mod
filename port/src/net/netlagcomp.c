@@ -83,8 +83,9 @@
  * (--net-lagcomp-log), what this machine saw when it fired.
  */
 
-#define NETLC_RING      64     // ticks of pose history per chr
-#define NETLC_MAXREW    32     // chrs rebuilt for one shot or pass
+#define NETLC_RING      96     // ticks of pose history per chr: Net.LagCompMaxMs's most (1000 ms, 60
+                               // ticks) + NETLC_MAXINTERP + NETLC_SLACK, with room (it was 64, and
+                               // a rewind past 64 found no pose and tested the chr where it is now)
 #define NETLC_MAXRW     4096   // a model's rwdata, in bytes, we keep a copy of
 #define NETLC_MAXKIDS   4      // held props moved with a rebuilt chr
 #define NETLC_MAXINTERP 19.f   // ticks of a client's interpolation delay allowed for: netpuppets.c's
@@ -159,8 +160,8 @@ static struct netlcpose *s_Hist = NULL; // [s_HistSlots][NETLC_RING]
 static struct netlclife *s_Life = NULL; // [s_HistSlots]
 static s32 s_HistSlots = 0;
 
-static struct netlcrew s_Rew[NETLC_MAXREW];
-static s32 s_NumRew = 0;
+static struct netlcrew *s_Rew = NULL; // [s_HistSlots]: every chr can be rebuilt for one shot or pass
+static s32 s_NumRew = 0;              // (a fixed 32 left a crowd's farther chrs tested where they are now)
 static s32 s_ListAdded = 0;    // props put on the end of the on-screen list for the rewind
 static s32 s_ListCount = 0;    // ... and the count before them
 static u32 s_Offscreen = 0;
@@ -175,6 +176,19 @@ static s32 s_ShotCapped = 0;
 static s32 s_ShotCands = 0;
 static s32 s_ShotSwept = 0;
 static u8 s_RwSave[NETLC_MAXRW];
+
+// the history and the rewind table go together (a rewind being undone is
+// never in progress when they do: the pass and the shot undo theirs)
+static void netLcFree(void)
+{
+	free(s_Hist);
+	free(s_Life);
+	free(s_Rew);
+	s_Hist = NULL;
+	s_Life = NULL;
+	s_Rew = NULL;
+	s_HistSlots = 0;
+}
 
 // counts
 static u32 s_Shots = 0;        // remote shots looked at
@@ -901,7 +915,7 @@ static void netLcRewindOffscreen(const struct shotdata *sd, f64 view)
 		return;
 	}
 
-	for (i = 0; i < s_HistSlots && s_NumRew < NETLC_MAXREW; i++) {
+	for (i = 0; i < s_HistSlots && s_NumRew < s_HistSlots; i++) {
 		struct chrdata *chr = &g_ChrSlots[i];
 		struct prop *prop = chr->prop;
 		struct netlcpose pose;
@@ -1003,7 +1017,7 @@ static void netLcRewindScreen(const struct shotdata *sd, f64 view)
 {
 	struct prop **propptr;
 
-	for (propptr = g_Vars.endonscreenprops - 1; propptr >= g_Vars.onscreenprops && s_NumRew < NETLC_MAXREW; propptr--) {
+	for (propptr = g_Vars.endonscreenprops - 1; propptr >= g_Vars.onscreenprops && s_NumRew < s_HistSlots; propptr--) {
 		struct prop *prop = *propptr;
 		struct chrdata *chr;
 		struct netlcpose pose;
@@ -1485,17 +1499,14 @@ void netLagCompHostTickEnd(void)
 	}
 
 	if (!s_Hist || s_HistSlots != g_NumChrSlots) {
-		free(s_Hist);
-		free(s_Life);
+		netLcFree();
 		s_Hist = calloc((size_t)g_NumChrSlots * NETLC_RING, sizeof(*s_Hist));
 		s_Life = calloc((size_t)g_NumChrSlots, sizeof(*s_Life));
-		s_HistSlots = s_Hist && s_Life ? g_NumChrSlots : 0;
+		s_Rew = calloc((size_t)g_NumChrSlots, sizeof(*s_Rew));
+		s_HistSlots = s_Hist && s_Life && s_Rew ? g_NumChrSlots : 0;
 
 		if (!s_HistSlots) {
-			free(s_Hist);
-			free(s_Life);
-			s_Hist = NULL;
-			s_Life = NULL;
+			netLcFree();
 			return;
 		}
 	}
@@ -1591,11 +1602,7 @@ static void netLagCompAtExit(void)
 
 void netLagCompStageStart(void)
 {
-	free(s_Hist);
-	free(s_Life);
-	s_Hist = NULL;
-	s_Life = NULL;
-	s_HistSlots = 0;
+	netLcFree();
 	s_NumRew = 0;
 	s_InShot = 0;
 	s_InPass = 0;
@@ -1612,11 +1619,7 @@ void netLagCompStageStart(void)
 void netLagCompMatchStopped(void)
 {
 	netLagCompLog("at the match's end");
-	free(s_Hist);
-	free(s_Life);
-	s_Hist = NULL;
-	s_Life = NULL;
-	s_HistSlots = 0;
+	netLcFree();
 }
 
 /*

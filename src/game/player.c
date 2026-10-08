@@ -7133,7 +7133,9 @@ Gfx *playerRenderHud(Gfx *gdl)
 			if (g_Vars.currentplayer->isdead == 1) {
 				pakDisableRumbleForPlayer(g_Vars.currentplayernum);
 				g_Vars.currentplayer->isdead = 2;
-				musicStartMpDeath();
+				// netplay: the host builds every player's view; only this
+				// machine's own player's death is its music
+				if (netIsLocalSlot(g_Vars.currentplayernum)) musicStartMpDeath();
 			}
 
 			g_Vars.currentplayer->redbloodfinished = true;
@@ -7169,6 +7171,12 @@ Gfx *playerRenderHud(Gfx *gdl)
 				}
 #endif
 
+#ifndef PLATFORM_N64
+				// netplay: a remote player's death built on the host is not
+				// the host's music (its solo death stops the level's tracks)
+				if (!netIsLocalSlot(g_Vars.currentplayernum)) {
+				} else
+#endif
 				if (g_Vars.mplayerisrunning == false) {
 					musicStartSoloDeath();
 				} else {

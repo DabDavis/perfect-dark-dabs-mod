@@ -986,6 +986,7 @@ s32 netRulesRead(struct netbuf *b)
 
 	s_NetRules.matchid = netBufReadU32(b);
 	netBufReadString(b, s_NetRules.name, sizeof(s_NetRules.name));
+	netTextPrintable(s_NetRules.name, 0);
 	s_NetRules.options = netBufReadU32(b);
 	s_NetRules.scenario = netBufReadU8(b);
 	s_NetRules.timelimit = netBufReadU8(b);
@@ -1059,6 +1060,7 @@ s32 netRulesRead(struct netbuf *b)
 
 	for (i = 0; i < MAX_TEAMS; i++) {
 		netBufReadString(b, s_NetRules.teamnames[i], sizeof(s_NetRules.teamnames[i]));
+		netTextPrintable(s_NetRules.teamnames[i], 0);
 	}
 
 	for (i = 0; i < 80; i++) {

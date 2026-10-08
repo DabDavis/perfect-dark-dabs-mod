@@ -1207,6 +1207,26 @@ static void netReadDir(struct netbuf *b, f32 *p)
 	p[2] = netBufReadS16(b) / 8192.f;
 }
 
+extern s32 g_NumSounds; // snd.c: the sound list's length
+
+/**
+ * A sound number from the wire that snd.c can play: sndStart indexes its
+ * tables by it unchecked (g_AudioRussMappings by its config number, the
+ * sound list by its id).
+ */
+static s32 netEvSoundOk(s16 sound)
+{
+	union soundnumhack sn;
+
+	sn.packed = sound;
+
+	if (sn.hasconfig) {
+		return sn.confignum < SND_RUSS_CAPACITY;
+	}
+
+	return sndIsMp3(sound) || sn.id < g_NumSounds;
+}
+
 // One event's payload (b holds exactly it); 0 if it does not parse
 static s32 netEvParse(struct netbuf *b, struct netevc *e)
 {
@@ -1328,6 +1348,7 @@ static s32 netEvParse(struct netbuf *b, struct netevc *e)
 		break;
 	case NETEV_HUDMSG:
 		netBufReadString(b, e->text, NETEV_MAXTEXT + 1);
+		netTextPrintable(e->text, 1);
 		e->a = netBufReadU8(b);
 
 		for (i = 0; i < 3; i++) {
@@ -1360,6 +1381,10 @@ static s32 netEvParse(struct netbuf *b, struct netevc *e)
 		break;
 	case NETEV_PICKUPSFX:
 		e->s0 = netBufReadS16(b);
+
+		if (!netEvSoundOk(e->s0)) {
+			return 0;
+		}
 		break;
 	case NETEV_NBOMB:
 		netReadPos(b, e->p0);
@@ -1482,7 +1507,9 @@ void netEventsClientOnMsg(const u8 *data, s32 len)
 
 	for (i = 0; i < count; i++) {
 		const u32 elen = netBufReadVarU32(&b);
-		const u8 *ev = netBufSkip(&b, (s32)(elen > 0x7fff ? 0x7fff : elen));
+		// one length for the skip and the event's own reader: a longer one
+		// is malformed (it had skipped 0x7fff and read elen past the packet)
+		const u8 *ev = elen <= 0x7fff ? netBufSkip(&b, (s32)elen) : NULL;
 		struct netbuf eb;
 		struct netevc *e;
 		s32 slot;

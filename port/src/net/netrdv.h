@@ -42,6 +42,7 @@ struct netaddr;
 
 void netRdvSetLobby(const struct netaddr *udp); // the lobby's rendezvous address
 s32 netRdvHasLobby(void);
+s32 netRdvAddrShared(const struct netaddr *a); // loopback, LAN or the lobby's relay: many peers by right
 s32 netRdvOpen(void);                // this machine's lobby socket (joiner, lister); 0 or -1
 struct nethost *netRdvSocket(void);
 void netRdvEnter(s32 host, const char *roomid, const char *udpid, const char *udpkey); // hex

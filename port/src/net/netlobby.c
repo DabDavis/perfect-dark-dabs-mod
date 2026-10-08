@@ -2771,6 +2771,7 @@ static void lobbyStepDown(void)
 
 	sysLogPrintf(LOG_NOTE, "lobby: room %s is %s's to host now; this machine is a member again", s_Room.sum.id, s_Room.sum.host);
 	netSessionLobbyStop();
+	netCoopCampaignEnd(); // the campaign's menus are the new host's now
 
 	if (s_Adopted) {
 		s_Adopted = 0;
@@ -2833,6 +2834,10 @@ static void lobbyMigrateTick(void)
 static void lobbyStopSession(void)
 {
 	netSessionLobbyStop();
+
+	// a campaign room's host whose room closed under it (gone, not Leave):
+	// the next room it hosts is not that campaign
+	netCoopCampaignEnd();
 
 	if (s_AdoptEndDue) {
 		s_AdoptEndDue = 0;

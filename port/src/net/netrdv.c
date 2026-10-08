@@ -1090,6 +1090,27 @@ s32 netRdvHasLobby(void)
 	return s_LobbyKnown;
 }
 
+/**
+ * An address many players can share by right: loopback, a private (LAN)
+ * one, or the lobby's own (every relayed peer comes from its relay ports).
+ * The host limits how many connections any other address holds before
+ * their CONNECT (netsession.c).
+ */
+s32 netRdvAddrShared(const struct netaddr *a)
+{
+	static const u8 v6loop[16] = { [15] = 1 };
+
+	if (addrIsV4(a) && a->ip[12] == 127) {
+		return 1;
+	}
+
+	if (memcmp(a->ip, v6loop, 16) == 0 || addrIsLan(a)) {
+		return 1;
+	}
+
+	return s_LobbyKnown && memcmp(a->ip, s_Lobby.ip, 16) == 0;
+}
+
 s32 netRdvOpen(void)
 {
 	if (s_Sock) {

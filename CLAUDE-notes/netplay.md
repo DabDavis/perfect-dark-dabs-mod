@@ -113,6 +113,11 @@
   table, each player back where it stood: RESUME) or starts a mission
   again, content a member was served hosted and served on; the boot's
   `mpInit` that had wiped every scripted room's arena and sims.
+- **Weak spots found and fixed (2026-10-08, session 16)** — the section
+  of that name: an audit of the whole netcode for what a crowd, a long
+  session, a hostile peer or an odd moment breaks; what a client's death
+  and a name from the wire did on every machine, why the host's pause is
+  not one, and the rest of that batch.
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -142,7 +147,7 @@ gate proves it after each change).
 | puppets | `netpuppets.c` | the client poses the host's world: chrs interpolated ~2 snapshots behind, objects, doors, lifts, projectiles from descriptors |
 | events | `netevents.c` | reliable tick-stamped shots, explosions, hits, deaths, hudmsgs, sounds, applied after their tick's puppets |
 | prediction | `netpredict.c` | a 256-tick ring of commands and movement state; a mismatch reloads the host's state and replays the later commands |
-| lag compensation | `netlagcomp.c` | a 64-tick pose ring per chr on the host; a remote shot is tested against the chrs as its shooter saw them |
+| lag compensation | `netlagcomp.c` | a 96-tick pose ring per chr on the host (Net.LagCompMaxMs's 1000 ms with the interpolation on top); a remote shot is tested against the chrs as its shooter saw them, every chr on its screen rebuildable |
 | scenarios | `netscen.c` | every Combat Simulator scenario: props as host entities, state in a delta-coded block in every SNAP |
 | spectators | `netspec.c` | follow and free cameras for the two spectator seats |
 | co-op | `netcoop.c` | the solo missions online (protocol 12): the mission in RULES, its state (tick mode and cutscene, objectives, timer, alarm, deaths) in the scenario block as a mission block, the host's end in MATCH_END |
@@ -1914,3 +1919,84 @@ the host's going is lost (the block is the host's last word); the swirl
 at the resumed match's start plays as at any start; a campaign mission
 restarted on GoldenEye's 007 difficulty keeps the room's difficulty, not
 the old host's sliders; the gate has no GoldenEye campaign case.
+
+## Weak spots found and fixed (2026-10-08, session 16)
+
+The user: "we have polished it up pretty well, look for weak spots", then
+"fix all of them, gates at the end". Five read-only reviews (the wire, the
+content and the lobby, sync and limits, the session's edges, per-player
+state in the game's code); this section has the host-side fixes made in
+place, and the others (content, snapshots, GoldenEye co-op, the lobby) are
+in their own sections' notes.
+
+- **Checked, not a bug: the host's pause.** The audit read
+  `playerTickPauseMenu`'s `lvSetPaused(true)` (player.c) and F3's
+  (`tracereport.c`) as freezing a co-op room for everyone. Every way into
+  them (`playerPause` from bondmove.c, bondeyespy.c, player.c's eyespy;
+  tracereport.c's solo root) is behind `!g_Vars.mplayerisrunning`, and
+  `mpReset` sets `mplayerisrunning` for co-op too (only
+  `normmplayerisrunning` is off), so online START, a dead watcher's START
+  and F3 all open the multiplayer pause (`mpPushPauseDialog`, the 2P
+  mission pause in co-op), which never stops the level. Probed on a
+  Defection co-op host: its pause up from tick 1000, `lvIsPaused()` 0 and
+  the level's frame 1225 then 1357 two seconds later.
+- **The host heard every client's death.** The host builds each player's
+  view; `playerRenderHud`'s death branch started the death music
+  (`musicStartMpDeath`, `musicStartSoloDeath` in co-op, which also stops
+  the level's tracks) for whoever's view it was. Only a local slot's now
+  (`netIsLocalSlot`: offline every player, splitscreen as before).
+- **Text from the wire is drawn by a font that trusts it.** The font takes
+  0x21-0x7e from a 94-entry table by `c - 0x21` and a high byte as half of
+  a two-byte (Japanese) character it steps over whole. A name with DEL
+  (0x7f) read `chars[94]` and its unrelocated pixel pointer on the host
+  and, through ROSTER, on every client; a control byte from a modified host
+  read the kerning; a lone high byte last stepped over the string's end.
+  CONNECT's name had only bytes under 0x20 replaced. `netTextPrintable()`
+  (netsession.c) now cleans every wire string the game draws: names (in
+  `netNameSet`, so RULES' humans and sims too, and CONNECT's, ROSTER's),
+  the match and team names in RULES, a refusal's text and component, the
+  not-installed text from a stage key, a HUDMSG. Chat and the host's title
+  already went through `netChatClean`.
+- **EVENTS read past its packet.** An event's length over 0x7fff skipped
+  0x7fff bytes and gave the event's reader the whole length; now such a
+  length is malformed. PICKUPSFX's sound number went to `sndStart`, which
+  indexes `g_AudioRussMappings` by a config number up to 0x7fff (0x400
+  entries): `netEvSoundOk` refuses one past the tables.
+- **Connections that never say CONNECT.** ENet takes up to 4095
+  connections from one address, and the host waited 10 s for each one's
+  CONNECT: one machine could hold every seat's connection open and keep
+  everyone out. A client sends CONNECT the moment ENet connects, so the
+  wait is 5 s (`NET_PRECONNECT_MS`), and an address may hold 3 such
+  connections at once (`NET_PRECONNECT_PERADDR`), not counting loopback,
+  LAN addresses and the lobby's (relayed peers all come from the relay:
+  `netRdvAddrShared`). The fourth is refused STARTED, which a lobby room's
+  joiner tries again on, so a household joining at one launch is only
+  delayed.
+- **Lag compensation's limits.** `Net.LagCompMaxMs` allows 1000 ms, but the
+  pose ring held 64 ticks, and a rewind of 60 + the interpolation found no
+  pose and tested the chr where it is now; the ring is 96. A remote pass's
+  autoaim rebuilt at most 32 chrs on its screen (a fixed table), the
+  farther ones of a crowd tested unrewound; the table is now one per chr
+  slot, allocated with the history.
+- **A kicked seat was held.** `netHostKick` held the seat 30 s as for a
+  drop; only a load too slow (`NETREFUSE_TIMEOUT`) is held now: a player
+  taken off the roster or refused for its stage never comes back on it.
+- **A client on the end screen sat the next match out.** A client still on
+  its end screen when the host's next match starts is AWAY and left out
+  (its STAGE_LOAD would be lost); its LOBBY then only made it JOINED, so it
+  waited in the menus through the whole match with its seat open.
+  `netHostAwayJoins` seats it in the running match as a join in progress.
+- **A campaign outlived its room.** `netCoopCampaignEnd` ran only on the
+  player's own Leave: a room that closed under its host, or a host that
+  stepped down, kept the campaign on, and the next room it hosted took
+  every mission as the campaign's and never reopened. `lobbyStopSession`
+  and `lobbyStepDown` end it.
+- **A guest's mod after Leave.** A guest that left the room between matches
+  (`netSessionLobbyStop`, its session ending no other way) kept the host's
+  mod until a restart; it switches back (`netContentRestore`).
+- **Left as it is: a client's body facing (NETCMD_BODY).** The host poses a
+  client's body by the facing it sends whenever it sends one; the audit
+  noted a client could turn its body from its aim. The Camera Tether is
+  the player's own setting (the user's "all own"), so checking it would
+  only stop a client claiming a tether it can turn on, and the facing
+  turns the body about its place without moving where it can be hit.

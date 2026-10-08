@@ -50,6 +50,7 @@ extern s32 g_NumReasonsToEndMpMatch;
 #include "net/nettransport.h"
 #include "net/netlobby.h"
 #include "netint.h"
+#include "netrdv.h"
 
 /**
  * The session (PLANS/netplay/spec-stage.md; every message in netproto.h):
@@ -611,11 +612,14 @@ static void netHostKick(s32 peer, s32 code, const char *component, const char *t
 	netHostDisconnectLater(g_NetHostSocket, peer, (u32)code);
 
 	// kicked mid-match: its player is left on a neutral pad, as on a leave
-	// (the DISCONNECT that follows finds it REFUSED and does nothing)
+	// (the DISCONNECT that follows finds it REFUSED and does nothing). Its
+	// seat is held only for a load too slow, which may come back; one taken
+	// off the room's roster or refused for its stage cannot, and its seat
+	// held 30 s out of play for nobody
 	if (c->state >= NETCL_LOADING && c->state <= NETCL_PLAYING) {
 		netPlayersHostSlotGone(c->slot);
 		s_PeerGoneKicked = 1;
-		netHostPeerGone(peer, 1);
+		netHostPeerGone(peer, code == NETREFUSE_TIMEOUT);
 		s_PeerGoneKicked = 0;
 	}
 
@@ -813,11 +817,7 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 		return;
 	}
 
-	for (i = 0; c->name[i]; i++) {
-		if ((u8)c->name[i] < 0x20) {
-			c->name[i] = '?';
-		}
-	}
+	netTextPrintable(c->name, 0);
 
 	if (strcmp(build, VERSION_HASH) != 0) {
 		snprintf(text, sizeof(text), "The host's build is %s and yours is %s - both need the same build.", VERSION_HASH, build);
@@ -2753,6 +2753,7 @@ static s32 netClientBeginStage(struct netbuf *b)
 
 	if (id < 0 || !mainStageCanLoad(id)) {
 		if (nostage[0]) {
+			netTextPrintable(nostage, 1);
 			snprintf(text, sizeof(text), "%s", nostage);
 		} else {
 			snprintf(text, sizeof(text), "The host chose %s, which is not installed here.", what);
@@ -2869,11 +2870,7 @@ static void netClientOnRoster(struct netbuf *b)
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		s32 k;
 
-		for (k = 0; names[i][k]; k++) {
-			if ((u8)names[i][k] < 0x20 && names[i][k] != '\n') {
-				names[i][k] = '?';
-			}
-		}
+		netTextPrintable(names[i], 1);
 
 		if (st[i] != NETSEAT_NONE) {
 			netNameSet(g_PlayerConfigsArray[i].base.name, sizeof(g_PlayerConfigsArray[i].base.name), names[i]);
@@ -3087,6 +3084,85 @@ void netClientApplyMatchEnd(void)
 	netScenClientApplyFinal();
 }
 
+// A connection's CONNECT: a client sends it the moment ENet connects
+// (netClientSendConnect), so one that has not come in this long is not a
+// game's; and at most this many such connections from one address that
+// players do not share by right (netRdvAddrShared: loopback, LAN, the
+// lobby's relay)
+#define NET_PRECONNECT_MS      5000
+#define NET_PRECONNECT_PERADDR 3
+
+static s32 netHostConnectingCrowd(s32 peer)
+{
+	struct netaddr mine;
+	struct netaddr other;
+	s32 count = 0;
+	s32 i;
+
+	if (netHostPeerAddr(g_NetHostSocket, peer, &mine) != 0 || netRdvAddrShared(&mine)) {
+		return 0;
+	}
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (i != peer && s_Clients[i].state == NETCL_CONNECTING
+				&& netHostPeerAddr(g_NetHostSocket, i, &other) == 0
+				&& memcmp(mine.ip, other.ip, sizeof(mine.ip)) == 0) {
+			count++;
+		}
+	}
+
+	return count >= NET_PRECONNECT_PERADDR;
+}
+
+/**
+ * A client back from the last match's end screen (its LOBBY) while the next
+ * match already runs: it sat out the start (netHostMatchStarting leaves an
+ * AWAY client out, its STAGE_LOAD would be lost), so it joins now as a join
+ * in progress does, else it would wait in the menus through the whole match
+ * with its seat open
+ */
+static void netHostAwayJoins(s32 peer)
+{
+	struct netclient *c = &s_Clients[peer];
+	s32 oldpeer = -1;
+	s32 slot;
+
+	if (!s_MatchActive || !s_MatchLoaded || s_BarrierHeld || s_HostEnded || g_StageNum != s_MatchStage) {
+		return; // the next match's STAGE_LOAD takes it
+	}
+
+	slot = c->spectator ? netHostFreeView(peer) : netSeatFor(peer, c->name, c->ticketed, &c->resumed, &oldpeer);
+
+	if (slot < 0 || oldpeer >= 0) {
+		sysLogPrintf(LOG_NOTE, "net: slot %d (\"%s\") waits for the next match (no seat in this one)", c->slot, c->name);
+		return;
+	}
+
+	c->slot = slot;
+
+	if (!c->spectator) {
+		struct netseat *seat = &s_Seats[slot];
+
+		seat->state = NETSEAT_TAKEN;
+		seat->peer = peer;
+		seat->until = 0;
+		seat->ticketed = c->ticketed;
+		snprintf(seat->account, sizeof(seat->account), "%s", c->name);
+		netNameSet(g_PlayerConfigsArray[slot].base.name, sizeof(g_PlayerConfigsArray[slot].base.name), c->name);
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: %s %d: \"%s\" joins the match in progress from the lobby",
+			c->spectator ? "spectator view" : "slot", slot, c->name);
+
+	netHostSendStage(peer);
+	c->late = 1;
+	c->state = NETCL_LOADING;
+	c->gotloaded = 0;
+	c->nloaded = 0;
+	c->lobbymatch = 0;
+	c->since = netNowMs();
+}
+
 /*
  * Events
  */
@@ -3109,6 +3185,14 @@ static void netHostEvent(const struct netevent *ev)
 		c->state = NETCL_CONNECTING;
 		c->slot = -1;
 		c->since = netNowMs();
+
+		if (netHostConnectingCrowd(ev->peer)) {
+			// one address holding the seats' connections open without a
+			// CONNECT would keep everyone else out. STARTED, which a lobby
+			// room's joiner tries again on (netlobby.c): a household joining
+			// at one launch gets in a moment later
+			netHostKick(ev->peer, NETREFUSE_STARTED, "", "Too many joins from your address at once; try again in a moment.");
+		}
 		break;
 	case NETEVENT_DISCONNECT:
 		if (c->state >= NETCL_JOINED && c->state != NETCL_REFUSED) {
@@ -3194,6 +3278,7 @@ static void netHostEvent(const struct netevent *ev)
 			} else if (c->state == NETCL_AWAY) {
 				c->state = NETCL_JOINED;
 				sysLogPrintf(LOG_NOTE, "net: slot %d (\"%s\") is back in the lobby", c->slot, c->name);
+				netHostAwayJoins(ev->peer);
 			} else if (c->state >= NETCL_LOADING && c->state <= NETCL_PLAYING && matchid == s_MatchIdCur) {
 				// back before the host: JOINED at the host's own H12
 				c->lobbymatch = matchid;
@@ -3323,6 +3408,8 @@ static void netClientEvent(const struct netevent *ev)
 			}
 
 			netBufReadString(&b, text, sizeof(text));
+			netTextPrintable(comp, 0);
+			netTextPrintable(text, 1);
 			sysLogPrintf(LOG_NOTE, "net: the host %s [%s%s%s]: %s", type == NETMSG_REFUSE ? "refused" : "is leaving",
 					netRefuseName(code), comp[0] ? " " : "", comp, text);
 
@@ -3812,7 +3899,7 @@ void netSessionTick(void)
 
 	if (s_Role == NETROLE_HOST && g_NetHostSocket) {
 		for (i = 0; i < NET_MAXPEERS; i++) {
-			if (s_Clients[i].state == NETCL_CONNECTING && netNowMs() - s_Clients[i].since > NET_CONNECT_TIMEOUT_MS) {
+			if (s_Clients[i].state == NETCL_CONNECTING && netNowMs() - s_Clients[i].since > NET_PRECONNECT_MS) {
 				netHostKick(i, NETREFUSE_BADMSG, "", "No CONNECT came.");
 			}
 		}
@@ -4600,6 +4687,13 @@ void netSessionLobbyStop(void)
 	}
 
 	netHostOwnNameBack();
+
+	// a member leaving the room between matches (its session ended no other
+	// way): the mod it switched to for the host goes, its own comes back
+	if (s_Role == NETROLE_CLIENT) {
+		netContentRestore();
+	}
+
 	memset(s_Clients, 0, sizeof(s_Clients));
 	s_Role = NETROLE_NONE;
 	s_LobbyRoomOn = 0;
@@ -4663,6 +4757,11 @@ void netNameSet(char *dst, s32 size, const char *src)
 		n++;
 	}
 
+	dst[n] = '\0';
+
+	// a name from the wire is drawn by the font (netTextPrintable)
+	netTextPrintable(dst, 0);
+
 	// an empty name stays empty, as an unnamed one is offline
 	if (n > 0) {
 		dst[n++] = '\n';
@@ -4674,6 +4773,34 @@ void netNameSet(char *dst, s32 size, const char *src)
 s32 netNameLen(const char *name)
 {
 	return (s32)strcspn(name, "\n");
+}
+
+/**
+ * Text from the wire that the game will draw (a name, a refusal, a team, a
+ * HUD message): a byte the font cannot take becomes '?'. The font indexes
+ * its table by c - 0x21 for anything under 0x80, so a control byte or DEL
+ * lands outside it (game_1531a0.c); a high byte is the first of a wide
+ * (Japanese) character's two and the font steps over both, so one left
+ * last would step over the string's end. Newlines stay when keepnewline
+ * (menu text breaks lines on them).
+ */
+void netTextPrintable(char *text, s32 keepnewline)
+{
+	s32 i;
+
+	for (i = 0; text[i]; i++) {
+		const u8 c = (u8)text[i];
+
+		if (c >= 0x80) {
+			if (text[i + 1] == '\0' || text[i + 1] == '\n') {
+				text[i] = '?';
+			} else {
+				i++;
+			}
+		} else if ((c < 0x20 && !(keepnewline && c == '\n')) || c == 0x7f) {
+			text[i] = '?';
+		}
+	}
 }
 
 const char *netSessionWireName(s32 slot)
