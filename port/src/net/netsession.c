@@ -996,7 +996,7 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 	}
 
 	// the join is accepted: only now is the ticket spent
-	if ((s_RequireTicket || s_LobbyRoomOn) && netTicketUse(nonce, nonceexpiry, netSessionLobbyNow()) != 0) {
+	if ((s_RequireTicket || s_LobbyRoomOn) && netTicketUse(nonce, c->name, nonceexpiry, netSessionLobbyNow()) != 0) {
 		netHostKick(peer, NETREFUSE_TICKET, "ticket", "This room needs a join ticket from the lobby: the ticket was used already.");
 		return;
 	}

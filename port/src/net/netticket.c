@@ -19,12 +19,23 @@
  * another reason keeps its ticket. Check 5, the user in the
  * room's current roster, needs the host's lobby state poll, which is phase 6;
  * until then a direct-IP host runs with Net.RequireTicket 0 and never asks.
+ *
+ * Each accepted nonce holds a slot until its ticket expires (30 s), and the
+ * lobby hands a member a fresh ticket per call: one member reconnecting
+ * over and over once filled the table, and every other join was turned away
+ * as "too many joins at once". So one user holds at most
+ * NET_NONCES_PER_USER live nonces (accepted joins in a ticket's life); past
+ * that its own next join waits for its oldest to expire, and nobody else's
+ * does. A full room's users at that cap still leave the table room to
+ * spare. Nothing live is ever evicted, so a replay stays refused.
  */
 
 #define NET_NONCES 64
+#define NET_NONCES_PER_USER 4
 
 static struct {
 	char nonce[33];
+	char user[16]; // lower case
 	u64 expiry;
 } s_NetNonces[NET_NONCES];
 
@@ -54,14 +65,34 @@ static void netTicketWhy(char *why, s32 whysize, const char *text)
 	}
 }
 
+static void netTicketLower(char *out, s32 size, const char *user, s32 len)
+{
+	s32 i;
+
+	if (len > size - 1) {
+		len = size - 1;
+	}
+
+	for (i = 0; i < len; i++) {
+		out[i] = user[i] >= 'A' && user[i] <= 'Z' ? user[i] - 'A' + 'a' : user[i];
+	}
+
+	out[len] = '\0';
+}
+
 /**
  * Where a nonce would go: a free slot's index, -1 if it is live already
- * (a replay), -2 if every slot holds a live one. Expired ones are freed.
+ * (a replay), -2 if every slot holds a live one, -3 if the user holds
+ * NET_NONCES_PER_USER live ones already. Expired ones are freed.
  */
-static s32 netTicketNonceSlot(const char *nonce, u64 lobbynow)
+static s32 netTicketNonceSlot(const char *nonce, const char *user, s32 userlen, u64 lobbynow)
 {
+	char lower[16];
 	s32 freeslot = -1;
+	s32 mine = 0;
 	s32 i;
+
+	netTicketLower(lower, sizeof(lower), user, userlen);
 
 	for (i = 0; i < NET_NONCES; i++) {
 		if (s_NetNonces[i].expiry <= lobbynow) {
@@ -72,7 +103,13 @@ static s32 netTicketNonceSlot(const char *nonce, u64 lobbynow)
 			}
 		} else if (memcmp(s_NetNonces[i].nonce, nonce, 32) == 0) {
 			return -1;
+		} else if (strcmp(s_NetNonces[i].user, lower) == 0) {
+			mine++;
 		}
+	}
+
+	if (mine >= NET_NONCES_PER_USER) {
+		return -3;
 	}
 
 	// never a live nonce evicted: that ticket could be used again
@@ -83,9 +120,9 @@ static s32 netTicketNonceSlot(const char *nonce, u64 lobbynow)
  * The join was accepted: its nonce is spent until the ticket expires.
  * 0, or -1 if it cannot be recorded (then the join must be refused).
  */
-s32 netTicketUse(const char *nonce, u64 expiry, u64 lobbynow)
+s32 netTicketUse(const char *nonce, const char *user, u64 expiry, u64 lobbynow)
 {
-	s32 slot = netTicketNonceSlot(nonce, lobbynow);
+	s32 slot = netTicketNonceSlot(nonce, user, strlen(user), lobbynow);
 
 	if (slot < 0) {
 		return -1;
@@ -93,6 +130,7 @@ s32 netTicketUse(const char *nonce, u64 expiry, u64 lobbynow)
 
 	memcpy(s_NetNonces[slot].nonce, nonce, 32);
 	s_NetNonces[slot].nonce[32] = '\0';
+	netTicketLower(s_NetNonces[slot].user, sizeof(s_NetNonces[slot].user), user, strlen(user));
 	s_NetNonces[slot].expiry = expiry;
 
 	return 0;
@@ -210,12 +248,15 @@ s32 netTicketVerify(const char *ticket, s32 len, const u8 *secret32, const char 
 
 	// 6. never the same nonce twice while it could still be used; recorded
 	// only once the join is accepted (netTicketUse)
-	switch (netTicketNonceSlot(field[3], lobbynow)) {
+	switch (netTicketNonceSlot(field[3], field[0], flen[0], lobbynow)) {
 	case -1:
 		netTicketWhy(why, whysize, "the ticket was used already");
 		return -1;
 	case -2:
 		netTicketWhy(why, whysize, "too many joins at once; try again in a minute");
+		return -1;
+	case -3:
+		netTicketWhy(why, whysize, "too many joins from this player just now; try again in half a minute");
 		return -1;
 	}
 
@@ -266,7 +307,7 @@ s32 netTicketSelfTest(void)
 
 	// not spent until the join is accepted
 	if (netTicketVerify(ticket, strlen(ticket), key, "0a1b2c3d", 1999999999, NULL, 0, NULL, NULL, why, sizeof(why)) != 0
-			|| netTicketUse(nonce, expiry, 1999999999) != 0) {
+			|| netTicketUse(nonce, "joiner", expiry, 1999999999) != 0) {
 		return 6;
 	}
 
@@ -288,6 +329,33 @@ s32 netTicketSelfTest(void)
 
 	if (netTicketVerify(ticket, strlen(ticket), key, "0a1b2c3d", 1, NULL, 0, NULL, NULL, why, sizeof(why)) == 0) {
 		return 5;
+	}
+
+	memset(s_NetNonces, 0, sizeof(s_NetNonces));
+
+	// one user's joins: NET_NONCES_PER_USER accepted in a ticket's life, then
+	// that user (any case) waits while another still gets in; a slot frees
+	// as its ticket expires
+	for (i = 0; i < NET_NONCES_PER_USER; i++) {
+		snprintf(nonce, sizeof(nonce), "%032x", i);
+
+		if (netTicketUse(nonce, i & 1 ? "Joiner" : "joiner", 2000000000ULL + i, 1999999999) != 0) {
+			return 7;
+		}
+	}
+
+	if (netTicketUse("ffffffffffffffffffffffffffffffff", "JOINER", 2000000010ULL, 1999999999) == 0
+			|| netTicketUse("fffffffffffffffffffffffffffffffe", "other", 2000000010ULL, 1999999999) != 0) {
+		return 8;
+	}
+
+	if (netTicketUse("ffffffffffffffffffffffffffffffff", "joiner", 2000000010ULL, 2000000000) != 0) {
+		return 9;
+	}
+
+	// a replay is still a replay, whoever it names
+	if (netTicketUse("fffffffffffffffffffffffffffffffe", "joiner", 2000000010ULL, 2000000000) == 0) {
+		return 10;
 	}
 
 	memset(s_NetNonces, 0, sizeof(s_NetNonces));

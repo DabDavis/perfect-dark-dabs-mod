@@ -62,6 +62,7 @@ s32 netRdvLobbyRtt(void);   // ms to the lobby (ECHO), -1 unknown
 s32 netRdvRegistered(void);
 s32 netRdvNoNat(void);
 void netRdvHostChanged(void);
+void netRdvRetrySoon(void);     // the room is starting: a failed ladder climbs again now
 const char *netRdvPathName(s32 path); // "lan", "direct", "punch", "relay", "none"
 
 #endif

@@ -994,6 +994,84 @@ class RelayCapTests(RelayTests):
         js.close()
 
 
+class RelayHoardTests(RelayTests):
+    """A relay is held only by traffic through it, opened only when both ends
+    bind, and capped per address and for open rooms."""
+    over = dict(udp_rate=1000.0, udp_burst=1000.0, probe_interval=1000.0, relay_idle=0.6,
+                relay_bind_deadline=0.6, relay_per_ip=1, relay_open_max=1)
+
+    def test_relay_forwards_between_the_bound_pair(self):
+        pass
+
+    def test_new_address_needs_its_proof(self):
+        pass
+
+    def test_unbound_relay_closes(self):
+        host, a, hs, js, to = self.setup_pair()
+        rid, port = self.offer(host, a, hs, js, to)
+        # the joiner binds and keeps asking; the host never binds
+        rel = ("127.0.0.1", port)
+        js.sendto(relay_bind(a, rid), rel)
+        recv_kind(js, L.UDP_RELAY_BOUND)
+        for _ in range(8):
+            js.sendto(relay_request(a), to)
+            time.sleep(0.1)
+        # that relay closed (asking again opens a new one, one at a time)
+        self.assertNotIn(rid, self.srv.call(lambda: list(self.srv.lobby.relays)))
+        self.assertLessEqual(self.srv.call(lambda: len(self.srv.lobby.relays)), 1)
+        hs.close()
+        js.close()
+
+    def test_asking_again_does_not_keep_it(self):
+        host, a, hs, js, to = self.setup_pair()
+        rid, port = self.offer(host, a, hs, js, to)
+        rel = self.bind_both(host, a, hs, js, rid, port)
+        for _ in range(10):
+            js.sendto(relay_request(a), to)
+            js.sendto(relay_bind(a, rid), rel)
+            time.sleep(0.1)
+        self.assertNotIn(rid, self.srv.call(lambda: list(self.srv.lobby.relays)))
+        hs.close()
+        js.close()
+
+    def test_traffic_keeps_it(self):
+        host, a, hs, js, to = self.setup_pair()
+        rid, port = self.offer(host, a, hs, js, to)
+        rel = self.bind_both(host, a, hs, js, rid, port)
+        for _ in range(10):
+            js.sendto(L.udp_header(0x20) + b"x" * 17, rel)
+            hs.recvfrom(2048)
+            time.sleep(0.1)
+        self.assertEqual(self.srv.call(lambda: len(self.srv.lobby.relays)), 1)
+        hs.close()
+        js.close()
+
+    def test_caps_per_address_and_open_rooms(self):
+        host, a, hs, js, to = self.setup_pair()
+        self.offer(host, a, hs, js, to)
+        # a second joiner from the same address (127.0.0.1): relay_per_ip 1
+        b = self.client("bravo")
+        self.assertEqual(b.join(host.room)[0], 200)
+        bs = udp_sock()
+        bs.sendto(b.register(), to)
+        recv_kind(bs, L.UDP_REGISTERED, tries=10)
+        bs.sendto(relay_request(b), to)
+        self.assertEqual(recv_kind(bs, L.UDP_ERROR, tries=10)[6], L.UDP_ERR_RELAY)
+        # with the per-address cap lifted, the open rooms' share (1) is full
+        self.srv.call(lambda: setattr(self.srv.cfg, "relay_per_ip", 8))
+        bs.sendto(relay_request(b), to)
+        self.assertEqual(recv_kind(bs, L.UDP_ERROR, tries=10)[6], L.UDP_ERR_RELAY)
+        # a room that is starting gets one from the rest
+        a.act("ready")
+        b.act("ready")
+        self.assertEqual(host.act("launch")[0], 200)
+        bs.sendto(relay_request(b), to)
+        recv_kind(bs, L.UDP_RELAY_OFFER, tries=10)
+        self.assertEqual(self.srv.call(lambda: len(self.srv.lobby.relays)), 2)
+        for s in (hs, js, bs):
+            s.close()
+
+
 class NetinfoTests(Base):
     def test_netinfo_in_the_roster(self):
         host, (a,) = self.room_with("alpha")
@@ -1067,10 +1145,18 @@ class MigrationTests(Base):
         host.act("leave")
         # not a spectator, not one that cannot; punched before relayed; then the ping
         self.assertEqual(self.roster(c)["room"]["host"], "charlie")
-        # no NAT beats everything
+        # no NAT beats everything - once the rendezvous has the member
+        # registered: the claim alone is not counted
         b.act("netinfo", {"nat": "open"})
+        pick = lambda: self.srv.call(lambda: self.srv.lobby.pick_host(self.srv.lobby.rooms[b.room]).user)
+        self.assertEqual(pick(), "alpha")
+        bs = udp_sock()
+        bs.sendto(b.register(), ("127.0.0.1", self.srv.udp_port))
+        recv_kind(bs, L.UDP_REGISTERED)
+        self.assertEqual(pick(), "bravo")
         c.act("leave")
         self.assertEqual(self.roster(b)["room"]["host"], "bravo")
+        bs.close()
         self.assertEqual(b.act("netinfo", {"nat": "carrier"})[0], 400)
         self.assertEqual(b.act("netinfo", {"can_host": "yes"})[0], 400)
 
@@ -1202,6 +1288,67 @@ class MigrationTests(Base):
             s.close()
 
 
+class MigrationRankTests(Base):
+    """pick_host ranks on what the lobby saw itself before a member's word."""
+    over = dict(udp_rate=1000.0, udp_burst=1000.0, probe_interval=0.1)
+
+    def pick(self, c):
+        return self.srv.call(lambda: self.srv.lobby.pick_host(self.srv.lobby.rooms[c.room]).user)
+
+    def test_lobby_round_trip_beats_a_reported_ping(self):
+        host, (a, b) = self.room_with("alpha", "bravo")
+        to = ("127.0.0.1", self.srv.udp_port)
+        # alpha says 1 ms and never answers a PROBE (an older game, or one
+        # that would rather not be timed); bravo says 300 ms and answers
+        a.act("netinfo", {"path": "punch", "ping": 1, "can_host": True})
+        b.act("netinfo", {"path": "punch", "ping": 300, "can_host": True})
+        self.assertEqual(self.pick(a), "alpha")
+        js, bs = udp_sock(), udp_sock()
+        js.sendto(a.register(), to)
+        recv_kind(js, L.UDP_REGISTERED)
+        bs.sendto(b.register(), to)
+        recv_kind(bs, L.UDP_REGISTERED)
+        d = recv_kind(bs, L.UDP_PROBE, tries=10)
+        bs.sendto(L.udp_header(L.UDP_PROBE_REPLY) + d[6:18], to)
+        for _ in range(40):
+            if self.srv.call(lambda: self.srv.lobby.rooms[a.room].members[b.token].rtt) is not None:
+                break
+            time.sleep(0.05)
+        self.assertEqual(self.pick(a), "bravo")
+        # a reply from another socket, or with another nonce, times nothing
+        self.assertIsNone(self.srv.call(lambda: self.srv.lobby.rooms[a.room].members[a.token].rtt))
+        d = recv_kind(js, L.UDP_PROBE, tries=10)
+        bs.sendto(L.udp_header(L.UDP_PROBE_REPLY) + d[6:18], to)
+        js.sendto(L.udp_header(L.UDP_PROBE_REPLY) + d[6:10] + b"\0" * 8, to)
+        time.sleep(0.2)
+        self.assertIsNone(self.srv.call(lambda: self.srv.lobby.rooms[a.room].members[a.token].rtt))
+        js.close()
+        bs.close()
+
+    def test_a_relayed_member_is_relayed_whatever_it_says(self):
+        host, (a, b) = self.room_with("alpha", "bravo")
+        a.act("netinfo", {"path": "lan", "ping": 1, "can_host": True})
+        b.act("netinfo", {"path": "punch", "ping": 80, "can_host": True})
+        self.assertEqual(self.pick(a), "alpha")
+        to = ("127.0.0.1", self.srv.udp_port)
+        hs, js = udp_sock(), udp_sock()
+        hs.sendto(host.register(), to)
+        recv_kind(hs, L.UDP_REGISTERED)
+        js.sendto(a.register(), to)
+        recv_kind(js, L.UDP_REGISTERED)
+        js.sendto(relay_request(a), to)
+        _room, rid, port, _n = parse_offer(recv_kind(js, L.UDP_RELAY_OFFER, tries=10))
+        rel = ("127.0.0.1", port)
+        for c, s in ((host, hs), (a, js)):
+            s.sendto(relay_bind(c, rid), rel)
+            proof = parse_bound(recv_kind(s, L.UDP_RELAY_BOUND, tries=10))[2]
+            s.sendto(relay_bind(c, rid, proof), rel)
+            recv_kind(s, L.UDP_RELAY_BOUND, tries=10)
+        self.assertEqual(self.pick(a), "bravo")
+        hs.close()
+        js.close()
+
+
 class MigrationReapTests(Base):
     over = dict(host_timeout=0.8, member_timeout=30.0, hostlost_grace=0.3, hostlost_keep=5.0)
 
@@ -1226,13 +1373,62 @@ class MigrationReapTests(Base):
         b.act("hostlost")
         self.assertEqual(self.roster_host(a), "hostess")
         time.sleep(0.5)
-        # its heartbeat a beat late: one report of four players is not enough...
+        # its heartbeat late: one report of four players is not enough, nor
+        # is half of them...
         b.act("hostlost")
         self.assertEqual(self.roster_host(a), "hostess")
-        # ... two are
         c.act("hostlost")
+        self.assertEqual(self.roster_host(a), "hostess")
+        # ... more than half is
+        d.act("hostlost")
         self.assertEqual(self.roster_host(a), "alpha")
         self.assertEqual(a.act("hostlost")[0], 400)
+
+    def test_lone_member_cannot_move_the_room(self):
+        # a room of two: the member's report never carries; the host's own
+        # silence (host_timeout) still hands the room on
+        self.srv.call(lambda: setattr(self.srv.cfg, "host_timeout", 2.0))
+        host, (a,) = self.room_with("alpha")
+        a.act("netinfo", {"can_host": True})
+        time.sleep(0.5)
+        a.act("hostlost")
+        time.sleep(0.6)
+        a.act("hostlost")
+        self.assertEqual(self.roster_host(a), "hostess")
+        time.sleep(1.4)
+        self.assertEqual(self.roster_host(a), "alpha")
+
+    def test_two_of_three_with_a_silent_host(self):
+        # host crash in a room of three: both members' reports move it at
+        # hostlost_grace, well before host_timeout
+        self.srv.call(lambda: setattr(self.srv.cfg, "host_timeout", 30.0))
+        host, (a, b) = self.room_with("alpha", "bravo")
+        a.act("netinfo", {"can_host": True})
+        time.sleep(0.4)
+        a.act("hostlost")
+        self.assertEqual(self.roster_host(a), "hostess")
+        b.act("hostlost")
+        self.assertEqual(self.roster_host(a), "alpha")
+
+    def test_rendezvous_traffic_keeps_the_host(self):
+        # the host's HTTP is late but its game socket answers the lobby: the
+        # lobby heard from it, so reports do not move the room
+        self.srv.call(lambda: setattr(self.srv.cfg, "host_timeout", 30.0))
+        host, (a, b) = self.room_with("alpha", "bravo")
+        a.act("netinfo", {"can_host": True})
+        hs = udp_sock()
+        to = ("127.0.0.1", self.srv.udp_port)
+        for _ in range(4):
+            hs.sendto(host.register(), to)
+            recv_kind(hs, L.UDP_REGISTERED)
+            time.sleep(0.15)
+        a.act("hostlost")
+        b.act("hostlost")
+        self.assertEqual(self.roster_host(a), "hostess")
+        time.sleep(0.5)
+        a.act("hostlost")
+        self.assertEqual(self.roster_host(a), "alpha")
+        hs.close()
 
     def roster_host(self, c):
         st, s = c.state()
@@ -1344,6 +1540,60 @@ class CreateRateTests(Base):
 
 
 # ------------------------------------------------------------------ review fixes
+
+class AddressKeyTests(Base):
+    """Per-address limits count an IPv6 /64 as one address."""
+    over = dict(max_rooms_per_ip=2, sessions_per_ip=3)
+
+    def test_key(self):
+        self.assertEqual(L.addr_key("10.1.2.3"), "10.1.2.3")
+        self.assertEqual(L.addr_key("2001:db8:1:2:aaaa::1"), "2001:db8:1:2::/64")
+        self.assertEqual(L.addr_key("2001:db8:1:2:ffff:1:2:3"), "2001:db8:1:2::/64")
+        self.assertNotEqual(L.addr_key("2001:db8:1:3::1"), "2001:db8:1:2::/64")
+        self.assertEqual(L.addr_key("::ffff:10.1.2.3"), "10.1.2.3")
+        self.assertEqual(L.addr_key("junk"), "junk")
+
+    def test_rooms_per_v6_network(self):
+        codes = []
+        for i, name in enumerate(("alpha", "bravo", "charlie")):
+            c = Client(self.srv.port, ip="2001:db8:5:6::%x" % (i + 1))
+            self.assertEqual(c.login(name)[0], 200)
+            codes.append(c.create()[0])
+        self.assertEqual(codes, [200, 200, 429])
+        c = Client(self.srv.port, ip="2001:db8:5:7::1")
+        c.login("delta")
+        self.assertEqual(c.create()[0], 200)
+
+    def test_login_window_per_v6_network(self):
+        codes = [Client(self.srv.port, ip="2001:db8:9:9::%x" % (i + 1)).login("alpha")[0] for i in range(12)]
+        self.assertEqual(codes[:10], [200] * 10)
+        self.assertEqual(codes[10:], [429, 429])
+
+    def test_sessions_per_address(self):
+        cs = []
+        for name in ("alpha", "bravo", "charlie", "delta"):
+            c = Client(self.srv.port, ip="10.6.6.6")
+            self.assertEqual(c.login(name)[0], 200)
+            cs.append(c)
+        # the oldest from that address went; the others and other addresses stay
+        self.assertEqual(cs[0].req("POST", "/rooms", {})[0], 401)
+        self.assertEqual(cs[3].create()[0], 200)
+        self.assertEqual(self.srv.call(lambda: len(self.srv.lobby.sessions)), 3)
+
+    def test_one_room_per_account_and_its_create_window(self):
+        # one account is in one room at a time, so it lists one room at a
+        # time; making rooms over and over from new addresses meets the
+        # account's own window
+        codes = []
+        for i in range(8):
+            c = Client(self.srv.port, ip="10.8.%d.1" % i)
+            c.login("alpha")
+            codes.append(c.create()[0])
+        self.assertEqual(codes[:6], [200] * 6)
+        self.assertEqual(codes[6:], [429, 429])
+        rooms = Client(self.srv.port).req("GET", "/rooms")[1]["rooms"]
+        self.assertEqual([r["host"] for r in rooms], ["alpha"])
+
 
 class SecurityTests(Base):
     """The holes a review found, each pinned so it stays shut."""

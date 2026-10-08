@@ -207,19 +207,34 @@ that is how it hears the room close.
 A room outlives its host (the game's side: `port/src/net/netmigrate.c`,
 CLAUDE-notes/netplay.md "Host migration"). The room goes on when its host
 leaves (`leave`, or a `join`/`create` elsewhere), stops beating for
-`host_timeout` (15 s), or is reported lost (`hostlost`) by half the playing
-members or more within `hostlost_keep` (20 s) while its heartbeat is more
-than `hostlost_grace` (8 s) old - a live host beats every 5 s, so reports
-alone never move a room off one that is there.
+`host_timeout` (15 s), or is reported lost (`hostlost`) within
+`hostlost_keep` (20 s) by more than half the playing members and at least
+`hostlost_votes` (2) of them, while the lobby has heard nothing from the
+host for `hostlost_grace` (12 s): no heartbeat, and nothing from its
+registered rendezvous socket (a REGISTER, a PROBE_REPLY). The game sends
+its heartbeat every 5 s from a thread of its own (never behind its queue
+of other requests, with a 4 s timeout), so 12 s is two missed beats and
+some; reports never move a room off a host that is still there, and one
+member's word never moves a room at all - a room of two waits for
+`host_timeout`. A crashed host in a room of three or more is handed on
+7-12 s after it went (both members report it at their ENet timeout, ~5 s),
+in a room of two 10-15 s after.
 
 The next host is a member, never a spectator, whose game said it can host
 the room (`can_host` in join and netinfo: it has the room's mod and
-conversion, its own or one the host served it) on the room's build; of
-those, one the rendezvous saw with no NAT (`nat` "open") first, then one
-whose path to the old host was LAN, direct or punched before a relayed or
-pathless one, then the lower ping, then the longest in the room. When
-there is none the room closes as it always did (so a game that never
-sends `can_host` keeps the old behaviour).
+conversion, its own or one the host served it) on the room's build. Of
+those, ranked on what the lobby saw itself wherever it can: no NAT first
+(the member's `nat` "open", counted only while the rendezvous has it
+registered and it plays through none of the lobby's relays), then a path
+to the old host that was LAN, direct or punched before a relayed or
+pathless one (a member whose traffic goes through one of the lobby's
+relays is relayed, whatever its `path` says), then the lobby's own round
+trip to the member's registered socket (a PROBE every `probe_interval`,
+as the host gets; games before 2026-10-08 never answer one, and a member
+without a lobby-measured round trip comes after every member with one,
+on its own reported ping), then the longest in the room. When there is
+none the room closes as it always did (so a game that never sends
+`can_host` keeps the old behaviour).
 
 Taking over (`promote`): the new host is ready and not a spectator; the
 room gets a new secret (the old host could go on minting tickets
@@ -282,7 +297,10 @@ The host accepts a CONNECT's ticket only if all of these hold:
    host hears of it within a round trip.
 6. The nonce is not in its accepted set (kept until each nonce's expiry). This
    stops only a byte-identical replay: a member gets a fresh nonce on every
-   state reply.
+   state reply. The game's set holds 64 nonces, and one user at most 4 of
+   them (accepted joins in a ticket's 30 s life): a member reconnecting over
+   and over waits for its own oldest to expire rather than filling the set
+   and turning everyone else's join away. Nothing live is evicted.
 
 Then **one seat per user**: a good CONNECT for a user who already holds a seat
 replaces that seat (a restarted game) instead of taking a second one. And
@@ -386,7 +404,9 @@ address and port of its own and ENet keeps them apart as peers. The game's
 datagrams go through as they are: the relay adds no header and the host's
 game needs nothing to accept a relayed player but the usual ticket.
 
-1. The joiner, having heard nothing from the host 4.5 s after PEER, sends
+1. The joiner, having heard nothing from the host 4.5 s after PEER (its game
+   climbs this ladder as it enters the room, and again at once when the
+   room starts counting down if it had found no path), sends
    RELAY_REQUEST (signed with its `udp_key`, a fresh `seq`) to the rendezvous
    port. The lobby opens the pair's relay (or finds the one it has) and sends
    RELAY_OFFER to the joiner (to where the request came from) and to the
@@ -413,16 +433,22 @@ one. ERROR code 3 refuses a request (the host not registered, or a cap).
 
 Caps (`Config`), every one a drop, never a queue: a datagram over 1400 bytes;
 per room 256 KB/s and 2000 datagrams/s through its relays; in all 2 MB/s and
-8000 datagrams/s; at most 32 pairs at once, 16 in a room; each bucket holds
+8000 datagrams/s; at most 32 pairs at once, 16 in a room, 2 whose joiner
+asked from one address (an IPv6 /64), one per account (one seat per
+account), and at most 16 held by rooms still open, so a room that is
+counting down or playing always finds one of the rest; each bucket holds
 two seconds of its rate. A 4-player match is tens of KB/s per relayed joiner,
 so a room's budget is several matches' worth and the global one is what a
 1-vCPU box shared with other services can spare. Measured on the dev desktop
 (one 200-byte datagram stream through one relay, the lobby in its own
 process): 5000/s cost 22% of a core, 10000/s 39%, 20000/s 69%, nothing
 dropped - so the 8000/s cap is about a third of a desktop core, more on the
-VPS's slower vCPU. A relay with nothing forwarded or bound for 60 s
-is closed, and so is a pair's relay when its joiner leaves the room or the
-host's going closes it. Each close logs the datagrams and bytes it carried
+VPS's slower vCPU. A relay both of whose ends have not bound within 10 s
+of its opening is closed; once bound, only datagrams it forwards keep it
+open (the game's punch packets go through every 2 s), and one with nothing
+forwarded for 60 s is closed - asking for it again re-sends the offers and
+holds nothing. A pair's relay also closes when its joiner leaves the room
+or the host's going closes it. Each close logs the datagrams and bytes it carried
 and how many it dropped.
 
 ## The connectivity ladder (the game's side)
@@ -465,17 +491,19 @@ member whose rendezvous traffic is dropped) and plays a match over each.
 | What | Limit |
 |---|---|
 | Body | 8 KiB (`413`); headers 16 KiB (`431`) |
+| Address | every per-address limit (HTTP and UDP) counts an IPv4 address, or an IPv6 address's /64 |
 | Requests per address | 12/s, burst 60 (`429`); a member's state polls 10/s, burst 30 per member instead |
 | Sign-ins per address | 10 / 5 min, plus pdghostd's own |
-| Rooms | 200 in all (`503`), 4 live per address, 6 created / 10 min per address |
+| Rooms | 200 in all (`503`), 4 live per address, one per account (making one leaves the last), 6 created / 10 min per address and per account |
 | Joins per address | 30 / min; wrong passwords 5 / 5 min per address per room |
 | Members | 2-12 humans + 2 spectators per room (the game host takes two); one room per account |
 | Chat | 120 chars, 6 lines / 10 s per member, last 50 kept |
 | Parked polls | one per member, 24 per address, 1200 in all; connections 1500 (unit `LimitNOFILE=4096`) |
 | Tickets | 30 s, only from the countdown on |
 | UDP sources tracked | 20000, then one shared overflow bucket |
-| Relays | 32 pairs, 16 per room; 256 KB/s + 2000 datagrams/s per room, 2 MB/s + 8000/s in all; 1400-byte datagrams; 60 s idle |
-| Sessions | 5000, four per account, 12 h sliding |
+| Relays | 32 pairs, 16 per room, 16 in open rooms, 2 per joiner address, 1 per account; 256 KB/s + 2000 datagrams/s per room, 2 MB/s + 8000/s in all; 1400-byte datagrams; both ends bound in 10 s; 60 s without forwarding |
+| Sessions | 5000, four per account and 64 per address (the oldest goes), 12 h sliding |
+| Host migration | `hostlost` carries with more than half the players and at least two, the host silent 12 s; else the 15 s heartbeat timeout |
 
 Names, room names, stage/scenario/region strings, rules strings and chat are
 cut to printable ASCII (anything else becomes a space), whitespace folded,
@@ -489,7 +517,7 @@ and nonces come from `os.urandom`.
 python3 tools/pdlobbyd/test_pdlobbyd.py
 ```
 
-82 cases in about nineteen seconds, each against its own server (an event
+100 cases in about twenty-seven seconds, each against its own server (an event
 loop on a background thread, HTTP and UDP on ports the kernel picks, timeouts
 cut to fractions of a second): create/list/filters, validation, join with
 password, the protocol and content refusals, the wrong-password limiter, full
@@ -505,7 +533,12 @@ room to a player, a launched room migrating until relaunch with tickets
 for the new secret only, a countdown cancelled, decline passing it on and
 closing it when nobody is left, the new host's REGISTER under its new key
 and the old key refused, new cookies; a silent host handed on, half the
-players' reports with a missed heartbeat, never with a live one),
+players' reports with a missed heartbeat, never with a live one, never
+one lone member's, never while the host's rendezvous socket answers; the
+pick on the lobby's own round trip and its own relays before a member's
+word), the relay held only by traffic (unbound relays closed, asking again
+holding nothing, the per-address and open-room caps), IPv6 limits on the
+/64, sessions per address, the per-account create window,
 long-poll wakeup on a change (and on a UDP registration), timeout, room close,
 the parked-poll cap, one poll per member, polls per address, polls charged per
 member, host and member reaping (none during a match; a parked poll keeping a

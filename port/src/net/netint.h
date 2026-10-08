@@ -474,7 +474,7 @@ void netCoopCampaignResume(const char *game, s32 radar, s32 friendlyfire); // a 
 // 5 (the roster) is the lobby client's, phase 6. 0 if good, else why not;
 // nonce (char[33]) and expiry out for netTicketUse, which spends it
 s32 netTicketVerify(const char *ticket, s32 len, const u8 *secret32, const char *roomid, u64 lobbynow, char *user, s32 usersize, char *nonce, u64 *expiry, char *why, s32 whysize);
-s32 netTicketUse(const char *nonce, u64 expiry, u64 lobbynow);
+s32 netTicketUse(const char *nonce, const char *user, u64 expiry, u64 lobbynow);
 s32 netTicketSelfTest(void);
 
 #endif
