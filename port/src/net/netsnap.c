@@ -736,6 +736,7 @@ void netLpPack(const struct netlpstate *s, u8 *out)
 
 	memcpy(out + 136, s->inv, 32);
 	memcpy(out + 168, s->invdual, 32);
+	put16(out + 200, s->blurdrug);
 	netMovePack(&s->mv, out + 208);
 }
 
@@ -773,6 +774,7 @@ void netLpUnpack(const u8 *in, struct netlpstate *s)
 
 	memcpy(s->inv, in + 136, 32);
 	memcpy(s->invdual, in + 168, 32);
+	s->blurdrug = get16(in + 200);
 	netMoveUnpack(in + 208, &s->mv);
 }
 

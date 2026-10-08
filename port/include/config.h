@@ -31,3 +31,4 @@ void configRegisterString(const char *key, char *var, u32 maxstr);
 #define CONFIG_TYPE_STR 4
 s32 configGetEntry(const char *key, s32 *type, void **ptr, u32 *maxstr);
 void configClampEntry(const char *key);
+void configClampValue(const char *key, void *val); // a value held elsewhere, by the key's range

@@ -9,6 +9,7 @@
 #include "bss.h"
 #include "data.h"
 #include "system.h"
+#include "config.h"
 #include "video.h"
 #include "input.h"
 #include "lib/joy.h"
@@ -546,77 +547,41 @@ static void netPlayersApplyRemoteCfg(s32 slot)
 
 /**
  * The host, around a client's player's playerTick (lv.c lvTickPlayer): that
- * player's third person camera settings in g_ModOptions for the tick, the
- * host's own put back after (protocol 19). The camera, its clearance from a
- * wall, the tether's rod and the tilt are all built inside playerTick, from
- * g_ModOptions, and a third person shot is fired from the camera: built
- * with the host's settings, a client with another distance or shoulder
- * offset was aimed from one place and fired from another. Body Fade is only
- * drawing, and Body Turn Speed's body comes in the commands (NETCMD_BODY).
+ * player's own settings (netrules.c's NETKEY_PLAYER keys, from its SLOTCFG)
+ * in their variables for the tick, the host's own put back after. The
+ * third person camera, its clearance from a wall, the tether's rod and the
+ * tilt (protocol 19), COD Style Aiming and its lock, Quick Weapon Swap: all
+ * read inside playerTick, many straight from g_ModOptions, and a third
+ * person shot is fired from the camera, so a client played by the host's
+ * settings was aimed from one place and fired from another, aimed down its
+ * sights by a rule it had turned off and predicted by its own. A read
+ * outside the tick (the HUD's death screen, the weapon menu's buttons) goes
+ * through netSlotOwnS32. Body Fade is only drawing, and Body Turn Speed's
+ * body comes in the commands (NETCMD_BODY).
  */
-static struct {
-	s32 on;
-	f32 camdist;
-	f32 camclearance;
-	f32 camside;
-	f32 camfwd;
-	f32 camheight;
-	s32 camtether;
-	s32 cameratilt;
-	s32 tiltinvert;
-	s32 tiltforward;
-} s_CamSaved;
+static struct netplayerkeys s_OwnSaved;
+static s32 s_OwnOn;
 
-void netPlayersCamBegin(s32 playernum)
+void netPlayersOwnBegin(s32 playernum)
 {
 	const s32 pad = netPadOfPlayer(playernum);
-	const struct netslotcfg *cfg;
 
-	if (s_CamSaved.on || g_NetMode != NETMODE_SERVER || !netPadIsRemote(pad) || !s_Pads[pad].hascfg) {
+	if (s_OwnOn || g_NetMode != NETMODE_SERVER || !netPadIsRemote(pad) || !s_Pads[pad].hascfg) {
 		return;
 	}
 
-	cfg = &s_Pads[pad].cfg;
-
-	s_CamSaved.on = 1;
-	s_CamSaved.camdist = g_ModOptions.camdist;
-	s_CamSaved.camclearance = g_ModOptions.camclearance;
-	s_CamSaved.camside = g_ModOptions.camside;
-	s_CamSaved.camfwd = g_ModOptions.camfwd;
-	s_CamSaved.camheight = g_ModOptions.camheight;
-	s_CamSaved.camtether = g_ModOptions.camtether;
-	s_CamSaved.cameratilt = g_ModOptions.cameratilt;
-	s_CamSaved.tiltinvert = g_ModOptions.tiltinvert;
-	s_CamSaved.tiltforward = g_ModOptions.tiltforward;
-
-	// the ranges main.c registers the options with
-	g_ModOptions.camdist = netClampF(cfg->camdist, 60.f, 600.f, THIRDPERSON_CAMDIST);
-	g_ModOptions.camclearance = netClampF(cfg->camclearance, 0.f, 120.f, THIRDPERSON_CAMCLEARANCE);
-	g_ModOptions.camside = netClampF(cfg->camside, -150.f, 150.f, 0.f);
-	g_ModOptions.camfwd = netClampF(cfg->camfwd, -150.f, 150.f, 0.f);
-	g_ModOptions.camheight = netClampF(cfg->camheight, -150.f, 150.f, 0.f);
-	g_ModOptions.camtether = netClampS(cfg->camtether, MODTETHER_OFF, MODTETHER_MAX);
-	g_ModOptions.cameratilt = netClampS(cfg->cameratilt, MODTILT_OFF, MODTILT_MAX);
-	g_ModOptions.tiltinvert = cfg->tiltinvert ? 1 : 0;
-	g_ModOptions.tiltforward = cfg->tiltforward ? 1 : 0;
+	netRulesPlayerKeysSwap(&s_Pads[pad].cfg.own, &s_OwnSaved);
+	s_OwnOn = 1;
 }
 
-void netPlayersCamEnd(void)
+void netPlayersOwnEnd(void)
 {
-	if (!s_CamSaved.on) {
+	if (!s_OwnOn) {
 		return;
 	}
 
-	g_ModOptions.camdist = s_CamSaved.camdist;
-	g_ModOptions.camclearance = s_CamSaved.camclearance;
-	g_ModOptions.camside = s_CamSaved.camside;
-	g_ModOptions.camfwd = s_CamSaved.camfwd;
-	g_ModOptions.camheight = s_CamSaved.camheight;
-	g_ModOptions.camtether = s_CamSaved.camtether;
-	g_ModOptions.cameratilt = s_CamSaved.cameratilt;
-	g_ModOptions.tiltinvert = s_CamSaved.tiltinvert;
-	g_ModOptions.tiltforward = s_CamSaved.tiltforward;
-	s_CamSaved.on = 0;
+	netRulesPlayerKeysRestore(&s_OwnSaved);
+	s_OwnOn = 0;
 }
 
 /**
@@ -642,27 +607,27 @@ f32 netSlotAspect(s32 playernum)
 }
 
 /**
- * Aim Lock and akimbo triggers are the player's own (modoptions.c): a
- * remote player's come from its SLOTCFG, Aim Lock still only under the
- * host's COD Style Aiming; anyone else's are this machine's
+ * A player's own value of an integer NETKEY_PLAYER setting, wherever it is
+ * read (modoptions.c's getters): a remote player's from its SLOTCFG, by
+ * the setting's variable; anyone else's, or one the client did not send,
+ * this machine's (mine)
  */
-s32 netSlotAimLock(s32 playernum, s32 codaiming, s32 mine)
+s32 netSlotOwnS32(s32 playernum, const s32 *var, s32 mine)
 {
 	const s32 pad = netPadOfPlayer(playernum);
+	const struct netplayerkeys *own;
+	s32 i;
 
-	if (netPadIsRemote(pad)) {
-		return codaiming && s_Pads[pad].cfg.aimlock;
+	if (g_NetMode != NETMODE_SERVER || !netPadIsRemote(pad) || !s_Pads[pad].hascfg) {
+		return mine;
 	}
 
-	return mine;
-}
+	own = &s_Pads[pad].cfg.own;
 
-s32 netSlotAkimboTriggers(s32 playernum, s32 mine)
-{
-	const s32 pad = netPadOfPlayer(playernum);
-
-	if (netPadIsRemote(pad)) {
-		return s_Pads[pad].cfg.akimbotriggers != 0;
+	for (i = 0; i < own->n; i++) {
+		if (own->k[i].ptr == var && own->k[i].type == CONFIG_TYPE_S32) {
+			return own->k[i].v.s;
+		}
 	}
 
 	return mine;

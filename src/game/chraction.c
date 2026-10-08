@@ -5494,8 +5494,11 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 				}
 
 				// Handle player dizziness
+				// (netplay: a client's player is drugged whatever the host's
+				// Tranquilizer Effect says; the amount goes in its local-player
+				// block and the client's own setting decides its screen)
 				if (makedizzy && g_Vars.currentplayer->invincible == false
-						&& modIsTranquilizerEffectOn()) {
+						&& (modIsTranquilizerEffectOn() || !netIsLocalSlot(g_Vars.currentplayernum))) {
 					f32 blurscale = 1;
 					struct chrdata *achr = NULL;
 

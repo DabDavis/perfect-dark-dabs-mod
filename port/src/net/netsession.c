@@ -659,17 +659,7 @@ void netReadSlotCfg(struct netbuf *b, struct netslotcfg *cfg)
 	cfg->aspect = netBufReadF32(b);
 	cfg->sensxsign = netBufReadS8(b);
 	cfg->sensysign = netBufReadS8(b);
-	cfg->aimlock = netBufReadU8(b);
-	cfg->akimbotriggers = netBufReadU8(b);
-	cfg->camdist = netBufReadF32(b);
-	cfg->camclearance = netBufReadF32(b);
-	cfg->camside = netBufReadF32(b);
-	cfg->camfwd = netBufReadF32(b);
-	cfg->camheight = netBufReadF32(b);
-	cfg->camtether = netBufReadU8(b);
-	cfg->cameratilt = netBufReadU8(b);
-	cfg->tiltinvert = netBufReadU8(b);
-	cfg->tiltforward = netBufReadU8(b);
+	netRulesReadPlayerKeys(b, &cfg->own);
 }
 
 void netWriteSlotCfg(struct netbuf *b)
@@ -702,17 +692,7 @@ void netWriteSlotCfg(struct netbuf *b)
 	netBufWriteF32(b, g_NetDedicated ? 4.f / 3.f : videoGetAspect());
 	netBufWriteS8(b, sx < 0 ? -1 : sx > 0 ? 1 : 0);
 	netBufWriteS8(b, sy < 0 ? -1 : sy > 0 ? 1 : 0);
-	netBufWriteU8(b, modIsCodAimLockOn() ? 1 : 0);
-	netBufWriteU8(b, g_ModOptions.akimbotriggers ? 1 : 0);
-	netBufWriteF32(b, g_ModOptions.camdist);
-	netBufWriteF32(b, g_ModOptions.camclearance);
-	netBufWriteF32(b, g_ModOptions.camside);
-	netBufWriteF32(b, g_ModOptions.camfwd);
-	netBufWriteF32(b, g_ModOptions.camheight);
-	netBufWriteU8(b, (u8)g_ModOptions.camtether);
-	netBufWriteU8(b, (u8)g_ModOptions.cameratilt);
-	netBufWriteU8(b, g_ModOptions.tiltinvert ? 1 : 0);
-	netBufWriteU8(b, g_ModOptions.tiltforward ? 1 : 0);
+	netRulesWritePlayerKeys(b);
 }
 
 static s32 netHostFreeSlot(s32 peer)
@@ -2366,7 +2346,7 @@ static void netClientSendConnect(void)
  * The player's settings again, now the window is up (CONNECT's aspect is
  * not) and whenever it is back in the lobby, where they may have changed
  */
-static u8 s_SlotCfgSent[256];
+static u8 s_SlotCfgSent[1024];
 static s32 s_SlotCfgSentLen = 0;
 
 static void netClientSendSlotCfg(void)

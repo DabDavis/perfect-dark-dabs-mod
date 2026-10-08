@@ -329,35 +329,45 @@ s32 configGetEntry(const char *key, s32 *type, void **ptr, u32 *maxstr)
 }
 
 /**
- * Puts a setting back within the range it was registered with (netplay
- * writes values that came over the wire)
+ * A value of the setting's type, wherever it is held, put within the range
+ * the setting was registered with (netplay: values that came over the wire,
+ * written into the setting itself or kept for a remote player's own ticks)
  */
-void configClampEntry(const char *key)
+void configClampValue(const char *key, void *val)
 {
 	struct configentry *cfg = configFindEntry(key);
 
-	if (!cfg || !cfg->ptr) {
+	if (!cfg || !val) {
 		return;
 	}
 
 	switch (cfg->type) {
 		case CFG_S32:
 			if (cfg->min_s32 < cfg->max_s32) {
-				*(s32 *)cfg->ptr = configClampInt(*(s32 *)cfg->ptr, cfg->min_s32, cfg->max_s32);
+				*(s32 *)val = configClampInt(*(s32 *)val, cfg->min_s32, cfg->max_s32);
 			}
 			break;
 		case CFG_F32:
 			if (cfg->min_f32 < cfg->max_f32) {
-				*(f32 *)cfg->ptr = configClampFloat(*(f32 *)cfg->ptr, cfg->min_f32, cfg->max_f32);
+				*(f32 *)val = configClampFloat(*(f32 *)val, cfg->min_f32, cfg->max_f32);
 			}
 			break;
 		case CFG_U32:
 			if (cfg->min_u32 < cfg->max_u32) {
-				*(u32 *)cfg->ptr = configClampUInt(*(u32 *)cfg->ptr, cfg->min_u32, cfg->max_u32);
+				*(u32 *)val = configClampUInt(*(u32 *)val, cfg->min_u32, cfg->max_u32);
 			}
 			break;
 		default:
 			break;
+	}
+}
+
+void configClampEntry(const char *key)
+{
+	struct configentry *cfg = configFindEntry(key);
+
+	if (cfg && cfg->ptr) {
+		configClampValue(key, cfg->ptr);
 	}
 }
 

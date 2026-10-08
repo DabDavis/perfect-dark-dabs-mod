@@ -285,6 +285,14 @@ XBLA release's corrected collision on Area 51 and Ruins) are the host's
 for everyone. The simulants' AI (Simulant AI) is the host's setting as
 well.
 
+**So are your settings.** You play by your own controls, aim and camera
+settings: the third person camera and Camera Tilt, COD Style Aiming and Aim
+Lock, Akimbo Triggers, Quick Weapon Swap and Skip Death Screen. The same goes
+for what you see: Disable Fog, Glass See-Through and the Tranquilizer
+Effect's drugged screen. The match's rules come from the host: jumping,
+rolling, melee combos, Flinch When Shot, Start Armed, Akimbo, bodies, and a
+mission's guards, respawns and lives.
+
 ### Screenshots and video
 
 - **F12** writes a PNG to `screenshots/` beside your `pd.ini`.

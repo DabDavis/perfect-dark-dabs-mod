@@ -86,7 +86,14 @@
 //    by the host's own tether setting. The per-slot settings (CONNECT,
 //    SLOTCFG) end in the player's third person camera, which the host builds
 //    that player's camera by: a third person shot is fired from the camera
-#define NET_PROTOCOL_VERSION 19
+// 20 (a client's own settings): the per-slot settings end in the player's
+//    own ini values by key (netrules.c's NETKEY_PLAYER), which replace 19's
+//    camera fields and the aimlock/akimbotriggers bytes; COD Style Aiming,
+//    Quick Weapon Swap and Skip Death Screen left RULES for them, and Disable
+//    Fog, Glass See-Through and Tranquilizer Effect left RULES for no wire at
+//    all (each machine's picture); the local-player block carries the
+//    player's drugged-screen amount (u16 at byte 200)
+#define NET_PROTOCOL_VERSION 20
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -198,13 +205,18 @@
  *     s32 crosshairhealth, s32 usereloads      g_PlayerExtCfg[0], in that order
  *     f32 aspect                   videoGetAspect()
  *     s8 sensxsign, s8 sensysign   the signs of the mouse speeds (-1, 0, 1)
- *     u8 aimlock                   modIsCodAimLockOn()
- *     u8 akimbotriggers            Mod.AkimboTriggers
- *     (protocol 19) the third person camera, g_ModOptions: f32 camdist,
- *     f32 camclearance, f32 camside, f32 camfwd, f32 camheight (Mod.ThirdPerson
- *     Distance/Clearance/Sideways/Forward/Height), u8 camtether, u8 cameratilt,
- *     u8 tiltinvert, u8 tiltforward; the host swaps them in for that player's
- *     playerTick (netPlayersCamBegin), clamped to the options' own ranges
+ *     (protocol 20) u8 nown <= NET_MAXPLAYERKEYS, the player's own ini
+ *     settings (netrules.c's NETKEY_PLAYER: COD Style Aiming and its lock,
+ *     Akimbo Triggers, Quick Weapon Swap, Skip Death Screen, the third
+ *     person camera and the tilt), each:
+ *       str(47) key
+ *       value                 see VALUE below (never a string)
+ *     The host keeps them for that player, clamped to the settings' own
+ *     ranges, and plays it by them: swapped in around its playerTick
+ *     (netPlayersOwnBegin) and read by modoptions.c's getters outside it
+ *     (netSlotOwnS32). A key the host does not list as a player's own is
+ *     skipped. (Protocol 19 had u8 aimlock, u8 akimbotriggers and the
+ *     camera's nine at fixed places here.)
  *   u8      nkeys             <= NET_MAXKEYS; this machine's MUST and REFUSE
  *                             keys (netrules.c's table), each a value:
  *     str(47) key
@@ -614,7 +626,8 @@
  *     u8 dualwielding, f32 pos[3], s16 rooms[8], f32 theta, f32 verta,
  *     f32 health, f32 shield, s16 weaponnum, s16 0, s32 loadedammo[4]
  *     (right 0, 1, left 0, 1), u16 ammoheld[33], u16 0, u8 weapons[32]
- *     (a bit per weapon number), u8 dualweapons[32], u8 0[8],
+ *     (a bit per weapon number), u8 dualweapons[32], u16 blurdrug (protocol
+ *     20: the chr's blurdrugamount, a tranquilizer's drugged screen), u8 0[6],
  *     then the movement state (protocol 5; struct netmove, netsnap.h), the
  *     player after command lastcmd, from which the client replays the
  *     commands after it (netpredict.c): f32 speedtheta, speedverta,

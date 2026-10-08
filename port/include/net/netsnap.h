@@ -299,6 +299,7 @@ struct netlpstate {
 	u16 ammo[NETLP_NUMAMMO];
 	u8 inv[32];             // a bit per weapon number held
 	u8 invdual[32];         // a bit per weapon number held twice
+	u16 blurdrug;           // (protocol 20) the player chr's blurdrugamount: a tranquilizer's drugged screen
 	struct netmove mv;
 };
 

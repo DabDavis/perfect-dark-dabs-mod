@@ -17,6 +17,26 @@ struct nethashcomp {
 	u64 hash;
 };
 
+// A player's own value of a NETKEY_PLAYER setting (netrules.c), kept on
+// the host for that player's ticks: the variable is this machine's, found
+// by the key when SLOTCFG was read, and the value is clamped to its range
+#define NET_MAXPLAYERKEYS 24
+
+struct netplayerkey {
+	void *ptr;
+	s32 type; // CONFIG_TYPE_S32/F32/U32
+	union {
+		s32 s;
+		f32 f;
+		u32 u;
+	} v;
+};
+
+struct netplayerkeys {
+	s32 n;
+	struct netplayerkey k[NET_MAXPLAYERKEYS];
+};
+
 // A player's own settings, as CONNECT and SLOTCFG carry them (netproto.h)
 struct netslotcfg {
 	u8 mpheadnum;
@@ -41,19 +61,10 @@ struct netslotcfg {
 	f32 aspect;
 	s8 sensxsign;
 	s8 sensysign;
-	u8 aimlock;
-	u8 akimbotriggers;
-	// (protocol 19) the third person camera: the host builds this player's
-	// camera, which a third person shot is fired from, by these
-	f32 camdist;
-	f32 camclearance;
-	f32 camside;
-	f32 camfwd;
-	f32 camheight;
-	u8 camtether;
-	u8 cameratilt;
-	u8 tiltinvert;
-	u8 tiltforward;
+	// (protocol 20) the player's own ini settings the host simulates it by
+	// (netrules.c's NETKEY_PLAYER keys), resolved to this machine's
+	// variables as they are read
+	struct netplayerkeys own;
 };
 
 // netbuf helpers for the session's messages
@@ -385,6 +396,7 @@ struct netkeyvalue {
 #define NETKEY_MUST       1 // always
 #define NETKEY_MUST_GE    2 // on GoldenEye stages only
 #define NETKEY_REFUSE     3 // a net game only with the stock value
+#define NETKEY_PLAYER     4 // each player's own: the host plays a client by the client's
 
 s32 netRulesReadKey(const char *key, struct netkeyvalue *out);
 void netRulesWriteValue(struct netbuf *b, const struct netkeyvalue *kv);
@@ -392,6 +404,10 @@ void netRulesReadValue(struct netbuf *b, struct netkeyvalue *kv);
 s32 netRulesValuesEqual(const struct netkeyvalue *a, const struct netkeyvalue *b);
 void netRulesValueString(const struct netkeyvalue *kv, char *buf, s32 size);
 s32 netRulesWriteClientKeys(struct netbuf *b); // CONNECT's MUST and REFUSE keys
+void netRulesWritePlayerKeys(struct netbuf *b); // this machine's NETKEY_PLAYER values (SLOTCFG)
+void netRulesReadPlayerKeys(struct netbuf *b, struct netplayerkeys *out);
+void netRulesPlayerKeysSwap(const struct netplayerkeys *in, struct netplayerkeys *saved); // in's values in, the old ones to saved
+void netRulesPlayerKeysRestore(const struct netplayerkeys *saved);
 // The first MUST/REFUSE key the client's set fails against this host's, or
 // 0: the class and key are written out for the refusal
 s32 netRulesCheckClientKeys(const struct netkeyvalue *keys, s32 nkeys, s32 gestage, s32 *code, char *key, s32 keysize, char *text, s32 textsize);

@@ -419,12 +419,24 @@ bool modIsAkimboForGuards(void)
 	return g_ModOptions.akimbo == MODAKIMBO_EVERYONE || g_ModOptions.akimbo == MODAKIMBO_GUARDS;
 }
 
-bool modIsAkimboTriggersOn(void)
+/**
+ * A setting that is each player's own online (netrules.c's NETKEY_PLAYER),
+ * for the player being ticked or drawn: on a host, a client's player's is
+ * the client's (its SLOTCFG), whether or not the read is inside the
+ * playerTick that has them swapped in (the weapon menu's buttons are read
+ * in amTick, the death screen in playerRenderHud)
+ */
+static s32 modOwn(const s32 *field)
 {
 #ifndef PLATFORM_N64
-	if (g_NetMode != NETMODE_NONE) return netSlotAkimboTriggers(g_Vars.currentplayernum, g_ModOptions.akimbotriggers != 0);
+	if (g_NetMode == NETMODE_SERVER) return netSlotOwnS32(g_Vars.currentplayernum, field, *field);
 #endif
-	return g_ModOptions.akimbotriggers != 0;
+	return *field;
+}
+
+bool modIsAkimboTriggersOn(void)
+{
+	return modOwn(&g_ModOptions.akimbotriggers) != 0;
 }
 
 /**
@@ -444,7 +456,7 @@ bool modIsExplosionShakeOn(void)
  */
 bool modIsCodAimingOn(void)
 {
-	return g_ModOptions.codaiming != 0;
+	return modOwn(&g_ModOptions.codaiming) != 0;
 }
 
 /**
@@ -456,10 +468,7 @@ bool modIsCodAimingOn(void)
  */
 bool modIsCodAimLockOn(void)
 {
-#ifndef PLATFORM_N64
-	if (g_NetMode != NETMODE_NONE) return netSlotAimLock(g_Vars.currentplayernum, g_ModOptions.codaiming != 0, g_ModOptions.codaiming != 0 && g_ModOptions.codaimlock != 0);
-#endif
-	return g_ModOptions.codaiming != 0 && g_ModOptions.codaimlock != 0;
+	return modOwn(&g_ModOptions.codaiming) != 0 && modOwn(&g_ModOptions.codaimlock) != 0;
 }
 
 /**
@@ -905,7 +914,7 @@ bool modIsMissionRespawnOn(void)
  */
 bool modIsSkipDeathScreenOn(void)
 {
-	return g_ModOptions.skipdeathscreen != 0 && g_Vars.normmplayerisrunning;
+	return modOwn(&g_ModOptions.skipdeathscreen) != 0 && g_Vars.normmplayerisrunning;
 }
 
 /**
@@ -926,7 +935,7 @@ bool modIsQuickWeaponSwapOn(void)
 	}
 #endif
 
-	return g_ModOptions.quickweaponswap != 0;
+	return modOwn(&g_ModOptions.quickweaponswap) != 0;
 }
 
 /**

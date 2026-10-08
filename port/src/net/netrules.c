@@ -35,6 +35,16 @@
  *   MUST     must already match (a startup-only state, or content): refused
  *   MUST_GE  the same, on a GoldenEye stage only (checked at the match start)
  *   REFUSE   a net game only when the value is stock on both sides
+ *   PLAYER   each player's own (protocol 20): a client keeps its value for
+ *            the match and sends it in SLOTCFG, and the host plays that
+ *            client's player by it (netPlayersOwnBegin around its
+ *            playerTick, netSlotOwnS32 for a read outside it)
+ *
+ * A setting in none of them is each machine's own and never goes on the
+ * wire: the picture and the sound (Disable Fog, Glass See-Through, the
+ * Tranquilizer Effect's drugged screen, the camera's body fade...). The host
+ * is the only machine that simulates, so a client's picture can differ from
+ * the host's without the match going out of step.
  *
  * Mod.XblaMeshes and Mod.GeXblaCommunityEdition are in none of them either:
  * a look is each machine's own picture, and the data a look chooses at a
@@ -66,13 +76,6 @@ static const struct {
 	{ "Mod.BodyTime",                NETKEY_SYNC },
 	{ "Mod.BodiesDrawn",             NETKEY_SYNC },
 	{ "Mod.Akimbo",                  NETKEY_SYNC },
-	{ "Mod.CodAiming",               NETKEY_SYNC },
-	{ "Mod.CodAimLock",              NETKEY_SYNC },
-	{ "Mod.SkipDeathScreen",         NETKEY_SYNC },
-	{ "Mod.QuickWeaponSwap",         NETKEY_SYNC },
-	{ "Mod.TranquilizerEffect",      NETKEY_SYNC },
-	{ "Mod.DisableFog",              NETKEY_SYNC },
-	{ "Mod.GlassSeeThrough",         NETKEY_SYNC },
 	{ "Mod.GePlusPdGuns",            NETKEY_SYNC },
 	{ "Mod.GePlusRegion",            NETKEY_SYNC },
 	{ "Mod.BorrowGoldenEyeGuns",     NETKEY_MUST },
@@ -84,6 +87,23 @@ static const struct {
 	{ "Mod.GuardWeapons",            NETKEY_SYNC },
 	{ "Mod.MissionRespawn",          NETKEY_SYNC },
 	{ "Mod.MissionLives",            NETKEY_SYNC },
+	// a player's own (protocol 20): how its controls, its gun and its third
+	// person camera behave. The camera's are read inside playerTick, and a
+	// third person shot is fired from the camera (protocol 19's fix)
+	{ "Mod.CodAiming",               NETKEY_PLAYER },
+	{ "Mod.CodAimLock",              NETKEY_PLAYER },
+	{ "Mod.AkimboTriggers",          NETKEY_PLAYER },
+	{ "Mod.QuickWeaponSwap",         NETKEY_PLAYER },
+	{ "Mod.SkipDeathScreen",         NETKEY_PLAYER },
+	{ "Mod.ThirdPersonDistance",     NETKEY_PLAYER },
+	{ "Mod.ThirdPersonClearance",    NETKEY_PLAYER },
+	{ "Mod.ThirdPersonSideways",     NETKEY_PLAYER },
+	{ "Mod.ThirdPersonForward",      NETKEY_PLAYER },
+	{ "Mod.ThirdPersonHeight",       NETKEY_PLAYER },
+	{ "Mod.ThirdPersonTether",       NETKEY_PLAYER },
+	{ "Mod.CameraTilt",              NETKEY_PLAYER },
+	{ "Mod.InvertCameraTilt",        NETKEY_PLAYER },
+	{ "Mod.ForwardAndBackTilt",      NETKEY_PLAYER },
 };
 
 /**
@@ -317,7 +337,8 @@ s32 netRulesWriteClientKeys(struct netbuf *b)
 	u32 k;
 
 	for (k = 0; k < ARRAYCOUNT(s_NetKeys) && n < NET_MAXKEYS; k++) {
-		if (s_NetKeys[k].cls != NETKEY_SYNC && netRulesReadKey(s_NetKeys[k].key, &kv[n])) {
+		if ((s_NetKeys[k].cls == NETKEY_MUST || s_NetKeys[k].cls == NETKEY_MUST_GE || s_NetKeys[k].cls == NETKEY_REFUSE)
+				&& netRulesReadKey(s_NetKeys[k].key, &kv[n])) {
 			n++;
 		}
 	}
@@ -330,6 +351,120 @@ s32 netRulesWriteClientKeys(struct netbuf *b)
 	}
 
 	return n;
+}
+
+/**
+ * A player's own settings (NETKEY_PLAYER), by key and value: SLOTCFG goes at
+ * connect and again only when its bytes change, so a setting costs nothing
+ * on the wire while it stays as it is. By key rather than position, so a
+ * build with a key the other lacks reads past it.
+ */
+void netRulesWritePlayerKeys(struct netbuf *b)
+{
+	struct netkeyvalue kv[NET_MAXPLAYERKEYS];
+	s32 n = 0;
+	s32 i;
+	u32 k;
+
+	for (k = 0; k < ARRAYCOUNT(s_NetKeys) && n < NET_MAXPLAYERKEYS; k++) {
+		if (s_NetKeys[k].cls == NETKEY_PLAYER && netRulesReadKey(s_NetKeys[k].key, &kv[n])) {
+			n++;
+		}
+	}
+
+	netBufWriteU8(b, (u8)n);
+
+	for (i = 0; i < n; i++) {
+		netWriteStr(b, kv[i].key, NET_MAXKEY);
+		netRulesWriteValue(b, &kv[i]);
+	}
+}
+
+/**
+ * The host's copy of a client's: each key found among this machine's
+ * NETKEY_PLAYER settings, its variable looked up once here rather than at
+ * every tick, the value clamped to the setting's registered range. A key
+ * this build does not list as a player's own, a string, a type that
+ * differs and a float that is not a number are left out: the host plays
+ * that one by its own value.
+ */
+void netRulesReadPlayerKeys(struct netbuf *b, struct netplayerkeys *out)
+{
+	struct netkeyvalue kv;
+	s32 n = netBufReadU8(b);
+	s32 i;
+
+	memset(out, 0, sizeof(*out));
+
+	for (i = 0; i < n && netBufOk(b); i++) {
+		struct netplayerkey *pk;
+		s32 type;
+		void *ptr;
+
+		memset(&kv, 0, sizeof(kv));
+		netBufReadString(b, kv.key, sizeof(kv.key));
+		netRulesReadValue(b, &kv);
+
+		if (!netBufOk(b) || out->n >= NET_MAXPLAYERKEYS
+				|| netRulesKeyClass(kv.key) != NETKEY_PLAYER
+				|| !configGetEntry(kv.key, &type, &ptr, NULL)
+				|| type != kv.type || type == CONFIG_TYPE_STR
+				|| (type == CONFIG_TYPE_F32 && kv.f != kv.f)) {
+			continue;
+		}
+
+		pk = &out->k[out->n++];
+		pk->ptr = ptr;
+		pk->type = type;
+
+		switch (type) {
+		case CONFIG_TYPE_S32: pk->v.s = kv.s; break;
+		case CONFIG_TYPE_F32: pk->v.f = kv.f; break;
+		default: pk->v.u = kv.u; break;
+		}
+
+		configClampValue(kv.key, &pk->v);
+	}
+}
+
+static void netRulesPlayerKeyPut(const struct netplayerkey *pk)
+{
+	switch (pk->type) {
+	case CONFIG_TYPE_S32: *(s32 *)pk->ptr = pk->v.s; break;
+	case CONFIG_TYPE_F32: *(f32 *)pk->ptr = pk->v.f; break;
+	default: *(u32 *)pk->ptr = pk->v.u; break;
+	}
+}
+
+void netRulesPlayerKeysSwap(const struct netplayerkeys *in, struct netplayerkeys *saved)
+{
+	s32 i;
+
+	saved->n = in->n;
+
+	for (i = 0; i < in->n; i++) {
+		struct netplayerkey *sk = &saved->k[i];
+
+		sk->ptr = in->k[i].ptr;
+		sk->type = in->k[i].type;
+
+		switch (sk->type) {
+		case CONFIG_TYPE_S32: sk->v.s = *(s32 *)sk->ptr; break;
+		case CONFIG_TYPE_F32: sk->v.f = *(f32 *)sk->ptr; break;
+		default: sk->v.u = *(u32 *)sk->ptr; break;
+		}
+
+		netRulesPlayerKeyPut(&in->k[i]);
+	}
+}
+
+void netRulesPlayerKeysRestore(const struct netplayerkeys *saved)
+{
+	s32 i;
+
+	for (i = saved->n - 1; i >= 0; i--) {
+		netRulesPlayerKeyPut(&saved->k[i]);
+	}
 }
 
 static s32 netRulesIsStock(const struct netkeyvalue *kv)
@@ -365,7 +500,7 @@ s32 netRulesCheckClientKeys(const struct netkeyvalue *keys, s32 nkeys, s32 gesta
 	for (i = 0; i < nkeys; i++) {
 		s32 cls = netRulesKeyClass(keys[i].key);
 
-		if (cls < 0 || cls == NETKEY_SYNC) {
+		if (cls < 0 || cls == NETKEY_SYNC || cls == NETKEY_PLAYER) {
 			continue;
 		}
 

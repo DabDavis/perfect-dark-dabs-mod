@@ -80,6 +80,14 @@
   every snapshot see it turned as the client does; the client's third
   person camera settings in its per-slot settings, swapped in around its
   `playerTick` on the host (a third person shot is fired from the camera).
+- **A player's own settings (protocol 20, 2026-10-08)** — the section of
+  that name: three classes of ini setting online (the host's rules, each
+  player's own that the host simulates it by, each machine's own picture);
+  NETKEY_PLAYER keys by name in SLOTCFG, the host's per-slot copy swapped
+  in around a client's `playerTick` and read through `netSlotOwnS32`
+  outside it (the HUD pass, `amTick`); a read about player Y during player
+  X's tick (a tranquilizer hit); the drugged screen in the local-player
+  block; why a setting costs nothing on the wire while it stays the same.
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -1479,4 +1487,78 @@ sending each clients body facing to the host".
   tether poses its body (the CMD resends every unacked command, so a few
   of them a packet): of the order of 1 KB/s up from such a client, against
   about 20 KB/s of snapshots down.
+- **Superseded in protocol 20** (next section): the nine camera fields
+  and `netPlayersCamBegin`/`End` became NETKEY_PLAYER keys and
+  `netPlayersOwnBegin`/`End`; the swap is the same, the clamp is now the
+  ini registration's own range.
+
+## A player's own settings (protocol 20, 2026-10-08)
+
+The user, after protocol 19: "the host mod settings, etc. affect the
+clients. we want clients to be able to use their own mod settings/settings
+... also is this optimal? we do use deltas to update clients, so most
+settings would remain static."
+
+- **Where the host's settings leaked in.** Two ways. RULES' SYNC keys put
+  the host's COD Style Aiming (and with it Aim Lock), Quick Weapon Swap,
+  Skip Death Screen, Disable Fog, Glass See-Through and Tranquilizer Effect
+  over a client's own for the whole match (spec-stage.md had them SYNC for
+  prediction and, for the last three, fairness). And the host simulated a
+  client's player by the host's own values of whatever it read during that
+  player's tick or HUD pass. Probe (scratchpad own/run.sh: host all off,
+  client all on): before, the client's own values read 0 during the match
+  and the host played it with 0; after, 1 on both, the host's own player
+  still 0.
+- **Three classes now (netrules.c's header).** The host's rules (SYNC,
+  MUST...: jump, roll, melee, flinch since it moves hitboxes, Start Armed,
+  bodies, akimbo, the guards, respawns and lives, GoldenEye's guns and
+  region). A player's own that the host simulates it by (NETKEY_PLAYER: COD
+  Style Aiming, Aim Lock, Akimbo Triggers, Quick Weapon Swap, Skip Death
+  Screen, the third person camera and the tilt). Each machine's own,
+  never on the wire: anything that is only the picture or the sound, now
+  Disable Fog, Glass See-Through and Tranquilizer Effect too. The user chose
+  "all own" for the four that give an edge (Quick Weapon Swap, fog, glass,
+  tranquilizer): every player has the same options in their menu.
+- **The wire.** SLOTCFG (and CONNECT) end in `u8 n` and (str key, VALUE)
+  for each NETKEY_PLAYER key, written from the table
+  (`netRulesWritePlayerKeys`), so a new player setting is one table line.
+  By name, not position: a key the host does not list as a player's own is
+  read past and the host plays it by its own value. ENet fragments reliable
+  sends, so the ~500 bytes are no concern; `s_SlotCfgSent` is 1024.
+- **Is it optimal (the user's question).** Settings never go in the
+  snapshot deltas: those are host to client, settings client to host.
+  SLOTCFG goes at connect and again only when its bytes change (compared
+  every 30 ticks), so a setting that stays put costs nothing after the
+  join. A change mid-match reaches the host within half a second plus the
+  ping; until then the client predicts by its new value and the host plays
+  the old one, and the corrections cover it.
+- **The host.** `netRulesReadPlayerKeys` resolves each key to this
+  machine's variable once (`configGetEntry`) and clamps the value with
+  `configClampValue` (the registration's range; a NaN float, a string or a
+  type that differs is dropped). `netPlayersOwnBegin`/`End` swap the whole
+  set in around a client's `playerTick` (lv.c `lvTickPlayer`): many reads
+  there are straight `g_ModOptions.x`. **Reads outside that window** are
+  the trap: Skip Death Screen is read in `playerRenderHud` (the HUD pass)
+  and Akimbo Triggers in `amTick`, which loops the players itself. So
+  modoptions.c's getters for the integer player keys go through `modOwn()`
+  -> `netSlotOwnS32(currentplayernum, &field, mine)` (the slot's value by
+  the variable's address), right inside or outside the window. A new
+  player key read outside `playerTick` needs its getter on `modOwn`.
+- **A read about another player.** A tranquilizer hit is read during the
+  shooter's tick (`setCurrentPlayerNum` to the victim, but the swap is the
+  shooter's). Tranquilizer Effect is each machine's own, so the host now
+  drugs a remote victim whatever its own setting says
+  (`!netIsLocalSlot`), and the client's setting decides its screen.
+- **The drugged screen online.** Before this a client never saw it: the
+  amount lived in the host's chr only. The local-player block carries
+  `u16 blurdrug` (byte 200, from the zero tail) and the client sets its
+  chr's `blurdrugamount` from each block; lv.c runs it down between
+  blocks. Checked: host sets client 1's to 4000, the client reads 3926 a
+  second later (0 before).
+- **Not swapped: the host's passes for a client's view.** The host's
+  drawing of a client's view (fog's room walk, glass's portal, a chr's
+  past-the-fog flag) uses the host's picture settings. That only moves
+  what the host considers on screen, which is the host's world anyway;
+  snapshots are not culled by view.
+
 

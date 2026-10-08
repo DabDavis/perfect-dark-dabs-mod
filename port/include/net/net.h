@@ -84,10 +84,10 @@ s32 netMouseLocked(s32 playernum);
 
 // player0f0bd358: the aspect of the screen this player is seen on
 f32 netSlotAspect(s32 playernum);
-// a player's own Aim Lock / akimbo triggers (modoptions.c): a remote
-// player's from its SLOTCFG, else `mine`, this machine's
-s32 netSlotAimLock(s32 playernum, s32 codaiming, s32 mine);
-s32 netSlotAkimboTriggers(s32 playernum, s32 mine);
+// a player's own value of an integer NETKEY_PLAYER setting (modoptions.c's
+// getters, by the setting's variable): on the host a remote player's from
+// its SLOTCFG, else `mine`, this machine's (protocol 20)
+s32 netSlotOwnS32(s32 playernum, const s32 *var, s32 mine);
 // The host: buttons a client's player pressed this tick, as its command
 // carried them (START too); 0 for anyone else's (GoldenEye's exit, gexplus.c)
 u32 netPlayersHostPressed(s32 playernum, u32 mask);
@@ -416,10 +416,11 @@ void netCoopHostFade(u32 colour, s16 frames);
 void netCoopLeaveMission(void);
 // objectives.c objectiveCheck on a client: the host's status, 1 when known
 s32 netCoopObjectiveStatus(s32 index, s32 *status);
-// lv.c lvTickPlayer, the host: a client's third person camera settings in
-// g_ModOptions around its playerTick, the host's own back after (protocol 19)
-void netPlayersCamBegin(s32 playernum);
-void netPlayersCamEnd(void);
+// lv.c lvTickPlayer, the host: a client's own settings (NETKEY_PLAYER: the
+// third person camera, COD aiming...) in their variables around its
+// playerTick, the host's own back after (protocols 19, 20)
+void netPlayersOwnBegin(s32 playernum);
+void netPlayersOwnEnd(void);
 // player.c playerTickThirdPerson, the host: a client's tethered body as its
 // command carried it (protocol 19, NETCMD_BODY); 0 none (radians, 0 to tau)
 s32 netPlayersHostBody(s32 playernum, f32 *facing, f32 *travel, s32 *travelset);

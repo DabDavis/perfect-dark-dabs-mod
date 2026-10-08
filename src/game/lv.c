@@ -2919,7 +2919,7 @@ void lvTickPlayer(void)
 	f32 xdiff;
 	f32 zdiff;
 
-	if (g_NetMode == NETMODE_SERVER) netPlayersCamBegin(g_Vars.currentplayernum); // netplay: a client's own third person camera settings
+	if (g_NetMode == NETMODE_SERVER) netPlayersOwnBegin(g_Vars.currentplayernum); // netplay: a client's own settings (camera, aiming...)
 
 	if (var80075d64 == 2) {
 		if (var80075d68 == 2) {
@@ -2929,7 +2929,7 @@ void lvTickPlayer(void)
 		}
 	}
 
-	if (g_NetMode == NETMODE_SERVER) netPlayersCamEnd();
+	if (g_NetMode == NETMODE_SERVER) netPlayersOwnEnd();
 
 #ifndef PLATFORM_N64
 	// GE Plus's Cinema puts the camera where GoldenEye's own shot stands and

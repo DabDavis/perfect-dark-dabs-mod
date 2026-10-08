@@ -964,6 +964,12 @@ static void netLpCapture(s32 slot, s32 pn, u8 *out)
 	s.loaded[2] = p->hands[HAND_LEFT].loadedammo[0];
 	s.loaded[3] = p->hands[HAND_LEFT].loadedammo[1];
 
+	if (p->prop->chr) {
+		const s32 blur = p->prop->chr->blurdrugamount;
+
+		s.blurdrug = (u16)(blur < 0 ? 0 : blur > 0xffff ? 0xffff : blur);
+	}
+
 	netPredictCaptureMove(p, &s.mv);
 
 	for (i = 0; i < NETLP_NUMAMMO; i++) {
@@ -1721,6 +1727,11 @@ void netEntsClientApplyLocal(void)
 			playerDisplayHealth();
 		}
 	}
+
+	// a tranquilizer's drugged screen: the host's amount, run down here
+	// between blocks as lv.c runs it down; this machine's own Tranquilizer
+	// Effect decides whether it is drawn
+	p->prop->chr->blurdrugamount = lp->blurdrug;
 
 	// movement: the host's state after the command it played, squared with
 	// this machine's own run of the commands since (a respawn or teleport
