@@ -3300,7 +3300,11 @@ bool propIsOfCdType(struct prop *prop, u32 types)
 		} else {
 			struct player *player = g_Vars.players[playermgrGetPlayerNumByProp(prop)];
 
-			if (!player->bondperimenabled || (g_Vars.mplayerisrunning && player->isdead)) {
+			if (!player->bondperimenabled || (g_Vars.mplayerisrunning && player->isdead)
+#ifndef PLATFORM_N64
+					|| g_NetPlayersPassThrough // netplay: a co-op player moving walks through the others
+#endif
+					) {
 				result = false;
 			}
 		}

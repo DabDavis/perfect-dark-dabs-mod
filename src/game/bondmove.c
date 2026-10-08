@@ -2672,6 +2672,11 @@ void bmoveTick(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 	f32 distance;
 
 	if (g_NetMode == NETMODE_CLIENT) netPredictMoveBegin(allowc1x, allowc1y, allowc1buttons, ignorec2); // netplay: the tick's movement, for a replay
+#ifndef PLATFORM_N64
+	// netplay: on an online co-op mission a player's own movement passes
+	// through the other players (prop.c propIsOfCdType); shots still hit them
+	g_NetPlayersPassThrough = g_NetMode != NETMODE_NONE && g_Vars.coopplayernum >= 0;
+#endif
 	bmoveProcessInput(allowc1x, allowc1y, allowc1buttons, ignorec2);
 
 	if (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {
@@ -2743,6 +2748,10 @@ void bmoveTick(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 	// not the one it started from - a sample taken earlier would replay the
 	// run a frame behind where it was.
 	modGhostRecordSample();
+#endif
+
+#ifndef PLATFORM_N64
+	g_NetPlayersPassThrough = 0;
 #endif
 }
 

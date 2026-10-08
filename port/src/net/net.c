@@ -49,6 +49,7 @@ static s32 s_NetMouseDX = 0;
 static s32 s_NetMouseDY = 0;
 
 static s32 s_NetSignalsInstalled = 0;
+s32 g_NetPlayersPassThrough = 0;
 
 /**
  * The first SIGINT/SIGTERM/SIGHUP asks for a clean stop at the top of the

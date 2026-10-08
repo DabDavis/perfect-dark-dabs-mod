@@ -186,6 +186,12 @@ static inline void netWorldSoundEnd(s32 pass)
 	if (g_NetMode != NETMODE_NONE) g_NetRemotePass = pass;
 }
 
+// Set by bmoveTick around a player's own movement on an online co-op mission:
+// the other players are no obstacle to it (prop.c propIsOfCdType), the same on
+// the host and in a client's prediction. Hits are not collision: shots still
+// land on them. 0 offline, and in a Combat Simulator match.
+extern s32 g_NetPlayersPassThrough;
+
 // The players' own settings for the match (data.h PLAYER_EXTCFG()):
 // g_NetExtCfg is on from the match's start to its end (H1/H3 .. H12)
 extern s32 g_NetExtCfgOn;

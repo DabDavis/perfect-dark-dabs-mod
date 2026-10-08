@@ -1265,4 +1265,21 @@ immediately type without choosing type with keyboard".
   points of the mission ran on, so it depends on what the mission has in a
   chr's hands at the join. Next session: catch it with the cycle walker
   (a gdb script walking `prop->child`/`next` from chrTick's prop).
+- **Co-op players pass through each other (2026-10-08, the user: "players
+  may need to be able to move through each other, but not shoot through
+  each other", "only coop").** Five netbots joining in progress were put
+  beside the host (netCoopJoinSpawn) and boxed it in. `bmoveTick` sets
+  `g_NetPlayersPassThrough` around a player's own movement on an online
+  co-op mission (`g_Vars.coopplayernum >= 0`, set the same way by
+  netCoopHostStart and netCoopClientStage), and `propIsOfCdType` then takes
+  no player prop as an obstacle - the one filter every movement test uses.
+  The host and a client's prediction run the same `bmoveTick`, so they agree.
+  Shots never ask `propIsOfCdType` (hits are model tests), so players still
+  take each other's fire; guards still block and are blocked. A Combat
+  Simulator match keeps players solid.
+- **Also seen in that test, not fixed (next session):** a leaving player's
+  guns float at head height on the host (netSeatVacate's
+  currentPlayerDropAllItems: never let go of, or the projectile never
+  ticks - its view is skipped once the seat is out of play); "dying black
+  screens" in the co-op mission (the user's words; ask what they saw).
 
