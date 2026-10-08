@@ -1914,3 +1914,26 @@ the host's going is lost (the block is the host's last word); the swirl
 at the resumed match's start plays as at any start; a campaign mission
 restarted on GoldenEye's 007 difficulty keeps the room's difficulty, not
 the old host's sliders; the gate has no GoldenEye campaign case.
+
+**Hardened (2026-10-08, branch fix/net-1008-lobby; pdlobbyd api 3, same
+shape).** An audit found a healthy host could be moved and a member could
+steer it. The host's heartbeat had run from the action thread after every
+queued job, so one slow request made it late; it now has a thread of its
+own (`lobbyBeatThread`, 4 s timeout). `hostlost` carries only with more
+than half the players and at least two, the host silent 12 s on both its
+heartbeat and its rendezvous socket (REGISTER, PROBE_REPLY); a room of two
+waits for the 15 s timeout (netmigratetest `crash` is a room of three, so
+it still moves on the reports). `pick_host` ranks on the lobby's own PROBE
+round trip to each member (members' games answer PROBE now; older ones
+rank after every timed member, on their own ping) and treats a member on
+one of the lobby's relays as relayed whatever it reports; `nat` "open"
+counts only while registered. Relays: only forwarded traffic keeps one,
+both ends must bind within 10 s, 2 per joiner address, open rooms hold at
+most 16 of the 32 (the game climbs its ladder on entering the room and now
+again at once when the room starts counting down, `netRdvRetrySoon`, so a
+member refused in the open room gets one for the match). Per-address limits
+key IPv6 on the /64; 64 sessions per address; 6 creates / 10 min per
+account as well as per address (one room per account was already so).
+netticket: one user holds at most 4 of the host's 64 live nonces, so a
+member reconnecting twice a second no longer turns every other join away
+as "too many joins at once" (the self test covers it). No protocol change.
