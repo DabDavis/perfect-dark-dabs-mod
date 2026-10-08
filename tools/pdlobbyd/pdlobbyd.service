@@ -1,6 +1,8 @@
 [Unit]
 Description=Perfect Dark Lobby Server (Dab's Mod netplay rooms)
-After=network.target
+# the UDP side binds the box's public address, which has to be up first
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
@@ -11,10 +13,15 @@ Restart=on-failure
 RestartSec=5
 
 # Everything is in memory; nothing is written anywhere. HTTP stays on
-# 127.0.0.1 behind nginx, the rendezvous listens on UDP 27101 on every address.
+# 127.0.0.1 behind nginx. The rendezvous (UDP 27101) and the relays
+# (27110-27141) listen on the box's public address, not on every address:
+# bound to 0.0.0.0 they answered a game that came in over the WireGuard
+# tunnel (a peer routing everything through 10.8.0.1) from 10.8.0.1, not
+# the address it had sent to, and the game dropped every answer. A new
+# public address for the box goes here too, or the UDP side cannot bind.
 Environment=PDLOBBYD_HOST=127.0.0.1
 Environment=PDLOBBYD_PORT=8091
-Environment=PDLOBBYD_UDP_HOST=0.0.0.0
+Environment=PDLOBBYD_UDP_HOST=104.156.237.19
 Environment=PDLOBBYD_UDP_PORT=27101
 Environment=PDLOBBYD_AUTH=ghost
 Environment=PDLOBBYD_GHOST_URL=http://127.0.0.1:8090

@@ -483,6 +483,16 @@ included; raise it before a real crowd. A redeploy is `scp` the script over,
 the box, `sudo -n systemctl restart pdlobbyd` (rooms are in memory: a restart
 empties them). `journalctl -u pdlobbyd -f` for the log.
 
+The unit binds the UDP side to the box's public address (104.156.237.19),
+not 0.0.0.0. A socket on every address answers from whichever address the
+reply's route picks: a game on the box's WireGuard (a peer whose
+`AllowedIPs = 0.0.0.0/0` sends everything, the lobby's public address
+included, down the tunnel) sent REGISTER to 104.156.237.19 and heard
+REGISTERED from 10.8.0.1, which netrdv.c drops as not the rendezvous's, so
+its ladder gave up ("the lobby's rendezvous did not answer") and it never
+punched or relayed. Bound to the public address, the answer leaves from it
+on whichever interface. If the box's address changes, change the unit.
+
 ```sh
 scp tools/pdlobbyd/pdlobbyd.py sdg@10.8.0.1:~/pdlobbyd.py
 scp tools/pdlobbyd/pdlobbyd.service sdg@10.8.0.1:/tmp/
