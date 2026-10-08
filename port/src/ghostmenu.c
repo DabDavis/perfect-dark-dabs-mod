@@ -1105,7 +1105,7 @@ struct menuitem g_GhostChooserMenuItems[] = {
 		// row that names a time and a player.
 		MENUITEMTYPE_LIST,
 		0,
-		0,
+		MENUITEMFLAG_LIST_LEAVEATENDS,
 		0x000000c8,
 		0,
 		menuhandlerGhostChooser,
@@ -1293,7 +1293,7 @@ struct menuitem g_GhostMineMenuItems[] = {
 		// and a player, and the default of 80 clips it.
 		MENUITEMTYPE_LIST,
 		0,
-		0,
+		MENUITEMFLAG_LIST_LEAVEATENDS,
 		0x000000c8,
 		0,
 		menuhandlerGhostMine,
@@ -2337,6 +2337,11 @@ static char *menutextGhostAccountsStatus(struct menuitem *item)
 	} else if (ghostnetHasAccount()) {
 		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
 				langTr("Using %s - A on a name switches.\n"), ghostnetGetAccountName());
+	} else if (ghostnetGetNumAccounts() > 0) {
+		// names listed, and the one in use has no PIN (an Add Account left
+		// half done): "no account" over a list of them read as a fault
+		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
+				"%s", langTr("A on a name to use it, or Add Account.\n"));
 	} else {
 		snprintf(g_GhostAccountsMsg, sizeof(g_GhostAccountsMsg),
 				"%s", langTr("No account on this machine yet.\n"));
@@ -2438,7 +2443,7 @@ struct menuitem g_GhostAccountsMenuItems[] = {
 	{
 		MENUITEMTYPE_LIST,
 		0,
-		0,
+		MENUITEMFLAG_LIST_LEAVEATENDS,
 		0x00000078,
 		0,
 		menuhandlerGhostAccountList,
@@ -2843,7 +2848,7 @@ struct menuitem g_GhostBoardMenuItems[] = {
 	{
 		MENUITEMTYPE_LIST,
 		0,
-		0,
+		MENUITEMFLAG_LIST_LEAVEATENDS,
 		0x000000c8,
 		0,
 		menuhandlerGhostBoard,

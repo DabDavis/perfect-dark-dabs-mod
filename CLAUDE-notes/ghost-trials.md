@@ -102,6 +102,18 @@ a name that does not exist to make it.
 - `ghostnetLogin()` stays the plain sign-in (no create): choosing a
   remembered account, and Ghost Trials' sign-in on open, never make one.
 
+**A list next to other rows was a cursor trap.** `menuitemListTick` wraps
+at both ends and keeps Up and Down to itself while it has entries - right
+for a list that is a dialog's only row, a trap anywhere else: on the
+accounts list Up from Back went into the list and nothing but the mouse or
+Back got out (Add Account and Name And PIN unreachable). A port list with
+rows around it carries `MENUITEMFLAG_LIST_LEAVEATENDS` (0x40000000, port
+only): Up on its first entry and Down on its last are left to the dialog,
+which moves the focus off it. Set on the accounts list, Choose Ghosts, My
+Ghosts, Leaderboards, the Briefing Room's rooms and the kick list; the game's
+own lists still wrap. The accounts list's status no longer says "No account
+on this machine yet" over a list of names whose active one has no PIN.
+
 **The server counted a new account as a failed sign-in.** `/register`'s
 failure-budget check recorded, so a player who had pressed Sign In seven
 times made the account with the eighth and was refused "too many attempts"

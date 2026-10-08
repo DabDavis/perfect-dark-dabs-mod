@@ -1885,6 +1885,14 @@ s32 langpackIsCjk(void);
 #define MENUITEMFLAG_LITERAL_TEXT            0x08000000
 #define MENUITEMFLAG_SLIDER_WIDE             0x10000000
 #define MENUITEMFLAG_SLIDER_DEFERRED         0x20000000
+#ifndef PLATFORM_N64
+// A list with rows above or below it (port pages): Up on its first entry and
+// Down on its last move the focus off it. A list wraps and keeps Up and Down
+// to itself, which is right when it is the dialog's only row and a trap when
+// it is not: with one entry, Up from Back went into the list and nothing got
+// out of it again but the mouse or Back (the accounts list, 2026-10-08).
+#define MENUITEMFLAG_LIST_LEAVEATENDS        0x40000000
+#endif
 
 #define MENUITEMTYPE_LABEL       0x01
 #define MENUITEMTYPE_LIST        0x02

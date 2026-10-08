@@ -805,7 +805,7 @@ static struct menuitem s_BriefingItems[] = {
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Refresh\n", 0, handlerRefresh },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Join\n", 0, handlerJoin },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Create\n", 0, handlerCreateOpen },
-	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER, 304, ROOMROWH * 5, handlerRoomList },
+	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_CUSTOMRENDER | MENUITEMFLAG_LIST_LEAVEATENDS, 304, ROOMROWH * 5, handlerRoomList },
 	{ MENUITEMTYPE_END },
 };
 
@@ -1954,7 +1954,7 @@ static MenuItemHandlerResult handlerKickList(s32 operation, struct menuitem *ite
 
 static struct menuitem s_KickItems[] = {
 	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)"Remove a player from the room (they cannot rejoin it).\n", 0, NULL },
-	{ MENUITEMTYPE_LIST, 0, 0, 160, 66, handlerKickList },
+	{ MENUITEMTYPE_LIST, 0, MENUITEMFLAG_LIST_LEAVEATENDS, 160, 66, handlerKickList },
 	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG, (uintptr_t)"Back\n", 0, NULL },
 	{ MENUITEMTYPE_END },
 };

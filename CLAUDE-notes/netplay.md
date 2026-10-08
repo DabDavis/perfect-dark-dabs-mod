@@ -431,7 +431,9 @@ then lists, joins, READYs and plays; the Linux host is
   in as X..." then "Signed in as X" or the refusal before anything is
   pressed; it used to sign in at the first Browse or Create. Its Sign In row
   opens the account page itself (ghostmenu.c), not Ghost Trials' list of
-  remembered accounts, whose list the cursor could not leave upwards; one
+  remembered accounts, whose list the cursor could not leave upwards (fixed
+  since, `MENUITEMFLAG_LIST_LEAVEATENDS`, the Briefing Room's room list too:
+  Refresh and Create were out of reach from it); one
   Sign In there makes the account for a new name and the page closes when it
   has worked (ghost-trials.md, "One Sign In button"), and this page then
   signs into the lobby with it. Signed in, the row reads Change Account.

@@ -729,6 +729,9 @@ bool menuitemListTick(struct menuitem *item, struct menuinputs *inputs, u32 tick
 	u32 last;
 	s16 prev2;
 	s16 prev;
+#ifndef PLATFORM_N64
+	s32 leave = false;
+#endif
 
 	if (item->handler == NULL) {
 		return true;
@@ -796,7 +799,13 @@ bool menuitemListTick(struct menuitem *item, struct menuinputs *inputs, u32 tick
 				prev2 = data->list.index;
 				data->list.index += inputs->updown;
 #else
-			if (inputs->updown || inputs->mousescroll) {
+			// past either end, Up or Down is the dialog's: the focus moves
+			// to the row above or below the list (MENUITEMFLAG_LIST_LEAVEATENDS)
+			leave = (item->flags & MENUITEMFLAG_LIST_LEAVEATENDS)
+				&& ((inputs->updown < 0 && data->list.index <= 0)
+					|| (inputs->updown > 0 && data->list.index >= (s16)last));
+
+			if (!leave && (inputs->updown || inputs->mousescroll)) {
 				prev2 = data->list.index;
 				data->list.index += inputs->updown + inputs->mousescroll;
 #endif
@@ -836,6 +845,9 @@ bool menuitemListTick(struct menuitem *item, struct menuinputs *inputs, u32 tick
 				}
 			}
 
+#ifndef PLATFORM_N64
+			if (!leave)
+#endif
 			inputs->updown = false;
 		}
 	}
