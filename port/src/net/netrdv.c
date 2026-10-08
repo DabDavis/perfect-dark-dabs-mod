@@ -1037,7 +1037,7 @@ void netRdvRaw(struct nethost *h, const struct netevent *ev)
 		}
 		break;
 	case T_PROBE:
-		if (fromLobby(&ev->from) && s_InRoom && s_Host && len == 18 && get32(d + 6) == s_RoomNum) {
+		if (fromLobby(&ev->from) && s_InRoom && len == 18 && get32(d + 6) == s_RoomNum) {
 			u8 msg[18];
 
 			memcpy(msg, d, 18);
@@ -1454,6 +1454,24 @@ void netRdvHostChanged(void)
 	s_FailedAt = 0;
 	s_LastReg = 0;
 	sysLogPrintf(LOG_NOTE, "rdv: the room's host changed; waiting for its PEER");
+}
+
+/**
+ * The room is starting: a ladder that failed (or whose relay request was
+ * refused) tries again at once instead of at its next retry.
+ */
+void netRdvRetrySoon(void)
+{
+	if (!s_InRoom || s_Host) {
+		return;
+	}
+
+	if (s_Ladder == NETRDV_LADDER_FAILED && s_HavePeer) {
+		sysLogPrintf(LOG_NOTE, "rdv: the room is starting; trying for a path to the host again");
+		rdvStartLadder();
+	} else if (s_Ladder == NETRDV_LADDER_RUNNING && s_RelayRefusedAt) {
+		s_RelayRefusedAt = 0;
+	}
 }
 
 const char *netRdvPathName(s32 path)

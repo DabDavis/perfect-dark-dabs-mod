@@ -34,12 +34,12 @@
  * The lobby client: tools/pdlobbyd/README.md is the API it speaks, and
  * netlobby.h says how the pieces fit.
  *
- * Two worker threads of its own, never ghostnet's one-job worker (a 20 s
+ * Three worker threads of its own, never ghostnet's one-job worker (a 20 s
  * long-poll there would hold up a ghost upload, and the reverse): the
  * action thread takes jobs off a short queue - sign in, list, create, join,
- * the member actions - and sends the host's heartbeat every 5 s; the poll
- * thread sits in GET /rooms/<id>/state while this machine is in a room.
- * Both reach the network through ghostnetSend, the HTTPS transport the ghost
+ * the member actions -; the beat thread sends the host's heartbeat every
+ * 5 s, never behind that queue; the poll thread sits in
+ * GET /rooms/<id>/state while this machine is in a room. All reach the network through ghostnetSend, the HTTPS transport the ghost
  * client, the updater and the crash reporter share.
  *
  * What the threads hear is parsed on the thread, with a bounded scanner
@@ -58,6 +58,7 @@
 #define LOBBY_QUEUE        16
 #define LOBBY_POLL_WAIT    20   // s the lobby parks a state poll (it caps at 25)
 #define LOBBY_HEARTBEAT_MS 5000
+#define LOBBY_HEARTBEAT_TIMEOUT 4 // s: a beat that takes longer gives way to the next
 #define LOBBY_LAUNCH_WAIT_MS 20000 // the host waits this long for the launched to connect
 #define LOBBY_REPLY_MAX    (64 * 1024)
 #define LOBBY_LADDER_WAIT_MS 15000 // a member at launch waits this long for its path to the host
@@ -89,6 +90,7 @@ static SDL_mutex *s_Lock = NULL;
 static SDL_cond *s_Wake = NULL;
 static SDL_Thread *s_ActionThread = NULL;
 static SDL_Thread *s_PollThread = NULL;
+static SDL_Thread *s_BeatThread = NULL;
 static volatile s32 s_Quit = 0;
 static s32 s_Threads = 0;        // running, under s_Lock: shutdown waits a moment for them
 
@@ -1104,7 +1106,8 @@ static void lobbyRunJob(struct lobbyjob *job)
 			break;
 		}
 
-		status = lobbyRequest(path, job->body, AUTH_MEMBER, 0, &reply, &obj, &objok, err, sizeof(err));
+		status = lobbyRequest(path, job->body, AUTH_MEMBER, strcmp(job->path, "heartbeat") == 0 ? LOBBY_HEARTBEAT_TIMEOUT : 0,
+				&reply, &obj, &objok, err, sizeof(err));
 
 		if (status == 200) {
 			if (strcmp(job->path, "heartbeat") == 0 && objok) {
@@ -1214,13 +1217,10 @@ static void lobbyLearnUdp(void)
 
 static int lobbyActionThread(void *arg)
 {
-	u64 lastbeat = 0;
-
 	lobbyComputeContent();
 
 	for (;;) {
 		struct lobbyjob job;
-		s32 beat = 0;
 		s32 user = 0;
 		s32 learn = 0;
 
@@ -1237,11 +1237,6 @@ static int lobbyActionThread(void *arg)
 			}
 
 			if (s_QueueLen > 0) {
-				break;
-			}
-
-			if (s_InRoomShared && s_IsHost && now - lastbeat >= LOBBY_HEARTBEAT_MS) {
-				beat = 1;
 				break;
 			}
 
@@ -1262,19 +1257,10 @@ static int lobbyActionThread(void *arg)
 			continue;
 		}
 
-		if (beat) {
-			memset(&job, 0, sizeof(job));
-			job.kind = JOB_ACTION;
-			job.epoch = s_Epoch;
-			snprintf(job.path, sizeof(job.path), "heartbeat");
-			snprintf(job.body, sizeof(job.body), "{}");
-			lastbeat = lobbyNowMs();
-		} else {
-			job = s_Queue[s_QueueHead];
-			s_QueueHead = (s_QueueHead + 1) % LOBBY_QUEUE;
-			s_QueueLen--;
-			user = job.kind == JOB_LIST || job.kind == JOB_CREATE || job.kind == JOB_JOIN || job.kind == JOB_SIGNIN;
-		}
+		job = s_Queue[s_QueueHead];
+		s_QueueHead = (s_QueueHead + 1) % LOBBY_QUEUE;
+		s_QueueLen--;
+		user = job.kind == JOB_LIST || job.kind == JOB_CREATE || job.kind == JOB_JOIN || job.kind == JOB_SIGNIN;
 
 		SDL_UnlockMutex(s_Lock);
 
@@ -1285,6 +1271,49 @@ static int lobbyActionThread(void *arg)
 			s_Busy--;
 			SDL_UnlockMutex(s_Lock);
 		}
+	}
+}
+
+/**
+ * The host's heartbeat, on a thread of its own: the lobby hands a room on
+ * when its host's beat goes quiet, so a beat must never wait behind the
+ * action queue (a join, a create, a list against a slow lobby) - it once
+ * did, and one slow request made a healthy host's beat late. It times out
+ * short of the next beat, so a hung exchange cannot hold the one after.
+ */
+static int lobbyBeatThread(void *arg)
+{
+	u64 lastbeat = 0;
+
+	for (;;) {
+		struct lobbyjob job;
+
+		SDL_LockMutex(s_Lock);
+
+		for (;;) {
+			if (s_Quit) {
+				s_Threads--;
+				SDL_CondBroadcast(s_Wake);
+				SDL_UnlockMutex(s_Lock);
+				return 0;
+			}
+
+			if (s_InRoomShared && s_IsHost && lobbyNowMs() - lastbeat >= LOBBY_HEARTBEAT_MS) {
+				break;
+			}
+
+			SDL_CondWaitTimeout(s_Wake, s_Lock, 250);
+		}
+
+		memset(&job, 0, sizeof(job));
+		job.kind = JOB_ACTION;
+		job.epoch = s_Epoch;
+		snprintf(job.path, sizeof(job.path), "heartbeat");
+		snprintf(job.body, sizeof(job.body), "{}");
+		lastbeat = lobbyNowMs();
+		SDL_UnlockMutex(s_Lock);
+
+		lobbyRunJob(&job);
 	}
 }
 
@@ -1448,9 +1477,10 @@ static void lobbyStartThreads(void)
 
 	s_Lock = SDL_CreateMutex();
 	s_Wake = SDL_CreateCond();
-	s_Threads = 2;
+	s_Threads = 3;
 	s_ActionThread = SDL_CreateThread(lobbyActionThread, "lobby", NULL);
 	s_PollThread = SDL_CreateThread(lobbyPollThread, "lobbypoll", NULL);
+	s_BeatThread = SDL_CreateThread(lobbyBeatThread, "lobbybeat", NULL);
 }
 
 static void lobbyQueue(s32 kind, const char *path, const char *body)
@@ -2918,6 +2948,16 @@ void netLobbyTick(void)
 				}
 			}
 
+			// the room is starting (countdown or launch): a member whose
+			// ladder found no path climbs it again now rather than at its
+			// next 20 s retry - the lobby keeps relays it hands open rooms
+			// to a share of its ports, and a launching room gets one
+			// from the rest
+			if ((s_PendRoom.countdownms >= 0 || s_PendRoom.launched) && s_Room.countdownms < 0 && !s_Room.launched
+					&& !s_MainIsHost) {
+				netRdvRetrySoon();
+			}
+
 			s_SeenRoomSeq = s_PendRoomSeq;
 			s_Room = s_PendRoom;
 			s_RoomAtMs = lobbyNowMs();
@@ -3084,8 +3124,10 @@ void netLobbyShutdown(void)
 
 		SDL_DetachThread(s_ActionThread);
 		SDL_DetachThread(s_PollThread);
+		SDL_DetachThread(s_BeatThread);
 		s_ActionThread = NULL;
 		s_PollThread = NULL;
+		s_BeatThread = NULL;
 	}
 #endif
 

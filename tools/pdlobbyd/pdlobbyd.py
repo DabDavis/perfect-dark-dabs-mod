@@ -58,7 +58,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-API_VERSION = 2   # 2: host migration (README "Host migration")
+API_VERSION = 3   # 2: host migration (README "Host migration"); 3: the same shape, hardened (README "Limits")
 
 
 def env(name, default):
@@ -103,7 +103,10 @@ class Config:
 
         # Rooms and members.
         self.max_rooms = 200
+        # Per address: an IPv4 address, or an IPv6 /64 (one subscriber's
+        # network; a host with a /64 has 2^64 addresses to spread over).
         self.max_rooms_per_ip = 4
+        self.v6_prefix = 64
         # the game host's own limit (NET_MAXSPECS in port/include/net/netproto.h):
         # a spectator past it would be refused by the host
         self.max_spectators = 2
@@ -112,13 +115,17 @@ class Config:
         self.chat_keep = 50
         self.countdown = 5.0
         self.host_timeout = 15.0
-        # Host migration: a host whose heartbeat is this old, and whom half
-        # the playing members or more have reported lost (hostlost) within
-        # hostlost_keep, is gone now rather than at host_timeout. A host
-        # beats every 5 s, so a live one never reaches it; a report alone
-        # never moves a room off a host that is still beating.
-        self.hostlost_grace = 8.0
+        # Host migration: a host silent this long (no heartbeat, nothing on
+        # its rendezvous socket either), and reported lost (hostlost) within
+        # hostlost_keep by more than half the playing members and at least
+        # hostlost_votes of them, is gone now rather than at host_timeout. A
+        # host beats every 5 s on a thread of its own, so this is two missed
+        # beats and some; a report never moves a room off a host that is
+        # still beating, and one member's word never moves it at all (a lone
+        # member's room waits for host_timeout).
+        self.hostlost_grace = 12.0
         self.hostlost_keep = 20.0
+        self.hostlost_votes = 2
         self.member_timeout = 30.0
         self.gone_keep = 120.0
         self.reap_interval = 1.0
@@ -127,6 +134,9 @@ class Config:
         self.session_ttl = 12 * 3600.0
         self.max_sessions = 5000
         self.sessions_per_user = 4
+        # sessions signed in from one address: a LAN party's dozen players
+        # with a few each, not the table; the oldest from it goes first
+        self.sessions_per_ip = 64
         # A ticket covers the connect window, not the lobby wait: it is only
         # issued once the countdown starts, and a fresh one comes with every
         # state reply after that.
@@ -143,7 +153,7 @@ class Config:
         self.poll_rate = 10.0
         self.poll_burst = 30.0
         self.login_window = (300.0, 10)
-        self.create_window = (600.0, 6)
+        self.create_window = (600.0, 6)     # per address, and per account
         self.join_window = (60.0, 30)
         self.badpass_window = (300.0, 5)
         self.chat_window = (10.0, 6)
@@ -171,12 +181,18 @@ class Config:
         self.relay_ports = env("PDLOBBYD_RELAY_PORTS", "27110-27141")
         self.relay_max = 32               # pairs at once, all rooms
         self.relay_per_room = 16          # pairs in one room
+        # The game climbs its ladder as it enters a room, so an open room's
+        # members ask for relays too; those may hold only this many, and
+        # the rest stay for rooms that are starting or playing.
+        self.relay_open_max = 16
+        self.relay_per_ip = 2             # pairs whose joiner asked from one address
+        self.relay_bind_deadline = 10.0   # s for both ends to bind, or it closes
         self.relay_room_bps = 256 * 1024  # bytes a second through one room's relays
         self.relay_room_pps = 2000.0      # datagrams a second through one room's relays
         self.relay_global_bps = 2 * 1024 * 1024
         self.relay_global_pps = 8000.0
         self.relay_burst = 2.0            # buckets hold this many seconds of their rate
-        self.relay_idle = 60.0            # s with nothing forwarded or bound: closed
+        self.relay_idle = 60.0            # s with nothing forwarded: closed (asking again keeps nothing open)
         self.relay_max_datagram = 1400    # bytes; the game sends at most 1200
         self.offer_min_interval = 0.5
         # Members report their path to the host and its ping (netinfo); a
@@ -247,6 +263,24 @@ def parse_endpoint(text):
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
         ip = ip.ipv4_mapped
     return str(ip), port
+
+
+def addr_key(ip, v6_prefix=64):
+    """What the per-address limits count: an IPv4 address as it is, an IPv6
+    one as its /64 (a subscriber gets a whole /64, so a limit on the full
+    address limits nothing). A v4-mapped v6 address is its v4 one; anything
+    that does not parse is its own key."""
+    if ":" not in ip:
+        return ip
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if isinstance(a, ipaddress.IPv6Address):
+        if a.ipv4_mapped:
+            return str(a.ipv4_mapped)
+        return str(ipaddress.IPv6Network((a, v6_prefix), strict=False))
+    return str(a)
 
 
 def format_endpoint(ip, port):
@@ -533,17 +567,18 @@ class HttpError(Exception):
 
 
 class Session:
-    __slots__ = ("token", "user", "expires")
+    __slots__ = ("token", "user", "expires", "key")
 
-    def __init__(self, token, user, expires):
-        self.token, self.user, self.expires = token, user, expires
+    def __init__(self, token, user, expires, key=""):
+        self.token, self.user, self.expires, self.key = token, user, expires, key
 
 
 class Member:
     __slots__ = ("user", "token", "host", "ip", "team", "ready", "spectator",
                  "joined", "seen", "poll", "udp_id", "udp_key", "udp_seq",
                  "udp_public", "udp_private", "udp_seen", "peer_sent",
-                 "path", "ping", "build", "can_host", "nat", "hostlost")
+                 "path", "ping", "build", "can_host", "nat", "hostlost",
+                 "probe_nonce", "probe_sent", "rtt")
 
     def __init__(self, user, token, host, ip, now):
         self.user = user
@@ -569,6 +604,9 @@ class Member:
         self.can_host = False      # its game says it could host the room (join, netinfo)
         self.nat = None            # "open" (no NAT: the rendezvous saw it at its own address), "nat", or unknown
         self.hostlost = 0.0        # when it last reported the host lost (hostlost), monotonic
+        self.probe_nonce = None    # the lobby's own round trip to its registered socket
+        self.probe_sent = 0.0
+        self.rtt = None            # s, smoothed; None until it answers (games before 23 never do)
 
     def role(self):
         if self.host:
@@ -792,7 +830,8 @@ class Lobby:
         now = time.monotonic()
         # A live member's own state poll is charged to that member, not to
         # its address (see Config.poll_rate); anything else to the address.
-        key, rate, burst = req.ip, self.cfg.req_rate, self.cfg.req_burst
+        req.key = addr_key(req.ip, self.cfg.v6_prefix)
+        key, rate, burst = req.key, self.cfg.req_rate, self.cfg.req_burst
         if req.method == "GET" and req.path.endswith("/state"):
             tok = req.headers.get("x-pd-member", "").strip()
             if tok in self.tokens:
@@ -847,7 +886,7 @@ class Lobby:
         username = str(body.get("username", "")).strip()
         if not USERNAME_RE.match(username):
             raise HttpError(400, "3-15 chars, letters, digits, _ . - only")
-        if not self.windows.allow(("login", req.ip), self.cfg.login_window[0],
+        if not self.windows.allow(("login", req.key), self.cfg.login_window[0],
                                   self.cfg.login_window[1], now):
             raise HttpError(429, "too many sign-ins, wait a few minutes")
 
@@ -881,7 +920,12 @@ class Lobby:
                       key=lambda s: s.expires)
         while len(mine) >= self.cfg.sessions_per_user:
             self.sessions.pop(mine.pop(0).token, None)
-        s = Session(new_token(), username, time.time() + self.cfg.session_ttl)
+        # and a few dozen per address, so one network cannot fill the table
+        # whatever accounts it has
+        here = sorted((s for s in self.sessions.values() if s.key == req.key), key=lambda s: s.expires)
+        while len(here) >= self.cfg.sessions_per_ip:
+            self.sessions.pop(here.pop(0).token, None)
+        s = Session(new_token(), username, time.time() + self.cfg.session_ttl, req.key)
         self.sessions[s.token] = s
         return {"ok": True, "session": s.token, "user": username, "expires": int(s.expires)}
 
@@ -1015,23 +1059,30 @@ class Lobby:
 
         if len(self.rooms) >= self.cfg.max_rooms:
             raise HttpError(503, "the lobby is full, try again later")
-        if sum(1 for r in self.rooms.values() if r.ip == req.ip) >= self.cfg.max_rooms_per_ip:
+        # the account's own room is not counted: making this one closes it
+        # (one room per account, which is the per-account room cap)
+        mine = self.tokens.get(self.user_room.get(s.user.lower(), ""))
+        if sum(1 for r in self.rooms.values() if r.ip == req.key and r is not mine) >= self.cfg.max_rooms_per_ip:
             raise HttpError(429, "too many rooms from this address")
         proto, build, content = read_compat(body)
 
         room_id = os.urandom(4).hex()
         while room_id in self.rooms:
             room_id = os.urandom(4).hex()
-        room = Room(room_id, os.urandom(32), req.ip, now)
+        room = Room(room_id, os.urandom(32), req.key, now)
         room.proto, room.build, room.content = proto, build, content
         self.read_settings(room, body, True, req.ip)
         room.dedicated = bool(body.get("dedicated", False))
 
         # Counted only once the request is a room, so a client fixing its
         # fields is not charged for each try.
-        if not self.windows.allow(("create", req.ip), self.cfg.create_window[0],
-                                  self.cfg.create_window[1], now):
+        if not self.windows.allow(("create", req.key), self.cfg.create_window[0],
+                                  self.cfg.create_window[1], now, record=False) \
+                or not self.windows.allow(("create_user", s.user.lower()), self.cfg.create_window[0],
+                                          self.cfg.create_window[1], now, record=False):
             raise HttpError(429, "too many rooms made, wait a few minutes")
+        self.windows.hit(("create", req.key), now)
+        self.windows.hit(("create_user", s.user.lower()), now)
 
         # One room per player: making one leaves whatever room they were in.
         self.leave_any(s.user)
@@ -1052,7 +1103,7 @@ class Lobby:
         s = self.session_auth(req)
         now = time.monotonic()
         body = req.json()
-        if not self.windows.allow(("join", req.ip), self.cfg.join_window[0],
+        if not self.windows.allow(("join", req.key), self.cfg.join_window[0],
                                   self.cfg.join_window[1], now):
             raise HttpError(429, "too many joins, wait a minute")
         room = self.rooms.get(room_id)
@@ -1071,7 +1122,7 @@ class Lobby:
         if s.user.lower() in room.kicked:
             raise HttpError(403, "the host removed you from this room", reason="kicked")
 
-        badkey = ("badpass", req.ip, room.id)
+        badkey = ("badpass", req.key, room.id)
         if room.locked():
             if not self.windows.allow(badkey, self.cfg.badpass_window[0],
                                       self.cfg.badpass_window[1], now, record=False):
@@ -1212,17 +1263,36 @@ class Lobby:
         """The member that should host next, or None. Players only (a
         spectator would have to play), and only one whose game said it can
         host this room (it has the room's content of its own) on the room's
-        build. Then: no NAT first, a punched or direct path over a relayed
-        one, the lower ping, the longest in the room."""
+        build. Then, by what the lobby saw itself wherever it can rather
+        than the member's word: no NAT first (its game's report, counted
+        only while the rendezvous has it registered and it plays through no
+        relay here); a punched or direct path over a relayed one (a relay of
+        this lobby's that carries its traffic is a relayed path whatever it
+        says); the lobby's own round trip to its socket (PROBE; a member's
+        reported ping only after every member the lobby has timed, so not
+        answering cannot jump the queue); the longest in the room."""
         cands = [m for m in room.members.values()
                  if m is not exclude and not m.host and not m.spectator and m.can_host
                  and m.build == room.build]
         if not cands:
             return None
-        return min(cands, key=lambda m: (0 if m.nat == "open" else 1,
-                                         HOST_PATH_RANK.get(m.path, 2),
-                                         m.ping if m.ping is not None else 9999,
-                                         m.joined))
+
+        def rank(m):
+            relayed = self.relayed(room, m)
+            path = "relay" if relayed else m.path
+            nat_open = m.nat == "open" and m.udp_public is not None and not relayed
+            if m.rtt is not None:
+                lag = (0, m.rtt * 1000.0)
+            else:
+                lag = (1, m.ping if m.ping is not None else 9999)
+            return (0 if nat_open else 1, HOST_PATH_RANK.get(path, 2), lag, m.joined)
+        return min(cands, key=rank)
+
+    @staticmethod
+    def relayed(room, m):
+        """m plays through one of this lobby's relays (bound at both ends)."""
+        r = room.relays.get(m.token)
+        return r is not None and r.host_ok and r.joiner_ok
 
     def host_gone(self, room, old, reason, why):
         """The host is out of the room (left, timed out, reported lost): the
@@ -1249,6 +1319,7 @@ class Lobby:
         new.spectator = False
         new.hostlost = 0.0
         new.path = new.ping = None
+        new.rtt = new.probe_nonce = None
         self.new_udp_key(new)
         room.secret = os.urandom(32)
         room.cookies.clear()
@@ -1283,14 +1354,20 @@ class Lobby:
         m.udp_seen = 0.0
 
     def check_hostlost(self, room, now):
-        """Half the playing members or more have reported the host lost, and
-        its heartbeat has missed a beat: it is gone now."""
+        """More than half the playing members, and at least hostlost_votes of
+        them, have reported the host lost, and the lobby itself has heard
+        nothing from it - no heartbeat, nothing on its rendezvous socket - for
+        hostlost_grace: it is gone now. A room with one member waits for
+        host_timeout: one game's word never moves a room."""
         host = room.host_member()
-        if host is None or now - room.host_seen <= self.cfg.hostlost_grace:
+        if host is None:
+            return False
+        heard = max(room.host_seen, host.udp_seen)
+        if now - heard <= self.cfg.hostlost_grace:
             return False
         voters = [m for m in room.members.values() if not m.host and not m.spectator]
         lost = [m for m in voters if m.hostlost and now - m.hostlost <= self.cfg.hostlost_keep]
-        if not lost or len(lost) * 2 < len(voters):
+        if len(lost) < self.cfg.hostlost_votes or len(lost) * 2 <= len(voters):
             return False
         self.host_gone(room, host, "you stopped responding; another player hosts the room now",
                        "was reported lost by %d of %d" % (len(lost), len(voters)))
@@ -1323,13 +1400,13 @@ class Lobby:
                 self.release_poll(room, m)
             if self.waiters >= self.cfg.max_waiters:
                 return self.state_of(room, m, since)
-            if self.ip_polls.get(req.ip, 0) >= self.cfg.polls_per_ip:
+            if self.ip_polls.get(req.key, 0) >= self.cfg.polls_per_ip:
                 raise HttpError(429, "too many waiting connections from this address")
             fut = asyncio.get_running_loop().create_future()
-            m.poll = (fut, req.ip)
+            m.poll = (fut, req.key)
             room.waiters.add(fut)
             self.waiters += 1
-            self.ip_polls[req.ip] = self.ip_polls.get(req.ip, 0) + 1
+            self.ip_polls[req.key] = self.ip_polls.get(req.key, 0) + 1
             try:
                 await asyncio.wait_for(fut, wait)
             except asyncio.TimeoutError:
@@ -1565,8 +1642,9 @@ class Lobby:
 
     def act_hostlost(self, req, room, m, body):
         """A member's game lost its connection to the host (host migration):
-        with half the playing members saying so and the host's heartbeat a
-        beat late, the room moves on now rather than at host_timeout."""
+        with most of the playing members (two or more) saying so and the host
+        silent past hostlost_grace, the room moves on now rather than at
+        host_timeout."""
         if m.host:
             raise HttpError(400, "the host cannot lose itself")
         now = time.monotonic()
@@ -1643,6 +1721,16 @@ class Lobby:
                         self.remove_member(room, m, "you timed out of the room")
             if room.udp_ok_host(now, self.cfg.udp_ttl) and now - room.probe_sent > self.cfg.probe_interval:
                 self.send_probe(room, now)
+            # the lobby's own round trip to every registered member: what
+            # pick_host ranks on (a game from 2026-10-08 on answers; older ones
+            # do not, and are ranked on their own report)
+            for m in room.members.values():
+                if (not m.host and m.udp_public is not None and now - m.udp_seen <= self.cfg.udp_ttl
+                        and now - m.probe_sent > self.cfg.probe_interval):
+                    m.probe_nonce = os.urandom(8)
+                    m.probe_sent = now
+                    self.udp_send(udp_header(UDP_PROBE) + struct.pack(">I", int(room.id, 16))
+                                  + m.probe_nonce, m.udp_public)
             lapsed = False
             for m in room.members.values():
                 if m.udp_public and now - m.udp_seen > self.cfg.udp_ttl:
@@ -1652,7 +1740,9 @@ class Lobby:
             if lapsed:
                 room.changed()
         for r in list(self.relays.values()):
-            if now - r.active > self.cfg.relay_idle:
+            if not r.bound and now - r.opened > self.cfg.relay_bind_deadline:
+                self.close_relay(r, "never bound at both ends")
+            elif r.bound and now - r.active > self.cfg.relay_idle:
                 self.close_relay(r, "idle")
         for k in [k for k, (_r, until) in self.gone.items() if until < now]:
             del self.gone[k]
@@ -1676,7 +1766,7 @@ class Lobby:
             return
         ip, port = norm_addr(addr)
         now = time.monotonic()
-        if not self.udp_allow(ip, now):
+        if not self.udp_allow(addr_key(ip, self.cfg.v6_prefix), now):
             return
         kind = data[5]
         try:
@@ -1776,16 +1866,29 @@ class Lobby:
         if len(data) < 18:
             return
         room = self.rooms.get("%08x" % struct.unpack_from(">I", data, 6)[0])
-        if room is None or room.probe_nonce is None:
+        if room is None:
             return
-        host = room.host_member()
-        if host is None or host.udp_public != (ip, port):
+        nonce = bytes(data[10:18])
+        for m in room.members.values():
+            if m.udp_public != (ip, port):
+                continue
+            if m.host:
+                if room.probe_nonce is None or not hmac.compare_digest(nonce, room.probe_nonce):
+                    continue
+                rtt = now - room.probe_sent
+                room.host_rtt = rtt if room.host_rtt is None else room.host_rtt * 0.7 + rtt * 0.3
+                room.probe_nonce = None
+            else:
+                if m.probe_nonce is None or not hmac.compare_digest(nonce, m.probe_nonce):
+                    continue
+                rtt = now - m.probe_sent
+                m.rtt = rtt if m.rtt is None else m.rtt * 0.7 + rtt * 0.3
+                m.probe_nonce = None
+            if m.host:
+                # an answer from the host's registered socket: it is there
+                # (check_hostlost counts it as much as a heartbeat)
+                m.udp_seen = now
             return
-        if not hmac.compare_digest(bytes(data[10:18]), room.probe_nonce):
-            return
-        rtt = now - room.probe_sent
-        room.host_rtt = rtt if room.host_rtt is None else room.host_rtt * 0.7 + rtt * 0.3
-        room.probe_nonce = None
 
     # ---------------------------------------------------------- relay
     #
@@ -1829,8 +1932,8 @@ class Lobby:
         host = room.host_member()
         r = room.relays.get(m.token)
         if r is None:
-            if (host is None or host.udp_public is None or len(self.relays) >= self.cfg.relay_max
-                    or len(room.relays) >= self.cfg.relay_per_room):
+            key = addr_key(ip, self.cfg.v6_prefix)
+            if (host is None or host.udp_public is None or not self.relay_allowed(room, key)):
                 self.udp_send(udp_header(UDP_ERROR) + bytes((UDP_ERR_RELAY,))
                               + struct.pack(">I", room_num), (ip, port))
                 return
@@ -1839,7 +1942,10 @@ class Lobby:
                 self.udp_send(udp_header(UDP_ERROR) + bytes((UDP_ERR_RELAY,))
                               + struct.pack(">I", room_num), (ip, port))
                 return
-        r.active = now
+            r.joiner_key = key
+        # Asking again re-sends the offers and nothing more: only traffic
+        # through it keeps a relay open (relay_idle), and both ends must
+        # bind within relay_bind_deadline of its opening.
         # The joiner asked from here, signed: its offer comes back here. The
         # host's goes to its registered socket (as PEER does), at most twice a
         # second however often the joiner asks.
@@ -1847,6 +1953,19 @@ class Lobby:
         if host is not None and host.udp_public and now - r.offer_sent >= self.cfg.offer_min_interval:
             r.offer_sent = now
             self.udp_send(offer_packet(room_num, r, m), host.udp_public)
+
+    def relay_allowed(self, room, key):
+        """A new pair's relay for a joiner asking from address key: under
+        every cap. One per account comes with one seat per account."""
+        c = self.cfg
+        if len(self.relays) >= c.relay_max or len(room.relays) >= c.relay_per_room:
+            return False
+        if sum(1 for r in self.relays.values() if r.joiner_key == key) >= c.relay_per_ip:
+            return False
+        if room.status == "open" and sum(1 for r in self.relays.values()
+                                         if r.room.status == "open") >= c.relay_open_max:
+            return False
+        return True
 
     def relay_port_candidates(self):
         spec = (self.cfg.relay_ports or "").strip()
@@ -1916,7 +2035,7 @@ class Lobby:
     def relay_datagram(self, r, data, src, now):
         if (len(data) >= 6 and data[:4] == UDP_MAGIC and data[4] == UDP_VERSION
                 and UDP_RELAY_FIRST <= data[5] <= UDP_RELAY_LAST):
-            if data[5] == UDP_RELAY_BIND and self.udp_allow(src[0], now):
+            if data[5] == UDP_RELAY_BIND and self.udp_allow(addr_key(src[0], self.cfg.v6_prefix), now):
                 try:
                     self.relay_bind(r, data, src, now)
                 except (ValueError, struct.error, IndexError):
@@ -1979,7 +2098,6 @@ class Lobby:
             who = "joiner"
         else:
             return
-        r.active = now
         want = self.relay_proof(r, src)
         if hmac.compare_digest(proof, want):
             # The address answered with the proof it was sent: it is this
@@ -1992,6 +2110,11 @@ class Lobby:
             setattr(r, who + "_ep", src)
             setattr(r, who + "_ok", False)
         flags = (1 if r.host_ok else 0) | (2 if r.joiner_ok else 0)
+        if flags == 3 and not r.bound:
+            # the idle clock starts once both ends are proven; from now
+            # only what it forwards keeps it open
+            r.bound = True
+            r.active = now
         try:
             r.sock.sendto(udp_header(UDP_RELAY_BOUND) + struct.pack(">I", room_num) + r.rid
                           + bytes((flags,)) + want, src)
@@ -2013,7 +2136,8 @@ def take(bucket, cost, rate, burst, now):
 class Relay:
     __slots__ = ("room", "joiner_token", "host_token", "sock", "port", "rid",
                  "host_ep", "joiner_ep", "host_ok", "joiner_ok", "active",
-                 "offer_sent", "fwd_pkts", "fwd_bytes", "dropped")
+                 "offer_sent", "fwd_pkts", "fwd_bytes", "dropped",
+                 "opened", "bound", "joiner_key")
 
     def __init__(self, room, joiner_token, host_token, sock, now):
         self.room = room
@@ -2025,6 +2149,9 @@ class Relay:
         self.host_ep = self.joiner_ep = None
         self.host_ok = self.joiner_ok = False
         self.active = now
+        self.opened = now
+        self.bound = False         # both ends proven at least once
+        self.joiner_key = None     # the address (key) the joiner asked from
         self.offer_sent = 0.0
         self.fwd_pkts = self.fwd_bytes = self.dropped = 0
 
@@ -2074,7 +2201,7 @@ ROOM_ACTIONS = frozenset(("ready", "team", "chat", "settings", "kick", "launch",
 
 
 class Request:
-    __slots__ = ("method", "path", "query", "headers", "body", "ip", "close")
+    __slots__ = ("method", "path", "query", "headers", "body", "ip", "key", "close")
 
     def json(self):
         """The body as a JSON object; an empty body is an empty object, and
@@ -2117,6 +2244,7 @@ def parse_request_head(head, peer_ip):
     conn = req.headers.get("connection", "").lower()
     req.close = conn == "close" or (parts[2] == "HTTP/1.0" and conn != "keep-alive")
     req.ip = client_ip(req.headers, peer_ip)
+    req.key = req.ip
     return req
 
 
