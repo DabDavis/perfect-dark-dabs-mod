@@ -462,12 +462,15 @@ then lists, joins, READYs and plays; the Linux host is
   Each entity is now coded against its own newest acked record
   (`netSnapHostBase` = `netBaselineGetAcked`, less than 64 behind), and
   SNAP lists the present ids whose base is not the baseline (u8 seq minus
-  it). Measured with `build/crowd/run.sh` (not a gate: a listen host on
+  it). Measured with `tools/ci/netcrowd.sh` (not a gate: a listen host on
   Defection co-op, two clients, `--net-sim 2,75` everywhere, so 150 ms and
   2% loss each way): every offered entity present after 30 ticks, was 86;
   entity keyframes in the first 300 ticks 507, was 1344, left out 2623, was
   4692; the client's chr poses blended towards an older record 0, was 1659
-  and 2291. The host's log line now ends "first at tick F, last left out
+  and 2291. On Skedar with 24 sims spraying and a third client joining in
+  progress (`MODE=mp`): the joiner's entity keyframes in its first 300
+  ticks 117, was 425; blends towards an older record 0, was 881-2541 per
+  client; made props freed and rebuilt about 25% fewer. The host's log line now ends "first at tick F, last left out
   at tick T, deferred behind a newer one sent N" (N: the deferrals the old
   puppets showed as a step back). The reliable EVENTS channel was measured
   too (24 sims spraying SMGs, two clients, 150 ms/2%, `traffic slot`
