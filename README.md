@@ -197,7 +197,10 @@ the mission, difficulty, radar and friendly fire. Up to twelve of you play
 the mission together as Perfect Dark's own co-operative mode does: one
 player is Joanna (or Bond), everyone else a coop agent in their Combat
 Simulator character; a dead player presses START to come back, taking half
-of a living player's health; the mission fails when everyone is dead. Every
+of a living player's health; the mission fails when everyone is dead.
+Everyone starts on the mission's own start spot, and anyone joining
+mid-mission appears on a living player's spot: co-op players walk through
+each other, so nobody is ever put behind a wall to make room. Every
 mission and difficulty is open online, and nothing played online counts
 towards your own solo progress. Without the lobby, a `--host` session
 starts one from the Carrington Institute's mission briefing with

@@ -175,7 +175,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netchattest.sh` | 4.5 min | protocol 18: chat on every machine in order, the host's burst limit (5 of 7, the sender alone told), the notices of a join in progress (with "3/4"), a spectator, a drop, a return within the hold, a hold running out and a spectator gone, a client's first PLAYERS, the host's pause Control page and Players page, screenshots of the feed, panel and open line |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
-| `netcooptest.sh` | 14 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2, camproom 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection: the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, beside the host, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder; camproom: a GoldenEye campaign room on a local pdlobbyd launched by its host alone, Dam started from the folder and aborted, the room still launched, a newcomer connecting between missions and taken into Facility |
+| `netcooptest.sh` | 14 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2, camproom 1.5) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection (eleven: stacked on one spot): the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, on the host's spot, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder; camproom: a GoldenEye campaign room on a local pdlobbyd launched by its host alone, Dam started from the folder and aborted, the room still launched, a newcomer connecting between missions and taken into Facility |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
 Then `tools/ci/replaytest.sh compare pd-base.x86_64 pd.x86_64` (the replay
@@ -640,8 +640,28 @@ progression").
   Deep Sea's auto-advance and `endscreenPushSolo` are skipped online;
   `endscreenSetCoopCompleted` writes nothing online (no completion bit,
   no best time, no game file save).
-- **Spawns.** Past two players a co-op spawn is spread in a ring round the
-  pad (`netCoopSpreadSpawn`, 60 or 90 units, the rooms found again). A
+- **Spawns: every player on one spot (2026-10-08).** The user, on
+  GoldenEye's Cradle and Archives: "the spawn point online is spawning
+  players behind walls, outside levels ... might be easier to stack all
+  players on same tile since collision is disabled for players only". Past
+  two players the first life had been spread in a ring round the pad
+  (`netCoopSpreadSpawn`, 60 or 90 units, nothing tested, and the empty
+  seats counted, so a 12-seat room used 90 for four players and moved
+  player 0 too): on Cradle's catwalk the host stood outside the railing.
+  And PD's own pick moves a second player off the first
+  (`chrAdjustPosForSpawn`'s eight directions, a line test a converted
+  level's walls do not always stop). Online co-op players pass through each
+  other (`g_NetPlayersPassThrough`), so now: `netCoopStackSpawn` - lvReset
+  resets the players in order, the first picks the pad and the rest take
+  its spot; `netCoopSpawnPick` - a respawn's pad picked with players no
+  obstacle (the flag set round `scenarioChooseSpawnLocation`); a join in
+  progress on its buddy's own spot (`netCoopJoinSpawn`, a buddy in a
+  vehicle or off the ground passed over for one on its feet). Probed on
+  the host with four players: Cradle, Archives, Defection all on the one
+  spot (an opening that walks player 0 leaves it up to 34 units on), the
+  late joiner on player 0's. netcooptest's twelve now checks the stack
+  (clients on one spot within 2 units, within 100 of player 0), campaign
+  "spawns on player 0"; prediction 99.7%+ stacked. A
   co-op player online wears its own Combat Simulator character; bond
   stays Joanna. A co-op mission past two players keeps the setup's
   two-player exclusions (`OBJFLAG2_EXCLUDE_2P`).
@@ -800,9 +820,9 @@ nothing is ever sent from one machine to another but names and hashes.
   match is under way (`netClientJoinedInProgress`) - its local opening had
   held the player through 270 corrections, prediction 49% where it is now
   99.9%; the host's `netHostLateGo` marks the seat (`netCoopHostLateJoin`)
-  and `playerStartNewLife` puts that one life beside a living player
-  (`netCoopJoinSpawn`: `coopRespawnBuddy`'s pick, PD's own
-  `chrAdjustPosForSpawn` 60 units round it) rather than at the mission's
+  and `playerStartNewLife` puts that one life on a living player's spot
+  (`netCoopJoinSpawn`: `coopRespawnBuddy`'s pick; until 2026-10-08 PD's
+  own `chrAdjustPosForSpawn` 60 units round it) rather than at the mission's
   start (a death later respawns the mission's way); a client hides a
   mission's setup chrs until their first record, as it does sims (one the
   host killed and freed before the join is never sent, and would stand

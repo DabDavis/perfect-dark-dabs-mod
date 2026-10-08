@@ -466,11 +466,11 @@ void playerReset(void)
 
 	if (g_NumSpawnPoints > 0) {
 		if (g_Vars.coopplayernum >= 0) {
-			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
 #ifndef PLATFORM_N64
-			// netplay: twelve players round one pad (netcoop.c)
-			if (g_NetMode != NETMODE_NONE) netCoopSpreadSpawn(&pos, rooms);
+			// netplay: every player on the one spot, passing through each other (netcoop.c)
+			if (g_NetMode != NETMODE_NONE) turnanglerad = netCoopStackSpawn(&pos, rooms); else
 #endif
+			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
 		} else if (g_Vars.antiplayernum >= 0) {
 			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
 		} else {

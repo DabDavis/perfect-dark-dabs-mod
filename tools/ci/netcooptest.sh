@@ -18,8 +18,9 @@
 #           end screen (closed by its START) and its stage stopped.
 #   twelve  a host and eleven clients (twelve games at once: alone), the
 #           opening skipped: every client loads and passes GO, every one's
-#           prediction matches, the twelve spawn apart (the ring round the
-#           pad), nobody crashes.
+#           prediction matches, the twelve start stacked on the one spot
+#           (the first player's, which the opening may have walked it off:
+#           within 100 units of it), nobody crashes.
 #   lobby   a local pdlobbyd and a pair through a room created as a co-op
 #           mission (--net-lobby-coop): the room's summary names the mission
 #           and "Co-op Agent", the joiner plays the mission, the host's end
@@ -43,8 +44,8 @@
 #   campaign  a GoldenEye campaign's host starting Dam from its folder alone
 #           (--net-test-campaign ge --net-test-campaign-mission 0): the
 #           opening ends on the host's own player; a client then joins the
-#           mission in progress with no opening, spawns beside the host's
-#           player and predicts at 95% or better.
+#           mission in progress with no opening, spawns on the host's
+#           player's spot and predicts at 95% or better.
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
@@ -230,8 +231,8 @@ case_campaign() {
 	grep -q "an open seat of the match in progress" "$C" && pass "$name: the client joined the mission in progress" || fail "$name: the client did not join in progress"
 	grep -q "gecinema: joined the mission in progress; no opening" "$C" && pass "$name: no opening on the joiner" || fail "$name: the joiner played an opening"
 	grep -q "gecinema: the opening is over" "$C" && fail "$name: the joiner's opening ran"
-	grep -q "net: co-op: player 1 joined in progress; spawns beside player 0" "$H" \
-		&& pass "$name: $(grep -o 'player 1 joined in progress; spawns beside.*' "$H" | head -1)" || fail "$name: the joiner did not spawn beside the host's player"
+	grep -q "net: co-op: player 1 joined in progress; spawns on player 0" "$H" \
+		&& pass "$name: $(grep -o 'player 1 joined in progress; spawns on.*' "$H" | head -1)" || fail "$name: the joiner did not spawn on the host's player"
 	local pr; pr=$(lastline "$C" "net: prediction so far" | grep -o 'matched [0-9]* ([0-9.]*%)' | grep -o '[0-9.]*%' | tr -d '%')
 	awk -v p="${pr:-0}" 'BEGIN { exit !(p >= 95) }' && pass "$name: the joiner's prediction matched ${pr}%" || fail "$name: the joiner's prediction matched ${pr:-no}%"
 }
@@ -457,14 +458,18 @@ case_twelve() {
 	[ "$gos" = 11 ] && pass "$name: every client passed GO" || fail "$name: clients at GO: $gos of 11"
 	grep -q "co-op: starting dataDyne Defection .* with 12 players" "$H" && pass "$name: $(grep -o 'co-op: starting.*' "$H" | head -1)" || fail "$name: the host did not start with 12 players"
 	[ "$preds" = 11 ] && pass "$name: every client's prediction matched 95% or more (worst $worst%)" || fail "$name: clients with prediction >= 95%: $preds of 11 (worst $worst%)"
-	# the spawn ring: at the host's first trace past the opening every player apart from every other
+	# stacked: at the host's first trace past the opening the eleven clients' players (who
+	# never move) on one spot, and that spot within 100 units of player 0 (the opening may walk it)
 	local tick; tick=$(grep -o "net: trace tick [0-9]* player 0 " "$H" | awk '{print $4}' | awk '$1 >= 600' | head -1)
 	if [ -n "$tick" ]; then
-		local near; near=$(grep "net: trace tick $tick player" "$H" | sed 's/.*pos \([-0-9.]*\) \([-0-9.]*\) \([-0-9.]*\).*/\1 \3/' \
-			| awk '{x[NR]=$1; z[NR]=$2} END { n=0; for (i=1;i<=NR;i++) for (j=i+1;j<=NR;j++) { d=sqrt((x[i]-x[j])^2+(z[i]-z[j])^2); if (d < 20) n++ } print NR, n }')
-		local cnt; cnt=$(echo "$near" | awk '{print $1}'); local pairs; pairs=$(echo "$near" | awk '{print $2}')
-		[ "$cnt" = 12 ] && [ "$pairs" = 0 ] && pass "$name: at tick $tick the twelve players stand apart (no two within 20 units)" \
-			|| fail "$name: at tick $tick: $cnt players traced, $pairs pairs within 20 units"
+		local near; near=$(grep "net: trace tick $tick player" "$H" | sed 's/.*player \([0-9]*\) .*pos \([-0-9.]*\) \([-0-9.]*\) \([-0-9.]*\).*/\1 \2 \4/' \
+			| awk '{p[NR]=$1; x[NR]=$2; z[NR]=$3} END { apart=0; far=0; for (i=1;i<=NR;i++) { if (p[i]==0) { x0=x[i]; z0=z[i] } }
+				for (i=1;i<=NR;i++) { if (p[i]==0) continue; if (sqrt((x[i]-x0)^2+(z[i]-z0)^2) > 100) far++
+					for (j=i+1;j<=NR;j++) if (p[j]!=0 && sqrt((x[i]-x[j])^2+(z[i]-z[j])^2) > 2) apart++ }
+				print NR, apart, far }')
+		local cnt apart far; read -r cnt apart far <<< "$near"
+		[ "$cnt" = 12 ] && [ "$apart" = 0 ] && [ "$far" = 0 ] && pass "$name: at tick $tick the twelve players start stacked (clients on one spot, by player 0)" \
+			|| fail "$name: at tick $tick: $cnt players traced, $apart client pairs apart, $far clients over 100 units from player 0"
 	else
 		fail "$name: no host trace past tick 600"
 	fi

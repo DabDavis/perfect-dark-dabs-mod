@@ -416,11 +416,14 @@ void netCoopHostFade(u32 colour, s16 frames);
 void netCoopLeaveMission(void);
 // objectives.c objectiveCheck on a client: the host's status, 1 when known
 s32 netCoopObjectiveStatus(s32 index, s32 *status);
-// playerreset.c: a co-op spawn past two players spread round the pad
+// playerreset.c: a co-op mission's first life, every player on the first's
+// spot (pos and rooms set, the facing returned); player.c: a co-op life's
+// pad, other players no obstacle (rooms: RoomNum[8])
 struct coord;
-void netCoopSpreadSpawn(struct coord *pos, s16 *rooms); // rooms: RoomNum[8]
-// playerreset.c, the host: a join in progress's first life beside a living
-// player (pos, rooms and the facing set); 0 for the mission's own spawn
+f32 netCoopStackSpawn(struct coord *pos, s16 *rooms);
+f32 netCoopSpawnPick(struct coord *pos, s16 *rooms);
+// player.c, the host: a join in progress's first life on a living player's
+// spot (pos, rooms and the facing set); 0 for the mission's own spawn
 s32 netCoopJoinSpawn(struct coord *pos, s16 *rooms, f32 *turnanglerad);
 // gecinema.c on a client: the host's GO not here yet (the stage loaded), and
 // whether this machine joined the running match (GoldenEye's opening is then

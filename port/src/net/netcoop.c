@@ -29,6 +29,7 @@
 #include "game/propobj.h"
 #include "game/title.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/scenarios.h"
 #include "lib/main.h"
 #include "lib/vi.h"
 #include "math.h"
@@ -113,7 +114,11 @@ extern s32 g_WarpType2HasDirection;
 struct netcoopsetup g_NetCoopSetup = { 0, 0, DIFF_A, 1, 0 };
 
 static s32 s_HostMatch = 0;       // host: the match H1 is starting (or running) is a co-op mission
-static u32 s_JoinNear = 0;        // host: players a join in progress took, whose next spawn is beside a living one
+static u32 s_JoinNear = 0;        // host: players a join in progress took, whose next spawn is on a living one's spot
+static struct coord s_StackPos;    // the first player's spot this stage: everyone's first life (netCoopStackSpawn)
+static RoomNum s_StackRooms[8];
+static f32 s_StackAngle;
+static s32 s_StackValid = 0;
 static char s_HostGame[16];       // host: the mission's set ("" Perfect Dark's, else a conversion's tag)
 static const char *s_HostVariantBefore; // host: g_GexPlusVariant before a conversion's mission, put back after
 
@@ -723,6 +728,7 @@ void netCoopMatchStopped(void)
 
 	s_HostMatch = 0;
 	s_JoinNear = 0;
+	s_StackValid = 0;
 	s_HostGame[0] = '\0';
 	s_ClientMatch = 0;
 	s_HaveObj = 0;
@@ -737,45 +743,81 @@ void netCoopMatchStopped(void)
 }
 
 /**
- * playerreset.c, a co-op spawn online: past two players the spawn pad is
- * one spot, so the players stand in a ring round it (the ground search that
- * follows takes the rooms found here)
+ * playerreset.c, a co-op mission's first life online. Every player starts on
+ * the one spot (the user, 2026-10-08, on GoldenEye's Cradle and Archives:
+ * "the spawn point online is spawning players behind walls, outside levels
+ * ... might be easier to stack all players on same tile since collision is
+ * disabled for players only"): co-op players pass through each other
+ * (g_NetPlayersPassThrough), so nobody needs a place of their own. Players
+ * past two had stood in a ring 60-90 units round the pad, tested against
+ * nothing, and the second was moved off the first by chrAdjustPosForSpawn,
+ * whose line test a converted level's walls do not always stop. lvReset
+ * resets the players in order, so the first picks the pad (its choice
+ * blind to other players, as netCoopSpawnPick) and the rest take its spot.
  */
-void netCoopSpreadSpawn(struct coord *pos, s16 *rooms)
+f32 netCoopSpawnPick(struct coord *pos, s16 *rooms)
 {
-	const s32 count = PLAYERCOUNT();
-	RoomNum inrooms[8];
-	RoomNum aboverooms[8];
 	f32 angle;
-	f32 radius;
 
-	if (count <= 2) {
-		return;
+	// the pad itself, not a step off it for a player standing there
+	g_NetPlayersPassThrough = 1;
+	angle = M_BADTAU - scenarioChooseSpawnLocation(30, pos, rooms, g_Vars.currentplayer->prop);
+	g_NetPlayersPassThrough = 0;
+
+	return angle;
+}
+
+f32 netCoopStackSpawn(struct coord *pos, s16 *rooms)
+{
+	s32 i;
+
+	if (g_Vars.currentplayernum == 0 || !s_StackValid) {
+		s_StackAngle = netCoopSpawnPick(pos, rooms);
+		s_StackPos = *pos;
+
+		for (i = 0; i < ARRAYCOUNT(s_StackRooms) - 1 && rooms[i] != -1; i++) {
+			s_StackRooms[i] = rooms[i];
+		}
+
+		s_StackRooms[i] = -1;
+		s_StackValid = 1;
+
+		return s_StackAngle;
 	}
 
-	angle = (f32)g_Vars.currentplayernum * (M_BADTAU / (f32)count);
-	radius = count <= 6 ? 60.0f : 90.0f;
-	pos->x += cosf(angle) * radius;
-	pos->z += sinf(angle) * radius;
+	*pos = s_StackPos;
 
-	bgFindRoomsByPos(pos, inrooms, aboverooms, 7, NULL);
+	for (i = 0; i < ARRAYCOUNT(s_StackRooms); i++) {
+		rooms[i] = s_StackRooms[i];
 
-	if (inrooms[0] != -1) {
-		memcpy(rooms, inrooms, sizeof(inrooms));
-	} else if (aboverooms[0] != -1) {
-		memcpy(rooms, aboverooms, sizeof(aboverooms));
+		if (s_StackRooms[i] == -1) {
+			break;
+		}
 	}
+
+	return s_StackAngle;
+}
+
+// Player bn can have player pn stacked on it: living, on its feet, on the ground
+static s32 netCoopStackable(s32 bn, s32 pn)
+{
+	const struct player *p = bn >= 0 && bn < MAX_PLAYERS ? g_Vars.players[bn] : NULL;
+
+	return p && bn != pn && p->prop && p->prop->chr && !p->isdead && p->prop->rooms[0] >= 0
+		&& p->bondmovemode == MOVEMODE_WALK && p->vv_ground > -100000 && p->vv_manground - p->vv_ground < 5.0f;
 }
 
 /**
  * A join in progress (the user, 2026-10-07: a campaign "should allow a late
  * join in progress"): netHostLateGo brings the seat's player into play with a
  * new life, and a mission's own spawn is its start, which the players may
- * have left long ago. This one life starts beside a living player instead -
- * the one with the most health, as a co-op respawn picks its buddy - out of
- * PD's own co-op test for the second player's spawn (chrAdjustPosForSpawn:
- * 60 units round in eight directions, ground under it, nothing in the way).
- * A death later respawns the mission's way.
+ * have left long ago. This one life starts on a living player's own spot
+ * instead - the one with the most health, as a co-op respawn picks its
+ * buddy - stacked there as the players are at the start (netCoopStackSpawn):
+ * a spot 60 units round it (chrAdjustPosForSpawn's eight directions) could
+ * be through a converted level's wall. A buddy in a vehicle or mid-air is
+ * passed over for one walking on the ground. A death later respawns the
+ * mission's way.
  */
 void netCoopHostLateJoin(s32 playernum)
 {
@@ -788,8 +830,6 @@ s32 netCoopJoinSpawn(struct coord *pos, s16 *rooms, f32 *turnanglerad)
 {
 	const s32 pn = g_Vars.currentplayernum;
 	struct player *buddy;
-	struct coord at;
-	RoomNum atrooms[8];
 	s32 bn;
 	s32 i;
 
@@ -799,42 +839,30 @@ s32 netCoopJoinSpawn(struct coord *pos, s16 *rooms, f32 *turnanglerad)
 
 	s_JoinNear &= ~(1u << pn);
 	bn = coopRespawnBuddy(pn);
-	buddy = bn >= 0 && bn < PLAYERCOUNT() ? g_Vars.players[bn] : NULL;
 
-	if (!buddy || bn == pn || !buddy->prop || !buddy->prop->chr || buddy->isdead || buddy->prop->rooms[0] < 0) {
-		sysLogPrintf(LOG_NOTE, "net: co-op: player %d joined in progress; nobody living to spawn beside, the mission's spawn", pn);
-		return 0;
-	}
-
-	// from just over the buddy's feet, so the test's height covers a body
-	at.x = buddy->prop->pos.x;
-	at.y = buddy->vv_manground + 30.0f;
-	at.z = buddy->prop->pos.z;
-
-	for (i = 0; i < ARRAYCOUNT(atrooms) - 1 && buddy->prop->rooms[i] != -1; i++) {
-		atrooms[i] = buddy->prop->rooms[i];
-	}
-
-	atrooms[i] = -1;
-
-	if (!chrAdjustPosForSpawn(30.0f, &at, atrooms, buddy->vv_theta * (M_BADTAU / 360.0f), true, false, true)) {
-		sysLogPrintf(LOG_NOTE, "net: co-op: player %d joined in progress; no room beside player %d, the mission's spawn", pn, bn);
-		return 0;
-	}
-
-	*pos = at;
-
-	for (i = 0; i < 8; i++) {
-		rooms[i] = atrooms[i];
-
-		if (atrooms[i] == -1) {
-			break;
+	if (!netCoopStackable(bn, pn)) {
+		// the healthiest is in a vehicle or off the ground: any other on its feet
+		for (bn = 0; bn < MAX_PLAYERS && !netCoopStackable(bn, pn); bn++) {
 		}
 	}
 
+	if (bn >= MAX_PLAYERS) {
+		sysLogPrintf(LOG_NOTE, "net: co-op: player %d joined in progress; nobody living on foot to spawn on, the mission's spawn", pn);
+		return 0;
+	}
+
+	buddy = g_Vars.players[bn];
+	*pos = buddy->prop->pos;
+
+	for (i = 0; i < 7 && buddy->prop->rooms[i] != -1; i++) {
+		rooms[i] = buddy->prop->rooms[i];
+	}
+
+	rooms[i] = -1;
+
 	*turnanglerad = buddy->vv_theta * (M_BADTAU / 360.0f);
-	sysLogPrintf(LOG_NOTE, "net: co-op: player %d joined in progress; spawns beside player %d at %.0f %.0f %.0f (room %d)",
-			pn, bn, at.x, at.y, at.z, rooms[0]);
+	sysLogPrintf(LOG_NOTE, "net: co-op: player %d joined in progress; spawns on player %d at %.0f %.0f %.0f (room %d)",
+			pn, bn, pos->x, pos->y, pos->z, rooms[0]);
 
 	return 1;
 }
