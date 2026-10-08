@@ -323,6 +323,7 @@ void *netSpecRenderText(void *gdl);
  */
 void netHudFrame(void);         // pdsched.c, right after inputUpdate: the keys (ESC typed into the line is the line's)
 void *netHudRender(void *gdl);  // lv.c lvRender: over the local player's view, its HUD and menus
+void netHudAimFrame(void);      // lv.c lvRender, the local player's pass: the player under the crosshair (its name over its head)
 s32 netHudChatOpen(void);       // the line is open: the keyboard's keys are letters
 s32 netHudAteEscape(void);      // this frame's ESC was the line's (for what reads inputKeyPressedThisFrame)
 void netHudLobbyFrame(void);    // netlobbymenu.c: the Game Lobby is the dialog on screen this frame

@@ -1531,6 +1531,8 @@ Gfx *lvRender(Gfx *gdl)
 					g_Vars.currentplayer->lookingatprop.prop = NULL;
 				}
 
+				if (g_NetMode != NETMODE_NONE) netHudAimFrame(); // netplay: the name of the player under the crosshair
+
 				if (gsetHasFunctionFlags(&g_Vars.currentplayer->hands[0].gset, FUNCFLAG_THREATDETECTOR)) {
 					lvFindThreats();
 				} else if (weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_AIMTRACK)) {

@@ -16,6 +16,12 @@
 #include "game/game_1531a0.h"
 #include "game/mplayer/setup.h"
 #include "game/menu.h"
+#include "game/chraction.h"
+#include "game/modspectate.h"
+#include "game/playermgr.h"
+#include "game/prop.h"
+#include "game/propobj.h"
+#include "game/radar.h"
 #include "net/net.h"
 #include "netint.h"
 
@@ -44,6 +50,11 @@
  *     each one's score and deaths in a Combat Simulator match, its ping
  *     (the host's own measure, sent in PLAYERS once a second), the open
  *     seats and the spectators, and the count.
+ *   - a player's name over its head while the crosshair is on it
+ *     (Net.PlayerNames), in a Combat Simulator match and on a co-op mission
+ *     alike: who plays each of the other characters. The crosshair's own
+ *     query (propFindAimingAt, as the stock HUD asks it with one player), so
+ *     a wall or a cloak hides the name as it would the shot.
  *   - the Game Lobby (netlobbymenu.c): Space or the chat key there opens the
  *     same line, for the room's chat on pdlobbyd; its status row shows it.
  *
@@ -98,6 +109,7 @@ static u32 s_LobbyFrame = 0;
 static char s_ChatKeyName[32] = "T";
 static char s_PlayersKeyName[32] = "P";
 static s32 s_ChatSpace = 1;
+static s32 s_PlayerNames = 1;
 static s32 s_ChatVk = -1;
 static s32 s_PlayersVk = -1;
 static char s_ChatKeyShown[48];
@@ -132,6 +144,7 @@ PD_CONSTRUCTOR static void netHudConfigInit(void)
 	configRegisterString("Net.ChatKey", s_ChatKeyName, sizeof(s_ChatKeyName));
 	configRegisterString("Net.PlayersKey", s_PlayersKeyName, sizeof(s_PlayersKeyName));
 	configRegisterInt("Net.ChatSpace", &s_ChatSpace, 0, 1);
+	configRegisterInt("Net.PlayerNames", &s_PlayerNames, 0, 1);
 }
 
 static s32 netHudKey(const char *name, s32 *vk)
@@ -705,6 +718,124 @@ s32 netHudPlayerRow(s32 k, char *name, s32 namesize, char *value, s32 valuesize)
 }
 
 /*
+ * The name over a player under the crosshair
+ */
+
+#define TAG_HOLD_MS 250 // the name stays this long after the crosshair leaves its player ...
+#define TAG_FADE_MS 200 // ... then fades over this
+
+static s32 s_TagPlayer = -1; // the player the crosshair was last on
+static u64 s_TagSeenAt = 0;  // when
+static u32 s_TagFrame = 0;   // the frame s_TagX/Y were worked out for (s_Frame)
+static f32 s_TagX = 0;       // the top middle of its box on screen
+static f32 s_TagY = 0;
+
+// The player whose chr `prop` is, when this machine's player may be shown
+// its name: another player, living, drawn (no cloak but to the IR scanner,
+// not spectating); -1 otherwise
+static s32 netHudTagPlayerOf(struct prop *prop)
+{
+	struct chrdata *chr;
+	s32 pn;
+
+	if (!prop || prop->type != PROPTYPE_PLAYER || !prop->chr) {
+		return -1;
+	}
+
+	chr = prop->chr;
+	pn = playermgrGetPlayerNumByProp(prop);
+
+	if (pn < 0 || pn >= MAX_PLAYERS || pn == g_Vars.currentplayernum || !g_Vars.players[pn]
+			|| g_Vars.players[pn]->isdead || chrIsDead(chr) || !modSpectatePropNoticeable(prop)) {
+		return -1;
+	}
+
+	if ((chr->hidden & CHRHFLAG_CLOAKED) && !USINGDEVICE(DEVICE_IRSCANNER)) {
+		return -1;
+	}
+
+	return pn;
+}
+
+/**
+ * lvRender, in this machine's player's pass once the props are posed for its
+ * camera (after the stock lookingatprop): which player the crosshair is on,
+ * and where that player's box is on screen. The stock HUD asks only with one
+ * player (or co-op), so the same query is made here for every net match.
+ */
+void netHudAimFrame(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct prop *aimed;
+	s32 hadinfo[2];
+	struct coord dotpos[2];
+	struct coord dotrot[2];
+	u64 now;
+	s32 pn;
+	s32 i;
+
+	if (!netIsLocalSlot(g_Vars.currentplayernum)) {
+		return; // a remote player's pass on the host
+	}
+
+	if (!s_PlayerNames || !netSessionHudLive() || netSessionSpectating()
+			|| player->isdead || g_Vars.tickmode == TICKMODE_CUTSCENE
+			|| player->cameramode == CAMERAMODE_EYESPY
+			|| modSpectateIsOnForPlayer(g_Vars.currentplayernum)) {
+		s_TagPlayer = -1;
+		return;
+	}
+
+	// The query sets the gun's dot (the laser sight's, a thrown gun's aim)
+	// where it lands: put back as bgunAimThrowAtCrosshair does, so the sim
+	// is the same as without it
+	for (i = 0; i < 2; i++) {
+		hadinfo[i] = player->hands[i].hasdotinfo;
+		dotpos[i] = player->hands[i].dotpos;
+		dotrot[i] = player->hands[i].dotrot;
+	}
+
+	aimed = propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
+
+	for (i = 0; i < 2; i++) {
+		player->hands[i].hasdotinfo = hadinfo[i];
+		player->hands[i].dotpos = dotpos[i];
+		player->hands[i].dotrot = dotrot[i];
+	}
+
+	now = netHudNowMs();
+	pn = netHudTagPlayerOf(aimed);
+
+	if (pn >= 0) {
+		s_TagPlayer = pn;
+		s_TagSeenAt = now;
+	} else if (s_TagPlayer >= 0 && now - s_TagSeenAt >= TAG_HOLD_MS + TAG_FADE_MS) {
+		s_TagPlayer = -1;
+	}
+
+	if (s_TagPlayer >= 0) {
+		struct prop *prop = g_Vars.players[s_TagPlayer] ? g_Vars.players[s_TagPlayer]->prop : NULL;
+		f32 x1;
+		f32 x2;
+		f32 y1;
+		f32 y2;
+
+		if (netHudTagPlayerOf(prop) != s_TagPlayer) {
+			s_TagPlayer = -1; // died, cloaked or left while the name stayed
+			return;
+		}
+
+		// the box the stock target box is drawn from (lvUpdateTrackedProp)
+		if ((prop->flags & PROPFLAG_ONTHISSCREENTHISTICK) && prop->chr->model
+				&& modelGetScreenCoords(prop->chr->model, &x2, &x1, &y2, &y1)) {
+			s_TagX = (x1 + x2) * 0.5f;
+			s_TagY = y1;
+			s_TagFrame = s_Frame;
+		}
+	}
+}
+
+/*
  * Drawing
  */
 
@@ -1132,9 +1263,91 @@ static Gfx *netHudRenderPanel(Gfx *gdl, s32 *foot)
 	return gdl;
 }
 
+// How much of the name under the crosshair shows this frame (0 none)
+static s32 netHudTagAlpha(void)
+{
+	u64 age;
+
+	if (s_TagPlayer < 0 || s_TagFrame != s_Frame) {
+		return 0;
+	}
+
+	age = netHudNowMs() - s_TagSeenAt;
+
+	if (age <= TAG_HOLD_MS) {
+		return 255;
+	}
+
+	if (age >= TAG_HOLD_MS + TAG_FADE_MS) {
+		return 0;
+	}
+
+	return (s32)(255 * (TAG_HOLD_MS + TAG_FADE_MS - age) / TAG_FADE_MS);
+}
+
+/**
+ * The name of the player under the crosshair, centred over the top of its
+ * box: the seat's name, as the panel and the chat show it; its team's
+ * colour (lightened, to read over the level) in a team match
+ */
+static Gfx *netHudRenderTag(Gfx *gdl, s32 alpha)
+{
+	const s32 left = viGetViewLeft();
+	const s32 top = viGetViewTop();
+	const s32 right = left + viGetViewWidth();
+	const s32 bottom = top + viGetViewHeight();
+	struct netseatinfo info;
+	char text[NET_MAXNAME + 2];
+	u32 colour = COL_NAME;
+	s32 x;
+	s32 y;
+	s32 w;
+	s32 h;
+
+	if (!netSessionSeatInfo(s_TagPlayer, &info) || !info.name[0]) {
+		return gdl;
+	}
+
+	if (g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_TEAMSENABLED)) {
+		const u32 team = g_TeamColours[g_PlayerConfigsArray[g_Vars.playerstats[s_TagPlayer].mpindex].base.team & 7];
+		u32 r = team >> 24 & 0xff;
+		u32 g = team >> 16 & 0xff;
+		u32 b = team >> 8 & 0xff;
+
+		r = r + (255 - r) * 2 / 5;
+		g = g + (255 - g) * 2 / 5;
+		b = b + (255 - b) * 2 / 5;
+		colour = r << 24 | g << 16 | b << 8 | 0xff;
+	}
+
+	snprintf(text, sizeof(text), "%s\n", info.name);
+	netHudMeasure(text, &w, &h);
+
+	x = (s32)s_TagX - w / 2;
+	y = (s32)s_TagY - h - 4;
+
+	if (x > right - w - 2) {
+		x = right - w - 2;
+	}
+
+	if (x < left + 2) {
+		x = left + 2;
+	}
+
+	if (y > bottom - h - 2) {
+		y = bottom - h - 2;
+	}
+
+	if (y < top + 2) {
+		y = top + 2;
+	}
+
+	return netHudText(gdl, x, y, text, colour, alpha);
+}
+
 /**
  * lvRender, over the local player's view after its HUD, menus and modal
- * text: the panel and the feed. Nothing on a view this machine does not
+ * text: the name under the crosshair, the panel and the feed. Nothing on a view this machine does not
  * show (a remote player's pass on the host), nor before GO.
  */
 void *netHudRender(void *gdlp)
@@ -1142,16 +1355,23 @@ void *netHudRender(void *gdlp)
 	Gfx *gdl = gdlp;
 	const s32 panel = s_PanelHeld || (s_TestPanelTick && g_NetTick >= s_TestPanelTick);
 	s32 top = viGetViewTop() + 12;
+	s32 tag;
 
 	if (!netSessionHudLive() || !netIsLocalSlot(g_Vars.currentplayernum)) {
 		return gdl;
 	}
 
-	if (!panel && s_FeedLen == 0) {
+	tag = netHudTagAlpha();
+
+	if (!panel && s_FeedLen == 0 && !tag) {
 		return gdl;
 	}
 
 	gdl = text0f153628(gdl);
+
+	if (tag) {
+		gdl = netHudRenderTag(gdl, tag);
+	}
 
 	if (panel) {
 		gdl = netHudRenderPanel(gdl, &top);

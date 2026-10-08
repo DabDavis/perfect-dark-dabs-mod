@@ -70,7 +70,9 @@
   Space or T in the Game Lobby for the room's chat), the players panel
   (hold P) and the pause menu's Players page for pads; CHAT and PLAYERS
   on the wire, ROSTER at every GO; why ESC typed into the line never
-  pauses, why the page is a row and not a tab, `netchattest.sh`.
+  pauses, why the page is a row and not a tab, `netchattest.sh`; a
+  player's name over its head while the crosshair is on it
+  (`netHudAimFrame`, `Net.PlayerNames`, no wire change).
 - **Joining from anywhere, tried live (2026-10-08)** — the section of that
   name: six headless joiners in the user's own GoldenEye campaign room on
   the deployed lobby; the hole punch and the VPS relay both working
@@ -1322,6 +1324,35 @@ immediately type without choosing type with keyboard".
 - **`--net-test-chat-echo`**: a headless joiner answers every line from a
   name not starting "netbot" with "NAME said: TEXT", so a player testing
   with the netbots has someone to talk to.
+- **A player's name over its head (2026-10-08, the user: "names over
+  players heads, that only show up when the cross hair is hovered over that
+  player", then "also for co-op so players can see who each char is being
+  controlled by").** `netHudAimFrame` runs in lvRender's pass right after
+  the stock `lookingatprop` block, the local player's pass only (a remote
+  player's on the host returns at once). The stock block asks
+  `propFindAimingAt` only with one player or in co-op (the N64's cost), so
+  the hook asks it itself for every net match: the bullet's own query
+  (`shotCalculateHits` with `isshooting` false), so a wall stops it where
+  it would stop a shot and the hit is on the puppet as this machine draws
+  it. The query writes the gun's dot (`hasdotinfo`/`dotpos`/`dotrot`, read
+  by the laser sight and a thrown gun's aim): the hook puts them back as
+  `bgunAimThrowAtCrosshair` does, so the sim is the same with it. A
+  player's prop only (simulants and guards have none), alive, not
+  cloaked but to the IR scanner, not spectating (`modSpectatePropNoticeable`).
+  The name's place is the top middle of the box the stock target box is
+  drawn from (`modelGetScreenCoords`, valid in that pass: the model's
+  matrices are this camera's), worked out every frame while the name
+  shows; `netHudRender` draws it only on the frame it was worked out
+  (`s_TagFrame == s_Frame`). It stays 250 ms after the crosshair leaves
+  and fades over 200 ms, so a strafing target does not flicker. The name
+  is the seat's (`netSessionSeatInfo`, as the panel and the chat have it:
+  a direct host without a room is its profile's name, "Player 1" in a
+  fresh save, not `Net.Name`); a team match's names are the team colour
+  lightened 40% toward white. Checked with a scratch harness (host and two
+  clients on Temple with `--net-test-aimat` at each other; co-op Defection
+  with the host turned by gdb, `--net-test-aimat` does not turn a host's
+  own player): each client showed the other's name, the host the
+  client's, the host's view of nobody none.
 - **Seen with five netbots joining the user's TND64 campaign (2026-10-08),
   not fixed:** every bot segfaulted seconds after its GO in progress -
   unbounded recursion in func0f0706f8 (propobj.c) from chrTick: a chr's

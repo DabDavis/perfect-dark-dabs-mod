@@ -235,7 +235,11 @@ deaths and ping, the open seats and who is watching. On a controller,
 pause and pick **Players** (on the Combat Simulator's Control page, or the
 mission's pause page) for the same list, the on-screen keyboard and a list
 of quick messages. The keys are `Net.ChatKey`, `Net.PlayersKey` and
-`Net.ChatSpace` in `pd.ini`.
+`Net.ChatSpace` in `pd.ini`. Put your crosshair on another player, in a
+Combat Simulator match or a co-op mission, and their name shows over their
+head (in their team's colour in a team game); it fades a moment after the
+crosshair leaves them, and never shows through a wall or a cloak.
+`Net.PlayerNames=0` turns it off.
 
 **Ports.** Nobody needs to open a port for a room to work: the game finds
 its own way to the host - over your LAN, straight to the host, punched
