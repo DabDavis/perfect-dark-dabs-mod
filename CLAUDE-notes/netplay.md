@@ -1158,6 +1158,33 @@ nothing is ever sent from one machine to another but names and hashes.
   the ROM has no head for - a ROM-only guest cannot list; the gate allows
   heads missing and fails on a body. `net: puppets: ... not made` names
   the body and its skeleton when a held gun still fails.
+- **A download's edges (2026-10-08, the weak-spot audit).** A session that
+  ended mid-fetch (the host quit or migrated, the guest left) left `s_Fetch`
+  active and its unsealed memory directory in place, so the next STAGE_LOAD's
+  fetch of the same folder returned 0 and the guest left "not installed
+  here" for the rest of the process. `netContentSessionEnd()` (from
+  `netClientEnd`, `netSessionLobbyStop`, `netSessionClose`) drops the fetch
+  (`fsMemDirDestroy` frees an unsealed dir and its slot), stops every
+  transfer and forgets the session's refusals; `fsMemDirFind` counts only a
+  sealed dir. A fetch fails as soon as more files or bytes come than
+  CONTENT_BEGIN announced, and frees its dir. The host serves only what this
+  session needs - a folder a STAGE_LOAD named (`netContentHostStageDir`, in
+  `netWriteStageKey`) or GoldenEye Arenas while its lists hold GoldenEye's
+  characters - refused before the folder is walked, at most twice a folder
+  per connection (`netContentPeerReset` at CONNECT), and paces the parts by
+  what ENet still holds for the peer (`netHostPeerQueuedBytes`, 2 MB). A
+  transfer stops on any disconnect, LEAVE or kick whatever the peer's state;
+  a late joiner being served is not kicked at 60 s. A loaded guest waits at
+  the barrier as long as the host does: the host sends its LOADED clients
+  PLAYERS every 5 s while the barrier is held, which resets their 60 s
+  deadline (no protocol change). A MATCH_END for the match a guest is still
+  fetching for drops the kept STAGE_LOAD and sends LOBBY (it had loaded the
+  finished match after the download, AWAY on the host, and left); the fetch
+  runs on, and the next STAGE_LOAD for the same folder waits for it.
+  netmigratetest's `midfetch` (the host quits 3 MB into serving,
+  `--net-test-serve-quit`) and `fetchend` (`--net-test-serve-pace`) cases.
+  Not guarded: the served segments and modconfig.txt go to the decomp's
+  loaders as they come.
 - **Not done.** A restart-and-rejoin for the segs/ mods (the game could
   relaunch itself with the mod selected for that run and join the room
   again: `updateRelaunchSelf` is the relaunch, `--net-lobby-*` the

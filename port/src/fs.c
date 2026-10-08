@@ -145,7 +145,7 @@ static s32 fsMemResolve(const char *path, const char **rel)
 	}
 
 	for (i = 0; i < numMemDirs; i++) {
-		if ((s32)strlen(memDirs[i].name) == len && strncmp(memDirs[i].name, name, len) == 0) {
+		if (len > 0 && (s32)strlen(memDirs[i].name) == len && strncmp(memDirs[i].name, name, len) == 0) {
 			*rel = end;
 			return i;
 		}
@@ -202,25 +202,61 @@ s32 fsMemDirCreate(const char *name)
 	struct memdir *d;
 	s32 i;
 
-	if (!name || !name[0] || strlen(name) >= sizeof(d->name) || strchr(name, '/') || strchr(name, '\\')) {
+	s32 slot = -1;
+
+	if (!name || !name[0] || strlen(name) >= sizeof(d->name) || strchr(name, '/') || strchr(name, '\\')
+			|| strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
 		return -1;
 	}
 
 	for (i = 0; i < numMemDirs; i++) {
-		if (strcasecmp(memDirs[i].name, name) == 0) {
+		if (!memDirs[i].name[0]) {
+			// one destroyed before it was sealed: free again
+			if (slot < 0) {
+				slot = i;
+			}
+		} else if (strcasecmp(memDirs[i].name, name) == 0) {
 			return -1;
 		}
 	}
 
-	if (numMemDirs >= FS_MAXMEMDIRS) {
-		return -1;
+	if (slot < 0) {
+		if (numMemDirs >= FS_MAXMEMDIRS) {
+			return -1;
+		}
+
+		slot = numMemDirs++;
 	}
 
-	d = &memDirs[numMemDirs];
+	d = &memDirs[slot];
 	memset(d, 0, sizeof(*d));
 	snprintf(d->name, sizeof(d->name), "%s", name);
 
-	return numMemDirs++;
+	return slot;
+}
+
+/**
+ * An unsealed dir (a fetch that never finished) freed, its slot free for
+ * another; a sealed one may be mounted and stays for the process
+ */
+void fsMemDirDestroy(s32 dir)
+{
+	struct memdir *d;
+	s32 i;
+
+	if (dir < 0 || dir >= numMemDirs || memDirs[dir].sealed || !memDirs[dir].name[0]) {
+		return;
+	}
+
+	d = &memDirs[dir];
+
+	for (i = 0; i < d->count; i++) {
+		free(d->files[i].rel);
+		free(d->files[i].data);
+	}
+
+	free(d->files);
+	memset(d, 0, sizeof(*d));
 }
 
 s32 fsMemDirAddFile(s32 dir, const char *rel, const void *data, u32 size)
@@ -234,7 +270,7 @@ s32 fsMemDirAddFile(s32 dir, const char *rel, const void *data, u32 size)
 
 	d = &memDirs[dir];
 
-	if (d->sealed || fsMemFind(d, rel)) {
+	if (!d->name[0] || d->sealed || fsMemFind(d, rel)) {
 		return -1;
 	}
 
@@ -295,8 +331,9 @@ s32 fsMemDirFind(const char *name)
 {
 	s32 i;
 
-	for (i = 0; i < numMemDirs; i++) {
-		if (strcasecmp(memDirs[i].name, name) == 0) {
+	// a half-filled one (a fetch under way, or one that failed) is not there
+	for (i = 0; name && name[0] && i < numMemDirs; i++) {
+		if (memDirs[i].sealed && strcasecmp(memDirs[i].name, name) == 0) {
 			return i;
 		}
 	}

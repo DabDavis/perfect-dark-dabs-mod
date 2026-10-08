@@ -149,6 +149,8 @@ void netHostDisconnectLater(struct nethost *h, s32 peer, u32 reason);
 void netHostDisconnectNow(struct nethost *h, s32 peer, u32 reason);
 
 s32 netHostPeerStats(const struct nethost *h, s32 peer, struct netpeerstats *out);
+// Bytes ENet holds for the peer: queued, not yet sent, plus reliable data sent and not yet acknowledged (0 no peer)
+u32 netHostPeerQueuedBytes(const struct nethost *h, s32 peer);
 s32 netHostPeerAddr(const struct nethost *h, s32 peer, struct netaddr *out);
 
 s32 netAddrResolve(const char *hostname, u16 port, struct netaddr *out);

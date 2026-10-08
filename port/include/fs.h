@@ -35,7 +35,8 @@ s32 fsMemDirCreate(const char *name);                  // -1 when one of the nam
 s32 fsMemDirAddFile(s32 dir, const char *rel, const void *data, u32 size); // a copy; 0 ok
 void fsMemDirSeal(s32 dir);                            // sorted for lookup; no more files after
 const char *fsMemDirPath(s32 dir);                     // "$N/<name>"
-s32 fsMemDirFind(const char *name);                    // by name, -1 none
+s32 fsMemDirFind(const char *name);                    // a sealed one by name, -1 none
+void fsMemDirDestroy(s32 dir);                         // an unsealed one freed (a fetch abandoned)
 u32 fsMemDirBytes(s32 dir);
 s32 fsMemDirCount(s32 dir);
 s32 fsGetNumOverlayModDirs(void);

@@ -227,6 +227,7 @@ static u8 s_FetchStage[512];   // protocol 14: the STAGE_LOAD a content fetch ho
 static u64 s_TestCampaignAt = 0; // --net-test-campaign: when to open the host's menus for it
 static u64 s_TestCampaignMissionAt = 0; // --net-test-campaign-mission N: when the folder starts mission N
 static s32 s_FetchStageLen = 0;
+static u32 s_FetchStageMatch = 0; // the match that STAGE_LOAD was for (a MATCH_END for it drops it)
 
 // the match, both sides
 static s32 s_MatchActive = 0;  // from the start (H1 / STAGE_LOAD) to H12
@@ -283,6 +284,8 @@ static const char *s_RefuseNames[NETREFUSE_COUNT] = {
 };
 
 #define NET_CLIENT_BARRIER_TIMEOUT_MS (NET_LOAD_TIMEOUT_MS * 4)
+#define NET_BARRIER_KEEP_MS 5000 // the host's PLAYERS to its loaded clients while the barrier waits
+static u64 s_BarrierKeepAt = 0;
 #define NET_JOIN_LEAD 3 // ticks a join in progress starts ahead of the host's GO
 extern s32 g_StageTimeElapsed60;
 extern s32 g_MpWeaponSetNum;
@@ -609,6 +612,7 @@ static void netHostKick(s32 peer, s32 code, const char *component, const char *t
 
 	netSendRefuse(peer, code, component, text);
 	netHostDisconnectLater(g_NetHostSocket, peer, (u32)code);
+	netContentServeStop(peer); // in whatever state: a folder being sent stops
 
 	// kicked mid-match: its player is left on a neutral pad, as on a leave
 	// (the DISCONNECT that follows finds it REFUSED and does nothing)
@@ -1224,6 +1228,7 @@ static void netWriteStageKey(struct netbuf *b, s32 stagenum, char *label, s32 la
 		const char *map = modloaderGetStageMapName(stagenum);
 
 		netBasename(dir, base, sizeof(base));
+		netContentHostStageDir(base);
 		netBufWriteU8(b, 3);
 		netWriteStr(b, base, NET_MAXMAPDIR);
 		netBufWriteU8(b, (u8)modloaderStageMission(stagenum));
@@ -1232,6 +1237,7 @@ static void netWriteStageKey(struct netbuf *b, s32 stagenum, char *label, s32 la
 		const char *map = modloaderGetStageMapName(stagenum);
 
 		netBasename(dir, base, sizeof(base));
+		netContentHostStageDir(base);
 		netBufWriteU8(b, 1);
 		netWriteStr(b, base, NET_MAXMAPDIR);
 		netWriteStr(b, map ? map : "", NET_MAXMAPNAME);
@@ -1844,8 +1850,9 @@ static s32 netHostSeatPing(s32 seat)
 	return -1;
 }
 
-// PLAYERS to every client in the match: the pings and the spectators
-static void netHostSendPlayers(void)
+// PLAYERS to every client in the match in `state` (PLAYING; LOADED at the
+// barrier, where it says the host is still waiting): the pings and the spectators
+static void netHostSendPlayers(s32 state)
 {
 	u8 buf[256];
 	struct netbuf b;
@@ -1892,7 +1899,7 @@ static void netHostSendPlayers(void)
 	}
 
 	for (i = 0; i < NET_MAXPEERS && netBufOk(&b); i++) {
-		if (s_Clients[i].state == NETCL_PLAYING) {
+		if (s_Clients[i].state == state) {
 			netHostSend(g_NetHostSocket, i, NET_CHAN_UNRELIABLE, buf, netBufLen(&b), 0);
 		}
 	}
@@ -2079,7 +2086,7 @@ static void netHostSeatsTick(void)
 
 	// protocol 18: the pings and spectators for every client's players list
 	if (g_NetTick % 60 == 0) {
-		netHostSendPlayers();
+		netHostSendPlayers(NETCL_PLAYING);
 	}
 }
 
@@ -2265,6 +2272,10 @@ static void netHostLateTick(void)
 
 		if (c->state == NETCL_LOADED && !s_BarrierHeld && !s_HostEnded && netSessionMatchActive()) {
 			netHostLateGo(i);
+		} else if (c->state == NETCL_LOADING && netContentServingPeer(i)) {
+			// a join in progress being served its stage's folder loads
+			// when it has it (the clock starts again then)
+			c->since = netNowMs();
 		} else if (c->state == NETCL_LOADING && netNowMs() - c->since > NET_LOAD_TIMEOUT_MS * 4) {
 			netHostKick(i, NETREFUSE_TIMEOUT, "", "Your game took too long to load the stage.");
 		}
@@ -2553,6 +2564,12 @@ static void netClientEnd(s32 code, const char *text)
 	}
 
 	s_ClientState = NETCS_GONE;
+
+	// a fetch under way is dropped with its half-filled folder, and the
+	// STAGE_LOAD it held with it: the next session's host serves it whole
+	netContentSessionEnd();
+	s_FetchStageLen = 0;
+	s_FetchStageMatch = 0;
 
 	if (s_MatchActive) {
 		s_DropToMenus = 1;
@@ -2932,6 +2949,20 @@ static void netClientOnPlayers(struct netbuf *b)
 		return;
 	}
 
+	// at the barrier: the host is still waiting (another machine's load or
+	// download), so this one waits on with it
+	if (s_ClientState == NETCS_LOADED && s_BarrierHeld) {
+		static u32 logged;
+
+		if (logged != matchid) {
+			logged = matchid;
+			sysLogPrintf(LOG_NOTE, "net: match %u: the host is still waiting at the barrier; waiting on with it", matchid);
+		}
+
+		s_ClientBarrierDeadline = netNowMs() + NET_CLIENT_BARRIER_TIMEOUT_MS;
+		return;
+	}
+
 	memcpy(s_ClPing, ping, sizeof(s_ClPing));
 
 	for (i = 0; i < nspecs; i++) {
@@ -3012,6 +3043,24 @@ static void netClientOnMatchEnd(struct netbuf *b)
 		b->error = 1;
 	} else {
 		netBufReadBytes(b, s_EndScen, NETSCEN_SIZE);
+	}
+
+	// the match this machine was still fetching a folder for is over: the
+	// STAGE_LOAD kept for it is dropped (loaded after the download it was a
+	// finished match the host had stopped waiting for), and LOBBY says this
+	// machine is back in the room for the next one; the fetch runs on
+	if (netBufOk(b) && netBufRemaining(b) == 0 && !s_MatchActive && s_FetchStageLen && matchid == s_FetchStageMatch
+			&& s_ClientState == NETCS_JOINED) {
+		struct netbuf lb;
+
+		s_FetchStageLen = 0;
+		s_FetchStageMatch = 0;
+		netBufInitWrite(&lb, s_Buf, sizeof(s_Buf));
+		netBufWriteU8(&lb, NETMSG_LOBBY);
+		netBufWriteU32(&lb, matchid);
+		netSend(s_ServerPeer, NET_CHAN_RELIABLE, &lb);
+		sysLogPrintf(LOG_NOTE, "net: match %u ended while its folder was still coming; its stage load dropped, back in the room", matchid);
+		return;
 	}
 
 	if (!netBufOk(b) || netBufRemaining(b) != 0 || matchid != s_MatchIdCur || !s_MatchActive) {
@@ -3106,6 +3155,7 @@ static void netHostEvent(const struct netevent *ev)
 	switch (ev->type) {
 	case NETEVENT_CONNECT:
 		memset(c, 0, sizeof(*c));
+		netContentPeerReset(ev->peer);
 		c->state = NETCL_CONNECTING;
 		c->slot = -1;
 		c->since = netNowMs();
@@ -3121,6 +3171,9 @@ static void netHostEvent(const struct netevent *ev)
 			netHostPeerGone(ev->peer, 1);
 		}
 
+		// a peer gone from the lobby (JOINED, AWAY) too: a folder being
+		// sent to it stops, and the next peer on the index is served
+		netContentServeStop(ev->peer);
 		memset(c, 0, sizeof(*c));
 		c->slot = -1;
 		break;
@@ -3157,6 +3210,8 @@ static void netHostEvent(const struct netevent *ev)
 				netPlayersHostSlotGone(c->slot);
 				netHostPeerGone(ev->peer, 0);
 			}
+
+			netContentServeStop(ev->peer);
 
 			c->state = NETCL_REFUSED;
 			netHostDisconnectLater(g_NetHostSocket, ev->peer, (u32)code);
@@ -3391,6 +3446,7 @@ static void netClientEvent(const struct netevent *ev)
 				if (ev->len <= (s32)sizeof(s_FetchStage)) {
 					memcpy(s_FetchStage, ev->data, ev->len);
 					s_FetchStageLen = ev->len;
+					s_FetchStageMatch = ev->len >= 5 ? (u32)ev->data[1] | (u32)ev->data[2] << 8 | (u32)ev->data[3] << 16 | (u32)ev->data[4] << 24 : 0;
 				}
 
 				if (!netClientBeginStage(&b)) {
@@ -3846,6 +3902,14 @@ void netSessionTick(void)
 		// a client being served its stage's folder loads when it has it
 		if (netContentServing() && s_BarrierHeld && s_LoadDeadline < netNowMs() + NET_LOAD_TIMEOUT_MS) {
 			s_LoadDeadline = netNowMs() + NET_LOAD_TIMEOUT_MS;
+		}
+
+		// the clients loaded already wait as long as the host does (a
+		// download can keep the barrier past their own deadline): PLAYERS
+		// every few seconds while it is held says it is still waiting
+		if (s_MatchActive && s_BarrierHeld && s_HostLoaded && netNowMs() >= s_BarrierKeepAt) {
+			s_BarrierKeepAt = netNowMs() + NET_BARRIER_KEEP_MS;
+			netHostSendPlayers(NETCL_LOADED);
 		}
 
 		netHostBarrierTick();
@@ -4448,6 +4512,8 @@ static void netSessionClose(void)
 		}
 	}
 
+	netContentSessionEnd();
+
 	if (s_SockLent) {
 		// the lobby's socket: the path it punched or the relay it bound
 		// stays open for the room's next match; only the peer goes
@@ -4600,6 +4666,9 @@ void netSessionLobbyStop(void)
 	}
 
 	netHostOwnNameBack();
+	netContentSessionEnd();
+	s_FetchStageLen = 0;
+	s_FetchStageMatch = 0;
 	memset(s_Clients, 0, sizeof(s_Clients));
 	s_Role = NETROLE_NONE;
 	s_LobbyRoomOn = 0;

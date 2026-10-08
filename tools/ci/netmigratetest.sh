@@ -35,6 +35,24 @@
 #          2026-10-08: "they should still have the download from original
 #          host"); a third game with nothing installed then joins the match in
 #          progress and is served the conversion by the new host in turn.
+#   midfetch the host goes in the middle of serving a folder: a host and alpha
+#          with GoldenEye's arenas, bravo with nothing installed; the host
+#          quits once it has sent bravo 3 MB of GoldenEye Arenas
+#          (--net-test-serve-quit, before the match's GO: alpha waits at the
+#          barrier for bravo's download, as long as the host does). Alpha takes
+#          the room over; bravo's half-filled folder is dropped with the old
+#          session and the new host serves it whole (an abandoned fetch had
+#          blocked the folder for the process: "not installed here").
+#   fetchend (no migration: the lifecycle round a download) a host and alpha
+#          with GoldenEye's arenas play two matches of 600 frames on Complex;
+#          charlie, with nothing installed, joins the first in progress and
+#          is served the folder slowly (--net-test-serve-pace 25, ~110 s):
+#          the first match ends while it downloads (its kept STAGE_LOAD is
+#          dropped and LOBBY sent: it had loaded the finished match after the
+#          download and sat at the barrier until it left), the second waits
+#          for it at the barrier past the clients' own 60 s (the host's
+#          PLAYERS keep alpha waiting: it had left with "No GO came"), and
+#          all three play it.
 #
 #   netmigratetest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
@@ -46,7 +64,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netmigrate-out}; GPORT=${GPORT:-27190}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-quit crash lobby coop served}
+CASES=${CASES:-quit crash lobby coop served midfetch fetchend}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -332,6 +350,73 @@ for c in $CASES; do
 			fail "served: alpha's match never came back; charlie was not started"
 		fi
 		[ "$RA" = 0 ] || fail "served: alpha exit $RA"
+		;;
+	midfetch)
+		lobby midfetch
+		GEMAPS=1 game midfetch-host mhmidfetch "$port" 300 --net-lobby-script host --net-lobby-room "Migrate midfetch" --net-lobby-size 3 \
+			--net-lobby-wait 2 --net-test-map Complex --net-test-ge 0 --net-test-sims 0 --rng-seed 24 --net-test-serve-quit 3000000 &
+		ph=$!
+		GEMAPS=1 game midfetch-alpha alphamidfetch $((port + 1)) 300 --net-lobby-script join --net-lobby-room "Migrate midfetch" \
+			--net-lobby-leave-frame 0 --net-lobby-migrate 900 &
+		pa=$!
+		sleep 4
+		BARE=1 game midfetch-bravo bravomidfetch $((port + 2)) 300 --net-lobby-script join --net-lobby-room "Migrate midfetch" \
+			--net-lobby-leave-frame 0 --net-lobby-migrate 900 &
+		pb=$!
+		wait $ph; RH=$?; wait $pa; RA=$?; wait $pb; RB=$?
+		kill $LOBBY 2>/dev/null; wait $LOBBY 2>/dev/null
+		echo "     midfetch: exits host $RH alpha $RA bravo $RB"
+		H=$OUT/midfetch-host.log; A=$OUT/midfetch-alpha.log; B=$OUT/midfetch-bravo.log
+		grep -q "net: content: --net-test-serve-quit" "$H" && pass "midfetch: host: $(line "$H" "net: content: --net-test-serve-quit" | cut -c14-)" \
+			|| fail "midfetch: the host did not quit mid-transfer"
+		grep -q "^mod: 0 installed" "$B" && pass "midfetch: bravo had no mods of its own" || fail "midfetch: bravo's mod list was not empty"
+		grep -q "net: content: the session ended [0-9]* of [0-9]* bytes into GoldenEye Arenas; dropped" "$B" \
+			&& pass "midfetch: bravo: $(line "$B" "net: content: the session ended" | cut -c14-)" || fail "midfetch: bravo did not drop the fetch with the session"
+		grep -q "lobby: hosting room .* taken over from mhmidfetch" "$A" && pass "midfetch: alpha: $(line "$A" "lobby: hosting room")" \
+			|| fail "midfetch: alpha did not take the room over"
+		grep -q "net: content: GoldenEye Arenas served to peer" "$A" && pass "midfetch: alpha: $(line "$A" "net: content: GoldenEye Arenas served to peer")" \
+			|| fail "midfetch: alpha did not serve the folder"
+		grep -q "net: content: GoldenEye Arenas fetched from the host and mounted for its maps" "$B" \
+			&& pass "midfetch: bravo: $(line "$B" "net: content: GoldenEye Arenas fetched" | cut -c14-)" || fail "midfetch: bravo never had the folder whole"
+		grep -q "not installed here" "$B" && fail "midfetch: bravo left: $(line "$B" "not installed here")"
+		grep -q "net: accepted by \"alphamidfetch\"" "$B" && grep -q "net: match [0-9]*: every machine has loaded; GO" "$A" \
+			&& pass "midfetch: bravo played the room's match under alpha" || fail "midfetch: bravo did not play under alpha"
+		[ "$RA" = 0 ] && [ "$RB" = 0 ] || fail "midfetch: exit codes alpha $RA bravo $RB"
+		;;
+	fetchend)
+		lobby fetchend
+		GEMAPS=1 game fetchend-host mhfetchend "$port" 330 --net-lobby-script host --net-lobby-room "Migrate fetchend" --net-lobby-size 3 \
+			--net-lobby-wait 1 --net-lobby-matches 2 --net-lobby-end-frame 600 --net-test-map Complex --net-test-ge 0 --net-test-sims 0 \
+			--rng-seed 24 --net-test-serve-pace 25 &
+		ph=$!
+		GEMAPS=1 game fetchend-alpha alphafetchend $((port + 1)) 330 --net-lobby-script join --net-lobby-room "Migrate fetchend" \
+			--net-lobby-leave-frame 0 --net-lobby-matches 2 &
+		pa=$!
+		if waitfor "$OUT/fetchend-host.log" "net: match 1: every machine has loaded; GO" 120; then
+			BARE=1 game fetchend-charlie charliefetchend $((port + 2)) 300 --net-lobby-script join --net-lobby-room "Migrate fetchend" \
+				--net-lobby-leave-frame 0 --net-lobby-matches 1 &
+			pc=$!
+		else
+			pc=
+		fi
+		wait $ph; RH=$?; wait $pa; RA=$?
+		RC=-; [ -n "$pc" ] && { wait $pc; RC=$?; }
+		kill $LOBBY 2>/dev/null; wait $LOBBY 2>/dev/null
+		echo "     fetchend: exits host $RH alpha $RA charlie $RC"
+		H=$OUT/fetchend-host.log; A=$OUT/fetchend-alpha.log; C=$OUT/fetchend-charlie.log
+		grep -q "net: match 1 ended while its folder was still coming; its stage load dropped, back in the room" "$C" \
+			&& pass "fetchend: charlie: $(line "$C" "net: match 1 ended while" | cut -c6-)" || fail "fetchend: charlie did not drop match 1's stage load at its end"
+		grep -q "is still on the last match's end screen; it sits this match out" "$H" \
+			&& fail "fetchend: host: $(line "$H" "is still on the last match's end screen")" || pass "fetchend: nobody sat match 2 out"
+		grep -q "net: content: GoldenEye Arenas fetched from the host and mounted for its maps" "$C" \
+			&& pass "fetchend: charlie: $(line "$C" "net: content: GoldenEye Arenas fetched" | cut -c14-)" || fail "fetchend: charlie never had the folder"
+		grep -q "net: match 2: every machine has loaded; GO" "$H" && pass "fetchend: host: match 2 passed GO" || fail "fetchend: match 2 never passed GO"
+		grep -q "net: match 2: GO" "$C" && pass "fetchend: charlie played match 2" || fail "fetchend: charlie did not play match 2"
+		grep -q "net: match 2: GO" "$A" && pass "fetchend: alpha waited at the barrier and played match 2" || fail "fetchend: alpha did not play match 2"
+		grep -q "No GO came\|did not start the match" "$A" && fail "fetchend: alpha gave up: $(line "$A" "session ended")"
+		grep -q "net: match 2: the host is still waiting at the barrier" "$A" && pass "fetchend: alpha: $(line "$A" "net: match 2: the host is still waiting" | cut -c6-)" \
+			|| fail "fetchend: alpha was never told the host still waited"
+		[ "$RA" = 0 ] || fail "fetchend: alpha exit $RA"
 		;;
 	esac
 	port=$((port + 10))
