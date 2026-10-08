@@ -37,6 +37,14 @@
 #           seconds and the launch goes straight to the advertised endpoint
 #           (or the public address the lobby saw), with no hold for a
 #           ladder that cannot climb
+#   case s  case a's pair (host s1 behind rA, joiner s2 behind rB), both
+#           frozen just after the joiner's PEER - SIGSTOP, the host 12 s
+#           (under pdlobbyd's 15 s host_timeout), the joiner 17 s (past the
+#           ladder's 16 s deadline) - as ten games starting at once on one
+#           GPU froze case a once in fifteen runs: the punch still wins,
+#           because the rendezvous' clock counts a stall as a second
+#           (netrdv.c), where the wall clock had the joiner fail its ladder
+#           the tick it woke and the host miss its spray
 #
 # Each pair is driven by --net-lobby-script (as netlobbytest.sh): the host
 # makes a room, the joiner lists it, joins, waits for its ladder, READY; the
@@ -47,7 +55,7 @@
 #
 #   netnattest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netnat-out), MODDIR (mod_allinone), CASES ("a b c d e"),
+# Env: OUT (build/netnat-out), MODDIR (mod_allinone), CASES ("a b c d e s"),
 # NETNAT_RUN (see below: the networks for a command of your own).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start,
 # 3 user namespaces are not available here.
@@ -56,7 +64,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netnat-out}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-a b c d e}
+CASES=${CASES:-a b c d e s}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 PATH=$PATH:/usr/sbin:/sbin
@@ -156,8 +164,10 @@ inside a1 rA 10.0.1.2
 inside b1 rA 10.0.1.3
 inside d1 rA 10.0.1.5
 inside d2 rA 10.0.1.6
+inside s1 rA 10.0.1.4
 inside a2 rB 10.0.2.2
 inside c2 rB 10.0.2.3
+inside s2 rB 10.0.2.4
 inside b2 rC 10.0.3.2
 public c1 203.0.113.40
 public e1 203.0.113.50
@@ -205,14 +215,32 @@ game() {
 		[ -f "$HOME/.local/share/perfectdark/$f" ] && cp "$HOME/.local/share/perfectdark/$f" "$save/"
 	done
 	printf '[Mod]\nGhostUser=%s\nGhostPin=1234\n[Net]\nLobbyServer=http://203.0.113.1:8091\nPort=%s\n' "$user" "$port" > "$save/pd.ini"
-	( cd "$BUILD" && exec nsenter -t "${NS[$ns]}" -n timeout -k 5 300 "$BIN" --savedir "$save" --skip-intro --no-sound \
+	( cd "$BUILD" && exec nsenter -t "${NS[$ns]}" -n timeout -k 5 300 stdbuf -oL -eL "$BIN" --savedir "$save" --skip-intro --no-sound \
 		--moddir "$MODDIR" "$@" > "$OUT/$label.log" 2>&1 )
 }
 
-declare -A HOSTNS=([a]=a1 [b]=b1 [c]=c1 [d]=d1 [e]=e1) JOINNS=([a]=a2 [b]=b2 [c]=c2 [d]=d2 [e]=e2)
+declare -A HOSTNS=([a]=a1 [b]=b1 [c]=c1 [d]=d1 [e]=e1 [s]=s1) JOINNS=([a]=a2 [b]=b2 [c]=c2 [d]=d2 [e]=e2 [s]=s2)
 declare -A ROSTER=([e]=none)
-declare -A WANT=([a]=punch [b]=relay [c]=direct [d]=lan [e]="an advertised endpoint\|the host's public address")
+declare -A WANT=([a]=punch [b]=relay [c]=direct [d]=lan [e]="an advertised endpoint\|the host's public address" [s]=punch)
 declare -A RUNS
+
+# case s: both games stopped the moment the joiner has its PEER (its ladder
+# begun, the host's spray a second off), the host 12 s, the joiner 17 s
+freeze() {
+	local J=$OUT/s-join.log comm h="" j="" p k
+	comm=$(basename "$BIN" | cut -c1-15)
+	for k in $(seq 1200); do grep -q "rdv: PEER host" "$J" 2>/dev/null && break; sleep 0.1; done
+	grep -q "rdv: PEER host" "$J" 2>/dev/null || { echo "no PEER in the joiner's log" > "$OUT/s.freeze"; return; }
+	for p in $(pgrep -x "$comm"); do
+		case "$(tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null)" in
+		*"--savedir $OUT/save-s-host "*) h=$p ;;
+		*"--savedir $OUT/save-s-join "*) j=$p ;;
+		esac
+	done
+	[ -n "$h" ] && [ -n "$j" ] || { echo "no games to stop (host '$h', joiner '$j')" > "$OUT/s.freeze"; return; }
+	kill -STOP "$h" "$j"; sleep 12; kill -CONT "$h"; sleep 5; kill -CONT "$j"
+	echo "froze the host 12 s and the joiner 17 s" > "$OUT/s.freeze"
+}
 n=0
 for c in $CASES; do
 	n=$((n + 1))
@@ -222,6 +250,7 @@ for c in $CASES; do
 	game "${JOINNS[$c]}" "$c-join" "joiner$c" 27180 --net-lobby-script join --net-lobby-room "Case $c" \
 		--net-lobby-leave-frame 0 &
 	RUNS[$c-join]=$!
+	[ "$c" = s ] && { freeze & RUNS[s-freeze]=$!; }
 done
 for k in "${!RUNS[@]}"; do wait "${RUNS[$k]}"; eval "rc_${k//-/_}=$?"; done
 kill $LOBBY 2>/dev/null; wait $LOBBY 2>/dev/null
@@ -256,7 +285,9 @@ for c in $CASES; do
 	[ "$c" = b ] && { grep -q "asking the lobby for a relay" "$J" && pass "b: joiner: $(line "$J" "rdv: no direct")" || fail "b: never asked for a relay"
 		grep -q "relay [0-9a-f]*: port [0-9]* for joinerb in room $room" "$L" && pass "b: pdlobbyd: $(line "$L" "relay [0-9a-f]*: port")" || fail "b: pdlobbyd made no relay"
 		grep -q "rdv: relay for joinerb bound" "$H" && pass "b: host: $(line "$H" "rdv: relay for")" || fail "b: host never bound the relay"; }
-	[ "$c" = a ] && { grep -q "rdv: joinera has not reached us; spraying" "$H" && pass "a: host: $(line "$H" "rdv: joinera has not")" || fail "a: host never sprayed"; }
+	[ "$c" = a ] || [ "$c" = s ] && { grep -q "rdv: joiner$c has not reached us; spraying" "$H" && pass "$c: host: $(line "$H" "rdv: joiner$c has not")" || fail "$c: host never sprayed"; }
+	[ "$c" = s ] && { grep -q "^froze" "$OUT/s.freeze" 2>/dev/null && pass "s: $(cat "$OUT/s.freeze")" || fail "s: no freeze: $(cat "$OUT/s.freeze" 2>/dev/null)"
+		grep -q "rdv: this game did not tick for" "$J" && pass "s: joiner: $(line "$J" "rdv: this game did not tick")" || fail "s: the joiner's rendezvous never saw its stall"; }
 	[ "$c" = c ] && { grep -q "spraying" "$H" && fail "c: host sprayed a joiner that reached it unaided" || pass "c: host never sprayed (reachable)"; }
 	if grep -q "connecting to .* (endpoint [0-9] of [0-9]: $want) with the lobby's ticket" "$J"; then
 		pass "$c: joiner: $(line "$J" "lobby: room $room launched; connecting")"
@@ -279,5 +310,9 @@ for c in $CASES; do
 	grep -q "host back in room $room after match 1" "$H" && grep -q "client back in room $room after match 1" "$J" \
 		&& pass "$c: both back in the room after the match" || fail "$c: not both back in the room"
 	[ "$rh" = 0 ] && [ "$rj" = 0 ] || fail "$c: exit codes host $rh join $rj"
+	# a game that froze (ten start at once on one GPU): the rendezvous
+	# counts a stall as a second (netrdv.c's clock), so the ladder outlives
+	# it; said here, as it is what a flaky case would have met
+	grep -h "rdv: this game did not tick" "$H" "$J" | sed "s/^/     $c: /"
 done
 exit $status

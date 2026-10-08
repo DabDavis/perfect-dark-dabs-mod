@@ -47,7 +47,10 @@
   set in RULES, stage key kind 3) and **campaign rooms** (the host plays
   its set's menus; each mission it starts is the room's next match; the
   black screen on GoldenEye's openings, late joins, the host's menus and
-  what a client drew wrong, its doors among them: 2026-10-07).
+  what a client drew wrong, its doors among them: 2026-10-07), and
+  **GoldenEye's characters** a guest lacks, mounted or fetched before the
+  stage (2026-10-08: a Goldfinger 64 guest's puppets were Dr. Caroll,
+  unarmed).
 - **A player's own look, and choices made in a menu** — the section of
   that name (protocol 15): the N64 or XBLA/HD look is each machine's own,
   F6 included mid-match; what a look decides at a load (GoldenEye's
@@ -204,11 +207,11 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netlobbytest.sh` | 0.5 min | two pairs meet through a local pdlobbyd room, leave and rematch |
 | `netlobbyuitest.sh` | 0.7 min | the Briefing Room and Game Lobby screenshotted, PING measured (and by HTTP for a lister with the echo mute), the advertised endpoints tried in turn, the host named by its account on the wire and in its own match, no Save Player prompt |
 | `netlobbywinetest.sh` | 0.5 min | the Windows build (WinHTTP) as a lobby member under wine against a Linux host |
-| `netnattest.sh` | 0.5 min | punch, relay, direct, LAN, mute rendezvous in user-namespace NATs |
+| `netnattest.sh` | 1 min | punch, relay, direct, LAN, mute rendezvous in user-namespace NATs; a punch through both games frozen after PEER (s) |
 | `netpredicttest.sh` | 6.5 min | prediction at 0/150 ms, loss, wine client, sims, a time limit |
 | `netlagcomptest.sh` | 9 min | hits at 150 ms with and without lag compensation (on and loss: 8400 frames, at least 30 shots), loss, soak |
 | `netscenariotest.sh` | 21 min | every scenario, two lossy |
-| `netcontenttest.sh` | 9 min | GoldenEye arenas (YOLT: a client respawned by its START alone), Goldfinger's mode (gfvariant, needs its zip in added-content), a client with nothing installed served the conversion by the host (fetch), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
+| `netcontenttest.sh` | 9 min | GoldenEye arenas (YOLT: a client respawned by its START alone), Goldfinger's mode (gfvariant: the conversion mounted is enough, no zip needed), a client with nothing installed served the conversion by the host (fetch) and in a Goldfinger room the hack and GoldenEye's characters (gffetch), mod maps (one mounted on demand: modmount), overlay (and one the client lacks, left over with NOMOD: modmissing), bodies, props |
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netchattest.sh` | 4.5 min | protocol 18: chat on every machine in order, the host's burst limit (5 of 7, the sender alone told), the notices of a join in progress (with "3/4"), a spectator, a drop, a return within the hold, a hold running out and a spectator gone, a client's first PLAYERS, the host's pause Control page and Players page, screenshots of the feed, panel and open line |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
@@ -348,6 +351,38 @@ the one still statistical):
   stateful firewall that only its spray opens is really a punch, and is now
   called direct. On loopback lobbies (`no NAT here` every time) the longer
   window delays nothing: the joiner reaches the host before any spray.
+- netnattest a ("joiner did not connect over punch", 2026-10-08, once in
+  fifteen runs; root-caused): the ten games start at once on one GPU and
+  froze together for ~16 s just after the joiner's PEER. The rendezvous'
+  deadlines were wall-clock time, so the joiner woke with its ladder 16 s
+  old, failed it on that tick with not one punch sent ("no path ...
+  answered"; no "asking the lobby for a relay" line between, which is the
+  proof no tick ran), READYed, and the launch took the advertised
+  endpoints; the host read its PEER on the same wake (it reported the
+  joiner reaching it "20001 ms after its PEER": the joiner's 20 s retry).
+  netrdv.c now runs on its own clock (`rdvNow()`, `rdvClockTick()`): real
+  milliseconds, except that a gap between two ticks counts at most
+  `RDV_STALL_MS` (1 s), so a frozen game cannot count its own freeze as the
+  network's silence; a gap over 2 s in a room is logged ("rdv: this game
+  did not tick for N ms"), and the gate prints those lines. Forced to
+  happen by `stall.sh` (gdb holds the joiner 17 s on its first ladder tick,
+  SIGSTOP the host 12 s - under pdlobbyd's 15 s host_timeout, past which
+  the room migrates instead): the build before failed it as the gate did,
+  this one passes on the punch. netnattest's games are line-buffered now
+  (`stdbuf -oL -eL`; "file 1742WARNING: rdv: ..." was stderr landing in a
+  4 KB stdout block, and the order of the log lines was not their order).
+- netcontenttest gfvariant ("not in Goldfinger 64's mode: ... variant \"\"",
+  failing since cf5e36c's build dir was left for `build/`): never the
+  client. The host's `--net-test-ge-variant gf64` looked the hack up in
+  gexplusrom.c's converted list, which holds a hack only while its source
+  is in added-content/; `build/` has the conversion (its mods/ is the main
+  tree's) but no goldfinger64.zip, so the host warned "not converted here"
+  and played GoldenEye's own mode, and RULES carried no tag. The switch
+  now finds the hack as a guest and co-op do (`netContentVariantName()`:
+  converted here, or its folder mounted), the host's start line names the
+  mode ("(GoldenEye mode, variant gf64)"), and the case checks the host's
+  mode before the client's. Session 5's pass was build-share/, which had
+  the zip.
 
 replaytest's `randrun` case flips between two hashes on the base binary too
 (pre-existing); rerun `CASES=randrun` alone before looking for a regression.
@@ -1101,6 +1136,28 @@ nothing is ever sent from one machine to another but names and hashes.
   mission from the folder by gdb: `set var g_Front.mission=N`, `call
   (void)frontStartMission()`; a forced opening still on any machine: `set
   var g_GeIntroShot = g_GeCinemaShots[K]`, `set var g_GeIntroTimer = 0`.
+- **GoldenEye's characters follow the host (2026-10-08, no protocol
+  change).** In GoldenEye's mode and a ROM hack's alike the sims and
+  players wear gebean.c's pool: rows from `GEBEAN_POOL_BASE`, built over
+  GoldenEye's own conversion (never a hack's: `gexPlusRomMpBegin()`) at
+  startup. A guest with no conversion (a Goldfinger 64 room's guest that
+  fetched only Goldfinger 64), or one fetched or mounted since its pool was
+  built (the fetch case's GoldenEye Arenas), lists none of those rows, and
+  `netMpBodyIndex()` fell back to the host's raw list place: past this
+  list's end, which `mpGetBodyId()` makes Dark Combat or, one past,
+  `BODY_DRCAROLL`, whose skeleton has no hand - `chrEquipWeapon()` refused
+  the puppet its gun ("held guns not made", netcontenttest's new gffetch
+  case, three runs in ten). Now RULES keep each character's rows
+  (`netReadMpCharRows()`) and put them in this machine's places when the
+  rules are applied; at STAGE_LOAD `netContentGeCharsFollow()` builds the
+  pool again over this machine's own conversion (mounted now if
+  Mod.MapMods left it out) or fetches the host's GoldenEye Arenas first
+  (the STAGE_LOAD is kept through a second fetch now, the map's then the
+  characters'). A row still not listed stands in with a place inside this
+  list, never one past it. What the XBLA release alone has - eleven heads
+  the ROM has no head for - a ROM-only guest cannot list; the gate allows
+  heads missing and fails on a body. `net: puppets: ... not made` names
+  the body and its skeleton when a held gun still fails.
 - **Not done.** A restart-and-rejoin for the segs/ mods (the game could
   relaunch itself with the mod selected for that run and join the room
   again: `updateRelaunchSelf` is the relaunch, `--net-lobby-*` the

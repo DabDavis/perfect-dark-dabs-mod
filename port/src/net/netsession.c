@@ -2745,6 +2745,12 @@ static s32 netClientBeginStage(struct netbuf *b)
 		return 1;
 	}
 
+	// GoldenEye's characters the host's sims and players wear, the same
+	// way: this machine's copy of the conversion, or the host's
+	if (id >= 0 && netContentGeCharsFollow()) {
+		return 1;
+	}
+
 	if (id < 0 || !mainStageCanLoad(id)) {
 		if (nostage[0]) {
 			snprintf(text, sizeof(text), "%s", nostage);
@@ -3346,26 +3352,35 @@ static void netClientEvent(const struct netevent *ev)
 			netContentFetchNo(&b);
 
 			// the STAGE_LOAD kept is tried again: it leaves with the reason
+			// (or, for characters, goes on without them)
 			if (s_ClientState == NETCS_JOINED && s_FetchStageLen) {
 				struct netbuf pb;
+				const s32 len = s_FetchStageLen;
 
-				netBufInitRead(&pb, s_FetchStage, s_FetchStageLen);
+				netBufInitRead(&pb, s_FetchStage, len);
 				netBufReadU8(&pb);
 				s_FetchStageLen = 0;
-				netClientBeginStage(&pb);
+
+				if (netClientBeginStage(&pb)) {
+					s_FetchStageLen = len;
+				}
 			}
 			break;
 		case NETMSG_CONTENT_END:
 			if (netContentFetchEnd(&b) && s_ClientState == NETCS_JOINED && s_FetchStageLen) {
 				struct netbuf pb;
+				const s32 len = s_FetchStageLen;
 
-				netBufInitRead(&pb, s_FetchStage, s_FetchStageLen);
+				netBufInitRead(&pb, s_FetchStage, len);
 				netBufReadU8(&pb);
 				s_FetchStageLen = 0;
 				sysLogPrintf(LOG_NOTE, "net: the STAGE_LOAD kept through the fetch");
 
+				// a second folder (the map's conversion, then GoldenEye's
+				// characters): kept through that fetch too
 				if (netClientBeginStage(&pb)) {
-					sysLogPrintf(LOG_WARNING, "net: the stage still wants a folder after the fetch");
+					s_FetchStageLen = len;
+					sysLogPrintf(LOG_NOTE, "net: the stage wants another folder after the fetch");
 				}
 			}
 			break;
@@ -3547,20 +3562,17 @@ static void netTestStartMatch(void)
 	// --net-test-ge-variant NAME|TAG: a ROM hack's ("Goldfinger 64", or
 	// its conversion tag gf64, which has no space for a script to quote)
 	// instead of GoldenEye's own, as its Perfect Menu row opens it
-	// (protocol 13: RULES carry the mode's tag, netcontent.c)
+	// (protocol 13: RULES carry the mode's tag, netcontent.c). Found as a
+	// guest's and co-op's are: the hack converted here, or its folder
+	// mounted (Mod.MapMods). The converted list alone holds a hack only
+	// while its source is in added-content/, and a gate's build dir has
+	// the conversion (mods/ linked from the main tree) without the zip:
+	// the host played GoldenEye's own mode and the client was blamed.
 	if (gescen >= 0 && gescen < GEXPLUS_NUMSCENARIOS) {
 		const char *variant = sysArgGetString("--net-test-ge-variant");
-		s32 v;
+		const char *tag = variant ? gexPlusRomDirTag(variant) : NULL;
 
-		g_GexPlusVariant = NULL;
-
-		for (v = 0; variant && gexPlusRomGetVariant(v); v++) {
-			const char *tag = gexPlusRomDirTag(gexPlusRomGetVariant(v));
-
-			if (strcasecmp(gexPlusRomGetVariant(v), variant) == 0 || (tag && strcasecmp(tag, variant) == 0)) {
-				g_GexPlusVariant = gexPlusRomGetVariant(v);
-			}
-		}
+		g_GexPlusVariant = variant ? netContentVariantName(tag ? tag : variant) : NULL;
 
 		if (variant && !g_GexPlusVariant) {
 			sysLogPrintf(LOG_WARNING, "net: --net-test-ge-variant %s: not converted here", variant);
@@ -3571,8 +3583,15 @@ static void netTestStartMatch(void)
 		challengeDetermineUnlockedFeatures();
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: --net-test-host: starting a match on 0x%02x with %d sims%s", stage, sims,
-			gescen >= 0 ? " (GoldenEye mode)" : "");
+	{
+		char mode[64] = "";
+
+		if (gescen >= 0) {
+			snprintf(mode, sizeof(mode), " (GoldenEye mode%s%s)", g_GexPlusVariant ? ", variant " : "", netContentVariantTag());
+		}
+
+		sysLogPrintf(LOG_NOTE, "net: --net-test-host: starting a match on 0x%02x with %d sims%s", stage, sims, mode);
+	}
 
 	g_MpSetup.stagenum = stage;
 	mpClearSimSlots();

@@ -113,8 +113,10 @@ struct netrulessim {
 	u8 on;
 	u8 type;
 	u8 difficulty;
-	u8 mpheadnum;
+	u8 mpheadnum; // the host's list places, and its rows (netReadMpCharRows)
 	u8 mpbodynum;
+	s16 headrow;
+	s16 bodyrow;
 	u8 team;
 	u32 displayoptions;
 	char name[15];
@@ -123,8 +125,10 @@ struct netrulessim {
 
 struct netruleshuman {
 	char name[15];
-	u8 mpheadnum;
+	u8 mpheadnum; // as netrulessim's
 	u8 mpbodynum;
+	s16 headrow;
+	s16 bodyrow;
 	u8 team;
 	u32 displayoptions;
 	u8 handicap;
@@ -663,7 +667,10 @@ static s32 netMpHeadIndex(s32 row, s32 sent)
 		}
 	}
 
-	return sent;
+	// a row not in this machine's list (GoldenEye's characters with no
+	// conversion here): the host's place is someone else here, or past the
+	// list's end
+	return sent < mpGetNumHeads() ? sent : 0;
 }
 
 static s32 netMpBodyIndex(s32 row, s32 sent)
@@ -684,7 +691,11 @@ static s32 netMpBodyIndex(s32 row, s32 sent)
 		}
 	}
 
-	return sent;
+	// as a head's: past this list's end is Dr. Caroll (one past) or Dark
+	// Combat (mpGetBodyId()), and Dr. Caroll's skeleton has no hand for a
+	// gun (a Goldfinger 64 room's guest with no GoldenEye conversion, its
+	// puppets unarmed, netcontenttest gffetch 2026-10-08)
+	return sent < (s32)mpGetNumBodies() ? sent : 0;
 }
 
 void netWriteMpChar(struct netbuf *b, s32 mpheadnum, s32 mpbodynum)
@@ -695,17 +706,131 @@ void netWriteMpChar(struct netbuf *b, s32 mpheadnum, s32 mpbodynum)
 	netBufWriteS16(b, (s16)netMpBodyRow(mpbodynum));
 }
 
+// this machine's list places for the host's rows
+static void netMpCharResolve(s32 head, s32 body, s32 headrow, s32 bodyrow, u8 *mpheadnum, u8 *mpbodynum)
+{
+	const s32 h = netMpHeadIndex(headrow, head);
+	const s32 d = netMpBodyIndex(bodyrow, body);
+
+	*mpheadnum = (u8)(h >= 0 && h <= 0xff ? h : head);
+	*mpbodynum = (u8)(d >= 0 && d <= 0xff ? d : body);
+}
+
 void netReadMpChar(struct netbuf *b, u8 *mpheadnum, u8 *mpbodynum)
 {
 	const s32 head = netBufReadU8(b);
 	const s32 body = netBufReadU8(b);
 	const s32 headrow = netBufReadS16(b);
 	const s32 bodyrow = netBufReadS16(b);
-	const s32 h = netMpHeadIndex(headrow, head);
-	const s32 d = netMpBodyIndex(bodyrow, body);
 
-	*mpheadnum = (u8)(h >= 0 && h <= 0xff ? h : head);
-	*mpbodynum = (u8)(d >= 0 && d <= 0xff ? d : body);
+	netMpCharResolve(head, body, headrow, bodyrow, mpheadnum, mpbodynum);
+}
+
+/**
+ * RULES' characters, kept as the host sent them: its places and rows. They
+ * are put in this machine's places when the rules are applied, after
+ * STAGE_LOAD's content is here: GoldenEye's characters (gebean.c's pool)
+ * are rows that only a machine with GoldenEye's conversion lists, and a
+ * guest mounts or fetches it first (netContentGeCharsFollow())
+ */
+static void netReadMpCharRows(struct netbuf *b, u8 *mpheadnum, u8 *mpbodynum, s16 *headrow, s16 *bodyrow)
+{
+	*mpheadnum = netBufReadU8(b);
+	*mpbodynum = netBufReadU8(b);
+	*headrow = netBufReadS16(b);
+	*bodyrow = netBufReadS16(b);
+}
+
+// a row this machine's lists lack (a positive row: the list's own tail
+// rows travel as negative offsets): 1 a head's, 2 a body's, 3 both
+static s32 netMpRowMissing(s32 headrow, s32 bodyrow)
+{
+	s32 missing = 0;
+	s32 i;
+
+	if (bodyrow >= 0) {
+		for (i = 0; i < (s32)mpGetNumBodies() && g_MpBodies[i].bodynum != bodyrow; i++);
+
+		if (i == (s32)mpGetNumBodies() && !(bodyrow == XBLA_AGENT4_BODYROW && !xblaAgent4IsListed())) {
+			missing |= 2;
+		}
+	}
+
+	if (headrow >= 0) {
+		for (i = 0; i < mpGetNumHeads() && g_MpHeads[i].headnum != headrow; i++);
+
+		if (i == mpGetNumHeads() && !(headrow == XBLA_AGENT4_HEADROW && !xblaAgent4IsListed())) {
+			missing |= 1;
+		}
+	}
+
+	return missing;
+}
+
+// "sim 2 0x1a3/0x1b0" onto a list of the missing, while it fits
+static void netMpRowNote(char *rows, s32 size, const char *who, s32 i, s32 headrow, s32 bodyrow)
+{
+	const s32 len = rows ? (s32)strlen(rows) : 0;
+
+	if (rows && len < size - 1) {
+		snprintf(rows + len, size - len, "%s%s %d body 0x%x head 0x%x", len ? ", " : "", who, i, bodyrow, headrow);
+	}
+}
+
+/**
+ * Client: how many of the RULES' sims and players wear GoldenEye's
+ * characters (rows from GEBEAN_POOL_BASE) this machine's lists lack; rows
+ * (if not NULL) names them, and bodies (if not NULL) counts those whose
+ * body is missing - a head missing is a face, a body the skeleton
+ */
+s32 netRulesGeCharsMissing(char *rows, s32 size, s32 *bodies)
+{
+	const struct netrulesmsg *r = &s_NetRules;
+	s32 n = 0;
+	s32 m;
+	s32 i;
+
+	if (rows && size > 0) {
+		rows[0] = '\0';
+	}
+
+	if (bodies) {
+		*bodies = 0;
+	}
+
+	if (!r->valid) {
+		return 0;
+	}
+
+	for (i = 0; i < MAX_BOTS; i++) {
+		const struct netrulessim *sim = &r->sims[i];
+
+		if (r->simslots[i] && sim->on && (sim->bodyrow >= GEBEAN_POOL_BASE || sim->headrow >= GEBEAN_POOL_BASE)
+				&& (m = netMpRowMissing(sim->headrow, sim->bodyrow)) != 0) {
+			netMpRowNote(rows, size, "sim", i, sim->headrow, sim->bodyrow);
+			n++;
+
+			if (bodies && (m & 2)) {
+				(*bodies)++;
+			}
+		}
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		const struct netruleshuman *h = &r->humans[i];
+		const s32 on = i < MPSETUP_HUMANBITS ? (r->chrslots >> i) & 1 : (r->humanslotshi >> (i - MPSETUP_HUMANBITS)) & 1;
+
+		if (on && (h->bodyrow >= GEBEAN_POOL_BASE || h->headrow >= GEBEAN_POOL_BASE) && (m = netMpRowMissing(h->headrow, h->bodyrow)) != 0) {
+			netMpRowNote(rows, size, "player", i, h->headrow, h->bodyrow);
+			n++;
+
+			if (bodies && (m & 2)) {
+				(*bodies)++;
+			}
+		}
+	}
+
+	return n;
 }
 
 /*
@@ -894,7 +1019,7 @@ s32 netRulesRead(struct netbuf *b)
 		sim.on = 1;
 		sim.type = netBufReadU8(b);
 		sim.difficulty = netBufReadU8(b);
-		netReadMpChar(b, &sim.mpheadnum, &sim.mpbodynum);
+		netReadMpCharRows(b, &sim.mpheadnum, &sim.mpbodynum, &sim.headrow, &sim.bodyrow);
 		sim.team = netBufReadU8(b);
 		sim.displayoptions = netBufReadU32(b);
 		netBufReadString(b, sim.name, sizeof(sim.name));
@@ -921,7 +1046,7 @@ s32 netRulesRead(struct netbuf *b)
 		struct netruleshuman *h = &s_NetRules.humans[i];
 
 		netBufReadString(b, h->name, sizeof(h->name));
-		netReadMpChar(b, &h->mpheadnum, &h->mpbodynum);
+		netReadMpCharRows(b, &h->mpheadnum, &h->mpbodynum, &h->headrow, &h->bodyrow);
 		h->team = netBufReadU8(b);
 		h->displayoptions = netBufReadU32(b);
 		h->handicap = netBufReadU8(b);
@@ -1160,11 +1285,14 @@ static void netRulesPut(const struct netrulesmsg *rules, s32 coop)
 		if (rules->sims[i].on) {
 			struct mpbotconfig *bot = &g_BotConfigsArray[i];
 			const struct netrulessim *sim = &rules->sims[i];
+			u8 head;
+			u8 body;
 
+			netMpCharResolve(sim->mpheadnum, sim->mpbodynum, sim->headrow, sim->bodyrow, &head, &body);
 			bot->type = sim->type;
 			bot->difficulty = sim->difficulty;
-			bot->base.mpheadnum = mpHeadNumSafe(sim->mpheadnum);
-			bot->base.mpbodynum = sim->mpbodynum <= mpGetNumBodies() + 1 ? sim->mpbodynum : 0;
+			bot->base.mpheadnum = mpHeadNumSafe(head);
+			bot->base.mpbodynum = body <= mpGetNumBodies() + 1 ? body : 0;
 			bot->base.team = sim->team;
 			bot->base.displayoptions = sim->displayoptions;
 			netNameSet(bot->base.name, sizeof(bot->base.name), sim->name);
@@ -1182,10 +1310,13 @@ static void netRulesPut(const struct netrulesmsg *rules, s32 coop)
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		struct mpplayerconfig *p = &g_PlayerConfigsArray[i];
 		const struct netruleshuman *h = &rules->humans[i];
+		u8 head;
+		u8 body;
 
+		netMpCharResolve(h->mpheadnum, h->mpbodynum, h->headrow, h->bodyrow, &head, &body);
 		netNameSet(p->base.name, sizeof(p->base.name), h->name);
-		p->base.mpheadnum = mpHeadNumSafe(h->mpheadnum);
-		p->base.mpbodynum = h->mpbodynum <= mpGetNumBodies() + 1 ? h->mpbodynum : 0;
+		p->base.mpheadnum = mpHeadNumSafe(head);
+		p->base.mpbodynum = body <= mpGetNumBodies() + 1 ? body : 0;
 		p->base.team = h->team;
 		p->base.displayoptions = h->displayoptions;
 		p->handicap = h->handicap;

@@ -643,6 +643,21 @@ static void netPupHeld(struct netpup *u, struct chrdata *chr, s32 hand, u8 want)
 				|| !weaponCreateForChr(chr, modelnum, want, hand == HAND_LEFT ? OBJFLAG_WEAPON_LEFTHANDED : 0, NULL, NULL)) {
 			u->heldfail[hand] = want;
 			s_HeldFails += modelnum >= 0;
+
+			// what a gate's "held guns not made" was: the first few, with
+			// the body that would not take it (a body whose skeleton has
+			// no hand: chrEquipWeapon() refuses it)
+			if (modelnum >= 0) {
+				static s32 nlogged;
+
+				if (nlogged++ < 8) {
+					const struct skeleton *skel = chr->model && chr->model->definition ? chr->model->definition->skel : NULL;
+
+					sysLogPrintf(LOG_WARNING, "net: puppets: tick %u: chr %d's weapon 0x%02x (model %d, hand %d) not made; its body %d head %d, skeleton %s",
+							g_NetTick, chr->chrnum, want, modelnum, hand, chr->bodynum, chr->headnum,
+							!skel ? "none" : skel == &g_SkelChr ? "a chr's" : skel == &g_SkelSkedar ? "a Skedar's" : "with no hand");
+				}
+			}
 		} else if (WEAPON_IS_GE(want)) {
 			s_GeGunsHeld++;
 

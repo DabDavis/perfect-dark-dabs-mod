@@ -45,7 +45,7 @@
 #   netcontenttest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
 # Env: OUT (build/netcontent-out), PORT (27300), CASES (all: ge geyolt gegg
-# gelook gfvariant fetch xbla modmap modmount modmissing overlay props), CHECKONLY (1: only the checks,
+# gelook gfvariant gffetch fetch xbla modmap modmount modmissing overlay props), CHECKONLY (1: only the checks,
 # on the last run's files). The GoldenEye cases need the GoldenEye ROM
 # converted (mods/GoldenEye Arenas), gfvariant Goldfinger 64 converted too
 # (its zip in added-content/); they are skipped, not failed, without it.
@@ -56,12 +56,19 @@
 # hard-linked into a folder of its own, with an empty mods/ and only the
 # ROM), so it fetches GoldenEye Arenas from the host (protocol 14,
 # netcontent.c) into memory and plays Complex from it; skipped with ge.
+# gffetch: fetch's client in a Goldfinger 64 room - it fetches Goldfinger 64
+# for the map and then GoldenEye Arenas for the characters the host's sims
+# and players wear (GoldenEye's, from GoldenEye's own conversion in a hack's
+# mode too: without them the host's list places were Dark Combat or Dr.
+# Caroll here, whose skeleton holds no gun), and plays Junkyard in its mode.
+# The host's --net-test-ge-variant finds the hack by its mounted folder (a
+# build dir has mods/ but not the zip in added-content/), as a guest does.
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcontent-out}; PORT=${PORT:-27300}
-CASES=${CASES:-ge geyolt gegg gelook gfvariant fetch xbla modmap modmount modmissing overlay props}
+CASES=${CASES:-ge geyolt gegg gelook gfvariant gffetch fetch xbla modmap modmount modmissing overlay props}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -344,6 +351,22 @@ checkplay() {
 	[ -s "$SHOTDIR/content-$name.png" ] && pass "$name: screenshot $SHOTDIR/content-$name.png" || fail "$name: no screenshot"
 }
 
+# chars NAME: the client's lists had the host's GoldenEye characters at the
+# stage's load (the pool built again over the conversion fetched): every
+# body; a head only the XBLA release has (the host has it, the client's pool
+# is the ROM's) stands in
+chars() {
+	local name=$1 L
+	L=$(lastline "$OUT/$name-client.log" "of the host's characters are GoldenEye's; the pool built again")
+	if [ -z "$L" ]; then
+		fail "$name: the client never built GoldenEye's characters over the fetched conversion"
+	elif echo "$L" | grep -q ", 0 of them bodies"; then
+		pass "$name: the host's characters' bodies in the client's lists: $(echo "$L" | sed 's/.*net: content: //')"
+	else
+		fail "$name: bodies missing: $(echo "$L" | sed 's/.*net: content: //')"
+	fi
+}
+
 # want NAME WHAT VALUE: a feature counted at least once on the client
 want() {
 	local name=$1 what=$2 v=$3
@@ -392,6 +415,9 @@ run() {
 		# client mounts Goldfinger on demand and takes the mode from RULES
 		gfvariant) runcase gfvariant "ModDir=\nMapMods=GoldenEye Arenas;Goldfinger 64\nStartArmed=1\n" "$GEMAPS" \
 				"--net-test-map Junkyard --net-test-ge 0 --net-test-ge-variant gf64" "" ;;
+		# fetch's client in a Goldfinger 64 room: only the host has the hack
+		gffetch) CLIENTBIN=$(fetchclient) runcase gffetch "ModDir=\nMapMods=GoldenEye Arenas;Goldfinger 64\nStartArmed=1\n" "ModDir=\nMapMods=\n" \
+				"--net-test-map Junkyard --net-test-ge 0 --net-test-ge-variant gf64" "" ;;
 		# a client with nothing installed fetches the host's conversion
 		fetch)  CLIENTBIN=$(fetchclient) runcase fetch "${GEMAPS}StartArmed=1\n" "ModDir=\nMapMods=\n" "--net-test-map Complex --net-test-ge 0" "" ;;
 		# (4) the XBLA look is one machine's own on Perfect Dark's stages
@@ -422,7 +448,7 @@ for c in $CASES; do
 	case $c in
 	ge|geyolt|gegg|gelook)
 		if skipped "$c"; then echo "skip $c: GoldenEye is not converted here"; continue; fi ;;
-	gfvariant)
+	gfvariant|gffetch)
 		if skipped "$c"; then echo "skip $c: Goldfinger 64 is not converted here"; continue; fi ;;
 	fetch)
 		if skipped "$c"; then echo "skip $c: GoldenEye is not converted here"; continue; fi ;;
@@ -482,15 +508,35 @@ for c in $CASES; do
 		grep -q "net: the STAGE_LOAD kept through the fetch" "$C" && pass "fetch: the stage load waited for the folder" || fail "fetch: the stage load was not kept"
 		grep -q "net: content: GoldenEye Arenas served to peer" "$OUT/fetch-host.log" && pass "fetch: host: $(grep -o 'served to peer.*' "$OUT/fetch-host.log" | head -1)" || fail "fetch: the host did not serve"
 		lastline "$C" "net: content client" | grep -q "GoldenEye mode 1" && pass "fetch: the GoldenEye mode on the fetched conversion" || fail "fetch: not in the GoldenEye mode"
+		chars fetch
 		;;
 	gfvariant)
 		checkplay gfvariant "map Junkyard from mod Goldfinger 64"
 		ct=$(lastline "$C" "net: content client")
-		echo "$ct" | grep -q 'GoldenEye mode 1 scenario 0 (.*) variant "gf64"' && pass "gfvariant: Goldfinger 64's mode from the host's RULES" || fail "gfvariant: not in Goldfinger 64's mode: $ct"
+		# the host's mode first: a host in GoldenEye's own sends no tag, and
+		# the client is not the one at fault
 		hs=$(lastline "$OUT/gfvariant-host.log" "net: --net-test-host: starting a match")
+		echo "$hs" | grep -q "variant gf64)" && pass "gfvariant: the host in Goldfinger 64's mode" || fail "gfvariant: the host not in Goldfinger 64's mode: ${hs:-no start line}"
+		echo "$ct" | grep -q 'GoldenEye mode 1 scenario 0 (.*) variant "gf64"' && pass "gfvariant: Goldfinger 64's mode from the host's RULES" || fail "gfvariant: not in Goldfinger 64's mode: $ct"
 		set1=$(echo "$ct" | grep -o "weapon set [0-9]*" | awk '{print $3}')
 		grep -q "net: content: Goldfinger 64 mounted for its maps for the host's choice" "$C" && pass "gfvariant: the client mounted Goldfinger 64 on demand" || fail "gfvariant: no on-demand mount in the client's log"
 		[ -n "$set1" ] && pass "gfvariant: the client's weapon set number $set1 (the host's list block is Goldfinger's)" || fail "gfvariant: no weapon set in the client's summary"
+		;;
+	gffetch)
+		checkplay gffetch "map Junkyard from mod Goldfinger 64"
+		ct=$(lastline "$C" "net: content client")
+		grep -q "^mod: 0 installed" "$C" && pass "gffetch: the client had no mods of its own" || fail "gffetch: the client's mod list was not empty: $(grep -m1 '^mod: .* installed' "$C" | cut -c1-80)"
+		lastline "$OUT/gffetch-host.log" "net: --net-test-host: starting a match" | grep -q "variant gf64)" \
+			&& pass "gffetch: the host in Goldfinger 64's mode" || fail "gffetch: the host not in Goldfinger 64's mode"
+		grep -q "net: content: Goldfinger 64 fetched from the host and mounted for its maps: [0-9]* files" "$C" \
+			&& pass "gffetch: $(grep -o 'net: content: Goldfinger 64 fetched.*' "$C" | head -1 | cut -c14-)" || fail "gffetch: the client did not fetch Goldfinger 64"
+		grep -q "net: content: GoldenEye Arenas fetched from the host and mounted for its maps" "$C" \
+			&& pass "gffetch: GoldenEye Arenas fetched for the characters: $(grep -o '[0-9]* of the host.s characters are GoldenEye.s; fetching' "$C" | head -1)" \
+			|| fail "gffetch: GoldenEye Arenas not fetched for the host's characters"
+		chars gffetch
+		echo "$ct" | grep -q 'GoldenEye mode 1 scenario 0 (.*) variant "gf64"' && pass "gffetch: Goldfinger 64's mode on the fetched conversion" || fail "gffetch: not in Goldfinger 64's mode: $ct"
+		grep -q "geguns: a ROM hack's own guns" "$C" && pass "gffetch: Goldfinger 64's own guns on the client" || fail "gffetch: the client did not load Goldfinger 64's guns"
+		want gffetch "ticks with a GoldenEye gun in the client player's hand" "$(echo "$ct" | grep -o "a GoldenEye gun [0-9]*" | awk '{print $NF}')"
 		;;
 	xbla)
 		checkplay xbla "stock stage 0x32"

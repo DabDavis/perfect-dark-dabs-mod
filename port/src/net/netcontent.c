@@ -15,6 +15,7 @@
 #include "gexplusrom.h"
 #include "geconvert.h"
 #include "gebean.h"
+#include "game/mplayer/mplayer.h"
 #include "xblamesh.h"
 #include "net/net.h"
 #include "net/nettransport.h"
@@ -415,6 +416,77 @@ s32 netContentMountMaps(const char *dirbase)
 
 	sysLogPrintf(LOG_NOTE, "net: content: %s mounted for its maps for the host's choice", modListGetName(index));
 	return 1;
+}
+
+// the Combat Simulator's lists hold GoldenEye's characters already (the pool
+// built over a conversion, the release's or GoldenEye X's borrowed ones)
+static s32 netContentGePoolListed(void)
+{
+	s32 i;
+
+	for (i = 0; i < (s32)mpGetNumBodies(); i++) {
+		if (g_MpBodies[i].bodynum >= GEBEAN_POOL_BASE) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Client, at STAGE_LOAD: the host's sims and players wear GoldenEye's
+ * characters - rows of gebean.c's pool, which is built from GoldenEye's own
+ * conversion wherever it is mounted (gexPlusRomMpBegin()), in GoldenEye's
+ * mode and a ROM hack's alike - and this machine's lists lack them: it has
+ * no conversion, or one mounted or served since its pool was built. Without
+ * them the host's list places are other characters here, or past the list
+ * (Dark Combat; Dr. Caroll, with no hand to hold a gun: netcontenttest
+ * gffetch, 2026-10-08). The pool is built again over this machine's own
+ * copy, mounted now if Mod.MapMods left it out, else over the host's,
+ * fetched first (only the host needs the ROM). A pool listed already lacks
+ * only what the XBLA release alone has (eleven of its heads the ROM has no
+ * head for): their stand-ins are this machine's look, as the release is.
+ * 1 while a fetch runs (the STAGE_LOAD is kept); 0 to go on, with the
+ * characters or, refused, others in their places.
+ */
+s32 netContentGeCharsFollow(void)
+{
+	char rows[256];
+	s32 bodies;
+	const s32 missing = netRulesGeCharsMissing(rows, sizeof(rows), &bodies);
+	const char *getag = geconvertGoldenEyeTag();
+
+	if (missing == 0) {
+		return 0;
+	}
+
+	if (netContentGePoolListed()) {
+		sysLogPrintf(bodies ? LOG_WARNING : LOG_NOTE, "net: content: %d of the host's GoldenEye characters not listed here, %d of them bodies (the XBLA release's alone): %s",
+				missing, bodies, rows);
+		return 0;
+	}
+
+	if (!netContentConversionHere(getag)) {
+		netContentMountMaps(GEXPLUSROM_DIR);
+	}
+
+	if (netContentConversionHere(getag)) {
+		s32 still;
+
+		gebeanPoolRefresh();
+		still = netRulesGeCharsMissing(rows, sizeof(rows), &bodies);
+		sysLogPrintf(bodies ? LOG_WARNING : LOG_NOTE, "net: content: %d of the host's characters are GoldenEye's; the pool built again over " GEXPLUSROM_DIR
+				": %d still missing, %d of them bodies%s%s", missing, still, bodies, still ? ": " : "", rows);
+		return 0;
+	}
+
+	if (netContentFetchStart(GEXPLUSROM_DIR)) {
+		sysLogPrintf(LOG_NOTE, "net: content: %d of the host's characters are GoldenEye's; fetching " GEXPLUSROM_DIR " for them", missing);
+		return 1;
+	}
+
+	sysLogPrintf(LOG_WARNING, "net: content: %d of the host's characters are GoldenEye's, not listed here; others stand in: %s", missing, rows);
+	return 0;
 }
 
 /**

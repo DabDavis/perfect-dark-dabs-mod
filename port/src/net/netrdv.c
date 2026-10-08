@@ -163,9 +163,57 @@ static u64 s_RelayLastBind = 0;
 static struct rdvpeer s_Peers[MAXPEERS];
 static struct rdvrelay s_Relays[MAXRELAYS];
 
-static u64 rdvNow(void)
+/*
+ * The rendezvous' clock: real milliseconds, except that a gap between two
+ * ticks longer than RDV_STALL_MS counts as RDV_STALL_MS. A game that does
+ * not tick (a long load, a GPU shared by many) sends no punch and reads
+ * nothing, so its own stall is no sign of the network: on the wall clock a
+ * joiner frozen past its ladder's deadline woke to "no path answered" with
+ * its punches never sent, and a host frozen through its spray window never
+ * sprayed (netnattest a, 2026-10-08: both games stalled ~16 s at the start
+ * of ten, the joiner's ladder FAILED the tick it woke and the launch took
+ * the advertised endpoints). Every deadline, window and interval here is on
+ * this clock; the punch's timestamp goes out and comes back to the same
+ * machine, so a round trip measured across a stall is capped with it.
+ */
+#define RDV_STALL_MS 1000
+
+static u64 s_ClockReal = 0; // real ms at the last netRdvTick
+static u64 s_ClockAt = 0;   // this clock's ms then
+
+static u64 rdvRealMs(void)
 {
 	return sysGetMicroseconds() / 1000;
+}
+
+static u64 rdvNow(void)
+{
+	const u64 real = rdvRealMs();
+	u64 d;
+
+	if (s_ClockReal == 0) {
+		s_ClockReal = s_ClockAt = real;
+	}
+
+	d = real - s_ClockReal;
+
+	return s_ClockAt + (d > RDV_STALL_MS ? RDV_STALL_MS : d);
+}
+
+// once a tick, first: the clock moves on to now, a stall counted short
+static u64 rdvClockTick(void)
+{
+	const u64 real = rdvRealMs();
+	const u64 at = rdvNow();
+
+	if (s_InRoom && real - s_ClockReal > 2 * RDV_STALL_MS) {
+		sysLogPrintf(LOG_NOTE, "rdv: this game did not tick for %u ms; the rendezvous counts %u of them", (u32)(real - s_ClockReal), RDV_STALL_MS);
+	}
+
+	s_ClockReal = real;
+	s_ClockAt = at;
+
+	return at;
 }
 
 // Echo nonces: not libc's rand, whose sequence the game's own code may share
@@ -1255,7 +1303,7 @@ void netRdvTick(void)
 {
 	struct netevent ev;
 	struct nethost *h;
-	const u64 now = rdvNow();
+	const u64 now = rdvClockTick();
 
 	// the lobby socket, while the session is not using it (when it is, the
 	// session's service hands its lobby datagrams over through net.c)
