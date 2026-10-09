@@ -2079,8 +2079,20 @@ meanwhile.
   or menu of its own, at the session's next stage change - the host's
   STAGE_LOAD. A later request replaces one still waiting. The row itself is
   disabled online (`modModeCanChange()`): a host enters the mod first.
-- **Saves** are shared, as with the boot-time loader: a mod's missions are
-  filed in the agent's own game file. A save per mod is not built.
+- **A save per mod** (the owner: "separate save per mod", the first a copy of
+  the player's own). A mod's missions are filed under Perfect Dark's mission
+  numbers in the agent's game file and its saved setups name its own arenas
+  and weapons, so while a mod is entered the eeprom and mpsetups.bin are
+  `$S/modsaves/<mod>/eeprom.bin` and `mpsetups.bin` (`modModeSwitchSave()`:
+  libultra.c `osEepromSwitchFile()`, mpsetups.c `mpsetupSwitchFile()`). The
+  first entry copies the player's; from then on the two never touch. The
+  eeprom's files are read again (`pak0f1169c8(SAVEDEVICE_GAMEPAK)`,
+  `bossfileLoadFull()`) and the agent playing is loaded from the copy by its
+  file id; an agent made after the mod's save was started is not in it, and
+  the Institute opens the agent select instead of the Perfect Menu
+  (`g_FileState` UNSELECTED). Leaving switches both back. A switched eeprom
+  is cleared before it loads: a file not there yet must read as blank, not as
+  the last one's bytes.
 - Test: `call (void)gexFrontGoBack()` from gdb puts the Perfect Menu up on a
   `--skip-intro` boot, then `call (int)modModeRequestEnter("mods/X", "X")`;
   `modmode: entered X` and the moddata lines follow in the log.
