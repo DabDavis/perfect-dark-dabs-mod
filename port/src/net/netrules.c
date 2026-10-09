@@ -515,6 +515,39 @@ void netRulesTraceSync(FILE *f)
 	fprintf(f, "\n");
 }
 
+// Room Settings (netlobbymenu.c): did the Room Rules page change a rule
+u32 netRulesSyncHash(void)
+{
+	struct netkeyvalue kv;
+	char buf[NET_MAXSTRVAL + 4];
+	u32 h = 2166136261u;
+	u32 k;
+	const char *c;
+
+	for (k = 0; k < ARRAYCOUNT(s_NetKeys); k++) {
+		if (s_NetKeys[k].cls == NETKEY_SYNC && netRulesReadKey(s_NetKeys[k].key, &kv)) {
+			netRulesValueString(&kv, buf, sizeof(buf));
+
+			for (c = buf; *c; c++) {
+				h = (h ^ (u8)*c) * 16777619u;
+			}
+
+			h = (h ^ ';') * 16777619u;
+		}
+	}
+
+	// and the simulants' AI, the host's alone (no key class: never sent)
+	if (netRulesReadKey("Mod.SimBrain", &kv)) {
+		netRulesValueString(&kv, buf, sizeof(buf));
+
+		for (c = buf; *c; c++) {
+			h = (h ^ (u8)*c) * 16777619u;
+		}
+	}
+
+	return h;
+}
+
 // this machine's own NETKEY_PLAYER values (what its SLOTCFG says)
 void netRulesTraceOwnHere(FILE *f)
 {

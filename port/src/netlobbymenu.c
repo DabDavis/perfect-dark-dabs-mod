@@ -35,7 +35,9 @@
  *                                         REFRESH, JOIN, CREATE
  *     Create Room                         name, password, max players, then
  *                                         the Combat Simulator's own Scenario,
- *                                         Arena, Weapons, Limits, Simulants
+ *                                         Options, Arena, Weapons, Limits,
+ *                                         Handicaps, Simulants, Teams, Load/
+ *                                         Save Settings; Room Rules
  *     Game Lobby                          the roster in team columns with
  *                                         ready marks, chat, the settings;
  *                                         CHANGE TEAM / READY / LEAVE; the
@@ -1492,6 +1494,18 @@ static MenuItemHandlerResult handlerSetupHandicaps(s32 operation, struct menuite
 }
 
 
+// Room Rules: the Dab's Mod rules the host decides for the match (optionsmenu.c)
+extern struct menudialogdef g_NetRoomRulesMenuDialog;
+
+static MenuItemHandlerResult handlerSetupRules(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_SET) {
+		menuPushDialog(&g_NetRoomRulesMenuDialog);
+	}
+
+	return 0;
+}
+
 #define NETLOBBY_SETUP_ITEMS \
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Game", 0, handlerGame }, \
 	{ MENUITEMTYPE_SELECTABLE, 0, 0, L_MPMENU_019, (uintptr_t)&textScenario, handlerSetupScenario }, \
@@ -1508,7 +1522,8 @@ static MenuItemHandlerResult handlerSetupHandicaps(s32 operation, struct menuite
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Mission", 0, handlerMission }, \
 	{ MENUITEMTYPE_DROPDOWN, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Difficulty", 0, handlerDifficulty }, \
 	{ MENUITEMTYPE_CHECKBOX, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Radar", 0, handlerCoopRadar }, \
-	{ MENUITEMTYPE_CHECKBOX, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Friendly Fire", 0, handlerCoopFriendlyFire }
+	{ MENUITEMTYPE_CHECKBOX, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Friendly Fire", 0, handlerCoopFriendlyFire }, \
+	{ MENUITEMTYPE_SELECTABLE, 0, MENUITEMFLAG_LITERAL_TEXT, (uintptr_t)"Room Rules\n", 0, handlerSetupRules }
 
 static struct menuitem s_CreateItems[] = {
 	{ MENUITEMTYPE_LABEL, 0, MENUITEMFLAG_LESSLEFTPADDING | MENUITEMFLAG_SMALLFONT, (uintptr_t)&textMessage, 0, NULL },
@@ -2321,8 +2336,8 @@ static u32 s_SettingsExtra;
 
 /**
  * What the setup pages change outside g_MpSetup and the simulants: the
- * handicaps and the scenario's own option (King of the Hill's hill time,
- * its save bits). The host's own team goes to the room as a Change Team
+ * handicaps, the scenario's own option (King of the Hill's hill time, its
+ * save bits) and the Room Rules (the host's SYNC settings). The host's own team goes to the room as a Change Team
  * does, which un-readies nobody
  */
 static u32 settingsExtra(void)
@@ -2331,6 +2346,7 @@ static u32 settingsExtra(void)
 
 	h = (h ^ g_PlayerConfigsArray[0].handicap) * 16777619u;
 	h = (h ^ g_Vars.mphilltime) * 16777619u;
+	h = (h ^ netRulesSyncHash()) * 16777619u;
 
 	return h;
 }

@@ -1955,6 +1955,39 @@ settings would remain static."
   what the host considers on screen, which is the host's world anyway;
   snapshots are not culled by view.
 
+- **The room's setup pages and Room Rules (2026-10-09, no wire change).**
+  The user (F3 20261009-071718, -071851): "need combat sim settings
+  online, missing many options", "need dab's mod menu in online settings
+  especially for host". Create Room and Room Settings now carry every Game
+  Setup page: the scenario's Options (with More Options), Player
+  Handicaps, Teams, Load and Save Settings beside the five there were, and
+  a **Room Rules** page (optionsmenu.c `g_NetRoomRulesMenuDialog`): the
+  SYNC keys above plus Simulant AI, each row the Dab's Mod menu's own
+  handler. It edits the host's own values (pd.ini at the page's close), as
+  the Dab's Mod menu does; RULES takes them at the match start, so a client
+  plays them and H12 gives it its own back. Mission Respawn/Lives only in a
+  co-op room, GoldenEye's three only in a GoldenEye room, Simulant AI only
+  in a match. Everything the setup pages write was on the wire already
+  (`g_MpSetup.options`, the scenario's save bits, each slot's team and
+  handicap); what was missing: a client never got its own King of the
+  Hill hill time back at H12 (`mphilltime` in `netrulessaved` now). Teams:
+  the stock page (the sims, Teams Enabled, Auto Team); the host's own row
+  is its team in the room (`netLobbySetHostTeam`, sent when Room Settings
+  closes, or once the room exists from Create Room), the others pick
+  theirs with Change Team (the launch puts each member's room team on its
+  slot). Handicaps: a page of the room's players by account
+  (`netLobbyHandicapOf`), the host's own its profile's, put on each
+  client's slot in `netHostMatchStarting` after `netRulesSaveHost`, so
+  H12 gives the host's slots back; a host that takes the room over starts
+  everyone at 100%. Room Settings un-readies the room for a change on any
+  of the pages (`settingsExtra()`: handicaps, hill time,
+  `netRulesSyncHash()`); the host's team, like Change Team, does not.
+  Left out: the Player pages (each player's own), Soundtrack and Team
+  Names (the Stuff menu, not the setup). Shown with a harness in the
+  netcooptest style: pdlobbyd, the host with `--net-lobby-wait 2` so
+  it never launches by itself, gdb calls the pages' handlers between
+  ticks, then `netLobbyLaunch(1)` and `lobbyScriptStep(2, ...)`.
+
 ## A host ticks every player's hands: GoldenEye's slap, knife and throw (2026-10-08)
 
 The user, hosting: "unarmed punches are incredibly rapid online", "also
