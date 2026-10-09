@@ -1223,7 +1223,8 @@ extern s32 g_NumSounds; // snd.c: the sound list's length
 /**
  * A sound number from the wire that snd.c can play: sndStart indexes its
  * tables by it unchecked (g_AudioRussMappings by its config number, the
- * sound list by its id).
+ * sound list by its id). With no sound list loaded (--no-sound) sndStart
+ * plays nothing, and g_NumSounds is 0: the id's own 11 bits are the bound.
  */
 static s32 netEvSoundOk(s16 sound)
 {
@@ -1235,7 +1236,7 @@ static s32 netEvSoundOk(s16 sound)
 		return sn.confignum < SND_RUSS_CAPACITY;
 	}
 
-	return sndIsMp3(sound) || sn.id < g_NumSounds;
+	return sndIsMp3(sound) || g_NumSounds <= 0 || sn.id < g_NumSounds;
 }
 
 // One event's payload (b holds exactly it); 0 if it does not parse
