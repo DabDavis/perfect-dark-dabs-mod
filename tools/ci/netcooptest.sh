@@ -66,16 +66,24 @@
 #           refused STARTED for as long as the end screen stayed up), and
 #           in Defection when the host starts it again.
 #
+#   letgo   a guard carrying two things (Defection's chr 10: a shield and a
+#           gun) lets go of one on the host and keeps the other; the client,
+#           whose chr 10 still holds both, lets go of the dropped one as the
+#           host's record of it arrives and runs on (it had put the held
+#           shield in the active list with chr 10's held things running
+#           through it: a crash within a second, the co-op Defection crashes
+#           of 2026-10-09).
+#
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -150,6 +158,23 @@ def status():
         i("g_NetTick"), i("g_Vars.players[0]->isdead"), float(gdb.parse_and_eval("g_Vars.players[0]->bondhealth")),
         i("g_Vars.players[1]->isdead"), i("g_Vars.players[1]->coopcanrestart"), float(gdb.parse_and_eval("g_Vars.players[1]->bondhealth")),
         [i("objectiveCheck(%d)" % k) for k in range(i("g_ObjectiveLastIndex") + 1)]))
+def letgo():
+    """a guard carrying two things lets go of the first in its list on the host (objDrop's detach and listing)"""
+    for k in range(i("g_NumChrSlots")):
+        c = "g_ChrSlots[%d]" % k
+        if i(c + ".chrnum") < 0 or i("(long)" + c + ".prop") == 0 or i(c + ".prop->type") != 3:
+            continue
+        head = i("(long)%s.prop->child" % c)
+        if not head or not i("(long)((struct prop*)%d)->next" % head):
+            continue
+        objtype = i("((struct prop*)%d)->obj->type" % head)
+        gdb.execute("call (void)objDetach((struct prop*)%d)" % head)
+        gdb.execute("call (void)propActivate((struct prop*)%d)" % head)
+        gdb.execute("call (void)propEnable((struct prop*)%d)" % head)
+        print("STAGE letgo: chr %d let go of prop %d (object type %d), the first of its things, at tick %d" % (
+            i(c + ".chrnum"), i("(struct prop*)%d - g_Vars.props" % head), objtype, i("g_NetTick")))
+        return
+    print("STAGE letgo: no chr carries two things")
 PY
 
 stage() {
@@ -520,6 +545,48 @@ case_pair() {
 	[ "$(echo "$sn" | grep -o '[0-9]* malformed' | awk '{print $1}')" = 0 ] && pass "$name: no malformed snapshot" || fail "$name: malformed snapshots"
 }
 
+# ---------------------------------------------------------------- letgo
+# A guard carrying two things lets go of one on the host (2026-10-09, crash
+# reports 20261009-050322/-050412: every guest of a co-op Defection out of
+# the match). Defection's chr 10 carries a shield and a gun from the setup;
+# the host drops the shield (its list's first child) and keeps the gun. The
+# shield is then a free object in the host's snapshots while the client's
+# chr 10 still holds both: posed as it stood, the child was taken for a
+# paused prop and propUnpause() put it in the active list with its holder's
+# child list still running through it - the next walk of chr 10's held
+# things went on into every active prop (a crash within a second). Now the
+# client lets go of it first (netPupObjLetGo: "let go" in the puppets line).
+case_letgo() {
+	local name=letgo port=$((PORT + 9)) H=$OUT/letgo-host.log C=$OUT/letgo-client.log
+	echo "== $name"
+	game letgo-host 200 '[Mod]\n' --host "$port" --net-test-host 1 --rng-seed 7 --net-test-coop 0 --skip-cutscenes --net-test-invincible &
+	local host=$!
+	waitfor "$H" "net: hosting on UDP port" 90 || { fail "$name: host did not start"; kill -TERM $host; wait $host; return; }
+	game letgo-client 190 '[Mod]\n' --connect "127.0.0.1:$port" --net-test-join --skip-cutscenes &
+	local client=$!
+	local hp
+	if waitfor "$C" "net: match 1: GO" 150; then
+		sleep 6
+		hp=$(gamepid letgo-host)
+		[ -n "$hp" ] && stage "$hp" "letgo()"
+		# seconds of the client posing the dropped thing and walking chr 10's
+		sleep 12
+	fi
+	local cp; cp=$(gamepid letgo-client); [ -n "$cp" ] && kill -TERM "$cp"
+	wait "$client"; local cx=$?
+	[ "$cx" = 143 ] && cx=0
+	hp=$(gamepid letgo-host); [ -n "$hp" ] && kill -TERM "$hp"
+	wait "$host"; local hx=$?
+	[ "$hx" = 143 ] && hx=0
+
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$C" && fail "$name: the client crashed" || { [ "$cx" = 0 ] && pass "$name: client ran to the end" || fail "$name: client exit $cx"; }
+	grep -q "STAGE letgo: chr [0-9]* let go" "$OUT/stage.log" 2>/dev/null \
+		&& pass "$name: host: $(grep -o 'chr [0-9]* let go of.*' "$OUT/stage.log" | tail -1)" || fail "$name: no guard let go of anything on the host"
+	local lg; lg=$(lastline "$C" "net: puppets" | grep -o 'let go [0-9]*' | awk '{print $NF}')
+	[ "${lg:-0}" -ge 1 ] && pass "$name: the client let go of what the host's guard dropped ($lg)" || fail "$name: the client let go of ${lg:-nothing}"
+}
+
 # ---------------------------------------------------------------- twelve
 case_twelve() {
 	local name=twelve port=$((PORT + 1)) H=$OUT/twelve-host.log k
@@ -811,6 +878,7 @@ for c in $CASES; do
 		camproom) case_camproom ;;
 		death) case_death ;;
 		endjoin) case_endjoin ;;
+		letgo) case_letgo ;;
 		*) fail "unknown case $c" ;;
 	esac
 done

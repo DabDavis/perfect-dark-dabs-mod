@@ -652,6 +652,25 @@ then lists, joins, READYs and plays; the Linux host is
   (0 or 1 sounded normal); the pad read (`joyReadData`) was skipped too,
   and the frame step was wrong. mainLoop now clears both when the mode is
   NONE and the flag is still up.
+- **A record for what this machine holds (2026-10-09).** The host's
+  snapshot never carries a child (capture skips a prop with a parent), but
+  the same setup object can still be a child here: a guard's shield or gun
+  from the setup that the host's guard has dropped, while this machine's
+  (which never drops: `objDrop` is the host's) still holds it - before that
+  guard's record says so, or for good when the dropped thing is not what
+  its hands hold (`netPupHeld` frees only `weapons_held`). `netPupObj` posed
+  it as it stood, and a child with a sibling looks paused (`prev`/`next` are
+  its sibling links): `propUnpause` put it in the active list with its
+  holder's child list still running through it, and the holder's next
+  `chr0f022214`/`func0f0706f8` walked on into every active prop as its
+  held things - garbage models, or recursion to the stack's end. Crash
+  reports 20261009-050322 and -050412 (every guest of a co-op Defection out
+  of the match, one 25 ticks into a join in progress, when the dropped
+  things' records came before the dead guards'). The client now lets go
+  of it first as `objDrop` does (`netPupObjLetGo`: `objDetach`, listed,
+  placed from the record; "let go" in the puppets line);
+  `netcooptest.sh letgo` stages it (Defection's chr 10 drops its shield
+  on the host and keeps its gun).
 
 ## Online co-op
 
