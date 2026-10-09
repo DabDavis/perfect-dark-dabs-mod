@@ -2380,6 +2380,22 @@ s32 netLobbyCampaignState(void)
 	return netSessionClientJoined() ? 2 : 3;
 }
 
+/**
+ * A launched room's member that is in with the host, its match not loading
+ * here (F3 20261009-191306: accepted while the host sat on its end screen,
+ * the Game Lobby said "connecting to the host" for as long as it stayed
+ * up): 1 the host's match was over when it took this player, in for its
+ * next; 2 in, waiting for the host to start; 0 neither
+ */
+s32 netLobbyJoinedWait(void)
+{
+	if (netLobbyLaunchState() != 2 || s_MainIsHost) {
+		return 0;
+	}
+
+	return netSessionClientWaiting();
+}
+
 /*
  * netLobbyTick: what the room asks of this machine
  */

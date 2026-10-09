@@ -218,6 +218,9 @@ static s32 s_Leaving = 0;
 static s32 s_DropToMenus = 0;
 static s32 s_EndPending = 0;
 static s32 s_HostDedicated = 0;
+// a client accepted while the host's match was over (ACCEPT's NETACC_NEXTMATCH,
+// protocol 26): it waits for the host's next match, whatever the room says
+static s32 s_ClAcceptNext = 0;
 static s32 s_ClientSlot = 0;      // the slot (pad, mpindex) ACCEPT gave this machine
 static s32 s_ServerClosed = 0;    // the host's peer is disconnected for good
 static u64 s_ClientBarrierDeadline = 0;
@@ -762,6 +765,8 @@ static s32 netHostFreeSlot(s32 peer)
 	return -1;
 }
 
+static void netHostNotice(const char *fmt, ...);
+
 static void netHostOnConnect(s32 peer, struct netbuf *b)
 {
 	struct netclient *c = &s_Clients[peer];
@@ -1069,7 +1074,8 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 		netHostKick(oldpeer, NETREFUSE_TICKET, "roster", "You connected again from another game.");
 	}
 
-	accflags = (inprogress ? NETACC_INPROGRESS : 0) | (c->resumed ? NETACC_RESUMED : 0) | (c->spectator ? NETACC_SPECTATOR : 0);
+	accflags = (inprogress ? NETACC_INPROGRESS : 0) | (c->resumed ? NETACC_RESUMED : 0) | (c->spectator ? NETACC_SPECTATOR : 0)
+		| (nextmatch ? NETACC_NEXTMATCH : 0);
 
 	netBufInitWrite(b, s_Buf, sizeof(s_Buf));
 	netBufWriteU8(b, NETMSG_ACCEPT);
@@ -1098,6 +1104,12 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 	sysLogPrintf(LOG_NOTE, "net: %s %d: \"%s\" joined from %s (fov %.0f, aspect %.2f, head %d body %d)%s",
 			c->spectator ? "spectator view" : "slot", c->slot, c->name, addr, c->cfg.fovy, c->cfg.aspect, c->cfg.mpheadnum, c->cfg.mpbodynum,
 			nextmatch ? "; the host's match is over: in for the next" : !inprogress ? "" : c->spectator ? "; spectating the match in progress" : c->resumed ? "; the seat it held, back in the match in progress" : "; an open seat of the match in progress");
+
+	// the host's own player told, whose end screen is up: someone waits on
+	// it to go (F3 20261009-191306)
+	if (nextmatch && !c->spectator) {
+		netHostNotice("%s is in for the next match", c->name);
+	}
 
 	if (inprogress) {
 		netHostSendStage(peer);
@@ -2890,6 +2902,7 @@ static s32 netClientBeginStage(struct netbuf *b)
 	s_MatchActive = 1;
 	s_MatchStage = id;
 	s_MatchIdCur = matchid;
+	s_ClAcceptNext = 0;
 	snprintf(s_MatchWhat, sizeof(s_MatchWhat), "%s", what);
 	s_SeedPending = 1;
 	s_BarrierHeld = 1;
@@ -3543,6 +3556,7 @@ static void netClientEvent(const struct netevent *ev)
 				if (netBufOk(&b) && (slot < MAX_PLAYERS || (slot == NETSLOT_SPECTATOR && (flags & NETACC_SPECTATOR)))) {
 					s_ClientState = NETCS_JOINED;
 					s_ClientSlot = slot == NETSLOT_SPECTATOR ? 0 : slot;
+					s_ClAcceptNext = (flags & NETACC_NEXTMATCH) && !(flags & NETACC_INPROGRESS);
 					snprintf(s_HostTitle, sizeof(s_HostTitle), "%s", hostname);
 					netChatClean(s_HostTitle);
 
@@ -3565,7 +3579,8 @@ static void netClientEvent(const struct netevent *ev)
 					} else {
 						sysLogPrintf(LOG_NOTE, "net: accepted by \"%s\"%s into slot %d%s", hostname,
 								s_HostDedicated ? " (dedicated)" : "", slot,
-								!(flags & NETACC_INPROGRESS) ? "" : (flags & NETACC_RESUMED) ? " (the seat this account held, back in the match in progress)"
+								s_ClAcceptNext ? " (the host's match is over: in for its next)"
+								: !(flags & NETACC_INPROGRESS) ? "" : (flags & NETACC_RESUMED) ? " (the seat this account held, back in the match in progress)"
 								: " (an open seat of the match in progress)");
 					}
 
@@ -4959,6 +4974,24 @@ s32 netSessionLobbyRole(void)
 s32 netSessionClientJoined(void)
 {
 	return s_Role == NETROLE_CLIENT && s_ClientState >= NETCS_JOINED && s_ClientState != NETCS_GONE;
+}
+
+/**
+ * A lobby room's client in, with no match of the host's loading here: what
+ * it waits for (the Game Lobby's status line, F3 20261009-191306: a player
+ * accepted while the host sat on its end screen read "Launched: connecting
+ * to the host..." with no word of the wait). 0 not waiting; 1 the host's
+ * match was over when it took this player (its end screen, a mission's
+ * end): in for its next; 2 the host's match about to start (a launch
+ * waiting for the others) or between matches
+ */
+s32 netSessionClientWaiting(void)
+{
+	if (!s_LobbyRoomOn || s_Role != NETROLE_CLIENT || s_ClientState != NETCS_JOINED || s_MatchActive) {
+		return 0;
+	}
+
+	return s_ClAcceptNext ? 1 : 2;
 }
 
 // A client whose session is over (refused, left, the host gone)

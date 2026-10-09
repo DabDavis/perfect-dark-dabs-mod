@@ -170,6 +170,7 @@ s32 netLobbyLaunchState(void);       // 0 open, 1 counting down, 2 launched/conn
 s32 netLobbyLaunchEnded(void);       // a member: its session for this launch ended for good (refused, left)
 const char *netLobbyLaunchEndedText(void); // why
 s32 netLobbyCampaignState(void);     // a launched campaign room: 1 its host, 2 a member in with the host, 3 connecting; else 0
+s32 netLobbyJoinedWait(void);        // a launched room's member in with the host, no match here: 1 its match was over (in for the next), 2 waiting for it to start; else 0
 s32 netLobbyCountdownMs(void);       // the launch countdown left, -1 if none
 
 // The session's side (netsession.c): the room's roster for ticket check 5

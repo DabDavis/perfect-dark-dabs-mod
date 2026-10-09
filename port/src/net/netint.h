@@ -113,6 +113,7 @@ void netSessionLobbyStop(void);
 void netSessionClientNewHost(void); // host migration: the room's host is another now; this client's session ends
 s32 netSessionLobbyRole(void);       // 1 host, 2 client, 0 none
 s32 netSessionClientJoined(void);
+s32 netSessionClientWaiting(void);
 s32 netSessionClientGone(void);
 s32 netSessionClientUnreached(void); // client: the last connect found no host at the address
 const char *netSessionWireName(s32 slot); // host: the name a slot goes out under (a lobby host's is its account)
