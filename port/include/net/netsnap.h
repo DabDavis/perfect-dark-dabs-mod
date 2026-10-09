@@ -171,7 +171,8 @@ void netQuatWire(f32 *q);   // q as it comes off the wire (quantized there and b
  * precision (f32 bits as they are), delta'd against the block in the
  * baseline snapshot. Layout in netproto.h.
  */
-#define NETLP_SIZE     (208 + NETMOVE_SIZE)
+#define NETLP_SIZE     (208 + NETMOVE_SIZE + NETLPTANK_SIZE)
+#define NETLPTANK_SIZE 32 // (protocol 23) the GoldenEye tank the player drives, at bytes 688..719
 #define NETLP_NUMAMMO  33
 #define NETMOVE_SIZE   480
 #define NETMOVE_HEADWORDS 30 // struct player bondheadsave: the head model's rwdata
@@ -285,6 +286,22 @@ struct netmove {
 	// (3 bytes of 0 on the wire: NETMOVE_SIZE)
 };
 
+/**
+ * (protocol 23) GoldenEye's tank as the walk carries it from tick to tick
+ * (getank.c's struct getanknet): the player's own after command lastcmd, so a
+ * client's replay drives from the host's tank as it walks from the host's
+ * walk. state 0: in no tank, the rest zero.
+ */
+struct netlptank {
+	u8 state;      // 0 out, 1 climbing in, 2 driving
+	u8 penalty;
+	f32 entert;
+	f32 hullyaw;
+	f32 speed;
+	f32 turnsum;
+	f32 turretyaw;
+};
+
 #define NETLP_DEAD       0x01
 #define NETLP_INVINCIBLE 0x02
 
@@ -306,6 +323,7 @@ struct netlpstate {
 	u8 invdual[32];         // a bit per weapon number held twice
 	u16 blurdrug;           // (protocol 20) the player chr's blurdrugamount: a tranquilizer's drugged screen
 	struct netmove mv;
+	struct netlptank tank;  // (protocol 23)
 };
 
 void netLpPack(const struct netlpstate *s, u8 *out);

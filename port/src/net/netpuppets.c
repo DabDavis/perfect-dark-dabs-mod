@@ -28,6 +28,7 @@
 #include "game/propsnd.h"
 #include "game/setuputils.h"
 #include "game/smoke.h"
+#include "getank.h"
 #include "net/net.h"
 #include "net/netsnap.h"
 #include "netint.h"
@@ -1116,6 +1117,33 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 		obj->damage = s->damage;
 	}
 
+	// GoldenEye's tank (protocol 23): one this machine's player drives is
+	// its own walk's, put under him every tick (geTankTick) and squared with
+	// the host's through the local-player block; posed from the record it
+	// stood where the host had it a snapshot ago on the frames between. Any
+	// other is the host's, its hull turned by the record's rotation (which
+	// may change where it stands still) and its turret by the extra bytes
+	if (obj->type == OBJTYPE_TANK) {
+		const s32 driver = geTankDriverOf(prop);
+		struct tankobj *tank = (struct tankobj *)obj;
+
+		if (driver >= 0 && netIsLocalSlot(driver)) {
+			u->lastpos[0] = s->pos[0];
+			u->lastpos[1] = s->pos[1];
+			u->lastpos[2] = s->pos[2];
+			u->gone = gone;
+			u->havestate = 1;
+			return;
+		}
+
+		tank->turretyaw = s->extra[1] * (f32)M_BADTAU / 256.f;
+		tank->turretpitch = (s8)s->extra[2] * (f32)M_BADTAU / (360.f * 4.f);
+
+		if (!netRotSameOnWire(obj->realrot, s->quat)) {
+			moved = 1;
+		}
+	}
+
 	if (moved || isdyn) {
 		if (isdyn) {
 			netPupPlaceObj(obj, s, obj->model->scale);
@@ -1165,6 +1193,15 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 				}
 			}
 		}
+	}
+
+	if (obj->type == OBJTYPE_TANK && (moved || isdyn)) {
+		// the hull's own angle, which the walk's climb onto it reads
+		// (geTankBoard), off the matrix as geTankCreate() reads it
+		struct tankobj *tank = (struct tankobj *)obj;
+		const f32 yaw = atan2f(obj->realrot[2][0], obj->realrot[2][2]);
+
+		tank->hullyaw = yaw < 0 ? yaw + (f32)M_BADTAU : yaw;
 	}
 
 	u->lastpos[0] = s->pos[0];

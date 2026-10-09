@@ -25,6 +25,7 @@
 #include "game/activemenu.h"
 #include "gestan.h"
 #include "gewatch.h"
+#include "getank.h"
 #include "net/net.h"
 #include "net/netsnap.h"
 #include "netint.h"
@@ -152,6 +153,7 @@ struct netpredtick {
 	f32 geclimbhold;
 	s32 getile;
 	s32 gefromtile;
+	struct netlptank tank;   // GoldenEye's tank, which the walk drives (getank.c)
 	u8 rich[NETPRED_RICHMAX];
 };
 
@@ -874,6 +876,58 @@ static f32 netPredWrap(f32 a)
 	return a;
 }
 
+/**
+ * GoldenEye's tank as the walk carries it (getank.c): the host's into its
+ * local-player block (protocol 23), each tick's into the ring
+ */
+void netPredictCaptureTank(s32 playernum, struct netlptank *t)
+{
+	struct getanknet g;
+
+	geTankNetSave(playernum, &g);
+	t->state = g.state;
+	t->penalty = g.penalty;
+	t->entert = g.entert;
+	t->hullyaw = g.hullyaw;
+	t->speed = g.speed;
+	t->turnsum = g.turnsum;
+	t->turretyaw = g.turretyaw;
+}
+
+static void netPredLoadTank(s32 playernum, const struct netlptank *t)
+{
+	struct getanknet g;
+
+	g.state = t->state;
+	g.penalty = t->penalty;
+	g.entert = t->entert;
+	g.hullyaw = t->hullyaw;
+	g.speed = t->speed;
+	g.turnsum = t->turnsum;
+	g.turretyaw = t->turretyaw;
+	geTankNetLoad(playernum, &g);
+}
+
+// both in a tank and driving it differently (angles in radians)
+static s32 netPredTankOff(const struct netlptank *a, const struct netlptank *b)
+{
+	f32 dyaw;
+
+	if (a->state == 0 || b->state == 0) {
+		return 0;
+	}
+
+	dyaw = fabsf(a->hullyaw - b->hullyaw);
+
+	if (dyaw > (f32)M_PI) {
+		dyaw = 2.f * (f32)M_PI - dyaw;
+	}
+
+	return a->state != b->state || a->penalty != b->penalty
+		|| dyaw > 0.0005f || fabsf(a->speed - b->speed) > 0.01f
+		|| fabsf(a->turnsum - b->turnsum) > 0.001f || fabsf(a->entert - b->entert) > 0.001f;
+}
+
 static void netPredRecordState(struct netpredtick *e, struct player *p)
 {
 	s32 i;
@@ -900,6 +954,7 @@ static void netPredRecordState(struct netpredtick *e, struct player *p)
 	netPredSaveRich(p, e->rich);
 	bwalkNetSide(g_NetLocalSlot, 1, &e->gecrouchhold, &e->geeyelag, &e->geclimbhold);
 	geStanNetPlayerTile(g_NetLocalSlot, 1, &e->getile, &e->gefromtile);
+	netPredictCaptureTank(g_NetLocalSlot, &e->tank);
 	e->hasstate = 1;
 }
 
@@ -1200,7 +1255,11 @@ static s32 netPredReplay(struct player *p, const struct netlpstate *lp, u32 n, s
 		netPredLoadRich(p, start->rich);
 		bwalkNetSide(g_NetLocalSlot, 0, &start->gecrouchhold, &start->geeyelag, &start->geclimbhold);
 		geStanNetPlayerTile(g_NetLocalSlot, 0, &start->getile, &start->gefromtile);
+		netPredLoadTank(g_NetLocalSlot, &start->tank);
 	}
+
+	// and the host's tank over it, as its walk over the walk
+	netPredLoadTank(g_NetLocalSlot, &lp->tank);
 
 	netPredApplyMove(p, &lp->mv, start && start->hasstate ? start->lvframe60 : g_Vars.lvframe60);
 	p->vv_theta = lp->theta;
@@ -1460,7 +1519,8 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 		angoff = fabsf(netPredWrap(lp->theta - e->theta)) > NETPRED_ANGEPS || fabsf(lp->verta - e->verta) > NETPRED_ANGEPS;
 		discoff = lp->mv.movemode != e->mv.movemode || lp->mv.onladder != e->mv.onladder
 			|| lp->mv.isfalling != e->mv.isfalling || lp->mv.crouchpos != e->mv.crouchpos
-			|| lp->mv.autocrouchpos != e->mv.autocrouchpos || lp->mv.insightaimmode != e->mv.insightaimmode;
+			|| lp->mv.autocrouchpos != e->mv.autocrouchpos || lp->mv.insightaimmode != e->mv.insightaimmode
+			|| netPredTankOff(&lp->tank, &e->tank);
 
 		s_Compared++;
 
@@ -1489,6 +1549,12 @@ s32 netPredictReconcile(struct player *p, const struct netlpstate *lp, u32 cmd, 
 
 				fprintf(s_Log, "\n");
 			}
+		}
+
+		if (s_Log && (lp->tank.state || e->tank.state)) {
+			// GoldenEye's tank: the host's after N, then this machine's
+			fprintf(s_Log, "K %u %d %d %.5f %.5f %.4f %.4f %.4f %.4f\n", cmd, lp->tank.state, e->tank.state,
+					lp->tank.hullyaw, e->tank.hullyaw, lp->tank.speed, e->tank.speed, lp->tank.turretyaw, e->tank.turretyaw);
 		}
 
 		if (!posoff && !angoff && !discoff) {

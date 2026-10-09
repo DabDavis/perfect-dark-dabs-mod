@@ -738,6 +738,15 @@ void netLpPack(const struct netlpstate *s, u8 *out)
 	memcpy(out + 168, s->invdual, 32);
 	put16(out + 200, s->blurdrug);
 	netMovePack(&s->mv, out + 208);
+
+	// (protocol 23) the tank
+	out[208 + NETMOVE_SIZE] = s->tank.state;
+	out[208 + NETMOVE_SIZE + 1] = s->tank.penalty;
+	putF(out + 208 + NETMOVE_SIZE + 4, s->tank.entert);
+	putF(out + 208 + NETMOVE_SIZE + 8, s->tank.hullyaw);
+	putF(out + 208 + NETMOVE_SIZE + 12, s->tank.speed);
+	putF(out + 208 + NETMOVE_SIZE + 16, s->tank.turnsum);
+	putF(out + 208 + NETMOVE_SIZE + 20, s->tank.turretyaw);
 }
 
 void netLpUnpack(const u8 *in, struct netlpstate *s)
@@ -776,6 +785,14 @@ void netLpUnpack(const u8 *in, struct netlpstate *s)
 	memcpy(s->invdual, in + 168, 32);
 	s->blurdrug = get16(in + 200);
 	netMoveUnpack(in + 208, &s->mv);
+
+	s->tank.state = in[208 + NETMOVE_SIZE];
+	s->tank.penalty = in[208 + NETMOVE_SIZE + 1];
+	s->tank.entert = getF(in + 208 + NETMOVE_SIZE + 4);
+	s->tank.hullyaw = getF(in + 208 + NETMOVE_SIZE + 8);
+	s->tank.speed = getF(in + 208 + NETMOVE_SIZE + 12);
+	s->tank.turnsum = getF(in + 208 + NETMOVE_SIZE + 16);
+	s->tank.turretyaw = getF(in + 208 + NETMOVE_SIZE + 20);
 }
 
 /*

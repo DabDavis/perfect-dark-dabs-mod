@@ -189,7 +189,7 @@ the stage stops (H12), and never writes the host's values to its pd.ini
 `netproto.h` documents every message byte by byte (u8 type first, then
 fields through netbuf, never a struct copied whole), the channel each goes
 on (RULES and STAGE_LOAD share BULK so a STAGE_LOAD never overtakes its
-RULES), the refusal codes, and the protocol history (netproto.h's list is the full one). Protocol 23 (this branch: SNAP's per-entity bases and deferred bitmap, Traps "Snapshots in a crowded match") follows 22 (a co-op death online: the mission block's player bit 8 names the death that lost the mission, bit 16 a death that comes back; co-op's respawn is Mission Respawn's); 21 was (host migration: GO's stagetime for every client, RESUME); 14 was (co-op on the conversions' missions: the mission block's set tag and stage key kind 3; content served by the host: CONTENT_REQ/BEGIN/FILE/END/NO; 13 was content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
+RULES), the refusal codes, and the protocol history (netproto.h's list is the full one). Protocol 23 is current (the 2026-10-08 weak-spot batch: SNAP's per-entity bases and deferred bitmap, Traps "Snapshots in a crowded match"; the local-player block's tank and a tank's turret and barrel in its OBJ record, Online co-op); 22 was (a co-op death online: the mission block's player bit 8 names the death that lost the mission, bit 16 a death that comes back; co-op's respawn is Mission Respawn's); 21 was (host migration: GO's stagetime for every client, RESUME); 14 was (co-op on the conversions' missions: the mission block's set tag and stage key kind 3; content served by the host: CONTENT_REQ/BEGIN/FILE/END/NO; 13 was content follows the host: the content block in ACCEPT and RULES, CONNECT's "mod" and "added" logged rather than refused, LOADED's "mod" component, LEAVE NOMOD; 12 was online co-op: the mission block in RULES, the SETUPCHR descriptor, the scenario block as a mission block; 11 let a command's START reach the host, played only for a dead player: the respawn).
 The lobby's HTTP API and the rendezvous/relay datagrams are in
 `tools/pdlobbyd/README.md`. A change to a message's shape or meaning bumps
 `NET_PROTOCOL_VERSION`; pdlobbyd lists a room's protocol and the Briefing
@@ -874,6 +874,33 @@ progression").
     report after three replays; the watcher's line reads "Watching Player 1
     Z: next   A: free camera". Gate: netcooptest `death`, and `pair`'s
     respawn (Mission Respawn on: where it fell, nobody's health taken).
+- **GoldenEye's tank driven by a client (protocol 23, 2026-10-08).** The
+  tank is the walk's (`geTankDrive` in the step, `geTankTick` after it), so
+  a client predicts it, but its state lives outside struct player
+  (`g_Tank[p]`, the tankobj's speed and yaws) and was in neither the
+  prediction ring nor the wire: every correction replayed the commands
+  from the tank as it stood *now*, integrating the speed and the hull's
+  turn twice, and nothing ever pulled the hull's yaw back to the host's -
+  the client's tank drifted and snapped. Now `geTankNetSave/Load`
+  (struct getanknet: state, penalty, entert, hullyaw, speed, turnsum,
+  turretyaw) go in each ring tick, the host's for that player in the
+  local-player block (bytes 688..719, NETLP_SIZE 720), a difference starts
+  a replay like a moved position, and the replay starts from the host's
+  tank. In a replay `geTankTick` walks the tank and nothing else (no
+  sounds, no crush, no hands or shells). A tank this machine's player
+  drives is not posed from the host's OBJ record (it had stood a snapshot
+  behind on the frames between ticks); anyone else's takes its hull angle
+  from the record's rotation and its turret and barrel from extra bytes 1
+  and 2. Entering and leaving stay each machine's own press. The
+  prediction log has a `K` line per compared block in a tank (host's and
+  this machine's state, speed, yaws). Check (Runway co-op, the client
+  put beside the tank on the host, its script climbing in and driving at
+  150 ms, the host's copy of that player knocked 30 units aside three times
+  mid-drive to force corrections): before, every block after the first
+  knock was corrected (73.7% matched, 475 corrections, 49 snaps); after,
+  4-5 corrections per knock and the host's tank to the bit after (96.8%,
+  58, 2 - the knocks' own gdb pauses). Undisturbed, both agree exactly:
+  the bug needs a correction while driving.
 - **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene
@@ -1822,6 +1849,24 @@ by `geslappers.c`'s own clock, and that clock was `track[2]`,
 - **The rule.** Any port-side per-hand state is per player too. Grep for
   `static .*\[2\]` beside a `handnum` in a new file; offline it is
   invisible (one player), online every client's tick runs on the host.
+- **The same shape in GoldenEye's gadgets and hits (2026-10-08,
+  fix/net-1008-ge).** The camera's photograph was one flag
+  (`g_Gadgets.photo`) consumed in whichever view pass came first - the
+  host's - so a client's photograph (Silo's satellite, Bunker's screen) was
+  judged against the host's screen; it is per player now and judged only in
+  the presser's own pass (`gegadgetsAfterProps`). The detonator's press and
+  the watch laser's muzzle are per player too. GoldenEye's hit grunt
+  (`chrGeHitGrunt`, chraction.c) followed whoever's pass dealt the hit: the
+  host grunted for a client's hit and a client's shot muted the host's own;
+  now only a local victim grunts (through `netWorldSoundBegin`), its spacing
+  per player online, and a client grunts for itself from NETEV_CHRDAMAGE
+  (bit 4, the shield took it, picks the armour's spacing). A guard's or a
+  sim's GoldenEye rocket launch is played by chrTick at the rocket's making,
+  which a client never runs, and the fireslot is silent for that gun: a
+  client plays it from the FIRESLOT event (a remote player's, from where it
+  stands, from PLAYERSHOT). Swept and clean besides: gehitpuff, geimpact,
+  gesfx (its hit weapon is a begin/end bracket), gewater (lvTick, once a
+  tick); `g_Gadgets.keyprop` stays one (there is one key).
 
 ## F3 online: the [netplay] section (2026-10-08)
 

@@ -14,6 +14,7 @@
 #include "game/chraction.h"
 #include "game/explosions.h"
 #include "game/hudmsg.h"
+#include "game/lv.h"
 #include "game/mpstats.h"
 #include "game/nbomb.h"
 #include "game/player.h"
@@ -615,6 +616,14 @@ void netEvSparks(s32 room, struct prop *prop, struct coord *pos, struct coord *a
 	}
 
 	netEvEnd(&b, NETEV_SPARKS, -1, netEvOrigin());
+}
+
+// a chr's shot that is GoldenEye's rocket launch (geChrRocketLaunchSilent())
+static s32 netEvGeRocketLaunch(struct chrdata *chr, s32 handnum)
+{
+	struct prop *gun = chr ? chrGetHeldProp(chr, handnum) : NULL;
+
+	return gun && gun->type == PROPTYPE_WEAPON && gun->weapon && geChrRocketLaunchSilent(gun->weapon->weaponnum);
 }
 
 void netEvChrDamage(struct chrdata *chr, struct prop *aprop, s32 hitpart, s32 damageshield, s32 explosion)
@@ -1742,6 +1751,15 @@ static void netEvApply(struct netevc *e, f64 rt)
 			chrUpdateFireslot(chr, e->flags & 1, (e->flags & 2) != 0 && !s_Quiet, (e->flags & 4) != 0, &c0, &c1);
 			started = !was && (chr->hidden2 & CHRH2FLAG_FIRESOUNDDONE);
 
+			// GoldenEye's rocket launcher has no shot sound (the fireslot
+			// is silent for it): a guard's or a sim's launch is heard as
+			// the host plays it at the rocket's making, in chrTick, which a
+			// client never runs
+			if ((e->flags & 2) && !s_Quiet && netEvGeRocketLaunch(chr, e->flags & 1)) {
+				geSfxPlay(GESFX_ROCKET_LAUNCH, GESFX_VOLUME);
+				started = 1;
+			}
+
 			// the audio check's null: what would have begun a sound
 			if (s_Quiet && (e->flags & 2) && !was) {
 				started = 1;
@@ -1806,6 +1824,13 @@ static void netEvApply(struct netevc *e, f64 rt)
 		// the puppet's held gun sounds and draws the tracer, as a sim's shot does
 		prop->chr->hidden2 &= ~CHRH2FLAG_FIRESOUNDDONE;
 		chrUpdateFireslot(prop->chr, e->flags & 1, !s_Quiet, (e->flags & 4) != 0, &c0, &c1);
+
+		// ... and GoldenEye's rocket launcher, silent there: its launch,
+		// from where the player stands
+		if (!s_Quiet && netEvGeRocketLaunch(prop->chr, e->flags & 1)) {
+			geSfxPlayAt(GESFX_ROCKET_LAUNCH, prop, NULL, NULL, PSTYPE_NONE, 0);
+		}
+
 		s_ShotSounds++;
 		snprintf(extra, sizeof(extra), "player %d hand %d beam %d", e->a, e->flags & 1, (e->flags & 4) != 0);
 		break;
@@ -1850,6 +1875,13 @@ static void netEvApply(struct netevc *e, f64 rt)
 			setCurrentPlayerNum(g_NetLocalSlot);
 
 			if (!g_Vars.currentplayer->isdead) {
+				// GoldenEye's grunt, which the host's chrDamage plays only
+				// for its own player: before the flash, whose clock spaces
+				// it (bit 4: the shield took it)
+				if (!s_Quiet && !lvIsPaused() && geSfxStage()) {
+					chrGeHitGrunt(!(e->flags & 4));
+				}
+
 				playerDisplayDamage();
 				playerDisplayHealth();
 			}
