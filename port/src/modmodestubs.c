@@ -4,8 +4,6 @@
 #include "mod.h"
 #include "modaudio.h"
 
-void modSegsEnter(const char *moddir) { (void)moddir; }
-void modSegsLeave(void) {}
 void modAudioEnter(const char *moddir) { (void)moddir; }
 void modAudioLeave(void) {}
 s32 modAudioQuiesce(void) { return 1; }

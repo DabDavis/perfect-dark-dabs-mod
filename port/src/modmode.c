@@ -43,6 +43,7 @@
 #include "mod.h"
 #include "modmode.h"
 #include "modaudio.h"
+#include "modsegs.h"
 #include "modloader.h"
 #include "gexfront.h"
 #include "system.h"
@@ -319,13 +320,19 @@ void modModeStageBoundary(void)
 		modAudioLeave();
 	}
 
-	// files, file slots, stage tables, modconfig, the data segment
-	modSwapPath(entering ? s_NextPath : NULL);
+	// files, file slots, stage tables, modconfig, the data segment; the
+	// files are mounted before the segments since a mod's animations/
+	// directory is read through them
+	modSwapFiles(entering ? s_NextPath : NULL);
 
 	if (entering) {
 		modSegsEnter(s_NextPath);
 		modAudioEnter(s_NextPath);
 	}
+
+	// what reads the segments: the borrowed guns judge their animations
+	// against the table as it now is
+	modSwapFinish();
 
 	memcpy(s_Path, s_NextPath, sizeof(s_Path));
 	memcpy(s_Name, s_NextName, sizeof(s_Name));

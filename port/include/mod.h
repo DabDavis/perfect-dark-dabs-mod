@@ -313,10 +313,11 @@ s32 modListSwap(s32 index);
 // The overlay swap itself, by path (NULL: none), without the selection or the
 // segments check: modmode.c's, around its segment swaps at a stage boundary
 s32 modSwapPath(const char *path);
-// Every non-audio ROM segment a mod ships, in at a stage boundary and back out
-// (wave 1, feat/pdmods-segs)
-void modSegsEnter(const char *moddir);
-void modSegsLeave(void);
+// The same in two halves, for modmode.c's segment swaps between them: the
+// files, slots and tables, then what reads the segments (the borrowed guns
+// judge their animations against the table as it is)
+void modSwapFiles(const char *path);
+void modSwapFinish(void);
 s32 modListIndexOf(const char *name); // the installed mod of this name, or -1
 s32 modListHasSegs(s32 index);       // index's (or -1, the loaded mod's) boot segments: a swap to or from it restarts
 // Whether the mod at path ships a ROM segment (a file in segs/ named like one

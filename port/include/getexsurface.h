@@ -11,5 +11,8 @@
  * back. Called on every stage load, after texReset(). port/src/getexsurface.c.
  */
 void geTexSurfaceReset(s32 stagenum);
+// g_Textures is about to be another list (modsegs.c): GoldenEye's bytes taken
+// out of the one going, and Perfect Dark's kept again from the next
+void geTexSurfaceTableChanged(void);
 
 #endif

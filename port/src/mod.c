@@ -4022,7 +4022,7 @@ s32 modListHasSegs(s32 index)
  * boundary around it (modSegsEnter(), modAudioEnter()). Nothing is written to
  * pd.ini here.
  */
-s32 modSwapPath(const char *path)
+void modSwapFiles(const char *path)
 {
 	// path may be fsGetModDir()'s own string, which the replace empties
 	char to[FS_MAXPATH + 1];
@@ -4049,7 +4049,10 @@ s32 modSwapPath(const char *path)
 	if (fsGetModDir()) {
 		modConfigLoad(MOD_CONFIG_FNAME);
 	}
+}
 
+void modSwapFinish(void)
+{
 	// The list was put back: GoldenEye's own weapon sets again (gexplus.c),
 	// and a ROM hack's own pistols' rows as its mode has them (geguns.c)
 	gexPlusWeaponSetsAppend();
@@ -4065,7 +4068,13 @@ s32 modSwapPath(const char *path)
 
 	videoResetTextureCache();
 
-	sysLogPrintf(LOG_NOTE, "mod: switched to %s", to[0] ? to : "no mod");
+	sysLogPrintf(LOG_NOTE, "mod: switched to %s", fsGetModDir() ? fsGetModDir() : "no mod");
+}
+
+s32 modSwapPath(const char *path)
+{
+	modSwapFiles(path);
+	modSwapFinish();
 
 	return true;
 }

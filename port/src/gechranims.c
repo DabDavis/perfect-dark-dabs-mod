@@ -371,6 +371,14 @@ static void geChrAnimsSet(s32 on)
 	geChrAnimsMeasure();
 }
 
+void geChrAnimsOff(void)
+{
+	if (g_GeChrAnims) {
+		geChrAnimsSet(0);
+		sysLogPrintf(LOG_NOTE, "gechranims: characters play Perfect Dark's animations");
+	}
+}
+
 void geChrAnimsStageStart(s32 stagenum)
 {
 	s32 on = 0;

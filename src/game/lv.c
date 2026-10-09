@@ -9,6 +9,9 @@
 #endif
 #include <ultra64.h>
 #include "constants.h"
+#ifndef PLATFORM_N64
+#include "modsegs.h"
+#endif
 #include "bss.h"
 #include "data.h"
 #include "game/activemenu.h"
@@ -287,6 +290,10 @@ void lvUpdateMiscSfx(void)
 void lvReset(s32 stagenum)
 {
 #ifndef PLATFORM_N64
+	// --mod-segs-enter: a mod's segments swapped in where the live mode will
+	// (modsegs.h); nothing unless the switch is given
+	modSegsTestHook(stagenum);
+
 	// Head measurements and offsets are the last stage's files and copies
 	headfitReset();
 #endif
