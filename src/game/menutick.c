@@ -503,8 +503,13 @@ void menuTick(void)
 				menuProcessInput();
 				setCurrentPlayerNum(prevplayernum);
 			} else {
-				// joining reads a physical pad: only local players 0-3
-				if (i < MAX_LOCAL_PLAYERS && (g_MenuData.root == MENUROOT_MPSETUP || g_MenuData.root == MENUROOT_4MBMAINMENU)) {
+				// joining reads a physical pad: only local players 0-3. Menus
+				// 4-11 (net players') take neither branch: the else zeroed
+				// mpsetupmenu every frame, so B on the Combat Simulator
+				// reopened it, and wrote waitingtojoin[4-11] past its end
+				if (i >= MAX_LOCAL_PLAYERS) {
+					// nothing to join with
+				} else if (g_MenuData.root == MENUROOT_MPSETUP || g_MenuData.root == MENUROOT_4MBMAINMENU) {
 					// Check if player is joining the game
 					bool canjoin;
 					u32 buttons = joyGetButtonsPressedThisFrame(i, 0xffffffff);
