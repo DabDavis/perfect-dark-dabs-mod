@@ -58,17 +58,24 @@
 #           opening ends on the host's own player; a client then joins the
 #           mission in progress with no opening, spawns on the host's
 #           player's spot and predicts at 95% or better.
+#   endjoin  a Perfect Dark campaign room's player kept out (2026-10-09): a
+#           joiner refused STARTED through a held barrier keeps trying past
+#           thirty tries and joins once it lets go; its game killed, the
+#           host's death losing Defection, its game back while the host sits
+#           on its end screen: taken at once for the next mission (it was
+#           refused STARTED for as long as the end screen stayed up), and
+#           in Defection when the host starts it again.
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend camproom death}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -681,6 +688,117 @@ case_camproom() {
 	grep -q "net: co-op client: the first mission block" "$J" && pass "$name: the newcomer is in Facility" || fail "$name: the newcomer is not in Facility"
 }
 
+# ---------------------------------------------------------------- endjoin
+# A player shut out of a launched room (2026-10-09: "players cannot join
+# once the level is started"; a guest whose game crashed in a Perfect Dark
+# campaign's Defection was refused STARTED thirty times over while the
+# mission lay lost on its host's end screen, then gave up on the room for
+# good - a campaign's room keeps its one launch through every mission).
+# A Perfect Dark campaign room launched by its host alone, Mission Respawn
+# off, Defection started from the host's menus; then:
+#   1. the host held at its barrier (as a slow loader holds it: staged
+#      through gdb), a joiner arriving: refused STARTED past thirty tries
+#      and still trying; the barrier let go, it joins the mission in progress
+#   2. the joiner's game killed (-9, a crash); its seat's hold (5 s) runs out
+#   3. the host's player killed: nobody alive, the mission lost, the host on
+#      its end screen (MATCH_END gone)
+#   4. the joiner's game again, with its ticket: taken at once for the next
+#      mission, not refused
+#   5. the host out of its end screen to its menus and Defection again: the
+#      joiner is in it
+cat > "$OUT/endjoin.gdb" <<'GDB'
+break netSessionTick
+continue
+delete
+GDB
+
+endjoin_gdb() {
+	local hp=$1; shift
+	timeout 40 gdb -p "$hp" -batch -x "$OUT/endjoin.gdb" "$@" 2>/dev/null | grep "^STAGE" | tee -a "$OUT/stage.log" | sed 's/^/     host: /'
+}
+
+case_endjoin() {
+	local name=endjoin port=$((PORT + 8)) L=$OUT/endjoin-pdlobbyd.log H=$OUT/endjoin-host.log J=$OUT/endjoin-join.log J2=$OUT/endjoin-join2.log
+	echo "== $name"
+	python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
+		> "$L" 2>&1 &
+	local lobby=$!
+	if ! waitfor "$L" "pdlobbyd listening on" 20; then
+		fail "$name: pdlobbyd did not start"; kill $lobby 2>/dev/null; return
+	fi
+	local lport; lport=$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$L" | head -1)
+	local jini="[Mod]\nGhostUser=endjoiner\nGhostPin=1234\nMapMods=\n[Net]\nLobbyServer=http://127.0.0.1:$lport\n"
+	game endjoin-host 600 "[Mod]\nGhostUser=endhost\nGhostPin=1234\nMissionRespawn=0\n[Net]\nLobbyServer=http://127.0.0.1:$lport\nPort=$port\nJoinInProgress=1\nReconnectHold=5\n" \
+		--net-lobby-script host --net-lobby-room "End Test" --net-lobby-campaign pd --net-lobby-solo --net-lobby-end-frame 999999 --net-lobby-keep-endscreen \
+		--net-test-sims 0 --skip-cutscenes --rng-seed 7 &
+	local host=$!
+	local join="" join2="" hp jp
+	if ! waitfor "$H" "net: co-op: the Perfect Dark campaign begins" 90; then
+		fail "$name: no campaign on the host"
+	else
+		hp=$(gamepid endjoin-host)
+		sleep 3
+		endjoin_gdb "$hp" -ex 'python import gdb; print("STAGE endjoin: start Defection: %d" % int(gdb.parse_and_eval("netCoopHostStart(\"\", 0, 0, 1, 0)")))'
+		waitfor "$H" "net: match 1: every machine has loaded; GO" 120 || echo "     no GO for Defection on the host"
+		sleep 3
+		# 1. the barrier held: STARTED for a long stretch
+		endjoin_gdb "$hp" -ex "set var 'netsession.c'::s_BarrierHeld = 1" -ex "set var 'netsession.c'::s_HostLoaded = 0" \
+			-ex 'python print("STAGE endjoin: the barrier held")'
+		game endjoin-join 400 "$jini" --net-lobby-script join --net-lobby-room "End Test" --net-lobby-leave-frame 0 &
+		join=$!
+		waitfor "$J" "connecting again in [0-9]* s (try 31)" 150 || echo "     the joiner did not try a 31st time"
+		endjoin_gdb "$hp" -ex "set var 'netsession.c'::s_HostLoaded = 1" -ex 'python print("STAGE endjoin: the barrier let go")'
+		waitfor "$J" "net: match [0-9]*: GO, in progress" 120 || echo "     the joiner never joined the mission in progress"
+		sleep 5
+		# 2. the joiner's game dies
+		jp=$(gamepid endjoin-join); [ -n "$jp" ] && kill -KILL "$jp"
+		wait "$join" 2>/dev/null; join=""
+		waitfor "$H" "did not come back" 40 || echo "     the joiner's seat was not let go"
+		sleep 2
+		# 3. the host's player killed: the mission lost, the end screen up
+		stage "$hp" "kill(0)"
+		waitfor "$H" "net: match clock at the end" 90 || echo "     the host's mission did not end"
+		sleep 5
+		# 4. the joiner back while the host sits on its end screen
+		game endjoin-join2 400 "$jini" --net-lobby-script join --net-lobby-room "End Test" --net-lobby-leave-frame 0 &
+		join2=$!
+		waitfor "$J2" "net: accepted by\|try 6)" 90 || echo "     the joiner was not accepted at the end screen"
+		sleep 3
+		# 5. the host out to its menus, Defection again
+		endjoin_gdb "$hp" -ex "call (void)netCoopLeaveMission()" -ex "call (void)menuStop()" -ex 'python print("STAGE endjoin: the host left its end screen")'
+		waitfor "$H" "campaign: back to the" 60 || echo "     the host is not back in its menus"
+		sleep 3
+		endjoin_gdb "$hp" -ex 'python import gdb; print("STAGE endjoin: start Defection again: %d" % int(gdb.parse_and_eval("netCoopHostStart(\"\", 0, 0, 1, 0)")))'
+		waitfor "$J2" "net: co-op client: the first mission block" 120 || echo "     no mission block on the joiner"
+	fi
+	jp=$(gamepid endjoin-join2); [ -n "$jp" ] && kill -TERM "$jp"
+	local jx=0
+	if [ -n "$join2" ]; then wait "$join2"; jx=$?; fi
+	[ "$jx" = 143 ] && jx=0
+	hp=$(gamepid endjoin-host); [ -n "$hp" ] && kill -TERM "$hp"
+	wait $host; local hx=$?
+	[ "$hx" = 143 ] && hx=0
+	kill $lobby 2>/dev/null; wait $lobby 2>/dev/null
+	crashed "$H" && fail "$name: the host crashed" || { [ "$hx" = 0 ] && pass "$name: host ran to the end" || fail "$name: host exit $hx"; }
+	crashed "$J" && fail "$name: the joiner crashed"
+	crashed "$J2" && fail "$name: the joiner's second game crashed" || { [ "$jx" = 0 ] && pass "$name: the joiner's second game ran to the end" || fail "$name: the joiner's second game exit $jx"; }
+	grep -q "net: co-op: starting dataDyne Defection" "$H" && pass "$name: the host started Defection from its menus" || fail "$name: Defection never started"
+	local tries; tries=$(grep -c "lobby: the host is starting or ending the match; connecting again" "$J")
+	[ "$tries" -gt 30 ] && pass "$name: the joiner kept trying through the held barrier ($tries refusals)" || fail "$name: the joiner tried $tries times"
+	grep -q "net: match [0-9]*: GO, in progress" "$J" && pass "$name: the barrier let go, the joiner joined the mission in progress" \
+		|| fail "$name: the joiner never joined the mission in progress"
+	grep -q "net: co-op: player 0's death leaves nobody alive: the mission is lost" "$H" && pass "$name: the host's death lost the mission" \
+		|| fail "$name: the mission was not lost on the host"
+	grep -q "the host's match is over: in for the next" "$H" && pass "$name: the host took the returning joiner at its end screen, for the next mission" \
+		|| fail "$name: the host did not take the joiner at its end screen"
+	grep -q "net: the host refused \[started\]" "$J2" && fail "$name: the returning joiner was refused STARTED $(grep -c 'refused \[started\]' "$J2") times"
+	grep -q "net: accepted by \"endhost\" into slot [0-9]*$" "$J2" && pass "$name: the returning joiner was accepted, not in progress" \
+		|| fail "$name: $(grep -o 'net: accepted by.*' "$J2" | head -1)"
+	[ "$(grep -c 'net: co-op: starting dataDyne Defection' "$H")" -ge 2 ] && pass "$name: Defection started again" || fail "$name: Defection did not start again"
+	grep -q "net: co-op client: the first mission block" "$J2" && pass "$name: the returning joiner is in the next mission" \
+		|| fail "$name: the returning joiner is not in the next mission"
+}
+
 {
 for c in $CASES; do
 	case $c in
@@ -692,6 +810,7 @@ for c in $CASES; do
 		lobby) case_lobby ;;
 		camproom) case_camproom ;;
 		death) case_death ;;
+		endjoin) case_endjoin ;;
 		*) fail "unknown case $c" ;;
 	esac
 done

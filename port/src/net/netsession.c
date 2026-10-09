@@ -761,6 +761,12 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 	s32 ticketed = 0;
 	s32 oldpeer = -1;
 	u8 accflags = 0;
+	// the host's match is over (MATCH_END gone; its end screen up for as
+	// long as the host leaves it, or on its way out): a joiner now is the
+	// next match's, taken as between matches. STARTED here kept a lobby
+	// room's player out for good (2026-10-09: a co-op mission lost with
+	// the host on its end screen)
+	const s32 nextmatch = s_MatchActive && s_HostEnded;
 
 	if (c->state != NETCL_CONNECTING) {
 		netHostKick(peer, NETREFUSE_BADMSG, "", "CONNECT sent twice");
@@ -931,7 +937,7 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 		// one seat per user: a CONNECT for a user who holds a seat replaces
 		// it (a restarted game) rather than taking a second, but only once
 		// it has passed every check below
-		if (s_LobbyRoomOn && !s_MatchActive) {
+		if (s_LobbyRoomOn && (!s_MatchActive || nextmatch)) {
 			for (j = 0; j < NET_MAXPEERS; j++) {
 				if (j != peer && s_Clients[j].state >= NETCL_JOINED && s_Clients[j].state != NETCL_REFUSED
 						&& strcasecmp(s_Clients[j].name, user) == 0 && s_Clients[j].spectator == c->spectator) {
@@ -942,15 +948,15 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 	}
 
 	// a match running already: its stage's keys too (a GoldenEye stage's)
-	if (netRulesCheckClientKeys(c->keys, c->nkeys, s_MatchActive ? (modloaderStageIsRemake(s_MatchStage) ? 1 : 0) : -1,
+	if (netRulesCheckClientKeys(c->keys, c->nkeys, s_MatchActive && !nextmatch ? (modloaderStageIsRemake(s_MatchStage) ? 1 : 0) : -1,
 				&code, key, sizeof(key), text, sizeof(text))) {
 		netHostKick(peer, code, key, text);
 		return;
 	}
 
 	// a match under way takes joiners once it runs (protocol 9): not while
-	// it loads, nor once its end has gone out
-	inprogress = s_MatchActive;
+	// it loads; once its end has gone out, for the next match
+	inprogress = s_MatchActive && !nextmatch;
 
 	if (inprogress && (!s_MatchLoaded || s_BarrierHeld || s_HostEnded || g_StageNum != s_MatchStage)) {
 		netHostKick(peer, NETREFUSE_STARTED, "", "A match is starting or ending; try again in a moment.");
@@ -1062,7 +1068,7 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 
 	sysLogPrintf(LOG_NOTE, "net: %s %d: \"%s\" joined from %s (fov %.0f, aspect %.2f, head %d body %d)%s",
 			c->spectator ? "spectator view" : "slot", c->slot, c->name, addr, c->cfg.fovy, c->cfg.aspect, c->cfg.mpheadnum, c->cfg.mpbodynum,
-			!inprogress ? "" : c->spectator ? "; spectating the match in progress" : c->resumed ? "; the seat it held, back in the match in progress" : "; an open seat of the match in progress");
+			nextmatch ? "; the host's match is over: in for the next" : !inprogress ? "" : c->spectator ? "; spectating the match in progress" : c->resumed ? "; the seat it held, back in the match in progress" : "; an open seat of the match in progress");
 
 	if (inprogress) {
 		netHostSendStage(peer);

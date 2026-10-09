@@ -2425,13 +2425,28 @@ static void lobbyAddCand(const char *addr, u16 port, const char *how, s32 full)
 	}
 }
 
+// A member's wait before it connects again to a room still launched: BASE s
+// for the first fifteen tries, then twice, then four times that (at most
+// 20 s), so a long wait on the host costs it a connect a few seconds apart
+static s32 lobbyRetrySecs(s32 tries, s32 base)
+{
+	const s32 secs = tries <= 15 ? base : tries <= 30 ? base * 2 : base * 4;
+
+	return secs < 20 ? secs : 20;
+}
+
 static void lobbyClientTick(void)
 {
 	char addr[64];
 	u16 port;
 	s32 i;
 
-	if (netSessionClientJoined()) {
+	if (netSessionClientJoined() || !s_Room.launched) {
+		// in (or the room no longer launched): the retry's line goes with it
+		if (s_LaunchRetries) {
+			s_MainMessage[0] = '\0';
+		}
+
 		s_LaunchRetries = 0;
 	}
 
@@ -2450,17 +2465,35 @@ static void lobbyClientTick(void)
 			s_CandNext = 1;
 			s_LaunchHandled = 0;
 			sysLogPrintf(LOG_NOTE, "lobby: no host at that address; trying the next (%d of %d)", s_CandAt + 1, s_NumCands);
-		} else if (started && s_Room.launched && s_LaunchRetries < 30) {
+		} else if (started && s_Room.launched) {
 			// the host was loading the match, or ending it: the room is
-			// still launched, so the same launch is tried again shortly
+			// still launched, so the same launch is tried again shortly -
+			// for as long as it stays launched and this player in it (a
+			// campaign's room stays launched with the same launch through
+			// every mission: after a cap of 30 tries, 2026-10-09, a player
+			// refused through one long wait never came back in)
+			const s32 secs = lobbyRetrySecs(++s_LaunchRetries, 2);
+
 			g_NetNoticePending = 0;
-			s_LaunchRetries++;
-			s_LaunchRetryAt = lobbyNowMs() + 2000;
+			s_LaunchRetryAt = lobbyNowMs() + (u64)secs * 1000;
 			// that address reached the host: the retry goes back to it,
 			// not through the dead ones ahead of it in the list
 			s_CandNext = 1;
-			snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", "The match is starting; joining in a moment.");
-			sysLogPrintf(LOG_NOTE, "lobby: the host is starting or ending the match; connecting again in 2 s (try %d)", s_LaunchRetries);
+			snprintf(s_MainMessage, sizeof(s_MainMessage), "The host is starting or ending a match; joining again in %d s (try %d).",
+					secs, s_LaunchRetries);
+			sysLogPrintf(LOG_NOTE, "lobby: the host is starting or ending the match; connecting again in %d s (try %d)", secs, s_LaunchRetries);
+		} else if (netSessionClientUnreached() && s_Room.launched && s_Room.launchat == s_LaunchHandled) {
+			// every way to the host tried and none answered, the room still
+			// launched (a host gone for good loses the room or hands it on:
+			// a new launch, or none): the whole list again after a pause,
+			// the ladder's path first should it have found one since
+			const s32 secs = lobbyRetrySecs(++s_LaunchRetries, 5);
+
+			g_NetNoticePending = 0;
+			s_LaunchRetryAt = lobbyNowMs() + (u64)secs * 1000;
+			s_CandNext = 0;
+			snprintf(s_MainMessage, sizeof(s_MainMessage), "Could not reach the host; trying again in %d s (try %d).", secs, s_LaunchRetries);
+			sysLogPrintf(LOG_NOTE, "lobby: no address reached the host; trying them all again in %d s (try %d)", secs, s_LaunchRetries);
 		} else if (g_NetNoticePending) {
 			g_NetNoticePending = 0;
 			snprintf(s_MainMessage, sizeof(s_MainMessage), "%s", netSessionNoticeText());
@@ -3164,6 +3197,7 @@ void netLobbyShutdown(void)
  *   --net-lobby-campaign TAG       host: the room is TAG's campaign ("pd", "ge", a
  *                                  hack's tag): the host's menus at the launch
  *   --net-lobby-solo               host: LAUNCH with nobody else in the room
+ *   --net-lobby-keep-endscreen     an end screen stays up (the script closes it otherwise)
  *   --net-lobby-menus              host: the room made from the Perfect Menu's Online
  *                                  Game, its Game Lobby up, as a player makes one
  *
@@ -3246,7 +3280,9 @@ static void lobbyScriptTick(void)
 
 	// an end screen goes after a moment, as a player's button press would
 	// (this machine's player's menus: a client's are not g_Menus[0])
-	if (g_MenuData.root == MENUROOT_MPENDSCREEN) {
+	// --net-lobby-keep-endscreen: left up, as a player who walks away
+	// leaves it (netcooptest endjoin)
+	if (g_MenuData.root == MENUROOT_MPENDSCREEN && !sysArgCheck("--net-lobby-keep-endscreen")) {
 		static u64 endsince = 0;
 		const s32 prev = g_MpPlayerNum;
 		s32 open = 0;

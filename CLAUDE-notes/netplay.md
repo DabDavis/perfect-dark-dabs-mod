@@ -595,9 +595,10 @@ then lists, joins, READYs and plays; the Linux host is
   the stage may not service its socket for a while); the fallbacks after it
   get 8 s each (`LOBBY_CAND_WINDOW_MS`) except the last, which gets 30 s.
   Only a window that found no host (`netSessionClientUnreached`) moves on
-  to the next address; a STARTED refusal (host loading or ending) retries
+  to the next address; a STARTED refusal (host loading) retries
   the same address that answered (`s_CandNext` kept), not the dead ones
-  ahead of it. Only the first endpoint used to be tried.
+  ahead of it, for as long as the room stays launched (2026-10-09: it
+  had stopped after 30 tries). Only the first endpoint used to be tried.
 - **The Briefing Room is ~266 units wide.** The list item says 304 but the
   dialog shows about 266 of it at any window size, and `textMeasure`'s
   widths are in the same units as `drawCell`'s x. A room is two rows of
@@ -1574,6 +1575,30 @@ we make this easier for players abroad, so anyone can play anyone".
   is handled, and only a fresh Join gets a new one. Router port mapping
   (UPnP/NAT-PMP/PCP), the room's empty `region`, IPv6 and a TCP fallback
   for networks that drop UDP are the next steps the user was offered.
+
+- **Shut out of a launched room (2026-10-09).** The user: "players cannot
+  join once the level is started, but have to wait until next level"; a
+  guest whose game crashed in a Perfect Dark campaign room's Defection
+  (Mission Respawn off, the other guests gone) came back with its ticket and
+  was refused STARTED thirty times, 2 s apart, then never tried again. The
+  host's CONNECT refused STARTED while its match loaded, held its barrier,
+  had changed stage, or **had ended** (`s_HostEnded`, MATCH_END gone): the
+  last lasts as long as the host leaves its end screen up - here the lost
+  mission's, the host alone. Now a CONNECT after the end is taken as
+  between matches (`nextmatch` in `netHostOnConnect`: JOINED, not in
+  progress, the stage's own content keys not asked, an older connection of
+  the same account replaced; logged "the host's match is over: in for the
+  next"), and the host's H12 leaves it JOINED for the next STAGE_LOAD (a
+  campaign's next mission, a room's next launch). The loading and barrier
+  refusals stay (they end by themselves). And a lobby member gives up on no
+  room that is still launched: STARTED retries for as long as it stays
+  launched and the player in it (2 s for fifteen tries, then 4 s, then 8 s:
+  `lobbyRetrySecs`), and a launch whose every address went unanswered is
+  tried again from the top of the list (5, 10, then 20 s apart); the status
+  line counts the tries and goes when the player is in. A campaign's room
+  keeps one launch through every mission, so the 30-try cap had shut such a
+  player out until it left the room and joined again. Gate: netcooptest
+  `endjoin`.
 
 ## The online HUD (protocol 18, 2026-10-08)
 
