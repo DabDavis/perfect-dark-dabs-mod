@@ -7,7 +7,12 @@ the long form.
 
 - **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30) and writes the `maps` block (31) so a mod's arenas come from its own tables under its own names — a file name is Perfect Dark's slot, not the map (GE-X's `crad` is Aztec)
 - **Mod directories, Load Mods, modconfig, `modcodediff`, the ROM symbol file, the data segment and importing a mod's weapon definitions** — [mods.md](CLAUDE-notes/mods.md): only the first mod dir joins the file search; files swap live, segments cannot; the `datasegment` block, `moddata.c`, and "where this stands" for continuing the import work
+- **A mod entered from the Perfect Menu, no restart (2026-10-09)** — mods.md, "A mod entered from the Perfect Menu": the "Perfect Dark Mods" row and its list, `modmode.c`'s queue (sound drains, the Institute reloads, the swap at the stage boundary in **port/src/pdmain.c's** outer loop - the port's main loop, not src/lib/main.c's), `modSwapPath()`, Mod.ModDir no longer mounted at startup and Load Mods gone; online, `modModeRequestAtNextStage()` swaps at the host's next STAGE_LOAD
+- **A mod entered live: data (2026-10-09)** — mods.md, "A mod entered live: data": `modDataUnload()` undoes a data segment import (tables back, then frees, statics reset); a mod with only `segs/data` + `segs/data.names` swaps live (`modDirHasBootSegs()`); a modconfig's weapon edits go into the game's own weapon objects and are kept/undone field by field; `--mod-data-swap A,B,none` + `--mod-dump-data FILE` are the test; hash file ids by name and struct fields, not padding
+- **A mod entered live: segments (2026-10-09)** — mods.md, "A mod entered live: segments": `romdataSegSwap()` + `modSegsEnter/Leave()` (modsegs.c) swap every non-audio segment between stages and back; the boot's and ROM's copies kept, appended animation rows rebased not renumbered, `g_NumListTextures` for a longer texture list; test with `--mod-segs-enter`/`--mod-dump-segs`/`--mod-segs-boot-stock`
+- **A mod entered live: online (2026-10-09, protocol 25)** — mods.md, "A mod entered live: online", and netplay.md's "Content follows the host": a guest follows the host's entered mod at the STAGE_LOAD's stage change (its own copy, or the host's served into `$N/<name>`), the key and RULES resolved again after the swap, no save switch, its own mod back after the session; fs.c resolves "$N" overlays for relative loads
 - **A rule or colour a mod's code changes that is not a weapon's** — mods.md, "The tail": `game/modrules.h` holds it with the stock default, a modconfig block sets it through one setter in mod.c, both importers read it; the branch `lua-pipeline` is the Lua experiment of 2026-09-07, kept and not merged. mods.md, "A GE-X tester's seven reports" (2026-09-13, importer 32): a jump table in rodata is *data* to modcodediff (the third person guns, the sights); GE-X's green menus are dialog **type bytes**, not the palette; a boot re-imports every stale mod, so never run two after a version bump; mods.md, "GE-X's guns threw green sparks behind green tracers" (2026-09-26, importer 33): the wall sparks and tracer texture are two more rodata jump tables on the weapon number (`hitsparks`/`beamtexture` keys), and the Klobb's green tracer was the Mauler's charge beam (`WEAPONFLAG3_CHARGEBEAM`); mods.md, "The Mauler's charge is two flags" (importer 34): `chargeable` is the pitch, `chargespent` the reset, GE-X tests them apart
+- **A mod entered live: audio** — mods.md, "A mod entered live: audio (2026-10-09)": `modaudio.c` swaps the sound table, music bank and sequence table between stages without moving the boot segments' starts (appended GoldenEye/borrowed sounds hang off them); sound ids reserved at boot for the longest installed bank, appended sequences numbered from `SEQ_EXTRA_BASE` (0x200); quiesce first, then every sample cache is flushed (sound cache, players' banks, ADMA); `--mod-audio-enter "A|B|-"` + `--mod-dump-audio FILE` are the test switches
 
 ### GE-X import: where to pick up (2026-09-05)
 
@@ -2037,3 +2042,303 @@ HUD message). Off notes `1,<Mod.LoadTextures>,<xblaSwitchGetParts() bits>` in
 The checkbox reads the live state, not the note. GoldenEye's HD (Bean) data is
 not on it - that follows whether the release is installed. Code:
 optionsmenu.c `modHdAssets*`, xblaswitch.c `xblaSwitch{Get,Set}Parts()`.
+
+## A mod entered from the Perfect Menu (2026-10-09)
+
+The owner: "with GE and GF/TND there is no restart, they populate the main
+menu. I would like the PD Mod flow the same, no restart needed, a separate
+main menu entry, and can be hosted/uploaded to clients from host." Picks: one
+**Perfect Dark Mods** row on the Perfect Menu opening a list of the installed
+mods (not a row each: there can be dozens), and a mod entered shows **the
+Perfect Menu again with the mod in it** - its missions, arenas, guns, text -
+plus **Back to Perfect Dark**; GoldenEye's and the ROM hacks' rows are hidden
+meanwhile.
+
+- **The list** is `g_ModModeMenuDialog` in port/src/modmode.c: Load Mods'
+  loadable view of the list (the conversions mounted for their maps are left
+  out: they have their own rows), sorted by name, a folder's `_` shown as a
+  space (the menu font draws `_` as a bar over the line), the entered one
+  marked `> `. `MOD_MAX_MODS` is 256.
+- **Entering or leaving** (`modModeRequestEnter(path, name)`,
+  `modModeRequestLeave()`) is queued: `modModeTick()` (lvTick) pumps
+  `modAudioQuiesce()` until the sound has stopped (at most 180 frames), then
+  reloads the Institute the way GoldenEye's folder goes back
+  (`gexFrontGoBack()`). The swap is `modModeStageBoundary()`, at the top of
+  **port/src/pdmain.c**'s outer loop - the port runs its own copy of the main
+  loop, and a hook put in src/lib/main.c never runs (the first cut did; the
+  state sat at "reloading" for ever). There the old stage has stopped and the
+  next has not started, so nothing points into a segment: the old mod's
+  segments and banks back to stock (`modSegsLeave()`, `modAudioLeave()`),
+  the overlay and its tables (`modSwapPath()`), the new mod's segments and
+  banks (`modSegsEnter()`, `modAudioEnter()`). menutick.c then pushes the
+  Perfect Menu over the Institute (`modModeWantsMenu()`).
+- **`modSwapPath(path)`** is modListSwap()'s old body by path: no
+  selection written, no segments check. `modListSwap(index)` (netcontent's
+  until wave 3) is the checks, it, and the selection. `modMapsApply()` (the
+  Stage Loader) is `modSwapPath(fsGetModDir())`: the entered mod stays.
+- **Startup no longer mounts Mod.ModDir** (a pd.ini's line is logged and
+  left unread) and the Load Mods page is gone; `--moddir` is unchanged for the
+  gates and the All in One launcher, and the row is disabled under it.
+- **Online** (`modModeRequestAtNextStage()`): the same swap with no reload
+  or menu of its own, at the session's next stage change - the host's
+  STAGE_LOAD. A later request replaces one still waiting. The row itself is
+  disabled online (`modModeCanChange()`): a host enters the mod first.
+- **A save per mod** (the owner: "separate save per mod", the first a copy of
+  the player's own). A mod's missions are filed under Perfect Dark's mission
+  numbers in the agent's game file and its saved setups name its own arenas
+  and weapons, so while a mod is entered the eeprom and mpsetups.bin are
+  `$S/modsaves/<mod>/eeprom.bin` and `mpsetups.bin` (`modModeSwitchSave()`:
+  libultra.c `osEepromSwitchFile()`, mpsetups.c `mpsetupSwitchFile()`). The
+  first entry copies the player's; from then on the two never touch. The
+  eeprom's files are read again (`pak0f1169c8(SAVEDEVICE_GAMEPAK)`,
+  `bossfileLoadFull()`) and the agent playing is loaded from the copy by its
+  file id; an agent made after the mod's save was started is not in it, and
+  the Institute opens the agent select instead of the Perfect Menu
+  (`g_FileState` UNSELECTED). Leaving switches both back. A switched eeprom
+  is cleared before it loads: a file not there yet must read as blank, not as
+  the last one's bytes.
+- Test: `call (void)gexFrontGoBack()` from gdb puts the Perfect Menu up on a
+  `--skip-intro` boot, then `call (int)modModeRequestEnter("mods/X", "X")`;
+  `modmode: entered X` and the moddata lines follow in the log.
+## A mod entered live: data (2026-10-09)
+
+Wave 1 of "PD mods as a live mode". A mod's data segment and its modconfig
+tables come out again completely, so a data-only console mod swaps live and a
+second import does not need a restart.
+
+**What undoes what.** `modListSwap()` runs `modDataUnload()` (moddata.c), then
+`modTablesRestore()` (mod.c), then the new mod's `modloaderInit()` /
+`modConfigLoad()`.
+- `modDataUnload()` first puts back every table that points at what the import
+  allocated, from `modDataSnapshot()`'s copy (taken at boot by
+  `modTablesSnapshot()`, and by every import - once): `g_Weapons`,
+  `g_GlobalAilists` (whole array; setup.c sorts it per stage anyway),
+  `g_AmmoTypes`, `g_PropExplosionTypes`, both auto-switch lists,
+  `g_AibotWeaponPreferences`, `g_HudmsgTypes`, the four guard head lists (then
+  `bodiesInit()` recounts). Only the tables the import wrote (`written` bits),
+  since the game writes a HUD message's colour itself. Always:
+  `envSetTables(NULL, NULL)` (else `modBorrowArenas()` bases its sky tables on
+  the last mod's), `stageSetTracks(NULL)`, `chraiClearModCommandLengths()`.
+  Then it frees every allocation (`ownAlloc()` lists them: definitions, suns,
+  env tables, stage tracks, AI list copies), the memo, `seg.data/names/
+  namestext/fileids`, and resets the statics (player body/head -1, every
+  constant table count 0, the mp weapon slot map). A borrow's objects
+  (`modborrow.c`, `borrowing` set) are not listed: they outlive the borrow.
+- `modTablesRestore()` now also restores `g_ModPickupQty`, `g_AmmoTypeWeapons`,
+  `g_TvCmdlists`, and the weapon edits below.
+- `modDataImport()` with an import already in calls `modDataUnload()` first.
+
+**A modconfig's weapon edits wrote into the game's own definitions.** The
+`weaponflags`, `weaponfuncflags` and `weapon N {}` keys change `struct weapon`
+/ `struct weaponfunc` objects, and the snapshot held only `g_Weapons`'
+pointers. A slot the data segment did not replace (GE-X's `clear` lists run to
+`WEAPON_SUICIDEPILL`) is a stock object, and functions are shared between
+weapons, so the next mod - and stock - kept the change. Now every setter calls
+`modWeaponUndoRecord()` before it writes: the first value of the fields a
+modconfig can change (flags2, flags3, unequippedreloadindex, pickupsound; a
+function's flags) is kept per object, and `modTablesRestore()` writes them back
+in reverse. Field by field, not the struct, so a change the game makes to the
+same object outside a mod survives. An object the import allocated is skipped
+(`modDataOwnsObject()`): it goes with the import.
+
+**Live or restart.** `modDirHasBootSegs(path)` is true only when `segs/` holds
+a file named like one of romdata's segments (`romdataGetSegmentInfo()`), so a
+mod with only `segs/data` and `segs/data.names` (All Solos in Multi, the
+Weather mods, CSMP/CVMP, Chicago, G5 base, Deep Sea X ...: about half the
+archive) swaps live from Load Mods, and online it follows the host live too
+(netcontent.c reads `modListSwapIsLive()` / `modListHasSegs()`, both on the
+new rule).
+
+**The test.** `--mod-data-swap A[,B,...]` (mod names, `none` for stock) swaps
+in mainProc once the boot's own `gexPlusWeaponSetsAppend()` /
+`modBorrowCommit()` / `gebeanPoolRefresh()` have run - as the menu would - and
+forces the swap of a mod with boot segments for its data half (test only).
+`--mod-dump-data FILE` (same place) writes one FNV hash a table, the weapons a
+line a slot down to their function, ammo and aim bytes; `--mod-dump-verbose`
+adds a line per head/body and arena. Compare against a boot with the mod
+**chosen in pd.ini** (`Mod.ModDir`), not `--moddir`: a `--moddir` boot does
+not mount the Stage Loader's maps (`modListApplySelection()` returns early), so
+its file slots and lists differ for reasons that are not the swap's. Two traps
+met writing the dump: a mod's own files are numbered in registration order (a
+swap gave Agent 4's files 4064 where a boot gave 4032), so file ids are hashed
+by name; and `mpImportArenas()` copies entries from a stack array, so their
+padding is garbage - hash fields. Results (`tools/ci/moddatadump.sh`):
+stock + swap to All Solos == All Solos chosen at boot; stock -> All Solos ->
+none, -> GE-X -> none, -> mod_allinone -> none, -> a port-format test mod
+editing weapon flags -> none: all == stock.
+
+Limits widened on the way: `g_AibotWeaponPreferences` from the stock 94 rows to
+`BOTINV_MAX_WEAPONPREFS` (128; a ROM has a row for every weapon number and All
+Solos in Multi lists 96 - the import used to drop two), and
+`importGlobalAilists()`'s entry list from 64 to 256. Both are indexed by weapon
+number / walked by count only, so the zero rows past the stock list are never
+read for a weapon the port has.
+## A mod entered live: segments (2026-10-09)
+
+Wave 1 of "PD mods as a live mode" (`feat/pdmods-segs`). A PD console mod's
+non-audio segments - animations, textureslist/texturesdata, the six Latin
+fonts, the three Japanese ones, mpconfigs, mpstrings E..I, firingrange - can
+now be swapped in and out between stages (old stage torn down, before the
+next `lvReset()`), and back to the ROM's. The sound's five are `modaudio.c`'s;
+the copyright is a boot screen and is left alone.
+
+**`romdataSegSwap(name, path|NULL)`** (romdata.c) points the segment and its
+`_xxxSegmentRomStart/End` globals at another copy, prepared as the boot
+prepares one (globals set *before* the preprocess: the PAL font check compares
+pointers). Every copy it prepares is kept for the next swap back, the ROM's
+included: `preprocessAnimations()` and `preprocessTexturesList()` byte-swap in
+place, so the ROM's bytes are preprocessed once only, and an appended animation
+row may still point into a copy. `romdataSegIsBoot()`, and
+`romdataSegGetRomData()` (the ROM's copy prepared on demand, which a `--moddir`
+boot never made). `--mod-segs-boot-stock` makes the boot ignore a mounted
+mod's non-audio `segs/` (its files and modconfig still load) - the live swap's
+test bed.
+
+**`modSegsEnter(dir)`/`modSegsLeave()`** (modsegs.c) swap what the mod ships,
+put back what it does not, and rebuild what was made from a segment:
+
+- **animations**: `geChrAnimsOff()` first (GoldenEye's overrides hold the old
+  table's rows), then `animsTableSwapped()` (anim.c): the table's rows
+  (`animsGetTableRows()`, the boot's 1207) become the new table's; rows
+  appended after it keep their numbers (gewatch, geintro, modborrow, gexplus,
+  `animOriginal()`'s aliases hold them) - one served by a segment offset is
+  pointed at the old segment's bytes and gets its offset back when that
+  segment returns, so stock -> mod -> stock is byte-identical; header/frame
+  slots grow from the heap in one block, frames below headers (the bit reader
+  measures a frame against its header's slot), never shrink; then race.c's
+  stride loop again. Every archive mod's table has 1207 rows; a longer one
+  would be cut to the boot's count (logged): the rows past it are the appended ones, whose numbers others hold.
+- **textures**: `geTexSurfaceTableChanged()` takes GoldenEye's surface bytes
+  out of the list going (and forgets its Perfect Dark snapshot), then
+  `g_Textures` = the copy's list (the boot's permanent copy for the boot's) and
+  **`g_NumListTextures`** = its count. That count replaced `NUM_TEXTURES` as
+  `texLoad()`'s bound and at the surface reads in bondgun.c/prop.c: Total
+  Darkness's list describes 3534 textures, and under `--moddir` the 31 past
+  3503 were never loaded. A segment texture is `TEXPACK_ART_ROM` only when its
+  bytes are the ROM's under that number (`modSegsTexArtIsRom()`, cached per
+  number), else `TEXPACK_ART_MOD`, so a stock pack or the XBLA release's art
+  no longer paints over a mod's own picture (and still does over the stock
+  pictures a mod kept - GE-X keeps most).
+- **fonts**: loaded per stage from the globals by `textReset()`; the pack's
+  glyph checksums and xblafont's measurements were the old fonts', so
+  `texpackReload()` (xblafont follows its serial). Japanese: the character
+  cache is emptied.
+- **mpconfigs / mpstrings / firingrange**: read per call or per stage from the
+  segment as it is; the swap is all.
+
+**Testing.** `--mod-segs-enter DIR` (repeatable, `-` = leave) runs at the
+`--mod-segs-at N`th `lvReset()` (0 = first), then `--mod-dump-segs FILE`
+writes every segment's hash, every animation row (+ its bytes' hash), the
+strides, and every texture entry (+ its bytes' hash); `modSegsDump(path)` from
+gdb. Lines starting `#` (slot sizes) may differ after a swap. Verified: a
+`--moddir M` boot == stock + `--mod-segs-enter M` for GE-X, Total Darkness,
+PerfectDark_Plus (a font), the data-only all-solos mod; stock -> GE-X -> stock
+and stock -> GE-X -> Mario -> stock == stock.
+
+**Left for the orchestrator** (pdmain.c's outer loop, before the stage pool
+is reset): call between stages only and load a stage after. `modSegsLeave()`
+before the files swap and `modSegsEnter()` after it is the right order for
+everything here but one thing: `modBorrowCommit()` (inside the files swap)
+judges a borrowed animation with `animIsSame()` against the table *as it is*,
+so it must run after `modSegsEnter()`/`modSegsLeave()` - move it after, or run
+it again. The files must be mounted before `modSegsEnter()` for a mod with an
+`animations/` directory (`preprocessAnimations()` reads its descriptors through
+the overlay), which that order gives. A copy is prepared once per path, so the
+same mod should be entered by the same path string each time (the mod list's
+full path).
+
+Also: the walk measured on Total Darkness's 3534-texture list showed a stage
+loads fine at the higher count, but `NUM_TEXTURES`-sized arrays elsewhere
+(texpack's per-number tables, getexsurface's snapshot) still stop at 3503 and
+simply leave the extra numbers alone; nothing indexes them past their bound.
+
+## A mod entered live: audio (2026-10-09)
+
+Wave 1 of "PD mods as a live mode". `port/src/modaudio.c`, `port/include/modaudio.h`:
+`modAudioQuiesce()` (pump once a frame until it returns 1), then `modAudioEnter(dir)` /
+`modAudioLeave()`. Enter while a mod is entered leaves it first; Leave returns to the
+banks the game **booted** with (a `--moddir` boot's, if that is what it was).
+
+**Without quiet** (online: a guest swaps at the host's next stage load, which may come
+before the sound drains) Enter/Leave stop everything outright - `func00033cf0(0)` ends
+every sound state, each music player gets `AL_SEQP_STOP_EVT` with its state set to
+`AL_STOPPING` (the only state that event acts on; there is no `n_alCSPStop` in this
+tree, it is declared and never defined) - and a left mod's buffers go to a graveyard
+freed once `modAudioQuiesce()` or a later swap finds everything quiet, since a voice
+can read its samples until the stop reaches it. Tested mid-stage on Runway under gdb:
+polite and hard enter GE-X at frame 600, leave at 1000, and the dump at 1500 equals a
+run that never switched.
+
+**A music bank changes as it plays.** The first time a voice plays an ADPCM wave,
+`n_load.c` cuts its `len` down to whole 9-byte frames, in the bank itself; the dump
+hashes the cut length (and an ADPCM loop without its `state[]`) so a dump taken after
+playing compares with one taken at boot.
+
+**The boot segments' starts never move.** Every loader in snd.c adds
+`_sfxctlSegmentRomStart` / `_sfxtblSegmentRomStart` to the offsets inside an ALSound,
+and GoldenEye's sounds (gesfx.c) and a borrowed mod's (modborrow.c) are appended as
+offsets from those starts. Repointing the starts at a mod's buffers would silently
+move every appended sound into the mod's bytes. Instead the mod's converted ALSounds
+are rebased onto the boot starts - `sndRebaseSound()` (modaudio.c; modborrow.c uses
+it too, gesfx.c keeps its own because it also rewrites key-map links) - and written
+into the boot bank's slots of `g_ALSoundRomOffsets`.
+
+**Fixed limits widened, not worked around:**
+- Sound ids: `modAudioReserveSounds()` (called by `sndLoadSfxCtl()`, before anything is
+  appended) reserves slots for the longest `segs/sfxctl` of any installed mod, capped
+  256 short of `SND_MAX_SOUNDS` (ids are 11 bits). Every mod in the archive has the
+  game's 1545, so today the reserve changes nothing. The reserve depends on what is
+  installed: two players with different mods could number appended sounds
+  differently if some mod ever ships a longer bank (netplay sends raw numbers).
+- Sequences: appended ones (`seqAppend()`) are numbered from `SEQ_EXTRA_BASE` (0x200,
+  snd.h), not from `g_SeqTable->count`, which a mod's table now changes. A mod's
+  table may be up to that long; a shorter one keeps the game's entries past its end.
+  GE Plus's music is now sequence 512+ (`music: sequence 512 starts` in the log).
+
+**What a swap touches**: `g_ALSoundRomOffsets[0..reserve)`, appended copies of the
+game's sounds (`sndAppendSoundCopy()`: an appended slot equal to a base slot follows
+it), `var80095204` (a fresh `preprocessALBankFile()` + `alBnkfNew()` copy of the
+mod's seqctl on its seqtbl), `g_SeqTable` / `g_SeqRomAddrs` (sysMem copies), then
+flushes `g_SndCache` (indexes 0xffff, ages 1, refcounts 0), each
+`g_SeqInstances[i].bank` (NULL: `seqPlay()` rebinds) and the ADMA used list
+(`admaFlush()`, keyed by host address). Mod code tables (var8005ecf8, russ
+mappings, audio configs) stay as they are - the data agent's moddata owns those.
+
+**Per segment**: a segment the mod lacks is the game's. sfxctl without sfxtbl
+(DarkCorps_Part2, MrX, Suburb) reads the game's sfxtbl; a tbl without its ctl
+would be read through a fresh conversion of the ROM's ctl (no mod does that);
+sequences only (dataDyne Compound[custom music], PD_Kakariko) keeps both banks.
+
+**Tests**: `--mod-audio-enter "mods/A|mods/B|-"` (after the boot's banks, before the
+first stage; `-` leaves) and `--mod-dump-audio FILE` (a hash per sound - its fields,
+envelope, key map, wave bytes, book, loop - per music instrument, per sequence;
+gdb-callable as `modAudioDump(path)`). A `--moddir M` boot's dump equals a stock
+boot + `--mod-audio-enter M` for GE-X, Mario v1.3, Total Darkness, dataDyne
+Compound[custom music], DarkCorps_Part2 and MrX Classic; stock->GE-X->stock,
+stock->GE-X->Mario->stock and three mods in a row back to stock equal stock.
+Compare dumps without their first line (it names the mod).
+
+## A mod entered live: online (2026-10-09)
+
+Online the host's entered PD mod is followed with no restart (protocol 25;
+the long form is netplay.md's "Content follows the host", bullet "The
+overlay mod on a client"). A guest enters the host's mod through
+`modModeRequestAtNextStage()` from its own installed copy when the "mod"
+hash matches, else from the host's copy, served whole into a memory
+directory `$N/<name>` (fs.c) by the list `netModFileAllowed()` that the hash
+walks too (files/, segs/, animations/, sequences/, textures/*.bin,
+modconfig.txt, IMPORT.txt; not the patch, readmes, the 1964 HD folder or the
+.htc pack). Two things here had to change for a mod held in memory: fs.c's
+primitives (`fsFileSize`, `fsFileLoadPadded`, `fsFileLoadTo`,
+`fsFileOpenRead`, `fsScanDir`) only answered memory for a name that was
+already "$N/...", so a *relative* load found the file inside a "$N" overlay
+(fsFullPath's own probe) and then stat'ed or fopen'ed the "$N/..." string
+and failed - segments, modconfig.txt, the data segment, textures/; they
+resolve memory on the expanded name now (`fsMemResolveName`). And
+`fsReplaceModDir()` dropped every mount, including a "$N" folder mounted for
+its maps that `modMapsMount()` (installed mods only) never mounts again; it
+keeps those now. A swap followed online does not switch the per-mod save
+(`modModeSwitchSave` is skipped for at-next-stage swaps). Verified with
+PerfectDarkAllSoloLevelsInMultiplayer and GE-X (netcontenttest `pdmodown`,
+`pdmodfetch`, `PDMOD=GE-X_6a_01-19-25`: 2833 files, 26.6 MB fetched in 3.4 s,
+every stage hash component the host's).

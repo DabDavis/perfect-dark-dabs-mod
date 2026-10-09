@@ -51,6 +51,7 @@
 #include "romdata.h"
 #include "mod.h"
 #include "modborrow.h"
+#include "modaudio.h"
 #include "gexplusrom.h"
 #include "modloader.h"
 #include "game/stagetable.h"
@@ -135,9 +136,7 @@ static struct {
 	s32 soundmap[SND_MAX_SOUNDS];     // mod id -> ours; 0 not looked at yet, -1 none
 	s32 configmap[SND_RUSS_CAPACITY]; // mod config -> ours + 1
 	s32 audioconfigmap[256];          // mod audio config row -> ours + 1
-	uintptr_t *rebased;
-	s32 numrebased;
-	s32 maxrebased;
+	struct sndrebase rebase;     // its ALSounds rebased so far (sndRebaseSound())
 
 	s32 animsappended;
 	s32 soundsappended;
@@ -504,41 +503,8 @@ static void borrowLoadSounds(void)
 	}
 }
 
-/**
- * Makes an offset in the mod's converted bank an offset from the game's own
- * bank start, which is how every loader in snd.c reads one. Each object is
- * rebased once: sounds share envelopes and key maps.
- */
-static s32 borrowRebaseOnce(uintptr_t off)
-{
-	for (s32 i = 0; i < src.numrebased; i++) {
-		if (src.rebased[i] == off) {
-			return 0;
-		}
-	}
-
-	if (src.numrebased == src.maxrebased) {
-		const s32 max = src.maxrebased ? src.maxrebased * 2 : 256;
-		uintptr_t *grown = sysMemRealloc(src.rebased, max * sizeof(uintptr_t));
-
-		if (!grown) {
-			return 0;
-		}
-
-		src.rebased = grown;
-		src.maxrebased = max;
-	}
-
-	src.rebased[src.numrebased++] = off;
-
-	return 1;
-}
-
-#define BORROW_CTL_DELTA() ((uintptr_t)src.ctl - sndGetCtlStart())
-
 static s32 borrowAppendSound(s32 id)
 {
-	ALSound *sound;
 	uintptr_t off;
 	s32 ours;
 
@@ -553,43 +519,13 @@ static s32 borrowAppendSound(s32 id)
 	}
 
 	off = (uintptr_t)src.inst->soundArray[id - 1];
-	sound = (ALSound *)(src.ctl + off);
 
-	if (borrowRebaseOnce(off)) {
-		if (sound->envelope) {
-			sound->envelope = (ALEnvelope *)((uintptr_t)sound->envelope + BORROW_CTL_DELTA());
-		}
+	// the offsets in the mod's converted bank made offsets from the game's
+	// own bank start, which is how every loader in snd.c reads one
+	src.rebase.ctl = src.ctl;
+	src.rebase.tbl = src.tbl;
 
-		if (sound->keyMap) {
-			sound->keyMap = (ALKeyMap *)((uintptr_t)sound->keyMap + BORROW_CTL_DELTA());
-		}
-
-		if (sound->wavetable) {
-			const uintptr_t woff = (uintptr_t)sound->wavetable;
-			ALWaveTable *wave = (ALWaveTable *)(src.ctl + woff);
-
-			sound->wavetable = (ALWaveTable *)(woff + BORROW_CTL_DELTA());
-
-			if (borrowRebaseOnce(woff)) {
-				wave->base = (u8 *)((uintptr_t)wave->base + (uintptr_t)src.tbl - sndGetTblStart());
-
-				if (wave->type == AL_ADPCM_WAVE) {
-					if (wave->waveInfo.adpcmWave.book) {
-						wave->waveInfo.adpcmWave.book = (ALADPCMBook *)((uintptr_t)wave->waveInfo.adpcmWave.book + BORROW_CTL_DELTA());
-					}
-
-					if (wave->waveInfo.adpcmWave.loop) {
-						wave->waveInfo.adpcmWave.loop = (ALADPCMloop *)((uintptr_t)wave->waveInfo.adpcmWave.loop + BORROW_CTL_DELTA());
-					}
-				} else if (wave->type == AL_RAW16_WAVE && wave->waveInfo.rawWave.loop) {
-					// read by sndLoadWavetable() as a ctl offset, as the ADPCM loop is
-					wave->waveInfo.rawWave.loop = (ALRawLoop *)((uintptr_t)wave->waveInfo.rawWave.loop + BORROW_CTL_DELTA());
-				}
-			}
-		}
-	}
-
-	ours = sndAppendSound(off + BORROW_CTL_DELTA());
+	ours = sndAppendSound(sndRebaseSound(&src.rebase, off));
 
 	if (ours <= 0) {
 		// no bank loaded (--no-sound) or no ids left: the gun is silent there

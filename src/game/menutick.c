@@ -32,6 +32,7 @@
 #include "gecinema.h"
 #include "geintro.h"
 #include "modloader.h"
+#include "modmode.h"
 #include "trace.h"
 #include "optionsmenu.h"
 #include "net/net.h"
@@ -316,7 +317,28 @@ void menuTick(void)
 	// mission was picked from, so that leaving the folder lands where opening
 	// it did. The folder used to be opened over the title here, on whatever
 	// frame the menus first ticked.
-	if (var80087260 > 0 && (gecinemaWantsFolder() || gexFrontWantsMain())) {
+	// A Perfect Dark mod entered or left from the Perfect Menu (modmode.c)
+	// reloads the Institute; the Perfect Menu comes back over it, the mod in it
+	if (var80087260 > 0 && modModeWantsMenu()) {
+		if (g_Vars.lvframenum >= 4 && g_Vars.stagenum == STAGE_CITRAINING) {
+			viBlack(false);
+			g_MpNumJoined = 0;
+			g_MpPlayerNum = 0;
+
+			for (i = 0; i < MAX_LOCAL_PLAYERS; i++) {
+				g_Vars.waitingtojoin[i] = false;
+			}
+
+			menuPushRootDialog(&g_CiMenuViaPcMenuDialog, MENUROOT_MAINMENU);
+			playerPause(MENUROOT_MAINMENU);
+			modModeMenuShown();
+
+			var80087260 = 0;
+		} else {
+			viBlack(true);
+			g_PlayersWithControl[0] = false;
+		}
+	} else if (var80087260 > 0 && (gecinemaWantsFolder() || gexFrontWantsMain())) {
 		if (g_Vars.lvframenum >= 4 && g_Vars.stagenum == STAGE_CITRAINING) {
 			viBlack(false);
 			g_MpNumJoined = 0;

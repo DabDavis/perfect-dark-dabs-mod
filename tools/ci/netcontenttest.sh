@@ -44,8 +44,18 @@
 #
 #   netcontenttest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
+# pdmodown, pdmodfetch (protocol 25, 2026-10-09): a PD mod entered live
+# (modmode.c) online. The host enters PDMOD (an installed data-only mod) with
+# --net-test-pdmod; pdmodown's client has the same mod and enters it at the
+# match's stage change, its stage key and RULES resolved again after the
+# swap; pdmodfetch's client has no mods, is served the mod into memory
+# ($N/PDMOD), enters it, and outlives the host: its session ends under it and
+# it is back to Perfect Dark. modmissing: an overlay with nothing to serve
+# (an empty files/) still leaves with NOMOD, named.
+#
 # Env: OUT (build/netcontent-out), PORT (27300), CASES (all: ge geyolt gegg
-# gelook gfvariant gffetch fetch xbla modmap modmount modmissing overlay props), CHECKONLY (1: only the checks,
+# gelook gfvariant gffetch fetch xbla modmap modmount modmissing pdmodown pdmodfetch overlay props),
+# PDMOD (PerfectDarkAllSoloLevelsInMultiplayer), CHECKONLY (1: only the checks,
 # on the last run's files). The GoldenEye cases need the GoldenEye ROM
 # converted (mods/GoldenEye Arenas), gfvariant Goldfinger 64 converted too
 # (its zip in added-content/); they are skipped, not failed, without it.
@@ -68,7 +78,8 @@ set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcontent-out}; PORT=${PORT:-27300}
-CASES=${CASES:-ge geyolt gegg gelook gfvariant gffetch fetch xbla modmap modmount modmissing overlay props}
+CASES=${CASES:-ge geyolt gegg gelook gfvariant gffetch fetch xbla modmap modmount modmissing pdmodown pdmodfetch overlay props}
+PDMOD=${PDMOD:-PerfectDarkAllSoloLevelsInMultiplayer}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -272,7 +283,14 @@ runcase() {
 	local host=$!
 	waitfor "$OUT/$name-host.log" "net: hosting on UDP port" 90 || { echo "FAIL: host did not start"; kill -TERM $host; wait $host; return; }
 	# shellcheck disable=SC2086
-	game "$name-client" 390 "$cini" --connect "127.0.0.1:$port" --net-test-join --exit-frame "$FRAMES" $cargs &
+	# CLIENTFRAMES, CLIENTT: a client that outlives the host (pdmodfetch: its
+	# session ends under it, and what it entered for the host is left). The
+	# menus it drops to never reach a frame (the level's frame stays at ~300
+	# there, a client without a mod too), so CLIENTT's timeout stops it and
+	# exit 124 is its end; NOJOIN 1: no --net-test-join, whose exit 3 at a
+	# session's end would cut that short
+	game "$name-client" "${CLIENTT:-390}" "$cini" --connect "127.0.0.1:$port" $([ "${NOJOIN:-0}" = 1 ] || echo --net-test-join) \
+		--exit-frame "${CLIENTFRAMES:-$FRAMES}" $cargs &
 	local client=$!
 	local hp cp n
 	if [ "$refusal" = 0 ] && waitfor "$OUT/$name-client.log" "net: match 1: GO" 150; then
@@ -316,8 +334,9 @@ checkplay() {
 	local H=$OUT/$name-host.log C=$OUT/$name-client.log x c L
 	for c in host client; do
 		L=$OUT/$name-$c.log
-		x=$(grep -o "$name-$c exit [0-9]*" "$OUT/run.log" | tail -1 | awk '{print $3}')
+		x=$(grep -o "^$name-$c exit [0-9]*" "$OUT/run.log" | tail -1 | awk '{print $3}')
 		[ "$c" = host ] && [ "$x" = 143 ] && x=0
+		[ "$c" = client ] && [ "$x" = 124 ] && [ "${ALLOW124:-}" = "$name" ] && x=0
 		if grep -qE "FATAL|Segmentation|Aborted" "$L"; then
 			fail "$name: $c crashed"; grep -A14 "FATAL" "$L" | head -16 | sed 's/^/     /'
 		elif [ "$x" = 0 ]; then
@@ -381,7 +400,7 @@ checkrefused() {
 	local name=$1 code=$2 pattern=$3
 	local C=$OUT/$name-client.log H=$OUT/$name-host.log
 	grep -qE "FATAL|Segmentation|Aborted" "$C" "$H" && fail "$name: a crash"
-	local x; x=$(grep -o "$name-client exit [0-9]*" "$OUT/run.log" | tail -1 | awk '{print $3}')
+	local x; x=$(grep -o "^$name-client exit [0-9]*" "$OUT/run.log" | tail -1 | awk '{print $3}')
 	local why; why=$(grep -m1 -E "net: (refused|left|the host refused|disconnected|match over).*|net: client end" "$C")
 	if grep -q -- "$pattern" "$C"; then
 		pass "$name: the client was told: $(grep -m1 -o -- "$pattern.*" "$C" | cut -c1-200)"
@@ -430,6 +449,15 @@ run() {
 		# with a files/ dir is a mod): the client leaves over it, named
 		modmissing) mkdir -p "$OUT/mod_only/files"
 			runcase modmissing "StartArmed=1\n" "ModDir=\n" "--moddir $OUT/mod_only --net-test-stage 0x32" "" "" 1 ;;
+		# protocol 25, a PD mod as a live mode: the host enters an installed
+		# data-only mod (as its Perfect Dark Mods row would) and hosts; the
+		# client has the same mod and enters it at the match's stage change,
+		# no restart (pdmodown); a client with no mods at all is served the
+		# whole mod into memory and enters it from there, and is back to
+		# Perfect Dark when the host's session ends under it (pdmodfetch)
+		pdmodown) runcase pdmodown "StartArmed=1\n" "ModDir=\n" "--net-test-pdmod $PDMOD --net-test-stage 0x32" "" ;;
+		pdmodfetch) CLIENTBIN=$(fetchclient) NOJOIN=1 CLIENTFRAMES=$((FRAMES + 900)) CLIENTT=240 runcase pdmodfetch "StartArmed=1\n" "ModDir=\nMapMods=\n" \
+				"--net-test-pdmod $PDMOD --net-test-stage 0x32" "" ;;
 		# (3) an arena only the overlay mod has (mod_allinone's Suburb)
 		overlay) runcase overlay "StartArmed=1\n" "" "--moddir mod_allinone --net-test-stage 0x18" "--moddir mod_allinone" ;;
 		# (5) Grid: a lift and glass; rockets, grenades and mines; Mod.Bodies;
@@ -549,8 +577,31 @@ for c in $CASES; do
 		grep -q "net: content: PD_Kakariko mounted for its maps for the host's choice" "$C" && pass "modmount: the client mounted PD_Kakariko on demand" || fail "modmount: no on-demand mount in the client's log"
 		grep -q "Stage Loader map mods differ" "$OUT/modmount-host.log" && pass "modmount: joined with other map mods (noted, not refused)" || fail "modmount: refused at CONNECT for its map mods"
 		;;
+	pdmodown)
+		checkplay pdmodown "stage 0x32 of mod $PDMOD"
+		H=$OUT/pdmodown-host.log
+		grep -q "modmode: entered $PDMOD" "$H" && pass "pdmodown: the host entered $PDMOD live" || fail "pdmodown: the host did not enter $PDMOD"
+		grep -q "net: content: entering for the host at the next stage from .*mods/$PDMOD" "$C" \
+			&& pass "pdmodown: the client entered its own copy: $(grep -m1 -o 'net: content: entering.*' "$C" | cut -c14-150)" \
+			|| fail "pdmodown: the client did not take its own copy: $(grep -m1 -o 'net: content: .*' "$C" | cut -c1-150)"
+		grep -q "modmode: entered $PDMOD" "$C" && pass "pdmodown: the client entered $PDMOD with no restart" || fail "pdmodown: no modmode entry on the client"
+		grep -q "net: match 1: the host's mod entered; stage 0x32 of mod $PDMOD loads as 0x32" "$C" \
+			&& pass "pdmodown: the key resolved and the RULES applied again after the swap" || fail "pdmodown: no re-resolution after the swap"
+		grep -qi "restart" "$C" && fail "pdmodown: a restart was asked for" || pass "pdmodown: no restart asked for"
+		;;
+	pdmodfetch)
+		ALLOW124=pdmodfetch checkplay pdmodfetch "stage 0x32 of mod $PDMOD"
+		grep -q "^mod: 0 installed" "$C" && pass "pdmodfetch: the client had no mods of its own" || fail "pdmodfetch: the client's mod list was not empty: $(grep -m1 '^mod: .* installed' "$C" | cut -c1-80)"
+		grep -q "net: content: the mod $PDMOD fetched from the host into \$N/$PDMOD" "$C" \
+			&& pass "pdmodfetch: $(grep -m1 -o 'net: content: the mod .* fetched.*' "$C" | cut -c14-)" || fail "pdmodfetch: the client did not fetch $PDMOD"
+		grep -q "net: content: $PDMOD served to peer" "$OUT/pdmodfetch-host.log" && pass "pdmodfetch: host: $(grep -o 'served to peer.*' "$OUT/pdmodfetch-host.log" | head -1)" || fail "pdmodfetch: the host did not serve its mod"
+		grep -q "modmode: entered $PDMOD" "$C" && pass "pdmodfetch: the client entered the served copy" || fail "pdmodfetch: no modmode entry on the client"
+		sed -n '/net: session ended/,$p' "$C" | grep -q "modmode: back to Perfect Dark" \
+			&& pass "pdmodfetch: back to Perfect Dark after the session: $(grep -m1 -o 'net: session ended.*' "$C" | cut -c1-80)" \
+			|| fail "pdmodfetch: the client was not back to Perfect Dark after the session"
+		;;
 	modmissing)
-		checkrefused modmissing "nomod" "The host plays with the mod mod_only, which is not installed here"
+		checkrefused modmissing "nomod" "The host plays with the mod mod_only, which is not installed here, and the host could not send it"
 		grep -q "loaded mod differs from this machine's" "$OUT/modmissing-host.log" && pass "modmissing: joined with another mod loaded (noted, not refused at CONNECT)" || fail "modmissing: refused at CONNECT for its mod"
 		;;
 	overlay) checkplay overlay "stage 0x18 of mod mod_allinone" ;;

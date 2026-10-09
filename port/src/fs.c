@@ -82,7 +82,7 @@ s32 fsPathIsCwdRelative(const char *path)
  * the mod loader and to every path composed from it, and the primitives
  * below answer for such a path out of the table instead of the disk.
  */
-#define FS_MAXMEMDIRS 8
+#define FS_MAXMEMDIRS 32 // conversions, map mods and the overlay mods hosts served, for the process (8 before PD mods were served)
 
 struct memfile {
 	char *rel;
@@ -152,6 +152,24 @@ static s32 fsMemResolve(const char *path, const char **rel)
 	}
 
 	return -1;
+}
+
+// fsMemResolve for a name as the callers give it: "$N/x/..." itself, or a
+// relative name that fsFullPath() found inside a memory overlay ("segs/foo"
+// with "$N/x" the overlay mod: every relative load of a served PD mod).
+// *full is the expanded name for the disk branch.
+static s32 fsMemResolveName(const char *name, const char **full, const char **rel)
+{
+	s32 mem = fsMemResolve(name, rel);
+
+	if (mem >= 0) {
+		*full = name;
+		return mem;
+	}
+
+	*full = fsFullPath(name);
+
+	return *full != name ? fsMemResolve(*full, rel) : -1;
 }
 
 static int fsMemFileCmp(const void *a, const void *b)
@@ -766,10 +784,10 @@ s32 fsInit(void)
  */
 s32 fsScanDir(const char *path, fsScanCallback cb, void *arg)
 {
-	const char *full = fsFullPath(path);
+	const char *full;
 	const char *rel;
 	s32 count = 0;
-	s32 mem = fsMemResolve(path, &rel);
+	s32 mem = fsMemResolveName(path, &full, &rel);
 
 	if (mem >= 0) {
 		// the immediate children of rel, files and directories, each once
@@ -889,11 +907,31 @@ s32 fsGetNumModDirs(void)
  */
 void fsReplaceModDir(const char *path)
 {
+	// A folder a host served this game ("$N/<name>", mounted for its maps:
+	// GoldenEye Arenas, a ROM hack, a map mod) is not one of the installed
+	// mods modMapsMount() mounts again after this, and nothing else would:
+	// it stays mounted, after the new overlay (2026-10-09, PD mods served:
+	// a guest entering the host's mod kept the conversion it was served)
+	static char kept[FS_MAXMEMDIRS][FS_MAXPATH + 1];
+	s32 numkept = 0;
+
+	for (s32 i = numOverlayModDirs; i < numModDirs && numkept < FS_MAXMEMDIRS; ++i) {
+		if (fsMemIsPath(modDirs[i])) {
+			snprintf(kept[numkept++], FS_MAXPATH + 1, "%s", modDirs[i]);
+		}
+	}
+
 	numModDirs = 0;
 	numOverlayModDirs = 0;
 
 	if (path && path[0]) {
 		fsAddModDir(path);
+	}
+
+	for (s32 i = 0; i < numkept; ++i) {
+		if (!(path && strcmp(path, kept[i]) == 0)) {
+			fsAddMapsDir(kept[i]);
+		}
 	}
 }
 
@@ -922,7 +960,25 @@ const char *fsGetModDir(void)
 
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 {
-	const char *fullName = fsFullPath(name);
+	const char *fullName;
+	const char *rel;
+	const s32 mem = fsMemResolveName(name, &fullName, &rel);
+
+	if (mem >= 0) {
+		const struct memfile *mf = fsMemFind(&memDirs[mem], rel);
+
+		if (!mf) {
+			return -1;
+		}
+
+		if (mf->size > dstSize) {
+			sysLogPrintf(LOG_ERROR, "fsFileLoadTo: file too big for buffer (%u > %u): %s", mf->size, dstSize, name);
+			return -1;
+		}
+
+		memcpy(dst, mf->data, mf->size);
+		return (s32)mf->size;
+	}
 
 	FILE *f = fopen(fullName, "rb");
 	if (!f) {
@@ -960,9 +1016,9 @@ void *fsFileLoad(const char *name, u32 *outSize)
 // that run past the end the way the N64's did through more ROM
 void *fsFileLoadPadded(const char *name, u32 *outSize, u32 pad)
 {
-	const char *fullName = fsFullPath(name);
+	const char *fullName;
 	const char *rel;
-	const s32 mem = fsMemResolve(name, &rel);
+	const s32 mem = fsMemResolveName(name, &fullName, &rel);
 
 	if (mem >= 0) {
 		const struct memfile *f = fsMemFind(&memDirs[mem], rel);
@@ -1029,7 +1085,7 @@ s32 fsFileSize(const char *name)
 {
 	const char *fullName;
 	const char *rel;
-	const s32 mem = fsMemResolve(name, &rel);
+	const s32 mem = fsMemResolveName(name, &fullName, &rel);
 	struct stat st;
 
 	if (mem >= 0) {
@@ -1037,8 +1093,6 @@ s32 fsFileSize(const char *name)
 
 		return f ? (s32)f->size : fsMemIsDir(&memDirs[mem], rel) ? 0 : -1;
 	}
-
-	fullName = fsFullPath(name);
 
 	if (stat(fullName, &st) < 0) {
 		return -1;
@@ -1054,8 +1108,9 @@ FILE *fsFileOpenWrite(const char *name)
 
 FILE *fsFileOpenRead(const char *name)
 {
+	const char *full;
 	const char *rel;
-	const s32 mem = fsMemResolve(name, &rel);
+	const s32 mem = fsMemResolveName(name, &full, &rel);
 
 	if (mem >= 0) {
 		const struct memfile *f = fsMemFind(&memDirs[mem], rel);
@@ -1077,7 +1132,7 @@ FILE *fsFileOpenRead(const char *name)
 		return fp;
 	}
 
-	return fopen(fsFullPath(name), "rb");
+	return fopen(full, "rb");
 }
 
 void fsFileFree(FILE *f)

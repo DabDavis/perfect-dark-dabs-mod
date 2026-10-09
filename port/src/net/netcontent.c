@@ -12,6 +12,7 @@
 #include "system.h"
 #include "mod.h"
 #include "modloader.h"
+#include "modmode.h"
 #include "gexplusrom.h"
 #include "geconvert.h"
 #include "gebean.h"
@@ -35,16 +36,12 @@
  *
  *  - The overlay mod. ACCEPT and RULES carry the host's by its dir name and
  *    a contents hash. The client finds the same name among its installed
- *    mods (modListIndexOf), hashes it (nethash.c's walk: the bytes the
- *    simulation reads, never pictures or text) and, when the bytes are the
- *    host's, switches to it live (modListSwap), keeping its own Mod.ModDir
- *    for pd.ini (H13) and switching back when the session ends. A mod that
- *    holds ROM segments cannot be swapped under a running game (mods.md:
- *    "files swap live; segments cannot"), so for one of those - either the
- *    host's or the one loaded here - the client is told to choose it in
- *    Load Mods, restart and join again. A mod not installed, or not the
- *    host's version, is named. The host checks the one the client then
- *    loaded through the "mod" component of LOADED.
+ *    mods (modListIndexOf), hashes it (nethash.c's walk over
+ *    netModFileAllowed()'s list) and, when the bytes are the host's, enters
+ *    it at the session's next stage change (modmode.c), ROM segments and
+ *    all; else the host serves its own copy into memory (protocol 25). Its
+ *    own mod comes back when the session ends. The host checks the one the
+ *    client then loaded through the "mod" component of LOADED.
  *
  *  - The Stage Loader's maps and the conversions. STAGE_LOAD's key names the
  *    map's mod dir; one installed here but not mounted (Mod.MapMods left it
@@ -100,9 +97,14 @@ s32 netLookData(u32 *bits)
 	return 0;
 }
 
-static s32 s_Swapped = 0;        // this machine's mod was switched for the host's
-static s32 s_OwnLoaded = -1;     // the mod loaded before (an installed index, -1 none)
-static char s_OwnSelected[64];   // Mod.ModDir as it was (pd.ini's value stays the player's)
+// protocol 25: the PD mod this machine plays for the host, through
+// modmode.c's swap at the session's next stage change, and what it played
+// before the session (put back when it ends)
+static s32 s_Swapped = 0;                   // this machine's mod was switched for the host's
+static char s_OwnPath[FS_MAXPATH + 1];      // the mod entered before ("" stock)
+static char s_OwnName[NET_MAXMAPDIR + 1];
+static char s_FollowPath[FS_MAXPATH + 1];   // what was asked of modmode for the host
+static char s_FollowName[NET_MAXMAPDIR + 1];
 
 static const char *contentBasename(const char *path, char *buf, s32 size)
 {
@@ -161,7 +163,8 @@ s32 netContentVariantApply(const char *tag)
 /** What this machine plays with, as a host names it */
 void netContentHostNeed(struct netcontentneed *n)
 {
-	const char *overlay = fsGetModDir();
+	// a migrated host's mod still waiting for its stage is the one it plays
+	const char *overlay = s_Swapped && modModeIsPending() ? (s_FollowPath[0] ? s_FollowPath : NULL) : fsGetModDir();
 
 	memset(n, 0, sizeof(*n));
 
@@ -197,136 +200,161 @@ void netContentRead(struct netbuf *b, struct netcontentneed *n, s32 withvariant)
 	}
 }
 
+static s32 netContentFetchOverlay(const struct netcontentneed *n);
+static s32 netContentFetchRefused(const char *dir);
+
+// the PD mod this machine plays at its next stage: a swap asked for and
+// still waiting, else the one entered ("" stock)
+static const char *netContentModTarget(void)
+{
+	return modModeIsPending() ? s_FollowPath : modModePath();
+}
+
 /**
  * Client: make this game's mod the host's. Returns a NETCONTENT_* result;
- * for anything but OK and SWAPPED, text says what the player can do.
+ * for anything but OK, SWAPPED and FETCH, text says what the player can do.
+ *
+ * Protocol 25 (2026-10-09, PD mods as a live mode): the host's mod is
+ * entered the way the Perfect Menu enters one (modmode.c), at the session's
+ * next stage change - the host's STAGE_LOAD - with no restart, ROM segments
+ * and all: from this machine's own copy when it has the same bytes, else
+ * from a copy the host serves into memory ("$N/<name>", fetched while the
+ * guest waits in the Game Lobby). Only a game whose mods came from
+ * --moddir cannot change them.
  */
 s32 netContentFollow(const struct netcontentneed *n, char *text, s32 textsize)
 {
 	char loaded[NET_MAXMAPDIR + 1];
-	char ownselected[64];
+	char target[FS_MAXPATH + 1];
 	const char *overlay = fsGetModDir();
 	s32 index;
-	s32 own;
-	s32 selected;
-	u64 h;
+	s32 mem;
+	u64 h = 0;
 
 	contentBasename(overlay, loaded, sizeof(loaded));
 	text[0] = '\0';
+	target[0] = '\0';
 
-	if (!n->mod[0]) {
-		if (!overlay) {
+	if (modListIsFromArgs()) {
+		if (!n->mod[0] && !overlay) {
 			return NETCONTENT_OK;
 		}
 
-		// the host plays with no mod over the game; this machine has one
-		if (modListIsFromArgs()) {
+		if (n->mod[0] && overlay && strcasecmp(loaded, n->mod) == 0 && netHashDirContents(overlay) == n->modhash) {
+			return NETCONTENT_OK;
+		}
+
+		if (!n->mod[0]) {
 			snprintf(text, textsize, "The host plays with no mod, and this game was started with --moddir %s. Start it without.", loaded);
-			return NETCONTENT_RESTART;
+		} else {
+			snprintf(text, textsize, "The host plays with the mod %s, and this game's mods came from --moddir. Start it without, "
+					"or with the host's.", n->mod);
 		}
 
-		if (!modListSwapIsLive(-1)) {
-			snprintf(text, textsize, "The host plays with no mod. %s is loaded here and holds ROM segments, which only a restart takes out: "
-					"choose No Mod in Extended Options > Load Mods, Restart Now, and join again.", loaded);
-			return NETCONTENT_RESTART;
-		}
+		return NETCONTENT_RESTART;
+	}
 
-		index = -1;
-	} else {
-		if (overlay && strcasecmp(loaded, n->mod) == 0) {
-			h = netHashDirContents(overlay);
-
-			if (h == n->modhash) {
-				return NETCONTENT_OK;
-			}
-
-			snprintf(text, textsize, "The host's %s is not the same as the one loaded here (another version of the mod, or imported by "
-					"another version of the game: %016llx there, %016llx here). Install the host's.", n->mod,
-					(unsigned long long)n->modhash, (unsigned long long)h);
-			return NETCONTENT_DIFFERS;
-		}
-
+	if (n->mod[0]) {
+		// this machine's own copy, the same bytes
 		index = modListIndexOf(n->mod);
 
-		if (index < 0) {
-			snprintf(text, textsize, "The host plays with the mod %s, which is not installed here. Drop it in mods/ (the zip or patch it "
-					"came as will do), start the game again, and join again.", n->mod);
-			return NETCONTENT_MISSING;
+		if (index >= 0 && !modListIsMapsOnly(index)) {
+			h = netHashDirContents(modListGetPath(index));
+
+			if (h == n->modhash) {
+				snprintf(target, sizeof(target), "%s", modListGetPath(index));
+			}
 		}
 
-		h = netHashDirContents(modListGetPath(index));
+		// a copy a host served this process
+		mem = fsMemDirFind(n->mod);
 
-		if (h != n->modhash) {
-			snprintf(text, textsize, "The host's %s is not the same as the one installed here (another version of the mod, or imported by "
-					"another version of the game: %016llx there, %016llx here). Install the host's.", n->mod,
-					(unsigned long long)n->modhash, (unsigned long long)h);
-			return NETCONTENT_DIFFERS;
+		if (!target[0] && mem >= 0 && netHashDirContents(fsMemDirPath(mem)) == n->modhash) {
+			snprintf(target, sizeof(target), "%s", fsMemDirPath(mem));
 		}
 
-		if (modListIsFromArgs()) {
-			snprintf(text, textsize, "The host plays with the mod %s, and this game's mods came from --moddir. Start it with --moddir \"%s\".",
-					n->mod, modListGetPath(index));
-			return NETCONTENT_RESTART;
-		}
-
-		if (!modListSwapIsLive(index)) {
-			if (modListHasSegs(index)) {
-				snprintf(text, textsize, "The host plays with the mod %s, which holds ROM segments and loads only at a start: choose it in "
-						"Extended Options > Load Mods, Restart Now, and join again.", n->mod);
-			} else {
-				snprintf(text, textsize, "The host plays with the mod %s. %s is loaded here and holds ROM segments, which only a restart "
-						"takes out: choose %s in Extended Options > Load Mods, Restart Now, and join again.", n->mod, loaded, n->mod);
+		if (!target[0]) {
+			// the host's own copy, served into memory (the guest waits in
+			// the Game Lobby, or its STAGE_LOAD is kept until it is in)
+			if (netContentFetchOverlay(n)) {
+				snprintf(text, textsize, "Getting the mod %s from the host.", n->mod);
+				return NETCONTENT_FETCH;
 			}
 
-			return NETCONTENT_RESTART;
+			if (index >= 0 || mem >= 0) {
+				snprintf(text, textsize, "The host's %s is not the same as the one here (another version of the mod, or imported by "
+						"another version of the game: %016llx there, %016llx here), and the host could not send its own.", n->mod,
+						(unsigned long long)n->modhash, (unsigned long long)h);
+				return NETCONTENT_DIFFERS;
+			}
+
+			snprintf(text, textsize, "The host plays with the mod %s, which is not installed here, and the host could not send it. "
+					"Drop it in mods/ (the zip or patch it came as will do) and join again.", n->mod);
+			return NETCONTENT_MISSING;
 		}
 	}
 
-	// a live swap: the player's own choice is kept for pd.ini (H13) and
-	// put back when the session ends. Both are taken before the swap, which
-	// makes what it loaded the selection (the first run of this wrote the
-	// host's mod into the gate client's pd.ini: netsessiontest swap)
-	own = overlay ? modListIndexOf(loaded) : -1;
-	selected = modListGetSelected();
-	snprintf(ownselected, sizeof(ownselected), "%s", modListGetSelectedName());
+	if (strcmp(netContentModTarget(), target) == 0) {
+		return modModeIsPending() ? NETCONTENT_SWAPPED : NETCONTENT_OK;
+	}
 
-	if (!modListSwap(index)) {
+	// the player's own mod is kept, and comes back when the session ends;
+	// both taken before the first swap for the host
+	if (!s_Swapped) {
+		snprintf(s_OwnPath, sizeof(s_OwnPath), "%s", modModePath());
+		snprintf(s_OwnName, sizeof(s_OwnName), "%s", modModeName());
+	}
+
+	if (!modModeRequestAtNextStage(target, n->mod)) {
 		snprintf(text, textsize, "The host plays with %s, which this game could not switch to.", n->mod[0] ? n->mod : "no mod");
 		return NETCONTENT_RESTART;
 	}
 
-	if (!s_Swapped) {
-		s_Swapped = 1;
-		s_OwnLoaded = own;
-		snprintf(s_OwnSelected, sizeof(s_OwnSelected), "%s", ownselected);
-	}
-
-	modListSetSelected(selected);
+	s_Swapped = 1;
+	snprintf(s_FollowPath, sizeof(s_FollowPath), "%s", target);
+	snprintf(s_FollowName, sizeof(s_FollowName), "%s", n->mod);
 	netSessionHashInvalidate();
-	sysLogPrintf(LOG_NOTE, "net: content: switched to %s for the host (this machine's %s comes back after the session)",
-			n->mod[0] ? n->mod : "no mod", own >= 0 ? modListGetName(own) : "no mod");
+	sysLogPrintf(LOG_NOTE, "net: content: %s for the host at the next stage%s%s (this machine's %s comes back after the session)",
+			n->mod[0] ? "entering" : "leaving the mod", n->mod[0] ? " from " : "", target, s_OwnPath[0] ? s_OwnName : "Perfect Dark");
 
-	return NETCONTENT_SWAPPED;
+	return modModeIsPending() ? NETCONTENT_SWAPPED : NETCONTENT_OK;
 }
 
-/** Client: the session is over; the mod it switched for the host goes, its own comes back */
-void netContentRestore(void)
+/**
+ * Client: the session is over; the mod it entered for the host goes, its
+ * own comes back. At a stage change (the match's stage stopping) that is
+ * modmode's swap at the next stage; between stages (the menus) a request
+ * still waiting is withdrawn and the Perfect Menu's own way is taken
+ * (the Institute reloads under the Perfect Menu).
+ */
+void netContentRestore(s32 atstagechange)
 {
 	if (!s_Swapped) {
 		return;
 	}
 
 	s_Swapped = 0;
+	s_FollowPath[0] = '\0';
+	s_FollowName[0] = '\0';
 
-	if (modListSwapIsLive(s_OwnLoaded) && modListSwap(s_OwnLoaded)) {
-		sysLogPrintf(LOG_NOTE, "net: content: back to %s after the session", s_OwnLoaded >= 0 ? modListGetName(s_OwnLoaded) : "no mod");
+	if (atstagechange) {
+		modModeRequestAtNextStage(s_OwnPath, s_OwnName);
 	} else {
-		sysLogPrintf(LOG_WARNING, "net: content: could not switch back to %s after the session; it loads at the next start",
-				s_OwnLoaded >= 0 ? modListGetName(s_OwnLoaded) : "no mod");
+		if (modModeIsPending()) {
+			// the swap never came: nothing to undo
+			modModeRequestAtNextStage(modModePath(), modModeName());
+		}
+
+		if (strcmp(modModePath(), s_OwnPath) != 0) {
+			if (s_OwnPath[0]) {
+				modModeRequestEnter(s_OwnPath, s_OwnName);
+			} else {
+				modModeRequestLeave();
+			}
+		}
 	}
 
-	// the selection the player made is theirs whatever was swapped
-	modListSetSelected(modListIndexOf(s_OwnSelected));
+	sysLogPrintf(LOG_NOTE, "net: content: back to %s after the session", s_OwnPath[0] ? s_OwnName : "Perfect Dark");
 	netSessionHashInvalidate();
 }
 
@@ -368,15 +396,17 @@ s32 netContentCanHost(const char *mod, const char *ge, const char *stagekey)
 
 	contentBasename(overlay, loaded, sizeof(loaded));
 
+	// protocol 25: any PD mod enters live (modmode.c), an installed one or
+	// one a host served this game into memory
 	if (mod && mod[0]) {
 		if (!overlay || strcasecmp(loaded, mod) != 0) {
 			index = modListIndexOf(mod);
 
-			if (index < 0 || modListIsFromArgs() || !modListSwapIsLive(index)) {
+			if (modListIsFromArgs() || (index < 0 && fsMemDirFind(mod) < 0)) {
 				return 0;
 			}
 		}
-	} else if (overlay && (modListIsFromArgs() || !modListSwapIsLive(-1))) {
+	} else if (overlay && modListIsFromArgs()) {
 		return 0;
 	}
 
@@ -558,10 +588,10 @@ void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, c
  * maps and read by the mod loader, the textures, the GoldenEye tables and
  * everything else through the same file calls as a folder on disk. Nothing
  * is written to the guest's disk, nothing is offered to anyone outside the
- * room's sessions, and the memory goes with the process. The host serves only a
- * directory it has mounted for its maps (never its overlay mod, which a
- * guest could not take live anyway), leaving out what nothing in play
- * reads: text, caches, the converter's and importer's own notes. A guest
+ * room's sessions, and the memory goes with the process. The host serves a
+ * directory it has mounted for its maps, leaving out what nothing in play
+ * reads (text, caches, the converter's and importer's own notes), and since
+ * protocol 25 its overlay PD mod by netModFileAllowed()'s list. A guest
  * that takes a room over (host migration) serves what it was served in turn.
  */
 
@@ -613,6 +643,7 @@ struct netserve {
 	u32 sentbytes;
 	u64 started;
 	s32 credit;       // bytes it may send now (the pace's share)
+	s32 overlay;      // protocol 25: the host's PD mod, by netModFileAllowed()'s list
 };
 
 static struct netserve s_Serve[NETCONTENT_MAXPEERS];
@@ -668,6 +699,8 @@ static struct {
 	u32 curgot;
 	u64 started;
 	u64 lastlog;
+	s32 overlay;                  // protocol 25: the host's PD mod, entered when it is in (not mounted for maps)
+	struct netcontentneed need;   // and what the host named of it
 } s_Fetch;
 
 static char s_FetchFailed[4][NET_MAXMAPDIR + 1]; // dirs the host would not serve: asked once
@@ -780,7 +813,7 @@ static s32 netContentList(struct netserve *sv, const char *full, const char *rel
 
 		isdir = fsScanDir(childfull, NULL, NULL) >= 0;
 
-		if (netContentSkipName(n.names[i], isdir)) {
+		if (sv->overlay ? !netModFileAllowed(childrel, isdir) : netContentSkipName(n.names[i], isdir)) {
 			continue;
 		}
 
@@ -890,6 +923,15 @@ static s32 netContentSessionNeeds(const char *dir)
 		}
 	}
 
+	// protocol 25: the PD mod entered here, which a guest without it fetches
+	if (fsGetModDir()) {
+		char base[NET_MAXMAPDIR + 1];
+
+		if (strcasecmp(contentBasename(fsGetModDir(), base, sizeof(base)), dir) == 0) {
+			return 1;
+		}
+	}
+
 	return strcasecmp(dir, GEXPLUSROM_DIR) == 0 && netContentGePoolListed();
 }
 
@@ -948,6 +990,7 @@ void netContentServeRequest(s32 peer, struct netbuf *b)
 	char base[NET_MAXMAPDIR + 1];
 	const char *found = NULL;
 	const char *why = NULL;
+	s32 overlay = 0;
 	s32 i;
 
 	netBufReadString(b, dir, sizeof(dir));
@@ -971,12 +1014,15 @@ void netContentServeRequest(s32 peer, struct netbuf *b)
 
 	// a folder a host served this machine (fs.c's "$N/<name>") is served on
 	// too: a guest that took a room over (host migration) hosts its
-	// conversion from that copy, and its own guests need it as it did
-	for (i = fsGetNumOverlayModDirs(); !why && i < fsGetNumModDirs(); i++) {
+	// conversion from that copy, and its own guests need it as it did.
+	// Protocol 25: the overlay too, the PD mod entered here (index 0)
+	for (i = 0; !why && i < fsGetNumModDirs(); i++) {
 		const char *d = fsGetModDirAt(i);
 
 		if (d && strcasecmp(contentBasename(d, base, sizeof(base)), dir) == 0) {
 			found = d;
+			overlay = i < fsGetNumOverlayModDirs();
+			break;
 		}
 	}
 
@@ -989,6 +1035,7 @@ void netContentServeRequest(s32 peer, struct netbuf *b)
 		sv->peer = peer;
 		snprintf(sv->dir, sizeof(sv->dir), "%s", dir);
 		snprintf(sv->full, sizeof(sv->full), "%s", found);
+		sv->overlay = overlay;
 
 		if (!netContentList(sv, found, "", 0)) {
 			why = "the folder is too large to send";
@@ -1386,10 +1433,8 @@ s32 netContentFetchStart(const char *dir)
 		return 0;
 	}
 
-	for (i = 0; i < s_FetchFailedCount; i++) {
-		if (strcasecmp(s_FetchFailed[i], dir) == 0) {
-			return 0;
-		}
+	if (netContentFetchRefused(dir)) {
+		return 0;
 	}
 
 	memset(&s_Fetch, 0, sizeof(s_Fetch));
@@ -1403,6 +1448,46 @@ s32 netContentFetchStart(const char *dir)
 	netWriteStr(&out, dir, NET_MAXMAPDIR);
 	netSessionSendServer(NET_CHAN_RELIABLE, out.data, netBufLen(&out), NET_SEND_RELIABLE);
 	sysLogPrintf(LOG_NOTE, "net: content: asking the host for %s", dir);
+
+	return 1;
+}
+
+static s32 netContentFetchRefused(const char *dir)
+{
+	s32 i;
+
+	for (i = 0; i < s_FetchFailedCount; i++) {
+		if (strcasecmp(s_FetchFailed[i], dir) == 0) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * Client (protocol 25): the host's PD mod, not here or not the host's bytes:
+ * ask for the host's copy. 1 while it comes (asked now or already), 0 when
+ * the host refused it this session or another folder is coming (that one is
+ * waited for; the STAGE_LOAD asks again after it).
+ */
+static s32 netContentFetchOverlay(const struct netcontentneed *n)
+{
+	// a host to ask (never a migrated host adopting a room)
+	if (g_NetMode != NETMODE_CLIENT) {
+		return 0;
+	}
+
+	if (s_Fetch.active) {
+		return s_Fetch.overlay && strcasecmp(s_Fetch.dir, n->mod) == 0;
+	}
+
+	if (netContentFetchRefused(n->mod) || !netContentFetchStart(n->mod)) {
+		return 0;
+	}
+
+	s_Fetch.overlay = 1;
+	s_Fetch.need = *n;
 
 	return 1;
 }
@@ -1623,6 +1708,37 @@ s32 netContentFetchEnd(struct netbuf *b)
 	if (s_Fetch.gotfiles != nfiles || s_Fetch.gotbytes != bytes) {
 		netContentFetchFail("not every file arrived");
 		return 0;
+	}
+
+	if (s_Fetch.overlay) {
+		// the host's PD mod: its bytes are checked against what the host
+		// named before the folder is kept, and it is entered at the next
+		// stage (modmode.c), not mounted for maps
+		struct netcontentneed need = s_Fetch.need;
+		char text[NET_MAXTEXT + 1];
+		const u64 h = netHashDirContentsUncached(fsMemDirPath(s_Fetch.memdir));
+		s32 followed;
+
+		if (h != need.modhash) {
+			sysLogPrintf(LOG_WARNING, "net: content: the served %s hashes %016llx, the host named %016llx", dir,
+					(unsigned long long)h, (unsigned long long)need.modhash);
+			netContentFetchFail("the folder served is not the mod the host named");
+			return 0;
+		}
+
+		fsMemDirSeal(s_Fetch.memdir);
+		sysLogPrintf(LOG_NOTE, "net: content: the mod %s fetched from the host into %s: %u files, %u bytes in %u ms", dir,
+				fsMemDirPath(s_Fetch.memdir), nfiles, bytes, (u32)((sysGetMicroseconds() - s_Fetch.started) / 1000));
+		memset(&s_Fetch, 0, sizeof(s_Fetch));
+		s_Fetch.memdir = -1;
+
+		followed = netContentFollow(&need, text, sizeof(text));
+
+		if (followed != NETCONTENT_OK && followed != NETCONTENT_SWAPPED) {
+			sysLogPrintf(LOG_WARNING, "net: content: the mod %s fetched but not entered: %s", dir, text);
+		}
+
+		return 1;
 	}
 
 	fsMemDirSeal(s_Fetch.memdir);

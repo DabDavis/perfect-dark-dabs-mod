@@ -298,6 +298,13 @@ static inline void romdataUpdateSegStartEnd(struct romfile* seg)
 	}
 }
 
+// The sound's banks and sequences, which modaudio.c swaps; the rest are modsegs.c's
+static s32 romdataSegIsAudio(const char *name)
+{
+	return !strcmp(name, "sfxctl") || !strcmp(name, "sfxtbl") || !strcmp(name, "seqctl")
+		|| !strcmp(name, "seqtbl") || !strcmp(name, "sequences");
+}
+
 static inline void romdataInitSegment(struct romfile *seg)
 {
 	if (!seg->data) {
@@ -321,7 +328,10 @@ static inline void romdataInitSegment(struct romfile *seg)
 	char tmp[FS_MAXPATH];
 	snprintf(tmp, sizeof(tmp), ROMDATA_SEGDIR "/%s", seg->name);
 	u8 *newData = NULL;
-	const s32 extFileSize = fsFileSize(tmp);
+	// --mod-segs-boot-stock: the overlay mod's files and modconfig, the ROM's
+	// own segments but for the sound's, which modSegsEnter() then swaps in at
+	// the first stage (the live swap's test against a --moddir boot, modsegs.c)
+	const s32 extFileSize = (sysArgCheck("--mod-segs-boot-stock") && !romdataSegIsAudio(seg->name)) ? -1 : fsFileSize(tmp);
 	if (extFileSize > 0) {
 		// padded: the sound DMA reads a whole item from where a sample starts,
 		// past a sound or music table's last one (sfxtbl, seqtbl)
@@ -1118,4 +1128,254 @@ u32 romdataFileGetEstimatedSize(const u32 size, const u32 loadtype)
 	}
 #endif
 	return size;
+}
+
+/*
+ * A segment swapped between stages (modsegs.c, the PD mods' live mode).
+ *
+ * romdataInitSegment() points a segment at the ROM or at a mod's segs/ file
+ * once, at boot, and the game's readers take it from the _xxxSegmentRomStart
+ * and End globals (dmaExec() is a memcpy from them) or from romSegs. A swap
+ * points both at another copy of the segment, prepared the way the boot
+ * prepares one: the start and end set before the preprocess runs (the PAL
+ * font check compares pointers), then preprocessed once.
+ *
+ * Every copy prepared is kept, the ROM's included, for the next swap back to
+ * it: animations and textureslist are preprocessed in place, so the ROM's
+ * bytes can be byte-swapped once and once only, and the game may still hold
+ * pointers into a copy it was handed (an animation row appended against one).
+ * What the swap leaves to the caller is everything built *from* a segment:
+ * the animation rows, g_Textures, the fonts loaded per stage (modsegs.c).
+ */
+static char *segStrDup(const char *str)
+{
+	const u32 len = strlen(str) + 1;
+	char *copy = malloc(len);
+
+	if (copy) {
+		memcpy(copy, str, len);
+	}
+
+	return copy;
+}
+
+#define ROMDATA_SEG_MAXVARIANTS 16
+#define ROMDATA_NUM_SEGS (sizeof(romSegs) / sizeof(romSegs[0]))
+
+struct romsegvariant {
+	char *path; // NULL: the ROM's own; "<boot>": a segs/ file the boot loaded
+	u8 *data;
+	u32 size;
+	s32 source;
+	u8 *tablestart; // animations: the table preprocessAnimations() found
+	u8 *tableend;
+};
+
+static struct romsegstate {
+	struct romsegvariant v[ROMDATA_SEG_MAXVARIANTS];
+	s32 num;
+	s32 cur;
+} romSegStates[ROMDATA_NUM_SEGS];
+
+static void romdataSegNoteCurrent(struct romfile *seg, struct romsegvariant *v)
+{
+	extern u8 *_animationsTableRomStart;
+	extern u8 *_animationsTableRomEnd;
+
+	v->data = seg->data;
+	v->size = seg->size;
+	v->source = seg->source;
+
+	if (!strcmp(seg->name, "animations")) {
+		v->tablestart = _animationsTableRomStart;
+		v->tableend = _animationsTableRomEnd;
+	}
+}
+
+static void romdataSegMakeCurrent(struct romfile *seg, const struct romsegvariant *v)
+{
+	extern u8 *_animationsTableRomStart;
+	extern u8 *_animationsTableRomEnd;
+
+	seg->data = v->data;
+	seg->size = v->size;
+	seg->source = v->source;
+	seg->preprocessed = 1;
+	romdataUpdateSegStartEnd(seg);
+
+	if (!strcmp(seg->name, "animations")) {
+		_animationsTableRomStart = v->tablestart;
+		_animationsTableRomEnd = v->tableend;
+	}
+}
+
+// The boot's copy, as the first variant of a segment not yet swapped
+static struct romsegstate *romdataSegState(struct romfile *seg)
+{
+	struct romsegstate *st = &romSegStates[seg - romSegs];
+
+	if (st->num == 0) {
+		struct romsegvariant *v = &st->v[0];
+
+		v->path = seg->source == SRC_EXTERNAL ? "<boot>" : NULL;
+		romdataSegNoteCurrent(seg, v);
+		st->num = 1;
+		st->cur = 0;
+	}
+
+	return st;
+}
+
+// The ROM's own copy of a segment, from its declared offset; 0 when this ROM has none
+static s32 romdataSegRomRange(struct romfile *seg, u8 **outData, u32 *outSize)
+{
+	const s32 index = seg - romSegs;
+	const u32 ofs = romSegDecls[index].ofs;
+	u32 size = romSegDecls[index].size;
+
+	if (!ofs || !g_RomFile) {
+		return 0;
+	}
+
+	if (!size) {
+		size = romSegDecls[index + 1].name ? romSegDecls[index + 1].ofs - ofs : g_RomFileSize - ofs;
+	}
+
+	*outData = g_RomFile + ofs;
+	*outSize = size;
+
+	return 1;
+}
+
+// Loads (path) or takes the ROM's (NULL) copy and preprocesses it as the
+// segment's current one. Returns the variant, or NULL with nothing changed.
+static struct romsegvariant *romdataSegPrepare(struct romfile *seg, struct romsegstate *st, const char *path)
+{
+	struct romsegvariant *v;
+	struct romsegvariant before;
+	u8 *data = NULL;
+	u32 size = 0;
+	s32 source;
+
+	if (st->num >= ROMDATA_SEG_MAXVARIANTS) {
+		sysLogPrintf(LOG_ERROR, "romdataSegSwap: %s has %d copies already", seg->name, st->num);
+		return NULL;
+	}
+
+	if (path) {
+		if (fsFileSize(path) <= 0 || (data = fsFileLoadPadded(path, &size, ADMA_ITEM_SIZE)) == NULL) {
+			sysLogPrintf(LOG_ERROR, "romdataSegSwap: could not load %s", path);
+			return NULL;
+		}
+		source = SRC_EXTERNAL;
+	} else {
+		if (!romdataSegRomRange(seg, &data, &size)) {
+			sysLogPrintf(LOG_ERROR, "romdataSegSwap: this ROM has no %s", seg->name);
+			return NULL;
+		}
+		source = SRC_ROM;
+	}
+
+	romdataSegNoteCurrent(seg, &before);
+
+	seg->data = data;
+	seg->size = size;
+	seg->source = source;
+	romdataUpdateSegStartEnd(seg);
+
+	if (seg->preprocess) {
+		u8 *newData = seg->preprocess(seg->data, seg->size, &seg->size);
+
+		if (newData) {
+			if (source == SRC_EXTERNAL) {
+				sysMemFree(seg->data);
+			}
+			seg->data = newData;
+			romdataUpdateSegStartEnd(seg);
+		}
+	}
+
+	seg->preprocessed = 1;
+
+	v = &st->v[st->num++];
+	v->path = path ? segStrDup(path) : NULL;
+	romdataSegNoteCurrent(seg, v);
+
+	sysLogPrintf(LOG_NOTE, "romdataSegSwap: prepared %s from %s (%u bytes)", seg->name, path ? path : "the ROM", v->size);
+
+	// the caller decides what is current
+	romdataSegMakeCurrent(seg, &before);
+
+	return v;
+}
+
+static struct romsegvariant *romdataSegFind(struct romfile *seg, const char *path, s32 prepare)
+{
+	struct romsegstate *st = romdataSegState(seg);
+
+	for (s32 i = 0; i < st->num; i++) {
+		const char *vp = st->v[i].path;
+
+		if ((!path && !vp) || (path && vp && !strcmp(path, vp))) {
+			return &st->v[i];
+		}
+	}
+
+	return prepare ? romdataSegPrepare(seg, st, path) : NULL;
+}
+
+s32 romdataSegSwap(const char *segname, const char *path)
+{
+	struct romfile *seg = romdataGetSeg(segname);
+	struct romsegstate *st;
+	struct romsegvariant *v;
+
+	if (!seg->name) {
+		sysLogPrintf(LOG_ERROR, "romdataSegSwap: no segment %s", segname);
+		return -1;
+	}
+
+	st = romdataSegState(seg);
+	v = romdataSegFind(seg, path, 1);
+
+	if (!v) {
+		return -1;
+	}
+
+	if (v == &st->v[st->cur]) {
+		return 0;
+	}
+
+	st->cur = v - st->v;
+	romdataSegMakeCurrent(seg, v);
+
+	sysLogPrintf(LOG_NOTE, "romdataSegSwap: %s now %s", seg->name, path ? path : "the ROM's");
+
+	return 1;
+}
+
+s32 romdataSegIsBoot(const char *segname)
+{
+	struct romfile *seg = romdataGetSeg(segname);
+
+	return !seg->name || romSegStates[seg - romSegs].cur == 0;
+}
+
+const u8 *romdataSegGetRomData(const char *segname, u32 *outSize)
+{
+	struct romfile *seg = romdataGetSeg(segname);
+	struct romsegvariant *v;
+
+	if (!seg->name || (v = romdataSegFind(seg, NULL, 1)) == NULL) {
+		if (outSize) {
+			*outSize = 0;
+		}
+		return NULL;
+	}
+
+	if (outSize) {
+		*outSize = v->size;
+	}
+
+	return v->data;
 }

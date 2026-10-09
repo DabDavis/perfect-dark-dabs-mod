@@ -19,6 +19,8 @@
 #include "game/lang.h"
 #include "modloader.h"
 #include "mod.h"
+#include "modmode.h"
+#include "fs.h"
 #include "gexplusrom.h"
 #include "net/net.h"
 #include "net/netlobby.h"
@@ -518,17 +520,19 @@ static void roomContentNote(const struct netlobbyroomsum *r, char *out, s32 size
 		const s32 index = modListIndexOf(r->mod);
 		const char *state;
 
+		// protocol 25: entered on joining, from this machine's copy or
+		// the host's, served into memory (netcontent.c)
 		if (loaded && strcasecmp(loaded, r->mod) == 0) {
-			state = "loaded";
-		} else if (index < 0) {
-			state = "NOT INSTALLED HERE";
-		} else if (modListSwapIsLive(index)) {
-			state = "installed, loads on join";
+			state = "playing here";
+		} else if (modListIsFromArgs()) {
+			state = "start without --moddir";
+		} else if (index >= 0 || fsMemDirFind(r->mod) >= 0) {
+			state = "entered on join";
 		} else {
-			state = "installed: load it, restart";
+			state = "served on join";
 		}
 
-		snprintf(name, sizeof(name), "%s", r->mod);
+		snprintf(name, sizeof(name), "%s", modModeDisplayNameOf(r->mod));
 		labelFitDots(name, sizeof(name), 110);
 		snprintf(out, size, "Mod %s: %s", name, state);
 		return;

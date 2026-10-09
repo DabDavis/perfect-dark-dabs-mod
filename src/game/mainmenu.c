@@ -43,6 +43,8 @@
 #include "modborrow.h"
 #include "geintro.h"
 #include "gebean.h"
+#include "mod.h"
+#include "modmode.h"
 #include "game/mplayer/setup.h"
 #endif
 #include "types.h"
@@ -5172,7 +5174,7 @@ static struct menuitem g_GexPlusMenuItems[] = {
 		MENUITEMTYPE_LABEL,
 		0,
 		MENUITEMFLAG_LITERAL_TEXT | MENUITEMFLAG_LESSLEFTPADDING,
-		(uintptr_t)"GoldenEye is built from its ROM\nalone. Unload GoldenEye X in\nLoad Mods to play it.\n",
+		(uintptr_t)"GoldenEye is built from its ROM\nalone. Start the game without\n--moddir GoldenEye X to play it.\n",
 		0,
 		menuhandlerGexPlusGoldenEyeXLoaded,
 	},
@@ -5203,6 +5205,12 @@ struct menudialogdef g_GexPlusMenuDialog = {
  */
 static MenuItemHandlerResult menuhandlerMainMenuGexPlus(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	// a Perfect Dark mod entered from the Perfect Menu has these rows'
+	// place; Back to Perfect Dark first
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return modModeIsActive();
+	}
+
 	// GoldenEye's own intro first (port/src/geintro.c), which opens the folder
 	// screens itself when it ends - GoldenEye's, not a ROM hack's left chosen
 	// by its own row
@@ -5256,7 +5264,7 @@ static MenuItemHandlerResult menuhandlerMainMenuVariant(s32 operation, struct me
 	const char *name = gexPlusRomGetVariant(item->param);
 
 	if (operation == MENUOP_CHECKHIDDEN) {
-		return name == NULL;
+		return name == NULL || modModeIsActive();
 	}
 
 	if (operation == MENUOP_CHECKDISABLED) {
@@ -5361,6 +5369,47 @@ MenuDialogHandlerResult menudialogMainMenu(s32 operation, struct menudialogdef *
 	return false;
 }
 
+#ifndef PLATFORM_N64
+/**
+ * The installed Perfect Dark mods (mods/), entered without a restart the way
+ * GoldenEye and its ROM hacks are (port/src/modmode.c): the row opens the
+ * list, and the Perfect Menu comes back over the Institute with the mod in it.
+ */
+static MenuItemHandlerResult menuhandlerMainMenuPdMods(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return modListGetLoadableCount() == 0 && !modModeIsActive();
+	}
+
+	if (operation == MENUOP_CHECKDISABLED) {
+		return !modModeCanChange() || modModeIsBusy();
+	}
+
+	if (operation == MENUOP_SET) {
+		menuPushDialog(&g_ModModeMenuDialog);
+	}
+
+	return 0;
+}
+
+static MenuItemHandlerResult menuhandlerMainMenuPdModsBack(s32 operation, struct menuitem *item, union handlerdata *data)
+{
+	if (operation == MENUOP_CHECKHIDDEN) {
+		return !modModeIsActive();
+	}
+
+	if (operation == MENUOP_CHECKDISABLED) {
+		return !modModeCanChange() || modModeIsBusy();
+	}
+
+	if (operation == MENUOP_SET) {
+		modModeRequestLeave();
+	}
+
+	return 0;
+}
+#endif
+
 char *mainMenuTextLabel(struct menuitem *item)
 {
 	u16 nocheats[] = {
@@ -5451,6 +5500,22 @@ struct menuitem g_MainMenuMenuItems[] = {
 		(uintptr_t)&mainMenuVariantLabel,
 		0x0000000f,
 		menuhandlerMainMenuVariant,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Perfect Dark Mods",
+		0x00000011,
+		menuhandlerMainMenuPdMods,
+	},
+	{
+		MENUITEMTYPE_SELECTABLE,
+		0,
+		MENUITEMFLAG_BIGFONT | MENUITEMFLAG_LITERAL_TEXT,
+		(uintptr_t)"Back to Perfect Dark",
+		0x00000012,
+		menuhandlerMainMenuPdModsBack,
 	},
 #endif
 	{

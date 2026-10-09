@@ -216,6 +216,7 @@ void netPump(void);
 void netFlush(void);
 void netWait(s32 us);
 void netStageStart(void);
+void netSessionModSwapped(void); // modmode.c: the host's PD mod was just entered at a STAGE_LOAD's stage change (protocol 25)
 void netCheckQuit(void);
 
 // Tick passes (pdmain.c mainTick)

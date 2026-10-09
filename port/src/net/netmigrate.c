@@ -284,7 +284,7 @@ void netMigrateAdoptEnd(void)
 {
 	memset(&s_Res, 0, sizeof(s_Res));
 	netRulesAdoptEnd();
-	netContentRestore();
+	netContentRestore(0);
 }
 
 // The host: the room's next match is the kept one carried on

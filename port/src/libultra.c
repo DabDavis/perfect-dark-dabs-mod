@@ -275,19 +275,51 @@ s32 __osMotorAccess(OSPfs *pfs, s32 cmd)
 
 /* Eeprom */
 
-static inline void osEepromSetPath(void)
+// the save the game started with: eeprom.bin, or --eeprom-file
+static void osEepromDefaultPath(char *out)
 {
 	const char *extPath = sysArgGetString("--eeprom-file");
 	if (extPath && extPath[0]) {
 		if (extPath[0] == '$' || fsPathIsAbsolute(extPath) || fsPathIsCwdRelative(extPath)) {
-			strncpy(eepromPath, extPath, FS_MAXPATH);
+			strncpy(out, extPath, FS_MAXPATH);
 		} else {
 			// just a filename, look for it in the save dir
-			snprintf(eepromPath, FS_MAXPATH, "$S/%s", extPath);
+			snprintf(out, FS_MAXPATH, "$S/%s", extPath);
 		}
 	} else {
-		strncpy(eepromPath, EEPROM_PATH, FS_MAXPATH);
+		strncpy(out, EEPROM_PATH, FS_MAXPATH);
 	}
+}
+
+static inline void osEepromSetPath(void)
+{
+	osEepromDefaultPath(eepromPath);
+}
+
+const char *osEepromDefaultFile(void)
+{
+	static char path[FS_MAXPATH + 1];
+
+	osEepromDefaultPath(path);
+	return path;
+}
+
+/**
+ * The file the eeprom stands for from now on: PATH, or NULL for the one the
+ * game started with. A Perfect Dark mod entered from the Perfect Menu keeps a
+ * save of its own (modmode.c). The next read loads it; a file not there yet
+ * reads as a blank eeprom, as a fresh start's does.
+ */
+void osEepromSwitchFile(const char *path)
+{
+	if (path && path[0]) {
+		snprintf(eepromPath, sizeof(eepromPath), "%s", path);
+	} else {
+		osEepromSetPath();
+	}
+
+	memset(eeprom, 0, sizeof(eeprom));
+	eepromLoaded = 0;
 }
 
 static inline void osEeepromLoad(const char *fname)

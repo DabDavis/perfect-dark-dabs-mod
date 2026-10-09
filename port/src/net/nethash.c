@@ -243,6 +243,109 @@ static void netHashTree(struct nethashwalk *w, const char *full, const char *rel
 	free(n.names);
 }
 
+/**
+ * The files of a Perfect Dark mod that matter to play it, by their path in
+ * the mod's folder: what the "mod" hash takes and what a host serves of its
+ * overlay (protocol 25), one list so a guest's served copy hashes as the
+ * host's does. files/, segs/, animations/ and sequences/ whole, textures/'s
+ * .bin (the emulator pack's .htc is a picture, 20 MB of GoldenEye X's, read
+ * only with Mod.LoadTextures: not served, not hashed), the mod's config and
+ * the importer's report (modloader.c reads it). Not the patch, the readmes,
+ * 1964_HIRES_Files/, files.incompatible/ or segs.unlocated/.
+ */
+s32 netModFileAllowed(const char *rel, s32 isdir)
+{
+	static const char *dirs[] = { "files", "segs", "textures", "animations", "sequences" };
+	const char *slash = strchr(rel, '/');
+	const char *name = strrchr(rel, '/');
+	u32 i;
+
+	name = name ? name + 1 : rel;
+
+	if (name[0] == '.') {
+		return 0;
+	}
+
+	if (!slash) {
+		if (!isdir) {
+			return strcasecmp(rel, "modconfig.txt") == 0 || strcasecmp(rel, "IMPORT.txt") == 0;
+		}
+
+		for (i = 0; i < ARRAYCOUNT(dirs); i++) {
+			if (strcasecmp(rel, dirs[i]) == 0) {
+				return 1;
+			}
+		}
+
+		return 0;
+	}
+
+	if (strncasecmp(rel, "textures/", 9) == 0) {
+		const char *dot = strrchr(name, '.');
+
+		return !isdir && dot && strcasecmp(dot, ".bin") == 0;
+	}
+
+	return 1;
+}
+
+// the allowed files under full/rel, in name order, names, sizes and bytes,
+// read through fs.c so a folder held in memory ("$N/<name>") reads the same
+static void netHashModTree(struct nethashwalk *w, const char *full, const char *rel, s32 depth)
+{
+	struct nethashnames n = { NULL, 0, 0 };
+	char childfull[FS_MAXPATH + 1];
+	char childrel[FS_MAXPATH + 1];
+	s32 i;
+
+	if (depth > NETHASH_MAXDEPTH || fsScanDir(full, netHashNamesAdd, &n) < 0) {
+		return;
+	}
+
+	qsort(n.names, n.count, sizeof(char *), netHashNameCmp);
+
+	for (i = 0; i < n.count; i++) {
+		s32 isdir;
+		s32 size;
+
+		snprintf(childfull, sizeof(childfull), "%s/%s", full, n.names[i]);
+		snprintf(childrel, sizeof(childrel), "%s%s%s", rel, rel[0] ? "/" : "", n.names[i]);
+
+		isdir = fsScanDir(childfull, NULL, NULL) >= 0;
+
+		if (!netModFileAllowed(childrel, isdir) || w->numfiles >= NETHASH_MAXFILES) {
+			continue;
+		}
+
+		if (isdir) {
+			netHashModTree(w, childfull, childrel, depth + 1);
+			continue;
+		}
+
+		size = fsFileSize(childfull);
+		w->numfiles++;
+
+		sha256Add(w->ctx, childrel, strlen(childrel) + 1);
+		sha256Add(w->ctx, &size, sizeof(size));
+
+		if (size > 0 && size <= NETHASH_CONTENTMAX) {
+			u32 got = 0;
+			u8 *data = fsFileLoad(childfull, &got);
+
+			if (data) {
+				sha256Add(w->ctx, data, got);
+				sysMemFree(data);
+			}
+		}
+	}
+
+	for (i = 0; i < n.count; i++) {
+		free(n.names[i]);
+	}
+
+	free(n.names);
+}
+
 static const char *netHashBasename(const char *path)
 {
 	const char *s = strrchr(path, '/');
@@ -256,14 +359,15 @@ static const char *netHashBasename(const char *path)
 }
 
 /**
- * The contents hash of one folder: every byte that is not a picture, a
- * sound or text, as the "mod" component takes the overlay (protocol 13: a
- * client hashes the host's mod among its own installed ones before it
- * switches to it, and the one it then runs for LOADED). Cached by path for
- * the process: an installed mod does not change under a running game, and
- * GoldenEye X's 89 MB take a few hundred ms.
+ * The contents hash of one folder: the files netModFileAllowed() lists, as
+ * the "mod" component takes the overlay (protocol 13: a client hashes the
+ * host's mod among its own installed ones before it enters it, and the one
+ * it then runs for LOADED; protocol 25: the list is the one a host serves,
+ * read through fs.c, so a copy served into memory hashes as the host's
+ * does). Cached by path for the process: an installed mod does not change
+ * under a running game, and GoldenEye X's 55 MB take a few hundred ms.
  */
-#define NETHASH_DIRCACHE 8
+#define NETHASH_DIRCACHE 32 // 8 before protocol 25: a guest hashes the installed copy and a served one, a lobby the rooms' mods
 
 static struct {
 	char path[FS_MAXPATH + 1];
@@ -272,11 +376,34 @@ static struct {
 static s32 s_NetDirCacheNext;
 static SDL_SpinLock s_NetDirCacheLock; // the lobby's worker threads hash too (netlobby.c)
 
-u64 netHashDirContents(const char *path)
+static u64 netHashDirCompute(const char *full, s32 *numfiles)
 {
 	struct sha256ctx ctx;
 	struct nethashwalk w;
 	u8 digest[32];
+
+	sha256Begin(&ctx);
+	w.ctx = &ctx;
+	w.contents = 1;
+	w.numfiles = 0;
+	netHashModTree(&w, full, "", 0);
+	sha256End(&ctx, digest);
+	*numfiles = w.numfiles;
+
+	return netDigestU64(digest);
+}
+
+/** netHashDirContents, not cached: a folder served into memory checked before it is kept */
+u64 netHashDirContentsUncached(const char *path)
+{
+	s32 numfiles;
+
+	return path && path[0] ? netHashDirCompute(fsFullPath(path), &numfiles) : 0;
+}
+
+u64 netHashDirContents(const char *path)
+{
+	struct { s32 numfiles; } w;
 	char full[FS_MAXPATH + 1];
 	u64 h;
 	s32 i;
@@ -304,13 +431,7 @@ u64 netHashDirContents(const char *path)
 		return h;
 	}
 
-	sha256Begin(&ctx);
-	w.ctx = &ctx;
-	w.contents = 1;
-	w.numfiles = 0;
-	netHashTree(&w, full, "", 0);
-	sha256End(&ctx, digest);
-	h = netDigestU64(digest);
+	h = netHashDirCompute(full, &w.numfiles);
 
 	SDL_AtomicLock(&s_NetDirCacheLock);
 	snprintf(s_NetDirCache[s_NetDirCacheNext].path, sizeof(s_NetDirCache[0].path), "%s", full);

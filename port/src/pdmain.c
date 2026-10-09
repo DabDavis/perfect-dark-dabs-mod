@@ -77,15 +77,18 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "mod.h"
 #include "record.h"
 #include "texpack.h"
 #include "assetdump.h"
 #include "xblaimport.h"
 #include "modloader.h"
 #include "modborrow.h"
+#include "modaudio.h"
 #include "gexplus.h"
 #include "gebean.h"
 #include "gexfront.h"
+#include "modmode.h"
 #include "simnav.h"
 #include "net/net.h"
 
@@ -308,6 +311,16 @@ void mainProc(void)
 	modBorrowCommit();
 	gebeanPoolRefresh();
 
+	// Test aids for a mod entered live, with the game up as the menu has it:
+	// --mod-data-swap swaps as Load Mods does, --mod-dump-data hashes every
+	// table a mod's data and modconfig change
+	modDataSwapFromCommandLine();
+	if (sysArgGetString("--mod-dump-data")) {
+		modDataDump(sysArgGetString("--mod-dump-data"));
+	}
+	// test aids: a mod's audio entered after the boot's banks (modaudio.c)
+	modAudioTestSwitches();
+
 	while (true) {
 		mainLoop();
 	}
@@ -386,6 +399,11 @@ void mainLoop(void)
 		g_MainNumGfxTasks = 0;
 		g_MainGameLogicEnabled = true;
 		g_MainIsEndscreen = false;
+
+		// The one moment nothing points into a ROM segment: the last stage has
+		// stopped and the next has not started. A Perfect Dark mod entered or
+		// left from the Perfect Menu swaps its segments here (modmode.c).
+		modModeStageBoundary();
 
 		if (var8005d9b0 && var8005d9c4 == 0) {
 			index = -1;

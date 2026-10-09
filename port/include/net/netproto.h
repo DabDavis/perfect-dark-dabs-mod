@@ -129,7 +129,14 @@
 //    whose OBJ record's byte 0 has 0x20 (NETOBJ_DELISTED; a DOOR record's
 //    byte 4 has 2, NETDOOR_DELISTED); the client takes its own out of the
 //    world, and puts it back when a record comes without the bit
-#define NET_PROTOCOL_VERSION 24
+// 25 (PD mods as a live mode, 2026-10-09): the host serves its overlay PD
+//    mod (CONTENT_REQ names it; the files netModFileAllowed() lists:
+//    files/, segs/, animations/, sequences/, textures/*.bin, modconfig.txt,
+//    IMPORT.txt) into a guest's memory folder, which the guest enters at the
+//    next stage change (modmode.c) - a guest without it fetches it rather
+//    than leaving with NOMOD/RESTART; the "mod" hash (ACCEPT, RULES, LOADED)
+//    is over that same list, read through fs.c
+#define NET_PROTOCOL_VERSION 25
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -181,7 +188,7 @@
 #define NETREFUSE_BADMSG    14 // a message that does not parse
 #define NETREFUSE_SHUTDOWN  15 // the host is going away
 #define NETREFUSE_LEFT      16 // the player left (End Game, quit)
-#define NETREFUSE_NOMOD     17 // the host's mod is not installed, differs, or needs a restart here (client's LEAVE)
+#define NETREFUSE_NOMOD     17 // the host's mod could not be had here (not served, differs, --moddir) (client's LEAVE)
 #define NETREFUSE_COUNT     18
 
 #define NET_DEFAULT_PORT     27100
@@ -403,6 +410,10 @@
  * overlay mod, nor anything outside them), without the pictures, text and
  * caches nothing in play reads, up to NETCONTENT_MAXBYTES, a few parts a
  * tick on BULK, and keeps the load deadline open while it sends.
+ * Protocol 25: the host's overlay PD mod too, asked for by its name (ACCEPT's
+ * or RULES' content block) when the guest has no copy with the host's hash;
+ * served by netModFileAllowed()'s list, checked against the hash named, not
+ * mounted for maps but entered at the next stage change (modmode.c).
  *
  * CONTENT_REQ (client -> host)
  *   u8      NETMSG_CONTENT_REQ

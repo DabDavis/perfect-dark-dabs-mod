@@ -39,7 +39,8 @@
 - **Content follows the host** — the section of that name (`netcontent.c`,
   protocols 13 and 14): a client plays the host's overlay mod, Stage Loader
   maps, conversions and ROM hack mode from its own copies (the content
-  block in ACCEPT and RULES, the live swap and its restart rule, on-demand
+  block in ACCEPT and RULES, the PD mod entered at the STAGE_LOAD's stage
+  change and served when missing, protocol 25, on-demand
   map mounts, LOADED's "mod" component, the lobby's `mod` and `ge` fields),
   and a conversion or map mod it has not got is **served by the host** into
   one of fs.c's memory directories (`$N/<name>`): only the host needs the
@@ -987,20 +988,70 @@ nothing is ever sent from one machine to another but names and hashes.
   carries the mod (a client learns at the join); RULES carry the mod and
   the tag (per match, checked again at H3: a join in progress has both at
   once, and a host may have swapped since).
-- **The overlay mod on a client.** `netContentFollow()`: the same name
-  among the installed mods (`modListIndexOf`), the same bytes
-  (`netHashDirContents` of that dir), then `modListSwap()` live, with the
-  player's own `Mod.ModDir` put back into the selection so pd.ini keeps it
-  (H13) and `netContentRestore()` swapping the own mod back when the
-  session ends (`netClientEnd` outside a match, H12 inside one). The
-  restart rule is mods.md's: a mod with `segs/` (every imported patch:
-  GoldenEye X, the Mario characters) swaps neither in nor out under a
-  running game, so the client leaves with NOMOD and the text says to choose
-  it in Load Mods, Restart Now and join again; so does one whose mods came
-  from `--moddir` (the gates'). Missing or another version: named, with the
-  hashes. The host trusts none of it: LOADED's "mod" component is the
-  overlay as the client has it loaded (`netStageHashCloseWindow`), and a
-  difference is STAGEHASH "mod".
+- **The overlay mod on a client (protocol 25, 2026-10-09: "PD mods as a
+  live mode").** The restart rule is gone: a PD mod is a runtime mode now
+  (`modmode.c`; mods.md, "A mod entered live"), every part of it swapped at
+  a stage boundary, ROM segments and sound banks included. The host enters
+  its mod from the Perfect Menu's Perfect Dark Mods row *before* making a
+  room (the row is disabled online: `modModeCanChange()`), and the overlay
+  is that mod. `netContentFollow()` finds the host's mod by name and the
+  "mod" hash: this machine's installed copy with the same bytes, else a copy
+  a host served this process (`fsMemDirFind`), else it asks the host for
+  its own (`netContentFetchOverlay` -> CONTENT_REQ by the mod's name,
+  NETCONTENT_FETCH: at ACCEPT the guest keeps waiting in the Game Lobby
+  while it comes, at STAGE_LOAD the message is kept in `s_FetchStage`). The
+  host serves its overlay now (`netContentServeRequest` looks from dir 0,
+  `netContentSessionNeeds` accepts the overlay's name) by the one list
+  `netModFileAllowed()` (nethash.c) that the "mod" hash also walks: files/,
+  segs/, animations/, sequences/, textures/*.bin, modconfig.txt and
+  IMPORT.txt (modloader.c reads it); never the patch, readmes,
+  1964_HIRES_Files/, files.incompatible/, segs.unlocated/ or the emulator
+  pack's .htc (GE-X's 20.8 MB, read only with Mod.LoadTextures through
+  gzopen, which cannot open "$N/"; a served copy simply has no HD pack).
+  The hash reads through fs.c (`fsFileLoad`), so a memory copy hashes as
+  the host's disk copy; the fetch is hashed before it is sealed
+  (`netHashDirContentsUncached`) and refused if it differs. GE-X is 2833
+  files, 26.6 MB, 3.4 s on loopback. The mod is entered with
+  `modModeRequestAtNextStage(path, name)`: queued, applied at the
+  session's next stage change - normally the match's STAGE_LOAD.
+  **The order trap:** STAGE_LOAD resolved its stage key and applied the
+  RULES before that stage change, i.e. over the *old* mod's tables (a kind
+  2 key "stage N of mod X" needs X to be the overlay; a mod's map ids,
+  arenas, character rows, weapon sets and solo stages are the mod's only
+  after the swap). So `netClientBeginStage` follows first; when a swap is
+  pending it keeps the message (`s_SwapStage`), loads a stand-in (the
+  Institute, never actually loaded) and `modModeStageBoundary()` calls
+  `netSessionModSwapped()` after the swap, which resolves the key again,
+  re-runs `netRulesApply()` and sets `g_StageNum` (the outer loop has not
+  read it yet). The "mod" component of LOADED is the swapped overlay's.
+  The save is NOT switched for a mod followed online (modmode's per-mod
+  save, `modModeSwitchSave`, would reread the eeprom and apply its options
+  mid-session under the RULES netrules.c saved): the guest plays on the
+  save it joined with. The player's own mod (`s_OwnPath`) comes back when
+  the session ends: `netContentRestore(1)` from `netStageStopped` (a stage
+  change follows: at-next-stage), `netContentRestore(0)` between stages
+  (netClientEnd in the menus, leaving a room, a migration declined: a
+  waiting request is withdrawn and the Perfect Menu's own
+  `modModeRequestEnter/Leave` reloads the Institute). Only --moddir games
+  still refuse (RESTART text), and a host that cannot serve (an overlay
+  with no files, a refused CONTENT_REQ) still ends with NOMOD, named.
+  Lobby: the Briefing Room's note says "Mod X: playing here / entered on
+  join / served on join"; `netCoopGameName("")` is the entered mod's name,
+  so Create Room's Game list reads "<Mod> Campaign". Gates:
+  netcontenttest `pdmodown` and `pdmodfetch` (`--net-test-pdmod NAME`
+  enters an installed mod at the first stage), netsessiontest's swap case.
+  fs.c: a relative load inside a "$N" overlay (`segs/foo`,
+  `modconfig.txt`, textures/) used to find the file through fsFullPath and
+  then stat/fopen the "$N/..." name; every primitive now resolves memory
+  on the expanded name (`fsMemResolveName`), and `fsReplaceModDir` keeps
+  "$N" maps mounts across a swap (a served GoldenEye Arenas stays mounted).
+  Caps widened: FS_MAXMEMDIRS 8 -> 32 (served mods last the process),
+  NETHASH_DIRCACHE 8 -> 32. Left: a fetched mod's sfx bank longer than
+  any installed mod's is not covered by modaudio's boot-time sound-id
+  reserve (all known mods are stock-sized); a migrated host whose follow
+  is still pending writes its RULES before its swap (`netContentHostNeed`
+  names the pending mod, but the stage tables are the old until the
+  match's stage change).
 - **Maps and conversions.** `netResolveStageKey` kind 1: a dir installed
   but not mounted (Mod.MapMods left it out) is mounted on the spot
   (`netContentMountMaps` -> `modMapsMountIndex` -> `fsAddMapsDir` +
@@ -1050,8 +1101,8 @@ nothing is ever sent from one machine to another but names and hashes.
   mode on such a client: `netContentVariantName(tag)` gives the hack's
   converted name, else the served folder's name (a static copy), and both
   `netContentVariantApply` and netcoop's set resolution go through it.
-  GE-X and the Mario characters (segs/) are not served: they load only at
-  a start.
+  (Since protocol 25 the overlay PD mod is served too: "The overlay mod on
+  a client" above.)
 - **How fast it is served (2026-10-09, F3 "the upload from host takes
   awhile").** ENet held a peer's reliable data in flight to
   `ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE`, 64 KB with bandwidth 0, so a serve
@@ -1363,10 +1414,8 @@ nothing is ever sent from one machine to another but names and hashes.
   its end screen then (fixed since: "A room's second GoldenEye match", in
   the section on GoldenEye's end of a mission online). Not guarded: the served segments
   and modconfig.txt go to the decomp's loaders as they come.
-- **Not done.** A restart-and-rejoin for the segs/ mods (the game could
-  relaunch itself with the mod selected for that run and join the room
-  again: `updateRelaunchSelf` is the relaunch, `--net-lobby-*` the
-  precedent for driving the lobby from arguments); the MUST_GE keys
+- **Not done.** (The segs/ mods' restart-and-rejoin is moot since protocol
+  25.) The MUST_GE keys
   follow now (the looks by the content latch, Mod.GePlusRevisionFixes as
   SYNC since 2026-10-09: two testers set differently could join neither
   one's GoldenEye room); a client's prediction held during

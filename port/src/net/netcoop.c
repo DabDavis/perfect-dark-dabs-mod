@@ -10,6 +10,7 @@
 #include "data.h"
 #include "system.h"
 #include "modloader.h"
+#include "modmode.h"
 #include "gexplusrom.h"
 #include "gexfront.h"
 #include "gexplus.h"
@@ -253,7 +254,9 @@ const char *netCoopGameName(const char *game)
 	const char *dir;
 
 	if (netCoopIsPdGame(game)) {
-		return "Perfect Dark";
+		// a PD mod entered from the Perfect Menu plays its own missions
+		// under Perfect Dark's set (protocol 25): "<Mod> Campaign"
+		return modModeIsActive() ? modModeDisplayNameOf(modModeName()) : "Perfect Dark";
 	}
 
 	if (strcasecmp(game, geconvertGoldenEyeTag()) == 0) {

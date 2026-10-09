@@ -758,11 +758,99 @@ const char *modWeaponFuncFlagName(s32 index)
 	return (index >= 0 && index < (s32)ARRAYCOUNT(weaponFuncFlagNames)) ? weaponFuncFlagNames[index].name : NULL;
 }
 
+/*
+ * The weapon and function edits a modconfig makes go into the definition
+ * objects themselves, which for a slot the mod's data segment did not replace
+ * are the game's own (and a function is shared between weapons). Each field's
+ * first value is kept here before it is changed, and modTablesRestore() puts
+ * them back; an object the data import allocated is skipped, as it goes with
+ * the import (modDataUnload()).
+ */
+struct modweaponundo {
+	void *obj;
+	u8 isfunc;
+	u32 flags;   // func: flags
+	u32 flags2;
+	u32 flags3;
+	s8 unequippedreloadindex;
+	u16 pickupsound;
+};
+
+static struct modweaponundo *weaponUndo;
+static s32 numWeaponUndo;
+static s32 maxWeaponUndo;
+
+static void modWeaponUndoRecord(void *obj, bool isfunc)
+{
+	if (!obj || modDataOwnsObject(obj)) {
+		return;
+	}
+
+	for (s32 i = 0; i < numWeaponUndo; ++i) {
+		if (weaponUndo[i].obj == obj) {
+			return;
+		}
+	}
+
+	if (numWeaponUndo == maxWeaponUndo) {
+		const s32 newmax = maxWeaponUndo ? maxWeaponUndo * 2 : 256;
+		struct modweaponundo *grown = sysMemAlloc(sizeof(*grown) * newmax);
+		if (!grown) {
+			sysLogPrintf(LOG_ERROR, "mod: no memory to keep a weapon's stock flags; a swap will not put them back");
+			return;
+		}
+		if (weaponUndo) {
+			memcpy(grown, weaponUndo, sizeof(*grown) * numWeaponUndo);
+			sysMemFree(weaponUndo);
+		}
+		weaponUndo = grown;
+		maxWeaponUndo = newmax;
+	}
+
+	struct modweaponundo *u = &weaponUndo[numWeaponUndo++];
+	memset(u, 0, sizeof(*u));
+	u->obj = obj;
+	u->isfunc = isfunc;
+
+	if (isfunc) {
+		u->flags = ((struct weaponfunc *)obj)->flags;
+	} else {
+		struct weapon *w = obj;
+		u->flags2 = w->flags2;
+		u->flags3 = w->flags3;
+		u->unequippedreloadindex = w->unequippedreloadindex;
+		u->pickupsound = w->pickupsound;
+	}
+}
+
+static void modWeaponUndoApply(void)
+{
+	for (s32 i = numWeaponUndo - 1; i >= 0; --i) {
+		struct modweaponundo *u = &weaponUndo[i];
+		if (u->isfunc) {
+			((struct weaponfunc *)u->obj)->flags = u->flags;
+		} else {
+			struct weapon *w = u->obj;
+			w->flags2 = u->flags2;
+			w->flags3 = u->flags3;
+			w->unequippedreloadindex = u->unequippedreloadindex;
+			w->pickupsound = u->pickupsound;
+		}
+	}
+
+	if (numWeaponUndo) {
+		sysLogPrintf(LOG_NOTE, "mod: %d weapon definitions and functions given back their stock flags", numWeaponUndo);
+	}
+
+	numWeaponUndo = 0;
+}
+
 void modWeaponFlagClearAll(u32 flag, u32 word)
 {
 	for (s32 i = 0; i <= WEAPON_SUICIDEPILL; ++i) {
 		struct weapon *weapon = bgunGetWeaponDefinition(i);
 		if (weapon) {
+			modWeaponUndoRecord(weapon, false);
 			*(word == 3 ? &weapon->flags3 : &weapon->flags2) &= ~flag;
 		}
 	}
@@ -774,6 +862,7 @@ s32 modWeaponFlagSet(s32 weaponnum, u32 flag, u32 word, s32 on)
 	if (!weapon) {
 		return -2;
 	}
+	modWeaponUndoRecord(weapon, false);
 	u32 *w = word == 3 ? &weapon->flags3 : &weapon->flags2;
 	if (on) {
 		*w |= flag;
@@ -798,6 +887,7 @@ void modWeaponFuncFlagClearAll(u32 flag)
 		for (s32 f = 0; f < 2; ++f) {
 			struct weaponfunc *func = weaponGetFunctionById(i, f);
 			if (func) {
+				modWeaponUndoRecord(func, true);
 				func->flags &= ~flag;
 			}
 		}
@@ -813,6 +903,7 @@ s32 modWeaponFuncFlagSet(s32 weaponnum, s32 funcnum, u32 flag, s32 on)
 	if (!func) {
 		return -2;
 	}
+	modWeaponUndoRecord(func, true);
 	if (on) {
 		func->flags |= flag;
 	} else {
@@ -856,6 +947,7 @@ s32 modWeaponSetKey(s32 weaponnum, const char *key, s32 value)
 		if (value < -1 || value > 127) {
 			return -1;
 		}
+		modWeaponUndoRecord(weapon, false);
 		weapon->unequippedreloadindex = value;
 		return 1;
 	}
@@ -864,6 +956,7 @@ s32 modWeaponSetKey(s32 weaponnum, const char *key, s32 value)
 		if (value < 0 || value > 0xffff) {
 			return -1;
 		}
+		modWeaponUndoRecord(weapon, false);
 		weapon->pickupsound = value;
 		return 1;
 	}
@@ -2717,7 +2810,7 @@ s32 modAnimationLoadDescriptor(u16 num, struct animtableentry *anim)
 
 #define MOD_MODS_DIR "mods"
 #define MOD_IMPORT_REPORT "IMPORT.txt"
-#define MOD_MAX_MODS 128
+#define MOD_MAX_MODS 256
 #define MOD_NAME_LEN 64
 
 struct modlistentry {
@@ -3711,7 +3804,16 @@ static struct stagemusic *tracksSnapshot;
 static s32 numTracksSnapshot;
 static struct stageallocation *allocsSnapshot;
 static s32 numAllocsSnapshot;
+static s16 pickupQtySnapshot[2][AMMOTYPE_ECM_MINE + 1];
+static s16 ammoTypeWeaponsSnapshot[AMMOTYPE_ECM_MINE + 1];
+static u32 *tvCmdlistsSnapshot[ARRAYCOUNT(g_TvCmdlists)];
 static bool tablesSnapshotted;
+
+u32 **modTvScreenStock(s32 *count)
+{
+	*count = ARRAYCOUNT(g_TvCmdlists);
+	return tablesSnapshotted ? tvCmdlistsSnapshot : NULL;
+}
 
 static void modTablesSnapshot(void)
 {
@@ -3745,6 +3847,11 @@ static void modTablesSnapshot(void)
 	mpListCountsSnapshot = g_MpListCounts;
 	numMpArenasSnapshot = g_MpNumArenas;
 	mpArenasImportedSnapshot = g_MpArenasImported;
+	memcpy(pickupQtySnapshot, g_ModPickupQty, sizeof(pickupQtySnapshot));
+	memcpy(ammoTypeWeaponsSnapshot, g_AmmoTypeWeapons, sizeof(ammoTypeWeaponsSnapshot));
+	memcpy(tvCmdlistsSnapshot, g_TvCmdlists, sizeof(tvCmdlistsSnapshot));
+	// the data import's own tables (env, AI lists, ammo, guard heads ...)
+	modDataSnapshot();
 
 	while (g_StageTracks[numTracksSnapshot].stagenum) {
 		++numTracksSnapshot;
@@ -3801,6 +3908,11 @@ static bool modTablesRestore(void)
 	g_MpListCounts = mpListCountsSnapshot;
 	g_MpNumArenas = numMpArenasSnapshot;
 	g_MpArenasImported = mpArenasImportedSnapshot;
+	memcpy(g_ModPickupQty, pickupQtySnapshot, sizeof(pickupQtySnapshot));
+	memcpy(g_AmmoTypeWeapons, ammoTypeWeaponsSnapshot, sizeof(ammoTypeWeaponsSnapshot));
+	memcpy(g_TvCmdlists, tvCmdlistsSnapshot, sizeof(tvCmdlistsSnapshot));
+	// the flags a modconfig wrote into the game's own weapon objects
+	modWeaponUndoApply();
 	// the unlocks, the damage rules, and the shield colours: the game's own are compiled in
 	g_ModUnlocks = 0;
 	g_ModPlayerHeadshotScale = 25;
@@ -3823,11 +3935,16 @@ static bool modTablesRestore(void)
  * - are read once at boot and end up in memory that is never given back
  * (MEMPOOL_PERMANENT, and the stage pool is placed immediately after it), with
  * the game holding pointers into them from everywhere. There is no taking that
- * back at runtime, so a mod with a segs/ directory can only be swapped in by
- * starting again. Its files alone would leave the game half converted, which is
- * worse than the restart.
+ * back at runtime, so a mod with one of them can only be swapped in by
+ * starting again. Its files alone would leave the game half converted, which
+ * is worse than the restart.
+ *
+ * segs/data and segs/data.names are not segments: they are the mod's data
+ * segment, which moddata.c reads into the heap and modDataUnload() gives back,
+ * so a mod with only those (All Solos in Multi, the weather mods, CSMP ...)
+ * swaps live.
  */
-static bool modDirHasSegs(const char *path)
+s32 modDirHasBootSegs(const char *path)
 {
 	char tmp[FS_MAXPATH + 1];
 
@@ -3835,10 +3952,23 @@ static bool modDirHasSegs(const char *path)
 		return false;
 	}
 
-	snprintf(tmp, sizeof(tmp), "%s/segs", path);
+	for (s32 i = 0; i < romdataGetNumSegments(); ++i) {
+		const char *name = romdataGetSegmentInfo(i, NULL, NULL);
 
-	return fsFileSize(tmp) >= 0;
+		if (name && name[0]) {
+			snprintf(tmp, sizeof(tmp), "%s/segs/%s", path, name);
+
+			if (fsFileSize(tmp) >= 0) {
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
+
+// --mod-data-swap only: swap a mod with boot segments for its data half
+static bool modSwapForced;
 
 /**
  * Can this mod be switched to where we stand? Both sides matter: the segments
@@ -3850,13 +3980,17 @@ s32 modListSwapIsLive(s32 index)
 		return false;
 	}
 
+	if (modSwapForced) {
+		return true;
+	}
+
 	const char *loaded = fsGetModDir();
 
-	if (modDirHasSegs(loaded)) {
+	if (modDirHasBootSegs(loaded)) {
 		return false;
 	}
 
-	if (index >= 0 && index < numModsListed && modDirHasSegs(modList[index].path)) {
+	if (index >= 0 && index < numModsListed && modDirHasBootSegs(modList[index].path)) {
 		return false;
 	}
 
@@ -3867,14 +4001,14 @@ s32 modListSwapIsLive(s32 index)
 s32 modListHasSegs(s32 index)
 {
 	if (index < 0) {
-		return modDirHasSegs(fsGetModDir());
+		return modDirHasBootSegs(fsGetModDir());
 	}
 
-	return index < numModsListed && modDirHasSegs(modList[index].path);
+	return index < numModsListed && modDirHasBootSegs(modList[index].path);
 }
 
 /**
- * Switch mods now.
+ * Switch the overlay mod now: PATH, or none at all.
  *
  * Everything a mod reaches through the file layer is dropped and looked up
  * again: the port's file slots, the sizes the game remembers for them, the
@@ -3883,16 +4017,19 @@ s32 modListHasSegs(s32 index)
  * need to be - the next stage load wipes that pool and reads everything again,
  * so the level you start after this is the new mod's, while the menu backdrop
  * behind you stays as it was.
+ *
+ * ROM segments are not this function's: modmode.c swaps them at a stage
+ * boundary around it (modSegsEnter(), modAudioEnter()). Nothing is written to
+ * pd.ini here.
  */
-s32 modListSwap(s32 index)
+void modSwapFiles(const char *path)
 {
-	if (modListIsMapsOnly(index) || !modListSwapIsLive(index)) {
-		return false;
-	}
+	// path may be fsGetModDir()'s own string, which the replace empties
+	char to[FS_MAXPATH + 1];
 
-	const char *path = (index >= 0 && index < numModsListed) ? modList[index].path : NULL;
+	snprintf(to, sizeof(to), "%s", path ? path : "");
 
-	fsReplaceModDir(path);
+	fsReplaceModDir(to[0] ? to : NULL);
 	modMapsMount();
 	modBorrowMount();
 
@@ -3903,13 +4040,19 @@ s32 modListSwap(s32 index)
 	modAnimationsDirExists = -1;
 	modSequencesDirExists = -1;
 
+	// the data import first: it frees what the tables below point at once they
+	// are put back, and resets the sky tables modBorrowArenas() builds on
+	modDataUnload();
 	modTablesRestore();
 	modloaderInit();
 
 	if (fsGetModDir()) {
 		modConfigLoad(MOD_CONFIG_FNAME);
 	}
+}
 
+void modSwapFinish(void)
+{
 	// The list was put back: GoldenEye's own weapon sets again (gexplus.c),
 	// and a ROM hack's own pistols' rows as its mode has them (geguns.c)
 	gexPlusWeaponSetsAppend();
@@ -3925,11 +4068,81 @@ s32 modListSwap(s32 index)
 
 	videoResetTextureCache();
 
-	modListSetSelected(index);
+	sysLogPrintf(LOG_NOTE, "mod: switched to %s", fsGetModDir() ? fsGetModDir() : "no mod");
+}
 
-	sysLogPrintf(LOG_NOTE, "mod: switched to %s", path ? modListGetName(index) : "no mod");
+s32 modSwapPath(const char *path)
+{
+	modSwapFiles(path);
+	modSwapFinish();
 
 	return true;
+}
+
+/**
+ * Switch to installed mod INDEX (-1: none) now, as the selection: netcontent's
+ * swap to the host's mod. A mod with ROM segments is refused here; the Perfect
+ * Menu's mods (modmode.c) swap those at a stage boundary instead.
+ */
+s32 modListSwap(s32 index)
+{
+	if (modListIsMapsOnly(index) || !modListSwapIsLive(index)) {
+		return false;
+	}
+
+	modSwapPath((index >= 0 && index < numModsListed) ? modList[index].path : NULL);
+	modListSetSelected(index);
+
+	return true;
+}
+
+void modDataSwapFromCommandLine(void)
+{
+	const char *arg = sysArgGetString("--mod-data-swap");
+	char list[1024];
+	char *name, *next;
+	s32 selected;
+
+	if (!arg || !arg[0]) {
+		return;
+	}
+
+	if (modDirsFromArgs) {
+		sysLogPrintf(LOG_ERROR, "mod: --mod-data-swap boots stock; drop --moddir");
+		return;
+	}
+
+	snprintf(list, sizeof(list), "%s", arg);
+	selected = modListGetSelected();
+
+	for (name = list; name; name = next) {
+		next = strchr(name, ',');
+		if (next) {
+			*next++ = '\0';
+		}
+
+		const bool none = !strcasecmp(name, "none") || !strcmp(name, "-");
+		const s32 index = none ? -1 : modListIndexOf(name);
+
+		if (!none && index < 0) {
+			sysLogPrintf(LOG_ERROR, "mod: --mod-data-swap: `%s` is not installed", name);
+			return;
+		}
+
+		if (modListHasSegs(index) || modListHasSegs(-1)) {
+			sysLogPrintf(LOG_WARNING, "mod: --mod-data-swap: %s has boot segments; swapping its data and modconfig only (test)",
+					none ? "the loaded mod" : name);
+		}
+
+		modSwapForced = true;
+		const s32 ok = modListSwap(index);
+		modSwapForced = false;
+
+		sysLogPrintf(ok ? LOG_NOTE : LOG_ERROR, "mod: --mod-data-swap %s %s", none ? "none" : name, ok ? "done" : "refused");
+	}
+
+	// a test: the player's choice in pd.ini stays what it was
+	modListSetSelected(selected);
 }
 
 void modListApplySelection(void)
@@ -3973,19 +4186,13 @@ void modListApplySelection(void)
 		return;
 	}
 
+	// Mod.ModDir is no longer mounted at startup: a mod is entered from the
+	// Perfect Menu's "Perfect Dark Mods" row (modmode.c), without a restart,
+	// the way GoldenEye and its ROM hacks are. A pd.ini from before keeps its
+	// line, unread.
 	if (selectedModName[0]) {
-		const s32 index = modListGetSelected();
-
-		if (modListIsMapsOnly(index)) {
-			// a pd.ini from before Load Mods left it out: mounted for its maps
-			// below, as it always is, and never as the mod
-			sysLogPrintf(LOG_WARNING, "mod: `%s` is only ever mounted for its maps; not loading it as the mod", selectedModName);
-			selectedModName[0] = '\0';
-		} else if (index < 0) {
-			sysLogPrintf(LOG_WARNING, "mod: selected mod `%s` is not installed", selectedModName);
-		} else if (fsAddModDir(modList[index].path) >= 0) {
-			sysLogPrintf(LOG_NOTE, "mod: mounted `%s`", modList[index].name);
-		}
+		sysLogPrintf(LOG_NOTE, "mod: `%s` was the loaded mod; mods are entered from the Perfect Menu now", selectedModName);
+		selectedModName[0] = '\0';
 	}
 
 	// after the overlay, so it stays first in the search order
@@ -4179,7 +4386,13 @@ s32 modMapsPending(void)
  */
 s32 modMapsApply(void)
 {
-	return modListSwap(modListGetSelected());
+	if (modDirsFromArgs) {
+		return false;
+	}
+
+	// the overlay stays what it is - the mod entered from the Perfect Menu,
+	// whose segments are not touched by this - and the maps mount again
+	return modSwapPath(fsGetModDir());
 }
 
 PD_CONSTRUCTOR static void modListConfigInit(void)
