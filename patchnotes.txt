@@ -31,6 +31,16 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 47 2026-10-09
+Perfect Dark Mods: a new Perfect Menu row lists your installed mods; pick one to play it with no restart
+Perfect Dark Mods: Back to Perfect Dark on the Perfect Menu leaves the mod
+Mods that replace sounds, music, animations, textures or fonts (GoldenEye X, Mario, Total Darkness) load without a restart now
+Each mod keeps its own save: the first time you enter one it starts as a copy of yours, then they stay apart
+Online: guests follow the host into its mod with no restart, and a guest without the mod is sent it by the host
+Load Mods is gone from Extended Options: mods are on the Perfect Menu now
+Total Darkness: its textures past the old limit of 3503 load now
+Leaving a mod that edits weapons no longer leaves Perfect Dark's own guns changed
+
 notes 46 2026-10-09
 Online: the Game Over screen no longer freezes on a guest when the host leaves its own first
 Online: Create Room and Room Settings have every Combat Simulator page: Options, Player Handicaps, Teams, Load and Save Settings
