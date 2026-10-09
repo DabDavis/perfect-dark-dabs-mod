@@ -412,8 +412,22 @@ static s32 mpsetupSerialize(FILE *f, struct mpsetupfile *setupfile)
 	return wx;
 }
 
+// The saved setups' file: the save dir's, or a Perfect Dark mod's own while one
+// is entered (modmode.c)
+static char s_MpSetupPath[FS_MAXPATH + 1];
+
+static const char *mpsetupPath(void)
+{
+	return s_MpSetupPath[0] ? s_MpSetupPath : "$S/" MPSETUP_FILENAME ".bin";
+}
+
+const char *mpsetupDefaultFile(void)
+{
+	return "$S/" MPSETUP_FILENAME ".bin";
+}
+
 static FILE *mpsetupOpenFile(bool write, u8 op) {
-	const char *filename = fsFullPath("$S/" MPSETUP_FILENAME ".bin");
+	const char *filename = fsFullPath(mpsetupPath());
 
 	if (op == MPSETUP_OP_EXPORT) {
 		// create export directory if it doesn't exist
@@ -1043,7 +1057,7 @@ void mpsetupLoadSetup(s32 index)
 
 void mpsetupCopyAllFromPak(void)
 {
-	if (fsFileSize("$S/" MPSETUP_FILENAME ".bin") > 0) {
+	if (fsFileSize(mpsetupPath()) > 0) {
 		return;
 	}
 
@@ -1073,3 +1087,16 @@ void mpsetupCopyAllFromPak(void)
 	// to reset the mp setup
 	mpInit(false);
 }
+
+/**
+ * The saved setups from PATH from now on (NULL: the save dir's own), read in
+ * at once: a Perfect Dark mod entered from the Perfect Menu has its own,
+ * since a setup names its arenas and weapons by the mod's numbers.
+ */
+void mpsetupSwitchFile(const char *path)
+{
+	snprintf(s_MpSetupPath, sizeof(s_MpSetupPath), "%s", path ? path : "");
+	memset(&g_MpSetupFile, 0, sizeof(g_MpSetupFile));
+	mpsetupLoadCurrentFile();
+}
+

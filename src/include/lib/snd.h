@@ -13,6 +13,7 @@ void sndResetCurMp3(void);
 void sndLoadSfxCtl(void);
 #ifndef PLATFORM_N64
 #define SND_MAX_SOUNDS      2048  // a sound number's id is 11 bits
+#define SEQ_EXTRA_BASE      0x200 // seqAppend()'s first number; a sequence table holds fewer
 #define SND_NUM_ROM_RUSS    0x1bd
 #define SND_RUSS_CAPACITY   0x400
 #define SND_NUM_ROM_CONFIGS 64
@@ -21,6 +22,8 @@ s32 sndAppendSound(uintptr_t ctloffset);
 s32 sndAppendSoundCopy(s32 soundnum);
 uintptr_t sndGetCtlStart(void);
 uintptr_t sndGetTblStart(void);
+uintptr_t sndGetSeqTblStart(void);
+void sndFlushCaches(void);
 s32 sndAppendRussMapping(s16 soundnum, u16 audioconfig_index);
 s32 sndAppendAudioConfig(const struct audioconfig *config);
 s32 seqAppend(const u8 *zip, u16 binlen, u16 ziplen, ALBank *bank);

@@ -569,7 +569,7 @@ extern struct mppreset g_MpPresets[];
 extern u32 g_TeamColours[];
 extern u32 var80087ce4[];
 extern u8 g_BotCount;
-extern struct aibotweaponpreference g_AibotWeaponPreferences[];
+extern struct aibotweaponpreference g_AibotWeaponPreferences[128]; // BOTINV_MAX_WEAPONPREFS
 #ifndef PLATFORM_N64
 // A simulant's view of each of GoldenEye's guns, built from its host's row and
 // its own definition (geguns.c); AIBOTPREF() picks the row for a weapon number

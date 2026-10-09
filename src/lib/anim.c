@@ -14,6 +14,7 @@
 #include "types.h"
 #ifndef PLATFORM_N64
 #include <string.h>
+#include <stdlib.h>
 #include "mod.h"
 #ifndef PLATFORM_N64
 #include "system.h"
@@ -48,6 +49,10 @@ u8 *g_AnimHostSegment = NULL;
 
 #ifndef PLATFORM_N64
 u8 **g_AnimReplacements;
+
+// How many of the rows are the segment table's (the boot's count): the rest
+// were appended after it and keep their numbers across a swap of the table
+static s32 g_AnimTableRows;
 
 // Rows past the ROM's table for animations taken from a mounted mod
 // (animAppendExternal()): a borrowed gun's reload is the mod's animation,
@@ -136,6 +141,10 @@ void animsInit(void)
 
 	g_AnimHostSegment = NULL;
 	g_AnimHostEnabled = false;
+
+#ifndef PLATFORM_N64
+	g_AnimTableRows = g_NumRomAnimations;
+#endif
 }
 
 #ifndef PLATFORM_N64
@@ -338,6 +347,174 @@ s32 animIsSame(s32 num, const struct animtableentry *entry, const u8 *data)
 	}
 
 	return memcmp((u8 *)((romptr_t) REF_SEG _animationsSegmentRomStart + ours->data), data, len) == 0;
+}
+#endif
+
+#ifndef PLATFORM_N64
+/**
+ * The animations segment was swapped (romdataSegSwap(), modsegs.c): the
+ * table's rows become the new segment's, and everything cached by number is
+ * forgotten. Only between stages, with no override in place (animOverride():
+ * GoldenEye's under Perfect Dark's numbers, which gechranims.c takes off
+ * first). oldseg is the segment it replaced.
+ *
+ * A row appended past the table (animOriginal()'s alias, an appended row a
+ * segment serves) holds an offset into the segment it was made against, and
+ * its number is held by whoever appended it, so it stays where it is: it is
+ * pointed at that segment's bytes instead (served like an external
+ * replacement), and given its offset back when that segment returns, so a
+ * swap there and back leaves every row as it was.
+ *
+ * The header and frame slots were sized by the boot table's largest; a table
+ * with a larger one gets new slots, frames below headers as animsInit() lays
+ * them (animLoadFrame()).
+ */
+struct animrebased {
+	s32 num;
+	u32 ofs;
+	u8 *seg;
+	u8 *repl;
+};
+
+static struct animrebased *g_AnimRebased;
+static s32 g_NumAnimRebased;
+static s32 g_AnimRebasedCap;
+
+void animsTableSwapped(u8 *oldseg)
+{
+	extern u8 *_animationsTableRomStart;
+	u8 *newseg = (u8 *) REF_SEG _animationsSegmentRomStart;
+	const u32 *table = (const u32 *) _animationsTableRomStart;
+	const struct animtableentry *rows;
+	s32 count;
+	s32 n;
+	s32 i;
+	s32 maxheader = 1;
+	s32 maxframe = 1;
+
+	if (!g_Anims || !table) {
+		return;
+	}
+
+	count = table[0];
+	rows = (const struct animtableentry *) &table[1];
+
+	// nothing may be overridden: its saved row is the old table's
+	if (g_AnimIsOverridden) {
+		for (i = 1; i < g_NumRomAnimations; i++) {
+			if (g_AnimIsOverridden[i]) {
+				sysLogPrintf(LOG_WARNING, "anim: %04x still overridden at a table swap; put back", i);
+				animOverride(i, -1);
+			}
+		}
+	}
+
+	// appended rows served out of the old segment: pointed at its bytes
+	for (i = g_AnimTableRows; i < g_NumRomAnimations; i++) {
+		if (g_RomAnims[i].data != 0xffffffff && oldseg != NULL) {
+			if (g_NumAnimRebased >= g_AnimRebasedCap) {
+				s32 cap = g_AnimRebasedCap ? g_AnimRebasedCap * 2 : 64;
+				struct animrebased *grown = realloc(g_AnimRebased, cap * sizeof(*grown));
+
+				if (!grown) {
+					continue;
+				}
+
+				g_AnimRebased = grown;
+				g_AnimRebasedCap = cap;
+			}
+
+			g_AnimRebased[g_NumAnimRebased].num = i;
+			g_AnimRebased[g_NumAnimRebased].ofs = g_RomAnims[i].data;
+			g_AnimRebased[g_NumAnimRebased].seg = oldseg;
+			g_AnimRebased[g_NumAnimRebased].repl = g_AnimReplacements[i];
+			g_NumAnimRebased++;
+
+			g_AnimReplacements[i] = oldseg + g_RomAnims[i].data;
+			g_RomAnims[i].data = 0xffffffff;
+		}
+	}
+
+	// and the ones made against the segment coming back given their offsets again
+	for (i = 0; i < g_NumAnimRebased; ) {
+		struct animrebased *r = &g_AnimRebased[i];
+
+		if (r->seg == newseg && g_RomAnims[r->num].data == 0xffffffff
+				&& g_AnimReplacements[r->num] == newseg + r->ofs) {
+			g_RomAnims[r->num].data = r->ofs;
+			g_AnimReplacements[r->num] = r->repl;
+			g_AnimRebased[i] = g_AnimRebased[--g_NumAnimRebased];
+		} else {
+			i++;
+		}
+	}
+
+	if (count != g_AnimTableRows) {
+		sysLogPrintf(LOG_WARNING, "anim: the new table has %d rows, the boot's %d%s", count, g_AnimTableRows,
+				count > g_AnimTableRows ? "; the rest are left out" : "; the rest are empty");
+	}
+
+	n = count < g_AnimTableRows ? count : g_AnimTableRows;
+
+	for (i = 0; i < g_AnimTableRows; i++) {
+		if (i < n) {
+			g_RomAnims[i] = rows[i];
+		} else {
+			bzero(&g_RomAnims[i], sizeof(g_RomAnims[i]));
+		}
+
+		// an animations/ replacement is read again for the row that names one
+		g_AnimReplacements[i] = NULL;
+
+		if (g_RomAnims[i].headerlen > maxheader) {
+			maxheader = g_RomAnims[i].headerlen;
+		}
+
+		if (g_RomAnims[i].bytesperframe > maxframe) {
+			maxframe = g_RomAnims[i].bytesperframe;
+		}
+	}
+
+	maxheader = ALIGN16(maxheader + 34);
+	maxframe = ALIGN16(maxframe + 34);
+
+	if (maxheader > g_AnimMaxHeaderLength || maxframe > g_AnimMaxBytesPerFrame) {
+		s32 framebytes;
+		u8 *slots;
+
+		if (maxheader < g_AnimMaxHeaderLength) {
+			maxheader = g_AnimMaxHeaderLength;
+		}
+
+		if (maxframe < g_AnimMaxBytesPerFrame) {
+			maxframe = g_AnimMaxBytesPerFrame;
+		}
+
+		framebytes = ALIGN64(ANIM_FRAME_CACHE_SIZE * maxframe);
+		slots = sysMemZeroAlloc(framebytes + ALIGN64(ANIM_HEADER_CACHE_SIZE * maxheader));
+
+		if (slots) {
+			// the boot's are in the permanent pool and stay there
+			g_AnimFrameByteSlots = slots;
+			g_AnimHeaderByteSlots = slots + framebytes;
+			g_AnimMaxHeaderLength = maxheader;
+			g_AnimMaxBytesPerFrame = maxframe;
+			sysLogPrintf(LOG_NOTE, "anim: slots grown to %d header and %d frame bytes", maxheader, maxframe);
+		}
+	}
+
+	g_Anims = g_RomAnims;
+	g_NumAnimations = g_NumRomAnimations;
+	g_AnimHostEnabled = false;
+	g_NextAnimFrameIndex = 0;
+	g_NextAnimHeaderIndex = 0;
+
+	animsInitTables();
+}
+
+s32 animsGetTableRows(void)
+{
+	return g_AnimTableRows;
 }
 #endif
 

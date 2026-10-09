@@ -206,9 +206,25 @@ s32 modDataRoomStage(s32 stockindex, s32 defid);
 // A stage id bgRenderScene() tests for its star field, as the mod's code has it
 s32 modDataBgStage(s32 def);
 
-// Rebuild the weapon definitions and model tables from that segment. Once per
-// run: what it allocates is never given back.
+// Rebuild the weapon definitions and model tables from that segment. A second
+// import undoes the first (modDataUnload()) before it starts.
 s32 modDataImport(const struct moddataspec *spec);
+// Undo modDataImport(): the tables it wrote that point at what it allocated go
+// back to the game's own, everything it allocated is freed, and its statics
+// (the player body/head, the constant tables) are reset. Safe when nothing was
+// imported. Between stages only: live chrs and guns hold weapon and AI list
+// pointers. modListSwap() runs it before modTablesRestore().
+void modDataUnload(void);
+// The game's own copies of the tables an import writes; taken once, at boot
+// (modListApplySelection()), and again harmlessly by every import.
+void modDataSnapshot(void);
+// Whether p is one of the objects the loaded mod's import allocated.
+s32 modDataOwnsObject(const void *p);
+// --mod-dump-data FILE: one hash a table, every table a mod's data or
+// modconfig can change (weapon definitions to their function and ammo bytes)
+void modDataDump(const char *path);
+// The TV screen command lists as the game has them, for the dump
+u32 **modTvScreenStock(s32 *count);
 
 /**
  * Another installed mod's definitions, read out of its data segment without
@@ -297,12 +313,21 @@ s32 modListSwap(s32 index);
 // The overlay swap itself, by path (NULL: none), without the selection or the
 // segments check: modmode.c's, around its segment swaps at a stage boundary
 s32 modSwapPath(const char *path);
-// Every non-audio ROM segment a mod ships, in at a stage boundary and back out
-// (wave 1, feat/pdmods-segs)
-void modSegsEnter(const char *moddir);
-void modSegsLeave(void);
+// The same in two halves, for modmode.c's segment swaps between them: the
+// files, slots and tables, then what reads the segments (the borrowed guns
+// judge their animations against the table as it is)
+void modSwapFiles(const char *path);
+void modSwapFinish(void);
 s32 modListIndexOf(const char *name); // the installed mod of this name, or -1
-s32 modListHasSegs(s32 index);       // index's (or -1, the loaded mod's) segs/: a swap to or from it restarts
+s32 modListHasSegs(s32 index);       // index's (or -1, the loaded mod's) boot segments: a swap to or from it restarts
+// Whether the mod at path ships a ROM segment (a file in segs/ named like one
+// of romdata's segments). segs/data and segs/data.names are not: moddata reads
+// those into the heap, and a mod with only them swaps live.
+s32 modDirHasBootSegs(const char *path);
+// --mod-data-swap A[,B...]: boot stock, then swap to each in turn (none = no
+// mod) the way Load Mods does, before the first stage. Test only: a mod with
+// boot segments is swapped for its data and modconfig half alone.
+void modDataSwapFromCommandLine(void);
 
 // The Stage Loader: every installed mod's maps as extra Combat Simulator
 // arenas, each mod mounted for its maps alone beside the mod loaded (fs.h,

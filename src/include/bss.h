@@ -268,6 +268,11 @@ extern uintptr_t *g_LangBanks[NUM_LANGBANKS];
 extern struct jpncharpixels *g_JpnCharCachePixels;
 extern struct jpncacheitem *g_JpnCacheCacheItems;
 extern struct texture *g_Textures;
+#ifndef PLATFORM_N64
+extern s32 g_NumListTextures; // texinit.c: what g_Textures describes
+#else
+#define g_NumListTextures NUM_TEXTURES
+#endif
 extern struct texpool g_TexSharedPool;
 extern struct texcacheitem g_TexCacheItems[150];
 extern s32 g_TexCacheCount;

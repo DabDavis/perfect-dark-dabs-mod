@@ -226,3 +226,29 @@ void admaReceiveAll(void)
 		}
 	}
 }
+
+#ifndef PLATFORM_N64
+/**
+ * Hands every buffered sample back to the free list. Items are keyed by the
+ * sample's host address, so after a bank swap (modaudio.c) a new sample table
+ * allocated where a freed one was would otherwise be read out of the old one's
+ * bytes for the two frames an item lives.
+ */
+void admaFlush(void)
+{
+	while (g_AdmaState.firstused) {
+		struct admaitem *item = g_AdmaState.firstused;
+
+		g_AdmaState.firstused = (struct admaitem *) item->node.next;
+		alUnlink(&item->node);
+
+		if (g_AdmaState.firstfree) {
+			alLink(&item->node, &g_AdmaState.firstfree->node);
+		} else {
+			g_AdmaState.firstfree = item;
+			item->node.next = NULL;
+			item->node.prev = NULL;
+		}
+	}
+}
+#endif

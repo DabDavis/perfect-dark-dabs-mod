@@ -56,6 +56,16 @@ u8 *romdataSegGetDataEnd(const char *segName);
 u32 romdataSegGetSize(const char *segName);
 // False when the segment came from a file (a mod's segs/) rather than the ROM
 s32 romdataSegIsStock(const char *segName);
+// Points segment segname at another copy of it - a mod's segs/ file at path,
+// or the ROM's own when path is NULL - prepared as the boot prepares one and
+// kept for the next swap to it. Only the segment (romSegs and its start/end
+// globals); what the game built from it is modsegs.c's. Between stages only.
+// 1 swapped, 0 already that copy, -1 failed (nothing changed).
+s32 romdataSegSwap(const char *segname, const char *path);
+// True while segment segname is the copy the boot chose
+s32 romdataSegIsBoot(const char *segname);
+// The ROM's own copy of segment segname, preprocessed, whichever is current
+const u8 *romdataSegGetRomData(const char *segname, u32 *outSize);
 u32 romdataFileGetEstimatedSize(const u32 size, const u32 loadtype);
 
 s32 romdataCheckGbcRom(void);

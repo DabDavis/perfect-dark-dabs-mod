@@ -16,6 +16,7 @@
 #include "getexshrink.h"
 #include "platform.h"
 #include "texpack.h"
+#include "modsegs.h"
 
 // The texture loading now came out of a GoldenEye ROM's conversion, and makes
 // any levels of detail its data leaves out as GoldenEye does (getexshrink.c)
@@ -2319,12 +2320,20 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 #endif
 			{
 #ifndef PLATFORM_N64
-				modart = TEXPACK_ART_ROM;
-#endif
+				// a mod's segment's texture that is not the ROM's own under
+				// that number is the mod's art (modsegs.c)
+				modart = modSegsTexArtIsRom(g_TexNumToLoad) ? TEXPACK_ART_ROM : TEXPACK_ART_MOD;
 
+				// as many as the list describes: a mod's can be longer (Total
+				// Darkness's 3534)
+				if (g_TexNumToLoad >= g_NumListTextures) {
+					return;
+				}
+#else
 				if (g_TexNumToLoad >= NUM_TEXTURES) {
 					return;
 				}
+#endif
 
 				thisoffset = g_Textures[g_TexNumToLoad].dataoffset;
 				nextoffset = g_Textures[g_TexNumToLoad + 1].dataoffset;

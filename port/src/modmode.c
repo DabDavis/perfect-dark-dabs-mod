@@ -43,6 +43,7 @@
 #include "mod.h"
 #include "modmode.h"
 #include "modaudio.h"
+#include "modsegs.h"
 #include "modloader.h"
 #include "gexfront.h"
 #include "system.h"
@@ -50,6 +51,10 @@
 #include "net/netlobby.h"
 #include "game/mplayer/setup.h"
 #include "game/menu.h"
+#include "game/pak.h"
+#include "game/bossfile.h"
+#include "game/gamefile.h"
+#include "mpsetups.h"
 #include "constants.h"
 #include "bss.h"
 
@@ -151,13 +156,33 @@ static s32 modModeQueue(const char *path, const char *name, s32 atnextstage)
 	return true;
 }
 
+// The installed mod's own path for a relative one ("mods/X", or a bare name):
+// the list's is the full path every reader (segments, the save) expects, and
+// the prepared segment copies are cached by it. "$N/" memory folders and full
+// paths are taken as they are.
+static const char *modModeCanonicalPath(const char *path)
+{
+	const char *base;
+	s32 index;
+
+	if (!path || path[0] == '$' || fsPathIsAbsolute(path)) {
+		return path;
+	}
+
+	base = strrchr(path, '/');
+	base = base ? base + 1 : path;
+	index = modListIndexOf(base);
+
+	return index >= 0 ? modListGetPath(index) : path;
+}
+
 s32 modModeRequestEnter(const char *path, const char *name)
 {
 	if (!path || !path[0]) {
 		return false;
 	}
 
-	return modModeQueue(path, name, false);
+	return modModeQueue(modModeCanonicalPath(path), name, false);
 }
 
 s32 modModeRequestLeave(void)
@@ -167,7 +192,7 @@ s32 modModeRequestLeave(void)
 
 s32 modModeRequestAtNextStage(const char *path, const char *name)
 {
-	return modModeQueue(path, name, true);
+	return modModeQueue(path && path[0] ? modModeCanonicalPath(path) : NULL, name, true);
 }
 
 s32 modModeIsPending(void)
@@ -199,6 +224,105 @@ void modModeTick(void)
 	}
 }
 
+/* ---- a save of the mod's own ------------------------------------------- */
+
+extern void osEepromSwitchFile(const char *path);
+extern const char *osEepromDefaultFile(void);
+
+#define MODMODE_SAVES_DIR "$S/modsaves"
+
+static void modModeCopyFile(const char *from, const char *to)
+{
+	u32 len = 0;
+	u8 *data;
+	FILE *f;
+
+	if (fsFileSize(from) <= 0 || !(data = fsFileLoad(from, &len))) {
+		return; // nothing saved yet: the mod's save starts fresh, as the game's did
+	}
+
+	if ((f = fsFileOpenWrite(to)) != NULL) {
+		fwrite(data, 1, len, f);
+		fsFileFree(f);
+	} else {
+		sysLogPrintf(LOG_ERROR, "modmode: could not write %s", fsFullPath(to));
+	}
+
+	sysMemFree(data);
+}
+
+/**
+ * The owner, 2026-10-09: a separate save per mod, the first one a copy of the
+ * player's own ("Copy of PD save, then separate"). A mod's missions are filed
+ * under Perfect Dark's mission numbers in the agent's game file, and its
+ * saved Combat Simulator setups name the mod's arenas and weapons, so both
+ * the eeprom and mpsetups.bin are the mod's own while it is entered:
+ * $S/modsaves/<mod>/. The first entry copies the player's; from then on the
+ * two never touch. Then the eeprom's files are read again and the agent who
+ * was playing is loaded from the mod's copy (same file id: the copy kept it);
+ * an agent made since the mod's save was started is not in it, and the
+ * Institute then opens the agent select over it.
+ *
+ * Returns false when no agent could be loaded (the file select comes up).
+ */
+static s32 modModeSwitchSave(const char *name)
+{
+	char dir[FS_MAXPATH + 1];
+	char eeprom[FS_MAXPATH + 1];
+	char setups[FS_MAXPATH + 1];
+	const struct fileguid guid = g_GameFileGuid;
+	s32 device;
+
+	if (name && name[0]) {
+		snprintf(dir, sizeof(dir), MODMODE_SAVES_DIR "/%s", name);
+		snprintf(eeprom, sizeof(eeprom), "%s/eeprom.bin", dir);
+		snprintf(setups, sizeof(setups), "%s/mpsetups.bin", dir);
+
+		if (fsFileSize(MODMODE_SAVES_DIR) < 0) {
+			fsCreateDir(MODMODE_SAVES_DIR);
+		}
+
+		if (fsFileSize(dir) < 0) {
+			fsCreateDir(dir);
+		}
+
+		if (fsFileSize(eeprom) < 0) {
+			modModeCopyFile(osEepromDefaultFile(), eeprom);
+			modModeCopyFile(mpsetupDefaultFile(), setups);
+			sysLogPrintf(LOG_NOTE, "modmode: %s's save starts as a copy of the player's own", name);
+		}
+
+		osEepromSwitchFile(eeprom);
+		mpsetupSwitchFile(setups);
+	} else {
+		osEepromSwitchFile(NULL);
+		mpsetupSwitchFile(NULL);
+	}
+
+	// the eeprom's files, read again from the file it now stands for
+	pak0f1169c8(SAVEDEVICE_GAMEPAK, true);
+	bossfileLoadFull();
+
+	if (guid.deviceserial == 0) {
+		return true; // no agent chosen yet: the file select does it
+	}
+
+	device = pakFindBySerial(guid.deviceserial);
+	g_GameFileGuid = guid;
+
+	if (device >= 0 && gamefileLoad(device) == 0) {
+		return true;
+	}
+
+	sysLogPrintf(LOG_NOTE, "modmode: the agent is not in %s's save; choosing one", name && name[0] ? name : "Perfect Dark's");
+	gamefileLoadDefaults(&g_GameFile);
+	gamefileApplyOptions(&g_GameFile);
+	g_GameFileGuid.deviceserial = 0;
+	g_FileState = FILESTATE_UNSELECTED;
+
+	return false;
+}
+
 void modModeStageBoundary(void)
 {
 	// online the host's stage may come before the sound has drained: the
@@ -216,20 +340,34 @@ void modModeStageBoundary(void)
 		modAudioLeave();
 	}
 
-	// files, file slots, stage tables, modconfig, the data segment
-	modSwapPath(entering ? s_NextPath : NULL);
+	// files, file slots, stage tables, modconfig, the data segment; the
+	// files are mounted before the segments since a mod's animations/
+	// directory is read through them
+	modSwapFiles(entering ? s_NextPath : NULL);
 
 	if (entering) {
 		modSegsEnter(s_NextPath);
 		modAudioEnter(s_NextPath);
 	}
 
+	// what reads the segments: the borrowed guns judge their animations
+	// against the table as it now is
+	modSwapFinish();
+
 	memcpy(s_Path, s_NextPath, sizeof(s_Path));
 	memcpy(s_Name, s_NextName, sizeof(s_Name));
 	s_NextPath[0] = '\0';
 	s_NextName[0] = '\0';
 	s_State = MODMODE_IDLE;
-	s_WantsMenu = !s_AtNextStage;
+	// the mod's own save, or the player's back (an agent that is not there:
+	// the Institute's file select instead of the Perfect Menu). Not for a
+	// mod followed online (netcontent.c): the save stays the one the player
+	// joined with for the whole session - a switch at a STAGE_LOAD would
+	// reread the eeprom and apply its options and volumes in the middle of
+	// the session, under the RULES netrules.c saved and puts back
+	const s32 haveagent = s_AtNextStage ? true : modModeSwitchSave(entering ? s_Name : NULL);
+
+	s_WantsMenu = !s_AtNextStage && haveagent;
 
 	sysLogPrintf(LOG_NOTE, "modmode: %s%s", entering ? "entered " : "back to Perfect Dark", entering ? s_Name : "");
 
