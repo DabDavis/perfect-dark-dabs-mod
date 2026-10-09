@@ -1030,11 +1030,18 @@ nothing is ever sent from one machine to another but names and hashes.
   held behind a lost datagram is not refused (the host keeps 256 KB a peer),
   and `netContentServeTick` sends by a byte rate (every serve together,
   shared by a credit each, small files many to a pass) rather than two parts
-  a pass: it starts at 2 MB/s, grows by a quarter every 200 ms while the
-  serves use all of it, up to 12 MB/s, and is cut by a quarter whenever
-  any connected peer's smoothed round trip is 40 ms over the lowest seen
-  for it (the host's uplink queueing, which the players' snapshots share;
-  "serving at N KB/s" in the log). GoldenEye Arenas now 2.45 s at 120 ms,
+  a pass: it starts at 2 MB/s and, every 200 ms while the serves use all
+  of it, grows by a quarter (no peer's smoothed round trip over its lowest
+  by 10 ms) or an eighth (under 20 ms), up to 12 MB/s; any connected
+  peer's 40 ms over its lowest (the host's uplink queueing, which the
+  players' snapshots share) cuts it by a quarter and holds it for that
+  round trip ("serving at N KB/s" in the log); and what ENet may hold for a
+  peer is its share of the rate for its lowest round trip plus 40 ms, so
+  a cut shortens the link's queue too. Through a 1 MB/s bottleneck
+  (`--net-sim 0,60,0,1024`) a late joiner fetched in 20.7 s with its own
+  round trip 0-40 ms over its lowest in the 5 s summaries (the first cut,
+  with 2 MB held and growth by a quarter, ran it 870 ms over), and the
+  playing client's snapshots stayed 150 a 300 ticks, its round trip 126 ms. GoldenEye Arenas now 2.45 s at 120 ms,
   2.6 s with 1% loss, the Goldfinger 64 room 6.1 s (`build/cspeed.sh`,
   `build/cslate.sh` in the contentspeed worktree, not kept: a host and a
   modless guest with `--net-sim` on both). What limits it now: the rate
