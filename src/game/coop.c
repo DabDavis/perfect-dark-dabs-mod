@@ -225,6 +225,22 @@ static s32 coopNextInTurn(struct chrdata *chr, s32 nearest)
 	return nearest;
 }
 
+s32 coopNextLivingAfter(s32 playernum)
+{
+	const s32 from = playernum >= 0 && playernum < MAX_PLAYERS ? playernum : MAX_PLAYERS - 1;
+	s32 i;
+
+	for (i = 1; i <= MAX_PLAYERS; i++) {
+		const s32 next = (from + i) % MAX_PLAYERS;
+
+		if (coopPlayerTargetable(next)) {
+			return next;
+		}
+	}
+
+	return playernum;
+}
+
 /**
  * The guard lists' chr_toggle_p1p2 turns a guard to "the other player" and
  * often straight back: switch, test the new one, switch again. At two players
@@ -242,6 +258,15 @@ s32 coopToggleP1P2(struct chrdata *chr)
 		const s32 other = coopOtherPlayerNum(chr->p1p2);
 
 		return coopPlayerAlive(other) ? other : chr->p1p2;
+	}
+
+	if (!chr->prop) {
+		// a stage's background list (g_BgChrs: no prop, so nothing is
+		// nearest it) asks each living player in turn, as it asks both at
+		// two: A51 Escape's hangar check (if_chr_in_room on CHR_P1P2) had
+		// stayed on player 0 for ever, and on a dead open seat once player
+		// 0's death handed the list to it (F3 20261009-160132)
+		return coopNextLivingAfter(chr->p1p2);
 	}
 
 	nearest = coopNearestPlayerNum(chr, -1);
