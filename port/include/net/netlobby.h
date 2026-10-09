@@ -162,6 +162,8 @@ void netLobbySignInAgain(void);    // and once more (the page opened again)
 void netLobbyWarm(void);           // the Online Game page opened: hash off the frame
 void netLobbyCancelPending(void);  // the create/join page closed before the reply
 s32 netLobbyLaunchState(void);       // 0 open, 1 counting down, 2 launched/connecting, 3 in the match, 4 the host went: a new one taking the match over
+s32 netLobbyLaunchEnded(void);       // a member: its session for this launch ended for good (refused, left)
+const char *netLobbyLaunchEndedText(void); // why
 s32 netLobbyCampaignState(void);     // a launched campaign room: 1 its host, 2 a member in with the host, 3 connecting; else 0
 s32 netLobbyCountdownMs(void);       // the launch countdown left, -1 if none
 

@@ -73,17 +73,21 @@
 #           shield in the active list with chr 10's held things running
 #           through it: a crash within a second, the co-op Defection crashes
 #           of 2026-10-09).
+#   nomodroom  a Perfect Dark campaign room whose host plays with a mod the
+#           guest lacks (F3 20261009-070735): the guest leaves NOMOD, its
+#           Game Lobby's status line says why (not "connecting to the
+#           host"), and it does not connect to the same launch again.
 #
 #   netcooptest.sh [BIN]   BIN a file name in build/ (pd.x86_64) or a path
 #
-# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo),
+# Env: OUT (build/netcoop-out), PORT (27600), CASES (pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom),
 # FRAMES (twelve's client frames, 2700), MODDIR (mod_allinone, the lobby case).
 # Exit status: 0 all good, 1 a check failed, 2 a run failed to start.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netcoop-out}; PORT=${PORT:-27600}
-CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo}
+CASES=${CASES:-pair twelve lobby ge campaign geend camproom death endjoin letgo nomodroom}
 FRAMES=${FRAMES:-2700}
 MODDIR=${MODDIR:-mod_allinone}
 BIN=${1:-pd.x86_64}
@@ -866,6 +870,80 @@ case_endjoin() {
 		|| fail "$name: the returning joiner is not in the next mission"
 }
 
+# ---------------------------------------------------------------- nomodroom
+# A campaign room's guest without the host's mod (F3 20261009-070735: the
+# guest left at once [nomod], and its Game Lobby went on saying "Launched:
+# connecting to the host..." with no word of why). The host launches a
+# Perfect Dark campaign room alone with a mod loaded (an empty --moddir, as
+# netcontenttest's modmissing); a guest without it joins: it must leave
+# NOMOD, its room's status line must say why, and it must not connect again
+# to the same launch.
+cat > "$OUT/nomodroom.gdb" <<'GDB'
+break netLobbyTick
+continue
+delete
+GDB
+cat > "$OUT/nomodroom-status.py" <<'PY'
+import gdb
+st = int(gdb.parse_and_eval("netLobbyLaunchState()"))
+try:
+    line = gdb.parse_and_eval("textRoomStatus((struct menuitem *)0)").string()
+except Exception as e:
+    line = "(textRoomStatus: %s)" % e
+print("STAGE nomodroom: launch state %d, status line: %s" % (st, " ".join(line.split())))
+PY
+
+case_nomodroom() {
+	local name=nomodroom port=$((PORT + 9)) L=$OUT/nomodroom-pdlobbyd.log H=$OUT/nomodroom-host.log J=$OUT/nomodroom-join.log
+	echo "== $name"
+	mkdir -p "$OUT/mod_nomodroom/files"
+	python3 -u "$ROOT/tools/pdlobbyd/pdlobbyd.py" --host 127.0.0.1 --port 0 --udp-host 127.0.0.1 --udp-port 0 --auth open --relay-ports 0 \
+		> "$L" 2>&1 &
+	local lobby=$!
+	if ! waitfor "$L" "pdlobbyd listening on" 20; then
+		fail "$name: pdlobbyd did not start"; kill $lobby 2>/dev/null; return
+	fi
+	local lport; lport=$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$L" | head -1)
+	game nomodroom-host 240 "[Mod]\nGhostUser=modhost\nGhostPin=1234\n[Net]\nLobbyServer=http://127.0.0.1:$lport\nPort=$port\nJoinInProgress=1\n" \
+		--moddir "$OUT/mod_nomodroom" --net-lobby-script host --net-lobby-room "Nomod Test" --net-lobby-campaign pd --net-lobby-solo \
+		--net-test-sims 0 --skip-cutscenes --rng-seed 7 &
+	local host=$!
+	local join="" jp st=""
+	if ! waitfor "$H" "net: co-op: the Perfect Dark campaign begins" 90; then
+		fail "$name: no campaign on the host"
+	else
+		game nomodroom-join 200 "[Mod]\nGhostUser=modless\nGhostPin=1234\nModDir=\nMapMods=\n[Net]\nLobbyServer=http://127.0.0.1:$lport\n" \
+			--net-lobby-script join --net-lobby-room "Nomod Test" --net-lobby-leave-frame 0 &
+		join=$!
+		waitfor "$J" "net: session ended \[nomod\]" 90 || echo "     the joiner's session did not end [nomod]"
+		sleep 2
+		jp=$(gamepid nomodroom-join)
+		if [ -n "$jp" ]; then
+			timeout 40 gdb -p "$jp" -batch -x "$OUT/nomodroom.gdb" -ex "call (void)netLobbyMenuPushRoom()" >> "$OUT/nomodroom-gdb.log" 2>&1
+			sleep 3
+			jp=$(gamepid nomodroom-join)
+			[ -n "$jp" ] && st=$(timeout 40 gdb -p "$jp" -batch -x "$OUT/nomodroom.gdb" -x "$OUT/nomodroom-status.py" -ex "call (void)screenshotRequest()" \
+				2>>"$OUT/nomodroom-gdb.log" | tee -a "$OUT/nomodroom-gdb.log" | grep "^STAGE")
+			echo "$st" | tee -a "$OUT/stage.log" | sed 's/^/     join: /'
+		fi
+		sleep 15
+	fi
+	jp=$(gamepid nomodroom-join); [ -n "$jp" ] && kill -TERM "$jp"
+	[ -n "$join" ] && wait $join
+	local hp; hp=$(gamepid nomodroom-host); [ -n "$hp" ] && kill -TERM "$hp"
+	wait $host
+	kill $lobby 2>/dev/null; wait $lobby 2>/dev/null
+	crashed "$H" && fail "$name: the host crashed"; crashed "$J" && fail "$name: the joiner crashed"
+	grep -q "net: content: leaving \[nomod mod_nomodroom\]" "$J" && pass "$name: the joiner left NOMOD naming the host's mod" \
+		|| fail "$name: $(grep -E 'net: (content: leaving|session ended)' "$J" | head -2 | tr '\n' ';')"
+	echo "$st" | grep -q "status line: The host plays with the mod mod_nomodroom, which is not installed here" \
+		&& pass "$name: the Game Lobby says why" || fail "$name: the Game Lobby's status: ${st:-none}"
+	echo "$st" | grep -qi "connecting to the host" && fail "$name: the Game Lobby still says it is connecting"
+	local n; n=$(grep -c "lobby: room [0-9a-f]* launched; connecting to" "$J")
+	[ "$n" = 1 ] && pass "$name: connected once to the launch, not again" || fail "$name: $n connects to the launch"
+	ls "$OUT"/save-nomodroom-join/screenshots/*.png >/dev/null 2>&1 && echo "     shot: $(ls "$OUT"/save-nomodroom-join/screenshots/*.png | tail -1)"
+}
+
 {
 for c in $CASES; do
 	case $c in
@@ -879,6 +957,7 @@ for c in $CASES; do
 		death) case_death ;;
 		endjoin) case_endjoin ;;
 		letgo) case_letgo ;;
+		nomodroom) case_nomodroom ;;
 		*) fail "unknown case $c" ;;
 	esac
 done

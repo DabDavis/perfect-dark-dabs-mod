@@ -220,7 +220,7 @@ Run them **one at a time** (they share the GPU and loopback ports) with
 | `netjointest.sh` | 5.5 min | join in progress, a spectator, reconnect and its hold running out |
 | `netchattest.sh` | 4.5 min | protocol 18: chat on every machine in order, the host's burst limit (5 of 7, the sender alone told), the notices of a join in progress (with "3/4"), a spectator, a drop, a return within the hold, a hold running out and a spectator gone, a client's first PLAYERS, the host's pause Control page and Players page, screenshots of the feed, panel and open line |
 | `netwidetest.sh` | 2 min | phase 8: a host and eleven clients (twelve games at once, alone), every slot 1-11 walks from its own commands; a room of two refuses a third |
-| `netcooptest.sh` | 19.5 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2, camproom 1.5, death 1.5, endjoin 4) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection (eleven: stacked on one spot): the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, on the host's spot, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder; camproom: a GoldenEye campaign room on a local pdlobbyd launched by its host alone, Dam started from the folder and aborted, the room still launched, a newcomer connecting between missions and taken into Facility; death: Mission Respawn off on a GoldenEye campaign's Dam with two seats open, the client killed (no respawn offered, out to watch the host's player), then the host killed (the mission lost, GoldenEye's replay three times on the host, the end after it, both on the report, killed); endjoin: a Perfect Dark campaign room, a joiner refused STARTED past 30 tries through a held barrier (gdb) and in once it lets go, its game killed, the host's death losing Defection, its game back while the host's end screen stays up (`--net-lobby-keep-endscreen`): taken at once for the next mission and in it; the pair's respawn runs with Mission Respawn on |
+| `netcooptest.sh` | 19.5 min (pair 4.5, twelve 2, lobby 1.2, ge 1.5, campaign 1.5, geend 2, camproom 1.5, death 1.5, endjoin 4, nomodroom 0.7) | online co-op (spec-coop.md; ge: GoldenEye's Dam as a co-op mission, the client mounting the conversion on demand and taking the set from RULES): a host and one, four and eleven clients on Defection (eleven: stacked on one spot): the host's mission in RULES, every client loads and passes GO, the opening cutscene starts and ends on a client at the host's clock, the guards are posed from SETUPCHR records, prediction matches after the opening, a client's death and START respawn, the host's abort reaching every end screen and every client back in the menus; a lobby room created as a co-op mission; campaign: a GoldenEye campaign host starting Dam alone from its folder, the opening ending on its own player, a client joining in progress with no opening, on the host's spot, predicting at 95% or better; geend: Dam's own ending kicked on a campaign host with a client in, the client taking the host's outro shot and fades, its START skipping the outro on the host, both screens fading, each machine on GoldenEye's REPORT page for its own player (the client's kills the host's), no PD end screen, the client's NEXTs closing its folder; camproom: a GoldenEye campaign room on a local pdlobbyd launched by its host alone, Dam started from the folder and aborted, the room still launched, a newcomer connecting between missions and taken into Facility; death: Mission Respawn off on a GoldenEye campaign's Dam with two seats open, the client killed (no respawn offered, out to watch the host's player), then the host killed (the mission lost, GoldenEye's replay three times on the host, the end after it, both on the report, killed); endjoin: a Perfect Dark campaign room, a joiner refused STARTED past 30 tries through a held barrier (gdb) and in once it lets go, its game killed, the host's death losing Defection, its game back while the host's end screen stays up (`--net-lobby-keep-endscreen`): taken at once for the next mission and in it; nomodroom: a Perfect Dark campaign room whose host has a mod the guest lacks, the guest's Game Lobby status line giving the NOMOD reason (not "connecting") and one connect only; the pair's respawn runs with Mission Respawn on |
 | `netmigratetest.sh` | 8 min (quit 1.5, crash 1.7, lobby 1.5, coop 1.6, served 1.7) | host migration (protocol 21): a host and two joiners per case, a lobby of its own each. quit: the host quits mid-match on 0x32 (two sims, three kills given to a seat): a joiner takes the room over, the other reconnects with a new ticket and its RESUME, the match carries on (clock within 4 s of the old host's, the kill table, every living record's life back at its place); crash: the same with the host gone as a crash is (the joiners' `hostlost` move the room on); lobby: the host leaves between matches, the room stays open under a joiner who plays the next match with the other on the room's arena; coop: Defection, the mission starts again under the new host; served: a GoldenEye arena whose joiner has nothing installed, hosted after the host quits from the served copy and served on to a newcomer |
 | `nettwelvetest.sh` | 6.5 min | phase 8: a `--dedicated` host and 2, 4, 8 and 12 clients (`COUNTS`) with six sims in a one-minute match: every slot plays, the last opens and shuts its pause menu with its pad's START (commands neutral meanwhile, the host playing on and playing it neutral), every name with its newline, reaches the end screen and leaves it; kill tables equal the host's at every sample and at MATCH_END; snapshot bytes and ENet's per-client rates measured against a budget, and printed as a table per player count |
 
@@ -1720,6 +1720,36 @@ we make this easier for players abroad, so anyone can play anyone".
   keeps one launch through every mission, so the 30-try cap had shut such a
   player out until it left the room and joined again. Gate: netcooptest
   `endjoin`.
+
+- **A refusal said in the room (2026-10-09, F3 20261009-070735).** A guest
+  without the host's mod (PerfectBear) joined a launched Perfect Dark
+  campaign room, left at once [nomod], and its Game Lobby said "Launched:
+  connecting to the host..." for good: `lobbyClientTick` had put the
+  reason in `s_MainMessage`, but the status line shows that only for an
+  open room. Now every end other than the two retried ones (STARTED, every
+  address unanswered) marks the launch ended here (`s_LaunchEndedAt`:
+  nomod, build, protocol, content, must, ticket, full, the player's own
+  leaving - "You left the game. Leave the room and join it again to play
+  on."), keeps the reason apart (`s_LaunchEndedText`: the room page's
+  MENUOP_OPEN clears `s_MainMessage`, and the main menu's notice dialog
+  could take `g_NetNoticePending` first, so the text is read from
+  `netSessionNoticeText()` whatever the flag), and `netLobbyLaunchEnded()`
+  puts it in the status line, wrapped (`textWrapN`, 270 wide: one line cut
+  it off mid-sentence), in place of "connecting" until the room launches
+  anew, the player is in, or joins it again. Nothing reconnects to that launch (it never did:
+  `s_LaunchHandled` stays the launch; only STARTED and unreached retry).
+  Gate: netcooptest `nomodroom` (a host with an empty `--moddir`, a guest
+  with none; gdb reads `textRoomStatus` and shoots the room).
+  Serving the overlay mod itself was looked at and not built: 88 of the 94
+  non-conversion dirs in the main tree's mods/ are imported console patches
+  with `segs/` (the data segment at least), which load only at a start, so
+  a served copy would have to be written to the guest's disk and the game
+  restarted - a new design against "the share is without distributing". A
+  files-only (native format) overlay could be served like a map dir
+  (CONTENT_REQ at ACCEPT/RULES time rather than STAGE_LOAD, a
+  `modListSwap` to a `$N/` path), but `fsFileLoadTo` (the overlay's and a
+  stage mod's `textures/`) and the `stat` dir tests do not read memory
+  dirs yet.
 
 ## The online HUD (protocol 18, 2026-10-08)
 
