@@ -77,6 +77,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "mod.h"
 #include "record.h"
 #include "texpack.h"
 #include "assetdump.h"
@@ -307,6 +308,14 @@ void mainProc(void)
 	// game's own tables exist; then the guns' lists and models are refreshed
 	modBorrowCommit();
 	gebeanPoolRefresh();
+
+	// Test aids for a mod entered live, with the game up as the menu has it:
+	// --mod-data-swap swaps as Load Mods does, --mod-dump-data hashes every
+	// table a mod's data and modconfig change
+	modDataSwapFromCommandLine();
+	if (sysArgGetString("--mod-dump-data")) {
+		modDataDump(sysArgGetString("--mod-dump-data"));
+	}
 
 	while (true) {
 		mainLoop();
