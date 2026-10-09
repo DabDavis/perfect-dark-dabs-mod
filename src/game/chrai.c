@@ -1095,3 +1095,10 @@ u32 chraiGetAilistLength(u8* list)
 
 	return (u32)(cmd - list);
 }
+
+// The mod command length table and its size (moddata.c's --mod-dump-data)
+const u16 *chraiGetModCommandLengths(s32 *count)
+{
+	*count = ARRAYCOUNT(g_CommandLengths);
+	return chraiModCommandLength;
+}

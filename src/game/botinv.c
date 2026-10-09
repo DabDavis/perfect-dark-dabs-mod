@@ -22,7 +22,10 @@
 struct aibotweaponpreference g_GeAibotWeaponPreferences[NUM_GE_WEAPONS];
 #endif
 
-struct aibotweaponpreference g_AibotWeaponPreferences[] = {
+// Room past the stock 94 rows: a ROM keeps a row for every weapon number, two
+// past this port's last (All Solos in Multi's list is 96), and a mod's import
+// fills the table from its own (moddata.c). Rows past the stock list are zero.
+struct aibotweaponpreference g_AibotWeaponPreferences[BOTINV_MAX_WEAPONPREFS] = {
 	//                             haspriammogoal
 	//                             |  hassecammogoal
 	//                             |  |  pridistconfig
@@ -153,7 +156,7 @@ struct aibotweaponpreference g_AibotWeaponPreferences[] = {
 
 s32 botinvGetNumWeaponPreferences(void)
 {
-	return ARRAYCOUNT(g_AibotWeaponPreferences);
+	return BOTINV_MAX_WEAPONPREFS;
 }
 
 /**

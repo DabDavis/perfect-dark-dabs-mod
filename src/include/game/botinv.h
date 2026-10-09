@@ -28,6 +28,7 @@ void botinvDropAll(struct chrdata *chr, u32 weaponnum);
 void botinvDropOne(struct chrdata *chr, u32 weaponnum);
 
 
+#define BOTINV_MAX_WEAPONPREFS 128
 s32 botinvGetNumWeaponPreferences(void);
 
 #endif

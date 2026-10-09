@@ -47,6 +47,11 @@
 #include "game/hudmsg.h"
 #include "game/botinv.h"
 #include "game/bondgun.h"
+#include "game/body.h"
+#include "game/menu.h"
+#include <stdio.h>
+
+extern void chraiClearModCommandLengths(void);
 
 #define GUNCMD_MAX_LEN     512
 #define GUNVISCMD_MAX_LEN  256
@@ -79,6 +84,7 @@ struct modseg {
 	u32 len;
 	u32 base;
 	char **names;    // mod file id -> name, from segs/data.names
+	char *namestext; // what names[] point into
 	s32 numnames;
 	s32 *fileids;    // mod file id -> port file id, resolved on first use (-2 = not yet)
 	s32 badreads;
@@ -86,6 +92,20 @@ struct modseg {
 };
 
 static struct modseg seg;
+
+// Which of the game's tables the import wrote, for modDataUnload() to put back
+#define WRITTEN_WEAPONS     0x0001
+#define WRITTEN_ENVS        0x0002
+#define WRITTEN_CMDLENGTHS  0x0004
+#define WRITTEN_STAGETRACKS 0x0008
+#define WRITTEN_AMMOTYPES   0x0010
+#define WRITTEN_EXPLOSIONS  0x0020
+#define WRITTEN_AUTOSWITCH  0x0040
+#define WRITTEN_BOTPREFS    0x0080
+#define WRITTEN_HUDMSGS     0x0100
+#define WRITTEN_AILISTS     0x0200
+#define WRITTEN_GUARDHEADS  0x0400
+static u32 written;
 
 // --moddata-trace: one log line per imported slot and Combat Simulator entry
 static bool modDataTrace;
@@ -193,9 +213,54 @@ static void memoPut(u32 addr, void *ptr)
 	++numMemo;
 }
 
-static void *newobj(u32 size)
+/*
+ * Everything the loaded mod's import allocates is listed here, so
+ * modDataUnload() can give it back. A borrow's objects (modborrow.c) are not:
+ * they belong to the borrow and outlive it.
+ */
+static void **ownAllocs;
+static s32 numOwnAllocs;
+static s32 maxOwnAllocs;
+
+static void *ownAlloc(u32 size)
 {
 	void *p = sysMemZeroAlloc(size);
+
+	if (!p || borrowing) {
+		return p;
+	}
+
+	if (numOwnAllocs == maxOwnAllocs) {
+		s32 newmax = maxOwnAllocs ? maxOwnAllocs * 2 : 1024;
+		void **grown = sysMemAlloc(sizeof(void *) * newmax);
+		if (!grown) {
+			return p; // kept, and never given back
+		}
+		if (ownAllocs) {
+			memcpy(grown, ownAllocs, sizeof(void *) * numOwnAllocs);
+			sysMemFree(ownAllocs);
+		}
+		ownAllocs = grown;
+		maxOwnAllocs = newmax;
+	}
+
+	ownAllocs[numOwnAllocs++] = p;
+	return p;
+}
+
+s32 modDataOwnsObject(const void *p)
+{
+	for (s32 i = 0; p && i < numOwnAllocs; ++i) {
+		if (ownAllocs[i] == p) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void *newobj(u32 size)
+{
+	void *p = ownAlloc(size);
 	if (p) {
 		++numObjects;
 	}
@@ -1296,7 +1361,7 @@ static struct sun *importSuns(u32 addr, s32 num)
 		return NULL;
 	}
 
-	suns = sysMemZeroAlloc(sizeof(struct sun) * num);
+	suns = ownAlloc(sizeof(struct sun) * num);
 
 	if (!suns) {
 		return NULL;
@@ -1396,7 +1461,7 @@ static s32 importEnvs(const struct moddataspec *spec)
 	s32 nf = 0, nn = 0;
 
 	if (spec->fogenvs && spec->numfogenvs > 0) {
-		fog = sysMemZeroAlloc(sizeof(struct fogenvironment) * (spec->numfogenvs + 1));
+		fog = ownAlloc(sizeof(struct fogenvironment) * (spec->numfogenvs + 1));
 		for (s32 i = 0; fog && i < spec->numfogenvs; ++i) {
 			const u32 at = spec->fogenvs + i * 44;
 			struct fogenvironment *e = &fog[i];
@@ -1410,7 +1475,7 @@ static s32 importEnvs(const struct moddataspec *spec)
 	}
 
 	if (spec->nofogenvs && spec->numnofogenvs > 0) {
-		nofog = sysMemZeroAlloc(sizeof(struct nofogenvironment) * (spec->numnofogenvs + 1));
+		nofog = ownAlloc(sizeof(struct nofogenvironment) * (spec->numnofogenvs + 1));
 		for (s32 i = 0; nofog && i < spec->numnofogenvs; ++i) {
 			const u32 at = spec->nofogenvs + i * 56;
 			struct nofogenvironment *e = &nofog[i];
@@ -1562,7 +1627,7 @@ static s32 importStageTracks(const struct moddataspec *spec)
 	struct stagemusic *tracks;
 	s32 n = 0;
 
-	tracks = sysMemZeroAlloc(sizeof(struct stagemusic) * (spec->numstagetracks + 1));
+	tracks = ownAlloc(sizeof(struct stagemusic) * (spec->numstagetracks + 1));
 	if (!tracks) {
 		return 0;
 	}
@@ -1787,11 +1852,11 @@ static s32 importHudmsgTypes(const struct moddataspec *spec)
  */
 static s32 importGlobalAilists(const struct moddataspec *spec)
 {
-	struct { u32 ptr; u32 id; } ents[64];
+	struct { u32 ptr; u32 id; } ents[256];
 	s32 count = 0;
 	s32 n = 0;
 
-	for (s32 i = 0; i < spec->numglobalailists && i < 64; ++i) {
+	for (s32 i = 0; i < spec->numglobalailists && i < (s32)ARRAYCOUNT(ents); ++i) {
 		const u32 at = spec->globalailists + i * 8;
 		ents[i].ptr = rd32(at);
 		ents[i].id = rd32(at + 4);
@@ -1824,7 +1889,7 @@ static s32 importGlobalAilists(const struct moddataspec *spec)
 		}
 		{
 			const u32 len = end - ents[i].ptr;
-			u8 *copy = sysMemAlloc(len);
+			u8 *copy = ownAlloc(len);
 			if (!copy) {
 				break;
 			}
@@ -2280,6 +2345,7 @@ static bool loadNames(const char *path)
 	memcpy(text, loaded, len);
 	text[len] = '\0';
 	sysMemFree(loaded);
+	seg.namestext = text;
 
 	// one name per line, in file id order; index 0 is the unused slot
 	s32 lines = 1;
@@ -2318,9 +2384,12 @@ static bool loadNames(const char *path)
 s32 modDataImport(const struct moddataspec *spec)
 {
 	if (seg.data) {
-		sysLogPrintf(LOG_ERROR, "moddata: a data segment was already imported; restart to load another");
-		return false;
+		// another import is still in: put the tables back and free it first
+		sysLogPrintf(LOG_NOTE, "moddata: a data segment was already imported; unloading it first");
+		modDataUnload();
 	}
+
+	modDataSnapshot();
 
 	u32 len = 0;
 	u8 *data = fsFileLoad(spec->file, &len);
@@ -2349,6 +2418,7 @@ s32 modDataImport(const struct moddataspec *spec)
 	}
 
 	if (spec->weapons && spec->numweapons > 0) {
+		written |= WRITTEN_WEAPONS;
 		importWeapons(spec);
 	}
 
@@ -2377,6 +2447,7 @@ s32 modDataImport(const struct moddataspec *spec)
 	}
 
 	if ((spec->fogenvs && spec->numfogenvs > 0) || (spec->nofogenvs && spec->numnofogenvs > 0)) {
+		written |= WRITTEN_ENVS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d stage environments (sky, fog, clouds) from %08x and %08x",
 				importEnvs(spec), spec->fogenvs, spec->nofogenvs);
 	}
@@ -2386,11 +2457,13 @@ s32 modDataImport(const struct moddataspec *spec)
 	}
 
 	if (spec->commandlengths && spec->numcommandlengths > 0) {
+		written |= WRITTEN_CMDLENGTHS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d AI command lengths of the mod's own from %08x",
 				importCommandLengths(spec), spec->commandlengths);
 	}
 
 	if (spec->stagetracks && spec->numstagetracks > 0) {
+		written |= WRITTEN_STAGETRACKS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d stages' music from %08x", importStageTracks(spec), spec->stagetracks);
 	}
 
@@ -2399,14 +2472,17 @@ s32 modDataImport(const struct moddataspec *spec)
 	}
 
 	if (spec->ammotypes && spec->numammotypes > 0) {
+		written |= WRITTEN_AMMOTYPES;
 		sysLogPrintf(LOG_NOTE, "moddata: %d ammo types from %08x", importAmmoTypes(spec), spec->ammotypes);
 	}
 
 	if (spec->explosiontypes && spec->numexplosiontypes > 0) {
+		written |= WRITTEN_EXPLOSIONS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d prop explosion types from %08x", importExplosionTypes(spec), spec->explosiontypes);
 	}
 
 	if (spec->autoswitchprimary && spec->numautoswitchprimary > 0) {
+		written |= WRITTEN_AUTOSWITCH;
 		sysLogPrintf(LOG_NOTE, "moddata: %d primary and %d secondary auto-switch weapons from %08x and %08x",
 				importAutoSwitch(spec->autoswitchprimary, spec->numautoswitchprimary, 0),
 				spec->autoswitchsecondary ? importAutoSwitch(spec->autoswitchsecondary, spec->numautoswitchsecondary, 1) : 0,
@@ -2414,14 +2490,17 @@ s32 modDataImport(const struct moddataspec *spec)
 	}
 
 	if (spec->botweaponprefs && spec->numbotweaponprefs > 0) {
+		written |= WRITTEN_BOTPREFS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d simulant weapon preferences from %08x", importBotWeaponPrefs(spec), spec->botweaponprefs);
 	}
 
 	if (spec->hudmsgtypes && spec->numhudmsgtypes > 0) {
+		written |= WRITTEN_HUDMSGS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d HUD message styles from %08x", importHudmsgTypes(spec), spec->hudmsgtypes);
 	}
 
 	if (spec->globalailists && spec->numglobalailists > 0) {
+		written |= WRITTEN_AILISTS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d global AI lists from %08x", importGlobalAilists(spec), spec->globalailists);
 	}
 
@@ -2511,21 +2590,25 @@ s32 modDataImport(const struct moddataspec *spec)
 	}
 
 	if (spec->maleguardheads && spec->nummaleguardheads > 0) {
+		written |= WRITTEN_GUARDHEADS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d guard heads from %08x",
 				importGuardHeads(spec->maleguardheads, spec->nummaleguardheads, g_MaleGuardHeads, GUARDHEADS_MALE_ROOM, &g_NumMaleGuardHeads, "guard head"), spec->maleguardheads);
 	}
 
 	if (spec->maleguardteamheads && spec->nummaleguardteamheads > 0) {
+		written |= WRITTEN_GUARDHEADS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d guard team heads from %08x",
 				importGuardHeads(spec->maleguardteamheads, spec->nummaleguardteamheads, g_MaleGuardTeamHeads, GUARDHEADS_MALETEAM_ROOM, &g_NumMaleGuardTeamHeads, "guard team head"), spec->maleguardteamheads);
 	}
 
 	if (spec->femaleguardheads && spec->numfemaleguardheads > 0) {
+		written |= WRITTEN_GUARDHEADS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d female guard heads from %08x",
 				importGuardHeads(spec->femaleguardheads, spec->numfemaleguardheads, g_FemaleGuardHeads, GUARDHEADS_FEMALE_ROOM, &g_NumFemaleGuardHeads, "female guard head"), spec->femaleguardheads);
 	}
 
 	if (spec->femaleguardteamheads && spec->numfemaleguardteamheads > 0) {
+		written |= WRITTEN_GUARDHEADS;
 		sysLogPrintf(LOG_NOTE, "moddata: %d female guard team heads from %08x",
 				importGuardHeads(spec->femaleguardteamheads, spec->numfemaleguardteamheads, g_FemaleGuardTeamHeads, GUARDHEADS_FEMALETEAM_ROOM, &g_NumFemaleGuardTeamHeads, "female guard team head"), spec->femaleguardteamheads);
 	}
@@ -2536,6 +2619,565 @@ s32 modDataImport(const struct moddataspec *spec)
 	}
 
 	return true;
+}
+
+/* ---- undoing an import ----------------------------------------------------- */
+
+/*
+ * The game's own tables the import writes and modTablesRestore() (mod.c) does
+ * not keep: taken once, before any mod's import, so modDataUnload() can put
+ * back what a mod changed. Each is restored only when the import wrote it;
+ * the rest of the game may write some of them itself (a HUD message's colour).
+ */
+static struct {
+	bool taken;
+	struct weapon *weapons[WEAPON_SUICIDEPILL + 1];
+	struct ailist *ailists;
+	s32 numailists; // with the terminator
+	struct ammotype *ammotypes;
+	s32 numammotypes;
+	s8 *explosiontypes;
+	s32 numexplosiontypes;
+	u8 *autoswitch[2];
+	s32 numautoswitch[2];
+	struct aibotweaponpreference *botprefs;
+	s32 numbotprefs;
+	struct hudmsgtype *hudmsgtypes;
+	s32 numhudmsgtypes;
+	s32 maleguardheads[GUARDHEADS_MALE_ROOM];
+	s32 maleguardteamheads[GUARDHEADS_MALETEAM_ROOM];
+	s32 femaleguardheads[GUARDHEADS_FEMALE_ROOM];
+	s32 femaleguardteamheads[GUARDHEADS_FEMALETEAM_ROOM];
+} stock;
+
+static void *stockCopy(const void *src, u32 size)
+{
+	void *p = sysMemAlloc(size ? size : 1);
+	if (p) {
+		memcpy(p, src, size);
+	}
+	return p;
+}
+
+void modDataSnapshot(void)
+{
+	extern struct ammotype g_AmmoTypes[];
+	extern struct hudmsgtype g_HudmsgTypes[];
+
+	if (stock.taken) {
+		return;
+	}
+
+	memcpy(stock.weapons, g_Weapons, sizeof(stock.weapons));
+
+	stock.numailists = 0;
+	while (g_GlobalAilists[stock.numailists].list) {
+		++stock.numailists;
+	}
+	++stock.numailists;
+	stock.ailists = stockCopy(g_GlobalAilists, sizeof(struct ailist) * stock.numailists);
+
+	stock.numammotypes = bgunGetNumAmmoTypes();
+	stock.ammotypes = stockCopy(g_AmmoTypes, sizeof(struct ammotype) * stock.numammotypes);
+
+	stock.numexplosiontypes = propExplosionTypesCount();
+	stock.explosiontypes = stockCopy(g_PropExplosionTypes, stock.numexplosiontypes);
+
+	for (s32 i = 0; i < 2; ++i) {
+		const u8 *list = bgunGetAutoSwitchList(i, &stock.numautoswitch[i]);
+		stock.autoswitch[i] = stockCopy(list, stock.numautoswitch[i]);
+	}
+
+	stock.numbotprefs = botinvGetNumWeaponPreferences();
+	stock.botprefs = stockCopy(g_AibotWeaponPreferences, sizeof(struct aibotweaponpreference) * stock.numbotprefs);
+
+	stock.numhudmsgtypes = hudmsgGetNumTypes();
+	stock.hudmsgtypes = stockCopy(g_HudmsgTypes, sizeof(struct hudmsgtype) * stock.numhudmsgtypes);
+
+	memcpy(stock.maleguardheads, g_MaleGuardHeads, sizeof(stock.maleguardheads));
+	memcpy(stock.maleguardteamheads, g_MaleGuardTeamHeads, sizeof(stock.maleguardteamheads));
+	memcpy(stock.femaleguardheads, g_FemaleGuardHeads, sizeof(stock.femaleguardheads));
+	memcpy(stock.femaleguardteamheads, g_FemaleGuardTeamHeads, sizeof(stock.femaleguardteamheads));
+
+	stock.taken = stock.ailists && stock.ammotypes && stock.explosiontypes && stock.autoswitch[0]
+		&& stock.autoswitch[1] && stock.botprefs && stock.hudmsgtypes;
+
+	if (!stock.taken) {
+		sysLogPrintf(LOG_ERROR, "moddata: could not copy the game's tables; an import cannot be undone");
+	}
+}
+
+/**
+ * Undo modDataImport(): every table it wrote that points at what it allocated
+ * goes back to the game's own first, then the allocations are freed and the
+ * reader's statics reset, so a mod without a data segment loaded after this
+ * sees none of the last one's. Safe when nothing was imported. The plain
+ * value tables (g_ModelStates, g_MpWeapons, the heads and bodies ...) are
+ * modTablesRestore()'s, which a swap runs straight after.
+ */
+void modDataUnload(void)
+{
+	extern struct ammotype g_AmmoTypes[];
+	extern struct hudmsgtype g_HudmsgTypes[];
+
+	if (stock.taken) {
+		if (written & WRITTEN_WEAPONS) {
+			memcpy(g_Weapons, stock.weapons, sizeof(stock.weapons));
+		}
+		if (written & WRITTEN_AILISTS) {
+			memcpy(g_GlobalAilists, stock.ailists, sizeof(struct ailist) * stock.numailists);
+		}
+		if (written & WRITTEN_AMMOTYPES) {
+			memcpy(g_AmmoTypes, stock.ammotypes, sizeof(struct ammotype) * stock.numammotypes);
+		}
+		if (written & WRITTEN_EXPLOSIONS) {
+			memcpy(g_PropExplosionTypes, stock.explosiontypes, stock.numexplosiontypes);
+		}
+		if (written & WRITTEN_AUTOSWITCH) {
+			for (s32 i = 0; i < 2; ++i) {
+				s32 count;
+				u8 *list = bgunGetAutoSwitchList(i, &count);
+				memcpy(list, stock.autoswitch[i], count < stock.numautoswitch[i] ? count : stock.numautoswitch[i]);
+			}
+		}
+		if (written & WRITTEN_BOTPREFS) {
+			memcpy(g_AibotWeaponPreferences, stock.botprefs, sizeof(struct aibotweaponpreference) * stock.numbotprefs);
+		}
+		if (written & WRITTEN_HUDMSGS) {
+			memcpy(g_HudmsgTypes, stock.hudmsgtypes, sizeof(struct hudmsgtype) * stock.numhudmsgtypes);
+		}
+		if (written & WRITTEN_GUARDHEADS) {
+			memcpy(g_MaleGuardHeads, stock.maleguardheads, sizeof(stock.maleguardheads));
+			memcpy(g_MaleGuardTeamHeads, stock.maleguardteamheads, sizeof(stock.maleguardteamheads));
+			memcpy(g_FemaleGuardHeads, stock.femaleguardheads, sizeof(stock.femaleguardheads));
+			memcpy(g_FemaleGuardTeamHeads, stock.femaleguardteamheads, sizeof(stock.femaleguardteamheads));
+			bodiesInit(); // the counts, walked to the terminators
+		}
+	} else if (written) {
+		sysLogPrintf(LOG_ERROR, "moddata: no copy of the game's tables to put back; they keep the last mod's");
+	}
+
+	// Always: a table another mod's import left would otherwise stay, and the
+	// borrowed arenas (modBorrowArenas()) go on top of whatever is here
+	envSetTables(NULL, NULL);
+	stageSetTracks(NULL);
+	chraiClearModCommandLengths();
+
+	// nothing points at them now
+	for (s32 i = 0; i < numOwnAllocs; ++i) {
+		sysMemFree(ownAllocs[i]);
+	}
+	sysMemFree(ownAllocs);
+	ownAllocs = NULL;
+	numOwnAllocs = maxOwnAllocs = 0;
+
+	sysMemFree(memo);
+	memo = NULL;
+	numMemo = maxMemo = 0;
+	numObjects = 0;
+
+	if (seg.data) {
+		sysMemFree((void *)seg.data);
+	}
+	sysMemFree(seg.names);
+	sysMemFree(seg.namestext);
+	sysMemFree(seg.fileids);
+	memset(&seg, 0, sizeof(seg));
+
+	modDataMpWeaponSlotsReset();
+
+	modPlayerBody = -1;
+	modPlayerHead = -1;
+	modNumPlayerConsts = 0;
+	modNumBuddyConsts = 0;
+	modNumTexConsts = 0;
+	modNumHeadConsts = 0;
+	modNumMpBodyConsts = 0;
+	modNumRoomNums = 0;
+	modNumRoomStages = 0;
+	modNumBgStages = 0;
+
+	if (written) {
+		sysLogPrintf(LOG_NOTE, "moddata: the data segment's import was undone");
+	}
+
+	written = 0;
+}
+
+/* ---- --mod-dump-data: a hash of every table a mod's data can change ------ */
+
+static u64 dumpHash(u64 h, const void *data, u32 len)
+{
+	const u8 *p = data;
+
+	for (u32 i = 0; i < len; ++i) {
+		h ^= p[i];
+		h *= 0x100000001b3ull;
+	}
+
+	return h;
+}
+
+#define DUMP_SEED 0xcbf29ce484222325ull
+
+// a file by its name: a mod's own files are numbered in the order they were
+// registered, which a swap and a boot need not share
+static u64 dumpFile(u64 h, u32 fileid)
+{
+	const char *name = fileid ? romdataFileGetName(fileid) : NULL;
+
+	if (!name) {
+		return dumpHash(h, &fileid, sizeof(fileid));
+	}
+
+	return dumpHash(h, name, strlen(name) + 1);
+}
+
+static u64 dumpFunc(u64 h, const struct weaponfunc *f)
+{
+	union {
+		struct weaponfunc base;
+		struct weaponfunc_shoot shoot;
+		struct weaponfunc_shootsingle single;
+		struct weaponfunc_shootauto autom;
+		struct weaponfunc_shootprojectile proj;
+		struct weaponfunc_throw thrown;
+		struct weaponfunc_melee melee;
+		struct weaponfunc_special special;
+		struct weaponfunc_device device;
+	} u;
+	u32 size;
+
+	if (!f) {
+		return dumpHash(h, "-", 1);
+	}
+
+	switch (f->type & 0xff) {
+	case INVENTORYFUNCTYPE_SHOOT:
+		size = f->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC ? sizeof(u.autom)
+			: f->type == INVENTORYFUNCTYPE_SHOOT_PROJECTILE ? sizeof(u.proj) : sizeof(u.single);
+		break;
+	case INVENTORYFUNCTYPE_THROW:   size = sizeof(u.thrown); break;
+	case INVENTORYFUNCTYPE_MELEE:   size = sizeof(u.melee); break;
+	case INVENTORYFUNCTYPE_SPECIAL: size = sizeof(u.special); break;
+	case INVENTORYFUNCTYPE_DEVICE:  size = sizeof(u.device); break;
+	default:                        size = sizeof(u.base); break;
+	}
+
+	memset(&u, 0, sizeof(u));
+	memcpy(&u, f, size);
+
+	// pointers differ from run to run: what they point at is hashed where it matters
+	u.base.noisesettings = NULL;
+	u.base.fire_animation = NULL;
+
+	if ((f->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+		u.shoot.recoilsettings = NULL;
+		if (f->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
+			u.autom.vibrationstart = NULL;
+			u.autom.vibrationmax = NULL;
+		}
+	}
+
+	return dumpHash(h, &u, size);
+}
+
+static u64 dumpWeapon(const struct weapon *w)
+{
+	struct weapon c;
+	u64 h = DUMP_SEED;
+
+	if (!w) {
+		return 0;
+	}
+
+	c = *w;
+	h = dumpFile(h, c.hi_model);
+	h = dumpFile(h, c.lo_model);
+	c.hi_model = c.lo_model = 0;
+	c.equip_animation = c.unequip_animation = c.pritosec_animation = c.sectopri_animation = NULL;
+	c.functions[0] = c.functions[1] = NULL;
+	c.ammos[0] = c.ammos[1] = NULL;
+	c.aimsettings = NULL;
+	c.gunviscmds = NULL;
+	c.partvisibility = NULL;
+	h = dumpHash(h, &c, sizeof(c));
+
+	for (s32 i = 0; i < 2; ++i) {
+		h = dumpFunc(h, w->functions[i]);
+
+		if (w->ammos[i]) {
+			struct inventory_ammo a = *w->ammos[i];
+			a.reload_animation = NULL;
+			h = dumpHash(h, &a, sizeof(a));
+		} else {
+			h = dumpHash(h, "-", 1);
+		}
+	}
+
+	if (w->aimsettings) {
+		h = dumpHash(h, w->aimsettings, sizeof(*w->aimsettings));
+	}
+
+	return h;
+}
+
+static void dumpLine(FILE *f, const char *name, u64 h)
+{
+	fprintf(f, "%-24s %016llx\n", name, (unsigned long long)h);
+}
+
+#define DUMP_TABLE(name, ptr, size) dumpLine(f, name, dumpHash(DUMP_SEED, ptr, size))
+
+/**
+ * One line per table, with the weapons a line a slot and every definition's
+ * function and ammo bytes folded in (pointers left out: they differ between
+ * runs). Two runs that agree here have the same mod data applied.
+ */
+void modDataDump(const char *path)
+{
+	extern struct ammotype g_AmmoTypes[];
+	extern struct hudmsgtype g_HudmsgTypes[];
+	extern struct mptrack g_MpTracks[];
+	extern struct stagemusic *g_StageTracks;
+	extern struct stageallocation g_StageAllocations8Mb[];
+	extern u32 g_ModUnlocks;
+	FILE *f = fopen(path, "wb");
+	char name[64];
+	u64 h;
+	s32 n;
+
+	if (!f) {
+		sysLogPrintf(LOG_ERROR, "moddata: cannot write %s", path);
+		return;
+	}
+
+	h = DUMP_SEED;
+	for (s32 i = 0; i <= WEAPON_SUICIDEPILL; ++i) {
+		const u64 wh = dumpWeapon(g_Weapons[i]);
+		snprintf(name, sizeof(name), "weapon.%d", i);
+		dumpLine(f, name, wh);
+		h = dumpHash(h, &wh, sizeof(wh));
+		// which slots share a definition, and which share a function
+		for (s32 j = 0; j < i; ++j) {
+			if (g_Weapons[i] && g_Weapons[j] == g_Weapons[i]) {
+				h = dumpHash(h, &j, sizeof(j));
+			}
+		}
+	}
+	dumpLine(f, "weapons", h);
+
+	h = DUMP_SEED;
+	for (s32 i = 0; i < NUM_MODELS; ++i) {
+		h = dumpFile(h, g_ModelStates[i].fileid);
+		h = dumpHash(h, &g_ModelStates[i].scale, sizeof(u16));
+	}
+	dumpLine(f, "modelstates", h);
+
+	DUMP_TABLE("mpweapons", g_MpWeapons, sizeof(struct mpweapon) * NUM_MPWEAPONS);
+	h = dumpHash(DUMP_SEED, g_MpWeaponSets, sizeof(g_MpWeaponSets));
+	dumpLine(f, "mpweaponsets", dumpHash(h, &g_MpNumWeaponSets, sizeof(g_MpNumWeaponSets)));
+	if (sysArgCheck("--mod-dump-verbose")) {
+		fprintf(f, "mparenas.num %d imported %d\n", g_MpNumArenas, g_MpArenasImported);
+		for (s32 i = 0; i < (s32)ARRAYCOUNT(g_MpArenas); ++i) {
+			fprintf(f, "mparena.%d %x %d %x\n", i, g_MpArenas[i].stagenum, g_MpArenas[i].requirefeature, g_MpArenas[i].name & 0xffff);
+		}
+	}
+	h = DUMP_SEED;
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_MpArenas); ++i) {
+		// field by field: an imported entry's padding is whatever the stack held
+		const s32 v[3] = { g_MpArenas[i].stagenum, g_MpArenas[i].requirefeature, g_MpArenas[i].name };
+		h = dumpHash(h, v, sizeof(v));
+	}
+	h = dumpHash(h, &g_MpNumArenas, sizeof(g_MpNumArenas));
+	dumpLine(f, "mparenas", dumpHash(h, &g_MpArenasImported, sizeof(g_MpArenasImported)));
+	n = mpGetNumTracks();
+	h = dumpHash(DUMP_SEED, g_MpTracks, sizeof(struct mptrack) * MP_MAX_TRACKS);
+	dumpLine(f, "mptracks", dumpHash(h, &n, sizeof(n)));
+	h = DUMP_SEED;
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_Stages); ++i) {
+		struct stagetableentry e = g_Stages[i];
+		h = dumpFile(h, e.bgfileid);
+		h = dumpFile(h, e.tilefileid);
+		h = dumpFile(h, e.padsfileid);
+		h = dumpFile(h, e.setupfileid);
+		h = dumpFile(h, e.mpsetupfileid);
+		e.bgfileid = e.tilefileid = e.padsfileid = e.setupfileid = e.mpsetupfileid = 0;
+		h = dumpHash(h, &e, sizeof(e));
+	}
+	dumpLine(f, "stages", h);
+	DUMP_TABLE("solostages", g_SoloStages, sizeof(struct solostage) * NUM_SOLOSTAGES);
+	DUMP_TABLE("weather", g_WeatherConfig, sizeof(struct weathercfg) * WEATHERCFG_MAX_STAGES);
+
+	h = DUMP_SEED;
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(g_HeadsAndBodies); ++i) {
+		struct headorbody e = g_HeadsAndBodies[i];
+		u64 eh = dumpFile(DUMP_SEED, e.filenum);
+		eh = dumpFile(eh, e.handfilenum);
+		e.modeldef = NULL;
+		e.filenum = e.handfilenum = 0;
+		eh = dumpHash(eh, &e, sizeof(e));
+		h = dumpHash(h, &eh, sizeof(eh));
+		if (sysArgCheck("--mod-dump-verbose")) {
+			snprintf(name, sizeof(name), "headorbody.%d", i);
+			dumpLine(f, name, eh);
+		}
+	}
+	dumpLine(f, "headsandbodies", h);
+	if (sysArgCheck("--mod-dump-verbose")) {
+		fprintf(f, "mplistcounts heads %d bodies %d\n", g_MpListCounts.heads, g_MpListCounts.bodies);
+	}
+	DUMP_TABLE("mpheads", g_MpHeads, sizeof(g_MpHeads));
+	DUMP_TABLE("mpbodies", g_MpBodies, sizeof(g_MpBodies));
+	DUMP_TABLE("botheads", g_BotHeads, sizeof(g_BotHeads));
+	DUMP_TABLE("mpbeauheads", g_MpBeauHeads, sizeof(g_MpBeauHeads));
+	DUMP_TABLE("mpmaleheads", g_MpMaleHeads, sizeof(g_MpMaleHeads));
+	DUMP_TABLE("mpfemaleheads", g_MpFemaleHeads, sizeof(g_MpFemaleHeads));
+	DUMP_TABLE("botprofiles", g_BotProfiles, sizeof(g_BotProfiles));
+	DUMP_TABLE("mplistcounts", &g_MpListCounts, sizeof(g_MpListCounts));
+
+	h = DUMP_SEED;
+	for (const struct stagemusic *m = g_StageTracks; m->stagenum; ++m) {
+		h = dumpHash(h, m, sizeof(*m));
+	}
+	dumpLine(f, "stagetracks", h);
+
+	h = DUMP_SEED;
+	for (const struct stageallocation *a = g_StageAllocations8Mb; a->stagenum; ++a) {
+		h = dumpHash(h, &a->stagenum, sizeof(a->stagenum));
+		h = dumpHash(h, a->string ? a->string : "", a->string ? strlen(a->string) : 0);
+	}
+	dumpLine(f, "stageallocations", h);
+
+	{
+		struct fogenvironment *fog;
+		struct nofogenvironment *nofog;
+		envGetTables(&fog, &nofog);
+		h = DUMP_SEED;
+		for (; fog->stage; ++fog) {
+			struct fogenvironment e = *fog;
+			e.suns = NULL;
+			h = dumpHash(h, &e, sizeof(e));
+			for (s32 i = 0; fog->suns && i < fog->numsuns; ++i) {
+				h = dumpHash(h, &fog->suns[i], sizeof(struct sun));
+			}
+		}
+		dumpLine(f, "fogenvs", h);
+		h = DUMP_SEED;
+		for (; nofog->stage; ++nofog) {
+			struct nofogenvironment e = *nofog;
+			e.suns = NULL;
+			h = dumpHash(h, &e, sizeof(e));
+			for (s32 i = 0; nofog->suns && i < nofog->numsuns; ++i) {
+				h = dumpHash(h, &nofog->suns[i], sizeof(struct sun));
+			}
+		}
+		dumpLine(f, "nofogenvs", h);
+	}
+
+	{
+		extern const u16 *chraiGetModCommandLengths(s32 *count);
+		const u16 *lens = chraiGetModCommandLengths(&n);
+		DUMP_TABLE("aicmdlengths", lens, sizeof(u16) * n);
+	}
+
+	DUMP_TABLE("ammotypes", g_AmmoTypes, sizeof(struct ammotype) * bgunGetNumAmmoTypes());
+	DUMP_TABLE("explosiontypes", g_PropExplosionTypes, propExplosionTypesCount());
+	for (s32 i = 0; i < 2; ++i) {
+		const u8 *list = bgunGetAutoSwitchList(i, &n);
+		DUMP_TABLE(i ? "autoswitch.secondary" : "autoswitch.primary", list, n);
+	}
+	DUMP_TABLE("botweaponprefs", g_AibotWeaponPreferences, sizeof(struct aibotweaponpreference) * botinvGetNumWeaponPreferences());
+
+	h = DUMP_SEED;
+	for (s32 i = 0; i < hudmsgGetNumTypes(); ++i) {
+		struct hudmsgtype t = g_HudmsgTypes[i];
+		t.unk04 = NULL;
+		t.unk08 = NULL;
+		h = dumpHash(h, &t, sizeof(t));
+	}
+	dumpLine(f, "hudmsgtypes", h);
+
+	// a list is the stock one of its id, or the bytes of a mod's copy
+	h = DUMP_SEED;
+	for (s32 i = 0; g_GlobalAilists[i].list; ++i) {
+		s32 k = -1;
+		h = dumpHash(h, &g_GlobalAilists[i].id, sizeof(g_GlobalAilists[i].id));
+		for (s32 j = 0; stock.taken && j < stock.numailists - 1; ++j) {
+			if (stock.ailists[j].list == g_GlobalAilists[i].list) {
+				k = j;
+				break;
+			}
+		}
+		if (k >= 0) {
+			h = dumpHash(h, &k, sizeof(k));
+		} else {
+			h = dumpHash(h, g_GlobalAilists[i].list, 16);
+		}
+	}
+	dumpLine(f, "globalailists", h);
+
+	h = dumpHash(DUMP_SEED, g_MaleGuardHeads, sizeof(s32) * GUARDHEADS_MALE_ROOM);
+	h = dumpHash(h, g_MaleGuardTeamHeads, sizeof(s32) * GUARDHEADS_MALETEAM_ROOM);
+	h = dumpHash(h, g_FemaleGuardHeads, sizeof(s32) * GUARDHEADS_FEMALE_ROOM);
+	h = dumpHash(h, g_FemaleGuardTeamHeads, sizeof(s32) * GUARDHEADS_FEMALETEAM_ROOM);
+	h = dumpHash(h, &g_NumMaleGuardHeads, sizeof(s32));
+	h = dumpHash(h, &g_NumMaleGuardTeamHeads, sizeof(s32));
+	h = dumpHash(h, &g_NumFemaleGuardHeads, sizeof(s32));
+	dumpLine(f, "guardheads", dumpHash(h, &g_NumFemaleGuardTeamHeads, sizeof(s32)));
+
+	DUMP_TABLE("pickupqty", g_ModPickupQty, sizeof(g_ModPickupQty));
+	DUMP_TABLE("ammotypeweapons", g_AmmoTypeWeapons, sizeof(s16) * (AMMOTYPE_ECM_MINE + 1));
+
+	// a screen's list as the index of the stock list it is
+	{
+		u32 **stocktv = modTvScreenStock(&n);
+		h = DUMP_SEED;
+		for (s32 i = 0; i < n; ++i) {
+			s32 k = -1;
+			for (s32 j = 0; stocktv && j < n; ++j) {
+				if (stocktv[j] == g_TvCmdlists[i]) {
+					k = j;
+					break;
+				}
+			}
+			h = dumpHash(h, &k, sizeof(k));
+		}
+		dumpLine(f, "tvcmdlists", h);
+	}
+
+	DUMP_TABLE("menucolours", g_MenuColours, sizeof(g_MenuColours));
+	DUMP_TABLE("teamtitlebars", g_TeamTitlebarColours, sizeof(g_TeamTitlebarColours));
+	DUMP_TABLE("teamcolours", g_TeamColours, sizeof(u32) * 8);
+	DUMP_TABLE("teamfills", var80087ce4, sizeof(u32) * 8);
+	DUMP_TABLE("modunlocks", &g_ModUnlocks, sizeof(g_ModUnlocks));
+
+	h = dumpHash(DUMP_SEED, &modPlayerBody, sizeof(modPlayerBody));
+	h = dumpHash(h, &modPlayerHead, sizeof(modPlayerHead));
+	h = dumpHash(h, &modNumPlayerConsts, sizeof(s32));
+	h = dumpHash(h, modPlayerConsts, sizeof(u16) * 2 * modNumPlayerConsts);
+	h = dumpHash(h, &modNumBuddyConsts, sizeof(s32));
+	h = dumpHash(h, modBuddyConsts, sizeof(u16) * 3 * modNumBuddyConsts);
+	h = dumpHash(h, &modNumTexConsts, sizeof(s32));
+	h = dumpHash(h, modTexConsts, sizeof(u16) * 2 * modNumTexConsts);
+	h = dumpHash(h, &modNumHeadConsts, sizeof(s32));
+	h = dumpHash(h, modHeadConsts, sizeof(u16) * 2 * modNumHeadConsts);
+	h = dumpHash(h, &modNumMpBodyConsts, sizeof(s32));
+	h = dumpHash(h, modMpBodyConsts, sizeof(u16) * 2 * modNumMpBodyConsts);
+	h = dumpHash(h, &modNumRoomNums, sizeof(s32));
+	h = dumpHash(h, modRoomNums, sizeof(u16) * 2 * modNumRoomNums);
+	h = dumpHash(h, &modNumRoomStages, sizeof(s32));
+	h = dumpHash(h, modRoomStages, sizeof(u16) * 2 * modNumRoomStages);
+	h = dumpHash(h, &modNumBgStages, sizeof(s32));
+	h = dumpHash(h, modBgStages, sizeof(u16) * 2 * modNumBgStages);
+	h = dumpHash(h, &modMpWeaponSlotsSet, sizeof(modMpWeaponSlotsSet));
+	if (modMpWeaponSlotsSet) {
+		h = dumpHash(h, modMpWeaponSlots, sizeof(modMpWeaponSlots));
+	}
+	dumpLine(f, "moddata.statics", h);
+
+	fclose(f);
+	sysLogPrintf(LOG_NOTE, "moddata: tables dumped to %s", path);
 }
 
 /* ---- borrowing another installed mod's definitions ---------------------- */
