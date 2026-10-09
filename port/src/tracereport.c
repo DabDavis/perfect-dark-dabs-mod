@@ -51,6 +51,7 @@
 #include "versioninfo.h"
 #include "trace.h"
 #include "langpack.h"
+#include "net/net.h"
 
 #define STATE_IDLE   0
 #define STATE_BUSY   1
@@ -298,9 +299,26 @@ void traceReportTick(void)
 		return;
 	}
 
-	g_MpPlayerNum = 0;
+	// Online, this machine's own player's menu and player: a client in seat
+	// k has its menus in g_Menus[k], and menu 0 - or whichever player the
+	// last loop left current - is another seat's, drawn nowhere here (F3
+	// 20261009-054517: the report over a client's end screen, typed blind)
+	s32 menu = 0;
+	s32 pnum = g_Vars.currentplayernum;
 
-	if (g_Menus[0].curdialog != NULL) {
+	if (g_NetMode != NETMODE_NONE && g_NetLocalSlot >= 0 && g_NetLocalSlot < MAX_PLAYERS && g_Vars.players[g_NetLocalSlot]) {
+		pnum = g_NetLocalSlot;
+		menu = g_Vars.playerstats[pnum].mpindex;
+	}
+
+	struct player *pl = pnum >= 0 && pnum < MAX_PLAYERS && g_Vars.players[pnum] ? g_Vars.players[pnum] : g_Vars.currentplayer;
+
+	// offline as before: menu 0 is player 0's
+	const s32 menuplayer = g_NetMode != NETMODE_NONE ? pnum : 0;
+
+	g_MpPlayerNum = menu;
+
+	if (g_Menus[menu].curdialog != NULL) {
 		// A menu, the Perfect Menu under GE Plus's folder or intro included
 		menuPushDialog(&g_TraceReportMenuDialog);
 		g_OfferPending = false;
@@ -310,36 +328,36 @@ void traceReportTick(void)
 		// The title's attract demo, which any press ends, and a stage the
 		// title went on to before it had a menu up: it waits for the menus
 	} else if (STAGE_IS_LEVEL(g_Vars.stagenum)
-			&& g_Vars.currentplayer && g_Vars.currentplayer->prop
+			&& pl && pl->prop
 			&& !g_Vars.in_cutscene
-			&& g_Menus[0].openinhibit == 0
+			&& g_Menus[menu].openinhibit == 0
 			&& geWatchIsOpen()) {
 		// GE Plus's watch, once it is all the way up and the level stopped.
 		// Its own root and no pause of the report's: the watch paused the
 		// level and is still holding it when the report closes.
-		if (geWatchIsSettled() && g_Vars.currentplayer->pausemode == PAUSEMODE_PAUSED) {
-			g_Menus[0].playernum = 0;
+		if (geWatchIsSettled() && pl->pausemode == PAUSEMODE_PAUSED) {
+			g_Menus[menu].playernum = menuplayer;
 			menuPushRootDialog(&g_TraceReportMenuDialog, MENUROOT_MAINMENU);
 			g_OfferPending = false;
 		}
 	} else if (STAGE_IS_LEVEL(g_Vars.stagenum)
-			&& g_Vars.currentplayer && g_Vars.currentplayer->prop
+			&& pl && pl->prop
 			&& !g_Vars.in_cutscene
-			&& g_Menus[0].openinhibit == 0
-			&& g_Vars.currentplayer->pausemode == PAUSEMODE_UNPAUSED) {
+			&& g_Menus[menu].openinhibit == 0
+			&& pl->pausemode == PAUSEMODE_UNPAUSED) {
 		// Opened the way Start opens this mode's own pause menu (bondmove.c).
 		// A match is g_Vars.mplayerisrunning whatever PLAYERCOUNT() says: the
 		// solo root pushed into a one-player Combat Simulator match closed to
 		// a black screen that Start could not get out of, because the match
 		// never unpauses a MENUROOT_MAINMENU pause.
 		if (!g_Vars.mplayerisrunning) {
-			g_Menus[0].playernum = 0;
+			g_Menus[menu].playernum = menuplayer;
 			menuPushRootDialog(&g_TraceReportMenuDialog, MENUROOT_MAINMENU);
 			lvSetPaused(true);
-			g_Vars.currentplayer->pausemode = PAUSEMODE_PAUSED;
+			pl->pausemode = PAUSEMODE_PAUSED;
 		} else {
-			g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
-			g_Menus[g_MpPlayerNum].playernum = g_Vars.currentplayernum;
+			g_MpPlayerNum = g_Vars.playerstats[pnum].mpindex;
+			g_Menus[g_MpPlayerNum].playernum = pnum;
 			menuPushRootDialog(&g_TraceReportMenuDialog, MENUROOT_MPPAUSE);
 		}
 
