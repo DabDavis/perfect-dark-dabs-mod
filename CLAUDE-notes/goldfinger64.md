@@ -924,3 +924,18 @@ explosive props and counts explosion props.
   byte-identical to an earlier set's shared (GF64 appends 1 after GoldenEye's
   173); gewatch.c's watch arm likewise loads its `bond_watch` per mod. Probe:
   `probe/outro7.py` (GEFIRST=1 loads GoldenEye's set before Cartel's).
+
+## Guards popping in and out on Shipyard (F3 20261009-052039/-052129, fix/net-1009-shipyard)
+
+- Not the converted level: the reporter had **Disable Fog** on. chrTick()'s
+  solo cap (30 chrs on screen, 10 corpses; `var8009cdb0`/`var8009cdac`)
+  counts in active-prop order, not by distance. With the fog on only chrs
+  inside it pass func0f08e8ac(); with it off, Shipyard's guards a whole dock
+  away (rooms 5/7/11/14, 5000-11000 units) passed too and took the 30 places
+  first, so the guards in the player's own hall (room 15, 1000-3000 away)
+  were never ticked on screen - the trace showed exactly 30 `onthis 1`, none of
+  them room 15's. A chr past the level's fog (`CHRH2FLAG_PASTLEVELFOG`, now set
+  before the cap) is not counted, so the fog-on count is kept and fog-on play
+  is unchanged (replay gate). Probe: `repro/sweep.gdb.py` in the worktree
+  (REORDER=1 puts the near guards at the active list's tail; spot 12900,-6300
+  theta 58: before 33 counted, room-15 guards 7/8/9 dropped; after all drawn).

@@ -3237,8 +3237,30 @@ s32 chrTick(struct prop *prop)
 		needsupdate = false;
 	}
 
+#ifndef PLATFORM_N64
+	// Disable Fog draws a chr out past the level's fog, but its AI keeps
+	// seeing by that fog: GoldenEye's Jungle starts Xenia's attack (and her
+	// music) the moment she is on screen, which with the fog off was from
+	// the mission's first frame, 14000 units away (tester F3 20260927-003241)
+	chr->hidden2 &= ~CHRH2FLAG_PASTLEVELFOG;
+
+	if (needsupdate && modIsFogDisabled() && !envIsPosInFogMaxDistance(&prop->pos, modelGetEffectiveScale(model))) {
+		chr->hidden2 |= CHRH2FLAG_PASTLEVELFOG;
+	}
+#endif
+
 #if VERSION >= VERSION_NTSC_1_0
-	if (!g_Vars.normmplayerisrunning && needsupdate) {
+	// The cap of 30 chrs on screen (and 10 corpses) counts in tick order, not
+	// by distance. With the fog on, only chrs inside it ever get here; with
+	// Disable Fog a level's far guards passed the test as well and took the
+	// 30 places first, so the guards beside the player popped in and out as
+	// the camera turned (Goldfinger 64's Shipyard, F3 20261009-052039). A chr
+	// past the level's fog is not counted: the fog-on game's count is kept
+	if (!g_Vars.normmplayerisrunning && needsupdate
+#ifndef PLATFORM_N64
+			&& (chr->hidden2 & CHRH2FLAG_PASTLEVELFOG) == 0
+#endif
+			) {
 		if (chr->actiontype == ACT_DEAD
 				|| (chr->actiontype == ACT_DRUGGEDKO && (chr->chrflags & CHRCFLAG_KEEPCORPSEKO) == 0)) {
 			var8009cdac++;
@@ -3255,18 +3277,6 @@ s32 chrTick(struct prop *prop)
 		if (var8009cdb0 + var8009cdac > 30) {
 			needsupdate = false;
 		}
-	}
-#endif
-
-#ifndef PLATFORM_N64
-	// Disable Fog draws a chr out past the level's fog, but its AI keeps
-	// seeing by that fog: GoldenEye's Jungle starts Xenia's attack (and her
-	// music) the moment she is on screen, which with the fog off was from
-	// the mission's first frame, 14000 units away (tester F3 20260927-003241)
-	chr->hidden2 &= ~CHRH2FLAG_PASTLEVELFOG;
-
-	if (needsupdate && modIsFogDisabled() && !envIsPosInFogMaxDistance(&prop->pos, modelGetEffectiveScale(model))) {
-		chr->hidden2 |= CHRH2FLAG_PASTLEVELFOG;
 	}
 #endif
 
