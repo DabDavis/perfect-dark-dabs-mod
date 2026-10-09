@@ -156,13 +156,33 @@ static s32 modModeQueue(const char *path, const char *name, s32 atnextstage)
 	return true;
 }
 
+// The installed mod's own path for a relative one ("mods/X", or a bare name):
+// the list's is the full path every reader (segments, the save) expects, and
+// the prepared segment copies are cached by it. "$N/" memory folders and full
+// paths are taken as they are.
+static const char *modModeCanonicalPath(const char *path)
+{
+	const char *base;
+	s32 index;
+
+	if (!path || path[0] == '$' || fsPathIsAbsolute(path)) {
+		return path;
+	}
+
+	base = strrchr(path, '/');
+	base = base ? base + 1 : path;
+	index = modListIndexOf(base);
+
+	return index >= 0 ? modListGetPath(index) : path;
+}
+
 s32 modModeRequestEnter(const char *path, const char *name)
 {
 	if (!path || !path[0]) {
 		return false;
 	}
 
-	return modModeQueue(path, name, false);
+	return modModeQueue(modModeCanonicalPath(path), name, false);
 }
 
 s32 modModeRequestLeave(void)
@@ -172,7 +192,7 @@ s32 modModeRequestLeave(void)
 
 s32 modModeRequestAtNextStage(const char *path, const char *name)
 {
-	return modModeQueue(path, name, true);
+	return modModeQueue(path && path[0] ? modModeCanonicalPath(path) : NULL, name, true);
 }
 
 s32 modModeIsPending(void)

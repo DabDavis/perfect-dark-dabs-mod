@@ -84,6 +84,7 @@
 #include "xblaimport.h"
 #include "modloader.h"
 #include "modborrow.h"
+#include "modaudio.h"
 #include "gexplus.h"
 #include "gebean.h"
 #include "gexfront.h"
@@ -317,6 +318,8 @@ void mainProc(void)
 	if (sysArgGetString("--mod-dump-data")) {
 		modDataDump(sysArgGetString("--mod-dump-data"));
 	}
+	// test aids: a mod's audio entered after the boot's banks (modaudio.c)
+	modAudioTestSwitches();
 
 	while (true) {
 		mainLoop();

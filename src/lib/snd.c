@@ -28,6 +28,7 @@
 #include "preprocess.h"
 #include "mod.h"
 #include "gesfx.h"
+#include "modaudio.h"
 #endif
 
 #define MAX_SEQ_SIZE_4MB 1024 * 14
@@ -1022,6 +1023,23 @@ void sndLoadSfxCtl(void)
 		g_ALSoundRomOffsets[i] += (romptr_t) REF_SEG _sfxctlSegmentRomStart;
 	}
 
+#ifndef PLATFORM_N64
+	// Ids for the longest bank an installed mod has, before anything is
+	// appended after the game's (modaudio.c): a mod entered live puts its
+	// sounds in these slots. Past the boot bank's end they name its first.
+	{
+		s32 reserve = modAudioReserveSounds(g_NumSounds - 1);
+
+		for (i = g_NumSounds - 1; i < reserve; i++) {
+			g_ALSoundRomOffsets[i] = g_ALSoundRomOffsets[0];
+		}
+
+		if (reserve + 1 > g_NumSounds) {
+			g_NumSounds = reserve + 1;
+		}
+	}
+#endif
+
 	// Allocate and initialise cache
 #ifdef PLATFORM_N64
 	g_SndCache.indexes = alHeapAlloc(&g_SndHeap, sizeof(u16), g_NumSounds);
@@ -1094,6 +1112,39 @@ uintptr_t sndGetCtlStart(void)
 uintptr_t sndGetTblStart(void)
 {
 	return (uintptr_t)(romptr_t) REF_SEG _sfxtblSegmentRomStart;
+}
+
+uintptr_t sndGetSeqTblStart(void)
+{
+	return (uintptr_t)(romptr_t) REF_SEG _seqtblSegmentRomStart;
+}
+
+/**
+ * Forgets every sound the cache holds and the bank each music player was
+ * given, for a swap of the banks under them (modaudio.c); nothing may be
+ * playing. The next play of each sound reloads it, and the next sequence
+ * binds its player to the bank in var80095204 again.
+ */
+void sndFlushCaches(void)
+{
+	s32 i;
+
+	if (!g_ALSoundRomOffsets) {
+		return;
+	}
+
+	for (i = 0; i < SND_MAX_SOUNDS; i++) {
+		g_SndCache.indexes[i] = 0xffff;
+	}
+
+	for (i = 0; i < NUM_CACHE_SLOTS; i++) {
+		g_SndCache.ages[i] = 1;
+		g_SndCache.refcounts[i] = 0;
+	}
+
+	for (i = 0; i < ARRAYCOUNT(g_SeqInstances); i++) {
+		g_SeqInstances[i].bank = NULL;
+	}
 }
 
 /** A config number (the high bit of a sound number) for soundnum under config index; -1 when full. */
@@ -1564,6 +1615,12 @@ struct seqextra {
 
 #define SEQ_MAX_EXTRA 256
 
+// Appended sequences are numbered from here, not from the end of the game's
+// table: a mod entered live (modaudio.c) brings a sequence table of its own
+// length, and an appended number that followed the table's count would mean
+// another sequence under every mod. SEQ_EXTRA_BASE (snd.h) is also the most
+// a table may hold; nothing ships more than the game's 119.
+
 static struct seqextra g_SeqExtra[SEQ_MAX_EXTRA];
 static s32 g_NumSeqExtra;
 
@@ -1580,7 +1637,7 @@ s32 seqAppend(const u8 *zip, u16 binlen, u16 ziplen, ALBank *bank)
 	g_SeqExtra[g_NumSeqExtra].bank = bank;
 	g_SeqExtra[g_NumSeqExtra].scale = SEQ_APPENDED_VOLUME;
 
-	return g_SeqTable->count + g_NumSeqExtra++;
+	return SEQ_EXTRA_BASE + g_NumSeqExtra++;
 }
 
 /**
@@ -1590,8 +1647,8 @@ s32 seqAppend(const u8 *zip, u16 binlen, u16 ziplen, ALBank *bank)
  */
 void seqAppendSetScale(s32 tracknum, s16 scale)
 {
-	if (g_SeqTable && tracknum >= g_SeqTable->count && tracknum - g_SeqTable->count < g_NumSeqExtra && scale > 0) {
-		g_SeqExtra[tracknum - g_SeqTable->count].scale = scale;
+	if (tracknum >= SEQ_EXTRA_BASE && tracknum - SEQ_EXTRA_BASE < g_NumSeqExtra && scale > 0) {
+		g_SeqExtra[tracknum - SEQ_EXTRA_BASE].scale = scale;
 	}
 }
 #endif
@@ -1838,12 +1895,15 @@ bool seqPlay(struct seqinstance *seq, s32 tracknum)
 #ifndef PLATFORM_N64
 	const struct seqextra *extra = NULL;
 
-	if (g_SeqTable && seq->tracknum >= g_SeqTable->count) {
-		if (seq->tracknum - g_SeqTable->count >= g_NumSeqExtra) {
+	if (seq->tracknum >= SEQ_EXTRA_BASE) {
+		if (seq->tracknum - SEQ_EXTRA_BASE >= g_NumSeqExtra) {
 			return false;
 		}
 
-		extra = &g_SeqExtra[seq->tracknum - g_SeqTable->count];
+		extra = &g_SeqExtra[seq->tracknum - SEQ_EXTRA_BASE];
+	} else if (seq->tracknum < 0 || !g_SeqTable || seq->tracknum >= g_SeqTable->count) {
+		// past the table entered (a mod's may be shorter than the game's)
+		return false;
 	}
 
 	if (!extra)
@@ -1980,8 +2040,8 @@ void seqSetVolume(struct seqinstance *seq, u16 volume)
 		// what brought the folder's theme back from the intro about three
 		// times as loud as the game's own music, and handed a borrowed
 		// sequence the -1 the table ends with, which clamps to the same thing.
-		if (g_SeqTable && seq->tracknum >= g_SeqTable->count && seq->tracknum - g_SeqTable->count < g_NumSeqExtra) {
-			scale = g_SeqExtra[seq->tracknum - g_SeqTable->count].scale;
+		if (seq->tracknum >= SEQ_EXTRA_BASE && seq->tracknum - SEQ_EXTRA_BASE < g_NumSeqExtra) {
+			scale = g_SeqExtra[seq->tracknum - SEQ_EXTRA_BASE].scale;
 		}
 
 		if (seq->tracknum >= 0 && seq->tracknum < ARRAYCOUNT(var8005ecf8)
