@@ -7,6 +7,7 @@ the long form.
 
 - **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30) and writes the `maps` block (31) so a mod's arenas come from its own tables under its own names — a file name is Perfect Dark's slot, not the map (GE-X's `crad` is Aztec)
 - **Mod directories, Load Mods, modconfig, `modcodediff`, the ROM symbol file, the data segment and importing a mod's weapon definitions** — [mods.md](CLAUDE-notes/mods.md): only the first mod dir joins the file search; files swap live, segments cannot; the `datasegment` block, `moddata.c`, and "where this stands" for continuing the import work
+- **A mod entered from the Perfect Menu, no restart (2026-10-09)** — mods.md, "A mod entered from the Perfect Menu": the "Perfect Dark Mods" row and its list, `modmode.c`'s queue (sound drains, the Institute reloads, the swap at the stage boundary in **port/src/pdmain.c's** outer loop - the port's main loop, not src/lib/main.c's), `modSwapPath()`, Mod.ModDir no longer mounted at startup and Load Mods gone; online, `modModeRequestAtNextStage()` swaps at the host's next STAGE_LOAD
 - **A rule or colour a mod's code changes that is not a weapon's** — mods.md, "The tail": `game/modrules.h` holds it with the stock default, a modconfig block sets it through one setter in mod.c, both importers read it; the branch `lua-pipeline` is the Lua experiment of 2026-09-07, kept and not merged. mods.md, "A GE-X tester's seven reports" (2026-09-13, importer 32): a jump table in rodata is *data* to modcodediff (the third person guns, the sights); GE-X's green menus are dialog **type bytes**, not the palette; a boot re-imports every stale mod, so never run two after a version bump; mods.md, "GE-X's guns threw green sparks behind green tracers" (2026-09-26, importer 33): the wall sparks and tracer texture are two more rodata jump tables on the weapon number (`hitsparks`/`beamtexture` keys), and the Klobb's green tracer was the Mauler's charge beam (`WEAPONFLAG3_CHARGEBEAM`); mods.md, "The Mauler's charge is two flags" (importer 34): `chargeable` is the pitch, `chargespent` the reset, GE-X tests them apart
 
 ### GE-X import: where to pick up (2026-09-05)
@@ -2037,3 +2038,50 @@ HUD message). Off notes `1,<Mod.LoadTextures>,<xblaSwitchGetParts() bits>` in
 The checkbox reads the live state, not the note. GoldenEye's HD (Bean) data is
 not on it - that follows whether the release is installed. Code:
 optionsmenu.c `modHdAssets*`, xblaswitch.c `xblaSwitch{Get,Set}Parts()`.
+
+## A mod entered from the Perfect Menu (2026-10-09)
+
+The owner: "with GE and GF/TND there is no restart, they populate the main
+menu. I would like the PD Mod flow the same, no restart needed, a separate
+main menu entry, and can be hosted/uploaded to clients from host." Picks: one
+**Perfect Dark Mods** row on the Perfect Menu opening a list of the installed
+mods (not a row each: there can be dozens), and a mod entered shows **the
+Perfect Menu again with the mod in it** - its missions, arenas, guns, text -
+plus **Back to Perfect Dark**; GoldenEye's and the ROM hacks' rows are hidden
+meanwhile.
+
+- **The list** is `g_ModModeMenuDialog` in port/src/modmode.c: Load Mods'
+  loadable view of the list (the conversions mounted for their maps are left
+  out: they have their own rows), sorted by name, a folder's `_` shown as a
+  space (the menu font draws `_` as a bar over the line), the entered one
+  marked `> `. `MOD_MAX_MODS` is 256.
+- **Entering or leaving** (`modModeRequestEnter(path, name)`,
+  `modModeRequestLeave()`) is queued: `modModeTick()` (lvTick) pumps
+  `modAudioQuiesce()` until the sound has stopped (at most 180 frames), then
+  reloads the Institute the way GoldenEye's folder goes back
+  (`gexFrontGoBack()`). The swap is `modModeStageBoundary()`, at the top of
+  **port/src/pdmain.c**'s outer loop - the port runs its own copy of the main
+  loop, and a hook put in src/lib/main.c never runs (the first cut did; the
+  state sat at "reloading" for ever). There the old stage has stopped and the
+  next has not started, so nothing points into a segment: the old mod's
+  segments and banks back to stock (`modSegsLeave()`, `modAudioLeave()`),
+  the overlay and its tables (`modSwapPath()`), the new mod's segments and
+  banks (`modSegsEnter()`, `modAudioEnter()`). menutick.c then pushes the
+  Perfect Menu over the Institute (`modModeWantsMenu()`).
+- **`modSwapPath(path)`** is modListSwap()'s old body by path: no
+  selection written, no segments check. `modListSwap(index)` (netcontent's
+  until wave 3) is the checks, it, and the selection. `modMapsApply()` (the
+  Stage Loader) is `modSwapPath(fsGetModDir())`: the entered mod stays.
+- **Startup no longer mounts Mod.ModDir** (a pd.ini's line is logged and
+  left unread) and the Load Mods page is gone; `--moddir` is unchanged for the
+  gates and the All in One launcher, and the row is disabled under it.
+- **Online** (`modModeRequestAtNextStage()`): the same swap with no reload
+  or menu of its own, at the session's next stage change - the host's
+  STAGE_LOAD. A later request replaces one still waiting. The row itself is
+  disabled online (`modModeCanChange()`): a host enters the mod first.
+- **Saves** are shared, as with the boot-time loader: a mod's missions are
+  filed in the agent's own game file. A save per mod is not built.
+- Test: `call (void)gexFrontGoBack()` from gdb puts the Perfect Menu up on a
+  `--skip-intro` boot, then `call (int)modModeRequestEnter("mods/X", "X")`;
+  `modmode: entered X` and the moddata lines follow in the log.
+
