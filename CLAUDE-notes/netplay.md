@@ -935,6 +935,24 @@ progression").
   4-5 corrections per knock and the host's tank to the bit after (96.8%,
   58, 2 - the knocks' own gdb pauses). Undisturbed, both agree exactly:
   the bug needs a correction while driving.
+- **A setup object the mission's lists take out (protocol 24, 2026-10-09).**
+  F3 20261009-070425, a client in a Villa room: "ship is on screen still" -
+  the dropship of the opening hung over the villa all mission. Villa's
+  intro list ends with `disable_object(OBJ_DROPSHIP)` (`aiDisableObj`:
+  `propDeregisterRooms`, `propDelist`, `propDisable`), and a prop in no list
+  was never captured (`netCaptureAll` walks the active and paused lists): it
+  simply left the snapshots, which a client cannot tell from leaving its
+  scope, so its copy - mapped from SETUPOBJ, never told, and running no
+  lists of its own - kept its last pose for ever. Any init list's
+  `disable_object` was the same (shown on a client from the start). Now the
+  host also captures each setup object (by its setup command, its
+  generation unchanged) that is in no list and has no parent, as a SETUPOBJ
+  with `NETOBJ_DELISTED` (a door's `NETDOOR_DELISTED`), always in scope
+  (unchanged, it costs its presence bit); the client takes its own out of
+  the world as `aiDisableObj` does, and lists it again (`propActivate`,
+  placed afresh) when a record comes without the bit (`enable_object`).
+  Counters: the host's snap slot line "setup objects out of the world", the
+  puppets line "taken out" and "put back".
 - **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene

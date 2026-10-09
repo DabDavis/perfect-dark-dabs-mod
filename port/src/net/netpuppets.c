@@ -93,6 +93,9 @@ struct netpup {
 	u16 lastsrcgen;      // ... and its generation
 	u8 havesrc;
 	s32 smoketimer240;   // a projectile's trail, at projectileTick's interval
+	u32 listtick;        // (protocol 24) the host tick of the record that last decided in or out of the world
+	u16 listgen;         // ... its generation
+	u8 listout;          // ... and what it said
 };
 
 static struct netpup *s_Pup = NULL;
@@ -129,6 +132,8 @@ static u32 s_DoorSounds = 0;
 static u32 s_Regens = 0;
 static u32 s_Unpaused = 0;
 static u32 s_LetGo = 0;      // objects this machine held as a child that the host has free (netPupObjLetGo)
+static u32 s_TakenOut = 0;   // (protocol 24) setup objects taken out of the world as the host's were
+static u32 s_PutBack = 0;    // ... and put back as the host's were
 static u32 s_Trails = 0;
 static u32 s_LiftMoves = 0;  // lift records that moved a lift
 static u32 s_HatsWorn = 0;   // hats put on a chr from its record
@@ -262,7 +267,7 @@ void netPuppetsStageStart(void)
 	s_Serial = 0;
 	s_Poses = s_Interp = s_Extrap = s_Held = s_Behind = 0;
 	s_CreateFail = s_Freed = s_Stolen = s_NoDesc = s_HeldSwaps = s_Snaps = 0;
-	s_DoorMoves = s_DoorSounds = s_Regens = s_Unpaused = s_LetGo = s_Trails = s_Deaths = s_FirstRecords = s_BadAnims = s_Resyncs = 0;
+	s_DoorMoves = s_DoorSounds = s_Regens = s_Unpaused = s_LetGo = s_TakenOut = s_PutBack = s_Trails = s_Deaths = s_FirstRecords = s_BadAnims = s_Resyncs = 0;
 	s_PlayerDeaths = 0;
 	s_LiftMoves = s_HatsWorn = s_GeGunsHeld = s_BodyLoads = s_GeGunsMade = s_GoldenGuns = s_HeldFails = 0;
 	s_GoldenHands = s_GoldenHolders = 0;
@@ -1031,6 +1036,12 @@ static void netPupSeedRooms(struct prop *prop, s32 room)
 		prop->rooms[0] = room;
 		prop->rooms[1] = -1;
 	}
+}
+
+// in the active or the paused list (propDelist() clears both links)
+static s32 netPupListed(const struct prop *prop)
+{
+	return prop->prev != NULL || prop == g_Vars.activeprops || prop == g_Vars.pausedprops;
 }
 
 // in the paused list (propUnpause() takes only those: an active one would
@@ -2290,6 +2301,62 @@ static void netClientPosePuppetsRun(void)
 
 		u->posed = s_Serial;
 
+		// (protocol 24) a setup object the host's scripts took out of the
+		// world (disable_object: Villa's dropship after the opening, any
+		// mission's prop an init list hides) or put back (enable_object):
+		// this machine runs no lists, so it does the same to its own here
+		if (!isdyn && (rec == NETREC_OBJ || rec == NETREC_DOOR)) {
+			// decided by the newest record at hand, never by an older one
+			// than decided last (the render clock that steps back a tick,
+			// the blend's two records either side of the change: in, out
+			// and in again within a frame or two)
+			const u8 *nr = ra && netStoreTick(ra) > netStoreTick(rb) ? ra : rb;
+			const u32 nt = (u32)netStoreTick(nr);
+			const u8 bit = rec == NETREC_OBJ ? NETOBJ_DELISTED : NETDOOR_DELISTED;
+			s32 out = (nr[NETSNAP_STOREHDR + (rec == NETREC_OBJ ? 0 : 4)] & bit) != 0;
+
+			if (u->listgen == gen && nt < u->listtick) {
+				out = u->listout;
+			} else {
+				u->listtick = nt;
+				u->listgen = gen;
+				u->listout = (u8)out;
+			}
+
+			if (out) {
+				if (prop->parent) {
+					netPupObjLetGo(prop);
+				}
+
+				if (netPupListed(prop)) {
+					propDeregisterRooms(prop);
+					propDelist(prop);
+					propDisable(prop);
+
+					if (s_TakenOut++ < 32) {
+						sysLogPrintf(LOG_NOTE, "net: puppets: host id %u (model 0x%x) taken out of the world as the host's was (tick %u)",
+								id, prop->obj ? prop->obj->modelnum : -1, g_NetTick);
+					}
+				}
+
+				// placed afresh from its next record if it comes back
+				u->havestate = 0;
+				netPupTrace(rt, id, kind, prop);
+				continue;
+			}
+
+			if (!prop->parent && !netPupListed(prop)) {
+				propActivate(prop);
+				propEnable(prop);
+				u->havestate = 0;
+
+				if (s_PutBack++ < 32) {
+					sysLogPrintf(LOG_NOTE, "net: puppets: host id %u (model 0x%x) back in the world as the host's is (tick %u)",
+							id, prop->obj ? prop->obj->modelnum : -1, g_NetTick);
+				}
+			}
+		}
+
 		// a skip for what has not changed since the last pose (most
 		// objects and doors most of the time)
 		if (rec != NETREC_CHR && u->havestate && te == u->lastt
@@ -2567,9 +2634,9 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, let go %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, let go %u, taken out %u, put back %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
 			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
-			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_LetGo, s_Trails, s_PlayerDeaths,
+			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_LetGo, s_TakenOut, s_PutBack, s_Trails, s_PlayerDeaths,
 			s_Created[NETDESC_BODY], s_BodyLoads, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter, s_Restitched);
 }
