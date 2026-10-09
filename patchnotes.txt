@@ -31,6 +31,14 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 45 2026-10-09
+Online: downloading a mod or conversion from the host is about ten times faster
+Online: GoldenEye rooms no longer turn away a player whose Later Revision (JP/PAL) setting differs from the host's - the host's is used for the match
+Online: F3's Report a Problem opens on your own screen when you are not the host
+Online: the texture pack and XBLA on/off messages show on your own screen in a match (thanks dick)
+Online: a controller no longer stops working after a match ends under you or the host leaves (thanks dick)
+Goldfinger 64, Shipyard: with Disable Fog on, guards near you no longer pop in and out as you turn (thanks Odeyseis)
+
 notes 44 2026-10-09
 Combat Simulator: Back on its first page goes to the main menu again instead of opening it again (thanks Odeyseis, savantique)
 Online co-op: guests no longer crash when a guard drops its gun or shield
