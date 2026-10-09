@@ -294,6 +294,14 @@ Gfx *menuitemListRender(Gfx *gdl, struct menurendercontext *context)
 		width = context->width;
 	}
 
+#ifndef PLATFORM_N64
+	// a dropdown whose widest row is wider than its dialog (a tagged
+	// GoldenEye gun, " [GE]") cut the row at the dialog's width
+	if (context->item->type == MENUITEMTYPE_DROPDOWN && context->width > width) {
+		width = context->width;
+	}
+#endif
+
 #if VERSION >= VERSION_NTSC_1_0
 	g_ScissorX1 = context->x * g_ScaleX;
 	g_ScissorX2 = (context->x + width) * g_ScaleX;

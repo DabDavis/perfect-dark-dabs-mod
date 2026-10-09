@@ -33,6 +33,8 @@
 #include "modborrow.h"
 #include "gebean.h"
 #include "geconvert.h"
+#include "gexplusrom.h"
+#include <strings.h>
 #include "geaitable.h"
 #include "preprocess.h"
 #include "romdata.h"
@@ -2232,6 +2234,65 @@ s32 gexPlusWeaponSets(s32 *first)
 	}
 
 	return 0;
+}
+
+const char *gexPlusMenuTagOfDir(const char *dir)
+{
+	const char *tag = gexPlusRomDirTag(dir);
+
+	if (!tag) {
+		return NULL;
+	}
+
+	if (!strcasecmp(tag, "gf64")) {
+		return "GF";
+	}
+
+	if (!strcasecmp(tag, "tnd64")) {
+		return "TND";
+	}
+
+	return !strcasecmp(tag, geconvertGoldenEyeTag()) ? "GE" : NULL;
+}
+
+/**
+ * A weapon set's tag in a list that holds Perfect Dark's sets too: the block
+ * gexPlusWeaponSetsAppend() put after them (GoldenEye's own, or the hack's
+ * whose mode was left last). GE Plus's dropdown listing the block alone
+ * (gexPlusWeaponSets()) does not ask.
+ */
+const char *gexPlusWeaponSetTag(s32 setindex)
+{
+	if (!geSetsInList() || setindex < g_GeSetsFirst || setindex >= g_GeSetsFirst + g_GeSetsNum) {
+		return NULL;
+	}
+
+	return gexPlusMenuTagOfDir(g_GeSetsGroups[g_GeSetsIn].dir);
+}
+
+const char *gexPlusMenuTagged(const char *text, const char *tag)
+{
+	static char ring[16][96];
+	static s32 next;
+	char *out;
+	size_t len;
+
+	if (!tag || !text) {
+		return text;
+	}
+
+	out = ring[next];
+	next = (next + 1) % ARRAYCOUNT(ring);
+	len = strlen(text);
+
+	// the game's names end in a newline, which stays last
+	if (len > 0 && text[len - 1] == '\n') {
+		snprintf(out, sizeof(ring[0]), "%.*s [%s]\n", (int)(len - 1), text, tag);
+	} else {
+		snprintf(out, sizeof(ring[0]), "%s [%s]", text, tag);
+	}
+
+	return out;
 }
 #endif
 

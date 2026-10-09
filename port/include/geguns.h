@@ -198,6 +198,7 @@ s32 gegunsSampleTrack(const struct geknifekey *keys, f32 time, void *mtx, s32 le
  */
 void gegunsStageSet(s32 stagenum);
 s32 gegunsHackSetIn(void); // a ROM hack's own gun set is in: its stage is loaded
+const char *gegunsMenuTagAtOption(s32 option); // a weapon dropdown row's game tag ("GE", "GF", "TND") or NULL
 u16 gegunsMenuNameId(s32 weaponnum); // the menus' name of a GoldenEye gun: a hack's mode's, or 0
 void gegunsExtraRowsRefresh(void); // a hack's own pistols' Combat Simulator rows shown or hidden
 

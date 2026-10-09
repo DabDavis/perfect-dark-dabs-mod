@@ -572,7 +572,12 @@ MenuItemHandlerResult menuhandlerMpWeaponSlot(s32 operation, struct menuitem *it
 		data->dropdown.value = mpGetNumWeaponOptions();
 		break;
 	case MENUOP_GETOPTIONTEXT:
+#ifndef PLATFORM_N64
+		// a GoldenEye conversion's gun marked among Perfect Dark's (geguns.c)
+		return (uintptr_t) gexPlusMenuTagged(mpGetWeaponLabel(data->dropdown.value), gegunsMenuTagAtOption(data->dropdown.value));
+#else
 		return (uintptr_t) mpGetWeaponLabel(data->dropdown.value);
+#endif
 	case MENUOP_SET:
 		mpSetWeaponSlot(item->param3, data->dropdown.value);
 		break;
@@ -626,7 +631,13 @@ MenuItemHandlerResult menuhandlerMpWeaponSetDropdown(s32 operation, struct menui
 		data->dropdown.value = func0f189058(item->param);
 		break;
 	case MENUOP_GETOPTIONTEXT:
+#ifndef PLATFORM_N64
+		// the whole list: GoldenEye's block marked among Perfect Dark's sets
+		// (GE Plus's own list above is the block alone, unmarked)
+		return (uintptr_t) gexPlusMenuTagged(mpGetWeaponSetName(data->dropdown.value), gexPlusWeaponSetTag(func0f188f9c(data->dropdown.value)));
+#else
 		return (uintptr_t) mpGetWeaponSetName(data->dropdown.value);
+#endif
 	case MENUOP_SET:
 		mpSetWeaponSet(data->dropdown.value);
 		break;
@@ -1516,7 +1527,7 @@ MenuItemHandlerResult mpSelectRandomWeaponListHandler(s32 operation, struct menu
 			s32 numweapons = mpGetNumWeaponOptions();
 
 			if (data->list.value < numweapons) {
-				return (uintptr_t) mpGetWeaponLabel(data->list.value);
+				return (uintptr_t) gexPlusMenuTagged(mpGetWeaponLabel(data->list.value), gegunsMenuTagAtOption(data->list.value));
 			} else {
 				return (intptr_t)labels[data->list.value - numweapons];
 			}

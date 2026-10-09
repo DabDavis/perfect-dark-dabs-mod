@@ -128,6 +128,20 @@ s32 gexPlusGetPdGuns(void);
 void gexPlusSetPdGuns(s32 on);
 
 /**
+ * The Combat Simulator's dropdowns mark the rows a GoldenEye conversion
+ * brings where they sit among Perfect Dark's: " [GE]", " [GF]", " [TND]".
+ * gexPlusMenuTagOfDir() is a conversion folder's tag ("GE", "GF", "TND"; NULL
+ * for any other folder), gexPlusWeaponSetTag() a weapon set's (its index in
+ * g_MpWeaponSets) when it is in GoldenEye's block of the whole list, and
+ * gexPlusMenuTagged() the row's text with the tag put before its newline (a
+ * buffer of a small ring, good until a dozen more calls; the text itself when
+ * `tag` is NULL).
+ */
+const char *gexPlusMenuTagOfDir(const char *dir);
+const char *gexPlusWeaponSetTag(s32 setindex);
+const char *gexPlusMenuTagged(const char *text, const char *tag);
+
+/**
  * Whether this match's pickups pair by GoldenEye's rule: an arena of a
  * GoldenEye ROM's conversion (GE Plus's or a ROM hack's), where only a linked
  * prop gives a pair - the same gun from a second pad adds ammo. Perfect
