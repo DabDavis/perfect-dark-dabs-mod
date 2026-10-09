@@ -151,6 +151,11 @@ s32 netLobbyMyReady(void);
 s32 netLobbyMyTeam(void);            // 0, 1, or -1 a spectator
 void netLobbySetReady(s32 ready);
 void netLobbyCycleTeam(void);        // team 1 -> team 2 -> spectator -> team 1
+void netLobbySetHostTeam(s32 team); // host: its own team (0-7) from the room's Teams page; sent once in the room
+s32 netLobbyHandicapOf(const char *user);           // the room's Handicaps page, by account: 0-255, 0x80 stock
+void netLobbyHandicapSet(const char *user, s32 handicap);
+void netLobbyHandicapsReset(void);
+u32 netLobbyHandicapsHash(void);
 void netLobbyChat(const char *text);
 void netLobbySendSettings(void);     // host: the Combat Simulator setup again
 void netLobbyKick(const char *user);

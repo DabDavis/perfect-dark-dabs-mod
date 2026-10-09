@@ -203,6 +203,7 @@ struct netrulessaved {
 	s32 coopradaron;
 	s32 coopfriendlyfire;
 	s32 numaibuddies;
+	u8 mphilltime; // the scenario's own option (KOH's, its save bits in RULES)
 	struct netkeyvalue keys[NET_MAXKEYS];
 	s32 nkeys;
 	s32 swapped; // H13: the own values are in while pd.ini is written
@@ -1193,6 +1194,7 @@ static void netRulesSaveInto(struct netrulessaved *out)
 	out->coopradaron = g_Vars.coopradaron;
 	out->coopfriendlyfire = g_Vars.coopfriendlyfire;
 	out->numaibuddies = g_Vars.numaibuddies;
+	out->mphilltime = g_Vars.mphilltime;
 
 	out->nkeys = 0;
 
@@ -1451,6 +1453,7 @@ static void netRulesRestoreFrom(const struct netrulessaved *saved)
 	g_Vars.coopradaron = saved->coopradaron;
 	g_Vars.coopfriendlyfire = saved->coopfriendlyfire;
 	g_Vars.numaibuddies = saved->numaibuddies;
+	g_Vars.mphilltime = saved->mphilltime;
 
 	for (i = 0; i < saved->nkeys; i++) {
 		netRulesWriteKey(&saved->keys[i]);

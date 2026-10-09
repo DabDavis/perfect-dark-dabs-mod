@@ -2023,6 +2023,107 @@ void netLobbyCycleTeam(void)
 	}
 }
 
+/**
+ * The room's Teams page: the host's own row is its team in the room (the
+ * launch puts every member's room team on its slot), so a change there goes
+ * to the lobby; made before the room exists (Create Room), once it does
+ */
+static s32 s_HostTeamWanted = -1;
+
+void netLobbySetHostTeam(s32 team)
+{
+	char body[48];
+
+	if (team < 0 || team > 7) {
+		return;
+	}
+
+	if (!s_InRoom) {
+		s_HostTeamWanted = team;
+		return;
+	}
+
+	s_HostTeamWanted = -1;
+
+	if (team != netLobbyMyTeam()) {
+		snprintf(body, sizeof(body), "{\"team\":%d,\"spectator\":false}", team);
+		lobbyAction("team", body);
+	}
+}
+
+/**
+ * The room's Handicaps page: a member's handicap by account, the host's own
+ * being its profile's (g_PlayerConfigsArray[0]). The host puts each on the
+ * member's slot as the match starts (netsession.c, after the host's slots
+ * are saved, so H12 gives the slots back as they were). Members not set
+ * play at the stock 0x80 (100%). Kept on this machine only: a host that
+ * takes the room over (netmigrate.c) starts from 100% for everyone.
+ */
+static struct {
+	char user[NETLOBBY_MAXUSER + 1];
+	u8 handicap;
+} s_Handicaps[MAX_PLAYERS * 2];
+
+s32 netLobbyHandicapOf(const char *user)
+{
+	u32 i;
+
+	for (i = 0; i < ARRAYCOUNT(s_Handicaps); i++) {
+		if (s_Handicaps[i].user[0] && strcasecmp(s_Handicaps[i].user, user) == 0) {
+			return s_Handicaps[i].handicap;
+		}
+	}
+
+	return 0x80;
+}
+
+void netLobbyHandicapSet(const char *user, s32 handicap)
+{
+	u32 i;
+	s32 free = -1;
+
+	handicap = handicap < 0 ? 0 : handicap > 0xff ? 0xff : handicap;
+
+	for (i = 0; i < ARRAYCOUNT(s_Handicaps); i++) {
+		if (s_Handicaps[i].user[0] && strcasecmp(s_Handicaps[i].user, user) == 0) {
+			s_Handicaps[i].handicap = handicap;
+			return;
+		}
+
+		if (!s_Handicaps[i].user[0] && free < 0) {
+			free = i;
+		}
+	}
+
+	// a full table drops the oldest (members who left long ago)
+	if (free < 0) {
+		memmove(&s_Handicaps[0], &s_Handicaps[1], sizeof(s_Handicaps) - sizeof(s_Handicaps[0]));
+		free = ARRAYCOUNT(s_Handicaps) - 1;
+	}
+
+	snprintf(s_Handicaps[free].user, sizeof(s_Handicaps[free].user), "%s", user);
+	s_Handicaps[free].handicap = handicap;
+}
+
+void netLobbyHandicapsReset(void)
+{
+	memset(s_Handicaps, 0, sizeof(s_Handicaps));
+}
+
+// Room Settings: did anything on the Handicaps page change
+u32 netLobbyHandicapsHash(void)
+{
+	u32 h = 2166136261u;
+	u32 i;
+	const u8 *p = (const u8 *)s_Handicaps;
+
+	for (i = 0; i < sizeof(s_Handicaps); i++) {
+		h = (h ^ p[i]) * 16777619u;
+	}
+
+	return h;
+}
+
 void netLobbyChat(const char *text)
 {
 	char body[NETLOBBY_MAXCHATTEXT * 6 + 32];
@@ -3038,6 +3139,13 @@ void netLobbyTick(void)
 		// the rendezvous: the host registers its session's socket, a member
 		// its lobby socket, and the ladder finds the member's path
 		netRdvEnter(s_MainIsHost, roomid, udpid, udpkey);
+
+		// the team the host picked on Create Room's Teams page
+		if (s_MainIsHost && s_HostTeamWanted > 0) {
+			netLobbySetHostTeam(s_HostTeamWanted);
+		}
+
+		s_HostTeamWanted = -1;
 	} else if (entered < 0 && s_CreatePending) {
 		// the create was refused: the socket opened for it closes
 		s_CreatePending = 0;
