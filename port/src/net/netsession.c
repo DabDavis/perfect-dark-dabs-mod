@@ -2746,6 +2746,7 @@ static s32 netClientBeginStage(struct netbuf *b)
 	// the last mission's report, if it is still up, is put away: the folder
 	// has its own set, and the next mission's comes with these rules
 	gexFrontCloseNetReport();
+	gexFrontCloseForNetMatch();
 
 	if (!netBufOk(b) || netBufRemaining(b) != 0 || matchid != netRulesMatchId()
 			|| numplayers < 1 || numplayers > MAX_PLAYERS || (yourplayer >= numplayers && yourplayer != NETSLOT_SPECTATOR)) {
@@ -5209,6 +5210,10 @@ void netSessionHostDropUser(const char *user, const char *why)
  */
 void netSessionLobbyStartMatch(void)
 {
+	// nothing of GE Plus's folder left open over the match: it would take the
+	// match's menus, its end screen among them
+	gexFrontCloseForNetMatch();
+
 	// host migration: the room's match carried on, or its mission again
 	if (netMigrateHostStart()) {
 		return;
@@ -5321,7 +5326,10 @@ s32 netMenuAfterMatch(void)
 	// place of the menus, so one is up under it: the room's, else the
 	// Perfect Menu, where leaving the folder lands
 	if (!gexFrontOpenNetReport()) {
-		return 0;
+		// a room's match goes back to the room, never to GE Plus's folder
+		// (menutick.c's GoldenEye match return): the folder had opened over
+		// the Game Lobby and stayed open into the room's next match
+		return g_NetLobbyRoom ? 1 : 0;
 	}
 
 	if (!g_NetLobbyRoom && !g_Menus[g_MpPlayerNum].curdialog) {

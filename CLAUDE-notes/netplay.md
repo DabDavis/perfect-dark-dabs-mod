@@ -1259,10 +1259,9 @@ nothing is ever sent from one machine to another but names and hashes.
   `--net-test-serve-quit`) and `fetchend` (`--net-test-serve-pace MS`, a
   client's GO line now says how long it waited after its LOADED: 80+ s
   there against its own 60) cases. fetchend plays PD_Kakariko's Playground,
-  not a GoldenEye arena: a lobby host's **second** GoldenEye match (Complex,
-  three players) never opened its end screen (`g_MainIsEndscreen` 1,
-  `g_MenuData.root` 0, no dialog; the script's close never fired), with or
-  without a download - not looked into. Not guarded: the served segments
+  not a GoldenEye arena: a lobby host's second GoldenEye match never opened
+  its end screen then (fixed since: "A room's second GoldenEye match", in
+  the section on GoldenEye's end of a mission online). Not guarded: the served segments
   and modconfig.txt go to the decomp's loaders as they come.
 - **Not done.** A restart-and-rejoin for the segs/ mods (the game could
   relaunch itself with the mod selected for that run and join the room
@@ -1483,6 +1482,28 @@ skipped, then the completion screen goes to a PD screen instead of GE".
   `gexPlusMissionExitTick` break), the host starting Facility while the
   client read its STATISTICS (`set var 'gexfront.c'::g_Front.mission = 1`,
   `call (void)frontStartMission()`), and screenshots of each page.
+
+**A room's second GoldenEye match (2026-10-09).** In a lobby room in
+GoldenEye's mode (any arena, two players or three), the host's second match
+never opened its end screen: `g_MainIsEndscreen` 1, `g_MenuData.prevmenuroot`
+-6, no dialog, the level running on for good. Perfect Dark's arenas were
+fine. After the first match menutick.c's return pushed the Game Lobby
+(`netMenuAfterMatch` -> `netLobbyMenuAfterMatch`), then, since
+`netMenuAfterMatch` said 0 for a match that was not a mission, took GE Plus's
+own way back from a match: `gexFrontOpenAfterMatch()` opened the folder on
+Multiplayer Options and pushed the Perfect Menu over the room. The lobby's
+launch then started the match with the folder still open, and an open
+folder takes every `menuTick()` (its own tick instead), so the -6 that opens
+the end screen was never acted on. Found with gdb: `g_Front.active` 1 in the
+stuck match, the breakpoint on `gexFrontOpen` reached from menuTick's
+match return. Now `netMenuAfterMatch` says 1 in a room (the room's menus
+are the way back), and a folder still open when the room's match or
+mission starts is put away (`gexFrontCloseForNetMatch`, from
+`netSessionLobbyStartMatch` and a client's `netClientBeginStage`; it logs
+"the folder put away for the room's match"). A guest in GoldenEye's own mode
+had the same folder over its Game Lobby. netmigratetest's `gesecond` case
+(`GESECOND_PLAYERS=2`, `GESECOND_PD=1` for the two other shapes); the guard
+alone was tried with the first fix taken out, and passed.
 
 ## Joining from anywhere, tried live (2026-10-08)
 
