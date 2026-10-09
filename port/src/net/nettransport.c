@@ -534,6 +534,25 @@ s32 netHostPeerStats(const struct nethost *h, s32 peer, struct netpeerstats *out
 	return 0;
 }
 
+u32 netHostPeerQueuedBytes(const struct nethost *h, s32 peer)
+{
+	ENetPeer *p = h ? peerGet(h, peer) : NULL;
+	ENetListIterator it;
+	u64 bytes;
+
+	if (!p) {
+		return 0;
+	}
+
+	bytes = p->reliableDataInTransit;
+
+	for (it = enet_list_begin(&p->outgoingCommands); it != enet_list_end(&p->outgoingCommands); it = enet_list_next(it)) {
+		bytes += ((ENetOutgoingCommand *)it)->fragmentLength;
+	}
+
+	return bytes > 0xffffffffu ? 0xffffffffu : (u32)bytes;
+}
+
 s32 netHostPeerAddr(const struct nethost *h, s32 peer, struct netaddr *out)
 {
 	ENetPeer *p = peerGet(h, peer);

@@ -292,6 +292,11 @@ s32 netContentGeCharsFollow(void);             // client, at STAGE_LOAD: GoldenE
 void netContentServeRequest(s32 peer, struct netbuf *b); // host: CONTENT_REQ
 void netContentServeTick(void);                          // host: a few parts to each client served, every tick
 void netContentServeStop(s32 peer);                      // host: the peer went
+void netContentPeerReset(s32 peer);                      // host: a new connection on peer (its asks forgotten, a transfer stopped)
+void netContentHostStageDir(const char *dirbase);        // host: a STAGE_LOAD named this map folder (it may be served)
+void netContentFetchAbort(void);                         // client: a fetch under way dropped (its memory freed)
+void netContentSessionEnd(void);                         // either: the session is over (fetch, transfers, refusals forgotten)
+s32 netContentServingPeer(s32 peer);                     // host: a transfer to that peer under way
 s32 netContentServing(void);                             // host: any transfer under way (the load deadline waits)
 s32 netContentFetchStart(const char *dir);               // client: ask; 1 asked (the STAGE_LOAD waits)
 void netContentFetchBegin(struct netbuf *b);

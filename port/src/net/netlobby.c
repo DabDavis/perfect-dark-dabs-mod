@@ -3429,6 +3429,10 @@ static void lobbyScriptTick(void)
 				s_ScriptClients = 0;
 				snprintf(text, sizeof(text), "host: in the room's match %d", s_ScriptPlayed + 1);
 				lobbyScriptStep(3, text);
+			} else if (s_InRoom && s_Room.valid && !s_Room.launched && s_Room.countdownms < 0 && !netLobbyBusy() && now - s_ScriptAt > 5000) {
+				// the lobby refused the launch (a member READY a moment
+				// after another): as a player would, wait and try again
+				lobbyScriptStep(1, "host: the launch did not happen; waiting for READY again");
 			}
 			break;
 		case 3:

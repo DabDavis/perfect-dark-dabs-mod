@@ -570,6 +570,9 @@ void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, c
 #define NETCONTENT_PERTICK   2                  // parts a host sends a client each tick (about 5.6 MB/s)
 #define NETCONTENT_MAXPATH   255
 #define NETCONTENT_MAXPEERS  (MAX_PLAYERS + 2)  // netsession.c's NET_MAXPEERS
+#define NETCONTENT_MAXQUEUED (2u * 1024 * 1024) // a peer's bytes ENet has queued or in flight before the next part waits
+#define NETCONTENT_MAXASKS   2                  // serves of one folder to one connection (a retry after a failure)
+#define NETCONTENT_MAXSESSIONDIRS 4             // the folders this session's stages named
 
 struct netservefile {
 	char *rel;
@@ -594,6 +597,18 @@ struct netserve {
 };
 
 static struct netserve s_Serve[NETCONTENT_MAXPEERS];
+
+// host: what each connection has been served this session, folder by folder
+// (a peer asking for the same folder over and over is refused)
+static struct {
+	char dir[NETCONTENT_MAXSESSIONDIRS][NET_MAXMAPDIR + 1];
+	u8 count[NETCONTENT_MAXSESSIONDIRS];
+} s_ServeAsks[NETCONTENT_MAXPEERS];
+
+// host: the map folders this session's STAGE_LOADs named (the only folders,
+// with GoldenEye's own conversion for its characters, a guest may ask for)
+static char s_SessionDirs[NETCONTENT_MAXSESSIONDIRS][NET_MAXMAPDIR + 1];
+static s32 s_SessionDirsNext;
 static u8 s_ContentBuf[NETCONTENT_PART + 1024];
 
 static char *netContentStrDup(const char *s)
@@ -810,6 +825,87 @@ void netContentServeStop(s32 peer)
 }
 
 /**
+ * Host: a STAGE_LOAD names the map folder dirbase (kinds 1 and 3): a folder
+ * this session's guests may be served
+ */
+void netContentHostStageDir(const char *dirbase)
+{
+	s32 i;
+
+	if (!dirbase || !dirbase[0]) {
+		return;
+	}
+
+	for (i = 0; i < NETCONTENT_MAXSESSIONDIRS; i++) {
+		if (strcasecmp(s_SessionDirs[i], dirbase) == 0) {
+			return;
+		}
+	}
+
+	snprintf(s_SessionDirs[s_SessionDirsNext], sizeof(s_SessionDirs[0]), "%s", dirbase);
+	s_SessionDirsNext = (s_SessionDirsNext + 1) % NETCONTENT_MAXSESSIONDIRS;
+}
+
+// a folder this session's content needs: a stage's (the map's conversion or
+// map mod, a migrated host's "$N/" copy by its name), or GoldenEye's own
+// conversion while this machine's lists hold its characters (a guest without
+// them fetches it: netContentGeCharsFollow)
+static s32 netContentSessionNeeds(const char *dir)
+{
+	s32 i;
+
+	for (i = 0; i < NETCONTENT_MAXSESSIONDIRS; i++) {
+		if (s_SessionDirs[i][0] && strcasecmp(s_SessionDirs[i], dir) == 0) {
+			return 1;
+		}
+	}
+
+	return strcasecmp(dir, GEXPLUSROM_DIR) == 0 && netContentGePoolListed();
+}
+
+// one more serve of dir to peer's connection; 0 when it has had its share
+static s32 netContentServeAsk(s32 peer, const char *dir)
+{
+	s32 i;
+	s32 freeslot = -1;
+
+	for (i = 0; i < NETCONTENT_MAXSESSIONDIRS; i++) {
+		if (s_ServeAsks[peer].dir[i][0] && strcasecmp(s_ServeAsks[peer].dir[i], dir) == 0) {
+			if (s_ServeAsks[peer].count[i] >= NETCONTENT_MAXASKS) {
+				return 0;
+			}
+
+			s_ServeAsks[peer].count[i]++;
+			return 1;
+		}
+
+		if (!s_ServeAsks[peer].dir[i][0] && freeslot < 0) {
+			freeslot = i;
+		}
+	}
+
+	if (freeslot < 0) {
+		return 0;
+	}
+
+	snprintf(s_ServeAsks[peer].dir[freeslot], sizeof(s_ServeAsks[peer].dir[0]), "%s", dir);
+	s_ServeAsks[peer].count[freeslot] = 1;
+	return 1;
+}
+
+/**
+ * Host: a new connection on peer: what an earlier one on the index asked
+ * for is forgotten (and anything still being sent stopped)
+ */
+void netContentPeerReset(s32 peer)
+{
+	if (peer >= 0 && peer < NETCONTENT_MAXPEERS) {
+		netContentServeStop(peer);
+		memset(&s_ServeAsks[peer], 0, sizeof(s_ServeAsks[peer]));
+	}
+}
+
+/**
  * Host: a CONTENT_REQ. The dir must be one mounted here for its maps (not
  * the overlay); the reply is CONTENT_BEGIN and the parts follow a tick at a
  * time, or CONTENT_NO with why.
@@ -834,6 +930,13 @@ void netContentServeRequest(s32 peer, struct netbuf *b)
 
 	if (sv->active) {
 		why = "one transfer at a time";
+	} else if (!netContentSessionNeeds(dir)) {
+		// checked before the folder is walked: only what this session's
+		// stages need (a joined peer could otherwise have any mounted
+		// folder walked and sent, again and again)
+		why = "the host's match does not use that folder";
+	} else if (!netContentServeAsk(peer, dir)) {
+		why = "that folder was sent to you already";
 	}
 
 	// a folder a host served this machine (fs.c's "$N/<name>") is served on
@@ -885,6 +988,11 @@ void netContentServeRequest(s32 peer, struct netbuf *b)
 	netBufWriteU32(&out, sv->bytes);
 	netSessionSendPeer(peer, NET_CHAN_BULK, out.data, netBufLen(&out));
 	sysLogPrintf(LOG_NOTE, "net: content: serving %s to peer %d: %d files, %u bytes", dir, peer, sv->nfiles, sv->bytes);
+}
+
+s32 netContentServingPeer(s32 peer)
+{
+	return peer >= 0 && peer < NETCONTENT_MAXPEERS && s_Serve[peer].active;
 }
 
 s32 netContentServing(void)
@@ -971,8 +1079,28 @@ static s32 netContentServePart(struct netserve *sv)
 /** Host, each tick: a few parts to every client being served */
 void netContentServeTick(void)
 {
+	// the gates (netmigratetest's midfetch and fetchend): a part every MS
+	// milliseconds (--net-test-serve-pace MS), so a fetch is still running
+	// when a match ends; the host gone as a player quits once it has sent B
+	// bytes of a folder (--net-test-serve-quit B), mid-transfer
+	static s32 pace = -1;
+	static s32 quitat = -1;
+	static u64 next;
 	s32 i;
 	s32 k;
+
+	if (pace < 0) {
+		pace = sysArgGetInt("--net-test-serve-pace", 0);
+		quitat = sysArgGetInt("--net-test-serve-quit", 0);
+	}
+
+	if (pace > 0) {
+		if (sysGetMicroseconds() < next) {
+			return;
+		}
+
+		next = sysGetMicroseconds() + (u64)pace * 1000;
+	}
 
 	for (i = 0; i < NETCONTENT_MAXPEERS; i++) {
 		struct netserve *sv = &s_Serve[i];
@@ -981,7 +1109,20 @@ void netContentServeTick(void)
 			continue;
 		}
 
-		for (k = 0; k < NETCONTENT_PERTICK; k++) {
+		for (k = 0; k < (pace > 0 ? 1 : NETCONTENT_PERTICK); k++) {
+			if (quitat > 0 && sv->sentbytes >= (u32)quitat) {
+				sysLogPrintf(LOG_NOTE, "net: content: --net-test-serve-quit: %u of %u bytes of %s sent to peer %d; quitting the game",
+						sv->sentbytes, sv->bytes, sv->dir, sv->peer);
+				fflush(stdout);
+				exit(0);
+			}
+
+			// paced by what ENet still holds for the peer: a slow link
+			// gets the parts as it takes them, never a queue of the folder
+			if (netHostPeerQueuedBytes(g_NetHostSocket, sv->peer) > NETCONTENT_MAXQUEUED) {
+				break;
+			}
+
 			if (netContentServePart(sv)) {
 				netContentServeFree(sv);
 				break;
@@ -1023,7 +1164,17 @@ s32 netContentFetchStart(const char *dir)
 	struct netbuf out;
 	s32 i;
 
-	if (!dir || !dir[0] || s_Fetch.active || fsMemDirFind(dir) >= 0) {
+	if (!dir || !dir[0] || strchr(dir, '/') || strchr(dir, '\\') || strcmp(dir, ".") == 0 || strcmp(dir, "..") == 0) {
+		return 0;
+	}
+
+	// asked already (a STAGE_LOAD of the next match while the last one's
+	// fetch runs): that one is waited for
+	if (s_Fetch.active) {
+		return strcasecmp(s_Fetch.dir, dir) == 0;
+	}
+
+	if (fsMemDirFind(dir) >= 0) {
 		return 0;
 	}
 
@@ -1048,6 +1199,21 @@ s32 netContentFetchStart(const char *dir)
 	return 1;
 }
 
+// the fetch's memory freed (a half-filled folder never stays) and forgotten
+static void netContentFetchClear(void)
+{
+	if (s_Fetch.curdata) {
+		free(s_Fetch.curdata);
+	}
+
+	if (s_Fetch.memdir >= 0) {
+		fsMemDirDestroy(s_Fetch.memdir);
+	}
+
+	memset(&s_Fetch, 0, sizeof(s_Fetch));
+	s_Fetch.memdir = -1;
+}
+
 static void netContentFetchFail(const char *why)
 {
 	if (s_FetchFailedCount < (s32)ARRAYCOUNT(s_FetchFailed)) {
@@ -1055,13 +1221,42 @@ static void netContentFetchFail(const char *why)
 	}
 
 	sysLogPrintf(LOG_WARNING, "net: content: %s not fetched: %s", s_Fetch.dir, why);
+	netContentFetchClear();
+}
 
-	if (s_Fetch.curdata) {
-		free(s_Fetch.curdata);
+/**
+ * Client: the session ended (the host quit or went, a migration, a leave)
+ * with a fetch under way: dropped, so the next session's host can serve it
+ * whole (the user's case: a guest being served GoldenEye's conversion when
+ * its host went, and the next host serving it again)
+ */
+void netContentFetchAbort(void)
+{
+	if (s_Fetch.active) {
+		sysLogPrintf(LOG_NOTE, "net: content: the session ended %u of %u bytes into %s; dropped", s_Fetch.gotbytes, s_Fetch.bytes, s_Fetch.dir);
 	}
 
-	memset(&s_Fetch, 0, sizeof(s_Fetch));
-	s_Fetch.memdir = -1;
+	netContentFetchClear();
+}
+
+/**
+ * The session is over, either side: a fetch dropped, every transfer
+ * stopped, and what this session refused or allowed forgotten
+ */
+void netContentSessionEnd(void)
+{
+	s32 i;
+
+	netContentFetchAbort();
+	s_FetchFailedCount = 0;
+	memset(s_FetchFailed, 0, sizeof(s_FetchFailed));
+
+	for (i = 0; i < NETCONTENT_MAXPEERS; i++) {
+		netContentPeerReset(i);
+	}
+
+	memset(s_SessionDirs, 0, sizeof(s_SessionDirs));
+	s_SessionDirsNext = 0;
 }
 
 // CONTENT_BEGIN
@@ -1076,6 +1271,11 @@ void netContentFetchBegin(struct netbuf *b)
 	bytes = netBufReadU32(b);
 
 	if (!netBufOk(b) || !s_Fetch.active || strcasecmp(dir, s_Fetch.dir) != 0) {
+		return;
+	}
+
+	if (s_Fetch.memdir >= 0) {
+		netContentFetchFail("the host began the folder twice");
 		return;
 	}
 
@@ -1120,8 +1320,15 @@ void netContentFetchFile(struct netbuf *b)
 			s_Fetch.curdata = NULL;
 		}
 
-		if (size > NETCONTENT_MAXBYTES || s_Fetch.gotbytes + size > NETCONTENT_MAXBYTES) {
-			netContentFetchFail("a file is too large");
+		// never more than CONTENT_BEGIN announced: a host streaming files
+		// for ever is cut off at once, not at CONTENT_END
+		if (s_Fetch.gotfiles >= s_Fetch.nfiles) {
+			netContentFetchFail("more files came than the host announced");
+			return;
+		}
+
+		if (size > s_Fetch.bytes - s_Fetch.gotbytes) {
+			netContentFetchFail("more bytes came than the host announced");
 			return;
 		}
 
