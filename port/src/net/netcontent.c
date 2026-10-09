@@ -20,6 +20,7 @@
 #include "net/net.h"
 #include "net/nettransport.h"
 #include "netint.h"
+#include "netrdv.h"
 
 /**
  * Content follows the host (protocol 13).
@@ -587,6 +588,7 @@ void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, c
 #define NETCONTENT_MAXPEERS  (MAX_PLAYERS + 2)  // netsession.c's NET_MAXPEERS
 #define NETCONTENT_MAXQUEUED (2u * 1024 * 1024) // a peer's bytes ENet has queued or in flight before the next part waits, at most
 #define NETCONTENT_MINHELD   (64u * 1024)        // and at least (the pace sets it between)
+#define NETCONTENT_RELAYBPS  (128u * 1024)       // every relayed serve together, bytes a second: half pdlobbyd's room budget (256 KB/s), the rest the match's
 #define NETCONTENT_MAXASKS   2                  // serves of one folder to one connection (a retry after a failure)
 #define NETCONTENT_MAXSESSIONDIRS 4             // the folders this session's stages named
 
@@ -1193,7 +1195,10 @@ void netContentServeTick(void)
 	static u64 next;
 	u64 now = sysGetMicroseconds();
 	s32 nactive = 0;
+	s32 nrelayed = 0;
+	s32 relayed[NETCONTENT_MAXPEERS] = {0};
 	s32 share;
+	s32 relayshare = 0;
 	u32 held;
 	s32 i;
 
@@ -1203,7 +1208,18 @@ void netContentServeTick(void)
 	}
 
 	for (i = 0; i < NETCONTENT_MAXPEERS; i++) {
+		struct netaddr na;
+
 		nactive += s_Serve[i].active;
+
+		// a serve through the lobby's relay goes at the relay's pace, not
+		// the host's: the relay keeps a budget for each room's relayed
+		// players together and drops what is over it, the room's snapshots
+		// to them with the parts (2026-10-09, the pace started at 2 MB/s)
+		if (s_Serve[i].active && netHostPeerAddr(g_NetHostSocket, s_Serve[i].peer, &na) == 0 && netRdvAddrIsRelay(&na)) {
+			relayed[i] = 1;
+			nrelayed++;
+		}
 	}
 
 	if (nactive == 0) {
@@ -1247,6 +1263,7 @@ void netContentServeTick(void)
 		}
 
 		share = (s32)((u64)s_Pace.rate * us / 1000000 / (u64)nactive);
+		relayshare = nrelayed ? (s32)((u64)NETCONTENT_RELAYBPS * us / 1000000 / (u64)nrelayed) : 0;
 		s_Pace.last = now;
 	}
 
@@ -1267,14 +1284,23 @@ void netContentServeTick(void)
 			u64 bytes = (u64)s_Pace.rate / (u64)nactive * (rtt + NETCONTENT_QUEUEMS) / 1000;
 
 			held = bytes < NETCONTENT_MINHELD ? NETCONTENT_MINHELD : bytes > NETCONTENT_MAXQUEUED ? NETCONTENT_MAXQUEUED : (u32)bytes;
+
+			if (relayed[i]) {
+				bytes = (u64)NETCONTENT_RELAYBPS / (u64)nrelayed * (rtt + NETCONTENT_QUEUEMS) / 1000;
+				held = bytes < NETCONTENT_PART ? NETCONTENT_PART : (u32)bytes;
+			}
 		}
 
 		// unused credit carries over up to one part beyond the share: the
 		// pass that could not send (ENet's queue full) does not save up
-		sv->credit += share;
+		{
+			const s32 myshare = relayed[i] && relayshare < share ? relayshare : share;
 
-		if (sv->credit > share + NETCONTENT_PART) {
-			sv->credit = share + NETCONTENT_PART;
+			sv->credit += myshare;
+
+			if (sv->credit > myshare + NETCONTENT_PART) {
+				sv->credit = myshare + NETCONTENT_PART;
+			}
 		}
 
 		while (pace > 0 || sv->credit > 0) {

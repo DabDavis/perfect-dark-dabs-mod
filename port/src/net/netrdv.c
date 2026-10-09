@@ -1111,6 +1111,21 @@ s32 netRdvAddrShared(const struct netaddr *a)
 	return s_LobbyKnown && memcmp(a->ip, s_Lobby.ip, 16) == 0;
 }
 
+/**
+ * The lobby's relay: a peer reached through it shares the room's relay
+ * budget (pdlobbyd's relay_room_bps) with every relayed player there
+ */
+s32 netRdvAddrIsRelay(const struct netaddr *a)
+{
+	// a test's lobby on loopback (or a LAN's) is not a relay with a budget:
+	// every local peer would be taken for one
+	if ((addrIsV4(a) && a->ip[12] == 127) || addrIsLan(a)) {
+		return 0;
+	}
+
+	return s_LobbyKnown && memcmp(a->ip, s_Lobby.ip, 16) == 0;
+}
+
 s32 netRdvOpen(void)
 {
 	if (s_Sock) {
