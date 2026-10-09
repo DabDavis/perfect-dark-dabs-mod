@@ -123,7 +123,13 @@
 //    record of a tank (OBJTYPE_TANK) carries its turret in extra byte 1
 //    (256ths of a turn against the hull) and its barrel's elevation in
 //    extra byte 2 (s8, quarter degrees)
-#define NET_PROTOCOL_VERSION 23
+// 24 (a setup object taken out of the world, F3 20261009-070425 Villa's
+//    dropship): a mission's setup object its lists disable_object (in no
+//    prop list on the host) is still sent, always in scope, as a SETUPOBJ
+//    whose OBJ record's byte 0 has 0x20 (NETOBJ_DELISTED; a DOOR record's
+//    byte 4 has 2, NETDOOR_DELISTED); the client takes its own out of the
+//    world, and puts it back when a record comes without the bit
+#define NET_PROTOCOL_VERSION 24
 
 #define NETMSG_CONNECT    1
 #define NETMSG_ACCEPT     2
@@ -685,6 +691,8 @@
  *     or kind (then a descriptor came too)
  *     (CHR byte 46 counts the chr's teleports, wrapping: snap when it
  *     changes, by any amount; a toggled bit would lose two in one gap)
+ *     (protocol 24: OBJ byte 0 bit 0x20 / DOOR byte 4 bit 2: a setup object
+ *     out of the world, in no prop list on the host - taken out here too)
  *   u8      haslp                 0 none, 1 keyframe, 2 against the baseline's
  *   delta   localplayer           NETLP_SIZE (720) bytes, full precision:
  *     u8 flags (1 dead, 2 invincible), u8 respawns, u8 teleports (counters),

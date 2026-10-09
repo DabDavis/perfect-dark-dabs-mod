@@ -58,6 +58,7 @@ static s32 s_PropGenCount = 0;
 struct netcap {
 	u8 valid;
 	u8 isproj;
+	u8 delisted;     // (protocol 24) a setup object out of the world: always in scope
 	s8 playernum;    // a player's prop: its playernum
 	struct netdesc desc;
 	struct netentstate st;
@@ -114,6 +115,7 @@ static u32 s_PresentUnmapped = 0; // in the newest snapshot: present, not mapped
 static u32 s_NoneNacked = 0;      // present with no mapping and no descriptor: asked
 static u32 s_KeptOverGap = 0;     // mappings kept for ids back after a gap
 static u32 s_Misfits = 0;         // descriptors naming a local prop of the wrong kind
+static u32 s_DelistedNow = 0;     // host: setup objects out of the world at the last capture
 static u16 s_LastMapSeq = 0;
 static u16 s_NackRing[64];
 static s32 s_NackCount = 0;
@@ -238,6 +240,12 @@ void netPropGenBump(struct prop *prop)
 static u16 netPropGen(s32 idx)
 {
 	return g_NetPropGen && idx >= 0 && idx < s_PropGenCount ? g_NetPropGen[idx] : 0;
+}
+
+// in the active or the paused list (propDelist() clears both links)
+static s32 netPropListed(const struct prop *prop)
+{
+	return prop->prev != NULL || prop == g_Vars.activeprops || prop == g_Vars.pausedprops;
 }
 
 /*
@@ -797,6 +805,7 @@ static void netCaptureAll(void)
 		s_Cap[i].valid = 0;
 	}
 
+	s_DelistedNow = 0;
 	prop = g_Vars.activeprops ? g_Vars.activeprops : g_Vars.pausedprops;
 
 	for (; prop && guard < s_MaxIds; prop = prop->next, guard++) {
@@ -895,6 +904,56 @@ static void netCaptureAll(void)
 			continue;
 		}
 
+		netRecPack(c->desc.rec, &c->st, c->record);
+		c->valid = 1;
+	}
+
+	// (protocol 24) a setup object the mission's scripts took out of the
+	// world (disable_object: propDelist, the rooms let go; Villa's dropship
+	// once the opening is over) is in neither list, so the walk above never
+	// meets it; a client that never hears of it keeps the last pose it had,
+	// for the rest of the mission. Sent as itself with NETOBJ_DELISTED (a
+	// door's flag 2), always in scope (a record that does not change costs
+	// only its presence bit), so the client takes its own copy out as well
+	for (i = 0; s_SetupPropOfCmd && i < s_NumCmds; i++) {
+		const s32 idx = s_SetupPropOfCmd[i];
+		struct prop *prop;
+		struct defaultobj *obj;
+		struct netcap *c;
+
+		if (idx < 0 || idx >= s_MaxIds || s_Cap[idx].valid || s_SetupCmdOfProp[idx] != i
+				|| netPropGen(idx) == 0 || netPropGen(idx) != s_SetupGenOfProp[idx]) {
+			continue;
+		}
+
+		prop = &g_Vars.props[idx];
+		obj = prop->obj;
+
+		if (prop->parent || netPropListed(prop) || !obj || obj->prop != prop
+				|| (prop->type != PROPTYPE_OBJ && prop->type != PROPTYPE_DOOR && prop->type != PROPTYPE_WEAPON)) {
+			continue;
+		}
+
+		c = &s_Cap[idx];
+		memset(c, 0, sizeof(*c));
+		c->playernum = -1;
+		c->desc.gen = netPropGen(idx);
+		c->desc.kind = NETDESC_SETUPOBJ;
+		c->desc.key = (u16)i;
+		c->desc.objtype = obj->type;
+		c->desc.modelnum = obj->modelnum;
+		c->desc.rec = prop->type == PROPTYPE_DOOR ? NETREC_DOOR : obj->type == OBJTYPE_LIFT ? NETREC_LIFT : NETREC_OBJ;
+
+		if (c->desc.rec == NETREC_LIFT) {
+			// a lift's record has no room for it; never seen taken out
+			continue;
+		}
+
+		netCaptureObj(c, prop);
+		c->st.flags &= c->desc.rec == NETREC_DOOR ? ~1 : ~NETOBJ_ENABLED;
+		c->st.flags |= c->desc.rec == NETREC_DOOR ? NETDOOR_DELISTED : NETOBJ_DELISTED;
+		c->delisted = 1;
+		s_DelistedNow++;
 		netRecPack(c->desc.rec, &c->st, c->record);
 		c->valid = 1;
 	}
@@ -1083,6 +1142,8 @@ static void netHostSendSnap(s32 slot)
 		// names it)
 		if (c->desc.kind == NETDESC_SCENOBJ) {
 			weight = 4;
+		} else if (c->delisted) {
+			weight = 1;
 		} else switch (c->desc.rec) {
 		case NETREC_CHR:
 			weight = 8;
@@ -1142,10 +1203,10 @@ static void netHostLogSlot(s32 slot, const char *why)
 		return;
 	}
 
-	sysLogPrintf(LOG_NOTE, "net: snap slot %d %s (tick %u): %u sent, bytes mean %u min %u max %u, keyframes %u, entity keyframes %u, records %u, descriptors %u, deferred %u, excluded %u, acks %u, nacks %u, resets %u, rate %d Hz (%u changes), entities offered mean %u, first at tick %u, last left out at tick %u, deferred behind a newer one sent %u",
+	sysLogPrintf(LOG_NOTE, "net: snap slot %d %s (tick %u): %u sent, bytes mean %u min %u max %u, keyframes %u, entity keyframes %u, records %u, descriptors %u, deferred %u, excluded %u, acks %u, nacks %u, resets %u, rate %d Hz (%u changes), entities offered mean %u, first at tick %u, last left out at tick %u, deferred behind a newer one sent %u, setup objects out of the world %u",
 			slot, why, g_NetTick, h->sent, h->sent ? h->bytes / h->sent : 0, h->sent ? h->bytesmin : 0, h->bytesmax,
 			h->keyframes, h->entkeys, h->records, h->descs, h->deferred, h->excluded, h->acks, h->nacks, h->resets,
-			60 / (h->rate ? h->rate : 2), h->ratechanges, h->sent ? s_OfferedSum[slot] / h->sent : 0, h->firsttick, h->lastexcl, h->behind);
+			60 / (h->rate ? h->rate : 2), h->ratechanges, h->sent ? s_OfferedSum[slot] / h->sent : 0, h->firsttick, h->lastexcl, h->behind, s_DelistedNow);
 }
 
 /**

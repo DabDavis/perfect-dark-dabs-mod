@@ -113,6 +113,11 @@ static inline void netStoreSetTick(u8 *s, u32 t) { s[4] = (u8)t; s[5] = (u8)(t >
 #define NETOBJ_INVISIBLE  0x04
 #define NETOBJ_PROJECTILE 0x08
 #define NETOBJ_EMBEDDED   0x10
+#define NETOBJ_DELISTED   0x20 // (protocol 24) a setup object out of the world (disable_object)
+
+// DOOR record byte 4
+#define NETDOOR_ENABLED   0x01
+#define NETDOOR_DELISTED  0x02 // (protocol 24) as NETOBJ_DELISTED
 
 // CHR anim flags byte
 #define NETANIM_FLIP    0x01
