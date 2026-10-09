@@ -267,10 +267,11 @@ void netClientRefuseLocalStart(void);
 // Content follows the host (netcontent.c, protocol 13): the host's overlay
 // mod by name and contents hash, and the ROM hack mode's tag
 #define NETCONTENT_OK      0 // playing with what the host has
-#define NETCONTENT_SWAPPED 1 // switched to the host's mod (or off this machine's) live
-#define NETCONTENT_RESTART 2 // installed, but a swap to or from it is a restart (ROM segments, --moddir)
+#define NETCONTENT_SWAPPED 1 // the host's mod (or none) entered at the next stage change (modmode.c)
+#define NETCONTENT_RESTART 2 // the mods came from --moddir (or the swap was refused)
 #define NETCONTENT_MISSING 3 // the host's mod is not installed here
-#define NETCONTENT_DIFFERS 4 // installed, but not the host's bytes
+#define NETCONTENT_DIFFERS 4 // installed, but not the host's bytes (and the host could not send its own)
+#define NETCONTENT_FETCH   5 // protocol 25: the host's mod is being fetched into memory; entered when it is in
 struct netcontentneed {
 	char mod[NET_MAXMAPDIR + 1];
 	u64 modhash;
@@ -282,7 +283,7 @@ void netContentHostNeed(struct netcontentneed *n);
 void netContentWrite(struct netbuf *b, const struct netcontentneed *n, s32 withvariant);
 void netContentRead(struct netbuf *b, struct netcontentneed *n, s32 withvariant);
 s32 netContentFollow(const struct netcontentneed *n, char *text, s32 textsize); // client: a NETCONTENT_*
-void netContentRestore(void);                  // client: the session is over
+void netContentRestore(s32 atstagechange);     // client: the session is over (1: a stage change follows)
 s32 netContentCanHost(const char *mod, const char *ge, const char *stagekey); // host migration: this machine could host such a room
 s32 netContentMountMaps(const char *dirbase);  // client: a map's mod installed but not mounted; 1 mounted now
 void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, char *text, s32 size);
@@ -310,7 +311,9 @@ s32 netContentFetching(void);
 const char *netContentFetchStatus(char *out, s32 size);
 const char *netContentVariantName(const char *tag);      // g_GexPlusVariant's value for a tag: converted here, or a folder mounted (served)
 s32 netSessionSendPeer(s32 peer, s32 channel, const void *data, s32 len); // netsession.c: host, reliable, to a peer by index
+s32 netModFileAllowed(const char *rel, s32 isdir); // nethash.c: a PD mod's file that is hashed and served (protocol 25)
 u64 netHashDirContents(const char *path);      // nethash.c: a folder's simulation-affecting bytes, cached
+u64 netHashDirContentsUncached(const char *path); // the same, never cached (a fetch checked before it is kept)
 void netSessionHashInvalidate(void);           // nethash.c: the overlay changed; the table is taken again
 
 void netLagCompArgs(void);

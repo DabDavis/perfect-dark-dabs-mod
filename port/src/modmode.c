@@ -230,9 +230,15 @@ void modModeStageBoundary(void)
 	s_NextName[0] = '\0';
 	s_State = MODMODE_IDLE;
 	s_WantsMenu = !s_AtNextStage;
-	s_AtNextStage = false;
 
 	sysLogPrintf(LOG_NOTE, "modmode: %s%s", entering ? "entered " : "back to Perfect Dark", entering ? s_Name : "");
+
+	// online: the STAGE_LOAD that brought this stage change resolves its
+	// stage and applies its RULES again over the mod's tables
+	if (s_AtNextStage) {
+		s_AtNextStage = false;
+		netSessionModSwapped();
+	}
 }
 
 /* ---- the list: the Perfect Menu's "Perfect Dark Mods" ------------------- */

@@ -19,6 +19,7 @@
 #include "geconvert.h"
 #include "modloader.h"
 #include "mod.h"
+#include "modmode.h"
 #include "lib/main.h"
 #include "game/lang.h"
 #include "game/menu.h"
@@ -45,6 +46,7 @@
 extern s32 g_MpTimeLimit60;
 extern s32 g_MpScoreLimit;
 extern s32 g_NumReasonsToEndMpMatch;
+#include "modmode.h"
 #include "net/net.h"
 #include "net/netsnap.h"
 #include "net/nettransport.h"
@@ -230,6 +232,11 @@ static u64 s_TestCampaignAt = 0; // --net-test-campaign: when to open the host's
 static u64 s_TestCampaignMissionAt = 0; // --net-test-campaign-mission N: when the folder starts mission N
 static s32 s_FetchStageLen = 0;
 static u32 s_FetchStageMatch = 0; // the match that STAGE_LOAD was for (a MATCH_END for it drops it)
+// protocol 25: a STAGE_LOAD taken while the host's PD mod waits to be entered
+// at this very stage change (modmode.c): its key and RULES are resolved and
+// applied again once the mod's tables are in (netSessionModSwapped)
+static u8 s_SwapStage[512];
+static s32 s_SwapStageLen = 0;
 
 // the match, both sides
 static s32 s_MatchActive = 0;  // from the start (H1 / STAGE_LOAD) to H12
@@ -447,6 +454,20 @@ void netSessionInit(void)
 
 	if (s_Role == NETROLE_NONE) {
 		return;
+	}
+
+	// --net-test-pdmod NAME: the installed PD mod NAME entered at the first
+	// stage, as the Perfect Menu's Perfect Dark Mods row would before the
+	// player hosts (netcontenttest's pdmod cases; protocol 25)
+	if (sysArgGetString("--net-test-pdmod")) {
+		const char *name = sysArgGetString("--net-test-pdmod");
+		const s32 index = modListIndexOf(name);
+
+		if (index >= 0 && modModeRequestAtNextStage(modListGetPath(index), modListGetName(index))) {
+			sysLogPrintf(LOG_NOTE, "net: --net-test-pdmod: entering %s at the first stage", modListGetName(index));
+		} else {
+			sysLogPrintf(LOG_WARNING, "net: --net-test-pdmod: no installed mod %s", name);
+		}
 	}
 
 	if (s_Name[0] == '\0') {
@@ -2600,7 +2621,7 @@ static void netClientEnd(s32 code, const char *text)
 		netClientDrain();
 		g_NetMode = NETMODE_NONE;
 		g_NetLocalSlot = 0;
-		netContentRestore();
+		netContentRestore(0);
 	}
 
 	if (s_TestJoin && code != NETREFUSE_LEFT) {
@@ -2752,7 +2773,9 @@ static s32 netClientBeginStage(struct netbuf *b)
 	s32 numplayers;
 	s32 yourplayer;
 	s32 followed;
+	s32 swapping;
 
+	s_SwapStageLen = 0;
 	netBufReadString(b, label, sizeof(label));
 	s_Seed = netReadU64(b);
 	s_Seed2 = netReadU64(b);
@@ -2777,10 +2800,33 @@ static s32 netClientBeginStage(struct netbuf *b)
 		return 0;
 	}
 
+	// the host's mod once more, as its RULES name it (protocol 13): it may
+	// have changed since ACCEPT, and a join in progress had both at once.
+	// Protocol 25: first, since the stage key and the RULES are this
+	// machine's tables once the mod is in. One being fetched keeps the
+	// STAGE_LOAD; one entered at this stage change has the key resolved
+	// and the RULES applied again after the swap (netSessionModSwapped)
+	followed = netContentFollow(netRulesContent(), text, sizeof(text));
+
+	if (followed == NETCONTENT_FETCH) {
+		sysLogPrintf(LOG_NOTE, "net: match %u: the host's mod %s is not here; fetching it first", matchid, netRulesContent()->mod);
+		return 1;
+	}
+
+	if (followed != NETCONTENT_OK && followed != NETCONTENT_SWAPPED) {
+		sysLogPrintf(LOG_NOTE, "net: content: leaving at the match [nomod %s]: %s", netRulesContent()->mod, text);
+		netSendLeave(s_ServerPeer, NETREFUSE_NOMOD, text);
+		netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOMOD);
+		netClientEnd(NETREFUSE_NOMOD, text);
+		return 0;
+	}
+
+	swapping = modModeIsPending();
+
 	// a conversion or map mod this machine has not got: the host serves
 	// it (protocol 14, netcontent.c), and this STAGE_LOAD is tried again
-	// once it is here
-	if (id < 0 && fetchdir[0] && netContentFetchStart(fetchdir)) {
+	// once it is here (not the host's PD mod, whose maps come with it)
+	if (id < 0 && fetchdir[0] && !(swapping && strcasecmp(fetchdir, netRulesContent()->mod) == 0) && netContentFetchStart(fetchdir)) {
 		sysLogPrintf(LOG_NOTE, "net: match %u: %s is not here; fetching %s from the host first", matchid, what, fetchdir);
 		return 1;
 	}
@@ -2791,7 +2837,22 @@ static s32 netClientBeginStage(struct netbuf *b)
 		return 1;
 	}
 
-	if (id < 0 || !mainStageCanLoad(id)) {
+	if (swapping) {
+		// resolved again after the swap; until then the stage is a
+		// stand-in (the Institute) the swap's own boundary never loads
+		if (b->size > (s32)sizeof(s_SwapStage)) {
+			swapping = 0;
+		} else {
+			memcpy(s_SwapStage, b->data, b->size);
+			s_SwapStageLen = b->size;
+
+			if (id < 0 || !mainStageCanLoad(id)) {
+				id = STAGE_CITRAINING;
+			}
+		}
+	}
+
+	if (!swapping && (id < 0 || !mainStageCanLoad(id))) {
 		if (nostage[0]) {
 			netTextPrintable(nostage, 1);
 			snprintf(text, sizeof(text), "%s", nostage);
@@ -2802,18 +2863,6 @@ static s32 netClientBeginStage(struct netbuf *b)
 		netSendLeave(s_ServerPeer, NETREFUSE_NOSTAGE, text);
 		netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOSTAGE);
 		netClientEnd(NETREFUSE_NOSTAGE, text);
-		return 0;
-	}
-
-	// the host's mod once more, as its RULES name it (protocol 13): it may
-	// have changed since ACCEPT, and a join in progress had both at once
-	followed = netContentFollow(netRulesContent(), text, sizeof(text));
-
-	if (followed != NETCONTENT_OK && followed != NETCONTENT_SWAPPED) {
-		sysLogPrintf(LOG_NOTE, "net: content: leaving at the match [nomod %s]: %s", netRulesContent()->mod, text);
-		netSendLeave(s_ServerPeer, NETREFUSE_NOMOD, text);
-		netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOMOD);
-		netClientEnd(NETREFUSE_NOMOD, text);
 		return 0;
 	}
 
@@ -2869,6 +2918,70 @@ static s32 netClientBeginStage(struct netbuf *b)
 
 	menuStop();
 	return 0;
+}
+
+/**
+ * Protocol 25: modmode.c has just entered (or left) the host's PD mod at the
+ * stage change a STAGE_LOAD asked for - the old stage stopped, the next one
+ * not yet loaded. The mod's stage tables, arenas, weapon lists and
+ * characters are this machine's now, so the host's stage key is resolved
+ * again and its RULES applied again over them (character rows, weapon set,
+ * a mission's stage), and the stage that loads is the key's.
+ */
+void netSessionModSwapped(void)
+{
+	char what[NET_MAXMAPDIR + NET_MAXMAPNAME + 32];
+	char nostage[NET_MAXTEXT + 1];
+	char fetchdir[NET_MAXMAPDIR + 1];
+	char text[NET_MAXTEXT + 1];
+	struct netbuf pb;
+	const s32 len = s_SwapStageLen;
+	u32 matchid;
+	s32 id;
+
+	s_SwapStageLen = 0;
+	netSessionHashInvalidate(); // the "mod" component is the new overlay's
+
+	if (g_NetMode != NETMODE_CLIENT || !len || !s_MatchActive || s_ClientState != NETCS_LOADING) {
+		return;
+	}
+
+	netBufInitRead(&pb, s_SwapStage, len);
+	netBufReadU8(&pb);
+	matchid = netBufReadU32(&pb);
+	id = netResolveStageKey(&pb, what, sizeof(what), nostage, sizeof(nostage), fetchdir);
+
+	if (matchid != s_MatchIdCur || id < 0 || !mainStageCanLoad(id)) {
+		if (nostage[0]) {
+			netTextPrintable(nostage, 1);
+			snprintf(text, sizeof(text), "%s", nostage);
+		} else {
+			snprintf(text, sizeof(text), "The host chose %s, which is not in its mod here.", what);
+		}
+
+		sysLogPrintf(LOG_WARNING, "net: match %u: %s does not resolve after the mod's swap", matchid, what);
+		netSendLeave(s_ServerPeer, NETREFUSE_NOSTAGE, text);
+		netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOSTAGE);
+		netClientEnd(NETREFUSE_NOSTAGE, text);
+		return;
+	}
+
+	netRulesApply();
+
+	if (id != g_StageNum) {
+		sysLogPrintf(LOG_NOTE, "net: match %u: %s is 0x%02x with the host's mod in (0x%02x before)", matchid, what, id, g_StageNum);
+	}
+
+	g_StageNum = id;
+	titleSetNextStage(id);
+	s_MatchStage = id;
+	snprintf(s_MatchWhat, sizeof(s_MatchWhat), "%s", what);
+
+	if (netRulesCoopOn()) {
+		g_MissionConfig.stagenum = id;
+	}
+
+	sysLogPrintf(LOG_NOTE, "net: match %u: the host's mod entered; %s loads as 0x%02x with the RULES applied again", matchid, what, id);
 }
 
 // ROSTER: who sits where (the names the scoreboard shows)
@@ -3438,7 +3551,7 @@ static void netClientEvent(const struct netevent *ev)
 					// session ends with what the player can do about it
 					followed = netContentFollow(&need, text, sizeof(text));
 
-					if (followed != NETCONTENT_OK && followed != NETCONTENT_SWAPPED) {
+					if (followed != NETCONTENT_OK && followed != NETCONTENT_SWAPPED && followed != NETCONTENT_FETCH) {
 						sysLogPrintf(LOG_NOTE, "net: content: leaving [nomod %s]: %s", need.mod[0] ? need.mod : "none", text);
 						netSendLeave(s_ServerPeer, NETREFUSE_NOMOD, text);
 						netHostDisconnectLater(g_NetHostSocket, s_ServerPeer, NETREFUSE_NOMOD);
@@ -4273,7 +4386,7 @@ void netStageStopped(void)
 			netClientDrain();
 			g_NetMode = NETMODE_NONE;
 			g_NetLocalSlot = 0;
-			netContentRestore();
+			netContentRestore(1);
 		} else {
 			struct netbuf b;
 
@@ -4817,7 +4930,7 @@ void netSessionLobbyStop(void)
 	// a member leaving the room between matches (its session ended no other
 	// way): the mod it switched to for the host goes, its own comes back
 	if (s_Role == NETROLE_CLIENT) {
-		netContentRestore();
+		netContentRestore(0);
 	}
 
 	memset(s_Clients, 0, sizeof(s_Clients));
