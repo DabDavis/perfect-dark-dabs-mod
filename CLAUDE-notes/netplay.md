@@ -568,6 +568,21 @@ then lists, joins, READYs and plays; the Linux host is
   Sign In there makes the account for a new name and the page closes when it
   has worked (ghost-trials.md, "One Sign In button"), and this page then
   signs into the lobby with it. Signed in, the row reads Change Account.
+- **Leave after a match lands on Online Game** (F3 2026-10-09, Shockwave):
+  menutick.c puts Perfect Dark's Combat Simulator up as the
+  `MENUROOT_MPSETUP` root after every match, and the Game Lobby used to be
+  pushed straight over it, so Leave (and Back) went into the local Combat
+  Simulator. `netLobbyMenuPushRoomAfterMatch()` (from
+  `netLobbyMenuAfterMatch`) builds the stack a room is entered from: in
+  Perfect Dark the root is swapped for Online Game (`func0f0f3704`), whose
+  Back goes to the Perfect Menu (`mpsetupmenu` GENERAL); a GoldenEye/ROM
+  hack room keeps its mode's Combat Simulator under Online Game. A client
+  dropped on the Perfect Menu with its seat (`netMainMenuTick`) gets Online
+  Game opened as its row opens it (`func0f0f820c`) and the Game Lobby over
+  it once up (`netLobbyMenuFrame`, from `netPump`). A campaign host's menus
+  (`netCoopCampaignAfterMatch`) and an Advanced Setup's pages are as before.
+  A room joined from Browse Rooms leaves to the Briefing Room before its
+  first match and to Online Game after it.
 - **A lobby host plays as its account.** Its local profile is often
   unnamed ("Player 1"). Renaming slot 0 only on the wire
   (`netSessionWireName`, RULES and ROSTER) is not enough: the host builds

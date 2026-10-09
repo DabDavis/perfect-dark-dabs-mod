@@ -283,6 +283,13 @@ static MenuDialogHandlerResult dialogOnline(s32 operation, struct menudialogdef 
 	}
 
 	if (operation == MENUOP_TICK && isCurrent(dialogdef)) {
+		// Back from it as the Combat Simulator's root goes to the Perfect
+		// Menu (menutick.c), as the Combat Simulator's own tick has it: on
+		// the way here from the Perfect Menu, menutick.c zeroed it while the
+		// menus were shut, and Back went into Perfect Dark's Combat
+		// Simulator (F3 2026-10-09)
+		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
+
 		// as it opens, and as the account page closes over a new account
 		netLobbySignIn();
 		netLobbyTick();
@@ -2203,6 +2210,82 @@ void netLobbyMenuPushRoom(void)
 	} else {
 		menuPushRootDialog(&g_NetRoomMenuDialog, MENUROOT_MPSETUP);
 	}
+}
+
+/**
+ * Back from a room's match (netLobbyMenuAfterMatch): the Game Lobby over the
+ * Online Game page, the way the room was entered, so Leave lands on that
+ * page and Back from it where it was opened from - the Perfect Menu for
+ * Perfect Dark's rooms, the mode's Combat Simulator for a GoldenEye or ROM
+ * hack room (F3 2026-10-09: Leave after a match landed on Perfect Dark's
+ * Combat Simulator, the root menutick.c puts up after every match).
+ * menutick.c's return is the Combat Simulator alone as the MENUROOT_MPSETUP
+ * root: Perfect Dark's is swapped for the page, a mode's keeps it under the
+ * page. A client whose match ended under it is on the Perfect Menu
+ * (netMainMenuTick): the page opens from there as its row opens it, and the
+ * Game Lobby goes over it once it is up (netLobbyMenuFrame). Anything else
+ * (an Advanced Setup's pages) keeps the Game Lobby over what is up.
+ */
+static s32 s_RoomOverOnline = 0; // the Game Lobby to go over the Online Game page once it is up
+
+void netLobbyMenuPushRoomAfterMatch(void)
+{
+	struct menu *menu = &g_Menus[g_MpPlayerNum];
+	struct menudialogdef *top = menu->curdialog ? menu->curdialog->definition : NULL;
+
+	if (top == &g_NetRoomMenuDialog || s_RoomOverOnline) {
+		return;
+	}
+
+	if (g_MenuData.root == MENUROOT_MPSETUP && menu->depth == 1 && top == &g_CombatSimulatorMenuDialog) {
+		if (g_GexPlusMode) {
+			menuPushDialog(&g_NetOnlineMenuDialog);
+		} else {
+			func0f0f3704(&g_NetOnlineMenuDialog);
+		}
+
+		netLobbyMenuPushRoom();
+		return;
+	}
+
+	if (g_MenuData.root == MENUROOT_MAINMENU && menu->depth == 1 && top == &g_CiMenuViaPcMenuDialog) {
+		g_Vars.mpsetupmenu = MPSETUPMENU_GENERAL;
+		s_RoomOverOnline = 1;
+		func0f0f820c(g_GexPlusMode ? &g_CombatSimulatorMenuDialog : &g_NetOnlineMenuDialog, MENUROOT_MPSETUP);
+		func0f0f8300();
+		return;
+	}
+
+	netLobbyMenuPushRoom();
+}
+
+// Once per loop (netPump): the client's way back from the Perfect Menu
+void netLobbyMenuFrame(void)
+{
+	struct menudialogdef *top;
+
+	if (!s_RoomOverOnline) {
+		return;
+	}
+
+	if (!netLobbyInRoom()) {
+		s_RoomOverOnline = 0;
+		return;
+	}
+
+	if (g_MenuData.root != MENUROOT_MPSETUP || !g_Menus[g_MpPlayerNum].curdialog) {
+		return; // the Perfect Menu still closing
+	}
+
+	top = g_Menus[g_MpPlayerNum].curdialog->definition;
+
+	if (top == &g_CombatSimulatorMenuDialog && g_GexPlusMode) {
+		menuPushDialog(&g_NetOnlineMenuDialog);
+		return;
+	}
+
+	s_RoomOverOnline = 0;
+	netLobbyMenuPushRoom();
 }
 
 // The Briefing Room over whatever is up (the lobby test's screenshots)

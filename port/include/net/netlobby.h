@@ -173,5 +173,6 @@ void netLobbyHostLost(void);
 
 // Back from a match that came from a room (menutick.c, mainmenu.c)
 void netLobbyMenuAfterMatch(void);
+void netLobbyMenuFrame(void); // netlobbymenu.c: the Game Lobby back over Online Game after a match
 
 #endif

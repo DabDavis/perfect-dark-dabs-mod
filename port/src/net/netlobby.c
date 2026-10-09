@@ -221,6 +221,7 @@ static s32 s_ScriptShotStep = 0;   // 0 nothing yet, 1 menu up, 2 shot taken
 static u64 s_ScriptShotAt = 0;
 
 void netLobbyMenuPushRoom(void);     // netlobbymenu.c
+void netLobbyMenuPushRoomAfterMatch(void); // netlobbymenu.c
 void netLobbyMenuPushBriefing(void); // netlobbymenu.c
 s32 netLobbyMenuPageUp(s32 room);     // netlobbymenu.c
 void screenshotRequest(void);        // screenshot.h
@@ -3108,7 +3109,7 @@ void netLobbyMenuAfterMatch(void)
 	// the room's player is player 1 of the setup: the menus pause for it
 	g_MpSetup.chrslots |= 1;
 	sysLogPrintf(LOG_NOTE, "lobby: back in room %s's lobby", s_Room.sum.id);
-	netLobbyMenuPushRoom();
+	netLobbyMenuPushRoomAfterMatch();
 }
 
 void netLobbyShutdown(void)

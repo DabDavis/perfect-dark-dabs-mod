@@ -230,6 +230,7 @@ void netPump(void)
 	// the lobby's results and the room's demands, socket or not
 	if (g_NetLobbyActive) {
 		netLobbyTick();
+		netLobbyMenuFrame();
 	}
 
 	if (!g_NetHostSocket) {
