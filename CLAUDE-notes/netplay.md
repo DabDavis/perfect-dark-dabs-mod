@@ -827,6 +827,26 @@ progression").
     report after three replays; the watcher's line reads "Watching Player 1
     Z: next   A: free camera". Gate: netcooptest `death`, and `pair`'s
     respawn (Mission Respawn on: where it fell, nobody's health taken).
+- **GoldenEye's tank driven by a client (protocol 23, 2026-10-08).** The
+  tank is the walk's (`geTankDrive` in the step, `geTankTick` after it), so
+  a client predicts it, but its state lives outside struct player
+  (`g_Tank[p]`, the tankobj's speed and yaws) and was in neither the
+  prediction ring nor the wire: every correction replayed the commands
+  from the tank as it stood *now*, integrating the speed and the hull's
+  turn twice, and nothing ever pulled the hull's yaw back to the host's -
+  the client's tank drifted and snapped. Now `geTankNetSave/Load`
+  (struct getanknet: state, penalty, entert, hullyaw, speed, turnsum,
+  turretyaw) go in each ring tick, the host's for that player in the
+  local-player block (bytes 688..719, NETLP_SIZE 720), a difference starts
+  a replay like a moved position, and the replay starts from the host's
+  tank. In a replay `geTankTick` walks the tank and nothing else (no
+  sounds, no crush, no hands or shells). A tank this machine's player
+  drives is not posed from the host's OBJ record (it had stood a snapshot
+  behind on the frames between ticks); anyone else's takes its hull angle
+  from the record's rotation and its turret and barrel from extra bytes 1
+  and 2. Entering and leaving stay each machine's own press. The
+  prediction log has a `K` line per compared block in a tank (host's and
+  this machine's state, speed, yaws).
 - **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene
@@ -1743,6 +1763,24 @@ by `geslappers.c`'s own clock, and that clock was `track[2]`,
 - **The rule.** Any port-side per-hand state is per player too. Grep for
   `static .*\[2\]` beside a `handnum` in a new file; offline it is
   invisible (one player), online every client's tick runs on the host.
+- **The same shape in GoldenEye's gadgets and hits (2026-10-08,
+  fix/net-1008-ge).** The camera's photograph was one flag
+  (`g_Gadgets.photo`) consumed in whichever view pass came first - the
+  host's - so a client's photograph (Silo's satellite, Bunker's screen) was
+  judged against the host's screen; it is per player now and judged only in
+  the presser's own pass (`gegadgetsAfterProps`). The detonator's press and
+  the watch laser's muzzle are per player too. GoldenEye's hit grunt
+  (`chrGeHitGrunt`, chraction.c) followed whoever's pass dealt the hit: the
+  host grunted for a client's hit and a client's shot muted the host's own;
+  now only a local victim grunts (through `netWorldSoundBegin`), its spacing
+  per player online, and a client grunts for itself from NETEV_CHRDAMAGE
+  (bit 4, the shield took it, picks the armour's spacing). A guard's or a
+  sim's GoldenEye rocket launch is played by chrTick at the rocket's making,
+  which a client never runs, and the fireslot is silent for that gun: a
+  client plays it from the FIRESLOT event (a remote player's, from where it
+  stands, from PLAYERSHOT). Swept and clean besides: gehitpuff, geimpact,
+  gesfx (its hit weapon is a begin/end bracket), gewater (lvTick, once a
+  tick); `g_Gadgets.keyprop` stays one (there is one key).
 
 ## F3 online: the [netplay] section (2026-10-08)
 
