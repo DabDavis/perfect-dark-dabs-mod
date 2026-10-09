@@ -334,7 +334,7 @@ checkplay() {
 	local H=$OUT/$name-host.log C=$OUT/$name-client.log x c L
 	for c in host client; do
 		L=$OUT/$name-$c.log
-		x=$(grep -o "$name-$c exit [0-9]*" "$OUT/run.log" | tail -1 | awk '{print $3}')
+		x=$(grep -o "^$name-$c exit [0-9]*" "$OUT/run.log" | tail -1 | awk '{print $3}')
 		[ "$c" = host ] && [ "$x" = 143 ] && x=0
 		[ "$c" = client ] && [ "$x" = 124 ] && [ "${ALLOW124:-}" = "$name" ] && x=0
 		if grep -qE "FATAL|Segmentation|Aborted" "$L"; then
@@ -400,7 +400,7 @@ checkrefused() {
 	local name=$1 code=$2 pattern=$3
 	local C=$OUT/$name-client.log H=$OUT/$name-host.log
 	grep -qE "FATAL|Segmentation|Aborted" "$C" "$H" && fail "$name: a crash"
-	local x; x=$(grep -o "$name-client exit [0-9]*" "$OUT/run.log" | tail -1 | awk '{print $3}')
+	local x; x=$(grep -o "^$name-client exit [0-9]*" "$OUT/run.log" | tail -1 | awk '{print $3}')
 	local why; why=$(grep -m1 -E "net: (refused|left|the host refused|disconnected|match over).*|net: client end" "$C")
 	if grep -q -- "$pattern" "$C"; then
 		pass "$name: the client was told: $(grep -m1 -o -- "$pattern.*" "$C" | cut -c1-200)"
