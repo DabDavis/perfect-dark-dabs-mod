@@ -44,9 +44,10 @@
 #          session and the new host serves it whole (an abandoned fetch had
 #          blocked the folder for the process: "not installed here").
 #   fetchend (no migration: the lifecycle round a download) a host and alpha
-#          with GoldenEye's arenas play two matches of 600 frames on Complex;
-#          charlie, with nothing installed, joins the first in progress and
-#          is served the folder slowly (--net-test-serve-pace 25, ~110 s):
+#          with PD_Kakariko's maps play two matches of 600 frames on its
+#          Playground; charlie, with nothing installed, joins the first in
+#          progress and is served the folder slowly (--net-test-serve-pace
+#          650: a part, at most 48 KB, every 0.65 s; 139 files, ~90 s):
 #          the first match ends while it downloads (its kept STAGE_LOAD is
 #          dropped and LOBBY sent: it had loaded the finished match after the
 #          download and sat at the barrier until it left), the second waits
@@ -101,7 +102,7 @@ lobby() {
 # game LABEL USER GAMEPORT TIMEOUT ARGS... &  ($! is timeout's pid)
 # Env per call: GEMAPS 1 (the GoldenEye arenas mounted, no overlay mod),
 # BARE 1 (the binary in a folder of its own with no mods and no added
-# content, netcontenttest's fetch client)
+# content, netcontenttest's fetch client), MAPMODS (no overlay, these map mods)
 game() {
 	local label=$1 user=$2 port=$3 t=$4; shift 4
 	local save=$OUT/save-$label bin=$BIN dir=$BUILD mod=(--moddir "$MODDIR") ini=
@@ -111,6 +112,9 @@ game() {
 	done
 	if [ "${GEMAPS:-0}" = 1 ] || [ "${BARE:-0}" = 1 ]; then
 		mod=(); ini='ModDir=\nMapMods=GoldenEye Arenas\n'
+	fi
+	if [ -n "${MAPMODS:-}" ]; then
+		mod=(); ini="ModDir=\\nMapMods=$MAPMODS\\n"
 	fi
 	if [ "${BARE:-0}" = 1 ]; then
 		dir=$OUT/bare-$label
@@ -385,11 +389,11 @@ for c in $CASES; do
 		;;
 	fetchend)
 		lobby fetchend
-		GEMAPS=1 game fetchend-host mhfetchend "$port" 330 --net-lobby-script host --net-lobby-room "Migrate fetchend" --net-lobby-size 3 \
-			--net-lobby-wait 1 --net-lobby-matches 2 --net-lobby-end-frame 600 --net-test-map Complex --net-test-ge 0 --net-test-sims 0 \
-			--rng-seed 24 --net-test-serve-pace 25 &
+		MAPMODS=PD_Kakariko game fetchend-host mhfetchend "$port" 330 --net-lobby-script host --net-lobby-room "Migrate fetchend" --net-lobby-size 3 \
+			--net-lobby-wait 1 --net-lobby-matches 2 --net-lobby-end-frame 600 --net-test-map Playground --net-test-sims 0 \
+			--rng-seed 24 --net-test-serve-pace 650 &
 		ph=$!
-		GEMAPS=1 game fetchend-alpha alphafetchend $((port + 1)) 330 --net-lobby-script join --net-lobby-room "Migrate fetchend" \
+		MAPMODS=PD_Kakariko game fetchend-alpha alphafetchend $((port + 1)) 330 --net-lobby-script join --net-lobby-room "Migrate fetchend" \
 			--net-lobby-leave-frame 0 --net-lobby-matches 2 &
 		pa=$!
 		if waitfor "$OUT/fetchend-host.log" "net: match 1: every machine has loaded; GO" 120; then
@@ -408,11 +412,13 @@ for c in $CASES; do
 			&& pass "fetchend: charlie: $(line "$C" "net: match 1 ended while" | cut -c6-)" || fail "fetchend: charlie did not drop match 1's stage load at its end"
 		grep -q "is still on the last match's end screen; it sits this match out" "$H" \
 			&& fail "fetchend: host: $(line "$H" "is still on the last match's end screen")" || pass "fetchend: nobody sat match 2 out"
-		grep -q "net: content: GoldenEye Arenas fetched from the host and mounted for its maps" "$C" \
-			&& pass "fetchend: charlie: $(line "$C" "net: content: GoldenEye Arenas fetched" | cut -c14-)" || fail "fetchend: charlie never had the folder"
+		grep -q "net: content: PD_Kakariko fetched from the host and mounted for its maps" "$C" \
+			&& pass "fetchend: charlie: $(line "$C" "net: content: PD_Kakariko fetched" | cut -c14-)" || fail "fetchend: charlie never had the folder"
 		grep -q "net: match 2: every machine has loaded; GO" "$H" && pass "fetchend: host: match 2 passed GO" || fail "fetchend: match 2 never passed GO"
 		grep -q "net: match 2: GO" "$C" && pass "fetchend: charlie played match 2" || fail "fetchend: charlie did not play match 2"
-		grep -q "net: match 2: GO" "$A" && pass "fetchend: alpha waited at the barrier and played match 2" || fail "fetchend: alpha did not play match 2"
+		w=$(sed -n 's/.*net: match 2: GO, \([0-9]*\) s after this machine had loaded.*/\1/p' "$A" | head -1)
+		[ -n "$w" ] && [ "$w" -gt 60 ] && pass "fetchend: alpha waited $w s at the barrier (its own limit 60) and played match 2" \
+			|| fail "fetchend: alpha's wait at match 2's barrier: ${w:-no GO} s (more than 60 wanted)"
 		grep -q "No GO came\|did not start the match" "$A" && fail "fetchend: alpha gave up: $(line "$A" "session ended")"
 		grep -q "net: match 2: the host is still waiting at the barrier" "$A" && pass "fetchend: alpha: $(line "$A" "net: match 2: the host is still waiting" | cut -c6-)" \
 			|| fail "fetchend: alpha was never told the host still waited"

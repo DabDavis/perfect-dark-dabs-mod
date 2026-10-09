@@ -1182,9 +1182,14 @@ nothing is ever sent from one machine to another but names and hashes.
   finished match after the download, AWAY on the host, and left); the fetch
   runs on, and the next STAGE_LOAD for the same folder waits for it.
   netmigratetest's `midfetch` (the host quits 3 MB into serving,
-  `--net-test-serve-quit`) and `fetchend` (`--net-test-serve-pace`) cases.
-  Not guarded: the served segments and modconfig.txt go to the decomp's
-  loaders as they come.
+  `--net-test-serve-quit`) and `fetchend` (`--net-test-serve-pace MS`, a
+  client's GO line now says how long it waited after its LOADED: 80+ s
+  there against its own 60) cases. fetchend plays PD_Kakariko's Playground,
+  not a GoldenEye arena: a lobby host's **second** GoldenEye match (Complex,
+  three players) never opened its end screen (`g_MainIsEndscreen` 1,
+  `g_MenuData.root` 0, no dialog; the script's close never fired), with or
+  without a download - not looked into. Not guarded: the served segments
+  and modconfig.txt go to the decomp's loaders as they come.
 - **Not done.** A restart-and-rejoin for the segs/ mods (the game could
   relaunch itself with the mod selected for that run and join the room
   again: `updateRelaunchSelf` is the relaunch, `--net-lobby-*` the

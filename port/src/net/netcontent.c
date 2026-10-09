@@ -1079,13 +1079,13 @@ static s32 netContentServePart(struct netserve *sv)
 /** Host, each tick: a few parts to every client being served */
 void netContentServeTick(void)
 {
-	// the gates (netmigratetest midfetch, netlobbytest fetchend): a part
-	// every N ticks (--net-test-serve-pace N), so a fetch is still running
+	// the gates (netmigratetest's midfetch and fetchend): a part every MS
+	// milliseconds (--net-test-serve-pace MS), so a fetch is still running
 	// when a match ends; the host gone as a player quits once it has sent B
 	// bytes of a folder (--net-test-serve-quit B), mid-transfer
 	static s32 pace = -1;
 	static s32 quitat = -1;
-	static u32 tick;
+	static u64 next;
 	s32 i;
 	s32 k;
 
@@ -1094,8 +1094,12 @@ void netContentServeTick(void)
 		quitat = sysArgGetInt("--net-test-serve-quit", 0);
 	}
 
-	if (pace > 1 && (++tick % (u32)pace) != 0) {
-		return;
+	if (pace > 0) {
+		if (sysGetMicroseconds() < next) {
+			return;
+		}
+
+		next = sysGetMicroseconds() + (u64)pace * 1000;
 	}
 
 	for (i = 0; i < NETCONTENT_MAXPEERS; i++) {
@@ -1105,7 +1109,7 @@ void netContentServeTick(void)
 			continue;
 		}
 
-		for (k = 0; k < (pace > 1 ? 1 : NETCONTENT_PERTICK); k++) {
+		for (k = 0; k < (pace > 0 ? 1 : NETCONTENT_PERTICK); k++) {
 			if (quitat > 0 && sv->sentbytes >= (u32)quitat) {
 				sysLogPrintf(LOG_NOTE, "net: content: --net-test-serve-quit: %u of %u bytes of %s sent to peer %d; quitting the game",
 						sv->sentbytes, sv->bytes, sv->dir, sv->peer);

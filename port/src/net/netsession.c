@@ -218,6 +218,7 @@ static s32 s_HostDedicated = 0;
 static s32 s_ClientSlot = 0;      // the slot (pad, mpindex) ACCEPT gave this machine
 static s32 s_ServerClosed = 0;    // the host's peer is disconnected for good
 static u64 s_ClientBarrierDeadline = 0;
+static u64 s_ClientLoadedAt = 0;
 
 // a join in progress's STAGE_LOAD that came before its ACCEPT (another
 // channel): taken once the ACCEPT is
@@ -3484,7 +3485,8 @@ static void netClientEvent(const struct netevent *ev)
 						g_StageTimeElapsed60 = stagetime;
 					}
 
-					sysLogPrintf(LOG_NOTE, "net: match %u: GO%s", s_MatchIdCur, s_Spectating ? ", spectating" : "");
+					sysLogPrintf(LOG_NOTE, "net: match %u: GO%s, %u s after this machine had loaded", s_MatchIdCur, s_Spectating ? ", spectating" : "",
+							s_ClientLoadedAt ? (u32)((netNowMs() - s_ClientLoadedAt) / 1000) : 0);
 
 					if (stagetime > 0) {
 						sysLogPrintf(LOG_NOTE, "net: migrate: match %u carries on at level time %d", s_MatchIdCur, stagetime);
@@ -4075,6 +4077,7 @@ void netStageHashEnd(void)
 		netSend(s_ServerPeer, NET_CHAN_RELIABLE, &b);
 		netHostFlush(g_NetHostSocket);
 		s_ClientState = NETCS_LOADED;
+		s_ClientLoadedAt = netNowMs();
 		s_ClientBarrierDeadline = netNowMs() + NET_CLIENT_BARRIER_TIMEOUT_MS;
 	}
 }
