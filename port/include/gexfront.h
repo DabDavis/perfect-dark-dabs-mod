@@ -52,6 +52,8 @@ s32 gexFrontNetMissionReport(void);
 s32 gexFrontOpenNetReport(void);
 // a client's next mission is loading: that report put away
 void gexFrontCloseNetReport(void);
+// online, the room's match or mission is starting: an open folder put away (1 if one was)
+s32 gexFrontCloseForNetMatch(void);
 s32 gexFrontWantsMain(void);
 s32 gexFrontLeavingForLevel(void);
 // the gates (--net-test-campaign-mission): the open folder starts mission N as its own start does

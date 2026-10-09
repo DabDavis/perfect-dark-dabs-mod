@@ -43,6 +43,11 @@
 #          the room over; bravo's half-filled folder is dropped with the old
 #          session and the new host serves it whole (an abandoned fetch had
 #          blocked the folder for the process: "not installed here").
+#   gesecond (no migration) a host, alpha and bravo play two GoldenEye matches
+#          on Complex in one room: the host's end screen closes after both
+#          (the second never opened one: GE Plus's folder had opened over the
+#          room after the first and taken every menuTick of the next match).
+#          GESECOND_PLAYERS=2 leaves bravo out; GESECOND_PD=1 plays 0x32.
 #   fetchend (no migration: the lifecycle round a download) a host and alpha
 #          with PD_Kakariko's maps play two matches of 600 frames on its
 #          Playground; charlie, with nothing installed, joins the first in
@@ -65,7 +70,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 BUILD=${BUILD:-$ROOT/build}
 OUT=${OUT:-$BUILD/netmigrate-out}; GPORT=${GPORT:-27190}
 MODDIR=${MODDIR:-mod_allinone}
-CASES=${CASES:-quit crash lobby coop served midfetch fetchend}
+CASES=${CASES:-quit crash lobby coop served midfetch fetchend gesecond}
 BIN=${1:-pd.x86_64}
 case $BIN in /*) ;; */*) BIN=$(realpath "$BIN") ;; *) BIN=$BUILD/$BIN ;; esac
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
@@ -386,6 +391,41 @@ for c in $CASES; do
 		grep -q "net: accepted by \"alphamidfetch\"" "$B" && grep -q "net: match [0-9]*: every machine has loaded; GO" "$A" \
 			&& pass "midfetch: bravo played the room's match under alpha" || fail "midfetch: bravo did not play under alpha"
 		[ "$RA" = 0 ] && [ "$RB" = 0 ] || fail "midfetch: exit codes alpha $RA bravo $RB"
+		;;
+	gesecond)
+		# GESECOND_PLAYERS (3: the host, alpha, bravo; 2 without bravo),
+		# GESECOND_PD 1: Perfect Dark's own 0x32 in place of GoldenEye's Complex
+		if [ "${GESECOND_PD:-0}" = 1 ]; then gargs=(--net-test-stage 0x32); else gargs=(--net-test-map Complex --net-test-ge 0); fi
+		lobby gesecond
+		GEMAPS=1 game gesecond-host mhgesecond "$port" 240 --net-lobby-script host --net-lobby-room "Migrate gesecond" --net-lobby-size 3 \
+			--net-lobby-wait $(( ${GESECOND_PLAYERS:-3} - 1 )) --net-lobby-matches 2 --net-lobby-end-frame 600 "${gargs[@]}" --net-test-sims 0 --rng-seed 24 &
+		ph=$!
+		GEMAPS=1 game gesecond-alpha alphagesecond $((port + 1)) 240 --net-lobby-script join --net-lobby-room "Migrate gesecond" \
+			--net-lobby-leave-frame 0 --net-lobby-matches 2 &
+		pa=$!
+		pb=
+		if [ "${GESECOND_PLAYERS:-3}" -ge 3 ]; then
+			sleep 4
+			GEMAPS=1 game gesecond-bravo bravogesecond $((port + 2)) 240 --net-lobby-script join --net-lobby-room "Migrate gesecond" \
+				--net-lobby-leave-frame 0 --net-lobby-matches 2 &
+			pb=$!
+		fi
+		wait $ph; RH=$?; wait $pa; RA=$?; RB=-; [ -n "$pb" ] && { wait $pb; RB=$?; }
+		kill $LOBBY 2>/dev/null; wait $LOBBY 2>/dev/null
+		echo "     gesecond: exits host $RH alpha $RA bravo $RB"
+		H=$OUT/gesecond-host.log
+		for m in 1 2; do
+			grep -q "net: match $m: every machine has loaded; GO" "$H" && pass "gesecond: match $m passed GO: $(line "$H" "net: match $m starting on" | sed 's/, seeds.*//')" \
+				|| fail "gesecond: match $m never passed GO"
+			grep -q "lobby script: host back in room .* after match $m " "$H" && pass "gesecond: the host's end screen closed and it is back in the room after match $m" \
+				|| fail "gesecond: the host never came back to the room after match $m (its end screen)"
+		done
+		for j in alpha bravo; do
+			[ -f "$OUT/gesecond-$j.log" ] && [ "$j" != bravo -o -n "$pb" ] || continue
+			grep -q "lobby script: client back in room .* after match 2 " "$OUT/gesecond-$j.log" && pass "gesecond: $j back in the room after match 2" \
+				|| fail "gesecond: $j not back in the room after match 2"
+		done
+		[ "$RH" = 0 ] && [ "$RA" = 0 ] && [ "$RB" != 124 ] || fail "gesecond: exit codes host $RH alpha $RA bravo $RB"
 		;;
 	fetchend)
 		lobby fetchend

@@ -4008,6 +4008,33 @@ s32 gexFrontOpenNetReport(void)
 	return 1;
 }
 
+/**
+ * Online, a match or mission is starting from the room (netsession.c): a
+ * folder still open is put away first. Open over a level, it takes every
+ * menuTick() (its own tick in their place), and the match's end screen was
+ * never pushed: a lobby host's second GoldenEye match sat on a level with no
+ * end screen for good (2026-10-09). 1 when one was open.
+ */
+s32 gexFrontCloseForNetMatch(void)
+{
+	if (!g_Front.active) {
+		return 0;
+	}
+
+	if (g_FrontNetReport) {
+		frontCloseNetReport();
+	} else {
+		g_Front.active = 0;
+		g_FrontInside = 0;
+		frontUnload();
+	}
+
+	g_FrontWantMain = 0;
+	sysLogPrintf(LOG_NOTE, "gexfront: the folder put away for the room's match");
+
+	return 1;
+}
+
 /** A client's next mission is loading (netsession.c): the report is put away */
 void gexFrontCloseNetReport(void)
 {
