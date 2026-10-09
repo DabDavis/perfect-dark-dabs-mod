@@ -1019,6 +1019,32 @@ nothing is ever sent from one machine to another but names and hashes.
   `netContentVariantApply` and netcoop's set resolution go through it.
   GE-X and the Mario characters (segs/) are not served: they load only at
   a start.
+- **How fast it is served (2026-10-09, F3 "the upload from host takes
+  awhile").** ENet held a peer's reliable data in flight to
+  `ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE`, 64 KB with bandwidth 0, so a serve
+  ran at 64 KB a round trip: GoldenEye Arenas in 26.5 s at 120 ms (27.2 s
+  with 1% loss), a Goldfinger 64 room (Goldfinger then GoldenEye Arenas for
+  the characters) in 68 s. Now: the window is 1 MB (enet.h, PD patch; the
+  same build at both ends, which CONNECT enforces), a client's socket takes
+  `NET_MAXWAITING_CLIENT` (3 MB, `netHostSetMaxWaiting`) so a window's worth
+  held behind a lost datagram is not refused (the host keeps 256 KB a peer),
+  and `netContentServeTick` sends by a byte rate (every serve together,
+  shared by a credit each, small files many to a pass) rather than two parts
+  a pass: it starts at 2 MB/s, grows by a quarter every 200 ms while the
+  serves use all of it, up to 12 MB/s, and is cut by a quarter whenever
+  any connected peer's smoothed round trip is 40 ms over the lowest seen
+  for it (the host's uplink queueing, which the players' snapshots share;
+  "serving at N KB/s" in the log). GoldenEye Arenas now 2.45 s at 120 ms,
+  2.6 s with 1% loss, the Goldfinger 64 room 6.1 s (`build/cspeed.sh`,
+  `build/cslate.sh` in the contentspeed worktree, not kept: a host and a
+  modless guest with `--net-sim` on both). What limits it now: the rate
+  cap and its ramp (on bare loopback 2.1 s against 1.4 s unpaced), then
+  the window at long round trips (1 MB a round trip: 4 MB/s at 250 ms),
+  then the 2 MB `NETCONTENT_MAXQUEUED`. Not compressed: zlib saves 11% of
+  GoldenEye Arenas and 9% of Goldfinger 64 (their files are Rare-zipped
+  already), not worth a protocol change. `--net-sim` took a fourth field,
+  KBPS: a bottleneck with a queue on what that machine receives
+  (`netHostSetSimRate`), to watch the pace back off.
 - **Co-op on the conversions' missions (protocol 14).** `g_NetCoopSetup.game`
   / RULES' mission block `game`: "" Perfect Dark's, else a conversion tag;
   `stageindex` is then the mission's number in that conversion

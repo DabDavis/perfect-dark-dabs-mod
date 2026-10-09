@@ -567,10 +567,26 @@ void netContentNoStageText(s32 kind, const char *dir, const char *map, s32 id, c
 #define NETCONTENT_PART      (48 * 1024)        // a CONTENT_FILE's bytes
 #define NETCONTENT_MAXBYTES  (256u * 1024 * 1024)
 #define NETCONTENT_MAXFILES  20000
-#define NETCONTENT_PERTICK   2                  // parts a host sends a client each tick (about 5.6 MB/s)
+// The pace (2026-10-09, "the upload from host takes awhile"): what a host
+// sends, all the clients it serves together, is a rate in bytes a second,
+// shared out between them by a credit each; it starts at RATESTART and grows
+// while the serves use all of it, up to RATEMAX, and is cut by a quarter
+// whenever any connected peer's round trip has grown QUEUEMS over the
+// lowest seen for it: the host's uplink is queueing, and the snapshots of
+// the players in the match wait in that queue too. What ENet may hold for a
+// peer is that peer's share of the rate for its lowest round trip and
+// QUEUEMS more, so a queue a link builds stays near QUEUEMS. Small files go many to
+// a pass (a part a file: GoldenEye Arenas is 2670 files under 4 KB).
+#define NETCONTENT_RATEMIN   (256u * 1024)       // bytes a second
+#define NETCONTENT_RATESTART (2u * 1024 * 1024)
+#define NETCONTENT_RATEMAX   (12u * 1024 * 1024)
+#define NETCONTENT_QUEUEMS   40                  // a round trip this much over its lowest: queueing
+#define NETCONTENT_ADJUSTUS  200000              // the rate looked at again
+#define NETCONTENT_BASEUS    10000000            // a lowest round trip kept this long
 #define NETCONTENT_MAXPATH   255
 #define NETCONTENT_MAXPEERS  (MAX_PLAYERS + 2)  // netsession.c's NET_MAXPEERS
-#define NETCONTENT_MAXQUEUED (2u * 1024 * 1024) // a peer's bytes ENet has queued or in flight before the next part waits
+#define NETCONTENT_MAXQUEUED (2u * 1024 * 1024) // a peer's bytes ENet has queued or in flight before the next part waits, at most
+#define NETCONTENT_MINHELD   (64u * 1024)        // and at least (the pace sets it between)
 #define NETCONTENT_MAXASKS   2                  // serves of one folder to one connection (a retry after a failure)
 #define NETCONTENT_MAXSESSIONDIRS 4             // the folders this session's stages named
 
@@ -594,9 +610,21 @@ struct netserve {
 	u32 cursize;
 	u32 sentbytes;
 	u64 started;
+	s32 credit;       // bytes it may send now (the pace's share)
 };
 
 static struct netserve s_Serve[NETCONTENT_MAXPEERS];
+
+// host: the pace (bytes a second, for every serve together)
+static struct {
+	u32 rate;
+	u64 last;          // the last pass that shared it out
+	u64 adjusted;      // when the rate last changed or was looked at
+	u64 hold;          // after a cut, the rate is left be until then
+	s32 limited;       // a serve used all its credit since then
+	u32 base[NETCONTENT_MAXPEERS];   // each peer's lowest round trip, ms (0 none yet)
+	u64 baseat[NETCONTENT_MAXPEERS];
+} s_Pace;
 
 // host: what each connection has been served this session, folder by folder
 // (a peer asking for the same folder over and over is refused)
@@ -1008,7 +1036,8 @@ s32 netContentServing(void)
 	return 0;
 }
 
-// one part of the current file to the peer; 1 when the dir is done
+// one part of the current file to the peer: the bytes sent, or -1 when the
+// dir is done
 static s32 netContentServePart(struct netserve *sv)
 {
 	struct netbuf out;
@@ -1023,7 +1052,7 @@ static s32 netContentServePart(struct netserve *sv)
 		netSessionSendPeer(sv->peer, NET_CHAN_BULK, out.data, netBufLen(&out));
 		sysLogPrintf(LOG_NOTE, "net: content: %s served to peer %d: %d files, %u bytes in %u ms", sv->dir, sv->peer, sv->nfiles,
 				sv->sentbytes, (u32)((sysGetMicroseconds() - sv->started) / 1000));
-		return 1;
+		return -1;
 	}
 
 	if (!sv->curdata) {
@@ -1073,10 +1102,86 @@ static s32 netContentServePart(struct netserve *sv)
 		sv->cur++;
 	}
 
-	return 0;
+	return netBufLen(&out);
 }
 
-/** Host, each tick: a few parts to every client being served */
+/**
+ * Host: the pace looked at again (every NETCONTENT_ADJUSTUS while serving):
+ * every connected peer's smoothed round trip against the lowest it has had.
+ * One grown NETCONTENT_QUEUEMS over its lowest means the link is queueing
+ * (the host's upload, most likely, which every player's snapshots share):
+ * the rate is cut by a quarter and left be for that round trip (the cut
+ * shows only after it). Otherwise, if a serve used all its credit and the
+ * worst is under half of QUEUEMS, it grows: by a quarter under a quarter of
+ * QUEUEMS, else by an eighth. ENet's smoothing (an eighth of each sample) keeps
+ * one late frame's ack from counting.
+ */
+static void netContentPaceAdjust(u64 now)
+{
+	u32 worst = 0;
+	s32 worstpeer = -1;
+	s32 i;
+
+	for (i = 0; i < NETCONTENT_MAXPEERS; i++) {
+		struct netpeerstats st;
+
+		if (netHostPeerStats(g_NetHostSocket, i, &st) != 0 || !st.connected || st.rtt == 0) {
+			s_Pace.base[i] = 0;
+			continue;
+		}
+
+		if (s_Pace.base[i] == 0 || st.rtt < s_Pace.base[i] || now - s_Pace.baseat[i] > NETCONTENT_BASEUS) {
+			s_Pace.base[i] = st.rtt;
+			s_Pace.baseat[i] = now;
+		}
+
+		if (st.rtt - s_Pace.base[i] > worst) {
+			worst = st.rtt - s_Pace.base[i];
+			worstpeer = i;
+		}
+	}
+
+	// a cut shows in the round trips a round trip later (and later still
+	// through ENet's smoothing): until then the rate is left be
+	if (now < s_Pace.hold) {
+		s_Pace.limited = 0;
+		s_Pace.adjusted = now;
+		return;
+	}
+
+	if (worst > NETCONTENT_QUEUEMS) {
+		u32 was = s_Pace.rate;
+
+		s_Pace.hold = now + (u64)(s_Pace.base[worstpeer] + worst) * 1000;
+
+		s_Pace.rate -= s_Pace.rate / 4;
+
+		if (s_Pace.rate < NETCONTENT_RATEMIN) {
+			s_Pace.rate = NETCONTENT_RATEMIN;
+		}
+
+		if (s_Pace.rate != was) {
+			sysLogPrintf(LOG_NOTE, "net: content: peer %d's round trip %u ms over its lowest %u: serving at %u KB/s", worstpeer, worst,
+					s_Pace.base[worstpeer], s_Pace.rate / 1024);
+		}
+	} else if (s_Pace.limited && worst < NETCONTENT_QUEUEMS / 2 && s_Pace.rate < NETCONTENT_RATEMAX) {
+		// a quarter while no queue shows at all, an eighth near one
+		s_Pace.rate += worst < NETCONTENT_QUEUEMS / 4 ? s_Pace.rate / 4 : s_Pace.rate / 8;
+
+		if (s_Pace.rate > NETCONTENT_RATEMAX) {
+			s_Pace.rate = NETCONTENT_RATEMAX;
+		}
+	}
+
+	s_Pace.limited = 0;
+	s_Pace.adjusted = now;
+}
+
+/**
+ * Host, each loop pass: parts to every client being served, as much as the
+ * pace's credit allows (shared out evenly), each paced too by what ENet
+ * still holds for it
+ */
 void netContentServeTick(void)
 {
 	// the gates (netmigratetest's midfetch and fetchend): a part every MS
@@ -1086,20 +1191,63 @@ void netContentServeTick(void)
 	static s32 pace = -1;
 	static s32 quitat = -1;
 	static u64 next;
+	u64 now = sysGetMicroseconds();
+	s32 nactive = 0;
+	s32 share;
+	u32 held;
 	s32 i;
-	s32 k;
 
 	if (pace < 0) {
 		pace = sysArgGetInt("--net-test-serve-pace", 0);
 		quitat = sysArgGetInt("--net-test-serve-quit", 0);
 	}
 
+	for (i = 0; i < NETCONTENT_MAXPEERS; i++) {
+		nactive += s_Serve[i].active;
+	}
+
+	if (nactive == 0) {
+		// nothing served: the next serve starts the pace afresh
+		if (s_Pace.rate) {
+			memset(&s_Pace, 0, sizeof(s_Pace));
+		}
+
+		return;
+	}
+
 	if (pace > 0) {
-		if (sysGetMicroseconds() < next) {
+		if (now < next) {
 			return;
 		}
 
-		next = sysGetMicroseconds() + (u64)pace * 1000;
+		next = now + (u64)pace * 1000;
+	}
+
+	if (s_Pace.rate == 0) {
+		s_Pace.rate = NETCONTENT_RATESTART;
+	}
+
+	if (s_Pace.last == 0) {
+		// the first pass of a serve: a pass's worth (at 60 a second)
+		s_Pace.last = now - 16667;
+		netContentPaceAdjust(now);
+	}
+
+	if (now - s_Pace.adjusted >= NETCONTENT_ADJUSTUS) {
+		netContentPaceAdjust(now);
+	}
+
+	// this pass's share for each serve: the time since the last at the rate
+	// (at most a tenth of a second's worth: a long frame does not burst)
+	{
+		u64 us = now - s_Pace.last;
+
+		if (us > 100000) {
+			us = 100000;
+		}
+
+		share = (s32)((u64)s_Pace.rate * us / 1000000 / (u64)nactive);
+		s_Pace.last = now;
 	}
 
 	for (i = 0; i < NETCONTENT_MAXPEERS; i++) {
@@ -1109,7 +1257,29 @@ void netContentServeTick(void)
 			continue;
 		}
 
-		for (k = 0; k < (pace > 0 ? 1 : NETCONTENT_PERTICK); k++) {
+		// what ENet may hold for it, sent and not acked or not yet sent: its
+		// share of the rate for its lowest round trip and QUEUEMS more. A cut in the rate then shortens the queue the link is
+		// holding too, rather than leaving seconds of it there (a guest
+		// on a 1 MB/s line had its round trip 870 ms over its lowest
+		// behind the 2 MB this was before)
+		{
+			u32 rtt = sv->peer < NETCONTENT_MAXPEERS && s_Pace.base[sv->peer] ? s_Pace.base[sv->peer] : 250;
+			u64 bytes = (u64)s_Pace.rate / (u64)nactive * (rtt + NETCONTENT_QUEUEMS) / 1000;
+
+			held = bytes < NETCONTENT_MINHELD ? NETCONTENT_MINHELD : bytes > NETCONTENT_MAXQUEUED ? NETCONTENT_MAXQUEUED : (u32)bytes;
+		}
+
+		// unused credit carries over up to one part beyond the share: the
+		// pass that could not send (ENet's queue full) does not save up
+		sv->credit += share;
+
+		if (sv->credit > share + NETCONTENT_PART) {
+			sv->credit = share + NETCONTENT_PART;
+		}
+
+		while (pace > 0 || sv->credit > 0) {
+			s32 sent;
+
 			if (quitat > 0 && sv->sentbytes >= (u32)quitat) {
 				sysLogPrintf(LOG_NOTE, "net: content: --net-test-serve-quit: %u of %u bytes of %s sent to peer %d; quitting the game",
 						sv->sentbytes, sv->bytes, sv->dir, sv->peer);
@@ -1119,14 +1289,26 @@ void netContentServeTick(void)
 
 			// paced by what ENet still holds for the peer: a slow link
 			// gets the parts as it takes them, never a queue of the folder
-			if (netHostPeerQueuedBytes(g_NetHostSocket, sv->peer) > NETCONTENT_MAXQUEUED) {
+			if (netHostPeerQueuedBytes(g_NetHostSocket, sv->peer) > held) {
 				break;
 			}
 
-			if (netContentServePart(sv)) {
+			sent = netContentServePart(sv);
+
+			if (sent < 0) {
 				netContentServeFree(sv);
 				break;
 			}
+
+			sv->credit -= sent;
+
+			if (pace > 0) {
+				break;
+			}
+		}
+
+		if (sv->active && sv->credit <= 0) {
+			s_Pace.limited = 1;
 		}
 	}
 }

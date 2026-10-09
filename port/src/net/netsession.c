@@ -477,8 +477,9 @@ void netSessionInit(void)
 }
 
 /**
- * --net-sim DROP,DELAY[,JITTER]: the transport's loss and latency simulator
- * on what this machine receives (tools/ci/netplayertest.sh)
+ * --net-sim DROP,DELAY[,JITTER[,KBPS]]: the transport's loss and latency
+ * simulator on what this machine receives (tools/ci/netplayertest.sh), and a
+ * bottleneck of KBPS kilobytes a second with a queue in front of it
  */
 static void netSessionApplySim(void)
 {
@@ -486,13 +487,16 @@ static void netSessionApplySim(void)
 	int drop = 0;
 	int delay = 0;
 	int jitter = 0;
+	int kbps = 0;
 
-	if (!sim || !g_NetHostSocket || sscanf(sim, "%d,%d,%d", &drop, &delay, &jitter) < 1) {
+	if (!sim || !g_NetHostSocket || sscanf(sim, "%d,%d,%d,%d", &drop, &delay, &jitter, &kbps) < 1) {
 		return;
 	}
 
 	netHostSetSim(g_NetHostSocket, drop, delay, jitter, 12345);
-	sysLogPrintf(LOG_NOTE, "net: --net-sim: %d%% of datagrams in dropped, the rest %d ms late (+0..%d)", drop, delay, jitter);
+	netHostSetSimRate(g_NetHostSocket, kbps > 0 ? (u32)kbps * 1024 : 0);
+	sysLogPrintf(LOG_NOTE, "net: --net-sim: %d%% of datagrams in dropped, the rest %d ms late (+0..%d), link %d KB/s (0 any)", drop, delay,
+			jitter, kbps);
 }
 
 static void netSessionOpenSocket(void)
@@ -519,6 +523,10 @@ static void netSessionOpenSocket(void)
 			sysLogPrintf(LOG_ERROR, "net: could not open a UDP socket");
 			return;
 		}
+
+		// a host's reliable stream (content served, above all) in flight
+		// behind a lost datagram is held here until the gap is filled
+		netHostSetMaxWaiting(g_NetHostSocket, NET_MAXWAITING_CLIENT);
 
 		// the connect itself waits for the main loop (netSessionTick): until
 		// it runs nothing services the socket, and a slow boot would use up
@@ -4648,6 +4656,7 @@ static void netSessionClose(void)
 			netHostDisconnectNow(g_NetHostSocket, s_ServerPeer, NETREFUSE_LEFT);
 		}
 
+		netHostSetMaxWaiting(g_NetHostSocket, NET_MAXWAITING);
 		s_SockLent = 0;
 	} else {
 		netHostDestroy(g_NetHostSocket);
@@ -4757,6 +4766,7 @@ s32 netSessionLobbyConnect(const char *addr, u16 port, const char *ticket, const
 	if (sock) {
 		g_NetHostSocket = sock;
 		s_SockLent = 1;
+		netHostSetMaxWaiting(g_NetHostSocket, NET_MAXWAITING_CLIENT);
 		s_ClientState = NETCS_IDLE;
 		netSessionApplySim();
 	} else {

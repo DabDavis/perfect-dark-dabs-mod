@@ -232,7 +232,13 @@ extern "C" {
 		ENET_PROTOCOL_MAXIMUM_MTU             = 4096,
 		ENET_PROTOCOL_MAXIMUM_PACKET_COMMANDS = 32,
 		ENET_PROTOCOL_MINIMUM_WINDOW_SIZE     = 4096,
-		ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE     = 65536,
+		/* PD: 1 MB, was 64 KB. With bandwidth 0 a peer's reliable data in
+		   flight is held to this, so a reliable stream ran at 64 KB a round
+		   trip: about 500 KB/s at 120 ms, the host serving a guest its
+		   conversion for half a minute. Both ends are the same build
+		   (CONNECT refuses another), and a guest's receive allowance
+		   (NET_MAXWAITING_CLIENT) holds a window behind a lost datagram. */
+		ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE     = 1024 * 1024,
 		ENET_PROTOCOL_MINIMUM_CHANNEL_COUNT   = 1,
 		ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT   = 255,
 		ENET_PROTOCOL_MAXIMUM_PEER_ID         = 0xFFF,
