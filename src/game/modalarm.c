@@ -569,6 +569,7 @@ static bool modAlarmLinkWalkable(struct coord *from, RoomNum fromroom, struct co
 #define MODALARM_FLOORLAYERS 6      // floors one over another in a room
 #define MODALARM_FLOORMAX    1500   // waypoints added to a stage at most
 #define MODALARM_ROOMMAX     200    // and to a room (struct room counts them in a u8)
+#define MODALARM_REFINEMAX   2000   // and more where the wider spacing left pieces of the graph
 #define MODALARM_FLOORCELLS  40000  // grid points a room is searched at, at most
 #define MODALARM_FLOORLIFT   50.0f  // a place stands this far over its floor, as a settled pad does
 
@@ -612,8 +613,9 @@ static bool modAlarmFloorSpotFree(const struct coord *spot, RoomNum room, const 
  * wall or a crate. Kept places are MODALARM_FLOORSPACE apart, and as far
  * from the pads already taken (`have`). Nothing random: the same stage gives
  * the same places. Returns how many were written to `out`/`outrooms`.
+ * With `onlyrooms`, only the rooms it marks are searched.
  */
-static s32 modAlarmSampleFloors(const struct coord *have, const RoomNum (*haverooms)[2], s32 numhave, struct coord *out, RoomNum *outrooms, s32 max, f32 space)
+static s32 modAlarmSampleFloors(const struct coord *have, const RoomNum (*haverooms)[2], s32 numhave, struct coord *out, RoomNum *outrooms, s32 max, f32 space, const u8 *onlyrooms)
 {
 	// Places clear of the walls by more than a body first, then, where a
 	// corridor is too narrow for any, those with room for one
@@ -635,7 +637,7 @@ static s32 modAlarmSampleFloors(const struct coord *have, const RoomNum (*havero
 			s32 ix;
 			s32 iz;
 
-			if (w <= 0.0f || d <= 0.0f) {
+			if (w <= 0.0f || d <= 0.0f || (onlyrooms && !onlyrooms[r])) {
 				continue;
 			}
 
@@ -798,6 +800,170 @@ static s32 modAlarmAppendPads(const struct coord *pts, const RoomNum *ptrooms, s
 }
 
 /**
+ * Adds `count` places to the arrays modAlarmBuildPadWaypoints() builds its
+ * graph from, after the `n` already there. Their pad numbers (`spots`) are
+ * filled in once they are put on the stage.
+ */
+static void modAlarmAddPlaces(s16 **spots, struct coord **pos, RoomNum (**rooms)[2], RoomNum (**near)[MODALARM_NEARROOMS],
+		s32 n, const struct coord *places, const RoomNum *placerooms, s32 count)
+{
+	s32 i;
+
+	*spots = realloc(*spots, (n + count) * sizeof(**spots));
+	*pos = realloc(*pos, (n + count) * sizeof(**pos));
+	*rooms = realloc(*rooms, (n + count) * sizeof(**rooms));
+	*near = realloc(*near, (n + count) * sizeof(**near));
+
+	for (i = 0; i < count; i++) {
+		(*spots)[n + i] = -1;
+		(*pos)[n + i] = places[i];
+		(*rooms)[n + i][0] = placerooms[i];
+		(*rooms)[n + i][1] = -1;
+		modAlarmRoomsWithinHops(placerooms[i], (*near)[n + i]);
+	}
+}
+
+/**
+ * Links each of the places from `first` on to its nearest few in reach (see
+ * modAlarmBuildPadWaypoints()), in `adj`, whose rows are `stride` long.
+ * `floors` says the graph has the floors' places, not only pads.
+ */
+static void modAlarmLinkPlaces(const struct coord *pos, const RoomNum (*rooms)[2], RoomNum (*near)[MODALARM_NEARROOMS],
+		s32 n, s32 first, bool floors, f32 linkdist, u8 *adj, size_t stride)
+{
+	s32 i;
+	s32 j;
+
+	for (i = first; i < n; i++) {
+		s32 cand[MODALARM_PADCANDS];
+		f32 canddist[MODALARM_PADCANDS];
+		s32 numcands = 0;
+		s32 linked = 0;
+		s32 k;
+
+		// The nearest few in reach, nearest first
+		for (j = 0; j < n; j++) {
+			f32 dx = pos[j].x - pos[i].x;
+			f32 dy = pos[j].y - pos[i].y;
+			f32 dz = pos[j].z - pos[i].z;
+			f32 dist = dx * dx + dy * dy + dz * dz;
+			// Among the floors' places the walk alone decides: a converted
+			// level's rooms are not always joined by portals where its
+			// floors meet (Cradle's platforms)
+			bool neighbour = floors || rooms[j][0] == rooms[i][0];
+
+			if (j == i || dist > linkdist * linkdist) {
+				continue;
+			}
+
+			for (k = 0; !neighbour && k < MODALARM_NEARROOMS && near[i][k] != -1; k++) {
+				neighbour = near[i][k] == rooms[j][0];
+			}
+
+			if (!neighbour) {
+				continue;
+			}
+
+			for (k = numcands; k > 0 && canddist[k - 1] > dist; k--) {
+				if (k < MODALARM_PADCANDS) {
+					cand[k] = cand[k - 1];
+					canddist[k] = canddist[k - 1];
+				}
+			}
+
+			if (k < MODALARM_PADCANDS) {
+				cand[k] = j;
+				canddist[k] = dist;
+
+				if (numcands < MODALARM_PADCANDS) {
+					numcands++;
+				}
+			}
+		}
+
+		for (k = 0; k < numcands; k++) {
+			// Among the floors' places a pad's nearest few are all in its
+			// own room, and with them counted the room's ways out were never
+			// tried: there, a link into another room does not count
+			bool counts;
+			struct coord from = pos[i];
+			struct coord to;
+
+			j = cand[k];
+			to = pos[j];
+			counts = !floors || rooms[j][0] == rooms[i][0];
+
+			if (counts && linked >= MODALARM_PADLINKS) {
+				continue;
+			}
+
+			if (adj[(size_t)i * stride + j]) {
+				linked += counts;
+				continue;
+			}
+
+			if (!(floors ? modAlarmLinkWalkable(&from, rooms[i][0], &to, rooms[j][0])
+						: modAlarmPadsWalkable(&from, rooms[i][0], &to, rooms[j][0]))) {
+				continue;
+			}
+
+			adj[(size_t)i * stride + j] = adj[(size_t)j * stride + i] = 1;
+			linked += counts;
+		}
+	}
+}
+
+/**
+ * The graph's connected pieces: each place's piece in `group`, how many
+ * pieces there are (returned), the biggest's size and number.
+ */
+static s32 modAlarmGraphPieces(s32 n, const u8 *adj, size_t stride, s32 *group, s32 *queue, s32 *largest, s32 *biggest)
+{
+	s32 numgroups = 0;
+	s32 i;
+	s32 j;
+
+	*largest = 0;
+	*biggest = 0;
+
+	for (i = 0; i < n; i++) {
+		group[i] = -1;
+	}
+
+	for (i = 0; i < n; i++) {
+		s32 head = 0;
+		s32 tail = 0;
+
+		if (group[i] >= 0) {
+			continue;
+		}
+
+		group[i] = numgroups;
+		queue[tail++] = i;
+
+		while (head < tail) {
+			s32 cur = queue[head++];
+
+			for (j = 0; j < n; j++) {
+				if (adj[(size_t)cur * stride + j] && group[j] < 0) {
+					group[j] = numgroups;
+					queue[tail++] = j;
+				}
+			}
+		}
+
+		if (tail > *largest) {
+			*largest = tail;
+			*biggest = numgroups;
+		}
+
+		numgroups++;
+	}
+
+	return numgroups;
+}
+
+/**
  * A waypoint graph for a stage that came without one.
  *
  * Every GoldenEye Arenas map is such a stage: GoldenEye's multiplayer setups
@@ -844,13 +1010,21 @@ void modAlarmBuildPadWaypoints(void)
 	f32 linkdist;
 	s32 numgroups = 0;
 	s32 largest = 0;
+	s32 biggest = 0;
+	s32 numpadspots;
+	s32 numextra = 0;
+	s32 numrefined = 0;
+	s32 tries;
+	f32 space = MODALARM_FLOORSPACE;
+	struct coord *extra = NULL;
+	RoomNum *extrarooms = NULL;
+	size_t stride;
 	s16 *spots;
 	struct coord *pos;
 	RoomNum (*rooms)[2];
 	RoomNum (*near)[MODALARM_NEARROOMS];
 	const bool wide = !modRunIsOn();
 	u8 *adj;
-	s32 *deg;
 	s32 *group;
 	s32 *queue;
 	s32 *nblists;
@@ -931,19 +1105,18 @@ void modAlarmBuildPadWaypoints(void)
 	}
 
 	// A match's simulants walk all over the map, not only from one spawn
-	// point to the next: the floors get waypoints of their own
+	// point to the next: the floors get waypoints of their own. They are
+	// put on the stage as pads once the graph is built (modAlarmAppendPads())
+	numpadspots = n;
+
 	if (wide) {
-		struct coord *extra = malloc(MODALARM_FLOORMAX * sizeof(*extra));
-		RoomNum *extrarooms = malloc(MODALARM_FLOORMAX * sizeof(*extrarooms));
-		f32 space = MODALARM_FLOORSPACE;
-		s32 numextra = 0;
-		s32 first = -1;
-		s32 tries;
+		extra = malloc((MODALARM_FLOORMAX + MODALARM_REFINEMAX) * sizeof(*extra));
+		extrarooms = malloc((MODALARM_FLOORMAX + MODALARM_REFINEMAX) * sizeof(*extrarooms));
 
 		// A map too big for the places at that spacing (Statue Park) has
 		// them further apart rather than its last rooms going without
 		for (tries = 0; extra && extrarooms && tries < 4; tries++, space *= 1.4f) {
-			numextra = modAlarmSampleFloors(pos, rooms, n, extra, extrarooms, MODALARM_FLOORMAX, space);
+			numextra = modAlarmSampleFloors(pos, rooms, n, extra, extrarooms, MODALARM_FLOORMAX, space, NULL);
 
 			if (numextra < MODALARM_FLOORMAX) {
 				break;
@@ -951,33 +1124,14 @@ void modAlarmBuildPadWaypoints(void)
 		}
 
 		if (numextra > 0) {
-			first = modAlarmAppendPads(extra, extrarooms, numextra);
-		}
-
-		if (first >= 0) {
-			spots = realloc(spots, (n + numextra) * sizeof(*spots));
-			pos = realloc(pos, (n + numextra) * sizeof(*pos));
-			rooms = realloc(rooms, (n + numextra) * sizeof(*rooms));
-			near = realloc(near, (n + numextra) * sizeof(*near));
-
-			for (i = 0; i < numextra; i++) {
-				spots[n] = first + i;
-				pos[n] = extra[i];
-				rooms[n][0] = extrarooms[i];
-				rooms[n][1] = -1;
-				modAlarmRoomsWithinHops(extrarooms[i], near[n]);
-				n++;
-			}
-
+			modAlarmAddPlaces(&spots, &pos, &rooms, &near, n, extra, extrarooms, numextra);
+			n += numextra;
 			numfloor = numextra;
 		}
-
-		free(extra);
-		free(extrarooms);
 	}
 
 	if (n < 2) {
-		free(spots); free(pos); free(rooms); free(near);
+		free(spots); free(pos); free(rooms); free(near); free(extra); free(extrarooms);
 		return;
 	}
 
@@ -985,121 +1139,112 @@ void modAlarmBuildPadWaypoints(void)
 	// link is a long walk to test that a shorter chain already makes
 	linkdist = numfloor > 0 ? MODALARM_FLOORLINKDIST : MODALARM_PADLINKDIST;
 
+	stride = n;
 	adj = calloc((size_t)n * n, 1);
-	deg = calloc(n, sizeof(*deg));
 	group = malloc(n * sizeof(*group));
 	queue = malloc(n * sizeof(*queue));
 
-	for (i = 0; i < n; i++) {
-		s32 cand[MODALARM_PADCANDS];
-		f32 canddist[MODALARM_PADCANDS];
-		s32 numcands = 0;
-		s32 linked = 0;
-		s32 k;
+	modAlarmLinkPlaces(pos, rooms, near, n, 0, numfloor > 0, linkdist, adj, stride);
+	numgroups = modAlarmGraphPieces(n, adj, stride, group, queue, &largest, &biggest);
 
-		// The nearest few in reach, nearest first
-		for (j = 0; j < n; j++) {
-			f32 dx = pos[j].x - pos[i].x;
-			f32 dy = pos[j].y - pos[i].y;
-			f32 dz = pos[j].z - pos[i].z;
-			f32 dist = dx * dx + dy * dy + dz * dz;
-			// Among the floors' places the walk alone decides: a converted
-			// level's rooms are not always joined by portals where its
-			// floors meet (Cradle's platforms)
-			bool neighbour = numfloor > 0 || rooms[j][0] == rooms[i][0];
+	// Spaced wider than MODALARM_FLOORSPACE, places miss the corners of a
+	// narrow way: GF64 Island's hedge maze came out as pieces of the graph
+	// with no link out, and its simulants, sent for a gun in another piece,
+	// stood in theirs all match (F3 20261009-073205). The rooms of every
+	// piece but the biggest, and the rooms beside them, are searched again
+	// at MODALARM_FLOORSPACE and the new places linked in.
+	if (numfloor > 0 && space > MODALARM_FLOORSPACE && numgroups > 1 && extra && extrarooms) {
+		u8 *mark = calloc(0x200, 1);
+		s32 numrefine = 0;
 
-			if (j == i || dist > linkdist * linkdist) {
+		for (i = 0; mark && i < n; i++) {
+			RoomNum nb[24];
+			s32 num;
+			s32 k;
+
+			if (group[i] == biggest || rooms[i][0] <= 0 || rooms[i][0] >= 0x200) {
 				continue;
 			}
 
-			for (k = 0; !neighbour && k < MODALARM_NEARROOMS && near[i][k] != -1; k++) {
-				neighbour = near[i][k] == rooms[j][0];
-			}
+			mark[rooms[i][0]] = 1;
+			num = bgRoomGetNeighbours(rooms[i][0], nb, ARRAYCOUNT(nb) - 1);
 
-			if (!neighbour) {
-				continue;
-			}
-
-			for (k = numcands; k > 0 && canddist[k - 1] > dist; k--) {
-				if (k < MODALARM_PADCANDS) {
-					cand[k] = cand[k - 1];
-					canddist[k] = canddist[k - 1];
-				}
-			}
-
-			if (k < MODALARM_PADCANDS) {
-				cand[k] = j;
-				canddist[k] = dist;
-
-				if (numcands < MODALARM_PADCANDS) {
-					numcands++;
+			for (k = 0; k < num; k++) {
+				if (nb[k] > 0 && nb[k] < 0x200) {
+					mark[nb[k]] = 1;
 				}
 			}
 		}
 
-		for (k = 0; k < numcands; k++) {
-			// Among the floors' places a pad's nearest few are all in its
-			// own room, and with them counted the room's ways out were never
-			// tried: there, a link into another room does not count
-			bool counts;
+		if (mark) {
+			numrefine = modAlarmSampleFloors(pos, rooms, n, &extra[numextra], &extrarooms[numextra],
+					MODALARM_REFINEMAX, MODALARM_FLOORSPACE, mark);
+		}
 
-			j = cand[k];
-			counts = numfloor == 0 || rooms[j][0] == rooms[i][0];
+		free(mark);
 
-			if (counts && linked >= MODALARM_PADLINKS) {
-				continue;
+		if (numrefine > 0) {
+			s32 newn = n + numrefine;
+			u8 *newadj = calloc((size_t)newn * newn, 1);
+
+			if (newadj) {
+				for (i = 0; i < n; i++) {
+					memcpy(&newadj[(size_t)i * newn], &adj[(size_t)i * stride], n);
+				}
+
+				free(adj);
+				adj = newadj;
+				stride = newn;
+				modAlarmAddPlaces(&spots, &pos, &rooms, &near, n, &extra[numextra], &extrarooms[numextra], numrefine);
+				group = realloc(group, newn * sizeof(*group));
+				queue = realloc(queue, newn * sizeof(*queue));
+				numextra += numrefine;
+				numfloor += numrefine;
+				n = newn;
+
+				modAlarmLinkPlaces(pos, rooms, near, n, n - numrefine, true, linkdist, adj, stride);
+				numgroups = modAlarmGraphPieces(n, adj, stride, group, queue, &largest, &biggest);
+				numrefined = numrefine;
 			}
-
-			if (adj[(size_t)i * n + j]) {
-				linked += counts;
-				continue;
-			}
-
-			if (!(numfloor > 0 ? modAlarmLinkWalkable(&pos[i], rooms[i][0], &pos[j], rooms[j][0])
-						: modAlarmPadsWalkable(&pos[i], rooms[i][0], &pos[j], rooms[j][0]))) {
-				continue;
-			}
-
-			adj[(size_t)i * n + j] = adj[(size_t)j * n + i] = 1;
-			deg[i]++;
-			deg[j]++;
-			numlinks++;
-			linked += counts;
 		}
 	}
 
-	// The connected pieces, each a waygroup
-	for (i = 0; i < n; i++) {
-		group[i] = -1;
+	// The floors' places become pads after the stage's own; with no room
+	// for them the graph is the pads' alone
+	if (numextra > 0) {
+		s32 first = modAlarmAppendPads(extra, extrarooms, numextra);
+
+		// Pads are found by u16 offsets: with no room for the second
+		// search's places too, the graph goes without them (their links
+		// were all made after the others')
+		if (first < 0 && numrefined > 0) {
+			numextra -= numrefined;
+			numfloor -= numrefined;
+			n -= numrefined;
+			numrefined = 0;
+			numgroups = modAlarmGraphPieces(n, adj, stride, group, queue, &largest, &biggest);
+			first = modAlarmAppendPads(extra, extrarooms, numextra);
+		}
+
+		if (first >= 0) {
+			for (i = 0; i < numextra; i++) {
+				spots[numpadspots + i] = first + i;
+			}
+		} else {
+			n = numpadspots;
+			numfloor = 0;
+			numrefined = 0;
+			numgroups = modAlarmGraphPieces(n, adj, stride, group, queue, &largest, &biggest);
+		}
 	}
 
+	free(extra);
+	free(extrarooms);
+
 	for (i = 0; i < n; i++) {
-		s32 head = 0;
-		s32 tail = 0;
-
-		if (group[i] >= 0) {
-			continue;
+		for (j = i + 1; j < n; j++) {
+			numlinks += adj[(size_t)i * stride + j];
 		}
-
-		group[i] = numgroups;
-		queue[tail++] = i;
-
-		while (head < tail) {
-			s32 cur = queue[head++];
-
-			for (j = 0; j < n; j++) {
-				if (adj[(size_t)cur * n + j] && group[j] < 0) {
-					group[j] = numgroups;
-					queue[tail++] = j;
-				}
-			}
-		}
-
-		if (tail > largest) {
-			largest = tail;
-		}
-
-		numgroups++;
 	}
 
 	waypoints = mempAlloc(ALIGN16((n + 1) * sizeof(struct waypoint)), MEMPOOL_STAGE);
@@ -1118,7 +1263,7 @@ void modAlarmBuildPadWaypoints(void)
 			waypoints[i].step = -1;
 
 			for (j = 0; j < n; j++) {
-				if (adj[(size_t)i * n + j]) {
+				if (adj[(size_t)i * stride + j]) {
 					nblists[nbpos++] = j;
 				}
 			}
@@ -1157,8 +1302,8 @@ void modAlarmBuildPadWaypoints(void)
 		g_ModAlarmPadGraph = true;
 
 
-		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads (%d lowered onto their floors, %d left out standing high) and %d places on its floors, %d links, %d groups (largest %d), in %d ms",
-				g_Vars.stagenum, n, numpads, numsettled, numhigh, numfloor, numlinks, numgroups, largest,
+		sysLogPrintf(LOG_NOTE, "alarm: stage 0x%02x has no waypoints; built %d from its %d pads (%d lowered onto their floors, %d left out standing high) and %d places on its floors (%d of them where the wide spacing left pieces), %d links, %d groups (largest %d), in %d ms",
+				g_Vars.stagenum, n, numpads, numsettled, numhigh, numfloor, numrefined, numlinks, numgroups, largest,
 				(s32)((sysGetMicroseconds() - started) / 1000));
 	}
 
@@ -1167,7 +1312,6 @@ void modAlarmBuildPadWaypoints(void)
 	free(rooms);
 	free(near);
 	free(adj);
-	free(deg);
 	free(group);
 	free(queue);
 #endif
