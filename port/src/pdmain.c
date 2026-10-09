@@ -637,6 +637,14 @@ void mainLoop(void)
 		while (g_MainChangeToStageNum < 0) {
 			if (g_NetMode != NETMODE_NONE) netCheckQuit();
 			if (g_NetMode != NETMODE_NONE && netSessionInStage()) { mainNetFrame(); continue; }
+			// netplay: a session that ended in the stage loop (a client that
+			// left, was dropped or lost its host goes to NETMODE_NONE in
+			// netStageStopped, so no netSessionInStage clears it) must not
+			// leave its flag up: schedEndFrame would mix the last net frame's
+			// tick count of audio every frame (2 ticks: twice the sound the
+			// output plays, the queue full and buffers dropped - sounds fast)
+			// and skip the pad read for good
+			if (g_NetInStageLoop && g_NetMode == NETMODE_NONE) { g_NetInStageLoop = 0; g_NetTicksThisFrame = 0; }
 			if (g_NetMode != NETMODE_NONE || g_NetLobbyActive) netIdleFrame();
 
 			const s32 cycles = osGetCount() - g_Vars.thisframestartt;

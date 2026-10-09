@@ -637,6 +637,20 @@ then lists, joins, READYs and plays; the Linux host is
   (`screenshotRequest`) at the step it reached, which is steadier than gdb
   from outside; the boot's Choose Your Reality can come up over a menu the
   script pushed, so it checks the page is current before shooting.
+- **A session that ends in the stage loop leaves `g_NetInStageLoop` up**
+  (F3 20261009-045729, ElmoBear: "my sounds are randomly fast"). A client
+  that leaves, is dropped or loses its host goes to NETMODE_NONE in
+  `netStageStopped`, so the next stage's loop neither calls
+  `netSessionInStage` nor `netStageStart` (both behind `g_NetMode`), and
+  the flag stayed 1 with `g_NetTicksThisFrame` frozen at the last net
+  frame's count. `schedAudioFrame` then mixed that many audio frames per
+  presented frame for the rest of the run: at 2 (the report's
+  "game step in 240ths: 8 x600" in the menus) twice what the output plays,
+  the queue at `Audio.QueueLimit` and whole buffers dropped - sound that
+  skips ahead. Random because it is whatever the leaving frame ticked
+  (0 or 1 sounded normal); the pad read (`joyReadData`) was skipped too,
+  and the frame step was wrong. mainLoop now clears both when the mode is
+  NONE and the flag is still up.
 
 ## Online co-op
 
