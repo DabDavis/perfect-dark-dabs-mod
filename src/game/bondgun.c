@@ -13506,7 +13506,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		return;
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES
+	if (texturenum >= 0 && texturenum < g_NumListTextures
 			&& g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
 		return;
 	}
@@ -13618,7 +13618,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		}
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]) {
+	if (texturenum >= 0 && texturenum < g_NumListTextures && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]) {
 		s16 soundnum = -1;
 
 		handle = bgunAllocateAudioHandle();
@@ -13647,7 +13647,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		return;
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES
+	if (texturenum >= 0 && texturenum < g_NumListTextures
 			&& g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
 		return;
 	}
@@ -13737,7 +13737,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		}
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]) {
+	if (texturenum >= 0 && texturenum < g_NumListTextures && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]) {
 		s16 soundnum = -1;
 
 		handle = bgunAllocateAudioHandle();
@@ -13810,7 +13810,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 		return;
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
+	if (texturenum >= 0 && texturenum < g_NumListTextures && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
 		return;
 	}
 
@@ -13887,7 +13887,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 	if (playdefault) {
 		handle = bgunAllocateAudioHandle();
 
-		if (handle != NULL && texturenum >= 0 && texturenum < NUM_TEXTURES) {
+		if (handle != NULL && texturenum >= 0 && texturenum < g_NumListTextures) {
 			s16 soundnum;
 			struct surfacetype *type = g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype];
 
@@ -13917,7 +13917,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 		return;
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
+	if (texturenum >= 0 && texturenum < g_NumListTextures && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
 		return;
 	}
 

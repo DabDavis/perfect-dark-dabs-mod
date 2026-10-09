@@ -23,6 +23,9 @@ extern s32 g_GeChrAnims;
 
 /** Before a stage's characters are made: on for a remake stage, off otherwise. */
 void geChrAnimsStageStart(s32 stagenum);
+// Perfect Dark's animations under its own numbers again, until the next
+// converted stage's start (modsegs.c, before the animation table is swapped)
+void geChrAnimsOff(void);
 
 /** Our number for GoldenEye's own animation geid (its initanitable.c id), or -1. */
 s32 geChrAnim(s32 geid);

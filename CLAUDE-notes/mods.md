@@ -7,6 +7,7 @@ the long form.
 
 - **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30) and writes the `maps` block (31) so a mod's arenas come from its own tables under its own names — a file name is Perfect Dark's slot, not the map (GE-X's `crad` is Aztec)
 - **Mod directories, Load Mods, modconfig, `modcodediff`, the ROM symbol file, the data segment and importing a mod's weapon definitions** — [mods.md](CLAUDE-notes/mods.md): only the first mod dir joins the file search; files swap live, segments cannot; the `datasegment` block, `moddata.c`, and "where this stands" for continuing the import work
+- **A mod entered live: segments (2026-10-09)** — mods.md, "A mod entered live: segments": `romdataSegSwap()` + `modSegsEnter/Leave()` (modsegs.c) swap every non-audio segment between stages and back; the boot's and ROM's copies kept, appended animation rows rebased not renumbered, `g_NumListTextures` for a longer texture list; test with `--mod-segs-enter`/`--mod-dump-segs`/`--mod-segs-boot-stock`
 - **A rule or colour a mod's code changes that is not a weapon's** — mods.md, "The tail": `game/modrules.h` holds it with the stock default, a modconfig block sets it through one setter in mod.c, both importers read it; the branch `lua-pipeline` is the Lua experiment of 2026-09-07, kept and not merged. mods.md, "A GE-X tester's seven reports" (2026-09-13, importer 32): a jump table in rodata is *data* to modcodediff (the third person guns, the sights); GE-X's green menus are dialog **type bytes**, not the palette; a boot re-imports every stale mod, so never run two after a version bump; mods.md, "GE-X's guns threw green sparks behind green tracers" (2026-09-26, importer 33): the wall sparks and tracer texture are two more rodata jump tables on the weapon number (`hitsparks`/`beamtexture` keys), and the Klobb's green tracer was the Mauler's charge beam (`WEAPONFLAG3_CHARGEBEAM`); mods.md, "The Mauler's charge is two flags" (importer 34): `chargeable` is the pitch, `chargespent` the reset, GE-X tests them apart
 
 ### GE-X import: where to pick up (2026-09-05)
@@ -2037,3 +2038,72 @@ HUD message). Off notes `1,<Mod.LoadTextures>,<xblaSwitchGetParts() bits>` in
 The checkbox reads the live state, not the note. GoldenEye's HD (Bean) data is
 not on it - that follows whether the release is installed. Code:
 optionsmenu.c `modHdAssets*`, xblaswitch.c `xblaSwitch{Get,Set}Parts()`.
+
+## A mod entered live: segments (2026-10-09)
+
+Wave 1 of "PD mods as a live mode" (`feat/pdmods-segs`). A PD console mod's
+non-audio segments - animations, textureslist/texturesdata, the six Latin
+fonts, the three Japanese ones, mpconfigs, mpstrings E..I, firingrange - can
+now be swapped in and out between stages (old stage torn down, before the
+next `lvReset()`), and back to the ROM's. The sound's five are `modaudio.c`'s;
+the copyright is a boot screen and is left alone.
+
+**`romdataSegSwap(name, path|NULL)`** (romdata.c) points the segment and its
+`_xxxSegmentRomStart/End` globals at another copy, prepared as the boot
+prepares one (globals set *before* the preprocess: the PAL font check compares
+pointers). Every copy it prepares is kept for the next swap back, the ROM's
+included: `preprocessAnimations()` and `preprocessTexturesList()` byte-swap in
+place, so the ROM's bytes are preprocessed once only, and an appended animation
+row may still point into a copy. `romdataSegIsBoot()`, and
+`romdataSegGetRomData()` (the ROM's copy prepared on demand, which a `--moddir`
+boot never made). `--mod-segs-boot-stock` makes the boot ignore a mounted
+mod's non-audio `segs/` (its files and modconfig still load) - the live swap's
+test bed.
+
+**`modSegsEnter(dir)`/`modSegsLeave()`** (modsegs.c) swap what the mod ships,
+put back what it does not, and rebuild what was made from a segment:
+
+- **animations**: `geChrAnimsOff()` first (GoldenEye's overrides hold the old
+  table's rows), then `animsTableSwapped()` (anim.c): the table's rows
+  (`animsGetTableRows()`, the boot's 1207) become the new table's; rows
+  appended after it keep their numbers (gewatch, geintro, modborrow, gexplus,
+  `animOriginal()`'s aliases hold them) - one served by a segment offset is
+  pointed at the old segment's bytes and gets its offset back when that
+  segment returns, so stock -> mod -> stock is byte-identical; header/frame
+  slots grow from the heap in one block, frames below headers (the bit reader
+  measures a frame against its header's slot), never shrink; then race.c's
+  stride loop again. Every archive mod's table has 1207 rows; a longer one
+  would be cut to the boot's count (logged) - the rows past it are taken.
+- **textures**: `geTexSurfaceTableChanged()` takes GoldenEye's surface bytes
+  out of the list going (and forgets its Perfect Dark snapshot), then
+  `g_Textures` = the copy's list (the boot's permanent copy for the boot's) and
+  **`g_NumListTextures`** = its count. That count replaced `NUM_TEXTURES` as
+  `texLoad()`'s bound and at the surface reads in bondgun.c/prop.c: Total
+  Darkness's list describes 3534 textures, and under `--moddir` the 31 past
+  3503 were never loaded. A segment texture is `TEXPACK_ART_ROM` only when its
+  bytes are the ROM's under that number (`modSegsTexArtIsRom()`, cached per
+  number), else `TEXPACK_ART_MOD`, so a stock pack or the XBLA release's art
+  no longer paints over a mod's own picture (and still does over the stock
+  pictures a mod kept - GE-X keeps most).
+- **fonts**: loaded per stage from the globals by `textReset()`; the pack's
+  glyph checksums and xblafont's measurements were the old fonts', so
+  `texpackReload()` (xblafont follows its serial). Japanese: the character
+  cache is emptied.
+- **mpconfigs / mpstrings / firingrange**: read per call or per stage from the
+  segment as it is; the swap is all.
+
+**Testing.** `--mod-segs-enter DIR` (repeatable, `-` = leave) runs at the
+`--mod-segs-at N`th `lvReset()` (0 = first), then `--mod-dump-segs FILE`
+writes every segment's hash, every animation row (+ its bytes' hash), the
+strides, and every texture entry (+ its bytes' hash); `modSegsDump(path)` from
+gdb. Lines starting `#` (slot sizes) may differ after a swap. Verified: a
+`--moddir M` boot == stock + `--mod-segs-enter M` for GE-X, Total Darkness,
+PerfectDark_Plus (a font), the data-only all-solos mod; stock -> GE-X -> stock
+and stock -> GE-X -> Mario -> stock == stock.
+
+**Left for the orchestrator**: call between stages only and reload a stage
+after; mount the mod's files before `modSegsEnter()` when it has an
+`animations/` directory (`preprocessAnimations()` reads its descriptors through
+the overlay); re-run the borrowing (`modBorrowCommit()`), since `animIsSame()`
+judged borrowed animations against the table as it was.
+

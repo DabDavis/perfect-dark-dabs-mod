@@ -46,6 +46,18 @@ static void texSurfaceSet(s32 num, u8 byte)
 	g_Textures[num].surfacetype = byte & 0xf;
 }
 
+void geTexSurfaceTableChanged(void)
+{
+	if (g_Textures && g_GeSurfacesIn) {
+		for (s32 i = 0; i < NUM_TEXTURES; i++) {
+			texSurfaceSet(i, g_PdSurfaces[i]);
+		}
+	}
+
+	g_GeSurfacesIn = false;
+	g_PdSurfacesKept = false;
+}
+
 void geTexSurfaceReset(s32 stagenum)
 {
 	const char *dir;
