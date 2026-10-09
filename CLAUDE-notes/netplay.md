@@ -846,7 +846,14 @@ progression").
   from the record's rotation and its turret and barrel from extra bytes 1
   and 2. Entering and leaving stay each machine's own press. The
   prediction log has a `K` line per compared block in a tank (host's and
-  this machine's state, speed, yaws).
+  this machine's state, speed, yaws). Check (Runway co-op, the client
+  put beside the tank on the host, its script climbing in and driving at
+  150 ms, the host's copy of that player knocked 30 units aside three times
+  mid-drive to force corrections): before, every block after the first
+  knock was corrected (73.7% matched, 475 corrections, 49 snaps); after,
+  4-5 corrections per knock and the host's tank to the bit after (96.8%,
+  58, 2 - the knocks' own gdb pauses). Undisturbed, both agree exactly:
+  the bug needs a correction while driving.
 - **Left for later.** Counter-op; GoldenEye's missions (gewatch/gecinema
   read pad 0); AI buddies; the host's cheats are not synced to clients;
   spectators were not tried on a mission; a client's START in a cutscene
