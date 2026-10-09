@@ -31,6 +31,13 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 44 2026-10-09
+Combat Simulator: Back on its first page goes to the main menu again instead of opening it again (thanks Odeyseis, savantique)
+Online co-op: guests no longer crash when a guard drops its gun or shield
+Online: a player trying to join while the host's match or mission is ending gets in for the next one, and the game keeps trying while the room is open
+Online: sounds no longer play too fast after leaving a match (thanks ElmoBear)
+Online: GoldenEye's folder keeps its own pictures on a host whose level reloads under it (thanks ElmoBear)
+
 notes 43 2026-10-09
 New: Online Game on the main menu - Combat Simulator matches and co-op missions online, up to 12 players
 Online: make or join a room in the lobby; friends behind home routers reach each other directly or through the lobby's relay
