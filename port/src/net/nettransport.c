@@ -58,6 +58,8 @@ struct nethost {
 	u32 simrng;
 	struct simpacket *simq; // allocated when the simulator is first turned on
 	s32 simcount;
+	u32 simrate;            // bytes a second the link takes in (0 any): a bottleneck with a queue
+	u64 simlinkfree;        // when that link is free again, in microseconds of enet_time_get
 
 	s32 dialonly; // refuse inbound connects (netHostSetDialOnly)
 };
@@ -164,14 +166,14 @@ static int ENET_CALLBACK netInterceptCallback(ENetEvent *event, ENetAddress *add
 		return 1;
 	}
 
-	if (h->simdrop > 0 || h->simdelay > 0 || h->simjitter > 0) {
+	if (h->simdrop > 0 || h->simdelay > 0 || h->simjitter > 0 || h->simrate > 0) {
 		struct simpacket *pkt;
 
 		if (h->simdrop > 0 && (s32)(simRoll(h) % 100) < h->simdrop) {
 			return 1;
 		}
 
-		if (h->simdelay <= 0 && h->simjitter <= 0) {
+		if (h->simdelay <= 0 && h->simjitter <= 0 && h->simrate == 0) {
 			return 0;
 		}
 
@@ -181,6 +183,19 @@ static int ENET_CALLBACK netInterceptCallback(ENetEvent *event, ENetAddress *add
 
 		pkt = &h->simq[h->simcount++];
 		pkt->due = enet_time_get() + h->simdelay + (h->simjitter > 0 ? simRoll(h) % (u32)(h->simjitter + 1) : 0);
+
+		// a bottleneck: each datagram waits for those before it to go
+		// through at simrate (a router's queue, SIMQUEUE_LEN deep)
+		if (h->simrate > 0) {
+			u64 nowus = (u64)enet_time_get() * 1000;
+
+			if (h->simlinkfree < nowus) {
+				h->simlinkfree = nowus;
+			}
+
+			h->simlinkfree += (u64)len * 1000000 / h->simrate;
+			pkt->due += (u32)((h->simlinkfree - nowus) / 1000);
+		}
 		pkt->addr = *address;
 		pkt->len = len;
 		memcpy(pkt->data, data, len);
@@ -511,6 +526,13 @@ void netHostDisconnectNow(struct nethost *h, s32 peer, u32 reason)
 	}
 }
 
+void netHostSetMaxWaiting(struct nethost *h, u32 bytes)
+{
+	if (h && h->enet) {
+		h->enet->maximumWaitingData = bytes;
+	}
+}
+
 s32 netHostPeerStats(const struct nethost *h, s32 peer, struct netpeerstats *out)
 {
 	ENetPeer *p = peerGet(h, peer);
@@ -681,6 +703,18 @@ void netHostSetSim(struct nethost *h, s32 droppct, s32 delayms, s32 jitterms, u3
 		}
 
 		h->simcount = 0;
+	}
+}
+
+void netHostSetSimRate(struct nethost *h, u32 bytespersec)
+{
+	if (h) {
+		h->simrate = bytespersec;
+		h->simlinkfree = 0;
+
+		if (bytespersec > 0 && h->simq == NULL) {
+			h->simq = calloc(SIMQUEUE_LEN, sizeof(*h->simq));
+		}
 	}
 }
 

@@ -52,6 +52,7 @@
 #define NET_MAXUNRELIABLE   1100            // an unreliable send that fits one datagram whole
 #define NET_MAXPACKET       (128 * 1024)    // a reliable send, fragmented by ENet
 #define NET_MAXWAITING      (256 * 1024)    // per peer, received and not yet taken
+#define NET_MAXWAITING_CLIENT (3 * 1024 * 1024) // a client's, from its host: ENet's 1 MB window held behind a lost datagram, and more
 #define NET_RAWMAGIC        "\xff\xffPD"
 #define NET_RAWMAGICLEN     4
 #define NET_MAXRAW          (NET_MTU - NET_RAWMAGICLEN)
@@ -151,6 +152,8 @@ void netHostDisconnectLater(struct nethost *h, s32 peer, u32 reason);
 void netHostDisconnectNow(struct nethost *h, s32 peer, u32 reason);
 
 s32 netHostPeerStats(const struct nethost *h, s32 peer, struct netpeerstats *out);
+// What a peer may have received and not yet taken (NET_MAXWAITING by default)
+void netHostSetMaxWaiting(struct nethost *h, u32 bytes);
 // Bytes ENet holds for the peer: queued, not yet sent, plus reliable data sent and not yet acknowledged (0 no peer)
 u32 netHostPeerQueuedBytes(const struct nethost *h, s32 peer);
 s32 netHostPeerAddr(const struct nethost *h, s32 peer, struct netaddr *out);
@@ -178,5 +181,8 @@ void netHostSetDialOnly(struct nethost *h, s32 on);
  * All zero turns it off.
  */
 void netHostSetSim(struct nethost *h, s32 droppct, s32 delayms, s32 jitterms, u32 seed);
+// The simulator's bottleneck: what this host receives goes through a link of
+// that many bytes a second, queued (0 none)
+void netHostSetSimRate(struct nethost *h, u32 bytespersec);
 
 #endif
