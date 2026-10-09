@@ -23,6 +23,13 @@ s32 modModeRequestEnter(const char *path, const char *name);
 s32 modModeRequestLeave(void);
 s32 modModeIsBusy(void);
 
+// Online (netcontent.c): the same swap, at the session's next stage change
+// (the host's STAGE_LOAD) with no reload or menu of its own; PATH "" or NULL
+// is stock. A later call replaces one still waiting. True when queued or
+// already there.
+s32 modModeRequestAtNextStage(const char *path, const char *name);
+s32 modModeIsPending(void);
+
 // Whether the Perfect Menu may offer the mods at all (--moddir runs and online
 // sessions may not)
 s32 modModeCanChange(void);

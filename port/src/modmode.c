@@ -63,6 +63,7 @@ enum {
 static s32 s_State = MODMODE_IDLE;
 static s32 s_QuietFrames;
 static s32 s_WantsMenu;
+static s32 s_AtNextStage;  // online: no reload of its own, the session's next stage is the boundary
 
 // what is entered now ("" for stock)
 static char s_Path[FS_MAXPATH + 1];
@@ -111,9 +112,14 @@ s32 modModeCanChange(void)
 	return !modListIsFromArgs() && g_NetMode == NETMODE_NONE && !g_NetLobbyRoom;
 }
 
-static s32 modModeQueue(const char *path, const char *name)
+static s32 modModeQueue(const char *path, const char *name, s32 atnextstage)
 {
-	if (s_State != MODMODE_IDLE || modListIsFromArgs()) {
+	if (modListIsFromArgs()) {
+		return false;
+	}
+
+	// online, a later request replaces one still waiting for its stage
+	if (s_State != MODMODE_IDLE && !(atnextstage && s_AtNextStage)) {
 		return false;
 	}
 
@@ -121,8 +127,11 @@ static s32 modModeQueue(const char *path, const char *name)
 	snprintf(s_NextName, sizeof(s_NextName), "%s", name ? name : "");
 
 	if (!strcmp(s_NextPath, s_Path)) {
-		return false;
+		s_State = MODMODE_IDLE;
+		return atnextstage; // already there: nothing to wait for
 	}
+
+	s_AtNextStage = atnextstage;
 
 	// GoldenEye's mode and a ROM hack's are left the way their own rows leave
 	// them when another row is chosen (mainmenu.c)
@@ -147,12 +156,22 @@ s32 modModeRequestEnter(const char *path, const char *name)
 		return false;
 	}
 
-	return modModeQueue(path, name);
+	return modModeQueue(path, name, false);
 }
 
 s32 modModeRequestLeave(void)
 {
-	return modModeQueue(NULL, NULL);
+	return modModeQueue(NULL, NULL, false);
+}
+
+s32 modModeRequestAtNextStage(const char *path, const char *name)
+{
+	return modModeQueue(path, name, true);
+}
+
+s32 modModeIsPending(void)
+{
+	return s_State != MODMODE_IDLE && s_AtNextStage;
 }
 
 void modModeTick(void)
@@ -171,14 +190,19 @@ void modModeTick(void)
 		s_State = MODMODE_RELOADING;
 
 		// the Institute again, with the Perfect Menu over it (menutick.c), the
-		// way GoldenEye's folder goes back
-		gexFrontGoBack();
+		// way GoldenEye's folder goes back; online the session's next stage
+		// is the boundary
+		if (!s_AtNextStage) {
+			gexFrontGoBack();
+		}
 	}
 }
 
 void modModeStageBoundary(void)
 {
-	if (s_State != MODMODE_RELOADING) {
+	// online the host's stage may come before the sound has drained: the
+	// swaps stop what still plays themselves
+	if (s_State != MODMODE_RELOADING && !(s_State == MODMODE_QUIETING && s_AtNextStage)) {
 		return;
 	}
 
@@ -204,7 +228,8 @@ void modModeStageBoundary(void)
 	s_NextPath[0] = '\0';
 	s_NextName[0] = '\0';
 	s_State = MODMODE_IDLE;
-	s_WantsMenu = true;
+	s_WantsMenu = !s_AtNextStage;
+	s_AtNextStage = false;
 
 	sysLogPrintf(LOG_NOTE, "modmode: %s%s", entering ? "entered " : "back to Perfect Dark", entering ? s_Name : "");
 }
