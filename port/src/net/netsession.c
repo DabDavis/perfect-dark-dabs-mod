@@ -2897,8 +2897,8 @@ static s32 netClientBeginStage(struct netbuf *b)
 	s_End.valid = 0;
 	s_ClientState = NETCS_LOADING;
 
-	sysLogPrintf(LOG_NOTE, "net: match %u: loading %s as 0x%02x (\"%s\"), %d players, this machine %s %d, seeds %016llx %016llx",
-			matchid, what, id, label, numplayers, s_Spectating ? "a spectator through player" : "player",
+	sysLogPrintf(LOG_NOTE, "net: match %u: loading %s as %s0x%02x (\"%s\"), %d players, this machine %s %d, seeds %016llx %016llx",
+			matchid, what, swapping ? "the host's mod has it (resolved after its swap; until then) " : "", id, label, numplayers, s_Spectating ? "a spectator through player" : "player",
 			s_Spectating ? 0 : yourplayer, (unsigned long long)s_Seed, (unsigned long long)s_Seed2);
 
 	// the end of mpStartMatch only (a co-op mission's: Accept Mission's, netcoop.c)

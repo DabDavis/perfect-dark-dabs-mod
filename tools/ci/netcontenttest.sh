@@ -283,11 +283,13 @@ runcase() {
 	local host=$!
 	waitfor "$OUT/$name-host.log" "net: hosting on UDP port" 90 || { echo "FAIL: host did not start"; kill -TERM $host; wait $host; return; }
 	# shellcheck disable=SC2086
-	# CLIENTFRAMES: a client that outlives the host (pdmodfetch: its session
-	# ends under it, and what it entered for the host is left; the frame is
-	# the level's, so it quits that far into the menus it drops to); NOJOIN 1: no
-	# --net-test-join, whose exit 3 at a session's end would cut that short
-	game "$name-client" 390 "$cini" --connect "127.0.0.1:$port" $([ "${NOJOIN:-0}" = 1 ] || echo --net-test-join) \
+	# CLIENTFRAMES, CLIENTT: a client that outlives the host (pdmodfetch: its
+	# session ends under it, and what it entered for the host is left). The
+	# menus it drops to never reach a frame (the level's frame stays at ~300
+	# there, a client without a mod too), so CLIENTT's timeout stops it and
+	# exit 124 is its end; NOJOIN 1: no --net-test-join, whose exit 3 at a
+	# session's end would cut that short
+	game "$name-client" "${CLIENTT:-390}" "$cini" --connect "127.0.0.1:$port" $([ "${NOJOIN:-0}" = 1 ] || echo --net-test-join) \
 		--exit-frame "${CLIENTFRAMES:-$FRAMES}" $cargs &
 	local client=$!
 	local hp cp n
@@ -334,6 +336,7 @@ checkplay() {
 		L=$OUT/$name-$c.log
 		x=$(grep -o "$name-$c exit [0-9]*" "$OUT/run.log" | tail -1 | awk '{print $3}')
 		[ "$c" = host ] && [ "$x" = 143 ] && x=0
+		[ "$c" = client ] && [ "$x" = 124 ] && [ "${ALLOW124:-}" = "$name" ] && x=0
 		if grep -qE "FATAL|Segmentation|Aborted" "$L"; then
 			fail "$name: $c crashed"; grep -A14 "FATAL" "$L" | head -16 | sed 's/^/     /'
 		elif [ "$x" = 0 ]; then
@@ -453,7 +456,7 @@ run() {
 		# whole mod into memory and enters it from there, and is back to
 		# Perfect Dark when the host's session ends under it (pdmodfetch)
 		pdmodown) runcase pdmodown "StartArmed=1\n" "ModDir=\n" "--net-test-pdmod $PDMOD --net-test-stage 0x32" "" ;;
-		pdmodfetch) CLIENTBIN=$(fetchclient) NOJOIN=1 CLIENTFRAMES=$((FRAMES + 900)) runcase pdmodfetch "StartArmed=1\n" "ModDir=\nMapMods=\n" \
+		pdmodfetch) CLIENTBIN=$(fetchclient) NOJOIN=1 CLIENTFRAMES=$((FRAMES + 900)) CLIENTT=240 runcase pdmodfetch "StartArmed=1\n" "ModDir=\nMapMods=\n" \
 				"--net-test-pdmod $PDMOD --net-test-stage 0x32" "" ;;
 		# (3) an arena only the overlay mod has (mod_allinone's Suburb)
 		overlay) runcase overlay "StartArmed=1\n" "" "--moddir mod_allinone --net-test-stage 0x18" "--moddir mod_allinone" ;;
@@ -587,7 +590,7 @@ for c in $CASES; do
 		grep -qi "restart" "$C" && fail "pdmodown: a restart was asked for" || pass "pdmodown: no restart asked for"
 		;;
 	pdmodfetch)
-		checkplay pdmodfetch "stage 0x32 of mod $PDMOD"
+		ALLOW124=pdmodfetch checkplay pdmodfetch "stage 0x32 of mod $PDMOD"
 		grep -q "^mod: 0 installed" "$C" && pass "pdmodfetch: the client had no mods of its own" || fail "pdmodfetch: the client's mod list was not empty: $(grep -m1 '^mod: .* installed' "$C" | cut -c1-80)"
 		grep -q "net: content: the mod $PDMOD fetched from the host into \$N/$PDMOD" "$C" \
 			&& pass "pdmodfetch: $(grep -m1 -o 'net: content: the mod .* fetched.*' "$C" | cut -c14-)" || fail "pdmodfetch: the client did not fetch $PDMOD"
