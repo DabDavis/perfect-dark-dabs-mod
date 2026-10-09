@@ -16,6 +16,7 @@ void hudmsgRemoveAll(void);
 #ifndef PLATFORM_N64
 void hudmsgRemoveByPrefix(const char *prefix);
 void hudmsgSayToggle(const char *ontext, const char *offtext, s32 on);
+void hudmsgCreateOwn(const char *text, u32 flags);
 #endif
 s32 hudmsgGetNext(s32 refid);
 void hudmsgCreate(char *text, s32 type);

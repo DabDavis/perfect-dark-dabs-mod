@@ -4794,7 +4794,7 @@ static void texpackCycleSelected(void)
 		if (len) {
 			hudmsgRemoveByPrefix(prefix);
 		}
-		hudmsgCreateWithFlags(text, HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
+		hudmsgCreateOwn(text, HUDMSGFLAG_ALLOWDUPES);
 	}
 }
 

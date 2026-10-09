@@ -599,7 +599,32 @@ void hudmsgSayToggle(const char *ontext, const char *offtext, s32 on)
 
 	hudmsgRemoveByLine(ontext);
 	hudmsgRemoveByLine(offtext);
-	hudmsgCreateWithFlags((char *)(on ? ontext : offtext), HUDMSGTYPE_DEFAULT, HUDMSGFLAG_ALLOWDUPES);
+	hudmsgCreateOwn(on ? ontext : offtext, HUDMSGFLAG_ALLOWDUPES);
+}
+
+/**
+ * A message of this machine's own (a key's toggle, the texture pack's name).
+ * Online it goes to this machine's player: the current one is whichever the
+ * last player loop left, on a client another seat's puppet whose HUD is
+ * drawn nowhere here, on the host one E7 sends to that player's machine
+ * (F3 20261009-053447: a texture pack's and the XBLA switch's toasts never
+ * showed in a match)
+ */
+void hudmsgCreateOwn(const char *text, u32 flags)
+{
+	const s32 prevplayernum = g_Vars.currentplayernum;
+	const s32 own = g_NetMode != NETMODE_NONE && g_NetLocalSlot >= 0 && g_NetLocalSlot < PLAYERCOUNT()
+		&& g_Vars.players[g_NetLocalSlot] ? g_NetLocalSlot : prevplayernum;
+
+	if (own != prevplayernum) {
+		setCurrentPlayerNum(own);
+	}
+
+	hudmsgCreateWithFlags((char *)text, HUDMSGTYPE_DEFAULT, flags);
+
+	if (own != prevplayernum) {
+		setCurrentPlayerNum(prevplayernum);
+	}
 }
 #endif
 
