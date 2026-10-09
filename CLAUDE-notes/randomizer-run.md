@@ -556,6 +556,23 @@ Complex: 286 waypoints, 1 piece of 281, 6% of one-second samples still in a
 stock PD Complex match vs 9-14% here, 98% before; Cradle 100% -> 5%. Build
 times 0.1-0.7 s, Statue Park 1.1 s.
 
+**Wider spacing left pieces** (netplay F3 20261009-073205, GF64 Island, "sims
+stuck here"): Island needs the 549 spacing to fit 1500 places, and its hedge
+maze (rooms 1-8, the spawn area) came out as three pieces of 10-15 waypoints
+with no link out - places that far apart miss a lane's corners. A simulant
+sent by `botFindDefaultPickup()` for a gun in another piece got no route,
+stood (`MA_AIBOTMAINLOOP`, `ACT_STAND`), and chose the same gun again every
+tick: 8 sims idle 2325 of 2880 s offline. Since then, when the spacing went
+past 200 and the graph has more than one piece, the rooms of every piece but
+the biggest and their neighbours are searched again at 200
+(`MODALARM_REFINEMAX` 2000 more places) and only the new places are linked
+(`modAlarmLinkPlaces()` from `first`); the places are appended as pads after
+the graph is built, and if the u16 offsets have no room for the second
+search's places those are dropped. Island: 37 pieces (largest 1299 of 1393)
+-> 17 (3137 of 3207), 1.2 -> 1.8 s, idle 2325 -> 29 s (the rest is standing
+to shoot); Statue Park 889 of 976 -> 2365 of 2510 connected. Maps that fit at
+200 (Complex, Library) build the same graph as before.
+
 A stage that still has no waypoints is never dealt a kill objective
 (`modRunDealObjective()`); the draw count is unchanged.
 
