@@ -836,8 +836,9 @@ s32 netSnapHostInit(struct netsnaphost *h, s32 maxids)
 
 	h->prio = calloc(maxids, sizeof(f32));
 	h->nack = calloc(maxids, 1);
+	h->sentseq = calloc(maxids, sizeof(u16));
 
-	if (!h->prio || !h->nack) {
+	if (!h->prio || !h->nack || !h->sentseq) {
 		netSnapHostFree(h);
 		return -1;
 	}
@@ -854,6 +855,7 @@ void netSnapHostFree(struct netsnaphost *h)
 	netBaselineFree(&h->bl);
 	free(h->prio);
 	free(h->nack);
+	free(h->sentseq);
 	memset(h, 0, sizeof(*h));
 }
 
@@ -868,6 +870,9 @@ void netSnapHostReset(struct netsnaphost *h)
 	memset(h->lpseq, 0, sizeof(h->lpseq));
 	memset(h->scenseq, 0, sizeof(h->scenseq));
 	memset(h->prio, 0, h->maxids * sizeof(f32));
+	memset(h->sentseq, 0, h->maxids * sizeof(u16));
+	h->firsttick = 0;
+	h->lastexcl = 0;
 }
 
 static const struct netbaselineslot *netSlotOf(const struct netbaseline *bl, u16 seq)
@@ -953,6 +958,8 @@ struct netcand {
 	u8 changed;
 	u8 wantdesc;  // a resend the client asked for
 	u8 take;
+	u16 aseq;     // the snapshot its base record is from (0 none)
+	const u8 *bstore; // that record (its store), NULL for none
 };
 
 static struct netcand *s_Cands = NULL;
@@ -960,6 +967,7 @@ static s32 s_CandsCap = 0;
 static u8 s_Present[NETSNAP_MAXBYTES];
 static u8 s_BasePresent[NETSNAP_MAXBYTES];
 static u8 s_Updated[NETSNAP_MAXBYTES];
+static u8 s_Deferred[NETSNAP_MAXBYTES];
 static u8 s_Tmp[NETDELTA_MAXENCODED(NETLP_SIZE > NETSCEN_SIZE ? NETLP_SIZE : NETSCEN_SIZE) + 16];
 
 static s32 netCandCmp(const void *a, const void *b)
@@ -1017,6 +1025,24 @@ static const u8 *netStoreFind(const struct netbaselineslot *slot, s32 recordsize
 	return NULL;
 }
 
+/**
+ * The record the client is known to hold for id, to delta against: the
+ * newest one it acked, from whichever snapshot (the per-entity baseline).
+ * Its snapshot must be less than NETBASELINE_SLOTS behind seq: storing seq
+ * recycles the slot 64 behind, on both sides.
+ */
+static const u8 *netSnapHostBase(const struct netsnaphost *h, u16 id, u16 seq, u16 *aseq)
+{
+	const u8 *rec = netBaselineGetAcked(&h->bl, id, aseq);
+
+	if (!rec || netSeqDiff(seq, *aseq) <= 0 || netSeqDiff(seq, *aseq) >= NETBASELINE_SLOTS) {
+		*aseq = 0;
+		return NULL;
+	}
+
+	return rec;
+}
+
 static void netSnapWriteHdr(struct netbuf *b, const struct netsnaphdr *hdr)
 {
 	netBufWriteU32(b, hdr->matchid);
@@ -1041,10 +1067,12 @@ static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr,
 	const s32 nbytes = (h->maxids + 7) / 8;
 	s32 i;
 	s32 ndescs = 0;
+	s32 nrebase = 0;
 	s32 prev = -1;
 
 	memset(s_Present, 0, nbytes);
 	memset(s_Updated, 0, nbytes);
+	memset(s_Deferred, 0, nbytes);
 
 	for (i = 0; i < ncands; i++) {
 		const struct netcand *c = &cands[i];
@@ -1058,8 +1086,16 @@ static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr,
 			netBitSet(s_Updated, id);
 		}
 
+		if (!c->take && !c->isnew && c->changed) {
+			netBitSet(s_Deferred, id);
+		}
+
 		if (c->take && (c->isnew || c->wantdesc)) {
 			ndescs++;
+		}
+
+		if (!c->isnew && c->aseq != hdr->baseline) {
+			nrebase++;
 		}
 	}
 
@@ -1068,6 +1104,7 @@ static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr,
 	netSnapWriteHdr(&b, hdr);
 	netDeltaWrite(&b, s_Present, base ? s_BasePresent : NULL, nbytes);
 	netDeltaWrite(&b, s_Updated, NULL, nbytes);
+	netDeltaWrite(&b, s_Deferred, NULL, nbytes);
 	netBufWriteVarU32(&b, ndescs);
 
 	for (i = 0; i < ncands && netBufOk(&b); i++) {
@@ -1082,12 +1119,29 @@ static s32 netSnapHostWrite(struct netsnaphost *h, const struct netsnaphdr *hdr,
 		}
 	}
 
+	// present entities whose base record is in another acked snapshot than
+	// the baseline (sent while the baseline was in flight, or left out of it)
+	netBufWriteVarU32(&b, nrebase);
+	prev = -1;
+
+	for (i = 0; i < ncands && netBufOk(&b); i++) {
+		const struct netcand *c = &cands[i];
+
+		if (!c->isnew && c->aseq != hdr->baseline) {
+			const u16 id = ents[c->ent].id;
+
+			netBufWriteVarU32(&b, (u32)(id - prev - 1));
+			netBufWriteU8(&b, (u8)netSeqDiff(hdr->seq, c->aseq));
+			prev = id;
+		}
+	}
+
 	for (i = 0; i < ncands && netBufOk(&b); i++) {
 		const struct netcand *c = &cands[i];
 		const struct netsnapent *e = &ents[c->ent];
 
 		if (c->take && (c->isnew || c->changed)) {
-			const u8 *bstore = c->isnew ? NULL : netStoreFind(base, h->bl.recordsize, e->id);
+			const u8 *bstore = c->isnew ? NULL : c->bstore;
 
 			netDeltaWrite(&b, e->record, bstore ? bstore + NETSNAP_STOREHDR : NULL, netRecSize(e->desc.rec));
 		}
@@ -1152,16 +1206,18 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		}
 	}
 
+	seq = netSeqNext(h->seq);
+
 	// the baseline: the newest snapshot the client has acked, still held
+	// (and not the one this snapshot's slot recycles)
 	baseline = h->acked;
 	base = netSlotOf(&h->bl, baseline);
 
-	if (!base || !base->acked) {
+	if (!base || !base->acked || netSeqDiff(seq, baseline) >= NETBASELINE_SLOTS) {
 		baseline = 0;
 		base = NULL;
 	}
 
-	seq = netSeqNext(h->seq);
 	hdr->seq = seq;
 	hdr->baseline = baseline;
 	hdr->rate = (u8)h->rate;
@@ -1195,7 +1251,8 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 	for (i = 0; i < n; i++) {
 		struct netsnapent *e = &ents[i];
 		struct netcand *c = &s_Cands[ncands];
-		const u8 *bstore = netStoreFind(base, h->bl.recordsize, e->id);
+		u16 aseq;
+		const u8 *bstore = netSnapHostBase(h, e->id, seq, &aseq);
 		const s32 size = netRecSize(e->desc.rec);
 		s32 enc;
 
@@ -1208,6 +1265,8 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 			enc = netDeltaEncode(e->record, bstore + NETSNAP_STOREHDR, size, s_Tmp, sizeof(s_Tmp));
 			c->changed = enc > 1;
 			c->wantdesc = h->nack[e->id];
+			c->aseq = aseq;
+			c->bstore = bstore;
 
 			if (!c->changed && !c->wantdesc) {
 				// the client has it as it is: nothing to send, nothing waits
@@ -1242,7 +1301,15 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 	// the most wanted first, as many as fit
 	qsort(s_Cands, ncands, sizeof(*s_Cands), netCandCmp);
 
-	fixed = NETSNAP_HDRSIZE + lplen + 1 + scenlen + 1 + 8;
+	fixed = NETSNAP_HDRSIZE + lplen + 1 + scenlen + 1 + 8 + 4 + 4;
+
+	// every present entity on another base snapshot is listed, taken or not
+	for (i = 0; i < ncands; i++) {
+		if (!s_Cands[i].isnew && s_Cands[i].aseq != baseline) {
+			fixed += 3;
+		}
+	}
+
 	budget = cap - fixed;
 
 	for (attempt = 0; attempt < 8; attempt++) {
@@ -1298,11 +1365,12 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		struct netcand *c = &s_Cands[i];
 		struct netsnapent *e = &ents[c->ent];
 		u8 store[NETSNAP_STORE];
-		const u8 *bstore;
+		const u8 *bstore = c->bstore;
 
 		if (c->isnew && !c->take) {
 			e->status = NETSNAPST_EXCLUDED;
 			h->excluded++;
+			h->lastexcl = hdr->hosttick;
 			continue;
 		}
 
@@ -1314,15 +1382,17 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 
 		if (c->take && (c->isnew || c->changed)) {
 			memcpy(store + NETSNAP_STOREHDR, e->record, netRecSize(e->desc.rec));
+			netStoreSetTick(store, hdr->hosttick);
+			h->sentseq[e->id] = seq;
 			e->status = NETSNAPST_SENT;
 			h->prio[e->id] = 0;
 			h->records++;
 			h->entkeys += c->isnew;
 		} else {
-			bstore = netStoreFind(base, h->bl.recordsize, e->id);
-
 			if (bstore) {
+				// unchanged: the host's state now; deferred: its base's, older
 				memcpy(store + NETSNAP_STOREHDR, bstore + NETSNAP_STOREHDR, NETREC_MAX);
+				netStoreSetTick(store, c->changed ? netStoreTick(bstore) : hdr->hosttick);
 			}
 
 			if (e->status != NETSNAPST_SYNC) {
@@ -1332,6 +1402,10 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 			if (c->changed) {
 				h->deferred++;
 				starvedthis++;
+
+				if (h->sentseq[e->id] && netSeqNewer(h->sentseq[e->id], c->aseq)) {
+					h->behind++;
+				}
 			}
 		}
 
@@ -1357,6 +1431,10 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 		h->scenseq[seq % NETBASELINE_SLOTS] = 0;
 	}
 
+	if (!h->firsttick) {
+		h->firsttick = hdr->hosttick;
+	}
+
 	h->seq = seq;
 	h->sent++;
 	h->winsent++;
@@ -1372,23 +1450,25 @@ s32 netSnapHostBuild(struct netsnaphost *h, struct netsnaphdr *hdr, struct netsn
 	}
 
 	/**
-	 * The rate: 20 Hz while snapshots are lost or keep leaving changes
-	 * behind, back to 30 Hz after two seconds with neither. The loss is
-	 * judged over windows of 30 sent against acks heard meanwhile.
+	 * The rate: 20 Hz while snapshots are lost, back to 30 Hz after two
+	 * seconds without. The loss is judged over windows of 30 sent against
+	 * acks heard meanwhile. Changes left behind by the cap never lower it:
+	 * fewer snapshots would carry fewer of them a second, not more
+	 * (h->starved only counts them).
 	 */
 	h->starved = starvedthis ? h->starved + 1 : 0;
 
 	if (h->winsent >= 30) {
 		const s32 lossy = h->winacked * 100 < h->winsent * 85;
 
-		if (lossy || h->starved >= 10) {
+		if (lossy) {
 			if (h->rate != 3) {
 				h->rate = 3;
 				h->ratechanges++;
 			}
 
 			h->good = 0;
-		} else if (h->winacked * 100 >= h->winsent * 95 && !h->starved) {
+		} else if (h->winacked * 100 >= h->winsent * 95) {
 			h->good += h->winsent;
 
 			if (h->rate != 2 && h->good >= 60) {
@@ -1414,6 +1494,7 @@ void netSnapClientFree(struct netsnapclient *c)
 	free(c->descs);
 	free(c->ids);
 	free(c->stores);
+	free(c->rebase);
 	memset(c, 0, sizeof(*c));
 }
 
@@ -1435,15 +1516,18 @@ static s32 netSnapClientAlloc(struct netsnapclient *c, s32 maxids)
 	c->descs = calloc(maxids, sizeof(*c->descs));
 	c->ids = calloc(maxids, sizeof(u16));
 	c->stores = calloc(maxids, NETSNAP_STORE);
+	c->rebase = calloc(maxids, 1);
 
-	if (!c->descs || !c->ids || !c->stores) {
+	if (!c->descs || !c->ids || !c->stores || !c->rebase) {
 		netBaselineFree(&c->bl);
 		free(c->descs);
 		free(c->ids);
 		free(c->stores);
+		free(c->rebase);
 		c->descs = NULL;
 		c->ids = NULL;
 		c->stores = NULL;
+		c->rebase = NULL;
 		return -1;
 	}
 
@@ -1508,6 +1592,7 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 	struct netsnapinfo *info;
 	s32 nbytes;
 	s32 ndescs;
+	s32 nrebase;
 	s32 n = 0;
 	s32 d = 0;
 	s32 id;
@@ -1598,14 +1683,16 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 
 	netDeltaRead(b, base ? s_BasePresent : NULL, s_Present, nbytes);
 	netDeltaRead(b, NULL, s_Updated, nbytes);
+	netDeltaRead(b, NULL, s_Deferred, nbytes);
 
 	if (!netBufOk(b)) {
 		return netSnapClientFail(c);
 	}
 
-	// nothing past the last id, and nothing updated that is not present
+	// nothing past the last id, nothing updated that is not present, and
+	// nothing deferred that is updated or not present
 	for (i = 0; i < nbytes; i++) {
-		if (s_Updated[i] & ~s_Present[i]) {
+		if ((s_Updated[i] & ~s_Present[i]) || (s_Deferred[i] & ~(s_Present[i] & ~s_Updated[i]))) {
 			return netSnapClientFail(c);
 		}
 	}
@@ -1643,7 +1730,35 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 		prev = id;
 	}
 
-	// every present entity, rising: the baseline's record, or what came
+	// present entities based on another snapshot than the baseline
+	nrebase = (s32)netBufReadVarU32(b);
+
+	if (!netBufOk(b) || nrebase < 0 || nrebase > c->maxids) {
+		return netSnapClientFail(c);
+	}
+
+	memset(c->rebase, 0, c->maxids);
+	prev = -1;
+
+	for (i = 0; i < nrebase; i++) {
+		const u32 gap = netBufReadVarU32(b);
+		const s32 back = netBufReadU8(b);
+
+		if (!netBufOk(b) || gap >= (u32)c->maxids) {
+			return netSnapClientFail(c);
+		}
+
+		id = prev + 1 + (s32)gap;
+
+		if (id >= c->maxids || !netBitGet(s_Present, id) || back <= 0 || back >= NETBASELINE_SLOTS) {
+			return netSnapClientFail(c);
+		}
+
+		c->rebase[id] = (u8)back;
+		prev = id;
+	}
+
+	// every present entity, rising: the base record, or what came
 	for (id = 0; id < c->maxids; id++) {
 		const u8 *bstore;
 		const struct netdesc *desc = NULL;
@@ -1656,7 +1771,21 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 			continue;
 		}
 
-		bstore = netStoreFind(base, c->bl.recordsize, (u16)id);
+		if (c->rebase[id]) {
+			const struct netbaselineslot *aslot = netSlotOf(&c->bl, (u16)(hdr->seq - c->rebase[id]));
+
+			bstore = netStoreFind(aslot, c->bl.recordsize, (u16)id);
+
+			if (!bstore) {
+				// a snapshot (or its record) the host thinks acked is gone
+				// from here: ask for everything again
+				c->nobase++;
+				c->wantkey = 1;
+				return 0;
+			}
+		} else {
+			bstore = netStoreFind(base, c->bl.recordsize, (u16)id);
+		}
 
 		if (d < ndescs && c->descs[d].id == id) {
 			desc = &c->descs[d].desc;
@@ -1698,6 +1827,7 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 				return netSnapClientFail(c);
 			}
 
+			netStoreSetTick(store, hdr->hosttick);
 			entkeys += keyframe;
 		} else {
 			if (keyframe) {
@@ -1706,6 +1836,7 @@ s32 netSnapClientDecode(struct netsnapclient *c, struct netbuf *b, u32 matchid, 
 			}
 
 			memcpy(store + NETSNAP_STOREHDR, bstore + NETSNAP_STOREHDR, NETREC_MAX);
+			netStoreSetTick(store, netBitGet(s_Deferred, id) ? netStoreTick(bstore) : hdr->hosttick);
 		}
 
 		c->ids[n] = (u16)id;

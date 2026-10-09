@@ -96,6 +96,8 @@ struct netpeerstats {
 	                  // bound, since a late ack counts as a loss
 	u32 bytessent;
 	u32 bytesreceived;
+	u32 reliableinflight; // reliable bytes sent and not yet acked
+	u32 queued;           // commands waiting to go (every channel)
 };
 
 struct nethost;

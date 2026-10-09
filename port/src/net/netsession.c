@@ -4517,6 +4517,34 @@ void netSessionTraceLinks(FILE *f)
 	}
 }
 
+// the most each client's link held back between two traffic lines
+static u32 s_PeakInflight[NET_MAXPEERS];
+static u32 s_PeakQueued[NET_MAXPEERS];
+
+// once a host tick: the reliable bytes in flight and the commands queued, kept at their peak
+void netSessionSampleLinks(void)
+{
+	struct netpeerstats st;
+	s32 i;
+
+	if (s_Role != NETROLE_HOST || !g_NetHostSocket) {
+		return;
+	}
+
+	for (i = 0; i < NET_MAXPEERS; i++) {
+		if (s_Clients[i].state >= NETCL_JOINED && s_Clients[i].state != NETCL_REFUSED
+				&& netHostPeerStats(g_NetHostSocket, i, &st) == 0 && st.connected) {
+			if (st.reliableinflight > s_PeakInflight[i]) {
+				s_PeakInflight[i] = st.reliableinflight;
+			}
+
+			if (st.queued > s_PeakQueued[i]) {
+				s_PeakQueued[i] = st.queued;
+			}
+		}
+	}
+}
+
 void netSessionLogTraffic(const char *why)
 {
 	struct netpeerstats st;
@@ -4532,8 +4560,10 @@ void netSessionLogTraffic(const char *why)
 	for (i = 0; i < NET_MAXPEERS; i++) {
 		if (s_Clients[i].state >= NETCL_JOINED && s_Clients[i].state != NETCL_REFUSED
 				&& netHostPeerStats(g_NetHostSocket, i, &st) == 0 && st.connected) {
-			sysLogPrintf(LOG_NOTE, "net: traffic slot %d %s (tick %u): sent %u bytes, received %u bytes, rtt %u ms",
-					s_Clients[i].slot, why, g_NetTick, st.bytessent, st.bytesreceived, st.rtt);
+			sysLogPrintf(LOG_NOTE, "net: traffic slot %d %s (tick %u): sent %u bytes, received %u bytes, rtt %u ms, reliable in flight peak %u bytes, queued peak %u",
+					s_Clients[i].slot, why, g_NetTick, st.bytessent, st.bytesreceived, st.rtt, s_PeakInflight[i], s_PeakQueued[i]);
+			s_PeakInflight[i] = 0;
+			s_PeakQueued[i] = 0;
 			sent += st.bytessent;
 			recv += st.bytesreceived;
 			n++;

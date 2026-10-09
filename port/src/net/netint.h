@@ -350,6 +350,7 @@ void netHudTick(void);                       // net.c netTickEnd: the harness's 
 void netHudFeed(s32 kind, s32 from, const char *name, const char *text); // a line for the feed (NETCHAT_*)
 s32 netChatClean(char *text);                // printable ASCII only, trimmed; its length
 void netSessionLogTraffic(const char *why);
+void netSessionSampleLinks(void);
 s32 netSessionSlotLeftMatch(s32 slot);
 // netlagcomp.c: the client's own aim as a correction replayed on a frame
 // between ticks left it, kept for that frame's end

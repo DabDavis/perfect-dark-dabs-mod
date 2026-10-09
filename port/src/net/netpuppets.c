@@ -88,6 +88,9 @@ struct netpup {
 	u8 lastb[NETREC_MAX]; // the records last applied (unchanged statics are skipped)
 	u8 lasta[NETREC_MAX];
 	f32 lastt;
+	u32 lastsrc;         // the host tick the last posed record was taken on
+	u16 lastsrcgen;      // ... and its generation
+	u8 havesrc;
 	s32 smoketimer240;   // a projectile's trail, at projectileTick's interval
 };
 
@@ -128,6 +131,9 @@ static u32 s_Trails = 0;
 static u32 s_LiftMoves = 0;  // lift records that moved a lift
 static u32 s_HatsWorn = 0;   // hats put on a chr from its record
 static u32 s_GeGunsHeld = 0; // GoldenEye guns put in a chr's hand from its record
+static u32 s_Backsteps = 0;  // a chr posed from a record older than one posed before it
+static u32 s_StaleAfter = 0; // ... or blended towards a record older than the one before
+static u32 s_Restitched = 0; // records posed from snapshots other than the bracketing two
 static u32 s_HeldFails = 0;  // held guns that could not be made (no model)
 static u32 s_BodyLoads = 0;  // corpses whose body and head no chr here wore (not made)
 static u32 s_GeGunsMade = 0; // GoldenEye guns made from descriptors (dropped, thrown, a pickup)
@@ -431,6 +437,43 @@ static const u8 *netPupFind(const struct netbaselineslot *slot, u16 id, u16 gen,
 	}
 
 	return NULL;
+}
+
+/**
+ * The newest record of id (this generation and kind) held at or before host
+ * tick rt, and the oldest after it, by the tick each was taken on, from any
+ * snapshot held
+ */
+static void netPupSearch(const struct netsnapclient *c, u16 id, u16 gen, s32 rec, f64 rt, const u8 **before, const u8 **after)
+{
+	u32 bt = 0;
+	u32 at = 0;
+	s32 i;
+
+	*before = NULL;
+	*after = NULL;
+
+	for (i = 0; i < NETBASELINE_SLOTS; i++) {
+		const struct netbaselineslot *slot = &c->bl.slots[i];
+		const u8 *r;
+		u32 tick;
+
+		if (!slot->valid || (r = netPupFind(slot, id, gen, rec)) == NULL) {
+			continue;
+		}
+
+		tick = netStoreTick(r);
+
+		if ((f64)tick <= rt) {
+			if (!*before || tick > bt) {
+				*before = r;
+				bt = tick;
+			}
+		} else if (!*after || tick < at) {
+			*after = r;
+			at = tick;
+		}
+	}
 }
 
 /*
@@ -1906,6 +1949,8 @@ static void netClientPosePuppetsRun(void)
 	f32 dt = 0;
 	f32 ptick = 0;
 	s32 i;
+	s32 ib_i;
+	s32 ia_i;
 	s32 maxids;
 
 	if (!g_NetClientWorld) {
@@ -2008,14 +2053,28 @@ static void netClientPosePuppetsRun(void)
 		s_TraceLast = g_NetTick;
 	}
 
-	for (i = 0; i < sb->count; i++) {
-		const u16 id = sb->ids[i];
-		const u8 *rb = sb->records + (size_t)i * NETSNAP_STORE;
-		const u16 gen = netStoreGen(rb);
-		const s32 rec = netStoreRec(rb);
-		const s32 kind = netStoreKind(rb);
+	/**
+	 * Every id in the snapshot before the render tick, and any in the one
+	 * after that it lacks (left out of a full snapshot, or of one built
+	 * before the host heard of the client's ack of it: posed from the
+	 * newest record held before the render tick, if any)
+	 */
+	ib_i = 0;
+	ia_i = 0;
+
+	while (ib_i < sb->count || (sa && ia_i < sa->count)) {
+		const s32 idb = ib_i < sb->count ? sb->ids[ib_i] : 0x10000;
+		const s32 ida = sa && ia_i < sa->count ? sa->ids[ia_i] : 0x10000;
+		u16 id;
+		const u8 *rb;
+		u16 gen = 0;
+		s32 rec = 0;
+		s32 kind = 0;
 		const u8 *ra;
 		const u8 *rp;
+		f32 te = t;
+		f32 dte = dt;
+		f32 pte = ptick;
 		struct netentstate stb;
 		struct netentstate sta;
 		struct netentstate stp;
@@ -2025,6 +2084,27 @@ static void netClientPosePuppetsRun(void)
 		s32 isdyn;
 		s32 snapped = 0;
 
+		if (idb <= ida) {
+			id = (u16)idb;
+			rb = sb->records + (size_t)ib_i * NETSNAP_STORE;
+			ib_i++;
+			ia_i += idb == ida;
+		} else {
+			id = (u16)ida;
+			rb = NULL;
+			ra = sa->records + (size_t)ia_i * NETSNAP_STORE;
+			ia_i++;
+			gen = netStoreGen(ra);
+			rec = netStoreRec(ra);
+			kind = netStoreKind(ra);
+		}
+
+		if (rb) {
+			gen = netStoreGen(rb);
+			rec = netStoreRec(rb);
+			kind = netStoreKind(rb);
+		}
+
 		if (id >= s_PupMax) {
 			continue;
 		}
@@ -2032,6 +2112,63 @@ static void netClientPosePuppetsRun(void)
 		u = &s_Pup[id];
 		ra = sa ? netPupFind(sa, id, gen, rec) : NULL;
 		rp = sp ? netPupFind(sp, id, gen, rec) : NULL;
+
+		/**
+		 * A record present and not updated in a snapshot is the older one
+		 * its base held (the host left the change for a later packet): its
+		 * tick says so. Then the newest record held at or before the render
+		 * tick and the oldest after it, from whichever snapshots carried
+		 * them, so a puppet never steps back to the older one.
+		 */
+		if (!rb || netStoreTick(rb) != ib->hosttick || (ra && netStoreTick(ra) != ia->hosttick)) {
+			const u8 *nb;
+			const u8 *na;
+
+			netPupSearch(c, id, gen, rec, rt, &nb, &na);
+
+			if (!nb) {
+				nb = rb;
+			}
+
+			if (!nb) {
+				// none yet at the render tick: it comes in later
+				continue;
+			}
+
+			rb = nb;
+			ra = na;
+			rp = NULL;
+			dte = 0;
+			pte = 0;
+			s_Restitched++;
+
+			if (ra) {
+				const f64 tb = netStoreTick(rb);
+				const f64 ta = netStoreTick(ra);
+
+				te = ta > tb ? (f32)((rt - tb) / (ta - tb)) : 1;
+				te = te < 0 ? 0 : te > 1 ? 1 : te;
+			} else {
+				te = 0;
+			}
+		}
+
+		if (rec == NETREC_CHR) {
+			// a step back in the host's time (a record left out of a full
+			// snapshot stands for the older one the client acked)
+			if (u->havesrc && u->lastsrcgen == gen && netStoreTick(rb) < u->lastsrc && netStoreTick(rb) != ib->hosttick) {
+				s_Backsteps++;
+			}
+
+			if (ra && netStoreTick(ra) < netStoreTick(rb)
+					&& memcmp(ra + NETSNAP_STOREHDR, rb + NETSNAP_STOREHDR, NETREC_MAX) != 0) {
+				s_StaleAfter++;
+			}
+
+			u->lastsrc = netStoreTick(rb);
+			u->lastsrcgen = gen;
+			u->havesrc = 1;
+		}
 
 		netRecUnpack(rec, rb + NETSNAP_STOREHDR, &stb);
 
@@ -2043,7 +2180,7 @@ static void netClientPosePuppetsRun(void)
 			netRecUnpack(rec, rp + NETSNAP_STOREHDR, &stp);
 		}
 
-		netPupBlend(rec, &stb, ra ? &sta : NULL, t, rp ? &stp : NULL, ptick, dt, &st);
+		netPupBlend(rec, &stb, ra ? &sta : NULL, te, rp ? &stp : NULL, pte, dte, &st);
 
 		isdyn = kind != NETDESC_SETUPOBJ && kind != NETDESC_SIM && kind != NETDESC_PLAYER && kind != NETDESC_SETUPCHR;
 
@@ -2075,7 +2212,7 @@ static void netClientPosePuppetsRun(void)
 
 		// a skip for what has not changed since the last pose (most
 		// objects and doors most of the time)
-		if (rec != NETREC_CHR && u->havestate && t == u->lastt
+		if (rec != NETREC_CHR && u->havestate && te == u->lastt
 				&& memcmp(u->lastb, rb + NETSNAP_STOREHDR, NETREC_MAX) == 0
 				&& (!ra || memcmp(u->lasta, ra + NETSNAP_STOREHDR, NETREC_MAX) == 0)) {
 			netPupTrace(rt, id, kind, prop);
@@ -2090,7 +2227,7 @@ static void netClientPosePuppetsRun(void)
 			memset(u->lasta, 0, NETREC_MAX);
 		}
 
-		u->lastt = t;
+		u->lastt = te;
 
 		switch (rec) {
 		case NETREC_CHR:
@@ -2350,9 +2487,9 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
 			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
 			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_Trails, s_PlayerDeaths,
-			s_Created[NETDESC_BODY], s_BodyLoads, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves);
+			s_Created[NETDESC_BODY], s_BodyLoads, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter, s_Restitched);
 }
