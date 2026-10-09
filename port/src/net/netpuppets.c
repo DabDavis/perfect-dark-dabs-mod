@@ -128,6 +128,7 @@ static u32 s_DoorMoves = 0;
 static u32 s_DoorSounds = 0;
 static u32 s_Regens = 0;
 static u32 s_Unpaused = 0;
+static u32 s_LetGo = 0;      // objects this machine held as a child that the host has free (netPupObjLetGo)
 static u32 s_Trails = 0;
 static u32 s_LiftMoves = 0;  // lift records that moved a lift
 static u32 s_HatsWorn = 0;   // hats put on a chr from its record
@@ -261,7 +262,7 @@ void netPuppetsStageStart(void)
 	s_Serial = 0;
 	s_Poses = s_Interp = s_Extrap = s_Held = s_Behind = 0;
 	s_CreateFail = s_Freed = s_Stolen = s_NoDesc = s_HeldSwaps = s_Snaps = 0;
-	s_DoorMoves = s_DoorSounds = s_Regens = s_Unpaused = s_Trails = s_Deaths = s_FirstRecords = s_BadAnims = s_Resyncs = 0;
+	s_DoorMoves = s_DoorSounds = s_Regens = s_Unpaused = s_LetGo = s_Trails = s_Deaths = s_FirstRecords = s_BadAnims = s_Resyncs = 0;
 	s_PlayerDeaths = 0;
 	s_LiftMoves = s_HatsWorn = s_GeGunsHeld = s_BodyLoads = s_GeGunsMade = s_GoldenGuns = s_HeldFails = 0;
 	s_GoldenHands = s_GoldenHolders = 0;
@@ -1073,17 +1074,52 @@ static void netPupPlaceObj(struct defaultobj *obj, const struct netentstate *s, 
 	netPupPlaceObjScaled(obj, s, scales);
 }
 
+/**
+ * A record is for a prop the host has free: one in its snapshot has no
+ * parent there (netents.c's capture skips a child). The same setup object
+ * here can still be a child - the shield or gun a guard carries from the
+ * setup, still in this machine's guard's hands after the host's dropped it
+ * (this machine never drops: objDrop is the host's) and before (or without)
+ * a record of that guard's that says so. Posed as it stood, a child was
+ * taken for a paused prop (its sibling links are prev and next) and
+ * propUnpause() moved it into the active list while its holder's child list
+ * still ran through it: the holder's next chr0f022214() walked on into the
+ * active props as if they were its held objects (crash reports
+ * 20261009-050322 and -050412, every guest of a co-op Defection out of the
+ * match; one 25 ticks into a join in progress). Let go here as objDrop() does
+ * (objDetach() clears the holder's hand and the model it hung from), then
+ * placed from the record like any other free object.
+ */
+static void netPupObjLetGo(struct prop *prop)
+{
+	objDetach(prop);
+
+	// a child is in no prop list (its next and prev were its siblings, which
+	// propDetach() has cleared): listed as objDrop() lists a dropped one
+	if (prop->parent == NULL && prop != g_Vars.activeprops && prop != g_Vars.pausedprops) {
+		propActivate(prop);
+	}
+
+	s_LetGo++;
+}
+
 static void netPupObj(struct netpup *u, struct prop *prop, const struct netentstate *s, s32 isdyn)
 {
 	struct defaultobj *obj = prop->obj;
 	const s32 gone = (s->flags & NETOBJ_GONE) != 0;
+	s32 letgo = 0;
 	s32 moved;
 
 	if (!obj) {
 		return;
 	}
 
-	moved = !u->havestate || u->lastpos[0] != s->pos[0] || u->lastpos[1] != s->pos[1] || u->lastpos[2] != s->pos[2];
+	if (prop->parent) {
+		netPupObjLetGo(prop);
+		letgo = 1;
+	}
+
+	moved = letgo || !u->havestate || u->lastpos[0] != s->pos[0] || u->lastpos[1] != s->pos[1] || u->lastpos[2] != s->pos[2];
 
 	// a regenerating pickup: gone and back (its regen sound is derived here)
 	if (gone && (obj->hidden & OBJHFLAG_GONE) == 0) {
@@ -1147,7 +1183,7 @@ static void netPupObj(struct netpup *u, struct prop *prop, const struct netentst
 	if (moved || isdyn) {
 		if (isdyn) {
 			netPupPlaceObj(obj, s, obj->model->scale);
-		} else if (netRotSameOnWire(obj->realrot, s->quat)) {
+		} else if (!letgo && netRotSameOnWire(obj->realrot, s->quat)) {
 			// a setup object the host has not turned: its own matrix,
 			// from the same setup, which a rotation cannot always carry
 			netPupPlaceObjScaled(obj, s, NULL);
@@ -2531,9 +2567,9 @@ s32 netClientInMatch(void)
 
 void netPuppetsLog(const char *why)
 {
-	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
+	sysLogPrintf(LOG_NOTE, "net: puppets %s (tick %u): poses %u (interpolated %u, extrapolated %u, held past 100 ms %u, before every snapshot %u), render delay %.1f ticks (jitter %.2f, clock resyncs %u); first records %u, teleport snaps %u, sim deaths %u; made: weapons %u, hats %u, crates %u, scenario props %u; make failed %u, no descriptor %u, freed %u, taken back by this machine %u; held-item swaps %u, bad anims %u; doors moved %u, door sounds %u, regens %u, unpaused %u, let go %u, trails %u, player puppet deaths %u; content: bodies made %u (no wearer %u), hats worn %u, GE guns held %u, GE guns made %u (Golden Gun %u, in a puppet's hand %u, holders in turn %u), held guns not made %u, lift moves %u; chr records older than the last posed %u, blended towards an older one %u, posed from other snapshots %u",
 			why, g_NetTick, s_Poses, s_Interp, s_Extrap, s_Held, s_Behind, s_DelayLast, s_Jit, s_Resyncs,
 			s_FirstRecords, s_Snaps, s_Deaths, s_Created[NETDESC_DYNWEAPON], s_Created[NETDESC_HAT], s_Created[NETDESC_AMMOCRATE], s_Created[NETDESC_SCENOBJ],
-			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_Trails, s_PlayerDeaths,
+			s_CreateFail, s_NoDesc, s_Freed, s_Stolen, s_HeldSwaps, s_BadAnims, s_DoorMoves, s_DoorSounds, s_Regens, s_Unpaused, s_LetGo, s_Trails, s_PlayerDeaths,
 			s_Created[NETDESC_BODY], s_BodyLoads, s_HatsWorn, s_GeGunsHeld, s_GeGunsMade, s_GoldenGuns, s_GoldenHands, s_GoldenHolders, s_HeldFails, s_LiftMoves, s_Backsteps, s_StaleAfter, s_Restitched);
 }
