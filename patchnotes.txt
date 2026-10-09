@@ -31,6 +31,17 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 46 2026-10-09
+Online: the Game Over screen no longer freezes on a guest when the host leaves its own first
+Online: Create Room and Room Settings have every Combat Simulator page: Options, Player Handicaps, Teams, Load and Save Settings
+Online: a Room Rules page for the host: jump, combat roll, melee, Start Armed, Akimbo, bodies, guards and the other match rules
+Online: leaving a room after a match goes back to Online Game, not the local Combat Simulator (thanks Shockwave S08)
+Online: a room you cannot play (a mod you do not have, a different build) says why instead of "connecting" forever
+Online co-op: objects a mission's script removes (Villa's dropship after the opening) are gone for guests too
+Combat Simulator: GoldenEye, Goldfinger 64 and TND64 sets and guns are marked [GE], [GF] or [TND] where they share a list with Perfect Dark's (thanks Shockwave S08)
+Goldfinger 64, Island: simulants no longer stand still all match in the hedge maze and at their spawn points
+Online play needs everyone on this update (protocol 24)
+
 notes 45 2026-10-09
 Online: downloading a mod or conversion from the host is about ten times faster
 Online: GoldenEye rooms no longer turn away a player whose Later Revision (JP/PAL) setting differs from the host's - the host's is used for the match
