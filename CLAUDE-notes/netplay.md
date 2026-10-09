@@ -1397,6 +1397,25 @@ nothing is ever sent from one machine to another but names and hashes.
   (`stat` showed the log at 259 bytes, the stderr warnings, until the
   kill). Every Linux gate launches through `stdbuf -oL -eL` now (netplayertest and netwidetest too).
 
+**Which game a row is (F3 20261009-095124, online and offline alike).** The
+Combat Simulator's dropdowns put GoldenEye's, Goldfinger 64's and Tomorrow
+Never Dies 64's rows beside Perfect Dark's under the same kind of names
+("Pistols", "Grenade Launchers"), so a row a conversion brings ends in
+" [GE]", " [GF]" or " [TND]" (`gexPlusMenuTagged()`, the tag from the
+conversion's folder by `gexPlusMenuTagOfDir()`). The rule is "only where the
+list mixes": the weapon set dropdown tags GoldenEye's block of the whole list
+(`gexPlusWeaponSetTag()`: PD mode, or GE Plus with Mod.GePlusPdGuns) and not
+GE Plus's own list, which is the block alone; the per-slot weapon dropdowns
+and the Random weapons list always hold Perfect Dark's guns, so their
+GoldenEye rows are always tagged (`gegunsMenuTagAtOption()`: the hack's tag
+when the menus name the hack's guns, none under a mod with its own weapon
+list); scenarios are never mixed (GE Plus lists GoldenEye's five alone under
+its "GoldenEye" group), nor are the arenas (grouped by game), and stay as
+they were. Text only, in the menu handlers: `mpGetWeaponLabel()` and
+`mpGetWeaponSetName()` stay bare for the HUD and end screens. The room
+summary's `weapons` field (pdlobbyd's list) carries the set's tag too unless
+the room is GE Plus's own sets.
+
 ## A player's own look, and choices made in a menu (protocol 15, 2026-10-07)
 
 The user: "players should be able to have xbla or n64 mode active without

@@ -27,6 +27,8 @@
 #include "modloader.h"
 #include "mod.h"
 #include "langpack.h"
+#include "gexplus.h"
+#include "game/challenge.h"
 
 #ifndef PLATFORM_N64
 
@@ -4364,6 +4366,46 @@ u16 gegunsMenuNameId(s32 weaponnum)
 	}
 
 	return set->nameids[i];
+}
+
+/**
+ * The tag of the weapon dropdowns' row `option` (counted as
+ * mpGetWeaponLabel() counts, over the unlocked rows): its gun set's game for
+ * a GoldenEye gun - the hack's whose names the menus show (gegunsMenuSet()),
+ * else GoldenEye's - and NULL for Perfect Dark's and the rows that are
+ * nobody's (Nothing, Shield, Disabled). The lists always hold Perfect Dark's
+ * guns beside GoldenEye's, so the rows are always told apart; none under a
+ * mod with its own weapon list, which hides GoldenEye's.
+ */
+const char *gegunsMenuTagAtOption(s32 option)
+{
+	const struct gegunset *set;
+	const char *tag;
+
+	if (modDataMpWeaponsImported()) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(g_MpWeapons); i++) {
+		if (!challengeIsFeatureUnlocked(g_MpWeapons[i].unlockfeature)) {
+			continue;
+		}
+
+		if (option-- > 0) {
+			continue;
+		}
+
+		if (!GE_GUN_INDEX(g_MpWeapons[i].weaponnum - WEAPON_GE_FIRST)) {
+			return NULL;
+		}
+
+		set = gegunsMenuSet();
+		tag = set ? gexPlusMenuTagOfDir(fsGetModDirAt(set->moddir)) : NULL;
+
+		return tag ? tag : "GE";
+	}
+
+	return NULL;
 }
 
 /**

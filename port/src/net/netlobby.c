@@ -1822,7 +1822,11 @@ static s32 lobbySettingsJson(char *out, s32 size, s32 withcompat)
 		lobbyStageKey(key, sizeof(key));
 	}
 
-	lobbyCleanName(mpGetWeaponSetName(mpGetWeaponSet()), weapons, 33);
+	// a GoldenEye conversion's set marked as the dropdown marks it, where the
+	// room's list holds Perfect Dark's too: "Pistols" is both games' name
+	lobbyCleanName(gexPlusMenuTagged(mpGetWeaponSetName(mpGetWeaponSet()),
+			g_GexPlusMode && !gexPlusGetPdGuns() ? NULL : gexPlusWeaponSetTag(func0f188f9c(mpGetWeaponSet()))),
+		weapons, 33);
 	ghostnetJsonEscape(stage, estage, sizeof(estage));
 	ghostnetJsonEscape(scenario, escen, sizeof(escen));
 	ghostnetJsonEscape(key, ekey, sizeof(ekey));
