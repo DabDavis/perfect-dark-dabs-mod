@@ -2207,6 +2207,13 @@ static void netClientPosePuppetsRun(void)
 			u->havesrc = 1;
 		}
 
+		// --net-puppet-trace: which records a chr was posed from (their
+		// snapshots' ticks and the ticks their bytes are from) and the blend
+		if (s_TraceNow && s_TraceFile && rec == NETREC_CHR) {
+			fprintf(s_TraceFile, "S %u %.3f %u ib %u rb %u ia %u ra %u te %.3f dte %.3f sa %d\n", g_NetTick, rt, id, ib->hosttick, netStoreTick(rb),
+					sa ? ia->hosttick : 0, ra ? netStoreTick(ra) : 0, te, dte, sa != NULL);
+		}
+
 		netRecUnpack(rec, rb + NETSNAP_STOREHDR, &stb);
 
 		if (ra) {
