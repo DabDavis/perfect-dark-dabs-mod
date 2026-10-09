@@ -2285,3 +2285,14 @@ in their own sections' notes.
   the player's own setting (the user's "all own"), so checking it would
   only stop a client claiming a tether it can turn on, and the facing
   turns the body about its place without moving where it can be hit.
+- **A client's end screen froze (2026-10-09, F3 20261009-071538).** The
+  client's clock trim (`netPlayersClockPpm`) holds still past 90 ticks
+  ahead of the host's last ack. After MATCH_END the client is still
+  `netPlaying()` on its end screen and its tick runs on, while the host
+  stops acking once it leaves its own end screen: 90 ticks later every tick
+  of the client stopped, so its Game Over could not be read or left until
+  the host's next match ("froze here again", pacing 9 ticks a second, the
+  log's "91 ticks ahead of the host ... holding"). No hold on the end
+  screen. Shown with a lobby room, the host closing its end screen and the
+  joiner keeping its own (`--net-lobby-keep-endscreen`): 1021c6439 stops at
+  frame 300, the fix runs to 4800.

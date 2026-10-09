@@ -1907,6 +1907,10 @@ s32 netPlayersHostSlotIsRemote(s32 slot)
  * host's queue and be thrown away as a broken client's, every one after
  * (netPlayersHostOnCmd), and its prediction more than a ring ahead of any
  * snapshot. 5% either way could never win back a stall of seconds.
+ *
+ * Not on the end screen: the match is over and the host stops acking once it
+ * leaves its own, so the hold stopped every tick of the client's (a frozen
+ * Game Over it could not leave until the host's next match, F3 20261009-071538)
  */
 #define NET_LEAD_HOLD 90
 
@@ -1915,7 +1919,7 @@ s32 netPlayersClockPpm(void)
 	static u32 holds = 0;
 	static s32 holding = 0;
 
-	if (g_NetMode != NETMODE_CLIENT || !netPlaying()) {
+	if (g_NetMode != NETMODE_CLIENT || !netPlaying() || g_MainIsEndscreen) {
 		holding = 0;
 		return 0;
 	}
