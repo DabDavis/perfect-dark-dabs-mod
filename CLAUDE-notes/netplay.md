@@ -2157,6 +2157,15 @@ in their own sections' notes.
 - **A guest's mod after Leave.** A guest that left the room between matches
   (`netSessionLobbyStop`, its session ending no other way) kept the host's
   mod until a restart; it switches back (`netContentRestore`).
+- **One commit, two spellings of its build.** VERSION_HASH is `git rev-parse
+  --short`, nine characters in this working copy and seven in CI's fresh
+  clone, and CONNECT, the Briefing Room's build mark and pdlobbyd's
+  `pick_host`/`same_build` compared it exactly: a build made here (the
+  user's ~/pd-test) and the dev release of the same commit refused each
+  other ("both need the same build"). Found merging into dabs-mod, where
+  testers' games are CI's. `netBuildSame` (and pdlobbyd's `same_build`)
+  compare the shorter of the two, never under seven characters, as
+  update.c compares a release's commit.
 - **Left as it is: a client's body facing (NETCMD_BODY).** The host poses a
   client's body by the facing it sends whenever it sends one; the audit
   noted a client could turn its body from its aim. The Camera Tether is

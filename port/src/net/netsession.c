@@ -824,7 +824,7 @@ static void netHostOnConnect(s32 peer, struct netbuf *b)
 
 	netTextPrintable(c->name, 0);
 
-	if (strcmp(build, VERSION_HASH) != 0) {
+	if (!netBuildSame(build, VERSION_HASH)) {
 		snprintf(text, sizeof(text), "The host's build is %s and yours is %s - both need the same build.", VERSION_HASH, build);
 		netHostKick(peer, NETREFUSE_BUILD, "build", text);
 		return;
@@ -4876,6 +4876,23 @@ void netNameSet(char *dst, s32 size, const char *src)
 s32 netNameLen(const char *name)
 {
 	return (s32)strcspn(name, "\n");
+}
+
+/**
+ * Two builds' VERSION_HASH name the same commit. It is `git rev-parse
+ * --short`, whose length git picks per clone: nine characters in this
+ * working copy, seven in CI's fresh one (DabDavisGitHub.md), so a build made
+ * here and the dev release of the same commit spell it differently. The
+ * shorter of the two, and never fewer than seven characters, as update.c
+ * compares a release's commit.
+ */
+s32 netBuildSame(const char *a, const char *b)
+{
+	const size_t la = strlen(a);
+	const size_t lb = strlen(b);
+	const size_t n = la < lb ? la : lb;
+
+	return n >= 7 && strncmp(a, b, n) == 0;
 }
 
 /**

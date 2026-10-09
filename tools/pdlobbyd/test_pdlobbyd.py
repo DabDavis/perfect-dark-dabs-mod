@@ -1889,5 +1889,17 @@ class GhostAuthTests(unittest.TestCase):
         self.assertEqual(c.create()[0], 401)
 
 
+class BuildTests(unittest.TestCase):
+    def test_same_build_by_shorter_hash(self):
+        # a local working copy says nine characters, CI's clone seven
+        self.assertTrue(L.same_build("487ae2e07", "487ae2e"))
+        self.assertTrue(L.same_build("487ae2e", "487ae2e07"))
+        self.assertTrue(L.same_build("487ae2e07", "487ae2e07"))
+        self.assertFalse(L.same_build("487ae2e07", "487ae2f"))
+        self.assertFalse(L.same_build("487ae2", "487ae2e07"))  # under seven never matches
+        self.assertFalse(L.same_build("", ""))
+        self.assertFalse(L.same_build(None, "487ae2e"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

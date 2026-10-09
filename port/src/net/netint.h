@@ -119,6 +119,7 @@ const char *netSessionWireName(s32 slot); // host: the name a slot goes out unde
 void netNameSet(char *dst, s32 size, const char *src); // a player's base.name in PD's form: the text, then "\n"
 s32 netNameLen(const char *name); // its length without that "\n" (for "%.*s")
 void netTextPrintable(char *text, s32 keepnewline); // wire text the font will draw: no glyph -> '?'
+s32 netBuildSame(const char *a, const char *b); // two VERSION_HASH spellings of one commit (git's short length varies)
 s32 netSessionLastRefuse(void);     // client: NETREFUSE_* its last session ended on, -1 none
 s32 netSessionSeatOutOfPlay(s32 slot); // host: that seat (mpindex) is open, its player out of play
 s32 netSessionVacating(void);          // host: the death being dealt empties a seat (netSeatVacate)

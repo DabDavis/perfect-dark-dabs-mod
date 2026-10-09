@@ -31,6 +31,15 @@
 # CMake reads the newest number when it configures, and configures again by
 # itself when this file changes, so an ordinary rebuild picks up an entry.
 
+notes 43 2026-10-09
+New: Online Game on the main menu - Combat Simulator matches and co-op missions online, up to 12 players
+Online: make or join a room in the lobby; friends behind home routers reach each other directly or through the lobby's relay
+Online: GoldenEye, Goldfinger 64 and Tomorrow Never Dies 64 play online too; a guest missing a mod or conversion is sent the host's copy
+Online co-op: dead players watch the others until the mission ends, or come back with Mission Respawn on
+Online: if the host leaves, another player takes the room over and the match carries on
+Online: chat with T, hold P for the players, and a player's name shows under your crosshair
+Online: everyone keeps their own look (N64 or HD) and their own settings
+
 notes 42 2026-10-04
 GoldenEye Aztec: the keyboard beside the mainframes can be used again to slide them open (thanks Odeyseis)
 GoldenEye, HD look: guards' side caps and the Dam officer's peaked cap now sit down on the head and cover the hair (thanks Odeyseis)

@@ -594,7 +594,7 @@ static s32 lobbyCompat(const struct netlobbyroomsum *r)
 		return NETLOBBY_COMPAT_CONTENT;
 	}
 
-	if (strcmp(r->build, VERSION_HASH) != 0) {
+	if (!netBuildSame(r->build, VERSION_HASH)) {
 		return NETLOBBY_COMPAT_BUILD;
 	}
 

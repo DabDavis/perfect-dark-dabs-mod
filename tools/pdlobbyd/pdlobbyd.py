@@ -287,6 +287,18 @@ def format_endpoint(ip, port):
     return ("[%s]:%d" if ":" in ip else "%s:%d") % (ip, port)
 
 
+def same_build(a, b):
+    """Two builds' hashes name one commit. A game's build is `git rev-parse
+    --short`, whose length git picks per clone (nine characters in a local
+    working copy, seven in CI's fresh one), so the same commit can come
+    spelled two ways: the shorter of the two, never under seven characters
+    (the game's netBuildSame)."""
+    a = a or ""
+    b = b or ""
+    n = min(len(a), len(b))
+    return n >= 7 and a[:n] == b[:n]
+
+
 def new_token():
     """128 random bits as 32 lowercase hex: sessions, members."""
     return os.urandom(16).hex()
@@ -994,7 +1006,7 @@ class Lobby:
             "prev_host": room.prev_host,
         }
         if build is not None:
-            out["same_build"] = room.build == build
+            out["same_build"] = same_build(room.build, build)
         return out
 
     def list_rooms(self, req):
@@ -1273,7 +1285,7 @@ class Lobby:
         answering cannot jump the queue); the longest in the room."""
         cands = [m for m in room.members.values()
                  if m is not exclude and not m.host and not m.spectator and m.can_host
-                 and m.build == room.build]
+                 and same_build(m.build, room.build)]
         if not cands:
             return None
 
