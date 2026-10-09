@@ -3417,7 +3417,7 @@ struct mptrack {
 	u16 musicnum : 7;
 	u16 duration : 9;
 #else
-	// a borrowed mod's sequences are numbered after the game's 119 (seqAppend())
+	// an appended sequence is numbered from SEQ_EXTRA_BASE (seqAppend())
 	u16 musicnum;
 	u16 duration;
 #endif

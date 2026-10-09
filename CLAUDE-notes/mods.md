@@ -8,6 +8,7 @@ the long form.
 - **The Stage Loader: every mod's maps as arenas beside the mod loaded** — mods.md, "The Stage Loader": maps-only mounts never overlay; the registrar rescans on a swap; the branch's fixes (allocation, pool checks, room sizing, textures by stage); the importer splits a rebuilt texture table (30) and writes the `maps` block (31) so a mod's arenas come from its own tables under its own names — a file name is Perfect Dark's slot, not the map (GE-X's `crad` is Aztec)
 - **Mod directories, Load Mods, modconfig, `modcodediff`, the ROM symbol file, the data segment and importing a mod's weapon definitions** — [mods.md](CLAUDE-notes/mods.md): only the first mod dir joins the file search; files swap live, segments cannot; the `datasegment` block, `moddata.c`, and "where this stands" for continuing the import work
 - **A rule or colour a mod's code changes that is not a weapon's** — mods.md, "The tail": `game/modrules.h` holds it with the stock default, a modconfig block sets it through one setter in mod.c, both importers read it; the branch `lua-pipeline` is the Lua experiment of 2026-09-07, kept and not merged. mods.md, "A GE-X tester's seven reports" (2026-09-13, importer 32): a jump table in rodata is *data* to modcodediff (the third person guns, the sights); GE-X's green menus are dialog **type bytes**, not the palette; a boot re-imports every stale mod, so never run two after a version bump; mods.md, "GE-X's guns threw green sparks behind green tracers" (2026-09-26, importer 33): the wall sparks and tracer texture are two more rodata jump tables on the weapon number (`hitsparks`/`beamtexture` keys), and the Klobb's green tracer was the Mauler's charge beam (`WEAPONFLAG3_CHARGEBEAM`); mods.md, "The Mauler's charge is two flags" (importer 34): `chargeable` is the pitch, `chargespent` the reset, GE-X tests them apart
+- **A mod entered live: audio** — mods.md, "A mod entered live: audio (2026-10-09)": `modaudio.c` swaps the sound table, music bank and sequence table between stages without moving the boot segments' starts (appended GoldenEye/borrowed sounds hang off them); sound ids reserved at boot for the longest installed bank, appended sequences numbered from `SEQ_EXTRA_BASE` (0x200); quiesce first, then every sample cache is flushed (sound cache, players' banks, ADMA); `--mod-audio-enter "A|B|-"` + `--mod-dump-audio FILE` are the test switches
 
 ### GE-X import: where to pick up (2026-09-05)
 
@@ -2037,3 +2038,71 @@ HUD message). Off notes `1,<Mod.LoadTextures>,<xblaSwitchGetParts() bits>` in
 The checkbox reads the live state, not the note. GoldenEye's HD (Bean) data is
 not on it - that follows whether the release is installed. Code:
 optionsmenu.c `modHdAssets*`, xblaswitch.c `xblaSwitch{Get,Set}Parts()`.
+
+
+## A mod entered live: audio (2026-10-09)
+
+Wave 1 of "PD mods as a live mode". `port/src/modaudio.c`, `port/include/modaudio.h`:
+`modAudioQuiesce()` (pump once a frame until it returns 1), then `modAudioEnter(dir)` /
+`modAudioLeave()`. Enter while a mod is entered leaves it first; Leave returns to the
+banks the game **booted** with (a `--moddir` boot's, if that is what it was).
+
+**Without quiet** (online: a guest swaps at the host's next stage load, which may come
+before the sound drains) Enter/Leave stop everything outright - `func00033cf0(0)` ends
+every sound state, each music player gets `AL_SEQP_STOP_EVT` with its state set to
+`AL_STOPPING` (the only state that event acts on; there is no `n_alCSPStop` in this
+tree, it is declared and never defined) - and a left mod's buffers go to a graveyard
+freed once `modAudioQuiesce()` or a later swap finds everything quiet, since a voice
+can read its samples until the stop reaches it. Tested mid-stage on Runway under gdb:
+polite and hard enter GE-X at frame 600, leave at 1000, and the dump at 1500 equals a
+run that never switched.
+
+**A music bank changes as it plays.** The first time a voice plays an ADPCM wave,
+`n_load.c` cuts its `len` down to whole 9-byte frames, in the bank itself; the dump
+hashes the cut length (and an ADPCM loop without its `state[]`) so a dump taken after
+playing compares with one taken at boot.
+
+**The boot segments' starts never move.** Every loader in snd.c adds
+`_sfxctlSegmentRomStart` / `_sfxtblSegmentRomStart` to the offsets inside an ALSound,
+and GoldenEye's sounds (gesfx.c) and a borrowed mod's (modborrow.c) are appended as
+offsets from those starts. Repointing the starts at a mod's buffers would silently
+move every appended sound into the mod's bytes. Instead the mod's converted ALSounds
+are rebased onto the boot starts - `sndRebaseSound()` (modaudio.c; modborrow.c uses
+it too, gesfx.c keeps its own because it also rewrites key-map links) - and written
+into the boot bank's slots of `g_ALSoundRomOffsets`.
+
+**Fixed limits widened, not worked around:**
+- Sound ids: `modAudioReserveSounds()` (called by `sndLoadSfxCtl()`, before anything is
+  appended) reserves slots for the longest `segs/sfxctl` of any installed mod, capped
+  256 short of `SND_MAX_SOUNDS` (ids are 11 bits). Every mod in the archive has the
+  game's 1545, so today the reserve changes nothing. The reserve depends on what is
+  installed: two players with different mods could number appended sounds
+  differently if some mod ever ships a longer bank (netplay sends raw numbers).
+- Sequences: appended ones (`seqAppend()`) are numbered from `SEQ_EXTRA_BASE` (0x200,
+  snd.h), not from `g_SeqTable->count`, which a mod's table now changes. A mod's
+  table may be up to that long; a shorter one keeps the game's entries past its end.
+  GE Plus's music is now sequence 512+ (`music: sequence 512 starts` in the log).
+
+**What a swap touches**: `g_ALSoundRomOffsets[0..reserve)`, appended copies of the
+game's sounds (`sndAppendSoundCopy()`: an appended slot equal to a base slot follows
+it), `var80095204` (a fresh `preprocessALBankFile()` + `alBnkfNew()` copy of the
+mod's seqctl on its seqtbl), `g_SeqTable` / `g_SeqRomAddrs` (sysMem copies), then
+flushes `g_SndCache` (indexes 0xffff, ages 1, refcounts 0), each
+`g_SeqInstances[i].bank` (NULL: `seqPlay()` rebinds) and the ADMA used list
+(`admaFlush()`, keyed by host address). Mod code tables (var8005ecf8, russ
+mappings, audio configs) stay as they are - the data agent's moddata owns those.
+
+**Per segment**: a segment the mod lacks is the game's. sfxctl without sfxtbl
+(DarkCorps_Part2, MrX, Suburb) reads the game's sfxtbl; a tbl without its ctl
+would be read through a fresh conversion of the ROM's ctl (no mod does that);
+sequences only (dataDyne Compound[custom music], PD_Kakariko) keeps both banks.
+
+**Tests**: `--mod-audio-enter "mods/A|mods/B|-"` (after the boot's banks, before the
+first stage; `-` leaves) and `--mod-dump-audio FILE` (a hash per sound - its fields,
+envelope, key map, wave bytes, book, loop - per music instrument, per sequence;
+gdb-callable as `modAudioDump(path)`). A `--moddir M` boot's dump equals a stock
+boot + `--mod-audio-enter M` for GE-X, Mario v1.3, Total Darkness, dataDyne
+Compound[custom music], DarkCorps_Part2 and MrX Classic; stock->GE-X->stock,
+stock->GE-X->Mario->stock and three mods in a row back to stock equal stock.
+Compare dumps without their first line (it names the mod).
+

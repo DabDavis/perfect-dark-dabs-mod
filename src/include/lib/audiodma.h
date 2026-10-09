@@ -15,5 +15,8 @@ void admaInit(void);
 void *admaNew(struct admastate **state);
 void admaBeginFrame(void);
 void admaReceiveAll(void);
+#ifndef PLATFORM_N64
+void admaFlush(void);
+#endif
 
 #endif
