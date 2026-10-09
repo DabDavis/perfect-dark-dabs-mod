@@ -573,6 +573,16 @@ search's places those are dropped. Island: 37 pieces (largest 1299 of 1393)
 to shoot); Statue Park 889 of 976 -> 2365 of 2510 connected. Maps that fit at
 200 (Complex, Library) build the same graph as before.
 
+**A map with its own graph has its own heights** (netplay F3 20261009-191916,
+GoldenEye Arenas' Train, "sims on train need pathing"): Train keeps
+GoldenEye's solo path table, so nothing here runs, and its waypoints beside
+the train stand 345-370 over the ballast (pad height inside the carriages).
+`chrGoPosIsArrivingAtPos()` refused a simulant a pad more than 300 over its
+floor, so sims stood under pads 84/104 for good. On a converted level
+(`geRoomActive()`) a pad more than 210 up is now arrived at by x and z when
+the floor under it (`geRoomGround()`) is the simulant's - GoldenEye's own
+rule with the ladder guard kept. Idle 158 -> 36 of 944 samples.
+
 A stage that still has no waypoints is never dealt a kill objective
 (`modRunDealObjective()`); the draw count is unchanged.
 
